@@ -111,8 +111,9 @@ SCHEMA[WB.HR] = {
   STAFF:         ['StaffID', 'NationalID', 'Name', 'NameEN', 'Position', 'Role', 'Department', 'PositionLevel', 'StaffGroup', 'ReportsTo', 'Phone', 'LineUID', 'StartDate', 'BaseSalary', 'PasswordHash', 'MustChangePassword', 'Photo', 'Status'],
   // Staff groups with their own (editable) work hours — Admin-managed
   STAFF_GROUPS:  ['GroupName', 'GroupNameEN', 'CheckInTime', 'CheckOutTime'],
-  // Per-staff payroll config: SS deduction flag, child-rate threshold & multiplier, tax flag
-  PAYROLL_CONFIG:['StaffID', 'BaseSalary', 'SocialSecurityDeduct', 'ChildThreshold', 'ChildMultiplier', 'TaxDeduct'],
+  // Per-staff payroll config (Admin-editable). Widened to carry every field the engine's computePayroll uses
+  // so it round-trips through the sheet: pay type/daily rate, SS flag, child threshold & multiplier, diligence amounts.
+  PAYROLL_CONFIG:['StaffID', 'PayType', 'DailyRate', 'BaseSalary', 'SocialSecurityDeduct', 'ChildThreshold', 'ChildMultiplier', 'DiligenceAttendanceAmount', 'DiligenceFacebookAmount', 'TaxDeduct'],
   CHECKIN_STAFF: ['Date', 'StaffID', 'CheckIn', 'CheckOut', 'LateMinutes', 'OTHours', 'Status'],
   // 2-step approval: Leader (step 1) -> Admin (step 2); cross-dept flagged. (chat spec)
   LEAVE_REQUEST: ['LeaveID', 'StaffID', 'Department', 'Type', 'StartDate', 'EndDate', 'Days', 'Reason', 'Status',
