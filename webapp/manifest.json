@@ -1,0 +1,16 @@
+{
+  "name": "Atom Nursery",
+  "short_name": "Atom",
+  "description": "ระบบบริหารโรงเรียนอนุบาล Atom Nursery — ผู้ปกครอง / คุณครู / Admin",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#F4F7FB",
+  "theme_color": "#1565C0",
+  "lang": "th",
+  "icons": [
+    { "src": "assets/logo.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "assets/logo.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ]
+}

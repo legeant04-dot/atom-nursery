@@ -1,0 +1,16 @@
+# dependencies (73MB — never commit)
+node_modules/
+tools/node_modules/
+
+# clasp local credentials (NEVER commit) — .clasp.json (scriptId) is OK to keep
+.clasprc.json
+
+# OS / editor junk
+.DS_Store
+Thumbs.db
+*.swp
+
+# throwaway / temp tooling
+tools/_*.js
+*.zip
+_pchi/
