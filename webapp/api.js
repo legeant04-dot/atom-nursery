@@ -3,7 +3,7 @@
  * which runs the SAME engine on data hydrated from Google Sheets (see src/GasEngine.gs).
  * Keep MODE='mock' until the GAS engine is deployed; GAS_URL is kept ready for the switch.
  */
-window.CONFIG = { MODE: 'mock', GAS_URL: 'https://script.google.com/macros/s/AKfycbxWUgs0oPyEN52F1qCGETDDbOVGeIBKe18u8_vDYz5bjKrHuS7V541oaeWqWPBsx-7d/exec' };
+window.CONFIG = { MODE: 'gas', GAS_URL: 'https://script.google.com/macros/s/AKfycbxWUgs0oPyEN52F1qCGETDDbOVGeIBKe18u8_vDYz5bjKrHuS7V541oaeWqWPBsx-7d/exec' };
 
 (function () {
   const M = window.MOCK;
