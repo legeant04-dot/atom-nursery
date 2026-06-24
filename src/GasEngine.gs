@@ -1,18 +1,19 @@
 /**
  * GasEngine.gs — the "data connector": run the SHARED engine (Engine.gs) on Google Sheets.
  * ------------------------------------------------------------------
- * Flow per request:  hydrateM_()  →  createAtomAPI(M, null).H[action](payload)  →  persist changed
- * Code.gs routes any action NOT in its explicit ROUTES to engineDispatch_(action, payload), so all
- * ~116 engine handlers work without re-implementation.
+ * Code.gs routes any action NOT in its explicit ROUTES to engineDispatch_(action, payload).
  *
- * Persistence = "changed-collection rewrite" (snapshot before, diff after, rewrite only what changed).
+ * LAZY hydration (perf): M's collections are getters that read their sheet only on FIRST access,
+ * so a handler only pays for the sheets it actually touches (getPlans reads 0, parentChildren ~2,
+ * dashboard ~5 — not all 30). On finish, only collections that were accessed AND changed are written.
+ *
  * Object/array cells are JSON-encoded; a few sheet headers are aliased to the engine's field names
- * (sheet `Name` ↔ engine `NameTH`). Attendance/leave views are derived from the canonical CHECKIN
- * and LEAVE sheets on hydrate and written back on the relevant mutations.
+ * (sheet `Name` <-> engine `NameTH`). Attendance/leave views are derived from the canonical CHECKIN
+ * and LEAVE sheets; vaccine schedule / permission matrices are seeded from ENGINE_REF.
  * ------------------------------------------------------------------
  */
 
-// M-collection key -> { wb:'MAIN'|'HR', sheet }. Read on hydrate, rewritten on change.
+// M-collection key -> { wb:'MAIN'|'HR', sheet }. Read lazily; rewritten if changed.
 var COLLECTION_MAP = {
   students:        { wb: 'MAIN', sheet: 'STUDENTS' },
   classes:         { wb: 'MAIN', sheet: 'CLASSES' },
@@ -34,7 +35,7 @@ var COLLECTION_MAP = {
   announcements:   { wb: 'MAIN', sheet: 'ANNOUNCEMENTS' },
   studentLeaves:   { wb: 'MAIN', sheet: 'LEAVE_REQUEST_STD' },
   comments:        { wb: 'MAIN', sheet: 'COMMENTS' },
-  checkinStudent:  { wb: 'MAIN', sheet: 'CHECKIN_STUDENT' },   // raw parent check-in/out events
+  checkinStudent:  { wb: 'MAIN', sheet: 'CHECKIN_STUDENT' },
   withdrawals:     { wb: 'MAIN', sheet: 'WITHDRAWALS' },
   injuryReports:   { wb: 'MAIN', sheet: 'INJURY_REPORTS' },
   insurancePCHI:   { wb: 'MAIN', sheet: 'INSURANCE_PCHI' },
@@ -45,63 +46,81 @@ var COLLECTION_MAP = {
   leaves:          { wb: 'HR',   sheet: 'LEAVE_REQUEST' },
   payroll:         { wb: 'HR',   sheet: 'PAYROLL' }
 };
-
-// sheet header <-> engine field (only where they differ).
 var FIELD_ALIAS = { STUDENTS: { Name: 'NameTH' }, PARENTS: { Name: 'NameTH' }, STAFF: { Name: 'NameTH' } };
-
-// SCHOOL_CONFIG keys whose value is a comma list the engine wants as an array.
 var CONFIG_ARRAY_KEYS = { Departments: 1, GrowthUpdateMonths: 1, PositionLevels: 1 };
 
 // ---- main entry --------------------------------------------------
 function engineDispatch_(action, payload) {
-  var M = hydrateM_();
-  // snapshot collections that can change (generic + the derived/keyed ones we persist specially)
-  var before = {};
-  for (var k in COLLECTION_MAP) before[k] = JSON.stringify(M[k] || []);
-  before.__staffToday = JSON.stringify(M.staffAttendanceToday || []);
-  before.__payrollConfig = JSON.stringify(M.payrollConfig || {});
-
-  var H = createAtomAPI(M, null).H;            // GROWTH_STD=null -> growth bands null (records still returned)
+  var ctx = hydrateLazy_();
+  var H = createAtomAPI(ctx.M, null).H;          // GROWTH_STD=null -> growth bands null (records still returned)
   var h = H[action];
   if (!h) throw apiError_('UNKNOWN_ACTION', 'ไม่รู้จัก action: ' + action);
   var data = h(payload || {});
-
-  for (var c in COLLECTION_MAP) if (JSON.stringify(M[c] || []) !== before[c]) writeCollection_(c, M[c] || []);
-  if (JSON.stringify(M.staffAttendanceToday || []) !== before.__staffToday) writeCheckinStaff_(M);
-  if (JSON.stringify(M.payrollConfig || {}) !== before.__payrollConfig) writePayrollConfig_(M.payrollConfig);
+  ctx.persist();
   return data;
 }
 
-// ---- hydrate -----------------------------------------------------
-function hydrateM_() {
-  var M = engineSeed_();
-  M.config = hydrateConfig_();
-  for (var key in COLLECTION_MAP) M[key] = readCollection_(key);
+// ---- lazy M ------------------------------------------------------
+function hydrateLazy_() {
+  var cache = {}, snap = {}, M = {};
+  var ckStaff;                                    // memoized raw CHECKIN_STAFF read
+  function rawCheckinStaff() { if (ckStaff === undefined) ckStaff = readRows_('HR', 'CHECKIN_STAFF'); return ckStaff; }
+  var t = gasToday_();
 
-  // derived: dspmEN from DSPM_CRITERIA.DescriptionEN
-  M.dspmEN = {};
-  (M.dspmCriteria || []).forEach(function (c) { if (c.DescriptionEN) M.dspmEN[c.ItemNo] = c.DescriptionEN; });
+  M.config = hydrateConfig_();                    // eager (1 sheet, used by almost everything)
 
-  // per-staff payroll config (object keyed by StaffID)
-  M.payrollConfig = hydratePayrollConfig_();
+  // writable + snapshotted (persisted): each COLLECTION_MAP key + payrollConfig + staffAttendanceToday
+  Object.keys(COLLECTION_MAP).forEach(function (key) {
+    lazyRW_(M, cache, snap, key, function () { return readCollection_(key); });
+  });
+  lazyRW_(M, cache, snap, 'payrollConfig', function () { return hydratePayrollConfig_(); });
+  lazyRW_(M, cache, snap, 'staffAttendanceToday', function () {
+    return rawCheckinStaff().filter(function (r) { return String(r.Date).slice(0, 10) === t; })
+      .map(function (r) { return { StaffID: r.StaffID, CheckIn: r.CheckIn, CheckOut: r.CheckOut, Status: r.Status, Late: Number(r.LateMinutes) || 0, OTHours: Number(r.OTHours) || 0 }; });
+  });
 
-  // staff attendance: split CHECKIN_STAFF into today (view) + history (view) + keep past raw for persist
-  var today = gasToday_();
-  var ck = readRows_('HR', 'CHECKIN_STAFF');
-  M._checkinStaffPast = ck.filter(function (r) { return String(r.Date).slice(0, 10) !== today; });
-  M.staffAttendanceToday = ck.filter(function (r) { return String(r.Date).slice(0, 10) === today; })
-    .map(function (r) { return { StaffID: r.StaffID, CheckIn: r.CheckIn, CheckOut: r.CheckOut, Status: r.Status, Late: Number(r.LateMinutes) || 0, OTHours: Number(r.OTHours) || 0 }; });
-  M.staffAttendanceHistory = M._checkinStaffPast
-    .map(function (r) { return { Date: String(r.Date).slice(0, 10), StaffID: r.StaffID, In: r.CheckIn, Out: r.CheckOut }; });
+  // read-only derived / seeded (not persisted)
+  lazyRO_(M, cache, 'staffAttendanceHistory', function () {
+    return rawCheckinStaff().filter(function (r) { return String(r.Date).slice(0, 10) !== t; })
+      .map(function (r) { return { Date: String(r.Date).slice(0, 10), StaffID: r.StaffID, In: r.CheckIn, Out: r.CheckOut }; });
+  });
+  lazyRO_(M, cache, 'studentCheckins', function () { return deriveStudentCheckins_(M.checkinStudent); });
+  lazyRO_(M, cache, 'studentAttendanceToday', function () { return deriveStudentToday_(M.checkinStudent, M.studentLeaves, t); });
+  lazyRO_(M, cache, 'leaveUsed', function () { return deriveLeaveUsed_(M.leaves); });
+  lazyRO_(M, cache, 'dspmEN', function () { var e = {}; (M.dspmCriteria || []).forEach(function (c) { if (c.DescriptionEN) e[c.ItemNo] = c.DescriptionEN; }); return e; });
+  lazyRO_(M, cache, 'vaccineSchedule', function () { return ENGINE_REF.vaccineSchedule; });
+  lazyRO_(M, cache, 'permMatrix', function () { return ENGINE_REF.permMatrix; });
+  lazyRO_(M, cache, 'permissions', function () { return ENGINE_REF.permissions; });
+  ['dutyRoster', 'calendar', 'feed'].forEach(function (k) { lazyRO_(M, cache, k, function () { return []; }); });
 
-  // student attendance derived from CHECKIN_STUDENT raw events
-  deriveStudentAttendance_(M, today);
-
-  // leave used this year (for quota) derived from approved LEAVE_REQUEST
-  M.leaveUsed = deriveLeaveUsed_(M.leaves);
-  return M;
+  function persist() {
+    for (var key in COLLECTION_MAP) {
+      if (snap.hasOwnProperty(key) && JSON.stringify(cache[key]) !== snap[key]) writeCollection_(key, cache[key]);
+    }
+    if (snap.hasOwnProperty('payrollConfig') && JSON.stringify(cache.payrollConfig) !== snap.payrollConfig) writePayrollConfig_(cache.payrollConfig);
+    if (snap.hasOwnProperty('staffAttendanceToday') && JSON.stringify(cache.staffAttendanceToday) !== snap.staffAttendanceToday) writeCheckinStaff_(rawCheckinStaff(), cache.staffAttendanceToday);
+  }
+  return { M: M, persist: persist };
 }
 
+// getter loads+memoizes+snapshots on first access; setter records a baseline snapshot then stores (-> dirty).
+function lazyRW_(M, cache, snap, key, loader) {
+  Object.defineProperty(M, key, {
+    enumerable: true,
+    get: function () { if (!(key in cache)) { cache[key] = loader(); snap[key] = JSON.stringify(cache[key]); } return cache[key]; },
+    set: function (v) { if (!snap.hasOwnProperty(key)) snap[key] = JSON.stringify((key in cache) ? cache[key] : loader()); cache[key] = v; }
+  });
+}
+// read-only lazy (memoized); settable in-memory but never persisted (rebuilt from source sheets next call).
+function lazyRO_(M, cache, key, loader) {
+  Object.defineProperty(M, key, {
+    enumerable: true,
+    get: function () { if (!(key in cache)) cache[key] = loader(); return cache[key]; },
+    set: function (v) { cache[key] = v; }
+  });
+}
+
+// ---- sheet IO ----------------------------------------------------
 function wbOf_(which) { return which === 'HR' ? getHrSpreadsheet_() : getMainSpreadsheet_(); }
 function readRows_(wb, sheet) { var sh = wbOf_(wb).getSheetByName(sheet); return sh ? readObjects_(sh) : []; }
 
@@ -110,71 +129,55 @@ function readCollection_(key) {
   var sh = wbOf_(def.wb).getSheetByName(def.sheet);
   if (!sh) return [];
   var alias = FIELD_ALIAS[def.sheet] || {};
-  return readObjects_(sh).map(function (r) {
-    var o = {}; for (var col in r) o[alias[col] || col] = decodeCell_(r[col]); return o;
-  });
+  return readObjects_(sh).map(function (r) { var o = {}; for (var col in r) o[alias[col] || col] = decodeCell_(r[col]); return o; });
 }
-
 function writeCollection_(key, list) { writeRows_(COLLECTION_MAP[key].wb, COLLECTION_MAP[key].sheet, list, FIELD_ALIAS[COLLECTION_MAP[key].sheet] || {}); }
 
-/** Replace a sheet's data rows from a list of engine objects (alias engine field -> sheet header). */
 function writeRows_(wb, sheet, list, alias) {
   alias = alias || {};
   var sh = wbOf_(wb).getSheetByName(sheet); if (!sh) return;
   var hdr = headers_(sh);
   var values = (list || []).map(function (o) {
-    return hdr.map(function (col) {
-      var field = alias[col] || col;           // sheet header -> engine field
-      var v = o[field]; if (v === undefined) v = o[col];
-      return encodeCell_(v);
-    });
+    return hdr.map(function (col) { var field = alias[col] || col; var v = o[field]; if (v === undefined) v = o[col]; return encodeCell_(v); });
   });
   if (sh.getLastRow() > 1) sh.getRange(2, 1, sh.getLastRow() - 1, hdr.length).clearContent();
   if (values.length) sh.getRange(2, 1, values.length, hdr.length).setValues(values);
 }
 
-/** CHECKIN_STAFF = untouched past rows + today's rows rebuilt from the staffAttendanceToday view. */
-function writeCheckinStaff_(M) {
-  var todayRows = (M.staffAttendanceToday || []).map(function (a) {
-    return { Date: gasToday_(), StaffID: a.StaffID, CheckIn: a.CheckIn, CheckOut: a.CheckOut, LateMinutes: a.Late || 0, OTHours: a.OTHours || 0, Status: a.Status };
-  });
-  writeRows_('HR', 'CHECKIN_STAFF', (M._checkinStaffPast || []).concat(todayRows), {});
+function writeCheckinStaff_(rawAll, todayList) {
+  var t = gasToday_();
+  var past = (rawAll || []).filter(function (r) { return String(r.Date).slice(0, 10) !== t; });
+  var todayRows = (todayList || []).map(function (a) { return { Date: t, StaffID: a.StaffID, CheckIn: a.CheckIn, CheckOut: a.CheckOut, LateMinutes: a.Late || 0, OTHours: a.OTHours || 0, Status: a.Status }; });
+  writeRows_('HR', 'CHECKIN_STAFF', past.concat(todayRows), {});
 }
-
 function writePayrollConfig_(obj) {
   var rows = Object.keys(obj || {}).map(function (id) { var o = {}; for (var k in obj[id]) o[k] = obj[id][k]; o.StaffID = id; return o; });
   writeRows_('HR', 'PAYROLL_CONFIG', rows, {});
 }
-
 function hydratePayrollConfig_() {
   var map = {};
-  readRows_('HR', 'PAYROLL_CONFIG').forEach(function (r) {
-    var id = r.StaffID; if (!id) return; var o = {};
-    for (var k in r) { if (k === 'StaffID') continue; o[k] = coerce_(r[k]); }
-    map[id] = o;
-  });
+  readRows_('HR', 'PAYROLL_CONFIG').forEach(function (r) { var id = r.StaffID; if (!id) return; var o = {}; for (var k in r) { if (k !== 'StaffID') o[k] = coerce_(r[k]); } map[id] = o; });
   return map;
 }
 
-/** Build studentCheckins (per day in/out) + studentAttendanceToday (status) from raw CHECKIN_STUDENT. */
-function deriveStudentAttendance_(M, today) {
+// ---- derivations -------------------------------------------------
+function deriveStudentCheckins_(events) {
   var byDay = {};
-  (M.checkinStudent || []).forEach(function (e) {
+  (events || []).forEach(function (e) {
     var d = String(e.Date).slice(0, 10), key = d + '|' + e.StudentID;
     if (!byDay[key]) byDay[key] = { Date: d, StudentID: e.StudentID, InTime: '', OutTime: '' };
     if (e.Type === 'IN') byDay[key].InTime = e.Time; else if (e.Type === 'OUT') byDay[key].OutTime = e.Time;
   });
-  M.studentCheckins = Object.keys(byDay).map(function (k) { return byDay[k]; });
-
-  var todayStatus = {};
-  (M.checkinStudent || []).filter(function (e) { return String(e.Date).slice(0, 10) === today; })
-    .forEach(function (e) { todayStatus[e.StudentID] = { StudentID: e.StudentID, Status: e.Type, Time: e.Time }; });
-  // overlay today's student leaves as LEAVE
-  (M.studentLeaves || []).filter(function (l) { return String(l.Date).slice(0, 10) === today; })
-    .forEach(function (l) { todayStatus[l.StudentID] = { StudentID: l.StudentID, Status: 'LEAVE', Reason: l.Reason || 'ลา' }; });
-  M.studentAttendanceToday = Object.keys(todayStatus).map(function (k) { return todayStatus[k]; });
+  return Object.keys(byDay).map(function (k) { return byDay[k]; });
 }
-
+function deriveStudentToday_(events, leaves, today) {
+  var st = {};
+  (events || []).filter(function (e) { return String(e.Date).slice(0, 10) === today; })
+    .forEach(function (e) { st[e.StudentID] = { StudentID: e.StudentID, Status: e.Type, Time: e.Time }; });
+  (leaves || []).filter(function (l) { return String(l.Date).slice(0, 10) === today; })
+    .forEach(function (l) { st[l.StudentID] = { StudentID: l.StudentID, Status: 'LEAVE', Reason: l.Reason || 'ลา' }; });
+  return Object.keys(st).map(function (k) { return st[k]; });
+}
 function deriveLeaveUsed_(leaves) {
   var used = {}, yr = gasToday_().slice(0, 4);
   (leaves || []).filter(function (l) { return l.Status === 'APPROVED' && String(l.StartDate).slice(0, 4) === yr; })
@@ -186,11 +189,7 @@ function deriveLeaveUsed_(leaves) {
 function gasToday_() { return Utilities.formatDate(new Date(), getConfig_('Timezone', 'Asia/Bangkok'), 'yyyy-MM-dd'); }
 function decodeCell_(v) { if (typeof v === 'string' && /^[\[{]/.test(v.trim())) { try { return JSON.parse(v); } catch (e) {} } return v; }
 function encodeCell_(v) { if (v === undefined || v === null) return ''; if (typeof v === 'object') return JSON.stringify(v); return v; }
-function coerce_(v) {
-  if (v === 'true') return true; if (v === 'false') return false;
-  if (typeof v === 'string' && /^-?\d+(\.\d+)?$/.test(v)) return Number(v);
-  return v;
-}
+function coerce_(v) { if (v === 'true') return true; if (v === 'false') return false; if (typeof v === 'string' && /^-?\d+(\.\d+)?$/.test(v)) return Number(v); return v; }
 
 function hydrateConfig_() {
   var raw = getAllConfig_(), cfg = {};
@@ -208,16 +207,7 @@ function hydrateConfig_() {
   return cfg;
 }
 
-/** Reference/derived collections that aren't a 1:1 sheet. */
-function engineSeed_() {
-  return {
-    leaveUsed: {}, payrollConfig: {}, dutyRoster: [], calendar: [], feed: [],
-    staffAttendanceToday: [], staffAttendanceHistory: [], studentAttendanceToday: [], studentCheckins: [],
-    vaccineSchedule: ENGINE_REF.vaccineSchedule, permMatrix: ENGINE_REF.permMatrix, permissions: ENGINE_REF.permissions
-  };
-}
-
-// Reference data (mirror of mockdata reference lists — keep in sync if they change in mockdata.js).
+// ---- reference data (mirror of mockdata reference lists) ---------
 var ENGINE_REF = {
   Insurance: {
     CompanyName: 'Atom Nursery', PolicyNo: '',
@@ -234,7 +224,6 @@ var ENGINE_REF = {
     Parent:  { students: true, staff: false, payroll: false, parentPII: false, edit: false, approve: false }
   },
   permissions: [],
-  // standard child vaccine schedule (1 month – 6 years)
   vaccineSchedule: [
     { ageTH: '1 เดือน', ageEN: '1 month', items: [
       { key: 'HB2', th: 'ตับอักเสบบี (HB) เข็มที่ 2', en: 'Hepatitis B (HB) dose 2', m: 1 } ] },
