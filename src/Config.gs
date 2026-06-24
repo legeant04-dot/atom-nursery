@@ -221,6 +221,7 @@ var SCHOOL_CONFIG_DEFAULTS = [
   ['DspmManualFileId',      '<FILL Google Drive file id of the DSPM manual PDF>'],
 
   // --- System ---
+  ['SeedMockKey',           'atom-seed-2026'],       // gate for the TEST-ONLY seedMock action (remove before go-live)
   ['BackupFolderName',      'AtomNursery_Backups'],
   ['BackupRetentionDays',   '14'],          // dailyBackup() keeps copies for this many days, then prunes
   ['SchemaVersion',         '2.1']
