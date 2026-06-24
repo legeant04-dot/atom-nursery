@@ -46,7 +46,9 @@ var ROUTES = {
   saveInsuranceAdmin: function (p) { return handleSaveInsuranceAdmin(p); },
   verifySlip:         function (p) { return handleVerifySlip(p); },
   // TEST ONLY — seed fake mock data (gated by SeedMockKey). Remove before go-live with real data.
-  seedMock:           function (p) { return handleSeedMock(p); }
+  seedMock:           function (p) { return handleSeedMock(p); },
+  // run many actions in one round-trip (sharing one hydrated M) — front-end micro-batches screen loads
+  batch:              function (p) { return handleBatch(p); }
 };
 
 function doGet(e) {

@@ -60,6 +60,28 @@ function engineDispatch_(action, payload) {
   return data;
 }
 
+// ---- batch: run many actions in ONE request sharing one lazy M (huge perf win) --------
+// payload.calls = [{action, payload}, ...] -> returns [{ok,data}|{ok:false,error}, ...] in order.
+// Engine actions share the same hydrated M (each sheet read at most once for the whole batch);
+// explicit ROUTES (auth/leave/checkin) run their own path. Persist happens once at the end.
+function handleBatch(p) {
+  var calls = (p && p.calls) || [];
+  var ctx = hydrateLazy_();
+  var H = createAtomAPI(ctx.M, null).H;
+  var out = calls.map(function (c) {
+    try {
+      var fn = (typeof ROUTES !== 'undefined') ? ROUTES[c.action] : null;
+      var data;
+      if (fn && c.action !== 'batch') data = fn(c.payload || {});      // explicit route
+      else if (H[c.action]) data = H[c.action](c.payload || {});       // engine (shared M)
+      else throw apiError_('UNKNOWN_ACTION', 'ไม่รู้จัก action: ' + c.action);
+      return { ok: true, data: data };
+    } catch (e) { return { ok: false, error: { code: e.apiCode || 'INTERNAL', message: e.message || String(e) } }; }
+  });
+  ctx.persist();
+  return out;
+}
+
 // ---- lazy M ------------------------------------------------------
 function hydrateLazy_() {
   var cache = {}, snap = {}, M = {};
