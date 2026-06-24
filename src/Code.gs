@@ -44,7 +44,9 @@ var ROUTES = {
   submitInsurance:    function (p) { return handleSubmitInsurance(p); },
   insuranceList:      function ()  { return handleInsuranceList(); },
   saveInsuranceAdmin: function (p) { return handleSaveInsuranceAdmin(p); },
-  verifySlip:         function (p) { return handleVerifySlip(p); }
+  verifySlip:         function (p) { return handleVerifySlip(p); },
+  // TEST ONLY — seed fake mock data (gated by SeedMockKey). Remove before go-live with real data.
+  seedMock:           function (p) { return handleSeedMock(p); }
 };
 
 function doGet(e) {
