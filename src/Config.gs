@@ -222,6 +222,7 @@ var SCHOOL_CONFIG_DEFAULTS = [
 
   // --- System ---
   ['SeedMockKey',           'atom-seed-2026'],       // gate for the TEST-ONLY seedMock action (remove before go-live)
+  ['CacheTTL',              '60'],                   // seconds the engine caches sheet reads (CacheService); writes invalidate
   ['BackupFolderName',      'AtomNursery_Backups'],
   ['BackupRetentionDays',   '14'],          // dailyBackup() keeps copies for this many days, then prunes
   ['SchemaVersion',         '2.1']
