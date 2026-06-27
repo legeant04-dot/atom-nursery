@@ -102,7 +102,10 @@ function createAtomAPI(M, GROWTH_STD) {
     // monthly bill = base items + per-student extra charges + any unpaid OT rolled over
     payments: p => M.payments.filter(b=>b.StudentID===p.studentId).map(b=>{
         const charges=M.studentCharges.filter(c=>c.StudentID===p.studentId&&c.Month===b.Month);
-        const items=b.Items.concat(charges.map(c=>[c.Label,c.Amount]));
+        // Items may be absent (sheet has no Items column) or a JSON string — normalise to an array, default to one tuition line
+        let base = Array.isArray(b.Items) ? b.Items : (typeof b.Items==='string' && b.Items ? (()=>{try{return JSON.parse(b.Items)}catch(e){return null}})() : null);
+        if(!Array.isArray(base)) base = [['ค่าเทอม', b.Amount||0]];
+        const items=base.concat(charges.map(c=>[c.Label,c.Amount]));
         const baseAmt=b.Amount+charges.reduce((a,c)=>a+c.Amount,0);
         const otOpen=M.otDaily.filter(o=>o.StudentID===p.studentId&&o.Status!=='PAID'&&o.Date.slice(0,7)===b.Month);
         const roll=otOpen.reduce((a,o)=>a+o.Amount,0);
