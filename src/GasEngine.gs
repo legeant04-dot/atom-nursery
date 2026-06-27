@@ -154,7 +154,8 @@ function cacheDel_(k) { try { CacheService.getScriptCache().remove(k); } catch (
 
 function readRows_(wb, sheet) {
   var hit = cacheGet_('rows:' + sheet); if (hit) return hit;
-  var sh = wbOf_(wb).getSheetByName(sheet); var r = sh ? readObjects_(sh) : [];
+  var sh = wbOf_(wb).getSheetByName(sheet);
+  var r = sh ? readObjects_(sh).map(function (row) { var o = {}; for (var c in row) o[c] = decodeCell_(row[c]); return o; }) : [];
   cachePut_('rows:' + sheet, r); return r;
 }
 function readCollection_(key) {
@@ -223,7 +224,17 @@ function deriveLeaveUsed_(leaves) {
 
 // ---- helpers -----------------------------------------------------
 function gasToday_() { return Utilities.formatDate(new Date(), getConfig_('Timezone', 'Asia/Bangkok'), 'yyyy-MM-dd'); }
-function decodeCell_(v) { if (typeof v === 'string' && /^[\[{]/.test(v.trim())) { try { return JSON.parse(v); } catch (e) {} } return v; }
+function decodeCell_(v) {
+  // Sheets returns date cells as Date objects, but the engine compares/slices dates as strings.
+  // Normalise: date-only (midnight) -> 'yyyy-MM-dd'; datetime -> 'yyyy-MM-dd HH:mm:ss'.
+  if (Object.prototype.toString.call(v) === '[object Date]') {
+    var tz = (typeof getConfig_ === 'function') ? getConfig_('Timezone', 'Asia/Bangkok') : 'Asia/Bangkok';
+    var hms = Utilities.formatDate(v, tz, 'HH:mm:ss');
+    return Utilities.formatDate(v, tz, hms === '00:00:00' ? 'yyyy-MM-dd' : 'yyyy-MM-dd HH:mm:ss');
+  }
+  if (typeof v === 'string' && /^[\[{]/.test(v.trim())) { try { return JSON.parse(v); } catch (e) {} }
+  return v;
+}
 function encodeCell_(v) { if (v === undefined || v === null) return ''; if (typeof v === 'object') return JSON.stringify(v); return v; }
 function coerce_(v) { if (v === 'true') return true; if (v === 'false') return false; if (typeof v === 'string' && /^-?\d+(\.\d+)?$/.test(v)) return Number(v); return v; }
 

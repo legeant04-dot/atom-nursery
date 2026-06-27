@@ -26,10 +26,9 @@ var ROUTES = {
   pendingLeaves:  function (p) { return handlePendingLeaves(p); },
   parentCheckin:  function (p) { return handleParentCheckin(p); },
   studentAbsence: function (p) { return handleStudentAbsence(p); },
-  // Day 5 — Daily Journal
+  // Day 5 — Daily Journal (submit keeps the GAS handler for LINE notify; reads defer to the engine,
+  // which returns null/[] gracefully instead of throwing NOT_FOUND when there is no journal yet)
   submitJournal:  function (p) { return handleSubmitJournal(p); },
-  getJournal:     function (p) { return handleGetJournal(p); },
-  journalHistory: function (p) { return handleJournalHistory(p); },
   // Day 5 — DSPM Assessment + analytics
   dspmCriteria:      function (p) { return handleDspmCriteria(p); },
   submitAssessment:  function (p) { return handleSubmitAssessment(p); },
