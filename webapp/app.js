@@ -50,7 +50,7 @@
   let CURRENT = 'home';
   const ROLE_KEY = r => ({Parent:'role.Parent',Teacher:'role.Teacher',Admin:'role.Admin'}[r]||r);
   function setHeader(){
-    $('#devbar').textContent = t('devbar') + ' · v27';
+    $('#devbar').textContent = t('devbar') + ' · v28';
     $('#langBtn').textContent = LANG()==='en' ? 'EN' : 'TH';
     $('#userName').textContent = USER ? USER.nameEN : '–';
     $('#userRole').textContent = USER ? t(ROLE_KEY(USER.role)) : '';
@@ -108,21 +108,42 @@
     try{ localStorage.setItem('atom_session', JSON.stringify({roleKey:'Parent', provider:PENDING_PROVIDER||'demo', parent:u})); }catch(e){}
     setHeader(); GO('home');
   };
-  function logout(){ try{ localStorage.removeItem('atom_session'); }catch(e){} USER=null; PENDING_PROVIDER=null; loginScreen(); }
+  // log in with real GAS auth result (LIFF flow)
+  window.LOGIN_REAL = function(role, linkedId, displayName, pictureUrl) {
+    const roleKey = role === 'Admin' ? 'Admin' : role === 'Leader' ? 'Leader' : role === 'Teacher' ? 'Teacher' : 'Parent';
+    USER = { role, _roleKey: roleKey, nameEN: displayName || roleKey, nameTH: displayName || roleKey };
+    if (role === 'Parent') { USER.parentId = linkedId; USER.uid = PENDING_LINE_UID || linkedId; }
+    else USER.staffId = linkedId;
+    if (pictureUrl) USER.pictureUrl = pictureUrl;
+    PENDING_LINE_UID = null;
+    setHeader(); GO('home');
+  };
+  function logout(){
+    try{ localStorage.removeItem('atom_session'); }catch(e){}
+    USER=null; PENDING_PROVIDER=null; PENDING_LINE_UID=null;
+    if (CONFIG.MODE === 'gas' && CONFIG.LIFF_ID && window.liff && liff.isLoggedIn()) { liff.logout(); }
+    loginScreen();
+  }
   $('#logoutBtn').onclick = logout;
 
-  // ---- login screen — LINE only (school's LINE OA); LIFF auth wired at deploy ----
+  // ---- LINE / LIFF auth ----
   let PENDING_PROVIDER=null;
+  let PENDING_LINE_UID=null; // real LINE userId from liff.getProfile() — used during registration
   function loginScreen(){ USER=null; AUTH_RENDER=loginScreen; setHeader(); nav.hidden=true;
     app.innerHTML = `<div class="rolewrap"><img src="assets/logo.png" class="logo-lg" alt="logo"/>
       <h2 class="page" style="text-align:center">${esc(t('login.title'))}</h2>
       <p class="muted">${esc(t('login.lineOnly'))}</p>
-      <button class="role-card" onclick="PROVIDER('LINE')"><span class="ic" style="background:#06C755;color:#fff;font-weight:800">L</span><span><b>${esc(t('login.lineBtn'))}</b><br><small>${esc(t('login.lineSub'))}</small></span></button>
+      <button class="role-card" onclick="LIFF_LOGIN()"><span class="ic" style="background:#06C755;color:#fff;font-weight:800">L</span><span><b>${esc(t('login.lineBtn'))}</b><br><small>${esc(t('login.lineSub'))}</small></span></button>
       <label style="display:flex;align-items:center;gap:8px;justify-content:center;margin-top:10px;font-size:13px"><input type="checkbox" id="rememberMe" checked style="width:auto"/> ${esc(t('login.remember'))}</label>
       <button class="btn outline block" id="installBtn" style="margin-top:14px" hidden onclick="DO_INSTALL()">📲 ${esc(t('install'))}</button></div>`;
     if(deferredInstall) $('#installBtn').hidden=false;
   }
-  window.PROVIDER = (id)=>{ PENDING_PROVIDER=id; toast((LANG()==='en'?'Signed in via LINE':'เข้าสู่ระบบผ่าน LINE')+' (demo)'); accountStage(); };
+  // In gas+LIFF mode: trigger real LINE login; otherwise fall through to demo chooser
+  window.LIFF_LOGIN = () => {
+    if (CONFIG.MODE === 'gas' && CONFIG.LIFF_ID && window.liff) { liff.login(); return; }
+    PROVIDER('LINE');
+  };
+  window.PROVIDER = (id) => { PENDING_PROVIDER = id; accountStage(); };
 
   // ---- after provider: new vs existing user ----
   function accountStage(){ USER=null; AUTH_RENDER=accountStage; setHeader(); nav.hidden=true;
@@ -137,9 +158,31 @@
   // expose auth screens so inline Back buttons (onclick="...") can reach them
   window.loginScreen = loginScreen; window.accountStage = accountStage; window.chooser = chooser;
 
-  function boot(){ ensureTranslateObserver(); try{ const s=JSON.parse(localStorage.getItem('atom_session')||'null');
+  function boot(){ ensureTranslateObserver();
+    // LIFF path: gas mode + LIFF_ID set + SDK loaded → real LINE auth
+    if (CONFIG.MODE === 'gas' && CONFIG.LIFF_ID && window.liff) {
+      liff.init({ liffId: CONFIG.LIFF_ID }).then(() => {
+        if (liff.isLoggedIn()) {
+          liff.getProfile().then(profile => {
+            PENDING_LINE_UID = profile.userId;
+            api('auth', { lineUserId: profile.userId }).then(u => {
+              LOGIN_REAL(u.role, u.linkedId, u.displayName || profile.displayName, profile.pictureUrl);
+              applyLangNow();
+            }).catch(e => {
+              if (e.code === 'NOT_REGISTERED') { PENDING_PROVIDER = 'LINE'; accountStage(); }
+              else { toast('⚠️ ' + (e.message || e)); loginScreen(); }
+              applyLangNow();
+            });
+          }).catch(() => { loginScreen(); applyLangNow(); });
+        } else { loginScreen(); applyLangNow(); }
+      }).catch(() => { loginScreen(); applyLangNow(); });
+      return;
+    }
+    // Demo/mock path: restore session from localStorage
+    try{ const s=JSON.parse(localStorage.getItem('atom_session')||'null');
       if(s&&s.parent){ PENDING_PROVIDER=s.provider; LOGIN_PARENT(s.parent); applyLangNow(); return; }
-      if(s&&DEMO_USERS[s.roleKey]){ PENDING_PROVIDER=s.provider; LOGIN(s.roleKey); applyLangNow(); return; } }catch(e){} loginScreen(); applyLangNow(); }
+      if(s&&DEMO_USERS[s.roleKey]){ PENDING_PROVIDER=s.provider; LOGIN(s.roleKey); applyLangNow(); return; } }catch(e){}
+    loginScreen(); applyLangNow(); }
 
   // ================= REGISTRATION =================
   // New-user signup captures the PARENT only; children are added/linked afterward
@@ -171,7 +214,7 @@
     const pf=$('#rPPhoto')&&$('#rPPhoto').files[0];
     if(!pf){ toast(t('reg.photoRequired')); return; } // photo is now mandatory (login security)
     const parentPhoto=await new Promise(r=>{const fr=new FileReader();fr.onload=()=>r(fr.result);fr.readAsDataURL(pf);});
-    const uid=(PENDING_PROVIDER||'LINE')+'_'+Date.now();
+    const uid=PENDING_LINE_UID||(PENDING_PROVIDER||'LINE')+'_'+Date.now();
     const parent={NameTH:v('#rPNameTH'),NameEN:v('#rPNameEN'),Relationship:$('#rRel').value,NationalID:v('#rPNID'),Phone:v('#rPPhone'),OfficePhone:v('#rPOffice'),Occupation:v('#rPOcc'),Workplace:v('#rPWork'),Address:v('#rPAddr'),Photo:parentPhoto,LineUID:uid};
     try{ const r=await api('registerParent',{uid,parent});
       confirmSaved(EN()?'Registered — now add your child':'ลงทะเบียนแล้ว — เพิ่มข้อมูลบุตรหลานต่อ');
