@@ -85,6 +85,13 @@ function seedMockData() {
   band(31, 36, '31 - 36 เดือน', [[79,'GM','ยืนขาเดียว 1 วินาที','Stands on one foot 1s'],[80,'FM','เลียนแบบลากเส้นวงต่อเนื่อง','Imitates circular lines'],[81,'RL','นำวัตถุ 2 ชนิดมาให้ตามคำสั่ง','Brings 2 named objects'],[82,'EL','พูดติดต่อกัน 3-4 คำ','Speaks 3-4 words together'],[83,'PS','ใส่กางเกงเองได้','Puts on pants by self']]);
   log.push(reset(MAIN, 'DSPM_CRITERIA', dspm));
 
+  // flush the sheet cache so freshly-seeded data is read immediately (seed writes bypass writeRows_)
+  try {
+    var keys = ['cfg'];
+    ['STAFF','WORK_SCHEDULE','CLASSES','PARENTS','STUDENTS','USER_LINKS','ANNOUNCEMENTS','BILLING','CHECKIN_STAFF','GROWTH_RECORDS','DAILY_JOURNAL','DSPM_CRITERIA']
+      .forEach(function (s) { keys.push('col:' + s, 'rows:' + s); });
+    CacheService.getScriptCache().removeAll(keys);
+  } catch (e) {}
   Logger.log('SEED DONE: ' + log.join(' | '));
   return { ok:true, seeded:log, date:today };
 }
