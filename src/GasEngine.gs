@@ -224,11 +224,15 @@ function deriveLeaveUsed_(leaves) {
 
 // ---- helpers -----------------------------------------------------
 function gasToday_() { return Utilities.formatDate(new Date(), getConfig_('Timezone', 'Asia/Bangkok'), 'yyyy-MM-dd'); }
+var _ssTz;
+function ssTz_() { if (!_ssTz) { try { _ssTz = getMainSpreadsheet_().getSpreadsheetTimeZone() || 'Asia/Bangkok'; } catch (e) { _ssTz = 'Asia/Bangkok'; } } return _ssTz; }
 function decodeCell_(v) {
-  // Sheets returns date cells as Date objects, but the engine compares/slices dates as strings.
-  // Normalise: date-only (midnight) -> 'yyyy-MM-dd'; datetime -> 'yyyy-MM-dd HH:mm:ss'.
+  // Sheets returns date/time cells as Date objects, but the engine compares/slices them as strings.
+  // Format in the SPREADSHEET's own timezone (so a "date" reads back as midnight -> date-only):
+  //   year < 1900 -> time-only 'HH:mm' (e.g. 08:05) ; midnight -> 'yyyy-MM-dd' ; else 'yyyy-MM-dd HH:mm:ss'.
   if (Object.prototype.toString.call(v) === '[object Date]') {
-    var tz = (typeof getConfig_ === 'function') ? getConfig_('Timezone', 'Asia/Bangkok') : 'Asia/Bangkok';
+    var tz = ssTz_();
+    if (v.getFullYear() < 1900) return Utilities.formatDate(v, tz, 'HH:mm');
     var hms = Utilities.formatDate(v, tz, 'HH:mm:ss');
     return Utilities.formatDate(v, tz, hms === '00:00:00' ? 'yyyy-MM-dd' : 'yyyy-MM-dd HH:mm:ss');
   }
