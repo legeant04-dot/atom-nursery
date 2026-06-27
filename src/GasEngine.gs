@@ -144,14 +144,27 @@ function lazyRO_(M, cache, key, loader) {
 
 // ---- sheet IO ----------------------------------------------------
 function wbOf_(which) { return which === 'HR' ? getHrSpreadsheet_() : getMainSpreadsheet_(); }
-function readRows_(wb, sheet) { var sh = wbOf_(wb).getSheetByName(sheet); return sh ? readObjects_(sh) : []; }
 
+// ---- short-lived sheet cache (CacheService) — cuts repeated sheet reads across requests ----
+// Best-effort: skips values >~95KB (cache limit) and degrades to live reads if CacheService is absent.
+function cacheTtl_() { var t = Number(getConfig_ ? getConfig_('CacheTTL', 60) : 60); return (t >= 1 && t <= 600) ? t : 60; }
+function cacheGet_(k) { try { var v = CacheService.getScriptCache().get(k); return v ? JSON.parse(v) : null; } catch (e) { return null; } }
+function cachePut_(k, o) { try { var s = JSON.stringify(o); if (s.length < 95000) CacheService.getScriptCache().put(k, s, cacheTtl_()); } catch (e) {} }
+function cacheDel_(k) { try { CacheService.getScriptCache().remove(k); } catch (e) {} }
+
+function readRows_(wb, sheet) {
+  var hit = cacheGet_('rows:' + sheet); if (hit) return hit;
+  var sh = wbOf_(wb).getSheetByName(sheet); var r = sh ? readObjects_(sh) : [];
+  cachePut_('rows:' + sheet, r); return r;
+}
 function readCollection_(key) {
   var def = COLLECTION_MAP[key];
+  var hit = cacheGet_('col:' + def.sheet); if (hit) return hit;
   var sh = wbOf_(def.wb).getSheetByName(def.sheet);
   if (!sh) return [];
   var alias = FIELD_ALIAS[def.sheet] || {};
-  return readObjects_(sh).map(function (r) { var o = {}; for (var col in r) o[alias[col] || col] = decodeCell_(r[col]); return o; });
+  var rows = readObjects_(sh).map(function (r) { var o = {}; for (var col in r) o[alias[col] || col] = decodeCell_(r[col]); return o; });
+  cachePut_('col:' + def.sheet, rows); return rows;
 }
 function writeCollection_(key, list) { writeRows_(COLLECTION_MAP[key].wb, COLLECTION_MAP[key].sheet, list, FIELD_ALIAS[COLLECTION_MAP[key].sheet] || {}); }
 
@@ -164,6 +177,7 @@ function writeRows_(wb, sheet, list, alias) {
   });
   if (sh.getLastRow() > 1) sh.getRange(2, 1, sh.getLastRow() - 1, hdr.length).clearContent();
   if (values.length) sh.getRange(2, 1, values.length, hdr.length).setValues(values);
+  cacheDel_('col:' + sheet); cacheDel_('rows:' + sheet);   // invalidate this sheet's cache on write
 }
 
 function writeCheckinStaff_(rawAll, todayList) {
@@ -214,6 +228,7 @@ function encodeCell_(v) { if (v === undefined || v === null) return ''; if (type
 function coerce_(v) { if (v === 'true') return true; if (v === 'false') return false; if (typeof v === 'string' && /^-?\d+(\.\d+)?$/.test(v)) return Number(v); return v; }
 
 function hydrateConfig_() {
+  var hit = cacheGet_('cfg'); if (hit) return hit;
   var raw = getAllConfig_(), cfg = {};
   for (var k in raw) {
     var v = raw[k];
@@ -226,7 +241,7 @@ function hydrateConfig_() {
   cfg.Links = { line: raw.Links_LINE || '', facebook: raw.Links_Facebook || '', website: raw.Links_Website || '' };
   if (!cfg.LeaveQuota) cfg.LeaveQuota = { 'ลาป่วย': 30, 'ลากิจ': 7, 'ลาพักร้อน': 6 };
   if (!cfg.Insurance) cfg.Insurance = ENGINE_REF.Insurance;
-  return cfg;
+  cachePut_('cfg', cfg); return cfg;
 }
 
 // ---- reference data (mirror of mockdata reference lists) ---------
