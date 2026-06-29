@@ -116,8 +116,10 @@ textarea{min-height:70px;resize:vertical;}
 .chk.on{color:#111;font-weight:600;}
 
 /* calendar */
-.cal{display:grid;grid-template-columns:repeat(7,1fr);gap:4px;}
-.cal .d{aspect-ratio:1;border:1px solid var(--line);border-radius:8px;font-size:12px;padding:3px;position:relative;}
+.cal{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:4px;max-width:100%;}
+/* no aspect-ratio: it forced width≥min-height (64px)×7 → horizontal overflow on mobile.
+   cells now shrink to 1/7 of the available width and grow vertically via min-height. */
+.cal .d{min-width:0;border:1px solid var(--line);border-radius:8px;font-size:12px;padding:3px;position:relative;overflow:hidden;}
 .cal .d.dim{color:#cbd5e1;} .cal .d.today{border-color:var(--blue);background:#e3f2fd;}
 .cal .d.ev{background:#fff3e0;border-color:#ffcc80;} .cal .d.ho{background:#ffebee;border-color:#ef9a9a;}
 .cal .dot{position:absolute;bottom:3px;left:3px;right:3px;font-size:9px;line-height:1.1;color:#8a6d00;overflow:hidden;max-height:22px;}
