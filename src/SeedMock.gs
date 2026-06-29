@@ -28,10 +28,10 @@ function seedMockData() {
   var log = [];
 
   log.push(reset(HR, 'STAFF', [
-    { StaffID:'STF-ADM', Name:'อารยา ผ่องใส', NameEN:'Araya P.', NationalID:'1101700100011', Position:'ผู้อำนวยการ', Role:'Admin', Department:'', PositionLevel:'Admin', StaffGroup:'หัวหน้าครู', StartDate:'2019-05-01', BaseSalary:40000, Status:'ACTIVE' },
-    { StaffID:'STF-L1', Name:'แนน ใจดี', NameEN:'Nan J.', NationalID:'1101700100012', Position:'หัวหน้าชั้น', Role:'Teacher', Department:'Nursery 1', PositionLevel:'Leader', StaffGroup:'หัวหน้าครู', ReportsTo:'STF-ADM', StartDate:'2021-08-15', BaseSalary:22000, Status:'ACTIVE' },
-    { StaffID:'STF-T1', Name:'เอ มานะ', NameEN:'A Mana', NationalID:'1101700100013', Position:'ครูประจำชั้น', Role:'Teacher', Department:'Nursery 1', PositionLevel:'Officer', StaffGroup:'ครูประจำ', ReportsTo:'STF-L1', StartDate:'2023-06-01', BaseSalary:16000, Status:'ACTIVE' },
-    { StaffID:'STF-T2', Name:'บี สดใส', NameEN:'B Sodsai', NationalID:'1101700100014', Position:'ครูผู้ช่วย', Role:'Teacher', Department:'Nursery 2', PositionLevel:'Assistant', StaffGroup:'ครูฝึกสอน', ReportsTo:'STF-ADM', StartDate:'2025-11-01', BaseSalary:14000, Status:'ACTIVE' }
+    { StaffID:'STF-ADM', Name:'อารยา ผ่องใส', NameEN:'Araya P.', NationalID:'1101700100011', Position:'ผู้อำนวยการ', Role:'Admin', Department:'', PositionLevel:'Admin', StaffGroup:'หัวหน้าครู', LineUID:'U_adm', StartDate:'2019-05-01', BaseSalary:40000, Status:'ACTIVE' },
+    { StaffID:'STF-L1', Name:'แนน ใจดี', NameEN:'Nan J.', NationalID:'1101700100012', Position:'หัวหน้าชั้น', Role:'Teacher', Department:'Nursery 1', PositionLevel:'Leader', StaffGroup:'หัวหน้าครู', ReportsTo:'STF-ADM', LineUID:'U_l1', StartDate:'2021-08-15', BaseSalary:22000, Status:'ACTIVE' },
+    { StaffID:'STF-T1', Name:'เอ มานะ', NameEN:'A Mana', NationalID:'1101700100013', Position:'ครูประจำชั้น', Role:'Teacher', Department:'Nursery 1', PositionLevel:'Officer', StaffGroup:'ครูประจำ', ReportsTo:'STF-L1', LineUID:'U_t1', StartDate:'2023-06-01', BaseSalary:16000, Status:'ACTIVE' },
+    { StaffID:'STF-T2', Name:'บี สดใส', NameEN:'B Sodsai', NationalID:'1101700100014', Position:'ครูผู้ช่วย', Role:'Teacher', Department:'Nursery 2', PositionLevel:'Assistant', StaffGroup:'ครูฝึกสอน', ReportsTo:'STF-ADM', LineUID:'U_t2', StartDate:'2025-11-01', BaseSalary:14000, Status:'ACTIVE' }
   ]));
   log.push(reset(HR, 'WORK_SCHEDULE', [
     { StaffID:'STF-T1', DayOfWeek:'Mon-Fri', CheckInTime:'08:00', CheckOutTime:'17:00', EffectiveDate:'2025-01-01' },

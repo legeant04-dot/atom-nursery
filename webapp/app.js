@@ -50,7 +50,7 @@
   let CURRENT = 'home';
   const ROLE_KEY = r => ({Parent:'role.Parent',Teacher:'role.Teacher',Admin:'role.Admin'}[r]||r);
   function setHeader(){
-    $('#devbar').textContent = t('devbar') + ' · v28';
+    $('#devbar').textContent = t('devbar') + ' · v29';
     $('#langBtn').textContent = LANG()==='en' ? 'EN' : 'TH';
     $('#userName').textContent = USER ? USER.nameEN : '–';
     $('#userRole').textContent = USER ? t(ROLE_KEY(USER.role)) : '';
@@ -165,8 +165,10 @@
         if (liff.isLoggedIn()) {
           liff.getProfile().then(profile => {
             PENDING_LINE_UID = profile.userId;
-            api('auth', { lineUserId: profile.userId }).then(u => {
-              LOGIN_REAL(u.role, u.linkedId, u.displayName || profile.displayName, profile.pictureUrl);
+            // send the verifiable access token (NOT the raw userId): GAS verifies it server-side
+            // via LINE's profile endpoint and trusts the resulting userId — prevents UID spoofing.
+            api('auth', { accessToken: liff.getAccessToken(), displayName: profile.displayName, pictureUrl: profile.pictureUrl }).then(u => {
+              LOGIN_REAL(u.role, u.linkedId, u.displayName || profile.displayName, u.pictureUrl || profile.pictureUrl);
               applyLangNow();
             }).catch(e => {
               if (e.code === 'NOT_REGISTERED') { PENDING_PROVIDER = 'LINE'; accountStage(); }
