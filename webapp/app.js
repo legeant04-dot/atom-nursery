@@ -50,7 +50,7 @@
   let CURRENT = 'home';
   const ROLE_KEY = r => ({Parent:'role.Parent',Teacher:'role.Teacher',Admin:'role.Admin'}[r]||r);
   function setHeader(){
-    $('#devbar').textContent = t('devbar') + ' · v34';
+    $('#devbar').textContent = (CONFIG.MODE==='gas' ? (EN()?'Connected to Google Sheets (GAS)':'เชื่อมต่อข้อมูลจริงผ่าน GAS แล้ว') : t('devbar')) + ' · v35';
     $('#langBtn').textContent = LANG()==='en' ? 'EN' : 'TH';
     $('#userName').textContent = USER ? USER.nameEN : '–';
     $('#userRole').textContent = USER ? t(ROLE_KEY(USER.role)) : '';
@@ -77,11 +77,15 @@
   function setNav(active){ if(!USER){nav.hidden=true;return;} nav.hidden=false;
     nav.innerHTML = NAVS[USER.role].map(([k,ic,l])=>`<button class="${k===active?'active':''}" onclick="GO('${k}')"><span class="ic">${ic}</span>${esc(t(l))}</button>`).join(''); }
 
-  window.GO = function(screen){ CURRENT=screen; setNav(screen); const fn=(SCREENS[USER.role]||{})[screen]; if(fn)fn(); else app.innerHTML=`<div class="card">หน้านี้กำลังพัฒนา</div>`; window.scrollTo(0,0); };
+  window.GO = function(screen, opts){ CURRENT=screen; setNav(screen); const fn=(SCREENS[USER.role]||{})[screen];
+    // paint an instant placeholder so a tap feels responsive instead of "stuck" on the old screen
+    // while the first (uncached) fetch runs; skip on silent background re-renders to avoid flicker.
+    if(fn && !(opts&&opts.silent)) app.innerHTML=`<div class="card" style="text-align:center;color:#94a3b8;padding:28px">⏳ ${EN()?'Loading…':'กำลังโหลด…'}</div>`;
+    if(fn)fn(); else app.innerHTML=`<div class="card">หน้านี้กำลังพัฒนา</div>`; window.scrollTo(0,0); };
   // SWR hook: api.js calls this when a background refresh found newer data than what's shown.
-  // Re-render the current screen, but never interrupt an open modal or active typing.
+  // Re-render the current screen (silently, no skeleton), but never interrupt an open modal or active typing.
   window.__atomRevalidate = () => { if(!USER||!CURRENT) return; if(document.querySelector('.modal')) return;
-    const ae=document.activeElement; if(ae && /^(INPUT|TEXTAREA|SELECT)$/.test(ae.tagName)) return; GO(CURRENT); };
+    const ae=document.activeElement; if(ae && /^(INPUT|TEXTAREA|SELECT)$/.test(ae.tagName)) return; GO(CURRENT,{silent:true}); };
   function confirmSaved(msg){ msg=msg||t('c.saved'); if(window.trPhrase)msg=trPhrase(msg); const b=document.createElement('div'); b.className='savebar'; b.innerHTML=`✅ ${esc(msg)}`; document.body.appendChild(b); requestAnimationFrame(()=>b.classList.add('show')); setTimeout(()=>{b.classList.remove('show');setTimeout(()=>b.remove(),300);},1800); }
 
   function chooser(){ USER=null; AUTH_RENDER=chooser; setHeader(); nav.hidden=true;
@@ -166,9 +170,20 @@
   // expose auth screens so inline Back buttons (onclick="...") can reach them
   window.loginScreen = loginScreen; window.accountStage = accountStage; window.chooser = chooser;
 
+  // restore a stored demo session (role chooser / registered parent) so a reload doesn't drop the
+  // user back to the login screen. Returns true if a session was restored.
+  function restoreDemoOrLogin(){
+    try{ const s=JSON.parse(localStorage.getItem('atom_session')||'null');
+      if(s&&s.parent){ PENDING_PROVIDER=s.provider; LOGIN_PARENT(s.parent); applyLangNow(); return true; }
+      if(s&&DEMO_USERS[s.roleKey]){ PENDING_PROVIDER=s.provider; LOGIN(s.roleKey); applyLangNow(); return true; } }catch(e){}
+    return false;
+  }
   function boot(){ ensureTranslateObserver();
     // LIFF path: gas mode + LIFF_ID set + SDK loaded → real LINE auth
     if (CONFIG.MODE === 'gas' && CONFIG.LIFF_ID && window.liff) {
+      // not logged in / init failed (e.g. opened outside LINE) → keep an existing demo session if any,
+      // else show login. Stops a reload from wiping a testing session.
+      const fallback = () => { if(!restoreDemoOrLogin()){ loginScreen(); applyLangNow(); } };
       liff.init({ liffId: CONFIG.LIFF_ID }).then(() => {
         if (liff.isLoggedIn()) {
           liff.getProfile().then(profile => {
@@ -179,20 +194,16 @@
               LOGIN_REAL(u.role, u.linkedId, u.displayName || profile.displayName, u.pictureUrl || profile.pictureUrl);
               applyLangNow();
             }).catch(e => {
-              if (e.code === 'NOT_REGISTERED') { PENDING_PROVIDER = 'LINE'; accountStage(); }
-              else { toast('⚠️ ' + (e.message || e)); loginScreen(); }
-              applyLangNow();
+              if (e.code === 'NOT_REGISTERED') { PENDING_PROVIDER = 'LINE'; accountStage(); applyLangNow(); }
+              else { toast('⚠️ ' + (e.message || e)); fallback(); }
             });
-          }).catch(() => { loginScreen(); applyLangNow(); });
-        } else { loginScreen(); applyLangNow(); }
-      }).catch(() => { loginScreen(); applyLangNow(); });
+          }).catch(fallback);
+        } else { fallback(); }
+      }).catch(fallback);
       return;
     }
-    // Demo/mock path: restore session from localStorage
-    try{ const s=JSON.parse(localStorage.getItem('atom_session')||'null');
-      if(s&&s.parent){ PENDING_PROVIDER=s.provider; LOGIN_PARENT(s.parent); applyLangNow(); return; }
-      if(s&&DEMO_USERS[s.roleKey]){ PENDING_PROVIDER=s.provider; LOGIN(s.roleKey); applyLangNow(); return; } }catch(e){}
-    loginScreen(); applyLangNow(); }
+    // Demo/mock path
+    if(!restoreDemoOrLogin()){ loginScreen(); applyLangNow(); } }
 
   // ================= REGISTRATION =================
   // New-user signup captures the PARENT only; children are added/linked afterward
@@ -589,7 +600,9 @@
     const prev=document.getElementById('slipPrev'); if(prev){ const fr=new FileReader(); fr.onload=()=>{ prev.src=fr.result; prev.hidden=false; }; fr.readAsDataURL(f); }
     // Preferred: SlipOK server-side verification (available once GAS is deployed). Mock → falls back to BarcodeDetector.
     try{ const dataUrl=await new Promise(r=>{const fr=new FileReader();fr.onload=()=>r(fr.result);fr.readAsDataURL(f);});
-      const vk=await api('verifySlip',{slipData:dataUrl});
+      // handleVerifySlip (Day6.gs) reads p.slipBase64 (raw base64, no data-URL prefix), not p.slipData
+      const slipBase64=String(dataUrl).split(',')[1]||'';
+      const vk=await api('verifySlip',{slipBase64});
       if(vk&&vk.available&&vk.amount!=null){ const aEl=document.getElementById('slipAmt'); aEl.value=vk.amount; aEl.dataset.fromqr='1';
         const due=Number(document.getElementById('slipDue').dataset.due||0);
         out.innerHTML = vk.amount>=due? `✅ SlipOK ${esc(t('slip.qrMatch'))} ${baht(vk.amount)}` : `⚠️ SlipOK ${esc(t('slip.qrMismatch'))} ${baht(vk.amount)} / ${baht(due)}`; return; }
@@ -664,8 +677,8 @@
           <p class="muted" style="font-size:13px">ℹ️ ยังไม่มีเกณฑ์ประเมินพัฒนาการสำหรับช่วงวัยนี้ (อายุ ${ageMo} เดือน) — เมื่อโรงเรียนเพิ่มเกณฑ์ตามคู่มือ DSPM ของช่วงวัยนี้แล้ว รายการประเมินจะแสดงที่นี่</p></div>`;
     app.innerHTML=`<h2 class="page">${esc(t('title.dspm'))}</h2>
       <div class="card"><h3>📈 ${esc(t('growth.chartTitle'))}</h3><p class="muted" style="font-size:12px">${esc(t('growth.chartSub'))}</p>
-        ${growthChartSVG(t('growth.weight'),g.records.map(r=>({x:r.AgeMonth,y:r.Weight})),g.weightBand,'kg')}
-        ${growthChartSVG(t('growth.height'),g.records.map(r=>({x:r.AgeMonth,y:r.Height})),g.heightBand,'cm')}
+        ${growthChartSVG(t('growth.weight'),g.records.map(r=>({x:r.AgeMonth,y:r.Weight})),gBand(g.weightBand,g.gender,g.records,'weight'),'kg')}
+        ${growthChartSVG(t('growth.height'),g.records.map(r=>({x:r.AgeMonth,y:r.Height})),gBand(g.heightBand,g.gender,g.records,'height'),'cm')}
         <div class="row" style="font-size:11px;justify-content:center;margin-top:6px"><span>🟦 ${esc(t('growth.actual'))}</span><span>🟩 ${esc(t('growth.normalBand'))}</span></div>
         ${growthRecordsList(g.records)}</div>
       ${vaccineCard(vsched,vrecs,sid,true)}
@@ -1045,8 +1058,8 @@
       <p class="muted" style="font-size:12px">แสดงทุกช่วงวัยที่เด็กผ่านมา (ตั้งแต่เข้าเรียน) เพื่อดูพัฒนาการต่อเนื่อง</p></div>
       <div class="card"><h3>📈 ${esc(t('growth.chartTitle'))}</h3>
         <p class="muted" style="font-size:12px">${esc(t('growth.chartSub'))}</p>
-        ${growthChartSVG(t('growth.weight'),g.records.map(r=>({x:r.AgeMonth,y:r.Weight})),g.weightBand,'kg')}
-        ${growthChartSVG(t('growth.height'),g.records.map(r=>({x:r.AgeMonth,y:r.Height})),g.heightBand,'cm')}
+        ${growthChartSVG(t('growth.weight'),g.records.map(r=>({x:r.AgeMonth,y:r.Weight})),gBand(g.weightBand,g.gender,g.records,'weight'),'kg')}
+        ${growthChartSVG(t('growth.height'),g.records.map(r=>({x:r.AgeMonth,y:r.Height})),gBand(g.heightBand,g.gender,g.records,'height'),'cm')}
         <div class="row" style="font-size:11px;justify-content:center;margin-top:6px"><span>🟦 ${esc(t('growth.actual'))}</span><span>🟩 ${esc(t('growth.normalBand'))}</span></div>
         ${growthRecordsList(g.records)}</div>
       ${d.bands.map(b=>`<div class="card"><h3>${esc(b.label)}</h3>${b.items.map(i=>`<div class="list-item"><span><b>ข้อ ${i.itemNo}</b> <span class="pill info">${i.skill}</span> <small>${esc(EN()&&i.descriptionEN?i.descriptionEN:i.description)}</small></span>${pill(i.result)}</div>`).join('')}</div>`).join('')}
@@ -1065,6 +1078,13 @@
           if(editable) return `<div class="list-item" style="gap:6px"><label style="display:flex;gap:6px;align-items:flex-start;flex:1;font-size:12.5px"><input type="checkbox" ${r?'checked':''} style="width:auto;margin-top:3px" onchange="A_vacToggle('${sid}','${it.key}',this.checked)"/><span>${esc(EN()?it.en:it.th)}</span></label><input type="date" id="vd_${it.key}" value="${esc(r?r.Date:'')}" style="width:140px" onchange="A_vacDate('${sid}','${it.key}',this.value)"/></div>`;
           return `<div class="list-item"><span style="font-size:12.5px">${esc(EN()?it.en:it.th)}</span>${r?`<span class="pill ok">✓ ${esc(r.Date)}</span>`:`<span class="pill wait">${esc(t('vac.notYet'))}</span>`}</div>`; }).join('')}</div>`).join('')}</div>`; }
   // inline SVG line chart: child's measurements (line) vs the standard normal band (shaded)
+  // The GAS engine runs with GROWTH_STD=null (no server-side band), so the green normal-range
+  // band comes back empty in gas mode. The browser HAS window.GROWTH_STD → rebuild it locally.
+  function gBand(serverBand, gender, recs, key){
+    if(serverBand && serverBand.some(b=>b.min!=null)) return serverBand;
+    if(!window.GROWTH_STD || !window.GROWTH_STD.at) return serverBand||[];
+    return (recs||[]).map(r=>{ const at=GROWTH_STD.at(gender, r.AgeMonth, key); return {ageMonth:r.AgeMonth, min:at?at.min:null, max:at?at.max:null}; });
+  }
   function growthChartSVG(title, pts, band, unit){ const W=320,H=170,pl=34,pr=10,pt=24,pb=22;
     const xs=pts.map(p=>p.x).concat(band.map(b=>b.ageMonth)); const ys=pts.map(p=>p.y).concat(band.map(b=>b.min),band.map(b=>b.max)).filter(v=>v!=null);
     if(!ys.length) return `<div class="muted" style="font-size:12px">${esc(title)}: ${EN()?'no data':'ยังไม่มีข้อมูล'}</div>`;
