@@ -50,7 +50,7 @@
   let CURRENT = 'home';
   const ROLE_KEY = r => ({Parent:'role.Parent',Teacher:'role.Teacher',Admin:'role.Admin'}[r]||r);
   function setHeader(){
-    $('#devbar').textContent = t('devbar') + ' · v31';
+    $('#devbar').textContent = t('devbar') + ' · v32';
     $('#langBtn').textContent = LANG()==='en' ? 'EN' : 'TH';
     $('#userName').textContent = USER ? USER.nameEN : '–';
     $('#userRole').textContent = USER ? t(ROLE_KEY(USER.role)) : '';
@@ -631,8 +631,24 @@
   const DSPM_PILL=r=>{const c=r==='ผ่าน'?'ok':r==='ไม่ผ่าน'?'bad':'wait';return `<span class="pill ${c}">${esc(tStat(r))}</span>`;};
   const DT_KEY={GM:'dom.GM',FM:'dom.FM',RL:'dom.RL',EL:'dom.EL',PS:'dom.PS'};
   const DT=new Proxy({},{get:(_,k)=>t(DT_KEY[k]||k)});
-  window.P_dspm = async (sid) => { setNav('dspm'); const [s,all,g,vsched,vrecs]=await Promise.all([api('dspmStatus',{studentId:sid}),api('studentAllBands',{studentId:sid}),api('growthHistory',{studentId:sid}),api('vaccineSchedule'),api('studentVaccines',{studentId:sid})]); const st=MOCK.students.find(x=>x.StudentID===sid)||{};
-    const past=all.bands.filter(b=>b.label!==s.ageLabel);
+  window.P_dspm = async (sid) => { setNav('dspm'); const st=MOCK.students.find(x=>x.StudentID===sid)||{};
+    // growth chart + vaccine card always render; the age-band assessment may be absent
+    // (no DSPM_CRITERIA seeded for this age) — guard each call so the page never blanks.
+    const [g,vsched,vrecs]=await Promise.all([api('growthHistory',{studentId:sid}),api('vaccineSchedule'),api('studentVaccines',{studentId:sid})]);
+    let s=null, all={bands:[]};
+    try{ s=await api('dspmStatus',{studentId:sid}); }catch(e){ /* NO_CRITERIA for this age band */ }
+    try{ all=await api('studentAllBands',{studentId:sid}); }catch(e){}
+    const ageMo = (window.AGEMONTHS&&st.DOB)?window.AGEMONTHS(st.DOB):(s?s.ageMonth:'');
+    const past=(all.bands||[]).filter(b=>!s||b.label!==s.ageLabel);
+    const itemRow=i=>`<div class="list-item"><span><b>ข้อ ${i.itemNo}</b> <span class="pill info">${i.skill}</span> · ${DT[i.skill]||''}<br><small>${esc(EN()&&i.descriptionEN?i.descriptionEN:i.description)}</small></span>${DSPM_PILL(i.result)}</div>`;
+    const assessCard = s
+      ? `<div class="card"><div class="spread"><b>${esc(nm(st)||sid)}</b><span class="muted">${s.ageMonth} เดือน</span></div>
+          <div class="spread"><b style="color:#1565C0">⭐ ช่วงวัยปัจจุบัน: ${esc(s.ageLabel)}</b></div>
+          <p class="muted" style="font-size:12.5px">แสดงทุกข้อของช่วงวัยนี้ ที่ยังไม่ประเมินจะขึ้น "ยังไม่ได้รับการทดสอบ"</p>
+          ${s.manualUrl?`<a class="btn sm outline" href="${esc(s.manualUrl)}" target="_blank">⬇️ ดาวน์โหลดคู่มือ DSPM</a>`:''}
+          ${s.items.map(itemRow).join('')}</div>`
+      : `<div class="card"><div class="spread"><b>${esc(nm(st)||sid)}</b><span class="muted">${ageMo} เดือน</span></div>
+          <p class="muted" style="font-size:13px">ℹ️ ยังไม่มีเกณฑ์ประเมินพัฒนาการสำหรับช่วงวัยนี้ (อายุ ${ageMo} เดือน) — เมื่อโรงเรียนเพิ่มเกณฑ์ตามคู่มือ DSPM ของช่วงวัยนี้แล้ว รายการประเมินจะแสดงที่นี่</p></div>`;
     app.innerHTML=`<h2 class="page">${esc(t('title.dspm'))}</h2>
       <div class="card"><h3>📈 ${esc(t('growth.chartTitle'))}</h3><p class="muted" style="font-size:12px">${esc(t('growth.chartSub'))}</p>
         ${growthChartSVG(t('growth.weight'),g.records.map(r=>({x:r.AgeMonth,y:r.Weight})),g.weightBand,'kg')}
@@ -640,11 +656,7 @@
         <div class="row" style="font-size:11px;justify-content:center;margin-top:6px"><span>🟦 ${esc(t('growth.actual'))}</span><span>🟩 ${esc(t('growth.normalBand'))}</span></div>
         ${growthRecordsList(g.records)}</div>
       ${vaccineCard(vsched,vrecs,sid,true)}
-      <div class="card"><div class="spread"><b>${esc(nm(st)||sid)}</b><span class="muted">${s.ageMonth} เดือน</span></div>
-        <div class="spread"><b style="color:#1565C0">⭐ ช่วงวัยปัจจุบัน: ${esc(s.ageLabel)}</b></div>
-        <p class="muted" style="font-size:12.5px">แสดงทุกข้อของช่วงวัยนี้ ที่ยังไม่ประเมินจะขึ้น "ยังไม่ได้รับการทดสอบ"</p>
-        ${s.manualUrl?`<a class="btn sm outline" href="${esc(s.manualUrl)}" target="_blank">⬇️ ดาวน์โหลดคู่มือ DSPM</a>`:''}
-        ${s.items.map(i=>`<div class="list-item"><span><b>ข้อ ${i.itemNo}</b> <span class="pill info">${i.skill}</span> · ${DT[i.skill]||''}<br><small>${esc(EN()&&i.descriptionEN?i.descriptionEN:i.description)}</small></span>${DSPM_PILL(i.result)}</div>`).join('')}</div>
+      ${assessCard}
       ${past.length?`<h3 class="page" style="font-size:16px">📜 ผลย้อนหลัง (ช่วงวัยก่อนหน้า)</h3>`+past.reverse().map(b=>`<div class="card"><h3 style="font-size:14px">${esc(b.label)}</h3>${b.items.map(i=>`<div class="list-item"><span><b>ข้อ ${i.itemNo}</b> <span class="pill info">${i.skill}</span> <small>${esc(EN()&&i.descriptionEN?i.descriptionEN:i.description)}</small></span>${DSPM_PILL(i.result)}</div>`).join('')}</div>`).join(''):''}`;
   };
 
