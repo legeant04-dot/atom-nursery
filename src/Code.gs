@@ -60,7 +60,7 @@ function doGet(e) {
   if (!action) {
     return jsonOut_({ ok: true, data: { service: 'Atom Nursery API', status: 'up', time: new Date().toISOString() } });
   }
-  return dispatch_(action, e.parameter || {});
+  return dispatch_(action, e.parameter || {}, (e.parameter || {}).token);
 }
 
 function doPost(e) {
@@ -70,11 +70,36 @@ function doPost(e) {
   } catch (err) {
     return jsonOut_({ ok: false, error: { code: 'BAD_JSON', message: 'ส่ง JSON ไม่ถูกต้อง' } });
   }
-  return dispatch_(body.action, body.payload || {});
+  return dispatch_(body.action, body.payload || {}, body.token);
+}
+
+// ---- session enforcement (gated by SCHOOL_CONFIG RequireSessionToken='true') ----
+function sessionRequired_() { try { return String(getConfig_('RequireSessionToken', '')) === 'true'; } catch (e) { return false; } }
+function publicAction_(a) { return a === 'ping' || a === 'auth'; }
+/** Inject the caller's trusted identity (from the verified token) into the payload and
+ *  block parents from reading a student that isn't theirs. No-op while dormant. */
+function applyIdentity_(action, payload, sess) {
+  payload = payload || {};
+  if (!sessionRequired_() || publicAction_(action)) return payload;       // dormant → current behavior
+  if (!sess) throw apiError_('NO_SESSION', 'ต้องเข้าสู่ระบบใหม่ (เซสชันหมดอายุ)');
+  payload.uid = sess.uid; payload.role = sess.role;                       // overwrite — never trust client identity
+  if (sess.role === ROLES.PARENT) {
+    payload.parentId = sess.linkedId;
+    if (payload.studentId && !parentOwnsStudent_(sess.uid, payload.studentId)) throw apiError_('NO_ACCESS', 'ไม่มีสิทธิ์เข้าถึงข้อมูลนักเรียนนี้');
+  } else {
+    payload.staffId = sess.linkedId;
+  }
+  return payload;
+}
+function parentOwnsStudent_(uid, sid) {
+  var links = sheet_(getMainSpreadsheet_(), 'USER_LINKS');
+  if (findObject_(links, function (l) { return String(l.UserUID) === String(uid) && String(l.StudentID) === String(sid); })) return true;
+  var parents = sheet_(getMainSpreadsheet_(), 'PARENTS');                 // legacy ParentID linkage
+  return !!findObject_(parents, function (pr) { return String(pr.LineUID) === String(uid) && String(pr.StudentID) === String(sid); });
 }
 
 /** Look up and run a route, converting thrown apiError_ into the envelope. */
-function dispatch_(action, payload) {
+function dispatch_(action, payload, token) {
   // Explicit ROUTES win; anything else falls through to the shared engine (Engine.gs via GasEngine.gs)
   // so all ~116 handlers work without re-implementation. Set ENGINE_FALLBACK=false to disable.
   var ENGINE_FALLBACK = true;
@@ -85,7 +110,13 @@ function dispatch_(action, payload) {
   if (!handler) {
     return jsonOut_({ ok: false, error: { code: 'UNKNOWN_ACTION', message: 'ไม่รู้จัก action: ' + action } });
   }
+  var sess = verifySession_(token);
+  if (sessionRequired_() && !publicAction_(action) && !sess) {
+    return jsonOut_({ ok: false, error: { code: 'NO_SESSION', message: 'ต้องเข้าสู่ระบบใหม่ (เซสชันหมดอายุ)' } });
+  }
   try {
+    if (action === 'batch') { (payload = payload || {}).__sess = sess; return jsonOut_({ ok: true, data: handler(payload) }); }
+    payload = applyIdentity_(action, payload, sess);
     return jsonOut_({ ok: true, data: handler(payload) });
   } catch (err) {
     var code = (err && err.apiCode) ? err.apiCode : 'INTERNAL';

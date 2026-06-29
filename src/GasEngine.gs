@@ -66,14 +66,16 @@ function engineDispatch_(action, payload) {
 // explicit ROUTES (auth/leave/checkin) run their own path. Persist happens once at the end.
 function handleBatch(p) {
   var calls = (p && p.calls) || [];
+  var sess = p && p.__sess;                                            // verified session from dispatch_ (null when dormant)
   var ctx = hydrateLazy_();
   var H = createAtomAPI(ctx.M, null).H;
   var out = calls.map(function (c) {
     try {
+      var pl = (typeof applyIdentity_ === 'function') ? applyIdentity_(c.action, c.payload || {}, sess) : (c.payload || {});
       var fn = (typeof ROUTES !== 'undefined') ? ROUTES[c.action] : null;
       var data;
-      if (fn && c.action !== 'batch') data = fn(c.payload || {});      // explicit route
-      else if (H[c.action]) data = H[c.action](c.payload || {});       // engine (shared M)
+      if (fn && c.action !== 'batch') data = fn(pl);                   // explicit route
+      else if (H[c.action]) data = H[c.action](pl);                    // engine (shared M)
       else throw apiError_('UNKNOWN_ACTION', 'ไม่รู้จัก action: ' + c.action);
       return { ok: true, data: data };
     } catch (e) { return { ok: false, error: { code: e.apiCode || 'INTERNAL', message: e.message || String(e) } }; }
