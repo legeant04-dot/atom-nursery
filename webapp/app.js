@@ -50,7 +50,7 @@
   let CURRENT = 'home';
   const ROLE_KEY = r => ({Parent:'role.Parent',Teacher:'role.Teacher',Admin:'role.Admin'}[r]||r);
   function setHeader(){
-    $('#devbar').textContent = (CONFIG.MODE==='gas' ? (EN()?'Connected to Google Sheets (GAS)':'เชื่อมต่อข้อมูลจริงผ่าน GAS แล้ว') : t('devbar')) + ' · v36';
+    $('#devbar').textContent = (!CONFIG.DEMO_MODE ? (EN()?'PRODUCTION · LINE login only':'โหมดใช้งานจริง · เข้าสู่ระบบผ่าน LINE เท่านั้น') : (CONFIG.MODE==='gas' ? (EN()?'Connected to Google Sheets (GAS)':'เชื่อมต่อข้อมูลจริงผ่าน GAS แล้ว') : t('devbar'))) + ' · v37';
     $('#langBtn').textContent = LANG()==='en' ? 'EN' : 'TH';
     $('#userName').textContent = USER ? USER.nameEN : '–';
     $('#userRole').textContent = USER ? t(ROLE_KEY(USER.role)) : '';
@@ -89,6 +89,10 @@
   function confirmSaved(msg){ msg=msg||t('c.saved'); if(window.trPhrase)msg=trPhrase(msg); const b=document.createElement('div'); b.className='savebar'; b.innerHTML=`✅ ${esc(msg)}`; document.body.appendChild(b); requestAnimationFrame(()=>b.classList.add('show')); setTimeout(()=>{b.classList.remove('show');setTimeout(()=>b.remove(),300);},1800); }
 
   function chooser(){ USER=null; AUTH_RENDER=chooser; setHeader(); nav.hidden=true;
+    if(!CONFIG.DEMO_MODE){ app.innerHTML=`<div class="rolewrap"><img src="assets/logo.png" class="logo-lg" alt="logo"/>
+      <h2 class="page" style="text-align:center">${esc(t('login.title'))}</h2>
+      <p class="muted">${EN()?'Please sign in with your LINE account.':'กรุณาเข้าสู่ระบบด้วยบัญชี LINE ของท่าน'}</p>
+      <button class="btn block" onclick="loginScreen()">${esc(t('c.back'))}</button></div>`; return; }
     const rc=(r,ic)=>`<button class="role-card" onclick="LOGIN('${r}')"><span class="ic">${ic}</span><span><b>${esc(t('role.'+r))}</b><br><small>${esc(t('desc.'+r))}</small></span></button>`;
     app.innerHTML = `<div class="rolewrap"><img src="assets/logo.png" class="logo-lg" alt="logo"/>
       <h2 class="page" style="text-align:center">${esc(t('chooser.title'))}</h2>
@@ -107,7 +111,7 @@
     Leader:{role:'Teacher',nameTH:'แนน ใจดี',nameEN:'Nan J.',staffId:'STF-L1'},
     Admin:{role:'Admin',nameTH:'อารยา ผ่องใส',nameEN:'Araya P.',staffId:'STF-ADM'},
   };
-  window.LOGIN = function(roleKey){ USER=Object.assign({},DEMO_USERS[roleKey]); USER._roleKey=roleKey;
+  window.LOGIN = function(roleKey){ if(!CONFIG.DEMO_MODE){ toast(EN()?'Demo login is disabled':'ปิดการเข้าสู่ระบบทดลองแล้ว'); return; } USER=Object.assign({},DEMO_USERS[roleKey]); USER._roleKey=roleKey;
     try{ localStorage.setItem('atom_session', JSON.stringify({roleKey, provider:PENDING_PROVIDER||'demo'})); }catch(e){}
     setHeader(); GO('home');
   };
@@ -154,6 +158,7 @@
   // In gas+LIFF mode: trigger real LINE login; otherwise fall through to demo chooser
   window.LIFF_LOGIN = () => {
     if (CONFIG.MODE === 'gas' && CONFIG.LIFF_ID && window.liff) { liff.login(); return; }
+    if (!CONFIG.DEMO_MODE) { toast(EN()?'Please open via LINE to sign in':'กรุณาเปิดผ่าน LINE เพื่อเข้าสู่ระบบ'); return; }
     PROVIDER('LINE');
   };
   window.PROVIDER = (id) => { PENDING_PROVIDER = id; accountStage(); };
@@ -174,6 +179,7 @@
   // restore a stored demo session (role chooser / registered parent) so a reload doesn't drop the
   // user back to the login screen. Returns true if a session was restored.
   function restoreDemoOrLogin(){
+    if(!CONFIG.DEMO_MODE) return false; // production: no demo sessions, LINE login only
     try{ const s=JSON.parse(localStorage.getItem('atom_session')||'null');
       if(s&&s.parent){ PENDING_PROVIDER=s.provider; LOGIN_PARENT(s.parent); applyLangNow(); return true; }
       if(s&&DEMO_USERS[s.roleKey]){ PENDING_PROVIDER=s.provider; LOGIN(s.roleKey); applyLangNow(); return true; } }catch(e){}
