@@ -50,7 +50,7 @@
   let CURRENT = 'home';
   const ROLE_KEY = r => ({Parent:'role.Parent',Teacher:'role.Teacher',Admin:'role.Admin'}[r]||r);
   function setHeader(){
-    $('#devbar').textContent = t('devbar') + ' · v30';
+    $('#devbar').textContent = t('devbar') + ' · v31';
     $('#langBtn').textContent = LANG()==='en' ? 'EN' : 'TH';
     $('#userName').textContent = USER ? USER.nameEN : '–';
     $('#userRole').textContent = USER ? t(ROLE_KEY(USER.role)) : '';
@@ -479,7 +479,7 @@
 
   SCREENS.Parent.checkin = async () => {
     showAnnPopups(); // must close active announcements before checking in/out
-    const kids=await api('parentChildren',parentScope());
+    const kids=await api('parentChildren',parentScope()); if(!kids.length){GO('home');return;}
     app.innerHTML = `<h2 class="page">${esc(t('title.checkin'))}</h2><div class="card">
       <label class="field"><span>เลือกบุตรหลาน</span><select id="kid">${kids.map(k=>`<option value="${k.StudentID}">${esc(nm(k))}</option>`).join('')}</select></label>
       <div class="seg"><button class="active" id="tIN" onclick="P_type('IN')">ส่งเข้าเรียน (IN)</button><button id="tOUT" onclick="P_type('OUT')">รับกลับ (OUT)</button></div>
@@ -518,7 +518,7 @@
   window.SAVE_IMG=(url,name)=>{ if(!url){toast(EN()?'No QR image set yet (add it in config)':'ยังไม่ได้ตั้งรูป QR (เพิ่มใน config)');return;} const a=document.createElement('a'); a.href=url; a.download=name; document.body.appendChild(a); a.click(); a.remove(); toast(EN()?'Saved '+name:'บันทึกรูปแล้ว'); };
 
   SCREENS.Parent.payment = async () => {
-    const kids=await api('parentChildren',parentScope()); const sid=kids[0].StudentID; window._PAY_SID=sid;
+    const kids=await api('parentChildren',parentScope()); if(!kids.length){GO('home');return;} const sid=kids[0].StudentID; window._PAY_SID=sid;
     const [ps, ot, pre] = await Promise.all([api('payments',{studentId:sid}), api('otDaily',{studentId:sid}), api('prepayments',{studentId:sid})]);
     const per=EN()?'Period ':'งวด ';
     const verifyPill=`<span class="pill wait">${esc(t('pay.pendingVerify'))}</span>`;
@@ -620,14 +620,14 @@
   window.P_cashDo=async(kind,id,amt,btn)=>{ const m=btn.closest('.modal');
     try{ await api('notifyCash',{kind,id,amount:amt,parentId:USER.parentId,uid:USER.uid}); m.remove(); confirmSaved(t('pay.cashNotified')); GO('payment'); }catch(e){err(e);} };
 
-  SCREENS.Parent.journal = async () => { const kids=await api('parentChildren',parentScope()); P_journal(kids[0].StudentID); };
+  SCREENS.Parent.journal = async () => { const kids=await api('parentChildren',parentScope()); if(!kids.length){GO('home');return;} P_journal(kids[0].StudentID); };
   window.P_journal = async (sid) => { setNav('journal'); let j=await api('getJournal',{studentId:sid}); const hist=await api('journalHistory',{studentId:sid});
     app.innerHTML=`<h2 class="page">${esc(t('title.journal'))}</h2>${j?journalChecklist(j):waitCard()}
       <h3 class="page" style="font-size:16px">ย้อนหลัง</h3>${hist.map(h=>`<div class="list-item"><span>${esc(h.Date)} · ${esc(MOODS[h.Mood]||'')} ${esc(h.Mood||'')}</span><button class="btn sm outline" onclick="P_showJ('${h.StudentID}','${h.Date}')">ดู</button></div>`).join('')||'<small class="muted">ไม่มี</small>'}`;
   };
   window.P_showJ=async(sid,date)=>{ const j=await api('getJournal',{studentId:sid,date}); app.innerHTML=`<h2 class="page">📒 ${esc(date)}</h2>${journalChecklist(j)}<button class="btn outline" onclick="GO('journal')">← กลับ</button>`; window.scrollTo(0,0); };
 
-  SCREENS.Parent.dspm = async () => { const kids=await api('parentChildren',parentScope()); P_dspm(kids[0].StudentID); };
+  SCREENS.Parent.dspm = async () => { const kids=await api('parentChildren',parentScope()); if(!kids.length){GO('home');return;} P_dspm(kids[0].StudentID); };
   const DSPM_PILL=r=>{const c=r==='ผ่าน'?'ok':r==='ไม่ผ่าน'?'bad':'wait';return `<span class="pill ${c}">${esc(tStat(r))}</span>`;};
   const DT_KEY={GM:'dom.GM',FM:'dom.FM',RL:'dom.RL',EL:'dom.EL',PS:'dom.PS'};
   const DT=new Proxy({},{get:(_,k)=>t(DT_KEY[k]||k)});
