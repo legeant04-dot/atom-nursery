@@ -50,7 +50,7 @@
   let CURRENT = 'home';
   const ROLE_KEY = r => ({Parent:'role.Parent',Teacher:'role.Teacher',Admin:'role.Admin'}[r]||r);
   function setHeader(){
-    $('#devbar').textContent = (!CONFIG.DEMO_MODE ? (EN()?'PRODUCTION · LINE login only':'โหมดใช้งานจริง · เข้าสู่ระบบผ่าน LINE เท่านั้น') : (CONFIG.MODE==='gas' ? (EN()?'Connected to Google Sheets (GAS)':'เชื่อมต่อข้อมูลจริงผ่าน GAS แล้ว') : t('devbar'))) + ' · v37';
+    $('#devbar').textContent = (!CONFIG.DEMO_MODE ? (EN()?'PRODUCTION · LINE login only':'โหมดใช้งานจริง · เข้าสู่ระบบผ่าน LINE เท่านั้น') : (CONFIG.MODE==='gas' ? (EN()?'Connected to Google Sheets (GAS)':'เชื่อมต่อข้อมูลจริงผ่าน GAS แล้ว') : t('devbar'))) + ' · v38';
     $('#langBtn').textContent = LANG()==='en' ? 'EN' : 'TH';
     $('#userName').textContent = USER ? USER.nameEN : '–';
     $('#userRole').textContent = USER ? t(ROLE_KEY(USER.role)) : '';
@@ -170,6 +170,7 @@
       <p class="muted">${esc(t('acct.sub'))}</p>
       <button class="role-card" onclick="REG_START()"><span class="ic">📝</span><span><b>${esc(t('acct.new'))}</b><br><small>${esc(t('acct.newSub'))}</small></span></button>
       <button class="role-card" onclick="chooserExisting()"><span class="ic">✅</span><span><b>${esc(t('acct.existing'))}</b><br><small>${esc(t('acct.existingSub'))}</small></span></button>
+      ${PENDING_LINE_UID?`<div class="card" style="background:#f7f9fc;margin-top:10px"><small class="muted">${EN()?'Your LINE ID (give this to the admin to link your staff account):':'LINE ID ของคุณ (ส่งให้แอดมินเพื่อผูกบัญชีพนักงาน):'}</small><br><code style="font-size:12px;word-break:break-all" onclick="navigator.clipboard&&navigator.clipboard.writeText('${esc(PENDING_LINE_UID)}')">${esc(PENDING_LINE_UID)}</code></div>`:''}
       <button class="btn-ghost block" style="margin-top:8px" onclick="loginScreen()">${esc(t('c.back'))}</button></div>`;
   }
   window.chooserExisting = ()=> chooser();
