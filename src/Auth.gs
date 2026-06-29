@@ -16,46 +16,79 @@ var USER_STATUS = { ACTIVE: 'ACTIVE', MUST_CHANGE: 'MUST_CHANGE_PASSWORD', DISAB
 
 // ---- Login --------------------------------------------------------
 /**
- * payload: { accessToken?, lineUid?, displayName? }
+ * payload: { accessToken?, lineUid?, displayName?, pictureUrl? }
  *  - accessToken (preferred): verified against LINE; its userId is trusted.
  *  - lineUid: dev/testing fallback when no token is supplied.
- * returns: { userId, role, linkedId, status, mustChangePassword, displayName }
+ * returns: { userId, role, linkedId, status, mustChangePassword, displayName, pictureUrl }
+ *
+ * Identity resolution (first match wins):
+ *   1) USERS sheet  — Admin-provisioned accounts (createUserAccount_).
+ *   2) PARENTS      — parents who self-registered with their LINE (PARENTS.LineUID).
+ *   3) STAFF        — staff/admin who bound their LINE (STAFF.LineUID).
+ * This lets self-registered parents log in immediately and keeps Admin-created
+ * USERS rows authoritative when both exist.
  */
 function handleAuth(payload) {
   payload = payload || {};
-  var uid = null, displayName = payload.displayName || '';
+  var uid = null, displayName = payload.displayName || '', pictureUrl = payload.pictureUrl || '';
 
   if (payload.accessToken) {
     var profile = verifyLineAccessToken_(payload.accessToken);
     if (!profile) throw apiError_('INVALID_TOKEN', 'LINE access token ไม่ถูกต้องหรือหมดอายุ');
     uid = profile.userId;
     displayName = profile.displayName || displayName;
+    pictureUrl = profile.pictureUrl || pictureUrl;
   } else if (payload.lineUid) {
     uid = payload.lineUid; // fallback for direct API testing
   }
   if (!uid) throw apiError_('NO_IDENTITY', 'ไม่พบ LINE access token หรือ lineUid ในคำขอ');
 
+  // 1) USERS (Admin-provisioned accounts win)
   var users = sheet_(getMainSpreadsheet_(), 'USERS');
-  var user = findObject_(users, function (u) { return String(u.LineUID) === String(uid); });
-
-  if (!user) {
-    logAudit(uid, 'LOGIN_DENIED_UNREGISTERED', 'USERS', '');
-    throw apiError_('NOT_REGISTERED', 'บัญชีนี้ยังไม่ได้ลงทะเบียนในระบบ กรุณาติดต่อผู้ดูแล (Admin)');
+  var user = findObject_(users, function (u) { return u.LineUID && String(u.LineUID) === String(uid); });
+  if (user) {
+    if (String(user.Status) === USER_STATUS.DISABLED) {
+      logAudit(user.UserID, 'LOGIN_DENIED_DISABLED', 'USERS', user.UserID);
+      throw apiError_('DISABLED', 'บัญชีนี้ถูกระงับการใช้งาน');
+    }
+    logAudit(user.UserID, 'LOGIN', 'USERS', user.UserID);
+    return {
+      userId: user.UserID, role: user.Role, linkedId: user.LinkedID, status: user.Status,
+      mustChangePassword: String(user.Status) === USER_STATUS.MUST_CHANGE,
+      displayName: displayName, pictureUrl: pictureUrl
+    };
   }
-  if (String(user.Status) === USER_STATUS.DISABLED) {
-    logAudit(user.UserID, 'LOGIN_DENIED_DISABLED', 'USERS', user.UserID);
-    throw apiError_('DISABLED', 'บัญชีนี้ถูกระงับการใช้งาน');
+
+  // 2) PARENTS (self-registered via LINE)
+  var parents = sheet_(getMainSpreadsheet_(), 'PARENTS');
+  var par = findObject_(parents, function (pr) { return pr.LineUID && String(pr.LineUID) === String(uid); });
+  if (par) {
+    logAudit(uid, 'LOGIN', 'PARENTS', par.ParentID);
+    return {
+      userId: par.ParentID, role: ROLES.PARENT, linkedId: par.ParentID, status: USER_STATUS.ACTIVE,
+      mustChangePassword: false,
+      displayName: displayName || par.NameEN || par.Name || '', pictureUrl: pictureUrl
+    };
   }
 
-  logAudit(user.UserID, 'LOGIN', 'USERS', user.UserID);
-  return {
-    userId: user.UserID,
-    role: user.Role,
-    linkedId: user.LinkedID,
-    status: user.Status,
-    mustChangePassword: String(user.Status) === USER_STATUS.MUST_CHANGE,
-    displayName: displayName
-  };
+  // 3) STAFF (LINE-bound staff/admin) — role comes from STAFF.Role
+  var staff = sheet_(getHrSpreadsheet_(), 'STAFF');
+  var st = findObject_(staff, function (s) { return s.LineUID && String(s.LineUID) === String(uid); });
+  if (st) {
+    if (String(st.Status) && String(st.Status) !== 'ACTIVE') {
+      logAudit(st.StaffID, 'LOGIN_DENIED_DISABLED', 'STAFF', st.StaffID);
+      throw apiError_('DISABLED', 'บัญชีนี้ถูกระงับการใช้งาน');
+    }
+    logAudit(st.StaffID, 'LOGIN', 'STAFF', st.StaffID);
+    return {
+      userId: st.StaffID, role: st.Role, linkedId: st.StaffID, status: USER_STATUS.ACTIVE,
+      mustChangePassword: false,
+      displayName: displayName || st.NameEN || st.Name || '', pictureUrl: pictureUrl
+    };
+  }
+
+  logAudit(uid, 'LOGIN_DENIED_UNREGISTERED', 'AUTH', '');
+  throw apiError_('NOT_REGISTERED', 'บัญชีนี้ยังไม่ได้ลงทะเบียนในระบบ กรุณาติดต่อผู้ดูแล (Admin)');
 }
 
 // ---- Account creation (Admin-triggered) ---------------------------
