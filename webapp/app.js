@@ -50,7 +50,7 @@
   let CURRENT = 'home';
   const ROLE_KEY = r => ({Parent:'role.Parent',Teacher:'role.Teacher',Admin:'role.Admin'}[r]||r);
   function setHeader(){
-    $('#devbar').textContent = t('devbar') + ' · v32';
+    $('#devbar').textContent = t('devbar') + ' · v33';
     $('#langBtn').textContent = LANG()==='en' ? 'EN' : 'TH';
     $('#userName').textContent = USER ? USER.nameEN : '–';
     $('#userRole').textContent = USER ? t(ROLE_KEY(USER.role)) : '';
@@ -634,10 +634,15 @@
   window.P_dspm = async (sid) => { setNav('dspm'); const st=MOCK.students.find(x=>x.StudentID===sid)||{};
     // growth chart + vaccine card always render; the age-band assessment may be absent
     // (no DSPM_CRITERIA seeded for this age) — guard each call so the page never blanks.
-    const [g,vsched,vrecs]=await Promise.all([api('growthHistory',{studentId:sid}),api('vaccineSchedule'),api('studentVaccines',{studentId:sid})]);
-    let s=null, all={bands:[]};
-    try{ s=await api('dspmStatus',{studentId:sid}); }catch(e){ /* NO_CRITERIA for this age band */ }
-    try{ all=await api('studentAllBands',{studentId:sid}); }catch(e){}
+    // all 5 calls created in one tick → micro-batched into ONE GAS round-trip; allSettled so a
+    // NO_CRITERIA from dspmStatus (no band for this age) doesn't blank the page.
+    const [rg,rvs,rvr,rs,rall]=await Promise.allSettled([
+      api('growthHistory',{studentId:sid}),api('vaccineSchedule'),api('studentVaccines',{studentId:sid}),
+      api('dspmStatus',{studentId:sid}),api('studentAllBands',{studentId:sid})]);
+    const g=rg.status==='fulfilled'?rg.value:{records:[]};
+    const vsched=rvs.status==='fulfilled'?rvs.value:[]; const vrecs=rvr.status==='fulfilled'?rvr.value:[];
+    const s=rs.status==='fulfilled'?rs.value:null;            // NO_CRITERIA for this age → null
+    const all=rall.status==='fulfilled'?rall.value:{bands:[]};
     const ageMo = (window.AGEMONTHS&&st.DOB)?window.AGEMONTHS(st.DOB):(s?s.ageMonth:'');
     const past=(all.bands||[]).filter(b=>!s||b.label!==s.ageLabel);
     const itemRow=i=>`<div class="list-item"><span><b>ข้อ ${i.itemNo}</b> <span class="pill info">${i.skill}</span> · ${DT[i.skill]||''}<br><small>${esc(EN()&&i.descriptionEN?i.descriptionEN:i.description)}</small></span>${DSPM_PILL(i.result)}</div>`;
