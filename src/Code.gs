@@ -44,8 +44,8 @@ var ROUTES = {
   insuranceList:      function ()  { return handleInsuranceList(); },
   saveInsuranceAdmin: function (p) { return handleSaveInsuranceAdmin(p); },
   verifySlip:         function (p) { return handleVerifySlip(p); },
-  // TEST ONLY — seed fake mock data (gated by SeedMockKey). Remove before go-live with real data.
-  seedMock:           function (p) { return handleSeedMock(p); },
+  // seedMock route REMOVED for go-live (PDPA): the test-seed endpoint is disabled. SeedMock.gs
+  // is kept in the project so it can be re-enabled for dev by re-adding this route.
   // run many actions in one round-trip (sharing one hydrated M) — front-end micro-batches screen loads
   batch:              function (p) { return handleBatch(p); }
 };
