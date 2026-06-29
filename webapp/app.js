@@ -50,7 +50,7 @@
   let CURRENT = 'home';
   const ROLE_KEY = r => ({Parent:'role.Parent',Teacher:'role.Teacher',Admin:'role.Admin'}[r]||r);
   function setHeader(){
-    $('#devbar').textContent = t('devbar') + ' · v33';
+    $('#devbar').textContent = t('devbar') + ' · v34';
     $('#langBtn').textContent = LANG()==='en' ? 'EN' : 'TH';
     $('#userName').textContent = USER ? USER.nameEN : '–';
     $('#userRole').textContent = USER ? t(ROLE_KEY(USER.role)) : '';
@@ -78,6 +78,10 @@
     nav.innerHTML = NAVS[USER.role].map(([k,ic,l])=>`<button class="${k===active?'active':''}" onclick="GO('${k}')"><span class="ic">${ic}</span>${esc(t(l))}</button>`).join(''); }
 
   window.GO = function(screen){ CURRENT=screen; setNav(screen); const fn=(SCREENS[USER.role]||{})[screen]; if(fn)fn(); else app.innerHTML=`<div class="card">หน้านี้กำลังพัฒนา</div>`; window.scrollTo(0,0); };
+  // SWR hook: api.js calls this when a background refresh found newer data than what's shown.
+  // Re-render the current screen, but never interrupt an open modal or active typing.
+  window.__atomRevalidate = () => { if(!USER||!CURRENT) return; if(document.querySelector('.modal')) return;
+    const ae=document.activeElement; if(ae && /^(INPUT|TEXTAREA|SELECT)$/.test(ae.tagName)) return; GO(CURRENT); };
   function confirmSaved(msg){ msg=msg||t('c.saved'); if(window.trPhrase)msg=trPhrase(msg); const b=document.createElement('div'); b.className='savebar'; b.innerHTML=`✅ ${esc(msg)}`; document.body.appendChild(b); requestAnimationFrame(()=>b.classList.add('show')); setTimeout(()=>{b.classList.remove('show');setTimeout(()=>b.remove(),300);},1800); }
 
   function chooser(){ USER=null; AUTH_RENDER=chooser; setHeader(); nav.hidden=true;
@@ -110,6 +114,9 @@
   };
   // log in with real GAS auth result (LIFF flow)
   window.LOGIN_REAL = function(role, linkedId, displayName, pictureUrl) {
+    // different LINE account on this device → drop the previous user's cached data
+    try{ const uid=PENDING_LINE_UID||linkedId; const last=localStorage.getItem('atom_last_uid');
+      if(last && last!==uid && window.__atomCacheClear) window.__atomCacheClear(); localStorage.setItem('atom_last_uid', uid); }catch(e){}
     const roleKey = role === 'Admin' ? 'Admin' : role === 'Leader' ? 'Leader' : role === 'Teacher' ? 'Teacher' : 'Parent';
     USER = { role, _roleKey: roleKey, nameEN: displayName || roleKey, nameTH: displayName || roleKey };
     if (role === 'Parent') { USER.parentId = linkedId; USER.uid = PENDING_LINE_UID || linkedId; }
@@ -121,6 +128,7 @@
   function logout(){
     try{ localStorage.removeItem('atom_session'); }catch(e){}
     USER=null; PENDING_PROVIDER=null; PENDING_LINE_UID=null;
+    if (window.__atomCacheClear) window.__atomCacheClear(); // don't leave one account's data for the next login
     if (CONFIG.MODE === 'gas' && CONFIG.LIFF_ID && window.liff && liff.isLoggedIn()) { liff.logout(); }
     loginScreen();
   }

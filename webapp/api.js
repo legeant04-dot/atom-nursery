@@ -17,8 +17,24 @@ window.CONFIG = { MODE: 'gas', GAS_URL: 'https://script.google.com/macros/s/AKfy
 
   const postGas = body => fetch(CONFIG.GAS_URL, { method: 'POST', body: JSON.stringify(body) }).then(r => r.json());
 
-  // client read cache: serve recent read results instantly (snappy re-navigation). A write busts the whole cache.
-  const _rc = new Map(); const RC_TTL = 30000;
+  // ---- client read cache: persistent (localStorage) + stale-while-revalidate ----
+  // Perceived zero-lag: a read paints instantly from the last-known value stored on the
+  // device, then refreshes in the background and re-renders only if the data changed.
+  const RC_TTL = 30000;            // younger than this → serve cache without hitting the network
+  const CACHE_NS = 'atom_rc_v1_';  // bump to invalidate persisted cache across incompatible deploys
+  const MAX_PERSIST = 120000;      // skip persisting entries larger than ~120KB (keeps localStorage healthy)
+  const _rc = new Map();
+  // hydrate from localStorage so a cold app start (reopen) is already warm
+  try { for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i);
+    if (k && k.indexOf(CACHE_NS) === 0) { try { _rc.set(k.slice(CACHE_NS.length), JSON.parse(localStorage.getItem(k))); } catch (x) {} } } } catch (e) {}
+  function rcPrune() { try { const es = [..._rc.entries()].sort((a, b) => a[1].t - b[1].t); const n = Math.ceil(es.length / 2);
+    for (let i = 0; i < n; i++) localStorage.removeItem(CACHE_NS + es[i][0]); } catch (e) {} }
+  function rcSet(ck, data) { const e = { t: Date.now(), data: data }; _rc.set(ck, e);
+    try { const s = JSON.stringify(e); if (s.length <= MAX_PERSIST) localStorage.setItem(CACHE_NS + ck, s); }
+    catch (x) { rcPrune(); try { localStorage.setItem(CACHE_NS + ck, JSON.stringify(e)); } catch (y) {} } }
+  function rcClear() { _rc.clear();
+    try { const ks = []; for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); if (k && k.indexOf(CACHE_NS) === 0) ks.push(k); } ks.forEach(k => localStorage.removeItem(k)); } catch (e) {} }
+  window.__atomCacheClear = rcClear; // app.js clears on logout / user switch (don't leak data across LINE accounts)
   const MUT = /^(submit|save|add|remove|delete|set|register|pay|confirm|reject|issue|generate|move|export|import|compute|cancel|prepay|link|notify|request|mark|approve|edit|rename|update|change|seed)/i;
   const isMutating = a => MUT.test(a) || /check(in|out)|absence/i.test(a);
 
@@ -44,14 +60,35 @@ window.CONFIG = { MODE: 'gas', GAS_URL: 'https://script.google.com/macros/s/AKfy
       .catch(e => q.forEach(c => c.rej(e)));
   }
 
+  // stale-while-revalidate: refetch a cached read in the background; re-render only if it changed.
+  const _inflight = new Set(); let _renderT = null;
+  function scheduleRender() { clearTimeout(_renderT); _renderT = setTimeout(() => { try { if (window.__atomRevalidate) window.__atomRevalidate(); } catch (e) {} }, 150); }
+  function revalidate(ck) {
+    if (_inflight.has(ck)) return; _inflight.add(ck);
+    const i = ck.indexOf('|'); const action = ck.slice(0, i); let payload = {};
+    try { payload = JSON.parse(ck.slice(i + 1) || '{}'); } catch (e) {}
+    enqueueGas(action, payload).then(d => { const prev = _rc.get(ck); rcSet(ck, d);
+      if (!prev || JSON.stringify(prev.data) !== JSON.stringify(d)) scheduleRender(); })
+      .catch(() => {}).then(() => _inflight.delete(ck));
+  }
+  // refresh everything cached in one batched tick (used on app-focus + a light 60s heartbeat)
+  function revalidateAll() { _rc.forEach((e, ck) => revalidate(ck)); }
+  if (typeof document !== 'undefined') {
+    document.addEventListener('visibilitychange', () => { if (!document.hidden && CONFIG.MODE === 'gas') revalidateAll(); });
+    setInterval(() => { if (!document.hidden && CONFIG.MODE === 'gas') revalidateAll(); }, 60000); // “latest data every minute”
+  }
+
   window.api = function (action, payload) {
     payload = payload || {};
     if (CONFIG.MODE === 'gas') {
-      if (isMutating(action)) { _rc.clear(); return enqueueGas(action, payload); }   // write → bust cache
+      if (isMutating(action)) { rcClear(); return enqueueGas(action, payload); }      // write → bust cache (memory + disk)
       const ck = action + '|' + JSON.stringify(payload);
       const hit = _rc.get(ck);
-      if (hit && Date.now() - hit.t < RC_TTL) return Promise.resolve(hit.data);       // fresh cache → instant
-      return enqueueGas(action, payload).then(d => { _rc.set(ck, { t: Date.now(), data: d }); return d; });
+      if (hit) {                                                                        // local-first: paint instantly
+        if (Date.now() - hit.t >= RC_TTL) revalidate(ck);                               // stale → refresh in background
+        return Promise.resolve(hit.data);
+      }
+      return enqueueGas(action, payload).then(d => { rcSet(ck, d); return d; });        // first time → must fetch
     }
     return new Promise((res, rej) => setTimeout(() => {
       try { const h = H[action]; if (!h) { const e = new Error('ไม่รู้จัก action: ' + action); e.code = 'UNKNOWN_ACTION'; throw e; } res(h(payload)); }
