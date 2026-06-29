@@ -14,6 +14,35 @@
 var ROLES = { ADMIN: 'Admin', TEACHER: 'Teacher', PARENT: 'Parent' };
 var USER_STATUS = { ACTIVE: 'ACTIVE', MUST_CHANGE: 'MUST_CHANGE_PASSWORD', DISABLED: 'DISABLED' };
 
+// ---- Session tokens (HMAC-signed) ---------------------------------
+// On auth we mint a stateless token = base64url(payload) + "." + base64url(HMAC-SHA256).
+// The client sends it with every request; the server verifies it and derives the caller's
+// identity FROM THE TOKEN (never trusting client-supplied uid/role), so anonymous callers
+// can't read other people's data. Enforced only when SCHOOL_CONFIG RequireSessionToken='true'.
+var SESSION_TTL_SEC = 43200; // 12h
+function sessionSecret_() {
+  var sp = PropertiesService.getScriptProperties();
+  var s = sp.getProperty('SESSION_SECRET');
+  if (!s) { s = Utilities.getUuid() + Utilities.getUuid(); sp.setProperty('SESSION_SECRET', s); }
+  return s;
+}
+function issueSession_(uid, role, linkedId) {
+  var body = Utilities.base64EncodeWebSafe(JSON.stringify({ uid: uid, role: role, linkedId: linkedId, exp: Date.now() + SESSION_TTL_SEC * 1000 }));
+  var sig = Utilities.base64EncodeWebSafe(Utilities.computeHmacSha256Signature(body, sessionSecret_()));
+  return body + '.' + sig;
+}
+function verifySession_(token) {
+  if (!token || String(token).indexOf('.') < 0) return null;
+  var parts = String(token).split('.');
+  var expSig = Utilities.base64EncodeWebSafe(Utilities.computeHmacSha256Signature(parts[0], sessionSecret_()));
+  if (expSig !== parts[1]) return null;                                   // bad signature → forged/tampered
+  try {
+    var p = JSON.parse(Utilities.newBlob(Utilities.base64DecodeWebSafe(parts[0])).getDataAsString());
+    if (!p.exp || Date.now() > p.exp) return null;                        // expired
+    return p;
+  } catch (e) { return null; }
+}
+
 // ---- Login --------------------------------------------------------
 /**
  * payload: { accessToken?, lineUid?, displayName?, pictureUrl? }
@@ -55,7 +84,8 @@ function handleAuth(payload) {
     return {
       userId: user.UserID, role: user.Role, linkedId: user.LinkedID, status: user.Status,
       mustChangePassword: String(user.Status) === USER_STATUS.MUST_CHANGE,
-      displayName: displayName, pictureUrl: pictureUrl
+      displayName: displayName, pictureUrl: pictureUrl,
+      token: issueSession_(uid, user.Role, user.LinkedID)
     };
   }
 
@@ -67,7 +97,8 @@ function handleAuth(payload) {
     return {
       userId: par.ParentID, role: ROLES.PARENT, linkedId: par.ParentID, status: USER_STATUS.ACTIVE,
       mustChangePassword: false,
-      displayName: displayName || par.NameEN || par.Name || '', pictureUrl: pictureUrl
+      displayName: displayName || par.NameEN || par.Name || '', pictureUrl: pictureUrl,
+      token: issueSession_(uid, ROLES.PARENT, par.ParentID)
     };
   }
 
@@ -83,7 +114,8 @@ function handleAuth(payload) {
     return {
       userId: st.StaffID, role: st.Role, linkedId: st.StaffID, status: USER_STATUS.ACTIVE,
       mustChangePassword: false,
-      displayName: displayName || st.NameEN || st.Name || '', pictureUrl: pictureUrl
+      displayName: displayName || st.NameEN || st.Name || '', pictureUrl: pictureUrl,
+      token: issueSession_(uid, st.Role, st.StaffID)
     };
   }
 

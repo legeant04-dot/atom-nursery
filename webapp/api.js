@@ -15,7 +15,11 @@ window.CONFIG = { MODE: 'gas', GAS_URL: 'https://script.google.com/macros/s/AKfy
   const H = E.H;
   window.AGEMONTHS = E.ageMonths;
 
-  const postGas = body => fetch(CONFIG.GAS_URL, { method: 'POST', body: JSON.stringify(body) }).then(r => r.json());
+  // HMAC session token from auth — sent with every request so the server can verify the caller
+  // and authorize by their real identity (enforced server-side once RequireSessionToken='true').
+  let _session = null; try { _session = localStorage.getItem('atom_session_token') || null; } catch (e) {}
+  window.__atomClearSession = () => { _session = null; try { localStorage.removeItem('atom_session_token'); } catch (e) {} };
+  const postGas = body => fetch(CONFIG.GAS_URL, { method: 'POST', body: JSON.stringify(Object.assign({ token: _session }, body)) }).then(r => r.json());
 
   // ---- client read cache: persistent (localStorage) + stale-while-revalidate ----
   // Perceived zero-lag: a read paints instantly from the last-known value stored on the
@@ -81,6 +85,9 @@ window.CONFIG = { MODE: 'gas', GAS_URL: 'https://script.google.com/macros/s/AKfy
   window.api = function (action, payload) {
     payload = payload || {};
     if (CONFIG.MODE === 'gas') {
+      if (action === 'auth') {                                                          // capture the session token; never cache auth
+        return enqueueGas(action, payload).then(d => { if (d && d.token) { _session = d.token; try { localStorage.setItem('atom_session_token', d.token); } catch (e) {} } return d; });
+      }
       if (isMutating(action)) { rcClear(); return enqueueGas(action, payload); }      // write → bust cache (memory + disk)
       const ck = action + '|' + JSON.stringify(payload);
       const hit = _rc.get(ck);

@@ -68,6 +68,10 @@ module.exports = function (files, srcDir) {
     getUuid: () => crypto.randomUUID(),
     DigestAlgorithm: { SHA_256: 1 }, Charset: { UTF_8: 1 },
     computeDigest: (_a, s) => { const h = crypto.createHash('sha256').update(s, 'utf8').digest(); return Array.from(h).map(b => b > 127 ? b - 256 : b); },
+    computeHmacSha256Signature: (msg, key) => { const h = crypto.createHmac('sha256', key).update(String(msg), 'utf8').digest(); return Array.from(h).map(b => b > 127 ? b - 256 : b); },
+    base64EncodeWebSafe: data => { const buf = Array.isArray(data) ? Buffer.from(data.map(b => b < 0 ? b + 256 : b)) : Buffer.from(String(data), 'utf8'); return buf.toString('base64url'); },
+    base64DecodeWebSafe: str => Array.from(Buffer.from(String(str), 'base64url')).map(b => b > 127 ? b - 256 : b),
+    newBlob: bytes => ({ getDataAsString: () => Buffer.from((Array.isArray(bytes) ? bytes : []).map(b => b < 0 ? b + 256 : b)).toString('utf8') }),
     formatDate: (d, tz, fmt) => {
       const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
       if (fmt === 'yyyy-MM-dd') return d.getFullYear() + '-' + p2(d.getMonth() + 1) + '-' + p2(d.getDate());
