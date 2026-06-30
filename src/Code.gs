@@ -46,9 +46,8 @@ var ROUTES = {
   verifySlip:         function (p) { return handleVerifySlip(p); },
   // seedMock route REMOVED for go-live (PDPA): the test-seed endpoint is disabled. SeedMock.gs
   // is kept in the project so it can be re-enabled for dev by re-adding this route.
-  // ONE-TIME real-data import (gated by ImportKey) — REMOVE after go-live import is verified.
-  importData:         function (p) { return handleImport(p); },
-  bindStaff:          function (p) { return handleBindStaff(p); },
+  // import/bind/addUser/setConfig routes REMOVED after go-live (they wipe data / grant admin and
+  // had no role-check). Import.gs is kept; re-add a route here temporarily if another import is needed.
   // run many actions in one round-trip (sharing one hydrated M) — front-end micro-batches screen loads
   batch:              function (p) { return handleBatch(p); }
 };

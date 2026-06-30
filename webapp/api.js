@@ -5,7 +5,7 @@
  */
 // DEMO_MODE=true keeps the role chooser / demo logins for testing. At go-live flip it to false
 // (LINE-only login) AND set SCHOOL_CONFIG RequireSessionToken='true' (server-side enforcement).
-window.CONFIG = { MODE: 'gas', GAS_URL: 'https://script.google.com/macros/s/AKfycbxWUgs0oPyEN52F1qCGETDDbOVGeIBKe18u8_vDYz5bjKrHuS7V541oaeWqWPBsx-7d/exec', LIFF_ID: '2010457597-hcIeTe2L', DEMO_MODE: true };
+window.CONFIG = { MODE: 'gas', GAS_URL: 'https://script.google.com/macros/s/AKfycbxWUgs0oPyEN52F1qCGETDDbOVGeIBKe18u8_vDYz5bjKrHuS7V541oaeWqWPBsx-7d/exec', LIFF_ID: '2010457597-hcIeTe2L', DEMO_MODE: false };
 
 (function () {
   const M = window.MOCK;
