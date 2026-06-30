@@ -119,8 +119,15 @@ function handleAuth(payload) {
     };
   }
 
-  logAudit(uid, 'LOGIN_DENIED_UNREGISTERED', 'AUTH', '');
-  throw apiError_('NOT_REGISTERED', 'บัญชีนี้ยังไม่ได้ลงทะเบียนในระบบ กรุณาติดต่อผู้ดูแล (Admin)');
+  // Unknown LINE user → not an error: issue a limited GUEST token so they can self-register / link a
+  // child (the only actions a guest may call — see applyIdentity_). After registering, the client
+  // re-auths and gets a full Parent token. This keeps onboarding working under token enforcement.
+  logAudit(uid, 'LOGIN_GUEST_UNREGISTERED', 'AUTH', '');
+  return {
+    userId: '', role: 'guest', linkedId: '', status: 'GUEST', mustChangePassword: false,
+    needsRegistration: true, displayName: displayName, pictureUrl: pictureUrl,
+    token: issueSession_(uid, 'guest', '')
+  };
 }
 
 // ---- Account creation (Admin-triggered) ---------------------------
