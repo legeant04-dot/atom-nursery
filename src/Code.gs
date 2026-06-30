@@ -85,6 +85,12 @@ function applyIdentity_(action, payload, sess) {
   payload = payload || {};
   if (!sessionRequired_() || publicAction_(action)) return payload;       // dormant → current behavior
   if (!sess) throw apiError_('NO_SESSION', 'ต้องเข้าสู่ระบบใหม่ (เซสชันหมดอายุ)');
+  if (sess.role === 'guest') {                                            // unregistered LINE user: onboarding only
+    var ONBOARD = { registerParent: 1, addChildNew: 1, linkExisting: 1, registerNew: 1 };
+    if (!ONBOARD[action]) throw apiError_('NEEDS_REGISTRATION', 'กรุณาลงทะเบียนก่อนใช้งาน');
+    payload.uid = sess.uid;                                               // link records to the verified LINE id
+    return payload;
+  }
   payload.uid = sess.uid; payload.role = sess.role;                       // overwrite — never trust client identity
   if (sess.role === ROLES.PARENT) {
     payload.parentId = sess.linkedId;

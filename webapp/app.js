@@ -50,7 +50,7 @@
   let CURRENT = 'home';
   const ROLE_KEY = r => ({Parent:'role.Parent',Teacher:'role.Teacher',Admin:'role.Admin'}[r]||r);
   function setHeader(){
-    $('#devbar').textContent = (!CONFIG.DEMO_MODE ? (EN()?'PRODUCTION · LINE login only':'โหมดใช้งานจริง · เข้าสู่ระบบผ่าน LINE เท่านั้น') : (CONFIG.MODE==='gas' ? (EN()?'Connected to Google Sheets (GAS)':'เชื่อมต่อข้อมูลจริงผ่าน GAS แล้ว') : t('devbar'))) + ' · v39';
+    $('#devbar').textContent = (!CONFIG.DEMO_MODE ? (EN()?'PRODUCTION · LINE login only':'โหมดใช้งานจริง · เข้าสู่ระบบผ่าน LINE เท่านั้น') : (CONFIG.MODE==='gas' ? (EN()?'Connected to Google Sheets (GAS)':'เชื่อมต่อข้อมูลจริงผ่าน GAS แล้ว') : t('devbar'))) + ' · v40';
     $('#langBtn').textContent = LANG()==='en' ? 'EN' : 'TH';
     $('#userName').textContent = USER ? USER.nameEN : '–';
     $('#userRole').textContent = USER ? t(ROLE_KEY(USER.role)) : '';
@@ -162,6 +162,13 @@
     PROVIDER('LINE');
   };
   window.PROVIDER = (id) => { PENDING_PROVIDER = id; accountStage(); };
+  // After a guest registers, re-auth to swap the limited guest token for a full Parent token
+  // (so data screens work). No-op outside gas+LIFF.
+  window.UPGRADE_SESSION = async () => {
+    if (CONFIG.MODE === 'gas' && CONFIG.LIFF_ID && window.liff && liff.isLoggedIn()) {
+      try { await api('auth', { accessToken: liff.getAccessToken() }); } catch (e) {}
+    }
+  };
 
   // ---- after provider: new vs existing user ----
   function accountStage(){ USER=null; AUTH_RENDER=accountStage; setHeader(); nav.hidden=true;
@@ -199,12 +206,10 @@
             // send the verifiable access token (NOT the raw userId): GAS verifies it server-side
             // via LINE's profile endpoint and trusts the resulting userId — prevents UID spoofing.
             api('auth', { accessToken: liff.getAccessToken(), displayName: profile.displayName, pictureUrl: profile.pictureUrl }).then(u => {
+              if (u.role === 'guest') { PENDING_PROVIDER = 'LINE'; accountStage(); applyLangNow(); return; } // unregistered → onboarding
               LOGIN_REAL(u.role, u.linkedId, u.displayName || profile.displayName, u.pictureUrl || profile.pictureUrl);
               applyLangNow();
-            }).catch(e => {
-              if (e.code === 'NOT_REGISTERED') { PENDING_PROVIDER = 'LINE'; accountStage(); applyLangNow(); }
-              else { toast('⚠️ ' + (e.message || e)); fallback(); }
-            });
+            }).catch(e => { toast('⚠️ ' + (e.message || e)); fallback(); });
           }).catch(fallback);
         } else { fallback(); }
       }).catch(fallback);
@@ -246,6 +251,7 @@
     const uid=PENDING_LINE_UID||(PENDING_PROVIDER||'LINE')+'_'+Date.now();
     const parent={NameTH:v('#rPNameTH'),NameEN:v('#rPNameEN'),Relationship:$('#rRel').value,NationalID:v('#rPNID'),Phone:v('#rPPhone'),OfficePhone:v('#rPOffice'),Occupation:v('#rPOcc'),Workplace:v('#rPWork'),Address:v('#rPAddr'),Photo:parentPhoto,LineUID:uid};
     try{ const r=await api('registerParent',{uid,parent});
+      await UPGRADE_SESSION(); // guest token → Parent token now that a PARENTS row exists
       confirmSaved(EN()?'Registered — now add your child':'ลงทะเบียนแล้ว — เพิ่มข้อมูลบุตรหลานต่อ');
       LOGIN_PARENT({nameTH:parent.NameTH,nameEN:parent.NameEN||parent.NameTH,parentId:r.parentId,uid});
       setTimeout(()=>P_addChild(),300); // prompt to add/link a child right after
