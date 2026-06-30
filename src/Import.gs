@@ -55,3 +55,59 @@ function handleBindStaff(p) {
   try { CacheService.getScriptCache().removeAll(['col:STAFF', 'rows:STAFF']); } catch (e) {}
   return { ok: true, staffId: p.staffId, lineUid: p.lineUid, role: p.role || st.Role };
 }
+
+/** Batch-provision staff: bind LineUID + set Role/PositionLevel/ReportsTo for many at once.
+ *  payload: { key, list:[{id, lineUid?, role?, positionLevel?, reportsTo?}] }  (uses `id`, NOT
+ *  `staffId`, because applyIdentity_ overwrites payload.staffId from the caller's token.)
+ *  Gated by ImportKey. REMOVE with Import.gs after provisioning. */
+function handleProvisionStaff(p) {
+  var key = getConfig_('ImportKey', 'atom-import-2026');
+  if (!p || String(p.key) !== String(key)) throw apiError_('FORBIDDEN', 'provisionStaff: bad or missing key');
+  var staff = sheet_(getHrSpreadsheet_(), 'STAFF');
+  var done = [];
+  (p.list || []).forEach(function (it) {
+    var st = findObject_(staff, function (s) { return String(s.StaffID) === String(it.id); });
+    if (!st) { done.push(it.id + ':NOT_FOUND'); return; }
+    var patch = {};
+    if (it.lineUid) patch.LineUID = it.lineUid;
+    if (it.role) patch.Role = it.role;
+    if (it.positionLevel) patch.PositionLevel = it.positionLevel;
+    if (it.reportsTo) patch.ReportsTo = it.reportsTo;
+    updateRow_(staff, st._row, patch);
+    done.push(it.id + ':ok');
+  });
+  try { CacheService.getScriptCache().removeAll(['col:STAFF', 'rows:STAFF']); } catch (e) {}
+  return { ok: true, done: done };
+}
+
+/** Set a SCHOOL_CONFIG key directly (e.g. flip RequireSessionToken at go-live) + flush the config cache.
+ *  payload: { key, cfgKey, cfgValue }  — gated by ImportKey. REMOVE with Import.gs at go-live. */
+function handleSetConfig(p) {
+  var key = getConfig_('ImportKey', 'atom-import-2026');
+  if (!p || String(p.key) !== String(key)) throw apiError_('FORBIDDEN', 'setConfig: bad or missing key');
+  if (!p.cfgKey) throw apiError_('BAD_INPUT', 'ต้องระบุ cfgKey');
+  var cfg = sheet_(getMainSpreadsheet_(), 'SCHOOL_CONFIG');
+  var r = findObject_(cfg, function (x) { return String(x.Key) === String(p.cfgKey); });
+  if (r) updateRow_(cfg, r._row, { Value: p.cfgValue });
+  else appendObject_(cfg, { Key: p.cfgKey, Value: p.cfgValue });
+  try { _configCache = null; } catch (e) {}
+  try { CacheService.getScriptCache().remove('cfg'); } catch (e) {}
+  return { ok: true, cfgKey: p.cfgKey, cfgValue: p.cfgValue };
+}
+
+/** Grant a LINE userId a role via the USERS sheet (e.g. a system/dev admin who isn't school staff).
+ *  payload: { key, lineUid, role, linkedId? }  — gated by ImportKey. REMOVE with Import.gs at go-live. */
+function handleAddUser(p) {
+  var key = getConfig_('ImportKey', 'atom-import-2026');
+  if (!p || String(p.key) !== String(key)) throw apiError_('FORBIDDEN', 'addUser: bad or missing key');
+  if (!p.lineUid || !p.role) throw apiError_('BAD_INPUT', 'ต้องระบุ lineUid และ role');
+  var users = sheet_(getMainSpreadsheet_(), 'USERS');
+  var ex = findObject_(users, function (u) { return String(u.LineUID) === String(p.lineUid); });
+  if (ex) { updateRow_(users, ex._row, { Role: p.role, LinkedID: p.linkedId || ex.LinkedID, Status: 'ACTIVE' });
+    try { CacheService.getScriptCache().removeAll(['col:USERS', 'rows:USERS']); } catch (e) {}
+    return { ok: true, updated: ex.UserID, role: p.role }; }
+  var uid = nextId_(users, 'UserID', 'U');
+  appendObject_(users, { UserID: uid, LineUID: p.lineUid, Role: p.role, LinkedID: p.linkedId || '', PasswordHash: '', CreatedDate: new Date(), Status: 'ACTIVE' });
+  try { CacheService.getScriptCache().removeAll(['col:USERS', 'rows:USERS']); } catch (e) {}
+  return { ok: true, userId: uid, role: p.role };
+}
