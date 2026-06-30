@@ -48,6 +48,7 @@ var ROUTES = {
   // is kept in the project so it can be re-enabled for dev by re-adding this route.
   // import/bind/addUser/setConfig routes REMOVED after go-live (they wipe data / grant admin and
   // had no role-check). Import.gs is kept; re-add a route here temporarily if another import is needed.
+  // provisionStaff route removed again after binding the current staff (re-add temporarily if needed).
   // run many actions in one round-trip (sharing one hydrated M) — front-end micro-batches screen loads
   batch:              function (p) { return handleBatch(p); }
 };
