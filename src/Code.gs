@@ -95,9 +95,11 @@ function applyIdentity_(action, payload, sess) {
   if (sess.role === ROLES.PARENT) {
     payload.parentId = sess.linkedId;
     if (payload.studentId && !parentOwnsStudent_(sess.uid, payload.studentId)) throw apiError_('NO_ACCESS', 'ไม่มีสิทธิ์เข้าถึงข้อมูลนักเรียนนี้');
-  } else {
-    payload.staffId = sess.linkedId;
+  } else if (sess.role !== 'Admin') {
+    payload.staffId = sess.linkedId;                                      // teacher/leader act only as themselves
   }
+  // Admin: do NOT overwrite staffId — admin actions legitimately target OTHER staff
+  // (setRequireCheckin/saveStaff/deleteStaff/computePayroll…); admin has full edit rights.
   return payload;
 }
 function parentOwnsStudent_(uid, sid) {
