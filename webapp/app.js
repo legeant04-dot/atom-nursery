@@ -50,7 +50,7 @@
   let CURRENT = 'home';
   const ROLE_KEY = r => ({Parent:'role.Parent',Teacher:'role.Teacher',Admin:'role.Admin'}[r]||r);
   function setHeader(){
-    $('#devbar').textContent = (!CONFIG.DEMO_MODE ? (EN()?'PRODUCTION · LINE login only':'โหมดใช้งานจริง · เข้าสู่ระบบผ่าน LINE เท่านั้น') : (CONFIG.MODE==='gas' ? (EN()?'Connected to Google Sheets (GAS)':'เชื่อมต่อข้อมูลจริงผ่าน GAS แล้ว') : t('devbar'))) + ' · v40';
+    $('#devbar').textContent = (!CONFIG.DEMO_MODE ? (EN()?'PRODUCTION · LINE login only':'โหมดใช้งานจริง · เข้าสู่ระบบผ่าน LINE เท่านั้น') : (CONFIG.MODE==='gas' ? (EN()?'Connected to Google Sheets (GAS)':'เชื่อมต่อข้อมูลจริงผ่าน GAS แล้ว') : t('devbar'))) + ' · v41';
     $('#langBtn').textContent = LANG()==='en' ? 'EN' : 'TH';
     $('#userName').textContent = USER ? USER.nameEN : '–';
     $('#userRole').textContent = USER ? t(ROLE_KEY(USER.role)) : '';
@@ -969,6 +969,7 @@
     </table></div>`; }
 
   // ================= ADMIN =================
+  const pctColor = p => p>=100?'#2e7d32':p>=90?'#f9a825':'#d50000'; // green / amber / red attendance
   SCREENS.Admin.home = async () => { const [d,rem,lrem,pend]=await Promise.all([api('dashboard'),api('payrollReminderDue'),api('leaveResetReminder'),api('pendingPayments')]);
     const pendN=pend.length;
     const remHtml = rem.due?`<div class="card" style="background:#fff3e0;border-color:#ffcc80;color:#e65100"><div class="spread"><b>🔔 ${esc(t('admin.payrollReminder'))}</b><button class="btn sm" onclick="GO('payroll')">${esc(t('admin.goPayroll'))}</button></div><small>${esc(t('admin.payrollReminderSub').replace('{d}',rem.lastDay-1).replace('{last}',rem.lastDay))}</small></div>`:'';
@@ -976,16 +977,25 @@
     app.innerHTML=`<h2 class="page">${esc(t('title.dashboard'))} (${esc(todayStr())})</h2>
       ${remHtml}${leaveRemHtml}
       <div class="card"><div class="row"><button class="btn sm" onclick="GO('finance')">💰 ${esc(t('fin.title'))}</button><button class="btn sm ${pendN?'':'outline'}" onclick="GO('verify')">✅ ${esc(t('verify.title'))}${pendN?` (${pendN})`:''}</button><button class="btn sm" onclick="GO('daily')">📋 ${esc(t('daily.title'))}</button><button class="btn sm outline" onclick="GO('absence')">🔎 ${esc(t('abs.title'))}</button><button class="btn sm outline" onclick="A_addAnn()">+ ${esc(t('lbl.addAnn'))}</button></div></div>
-      <div class="card"><div class="spread"><h3>👶 นักเรียนแต่ละชั้นวันนี้</h3><button class="btn sm outline" onclick="A_addAnn()">+ ประกาศ</button></div>
-        ${d.classes.map(c=>`<div style="margin-bottom:10px"><div class="spread"><b>${esc(c.className)}</b><span class="muted">มา ${c.in} · กลับ ${c.out} · ลา ${c.leave} · ขาด ${c.absent} / ${c.total}</span></div>
-          <div>${c.students.map(s=>{const cls=s.status==='IN'?'dot-in':s.status==='OUT'?'dot-out':s.status==='LEAVE'?'dot-leave':'dot-absent';return `<span class="att" style="display:inline-flex;margin-right:10px"><span class="dot-s ${cls}"></span>${esc(dn(s))}${s.status==='LEAVE'?' (ลา)':s.status==='ABSENT'?' (ยังไม่มา)':''}</span>`;}).join('')}</div></div>`).join('')}</div>
-      <div class="card"><h3>👩‍🏫 พนักงานวันนี้</h3>${d.staff.map(s=>{const cls=s.status==='IN'?'dot-in':s.status==='OUT'?'dot-out':s.status==='LEAVE'?'dot-leave':'dot-absent';
-        return `<div class="att" style="align-items:flex-start"><span class="dot-s ${cls}" style="margin-top:5px"></span><span><b>${esc(dn(s))}</b> <small class="muted">${esc(s.dept||'')}</small><br><small>IN ${esc(s.checkIn||'--:--')} · OUT ${esc(s.checkOut||'--:--')}${s.late?` · สาย ${s.late}น.`:''} · Remark: ${esc(s.remark||'-')}</small></span></div>`;}).join('')}</div>
+      <div class="card"><div class="spread"><h3>👶 ${EN()?'Attendance by class':'การมาเรียนแต่ละชั้น'}</h3><button class="btn sm outline" onclick="A_addAnn()">+ ${EN()?'Announce':'ประกาศ'}</button></div>
+        ${(()=>{ const ts=d.classes.reduce((a,c)=>{a.p+=c.in+c.out;a.t+=c.total;return a;},{p:0,t:0}); const tp=ts.t?Math.round(ts.p/ts.t*100):100;
+          return `<div class="spread" style="font-size:15px;margin-bottom:8px"><b>${EN()?'Total':'รวมทั้งหมด'}</b><b style="color:${pctColor(tp)}">${tp}% <small class="muted" style="font-weight:400">(${ts.p}/${ts.t})</small></b></div>`; })()}
+        ${d.classes.map(c=>{ const present=c.in+c.out; const pct=c.total?Math.round(present/c.total*100):100; const miss=(c.students||[]).filter(s=>s.status==='ABSENT'||s.status==='LEAVE');
+          return `<div style="margin-bottom:12px"><div class="spread"><b>${esc(c.className)}</b><span style="font-weight:700;color:${pctColor(pct)}">${pct}% <small class="muted" style="font-weight:400">(${present}/${c.total})</small></span></div>
+            <div style="height:6px;background:#eee;border-radius:4px;overflow:hidden;margin:4px 0"><div style="height:100%;width:${pct}%;background:${pctColor(pct)}"></div></div>
+            ${miss.length?`<small class="muted">${EN()?'Absent/leave':'ขาด/ลา'} (${miss.length}): ${miss.map(s=>esc(dn(s))+(s.status==='LEAVE'?(EN()?' (leave)':' (ลา)'):'')).join(', ')}</small>`:`<small style="color:#2e7d32">✓ ${EN()?'All present':'มาครบทุกคน'}</small>`}</div>`;}).join('')}</div>
+      <div class="card"><h3>👩‍🏫 ${EN()?'Staff today':'พนักงานวันนี้'}</h3>
+        ${(()=>{ const present=d.staff.filter(s=>s.status==='IN'||s.status==='OUT').length; const t=d.staff.length; const pct=t?Math.round(present/t*100):100; const late=d.staff.filter(s=>s.late); const absent=d.staff.filter(s=>s.status==='ABSENT'||s.status==='LEAVE');
+          return `<div class="spread" style="font-size:15px"><b>${EN()?'Present':'มาทำงาน'}</b><b style="color:${pctColor(pct)}">${pct}% <small class="muted" style="font-weight:400">(${present}/${t})</small></b></div>
+            ${late.length?`<div style="margin-top:6px"><small style="color:#e65100">⏰ ${EN()?'Late':'มาสาย'} (${late.length}): ${late.map(s=>esc(dn(s))+' '+esc(s.checkIn||'')+(s.late?` (${s.late}น.)`:'')).join(', ')}</small></div>`:''}
+            ${absent.length?`<div style="margin-top:6px"><small class="muted">${EN()?'Absent/leave':'ขาด/ลา'} (${absent.length}): ${absent.map(s=>esc(dn(s))+(s.status==='LEAVE'?(EN()?' (leave)':' (ลา)'):'')).join(', ')}</small></div>`:''}
+            ${!late.length&&!absent.length?`<small style="color:#2e7d32">✓ ${EN()?'All present & on time':'มาครบ ตรงเวลา'}</small>`:''}`; })()}</div>
       <div class="card"><h3>📢 ประกาศ</h3><div id="anns"></div></div>`;
-    $('#anns').innerHTML=(await api('announcements')).map(a=>{ const ti=EN()?(a.TitleEN||a.Title):(a.Title||a.TitleEN);
+    const _anns=await api('announcements'); A_CACHE.announcements=_anns;
+    $('#anns').innerHTML=_anns.map(a=>{ const ti=EN()?(a.TitleEN||a.Title):(a.Title||a.TitleEN);
       return `<div class="list-item"><div><b>${esc(ti)}</b>${a.Popup?` <span class="pill info" style="font-size:10px">Pop-up</span>`:''}<br><small class="muted">${esc(a.StartDate||a.Date)}${a.EndDate?'→'+esc(a.EndDate):''}</small></div><span class="row"><button class="btn sm outline" onclick="A_editAnn('${a.AnnID}')">✏️</button><button class="btn sm pink" onclick="A_delAnn('${a.AnnID}')">🗑️</button></span></div>`; }).join('')||`<small class="muted">${esc(t('c.noItems'))}</small>`;
   };
-  window.A_addAnn=(annId)=>{ const a=annId?(MOCK.announcements.find(x=>x.AnnID===annId)||{}):{};
+  window.A_addAnn=(annId)=>{ const a=annId?findAnn(annId):{};
     modal(`<h3>📢 ${annId?esc(t('ann.edit')):'เพิ่มประกาศ / Add announcement'}</h3>
     <label class="field"><span>หัวข้อ (ไทย)</span><input id="anT" value="${esc(a.Title||'')}"/></label>
     <label class="field"><span>Title (English)</span><input id="anTE" value="${esc(a.TitleEN||'')}"/></label>
@@ -1125,6 +1135,9 @@
       </svg></div>`; }
 
   window.A_reqCI = async (id,val) => { await api('setRequireCheckin',{staffId:id,value:val}); toast((val?'เปิด':'ปิด')+'การบังคับลงเวลา'); };
+  // Save all check-in-requirement toggles at once (persists to STAFF.RequireCheckin). One batched round-trip.
+  window.A_saveReqCI = async (btn)=>{ const card=btn.closest('.card'); const tgs=[...card.querySelectorAll('input[data-sid]')];
+    try{ await Promise.all(tgs.map(t=>api('setRequireCheckin',{staffId:t.dataset.sid,value:t.checked}))); confirmSaved(EN()?'Check-in settings saved':'บันทึกการตั้งค่าลงเวลาแล้ว'); }catch(e){err(e);} };
   // Admin can edit a student's DSPM assessment (all items in the current band)
   window.A_editAssess=async(sid)=>{ ASEL={}; let c; try{ c=await api('dspmStatus',{studentId:sid}); }catch(e){ app.innerHTML=`<button class="btn sm outline backbtn" onclick="A_student('${sid}')">${t('c.back')}</button><div class="card muted">${esc(e.message)}</div>`; return; }
     const s=MOCK.students.find(x=>x.StudentID===sid)||{NameTH:sid};
@@ -1137,8 +1150,24 @@
   window.A_saveAssess=async(sid)=>{ const results=Object.keys(ASEL).map(k=>({itemNo:Number(k),result:ASEL[k]})); if(!results.length){toast(EN()?'Select at least 1':'เลือกอย่างน้อย 1 ข้อ');return;}
     try{ await api('submitAssessment',{studentId:sid,staffId:USER.staffId,results}); confirmSaved(t('c.saved')); A_student(sid); }catch(e){err(e);} };
   window.A_perm = async (role,cap,val) => { await api('setPerm',{role,cap,value:val}); toast(t('c.saved')); };
+  // Admin forms must read the LIVE records (gas mode), not the stale window.MOCK arrays.
+  // manage()/home() fill this cache; the edit forms + dropdowns read from it (fallback to MOCK).
+  window.A_CACHE = { staff:[], students:[], parents:[], classes:[], plans:[], announcements:[] };
+  const findStaff   = id => (A_CACHE.staff||[]).find(x=>x.StaffID===id)     || (MOCK.staff||[]).find(x=>x.StaffID===id)     || {};
+  const findStudent = id => (A_CACHE.students||[]).find(x=>x.StudentID===id) || (MOCK.students||[]).find(x=>x.StudentID===id) || {};
+  const findParent  = id => (A_CACHE.parents||[]).find(x=>x.ParentID===id)   || (MOCK.parents||[]).find(x=>x.ParentID===id)   || {};
+  const findAnn     = id => (A_CACHE.announcements||[]).find(x=>x.AnnID===id) || (MOCK.announcements||[]).find(x=>x.AnnID===id) || {};
+  const A_classes   = () => (A_CACHE.classes&&A_CACHE.classes.length)?A_CACHE.classes:(MOCK.classes||[]);
+  const A_plans     = () => (A_CACHE.plans&&A_CACHE.plans.length)?A_CACHE.plans:((MOCK.config&&MOCK.config.Plans)||[]);
+  // generic client-side list filter + collapsible section (Admin manage). Sections start collapsed.
+  window.A_toggleSec = (btn)=>{ const b=btn.closest('.secw'); const body=b.querySelector('.secbody'); const open=body.hasAttribute('hidden'); if(open)body.removeAttribute('hidden');else body.setAttribute('hidden',''); btn.querySelector('.caret').textContent=open?'▲':'▼'; };
+  window.A_search = (inp)=>{ const b=inp.closest('.secw'); const q=inp.value.trim().toLowerCase(); b.querySelectorAll('.list-item').forEach(it=>{ it.style.display = (!q || it.dataset.k && it.dataset.k.indexOf(q)>=0) ? '' : 'none'; }); };
+  const secHead = (icon,title,count,addBtn)=>`<div class="spread" style="cursor:pointer" onclick="A_toggleSec(this.querySelector('.sectog'))"><h3 style="margin:0">${icon} ${esc(title)} <span class="pill info">${count}</span></h3><span class="row" onclick="event.stopPropagation()">${addBtn||''}<button class="btn sm outline sectog" onclick="A_toggleSec(this)"><span class="caret">▼</span></button></span></div>`;
+  const searchBox = ph=>`<input class="asearch" placeholder="🔎 ${esc(ph)}" oninput="A_search(this)" style="width:100%;margin:8px 0;padding:8px 10px;border:1px solid var(--line);border-radius:8px"/>`;
+
   SCREENS.Admin.manage = async () => {
-    const [staff,students,parents,pm,groups,exported,wds]=await Promise.all([api('listStaff'),api('listStudents'),api('listParents'),api('permMatrix'),api('listStaffGroups'),api('listExportedStudents'),api('listWithdrawals',{pending:true})]);
+    const [staff,students,parents,pm,groups,exported,wds,classes,plans]=await Promise.all([api('listStaff'),api('listStudents'),api('listParents'),api('permMatrix'),api('listStaffGroups'),api('listExportedStudents'),api('listWithdrawals',{pending:true}),api('listClasses'),api('getPlans')]);
+    A_CACHE.staff=staff; A_CACHE.students=students; A_CACHE.parents=parents; A_CACHE.classes=classes||[]; A_CACHE.plans=plans||[]; A_CACHE.groups=groups||[];
     const CAPS=[['students','perm.students'],['staff','perm.staff'],['payroll','perm.payroll'],['parentPII','perm.parentPII'],['edit','perm.edit'],['approve','perm.approve']];
     const ROLES=['Admin','Leader','Teacher','Parent'];
     app.innerHTML=`<h2 class="page">${esc(t('title.manage'))}</h2>
@@ -1160,14 +1189,20 @@
         <tr style="background:#1565C0;color:#fff"><th style="padding:4px 6px;text-align:left">${esc(t('perm.role'))}</th>${CAPS.map(c=>`<th style="padding:4px 3px">${esc(t(c[1]))}</th>`).join('')}</tr>
         ${ROLES.map(r=>`<tr style="border-bottom:1px solid #eee"><td style="padding:4px 6px"><b>${esc(t('role.'+r)||r)}</b></td>${CAPS.map(c=>`<td style="text-align:center"><input type="checkbox" style="width:auto" ${pm[r]&&pm[r][c[0]]?'checked':''} onchange="A_perm('${r}','${c[0]}',this.checked)"/></td>`).join('')}</tr>`).join('')}
         </table></div></div>
-      <div class="card"><h3>⏱️ ${esc(t('lbl.requireCI'))}</h3><p class="muted" style="font-size:12px">ปิดสำหรับตำแหน่งที่ไม่ต้องลงเวลา (เช่น หัวหน้างาน)</p>
-        ${staff.map(s=>`<div class="list-item"><span><b>${esc(nm(s))}</b> <small class="muted">${esc(s.PositionLevel)}</small></span>
-          <label class="switch"><input type="checkbox" ${s.RequireCheckin!==false?'checked':''} onchange="A_reqCI('${s.StaffID}',this.checked)"><span class="slider"></span></label></div>`).join('')}</div>
-      <div class="card"><div class="spread"><h3>👩‍🏫 ${esc(t('c.staff'))} (${staff.length})</h3><button class="btn sm" onclick="A_staffForm()">+ ${esc(t('manage.add'))}</button></div>
-        ${staff.map(s=>`<div class="list-item"><span style="display:flex;gap:8px;align-items:center">${personAvatar(s)}<span><b>${esc(nm(s))}</b> <small class="muted">(${esc(EN()?s.NameTH:s.NameEN)})</small><br><small class="muted">${esc(s.Position||'')} · ${esc(s.Department||'-')} · ${esc(groupLabel(s.StaffGroup))}</small><br><small class="muted">${esc(t('staff.start'))} ${esc(s.StartDate||'-')} · ${esc(t('staff.tenure'))} ${esc(tenure(s.StartDate))}</small></span></span><span class="row"><button class="btn sm outline" onclick="A_staffForm('${s.StaffID}')">✏️</button><button class="btn sm pink" onclick="A_delStaff('${s.StaffID}')">🗑️</button></span></div>`).join('')}</div>
-      <div class="card"><div class="spread"><h3>👪 ${esc(t('manage.parents'))} (${parents.length})</h3><button class="btn sm" onclick="A_parentForm()">+ ${esc(t('manage.add'))}</button></div>
-        ${parents.map(p=>`<div class="list-item"><span style="display:flex;gap:8px;align-items:center">${personAvatar(p)}<span><b>${esc(nm(p))}</b> <small class="muted">${esc(p.Relationship||'')} · ${esc(p.Phone||'')}</small></span></span><span class="row"><button class="btn sm outline" onclick="A_parentForm('${p.ParentID}')">✏️</button><button class="btn sm pink" onclick="A_delParent('${p.ParentID}')">🗑️</button></span></div>`).join('')}</div>
-      <div class="card"><div class="spread"><h3>👶 ${EN()?'Students':'นักเรียน'} (${students.length})</h3><button class="btn sm" onclick="A_genBills()">📅 ${esc(t('bill.genTitle'))}</button></div>${students.map(s=>`<div class="list-item"><span>${studentAvatar(s)} <b>${esc(nm(s))}</b> <small class="muted">${esc(s.Class)} · ${esc(ageYM(s.DOB))}${s.InsuranceHas?' · 🛡️':''}</small><br><small class="muted">${EN()?'ID':'บัตร'}: ${esc(s.NationalID||'-')}</small></span><span class="row"><button class="btn sm outline" onclick="A_studentForm('${s.StudentID}')">✏️</button><button class="btn sm" onclick="A_issueBill('${s.StudentID}')">🧾</button><button class="btn sm" onclick="A_charges('${s.StudentID}')">💵</button><button class="btn sm outline" onclick="A_vaccines('${s.StudentID}')">💉</button><button class="btn sm gray" onclick="A_exportStudent('${s.StudentID}')">📤</button><button class="btn sm pink" onclick="A_removeStudent('${s.StudentID}')" title="${esc(t('wd.remove'))}">🚪</button></span></div>`).join('')}</div>`;
+      <div class="card secw"><h3>⏱️ ${esc(t('lbl.requireCI'))}</h3><p class="muted" style="font-size:12px">${EN()?'Turn OFF for positions that need not clock in (e.g. leaders). Press Save after changes.':'ปิดสำหรับตำแหน่งที่ไม่ต้องลงเวลา (เช่น หัวหน้างาน) — กด บันทึก หลังเปลี่ยน'}</p>
+        ${searchBox(EN()?'search name':'ค้นหาชื่อ')}
+        ${staff.map(s=>`<div class="list-item" data-k="${esc((s.NameTH+' '+(s.NameEN||'')+' '+(s.Nickname||'')+' '+(s.PositionLevel||'')).toLowerCase())}"><span><b>${esc(nm(s))}</b> <small class="muted">${esc(s.PositionLevel)}</small></span>
+          <label class="switch"><input type="checkbox" data-sid="${s.StaffID}" ${s.RequireCheckin!==false?'checked':''}><span class="slider"></span></label></div>`).join('')}
+        <button class="btn block" style="margin-top:8px" onclick="A_saveReqCI(this)">💾 ${esc(t('c.save'))}</button></div>
+      <div class="card secw">${secHead('👩‍🏫',t('c.staff'),staff.length,`<button class="btn sm" onclick="event.stopPropagation();A_staffForm()">+ ${esc(t('manage.add'))}</button>`)}
+        <div class="secbody" hidden>${searchBox(EN()?'name / nickname / dept':'ชื่อ / ชื่อเล่น / แผนก')}
+        ${staff.map(s=>`<div class="list-item" data-k="${esc((s.NameTH+' '+(s.NameEN||'')+' '+(s.Nickname||'')+' '+(s.Position||'')+' '+(s.Department||'')).toLowerCase())}"><span style="display:flex;gap:8px;align-items:center">${personAvatar(s)}<span><b>${esc(nm(s))}</b> <small class="muted">(${esc(EN()?s.NameTH:s.NameEN)})</small><br><small class="muted">${esc(s.Position||'')} · ${esc(s.Department||'-')} · ${esc(groupLabel(s.StaffGroup))}</small><br><small class="muted">${esc(t('staff.start'))} ${esc(s.StartDate||'-')} · ${esc(t('staff.tenure'))} ${esc(tenure(s.StartDate))}</small></span></span><span class="row"><button class="btn sm outline" onclick="A_staffForm('${s.StaffID}')">✏️</button><button class="btn sm pink" onclick="A_delStaff('${s.StaffID}')">🗑️</button></span></div>`).join('')}</div></div>
+      <div class="card secw">${secHead('👪',t('manage.parents'),parents.length,`<button class="btn sm" onclick="event.stopPropagation();A_parentForm()">+ ${esc(t('manage.add'))}</button>`)}
+        <div class="secbody" hidden>${searchBox(EN()?'name / phone':'ชื่อ / เบอร์')}
+        ${parents.map(p=>`<div class="list-item" data-k="${esc((p.NameTH+' '+(p.NameEN||'')+' '+(p.Phone||'')+' '+(p.Relationship||'')).toLowerCase())}"><span style="display:flex;gap:8px;align-items:center">${personAvatar(p)}<span><b>${esc(nm(p))}</b> <small class="muted">${esc(p.Relationship||'')} · ${esc(p.Phone||'')}</small></span></span><span class="row"><button class="btn sm outline" onclick="A_parentForm('${p.ParentID}')">✏️</button><button class="btn sm pink" onclick="A_delParent('${p.ParentID}')">🗑️</button></span></div>`).join('')}</div></div>
+      <div class="card secw">${secHead('👶',EN()?'Students':'นักเรียน',students.length,`<button class="btn sm" onclick="event.stopPropagation();A_genBills()">📅 ${esc(t('bill.genTitle'))}</button>`)}
+        <div class="secbody" hidden>${searchBox(EN()?'name / nickname / class':'ชื่อ / ชื่อเล่น / ชั้นเรียน')}
+        ${students.map(s=>`<div class="list-item" data-k="${esc((s.NameTH+' '+(s.NameEN||'')+' '+(s.Nickname||'')+' '+(s.NicknameEN||'')+' '+(s.Class||'')+' '+(s.NationalID||'')).toLowerCase())}"><span>${studentAvatar(s)} <b>${esc(nm(s))}</b> <small class="muted">${esc(s.Class)} · ${esc(ageYM(s.DOB))}${s.InsuranceHas?' · 🛡️':''}</small><br><small class="muted">${EN()?'ID':'บัตร'}: ${esc(s.NationalID||'-')}</small></span><span class="row"><button class="btn sm outline" onclick="A_studentForm('${s.StudentID}')">✏️</button><button class="btn sm" onclick="A_issueBill('${s.StudentID}')">🧾</button><button class="btn sm" onclick="A_charges('${s.StudentID}')">💵</button><button class="btn sm outline" onclick="A_vaccines('${s.StudentID}')">💉</button><button class="btn sm gray" onclick="A_exportStudent('${s.StudentID}')">📤</button><button class="btn sm pink" onclick="A_removeStudent('${s.StudentID}')" title="${esc(t('wd.remove'))}">🚪</button></span></div>`).join('')}</div></div>`;
   };
   // navigate to an admin sub-screen (kept off the bottom nav)
   var ADMIN_SUB_organize, ADMIN_SUB_holidays, ADMIN_SUB_importExport;
@@ -1175,12 +1210,14 @@
   window.GO_=(k)=>{ CURRENT='manage'; setNav('manage'); (ADMIN_SUB[k]||(()=>{}))(); window.scrollTo(0,0); };
 
   // ---- Staff CRUD ----
-  window.A_staffForm=(id)=>{ const s=id?(MOCK.staff.find(x=>x.StaffID===id)||{}):{}; const groups=MOCK.staffGroups;
+  window.A_staffForm=(id)=>{ const s=id?findStaff(id):{}; const groups=(A_CACHE.groups&&A_CACHE.groups.length)?A_CACHE.groups:MOCK.staffGroups;
     const f=(k,label,val,type)=>`<label class="field"><span>${esc(label)}</span><input id="sf_${k}" type="${type||'text'}" value="${esc(val!=null?val:'')}"/></label>`;
+    const depts=A_classes().map(c=>c.ClassName); if(!depts.length) depts.push(...(MOCK.config.Departments||[]));
     modal(`<h3>${id?'✏️':'➕'} ${esc(t('c.staff'))}</h3>
       <div class="grid2">${f('NameTH',t('reg.nameTH'),s.NameTH)}${f('NameEN',t('reg.nameEN'),s.NameEN)}</div>
+      <div class="grid2">${f('Nickname',t('reg.nickname'),s.Nickname)}${f('DOB',t('reg.dob'),s.DOB,'date')}</div>
       <div class="grid2">${f('Position',t('manage.position'),s.Position)}
-        <label class="field"><span>${esc(t('manage.dept'))}</span><select id="sf_Department">${['',...MOCK.config.Departments].map(d=>`<option ${s.Department===d?'selected':''}>${esc(d)}</option>`).join('')}</select></label></div>
+        <label class="field"><span>${esc(t('manage.dept'))}</span><select id="sf_Department">${['',...depts].map(d=>`<option ${s.Department===d?'selected':''}>${esc(d)}</option>`).join('')}</select></label></div>
       <div class="grid2"><label class="field"><span>${esc(t('manage.group'))}</span><select id="sf_StaffGroup">${groups.map(g=>`<option ${s.StaffGroup===g.GroupName?'selected':''}>${esc(g.GroupName)}</option>`).join('')}</select></label>
         <label class="field"><span>${esc(t('manage.level'))}</span><select id="sf_PositionLevel">${['Admin','Leader','Officer','Assistant','Staff'].map(l=>`<option ${s.PositionLevel===l?'selected':''}>${esc(l)}</option>`).join('')}</select></label></div>
       <div class="grid2">${f('Phone',t('reg.phone'),s.Phone)}${f('NationalID',t('reg.nationalIdParent'),s.NationalID)}</div>
@@ -1189,13 +1226,13 @@
       <button class="btn block" onclick="A_saveStaff(this,'${id||''}')">${esc(t('c.save'))}</button>`);
   };
   window.A_saveStaff=async(btn,id)=>{ const m=btn.closest('.modal'); const v=k=>{ const e=m.querySelector('#sf_'+k); return e?e.value.trim():''; };
-    const data={NameTH:v('NameTH'),NameEN:v('NameEN'),Position:v('Position'),Department:v('Department'),StaffGroup:v('StaffGroup'),PositionLevel:v('PositionLevel'),Phone:v('Phone'),NationalID:v('NationalID'),StartDate:v('StartDate'),BaseSalary:+v('BaseSalary')||0};
+    const data={NameTH:v('NameTH'),NameEN:v('NameEN'),Nickname:v('Nickname'),DOB:v('DOB'),Position:v('Position'),Department:v('Department'),StaffGroup:v('StaffGroup'),PositionLevel:v('PositionLevel'),Phone:v('Phone'),NationalID:v('NationalID'),StartDate:v('StartDate'),BaseSalary:+v('BaseSalary')||0};
     const pf=m.querySelector('#sf_Photo').files[0]; if(pf) data.Photo=await new Promise(r=>{const fr=new FileReader();fr.onload=()=>r(fr.result);fr.readAsDataURL(pf);});
     try{ await api('saveStaff',{staffId:id||null,data}); m.remove(); confirmSaved(t('c.saved')); GO('manage'); }catch(e){err(e);} };
   window.A_delStaff=async(id)=>{ if(!confirm(t('manage.confirmDel')))return; try{ await api('deleteStaff',{staffId:id}); toast(t('manage.deleted')); GO('manage'); }catch(e){err(e);} };
 
   // ---- Parent CRUD ----
-  window.A_parentForm=(id)=>{ const p=id?(MOCK.parents.find(x=>x.ParentID===id)||{}):{};
+  window.A_parentForm=(id)=>{ const p=id?findParent(id):{};
     const f=(k,label,val)=>`<label class="field"><span>${esc(label)}</span><input id="pf_${k}" value="${esc(val!=null?val:'')}"/></label>`;
     modal(`<h3>${id?'✏️':'➕'} ${esc(t('manage.parents'))}</h3>
       <div class="grid2">${f('NameTH',t('reg.nameTH'),p.NameTH)}${f('NameEN',t('reg.nameEN'),p.NameEN)}</div>
@@ -1212,14 +1249,14 @@
   window.A_delParent=async(id)=>{ if(!confirm(t('manage.confirmDel')))return; try{ await api('deleteParent',{parentId:id}); toast(t('manage.deleted')); GO('manage'); }catch(e){err(e);} };
 
   // ---- Student edit (incl. insurance) ----
-  window.A_studentForm=(id)=>{ const s=MOCK.students.find(x=>x.StudentID===id)||{};
+  window.A_studentForm=(id)=>{ const s=findStudent(id);
     const f=(k,label,val,type)=>`<label class="field"><span>${esc(label)}</span><input id="stf_${k}" type="${type||'text'}" value="${esc(val!=null?val:'')}"/></label>`;
     modal(`<h3>✏️ ${esc(nm(s))}</h3>
       <div class="grid2">${f('NameTH',t('reg.nameTH'),s.NameTH)}${f('NameEN',t('reg.nameEN'),s.NameEN)}</div>
       <div class="grid2">${f('Nickname',t('reg.nickname'),s.Nickname)}${f('NicknameEN',t('reg.nicknameEN'),s.NicknameEN)}</div>
       <div class="grid2">${f('NationalID',t('reg.nationalIdStudent'),s.NationalID)}
-        <label class="field"><span>${esc(t('manage.class'))}</span><select id="stf_Class">${MOCK.classes.map(c=>`<option ${s.Class===c.ClassName?'selected':''}>${esc(c.ClassName)}</option>`).join('')}</select></label></div>
-      <div class="grid2"><label class="field"><span>${esc(t('reg.plan'))}</span><select id="stf_Plan"><option value="">${esc(t('manage.noPlan'))}</option>${(MOCK.config.Plans||[]).map(p=>`<option value="${p.id}" ${s.Plan===p.id?'selected':''}>${esc(EN()?p.labelEN:p.labelTH)} · ${baht(p.price)}</option>`).join('')}</select></label>
+        <label class="field"><span>${esc(t('manage.class'))}</span><select id="stf_Class">${A_classes().map(c=>`<option ${s.Class===c.ClassName?'selected':''}>${esc(c.ClassName)}</option>`).join('')}</select></label></div>
+      <div class="grid2"><label class="field"><span>${esc(t('reg.plan'))}</span><select id="stf_Plan"><option value="">${esc(t('manage.noPlan'))}</option>${A_plans().map(p=>`<option value="${p.id}" ${s.Plan===p.id?'selected':''}>${esc(EN()?p.labelEN:p.labelTH)} · ${baht(p.price)}</option>`).join('')}</select></label>
         <label class="field"><span>${esc(t('growth.photo'))}</span><input id="stf_Photo" type="file" accept="image/*"/></label></div>
       <div class="grid2">${f('Allergy',t('reg.allergy'),s.Allergy)}${f('MedicalHistory',t('reg.chronic'),s.MedicalHistory)}</div>
       <hr style="border:none;border-top:1px solid #eee;margin:8px 0">
@@ -1239,7 +1276,7 @@
     try{ await api('saveStudent',{studentId:id,data}); m.remove(); confirmSaved(t('c.saved')); GO('manage'); }catch(e){err(e);} };
 
   // ---- vaccine records (Admin/teacher) ----
-  window.A_vaccines=async(sid)=>{ const s=MOCK.students.find(x=>x.StudentID===sid)||{}; const [sched,recs]=await Promise.all([api('vaccineSchedule'),api('studentVaccines',{studentId:sid})]);
+  window.A_vaccines=async(sid)=>{ const s=findStudent(sid); const [sched,recs]=await Promise.all([api('vaccineSchedule'),api('studentVaccines',{studentId:sid})]);
     const got=k=>recs.find(r=>r.Key===k);
     modal(`<h3>💉 ${esc(t('vac.title'))} — ${esc(nm(s))}</h3><p class="muted" style="font-size:12px">${esc(t('vac.note'))}</p>
       ${sched.map(g=>`<div class="card" style="padding:8px"><b style="font-size:13px">${esc(EN()?g.ageEN:g.ageTH)}</b>
@@ -1250,7 +1287,7 @@
   window.A_vacDate=async(sid,key,date)=>{ if(date) await api('setVaccine',{studentId:sid,key,date}); toast(t('c.saved')); };
 
   // ---- Admin issues a bill to a parent (custom amount for mid-month proration / ad-hoc) ----
-  window.A_issueBill=async(sid)=>{ const s=MOCK.students.find(x=>x.StudentID===sid)||{}; const base=await api('studentBillBase',{studentId:sid});
+  window.A_issueBill=async(sid)=>{ const s=findStudent(sid); const base=await api('studentBillBase',{studentId:sid});
     modal(`<h3>🧾 ${esc(t('bill.issue'))} — ${esc(nm(s))}</h3><p class="muted" style="font-size:12px">${esc(t('bill.issueNote'))}</p>
       <div class="grid2"><label class="field"><span>${esc(t('c.month'))}</span><input type="month" id="biMonth" value="${monthStr()}"/></label>
         <label class="field"><span>${esc(t('bill.amount'))}</span><input type="number" id="biAmt" value="${base.price}"/></label></div>

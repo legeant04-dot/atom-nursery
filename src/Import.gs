@@ -73,11 +73,23 @@ function handleProvisionStaff(p) {
     if (it.role) patch.Role = it.role;
     if (it.positionLevel) patch.PositionLevel = it.positionLevel;
     if (it.reportsTo) patch.ReportsTo = it.reportsTo;
+    if (it.nickname) patch.Nickname = it.nickname;
+    if (it.dob) patch.DOB = it.dob;
     updateRow_(staff, st._row, patch);
     done.push(it.id + ':ok');
   });
   try { CacheService.getScriptCache().removeAll(['col:STAFF', 'rows:STAFF']); } catch (e) {}
   return { ok: true, done: done };
+}
+
+/** Run setupAll() (idempotent — adds any missing sheets/columns from SCHEMA, never deletes).
+ *  payload: { key }  — gated by ImportKey. REMOVE with Import.gs after use. */
+function handleRunSetup(p) {
+  var key = getConfig_('ImportKey', 'atom-import-2026');
+  if (!p || String(p.key) !== String(key)) throw apiError_('FORBIDDEN', 'runSetup: bad or missing key');
+  setupAll();
+  try { CacheService.getScriptCache().removeAll(['cfg', 'col:STAFF', 'rows:STAFF']); } catch (e) {}
+  return { ok: true, ran: 'setupAll' };
 }
 
 /** Set a SCHOOL_CONFIG key directly (e.g. flip RequireSessionToken at go-live) + flush the config cache.
