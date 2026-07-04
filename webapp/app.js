@@ -3,6 +3,9 @@
   const $ = s => document.querySelector(s);
   const app = $('#app'), nav = $('#bottomnav');
   const baht = n => (Number(n)||0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
+  // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
+  const phoneFmt = p => { let d=String(p==null?'':p).replace(/\D/g,''); if(d.length===9) d='0'+d; return d; };
+  const phoneLink = p => { const d=phoneFmt(p); return d?`<a href="tel:${d}" onclick="event.stopPropagation()" style="color:inherit;text-decoration:underline dotted">${esc(d)}</a>`:'-'; };
   const esc = s => String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
   const p2 = n => String(n).padStart(2,'0');
   const todayStr = () => { const d=new Date(); return d.getFullYear()+'-'+p2(d.getMonth()+1)+'-'+p2(d.getDate()); };
@@ -50,7 +53,7 @@
   let CURRENT = 'home';
   const ROLE_KEY = r => ({Parent:'role.Parent',Teacher:'role.Teacher',Admin:'role.Admin'}[r]||r);
   function setHeader(){
-    $('#devbar').textContent = (!CONFIG.DEMO_MODE ? (EN()?'PRODUCTION · LINE login only':'โหมดใช้งานจริง · เข้าสู่ระบบผ่าน LINE เท่านั้น') : (CONFIG.MODE==='gas' ? (EN()?'Connected to Google Sheets (GAS)':'เชื่อมต่อข้อมูลจริงผ่าน GAS แล้ว') : t('devbar'))) + ' · v41';
+    $('#devbar').textContent = (!CONFIG.DEMO_MODE ? (EN()?'PRODUCTION · LINE login only':'โหมดใช้งานจริง · เข้าสู่ระบบผ่าน LINE เท่านั้น') : (CONFIG.MODE==='gas' ? (EN()?'Connected to Google Sheets (GAS)':'เชื่อมต่อข้อมูลจริงผ่าน GAS แล้ว') : t('devbar'))) + ' · v42';
     $('#langBtn').textContent = LANG()==='en' ? 'EN' : 'TH';
     $('#userName').textContent = USER ? USER.nameEN : '–';
     $('#userRole').textContent = USER ? t(ROLE_KEY(USER.role)) : '';
@@ -81,11 +84,24 @@
     // paint an instant placeholder so a tap feels responsive instead of "stuck" on the old screen
     // while the first (uncached) fetch runs; skip on silent background re-renders to avoid flicker.
     if(fn && !(opts&&opts.silent)) app.innerHTML=`<div class="card" style="text-align:center;color:#94a3b8;padding:28px">⏳ ${EN()?'Loading…':'กำลังโหลด…'}</div>`;
-    if(fn)fn(); else app.innerHTML=`<div class="card">หน้านี้กำลังพัฒนา</div>`; window.scrollTo(0,0); };
+    if(fn){ const r=fn(); // a screen that throws must not leave the loading skeleton stuck forever
+      if(r&&r.catch) r.catch(e=>{ app.innerHTML=`<div class="card"><b>⚠️ ${EN()?'Could not load':'โหลดไม่สำเร็จ'}</b><br><small class="muted">${esc((e&&e.message)||e)}</small></div><button class="btn outline block" style="margin-top:10px" onclick="GO('${screen}')">🔄 ${EN()?'Retry':'ลองใหม่'}</button>`; });
+    } else app.innerHTML=`<div class="card">หน้านี้กำลังพัฒนา</div>`; window.scrollTo(0,0); };
   // SWR hook: api.js calls this when a background refresh found newer data than what's shown.
   // Re-render the current screen (silently, no skeleton), but never interrupt an open modal or active typing.
   window.__atomRevalidate = () => { if(!USER||!CURRENT) return; if(document.querySelector('.modal')) return;
     const ae=document.activeElement; if(ae && /^(INPUT|TEXTAREA|SELECT)$/.test(ae.tagName)) return; GO(CURRENT,{silent:true}); };
+  // Warm the SWR cache for the other tabs right after login so navigating to them is instant
+  // (the home screen loads first; these fire ~0.5s later and micro-batch into one request).
+  window.PREFETCH = () => {
+    if (CONFIG.MODE!=='gas' || !USER) return;
+    const jobs = USER.role==='Parent'
+        ? [['parentChildren',parentScope()],['announcements'],['calendar'],['notifications',notifParams()]]
+      : USER.role==='Admin'
+        ? [['dashboard'],['pendingLeaves',{staffId:USER.staffId}],['pendingPayments'],['listStudents'],['listStaff'],['listParents']]
+        : [['classList',{staffId:USER.staffId}],['schedule'],['myLeaves',{staffId:USER.staffId}]];
+    setTimeout(()=>{ jobs.forEach(j=>{ try{ api(j[0], j[1]||{}); }catch(e){} }); }, 500);
+  };
   function confirmSaved(msg){ msg=msg||t('c.saved'); if(window.trPhrase)msg=trPhrase(msg); const b=document.createElement('div'); b.className='savebar'; b.innerHTML=`✅ ${esc(msg)}`; document.body.appendChild(b); requestAnimationFrame(()=>b.classList.add('show')); setTimeout(()=>{b.classList.remove('show');setTimeout(()=>b.remove(),300);},1800); }
 
   function chooser(){ USER=null; AUTH_RENDER=chooser; setHeader(); nav.hidden=true;
@@ -113,12 +129,12 @@
   };
   window.LOGIN = function(roleKey){ if(!CONFIG.DEMO_MODE){ toast(EN()?'Demo login is disabled':'ปิดการเข้าสู่ระบบทดลองแล้ว'); return; } USER=Object.assign({},DEMO_USERS[roleKey]); USER._roleKey=roleKey;
     try{ localStorage.setItem('atom_session', JSON.stringify({roleKey, provider:PENDING_PROVIDER||'demo'})); }catch(e){}
-    setHeader(); GO('home');
+    setHeader(); GO('home'); PREFETCH();
   };
   // log in as a freshly registered/linked parent (carries its own uid for data isolation)
   window.LOGIN_PARENT = function(u){ USER=Object.assign({role:'Parent',_roleKey:'Parent'},u);
     try{ localStorage.setItem('atom_session', JSON.stringify({roleKey:'Parent', provider:PENDING_PROVIDER||'demo', parent:u})); }catch(e){}
-    setHeader(); GO('home');
+    setHeader(); GO('home'); PREFETCH();
   };
   // log in with real GAS auth result (LIFF flow)
   window.LOGIN_REAL = function(role, linkedId, displayName, pictureUrl) {
@@ -131,7 +147,7 @@
     else USER.staffId = linkedId;
     if (pictureUrl) USER.pictureUrl = pictureUrl;
     PENDING_LINE_UID = null;
-    setHeader(); GO('home');
+    setHeader(); GO('home'); PREFETCH();
   };
   function logout(){
     try{ localStorage.removeItem('atom_session'); }catch(e){}
@@ -1199,7 +1215,7 @@
         ${staff.map(s=>`<div class="list-item" data-k="${esc((s.NameTH+' '+(s.NameEN||'')+' '+(s.Nickname||'')+' '+(s.Position||'')+' '+(s.Department||'')).toLowerCase())}"><span style="display:flex;gap:8px;align-items:center">${personAvatar(s)}<span><b>${esc(nm(s))}</b> <small class="muted">(${esc(EN()?s.NameTH:s.NameEN)})</small><br><small class="muted">${esc(s.Position||'')} · ${esc(s.Department||'-')} · ${esc(groupLabel(s.StaffGroup))}</small><br><small class="muted">${esc(t('staff.start'))} ${esc(s.StartDate||'-')} · ${esc(t('staff.tenure'))} ${esc(tenure(s.StartDate))}</small></span></span><span class="row"><button class="btn sm outline" onclick="A_staffForm('${s.StaffID}')">✏️</button><button class="btn sm pink" onclick="A_delStaff('${s.StaffID}')">🗑️</button></span></div>`).join('')}</div></div>
       <div class="card secw">${secHead('👪',t('manage.parents'),parents.length,`<button class="btn sm" onclick="event.stopPropagation();A_parentForm()">+ ${esc(t('manage.add'))}</button>`)}
         <div class="secbody" hidden>${searchBox(EN()?'name / phone':'ชื่อ / เบอร์')}
-        ${parents.map(p=>`<div class="list-item" data-k="${esc((p.NameTH+' '+(p.NameEN||'')+' '+(p.Phone||'')+' '+(p.Relationship||'')).toLowerCase())}"><span style="display:flex;gap:8px;align-items:center">${personAvatar(p)}<span><b>${esc(nm(p))}</b> <small class="muted">${esc(p.Relationship||'')} · ${esc(p.Phone||'')}</small></span></span><span class="row"><button class="btn sm outline" onclick="A_parentForm('${p.ParentID}')">✏️</button><button class="btn sm pink" onclick="A_delParent('${p.ParentID}')">🗑️</button></span></div>`).join('')}</div></div>
+        ${parents.map(p=>`<div class="list-item" data-k="${esc((p.NameTH+' '+(p.NameEN||'')+' '+(p.Phone||'')+' '+(p.Relationship||'')).toLowerCase())}"><span style="display:flex;gap:8px;align-items:center">${personAvatar(p)}<span><b>${esc(nm(p))}</b> <small class="muted">${esc(p.Relationship||'')} · ${phoneLink(p.Phone)}</small></span></span><span class="row"><button class="btn sm outline" onclick="A_parentForm('${p.ParentID}')">✏️</button><button class="btn sm pink" onclick="A_delParent('${p.ParentID}')">🗑️</button></span></div>`).join('')}</div></div>
       <div class="card secw">${secHead('👶',EN()?'Students':'นักเรียน',students.length,`<button class="btn sm" onclick="event.stopPropagation();A_genBills()">📅 ${esc(t('bill.genTitle'))}</button>`)}
         <div class="secbody" hidden>${searchBox(EN()?'name / nickname / class':'ชื่อ / ชื่อเล่น / ชั้นเรียน')}
         ${students.map(s=>`<div class="list-item" data-k="${esc((s.NameTH+' '+(s.NameEN||'')+' '+(s.Nickname||'')+' '+(s.NicknameEN||'')+' '+(s.Class||'')+' '+(s.NationalID||'')).toLowerCase())}"><span>${studentAvatar(s)} <b>${esc(nm(s))}</b> <small class="muted">${esc(s.Class)} · ${esc(ageYM(s.DOB))}${s.InsuranceHas?' · 🛡️':''}</small><br><small class="muted">${EN()?'ID':'บัตร'}: ${esc(s.NationalID||'-')}</small></span><span class="row"><button class="btn sm outline" onclick="A_studentForm('${s.StudentID}')">✏️</button><button class="btn sm" onclick="A_issueBill('${s.StudentID}')">🧾</button><button class="btn sm" onclick="A_charges('${s.StudentID}')">💵</button><button class="btn sm outline" onclick="A_vaccines('${s.StudentID}')">💉</button><button class="btn sm gray" onclick="A_exportStudent('${s.StudentID}')">📤</button><button class="btn sm pink" onclick="A_removeStudent('${s.StudentID}')" title="${esc(t('wd.remove'))}">🚪</button></span></div>`).join('')}</div></div>`;
@@ -1220,7 +1236,7 @@
         <label class="field"><span>${esc(t('manage.dept'))}</span><select id="sf_Department">${['',...depts].map(d=>`<option ${s.Department===d?'selected':''}>${esc(d)}</option>`).join('')}</select></label></div>
       <div class="grid2"><label class="field"><span>${esc(t('manage.group'))}</span><select id="sf_StaffGroup">${groups.map(g=>`<option ${s.StaffGroup===g.GroupName?'selected':''}>${esc(g.GroupName)}</option>`).join('')}</select></label>
         <label class="field"><span>${esc(t('manage.level'))}</span><select id="sf_PositionLevel">${['Admin','Leader','Officer','Assistant','Staff'].map(l=>`<option ${s.PositionLevel===l?'selected':''}>${esc(l)}</option>`).join('')}</select></label></div>
-      <div class="grid2">${f('Phone',t('reg.phone'),s.Phone)}${f('NationalID',t('reg.nationalIdParent'),s.NationalID)}</div>
+      <div class="grid2">${f('Phone',t('reg.phone'),phoneFmt(s.Phone))}${f('NationalID',t('reg.nationalIdParent'),s.NationalID)}</div>
       <div class="grid2">${f('StartDate',t('staff.startDate'),s.StartDate,'date')}${f('BaseSalary',t('pay.baseSalary'),s.BaseSalary,'number')}</div>
       <label class="field"><span>${esc(t('manage.photo'))}</span><input id="sf_Photo" type="file" accept="image/*"/>${s.Photo?`<br><img src="${esc(s.Photo)}" style="width:48px;height:48px;border-radius:50%;object-fit:cover;margin-top:6px"/>`:''}</label>
       <button class="btn block" onclick="A_saveStaff(this,'${id||''}')">${esc(t('c.save'))}</button>`);
@@ -1237,7 +1253,7 @@
     modal(`<h3>${id?'✏️':'➕'} ${esc(t('manage.parents'))}</h3>
       <div class="grid2">${f('NameTH',t('reg.nameTH'),p.NameTH)}${f('NameEN',t('reg.nameEN'),p.NameEN)}</div>
       <div class="grid2">${f('Relationship',t('reg.relationship'),p.Relationship)}${f('NationalID',t('reg.nationalIdParent'),p.NationalID)}</div>
-      <div class="grid2">${f('Phone',t('reg.mobile'),p.Phone)}${f('OfficePhone',t('reg.officePhone'),p.OfficePhone)}</div>
+      <div class="grid2">${f('Phone',t('reg.mobile'),phoneFmt(p.Phone))}${f('OfficePhone',t('reg.officePhone'),phoneFmt(p.OfficePhone))}</div>
       <div class="grid2">${f('Occupation',t('reg.occupation'),p.Occupation)}${f('Workplace',t('reg.workplace'),p.Workplace)}</div>
       <label class="field"><span>${esc(t('reg.parentPhoto'))}</span><input id="pf_Photo" type="file" accept="image/*"/>${p.Photo?`<br><img src="${esc(p.Photo)}" style="width:48px;height:48px;border-radius:50%;object-fit:cover;margin-top:6px"/>`:''}</label>
       <button class="btn block" onclick="A_saveParent(this,'${id||''}')">${esc(t('c.save'))}</button>`);

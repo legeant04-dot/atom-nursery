@@ -34,6 +34,7 @@ function handleSubmitLeave(payload) {
   var sheet = sheet_(getHrSpreadsheet_(), 'LEAVE_REQUEST');
   var leaveId = genLeaveId_(sheet);
   var level = String(staff.PositionLevel || '');
+  if (String(staff.Role || '') === 'Admin') level = 'Admin';
   var requesterIsApprover = (level === 'Leader' || level === 'Admin');
 
   var row = {
@@ -63,6 +64,7 @@ function handleApproveLeave(payload) {
   payload = payload || {};
   var approver = resolveStaff_(payload);
   var level = String(approver.PositionLevel || '');
+  if (String(approver.Role || '') === 'Admin') level = 'Admin';   // Admin role → full approval rights regardless of PositionLevel
   var sheet = sheet_(getHrSpreadsheet_(), 'LEAVE_REQUEST');
   var leave = findObject_(sheet, function (r) { return String(r.LeaveID) === String(payload.leaveId); });
   if (!leave) throw apiError_('NOT_FOUND', 'ไม่พบคำขอลา ' + payload.leaveId);
@@ -129,6 +131,7 @@ function handleMyLeaves(payload) {
 function handlePendingLeaves(payload) {
   var approver = resolveStaff_(payload);
   var level = String(approver.PositionLevel || '');
+  if (String(approver.Role || '') === 'Admin') level = 'Admin';   // Admin role → full approval rights regardless of PositionLevel
   var rows = readObjects_(sheet_(getHrSpreadsheet_(), 'LEAVE_REQUEST'));
   var visible;
   if (level === 'Admin') visible = rows.filter(function (r) { return String(r.Status) === LEAVE_STATUS.PENDING_ADMIN; });

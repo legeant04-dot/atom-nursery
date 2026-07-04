@@ -75,6 +75,7 @@ function handleProvisionStaff(p) {
     if (it.reportsTo) patch.ReportsTo = it.reportsTo;
     if (it.nickname) patch.Nickname = it.nickname;
     if (it.dob) patch.DOB = it.dob;
+    if (it.set) Object.keys(it.set).forEach(function (k) { patch[k] = it.set[k]; }); // full-field realign (writes by header name, no clearing)
     updateRow_(staff, st._row, patch);
     done.push(it.id + ':ok');
   });
