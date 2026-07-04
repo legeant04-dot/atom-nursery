@@ -53,7 +53,7 @@
   let CURRENT = 'home';
   const ROLE_KEY = r => ({Parent:'role.Parent',Teacher:'role.Teacher',Admin:'role.Admin'}[r]||r);
   function setHeader(){
-    $('#devbar').textContent = (!CONFIG.DEMO_MODE ? (EN()?'PRODUCTION · LINE login only':'โหมดใช้งานจริง · เข้าสู่ระบบผ่าน LINE เท่านั้น') : (CONFIG.MODE==='gas' ? (EN()?'Connected to Google Sheets (GAS)':'เชื่อมต่อข้อมูลจริงผ่าน GAS แล้ว') : t('devbar'))) + ' · v42';
+    $('#devbar').textContent = (!CONFIG.DEMO_MODE ? (EN()?'PRODUCTION · LINE login only':'โหมดใช้งานจริง · เข้าสู่ระบบผ่าน LINE เท่านั้น') : (CONFIG.MODE==='gas' ? (EN()?'Connected to Google Sheets (GAS)':'เชื่อมต่อข้อมูลจริงผ่าน GAS แล้ว') : t('devbar'))) + ' · v43';
     $('#langBtn').textContent = LANG()==='en' ? 'EN' : 'TH';
     $('#userName').textContent = USER ? USER.nameEN : '–';
     $('#userRole').textContent = USER ? t(ROLE_KEY(USER.role)) : '';
@@ -85,7 +85,9 @@
     // while the first (uncached) fetch runs; skip on silent background re-renders to avoid flicker.
     if(fn && !(opts&&opts.silent)) app.innerHTML=`<div class="card" style="text-align:center;color:#94a3b8;padding:28px">⏳ ${EN()?'Loading…':'กำลังโหลด…'}</div>`;
     if(fn){ const r=fn(); // a screen that throws must not leave the loading skeleton stuck forever
-      if(r&&r.catch) r.catch(e=>{ app.innerHTML=`<div class="card"><b>⚠️ ${EN()?'Could not load':'โหลดไม่สำเร็จ'}</b><br><small class="muted">${esc((e&&e.message)||e)}</small></div><button class="btn outline block" style="margin-top:10px" onclick="GO('${screen}')">🔄 ${EN()?'Retry':'ลองใหม่'}</button>`; });
+      // only show the error if STILL on this screen — a slow screen the user already left must not
+      // clobber the new one (e.g. home's deferred #anns write firing after navigating to leaves).
+      if(r&&r.catch) r.catch(e=>{ if(CURRENT!==screen)return; app.innerHTML=`<div class="card"><b>⚠️ ${EN()?'Could not load':'โหลดไม่สำเร็จ'}</b><br><small class="muted">${esc((e&&e.message)||e)}</small></div><button class="btn outline block" style="margin-top:10px" onclick="GO('${screen}')">🔄 ${EN()?'Retry':'ลองใหม่'}</button>`; });
     } else app.innerHTML=`<div class="card">หน้านี้กำลังพัฒนา</div>`; window.scrollTo(0,0); };
   // SWR hook: api.js calls this when a background refresh found newer data than what's shown.
   // Re-render the current screen (silently, no skeleton), but never interrupt an open modal or active typing.
@@ -1008,7 +1010,8 @@
             ${!late.length&&!absent.length?`<small style="color:#2e7d32">✓ ${EN()?'All present & on time':'มาครบ ตรงเวลา'}</small>`:''}`; })()}</div>
       <div class="card"><h3>📢 ประกาศ</h3><div id="anns"></div></div>`;
     const _anns=await api('announcements'); A_CACHE.announcements=_anns;
-    $('#anns').innerHTML=_anns.map(a=>{ const ti=EN()?(a.TitleEN||a.Title):(a.Title||a.TitleEN);
+    const _annEl=$('#anns'); if(!_annEl) return; // user navigated away before this resolved
+    _annEl.innerHTML=_anns.map(a=>{ const ti=EN()?(a.TitleEN||a.Title):(a.Title||a.TitleEN);
       return `<div class="list-item"><div><b>${esc(ti)}</b>${a.Popup?` <span class="pill info" style="font-size:10px">Pop-up</span>`:''}<br><small class="muted">${esc(a.StartDate||a.Date)}${a.EndDate?'→'+esc(a.EndDate):''}</small></div><span class="row"><button class="btn sm outline" onclick="A_editAnn('${a.AnnID}')">✏️</button><button class="btn sm pink" onclick="A_delAnn('${a.AnnID}')">🗑️</button></span></div>`; }).join('')||`<small class="muted">${esc(t('c.noItems'))}</small>`;
   };
   window.A_addAnn=(annId)=>{ const a=annId?findAnn(annId):{};
