@@ -3,6 +3,8 @@
   const $ = s => document.querySelector(s);
   const app = $('#app'), nav = $('#bottomnav');
   const baht = n => (Number(n)||0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
+  const APP_VERSION = 'Version 1.047'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const verTag = () => `<div style="text-align:center;color:#c3c9d4;font-size:10px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
   const phoneFmt = p => { let d=String(p==null?'':p).replace(/\D/g,''); if(d.length===9) d='0'+d; return d; };
   const phoneLink = p => { const d=phoneFmt(p); return d?`<a href="tel:${d}" onclick="event.stopPropagation()" style="color:inherit;text-decoration:underline dotted">${esc(d)}</a>`:'-'; };
@@ -53,7 +55,7 @@
   let CURRENT = 'home';
   const ROLE_KEY = r => ({Parent:'role.Parent',Teacher:'role.Teacher',Admin:'role.Admin'}[r]||r);
   function setHeader(){
-    $('#devbar').textContent = 'Version 1.046'; // tiny version tag at the bottom (bump on each webapp change)
+    // version is shown only at the bottom of the Chat screen now (see verTag / APP_VERSION)
     $('#langBtn').textContent = LANG()==='en' ? 'EN' : 'TH';
     $('#userName').textContent = USER ? USER.nameEN : '–';
     $('#userRole').textContent = USER ? t(ROLE_KEY(USER.role)) : '';
@@ -726,7 +728,7 @@
       <div class="card" style="text-align:center"><div style="font-size:48px">💬</div>
         <p>${esc(t('chat.lineMsg'))}</p>
         <a class="btn block green" href="${esc(line)}" target="_blank">${esc(t('chat.openLine'))} →</a>
-        <p class="muted" style="font-size:12px;margin-top:10px">${esc(t('chat.lineNote'))}</p></div>`;
+        <p class="muted" style="font-size:12px;margin-top:10px">${esc(t('chat.lineNote'))}</p></div>${verTag()}`;
   };
   function bubble(c){ const me=c.SenderRole==='Parent'; return `<div style="display:flex;justify-content:${me?'flex-end':'flex-start'};margin:6px 0"><div style="max-width:80%;background:${me?'#e3f2fd':'#f1f1f1'};padding:8px 12px;border-radius:12px"><div style="font-size:11px;color:#888">${esc(c.SenderName||c.SenderRole)}</div><div style="font-size:14px">${esc(c.Message)}</div><div class="muted" style="font-size:10px;text-align:right">${esc(c.Timestamp)}</div></div></div>`; }
   window.P_send=async(sid)=>{ const v=$('#msg').value.trim(); if(!v)return; await api('addComment',{studentId:sid,parentId:USER.parentId,senderRole:'Parent',senderName:USER.nameEN,message:v}); SCREENS.Parent.chat(); };
@@ -1563,7 +1565,7 @@
       <div class="card" style="text-align:center"><div style="font-size:48px">💬</div>
         <p>${esc(t('chat.lineMsg'))}</p>
         <a class="btn block green" href="${esc(line)}" target="_blank">${esc(t('chat.openLine'))} →</a>
-        <p class="muted" style="font-size:12px;margin-top:10px">${esc(t('chat.lineNote'))}</p></div>`;
+        <p class="muted" style="font-size:12px;margin-top:10px">${esc(t('chat.lineNote'))}</p></div>${verTag()}`;
   };
 
   function staffName(id){ const s=MOCK.staff.find(x=>x.StaffID===id); return s?(LANG()==='en'?s.NameEN:s.NameTH):id; }
