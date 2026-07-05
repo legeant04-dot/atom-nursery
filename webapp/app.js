@@ -53,7 +53,7 @@
   let CURRENT = 'home';
   const ROLE_KEY = r => ({Parent:'role.Parent',Teacher:'role.Teacher',Admin:'role.Admin'}[r]||r);
   function setHeader(){
-    $('#devbar').textContent = (!CONFIG.DEMO_MODE ? (EN()?'PRODUCTION · LINE login only':'โหมดใช้งานจริง · เข้าสู่ระบบผ่าน LINE เท่านั้น') : (CONFIG.MODE==='gas' ? (EN()?'Connected to Google Sheets (GAS)':'เชื่อมต่อข้อมูลจริงผ่าน GAS แล้ว') : t('devbar'))) + ' · v43';
+    $('#devbar').textContent = (!CONFIG.DEMO_MODE ? (EN()?'PRODUCTION · LINE login only':'โหมดใช้งานจริง · เข้าสู่ระบบผ่าน LINE เท่านั้น') : (CONFIG.MODE==='gas' ? (EN()?'Connected to Google Sheets (GAS)':'เชื่อมต่อข้อมูลจริงผ่าน GAS แล้ว') : t('devbar'))) + ' · v44';
     $('#langBtn').textContent = LANG()==='en' ? 'EN' : 'TH';
     $('#userName').textContent = USER ? USER.nameEN : '–';
     $('#userRole').textContent = USER ? t(ROLE_KEY(USER.role)) : '';
@@ -630,25 +630,23 @@
   window.P_slipDetect=async(inp)=>{ const f=inp.files[0]; const out=document.getElementById('qrDetect'); if(!f||!out)return;
     // show a preview of the chosen slip so the parent can review it
     const prev=document.getElementById('slipPrev'); if(prev){ const fr=new FileReader(); fr.onload=()=>{ prev.src=fr.result; prev.hidden=false; }; fr.readAsDataURL(f); }
-    // Preferred: SlipOK server-side verification (available once GAS is deployed). Mock → falls back to BarcodeDetector.
-    try{ const dataUrl=await new Promise(r=>{const fr=new FileReader();fr.onload=()=>r(fr.result);fr.readAsDataURL(f);});
-      // handleVerifySlip (Day6.gs) reads p.slipBase64 (raw base64, no data-URL prefix), not p.slipData
-      const slipBase64=String(dataUrl).split(',')[1]||'';
-      const vk=await api('verifySlip',{slipBase64});
-      if(vk&&vk.available&&vk.amount!=null){ const aEl=document.getElementById('slipAmt'); aEl.value=vk.amount; aEl.dataset.fromqr='1';
-        const due=Number(document.getElementById('slipDue').dataset.due||0);
-        out.innerHTML = vk.amount>=due? `✅ SlipOK ${esc(t('slip.qrMatch'))} ${baht(vk.amount)}` : `⚠️ SlipOK ${esc(t('slip.qrMismatch'))} ${baht(vk.amount)} / ${baht(due)}`; return; }
-    }catch(e){}
-    if(!('BarcodeDetector' in window)){ out.textContent='ℹ️ '+t('slip.qrUnsupported'); return; }
+    const due=Number(document.getElementById('slipDue').dataset.due||0);
+    const setAmt=amt=>{ const aEl=document.getElementById('slipAmt'); if(aEl){ aEl.value=amt; aEl.dataset.fromqr='1'; } };
+    const verdict=(label,amt)=>`${amt>=due?'✅':'⚠️'} ${label} ${amt>=due?esc(t('slip.qrMatch')):esc(t('slip.qrMismatch'))} ${baht(amt)}${amt>=due?'':' / '+baht(due)}`;
     out.textContent='⏳ '+t('slip.qrReading');
-    try{ const bmp=await createImageBitmap(f); const det=new window.BarcodeDetector({formats:['qr_code']}); const codes=await det.detect(bmp);
-      if(!codes.length){ out.textContent='ℹ️ '+t('slip.qrNone'); return; }
-      const amt=parseEMVAmount(codes[0].rawValue);
-      const due=Number(document.getElementById('slipDue').dataset.due||0);
-      if(amt!=null){ const aEl=document.getElementById('slipAmt'); aEl.value=amt; aEl.dataset.fromqr='1';
-        out.innerHTML = amt>=due? `✅ ${esc(t('slip.qrMatch'))} ${baht(amt)}` : `⚠️ ${esc(t('slip.qrMismatch'))} ${baht(amt)} / ${baht(due)}`;
-      } else out.textContent='ℹ️ '+t('slip.qrNoAmount');
-    }catch(e){ out.textContent='ℹ️ '+t('slip.qrNone'); } };
+    // 1) read the slip's verification QR locally (the "สแกนตรวจสอบสลิป" code encodes the transaction ref)
+    let qr=null;
+    if('BarcodeDetector' in window){ try{ const bmp=await createImageBitmap(f); const det=new window.BarcodeDetector({formats:['qr_code']}); const codes=await det.detect(bmp); if(codes.length) qr=codes[0].rawValue; }catch(e){} }
+    // 2) SlipOK: server verifies the slip against the bank (needs real SlipOK_Url/SlipOK_ApiKey) → real amount
+    try{ const dataUrl=await new Promise(r=>{const fr=new FileReader();fr.onload=()=>r(fr.result);fr.readAsDataURL(f);});
+      const slipBase64=String(dataUrl).split(',')[1]||'';
+      const vk=await api('verifySlip', qr?{qrData:qr}:{slipBase64});
+      if(vk&&vk.available&&vk.amount!=null){ setAmt(vk.amount); out.innerHTML=verdict('SlipOK',vk.amount); return; }
+      if(vk&&vk.available&&vk.raw&&vk.raw.message){ out.innerHTML=`ℹ️ SlipOK: ${esc(vk.raw.message)}`; } // e.g. wrong branch/API key config
+    }catch(e){}
+    // 3) fallback: parse an EMVCo PAYMENT QR amount locally (a verification QR usually has none)
+    if(qr){ const amt=parseEMVAmount(qr); if(amt!=null){ setAmt(amt); out.innerHTML=verdict('',amt); return; } }
+    if(!out.innerHTML || out.textContent.indexOf('⏳')>=0) out.textContent = qr? ('ℹ️ '+t('slip.qrNoAmount')) : (('BarcodeDetector' in window)? ('ℹ️ '+t('slip.qrNone')) : ('ℹ️ '+t('slip.qrUnsupported'))); };
   // minimal EMVCo TLV parser → transaction amount (tag 54)
   function parseEMVAmount(s){ if(!s||typeof s!=='string')return null; let i=0;
     while(i+4<=s.length){ const tag=s.substr(i,2), len=parseInt(s.substr(i+2,2),10); if(isNaN(len))break; const val=s.substr(i+4,len);
@@ -992,8 +990,10 @@
     const pendN=pend.length;
     const remHtml = rem.due?`<div class="card" style="background:#fff3e0;border-color:#ffcc80;color:#e65100"><div class="spread"><b>🔔 ${esc(t('admin.payrollReminder'))}</b><button class="btn sm" onclick="GO('payroll')">${esc(t('admin.goPayroll'))}</button></div><small>${esc(t('admin.payrollReminderSub').replace('{d}',rem.lastDay-1).replace('{last}',rem.lastDay))}</small></div>`:'';
     const leaveRemHtml = lrem.due?`<div class="card" style="background:#e8f5e9;border-color:#a5d6a7;color:#2e7d32"><div class="spread"><b>🗓️ ${esc(t('admin.leaveReset'))}</b><button class="btn sm" onclick="A_settings()">${esc(t('manage.settings'))}</button></div><small>${esc(t('admin.leaveResetSub'))}</small></div>`:'';
+    const _dow=new Date().getDay(); const _closed=(_dow===0||_dow===6);
+    const closedBanner=_closed?`<div class="card" style="background:#e8f5e9;border-color:#a5d6a7;color:#2e7d32;text-align:center"><b>🏖️ ${EN()?'School closed today (weekend) — no check-in required':'วันนี้โรงเรียนหยุด (เสาร์/อาทิตย์) — ไม่มีการลงเวลา'}</b></div>`:'';
     app.innerHTML=`<h2 class="page">${esc(t('title.dashboard'))} (${esc(todayStr())})</h2>
-      ${remHtml}${leaveRemHtml}
+      ${closedBanner}${remHtml}${leaveRemHtml}
       <div class="card"><div class="row"><button class="btn sm" onclick="GO('finance')">💰 ${esc(t('fin.title'))}</button><button class="btn sm ${pendN?'':'outline'}" onclick="GO('verify')">✅ ${esc(t('verify.title'))}${pendN?` (${pendN})`:''}</button><button class="btn sm" onclick="GO('daily')">📋 ${esc(t('daily.title'))}</button><button class="btn sm outline" onclick="GO('absence')">🔎 ${esc(t('abs.title'))}</button><button class="btn sm outline" onclick="A_addAnn()">+ ${esc(t('lbl.addAnn'))}</button></div></div>
       <div class="card"><div class="spread"><h3>👶 ${EN()?'Attendance by class':'การมาเรียนแต่ละชั้น'}</h3><button class="btn sm outline" onclick="A_addAnn()">+ ${EN()?'Announce':'ประกาศ'}</button></div>
         ${(()=>{ const ts=d.classes.reduce((a,c)=>{a.p+=c.in+c.out;a.t+=c.total;return a;},{p:0,t:0}); const tp=ts.t?Math.round(ts.p/ts.t*100):100;
