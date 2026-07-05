@@ -22,7 +22,8 @@ body{font-family:'Sarabun',system-ui,sans-serif;background:var(--bg);color:var(-
   align-items:center;justify-content:center;font-weight:700;font-size:14px;}
 .btn-ghost{background:transparent;border:1px solid var(--line);border-radius:8px;padding:6px 10px;cursor:pointer;font-family:inherit;}
 
-.devbar{background:#FFF8E1;color:#8a6d00;font-size:12.5px;text-align:center;padding:6px 12px;border-bottom:1px solid #f0e3b0;}
+/* tiny version tag, unobtrusive, at the very bottom of the screen (below the nav) */
+.devbar{position:fixed;left:0;right:0;bottom:1px;text-align:center;font-size:9px;color:#c3c9d4;letter-spacing:.3px;padding:0;pointer-events:none;z-index:30;}
 
 main{max-width:880px;margin:0 auto;padding:14px;}
 
