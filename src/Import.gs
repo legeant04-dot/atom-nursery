@@ -93,6 +93,15 @@ function handleRunSetup(p) {
   return { ok: true, ran: 'setupAll' };
 }
 
+/** Install the time-based triggers (06:50 check-in reminder, 18:30 checkout, 01:00 backup).
+ *  payload: { key }  — gated by ImportKey. REMOVE with Import.gs after use. */
+function handleRunTriggers(p) {
+  var key = getConfig_('ImportKey', 'atom-import-2026');
+  if (!p || String(p.key) !== String(key)) throw apiError_('FORBIDDEN', 'runTriggers: bad or missing key');
+  installTriggers();
+  return { ok: true, triggers: ScriptApp.getProjectTriggers().map(function (t) { return t.getHandlerFunction(); }) };
+}
+
 /** Set a SCHOOL_CONFIG key directly (e.g. flip RequireSessionToken at go-live) + flush the config cache.
  *  payload: { key, cfgKey, cfgValue }  — gated by ImportKey. REMOVE with Import.gs at go-live. */
 function handleSetConfig(p) {
