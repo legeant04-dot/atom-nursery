@@ -190,9 +190,10 @@ function forgotCheckinReminder() {
     if (dateStr_(new Date(r.Date)) === today && r.CheckIn) checkedIn[String(r.StaffID)] = true;
   });
   readObjects_(sheet_(getHrSpreadsheet_(), 'STAFF')).forEach(function (s) {
-    if (String(s.Status) === 'ACTIVE' && s.LineUID && !checkedIn[String(s.StaffID)]) {
-      linePushText_(s.LineUID, '🌅 อรุณสวัสดิ์ค่ะ อย่าลืมลงเวลาเข้างานเวลา 07:00 นะคะ (' + s.Name + ')');
-    }
+    if (String(s.Status) !== 'ACTIVE' || !s.LineUID || checkedIn[String(s.StaffID)]) return;
+    if (String(s.Role) === 'Admin') return;                                          // admins don't clock in → no reminder
+    if (String(s.RequireCheckin).toLowerCase() === 'false') return;                  // respect the "not required" toggle
+    linePushText_(s.LineUID, '🌅 อรุณสวัสดิ์ค่ะ อย่าลืมลงเวลาเข้างานเวลา 07:00 นะคะ (' + s.Name + ')');
   });
 }
 
