@@ -13,7 +13,8 @@ function installTriggers() {
   // Remove existing triggers owned by this project to avoid duplicates.
   ScriptApp.getProjectTriggers().forEach(function (t) { ScriptApp.deleteTrigger(t); });
 
-  ScriptApp.newTrigger('forgotCheckinReminder').timeBased().atHour(8).everyDays(1).create();
+  // 06:50 morning check-in reminder (teachers clock in at 07:00). Timezone = project TZ (Asia/Bangkok).
+  ScriptApp.newTrigger('forgotCheckinReminder').timeBased().atHour(6).nearMinute(50).everyDays(1).create();
   ScriptApp.newTrigger('forgotCheckoutReminder').timeBased().atHour(18).nearMinute(30).everyDays(1).create();
   // Daily backup (implemented Day 7) — registered here so the schedule exists.
   if (typeof dailyBackup === 'function') {

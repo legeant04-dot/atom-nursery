@@ -159,9 +159,30 @@ function notifyAdmins_(text) {
   }
 }
 
-// ---- Forgot-reminder triggers ------------------------------------
-/** Run ~08:00: remind active staff who have not checked in today. */
+// ---- School-closed detection (weekends + configured holidays) ------
+/** true on Sat/Sun or a date listed in SCHOOL_CONFIG HolidayList or the HOLIDAYS sheet. */
+function isSchoolClosed_(d) {
+  var day = d.getDay();
+  if (day === 0 || day === 6) return true;                                 // Sunday / Saturday
+  var ds = dateStr_(d);
+  try {
+    var hl = getConfig_('HolidayList', '');
+    if (hl) {
+      var arr; try { arr = JSON.parse(hl); } catch (e) { arr = String(hl).split(','); }
+      if (arr.some(function (x) { return String(x).trim().slice(0, 10) === ds; })) return true;
+    }
+  } catch (e) {}
+  try {
+    var hs = readObjects_(sheet_(getMainSpreadsheet_(), 'HOLIDAYS'));
+    if (hs.some(function (h) { return dateStr_(new Date(h.Date)) === ds; })) return true;
+  } catch (e) {}
+  return false;
+}
+
+// ---- Attendance reminder triggers (skip weekends + holidays) -------
+/** Run ~06:50: morning reminder for active staff to clock in at 07:00 (skip on closed days). */
 function forgotCheckinReminder() {
+  if (isSchoolClosed_(new Date())) return;                                 // no work on weekends/holidays
   var today = dateStr_(new Date());
   var checkins = readObjects_(sheet_(getHrSpreadsheet_(), 'CHECKIN_STAFF'));
   var checkedIn = {};
@@ -170,13 +191,14 @@ function forgotCheckinReminder() {
   });
   readObjects_(sheet_(getHrSpreadsheet_(), 'STAFF')).forEach(function (s) {
     if (String(s.Status) === 'ACTIVE' && s.LineUID && !checkedIn[String(s.StaffID)]) {
-      linePushText_(s.LineUID, '⏰ อย่าลืมลงเวลาเข้างานวันนี้นะคะ (' + s.Name + ')');
+      linePushText_(s.LineUID, '🌅 อรุณสวัสดิ์ค่ะ อย่าลืมลงเวลาเข้างานเวลา 07:00 นะคะ (' + s.Name + ')');
     }
   });
 }
 
-/** Run ~18:30: remind staff who checked in but not out. */
+/** Run ~18:30: remind staff who checked in but not out (skip on closed days). */
 function forgotCheckoutReminder() {
+  if (isSchoolClosed_(new Date())) return;
   var today = dateStr_(new Date());
   readObjects_(sheet_(getHrSpreadsheet_(), 'CHECKIN_STAFF')).forEach(function (r) {
     if (dateStr_(new Date(r.Date)) === today && r.CheckIn && !r.CheckOut) {
