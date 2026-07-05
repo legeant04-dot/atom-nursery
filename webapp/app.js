@@ -53,7 +53,7 @@
   let CURRENT = 'home';
   const ROLE_KEY = r => ({Parent:'role.Parent',Teacher:'role.Teacher',Admin:'role.Admin'}[r]||r);
   function setHeader(){
-    $('#devbar').textContent = (!CONFIG.DEMO_MODE ? (EN()?'PRODUCTION · LINE login only':'โหมดใช้งานจริง · เข้าสู่ระบบผ่าน LINE เท่านั้น') : (CONFIG.MODE==='gas' ? (EN()?'Connected to Google Sheets (GAS)':'เชื่อมต่อข้อมูลจริงผ่าน GAS แล้ว') : t('devbar'))) + ' · v44';
+    $('#devbar').textContent = (!CONFIG.DEMO_MODE ? (EN()?'PRODUCTION · LINE login only':'โหมดใช้งานจริง · เข้าสู่ระบบผ่าน LINE เท่านั้น') : (CONFIG.MODE==='gas' ? (EN()?'Connected to Google Sheets (GAS)':'เชื่อมต่อข้อมูลจริงผ่าน GAS แล้ว') : t('devbar'))) + ' · v45';
     $('#langBtn').textContent = LANG()==='en' ? 'EN' : 'TH';
     $('#userName').textContent = USER ? USER.nameEN : '–';
     $('#userRole').textContent = USER ? t(ROLE_KEY(USER.role)) : '';
@@ -637,12 +637,17 @@
     // 1) read the slip's verification QR locally (the "สแกนตรวจสอบสลิป" code encodes the transaction ref)
     let qr=null;
     if('BarcodeDetector' in window){ try{ const bmp=await createImageBitmap(f); const det=new window.BarcodeDetector({formats:['qr_code']}); const codes=await det.detect(bmp); if(codes.length) qr=codes[0].rawValue; }catch(e){} }
-    // 2) SlipOK: server verifies the slip against the bank (needs real SlipOK_Url/SlipOK_ApiKey) → real amount
+    // 2) SlipOK: server verifies the slip against the bank + cross-checks the amount (we send the due).
     try{ const dataUrl=await new Promise(r=>{const fr=new FileReader();fr.onload=()=>r(fr.result);fr.readAsDataURL(f);});
       const slipBase64=String(dataUrl).split(',')[1]||'';
-      const vk=await api('verifySlip', qr?{qrData:qr}:{slipBase64});
-      if(vk&&vk.available&&vk.amount!=null){ setAmt(vk.amount); out.innerHTML=verdict('SlipOK',vk.amount); return; }
-      if(vk&&vk.available&&vk.raw&&vk.raw.message){ out.innerHTML=`ℹ️ SlipOK: ${esc(vk.raw.message)}`; } // e.g. wrong branch/API key config
+      const vk=await api('verifySlip', Object.assign(qr?{qrData:qr}:{slipBase64}, {amount:due}));
+      if(vk&&vk.available){
+        if(vk.ok && vk.amount!=null){ setAmt(vk.amount); out.innerHTML=`✅ SlipOK ${esc(t('slip.qrMatch'))} ${baht(vk.amount)}${vk.receiver&&vk.receiver.name?` → ${esc(vk.receiver.name)}`:''}`; return; }
+        if(vk.code===1013){ if(vk.amount!=null)setAmt(vk.amount); out.innerHTML=`⚠️ SlipOK ${esc(t('slip.qrMismatch'))} ${vk.amount!=null?baht(vk.amount):'?'} / ${baht(due)}`; return; }
+        if(vk.code===1014){ out.innerHTML=`⚠️ ${EN()?'Receiver account is not the school account':'บัญชีผู้รับไม่ตรงกับบัญชีโรงเรียน'}`; return; }
+        if(vk.code===1012){ out.innerHTML=`⚠️ ${EN()?'Duplicate slip (already used)':'สลิปนี้เคยใช้แล้ว (สลิปซ้ำ)'}`; return; }
+        if(vk.message){ out.innerHTML=`ℹ️ SlipOK: ${esc(vk.message)}`; }
+      }
     }catch(e){}
     // 3) fallback: parse an EMVCo PAYMENT QR amount locally (a verification QR usually has none)
     if(qr){ const amt=parseEMVAmount(qr); if(amt!=null){ setAmt(amt); out.innerHTML=verdict('',amt); return; } }

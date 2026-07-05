@@ -98,21 +98,34 @@ function handleVerifySlip(p) {
   var key = getConfig_('SlipOK_ApiKey', '');
   if (!url || !key) return { available: false, provider: 'SlipOK', note: 'SlipOK not configured' };
   try {
-    var payload;
-    if (p.qrData) payload = { data: String(p.qrData) };               // decoded EMVCo QR payload
-    else if (p.slipBase64) payload = { files: p.slipBase64 };          // raw slip image (base64)
+    // log:true → SlipOK stores the slip (dedupe on repeat = code 1012) and checks the receiver
+    // account registered in its LIFF (wrong receiver = code 1014). Configurable via SlipOK_Log.
+    var payload = { log: String(getConfig_('SlipOK_Log', 'true')) !== 'false' };
+    if (p.qrData) payload.data = String(p.qrData);                    // QR string from the slip's verify code
+    else if (p.slipBase64) payload.files = p.slipBase64;              // slip image (base64) — JSON body per SlipOK Apps Script example
+    else if (p.slipUrl) payload.url = String(p.slipUrl);
     else return { available: false, note: 'no slip data' };
+    if (p.amount != null && Number(p.amount) > 0) payload.amount = Number(p.amount); // SlipOK cross-checks the amount → code 1013 if it differs
     var res = UrlFetchApp.fetch(url, {
-      method: 'post',
-      contentType: 'application/json',
-      headers: { 'x-authorization': key },
-      payload: JSON.stringify(payload),
-      muteHttpExceptions: true
+      method: 'post', contentType: 'application/json',
+      headers: { 'x-authorization': key }, payload: JSON.stringify(payload), muteHttpExceptions: true
     });
+    var http = res.getResponseCode();
     var body = {}; try { body = JSON.parse(res.getContentText()); } catch (e) {}
-    var data = body.data || body;
-    var amount = data.amount != null ? Number(data.amount) : (data.amount_total != null ? Number(data.amount_total) : null);
-    return { available: true, ok: !!body.success || res.getResponseCode() === 200, amount: amount, ref: data.transRef || data.ref || '', raw: body };
+    var d = body.data || {};
+    var amount = d.amount != null ? Number(d.amount) : null;
+    var receiver = d.receiver ? { name: d.receiver.displayName || d.receiver.name || '',
+      account: (d.receiver.account && d.receiver.account.value) || (d.receiver.proxy && d.receiver.proxy.value) || '' } : null;
+    return {
+      available: true,
+      ok: http === 200 && body.success === true,                     // a genuine, matching slip
+      code: body.code || null,                                       // 1013 wrong amount · 1014 wrong receiver · 1012 duplicate · 1011 no txn
+      message: body.message || d.message || '',
+      amount: amount, ref: d.transRef || '',
+      transDate: d.transDate || '', transTime: d.transTime || '',
+      receiver: receiver, sender: d.sender ? (d.sender.displayName || d.sender.name || '') : '',
+      raw: body
+    };
   } catch (err) {
     return { available: false, error: String(err) };
   }
