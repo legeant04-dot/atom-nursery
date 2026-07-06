@@ -91,15 +91,15 @@ function applyIdentity_(action, payload, sess) {
     payload.uid = sess.uid;                                               // link records to the verified LINE id
     return payload;
   }
+  // Admin is fully trusted: may target ANY staff/student/parent (manage everyone + "view as" any role).
+  if (sess.role === 'Admin') return payload;
   payload.uid = sess.uid; payload.role = sess.role;                       // overwrite — never trust client identity
   if (sess.role === ROLES.PARENT) {
     payload.parentId = sess.linkedId;
     if (payload.studentId && !parentOwnsStudent_(sess.uid, payload.studentId)) throw apiError_('NO_ACCESS', 'ไม่มีสิทธิ์เข้าถึงข้อมูลนักเรียนนี้');
-  } else if (sess.role !== 'Admin') {
+  } else {
     payload.staffId = sess.linkedId;                                      // teacher/leader act only as themselves
   }
-  // Admin: do NOT overwrite staffId — admin actions legitimately target OTHER staff
-  // (setRequireCheckin/saveStaff/deleteStaff/computePayroll…); admin has full edit rights.
   return payload;
 }
 function parentOwnsStudent_(uid, sid) {
