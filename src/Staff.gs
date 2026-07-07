@@ -1,0 +1,102 @@
+/**
+ * Staff.gs — in-place STAFF writes (Admin CRUD).
+ * ------------------------------------------------------------------
+ * These override the engine's saveStaff/deleteStaff (which rewrite the WHOLE
+ * staff collection on persist — a single short read there wipes every other row).
+ * Here each edit touches ONLY its own row (updateRow_ / deleteRow / appendObject_),
+ * so an edit can never delete other staff. The form sends NameTH; the sheet column
+ * is Name — map it here.
+ * ------------------------------------------------------------------
+ */
+function handleSaveStaff(p) {
+  p = p || {};
+  var sh = sheet_(getHrSpreadsheet_(), 'STAFF');
+  var d = p.data || {};
+  var row = {};
+  for (var k in d) { if (d.hasOwnProperty(k)) row[k] = d[k]; }
+  if (d.NameTH !== undefined) row.Name = d.NameTH;         // sheet column is Name (engine alias Name->NameTH)
+  delete row.NameTH;
+
+  if (p.staffId) {                                          // edit existing — patch one row only
+    var st = findObject_(sh, function (s) { return String(s.StaffID) === String(p.staffId); });
+    if (!st) throw apiError_('NOT_FOUND', 'ไม่พบพนักงาน ' + p.staffId);
+    updateRow_(sh, st._row, row);
+    staffCacheBust_();
+    return { ok: true, staffId: p.staffId };
+  }
+  var id = nextId_(sh, 'StaffID', 'STF', 3);                // new staff
+  row.StaffID = id;
+  if (!row.Role) row.Role = 'Teacher';
+  if (!row.Status) row.Status = 'ACTIVE';
+  appendObject_(sh, row);
+  staffCacheBust_();
+  return { ok: true, staffId: id };
+}
+
+function handleDeleteStaff(p) {
+  p = p || {};
+  var sh = sheet_(getHrSpreadsheet_(), 'STAFF');
+  var st = findObject_(sh, function (s) { return String(s.StaffID) === String(p.staffId); });
+  if (!st) throw apiError_('NOT_FOUND', 'ไม่พบพนักงาน ' + p.staffId);
+  sh.deleteRow(st._row);
+  staffCacheBust_();
+  return { ok: true };
+}
+
+function staffCacheBust_() {
+  try { CacheService.getScriptCache().removeAll(['col:STAFF', 'rows:STAFF']); } catch (e) {}
+}
+
+// ---- in-place STUDENT / PARENT writes (same wipe-safety as staff) ----
+function recCacheBust_(sheetName) { try { CacheService.getScriptCache().removeAll(['col:' + sheetName, 'rows:' + sheetName]); } catch (e) {} }
+function mapName_(d) { var row = {}; for (var k in d) { if (d.hasOwnProperty(k)) row[k] = d[k]; } if (d.NameTH !== undefined) { row.Name = d.NameTH; delete row.NameTH; } return row; }
+
+function handleSaveStudent(p) {
+  p = p || {};
+  var sh = sheet_(getMainSpreadsheet_(), 'STUDENTS');
+  var row = mapName_(p.data || {});
+  var st = findObject_(sh, function (s) { return String(s.StudentID) === String(p.studentId); });
+  if (!st) throw apiError_('NOT_FOUND', 'ไม่พบนักเรียน ' + p.studentId);
+  updateRow_(sh, st._row, row);
+  recCacheBust_('STUDENTS');
+  return { ok: true, studentId: p.studentId };
+}
+
+function handleSaveParent(p) {
+  p = p || {};
+  var sh = sheet_(getMainSpreadsheet_(), 'PARENTS');
+  var row = mapName_(p.data || {});
+  if (p.parentId) {
+    var pa = findObject_(sh, function (x) { return String(x.ParentID) === String(p.parentId); });
+    if (!pa) throw apiError_('NOT_FOUND', 'ไม่พบผู้ปกครอง ' + p.parentId);
+    updateRow_(sh, pa._row, row);
+    recCacheBust_('PARENTS');
+    return { ok: true, parentId: p.parentId };
+  }
+  var id = nextId_(sh, 'ParentID', 'PAR', 3);
+  row.ParentID = id;
+  appendObject_(sh, row);
+  recCacheBust_('PARENTS');
+  return { ok: true, parentId: id };
+}
+
+function handleDeleteParent(p) {
+  p = p || {};
+  var sh = sheet_(getMainSpreadsheet_(), 'PARENTS');
+  var pa = findObject_(sh, function (x) { return String(x.ParentID) === String(p.parentId); });
+  if (!pa) throw apiError_('NOT_FOUND', 'ไม่พบผู้ปกครอง ' + p.parentId);
+  sh.deleteRow(pa._row);
+  recCacheBust_('PARENTS');
+  return { ok: true };
+}
+
+function handleRemoveStudent(p) {
+  p = p || {};
+  if (!p.reason) throw apiError_('MISSING', 'กรุณาเลือกเหตุผลในการนำข้อมูลออก');
+  var sh = sheet_(getMainSpreadsheet_(), 'STUDENTS');
+  var st = findObject_(sh, function (s) { return String(s.StudentID) === String(p.studentId); });
+  if (!st) throw apiError_('NOT_FOUND', 'ไม่พบนักเรียน ' + p.studentId);
+  updateRow_(sh, st._row, { Status: 'WITHDRAWN', WithdrawReason: p.reason, WithdrawDetail: p.detail || '', WithdrawDate: dateStr_(new Date()) });
+  recCacheBust_('STUDENTS');
+  return { ok: true };
+}
