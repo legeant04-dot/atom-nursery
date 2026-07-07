@@ -85,6 +85,18 @@ function handleProvisionStaff(p) {
 
 /** Run setupAll() (idempotent — adds any missing sheets/columns from SCHEMA, never deletes).
  *  payload: { key }  — gated by ImportKey. REMOVE with Import.gs after use. */
+/** Restore/replace the whole STAFF sheet with a provided list (recovery).
+ *  payload: { key, staff:[{...}] }  — gated by ImportKey. REMOVE with Import.gs after use. */
+function handleSetStaffFull(p) {
+  var key = getConfig_('ImportKey', 'atom-import-2026');
+  if (!p || String(p.key) !== String(key)) throw apiError_('FORBIDDEN', 'setStaffFull: bad or missing key');
+  var sh = sheet_(getHrSpreadsheet_(), 'STAFF');
+  var lr = sh.getLastRow(); if (lr > 1) sh.getRange(2, 1, lr - 1, sh.getLastColumn()).clearContent();
+  (p.staff || []).forEach(function (s) { appendObject_(sh, s); });
+  try { CacheService.getScriptCache().removeAll(['col:STAFF', 'rows:STAFF']); } catch (e) {}
+  return { ok: true, count: (p.staff || []).length };
+}
+
 function handleRunSetup(p) {
   var key = getConfig_('ImportKey', 'atom-import-2026');
   if (!p || String(p.key) !== String(key)) throw apiError_('FORBIDDEN', 'runSetup: bad or missing key');

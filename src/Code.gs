@@ -16,6 +16,13 @@ var ROUTES = {
   ping:           function ()  { return { pong: true, time: new Date().toISOString() }; },
   auth:           function (p) { return handleAuth(p); },
   changePassword: function (p) { return handleChangePassword(p); },
+  // in-place staff CRUD (override the engine's full-collection rewrite, which could wipe other rows)
+  saveStaff:      function (p) { return handleSaveStaff(p); },
+  deleteStaff:    function (p) { return handleDeleteStaff(p); },
+  saveStudent:    function (p) { return handleSaveStudent(p); },
+  saveParent:     function (p) { return handleSaveParent(p); },
+  deleteParent:   function (p) { return handleDeleteParent(p); },
+  removeStudent:  function (p) { return handleRemoveStudent(p); },
   // Day 3 — GPS staff attendance
   staffCheckin:   function (p) { return handleStaffCheckin(p); },
   staffCheckout:  function (p) { return handleStaffCheckout(p); },
