@@ -97,6 +97,17 @@ function handleSaveParentSelf(p) {
   return { ok: true, parentId: p.parentId };
 }
 
+// Admin deletes a bill in-place (one BILLING row). Admin-only (guarded in applyIdentity_).
+function handleDeleteBill(p) {
+  p = p || {};
+  var sh = sheet_(getMainSpreadsheet_(), 'BILLING');
+  var b = findObject_(sh, function (x) { return String(x.BillingID) === String(p.billingId); });
+  if (!b) throw apiError_('NOT_FOUND', 'ไม่พบบิล ' + p.billingId);
+  sh.deleteRow(b._row);
+  recCacheBust_('BILLING');
+  return { ok: true };
+}
+
 // students linked to a LINE uid (USER_LINKS + PARENTS.LineUID) — used to authorize co-parent/child edits.
 function familyStudentIds_(uid) {
   var ids = {};

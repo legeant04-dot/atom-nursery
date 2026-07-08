@@ -37,13 +37,15 @@ function paySlipVerify_(p, due) {
   return { verified: '', ref: '', receiver: '' };
 }
 
+// Sheets coerces a 'YYYY-MM' cell to date 'YYYY-MM-01', so compare months by first 7 chars.
+function pmYm_(v) { return String(v == null ? '' : v).slice(0, 7); }
 function paySlipBillDue_(b) {
-  var amount = Number(b.Amount || 0), charges = 0, ot = 0, ss = getMainSpreadsheet_();
+  var amount = Number(b.Amount || 0), charges = 0, ot = 0, ss = getMainSpreadsheet_(), bm = pmYm_(b.Month);
   readObjects_(sheet_(ss, 'STUDENT_CHARGES')).forEach(function (c) {
-    if (String(c.StudentID) === String(b.StudentID) && String(c.Month) === String(b.Month)) charges += Number(c.Amount || 0);
+    if (String(c.StudentID) === String(b.StudentID) && pmYm_(c.Month) === bm) charges += Number(c.Amount || 0);
   });
   readObjects_(sheet_(ss, 'OT_DAILY')).forEach(function (o) {
-    if (String(o.StudentID) === String(b.StudentID) && String(o.Date).slice(0, 7) === String(b.Month) && String(o.Status) !== 'PAID') ot += Number(o.Amount || 0);
+    if (String(o.StudentID) === String(b.StudentID) && pmYm_(o.Date) === bm && String(o.Status) !== 'PAID') ot += Number(o.Amount || 0);
   });
   return amount + charges + ot;
 }
@@ -118,15 +120,15 @@ function paySlipRecompute_(kind, refId, paidDate) {
     var pd = paidDate || nowStr_().slice(0, 10);
     updateRow_(tgt.sheet, tgt.row, { Status: 'PAID', PaidDate: pd, SlipAmount: confirmed, VerifiedStatus: 'CONFIRMED' });
     if (kind === 'bill') {
-      var so = sheet_(ss, 'OT_DAILY');
-      readObjects_(so).forEach(function (o) { if (String(o.StudentID) === String(tgt.obj.StudentID) && String(o.Date).slice(0, 7) === String(tgt.obj.Month) && String(o.Status) !== 'PAID') updateRow_(so, o._row, { Status: 'PAID', PaidDate: pd }); });
+      var so = sheet_(ss, 'OT_DAILY'), bm = pmYm_(tgt.obj.Month);
+      readObjects_(so).forEach(function (o) { if (String(o.StudentID) === String(tgt.obj.StudentID) && pmYm_(o.Date) === bm && String(o.Status) !== 'PAID') updateRow_(so, o._row, { Status: 'PAID', PaidDate: pd }); });
       recCacheBust_('OT_DAILY');
     }
     if (kind === 'prepay') {
       var covered = tgt.obj.Covered; if (typeof covered === 'string') { try { covered = JSON.parse(covered); } catch (e) { covered = []; } }
-      covered = covered || [];
+      covered = (covered || []).map(pmYm_);
       var sb = sheet_(ss, 'BILLING');
-      readObjects_(sb).forEach(function (b) { if (String(b.StudentID) === String(tgt.obj.StudentID) && covered.indexOf(String(b.Month)) >= 0) updateRow_(sb, b._row, { Status: 'PAID', PaidDate: pd, VerifiedStatus: 'PREPAID' }); });
+      readObjects_(sb).forEach(function (b) { if (String(b.StudentID) === String(tgt.obj.StudentID) && covered.indexOf(pmYm_(b.Month)) >= 0) updateRow_(sb, b._row, { Status: 'PAID', PaidDate: pd, VerifiedStatus: 'PREPAID' }); });
       recCacheBust_('BILLING');
     }
   } else if (confirmed > 0) {

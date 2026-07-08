@@ -10,6 +10,9 @@ function createAtomAPI(M, GROWTH_STD) {
   const timeLocal = () => { const d=new Date(); return p2(d.getHours())+':'+p2(d.getMinutes()); };
   const stampLocal = () => todayLocal()+' '+timeLocal();
   const fail = (code,msg)=>{ const e=new Error(msg); e.code=code; throw e; };
+  // month normalizer: Sheets coerces a 'YYYY-MM' cell to the date 'YYYY-MM-01', so ALWAYS compare
+  // months via ym() (first 7 chars) — never raw ===, or bills/finance/OT-rollover silently mismatch.
+  const ym = v => String(v==null?'':v).slice(0,7);
   // normalize a vaccine record's dose dates to an array (accepts new `Dates` array / JSON string /
   // comma-joined string, or a legacy single `Date`). GAS decodeCell may already parse a JSON array.
   const vacDates_ = v => { let d = (v.Dates!=null) ? v.Dates : v.Date;
@@ -55,8 +58,8 @@ function createAtomAPI(M, GROWTH_STD) {
 
   // ---- payment-slip helpers (multiple slips per bill/OT/prepay + partial payments) ----
   const paySlips_ = () => (M.paymentSlips = M.paymentSlips || []);
-  function billDue_(b){ const otOpen=M.otDaily.filter(o=>o.StudentID===b.StudentID&&o.Date.slice(0,7)===b.Month&&o.Status!=='PAID');
-    const charges=M.studentCharges.filter(c=>c.StudentID===b.StudentID&&c.Month===b.Month).reduce((a,c)=>a+Number(c.Amount||0),0);
+  function billDue_(b){ const bm=ym(b.Month); const otOpen=M.otDaily.filter(o=>o.StudentID===b.StudentID&&ym(o.Date)===bm&&o.Status!=='PAID');
+    const charges=M.studentCharges.filter(c=>c.StudentID===b.StudentID&&ym(c.Month)===bm).reduce((a,c)=>a+Number(c.Amount||0),0);
     return Number(b.Amount||0)+charges+otOpen.reduce((a,o)=>a+Number(o.Amount||0),0); }
   function slipTarget_(kind, refId){
     if(kind==='bill'){ const b=M.payments.find(x=>x.BillingID===refId); return b?{obj:b, due:billDue_(b), studentId:b.StudentID}:null; }
@@ -78,8 +81,8 @@ function createAtomAPI(M, GROWTH_STD) {
     const confirmed=sumSlips_(kind, refId, ['CONFIRMED']); const submitted=sumSlips_(kind, refId, ['SUBMITTED','CONFIRMED']);
     tgt.obj.SlipAmount=submitted;
     if(confirmed>=tgt.due && tgt.due>0){ tgt.obj.Status='PAID'; tgt.obj.PaidDate=paidDate||tgt.obj.PaidDate||todayLocal(); tgt.obj.VerifiedStatus='CONFIRMED';
-      if(kind==='bill'){ M.otDaily.filter(o=>o.StudentID===tgt.obj.StudentID&&o.Date.slice(0,7)===tgt.obj.Month&&o.Status!=='PAID').forEach(o=>{o.Status='PAID';o.PaidDate=tgt.obj.PaidDate;}); }
-      if(kind==='prepay'){ M.payments.forEach(b=>{ if(b.StudentID===tgt.obj.StudentID&&(tgt.obj.Covered||[]).indexOf(b.Month)>=0){ b.Status='PAID'; b.PaidDate=tgt.obj.PaidDate; b.VerifiedStatus='PREPAID'; } }); }
+      if(kind==='bill'){ const bm=ym(tgt.obj.Month); M.otDaily.filter(o=>o.StudentID===tgt.obj.StudentID&&ym(o.Date)===bm&&o.Status!=='PAID').forEach(o=>{o.Status='PAID';o.PaidDate=tgt.obj.PaidDate;}); }
+      if(kind==='prepay'){ const cov=(tgt.obj.Covered||[]).map(ym); M.payments.forEach(b=>{ if(b.StudentID===tgt.obj.StudentID&&cov.indexOf(ym(b.Month))>=0){ b.Status='PAID'; b.PaidDate=tgt.obj.PaidDate; b.VerifiedStatus='PREPAID'; } }); }
     } else if(confirmed>0 || submitted>0){ tgt.obj.Status= confirmed>0?'PARTIAL':'PENDING_VERIFY'; }
     else { tgt.obj.Status='UNPAID'; tgt.obj.VerifiedStatus='REJECTED'; }
     return { confirmed, submitted, due:tgt.due, outstanding:Math.max(0,tgt.due-confirmed) }; }
@@ -140,20 +143,20 @@ function createAtomAPI(M, GROWTH_STD) {
     addComment: p => { const c={CommentID:'CM-'+(M.comments.length+1),StudentID:p.studentId,ParentID:p.parentId||'',SenderRole:p.senderRole,SenderName:p.senderName||'',Message:p.message,Timestamp:stampLocal(),ReadStatus:'unread'}; M.comments.push(c); return c; },
     // monthly bill = base items + per-student extra charges + any unpaid OT rolled over
     payments: p => M.payments.filter(b=>b.StudentID===p.studentId).map(b=>{
-        const charges=M.studentCharges.filter(c=>c.StudentID===p.studentId&&c.Month===b.Month);
+        const bm=ym(b.Month); const charges=M.studentCharges.filter(c=>c.StudentID===p.studentId&&ym(c.Month)===bm);
         // Items may be absent (sheet has no Items column) or a JSON string — normalise to an array, default to one tuition line
         let base = Array.isArray(b.Items) ? b.Items : (typeof b.Items==='string' && b.Items ? (()=>{try{return JSON.parse(b.Items)}catch(e){return null}})() : null);
         if(!Array.isArray(base)) base = [['ค่าเทอม', b.Amount||0]];
         const items=base.concat(charges.map(c=>[c.Label,c.Amount]));
         const baseAmt=b.Amount+charges.reduce((a,c)=>a+c.Amount,0);
-        const otOpen=M.otDaily.filter(o=>o.StudentID===p.studentId&&o.Status!=='PAID'&&o.Date.slice(0,7)===b.Month);
+        const otOpen=M.otDaily.filter(o=>o.StudentID===p.studentId&&o.Status!=='PAID'&&ym(o.Date)===bm);
         const roll=otOpen.reduce((a,o)=>a+o.Amount,0); const total=baseAmt+roll;
         // partial-payment view: sum of confirmed slips vs submitted-but-pending
         const confirmed=sumSlips_('bill', b.BillingID, ['CONFIRMED']); const submitted=sumSlips_('bill', b.BillingID, ['SUBMITTED']);
-        return Object.assign({},b,{Items:items,Amount:baseAmt,OTRollover:roll,TotalDue:total,PaidConfirmed:confirmed,PendingSubmitted:submitted,Outstanding:Math.max(0,total-confirmed)}); })
-      .sort((a,b)=>b.Month.localeCompare(a.Month)),
+        return Object.assign({},b,{Month:bm,Items:items,Amount:baseAmt,OTRollover:roll,TotalDue:total,PaidConfirmed:confirmed,PendingSubmitted:submitted,Outstanding:Math.max(0,total-confirmed)}); })
+      .sort((a,b)=>String(b.Month).localeCompare(String(a.Month))),
     // per-student extra charges (Admin)
-    studentCharges: p => M.studentCharges.filter(c=>c.StudentID===p.studentId && (!p.month||c.Month===p.month)),
+    studentCharges: p => M.studentCharges.filter(c=>c.StudentID===p.studentId && (!p.month||ym(c.Month)===ym(p.month))),
     addStudentCharge: p => { const c={ChargeID:'CH-'+(M.studentCharges.length+1),StudentID:p.studentId,Month:p.month||todayLocal().slice(0,7),Label:p.label,Amount:Number(p.amount||0)}; M.studentCharges.push(c); return c; },
     removeStudentCharge: p => { const i=M.studentCharges.findIndex(c=>c.ChargeID===p.chargeId); if(i>=0)M.studentCharges.splice(i,1); return {ok:true}; },
 
@@ -167,15 +170,17 @@ function createAtomAPI(M, GROWTH_STD) {
       const plan=studentPlan(s); const amount=p.amount!=null?Number(p.amount):(plan.price||0);
       const label=p.label||('ค่าเทอม '+((plan&&plan.labelTH)||'')); const items=p.items||[[label,amount]];
       const paid=!!p.paid; const paidDate=p.paidDate||todayLocal(); const method=p.method||(paid?'cash':'');
-      let b=M.payments.find(x=>x.StudentID===p.studentId&&x.Month===month);
+      let b=M.payments.find(x=>x.StudentID===p.studentId&&ym(x.Month)===month);
       const fields={Items:items,Amount:amount,Status:paid?'PAID':'UNPAID',SlipAmount:paid?amount:0,VerifiedStatus:paid?'CONFIRMED':'',PaidDate:paid?paidDate:'',PaymentMethod:method,Note:p.note||''};
       if(b){ Object.assign(b,fields); }
       else { b=Object.assign({BillingID:'BL-'+month+'-'+p.studentId,StudentID:p.studentId,Month:month,OTRollover:0,DueDate:month+'-05',SlipUrl:'',TransactionDate:paid?stampLocal():''},fields); M.payments.push(b); }
       logAct('issueBill',b.BillingID,month+' '+amount+(paid?' (ชำระล่วงหน้า)':''),actorOf(p));
       return b; },
+    // Admin deletes a bill (ยอดเรียกเก็บ). Removes the BILLING row; leaves any slip history in PAYMENT_SLIPS.
+    deleteBill: p => { const i=M.payments.findIndex(x=>x.BillingID===p.billingId); if(i<0)fail('NOT_FOUND','ไม่พบบิล'); const b=M.payments[i]; M.payments.splice(i,1); logAct('deleteBill',p.billingId,'ลบบิล '+ym(b&&b.Month),actorOf(p)); return {ok:true}; },
     // auto-generate the month's bill for all active students from Plan price (skip if already billed)
     generateMonthlyBills: p => { const month=p.month||todayLocal().slice(0,7); let created=0;
-      activeStudents().forEach(s=>{ if(M.payments.find(x=>x.StudentID===s.StudentID&&x.Month===month))return; const plan=studentPlan(s);
+      activeStudents().forEach(s=>{ if(M.payments.find(x=>x.StudentID===s.StudentID&&ym(x.Month)===month))return; const plan=studentPlan(s);
         M.payments.push({BillingID:'BL-'+month+'-'+s.StudentID,StudentID:s.StudentID,Month:month,Items:[['ค่าเทอม '+((plan&&plan.labelTH)||''),plan.price||0]],Amount:plan.price||0,OTRollover:0,DueDate:month+'-05',PaidDate:'',Status:'UNPAID',SlipUrl:'',SlipAmount:0,VerifiedStatus:'',Auto:true}); created++; });
       return {month,created}; },
     // attach a monthly slip → records a PAYMENT_SLIPS row (multiple allowed), bill → PENDING_VERIFY.
@@ -316,16 +321,21 @@ function createAtomAPI(M, GROWTH_STD) {
       return {due:n.getDate()===last-1, today:n.getDate(), lastDay:last, month:todayLocal().slice(0,7)}; },
 
     // Admin finance dashboard: tuition collection per student + salary payout per teacher + income/expense
-    financeSummary: p => { const month=p.month||todayLocal().slice(0,7);
-      const students=activeStudents().map(s=>{ const b=M.payments.find(x=>x.StudentID===s.StudentID&&x.Month===month);
-        const otOpen=M.otDaily.filter(o=>o.StudentID===s.StudentID&&o.Date.slice(0,7)===month&&o.Status!=='PAID').reduce((a,o)=>a+o.Amount,0);
-        const due=(b?b.Amount:0)+otOpen; const paid=b&&b.Status==='PAID';
-        return {studentId:s.StudentID,name:s.NameTH,nameEN:s.NameEN,plan:s.Plan,amount:b?b.Amount:0,otOpen,due,paid,status:b?b.Status:'NO_BILL',slipAmount:b?b.SlipAmount||0:0}; });
-      const staff=M.staff.filter(s=>s.Role==='Teacher').map(s=>{ const pr=M.payroll.find(x=>x.StaffID===s.StaffID&&x.Month===month);
+    financeSummary: p => { const month=ym(p.month||todayLocal().slice(0,7));
+      const students=activeStudents().map(s=>{
+        // a student may (wrongly) have >1 bill for a month — prefer the PAID/PARTIAL one over duplicates
+        const bills=M.payments.filter(x=>x.StudentID===s.StudentID&&ym(x.Month)===month);
+        const b=bills.find(x=>x.Status==='PAID')||bills.find(x=>x.Status==='PARTIAL')||bills[0];
+        const otOpen=M.otDaily.filter(o=>o.StudentID===s.StudentID&&ym(o.Date)===month&&o.Status!=='PAID').reduce((a,o)=>a+o.Amount,0);
+        const amount=b?Number(b.Amount||0):0; const due=amount+otOpen; const paid=!!b&&b.Status==='PAID';
+        // money actually IN = full amount if PAID, else the sum of CONFIRMED slips (partial)
+        const collected = b ? (paid?amount:sumSlips_('bill', b.BillingID, ['CONFIRMED'])) : 0;
+        return {studentId:s.StudentID,name:s.NameTH,nameEN:s.NameEN,plan:s.Plan,amount,collected,otOpen,due,paid,partial:!!b&&b.Status==='PARTIAL',status:b?b.Status:'NO_BILL',slipAmount:b?b.SlipAmount||0:0}; });
+      const staff=M.staff.filter(s=>s.Role==='Teacher').map(s=>{ const pr=M.payroll.find(x=>x.StaffID===s.StaffID&&ym(x.Month)===month);
         return {staffId:s.StaffID,name:s.NameTH,nameEN:s.NameEN,net:pr?pr.NetPay:0,paid:!!pr&&pr.SlipSent==='YES',computed:!!pr}; });
-      const tuitionCollected=students.filter(s=>s.paid).reduce((a,s)=>a+s.amount,0);
-      const otCollected=M.otDaily.filter(o=>o.Date.slice(0,7)===month&&o.Status==='PAID').reduce((a,o)=>a+o.Amount,0);
-      const tuitionOutstanding=students.filter(s=>!s.paid).reduce((a,s)=>a+s.due,0);
+      const tuitionCollected=students.reduce((a,s)=>a+(s.collected||0),0);
+      const otCollected=M.otDaily.filter(o=>ym(o.Date)===month&&o.Status==='PAID').reduce((a,o)=>a+o.Amount,0);
+      const tuitionOutstanding=students.reduce((a,s)=>a+Math.max(0,s.due-(s.collected||0)),0);
       const salaryExpense=staff.reduce((a,s)=>a+s.net,0);
       const income=tuitionCollected+otCollected;
       return {month, students, staff, income, tuitionCollected, otCollected, tuitionOutstanding, expense:salaryExpense, net:income-salaryExpense,
@@ -616,17 +626,17 @@ function createAtomAPI(M, GROWTH_STD) {
         out.push(Object.assign({ kind, id, studentId:rec.StudentID, label, due, confirmedPaid:confirmed, outstanding:Math.max(0,due-confirmed),
           method:rec.PaymentMethod||'transfer', transactionDate:rec.TransactionDate||'', cash:isCash, slipAmount:subs.reduce((a,s)=>a+Number(s.Amount||0),0),
           slips: subs.map(s=>({ slipId:s.SlipID, amount:Number(s.Amount||0), url:s.Url, verified:s.Verified, receiver:s.Receiver, transRef:s.TransRef, date:s.SubmittedDate })) }, nm(rec.StudentID))); };
-      M.payments.filter(b=>b.Status==='PENDING_VERIFY'||b.Status==='PARTIAL').forEach(b=>add('bill', b, b.BillingID, billDue_(b), b.Month));
+      M.payments.filter(b=>b.Status==='PENDING_VERIFY'||b.Status==='PARTIAL').forEach(b=>add('bill', b, b.BillingID, billDue_(b), ym(b.Month)));
       M.otDaily.filter(o=>o.Status==='PENDING_VERIFY'||o.Status==='PARTIAL').forEach(o=>add('ot', o, o.OTID, Number(o.Amount||0), o.Date+' OT'));
       M.prepayments.filter(pp=>pp.Status==='PENDING_VERIFY'||pp.Status==='PARTIAL').forEach(pp=>add('prepay', pp, pp.PrepayID, Number(pp.Amount||0), pp.Months+'mo ('+pp.Covered[0]+'→'+pp.Covered[pp.Covered.length-1]+')'));
       return out; },
     // Admin confirms a payment. paidDate = the actual payment date (defaults today); recorded for retro audit.
     confirmPayment: p => { const paid=p.paidDate||todayLocal(); const method=p.method||'';
       if(p.kind==='bill'){ const b=M.payments.find(x=>x.BillingID===p.id); if(!b)fail('NOT_FOUND','ไม่พบบิล'); b.Status='PAID'; b.PaidDate=paid; if(method)b.PaymentMethod=method; b.VerifiedStatus='CONFIRMED'; b.VerifiedBy=p.adminId||'admin';
-        M.otDaily.filter(o=>o.StudentID===b.StudentID&&o.Date.slice(0,7)===b.Month&&o.Status!=='PAID').forEach(o=>{o.Status='PAID';o.SlipRef=b.SlipUrl;o.PaidDate=paid;}); logAct('confirmPayment',b.BillingID,'ยืนยัน ('+(b.PaymentMethod||'transfer')+') '+b.SlipAmount+' จ่าย '+paid,actorOf(p)); return b; }
+        const bm=ym(b.Month); M.otDaily.filter(o=>o.StudentID===b.StudentID&&ym(o.Date)===bm&&o.Status!=='PAID').forEach(o=>{o.Status='PAID';o.SlipRef=b.SlipUrl;o.PaidDate=paid;}); logAct('confirmPayment',b.BillingID,'ยืนยัน ('+(b.PaymentMethod||'transfer')+') '+b.SlipAmount+' จ่าย '+paid,actorOf(p)); return b; }
       if(p.kind==='ot'){ const o=M.otDaily.find(x=>x.OTID===p.id); if(!o)fail('NOT_FOUND','ไม่พบ OT'); o.Status='PAID'; o.PaidDate=paid; if(method)o.PaymentMethod=method; o.VerifiedStatus='CONFIRMED'; logAct('confirmPayment',o.OTID,'ยืนยัน ('+(o.PaymentMethod||'transfer')+') '+o.Amount+' จ่าย '+paid,actorOf(p)); return o; }
       if(p.kind==='prepay'){ const pp=M.prepayments.find(x=>x.PrepayID===p.id); if(!pp)fail('NOT_FOUND','ไม่พบรายการ'); pp.Status='PAID'; pp.PaidDate=paid; if(method)pp.PaymentMethod=method; pp.VerifiedBy=p.adminId||'admin';
-        M.payments.forEach(b=>{ if(b.StudentID===pp.StudentID&&pp.Covered.indexOf(b.Month)>=0){ b.Status='PAID'; b.PaidDate=paid; b.VerifiedStatus='PREPAID'; } }); logAct('confirmPayment',pp.PrepayID,'ยืนยันชำระล่วงหน้า ('+(pp.PaymentMethod||'transfer')+') '+pp.Amount+' จ่าย '+paid,actorOf(p)); return pp; }
+        const cov=(pp.Covered||[]).map(ym); M.payments.forEach(b=>{ if(b.StudentID===pp.StudentID&&cov.indexOf(ym(b.Month))>=0){ b.Status='PAID'; b.PaidDate=paid; b.VerifiedStatus='PREPAID'; } }); logAct('confirmPayment',pp.PrepayID,'ยืนยันชำระล่วงหน้า ('+(pp.PaymentMethod||'transfer')+') '+pp.Amount+' จ่าย '+paid,actorOf(p)); return pp; }
       fail('BAD_KIND','ไม่ทราบประเภท'); },
     rejectPayment: p => {
       if(p.kind==='bill'){ const b=M.payments.find(x=>x.BillingID===p.id); if(b){b.Status='UNPAID';b.VerifiedStatus='REJECTED';b.SlipAmount=0;} }
