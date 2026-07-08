@@ -53,6 +53,37 @@ function createAtomAPI(M, GROWTH_STD) {
   const INACTIVE = { EXPORTED:1, WITHDRAWN:1 };
   const activeStudents = () => M.students.filter(s=>!INACTIVE[s.Status]);
 
+  // ---- payment-slip helpers (multiple slips per bill/OT/prepay + partial payments) ----
+  const paySlips_ = () => (M.paymentSlips = M.paymentSlips || []);
+  function billDue_(b){ const otOpen=M.otDaily.filter(o=>o.StudentID===b.StudentID&&o.Date.slice(0,7)===b.Month&&o.Status!=='PAID');
+    const charges=M.studentCharges.filter(c=>c.StudentID===b.StudentID&&c.Month===b.Month).reduce((a,c)=>a+Number(c.Amount||0),0);
+    return Number(b.Amount||0)+charges+otOpen.reduce((a,o)=>a+Number(o.Amount||0),0); }
+  function slipTarget_(kind, refId){
+    if(kind==='bill'){ const b=M.payments.find(x=>x.BillingID===refId); return b?{obj:b, due:billDue_(b), studentId:b.StudentID}:null; }
+    if(kind==='ot'){ const o=M.otDaily.find(x=>x.OTID===refId); return o?{obj:o, due:Number(o.Amount||0), studentId:o.StudentID}:null; }
+    if(kind==='prepay'){ const pp=M.prepayments.find(x=>x.PrepayID===refId); return pp?{obj:pp, due:Number(pp.Amount||0), studentId:pp.StudentID}:null; }
+    return null; }
+  function sumSlips_(kind, refId, statuses){ return paySlips_().filter(s=>s.RefKind===kind&&s.RefID===refId&&statuses.indexOf(s.Status)>=0).reduce((a,s)=>a+Number(s.Amount||0),0); }
+  // append a slip (mock stores the dataURL directly in Url; GAS routes override to save the image to Drive + run SlipOK)
+  function recordSlip_(kind, refId, p){ const tgt=slipTarget_(kind, refId); if(!tgt)fail('NOT_FOUND','ไม่พบรายการ');
+    const amt=Number(p.slipAmount||0);
+    paySlips_().push({ SlipID:'SL-'+Date.now()+'-'+Math.floor(Math.random()*10000), RefKind:kind, RefID:refId, StudentID:tgt.studentId,
+      Amount:amt, Url:p.slipData||p.slipName||'', FileId:'', Verified:'', TransRef:'', Receiver:'', SubmittedDate:stampLocal(), Status:'SUBMITTED' });
+    const submitted=sumSlips_(kind, refId, ['SUBMITTED','CONFIRMED']); const confirmed=sumSlips_(kind, refId, ['CONFIRMED']);
+    tgt.obj.Status='PENDING_VERIFY'; tgt.obj.SlipUrl=p.slipData||p.slipName||''; tgt.obj.SlipAmount=submitted; tgt.obj.PaymentMethod='transfer'; tgt.obj.SubmittedDate=todayLocal();
+    logAct('uploadSlip',refId,'โอน '+amt,actorOf(p));
+    return { ok:true, due:tgt.due, paidSoFar:submitted, outstanding:Math.max(0,tgt.due-confirmed), amountMatch:submitted>=tgt.due }; }
+  // after confirm/reject a slip, recompute the target's Status + outstanding
+  function recomputeTarget_(kind, refId, paidDate){ const tgt=slipTarget_(kind, refId); if(!tgt)return;
+    const confirmed=sumSlips_(kind, refId, ['CONFIRMED']); const submitted=sumSlips_(kind, refId, ['SUBMITTED','CONFIRMED']);
+    tgt.obj.SlipAmount=submitted;
+    if(confirmed>=tgt.due && tgt.due>0){ tgt.obj.Status='PAID'; tgt.obj.PaidDate=paidDate||tgt.obj.PaidDate||todayLocal(); tgt.obj.VerifiedStatus='CONFIRMED';
+      if(kind==='bill'){ M.otDaily.filter(o=>o.StudentID===tgt.obj.StudentID&&o.Date.slice(0,7)===tgt.obj.Month&&o.Status!=='PAID').forEach(o=>{o.Status='PAID';o.PaidDate=tgt.obj.PaidDate;}); }
+      if(kind==='prepay'){ M.payments.forEach(b=>{ if(b.StudentID===tgt.obj.StudentID&&(tgt.obj.Covered||[]).indexOf(b.Month)>=0){ b.Status='PAID'; b.PaidDate=tgt.obj.PaidDate; b.VerifiedStatus='PREPAID'; } }); }
+    } else if(confirmed>0 || submitted>0){ tgt.obj.Status= confirmed>0?'PARTIAL':'PENDING_VERIFY'; }
+    else { tgt.obj.Status='UNPAID'; tgt.obj.VerifiedStatus='REJECTED'; }
+    return { confirmed, submitted, due:tgt.due, outstanding:Math.max(0,tgt.due-confirmed) }; }
+
   // latest assessment per item for a student
   function latestByItem(sid){ const map={}; M.assessments.filter(a=>a.StudentID===sid).forEach(a=>{ if(!map[a.ItemNo]||a.Date>=map[a.ItemNo].Date)map[a.ItemNo]=a; }); return map; }
   function summarize(sid){ const s=studentById(sid); const latest=latestByItem(sid);
@@ -116,8 +147,10 @@ function createAtomAPI(M, GROWTH_STD) {
         const items=base.concat(charges.map(c=>[c.Label,c.Amount]));
         const baseAmt=b.Amount+charges.reduce((a,c)=>a+c.Amount,0);
         const otOpen=M.otDaily.filter(o=>o.StudentID===p.studentId&&o.Status!=='PAID'&&o.Date.slice(0,7)===b.Month);
-        const roll=otOpen.reduce((a,o)=>a+o.Amount,0);
-        return Object.assign({},b,{Items:items,Amount:baseAmt,OTRollover:roll,TotalDue:baseAmt+roll}); })
+        const roll=otOpen.reduce((a,o)=>a+o.Amount,0); const total=baseAmt+roll;
+        // partial-payment view: sum of confirmed slips vs submitted-but-pending
+        const confirmed=sumSlips_('bill', b.BillingID, ['CONFIRMED']); const submitted=sumSlips_('bill', b.BillingID, ['SUBMITTED']);
+        return Object.assign({},b,{Items:items,Amount:baseAmt,OTRollover:roll,TotalDue:total,PaidConfirmed:confirmed,PendingSubmitted:submitted,Outstanding:Math.max(0,total-confirmed)}); })
       .sort((a,b)=>b.Month.localeCompare(a.Month)),
     // per-student extra charges (Admin)
     studentCharges: p => M.studentCharges.filter(c=>c.StudentID===p.studentId && (!p.month||c.Month===p.month)),
@@ -145,17 +178,16 @@ function createAtomAPI(M, GROWTH_STD) {
       activeStudents().forEach(s=>{ if(M.payments.find(x=>x.StudentID===s.StudentID&&x.Month===month))return; const plan=studentPlan(s);
         M.payments.push({BillingID:'BL-'+month+'-'+s.StudentID,StudentID:s.StudentID,Month:month,Items:[['ค่าเทอม '+((plan&&plan.labelTH)||''),plan.price||0]],Amount:plan.price||0,OTRollover:0,DueDate:month+'-05',PaidDate:'',Status:'UNPAID',SlipUrl:'',SlipAmount:0,VerifiedStatus:'',Auto:true}); created++; });
       return {month,created}; },
-    // attach a monthly slip → goes to PENDING_VERIFY (Admin must confirm). amountMatch flags whether slip amount = due.
-    uploadSlip: p => { const b=M.payments.find(x=>x.BillingID===p.billingId); if(!b)fail('NOT_FOUND','ไม่พบรายการ');
-      const otOpen=M.otDaily.filter(o=>o.StudentID===b.StudentID&&o.Status!=='PAID'&&o.Date.slice(0,7)===b.Month);
-      const charges=M.studentCharges.filter(c=>c.StudentID===b.StudentID&&c.Month===b.Month).reduce((a,c)=>a+c.Amount,0);
-      const due=b.Amount+charges+otOpen.reduce((a,o)=>a+o.Amount,0);
-      // SlipUrl: in GAS the slip image is saved to the Drive folder (SlipsFolderName) and this holds its URL; in mock it's the dataURL
-      b.SlipUrl=p.slipData||p.slipName||'slip.jpg'; b.SlipName=p.slipName||''; b.SlipAmount=Number(p.slipAmount||0); b.SlipFromQR=!!p.fromQR; b.SubmittedDate=todayLocal();
-      b.PaymentMethod='transfer'; b.TransactionDate=stampLocal();
-      b.Status='PENDING_VERIFY'; b.VerifiedStatus= b.SlipAmount>=due?'MATCH':(b.SlipAmount>0?'UNDERPAID':'PENDING');
-      logAct('uploadSlip',b.BillingID,'โอน '+b.SlipAmount,actorOf(p));
-      return Object.assign({},b,{due,outstanding:Math.max(0,due-b.SlipAmount),amountMatch:b.SlipAmount>=due}); },
+    // attach a monthly slip → records a PAYMENT_SLIPS row (multiple allowed), bill → PENDING_VERIFY.
+    uploadSlip: p => recordSlip_('bill', p.billingId, p),
+    // all slips for a bill/OT/prepay (or a student) — history shown to parent + admin (rejected hidden)
+    paymentSlips: p => paySlips_().filter(s=> (p.refKind?s.RefKind===p.refKind:true) && (p.refId?s.RefID===p.refId:true) && (p.studentId?s.StudentID===p.studentId:true) && (p.includeRejected?true:s.Status!=='REJECTED'))
+      .map(s=>({ SlipID:s.SlipID, RefKind:s.RefKind, RefID:s.RefID, Amount:Number(s.Amount||0), Url:s.Url, Verified:s.Verified, TransRef:s.TransRef, Receiver:s.Receiver, SubmittedDate:s.SubmittedDate, Status:s.Status })),
+    // Admin confirms ONE slip; when confirmed total ≥ due the whole bill flips to PAID (else PARTIAL).
+    confirmSlip: p => { const s=paySlips_().find(x=>x.SlipID===p.slipId); if(!s)fail('NOT_FOUND','ไม่พบสลิป'); s.Status='CONFIRMED'; s.VerifiedBy=p.adminId||'admin';
+      const r=recomputeTarget_(s.RefKind, s.RefID, p.paidDate); logAct('confirmSlip',s.SlipID,'ยืนยัน '+s.Amount,actorOf(p)); return Object.assign({ok:true},r); },
+    rejectSlip: p => { const s=paySlips_().find(x=>x.SlipID===p.slipId); if(!s)fail('NOT_FOUND','ไม่พบสลิป'); s.Status='REJECTED';
+      const r=recomputeTarget_(s.RefKind, s.RefID); logAct('rejectSlip',s.SlipID,'ปฏิเสธสลิป',actorOf(p)); return Object.assign({ok:true},r); },
 
     // notify a CASH payment (parent or Admin) for a bill/OT/prepay → PENDING_VERIFY with method=cash.
     // Admin later confirms and sets the actual payment date. kind = bill | ot | prepay.
@@ -171,13 +203,8 @@ function createAtomAPI(M, GROWTH_STD) {
 
     // ---- daily OT (parent) ----
     otDaily: p => M.otDaily.filter(o=>o.StudentID===p.studentId).sort((a,b)=>b.Date.localeCompare(a.Date)),
-    // attach OT slip → PENDING_VERIFY (Admin confirms)
-    payOT: p => { const o=M.otDaily.find(x=>x.OTID===p.otId); if(!o)fail('NOT_FOUND','ไม่พบรายการ OT');
-      o.SlipRef=p.slipData||p.slipName||'slip.jpg'; o.SlipName=p.slipName||''; o.SlipAmount=Number(p.slipAmount||0); o.SlipFromQR=!!p.fromQR; o.SubmittedDate=todayLocal();
-      o.PaymentMethod='transfer'; o.TransactionDate=stampLocal();
-      o.Status='PENDING_VERIFY'; o.VerifiedStatus= o.SlipAmount>=o.Amount?'MATCH':(o.SlipAmount>0?'UNDERPAID':'PENDING');
-      logAct('payOT',o.OTID,'โอน '+o.SlipAmount,actorOf(p));
-      return Object.assign({},o,{amountMatch:o.SlipAmount>=o.Amount}); },
+    // attach OT slip → records a PAYMENT_SLIPS row, OT → PENDING_VERIFY (Admin confirms per slip)
+    payOT: p => recordSlip_('ot', p.otId, p),
 
     calendar: () => M.calendar.concat((M.holidays||[]).map(h=>({date:h.Date,title:(h.NameTH||h.NameEN),titleEN:(h.NameEN||h.NameTH),type:'holiday'})))
       .slice().sort((a,b)=>a.date.localeCompare(b.date)),
@@ -565,23 +592,27 @@ function createAtomAPI(M, GROWTH_STD) {
       for(let i=0;i<months;i++){ covered.push(y+'-'+String(mo).padStart(2,'0')); mo++; if(mo>12){mo=1;y++;} }
       const rec={PrepayID:'PP-'+(M.prepayments.length+1),StudentID:p.studentId,Months:months,Discount:disc,Gross:gross,Amount:amount,Covered:covered,Status:'UNPAID',SlipUrl:'',SlipAmount:0,Date:todayLocal()};
       M.prepayments.push(rec); return rec; },
-    // attach prepay slip → PENDING_VERIFY (Admin confirms)
-    payPrepay: p => { const pp=M.prepayments.find(x=>x.PrepayID===p.prepayId); if(!pp)fail('NOT_FOUND','ไม่พบรายการชำระล่วงหน้า');
-      pp.SlipUrl=p.slipData||p.slipName||'slip.jpg'; pp.SlipName=p.slipName||''; pp.SlipAmount=Number(p.slipAmount||0); pp.SlipFromQR=!!p.fromQR; pp.SubmittedDate=todayLocal();
-      pp.PaymentMethod='transfer'; pp.TransactionDate=stampLocal();
-      pp.Status='PENDING_VERIFY'; pp.VerifiedStatus= pp.SlipAmount>=pp.Amount?'MATCH':(pp.SlipAmount>0?'UNDERPAID':'PENDING');
-      logAct('payPrepay',pp.PrepayID,'โอน '+pp.SlipAmount,actorOf(p));
-      return Object.assign({},pp,{amountMatch:pp.SlipAmount>=pp.Amount}); },
+    // attach prepay slip → records a PAYMENT_SLIPS row, prepay → PENDING_VERIFY (Admin confirms per slip)
+    payPrepay: p => recordSlip_('prepay', p.prepayId, p),
     cancelPrepay: p => { const i=M.prepayments.findIndex(x=>x.PrepayID===p.prepayId); if(i>=0&&M.prepayments[i].Status==='UNPAID')M.prepayments.splice(i,1); return {ok:true}; },
     prepayments: p => M.prepayments.filter(x=>x.StudentID===p.studentId),
 
     // ---- Admin payment verification (confirm slips) ----
+    // Admin verify queue: one entry per bill/OT/prepay that has unverified slips OR is a cash notice.
+    // Each entry carries its SUBMITTED slips (image + amount + SlipOK verified flag) + confirmed/outstanding.
     pendingPayments: () => { const nm=id=>{ const s=studentById(id)||{}; return {name:s.NameTH,nameEN:s.NameEN}; };
-      const bills=M.payments.filter(b=>b.Status==='PENDING_VERIFY').map(b=>{ const otOpen=M.otDaily.filter(o=>o.StudentID===b.StudentID&&o.Status==='PAID'?false:o.Date.slice(0,7)===b.Month&&o.Status!=='PAID'); const charges=M.studentCharges.filter(c=>c.StudentID===b.StudentID&&c.Month===b.Month).reduce((a,c)=>a+c.Amount,0); const due=b.Amount+charges+otOpen.reduce((a,o)=>a+o.Amount,0);
-        return Object.assign({kind:'bill',id:b.BillingID,studentId:b.StudentID,label:b.Month,due,slipAmount:b.SlipAmount,slip:b.SlipUrl,match:b.SlipAmount>=due,fromQR:!!b.SlipFromQR,method:b.PaymentMethod||'transfer',transactionDate:b.TransactionDate||''},nm(b.StudentID)); });
-      const ots=M.otDaily.filter(o=>o.Status==='PENDING_VERIFY').map(o=>Object.assign({kind:'ot',id:o.OTID,studentId:o.StudentID,label:o.Date+' OT',due:o.Amount,slipAmount:o.SlipAmount,slip:o.SlipRef,match:o.SlipAmount>=o.Amount,fromQR:!!o.SlipFromQR,method:o.PaymentMethod||'transfer',transactionDate:o.TransactionDate||''},nm(o.StudentID)));
-      const pps=M.prepayments.filter(x=>x.Status==='PENDING_VERIFY').map(pp=>Object.assign({kind:'prepay',id:pp.PrepayID,studentId:pp.StudentID,label:pp.Months+'mo ('+pp.Covered[0]+'→'+pp.Covered[pp.Covered.length-1]+')',due:pp.Amount,slipAmount:pp.SlipAmount,slip:pp.SlipUrl,match:pp.SlipAmount>=pp.Amount,fromQR:!!pp.SlipFromQR,method:pp.PaymentMethod||'transfer',transactionDate:pp.TransactionDate||''},nm(pp.StudentID)));
-      return bills.concat(ots,pps); },
+      const out=[]; const add=(kind, rec, id, due, label)=>{
+        const subs=paySlips_().filter(s=>s.RefKind===kind&&s.RefID===id&&s.Status==='SUBMITTED');
+        const isCash = (rec.PaymentMethod==='cash') && (rec.Status==='PENDING_VERIFY');
+        if(!subs.length && !isCash) return;
+        const confirmed=sumSlips_(kind, id, ['CONFIRMED']);
+        out.push(Object.assign({ kind, id, studentId:rec.StudentID, label, due, confirmedPaid:confirmed, outstanding:Math.max(0,due-confirmed),
+          method:rec.PaymentMethod||'transfer', transactionDate:rec.TransactionDate||'', cash:isCash, slipAmount:subs.reduce((a,s)=>a+Number(s.Amount||0),0),
+          slips: subs.map(s=>({ slipId:s.SlipID, amount:Number(s.Amount||0), url:s.Url, verified:s.Verified, receiver:s.Receiver, transRef:s.TransRef, date:s.SubmittedDate })) }, nm(rec.StudentID))); };
+      M.payments.filter(b=>b.Status==='PENDING_VERIFY'||b.Status==='PARTIAL').forEach(b=>add('bill', b, b.BillingID, billDue_(b), b.Month));
+      M.otDaily.filter(o=>o.Status==='PENDING_VERIFY'||o.Status==='PARTIAL').forEach(o=>add('ot', o, o.OTID, Number(o.Amount||0), o.Date+' OT'));
+      M.prepayments.filter(pp=>pp.Status==='PENDING_VERIFY'||pp.Status==='PARTIAL').forEach(pp=>add('prepay', pp, pp.PrepayID, Number(pp.Amount||0), pp.Months+'mo ('+pp.Covered[0]+'→'+pp.Covered[pp.Covered.length-1]+')'));
+      return out; },
     // Admin confirms a payment. paidDate = the actual payment date (defaults today); recorded for retro audit.
     confirmPayment: p => { const paid=p.paidDate||todayLocal(); const method=p.method||'';
       if(p.kind==='bill'){ const b=M.payments.find(x=>x.BillingID===p.id); if(!b)fail('NOT_FOUND','ไม่พบบิล'); b.Status='PAID'; b.PaidDate=paid; if(method)b.PaymentMethod=method; b.VerifiedStatus='CONFIRMED'; b.VerifiedBy=p.adminId||'admin';

@@ -27,6 +27,11 @@ var ROUTES = {
   getStaffPassword:     function (p) { return handleGetStaffPassword(p); },
   adminResetPassword:   function (p) { return handleAdminResetPassword(p); },
   requestPasswordReset: function (p) { return handleRequestPasswordReset(p); },
+  uploadSlip:     function (p) { return handleUploadSlip(p); },
+  payOT:          function (p) { return handlePayOT(p); },
+  payPrepay:      function (p) { return handlePayPrepay(p); },
+  confirmSlip:    function (p) { return handleConfirmSlip(p); },
+  rejectSlip:     function (p) { return handleRejectSlip(p); },
   deleteParent:   function (p) { return handleDeleteParent(p); },
   removeStudent:  function (p) { return handleRemoveStudent(p); },
   // Day 3 — GPS staff attendance
