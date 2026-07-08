@@ -24,6 +24,7 @@ var ROUTES = {
   saveParentSelf: function (p) { return handleSaveParentSelf(p); },
   saveFamilyParent: function (p) { return handleSaveFamilyParent(p); },
   saveStudentSelf:  function (p) { return handleSaveStudentSelf(p); },
+  deleteBill:       function (p) { return handleDeleteBill(p); },
   changeStaffPassword:  function (p) { return handleChangeStaffPassword(p); },
   checkStaffPassword:   function (p) { return handleCheckStaffPassword(p); },
   getStaffPassword:     function (p) { return handleGetStaffPassword(p); },
@@ -112,6 +113,9 @@ function applyIdentity_(action, payload, sess) {
     payload.uid = sess.uid;                                               // link records to the verified LINE id
     return payload;
   }
+  // Admin-only destructive/sensitive actions — block non-admins (parent/teacher tokens).
+  var ADMIN_ONLY = { deleteBill: 1, adminResetPassword: 1, getStaffPassword: 1 };
+  if (ADMIN_ONLY[action] && sess.role !== 'Admin') throw apiError_('NO_PERMISSION', 'เฉพาะแอดมิน');
   // Admin is fully trusted: may target ANY staff/student/parent (manage everyone + "view as" any role).
   if (sess.role === 'Admin') return payload;
   payload.uid = sess.uid; payload.role = sess.role;                       // overwrite — never trust client identity

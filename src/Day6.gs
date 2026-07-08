@@ -98,9 +98,10 @@ function handleVerifySlip(p) {
   var key = getConfig_('SlipOK_ApiKey', '');
   if (!url || !key) return { available: false, provider: 'SlipOK', note: 'SlipOK not configured' };
   try {
-    // log:true → SlipOK stores the slip (dedupe on repeat = code 1012) and checks the receiver
-    // account registered in its LIFF (wrong receiver = code 1014). Configurable via SlipOK_Log.
-    var payload = { log: String(getConfig_('SlipOK_Log', 'true')) !== 'false' };
+    // log:true → SlipOK STORES the slip (dedupe on repeat = code 1012) and checks the receiver
+    // (wrong receiver = 1014). The parent PRE-CHECK must pass log:false so it doesn't consume the
+    // slip — otherwise the authoritative verify at upload sees its own pre-check as a 1012 duplicate.
+    var payload = { log: (p.log === false) ? false : (String(getConfig_('SlipOK_Log', 'true')) !== 'false') };
     if (p.qrData) payload.data = String(p.qrData);                    // QR string from the slip's verify code
     else if (p.slipBase64) payload.files = p.slipBase64;              // slip image (base64) — JSON body per SlipOK Apps Script example
     else if (p.slipUrl) payload.url = String(p.slipUrl);

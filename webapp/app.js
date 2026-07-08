@@ -3,7 +3,7 @@
   const $ = s => document.querySelector(s);
   const app = $('#app'), nav = $('#bottomnav');
   const baht = n => (Number(n)||0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
-  const APP_VERSION = 'Version 1.054'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.055'; // bump each webapp change; shown only at the bottom of the Chat screen
   const verTag = () => `<div style="text-align:center;color:#c3c9d4;font-size:10px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
   const phoneFmt = p => { let d=String(p==null?'':p).replace(/\D/g,''); if(d.length===9) d='0'+d; return d; };
@@ -78,8 +78,9 @@
   // remembers which pre-login screen we're on, so the language toggle re-renders THAT screen
   let AUTH_RENDER = null;
   window.TOGGLE_LANG = () => { setLang(LANG()==='en'?'th':'en'); setHeader(); if(USER) GO(CURRENT); else (AUTH_RENDER||loginScreen)(); ensureTranslateObserver(); applyLangNow(); };
-  // tapping the header avatar goes Home (only when signed in)
+  // tapping the left logo goes Home; tapping the right name/avatar → parent profile (else Home)
   window.HOME_TAP = () => { if(USER) GO('home'); };
+  window.NAME_TAP = () => { if(!USER) return; if(USER.role==='Parent' && typeof P_profile==='function') P_profile(); else GO('home'); };
 
   const NAVS = {
     Parent:[['home','🏠','nav.home'],['checkin','📍','nav.checkin'],['payment','💳','nav.payment'],['journal','📒','nav.journal'],['dspm','📈','nav.dspm'],['chat','💬','nav.chat']],
@@ -714,7 +715,7 @@
     // 2) SlipOK: server verifies the slip against the bank + cross-checks the amount (we send the due).
     try{ const dataUrl=await new Promise(r=>{const fr=new FileReader();fr.onload=()=>r(fr.result);fr.readAsDataURL(f);});
       const slipBase64=String(dataUrl).split(',')[1]||'';
-      const vk=await api('verifySlip', Object.assign(qr?{qrData:qr}:{slipBase64}, {amount:due}));
+      const vk=await api('verifySlip', Object.assign(qr?{qrData:qr}:{slipBase64}, {amount:due, log:false})); // log:false = pre-check only, don't consume the slip
       if(vk&&vk.available){
         if(vk.ok && vk.amount!=null){ setAmt(vk.amount); out.innerHTML=`✅ SlipOK ${esc(t('slip.qrMatch'))} ${baht(vk.amount)}${vk.receiver&&vk.receiver.name?` → ${esc(vk.receiver.name)}`:''}`; return; }
         if(vk.code===1013){ if(vk.amount!=null)setAmt(vk.amount); out.innerHTML=`⚠️ SlipOK ${esc(t('slip.qrMismatch'))} ${vk.amount!=null?baht(vk.amount):'?'} / ${baht(due)}`; return; }
@@ -1443,8 +1444,11 @@
     try{ await api('saveVaccines',{studentId:sid,records}); toast(t('c.saved')); }catch(e){ toast((EN()?'Save failed: ':'บันทึกไม่สำเร็จ: ')+(e.message||e)); } };
 
   // ---- Admin issues a bill to a parent (custom amount for mid-month proration / ad-hoc) ----
-  window.A_issueBill=async(sid)=>{ const s=findStudent(sid); const base=await api('studentBillBase',{studentId:sid});
+  window.A_issueBill=async(sid)=>{ const s=findStudent(sid); const [base,bills]=await Promise.all([api('studentBillBase',{studentId:sid}),api('payments',{studentId:sid})]);
+    const billRow=b=>{ const st={PAID:'ok',PARTIAL:'wait',PENDING_VERIFY:'wait'}[b.Status]||'bad';
+      return `<div class="list-item"><span><b>${esc(b.Month)}</b> ${baht(b.TotalDue!=null?b.TotalDue:b.Amount)} <span class="pill ${st}" style="font-size:10px">${esc(tStat(b.Status))}</span></span><button class="btn sm pink" onclick="A_delBill('${esc(b.BillingID)}','${esc(b.Month)}',this)">🗑️</button></div>`; };
     modal(`<h3>🧾 ${esc(t('bill.issue'))} — ${esc(nm(s))}</h3><p class="muted" style="font-size:12px">${esc(t('bill.issueNote'))}</p>
+      ${bills&&bills.length?`<div class="card" style="padding:8px;background:#fafbfe"><b style="font-size:13px">📋 ${EN()?'Existing bills':'บิลที่มีอยู่'}</b>${bills.map(billRow).join('')}</div>`:''}
       <div class="grid2"><label class="field"><span>${esc(t('c.month'))}</span><input type="month" id="biMonth" value="${monthStr()}"/></label>
         <label class="field"><span>${esc(t('bill.amount'))}</span><input type="number" id="biAmt" value="${base.price}"/></label></div>
       <p class="muted" style="font-size:11.5px">${esc(t('bill.planFull'))}: ${esc(EN()?base.labelEN:base.labelTH)} · ${baht(base.price)} — ${esc(t('bill.prorateHint'))}</p>
@@ -1455,6 +1459,9 @@
         <label class="field"><span>${esc(t('bill.paidDate'))}</span><input type="date" id="biPaidDate" value="${todayStr()}"/></label></div>
       <button class="btn block" onclick="A_issueBillDo('${sid}',this)">${esc(t('bill.send'))}</button>`);
   };
+  window.A_delBill=async(billingId,month,btn)=>{ if(!confirm((EN()?'Delete the bill for ':'ลบบิลงวด ')+month+' ?'))return;
+    if(btn)btn.disabled=true;
+    try{ await api('deleteBill',{billingId}); toast(t('manage.deleted')); const m=btn&&btn.closest('.modal'); if(m)m.remove(); GO('manage'); }catch(e){err(e);} };
   window.A_issueBillDo=async(sid,btn)=>{ const m=btn.closest('.modal'); const amt=+m.querySelector('#biAmt').value;
     if(!amt){toast(t('bill.amount'));return;} const paid=m.querySelector('#biPaid').checked; const paidDate=m.querySelector('#biPaidDate').value;
     try{ await api('issueBill',{studentId:sid,month:m.querySelector('#biMonth').value,amount:amt,label:m.querySelector('#biLabel').value.trim(),note:m.querySelector('#biNote').value.trim(),paid,paidDate});
@@ -1630,7 +1637,7 @@
         <div class="grid2"><div class="grid2" style="grid-template-columns:1fr 1fr;gap:8px">${stat('green',baht(f.income),t('fin.income'))}${stat('pink',baht(f.expense),t('fin.expense'))}</div>
           <div class="grid2" style="grid-template-columns:1fr 1fr;gap:8px">${stat(f.net>=0?'':'amber',baht(f.net),t('fin.net'))}${stat('amber',baht(f.tuitionOutstanding),t('fin.outstanding'))}</div></div></div>
       <div class="card"><div class="spread"><h3>👶 ${esc(t('fin.tuition'))}</h3><span class="pill ${f.studentsPaid>=f.studentsTotal?'ok':'wait'}">${f.studentsPaid}/${f.studentsTotal} ${esc(t('fin.paid'))}</span></div>
-        ${f.students.map(s=>`<div class="list-item"><span>${esc(EN()?s.nameEN:s.name)} <small class="muted">${esc(planLabel(s.plan))}</small></span><span>${baht(s.due||s.amount)} ${s.paid?`<span class="pill ok">${esc(t('s.paid'))}</span>`:s.status==='NO_BILL'?`<span class="pill info">${esc(t('fin.noBill'))}</span>`:`<span class="pill bad">${esc(t('s.unpaid'))}</span>`}</span></div>`).join('')}
+        ${f.students.map(s=>`<div class="list-item"><span>${esc(EN()?s.nameEN:s.name)} <small class="muted">${esc(planLabel(s.plan))}</small></span><span>${baht(s.due||s.amount)} ${s.paid?`<span class="pill ok">${esc(t('s.paid'))}</span>`:s.partial?`<span class="pill wait">${EN()?'partial':'บางส่วน'} ${baht(s.collected)}</span>`:s.status==='NO_BILL'?`<span class="pill info">${esc(t('fin.noBill'))}</span>`:`<span class="pill bad">${esc(t('s.unpaid'))}</span>`}</span></div>`).join('')}
         <div class="spread" style="margin-top:8px"><b>${esc(t('fin.collected'))}</b><b style="color:#2e7d32">${baht(f.tuitionCollected+f.otCollected)}</b></div></div>
       <div class="card"><div class="spread"><h3>👩‍🏫 ${esc(t('fin.salary'))}</h3><span class="pill ${f.staffPaid>=f.staffTotal?'ok':'wait'}">${f.staffPaid}/${f.staffTotal} ${esc(t('fin.computed'))}</span></div>
         ${f.staff.map(s=>`<div class="list-item"><span>${esc(EN()?s.nameEN:s.name)}</span><span>${baht(s.net)} ${s.computed?`<span class="pill ok">${esc(t('fin.done'))}</span>`:`<span class="pill bad">${esc(t('fin.pending'))}</span>`}</span></div>`).join('')}
