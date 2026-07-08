@@ -97,6 +97,48 @@ function handleSaveParentSelf(p) {
   return { ok: true, parentId: p.parentId };
 }
 
+// students linked to a LINE uid (USER_LINKS + PARENTS.LineUID) — used to authorize co-parent/child edits.
+function familyStudentIds_(uid) {
+  var ids = {};
+  readObjects_(sheet_(getMainSpreadsheet_(), 'USER_LINKS')).forEach(function (l) { if (String(l.UserUID) === String(uid)) ids[String(l.StudentID)] = 1; });
+  readObjects_(sheet_(getMainSpreadsheet_(), 'PARENTS')).forEach(function (pr) { if (String(pr.LineUID) === String(uid) && pr.StudentID) ids[String(pr.StudentID)] = 1; });
+  return ids;
+}
+
+// edit a parent that is the caller OR a co-parent of the caller's child (share a StudentID). Whitelisted.
+function handleSaveFamilyParent(p) {
+  p = p || {};
+  var sh = sheet_(getMainSpreadsheet_(), 'PARENTS');
+  var tid = p.targetParentId || p.parentId;
+  var pa = findObject_(sh, function (x) { return String(x.ParentID) === String(tid); });
+  if (!pa) throw apiError_('NOT_FOUND', 'ไม่พบผู้ปกครอง ' + tid);
+  var ok = (String(tid) === String(p.parentId));
+  if (!ok) { var ids = familyStudentIds_(p.uid); if (pa.StudentID && ids[String(pa.StudentID)]) ok = true; }
+  if (!ok) throw apiError_('NO_ACCESS', 'ไม่มีสิทธิ์แก้ไขผู้ปกครองนี้');
+  var d = p.data || {}, WHITE = ['NameTH', 'NameEN', 'Relationship', 'Phone', 'Occupation', 'Workplace', 'OfficePhone', 'Address'];
+  var row = {};
+  WHITE.forEach(function (k) { if (d[k] !== undefined) row[k] = d[k]; });
+  if (row.NameTH !== undefined) { row.Name = row.NameTH; delete row.NameTH; }
+  updateRow_(sh, pa._row, row);
+  recCacheBust_('PARENTS');
+  return { ok: true, parentId: tid };
+}
+
+// parent edits their own child's safe fields (studentId ownership enforced upstream by applyIdentity_).
+function handleSaveStudentSelf(p) {
+  p = p || {};
+  if (!p.studentId) throw apiError_('NO_SESSION', 'ต้องเข้าสู่ระบบใหม่');
+  var sh = sheet_(getMainSpreadsheet_(), 'STUDENTS');
+  var st = findObject_(sh, function (x) { return String(x.StudentID) === String(p.studentId); });
+  if (!st) throw apiError_('NOT_FOUND', 'ไม่พบนักเรียน ' + p.studentId);
+  var d = p.data || {}, WHITE = ['Nickname', 'NicknameEN', 'BloodType', 'RH', 'Allergy', 'MedicalHistory', 'EmergencyContact', 'Address', 'Race', 'Nationality', 'Religion', 'Photo'];
+  var row = {};
+  WHITE.forEach(function (k) { if (d[k] !== undefined) row[k] = d[k]; });
+  updateRow_(sh, st._row, row);
+  recCacheBust_('STUDENTS');
+  return { ok: true, studentId: p.studentId };
+}
+
 function handleDeleteParent(p) {
   p = p || {};
   var sh = sheet_(getMainSpreadsheet_(), 'PARENTS');

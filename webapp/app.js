@@ -3,7 +3,7 @@
   const $ = s => document.querySelector(s);
   const app = $('#app'), nav = $('#bottomnav');
   const baht = n => (Number(n)||0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
-  const APP_VERSION = 'Version 1.052'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.053'; // bump each webapp change; shown only at the bottom of the Chat screen
   const verTag = () => `<div style="text-align:center;color:#c3c9d4;font-size:10px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
   const phoneFmt = p => { let d=String(p==null?'':p).replace(/\D/g,''); if(d.length===9) d='0'+d; return d; };
@@ -471,27 +471,45 @@
   window.P_linkChild = async (btn)=>{ const m=btn.closest('.modal'); const nid=m.querySelector('#lnNID').value.trim(); if(!nid){toast(EN()?'Enter National ID':'กรอกเลขบัตร');return;}
     try{ const r=await api('linkExisting',{uid:USER.uid,nationalId:nid}); m.remove(); confirmSaved((EN()?'Linked: ':'เชื่อมข้อมูลแล้ว: ')+(EN()?r.nameEN:r.name)); GO('home'); }catch(e){err(e);} };
   // parent's own profile: view + edit personal info, and see linked children
+  // profile field helper (id is namespaced per record so many forms coexist)
+  const ppFld=(pre,id,label,val,type)=>`<label class="field"><span>${esc(label)}</span><input id="${pre}_${id}" type="${type||'text'}" value="${esc(val==null?'':val)}"/></label>`;
   window.P_profile = async () => { setNav('home');
-    const d = await api('parentSelf', parentScope()); const p=d.parent||{}; const kids=d.students||[];
-    const fld=(id,label,val,type)=>`<label class="field"><span>${esc(label)}</span><input id="pp_${id}" type="${type||'text'}" value="${esc(val==null?'':val)}"/></label>`;
-    app.innerHTML=`<div class="spread"><h2 class="page">👤 ${EN()?'My info':'ข้อมูลของฉัน'}</h2><button class="btn sm outline" onclick="GO('home')">← ${esc(t('c.back'))}</button></div>
-      <div class="card"><h3>${EN()?'Parent info':'ข้อมูลผู้ปกครอง'}</h3>
-        <div class="grid2">${fld('NameTH',EN()?'Name (TH)':'ชื่อ-สกุล (ไทย)',p.NameTH)}${fld('NameEN',EN()?'Name (EN)':'ชื่อ-สกุล (อังกฤษ)',p.NameEN)}</div>
-        <label class="field"><span>${EN()?'Relationship':'ความสัมพันธ์'}</span><input id="pp_Relationship" value="${esc(p.Relationship||'')}"/></label>
-        <div class="grid2">${fld('Phone',EN()?'Phone':'เบอร์โทร',phoneFmt(p.Phone))}${fld('OfficePhone',EN()?'Office phone':'เบอร์ที่ทำงาน',phoneFmt(p.OfficePhone))}</div>
-        <div class="grid2">${fld('Occupation',EN()?'Occupation':'อาชีพ',p.Occupation)}${fld('Workplace',EN()?'Workplace':'ที่ทำงาน',p.Workplace)}</div>
-        <label class="field"><span>${EN()?'Address':'ที่อยู่'}</span><textarea id="pp_Address">${esc(p.Address||'')}</textarea></label>
+    const d = await api('familyProfile', parentScope()); const parents=d.parents||[]; const kids=d.students||[];
+    const parentCard=p=>{ const pre='pa_'+p.ParentID;
+      return `<div class="card"><div class="spread"><h3>${p.isMe?'👤':'👥'} ${esc(p.NameTH||'')||(EN()?'Parent':'ผู้ปกครอง')} ${p.isMe?`<span class="pill ok" style="font-size:10px">${EN()?'me':'ฉัน'}</span>`:''}</h3></div>
+        <div class="grid2">${ppFld(pre,'NameTH',EN()?'Name (TH)':'ชื่อ-สกุล (ไทย)',p.NameTH)}${ppFld(pre,'NameEN',EN()?'Name (EN)':'ชื่อ-สกุล (อังกฤษ)',p.NameEN)}</div>
+        <label class="field"><span>${EN()?'Relationship':'ความสัมพันธ์'}</span><input id="${pre}_Relationship" value="${esc(p.Relationship||'')}"/></label>
+        <div class="grid2">${ppFld(pre,'Phone',EN()?'Phone':'เบอร์โทร',phoneFmt(p.Phone))}${ppFld(pre,'OfficePhone',EN()?'Office phone':'เบอร์ที่ทำงาน',phoneFmt(p.OfficePhone))}</div>
+        <div class="grid2">${ppFld(pre,'Occupation',EN()?'Occupation':'อาชีพ',p.Occupation)}${ppFld(pre,'Workplace',EN()?'Workplace':'ที่ทำงาน',p.Workplace)}</div>
+        <label class="field"><span>${EN()?'Address':'ที่อยู่'}</span><textarea id="${pre}_Address">${esc(p.Address||'')}</textarea></label>
         <p class="muted" style="font-size:11.5px">${EN()?'National ID':'เลขบัตรประชาชน'}: <b>${esc(p.NationalID||'-')}</b> · ${EN()?'contact admin to change':'ติดต่อแอดมินเพื่อแก้ไข'}</p>
-        <button class="btn block green" onclick="P_saveProfile(this)">💾 ${EN()?'Save':'บันทึก'}</button></div>
-      <div class="card"><h3>👶 ${EN()?'Linked children':'บุตรหลานที่ผูกไว้'} (${kids.length})</h3>
-        ${kids.map(k=>`<div class="list-item"><span><b>${esc(nm(k))}</b>${nick(k)?` <span class="pill info">${esc(nick(k))}</span>`:''} <small class="muted">${esc(k.Class||'')} · ${esc(ageYM(k.DOB))}</small><br><small class="muted">${EN()?'ID':'เลขบัตร'}: ${esc(k.NationalID||'-')}</small></span></div>`).join('')||`<small class="muted">${EN()?'none':'ยังไม่มี'}</small>`}
-        <button class="btn sm outline" style="margin-top:8px" onclick="P_addChild()">+ ${esc(t('p.addChild'))}</button></div>`;
+        <button class="btn block green" onclick="P_saveParent('${p.ParentID}',this)">💾 ${EN()?'Save':'บันทึก'}</button></div>`; };
+    const studentCard=s=>{ const pre='st_'+s.StudentID;
+      return `<div class="card"><div class="spread"><h3>👶 ${esc(nm(s))}</h3><span class="muted" style="font-size:12px">${esc(s.Class||'')} · ${esc(ageYM(s.DOB))}</span></div>
+        <p class="muted" style="font-size:11.5px">${EN()?'ID':'เลขบัตร'}: <b>${esc(s.NationalID||'-')}</b> · ${EN()?'class/plan/ID: contact admin':'ชั้นเรียน/แพ็กเกจ/เลขบัตร: ติดต่อแอดมิน'}</p>
+        <div class="grid2">${ppFld(pre,'Nickname',EN()?'Nickname (TH)':'ชื่อเล่น (ไทย)',s.Nickname)}${ppFld(pre,'NicknameEN',EN()?'Nickname (EN)':'ชื่อเล่น (อังกฤษ)',s.NicknameEN)}</div>
+        <div class="grid2">${ppFld(pre,'BloodType',EN()?'Blood type':'กรุ๊ปเลือด',s.BloodType)}${ppFld(pre,'RH',EN()?'Rh':'Rh',s.RH)}</div>
+        <label class="field"><span>${EN()?'Allergies':'ประวัติแพ้ (อาหาร/ยา)'}</span><input id="${pre}_Allergy" value="${esc(s.Allergy||'')}"/></label>
+        <label class="field"><span>${EN()?'Medical history':'ประวัติสุขภาพ/โรคประจำตัว'}</span><textarea id="${pre}_MedicalHistory">${esc(s.MedicalHistory||'')}</textarea></label>
+        <label class="field"><span>${EN()?'Emergency contact':'ติดต่อฉุกเฉิน'}</span><input id="${pre}_EmergencyContact" value="${esc(s.EmergencyContact||'')}"/></label>
+        <label class="field"><span>${EN()?'Home address':'ที่อยู่'}</span><textarea id="${pre}_Address">${esc(s.Address||'')}</textarea></label>
+        <button class="btn block green" onclick="P_saveStudent('${s.StudentID}',this)">💾 ${EN()?'Save child info':'บันทึกข้อมูลเด็ก'}</button></div>`; };
+    app.innerHTML=`<div class="spread"><h2 class="page">👤 ${EN()?'My info':'ข้อมูลของฉัน'}</h2><button class="btn sm outline" onclick="GO('home')">← ${esc(t('c.back'))}</button></div>
+      <h3 class="page" style="font-size:15px">${EN()?'Parents':'ผู้ปกครอง'} (${parents.length})</h3>
+      ${parents.map(parentCard).join('')||`<div class="card muted">${EN()?'none':'ยังไม่มี'}</div>`}
+      <h3 class="page" style="font-size:15px">👶 ${EN()?'Children':'บุตรหลาน'} (${kids.length})</h3>
+      ${kids.map(studentCard).join('')||`<div class="card muted">${EN()?'none':'ยังไม่มี'}</div>`}
+      <button class="btn sm outline block" style="margin-top:8px" onclick="P_addChild()">+ ${esc(t('p.addChild'))}</button>`;
     window.scrollTo(0,0); };
-  window.P_saveProfile = async (btn)=>{ const g=id=>{ const e=document.getElementById('pp_'+id); return e?e.value.trim():undefined; };
+  window.P_saveParent = async (parentId,btn)=>{ const g=id=>{ const e=document.getElementById('pa_'+parentId+'_'+id); return e?e.value.trim():undefined; };
     const data={ NameTH:g('NameTH'), NameEN:g('NameEN'), Relationship:g('Relationship'), Phone:g('Phone'), OfficePhone:g('OfficePhone'), Occupation:g('Occupation'), Workplace:g('Workplace'), Address:g('Address') };
     if(!data.NameTH){ toast(EN()?'Name is required':'กรุณากรอกชื่อ'); return; }
     if(btn)btn.disabled=true;
-    try{ await api('saveParentSelf',{parentId:USER.parentId,data}); confirmSaved(t('c.saved')); GO('home'); }catch(e){err(e);}finally{ if(btn)btn.disabled=false; } };
+    try{ await api('saveFamilyParent',Object.assign({parentId:USER.parentId,uid:USER.uid,targetParentId:parentId},{data})); confirmSaved(t('c.saved')); }catch(e){err(e);}finally{ if(btn)btn.disabled=false; } };
+  window.P_saveStudent = async (studentId,btn)=>{ const g=id=>{ const e=document.getElementById('st_'+studentId+'_'+id); return e?e.value.trim():undefined; };
+    const data={ Nickname:g('Nickname'), NicknameEN:g('NicknameEN'), BloodType:g('BloodType'), RH:g('RH'), Allergy:g('Allergy'), MedicalHistory:g('MedicalHistory'), EmergencyContact:g('EmergencyContact'), Address:g('Address') };
+    if(btn)btn.disabled=true;
+    try{ await api('saveStudentSelf',{studentId,data}); confirmSaved(t('c.saved')); }catch(e){err(e);}finally{ if(btn)btn.disabled=false; } };
   window.P_absence = async () => { const kids=await api('parentChildren',parentScope());
     const m=modal(`<h3>🏠 แจ้งลาบุตรหลาน</h3>
       <label class="field"><span>บุตรหลาน</span><select id="aKid">${kids.map(k=>`<option value="${k.StudentID}">${esc(nm(k))}</option>`).join('')}</select></label>
@@ -564,7 +582,7 @@
     app.innerHTML = `<h2 class="page">${esc(t('title.checkin'))}</h2><div class="card">
       <label class="field"><span>เลือกบุตรหลาน</span><select id="kid">${kids.map(k=>`<option value="${k.StudentID}">${esc(nm(k))}</option>`).join('')}</select></label>
       <div class="seg"><button class="active" id="tIN" onclick="P_type('IN')">ส่งเข้าเรียน (IN)</button><button id="tOUT" onclick="P_type('OUT')">รับกลับ (OUT)</button></div>
-      <button class="btn block green" onclick="P_do(this)">📍 ${EN()?'Check in at school (use my location)':'เช็คอินที่โรงเรียน (ใช้ตำแหน่งจริง)'}</button>
+      <button class="btn block green" style="padding:18px;font-size:18px;font-weight:700" onclick="P_do(this)">📍 ${EN()?'Check in at school (use my location)':'เช็คอินที่โรงเรียน (ใช้ตำแหน่งจริง)'}</button>
       <p class="muted" style="font-size:12px;margin-top:8px">${EN()?'You must be within':'ต้องอยู่ในรัศมี'} ${MOCK.config.Radius} ${EN()?'m of the school':'ม. จากโรงเรียน'}</p></div>
       <div class="card"><div class="spread"><h3>🗓️ ประวัติการรับ-ส่ง</h3><button class="btn sm outline" onclick="GO('home')">ดูในปฏิทิน →</button></div><div id="ciHist"></div></div>`;
     const hist=await api('studentCheckinHistory',{studentId:kids[0].StudentID});
@@ -797,7 +815,7 @@
       <div class="card"><h3>⏱️ ${esc(t('lbl.worktime'))} (${esc(att.date)})</h3>
         ${me0.RequireCheckin===false?`<div style="background:#eef6ff;border-radius:8px;padding:8px;color:#1565C0;font-size:13px">ℹ️ ${esc(t('ci.notRequired'))}</div>`:`
         <div class="spread" style="font-size:15px"><span>${esc(t('lbl.checkIn'))} <b>${att.checkIn||'--:--'}</b></span><span>${esc(t('lbl.checkOut'))} <b>${att.checkOut||'--:--'}</b></span><span>${esc(t('lbl.late'))} <b style="color:${att.late?'#c62828':'#2e7d32'}">${att.late||0}</b> ${esc(t('lbl.min'))}</span></div>
-        <div class="row" style="margin-top:10px"><button class="btn green sm" onclick="T_punch('in',true)">${esc(t('lbl.checkIn'))}</button><button class="btn pink sm" onclick="T_punch('out',true)">${esc(t('lbl.checkOut'))}</button></div>
+        <div class="row" style="margin-top:12px;gap:10px"><button class="btn green" style="flex:1;padding:18px;font-size:18px;font-weight:700" onclick="T_punch('in')">🟢 ${esc(t('lbl.checkIn'))}</button><button class="btn pink" style="flex:1;padding:18px;font-size:18px;font-weight:700" onclick="T_punch('out')">🔴 ${esc(t('lbl.checkOut'))}</button></div>
         <div style="margin-top:10px"><b style="font-size:13px">📅 ${esc(t('lbl.recentDays'))}</b>${recentRows}</div>`}</div>
       <div class="card"><h3>📩 การลาของฉัน · สิทธิคงเหลือ</h3>
         <div class="quota">${quota.map(q=>`<div class="q"><div class="n">${q.remain}</div><div class="l">${esc(q.type)}<br>${q.used}/${q.quota}</div></div>`).join('')}</div>

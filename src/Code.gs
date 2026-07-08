@@ -22,6 +22,8 @@ var ROUTES = {
   saveStudent:    function (p) { return handleSaveStudent(p); },
   saveParent:     function (p) { return handleSaveParent(p); },
   saveParentSelf: function (p) { return handleSaveParentSelf(p); },
+  saveFamilyParent: function (p) { return handleSaveFamilyParent(p); },
+  saveStudentSelf:  function (p) { return handleSaveStudentSelf(p); },
   changeStaffPassword:  function (p) { return handleChangeStaffPassword(p); },
   checkStaffPassword:   function (p) { return handleCheckStaffPassword(p); },
   getStaffPassword:     function (p) { return handleGetStaffPassword(p); },

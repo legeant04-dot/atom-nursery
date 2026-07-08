@@ -440,13 +440,20 @@ function createAtomAPI(M, GROWTH_STD) {
       const id='STF-'+String(M.staff.length+1).padStart(2,'0'); const rec=Object.assign({StaffID:id,Role:'Teacher',Status:'ACTIVE'},d); M.staff.push(rec); return rec; },
     deleteStaff: p => { const i=M.staff.findIndex(s=>s.StaffID===p.staffId); if(i<0)fail('NOT_FOUND','ไม่พบพนักงาน'); M.staff.splice(i,1); return {ok:true}; },
     listParents: () => M.parents,
-    // parent's own profile + linked students (for the "My info" screen). parentId injected server-side.
-    parentSelf: p => { const pa=M.parents.find(x=>x.ParentID===p.parentId)||{};
-      const kids=visibleStudents(p).map(s=>({StudentID:s.StudentID, NameTH:s.NameTH, NameEN:s.NameEN, Nickname:s.Nickname, Class:s.Class, DOB:s.DOB, Plan:s.Plan, NationalID:s.NationalID, Photo:s.Photo}));
-      return { parent:{ ParentID:pa.ParentID, NameTH:pa.NameTH||pa.Name, NameEN:pa.NameEN, NationalID:pa.NationalID, Relationship:pa.Relationship, Phone:pa.Phone, Occupation:pa.Occupation, Workplace:pa.Workplace, OfficePhone:pa.OfficePhone, Address:pa.Address }, students:kids }; },
-    // parent edits ONLY their own record + only whitelisted fields (never ID/NationalID/LineUID/linkage).
-    saveParentSelf: p => { const pa=M.parents.find(x=>x.ParentID===p.parentId); if(!pa)fail('NOT_FOUND','ไม่พบผู้ปกครอง');
-      const d=p.data||{}; ['NameTH','NameEN','Relationship','Phone','Occupation','Workplace','OfficePhone','Address'].forEach(k=>{ if(d[k]!==undefined) pa[k]=d[k]; }); return {ok:true}; },
+    // family profile for the "My info" screen: ALL parents linked to the caller's children (co-parents
+    // included) + the children themselves. Identity (uid/parentId) is injected server-side.
+    familyProfile: p => { const kids=visibleStudents(p); const kidIds=kids.map(s=>s.StudentID); const seen={}; const parents=[];
+      M.parents.forEach(pa=>{ if((kidIds.indexOf(pa.StudentID)>=0 || pa.ParentID===p.parentId) && !seen[pa.ParentID]){ seen[pa.ParentID]=1;
+        parents.push({ ParentID:pa.ParentID, NameTH:pa.NameTH||pa.Name, NameEN:pa.NameEN, NationalID:pa.NationalID, Relationship:pa.Relationship, Phone:pa.Phone, Occupation:pa.Occupation, Workplace:pa.Workplace, OfficePhone:pa.OfficePhone, Address:pa.Address, StudentID:pa.StudentID, isMe: pa.ParentID===p.parentId }); } });
+      return { parents, myParentId:p.parentId, students: kids.map(s=>({ StudentID:s.StudentID, NameTH:s.NameTH, NameEN:s.NameEN, Nickname:s.Nickname, NicknameEN:s.NicknameEN, Class:s.Class, DOB:s.DOB, Plan:s.Plan, NationalID:s.NationalID, Gender:s.Gender, BloodType:s.BloodType, RH:s.RH, Allergy:s.Allergy, MedicalHistory:s.MedicalHistory, EmergencyContact:s.EmergencyContact, Address:s.Address, Race:s.Race, Nationality:s.Nationality, Religion:s.Religion, Photo:s.Photo })) }; },
+    // edit a parent that is either the caller or a co-parent of the caller's child (server validates); whitelisted.
+    saveFamilyParent: p => { const kids=visibleStudents(p); const kidIds=kids.map(s=>s.StudentID); const tid=p.targetParentId||p.parentId;
+      const pa=M.parents.find(x=>x.ParentID===tid); if(!pa)fail('NOT_FOUND','ไม่พบผู้ปกครอง');
+      if(!(pa.ParentID===p.parentId || kidIds.indexOf(pa.StudentID)>=0))fail('NO_ACCESS','ไม่มีสิทธิ์แก้ไขผู้ปกครองนี้');
+      const d=p.data||{}; ['NameTH','NameEN','Relationship','Phone','Occupation','Workplace','OfficePhone','Address'].forEach(k=>{ if(d[k]!==undefined) pa[k]=d[k]; }); return {ok:true, parentId:tid}; },
+    // parent edits their own child's safe fields (studentId ownership is enforced by applyIdentity_ on GAS).
+    saveStudentSelf: p => { const s=studentById(p.studentId); if(!s)fail('NOT_FOUND','ไม่พบนักเรียน');
+      const d=p.data||{}; ['Nickname','NicknameEN','BloodType','RH','Allergy','MedicalHistory','EmergencyContact','Address','Race','Nationality','Religion','Photo'].forEach(k=>{ if(d[k]!==undefined) s[k]=d[k]; }); return {ok:true, studentId:p.studentId}; },
     saveParent: p => { const d=p.data||{};
       if(p.parentId){ const pa=M.parents.find(x=>x.ParentID===p.parentId); if(!pa)fail('NOT_FOUND','ไม่พบผู้ปกครอง'); Object.assign(pa,d); return pa; }
       const id='PAR-'+String(M.parents.length+1).padStart(3,'0'); const rec=Object.assign({ParentID:id},d); M.parents.push(rec); return rec; },
