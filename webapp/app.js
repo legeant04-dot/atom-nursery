@@ -3,12 +3,15 @@
   const $ = s => document.querySelector(s);
   const app = $('#app'), nav = $('#bottomnav');
   const baht = n => (Number(n)||0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
-  const APP_VERSION = 'Version 1.050'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.051'; // bump each webapp change; shown only at the bottom of the Chat screen
   const verTag = () => `<div style="text-align:center;color:#c3c9d4;font-size:10px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
   const phoneFmt = p => { let d=String(p==null?'':p).replace(/\D/g,''); if(d.length===9) d='0'+d; return d; };
   const phoneLink = p => { const d=phoneFmt(p); return d?`<a href="tel:${d}" onclick="event.stopPropagation()" style="color:inherit;text-decoration:underline dotted">${esc(d)}</a>`:'-'; };
   const esc = s => String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+  // password input with a 👁️ show/hide toggle
+  const pwField = (id,label,ph)=>`<label class="field"><span>${esc(label)}</span><div class="row" style="gap:6px"><input type="password" id="${id}" placeholder="${esc(ph||'')}" style="flex:1"/><button type="button" class="btn sm outline" onclick="PW_toggle('${id}',this)" title="show/hide">👁️</button></div></label>`;
+  window.PW_toggle=(id,btn)=>{ const e=document.getElementById(id); if(!e)return; const show=e.type==='password'; e.type=show?'text':'password'; if(btn)btn.textContent=show?'🙈':'👁️'; };
   const p2 = n => String(n).padStart(2,'0');
   const todayStr = () => { const d=new Date(); return d.getFullYear()+'-'+p2(d.getMonth()+1)+'-'+p2(d.getDate()); };
   const monthStr = () => todayStr().slice(0,7);
@@ -33,7 +36,9 @@
     let m=(n.getFullYear()-d.getFullYear())*12+(n.getMonth()-d.getMonth()); if(n.getDate()<d.getDate())m--; m=Math.max(0,m);
     return ageYMfromMonths(m); }
   const planLabel = id => { const p=(MOCK.config.Plans||[]).find(x=>x.id===id); return p?(EN()?p.labelEN:p.labelTH):(id||'-'); };
-  const groupLabel = name => { const g=(MOCK.staffGroups||[]).find(x=>x.GroupName===name); return g?(EN()?g.GroupNameEN:g.GroupName):(name||''); };
+  const groupsSrc = () => (window.A_CACHE&&A_CACHE.groups&&A_CACHE.groups.length?A_CACHE.groups:MOCK.staffGroups)||[];
+  const groupLabel = name => { const g=groupsSrc().find(x=>x.GroupName===name); return g?(EN()?g.GroupNameEN:g.GroupName):(name||''); };
+  const groupHours = name => { const g=groupsSrc().find(x=>x.GroupName===name); return g&&(g.CheckInTime||g.CheckOutTime)?`${g.CheckInTime||'--'}–${g.CheckOutTime||'--'}`:''; };
   // scope for parent data calls (uid → links for isolation; parentId as fallback)
   const parentScope = () => ({ parentId:USER&&USER.parentId, uid:USER&&USER.uid });
   // translate a stored status (leave code / payment / dspm result) for display
@@ -429,8 +434,9 @@
     showAnnPopups();
     const kids = await api('parentChildren',parentScope());
     const addBtn = `<button class="btn sm outline" onclick="P_addChild()">+ ${esc(t('p.addChild'))}</button>`;
+    const profileBtn = `<button class="btn sm outline" onclick="P_profile()">👤 ${EN()?'My info':'ข้อมูลของฉัน'}</button>`;
     if(!kids.length){ app.innerHTML=`<h2 class="page">${esc(t('p.greeting'))}${esc(EN()?USER.nameEN:USER.nameTH)} 👋</h2>
-      <div class="card" style="text-align:center"><p>${esc(t('p.noChild'))}</p><div class="row" style="justify-content:center">${addBtn}</div></div>${socialFooter()}`; return; }
+      <div class="card" style="text-align:center"><p>${esc(t('p.noChild'))}</p><div class="row" style="justify-content:center">${addBtn}${profileBtn}</div></div>${socialFooter()}`; return; }
     const k0 = kids[0];
     const [j, sl, anns, cal, ci] = await Promise.all([
       api('getJournal',{studentId:k0.StudentID}), api('studentLeaves',{studentId:k0.StudentID}),
@@ -439,7 +445,7 @@
     const kidsHtml = kids.map(k=>`<div class="card"><div class="spread"><div><b>${esc(nm(k))}</b>${nick(k)?` <span class="pill info">${esc(nick(k))}</span>`:''} <small class="muted">(${esc(EN()?k.NameTH:k.NameEN)})</small><br><small class="muted">${esc(k.Class)} · ${esc(ageYM(k.DOB))} · ${esc(planLabel(k.Plan))}<br>${EN()?'allergy':'แพ้'}: ${esc(k.Allergy||'-')}</small></div>${studentAvatar(k)}</div>
       <div class="row" style="margin-top:10px"><button class="btn sm" onclick="GO('checkin')">📍 ${esc(t('nav.checkin'))}</button><button class="btn sm outline" onclick="P_journal('${k.StudentID}')">📒 ${esc(t('nav.journal'))}</button><button class="btn sm outline" onclick="P_dspm('${k.StudentID}')">📈 ${esc(t('nav.dspm'))}</button></div></div>`).join('');
     const slHtml = sl.map(l=>`<div class="list-item"><span>${esc(l.Date)} · ${esc(l.Reason)}</span><span class="pill info">${esc(tStat(l.Status))}</span></div>`).join('')||'<small class="muted">ไม่มีรายการ</small>';
-    app.innerHTML = `<div class="spread"><h2 class="page">${esc(t('p.greeting'))}${esc(EN()?USER.nameEN:USER.nameTH)} 👋</h2>${addBtn}</div>
+    app.innerHTML = `<div class="spread"><h2 class="page">${esc(t('p.greeting'))}${esc(EN()?USER.nameEN:USER.nameTH)} 👋</h2><div class="row">${profileBtn}${addBtn}</div></div>
       ${kidsHtml}
       <h3 style="margin:6px 2px">📒 บันทึกของ ${esc(nm(k0))} วันนี้</h3>${j?journalChecklist(j):waitCard()}
       <div class="card"><div class="spread"><h3>🏠 แจ้งลาบุตรหลาน</h3><button class="btn sm outline" onclick="P_absence()">+ แจ้งลา</button></div>${slHtml}
@@ -464,6 +470,28 @@
     <button class="btn block outline" onclick="P_linkChild(this)">🔗 ${esc(t('p.childLink'))}</button>`); };
   window.P_linkChild = async (btn)=>{ const m=btn.closest('.modal'); const nid=m.querySelector('#lnNID').value.trim(); if(!nid){toast(EN()?'Enter National ID':'กรอกเลขบัตร');return;}
     try{ const r=await api('linkExisting',{uid:USER.uid,nationalId:nid}); m.remove(); confirmSaved((EN()?'Linked: ':'เชื่อมข้อมูลแล้ว: ')+(EN()?r.nameEN:r.name)); GO('home'); }catch(e){err(e);} };
+  // parent's own profile: view + edit personal info, and see linked children
+  window.P_profile = async () => { setNav('home');
+    const d = await api('parentSelf', parentScope()); const p=d.parent||{}; const kids=d.students||[];
+    const fld=(id,label,val,type)=>`<label class="field"><span>${esc(label)}</span><input id="pp_${id}" type="${type||'text'}" value="${esc(val==null?'':val)}"/></label>`;
+    app.innerHTML=`<div class="spread"><h2 class="page">👤 ${EN()?'My info':'ข้อมูลของฉัน'}</h2><button class="btn sm outline" onclick="GO('home')">← ${esc(t('c.back'))}</button></div>
+      <div class="card"><h3>${EN()?'Parent info':'ข้อมูลผู้ปกครอง'}</h3>
+        <div class="grid2">${fld('NameTH',EN()?'Name (TH)':'ชื่อ-สกุล (ไทย)',p.NameTH)}${fld('NameEN',EN()?'Name (EN)':'ชื่อ-สกุล (อังกฤษ)',p.NameEN)}</div>
+        <label class="field"><span>${EN()?'Relationship':'ความสัมพันธ์'}</span><input id="pp_Relationship" value="${esc(p.Relationship||'')}"/></label>
+        <div class="grid2">${fld('Phone',EN()?'Phone':'เบอร์โทร',phoneFmt(p.Phone))}${fld('OfficePhone',EN()?'Office phone':'เบอร์ที่ทำงาน',phoneFmt(p.OfficePhone))}</div>
+        <div class="grid2">${fld('Occupation',EN()?'Occupation':'อาชีพ',p.Occupation)}${fld('Workplace',EN()?'Workplace':'ที่ทำงาน',p.Workplace)}</div>
+        <label class="field"><span>${EN()?'Address':'ที่อยู่'}</span><textarea id="pp_Address">${esc(p.Address||'')}</textarea></label>
+        <p class="muted" style="font-size:11.5px">${EN()?'National ID':'เลขบัตรประชาชน'}: <b>${esc(p.NationalID||'-')}</b> · ${EN()?'contact admin to change':'ติดต่อแอดมินเพื่อแก้ไข'}</p>
+        <button class="btn block green" onclick="P_saveProfile(this)">💾 ${EN()?'Save':'บันทึก'}</button></div>
+      <div class="card"><h3>👶 ${EN()?'Linked children':'บุตรหลานที่ผูกไว้'} (${kids.length})</h3>
+        ${kids.map(k=>`<div class="list-item"><span><b>${esc(nm(k))}</b>${nick(k)?` <span class="pill info">${esc(nick(k))}</span>`:''} <small class="muted">${esc(k.Class||'')} · ${esc(ageYM(k.DOB))}</small><br><small class="muted">${EN()?'ID':'เลขบัตร'}: ${esc(k.NationalID||'-')}</small></span></div>`).join('')||`<small class="muted">${EN()?'none':'ยังไม่มี'}</small>`}
+        <button class="btn sm outline" style="margin-top:8px" onclick="P_addChild()">+ ${esc(t('p.addChild'))}</button></div>`;
+    window.scrollTo(0,0); };
+  window.P_saveProfile = async (btn)=>{ const g=id=>{ const e=document.getElementById('pp_'+id); return e?e.value.trim():undefined; };
+    const data={ NameTH:g('NameTH'), NameEN:g('NameEN'), Relationship:g('Relationship'), Phone:g('Phone'), OfficePhone:g('OfficePhone'), Occupation:g('Occupation'), Workplace:g('Workplace'), Address:g('Address') };
+    if(!data.NameTH){ toast(EN()?'Name is required':'กรุณากรอกชื่อ'); return; }
+    if(btn)btn.disabled=true;
+    try{ await api('saveParentSelf',{parentId:USER.parentId,data}); confirmSaved(t('c.saved')); GO('home'); }catch(e){err(e);}finally{ if(btn)btn.disabled=false; } };
   window.P_absence = async () => { const kids=await api('parentChildren',parentScope());
     const m=modal(`<h3>🏠 แจ้งลาบุตรหลาน</h3>
       <label class="field"><span>บุตรหลาน</span><select id="aKid">${kids.map(k=>`<option value="${k.StudentID}">${esc(nm(k))}</option>`).join('')}</select></label>
@@ -536,19 +564,26 @@
     app.innerHTML = `<h2 class="page">${esc(t('title.checkin'))}</h2><div class="card">
       <label class="field"><span>เลือกบุตรหลาน</span><select id="kid">${kids.map(k=>`<option value="${k.StudentID}">${esc(nm(k))}</option>`).join('')}</select></label>
       <div class="seg"><button class="active" id="tIN" onclick="P_type('IN')">ส่งเข้าเรียน (IN)</button><button id="tOUT" onclick="P_type('OUT')">รับกลับ (OUT)</button></div>
-      <button class="btn block green" onclick="P_do(true)">✅ ยืนยันที่โรงเรียน (จำลองในรัศมี)</button>
-      <button class="btn block gray" style="margin-top:8px" onclick="P_do(false)">🧪 ทดสอบนอกรัศมี</button>
-      <p class="muted" style="font-size:12px;margin-top:8px">รัศมี ${MOCK.config.Radius} ม. · ${MOCK.config.GPS_Lat}, ${MOCK.config.GPS_Lng}</p></div>
+      <button class="btn block green" onclick="P_do(this)">📍 ${EN()?'Check in at school (use my location)':'เช็คอินที่โรงเรียน (ใช้ตำแหน่งจริง)'}</button>
+      <p class="muted" style="font-size:12px;margin-top:8px">${EN()?'You must be within':'ต้องอยู่ในรัศมี'} ${MOCK.config.Radius} ${EN()?'m of the school':'ม. จากโรงเรียน'}</p></div>
       <div class="card"><div class="spread"><h3>🗓️ ประวัติการรับ-ส่ง</h3><button class="btn sm outline" onclick="GO('home')">ดูในปฏิทิน →</button></div><div id="ciHist"></div></div>`;
     const hist=await api('studentCheckinHistory',{studentId:kids[0].StudentID});
     $('#ciHist').innerHTML=hist.map(h=>`<div class="list-item"><span>${esc(ddmmyyyy(h.Date))}</span><span><span class="pill ok">↓ ${esc(h.InTime||'--:--')}</span> <span class="pill info">↑ ${esc(h.OutTime||'--:--')}</span></span></div>`).join('')||'<small class="muted">ยังไม่มีประวัติ</small>';
   };
   let P_TYPE='IN'; window.P_type=t=>{P_TYPE=t;$('#tIN').classList.toggle('active',t==='IN');$('#tOUT').classList.toggle('active',t==='OUT');};
-  window.P_do=async(inside)=>{ const studentId=$('#kid').value; const lat=inside?MOCK.config.GPS_Lat:13.80,lng=inside?MOCK.config.GPS_Lng:100.66;
-    try{ const r=await api('parentCheckin',{parentId:USER.parentId,uid:USER.uid,studentId,type:P_TYPE,lat,lng});
+  // real device geolocation → {lat,lng}. Backend enforces the school geofence (OUT_OF_RANGE).
+  function getPosition(){ return new Promise((resolve,reject)=>{
+    if(!navigator.geolocation){ reject(new Error(EN()?'This device does not support GPS':'อุปกรณ์นี้ไม่รองรับ GPS')); return; }
+    navigator.geolocation.getCurrentPosition(
+      pos=>resolve({lat:pos.coords.latitude,lng:pos.coords.longitude}),
+      e=>reject(new Error(EN()?'Cannot get your location — please allow location access and try again':'ระบุตำแหน่งไม่ได้ — กรุณาอนุญาตการเข้าถึงตำแหน่ง แล้วลองใหม่')),
+      {enableHighAccuracy:true,timeout:10000,maximumAge:0}); }); }
+  window.P_do=async(btn)=>{ const studentId=$('#kid').value; if(btn){btn.disabled=true;} const done=()=>{ if(btn)btn.disabled=false; };
+    try{ const {lat,lng}=await getPosition();
+      const r=await api('parentCheckin',{parentId:USER.parentId,uid:USER.uid,studentId,type:P_TYPE,lat,lng});
       toast(`✅ ${P_TYPE==='IN'?(EN()?'Drop off':'ส่งเข้าเรียน'):(EN()?'Pick up':'รับกลับ')} ${r.time} (${EN()?'distance':'ระยะ'} ${r.distance} ${EN()?'m':'ม.'}) — ${EN()?'teacher notified':'แจ้งครูแล้ว'}`);
       if(r.ot){ P_otQR(r.ot); } // late pickup → OT charge: pop the KTB QR
-    }catch(e){err(e);} };
+    }catch(e){err(e);} finally{ done(); } };
   // OT charge popup after late pickup
   window.P_otQR=(ot)=>{ qrModalHTML({ title:'⏰ '+t('ot.title'),
       note:`${t('ot.late')} ${ot.lateMinutes} ${t('lbl.min')} · ${ot.hours} ${EN()?'hr':'ชม.'} × ${baht(MOCK.config.OTRatePerHour)} = `,
@@ -735,16 +770,16 @@
 
   // ================= TEACHER =================
   SCREENS.Teacher.home = async () => {
-    const me0=MOCK.staff.find(s=>s.StaffID===USER.staffId);
-    if(me0 && me0.MustChangePassword){ T_changePw(true); return; } // force password change on first login
-    const [att,recent,cl,quota] = await Promise.all([api('myAttendanceToday',{staffId:USER.staffId}),api('recentAttendance',{staffId:USER.staffId}),api('classList',{staffId:USER.staffId}),api('leaveQuota',{staffId:USER.staffId})]);
-    const isLeader = MOCK.staff.find(s=>s.StaffID===USER.staffId).PositionLevel==='Leader';
+    const [att,recent,cl,quota,me0raw] = await Promise.all([api('myAttendanceToday',{staffId:USER.staffId}),api('recentAttendance',{staffId:USER.staffId}),api('classList',{staffId:USER.staffId}),api('leaveQuota',{staffId:USER.staffId}),api('staffSelf',{staffId:USER.staffId})]);
+    const me0=me0raw||{};
+    if(me0.MustChangePassword){ T_changePw(true); return; } // force password change on first login
+    const isLeader = me0.PositionLevel==='Leader' || me0.Role==='Leader' || USER.role==='Leader';
     const recentRows = recent.map((a,i)=>`<div class="list-item"><span>${i===0?'<b>'+esc(t('c.today'))+'</b>':esc(ddmmyyyy(a.date))}</span><span style="font-size:13px">${esc(t('lbl.checkIn'))} <b>${a.checkIn||'--:--'}</b> · ${esc(t('lbl.checkOut'))} <b>${a.checkOut||'--:--'}</b> · ${a.late?`<span class="pill bad">${esc(t('lbl.late'))} ${a.late} ${esc(t('lbl.min'))}</span>`:`<span class="pill ok">${esc(t('lbl.onTime'))}</span>`}</span></div>`).join('');
     app.innerHTML = `<h2 class="page">${esc(t('t.greeting'))}${esc(EN()?USER.nameEN:USER.nameTH)} 👩‍🏫</h2>
       <div class="card"><h3>⏱️ ${esc(t('lbl.worktime'))} (${esc(att.date)})</h3>
         ${me0.RequireCheckin===false?`<div style="background:#eef6ff;border-radius:8px;padding:8px;color:#1565C0;font-size:13px">ℹ️ ${esc(t('ci.notRequired'))}</div>`:`
         <div class="spread" style="font-size:15px"><span>${esc(t('lbl.checkIn'))} <b>${att.checkIn||'--:--'}</b></span><span>${esc(t('lbl.checkOut'))} <b>${att.checkOut||'--:--'}</b></span><span>${esc(t('lbl.late'))} <b style="color:${att.late?'#c62828':'#2e7d32'}">${att.late||0}</b> ${esc(t('lbl.min'))}</span></div>
-        <div class="row" style="margin-top:10px"><button class="btn green sm" onclick="T_punch('in',true)">${esc(t('lbl.checkIn'))}</button><button class="btn pink sm" onclick="T_punch('out',true)">${esc(t('lbl.checkOut'))}</button><button class="btn gray sm" onclick="T_punch('in',false)">🧪 ${esc(t('lbl.testOutside'))}</button></div>
+        <div class="row" style="margin-top:10px"><button class="btn green sm" onclick="T_punch('in',true)">${esc(t('lbl.checkIn'))}</button><button class="btn pink sm" onclick="T_punch('out',true)">${esc(t('lbl.checkOut'))}</button></div>
         <div style="margin-top:10px"><b style="font-size:13px">📅 ${esc(t('lbl.recentDays'))}</b>${recentRows}</div>`}</div>
       <div class="card"><h3>📩 การลาของฉัน · สิทธิคงเหลือ</h3>
         <div class="quota">${quota.map(q=>`<div class="q"><div class="n">${q.remain}</div><div class="l">${esc(q.type)}<br>${q.used}/${q.quota}</div></div>`).join('')}</div>
@@ -756,8 +791,9 @@
     const ml=await api('myLeaves',{staffId:USER.staffId}); $('#ml').innerHTML=ml.map(leaveRow).join('')||'<small class="muted">ยังไม่มีรายการ</small>';
     if(isLeader){ const tp=await api('teamPendingLeaves',{staffId:USER.staffId}); $('#tp').innerHTML=tp.map(l=>teamLeaveRow(l)).join('')||'<small class="muted">ไม่มีคำขอรออนุมัติ</small>'; }
   };
-  window.T_punch=async(kind,inside)=>{ const lat=inside?MOCK.config.GPS_Lat:13.80,lng=inside?MOCK.config.GPS_Lng:100.66;
-    try{ const r=await api(kind==='in'?'staffCheckin':'staffCheckout',{staffId:USER.staffId,lat,lng}); toast(kind==='in'?`✅ ${t('lbl.checkIn')} ${r.time}${r.lateMinutes>0?` (${t('lbl.late')} ${r.lateMinutes} ${t('lbl.min')})`:' ('+t('lbl.onTime')+')'}`:`✅ ${t('lbl.checkOut')} ${r.time}${r.otHours>0?` · OT ${r.otHours} ${EN()?'hr':'ชม.'}`:''}`); GO('home'); }catch(e){err(e);} };
+  window.T_punch=async(kind)=>{
+    try{ const {lat,lng}=await getPosition();
+      const r=await api(kind==='in'?'staffCheckin':'staffCheckout',{staffId:USER.staffId,lat,lng}); toast(kind==='in'?`✅ ${t('lbl.checkIn')} ${r.time}${r.lateMinutes>0?` (${t('lbl.late')} ${r.lateMinutes} ${t('lbl.min')})`:' ('+t('lbl.onTime')+')'}`:`✅ ${t('lbl.checkOut')} ${r.time}${r.otHours>0?` · OT ${r.otHours} ${EN()?'hr':'ชม.'}`:''}`); GO('home'); }catch(e){err(e);} };
 
   SCREENS.Teacher.class = async () => { const cl=await api('classList',{staffId:USER.staffId});
     app.innerHTML=`<h2 class="page">👶 ${esc(cl.class.ClassName)}</h2>`+cl.students.map(s=>`<div class="card spread"><div style="display:flex;gap:10px;align-items:center">${studentAvatar(s)}<div><b>${esc(nm(s))}</b>${nick(s)?` <span class="pill info">${esc(nick(s))}</span>`:''} <small class="muted">(${esc(EN()?s.NameTH:s.NameEN)})</small><br><small class="muted">${esc(ageYM(s.DOB))} · ${EN()?'allergy':'แพ้'}: ${esc(s.Allergy||'-')}</small></div></div><div class="row"><button class="btn sm" onclick="T_journal('${s.StudentID}')">📒</button><button class="btn sm outline" onclick="T_assess('${s.StudentID}')">📝</button></div></div>`).join(''); };
@@ -901,8 +937,8 @@
       confirmSaved(EN()?'Saved — parent notified':'บันทึกแล้ว — แจ้งผู้ปกครอง'); GO('class'); }catch(e){err(e);} };
 
   SCREENS.Teacher.leave = async () => {
-    const me=MOCK.staff.find(s=>s.StaffID===USER.staffId); const isLeader=me.PositionLevel==='Leader';
-    const quota=await api('leaveQuota',{staffId:USER.staffId});
+    const [quota,me] = await Promise.all([api('leaveQuota',{staffId:USER.staffId}),api('staffSelf',{staffId:USER.staffId})]);
+    const isLeader=(me&&(me.PositionLevel==='Leader'||me.Role==='Leader'))||USER.role==='Leader';
     app.innerHTML=`<h2 class="page">${esc(t('title.leave'))}</h2>
       <div class="card"><h3>สิทธิคงเหลือ</h3><div class="quota">${quota.map(q=>`<div class="q"><div class="n">${q.remain}</div><div class="l">${esc(q.type)} ${q.used}/${q.quota}</div></div>`).join('')}</div></div>
       <div class="card"><h3>ยื่นใบลา</h3>
@@ -949,9 +985,10 @@
   SCREENS.Teacher.slip = async () => {
     if(!SLIP_UNLOCKED){ app.innerHTML=`<h2 class="page">💵 เงินเดือนของฉัน</h2>
       <div class="card" style="text-align:center"><div style="font-size:42px">🔒</div><p>ข้อมูลเงินเดือนเป็นความลับ — กรุณาใส่รหัสผ่านของคุณ</p>
-      <label class="field"><span>${esc(t('lbl.password'))}</span><input type="password" id="slipPw" placeholder="1234"/></label>
+      ${pwField('slipPw',t('lbl.password'),'')}
       <button class="btn block" onclick="T_slipUnlock()">${esc(t('lbl.openSlip'))}</button>
-      <button class="btn-ghost block" style="margin-top:8px" onclick="T_changePw(false)">🔑 ${esc(t('pw.title'))}</button></div>`; return; }
+      <button class="btn-ghost block" style="margin-top:8px" onclick="T_changePw(false)">🔑 ${esc(t('pw.title'))}</button>
+      <button class="btn-ghost block" style="margin-top:4px" onclick="T_forgotPw()">❓ ${EN()?'Forgot password':'ลืมรหัสผ่าน'}</button></div>`; return; }
     const month=monthStr(); let pay=await api('getPayslip',{staffId:USER.staffId,month}); if(!pay) pay=await api('computePayroll',{staffId:USER.staffId,month,attendanceEligible:true});
     app.innerHTML=`<h2 class="page">💵 เงินเดือนของฉัน</h2>
       <div class="seg"><span class="muted" style="align-self:center">งวด:</span><input type="month" id="slipMonth" value="${month}" style="width:auto" onchange="T_slipMonth(this.value)"/>
@@ -959,21 +996,26 @@
       <div id="slipBox">${payslipCard(pay)}</div>
       <button class="btn outline block" onclick="T_slipDownload()">⬇️ ${esc(t('lbl.downloadSlip'))}</button>`;
   };
-  window.T_slipUnlock=()=>{ const me=MOCK.staff.find(s=>s.StaffID===USER.staffId)||{}; if($('#slipPw').value===(me.Password||'1234')){ SLIP_UNLOCKED=true; GO('slip'); } else toast(EN()?'Wrong password':'รหัสผ่านไม่ถูกต้อง'); };
+  window.T_slipUnlock=async()=>{ const pw=$('#slipPw').value;
+    try{ const r=await api('checkStaffPassword',{staffId:USER.staffId,password:pw}); if(r&&r.ok){ SLIP_UNLOCKED=true; GO('slip'); } else toast(EN()?'Wrong password':'รหัสผ่านไม่ถูกต้อง'); }catch(e){err(e);} };
+  window.T_forgotPw=async()=>{ if(!confirm(EN()?'Send a password reset request to the admin?':'ส่งคำขอรีเซ็ตรหัสผ่านไปที่แอดมินใช่หรือไม่?'))return;
+    try{ await api('requestPasswordReset',{staffId:USER.staffId}); toast(EN()?'Request sent to admin':'ส่งคำขอไปที่แอดมินแล้ว — แอดมินจะรีเซ็ตให้'); }catch(e){err(e);} };
   // teacher password change (forced on first login; validation 8-15 incl upper/lower/digit)
-  window.T_changePw=(forced)=>{ setNav('home');
+  window.T_changePw=async(forced)=>{ setNav('home');
+    const me=await api('staffSelf',{staffId:USER.staffId}).catch(()=>null)||{};
     app.innerHTML=`<h2 class="page">🔑 ${esc(t('pw.title'))}</h2>
       <div class="card">${forced?`<div style="background:#fff8e1;border-radius:8px;padding:8px;color:#8a6d00;font-size:13px;margin-bottom:8px">⚠️ ${esc(t('pw.forced'))}</div>`:''}
-        <p class="muted" style="font-size:12px">${esc(t('pw.user'))}: <b>${esc((MOCK.staff.find(s=>s.StaffID===USER.staffId)||{}).NationalID||'')}</b></p>
-        <label class="field"><span>${esc(t('pw.new'))}</span><input type="password" id="pwNew" placeholder="8-15 chars"/></label>
-        <label class="field"><span>${esc(t('pw.confirm'))}</span><input type="password" id="pwConfirm"/></label>
+        <p class="muted" style="font-size:12px">${esc(t('pw.user'))}: <b>${esc(me.NationalID||'')}</b></p>
+        ${pwField('pwNew',t('pw.new'),'8-15 chars')}
+        ${pwField('pwConfirm',t('pw.confirm'),'')}
         <p class="muted" style="font-size:11.5px">${esc(t('pw.rule'))}</p>
         <button class="btn block" onclick="T_changePwDo()">${esc(t('c.save'))}</button>
-        ${forced?'':`<button class="btn-ghost block" style="margin-top:8px" onclick="GO('home')">${esc(t('c.back'))}</button>`}</div>`;
+        <button class="btn-ghost block" style="margin-top:8px" onclick="T_forgotPw()">❓ ${EN()?'Forgot password':'ลืมรหัสผ่าน'}</button>
+        ${forced?'':`<button class="btn-ghost block" style="margin-top:4px" onclick="GO('home')">${esc(t('c.back'))}</button>`}</div>`;
   };
   window.T_changePwDo=async()=>{ const a=$('#pwNew').value, b=$('#pwConfirm').value;
     if(a!==b){toast(EN()?'Passwords do not match':'รหัสผ่านไม่ตรงกัน');return;}
-    try{ await api('changeStaffPassword',{staffId:USER.staffId,newPassword:a}); const me=MOCK.staff.find(s=>s.StaffID===USER.staffId); if(me){me.Password=a;me.MustChangePassword=false;} confirmSaved(t('c.saved')); GO('home'); }catch(e){err(e);} };
+    try{ await api('changeStaffPassword',{staffId:USER.staffId,newPassword:a}); confirmSaved(t('c.saved')); GO('home'); }catch(e){err(e);} };
   window.SLIP_LOCK=()=>{ SLIP_UNLOCKED=false; GO('slip'); };
   window.T_slipMonth=async(m)=>{ let pay=await api('getPayslip',{staffId:USER.staffId,month:m}); if(!pay)pay=await api('computePayroll',{staffId:USER.staffId,month:m,attendanceEligible:true}); $('#slipBox').innerHTML=payslipCard(pay); };
   window.T_slipDownload=async(m)=>{ m=m||($('#slipMonth')&&$('#slipMonth').value)||monthStr(); let pay=await api('getPayslip',{staffId:USER.staffId,month:m}); if(!pay)pay=await api('computePayroll',{staffId:USER.staffId,month:m,attendanceEligible:true}); openOrDownload(buildSlipsHTML([pay],m), 'payslip-'+USER.staffId+'-'+m+'.html'); };
@@ -1236,7 +1278,7 @@
         <button class="btn block" style="margin-top:8px" onclick="A_saveReqCI(this)">💾 ${esc(t('c.save'))}</button></div>
       <div class="card secw">${secHead('👩‍🏫',t('c.staff'),staff.length,`<button class="btn sm" onclick="event.stopPropagation();A_staffForm()">+ ${esc(t('manage.add'))}</button>`)}
         <div class="secbody" hidden>${searchBox(EN()?'name / nickname / dept':'ชื่อ / ชื่อเล่น / แผนก')}
-        ${staff.map(s=>`<div class="list-item" data-k="${esc((s.NameTH+' '+(s.NameEN||'')+' '+(s.Nickname||'')+' '+(s.Position||'')+' '+(s.Department||'')).toLowerCase())}"><span style="display:flex;gap:8px;align-items:center">${personAvatar(s)}<span><b>${esc(nm(s))}</b> <small class="muted">(${esc(EN()?s.NameTH:s.NameEN)})</small><br><small class="muted">${esc(s.Position||'')} · ${esc(s.Department||'-')} · ${esc(groupLabel(s.StaffGroup))}</small><br><small class="muted">${esc(t('staff.start'))} ${esc(s.StartDate||'-')} · ${esc(t('staff.tenure'))} ${esc(tenure(s.StartDate))}</small></span></span><span class="row"><button class="btn sm outline" onclick="A_staffForm('${s.StaffID}')">✏️</button><button class="btn sm pink" onclick="A_delStaff('${s.StaffID}')">🗑️</button></span></div>`).join('')}</div></div>
+        ${staff.map(s=>`<div class="list-item" data-k="${esc((s.NameTH+' '+(s.NameEN||'')+' '+(s.Nickname||'')+' '+(s.Position||'')+' '+(s.Department||'')).toLowerCase())}"><span style="display:flex;gap:8px;align-items:center">${personAvatar(s)}<span><b>${esc(nm(s))}</b> <small class="muted">(${esc(EN()?s.NameTH:s.NameEN)})</small><br><small class="muted">${esc(s.Position||'')} · ${esc(s.Department||'-')} · 🕑 ${esc(groupLabel(s.StaffGroup))}${groupHours(s.StaffGroup)?' ('+esc(groupHours(s.StaffGroup))+')':''}</small><br><small class="muted">${esc(t('staff.start'))} ${esc(s.StartDate||'-')} · ${esc(t('staff.tenure'))} ${esc(tenure(s.StartDate))}</small></span></span><span class="row"><button class="btn sm outline" onclick="A_staffForm('${s.StaffID}')">✏️</button><button class="btn sm pink" onclick="A_delStaff('${s.StaffID}')">🗑️</button></span></div>`).join('')}</div></div>
       <div class="card secw">${secHead('👪',t('manage.parents'),parents.length,`<button class="btn sm" onclick="event.stopPropagation();A_parentForm()">+ ${esc(t('manage.add'))}</button>`)}
         <div class="secbody" hidden>${searchBox(EN()?'name / phone':'ชื่อ / เบอร์')}
         ${parents.map(p=>`<div class="list-item" data-k="${esc((p.NameTH+' '+(p.NameEN||'')+' '+(p.Phone||'')+' '+(p.Relationship||'')).toLowerCase())}"><span style="display:flex;gap:8px;align-items:center">${personAvatar(p)}<span><b>${esc(nm(p))}</b> <small class="muted">${esc(p.Relationship||'')} · ${phoneLink(p.Phone)}</small></span></span><span class="row"><button class="btn sm outline" onclick="A_parentForm('${p.ParentID}')">✏️</button><button class="btn sm pink" onclick="A_delParent('${p.ParentID}')">🗑️</button></span></div>`).join('')}</div></div>
@@ -1258,13 +1300,16 @@
       <div class="grid2">${f('Nickname',t('reg.nickname'),s.Nickname)}${f('DOB',t('reg.dob'),s.DOB,'date')}</div>
       <div class="grid2">${f('Position',t('manage.position'),s.Position)}
         <label class="field"><span>${esc(t('manage.dept'))}</span><select id="sf_Department">${['',...depts].map(d=>`<option ${s.Department===d?'selected':''}>${esc(d)}</option>`).join('')}</select></label></div>
-      <div class="grid2"><label class="field"><span>${esc(t('manage.group'))}</span><select id="sf_StaffGroup">${groups.map(g=>`<option ${s.StaffGroup===g.GroupName?'selected':''}>${esc(g.GroupName)}</option>`).join('')}</select></label>
+      <div class="grid2"><label class="field"><span>${esc(t('manage.group'))}</span><select id="sf_StaffGroup">${groups.map(g=>`<option value="${esc(g.GroupName)}" ${s.StaffGroup===g.GroupName?'selected':''}>${esc(g.GroupName)}${g.CheckInTime?` (${esc(g.CheckInTime)}–${esc(g.CheckOutTime||'')})`:''}</option>`).join('')}</select></label>
         <label class="field"><span>${esc(t('manage.level'))}</span><select id="sf_PositionLevel">${['Admin','Leader','Officer','Assistant','Staff'].map(l=>`<option ${s.PositionLevel===l?'selected':''}>${esc(l)}</option>`).join('')}</select></label></div>
       <div class="grid2">${f('Phone',t('reg.phone'),phoneFmt(s.Phone))}${f('NationalID',t('reg.nationalIdParent'),s.NationalID)}</div>
       <div class="grid2">${f('StartDate',t('staff.startDate'),s.StartDate,'date')}${f('BaseSalary',t('pay.baseSalary'),s.BaseSalary,'number')}</div>
       <label class="field"><span>🔗 LINE ID ${s.LineUID?'✅':''}</span><input id="sf_LineUID" value="${esc(s.LineUID||'')}" placeholder="Uxxxxxxxxxxxxxxxx"/></label>
       <div class="card" style="background:#f7f9fc;padding:8px"><small class="muted">${EN()?'To let this staff log in: they open the app via LINE → "New user or already registered?" shows their LINE ID → paste it here and Save.':'ให้ครูเข้าแอปผ่าน LINE → หน้า "New user or already registered?" จะโชว์ LINE ID ของครู → คัดลอกมาวางช่องนี้แล้วกดบันทึก'}</small></div>
       <label class="field"><span>${esc(t('manage.photo'))}</span><input id="sf_Photo" type="file" accept="image/*"/>${s.Photo?`<br><img src="${esc(s.Photo)}" style="width:48px;height:48px;border-radius:50%;object-fit:cover;margin-top:6px"/>`:''}</label>
+      ${id?`<div class="card" style="background:#f7f9fc;padding:8px"><b style="font-size:13px">🔑 ${EN()?'Salary-slip password':'รหัสผ่าน (เปิดสลิปเงินเดือน)'}</b>
+        <div class="row" style="margin-top:6px"><button type="button" class="btn sm outline" onclick="A_viewPw('${id}')">👁️ ${EN()?'View':'ดูรหัสผ่าน'}</button><button type="button" class="btn sm pink" onclick="A_resetPw('${id}')">♻️ ${EN()?'Reset':'รีเซ็ต'}</button></div>
+        <div id="pwView_${id}" class="muted" style="font-size:12.5px;margin-top:6px"></div></div>`:''}
       <button class="btn block" onclick="A_saveStaff(this,'${id||''}')">${esc(t('c.save'))}</button>`);
   };
   window.A_saveStaff=async(btn,id)=>{ const m=btn.closest('.modal'); const v=k=>{ const e=m.querySelector('#sf_'+k); return e?e.value.trim():''; };
@@ -1272,6 +1317,9 @@
     const pf=m.querySelector('#sf_Photo').files[0]; if(pf) data.Photo=await new Promise(r=>{const fr=new FileReader();fr.onload=()=>r(fr.result);fr.readAsDataURL(pf);});
     try{ await api('saveStaff',{staffId:id||null,data}); m.remove(); confirmSaved(t('c.saved')); GO('manage'); }catch(e){err(e);} };
   window.A_delStaff=async(id)=>{ if(!confirm(t('manage.confirmDel')))return; try{ await api('deleteStaff',{staffId:id}); toast(t('manage.deleted')); GO('manage'); }catch(e){err(e);} };
+  window.A_viewPw=async(id)=>{ const box=document.getElementById('pwView_'+id); try{ const r=await api('getStaffPassword',{staffId:id}); if(box)box.innerHTML=`${EN()?'Current password':'รหัสผ่านปัจจุบัน'}: <b>${esc(r.password)}</b>`; }catch(e){err(e);} };
+  window.A_resetPw=async(id)=>{ if(!confirm(EN()?'Reset this staff\'s password? A temporary password will be shown.':'รีเซ็ตรหัสผ่านพนักงานคนนี้? ระบบจะแสดงรหัสชั่วคราว'))return;
+    const box=document.getElementById('pwView_'+id); try{ const r=await api('adminResetPassword',{staffId:id}); if(box)box.innerHTML=`✅ ${EN()?'Reset. Temporary password':'รีเซ็ตแล้ว รหัสชั่วคราว'}: <b>${esc(r.tempPassword)}</b> — ${EN()?'staff must change it after unlocking':'พนักงานต้องเปลี่ยนใหม่หลังเข้าใช้'}`; toast(t('c.saved')); }catch(e){err(e);} };
 
   // ---- View-as: Admin previews the app as any role (stays logged in as admin; token is full-trust) ----
   let VIEW_AS_BACKUP=null;
@@ -1441,11 +1489,15 @@
     try{ const rows=await XLSXMin.parse(f); await api('importStudent',{rows}); confirmSaved(t('ie.imported')); GO_('importExport'); }catch(e){err(e);} };
 
   // ---- Staff groups & hours ----
-  window.A_groups=async()=>{ const groups=await api('listStaffGroups');
+  window.A_groups=async()=>{ const [groups,staff]=await Promise.all([api('listStaffGroups'),api('listStaff')]);
+    A_CACHE.groups=groups||[]; A_CACHE.staff=staff||A_CACHE.staff;
+    const membersOf=name=>(staff||[]).filter(s=>s.StaffGroup===name);
     modal(`<h3>🕑 ${esc(t('manage.groups'))}</h3><p class="muted" style="font-size:12px">${esc(t('manage.groupsNote'))}</p>
-      <div id="grpList">${groups.map(g=>`<div class="card" style="padding:10px"><div class="spread"><b>${esc(EN()?g.GroupNameEN:g.GroupName)}</b><button class="btn sm pink" onclick="A_delGroup('${esc(g.GroupName)}')">🗑️</button></div>
+      <div id="grpList">${groups.map(g=>{ const mem=membersOf(g.GroupName);
+        return `<div class="card" style="padding:10px"><div class="spread"><b>${esc(EN()?g.GroupNameEN:g.GroupName)}</b><button class="btn sm pink" onclick="A_delGroup('${esc(g.GroupName)}')">🗑️</button></div>
         <div class="grid2" style="margin-top:6px"><label class="field"><span>${esc(t('lbl.checkIn'))}</span><input type="time" value="${esc(g.CheckInTime)}" onchange="A_setGroup('${esc(g.GroupName)}','in',this.value)"/></label>
-          <label class="field"><span>${esc(t('lbl.checkOut'))}</span><input type="time" value="${esc(g.CheckOutTime)}" onchange="A_setGroup('${esc(g.GroupName)}','out',this.value)"/></label></div></div>`).join('')}</div>
+          <label class="field"><span>${esc(t('lbl.checkOut'))}</span><input type="time" value="${esc(g.CheckOutTime)}" onchange="A_setGroup('${esc(g.GroupName)}','out',this.value)"/></label></div>
+        <div style="margin-top:6px"><small class="muted">👥 ${EN()?'Members':'พนักงานในกลุ่ม'} (${mem.length})</small>${mem.length?`<div style="display:flex;flex-wrap:wrap;gap:4px;margin-top:4px">${mem.map(s=>`<span class="pill info" style="font-size:11px">${esc(nm(s))}</span>`).join('')}</div>`:`<div class="muted" style="font-size:12px">— ${EN()?'no members':'ยังไม่มีพนักงาน'} —</div>`}</div></div>`; }).join('')}</div>
       <div class="card" style="background:#f7f9fc;padding:10px"><b style="font-size:13px">➕ ${esc(t('grp.add'))}</b>
         <div class="grid2" style="margin-top:6px"><input id="ngName" placeholder="${esc(t('grp.nameTH'))}"/><input id="ngNameEN" placeholder="${esc(t('grp.nameEN'))}"/></div>
         <div class="grid2" style="margin-top:6px"><input id="ngIn" type="time" value="08:00"/><input id="ngOut" type="time" value="17:00"/></div>
