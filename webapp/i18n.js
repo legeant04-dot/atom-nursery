@@ -130,7 +130,7 @@
     'ot.verifyNote':['กฎ: ทำเกิน ≥50 นาทีในชั่วโมงนั้น = OT เต็ม 1 ชม. (อ้างอิงเวลาเลิกงานตามตาราง)','Rule: ≥50 min in an hour = 1 full OT hour (vs scheduled check-out)'],
     'assess.edit':['แก้ไขผลประเมิน','Edit assessment'],
     'admin.leaveReset':['รอบรีเซ็ตวันลาประจำปี (มกราคม)','Annual leave reset (January)'], 'admin.leaveResetSub':['ตรวจสอบ/ตั้งค่าสิทธิวันลาของพนักงานสำหรับปีใหม่','Review/set staff leave quota for the new year'],
-    'daily.title':['Daily Report','Daily Report'], 'daily.overall':['ภาพรวมวันนี้','Today overall'], 'daily.lateStaff':['พนักงานมาสาย','Late staff'], 'daily.absenceAlert':['แจ้งเตือนนักเรียนขาดเรียน','Absence alerts'],
+    'daily.title':['สมุดรายงานประจำวัน','Daily Report'], 'daily.overall':['ภาพรวมวันนี้','Today overall'], 'daily.lateStaff':['พนักงานมาสาย','Late staff'], 'daily.absenceAlert':['แจ้งเตือนนักเรียนขาดเรียน','Absence alerts'],
     'daily.alertNote':['เด็กลา/ขาด ≥2 และ ≥5 วัน — แจ้งคุณครูติดตาม','Children absent ≥2 and ≥5 days — notify teachers to follow up'], 'daily.sendLine':['ส่งสรุปไป LINE OA','Send report to LINE OA'],
     'ann.popup':['แสดงเป็น Pop-up (บังคับให้ผู้ปกครองปิดก่อนเช็คอิน)','Show as popup (parents must close before check-in)'], 'ann.start':['แสดงตั้งแต่วันที่','Show from'], 'ann.end':['ถึงวันที่','Until'], 'ann.hide':['ไม่แสดงข้อความนี้อีก','Don\'t show this again'], 'ann.ok':['รับทราบ','Got it'],
     'prepay.title':['ชำระล่วงหน้า','Prepay'], 'prepay.pay':['จ่ายล่วงหน้า','Pay ahead'], 'prepay.note':['ล่วงหน้า 2 เดือน -5% · 3 เดือน -10% · 6 เดือน -20% · 12 เดือน -30%','2mo -5% · 3mo -10% · 6mo -20% · 12mo -30%'],
