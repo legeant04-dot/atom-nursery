@@ -3,7 +3,7 @@
   const $ = s => document.querySelector(s);
   const app = $('#app'), nav = $('#bottomnav');
   const baht = n => (Number(n)||0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
-  const APP_VERSION = 'Version 1.051'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.052'; // bump each webapp change; shown only at the bottom of the Chat screen
   const verTag = () => `<div style="text-align:center;color:#c3c9d4;font-size:10px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
   const phoneFmt = p => { let d=String(p==null?'':p).replace(/\D/g,''); if(d.length===9) d='0'+d; return d; };
@@ -605,31 +605,48 @@
   window.ZOOM_IMG=(url)=>{ if(!url)return; const m=document.createElement('div'); m.className='modal imgzoom'; m.innerHTML=`<img src="${esc(url)}" alt="QR"/>`; m.onclick=()=>m.remove(); document.body.appendChild(m); };
   window.SAVE_IMG=(url,name)=>{ if(!url){toast(EN()?'No QR image set yet (add it in config)':'ยังไม่ได้ตั้งรูป QR (เพิ่มใน config)');return;} const a=document.createElement('a'); a.href=url; a.download=name; document.body.appendChild(a); a.click(); a.remove(); toast(EN()?'Saved '+name:'บันทึกรูปแล้ว'); };
 
+  // ---- slip history rendering (shared parent + admin) ----
+  function slipVerBadge(v){ v=String(v||''); if(v.slice(0,3)==='YES')return `<span class="pill ok" style="font-size:10px">✓ ${EN()?'verified':'สลิปแท้'}</span>`; if(v.slice(0,2)==='NO')return `<span class="pill bad" style="font-size:10px">⚠ ${EN()?'not verified':'ตรวจไม่ผ่าน'}</span>`; return `<span class="pill info" style="font-size:10px">${EN()?'not checked':'ยังไม่ตรวจ'}</span>`; }
+  function slipStatusPill(s){ const c={SUBMITTED:'wait',CONFIRMED:'ok',PARTIAL:'wait',REJECTED:'bad'}[s]||'info'; const lbl={SUBMITTED:EN()?'pending':'รอตรวจ',CONFIRMED:EN()?'confirmed':'ยืนยันแล้ว',REJECTED:EN()?'rejected':'ปฏิเสธ'}[s]||s; return `<span class="pill ${c}" style="font-size:10px">${esc(lbl)}</span>`; }
+  function slipThumb(url){ return url?`<img src="${esc(url)}" alt="slip" style="width:46px;height:46px;object-fit:cover;border-radius:6px;border:1px solid #eee;cursor:zoom-in" onclick="ZOOM_IMG('${esc(url)}')" onerror="this.replaceWith(Object.assign(document.createElement('span'),{className:'pill info',textContent:'📎',style:'font-size:10px'}))"/>`:`<span class="pill info" style="font-size:11px">📎</span>`; }
+  function slipHistoryHTML(slips){ if(!slips||!slips.length)return '';
+    return `<div style="margin-top:8px"><small class="muted">📎 ${EN()?'Submitted slips':'สลิปที่ส่งมา'}</small>${slips.map(s=>`<div class="list-item" style="gap:8px;align-items:center">${slipThumb(s.Url)}<span style="flex:1"><b>${baht(s.Amount)}</b> ${slipStatusPill(s.Status)} ${slipVerBadge(s.Verified)}${s.Receiver?`<br><small class="muted">→ ${esc(s.Receiver)}</small>`:''}<br><small class="muted">${esc(String(s.SubmittedDate||'').slice(0,16))}</small></span></div>`).join('')}</div>`; }
+
   SCREENS.Parent.payment = async () => {
     const kids=await api('parentChildren',parentScope()); if(!kids.length){GO('home');return;} const sid=kids[0].StudentID; window._PAY_SID=sid;
-    const [ps, ot, pre] = await Promise.all([api('payments',{studentId:sid}), api('otDaily',{studentId:sid}), api('prepayments',{studentId:sid})]);
+    const [ps, ot, pre, allSlips] = await Promise.all([api('payments',{studentId:sid}), api('otDaily',{studentId:sid}), api('prepayments',{studentId:sid}), api('paymentSlips',{studentId:sid})]);
+    const slipsOf=(kind,id)=>(allSlips||[]).filter(s=>s.RefKind===kind&&s.RefID===id);
     const per=EN()?'Period ':'งวด ';
     const verifyPill=`<span class="pill wait">${esc(t('pay.pendingVerify'))}</span>`;
     const preHtml=`<div class="card"><div class="spread"><h3>💰 ${esc(t('prepay.title'))}</h3><button class="btn sm" onclick="P_prepay('${sid}')">+ ${esc(t('prepay.pay'))}</button></div>
       <p class="muted" style="font-size:12px">${esc(t('prepay.note'))}</p>
-      ${pre.length?pre.map(p=>{ const paid=p.Status==='PAID',pend=p.Status==='PENDING_VERIFY';
-        return `<div class="list-item"><span>${esc(t('prepay.months').replace('{n}',p.Months))} <span class="pill ok">-${p.Discount}%</span> <small class="muted">${esc(p.Covered[0])}→${esc(p.Covered[p.Covered.length-1])}</small></span>
-        <span><b>${baht(p.Amount)}</b> ${paid?`<span class="pill ok">${esc(t('prepay.paidAhead'))}</span>`:pend?verifyPill:`<button class="btn sm" onclick="P_payPrepay('${p.PrepayID}',${p.Amount})">${esc(t('lbl.pay'))}</button> <button class="btn sm gray" onclick="P_cash('prepay','${p.PrepayID}',${p.Amount})">💵</button>`}</span></div>`; }).join(''):''}</div>`;
-    const otOpen=ot.filter(o=>o.Status!=='PAID'&&o.Status!=='PENDING_VERIFY');
+      ${pre.length?pre.map(p=>{ const paid=p.Status==='PAID',partial=p.Status==='PARTIAL'; const sl=slipsOf('prepay',p.PrepayID); const pend=sl.some(s=>s.Status==='SUBMITTED');
+        return `<div style="border-bottom:1px solid #f0f0f0;padding:4px 0"><div class="list-item"><span>${esc(t('prepay.months').replace('{n}',p.Months))} <span class="pill ok">-${p.Discount}%</span> <small class="muted">${esc(p.Covered[0])}→${esc(p.Covered[p.Covered.length-1])}</small></span>
+        <span><b>${baht(p.Amount)}</b> ${paid?`<span class="pill ok">${esc(t('prepay.paidAhead'))}</span>`:partial?`<span class="pill wait">${EN()?'partial':'บางส่วน'}</span>`:pend?verifyPill:''} ${paid?'':`<button class="btn sm" onclick="P_payPrepay('${p.PrepayID}',${p.Amount})">${pend||partial?'📎':esc(t('lbl.pay'))}</button> <button class="btn sm gray" onclick="P_cash('prepay','${p.PrepayID}',${p.Amount})">💵</button>`}</span></div>${slipHistoryHTML(sl)}</div>`; }).join(''):''}</div>`;
+    const otOpen=ot.filter(o=>o.Status!=='PAID'&&o.Status!=='PENDING_VERIFY'&&o.Status!=='PARTIAL');
     const otHtml = ot.length?`<div class="card"><h3>⏰ ${esc(t('ot.daily'))}</h3>
-      ${ot.map(o=>{ const paid=o.Status==='PAID',pend=o.Status==='PENDING_VERIFY'; return `<div class="list-item"><span>${esc(ddmmyyyy(o.Date))} · ${esc(o.PickupTime)} <small class="muted">(${EN()?'late':'สาย'} ${o.LateMinutes}${esc(t('lbl.min'))} · ${o.Hours}${EN()?'h':'ชม.'})</small></span>
-        <span><b>${baht(o.Amount)}</b> ${paid?`<span class="pill ok">${esc(t('s.paid'))}</span>`:pend?verifyPill:`<button class="btn sm" onclick="P_payOT('${o.OTID}',${o.Amount})">${esc(t('lbl.pay'))}</button> <button class="btn sm gray" onclick="P_cash('ot','${o.OTID}',${o.Amount})">💵</button>`}</span></div>`; }).join('')}
+      ${ot.map(o=>{ const paid=o.Status==='PAID',partial=o.Status==='PARTIAL'; const sl=slipsOf('ot',o.OTID); const pend=sl.some(s=>s.Status==='SUBMITTED'); return `<div style="border-bottom:1px solid #f0f0f0;padding:4px 0"><div class="list-item"><span>${esc(ddmmyyyy(o.Date))} · ${esc(o.PickupTime)} <small class="muted">(${EN()?'late':'สาย'} ${o.LateMinutes}${esc(t('lbl.min'))} · ${o.Hours}${EN()?'h':'ชม.'})</small></span>
+        <span><b>${baht(o.Amount)}</b> ${paid?`<span class="pill ok">${esc(t('s.paid'))}</span>`:partial?`<span class="pill wait">${EN()?'partial':'บางส่วน'}</span>`:pend?verifyPill:''} ${paid?'':`<button class="btn sm" onclick="P_payOT('${o.OTID}',${o.Amount})">${pend||partial?'📎':esc(t('lbl.pay'))}</button> <button class="btn sm gray" onclick="P_cash('ot','${o.OTID}',${o.Amount})">💵</button>`}</span></div>${slipHistoryHTML(sl)}</div>`; }).join('')}
       ${otOpen.length?`<div class="spread" style="margin-top:8px"><b>${esc(t('ot.unpaidTotal'))}</b><b style="color:#c62828">${baht(otOpen.reduce((a,o)=>a+o.Amount,0))}</b></div><small class="muted">${esc(t('ot.rollNote'))}</small>`:''}</div>`:'';
     app.innerHTML = `<h2 class="page">${esc(t('title.payment'))}</h2>${preHtml}${otHtml}${ps.map(b=>{
-      const paid=b.Status==='PAID',pend=b.Status==='PENDING_VERIFY'; const due=b.TotalDue!=null?b.TotalDue:b.Amount;
-      const prepaid=b.VerifiedStatus==='PREPAID';
-      return `<div class="card"><div class="spread"><b>${per}${esc(b.Month)}</b><span class="pill ${paid?'ok':pend?'wait':'bad'}">${prepaid?esc(t('prepay.paidAhead')):pend?esc(t('pay.pendingVerify')):esc(tStat(b.Status))}</span></div>
+      const paid=b.Status==='PAID',partial=b.Status==='PARTIAL'; const due=b.TotalDue!=null?b.TotalDue:b.Amount;
+      const prepaid=b.VerifiedStatus==='PREPAID'; const confirmed=Number(b.PaidConfirmed||0); const outstanding=b.Outstanding!=null?Number(b.Outstanding):Math.max(0,due-confirmed);
+      const billSlips=slipsOf('bill',b.BillingID); const hasPending=billSlips.some(s=>s.Status==='SUBMITTED');
+      const topUp = outstanding>0?outstanding:due;
+      const statusPill = prepaid?`<span class="pill ok">${esc(t('prepay.paidAhead'))}</span>`
+        : paid?`<span class="pill ok">${esc(tStat('PAID'))}</span>`
+        : partial?`<span class="pill wait">${EN()?'Partially paid':'ชำระบางส่วน'}</span>`
+        : hasPending?`<span class="pill wait">${esc(t('pay.pendingVerify'))}</span>`
+        : `<span class="pill bad">${esc(tStat(b.Status))}</span>`;
+      return `<div class="card"><div class="spread"><b>${per}${esc(b.Month)}</b>${statusPill}</div>
       <table style="width:100%;font-size:14px;margin:8px 0">${b.Items.map(it=>`<tr><td>${esc(trItem(it[0]))}</td><td style="text-align:right">${baht(it[1])}</td></tr>`).join('')}
       ${b.OTRollover?`<tr><td>${esc(t('ot.rollover'))}</td><td style="text-align:right">${baht(b.OTRollover)}</td></tr>`:''}
-      <tr style="border-top:1px solid #ddd"><td><b>${esc(t('c.total'))}</b></td><td style="text-align:right"><b>${baht(due)}</b></td></tr></table>
+      <tr style="border-top:1px solid #ddd"><td><b>${esc(t('c.total'))}</b></td><td style="text-align:right"><b>${baht(due)}</b></td></tr>
+      ${confirmed>0&&!paid?`<tr><td>${EN()?'Paid':'ชำระแล้ว'}</td><td style="text-align:right;color:#2e7d32">−${baht(confirmed)}</td></tr><tr><td><b>${EN()?'Remaining':'คงค้าง'}</b></td><td style="text-align:right"><b style="color:#c62828">${baht(outstanding)}</b></td></tr>`:''}</table>
       <small class="muted">${esc(t('c.due'))} ${esc(b.DueDate)}${b.PaidDate?' · '+esc(t('c.paid'))+' '+esc(b.PaidDate):''}</small>
-      ${pend?`<div class="muted" style="margin-top:6px;font-size:12px">📎 ${esc(t('pay.submitted'))} ${baht(b.SlipAmount)} · ${esc(t('pay.awaitAdmin'))}</div>`:''}
-      ${paid?`<div class="row" style="margin-top:10px"><button class="btn sm outline" onclick="P_receipt('${b.BillingID}')">🧾 ${esc(t('pay.receipt'))}</button></div>`:pend?'':`<div class="row" style="margin-top:10px"><button class="btn sm" onclick="P_qr('${b.BillingID}',${due})">${esc(t('lbl.qr'))}</button><button class="btn sm outline" onclick="P_slip('${b.BillingID}',${due})">${esc(t('lbl.attachSlip'))}</button><button class="btn sm gray" onclick="P_cash('bill','${b.BillingID}',${due})">💵 ${esc(t('pay.cash'))}</button></div>`}</div>`;
+      ${slipHistoryHTML(billSlips)}
+      ${paid||prepaid?`<div class="row" style="margin-top:10px"><button class="btn sm outline" onclick="P_receipt('${b.BillingID}')">🧾 ${esc(t('pay.receipt'))}</button></div>`
+        :`<div class="row" style="margin-top:10px"><button class="btn sm" onclick="P_qr('${b.BillingID}',${topUp})">${esc(t('lbl.qr'))}</button><button class="btn sm outline" onclick="P_slip('${b.BillingID}',${topUp})">📎 ${hasPending||partial?(EN()?'Add another slip':'แนบสลิปเพิ่ม'):esc(t('lbl.attachSlip'))}</button><button class="btn sm gray" onclick="P_cash('bill','${b.BillingID}',${topUp})">💵 ${esc(t('pay.cash'))}</button></div>`}</div>`;
     }).join('')}`;
   };
   // prepay with discount: 2mo -5%, 3mo -10%, 6mo -20%, 12mo -30%
@@ -698,12 +715,13 @@
     if(!f){toast(EN()?'Please choose a slip file':'กรุณาเลือกไฟล์สลิป');return;}
     if(!amt){toast(EN()?'Enter the transferred amount':'กรอกยอดที่โอน');return;}
     const dataUrl=await new Promise(r=>{const fr=new FileReader();fr.onload=()=>r(fr.result);fr.readAsDataURL(f);});
-    try{ const slips=JSON.parse(localStorage.getItem('atom_slips')||'{}'); slips[id]={name:f.name,data:dataUrl,date:todayStr(),amount:amt}; localStorage.setItem('atom_slips',JSON.stringify(slips)); }catch(e){}
-    try{ const args={slipName:f.name,slipAmount:amt,fromQR,slipData:dataUrl}; // slipData → stored centrally (Drive folder in GAS)
+    if(btn)btn.disabled=true;
+    try{ const args={slipName:f.name,slipAmount:amt,fromQR,slipData:dataUrl}; // slipData → saved to the Drive folder in GAS; SlipOK verifies it
       const r= kind==='ot' ? await api('payOT',Object.assign({otId:id},args)) : kind==='prepay' ? await api('payPrepay',Object.assign({prepayId:id},args)) : await api('uploadSlip',Object.assign({billingId:id},args));
       m.remove();
-      confirmSaved(r.amountMatch?t('slip.submittedMatch'):t('slip.submittedReview')); // both go to Admin for confirmation
-      GO('payment'); }catch(e){err(e);} };
+      const out=Number(r&&r.outstanding||0);
+      confirmSaved(out>0 ? (EN()?`Slip submitted. Remaining balance ${baht(out)} — you can attach more.`:`ส่งสลิปแล้ว ยอดค้าง ${baht(out)} — แนบสลิปเพิ่มได้`) : t('slip.submittedReview'));
+      GO('payment'); }catch(e){err(e);} finally{ if(btn)btn.disabled=false; } };
   // notify a CASH payment — staff confirm + record the payment date afterward
   window.P_cash=(kind,id,amt)=>{ modal(`<div style="text-align:center"><h3>💵 ${esc(t('pay.payCash'))}</h3>
     <p class="muted" style="font-size:12.5px">${esc(t('pay.cashNote'))}</p>
@@ -1614,20 +1632,34 @@
 
   // ---- Admin: confirm parent payments (slips await admin verification) ----
   SCREENS.Admin.verify = async () => { const list=await api('pendingPayments');
-    let slips={}; try{ slips=JSON.parse(localStorage.getItem('atom_slips')||'{}'); }catch(e){}
+    const kindLbl=k=>({bill:t('verify.monthly'),ot:'OT',prepay:t('prepay.title')}[k]||k);
     app.innerHTML=`<h2 class="page">✅ ${esc(t('verify.title'))}</h2>
       <p class="muted" style="font-size:12px">${esc(t('verify.note'))}</p>
-      ${list.length?list.map(x=>{ const s=slips[x.id]; const img=(x.slip&&/^(data:|https?:)/.test(x.slip))?x.slip:(s&&s.data); const kindLbl={bill:t('verify.monthly'),ot:'OT',prepay:t('prepay.title')}[x.kind];
-        const cash=x.method==='cash'; const methodPill=`<span class="pill ${cash?'wait':'info'}">${cash?'💵 '+esc(t('pay.cash')):'🏦 '+esc(t('pay.transfer'))}</span>`;
-        return `<div class="card"><div class="spread"><div><b>${esc(EN()?x.nameEN:x.name)}</b> <span class="pill info">${esc(kindLbl)}</span> ${methodPill}<br><small class="muted">${esc(x.label)}${x.transactionDate?' · '+esc(t('pay.txnDate'))+' '+esc(x.transactionDate):''}</small></div>
-          <span class="pill ${x.match?'ok':'bad'}">${x.match?'✓ '+esc(t('verify.match')):'✗ '+esc(t('verify.mismatch'))}</span></div>
+      ${list.length?list.map(x=>{
+        const cash=x.cash; const methodPill=`<span class="pill ${cash?'wait':'info'}">${cash?'💵 '+esc(t('pay.cash')):'🏦 '+esc(t('pay.transfer'))}</span>`;
+        const confirmed=Number(x.confirmedPaid||0), outstanding=Number(x.outstanding!=null?x.outstanding:Math.max(0,x.due-confirmed));
+        // per-slip confirm/reject rows (each slip has its own image + SlipOK verified flag)
+        const slipRows=(x.slips||[]).map(s=>`<div class="card" style="padding:8px;background:#fafbfe"><div class="row" style="gap:10px;align-items:flex-start">
+            ${slipThumb2(s.url)}
+            <div style="flex:1"><div><b>${baht(s.amount)}</b> ${slipVerBadge(s.verified)}</div>
+              ${s.receiver?`<small class="muted">→ ${esc(s.receiver)}</small><br>`:''}${s.transRef?`<small class="muted">ref ${esc(s.transRef)}</small><br>`:''}
+              <small class="muted">${esc(String(s.date||'').slice(0,16))}</small></div></div>
+            <div class="row" style="margin-top:6px"><button class="btn sm green" onclick="A_confirmSlip('${esc(s.slipId)}',this)">✅ ${EN()?'Confirm this slip':'ยืนยันสลิปนี้'}</button><button class="btn sm pink" onclick="A_rejectSlip('${esc(s.slipId)}')">✗ ${esc(t('verify.reject'))}</button></div></div>`).join('');
+        return `<div class="card"><div class="spread"><div><b>${esc(EN()?x.nameEN:x.name)}</b> <span class="pill info">${esc(kindLbl(x.kind))}</span> ${methodPill}<br><small class="muted">${esc(x.label)}${x.transactionDate?' · '+esc(t('pay.txnDate'))+' '+esc(x.transactionDate):''}</small></div></div>
           <table style="width:100%;font-size:13px;margin:6px 0"><tr><td>${esc(t('slip.amountDue'))}</td><td style="text-align:right"><b>${baht(x.due)}</b></td></tr>
-          <tr><td>${esc(cash?t('pay.cash'):t('slip.amountPaid'))} ${x.fromQR?`<span class="pill info" style="font-size:10px">QR</span>`:''}</td><td style="text-align:right"><b style="color:${x.match?'#2e7d32':'#c62828'}">${baht(x.slipAmount)}</b></td></tr></table>
-          ${cash?`<div style="background:#fffbe6;border-radius:8px;padding:6px 8px;font-size:12.5px;color:#8a6d00">💵 ${esc(t('verify.cashPending'))}</div>`:(img?`<img src="${esc(img)}" style="max-height:140px;border-radius:8px;border:1px solid #eee;cursor:zoom-in" onclick="ZOOM_IMG('${esc(img)}')"/>`:`<small class="muted">📎 ${esc(x.slipName||x.slip||'slip')}</small>`)}
-          <label class="field" style="margin-top:8px"><span>${esc(t('pay.paidDate'))}</span><input type="date" id="pd_${esc(x.id)}" value="${todayStr()}"/></label>
-          <div class="row" style="margin-top:6px"><button class="btn sm green" onclick="A_confirmPay('${x.kind}','${x.id}','${cash?'cash':'transfer'}')">✅ ${esc(t('verify.confirm'))}</button><button class="btn sm pink" onclick="A_rejectPay('${x.kind}','${x.id}')">✗ ${esc(t('verify.reject'))}</button></div></div>`;
+          ${confirmed>0?`<tr><td>${EN()?'Confirmed so far':'ยืนยันแล้ว'}</td><td style="text-align:right;color:#2e7d32">${baht(confirmed)}</td></tr>`:''}
+          <tr><td><b>${EN()?'Outstanding':'คงค้าง'}</b></td><td style="text-align:right"><b style="color:${outstanding>0?'#c62828':'#2e7d32'}">${baht(outstanding)}</b></td></tr></table>
+          <label class="field"><span>${esc(t('pay.paidDate'))}</span><input type="date" id="pd_${esc(x.id)}" value="${todayStr()}"/></label>
+          ${cash?`<div style="background:#fffbe6;border-radius:8px;padding:6px 8px;font-size:12.5px;color:#8a6d00;margin-bottom:6px">💵 ${esc(t('verify.cashPending'))} ${baht(x.slipAmount)}</div>
+            <div class="row"><button class="btn sm green" onclick="A_confirmPay('${x.kind}','${x.id}','cash')">✅ ${esc(t('verify.confirm'))}</button><button class="btn sm pink" onclick="A_rejectPay('${x.kind}','${x.id}')">✗ ${esc(t('verify.reject'))}</button></div>`
+            : (slipRows||`<small class="muted">${EN()?'no slips':'ไม่มีสลิป'}</small>`)}</div>`;
       }).join(''):`<div class="card muted">${esc(t('verify.empty'))}</div>`}`;
   };
+  // bigger slip preview for the admin (tap to zoom)
+  function slipThumb2(url){ return url?`<img src="${esc(url)}" alt="slip" style="width:90px;height:110px;object-fit:cover;border-radius:8px;border:1px solid #eee;cursor:zoom-in" onclick="ZOOM_IMG('${esc(url)}')" onerror="this.replaceWith(Object.assign(document.createElement('div'),{className:'qr-ph',textContent:'📎'}))"/>`:`<div class="qr-ph" style="width:90px;height:110px">📎</div>`; }
+  window.A_confirmSlip=async(slipId,btn)=>{ const card=btn?btn.closest('.card'):null; const d=card&&card.parentElement?card.parentElement.querySelector('input[type=date]'):null; const paidDate=(d&&d.value)||todayStr();
+    try{ const r=await api('confirmSlip',{slipId,adminId:USER.staffId,paidDate}); const out=Number(r&&r.outstanding||0); confirmSaved(out>0?(EN()?`Confirmed. Still outstanding ${baht(out)}`:`ยืนยันแล้ว ยังค้าง ${baht(out)}`):t('verify.confirmed')); GO('verify'); }catch(e){err(e);} };
+  window.A_rejectSlip=async(slipId)=>{ if(!confirm(t('verify.rejectConfirm')))return; try{ await api('rejectSlip',{slipId}); toast(t('verify.rejected')); GO('verify'); }catch(e){err(e);} };
   window.A_confirmPay=async(kind,id,method)=>{ const d=document.getElementById('pd_'+id); const paidDate=(d&&d.value)||todayStr();
     try{ await api('confirmPayment',{kind,id,adminId:USER.staffId,paidDate,method}); confirmSaved(t('verify.confirmed')); GO('verify'); }catch(e){err(e);} };
   window.A_rejectPay=async(kind,id)=>{ if(!confirm(t('verify.rejectConfirm')))return; try{ await api('rejectPayment',{kind,id}); toast(t('verify.rejected')); GO('verify'); }catch(e){err(e);} };

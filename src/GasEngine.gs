@@ -31,6 +31,7 @@ var COLLECTION_MAP = {
   absenceLog:      { wb: 'MAIN', sheet: 'ABSENCE_LOG' },
   absenceFollowups:{ wb: 'MAIN', sheet: 'ABSENCE_FOLLOWUP' },
   vaccineRecords:  { wb: 'MAIN', sheet: 'VACCINE_RECORDS' },
+  paymentSlips:    { wb: 'MAIN', sheet: 'PAYMENT_SLIPS' },
   holidays:        { wb: 'MAIN', sheet: 'HOLIDAYS' },
   announcements:   { wb: 'MAIN', sheet: 'ANNOUNCEMENTS' },
   studentLeaves:   { wb: 'MAIN', sheet: 'LEAVE_REQUEST_STD' },

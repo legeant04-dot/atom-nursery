@@ -266,6 +266,8 @@ window.MOCK = {
     { StudentID:'STD-1', Key:'DTPHBHib1', Date:'2025-07-10' },
     { StudentID:'STD-1', Key:'Polio1', Date:'2025-07-10' },
   ],
+  // payment slips (multiple per bill/OT/prepay; supports partial payments + history)
+  paymentSlips: [],
   // Holiday database (editable per year) — merged into the shared calendar
   holidays: [
     { Date:'2026-01-01', NameTH:'วันขึ้นปีใหม่', NameEN:"New Year's Day", Recurring:true },
