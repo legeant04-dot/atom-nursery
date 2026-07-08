@@ -10,6 +10,14 @@ function createAtomAPI(M, GROWTH_STD) {
   const timeLocal = () => { const d=new Date(); return p2(d.getHours())+':'+p2(d.getMinutes()); };
   const stampLocal = () => todayLocal()+' '+timeLocal();
   const fail = (code,msg)=>{ const e=new Error(msg); e.code=code; throw e; };
+  // normalize a vaccine record's dose dates to an array (accepts new `Dates` array / JSON string /
+  // comma-joined string, or a legacy single `Date`). GAS decodeCell may already parse a JSON array.
+  const vacDates_ = v => { let d = (v.Dates!=null) ? v.Dates : v.Date;
+    if(Array.isArray(d)) return d.map(x=>String(x||'').trim()).filter(Boolean);
+    if(d==null || d==='') return [];
+    const s=String(d).trim();
+    if(s[0]==='['){ try{ return JSON.parse(s).map(x=>String(x||'').trim()).filter(Boolean); }catch(e){} }
+    return s.split(',').map(x=>x.trim()).filter(Boolean); };
 
   function haversine(la1,ln1,la2,ln2){ const R=6371000,r=x=>x*Math.PI/180;
     const dLa=r(la2-la1),dLn=r(ln2-ln1); const a=Math.sin(dLa/2)**2+Math.cos(r(la1))*Math.cos(r(la2))*Math.sin(dLn/2)**2;
@@ -404,10 +412,22 @@ function createAtomAPI(M, GROWTH_STD) {
     removeHoliday: p => { const i=M.holidays.findIndex(h=>h.Date===p.date&&(h.NameTH===p.nameTH||!p.nameTH)); if(i>=0)M.holidays.splice(i,1); return {ok:true}; },
 
     // ---- vaccines ----
+    // A vaccine record holds MULTIPLE dose dates per (StudentID, Key) — some vaccines need several shots.
+    // Stored as `Dates` (array). Old records had a single `Date`; vacDates_ normalizes both shapes.
     vaccineSchedule: () => M.vaccineSchedule,
-    studentVaccines: p => M.vaccineRecords.filter(v=>v.StudentID===p.studentId),
+    studentVaccines: p => M.vaccineRecords.filter(v=>v.StudentID===p.studentId)
+      .map(v=>({ StudentID:v.StudentID, Key:v.Key, VaccineName:v.VaccineName||'', Dates:vacDates_(v) })),
+    // batch save (the "Save" button): replace ALL of this student's vaccine rows in place.
+    // Other students' rows are preserved, so persist never truncates the collection.
+    saveVaccines: p => { const sid=p.studentId;
+      M.vaccineRecords = M.vaccineRecords.filter(x=>x.StudentID!==sid);
+      (p.records||[]).forEach(rec=>{ const dates=(rec.dates||[]).map(d=>String(d||'').trim()).filter(Boolean);
+        if(dates.length) M.vaccineRecords.push({ StudentID:sid, Key:rec.key, VaccineName:rec.name||'', Dates:dates }); });
+      return { ok:true, count:M.vaccineRecords.filter(x=>x.StudentID===sid).length }; },
+    // legacy single-dose helpers (kept for back-compat; UI now uses saveVaccines)
     setVaccine: p => { let v=M.vaccineRecords.find(x=>x.StudentID===p.studentId&&x.Key===p.key);
-      if(!v){ v={StudentID:p.studentId,Key:p.key}; M.vaccineRecords.push(v); } v.Date=p.date||todayLocal(); return v; },
+      if(!v){ v={StudentID:p.studentId,Key:p.key}; M.vaccineRecords.push(v); }
+      const d=p.date||todayLocal(); v.Dates=[d]; v.Date=d; return v; },
     removeVaccine: p => { const i=M.vaccineRecords.findIndex(x=>x.StudentID===p.studentId&&x.Key===p.key); if(i>=0)M.vaccineRecords.splice(i,1); return {ok:true}; },
 
     // ---- absence tracking + rate rule ----

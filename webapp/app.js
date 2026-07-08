@@ -3,7 +3,7 @@
   const $ = s => document.querySelector(s);
   const app = $('#app'), nav = $('#bottomnav');
   const baht = n => (Number(n)||0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
-  const APP_VERSION = 'Version 1.049'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.050'; // bump each webapp change; shown only at the bottom of the Chat screen
   const verTag = () => `<div style="text-align:center;color:#c3c9d4;font-size:10px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
   const phoneFmt = p => { let d=String(p==null?'':p).replace(/\D/g,''); if(d.length===9) d='0'+d; return d; };
@@ -1118,15 +1118,29 @@
   function growthRecordsList(records, dob){ if(!records||!records.length) return '';
     const rows=records.slice().sort((a,b)=>b.Date.localeCompare(a.Date)).map(r=>`<div class="list-item"><span>${esc(r.Date)} <small class="muted">(${esc(ageYMfromMonths(r.AgeMonth))})</small></span><span>${r.Weight?baht(r.Weight).replace('.00','')+' kg':''} ${r.Height?'· '+(baht(r.Height).replace('.00',''))+' cm':''}</span></div>`).join('');
     return `<div style="margin-top:8px"><b style="font-size:13px">📋 ${esc(t('growth.records'))}</b>${rows}</div>`; }
-  // read-only vaccine record card (parent view): schedule grouped by age, ✓ date or "not yet"
-  // editable=true → parent/Admin can tick + date each dose (uses A_vacToggle/A_vacDate → setVaccine/removeVaccine)
-  function vaccineCard(sched, recs, sid, editable){ const got=k=>(recs||[]).find(r=>r.Key===k);
-    return `<div class="card"><h3>💉 ${esc(t('vac.title'))}</h3>
+  // vaccine record card. Each vaccine topic supports MULTIPLE dose dates (some vaccines need several shots).
+  // recs come from studentVaccines → each has {Key, VaccineName, Dates:[...]}.
+  // editable=true → parent/Admin add/remove dose dates per topic, then one Save button (→ saveVaccines).
+  function vacDatesOf(recs,k){ const r=(recs||[]).find(x=>x.Key===k); return (r&&r.Dates&&r.Dates.length)?r.Dates.slice():[]; }
+  // one editable date row (date input + ✕ remove); the remove just drops the row from the DOM.
+  function vacDateInput(key,val){ return `<div class="row vacdrow" style="gap:5px;align-items:center;margin-top:4px">`
+    +`<input type="date" class="vacdate" data-key="${esc(key)}" value="${esc(val||'')}" style="width:150px"/>`
+    +`<button class="btn sm gray" type="button" onclick="this.closest('.vacdrow').remove()" title="${EN()?'Remove':'ลบ'}">✕</button></div>`; }
+  function vaccineCard(sched, recs, sid, editable){
+    if(editable){ window.__VAC_SCHED=sched; }  // stash for VAC_save (key→name lookup)
+    const body = sched.map(grp=>`<div style="margin-bottom:8px"><b style="font-size:13px">${esc(EN()?grp.ageEN:grp.ageTH)}</b>
+      ${grp.items.map(it=>{ const dates=vacDatesOf(recs,it.key);
+        if(editable){ const rows=(dates.length?dates:['']).map(d=>vacDateInput(it.key,d)).join('');
+          return `<div class="vacitem" style="padding:6px 0;border-bottom:1px solid #eef0f4">
+            <div style="font-size:12.5px;font-weight:600">${esc(EN()?it.en:it.th)}</div>
+            <div id="vacrow_${esc(it.key)}">${rows}</div>
+            <button class="btn sm outline" type="button" onclick="VAC_addDate('${esc(it.key)}')" style="margin-top:4px">➕ ${EN()?'Add dose date':'เพิ่มวันที่ฉีด'}</button></div>`; }
+        return `<div class="list-item"><span style="font-size:12.5px">${esc(EN()?it.en:it.th)}</span>`
+          +(dates.length?`<span>${dates.map(d=>`<span class="pill ok">✓ ${esc(d)}</span>`).join(' ')}</span>`:`<span class="pill wait">${esc(t('vac.notYet'))}</span>`)+`</div>`; }).join('')}</div>`).join('');
+    return `<div class="card" id="vaccard" data-sid="${esc(sid)}"><h3>💉 ${esc(t('vac.title'))}</h3>
       ${editable?`<p class="muted" style="font-size:12px">${esc(t('vac.note'))}</p>`:''}
-      ${sched.map(grp=>`<div style="margin-bottom:6px"><b style="font-size:13px">${esc(EN()?grp.ageEN:grp.ageTH)}</b>
-        ${grp.items.map(it=>{ const r=got(it.key);
-          if(editable) return `<div class="list-item" style="gap:6px"><label style="display:flex;gap:6px;align-items:flex-start;flex:1;font-size:12.5px"><input type="checkbox" ${r?'checked':''} style="width:auto;margin-top:3px" onchange="A_vacToggle('${sid}','${it.key}',this.checked)"/><span>${esc(EN()?it.en:it.th)}</span></label><input type="date" id="vd_${it.key}" value="${esc(r?r.Date:'')}" style="width:140px" onchange="A_vacDate('${sid}','${it.key}',this.value)"/></div>`;
-          return `<div class="list-item"><span style="font-size:12.5px">${esc(EN()?it.en:it.th)}</span>${r?`<span class="pill ok">✓ ${esc(r.Date)}</span>`:`<span class="pill wait">${esc(t('vac.notYet'))}</span>`}</div>`; }).join('')}</div>`).join('')}</div>`; }
+      ${body}
+      ${editable?`<button class="btn block green" type="button" onclick="VAC_save('${esc(sid)}')" style="margin-top:10px">💾 ${EN()?'Save vaccine records':'บันทึกวัคซีน'}</button>`:''}</div>`; }
   // inline SVG line chart: child's measurements (line) vs the standard normal band (shaded)
   // The GAS engine runs with GROWTH_STD=null (no server-side band), so the green normal-range
   // band comes back empty in gas mode. The browser HAS window.GROWTH_STD → rebuild it locally.
@@ -1324,14 +1338,17 @@
 
   // ---- vaccine records (Admin/teacher) ----
   window.A_vaccines=async(sid)=>{ const s=findStudent(sid); const [sched,recs]=await Promise.all([api('vaccineSchedule'),api('studentVaccines',{studentId:sid})]);
-    const got=k=>recs.find(r=>r.Key===k);
-    modal(`<h3>💉 ${esc(t('vac.title'))} — ${esc(nm(s))}</h3><p class="muted" style="font-size:12px">${esc(t('vac.note'))}</p>
-      ${sched.map(g=>`<div class="card" style="padding:8px"><b style="font-size:13px">${esc(EN()?g.ageEN:g.ageTH)}</b>
-        ${g.items.map(it=>{ const r=got(it.key); return `<div class="list-item" style="gap:6px"><label style="display:flex;gap:6px;align-items:flex-start;flex:1;font-size:13px"><input type="checkbox" ${r?'checked':''} style="width:auto;margin-top:3px" onchange="A_vacToggle('${sid}','${it.key}',this.checked)"/><span>${esc(EN()?it.en:it.th)}</span></label><input type="date" id="vd_${it.key}" value="${esc(r?r.Date:'')}" style="width:140px" onchange="A_vacDate('${sid}','${it.key}',this.value)"/></div>`; }).join('')}</div>`).join('')}
-      <button class="btn outline block" onclick="this.closest('.modal').remove()">${esc(t('c.close'))}</button>`);
+    modal(`<h3>💉 ${esc(t('vac.title'))} — ${esc(nm(s))}</h3>
+      ${vaccineCard(sched,recs,sid,true)}
+      <button class="btn outline block" style="margin-top:8px" onclick="this.closest('.modal').remove()">${esc(t('c.close'))}</button>`);
   };
-  window.A_vacToggle=async(sid,key,on)=>{ if(on){ const d=document.getElementById('vd_'+key); await api('setVaccine',{studentId:sid,key,date:(d&&d.value)||todayStr()}); if(d&&!d.value)d.value=todayStr(); } else { await api('removeVaccine',{studentId:sid,key}); } toast(t('c.saved')); };
-  window.A_vacDate=async(sid,key,date)=>{ if(date) await api('setVaccine',{studentId:sid,key,date}); toast(t('c.saved')); };
+  // append another empty dose-date input under a vaccine topic
+  window.VAC_addDate=(key)=>{ const c=document.getElementById('vacrow_'+key); if(c) c.insertAdjacentHTML('beforeend', vacDateInput(key,'')); };
+  // gather every filled date input (grouped by vaccine key) and save all at once
+  window.VAC_save=async(sid)=>{ const names={}; (window.__VAC_SCHED||[]).forEach(g=>g.items.forEach(it=>{ names[it.key]=it.th; }));
+    const byKey={}; document.querySelectorAll('#vaccard .vacdate').forEach(inp=>{ const k=inp.dataset.key, v=(inp.value||'').trim(); if(!v)return; (byKey[k]=byKey[k]||[]).push(v); });
+    const records=Object.keys(byKey).map(k=>({key:k,name:names[k]||'',dates:byKey[k]}));
+    try{ await api('saveVaccines',{studentId:sid,records}); toast(t('c.saved')); }catch(e){ toast((EN()?'Save failed: ':'บันทึกไม่สำเร็จ: ')+(e.message||e)); } };
 
   // ---- Admin issues a bill to a parent (custom amount for mid-month proration / ad-hoc) ----
   window.A_issueBill=async(sid)=>{ const s=findStudent(sid); const base=await api('studentBillBase',{studentId:sid});
