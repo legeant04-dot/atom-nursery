@@ -137,7 +137,8 @@ function handlePendingLeaves(payload) {
   if (level === 'Admin') visible = rows.filter(function (r) { return String(r.Status) === LEAVE_STATUS.PENDING_ADMIN; });
   else if (level === 'Leader') visible = rows.filter(function (r) { return String(r.Status) === LEAVE_STATUS.PENDING_LEADER; }); // all depts (default)
   else throw apiError_('NO_PERMISSION', 'ตำแหน่งนี้ไม่มีสิทธิ์ดูคำขอรออนุมัติ');
-  return { level: level, pending: visible.map(leaveView_) };
+  // return a raw-row ARRAY (client + engine contract) with decoded cells — NOT {level,pending:[...]}
+  return visible.map(function (r) { var o = {}; for (var k in r) o[k] = (typeof decodeCell_ === 'function') ? decodeCell_(r[k]) : r[k]; return o; });
 }
 
 function leaveView_(r) {

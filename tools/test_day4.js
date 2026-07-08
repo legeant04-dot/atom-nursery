@@ -58,8 +58,9 @@ const result = run(function () {
 
   // 7. queries
   ok(handleMyLeaves({ staffId: 'STF-O1' }).leaves.length === 2, 'myLeaves returns officer 2 requests');
-  ok(handlePendingLeaves({ staffId: 'STF-ADM' }).pending.some(l => l.leaveId === subL.leaveId), 'admin sees PENDING_ADMIN');
-  ok(handlePendingLeaves({ staffId: 'STF-L1' }).level === 'Leader', 'leader pendingLeaves ok');
+  // pendingLeaves now returns a raw-row ARRAY (matches the client + engine), not {level,pending:[]}
+  ok(handlePendingLeaves({ staffId: 'STF-ADM' }).some(l => l.LeaveID === subL.leaveId), 'admin sees PENDING_ADMIN');
+  ok(Array.isArray(handlePendingLeaves({ staffId: 'STF-L1' })), 'leader pendingLeaves returns an array');
 
   // 8. parent check-in + absence
   appendObject_(sheet_(MAIN, 'STUDENTS'), { StudentID: 'STD-001', Name: 'น้องมายด์', DOB: '2022-01-01', Class: 'Nursery 1', ParentID: 'PAR-001', Status: 'ACTIVE' });

@@ -42,7 +42,8 @@ var ROUTES = {
   // Day 4 — leave workflow + parent check-in
   submitLeave:    function (p) { return handleSubmitLeave(p); },
   approveLeave:   function (p) { return handleApproveLeave(p); },
-  myLeaves:       function (p) { return handleMyLeaves(p); },
+  // myLeaves intentionally NOT routed here — the explicit handler returned {staffId,leaves:[]}
+  // (camelCase) but the client + engine use a raw-row array; let it fall through to the engine.
   pendingLeaves:  function (p) { return handlePendingLeaves(p); },
   parentCheckin:  function (p) { return handleParentCheckin(p); },
   studentAbsence: function (p) { return handleStudentAbsence(p); },
