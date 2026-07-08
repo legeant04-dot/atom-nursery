@@ -315,6 +315,14 @@ function createAtomAPI(M, GROWTH_STD) {
       return {classes:cls, staff:staffStat, pendingLeaves:M.leaves.filter(l=>l.Status.startsWith('PENDING')).length}; },
     pendingLeaves: p => { const lv=staffById(p.staffId).PositionLevel; if(lv==='Admin')return M.leaves.filter(l=>l.Status==='PENDING_ADMIN'); if(lv==='Leader')return M.leaves.filter(l=>l.Status==='PENDING_LEADER'); fail('NO_PERMISSION','ตำแหน่งนี้ไม่มีสิทธิ์อนุมัติ'); },
     listStaff: () => M.staff.map(s=>Object.assign({RequireCheckin: s.RequireCheckin!==false}, s)),
+    // the caller's own staff record (sanitized — no PasswordHash) so screens don't rely on client MOCK.staff.
+    staffSelf: p => { const s=staffById(p.staffId); if(!s.StaffID)return null;
+      const grp=(M.staffGroups||[]).find(g=>g.GroupName===s.StaffGroup)||null;
+      return { StaffID:s.StaffID, NameTH:s.NameTH, NameEN:s.NameEN, Nickname:s.Nickname, NicknameEN:s.NicknameEN,
+        Role:s.Role, PositionLevel:s.PositionLevel, Position:s.Position, Department:s.Department,
+        StaffGroup:s.StaffGroup, Phone:s.Phone, DOB:s.DOB, StartDate:s.StartDate, NationalID:s.NationalID,
+        RequireCheckin: s.RequireCheckin!==false, MustChangePassword: !!s.MustChangePassword,
+        GroupIn: grp&&grp.CheckInTime||'', GroupOut: grp&&grp.CheckOutTime||'' }; },
     setRequireCheckin: p => { const s=M.staff.find(x=>x.StaffID===p.staffId); if(s) s.RequireCheckin=!!p.value; return {staffId:p.staffId, value:!!p.value}; },
     listStudents: () => activeStudents().map(s=>Object.assign({ageMonth:ageMonths(s.DOB)},s)),
     listClasses: () => M.classes,
@@ -401,6 +409,13 @@ function createAtomAPI(M, GROWTH_STD) {
       const id='STF-'+String(M.staff.length+1).padStart(2,'0'); const rec=Object.assign({StaffID:id,Role:'Teacher',Status:'ACTIVE'},d); M.staff.push(rec); return rec; },
     deleteStaff: p => { const i=M.staff.findIndex(s=>s.StaffID===p.staffId); if(i<0)fail('NOT_FOUND','ไม่พบพนักงาน'); M.staff.splice(i,1); return {ok:true}; },
     listParents: () => M.parents,
+    // parent's own profile + linked students (for the "My info" screen). parentId injected server-side.
+    parentSelf: p => { const pa=M.parents.find(x=>x.ParentID===p.parentId)||{};
+      const kids=visibleStudents(p).map(s=>({StudentID:s.StudentID, NameTH:s.NameTH, NameEN:s.NameEN, Nickname:s.Nickname, Class:s.Class, DOB:s.DOB, Plan:s.Plan, NationalID:s.NationalID, Photo:s.Photo}));
+      return { parent:{ ParentID:pa.ParentID, NameTH:pa.NameTH||pa.Name, NameEN:pa.NameEN, NationalID:pa.NationalID, Relationship:pa.Relationship, Phone:pa.Phone, Occupation:pa.Occupation, Workplace:pa.Workplace, OfficePhone:pa.OfficePhone, Address:pa.Address }, students:kids }; },
+    // parent edits ONLY their own record + only whitelisted fields (never ID/NationalID/LineUID/linkage).
+    saveParentSelf: p => { const pa=M.parents.find(x=>x.ParentID===p.parentId); if(!pa)fail('NOT_FOUND','ไม่พบผู้ปกครอง');
+      const d=p.data||{}; ['NameTH','NameEN','Relationship','Phone','Occupation','Workplace','OfficePhone','Address'].forEach(k=>{ if(d[k]!==undefined) pa[k]=d[k]; }); return {ok:true}; },
     saveParent: p => { const d=p.data||{};
       if(p.parentId){ const pa=M.parents.find(x=>x.ParentID===p.parentId); if(!pa)fail('NOT_FOUND','ไม่พบผู้ปกครอง'); Object.assign(pa,d); return pa; }
       const id='PAR-'+String(M.parents.length+1).padStart(3,'0'); const rec=Object.assign({ParentID:id},d); M.parents.push(rec); return rec; },
@@ -502,6 +517,14 @@ function createAtomAPI(M, GROWTH_STD) {
       const pw=String(p.newPassword||''); const okLen=pw.length>=8&&pw.length<=15, hasLo=/[a-z]/.test(pw), hasUp=/[A-Z]/.test(pw), hasNum=/[0-9]/.test(pw);
       if(!(okLen&&hasLo&&hasUp&&hasNum))fail('WEAK_PW','รหัสผ่านต้อง 8-15 ตัว มีพิมพ์เล็ก พิมพ์ใหญ่ และตัวเลข');
       s.Password=pw; s.MustChangePassword=false; return {ok:true}; },
+    // slip-unlock check + admin view/reset + forgot-request (GAS routes override these; here = mock mode)
+    checkStaffPassword: p => ({ ok: String(staffById(p.staffId).Password||'1234')===String(p.password||'') }),
+    getStaffPassword: p => ({ password: String(staffById(p.staffId).Password||'1234') }),
+    adminResetPassword: p => { const s=staffById(p.staffId); if(!s.StaffID)fail('NOT_FOUND','ไม่พบพนักงาน');
+      const tmp=p.password?String(p.password):(String(s.NationalID||'').slice(-8)||'1234'); s.Password=tmp; s.MustChangePassword=true; return {ok:true, tempPassword:tmp}; },
+    requestPasswordReset: p => { const s=staffById(p.staffId); if(!s.StaffID)fail('NOT_FOUND','ไม่พบพนักงาน');
+      if(M.feed) M.feed.unshift({id:'PWR-'+s.StaffID+'-'+Date.now(),text:'🔑 ขอรีเซ็ตรหัสผ่าน: '+(s.NameTH||s.StaffID),textEN:'🔑 Password reset requested: '+(s.NameEN||s.StaffID),time:timeLocal(),roles:['Admin'],read:false});
+      logAct('requestPasswordReset',s.StaffID,(s.NameTH||s.StaffID),actorOf(p)); return {ok:true}; },
 
     // ========== departments (Nursery) ==========
     listDepartments: () => (cfg.Departments||[]).slice(),

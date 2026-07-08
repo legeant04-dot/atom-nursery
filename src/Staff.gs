@@ -80,6 +80,23 @@ function handleSaveParent(p) {
   return { ok: true, parentId: id };
 }
 
+// Parent self-service edit: in-place, own row only, whitelisted fields (parentId is injected from the
+// session token in applyIdentity_, so a parent can only ever patch themselves; never ID/NationalID/LineUID).
+function handleSaveParentSelf(p) {
+  p = p || {};
+  if (!p.parentId) throw apiError_('NO_SESSION', 'ต้องเข้าสู่ระบบใหม่');
+  var sh = sheet_(getMainSpreadsheet_(), 'PARENTS');
+  var pa = findObject_(sh, function (x) { return String(x.ParentID) === String(p.parentId); });
+  if (!pa) throw apiError_('NOT_FOUND', 'ไม่พบผู้ปกครอง ' + p.parentId);
+  var d = p.data || {}, WHITE = ['NameTH', 'NameEN', 'Relationship', 'Phone', 'Occupation', 'Workplace', 'OfficePhone', 'Address'];
+  var row = {};
+  WHITE.forEach(function (k) { if (d[k] !== undefined) row[k] = d[k]; });
+  if (row.NameTH !== undefined) { row.Name = row.NameTH; delete row.NameTH; }  // sheet column is Name
+  updateRow_(sh, pa._row, row);
+  recCacheBust_('PARENTS');
+  return { ok: true, parentId: p.parentId };
+}
+
 function handleDeleteParent(p) {
   p = p || {};
   var sh = sheet_(getMainSpreadsheet_(), 'PARENTS');
