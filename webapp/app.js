@@ -3,7 +3,7 @@
   const $ = s => document.querySelector(s);
   const app = $('#app'), nav = $('#bottomnav');
   const baht = n => (Number(n)||0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
-  const APP_VERSION = 'Version 1.053'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.054'; // bump each webapp change; shown only at the bottom of the Chat screen
   const verTag = () => `<div style="text-align:center;color:#c3c9d4;font-size:10px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
   const phoneFmt = p => { let d=String(p==null?'':p).replace(/\D/g,''); if(d.length===9) d='0'+d; return d; };
@@ -78,6 +78,8 @@
   // remembers which pre-login screen we're on, so the language toggle re-renders THAT screen
   let AUTH_RENDER = null;
   window.TOGGLE_LANG = () => { setLang(LANG()==='en'?'th':'en'); setHeader(); if(USER) GO(CURRENT); else (AUTH_RENDER||loginScreen)(); ensureTranslateObserver(); applyLangNow(); };
+  // tapping the header avatar goes Home (only when signed in)
+  window.HOME_TAP = () => { if(USER) GO('home'); };
 
   const NAVS = {
     Parent:[['home','🏠','nav.home'],['checkin','📍','nav.checkin'],['payment','💳','nav.payment'],['journal','📒','nav.journal'],['dspm','📈','nav.dspm'],['chat','💬','nav.chat']],
@@ -716,7 +718,8 @@
       if(vk&&vk.available){
         if(vk.ok && vk.amount!=null){ setAmt(vk.amount); out.innerHTML=`✅ SlipOK ${esc(t('slip.qrMatch'))} ${baht(vk.amount)}${vk.receiver&&vk.receiver.name?` → ${esc(vk.receiver.name)}`:''}`; return; }
         if(vk.code===1013){ if(vk.amount!=null)setAmt(vk.amount); out.innerHTML=`⚠️ SlipOK ${esc(t('slip.qrMismatch'))} ${vk.amount!=null?baht(vk.amount):'?'} / ${baht(due)}`; return; }
-        if(vk.code===1014){ out.innerHTML=`⚠️ ${EN()?'Receiver account is not the school account':'บัญชีผู้รับไม่ตรงกับบัญชีโรงเรียน'}`; return; }
+        if(vk.code===1014){ if(vk.amount!=null)setAmt(vk.amount); const rcv=vk.receiver&&vk.receiver.name?esc(vk.receiver.name):'';
+          out.innerHTML=`⚠️ SlipOK: ${EN()?'the slip receiver':'บัญชีผู้รับในสลิป'}${rcv?` (<b>${rcv}</b>)`:''} ${EN()?"doesn't match the account registered in SlipOK — you can still submit; the admin will verify":'ยังไม่ตรงกับบัญชีที่ลงทะเบียนไว้ใน SlipOK — ส่งได้เลย แอดมินจะตรวจสอบอีกครั้ง'}`; return; }
         if(vk.code===1012){ out.innerHTML=`⚠️ ${EN()?'Duplicate slip (already used)':'สลิปนี้เคยใช้แล้ว (สลิปซ้ำ)'}`; return; }
         if(vk.message){ out.innerHTML=`ℹ️ SlipOK: ${esc(vk.message)}`; }
       }
@@ -1359,7 +1362,12 @@
 
   // ---- View-as: Admin previews the app as any role (stays logged in as admin; token is full-trust) ----
   let VIEW_AS_BACKUP=null;
-  window.A_viewAs=()=>{ modal(`<h3>👁️ ${EN()?'View as role':'ดูในมุมมอง (สลับ Role)'}</h3>
+  window.A_viewAs=async()=>{
+    // the lists are normally cached by manage(); fetch them so View-As works straight from home
+    if(!(A_CACHE.staff&&A_CACHE.staff.length) || !(A_CACHE.students&&A_CACHE.students.length)){
+      try{ const [staff,students]=await Promise.all([api('listStaff'),api('listStudents')]); if(staff)A_CACHE.staff=staff; if(students)A_CACHE.students=students; }catch(e){}
+    }
+    modal(`<h3>👁️ ${EN()?'View as role':'ดูในมุมมอง (สลับ Role)'}</h3>
     <p class="muted" style="font-size:12px">${EN()?'Preview the app as another role. You stay logged in as admin — tap "Back to Admin" to return.':'ดูแอปในมุมมองบทบาทอื่น (ยังเป็นแอดมินอยู่) — กด "กลับเป็น Admin" เพื่อกลับ'}</p>
     <label class="field"><span>👩‍🏫 ${EN()?'As teacher / leader':'มุมมองครู / หัวหน้า'}</span><select id="va_staff"><option value="">—</option>${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').map(s=>`<option value="${s.StaffID}">${esc(nm(s))} (${esc(s.PositionLevel||'')})</option>`).join('')}</select></label>
     <button class="btn block" onclick="A_viewAsStaff(this)">${EN()?'View as this staff':'ดูมุมมองครูคนนี้'}</button>
