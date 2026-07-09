@@ -97,6 +97,39 @@ function handleSaveParentSelf(p) {
   return { ok: true, parentId: p.parentId };
 }
 
+// ---- Departments master (SCHOOL_CONFIG 'Departments', comma-separated) — persisted CRUD ----
+// The engine's add/rename/removeDepartment only mutate in-memory config, so on GAS they never
+// persisted; these write SCHOOL_CONFIG so the department list survives + the staff dropdown reflects it.
+function departmentsList_() {
+  var cfg = sheet_(getMainSpreadsheet_(), 'SCHOOL_CONFIG');
+  var r = findObject_(cfg, function (x) { return String(x.Key) === 'Departments'; });
+  return String((r && r.Value) || '').split(',').map(function (s) { return s.trim(); }).filter(Boolean);
+}
+function writeDepartments_(list) {
+  var cfg = sheet_(getMainSpreadsheet_(), 'SCHOOL_CONFIG');
+  var r = findObject_(cfg, function (x) { return String(x.Key) === 'Departments'; });
+  if (r) updateRow_(cfg, r._row, { Value: list.join(',') });
+  else appendObject_(cfg, { Key: 'Departments', Value: list.join(',') });
+  try { CacheService.getScriptCache().remove('cfg'); } catch (e) {}
+  return list;
+}
+function handleAddDepartment(p) {
+  var l = departmentsList_(), n = String((p && p.name) || '').trim();
+  if (!n) throw apiError_('MISSING', 'ใส่ชื่อแผนก');
+  if (l.indexOf(n) >= 0) throw apiError_('DUP', 'มีแผนกนี้แล้ว');
+  l.push(n); return { ok: true, departments: writeDepartments_(l) };
+}
+function handleRemoveDepartment(p) {
+  var l = departmentsList_(), i = l.indexOf((p && p.name) || '');
+  if (i >= 0) l.splice(i, 1);
+  return { ok: true, departments: writeDepartments_(l) };
+}
+function handleRenameDepartment(p) {
+  var l = departmentsList_(), i = l.indexOf((p && p.old) || '');
+  if (i < 0) throw apiError_('NOT_FOUND', 'ไม่พบแผนก');
+  l[i] = String((p && p['new']) || '').trim(); return { ok: true, departments: writeDepartments_(l) };
+}
+
 // Admin edits whitelisted SCHOOL_CONFIG keys (geofence etc.) in-place. Admin-only (applyIdentity_ guard).
 function handleSetSchoolConfig(p) {
   p = p || {};
