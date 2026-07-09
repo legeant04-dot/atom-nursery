@@ -77,7 +77,7 @@
     'reg.allergy':['แพ้อาหาร/ยา','Allergies'], 'reg.allergyPh':['เช่น นมวัว, ไข่','e.g. cow milk, egg'], 'reg.chronic':['โรคประจำตัว','Chronic conditions'],
     'reg.race':['เชื้อชาติ','Race'], 'reg.nationality':['สัญชาติ','Nationality'], 'reg.religion':['ศาสนา','Religion'], 'reg.address':['ที่อยู่','Address'],
     'reg.parent':['ข้อมูลผู้ปกครอง','Parent information'], 'reg.relationship':['ความสัมพันธ์','Relationship'], 'reg.father':['บิดา','Father'], 'reg.mother':['มารดา','Mother'], 'reg.guardian':['ผู้ปกครอง','Guardian'],
-    'reg.nationalIdParent':['เลขบัตรประชาชนผู้ปกครอง','Parent National ID'], 'reg.mobile':['เบอร์มือถือ','Mobile'], 'reg.officePhone':['เบอร์ที่ทำงาน','Office phone'],
+    'reg.nationalIdParent':['เลขบัตรประชาชนผู้ปกครอง','Parent National ID'], 'reg.nationalId':['เลขบัตรประชาชน','National ID'], 'reg.mobile':['เบอร์มือถือ','Mobile'], 'reg.officePhone':['เบอร์ที่ทำงาน','Office phone'],
     'reg.occupation':['อาชีพ','Occupation'], 'reg.workplace':['สถานที่ทำงาน','Workplace'], 'reg.phone':['เบอร์โทร','Phone'],
     'reg.pickupPersons':['ผู้รับแทนบิดา/มารดา','Authorized pickup persons'], 'reg.addPickup':['เพิ่มผู้รับ','Add person'], 'reg.name':['ชื่อ-สกุล','Name'], 'reg.relation':['ความเกี่ยวข้อง','Relation'],
     'reg.pdpa':['ข้าพเจ้ายินยอมให้ Atom Nursery เก็บ ใช้ และเปิดเผยข้อมูลส่วนบุคคลตามนโยบาย PDPA','I consent to Atom Nursery collecting, using and disclosing personal data under the PDPA policy'],

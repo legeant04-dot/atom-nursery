@@ -3,7 +3,7 @@
   const $ = s => document.querySelector(s);
   const app = $('#app'), nav = $('#bottomnav');
   const baht = n => (Number(n)||0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
-  const APP_VERSION = 'Version 1.057'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.058'; // bump each webapp change; shown only at the bottom of the Chat screen
   const verTag = () => `<div style="text-align:center;color:#c3c9d4;font-size:10px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
   const phoneFmt = p => { let d=String(p==null?'':p).replace(/\D/g,''); if(d.length===9) d='0'+d; return d; };
@@ -1277,7 +1277,7 @@
   window.A_perm = async (role,cap,val) => { await api('setPerm',{role,cap,value:val}); toast(t('c.saved')); };
   // Admin forms must read the LIVE records (gas mode), not the stale window.MOCK arrays.
   // manage()/home() fill this cache; the edit forms + dropdowns read from it (fallback to MOCK).
-  window.A_CACHE = { staff:[], students:[], parents:[], classes:[], plans:[], announcements:[] };
+  window.A_CACHE = { staff:[], students:[], parents:[], classes:[], plans:[], announcements:[], depts:[] };
   const findStaff   = id => (A_CACHE.staff||[]).find(x=>x.StaffID===id)     || (MOCK.staff||[]).find(x=>x.StaffID===id)     || {};
   const findStudent = id => (A_CACHE.students||[]).find(x=>x.StudentID===id) || (MOCK.students||[]).find(x=>x.StudentID===id) || {};
   const findParent  = id => (A_CACHE.parents||[]).find(x=>x.ParentID===id)   || (MOCK.parents||[]).find(x=>x.ParentID===id)   || {};
@@ -1291,8 +1291,8 @@
   const searchBox = ph=>`<input class="asearch" placeholder="🔎 ${esc(ph)}" oninput="A_search(this)" style="width:100%;margin:8px 0;padding:8px 10px;border:1px solid var(--line);border-radius:8px"/>`;
 
   SCREENS.Admin.manage = async () => {
-    const [staff,students,parents,pm,groups,exported,wds,classes,plans]=await Promise.all([api('listStaff'),api('listStudents'),api('listParents'),api('permMatrix'),api('listStaffGroups'),api('listExportedStudents'),api('listWithdrawals',{pending:true}),api('listClasses'),api('getPlans')]);
-    A_CACHE.staff=staff; A_CACHE.students=students; A_CACHE.parents=parents; A_CACHE.classes=classes||[]; A_CACHE.plans=plans||[]; A_CACHE.groups=groups||[];
+    const [staff,students,parents,pm,groups,exported,wds,classes,plans,depts]=await Promise.all([api('listStaff'),api('listStudents'),api('listParents'),api('permMatrix'),api('listStaffGroups'),api('listExportedStudents'),api('listWithdrawals',{pending:true}),api('listClasses'),api('getPlans'),api('listDepartments')]);
+    A_CACHE.staff=staff; A_CACHE.students=students; A_CACHE.parents=parents; A_CACHE.classes=classes||[]; A_CACHE.plans=plans||[]; A_CACHE.groups=groups||[]; A_CACHE.depts=depts||[];
     const CAPS=[['students','perm.students'],['staff','perm.staff'],['payroll','perm.payroll'],['parentPII','perm.parentPII'],['edit','perm.edit'],['approve','perm.approve']];
     const ROLES=['Admin','Leader','Teacher','Parent'];
     app.innerHTML=`<h2 class="page">${esc(t('title.manage'))}</h2>
@@ -1337,7 +1337,10 @@
   // ---- Staff CRUD ----
   window.A_staffForm=(id)=>{ const s=id?findStaff(id):{}; const groups=(A_CACHE.groups&&A_CACHE.groups.length)?A_CACHE.groups:MOCK.staffGroups;
     const f=(k,label,val,type)=>`<label class="field"><span>${esc(label)}</span><input id="sf_${k}" type="${type||'text'}" value="${esc(val!=null?val:'')}"/></label>`;
-    const depts=A_classes().map(c=>c.ClassName); if(!depts.length) depts.push(...(MOCK.config.Departments||[]));
+    // departments master (Nursery Baby/1/2/Premium…), NOT the CLASSES list — show ALL of them
+    let depts=(A_CACHE.depts&&A_CACHE.depts.length)?A_CACHE.depts.slice():(MOCK.config.Departments||[]).slice();
+    if(!depts.length) depts=A_classes().map(c=>c.ClassName);
+    if(s.Department && depts.indexOf(s.Department)<0) depts.unshift(s.Department); // keep the staff's current value even if not in the master
     modal(`<h3>${id?'✏️':'➕'} ${esc(t('c.staff'))}</h3>
       <div class="grid2">${f('NameTH',t('reg.nameTH'),s.NameTH)}${f('NameEN',t('reg.nameEN'),s.NameEN)}</div>
       <div class="grid2">${f('Nickname',t('reg.nickname'),s.Nickname)}${f('DOB',t('reg.dob'),s.DOB,'date')}</div>
@@ -1345,7 +1348,7 @@
         <label class="field"><span>${esc(t('manage.dept'))}</span><select id="sf_Department">${['',...depts].map(d=>`<option ${s.Department===d?'selected':''}>${esc(d)}</option>`).join('')}</select></label></div>
       <div class="grid2"><label class="field"><span>${esc(t('manage.group'))}</span><select id="sf_StaffGroup">${groups.map(g=>`<option value="${esc(g.GroupName)}" ${s.StaffGroup===g.GroupName?'selected':''}>${esc(g.GroupName)}${g.CheckInTime?` (${esc(g.CheckInTime)}–${esc(g.CheckOutTime||'')})`:''}</option>`).join('')}</select></label>
         <label class="field"><span>${esc(t('manage.level'))}</span><select id="sf_PositionLevel">${['Admin','Leader','Officer','Assistant','Staff'].map(l=>`<option ${s.PositionLevel===l?'selected':''}>${esc(l)}</option>`).join('')}</select></label></div>
-      <div class="grid2">${f('Phone',t('reg.phone'),phoneFmt(s.Phone))}${f('NationalID',t('reg.nationalIdParent'),s.NationalID)}</div>
+      <div class="grid2">${f('Phone',t('reg.phone'),phoneFmt(s.Phone))}${f('NationalID',t('reg.nationalId'),s.NationalID)}</div>
       <div class="grid2">${f('StartDate',t('staff.startDate'),s.StartDate,'date')}${f('BaseSalary',t('pay.baseSalary'),s.BaseSalary,'number')}</div>
       <label class="field"><span>🔗 LINE ID ${s.LineUID?'✅':''}</span><input id="sf_LineUID" value="${esc(s.LineUID||'')}" placeholder="Uxxxxxxxxxxxxxxxx"/></label>
       <div class="card" style="background:#f7f9fc;padding:8px"><small class="muted">${EN()?'To let this staff log in: they open the app via LINE → "New user or already registered?" shows their LINE ID → paste it here and Save.':'ให้ครูเข้าแอปผ่าน LINE → หน้า "New user or already registered?" จะโชว์ LINE ID ของครู → คัดลอกมาวางช่องนี้แล้วกดบันทึก'}</small></div>
@@ -1561,7 +1564,7 @@
   window.A_setGroup=async(group,which,val)=>{ await api('setStaffGroupHours',{group,checkIn:which==='in'?val:undefined,checkOut:which==='out'?val:undefined}); toast(t('c.saved')); };
 
   // ---- departments (Nursery) add / rename / remove ----
-  window.A_departments=async()=>{ const deps=await api('listDepartments');
+  window.A_departments=async()=>{ const deps=await api('listDepartments'); A_CACHE.depts=deps||A_CACHE.depts; // keep staff-form dropdown in sync
     modal(`<h3>🏫 ${esc(t('manage.departments'))}</h3>
       <div id="depList">${deps.map(d=>`<div class="list-item"><input value="${esc(d)}" id="dep_${esc(d)}" style="flex:1"/><span class="row"><button class="btn sm" onclick="A_renameDep('${esc(d)}')">💾</button><button class="btn sm pink" onclick="A_delDep('${esc(d)}')">🗑️</button></span></div>`).join('')}</div>
       <div class="grid2" style="margin-top:8px"><input id="newDep" placeholder="${esc(t('dep.name'))}"/><button class="btn" onclick="A_addDep()">+ ${esc(t('manage.add'))}</button></div>
