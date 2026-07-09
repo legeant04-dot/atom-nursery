@@ -43,17 +43,42 @@ function hhmmToMin_(s) {
   return m ? parseInt(m[1], 10) * 60 + parseInt(m[2], 10) : null;
 }
 function minOfDay_(d) { return d.getHours() * 60 + d.getMinutes(); }
+// Sheets returns a time-only cell (e.g. '07:00') as a Date on the 1899-12-30 epoch — normalize
+// ANY time value (Date or string) to 'HH:mm' before parsing/printing, or lateness + messages break.
+function toHHmm_(v) {
+  if (v == null || v === '') return '';
+  // A time-only cell reads back as a 1899-12-30 Date — format it in the SPREADSHEET timezone (same as
+  // the engine's decodeCell_, which the app already renders correctly as 'HH:mm'). getHours() is wrong here.
+  if (Object.prototype.toString.call(v) === '[object Date]') {
+    var z = (typeof ssTz_ === 'function') ? ssTz_() : tz_();
+    return Utilities.formatDate(v, z, 'HH:mm');
+  }
+  var m = /^(\d{1,2}):(\d{2})/.exec(String(v).trim());
+  return m ? (('0' + m[1]).slice(-2) + ':' + m[2]) : String(v).trim();
+}
 
-/** Scheduled {checkIn, checkOut} HH:mm for a staff on a given day. */
+/** The staff's group work hours (STAFF_GROUPS) — used when there's no per-day WORK_SCHEDULE row. */
+function staffGroupTimes_(staffId) {
+  var st = findObject_(sheet_(getHrSpreadsheet_(), 'STAFF'), function (s) { return String(s.StaffID) === String(staffId); });
+  if (!st || !st.StaffGroup) return null;
+  var g = findObject_(sheet_(getHrSpreadsheet_(), 'STAFF_GROUPS'), function (x) { return String(x.GroupName) === String(st.StaffGroup); });
+  if (!g || (!g.CheckInTime && !g.CheckOutTime)) return null;
+  return { checkIn: toHHmm_(g.CheckInTime), checkOut: toHHmm_(g.CheckOutTime) };
+}
+
+/** Scheduled {checkIn, checkOut} HH:mm for a staff on a given day: WORK_SCHEDULE → group hours → config default. */
 function staffSchedule_(staffId, date) {
   var sched = sheet_(getHrSpreadsheet_(), 'WORK_SCHEDULE');
   var dow = dayOfWeek_(date);
   var row = findObject_(sched, function (r) {
     return String(r.StaffID) === String(staffId) && String(r.DayOfWeek) === dow;
   });
+  if (row && row.CheckInTime) return { checkIn: toHHmm_(row.CheckInTime), checkOut: toHHmm_(row.CheckOutTime) };
+  var grp = staffGroupTimes_(staffId);
+  if (grp) return grp;
   return {
-    checkIn:  (row && row.CheckInTime)  ? row.CheckInTime  : getConfig_('DefaultCheckInTime', '08:00'),
-    checkOut: (row && row.CheckOutTime) ? row.CheckOutTime : getConfig_('DefaultCheckOutTime', '17:00')
+    checkIn:  toHHmm_(getConfig_('DefaultCheckInTime', '08:00')),
+    checkOut: toHHmm_(getConfig_('DefaultCheckOutTime', '17:00'))
   };
 }
 
@@ -83,12 +108,13 @@ function handleStaffCheckin(payload) {
     return String(r.StaffID) === String(staff.StaffID) && dateStr_(new Date(r.Date)) === today;
   });
   if (existing && existing.CheckIn) {
-    throw apiError_('ALREADY_CHECKED_IN', 'ลงเวลาเข้างานวันนี้ไปแล้ว (' + existing.CheckIn + ')');
+    throw apiError_('ALREADY_CHECKED_IN', 'ลงเวลาเข้างานวันนี้ไปแล้ว (' + toHHmm_(existing.CheckIn) + ')');
   }
 
   var sched = staffSchedule_(staff.StaffID, now);
   var grace = parseInt(getConfig_('LateGraceMinutes', '0'), 10) || 0;
-  var lateMin = Math.max(0, minOfDay_(now) - (hhmmToMin_(sched.checkIn) + grace));
+  var expectMin = hhmmToMin_(sched.checkIn); if (expectMin == null) expectMin = hhmmToMin_('08:00');
+  var lateMin = Math.max(0, minOfDay_(now) - (expectMin + grace));
 
   if (existing) {
     updateRow_(sheet, existing._row, { CheckIn: timeStr_(now), LateMinutes: lateMin, Status: 'IN' });
@@ -107,6 +133,26 @@ function handleStaffCheckin(payload) {
   return { staffId: staff.StaffID, time: timeStr_(now), lateMinutes: lateMin, distance: dist };
 }
 
+// Recompute LateMinutes for TODAY's staff check-ins from CheckIn time vs the group schedule.
+// Fixes rows recorded before the schedule/timezone fix. Admin-only (applyIdentity_ guard).
+function handleRecomputeAttendance(p) {
+  var sheet = sheet_(getHrSpreadsheet_(), 'CHECKIN_STAFF');
+  var today = dateStr_(new Date());
+  var grace = parseInt(getConfig_('LateGraceMinutes', '0'), 10) || 0;
+  var fixed = [];
+  readObjects_(sheet).forEach(function (r) {
+    if (dateStr_(new Date(r.Date)) !== today || !r.CheckIn) return;
+    var ci = toHHmm_(r.CheckIn); var m = /^(\d\d):(\d\d)/.exec(ci); if (!m) return;
+    var minOfCI = parseInt(m[1], 10) * 60 + parseInt(m[2], 10);
+    var sched = staffSchedule_(r.StaffID, new Date());
+    var expect = hhmmToMin_(sched.checkIn); if (expect == null) expect = hhmmToMin_('08:00');
+    var late = Math.max(0, minOfCI - (expect + grace));
+    if (Number(r.LateMinutes) !== late) { updateRow_(sheet, r._row, { LateMinutes: late }); fixed.push({ staffId: r.StaffID, checkIn: ci, was: Number(r.LateMinutes) || 0, late: late }); }
+  });
+  try { CacheService.getScriptCache().removeAll(['rows:CHECKIN_STAFF', 'col:CHECKIN_STAFF']); } catch (e) {}
+  return { ok: true, fixed: fixed };
+}
+
 // ---- Check-out ----------------------------------------------------
 /** payload: { staffId|lineUid, lat, lng } */
 function handleStaffCheckout(payload) {
@@ -120,10 +166,11 @@ function handleStaffCheckout(payload) {
     return String(r.StaffID) === String(staff.StaffID) && dateStr_(new Date(r.Date)) === today;
   });
   if (!row || !row.CheckIn) throw apiError_('NOT_CHECKED_IN', 'ยังไม่ได้ลงเวลาเข้างานวันนี้');
-  if (row.CheckOut) throw apiError_('ALREADY_CHECKED_OUT', 'ลงเวลาออกงานวันนี้ไปแล้ว (' + row.CheckOut + ')');
+  if (row.CheckOut) throw apiError_('ALREADY_CHECKED_OUT', 'ลงเวลาออกงานวันนี้ไปแล้ว (' + toHHmm_(row.CheckOut) + ')');
 
   var sched = staffSchedule_(staff.StaffID, now);
-  var otMin = Math.max(0, minOfDay_(now) - hhmmToMin_(sched.checkOut));
+  var outMin = hhmmToMin_(sched.checkOut); if (outMin == null) outMin = hhmmToMin_('17:00');
+  var otMin = Math.max(0, minOfDay_(now) - outMin);
   var otHours = Math.round((otMin / 60) * 100) / 100;
 
   updateRow_(sheet, row._row, { CheckOut: timeStr_(now), OTHours: otHours, Status: 'OUT' });
