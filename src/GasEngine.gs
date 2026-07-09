@@ -259,7 +259,7 @@ function hydrateConfig_() {
     else cfg[k] = v;
   }
   if (cfg.GrowthUpdateMonths && cfg.GrowthUpdateMonths.map) cfg.GrowthUpdateMonths = cfg.GrowthUpdateMonths.map(Number);
-  cfg.Links = { line: raw.Links_LINE || '', facebook: raw.Links_Facebook || '', website: raw.Links_Website || '' };
+  cfg.Links = { line: raw.Links_LINE || '', facebook: raw.Links_Facebook || '', website: raw.Links_Website || '', map: raw.Links_Map || '' };
   if (!cfg.LeaveQuota) cfg.LeaveQuota = { 'ลาป่วย': 30, 'ลากิจ': 7, 'ลาพักร้อน': 6 };
   if (!cfg.Insurance) cfg.Insurance = ENGINE_REF.Insurance;
   cachePut_('cfg', cfg); return cfg;

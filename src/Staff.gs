@@ -97,6 +97,24 @@ function handleSaveParentSelf(p) {
   return { ok: true, parentId: p.parentId };
 }
 
+// Admin edits whitelisted SCHOOL_CONFIG keys (geofence etc.) in-place. Admin-only (applyIdentity_ guard).
+function handleSetSchoolConfig(p) {
+  p = p || {};
+  var WHITE = { GPS_Lat: 1, GPS_Lng: 1, Radius: 1, LateGraceMinutes: 1, OTRatePerHour: 1, OTGraceMinutes: 1, StaffOTHourlyRate: 1, OTRoundUpMinutes: 1 };
+  var vals = p.values || {};
+  var cfg = sheet_(getMainSpreadsheet_(), 'SCHOOL_CONFIG'), wrote = {};
+  Object.keys(vals).forEach(function (k) {
+    if (!WHITE[k]) return;
+    var r = findObject_(cfg, function (x) { return String(x.Key) === String(k); });
+    if (r) updateRow_(cfg, r._row, { Value: vals[k] });
+    else appendObject_(cfg, { Key: k, Value: vals[k] });
+    wrote[k] = vals[k];
+  });
+  try { _configCache = null; } catch (e) {}
+  try { CacheService.getScriptCache().remove('cfg'); } catch (e) {}
+  return { ok: true, wrote: wrote };
+}
+
 // Admin deletes a bill in-place (one BILLING row). Admin-only (guarded in applyIdentity_).
 function handleDeleteBill(p) {
   p = p || {};

@@ -3,7 +3,7 @@
   const $ = s => document.querySelector(s);
   const app = $('#app'), nav = $('#bottomnav');
   const baht = n => (Number(n)||0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
-  const APP_VERSION = 'Version 1.055'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.056'; // bump each webapp change; shown only at the bottom of the Chat screen
   const verTag = () => `<div style="text-align:center;color:#c3c9d4;font-size:10px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
   const phoneFmt = p => { let d=String(p==null?'':p).replace(/\D/g,''); if(d.length===9) d='0'+d; return d; };
@@ -392,10 +392,11 @@
   function waitCard(date){ return `<div class="card" style="text-align:center;color:#8a6d00;background:#fff8e1;border-color:#f0e3b0">⏳ รอคุณครูส่งข้อมูลของวันที่ ${ddmmyyyy(date)}</div>`; }
   function annRow(a){ const ti=EN()?(a.TitleEN||a.Title):(a.Title||a.TitleEN); const co=EN()?(a.ContentEN||a.Content):(a.Content||a.ContentEN);
     return `<div class="list-item"><div><b>${esc(ti)}</b><br><small class="muted">${esc(co)}</small>${a.Image?`<br><img src="${esc(a.Image)}" style="max-width:160px;border-radius:8px;margin-top:6px"/>`:''}</div><small class="muted">${esc(a.Date)}</small></div>`; }
+  const SCHOOL_MAP_URL = 'https://maps.app.goo.gl/jQhGb3KQj59RV2wXA';
   function socialFooter(){ const L=MOCK.config.Links||{}; return `<div class="social">
     <a href="${esc(L.line||'#')}" target="_blank"><span class="ic line">L</span>LINE OA</a>
     <a href="${esc(L.facebook||'#')}" target="_blank"><span class="ic fb">f</span>Facebook</a>
-    <a href="${esc(L.website||'#')}" target="_blank"><span class="ic web">🌐</span>Website</a></div>`; }
+    <a href="${esc(L.map||SCHOOL_MAP_URL)}" target="_blank"><span class="ic web">📍</span>${EN()?'Map':'แผนที่'}</a></div>`; }
   function calendarWidget(events, checkins, planEnd){ checkins=checkins||[]; const now=new Date(); const y=now.getFullYear(),mo=now.getMonth();
     const first=new Date(y,mo,1).getDay(); const days=new Date(y,mo+1,0).getDate(); const evByDay={},ioByDay={};
     const grace=Number(MOCK.config.OTGraceMinutes||21); const toMin=hhmm=>{const[h,m]=String(hhmm||'0:0').split(':').map(Number);return (h||0)*60+(m||0);};
@@ -639,9 +640,10 @@
     const slipsOf=(kind,id)=>(allSlips||[]).filter(s=>s.RefKind===kind&&s.RefID===id);
     const per=EN()?'Period ':'งวด ';
     const verifyPill=`<span class="pill wait">${esc(t('pay.pendingVerify'))}</span>`;
-    const preHtml=`<div class="card"><div class="spread"><h3>💰 ${esc(t('prepay.title'))}</h3><button class="btn sm" onclick="P_prepay('${sid}')">+ ${esc(t('prepay.pay'))}</button></div>
-      <p class="muted" style="font-size:12px">${esc(t('prepay.note'))}</p>
-      ${pre.length?pre.map(p=>{ const paid=p.Status==='PAID',partial=p.Status==='PARTIAL'; const sl=slipsOf('prepay',p.PrepayID); const pend=sl.some(s=>s.Status==='SUBMITTED');
+    const preShow=pre.filter(p=>p.Status!=='UNPAID'); // in-progress / paid only; the discount options live behind the button
+    const preHtml=`<div class="card"><div class="spread"><h3>💰 ${esc(t('prepay.title'))}</h3><button class="btn sm" onclick="P_prepay('${sid}')">💰 ${esc(t('prepay.pay'))}</button></div>
+      <p class="muted" style="font-size:12px">${EN()?'Pay several months ahead for a discount — tap the button to see the options.':'จ่ายล่วงหน้าหลายเดือนรับส่วนลด — กดปุ่มเพื่อดูตัวเลือก'}</p>
+      ${preShow.length?preShow.map(p=>{ const paid=p.Status==='PAID',partial=p.Status==='PARTIAL'; const sl=slipsOf('prepay',p.PrepayID); const pend=sl.some(s=>s.Status==='SUBMITTED');
         return `<div style="border-bottom:1px solid #f0f0f0;padding:4px 0"><div class="list-item"><span>${esc(t('prepay.months').replace('{n}',p.Months))} <span class="pill ok">-${p.Discount}%</span> <small class="muted">${esc(p.Covered[0])}→${esc(p.Covered[p.Covered.length-1])}</small></span>
         <span><b>${baht(p.Amount)}</b> ${paid?`<span class="pill ok">${esc(t('prepay.paidAhead'))}</span>`:partial?`<span class="pill wait">${EN()?'partial':'บางส่วน'}</span>`:pend?verifyPill:''} ${paid?'':`<button class="btn sm" onclick="P_payPrepay('${p.PrepayID}',${p.Amount})">${pend||partial?'📎':esc(t('lbl.pay'))}</button> <button class="btn sm gray" onclick="P_cash('prepay','${p.PrepayID}',${p.Amount})">💵</button>`}</span></div>${slipHistoryHTML(sl)}</div>`; }).join(''):''}</div>`;
     const otOpen=ot.filter(o=>o.Status!=='PAID'&&o.Status!=='PENDING_VERIFY'&&o.Status!=='PARTIAL');
@@ -678,7 +680,8 @@
       <button class="btn outline block" style="margin-top:8px" onclick="this.closest('.modal').remove()">${esc(t('c.close'))}</button>`);
   };
   window.P_prepayDo=async(sid,months)=>{ try{ const r=await api('prepay',{studentId:sid,months}); const m=document.querySelector('.modal'); if(m)m.remove();
-    confirmSaved(t('prepay.added').replace('{n}',months).replace('{d}',r.Discount)); GO('payment'); }catch(e){err(e);} };
+    // one-shot: go straight to the QR + attach-slip flow for the chosen plan (no clutter on the payment screen)
+    P_payPrepay(r.PrepayID, r.Amount); }catch(e){err(e);} };
   // pay a prepay charge: SCB QR + attach slip (kind 'prepay')
   window.P_payPrepay=(prepayId,amt)=>{ qrModalHTML({ title:'💰 '+t('prepay.title'), amount:amt,
     img:MOCK.config.QRCode_Monthly||MOCK.config.QRCode, imgName:'prepay-'+prepayId+'.png',
@@ -1569,8 +1572,13 @@
   window.A_delDep=async(name)=>{ if(!confirm(t('manage.confirmDel')))return; try{ await api('removeDepartment',{name}); const m=document.querySelector('.modal'); if(m)m.remove(); A_departments(); toast(t('manage.deleted')); }catch(e){err(e);} };
 
   // ---- settings: diligence amounts + leave quota (Admin-editable) ----
-  window.A_settings=async()=>{ const q=await api('getLeaveQuota'); const cfg=MOCK.config;
+  window.A_settings=async()=>{ const [q,sc]=await Promise.all([api('getLeaveQuota'),api('schoolConfig')]); const cfg=MOCK.config;
     modal(`<h3>⚙️ ${esc(t('manage.settings'))}</h3>
+      <h4 style="margin:6px 0">📍 ${EN()?'Check-in location (geofence)':'พิกัดโรงเรียน (เช็คอิน)'}</h4>
+      <p class="muted" style="font-size:11.5px">${EN()?'Open Google Maps → long-press the school → copy the lat, long numbers here.':'เปิด Google Maps → กดค้างที่ตำแหน่งโรงเรียน → คัดลอกเลข lat, long มาใส่'}</p>
+      <div class="grid2"><label class="field"><span>Latitude</span><input id="cfgLat" type="number" step="any" value="${esc(sc.GPS_Lat!=null?sc.GPS_Lat:'')}"/></label>
+        <label class="field"><span>Longitude</span><input id="cfgLng" type="number" step="any" value="${esc(sc.GPS_Lng!=null?sc.GPS_Lng:'')}"/></label></div>
+      <label class="field"><span>${EN()?'Radius (metres)':'รัศมี (เมตร)'}</span><input id="cfgRadius" type="number" value="${esc(sc.Radius!=null?sc.Radius:30)}"/></label>
       <h4 style="margin:6px 0">${esc(t('set.diligence'))}</h4>
       <div class="grid2"><label class="field"><span>${esc(t('set.attendAmt'))}</span><input id="setAtt" type="number" value="${cfg.DiligenceAttendanceAmount}"/></label>
         <label class="field"><span>${esc(t('set.fbAmt'))}</span><input id="setFb" type="number" value="${cfg.DiligenceFacebookAmount}"/></label></div>
@@ -1579,6 +1587,9 @@
       <button class="btn block" onclick="A_saveSettings(this)">${esc(t('c.save'))}</button>`);
   };
   window.A_saveSettings=async(btn)=>{ const m=btn.closest('.modal');
+    const lat=parseFloat(m.querySelector('#cfgLat').value), lng=parseFloat(m.querySelector('#cfgLng').value), rad=parseFloat(m.querySelector('#cfgRadius').value);
+    const gv={}; if(!isNaN(lat))gv.GPS_Lat=lat; if(!isNaN(lng))gv.GPS_Lng=lng; if(!isNaN(rad))gv.Radius=rad;
+    if(Object.keys(gv).length) await api('setSchoolConfig',{values:gv});
     await api('setConfigVal',{key:'DiligenceAttendanceAmount',value:+m.querySelector('#setAtt').value});
     await api('setConfigVal',{key:'DiligenceFacebookAmount',value:+m.querySelector('#setFb').value});
     for(const k of Object.keys(MOCK.config.LeaveQuota)){ const el=m.querySelector('#lq_'+k); if(el) await api('setLeaveQuota',{type:k,days:+el.value}); }

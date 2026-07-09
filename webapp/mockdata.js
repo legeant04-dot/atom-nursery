@@ -12,7 +12,7 @@ window.MOCK = {
     DefaultCheckInTime: '08:00',
     LeaveQuota: { 'ลาป่วย': 30, 'ลากิจ': 7, 'ลาพักร้อน': 6 },
     // School social links — LINE OA @atomnursery (chat button + home icon deep-link here), Facebook page
-    Links: { line: 'https://line.me/R/ti/p/@atomnursery', facebook: 'https://www.facebook.com/AtomNursery1', website: 'https://atomnursery.example' },
+    Links: { line: 'https://line.me/R/ti/p/@atomnursery', facebook: 'https://www.facebook.com/AtomNursery1', website: 'https://atomnursery.example', map: 'https://maps.app.goo.gl/jQhGb3KQj59RV2wXA' },
     LineOAId: '@atomnursery',
     // SlipOK — slip/QR verification API (used at GAS deploy to read & verify transfer slips server-side)
     SlipOK_Url: 'https://api.slipok.com/api/line/apikey/69307',
