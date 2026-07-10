@@ -6,7 +6,7 @@
   const setHTML = (sel, html) => { const el = $(sel); if (el) el.innerHTML = html; };
   const app = $('#app'), nav = $('#bottomnav');
   const baht = n => (Number(n)||0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
-  const APP_VERSION = 'Version 1.063'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.064'; // bump each webapp change; shown only at the bottom of the Chat screen
   const verTag = () => `<div style="text-align:center;color:#c3c9d4;font-size:10px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
   const phoneFmt = p => { let d=String(p==null?'':p).replace(/\D/g,''); if(d.length===9) d='0'+d; return d; };
@@ -885,20 +885,23 @@
 
   SCREENS.Teacher.journal = async () => { const cl=await api('classList',{staffId:USER.staffId}); T_journal(cl.students[0].StudentID); };
   let JSEL={};
-  window.T_journal = async (sid) => { setNav('class'); JSEL={Mood:'',Health:'',Water:'',Meals:{},Toilet:{},Activity:new Set(),Skills:new Set()};
+  // an Admin reaches this form from A_journals, where the student is outside their own class
+  const J_isAdmin = () => USER.role==='Admin';
+  window.J_exit = () => { if(J_isAdmin()){ GO('manage'); setTimeout(()=>A_journals(),120); } else GO('class'); };
+  window.T_journal = async (sid) => { if(!J_isAdmin()) setNav('class'); JSEL={Mood:'',Health:'',Water:'',Meals:{},Toilet:{},Activity:new Set(),Skills:new Set()};
     // role lets the engine hand a DRAFT to staff (a parent gets null until it is submitted)
     const [cl,j]=await Promise.all([api('classList',{staffId:USER.staffId}),api('getJournal',{studentId:sid,role:USER.role})]);
-    const s=cl.students.find(x=>x.StudentID===sid)||{NameTH:sid};
+    const s=cl.students.find(x=>x.StudentID===sid)||(A_CACHE.students||[]).find(x=>x.StudentID===sid)||{NameTH:sid};
     const sent=jTime(j), draft=jIsDraft(j), jv=journalValues(j);
 
     // once submitted the entry is final — show it read-only rather than a form that cannot save
-    if(j && !draft){ app.innerHTML=`<button class="btn sm outline backbtn" onclick="GO('class')">${t('c.back')}</button>
+    if(j && !draft){ app.innerHTML=`<button class="btn sm outline backbtn" onclick="J_exit()">${t('c.back')}</button>
       <h2 class="page">📒 ${esc(nm(s))}</h2>
       <div class="card" style="background:#e8f5e9;color:#2e7d32;font-size:13px">🔒 ${esc(t('jr.locked'))}${sent?` · ${esc(t('jr.sent'))} ${esc(sent)}`:''}</div>
       ${journalChecklist(j)}`; window.scrollTo(0,0); return; }
 
     const seg=(group,arr,multi)=>arr.map(v=>`<button type="button" data-g="${esc(group)}" data-v="${esc(v)}" onclick="J_pick('${group}','${v.replace(/'/g,"\\'")}',this,${multi})">${esc(jt(v))}</button>`).join('');
-    app.innerHTML=`<button class="btn sm outline backbtn" onclick="GO('class')">${t('c.back')}</button><h2 class="page">${draft?'✏️':'📒'} ${esc(draft?t('jr.edit'):t('lbl.record'))} — ${esc(nm(s))}</h2><div class="card">
+    app.innerHTML=`<button class="btn sm outline backbtn" onclick="J_exit()">${t('c.back')}</button><h2 class="page">${draft?'✏️':'📒'} ${esc(draft?t('jr.edit'):t('lbl.record'))} — ${esc(nm(s))}</h2><div class="card">
       <div style="background:#fff3e0;border-radius:8px;padding:8px;color:#e65100;font-size:13px;margin-bottom:8px">📝 ${esc(t('jr.draftHint'))}</div>
       <div class="jsec"><h4>😊 ${esc(jt('Mood'))} *</h4><div class="choice" id="g_Mood">${Object.keys(MOODS).map(m=>`<button type="button" data-g="Mood" data-v="${esc(m)}" onclick="J_pick('Mood','${m}',this,false)">${MOODS[m]} ${esc(jt(m))}</button>`).join('')}</div></div>
       <div class="jsec"><h4>❤️ ${esc(jt('Health'))}</h4><div class="choice">${seg('Health',HEALTHS,false)}</div>
@@ -947,7 +950,7 @@
     const milk=($('#jMilk').value||'').split(',').map(x=>+x.trim()).filter(x=>x);
     const sleep=($('#jSleep').value||'').split(',').map(x=>x.trim()).filter(Boolean).map(s=>({from:(s.split('-')[0]||'').trim(),to:(s.split('-')[1]||'').trim()}));
     try{ const r=await api('submitJournal',{studentId:sid,staffId:USER.staffId,submit:!!submit,Mood:JSEL.Mood,Health:JSEL.Health,HealthDetail:$('#jHealthD').value,Milk:milk,MilkTotal:milk.reduce((a,b)=>a+b,0),Water:JSEL.Water,Meals:JSEL.Meals,Sleep:sleep,Toilet:JSEL.Toilet,Activity:[...JSEL.Activity],Theme:$('#jTheme').value,Skills:[...JSEL.Skills],Highlight:$('#jHi').value});
-      confirmSaved(r.submitted?(EN()?'Sent to the parent':'ส่งให้ผู้ปกครองแล้ว'):(EN()?'Draft saved — not sent yet':'บันทึกร่างแล้ว — ยังไม่ได้ส่ง')); GO('class'); }catch(e){err(e);} };
+      confirmSaved(r.submitted?(EN()?'Sent to the parent':'ส่งให้ผู้ปกครองแล้ว'):(EN()?'Draft saved — not sent yet':'บันทึกร่างแล้ว — ยังไม่ได้ส่ง')); J_exit(); }catch(e){err(e);} };
 
   // ===== injury / accident report (แบบบันทึกการบาดเจ็บรายบุคคล) — teacher & leader =====
   SCREENS.Teacher.injury = async () => {
@@ -1391,6 +1394,15 @@
   const findParent  = id => (A_CACHE.parents||[]).find(x=>x.ParentID===id)   || (MOCK.parents||[]).find(x=>x.ParentID===id)   || {};
   const findAnn     = id => (A_CACHE.announcements||[]).find(x=>x.AnnID===id) || (MOCK.announcements||[]).find(x=>x.AnnID===id) || {};
   const A_classes   = () => (A_CACHE.classes&&A_CACHE.classes.length)?A_CACHE.classes:(MOCK.classes||[]);
+  // the departments master (Nursery Baby/1/2/Premium…) is the real list of nurseries; CLASSES only has
+  // the rows that happen to have a homeroom teacher. Offer every department, plus whatever `cur` already is.
+  const A_deptNames = () => ((A_CACHE.depts&&A_CACHE.depts.length)?A_CACHE.depts:(MOCK.config.Departments||[])).slice();
+  function A_classOptions(cur){
+    const out=A_deptNames();
+    A_classes().forEach(c=>{ if(c.ClassName && out.indexOf(c.ClassName)<0) out.push(c.ClassName); });
+    if(cur && out.indexOf(cur)<0) out.unshift(cur);
+    return out;
+  }
   const A_plans     = () => (A_CACHE.plans&&A_CACHE.plans.length)?A_CACHE.plans:((MOCK.config&&MOCK.config.Plans)||[]);
   // generic client-side list filter + collapsible section (Admin manage). Sections start collapsed.
   window.A_toggleSec = (btn)=>{ const b=btn.closest('.secw'); const body=b.querySelector('.secbody'); const open=body.hasAttribute('hidden'); if(open)body.removeAttribute('hidden');else body.setAttribute('hidden',''); btn.querySelector('.caret').textContent=open?'▲':'▼'; };
@@ -1413,6 +1425,7 @@
         <button class="btn sm outline" onclick="A_settings()">⚙️ ${esc(t('manage.settings'))}</button>
         <button class="btn sm outline" onclick="A_otVerify()">⏱️ ${esc(t('manage.otVerify'))}</button>
         <button class="btn sm outline" onclick="A_studentOT()">⏰ ${EN()?'Student OT':'OT รับช้า (นักเรียน)'}</button>
+        <button class="btn sm outline" onclick="A_journals()">📒 ${esc(t('jr.admin'))}</button>
         <button class="btn sm outline" onclick="A_insurance()">🛡️ ${esc(t('ins2.manage'))}</button>
         <button class="btn sm outline" onclick="A_activityLog()">${esc(t('act.open'))}</button></div></div>
       ${wds.length?`<div class="card" style="background:#fff8e1;border-color:#f0e3b0"><h3>🚪 ${esc(t('wd.requests'))} (${wds.length})</h3>
@@ -1447,9 +1460,7 @@
   window.A_staffForm=(id)=>{ const s=id?findStaff(id):{}; const groups=(A_CACHE.groups&&A_CACHE.groups.length)?A_CACHE.groups:MOCK.staffGroups;
     const f=(k,label,val,type)=>`<label class="field"><span>${esc(label)}</span><input id="sf_${k}" type="${type||'text'}" value="${esc(val!=null?val:'')}"/></label>`;
     // departments master (Nursery Baby/1/2/Premium…), NOT the CLASSES list — show ALL of them
-    let depts=(A_CACHE.depts&&A_CACHE.depts.length)?A_CACHE.depts.slice():(MOCK.config.Departments||[]).slice();
-    if(!depts.length) depts=A_classes().map(c=>c.ClassName);
-    if(s.Department && depts.indexOf(s.Department)<0) depts.unshift(s.Department); // keep the staff's current value even if not in the master
+    const depts=A_classOptions(s.Department); // keeps the staff's current value even if not in the master
     modal(`<h3>${id?'✏️':'➕'} ${esc(t('c.staff'))}</h3>
       <div class="grid2">${f('NameTH',t('reg.nameTH'),s.NameTH)}${f('NameEN',t('reg.nameEN'),s.NameEN)}</div>
       <div class="grid2">${f('Nickname',t('reg.nickname'),s.Nickname)}${f('DOB',t('reg.dob'),s.DOB,'date')}</div>
@@ -1524,7 +1535,7 @@
       <div class="grid2">${f('NameTH',t('reg.nameTH'),s.NameTH)}${f('NameEN',t('reg.nameEN'),s.NameEN)}</div>
       <div class="grid2">${f('Nickname',t('reg.nickname'),s.Nickname)}${f('NicknameEN',t('reg.nicknameEN'),s.NicknameEN)}</div>
       <div class="grid2">${f('NationalID',t('reg.nationalIdStudent'),s.NationalID)}
-        <label class="field"><span>${esc(t('manage.class'))}</span><select id="stf_Class">${A_classes().map(c=>`<option ${s.Class===c.ClassName?'selected':''}>${esc(c.ClassName)}</option>`).join('')}</select></label></div>
+        <label class="field"><span>${esc(t('manage.class'))}</span><select id="stf_Class">${A_classOptions(s.Class).map(c=>`<option ${s.Class===c?'selected':''}>${esc(c)}</option>`).join('')}</select></label></div>
       <div class="grid2"><label class="field"><span>${esc(t('reg.plan'))}</span><select id="stf_Plan"><option value="">${esc(t('manage.noPlan'))}</option>${A_plans().map(p=>`<option value="${p.id}" ${s.Plan===p.id?'selected':''}>${esc(EN()?p.labelEN:p.labelTH)} · ${baht(p.price)}</option>`).join('')}</select></label>
         <label class="field"><span>${esc(t('growth.photo'))}</span><input id="stf_Photo" type="file" accept="image/*"/></label></div>
       <div class="grid2">${f('Allergy',t('reg.allergy'),s.Allergy)}${f('MedicalHistory',t('reg.chronic'),s.MedicalHistory)}</div>
@@ -1675,10 +1686,48 @@
   };
   window.A_setGroup=async(group,which,val)=>{ await api('setStaffGroupHours',{group,checkIn:which==='in'?val:undefined,checkOut:which==='out'?val:undefined}); toast(t('c.saved')); };
 
+  // ---- admin: daily reports for a day — view, and unlock a submitted one so it can be corrected ----
+  window.A_journals=async(date)=>{ const day=date||todayStr();
+    const [st,students,staff]=await Promise.all([api('journalStatus',{date:day,role:USER.role}),
+      (A_CACHE.students&&A_CACHE.students.length)?Promise.resolve(A_CACHE.students):api('listStudents'),
+      (A_CACHE.staff&&A_CACHE.staff.length)?Promise.resolve(A_CACHE.staff):api('listStaff')]);
+    A_CACHE.students=students||A_CACHE.students; A_CACHE.staff=staff||A_CACHE.staff;
+    const sName=id=>{ const s=(students||[]).find(x=>x.StudentID===id); return s?nm(s):id; };
+    const tName=id=>{ const s=(staff||[]).find(x=>x.StaffID===id); return s?(nick(s)||nm(s)):(id||'-'); };
+    const rows=(st.done||[]).map(d=>`<div class="list-item"><span>${esc(sName(d.studentId))} ${journalPill(d)}<br><small class="muted">${esc(EN()?'by':'โดย')} ${esc(tName(d.teacherId))}</small></span>
+      <span class="row"><button class="btn sm outline" onclick="A_viewJournal('${d.studentId}','${day}')">👁️</button>
+      ${jIsDraft(d)?`<button class="btn sm" onclick="A_editJournal('${d.studentId}','${day}')">✏️</button>`
+                   :`<button class="btn sm pink" onclick="A_unlockJournal('${d.studentId}','${day}')">${esc(t('jr.unlock'))}</button>`}</span></div>`).join('');
+    modal(`<h3>📒 ${esc(t('jr.admin'))}</h3>
+      <label class="field"><span>${esc(t('inj.date'))}</span><input type="date" id="ajDate" value="${day}" onchange="A_journals(this.value)"/></label>
+      <div style="max-height:50vh;overflow:auto">${rows||`<small class="muted">${esc(t('jr.noneForDay'))}</small>`}</div>
+      <button class="btn outline block" style="margin-top:8px" onclick="this.closest('.modal').remove()">${esc(t('c.close'))}</button>`);
+  };
+  window.A_viewJournal=async(sid,day)=>{ const j=await api('getJournal',{studentId:sid,date:day,role:USER.role});
+    if(!j){ toast(t('jr.noneForDay')); return; }
+    modal(`<h3>📒 ${esc(day)}</h3>${journalChecklist(j)}<button class="btn outline block" onclick="this.closest('.modal').remove()">${esc(t('c.close'))}</button>`); };
+  window.A_unlockJournal=async(sid,day)=>{ if(!confirm(t('jr.confirmUnlock')))return;
+    try{ await api('unlockJournal',{studentId:sid,date:day}); const m=document.querySelector('.modal'); if(m)m.remove();
+      toast(t('jr.unlocked')); A_journals(day); }catch(e){err(e);} };
+  // an unlocked (DRAFT) report opens in the same form the teacher uses; only today's is editable
+  window.A_editJournal=(sid,day)=>{ if(day!==todayStr()){ toast(EN()?'Only today’s report can be edited':'แก้ไขได้เฉพาะบันทึกของวันนี้'); return; }
+    const m=document.querySelector('.modal'); if(m)m.remove(); T_journal(sid); };
+
   // ---- departments (Nursery) add / rename / remove ----
-  window.A_departments=async()=>{ const deps=await api('listDepartments'); A_CACHE.depts=deps||A_CACHE.depts; // keep staff-form dropdown in sync
+  window.A_departments=async()=>{
+    // staff list may not be cached yet (the modal opens straight from the manage header)
+    const [deps,staff]=await Promise.all([api('listDepartments'), (A_CACHE.staff&&A_CACHE.staff.length)?Promise.resolve(A_CACHE.staff):api('listStaff')]);
+    A_CACHE.depts=deps||A_CACHE.depts; A_CACHE.staff=staff||A_CACHE.staff; // keep the form dropdowns in sync
+    const active=(staff||[]).filter(s=>String(s.Status||'ACTIVE').toUpperCase()!=='INACTIVE');
+    const members=d=>active.filter(s=>String(s.Department||'')===d);
+    const chip=s=>`<span class="pill info" style="margin:2px 3px 0 0">${esc(nm(s))}${nick(s)?` (${esc(nick(s))})`:''}${s.PositionLevel==='Leader'?' ⭐':''}</span>`;
+    const unassigned=active.filter(s=>!s.Department||deps.indexOf(s.Department)<0);
     modal(`<h3>🏫 ${esc(t('manage.departments'))}</h3>
-      <div id="depList">${deps.map(d=>`<div class="list-item"><input value="${esc(d)}" id="dep_${esc(d)}" style="flex:1"/><span class="row"><button class="btn sm" onclick="A_renameDep('${esc(d)}')">💾</button><button class="btn sm pink" onclick="A_delDep('${esc(d)}')">🗑️</button></span></div>`).join('')}</div>
+      <div id="depList">${deps.map(d=>{ const ms=members(d); return `<div style="padding:6px 0;border-bottom:1px solid #f0f0f0">
+        <div class="list-item" style="border:none;padding:0"><input value="${esc(d)}" id="dep_${esc(d)}" style="flex:1"/><span class="row"><button class="btn sm" onclick="A_renameDep('${esc(d)}')">💾</button><button class="btn sm pink" onclick="A_delDep('${esc(d)}')">🗑️</button></span></div>
+        <div style="margin-top:4px">${ms.length?ms.map(chip).join(''):`<small class="muted">${esc(EN()?'No staff assigned':'ยังไม่มีคุณครูในแผนกนี้')}</small>`}
+          <small class="muted" style="margin-left:4px">· ${ms.length} ${esc(EN()?'people':'คน')}</small></div></div>`; }).join('')}</div>
+      ${unassigned.length?`<div style="margin-top:8px"><small class="muted">⚠️ ${esc(EN()?'Not in any department':'ยังไม่ได้อยู่แผนกใด')}:</small><div>${unassigned.map(chip).join('')}</div></div>`:''}
       <div class="grid2" style="margin-top:8px"><input id="newDep" placeholder="${esc(t('dep.name'))}"/><button class="btn" onclick="A_addDep()">+ ${esc(t('manage.add'))}</button></div>
       <button class="btn outline block" style="margin-top:8px" onclick="this.closest('.modal').remove()">${esc(t('c.close'))}</button>`);
   };

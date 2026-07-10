@@ -51,6 +51,10 @@
     'jr.locked':['ส่งให้ผู้ปกครองแล้ว — แก้ไขไม่ได้','Submitted to the parent — no longer editable'],
     'jr.draftHint':['ยังไม่ได้ส่ง · แก้ไขได้ตลอด กด "ส่งให้ผู้ปกครอง" เมื่อพร้อม','Not sent yet · you can keep editing. Press “Submit to parent” when ready.'],
     'jr.confirmSubmit':['ส่งให้ผู้ปกครองเลยหรือไม่? หลังส่งแล้วจะแก้ไขไม่ได้','Submit to the parent? You will not be able to edit it afterwards.'],
+    // admin: reopen a submitted report for correction
+    'jr.admin':['สมุดรายงานประจำวัน','Daily reports'], 'jr.unlock':['🔓 ปลดล็อก','🔓 Unlock'],
+    'jr.confirmUnlock':['ปลดล็อกบันทึกนี้? จะกลับเป็นร่าง แก้ไขได้ และผู้ปกครองจะไม่เห็นจนกว่าจะส่งใหม่','Unlock this report? It returns to draft, becomes editable, and the parent will not see it until it is submitted again.'],
+    'jr.unlocked':['ปลดล็อกแล้ว — กลับเป็นร่าง','Unlocked — back to draft'], 'jr.noneForDay':['ยังไม่มีบันทึกของวันนี้','No reports for this day'],
     'lbl.calendar':['📅 ปฏิทิน','📅 Calendar'], 'lbl.ioLegend':['↓ เวลาส่ง · ↑ เวลารับ (ใช้ตรวจสอบ OT)','↓ drop-off · ↑ pick-up (for OT check)'],
     'lbl.studentsToday':['👶 นักเรียนแต่ละชั้นวันนี้','👶 Students by class today'], 'lbl.staffToday':['👩‍🏫 พนักงานวันนี้','👩‍🏫 Staff today'], 'lbl.present':['มา','In'], 'lbl.left':['กลับ','Out'], 'lbl.onleave':['ลา','Leave'], 'lbl.absent':['ขาด','Absent'],
     'lbl.curBand':['⭐ ช่วงวัยปัจจุบัน','⭐ Current age band'], 'lbl.pastResults':['📜 ผลย้อนหลัง (ช่วงวัยก่อนหน้า)','📜 Past results (earlier bands)'], 'lbl.downloadManual':['⬇️ ดาวน์โหลดคู่มือ DSPM','⬇️ Download DSPM manual'],

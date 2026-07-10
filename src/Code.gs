@@ -64,6 +64,7 @@ var ROUTES = {
   // Day 5 — Daily Journal (submit keeps the GAS handler for LINE notify; reads defer to the engine,
   // which returns null/[] gracefully instead of throwing NOT_FOUND when there is no journal yet)
   submitJournal:  function (p) { return handleSubmitJournal(p); },
+  unlockJournal:  function (p) { return handleUnlockJournal(p); },   // admin-only, see ADMIN_ONLY
   // Day 5 — DSPM Assessment + analytics
   dspmCriteria:      function (p) { return handleDspmCriteria(p); },
   submitAssessment:  function (p) { return handleSubmitAssessment(p); },
@@ -129,7 +130,7 @@ function applyIdentity_(action, payload, sess) {
   // Admin-only destructive/sensitive actions — block non-admins (parent/teacher tokens).
   var ADMIN_ONLY = { deleteBill: 1, adminResetPassword: 1, getStaffPassword: 1, setSchoolConfig: 1, recomputeAttendance: 1,
     addDepartment: 1, removeDepartment: 1, renameDepartment: 1, listBackups: 1, restoreSheet: 1, setRequireCheckin: 1,
-    adminUpdateOT: 1, adminCancelOT: 1, adminRestoreOT: 1 };
+    adminUpdateOT: 1, adminCancelOT: 1, adminRestoreOT: 1, unlockJournal: 1 };
   if (ADMIN_ONLY[action] && sess.role !== 'Admin') throw apiError_('NO_PERMISSION', 'เฉพาะแอดมิน');
   // Admin is fully trusted: may target ANY staff/student/parent (manage everyone + "view as" any role).
   if (sess.role === 'Admin') return payload;

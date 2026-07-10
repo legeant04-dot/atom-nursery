@@ -324,13 +324,22 @@ function createAtomAPI(M, GROWTH_STD) {
       if(i>=0 && jStatus_(M.journals[i])==='SUBMITTED') fail('JOURNAL_LOCKED','บันทึกของวันที่ '+date+' ส่งให้ผู้ปกครองแล้ว แก้ไขไม่ได้');
       if(submit && !p.Mood) fail('MISSING_FIELDS','กรุณาเลือกอารมณ์ (Mood)');
       const now=stampLocal();
-      // store sheet-cased keys — the payload carries studentId/staffId/date, the record needs StudentID/TeacherID/Date
-      const rec=Object.assign({},p,{Date:date,StudentID:p.studentId,TeacherID:p.staffId,
+      // store sheet-cased keys — the payload carries studentId/staffId/date, the record needs StudentID/TeacherID/Date.
+      // TeacherID keeps the original author when someone else (an admin after unlocking) edits the entry.
+      const rec=Object.assign({},p,{Date:date,StudentID:p.studentId,
+        TeacherID:(i>=0&&M.journals[i].TeacherID)||p.staffId,
         Status:submit?'SUBMITTED':'DRAFT',UpdatedAt:now,SubmittedAt:submit?now:''});
       delete rec.staffId; delete rec.studentId; delete rec.date; delete rec.submit;
       const out={updated:i>=0,submitted:submit,status:rec.Status,submittedAt:rec.SubmittedAt,updatedAt:now};
       if(i>=0) M.journals[i]=rec; else M.journals.push(rec);
       return out; },
+    // admin-only (ADMIN_ONLY guard on GAS): reopen a submitted entry for correction. It returns to
+    // DRAFT, so it also leaves the parent's view until a teacher submits it again.
+    unlockJournal: p => { const date=p.date||todayLocal();
+      const i=M.journals.findIndex(x=>x.StudentID===p.studentId&&ymd(x.Date)===date);
+      if(i<0) fail('NOT_FOUND','ยังไม่มีบันทึกของวันที่ '+date);
+      M.journals[i].Status='DRAFT'; M.journals[i].SubmittedAt='';
+      return {studentId:p.studentId,date,status:'DRAFT'}; },
     dspmCriteria: p => H.dspmStatus(p),
     submitAssessment: p => { const s=studentById(p.studentId); const age=ageMonths(s.DOB); const id='DA-'+String(Date.now()).slice(-4); let n=0;
       p.results.forEach(r=>{ if(r.result==='nottested'){ // remove any existing latest for this item (mark not tested)
