@@ -38,7 +38,19 @@ function handleParentCheckin(payload) {
 
   var verb = (type === 'IN') ? 'มาถึงโรงเรียนแล้ว' : 'ผู้ปกครองรับกลับแล้ว';
   notifyStudentTeacher_(student, '👶 ' + student.Name + ' ' + verb + ' (' + timeStr_(now) + ')');
-  return { studentId: student.StudentID, type: type, time: timeStr_(now), distance: dist };
+
+  // late pickup → create/refresh the OT charge (it then rolls into this month's bill)
+  var ot = null;
+  if (type === 'OUT') {
+    ot = otUpsertForPickup_(student, timeStr_(now), dateStr_(now));
+    if (ot && parent.LineUID) {
+      try {
+        linePushText_(parent.LineUID, '⏰ รับช้า ' + ot.lateMinutes + ' นาที (เลิกเรียน ' + ot.planEnd + ')\n' +
+          'ค่าล่วงเวลา ' + ot.hours + ' ชม. × ' + ot.rate + ' = ' + ot.amount + ' บาท\nยอดนี้จะรวมในบิลรายเดือน');
+      } catch (e) {}
+    }
+  }
+  return { studentId: student.StudentID, type: type, time: timeStr_(now), distance: dist, ot: ot };
 }
 
 /** payload: { parentId|lineUid, studentId, date, reason } */

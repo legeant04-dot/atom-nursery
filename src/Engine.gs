@@ -42,11 +42,16 @@ function createAtomAPI(M, GROWTH_STD) {
   // teacher OT hours: ≥OTRoundUpMinutes within an hour rounds up to a full hour
   function otHoursRule(min){ if(min<=0)return 0; const h=Math.floor(min/60), rem=min%60; return h+(rem>=Number(cfg.OTRoundUpMinutes||50)?1:0); }
   // OT for a pickup time (HH:MM) vs the student's plan end + grace; 100/started hour
+  // OT that is PAID or CANCELLED is settled — it must never roll into a bill or count as outstanding.
+  const OT_CLOSED = { PAID:1, CANCELLED:1 };
+  const otOpenRec = o => !OT_CLOSED[o.Status];
+  // per-student OT rate overrides the global OTRatePerHour when set (> 0)
+  const otRateFor = student => { const r=Number(student&&student.OTRate); return r>0?r:Number(cfg.OTRatePerHour||100); };
   function otFor(student, pickupHHMM){
     const plan=studentPlan(student); const late=Math.max(0, toMin(pickupHHMM)-toMin(plan.end));
     const grace=Number(cfg.OTGraceMinutes||21);
-    if(late<=grace) return {late, hours:0, amount:0, planEnd:plan.end};
-    const hours=Math.ceil(late/60); return {late, hours, amount:hours*Number(cfg.OTRatePerHour||100), planEnd:plan.end};
+    if(late<=grace) return {late, hours:0, amount:0, planEnd:plan.end, rate:otRateFor(student)};
+    const hours=Math.ceil(late/60); return {late, hours, amount:hours*otRateFor(student), planEnd:plan.end, rate:otRateFor(student)};
   }
 
   // ---- data-access links (a user sees only linked students) ----
@@ -62,7 +67,7 @@ function createAtomAPI(M, GROWTH_STD) {
 
   // ---- payment-slip helpers (multiple slips per bill/OT/prepay + partial payments) ----
   const paySlips_ = () => (M.paymentSlips = M.paymentSlips || []);
-  function billDue_(b){ const bm=ym(b.Month); const otOpen=M.otDaily.filter(o=>o.StudentID===b.StudentID&&ym(o.Date)===bm&&o.Status!=='PAID');
+  function billDue_(b){ const bm=ym(b.Month); const otOpen=M.otDaily.filter(o=>o.StudentID===b.StudentID&&ym(o.Date)===bm&&otOpenRec(o));
     const charges=M.studentCharges.filter(c=>c.StudentID===b.StudentID&&ym(c.Month)===bm).reduce((a,c)=>a+Number(c.Amount||0),0);
     return Number(b.Amount||0)+charges+otOpen.reduce((a,o)=>a+Number(o.Amount||0),0); }
   function slipTarget_(kind, refId){
@@ -85,7 +90,7 @@ function createAtomAPI(M, GROWTH_STD) {
     const confirmed=sumSlips_(kind, refId, ['CONFIRMED']); const submitted=sumSlips_(kind, refId, ['SUBMITTED','CONFIRMED']);
     tgt.obj.SlipAmount=submitted;
     if(confirmed>=tgt.due && tgt.due>0){ tgt.obj.Status='PAID'; tgt.obj.PaidDate=paidDate||tgt.obj.PaidDate||todayLocal(); tgt.obj.VerifiedStatus='CONFIRMED';
-      if(kind==='bill'){ const bm=ym(tgt.obj.Month); M.otDaily.filter(o=>o.StudentID===tgt.obj.StudentID&&ym(o.Date)===bm&&o.Status!=='PAID').forEach(o=>{o.Status='PAID';o.PaidDate=tgt.obj.PaidDate;}); }
+      if(kind==='bill'){ const bm=ym(tgt.obj.Month); M.otDaily.filter(o=>o.StudentID===tgt.obj.StudentID&&ym(o.Date)===bm&&otOpenRec(o)).forEach(o=>{o.Status='PAID';o.PaidDate=tgt.obj.PaidDate;}); }
       if(kind==='prepay'){ const cov=(tgt.obj.Covered||[]).map(ym); M.payments.forEach(b=>{ if(b.StudentID===tgt.obj.StudentID&&cov.indexOf(ym(b.Month))>=0){ b.Status='PAID'; b.PaidDate=tgt.obj.PaidDate; b.VerifiedStatus='PREPAID'; } }); }
     } else if(confirmed>0 || submitted>0){ tgt.obj.Status= confirmed>0?'PARTIAL':'PENDING_VERIFY'; }
     else { tgt.obj.Status='UNPAID'; tgt.obj.VerifiedStatus='REJECTED'; }
@@ -173,7 +178,7 @@ function createAtomAPI(M, GROWTH_STD) {
         if(!Array.isArray(base)) base = [['ค่าเทอม', b.Amount||0]];
         const items=base.concat(charges.map(c=>[c.Label,c.Amount]));
         const baseAmt=b.Amount+charges.reduce((a,c)=>a+c.Amount,0);
-        const otOpen=M.otDaily.filter(o=>o.StudentID===p.studentId&&o.Status!=='PAID'&&ym(o.Date)===bm);
+        const otOpen=M.otDaily.filter(o=>o.StudentID===p.studentId&&otOpenRec(o)&&ym(o.Date)===bm);
         const roll=otOpen.reduce((a,o)=>a+o.Amount,0); const total=baseAmt+roll;
         // partial-payment view: sum of confirmed slips vs submitted-but-pending
         const confirmed=sumSlips_('bill', b.BillingID, ['CONFIRMED']); const submitted=sumSlips_('bill', b.BillingID, ['SUBMITTED']);
@@ -230,8 +235,32 @@ function createAtomAPI(M, GROWTH_STD) {
       logAct('notifyCash',id,'เงินสด '+(rec.SlipAmount||rec.Amount),actorOf(p));
       return Object.assign({},rec,{method:'cash'}); },
 
-    // ---- daily OT (parent) ----
-    otDaily: p => M.otDaily.filter(o=>o.StudentID===p.studentId).sort((a,b)=>b.Date.localeCompare(a.Date)),
+    // ---- daily OT (parent) ---- cancelled OT is not shown to the parent and never billed
+    otDaily: p => M.otDaily.filter(o=>o.StudentID===p.studentId && o.Status!=='CANCELLED').sort((a,b)=>b.Date.localeCompare(a.Date)),
+
+    // ---- Admin OT management (student late-pickup OT) ----
+    // list a month's OT with the student's name + the rate actually used
+    studentOtList: p => { const month=ym(p.month||todayLocal().slice(0,7));
+      return M.otDaily.filter(o=>ym(o.Date)===month).sort((a,b)=>String(b.Date).localeCompare(String(a.Date))).map(o=>{
+        const s=studentById(o.StudentID)||{};
+        return { otId:o.OTID, date:o.Date, studentId:o.StudentID, name:s.NameTH, nameEN:s.NameEN,
+          planEnd:o.PlanEnd, pickupTime:o.PickupTime, lateMinutes:Number(o.LateMinutes||0), hours:Number(o.Hours||0),
+          amount:Number(o.Amount||0), status:o.Status||'UNPAID', rate:otRateFor(s) }; }); },
+    // recompute from a corrected pickup time, and/or override the amount outright. PAID rows are locked.
+    adminUpdateOT: p => { const o=M.otDaily.find(x=>x.OTID===p.otId); if(!o)fail('NOT_FOUND','ไม่พบรายการ OT');
+      if(o.Status==='PAID')fail('ALREADY_PAID','รายการนี้ชำระแล้ว แก้ไขไม่ได้');
+      if(p.pickupTime){ const s=studentById(o.StudentID)||{}; const c=otFor(s,p.pickupTime);
+        o.PickupTime=p.pickupTime; o.PlanEnd=c.planEnd; o.LateMinutes=c.late; o.Hours=c.hours; o.Amount=c.amount; }
+      if(p.amount!=null && p.amount!=='') o.Amount=Number(p.amount)||0;   // manual override wins
+      if(o.Status==='CANCELLED') o.Status='UNPAID';                        // editing revives a cancelled row
+      logAct('adminUpdateOT',o.OTID,'pickup '+o.PickupTime+' → '+o.Amount,actorOf(p));
+      return { otId:o.OTID, pickupTime:o.PickupTime, lateMinutes:o.LateMinutes, hours:o.Hours, amount:o.Amount, status:o.Status }; },
+    adminCancelOT: p => { const o=M.otDaily.find(x=>x.OTID===p.otId); if(!o)fail('NOT_FOUND','ไม่พบรายการ OT');
+      if(o.Status==='PAID')fail('ALREADY_PAID','รายการนี้ชำระแล้ว ยกเลิกไม่ได้');
+      o.Status='CANCELLED'; logAct('adminCancelOT',o.OTID,'ยกเลิก OT',actorOf(p)); return {otId:o.OTID,status:'CANCELLED'}; },
+    adminRestoreOT: p => { const o=M.otDaily.find(x=>x.OTID===p.otId); if(!o)fail('NOT_FOUND','ไม่พบรายการ OT');
+      if(o.Status!=='CANCELLED')fail('BAD_INPUT','รายการนี้ไม่ได้ถูกยกเลิก');
+      o.Status='UNPAID'; logAct('adminRestoreOT',o.OTID,'คืนค่า OT',actorOf(p)); return {otId:o.OTID,status:'UNPAID'}; },
     // attach OT slip → records a PAYMENT_SLIPS row, OT → PENDING_VERIFY (Admin confirms per slip)
     payOT: p => recordSlip_('ot', p.otId, p),
 
@@ -356,7 +385,7 @@ function createAtomAPI(M, GROWTH_STD) {
         // a student may (wrongly) have >1 bill for a month — prefer the PAID/PARTIAL one over duplicates
         const bills=M.payments.filter(x=>x.StudentID===s.StudentID&&ym(x.Month)===month);
         const b=bills.find(x=>x.Status==='PAID')||bills.find(x=>x.Status==='PARTIAL')||bills[0];
-        const otOpen=M.otDaily.filter(o=>o.StudentID===s.StudentID&&ym(o.Date)===month&&o.Status!=='PAID').reduce((a,o)=>a+o.Amount,0);
+        const otOpen=M.otDaily.filter(o=>o.StudentID===s.StudentID&&ym(o.Date)===month&&otOpenRec(o)).reduce((a,o)=>a+o.Amount,0);
         const amount=b?Number(b.Amount||0):0; const due=amount+otOpen; const paid=!!b&&b.Status==='PAID';
         // money actually IN = full amount if PAID, else the sum of CONFIRMED slips (partial)
         const collected = b ? (paid?amount:sumSlips_('bill', b.BillingID, ['CONFIRMED'])) : 0;
@@ -671,7 +700,7 @@ function createAtomAPI(M, GROWTH_STD) {
     // Admin confirms a payment. paidDate = the actual payment date (defaults today); recorded for retro audit.
     confirmPayment: p => { const paid=p.paidDate||todayLocal(); const method=p.method||'';
       if(p.kind==='bill'){ const b=M.payments.find(x=>x.BillingID===p.id); if(!b)fail('NOT_FOUND','ไม่พบบิล'); b.Status='PAID'; b.PaidDate=paid; if(method)b.PaymentMethod=method; b.VerifiedStatus='CONFIRMED'; b.VerifiedBy=p.adminId||'admin';
-        const bm=ym(b.Month); M.otDaily.filter(o=>o.StudentID===b.StudentID&&ym(o.Date)===bm&&o.Status!=='PAID').forEach(o=>{o.Status='PAID';o.SlipRef=b.SlipUrl;o.PaidDate=paid;}); logAct('confirmPayment',b.BillingID,'ยืนยัน ('+(b.PaymentMethod||'transfer')+') '+b.SlipAmount+' จ่าย '+paid,actorOf(p)); return b; }
+        const bm=ym(b.Month); M.otDaily.filter(o=>o.StudentID===b.StudentID&&ym(o.Date)===bm&&otOpenRec(o)).forEach(o=>{o.Status='PAID';o.SlipRef=b.SlipUrl;o.PaidDate=paid;}); logAct('confirmPayment',b.BillingID,'ยืนยัน ('+(b.PaymentMethod||'transfer')+') '+b.SlipAmount+' จ่าย '+paid,actorOf(p)); return b; }
       if(p.kind==='ot'){ const o=M.otDaily.find(x=>x.OTID===p.id); if(!o)fail('NOT_FOUND','ไม่พบ OT'); o.Status='PAID'; o.PaidDate=paid; if(method)o.PaymentMethod=method; o.VerifiedStatus='CONFIRMED'; logAct('confirmPayment',o.OTID,'ยืนยัน ('+(o.PaymentMethod||'transfer')+') '+o.Amount+' จ่าย '+paid,actorOf(p)); return o; }
       if(p.kind==='prepay'){ const pp=M.prepayments.find(x=>x.PrepayID===p.id); if(!pp)fail('NOT_FOUND','ไม่พบรายการ'); pp.Status='PAID'; pp.PaidDate=paid; if(method)pp.PaymentMethod=method; pp.VerifiedBy=p.adminId||'admin';
         const cov=(pp.Covered||[]).map(ym); M.payments.forEach(b=>{ if(b.StudentID===pp.StudentID&&cov.indexOf(ym(b.Month))>=0){ b.Status='PAID'; b.PaidDate=paid; b.VerifiedStatus='PREPAID'; } }); logAct('confirmPayment',pp.PrepayID,'ยืนยันชำระล่วงหน้า ('+(pp.PaymentMethod||'transfer')+') '+pp.Amount+' จ่าย '+paid,actorOf(p)); return pp; }
