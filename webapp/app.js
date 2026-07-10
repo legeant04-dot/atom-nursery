@@ -6,7 +6,7 @@
   const setHTML = (sel, html) => { const el = $(sel); if (el) el.innerHTML = html; };
   const app = $('#app'), nav = $('#bottomnav');
   const baht = n => (Number(n)||0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
-  const APP_VERSION = 'Version 1.062'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.063'; // bump each webapp change; shown only at the bottom of the Chat screen
   const verTag = () => `<div style="text-align:center;color:#c3c9d4;font-size:10px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
   const phoneFmt = p => { let d=String(p==null?'':p).replace(/\D/g,''); if(d.length===9) d='0'+d; return d; };
@@ -838,7 +838,7 @@
       ${isLeader?`<div class="card"><div class="spread"><h3>⭐ คำขอลาของลูกน้อง (รออนุมัติ)</h3></div><div id="tp"></div></div>`:''}
       <div class="card"><div class="row"><button class="btn sm outline" onclick="GO('absence')">🔎 ${esc(t('abs.title'))}</button></div></div>
       <div class="card"><div class="spread"><h3>👶 ${esc(cl.class.ClassName)}</h3><span class="muted">${cl.students.length} คน</span></div>
-        ${cl.students.map(s=>`<div class="list-item"><span>${studentAvatar(s)} ${esc(nm(s))} ${journalPill(jdone[s.StudentID])}</span><span><button class="btn sm outline" onclick="T_journal('${s.StudentID}')">${jdone[s.StudentID]?'แก้ไขบันทึก':'บันทึก'}</button> <button class="btn sm outline" onclick="T_assess('${s.StudentID}')">ประเมิน</button></span></div>`).join('')}</div>`;
+        ${cl.students.map(s=>`<div class="list-item"><span>${studentAvatar(s)} ${esc(nm(s))} ${journalPill(jdone[s.StudentID])}</span><span><button class="btn sm outline" onclick="T_journal('${s.StudentID}')">${esc(journalBtnLabel(jdone[s.StudentID]))}</button> <button class="btn sm outline" onclick="T_assess('${s.StudentID}')">${esc(t('lbl.assess'))}</button></span></div>`).join('')}</div>`;
     const ml=await api('myLeaves',{staffId:USER.staffId}); setHTML('#ml', ml.map(leaveRow).join('')||'<small class="muted">ยังไม่มีรายการ</small>');
     if(isLeader){ const tp=await api('teamPendingLeaves',{staffId:USER.staffId}); setHTML('#tp', tp.map(l=>teamLeaveRow(l)).join('')||'<small class="muted">ไม่มีคำขอรออนุมัติ</small>'); }
   };
@@ -846,17 +846,22 @@
     try{ const {lat,lng}=await getPosition();
       const r=await api(kind==='in'?'staffCheckin':'staffCheckout',{staffId:USER.staffId,lat,lng}); toast(kind==='in'?`✅ ${t('lbl.checkIn')} ${r.time}${r.lateMinutes>0?` (${t('lbl.late')} ${r.lateMinutes} ${t('lbl.min')})`:' ('+t('lbl.onTime')+')'}`:`✅ ${t('lbl.checkOut')} ${r.time}${r.otHours>0?` · OT ${r.otHours} ${EN()?'hr':'ชม.'}`:''}`); GO('home'); }catch(e){err(e);} };
 
-  // "sent today" badge for the daily report — journalStatus returns every student with an entry for `date`
+  // daily-report badge — journalStatus returns every student with an entry for `date` + its DRAFT/SUBMITTED state
   function journalDoneMap(st){ const m={}; ((st&&st.done)||[]).forEach(d=>{ m[d.studentId]=d; }); return m; }
   // journalStatus returns `submittedAt`; getJournal returns the raw row (`SubmittedAt`)
   const jTime = d => { const s=String((d&&(d.submittedAt||d.SubmittedAt))||''); return s.length>=16 ? s.slice(11,16) : ''; };
-  function journalPill(d){ if(!d) return `<span class="pill wait">⏳ ${esc(EN()?'Not sent':'ยังไม่ส่ง')}</span>`;
-    const tm=jTime(d); return `<span class="pill ok">✅ ${esc(EN()?'Sent today':'ส่งแล้ววันนี้')}${tm?' '+esc(tm):''}</span>`; }
+  const jIsDraft = d => !!d && String(d.status||d.Status||'').toUpperCase()==='DRAFT';
+  function journalPill(d){
+    if(!d) return `<span class="pill wait">⏳ ${esc(t('jr.notSent'))}</span>`;
+    if(jIsDraft(d)) return `<span class="pill info">📝 ${esc(t('jr.draft'))}</span>`;
+    const tm=jTime(d); return `<span class="pill ok">✅ ${esc(t('jr.sent'))}${tm?' '+esc(tm):''}</span>`; }
+  // no entry → write it; draft → keep editing; submitted → read-only
+  const journalBtnLabel = d => !d ? t('lbl.record') : (jIsDraft(d) ? t('jr.edit') : t('jr.view'));
 
   SCREENS.Teacher.class = async () => {
     const [cl,jstat]=await Promise.all([api('classList',{staffId:USER.staffId}),api('journalStatus',{})]);
     const jdone=journalDoneMap(jstat);
-    app.innerHTML=`<h2 class="page">👶 ${esc(cl.class.ClassName)}</h2>`+cl.students.map(s=>`<div class="card spread"><div style="display:flex;gap:10px;align-items:center">${studentAvatar(s)}<div><b>${esc(nm(s))}</b>${nick(s)?` <span class="pill info">${esc(nick(s))}</span>`:''} <small class="muted">(${esc(EN()?s.NameTH:s.NameEN)})</small><br><small class="muted">${esc(ageYM(s.DOB))} · ${EN()?'allergy':'แพ้'}: ${esc(s.Allergy||'-')}</small><br>${journalPill(jdone[s.StudentID])}</div></div><div class="row"><button class="btn sm ${jdone[s.StudentID]?'outline':''}" onclick="T_journal('${s.StudentID}')" title="${esc(jdone[s.StudentID]?(EN()?'Edit today’s daily report':'แก้ไขบันทึกประจำวันวันนี้'):(EN()?'Write today’s daily report':'กรอกบันทึกประจำวันวันนี้'))}">${jdone[s.StudentID]?'✏️':'📒'}</button><button class="btn sm outline" onclick="T_assess('${s.StudentID}')">📝</button><button class="btn sm green" onclick="T_studentCheckin('${s.StudentID}','${esc(nm(s))}')" title="${EN()?'Check in/out for a non-registered pickup person':'เช็คอิน/เอาท์แทน (คนมารับ-ส่งที่ไม่ได้อยู่ในระบบ)'}">📍</button></div></div>`).join(''); };
+    app.innerHTML=`<h2 class="page">👶 ${esc(cl.class.ClassName)}</h2>`+cl.students.map(s=>`<div class="card spread"><div style="display:flex;gap:10px;align-items:center">${studentAvatar(s)}<div><b>${esc(nm(s))}</b>${nick(s)?` <span class="pill info">${esc(nick(s))}</span>`:''} <small class="muted">(${esc(EN()?s.NameTH:s.NameEN)})</small><br><small class="muted">${esc(ageYM(s.DOB))} · ${EN()?'allergy':'แพ้'}: ${esc(s.Allergy||'-')}</small><br>${journalPill(jdone[s.StudentID])}</div></div><div class="row"><button class="btn sm ${jdone[s.StudentID]?'outline':''}" onclick="T_journal('${s.StudentID}')" title="${esc(journalBtnLabel(jdone[s.StudentID]))}">${!jdone[s.StudentID]?'📒':(jIsDraft(jdone[s.StudentID])?'✏️':'👁️')}</button><button class="btn sm outline" onclick="T_assess('${s.StudentID}')">📝</button><button class="btn sm green" onclick="T_studentCheckin('${s.StudentID}','${esc(nm(s))}')" title="${EN()?'Check in/out for a non-registered pickup person':'เช็คอิน/เอาท์แทน (คนมารับ-ส่งที่ไม่ได้อยู่ในระบบ)'}">📍</button></div></div>`).join(''); };
   // Teacher checks a student in/out on behalf of a pickup person who isn't a registered parent.
   // The remark (who it was) is mandatory — the Save button stays disabled until it's filled.
   window.T_studentCheckin=(sid,name)=>{ modal(`<h3>📍 ${EN()?'Check in / out for':'เช็คอิน-เอาท์แทน'} ${esc(name)}</h3>
@@ -881,13 +886,20 @@
   SCREENS.Teacher.journal = async () => { const cl=await api('classList',{staffId:USER.staffId}); T_journal(cl.students[0].StudentID); };
   let JSEL={};
   window.T_journal = async (sid) => { setNav('class'); JSEL={Mood:'',Health:'',Water:'',Meals:{},Toilet:{},Activity:new Set(),Skills:new Set()};
-    // load today's entry (null when none) so the teacher can re-open and EDIT what was already sent
-    const [cl,j]=await Promise.all([api('classList',{staffId:USER.staffId}),api('getJournal',{studentId:sid})]);
+    // role lets the engine hand a DRAFT to staff (a parent gets null until it is submitted)
+    const [cl,j]=await Promise.all([api('classList',{staffId:USER.staffId}),api('getJournal',{studentId:sid,role:USER.role})]);
     const s=cl.students.find(x=>x.StudentID===sid)||{NameTH:sid};
-    const sent=jTime(j), editing=!!j, jv=journalValues(j);
+    const sent=jTime(j), draft=jIsDraft(j), jv=journalValues(j);
+
+    // once submitted the entry is final — show it read-only rather than a form that cannot save
+    if(j && !draft){ app.innerHTML=`<button class="btn sm outline backbtn" onclick="GO('class')">${t('c.back')}</button>
+      <h2 class="page">📒 ${esc(nm(s))}</h2>
+      <div class="card" style="background:#e8f5e9;color:#2e7d32;font-size:13px">🔒 ${esc(t('jr.locked'))}${sent?` · ${esc(t('jr.sent'))} ${esc(sent)}`:''}</div>
+      ${journalChecklist(j)}`; window.scrollTo(0,0); return; }
+
     const seg=(group,arr,multi)=>arr.map(v=>`<button type="button" data-g="${esc(group)}" data-v="${esc(v)}" onclick="J_pick('${group}','${v.replace(/'/g,"\\'")}',this,${multi})">${esc(jt(v))}</button>`).join('');
-    app.innerHTML=`<button class="btn sm outline backbtn" onclick="GO('class')">${t('c.back')}</button><h2 class="page">${editing?'✏️':'📒'} ${esc(editing?(EN()?'Edit daily report':'แก้ไขบันทึก'):(EN()?'Daily report':'กรอกบันทึก'))} — ${esc(nm(s))}</h2><div class="card">
-      ${editing?`<div style="background:#e8f5e9;border-radius:8px;padding:8px;color:#2e7d32;font-size:13px;margin-bottom:8px">✅ ${esc(EN()?'Already sent today':'ส่งแล้ววันนี้')}${sent?' '+esc(EN()?'at':'เวลา')+' '+esc(sent):''} — ${esc(EN()?'saving again updates it and re-notifies the parent.':'บันทึกอีกครั้งจะเป็นการแก้ไขและแจ้งผู้ปกครองใหม่')}</div>`:''}
+    app.innerHTML=`<button class="btn sm outline backbtn" onclick="GO('class')">${t('c.back')}</button><h2 class="page">${draft?'✏️':'📒'} ${esc(draft?t('jr.edit'):t('lbl.record'))} — ${esc(nm(s))}</h2><div class="card">
+      <div style="background:#fff3e0;border-radius:8px;padding:8px;color:#e65100;font-size:13px;margin-bottom:8px">📝 ${esc(t('jr.draftHint'))}</div>
       <div class="jsec"><h4>😊 ${esc(jt('Mood'))} *</h4><div class="choice" id="g_Mood">${Object.keys(MOODS).map(m=>`<button type="button" data-g="Mood" data-v="${esc(m)}" onclick="J_pick('Mood','${m}',this,false)">${MOODS[m]} ${esc(jt(m))}</button>`).join('')}</div></div>
       <div class="jsec"><h4>❤️ ${esc(jt('Health'))}</h4><div class="choice">${seg('Health',HEALTHS,false)}</div>
         <div class="row" style="margin-top:6px"><input id="jHealthD" value="${esc(jv.healthDetail)}" placeholder="รายละเอียดสุขภาพ/ยา" style="flex:1"/><button class="micbtn" onclick="J_mic('jHealthD',this)">🎤</button></div></div>
@@ -900,7 +912,8 @@
       <div class="jsec"><h4>🎨 ${esc(jt('Learning Journey'))}</h4><div class="choice">${seg('Activity',ACTS,true)}</div><input id="jTheme" value="${esc(jv.theme)}" placeholder="Theme / Topic" style="margin-top:6px"/></div>
       <div class="jsec"><h4>🌟 ${esc(jt('Skills'))}</h4><div class="choice">${seg('Skills',SKILLS,true)}</div></div>
       <div class="jsec"><h4>⭐ ${esc(jt('Highlight'))}</h4><div class="row"><textarea id="jHi" placeholder="เหตุการณ์น่าประทับใจ... (กดไมค์เพื่อพูด)" style="flex:1">${esc(jv.highlight)}</textarea><button class="micbtn" onclick="J_mic('jHi',this)">🎤</button></div></div>
-      <button class="btn block" onclick="T_saveJournal('${sid}')">${esc(editing?(EN()?'Update & notify parent':'อัปเดตบันทึก & แจ้งผู้ปกครอง'):(EN()?'Save & notify parent':'บันทึก & แจ้งผู้ปกครอง'))}</button></div>`;
+      <button class="btn block outline" onclick="T_saveJournal('${sid}',false)">${esc(t('jr.saveDraft'))}</button>
+      <button class="btn block green" style="margin-top:8px" onclick="T_saveJournal('${sid}',true)">${esc(t('jr.submit'))}</button></div>`;
     if(j) J_prefill(j);
   };
   // Re-select the choice buttons of an existing entry. Values are carried on data-g/data-meal/data-tl
@@ -928,10 +941,13 @@
     const rec=new SR(); rec.lang='th-TH'; rec.interimResults=false; btn.classList.add('rec'); btn.textContent='● ฟัง...';
     rec.onresult=e=>{ const t=e.results[0][0].transcript; const el=document.getElementById(targetId); el.value=(el.value?el.value+' ':'')+t; };
     rec.onerror=()=>toast('ฟังไม่สำเร็จ ลองใหม่'); rec.onend=()=>{ btn.classList.remove('rec'); btn.textContent='🎤'; }; rec.start(); };
-  window.T_saveJournal=async(sid)=>{ const milk=($('#jMilk').value||'').split(',').map(x=>+x.trim()).filter(x=>x);
+  // submit=false saves a draft (parent not notified, still editable); submit=true sends it and locks it
+  window.T_saveJournal=async(sid,submit)=>{
+    if(submit && !confirm(t('jr.confirmSubmit'))) return;
+    const milk=($('#jMilk').value||'').split(',').map(x=>+x.trim()).filter(x=>x);
     const sleep=($('#jSleep').value||'').split(',').map(x=>x.trim()).filter(Boolean).map(s=>({from:(s.split('-')[0]||'').trim(),to:(s.split('-')[1]||'').trim()}));
-    try{ const r=await api('submitJournal',{studentId:sid,staffId:USER.staffId,Mood:JSEL.Mood,Health:JSEL.Health,HealthDetail:$('#jHealthD').value,Milk:milk,MilkTotal:milk.reduce((a,b)=>a+b,0),Water:JSEL.Water,Meals:JSEL.Meals,Sleep:sleep,Toilet:JSEL.Toilet,Activity:[...JSEL.Activity],Theme:$('#jTheme').value,Skills:[...JSEL.Skills],Highlight:$('#jHi').value});
-      confirmSaved(r.updated?'อัปเดตบันทึกแล้ว — แจ้งผู้ปกครอง':'บันทึกแล้ว — แจ้งผู้ปกครอง'); GO('class'); }catch(e){err(e);} };
+    try{ const r=await api('submitJournal',{studentId:sid,staffId:USER.staffId,submit:!!submit,Mood:JSEL.Mood,Health:JSEL.Health,HealthDetail:$('#jHealthD').value,Milk:milk,MilkTotal:milk.reduce((a,b)=>a+b,0),Water:JSEL.Water,Meals:JSEL.Meals,Sleep:sleep,Toilet:JSEL.Toilet,Activity:[...JSEL.Activity],Theme:$('#jTheme').value,Skills:[...JSEL.Skills],Highlight:$('#jHi').value});
+      confirmSaved(r.submitted?(EN()?'Sent to the parent':'ส่งให้ผู้ปกครองแล้ว'):(EN()?'Draft saved — not sent yet':'บันทึกร่างแล้ว — ยังไม่ได้ส่ง')); GO('class'); }catch(e){err(e);} };
 
   // ===== injury / accident report (แบบบันทึกการบาดเจ็บรายบุคคล) — teacher & leader =====
   SCREENS.Teacher.injury = async () => {

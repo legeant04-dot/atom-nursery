@@ -44,6 +44,13 @@
     'lbl.worktime':['⏱️ เวลาทำงานวันนี้','⏱️ Today\'s work time'], 'lbl.checkIn':['เข้างาน','Check in'], 'lbl.checkOut':['เลิกงาน','Check out'], 'lbl.late':['สาย','Late'], 'lbl.min':['นาที','min'], 'lbl.onTime':['ตรงเวลา','On time'],
     'lbl.myLeaveQuota':['📩 การลาของฉัน · สิทธิคงเหลือ','📩 My leave · remaining'], 'lbl.used':['ใช้','used'], 'lbl.teamPending':['⭐ คำขอลาของลูกน้อง (รออนุมัติ)','⭐ Team leave requests (pending)'],
     'lbl.submitLeave':['ยื่นใบลา','Submit leave'], 'lbl.myRequests':['📋 คำขอของฉัน','📋 My requests'], 'lbl.record':['บันทึก','Record'], 'lbl.assess':['ประเมิน','Assess'],
+    // daily report (DAILY_JOURNAL) — draft → submit lifecycle
+    'jr.edit':['แก้ไขบันทึก','Edit Report'], 'jr.view':['ดูบันทึก','View Report'],
+    'jr.sent':['ส่งแล้ววันนี้','Sent today'], 'jr.draft':['ร่าง · ยังไม่ส่ง','Draft · not sent'], 'jr.notSent':['ยังไม่ส่ง','Not sent'],
+    'jr.saveDraft':['💾 บันทึกร่าง','💾 Save draft'], 'jr.submit':['📤 ส่งให้ผู้ปกครอง','📤 Submit to parent'],
+    'jr.locked':['ส่งให้ผู้ปกครองแล้ว — แก้ไขไม่ได้','Submitted to the parent — no longer editable'],
+    'jr.draftHint':['ยังไม่ได้ส่ง · แก้ไขได้ตลอด กด "ส่งให้ผู้ปกครอง" เมื่อพร้อม','Not sent yet · you can keep editing. Press “Submit to parent” when ready.'],
+    'jr.confirmSubmit':['ส่งให้ผู้ปกครองเลยหรือไม่? หลังส่งแล้วจะแก้ไขไม่ได้','Submit to the parent? You will not be able to edit it afterwards.'],
     'lbl.calendar':['📅 ปฏิทิน','📅 Calendar'], 'lbl.ioLegend':['↓ เวลาส่ง · ↑ เวลารับ (ใช้ตรวจสอบ OT)','↓ drop-off · ↑ pick-up (for OT check)'],
     'lbl.studentsToday':['👶 นักเรียนแต่ละชั้นวันนี้','👶 Students by class today'], 'lbl.staffToday':['👩‍🏫 พนักงานวันนี้','👩‍🏫 Staff today'], 'lbl.present':['มา','In'], 'lbl.left':['กลับ','Out'], 'lbl.onleave':['ลา','Leave'], 'lbl.absent':['ขาด','Absent'],
     'lbl.curBand':['⭐ ช่วงวัยปัจจุบัน','⭐ Current age band'], 'lbl.pastResults':['📜 ผลย้อนหลัง (ช่วงวัยก่อนหน้า)','📜 Past results (earlier bands)'], 'lbl.downloadManual':['⬇️ ดาวน์โหลดคู่มือ DSPM','⬇️ Download DSPM manual'],

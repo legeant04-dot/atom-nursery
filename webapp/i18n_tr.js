@@ -83,6 +83,8 @@
     'กำลังติดตาม':'Following up','ติดตามแล้ว':'Followed up','ลายาว':'Long leave','ออกกลางคัน':'Withdrew','ไม่สบาย':'Sick','ค่าเรียนพิเศษภาษาไทย':'Thai special class','โทรหาผู้ปกครองแล้ว เด็กเป็นหวัด':'Called parent — child has a cold',
     // misc
     'แรกเกิด':'New Born','ประกาศ':'Announcements','สีและรูปทรง':'Colors & shapes',
+    // phrases containing 'บันทึก' — without these the longest-first substring pass yields "แก้ไขRecord"
+    'แก้ไขบันทึก':'Edit Report','ดูบันทึก':'View Report','บันทึกร่าง':'Save draft','ส่งให้ผู้ปกครอง':'Submit to parent',
     // short whole-node labels (exact match only)
     'ดู':'View','ปิด':'Close','ลา':'Leave','คน':'people','เปิด':'ON','บันทึก':'Record','ประเมิน':'Assess'
   };
