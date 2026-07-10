@@ -33,6 +33,33 @@ function handleSaveStaff(p) {
   return { ok: true, staffId: id };
 }
 
+// Staff edits their OWN record — whitelisted fields, in-place. staffId is injected by applyIdentity_
+// (teacher/leader can only ever be themselves; admin may target another from the manage screen).
+function handleSaveStaffSelf(p) {
+  p = p || {};
+  if (!p.staffId) throw apiError_('NO_SESSION', 'ต้องเข้าสู่ระบบใหม่');
+  var sh = sheet_(getHrSpreadsheet_(), 'STAFF');
+  var st = findObject_(sh, function (s) { return String(s.StaffID) === String(p.staffId); });
+  if (!st) throw apiError_('NOT_FOUND', 'ไม่พบพนักงาน ' + p.staffId);
+  var d = p.data || {}, WHITE = ['NameEN', 'Nickname', 'NicknameEN', 'Phone', 'DOB', 'Photo'];
+  var row = {};
+  WHITE.forEach(function (k) { if (d[k] !== undefined) row[k] = d[k]; });
+  updateRow_(sh, st._row, row);
+  staffCacheBust_();
+  return { ok: true, staffId: p.staffId };
+}
+
+// Toggle a staff's check-in requirement in place (the engine version rewrote the whole STAFF sheet).
+function handleSetRequireCheckin(p) {
+  p = p || {};
+  var sh = sheet_(getHrSpreadsheet_(), 'STAFF');
+  var st = findObject_(sh, function (s) { return String(s.StaffID) === String(p.staffId); });
+  if (!st) throw apiError_('NOT_FOUND', 'ไม่พบพนักงาน ' + p.staffId);
+  updateRow_(sh, st._row, { RequireCheckin: !!p.value });
+  staffCacheBust_();
+  return { staffId: p.staffId, value: !!p.value };
+}
+
 function handleDeleteStaff(p) {
   p = p || {};
   var sh = sheet_(getHrSpreadsheet_(), 'STAFF');

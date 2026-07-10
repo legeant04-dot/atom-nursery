@@ -18,6 +18,8 @@ var ROUTES = {
   changePassword: function (p) { return handleChangePassword(p); },
   // in-place staff CRUD (override the engine's full-collection rewrite, which could wipe other rows)
   saveStaff:      function (p) { return handleSaveStaff(p); },
+  saveStaffSelf:  function (p) { return handleSaveStaffSelf(p); },
+  setRequireCheckin: function (p) { return handleSetRequireCheckin(p); },
   deleteStaff:    function (p) { return handleDeleteStaff(p); },
   saveStudent:    function (p) { return handleSaveStudent(p); },
   saveParent:     function (p) { return handleSaveParent(p); },
@@ -122,7 +124,7 @@ function applyIdentity_(action, payload, sess) {
   }
   // Admin-only destructive/sensitive actions — block non-admins (parent/teacher tokens).
   var ADMIN_ONLY = { deleteBill: 1, adminResetPassword: 1, getStaffPassword: 1, setSchoolConfig: 1, recomputeAttendance: 1,
-    addDepartment: 1, removeDepartment: 1, renameDepartment: 1, listBackups: 1, restoreSheet: 1 };
+    addDepartment: 1, removeDepartment: 1, renameDepartment: 1, listBackups: 1, restoreSheet: 1, setRequireCheckin: 1 };
   if (ADMIN_ONLY[action] && sess.role !== 'Admin') throw apiError_('NO_PERMISSION', 'เฉพาะแอดมิน');
   // Admin is fully trusted: may target ANY staff/student/parent (manage everyone + "view as" any role).
   if (sess.role === 'Admin') return payload;
