@@ -10,7 +10,8 @@
  * objects/arrays — they are stored as JSON text in the cell.
  * ------------------------------------------------------------------
  */
-var JOURNAL_FIELDS = ['Mood', 'Health', 'Milk', 'Meals', 'Sleep', 'Toilet', 'Activity', 'Skills', 'Highlight'];
+var JOURNAL_FIELDS = ['Mood', 'Health', 'Milk', 'Meals', 'Sleep', 'Toilet', 'Activity', 'Skills', 'Highlight',
+  'HealthDetail', 'MilkTotal', 'Water', 'Theme'];
 var JOURNAL_REQUIRED = ['Mood']; // minimum to submit (spec: block submit if required missing)
 
 function jsonCell_(v) {
@@ -38,7 +39,10 @@ function handleSubmitJournal(payload) {
 
   var date = payload.date || dateStr_(new Date());
   var sheet = sheet_(getMainSpreadsheet_(), 'DAILY_JOURNAL');
-  var rec = { Date: date, StudentID: student.StudentID, TeacherID: teacher.StaffID };
+  ensureColumns_(sheet, ['HealthDetail', 'MilkTotal', 'Water', 'Theme', 'SubmittedAt']);
+  var now = new Date();
+  var rec = { Date: date, StudentID: student.StudentID, TeacherID: teacher.StaffID,
+    SubmittedAt: dateStr_(now) + ' ' + timeStr_(now) };
   JOURNAL_FIELDS.forEach(function (f) { rec[f] = jsonCell_(payload[f]); });
 
   var existing = findObject_(sheet, function (r) {
@@ -46,6 +50,9 @@ function handleSubmitJournal(payload) {
   });
   if (existing) updateRow_(sheet, existing._row, rec);
   else appendObject_(sheet, rec);
+  // in-place writes bypass writeRows_, which is what normally invalidates the sheet cache — flush it
+  // here or the engine's journalStatus/getJournal serve a stale read for up to CacheTTL seconds.
+  if (typeof cacheDel_ === 'function') { cacheDel_('col:DAILY_JOURNAL'); cacheDel_('rows:DAILY_JOURNAL'); }
   logAudit(teacher.StaffID, existing ? 'JOURNAL_UPDATE' : 'JOURNAL_CREATE', 'DAILY_JOURNAL', student.StudentID + '@' + date);
 
   // notify parent with a deep link if LIFF is configured
@@ -56,10 +63,11 @@ function handleSubmitJournal(payload) {
       var liff = getConfig_('LiffID', '');
       var link = (liff && String(liff).indexOf('<FILL') !== 0)
         ? '\nดูรายละเอียด: https://liff.line.me/' + liff + '?view=journal&student=' + student.StudentID + '&date=' + date : '';
-      linePushText_(parent.LineUID, '📒 บันทึกประจำวันของ ' + student.Name + ' พร้อมแล้ว (' + date + ')' + link);
+      var verb = existing ? ' ได้รับการแก้ไข ' : ' พร้อมแล้ว ';
+      linePushText_(parent.LineUID, '📒 บันทึกประจำวันของ ' + student.Name + verb + '(' + date + ')' + link);
     }
   }
-  return { studentId: student.StudentID, date: date, updated: !!existing };
+  return { studentId: student.StudentID, date: date, updated: !!existing, submittedAt: rec.SubmittedAt };
 }
 
 /** payload: { studentId, date } */
