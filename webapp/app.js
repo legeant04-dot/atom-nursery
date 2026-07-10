@@ -3,7 +3,7 @@
   const $ = s => document.querySelector(s);
   const app = $('#app'), nav = $('#bottomnav');
   const baht = n => (Number(n)||0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
-  const APP_VERSION = 'Version 1.058'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.059'; // bump each webapp change; shown only at the bottom of the Chat screen
   const verTag = () => `<div style="text-align:center;color:#c3c9d4;font-size:10px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
   const phoneFmt = p => { let d=String(p==null?'':p).replace(/\D/g,''); if(d.length===9) d='0'+d; return d; };
@@ -80,7 +80,11 @@
   window.TOGGLE_LANG = () => { setLang(LANG()==='en'?'th':'en'); setHeader(); if(USER) GO(CURRENT); else (AUTH_RENDER||loginScreen)(); ensureTranslateObserver(); applyLangNow(); };
   // tapping the left logo goes Home; tapping the right name/avatar → parent profile (else Home)
   window.HOME_TAP = () => { if(USER) GO('home'); };
-  window.NAME_TAP = () => { if(!USER) return; if(USER.role==='Parent' && typeof P_profile==='function') P_profile(); else GO('home'); };
+  // tapping the name/avatar opens THIS account's own profile (parent or staff/admin)
+  window.NAME_TAP = () => { if(!USER) return;
+    if(USER.role==='Parent'){ if(typeof P_profile==='function') P_profile(); return; }
+    if(USER.staffId && typeof T_profile==='function'){ T_profile(); return; }
+    GO('home'); };
 
   const NAVS = {
     Parent:[['home','🏠','nav.home'],['checkin','📍','nav.checkin'],['payment','💳','nav.payment'],['journal','📒','nav.journal'],['dspm','📈','nav.dspm'],['chat','💬','nav.chat']],
@@ -1000,28 +1004,39 @@
   function teamLeaveRow(l){ return `<div class="card" style="margin:8px 0"><div class="spread"><div><b>${esc(staffName(l.StaffID))}</b> <small class="muted">(${esc(l.Department)})</small><br>${esc(l.Type)} ${esc(l.StartDate)}→${esc(l.EndDate)} (${l.Days}ว.)<br><small class="muted">${esc(l.Reason||'')}</small></div>${leaveStatusPill(l.Status)}</div><div class="row" style="margin-top:8px"><button class="btn sm green" onclick="T_teamApprove('${l.LeaveID}','approve')">อนุมัติ</button><button class="btn sm pink" onclick="T_teamApprove('${l.LeaveID}','reject')">ปฏิเสธ</button></div></div>`; }
 
   const firstName = s => (nm(s)||'').split(' ')[0];
-  function staffSchedCalendar(history){ const now=new Date(),y=now.getFullYear(),mo=now.getMonth();
+  // opts: { shortName(staffId), holidays:[{Date,NameTH,NameEN}], leaves:[approved] } — never reads MOCK.staff
+  function staffSchedCalendar(history, opts){ opts=opts||{};
+    const shortName=opts.shortName||(id=>id);
+    const now=new Date(),y=now.getFullYear(),mo=now.getMonth();
     const first=new Date(y,mo,1).getDay(),days=new Date(y,mo+1,0).getDate(); const byDay={};
-    const p2=n=>String(n).padStart(2,'0');
-    history.forEach(h=>{ const d=new Date(h.Date); if(d.getFullYear()===y&&d.getMonth()===mo){ const s=MOCK.staff.find(x=>x.StaffID===h.StaffID); (byDay[d.getDate()]=byDay[d.getDate()]||[]).push((s?firstName(s):'?')+(h.In?' '+h.In:'')); } });
-    // approved leaves overlapping each day -> "FirstName (LeaveType)"
-    (MOCK.leaves||[]).filter(l=>l.Status==='APPROVED').forEach(l=>{ const st=new Date(l.StartDate),en=new Date(l.EndDate); for(let dt=new Date(st); dt<=en; dt.setDate(dt.getDate()+1)){ if(dt.getFullYear()===y&&dt.getMonth()===mo){ const s=MOCK.staff.find(x=>x.StaffID===l.StaffID); (byDay[dt.getDate()]=byDay[dt.getDate()]||[]).push((s?firstName(s):'?')+' ('+tLeaveType(l.Type)+')'); } } });
+    const holByDay={}; (opts.holidays||[]).forEach(h=>{ const d=new Date(h.Date); if(d.getFullYear()===y&&d.getMonth()===mo) holByDay[d.getDate()]=EN()?(h.NameEN||h.NameTH):(h.NameTH||h.NameEN); });
+    (history||[]).forEach(h=>{ const d=new Date(h.Date); if(d.getFullYear()===y&&d.getMonth()===mo){ (byDay[d.getDate()]=byDay[d.getDate()]||[]).push(shortName(h.StaffID)+(h.In?' '+h.In:'')); } });
+    // approved leaves overlapping each day -> "Nickname (LeaveType)"
+    (opts.leaves||[]).filter(l=>l.Status==='APPROVED').forEach(l=>{ const st=new Date(l.StartDate),en=new Date(l.EndDate); for(let dt=new Date(st); dt<=en; dt.setDate(dt.getDate()+1)){ if(dt.getFullYear()===y&&dt.getMonth()===mo){ (byDay[dt.getDate()]=byDay[dt.getDate()]||[]).push(shortName(l.StaffID)+' ('+tLeaveType(l.Type)+')'); } } });
     let cells=['อา','จ','อ','พ','พฤ','ศ','ส'].map(w=>`<div style="text-align:center;font-size:11px;color:#94a3b8">${EN()?({'อา':'Su','จ':'Mo','อ':'Tu','พ':'We','พฤ':'Th','ศ':'Fr','ส':'Sa'}[w]):w}</div>`).join('');
     for(let i=0;i<first;i++) cells+='<div class="d dim"></div>';
-    for(let dd=1;dd<=days;dd++){ const ppl=byDay[dd]; const today=dd===now.getDate()?'today':''; cells+=`<div class="d ${ppl?'ev':''} ${today}" style="min-height:64px">${dd}${ppl?`<span class="io" style="color:#2e7d32;text-align:left">${esc(ppl.join('\n'))}</span>`:''}</div>`; }
+    for(let dd=1;dd<=days;dd++){ const ppl=byDay[dd]; const hol=holByDay[dd]; const today=dd===now.getDate()?'today':'';
+      const holStyle=hol?'background:#ffebee;border-color:#ef9a9a;':'';
+      cells+=`<div class="d ${ppl?'ev':''} ${today}" style="min-height:64px;${holStyle}">${dd}`
+        +(hol?`<span class="io" style="color:#c62828;text-align:left;font-weight:600">🏖️ ${esc(hol)}</span>`:'')
+        +(ppl?`<span class="io" style="color:#2e7d32;text-align:left">${esc(ppl.join('\n'))}</span>`:'')+`</div>`; }
     const M=['ม.ค.','ก.พ.','มี.ค.','เม.ย.','พ.ค.','มิ.ย.','ก.ค.','ส.ค.','ก.ย.','ต.ค.','พ.ย.','ธ.ค.'], ME=['January','February','March','April','May','June','July','August','September','October','November','December'];
-    return `<div class="card"><h3>${esc(t('lbl.calendar'))} ${EN()?ME[mo]+' '+y:M[mo]+' '+(y+543)}</h3><div class="cal">${cells}</div><small class="muted">${EN()?'Name + check-in time; leave type shown after name':'ชื่อ + เวลาเข้างาน; ถ้าลาจะมีประเภทลาต่อท้ายชื่อ'}</small></div>`; }
+    return `<div class="card"><h3>${esc(t('lbl.calendar'))} ${EN()?ME[mo]+' '+y:M[mo]+' '+(y+543)}</h3><div class="cal">${cells}</div><small class="muted">${EN()?'Nickname + check-in time; 🏖️ = school holiday':'ชื่อเล่น + เวลาเข้างาน; 🏖️ = วันหยุดโรงเรียน'}</small></div>`; }
   SCREENS.Teacher.schedule = async () => { const d=await api('schedule');
     const todayDuty=d.duty.filter(x=>x.Date===todayStr());
     const staffing=d.staffing||[];
+    // staff directory comes from the API (MOCK.staff is empty in gas mode)
+    const dir={}; (d.staff||[]).forEach(s=>{ dir[s.StaffID]=s; });
+    const fullName=id=>{ const s=dir[id]; if(!s) return id; const n=nm(s)||id, k=nick(s); return k?`${n} (${k})`:n; };
+    const shortName=id=>{ const s=dir[id]; if(!s) return String(id); return nick(s)||firstName(s)||nm(s)||String(id); };
     const ratioHtml = staffing.length?`<div class="card"><h3>👥 ${esc(t('lbl.staffingByNursery'))} (${esc(todayStr())})</h3>
       <div class="row">${staffing.map(x=>`<span class="pill ${x.present>=x.total?'ok':x.present>0?'wait':'bad'}" style="font-size:13px">${esc(x.dept)} ${x.present}/${x.total}</span>`).join('')}</div></div>`:'';
     app.innerHTML=`<h2 class="page">${esc(t('title.schedule'))}</h2>
       ${ratioHtml}
-      ${staffSchedCalendar(d.history)}
-      <div class="card"><h3>🧑‍🏫 ${esc(t('lbl.dutyRoster'))} (${esc(todayStr())})</h3>${todayDuty.map(x=>`<div class="list-item"><span>${esc(x.ClassName)}</span><span><span class="avatar-sm">${esc(initialEN((MOCK.staff.find(s=>s.StaffID===x.StaffID)||{}).NameEN))}</span> ${esc(staffName(x.StaffID))}</span></div>`).join('')||`<small class="muted">${esc(t('c.noItems'))}</small>`}</div>
-      <div class="card"><h3>📋 ${esc(t('lbl.dailySummary'))} (${esc(todayStr())})</h3>${d.attendance.map(a=>{const s=MOCK.staff.find(x=>x.StaffID===a.StaffID)||{};const cls=a.Status==='IN'?'dot-in':a.Status==='OUT'?'dot-out':a.Status==='LEAVE'?'dot-leave':'dot-absent';return `<div class="att"><span class="dot-s ${cls}"></span> ${esc(nm(s)||a.StaffID)} — ${a.Status==='LEAVE'?(EN()?'Leave':'ลา')+' ('+esc(a.Reason||'')+')':a.Status+(a.CheckIn?' '+a.CheckIn:'')}</span></div>`;}).join('')||`<small class="muted">${esc(t('c.noItems'))}</small>`}
-        <div style="margin-top:8px"><b style="font-size:13px">${EN()?'Approved leave (for coverage)':'การลาที่อนุมัติแล้ว (วางแผนสับเปลี่ยน)'}:</b>${d.leavesToday.map(l=>`<div class="list-item"><span>${esc(staffName(l.StaffID))} · ${esc(tLeaveType(l.Type))}</span><span class="muted">${esc(l.StartDate)}→${esc(l.EndDate)}</span></div>`).join('')||`<small class="muted">${esc(t('c.noItems'))}</small>`}</div></div>`;
+      ${staffSchedCalendar(d.history,{shortName,holidays:d.holidays,leaves:d.leavesToday})}
+      <div class="card"><h3>🧑‍🏫 ${esc(t('lbl.dutyRoster'))} (${esc(todayStr())})</h3>${todayDuty.map(x=>`<div class="list-item"><span>${esc(x.ClassName)}</span><span><span class="avatar-sm">${esc(initialEN((dir[x.StaffID]||{}).NameEN))}</span> ${esc(fullName(x.StaffID))}</span></div>`).join('')||`<small class="muted">${esc(t('c.noItems'))}</small>`}</div>
+      <div class="card"><h3>📋 ${esc(t('lbl.dailySummary'))} (${esc(todayStr())})</h3>${d.attendance.map(a=>{const cls=a.Status==='IN'?'dot-in':a.Status==='OUT'?'dot-out':a.Status==='LEAVE'?'dot-leave':'dot-absent';return `<div class="att"><span class="dot-s ${cls}"></span> ${esc(fullName(a.StaffID))} — ${a.Status==='LEAVE'?(EN()?'Leave':'ลา')+' ('+esc(a.Reason||'')+')':a.Status+(a.CheckIn?' '+a.CheckIn:'')}</span></div>`;}).join('')||`<small class="muted">${esc(t('c.noItems'))}</small>`}
+        <div style="margin-top:8px"><b style="font-size:13px">${EN()?'Approved leave (for coverage)':'การลาที่อนุมัติแล้ว (วางแผนสับเปลี่ยน)'}:</b>${d.leavesToday.map(l=>`<div class="list-item"><span>${esc(fullName(l.StaffID))} · ${esc(tLeaveType(l.Type))}</span><span class="muted">${esc(l.StartDate)}→${esc(l.EndDate)}</span></div>`).join('')||`<small class="muted">${esc(t('c.noItems'))}</small>`}</div></div>`;
   };
 
   let SLIP_UNLOCKED=false;
@@ -1039,6 +1054,32 @@
       <div id="slipBox">${payslipCard(pay)}</div>
       <button class="btn outline block" onclick="T_slipDownload()">⬇️ ${esc(t('lbl.downloadSlip'))}</button>`;
   };
+  // staff/admin own profile (opened by tapping the header name/avatar)
+  window.T_profile = async () => { setNav('home');
+    const s = await api('staffSelf',{staffId:USER.staffId}) || {};
+    const ro=(label,val)=>`<div class="list-item"><span class="muted" style="font-size:12.5px">${esc(label)}</span><span><b>${esc(val==null||val===''?'-':val)}</b></span></div>`;
+    const f=(k,label,val,type)=>`<label class="field"><span>${esc(label)}</span><input id="sp_${k}" type="${type||'text'}" value="${esc(val==null?'':val)}"/></label>`;
+    app.innerHTML=`<div class="spread"><h2 class="page">👤 ${EN()?'My info':'ข้อมูลของฉัน'}</h2><button class="btn sm outline" onclick="GO('home')">← ${esc(t('c.back'))}</button></div>
+      <div class="card"><h3>${esc(nm(s)||USER.nameTH||'')}</h3>
+        <div class="grid2">${f('NameEN',EN()?'Name (EN)':'ชื่อ-สกุล (อังกฤษ)',s.NameEN)}${f('Nickname',EN()?'Nickname':'ชื่อเล่น',s.Nickname)}</div>
+        <div class="grid2">${f('Phone',EN()?'Phone':'เบอร์โทร',phoneFmt(s.Phone))}${f('DOB',EN()?'Date of birth':'วันเกิด',s.DOB,'date')}</div>
+        <button class="btn block green" onclick="T_saveProfile(this)">💾 ${EN()?'Save':'บันทึก'}</button></div>
+      <div class="card"><h3>ℹ️ ${EN()?'Employment info':'ข้อมูลการทำงาน'}</h3>
+        <p class="muted" style="font-size:11.5px">${EN()?'Contact admin to change these.':'ต้องการแก้ไข ติดต่อแอดมิน'}</p>
+        ${ro(EN()?'Name (TH)':'ชื่อ-สกุล (ไทย)',s.NameTH)}
+        ${ro(EN()?'Position':'ตำแหน่ง',s.Position)}
+        ${ro(EN()?'Level':'ระดับ',s.PositionLevel)}
+        ${ro(EN()?'Department':'แผนก/Nursery',s.Department)}
+        ${ro(EN()?'Staff group':'กลุ่มพนักงาน',(s.StaffGroup||'')+((s.GroupIn||s.GroupOut)?` (${s.GroupIn||'--'}–${s.GroupOut||'--'})`:''))}
+        ${ro(EN()?'Check-in required':'ต้องลงเวลาเข้างาน',s.RequireCheckin?(EN()?'Yes':'ใช่'):(EN()?'No':'ไม่'))}
+        ${ro(EN()?'Start date':'วันเข้าทำงาน',s.StartDate)}
+        ${ro(EN()?'National ID':'เลขบัตรประชาชน',s.NationalID)}</div>
+      <div class="card"><div class="row"><button class="btn sm outline" onclick="T_changePw(false)">🔑 ${esc(t('pw.title'))}</button><button class="btn sm outline" onclick="T_forgotPw()">❓ ${EN()?'Forgot password':'ลืมรหัสผ่าน'}</button></div></div>`;
+    window.scrollTo(0,0); };
+  window.T_saveProfile = async (btn)=>{ const g=k=>{ const e=document.getElementById('sp_'+k); return e?e.value.trim():undefined; };
+    const data={ NameEN:g('NameEN'), Nickname:g('Nickname'), Phone:g('Phone'), DOB:g('DOB') };
+    if(btn)btn.disabled=true;
+    try{ await api('saveStaffSelf',{staffId:USER.staffId,data}); confirmSaved(t('c.saved')); }catch(e){err(e);}finally{ if(btn)btn.disabled=false; } };
   window.T_slipUnlock=async()=>{ const pw=$('#slipPw').value;
     try{ const r=await api('checkStaffPassword',{staffId:USER.staffId,password:pw}); if(r&&r.ok){ SLIP_UNLOCKED=true; GO('slip'); } else toast(EN()?'Wrong password':'รหัสผ่านไม่ถูกต้อง'); }catch(e){err(e);} };
   window.T_forgotPw=async()=>{ if(!confirm(EN()?'Send a password reset request to the admin?':'ส่งคำขอรีเซ็ตรหัสผ่านไปที่แอดมินใช่หรือไม่?'))return;

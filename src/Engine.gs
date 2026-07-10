@@ -286,12 +286,18 @@ function createAtomAPI(M, GROWTH_STD) {
       if(l.Status==='PENDING_LEADER'){ if(ap.PositionLevel!=='Leader'&&ap.PositionLevel!=='Admin')fail('NO_PERMISSION','เฉพาะหัวหน้างาน'); l.Step1ApproverName=ap.NameTH;l.Step1Status=yes?'Approved':'Rejected';l.Step1CrossDept=(ap.Department!==l.Department)?'YES':'NO';l.Status=yes?'PENDING_ADMIN':'REJECTED'; return {status:l.Status,crossDept:l.Step1CrossDept==='YES'}; }
       if(l.Status==='PENDING_ADMIN'){ if(ap.PositionLevel!=='Admin')fail('NO_PERMISSION','เฉพาะผู้บังคับบัญชา'); l.Step2ApproverName=ap.NameTH;l.Step2Status=yes?'Approved':'Rejected';l.Status=yes?'APPROVED':'REJECTED'; return {status:l.Status}; }
       fail('ALREADY_RESOLVED','คำขอนี้ดำเนินการแล้ว'); },
-    schedule: () => ({ staff:M.staff.filter(s=>s.Role==='Teacher'), schedule:M.workSchedule,
+    // `staff` is a sanitized directory of ALL staff (name/nickname) so screens never need client MOCK.staff.
+    // `holidays` lets the schedule calendar mark school closures.
+    schedule: () => ({
+      staff: M.staff.map(s=>({StaffID:s.StaffID, NameTH:s.NameTH, NameEN:s.NameEN, Nickname:s.Nickname, NicknameEN:s.NicknameEN,
+        Role:s.Role, Department:s.Department, RequireCheckin:s.RequireCheckin!==false})),
+      schedule:M.workSchedule,
       leavesToday: M.leaves.filter(l=>l.Status==='APPROVED'), attendance:M.staffAttendanceToday,
-      history:M.staffAttendanceHistory, duty:M.dutyRoster, staffing:H.staffingByNursery() }),
+      history:M.staffAttendanceHistory, duty:M.dutyRoster, staffing:H.staffingByNursery(),
+      holidays: (M.holidays||[]).map(h=>({Date:h.Date, NameTH:h.NameTH, NameEN:h.NameEN})) }),
     // present-staff / total-staff per Nursery for the daily summary (e.g. "Nursery 1 2/2")
     staffingByNursery: () => (cfg.Departments||[]).filter(d=>d).map(dep=>{
-      const team=M.staff.filter(s=>s.Department===dep&&s.Role==='Teacher');
+      const team=M.staff.filter(s=>s.Department===dep&&s.Role==='Teacher'&&s.RequireCheckin!==false);
       const present=team.filter(s=>{ const a=M.staffAttendanceToday.find(x=>x.StaffID===s.StaffID); return a&&(a.Status==='IN'||a.Status==='OUT'); }).length;
       return {dept:dep, present, total:team.length}; }).filter(x=>x.total>0),
 
@@ -350,7 +356,8 @@ function createAtomAPI(M, GROWTH_STD) {
     dashboard: () => { const cls=M.classes.map(c=>{ const studs=activeStudents().filter(s=>s.Class===c.ClassName);
         const stat=studs.map(s=>{ const a=M.studentAttendanceToday.find(x=>x.StudentID===s.StudentID); return {name:s.NameTH,nameEN:s.NameEN, status:a?a.Status:'ABSENT', reason:a?a.Reason:''}; });
         return {className:c.ClassName,total:studs.length,in:stat.filter(s=>s.status==='IN').length,out:stat.filter(s=>s.status==='OUT').length,leave:stat.filter(s=>s.status==='LEAVE').length,absent:stat.filter(s=>s.status==='ABSENT').length,students:stat}; });
-      const staffStat=M.staff.filter(s=>s.Role==='Teacher').map(s=>{ const a=M.staffAttendanceToday.find(x=>x.StaffID===s.StaffID)||{};
+      // staff with check-in turned OFF never clock in — exclude them entirely (not counted, not "absent")
+      const staffStat=M.staff.filter(s=>s.Role==='Teacher'&&s.RequireCheckin!==false).map(s=>{ const a=M.staffAttendanceToday.find(x=>x.StaffID===s.StaffID)||{};
         const onLeave=a.Status==='LEAVE'; return {name:s.NameTH,nameEN:s.NameEN,dept:s.Department, status:a.Status||'ABSENT',
           checkIn:onLeave?'':(a.CheckIn||''), checkOut:onLeave?'':(a.CheckOut||''), late:onLeave?0:(a.Late||0), remark:onLeave?(a.Reason||'ลา'):''}; });
       return {classes:cls, staff:staffStat, pendingLeaves:M.leaves.filter(l=>l.Status.startsWith('PENDING')).length}; },
@@ -365,6 +372,9 @@ function createAtomAPI(M, GROWTH_STD) {
         RequireCheckin: s.RequireCheckin!==false, MustChangePassword: !!s.MustChangePassword,
         GroupIn: grp&&grp.CheckInTime||'', GroupOut: grp&&grp.CheckOutTime||'' }; },
     setRequireCheckin: p => { const s=M.staff.find(x=>x.StaffID===p.staffId); if(s) s.RequireCheckin=!!p.value; return {staffId:p.staffId, value:!!p.value}; },
+    // staff edits their OWN record, whitelisted fields only (staffId injected server-side)
+    saveStaffSelf: p => { const s=staffById(p.staffId); if(!s.StaffID)fail('NOT_FOUND','ไม่พบพนักงาน');
+      const d=p.data||{}; ['NameEN','Nickname','NicknameEN','Phone','DOB','Photo'].forEach(k=>{ if(d[k]!==undefined) s[k]=d[k]; }); return {ok:true, staffId:p.staffId}; },
     listStudents: () => activeStudents().map(s=>Object.assign({ageMonth:ageMonths(s.DOB)},s)),
     listClasses: () => M.classes,
     classAssessment: p => { const ss=M.students.filter(s=>s.Class===p.className); const per=ss.map(s=>{const x=summarize(s.StudentID);return{studentId:s.StudentID,name:s.NameTH,nameEN:s.NameEN,ageMonth:x.ageMonth,pass:x.totalPass,fail:x.totalFail};});
