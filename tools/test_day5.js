@@ -70,20 +70,28 @@ const result = run(function () {
   const cls = handleClassAssessment({ className: 'Nursery 1' });
   ok(cls.studentCount === 1 && cls.passRate === 60, 'class analytics passRate 60%');
 
-  // ---- daily journal ----
+  // ---- daily journal: DRAFT (editable, silent) -> SUBMITTED (parent notified, locked) ----
   PUSH.length = 0;
-  try { handleSubmitJournal({ studentId: 'STD-1', staffId: 'STF-T1', Health: 'ปกติ' }); ok(false, 'missing Mood should throw'); }
-  catch (e) { ok(e.apiCode === 'MISSING_FIELDS', 'journal blocks missing required field'); }
-  const jr = handleSubmitJournal({ studentId: 'STD-1', staffId: 'STF-T1', date: '2026-06-08',
+  const jrBody = { studentId: 'STD-1', staffId: 'STF-T1', date: '2026-06-08',
     Mood: 'Happy', Health: 'ปกติ', Milk: [{ oz: 6 }, { oz: 4 }], Meals: { lunch: 'All' }, Sleep: [{ from: '12:30', to: '14:00' }],
-    Toilet: { pee: 'Normal' }, Activity: ['Circle Time', 'Art'], Skills: ['Fine Motor'], Highlight: 'วาดรูปสวยมาก' });
-  ok(jr.updated === false, 'journal created');
-  ok(PUSH.some(p => p.to === 'Uparent' && /บันทึกประจำวัน/.test(p.text)), 'parent notified of journal');
+    Toilet: { pee: 'Normal' }, Activity: ['Circle Time', 'Art'], Skills: ['Fine Motor'], Highlight: 'วาดรูปสวยมาก' };
+  try { handleSubmitJournal({ studentId: 'STD-1', staffId: 'STF-T1', Health: 'ปกติ', submit: true }); ok(false, 'missing Mood should throw'); }
+  catch (e) { ok(e.apiCode === 'MISSING_FIELDS', 'submit blocks missing required field'); }
+
+  const jd = handleSubmitJournal(Object.assign({}, jrBody, { Mood: '' }));       // draft: incomplete is fine
+  ok(jd.status === 'DRAFT' && jd.updated === false, 'draft created, no required-field check');
+  ok(PUSH.length === 0, 'draft does NOT notify the parent');
+  const jd2 = handleSubmitJournal(Object.assign({}, jrBody, { Highlight: 'แก้ไข' }));
+  ok(jd2.status === 'DRAFT' && jd2.updated === true, 'draft stays editable (updates in place)');
+
+  const jr = handleSubmitJournal(Object.assign({}, jrBody, { submit: true }));
+  ok(jr.status === 'SUBMITTED' && jr.updated === true, 'submit sends the existing draft');
+  ok(PUSH.some(p => p.to === 'Uparent' && /บันทึกประจำวัน/.test(p.text)), 'parent notified on submit');
   const got = handleGetJournal({ studentId: 'STD-1', date: '2026-06-08' });
   ok(Array.isArray(got.milk) && got.milk[0].oz === 6, 'journal structured field round-trips (JSON)');
   ok(Array.isArray(got.activity) && got.activity.indexOf('Art') >= 0, 'journal activity array preserved');
-  const jr2 = handleSubmitJournal({ studentId: 'STD-1', staffId: 'STF-T1', date: '2026-06-08', Mood: 'Calm' });
-  ok(jr2.updated === true, 'same-day re-submit updates');
+  try { handleSubmitJournal(Object.assign({}, jrBody, { Mood: 'Calm' })); ok(false, 'submitted entry should be locked'); }
+  catch (e) { ok(e.apiCode === 'JOURNAL_LOCKED', 'submitted entry is locked against edits'); }
   ok(handleJournalHistory({ studentId: 'STD-1' }).entries.length === 1, 'history has 1 entry for the day');
 
   // ---- payroll ----

@@ -19,6 +19,9 @@ function createAtomAPI(M, GROWTH_STD) {
   const ym = v => String(v==null?'':v).slice(0,7);
   // same idea one level down: a date cell may decode as 'YYYY-MM-DD HH:mm:ss' — compare the date part only
   const ymd = v => String(v==null?'':v).slice(0,10);
+  // journal lifecycle: DRAFT = editable, parent not notified. Blank Status = legacy row, already sent.
+  const jStatus_ = r => String((r&&r.Status)||'').toUpperCase()==='DRAFT' ? 'DRAFT' : 'SUBMITTED';
+  const staffViewer_ = p => { const r=String((p&&p.role)||''); return !!r && r!=='Parent' && r!=='guest'; };
   // normalize a vaccine record's dose dates to an array (accepts new `Dates` array / JSON string /
   // comma-joined string, or a legacy single `Date`). GAS decodeCell may already parse a JSON array.
   const vacDates_ = v => { let d = (v.Dates!=null) ? v.Dates : v.Date;
@@ -166,14 +169,19 @@ function createAtomAPI(M, GROWTH_STD) {
           ot={otId:id,lateMinutes:o.late,hours:o.hours,amount:o.amount,planEnd:o.planEnd}; } }
       logAct('staffStudentCheckin',st.StudentID,type+' — '+remark,actorOf(p));
       return {studentId:st.StudentID,type,time:t,remark,ot}; },
-    getJournal: p => M.journals.find(x=>x.StudentID===p.studentId && ymd(x.Date)===(p.date||todayLocal())) || null,
-    journalHistory: p => M.journals.filter(x=>x.StudentID===p.studentId).sort((a,b)=>ymd(b.Date).localeCompare(ymd(a.Date))).slice(0,p.limit||14),
-    // which students already have a journal for `date` — feeds the teacher's "sent today" badge.
-    // Read-only, so it runs through the engine on GAS too (no explicit route needed).
+    // a DRAFT is visible to staff only — the parent sees nothing until the teacher submits.
+    // `role` is overwritten from the session token on GAS, so a parent client cannot forge it.
+    getJournal: p => { const r=M.journals.find(x=>x.StudentID===p.studentId && ymd(x.Date)===(p.date||todayLocal()));
+      return (!r || (jStatus_(r)==='DRAFT' && !staffViewer_(p))) ? null : r; },
+    journalHistory: p => M.journals.filter(x=>x.StudentID===p.studentId && (jStatus_(x)==='SUBMITTED' || staffViewer_(p)))
+      .sort((a,b)=>ymd(b.Date).localeCompare(ymd(a.Date))).slice(0,p.limit||14),
+    // which students already have a journal for `date`, and whether it is a DRAFT or SUBMITTED —
+    // feeds the teacher's badge. Read-only, so it runs through the engine on GAS too (no route needed).
     journalStatus: p => { const date=p.date||todayLocal();
       const only = Array.isArray(p.studentIds)&&p.studentIds.length ? p.studentIds.map(String) : null;
       return { date, done: M.journals.filter(x=>ymd(x.Date)===date && (!only||only.indexOf(String(x.StudentID))>=0))
-        .map(x=>({studentId:x.StudentID, teacherId:x.TeacherID, submittedAt:x.SubmittedAt||''})) }; },
+        .map(x=>({studentId:x.StudentID, teacherId:x.TeacherID, status:jStatus_(x),
+                  submittedAt:x.SubmittedAt||'', updatedAt:x.UpdatedAt||''})) }; },
     studentAbsence: p => { const id='LVS-'+String(Date.now()).slice(-4); M.studentLeaves.push({LeaveID:id,StudentID:p.studentId,Date:p.date,Reason:p.reason,Status:'Notified'}); return {leaveId:id,teacherNotified:true}; },
     studentLeaves: p => M.studentLeaves.filter(l=>l.StudentID===p.studentId).sort((a,b)=>b.Date.localeCompare(a.Date)),
     comments: p => M.comments.filter(c=>c.StudentID===p.studentId),
@@ -309,14 +317,20 @@ function createAtomAPI(M, GROWTH_STD) {
       // OT rule: ≥OTRoundUpMinutes (50) within an hour rounds up to a full hour
       let r=M.staffAttendanceToday.find(x=>x.StaffID===p.staffId); if(!r)fail('NOT_CHECKED_IN','ยังไม่ได้ลงเวลาเข้างาน'); r.CheckOut=timeLocal();r.Status='OUT';r.OTHours=otHoursRule(ot);
       return {time:r.CheckOut,otHours:r.OTHours,otMinutes:ot,distance:d}; },
-    submitJournal: p => { if(!p.Mood)fail('MISSING_FIELDS','กรุณาเลือกอารมณ์ (Mood)');
-      const date=p.date||todayLocal();
+    // submit=false → DRAFT (editable, parent not notified); submit=true → sent to the parent and locked
+    submitJournal: p => { const date=p.date||todayLocal();
+      const submit = p.submit===true || String(p.submit)==='true';
       const i=M.journals.findIndex(x=>x.StudentID===p.studentId&&ymd(x.Date)===date);
+      if(i>=0 && jStatus_(M.journals[i])==='SUBMITTED') fail('JOURNAL_LOCKED','บันทึกของวันที่ '+date+' ส่งให้ผู้ปกครองแล้ว แก้ไขไม่ได้');
+      if(submit && !p.Mood) fail('MISSING_FIELDS','กรุณาเลือกอารมณ์ (Mood)');
+      const now=stampLocal();
       // store sheet-cased keys — the payload carries studentId/staffId/date, the record needs StudentID/TeacherID/Date
-      const rec=Object.assign({},p,{Date:date,StudentID:p.studentId,TeacherID:p.staffId,SubmittedAt:stampLocal()});
-      delete rec.staffId; delete rec.studentId; delete rec.date;
-      if(i>=0){M.journals[i]=rec;return{updated:true,submittedAt:rec.SubmittedAt};}
-      M.journals.push(rec); return{updated:false,submittedAt:rec.SubmittedAt}; },
+      const rec=Object.assign({},p,{Date:date,StudentID:p.studentId,TeacherID:p.staffId,
+        Status:submit?'SUBMITTED':'DRAFT',UpdatedAt:now,SubmittedAt:submit?now:''});
+      delete rec.staffId; delete rec.studentId; delete rec.date; delete rec.submit;
+      const out={updated:i>=0,submitted:submit,status:rec.Status,submittedAt:rec.SubmittedAt,updatedAt:now};
+      if(i>=0) M.journals[i]=rec; else M.journals.push(rec);
+      return out; },
     dspmCriteria: p => H.dspmStatus(p),
     submitAssessment: p => { const s=studentById(p.studentId); const age=ageMonths(s.DOB); const id='DA-'+String(Date.now()).slice(-4); let n=0;
       p.results.forEach(r=>{ if(r.result==='nottested'){ // remove any existing latest for this item (mark not tested)

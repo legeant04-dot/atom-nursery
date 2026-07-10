@@ -25,49 +25,67 @@ function parseCell_(v) {
   return v;
 }
 
-/** payload: { studentId, staffId|lineUid, date?, Mood, Health, Milk, Meals, Sleep, Toilet, Activity, Skills, Highlight } */
+/** A blank Status is a legacy row written before the draft flow existed — it was already sent. */
+function journalStatusOf_(row) {
+  return String((row && row.Status) || '').toUpperCase() === 'DRAFT' ? 'DRAFT' : 'SUBMITTED';
+}
+
+/**
+ * payload: { studentId, staffId|lineUid, date?, submit?, Mood, Health, Milk, Meals, Sleep, Toilet, ... }
+ * submit=false (default) saves a DRAFT the teacher can keep editing; the parent is NOT notified.
+ * submit=true sends it: the parent gets the LINE push and the entry is locked against further edits.
+ */
 function handleSubmitJournal(payload) {
   payload = payload || {};
   var teacher = resolveStaff_(payload);
   var student = getStudent_(payload.studentId);
-
-  var missing = JOURNAL_REQUIRED.filter(function (f) {
-    var v = payload[f];
-    return v === undefined || v === null || String(v).trim() === '';
-  });
-  if (missing.length) throw apiError_('MISSING_FIELDS', 'กรุณากรอกข้อมูลที่จำเป็น: ' + missing.join(', '));
+  var submit = payload.submit === true || String(payload.submit) === 'true';
 
   var date = payload.date || dateStr_(new Date());
   var sheet = sheet_(getMainSpreadsheet_(), 'DAILY_JOURNAL');
-  ensureColumns_(sheet, ['HealthDetail', 'MilkTotal', 'Water', 'Theme', 'SubmittedAt']);
-  var now = new Date();
-  var rec = { Date: date, StudentID: student.StudentID, TeacherID: teacher.StaffID,
-    SubmittedAt: dateStr_(now) + ' ' + timeStr_(now) };
-  JOURNAL_FIELDS.forEach(function (f) { rec[f] = jsonCell_(payload[f]); });
+  ensureColumns_(sheet, ['HealthDetail', 'MilkTotal', 'Water', 'Theme', 'SubmittedAt', 'Status', 'UpdatedAt']);
 
   var existing = findObject_(sheet, function (r) {
     return String(r.StudentID) === String(student.StudentID) && dateStr_(new Date(r.Date)) === date;
   });
+  // once sent to the parent the entry is final — the client hides the form, this is the real gate
+  if (existing && journalStatusOf_(existing) === 'SUBMITTED') {
+    throw apiError_('JOURNAL_LOCKED', 'บันทึกของวันที่ ' + date + ' ส่งให้ผู้ปกครองแล้ว แก้ไขไม่ได้');
+  }
+  // a draft may be incomplete; the required fields are only enforced when it is actually sent
+  if (submit) {
+    var missing = JOURNAL_REQUIRED.filter(function (f) {
+      var v = payload[f];
+      return v === undefined || v === null || String(v).trim() === '';
+    });
+    if (missing.length) throw apiError_('MISSING_FIELDS', 'กรุณากรอกข้อมูลที่จำเป็น: ' + missing.join(', '));
+  }
+
+  var now = dateStr_(new Date()) + ' ' + timeStr_(new Date());
+  var rec = { Date: date, StudentID: student.StudentID, TeacherID: teacher.StaffID,
+    Status: submit ? 'SUBMITTED' : 'DRAFT', UpdatedAt: now, SubmittedAt: submit ? now : '' };
+  JOURNAL_FIELDS.forEach(function (f) { rec[f] = jsonCell_(payload[f]); });
+
   if (existing) updateRow_(sheet, existing._row, rec);
   else appendObject_(sheet, rec);
   // in-place writes bypass writeRows_, which is what normally invalidates the sheet cache — flush it
   // here or the engine's journalStatus/getJournal serve a stale read for up to CacheTTL seconds.
   if (typeof cacheDel_ === 'function') { cacheDel_('col:DAILY_JOURNAL'); cacheDel_('rows:DAILY_JOURNAL'); }
-  logAudit(teacher.StaffID, existing ? 'JOURNAL_UPDATE' : 'JOURNAL_CREATE', 'DAILY_JOURNAL', student.StudentID + '@' + date);
+  logAudit(teacher.StaffID, submit ? 'JOURNAL_SUBMIT' : 'JOURNAL_DRAFT', 'DAILY_JOURNAL', student.StudentID + '@' + date);
 
-  // notify parent with a deep link if LIFF is configured
-  if (student.ParentID) {
+  // the parent hears about it only when the teacher submits — drafts stay internal
+  if (submit && student.ParentID) {
     var parent = findObject_(sheet_(getMainSpreadsheet_(), 'PARENTS'),
       function (p) { return String(p.ParentID) === String(student.ParentID); });
     if (parent && parent.LineUID) {
       var liff = getConfig_('LiffID', '');
       var link = (liff && String(liff).indexOf('<FILL') !== 0)
         ? '\nดูรายละเอียด: https://liff.line.me/' + liff + '?view=journal&student=' + student.StudentID + '&date=' + date : '';
-      var verb = existing ? ' ได้รับการแก้ไข ' : ' พร้อมแล้ว ';
-      linePushText_(parent.LineUID, '📒 บันทึกประจำวันของ ' + student.Name + verb + '(' + date + ')' + link);
+      linePushText_(parent.LineUID, '📒 บันทึกประจำวันของ ' + student.Name + ' พร้อมแล้ว (' + date + ')' + link);
     }
   }
-  return { studentId: student.StudentID, date: date, updated: !!existing, submittedAt: rec.SubmittedAt };
+  return { studentId: student.StudentID, date: date, updated: !!existing, submitted: submit,
+    status: rec.Status, submittedAt: rec.SubmittedAt, updatedAt: rec.UpdatedAt };
 }
 
 /** payload: { studentId, date } */
