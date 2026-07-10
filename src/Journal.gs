@@ -62,7 +62,8 @@ function handleSubmitJournal(payload) {
   }
 
   var now = dateStr_(new Date()) + ' ' + timeStr_(new Date());
-  var rec = { Date: date, StudentID: student.StudentID, TeacherID: teacher.StaffID,
+  // keep the original author when someone else (an admin after unlocking) edits the entry
+  var rec = { Date: date, StudentID: student.StudentID, TeacherID: (existing && existing.TeacherID) || teacher.StaffID,
     Status: submit ? 'SUBMITTED' : 'DRAFT', UpdatedAt: now, SubmittedAt: submit ? now : '' };
   JOURNAL_FIELDS.forEach(function (f) { rec[f] = jsonCell_(payload[f]); });
 
@@ -86,6 +87,27 @@ function handleSubmitJournal(payload) {
   }
   return { studentId: student.StudentID, date: date, updated: !!existing, submitted: submit,
     status: rec.Status, submittedAt: rec.SubmittedAt, updatedAt: rec.UpdatedAt };
+}
+
+/**
+ * Admin-only: reopen a submitted entry so it can be corrected. It goes back to DRAFT, which means
+ * it also disappears from the parent's view until it is submitted again. payload: { studentId, date? }
+ * Admin-gated by ADMIN_ONLY in Code.gs applyIdentity_ — never call it from a teacher screen.
+ */
+function handleUnlockJournal(payload) {
+  payload = payload || {};
+  var student = getStudent_(payload.studentId);
+  var date = payload.date || dateStr_(new Date());
+  var sheet = sheet_(getMainSpreadsheet_(), 'DAILY_JOURNAL');
+  ensureColumns_(sheet, ['HealthDetail', 'MilkTotal', 'Water', 'Theme', 'SubmittedAt', 'Status', 'UpdatedAt']);
+  var row = findObject_(sheet, function (r) {
+    return String(r.StudentID) === String(student.StudentID) && dateStr_(new Date(r.Date)) === date;
+  });
+  if (!row) throw apiError_('NOT_FOUND', 'ยังไม่มีบันทึกของวันที่ ' + date);
+  updateRow_(sheet, row._row, { Status: 'DRAFT', SubmittedAt: '' });
+  if (typeof cacheDel_ === 'function') { cacheDel_('col:DAILY_JOURNAL'); cacheDel_('rows:DAILY_JOURNAL'); }
+  logAudit(payload.staffId || payload.uid || 'ADMIN', 'JOURNAL_UNLOCK', 'DAILY_JOURNAL', student.StudentID + '@' + date);
+  return { studentId: student.StudentID, date: date, status: 'DRAFT' };
 }
 
 /** payload: { studentId, date } */
