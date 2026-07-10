@@ -6,7 +6,7 @@
   const setHTML = (sel, html) => { const el = $(sel); if (el) el.innerHTML = html; };
   const app = $('#app'), nav = $('#bottomnav');
   const baht = n => (Number(n)||0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
-  const APP_VERSION = 'Version 1.061'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.062'; // bump each webapp change; shown only at the bottom of the Chat screen
   const verTag = () => `<div style="text-align:center;color:#c3c9d4;font-size:10px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
   const phoneFmt = p => { let d=String(p==null?'':p).replace(/\D/g,''); if(d.length===9) d='0'+d; return d; };
@@ -820,7 +820,8 @@
 
   // ================= TEACHER =================
   SCREENS.Teacher.home = async () => {
-    const [att,recent,cl,quota,me0raw] = await Promise.all([api('myAttendanceToday',{staffId:USER.staffId}),api('recentAttendance',{staffId:USER.staffId}),api('classList',{staffId:USER.staffId}),api('leaveQuota',{staffId:USER.staffId}),api('staffSelf',{staffId:USER.staffId})]);
+    const [att,recent,cl,quota,me0raw,jstat] = await Promise.all([api('myAttendanceToday',{staffId:USER.staffId}),api('recentAttendance',{staffId:USER.staffId}),api('classList',{staffId:USER.staffId}),api('leaveQuota',{staffId:USER.staffId}),api('staffSelf',{staffId:USER.staffId}),api('journalStatus',{})]);
+    const jdone = journalDoneMap(jstat);
     const me0=me0raw||{};
     if(me0.MustChangePassword){ T_changePw(true); return; } // force password change on first login
     const isLeader = me0.PositionLevel==='Leader' || me0.Role==='Leader' || USER.role==='Leader';
@@ -837,7 +838,7 @@
       ${isLeader?`<div class="card"><div class="spread"><h3>⭐ คำขอลาของลูกน้อง (รออนุมัติ)</h3></div><div id="tp"></div></div>`:''}
       <div class="card"><div class="row"><button class="btn sm outline" onclick="GO('absence')">🔎 ${esc(t('abs.title'))}</button></div></div>
       <div class="card"><div class="spread"><h3>👶 ${esc(cl.class.ClassName)}</h3><span class="muted">${cl.students.length} คน</span></div>
-        ${cl.students.map(s=>`<div class="list-item"><span>${studentAvatar(s)} ${esc(nm(s))}</span><span><button class="btn sm outline" onclick="T_journal('${s.StudentID}')">บันทึก</button> <button class="btn sm outline" onclick="T_assess('${s.StudentID}')">ประเมิน</button></span></div>`).join('')}</div>`;
+        ${cl.students.map(s=>`<div class="list-item"><span>${studentAvatar(s)} ${esc(nm(s))} ${journalPill(jdone[s.StudentID])}</span><span><button class="btn sm outline" onclick="T_journal('${s.StudentID}')">${jdone[s.StudentID]?'แก้ไขบันทึก':'บันทึก'}</button> <button class="btn sm outline" onclick="T_assess('${s.StudentID}')">ประเมิน</button></span></div>`).join('')}</div>`;
     const ml=await api('myLeaves',{staffId:USER.staffId}); setHTML('#ml', ml.map(leaveRow).join('')||'<small class="muted">ยังไม่มีรายการ</small>');
     if(isLeader){ const tp=await api('teamPendingLeaves',{staffId:USER.staffId}); setHTML('#tp', tp.map(l=>teamLeaveRow(l)).join('')||'<small class="muted">ไม่มีคำขอรออนุมัติ</small>'); }
   };
@@ -845,8 +846,17 @@
     try{ const {lat,lng}=await getPosition();
       const r=await api(kind==='in'?'staffCheckin':'staffCheckout',{staffId:USER.staffId,lat,lng}); toast(kind==='in'?`✅ ${t('lbl.checkIn')} ${r.time}${r.lateMinutes>0?` (${t('lbl.late')} ${r.lateMinutes} ${t('lbl.min')})`:' ('+t('lbl.onTime')+')'}`:`✅ ${t('lbl.checkOut')} ${r.time}${r.otHours>0?` · OT ${r.otHours} ${EN()?'hr':'ชม.'}`:''}`); GO('home'); }catch(e){err(e);} };
 
-  SCREENS.Teacher.class = async () => { const cl=await api('classList',{staffId:USER.staffId});
-    app.innerHTML=`<h2 class="page">👶 ${esc(cl.class.ClassName)}</h2>`+cl.students.map(s=>`<div class="card spread"><div style="display:flex;gap:10px;align-items:center">${studentAvatar(s)}<div><b>${esc(nm(s))}</b>${nick(s)?` <span class="pill info">${esc(nick(s))}</span>`:''} <small class="muted">(${esc(EN()?s.NameTH:s.NameEN)})</small><br><small class="muted">${esc(ageYM(s.DOB))} · ${EN()?'allergy':'แพ้'}: ${esc(s.Allergy||'-')}</small></div></div><div class="row"><button class="btn sm" onclick="T_journal('${s.StudentID}')">📒</button><button class="btn sm outline" onclick="T_assess('${s.StudentID}')">📝</button><button class="btn sm green" onclick="T_studentCheckin('${s.StudentID}','${esc(nm(s))}')" title="${EN()?'Check in/out for a non-registered pickup person':'เช็คอิน/เอาท์แทน (คนมารับ-ส่งที่ไม่ได้อยู่ในระบบ)'}">📍</button></div></div>`).join(''); };
+  // "sent today" badge for the daily report — journalStatus returns every student with an entry for `date`
+  function journalDoneMap(st){ const m={}; ((st&&st.done)||[]).forEach(d=>{ m[d.studentId]=d; }); return m; }
+  // journalStatus returns `submittedAt`; getJournal returns the raw row (`SubmittedAt`)
+  const jTime = d => { const s=String((d&&(d.submittedAt||d.SubmittedAt))||''); return s.length>=16 ? s.slice(11,16) : ''; };
+  function journalPill(d){ if(!d) return `<span class="pill wait">⏳ ${esc(EN()?'Not sent':'ยังไม่ส่ง')}</span>`;
+    const tm=jTime(d); return `<span class="pill ok">✅ ${esc(EN()?'Sent today':'ส่งแล้ววันนี้')}${tm?' '+esc(tm):''}</span>`; }
+
+  SCREENS.Teacher.class = async () => {
+    const [cl,jstat]=await Promise.all([api('classList',{staffId:USER.staffId}),api('journalStatus',{})]);
+    const jdone=journalDoneMap(jstat);
+    app.innerHTML=`<h2 class="page">👶 ${esc(cl.class.ClassName)}</h2>`+cl.students.map(s=>`<div class="card spread"><div style="display:flex;gap:10px;align-items:center">${studentAvatar(s)}<div><b>${esc(nm(s))}</b>${nick(s)?` <span class="pill info">${esc(nick(s))}</span>`:''} <small class="muted">(${esc(EN()?s.NameTH:s.NameEN)})</small><br><small class="muted">${esc(ageYM(s.DOB))} · ${EN()?'allergy':'แพ้'}: ${esc(s.Allergy||'-')}</small><br>${journalPill(jdone[s.StudentID])}</div></div><div class="row"><button class="btn sm ${jdone[s.StudentID]?'outline':''}" onclick="T_journal('${s.StudentID}')" title="${esc(jdone[s.StudentID]?(EN()?'Edit today’s daily report':'แก้ไขบันทึกประจำวันวันนี้'):(EN()?'Write today’s daily report':'กรอกบันทึกประจำวันวันนี้'))}">${jdone[s.StudentID]?'✏️':'📒'}</button><button class="btn sm outline" onclick="T_assess('${s.StudentID}')">📝</button><button class="btn sm green" onclick="T_studentCheckin('${s.StudentID}','${esc(nm(s))}')" title="${EN()?'Check in/out for a non-registered pickup person':'เช็คอิน/เอาท์แทน (คนมารับ-ส่งที่ไม่ได้อยู่ในระบบ)'}">📍</button></div></div>`).join(''); };
   // Teacher checks a student in/out on behalf of a pickup person who isn't a registered parent.
   // The remark (who it was) is mandatory — the Save button stays disabled until it's filled.
   window.T_studentCheckin=(sid,name)=>{ modal(`<h3>📍 ${EN()?'Check in / out for':'เช็คอิน-เอาท์แทน'} ${esc(name)}</h3>
@@ -871,26 +881,44 @@
   SCREENS.Teacher.journal = async () => { const cl=await api('classList',{staffId:USER.staffId}); T_journal(cl.students[0].StudentID); };
   let JSEL={};
   window.T_journal = async (sid) => { setNav('class'); JSEL={Mood:'',Health:'',Water:'',Meals:{},Toilet:{},Activity:new Set(),Skills:new Set()};
-    const s=(await api('classList',{staffId:USER.staffId})).students.find(x=>x.StudentID===sid)||{NameTH:sid};
-    const seg=(group,arr,multi)=>arr.map(v=>`<button type="button" onclick="J_pick('${group}','${v.replace(/'/g,"\\'")}',this,${multi})">${esc(jt(v))}</button>`).join('');
-    app.innerHTML=`<button class="btn sm outline backbtn" onclick="GO('class')">${t('c.back')}</button><h2 class="page">📒 กรอกบันทึก — ${esc(nm(s))}</h2><div class="card">
-      <div class="jsec"><h4>😊 ${esc(jt('Mood'))} *</h4><div class="choice" id="g_Mood">${Object.keys(MOODS).map(m=>`<button type="button" onclick="J_pick('Mood','${m}',this,false)">${MOODS[m]} ${esc(jt(m))}</button>`).join('')}</div></div>
+    // load today's entry (null when none) so the teacher can re-open and EDIT what was already sent
+    const [cl,j]=await Promise.all([api('classList',{staffId:USER.staffId}),api('getJournal',{studentId:sid})]);
+    const s=cl.students.find(x=>x.StudentID===sid)||{NameTH:sid};
+    const sent=jTime(j), editing=!!j, jv=journalValues(j);
+    const seg=(group,arr,multi)=>arr.map(v=>`<button type="button" data-g="${esc(group)}" data-v="${esc(v)}" onclick="J_pick('${group}','${v.replace(/'/g,"\\'")}',this,${multi})">${esc(jt(v))}</button>`).join('');
+    app.innerHTML=`<button class="btn sm outline backbtn" onclick="GO('class')">${t('c.back')}</button><h2 class="page">${editing?'✏️':'📒'} ${esc(editing?(EN()?'Edit daily report':'แก้ไขบันทึก'):(EN()?'Daily report':'กรอกบันทึก'))} — ${esc(nm(s))}</h2><div class="card">
+      ${editing?`<div style="background:#e8f5e9;border-radius:8px;padding:8px;color:#2e7d32;font-size:13px;margin-bottom:8px">✅ ${esc(EN()?'Already sent today':'ส่งแล้ววันนี้')}${sent?' '+esc(EN()?'at':'เวลา')+' '+esc(sent):''} — ${esc(EN()?'saving again updates it and re-notifies the parent.':'บันทึกอีกครั้งจะเป็นการแก้ไขและแจ้งผู้ปกครองใหม่')}</div>`:''}
+      <div class="jsec"><h4>😊 ${esc(jt('Mood'))} *</h4><div class="choice" id="g_Mood">${Object.keys(MOODS).map(m=>`<button type="button" data-g="Mood" data-v="${esc(m)}" onclick="J_pick('Mood','${m}',this,false)">${MOODS[m]} ${esc(jt(m))}</button>`).join('')}</div></div>
       <div class="jsec"><h4>❤️ ${esc(jt('Health'))}</h4><div class="choice">${seg('Health',HEALTHS,false)}</div>
-        <div class="row" style="margin-top:6px"><input id="jHealthD" placeholder="รายละเอียดสุขภาพ/ยา" style="flex:1"/><button class="micbtn" onclick="J_mic('jHealthD',this)">🎤</button></div></div>
-      <div class="jsec"><h4>🍼 ${esc(jt('Milk & Water'))}</h4><input id="jMilk" placeholder="ปริมาณนม oz คั่นด้วย , เช่น 6,4"/>
+        <div class="row" style="margin-top:6px"><input id="jHealthD" value="${esc(jv.healthDetail)}" placeholder="รายละเอียดสุขภาพ/ยา" style="flex:1"/><button class="micbtn" onclick="J_mic('jHealthD',this)">🎤</button></div></div>
+      <div class="jsec"><h4>🍼 ${esc(jt('Milk & Water'))}</h4><input id="jMilk" value="${esc(jv.milk)}" placeholder="ปริมาณนม oz คั่นด้วย , เช่น 6,4"/>
         <div class="choice" style="margin-top:6px">${seg('Water',WATERS,false)}</div></div>
-      <div class="jsec"><h4>🍽 ${esc(jt('Meals'))}</h4>${['Breakfast','Lunch','Dinner'].map(m=>`<div style="margin:4px 0"><b style="font-size:13px">${esc(jt(m))}:</b> <span class="choice" style="display:inline-flex">${MEAL_AMT.map(a=>`<button type="button" onclick="J_meal('${m}','${a}',this)">${esc(jt(a))}</button>`).join('')}</span></div>`).join('')}</div>
-      <div class="jsec"><h4>😴 ${esc(jt('Sleep'))}</h4><input id="jSleep" placeholder="เช่น 12:30-14:00 (คั่นหลายช่วงด้วย ,)"/></div>
+      <div class="jsec"><h4>🍽 ${esc(jt('Meals'))}</h4>${['Breakfast','Lunch','Dinner'].map(m=>`<div style="margin:4px 0"><b style="font-size:13px">${esc(jt(m))}:</b> <span class="choice" style="display:inline-flex">${MEAL_AMT.map(a=>`<button type="button" data-meal="${esc(m)}" data-v="${esc(a)}" onclick="J_meal('${m}','${a}',this)">${esc(jt(a))}</button>`).join('')}</span></div>`).join('')}</div>
+      <div class="jsec"><h4>😴 ${esc(jt('Sleep'))}</h4><input id="jSleep" value="${esc(jv.sleep)}" placeholder="เช่น 12:30-14:00 (คั่นหลายช่วงด้วย ,)"/></div>
       <div class="jsec"><h4>🚽 ${esc(jt('Toileting'))}</h4>
-        <div><b style="font-size:13px">${esc(jt('Urination'))}:</b> <span class="choice" style="display:inline-flex">${URI.map(x=>`<button type="button" onclick="J_tl('Urination','${x}',this)">${esc(jt(x))}</button>`).join('')}</span></div>
-        <div><b style="font-size:13px">${esc(jt('Bowel'))}:</b> <span class="choice" style="display:inline-flex">${BOWEL.map(x=>`<button type="button" onclick="J_tl('Bowel','${x}',this)">${esc(jt(x))}</button>`).join('')}</span></div>
-        <div><b style="font-size:13px">${esc(jt('Stool'))}:</b> <span class="choice" style="display:inline-flex">${STOOL.map(x=>`<button type="button" onclick="J_tl('Stool','${x}',this)">${esc(jt(x))}</button>`).join('')}</span></div>
-        <div><b style="font-size:13px">${esc(jt('Toilet Training'))}:</b> <span class="choice" style="display:inline-flex">${TT.map(x=>`<button type="button" onclick="J_tl('Training','${x}',this)">${esc(jt(x))}</button>`).join('')}</span></div></div>
-      <div class="jsec"><h4>🎨 ${esc(jt('Learning Journey'))}</h4><div class="choice">${seg('Activity',ACTS,true)}</div><input id="jTheme" placeholder="Theme / Topic" style="margin-top:6px"/></div>
+        ${[['Urination',URI],['Bowel',BOWEL],['Stool',STOOL],['Training',TT]].map(([k,opts])=>`<div><b style="font-size:13px">${esc(jt(k==='Training'?'Toilet Training':k))}:</b> <span class="choice" style="display:inline-flex">${opts.map(x=>`<button type="button" data-tl="${esc(k)}" data-v="${esc(x)}" onclick="J_tl('${k}','${x}',this)">${esc(jt(x))}</button>`).join('')}</span></div>`).join('')}</div>
+      <div class="jsec"><h4>🎨 ${esc(jt('Learning Journey'))}</h4><div class="choice">${seg('Activity',ACTS,true)}</div><input id="jTheme" value="${esc(jv.theme)}" placeholder="Theme / Topic" style="margin-top:6px"/></div>
       <div class="jsec"><h4>🌟 ${esc(jt('Skills'))}</h4><div class="choice">${seg('Skills',SKILLS,true)}</div></div>
-      <div class="jsec"><h4>⭐ ${esc(jt('Highlight'))}</h4><div class="row"><textarea id="jHi" placeholder="เหตุการณ์น่าประทับใจ... (กดไมค์เพื่อพูด)" style="flex:1"></textarea><button class="micbtn" onclick="J_mic('jHi',this)">🎤</button></div></div>
-      <button class="btn block" onclick="T_saveJournal('${sid}')">บันทึก & แจ้งผู้ปกครอง</button></div>`;
+      <div class="jsec"><h4>⭐ ${esc(jt('Highlight'))}</h4><div class="row"><textarea id="jHi" placeholder="เหตุการณ์น่าประทับใจ... (กดไมค์เพื่อพูด)" style="flex:1">${esc(jv.highlight)}</textarea><button class="micbtn" onclick="J_mic('jHi',this)">🎤</button></div></div>
+      <button class="btn block" onclick="T_saveJournal('${sid}')">${esc(editing?(EN()?'Update & notify parent':'อัปเดตบันทึก & แจ้งผู้ปกครอง'):(EN()?'Save & notify parent':'บันทึก & แจ้งผู้ปกครอง'))}</button></div>`;
+    if(j) J_prefill(j);
   };
+  // Re-select the choice buttons of an existing entry. Values are carried on data-g/data-meal/data-tl
+  // + data-v so a saved record maps straight back onto the rendered buttons.
+  const jArr = v => Array.isArray(v) ? v : [];
+  const cssq = v => String(v).replace(/["\\]/g,'\\$&');
+  function J_prefill(j){
+    const mark=(sel)=>{ const el=document.querySelector(sel); if(el) el.classList.add('pass'); return el; };
+    ['Mood','Health','Water'].forEach(g=>{ if(j[g]){ JSEL[g]=j[g]; mark(`[data-g="${g}"][data-v="${cssq(j[g])}"]`); } });
+    ['Activity','Skills'].forEach(g=>jArr(j[g]).forEach(v=>{ JSEL[g].add(v); mark(`[data-g="${g}"][data-v="${cssq(v)}"]`); }));
+    Object.keys(j.Meals||{}).forEach(m=>{ const a=j.Meals[m]; if(!a)return; JSEL.Meals[m]=a; mark(`[data-meal="${cssq(m)}"][data-v="${cssq(a)}"]`); });
+    Object.keys(j.Toilet||{}).forEach(k=>{ const v=j.Toilet[k]; if(!v)return; JSEL.Toilet[k]=v; mark(`[data-tl="${cssq(k)}"][data-v="${cssq(v)}"]`); });
+  }
+  // text/number inputs are prefilled inline via value="" — flatten the record's shapes first
+  function journalValues(j){ j=j||{};
+    return { healthDetail: j.HealthDetail||'', theme: j.Theme||'', highlight: j.Highlight||'',
+      milk: jArr(j.Milk).join(','),
+      sleep: jArr(j.Sleep).map(s=>`${s.from||''}-${s.to||''}`).filter(x=>x!=='-').join(', ') }; }
   window.J_pick=(g,v,el,multi)=>{ if(multi){ JSEL[g].has(v)?JSEL[g].delete(v):JSEL[g].add(v); el.classList.toggle('pass'); }
     else { JSEL[g]=v; [...el.parentElement.children].forEach(b=>b.classList.remove('pass')); el.classList.add('pass'); } };
   window.J_meal=(m,a,el)=>{ JSEL.Meals[m]=a; [...el.parentElement.children].forEach(b=>b.classList.remove('pass')); el.classList.add('pass'); };

@@ -63,7 +63,10 @@ SCHEMA[WB.MAIN] = {
   GROWTH_RECORDS:    ['Date', 'StudentID', 'AgeMonth', 'Weight', 'Height'],
   // Holiday database (editable per year) merged into the shared calendar
   HOLIDAYS:          ['Date', 'NameTH', 'NameEN', 'Recurring'],
-  DAILY_JOURNAL:     ['Date', 'StudentID', 'TeacherID', 'Mood', 'Health', 'Milk', 'Meals', 'Sleep', 'Toilet', 'Activity', 'Skills', 'Highlight'],
+  // HealthDetail..SubmittedAt were appended after go-live — new columns only ever go at the END.
+  // SubmittedAt = stamp of the last save; it drives the "already sent today" badge and lets the
+  // teacher re-open the entry to edit it.
+  DAILY_JOURNAL:     ['Date', 'StudentID', 'TeacherID', 'Mood', 'Health', 'Milk', 'Meals', 'Sleep', 'Toilet', 'Activity', 'Skills', 'Highlight', 'HealthDetail', 'MilkTotal', 'Water', 'Theme', 'SubmittedAt'],
   DSPM_ASSESSMENT:   ['AssessmentID', 'StudentID', 'AgeMonth', 'ItemNo', 'Skill', 'Result', 'Date', 'TeacherID'],
   // PaymentMethod = transfer | cash; TransactionDate = when payment was notified; PaidDate = Admin-confirmed payment date (retro-auditable).
   BILLING:           ['BillingID', 'StudentID', 'Month', 'Amount', 'OTRollover', 'DueDate', 'PaidDate', 'Status', 'SlipAmount', 'VerifiedStatus', 'QRRef', 'PaymentMethod', 'TransactionDate'],

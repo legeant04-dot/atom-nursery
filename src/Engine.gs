@@ -17,6 +17,8 @@ function createAtomAPI(M, GROWTH_STD) {
   // month normalizer: Sheets coerces a 'YYYY-MM' cell to the date 'YYYY-MM-01', so ALWAYS compare
   // months via ym() (first 7 chars) — never raw ===, or bills/finance/OT-rollover silently mismatch.
   const ym = v => String(v==null?'':v).slice(0,7);
+  // same idea one level down: a date cell may decode as 'YYYY-MM-DD HH:mm:ss' — compare the date part only
+  const ymd = v => String(v==null?'':v).slice(0,10);
   // normalize a vaccine record's dose dates to an array (accepts new `Dates` array / JSON string /
   // comma-joined string, or a legacy single `Date`). GAS decodeCell may already parse a JSON array.
   const vacDates_ = v => { let d = (v.Dates!=null) ? v.Dates : v.Date;
@@ -164,8 +166,14 @@ function createAtomAPI(M, GROWTH_STD) {
           ot={otId:id,lateMinutes:o.late,hours:o.hours,amount:o.amount,planEnd:o.planEnd}; } }
       logAct('staffStudentCheckin',st.StudentID,type+' — '+remark,actorOf(p));
       return {studentId:st.StudentID,type,time:t,remark,ot}; },
-    getJournal: p => M.journals.find(x=>x.StudentID===p.studentId && x.Date===(p.date||todayLocal())) || null,
-    journalHistory: p => M.journals.filter(x=>x.StudentID===p.studentId).sort((a,b)=>b.Date.localeCompare(a.Date)).slice(0,p.limit||14),
+    getJournal: p => M.journals.find(x=>x.StudentID===p.studentId && ymd(x.Date)===(p.date||todayLocal())) || null,
+    journalHistory: p => M.journals.filter(x=>x.StudentID===p.studentId).sort((a,b)=>ymd(b.Date).localeCompare(ymd(a.Date))).slice(0,p.limit||14),
+    // which students already have a journal for `date` — feeds the teacher's "sent today" badge.
+    // Read-only, so it runs through the engine on GAS too (no explicit route needed).
+    journalStatus: p => { const date=p.date||todayLocal();
+      const only = Array.isArray(p.studentIds)&&p.studentIds.length ? p.studentIds.map(String) : null;
+      return { date, done: M.journals.filter(x=>ymd(x.Date)===date && (!only||only.indexOf(String(x.StudentID))>=0))
+        .map(x=>({studentId:x.StudentID, teacherId:x.TeacherID, submittedAt:x.SubmittedAt||''})) }; },
     studentAbsence: p => { const id='LVS-'+String(Date.now()).slice(-4); M.studentLeaves.push({LeaveID:id,StudentID:p.studentId,Date:p.date,Reason:p.reason,Status:'Notified'}); return {leaveId:id,teacherNotified:true}; },
     studentLeaves: p => M.studentLeaves.filter(l=>l.StudentID===p.studentId).sort((a,b)=>b.Date.localeCompare(a.Date)),
     comments: p => M.comments.filter(c=>c.StudentID===p.studentId),
@@ -302,9 +310,13 @@ function createAtomAPI(M, GROWTH_STD) {
       let r=M.staffAttendanceToday.find(x=>x.StaffID===p.staffId); if(!r)fail('NOT_CHECKED_IN','ยังไม่ได้ลงเวลาเข้างาน'); r.CheckOut=timeLocal();r.Status='OUT';r.OTHours=otHoursRule(ot);
       return {time:r.CheckOut,otHours:r.OTHours,otMinutes:ot,distance:d}; },
     submitJournal: p => { if(!p.Mood)fail('MISSING_FIELDS','กรุณาเลือกอารมณ์ (Mood)');
-      const i=M.journals.findIndex(x=>x.StudentID===p.studentId&&x.Date===(p.date||todayLocal()));
-      const rec=Object.assign({Date:p.date||todayLocal(),TeacherID:p.staffId},p); delete rec.staffId;
-      if(i>=0){M.journals[i]=rec;return{updated:true};} M.journals.push(rec); return{updated:false}; },
+      const date=p.date||todayLocal();
+      const i=M.journals.findIndex(x=>x.StudentID===p.studentId&&ymd(x.Date)===date);
+      // store sheet-cased keys — the payload carries studentId/staffId/date, the record needs StudentID/TeacherID/Date
+      const rec=Object.assign({},p,{Date:date,StudentID:p.studentId,TeacherID:p.staffId,SubmittedAt:stampLocal()});
+      delete rec.staffId; delete rec.studentId; delete rec.date;
+      if(i>=0){M.journals[i]=rec;return{updated:true,submittedAt:rec.SubmittedAt};}
+      M.journals.push(rec); return{updated:false,submittedAt:rec.SubmittedAt}; },
     dspmCriteria: p => H.dspmStatus(p),
     submitAssessment: p => { const s=studentById(p.studentId); const age=ageMonths(s.DOB); const id='DA-'+String(Date.now()).slice(-4); let n=0;
       p.results.forEach(r=>{ if(r.result==='nottested'){ // remove any existing latest for this item (mark not tested)

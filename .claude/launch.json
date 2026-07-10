@@ -1,11 +1,12 @@
 {
   "version": "0.0.1",
+  "autoPort": true,
   "configurations": [
     {
       "name": "atom-prototype",
       "runtimeExecutable": "node",
-      "runtimeArgs": ["tools/serve.js", "8081"],
-      "port": 8081
+      "runtimeArgs": ["tools/serve.js"],
+      "port": 8090
     }
   ]
 }
