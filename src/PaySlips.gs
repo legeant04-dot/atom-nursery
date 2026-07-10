@@ -38,6 +38,8 @@ function paySlipVerify_(p, due) {
 }
 
 // Sheets coerces a 'YYYY-MM' cell to date 'YYYY-MM-01', so compare months by first 7 chars.
+// An OT row is billable only while it is neither PAID nor CANCELLED (admin can cancel an OT charge).
+function pmOtOpen_(status) { var s = String(status || ''); return s !== 'PAID' && s !== 'CANCELLED'; }
 function pmYm_(v) { return String(v == null ? '' : v).slice(0, 7); }
 function paySlipBillDue_(b) {
   var amount = Number(b.Amount || 0), charges = 0, ot = 0, ss = getMainSpreadsheet_(), bm = pmYm_(b.Month);
@@ -45,7 +47,7 @@ function paySlipBillDue_(b) {
     if (String(c.StudentID) === String(b.StudentID) && pmYm_(c.Month) === bm) charges += Number(c.Amount || 0);
   });
   readObjects_(sheet_(ss, 'OT_DAILY')).forEach(function (o) {
-    if (String(o.StudentID) === String(b.StudentID) && pmYm_(o.Date) === bm && String(o.Status) !== 'PAID') ot += Number(o.Amount || 0);
+    if (String(o.StudentID) === String(b.StudentID) && pmYm_(o.Date) === bm && pmOtOpen_(o.Status)) ot += Number(o.Amount || 0);
   });
   return amount + charges + ot;
 }
@@ -121,7 +123,7 @@ function paySlipRecompute_(kind, refId, paidDate) {
     updateRow_(tgt.sheet, tgt.row, { Status: 'PAID', PaidDate: pd, SlipAmount: confirmed, VerifiedStatus: 'CONFIRMED' });
     if (kind === 'bill') {
       var so = sheet_(ss, 'OT_DAILY'), bm = pmYm_(tgt.obj.Month);
-      readObjects_(so).forEach(function (o) { if (String(o.StudentID) === String(tgt.obj.StudentID) && pmYm_(o.Date) === bm && String(o.Status) !== 'PAID') updateRow_(so, o._row, { Status: 'PAID', PaidDate: pd }); });
+      readObjects_(so).forEach(function (o) { if (String(o.StudentID) === String(tgt.obj.StudentID) && pmYm_(o.Date) === bm && pmOtOpen_(o.Status)) updateRow_(so, o._row, { Status: 'PAID', PaidDate: pd }); });
       recCacheBust_('OT_DAILY');
     }
     if (kind === 'prepay') {

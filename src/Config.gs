@@ -43,7 +43,8 @@ SCHEMA[WB.MAIN] = {
                       'Race', 'Nationality', 'Religion', 'EmergencyContact', 'Address', 'EnrollDate', 'LastGrowthUpdate',
                       'InsuranceHas', 'InsurancePolicyNo', 'InsuranceCompany', 'InsuranceExpiry', 'InsuranceCardImage',
                       'DriveFolderUrl', 'WithdrawReason', 'WithdrawDetail', 'WithdrawDate', 'WithdrawBy',
-                      'Status', 'CreatedDate'],
+                      'Status', 'CreatedDate',
+                      'OTRate'],   // per-student late-pickup OT rate/hour; blank = SCHOOL_CONFIG OTRatePerHour
   CLASSES:           ['ClassID', 'ClassName', 'TeacherID', 'AgeRange', 'Capacity'],
   // Photo / RegisterPhotoUrl = the MANDATORY live-capture photo taken at registration ("New Register Photo"
   // Drive folder), used as an identity/security check when signing in.

@@ -187,16 +187,20 @@ function handleStaffStudentCheckin(p) {
   try { CacheService.getScriptCache().removeAll(['col:CHECKIN_STUDENT', 'rows:CHECKIN_STUDENT']); } catch (e) {}
   try { logAudit(staff.StaffID, 'STUDENT_CHECK' + type + '_BY_STAFF', 'CHECKIN_STUDENT', student.StudentID); } catch (e) {}
 
+  // late pickup → create/refresh the OT charge (rolls into this month's bill)
+  var ot = (type === 'OUT') ? otUpsertForPickup_(student, timeStr_(now), dateStr_(now)) : null;
+
   // the parent wasn't the one dropping off / picking up — tell them who was
   var verb = (type === 'IN') ? 'มาถึงโรงเรียนแล้ว' : 'ถูกรับกลับแล้ว';
   var msg = '👶 ' + student.Name + ' ' + verb + ' (' + timeStr_(now) + ')\nบันทึกโดยคุณครู ' +
             (staff.Name || staff.StaffID) + '\nหมายเหตุ: ' + remark;
+  if (ot) msg += '\n⏰ รับช้า ' + ot.lateMinutes + ' นาที · ค่าล่วงเวลา ' + ot.amount + ' บาท (รวมในบิลรายเดือน)';
   try {
     var parent = student.ParentID ? findObject_(sheet_(getMainSpreadsheet_(), 'PARENTS'),
       function (pr) { return String(pr.ParentID) === String(student.ParentID); }) : null;
     if (parent && parent.LineUID) linePushText_(parent.LineUID, msg); else notifyAdmins_(msg);
   } catch (e) {}
-  return { studentId: student.StudentID, type: type, time: timeStr_(now), remark: remark };
+  return { studentId: student.StudentID, type: type, time: timeStr_(now), remark: remark, ot: ot };
 }
 
 // ---- Check-out ----------------------------------------------------

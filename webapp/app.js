@@ -6,7 +6,7 @@
   const setHTML = (sel, html) => { const el = $(sel); if (el) el.innerHTML = html; };
   const app = $('#app'), nav = $('#bottomnav');
   const baht = n => (Number(n)||0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
-  const APP_VERSION = 'Version 1.060'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.061'; // bump each webapp change; shown only at the bottom of the Chat screen
   const verTag = () => `<div style="text-align:center;color:#c3c9d4;font-size:10px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
   const phoneFmt = p => { let d=String(p==null?'':p).replace(/\D/g,''); if(d.length===9) d='0'+d; return d; };
@@ -1368,6 +1368,7 @@
         <button class="btn sm outline" onclick="A_groups()">🕑 ${esc(t('manage.groups'))}</button>
         <button class="btn sm outline" onclick="A_settings()">⚙️ ${esc(t('manage.settings'))}</button>
         <button class="btn sm outline" onclick="A_otVerify()">⏱️ ${esc(t('manage.otVerify'))}</button>
+        <button class="btn sm outline" onclick="A_studentOT()">⏰ ${EN()?'Student OT':'OT รับช้า (นักเรียน)'}</button>
         <button class="btn sm outline" onclick="A_insurance()">🛡️ ${esc(t('ins2.manage'))}</button>
         <button class="btn sm outline" onclick="A_activityLog()">${esc(t('act.open'))}</button></div></div>
       ${wds.length?`<div class="card" style="background:#fff8e1;border-color:#f0e3b0"><h3>🚪 ${esc(t('wd.requests'))} (${wds.length})</h3>
@@ -1483,6 +1484,8 @@
       <div class="grid2"><label class="field"><span>${esc(t('reg.plan'))}</span><select id="stf_Plan"><option value="">${esc(t('manage.noPlan'))}</option>${A_plans().map(p=>`<option value="${p.id}" ${s.Plan===p.id?'selected':''}>${esc(EN()?p.labelEN:p.labelTH)} · ${baht(p.price)}</option>`).join('')}</select></label>
         <label class="field"><span>${esc(t('growth.photo'))}</span><input id="stf_Photo" type="file" accept="image/*"/></label></div>
       <div class="grid2">${f('Allergy',t('reg.allergy'),s.Allergy)}${f('MedicalHistory',t('reg.chronic'),s.MedicalHistory)}</div>
+      <label class="field"><span>⏰ ${EN()?'OT rate / hour (blank = school default)':'ค่า OT ต่อชั่วโมง (เว้นว่าง = ใช้ค่าเริ่มต้นของโรงเรียน)'}</span>
+        <input id="stf_OTRate" type="number" min="0" value="${esc(s.OTRate!=null&&s.OTRate!==''?s.OTRate:'')}" placeholder="${esc(MOCK.config.OTRatePerHour||100)}"/></label>
       <hr style="border:none;border-top:1px solid #eee;margin:8px 0">
       <label class="field" style="display:flex;align-items:center;gap:8px"><input type="checkbox" id="stf_Ins" ${s.InsuranceHas?'checked':''} style="width:auto" onchange="document.getElementById('insBox').hidden=!this.checked"/> 🛡️ ${esc(t('ins.has'))}</label>
       <div id="insBox" ${s.InsuranceHas?'':'hidden'}>
@@ -1494,7 +1497,8 @@
   };
   window.A_saveStudent=async(btn,id)=>{ const m=btn.closest('.modal'); const v=k=>{ const e=m.querySelector('#stf_'+k); return e?e.value.trim():''; };
     const data={NameTH:v('NameTH'),NameEN:v('NameEN'),Nickname:v('Nickname'),NicknameEN:v('NicknameEN'),NationalID:v('NationalID'),Class:v('Class'),Plan:v('Plan'),Allergy:v('Allergy'),MedicalHistory:v('MedicalHistory'),
-      InsuranceHas:m.querySelector('#stf_Ins').checked,InsurancePolicyNo:v('InsurancePolicyNo'),InsuranceCompany:v('InsuranceCompany'),InsuranceExpiry:v('InsuranceExpiry')};
+      InsuranceHas:m.querySelector('#stf_Ins').checked,InsurancePolicyNo:v('InsurancePolicyNo'),InsuranceCompany:v('InsuranceCompany'),InsuranceExpiry:v('InsuranceExpiry'),
+      OTRate:v('OTRate')===''?'':(Number(v('OTRate'))||0)};   // blank = fall back to the school-wide OT rate
     const pf=m.querySelector('#stf_Photo').files[0]; if(pf) data.Photo=await new Promise(r=>{const fr=new FileReader();fr.onload=()=>r(fr.result);fr.readAsDataURL(pf);});
     const cf=m.querySelector('#stf_InsCard').files[0]; if(cf) data.InsuranceCardImage=await new Promise(r=>{const fr=new FileReader();fr.onload=()=>r(fr.result);fr.readAsDataURL(cf);});
     try{ await api('saveStudent',{studentId:id,data}); m.remove(); confirmSaved(t('c.saved')); GO('manage'); }catch(e){err(e);} };
@@ -1663,6 +1667,45 @@
     m.remove(); confirmSaved(t('c.saved')); };
 
   // ---- OT verification (check the ≥50min→1hr rule on attendance) ----
+  // ---- Admin: student late-pickup OT (cancel / correct pickup time / override amount) ----
+  let OT_MONTH=null;
+  window.A_studentOT=async()=>{ const month=OT_MONTH||monthStr(); const rows=await api('studentOtList',{month});
+    const pill=st=>({UNPAID:'bad',PENDING_VERIFY:'wait',PARTIAL:'wait',PAID:'ok',CANCELLED:'info'}[st]||'info');
+    const lbl=st=>({UNPAID:EN()?'unpaid':'ค้างชำระ',PENDING_VERIFY:EN()?'pending':'รอตรวจ',PARTIAL:EN()?'partial':'บางส่วน',PAID:EN()?'paid':'ชำระแล้ว',CANCELLED:EN()?'cancelled':'ยกเลิกแล้ว'}[st]||st);
+    const row=o=>{ const paid=o.status==='PAID', cancelled=o.status==='CANCELLED';
+      return `<div class="card" style="padding:8px;${cancelled?'opacity:.6':''}">
+        <div class="spread"><b>${esc(EN()?o.nameEN:o.name)||o.studentId}</b><span class="pill ${pill(o.status)}" style="font-size:10px">${esc(lbl(o.status))}</span></div>
+        <small class="muted">${esc(String(o.date).slice(0,10))} · ${EN()?'plan ends':'เลิกเรียน'} ${esc(o.planEnd||'-')} · ${EN()?'rate':'เรต'} ${baht(o.rate)}/${EN()?'hr':'ชม.'}</small>
+        <div class="grid2" style="margin-top:6px">
+          <label class="field"><span>${EN()?'Pickup time':'เวลารับ'}</span><input type="time" id="ot_t_${esc(o.otId)}" value="${esc(String(o.pickupTime||'').slice(0,5))}" data-orig="${esc(String(o.pickupTime||'').slice(0,5))}" ${paid?'disabled':''}/></label>
+          <label class="field"><span>${EN()?'Amount (฿)':'ยอด OT (฿)'}</span><input type="number" id="ot_a_${esc(o.otId)}" value="${o.amount}" data-orig="${o.amount}" ${paid?'disabled':''}/></label></div>
+        <small class="muted">${EN()?'late':'สาย'} ${o.lateMinutes} ${EN()?'min':'นาที'} · ${o.hours} ${EN()?'hr':'ชม.'}</small>
+        ${paid?`<div class="muted" style="font-size:12px;margin-top:6px">🔒 ${EN()?'Paid — locked':'ชำระแล้ว แก้ไขไม่ได้'}</div>`
+          :`<div class="row" style="margin-top:6px"><button class="btn sm green" onclick="A_otSave('${esc(o.otId)}',this)">💾 ${esc(t('c.save'))}</button>
+            ${cancelled?`<button class="btn sm outline" onclick="A_otRestore('${esc(o.otId)}')">♻️ ${EN()?'Restore':'คืนค่า'}</button>`
+                       :`<button class="btn sm pink" onclick="A_otCancel('${esc(o.otId)}')">🚫 ${EN()?'Cancel OT':'ยกเลิก OT'}</button>`}</div>`}</div>`; };
+    modal(`<h3>⏰ ${EN()?'Student late-pickup OT':'OT รับช้า (นักเรียน)'}</h3>
+      <p class="muted" style="font-size:12px">${EN()?'Cancelled OT is never billed. Editing a cancelled row restores it. Paid rows are locked.':'OT ที่ยกเลิกจะไม่ถูกเรียกเก็บ · แก้ไขรายการที่ยกเลิกแล้วจะคืนค่าอัตโนมัติ · รายการที่ชำระแล้วแก้ไม่ได้'}</p>
+      <label class="field"><span>${esc(t('c.month'))}</span><input type="month" value="${month}" onchange="A_otMonth(this.value)"/></label>
+      ${rows.length?rows.map(row).join(''):`<div class="card muted">${EN()?'No OT this month':'ไม่มีรายการ OT เดือนนี้'}</div>`}
+      <button class="btn outline block" style="margin-top:8px" onclick="this.closest('.modal').remove()">${esc(t('c.close'))}</button>`);
+  };
+  window.A_otMonth=(m)=>{ OT_MONTH=m; const x=document.querySelector('.modal'); if(x)x.remove(); A_studentOT(); };
+  // Only send what actually changed: sending a stale amount alongside a new pickup time
+  // would override the recomputed value. If the admin edits the amount, that wins.
+  window.A_otSave=async(otId,btn)=>{ const tm=document.getElementById('ot_t_'+otId), am=document.getElementById('ot_a_'+otId);
+    const p={otId};
+    if(tm && tm.value && tm.value!==tm.dataset.orig) p.pickupTime=tm.value;
+    if(am && String(am.value)!==String(am.dataset.orig)) p.amount=am.value;
+    if(p.pickupTime===undefined && p.amount===undefined){ toast(EN()?'Nothing changed':'ไม่มีการเปลี่ยนแปลง'); return; }
+    btn.disabled=true;
+    try{ const r=await api('adminUpdateOT',p);
+      toast(`✅ ${EN()?'Updated':'อัปเดตแล้ว'} — ${baht(r.Amount!=null?r.Amount:r.amount||0)}`); const x=document.querySelector('.modal'); if(x)x.remove(); A_studentOT();
+    }catch(e){ err(e); btn.disabled=false; } };
+  window.A_otCancel=async(otId)=>{ if(!confirm(EN()?'Cancel this OT charge? It will not be billed.':'ยกเลิกค่า OT รายการนี้? จะไม่ถูกเรียกเก็บ'))return;
+    try{ await api('adminCancelOT',{otId}); toast(EN()?'OT cancelled':'ยกเลิก OT แล้ว'); const x=document.querySelector('.modal'); if(x)x.remove(); A_studentOT(); }catch(e){err(e);} };
+  window.A_otRestore=async(otId)=>{ try{ await api('adminRestoreOT',{otId}); toast(EN()?'OT restored':'คืนค่า OT แล้ว'); const x=document.querySelector('.modal'); if(x)x.remove(); A_studentOT(); }catch(e){err(e);} };
+
   window.A_otVerify=async()=>{ const rows=await api('otVerification',{});
     modal(`<h3>⏱️ ${esc(t('manage.otVerify'))}</h3><p class="muted" style="font-size:12px">${esc(t('ot.verifyNote'))}</p>
       <div style="overflow:auto"><table style="width:100%;font-size:12px;border-collapse:collapse">
