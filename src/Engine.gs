@@ -139,6 +139,26 @@ function createAtomAPI(M, GROWTH_STD) {
           ot={otId:id,lateMinutes:o.late,hours:o.hours,amount:o.amount,planEnd:o.planEnd}; }
       }
       return {type:p.type,time:t,distance:d,ot}; },
+
+    // Teacher/Leader checks a student in/out on behalf of a pickup person who isn't a registered
+    // parent. A Remark (who dropped off / picked up) is MANDATORY. No geofence (staff are at school).
+    staffStudentCheckin: p => { const remark=String(p.remark||'').trim();
+      if(!remark) fail('REMARK_REQUIRED','ต้องระบุหมายเหตุ (ใครมารับ-ส่ง) ก่อนบันทึก');
+      const st=studentById(p.studentId); if(!st) fail('NOT_FOUND','ไม่พบนักเรียน');
+      const type=String(p.type||'').toUpperCase(); if(type!=='IN'&&type!=='OUT') fail('BAD_INPUT','ระบุ IN หรือ OUT');
+      const t=timeLocal();
+      M.checkinStudent.push({Date:todayLocal(),Time:t,StudentID:st.StudentID,ParentID:st.ParentID||'',Type:type,Status:'OK',Remark:remark,ByStaffID:p.staffId||''});
+      const ex=M.studentAttendanceToday.find(x=>x.StudentID===st.StudentID); if(ex){ex.Status=type;ex.Time=t;} else M.studentAttendanceToday.push({StudentID:st.StudentID,Status:type,Time:t});
+      let h=M.studentCheckins.find(c=>c.StudentID===st.StudentID&&c.Date===todayLocal()); if(!h){h={Date:todayLocal(),StudentID:st.StudentID,InTime:'',OutTime:''};M.studentCheckins.push(h);} if(type==='IN')h.InTime=t; else h.OutTime=t;
+      let ot=null;
+      if(type==='OUT'){ const o=otFor(st,t);
+        if(o.amount>0){ const id='OT-'+todayLocal().replace(/-/g,'')+'-'+st.StudentID;
+          let rec=M.otDaily.find(x=>x.OTID===id);
+          if(!rec){ rec={OTID:id,Date:todayLocal(),StudentID:st.StudentID,PickupTime:t,PlanEnd:o.planEnd,LateMinutes:o.late,Hours:o.hours,Amount:o.amount,Status:'UNPAID',SlipRef:'',SlipAmount:0}; M.otDaily.push(rec); }
+          else { rec.PickupTime=t; rec.LateMinutes=o.late; rec.Hours=o.hours; rec.Amount=o.amount; }
+          ot={otId:id,lateMinutes:o.late,hours:o.hours,amount:o.amount,planEnd:o.planEnd}; } }
+      logAct('staffStudentCheckin',st.StudentID,type+' — '+remark,actorOf(p));
+      return {studentId:st.StudentID,type,time:t,remark,ot}; },
     getJournal: p => M.journals.find(x=>x.StudentID===p.studentId && x.Date===(p.date||todayLocal())) || null,
     journalHistory: p => M.journals.filter(x=>x.StudentID===p.studentId).sort((a,b)=>b.Date.localeCompare(a.Date)).slice(0,p.limit||14),
     studentAbsence: p => { const id='LVS-'+String(Date.now()).slice(-4); M.studentLeaves.push({LeaveID:id,StudentID:p.studentId,Date:p.date,Reason:p.reason,Status:'Notified'}); return {leaveId:id,teacherNotified:true}; },

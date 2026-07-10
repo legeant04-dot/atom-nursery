@@ -48,6 +48,7 @@ var ROUTES = {
   removeStudent:  function (p) { return handleRemoveStudent(p); },
   // Day 3 — GPS staff attendance
   staffCheckin:   function (p) { return handleStaffCheckin(p); },
+  staffStudentCheckin: function (p) { return handleStaffStudentCheckin(p); },
   staffCheckout:  function (p) { return handleStaffCheckout(p); },
   // Day 4 — leave workflow + parent check-in
   submitLeave:    function (p) { return handleSubmitLeave(p); },

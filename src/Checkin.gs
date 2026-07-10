@@ -153,6 +153,52 @@ function handleRecomputeAttendance(p) {
   return { ok: true, fixed: fixed };
 }
 
+/** Append any missing header columns at the END of a sheet (never reorders existing ones). */
+function ensureColumns_(sh, cols) {
+  var hdr = headers_(sh);
+  var missing = cols.filter(function (c) { return hdr.indexOf(c) < 0; });
+  if (missing.length) sh.getRange(1, hdr.length + 1, 1, missing.length).setValues([missing]);
+}
+
+/**
+ * Teacher/Leader checks a STUDENT in/out on behalf of someone who isn't a registered parent
+ * (e.g. a grandparent drops off). A Remark saying who it was is MANDATORY. No geofence — the
+ * staff member is already at school. payload: { staffId, studentId, type:'IN'|'OUT', remark }
+ */
+function handleStaffStudentCheckin(p) {
+  p = p || {};
+  var remark = String(p.remark || '').trim();
+  if (!remark) throw apiError_('REMARK_REQUIRED', 'ต้องระบุหมายเหตุ (ใครมารับ-ส่ง) ก่อนบันทึก');
+  var staff = resolveStaff_(p);
+  var type = String(p.type || '').toUpperCase();
+  if (type !== 'IN' && type !== 'OUT') throw apiError_('BAD_TYPE', 'type ต้องเป็น IN หรือ OUT');
+  var student = findObject_(sheet_(getMainSpreadsheet_(), 'STUDENTS'),
+    function (s) { return String(s.StudentID) === String(p.studentId); });
+  if (!student) throw apiError_('STUDENT_NOT_FOUND', 'ไม่พบข้อมูลนักเรียน');
+
+  var sh = sheet_(getMainSpreadsheet_(), 'CHECKIN_STUDENT');
+  ensureColumns_(sh, ['Remark', 'ByStaffID']);
+  var now = new Date();
+  appendObject_(sh, {
+    Date: dateStr_(now), Time: timeStr_(now), StudentID: student.StudentID,
+    ParentID: student.ParentID || '', Type: type, GPS_Lat: '', GPS_Lng: '', Status: 'OK',
+    Remark: remark, ByStaffID: staff.StaffID
+  });
+  try { CacheService.getScriptCache().removeAll(['col:CHECKIN_STUDENT', 'rows:CHECKIN_STUDENT']); } catch (e) {}
+  try { logAudit(staff.StaffID, 'STUDENT_CHECK' + type + '_BY_STAFF', 'CHECKIN_STUDENT', student.StudentID); } catch (e) {}
+
+  // the parent wasn't the one dropping off / picking up — tell them who was
+  var verb = (type === 'IN') ? 'มาถึงโรงเรียนแล้ว' : 'ถูกรับกลับแล้ว';
+  var msg = '👶 ' + student.Name + ' ' + verb + ' (' + timeStr_(now) + ')\nบันทึกโดยคุณครู ' +
+            (staff.Name || staff.StaffID) + '\nหมายเหตุ: ' + remark;
+  try {
+    var parent = student.ParentID ? findObject_(sheet_(getMainSpreadsheet_(), 'PARENTS'),
+      function (pr) { return String(pr.ParentID) === String(student.ParentID); }) : null;
+    if (parent && parent.LineUID) linePushText_(parent.LineUID, msg); else notifyAdmins_(msg);
+  } catch (e) {}
+  return { studentId: student.StudentID, type: type, time: timeStr_(now), remark: remark };
+}
+
 // ---- Check-out ----------------------------------------------------
 /** payload: { staffId|lineUid, lat, lng } */
 function handleStaffCheckout(payload) {

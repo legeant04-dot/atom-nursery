@@ -52,7 +52,9 @@ SCHEMA[WB.MAIN] = {
   PICKUP_PERSONS:    ['StudentID', 'Name', 'Phone', 'Relation'],
   // user <-> student data-access links (data isolation; supports father linking after mother registered)
   USER_LINKS:        ['UserUID', 'StudentID', 'VerifiedBy', 'Date'],
-  CHECKIN_STUDENT:   ['Date', 'Time', 'StudentID', 'ParentID', 'Type', 'GPS_Lat', 'GPS_Lng', 'Status'],
+  // Remark + ByStaffID: set when a TEACHER checks a student in/out on behalf of an unregistered
+  // pickup person (remark is mandatory). Appended at the END — never insert mid-schema.
+  CHECKIN_STUDENT:   ['Date', 'Time', 'StudentID', 'ParentID', 'Type', 'GPS_Lat', 'GPS_Lng', 'Status', 'Remark', 'ByStaffID'],
   // Daily OT (overtime) charges — created on late pickup, settled via the OT (KTB) QR
   // PaymentMethod = transfer | cash; TransactionDate = when the parent notified payment; PaidDate set on Admin confirm.
   OT_DAILY:          ['OTID', 'Date', 'StudentID', 'PickupTime', 'PlanEnd', 'LateMinutes', 'Hours', 'Amount', 'Status', 'SlipRef', 'SlipAmount', 'PaymentMethod', 'TransactionDate', 'PaidDate'],
