@@ -58,6 +58,58 @@ function pruneOldBackups_(folder) {
   }
 }
 
+// ---- Restore from backup (admin-only routes) --------------------------------
+/** Backup copies, newest first. */
+function backupFiles_() {
+  var out = [], it = backupFolder_().getFiles();
+  while (it.hasNext()) { var f = it.next(); out.push({ id: f.getId(), name: f.getName(), created: f.getDateCreated() }); }
+  out.sort(function (a, b) { return b.created - a.created; });
+  return out;
+}
+function handleListBackups(p) {
+  var tz = getConfig_('Timezone', 'Asia/Bangkok');
+  return backupFiles_().map(function (f) {
+    return { id: f.id, name: f.name, created: Utilities.formatDate(f.created, tz, 'yyyy-MM-dd HH:mm') };
+  });
+}
+
+/** Sheets we can restore, and the column that identifies a row. */
+var RESTORE_KEYS = { STUDENTS: 'StudentID', PARENTS: 'ParentID', STAFF: 'StaffID' };
+
+/**
+ * Merge-restore: append rows that exist in the backup but are MISSING live (by key).
+ * Never overwrites or deletes live rows. payload: { sheet, wb?:'MAIN'|'HR', backupFileId?, preview? }
+ */
+function handleRestoreSheet(p) {
+  p = p || {};
+  var sheetName = String(p.sheet || ''), key = RESTORE_KEYS[sheetName];
+  if (!key) throw apiError_('BAD_INPUT', 'restoreSheet รองรับเฉพาะ: ' + Object.keys(RESTORE_KEYS).join(', '));
+  var isHr = (p.wb === 'HR') || sheetName === 'STAFF';
+  var wbLabel = isHr ? WB.HR : WB.MAIN;
+
+  var pick;
+  if (p.backupFileId) pick = { id: p.backupFileId, name: '(id)' };
+  else pick = backupFiles_().filter(function (f) { return f.name.indexOf(wbLabel) === 0; })[0];
+  if (!pick) throw apiError_('NOT_FOUND', 'ไม่พบไฟล์สำรองของ ' + wbLabel);
+
+  var src = SpreadsheetApp.openById(pick.id).getSheetByName(sheetName);
+  if (!src) throw apiError_('NOT_FOUND', 'ไม่พบชีต ' + sheetName + ' ในไฟล์สำรอง');
+  var backupRows = readObjects_(src).filter(function (r) { return r[key]; });
+
+  var dst = sheet_(isHr ? getHrSpreadsheet_() : getMainSpreadsheet_(), sheetName);
+  var liveRows = readObjects_(dst);
+  var have = {};
+  liveRows.forEach(function (r) { if (r[key]) have[String(r[key])] = 1; });
+  var missing = backupRows.filter(function (r) { return !have[String(r[key])]; });
+
+  if (p.preview) return { backupFile: pick.name, backupRows: backupRows.length, liveRows: liveRows.length,
+    missing: missing.length, missingIds: missing.map(function (r) { return String(r[key]); }) };
+
+  missing.forEach(function (r) { appendObject_(dst, r); });
+  try { CacheService.getScriptCache().removeAll(['col:' + sheetName, 'rows:' + sheetName]); } catch (e) {}
+  return { backupFile: pick.name, restored: missing.length, liveRows: liveRows.length + missing.length };
+}
+
 /**
  * verifyDay7() — end-to-end readiness check. Run from the editor after
  * setupAll(), bootstrapAdmin(), installTriggers() and config fill-in.

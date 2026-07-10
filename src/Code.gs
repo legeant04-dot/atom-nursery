@@ -27,6 +27,8 @@ var ROUTES = {
   deleteBill:       function (p) { return handleDeleteBill(p); },
   setSchoolConfig:  function (p) { return handleSetSchoolConfig(p); },
   recomputeAttendance: function (p) { return handleRecomputeAttendance(p); },
+  listBackups:      function (p) { return handleListBackups(p); },
+  restoreSheet:     function (p) { return handleRestoreSheet(p); },
   addDepartment:    function (p) { return handleAddDepartment(p); },
   removeDepartment: function (p) { return handleRemoveDepartment(p); },
   renameDepartment: function (p) { return handleRenameDepartment(p); },
@@ -120,7 +122,7 @@ function applyIdentity_(action, payload, sess) {
   }
   // Admin-only destructive/sensitive actions — block non-admins (parent/teacher tokens).
   var ADMIN_ONLY = { deleteBill: 1, adminResetPassword: 1, getStaffPassword: 1, setSchoolConfig: 1, recomputeAttendance: 1,
-    addDepartment: 1, removeDepartment: 1, renameDepartment: 1 };
+    addDepartment: 1, removeDepartment: 1, renameDepartment: 1, listBackups: 1, restoreSheet: 1 };
   if (ADMIN_ONLY[action] && sess.role !== 'Admin') throw apiError_('NO_PERMISSION', 'เฉพาะแอดมิน');
   // Admin is fully trusted: may target ANY staff/student/parent (manage everyone + "view as" any role).
   if (sess.role === 'Admin') return payload;
@@ -157,15 +159,36 @@ function dispatch_(action, payload, token) {
     return jsonOut_({ ok: false, error: { code: 'NO_SESSION', message: 'ต้องเข้าสู่ระบบใหม่ (เซสชันหมดอายุ)' } });
   }
   try {
-    if (action === 'batch') { (payload = payload || {}).__sess = sess; return jsonOut_({ ok: true, data: handler(payload) }); }
-    payload = applyIdentity_(action, payload, sess);
-    return jsonOut_({ ok: true, data: handler(payload) });
+    // Serialize anything that can WRITE. A request hydrates sheets then persists them, so two
+    // concurrent writers could interleave (one reading a half-written sheet) — the cause of the
+    // 2026-07-09 student wipe. Pure reads stay lock-free so the app remains fast.
+    var mutates = (action === 'batch')
+      ? ((payload && payload.calls) || []).some(function (c) { return isMutatingAction_(c.action); })
+      : isMutatingAction_(action);
+    return withWriteLock_(mutates, function () {
+      if (action === 'batch') { (payload = payload || {}).__sess = sess; return jsonOut_({ ok: true, data: handler(payload) }); }
+      payload = applyIdentity_(action, payload, sess);
+      return jsonOut_({ ok: true, data: handler(payload) });
+    });
   } catch (err) {
     var code = (err && err.apiCode) ? err.apiCode : 'INTERNAL';
     var msg = (err && err.message) ? err.message : String(err);
     if (code === 'INTERNAL') Logger.log('Unhandled error in ' + action + ': ' + (err && err.stack || err));
     return jsonOut_({ ok: false, error: { code: code, message: msg } });
   }
+}
+
+/** Does this action write anything? (mirrors the client's MUT regex in api.js) */
+var MUTATING_RE = /^(submit|save|add|remove|delete|set|register|pay|upload|confirm|reject|issue|generate|move|import|compute|cancel|prepay|link|notify|request|mark|approve|edit|rename|update|change|seed|recompute|restore|bind|provision)/i;
+function isMutatingAction_(a) { a = String(a || ''); return MUTATING_RE.test(a) || /check(in|out)|absence/i.test(a); }
+
+/** Run fn under a script lock when it may write. Reads run unlocked (no queueing). */
+function withWriteLock_(needed, fn) {
+  if (!needed || typeof LockService === 'undefined') return fn();   // no LockService in the test harness
+  var lock;
+  try { lock = LockService.getScriptLock(); } catch (e) { return fn(); }
+  if (!lock.tryLock(25000)) throw apiError_('BUSY', 'ระบบกำลังบันทึกข้อมูลอยู่ กรุณาลองใหม่อีกครั้ง');
+  try { return fn(); } finally { try { lock.releaseLock(); } catch (e) {} }
 }
 
 /** Build a typed error that dispatch_ maps to { code, message }. */
