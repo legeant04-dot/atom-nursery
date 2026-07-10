@@ -175,6 +175,11 @@ function readCollection_(key) {
 }
 function writeCollection_(key, list) { writeRows_(COLLECTION_MAP[key].wb, COLLECTION_MAP[key].sheet, list, FIELD_ALIAS[COLLECTION_MAP[key].sheet] || {}); }
 
+// Sheets whose rows must NEVER disappear via a full-collection rewrite. Every legitimate deletion
+// there goes through an explicit in-place route (deleteRow). So ANY shrink here is a truncation bug
+// (stale/partial read, concurrent write) → abort loudly instead of destroying data.
+var NO_SHRINK_SHEETS = { STUDENTS: 1, PARENTS: 1, STAFF: 1, BILLING: 1, USER_LINKS: 1, PICKUP_PERSONS: 1 };
+
 function writeRows_(wb, sheet, list, alias) {
   alias = alias || {};
   var sh = wbOf_(wb).getSheetByName(sheet); if (!sh) return;
@@ -182,8 +187,25 @@ function writeRows_(wb, sheet, list, alias) {
   var values = (list || []).map(function (o) {
     return hdr.map(function (col) { var field = alias[col] || col; var v = o[field]; if (v === undefined) v = o[col]; return encodeCell_(v); });
   });
-  if (sh.getLastRow() > 1) sh.getRange(2, 1, sh.getLastRow() - 1, hdr.length).clearContent();
-  if (values.length) sh.getRange(2, 1, values.length, hdr.length).setValues(values);
+  var existing = Math.max(0, sh.getLastRow() - 1);
+  var incoming = values.length;
+
+  // ---- DATA-LOSS GUARD (applies to every activity that persists a collection) ----
+  if (incoming < existing) {
+    var drop = existing - incoming;
+    // identity/money sheets: no shrink at all. Others: block a mass deletion (>5 rows AND >25%).
+    var fatal = NO_SHRINK_SHEETS[sheet] || (drop > 5 && drop > existing * 0.25);
+    if (fatal) {
+      try { Logger.log('WRITE_GUARD blocked ' + sheet + ': ' + existing + ' -> ' + incoming); } catch (e) {}
+      var msg = 'ยกเลิกการบันทึกชีต ' + sheet + ' เพื่อป้องกันข้อมูลหาย (' + existing + ' → ' + incoming + ' แถว)';
+      throw (typeof apiError_ === 'function') ? apiError_('WRITE_GUARD', msg) : new Error(msg);
+    }
+  }
+
+  // Write FIRST, then clear only the trailing surplus rows. The old code cleared everything before
+  // writing, so a concurrent request could read an empty sheet and persist that emptiness back.
+  if (incoming) sh.getRange(2, 1, incoming, hdr.length).setValues(values);
+  if (existing > incoming) sh.getRange(incoming + 2, 1, existing - incoming, hdr.length).clearContent();
   cacheDel_('col:' + sheet); cacheDel_('rows:' + sheet);   // invalidate this sheet's cache on write
 }
 
