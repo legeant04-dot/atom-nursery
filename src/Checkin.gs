@@ -38,6 +38,14 @@ function tz_() { return getConfig_('Timezone', 'Asia/Bangkok'); }
 function dateStr_(d) { return Utilities.formatDate(d, tz_(), 'yyyy-MM-dd'); }
 function timeStr_(d) { return Utilities.formatDate(d, tz_(), 'HH:mm'); }
 function dayOfWeek_(d) { return Utilities.formatDate(d, tz_(), 'EEEE'); } // Monday, Tuesday, ...
+// OT minutes → "X ชม. Y นาที" for the LINE message (drops a zero part)
+function hmMinTH_(total) { total = Math.max(0, Math.round(Number(total) || 0)); var h = Math.floor(total / 60), m = total % 60;
+  return (h && m) ? (h + ' ชม. ' + m + ' นาที') : (h ? (h + ' ชม.') : (m + ' นาที')); }
+// Thai labour-law OT hourly rate on a normal working day = 1.5 × (monthly salary ÷ 30 ÷ 8);
+// falls back to the flat StaffOTHourlyRate config when the staff has no BaseSalary on file.
+function otRateForStaff_(staff) { var sal = Number((staff && staff.BaseSalary) || 0);
+  if (sal > 0) return Math.round(sal / 30 / 8 * 1.5 * 100) / 100;
+  return parseFloat(getConfig_('StaffOTHourlyRate', getConfig_('OTRatePerHour', '100'))) || 100; }
 function hhmmToMin_(s) {
   var m = /^(\d{1,2}):(\d{2})$/.exec(String(s || '').trim());
   return m ? parseInt(m[1], 10) * 60 + parseInt(m[2], 10) : null;
@@ -222,23 +230,25 @@ function handleStaffCheckout(payload) {
   var outMin = hhmmToMin_(sched.checkOut); if (outMin == null) outMin = hhmmToMin_('17:00');
   var otMin = Math.max(0, minOfDay_(now) - outMin);
   var otHours = Math.round((otMin / 60) * 100) / 100;
+  // Thai labour law: OT on a normal working day = 1.5 × hourly wage; monthly hourly = salary ÷ 30 ÷ 8.
+  var rate = otRateForStaff_(staff);
+  var otPay = Math.round(otHours * rate);
 
   updateRow_(sheet, row._row, { CheckOut: timeStr_(now), OTHours: otHours, Status: 'OUT' });
 
   if (otHours > 0) {
     var otSheet = sheet_(getHrSpreadsheet_(), 'OT_RECORDS');
-    var rate = parseFloat(getConfig_('OTEveningRate', '0')) || 0;
     appendObject_(otSheet, {
       OTRecordID: nextId_(otSheet, 'OTRecordID', 'OT'), StaffID: staff.StaffID, Date: today,
-      Hours: otHours, Rate: rate, Amount: Math.round(otHours * rate * 100) / 100, ApprovedBy: ''
+      Hours: otHours, Rate: rate, Amount: otPay, ApprovedBy: ''
     });
   }
   logAuditHr(staff.StaffID, 'STAFF_CHECKOUT', 'CHECKIN_STAFF', today);
 
   var msg = '🔴 ' + staff.Name + ' ออกงาน ' + timeStr_(now) +
-            (otHours > 0 ? ' • OT ' + otHours + ' ชม.' : '');
+            (otMin > 0 ? ' • OT ' + hmMinTH_(otMin) + (otPay > 0 ? ' ≈ ' + otPay + ' บาท' : '') : '');
   notifyAdmins_(msg);
-  return { staffId: staff.StaffID, time: timeStr_(now), otHours: otHours };
+  return { staffId: staff.StaffID, time: timeStr_(now), otHours: otHours, otMinutes: otMin, otPay: otPay };
 }
 
 // ---- Notification helpers ----------------------------------------

@@ -46,6 +46,22 @@ function createAtomAPI(M, GROWTH_STD) {
   const studentPlan = s => planById(s&&s.Plan) || (cfg.Plans||[])[0] || {end:'17:00',price:0};
   // teacher OT hours: ≥OTRoundUpMinutes within an hour rounds up to a full hour
   function otHoursRule(min){ if(min<=0)return 0; const h=Math.floor(min/60), rem=min%60; return h+(rem>=Number(cfg.OTRoundUpMinutes||50)?1:0); }
+  // Thai labour-law OT rate on a normal working day = 1.5 × hourly wage; monthly hourly = salary ÷ 30 ÷ 8.
+  // Falls back to the flat StaffOTHourlyRate config when a staff has no BaseSalary on file.
+  function staffOtRate(staff){ const sal=Number((staff&&staff.BaseSalary)||0);
+    if(sal>0) return Math.round(sal/30/8*1.5*100)/100;
+    return Number(cfg.StaffOTHourlyRate||cfg.OTRatePerHour||100); }
+  function staffById_(id){ return M.staff.find(x=>x.StaffID===id)||{}; }
+  // classes a staff covers (see classList). Returns an array of class objects, never empty when classes exist.
+  function coveredClasses_(staff){ staff=staff||{}; const all=M.classes||[];
+    const lvl=String(staff.PositionLevel||''); const list=String(staff.Classes||'').split(',').map(x=>x.trim()).filter(Boolean);
+    if(lvl==='Admin'||lvl==='Leader'||list.indexOf('*')>=0) return all.slice();
+    const names={};
+    all.forEach(c=>{ if(c.TeacherID===staff.StaffID) names[c.ClassName]=1; });
+    list.forEach(n=>names[n]=1);
+    if(staff.Department) all.forEach(c=>{ if(c.ClassName===staff.Department) names[c.ClassName]=1; });
+    const cls=all.filter(c=>names[c.ClassName]);
+    return cls.length?cls:[all.find(c=>c.TeacherID===staff.StaffID)||all[0]].filter(Boolean); }
   // OT for a pickup time (HH:MM) vs the student's plan end + grace; 100/started hour
   // OT that is PAID or CANCELLED is settled — it must never roll into a bill or count as outstanding.
   const OT_CLOSED = { PAID:1, CANCELLED:1 };
@@ -293,8 +309,16 @@ function createAtomAPI(M, GROWTH_STD) {
         items:band.map(c=>({itemNo:c.ItemNo,skill:c.Skill,description:c.Description,descriptionEN:(M.dspmEN&&M.dspmEN[c.ItemNo])||'',result:latest[c.ItemNo]?latest[c.ItemNo].Result:'ยังไม่ได้รับการทดสอบ',date:latest[c.ItemNo]?latest[c.ItemNo].Date:''}))}; },
 
     // ---------- Teacher / staff ----------
-    classList: p => { const cls=M.classes.find(c=>c.TeacherID===p.staffId)||M.classes[0];
-      return {class:cls, students:activeStudents().filter(s=>s.Class===cls.ClassName).map(s=>Object.assign({ageMonth:ageMonths(s.DOB)},s))}; },
+    // classes a staff member is responsible for: Admin/Leader (or Classes='*') → all; else homeroom
+    // (CLASSES.TeacherID) ∪ the explicit Classes list ∪ the class matching their Department.
+    classList: p => { const s=staffById(p.staffId); const covered=coveredClasses_(s);
+      let cls = p.className ? covered.find(c=>c.ClassName===p.className) : null;
+      if(!cls) cls = covered[0] || M.classes[0];
+      return {class:cls, classes:covered.map(c=>({className:c.ClassName,classNameEN:c.ClassNameEN||c.ClassName})),
+        students:activeStudents().filter(s2=>s2.Class===cls.ClassName).map(s2=>Object.assign({ageMonth:ageMonths(s2.DOB)},s2))}; },
+    // the class names this staff can pick between (used to show/hide a class switcher)
+    myClasses: p => { const s=staffById(p.staffId); const covered=coveredClasses_(s);
+      return {classes:covered.map(c=>({className:c.ClassName,classNameEN:c.ClassNameEN||c.ClassName})), all:covered.length===M.classes.length}; },
     myAttendanceToday: p => { const r=M.staffAttendanceToday.find(x=>x.StaffID===p.staffId);
       const sch=M.workSchedule.find(w=>w.StaffID===p.staffId)||{CheckInTime:cfg.DefaultCheckInTime,CheckOutTime:'17:00'};
       return {date:todayLocal(), schedule:sch, checkIn:r?r.CheckIn:'', checkOut:r?r.CheckOut:'', late:r?r.Late||0:0, status:r?r.Status:'NONE'}; },
@@ -352,7 +376,7 @@ function createAtomAPI(M, GROWTH_STD) {
     // all bands the child has reached (enroll age -> now), each band with items + status
     studentAllBands: p => { const s=studentById(p.studentId); const age=ageMonths(s.DOB); const latest=latestByItem(p.studentId);
       const bands={}; M.dspmCriteria.filter(c=>c.AgeFrom<=age).forEach(c=>{ (bands[c.AgeLabelTH]=bands[c.AgeLabelTH]||{label:c.AgeLabelTH,from:c.AgeFrom,items:[]}).items.push({itemNo:c.ItemNo,skill:c.Skill,description:c.Description,descriptionEN:(M.dspmEN&&M.dspmEN[c.ItemNo])||'',result:latest[c.ItemNo]?latest[c.ItemNo].Result:'ยังไม่ได้รับการทดสอบ'}); });
-      return {studentId:p.studentId,name:s.NameTH,nameEN:s.NameEN,ageMonth:age,enrollDate:s.EnrollDate,
+      return {studentId:p.studentId,name:s.NameTH,nameEN:s.NameEN,nick:s.Nickname,nickEN:s.NicknameEN,ageMonth:age,enrollDate:s.EnrollDate,
         bands:Object.values(bands).sort((a,b)=>a.from-b.from)}; },
 
     myLeaves: p => M.leaves.filter(l=>l.StaffID===p.staffId),
@@ -438,11 +462,11 @@ function createAtomAPI(M, GROWTH_STD) {
 
     // ---------- Admin ----------
     dashboard: () => { const cls=M.classes.map(c=>{ const studs=activeStudents().filter(s=>s.Class===c.ClassName);
-        const stat=studs.map(s=>{ const a=M.studentAttendanceToday.find(x=>x.StudentID===s.StudentID); return {name:s.NameTH,nameEN:s.NameEN, status:a?a.Status:'ABSENT', reason:a?a.Reason:''}; });
+        const stat=studs.map(s=>{ const a=M.studentAttendanceToday.find(x=>x.StudentID===s.StudentID); return {studentId:s.StudentID,name:s.NameTH,nameEN:s.NameEN,nick:s.Nickname,nickEN:s.NicknameEN, status:a?a.Status:'ABSENT', in:a?a.CheckIn||'':'', out:a?a.CheckOut||'':'', reason:a?a.Reason:''}; });
         return {className:c.ClassName,total:studs.length,in:stat.filter(s=>s.status==='IN').length,out:stat.filter(s=>s.status==='OUT').length,leave:stat.filter(s=>s.status==='LEAVE').length,absent:stat.filter(s=>s.status==='ABSENT').length,students:stat}; });
       // staff with check-in turned OFF never clock in — exclude them entirely (not counted, not "absent")
       const staffStat=M.staff.filter(s=>s.Role==='Teacher'&&s.RequireCheckin!==false).map(s=>{ const a=M.staffAttendanceToday.find(x=>x.StaffID===s.StaffID)||{};
-        const onLeave=a.Status==='LEAVE'; return {name:s.NameTH,nameEN:s.NameEN,dept:s.Department, status:a.Status||'ABSENT',
+        const onLeave=a.Status==='LEAVE'; return {staffId:s.StaffID,name:s.NameTH,nameEN:s.NameEN,nick:s.Nickname,nickEN:s.NicknameEN,dept:s.Department, status:a.Status||'ABSENT',
           checkIn:onLeave?'':(a.CheckIn||''), checkOut:onLeave?'':(a.CheckOut||''), late:onLeave?0:(a.Late||0), remark:onLeave?(a.Reason||'ลา'):''}; });
       return {classes:cls, staff:staffStat, pendingLeaves:M.leaves.filter(l=>l.Status.startsWith('PENDING')).length}; },
     pendingLeaves: p => { const lv=staffById(p.staffId).PositionLevel; if(lv==='Admin')return M.leaves.filter(l=>l.Status==='PENDING_ADMIN'); if(lv==='Leader')return M.leaves.filter(l=>l.Status==='PENDING_LEADER'); fail('NO_PERMISSION','ตำแหน่งนี้ไม่มีสิทธิ์อนุมัติ'); },
@@ -461,7 +485,7 @@ function createAtomAPI(M, GROWTH_STD) {
       const d=p.data||{}; ['NameEN','Nickname','NicknameEN','Phone','DOB','Photo'].forEach(k=>{ if(d[k]!==undefined) s[k]=d[k]; }); return {ok:true, staffId:p.staffId}; },
     listStudents: () => activeStudents().map(s=>Object.assign({ageMonth:ageMonths(s.DOB)},s)),
     listClasses: () => M.classes,
-    classAssessment: p => { const ss=M.students.filter(s=>s.Class===p.className); const per=ss.map(s=>{const x=summarize(s.StudentID);return{studentId:s.StudentID,name:s.NameTH,nameEN:s.NameEN,ageMonth:x.ageMonth,pass:x.totalPass,fail:x.totalFail};});
+    classAssessment: p => { const ss=activeStudents().filter(s=>s.Class===p.className); const per=ss.map(s=>{const x=summarize(s.StudentID);return{studentId:s.StudentID,name:s.NameTH,nameEN:s.NameEN,nick:s.Nickname,nickEN:s.NicknameEN,ageMonth:x.ageMonth,pass:x.totalPass,fail:x.totalFail};});
       const pass=per.reduce((a,b)=>a+b.pass,0),fl=per.reduce((a,b)=>a+b.fail,0); return {class:p.className,studentCount:ss.length,passRate:(pass+fl)?Math.round(pass/(pass+fl)*100):0,perStudent:per}; },
     addAnnouncement: p => { const a={AnnID:'ANN-'+(M.announcements.length+1),Title:p.title,TitleEN:p.titleEN||'',Content:p.content,ContentEN:p.contentEN||'',Image:p.image||'',Date:todayLocal(),Type:p.type||'news',TargetGroup:p.target||'all',Popup:!!p.popup,StartDate:p.startDate||todayLocal(),EndDate:p.endDate||''}; M.announcements.unshift(a); return a; },
     editAnnouncement: p => { const a=M.announcements.find(x=>x.AnnID===p.annId); if(!a)fail('NOT_FOUND','ไม่พบประกาศ');
@@ -548,13 +572,13 @@ function createAtomAPI(M, GROWTH_STD) {
     // included) + the children themselves. Identity (uid/parentId) is injected server-side.
     familyProfile: p => { const kids=visibleStudents(p); const kidIds=kids.map(s=>s.StudentID); const seen={}; const parents=[];
       M.parents.forEach(pa=>{ if((kidIds.indexOf(pa.StudentID)>=0 || pa.ParentID===p.parentId) && !seen[pa.ParentID]){ seen[pa.ParentID]=1;
-        parents.push({ ParentID:pa.ParentID, NameTH:pa.NameTH||pa.Name, NameEN:pa.NameEN, NationalID:pa.NationalID, Relationship:pa.Relationship, Phone:pa.Phone, Occupation:pa.Occupation, Workplace:pa.Workplace, OfficePhone:pa.OfficePhone, Address:pa.Address, StudentID:pa.StudentID, isMe: pa.ParentID===p.parentId }); } });
+        parents.push({ ParentID:pa.ParentID, NameTH:pa.NameTH||pa.Name, NameEN:pa.NameEN, Nickname:pa.Nickname, NicknameEN:pa.NicknameEN, Title:pa.Title, NationalID:pa.NationalID, Relationship:pa.Relationship, Phone:pa.Phone, Occupation:pa.Occupation, Workplace:pa.Workplace, OfficePhone:pa.OfficePhone, Address:pa.Address, StudentID:pa.StudentID, isMe: pa.ParentID===p.parentId }); } });
       return { parents, myParentId:p.parentId, students: kids.map(s=>({ StudentID:s.StudentID, NameTH:s.NameTH, NameEN:s.NameEN, Nickname:s.Nickname, NicknameEN:s.NicknameEN, Class:s.Class, DOB:s.DOB, Plan:s.Plan, NationalID:s.NationalID, Gender:s.Gender, BloodType:s.BloodType, RH:s.RH, Allergy:s.Allergy, MedicalHistory:s.MedicalHistory, EmergencyContact:s.EmergencyContact, Address:s.Address, Race:s.Race, Nationality:s.Nationality, Religion:s.Religion, Photo:s.Photo })) }; },
     // edit a parent that is either the caller or a co-parent of the caller's child (server validates); whitelisted.
     saveFamilyParent: p => { const kids=visibleStudents(p); const kidIds=kids.map(s=>s.StudentID); const tid=p.targetParentId||p.parentId;
       const pa=M.parents.find(x=>x.ParentID===tid); if(!pa)fail('NOT_FOUND','ไม่พบผู้ปกครอง');
       if(!(pa.ParentID===p.parentId || kidIds.indexOf(pa.StudentID)>=0))fail('NO_ACCESS','ไม่มีสิทธิ์แก้ไขผู้ปกครองนี้');
-      const d=p.data||{}; ['NameTH','NameEN','Relationship','Phone','Occupation','Workplace','OfficePhone','Address'].forEach(k=>{ if(d[k]!==undefined) pa[k]=d[k]; }); return {ok:true, parentId:tid}; },
+      const d=p.data||{}; ['NameTH','NameEN','Nickname','NicknameEN','Title','Relationship','Phone','Occupation','Workplace','OfficePhone','Address'].forEach(k=>{ if(d[k]!==undefined) pa[k]=d[k]; }); return {ok:true, parentId:tid}; },
     // parent edits their own child's safe fields (studentId ownership is enforced by applyIdentity_ on GAS).
     saveStudentSelf: p => { const s=studentById(p.studentId); if(!s)fail('NOT_FOUND','ไม่พบนักเรียน');
       const d=p.data||{}; ['Nickname','NicknameEN','BloodType','RH','Allergy','MedicalHistory','EmergencyContact','Address','Race','Nationality','Religion','Photo'].forEach(k=>{ if(d[k]!==undefined) s[k]=d[k]; }); return {ok:true, studentId:p.studentId}; },
@@ -693,7 +717,8 @@ function createAtomAPI(M, GROWTH_STD) {
     // verify the teacher OT computation across the attendance history (schedule out vs actual out)
     otVerification: p => { const rows=M.staffAttendanceHistory.filter(h=>!p.staffId||h.StaffID===p.staffId).filter(h=>h.Out);
       return rows.map(h=>{ const sch=M.workSchedule.find(w=>w.StaffID===h.StaffID)||{CheckOutTime:'17:00'};
-        const min=Math.max(0,toMin(h.Out)-toMin(sch.CheckOutTime)); return {date:h.Date,staffId:h.StaffID,out:h.Out,schedOut:sch.CheckOutTime,otMinutes:min,otHours:otHoursRule(min)}; }); },
+        const min=Math.max(0,toMin(h.Out)-toMin(sch.CheckOutTime)); const rate=staffOtRate(staffById_(h.StaffID));
+        const otH=Math.round(min/60*100)/100; return {date:h.Date,staffId:h.StaffID,out:h.Out,schedOut:sch.CheckOutTime,otMinutes:min,otHours:otHoursRule(min),otRate:rate,otPay:Math.round(otH*rate)}; }); },
     // sum a staff's OT hours for a month (auto-pulled into payroll); amount = hours × StaffOTHourlyRate
     staffMonthlyOT: p => { const sch=M.workSchedule.find(w=>w.StaffID===p.staffId)||{CheckOutTime:'17:00'};
       const rows=M.staffAttendanceHistory.filter(h=>h.StaffID===p.staffId&&h.Out&&(!p.month||h.Date.slice(0,7)===p.month));

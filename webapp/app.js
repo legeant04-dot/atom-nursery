@@ -6,7 +6,7 @@
   const setHTML = (sel, html) => { const el = $(sel); if (el) el.innerHTML = html; };
   const app = $('#app'), nav = $('#bottomnav');
   const baht = n => (Number(n)||0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
-  const APP_VERSION = 'Version 1.064'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.065'; // bump each webapp change; shown only at the bottom of the Chat screen
   const verTag = () => `<div style="text-align:center;color:#c3c9d4;font-size:10px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
   const phoneFmt = p => { let d=String(p==null?'':p).replace(/\D/g,''); if(d.length===9) d='0'+d; return d; };
@@ -23,12 +23,71 @@
   const nm = o => o ? (LANG()==='en' ? (o.NameEN||o.NameTH||'') : (o.NameTH||o.NameEN||'')) : '';
   // language-aware nickname (EN nickname shown in English mode, Thai otherwise)
   const nick = o => o ? (LANG()==='en' ? (o.NicknameEN||o.Nickname||'') : (o.Nickname||o.NicknameEN||'')) : '';
+  // full name + nickname, for plain-text spots (<option>, chips, headings) where a pill can't be used
+  const nmn = o => { const n=nm(o), k=nick(o); return k ? `${n} (${k})` : n; };
+  // the same as an inline pill, for list rows
+  const nickPill = o => nick(o) ? ` <span class="pill info">${esc(nick(o))}</span>` : '';
   const dn = o => o ? (LANG()==='en' ? (o.nameEN||o.name||'') : (o.name||o.nameEN||'')) : '';
+  // nickname-first for lowercase DTOs (engine projections: name/nameEN/nick/nickEN)
+  const dnick = o => o ? (LANG()==='en' ? (o.nickEN||o.nick||o.nameEN||o.name||'') : (o.nick||o.nickEN||o.name||o.nameEN||'')) : '';
+
+  // ---- display names: nickname-first everywhere; formal name kept for payroll/records ----
+  const REL_DAD = /บิดา|father|พ่อ|^นาย|mr/i, REL_MOM = /มารดา|mother|แม่|^นาง|ms|mrs|miss/i;
+  // title (คำนำหน้า) prefixed to a formal name; defaults from relationship when unset
+  const titleOf = p => p ? (p.Title || (REL_DAD.test(p.Relationship||'')?'นาย':(REL_MOM.test(p.Relationship||'')?'นางสาว':''))) : '';
+  const titledName = p => { const ti=EN()?'':titleOf(p); const n=nm(p); return ti?`${ti} ${n}`:n; };
+  // student / staff: nickname first, else full name
+  const dispNick = o => nick(o) || nm(o);
+  // look up a student we already fetched (admin caches; parent scope has kids on the page)
+  const findKid = id => (window.A_CACHE&&(A_CACHE.students||[]).find(s=>s.StudentID===id)) || (window._KIDS&&_KIDS.find(s=>s.StudentID===id)) || null;
+  // parent display: nickname → "คุณพ่อ/แม่ น้อง<child>" (by relationship) → title + full name
+  function parentDisp(p, kid){
+    if(!p) return '';
+    const k=nick(p); if(k) return k;
+    const dad=REL_DAD.test(p.Relationship||'')||REL_DAD.test(p.Title||''), mom=REL_MOM.test(p.Relationship||'')||REL_MOM.test(p.Title||'');
+    const child = kid || findKid(p.StudentID);
+    const kn = child ? dispNick(child) : '';
+    if(kn && (dad||mom)) return EN() ? `${kn}'s ${dad?'dad':'mom'}` : `${dad?'คุณพ่อน้อง':'คุณแม่น้อง'}${kn}`;
+    return titledName(p);
+  }
   const EN = () => LANG()==='en';
-  // round photo avatar (Group C) — student Photo as a circle, else initials. Same size as .avatar-sm.
-  const studentAvatar = s => s&&s.Photo ? `<span class="avatar-sm photo" style="background-image:url('${esc(s.Photo)}')"></span>` : `<span class="avatar-sm">${esc(initialEN(s?s.NameEN:'?'))}</span>`;
-  // generic round avatar for any person record with a Photo + NameEN
-  const personAvatar = o => o&&o.Photo ? `<span class="avatar-sm photo" style="background-image:url('${esc(o.Photo)}')"></span>` : `<span class="avatar-sm">${esc(initialEN(o?o.NameEN:'?'))}</span>`;
+  // OT duration as "X ชม. Y นาที" / "Xh Ym" (e.g. 0.77 hr → "46 นาที"); drops a zero part
+  const hmMin = total => { total=Math.max(0,Math.round(Number(total)||0)); const h=Math.floor(total/60), m=total%60;
+    const H=EN()?'h':'ชม.', M=EN()?'min':'นาที'; return (h&&m)?`${h} ${H} ${m} ${M}`:(h?`${h} ${H}`:`${m} ${M}`); };
+  const hmHours = hours => hmMin((Number(hours)||0)*60);
+  // round photo avatar — Photo as a circle, else initials. Tapping a photo zooms it (IMG_zoom).
+  const studentAvatar = s => s&&s.Photo ? `<span class="avatar-sm photo" style="background-image:url('${esc(s.Photo)}')" onclick="IMG_zoom('${esc(s.Photo)}')"></span>` : `<span class="avatar-sm">${esc(initialEN(s?s.NameEN:'?'))}</span>`;
+  const personAvatar = o => o&&o.Photo ? `<span class="avatar-sm photo" style="background-image:url('${esc(o.Photo)}')" onclick="IMG_zoom('${esc(o.Photo)}')"></span>` : `<span class="avatar-sm">${esc(initialEN(o?o.NameEN:'?'))}</span>`;
+  // full-screen image lightbox (reuses the .modal.imgzoom styling; tap to close)
+  window.IMG_zoom = (url)=>{ if(!url)return; const d=document.createElement('div'); d.className='modal imgzoom';
+    d.onclick=()=>d.remove(); d.innerHTML=`<img src="${esc(url)}" alt=""/>`; document.body.appendChild(d); };
+
+  // ---- photo picker: downscale + JPEG-compress so a photo fits a sheet cell and posts fast ----
+  // The old forms sent a raw multi-MB base64 → the sheet cell overflowed / the GAS POST hung ("freeze").
+  function compressImage(file, maxDim, quality){ maxDim=maxDim||640; quality=quality||0.82;
+    return new Promise((resolve)=>{ if(!file||!/^image\//.test(file.type)){ resolve(''); return; }
+      const fr=new FileReader(); fr.onerror=()=>resolve('');
+      fr.onload=()=>{ const img=new Image(); img.onerror=()=>resolve('');
+        img.onload=()=>{ let w=img.width,h=img.height; const sc=Math.min(1,maxDim/Math.max(w,h));
+          w=Math.max(1,Math.round(w*sc)); h=Math.max(1,Math.round(h*sc));
+          const c=document.createElement('canvas'); c.width=w; c.height=h;
+          c.getContext('2d').drawImage(img,0,0,w,h);
+          try{ resolve(c.toDataURL('image/jpeg',quality)); }catch(e){ resolve(String(fr.result||'')); } };
+        img.src=String(fr.result||''); };
+      fr.readAsDataURL(file); }); }
+  // HTML for a photo field: file input + status line + preview thumb. The compressed dataURL is stashed
+  // on the input's dataset by PHOTO_pick, so save handlers read photoVal() (no second, uncompressed read).
+  const photoField = (id,label,cur,round)=>`<label class="field"><span>${esc(label)}</span>
+    <input id="${id}" type="file" accept="image/*" onchange="PHOTO_pick(this)"/>
+    <span id="${id}_st" class="muted" style="font-size:12px"></span>
+    <div id="${id}_pv" style="margin-top:6px">${cur?`<img src="${esc(cur)}" onclick="IMG_zoom('${esc(cur)}')" style="width:${round?'56px':'120px'};height:${round?'56px':'auto'};border-radius:${round?'50%':'8px'};object-fit:cover;cursor:zoom-in"/>`:''}</div></label>`;
+  window.PHOTO_pick = async (inp)=>{ const f=inp.files&&inp.files[0]; const st=document.getElementById(inp.id+'_st'), pv=document.getElementById(inp.id+'_pv');
+    if(!f){ return; } if(st){ st.textContent='⏳ '+(EN()?'Processing image…':'กำลังประมวลผลรูป…'); st.style.color='#e65100'; }
+    const url=await compressImage(f); inp.dataset.url=url||'';
+    if(st){ st.textContent = url?('✅ '+(EN()?'Ready':'พร้อมแล้ว')):('⚠️ '+(EN()?'Not an image':'ไม่ใช่ไฟล์รูป')); st.style.color=url?'#2e7d32':'#c62828'; }
+    if(pv&&url) pv.innerHTML=`<img src="${url}" onclick="IMG_zoom('${url}')" style="width:120px;border-radius:8px;object-fit:cover;cursor:zoom-in"/>`; };
+  // read a picked+compressed photo from a form; returns '' if none picked (caller keeps the old value)
+  const photoVal = (scope,id)=>{ const el=(scope||document).querySelector('#'+id); return el&&el.dataset&&el.dataset.url?el.dataset.url:''; };
   // age as "X ปี Y เดือน" / "X y Y m" from a DOB
   function ageYM(dob){ const m=window.AGEMONTHS?AGEMONTHS(dob):0; return ageYMfromMonths(m); }
   function ageYMfromMonths(m){ m=Math.max(0,Math.round(m)); const y=Math.floor(m/12), mo=m%12;
@@ -263,28 +322,37 @@
     app.innerHTML=`<h2 class="page">${esc(t('reg.titleParent'))}</h2>
       <div class="card" style="background:#f7f9fc"><small class="muted">${esc(t('reg.parentFirstNote'))}</small></div>
       <div class="card"><h3>👪 ${esc(t('reg.parent'))}</h3>
-        <div class="grid2">${fld_('rPNameTH',t('reg.nameTH'))}${fld_('rPNameEN',t('reg.nameEN'))}</div>
-        <div class="grid2"><label class="field"><span>${esc(t('reg.relationship'))}</span><select id="rRel"><option>${esc(t('reg.father'))}</option><option>${esc(t('reg.mother'))}</option><option>${esc(t('reg.guardian'))}</option></select></label>${fld_('rPNID',t('reg.nationalIdParent'))}</div>
+        <div class="grid2"><label class="field"><span>${esc(t('reg.title'))}</span><select id="rTitle">${['นาย','นาง','นางสาว'].map(x=>`<option>${x}</option>`).join('')}</select></label>${fld_('rPNameTH',t('reg.nameTH'))}</div>
+        <div class="grid2">${fld_('rPNameEN',t('reg.nameEN'))}${fld_('rPNick',t('reg.nickname'))}</div>
+        <div class="grid2">${fld_('rPNickEN',t('reg.nicknameEN'))}${fld_('rPNID',t('reg.nationalIdParent'))}</div>
+        <div class="grid2"><label class="field"><span>${esc(t('reg.relationship'))}</span><select id="rRel" onchange="REG_titleFromRel()"><option>${esc(t('reg.father'))}</option><option>${esc(t('reg.mother'))}</option><option>${esc(t('reg.guardian'))}</option></select></label></div>
         <div class="grid2">${fld_('rPPhone',t('reg.mobile'))}${fld_('rPOffice',t('reg.officePhone'))}</div>
         <div class="grid2">${fld_('rPOcc',t('reg.occupation'))}${fld_('rPWork',t('reg.workplace'))}</div>
         ${fld_('rPAddr',t('reg.address'))}
-        <label class="field"><span>📸 ${esc(t('reg.photoCapture'))}</span><input id="rPPhoto" type="file" accept="image/*" capture="user" onchange="REG_photoPrev(this)"/></label>
-        <div style="text-align:center"><img id="rPPhotoPrev" alt="" style="max-height:160px;border-radius:10px;border:1px solid #eee;margin:4px 0" hidden/></div>
+        <label class="field"><span>📸 ${esc(t('reg.photoCapture'))}</span><input id="rPPhoto" type="file" accept="image/*" capture="user" onchange="REG_photoPrev(this)"/><span id="rPPhoto_st" class="muted" style="font-size:12px"></span></label>
+        <div style="text-align:center"><img id="rPPhotoPrev" alt="" style="max-height:160px;border-radius:10px;border:1px solid #eee;margin:4px 0;cursor:zoom-in" hidden onclick="IMG_zoom(this.src)"/></div>
         <small class="muted" style="font-size:12px">🔒 ${esc(t('reg.photoCaptureNote'))}</small></div>
       <div class="card"><label style="display:flex;gap:8px;align-items:flex-start;font-size:13px"><input type="checkbox" id="rPDPA" style="width:auto;margin-top:3px"/><span>${esc(t('reg.pdpa'))}</span></label></div>
       <button class="btn block" onclick="REG_submit()">${esc(t('reg.submit'))}</button>
       <button class="btn-ghost block" style="margin-top:8px" onclick="REG_BACK()">${esc(t('c.back'))}</button>`;
   };
+  // relationship sets a sensible default title (father→นาย, mother→นางสาว); guardian leaves it alone
+  window.REG_titleFromRel = ()=>{ const rel=$('#rRel').value, ti=$('#rTitle'); if(!ti)return;
+    if(/บิดา|father/i.test(rel)) ti.value='นาย'; else if(/มารดา|mother/i.test(rel)) ti.value='นางสาว'; };
   window.REG_BACK = ()=>{ if(USER) GO('home'); else accountStage(); };
-  window.REG_photoPrev=(inp)=>{ const f=inp.files[0]; const img=$('#rPPhotoPrev'); if(!f||!img)return; const fr=new FileReader(); fr.onload=()=>{ img.src=fr.result; img.hidden=false; }; fr.readAsDataURL(f); };
+  window.REG_photoPrev=async(inp)=>{ const f=inp.files[0]; const img=$('#rPPhotoPrev'), st=$('#rPPhoto_st'); if(!f)return;
+    if(st){ st.textContent='⏳ '+(EN()?'Processing…':'กำลังประมวลผล…'); st.style.color='#e65100'; }
+    const url=await compressImage(f); inp.dataset.url=url||'';
+    if(st){ st.textContent = url?('✅ '+(EN()?'Ready':'พร้อมแล้ว')):('⚠️ '+(EN()?'Not an image':'ไม่ใช่ไฟล์รูป')); st.style.color=url?'#2e7d32':'#c62828'; }
+    if(img&&url){ img.src=url; img.hidden=false; } };
   window.REG_submit = async ()=>{ const v=id=>{ const e=$(id); return e?e.value.trim():''; };
     if(!v('#rPNameTH')&&!v('#rPNameEN')){toast(EN()?'Enter your name':'กรอกชื่อผู้ปกครอง');return;}
     if(!$('#rPDPA').checked){toast(EN()?'Please accept PDPA consent':'กรุณายอมรับ PDPA');return;}
-    const pf=$('#rPPhoto')&&$('#rPPhoto').files[0];
-    if(!pf){ toast(t('reg.photoRequired')); return; } // photo is now mandatory (login security)
-    const parentPhoto=await new Promise(r=>{const fr=new FileReader();fr.onload=()=>r(fr.result);fr.readAsDataURL(pf);});
+    const inp=$('#rPPhoto');
+    if(!inp||!inp.files[0]){ toast(t('reg.photoRequired')); return; } // photo is mandatory (login security)
+    const parentPhoto=inp.dataset.url||await compressImage(inp.files[0]); // compressed on pick; fall back if not
     const uid=PENDING_LINE_UID||(PENDING_PROVIDER||'LINE')+'_'+Date.now();
-    const parent={NameTH:v('#rPNameTH'),NameEN:v('#rPNameEN'),Relationship:$('#rRel').value,NationalID:v('#rPNID'),Phone:v('#rPPhone'),OfficePhone:v('#rPOffice'),Occupation:v('#rPOcc'),Workplace:v('#rPWork'),Address:v('#rPAddr'),Photo:parentPhoto,LineUID:uid};
+    const parent={Title:$('#rTitle').value,NameTH:v('#rPNameTH'),NameEN:v('#rPNameEN'),Nickname:v('#rPNick'),NicknameEN:v('#rPNickEN'),Relationship:$('#rRel').value,NationalID:v('#rPNID'),Phone:v('#rPPhone'),OfficePhone:v('#rPOffice'),Occupation:v('#rPOcc'),Workplace:v('#rPWork'),Address:v('#rPAddr'),Photo:parentPhoto,LineUID:uid};
     try{ const r=await api('registerParent',{uid,parent});
       await UPGRADE_SESSION(); // guest token → Parent token now that a PARENTS row exists
       confirmSaved(EN()?'Registered — now add your child':'ลงทะเบียนแล้ว — เพิ่มข้อมูลบุตรหลานต่อ');
@@ -304,7 +372,7 @@
         <label class="field"><span>${esc(t('reg.nationalIdStudent'))}</span><input id="rSNID" inputmode="numeric" placeholder="x-xxxx-xxxxx-xx-x"/></label>
         <div class="grid2">${fld_('rW',t('reg.weight'),'number')}${fld_('rH',t('reg.height'),'number')}</div>
         <div class="grid2">${fld_('rBlood',t('reg.bloodType'))}${fld_('rRH','RH')}</div>
-        <label class="field"><span>${esc(t('reg.photo'))}</span><input id="rPhoto" type="file" accept="image/*"/></label>
+        ${photoField('rPhoto',t('reg.photo'),'',true)}
         <label class="field"><span>${esc(t('reg.allergy'))}</span><input id="rAllergy" placeholder="${esc(t('reg.allergyPh'))}"/></label>
         <label class="field"><span>${esc(t('reg.chronic'))}</span><input id="rChronic"/></label></div>
       <div class="card"><div class="spread"><h3>🚗 ${esc(t('reg.pickupPersons'))}</h3><button class="btn sm outline" onclick="REG_addPickup()">+ ${esc(t('reg.addPickup'))}</button></div>
@@ -319,7 +387,7 @@
     box.innerHTML=h; if(keep) old.forEach((v,idx)=>{ const el=box.querySelectorAll('input')[idx]; if(el)el.value=v; }); }
   window.REG_childSubmit = async ()=>{ const v=id=>{ const e=$(id); return e?e.value.trim():''; };
     if(!v('#rNameTH')&&!v('#rNameEN')){toast(EN()?'Enter student name':'กรอกชื่อนักเรียน');return;}
-    const photo=$('#rPhoto')&&$('#rPhoto').files[0]?await new Promise(r=>{const fr=new FileReader();fr.onload=()=>r(fr.result);fr.readAsDataURL($('#rPhoto').files[0]);}):'';
+    const photo=photoVal(document,'rPhoto');
     const pickups=[]; for(let i=0;i<REG_PICKUPS;i++){ const n=v('#pkN'+i); if(n) pickups.push({Name:n,Phone:v('#pkP'+i),Relation:v('#pkR'+i)}); }
     const student={NationalID:v('#rSNID'),NameTH:v('#rNameTH'),NameEN:v('#rNameEN'),Nickname:v('#rNick'),NicknameEN:v('#rNickEN'),Gender:$('#rGender').value,DOB:v('#rDOB'),Plan:'',Weight:+v('#rW')||'',Height:+v('#rH')||'',Photo:photo,BloodType:v('#rBlood'),RH:v('#rRH'),Allergy:v('#rAllergy')||'-',MedicalHistory:v('#rChronic')||'-',Class:'Nursery 1'};
     try{ await api('addChildNew',{uid:USER.uid,parentId:USER.parentId,student,pickupPersons:pickups}); confirmSaved(t('c.saved')); GO('home'); }catch(e){err(e);} };
@@ -487,9 +555,10 @@
   window.P_profile = async () => { setNav('home');
     const d = await api('familyProfile', parentScope()); const parents=d.parents||[]; const kids=d.students||[];
     const parentCard=p=>{ const pre='pa_'+p.ParentID;
-      return `<div class="card"><div class="spread"><h3>${p.isMe?'👤':'👥'} ${esc(p.NameTH||'')||(EN()?'Parent':'ผู้ปกครอง')} ${p.isMe?`<span class="pill ok" style="font-size:10px">${EN()?'me':'ฉัน'}</span>`:''}</h3></div>
-        <div class="grid2">${ppFld(pre,'NameTH',EN()?'Name (TH)':'ชื่อ-สกุล (ไทย)',p.NameTH)}${ppFld(pre,'NameEN',EN()?'Name (EN)':'ชื่อ-สกุล (อังกฤษ)',p.NameEN)}</div>
-        <label class="field"><span>${EN()?'Relationship':'ความสัมพันธ์'}</span><input id="${pre}_Relationship" value="${esc(p.Relationship||'')}"/></label>
+      return `<div class="card"><div class="spread"><h3>${p.isMe?'👤':'👥'} ${esc(parentDisp(p)||(EN()?'Parent':'ผู้ปกครอง'))} ${p.isMe?`<span class="pill ok" style="font-size:10px">${EN()?'me':'ฉัน'}</span>`:''}</h3></div>
+        <div class="grid2"><label class="field"><span>${esc(t('reg.title'))}</span><select id="${pre}_Title">${['','นาย','นาง','นางสาว'].map(x=>`<option ${(p.Title||titleOf(p))===x?'selected':''}>${x}</option>`).join('')}</select></label>${ppFld(pre,'NameTH',EN()?'Name (TH)':'ชื่อ-สกุล (ไทย)',p.NameTH)}</div>
+        <div class="grid2">${ppFld(pre,'NameEN',EN()?'Name (EN)':'ชื่อ-สกุล (อังกฤษ)',p.NameEN)}${ppFld(pre,'Nickname',EN()?'Nickname (TH)':'ชื่อเล่น (ไทย)',p.Nickname)}</div>
+        <div class="grid2">${ppFld(pre,'NicknameEN',EN()?'Nickname (EN)':'ชื่อเล่น (อังกฤษ)',p.NicknameEN)}<label class="field"><span>${EN()?'Relationship':'ความสัมพันธ์'}</span><input id="${pre}_Relationship" value="${esc(p.Relationship||'')}"/></label></div>
         <div class="grid2">${ppFld(pre,'Phone',EN()?'Phone':'เบอร์โทร',phoneFmt(p.Phone))}${ppFld(pre,'OfficePhone',EN()?'Office phone':'เบอร์ที่ทำงาน',phoneFmt(p.OfficePhone))}</div>
         <div class="grid2">${ppFld(pre,'Occupation',EN()?'Occupation':'อาชีพ',p.Occupation)}${ppFld(pre,'Workplace',EN()?'Workplace':'ที่ทำงาน',p.Workplace)}</div>
         <label class="field"><span>${EN()?'Address':'ที่อยู่'}</span><textarea id="${pre}_Address">${esc(p.Address||'')}</textarea></label>
@@ -513,7 +582,7 @@
       <button class="btn sm outline block" style="margin-top:8px" onclick="P_addChild()">+ ${esc(t('p.addChild'))}</button>`;
     window.scrollTo(0,0); };
   window.P_saveParent = async (parentId,btn)=>{ const g=id=>{ const e=document.getElementById('pa_'+parentId+'_'+id); return e?e.value.trim():undefined; };
-    const data={ NameTH:g('NameTH'), NameEN:g('NameEN'), Relationship:g('Relationship'), Phone:g('Phone'), OfficePhone:g('OfficePhone'), Occupation:g('Occupation'), Workplace:g('Workplace'), Address:g('Address') };
+    const data={ Title:g('Title'), NameTH:g('NameTH'), NameEN:g('NameEN'), Nickname:g('Nickname'), NicknameEN:g('NicknameEN'), Relationship:g('Relationship'), Phone:g('Phone'), OfficePhone:g('OfficePhone'), Occupation:g('Occupation'), Workplace:g('Workplace'), Address:g('Address') };
     if(!data.NameTH){ toast(EN()?'Name is required':'กรุณากรอกชื่อ'); return; }
     if(btn)btn.disabled=true;
     try{ await api('saveFamilyParent',Object.assign({parentId:USER.parentId,uid:USER.uid,targetParentId:parentId},{data})); confirmSaved(t('c.saved')); }catch(e){err(e);}finally{ if(btn)btn.disabled=false; } };
@@ -819,8 +888,16 @@
   window.P_send=async(sid)=>{ const v=$('#msg').value.trim(); if(!v)return; await api('addComment',{studentId:sid,parentId:USER.parentId,senderRole:'Parent',senderName:USER.nameEN,message:v}); SCREENS.Parent.chat(); };
 
   // ================= TEACHER =================
+  // a teacher/leader may cover several classes; T_CLASS is the one currently in view (undefined = default)
+  window.T_CLASS = window.T_CLASS || undefined;
+  const tc = () => ({ staffId:USER.staffId, className: window.T_CLASS });
+  // a switcher bar shown only when the staff covers more than one class
+  function classSwitcher(cl){ const list=(cl&&cl.classes)||[]; if(list.length<2) return '';
+    const cur=(cl.class&&cl.class.ClassName); const scr=CURRENT;
+    return `<div class="clsw" style="display:flex;gap:6px;overflow-x:auto;padding:2px 0 8px">${list.map(c=>`<button class="btn sm ${c.className===cur?'':'outline'}" onclick="T_pickClass('${esc(c.className)}','${esc(scr)}')">${esc(c.className)}</button>`).join('')}</div>`; }
+  window.T_pickClass = (name,scr)=>{ window.T_CLASS=name; GO(scr||'class'); };
   SCREENS.Teacher.home = async () => {
-    const [att,recent,cl,quota,me0raw,jstat] = await Promise.all([api('myAttendanceToday',{staffId:USER.staffId}),api('recentAttendance',{staffId:USER.staffId}),api('classList',{staffId:USER.staffId}),api('leaveQuota',{staffId:USER.staffId}),api('staffSelf',{staffId:USER.staffId}),api('journalStatus',{})]);
+    const [att,recent,cl,quota,me0raw,jstat] = await Promise.all([api('myAttendanceToday',{staffId:USER.staffId}),api('recentAttendance',{staffId:USER.staffId}),api('classList',tc()),api('leaveQuota',{staffId:USER.staffId}),api('staffSelf',{staffId:USER.staffId}),api('journalStatus',{})]);
     const jdone = journalDoneMap(jstat);
     const me0=me0raw||{};
     if(me0.MustChangePassword){ T_changePw(true); return; } // force password change on first login
@@ -837,14 +914,14 @@
         <div id="ml" style="margin-top:8px"></div><button class="btn sm outline" style="margin-top:6px" onclick="GO('leave')">+ ยื่น/ดูใบลา</button></div>
       ${isLeader?`<div class="card"><div class="spread"><h3>⭐ คำขอลาของลูกน้อง (รออนุมัติ)</h3></div><div id="tp"></div></div>`:''}
       <div class="card"><div class="row"><button class="btn sm outline" onclick="GO('absence')">🔎 ${esc(t('abs.title'))}</button></div></div>
-      <div class="card"><div class="spread"><h3>👶 ${esc(cl.class.ClassName)}</h3><span class="muted">${cl.students.length} คน</span></div>
-        ${cl.students.map(s=>`<div class="list-item"><span>${studentAvatar(s)} ${esc(nm(s))} ${journalPill(jdone[s.StudentID])}</span><span><button class="btn sm outline" onclick="T_journal('${s.StudentID}')">${esc(journalBtnLabel(jdone[s.StudentID]))}</button> <button class="btn sm outline" onclick="T_assess('${s.StudentID}')">${esc(t('lbl.assess'))}</button></span></div>`).join('')}</div>`;
+      <div class="card"><div class="spread"><h3>👶 ${esc(cl.class.ClassName)}</h3><span class="muted">${cl.students.length} ${EN()?'kids':'คน'}</span></div>${classSwitcher(cl)}
+        ${cl.students.map(s=>`<div class="list-item"><span>${studentAvatar(s)} <b>${esc(dispNick(s))}</b> ${journalPill(jdone[s.StudentID])}</span><span><button class="btn sm outline" onclick="T_journal('${s.StudentID}')">${esc(journalBtnLabel(jdone[s.StudentID]))}</button> <button class="btn sm outline" onclick="T_assess('${s.StudentID}')">${esc(t('lbl.assess'))}</button></span></div>`).join('')}</div>`;
     const ml=await api('myLeaves',{staffId:USER.staffId}); setHTML('#ml', ml.map(leaveRow).join('')||'<small class="muted">ยังไม่มีรายการ</small>');
     if(isLeader){ const tp=await api('teamPendingLeaves',{staffId:USER.staffId}); setHTML('#tp', tp.map(l=>teamLeaveRow(l)).join('')||'<small class="muted">ไม่มีคำขอรออนุมัติ</small>'); }
   };
   window.T_punch=async(kind)=>{
     try{ const {lat,lng}=await getPosition();
-      const r=await api(kind==='in'?'staffCheckin':'staffCheckout',{staffId:USER.staffId,lat,lng}); toast(kind==='in'?`✅ ${t('lbl.checkIn')} ${r.time}${r.lateMinutes>0?` (${t('lbl.late')} ${r.lateMinutes} ${t('lbl.min')})`:' ('+t('lbl.onTime')+')'}`:`✅ ${t('lbl.checkOut')} ${r.time}${r.otHours>0?` · OT ${r.otHours} ${EN()?'hr':'ชม.'}`:''}`); GO('home'); }catch(e){err(e);} };
+      const r=await api(kind==='in'?'staffCheckin':'staffCheckout',{staffId:USER.staffId,lat,lng}); toast(kind==='in'?`✅ ${t('lbl.checkIn')} ${r.time}${r.lateMinutes>0?` (${t('lbl.late')} ${r.lateMinutes} ${t('lbl.min')})`:' ('+t('lbl.onTime')+')'}`:`✅ ${t('lbl.checkOut')} ${r.time}${r.otHours>0?` · OT ${hmHours(r.otHours)}${r.otPay?' ≈ '+baht(r.otPay):''}`:''}`); GO('home'); }catch(e){err(e);} };
 
   // daily-report badge — journalStatus returns every student with an entry for `date` + its DRAFT/SUBMITTED state
   function journalDoneMap(st){ const m={}; ((st&&st.done)||[]).forEach(d=>{ m[d.studentId]=d; }); return m; }
@@ -859,9 +936,9 @@
   const journalBtnLabel = d => !d ? t('lbl.record') : (jIsDraft(d) ? t('jr.edit') : t('jr.view'));
 
   SCREENS.Teacher.class = async () => {
-    const [cl,jstat]=await Promise.all([api('classList',{staffId:USER.staffId}),api('journalStatus',{})]);
+    const [cl,jstat]=await Promise.all([api('classList',tc()),api('journalStatus',{})]);
     const jdone=journalDoneMap(jstat);
-    app.innerHTML=`<h2 class="page">👶 ${esc(cl.class.ClassName)}</h2>`+cl.students.map(s=>`<div class="card spread"><div style="display:flex;gap:10px;align-items:center">${studentAvatar(s)}<div><b>${esc(nm(s))}</b>${nick(s)?` <span class="pill info">${esc(nick(s))}</span>`:''} <small class="muted">(${esc(EN()?s.NameTH:s.NameEN)})</small><br><small class="muted">${esc(ageYM(s.DOB))} · ${EN()?'allergy':'แพ้'}: ${esc(s.Allergy||'-')}</small><br>${journalPill(jdone[s.StudentID])}</div></div><div class="row"><button class="btn sm ${jdone[s.StudentID]?'outline':''}" onclick="T_journal('${s.StudentID}')" title="${esc(journalBtnLabel(jdone[s.StudentID]))}">${!jdone[s.StudentID]?'📒':(jIsDraft(jdone[s.StudentID])?'✏️':'👁️')}</button><button class="btn sm outline" onclick="T_assess('${s.StudentID}')">📝</button><button class="btn sm green" onclick="T_studentCheckin('${s.StudentID}','${esc(nm(s))}')" title="${EN()?'Check in/out for a non-registered pickup person':'เช็คอิน/เอาท์แทน (คนมารับ-ส่งที่ไม่ได้อยู่ในระบบ)'}">📍</button></div></div>`).join(''); };
+    app.innerHTML=`<h2 class="page">👶 ${esc(cl.class.ClassName)}</h2>${classSwitcher(cl)}`+cl.students.map(s=>`<div class="card spread"><div style="display:flex;gap:10px;align-items:center">${studentAvatar(s)}<div><b>${esc(dispNick(s))}</b> <small class="muted">${esc(nm(s))}</small><br><small class="muted">${esc(ageYM(s.DOB))} · ${EN()?'allergy':'แพ้'}: ${esc(s.Allergy||'-')}</small><br>${journalPill(jdone[s.StudentID])}</div></div><div class="row"><button class="btn sm ${jdone[s.StudentID]?'outline':''}" onclick="T_journal('${s.StudentID}')" title="${esc(journalBtnLabel(jdone[s.StudentID]))}">${!jdone[s.StudentID]?'📒':(jIsDraft(jdone[s.StudentID])?'✏️':'👁️')}</button><button class="btn sm outline" onclick="T_assess('${s.StudentID}')">📝</button><button class="btn sm green" onclick="T_studentCheckin('${s.StudentID}','${esc(nm(s))}')" title="${EN()?'Check in/out for a non-registered pickup person':'เช็คอิน/เอาท์แทน (คนมารับ-ส่งที่ไม่ได้อยู่ในระบบ)'}">📍</button></div></div>`).join(''); };
   // Teacher checks a student in/out on behalf of a pickup person who isn't a registered parent.
   // The remark (who it was) is mandatory — the Save button stays disabled until it's filled.
   window.T_studentCheckin=(sid,name)=>{ modal(`<h3>📍 ${EN()?'Check in / out for':'เช็คอิน-เอาท์แทน'} ${esc(name)}</h3>
@@ -883,14 +960,14 @@
       if(r.ot) toast(`⏰ ${EN()?'Late pickup OT':'OT รับช้า'} ${baht(r.ot.amount)}`);
     }catch(e){ err(e); btn.disabled=false; } };
 
-  SCREENS.Teacher.journal = async () => { const cl=await api('classList',{staffId:USER.staffId}); T_journal(cl.students[0].StudentID); };
+  SCREENS.Teacher.journal = async () => { const cl=await api('classList',tc()); T_journal(cl.students[0].StudentID); };
   let JSEL={};
   // an Admin reaches this form from A_journals, where the student is outside their own class
   const J_isAdmin = () => USER.role==='Admin';
   window.J_exit = () => { if(J_isAdmin()){ GO('manage'); setTimeout(()=>A_journals(),120); } else GO('class'); };
   window.T_journal = async (sid) => { if(!J_isAdmin()) setNav('class'); JSEL={Mood:'',Health:'',Water:'',Meals:{},Toilet:{},Activity:new Set(),Skills:new Set()};
     // role lets the engine hand a DRAFT to staff (a parent gets null until it is submitted)
-    const [cl,j]=await Promise.all([api('classList',{staffId:USER.staffId}),api('getJournal',{studentId:sid,role:USER.role})]);
+    const [cl,j]=await Promise.all([api('classList',tc()),api('getJournal',{studentId:sid,role:USER.role})]);
     const s=cl.students.find(x=>x.StudentID===sid)||(A_CACHE.students||[]).find(x=>x.StudentID===sid)||{NameTH:sid};
     const sent=jTime(j), draft=jIsDraft(j), jv=journalValues(j);
 
@@ -954,7 +1031,7 @@
 
   // ===== injury / accident report (แบบบันทึกการบาดเจ็บรายบุคคล) — teacher & leader =====
   SCREENS.Teacher.injury = async () => {
-    const [cl,recent]=await Promise.all([api('classList',{staffId:USER.staffId}),api('injuryReports',{})]);
+    const [cl,recent]=await Promise.all([api('classList',tc()),api('injuryReports',{})]);
     const radio=(name,val,label,checked)=>`<label class="chk-inline"><input type="radio" name="${name}" value="${val}" ${checked?'checked':''}/> ${esc(label)}</label>`;
     app.innerHTML=`<h2 class="page">🚑 ${esc(t('inj.title'))}</h2>
       <div class="card">
@@ -1003,12 +1080,12 @@
       place:rad('injPlace'),placeOther:v('#injPlaceOther'),injuryTypes:types});
       confirmSaved(t('inj.saved')); GO('injury'); }catch(e){err(e);} };
 
-  SCREENS.Teacher.dspm = async () => { const cl=await api('classList',{staffId:USER.staffId}); T_assess(cl.students[0].StudentID); };
+  SCREENS.Teacher.dspm = async () => { const cl=await api('classList',tc()); T_assess(cl.students[0].StudentID); };
   let ASEL={};
   window.T_assess = async (sid) => { setNav('class'); ASEL={};
     const due=await api('growthDue',{studentId:sid});
     let c; try{ c=await api('dspmStatus',{studentId:sid}); }catch(e){ app.innerHTML=`<button class="btn sm outline backbtn" onclick="GO('class')">${t('c.back')}</button><h2 class="page">📝 ประเมิน DSPM</h2><div class="card muted">${esc(e.message)}</div>`; return; }
-    const s=(await api('classList',{staffId:USER.staffId})).students.find(x=>x.StudentID===sid)||{NameTH:sid};
+    const s=(await api('classList',tc())).students.find(x=>x.StudentID===sid)||{NameTH:sid};
     app.innerHTML=`<button class="btn sm outline backbtn" onclick="GO('class')">${t('c.back')}</button><h2 class="page">📝 ประเมิน DSPM — ${esc(nm(s))}</h2>
       <div class="card"><div class="spread"><span>ช่วงอายุ: <b>${esc(c.ageLabel)}</b></span><span class="muted">${c.ageMonth} เดือน</span></div>
       <p class="muted" style="font-size:12px">เลือก "ยังไม่ได้ประเมิน" ได้ เพื่อให้ผู้ปกครองทราบว่ายังมีหัวข้อที่ต้องประเมิน · เทียบกับคู่มือที่ดาวน์โหลด</p>
@@ -1020,7 +1097,7 @@
         <div style="text-align:center;margin-bottom:8px">${studentAvatar(s)}</div>
         <div class="grid2"><label class="field"><span>${esc(t('reg.weight'))} (kg)</span><input id="guW" type="number" value="${esc(s.Weight||'')}"/></label>
           <label class="field"><span>${esc(t('reg.height'))} (cm)</span><input id="guH" type="number" value="${esc(s.Height||'')}"/></label></div>
-        <label class="field"><span>${esc(t('growth.photo'))}</span><input id="guPhoto" type="file" accept="image/*"/></label></div>
+        ${photoField('guPhoto',t('growth.photo'),s.Photo,true)}</div>
       <button class="btn block" onclick="T_saveAssess('${sid}')">${esc(t('growth.saveBoth'))}</button>`;
   };
   window.A_set=(item,val)=>{ ASEL[item]=val; ['p','f','n'].forEach(pre=>{const el=document.getElementById(pre+item);if(el)el.classList.remove('pass','fail');});
@@ -1028,7 +1105,7 @@
 
   // Group C: bi-monthly growth update (height/weight/photo). gate=true when blocking assessment.
   window.T_growthUpdate = async (sid, gate)=>{ setNav('class');
-    const s=(await api('classList',{staffId:USER.staffId})).students.find(x=>x.StudentID===sid)||{NameTH:sid};
+    const s=(await api('classList',tc())).students.find(x=>x.StudentID===sid)||{NameTH:sid};
     app.innerHTML=`<button class="btn sm outline backbtn" onclick="GO('class')">${t('c.back')}</button>
       <h2 class="page">📏 ${esc(t('growth.update'))} — ${esc(nm(s))}</h2>
       ${gate?`<div class="card" style="background:#fff8e1;border-color:#f0e3b0;color:#8a6d00">⚠️ ${esc(t('growth.gate'))}</div>`:''}
@@ -1036,18 +1113,17 @@
         <div style="text-align:center;margin-bottom:8px">${studentAvatar(s)}</div>
         <div class="grid2"><label class="field"><span>${esc(t('reg.weight'))} (kg)</span><input id="guW" type="number" value="${esc(s.Weight||'')}"/></label>
           <label class="field"><span>${esc(t('reg.height'))} (cm)</span><input id="guH" type="number" value="${esc(s.Height||'')}"/></label></div>
-        <label class="field"><span>${esc(t('growth.photo'))}</span><input id="guPhoto" type="file" accept="image/*"/></label>
+        ${photoField('guPhoto',t('growth.photo'),s.Photo,true)}
         <button class="btn block" onclick="T_growthSave('${sid}',${gate?'true':'false'})">${esc(t('c.save'))}</button></div>`;
   };
   window.T_growthSave = async (sid, gate)=>{ const w=+$('#guW').value||null, h=+$('#guH').value||null;
     if(!w||!h){toast(EN()?'Enter weight & height':'กรอกน้ำหนักและส่วนสูง');return;}
-    const pf=$('#guPhoto').files[0]; let photo=''; if(pf) photo=await new Promise(r=>{const fr=new FileReader();fr.onload=()=>r(fr.result);fr.readAsDataURL(pf);});
+    const photo=photoVal(document,'guPhoto');
     try{ await api('updateGrowth',{studentId:sid,weight:w,height:h,photo}); confirmSaved(t('growth.saved'));
       if(gate) T_assess(sid); else GO('class'); }catch(e){err(e);} };
   window.T_saveAssess=async(sid)=>{ const results=Object.keys(ASEL).map(k=>({itemNo:Number(k),result:ASEL[k]}));
     // also persist the growth fields shown below the assessment (weight/height/photo)
-    const w=+$('#guW').value||null, h=+$('#guH').value||null; const pf=$('#guPhoto')&&$('#guPhoto').files[0];
-    let photo=''; if(pf) photo=await new Promise(r=>{const fr=new FileReader();fr.onload=()=>r(fr.result);fr.readAsDataURL(pf);});
+    const w=+$('#guW').value||null, h=+$('#guH').value||null; const photo=photoVal(document,'guPhoto');
     if(!results.length && !(w&&h)){toast(EN()?'Assess at least 1 item or enter weight/height':'เลือกผลอย่างน้อย 1 ข้อ หรือกรอกน้ำหนัก/ส่วนสูง');return;}
     try{ if(results.length) await api('submitAssessment',{studentId:sid,staffId:USER.staffId,results});
       if(w&&h) await api('updateGrowth',{studentId:sid,weight:w,height:h,photo});
@@ -1204,12 +1280,18 @@
         ${d.classes.map(c=>{ const present=c.in+c.out; const pct=c.total?Math.round(present/c.total*100):100; const miss=(c.students||[]).filter(s=>s.status==='ABSENT'||s.status==='LEAVE');
           return `<div style="margin-bottom:12px"><div class="spread"><b>${esc(c.className)}</b><span style="font-weight:700;color:${pctColor(pct)}">${pct}% <small class="muted" style="font-weight:400">(${present}/${c.total})</small></span></div>
             <div style="height:6px;background:#eee;border-radius:4px;overflow:hidden;margin:4px 0"><div style="height:100%;width:${pct}%;background:${pctColor(pct)}"></div></div>
-            ${miss.length?`<small class="muted">${EN()?'Absent/leave':'ขาด/ลา'} (${miss.length}): ${miss.map(s=>esc(dn(s))+(s.status==='LEAVE'?(EN()?' (leave)':' (ลา)'):'')).join(', ')}</small>`:`<small style="color:#2e7d32">✓ ${EN()?'All present':'มาครบทุกคน'}</small>`}</div>`;}).join('')}</div>
+            ${(()=>{ const inb=(c.students||[]).filter(s=>s.status==='IN'||s.status==='OUT'); const lv=(c.students||[]).filter(s=>s.status==='LEAVE'); const ab=(c.students||[]).filter(s=>s.status==='ABSENT');
+              return `${inb.length?`<div><span class="pill ok">✅ ${EN()?'in':'มา'} (${inb.length})</span> <small class="muted">${inb.map(s=>esc(dnick(s))+(s.in?' '+esc(s.in):'')).join(', ')}</small></div>`:''}
+                ${lv.length?`<div style="margin-top:2px"><span class="pill wait">🌴 ${EN()?'leave':'ลา'} (${lv.length})</span> <small class="muted">${lv.map(s=>esc(dnick(s))).join(', ')}</small></div>`:''}
+                ${ab.length?`<div style="margin-top:2px"><span class="pill bad">⛔ ${EN()?'absent':'ขาด'} (${ab.length})</span> <small class="muted">${ab.map(s=>esc(dnick(s))).join(', ')}</small></div>`:''}
+                ${!lv.length&&!ab.length?`<small style="color:#2e7d32">✓ ${EN()?'All present':'มาครบทุกคน'}</small>`:''}`; })()}</div>`;}).join('')}</div>
       <div class="card"><h3>👩‍🏫 ${EN()?'Staff today':'พนักงานวันนี้'}</h3>
-        ${(()=>{ const present=d.staff.filter(s=>s.status==='IN'||s.status==='OUT').length; const t=d.staff.length; const pct=t?Math.round(present/t*100):100; const late=d.staff.filter(s=>s.late); const absent=d.staff.filter(s=>s.status==='ABSENT'||s.status==='LEAVE');
+        ${(()=>{ const present=d.staff.filter(s=>s.status==='IN'||s.status==='OUT').length; const t=d.staff.length; const pct=t?Math.round(present/t*100):100;
+          const onTime=d.staff.filter(s=>(s.status==='IN'||s.status==='OUT')&&!s.late); const late=d.staff.filter(s=>s.late); const absent=d.staff.filter(s=>s.status==='ABSENT'||s.status==='LEAVE');
           return `<div class="spread" style="font-size:15px"><b>${EN()?'Present':'มาทำงาน'}</b><b style="color:${pctColor(pct)}">${pct}% <small class="muted" style="font-weight:400">(${present}/${t})</small></b></div>
-            ${late.length?`<div style="margin-top:6px"><small style="color:#e65100">⏰ ${EN()?'Late':'มาสาย'} (${late.length}): ${late.map(s=>esc(dn(s))+' '+esc(s.checkIn||'')+(s.late?` (${s.late}น.)`:'')).join(', ')}</small></div>`:''}
-            ${absent.length?`<div style="margin-top:6px"><small class="muted">${EN()?'Absent/leave':'ขาด/ลา'} (${absent.length}): ${absent.map(s=>esc(dn(s))+(s.status==='LEAVE'?(EN()?' (leave)':' (ลา)'):'')).join(', ')}</small></div>`:''}
+            ${onTime.length?`<div style="margin-top:6px"><span class="pill ok">✅ ${EN()?'On time':'ตรงเวลา'} (${onTime.length})</span> <small class="muted">${onTime.map(s=>esc(dnick(s))+(s.checkIn?' '+esc(s.checkIn):'')).join(', ')}</small></div>`:''}
+            ${late.length?`<div style="margin-top:6px"><span class="pill bad">⏰ ${EN()?'Late':'มาสาย'} (${late.length})</span> <small style="color:#e65100">${late.map(s=>esc(dnick(s))+' '+esc(s.checkIn||'')+(s.late?` (${EN()?'late ':'สาย '}${s.late}${EN()?'m':'น.'})`:'')).join(', ')}</small></div>`:''}
+            ${absent.length?`<div style="margin-top:6px"><span class="pill wait">⛔ ${EN()?'Absent/leave':'ขาด/ลา'} (${absent.length})</span> <small class="muted">${absent.map(s=>esc(dnick(s))+(s.status==='LEAVE'?(EN()?' (leave)':' (ลา)'):'')).join(', ')}</small></div>`:''}
             ${!late.length&&!absent.length?`<small style="color:#2e7d32">✓ ${EN()?'All present & on time':'มาครบ ตรงเวลา'}</small>`:''}`; })()}</div>
       <div class="card"><h3>📢 ประกาศ</h3><div id="anns"></div></div>`;
     const _anns=await api('announcements'); A_CACHE.announcements=_anns;
@@ -1223,13 +1305,13 @@
     <label class="field"><span>Title (English)</span><input id="anTE" value="${esc(a.TitleEN||'')}"/></label>
     <label class="field"><span>รายละเอียด (ไทย)</span><textarea id="anC">${esc(a.Content||'')}</textarea></label>
     <label class="field"><span>Content (English)</span><textarea id="anCE">${esc(a.ContentEN||'')}</textarea></label>
-    <label class="field"><span>แนบรูป / Attach image (optional)</span><input type="file" id="anImg" accept="image/*"/>${a.Image?`<br><img src="${esc(a.Image)}" style="max-width:120px;border-radius:8px;margin-top:6px"/>`:''}</label>
+    ${photoField('anImg',(EN()?'Attach image (optional)':'แนบรูป (ถ้ามี)'),a.Image,false)}
     <label class="field" style="display:flex;align-items:center;gap:8px"><input type="checkbox" id="anPopup" ${a.Popup!==false?'checked':''} style="width:auto"/> ${esc(t('ann.popup'))}</label>
     <div class="grid2"><label class="field"><span>${esc(t('ann.start'))}</span><input type="date" id="anStart" value="${esc(a.StartDate||todayStr())}"/></label><label class="field"><span>${esc(t('ann.end'))}</span><input type="date" id="anEnd" value="${esc(a.EndDate||'')}"/></label></div>
     <button class="btn block" onclick="A_addAnnDo(this,'${annId||''}')">บันทึกประกาศ / Save</button>`); };
   window.A_addAnnDo=async(btn,annId)=>{ const m=btn.closest('.modal'); const q=s=>m.querySelector(s).value.trim();
     const title=q('#anT'), titleEN=q('#anTE'); if(!title&&!titleEN){toast('ใส่หัวข้อ / Enter a title');return;}
-    const f=m.querySelector('#anImg').files[0]; let image=''; if(f) image=await new Promise(r=>{const fr=new FileReader();fr.onload=()=>r(fr.result);fr.readAsDataURL(f);});
+    const image=photoVal(m,'anImg');
     const data={title:title||titleEN,titleEN:titleEN||title,content:q('#anC'),contentEN:q('#anCE'),image,popup:m.querySelector('#anPopup').checked,startDate:q('#anStart'),endDate:q('#anEnd')};
     if(annId) await api('editAnnouncement',Object.assign({annId},data)); else await api('addAnnouncement',data);
     m.remove(); confirmSaved(t('c.saved')); GO('home'); };
@@ -1244,7 +1326,7 @@
   let PAY_ADJ=[];
   SCREENS.Admin.payroll = async () => { const [staff,rate]=await Promise.all([api('listStaff'),api('ratedChildCount')]); PAY_ADJ=[]; window._RATED=rate;
     app.innerHTML=`<h2 class="page">${esc(t('title.payroll'))}</h2><div class="card">
-      <div class="grid2"><label class="field"><span>${esc(t('c.staff'))}</span><select id="pStaff" onchange="A_payStaff()">${staff.map(s=>`<option value="${s.StaffID}">${esc(nm(s))}</option>`).join('')}</select></label>
+      <div class="grid2"><label class="field"><span>${esc(t('c.staff'))}</span><select id="pStaff" onchange="A_payStaff()">${staff.map(s=>`<option value="${s.StaffID}">${esc(nmn(s))}</option>`).join('')}</select></label>
         <label class="field"><span>${esc(t('c.month'))}</span><input id="pMonth" type="month" value="${monthStr()}" onchange="A_payStaff()"/></label></div>
       <label class="field"><span>${esc(t('pay.payType'))}</span><select id="pType" onchange="A_payTypeToggle()"><option value="monthly">${esc(t('pay.monthly'))}</option><option value="daily">${esc(t('pay.dailyType'))}</option></select></label>
       <div class="grid2" id="pMonthlyBox"><label class="field"><span>${esc(t('pay.baseSalary'))}</span><input id="pBase" type="number"/></label></div>
@@ -1291,14 +1373,22 @@
   window.A_dlSlip=(staffId,month)=>{ const r=MOCK.payroll.find(p=>p.StaffID===staffId&&p.Month===month); if(!r){toast('ยังไม่มีสลิป');return;} openOrDownload(buildSlipsHTML([r],month),'payslip-'+staffId+'-'+month+'.html'); };
   window.A_print=(month)=>{ const rows=MOCK.payroll.filter(p=>p.Month===month); if(!rows.length){toast('ยังไม่มีสลิป');return;} openOrDownload(buildSlipsHTML(rows,month), 'payslips-'+month+'.html'); };
 
-  SCREENS.Admin.dspm = async () => { const classes=await api('listClasses');
-    app.innerHTML=`<h2 class="page">${esc(t('title.analytics'))}</h2><div class="seg">${classes.map((c,i)=>`<button class="${i===0?'active':''}" onclick="A_cls('${c.ClassName}',this)">${esc(c.ClassName)}</button>`).join('')}</div><div id="clsRes"></div>`; A_cls(classes[0].ClassName);
+  // tabs = the departments master ∪ every class students are actually in, so no child is hidden
+  SCREENS.Admin.dspm = async () => { const [students,depts]=await Promise.all([api('listStudents'),api('listDepartments')]);
+    A_CACHE.students=students||A_CACHE.students;
+    const present={}; (students||[]).forEach(s=>{ if(s.Class) present[s.Class]=(present[s.Class]||0)+1; });
+    const order=[]; (depts||[]).forEach(d=>{ if(order.indexOf(d)<0) order.push(d); });
+    Object.keys(present).forEach(c=>{ if(order.indexOf(c)<0) order.push(c); });
+    if(!order.length) order.push('-');
+    app.innerHTML=`<h2 class="page">${esc(t('title.analytics'))}</h2>
+      <div class="seg" style="flex-wrap:wrap">${order.map((c,i)=>`<button class="${i===0?'active':''}" onclick="A_cls('${esc(c)}',this)">${esc(c)} <small>(${present[c]||0})</small></button>`).join('')}</div><div id="clsRes"></div>`;
+    A_cls(order[0]);
   };
   window.A_cls=async(name,el)=>{ if(el){[...el.parentElement.children].forEach(b=>b.classList.remove('active'));el.classList.add('active');} const r=await api('classAssessment',{className:name});
-    $('#clsRes').innerHTML=`<div class="card"><div class="spread"><b>${esc(r.class)}</b><span class="pill ${r.passRate>=70?'ok':'wait'}">ผ่านเฉลี่ย ${r.passRate}%</span></div><small class="muted">${r.studentCount} คน</small>
-      ${r.perStudent.map(s=>`<div class="list-item"><span>${esc(dn(s))} <small class="muted">(${s.ageMonth} ${EN()?'m.':'ด.'})</small></span><span><span class="pill ok">${s.pass}</span> <span class="pill bad">${s.fail}</span> <button class="btn sm outline" onclick="A_student('${s.studentId}')">ดูราย นร.</button></span></div>`).join('')}</div>`; };
+    $('#clsRes').innerHTML=`<div class="card"><div class="spread"><b>${esc(r.class)}</b><span class="pill ${r.passRate>=70?'ok':'wait'}">${EN()?'avg pass':'ผ่านเฉลี่ย'} ${r.passRate}%</span></div><small class="muted">${r.studentCount} ${EN()?'kids':'คน'}</small>
+      ${r.perStudent.length?r.perStudent.map(s=>`<div class="list-item"><span><b>${esc(dnick(s))}</b> <small class="muted">${esc(dn(s))} · ${s.ageMonth} ${EN()?'m.':'ด.'}</small></span><span><span class="pill ok">${s.pass}</span> <span class="pill bad">${s.fail}</span> <button class="btn sm outline" onclick="A_student('${s.studentId}')">${EN()?'view':'ดูราย นร.'}</button></span></div>`).join(''):`<small class="muted">${EN()?'No students in this class':'ยังไม่มีนักเรียนในชั้นนี้'}</small>`}</div>`; };
   window.A_student=async(sid)=>{ const [d,g]=await Promise.all([api('studentAllBands',{studentId:sid}),api('growthHistory',{studentId:sid})]); const pill=DSPM_PILL;
-    app.innerHTML=`<h2 class="page">📈 ${esc(dn(d))} <small class="muted">(${esc(EN()?d.name:d.nameEN)})</small></h2>
+    app.innerHTML=`<h2 class="page">📈 ${esc(dnick(d))} <small class="muted">(${esc(dn(d))})</small></h2>
       <div class="row"><button class="btn sm outline" onclick="GO('dspm')">← ${esc(t('c.back'))}</button><button class="btn sm" onclick="A_editAssess('${sid}')">📝 ${esc(t('assess.edit'))}</button></div>
       <div class="card"><div class="spread"><b>อายุปัจจุบัน ${d.ageMonth} เดือน</b><span class="muted">เข้าเรียน ${esc(d.enrollDate||'-')}</span></div>
       <p class="muted" style="font-size:12px">แสดงทุกช่วงวัยที่เด็กผ่านมา (ตั้งแต่เข้าเรียน) เพื่อดูพัฒนาการต่อเนื่อง</p></div>
@@ -1345,27 +1435,39 @@
     if(!window.GROWTH_STD || !window.GROWTH_STD.at) return serverBand||[];
     return (recs||[]).map(r=>{ const at=GROWTH_STD.at(gender, r.AgeMonth, key); return {ageMonth:r.AgeMonth, min:at?at.min:null, max:at?at.max:null}; });
   }
+  // Growth vs standard: the green band is the WHO/Amarin normal range; the blue line is the child.
+  // The y-axis is centered on the band so a healthy child sits mid-chart and only DEVIATION moves the
+  // line out — "แถบเขียว = มาตรฐาน, เส้น = เด็ก, อยู่ตรงกลางแล้วขยับออกตามข้อมูล".
   function growthChartSVG(title, pts, band, unit){ const W=320,H=170,pl=34,pr=10,pt=24,pb=22;
-    const xs=pts.map(p=>p.x).concat(band.map(b=>b.ageMonth)); const ys=pts.map(p=>p.y).concat(band.map(b=>b.min),band.map(b=>b.max)).filter(v=>v!=null);
-    if(!ys.length) return `<div class="muted" style="font-size:12px">${esc(title)}: ${EN()?'no data':'ยังไม่มีข้อมูล'}</div>`;
-    const xmin=Math.min.apply(0,xs),xmax=Math.max.apply(0,xs)||1,ymin=Math.min.apply(0,ys),ymax=Math.max.apply(0,ys);
-    const xR=(xmax-xmin)||1, yR=(ymax-ymin)||1;
-    const X=v=>pl+(v-xmin)/xR*(W-pl-pr), Y=v=>H-pb-(v-ymin)/yR*(H-pt-pb);
     const bandPts=band.filter(b=>b.min!=null);
+    const xs=pts.map(p=>p.x).concat(band.map(b=>b.ageMonth));
+    const ys=pts.map(p=>p.y).concat(band.map(b=>b.min),band.map(b=>b.max)).filter(v=>v!=null);
+    if(!ys.length) return `<div class="muted" style="font-size:12px">${esc(title)}: ${EN()?'no data':'ยังไม่มีข้อมูล'}</div>`;
+    const xmin=Math.min.apply(0,xs),xmax=Math.max.apply(0,xs)||1; const xR=(xmax-xmin)||1;
+    // y-domain: symmetric around the band's center so the standard band is vertically centered
+    let ymin,ymax,center=null;
+    if(bandPts.length){ const bMin=Math.min.apply(0,bandPts.map(b=>b.min)), bMax=Math.max.apply(0,bandPts.map(b=>b.max));
+      center=(bMin+bMax)/2; const bandHalf=(bMax-bMin)/2||1;
+      const dev=Math.max.apply(0,pts.map(p=>Math.abs(p.y-center)).concat([bandHalf]));
+      const half=Math.max(bandHalf, dev)*1.3; ymin=center-half; ymax=center+half; }
+    else { ymin=Math.min.apply(0,ys); ymax=Math.max.apply(0,ys); if(ymin===ymax){ymin-=1;ymax+=1;} }
+    const yR=(ymax-ymin)||1;
+    const X=v=>pl+(v-xmin)/xR*(W-pl-pr), Y=v=>H-pb-(v-ymin)/yR*(H-pt-pb);
     const top=bandPts.map(b=>X(b.ageMonth)+','+Y(b.max)).join(' ');
     const bot=bandPts.slice().reverse().map(b=>X(b.ageMonth)+','+Y(b.min)).join(' ');
-    const bandPoly = bandPts.length?`<polygon points="${top} ${bot}" fill="#43a04722" stroke="#43a047" stroke-width="0.5"/>`:'';
+    const bandPoly = bandPts.length?`<polygon points="${top} ${bot}" fill="#43a04733" stroke="#43a047" stroke-width="0.6"/>`:'';
+    // dashed center reference (band midline)
+    const centerLine = center!=null?`<line x1="${pl}" y1="${Y(center)}" x2="${W-pr}" y2="${Y(center)}" stroke="#43a047" stroke-width="0.6" stroke-dasharray="3 3" opacity="0.7"/>`:'';
     const line = pts.map((p,i)=>(i?'L':'M')+X(p.x)+' '+Y(p.y)).join(' ');
-    // each point: a value label above it + native hover tooltip + tap shows age+value
     const dots = pts.map(p=>{ const lbl=`${ageYMfromMonths(p.x)} · ${p.y} ${unit}`; const cy=Y(p.y);
       return `<circle cx="${X(p.x)}" cy="${cy}" r="4.5" fill="#1565C0" style="cursor:pointer" onclick="GROWTH_PT('${esc(lbl)}')"><title>${esc(lbl)}</title></circle>
         <text x="${X(p.x)}" y="${cy-7}" font-size="8.5" font-weight="700" fill="#0D47A1" text-anchor="middle">${p.y}</text>`; }).join('');
-    const yt=[ymin,(ymin+ymax)/2,ymax].map(v=>`<text x="2" y="${Y(v)+3}" font-size="8" fill="#94a3b8">${v.toFixed(0)}</text>`).join('');
+    const yt=[ymin,center!=null?center:(ymin+ymax)/2,ymax].map(v=>`<text x="2" y="${Y(v)+3}" font-size="8" fill="#94a3b8">${v.toFixed(0)}</text>`).join('');
     return `<div style="margin:6px 0"><b style="font-size:13px">${esc(title)} (${unit})</b><br>
       <svg viewBox="0 0 ${W} ${H}" style="width:100%;max-width:420px;height:auto">
         <line x1="${pl}" y1="${H-pb}" x2="${W-pr}" y2="${H-pb}" stroke="#cbd5e1" stroke-width="0.7"/>
         <line x1="${pl}" y1="${pt}" x2="${pl}" y2="${H-pb}" stroke="#cbd5e1" stroke-width="0.7"/>
-        ${bandPoly}<path d="${line}" fill="none" stroke="#1565C0" stroke-width="1.6"/>${dots}${yt}
+        ${bandPoly}${centerLine}<path d="${line}" fill="none" stroke="#1565C0" stroke-width="1.6"/>${dots}${yt}
         <text x="${pl}" y="${H-6}" font-size="8" fill="#94a3b8">${xmin}${EN()?'m':'ด'}</text>
         <text x="${W-pr-16}" y="${H-6}" font-size="8" fill="#94a3b8">${xmax}${EN()?'m':'ด'}</text>
       </svg></div>`; }
@@ -1443,13 +1545,13 @@
         <button class="btn block" style="margin-top:8px" onclick="A_saveReqCI(this)">💾 ${esc(t('c.save'))}</button></div>
       <div class="card secw">${secHead('👩‍🏫',t('c.staff'),staff.length,`<button class="btn sm" onclick="event.stopPropagation();A_staffForm()">+ ${esc(t('manage.add'))}</button>`)}
         <div class="secbody" hidden>${searchBox(EN()?'name / nickname / dept':'ชื่อ / ชื่อเล่น / แผนก')}
-        ${staff.map(s=>`<div class="list-item" data-k="${esc((s.NameTH+' '+(s.NameEN||'')+' '+(s.Nickname||'')+' '+(s.Position||'')+' '+(s.Department||'')).toLowerCase())}"><span style="display:flex;gap:8px;align-items:center">${personAvatar(s)}<span><b>${esc(nm(s))}</b> <small class="muted">(${esc(EN()?s.NameTH:s.NameEN)})</small><br><small class="muted">${esc(s.Position||'')} · ${esc(s.Department||'-')} · 🕑 ${esc(groupLabel(s.StaffGroup))}${groupHours(s.StaffGroup)?' ('+esc(groupHours(s.StaffGroup))+')':''}</small><br><small class="muted">${esc(t('staff.start'))} ${esc(s.StartDate||'-')} · ${esc(t('staff.tenure'))} ${esc(tenure(s.StartDate))}</small></span></span><span class="row"><button class="btn sm outline" onclick="A_staffForm('${s.StaffID}')">✏️</button><button class="btn sm pink" onclick="A_delStaff('${s.StaffID}')">🗑️</button></span></div>`).join('')}</div></div>
+        ${staff.map(s=>`<div class="list-item" data-k="${esc((s.NameTH+' '+(s.NameEN||'')+' '+(s.Nickname||'')+' '+(s.Position||'')+' '+(s.Department||'')).toLowerCase())}"><span style="display:flex;gap:8px;align-items:center">${personAvatar(s)}<span><b>${esc(dispNick(s))}</b> <small class="muted">${esc(nm(s))}</small><br><small class="muted">${esc(s.Position||'')} · ${esc(s.Department||'-')} · 🕑 ${esc(groupLabel(s.StaffGroup))}${groupHours(s.StaffGroup)?' ('+esc(groupHours(s.StaffGroup))+')':''}</small><br><small class="muted">${esc(t('staff.start'))} ${esc(s.StartDate||'-')} · ${esc(t('staff.tenure'))} ${esc(tenure(s.StartDate))}</small></span></span><span class="row"><button class="btn sm outline" onclick="A_staffForm('${s.StaffID}')">✏️</button><button class="btn sm pink" onclick="A_delStaff('${s.StaffID}')">🗑️</button></span></div>`).join('')}</div></div>
       <div class="card secw">${secHead('👪',t('manage.parents'),parents.length,`<button class="btn sm" onclick="event.stopPropagation();A_parentForm()">+ ${esc(t('manage.add'))}</button>`)}
         <div class="secbody" hidden>${searchBox(EN()?'name / phone':'ชื่อ / เบอร์')}
-        ${parents.map(p=>`<div class="list-item" data-k="${esc((p.NameTH+' '+(p.NameEN||'')+' '+(p.Phone||'')+' '+(p.Relationship||'')).toLowerCase())}"><span style="display:flex;gap:8px;align-items:center">${personAvatar(p)}<span><b>${esc(nm(p))}</b> <small class="muted">${esc(p.Relationship||'')} · ${phoneLink(p.Phone)}</small></span></span><span class="row"><button class="btn sm outline" onclick="A_parentForm('${p.ParentID}')">✏️</button><button class="btn sm pink" onclick="A_delParent('${p.ParentID}')">🗑️</button></span></div>`).join('')}</div></div>
+        ${parents.map(p=>`<div class="list-item" data-k="${esc((p.NameTH+' '+(p.NameEN||'')+' '+(p.Nickname||'')+' '+(p.NicknameEN||'')+' '+(p.Phone||'')+' '+(p.Relationship||'')).toLowerCase())}"><span style="display:flex;gap:8px;align-items:center">${personAvatar(p)}<span><b>${esc(parentDisp(p))}</b> <small class="muted">${esc(titledName(p))} · ${esc(p.Relationship||'')} · ${phoneLink(p.Phone)}</small></span></span><span class="row"><button class="btn sm outline" onclick="A_parentForm('${p.ParentID}')">✏️</button><button class="btn sm pink" onclick="A_delParent('${p.ParentID}')">🗑️</button></span></div>`).join('')}</div></div>
       <div class="card secw">${secHead('👶',EN()?'Students':'นักเรียน',students.length,`<button class="btn sm" onclick="event.stopPropagation();A_genBills()">📅 ${esc(t('bill.genTitle'))}</button>`)}
         <div class="secbody" hidden>${searchBox(EN()?'name / nickname / class':'ชื่อ / ชื่อเล่น / ชั้นเรียน')}
-        ${students.map(s=>`<div class="list-item" data-k="${esc((s.NameTH+' '+(s.NameEN||'')+' '+(s.Nickname||'')+' '+(s.NicknameEN||'')+' '+(s.Class||'')+' '+(s.NationalID||'')).toLowerCase())}"><span>${studentAvatar(s)} <b>${esc(nm(s))}</b> <small class="muted">${esc(s.Class)} · ${esc(ageYM(s.DOB))}${s.InsuranceHas?' · 🛡️':''}</small><br><small class="muted">${EN()?'ID':'บัตร'}: ${esc(s.NationalID||'-')}</small></span><span class="row"><button class="btn sm outline" onclick="A_studentForm('${s.StudentID}')">✏️</button><button class="btn sm" onclick="A_issueBill('${s.StudentID}')">🧾</button><button class="btn sm" onclick="A_charges('${s.StudentID}')">💵</button><button class="btn sm outline" onclick="A_vaccines('${s.StudentID}')">💉</button><button class="btn sm gray" onclick="A_exportStudent('${s.StudentID}')">📤</button><button class="btn sm pink" onclick="A_removeStudent('${s.StudentID}')" title="${esc(t('wd.remove'))}">🚪</button></span></div>`).join('')}</div></div>`;
+        ${students.map(s=>`<div class="list-item" data-k="${esc((s.NameTH+' '+(s.NameEN||'')+' '+(s.Nickname||'')+' '+(s.NicknameEN||'')+' '+(s.Class||'')+' '+(s.NationalID||'')).toLowerCase())}"><span>${studentAvatar(s)} <b>${esc(dispNick(s))}</b> <small class="muted">${esc(nm(s))} · ${esc(s.Class)} · ${esc(ageYM(s.DOB))}${s.InsuranceHas?' · 🛡️':''}</small><br><small class="muted">${EN()?'ID':'บัตร'}: ${esc(s.NationalID||'-')}</small></span><span class="row"><button class="btn sm outline" onclick="A_studentForm('${s.StudentID}')">✏️</button><button class="btn sm" onclick="A_issueBill('${s.StudentID}')">🧾</button><button class="btn sm" onclick="A_charges('${s.StudentID}')">💵</button><button class="btn sm outline" onclick="A_vaccines('${s.StudentID}')">💉</button><button class="btn sm gray" onclick="A_exportStudent('${s.StudentID}')">📤</button><button class="btn sm pink" onclick="A_removeStudent('${s.StudentID}')" title="${esc(t('wd.remove'))}">🚪</button></span></div>`).join('')}</div></div>`;
   };
   // navigate to an admin sub-screen (kept off the bottom nav)
   var ADMIN_SUB_organize, ADMIN_SUB_holidays, ADMIN_SUB_importExport;
@@ -1461,27 +1563,40 @@
     const f=(k,label,val,type)=>`<label class="field"><span>${esc(label)}</span><input id="sf_${k}" type="${type||'text'}" value="${esc(val!=null?val:'')}"/></label>`;
     // departments master (Nursery Baby/1/2/Premium…), NOT the CLASSES list — show ALL of them
     const depts=A_classOptions(s.Department); // keeps the staff's current value even if not in the master
+    // a staff row whose StaffGroup isn't in STAFF_GROUPS resolves no work hours — surface it instead of
+    // silently snapping the <select> to the first option (which would rewrite the value on save)
+    const grpOpts=groups.slice();
+    if(s.StaffGroup && !grpOpts.some(g=>g.GroupName===s.StaffGroup)) grpOpts.unshift({GroupName:s.StaffGroup,GroupNameEN:(EN()?'⚠️ unknown group':'⚠️ กลุ่มไม่ถูกต้อง')});
     modal(`<h3>${id?'✏️':'➕'} ${esc(t('c.staff'))}</h3>
       <div class="grid2">${f('NameTH',t('reg.nameTH'),s.NameTH)}${f('NameEN',t('reg.nameEN'),s.NameEN)}</div>
-      <div class="grid2">${f('Nickname',t('reg.nickname'),s.Nickname)}${f('DOB',t('reg.dob'),s.DOB,'date')}</div>
-      <div class="grid2">${f('Position',t('manage.position'),s.Position)}
-        <label class="field"><span>${esc(t('manage.dept'))}</span><select id="sf_Department">${['',...depts].map(d=>`<option ${s.Department===d?'selected':''}>${esc(d)}</option>`).join('')}</select></label></div>
-      <div class="grid2"><label class="field"><span>${esc(t('manage.group'))}</span><select id="sf_StaffGroup">${groups.map(g=>`<option value="${esc(g.GroupName)}" ${s.StaffGroup===g.GroupName?'selected':''}>${esc(g.GroupName)}${g.CheckInTime?` (${esc(g.CheckInTime)}–${esc(g.CheckOutTime||'')})`:''}</option>`).join('')}</select></label>
+      <div class="grid2">${f('Nickname',t('reg.nickname'),s.Nickname)}${f('NicknameEN',t('reg.nicknameEN'),s.NicknameEN)}</div>
+      <div class="grid2">${f('DOB',t('reg.dob'),s.DOB,'date')}${f('Position',t('manage.position'),s.Position)}</div>
+      <div class="grid2">
+        <label class="field"><span>${esc(t('manage.dept'))}</span><select id="sf_Department">${['',...depts].map(d=>`<option ${s.Department===d?'selected':''}>${esc(d)}</option>`).join('')}</select></label>
+        <label class="field"><span>${esc(t('manage.group'))}</span><select id="sf_StaffGroup">${grpOpts.map(g=>`<option value="${esc(g.GroupName)}" ${s.StaffGroup===g.GroupName?'selected':''}>${esc(g.GroupName)}${g.GroupNameEN?` · ${esc(g.GroupNameEN)}`:''}${g.CheckInTime?` (${esc(g.CheckInTime)}–${esc(g.CheckOutTime||'')})`:''}</option>`).join('')}</select></label></div>
+      <div class="grid2">
         <label class="field"><span>${esc(t('manage.level'))}</span><select id="sf_PositionLevel">${['Admin','Leader','Officer','Assistant','Staff'].map(l=>`<option ${s.PositionLevel===l?'selected':''}>${esc(l)}</option>`).join('')}</select></label></div>
+      <div class="jsec"><b style="font-size:13px">👶 ${EN()?'Classes covered':'ชั้นเรียนที่รับผิดชอบ'}</b>
+        <label style="display:block;margin:4px 0"><input type="checkbox" id="sf_AllClasses" style="width:auto" ${s.Classes==='*'?'checked':''} onchange="SF_allClasses(this)"/> ${EN()?'All classes (head teacher)':'ทุกชั้นเรียน (หัวหน้าครู)'}</label>
+        <div id="sf_ClsList" ${s.Classes==='*'?'style="opacity:.4;pointer-events:none"':''}>${A_classOptions('').map(c=>`<label style="margin-right:10px;font-size:13px"><input type="checkbox" class="sfCls" value="${esc(c)}" style="width:auto" ${String(s.Classes||'').split(',').map(x=>x.trim()).indexOf(c)>=0?'checked':''}/> ${esc(c)}</label>`).join('')||`<small class="muted">${EN()?'no classes yet':'ยังไม่มีชั้นเรียน'}</small>`}</div>
+        <small class="muted" style="font-size:11px">${EN()?'Admin & Leader cover all classes automatically.':'แอดมินและหัวหน้าครูเห็นทุกชั้นโดยอัตโนมัติ'}</small></div>
       <div class="grid2">${f('Phone',t('reg.phone'),phoneFmt(s.Phone))}${f('NationalID',t('reg.nationalId'),s.NationalID)}</div>
       <div class="grid2">${f('StartDate',t('staff.startDate'),s.StartDate,'date')}${f('BaseSalary',t('pay.baseSalary'),s.BaseSalary,'number')}</div>
       <label class="field"><span>🔗 LINE ID ${s.LineUID?'✅':''}</span><input id="sf_LineUID" value="${esc(s.LineUID||'')}" placeholder="Uxxxxxxxxxxxxxxxx"/></label>
       <div class="card" style="background:#f7f9fc;padding:8px"><small class="muted">${EN()?'To let this staff log in: they open the app via LINE → "New user or already registered?" shows their LINE ID → paste it here and Save.':'ให้ครูเข้าแอปผ่าน LINE → หน้า "New user or already registered?" จะโชว์ LINE ID ของครู → คัดลอกมาวางช่องนี้แล้วกดบันทึก'}</small></div>
-      <label class="field"><span>${esc(t('manage.photo'))}</span><input id="sf_Photo" type="file" accept="image/*"/>${s.Photo?`<br><img src="${esc(s.Photo)}" style="width:48px;height:48px;border-radius:50%;object-fit:cover;margin-top:6px"/>`:''}</label>
+      ${photoField('sf_Photo',t('manage.photo'),s.Photo,true)}
       ${id?`<div class="card" style="background:#f7f9fc;padding:8px"><b style="font-size:13px">🔑 ${EN()?'Salary-slip password':'รหัสผ่าน (เปิดสลิปเงินเดือน)'}</b>
         <div class="row" style="margin-top:6px"><button type="button" class="btn sm outline" onclick="A_viewPw('${id}')">👁️ ${EN()?'View':'ดูรหัสผ่าน'}</button><button type="button" class="btn sm pink" onclick="A_resetPw('${id}')">♻️ ${EN()?'Reset':'รีเซ็ต'}</button></div>
         <div id="pwView_${id}" class="muted" style="font-size:12.5px;margin-top:6px"></div></div>`:''}
       <button class="btn block" onclick="A_saveStaff(this,'${id||''}')">${esc(t('c.save'))}</button>`);
   };
   window.A_saveStaff=async(btn,id)=>{ const m=btn.closest('.modal'); const v=k=>{ const e=m.querySelector('#sf_'+k); return e?e.value.trim():''; };
-    const data={NameTH:v('NameTH'),NameEN:v('NameEN'),Nickname:v('Nickname'),DOB:v('DOB'),Position:v('Position'),Department:v('Department'),StaffGroup:v('StaffGroup'),PositionLevel:v('PositionLevel'),Phone:v('Phone'),NationalID:v('NationalID'),LineUID:v('LineUID'),StartDate:v('StartDate'),BaseSalary:+v('BaseSalary')||0};
-    const pf=m.querySelector('#sf_Photo').files[0]; if(pf) data.Photo=await new Promise(r=>{const fr=new FileReader();fr.onload=()=>r(fr.result);fr.readAsDataURL(pf);});
+    const allCls=m.querySelector('#sf_AllClasses')&&m.querySelector('#sf_AllClasses').checked;
+    const classes = allCls ? '*' : [...m.querySelectorAll('.sfCls:checked')].map(x=>x.value).join(',');
+    const data={NameTH:v('NameTH'),NameEN:v('NameEN'),Nickname:v('Nickname'),NicknameEN:v('NicknameEN'),DOB:v('DOB'),Position:v('Position'),Department:v('Department'),StaffGroup:v('StaffGroup'),PositionLevel:v('PositionLevel'),Phone:v('Phone'),NationalID:v('NationalID'),LineUID:v('LineUID'),StartDate:v('StartDate'),BaseSalary:+v('BaseSalary')||0,Classes:classes};
+    const sfp=photoVal(m,'sf_Photo'); if(sfp) data.Photo=sfp;
     try{ await api('saveStaff',{staffId:id||null,data}); m.remove(); confirmSaved(t('c.saved')); GO('manage'); }catch(e){err(e);} };
+  window.SF_allClasses=(cb)=>{ const box=document.getElementById('sf_ClsList'); if(box){ box.style.opacity=cb.checked?'.4':''; box.style.pointerEvents=cb.checked?'none':''; } };
   window.A_delStaff=async(id)=>{ if(!confirm(t('manage.confirmDel')))return; try{ await api('deleteStaff',{staffId:id}); toast(t('manage.deleted')); GO('manage'); }catch(e){err(e);} };
   window.A_viewPw=async(id)=>{ const box=document.getElementById('pwView_'+id); try{ const r=await api('getStaffPassword',{staffId:id}); if(box)box.innerHTML=`${EN()?'Current password':'รหัสผ่านปัจจุบัน'}: <b>${esc(r.password)}</b>`; }catch(e){err(e);} };
   window.A_resetPw=async(id)=>{ if(!confirm(EN()?'Reset this staff\'s password? A temporary password will be shown.':'รีเซ็ตรหัสผ่านพนักงานคนนี้? ระบบจะแสดงรหัสชั่วคราว'))return;
@@ -1496,10 +1611,10 @@
     }
     modal(`<h3>👁️ ${EN()?'View as role':'ดูในมุมมอง (สลับ Role)'}</h3>
     <p class="muted" style="font-size:12px">${EN()?'Preview the app as another role. You stay logged in as admin — tap "Back to Admin" to return.':'ดูแอปในมุมมองบทบาทอื่น (ยังเป็นแอดมินอยู่) — กด "กลับเป็น Admin" เพื่อกลับ'}</p>
-    <label class="field"><span>👩‍🏫 ${EN()?'As teacher / leader':'มุมมองครู / หัวหน้า'}</span><select id="va_staff"><option value="">—</option>${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').map(s=>`<option value="${s.StaffID}">${esc(nm(s))} (${esc(s.PositionLevel||'')})</option>`).join('')}</select></label>
+    <label class="field"><span>👩‍🏫 ${EN()?'As teacher / leader':'มุมมองครู / หัวหน้า'}</span><select id="va_staff"><option value="">—</option>${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').map(s=>`<option value="${s.StaffID}">${esc(nmn(s))} · ${esc(s.PositionLevel||'')}</option>`).join('')}</select></label>
     <button class="btn block" onclick="A_viewAsStaff(this)">${EN()?'View as this staff':'ดูมุมมองครูคนนี้'}</button>
     <div style="height:12px"></div>
-    <label class="field"><span>👪 ${EN()?'As parent of…':'มุมมองผู้ปกครองของ…'}</span><select id="va_stu"><option value="">—</option>${(A_CACHE.students||[]).map(s=>`<option value="${s.StudentID}">${esc(nm(s))} (${esc(s.Class||'')})</option>`).join('')}</select></label>
+    <label class="field"><span>👪 ${EN()?'As parent of…':'มุมมองผู้ปกครองของ…'}</span><select id="va_stu"><option value="">—</option>${(A_CACHE.students||[]).map(s=>`<option value="${s.StudentID}">${esc(nmn(s))} · ${esc(s.Class||'')}</option>`).join('')}</select></label>
     <button class="btn block outline" onclick="A_viewAsParent(this)">${EN()?'View as this parent':'ดูมุมมองผู้ปกครอง'}</button>`); };
   window.A_viewAsStaff=(btn)=>{ const m=btn.closest('.modal'); const sid=m.querySelector('#va_staff').value; if(!sid){toast(EN()?'Pick a staff':'เลือกครูก่อน');return;} const s=findStaff(sid); m.remove();
     _enterViewAs({role:'Teacher',_roleKey:(s.PositionLevel==='Leader'?'Leader':'Teacher'),staffId:sid,nameEN:s.NameEN||s.NameTH||sid,nameTH:s.NameTH||sid}); };
@@ -1515,16 +1630,18 @@
   window.A_parentForm=(id)=>{ const p=id?findParent(id):{};
     const f=(k,label,val)=>`<label class="field"><span>${esc(label)}</span><input id="pf_${k}" value="${esc(val!=null?val:'')}"/></label>`;
     modal(`<h3>${id?'✏️':'➕'} ${esc(t('manage.parents'))}</h3>
-      <div class="grid2">${f('NameTH',t('reg.nameTH'),p.NameTH)}${f('NameEN',t('reg.nameEN'),p.NameEN)}</div>
-      <div class="grid2">${f('Relationship',t('reg.relationship'),p.Relationship)}${f('NationalID',t('reg.nationalIdParent'),p.NationalID)}</div>
+      <div class="grid2"><label class="field"><span>${esc(t('reg.title'))}</span><select id="pf_Title">${['','นาย','นาง','นางสาว'].map(x=>`<option ${(p.Title||titleOf(p))===x?'selected':''}>${x}</option>`).join('')}</select></label>${f('NameTH',t('reg.nameTH'),p.NameTH)}</div>
+      <div class="grid2">${f('NameEN',t('reg.nameEN'),p.NameEN)}${f('Nickname',t('reg.nickname'),p.Nickname)}</div>
+      <div class="grid2">${f('NicknameEN',t('reg.nicknameEN'),p.NicknameEN)}${f('Relationship',t('reg.relationship'),p.Relationship)}</div>
+      <div class="grid2">${f('NationalID',t('reg.nationalIdParent'),p.NationalID)}</div>
       <div class="grid2">${f('Phone',t('reg.mobile'),phoneFmt(p.Phone))}${f('OfficePhone',t('reg.officePhone'),phoneFmt(p.OfficePhone))}</div>
       <div class="grid2">${f('Occupation',t('reg.occupation'),p.Occupation)}${f('Workplace',t('reg.workplace'),p.Workplace)}</div>
-      <label class="field"><span>${esc(t('reg.parentPhoto'))}</span><input id="pf_Photo" type="file" accept="image/*"/>${p.Photo?`<br><img src="${esc(p.Photo)}" style="width:48px;height:48px;border-radius:50%;object-fit:cover;margin-top:6px"/>`:''}</label>
+      ${photoField('pf_Photo',t('reg.parentPhoto'),p.Photo,true)}
       <button class="btn block" onclick="A_saveParent(this,'${id||''}')">${esc(t('c.save'))}</button>`);
   };
   window.A_saveParent=async(btn,id)=>{ const m=btn.closest('.modal'); const v=k=>{ const e=m.querySelector('#pf_'+k); return e?e.value.trim():''; };
-    const data={NameTH:v('NameTH'),NameEN:v('NameEN'),Relationship:v('Relationship'),NationalID:v('NationalID'),Phone:v('Phone'),OfficePhone:v('OfficePhone'),Occupation:v('Occupation'),Workplace:v('Workplace')};
-    const pf=m.querySelector('#pf_Photo').files[0]; if(pf) data.Photo=await new Promise(r=>{const fr=new FileReader();fr.onload=()=>r(fr.result);fr.readAsDataURL(pf);});
+    const data={Title:v('Title'),NameTH:v('NameTH'),NameEN:v('NameEN'),Nickname:v('Nickname'),NicknameEN:v('NicknameEN'),Relationship:v('Relationship'),NationalID:v('NationalID'),Phone:v('Phone'),OfficePhone:v('OfficePhone'),Occupation:v('Occupation'),Workplace:v('Workplace')};
+    const pfp=photoVal(m,'pf_Photo'); if(pfp) data.Photo=pfp;
     try{ await api('saveParent',{parentId:id||null,data}); m.remove(); confirmSaved(t('c.saved')); GO('manage'); }catch(e){err(e);} };
   window.A_delParent=async(id)=>{ if(!confirm(t('manage.confirmDel')))return; try{ await api('deleteParent',{parentId:id}); toast(t('manage.deleted')); GO('manage'); }catch(e){err(e);} };
 
@@ -1537,7 +1654,7 @@
       <div class="grid2">${f('NationalID',t('reg.nationalIdStudent'),s.NationalID)}
         <label class="field"><span>${esc(t('manage.class'))}</span><select id="stf_Class">${A_classOptions(s.Class).map(c=>`<option ${s.Class===c?'selected':''}>${esc(c)}</option>`).join('')}</select></label></div>
       <div class="grid2"><label class="field"><span>${esc(t('reg.plan'))}</span><select id="stf_Plan"><option value="">${esc(t('manage.noPlan'))}</option>${A_plans().map(p=>`<option value="${p.id}" ${s.Plan===p.id?'selected':''}>${esc(EN()?p.labelEN:p.labelTH)} · ${baht(p.price)}</option>`).join('')}</select></label>
-        <label class="field"><span>${esc(t('growth.photo'))}</span><input id="stf_Photo" type="file" accept="image/*"/></label></div>
+        ${photoField('stf_Photo',t('growth.photo'),s.Photo,true)}</div>
       <div class="grid2">${f('Allergy',t('reg.allergy'),s.Allergy)}${f('MedicalHistory',t('reg.chronic'),s.MedicalHistory)}</div>
       <label class="field"><span>⏰ ${EN()?'OT rate / hour (blank = school default)':'ค่า OT ต่อชั่วโมง (เว้นว่าง = ใช้ค่าเริ่มต้นของโรงเรียน)'}</span>
         <input id="stf_OTRate" type="number" min="0" value="${esc(s.OTRate!=null&&s.OTRate!==''?s.OTRate:'')}" placeholder="${esc(MOCK.config.OTRatePerHour||100)}"/></label>
@@ -1546,7 +1663,7 @@
       <div id="insBox" ${s.InsuranceHas?'':'hidden'}>
         <div class="grid2">${f('InsurancePolicyNo',t('ins.policy'),s.InsurancePolicyNo)}${f('InsuranceCompany',t('ins.company'),s.InsuranceCompany)}</div>
         ${f('InsuranceExpiry',t('ins.expiry'),s.InsuranceExpiry,'date')}
-        <label class="field"><span>${esc(t('ins.card'))}</span><input id="stf_InsCard" type="file" accept="image/*"/>${s.InsuranceCardImage?`<br><img src="${esc(s.InsuranceCardImage)}" style="max-width:120px;border-radius:8px;margin-top:6px"/>`:''}</label></div>
+        ${photoField('stf_InsCard',t('ins.card'),s.InsuranceCardImage,false)}</div>
       ${s.DriveFolderUrl?`<div class="card" style="background:#f7f9fc;padding:8px"><small class="muted">📁 ${esc(t('folder.student'))}<br><code style="font-size:11px">${esc(s.DriveFolderUrl)}</code><br>${esc(t('folder.note'))}</small></div>`:''}
       <button class="btn block" onclick="A_saveStudent(this,'${id}')">${esc(t('c.save'))}</button>`);
   };
@@ -1554,8 +1671,8 @@
     const data={NameTH:v('NameTH'),NameEN:v('NameEN'),Nickname:v('Nickname'),NicknameEN:v('NicknameEN'),NationalID:v('NationalID'),Class:v('Class'),Plan:v('Plan'),Allergy:v('Allergy'),MedicalHistory:v('MedicalHistory'),
       InsuranceHas:m.querySelector('#stf_Ins').checked,InsurancePolicyNo:v('InsurancePolicyNo'),InsuranceCompany:v('InsuranceCompany'),InsuranceExpiry:v('InsuranceExpiry'),
       OTRate:v('OTRate')===''?'':(Number(v('OTRate'))||0)};   // blank = fall back to the school-wide OT rate
-    const pf=m.querySelector('#stf_Photo').files[0]; if(pf) data.Photo=await new Promise(r=>{const fr=new FileReader();fr.onload=()=>r(fr.result);fr.readAsDataURL(pf);});
-    const cf=m.querySelector('#stf_InsCard').files[0]; if(cf) data.InsuranceCardImage=await new Promise(r=>{const fr=new FileReader();fr.onload=()=>r(fr.result);fr.readAsDataURL(cf);});
+    const stp=photoVal(m,'stf_Photo'); if(stp) data.Photo=stp;
+    const stc=photoVal(m,'stf_InsCard'); if(stc) data.InsuranceCardImage=stc;
     try{ await api('saveStudent',{studentId:id,data}); m.remove(); confirmSaved(t('c.saved')); GO('manage'); }catch(e){err(e);} };
 
   // ---- vaccine records (Admin/teacher) ----
@@ -1677,7 +1794,7 @@
         return `<div class="card" style="padding:10px"><div class="spread"><b>${esc(EN()?g.GroupNameEN:g.GroupName)}</b><button class="btn sm pink" onclick="A_delGroup('${esc(g.GroupName)}')">🗑️</button></div>
         <div class="grid2" style="margin-top:6px"><label class="field"><span>${esc(t('lbl.checkIn'))}</span><input type="time" value="${esc(g.CheckInTime)}" onchange="A_setGroup('${esc(g.GroupName)}','in',this.value)"/></label>
           <label class="field"><span>${esc(t('lbl.checkOut'))}</span><input type="time" value="${esc(g.CheckOutTime)}" onchange="A_setGroup('${esc(g.GroupName)}','out',this.value)"/></label></div>
-        <div style="margin-top:6px"><small class="muted">👥 ${EN()?'Members':'พนักงานในกลุ่ม'} (${mem.length})</small>${mem.length?`<div style="display:flex;flex-wrap:wrap;gap:4px;margin-top:4px">${mem.map(s=>`<span class="pill info" style="font-size:11px">${esc(nm(s))}</span>`).join('')}</div>`:`<div class="muted" style="font-size:12px">— ${EN()?'no members':'ยังไม่มีพนักงาน'} —</div>`}</div></div>`; }).join('')}</div>
+        <div style="margin-top:6px"><small class="muted">👥 ${EN()?'Members':'พนักงานในกลุ่ม'} (${mem.length})</small>${mem.length?`<div style="display:flex;flex-wrap:wrap;gap:4px;margin-top:4px">${mem.map(s=>`<span class="pill info" style="font-size:11px">${esc(nmn(s))}</span>`).join('')}</div>`:`<div class="muted" style="font-size:12px">— ${EN()?'no members':'ยังไม่มีพนักงาน'} —</div>`}</div></div>`; }).join('')}</div>
       <div class="card" style="background:#f7f9fc;padding:10px"><b style="font-size:13px">➕ ${esc(t('grp.add'))}</b>
         <div class="grid2" style="margin-top:6px"><input id="ngName" placeholder="${esc(t('grp.nameTH'))}"/><input id="ngNameEN" placeholder="${esc(t('grp.nameEN'))}"/></div>
         <div class="grid2" style="margin-top:6px"><input id="ngIn" type="time" value="08:00"/><input id="ngOut" type="time" value="17:00"/></div>
@@ -1802,9 +1919,10 @@
   window.A_otVerify=async()=>{ const rows=await api('otVerification',{});
     modal(`<h3>⏱️ ${esc(t('manage.otVerify'))}</h3><p class="muted" style="font-size:12px">${esc(t('ot.verifyNote'))}</p>
       <div style="overflow:auto"><table style="width:100%;font-size:12px;border-collapse:collapse">
-      <tr style="background:#1565C0;color:#fff"><th style="padding:3px 5px">${esc(t('hol.date'))}</th><th>${esc(t('c.staff'))}</th><th>${esc(t('lbl.checkOut'))}</th><th>OT (${esc(t('lbl.min'))})</th><th>OT (ชม.)</th></tr>
-      ${rows.map(r=>`<tr style="border-bottom:1px solid #eee"><td style="padding:3px 5px">${esc(r.date)}</td><td>${esc(staffName(r.staffId))}</td><td>${esc(r.out)} <small class="muted">/${esc(r.schedOut)}</small></td><td style="text-align:center">${r.otMinutes}</td><td style="text-align:center"><b>${r.otHours}</b></td></tr>`).join('')}
+      <tr style="background:#1565C0;color:#fff"><th style="padding:3px 5px">${esc(t('hol.date'))}</th><th>${esc(t('c.staff'))}</th><th>${esc(t('lbl.checkOut'))}</th><th>OT</th><th>${EN()?'OT pay':'ค่า OT'}</th></tr>
+      ${rows.map(r=>`<tr style="border-bottom:1px solid #eee"><td style="padding:3px 5px">${esc(r.date)}</td><td>${esc(staffNick(r.staffId))}</td><td>${esc(r.out)} <small class="muted">/${esc(r.schedOut)}</small></td><td style="text-align:center">${esc(hmMin(r.otMinutes))}</td><td style="text-align:center">${r.otPay?esc(baht(r.otPay)):'-'}</td></tr>`).join('')}
       </table></div>
+      <p class="muted" style="font-size:11px;margin-top:6px">${EN()?'OT pay = hours × (salary ÷ 30 ÷ 8) × 1.5 (Thai labour law, normal working day)':'ค่า OT = ชั่วโมง × (เงินเดือน ÷ 30 ÷ 8) × 1.5 (ตามกฎหมายแรงงานไทย วันทำงานปกติ)'}</p>
       <button class="btn outline block" style="margin-top:8px" onclick="this.closest('.modal').remove()">${esc(t('c.close'))}</button>`);
   };
   window.A_addGroup=async(btn)=>{ const m=btn.closest('.modal'); const name=m.querySelector('#ngName').value.trim(); if(!name){toast(t('grp.nameTH'));return;}
@@ -1817,8 +1935,8 @@
     const opts=cur=>deps.map(d=>`<option ${cur===d?'selected':''}>${esc(d)}</option>`).join('');
     const col=dep=>{ const ts=staff.filter(s=>s.Department===dep&&s.Role==='Teacher'); const ss=students.filter(s=>s.Class===dep);
       return `<div class="card org-col" ondragover="event.preventDefault()" ondrop="A_drop(event,'${esc(dep)}')"><h3>${esc(dep)} <small class="muted">${ts.length}👩‍🏫 · ${ss.length}👶</small></h3>
-        ${ts.map(s=>`<div class="org-chip" draggable="true" ondragstart="A_drag(event,'teacher','${s.StaffID}')"><span>👩‍🏫 ${esc(nm(s))}</span><select onchange="A_moveSel('teacher','${s.StaffID}',this.value)">${opts(dep)}</select></div>`).join('')}
-        ${ss.map(s=>`<div class="org-chip" draggable="true" ondragstart="A_drag(event,'student','${s.StudentID}')"><span>${studentAvatar(s)} ${esc(nm(s))}</span><select onchange="A_moveSel('student','${s.StudentID}',this.value)">${opts(dep)}</select></div>`).join('')}</div>`; };
+        ${ts.map(s=>`<div class="org-chip" draggable="true" ondragstart="A_drag(event,'teacher','${s.StaffID}')"><span>👩‍🏫 ${esc(nmn(s))}</span><select onchange="A_moveSel('teacher','${s.StaffID}',this.value)">${opts(dep)}</select></div>`).join('')}
+        ${ss.map(s=>`<div class="org-chip" draggable="true" ondragstart="A_drag(event,'student','${s.StudentID}')"><span>${studentAvatar(s)} ${esc(nmn(s))}</span><select onchange="A_moveSel('student','${s.StudentID}',this.value)">${opts(dep)}</select></div>`).join('')}</div>`; };
     app.innerHTML=`<button class="btn sm outline backbtn" onclick="GO('manage')">${t('c.back')}</button>
       <h2 class="page">🔁 ${esc(t('manage.organize'))}</h2>
       <p class="muted" style="font-size:12px">${esc(t('org.note'))}</p>
@@ -1937,7 +2055,10 @@
         <p class="muted" style="font-size:12px;margin-top:10px">${esc(t('chat.lineNote'))}</p></div>${verTag()}`;
   };
 
-  function staffName(id){ const s=MOCK.staff.find(x=>x.StaffID===id); return s?(LANG()==='en'?s.NameEN:s.NameTH):id; }
+  // look up a staff record from the admin cache first (MOCK.staff is empty in gas mode)
+  const staffRec = id => (window.A_CACHE&&(A_CACHE.staff||[]).find(x=>x.StaffID===id)) || (MOCK.staff||[]).find(x=>x.StaffID===id) || null;
+  function staffName(id){ const s=staffRec(id); return s?nm(s):id; }
+  function staffNick(id){ const s=staffRec(id); return s?dispNick(s):id; }
   // open in a new tab to print; if popups blocked, download as .html so there is always a file
   function openOrDownload(html, filename){
     if(window.trPhrase) html=trPhrase(html);
