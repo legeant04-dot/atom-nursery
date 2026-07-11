@@ -185,7 +185,10 @@ function writeRows_(wb, sheet, list, alias) {
   var sh = wbOf_(wb).getSheetByName(sheet); if (!sh) return;
   var hdr = headers_(sh);
   var values = (list || []).map(function (o) {
-    return hdr.map(function (col) { var field = alias[col] || col; var v = o[field]; if (v === undefined) v = o[col]; return encodeCell_(v); });
+    return hdr.map(function (col) { var field = alias[col] || col; var v = o[field]; if (v === undefined) v = o[col];
+      // offload inline base64 images to Drive so the 50,000-char cell limit never breaks the write
+      if (typeof driveifyImage_ === 'function' && IMAGE_COLS_[col]) v = driveifyImage_(v, col + '-' + Date.now() + '.jpg');
+      return encodeCell_(v); });
   });
   var existing = Math.max(0, sh.getLastRow() - 1);
   var incoming = values.length;
