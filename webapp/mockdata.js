@@ -99,8 +99,8 @@ window.MOCK = {
     { ClassID:'CL2', ClassName:'Nursery 2', TeacherID:'STF-T2', AgeRange:'2-3 ปี', Capacity:15 },
   ],
   parents: [
-    { ParentID:'PAR-1', NameTH:'กานต์ ดีงาม', NameEN:'Ms.Karn', NationalID:'1100100100101', Relationship:'มารดา', Phone:'081-111-1111', Occupation:'พนักงานบริษัท', Workplace:'บจก. ดีงาม', OfficePhone:'02-111-1111', LineUID:'U_p1', StudentID:'STD-1', Address:'กทม.' },
-    { ParentID:'PAR-2', NameTH:'วิทย์ เก่งกล้า', NameEN:'Mr.Wit', NationalID:'1100200200202', Relationship:'บิดา', Phone:'082-222-2222', Occupation:'วิศวกร', Workplace:'บจก. เก่งกล้า', OfficePhone:'02-222-2222', LineUID:'U_p2', StudentID:'STD-2', Address:'กทม.' },
+    { ParentID:'PAR-1', NameTH:'กานต์ ดีงาม', NameEN:'Ms.Karn', Nickname:'กานต์', NicknameEN:'Karn', NationalID:'1100100100101', Relationship:'มารดา', Phone:'081-111-1111', Occupation:'พนักงานบริษัท', Workplace:'บจก. ดีงาม', OfficePhone:'02-111-1111', LineUID:'U_p1', StudentID:'STD-1', Address:'กทม.' },
+    { ParentID:'PAR-2', NameTH:'วิทย์ เก่งกล้า', NameEN:'Mr.Wit', Nickname:'วิทย์', NicknameEN:'Wit', NationalID:'1100200200202', Relationship:'บิดา', Phone:'082-222-2222', Occupation:'วิศวกร', Workplace:'บจก. เก่งกล้า', OfficePhone:'02-222-2222', LineUID:'U_p2', StudentID:'STD-2', Address:'กทม.' },
   ],
   // pickup persons authorized other than parents (PDPA form §3)
   pickupPersons: [

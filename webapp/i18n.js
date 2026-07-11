@@ -81,7 +81,7 @@
     // registration
     'reg.choosePlan':['เลือกแพ็กเกจ','Choose a plan'], 'reg.choosePlanSub':['อัตราค่าบริการ Atom Nursery','Atom Nursery service rates'], 'reg.perMonth':['/เดือน','/month'],
     'reg.title':['ลงทะเบียนนักเรียนใหม่','Register a new student'], 'reg.plan':['แพ็กเกจ','Plan'], 'reg.student':['ข้อมูลนักเรียน','Student information'],
-    'reg.nameTH':['ชื่อ-นามสกุล (ไทย)','Name-Surname (TH)'], 'reg.nameEN':['ชื่อ-นามสกุล (อังกฤษ)','Name-Surname (EN)'], 'reg.nickname':['ชื่อเล่น (ไทย)','Nickname (TH)'], 'reg.nicknameEN':['ชื่อเล่น (อังกฤษ)','Nickname (EN)'],
+    'reg.nameTH':['ชื่อ-นามสกุล (ไทย)','Name-Surname (TH)'], 'reg.nameEN':['ชื่อ-นามสกุล (อังกฤษ)','Name-Surname (EN)'], 'reg.nickname':['ชื่อเล่น (ไทย)','Nickname (TH)'], 'reg.nicknameEN':['ชื่อเล่น (อังกฤษ)','Nickname (EN)'], 'reg.title':['คำนำหน้า','Title'],
     'reg.gender':['เพศ','Gender'], 'reg.male':['ชาย','Male'], 'reg.female':['หญิง','Female'], 'reg.dob':['วันเกิด','Date of birth'], 'reg.age':['อายุ','Age'],
     'reg.nationalIdStudent':['เลขบัตรประชาชนนักเรียน (ใช้เป็นรหัสนักเรียน)','Student National ID (used as student code)'],
     'reg.weight':['น้ำหนัก','Weight'], 'reg.height':['ส่วนสูง','Height'], 'reg.bloodType':['หมู่เลือด','Blood type'], 'reg.photo':['รูปถ่ายนักเรียน','Student photo'],

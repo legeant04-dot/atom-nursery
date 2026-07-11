@@ -11,6 +11,7 @@
 function handleSaveStaff(p) {
   p = p || {};
   var sh = sheet_(getHrSpreadsheet_(), 'STAFF');
+  try { ensureColumns_(sh, ['NicknameEN', 'Classes']); } catch (e) {}
   var d = p.data || {};
   var row = {};
   for (var k in d) { if (d.hasOwnProperty(k)) row[k] = d[k]; }
@@ -93,6 +94,7 @@ function handleSaveStudent(p) {
 function handleSaveParent(p) {
   p = p || {};
   var sh = sheet_(getMainSpreadsheet_(), 'PARENTS');
+  try { ensureColumns_(sh, ['Nickname', 'NicknameEN', 'Title']); } catch (e) {}
   var row = mapName_(p.data || {});
   if (p.parentId) {
     var pa = findObject_(sh, function (x) { return String(x.ParentID) === String(p.parentId); });
@@ -116,7 +118,8 @@ function handleSaveParentSelf(p) {
   var sh = sheet_(getMainSpreadsheet_(), 'PARENTS');
   var pa = findObject_(sh, function (x) { return String(x.ParentID) === String(p.parentId); });
   if (!pa) throw apiError_('NOT_FOUND', 'ไม่พบผู้ปกครอง ' + p.parentId);
-  var d = p.data || {}, WHITE = ['NameTH', 'NameEN', 'Relationship', 'Phone', 'Occupation', 'Workplace', 'OfficePhone', 'Address'];
+  try { ensureColumns_(sh, ['Nickname', 'NicknameEN', 'Title']); } catch (e) {}
+  var d = p.data || {}, WHITE = ['NameTH', 'NameEN', 'Nickname', 'NicknameEN', 'Title', 'Relationship', 'Phone', 'Occupation', 'Workplace', 'OfficePhone', 'Address'];
   var row = {};
   WHITE.forEach(function (k) { if (d[k] !== undefined) row[k] = d[k]; });
   if (row.NameTH !== undefined) { row.Name = row.NameTH; delete row.NameTH; }  // sheet column is Name
@@ -205,7 +208,8 @@ function handleSaveFamilyParent(p) {
   var ok = (String(tid) === String(p.parentId));
   if (!ok) { var ids = familyStudentIds_(p.uid); if (pa.StudentID && ids[String(pa.StudentID)]) ok = true; }
   if (!ok) throw apiError_('NO_ACCESS', 'ไม่มีสิทธิ์แก้ไขผู้ปกครองนี้');
-  var d = p.data || {}, WHITE = ['NameTH', 'NameEN', 'Relationship', 'Phone', 'Occupation', 'Workplace', 'OfficePhone', 'Address'];
+  try { ensureColumns_(sh, ['Nickname', 'NicknameEN', 'Title']); } catch (e) {}
+  var d = p.data || {}, WHITE = ['NameTH', 'NameEN', 'Nickname', 'NicknameEN', 'Title', 'Relationship', 'Phone', 'Occupation', 'Workplace', 'OfficePhone', 'Address'];
   var row = {};
   WHITE.forEach(function (k) { if (d[k] !== undefined) row[k] = d[k]; });
   if (row.NameTH !== undefined) { row.Name = row.NameTH; delete row.NameTH; }

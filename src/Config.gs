@@ -48,7 +48,9 @@ SCHEMA[WB.MAIN] = {
   CLASSES:           ['ClassID', 'ClassName', 'TeacherID', 'AgeRange', 'Capacity'],
   // Photo / RegisterPhotoUrl = the MANDATORY live-capture photo taken at registration ("New Register Photo"
   // Drive folder), used as an identity/security check when signing in.
-  PARENTS:           ['ParentID', 'NationalID', 'Name', 'NameEN', 'Relationship', 'Phone', 'Occupation', 'Workplace', 'OfficePhone', 'LineUID', 'StudentID', 'Address', 'Photo', 'RegisterPhotoUrl'],
+  // Nickname/NicknameEN/Title appended after go-live (ensureColumns_ adds them on the first save).
+  // Title = คำนำหน้า (นาย/นาง/นางสาว) — indicates gender; defaults from Relationship (บิดา→นาย, มารดา→นางสาว).
+  PARENTS:           ['ParentID', 'NationalID', 'Name', 'NameEN', 'Relationship', 'Phone', 'Occupation', 'Workplace', 'OfficePhone', 'LineUID', 'StudentID', 'Address', 'Photo', 'RegisterPhotoUrl', 'Nickname', 'NicknameEN', 'Title'],
   // Pickup persons authorized other than parents (PDPA application form §3)
   PICKUP_PERSONS:    ['StudentID', 'Name', 'Phone', 'Relation'],
   // user <-> student data-access links (data isolation; supports father linking after mother registered)
@@ -116,7 +118,9 @@ SCHEMA[WB.MAIN] = {
 // Workbook 2 — AtomNursery_HR (confidential HR data) — 8 sheets
 SCHEMA[WB.HR] = {
   // Department/PositionLevel/ReportsTo drive the org hierarchy & leave routing (chat spec)
-  STAFF:         ['StaffID', 'NationalID', 'Name', 'NameEN', 'Nickname', 'DOB', 'Position', 'Role', 'Department', 'PositionLevel', 'StaffGroup', 'ReportsTo', 'Phone', 'LineUID', 'StartDate', 'BaseSalary', 'RequireCheckin', 'PasswordHash', 'MustChangePassword', 'Photo', 'Status'],
+  // Classes = extra classrooms this staff covers beyond their homeroom (comma-separated ClassNames, or
+  // '*' = all). Admin/Leader cover all by default. Appended at END like NicknameEN.
+  STAFF:         ['StaffID', 'NationalID', 'Name', 'NameEN', 'Nickname', 'DOB', 'Position', 'Role', 'Department', 'PositionLevel', 'StaffGroup', 'ReportsTo', 'Phone', 'LineUID', 'StartDate', 'BaseSalary', 'RequireCheckin', 'PasswordHash', 'MustChangePassword', 'Photo', 'Status', 'NicknameEN', 'Classes'],
   // Staff groups with their own (editable) work hours — Admin-managed
   STAFF_GROUPS:  ['GroupName', 'GroupNameEN', 'CheckInTime', 'CheckOutTime'],
   // Per-staff payroll config (Admin-editable). Widened to carry every field the engine's computePayroll uses
