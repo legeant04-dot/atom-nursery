@@ -41,7 +41,9 @@ function computePayroll(payload) {
   var diligenceAttendance = attEligible ? num_(getConfig_('DiligenceAttendanceAmount', '500')) : 0;
   var diligenceFacebook = payload.facebookPosted
     ? num_(payload.facebookAmount, num_(getConfig_('DiligenceFacebookAmount', '500'))) : 0;
-  var diligenceTotal = diligenceAttendance + diligenceFacebook;
+  // Big Cleaning Day: attendance on an admin-set cleaning day earns a diligence bonus (เบี้ยขยัน)
+  var diligenceBigClean = bigCleaningBonus_(staff.StaffID, month, payload);
+  var diligenceTotal = diligenceAttendance + diligenceFacebook + diligenceBigClean;
 
   // --- รายได้อื่นๆ ---
   var extraChildCount = Math.max(0, parseInt(payload.extraChildCount, 10) || 0);
@@ -101,11 +103,30 @@ function attendanceEligible_(staffId, month) {
 }
 
 /** Sum OT_RECORDS amounts for the month (falls back to hours*rate). */
+/** Big Cleaning bonus = BigCleaningAmount × cleaning days this month the staff actually attended. */
+function bigCleaningBonus_(staffId, month, payload) {
+  var amt = num_(getConfig_('BigCleaningAmount', '0'));
+  if (!amt) return 0;
+  if (payload && payload.bigCleaningDays != null) return round2_(amt * (parseInt(payload.bigCleaningDays, 10) || 0));
+  var days = bigCleaningDays_().filter(function (d) { return String(d).slice(0, 7) === month; });
+  if (!days.length) return 0;
+  var att = readObjects_(sheet_(getHrSpreadsheet_(), 'CHECKIN_STAFF'));
+  var attended = 0;
+  days.forEach(function (d) {
+    if (att.some(function (r) { return String(r.StaffID) === String(staffId) && dateStr_(new Date(r.Date)) === d && r.CheckIn; })) attended++;
+  });
+  return round2_(amt * attended);
+}
+
 function sumMonthlyOT_(staffId, month) {
   var rate = num_(getConfig_('OTEveningRate', '0'));
   var total = 0;
   readObjects_(sheet_(getHrSpreadsheet_(), 'OT_RECORDS')).forEach(function (r) {
-    if (String(r.StaffID) === String(staffId) && monthOf_(r.Date) === month) {
+    // only APPROVED OT is paid. A blank Status is a legacy pre-workflow row → treat it as approved.
+    var st = String(r.Status || '').toUpperCase();
+    if (st && st !== 'APPROVED') return;
+    var m = String(r.Month || '') || monthOf_(r.Date);
+    if (String(r.StaffID) === String(staffId) && String(m).slice(0, 7) === month) {
       total += r.Amount !== '' ? num_(r.Amount) : num_(r.Hours) * rate;
     }
   });

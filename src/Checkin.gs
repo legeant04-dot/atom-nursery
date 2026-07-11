@@ -122,7 +122,8 @@ function handleStaffCheckin(payload) {
   var sched = staffSchedule_(staff.StaffID, now);
   var grace = parseInt(getConfig_('LateGraceMinutes', '0'), 10) || 0;
   var expectMin = hhmmToMin_(sched.checkIn); if (expectMin == null) expectMin = hhmmToMin_('08:00');
-  var lateMin = Math.max(0, minOfDay_(now) - (expectMin + grace));
+  // a Big Cleaning Day is a workday with NO fixed hours → never late
+  var lateMin = isBigCleaningDay_(today) ? 0 : Math.max(0, minOfDay_(now) - (expectMin + grace));
 
   if (existing) {
     updateRow_(sheet, existing._row, { CheckIn: timeStr_(now), LateMinutes: lateMin, Status: 'IN' });
@@ -229,24 +230,34 @@ function handleStaffCheckout(payload) {
   var sched = staffSchedule_(staff.StaffID, now);
   var outMin = hhmmToMin_(sched.checkOut); if (outMin == null) outMin = hhmmToMin_('17:00');
   var otMin = Math.max(0, minOfDay_(now) - outMin);
-  var otHours = Math.round((otMin / 60) * 100) / 100;
+  // FULL-hour OT: the last hour rounds up only when ≥ OTRoundUpMinutes (default 50), else it drops.
+  // e.g. plan 18:00, out 18:53 → 53 min → 1 hr; out 18:45 → 45 min → 0 hr (not enough).
+  var roundUp = parseInt(getConfig_('OTRoundUpMinutes', '50'), 10) || 50;
+  var otHours = Math.floor(otMin / 60) + ((otMin % 60) >= roundUp ? 1 : 0);
   // Thai labour law: OT on a normal working day = 1.5 × hourly wage; monthly hourly = salary ÷ 30 ÷ 8.
   var rate = otRateForStaff_(staff);
   var otPay = Math.round(otHours * rate);
 
   updateRow_(sheet, row._row, { CheckOut: timeStr_(now), OTHours: otHours, Status: 'OUT' });
 
-  if (otHours > 0) {
+  if (otHours >= 1) {
+    // OT enters the approval workflow. A Leader/Admin's own OT skips straight to Admin (like leave).
+    var isLeaderSelf = (staff.PositionLevel === 'Leader' || staff.PositionLevel === 'Admin' || staff.Role === 'Admin');
     var otSheet = sheet_(getHrSpreadsheet_(), 'OT_RECORDS');
+    ensureColumns_(otSheet, ['Status', 'Minutes', 'PlanOut', 'ActualOut', 'Month', 'Step1By', 'Step1Status', 'Step2By', 'Step2Status', 'Note']);
     appendObject_(otSheet, {
-      OTRecordID: nextId_(otSheet, 'OTRecordID', 'OT'), StaffID: staff.StaffID, Date: today,
-      Hours: otHours, Rate: rate, Amount: otPay, ApprovedBy: ''
+      OTRecordID: nextId_(otSheet, 'OTRecordID', 'OTR'), StaffID: staff.StaffID, Date: today,
+      Hours: otHours, Rate: rate, Amount: otPay, ApprovedBy: '',
+      Status: isLeaderSelf ? 'PENDING_ADMIN' : 'PENDING_LEADER', Minutes: otMin,
+      PlanOut: sched.checkOut, ActualOut: timeStr_(now), Month: today.slice(0, 7),
+      Step1By: '', Step1Status: isLeaderSelf ? 'Skipped' : 'Pending', Step2By: '', Step2Status: 'Pending', Note: ''
     });
+    if (typeof cacheDel_ === 'function') { cacheDel_('col:OT_RECORDS'); cacheDel_('rows:OT_RECORDS'); }
   }
   logAuditHr(staff.StaffID, 'STAFF_CHECKOUT', 'CHECKIN_STAFF', today);
 
   var msg = '🔴 ' + staff.Name + ' ออกงาน ' + timeStr_(now) +
-            (otMin > 0 ? ' • OT ' + hmMinTH_(otMin) + (otPay > 0 ? ' ≈ ' + otPay + ' บาท' : '') : '');
+            (otHours >= 1 ? ' • OT ' + otHours + ' ชม. (' + hmMinTH_(otMin) + ') ≈ ' + otPay + ' บาท · รออนุมัติ' : '');
   notifyAdmins_(msg);
   return { staffId: staff.StaffID, time: timeStr_(now), otHours: otHours, otMinutes: otMin, otPay: otPay };
 }
@@ -285,6 +296,43 @@ function isSchoolClosed_(d) {
   } catch (e) {}
   return false;
 }
+
+// ---- Big Cleaning Day (a monthly mandatory workday with no fixed hours) -----
+/** Normalize a config date entry to yyyy-MM-dd (Sheets may have coerced a lone date cell to a Date). */
+function otNormDate_(x) {
+  x = String(x || '').trim(); if (!x) return '';
+  if (/^\d{4}-\d{2}-\d{2}$/.test(x)) return x;
+  var d = new Date(x); return isNaN(d) ? x : Utilities.formatDate(d, tz_(), 'yyyy-MM-dd');
+}
+/** Read the configured Big Cleaning dates (SCHOOL_CONFIG BigCleaningDays, comma-joined). */
+function bigCleaningDays_() {
+  var v = getConfig_('BigCleaningDays', '');
+  return String(v || '').split(',').map(otNormDate_).filter(Boolean);
+}
+function isBigCleaningDay_(ds) { return bigCleaningDays_().indexOf(String(ds)) >= 0; }
+/** Write the list as TEXT so a lone yyyy-MM-dd is not date-coerced by Sheets; busts the config cache. */
+function writeBigCleaning_(list) {
+  var cfg = sheet_(getMainSpreadsheet_(), 'SCHOOL_CONFIG');
+  var valCol = headers_(cfg).indexOf('Value') + 1;
+  var r = findObject_(cfg, function (x) { return String(x.Key) === 'BigCleaningDays'; });
+  if (!r) { appendObject_(cfg, { Key: 'BigCleaningDays', Value: '' }); r = findObject_(cfg, function (x) { return String(x.Key) === 'BigCleaningDays'; }); }
+  var cell = cfg.getRange(r._row, valCol);
+  cell.setNumberFormat('@'); cell.setValue(list.join(','));   // '@' = plain text → no date coercion
+  try { _configCache = null; } catch (e) {}
+  try { CacheService.getScriptCache().remove('cfg'); } catch (e) {}
+  return list;
+}
+/** Admin routes: manage the Big Cleaning date list in SCHOOL_CONFIG (admin-only via ADMIN_ONLY). */
+function handleAddBigCleaning(p) {
+  p = p || {}; var l = bigCleaningDays_(); var d = otNormDate_(p.date);
+  if (d && l.indexOf(d) < 0) l.push(d); l.sort();
+  return { ok: true, days: writeBigCleaning_(l) };
+}
+function handleRemoveBigCleaning(p) {
+  p = p || {}; var d = otNormDate_(p.date); var l = bigCleaningDays_().filter(function (x) { return x !== d; });
+  return { ok: true, days: writeBigCleaning_(l) };
+}
+function handleBigCleaningDays() { return { days: bigCleaningDays_(), amount: Number(getConfig_('BigCleaningAmount', '0')) || 0 }; }
 
 // ---- Attendance reminder triggers (skip weekends + holidays) -------
 /** Run ~06:50: morning reminder for active staff to clock in at 07:00 (skip on closed days). */

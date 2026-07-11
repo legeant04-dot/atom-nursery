@@ -131,7 +131,11 @@ SCHEMA[WB.HR] = {
   LEAVE_REQUEST: ['LeaveID', 'StaffID', 'Department', 'Type', 'StartDate', 'EndDate', 'Days', 'Reason', 'Status',
                   'Step1ApproverID', 'Step1ApproverName', 'Step1Status', 'Step1Date', 'Step1CrossDept',
                   'Step2ApproverID', 'Step2ApproverName', 'Step2Status', 'Step2Date', 'CreatedDate'],
-  OT_RECORDS:    ['OTRecordID', 'StaffID', 'Date', 'Hours', 'Rate', 'Amount', 'ApprovedBy'],
+  // Staff evening OT with a 2-step approval lifecycle (teacher → Leader → Admin). Status =
+  // PENDING_LEADER | PENDING_ADMIN | APPROVED | REJECTED; only APPROVED counts in payroll.
+  // Hours are FULL hours (≥50 min in the last hour rounds up, else drops). Minutes..Note appended at END.
+  OT_RECORDS:    ['OTRecordID', 'StaffID', 'Date', 'Hours', 'Rate', 'Amount', 'ApprovedBy',
+                  'Status', 'Minutes', 'PlanOut', 'ActualOut', 'Month', 'Step1By', 'Step1Status', 'Step2By', 'Step2Status', 'Note'],
   // Full salary-slip breakdown (chat spec): income components + deductions + net to SCB
   PAYROLL:       ['PayrollID', 'StaffID', 'Month', 'BaseSalary',
                   'DiligenceAttendance', 'DiligenceFacebook', 'DiligenceTotal',

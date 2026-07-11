@@ -196,6 +196,11 @@ window.MOCK = {
     { LogID:'LOG-2', Timestamp:'2026-05-03 09:10', UserRole:'Admin', UserID:'STF-ADM', UserName:'อารยา ผ่องใส', Action:'confirmPayment', Target:'BL-2026-05-1', Detail:'ยืนยันการชำระ (โอน) 10,000' },
   ],
   payroll: [],
+  // staff evening OT with the 2-step approval lifecycle (teacher → Leader → Admin)
+  otRecords: [
+    { OTRecordID:'OTR-1', StaffID:'STF-T1', Date:'2026-07-02', Hours:1, Rate:137.5, Amount:138, ApprovedBy:'', Status:'PENDING_LEADER', Minutes:53, PlanOut:'18:00', ActualOut:'18:53', Month:'2026-07', Step1By:'', Step1Status:'Pending', Step2By:'', Step2Status:'Pending', Note:'' },
+    { OTRecordID:'OTR-2', StaffID:'STF-T1', Date:'2026-07-03', Hours:2, Rate:137.5, Amount:275, ApprovedBy:'', Status:'PENDING_ADMIN', Minutes:112, PlanOut:'18:00', ActualOut:'19:52', Month:'2026-07', Step1By:'หัวหน้าครู', Step1Status:'Approved', Step2By:'', Step2Status:'Pending', Note:'' }
+  ],
   payments: [ // monthly billing for parents
     { BillingID:'BL-2026-05-1', StudentID:'STD-1', Month:'2026-05', Items:[['ค่าเทอม',8000],['ค่าอาหาร',1500],['ค่ากิจกรรม',500]], Amount:10000, OTRollover:0, DueDate:'2026-05-05', Status:'PAID', PaidDate:'2026-05-03', SlipUrl:'', SlipAmount:10000 },
     { BillingID:'BL-2026-06-1', StudentID:'STD-1', Month:'2026-06', Items:[['ค่าเทอม',8000],['ค่าอาหาร',1500],['ค่ากิจกรรม',500]], Amount:10000, OTRollover:0, DueDate:'2026-06-05', Status:'UNPAID', PaidDate:'', SlipUrl:'', SlipAmount:0 },

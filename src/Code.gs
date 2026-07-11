@@ -56,6 +56,16 @@ var ROUTES = {
   // Day 4 — leave workflow + parent check-in
   submitLeave:    function (p) { return handleSubmitLeave(p); },
   approveLeave:   function (p) { return handleApproveLeave(p); },
+  // staff OT approval (in-place). Reads (myOT/teamPendingOT/pendingAdminOT/adminOTList) defer to engine.
+  approveOT:      function (p) { return handleApproveOT(p); },
+  confirmOT:      function (p) { return handleConfirmOT(p); },
+  adminAddOT:     function (p) { return handleAdminAddOT(p); },
+  adminEditOT:    function (p) { return handleAdminEditOT(p); },
+  adminDeleteOT:  function (p) { return handleAdminDeleteOT(p); },
+  // Big Cleaning Day (admin-managed workday, no fixed hours, diligence bonus)
+  bigCleaningDays:  function ()  { return handleBigCleaningDays(); },
+  addBigCleaning:   function (p) { return handleAddBigCleaning(p); },
+  removeBigCleaning:function (p) { return handleRemoveBigCleaning(p); },
   // myLeaves intentionally NOT routed here — the explicit handler returned {staffId,leaves:[]}
   // (camelCase) but the client + engine use a raw-row array; let it fall through to the engine.
   pendingLeaves:  function (p) { return handlePendingLeaves(p); },
@@ -130,7 +140,9 @@ function applyIdentity_(action, payload, sess) {
   // Admin-only destructive/sensitive actions — block non-admins (parent/teacher tokens).
   var ADMIN_ONLY = { deleteBill: 1, adminResetPassword: 1, getStaffPassword: 1, setSchoolConfig: 1, recomputeAttendance: 1,
     addDepartment: 1, removeDepartment: 1, renameDepartment: 1, listBackups: 1, restoreSheet: 1, setRequireCheckin: 1,
-    adminUpdateOT: 1, adminCancelOT: 1, adminRestoreOT: 1, unlockJournal: 1 };
+    adminUpdateOT: 1, adminCancelOT: 1, adminRestoreOT: 1, unlockJournal: 1,
+    confirmOT: 1, adminAddOT: 1, adminEditOT: 1, adminDeleteOT: 1,
+    addBigCleaning: 1, removeBigCleaning: 1 };
   if (ADMIN_ONLY[action] && sess.role !== 'Admin') throw apiError_('NO_PERMISSION', 'เฉพาะแอดมิน');
   // Admin is fully trusted: may target ANY staff/student/parent (manage everyone + "view as" any role).
   if (sess.role === 'Admin') return payload;

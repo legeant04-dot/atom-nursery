@@ -164,7 +164,7 @@ function handleRenameDepartment(p) {
 // Admin edits whitelisted SCHOOL_CONFIG keys (geofence etc.) in-place. Admin-only (applyIdentity_ guard).
 function handleSetSchoolConfig(p) {
   p = p || {};
-  var WHITE = { GPS_Lat: 1, GPS_Lng: 1, Radius: 1, LateGraceMinutes: 1, OTRatePerHour: 1, OTGraceMinutes: 1, StaffOTHourlyRate: 1, OTRoundUpMinutes: 1, DefaultCheckInTime: 1, DefaultCheckOutTime: 1 };
+  var WHITE = { GPS_Lat: 1, GPS_Lng: 1, Radius: 1, LateGraceMinutes: 1, OTRatePerHour: 1, OTGraceMinutes: 1, StaffOTHourlyRate: 1, OTRoundUpMinutes: 1, DefaultCheckInTime: 1, DefaultCheckOutTime: 1, BigCleaningAmount: 1 };
   var vals = p.values || {};
   var cfg = sheet_(getMainSpreadsheet_(), 'SCHOOL_CONFIG'), wrote = {};
   Object.keys(vals).forEach(function (k) {

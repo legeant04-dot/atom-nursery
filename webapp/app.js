@@ -6,7 +6,7 @@
   const setHTML = (sel, html) => { const el = $(sel); if (el) el.innerHTML = html; };
   const app = $('#app'), nav = $('#bottomnav');
   const baht = n => (Number(n)||0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
-  const APP_VERSION = 'Version 1.066'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.068'; // bump each webapp change; shown only at the bottom of the Chat screen
   const verTag = () => `<div style="text-align:center;color:#c3c9d4;font-size:10px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
   const phoneFmt = p => { let d=String(p==null?'':p).replace(/\D/g,''); if(d.length===9) d='0'+d; return d; };
@@ -481,9 +481,10 @@
     let cells=''; const wd=['อา','จ','อ','พ','พฤ','ศ','ส'];
     cells+=wd.map(w=>`<div style="text-align:center;font-size:11px;color:#94a3b8">${w}</div>`).join('');
     for(let i=0;i<first;i++) cells+=`<div class="d dim"></div>`;
-    for(let d=1;d<=days;d++){ const ev=evByDay[d]; const io=ioByDay[d]; const cls=ev?(ev[0].type==='holiday'?'ho':'ev'):''; const today=d===now.getDate()?'today':'';
+    for(let d=1;d<=days;d++){ const ev=evByDay[d]; const io=ioByDay[d]; const et=ev?ev[0].type:''; const cls=ev?(et==='holiday'?'ho':'ev'):''; const today=d===now.getDate()?'today':'';
+      const bcStyle=et==='bigclean'?'background:#e0f7fa;border-color:#80deea;':'';
       const outRed=io&&lateOut(io.OutTime); const outHtml=io?`<span style="${outRed?'color:#d50000;font-weight:800':''}">${esc(io.OutTime||'-')}</span>`:'';
-      cells+=`<div class="d ${cls} ${today}">${d}${ev?`<span class="dot">${esc(ev[0].title)}</span>`:''}${io?`<span class="io">${esc(io.InTime||'-')}<br>${outHtml}</span>`:''}</div>`; }
+      cells+=`<div class="d ${cls} ${today}" style="${bcStyle}">${d}${ev?`<span class="dot"${et==='bigclean'?' style="color:#00838f;font-weight:600"':''}>${esc(EN()?(ev[0].titleEN||ev[0].title):ev[0].title)}</span>`:''}${io?`<span class="io">${esc(io.InTime||'-')}<br>${outHtml}</span>`:''}</div>`; }
     const months=['ม.ค.','ก.พ.','มี.ค.','เม.ย.','พ.ค.','มิ.ย.','ก.ค.','ส.ค.','ก.ย.','ต.ค.','พ.ย.','ธ.ค.'];
     const monthsEN=['January','February','March','April','May','June','July','August','September','October','November','December'];
     const head = EN()? (monthsEN[mo]+' '+y) : (months[mo]+' '+(y+543));
@@ -913,12 +914,24 @@
         <div class="quota">${quota.map(q=>`<div class="q"><div class="n">${q.remain}</div><div class="l">${esc(q.type)}<br>${q.used}/${q.quota}</div></div>`).join('')}</div>
         <div id="ml" style="margin-top:8px"></div><button class="btn sm outline" style="margin-top:6px" onclick="GO('leave')">+ ยื่น/ดูใบลา</button></div>
       ${isLeader?`<div class="card"><div class="spread"><h3>⭐ คำขอลาของลูกน้อง (รออนุมัติ)</h3></div><div id="tp"></div></div>`:''}
+      <div class="card"><h3>${esc(t('ot.myOT'))}</h3><div id="myot"></div></div>
+      ${isLeader?`<div class="card"><h3>${esc(t('ot.teamOT'))}</h3><div id="teamot"></div></div>`:''}
       <div class="card"><div class="row"><button class="btn sm outline" onclick="GO('absence')">🔎 ${esc(t('abs.title'))}</button></div></div>
       <div class="card"><div class="spread"><h3>👶 ${esc(cl.class.ClassName)}</h3><span class="muted">${cl.students.length} ${EN()?'kids':'คน'}</span></div>${classSwitcher(cl)}
         ${cl.students.map(s=>`<div class="list-item"><span>${studentAvatar(s)} <b>${esc(dispNick(s))}</b> ${journalPill(jdone[s.StudentID])}</span><span><button class="btn sm outline" onclick="T_journal('${s.StudentID}')">${esc(journalBtnLabel(jdone[s.StudentID]))}</button> <button class="btn sm outline" onclick="T_assess('${s.StudentID}')">${esc(t('lbl.assess'))}</button></span></div>`).join('')}</div>`;
     const ml=await api('myLeaves',{staffId:USER.staffId}); setHTML('#ml', ml.map(leaveRow).join('')||'<small class="muted">ยังไม่มีรายการ</small>');
-    if(isLeader){ const tp=await api('teamPendingLeaves',{staffId:USER.staffId}); setHTML('#tp', tp.map(l=>teamLeaveRow(l)).join('')||'<small class="muted">ไม่มีคำขอรออนุมัติ</small>'); }
+    const myot=await api('myOT',{staffId:USER.staffId}); setHTML('#myot', myot.map(otRow).join('')||`<small class="muted">${esc(t('ot.none'))}</small>`);
+    if(isLeader){ const tp=await api('teamPendingLeaves',{staffId:USER.staffId}); setHTML('#tp', tp.map(l=>teamLeaveRow(l)).join('')||'<small class="muted">ไม่มีคำขอรออนุมัติ</small>');
+      const to=await api('teamPendingOT',{staffId:USER.staffId}); setHTML('#teamot', to.map(otApproveRow).join('')||`<small class="muted">${esc(t('ot.none'))}</small>`); }
   };
+  // OT status badge + row renderers (shared)
+  // a blank Status is a legacy pre-workflow OT row → treat it as approved
+  const otStatusPill = st => { const k=String(st||'').toUpperCase()||'APPROVED'; const cls=k==='APPROVED'?'ok':(k==='REJECTED'?'bad':'wait');
+    return `<span class="pill ${cls}">${esc(t('ot.st.'+k)||k)}</span>`; };
+  function otRow(o){ return `<div class="list-item"><span>${esc(ddmmyyyy(o.Date))} · <b>${o.Hours} ${EN()?'h':'ชม.'}</b> ${esc(baht(o.Amount))}${o.Minutes?` <small class="muted">(${esc(hmMin(o.Minutes))})</small>`:''}</span>${otStatusPill(o.Status)}</div>`; }
+  // leader approval row (approve / reject)
+  function otApproveRow(o){ return `<div class="list-item"><span><b>${esc(dnick(o))}</b> · ${esc(ddmmyyyy(o.Date))} · ${o.Hours} ${EN()?'h':'ชม.'} ${esc(baht(o.Amount))}<br><small class="muted">${esc(o.PlanOut||'')}→${esc(o.ActualOut||'')} (${esc(hmMin(o.Minutes))})</small></span><span class="row"><button class="btn sm green" onclick="T_approveOT('${o.OTRecordID}','approve')">✔</button><button class="btn sm pink" onclick="T_approveOT('${o.OTRecordID}','reject')">✕</button></span></div>`; }
+  window.T_approveOT=async(otId,decision)=>{ try{ await api('approveOT',{staffId:USER.staffId,otId,decision}); toast(decision==='approve'?(EN()?'Approved':'อนุมัติแล้ว'):(EN()?'Rejected':'ปฏิเสธแล้ว')); GO('home'); }catch(e){err(e);} };
   window.T_punch=async(kind)=>{
     try{ const {lat,lng}=await getPosition();
       const r=await api(kind==='in'?'staffCheckin':'staffCheckout',{staffId:USER.staffId,lat,lng}); toast(kind==='in'?`✅ ${t('lbl.checkIn')} ${r.time}${r.lateMinutes>0?` (${t('lbl.late')} ${r.lateMinutes} ${t('lbl.min')})`:' ('+t('lbl.onTime')+')'}`:`✅ ${t('lbl.checkOut')} ${r.time}${r.otHours>0?` · OT ${hmHours(r.otHours)}${r.otPay?' ≈ '+baht(r.otPay):''}`:''}`); GO('home'); }catch(e){err(e);} };
@@ -1156,15 +1169,17 @@
     const now=new Date(),y=now.getFullYear(),mo=now.getMonth();
     const first=new Date(y,mo,1).getDay(),days=new Date(y,mo+1,0).getDate(); const byDay={};
     const holByDay={}; (opts.holidays||[]).forEach(h=>{ const d=new Date(h.Date); if(d.getFullYear()===y&&d.getMonth()===mo) holByDay[d.getDate()]=EN()?(h.NameEN||h.NameTH):(h.NameTH||h.NameEN); });
+    const bcByDay={}; (opts.bigCleaning||[]).forEach(s=>{ const d=new Date(s); if(d.getFullYear()===y&&d.getMonth()===mo) bcByDay[d.getDate()]=1; });
     (history||[]).forEach(h=>{ const d=new Date(h.Date); if(d.getFullYear()===y&&d.getMonth()===mo){ (byDay[d.getDate()]=byDay[d.getDate()]||[]).push(shortName(h.StaffID)+(h.In?' '+h.In:'')); } });
     // approved leaves overlapping each day -> "Nickname (LeaveType)"
     (opts.leaves||[]).filter(l=>l.Status==='APPROVED').forEach(l=>{ const st=new Date(l.StartDate),en=new Date(l.EndDate); for(let dt=new Date(st); dt<=en; dt.setDate(dt.getDate()+1)){ if(dt.getFullYear()===y&&dt.getMonth()===mo){ (byDay[dt.getDate()]=byDay[dt.getDate()]||[]).push(shortName(l.StaffID)+' ('+tLeaveType(l.Type)+')'); } } });
     let cells=['อา','จ','อ','พ','พฤ','ศ','ส'].map(w=>`<div style="text-align:center;font-size:11px;color:#94a3b8">${EN()?({'อา':'Su','จ':'Mo','อ':'Tu','พ':'We','พฤ':'Th','ศ':'Fr','ส':'Sa'}[w]):w}</div>`).join('');
     for(let i=0;i<first;i++) cells+='<div class="d dim"></div>';
-    for(let dd=1;dd<=days;dd++){ const ppl=byDay[dd]; const hol=holByDay[dd]; const today=dd===now.getDate()?'today':'';
-      const holStyle=hol?'background:#ffebee;border-color:#ef9a9a;':'';
+    for(let dd=1;dd<=days;dd++){ const ppl=byDay[dd]; const hol=holByDay[dd]; const bc=bcByDay[dd]; const today=dd===now.getDate()?'today':'';
+      const holStyle=hol?'background:#ffebee;border-color:#ef9a9a;':(bc?'background:#e0f7fa;border-color:#80deea;':'');
       cells+=`<div class="d ${ppl?'ev':''} ${today}" style="min-height:64px;${holStyle}">${dd}`
         +(hol?`<span class="io" style="color:#c62828;text-align:left;font-weight:600">🏖️ ${esc(hol)}</span>`:'')
+        +(bc&&!hol?`<span class="io" style="color:#00838f;text-align:left;font-weight:600">🧹 ${EN()?'Cleaning':'ทำความสะอาด'}</span>`:'')
         +(ppl?`<span class="io" style="color:#2e7d32;text-align:left">${esc(ppl.join('\n'))}</span>`:'')+`</div>`; }
     const M=['ม.ค.','ก.พ.','มี.ค.','เม.ย.','พ.ค.','มิ.ย.','ก.ค.','ส.ค.','ก.ย.','ต.ค.','พ.ย.','ธ.ค.'], ME=['January','February','March','April','May','June','July','August','September','October','November','December'];
     return `<div class="card"><h3>${esc(t('lbl.calendar'))} ${EN()?ME[mo]+' '+y:M[mo]+' '+(y+543)}</h3><div class="cal">${cells}</div><small class="muted">${EN()?'Nickname + check-in time; 🏖️ = school holiday':'ชื่อเล่น + เวลาเข้างาน; 🏖️ = วันหยุดโรงเรียน'}</small></div>`; }
@@ -1179,7 +1194,7 @@
       <div class="row">${staffing.map(x=>`<span class="pill ${x.present>=x.total?'ok':x.present>0?'wait':'bad'}" style="font-size:13px">${esc(x.dept)} ${x.present}/${x.total}</span>`).join('')}</div></div>`:'';
     app.innerHTML=`<h2 class="page">${esc(t('title.schedule'))}</h2>
       ${ratioHtml}
-      ${staffSchedCalendar(d.history,{shortName,holidays:d.holidays,leaves:d.leavesToday})}
+      ${staffSchedCalendar(d.history,{shortName,holidays:d.holidays,bigCleaning:d.bigCleaning,leaves:d.leavesToday})}
       <div class="card"><h3>🧑‍🏫 ${esc(t('lbl.dutyRoster'))} (${esc(todayStr())})</h3>${todayDuty.map(x=>`<div class="list-item"><span>${esc(x.ClassName)}</span><span><span class="avatar-sm">${esc(initialEN((dir[x.StaffID]||{}).NameEN))}</span> ${esc(fullName(x.StaffID))}</span></div>`).join('')||`<small class="muted">${esc(t('c.noItems'))}</small>`}</div>
       <div class="card"><h3>📋 ${esc(t('lbl.dailySummary'))} (${esc(todayStr())})</h3>${d.attendance.map(a=>{const cls=a.Status==='IN'?'dot-in':a.Status==='OUT'?'dot-out':a.Status==='LEAVE'?'dot-leave':'dot-absent';return `<div class="att"><span class="dot-s ${cls}"></span> ${esc(fullName(a.StaffID))} — ${a.Status==='LEAVE'?(EN()?'Leave':'ลา')+' ('+esc(a.Reason||'')+')':a.Status+(a.CheckIn?' '+a.CheckIn:'')}</span></div>`;}).join('')||`<small class="muted">${esc(t('c.noItems'))}</small>`}
         <div style="margin-top:8px"><b style="font-size:13px">${EN()?'Approved leave (for coverage)':'การลาที่อนุมัติแล้ว (วางแผนสับเปลี่ยน)'}:</b>${d.leavesToday.map(l=>`<div class="list-item"><span>${esc(fullName(l.StaffID))} · ${esc(tLeaveType(l.Type))}</span><span class="muted">${esc(l.StartDate)}→${esc(l.EndDate)}</span></div>`).join('')||`<small class="muted">${esc(t('c.noItems'))}</small>`}</div></div>`;
@@ -1525,7 +1540,7 @@
         <button class="btn sm outline" onclick="GO_('importExport')">📥 ${esc(t('manage.importExport'))}</button>
         <button class="btn sm outline" onclick="A_groups()">🕑 ${esc(t('manage.groups'))}</button>
         <button class="btn sm outline" onclick="A_settings()">⚙️ ${esc(t('manage.settings'))}</button>
-        <button class="btn sm outline" onclick="A_otVerify()">⏱️ ${esc(t('manage.otVerify'))}</button>
+        <button class="btn sm outline" onclick="A_staffOT()">⏰ ${esc(t('ot.adminOT'))}</button>
         <button class="btn sm outline" onclick="A_studentOT()">⏰ ${EN()?'Student OT':'OT รับช้า (นักเรียน)'}</button>
         <button class="btn sm outline" onclick="A_journals()">📒 ${esc(t('jr.admin'))}</button>
         <button class="btn sm outline" onclick="A_insurance()">🛡️ ${esc(t('ins2.manage'))}</button>
@@ -1853,7 +1868,7 @@
   window.A_delDep=async(name)=>{ if(!confirm(t('manage.confirmDel')))return; try{ await api('removeDepartment',{name}); const m=document.querySelector('.modal'); if(m)m.remove(); A_departments(); toast(t('manage.deleted')); }catch(e){err(e);} };
 
   // ---- settings: diligence amounts + leave quota (Admin-editable) ----
-  window.A_settings=async()=>{ const [q,sc]=await Promise.all([api('getLeaveQuota'),api('schoolConfig')]); const cfg=MOCK.config;
+  window.A_settings=async()=>{ const [q,sc,bc]=await Promise.all([api('getLeaveQuota'),api('schoolConfig'),api('bigCleaningDays')]); const cfg=MOCK.config;
     modal(`<h3>⚙️ ${esc(t('manage.settings'))}</h3>
       <h4 style="margin:6px 0">📍 ${EN()?'Check-in location (geofence)':'พิกัดโรงเรียน (เช็คอิน)'}</h4>
       <p class="muted" style="font-size:11.5px">${EN()?'Open Google Maps → long-press the school → copy the lat, long numbers here.':'เปิด Google Maps → กดค้างที่ตำแหน่งโรงเรียน → คัดลอกเลข lat, long มาใส่'}</p>
@@ -1863,13 +1878,24 @@
       <h4 style="margin:6px 0">${esc(t('set.diligence'))}</h4>
       <div class="grid2"><label class="field"><span>${esc(t('set.attendAmt'))}</span><input id="setAtt" type="number" value="${cfg.DiligenceAttendanceAmount}"/></label>
         <label class="field"><span>${esc(t('set.fbAmt'))}</span><input id="setFb" type="number" value="${cfg.DiligenceFacebookAmount}"/></label></div>
+      <h4 style="margin:6px 0">🧹 ${EN()?'Big Cleaning Day':'วัน Big Cleaning'}</h4>
+      <p class="muted" style="font-size:11.5px">${EN()?'A monthly mandatory workday with no fixed hours; attendance earns a diligence bonus.':'วันทำงานบังคับเดือนละครั้ง ไม่กำหนดเวลาเข้า-ออก · มาแล้วได้เบี้ยขยันเพิ่ม'}</p>
+      <label class="field"><span>${EN()?'Bonus per cleaning day (฿)':'เบี้ยขยันต่อวัน (฿)'}</span><input id="setBC" type="number" value="${esc(bc.amount||0)}"/></label>
+      <div id="bcList">${(bc.days||[]).map(d=>`<div class="list-item"><span>🧹 ${esc(ddmmyyyy(d))}</span><button class="btn sm pink" onclick="A_bcRemove('${esc(d)}')">🗑️</button></div>`).join('')||`<small class="muted">${EN()?'no dates set':'ยังไม่ได้กำหนดวัน'}</small>`}</div>
+      <div class="grid2" style="margin-top:6px"><input type="date" id="bcDate"/><button class="btn" onclick="A_bcAdd()">+ ${esc(t('manage.add'))}</button></div>
       <h4 style="margin:6px 0">${esc(t('set.leaveQuota'))}</h4>
       ${Object.keys(q).map(k=>`<label class="field"><span>${esc(tLeaveType(k))}</span><input type="number" id="lq_${esc(k)}" value="${q[k]}"/></label>`).join('')}
       <button class="btn block" onclick="A_saveSettings(this)">${esc(t('c.save'))}</button>`);
   };
+  // Big Cleaning Day add/remove — persist immediately (also save the amount field first so it isn't lost)
+  window.A_bcAdd=async()=>{ const d=document.getElementById('bcDate').value; if(!d){toast(EN()?'Pick a date':'เลือกวันที่');return;}
+    const amt=document.getElementById('setBC'); if(amt) await api('setSchoolConfig',{values:{BigCleaningAmount:+amt.value||0}});
+    try{ await api('addBigCleaning',{date:d}); const m=document.querySelector('.modal'); if(m)m.remove(); toast(t('c.saved')); A_settings(); }catch(e){err(e);} };
+  window.A_bcRemove=async(d)=>{ try{ await api('removeBigCleaning',{date:d}); const m=document.querySelector('.modal'); if(m)m.remove(); toast(t('manage.deleted')); A_settings(); }catch(e){err(e);} };
   window.A_saveSettings=async(btn)=>{ const m=btn.closest('.modal');
     const lat=parseFloat(m.querySelector('#cfgLat').value), lng=parseFloat(m.querySelector('#cfgLng').value), rad=parseFloat(m.querySelector('#cfgRadius').value);
     const gv={}; if(!isNaN(lat))gv.GPS_Lat=lat; if(!isNaN(lng))gv.GPS_Lng=lng; if(!isNaN(rad))gv.Radius=rad;
+    const bcEl=m.querySelector('#setBC'); if(bcEl) gv.BigCleaningAmount=+bcEl.value||0;
     if(Object.keys(gv).length) await api('setSchoolConfig',{values:gv});
     await api('setConfigVal',{key:'DiligenceAttendanceAmount',value:+m.querySelector('#setAtt').value});
     await api('setConfigVal',{key:'DiligenceFacebookAmount',value:+m.querySelector('#setFb').value});
@@ -1915,6 +1941,46 @@
   window.A_otCancel=async(otId)=>{ if(!confirm(EN()?'Cancel this OT charge? It will not be billed.':'ยกเลิกค่า OT รายการนี้? จะไม่ถูกเรียกเก็บ'))return;
     try{ await api('adminCancelOT',{otId}); toast(EN()?'OT cancelled':'ยกเลิก OT แล้ว'); const x=document.querySelector('.modal'); if(x)x.remove(); A_studentOT(); }catch(e){err(e);} };
   window.A_otRestore=async(otId)=>{ try{ await api('adminRestoreOT',{otId}); toast(EN()?'OT restored':'คืนค่า OT แล้ว'); const x=document.querySelector('.modal'); if(x)x.remove(); A_studentOT(); }catch(e){err(e);} };
+
+  // ---- Admin: staff OT approval + management (confirm/edit/reject/add/delete) ----
+  let SOT_MONTH=null;
+  window.A_staffOT=async(month)=>{ SOT_MONTH=month||SOT_MONTH||monthStr();
+    const [rows,staff]=await Promise.all([api('adminOTList',{month:SOT_MONTH}), (A_CACHE.staff&&A_CACHE.staff.length)?Promise.resolve(A_CACHE.staff):api('listStaff')]);
+    A_CACHE.staff=staff||A_CACHE.staff;
+    const pend=rows.filter(o=>String(o.Status).toUpperCase()==='PENDING_ADMIN');
+    const row=o=>{ const st=String(o.Status).toUpperCase(); const isPA=st==='PENDING_ADMIN';
+      return `<div class="list-item"><span><b>${esc(dnick(o))}</b> · ${esc(ddmmyyyy(o.Date))}<br>
+        <input type="number" min="0" step="1" value="${esc(o.Hours)}" id="sot_h_${o.OTRecordID}" style="width:52px"/> ${EN()?'h':'ชม.'} ·
+        ฿<input type="number" min="0" value="${esc(o.Amount)}" id="sot_a_${o.OTRecordID}" style="width:64px"/>
+        ${o.Minutes?`<small class="muted"> (${esc(hmMin(o.Minutes))})</small>`:''}<br>${otStatusPill(o.Status)}</span>
+        <span class="row">${isPA?`<button class="btn sm green" onclick="A_confirmOT('${o.OTRecordID}')" title="${esc(t('ot.confirm'))}">✔</button><button class="btn sm pink" onclick="A_rejectOT('${o.OTRecordID}')">✕</button>`
+          :`<button class="btn sm outline" onclick="A_editOT('${o.OTRecordID}')" title="${EN()?'save edit':'บันทึกแก้ไข'}">💾</button>`}<button class="btn sm pink" onclick="A_deleteOT('${o.OTRecordID}')">🗑️</button></span></div>`; };
+    modal(`<h3>⏰ ${esc(t('ot.adminOT'))}</h3>
+      <div class="spread"><label class="field" style="flex:1"><span>${EN()?'Month':'เดือน'}</span><input type="month" id="sotMonth" value="${SOT_MONTH}" onchange="A_staffOT(this.value)"/></label>
+        <button class="btn sm" style="align-self:end;margin-bottom:2px" onclick="A_addOTForm()">${esc(t('ot.addOT'))}</button></div>
+      <p class="muted" style="font-size:11.5px">${EN()?'Confirm awaiting-admin OT (edit hours/amount first if needed). You can edit or delete any row.':'ยืนยัน OT ที่รอแอดมิน (แก้ชั่วโมง/ยอดก่อนได้) · แก้ไข/ลบรายการใดก็ได้'}</p>
+      ${pend.length?`<div style="background:#fff3e0;border-radius:8px;padding:6px;color:#e65100;font-size:12px;margin-bottom:6px">🔔 ${pend.length} ${EN()?'awaiting your confirmation':'รายการรอยืนยัน'}</div>`:''}
+      <div style="max-height:52vh;overflow:auto">${rows.length?rows.map(row).join(''):`<small class="muted">${esc(t('ot.none'))}</small>`}</div>
+      <button class="btn outline block" style="margin-top:8px" onclick="this.closest('.modal').remove()">${esc(t('c.close'))}</button>`);
+  };
+  const sotH=id=>{ const e=document.getElementById('sot_h_'+id); return e?e.value:undefined; };
+  const sotA=id=>{ const e=document.getElementById('sot_a_'+id); return e?e.value:undefined; };
+  window.A_confirmOT=async(otId)=>{ try{ await api('confirmOT',{staffId:USER.staffId,otId,decision:'approve',hours:sotH(otId),amount:sotA(otId)}); toast(EN()?'Confirmed':'ยืนยันแล้ว'); A_staffOT(); }catch(e){err(e);} };
+  window.A_rejectOT=async(otId)=>{ if(!confirm(EN()?'Reject this OT?':'ปฏิเสธ OT นี้?'))return; try{ await api('confirmOT',{staffId:USER.staffId,otId,decision:'reject'}); toast(EN()?'Rejected':'ปฏิเสธแล้ว'); A_staffOT(); }catch(e){err(e);} };
+  window.A_editOT=async(otId)=>{ try{ await api('adminEditOT',{staffId:USER.staffId,otId,hours:sotH(otId),amount:sotA(otId)}); toast(t('c.saved')); A_staffOT(); }catch(e){err(e);} };
+  window.A_deleteOT=async(otId)=>{ if(!confirm(t('manage.confirmDel')))return; try{ await api('adminDeleteOT',{staffId:USER.staffId,otId}); toast(t('manage.deleted')); A_staffOT(); }catch(e){err(e);} };
+  window.A_addOTForm=()=>{ const staff=(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin'||true);
+    modal(`<h3>${esc(t('ot.addOT'))}</h3>
+      <label class="field"><span>${esc(t('c.staff'))}</span><select id="aotStaff">${staff.map(s=>`<option value="${s.StaffID}">${esc(nmn(s))}</option>`).join('')}</select></label>
+      <div class="grid2"><label class="field"><span>${esc(t('inj.date'))}</span><input type="date" id="aotDate" value="${todayStr()}"/></label>
+        <label class="field"><span>${esc(t('ot.hoursLabel'))}</span><input type="number" min="1" step="1" id="aotHours" value="1"/></label></div>
+      <label class="field"><span>${EN()?'Amount (blank = auto from salary ×1.5)':'ยอด (เว้นว่าง = คิดจากเงินเดือน ×1.5)'}</span><input type="number" min="0" id="aotAmount" placeholder="auto"/></label>
+      <label class="field"><span>${EN()?'Note':'หมายเหตุ'}</span><input id="aotNote"/></label>
+      <button class="btn block" onclick="A_addOTDo(this)">${esc(t('c.save'))}</button>`);
+  };
+  window.A_addOTDo=async(btn)=>{ const m=btn.closest('.modal'); const g=id=>{const e=m.querySelector('#'+id);return e?e.value:'';};
+    const hours=Number(g('aotHours'))||0; if(hours<=0){toast(EN()?'Enter hours':'ระบุจำนวนชั่วโมง');return;}
+    try{ await api('adminAddOT',{staffId:USER.staffId,targetStaffId:g('aotStaff'),date:g('aotDate'),hours,amount:g('aotAmount'),note:g('aotNote')}); m.remove(); confirmSaved(t('c.saved')); A_staffOT(); }catch(e){err(e);} };
 
   window.A_otVerify=async()=>{ const rows=await api('otVerification',{});
     modal(`<h3>⏱️ ${esc(t('manage.otVerify'))}</h3><p class="muted" style="font-size:12px">${esc(t('ot.verifyNote'))}</p>

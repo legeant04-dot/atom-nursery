@@ -126,3 +126,14 @@ function getConfig_(key, dflt) {
   var v = getAllConfig_()[key];
   return (v === undefined || v === '') ? dflt : v;
 }
+
+/** Write one SCHOOL_CONFIG value in place (creates the row if missing); busts the config cache. */
+function setConfigValue_(key, value) {
+  var cfg = sheet_(getMainSpreadsheet_(), 'SCHOOL_CONFIG');
+  var r = findObject_(cfg, function (x) { return String(x.Key) === String(key); });
+  if (r) updateRow_(cfg, r._row, { Value: value });
+  else appendObject_(cfg, { Key: key, Value: value });
+  try { _configCache = null; } catch (e) {}
+  try { CacheService.getScriptCache().remove('cfg'); } catch (e) {}
+  return value;
+}

@@ -82,6 +82,11 @@
     'reg.choosePlan':['เลือกแพ็กเกจ','Choose a plan'], 'reg.choosePlanSub':['อัตราค่าบริการ Atom Nursery','Atom Nursery service rates'], 'reg.perMonth':['/เดือน','/month'],
     'reg.title':['ลงทะเบียนนักเรียนใหม่','Register a new student'], 'reg.plan':['แพ็กเกจ','Plan'], 'reg.student':['ข้อมูลนักเรียน','Student information'],
     'reg.nameTH':['ชื่อ-นามสกุล (ไทย)','Name-Surname (TH)'], 'reg.nameEN':['ชื่อ-นามสกุล (อังกฤษ)','Name-Surname (EN)'], 'reg.nickname':['ชื่อเล่น (ไทย)','Nickname (TH)'], 'reg.nicknameEN':['ชื่อเล่น (อังกฤษ)','Nickname (EN)'], 'reg.title':['คำนำหน้า','Title'],
+    // staff OT approval workflow
+    'ot.myOT':['⏰ OT ของฉัน','⏰ My OT'], 'ot.teamOT':['⏰ OT รออนุมัติ (ลูกน้อง)','⏰ Team OT (pending)'], 'ot.adminOT':['⏰ OT คุณครู','⏰ Staff OT'],
+    'ot.approve':['อนุมัติ','Approve'], 'ot.reject':['ปฏิเสธ','Reject'], 'ot.confirm':['ยืนยัน','Confirm'], 'ot.addOT':['+ เพิ่ม OT','+ Add OT'],
+    'ot.st.PENDING_LEADER':['รอหัวหน้าอนุมัติ','Awaiting leader'], 'ot.st.PENDING_ADMIN':['รอแอดมินยืนยัน','Awaiting admin'], 'ot.st.APPROVED':['อนุมัติแล้ว','Approved'], 'ot.st.REJECTED':['ปฏิเสธ','Rejected'],
+    'ot.hoursLabel':['จำนวนชั่วโมง','Hours'], 'ot.none':['ยังไม่มีรายการ OT','No OT records'], 'ot.confirmEdit':['ยืนยัน OT (แก้ชั่วโมง/ยอดได้)','Confirm OT (you may edit hours/amount)'],
     'reg.gender':['เพศ','Gender'], 'reg.male':['ชาย','Male'], 'reg.female':['หญิง','Female'], 'reg.dob':['วันเกิด','Date of birth'], 'reg.age':['อายุ','Age'],
     'reg.nationalIdStudent':['เลขบัตรประชาชนนักเรียน (ใช้เป็นรหัสนักเรียน)','Student National ID (used as student code)'],
     'reg.weight':['น้ำหนัก','Weight'], 'reg.height':['ส่วนสูง','Height'], 'reg.bloodType':['หมู่เลือด','Blood type'], 'reg.photo':['รูปถ่ายนักเรียน','Student photo'],
