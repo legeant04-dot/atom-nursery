@@ -48,6 +48,13 @@ function createAtomAPI(M, GROWTH_STD) {
     if(sal>0) return Math.round(sal/30/8*1.5*100)/100;
     return Number(cfg.StaffOTHourlyRate||cfg.OTRatePerHour||100); }
   function staffById_(id){ return M.staff.find(x=>x.StaffID===id)||{}; }
+  // Big Cleaning Day: a monthly mandatory workday the admin sets. Counts as work but has NO fixed
+  // check-in/out time (no lateness), and attendance credits a diligence bonus (เบี้ยขยัน).
+  function bigCleaningList_(){ const v=cfg.BigCleaningDays; return (Array.isArray(v)?v:String(v||'').split(',')).map(x=>String(x).trim()).filter(Boolean); }
+  const isBigCleaning_ = date => bigCleaningList_().indexOf(String(date))>=0;
+  // enrich an OT record with the staff's names for display (approval lists / admin manage)
+  function otView_(r){ const s=staffById_(r.StaffID); return Object.assign({}, r,
+    {name:s.NameTH,nameEN:s.NameEN,nick:s.Nickname,nickEN:s.NicknameEN,dept:s.Department}); }
   // classes a staff covers (see classList). Returns an array of class objects, never empty when classes exist.
   function coveredClasses_(staff){ staff=staff||{}; const all=M.classes||[];
     const lvl=String(staff.PositionLevel||''); const list=String(staff.Classes||'').split(',').map(x=>x.trim()).filter(Boolean);
@@ -292,8 +299,13 @@ function createAtomAPI(M, GROWTH_STD) {
     // attach OT slip → records a PAYMENT_SLIPS row, OT → PENDING_VERIFY (Admin confirms per slip)
     payOT: p => recordSlip_('ot', p.otId, p),
 
-    calendar: () => M.calendar.concat((M.holidays||[]).map(h=>({date:h.Date,title:(h.NameTH||h.NameEN),titleEN:(h.NameEN||h.NameTH),type:'holiday'})))
+    calendar: () => M.calendar.concat((M.holidays||[]).map(h=>({date:h.Date,title:(h.NameTH||h.NameEN),titleEN:(h.NameEN||h.NameTH),type:'holiday'})),
+        bigCleaningList_().map(d=>({date:d,title:'Big Cleaning Day 🧹',titleEN:'Big Cleaning Day 🧹',type:'bigclean'})))
       .slice().sort((a,b)=>a.date.localeCompare(b.date)),
+    // admin-managed Big Cleaning Days (read + add/remove) — stored in SCHOOL_CONFIG on GAS
+    bigCleaningDays: () => ({ days: bigCleaningList_(), amount: Number(cfg.BigCleaningAmount||0) }),
+    addBigCleaning: p => { const l=bigCleaningList_(); if(p.date && l.indexOf(p.date)<0) l.push(p.date); cfg.BigCleaningDays=l.slice().sort(); return {ok:true,days:cfg.BigCleaningDays}; },
+    removeBigCleaning: p => { cfg.BigCleaningDays=bigCleaningList_().filter(d=>d!==p.date); return {ok:true,days:cfg.BigCleaningDays}; },
     announcements: () => M.announcements,
 
     // DSPM status for a student's current band (all items + status)
@@ -327,8 +339,9 @@ function createAtomAPI(M, GROWTH_STD) {
         .forEach(h=>out.push({date:h.Date, checkIn:h.In||'', checkOut:h.Out||'', late:lateOf(h.In), status:h.In?'IN':'ABSENT'}));
       return out; },
     staffCheckin: p => { const d=geo(p.lat,p.lng); const t=new Date(); const sch=M.workSchedule.find(w=>w.StaffID===p.staffId)||{CheckInTime:'08:00'};
-      // check-in within the grace window (≤LateGraceMinutes) counts as on-time
-      const raw=lateVs(sch.CheckInTime,t); const late=raw<=Number(cfg.LateGraceMinutes||0)?0:raw;
+      // check-in within the grace window (≤LateGraceMinutes) counts as on-time; a Big Cleaning Day has
+      // no fixed hours so it is never late.
+      const raw=lateVs(sch.CheckInTime,t); const late=isBigCleaning_(todayLocal())?0:(raw<=Number(cfg.LateGraceMinutes||0)?0:raw);
       let r=M.staffAttendanceToday.find(x=>x.StaffID===p.staffId);
       if(!r){r={StaffID:p.staffId,CheckIn:'',CheckOut:'',Status:'NONE',Late:0};M.staffAttendanceToday.push(r);} r.CheckIn=timeLocal();r.Late=late;r.Status='IN';
       return {time:r.CheckIn,lateMinutes:late,rawLate:raw,distance:d}; },
@@ -398,7 +411,7 @@ function createAtomAPI(M, GROWTH_STD) {
       schedule:M.workSchedule,
       leavesToday: M.leaves.filter(l=>l.Status==='APPROVED'), attendance:M.staffAttendanceToday,
       history:M.staffAttendanceHistory, duty:M.dutyRoster, staffing:H.staffingByNursery(),
-      holidays: (M.holidays||[]).map(h=>({Date:h.Date, NameTH:h.NameTH, NameEN:h.NameEN})) }),
+      holidays: (M.holidays||[]).map(h=>({Date:h.Date, NameTH:h.NameTH, NameEN:h.NameEN})), bigCleaning: bigCleaningList_() }),
     // present-staff / total-staff per Nursery for the daily summary (e.g. "Nursery 1 2/2")
     staffingByNursery: () => (cfg.Departments||[]).filter(d=>d).map(dep=>{
       const team=M.staff.filter(s=>s.Department===dep&&s.Role==='Teacher'&&s.RequireCheckin!==false);
@@ -713,7 +726,7 @@ function createAtomAPI(M, GROWTH_STD) {
     getLeaveQuota: () => cfg.LeaveQuota,
     // admin edits whitelisted config (geofence etc.) — GAS route persists to SCHOOL_CONFIG; here = mock
     schoolConfig: () => ({ GPS_Lat:cfg.GPS_Lat, GPS_Lng:cfg.GPS_Lng, Radius:cfg.Radius, LateGraceMinutes:cfg.LateGraceMinutes, OTRatePerHour:cfg.OTRatePerHour, StaffOTHourlyRate:cfg.StaffOTHourlyRate }),
-    setSchoolConfig: p => { const W={GPS_Lat:1,GPS_Lng:1,Radius:1,LateGraceMinutes:1,OTRatePerHour:1,OTGraceMinutes:1,StaffOTHourlyRate:1,OTRoundUpMinutes:1,DefaultCheckInTime:1,DefaultCheckOutTime:1}; const v=p.values||{};
+    setSchoolConfig: p => { const W={GPS_Lat:1,GPS_Lng:1,Radius:1,LateGraceMinutes:1,OTRatePerHour:1,OTGraceMinutes:1,StaffOTHourlyRate:1,OTRoundUpMinutes:1,DefaultCheckInTime:1,DefaultCheckOutTime:1,BigCleaningAmount:1}; const v=p.values||{};
       Object.keys(v).forEach(k=>{ if(W[k]) cfg[k]=isNaN(Number(v[k]))?v[k]:Number(v[k]); }); return {ok:true, wrote:v}; },
     leaveResetReminder: () => { const n=new Date(); return {due:n.getMonth()===0, month:n.getMonth()+1, year:n.getFullYear()}; }, // every January
     // verify the teacher OT computation across the attendance history (schedule out vs actual out)
@@ -721,11 +734,54 @@ function createAtomAPI(M, GROWTH_STD) {
       return rows.map(h=>{ const sch=M.workSchedule.find(w=>w.StaffID===h.StaffID)||{CheckOutTime:'17:00'};
         const min=Math.max(0,toMin(h.Out)-toMin(sch.CheckOutTime)); const rate=staffOtRate(staffById_(h.StaffID));
         const otH=Math.round(min/60*100)/100; return {date:h.Date,staffId:h.StaffID,out:h.Out,schedOut:sch.CheckOutTime,otMinutes:min,otHours:otHoursRule(min),otRate:rate,otPay:Math.round(otH*rate)}; }); },
-    // sum a staff's OT hours for a month (auto-pulled into payroll); amount = hours × StaffOTHourlyRate
-    staffMonthlyOT: p => { const sch=M.workSchedule.find(w=>w.StaffID===p.staffId)||{CheckOutTime:'17:00'};
-      const rows=M.staffAttendanceHistory.filter(h=>h.StaffID===p.staffId&&h.Out&&(!p.month||h.Date.slice(0,7)===p.month));
-      const hours=rows.reduce((a,h)=>a+otHoursRule(Math.max(0,toMin(h.Out)-toMin(sch.CheckOutTime))),0);
-      const rate=Number(cfg.StaffOTHourlyRate||cfg.OTRatePerHour||100); return {staffId:p.staffId,month:p.month,hours,rate,amount:hours*rate,days:rows.length}; },
+    // sum a staff's APPROVED OT for a month (auto-pulled into payroll). Source of truth = OT_RECORDS.
+    staffMonthlyOT: p => { const recs=(M.otRecords||[]).filter(r=>r.StaffID===p.staffId && String(r.Status||'').toUpperCase()==='APPROVED' && (!p.month||ym(r.Month||r.Date)===p.month));
+      const hours=recs.reduce((a,r)=>a+(Number(r.Hours)||0),0); const amount=recs.reduce((a,r)=>a+(Number(r.Amount)||0),0);
+      const rate=staffOtRate(staffById_(p.staffId)); return {staffId:p.staffId,month:p.month,hours,rate,amount:Math.round(amount),days:recs.length}; },
+
+    // ===== staff OT approval workflow (teacher → Leader → Admin) — OT_RECORDS is the source of truth =====
+    // full-hour amount helper (rounded), used everywhere an OT amount is (re)computed
+    // reads:
+    myOT: p => (M.otRecords||[]).filter(r=>r.StaffID===p.staffId && (!p.month||ym(r.Month||r.Date)===p.month)).sort((a,b)=>String(b.Date).localeCompare(String(a.Date))),
+    // Leader/Admin: OT awaiting the first (Leader) approval
+    teamPendingOT: p => { const me=staffById(p.staffId); if(me.PositionLevel!=='Leader'&&me.PositionLevel!=='Admin'&&me.Role!=='Admin')return [];
+      return (M.otRecords||[]).filter(r=>String(r.Status).toUpperCase()==='PENDING_LEADER').map(otView_); },
+    // Admin: OT the Leader approved, awaiting Admin confirmation
+    pendingAdminOT: () => (M.otRecords||[]).filter(r=>String(r.Status).toUpperCase()==='PENDING_ADMIN').map(otView_),
+    // Admin: everything for a month (any status) — the manage screen
+    adminOTList: p => (M.otRecords||[]).filter(r=>!p.month||ym(r.Month||r.Date)===p.month).sort((a,b)=>String(b.Date).localeCompare(String(a.Date))).map(otView_),
+    // Leader step-1 decision
+    approveOT: p => { const ap=staffById(p.staffId); const r=(M.otRecords||[]).find(x=>x.OTRecordID===p.otId); if(!r)fail('NOT_FOUND','ไม่พบรายการ OT');
+      if(String(r.Status).toUpperCase()!=='PENDING_LEADER')fail('BAD_STATE','รายการนี้ไม่ได้รออนุมัติจากหัวหน้า');
+      if(ap.PositionLevel!=='Leader'&&ap.PositionLevel!=='Admin'&&ap.Role!=='Admin')fail('NO_PERMISSION','เฉพาะหัวหน้าครู');
+      const yes=p.decision==='approve'; r.Step1By=ap.NameTH; r.Step1Status=yes?'Approved':'Rejected'; r.Status=yes?'PENDING_ADMIN':'REJECTED';
+      return {otId:r.OTRecordID,status:r.Status}; },
+    // Admin step-2 confirm (optionally editing hours/amount), or reject
+    confirmOT: p => { const ap=staffById(p.staffId); if(ap.PositionLevel!=='Admin'&&ap.Role!=='Admin')fail('NO_PERMISSION','เฉพาะแอดมิน');
+      const r=(M.otRecords||[]).find(x=>x.OTRecordID===p.otId); if(!r)fail('NOT_FOUND','ไม่พบรายการ OT');
+      const yes=p.decision!=='reject';
+      if(yes){ if(p.hours!=null){ r.Hours=Number(p.hours)||0; r.Amount=Math.round(r.Hours*staffOtRate(staffById_(r.StaffID))); }
+        if(p.amount!=null&&p.amount!=='') r.Amount=Number(p.amount)||0;
+        if(p.note!=null) r.Note=p.note; r.Step2By=ap.NameTH; r.Step2Status='Approved'; r.ApprovedBy=ap.NameTH; r.Status='APPROVED'; }
+      else { r.Step2By=ap.NameTH; r.Step2Status='Rejected'; r.Status='REJECTED'; }
+      return {otId:r.OTRecordID,status:r.Status,hours:r.Hours,amount:r.Amount}; },
+    // Admin adds an OT directly (already approved). date + hours (+optional amount/note)
+    adminAddOT: p => { const ap=staffById(p.staffId); if(ap.PositionLevel!=='Admin'&&ap.Role!=='Admin')fail('NO_PERMISSION','เฉพาะแอดมิน');
+      const target=p.targetStaffId||p.forStaffId; const st=staffById_(target); if(!st.StaffID)fail('NOT_FOUND','ไม่พบพนักงาน');
+      const hours=Number(p.hours)||0; if(hours<=0)fail('BAD_INPUT','ระบุจำนวนชั่วโมง');
+      const amount=(p.amount!=null&&p.amount!=='')?Number(p.amount):Math.round(hours*staffOtRate(st));
+      const id='OTR-'+String(Date.now()).slice(-6); const date=p.date||todayLocal();
+      M.otRecords.push({OTRecordID:id,StaffID:target,Date:date,Hours:hours,Rate:staffOtRate(st),Amount:amount,ApprovedBy:ap.NameTH,Status:'APPROVED',Minutes:hours*60,PlanOut:'',ActualOut:'',Month:ym(date),Step1By:ap.NameTH,Step1Status:'Approved',Step2By:ap.NameTH,Step2Status:'Approved',Note:p.note||''});
+      return {otId:id,status:'APPROVED'}; },
+    // Admin edits any OT (hours/amount/note). Recomputes amount from hours unless amount is given.
+    adminEditOT: p => { const ap=staffById(p.staffId); if(ap.PositionLevel!=='Admin'&&ap.Role!=='Admin')fail('NO_PERMISSION','เฉพาะแอดมิน');
+      const r=(M.otRecords||[]).find(x=>x.OTRecordID===p.otId); if(!r)fail('NOT_FOUND','ไม่พบรายการ OT');
+      if(p.hours!=null){ r.Hours=Number(p.hours)||0; r.Amount=Math.round(r.Hours*staffOtRate(staffById_(r.StaffID))); }
+      if(p.amount!=null&&p.amount!=='') r.Amount=Number(p.amount)||0;
+      if(p.note!=null) r.Note=p.note; if(p.date) { r.Date=p.date; r.Month=ym(p.date); }
+      return {otId:r.OTRecordID,hours:r.Hours,amount:r.Amount}; },
+    adminDeleteOT: p => { const ap=staffById(p.staffId); if(ap.PositionLevel!=='Admin'&&ap.Role!=='Admin')fail('NO_PERMISSION','เฉพาะแอดมิน');
+      const i=(M.otRecords||[]).findIndex(x=>x.OTRecordID===p.otId); if(i<0)fail('NOT_FOUND','ไม่พบรายการ OT'); M.otRecords.splice(i,1); return {ok:true}; },
 
     // ========== prepayment (advance tuition with discount) ==========
     // months: 2→5%, 3→10%, 6→20%, 12→30%

@@ -45,13 +45,14 @@ var COLLECTION_MAP = {
   staffGroups:     { wb: 'HR',   sheet: 'STAFF_GROUPS' },
   workSchedule:    { wb: 'HR',   sheet: 'WORK_SCHEDULE' },
   leaves:          { wb: 'HR',   sheet: 'LEAVE_REQUEST' },
+  otRecords:       { wb: 'HR',   sheet: 'OT_RECORDS' },
   payroll:         { wb: 'HR',   sheet: 'PAYROLL' }
 };
 var FIELD_ALIAS = { STUDENTS: { Name: 'NameTH' }, PARENTS: { Name: 'NameTH' }, STAFF: { Name: 'NameTH' },
   // engine uses Key/Dates; sheet columns are VaccineKey/DoseDate. DoseDate holds a JSON array of dose
   // dates (encodeCell_ serializes the array; decodeCell_ parses it back) — supports multiple doses.
   VACCINE_RECORDS: { VaccineKey: 'Key', DoseDate: 'Dates' } };
-var CONFIG_ARRAY_KEYS = { Departments: 1, GrowthUpdateMonths: 1, PositionLevels: 1 };
+var CONFIG_ARRAY_KEYS = { Departments: 1, GrowthUpdateMonths: 1, PositionLevels: 1, BigCleaningDays: 1 };
 
 // ---- main entry --------------------------------------------------
 function engineDispatch_(action, payload) {
