@@ -45,8 +45,36 @@ function findObject_(sheet, predicate) {
   return null;
 }
 
+// ---- inline-image offload -----------------------------------------
+// A Google Sheets cell caps at 50,000 chars, so a real photo's base64 (>50KB → >65k chars) makes
+// setValues THROW — that was the silent "attach a photo, press Save, nothing happens" bug. Any cell
+// holding a `data:image/...` URL is written to Drive instead and only the (short) thumbnail URL is
+// stored. A value that is already a URL (or not an image) passes straight through.
+var IMAGE_COLS_ = { Photo: 1, InsuranceCardImage: 1, Image: 1, RegisterPhotoUrl: 1 };
+function driveifyImage_(value, name) {
+  if (typeof value !== 'string' || value.indexOf('data:image/') !== 0) return value;
+  try {
+    var comma = value.indexOf(','); var b64 = comma >= 0 ? value.slice(comma + 1) : value;
+    if (!b64) return '';
+    var folderName = getConfig_('PhotosFolderName', 'AtomNursery_Photos');
+    var it = DriveApp.getFoldersByName(folderName);
+    var folder = it.hasNext() ? it.next() : DriveApp.createFolder(folderName);
+    var blob = Utilities.newBlob(Utilities.base64Decode(b64), 'image/jpeg', name || ('img-' + Date.now() + '.jpg'));
+    var file = folder.createFile(blob);
+    try { file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW); } catch (e) {}
+    return 'https://drive.google.com/thumbnail?id=' + file.getId() + '&sz=w1000';
+  } catch (e) { return value; }   // Drive failed → keep the base64 (setValues may throw loudly, never silent)
+}
+/** Offload any image-bearing fields of a record to Drive in place; returns the same object. */
+function driveifyImages_(obj) {
+  if (!obj) return obj;
+  for (var k in obj) { if (obj.hasOwnProperty(k) && IMAGE_COLS_[k]) obj[k] = driveifyImage_(obj[k], k + '-' + Date.now() + '.jpg'); }
+  return obj;
+}
+
 /** Append a record. Missing fields are written blank; extras ignored. */
 function appendObject_(sheet, obj) {
+  driveifyImages_(obj);
   var hdr = headers_(sheet);
   var row = hdr.map(function (h) { return (obj[h] === undefined || obj[h] === null) ? '' : obj[h]; });
   sheet.appendRow(row);
@@ -55,6 +83,7 @@ function appendObject_(sheet, obj) {
 
 /** Patch specific fields of an existing row (1-based rowIndex). */
 function updateRow_(sheet, rowIndex, patch) {
+  driveifyImages_(patch);
   var hdr = headers_(sheet);
   var current = sheet.getRange(rowIndex, 1, 1, hdr.length).getValues()[0];
   hdr.forEach(function (h, c) { if (patch.hasOwnProperty(h)) current[c] = patch[h]; });

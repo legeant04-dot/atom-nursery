@@ -457,9 +457,15 @@ function createAtomAPI(M, GROWTH_STD) {
         staffPaid:staff.filter(s=>s.computed).length, staffTotal:staff.length}; },
 
     // ---------- Admin ----------
-    dashboard: () => { const cls=M.classes.map(c=>{ const studs=activeStudents().filter(s=>s.Class===c.ClassName);
+    dashboard: () => { const std=activeStudents();
+        // class list = CLASSES rows ∪ departments master ∪ every class a student is actually in,
+        // so students in a department without a CLASSES row are never hidden from the dashboard.
+        const names=[]; const add=n=>{ if(n&&names.indexOf(n)<0)names.push(n); };
+        (M.classes||[]).forEach(c=>add(c.ClassName)); (Array.isArray(cfg.Departments)?cfg.Departments:String(cfg.Departments||'').split(',')).forEach(d=>add(String(d).trim())); std.forEach(s=>add(s.Class));
+        const cls=names.map(name=>{ const studs=std.filter(s=>s.Class===name);
         const stat=studs.map(s=>{ const a=M.studentAttendanceToday.find(x=>x.StudentID===s.StudentID); return {studentId:s.StudentID,name:s.NameTH,nameEN:s.NameEN,nick:s.Nickname,nickEN:s.NicknameEN, status:a?a.Status:'ABSENT', in:a?a.CheckIn||'':'', out:a?a.CheckOut||'':'', reason:a?a.Reason:''}; });
-        return {className:c.ClassName,total:studs.length,in:stat.filter(s=>s.status==='IN').length,out:stat.filter(s=>s.status==='OUT').length,leave:stat.filter(s=>s.status==='LEAVE').length,absent:stat.filter(s=>s.status==='ABSENT').length,students:stat}; });
+        return {className:name,total:studs.length,in:stat.filter(s=>s.status==='IN').length,out:stat.filter(s=>s.status==='OUT').length,leave:stat.filter(s=>s.status==='LEAVE').length,absent:stat.filter(s=>s.status==='ABSENT').length,students:stat}; })
+        .filter(c=>c.total>0 || (M.classes||[]).some(mc=>mc.ClassName===c.className)); // hide empty extra depts, keep real classes
       // staff with check-in turned OFF never clock in — exclude them entirely (not counted, not "absent")
       const staffStat=M.staff.filter(s=>s.Role==='Teacher'&&s.RequireCheckin!==false).map(s=>{ const a=M.staffAttendanceToday.find(x=>x.StaffID===s.StaffID)||{};
         const onLeave=a.Status==='LEAVE'; return {staffId:s.StaffID,name:s.NameTH,nameEN:s.NameEN,nick:s.Nickname,nickEN:s.NicknameEN,dept:s.Department, status:a.Status||'ABSENT',
