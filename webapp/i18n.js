@@ -87,6 +87,11 @@
     'ot.approve':['อนุมัติ','Approve'], 'ot.reject':['ปฏิเสธ','Reject'], 'ot.confirm':['ยืนยัน','Confirm'], 'ot.addOT':['+ เพิ่ม OT','+ Add OT'],
     'ot.st.PENDING_LEADER':['รอหัวหน้าอนุมัติ','Awaiting leader'], 'ot.st.PENDING_ADMIN':['รอแอดมินยืนยัน','Awaiting admin'], 'ot.st.APPROVED':['อนุมัติแล้ว','Approved'], 'ot.st.REJECTED':['ปฏิเสธ','Rejected'],
     'ot.hoursLabel':['จำนวนชั่วโมง','Hours'], 'ot.none':['ยังไม่มีรายการ OT','No OT records'], 'ot.confirmEdit':['ยืนยัน OT (แก้ชั่วโมง/ยอดได้)','Confirm OT (you may edit hours/amount)'],
+    // duty roster (กะเวร)
+    'duty.title':['🧑‍🏫 กะเวรคุณครู','🧑‍🏫 Duty roster'], 'duty.add':['+ เพิ่มกะเวร','+ Add duty'], 'duty.none':['ยังไม่มีกะเวร','No duty entries'],
+    'duty.shift':['ช่วงเวร (ถ้ามี)','Shift (optional)'], 'duty.note':['หมายเหตุ','Note'], 'duty.staff':['คุณครู','Teacher'], 'duty.class':['ชั้นเรียน/จุดเวร','Class / post'],
+    'duty.pending':['รอแอดมินอนุมัติ','Awaiting admin'], 'duty.approved':['อนุมัติแล้ว','Approved'], 'duty.rejected':['ปฏิเสธ','Rejected'],
+    'duty.leaderNote':['กะเวรที่คุณเพิ่มจะส่งให้แอดมินอนุมัติก่อน','Duties you add are sent to the admin for approval'],
     'reg.gender':['เพศ','Gender'], 'reg.male':['ชาย','Male'], 'reg.female':['หญิง','Female'], 'reg.dob':['วันเกิด','Date of birth'], 'reg.age':['อายุ','Age'],
     'reg.nationalIdStudent':['เลขบัตรประชาชนนักเรียน (ใช้เป็นรหัสนักเรียน)','Student National ID (used as student code)'],
     'reg.weight':['น้ำหนัก','Weight'], 'reg.height':['ส่วนสูง','Height'], 'reg.bloodType':['หมู่เลือด','Blood type'], 'reg.photo':['รูปถ่ายนักเรียน','Student photo'],

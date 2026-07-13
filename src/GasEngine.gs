@@ -46,6 +46,7 @@ var COLLECTION_MAP = {
   workSchedule:    { wb: 'HR',   sheet: 'WORK_SCHEDULE' },
   leaves:          { wb: 'HR',   sheet: 'LEAVE_REQUEST' },
   otRecords:       { wb: 'HR',   sheet: 'OT_RECORDS' },
+  dutyRoster:      { wb: 'HR',   sheet: 'DUTY_ROSTER' },
   payroll:         { wb: 'HR',   sheet: 'PAYROLL' }
 };
 var FIELD_ALIAS = { STUDENTS: { Name: 'NameTH' }, PARENTS: { Name: 'NameTH' }, STAFF: { Name: 'NameTH' },
@@ -120,7 +121,7 @@ function hydrateLazy_() {
   lazyRO_(M, cache, 'vaccineSchedule', function () { return ENGINE_REF.vaccineSchedule; });
   lazyRO_(M, cache, 'permMatrix', function () { return ENGINE_REF.permMatrix; });
   lazyRO_(M, cache, 'permissions', function () { return ENGINE_REF.permissions; });
-  ['dutyRoster', 'calendar', 'feed'].forEach(function (k) { lazyRO_(M, cache, k, function () { return []; }); });
+  ['calendar', 'feed'].forEach(function (k) { lazyRO_(M, cache, k, function () { return []; }); });  // dutyRoster now hydrates from its sheet
 
   function persist() {
     for (var key in COLLECTION_MAP) {

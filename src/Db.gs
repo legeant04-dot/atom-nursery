@@ -86,7 +86,12 @@ function updateRow_(sheet, rowIndex, patch) {
   driveifyImages_(patch);
   var hdr = headers_(sheet);
   var current = sheet.getRange(rowIndex, 1, 1, hdr.length).getValues()[0];
-  hdr.forEach(function (h, c) { if (patch.hasOwnProperty(h)) current[c] = patch[h]; });
+  hdr.forEach(function (h, c) {
+    if (patch.hasOwnProperty(h)) current[c] = patch[h];
+    // updateRow_ rewrites the WHOLE row, so a legacy oversized base64 image in an UNTOUCHED cell would
+    // make setValues throw (>50k chars) and silently break every edit of that record. Offload it too.
+    else if (IMAGE_COLS_[h]) current[c] = driveifyImage_(current[c], h + '-' + Date.now() + '.jpg');
+  });
   sheet.getRange(rowIndex, 1, 1, hdr.length).setValues([current]);
 }
 

@@ -138,7 +138,62 @@ function handlePendingLeaves(payload) {
   else if (level === 'Leader') visible = rows.filter(function (r) { return String(r.Status) === LEAVE_STATUS.PENDING_LEADER; }); // all depts (default)
   else throw apiError_('NO_PERMISSION', 'ตำแหน่งนี้ไม่มีสิทธิ์ดูคำขอรออนุมัติ');
   // return a raw-row ARRAY (client + engine contract) with decoded cells — NOT {level,pending:[...]}
-  return visible.map(function (r) { var o = {}; for (var k in r) o[k] = (typeof decodeCell_ === 'function') ? decodeCell_(r[k]) : r[k]; return o; });
+  return visible.map(leaveDecodeEnrich_);
+}
+
+// decode a raw LEAVE_REQUEST row + attach the requester's names (so lists show a nickname, not STF-xxx)
+var _leaveStaffIdx = null;
+function leaveStaffName_(id) {
+  if (!_leaveStaffIdx) { _leaveStaffIdx = {};
+    readObjects_(sheet_(getHrSpreadsheet_(), 'STAFF')).forEach(function (s) { _leaveStaffIdx[String(s.StaffID)] = s; }); }
+  return _leaveStaffIdx[String(id)] || {};
+}
+function leaveDecodeEnrich_(r) {
+  var o = {}; for (var k in r) o[k] = (typeof decodeCell_ === 'function') ? decodeCell_(r[k]) : r[k];
+  var s = leaveStaffName_(o.StaffID);
+  o.name = s.Name; o.nameEN = s.NameEN; o.nick = s.Nickname; o.nickEN = s.NicknameEN;
+  return o;
+}
+
+/** Admin: every leave request (enriched), newest first — for the list split into pending vs resolved. */
+function handleAllLeaves(payload) {
+  var rows = readObjects_(sheet_(getHrSpreadsheet_(), 'LEAVE_REQUEST'));
+  return rows.map(leaveDecodeEnrich_).sort(function (a, b) {
+    return String(b.CreatedDate || b.StartDate || '').localeCompare(String(a.CreatedDate || a.StartDate || ''));
+  });
+}
+
+/** Admin edits a leave in place (type/dates/reason); recomputes Days. Admin-only (ADMIN_ONLY guard). */
+function handleEditLeave(payload) {
+  payload = payload || {};
+  var sheet = sheet_(getHrSpreadsheet_(), 'LEAVE_REQUEST');
+  var leave = findObject_(sheet, function (r) { return String(r.LeaveID) === String(payload.leaveId); });
+  if (!leave) throw apiError_('NOT_FOUND', 'ไม่พบคำขอลา');
+  var patch = {};
+  if (payload.type != null) patch.Type = payload.type;
+  if (payload.startDate) patch.StartDate = payload.startDate;
+  if (payload.endDate) patch.EndDate = payload.endDate;
+  if (payload.reason != null) patch.Reason = payload.reason;
+  if (payload.startDate || payload.endDate) {
+    var s = new Date(patch.StartDate || leave.StartDate), e = new Date(patch.EndDate || leave.EndDate);
+    patch.Days = Math.floor((e - s) / 864e5) + 1;
+  }
+  updateRow_(sheet, leave._row, patch);
+  try { CacheService.getScriptCache().removeAll(['rows:LEAVE_REQUEST', 'col:LEAVE_REQUEST']); } catch (e) {}
+  logAuditHr(payload.staffId || 'ADMIN', 'LEAVE_EDIT', 'LEAVE_REQUEST', leave.LeaveID);
+  return { ok: true, leaveId: leave.LeaveID };
+}
+
+/** Admin cancels/deletes a leave request in place. Admin-only (ADMIN_ONLY guard). */
+function handleCancelLeave(payload) {
+  payload = payload || {};
+  var sheet = sheet_(getHrSpreadsheet_(), 'LEAVE_REQUEST');
+  var leave = findObject_(sheet, function (r) { return String(r.LeaveID) === String(payload.leaveId); });
+  if (!leave) throw apiError_('NOT_FOUND', 'ไม่พบคำขอลา');
+  sheet.deleteRow(leave._row);
+  try { CacheService.getScriptCache().removeAll(['rows:LEAVE_REQUEST', 'col:LEAVE_REQUEST']); } catch (e) {}
+  logAuditHr(payload.staffId || 'ADMIN', 'LEAVE_CANCEL', 'LEAVE_REQUEST', leave.LeaveID);
+  return { ok: true };
 }
 
 function leaveView_(r) {

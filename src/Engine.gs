@@ -59,6 +59,9 @@ function createAtomAPI(M, GROWTH_STD) {
   // enrich an OT record with the staff's names for display (approval lists / admin manage)
   function otView_(r){ const s=staffById_(r.StaffID); return Object.assign({}, r,
     {name:s.NameTH,nameEN:s.NameEN,nick:s.Nickname,nickEN:s.NicknameEN,dept:s.Department}); }
+  // enrich a leave request with the requester's names (so lists show a nickname, not STF-xxx)
+  function leaveView_(l){ const s=staffById_(l.StaffID); return Object.assign({}, l,
+    {name:s.NameTH,nameEN:s.NameEN,nick:s.Nickname,nickEN:s.NicknameEN}); }
   // classes a staff covers (see classList). Returns an array of class objects, never empty when classes exist.
   function coveredClasses_(staff){ staff=staff||{}; const all=M.classes||[];
     const lvl=String(staff.PositionLevel||''); const list=String(staff.Classes||'').split(',').map(x=>x.trim()).filter(Boolean);
@@ -392,9 +395,20 @@ function createAtomAPI(M, GROWTH_STD) {
       return {studentId:p.studentId,name:s.NameTH,nameEN:s.NameEN,nick:s.Nickname,nickEN:s.NicknameEN,ageMonth:age,enrollDate:s.EnrollDate,
         bands:Object.values(bands).sort((a,b)=>a.from-b.from)}; },
 
-    myLeaves: p => M.leaves.filter(l=>l.StaffID===p.staffId),
+    myLeaves: p => M.leaves.filter(l=>l.StaffID===p.staffId).map(leaveView_),
+    // Admin: every leave request (for the list split into pending vs resolved) + the calendar
+    allLeaves: p => (M.leaves||[]).slice().sort((a,b)=>String(b.CreatedDate||b.StartDate).localeCompare(String(a.CreatedDate||a.StartDate))).map(leaveView_),
+    // Admin edits a leave in place (dates/type/reason); recomputes Days
+    editLeave: p => { const ap=staffById(p.staffId); if(ap.PositionLevel!=='Admin'&&ap.Role!=='Admin')fail('NO_PERMISSION','เฉพาะแอดมิน');
+      const l=M.leaves.find(x=>x.LeaveID===p.leaveId); if(!l)fail('NOT_FOUND','ไม่พบคำขอ');
+      if(p.type!=null)l.Type=p.type; if(p.startDate)l.StartDate=p.startDate; if(p.endDate)l.EndDate=p.endDate; if(p.reason!=null)l.Reason=p.reason;
+      if(p.startDate||p.endDate) l.Days=Math.floor((new Date(l.EndDate)-new Date(l.StartDate))/864e5)+1;
+      return leaveView_(l); },
+    // Admin cancels/deletes a leave request
+    cancelLeave: p => { const ap=staffById(p.staffId); if(ap.PositionLevel!=='Admin'&&ap.Role!=='Admin')fail('NO_PERMISSION','เฉพาะแอดมิน');
+      const i=M.leaves.findIndex(x=>x.LeaveID===p.leaveId); if(i<0)fail('NOT_FOUND','ไม่พบคำขอ'); M.leaves.splice(i,1); return {ok:true}; },
     teamPendingLeaves: p => { const me=staffById(p.staffId); if(me.PositionLevel!=='Leader'&&me.PositionLevel!=='Admin')return [];
-      return M.leaves.filter(l=>l.Status==='PENDING_LEADER'); },
+      return M.leaves.filter(l=>l.Status==='PENDING_LEADER').map(leaveView_); },
     leaveQuota: p => { const used=M.leaveUsed[p.staffId]||{}; const q=cfg.LeaveQuota;
       return Object.keys(q).map(t=>({type:t,quota:q[t],used:used[t]||0,remain:q[t]-(used[t]||0)})); },
     submitLeave: p => { const st=staffById(p.staffId); const id='LV2026-'+String(M.leaves.length+1).padStart(3,'0');
@@ -488,7 +502,7 @@ function createAtomAPI(M, GROWTH_STD) {
         const onLeave=a.Status==='LEAVE'; return {staffId:s.StaffID,name:s.NameTH,nameEN:s.NameEN,nick:s.Nickname,nickEN:s.NicknameEN,dept:s.Department, status:a.Status||'ABSENT',
           checkIn:onLeave?'':(a.CheckIn||''), checkOut:onLeave?'':(a.CheckOut||''), late:onLeave?0:(a.Late||0), remark:onLeave?(a.Reason||'ลา'):''}; });
       return {classes:cls, staff:staffStat, pendingLeaves:M.leaves.filter(l=>l.Status.startsWith('PENDING')).length}; },
-    pendingLeaves: p => { const lv=staffById(p.staffId).PositionLevel; if(lv==='Admin')return M.leaves.filter(l=>l.Status==='PENDING_ADMIN'); if(lv==='Leader')return M.leaves.filter(l=>l.Status==='PENDING_LEADER'); fail('NO_PERMISSION','ตำแหน่งนี้ไม่มีสิทธิ์อนุมัติ'); },
+    pendingLeaves: p => { const lv=staffById(p.staffId).PositionLevel; if(lv==='Admin')return M.leaves.filter(l=>l.Status==='PENDING_ADMIN').map(leaveView_); if(lv==='Leader')return M.leaves.filter(l=>l.Status==='PENDING_LEADER').map(leaveView_); fail('NO_PERMISSION','ตำแหน่งนี้ไม่มีสิทธิ์อนุมัติ'); },
     listStaff: () => M.staff.map(s=>Object.assign({RequireCheckin: s.RequireCheckin!==false}, s)),
     // the caller's own staff record (sanitized — no PasswordHash) so screens don't rely on client MOCK.staff.
     staffSelf: p => { const s=staffById(p.staffId); if(!s.StaffID)return null;
@@ -786,6 +800,26 @@ function createAtomAPI(M, GROWTH_STD) {
       return {otId:r.OTRecordID,hours:r.Hours,amount:r.Amount}; },
     adminDeleteOT: p => { const ap=staffById(p.staffId); if(ap.PositionLevel!=='Admin'&&ap.Role!=='Admin')fail('NO_PERMISSION','เฉพาะแอดมิน');
       const i=(M.otRecords||[]).findIndex(x=>x.OTRecordID===p.otId); if(i<0)fail('NOT_FOUND','ไม่พบรายการ OT'); M.otRecords.splice(i,1); return {ok:true}; },
+
+    // ===== duty roster (กะเวร): Admin manages directly (APPROVED); a Leader's entries are PENDING_ADMIN =====
+    dutyList: p => { const only=p&&p.month; return (M.dutyRoster||[]).filter(d=>!only||ymd(d.Date).slice(0,7)===only)
+      .sort((a,b)=>String(a.Date).localeCompare(String(b.Date))).map(d=>{ const s=staffById_(d.StaffID);
+        return Object.assign({},d,{name:s.NameTH,nameEN:s.NameEN,nick:s.Nickname,nickEN:s.NicknameEN}); }); },
+    addDuty: p => { const ap=staffById(p.staffId); const isAdmin=ap.PositionLevel==='Admin'||ap.Role==='Admin'; const isLeader=isAdmin||ap.PositionLevel==='Leader';
+      if(!isLeader)fail('NO_PERMISSION','เฉพาะหัวหน้าครูหรือแอดมิน');
+      if(!p.date||!p.staffId2&&!p.forStaffId)fail('BAD_INPUT','ระบุวันและครู');
+      const target=p.forStaffId||p.staffId2; const id='DT-'+String(Date.now()).slice(-6);
+      M.dutyRoster.push({DutyID:id,Date:p.date,ClassName:p.className||'',StaffID:target,Shift:p.shift||'',Status:isAdmin?'APPROVED':'PENDING_ADMIN',Note:p.note||'',CreatedBy:p.staffId});
+      return {dutyId:id,status:isAdmin?'APPROVED':'PENDING_ADMIN'}; },
+    editDuty: p => { const ap=staffById(p.staffId); if(ap.PositionLevel!=='Admin'&&ap.Role!=='Admin'&&ap.PositionLevel!=='Leader')fail('NO_PERMISSION','เฉพาะหัวหน้าครูหรือแอดมิน');
+      const d=(M.dutyRoster||[]).find(x=>x.DutyID===p.dutyId); if(!d)fail('NOT_FOUND','ไม่พบกะเวร');
+      if(p.date)d.Date=p.date; if(p.className!=null)d.ClassName=p.className; if(p.forStaffId||p.staffId2)d.StaffID=p.forStaffId||p.staffId2; if(p.shift!=null)d.Shift=p.shift; if(p.note!=null)d.Note=p.note;
+      return {ok:true,dutyId:d.DutyID}; },
+    deleteDuty: p => { const ap=staffById(p.staffId); if(ap.PositionLevel!=='Admin'&&ap.Role!=='Admin'&&ap.PositionLevel!=='Leader')fail('NO_PERMISSION','เฉพาะหัวหน้าครูหรือแอดมิน');
+      const i=(M.dutyRoster||[]).findIndex(x=>x.DutyID===p.dutyId); if(i<0)fail('NOT_FOUND','ไม่พบกะเวร'); M.dutyRoster.splice(i,1); return {ok:true}; },
+    approveDuty: p => { const ap=staffById(p.staffId); if(ap.PositionLevel!=='Admin'&&ap.Role!=='Admin')fail('NO_PERMISSION','เฉพาะแอดมิน');
+      const d=(M.dutyRoster||[]).find(x=>x.DutyID===p.dutyId); if(!d)fail('NOT_FOUND','ไม่พบกะเวร');
+      d.Status=p.decision==='approve'?'APPROVED':'REJECTED'; return {dutyId:d.DutyID,status:d.Status}; },
 
     // ========== prepayment (advance tuition with discount) ==========
     // months: 2→5%, 3→10%, 6→20%, 12→30%
