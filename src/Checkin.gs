@@ -121,9 +121,10 @@ function handleStaffCheckin(payload) {
 
   var sched = staffSchedule_(staff.StaffID, now);
   var grace = parseInt(getConfig_('LateGraceMinutes', '0'), 10) || 0;
-  var expectMin = hhmmToMin_(sched.checkIn); if (expectMin == null) expectMin = hhmmToMin_('08:00');
-  // a Big Cleaning Day is a workday with NO fixed hours → never late
-  var lateMin = isBigCleaningDay_(today) ? 0 : Math.max(0, minOfDay_(now) - (expectMin + grace));
+  // a Big Cleaning Day is a special workday with fixed hours 08:30–17:00 → late is measured vs 08:30
+  var expectHHmm = isBigCleaningDay_(today) ? getConfig_('BigCleaningIn', '08:30') : sched.checkIn;
+  var expectMin = hhmmToMin_(expectHHmm); if (expectMin == null) expectMin = hhmmToMin_('08:00');
+  var lateMin = Math.max(0, minOfDay_(now) - (expectMin + grace));
 
   if (existing) {
     updateRow_(sheet, existing._row, { CheckIn: timeStr_(now), LateMinutes: lateMin, Status: 'IN' });
@@ -228,7 +229,8 @@ function handleStaffCheckout(payload) {
   if (row.CheckOut) throw apiError_('ALREADY_CHECKED_OUT', 'ลงเวลาออกงานวันนี้ไปแล้ว (' + toHHmm_(row.CheckOut) + ')');
 
   var sched = staffSchedule_(staff.StaffID, now);
-  var outMin = hhmmToMin_(sched.checkOut); if (outMin == null) outMin = hhmmToMin_('17:00');
+  var outHHmm = isBigCleaningDay_(today) ? getConfig_('BigCleaningOut', '17:00') : sched.checkOut;
+  var outMin = hhmmToMin_(outHHmm); if (outMin == null) outMin = hhmmToMin_('17:00');
   var otMin = Math.max(0, minOfDay_(now) - outMin);
   // FULL-hour OT: the last hour rounds up only when ≥ OTRoundUpMinutes (default 50), else it drops.
   // e.g. plan 18:00, out 18:53 → 53 min → 1 hr; out 18:45 → 45 min → 0 hr (not enough).

@@ -32,6 +32,7 @@ function handleSubmitLeave(payload) {
   if (days < 1) throw apiError_('BAD_DATES', 'ช่วงวันลาไม่ถูกต้อง');
 
   var sheet = sheet_(getHrSpreadsheet_(), 'LEAVE_REQUEST');
+  ensureColumns_(sheet, ['Attachment']);
   var leaveId = genLeaveId_(sheet);
   var level = String(staff.PositionLevel || '');
   if (String(staff.Role || '') === 'Admin') level = 'Admin';
@@ -45,7 +46,7 @@ function handleSubmitLeave(payload) {
     Step1ApproverID: '', Step1ApproverName: '',
     Step1Status: requesterIsApprover ? STEP.SKIPPED : STEP.PENDING, Step1Date: '', Step1CrossDept: '',
     Step2ApproverID: '', Step2ApproverName: '', Step2Status: STEP.PENDING, Step2Date: '',
-    CreatedDate: new Date()
+    CreatedDate: new Date(), Attachment: payload.attachment || ''   // medical cert / doc → offloaded to Drive
   };
   appendObject_(sheet, row);
   logAuditHr(staff.StaffID, 'LEAVE_SUBMIT', 'LEAVE_REQUEST', leaveId);

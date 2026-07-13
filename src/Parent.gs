@@ -74,6 +74,46 @@ function handleStudentAbsence(payload) {
   return { leaveId: leaveId, studentId: student.StudentID, teacherNotified: notified };
 }
 
+/**
+ * A teacher files a leave for a student and the LINKED PARENTS are notified. The leave then shows in
+ * those parents' calendar only (studentLeaves). payload: { staffId, studentId, date, reason, type? }
+ */
+function handleTeacherStudentLeave(payload) {
+  payload = payload || {};
+  var staff = resolveStaff_(payload);
+  if (!payload.studentId || !payload.date) throw apiError_('BAD_INPUT', 'ต้องระบุนักเรียนและวันที่');
+  var student = findObject_(sheet_(getMainSpreadsheet_(), 'STUDENTS'),
+    function (s) { return String(s.StudentID) === String(payload.studentId); });
+  if (!student) throw apiError_('STUDENT_NOT_FOUND', 'ไม่พบข้อมูลนักเรียน');
+  var sheet = sheet_(getMainSpreadsheet_(), 'LEAVE_REQUEST_STD');
+  ensureColumns_(sheet, ['Type', 'FiledBy']);
+  var leaveId = nextId_(sheet, 'LeaveID', 'LVS');
+  appendObject_(sheet, {
+    LeaveID: leaveId, StudentID: student.StudentID, Date: payload.date,
+    Reason: payload.reason || '', Type: payload.type || '', Status: 'Notified',
+    TeacherNotified: 'YES', FiledBy: staff.StaffID
+  });
+  if (typeof cacheDel_ === 'function') { cacheDel_('col:LEAVE_REQUEST_STD'); cacheDel_('rows:LEAVE_REQUEST_STD'); }
+  // notify every parent linked to this student
+  var msg = '🏠 คุณครูแจ้งลาให้ ' + student.Name + ' วันที่ ' + payload.date + '\nเหตุผล: ' + (payload.reason || '-');
+  var sent = notifyStudentParents_(student, msg);
+  logAudit(staff.StaffID, 'TEACHER_STUDENT_LEAVE', 'LEAVE_REQUEST_STD', leaveId);
+  return { leaveId: leaveId, studentId: student.StudentID, parentNotified: sent };
+}
+
+/** LINE-notify every parent linked to a student (USER_LINKS + PARENTS.LineUID). Returns count sent. */
+function notifyStudentParents_(student, text) {
+  var sent = 0, seen = {};
+  var push = function (uid) { if (uid && !seen[uid]) { seen[uid] = 1; try { linePushText_(uid, text); sent++; } catch (e) {} } };
+  readObjects_(sheet_(getMainSpreadsheet_(), 'PARENTS')).forEach(function (p) {
+    if (String(p.StudentID) === String(student.StudentID) && p.LineUID) push(p.LineUID);
+  });
+  readObjects_(sheet_(getMainSpreadsheet_(), 'USER_LINKS')).forEach(function (l) {
+    if (String(l.StudentID) === String(student.StudentID) && l.UserUID) push(l.UserUID);
+  });
+  return sent;
+}
+
 /** Notify the student's class teacher (+fallback Admins). Returns true if any sent. */
 function notifyStudentTeacher_(student, text) {
   var sent = false;

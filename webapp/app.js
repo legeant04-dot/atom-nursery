@@ -6,7 +6,7 @@
   const setHTML = (sel, html) => { const el = $(sel); if (el) el.innerHTML = html; };
   const app = $('#app'), nav = $('#bottomnav');
   const baht = n => (Number(n)||0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
-  const APP_VERSION = 'Version 1.070'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.071'; // bump each webapp change; shown only at the bottom of the Chat screen
   const verTag = () => `<div style="text-align:center;color:#c3c9d4;font-size:10px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
   const phoneFmt = p => { let d=String(p==null?'':p).replace(/\D/g,''); if(d.length===9) d='0'+d; return d; };
@@ -163,7 +163,7 @@
 
   // header quick-actions slot (before the language toggle); each screen fills it or it clears on nav
   window.setTopActions = html => { const el=document.getElementById('topActions'); if(el) el.innerHTML=html||''; };
-  window.GO = function(screen, opts){ CURRENT=screen; setNav(screen); if(!(opts&&opts.silent)) setTopActions(''); const fn=(SCREENS[USER.role]||{})[screen];
+  window.GO = function(screen, opts){ CURRENT=screen; setNav(screen); if(!(opts&&opts.silent)){ setTopActions(''); CAL_OFF=0; window._CALRENDER=null; } const fn=(SCREENS[USER.role]||{})[screen];
     // paint an instant placeholder so a tap feels responsive instead of "stuck" on the old screen
     // while the first (uncached) fetch runs; skip on silent background re-renders to avoid flicker.
     if(fn && !(opts&&opts.silent)) app.innerHTML=`<div class="card" style="text-align:center;color:#94a3b8;padding:28px">⏳ ${EN()?'Loading…':'กำลังโหลด…'}</div>`;
@@ -487,24 +487,33 @@
     <a href="${esc(L.line||'#')}" target="_blank"><span class="ic line">L</span>LINE OA</a>
     <a href="${esc(L.facebook||'#')}" target="_blank"><span class="ic fb">f</span>Facebook</a>
     <a href="${esc(L.map||SCHOOL_MAP_URL)}" target="_blank"><span class="ic web">📍</span>${EN()?'Map':'แผนที่'}</a></div>`; }
-  function calendarWidget(events, checkins, planEnd){ checkins=checkins||[]; const now=new Date(); const y=now.getFullYear(),mo=now.getMonth();
-    const first=new Date(y,mo,1).getDay(); const days=new Date(y,mo+1,0).getDate(); const evByDay={},ioByDay={};
+  // ---- navigable month calendar (all roles: browse ahead/back) ----
+  let CAL_OFF=0;  // month offset from the current month; reset on screen nav (GO)
+  window.CAL_nav=(d)=>{ CAL_OFF+=d; const w=document.getElementById('calWrap'); if(w&&window._CALRENDER) w.innerHTML=window._CALRENDER(); };
+  window.CAL_today=()=>{ CAL_OFF=0; const w=document.getElementById('calWrap'); if(w&&window._CALRENDER) w.innerHTML=window._CALRENDER(); };
+  const CAL_MTH=['ม.ค.','ก.พ.','มี.ค.','เม.ย.','พ.ค.','มิ.ย.','ก.ค.','ส.ค.','ก.ย.','ต.ค.','พ.ย.','ธ.ค.'], CAL_MTHE=['January','February','March','April','May','June','July','August','September','October','November','December'];
+  const calBase=()=>{ const b=new Date(); b.setDate(1); b.setMonth(b.getMonth()+CAL_OFF); return b; };
+  function calNavHeader(y,mo){ const head=EN()?CAL_MTHE[mo]+' '+y:CAL_MTH[mo]+' '+(y+543);
+    return `<div class="spread" style="margin-bottom:6px"><button class="btn sm outline" onclick="CAL_nav(-1)">◀</button><b style="font-size:14px">📅 ${esc(head)}</b><span class="row"><button class="btn sm outline" onclick="CAL_today()">${EN()?'Today':'วันนี้'}</button><button class="btn sm outline" onclick="CAL_nav(1)">▶</button></span></div>`; }
+
+  // Parent calendar: check-in/out times + school holidays + the LINKED student's leave days only.
+  function calendarWidget(events, checkins, planEnd, studentLeaves){ checkins=checkins||[]; studentLeaves=studentLeaves||[];
     const grace=Number(MOCK.config.OTGraceMinutes||21); const toMin=hhmm=>{const[h,m]=String(hhmm||'0:0').split(':').map(Number);return (h||0)*60+(m||0);};
-    const lateOut = out => planEnd && out && (toMin(out)-toMin(planEnd))>grace; // pickup past plan end + grace
-    events.forEach(e=>{ const d=new Date(e.date); if(d.getFullYear()===y&&d.getMonth()===mo) (evByDay[d.getDate()]=evByDay[d.getDate()]||[]).push(e); });
-    checkins.forEach(c=>{ const d=new Date(c.Date); if(d.getFullYear()===y&&d.getMonth()===mo) ioByDay[d.getDate()]=c; });
-    let cells=''; const wd=['อา','จ','อ','พ','พฤ','ศ','ส'];
-    cells+=wd.map(w=>`<div style="text-align:center;font-size:11px;color:#94a3b8">${w}</div>`).join('');
-    for(let i=0;i<first;i++) cells+=`<div class="d dim"></div>`;
-    for(let d=1;d<=days;d++){ const ev=evByDay[d]; const io=ioByDay[d]; const et=ev?ev[0].type:''; const cls=ev?(et==='holiday'?'ho':'ev'):''; const today=d===now.getDate()?'today':'';
-      const bcStyle=et==='bigclean'?'background:#e0f7fa;border-color:#80deea;':'';
-      const outRed=io&&lateOut(io.OutTime); const outHtml=io?`<span style="${outRed?'color:#d50000;font-weight:800':''}">${esc(io.OutTime||'-')}</span>`:'';
-      cells+=`<div class="d ${cls} ${today}" style="${bcStyle}">${d}${ev?`<span class="dot"${et==='bigclean'?' style="color:#00838f;font-weight:600"':''}>${esc(EN()?(ev[0].titleEN||ev[0].title):ev[0].title)}</span>`:''}${io?`<span class="io">${esc(io.InTime||'-')}<br>${outHtml}</span>`:''}</div>`; }
-    const months=['ม.ค.','ก.พ.','มี.ค.','เม.ย.','พ.ค.','มิ.ย.','ก.ค.','ส.ค.','ก.ย.','ต.ค.','พ.ย.','ธ.ค.'];
-    const monthsEN=['January','February','March','April','May','June','July','August','September','October','November','December'];
-    const head = EN()? (monthsEN[mo]+' '+y) : (months[mo]+' '+(y+543));
-    const legend = EN()? 'Drop-off / Pick-up times (for OT check)' : 'เวลาส่ง / รับ (ใช้ตรวจสอบ OT)';
-    return `<div class="card"><h3>📅 ${EN()?'Calendar':'ปฏิทิน'} ${head}</h3><div class="cal">${cells}</div><small class="muted">${legend}</small></div>`; }
+    const lateOut = out => planEnd && out && (toMin(out)-toMin(planEnd))>grace;
+    const render=()=>{ const b=calBase(),y=b.getFullYear(),mo=b.getMonth(); const now=new Date(); const isCur=CAL_OFF===0;
+      const first=new Date(y,mo,1).getDay(); const days=new Date(y,mo+1,0).getDate(); const evByDay={},ioByDay={},lvByDay={};
+      // parents don't see Big Cleaning — only holidays
+      events.filter(e=>e.type!=='bigclean').forEach(e=>{ const d=new Date(e.date); if(d.getFullYear()===y&&d.getMonth()===mo) (evByDay[d.getDate()]=evByDay[d.getDate()]||[]).push(e); });
+      checkins.forEach(c=>{ const d=new Date(c.Date); if(d.getFullYear()===y&&d.getMonth()===mo) ioByDay[d.getDate()]=c; });
+      studentLeaves.forEach(l=>{ const d=new Date(l.Date); if(d.getFullYear()===y&&d.getMonth()===mo) (lvByDay[d.getDate()]=lvByDay[d.getDate()]||[]).push(l); });
+      let cells=['อา','จ','อ','พ','พฤ','ศ','ส'].map(w=>`<div style="text-align:center;font-size:11px;color:#94a3b8">${EN()?({'อา':'Su','จ':'Mo','อ':'Tu','พ':'We','พฤ':'Th','ศ':'Fr','ส':'Sa'}[w]):w}</div>`).join('');
+      for(let i=0;i<first;i++) cells+=`<div class="d dim"></div>`;
+      for(let d=1;d<=days;d++){ const ev=evByDay[d]; const io=ioByDay[d]; const lv=lvByDay[d]; const et=ev?ev[0].type:''; const today=(isCur&&d===now.getDate())?'today':'';
+        const outRed=io&&lateOut(io.OutTime); const outHtml=io?`<span style="${outRed?'color:#d50000;font-weight:800':''}">${esc(io.OutTime||'-')}</span>`:'';
+        cells+=`<div class="d ${ev?'ho':''} ${lv?'ev':''} ${today}" style="${lv?'background:#fff3e0;border-color:#f0c48a;':''}">${d}${ev?`<span class="dot" style="color:#c62828">🏖️ ${esc(EN()?(ev[0].titleEN||ev[0].title):ev[0].title)}</span>`:''}${lv?`<span class="dot" style="color:#e65100">🏠 ${esc(lv[0].Type||lv[0].Reason||(EN()?'leave':'ลา'))}</span>`:''}${io?`<span class="io">${esc(io.InTime||'-')}<br>${outHtml}</span>`:''}</div>`; }
+      return `${calNavHeader(y,mo)}<div class="cal">${cells}</div><small class="muted">${EN()?'↓in ↑out · 🏖️ holiday · 🏠 child on leave':'↓เข้า ↑ออก · 🏖️ วันหยุด · 🏠 ลา'}</small>`; };
+    window._CALRENDER=render;
+    return `<div class="card"><div id="calWrap">${render()}</div></div>`; }
 
   // forced announcement popup for parents (must close before check-in/out); "don't show again" per id
   async function showAnnPopups(onDone){ let anns=[]; try{ anns=await api('activeAnnouncements'); }catch(e){}
@@ -551,7 +560,7 @@
       <div class="card"><div class="spread"><h3>🏠 แจ้งลาบุตรหลาน</h3><button class="btn sm outline" onclick="P_absence()">+ แจ้งลา</button></div>${slHtml}</div>
       <div class="card" id="insCard"></div>
       <div class="card"><h3>📢 ประกาศจากโรงเรียน</h3>${anns.map(annRow).join('')}</div>
-      ${calendarWidget(cal, ci, (MOCK.config.Plans.find(p=>p.id===k0.Plan)||{}).end)}
+      ${calendarWidget(cal, ci, (MOCK.config.Plans.find(p=>p.id===k0.Plan)||{}).end, sl)}
       ${socialFooter()}`;
     // insurance status per child (parent fills once; shows "กรอกแล้ว" if done)
     try{ const sts=await Promise.all(kids.map(k=>api('insuranceStatus',{studentId:k.StudentID})));
@@ -972,7 +981,15 @@
   SCREENS.Teacher.class = async () => {
     const [cl,jstat]=await Promise.all([api('classList',tc()),api('journalStatus',{})]);
     const jdone=journalDoneMap(jstat);
-    app.innerHTML=`<h2 class="page">👶 ${esc(cl.class.ClassName)}</h2>${classSwitcher(cl)}`+cl.students.map(s=>`<div class="card spread"><div style="display:flex;gap:10px;align-items:center">${studentAvatar(s)}<div><b>${esc(dispNick(s))}</b> <small class="muted">${esc(nm(s))}</small><br><small class="muted">${esc(ageYM(s.DOB))} · ${EN()?'allergy':'แพ้'}: ${esc(s.Allergy||'-')}</small><br>${journalPill(jdone[s.StudentID])}</div></div><div class="row"><button class="btn sm ${jdone[s.StudentID]?'outline':''}" onclick="T_journal('${s.StudentID}')" title="${esc(journalBtnLabel(jdone[s.StudentID]))}">${!jdone[s.StudentID]?'📒':(jIsDraft(jdone[s.StudentID])?'✏️':'👁️')}</button><button class="btn sm outline" onclick="T_assess('${s.StudentID}')">📝</button><button class="btn sm green" onclick="T_studentCheckin('${s.StudentID}','${esc(nm(s))}')" title="${EN()?'Check in/out for a non-registered pickup person':'เช็คอิน/เอาท์แทน (คนมารับ-ส่งที่ไม่ได้อยู่ในระบบ)'}">📍</button></div></div>`).join(''); };
+    app.innerHTML=`<h2 class="page">👶 ${esc(cl.class.ClassName)}</h2>${classSwitcher(cl)}`+cl.students.map(s=>`<div class="card spread"><div style="display:flex;gap:10px;align-items:center">${studentAvatar(s)}<div><b>${esc(dispNick(s))}</b> <small class="muted">${esc(nm(s))}</small><br><small class="muted">${esc(ageYM(s.DOB))} · ${EN()?'allergy':'แพ้'}: ${esc(s.Allergy||'-')}</small><br>${journalPill(jdone[s.StudentID])}</div></div><div class="row"><button class="btn sm ${jdone[s.StudentID]?'outline':''}" onclick="T_journal('${s.StudentID}')" title="${esc(journalBtnLabel(jdone[s.StudentID]))}">${!jdone[s.StudentID]?'📒':(jIsDraft(jdone[s.StudentID])?'✏️':'👁️')}</button><button class="btn sm outline" onclick="T_assess('${s.StudentID}')">📝</button><button class="btn sm green" onclick="T_studentCheckin('${s.StudentID}','${esc(nm(s))}')" title="${EN()?'Check in/out for a non-registered pickup person':'เช็คอิน/เอาท์แทน (คนมารับ-ส่งที่ไม่ได้อยู่ในระบบ)'}">📍</button><button class="btn sm outline" onclick="T_studentLeave('${s.StudentID}','${esc(dispNick(s))}')" title="${EN()?'File leave for this student':'แจ้งลาให้นักเรียน'}">🏖️</button></div></div>`).join(''); };
+  // Teacher files a leave for a student → notifies the linked parents; shows in that student's parent calendar
+  window.T_studentLeave=(sid,name)=>{ modal(`<h3>🏖️ ${EN()?'File student leave':'แจ้งลานักเรียน'} — ${esc(name)}</h3>
+    <label class="field"><span>${EN()?'Type':'ประเภท'}</span><select id="tslType"><option>${EN()?'Sick leave':'ลาป่วย'}</option><option>${EN()?'Personal leave':'ลากิจ'}</option><option>${EN()?'Absent':'ขาด'}</option></select></label>
+    <label class="field"><span>${esc(t('inj.date'))}</span><input type="date" id="tslDate" value="${todayStr()}"/></label>
+    <label class="field"><span>${EN()?'Reason':'เหตุผล'}</span><textarea id="tslReason" placeholder="${EN()?'reason…':'เหตุผล...'}"></textarea></label>
+    <button class="btn block" onclick="T_studentLeaveDo('${sid}',this)">${EN()?'Notify parents':'แจ้งผู้ปกครอง'}</button>`); };
+  window.T_studentLeaveDo=async(sid,btn)=>{ const m=btn.closest('.modal'); const g=x=>{const e=m.querySelector('#'+x);return e?e.value:'';};
+    btn.disabled=true; try{ await api('teacherStudentLeave',{staffId:USER.staffId,studentId:sid,date:g('tslDate'),type:g('tslType'),reason:g('tslReason')}); m.remove(); confirmSaved(EN()?'Leave filed — parents notified':'แจ้งลาแล้ว — แจ้งผู้ปกครอง'); }catch(e){err(e);btn.disabled=false;} };
   // Teacher checks a student in/out on behalf of a pickup person who isn't a registered parent.
   // The remark (who it was) is mandatory — the Save button stays disabled until it's filled.
   window.T_studentCheckin=(sid,name)=>{ modal(`<h3>📍 ${EN()?'Check in / out for':'เช็คอิน-เอาท์แทน'} ${esc(name)}</h3>
@@ -1175,41 +1192,47 @@
       <div class="card"><h3>ยื่นใบลา</h3>
         <label class="field"><span>ประเภท</span><select id="lType"><option>ลาป่วย</option><option>ลากิจ</option><option>ลาพักร้อน</option></select></label>
         <div class="grid2"><label class="field"><span>วันที่เริ่ม</span><input type="date" id="lStart" value="${todayStr()}"/></label><label class="field"><span>ถึงวันที่</span><input type="date" id="lEnd" value="${todayStr()}"/></label></div>
-        <label class="field"><span>เหตุผล</span><textarea id="lReason"></textarea></label><button class="btn block" onclick="T_submitLeave()">ส่งคำขอ</button></div>
+        <label class="field"><span>เหตุผล</span><textarea id="lReason"></textarea></label>
+        ${photoField('lDoc',(EN()?'Attachment (medical cert / doc — optional)':'เอกสารแนบ (ใบรับรองแพทย์ ฯลฯ — ถ้ามี)'),'',false)}
+        <button class="btn block" onclick="T_submitLeave()">ส่งคำขอ</button></div>
       <div class="card"><h3>📋 คำขอของฉัน</h3><div id="ml"></div></div>
       ${isLeader?`<div class="card"><h3>⭐ รออนุมัติ — คำขอของลูกน้อง</h3><div id="tp"></div></div>`:''}`;
     setHTML('#ml', (await api('myLeaves',{staffId:USER.staffId})).map(leaveRow).join('')||'<small class="muted">ยังไม่มี</small>');
     if(isLeader) setHTML('#tp', (await api('teamPendingLeaves',{staffId:USER.staffId})).map(teamLeaveRow).join('')||'<small class="muted">ไม่มีคำขอรออนุมัติ</small>');
   };
-  window.T_submitLeave=async()=>{ try{ const r=await api('submitLeave',{staffId:USER.staffId,type:$('#lType').value,startDate:$('#lStart').value,endDate:$('#lEnd').value,reason:$('#lReason').value}); toast(`✅ ส่งคำขอ ${r.leaveId} (${r.days} วัน)`); GO('leave'); }catch(e){err(e);} };
+  window.T_submitLeave=async()=>{ const attachment=photoVal(document,'lDoc'); try{ const r=await api('submitLeave',{staffId:USER.staffId,type:$('#lType').value,startDate:$('#lStart').value,endDate:$('#lEnd').value,reason:$('#lReason').value,attachment}); toast(`✅ ส่งคำขอ ${r.leaveId} (${r.days} วัน)`); GO('leave'); }catch(e){err(e);} };
   window.T_teamApprove=async(id,dec)=>{ try{ const r=await api('approveLeave',{staffId:USER.staffId,leaveId:id,decision:dec}); toast(`✅ ${dec==='approve'?'อนุมัติ(ส่งต่อ Admin)':'ปฏิเสธ'} — ${r.status}`); GO('leave'); }catch(e){err(e);} };
   function leaveStatusPill(st){ const c={PENDING_LEADER:'wait',PENDING_ADMIN:'wait',APPROVED:'ok',REJECTED:'bad'}[st]||'info'; return `<span class="pill ${c}">${esc(tStat(st))}</span>`; }
   // display name for a leave row: nickname first (enriched l.nick/l.name), else staff-cache lookup
   const leaveName = l => (EN()?(l.nickEN||l.nick):(l.nick||l.nickEN)) || (EN()?(l.nameEN||l.name):(l.name||l.nameEN)) || staffNick(l.StaffID);
-  function leaveRow(l){ return `<div class="list-item"><div><b>${esc(l.Type)}</b> ${esc(l.StartDate)}→${esc(l.EndDate)} (${l.Days}ว.)<br><small class="muted">${esc(l.LeaveID)}${l.Step1ApproverName?' · ขั้น1: '+esc(l.Step1ApproverName)+(l.Step1CrossDept==='YES'?' (ข้ามแผนก)':''):''}${l.Step2ApproverName?' · ขั้น2: '+esc(l.Step2ApproverName):''}</small></div>${leaveStatusPill(l.Status)}</div>`; }
-  function teamLeaveRow(l){ return `<div class="card" style="margin:8px 0"><div class="spread"><div><b>${esc(leaveName(l))}</b> <small class="muted">(${esc(l.Department)})</small><br>${esc(l.Type)} ${esc(l.StartDate)}→${esc(l.EndDate)} (${l.Days}ว.)<br><small class="muted">${esc(l.Reason||'')}</small></div>${leaveStatusPill(l.Status)}</div><div class="row" style="margin-top:8px"><button class="btn sm green" onclick="T_teamApprove('${l.LeaveID}','approve')">อนุมัติ</button><button class="btn sm pink" onclick="T_teamApprove('${l.LeaveID}','reject')">ปฏิเสธ</button></div></div>`; }
+  // 📎 attachment link (medical cert / doc) if present
+  const leaveDoc = l => l.Attachment ? ` <a href="${esc(l.Attachment)}" target="_blank" onclick="event.stopPropagation()">📎</a>` : '';
+  function leaveRow(l){ return `<div class="list-item"><div><b>${esc(l.Type)}</b> ${esc(l.StartDate)}→${esc(l.EndDate)} (${l.Days}ว.)${leaveDoc(l)}<br><small class="muted">${esc(l.LeaveID)}${l.Step1ApproverName?' · ขั้น1: '+esc(l.Step1ApproverName)+(l.Step1CrossDept==='YES'?' (ข้ามแผนก)':''):''}${l.Step2ApproverName?' · ขั้น2: '+esc(l.Step2ApproverName):''}</small></div>${leaveStatusPill(l.Status)}</div>`; }
+  function teamLeaveRow(l){ return `<div class="card" style="margin:8px 0"><div class="spread"><div><b>${esc(leaveName(l))}</b> <small class="muted">(${esc(l.Department)})</small><br>${esc(l.Type)} ${esc(l.StartDate)}→${esc(l.EndDate)} (${l.Days}ว.)${leaveDoc(l)}<br><small class="muted">${esc(l.Reason||'')}</small></div>${leaveStatusPill(l.Status)}</div><div class="row" style="margin-top:8px"><button class="btn sm green" onclick="T_teamApprove('${l.LeaveID}','approve')">อนุมัติ</button><button class="btn sm pink" onclick="T_teamApprove('${l.LeaveID}','reject')">ปฏิเสธ</button></div></div>`; }
 
   const firstName = s => (nm(s)||'').split(' ')[0];
   // opts: { shortName(staffId), holidays:[{Date,NameTH,NameEN}], leaves:[approved] } — never reads MOCK.staff
+  // Teacher calendar: check-in/out times + holidays + Big Cleaning + leaves of ALL staff. Navigable (all months).
   function staffSchedCalendar(history, opts){ opts=opts||{};
     const shortName=opts.shortName||(id=>id);
-    const now=new Date(),y=now.getFullYear(),mo=now.getMonth();
-    const first=new Date(y,mo,1).getDay(),days=new Date(y,mo+1,0).getDate(); const byDay={};
-    const holByDay={}; (opts.holidays||[]).forEach(h=>{ const d=new Date(h.Date); if(d.getFullYear()===y&&d.getMonth()===mo) holByDay[d.getDate()]=EN()?(h.NameEN||h.NameTH):(h.NameTH||h.NameEN); });
-    const bcByDay={}; (opts.bigCleaning||[]).forEach(s=>{ const d=new Date(s); if(d.getFullYear()===y&&d.getMonth()===mo) bcByDay[d.getDate()]=1; });
-    (history||[]).forEach(h=>{ const d=new Date(h.Date); if(d.getFullYear()===y&&d.getMonth()===mo){ (byDay[d.getDate()]=byDay[d.getDate()]||[]).push(shortName(h.StaffID)+(h.In?' '+h.In:'')); } });
-    // approved leaves overlapping each day -> "Nickname (LeaveType)"
-    (opts.leaves||[]).filter(l=>l.Status==='APPROVED').forEach(l=>{ const st=new Date(l.StartDate),en=new Date(l.EndDate); for(let dt=new Date(st); dt<=en; dt.setDate(dt.getDate()+1)){ if(dt.getFullYear()===y&&dt.getMonth()===mo){ (byDay[dt.getDate()]=byDay[dt.getDate()]||[]).push(shortName(l.StaffID)+' ('+tLeaveType(l.Type)+')'); } } });
-    let cells=['อา','จ','อ','พ','พฤ','ศ','ส'].map(w=>`<div style="text-align:center;font-size:11px;color:#94a3b8">${EN()?({'อา':'Su','จ':'Mo','อ':'Tu','พ':'We','พฤ':'Th','ศ':'Fr','ส':'Sa'}[w]):w}</div>`).join('');
-    for(let i=0;i<first;i++) cells+='<div class="d dim"></div>';
-    for(let dd=1;dd<=days;dd++){ const ppl=byDay[dd]; const hol=holByDay[dd]; const bc=bcByDay[dd]; const today=dd===now.getDate()?'today':'';
-      const holStyle=hol?'background:#ffebee;border-color:#ef9a9a;':(bc?'background:#e0f7fa;border-color:#80deea;':'');
-      cells+=`<div class="d ${ppl?'ev':''} ${today}" style="min-height:64px;${holStyle}">${dd}`
-        +(hol?`<span class="io" style="color:#c62828;text-align:left;font-weight:600">🏖️ ${esc(hol)}</span>`:'')
-        +(bc&&!hol?`<span class="io" style="color:#00838f;text-align:left;font-weight:600">🧹 ${EN()?'Cleaning':'ทำความสะอาด'}</span>`:'')
-        +(ppl?`<span class="io" style="color:#2e7d32;text-align:left">${esc(ppl.join('\n'))}</span>`:'')+`</div>`; }
-    const M=['ม.ค.','ก.พ.','มี.ค.','เม.ย.','พ.ค.','มิ.ย.','ก.ค.','ส.ค.','ก.ย.','ต.ค.','พ.ย.','ธ.ค.'], ME=['January','February','March','April','May','June','July','August','September','October','November','December'];
-    return `<div class="card"><h3>${esc(t('lbl.calendar'))} ${EN()?ME[mo]+' '+y:M[mo]+' '+(y+543)}</h3><div class="cal">${cells}</div><small class="muted">${EN()?'Nickname + check-in time; 🏖️ = school holiday':'ชื่อเล่น + เวลาเข้างาน; 🏖️ = วันหยุดโรงเรียน'}</small></div>`; }
+    const render=()=>{ const b=calBase(),y=b.getFullYear(),mo=b.getMonth(); const now=new Date(); const isCur=CAL_OFF===0;
+      const first=new Date(y,mo,1).getDay(),days=new Date(y,mo+1,0).getDate(); const byDay={};
+      const holByDay={}; (opts.holidays||[]).forEach(h=>{ const d=new Date(h.Date); if(d.getFullYear()===y&&d.getMonth()===mo) holByDay[d.getDate()]=EN()?(h.NameEN||h.NameTH):(h.NameTH||h.NameEN); });
+      const bcByDay={}; (opts.bigCleaning||[]).forEach(s=>{ const d=new Date(s); if(d.getFullYear()===y&&d.getMonth()===mo) bcByDay[d.getDate()]=1; });
+      (history||[]).forEach(h=>{ const d=new Date(h.Date); if(d.getFullYear()===y&&d.getMonth()===mo){ const io=(h.In?'↓'+h.In:'')+(h.Out?' ↑'+h.Out:''); (byDay[d.getDate()]=byDay[d.getDate()]||[]).push(shortName(h.StaffID)+(io?' '+io:'')); } });
+      // approved leaves of ALL staff overlapping each day → "Nickname (LeaveType)"
+      (opts.leaves||[]).filter(l=>l.Status==='APPROVED').forEach(l=>{ const st=new Date(l.StartDate),en=new Date(l.EndDate); for(let dt=new Date(st); dt<=en; dt.setDate(dt.getDate()+1)){ if(dt.getFullYear()===y&&dt.getMonth()===mo){ (byDay[dt.getDate()]=byDay[dt.getDate()]||[]).push('🏠 '+shortName(l.StaffID)+' ('+tLeaveType(l.Type)+')'); } } });
+      let cells=['อา','จ','อ','พ','พฤ','ศ','ส'].map(w=>`<div style="text-align:center;font-size:11px;color:#94a3b8">${EN()?({'อา':'Su','จ':'Mo','อ':'Tu','พ':'We','พฤ':'Th','ศ':'Fr','ส':'Sa'}[w]):w}</div>`).join('');
+      for(let i=0;i<first;i++) cells+='<div class="d dim"></div>';
+      for(let dd=1;dd<=days;dd++){ const ppl=byDay[dd]; const hol=holByDay[dd]; const bc=bcByDay[dd]; const today=(isCur&&dd===now.getDate())?'today':'';
+        const holStyle=hol?'background:#ffebee;border-color:#ef9a9a;':(bc?'background:#e0f7fa;border-color:#80deea;':'');
+        cells+=`<div class="d ${ppl?'ev':''} ${today}" style="min-height:64px;${holStyle}">${dd}`
+          +(hol?`<span class="io" style="color:#c62828;text-align:left;font-weight:600">🏖️ ${esc(hol)}</span>`:'')
+          +(bc&&!hol?`<span class="io" style="color:#00838f;text-align:left;font-weight:600">🧹 ${EN()?'Cleaning':'ทำความสะอาด'}</span>`:'')
+          +(ppl?`<span class="io" style="color:#2e7d32;text-align:left">${esc(ppl.join('\n'))}</span>`:'')+`</div>`; }
+      return `${calNavHeader(y,mo)}<div class="cal">${cells}</div><small class="muted">${EN()?'↓in ↑out · 🏖️ holiday · 🧹 cleaning · 🏠 on leave (all staff)':'↓เข้า ↑ออก · 🏖️ วันหยุด · 🧹 ทำความสะอาด · 🏠 ลา (พนักงานทุกคน)'}</small>`; };
+    window._CALRENDER=render;
+    return `<div class="card"><div id="calWrap">${render()}</div></div>`; }
   SCREENS.Teacher.schedule = async () => { const d=await api('schedule');
     const todayDuty=d.duty.filter(x=>x.Date===todayStr());
     const staffing=d.staffing||[];
@@ -1362,19 +1385,21 @@
 
   // one admin leave card: nickname + dept + type/dates + reason + status + actions (approve/reject/edit/cancel)
   function leaveAdminCard(l){ const isPA=String(l.Status)==='PENDING_ADMIN';
-    return `<div class="card"><div class="spread"><div><b>${esc(leaveName(l))}</b> <small class="muted">(${esc(l.Department||'-')})</small><br>${esc(l.Type)} ${esc(l.StartDate)}→${esc(l.EndDate)} (${l.Days} ${EN()?'d':'วัน'})<br><small class="muted">${esc(l.Reason||'')}</small>${l.Step1ApproverName?`<br><small>${EN()?'via leader':'ผ่านหัวหน้างาน'}: ${esc(l.Step1ApproverName)}${l.Step1CrossDept==='YES'?' ⚠️ '+(EN()?'cross-dept':'ข้ามแผนก'):''}</small>`:''}</div>${leaveStatusPill(l.Status)}</div>
+    return `<div class="card"><div class="spread"><div><b>${esc(leaveName(l))}</b> <small class="muted">(${esc(l.Department||'-')})</small><br>${esc(l.Type)} ${esc(l.StartDate)}→${esc(l.EndDate)} (${l.Days} ${EN()?'d':'วัน'})${leaveDoc(l)}<br><small class="muted">${esc(l.Reason||'')}</small>${l.Step1ApproverName?`<br><small>${EN()?'via leader':'ผ่านหัวหน้างาน'}: ${esc(l.Step1ApproverName)}${l.Step1CrossDept==='YES'?' ⚠️ '+(EN()?'cross-dept':'ข้ามแผนก'):''}</small>`:''}</div>${leaveStatusPill(l.Status)}</div>
       <div class="row" style="margin-top:8px">${isPA?`<button class="btn sm green" onclick="A_leave('${l.LeaveID}','approve')">${esc(t('ot.approve'))}</button><button class="btn sm pink" onclick="A_leave('${l.LeaveID}','reject')">${esc(t('ot.reject'))}</button>`:''}<button class="btn sm outline" onclick="A_editLeave('${l.LeaveID}')">✏️ ${EN()?'Edit':'แก้ไข'}</button><button class="btn sm pink" onclick="A_cancelLeave('${l.LeaveID}')">🗑️ ${EN()?'Cancel':'ยกเลิก'}</button></div></div>`; }
   // month calendar of who is on leave each day (spot same-day overlaps — ≥2 on a day is flagged red)
-  function leaveCalendar(all){ const now=new Date(),y=now.getFullYear(),mo=now.getMonth();
-    const first=new Date(y,mo,1).getDay(),days=new Date(y,mo+1,0).getDate(); const byDay={};
-    all.filter(l=>l.Status!=='REJECTED').forEach(l=>{ const st=new Date(l.StartDate),en=new Date(l.EndDate);
-      for(let dt=new Date(st);dt<=en;dt.setDate(dt.getDate()+1)){ if(dt.getFullYear()===y&&dt.getMonth()===mo)(byDay[dt.getDate()]=byDay[dt.getDate()]||[]).push(leaveName(l)); } });
-    let cells=['อา','จ','อ','พ','พฤ','ศ','ส'].map(w=>`<div style="text-align:center;font-size:11px;color:#94a3b8">${EN()?({'อา':'Su','จ':'Mo','อ':'Tu','พ':'We','พฤ':'Th','ศ':'Fr','ส':'Sa'}[w]):w}</div>`).join('');
-    for(let i=0;i<first;i++)cells+='<div class="d dim"></div>';
-    for(let dd=1;dd<=days;dd++){ const ppl=byDay[dd]; const today=dd===now.getDate()?'today':''; const clash=ppl&&ppl.length>=2;
-      cells+=`<div class="d ${ppl?'ev':''} ${today}" style="min-height:52px;${clash?'background:#ffebee;border-color:#ef9a9a;':''}">${dd}${ppl?`<span class="io" style="text-align:left;color:${clash?'#c62828':'#2e7d32'};font-weight:600">${esc(ppl.join('\n'))}</span>`:''}</div>`; }
-    const M=['ม.ค.','ก.พ.','มี.ค.','เม.ย.','พ.ค.','มิ.ย.','ก.ค.','ส.ค.','ก.ย.','ต.ค.','พ.ย.','ธ.ค.'],ME=['January','February','March','April','May','June','July','August','September','October','November','December'];
-    return `<div class="card"><h3 style="margin-top:0">${esc(t('lbl.calendar'))} ${EN()?ME[mo]+' '+y:M[mo]+' '+(y+543)}</h3><div class="cal">${cells}</div><small class="muted">${EN()?'Red = 2+ staff on leave the same day':'สีแดง = ลาซ้ำวันเดียวกัน ≥2 คน'}</small></div>`; }
+  function leaveCalendar(all){
+    const render=()=>{ const b=calBase(),y=b.getFullYear(),mo=b.getMonth(); const now=new Date(); const isCur=CAL_OFF===0;
+      const first=new Date(y,mo,1).getDay(),days=new Date(y,mo+1,0).getDate(); const byDay={};
+      all.filter(l=>l.Status!=='REJECTED').forEach(l=>{ const st=new Date(l.StartDate),en=new Date(l.EndDate);
+        for(let dt=new Date(st);dt<=en;dt.setDate(dt.getDate()+1)){ if(dt.getFullYear()===y&&dt.getMonth()===mo)(byDay[dt.getDate()]=byDay[dt.getDate()]||[]).push(leaveName(l)); } });
+      let cells=['อา','จ','อ','พ','พฤ','ศ','ส'].map(w=>`<div style="text-align:center;font-size:11px;color:#94a3b8">${EN()?({'อา':'Su','จ':'Mo','อ':'Tu','พ':'We','พฤ':'Th','ศ':'Fr','ส':'Sa'}[w]):w}</div>`).join('');
+      for(let i=0;i<first;i++)cells+='<div class="d dim"></div>';
+      for(let dd=1;dd<=days;dd++){ const ppl=byDay[dd]; const today=(isCur&&dd===now.getDate())?'today':''; const clash=ppl&&ppl.length>=2;
+        cells+=`<div class="d ${ppl?'ev':''} ${today}" style="min-height:52px;${clash?'background:#ffebee;border-color:#ef9a9a;':''}">${dd}${ppl?`<span class="io" style="text-align:left;color:${clash?'#c62828':'#2e7d32'};font-weight:600">${esc(ppl.join('\n'))}</span>`:''}</div>`; }
+      return `${calNavHeader(y,mo)}<div class="cal">${cells}</div><small class="muted">${EN()?'Red = 2+ staff on leave the same day':'สีแดง = ลาซ้ำวันเดียวกัน ≥2 คน'}</small>`; };
+    window._CALRENDER=render;
+    return `<div class="card"><div id="calWrap">${render()}</div></div>`; }
 
   let LV_TAB='pending';  // default tab = in-progress
   SCREENS.Admin.leaves = async () => {

@@ -131,7 +131,9 @@ SCHEMA[WB.HR] = {
   // 2-step approval: Leader (step 1) -> Admin (step 2); cross-dept flagged. (chat spec)
   LEAVE_REQUEST: ['LeaveID', 'StaffID', 'Department', 'Type', 'StartDate', 'EndDate', 'Days', 'Reason', 'Status',
                   'Step1ApproverID', 'Step1ApproverName', 'Step1Status', 'Step1Date', 'Step1CrossDept',
-                  'Step2ApproverID', 'Step2ApproverName', 'Step2Status', 'Step2Date', 'CreatedDate'],
+                  'Step2ApproverID', 'Step2ApproverName', 'Step2Status', 'Step2Date', 'CreatedDate', 'Attachment'],
+  // Student leave/absence filed by a teacher — shown in the linked parents' calendar only.
+  // (LEAVE_REQUEST_STD already exists; Type added for sick/absence distinction — appended at END.)
   // Staff evening OT with a 2-step approval lifecycle (teacher → Leader → Admin). Status =
   // PENDING_LEADER | PENDING_ADMIN | APPROVED | REJECTED; only APPROVED counts in payroll.
   // Hours are FULL hours (≥50 min in the last hour rounds up, else drops). Minutes..Note appended at END.
