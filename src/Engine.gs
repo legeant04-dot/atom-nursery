@@ -223,7 +223,10 @@ function createAtomAPI(M, GROWTH_STD) {
       return { date, done: M.journals.filter(x=>ymd(x.Date)===date && (!only||only.indexOf(String(x.StudentID))>=0))
         .map(x=>({studentId:x.StudentID, teacherId:x.TeacherID, status:jStatus_(x),
                   submittedAt:x.SubmittedAt||'', updatedAt:x.UpdatedAt||''})) }; },
-    studentAbsence: p => { const id='LVS-'+String(Date.now()).slice(-4); M.studentLeaves.push({LeaveID:id,StudentID:p.studentId,Date:p.date,Reason:p.reason,Status:'Notified'}); return {leaveId:id,teacherNotified:true}; },
+    studentAbsence: p => { const id='LVS-'+String(Date.now()).slice(-4); M.studentLeaves.push({LeaveID:id,StudentID:p.studentId,Date:p.date,Reason:p.reason,Type:p.type||'',Status:'Notified'}); return {leaveId:id,teacherNotified:true}; },
+    // Teacher files a leave for a student (notifies the linked parents). Shows in that student's parent calendar only.
+    teacherStudentLeave: p => { const id='LVS-'+String(Date.now()).slice(-4);
+      M.studentLeaves.push({LeaveID:id,StudentID:p.studentId,Date:p.date,Reason:p.reason||'',Type:p.type||'',Status:'Notified',FiledBy:p.staffId}); return {leaveId:id,parentNotified:true}; },
     studentLeaves: p => M.studentLeaves.filter(l=>l.StudentID===p.studentId).sort((a,b)=>b.Date.localeCompare(a.Date)),
     comments: p => M.comments.filter(c=>c.StudentID===p.studentId),
     addComment: p => { const c={CommentID:'CM-'+(M.comments.length+1),StudentID:p.studentId,ParentID:p.parentId||'',SenderRole:p.senderRole,SenderName:p.senderName||'',Message:p.message,Timestamp:stampLocal(),ReadStatus:'unread'}; M.comments.push(c); return c; },
@@ -361,14 +364,16 @@ function createAtomAPI(M, GROWTH_STD) {
         .forEach(h=>out.push({date:h.Date, checkIn:h.In||'', checkOut:h.Out||'', late:lateOf(h.In), status:h.In?'IN':'ABSENT'}));
       return out; },
     staffCheckin: p => { const d=geo(p.lat,p.lng); const t=new Date(); const sch=M.workSchedule.find(w=>w.StaffID===p.staffId)||{CheckInTime:'08:00'};
-      // check-in within the grace window (≤LateGraceMinutes) counts as on-time; a Big Cleaning Day has
-      // no fixed hours so it is never late.
-      const raw=lateVs(sch.CheckInTime,t); const late=isBigCleaning_(todayLocal())?0:(raw<=Number(cfg.LateGraceMinutes||0)?0:raw);
+      // A Big Cleaning Day is a special workday with fixed hours 08:30–17:00 (config BigCleaningIn) — late is
+      // measured against 08:30 that day, not the staff's group time.
+      const bc=isBigCleaning_(todayLocal()); const inT=bc?(cfg.BigCleaningIn||'08:30'):sch.CheckInTime;
+      const raw=lateVs(inT,t); const late=raw<=Number(cfg.LateGraceMinutes||0)?0:raw;
       let r=M.staffAttendanceToday.find(x=>x.StaffID===p.staffId);
       if(!r){r={StaffID:p.staffId,CheckIn:'',CheckOut:'',Status:'NONE',Late:0};M.staffAttendanceToday.push(r);} r.CheckIn=timeLocal();r.Late=late;r.Status='IN';
       return {time:r.CheckIn,lateMinutes:late,rawLate:raw,distance:d}; },
     staffCheckout: p => { const d=geo(p.lat,p.lng); const t=new Date(); const sch=M.workSchedule.find(w=>w.StaffID===p.staffId)||{CheckOutTime:'17:00'};
-      const ot=Math.max(0,(t.getHours()*60+t.getMinutes())-toMin(sch.CheckOutTime));
+      const outT=isBigCleaning_(todayLocal())?(cfg.BigCleaningOut||'17:00'):sch.CheckOutTime;
+      const ot=Math.max(0,(t.getHours()*60+t.getMinutes())-toMin(outT));
       // OT rule: ≥OTRoundUpMinutes (50) within an hour rounds up to a full hour
       let r=M.staffAttendanceToday.find(x=>x.StaffID===p.staffId); if(!r)fail('NOT_CHECKED_IN','ยังไม่ได้ลงเวลาเข้างาน'); r.CheckOut=timeLocal();r.Status='OUT';r.OTHours=otHoursRule(ot);
       return {time:r.CheckOut,otHours:r.OTHours,otMinutes:ot,distance:d}; },
@@ -431,7 +436,7 @@ function createAtomAPI(M, GROWTH_STD) {
       // leave entitlement does not carry across the year — a request may not span 31 Dec → next year
       if(String(p.startDate).slice(0,4)!==String(p.endDate).slice(0,4)) fail('CROSS_YEAR','ใช้สิทธิลาข้ามปีไม่ได้ — กรุณาแยกใบลาภายในปีเดียวกัน');
       const lead=(st.PositionLevel==='Leader'||st.PositionLevel==='Admin'); const days=Math.floor((new Date(p.endDate)-new Date(p.startDate))/864e5)+1;
-      M.leaves.push({LeaveID:id,StaffID:p.staffId,Department:st.Department,Type:p.type,StartDate:p.startDate,EndDate:p.endDate,Days:days,Reason:p.reason,Status:lead?'PENDING_ADMIN':'PENDING_LEADER',Step1ApproverName:'',Step1Status:lead?'Skipped':'Pending',Step1CrossDept:'',Step2ApproverName:'',Step2Status:'Pending',CreatedDate:todayLocal()});
+      M.leaves.push({LeaveID:id,StaffID:p.staffId,Department:st.Department,Type:p.type,StartDate:p.startDate,EndDate:p.endDate,Days:days,Reason:p.reason,Status:lead?'PENDING_ADMIN':'PENDING_LEADER',Step1ApproverName:'',Step1Status:lead?'Skipped':'Pending',Step1CrossDept:'',Step2ApproverName:'',Step2Status:'Pending',CreatedDate:todayLocal(),Attachment:p.attachment||''});
       return {leaveId:id,status:lead?'PENDING_ADMIN':'PENDING_LEADER',days}; },
     approveLeave: p => { const ap=staffById(p.staffId); const l=M.leaves.find(x=>x.LeaveID===p.leaveId); if(!l)fail('NOT_FOUND','ไม่พบคำขอ'); const yes=p.decision==='approve';
       if(l.Status==='PENDING_LEADER'){ if(ap.PositionLevel!=='Leader'&&ap.PositionLevel!=='Admin')fail('NO_PERMISSION','เฉพาะหัวหน้างาน'); l.Step1ApproverName=ap.NameTH;l.Step1Status=yes?'Approved':'Rejected';l.Step1CrossDept=(ap.Department!==l.Department)?'YES':'NO';l.Status=yes?'PENDING_ADMIN':'REJECTED'; return {status:l.Status,crossDept:l.Step1CrossDept==='YES'}; }
@@ -763,7 +768,7 @@ function createAtomAPI(M, GROWTH_STD) {
     getLeaveQuota: () => cfg.LeaveQuota,
     // admin edits whitelisted config (geofence etc.) — GAS route persists to SCHOOL_CONFIG; here = mock
     schoolConfig: () => ({ GPS_Lat:cfg.GPS_Lat, GPS_Lng:cfg.GPS_Lng, Radius:cfg.Radius, LateGraceMinutes:cfg.LateGraceMinutes, OTRatePerHour:cfg.OTRatePerHour, StaffOTHourlyRate:cfg.StaffOTHourlyRate }),
-    setSchoolConfig: p => { const W={GPS_Lat:1,GPS_Lng:1,Radius:1,LateGraceMinutes:1,OTRatePerHour:1,OTGraceMinutes:1,StaffOTHourlyRate:1,OTRoundUpMinutes:1,DefaultCheckInTime:1,DefaultCheckOutTime:1,BigCleaningAmount:1}; const v=p.values||{};
+    setSchoolConfig: p => { const W={GPS_Lat:1,GPS_Lng:1,Radius:1,LateGraceMinutes:1,OTRatePerHour:1,OTGraceMinutes:1,StaffOTHourlyRate:1,OTRoundUpMinutes:1,DefaultCheckInTime:1,DefaultCheckOutTime:1,BigCleaningAmount:1,BigCleaningIn:1,BigCleaningOut:1}; const v=p.values||{};
       Object.keys(v).forEach(k=>{ if(W[k]) cfg[k]=isNaN(Number(v[k]))?v[k]:Number(v[k]); }); return {ok:true, wrote:v}; },
     leaveResetReminder: () => { const n=new Date(); return {due:n.getMonth()===0, month:n.getMonth()+1, year:n.getFullYear()}; }, // every January
     // verify the teacher OT computation across the attendance history (schedule out vs actual out)
