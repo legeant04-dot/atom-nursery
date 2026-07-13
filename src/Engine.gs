@@ -62,14 +62,25 @@ function createAtomAPI(M, GROWTH_STD) {
   // enrich a leave request with the requester's names (so lists show a nickname, not STF-xxx)
   function leaveView_(l){ const s=staffById_(l.StaffID); return Object.assign({}, l,
     {name:s.NameTH,nameEN:s.NameEN,nick:s.Nickname,nickEN:s.NicknameEN}); }
+  // EVERY class students are actually in: CLASSES rows ∪ departments master ∪ distinct student Class.
+  // A department-only class (no CLASSES row) is synthesized as {ClassName}. Never build a class list
+  // from M.classes alone — students live in departments (Nursery Baby/Premium) that have no CLASSES row.
+  function allClassObjs_(){ const names=[]; const add=n=>{ n=String(n||'').trim(); if(n&&names.indexOf(n)<0)names.push(n); };
+    (M.classes||[]).forEach(c=>add(c.ClassName));
+    (Array.isArray(cfg.Departments)?cfg.Departments:String(cfg.Departments||'').split(',')).forEach(add);
+    activeStudents().forEach(s=>add(s.Class));
+    return names.map(n=>(M.classes||[]).find(c=>c.ClassName===n)||{ClassName:n}); }
   // classes a staff covers (see classList). Returns an array of class objects, never empty when classes exist.
-  function coveredClasses_(staff){ staff=staff||{}; const all=M.classes||[];
-    const lvl=String(staff.PositionLevel||''); const list=String(staff.Classes||'').split(',').map(x=>x.trim()).filter(Boolean);
-    if(lvl==='Admin'||lvl==='Leader'||list.indexOf('*')>=0) return all.slice();
+  function coveredClasses_(staff){ staff=staff||{}; const all=allClassObjs_();
+    const lvl=String(staff.PositionLevel||''), role=String(staff.Role||'');
+    // Admin/Leader (or Classes/Department = '*') → ALL classes students are in
+    const dept=String(staff.Department||''), list=String(staff.Classes||'').split(',').map(x=>x.trim()).filter(Boolean);
+    if(lvl==='Admin'||lvl==='Leader'||role==='Admin'||list.indexOf('*')>=0||dept==='*') return all.slice();
     const names={};
     all.forEach(c=>{ if(c.TeacherID===staff.StaffID) names[c.ClassName]=1; });
     list.forEach(n=>names[n]=1);
-    if(staff.Department) all.forEach(c=>{ if(c.ClassName===staff.Department) names[c.ClassName]=1; });
+    // Department may be a comma list of the department(s) this staff is responsible for
+    dept.split(',').map(x=>x.trim()).filter(Boolean).forEach(n=>names[n]=1);
     const cls=all.filter(c=>names[c.ClassName]);
     return cls.length?cls:[all.find(c=>c.TeacherID===staff.StaffID)||all[0]].filter(Boolean); }
   // OT for a pickup time (HH:MM) vs the student's plan end + grace; 100/started hour
@@ -201,6 +212,10 @@ function createAtomAPI(M, GROWTH_STD) {
       return (!r || (jStatus_(r)==='DRAFT' && !staffViewer_(p))) ? null : r; },
     journalHistory: p => M.journals.filter(x=>x.StudentID===p.studentId && (jStatus_(x)==='SUBMITTED' || staffViewer_(p)))
       .sort((a,b)=>ymd(b.Date).localeCompare(ymd(a.Date))).slice(0,p.limit||14),
+    // Parent adds/updates their comment on a submitted daily report (does not touch teacher fields)
+    saveParentComment: p => { const date=p.date||todayLocal();
+      const j=M.journals.find(x=>x.StudentID===p.studentId&&ymd(x.Date)===date); if(!j)fail('NOT_FOUND','ยังไม่มีบันทึกของวันนี้');
+      j.ParentComment=String(p.comment||''); return {ok:true,studentId:p.studentId,date}; },
     // which students already have a journal for `date`, and whether it is a DRAFT or SUBMITTED —
     // feeds the teacher's badge. Read-only, so it runs through the engine on GAS too (no route needed).
     journalStatus: p => { const date=p.date||todayLocal();
@@ -368,6 +383,7 @@ function createAtomAPI(M, GROWTH_STD) {
       // TeacherID keeps the original author when someone else (an admin after unlocking) edits the entry.
       const rec=Object.assign({},p,{Date:date,StudentID:p.studentId,
         TeacherID:(i>=0&&M.journals[i].TeacherID)||p.staffId,
+        ParentComment:(i>=0&&M.journals[i].ParentComment)||'',  // preserve the parent's comment across teacher edits
         Status:submit?'SUBMITTED':'DRAFT',UpdatedAt:now,SubmittedAt:submit?now:''});
       delete rec.staffId; delete rec.studentId; delete rec.date; delete rec.submit;
       const out={updated:i>=0,submitted:submit,status:rec.Status,submittedAt:rec.SubmittedAt,updatedAt:now};
@@ -431,10 +447,13 @@ function createAtomAPI(M, GROWTH_STD) {
       history:M.staffAttendanceHistory, duty:M.dutyRoster, staffing:H.staffingByNursery(),
       holidays: (M.holidays||[]).map(h=>({Date:h.Date, NameTH:h.NameTH, NameEN:h.NameEN})), bigCleaning: bigCleaningList_() }),
     // present-staff / total-staff per Nursery for the daily summary (e.g. "Nursery 1 2/2")
-    staffingByNursery: () => (cfg.Departments||[]).filter(d=>d).map(dep=>{
-      const team=M.staff.filter(s=>s.Department===dep&&s.Role==='Teacher'&&s.RequireCheckin!==false);
-      const present=team.filter(s=>{ const a=M.staffAttendanceToday.find(x=>x.StaffID===s.StaffID); return a&&(a.Status==='IN'||a.Status==='OUT'); }).length;
-      return {dept:dep, present, total:team.length}; }).filter(x=>x.total>0),
+    // a staff's Department may be a comma list of the department(s) they cover (or '*' = all) → count in each
+    staffingByNursery: () => { const deps=(Array.isArray(cfg.Departments)?cfg.Departments:String(cfg.Departments||'').split(',')).map(d=>String(d).trim()).filter(Boolean);
+      const covers=(s,dep)=>{ const d=String(s.Department||''); return d==='*'||d.split(',').map(x=>x.trim()).indexOf(dep)>=0; };
+      return deps.map(dep=>{
+        const team=M.staff.filter(s=>covers(s,dep)&&s.Role==='Teacher'&&s.RequireCheckin!==false);
+        const present=team.filter(s=>{ const a=M.staffAttendanceToday.find(x=>x.StaffID===s.StaffID); return a&&(a.Status==='IN'||a.Status==='OUT'); }).length;
+        return {dept:dep, present, total:team.length}; }).filter(x=>x.total>0); },
 
     payrollConfig: p => Object.assign({SocialSecurityDeduct:true,ChildThreshold:cfg.ExtraChildThreshold||31,ChildMultiplier:cfg.ExtraChildRate,TaxDeduct:false}, M.payrollConfig[p.staffId]||{}),
     setPayrollConfig: p => { M.payrollConfig[p.staffId]=Object.assign(M.payrollConfig[p.staffId]||{},p.config||{}); return M.payrollConfig[p.staffId]; },

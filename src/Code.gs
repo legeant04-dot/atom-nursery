@@ -83,6 +83,7 @@ var ROUTES = {
   // which returns null/[] gracefully instead of throwing NOT_FOUND when there is no journal yet)
   submitJournal:  function (p) { return handleSubmitJournal(p); },
   unlockJournal:  function (p) { return handleUnlockJournal(p); },   // admin-only, see ADMIN_ONLY
+  saveParentComment: function (p) { return handleSaveParentComment(p); },   // parent comment (parentOwnsStudent_ gates)
   // Day 5 — DSPM Assessment + analytics
   dspmCriteria:      function (p) { return handleDspmCriteria(p); },
   submitAssessment:  function (p) { return handleSubmitAssessment(p); },

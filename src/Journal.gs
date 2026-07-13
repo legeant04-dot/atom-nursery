@@ -11,7 +11,7 @@
  * ------------------------------------------------------------------
  */
 var JOURNAL_FIELDS = ['Mood', 'Health', 'Milk', 'Meals', 'Sleep', 'Toilet', 'Activity', 'Skills', 'Highlight',
-  'HealthDetail', 'MilkTotal', 'Water', 'Theme'];
+  'HealthDetail', 'MilkTotal', 'Water', 'Theme', 'MilkUnit'];
 var JOURNAL_REQUIRED = ['Mood']; // minimum to submit (spec: block submit if required missing)
 
 function jsonCell_(v) {
@@ -43,7 +43,7 @@ function handleSubmitJournal(payload) {
 
   var date = payload.date || dateStr_(new Date());
   var sheet = sheet_(getMainSpreadsheet_(), 'DAILY_JOURNAL');
-  ensureColumns_(sheet, ['HealthDetail', 'MilkTotal', 'Water', 'Theme', 'SubmittedAt', 'Status', 'UpdatedAt']);
+  ensureColumns_(sheet, ['HealthDetail', 'MilkTotal', 'Water', 'Theme', 'SubmittedAt', 'Status', 'UpdatedAt', 'MilkUnit', 'ParentComment']);
 
   var existing = findObject_(sheet, function (r) {
     return String(r.StudentID) === String(student.StudentID) && dateStr_(new Date(r.Date)) === date;
@@ -99,7 +99,7 @@ function handleUnlockJournal(payload) {
   var student = getStudent_(payload.studentId);
   var date = payload.date || dateStr_(new Date());
   var sheet = sheet_(getMainSpreadsheet_(), 'DAILY_JOURNAL');
-  ensureColumns_(sheet, ['HealthDetail', 'MilkTotal', 'Water', 'Theme', 'SubmittedAt', 'Status', 'UpdatedAt']);
+  ensureColumns_(sheet, ['HealthDetail', 'MilkTotal', 'Water', 'Theme', 'SubmittedAt', 'Status', 'UpdatedAt', 'MilkUnit', 'ParentComment']);
   var row = findObject_(sheet, function (r) {
     return String(r.StudentID) === String(student.StudentID) && dateStr_(new Date(r.Date)) === date;
   });
@@ -108,6 +108,25 @@ function handleUnlockJournal(payload) {
   if (typeof cacheDel_ === 'function') { cacheDel_('col:DAILY_JOURNAL'); cacheDel_('rows:DAILY_JOURNAL'); }
   logAudit(payload.staffId || payload.uid || 'ADMIN', 'JOURNAL_UNLOCK', 'DAILY_JOURNAL', student.StudentID + '@' + date);
   return { studentId: student.StudentID, date: date, status: 'DRAFT' };
+}
+
+/**
+ * Parent adds/updates their comment on a daily report (in place — never touches the teacher's fields).
+ * parentId/uid injected by applyIdentity_ + parentOwnsStudent_ gates access. payload: { studentId, date?, comment }
+ */
+function handleSaveParentComment(payload) {
+  payload = payload || {};
+  var student = getStudent_(payload.studentId);
+  var date = payload.date || dateStr_(new Date());
+  var sheet = sheet_(getMainSpreadsheet_(), 'DAILY_JOURNAL');
+  ensureColumns_(sheet, ['MilkUnit', 'ParentComment']);
+  var row = findObject_(sheet, function (r) {
+    return String(r.StudentID) === String(student.StudentID) && dateStr_(new Date(r.Date)) === date;
+  });
+  if (!row) throw apiError_('NOT_FOUND', 'ยังไม่มีบันทึกของวันที่ ' + date);
+  updateRow_(sheet, row._row, { ParentComment: String(payload.comment || '') });
+  if (typeof cacheDel_ === 'function') { cacheDel_('col:DAILY_JOURNAL'); cacheDel_('rows:DAILY_JOURNAL'); }
+  return { ok: true, studentId: student.StudentID, date: date };
 }
 
 /** payload: { studentId, date } */
