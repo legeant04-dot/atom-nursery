@@ -6,7 +6,7 @@
   const setHTML = (sel, html) => { const el = $(sel); if (el) el.innerHTML = html; };
   const app = $('#app'), nav = $('#bottomnav');
   const baht = n => (Number(n)||0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
-  const APP_VERSION = 'Version 1.068'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.069'; // bump each webapp change; shown only at the bottom of the Chat screen
   const verTag = () => `<div style="text-align:center;color:#c3c9d4;font-size:10px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
   const phoneFmt = p => { let d=String(p==null?'':p).replace(/\D/g,''); if(d.length===9) d='0'+d; return d; };
@@ -97,7 +97,10 @@
   function tenure(startDate){ if(!startDate) return '-'; const d=new Date(startDate),n=new Date();
     let m=(n.getFullYear()-d.getFullYear())*12+(n.getMonth()-d.getMonth()); if(n.getDate()<d.getDate())m--; m=Math.max(0,m);
     return ageYMfromMonths(m); }
-  const planLabel = id => { const p=(MOCK.config.Plans||[]).find(x=>x.id===id); return p?(EN()?p.labelEN:p.labelTH):(id||'-'); };
+  // MOCK.config.Plans holds only SEED plans in gas mode, so a live id like "p_6900" isn't found →
+  // format it as "Plan 6900" instead of showing the raw id.
+  const planLabel = id => { const p=(MOCK.config.Plans||[]).find(x=>x.id===id); if(p) return EN()?p.labelEN:p.labelTH;
+    const m=String(id||'').match(/(\d{3,})/); return m?('Plan '+m[1]):(id||'-'); };
   const groupsSrc = () => (window.A_CACHE&&A_CACHE.groups&&A_CACHE.groups.length?A_CACHE.groups:MOCK.staffGroups)||[];
   const groupLabel = name => { const g=groupsSrc().find(x=>x.GroupName===name); return g?(EN()?g.GroupNameEN:g.GroupName):(name||''); };
   const groupHours = name => { const g=groupsSrc().find(x=>x.GroupName===name); return g&&(g.CheckInTime||g.CheckOutTime)?`${g.CheckInTime||'--'}–${g.CheckOutTime||'--'}`:''; };
@@ -156,7 +159,9 @@
   function setNav(active){ if(!USER){nav.hidden=true;return;} nav.hidden=false;
     nav.innerHTML = NAVS[USER.role].map(([k,ic,l])=>`<button class="${k===active?'active':''}" onclick="GO('${k}')"><span class="ic">${ic}</span>${esc(t(l))}</button>`).join(''); }
 
-  window.GO = function(screen, opts){ CURRENT=screen; setNav(screen); const fn=(SCREENS[USER.role]||{})[screen];
+  // header quick-actions slot (before the language toggle); each screen fills it or it clears on nav
+  window.setTopActions = html => { const el=document.getElementById('topActions'); if(el) el.innerHTML=html||''; };
+  window.GO = function(screen, opts){ CURRENT=screen; setNav(screen); if(!(opts&&opts.silent)) setTopActions(''); const fn=(SCREENS[USER.role]||{})[screen];
     // paint an instant placeholder so a tap feels responsive instead of "stuck" on the old screen
     // while the first (uncached) fetch runs; skip on silent background re-renders to avoid flicker.
     if(fn && !(opts&&opts.silent)) app.innerHTML=`<div class="card" style="text-align:center;color:#94a3b8;padding:28px">⏳ ${EN()?'Loading…':'กำลังโหลด…'}</div>`;
@@ -522,14 +527,18 @@
       api('getJournal',{studentId:k0.StudentID}), api('studentLeaves',{studentId:k0.StudentID}),
       api('announcements'), api('calendar'), api('studentCheckinHistory',{studentId:k0.StudentID})
     ]);
+    // рับ-ส่งเด็ก (GPS) is now on the home kid card: big IN/OUT buttons like the teacher's, no location bar
     const kidsHtml = kids.map(k=>`<div class="card"><div class="spread"><div><b>${esc(nm(k))}</b>${nick(k)?` <span class="pill info">${esc(nick(k))}</span>`:''} <small class="muted">(${esc(EN()?k.NameTH:k.NameEN)})</small><br><small class="muted">${esc(k.Class)} · ${esc(ageYM(k.DOB))} · ${esc(planLabel(k.Plan))}<br>${EN()?'allergy':'แพ้'}: ${esc(k.Allergy||'-')}</small></div>${studentAvatar(k)}</div>
-      <div class="row" style="margin-top:10px"><button class="btn sm" onclick="GO('checkin')">📍 ${esc(t('nav.checkin'))}</button><button class="btn sm outline" onclick="P_journal('${k.StudentID}')">📒 ${esc(t('nav.journal'))}</button><button class="btn sm outline" onclick="P_dspm('${k.StudentID}')">📈 ${esc(t('nav.dspm'))}</button></div></div>`).join('');
+      <div class="row" style="margin-top:12px;gap:10px"><button class="btn green" style="flex:1;padding:18px;font-size:18px;font-weight:700" onclick="P_punch('${k.StudentID}','IN',this)">🟢 ${EN()?'Drop off':'ส่งเข้าเรียน'}</button><button class="btn pink" style="flex:1;padding:18px;font-size:18px;font-weight:700" onclick="P_punch('${k.StudentID}','OUT',this)">🔴 ${EN()?'Pick up':'รับกลับ'}</button></div></div>`).join('');
+    // move บันทึก / พัฒนาการ / แจ้งลาออก to the header quick-actions (act on the primary child)
+    setTopActions(`<button class="btn sm outline" onclick="P_journal('${k0.StudentID}')" title="${esc(t('nav.journal'))}">📒<span class="lbl"> ${esc(t('nav.journal'))}</span></button>
+      <button class="btn sm outline" onclick="P_dspm('${k0.StudentID}')" title="${esc(t('nav.dspm'))}">📈<span class="lbl"> ${esc(t('nav.dspm'))}</span></button>
+      <button class="btn sm outline pink" onclick="P_withdraw()" title="${esc(t('wd.btn'))}">🚪<span class="lbl"> ${esc(t('wd.btn').replace(/^🚪\s*/,''))}</span></button>`);
     const slHtml = sl.map(l=>`<div class="list-item"><span>${esc(l.Date)} · ${esc(l.Reason)}</span><span class="pill info">${esc(tStat(l.Status))}</span></div>`).join('')||'<small class="muted">ไม่มีรายการ</small>';
     app.innerHTML = `<div class="spread"><h2 class="page">${esc(t('p.greeting'))}${esc(EN()?USER.nameEN:USER.nameTH)} 👋</h2><div class="row">${profileBtn}${addBtn}</div></div>
       ${kidsHtml}
       <h3 style="margin:6px 2px">📒 บันทึกของ ${esc(nm(k0))} วันนี้</h3>${j?journalChecklist(j):waitCard()}
-      <div class="card"><div class="spread"><h3>🏠 แจ้งลาบุตรหลาน</h3><button class="btn sm outline" onclick="P_absence()">+ แจ้งลา</button></div>${slHtml}
-        <div class="row" style="margin-top:10px"><button class="btn sm outline pink" onclick="P_withdraw()">${esc(t('wd.btn'))}</button></div></div>
+      <div class="card"><div class="spread"><h3>🏠 แจ้งลาบุตรหลาน</h3><button class="btn sm outline" onclick="P_absence()">+ แจ้งลา</button></div>${slHtml}</div>
       <div class="card" id="insCard"></div>
       <div class="card"><h3>📢 ประกาศจากโรงเรียน</h3>${anns.map(annRow).join('')}</div>
       ${calendarWidget(cal, ci, (MOCK.config.Plans.find(p=>p.id===k0.Plan)||{}).end)}
@@ -660,10 +669,9 @@
   SCREENS.Parent.checkin = async () => {
     showAnnPopups(); // must close active announcements before checking in/out
     const kids=await api('parentChildren',parentScope()); if(!kids.length){GO('home');return;}
-    app.innerHTML = `<h2 class="page">${esc(t('title.checkin'))}</h2><div class="card">
-      <label class="field"><span>เลือกบุตรหลาน</span><select id="kid">${kids.map(k=>`<option value="${k.StudentID}">${esc(nm(k))}</option>`).join('')}</select></label>
-      <div class="seg"><button class="active" id="tIN" onclick="P_type('IN')">ส่งเข้าเรียน (IN)</button><button id="tOUT" onclick="P_type('OUT')">รับกลับ (OUT)</button></div>
-      <button class="btn block green" style="padding:18px;font-size:18px;font-weight:700" onclick="P_do(this)">📍 ${EN()?'Check in at school (use my location)':'เช็คอินที่โรงเรียน (ใช้ตำแหน่งจริง)'}</button>
+    const sel = kids.length>1 ? `<label class="field"><span>${EN()?'Select child':'เลือกบุตรหลาน'}</span><select id="kid">${kids.map(k=>`<option value="${k.StudentID}">${esc(nm(k))}</option>`).join('')}</select></label>` : `<input type="hidden" id="kid" value="${kids[0].StudentID}"/>`;
+    app.innerHTML = `<h2 class="page">${esc(t('title.checkin'))}</h2><div class="card">${sel}
+      <div class="row" style="margin-top:6px;gap:10px"><button class="btn green" style="flex:1;padding:18px;font-size:18px;font-weight:700" onclick="P_punch($('#kid').value,'IN',this)">🟢 ${EN()?'Drop off':'ส่งเข้าเรียน'}</button><button class="btn pink" style="flex:1;padding:18px;font-size:18px;font-weight:700" onclick="P_punch($('#kid').value,'OUT',this)">🔴 ${EN()?'Pick up':'รับกลับ'}</button></div>
       <p class="muted" style="font-size:12px;margin-top:8px">${EN()?'You must be within':'ต้องอยู่ในรัศมี'} ${MOCK.config.Radius} ${EN()?'m of the school':'ม. จากโรงเรียน'}</p></div>
       <div class="card"><div class="spread"><h3>🗓️ ประวัติการรับ-ส่ง</h3><button class="btn sm outline" onclick="GO('home')">ดูในปฏิทิน →</button></div><div id="ciHist"></div></div>`;
     const hist=await api('studentCheckinHistory',{studentId:kids[0].StudentID});
@@ -677,10 +685,12 @@
       pos=>resolve({lat:pos.coords.latitude,lng:pos.coords.longitude}),
       e=>reject(new Error(EN()?'Cannot get your location — please allow location access and try again':'ระบุตำแหน่งไม่ได้ — กรุณาอนุญาตการเข้าถึงตำแหน่ง แล้วลองใหม่')),
       {enableHighAccuracy:true,timeout:10000,maximumAge:0}); }); }
-  window.P_do=async(btn)=>{ const studentId=$('#kid').value; if(btn){btn.disabled=true;} const done=()=>{ if(btn)btn.disabled=false; };
+  window.P_do=async(btn)=>{ const studentId=$('#kid').value; P_TYPE=P_TYPE; return P_punch(studentId,P_TYPE,btn); };
+  // one-tap check-in/out from the home kid card (or checkin screen): read GPS → parentCheckin directly
+  window.P_punch=async(studentId,type,btn)=>{ if(btn)btn.disabled=true; const done=()=>{ if(btn)btn.disabled=false; };
     try{ const {lat,lng}=await getPosition();
-      const r=await api('parentCheckin',{parentId:USER.parentId,uid:USER.uid,studentId,type:P_TYPE,lat,lng});
-      toast(`✅ ${P_TYPE==='IN'?(EN()?'Drop off':'ส่งเข้าเรียน'):(EN()?'Pick up':'รับกลับ')} ${r.time} (${EN()?'distance':'ระยะ'} ${r.distance} ${EN()?'m':'ม.'}) — ${EN()?'teacher notified':'แจ้งครูแล้ว'}`);
+      const r=await api('parentCheckin',{parentId:USER.parentId,uid:USER.uid,studentId,type,lat,lng});
+      toast(`✅ ${type==='IN'?(EN()?'Drop off':'ส่งเข้าเรียน'):(EN()?'Pick up':'รับกลับ')} ${r.time} (${EN()?'distance':'ระยะ'} ${r.distance} ${EN()?'m':'ม.'}) — ${EN()?'teacher notified':'แจ้งครูแล้ว'}`);
       if(r.ot){ P_otQR(r.ot); } // late pickup → OT charge: pop the KTB QR
     }catch(e){err(e);} finally{ done(); } };
   // OT charge popup after late pickup
@@ -916,6 +926,7 @@
       ${isLeader?`<div class="card"><div class="spread"><h3>⭐ คำขอลาของลูกน้อง (รออนุมัติ)</h3></div><div id="tp"></div></div>`:''}
       <div class="card"><h3>${esc(t('ot.myOT'))}</h3><div id="myot"></div></div>
       ${isLeader?`<div class="card"><h3>${esc(t('ot.teamOT'))}</h3><div id="teamot"></div></div>`:''}
+      ${isLeader?`<div class="card"><div class="spread"><h3>${esc(t('duty.title'))}</h3><button class="btn sm" onclick="T_dutyRoster()">🗂️ ${EN()?'Manage':'จัดกะเวร'}</button></div><small class="muted">${esc(t('duty.leaderNote'))}</small></div>`:''}
       <div class="card"><div class="row"><button class="btn sm outline" onclick="GO('absence')">🔎 ${esc(t('abs.title'))}</button></div></div>
       <div class="card"><div class="spread"><h3>👶 ${esc(cl.class.ClassName)}</h3><span class="muted">${cl.students.length} ${EN()?'kids':'คน'}</span></div>${classSwitcher(cl)}
         ${cl.students.map(s=>`<div class="list-item"><span>${studentAvatar(s)} <b>${esc(dispNick(s))}</b> ${journalPill(jdone[s.StudentID])}</span><span><button class="btn sm outline" onclick="T_journal('${s.StudentID}')">${esc(journalBtnLabel(jdone[s.StudentID]))}</button> <button class="btn sm outline" onclick="T_assess('${s.StudentID}')">${esc(t('lbl.assess'))}</button></span></div>`).join('')}</div>`;
@@ -1159,8 +1170,10 @@
   window.T_submitLeave=async()=>{ try{ const r=await api('submitLeave',{staffId:USER.staffId,type:$('#lType').value,startDate:$('#lStart').value,endDate:$('#lEnd').value,reason:$('#lReason').value}); toast(`✅ ส่งคำขอ ${r.leaveId} (${r.days} วัน)`); GO('leave'); }catch(e){err(e);} };
   window.T_teamApprove=async(id,dec)=>{ try{ const r=await api('approveLeave',{staffId:USER.staffId,leaveId:id,decision:dec}); toast(`✅ ${dec==='approve'?'อนุมัติ(ส่งต่อ Admin)':'ปฏิเสธ'} — ${r.status}`); GO('leave'); }catch(e){err(e);} };
   function leaveStatusPill(st){ const c={PENDING_LEADER:'wait',PENDING_ADMIN:'wait',APPROVED:'ok',REJECTED:'bad'}[st]||'info'; return `<span class="pill ${c}">${esc(tStat(st))}</span>`; }
+  // display name for a leave row: nickname first (enriched l.nick/l.name), else staff-cache lookup
+  const leaveName = l => (EN()?(l.nickEN||l.nick):(l.nick||l.nickEN)) || (EN()?(l.nameEN||l.name):(l.name||l.nameEN)) || staffNick(l.StaffID);
   function leaveRow(l){ return `<div class="list-item"><div><b>${esc(l.Type)}</b> ${esc(l.StartDate)}→${esc(l.EndDate)} (${l.Days}ว.)<br><small class="muted">${esc(l.LeaveID)}${l.Step1ApproverName?' · ขั้น1: '+esc(l.Step1ApproverName)+(l.Step1CrossDept==='YES'?' (ข้ามแผนก)':''):''}${l.Step2ApproverName?' · ขั้น2: '+esc(l.Step2ApproverName):''}</small></div>${leaveStatusPill(l.Status)}</div>`; }
-  function teamLeaveRow(l){ return `<div class="card" style="margin:8px 0"><div class="spread"><div><b>${esc(staffName(l.StaffID))}</b> <small class="muted">(${esc(l.Department)})</small><br>${esc(l.Type)} ${esc(l.StartDate)}→${esc(l.EndDate)} (${l.Days}ว.)<br><small class="muted">${esc(l.Reason||'')}</small></div>${leaveStatusPill(l.Status)}</div><div class="row" style="margin-top:8px"><button class="btn sm green" onclick="T_teamApprove('${l.LeaveID}','approve')">อนุมัติ</button><button class="btn sm pink" onclick="T_teamApprove('${l.LeaveID}','reject')">ปฏิเสธ</button></div></div>`; }
+  function teamLeaveRow(l){ return `<div class="card" style="margin:8px 0"><div class="spread"><div><b>${esc(leaveName(l))}</b> <small class="muted">(${esc(l.Department)})</small><br>${esc(l.Type)} ${esc(l.StartDate)}→${esc(l.EndDate)} (${l.Days}ว.)<br><small class="muted">${esc(l.Reason||'')}</small></div>${leaveStatusPill(l.Status)}</div><div class="row" style="margin-top:8px"><button class="btn sm green" onclick="T_teamApprove('${l.LeaveID}','approve')">อนุมัติ</button><button class="btn sm pink" onclick="T_teamApprove('${l.LeaveID}','reject')">ปฏิเสธ</button></div></div>`; }
 
   const firstName = s => (nm(s)||'').split(' ')[0];
   // opts: { shortName(staffId), holidays:[{Date,NameTH,NameEN}], leaves:[approved] } — never reads MOCK.staff
@@ -1333,9 +1346,50 @@
   window.A_editAnn=(annId)=>A_addAnn(annId);
   window.A_delAnn=async(annId)=>{ if(!confirm(t('manage.confirmDel')))return; try{ await api('deleteAnnouncement',{annId}); toast(t('manage.deleted')); GO('home'); }catch(e){err(e);} };
 
-  SCREENS.Admin.leaves = async () => { const pend=await api('pendingLeaves',{staffId:USER.staffId});
-    app.innerHTML=`<h2 class="page">✅ อนุมัติการลา (ขั้นสุดท้าย)</h2>${pend.length?pend.map(l=>`<div class="card"><div class="spread"><div><b>${esc(staffName(l.StaffID))}</b> <small class="muted">(${esc(l.Department||'-')})</small><br>${esc(l.Type)} ${esc(l.StartDate)}→${esc(l.EndDate)} (${l.Days} วัน)<br><small class="muted">${esc(l.Reason||'')}</small>${l.Step1ApproverName?`<br><small>ผ่านหัวหน้างาน: ${esc(l.Step1ApproverName)}${l.Step1CrossDept==='YES'?' ⚠️ ข้ามแผนก':''}</small>`:''}</div>${leaveStatusPill(l.Status)}</div><div class="row" style="margin-top:8px"><button class="btn sm green" onclick="A_leave('${l.LeaveID}','approve')">อนุมัติ</button><button class="btn sm pink" onclick="A_leave('${l.LeaveID}','reject')">ปฏิเสธ</button></div></div>`).join(''):'<div class="card muted">ไม่มีคำขอรออนุมัติ</div>'}`;
+  // one admin leave card: nickname + dept + type/dates + reason + status + actions (approve/reject/edit/cancel)
+  function leaveAdminCard(l){ const isPA=String(l.Status)==='PENDING_ADMIN';
+    return `<div class="card"><div class="spread"><div><b>${esc(leaveName(l))}</b> <small class="muted">(${esc(l.Department||'-')})</small><br>${esc(l.Type)} ${esc(l.StartDate)}→${esc(l.EndDate)} (${l.Days} ${EN()?'d':'วัน'})<br><small class="muted">${esc(l.Reason||'')}</small>${l.Step1ApproverName?`<br><small>${EN()?'via leader':'ผ่านหัวหน้างาน'}: ${esc(l.Step1ApproverName)}${l.Step1CrossDept==='YES'?' ⚠️ '+(EN()?'cross-dept':'ข้ามแผนก'):''}</small>`:''}</div>${leaveStatusPill(l.Status)}</div>
+      <div class="row" style="margin-top:8px">${isPA?`<button class="btn sm green" onclick="A_leave('${l.LeaveID}','approve')">${esc(t('ot.approve'))}</button><button class="btn sm pink" onclick="A_leave('${l.LeaveID}','reject')">${esc(t('ot.reject'))}</button>`:''}<button class="btn sm outline" onclick="A_editLeave('${l.LeaveID}')">✏️ ${EN()?'Edit':'แก้ไข'}</button><button class="btn sm pink" onclick="A_cancelLeave('${l.LeaveID}')">🗑️ ${EN()?'Cancel':'ยกเลิก'}</button></div></div>`; }
+  // month calendar of who is on leave each day (spot same-day overlaps — ≥2 on a day is flagged red)
+  function leaveCalendar(all){ const now=new Date(),y=now.getFullYear(),mo=now.getMonth();
+    const first=new Date(y,mo,1).getDay(),days=new Date(y,mo+1,0).getDate(); const byDay={};
+    all.filter(l=>l.Status!=='REJECTED').forEach(l=>{ const st=new Date(l.StartDate),en=new Date(l.EndDate);
+      for(let dt=new Date(st);dt<=en;dt.setDate(dt.getDate()+1)){ if(dt.getFullYear()===y&&dt.getMonth()===mo)(byDay[dt.getDate()]=byDay[dt.getDate()]||[]).push(leaveName(l)); } });
+    let cells=['อา','จ','อ','พ','พฤ','ศ','ส'].map(w=>`<div style="text-align:center;font-size:11px;color:#94a3b8">${EN()?({'อา':'Su','จ':'Mo','อ':'Tu','พ':'We','พฤ':'Th','ศ':'Fr','ส':'Sa'}[w]):w}</div>`).join('');
+    for(let i=0;i<first;i++)cells+='<div class="d dim"></div>';
+    for(let dd=1;dd<=days;dd++){ const ppl=byDay[dd]; const today=dd===now.getDate()?'today':''; const clash=ppl&&ppl.length>=2;
+      cells+=`<div class="d ${ppl?'ev':''} ${today}" style="min-height:52px;${clash?'background:#ffebee;border-color:#ef9a9a;':''}">${dd}${ppl?`<span class="io" style="text-align:left;color:${clash?'#c62828':'#2e7d32'};font-weight:600">${esc(ppl.join('\n'))}</span>`:''}</div>`; }
+    const M=['ม.ค.','ก.พ.','มี.ค.','เม.ย.','พ.ค.','มิ.ย.','ก.ค.','ส.ค.','ก.ย.','ต.ค.','พ.ย.','ธ.ค.'],ME=['January','February','March','April','May','June','July','August','September','October','November','December'];
+    return `<div class="card"><h3 style="margin-top:0">${esc(t('lbl.calendar'))} ${EN()?ME[mo]+' '+y:M[mo]+' '+(y+543)}</h3><div class="cal">${cells}</div><small class="muted">${EN()?'Red = 2+ staff on leave the same day':'สีแดง = ลาซ้ำวันเดียวกัน ≥2 คน'}</small></div>`; }
+
+  SCREENS.Admin.leaves = async () => {
+    const [all,staff]=await Promise.all([api('allLeaves'),(A_CACHE.staff&&A_CACHE.staff.length)?Promise.resolve(A_CACHE.staff):api('listStaff')]);
+    A_CACHE.staff=staff||A_CACHE.staff;
+    const pending=all.filter(l=>String(l.Status).indexOf('PENDING')===0);
+    const resolved=all.filter(l=>String(l.Status).indexOf('PENDING')!==0);
+    const none=`<div class="card muted">${esc(t('c.noItems'))}</div>`;
+    app.innerHTML=`<h2 class="page">✅ ${EN()?'Leave approval':'อนุมัติการลา'}</h2>
+      <div class="leavegrid">
+        <div class="lvcol">
+          <h3>⏳ ${EN()?'In progress':'กำลังดำเนินการ'} (${pending.length})</h3>
+          ${pending.length?pending.map(leaveAdminCard).join(''):none}
+          <h3 style="margin-top:14px">✅ ${EN()?'Approved / done':'อนุมัติแล้ว/เสร็จสิ้น'} (${resolved.length})</h3>
+          ${resolved.length?resolved.map(leaveAdminCard).join(''):none}
+        </div>
+        <div class="lvcol">${leaveCalendar(all)}</div>
+      </div>`;
   };
+  window.A_editLeave=async(id)=>{ const l=(await api('allLeaves')).find(x=>x.LeaveID===id); if(!l){toast(t('c.noItems'));return;}
+    modal(`<h3>✏️ ${EN()?'Edit leave':'แก้ไขการลา'} — ${esc(leaveName(l))}</h3>
+      <label class="field"><span>${EN()?'Type':'ประเภท'}</span><input id="elType" value="${esc(l.Type||'')}"/></label>
+      <div class="grid2"><label class="field"><span>${EN()?'From':'ตั้งแต่'}</span><input type="date" id="elStart" value="${esc(String(l.StartDate).slice(0,10))}"/></label>
+        <label class="field"><span>${EN()?'To':'ถึง'}</span><input type="date" id="elEnd" value="${esc(String(l.EndDate).slice(0,10))}"/></label></div>
+      <label class="field"><span>${EN()?'Reason':'เหตุผล'}</span><textarea id="elReason">${esc(l.Reason||'')}</textarea></label>
+      <button class="btn block" onclick="A_editLeaveDo('${id}',this)">${esc(t('c.save'))}</button>`); };
+  window.A_editLeaveDo=async(id,btn)=>{ const m=btn.closest('.modal'); const g=x=>{const e=m.querySelector('#'+x);return e?e.value.trim():undefined;};
+    try{ await api('editLeave',{staffId:USER.staffId,leaveId:id,type:g('elType'),startDate:g('elStart'),endDate:g('elEnd'),reason:g('elReason')}); m.remove(); confirmSaved(t('c.saved')); GO('leaves'); }catch(e){err(e);} };
+  window.A_cancelLeave=async(id)=>{ if(!confirm(EN()?'Cancel/delete this leave request?':'ยกเลิก/ลบคำขอลานี้?'))return;
+    try{ await api('cancelLeave',{staffId:USER.staffId,leaveId:id}); toast(t('manage.deleted')); GO('leaves'); }catch(e){err(e);} };
   window.A_leave=async(id,dec)=>{ try{ const r=await api('approveLeave',{staffId:USER.staffId,leaveId:id,decision:dec}); toast(`✅ ${dec==='approve'?'อนุมัติ':'ปฏิเสธ'}แล้ว (${r.status})`); GO('leaves'); }catch(e){err(e);} };
 
   let PAY_ADJ=[];
@@ -1541,6 +1595,7 @@
         <button class="btn sm outline" onclick="A_groups()">🕑 ${esc(t('manage.groups'))}</button>
         <button class="btn sm outline" onclick="A_settings()">⚙️ ${esc(t('manage.settings'))}</button>
         <button class="btn sm outline" onclick="A_staffOT()">⏰ ${esc(t('ot.adminOT'))}</button>
+        <button class="btn sm outline" onclick="A_dutyRoster()">🧑‍🏫 ${EN()?'Duty roster':'กะเวร'}</button>
         <button class="btn sm outline" onclick="A_studentOT()">⏰ ${EN()?'Student OT':'OT รับช้า (นักเรียน)'}</button>
         <button class="btn sm outline" onclick="A_journals()">📒 ${esc(t('jr.admin'))}</button>
         <button class="btn sm outline" onclick="A_insurance()">🛡️ ${esc(t('ins2.manage'))}</button>
@@ -1941,6 +1996,44 @@
   window.A_otCancel=async(otId)=>{ if(!confirm(EN()?'Cancel this OT charge? It will not be billed.':'ยกเลิกค่า OT รายการนี้? จะไม่ถูกเรียกเก็บ'))return;
     try{ await api('adminCancelOT',{otId}); toast(EN()?'OT cancelled':'ยกเลิก OT แล้ว'); const x=document.querySelector('.modal'); if(x)x.remove(); A_studentOT(); }catch(e){err(e);} };
   window.A_otRestore=async(otId)=>{ try{ await api('adminRestoreOT',{otId}); toast(EN()?'OT restored':'คืนค่า OT แล้ว'); const x=document.querySelector('.modal'); if(x)x.remove(); A_studentOT(); }catch(e){err(e);} };
+
+  // ---- Duty roster (กะเวร) — shared by Admin (canApprove) and Leader (submit → admin approves) ----
+  let DUTY_MONTH=null;
+  const dutyStatusPill = st => { const k=String(st||'APPROVED').toUpperCase(); const cls=k==='APPROVED'?'ok':(k==='REJECTED'?'bad':'wait');
+    const lbl=k==='APPROVED'?t('duty.approved'):(k==='REJECTED'?t('duty.rejected'):t('duty.pending')); return `<span class="pill ${cls}">${esc(lbl)}</span>`; };
+  window.DUTY_open=async(canApprove,month)=>{ DUTY_MONTH=month||DUTY_MONTH||monthStr();
+    const [rows,staff,classes]=await Promise.all([api('dutyList',{month:DUTY_MONTH}),
+      (A_CACHE.staff&&A_CACHE.staff.length)?Promise.resolve(A_CACHE.staff):api('listStaff'), api('listClasses').catch(()=>[])]);
+    A_CACHE.staff=staff||A_CACHE.staff; window._DUTY_CLASSES=classes||[]; window._DUTY_ROWS=rows;
+    const row=d=>{ const isPend=String(d.Status).toUpperCase()==='PENDING_ADMIN';
+      return `<div class="list-item"><span><b>${esc(dnick(d))}</b> · ${esc(ddmmyyyy(d.Date))}${d.ClassName?' · '+esc(d.ClassName):''}${d.Shift?' · '+esc(d.Shift):''}<br>${dutyStatusPill(d.Status)}${d.Note?` <small class="muted">${esc(d.Note)}</small>`:''}</span>
+        <span class="row">${canApprove&&isPend?`<button class="btn sm green" onclick="DUTY_approve('${d.DutyID}','approve',${canApprove})">✔</button><button class="btn sm pink" onclick="DUTY_approve('${d.DutyID}','reject',${canApprove})">✕</button>`:''}<button class="btn sm outline" onclick="DUTY_form(${canApprove},'${d.DutyID}')">✏️</button><button class="btn sm pink" onclick="DUTY_del('${d.DutyID}',${canApprove})">🗑️</button></span></div>`; };
+    modal(`<h3>${esc(t('duty.title'))}</h3>
+      <div class="spread"><label class="field" style="flex:1"><span>${EN()?'Month':'เดือน'}</span><input type="month" id="dutyMonth" value="${DUTY_MONTH}" onchange="DUTY_open(${canApprove},this.value)"/></label>
+        <button class="btn sm" style="align-self:end;margin-bottom:2px" onclick="DUTY_form(${canApprove})">${esc(t('duty.add'))}</button></div>
+      ${canApprove?'':`<p class="muted" style="font-size:11.5px">${esc(t('duty.leaderNote'))}</p>`}
+      <div style="max-height:54vh;overflow:auto">${rows.length?rows.map(row).join(''):`<small class="muted">${esc(t('duty.none'))}</small>`}</div>
+      <button class="btn outline block" style="margin-top:8px" onclick="this.closest('.modal').remove()">${esc(t('c.close'))}</button>`);
+  };
+  window.DUTY_form=(canApprove,dutyId)=>{ const d=dutyId?((window._DUTY_ROWS||[]).find(x=>x.DutyID===dutyId)||{}):{};
+    const staff=(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin'||true);
+    const classes=(window._DUTY_CLASSES||[]).map(c=>c.ClassName).concat(A_classOptions('')).filter((v,i,a)=>v&&a.indexOf(v)===i);
+    modal(`<h3>${dutyId?'✏️':'➕'} ${esc(t('duty.title'))}</h3>
+      <div class="grid2"><label class="field"><span>${esc(t('inj.date'))}</span><input type="date" id="dfDate" value="${esc(d.Date?String(d.Date).slice(0,10):todayStr())}"/></label>
+        <label class="field"><span>${esc(t('duty.staff'))}</span><select id="dfStaff">${staff.map(s=>`<option value="${s.StaffID}" ${d.StaffID===s.StaffID?'selected':''}>${esc(nmn(s))}</option>`).join('')}</select></label></div>
+      <div class="grid2"><label class="field"><span>${esc(t('duty.class'))}</span><select id="dfClass"><option value="">—</option>${classes.map(c=>`<option ${d.ClassName===c?'selected':''}>${esc(c)}</option>`).join('')}</select></label>
+        <label class="field"><span>${esc(t('duty.shift'))}</span><input id="dfShift" value="${esc(d.Shift||'')}" placeholder="${EN()?'e.g. morning':'เช่น เช้า'}"/></label></div>
+      <label class="field"><span>${esc(t('duty.note'))}</span><input id="dfNote" value="${esc(d.Note||'')}"/></label>
+      <button class="btn block" onclick="DUTY_save(${canApprove},'${dutyId||''}',this)">${esc(t('c.save'))}</button>`); };
+  window.DUTY_save=async(canApprove,dutyId,btn)=>{ const m=btn.closest('.modal'); const g=x=>{const e=m.querySelector('#'+x);return e?e.value:'';};
+    const data={staffId:USER.staffId,date:g('dfDate'),forStaffId:g('dfStaff'),className:g('dfClass'),shift:g('dfShift'),note:g('dfNote')};
+    if(!data.date||!data.forStaffId){toast(EN()?'Pick date & teacher':'เลือกวันและครู');return;}
+    try{ if(dutyId){ await api('editDuty',Object.assign({dutyId},data)); } else { await api('addDuty',data); }
+      m.remove(); confirmSaved(t('c.saved')); DUTY_open(canApprove); }catch(e){err(e);} };
+  window.DUTY_approve=async(dutyId,dec,canApprove)=>{ try{ await api('approveDuty',{staffId:USER.staffId,dutyId,decision:dec}); toast(dec==='approve'?(EN()?'Approved':'อนุมัติแล้ว'):(EN()?'Rejected':'ปฏิเสธแล้ว')); DUTY_open(canApprove); }catch(e){err(e);} };
+  window.DUTY_del=async(dutyId,canApprove)=>{ if(!confirm(t('manage.confirmDel')))return; try{ await api('deleteDuty',{staffId:USER.staffId,dutyId}); toast(t('manage.deleted')); DUTY_open(canApprove); }catch(e){err(e);} };
+  window.A_dutyRoster=()=>DUTY_open(true);
+  window.T_dutyRoster=()=>DUTY_open(false);
 
   // ---- Admin: staff OT approval + management (confirm/edit/reject/add/delete) ----
   let SOT_MONTH=null;

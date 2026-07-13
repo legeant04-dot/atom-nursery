@@ -145,6 +145,9 @@ SCHEMA[WB.HR] = {
                   'NetPay', 'BankAccount', 'SlipSent', 'GeneratedDate', 'GeneratedBy'],
   TRAINING:      ['TrainingID', 'StaffID', 'CourseName', 'Date', 'Provider', 'Certificate', 'ExpireDate'],
   WORK_SCHEDULE: ['StaffID', 'DayOfWeek', 'CheckInTime', 'CheckOutTime', 'EffectiveDate'],
+  // Duty roster (กะเวร): who is on duty for a class/shift on a date. A Leader's entries are PENDING_ADMIN
+  // until an Admin approves; an Admin's entries are APPROVED immediately. Status = PENDING_ADMIN|APPROVED.
+  DUTY_ROSTER:   ['DutyID', 'Date', 'ClassName', 'StaffID', 'Shift', 'Status', 'Note', 'CreatedBy'],
   // INFERRED — PDPA access log dedicated to the confidential workbook
   AUDIT_LOG:     ['Timestamp', 'UserID', 'Action', 'TableName', 'RecordID']
 };

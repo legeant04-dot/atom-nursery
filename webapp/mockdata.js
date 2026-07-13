@@ -310,8 +310,9 @@ window.MOCK = {
   ],
   // student drop-off duty roster (which teacher takes each class that day)
   dutyRoster: [
-    { Date:'2026-06-09', ClassName:'Nursery 1', StaffID:'STF-T1' }, { Date:'2026-06-09', ClassName:'Nursery 2', StaffID:'STF-T2' },
-    { Date:'2026-06-10', ClassName:'Nursery 1', StaffID:'STF-L1' }, { Date:'2026-06-10', ClassName:'Nursery 2', StaffID:'STF-T2' },
+    { DutyID:'DT-1', Date:'2026-06-09', ClassName:'Nursery 1', StaffID:'STF-T1', Shift:'', Status:'APPROVED', Note:'', CreatedBy:'STF-ADM' },
+    { DutyID:'DT-2', Date:'2026-06-09', ClassName:'Nursery 2', StaffID:'STF-T2', Shift:'', Status:'APPROVED', Note:'', CreatedBy:'STF-ADM' },
+    { DutyID:'DT-3', Date:'2026-06-10', ClassName:'Nursery 1', StaffID:'STF-L1', Shift:'', Status:'PENDING_ADMIN', Note:'', CreatedBy:'STF-L1' },
   ],
   // student daily check-in / out (for parent calendar + OT cross-check)
   studentCheckins: [
