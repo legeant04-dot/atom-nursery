@@ -555,9 +555,11 @@ function createAtomAPI(M, GROWTH_STD) {
     listClasses: () => M.classes,
     classAssessment: p => { const ss=activeStudents().filter(s=>s.Class===p.className); const per=ss.map(s=>{const x=summarize(s.StudentID);return{studentId:s.StudentID,name:s.NameTH,nameEN:s.NameEN,nick:s.Nickname,nickEN:s.NicknameEN,ageMonth:x.ageMonth,pass:x.totalPass,fail:x.totalFail};});
       const pass=per.reduce((a,b)=>a+b.pass,0),fl=per.reduce((a,b)=>a+b.fail,0); return {class:p.className,studentCount:ss.length,passRate:(pass+fl)?Math.round(pass/(pass+fl)*100):0,perStudent:per}; },
-    addAnnouncement: p => { const a={AnnID:'ANN-'+(M.announcements.length+1),Title:p.title,TitleEN:p.titleEN||'',Content:p.content,ContentEN:p.contentEN||'',Image:p.image||'',Date:todayLocal(),Type:p.type||'news',TargetGroup:p.target||'all',Popup:!!p.popup,StartDate:p.startDate||todayLocal(),EndDate:p.endDate||''}; M.announcements.unshift(a); return a; },
+    // unique AnnID = max existing numeric +1 (length+1 collided after a delete → duplicate ids hid popups)
+    addAnnouncement: p => { let mx=0; M.announcements.forEach(x=>{ const m=/^ANN-?(\d+)$/.exec(String(x.AnnID||'')); if(m){const n=+m[1]; if(n>mx)mx=n;} });
+      const a={AnnID:'ANN-'+(mx+1),Title:p.title,TitleEN:p.titleEN||'',Content:p.content,ContentEN:p.contentEN||'',Image:p.image||'',Date:todayLocal(),Type:p.type||'news',TargetGroup:p.target||'all',Popup:!!p.popup,StartDate:p.startDate||todayLocal(),EndDate:p.endDate||'',Priority:Number(p.priority)||0}; M.announcements.unshift(a); return a; },
     editAnnouncement: p => { const a=M.announcements.find(x=>x.AnnID===p.annId); if(!a)fail('NOT_FOUND','ไม่พบประกาศ');
-      ['Title','TitleEN','Content','ContentEN','Popup','StartDate','EndDate'].forEach(k=>{ const kk=k.charAt(0).toLowerCase()+k.slice(1); if(p[kk]!==undefined)a[k]=p[kk]; });
+      ['Title','TitleEN','Content','ContentEN','Popup','StartDate','EndDate','Priority'].forEach(k=>{ const kk=k.charAt(0).toLowerCase()+k.slice(1); if(p[kk]!==undefined)a[k]=(k==='Priority'?(Number(p[kk])||0):p[kk]); });
       if(p.image!==undefined&&p.image!=='')a.Image=p.image; return a; },
     deleteAnnouncement: p => { const i=M.announcements.findIndex(x=>x.AnnID===p.annId); if(i>=0)M.announcements.splice(i,1); return {ok:true}; },
     notifications: p => M.feed.filter(n=> n.roles.includes(p.role) && (!n.parentId || n.parentId===p.parentId)),
@@ -930,8 +932,10 @@ function createAtomAPI(M, GROWTH_STD) {
       return {ok:true}; },
 
     // ========== announcements (popup + date range) ==========
-    activeAnnouncements: () => { const today=todayLocal();
-      return M.announcements.filter(a=>a.Popup && (!a.StartDate||a.StartDate<=today) && (!a.EndDate||a.EndDate>=today)); },
+    activeAnnouncements: () => { const today=todayLocal(); const on=v=>v===true||String(v).toUpperCase()==='TRUE'||v==='1';
+      return M.announcements.filter(a=>on(a.Popup) && (!a.StartDate||ymd(a.StartDate)<=today) && (!a.EndDate||ymd(a.EndDate)>=today))
+        // most important first (Priority desc), then newest (StartDate/Date desc)
+        .sort((a,b)=>(Number(b.Priority||0)-Number(a.Priority||0)) || String(ymd(b.StartDate||b.Date)).localeCompare(String(ymd(a.StartDate||a.Date)))); },
 
     // ========== injury / accident report (teacher / leader) ==========
     // file an individual injury report; pushes an Admin+Leader notification + activity-log row.
