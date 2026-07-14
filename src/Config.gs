@@ -127,7 +127,9 @@ SCHEMA[WB.HR] = {
   // Per-staff payroll config (Admin-editable). Widened to carry every field the engine's computePayroll uses
   // so it round-trips through the sheet: pay type/daily rate, SS flag, child threshold & multiplier, diligence amounts.
   PAYROLL_CONFIG:['StaffID', 'PayType', 'DailyRate', 'BaseSalary', 'SocialSecurityDeduct', 'ChildThreshold', 'ChildMultiplier', 'DiligenceAttendanceAmount', 'DiligenceFacebookAmount', 'TaxDeduct'],
-  CHECKIN_STAFF: ['Date', 'StaffID', 'CheckIn', 'CheckOut', 'LateMinutes', 'OTHours', 'Status'],
+  // InManual/OutManual = 'YES' when the time was set via an approved manual-attendance request (ขอลงเวลา);
+  // the app renders a manual time in blue/bold to distinguish it from a normal GPS clock-in. Appended at END.
+  CHECKIN_STAFF: ['Date', 'StaffID', 'CheckIn', 'CheckOut', 'LateMinutes', 'OTHours', 'Status', 'InManual', 'OutManual'],
   // 2-step approval: Leader (step 1) -> Admin (step 2); cross-dept flagged. (chat spec)
   LEAVE_REQUEST: ['LeaveID', 'StaffID', 'Department', 'Type', 'StartDate', 'EndDate', 'Days', 'Reason', 'Status',
                   'Step1ApproverID', 'Step1ApproverName', 'Step1Status', 'Step1Date', 'Step1CrossDept',
@@ -148,9 +150,15 @@ SCHEMA[WB.HR] = {
                   'NetPay', 'BankAccount', 'SlipSent', 'GeneratedDate', 'GeneratedBy'],
   TRAINING:      ['TrainingID', 'StaffID', 'CourseName', 'Date', 'Provider', 'Certificate', 'ExpireDate'],
   WORK_SCHEDULE: ['StaffID', 'DayOfWeek', 'CheckInTime', 'CheckOutTime', 'EffectiveDate'],
-  // Duty roster (กะเวร): who is on duty for a class/shift on a date. A Leader's entries are PENDING_ADMIN
-  // until an Admin approves; an Admin's entries are APPROVED immediately. Status = PENDING_ADMIN|APPROVED.
-  DUTY_ROSTER:   ['DutyID', 'Date', 'ClassName', 'StaffID', 'Shift', 'Status', 'Note', 'CreatedBy'],
+  // Manual attendance-time request (ขอลงเวลา): staff asks to record a check-in/out at a chosen time.
+  // 2-step approval (Leader → Admin, mirrors leave/OT). On final APPROVED the time is written into
+  // CHECKIN_STAFF (recomputing late/OT). Status = PENDING_LEADER|PENDING_ADMIN|APPROVED|REJECTED.
+  ATTENDANCE_REQUEST: ['ReqID', 'StaffID', 'Date', 'Type', 'RequestTime', 'Reason', 'Status',
+                       'Step1By', 'Step1Status', 'Step2By', 'Step2Status', 'CreatedDate'],
+  // Class-management change request (ย้ายครูประจำชั้น/แผนก): a Leader stages teacher department moves and
+  // submits them as one request; an Admin approves (applies + logs) or rejects. Changes = JSON array of
+  // {staffId,name,before,after}. Status = PENDING_ADMIN|APPROVED|REJECTED.
+  CLASS_CHANGE_REQ: ['ReqID', 'RequestBy', 'RequestByName', 'CreatedDate', 'Status', 'Changes', 'Note', 'Step2By', 'DecidedDate'],
   // INFERRED — PDPA access log dedicated to the confidential workbook
   AUDIT_LOG:     ['Timestamp', 'UserID', 'Action', 'TableName', 'RecordID']
 };

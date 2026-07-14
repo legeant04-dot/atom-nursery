@@ -181,3 +181,20 @@ textarea{min-height:70px;resize:vertical;}
 .topactions{display:flex;gap:6px;align-items:center;}
 .topactions .btn{padding:5px 10px;font-size:12.5px;}
 @media(max-width:560px){.topactions .btn span.lbl{display:none;} .topactions .btn{padding:6px 9px;}}
+
+/* ---- Mobile header: keep the top bar to a single tidy row on every role (no wrapping/overflow) ---- */
+html,body{max-width:100%;overflow-x:hidden;}
+@media(max-width:600px){
+  .topbar{padding:6px 10px;gap:8px;}
+  .brand{gap:6px;min-width:0;}
+  .brand-name{display:none;}                 /* the logo alone is enough on a phone */
+  .logo{width:34px;height:34px;}
+  .user{gap:6px;min-width:0;}
+  .user-meta{display:none;}                   /* name/role text was wrapping to 3 lines — avatar is the tap target */
+  .avatar{width:32px;height:32px;font-size:13px;}
+  .topactions{gap:4px;}
+  .topactions .btn{padding:6px 8px;font-size:13px;}
+  .langtoggle{padding:4px 8px;font-size:11px;}
+  .bell{font-size:18px;padding:2px;}
+  main{padding:12px 10px;}
+}

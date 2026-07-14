@@ -28,7 +28,16 @@
     'c.close':['ปิด','Close'], 'c.print':['พิมพ์','Print'], 'c.download':['ดาวน์โหลด','Download'],
     'c.remaining':['สิทธิคงเหลือ','Remaining'], 'c.today':['วันนี้','Today'], 'c.saved':['บันทึกข้อมูลเรียบร้อยแล้ว','Saved successfully'],
     'c.notifications':['การแจ้งเตือน','Notifications'], 'c.markread':['ทำเครื่องหมายว่าอ่านแล้ว','Mark all read'], 'c.logout':['ออก','Logout'],
-    'c.none':['—','—'], 'c.noItems':['ไม่มีรายการ','No items'], 'c.confirm':['ยืนยัน','Confirm'], 'c.month':['งวด (เดือน)','Period (month)'], 'c.reason':['เหตุผล','Reason'], 'c.type':['ประเภท','Type'], 'c.from':['วันที่เริ่ม','From'], 'c.to':['ถึงวันที่','To'], 'c.total':['รวม','Total'], 'c.due':['ครบกำหนด','Due'], 'c.paid':['ชำระ','Paid'], 'c.calc':['คำนวณ','Calculate'], 'c.staff':['พนักงาน','Staff'], 'c.days':['วัน','days'],
+    'c.none':['—','—'], 'c.noItems':['ไม่มีรายการ','No items'], 'c.confirm':['ยืนยัน','Confirm'], 'c.month':['งวด (เดือน)','Period (month)'], 'c.reason':['เหตุผล','Reason'], 'c.type':['ประเภท','Type'], 'c.from':['วันที่เริ่ม','From'], 'c.to':['ถึงวันที่','To'], 'c.total':['รวม','Total'], 'c.due':['ครบกำหนด','Due'], 'c.paid':['ชำระ','Paid'], 'c.calc':['คำนวณ','Calculate'], 'c.staff':['พนักงาน','Staff'], 'c.days':['วัน','days'], 'c.approve':['อนุมัติ','Approve'], 'c.reject':['ปฏิเสธ','Reject'],
+    // class-management change requests (ย้ายครูประจำชั้น/แผนก) + manual attendance-time requests (ขอลงเวลา)
+    'corg.title':['🔁 ย้าย/จัดชั้นเรียน','🔁 Class assignment'], 'corg.manage':['จัดชั้นเรียน','Manage'],
+    'corg.leaderNote':['เลือกแผนก/ชั้นของครูแต่ละคน แล้วกด "ส่งคำขอ" เพื่อส่งให้แอดมินอนุมัติ','Set each teacher’s class/department, then Submit for Admin approval'],
+    'corg.note':['หมายเหตุ','Note'], 'corg.submit':['ส่งคำขอไปที่แอดมิน','Submit to Admin'], 'corg.submitted':['ส่งคำขอแล้ว รอแอดมินอนุมัติ','Submitted — awaiting Admin'],
+    'corg.noReq':['ยังไม่มีคำขอ','No requests'], 'corg.adminTitle':['คำขอย้าย/จัดชั้นเรียน','Class-change requests'], 'corg.noPending':['ไม่มีคำขอรออนุมัติ','No pending requests'],
+    'att.adminTitle':['คำขอลงเวลา (คุณครู)','Attendance-time requests'], 'att.title':['⏰ ขอลงเวลา','⏰ Record-time request'],
+    'att.reqIn':['ขอลงเวลาเข้างาน','Request check-in'], 'att.reqOut':['ขอลงเวลาเลิกงาน','Request check-out'],
+    'att.myReq':['คำขอลงเวลาของฉัน','My time requests'], 'att.teamReq':['คำขอลงเวลา (ลูกน้อง)','Team time requests'],
+    'att.manual':['ขอลงเวลา','manual'], 'att.st.PENDING_LEADER':['รอหัวหน้า','Pending leader'], 'att.st.PENDING_ADMIN':['รอแอดมิน','Pending admin'], 'att.st.APPROVED':['อนุมัติแล้ว','Approved'], 'att.st.REJECTED':['ปฏิเสธ','Rejected'],
     // screen titles
     'title.checkin':['📍 รับ-ส่งเด็ก (GPS)','📍 Pickup / Drop-off (GPS)'], 'title.payment':['💳 การชำระเงิน','💳 Payment'], 'title.journal':['📒 บันทึกประจำวัน','📒 Daily Journal'],
     'title.dspm':['📈 พัฒนาการ (DSPM)','📈 Development (DSPM)'], 'title.chat':['💬 แชทกับโรงเรียน','💬 Chat with school'], 'title.class':['👶 ชั้นเรียน','👶 My Class'],
