@@ -46,7 +46,8 @@ var COLLECTION_MAP = {
   workSchedule:    { wb: 'HR',   sheet: 'WORK_SCHEDULE' },
   leaves:          { wb: 'HR',   sheet: 'LEAVE_REQUEST' },
   otRecords:       { wb: 'HR',   sheet: 'OT_RECORDS' },
-  dutyRoster:      { wb: 'HR',   sheet: 'DUTY_ROSTER' },
+  attendanceReq:   { wb: 'HR',   sheet: 'ATTENDANCE_REQUEST' },
+  classChangeReq:  { wb: 'HR',   sheet: 'CLASS_CHANGE_REQ' },
   payroll:         { wb: 'HR',   sheet: 'PAYROLL' }
 };
 var FIELD_ALIAS = { STUDENTS: { Name: 'NameTH' }, PARENTS: { Name: 'NameTH' }, STAFF: { Name: 'NameTH' },
@@ -106,13 +107,13 @@ function hydrateLazy_() {
   lazyRW_(M, cache, snap, 'payrollConfig', function () { return hydratePayrollConfig_(); });
   lazyRW_(M, cache, snap, 'staffAttendanceToday', function () {
     return rawCheckinStaff().filter(function (r) { return String(r.Date).slice(0, 10) === t; })
-      .map(function (r) { return { StaffID: r.StaffID, CheckIn: r.CheckIn, CheckOut: r.CheckOut, Status: r.Status, Late: Number(r.LateMinutes) || 0, OTHours: Number(r.OTHours) || 0 }; });
+      .map(function (r) { return { StaffID: r.StaffID, CheckIn: r.CheckIn, CheckOut: r.CheckOut, Status: r.Status, Late: Number(r.LateMinutes) || 0, OTHours: Number(r.OTHours) || 0, InManual: r.InManual, OutManual: r.OutManual }; });
   });
 
   // read-only derived / seeded (not persisted)
   lazyRO_(M, cache, 'staffAttendanceHistory', function () {
     return rawCheckinStaff().filter(function (r) { return String(r.Date).slice(0, 10) !== t; })
-      .map(function (r) { return { Date: String(r.Date).slice(0, 10), StaffID: r.StaffID, In: r.CheckIn, Out: r.CheckOut }; });
+      .map(function (r) { return { Date: String(r.Date).slice(0, 10), StaffID: r.StaffID, In: r.CheckIn, Out: r.CheckOut, InManual: r.InManual, OutManual: r.OutManual }; });
   });
   lazyRO_(M, cache, 'studentCheckins', function () { return deriveStudentCheckins_(M.checkinStudent); });
   lazyRO_(M, cache, 'studentAttendanceToday', function () { return deriveStudentToday_(M.checkinStudent, M.studentLeaves, t); });

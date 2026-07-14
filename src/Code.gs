@@ -66,10 +66,13 @@ var ROUTES = {
   adminEditOT:    function (p) { return handleAdminEditOT(p); },
   adminDeleteOT:  function (p) { return handleAdminDeleteOT(p); },
   // duty roster (กะเวร) — reads via engine (dutyList); writes in-place with LINE notify
-  addDuty:        function (p) { return handleAddDuty(p); },
-  editDuty:       function (p) { return handleEditDuty(p); },
-  deleteDuty:     function (p) { return handleDeleteDuty(p); },
-  approveDuty:    function (p) { return handleApproveDuty(p); },
+  // class-management change requests (ย้ายครูประจำชั้น/แผนก): leader submits → admin approves (applies+logs)
+  submitClassChange: function (p) { return handleSubmitClassChange(p); },
+  decideClassChange: function (p) { return handleDecideClassChange(p); },   // admin-only, see ADMIN_ONLY
+  // manual attendance-time request (ขอลงเวลา): 2-step (leader → admin); final approval writes CHECKIN_STAFF
+  submitTimeRequest:  function (p) { return handleSubmitTimeRequest(p); },
+  approveTimeRequest: function (p) { return handleApproveTimeRequest(p); },
+  confirmTimeRequest: function (p) { return handleConfirmTimeRequest(p); },  // admin-only, see ADMIN_ONLY
   // Big Cleaning Day (admin-managed workday, no fixed hours, diligence bonus)
   bigCleaningDays:  function ()  { return handleBigCleaningDays(); },
   addBigCleaning:   function (p) { return handleAddBigCleaning(p); },
@@ -152,7 +155,8 @@ function applyIdentity_(action, payload, sess) {
     addDepartment: 1, removeDepartment: 1, renameDepartment: 1, listBackups: 1, restoreSheet: 1, setRequireCheckin: 1,
     adminUpdateOT: 1, adminCancelOT: 1, adminRestoreOT: 1, unlockJournal: 1,
     confirmOT: 1, adminAddOT: 1, adminEditOT: 1, adminDeleteOT: 1,
-    addBigCleaning: 1, removeBigCleaning: 1, editLeave: 1, cancelLeave: 1, approveDuty: 1 };
+    addBigCleaning: 1, removeBigCleaning: 1, editLeave: 1, cancelLeave: 1,
+    decideClassChange: 1, confirmTimeRequest: 1 };
   if (ADMIN_ONLY[action] && sess.role !== 'Admin') throw apiError_('NO_PERMISSION', 'เฉพาะแอดมิน');
   // Admin is fully trusted: may target ANY staff/student/parent (manage everyone + "view as" any role).
   if (sess.role === 'Admin') return payload;

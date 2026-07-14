@@ -308,12 +308,9 @@ window.MOCK = {
     { Date:'2026-06-04', StaffID:'STF-L1', In:'07:25', Out:'17:50' }, { Date:'2026-06-04', StaffID:'STF-T1', In:'08:12', Out:'19:00' }, { Date:'2026-06-04', StaffID:'STF-T2', In:'08:12', Out:'17:30' }, { Date:'2026-06-04', StaffID:'STF-H1', In:'06:58', Out:'16:10' },
     { Date:'2026-06-05', StaffID:'STF-T1', In:'07:48', Out:'18:40' }, { Date:'2026-06-05', StaffID:'STF-T2', In:'08:03', Out:'17:00' },
   ],
-  // student drop-off duty roster (which teacher takes each class that day)
-  dutyRoster: [
-    { DutyID:'DT-1', Date:'2026-06-09', ClassName:'Nursery 1', StaffID:'STF-T1', Shift:'', Status:'APPROVED', Note:'', CreatedBy:'STF-ADM' },
-    { DutyID:'DT-2', Date:'2026-06-09', ClassName:'Nursery 2', StaffID:'STF-T2', Shift:'', Status:'APPROVED', Note:'', CreatedBy:'STF-ADM' },
-    { DutyID:'DT-3', Date:'2026-06-10', ClassName:'Nursery 1', StaffID:'STF-L1', Shift:'', Status:'PENDING_ADMIN', Note:'', CreatedBy:'STF-L1' },
-  ],
+  // manual attendance-time requests (ขอลงเวลา) + class-management change requests (ย้ายครูประจำชั้น/แผนก)
+  attendanceReq: [],
+  classChangeReq: [],
   // student daily check-in / out (for parent calendar + OT cross-check)
   studentCheckins: [
     { Date:'2026-06-02', StudentID:'STD-1', InTime:'07:55', OutTime:'17:20' },

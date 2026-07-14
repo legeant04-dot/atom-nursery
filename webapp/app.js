@@ -6,7 +6,7 @@
   const setHTML = (sel, html) => { const el = $(sel); if (el) el.innerHTML = html; };
   const app = $('#app'), nav = $('#bottomnav');
   const baht = n => (Number(n)||0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
-  const APP_VERSION = 'Version 1.071'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.072'; // bump each webapp change; shown only at the bottom of the Chat screen
   const verTag = () => `<div style="text-align:center;color:#c3c9d4;font-size:10px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
   const phoneFmt = p => { let d=String(p==null?'':p).replace(/\D/g,''); if(d.length===9) d='0'+d; return d; };
@@ -932,11 +932,13 @@
     const me0=me0raw||{};
     if(me0.MustChangePassword){ T_changePw(true); return; } // force password change on first login
     const isLeader = me0.PositionLevel==='Leader' || me0.Role==='Leader' || USER.role==='Leader';
-    const recentRows = recent.map((a,i)=>`<div class="list-item"><span>${i===0?'<b>'+esc(t('c.today'))+'</b>':esc(ddmmyyyy(a.date))}</span><span style="font-size:13px">${esc(t('lbl.checkIn'))} <b>${a.checkIn||'--:--'}</b> · ${esc(t('lbl.checkOut'))} <b>${a.checkOut||'--:--'}</b> · ${a.late?`<span class="pill bad">${esc(t('lbl.late'))} ${a.late} ${esc(t('lbl.min'))}</span>`:`<span class="pill ok">${esc(t('lbl.onTime'))}</span>`}</span></div>`).join('');
+    // a manually-requested time (ขอลงเวลา, approved) shows blue+bold to distinguish it from a normal GPS clock-in
+    const mtime=(v,manual)=>manual?`<b style="color:#1565C0" title="${EN()?'manual (requested)':'ขอลงเวลา'}">${v||'--:--'} •</b>`:`<b>${v||'--:--'}</b>`;
+    const recentRows = recent.map((a,i)=>`<div class="list-item"><span>${i===0?'<b>'+esc(t('c.today'))+'</b>':esc(ddmmyyyy(a.date))}</span><span style="font-size:13px">${esc(t('lbl.checkIn'))} ${mtime(a.checkIn,a.manualIn)} · ${esc(t('lbl.checkOut'))} ${mtime(a.checkOut,a.manualOut)} · ${a.late?`<span class="pill bad">${esc(t('lbl.late'))} ${a.late} ${esc(t('lbl.min'))}</span>`:`<span class="pill ok">${esc(t('lbl.onTime'))}</span>`}</span></div>`).join('');
     app.innerHTML = `<h2 class="page">${esc(t('t.greeting'))}${esc(EN()?USER.nameEN:USER.nameTH)} 👩‍🏫</h2>
       <div class="card"><h3>⏱️ ${esc(t('lbl.worktime'))} (${esc(att.date)})</h3>
         ${me0.RequireCheckin===false?`<div style="background:#eef6ff;border-radius:8px;padding:8px;color:#1565C0;font-size:13px">ℹ️ ${esc(t('ci.notRequired'))}</div>`:`
-        <div class="spread" style="font-size:15px"><span>${esc(t('lbl.checkIn'))} <b>${att.checkIn||'--:--'}</b></span><span>${esc(t('lbl.checkOut'))} <b>${att.checkOut||'--:--'}</b></span><span>${esc(t('lbl.late'))} <b style="color:${att.late?'#c62828':'#2e7d32'}">${att.late||0}</b> ${esc(t('lbl.min'))}</span></div>
+        <div class="spread" style="font-size:15px"><span>${esc(t('lbl.checkIn'))} ${mtime(att.checkIn,att.manualIn)}</span><span>${esc(t('lbl.checkOut'))} ${mtime(att.checkOut,att.manualOut)}</span><span>${esc(t('lbl.late'))} <b style="color:${att.late?'#c62828':'#2e7d32'}">${att.late||0}</b> ${esc(t('lbl.min'))}</span></div>
         <div class="row" style="margin-top:12px;gap:10px"><button class="btn green" style="flex:1;padding:18px;font-size:18px;font-weight:700" onclick="T_punch('in')">🟢 ${esc(t('lbl.checkIn'))}</button><button class="btn pink" style="flex:1;padding:18px;font-size:18px;font-weight:700" onclick="T_punch('out')">🔴 ${esc(t('lbl.checkOut'))}</button></div>
         <div style="margin-top:10px"><b style="font-size:13px">📅 ${esc(t('lbl.recentDays'))}</b>${recentRows}</div>`}</div>
       <div class="card"><h3>📩 การลาของฉัน · สิทธิคงเหลือ</h3>
@@ -945,14 +947,15 @@
       ${isLeader?`<div class="card"><div class="spread"><h3>⭐ คำขอลาของลูกน้อง (รออนุมัติ)</h3></div><div id="tp"></div></div>`:''}
       <div class="card"><h3>${esc(t('ot.myOT'))}</h3><div id="myot"></div></div>
       ${isLeader?`<div class="card"><h3>${esc(t('ot.teamOT'))}</h3><div id="teamot"></div></div>`:''}
-      ${isLeader?`<div class="card"><div class="spread"><h3>${esc(t('duty.title'))}</h3><button class="btn sm" onclick="T_dutyRoster()">🗂️ ${EN()?'Manage':'จัดกะเวร'}</button></div><small class="muted">${esc(t('duty.leaderNote'))}</small></div>`:''}
+      ${isLeader?`<div class="card"><div class="spread"><h3>${esc(t('corg.title'))}</h3><button class="btn sm" onclick="T_classOrg()">🔁 ${esc(t('corg.manage'))}</button></div><small class="muted">${esc(t('corg.leaderNote'))}</small><div id="myccr" style="margin-top:8px"></div></div>`:''}
       <div class="card"><div class="row"><button class="btn sm outline" onclick="GO('absence')">🔎 ${esc(t('abs.title'))}</button></div></div>
       <div class="card"><div class="spread"><h3>👶 ${esc(cl.class.ClassName)}</h3><span class="muted">${cl.students.length} ${EN()?'kids':'คน'}</span></div>${classSwitcher(cl)}
         ${cl.students.map(s=>`<div class="list-item"><span>${studentAvatar(s)} <b>${esc(dispNick(s))}</b> ${journalPill(jdone[s.StudentID])}</span><span><button class="btn sm outline" onclick="T_journal('${s.StudentID}')">${esc(journalBtnLabel(jdone[s.StudentID]))}</button> <button class="btn sm outline" onclick="T_assess('${s.StudentID}')">${esc(t('lbl.assess'))}</button></span></div>`).join('')}</div>`;
     const ml=await api('myLeaves',{staffId:USER.staffId}); setHTML('#ml', ml.map(leaveRow).join('')||'<small class="muted">ยังไม่มีรายการ</small>');
     const myot=await api('myOT',{staffId:USER.staffId}); setHTML('#myot', myot.map(otRow).join('')||`<small class="muted">${esc(t('ot.none'))}</small>`);
     if(isLeader){ const tp=await api('teamPendingLeaves',{staffId:USER.staffId}); setHTML('#tp', tp.map(l=>teamLeaveRow(l)).join('')||'<small class="muted">ไม่มีคำขอรออนุมัติ</small>');
-      const to=await api('teamPendingOT',{staffId:USER.staffId}); setHTML('#teamot', to.map(otApproveRow).join('')||`<small class="muted">${esc(t('ot.none'))}</small>`); }
+      const to=await api('teamPendingOT',{staffId:USER.staffId}); setHTML('#teamot', to.map(otApproveRow).join('')||`<small class="muted">${esc(t('ot.none'))}</small>`);
+      const ccr=await api('myClassChanges',{staffId:USER.staffId}); setHTML('#myccr', ccr.slice(0,4).map(ccrRow).join('')||`<small class="muted">${esc(t('corg.noReq'))}</small>`); }
   };
   // OT status badge + row renderers (shared)
   // a blank Status is a legacy pre-workflow OT row → treat it as approved
@@ -1196,10 +1199,30 @@
         ${photoField('lDoc',(EN()?'Attachment (medical cert / doc — optional)':'เอกสารแนบ (ใบรับรองแพทย์ ฯลฯ — ถ้ามี)'),'',false)}
         <button class="btn block" onclick="T_submitLeave()">ส่งคำขอ</button></div>
       <div class="card"><h3>📋 คำขอของฉัน</h3><div id="ml"></div></div>
-      ${isLeader?`<div class="card"><h3>⭐ รออนุมัติ — คำขอของลูกน้อง</h3><div id="tp"></div></div>`:''}`;
+      <div class="card"><h3>${esc(t('att.title'))}</h3>
+        <p class="muted" style="font-size:12px">${EN()?'Forgot to clock in/out? Request a time — it goes to your leader then Admin.':'ลืมลงเวลา? ขอลงเวลาที่ต้องการ ระบบจะส่งให้หัวหน้าครูและแอดมินอนุมัติ'}</p>
+        <div class="grid2"><label class="field"><span>${EN()?'Type':'ประเภท'}</span><select id="atType"><option value="IN">${esc(t('att.reqIn'))}</option><option value="OUT">${esc(t('att.reqOut'))}</option></select></label>
+          <label class="field"><span>${EN()?'Date':'วันที่'}</span><input type="date" id="atDate" value="${todayStr()}"/></label></div>
+        <div class="grid2"><label class="field"><span>${EN()?'Time':'เวลา'}</span><input type="time" id="atTime"/></label>
+          <label class="field"><span>${esc(t('c.reason'))}</span><input id="atReason" placeholder="${EN()?'reason':'เหตุผล'}"/></label></div>
+        <button class="btn block" onclick="T_submitTimeReq()">📤 ${esc(t('att.title'))}</button>
+        <div id="atmine" style="margin-top:10px"></div></div>
+      ${isLeader?`<div class="card"><h3>⭐ รออนุมัติ — คำขอของลูกน้อง</h3><div id="tp"></div></div>
+      <div class="card"><h3>⭐ ${esc(t('att.teamReq'))} (${EN()?'pending':'รออนุมัติ'})</h3><div id="attp"></div></div>`:''}`;
     setHTML('#ml', (await api('myLeaves',{staffId:USER.staffId})).map(leaveRow).join('')||'<small class="muted">ยังไม่มี</small>');
-    if(isLeader) setHTML('#tp', (await api('teamPendingLeaves',{staffId:USER.staffId})).map(teamLeaveRow).join('')||'<small class="muted">ไม่มีคำขอรออนุมัติ</small>');
+    setHTML('#atmine', (await api('myTimeRequests',{staffId:USER.staffId})).map(timeReqRow).join('')||'<small class="muted">ยังไม่มี</small>');
+    if(isLeader){ setHTML('#tp', (await api('teamPendingLeaves',{staffId:USER.staffId})).map(teamLeaveRow).join('')||'<small class="muted">ไม่มีคำขอรออนุมัติ</small>');
+      setHTML('#attp', (await api('teamPendingTimeRequests',{staffId:USER.staffId})).map(timeReqApproveRow).join('')||'<small class="muted">ไม่มีคำขอรออนุมัติ</small>'); }
   };
+  // manual attendance-time request row renderers + actions
+  const timeTypeLabel = ty => String(ty).toUpperCase()==='IN'?(EN()?'Check-in':'เข้างาน'):(EN()?'Check-out':'เลิกงาน');
+  const timeReqStatusPill = st => { const k=String(st||'PENDING_LEADER').toUpperCase(); const cls=k==='APPROVED'?'ok':(k==='REJECTED'?'bad':'wait'); return `<span class="pill ${cls}">${esc(t('att.st.'+k)||k)}</span>`; };
+  function timeReqRow(r){ return `<div class="list-item"><span>${esc(timeTypeLabel(r.Type))} · <b style="color:#1565C0">${esc(r.RequestTime)}</b> · ${esc(ddmmyyyy(r.Date))}${r.Reason?`<br><small class="muted">${esc(r.Reason)}</small>`:''}</span>${timeReqStatusPill(r.Status)}</div>`; }
+  function timeReqApproveRow(r){ return `<div class="list-item"><span><b>${esc(dnick(r))}</b> · ${esc(timeTypeLabel(r.Type))} <b style="color:#1565C0">${esc(r.RequestTime)}</b> · ${esc(ddmmyyyy(r.Date))}${r.Reason?`<br><small class="muted">${esc(r.Reason)}</small>`:''}</span><span class="row"><button class="btn sm green" onclick="T_approveTimeReq('${r.ReqID}','approve')">✔</button><button class="btn sm pink" onclick="T_approveTimeReq('${r.ReqID}','reject')">✕</button></span></div>`; }
+  window.T_submitTimeReq=async()=>{ const type=$('#atType').value, date=$('#atDate').value, time=$('#atTime').value, reason=$('#atReason').value;
+    if(!time){toast(EN()?'Pick a time':'เลือกเวลา');return;}
+    try{ await api('submitTimeRequest',{staffId:USER.staffId,type,date,time,reason}); confirmSaved(t('corg.submitted')); GO('leave'); }catch(e){err(e);} };
+  window.T_approveTimeReq=async(reqId,dec)=>{ try{ await api('approveTimeRequest',{staffId:USER.staffId,reqId,decision:dec}); toast(dec==='approve'?(EN()?'Approved (→Admin)':'อนุมัติ (ส่งต่อแอดมิน)'):(EN()?'Rejected':'ปฏิเสธแล้ว')); GO('leave'); }catch(e){err(e);} };
   window.T_submitLeave=async()=>{ const attachment=photoVal(document,'lDoc'); try{ const r=await api('submitLeave',{staffId:USER.staffId,type:$('#lType').value,startDate:$('#lStart').value,endDate:$('#lEnd').value,reason:$('#lReason').value,attachment}); toast(`✅ ส่งคำขอ ${r.leaveId} (${r.days} วัน)`); GO('leave'); }catch(e){err(e);} };
   window.T_teamApprove=async(id,dec)=>{ try{ const r=await api('approveLeave',{staffId:USER.staffId,leaveId:id,decision:dec}); toast(`✅ ${dec==='approve'?'อนุมัติ(ส่งต่อ Admin)':'ปฏิเสธ'} — ${r.status}`); GO('leave'); }catch(e){err(e);} };
   function leaveStatusPill(st){ const c={PENDING_LEADER:'wait',PENDING_ADMIN:'wait',APPROVED:'ok',REJECTED:'bad'}[st]||'info'; return `<span class="pill ${c}">${esc(tStat(st))}</span>`; }
@@ -1234,7 +1257,6 @@
     window._CALRENDER=render;
     return `<div class="card"><div id="calWrap">${render()}</div></div>`; }
   SCREENS.Teacher.schedule = async () => { const d=await api('schedule');
-    const todayDuty=d.duty.filter(x=>x.Date===todayStr());
     const staffing=d.staffing||[];
     // staff directory comes from the API (MOCK.staff is empty in gas mode)
     const dir={}; (d.staff||[]).forEach(s=>{ dir[s.StaffID]=s; });
@@ -1245,7 +1267,6 @@
     app.innerHTML=`<h2 class="page">${esc(t('title.schedule'))}</h2>
       ${ratioHtml}
       ${staffSchedCalendar(d.history,{shortName,holidays:d.holidays,bigCleaning:d.bigCleaning,leaves:d.leavesToday})}
-      <div class="card"><h3>🧑‍🏫 ${esc(t('lbl.dutyRoster'))} (${esc(todayStr())})</h3>${todayDuty.map(x=>`<div class="list-item"><span>${esc(x.ClassName)}</span><span><span class="avatar-sm">${esc(initialEN((dir[x.StaffID]||{}).NameEN))}</span> ${esc(fullName(x.StaffID))}</span></div>`).join('')||`<small class="muted">${esc(t('c.noItems'))}</small>`}</div>
       <div class="card"><h3>📋 ${esc(t('lbl.dailySummary'))} (${esc(todayStr())})</h3>${d.attendance.map(a=>{const cls=a.Status==='IN'?'dot-in':a.Status==='OUT'?'dot-out':a.Status==='LEAVE'?'dot-leave':'dot-absent';return `<div class="att"><span class="dot-s ${cls}"></span> ${esc(fullName(a.StaffID))} — ${a.Status==='LEAVE'?(EN()?'Leave':'ลา')+' ('+esc(a.Reason||'')+')':a.Status+(a.CheckIn?' '+a.CheckIn:'')}</span></div>`;}).join('')||`<small class="muted">${esc(t('c.noItems'))}</small>`}
         <div style="margin-top:8px"><b style="font-size:13px">${EN()?'Approved leave (for coverage)':'การลาที่อนุมัติแล้ว (วางแผนสับเปลี่ยน)'}:</b>${d.leavesToday.map(l=>`<div class="list-item"><span>${esc(fullName(l.StaffID))} · ${esc(tLeaveType(l.Type))}</span><span class="muted">${esc(l.StartDate)}→${esc(l.EndDate)}</span></div>`).join('')||`<small class="muted">${esc(t('c.noItems'))}</small>`}</div></div>`;
   };
@@ -1635,7 +1656,8 @@
         <button class="btn sm outline" onclick="A_groups()">🕑 ${esc(t('manage.groups'))}</button>
         <button class="btn sm outline" onclick="A_settings()">⚙️ ${esc(t('manage.settings'))}</button>
         <button class="btn sm outline" onclick="A_staffOT()">⏰ ${esc(t('ot.adminOT'))}</button>
-        <button class="btn sm outline" onclick="A_dutyRoster()">🧑‍🏫 ${EN()?'Duty roster':'กะเวร'}</button>
+        <button class="btn sm outline" onclick="A_classChanges()">🔁 ${esc(t('corg.adminTitle'))}</button>
+        <button class="btn sm outline" onclick="A_timeRequests()">⏰ ${esc(t('att.adminTitle'))}</button>
         <button class="btn sm outline" onclick="A_studentOT()">⏰ ${EN()?'Student OT':'OT รับช้า (นักเรียน)'}</button>
         <button class="btn sm outline" onclick="A_journals()">📒 ${esc(t('jr.admin'))}</button>
         <button class="btn sm outline" onclick="A_insurance()">🛡️ ${esc(t('ins2.manage'))}</button>
@@ -2037,43 +2059,53 @@
     try{ await api('adminCancelOT',{otId}); toast(EN()?'OT cancelled':'ยกเลิก OT แล้ว'); const x=document.querySelector('.modal'); if(x)x.remove(); A_studentOT(); }catch(e){err(e);} };
   window.A_otRestore=async(otId)=>{ try{ await api('adminRestoreOT',{otId}); toast(EN()?'OT restored':'คืนค่า OT แล้ว'); const x=document.querySelector('.modal'); if(x)x.remove(); A_studentOT(); }catch(e){err(e);} };
 
-  // ---- Duty roster (กะเวร) — shared by Admin (canApprove) and Leader (submit → admin approves) ----
-  let DUTY_MONTH=null;
-  const dutyStatusPill = st => { const k=String(st||'APPROVED').toUpperCase(); const cls=k==='APPROVED'?'ok':(k==='REJECTED'?'bad':'wait');
-    const lbl=k==='APPROVED'?t('duty.approved'):(k==='REJECTED'?t('duty.rejected'):t('duty.pending')); return `<span class="pill ${cls}">${esc(lbl)}</span>`; };
-  window.DUTY_open=async(canApprove,month)=>{ DUTY_MONTH=month||DUTY_MONTH||monthStr();
-    const [rows,staff,classes]=await Promise.all([api('dutyList',{month:DUTY_MONTH}),
-      (A_CACHE.staff&&A_CACHE.staff.length)?Promise.resolve(A_CACHE.staff):api('listStaff'), api('listClasses').catch(()=>[])]);
-    A_CACHE.staff=staff||A_CACHE.staff; window._DUTY_CLASSES=classes||[]; window._DUTY_ROWS=rows;
-    const row=d=>{ const isPend=String(d.Status).toUpperCase()==='PENDING_ADMIN';
-      return `<div class="list-item"><span><b>${esc(dnick(d))}</b> · ${esc(ddmmyyyy(d.Date))}${d.ClassName?' · '+esc(d.ClassName):''}${d.Shift?' · '+esc(d.Shift):''}<br>${dutyStatusPill(d.Status)}${d.Note?` <small class="muted">${esc(d.Note)}</small>`:''}</span>
-        <span class="row">${canApprove&&isPend?`<button class="btn sm green" onclick="DUTY_approve('${d.DutyID}','approve',${canApprove})">✔</button><button class="btn sm pink" onclick="DUTY_approve('${d.DutyID}','reject',${canApprove})">✕</button>`:''}<button class="btn sm outline" onclick="DUTY_form(${canApprove},'${d.DutyID}')">✏️</button><button class="btn sm pink" onclick="DUTY_del('${d.DutyID}',${canApprove})">🗑️</button></span></div>`; };
-    modal(`<h3>${esc(t('duty.title'))}</h3>
-      <div class="spread"><label class="field" style="flex:1"><span>${EN()?'Month':'เดือน'}</span><input type="month" id="dutyMonth" value="${DUTY_MONTH}" onchange="DUTY_open(${canApprove},this.value)"/></label>
-        <button class="btn sm" style="align-self:end;margin-bottom:2px" onclick="DUTY_form(${canApprove})">${esc(t('duty.add'))}</button></div>
-      ${canApprove?'':`<p class="muted" style="font-size:11.5px">${esc(t('duty.leaderNote'))}</p>`}
-      <div style="max-height:54vh;overflow:auto">${rows.length?rows.map(row).join(''):`<small class="muted">${esc(t('duty.none'))}</small>`}</div>
+  // ---- Class-management (ย้ายครูประจำชั้น/แผนก): Leader stages moves → submits a change request;
+  //      Admin reviews Before/After and approves (applies + logs). Shared row renderer + screens below. ----
+  const ccrStatusPill = st => { const k=String(st||'PENDING_ADMIN').toUpperCase(); const cls=k==='APPROVED'?'ok':(k==='REJECTED'?'bad':'wait');
+    return `<span class="pill ${cls}">${esc(t('att.st.'+k)||k)}</span>`; };
+  const ccrChanges = r => { let a=r.Changes; if(typeof a==='string'){ try{a=JSON.parse(a);}catch(e){a=[];} } return Array.isArray(a)?a:[]; };
+  const ccrDiff = c => `${esc(c.name||c.staffId)}: <span class="muted">${esc(c.before||'—')}</span> → <b style="color:#1565C0">${esc(c.after||'—')}</b>`;
+  function ccrRow(r){ return `<div class="list-item"><span>${ccrChanges(r).map(ccrDiff).join('<br>')||'<small class="muted">—</small>'}<br><small class="muted">${esc(ddmmyyyy(r.CreatedDate))}${r.Note?' · '+esc(r.Note):''}</small></span>${ccrStatusPill(r.Status)}</div>`; }
+  // Leader screen: move teachers between departments; changed rows are staged and submitted as one request.
+  window.T_classOrg=async()=>{ const [staff,depts]=await Promise.all([api('listStaff'),api('listDepartments')]);
+    const teachers=staff.filter(s=>s.Role==='Teacher'||s.PositionLevel==='Leader'||s.PositionLevel==='Assistant');
+    window._CCR_ORIG={}; teachers.forEach(s=>{ window._CCR_ORIG[s.StaffID]=String(s.Department||''); });
+    const optsFor=cur=>depts.map(d=>`<option value="${esc(d)}" ${String(cur||'')===d?'selected':''}>${esc(d)}</option>`).join('');
+    app.innerHTML=`<button class="btn sm outline backbtn" onclick="GO('home')">${t('c.back')}</button>
+      <h2 class="page">🔁 ${esc(t('corg.title'))}</h2>
+      <p class="muted" style="font-size:12px">${esc(t('corg.leaderNote'))}</p>
+      <div class="card">${teachers.map(s=>`<div class="list-item"><span>👩‍🏫 <b>${esc(nmn(s))}</b></span>
+        <select data-ccr="${s.StaffID}" data-name="${esc(nmn(s))}" onchange="CCR_mark(this)">${optsFor(s.Department)}</select></div>`).join('')}</div>
+      <label class="field"><span>${esc(t('corg.note'))}</span><input id="ccrNote" placeholder="${EN()?'reason (optional)':'เหตุผล (ถ้ามี)'}"/></label>
+      <button class="btn block" onclick="CCR_submit(this)">📤 ${esc(t('corg.submit'))}</button>`;
+  };
+  window.CCR_mark=(sel)=>{ const orig=(window._CCR_ORIG||{})[sel.getAttribute('data-ccr')]; sel.style.fontWeight=(sel.value!==orig)?'700':''; sel.style.color=(sel.value!==orig)?'#1565C0':''; };
+  window.CCR_submit=async(btn)=>{ const orig=window._CCR_ORIG||{}; const changes=[];
+    document.querySelectorAll('select[data-ccr]').forEach(sel=>{ const id=sel.getAttribute('data-ccr'); const after=sel.value; const before=orig[id]||'';
+      if(after!==before) changes.push({staffId:id,name:sel.getAttribute('data-name'),before,after}); });
+    if(!changes.length){toast(EN()?'No changes':'ไม่มีการเปลี่ยนแปลง');return;}
+    if(!confirm((EN()?'Submit ':'ส่งคำขอ ')+changes.length+(EN()?' change(s) to Admin?':' รายการไปที่แอดมิน?')))return;
+    try{ await api('submitClassChange',{staffId:USER.staffId,changes,note:$('#ccrNote').value||''}); confirmSaved(t('corg.submitted')); GO('home'); }catch(e){err(e);} };
+  // Admin screen: pending change requests with Before/After → approve (apply+log) / reject
+  window.A_classChanges=async()=>{ const rows=await api('pendingClassChanges',{staffId:USER.staffId});
+    modal(`<h3>🔁 ${esc(t('corg.adminTitle'))}</h3>
+      <div style="max-height:60vh;overflow:auto">${rows.length?rows.map(r=>`<div class="card" style="margin:8px 0"><div><b>${esc(r.RequestByName||r.RequestBy)}</b> <small class="muted">${esc(ddmmyyyy(r.CreatedDate))}</small></div>
+        <div style="margin:6px 0">${ccrChanges(r).map(ccrDiff).join('<br>')}</div>${r.Note?`<small class="muted">${esc(r.Note)}</small>`:''}
+        <div class="row" style="margin-top:8px"><button class="btn sm green" onclick="CCR_decide('${r.ReqID}','approve')">✔ ${esc(t('c.approve'))}</button><button class="btn sm pink" onclick="CCR_decide('${r.ReqID}','reject')">✕ ${esc(t('c.reject'))}</button></div></div>`).join(''):`<small class="muted">${esc(t('corg.noPending'))}</small>`}</div>
       <button class="btn outline block" style="margin-top:8px" onclick="this.closest('.modal').remove()">${esc(t('c.close'))}</button>`);
   };
-  window.DUTY_form=(canApprove,dutyId)=>{ const d=dutyId?((window._DUTY_ROWS||[]).find(x=>x.DutyID===dutyId)||{}):{};
-    const staff=(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin'||true);
-    const classes=(window._DUTY_CLASSES||[]).map(c=>c.ClassName).concat(A_classOptions('')).filter((v,i,a)=>v&&a.indexOf(v)===i);
-    modal(`<h3>${dutyId?'✏️':'➕'} ${esc(t('duty.title'))}</h3>
-      <div class="grid2"><label class="field"><span>${esc(t('inj.date'))}</span><input type="date" id="dfDate" value="${esc(d.Date?String(d.Date).slice(0,10):todayStr())}"/></label>
-        <label class="field"><span>${esc(t('duty.staff'))}</span><select id="dfStaff">${staff.map(s=>`<option value="${s.StaffID}" ${d.StaffID===s.StaffID?'selected':''}>${esc(nmn(s))}</option>`).join('')}</select></label></div>
-      <div class="grid2"><label class="field"><span>${esc(t('duty.class'))}</span><select id="dfClass"><option value="">—</option>${classes.map(c=>`<option ${d.ClassName===c?'selected':''}>${esc(c)}</option>`).join('')}</select></label>
-        <label class="field"><span>${esc(t('duty.shift'))}</span><input id="dfShift" value="${esc(d.Shift||'')}" placeholder="${EN()?'e.g. morning':'เช่น เช้า'}"/></label></div>
-      <label class="field"><span>${esc(t('duty.note'))}</span><input id="dfNote" value="${esc(d.Note||'')}"/></label>
-      <button class="btn block" onclick="DUTY_save(${canApprove},'${dutyId||''}',this)">${esc(t('c.save'))}</button>`); };
-  window.DUTY_save=async(canApprove,dutyId,btn)=>{ const m=btn.closest('.modal'); const g=x=>{const e=m.querySelector('#'+x);return e?e.value:'';};
-    const data={staffId:USER.staffId,date:g('dfDate'),forStaffId:g('dfStaff'),className:g('dfClass'),shift:g('dfShift'),note:g('dfNote')};
-    if(!data.date||!data.forStaffId){toast(EN()?'Pick date & teacher':'เลือกวันและครู');return;}
-    try{ if(dutyId){ await api('editDuty',Object.assign({dutyId},data)); } else { await api('addDuty',data); }
-      m.remove(); confirmSaved(t('c.saved')); DUTY_open(canApprove); }catch(e){err(e);} };
-  window.DUTY_approve=async(dutyId,dec,canApprove)=>{ try{ await api('approveDuty',{staffId:USER.staffId,dutyId,decision:dec}); toast(dec==='approve'?(EN()?'Approved':'อนุมัติแล้ว'):(EN()?'Rejected':'ปฏิเสธแล้ว')); DUTY_open(canApprove); }catch(e){err(e);} };
-  window.DUTY_del=async(dutyId,canApprove)=>{ if(!confirm(t('manage.confirmDel')))return; try{ await api('deleteDuty',{staffId:USER.staffId,dutyId}); toast(t('manage.deleted')); DUTY_open(canApprove); }catch(e){err(e);} };
-  window.A_dutyRoster=()=>DUTY_open(true);
-  window.T_dutyRoster=()=>DUTY_open(false);
+  window.CCR_decide=async(reqId,dec)=>{ try{ await api('decideClassChange',{staffId:USER.staffId,reqId,decision:dec}); toast(dec==='approve'?(EN()?'Approved & applied':'อนุมัติและปรับแล้ว'):(EN()?'Rejected':'ปฏิเสธแล้ว')); const m=document.querySelector('.modal'); if(m)m.remove(); A_classChanges(); }catch(e){err(e);} };
+
+  // Admin: confirm/reject manual attendance-time requests (final step → writes CHECKIN_STAFF)
+  window.A_timeRequests=async()=>{ const rows=await api('pendingAdminTimeRequests',{staffId:USER.staffId});
+    const tyLabel=ty=>String(ty).toUpperCase()==='IN'?(EN()?'Check-in':'เข้างาน'):(EN()?'Check-out':'เลิกงาน');
+    modal(`<h3>⏰ ${esc(t('att.adminTitle'))}</h3>
+      <p class="muted" style="font-size:12px">${EN()?'Approving writes the time into attendance and recomputes late/OT.':'อนุมัติแล้วจะบันทึกเวลาลงในระบบและคำนวณสาย/OT ใหม่'}</p>
+      <div style="max-height:60vh;overflow:auto">${rows.length?rows.map(r=>`<div class="card" style="margin:8px 0"><div><b>${esc(dnick(r))}</b> · ${esc(tyLabel(r.Type))} <b style="color:#1565C0">${esc(r.RequestTime)}</b> · ${esc(ddmmyyyy(r.Date))}</div>${r.Reason?`<small class="muted">${esc(r.Reason)}</small>`:''}
+        <div class="row" style="margin-top:8px"><button class="btn sm green" onclick="ATR_decide('${r.ReqID}','approve')">✔ ${esc(t('c.approve'))}</button><button class="btn sm pink" onclick="ATR_decide('${r.ReqID}','reject')">✕ ${esc(t('c.reject'))}</button></div></div>`).join(''):`<small class="muted">${esc(t('corg.noPending'))}</small>`}</div>
+      <button class="btn outline block" style="margin-top:8px" onclick="this.closest('.modal').remove()">${esc(t('c.close'))}</button>`);
+  };
+  window.ATR_decide=async(reqId,dec)=>{ try{ await api('confirmTimeRequest',{staffId:USER.staffId,reqId,decision:dec}); toast(dec==='approve'?(EN()?'Approved & written':'อนุมัติและบันทึกแล้ว'):(EN()?'Rejected':'ปฏิเสธแล้ว')); const m=document.querySelector('.modal'); if(m)m.remove(); A_timeRequests(); }catch(e){err(e);} };
 
   // ---- Admin: staff OT approval + management (confirm/edit/reject/add/delete) ----
   let SOT_MONTH=null;
