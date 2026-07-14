@@ -84,7 +84,7 @@ window.CONFIG = { MODE: 'gas', GAS_URL: 'https://script.google.com/macros/s/AKfy
     setInterval(() => { if (!document.hidden && CONFIG.MODE === 'gas') revalidateAll(); }, 60000); // “latest data every minute”
   }
 
-  window.api = function (action, payload) {
+  window.api = function (action, payload, opts) {
     payload = payload || {};
     if (CONFIG.MODE === 'gas') {
       if (action === 'auth') {                                                          // capture the session token; never cache auth
@@ -92,6 +92,9 @@ window.CONFIG = { MODE: 'gas', GAS_URL: 'https://script.google.com/macros/s/AKfy
       }
       if (isMutating(action)) { rcClear(); return enqueueGas(action, payload); }      // write → bust cache (memory + disk)
       const ck = action + '|' + JSON.stringify(payload);
+      // opts.fresh: never serve a possibly-stale cached value — always fetch (still populates the cache).
+      // Used for time-sensitive reads like the announcement popup, where a stale empty must not suppress it.
+      if (opts && opts.fresh) return enqueueGas(action, payload).then(d => { rcSet(ck, d); return d; });
       const hit = _rc.get(ck);
       if (hit) {                                                                        // local-first: paint instantly
         if (Date.now() - hit.t >= RC_TTL) revalidate(ck);                               // stale → refresh in background

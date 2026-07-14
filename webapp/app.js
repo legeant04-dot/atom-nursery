@@ -6,7 +6,7 @@
   const setHTML = (sel, html) => { const el = $(sel); if (el) el.innerHTML = html; };
   const app = $('#app'), nav = $('#bottomnav');
   const baht = n => (Number(n)||0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
-  const APP_VERSION = 'Version 1.072'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.073'; // bump each webapp change; shown only at the bottom of the Chat screen
   const verTag = () => `<div style="text-align:center;color:#c3c9d4;font-size:10px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
   const phoneFmt = p => { let d=String(p==null?'':p).replace(/\D/g,''); if(d.length===9) d='0'+d; return d; };
@@ -515,19 +515,29 @@
     window._CALRENDER=render;
     return `<div class="card"><div id="calWrap">${render()}</div></div>`; }
 
-  // forced announcement popup for parents (must close before check-in/out); "don't show again" per id
-  async function showAnnPopups(onDone){ let anns=[]; try{ anns=await api('activeAnnouncements'); }catch(e){}
+  // forced announcement popup for parents (must close before check-in/out); "don't show again" per id.
+  // Fetched FRESH (opts.fresh) so a stale cached-empty from an earlier session can't suppress it.
+  let ANN_SHOWING=false;
+  async function showAnnPopups(onDone){
+    if(ANN_SHOWING){ if(onDone)onDone(); return; }                    // already open → don't stack duplicates
+    let anns=[]; try{ anns=await api('activeAnnouncements',{},{fresh:true}); }catch(e){}
     let dismissed={}; try{ dismissed=JSON.parse(localStorage.getItem('atom_ann_dismissed')||'{}'); }catch(e){}
-    const queue=anns.filter(a=>!dismissed[a.AnnID]);
+    const queue=(anns||[]).filter(a=>!dismissed[a.AnnID]);
     if(!queue.length){ if(onDone)onDone(); return; }
+    ANN_SHOWING=true;
     let idx=0;
     const showOne=()=>{ const a=queue[idx]; const ti=EN()?(a.TitleEN||a.Title):(a.Title||a.TitleEN); const co=EN()?(a.ContentEN||a.Content):(a.Content||a.ContentEN);
-      const m=modal(`<div style="text-align:center"><div style="font-size:34px">📢</div><h3>${esc(ti)}</h3>
-        <p style="font-size:14px">${esc(co)}</p>${a.Image?`<img src="${esc(a.Image)}" style="max-width:100%;border-radius:10px;margin:6px 0"/>`:''}
-        <label style="display:flex;align-items:center;gap:8px;justify-content:center;font-size:12.5px;margin:8px 0"><input type="checkbox" id="annHide" style="width:auto"/> ${esc(t('ann.hide'))}</label>
+      const m=modal(`<div class="annpop">
+        <div class="annpop-ic">📢</div>
+        <div class="annpop-badge">${esc(t('ann.badge'))}</div>
+        <h3>${esc(ti)}</h3>
+        ${co?`<p class="annpop-body">${esc(co)}</p>`:''}
+        ${a.Image?`<img class="annpop-img" src="${esc(a.Image)}" onclick="IMG_zoom('${esc(a.Image)}')" alt=""/>`:''}
+        ${queue.length>1?`<div class="annpop-count">${idx+1}/${queue.length}</div>`:''}
+        <label class="annpop-hide"><input type="checkbox" id="annHide"/> <span>${esc(t('ann.hide'))}</span></label>
         <button class="btn block" id="annClose">${esc(t('ann.ok'))}</button></div>`);
       m.querySelector('#annClose').onclick=()=>{ if(m.querySelector('#annHide').checked){ dismissed[a.AnnID]=true; try{localStorage.setItem('atom_ann_dismissed',JSON.stringify(dismissed));}catch(e){} }
-        m.remove(); idx++; if(idx<queue.length) showOne(); else if(onDone)onDone(); };
+        m.remove(); idx++; if(idx<queue.length) showOne(); else { ANN_SHOWING=false; if(onDone)onDone(); } };
       m.onclick=null; // force using the button (cannot dismiss by backdrop)
     };
     showOne();
