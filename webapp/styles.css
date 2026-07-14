@@ -188,6 +188,12 @@ textarea{min-height:70px;resize:vertical;}
 .annpop-hide{display:flex;align-items:center;gap:8px;justify-content:center;font-size:12.5px;
   color:var(--muted);margin:6px 0 12px;}
 .annpop-hide input{width:auto;}
+.annpop-pri{display:inline-block;background:#fff3e0;color:#e65100;font-weight:700;font-size:11px;
+  padding:2px 9px;border-radius:999px;margin-bottom:6px;}
+.annpop-dots{display:flex;gap:6px;justify-content:center;margin:4px 0 8px;min-height:8px;}
+.annpop-dot{width:7px;height:7px;border-radius:50%;background:#d5dbe6;transition:background .2s;}
+.annpop-dot.on{background:var(--blue);}
+#annSlide{min-height:40px;}
 /* admin leave approval: requests left, calendar right (stacks on mobile) */
 .leavegrid{display:grid;grid-template-columns:1fr 1fr;gap:14px;align-items:start;}
 @media(max-width:860px){.leavegrid{grid-template-columns:1fr;}}

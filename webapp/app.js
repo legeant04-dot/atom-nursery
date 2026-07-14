@@ -6,7 +6,7 @@
   const setHTML = (sel, html) => { const el = $(sel); if (el) el.innerHTML = html; };
   const app = $('#app'), nav = $('#bottomnav');
   const baht = n => (Number(n)||0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
-  const APP_VERSION = 'Version 1.073'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.074'; // bump each webapp change; shown only at the bottom of the Chat screen
   const verTag = () => `<div style="text-align:center;color:#c3c9d4;font-size:10px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
   const phoneFmt = p => { let d=String(p==null?'':p).replace(/\D/g,''); if(d.length===9) d='0'+d; return d; };
@@ -515,32 +515,40 @@
     window._CALRENDER=render;
     return `<div class="card"><div id="calWrap">${render()}</div></div>`; }
 
-  // forced announcement popup for parents (must close before check-in/out); "don't show again" per id.
-  // Fetched FRESH (opts.fresh) so a stale cached-empty from an earlier session can't suppress it.
+  // Forced announcement popup for parents (must close before check-in/out). Fetched FRESH (opts.fresh)
+  // so a stale cached-empty from an earlier session can't suppress it. If there is more than one active
+  // announcement it becomes an auto-advancing CAROUSEL: the most important (Priority) shows first and it
+  // rotates to the next every 5s. "Don't show again" is per-announcement id. NOTE the dismissed key is
+  // `_v2` — the old `atom_ann_dismissed` was polluted by duplicate AnnIDs (a delete reused an id), so an
+  // earlier dismissal was hiding brand-new announcements; v2 starts everyone fresh.
+  const ANN_DISMISS_KEY='atom_ann_dismissed_v2';
   let ANN_SHOWING=false;
   async function showAnnPopups(onDone){
     if(ANN_SHOWING){ if(onDone)onDone(); return; }                    // already open → don't stack duplicates
     let anns=[]; try{ anns=await api('activeAnnouncements',{},{fresh:true}); }catch(e){}
-    let dismissed={}; try{ dismissed=JSON.parse(localStorage.getItem('atom_ann_dismissed')||'{}'); }catch(e){}
-    const queue=(anns||[]).filter(a=>!dismissed[a.AnnID]);
+    let dismissed={}; try{ dismissed=JSON.parse(localStorage.getItem(ANN_DISMISS_KEY)||'{}'); }catch(e){}
+    // dedupe by AnnID (defensive) + drop dismissed; server already sorts by Priority, re-sort defensively
+    const seen={}; const queue=(anns||[]).filter(a=>{ if(!a||dismissed[a.AnnID]||seen[a.AnnID])return false; seen[a.AnnID]=1; return true; })
+      .sort((a,b)=>(Number(b.Priority||0)-Number(a.Priority||0)) || String(b.StartDate||b.Date||'').localeCompare(String(a.StartDate||a.Date||'')));
     if(!queue.length){ if(onDone)onDone(); return; }
     ANN_SHOWING=true;
-    let idx=0;
-    const showOne=()=>{ const a=queue[idx]; const ti=EN()?(a.TitleEN||a.Title):(a.Title||a.TitleEN); const co=EN()?(a.ContentEN||a.Content):(a.Content||a.ContentEN);
-      const m=modal(`<div class="annpop">
-        <div class="annpop-ic">📢</div>
-        <div class="annpop-badge">${esc(t('ann.badge'))}</div>
-        <h3>${esc(ti)}</h3>
-        ${co?`<p class="annpop-body">${esc(co)}</p>`:''}
-        ${a.Image?`<img class="annpop-img" src="${esc(a.Image)}" onclick="IMG_zoom('${esc(a.Image)}')" alt=""/>`:''}
-        ${queue.length>1?`<div class="annpop-count">${idx+1}/${queue.length}</div>`:''}
-        <label class="annpop-hide"><input type="checkbox" id="annHide"/> <span>${esc(t('ann.hide'))}</span></label>
-        <button class="btn block" id="annClose">${esc(t('ann.ok'))}</button></div>`);
-      m.querySelector('#annClose').onclick=()=>{ if(m.querySelector('#annHide').checked){ dismissed[a.AnnID]=true; try{localStorage.setItem('atom_ann_dismissed',JSON.stringify(dismissed));}catch(e){} }
-        m.remove(); idx++; if(idx<queue.length) showOne(); else { ANN_SHOWING=false; if(onDone)onDone(); } };
-      m.onclick=null; // force using the button (cannot dismiss by backdrop)
-    };
-    showOne();
+    let idx=0, timer=null;
+    const prPill=a=>Number(a.Priority||0)>=2?`<span class="annpop-pri">⭐ ${EN()?'Important':'สำคัญ'}</span>`:'';
+    const slide=a=>{ const ti=EN()?(a.TitleEN||a.Title):(a.Title||a.TitleEN); const co=EN()?(a.ContentEN||a.Content):(a.Content||a.ContentEN);
+      return `${prPill(a)}<h3>${esc(ti)}</h3>${co?`<p class="annpop-body">${esc(co)}</p>`:''}${a.Image?`<img class="annpop-img" src="${esc(a.Image)}" onclick="IMG_zoom('${esc(a.Image)}')" alt=""/>`:''}`; };
+    const m=modal(`<div class="annpop"><div class="annpop-ic">📢</div><div class="annpop-badge">${esc(t('ann.badge'))}</div>
+      <div id="annSlide"></div>
+      <div class="annpop-dots" id="annDots"></div>
+      <label class="annpop-hide"><input type="checkbox" id="annHide"/> <span>${esc(t('ann.hide'))}</span></label>
+      <button class="btn block" id="annClose">${esc(t('ann.ok'))}</button></div>`);
+    m.onclick=null;                                                    // force the button (no backdrop-dismiss)
+    const render=()=>{ const s=m.querySelector('#annSlide'); if(s)s.innerHTML=slide(queue[idx]);
+      const d=m.querySelector('#annDots'); if(d)d.innerHTML=queue.length>1?queue.map((_,i)=>`<span class="annpop-dot${i===idx?' on':''}"></span>`).join(''):''; };
+    render();
+    if(queue.length>1) timer=setInterval(()=>{ idx=(idx+1)%queue.length; render(); },5000);   // rotate to the next every 5s
+    m.querySelector('#annClose').onclick=()=>{ if(timer)clearInterval(timer);
+      if(m.querySelector('#annHide').checked){ dismissed[queue[idx].AnnID]=true; try{localStorage.setItem(ANN_DISMISS_KEY,JSON.stringify(dismissed));}catch(e){} }
+      m.remove(); ANN_SHOWING=false; if(onDone)onDone(); };
   }
 
   // ================= PARENT =================
@@ -1393,7 +1401,7 @@
     const _anns=await api('announcements'); A_CACHE.announcements=_anns;
     const _annEl=$('#anns'); if(!_annEl) return; // user navigated away before this resolved
     _annEl.innerHTML=_anns.map(a=>{ const ti=EN()?(a.TitleEN||a.Title):(a.Title||a.TitleEN);
-      return `<div class="list-item"><div><b>${esc(ti)}</b>${a.Popup?` <span class="pill info" style="font-size:10px">Pop-up</span>`:''}<br><small class="muted">${esc(a.StartDate||a.Date)}${a.EndDate?'→'+esc(a.EndDate):''}</small></div><span class="row"><button class="btn sm outline" onclick="A_editAnn('${a.AnnID}')">✏️</button><button class="btn sm pink" onclick="A_delAnn('${a.AnnID}')">🗑️</button></span></div>`; }).join('')||`<small class="muted">${esc(t('c.noItems'))}</small>`;
+      return `<div class="list-item"><div><b>${esc(ti)}</b>${a.Popup?` <span class="pill info" style="font-size:10px">Pop-up</span>`:''}${Number(a.Priority||0)>=2?` <span class="pill" style="font-size:10px;background:#fff3e0;color:#e65100">⭐ ${esc(t('ann.pri.high'))}</span>`:''}<br><small class="muted">${esc(a.StartDate||a.Date)}${a.EndDate?'→'+esc(a.EndDate):''}</small></div><span class="row"><button class="btn sm outline" onclick="A_editAnn('${a.AnnID}')">✏️</button><button class="btn sm pink" onclick="A_delAnn('${a.AnnID}')">🗑️</button></span></div>`; }).join('')||`<small class="muted">${esc(t('c.noItems'))}</small>`;
   };
   window.A_addAnn=(annId)=>{ const a=annId?findAnn(annId):{};
     modal(`<h3>📢 ${annId?esc(t('ann.edit')):'เพิ่มประกาศ / Add announcement'}</h3>
@@ -1403,12 +1411,13 @@
     <label class="field"><span>Content (English)</span><textarea id="anCE">${esc(a.ContentEN||'')}</textarea></label>
     ${photoField('anImg',(EN()?'Attach image (optional)':'แนบรูป (ถ้ามี)'),a.Image,false)}
     <label class="field" style="display:flex;align-items:center;gap:8px"><input type="checkbox" id="anPopup" ${a.Popup!==false?'checked':''} style="width:auto"/> ${esc(t('ann.popup'))}</label>
+    <label class="field"><span>${esc(t('ann.priority'))}</span><select id="anPri">${[[2,t('ann.pri.high')],[1,t('ann.pri.normal')],[0,t('ann.pri.low')]].map(([v,l])=>`<option value="${v}" ${Number(a.Priority||1)===v?'selected':''}>${esc(l)}</option>`).join('')}</select></label>
     <div class="grid2"><label class="field"><span>${esc(t('ann.start'))}</span><input type="date" id="anStart" value="${esc(a.StartDate||todayStr())}"/></label><label class="field"><span>${esc(t('ann.end'))}</span><input type="date" id="anEnd" value="${esc(a.EndDate||'')}"/></label></div>
     <button class="btn block" onclick="A_addAnnDo(this,'${annId||''}')">บันทึกประกาศ / Save</button>`); };
   window.A_addAnnDo=async(btn,annId)=>{ const m=btn.closest('.modal'); const q=s=>m.querySelector(s).value.trim();
     const title=q('#anT'), titleEN=q('#anTE'); if(!title&&!titleEN){toast('ใส่หัวข้อ / Enter a title');return;}
     const image=photoVal(m,'anImg');
-    const data={title:title||titleEN,titleEN:titleEN||title,content:q('#anC'),contentEN:q('#anCE'),image,popup:m.querySelector('#anPopup').checked,startDate:q('#anStart'),endDate:q('#anEnd')};
+    const data={title:title||titleEN,titleEN:titleEN||title,content:q('#anC'),contentEN:q('#anCE'),image,popup:m.querySelector('#anPopup').checked,priority:Number(m.querySelector('#anPri').value)||0,startDate:q('#anStart'),endDate:q('#anEnd')};
     if(annId) await api('editAnnouncement',Object.assign({annId},data)); else await api('addAnnouncement',data);
     m.remove(); confirmSaved(t('c.saved')); GO('home'); };
   window.A_editAnn=(annId)=>A_addAnn(annId);

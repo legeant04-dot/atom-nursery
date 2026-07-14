@@ -74,7 +74,8 @@ SCHEMA[WB.MAIN] = {
   DSPM_ASSESSMENT:   ['AssessmentID', 'StudentID', 'AgeMonth', 'ItemNo', 'Skill', 'Result', 'Date', 'TeacherID'],
   // PaymentMethod = transfer | cash; TransactionDate = when payment was notified; PaidDate = Admin-confirmed payment date (retro-auditable).
   BILLING:           ['BillingID', 'StudentID', 'Month', 'Amount', 'OTRollover', 'DueDate', 'PaidDate', 'Status', 'SlipAmount', 'VerifiedStatus', 'QRRef', 'PaymentMethod', 'TransactionDate'],
-  ANNOUNCEMENTS:     ['AnnID', 'Title', 'TitleEN', 'Content', 'ContentEN', 'Image', 'Date', 'Type', 'TargetGroup', 'Popup', 'StartDate', 'EndDate'],
+  // Priority (appended at END): higher = more important; popups sort by it (important first) then date.
+  ANNOUNCEMENTS:     ['AnnID', 'Title', 'TitleEN', 'Content', 'ContentEN', 'Image', 'Date', 'Type', 'TargetGroup', 'Popup', 'StartDate', 'EndDate', 'Priority'],
   // Per-student extra charges merged into the monthly bill
   STUDENT_CHARGES:   ['ChargeID', 'StudentID', 'Month', 'Label', 'Amount'],
   // Advance tuition payments (with discount) + the months they cover

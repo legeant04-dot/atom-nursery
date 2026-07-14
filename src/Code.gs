@@ -73,6 +73,11 @@ var ROUTES = {
   submitTimeRequest:  function (p) { return handleSubmitTimeRequest(p); },
   approveTimeRequest: function (p) { return handleApproveTimeRequest(p); },
   confirmTimeRequest: function (p) { return handleConfirmTimeRequest(p); },  // admin-only, see ADMIN_ONLY
+  // announcements — in-place + unique AnnID + Priority (admin-only, see ADMIN_ONLY)
+  addAnnouncement:    function (p) { return handleAddAnnouncement(p); },
+  editAnnouncement:   function (p) { return handleEditAnnouncement(p); },
+  deleteAnnouncement: function (p) { return handleDeleteAnnouncement(p); },
+  reindexAnnouncements: function (p) { return handleReindexAnnouncements(p); },
   // Big Cleaning Day (admin-managed workday, no fixed hours, diligence bonus)
   bigCleaningDays:  function ()  { return handleBigCleaningDays(); },
   addBigCleaning:   function (p) { return handleAddBigCleaning(p); },
@@ -156,7 +161,8 @@ function applyIdentity_(action, payload, sess) {
     adminUpdateOT: 1, adminCancelOT: 1, adminRestoreOT: 1, unlockJournal: 1,
     confirmOT: 1, adminAddOT: 1, adminEditOT: 1, adminDeleteOT: 1,
     addBigCleaning: 1, removeBigCleaning: 1, editLeave: 1, cancelLeave: 1,
-    decideClassChange: 1, confirmTimeRequest: 1 };
+    decideClassChange: 1, confirmTimeRequest: 1,
+    addAnnouncement: 1, editAnnouncement: 1, deleteAnnouncement: 1, reindexAnnouncements: 1 };
   if (ADMIN_ONLY[action] && sess.role !== 'Admin') throw apiError_('NO_PERMISSION', 'เฉพาะแอดมิน');
   // Admin is fully trusted: may target ANY staff/student/parent (manage everyone + "view as" any role).
   if (sess.role === 'Admin') return payload;

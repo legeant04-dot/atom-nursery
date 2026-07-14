@@ -281,7 +281,8 @@ window.MOCK = {
     { Date:'2026-12-10', NameTH:'วันรัฐธรรมนูญ', NameEN:'Constitution Day', Recurring:true },
   ],
   announcements: [
-    { AnnID:'ANN-1', Title:'เช้านี้จะมีการตรวจสอบเช็คอาการบ่งชี้โรคมือเท้าปากในเด็กช่วงเช้านะคะ', TitleEN:'Morning HFMD symptom check today', Content:'ได้รับแจ้งจากผู้ปกครองเมื่อวานว่ามีเด็กป่วยจากเนอสเซอรี่ 1 เป็นมือเท้าปาก จำนวน 4 ท่าน กรุณาสังเกตอาการบุตรหลานของท่าน หากมีไข้ ผื่น หรือแผลในปาก โปรดพาไปพบแพทย์', ContentEN:'We were informed of 4 HFMD cases. Please watch for fever, rash, or mouth sores.', Date:'2026-06-05', Type:'holiday', TargetGroup:'all', Image:'', Popup:true, StartDate:'2026-06-05', EndDate:'2026-12-31' },
+    { AnnID:'ANN-1', Title:'เช้านี้จะมีการตรวจสอบเช็คอาการบ่งชี้โรคมือเท้าปากในเด็กช่วงเช้านะคะ', TitleEN:'Morning HFMD symptom check today', Content:'ได้รับแจ้งจากผู้ปกครองเมื่อวานว่ามีเด็กป่วยจากเนอสเซอรี่ 1 เป็นมือเท้าปาก จำนวน 4 ท่าน กรุณาสังเกตอาการบุตรหลานของท่าน หากมีไข้ ผื่น หรือแผลในปาก โปรดพาไปพบแพทย์', ContentEN:'We were informed of 4 HFMD cases. Please watch for fever, rash, or mouth sores.', Date:'2026-06-05', Type:'holiday', TargetGroup:'all', Image:'', Popup:true, StartDate:'2026-06-05', EndDate:'2026-12-31', Priority:2 },
+    { AnnID:'ANN-2', Title:'ปิดเรียนวันหยุดนักขัตฤกษ์', TitleEN:'School closed — public holiday', Content:'โรงเรียนปิดวันหยุดนักขัตฤกษ์', ContentEN:'School closed for the public holiday', Date:'2026-06-05', Type:'holiday', TargetGroup:'all', Image:'', Popup:true, StartDate:'2026-06-05', EndDate:'2026-12-31', Priority:0 },
   ],
   // prepayments: months paid in advance with the applicable discount
   prepayments: [],
