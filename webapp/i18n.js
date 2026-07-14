@@ -162,7 +162,7 @@
     'admin.leaveReset':['รอบรีเซ็ตวันลาประจำปี (มกราคม)','Annual leave reset (January)'], 'admin.leaveResetSub':['ตรวจสอบ/ตั้งค่าสิทธิวันลาของพนักงานสำหรับปีใหม่','Review/set staff leave quota for the new year'],
     'daily.title':['สมุดรายงานประจำวัน','Daily Report'], 'daily.overall':['ภาพรวมวันนี้','Today overall'], 'daily.lateStaff':['พนักงานมาสาย','Late staff'], 'daily.absenceAlert':['แจ้งเตือนนักเรียนขาดเรียน','Absence alerts'],
     'daily.alertNote':['เด็กลา/ขาด ≥2 และ ≥5 วัน — แจ้งคุณครูติดตาม','Children absent ≥2 and ≥5 days — notify teachers to follow up'], 'daily.sendLine':['ส่งสรุปไป LINE OA','Send report to LINE OA'],
-    'ann.popup':['แสดงเป็น Pop-up (บังคับให้ผู้ปกครองปิดก่อนเช็คอิน)','Show as popup (parents must close before check-in)'], 'ann.start':['แสดงตั้งแต่วันที่','Show from'], 'ann.end':['ถึงวันที่','Until'], 'ann.hide':['ไม่แสดงข้อความนี้อีก','Don\'t show this again'], 'ann.ok':['รับทราบ','Got it'],
+    'ann.popup':['แสดงเป็น Pop-up (บังคับให้ผู้ปกครองปิดก่อนเช็คอิน)','Show as popup (parents must close before check-in)'], 'ann.start':['แสดงตั้งแต่วันที่','Show from'], 'ann.end':['ถึงวันที่','Until'], 'ann.hide':['ไม่แสดงข้อความนี้อีก','Don\'t show this again'], 'ann.ok':['รับทราบ','Got it'], 'ann.badge':['ประกาศจากโรงเรียน','School announcement'],
     'prepay.title':['ชำระล่วงหน้า','Prepay'], 'prepay.pay':['จ่ายล่วงหน้า','Pay ahead'], 'prepay.note':['ล่วงหน้า 2 เดือน -5% · 3 เดือน -10% · 6 เดือน -20% · 12 เดือน -30%','2mo -5% · 3mo -10% · 6mo -20% · 12mo -30%'],
     'prepay.months':['{n} เดือน','{n} months'], 'prepay.paidAhead':['ชำระล่วงหน้าแล้ว','Paid ahead'], 'prepay.done':['ชำระล่วงหน้า {n} เดือน (ลด {d}%) เรียบร้อย','Prepaid {n} months ({d}% off)'],
     'pay.receipt':['ใบเสร็จ','Receipt'],
