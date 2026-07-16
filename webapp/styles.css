@@ -87,7 +87,8 @@ textarea{min-height:70px;resize:vertical;}
 
 /* Role chooser */
 .rolewrap{max-width:420px;margin:30px auto;text-align:center;}
-.rolewrap .logo-lg{width:110px;height:110px;border-radius:24px;object-fit:cover;margin-bottom:8px;}
+/* the logo is a transparent, non-square PNG — `contain` shows it whole (cover cropped its sides) */
+.rolewrap .logo-lg{width:132px;height:112px;object-fit:contain;margin-bottom:10px;}
 .role-card{display:flex;align-items:center;gap:14px;text-align:left;width:100%;border:1px solid var(--line);
   background:#fff;border-radius:var(--radius);padding:16px;margin:10px 0;cursor:pointer;font-family:inherit;}
 .role-card:hover{border-color:var(--blue);box-shadow:0 2px 10px rgba(21,101,192,.12);}
