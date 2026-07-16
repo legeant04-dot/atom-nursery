@@ -8,6 +8,33 @@
  * the rows that already collided.
  */
 
+/**
+ * READ-ONLY audit: are any ids duplicated? Scans the RAW sheets (so withdrawn/inactive rows are
+ * included — a list endpoint filters those out and would hide a collision).
+ */
+function handleCheckDuplicateIds() {
+  var targets = [
+    { key: 'STUDENTS', wb: 'MAIN', id: 'StudentID', name: 'Name' },
+    { key: 'PARENTS',  wb: 'MAIN', id: 'ParentID',  name: 'Name' },
+    { key: 'STAFF',    wb: 'HR',   id: 'StaffID',   name: 'Name' }
+  ];
+  var out = {};
+  targets.forEach(function (t) {
+    var ss = (t.wb === 'HR') ? getHrSpreadsheet_() : getMainSpreadsheet_();
+    var rows = readObjects_(sheet_(ss, t.key));
+    var by = {};
+    rows.forEach(function (r) { var id = String(r[t.id] || ''); (by[id] = by[id] || []).push(r); });
+    var dups = [];
+    Object.keys(by).forEach(function (id) {
+      if (!id || by[id].length < 2) return;
+      dups.push({ id: id, count: by[id].length, rows: by[id].map(function (r) { return { name: r[t.name] || r.NameEN || '', row: r._row, status: r.Status || '', line: r.LineUID ? 'yes' : '' }; }) });
+    });
+    var blank = rows.filter(function (r) { return !String(r[t.id] || ''); }).length;
+    out[t.key] = { rows: rows.length, distinct: Object.keys(by).length, blankIds: blank, duplicates: dups };
+  });
+  return out;
+}
+
 /** Renumber duplicate ParentIDs. payload: { preview?:true } */
 function handleReindexParents(p) {
   p = p || {};

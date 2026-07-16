@@ -6,7 +6,7 @@
   const setHTML = (sel, html) => { const el = $(sel); if (el) el.innerHTML = html; };
   const app = $('#app'), nav = $('#bottomnav');
   const baht = n => (Number(n)||0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
-  const APP_VERSION = 'Version 1.078'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.079'; // bump each webapp change; shown only at the bottom of the Chat screen
   const verTag = () => `<div style="text-align:center;color:#c3c9d4;font-size:10px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
   const phoneFmt = p => { let d=String(p==null?'':p).replace(/\D/g,''); if(d.length===9) d='0'+d; return d; };
@@ -693,6 +693,13 @@
   // ---- PCHI insurance form (shared by parent fill + admin edit) ----
   const insSel=(id,label,opts,val,req)=>`<label class="field"><span>${esc(label)}${req?' *':''}</span><select id="ins_${id}">${['',...(opts||[])].map(o=>`<option ${String(val||'')===String(o)?'selected':''}>${esc(o)}</option>`).join('')}</select></label>`;
   const insInp=(id,label,val,type,req)=>`<label class="field"><span>${esc(label)}${req?' *':''}</span><input id="ins_${id}" type="${type||'text'}" value="${esc(val!=null?val:'')}"/></label>`;
+  // Bank dropdown for the claim account (PCHI Setting!P "BANK CODE"). The stored value is
+  // "<code>: <Thai name>" — the format the insurer's own form uses; the EN label is display-only.
+  // A pre-existing value that isn't in the list is kept as an option so an edit never silently drops it.
+  const insBankSel=(id,label,banks,val)=>{ const list=(banks||[]).map(b=>({v:b.code+': '+b.th, l:b.code+': '+(EN()?b.en:b.th)}));
+    const cur=String(val||''); if(cur && !list.some(x=>x.v===cur)) list.unshift({v:cur,l:cur});
+    return `<label class="field"><span>${esc(label)}</span><select id="ins_${id}"><option value=""></option>${
+      list.map(x=>`<option value="${esc(x.v)}" ${cur===x.v?'selected':''}>${esc(x.l)}</option>`).join('')}</select></label>`; };
   function insuranceFormHTML(o,s,rec){ rec=rec||{}; const g=s.Gender==='M'?'Male':s.Gender==='F'?'Female':'';
     return `<div class="card"><h3>👶 ${esc(t('inj.child'))}</h3>
       <div class="grid2">${insSel('Title',t('ins2.titlePre'),o.Titles,rec.Title,1)}${insSel('MemberStatus',t('ins2.memberStatus'),o.MemberStatuses,rec.MemberStatus||'Child')}</div>
@@ -704,7 +711,7 @@
       ${insSel('Plan',t('ins2.plan'),o.Plans,rec.Plan,1)}</div>
     <div class="card"><h3>📞 ${esc(t('ins2.mobile'))} / ${esc(t('ins2.bankName'))}</h3>
       <div class="grid2">${insInp('Mobile',t('ins2.mobile'),rec.Mobile)}${insInp('Email',t('ins2.email'),rec.Email)}</div>
-      <div class="grid2">${insInp('BankAccountName',t('ins2.bankName'),rec.BankAccountName)}${insInp('BankAccountNumber',t('ins2.bankNo'),rec.BankAccountNumber)}</div></div>
+      <div class="grid2">${insBankSel('BankAccountName',t('ins2.bankName'),o.Banks,rec.BankAccountName)}${insInp('BankAccountNumber',t('ins2.bankNo'),rec.BankAccountNumber)}</div></div>
     <div class="card"><h3>🧑‍🤝‍🧑 ${esc(t('ins2.beneName'))}</h3>
       <div class="grid2">${insInp('BeneficiaryName',t('ins2.beneName'),rec.BeneficiaryName)}${insInp('BeneficiaryLastName',t('ins2.beneLast'),rec.BeneficiaryLastName)}</div>
       ${insSel('BeneficiaryRelationship',t('ins2.beneRel'),o.Relationships,rec.BeneficiaryRelationship)}
