@@ -34,6 +34,14 @@ function createAtomAPI(M, GROWTH_STD) {
   function geo(lat,lng){ const dist=haversine(cfg.GPS_Lat,cfg.GPS_Lng,lat,lng); if(dist>cfg.Radius) fail('OUT_OF_RANGE',`อยู่นอกรัศมีโรงเรียน (${dist} ม. เกิน ${cfg.Radius} ม.)`); return dist; }
   const studentById = id => M.students.find(s=>s.StudentID===id);
   const staffById = id => M.staff.find(s=>s.StaffID===id)||{};
+  // Sequential id = MAX existing number + 1.
+  // NEVER use list.length+1: after a delete — or on a non-contiguous imported list — length+1 reuses an
+  // id that already exists. Two records sharing an id means find-by-id returns the WRONG one, so an edit
+  // or delete silently hits the wrong person. (This is what put two parents on PAR-056.)
+  function nextSeqId_(list, field, prefix, pad, sep){ sep = (sep===undefined?'-':sep); let mx=0;
+    const re=new RegExp('^'+prefix.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+'-?(\\d+)$');
+    (list||[]).forEach(x=>{ const m=re.exec(String((x&&x[field])||'')); if(m){ const n=parseInt(m[1],10); if(n>mx)mx=n; } });
+    return prefix+sep+String(mx+1).padStart(pad||0,'0'); }
   const lateVs = (hhmm,t)=>{ const [h,m]=hhmm.split(':').map(Number); return Math.max(0,(t.getHours()*60+t.getMinutes())-(h*60+m)); };
   const toMin = hhmm => { const [h,m]=String(hhmm||'0:0').split(':').map(Number); return (h||0)*60+(m||0); };
 
@@ -157,7 +165,7 @@ function createAtomAPI(M, GROWTH_STD) {
   // ---- activity log (who did what) ----
   // append a row to the full activity trail. `by` = {role,id,name} of the actor (best-effort from payload).
   function logAct(action, target, detail, by){ by=by||{};
-    M.activityLog.push({ LogID:'LOG-'+(M.activityLog.length+1), Timestamp:stampLocal(),
+    M.activityLog.push({ LogID:nextSeqId_(M.activityLog,'LogID','LOG',0), Timestamp:stampLocal(),
       UserRole:by.role||'', UserID:by.id||'', UserName:by.name||'', Action:action, Target:target||'', Detail:detail||'' });
   }
   // mock Drive helpers — in GAS these create real folders/files and return getUrl().
@@ -238,7 +246,7 @@ function createAtomAPI(M, GROWTH_STD) {
       M.studentLeaves.push({LeaveID:id,StudentID:p.studentId,Date:p.date,Reason:p.reason||'',Type:p.type||'',Status:'Notified',FiledBy:p.staffId}); return {leaveId:id,parentNotified:true}; },
     studentLeaves: p => M.studentLeaves.filter(l=>l.StudentID===p.studentId).sort((a,b)=>b.Date.localeCompare(a.Date)),
     comments: p => M.comments.filter(c=>c.StudentID===p.studentId),
-    addComment: p => { const c={CommentID:'CM-'+(M.comments.length+1),StudentID:p.studentId,ParentID:p.parentId||'',SenderRole:p.senderRole,SenderName:p.senderName||'',Message:p.message,Timestamp:stampLocal(),ReadStatus:'unread'}; M.comments.push(c); return c; },
+    addComment: p => { const c={CommentID:nextSeqId_(M.comments,'CommentID','CM',0),StudentID:p.studentId,ParentID:p.parentId||'',SenderRole:p.senderRole,SenderName:p.senderName||'',Message:p.message,Timestamp:stampLocal(),ReadStatus:'unread'}; M.comments.push(c); return c; },
     // monthly bill = base items + per-student extra charges + any unpaid OT rolled over
     payments: p => M.payments.filter(b=>b.StudentID===p.studentId).map(b=>{
         const bm=ym(b.Month); const charges=M.studentCharges.filter(c=>c.StudentID===p.studentId&&ym(c.Month)===bm);
@@ -255,7 +263,7 @@ function createAtomAPI(M, GROWTH_STD) {
       .sort((a,b)=>String(b.Month).localeCompare(String(a.Month))),
     // per-student extra charges (Admin)
     studentCharges: p => M.studentCharges.filter(c=>c.StudentID===p.studentId && (!p.month||ym(c.Month)===ym(p.month))),
-    addStudentCharge: p => { const c={ChargeID:'CH-'+(M.studentCharges.length+1),StudentID:p.studentId,Month:p.month||todayLocal().slice(0,7),Label:p.label,Amount:Number(p.amount||0)}; M.studentCharges.push(c); return c; },
+    addStudentCharge: p => { const c={ChargeID:nextSeqId_(M.studentCharges,'ChargeID','CH',0),StudentID:p.studentId,Month:p.month||todayLocal().slice(0,7),Label:p.label,Amount:Number(p.amount||0)}; M.studentCharges.push(c); return c; },
     removeStudentCharge: p => { const i=M.studentCharges.findIndex(c=>c.ChargeID===p.chargeId); if(i>=0)M.studentCharges.splice(i,1); return {ok:true}; },
 
     // ---- billing generation (Admin) ----
@@ -443,7 +451,7 @@ function createAtomAPI(M, GROWTH_STD) {
       return M.leaves.filter(l=>l.Status==='PENDING_LEADER').map(leaveView_); },
     leaveQuota: p => { const used=M.leaveUsed[p.staffId]||{}; const q=cfg.LeaveQuota;
       return Object.keys(q).map(t=>({type:t,quota:q[t],used:used[t]||0,remain:q[t]-(used[t]||0)})); },
-    submitLeave: p => { const st=staffById(p.staffId); const id='LV2026-'+String(M.leaves.length+1).padStart(3,'0');
+    submitLeave: p => { const st=staffById(p.staffId); const id=nextSeqId_(M.leaves,'LeaveID','LV2026',3);
       // leave entitlement does not carry across the year — a request may not span 31 Dec → next year
       if(String(p.startDate).slice(0,4)!==String(p.endDate).slice(0,4)) fail('CROSS_YEAR','ใช้สิทธิลาข้ามปีไม่ได้ — กรุณาแยกใบลาภายในปีเดียวกัน');
       const lead=(st.PositionLevel==='Leader'||st.PositionLevel==='Admin'); const days=Math.floor((new Date(p.endDate)-new Date(p.startDate))/864e5)+1;
@@ -493,7 +501,7 @@ function createAtomAPI(M, GROWTH_STD) {
       const ssDeduct=(p.socialSecurityDeduct!=null?p.socialSecurityDeduct:pc.SocialSecurityDeduct)!==false;
       const ss=p.socialSecurity!=null?p.socialSecurity:(ssDeduct?Math.min(Math.round(base*cfg.SocialSecurityRate),cfg.SocialSecurityMax):0);
       const dd=(p.contribution||0)+(p.otherDeductions||0); const total=ss+dd; const net=gross-total+adjSum;
-      const rec={PayrollID:'PR-'+String(M.payroll.length+1).padStart(4,'0'),StaffID:p.staffId,Month:p.month,PayType:payType,DailyRate:dailyRate,DaysWorked:daysWorked,BaseSalary:base,DiligenceAttendance:dA,DiligenceFacebook:dF,DiligenceTotal:dT,ExtraChildAmount:ec,ChildCount:childCount,ChildThreshold:threshold,RatedTotal:ratedTotal,ChildMultiplier:childMult,TrainingCertAmount:tc,OTEvening:ot,HolidayBonus:hb,OtherIncome:oi,GrossIncome:gross,SocialSecurity:ss,Contribution:p.contribution||0,OtherDeductions:p.otherDeductions||0,TotalDeductions:total,Adjustments:adj,AdjustmentsTotal:adjSum,NetPay:net,BankAccount:cfg.BankName};
+      const rec={PayrollID:nextSeqId_(M.payroll,'PayrollID','PR',4),StaffID:p.staffId,Month:p.month,PayType:payType,DailyRate:dailyRate,DaysWorked:daysWorked,BaseSalary:base,DiligenceAttendance:dA,DiligenceFacebook:dF,DiligenceTotal:dT,ExtraChildAmount:ec,ChildCount:childCount,ChildThreshold:threshold,RatedTotal:ratedTotal,ChildMultiplier:childMult,TrainingCertAmount:tc,OTEvening:ot,HolidayBonus:hb,OtherIncome:oi,GrossIncome:gross,SocialSecurity:ss,Contribution:p.contribution||0,OtherDeductions:p.otherDeductions||0,TotalDeductions:total,Adjustments:adj,AdjustmentsTotal:adjSum,NetPay:net,BankAccount:cfg.BankName};
       const i=M.payroll.findIndex(x=>x.StaffID===p.staffId&&x.Month===p.month); if(i>=0)M.payroll[i]=rec; else M.payroll.push(rec); return rec; },
     getPayslip: p => M.payroll.find(x=>x.StaffID===p.staffId&&x.Month===p.month) || null,
     // Admin alert: payroll should be summarized 1 day before month-end
@@ -573,7 +581,7 @@ function createAtomAPI(M, GROWTH_STD) {
     // look up a student by NationalID (used when an existing parent links a child)
     findStudentByNationalID: p => { const s=M.students.find(x=>String(x.NationalID)===String(p.nationalId).trim()); if(!s)fail('NOT_FOUND','ไม่พบนักเรียนจากเลขบัตรนี้'); return {StudentID:s.StudentID,name:s.NameTH,nameEN:s.NameEN,class:s.Class}; },
     // register a brand-new student + parent and link to this user
-    registerNew: p => { const sid='STD-'+String(M.students.length+1).padStart(3,'0'); const pid='PAR-'+String(M.parents.length+1).padStart(3,'0');
+    registerNew: p => { const sid=nextSeqId_(M.students,'StudentID','STD',3); const pid=nextSeqId_(M.parents,'ParentID','PAR',3);
       const st=Object.assign({StudentID:sid,ParentID:pid,Status:'ACTIVE',CreatedDate:todayLocal(),EnrollDate:todayLocal(),LastGrowthUpdate:''}, p.student||{});
       st.DriveFolderUrl=studentFolderUrl(st); // per-student Drive folder (GAS: DriveApp.createFolder under StudentFolderRoot)
       const par=Object.assign({ParentID:pid,StudentID:sid,LineUID:p.uid||''}, p.parent||{});
@@ -585,14 +593,14 @@ function createAtomAPI(M, GROWTH_STD) {
       logAct('registerStudent',sid,(st.NameTH||sid)+' + Drive folder',actorOf(p));
       return {studentId:sid,parentId:pid,driveFolder:st.DriveFolderUrl}; },
     // register the PARENT only (children added/linked afterward) — LINE signup
-    registerParent: p => { const pid='PAR-'+String(M.parents.length+1).padStart(3,'0');
+    registerParent: p => { const pid=nextSeqId_(M.parents,'ParentID','PAR',3);
       const par=Object.assign({ParentID:pid,LineUID:p.uid||''}, p.parent||{});
       if(par.Photo) par.RegisterPhotoUrl=registerPhotoUrl(pid); // mandatory live-capture ID photo → "New Register Photo" Drive folder
       M.parents.push(par);
       logAct('registerParent',pid,par.NameTH||pid,{role:'Parent',id:pid,name:par.NameTH||pid});
       return {parentId:pid}; },
     // add a NEW child under an existing parent + link to this user (no parent re-entry)
-    addChildNew: p => { const sid='STD-'+String(M.students.length+1).padStart(3,'0');
+    addChildNew: p => { const sid=nextSeqId_(M.students,'StudentID','STD',3);
       const st=Object.assign({StudentID:sid,ParentID:p.parentId||'',Status:'ACTIVE',CreatedDate:todayLocal(),EnrollDate:todayLocal(),LastGrowthUpdate:''}, p.student||{});
       st.DriveFolderUrl=studentFolderUrl(st); // per-student Drive folder
       M.students.push(st);
@@ -635,7 +643,7 @@ function createAtomAPI(M, GROWTH_STD) {
     setPerm: p => { if(!M.permMatrix[p.role])M.permMatrix[p.role]={}; M.permMatrix[p.role][p.cap]=!!p.value; return M.permMatrix[p.role]; },
     saveStaff: p => { const d=p.data||{};
       if(p.staffId){ const s=staffById(p.staffId); if(!s.StaffID)fail('NOT_FOUND','ไม่พบพนักงาน'); Object.assign(s,d); return s; }
-      const id='STF-'+String(M.staff.length+1).padStart(2,'0'); const rec=Object.assign({StaffID:id,Role:'Teacher',Status:'ACTIVE'},d); M.staff.push(rec); return rec; },
+      const id=nextSeqId_(M.staff,'StaffID','STF',2); const rec=Object.assign({StaffID:id,Role:'Teacher',Status:'ACTIVE'},d); M.staff.push(rec); return rec; },
     deleteStaff: p => { const i=M.staff.findIndex(s=>s.StaffID===p.staffId); if(i<0)fail('NOT_FOUND','ไม่พบพนักงาน'); M.staff.splice(i,1); return {ok:true}; },
     listParents: () => M.parents,
     // family profile for the "My info" screen: ALL parents linked to the caller's children (co-parents
@@ -656,7 +664,7 @@ function createAtomAPI(M, GROWTH_STD) {
       const d=p.data||{}; ['Nickname','NicknameEN','BloodType','RH','Allergy','MedicalHistory','EmergencyContact','Address','Race','Nationality','Religion','Photo'].forEach(k=>{ if(d[k]!==undefined) s[k]=d[k]; }); return {ok:true, studentId:p.studentId}; },
     saveParent: p => { const d=p.data||{};
       if(p.parentId){ const pa=M.parents.find(x=>x.ParentID===p.parentId); if(!pa)fail('NOT_FOUND','ไม่พบผู้ปกครอง'); Object.assign(pa,d); return pa; }
-      const id='PAR-'+String(M.parents.length+1).padStart(3,'0'); const rec=Object.assign({ParentID:id},d); M.parents.push(rec); return rec; },
+      const id=nextSeqId_(M.parents,'ParentID','PAR',3); const rec=Object.assign({ParentID:id},d); M.parents.push(rec); return rec; },
     deleteParent: p => { const i=M.parents.findIndex(x=>x.ParentID===p.parentId); if(i<0)fail('NOT_FOUND','ไม่พบผู้ปกครอง'); M.parents.splice(i,1); return {ok:true}; },
     saveStudent: p => { const d=p.data||{}; const s=studentById(p.studentId); if(!s)fail('NOT_FOUND','ไม่พบนักเรียน'); Object.assign(s,d); return s; },
 
@@ -711,7 +719,7 @@ function createAtomAPI(M, GROWTH_STD) {
     requestWithdrawal: p => { const s=studentById(p.studentId); if(!s)fail('NOT_FOUND','ไม่พบนักเรียน');
       if(!p.reason)fail('MISSING','กรุณาเลือกเหตุผล');
       if(p.reason==='other'&&!String(p.detail||'').trim())fail('MISSING','กรุณาระบุเหตุผลอื่น ๆ');
-      const id='WD-'+String(M.withdrawals.length+1).padStart(3,'0'); const by=actorOf(p);
+      const id=nextSeqId_(M.withdrawals,'WithdrawID','WD',3); const by=actorOf(p);
       M.withdrawals.push({WithdrawID:id,StudentID:p.studentId,RequestedBy:by.id,RequesterRole:by.role||'Parent',Reason:p.reason,Detail:p.detail||'',EffectiveDate:p.effectiveDate||'',Status:'PENDING',ProcessedBy:'',ProcessedDate:'',CreatedDate:todayLocal()});
       logAct('requestWithdrawal',p.studentId,p.reason+(p.detail?' — '+p.detail:''),by);
       return {withdrawId:id,status:'PENDING'}; },
@@ -728,7 +736,7 @@ function createAtomAPI(M, GROWTH_STD) {
       // close the originating request (or record this direct removal as a processed request)
       let w=p.withdrawId?M.withdrawals.find(x=>x.WithdrawID===p.withdrawId):M.withdrawals.find(x=>x.StudentID===p.studentId&&x.Status==='PENDING');
       if(w){ w.Status='DONE'; w.ProcessedBy=by.name||by.id; w.ProcessedDate=todayLocal(); }
-      else { const id='WD-'+String(M.withdrawals.length+1).padStart(3,'0'); M.withdrawals.push({WithdrawID:id,StudentID:p.studentId,RequestedBy:by.id,RequesterRole:by.role||'Admin',Reason:p.reason,Detail:p.detail||'',EffectiveDate:todayLocal(),Status:'DONE',ProcessedBy:by.name||by.id,ProcessedDate:todayLocal(),CreatedDate:todayLocal()}); }
+      else { const id=nextSeqId_(M.withdrawals,'WithdrawID','WD',3); M.withdrawals.push({WithdrawID:id,StudentID:p.studentId,RequestedBy:by.id,RequesterRole:by.role||'Admin',Reason:p.reason,Detail:p.detail||'',EffectiveDate:todayLocal(),Status:'DONE',ProcessedBy:by.name||by.id,ProcessedDate:todayLocal(),CreatedDate:todayLocal()}); }
       logAct('removeStudent',p.studentId,(s.NameTH||p.studentId)+' — '+p.reason+(p.detail?' ('+p.detail+')':''),by);
       return {ok:true,status:'WITHDRAWN'}; },
 
@@ -767,7 +775,7 @@ function createAtomAPI(M, GROWTH_STD) {
     // ========== departments (Nursery) ==========
     listDepartments: () => (cfg.Departments||[]).slice(),
     addDepartment: p => { const n=(p.name||'').trim(); if(!n)fail('MISSING','ใส่ชื่อแผนก'); if(cfg.Departments.indexOf(n)>=0)fail('DUP','มีแผนกนี้แล้ว');
-      cfg.Departments.push(n); if(!M.classes.find(c=>c.ClassName===n)) M.classes.push({ClassID:'CL'+(M.classes.length+1),ClassName:n,TeacherID:'',AgeRange:'',Capacity:15}); return {ok:true}; },
+      cfg.Departments.push(n); if(!M.classes.find(c=>c.ClassName===n)) M.classes.push({ClassID:nextSeqId_(M.classes,'ClassID','CL',0,''),ClassName:n,TeacherID:'',AgeRange:'',Capacity:15}); return {ok:true}; },
     renameDepartment: p => { const i=cfg.Departments.indexOf(p.old); if(i<0)fail('NOT_FOUND','ไม่พบแผนก'); cfg.Departments[i]=p.new;
       M.classes.forEach(c=>{ if(c.ClassName===p.old)c.ClassName=p.new; }); M.students.forEach(s=>{ if(s.Class===p.old)s.Class=p.new; }); M.staff.forEach(s=>{ if(s.Department===p.old)s.Department=p.new; }); return {ok:true}; },
     removeDepartment: p => { const i=cfg.Departments.indexOf(p.name); if(i<0)fail('NOT_FOUND','ไม่พบแผนก');
@@ -896,7 +904,7 @@ function createAtomAPI(M, GROWTH_STD) {
       const gross=monthly*months; const amount=Math.round(gross*(100-disc)/100);
       const start=p.startMonth||todayLocal().slice(0,7); const covered=[]; let [y,mo]=start.split('-').map(Number);
       for(let i=0;i<months;i++){ covered.push(y+'-'+String(mo).padStart(2,'0')); mo++; if(mo>12){mo=1;y++;} }
-      const rec={PrepayID:'PP-'+(M.prepayments.length+1),StudentID:p.studentId,Months:months,Discount:disc,Gross:gross,Amount:amount,Covered:covered,Status:'UNPAID',SlipUrl:'',SlipAmount:0,Date:todayLocal()};
+      const rec={PrepayID:nextSeqId_(M.prepayments,'PrepayID','PP',0),StudentID:p.studentId,Months:months,Discount:disc,Gross:gross,Amount:amount,Covered:covered,Status:'UNPAID',SlipUrl:'',SlipAmount:0,Date:todayLocal()};
       M.prepayments.push(rec); return rec; },
     // attach prepay slip → records a PAYMENT_SLIPS row, prepay → PENDING_VERIFY (Admin confirms per slip)
     payPrepay: p => recordSlip_('prepay', p.prepayId, p),
@@ -944,7 +952,7 @@ function createAtomAPI(M, GROWTH_STD) {
     submitInjury: p => { const s=studentById(p.studentId)||{};
       if(!p.studentId)fail('MISSING','กรุณาเลือกเด็กที่บาดเจ็บ');
       if(!Array.isArray(p.injuryTypes)||!p.injuryTypes.length)fail('MISSING','กรุณาเลือกชนิดการบาดเจ็บอย่างน้อย 1 ข้อ');
-      const id='INJ-'+todayLocal().replace(/-/g,'')+'-'+String(M.injuryReports.length+1).padStart(2,'0');
+      const id=nextSeqId_(M.injuryReports,'InjuryID','INJ-'+todayLocal().replace(/-/g,''),2);
       const rec={InjuryID:id,Date:p.date||todayLocal(),Time:p.time||timeLocal(),CenterName:p.centerName||cfg.SchoolName||'',
         AffiliationType:p.affiliationType||'',AffiliationOther:p.affiliationOther||'',District:p.district||'',
         RecorderName:p.recorderName||'',StudentID:p.studentId,ChildName:s.NameTH||p.childName||'',Sex:s.Gender||p.sex||'',
@@ -979,7 +987,7 @@ function createAtomAPI(M, GROWTH_STD) {
         Gender:d.Gender|| (s.Gender==='M'?'Male':s.Gender==='F'?'Female':''), NationalID:d.NationalID||s.NationalID, DOB:d.DOB||s.DOB,
         MemberStatus:d.MemberStatus||'Child', CompanyName:cfg.InsuranceCompanyName||(cfg.Insurance&&cfg.Insurance.CompanyName)||'', PolicyNo:cfg.InsurancePolicyNo||'' };
       if(existing){ Object.assign(existing, d, base, {UpdatedBy:by.name||by.id, UpdatedDate:todayLocal()}); logAct('updateInsurance',p.studentId,(s.NameTH||p.studentId),by); return {ok:true, updated:true, record:existing}; }
-      const rec=Object.assign({InsuranceID:'INS-'+String(M.insurancePCHI.length+1).padStart(3,'0')}, d, base,
+      const rec=Object.assign({InsuranceID:nextSeqId_(M.insurancePCHI,'InsuranceID','INS',3)}, d, base,
         {FilledBy:by.name||by.id, FilledByRole:by.role||'Parent', FilledDate:todayLocal()});
       M.insurancePCHI.push(rec);
       M.feed.unshift({id:'INS-N'+M.insurancePCHI.length,text:'🛡️ ผู้ปกครองกรอกข้อมูลประกัน: '+(s.NameTH||p.studentId),textEN:'🛡️ Insurance form filled: '+(s.NameEN||p.studentId),time:timeLocal(),roles:['Admin'],read:false,studentId:p.studentId});
