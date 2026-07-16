@@ -49,6 +49,46 @@ function createAtomAPI(M, GROWTH_STD) {
   const lateVs = (hhmm,t)=>{ const [h,m]=hhmm.split(':').map(Number); return Math.max(0,(t.getHours()*60+t.getMinutes())-(h*60+m)); };
   const toMin = hhmm => { const [h,m]=String(hhmm||'0:0').split(':').map(Number); return (h||0)*60+(m||0); };
 
+  // Bank list for the PCHI insurance claim account — reference data from the insurer's own
+  // "AtomNursery - PCHI Members Form" workbook (Setting sheet, column P "BANK CODE"). Their sample
+  // row fills this field as "KBANK: ธนาคารกสิกรไทย จำกัด (มหาชน)", so the stored VALUE is
+  // "<code>: <Thai name>"; the EN label is only for display. Embedded here (not SCHOOL_CONFIG)
+  // because the engine never persists config — this way mock and GAS serve the identical list.
+  const INSURANCE_BANKS = [
+    {code:'AMERICA',th:'ธนาคารแห่งอเมริกา เนชั่นแนล แอสโซซิเอชั่น',en:'BANK OF AMERICA NATIONAL ASSOCIATION'},
+    {code:'ANZ',th:'ธนาคารเอเอ็นแซด (ไทย) จำกัด (มหาชน)',en:'ANZ BANK (THAI) PUBLIC COMPANY LIMITED'},
+    {code:'BAAC',th:'ธนาคารเพื่อการเกษตรและสหกรณ์การเกษตร',en:'BANK FOR AGRICULTURE AND AGRICULTURAL COOPERATIVES'},
+    {code:'BAY',th:'ธนาคารกรุงศรีอยุธยา จำกัด (มหาชน)',en:'BANK OF AYUDHYA PUBLIC COMPANY LIMITED'},
+    {code:'BBL',th:'ธนาคารกรุงเทพ จำกัด (มหาชน)',en:'BANGKOK BANK PUBLIC COMPANY LIMITED'},
+    {code:'BNPP',th:'ธนาคารบีเอ็นพี พารีบาส์ สาขากรุงเทพฯ',en:'BNP PARIBAS, BANGKOK BRANCH'},
+    {code:'BOC',th:'ธนาคารแห่งประเทศจีน สาขากรุงเทพฯ',en:'BANK OF CHINA'},
+    {code:'BOT',th:'ธนาคารแห่งประเทศไทย',en:'BANK OF THAILAND'},
+    {code:'BTMU',th:'ธนาคารแห่งโตเกียว-มิตซูบิชิ ยูเอฟเจ สาขากรุงเทพฯ',en:'THE BANK OF TOKYO-MITSUBISHI UFJ, LIMITED, BANGKOK BRANCH'},
+    {code:'CIMBT',th:'ธนาคาร ซีไอเอ็มบี ไทย จำกัด (มหาชน)',en:'CIMB THAI BANK PUBLIC COMPANY LIMITED'},
+    {code:'CITI',th:'ธนาคารซิตี้แบงก์',en:'CITIBANK, N.A., BANGKOK BRANCH'},
+    {code:'DB',th:'ธนาคารดอยซ์แบงก์',en:'DEUTSCHE BANK AKTIENGESELLSCHAFT'},
+    {code:'GSB',th:'ธนาคารออมสิน',en:'GOVERNMENT SAVINGS BANK'},
+    {code:'HSBC',th:'ธนาคารฮ่องกงและเซี่ยงไฮ้แบงกิ้งคอร์ปอเรชั่น จำกัด',en:'THE HONGKONG AND SHANGHAI BANKING CORPORATION LIMITED'},
+    {code:'ICBC(Thai)',th:'ธนาคารไอซีบีซี (ไทย) จำกัด (มหาชน)',en:'INDUSTRIAL AND COMMERCIAL BANK OF CHINA (THAI) PUBLIC COMPANY LIMITED'},
+    {code:'ISBT',th:'ธนาคารอิสลามแห่งประเทศไทย',en:'ISLAMIC BANK OF THAILAND'},
+    {code:'KBANK',th:'ธนาคารกสิกรไทย จำกัด (มหาชน)',en:'KASIKORNBANK PUBLIC COMPANY LIMITED'},
+    {code:'KK',th:'ธนาคารเกียรตินาคิน จำกัด (มหาชน)',en:'KIATNAKIN BANK PUBLIC COMPANY LIMITED'},
+    {code:'KTB',th:'ธนาคารกรุงไทย จำกัด (มหาชน)',en:'KRUNG THAI BANK PUBLIC COMPANY LIMITED'},
+    {code:'LH BANK',th:'ธนาคารแลนด์ แอนด์ เฮ้าส์ จำกัด (มหาชน)',en:'LAND AND HOUSES RETAIL BANK PUBLIC COMPANY LIMITED'},
+    {code:'MEGA ICBC',th:'ธนาคาร เมกะ สากลพาณิชย์ จำกัด (มหาชน)',en:'MEGA INTERNATIONAL COMMERCIAL BANK PUBLIC COMPANY LIMITED'},
+    {code:'MHCB',th:'ธนาคารมิซูโฮ คอร์ปอเรต จำกัด',en:'MIZUHO CORPORATE BANK LIMITED'},
+    {code:'RBS',th:'ธนาคารเดอะรอยัลแบงก์อ๊อฟสกอตแลนด์ เอ็น.วี. สาขากรุงเทพฯ',en:'THE ROYAL BANK OF SCOTLAND N.V. , BANGKOK BRANCH'},
+    {code:'SCB',th:'ธนาคารไทยพาณิชย์ จำกัด (มหาชน)',en:'SIAM COMMERCIAL BANK PUBLIC COMPANY LIMITED'},
+    {code:'SCBT',th:'ธนาคารสแตนดาร์ดชาร์เตอร์ด (ไทย) จำกัด (มหาชน)',en:'STANDARD CHARTERED BANK (THAI) PUBLIC COMPANY LIMITED'},
+    {code:'SCIB',th:'ธนาคารนครหลวงไทยจำกัด (มหาชน)',en:'City Bank Public Company Limited'},
+    {code:'SMBC',th:'ธนาคารชูมิโตโม มิตซุย แบงกิ้ง คอร์ปอเรชั่น',en:'SUMITOMO MITSUI BANKING CORPORATION'},
+    {code:'TBANK',th:'ธนาคารธนชาต จำกัด (มหาชน)',en:'THANACHART BANK PUBLIC COMPANY LIMITED'},
+    {code:'TCRB',th:'ธนาคารไทยเครดิต เพื่อรายย่อย จำกัด (มหาชน)',en:'THAI CREDIT RETAIL BANK PUBLIC COMPANY LIMITED'},
+    {code:'TISCO',th:'ธนาคารทิสโก้ จำกัด (มหาชน)',en:'TISCO BANK PUBLIC COMPANY LIMITED'},
+    {code:'TTB',th:'ธนาคารทหารไทย จำกัด (มหาชน)',en:'TMB BANK PUBLIC COMPANY LIMITED'},
+    {code:'UOBT',th:'ธนาคารยูโอบี จำกัด (มหาชน)',en:'UNITED OVERSEAS BANK (THAI) PUBLIC COMPANY LIMITED'},
+  ];
+
   // ---- plans / OT ----
   const planById = id => (cfg.Plans||[]).find(p=>p.id===id) || null;
   const studentPlan = s => planById(s&&s.Plan) || (cfg.Plans||[])[0] || {end:'17:00',price:0};
@@ -975,7 +1015,9 @@ function createAtomAPI(M, GROWTH_STD) {
       .sort((a,b)=>(b.Date+b.Time).localeCompare(a.Date+a.Time)),
 
     // ========== PCHI insurance member form ==========
-    insuranceOptions: () => Object.assign({}, cfg.Insurance||{}),
+    // Banks always come from the embedded reference list (cfg is SEED-only in gas mode), so the
+    // dropdown is identical in mock and on GAS.
+    insuranceOptions: () => Object.assign({}, cfg.Insurance||{}, {Banks: INSURANCE_BANKS}),
     // status for a student: has the insurance form been filled? (one record per student / NationalID)
     insuranceStatus: p => { const s=studentById(p.studentId)||{};
       const rec=M.insurancePCHI.find(x=>x.StudentID===p.studentId || (s.NationalID&&String(x.NationalID)===String(s.NationalID)))||null;
