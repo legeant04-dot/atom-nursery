@@ -6,7 +6,7 @@
   const setHTML = (sel, html) => { const el = $(sel); if (el) el.innerHTML = html; };
   const app = $('#app'), nav = $('#bottomnav');
   const baht = n => (Number(n)||0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
-  const APP_VERSION = 'Version 1.076'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.077'; // bump each webapp change; shown only at the bottom of the Chat screen
   const verTag = () => `<div style="text-align:center;color:#c3c9d4;font-size:10px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
   const phoneFmt = p => { let d=String(p==null?'':p).replace(/\D/g,''); if(d.length===9) d='0'+d; return d; };
@@ -59,7 +59,10 @@
   const hmHours = hours => hmMin((Number(hours)||0)*60);
   // round photo avatar — Photo as a circle, else initials. Tapping a photo zooms it (IMG_zoom).
   const studentAvatar = s => s&&s.Photo ? `<span class="avatar-sm photo" style="background-image:url('${esc(s.Photo)}')" onclick="IMG_zoom('${esc(s.Photo)}')"></span>` : `<span class="avatar-sm">${esc(initialEN(s?s.NameEN:'?'))}</span>`;
-  const personAvatar = o => o&&o.Photo ? `<span class="avatar-sm photo" style="background-image:url('${esc(o.Photo)}')" onclick="IMG_zoom('${esc(o.Photo)}')"></span>` : `<span class="avatar-sm">${esc(initialEN(o?o.NameEN:'?'))}</span>`;
+  // A parent's picture: an uploaded Photo always wins; otherwise fall back to their current LINE
+  // profile picture (PARENTS.LinePictureUrl, refreshed on every login by handleAuth).
+  const photoOf = o => (o && (o.Photo || o.LinePictureUrl)) || '';
+  const personAvatar = o => photoOf(o) ? `<span class="avatar-sm photo" style="background-image:url('${esc(photoOf(o))}')" onclick="IMG_zoom('${esc(photoOf(o))}')"></span>` : `<span class="avatar-sm">${esc(initialEN(o?o.NameEN:'?'))}</span>`;
   // full-screen image lightbox (reuses the .modal.imgzoom styling; tap to close)
   window.IMG_zoom = (url)=>{ if(!url)return; const d=document.createElement('div'); d.className='modal imgzoom';
     d.onclick=()=>d.remove(); d.innerHTML=`<img src="${esc(url)}" alt=""/>`; document.body.appendChild(d); };
@@ -131,7 +134,11 @@
     $('#langBtn').textContent = LANG()==='en' ? 'EN' : 'TH';
     $('#userName').textContent = USER ? USER.nameEN : '–';
     $('#userRole').textContent = USER ? t(ROLE_KEY(USER.role)) : '';
-    $('#avatar').textContent = USER ? initialEN(USER.nameEN) : '–';
+    // show the signed-in user's LINE profile picture in the header; fall back to their initial
+    const av=$('#avatar'), pic=USER&&USER.pictureUrl;
+    av.textContent = pic ? '' : (USER ? initialEN(USER.nameEN) : '–');
+    av.style.backgroundImage = pic ? `url('${pic}')` : '';
+    av.classList.toggle('photo', !!pic);
     $('#logoutBtn').hidden = !USER; $('#logoutBtn').textContent = t('c.logout');
     $('#bellBtn').hidden = !USER;
     if(USER) refreshBell();
@@ -602,7 +609,18 @@
   window.P_profile = async () => { setNav('home');
     const d = await api('familyProfile', parentScope()); const parents=d.parents||[]; const kids=d.students||[];
     const parentCard=p=>{ const pre='pa_'+p.ParentID;
+      // picture: uploaded Photo wins, else their LINE profile picture (no upload needed)
+      const pic=photoOf(p), usingLine=!p.Photo&&!!p.LinePictureUrl;
       return `<div class="card"><div class="spread"><h3>${p.isMe?'👤':'👥'} ${esc(parentDisp(p)||(EN()?'Parent':'ผู้ปกครอง'))} ${p.isMe?`<span class="pill ok" style="font-size:10px">${EN()?'me':'ฉัน'}</span>`:''}</h3></div>
+        <div class="ppic">
+          ${pic?`<img class="ppic-img" src="${esc(pic)}" alt="" onclick="IMG_zoom('${esc(pic)}')"/>`:`<span class="ppic-none">${esc(initialEN(p.NameEN))}</span>`}
+          <div class="ppic-side">
+            <span class="pill ${usingLine?'info':'ok'}" style="font-size:10px">${usingLine?('LINE '+(EN()?'picture':'โปรไฟล์')):(p.Photo?(EN()?'uploaded':'รูปที่อัปโหลด'):(EN()?'no picture':'ยังไม่มีรูป'))}</span>
+            <small class="muted" style="font-size:11px">${EN()?'Uses your LINE picture automatically. Upload one to replace it.':'ใช้รูปโปรไฟล์ LINE อัตโนมัติ · อัปโหลดรูปเพื่อใช้แทนได้'}</small>
+            ${photoField(pre+'_PhotoUp',(EN()?'Upload a picture':'อัปโหลดรูป'),'',false)}
+            ${p.Photo?`<button class="btn sm outline" onclick="P_useLinePic('${p.ParentID}',this)">↩︎ ${EN()?'Use my LINE picture':'ใช้รูป LINE แทน'}</button>`:''}
+          </div>
+        </div>
         <div class="grid2"><label class="field"><span>${esc(t('reg.title'))}</span><select id="${pre}_Title">${['','นาย','นาง','นางสาว'].map(x=>`<option ${(p.Title||titleOf(p))===x?'selected':''}>${x}</option>`).join('')}</select></label>${ppFld(pre,'NameTH',EN()?'Name (TH)':'ชื่อ-สกุล (ไทย)',p.NameTH)}</div>
         <div class="grid2">${ppFld(pre,'NameEN',EN()?'Name (EN)':'ชื่อ-สกุล (อังกฤษ)',p.NameEN)}${ppFld(pre,'Nickname',EN()?'Nickname (TH)':'ชื่อเล่น (ไทย)',p.Nickname)}</div>
         <div class="grid2">${ppFld(pre,'NicknameEN',EN()?'Nickname (EN)':'ชื่อเล่น (อังกฤษ)',p.NicknameEN)}<label class="field"><span>${EN()?'Relationship':'ความสัมพันธ์'}</span><input id="${pre}_Relationship" value="${esc(p.Relationship||'')}"/></label></div>
@@ -631,8 +649,14 @@
   window.P_saveParent = async (parentId,btn)=>{ const g=id=>{ const e=document.getElementById('pa_'+parentId+'_'+id); return e?e.value.trim():undefined; };
     const data={ Title:g('Title'), NameTH:g('NameTH'), NameEN:g('NameEN'), Nickname:g('Nickname'), NicknameEN:g('NicknameEN'), Relationship:g('Relationship'), Phone:g('Phone'), OfficePhone:g('OfficePhone'), Occupation:g('Occupation'), Workplace:g('Workplace'), Address:g('Address') };
     if(!data.NameTH){ toast(EN()?'Name is required':'กรุณากรอกชื่อ'); return; }
+    // only send Photo when they actually picked one — otherwise leave the existing value alone
+    const up=photoVal(document,'pa_'+parentId+'_PhotoUp'); if(up) data.Photo=up;
     if(btn)btn.disabled=true;
-    try{ await api('saveFamilyParent',Object.assign({parentId:USER.parentId,uid:USER.uid,targetParentId:parentId},{data})); confirmSaved(t('c.saved')); }catch(e){err(e);}finally{ if(btn)btn.disabled=false; } };
+    try{ await api('saveFamilyParent',Object.assign({parentId:USER.parentId,uid:USER.uid,targetParentId:parentId},{data})); confirmSaved(t('c.saved')); if(up) P_profile(); }catch(e){err(e);}finally{ if(btn)btn.disabled=false; } };
+  // clear the uploaded photo -> the display falls back to their LINE profile picture
+  window.P_useLinePic = async (parentId,btn)=>{ if(!confirm(EN()?'Use your LINE profile picture instead?':'ใช้รูปโปรไฟล์ LINE แทนรูปที่อัปโหลดไว้?'))return;
+    if(btn)btn.disabled=true;
+    try{ await api('saveFamilyParent',{parentId:USER.parentId,uid:USER.uid,targetParentId:parentId,data:{Photo:''}}); confirmSaved(t('c.saved')); P_profile(); }catch(e){err(e);}finally{ if(btn)btn.disabled=false; } };
   window.P_saveStudent = async (studentId,btn)=>{ const g=id=>{ const e=document.getElementById('st_'+studentId+'_'+id); return e?e.value.trim():undefined; };
     const data={ Nickname:g('Nickname'), NicknameEN:g('NicknameEN'), BloodType:g('BloodType'), RH:g('RH'), Allergy:g('Allergy'), MedicalHistory:g('MedicalHistory'), EmergencyContact:g('EmergencyContact'), Address:g('Address') };
     if(btn)btn.disabled=true;

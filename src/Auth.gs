@@ -93,6 +93,15 @@ function handleAuth(payload) {
   var parents = sheet_(getMainSpreadsheet_(), 'PARENTS');
   var par = findObject_(parents, function (pr) { return pr.LineUID && String(pr.LineUID) === String(uid); });
   if (par) {
+    // Keep the parent's LINE profile picture current — it is the photo shown when they haven't
+    // uploaded one. Write ONLY when it actually changed, so a normal login stays read-only.
+    if (pictureUrl && String(par.LinePictureUrl || '') !== String(pictureUrl)) {
+      try {
+        ensureColumns_(parents, ['LinePictureUrl']);
+        updateRow_(parents, par._row, { LinePictureUrl: pictureUrl });
+        if (typeof cacheDel_ === 'function') { cacheDel_('col:PARENTS'); cacheDel_('rows:PARENTS'); }
+      } catch (e) {}
+    }
     logAudit(uid, 'LOGIN', 'PARENTS', par.ParentID);
     return {
       userId: par.ParentID, role: ROLES.PARENT, linkedId: par.ParentID, status: USER_STATUS.ACTIVE,

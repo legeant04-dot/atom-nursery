@@ -50,7 +50,9 @@ SCHEMA[WB.MAIN] = {
   // Drive folder), used as an identity/security check when signing in.
   // Nickname/NicknameEN/Title appended after go-live (ensureColumns_ adds them on the first save).
   // Title = คำนำหน้า (นาย/นาง/นางสาว) — indicates gender; defaults from Relationship (บิดา→นาย, มารดา→นางสาว).
-  PARENTS:           ['ParentID', 'NationalID', 'Name', 'NameEN', 'Relationship', 'Phone', 'Occupation', 'Workplace', 'OfficePhone', 'LineUID', 'StudentID', 'Address', 'Photo', 'RegisterPhotoUrl', 'Nickname', 'NicknameEN', 'Title'],
+  // LinePictureUrl (appended at END) = the parent's CURRENT LINE profile picture, refreshed on each
+  // login (handleAuth). It is the display fallback; an uploaded `Photo` always wins.
+  PARENTS:           ['ParentID', 'NationalID', 'Name', 'NameEN', 'Relationship', 'Phone', 'Occupation', 'Workplace', 'OfficePhone', 'LineUID', 'StudentID', 'Address', 'Photo', 'RegisterPhotoUrl', 'Nickname', 'NicknameEN', 'Title', 'LinePictureUrl'],
   // Pickup persons authorized other than parents (PDPA application form §3)
   PICKUP_PERSONS:    ['StudentID', 'Name', 'Phone', 'Relation'],
   // user <-> student data-access links (data isolation; supports father linking after mother registered)

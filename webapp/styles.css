@@ -20,6 +20,8 @@ body{font-family:'Sarabun',system-ui,sans-serif;background:var(--bg);color:var(-
 .user-role{font-size:11px;color:var(--muted);}
 .avatar{width:36px;height:36px;border-radius:50%;background:var(--blue);color:#fff;display:flex;
   align-items:center;justify-content:center;font-weight:700;font-size:14px;}
+/* header avatar showing the user's LINE profile picture */
+.avatar.photo{background-size:cover;background-position:center;background-color:#e3f2fd;}
 .btn-ghost{background:transparent;border:1px solid var(--line);border-radius:8px;padding:6px 10px;cursor:pointer;font-family:inherit;}
 
 .devbar{display:none;} /* version tag moved into the Chat screen (verTag) */
@@ -174,6 +176,15 @@ textarea{min-height:70px;resize:vertical;}
 .qr-ph{width:210px;height:210px;margin:10px auto;border:2px dashed #bbb;border-radius:12px;display:flex;align-items:center;justify-content:center;color:#bbb;font-weight:700;font-size:22px;}
 .modal.imgzoom{align-items:center;background:rgba(0,0,0,.82);z-index:80;cursor:zoom-out;}
 .modal.imgzoom img{max-width:92vw;max-height:88vh;border-radius:10px;background:#fff;}
+
+/* Parent profile picture block (LINE picture by default, upload overrides) */
+.ppic{display:flex;gap:12px;align-items:flex-start;margin:4px 0 12px;}
+.ppic-img{width:76px;height:76px;border-radius:50%;object-fit:cover;flex:0 0 auto;
+  border:2px solid var(--line);background:#e3f2fd;cursor:zoom-in;}
+.ppic-none{width:76px;height:76px;border-radius:50%;flex:0 0 auto;background:#e3f2fd;color:var(--blue-d);
+  display:flex;align-items:center;justify-content:center;font-weight:700;font-size:26px;}
+.ppic-side{flex:1;min-width:0;display:flex;flex-direction:column;gap:6px;align-items:flex-start;}
+.ppic-side .field{width:100%;margin:0;}
 
 /* School-announcement popup (parent) — sized to fit any phone; long text wraps, image is capped */
 .annpop{text-align:center;}
