@@ -646,13 +646,15 @@ function createAtomAPI(M, GROWTH_STD) {
     // included) + the children themselves. Identity (uid/parentId) is injected server-side.
     familyProfile: p => { const kids=visibleStudents(p); const kidIds=kids.map(s=>s.StudentID); const seen={}; const parents=[];
       M.parents.forEach(pa=>{ if((kidIds.indexOf(pa.StudentID)>=0 || pa.ParentID===p.parentId) && !seen[pa.ParentID]){ seen[pa.ParentID]=1;
-        parents.push({ ParentID:pa.ParentID, NameTH:pa.NameTH||pa.Name, NameEN:pa.NameEN, Nickname:pa.Nickname, NicknameEN:pa.NicknameEN, Title:pa.Title, NationalID:pa.NationalID, Relationship:pa.Relationship, Phone:pa.Phone, Occupation:pa.Occupation, Workplace:pa.Workplace, OfficePhone:pa.OfficePhone, Address:pa.Address, StudentID:pa.StudentID, isMe: pa.ParentID===p.parentId }); } });
+        // Photo = an uploaded picture (wins); LinePictureUrl = their current LINE profile picture (fallback)
+        parents.push({ ParentID:pa.ParentID, NameTH:pa.NameTH||pa.Name, NameEN:pa.NameEN, Nickname:pa.Nickname, NicknameEN:pa.NicknameEN, Title:pa.Title, NationalID:pa.NationalID, Relationship:pa.Relationship, Phone:pa.Phone, Occupation:pa.Occupation, Workplace:pa.Workplace, OfficePhone:pa.OfficePhone, Address:pa.Address, Photo:pa.Photo, LinePictureUrl:pa.LinePictureUrl, StudentID:pa.StudentID, isMe: pa.ParentID===p.parentId }); } });
       return { parents, myParentId:p.parentId, students: kids.map(s=>({ StudentID:s.StudentID, NameTH:s.NameTH, NameEN:s.NameEN, Nickname:s.Nickname, NicknameEN:s.NicknameEN, Class:s.Class, DOB:s.DOB, Plan:s.Plan, NationalID:s.NationalID, Gender:s.Gender, BloodType:s.BloodType, RH:s.RH, Allergy:s.Allergy, MedicalHistory:s.MedicalHistory, EmergencyContact:s.EmergencyContact, Address:s.Address, Race:s.Race, Nationality:s.Nationality, Religion:s.Religion, Photo:s.Photo })) }; },
     // edit a parent that is either the caller or a co-parent of the caller's child (server validates); whitelisted.
     saveFamilyParent: p => { const kids=visibleStudents(p); const kidIds=kids.map(s=>s.StudentID); const tid=p.targetParentId||p.parentId;
       const pa=M.parents.find(x=>x.ParentID===tid); if(!pa)fail('NOT_FOUND','ไม่พบผู้ปกครอง');
       if(!(pa.ParentID===p.parentId || kidIds.indexOf(pa.StudentID)>=0))fail('NO_ACCESS','ไม่มีสิทธิ์แก้ไขผู้ปกครองนี้');
-      const d=p.data||{}; ['NameTH','NameEN','Nickname','NicknameEN','Title','Relationship','Phone','Occupation','Workplace','OfficePhone','Address'].forEach(k=>{ if(d[k]!==undefined) pa[k]=d[k]; }); return {ok:true, parentId:tid}; },
+      // Photo: '' clears the upload -> the display falls back to their LINE profile picture
+      const d=p.data||{}; ['NameTH','NameEN','Nickname','NicknameEN','Title','Relationship','Phone','Occupation','Workplace','OfficePhone','Address','Photo'].forEach(k=>{ if(d[k]!==undefined) pa[k]=d[k]; }); return {ok:true, parentId:tid}; },
     // parent edits their own child's safe fields (studentId ownership is enforced by applyIdentity_ on GAS).
     saveStudentSelf: p => { const s=studentById(p.studentId); if(!s)fail('NOT_FOUND','ไม่พบนักเรียน');
       const d=p.data||{}; ['Nickname','NicknameEN','BloodType','RH','Allergy','MedicalHistory','EmergencyContact','Address','Race','Nationality','Religion','Photo'].forEach(k=>{ if(d[k]!==undefined) s[k]=d[k]; }); return {ok:true, studentId:p.studentId}; },

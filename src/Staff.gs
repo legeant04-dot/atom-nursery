@@ -208,8 +208,10 @@ function handleSaveFamilyParent(p) {
   var ok = (String(tid) === String(p.parentId));
   if (!ok) { var ids = familyStudentIds_(p.uid); if (pa.StudentID && ids[String(pa.StudentID)]) ok = true; }
   if (!ok) throw apiError_('NO_ACCESS', 'ไม่มีสิทธิ์แก้ไขผู้ปกครองนี้');
-  try { ensureColumns_(sh, ['Nickname', 'NicknameEN', 'Title']); } catch (e) {}
-  var d = p.data || {}, WHITE = ['NameTH', 'NameEN', 'Nickname', 'NicknameEN', 'Title', 'Relationship', 'Phone', 'Occupation', 'Workplace', 'OfficePhone', 'Address'];
+  try { ensureColumns_(sh, ['Nickname', 'NicknameEN', 'Title', 'LinePictureUrl']); } catch (e) {}
+  // Photo is uploadable by the parent; '' clears it so the display falls back to their LINE picture.
+  // (a data: URL is offloaded to Drive by updateRow_ -> driveifyImage_; LinePictureUrl is never written here)
+  var d = p.data || {}, WHITE = ['NameTH', 'NameEN', 'Nickname', 'NicknameEN', 'Title', 'Relationship', 'Phone', 'Occupation', 'Workplace', 'OfficePhone', 'Address', 'Photo'];
   var row = {};
   WHITE.forEach(function (k) { if (d[k] !== undefined) row[k] = d[k]; });
   if (row.NameTH !== undefined) { row.Name = row.NameTH; delete row.NameTH; }
