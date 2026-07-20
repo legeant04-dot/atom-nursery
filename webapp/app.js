@@ -6,7 +6,7 @@
   const setHTML = (sel, html) => { const el = $(sel); if (el) el.innerHTML = html; };
   const app = $('#app'), nav = $('#bottomnav');
   const baht = n => (Number(n)||0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
-  const APP_VERSION = 'Version 1.082'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.083'; // bump each webapp change; shown only at the bottom of the Chat screen
   const verTag = () => `<div style="text-align:center;color:#c3c9d4;font-size:10px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
   const phoneFmt = p => { let d=String(p==null?'':p).replace(/\D/g,''); if(d.length===9) d='0'+d; return d; };
@@ -1716,15 +1716,32 @@
     try{ await api('saveDspmCriteria',{staffId:USER.staffId,itemNo:itemNo!=null?itemNo:undefined,track:track||'Teacher',data}); m.remove(); confirmSaved(t('c.saved')); GO_('dspmCriteria'); }catch(e){err(e);} };
   window.A_dspmDel = async (itemNo,track)=>{ if(!confirm(t('manage.confirmDel')))return; try{ await api('deleteDspmCriteria',{staffId:USER.staffId,itemNo,track:track||'Teacher'}); toast(t('manage.deleted')); GO_('dspmCriteria'); }catch(e){err(e);} };
 
-  // ---- Admin: student-leave management (edit / delete) ----
+  // ---- Admin: student-leave management — grouped by Class → student (with leave count) + multi-select delete ----
   window.A_studentLeaves = async () => { const rows=await api('allStudentLeaves'); window._SLV=rows;
+    // group: class -> student -> [leaves]
+    const byClass={};
+    rows.forEach(l=>{ const c=l.class||'—'; const g=byClass[c]=byClass[c]||{}; const sid=l.StudentID;
+      (g[sid]=g[sid]||{name:l.nick||l.name||sid, sub:l.name||'', leaves:[]}).leaves.push(l); });
+    const classes=Object.keys(byClass).sort();
+    const classHtml=classes.map(c=>{ const studs=byClass[c]; const total=Object.values(studs).reduce((n,s)=>n+s.leaves.length,0);
+      const studHtml=Object.keys(studs).map(sid=>{ const s=studs[sid]; s.leaves.sort((a,b)=>String(b.Date).localeCompare(String(a.Date)));
+        return `<div class="slv-stud"><div class="spread"><b>${esc(s.name)}</b><span class="pill info">${s.leaves.length} ${EN()?'leaves':'ครั้ง'}</span></div>
+          ${s.leaves.map(l=>`<div class="slv-row"><label class="slv-pick"><input type="checkbox" class="slvchk" value="${esc(l.LeaveID)}" onchange="A_slvCount()"><span><b style="color:#1565C0">${esc(ddmmyyyy(l.Date))}</b> <small class="muted">· ${esc(l.Reason||'-')}${l.Type?' ('+esc(l.Type)+')':''}</small></span></label>
+            <span class="row"><button class="btn sm outline" onclick="A_slvEdit('${l.LeaveID}')">✏️</button><button class="btn sm pink" onclick="A_slvDel('${l.LeaveID}')">🗑️</button></span></div>`).join('')}</div>`; }).join('');
+      return `<div class="card"><div class="spread"><h3>👶 ${esc(c)}</h3><span class="muted" style="font-size:12px">${Object.keys(studs).length} ${EN()?'kids':'คน'} · ${total} ${EN()?'leaves':'ครั้ง'}</span></div>${studHtml}</div>`; }).join('');
     app.innerHTML=`<button class="btn sm outline backbtn" onclick="GO('manage')">${t('c.back')}</button>
       <h2 class="page">🏠 ${esc(t('slv.title'))}</h2>
-      <p class="muted" style="font-size:12px">${EN()?'Edit the date/reason or remove a duplicate leave.':'แก้วันที่/เหตุผล หรือลบการลาที่ซ้ำได้'} (${rows.length})</p>
-      <div class="card">${rows.length?rows.map(l=>`<div class="list-item"><span><b>${esc(l.nick||l.name||l.StudentID)}</b> <small class="muted">${esc(l.class||'')}</small><br><b style="color:#1565C0">${esc(ddmmyyyy(l.Date))}</b> · <small class="muted">${esc(l.Reason||'-')}${l.Type?' ('+esc(l.Type)+')':''}</small></span>
-        <span class="row"><button class="btn sm outline" onclick="A_slvEdit('${l.LeaveID}')">✏️</button><button class="btn sm pink" onclick="A_slvDel('${l.LeaveID}')">🗑️</button></span></div>`).join(''):`<small class="muted">${esc(t('c.noItems'))}</small>`}</div>`;
+      <div class="slv-bar"><label class="slv-pick"><input type="checkbox" id="slvAll" onchange="A_slvToggleAll(this)"> ${EN()?'Select all':'เลือกทั้งหมด'}</label>
+        <button class="btn sm pink" id="slvDelBtn" disabled onclick="A_slvDelSel(this)">🗑️ ${EN()?'Delete selected':'ลบที่เลือก'} <span id="slvN">0</span></button></div>
+      ${rows.length?classHtml:`<div class="card"><small class="muted">${esc(t('c.noItems'))}</small></div>`}`;
     window.scrollTo(0,0);
   };
+  window.A_slvCount = ()=>{ const n=document.querySelectorAll('.slvchk:checked').length; const b=$('#slvDelBtn'), s=$('#slvN'); if(s)s.textContent='('+n+')'; if(b)b.disabled=!n;
+    const all=$('#slvAll'); if(all){ const tot=document.querySelectorAll('.slvchk').length; all.checked=n>0&&n===tot; } };
+  window.A_slvToggleAll = (cb)=>{ document.querySelectorAll('.slvchk').forEach(x=>{x.checked=cb.checked;}); A_slvCount(); };
+  window.A_slvDelSel = async (btn)=>{ const ids=[...document.querySelectorAll('.slvchk:checked')].map(x=>x.value); if(!ids.length)return;
+    if(!confirm((EN()?'Delete ':'ลบการลา ')+ids.length+(EN()?' selected leaves?':' รายการที่เลือก?')))return;
+    btn.disabled=true; try{ await api('deleteStudentLeaves',{staffId:USER.staffId,leaveIds:ids}); toast((EN()?'Deleted ':'ลบแล้ว ')+ids.length); GO_('studentLeaves'); }catch(e){err(e);btn.disabled=false;} };
   window.A_slvEdit = (leaveId)=>{ const l=(window._SLV||[]).find(x=>x.LeaveID===leaveId)||{};
     modal(`<h3>✏️ ${esc(t('slv.title'))}</h3>
       <div class="muted" style="font-size:13px;margin-bottom:6px">${esc(l.nick||l.name||l.StudentID)}</div>

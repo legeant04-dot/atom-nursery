@@ -118,6 +118,17 @@ textarea{min-height:70px;resize:vertical;}
 .chk.on .box{background:var(--blue);border-color:var(--blue);color:#fff;}
 .chk.on{color:#111;font-weight:600;}
 
+/* Admin student-leave management — grouped by class/student + multi-select delete */
+.slv-bar{position:sticky;top:58px;z-index:5;display:flex;align-items:center;justify-content:space-between;gap:10px;
+  background:var(--bg);padding:8px 2px;margin-bottom:6px;}
+.slv-pick{display:inline-flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;}
+.slv-pick input{width:auto;}
+.slv-stud{border-top:1px solid var(--line);padding:8px 0;}
+.slv-stud:first-of-type{border-top:none;}
+.slv-row{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:5px 0 5px 6px;}
+.slv-row .slv-pick{flex:1;min-width:0;align-items:flex-start;}
+.slv-row .slv-pick span{min-width:0;}
+
 /* Admin categorized menu (จัดการข้อมูล & สิทธิ) */
 .amenu{padding:12px 14px;}
 .amenu h3{margin:0 0 10px;font-size:14px;color:var(--blue-d);border-left:4px solid var(--blue);padding-left:8px;}
