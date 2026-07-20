@@ -118,6 +118,35 @@ textarea{min-height:70px;resize:vertical;}
 .chk.on .box{background:var(--blue);border-color:var(--blue);color:#fff;}
 .chk.on{color:#111;font-weight:600;}
 
+/* Admin categorized menu (จัดการข้อมูล & สิทธิ) */
+.amenu{padding:12px 14px;}
+.amenu h3{margin:0 0 10px;font-size:14px;color:var(--blue-d);border-left:4px solid var(--blue);padding-left:8px;}
+.amenu-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;}
+.amenu-btn{display:flex;align-items:center;gap:9px;text-align:left;background:#f7f9fc;border:1px solid var(--line);
+  border-radius:10px;padding:11px 12px;cursor:pointer;font-family:inherit;font-size:13.5px;color:var(--ink);min-width:0;}
+.amenu-btn:active{background:#eef3fa;}
+.amenu-btn .amenu-ic{font-size:18px;flex:0 0 auto;}
+.amenu-btn span:last-child{overflow:hidden;text-overflow:ellipsis;}
+@media(max-width:380px){.amenu-grid{grid-template-columns:1fr;}}
+
+/* Daily-report SUMMARY (parent) — clean label→value rows, only sections the teacher filled */
+.jrpt .jr-head{display:flex;justify-content:space-between;align-items:center;gap:8px;
+  background:#eef6ff;border:1px solid #d6e6fb;border-radius:12px;padding:10px 12px;margin-bottom:10px;}
+.jrpt .jr-head b{color:var(--blue-d);font-size:15px;}
+.jr-rows{display:flex;flex-direction:column;}
+.jr-row{display:flex;gap:10px;align-items:baseline;padding:9px 2px;border-bottom:1px solid var(--line);}
+.jr-row:last-child{border-bottom:none;}
+.jr-ic{flex:0 0 22px;font-size:16px;text-align:center;}
+.jr-lbl{flex:0 0 96px;color:var(--muted);font-size:12.5px;line-height:1.4;}
+.jr-val{flex:1;min-width:0;font-size:14px;line-height:1.5;color:var(--ink);}
+.jr-pill{display:inline-block;background:#f1f5fb;color:var(--blue-d);border-radius:999px;
+  padding:1px 9px;margin:2px 4px 2px 0;font-size:12.5px;font-weight:600;}
+.jr-hl{margin-top:10px;background:#fff8e1;border-radius:10px;padding:10px 12px;font-size:14px;}
+.jr-hl span{display:block;color:#b7791f;font-weight:700;font-size:12.5px;margin-bottom:3px;}
+.jr-cmt{margin-top:12px;}
+.jr-cmt h4{margin:0 0 6px;font-size:14px;color:var(--blue-d);border-left:4px solid var(--blue);padding-left:8px;}
+.jr-cmt-box{background:#eef6ff;border-radius:10px;padding:10px;font-size:14px;}
+
 /* calendar */
 .cal{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:4px;max-width:100%;}
 /* no aspect-ratio: it forced width≥min-height (64px)×7 → horizontal overflow on mobile.
