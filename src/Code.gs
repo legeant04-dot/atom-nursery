@@ -231,7 +231,9 @@ function dispatch_(action, payload, token) {
 
 /** Does this action write anything? (mirrors the client's MUT regex in api.js) */
 var MUTATING_RE = /^(submit|save|add|remove|delete|set|register|pay|upload|confirm|reject|issue|generate|move|import|compute|cancel|prepay|link|notify|request|mark|approve|edit|rename|update|change|seed|recompute|restore|bind|provision)/i;
-function isMutatingAction_(a) { a = String(a || ''); return MUTATING_RE.test(a) || /check(in|out)|absence/i.test(a); }
+// dedupData/reindex* mutate but don't start with a MUTATING_RE verb — force them to take the write lock
+// (they read row indices then delete, so a concurrent append would shift rows and delete the wrong one).
+function isMutatingAction_(a) { a = String(a || ''); return MUTATING_RE.test(a) || /check(in|out)|absence|^dedup|^reindex/i.test(a); }
 
 /** Run fn under a script lock when it may write. Reads run unlocked (no queueing). */
 function withWriteLock_(needed, fn) {
