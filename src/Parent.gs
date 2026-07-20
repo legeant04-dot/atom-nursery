@@ -63,6 +63,10 @@ function handleStudentAbsence(payload) {
   if (!student) throw apiError_('STUDENT_NOT_FOUND', 'ไม่พบข้อมูลนักเรียน');
 
   var sheet = sheet_(getMainSpreadsheet_(), 'LEAVE_REQUEST_STD');
+  // Idempotent: a double-submit (slow network) for the SAME student+date must not create a duplicate
+  // leave — return the existing one and don't re-notify.
+  var dup = findObject_(sheet, function (r) { return String(r.StudentID) === String(student.StudentID) && otNormDate_(r.Date) === otNormDate_(payload.date); });
+  if (dup) { logAudit(parent.ParentID, 'STUDENT_ABSENCE_DUP', 'LEAVE_REQUEST_STD', dup.LeaveID); return { leaveId: dup.LeaveID, studentId: student.StudentID, teacherNotified: false, duplicate: true }; }
   var leaveId = nextId_(sheet, 'LeaveID', 'LVS');
   var notified = notifyStudentTeacher_(student, '🏠 แจ้งลา: ' + student.Name + ' วันที่ ' + payload.date +
     '\nเหตุผล: ' + (payload.reason || '-') + '\n(โดยผู้ปกครอง ' + parent.Name + ')');
@@ -87,6 +91,8 @@ function handleTeacherStudentLeave(payload) {
   if (!student) throw apiError_('STUDENT_NOT_FOUND', 'ไม่พบข้อมูลนักเรียน');
   var sheet = sheet_(getMainSpreadsheet_(), 'LEAVE_REQUEST_STD');
   ensureColumns_(sheet, ['Type', 'FiledBy']);
+  var dup = findObject_(sheet, function (r) { return String(r.StudentID) === String(student.StudentID) && otNormDate_(r.Date) === otNormDate_(payload.date); });
+  if (dup) { logAudit(staff.StaffID, 'TEACHER_STUDENT_LEAVE_DUP', 'LEAVE_REQUEST_STD', dup.LeaveID); return { leaveId: dup.LeaveID, studentId: student.StudentID, parentNotified: false, duplicate: true }; }
   var leaveId = nextId_(sheet, 'LeaveID', 'LVS');
   appendObject_(sheet, {
     LeaveID: leaveId, StudentID: student.StudentID, Date: payload.date,
@@ -126,4 +132,30 @@ function notifyStudentTeacher_(student, text) {
   }
   if (!sent) notifyAdmins_(text); // fallback so the message is never lost
   return sent;
+}
+
+/** Admin edits a student leave in place. payload: { staffId, leaveId, date?, reason?, type? } */
+function handleEditStudentLeave(p) {
+  p = p || {};
+  var sh = sheet_(getMainSpreadsheet_(), 'LEAVE_REQUEST_STD');
+  var l = findObject_(sh, function (r) { return String(r.LeaveID) === String(p.leaveId); });
+  if (!l) throw apiError_('NOT_FOUND', 'ไม่พบการลา');
+  var patch = {};
+  if (p.date != null) patch.Date = p.date;
+  if (p.reason != null) patch.Reason = p.reason;
+  if (p.type != null) patch.Type = p.type;
+  updateRow_(sh, l._row, patch);
+  if (typeof cacheDel_ === 'function') { cacheDel_('col:LEAVE_REQUEST_STD'); cacheDel_('rows:LEAVE_REQUEST_STD'); }
+  return { ok: true, leaveId: l.LeaveID };
+}
+
+/** Admin deletes a student leave. payload: { staffId, leaveId } */
+function handleDeleteStudentLeave(p) {
+  p = p || {};
+  var sh = sheet_(getMainSpreadsheet_(), 'LEAVE_REQUEST_STD');
+  var l = findObject_(sh, function (r) { return String(r.LeaveID) === String(p.leaveId); });
+  if (!l) throw apiError_('NOT_FOUND', 'ไม่พบการลา');
+  sh.deleteRow(l._row);
+  if (typeof cacheDel_ === 'function') { cacheDel_('col:LEAVE_REQUEST_STD'); cacheDel_('rows:LEAVE_REQUEST_STD'); }
+  return { ok: true };
 }

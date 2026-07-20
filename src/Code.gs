@@ -83,6 +83,10 @@ var ROUTES = {
   // DSPM criteria admin CRUD (in-place). List defers to engine (dspmAllCriteria).
   saveDspmCriteria:     function (p) { return handleSaveDspmCriteria(p); },
   deleteDspmCriteria:   function (p) { return handleDeleteDspmCriteria(p); },
+  // admin student-leave CRUD (list defers to engine allStudentLeaves) + duplicate-data cleansing
+  editStudentLeave:     function (p) { return handleEditStudentLeave(p); },
+  deleteStudentLeave:   function (p) { return handleDeleteStudentLeave(p); },
+  dedupData:            function (p) { return handleDedupData(p); },        // {preview:true} read-only; else applies
   // Big Cleaning Day (admin-managed workday, no fixed hours, diligence bonus)
   bigCleaningDays:  function ()  { return handleBigCleaningDays(); },
   addBigCleaning:   function (p) { return handleAddBigCleaning(p); },
@@ -168,7 +172,8 @@ function applyIdentity_(action, payload, sess) {
     addBigCleaning: 1, removeBigCleaning: 1, editLeave: 1, cancelLeave: 1,
     decideClassChange: 1, confirmTimeRequest: 1,
     addAnnouncement: 1, editAnnouncement: 1, deleteAnnouncement: 1, reindexAnnouncements: 1, reindexParents: 1, checkDuplicateIds: 1,
-    saveDspmCriteria: 1, deleteDspmCriteria: 1 };
+    saveDspmCriteria: 1, deleteDspmCriteria: 1,
+    editStudentLeave: 1, deleteStudentLeave: 1, dedupData: 1 };
   if (ADMIN_ONLY[action] && sess.role !== 'Admin') throw apiError_('NO_PERMISSION', 'เฉพาะแอดมิน');
   // Admin is fully trusted: may target ANY staff/student/parent (manage everyone + "view as" any role).
   if (sess.role === 'Admin') return payload;

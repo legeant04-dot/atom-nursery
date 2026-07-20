@@ -46,6 +46,14 @@ function createAtomAPI(M, GROWTH_STD) {
     const re=new RegExp('^'+prefix.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+'-?(\\d+)$');
     (list||[]).forEach(x=>{ const m=re.exec(String((x&&x[field])||'')); if(m){ const n=parseInt(m[1],10); if(n>mx)mx=n; } });
     return prefix+sep+String(mx+1).padStart(pad||0,'0'); }
+  // duplicate-person detection for registration: an EXACT National-ID match, or (when the id is blank)
+  // name+DOB for a student / name+phone for a parent. Prevents a re-submit creating a second row.
+  const _nm=s=>String(s||'').trim().replace(/\s+/g,' ').toLowerCase();
+  const _dig=s=>String(s==null?'':s).replace(/\D/g,'');
+  const dupStudent_ = s2 => { const st=s2||{}; const nid=_dig(st.NationalID); const nm=_nm(st.NameTH||st.Name); const dob=String(st.DOB||'').slice(0,10);
+    return (M.students||[]).find(x=> nid ? _dig(x.NationalID)===nid : (nm && _nm(x.NameTH||x.Name)===nm && String(x.DOB||'').slice(0,10)===dob)); };
+  const dupParent_ = p2 => { const par=p2||{}; const nid=_dig(par.NationalID); const nm=_nm(par.NameTH||par.Name); const ph=_dig(par.Phone);
+    return (M.parents||[]).find(x=> nid ? _dig(x.NationalID)===nid : (nm && _nm(x.NameTH||x.Name)===nm && _dig(x.Phone)===ph)); };
   const lateVs = (hhmm,t)=>{ const [h,m]=hhmm.split(':').map(Number); return Math.max(0,(t.getHours()*60+t.getMinutes())-(h*60+m)); };
   const toMin = hhmm => { const [h,m]=String(hhmm||'0:0').split(':').map(Number); return (h||0)*60+(m||0); };
 
@@ -284,10 +292,21 @@ function createAtomAPI(M, GROWTH_STD) {
       return { date, done: M.journals.filter(x=>ymd(x.Date)===date && (!only||only.indexOf(String(x.StudentID))>=0))
         .map(x=>({studentId:x.StudentID, teacherId:x.TeacherID, status:jStatus_(x),
                   submittedAt:x.SubmittedAt||'', updatedAt:x.UpdatedAt||''})) }; },
-    studentAbsence: p => { const id='LVS-'+String(Date.now()).slice(-4); M.studentLeaves.push({LeaveID:id,StudentID:p.studentId,Date:p.date,Reason:p.reason,Type:p.type||'',Status:'Notified'}); return {leaveId:id,teacherNotified:true}; },
+    // idempotent: a re-submit for the same student+date returns the existing leave, no duplicate
+    studentAbsence: p => { const dup=(M.studentLeaves||[]).find(l=>l.StudentID===p.studentId&&ymd(l.Date)===ymd(p.date)); if(dup) return {leaveId:dup.LeaveID,teacherNotified:false,duplicate:true};
+      const id=nextSeqId_(M.studentLeaves,'LeaveID','LVS',4); M.studentLeaves.push({LeaveID:id,StudentID:p.studentId,Date:p.date,Reason:p.reason,Type:p.type||'',Status:'Notified'}); return {leaveId:id,teacherNotified:true}; },
     // Teacher files a leave for a student (notifies the linked parents). Shows in that student's parent calendar only.
-    teacherStudentLeave: p => { const id='LVS-'+String(Date.now()).slice(-4);
+    teacherStudentLeave: p => { const dup=(M.studentLeaves||[]).find(l=>l.StudentID===p.studentId&&ymd(l.Date)===ymd(p.date)); if(dup) return {leaveId:dup.LeaveID,parentNotified:false,duplicate:true};
+      const id=nextSeqId_(M.studentLeaves,'LeaveID','LVS',4);
       M.studentLeaves.push({LeaveID:id,StudentID:p.studentId,Date:p.date,Reason:p.reason||'',Type:p.type||'',Status:'Notified',FiledBy:p.staffId}); return {leaveId:id,parentNotified:true}; },
+    // ---- Admin: manage student leaves (list all / edit / delete). On GAS the mutations are in-place ROUTES. ----
+    allStudentLeaves: p => (M.studentLeaves||[]).slice().sort((a,b)=>String(b.Date).localeCompare(String(a.Date))).map(l=>{ const s=studentById(l.StudentID)||{};
+      return Object.assign({},l,{name:s.NameTH||s.Name,nameEN:s.NameEN,nick:s.Nickname,class:s.Class}); }),
+    editStudentLeave: p => { const ap=staffById(p.staffId); if(ap.PositionLevel!=='Admin'&&ap.Role!=='Admin')fail('NO_PERMISSION','เฉพาะแอดมิน');
+      const l=(M.studentLeaves||[]).find(x=>x.LeaveID===p.leaveId); if(!l)fail('NOT_FOUND','ไม่พบการลา');
+      if(p.date!=null)l.Date=p.date; if(p.reason!=null)l.Reason=p.reason; if(p.type!=null)l.Type=p.type; return {ok:true,leaveId:l.LeaveID}; },
+    deleteStudentLeave: p => { const ap=staffById(p.staffId); if(ap.PositionLevel!=='Admin'&&ap.Role!=='Admin')fail('NO_PERMISSION','เฉพาะแอดมิน');
+      const i=(M.studentLeaves||[]).findIndex(x=>x.LeaveID===p.leaveId); if(i<0)fail('NOT_FOUND','ไม่พบการลา'); M.studentLeaves.splice(i,1); return {ok:true}; },
     studentLeaves: p => M.studentLeaves.filter(l=>l.StudentID===p.studentId).sort((a,b)=>b.Date.localeCompare(a.Date)),
     comments: p => M.comments.filter(c=>c.StudentID===p.studentId),
     addComment: p => { const c={CommentID:nextSeqId_(M.comments,'CommentID','CM',0),StudentID:p.studentId,ParentID:p.parentId||'',SenderRole:p.senderRole,SenderName:p.senderName||'',Message:p.message,Timestamp:stampLocal(),ReadStatus:'unread'}; M.comments.push(c); return c; },
@@ -639,7 +658,12 @@ function createAtomAPI(M, GROWTH_STD) {
     // look up a student by NationalID (used when an existing parent links a child)
     findStudentByNationalID: p => { const s=M.students.find(x=>String(x.NationalID)===String(p.nationalId).trim()); if(!s)fail('NOT_FOUND','ไม่พบนักเรียนจากเลขบัตรนี้'); return {StudentID:s.StudentID,name:s.NameTH,nameEN:s.NameEN,class:s.Class}; },
     // register a brand-new student + parent and link to this user
-    registerNew: p => { const sid=nextSeqId_(M.students,'StudentID','STD',3); const pid=nextSeqId_(M.parents,'ParentID','PAR',3);
+    registerNew: p => {
+      // Reject a re-submit (slow network) instead of creating a duplicate person. Match on National ID
+      // (or name+DOB / name+phone when the ID is blank). Notify the user; do NOT write.
+      const exSt=dupStudent_(p.student); if(exSt) fail('ALREADY_REGISTERED','ข้อมูลนักเรียนนี้มีอยู่ในระบบแล้ว ('+(exSt.NameTH||exSt.Name||'')+') — ระบบไม่สร้างข้อมูลซ้ำ หากเคยลงทะเบียนแล้วให้เลือก "เคยลงทะเบียนแล้ว"');
+      const exPar=dupParent_(p.parent); if(exPar) fail('ALREADY_REGISTERED','ข้อมูลผู้ปกครองนี้ ('+(exPar.NameTH||exPar.Name||'')+') มีอยู่ในระบบแล้ว — ระบบไม่สร้างข้อมูลซ้ำ');
+      const sid=nextSeqId_(M.students,'StudentID','STD',3); const pid=nextSeqId_(M.parents,'ParentID','PAR',3);
       const st=Object.assign({StudentID:sid,ParentID:pid,Status:'ACTIVE',CreatedDate:todayLocal(),EnrollDate:todayLocal(),LastGrowthUpdate:''}, p.student||{});
       st.DriveFolderUrl=studentFolderUrl(st); // per-student Drive folder (GAS: DriveApp.createFolder under StudentFolderRoot)
       const par=Object.assign({ParentID:pid,StudentID:sid,LineUID:p.uid||''}, p.parent||{});
@@ -651,14 +675,18 @@ function createAtomAPI(M, GROWTH_STD) {
       logAct('registerStudent',sid,(st.NameTH||sid)+' + Drive folder',actorOf(p));
       return {studentId:sid,parentId:pid,driveFolder:st.DriveFolderUrl}; },
     // register the PARENT only (children added/linked afterward) — LINE signup
-    registerParent: p => { const pid=nextSeqId_(M.parents,'ParentID','PAR',3);
+    registerParent: p => {
+      const exPar=dupParent_(p.parent); if(exPar) fail('ALREADY_REGISTERED','ข้อมูลผู้ปกครองนี้ ('+(exPar.NameTH||exPar.Name||'')+') มีอยู่ในระบบแล้ว — ระบบไม่สร้างข้อมูลซ้ำ');
+      const pid=nextSeqId_(M.parents,'ParentID','PAR',3);
       const par=Object.assign({ParentID:pid,LineUID:p.uid||''}, p.parent||{});
       if(par.Photo) par.RegisterPhotoUrl=registerPhotoUrl(pid); // mandatory live-capture ID photo → "New Register Photo" Drive folder
       M.parents.push(par);
       logAct('registerParent',pid,par.NameTH||pid,{role:'Parent',id:pid,name:par.NameTH||pid});
       return {parentId:pid}; },
     // add a NEW child under an existing parent + link to this user (no parent re-entry)
-    addChildNew: p => { const sid=nextSeqId_(M.students,'StudentID','STD',3);
+    addChildNew: p => {
+      const exSt=dupStudent_(p.student); if(exSt) fail('ALREADY_REGISTERED','ข้อมูลนักเรียนนี้มีอยู่ในระบบแล้ว ('+(exSt.NameTH||exSt.Name||'')+') — ระบบไม่สร้างข้อมูลซ้ำ');
+      const sid=nextSeqId_(M.students,'StudentID','STD',3);
       const st=Object.assign({StudentID:sid,ParentID:p.parentId||'',Status:'ACTIVE',CreatedDate:todayLocal(),EnrollDate:todayLocal(),LastGrowthUpdate:''}, p.student||{});
       st.DriveFolderUrl=studentFolderUrl(st); // per-student Drive folder
       M.students.push(st);
