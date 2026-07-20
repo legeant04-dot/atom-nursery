@@ -6,7 +6,7 @@
   const setHTML = (sel, html) => { const el = $(sel); if (el) el.innerHTML = html; };
   const app = $('#app'), nav = $('#bottomnav');
   const baht = n => (Number(n)||0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
-  const APP_VERSION = 'Version 1.083'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.084'; // bump each webapp change; shown only at the bottom of the Chat screen
   const verTag = () => `<div style="text-align:center;color:#c3c9d4;font-size:10px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
   const phoneFmt = p => { let d=String(p==null?'':p).replace(/\D/g,''); if(d.length===9) d='0'+d; return d; };
@@ -491,6 +491,8 @@
   window.P_saveComment=async(sid,date,btn)=>{ const el=document.getElementById('jPC'); const comment=el?el.value:'';
     if(btn)btn.disabled=true; try{ await api('saveParentComment',{parentId:USER.parentId,uid:USER.uid,studentId:sid,date:date||undefined,comment}); confirmSaved(EN()?'Comment saved':'บันทึกความคิดเห็นแล้ว'); }catch(e){err(e);}finally{ if(btn)btn.disabled=false; } };
   function ddmmyyyy(s){ const d=new Date(s||todayStr()); return p2(d.getDate())+'-'+p2(d.getMonth()+1)+'-'+d.getFullYear(); }
+  // student leave label: "ประเภท — เหตุผล" (type first, reason appended when present)
+  const stdLeaveDesc = l => { const ty=(l&&l.Type||'').trim(), rs=(l&&l.Reason||'').trim(); return ty&&rs ? ty+' — '+rs : (ty||rs||'-'); };
   function waitCard(date){ return `<div class="card" style="text-align:center;color:#8a6d00;background:#fff8e1;border-color:#f0e3b0">⏳ รอคุณครูส่งข้อมูลของวันที่ ${ddmmyyyy(date)}</div>`; }
   function annRow(a){ const ti=EN()?(a.TitleEN||a.Title):(a.Title||a.TitleEN); const co=EN()?(a.ContentEN||a.Content):(a.Content||a.ContentEN);
     return `<div class="list-item"><div><b>${esc(ti)}</b><br><small class="muted">${esc(co)}</small>${a.Image?`<br><img src="${esc(a.Image)}" style="max-width:160px;border-radius:8px;margin-top:6px"/>`:''}</div><small class="muted">${esc(a.Date)}</small></div>`; }
@@ -583,7 +585,7 @@
     setTopActions(`<button class="btn sm outline" onclick="P_journal('${k0.StudentID}')" title="${esc(t('nav.journal'))}">📒<span class="lbl"> ${esc(t('nav.journal'))}</span></button>
       <button class="btn sm outline" onclick="P_dspm('${k0.StudentID}')" title="${esc(t('nav.dspm'))}">📈<span class="lbl"> ${esc(t('nav.dspm'))}</span></button>
       <button class="btn sm outline pink" onclick="P_withdraw()" title="${esc(t('wd.btn'))}">🚪<span class="lbl"> ${esc(t('wd.btn').replace(/^🚪\s*/,''))}</span></button>`);
-    const slHtml = sl.map(l=>`<div class="list-item"><span>${esc(l.Date)} · ${esc(l.Reason)}</span><span class="pill info">${esc(tStat(l.Status))}</span></div>`).join('')||'<small class="muted">ไม่มีรายการ</small>';
+    const slHtml = sl.map(l=>`<div class="list-item"><span>${esc(ddmmyyyy(l.Date))} · <b>${esc(stdLeaveDesc(l))}</b></span><span class="pill info">${esc(tStat(l.Status))}</span></div>`).join('')||'<small class="muted">ไม่มีรายการ</small>';
     app.innerHTML = `<div class="spread"><h2 class="page">${esc(t('p.greeting'))}${esc(EN()?USER.nameEN:USER.nameTH)} 👋</h2><div class="row">${profileBtn}${addBtn}</div></div>
       ${kidsHtml}
       <h3 style="margin:6px 2px">📒 บันทึกของ ${esc(nm(k0))} วันนี้</h3>${j?journalChecklist(j,{parentEditable:true,student:k0}):waitCard()}
@@ -670,11 +672,12 @@
     const m=modal(`<h3>🏠 แจ้งลาบุตรหลาน</h3>
       <label class="field"><span>บุตรหลาน</span><select id="aKid">${kids.map(k=>`<option value="${k.StudentID}">${esc(nm(k))}</option>`).join('')}</select></label>
       <label class="field"><span>วันที่ลา</span><input type="date" id="aDate" value="${todayStr()}"/></label>
-      <label class="field"><span>เหตุผล</span><textarea id="aReason" placeholder="เช่น ลากิจ / ไม่สบาย"></textarea></label>
+      <label class="field"><span>ประเภทการลา</span><select id="aType"><option>ลาป่วย</option><option>ลากิจ</option><option>ลาพักร้อน</option><option>อื่นๆ</option></select></label>
+      <label class="field"><span>สาเหตุ (ถ้ามี)</span><textarea id="aReason" placeholder="เช่น เป็นไข้ / มีธุระครอบครัว"></textarea></label>
       <button class="btn block" onclick="P_absenceDo(this)">ส่งแจ้งลา</button>`);
   };
   window.P_absenceDo = async (btn) => { const m=btn.closest('.modal');
-    await api('studentAbsence',{studentId:m.querySelector('#aKid').value,date:m.querySelector('#aDate').value,reason:m.querySelector('#aReason').value});
+    await api('studentAbsence',{studentId:m.querySelector('#aKid').value,date:m.querySelector('#aDate').value,type:m.querySelector('#aType').value,reason:m.querySelector('#aReason').value});
     m.remove(); toast('✅ แจ้งลาแล้ว — ครูได้รับทราบ'); GO('home'); };
 
   // shared withdrawal reason picker (4 standard reasons; "other" reveals a long-text box)
@@ -1726,7 +1729,7 @@
     const classHtml=classes.map(c=>{ const studs=byClass[c]; const total=Object.values(studs).reduce((n,s)=>n+s.leaves.length,0);
       const studHtml=Object.keys(studs).map(sid=>{ const s=studs[sid]; s.leaves.sort((a,b)=>String(b.Date).localeCompare(String(a.Date)));
         return `<div class="slv-stud"><div class="spread"><b>${esc(s.name)}</b><span class="pill info">${s.leaves.length} ${EN()?'leaves':'ครั้ง'}</span></div>
-          ${s.leaves.map(l=>`<div class="slv-row"><label class="slv-pick"><input type="checkbox" class="slvchk" value="${esc(l.LeaveID)}" onchange="A_slvCount()"><span><b style="color:#1565C0">${esc(ddmmyyyy(l.Date))}</b> <small class="muted">· ${esc(l.Reason||'-')}${l.Type?' ('+esc(l.Type)+')':''}</small></span></label>
+          ${s.leaves.map(l=>`<div class="slv-row"><label class="slv-pick"><input type="checkbox" class="slvchk" value="${esc(l.LeaveID)}" onchange="A_slvCount()"><span><b style="color:#1565C0">${esc(ddmmyyyy(l.Date))}</b> <small class="muted">· ${esc(stdLeaveDesc(l))}</small></span></label>
             <span class="row"><button class="btn sm outline" onclick="A_slvEdit('${l.LeaveID}')">✏️</button><button class="btn sm pink" onclick="A_slvDel('${l.LeaveID}')">🗑️</button></span></div>`).join('')}</div>`; }).join('');
       return `<div class="card"><div class="spread"><h3>👶 ${esc(c)}</h3><span class="muted" style="font-size:12px">${Object.keys(studs).length} ${EN()?'kids':'คน'} · ${total} ${EN()?'leaves':'ครั้ง'}</span></div>${studHtml}</div>`; }).join('');
     app.innerHTML=`<button class="btn sm outline backbtn" onclick="GO('manage')">${t('c.back')}</button>
@@ -2331,16 +2334,26 @@
   window.A_delGroup=async(name)=>{ if(!confirm(t('manage.confirmDel')))return; try{ await api('deleteStaffGroup',{name}); toast(t('manage.deleted')); const m=document.querySelector('.modal'); if(m)m.remove(); A_groups(); }catch(e){err(e);} };
 
   // ---- Organize: move teachers/students between Nurseries (drag-drop + dropdown fallback) ----
-  ADMIN_SUB_organize = async ()=>{ const [staff,students]=await Promise.all([api('listStaff'),api('listStudents')]);
-    const deps=MOCK.config.Departments.filter(d=>d);
-    const opts=cur=>deps.map(d=>`<option ${cur===d?'selected':''}>${esc(d)}</option>`).join('');
-    const col=dep=>{ const ts=staff.filter(s=>s.Department===dep&&s.Role==='Teacher'); const ss=students.filter(s=>s.Class===dep);
+  ADMIN_SUB_organize = async ()=>{ const [staff,students,depts]=await Promise.all([api('listStaff'),api('listStudents'),api('listDepartments')]);
+    // classes = the department master the admin created (Nursery Baby/1/2/…) — NOT the seed config
+    const deps=(depts||[]).filter(d=>d);
+    const canClass = s => s.Role!=='Admin' && s.PositionLevel!=='Admin';   // teachers, leaders, assistants…
+    const depOf = s => String(s.Department||'').trim();
+    const inDep = (s,dep)=>{ const d=depOf(s); if(d===''||d==='*')return false; return d.split(',').map(x=>x.trim()).indexOf(dep)>=0; };
+    const teachers = staff.filter(canClass);
+    // a staff is "unassigned" if their Department is blank, '*' (all classes), or not one of the current classes
+    const unassigned = teachers.filter(s=>{ const d=depOf(s); return d===''||d==='*'|| !deps.some(dep=>inDep(s,dep)); });
+    const opts=cur=>`<option value="">—</option>`+deps.map(d=>`<option value="${esc(d)}" ${cur===d?'selected':''}>${esc(d)}</option>`).join('');
+    const chip=s=>`<div class="org-chip" draggable="true" ondragstart="A_drag(event,'teacher','${s.StaffID}')"><span>👩‍🏫 ${esc(nmn(s))}${depOf(s)==='*'?` <small class="muted">(${EN()?'all':'ทุกชั้น'})</small>`:''}</span><select onchange="A_moveSel('teacher','${s.StaffID}',this.value)">${opts(depOf(s)==='*'?'':depOf(s))}</select></div>`;
+    const col=dep=>{ const ts=teachers.filter(s=>inDep(s,dep)); const ss=students.filter(s=>s.Class===dep);
       return `<div class="card org-col" ondragover="event.preventDefault()" ondrop="A_drop(event,'${esc(dep)}')"><h3>${esc(dep)} <small class="muted">${ts.length}👩‍🏫 · ${ss.length}👶</small></h3>
-        ${ts.map(s=>`<div class="org-chip" draggable="true" ondragstart="A_drag(event,'teacher','${s.StaffID}')"><span>👩‍🏫 ${esc(nmn(s))}</span><select onchange="A_moveSel('teacher','${s.StaffID}',this.value)">${opts(dep)}</select></div>`).join('')}
-        ${ss.map(s=>`<div class="org-chip" draggable="true" ondragstart="A_drag(event,'student','${s.StudentID}')"><span>${studentAvatar(s)} ${esc(nmn(s))}</span><select onchange="A_moveSel('student','${s.StudentID}',this.value)">${opts(dep)}</select></div>`).join('')}</div>`; };
+        ${ts.map(chip).join('')}
+        ${ss.map(s=>`<div class="org-chip" draggable="true" ondragstart="A_drag(event,'student','${s.StudentID}')"><span>${studentAvatar(s)} ${esc(nmn(s))}</span><select onchange="A_moveSel('student','${s.StudentID}',this.value)">${opts(s.Class)}</select></div>`).join('')}</div>`; };
     app.innerHTML=`<button class="btn sm outline backbtn" onclick="GO('manage')">${t('c.back')}</button>
       <h2 class="page">🔁 ${esc(t('manage.organize'))}</h2>
       <p class="muted" style="font-size:12px">${esc(t('org.note'))}</p>
+      <div class="card" ondragover="event.preventDefault()" ondrop="A_drop(event,'')" style="background:#fff8e1;border-color:#f0e3b0"><h3>🧑‍🏫 ${EN()?'Unassigned staff — drag into a class':'พนักงานที่ยังไม่ได้จัดชั้น — ลากไปใส่ชั้นเรียน'} <small class="muted">${unassigned.length}</small></h3>
+        <div class="org-grid" style="grid-template-columns:1fr">${unassigned.length?unassigned.map(chip).join(''):`<small class="muted">${EN()?'none':'ไม่มี'}</small>`}</div></div>
       <div class="org-grid">${deps.map(col).join('')}</div>`;
   };
   window.A_drag=(e,type,id)=>{ e.dataTransfer.setData('text/plain',type+':'+id); };

@@ -243,6 +243,10 @@ function createAtomAPI(M, GROWTH_STD) {
     parentChildren: p => visibleStudents(p).map(s=>Object.assign({ageMonth:ageMonths(s.DOB)},s)),
     getPlans: () => cfg.Plans||[],
     parentCheckin: p => { const d=geo(p.lat,p.lng); const t=timeLocal();
+      // de-dup a rapid repeat (same student+type today within CheckinDedupMinutes) → keep only the latest time
+      const win=Number(cfg.CheckinDedupMinutes||10); const nowMin=toMin(t);
+      const recent=(M.checkinStudent||[]).find(r=>r.StudentID===p.studentId&&String(r.Type).toUpperCase()===String(p.type).toUpperCase()&&ymd(r.Date)===todayLocal()&&Math.abs(nowMin-toMin(r.Time))<=win);
+      if(recent){ recent.Time=t; const ex0=M.studentAttendanceToday.find(x=>x.StudentID===p.studentId); if(ex0)ex0.Time=t; return {studentId:p.studentId,type:p.type,time:t,distance:d,duplicate:true}; }
       M.checkinStudent.push({Date:todayLocal(),Time:t,StudentID:p.studentId,ParentID:p.parentId,Type:p.type,Status:'OK'});
       const ex=M.studentAttendanceToday.find(x=>x.StudentID===p.studentId); if(ex){ex.Status=p.type;ex.Time=t;} else M.studentAttendanceToday.push({StudentID:p.studentId,Status:p.type,Time:t});
       let h=M.studentCheckins.find(c=>c.StudentID===p.studentId&&c.Date===todayLocal()); if(!h){h={Date:todayLocal(),StudentID:p.studentId,InTime:'',OutTime:''};M.studentCheckins.push(h);} if(p.type==='IN')h.InTime=t; else h.OutTime=t;
