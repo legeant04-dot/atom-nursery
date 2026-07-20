@@ -6,7 +6,7 @@
   const setHTML = (sel, html) => { const el = $(sel); if (el) el.innerHTML = html; };
   const app = $('#app'), nav = $('#bottomnav');
   const baht = n => (Number(n)||0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
-  const APP_VERSION = 'Version 1.080'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.081'; // bump each webapp change; shown only at the bottom of the Chat screen
   const verTag = () => `<div style="text-align:center;color:#c3c9d4;font-size:10px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
   const phoneFmt = p => { let d=String(p==null?'':p).replace(/\D/g,''); if(d.length===9) d='0'+d; return d; };
@@ -1716,6 +1716,42 @@
     try{ await api('saveDspmCriteria',{staffId:USER.staffId,itemNo:itemNo!=null?itemNo:undefined,track:track||'Teacher',data}); m.remove(); confirmSaved(t('c.saved')); GO_('dspmCriteria'); }catch(e){err(e);} };
   window.A_dspmDel = async (itemNo,track)=>{ if(!confirm(t('manage.confirmDel')))return; try{ await api('deleteDspmCriteria',{staffId:USER.staffId,itemNo,track:track||'Teacher'}); toast(t('manage.deleted')); GO_('dspmCriteria'); }catch(e){err(e);} };
 
+  // ---- Admin: student-leave management (edit / delete) ----
+  window.A_studentLeaves = async () => { const rows=await api('allStudentLeaves'); window._SLV=rows;
+    app.innerHTML=`<button class="btn sm outline backbtn" onclick="GO('manage')">${t('c.back')}</button>
+      <h2 class="page">🏠 ${esc(t('slv.title'))}</h2>
+      <p class="muted" style="font-size:12px">${EN()?'Edit the date/reason or remove a duplicate leave.':'แก้วันที่/เหตุผล หรือลบการลาที่ซ้ำได้'} (${rows.length})</p>
+      <div class="card">${rows.length?rows.map(l=>`<div class="list-item"><span><b>${esc(l.nick||l.name||l.StudentID)}</b> <small class="muted">${esc(l.class||'')}</small><br><b style="color:#1565C0">${esc(ddmmyyyy(l.Date))}</b> · <small class="muted">${esc(l.Reason||'-')}${l.Type?' ('+esc(l.Type)+')':''}</small></span>
+        <span class="row"><button class="btn sm outline" onclick="A_slvEdit('${l.LeaveID}')">✏️</button><button class="btn sm pink" onclick="A_slvDel('${l.LeaveID}')">🗑️</button></span></div>`).join(''):`<small class="muted">${esc(t('c.noItems'))}</small>`}</div>`;
+    window.scrollTo(0,0);
+  };
+  window.A_slvEdit = (leaveId)=>{ const l=(window._SLV||[]).find(x=>x.LeaveID===leaveId)||{};
+    modal(`<h3>✏️ ${esc(t('slv.title'))}</h3>
+      <div class="muted" style="font-size:13px;margin-bottom:6px">${esc(l.nick||l.name||l.StudentID)}</div>
+      <label class="field"><span>${EN()?'Date':'วันที่'}</span><input type="date" id="slvDate" value="${esc(String(l.Date||'').slice(0,10))}"/></label>
+      <label class="field"><span>${esc(t('c.reason'))}</span><input id="slvReason" value="${esc(l.Reason||'')}"/></label>
+      <button class="btn block" onclick="A_slvSave('${leaveId}',this)">${esc(t('c.save'))}</button>`);
+  };
+  window.A_slvSave = async (leaveId,btn)=>{ const m=btn.closest('.modal'); const g=id=>{const e=m.querySelector('#'+id);return e?e.value:'';};
+    try{ await api('editStudentLeave',{staffId:USER.staffId,leaveId,date:g('slvDate'),reason:g('slvReason')}); m.remove(); confirmSaved(t('c.saved')); GO_('studentLeaves'); }catch(e){err(e);} };
+  window.A_slvDel = async (leaveId)=>{ if(!confirm(t('manage.confirmDel')))return; try{ await api('deleteStudentLeave',{staffId:USER.staffId,leaveId}); toast(t('manage.deleted')); GO_('studentLeaves'); }catch(e){err(e);} };
+
+  // ---- Admin: cleanse duplicate parents/students (preview → apply) ----
+  window.A_dedup = async () => { let plan; try{ plan=await api('dedupData',{preview:true}); }catch(e){ return err(e); }
+    const pg=plan.parentGroups||[], sg=plan.studentGroups||[];
+    const grp=(title,arr,idk)=>`<h4 style="margin:8px 0 4px">${esc(title)} — ${EN()?'to delete':'จะลบ'} ${arr.reduce((n,g)=>n+g.dels.length,0)}</h4>${
+      arr.length?arr.map(g=>`<div class="list-item" style="font-size:12.5px"><span><b>${esc(g.name||'')}</b><br><small class="muted">${EN()?'keep':'เก็บ'} ${esc(g.keepId)}${g.keepHasLine?' 🟢LINE':''}${g.keepLinked?' 🔗':''} · ${EN()?'delete':'ลบ'} ${g.dels.map(d=>esc(d.id)).join(', ')}</small></span></div>`).join(''):`<small class="muted">${EN()?'none':'ไม่มี'}</small>`}`;
+    modal(`<h3>🧹 ${esc(t('dedup.title'))}</h3>
+      <p class="muted" style="font-size:12px">${EN()?'Keeps the parent with a LINE login and the student linked to a parent; deletes the rest. A daily backup is kept.':'เก็บผู้ปกครองที่มี LINE และนักเรียนที่ผูกกับผู้ปกครองแล้ว · ลบที่เหลือ · มีสำรองข้อมูลรายวัน'}</p>
+      <div style="background:#fff3e0;border-radius:8px;padding:8px;font-size:13px;color:#e65100"><b>${EN()?'Will delete':'จะลบ'}: ${plan.willDelete.parents} ${EN()?'parents':'ผู้ปกครอง'} · ${plan.willDelete.students} ${EN()?'students':'นักเรียน'}</b> <small>(${EN()?'now':'ปัจจุบัน'} ${plan.counts.parents}/${plan.counts.students})</small></div>
+      <div style="max-height:44vh;overflow:auto">${grp(EN()?'Parents':'ผู้ปกครอง',pg)}${grp(EN()?'Students':'นักเรียน',sg)}</div>
+      ${(plan.willDelete.parents+plan.willDelete.students)?`<button class="btn block pink" onclick="A_dedupApply(this)">🗑️ ${EN()?'Delete duplicates':'ลบข้อมูลซ้ำ'} (${plan.willDelete.parents+plan.willDelete.students})</button>`:`<div class="muted" style="text-align:center;padding:8px">${EN()?'No duplicates found':'ไม่พบข้อมูลซ้ำ'}</div>`}
+      <button class="btn outline block" style="margin-top:6px" onclick="this.closest('.modal').remove()">${esc(t('c.close'))}</button>`);
+  };
+  window.A_dedupApply = async (btn)=>{ if(!confirm(EN()?'Permanently delete the duplicate rows? (a daily backup exists)':'ยืนยันลบข้อมูลซ้ำถาวร? (มีสำรองข้อมูลรายวัน)'))return;
+    btn.disabled=true; try{ const r=await api('dedupData',{}); const m=btn.closest('.modal'); if(m)m.remove();
+      toast((EN()?'Deleted ':'ลบแล้ว ')+r.deleted.parents+'P/'+r.deleted.students+'S'); GO('manage'); }catch(e){err(e);btn.disabled=false;} };
+
   // Require-check-in toggles — moved into a modal (opened from the menu)
   window.A_requireCI = async () => { const staff=window._PERM_STAFF||await api('listStaff');
     modal(`<h3>⏱️ ${esc(t('lbl.requireCI'))}</h3><p class="muted" style="font-size:12px">${EN()?'Turn OFF for positions that need not clock in (e.g. leaders). Press Save after changes.':'ปิดสำหรับตำแหน่งที่ไม่ต้องลงเวลา (เช่น หัวหน้างาน) — กด บันทึก หลังเปลี่ยน'}</p>
@@ -1769,6 +1805,7 @@
       ]},
       {t:EN()?'📄 Reports & records':'📄 รายงาน & เอกสาร', items:[
         ['📒',t('jr.admin'),'A_journals()'],
+        ['🏠',t('slv.title'),"GO_('studentLeaves')"],
         ['🛡️',t('ins2.manage'),'A_insurance()'],
         ['📈',t('dspm.manageTitle'),"GO_('dspmCriteria')"],
         ['📜',t('act.open'),'A_activityLog()'],
@@ -1778,6 +1815,7 @@
         ['🗓️',t('manage.holidays'),"GO_('holidays')"],
         ['📥',t('manage.importExport'),"GO_('importExport')"],
         ['🔐',t('lbl.perms'),'A_perms()'],
+        ['🧹',t('dedup.title'),'A_dedup()'],
       ]},
     ];
     // some i18n labels already start with an emoji; strip it since the button shows its own icon
@@ -1802,7 +1840,7 @@
   };
   // navigate to an admin sub-screen (kept off the bottom nav)
   var ADMIN_SUB_organize, ADMIN_SUB_holidays, ADMIN_SUB_importExport;
-  const ADMIN_SUB = { organize:()=>ADMIN_SUB_organize(), holidays:()=>ADMIN_SUB_holidays(), importExport:()=>ADMIN_SUB_importExport(), dspmCriteria:()=>A_dspmCriteria() };
+  const ADMIN_SUB = { organize:()=>ADMIN_SUB_organize(), holidays:()=>ADMIN_SUB_holidays(), importExport:()=>ADMIN_SUB_importExport(), dspmCriteria:()=>A_dspmCriteria(), studentLeaves:()=>A_studentLeaves() };
   window.GO_=(k)=>{ CURRENT='manage'; setNav('manage'); (ADMIN_SUB[k]||(()=>{}))(); window.scrollTo(0,0); };
 
   // ---- Staff CRUD ----

@@ -78,6 +78,7 @@
     's.pending_leader':['รอหัวหน้างาน','Pending leader'], 's.pending_admin':['รอผู้บังคับบัญชา','Pending admin'], 's.approved':['อนุมัติแล้ว','Approved'], 's.rejected':['ปฏิเสธ','Rejected'],
     'dom.GM':['การเคลื่อนไหว','Gross Motor'], 'dom.FM':['กล้ามเนื้อมัดเล็ก','Fine Motor'], 'dom.RL':['เข้าใจภาษา','Receptive Lang.'], 'dom.EL':['ใช้ภาษา','Expressive Lang.'], 'dom.PS':['ช่วยเหลือตัวเอง','Personal/Social'],
     'dspm.manageTitle':['เกณฑ์พัฒนาการ (DSPM)','DSPM criteria'], 'dspm.add':['เพิ่มเกณฑ์','Add item'], 'dspm.item':['ข้อ','Item'],
+    'slv.title':['การลาของนักเรียน','Student leaves'], 'dedup.title':['ล้างข้อมูลซ้ำ','Cleanse duplicates'],
     'chat.lineMsg':['การพูดคุยทั้งหมดทำผ่าน LINE OA ของโรงเรียน เพื่อให้คุณครูจัดการที่เดียว ไม่ตกหล่น','All conversations go through the school LINE OA so staff manage everything in one place.'],
     'chat.openLine':['เปิดแชท LINE OA','Open LINE OA chat'], 'chat.lineNote':['เมื่อเชื่อมต่อจริง ปุ่มนี้จะเปิดห้องแชท LINE OA ของโรงเรียนโดยตรง','When connected, this opens the school\'s LINE OA chat directly.'],
     'leaveType.sick':['ลาป่วย','Sick Leave'], 'leaveType.personal':['ลากิจ','Leave of absence'], 'leaveType.vacation':['ลาพักร้อน','Holiday Leave'],
