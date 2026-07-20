@@ -159,3 +159,14 @@ function handleDeleteStudentLeave(p) {
   if (typeof cacheDel_ === 'function') { cacheDel_('col:LEAVE_REQUEST_STD'); cacheDel_('rows:LEAVE_REQUEST_STD'); }
   return { ok: true };
 }
+
+/** Admin batch-deletes student leaves. payload: { staffId, leaveIds:[...] } */
+function handleDeleteStudentLeaves(p) {
+  p = p || {};
+  var ids = {}; (p.leaveIds || []).forEach(function (x) { ids[String(x)] = 1; });
+  var sh = sheet_(getMainSpreadsheet_(), 'LEAVE_REQUEST_STD');
+  var rows = readObjects_(sh).filter(function (r) { return ids[String(r.LeaveID)]; }).map(function (r) { return r._row; }).sort(function (a, b) { return b - a; });
+  rows.forEach(function (r) { sh.deleteRow(r); });   // bottom-up so indices stay valid
+  if (typeof cacheDel_ === 'function') { cacheDel_('col:LEAVE_REQUEST_STD'); cacheDel_('rows:LEAVE_REQUEST_STD'); }
+  return { ok: true, deleted: rows.length };
+}

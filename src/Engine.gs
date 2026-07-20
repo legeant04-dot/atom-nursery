@@ -307,6 +307,11 @@ function createAtomAPI(M, GROWTH_STD) {
       if(p.date!=null)l.Date=p.date; if(p.reason!=null)l.Reason=p.reason; if(p.type!=null)l.Type=p.type; return {ok:true,leaveId:l.LeaveID}; },
     deleteStudentLeave: p => { const ap=staffById(p.staffId); if(ap.PositionLevel!=='Admin'&&ap.Role!=='Admin')fail('NO_PERMISSION','เฉพาะแอดมิน');
       const i=(M.studentLeaves||[]).findIndex(x=>x.LeaveID===p.leaveId); if(i<0)fail('NOT_FOUND','ไม่พบการลา'); M.studentLeaves.splice(i,1); return {ok:true}; },
+    // batch delete (admin ticks several leaves → one call)
+    deleteStudentLeaves: p => { const ap=staffById(p.staffId); if(ap.PositionLevel!=='Admin'&&ap.Role!=='Admin')fail('NO_PERMISSION','เฉพาะแอดมิน');
+      const ids=new Set((p.leaveIds||[]).map(String)); let n=0;
+      for(let i=(M.studentLeaves||[]).length-1;i>=0;i--){ if(ids.has(String(M.studentLeaves[i].LeaveID))){ M.studentLeaves.splice(i,1); n++; } }
+      return {ok:true,deleted:n}; },
     studentLeaves: p => M.studentLeaves.filter(l=>l.StudentID===p.studentId).sort((a,b)=>b.Date.localeCompare(a.Date)),
     comments: p => M.comments.filter(c=>c.StudentID===p.studentId),
     addComment: p => { const c={CommentID:nextSeqId_(M.comments,'CommentID','CM',0),StudentID:p.studentId,ParentID:p.parentId||'',SenderRole:p.senderRole,SenderName:p.senderName||'',Message:p.message,Timestamp:stampLocal(),ReadStatus:'unread'}; M.comments.push(c); return c; },
