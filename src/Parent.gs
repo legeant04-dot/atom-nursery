@@ -30,7 +30,24 @@ function handleParentCheckin(payload) {
   if (!student) throw apiError_('STUDENT_NOT_FOUND', 'ไม่พบข้อมูลนักเรียน');
 
   var now = new Date();
-  appendObject_(sheet_(getMainSpreadsheet_(), 'CHECKIN_STUDENT'), {
+  var ciSheet = sheet_(getMainSpreadsheet_(), 'CHECKIN_STUDENT');
+  // De-dup a rapid double check-in (double-tap / slow network): if the SAME student+type was recorded
+  // within CheckinDedupMinutes today, keep only the LATEST time (update the row, don't add a new one,
+  // and don't re-notify). Default window 10 minutes.
+  var win = parseInt(getConfig_('CheckinDedupMinutes', '10'), 10) || 10;
+  var nowMin = now.getHours() * 60 + now.getMinutes();
+  var recent = findObject_(ciSheet, function (r) {
+    if (String(r.StudentID) !== String(student.StudentID) || String(r.Type).toUpperCase() !== type) return false;
+    if (dateStr_(new Date(r.Date)) !== dateStr_(now)) return false;
+    var m = hhmmToMin_(toHHmm_(r.Time)); return m != null && Math.abs(nowMin - m) <= win;
+  });
+  if (recent) {
+    updateRow_(ciSheet, recent._row, { Time: timeStr_(now), GPS_Lat: payload.lat, GPS_Lng: payload.lng });
+    try { CacheService.getScriptCache().removeAll(['col:CHECKIN_STUDENT', 'rows:CHECKIN_STUDENT']); } catch (e) {}
+    logAudit(parent.ParentID, 'STUDENT_CHECK' + type + '_DUP', 'CHECKIN_STUDENT', student.StudentID);
+    return { studentId: student.StudentID, type: type, time: timeStr_(now), distance: dist, duplicate: true };
+  }
+  appendObject_(ciSheet, {
     Date: dateStr_(now), Time: timeStr_(now), StudentID: student.StudentID, ParentID: parent.ParentID,
     Type: type, GPS_Lat: payload.lat, GPS_Lng: payload.lng, Status: 'OK'
   });
@@ -63,15 +80,17 @@ function handleStudentAbsence(payload) {
   if (!student) throw apiError_('STUDENT_NOT_FOUND', 'ไม่พบข้อมูลนักเรียน');
 
   var sheet = sheet_(getMainSpreadsheet_(), 'LEAVE_REQUEST_STD');
+  ensureColumns_(sheet, ['Type', 'FiledBy']);
   // Idempotent: a double-submit (slow network) for the SAME student+date must not create a duplicate
   // leave — return the existing one and don't re-notify.
   var dup = findObject_(sheet, function (r) { return String(r.StudentID) === String(student.StudentID) && otNormDate_(r.Date) === otNormDate_(payload.date); });
   if (dup) { logAudit(parent.ParentID, 'STUDENT_ABSENCE_DUP', 'LEAVE_REQUEST_STD', dup.LeaveID); return { leaveId: dup.LeaveID, studentId: student.StudentID, teacherNotified: false, duplicate: true }; }
   var leaveId = nextId_(sheet, 'LeaveID', 'LVS');
+  var desc = (payload.type || '') + ((payload.type && payload.reason) ? ' — ' : '') + (payload.reason || '');
   var notified = notifyStudentTeacher_(student, '🏠 แจ้งลา: ' + student.Name + ' วันที่ ' + payload.date +
-    '\nเหตุผล: ' + (payload.reason || '-') + '\n(โดยผู้ปกครอง ' + parent.Name + ')');
+    '\n' + (desc || '-') + '\n(โดยผู้ปกครอง ' + parent.Name + ')');
   appendObject_(sheet, {
-    LeaveID: leaveId, StudentID: student.StudentID, Date: payload.date,
+    LeaveID: leaveId, StudentID: student.StudentID, Date: payload.date, Type: payload.type || '',
     Reason: payload.reason || '', Status: 'Notified', TeacherNotified: notified ? 'YES' : 'NO'
   });
   logAudit(parent.ParentID, 'STUDENT_ABSENCE', 'LEAVE_REQUEST_STD', leaveId);
@@ -120,16 +139,31 @@ function notifyStudentParents_(student, text) {
   return sent;
 }
 
-/** Notify the student's class teacher (+fallback Admins). Returns true if any sent. */
+/** True if a staff member covers a given class (Department/Classes = '*' | comma-list containing it). */
+function staffCoversClass_(s, className) {
+  var d = String((s && s.Department) || '') + ',' + String((s && s.Classes) || '');
+  if (d.indexOf('*') >= 0) return true;
+  return d.split(',').map(function (x) { return x.trim(); }).indexOf(String(className)) >= 0;
+}
+/**
+ * Notify the teacher(s) who look after this student's class (+fallback Admins). Covers BOTH the CLASSES
+ * homeroom teacher AND any staff whose Department/Classes includes the student's class (so e.g. ครูจอย
+ * who looks after Nursery Baby is notified even without a CLASSES row). Dedupes by LineUID.
+ */
 function notifyStudentTeacher_(student, text) {
-  var sent = false;
+  var seen = {}, sent = false;
+  var push = function (uid) { if (uid && !seen[uid]) { seen[uid] = 1; if (linePushText_(uid, text)) sent = true; } };
+  // 1) homeroom teacher from CLASSES
   var cls = findObject_(sheet_(getMainSpreadsheet_(), 'CLASSES'),
     function (c) { return String(c.ClassName) === String(student.Class) || String(c.ClassID) === String(student.Class); });
   if (cls && cls.TeacherID) {
-    var teacher = findObject_(sheet_(getHrSpreadsheet_(), 'STAFF'),
-      function (s) { return String(s.StaffID) === String(cls.TeacherID); });
-    if (teacher && teacher.LineUID) sent = linePushText_(teacher.LineUID, text) || sent;
+    var t = findObject_(sheet_(getHrSpreadsheet_(), 'STAFF'), function (s) { return String(s.StaffID) === String(cls.TeacherID); });
+    if (t && t.LineUID) push(t.LineUID);
   }
+  // 2) any active staff whose Department/Classes covers this class
+  readObjects_(sheet_(getHrSpreadsheet_(), 'STAFF')).forEach(function (s) {
+    if (s.LineUID && String(s.Role) !== 'Admin' && String(s.Status || 'ACTIVE') === 'ACTIVE' && staffCoversClass_(s, student.Class)) push(s.LineUID);
+  });
   if (!sent) notifyAdmins_(text); // fallback so the message is never lost
   return sent;
 }
