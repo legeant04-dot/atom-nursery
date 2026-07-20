@@ -6,7 +6,7 @@
   const setHTML = (sel, html) => { const el = $(sel); if (el) el.innerHTML = html; };
   const app = $('#app'), nav = $('#bottomnav');
   const baht = n => (Number(n)||0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
-  const APP_VERSION = 'Version 1.084'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.085'; // bump each webapp change; shown only at the bottom of the Chat screen
   const verTag = () => `<div style="text-align:center;color:#c3c9d4;font-size:10px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
   const phoneFmt = p => { let d=String(p==null?'':p).replace(/\D/g,''); if(d.length===9) d='0'+d; return d; };
@@ -581,10 +581,9 @@
     // рับ-ส่งเด็ก (GPS) is now on the home kid card: big IN/OUT buttons like the teacher's, no location bar
     const kidsHtml = kids.map(k=>`<div class="card"><div class="spread"><div><b>${esc(nm(k))}</b>${nick(k)?` <span class="pill info">${esc(nick(k))}</span>`:''} <small class="muted">(${esc(EN()?k.NameTH:k.NameEN)})</small><br><small class="muted">${esc(k.Class)} · ${esc(ageYM(k.DOB))} · ${esc(planLabel(k.Plan))}<br>${EN()?'allergy':'แพ้'}: ${esc(k.Allergy||'-')}</small></div>${studentAvatar(k)}</div>
       <div class="row" style="margin-top:12px;gap:10px"><button class="btn green" style="flex:1;padding:18px;font-size:18px;font-weight:700" onclick="P_punch('${k.StudentID}','IN',this)">🟢 ${EN()?'Drop off':'ส่งเข้าเรียน'}</button><button class="btn pink" style="flex:1;padding:18px;font-size:18px;font-weight:700" onclick="P_punch('${k.StudentID}','OUT',this)">🔴 ${EN()?'Pick up':'รับกลับ'}</button></div></div>`).join('');
-    // move บันทึก / พัฒนาการ / แจ้งลาออก to the header quick-actions (act on the primary child)
+    // header quick-actions: บันทึก / พัฒนาการ. (แจ้งลาออก removed — only Admin may withdraw a student.)
     setTopActions(`<button class="btn sm outline" onclick="P_journal('${k0.StudentID}')" title="${esc(t('nav.journal'))}">📒<span class="lbl"> ${esc(t('nav.journal'))}</span></button>
-      <button class="btn sm outline" onclick="P_dspm('${k0.StudentID}')" title="${esc(t('nav.dspm'))}">📈<span class="lbl"> ${esc(t('nav.dspm'))}</span></button>
-      <button class="btn sm outline pink" onclick="P_withdraw()" title="${esc(t('wd.btn'))}">🚪<span class="lbl"> ${esc(t('wd.btn').replace(/^🚪\s*/,''))}</span></button>`);
+      <button class="btn sm outline" onclick="P_dspm('${k0.StudentID}')" title="${esc(t('nav.dspm'))}">📈<span class="lbl"> ${esc(t('nav.dspm'))}</span></button>`);
     const slHtml = sl.map(l=>`<div class="list-item"><span>${esc(ddmmyyyy(l.Date))} · <b>${esc(stdLeaveDesc(l))}</b></span><span class="pill info">${esc(tStat(l.Status))}</span></div>`).join('')||'<small class="muted">ไม่มีรายการ</small>';
     app.innerHTML = `<div class="spread"><h2 class="page">${esc(t('p.greeting'))}${esc(EN()?USER.nameEN:USER.nameTH)} 👋</h2><div class="row">${profileBtn}${addBtn}</div></div>
       ${kidsHtml}
