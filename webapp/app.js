@@ -6,7 +6,7 @@
   const setHTML = (sel, html) => { const el = $(sel); if (el) el.innerHTML = html; };
   const app = $('#app'), nav = $('#bottomnav');
   const baht = n => (Number(n)||0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
-  const APP_VERSION = 'Version 1.079'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.080'; // bump each webapp change; shown only at the bottom of the Chat screen
   const verTag = () => `<div style="text-align:center;color:#c3c9d4;font-size:10px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
   const phoneFmt = p => { let d=String(p==null?'':p).replace(/\D/g,''); if(d.length===9) d='0'+d; return d; };
@@ -451,36 +451,41 @@
     'Circle Time':'กิจกรรมวงกลม','Story Time':'เล่านิทาน','Music & Movement':'ดนตรี & เคลื่อนไหว','Art & Craft':'ศิลปะ & งานประดิษฐ์','Outdoor Play':'เล่นกลางแจ้ง','Sensory Play':'เล่นสัมผัส','Language':'ภาษา','Mathematics':'คณิตศาสตร์','Science':'วิทยาศาสตร์','Free Play':'เล่นอิสระ',
     'Communication':'การสื่อสาร','Social Skills':'ทักษะสังคม','Self-Help Skills':'ช่วยเหลือตัวเอง','Fine Motor Skills':'กล้ามเนื้อมัดเล็ก','Gross Motor Skills':'กล้ามเนื้อมัดใหญ่','Creativity':'ความคิดสร้างสรรค์' };
   const jt = s => EN()? s : (JTR[s]||s);
+  // Daily report — a clean SUMMARY that shows ONLY what the teacher actually filled in (empty
+  // sections are hidden, not shown as rows of unchecked boxes). opts.student frames the child's info.
   function journalChecklist(j,opts){ j=j||{}; opts=opts||{};
     const meals=j.Meals||{};
-    // milk is now a qty + unit; legacy journals stored an oz array → sum it
     const milkQty=Array.isArray(j.Milk)?j.Milk.reduce((a,b)=>a+(+b||0),0):(j.Milk!=null&&j.Milk!==''?Number(j.Milk):(j.MilkTotal!=null?Number(j.MilkTotal):''));
     const milkUnitL=(j.MilkUnit==='box')?(EN()?'boxes':'กล่อง'):'oz';
     const tl=j.Toilet||{}; const acts=j.Activity||[], sk=j.Skills||[];
-    const sleep=Array.isArray(j.Sleep)?j.Sleep:[];
-    const dt=EN()?'Details':'รายละเอียด', tot=EN()?'Total':'รวม';
-    return `<div class="card">
-      <div class="spread"><b>🌈 ${esc(jt('MY DAY AT ATOM'))}</b><span class="muted">${esc(j.Date||todayStr())}</span></div>
-      <div class="jsec"><h4>😊 ${esc(jt("Today's Mood"))}</h4>${Object.keys(MOODS).map(m=>chk(MOODS[m]+' '+jt(m), j.Mood===m)).join('')}</div>
-      <div class="jsec"><h4>❤️ ${esc(jt('Health Update'))}</h4>${HEALTHS.map(h=>chk(jt(h), j.Health===h)).join('')}${j.HealthDetail?`<div class="muted" style="font-size:12px">${esc(dt)}: ${esc(j.HealthDetail)}</div>`:''}</div>
-      <div class="jsec"><h4>🍼 ${esc(jt('Milk & Water'))}</h4>
-        <div style="font-size:15px"><b>${milkQty!==''&&milkQty!=null&&milkQty!==0?esc(milkQty)+' '+esc(milkUnitL):'-'}</b></div>
-        <div style="margin-top:4px">${WATERS.map(w=>chk(jt(w), j.Water===w)).join('')}</div></div>
-      <div class="jsec"><h4>🍽 ${esc(jt('Meals & Snacks'))}</h4>
-        ${['Breakfast','Lunch','Dinner'].map(m=>`<div><b style="font-size:13px">${esc(jt(m))}:</b> ${MEAL_AMT.map(a=>chk(jt(a), meals[m]===a)).join('')}</div>`).join('')}</div>
-      <div class="jsec"><h4>😴 ${esc(jt('Sleep Record'))}</h4>${[0,1,2,3].map(i=>`<span class="chk ${sleep[i]?'on':''}"><b>${i+1}:</b> ${sleep[i]?esc(sleep[i].from+'–'+sleep[i].to):'__:__'}</span>`).join('')}<div class="muted" style="font-size:12px">${esc(tot)}: ${esc(j.SleepTotal||'-')}</div></div>
-      <div class="jsec"><h4>🚽 ${esc(jt('Toileting'))}</h4>
-        <div><b style="font-size:13px">${esc(jt('Urination'))}:</b> ${URI.map(x=>chk(jt(x),tl.Urination===x)).join('')}</div>
-        <div><b style="font-size:13px">${esc(jt('Bowel'))}:</b> ${BOWEL.map(x=>chk(jt(x),tl.Bowel===x)).join('')}</div>
-        <div><b style="font-size:13px">${esc(jt('Stool'))}:</b> ${STOOL.map(x=>chk(jt(x),tl.Stool===x)).join('')}</div>
-        <div><b style="font-size:13px">${esc(jt('Toilet Training'))}:</b> ${TT.map(x=>chk(jt(x),tl.Training===x)).join('')}</div></div>
-      <div class="jsec"><h4>🎨 ${esc(jt('Learning Journey'))}</h4>${ACTS.map(a=>chk(jt(a),acts.indexOf(a)>=0)).join('')}${j.Theme?`<div class="muted" style="font-size:12px">${esc(jt('Theme'))}: ${esc(j.Theme)}</div>`:''}</div>
-      <div class="jsec"><h4>🌟 ${esc(jt('Skills Practiced'))}</h4>${SKILLS.map(s=>chk(jt(s),sk.indexOf(s)>=0)).join('')}</div>
-      <div class="jsec"><h4>⭐ ${esc(jt("Today's Highlight"))}</h4><div style="background:#fff8e1;border-radius:10px;padding:10px;font-size:14px">${esc(j.Highlight||'-')}</div></div>
-      <div class="jsec"><h4>💬 ${EN()?"Parent's comment":'ความคิดเห็นผู้ปกครอง'}</h4>${opts.parentEditable
+    const sleep=(Array.isArray(j.Sleep)?j.Sleep:[]).filter(x=>x&&(x.from||x.to));
+    // one row per section, rendered ONLY when it has a value
+    const rows=[];
+    const row=(ic,label,val)=>{ if(val==null||val==='')return; rows.push(`<div class="jr-row"><span class="jr-ic">${ic}</span><span class="jr-lbl">${esc(label)}</span><span class="jr-val">${val}</span></div>`); };
+    const pill=x=>`<span class="jr-pill">${esc(x)}</span>`;
+    row('😊', jt("Today's Mood"), j.Mood?`${MOODS[j.Mood]||''} ${esc(jt(j.Mood))}`:'');
+    row('❤️', jt('Health Update'), j.Health?(esc(jt(j.Health))+(j.HealthDetail?` <span class="muted">· ${esc(j.HealthDetail)}</span>`:'')):'');
+    row('🍼', jt('Milk & Water'), (milkQty&&milkQty!==0?`<b>${esc(milkQty)} ${esc(milkUnitL)}</b>`:'')+(j.Water?(milkQty?' · ':'')+esc(jt(j.Water)):''));
+    { const ms=['Breakfast','Lunch','Dinner'].filter(m=>meals[m]).map(m=>`${esc(jt(m))}: ${pill(jt(meals[m]))}`);
+      row('🍽', jt('Meals & Snacks'), ms.length?ms.join(' '):''); }
+    { const parts=sleep.map(x=>x.from+'–'+x.to); row('😴', jt('Sleep Record'), parts.length?parts.join(', ')+(j.SleepTotal?` <span class="muted">(${EN()?'total':'รวม'} ${esc(j.SleepTotal)})</span>`:''):''); }
+    { const tp=[]; if(tl.Urination)tp.push(`${esc(jt('Urination'))}: ${pill(jt(tl.Urination))}`);
+      if(tl.Bowel)tp.push(`${esc(jt('Bowel'))}: ${pill(jt(tl.Bowel))}`);
+      if(tl.Stool)tp.push(`${esc(jt('Stool'))}: ${pill(jt(tl.Stool))}`);
+      if(tl.Training)tp.push(`${esc(jt('Toilet Training'))}: ${pill(jt(tl.Training))}`);
+      row('🚽', jt('Toileting'), tp.length?tp.join(' '):''); }
+    row('🎨', jt('Learning Journey'), acts.length?acts.map(a=>pill(jt(a))).join('')+(j.Theme?` <span class="muted">· ${esc(jt('Theme'))}: ${esc(j.Theme)}</span>`:''):'');
+    row('🌟', jt('Skills Practiced'), sk.length?sk.map(x=>pill(jt(x))).join(''):'');
+    // framed student header (nickname-first) when the caller passes the child
+    const st=opts.student; const head=st?`<div class="jr-head"><div><b>👶 ${esc(dispNick(st))}</b>${st.Class?` <span class="muted">· ${esc(st.Class)}</span>`:''}</div><span class="muted">${esc(j.Date||opts.date||todayStr())}</span></div>`
+      : `<div class="jr-head"><b>🌈 ${esc(jt('MY DAY AT ATOM'))}</b><span class="muted">${esc(j.Date||opts.date||todayStr())}</span></div>`;
+    return `<div class="card jrpt">${head}
+      ${rows.length?`<div class="jr-rows">${rows.join('')}</div>`:`<div class="muted" style="text-align:center;padding:10px">${EN()?'The teacher has not filled in details yet.':'คุณครูยังไม่ได้กรอกรายละเอียด'}</div>`}
+      ${j.Highlight?`<div class="jr-hl"><span>⭐ ${esc(jt("Today's Highlight"))}</span><div>${esc(j.Highlight)}</div></div>`:''}
+      <div class="jr-cmt"><h4>💬 ${EN()?"Parent's comment":'ความคิดเห็นผู้ปกครอง'}</h4>${opts.parentEditable
         ? `<div class="row"><textarea id="jPC" placeholder="${EN()?'Write a comment… (tap mic to speak)':'พิมพ์ความคิดเห็น... (กดไมค์เพื่อพูด)'}" style="flex:1">${esc(j.ParentComment||'')}</textarea><button class="micbtn" onclick="J_mic('jPC',this)">🎤</button></div>
            <button class="btn sm block" style="margin-top:6px" onclick="P_saveComment('${esc(j.StudentID||opts.studentId||'')}','${esc(j.Date||opts.date||'')}',this)">💾 ${EN()?'Save comment':'บันทึกความคิดเห็น'}</button>`
-        : `<div style="background:#eef6ff;border-radius:10px;padding:10px;font-size:14px">${esc(j.ParentComment||(EN()?'— no comment —':'— ยังไม่มีความคิดเห็น —'))}</div>`}</div>
+        : `<div class="jr-cmt-box">${esc(j.ParentComment||(EN()?'— no comment —':'— ยังไม่มีความคิดเห็น —'))}</div>`}</div>
     </div>`;
   }
   window.P_saveComment=async(sid,date,btn)=>{ const el=document.getElementById('jPC'); const comment=el?el.value:'';
@@ -581,7 +586,7 @@
     const slHtml = sl.map(l=>`<div class="list-item"><span>${esc(l.Date)} · ${esc(l.Reason)}</span><span class="pill info">${esc(tStat(l.Status))}</span></div>`).join('')||'<small class="muted">ไม่มีรายการ</small>';
     app.innerHTML = `<div class="spread"><h2 class="page">${esc(t('p.greeting'))}${esc(EN()?USER.nameEN:USER.nameTH)} 👋</h2><div class="row">${profileBtn}${addBtn}</div></div>
       ${kidsHtml}
-      <h3 style="margin:6px 2px">📒 บันทึกของ ${esc(nm(k0))} วันนี้</h3>${j?journalChecklist(j,{parentEditable:true}):waitCard()}
+      <h3 style="margin:6px 2px">📒 บันทึกของ ${esc(nm(k0))} วันนี้</h3>${j?journalChecklist(j,{parentEditable:true,student:k0}):waitCard()}
       <div class="card"><div class="spread"><h3>🏠 แจ้งลาบุตรหลาน</h3><button class="btn sm outline" onclick="P_absence()">+ แจ้งลา</button></div>${slHtml}</div>
       <div class="card" id="insCard"></div>
       <div class="card"><h3>📢 ประกาศจากโรงเรียน</h3>${anns.map(annRow).join('')}</div>
@@ -1654,8 +1659,8 @@
 
   window.A_reqCI = async (id,val) => { await api('setRequireCheckin',{staffId:id,value:val}); toast((val?'เปิด':'ปิด')+'การบังคับลงเวลา'); };
   // Save all check-in-requirement toggles at once (persists to STAFF.RequireCheckin). One batched round-trip.
-  window.A_saveReqCI = async (btn)=>{ const card=btn.closest('.card'); const tgs=[...card.querySelectorAll('input[data-sid]')];
-    try{ await Promise.all(tgs.map(t=>api('setRequireCheckin',{staffId:t.dataset.sid,value:t.checked}))); confirmSaved(EN()?'Check-in settings saved':'บันทึกการตั้งค่าลงเวลาแล้ว'); }catch(e){err(e);} };
+  window.A_saveReqCI = async (btn)=>{ const card=btn.closest('.modal,.card'); const tgs=[...card.querySelectorAll('input[data-sid]')];
+    try{ await Promise.all(tgs.map(t=>api('setRequireCheckin',{staffId:t.dataset.sid,value:t.checked}))); confirmSaved(EN()?'Check-in settings saved':'บันทึกการตั้งค่าลงเวลาแล้ว'); const m=btn.closest('.modal'); if(m)m.remove(); }catch(e){err(e);} };
   // Admin can edit a student's DSPM assessment (all items in the current band)
   window.A_editAssess=async(sid)=>{ ASEL={}; let c; try{ c=await api('dspmStatus',{studentId:sid}); }catch(e){ app.innerHTML=`<button class="btn sm outline backbtn" onclick="A_student('${sid}')">${t('c.back')}</button><div class="card muted">${esc(e.message)}</div>`; return; }
     const s=MOCK.students.find(x=>x.StudentID===sid)||{NameTH:sid};
@@ -1668,6 +1673,56 @@
   window.A_saveAssess=async(sid)=>{ const results=Object.keys(ASEL).map(k=>({itemNo:Number(k),result:ASEL[k]})); if(!results.length){toast(EN()?'Select at least 1':'เลือกอย่างน้อย 1 ข้อ');return;}
     try{ await api('submitAssessment',{studentId:sid,staffId:USER.staffId,results}); confirmSaved(t('c.saved')); A_student(sid); }catch(e){err(e);} };
   window.A_perm = async (role,cap,val) => { await api('setPerm',{role,cap,value:val}); toast(t('c.saved')); };
+  // PDPA access matrix — moved off the manage page into a Settings modal (opened from the menu)
+  window.A_perms = async () => { const pm=window._PERM||await api('permMatrix');
+    const CAPS=[['students','perm.students'],['staff','perm.staff'],['payroll','perm.payroll'],['parentPII','perm.parentPII'],['edit','perm.edit'],['approve','perm.approve']];
+    const RS=['Admin','Leader','Teacher','Parent'];
+    modal(`<h3>🔐 ${esc(t('lbl.perms'))}</h3><p class="muted" style="font-size:12px">${esc(t('perm.note'))}</p>
+      <div style="overflow:auto"><table style="width:100%;font-size:12px;border-collapse:collapse">
+      <tr style="background:#1565C0;color:#fff"><th style="padding:4px 6px;text-align:left">${esc(t('perm.role'))}</th>${CAPS.map(c=>`<th style="padding:4px 3px">${esc(t(c[1]))}</th>`).join('')}</tr>
+      ${RS.map(r=>`<tr style="border-bottom:1px solid #eee"><td style="padding:4px 6px"><b>${esc(t('role.'+r)||r)}</b></td>${CAPS.map(c=>`<td style="text-align:center"><input type="checkbox" style="width:auto" ${pm[r]&&pm[r][c[0]]?'checked':''} onchange="A_perm('${r}','${c[0]}',this.checked)"/></td>`).join('')}</tr>`).join('')}
+      </table></div>
+      <button class="btn outline block" style="margin-top:10px" onclick="this.closest('.modal').remove()">${esc(t('c.close'))}</button>`);
+  };
+  // ---- DSPM criteria editor (admin can add/edit/remove/re-categorize milestone items) ----
+  const DSPM_SKILLS=['GM','FM','RL','EL','PS'];
+  const dcSkillLabel=code=>`${esc(code)} · ${esc(t('dom.'+code)||code)}`;
+  window.A_dspmCriteria = async () => { const rows=await api('dspmAllCriteria'); window._DSPM_ROWS=rows;
+    // group by age band (AgeLabelTH), bands ordered by AgeFrom
+    const bands={}; rows.forEach(r=>{ const k=r.AgeLabelTH||'—'; (bands[k]=bands[k]||{label:k,from:Number(r.AgeFrom)||0,items:[]}).items.push(r); });
+    const ordered=Object.values(bands).sort((a,b)=>a.from-b.from);
+    app.innerHTML=`<button class="btn sm outline backbtn" onclick="GO('manage')">${t('c.back')}</button>
+      <div class="spread"><h2 class="page">📈 ${esc(t('dspm.manageTitle'))}</h2><button class="btn sm" onclick="A_dspmForm()">➕ ${esc(t('dspm.add'))}</button></div>
+      <p class="muted" style="font-size:12px">${EN()?'Add, edit or remove milestone items. Grouped by age band.':'เพิ่ม แก้ไข หรือลบเกณฑ์พัฒนาการ · จัดกลุ่มตามช่วงอายุ'} (${rows.length})</p>
+      ${ordered.map(b=>`<div class="card"><h3>${esc(b.label)} <small class="muted">(${b.items[0]?esc(b.items[0].AgeFrom+'–'+b.items[0].AgeTo+(EN()?' mo':' เดือน')):''})</small></h3>
+        ${b.items.sort((x,y)=>Number(x.ItemNo)-Number(y.ItemNo)).map(r=>`<div class="list-item"><span><b>${esc(t('dspm.item'))} ${esc(r.ItemNo)}</b> <span class="pill info" style="font-size:10px">${esc(r.Skill||'')}</span><br><small class="muted">${esc(r.Description||'')}</small></span>
+          <span class="row"><button class="btn sm outline" onclick="A_dspmForm(${Number(r.ItemNo)},'${esc(r.Track||'Teacher')}')">✏️</button><button class="btn sm pink" onclick="A_dspmDel(${Number(r.ItemNo)},'${esc(r.Track||'Teacher')}')">🗑️</button></span></div>`).join('')}</div>`).join('')||`<div class="card muted">${esc(t('c.noItems'))}</div>`}`;
+    window.scrollTo(0,0);
+  };
+  window.A_dspmForm = (itemNo,track)=>{ const rows=window._DSPM_ROWS||[];
+    const r=(itemNo!=null)?(rows.find(x=>Number(x.ItemNo)===Number(itemNo)&&String(x.Track||'Teacher')===String(track||'Teacher'))||{}):{};
+    modal(`<h3>${itemNo!=null?'✏️':'➕'} ${esc(t('dspm.manageTitle'))}</h3>
+      <div class="grid2"><label class="field"><span>${EN()?'Age from (months)':'อายุตั้งแต่ (เดือน)'}</span><input type="number" id="dcFrom" value="${esc(r.AgeFrom!=null?r.AgeFrom:'')}"/></label>
+        <label class="field"><span>${EN()?'Age to (months)':'ถึงอายุ (เดือน)'}</span><input type="number" id="dcTo" value="${esc(r.AgeTo!=null?r.AgeTo:'')}"/></label></div>
+      <label class="field"><span>${EN()?'Age band label':'ชื่อช่วงอายุ'}</span><input id="dcLabel" value="${esc(r.AgeLabelTH||'')}" placeholder="${EN()?'e.g. 1-2 months':'เช่น 1-2 เดือน'}"/></label>
+      <label class="field"><span>${EN()?'Skill (domain)':'ด้านพัฒนาการ'}</span><select id="dcSkill">${DSPM_SKILLS.map(c=>`<option value="${c}" ${r.Skill===c?'selected':''}>${dcSkillLabel(c)}</option>`).join('')}</select></label>
+      <label class="field"><span>${EN()?'Description (TH)':'รายละเอียด (ไทย)'}</span><textarea id="dcDesc">${esc(r.Description||'')}</textarea></label>
+      <label class="field"><span>${EN()?'Description (EN)':'รายละเอียด (อังกฤษ)'}</span><textarea id="dcDescEN">${esc(r.DescriptionEN||'')}</textarea></label>
+      <button class="btn block" onclick="A_dspmSave(this,${itemNo!=null?Number(itemNo):'null'},'${esc(track||'Teacher')}')">${esc(t('c.save'))}</button>`);
+  };
+  window.A_dspmSave = async (btn,itemNo,track)=>{ const m=btn.closest('.modal'); const g=id=>{const e=m.querySelector('#'+id);return e?e.value.trim():'';};
+    const label=g('dcLabel'), desc=g('dcDesc'); if(!label||!desc){toast(EN()?'Fill band + description':'กรอกช่วงอายุและรายละเอียด');return;}
+    const data={AgeFrom:g('dcFrom'),AgeTo:g('dcTo'),AgeLabelTH:label,Skill:g('dcSkill'),Description:desc,DescriptionEN:g('dcDescEN'),Track:track||'Teacher'};
+    try{ await api('saveDspmCriteria',{staffId:USER.staffId,itemNo:itemNo!=null?itemNo:undefined,track:track||'Teacher',data}); m.remove(); confirmSaved(t('c.saved')); GO_('dspmCriteria'); }catch(e){err(e);} };
+  window.A_dspmDel = async (itemNo,track)=>{ if(!confirm(t('manage.confirmDel')))return; try{ await api('deleteDspmCriteria',{staffId:USER.staffId,itemNo,track:track||'Teacher'}); toast(t('manage.deleted')); GO_('dspmCriteria'); }catch(e){err(e);} };
+
+  // Require-check-in toggles — moved into a modal (opened from the menu)
+  window.A_requireCI = async () => { const staff=window._PERM_STAFF||await api('listStaff');
+    modal(`<h3>⏱️ ${esc(t('lbl.requireCI'))}</h3><p class="muted" style="font-size:12px">${EN()?'Turn OFF for positions that need not clock in (e.g. leaders). Press Save after changes.':'ปิดสำหรับตำแหน่งที่ไม่ต้องลงเวลา (เช่น หัวหน้างาน) — กด บันทึก หลังเปลี่ยน'}</p>
+      <div style="max-height:56vh;overflow:auto">${staff.map(s=>`<div class="list-item"><span><b>${esc(nm(s))}</b> <small class="muted">${esc(s.PositionLevel||'')}</small></span>
+        <label class="switch"><input type="checkbox" data-sid="${s.StaffID}" ${s.RequireCheckin!==false?'checked':''}><span class="slider"></span></label></div>`).join('')}</div>
+      <button class="btn block" style="margin-top:8px" onclick="A_saveReqCI(this)">💾 ${esc(t('c.save'))}</button>`);
+  };
   // Admin forms must read the LIVE records (gas mode), not the stale window.MOCK arrays.
   // manage()/home() fill this cache; the edit forms + dropdowns read from it (fallback to MOCK).
   window.A_CACHE = { staff:[], students:[], parents:[], classes:[], plans:[], announcements:[], depts:[] };
@@ -1697,34 +1752,44 @@
     A_CACHE.staff=staff; A_CACHE.students=students; A_CACHE.parents=parents; A_CACHE.classes=classes||[]; A_CACHE.plans=plans||[]; A_CACHE.groups=groups||[]; A_CACHE.depts=depts||[];
     const CAPS=[['students','perm.students'],['staff','perm.staff'],['payroll','perm.payroll'],['parentPII','perm.parentPII'],['edit','perm.edit'],['approve','perm.approve']];
     const ROLES=['Admin','Leader','Teacher','Parent'];
+    window._PERM=pm; window._PERM_STAFF=staff;
+    // Categorized admin menu — grouped so related tools sit together (e.g. all the OT/time tools).
+    const MENU=[
+      {t:EN()?'👥 People & classes':'👥 บุคลากร & ชั้นเรียน', items:[
+        ['🔁',t('manage.organize'),"GO_('organize')"],
+        ['🏫',t('manage.departments'),'A_departments()'],
+        ['🕑',t('manage.groups'),'A_groups()'],
+        ['⏱️',t('lbl.requireCI'),'A_requireCI()'],
+      ]},
+      {t:EN()?'⏰ Time & OT':'⏰ เวลา & OT', items:[
+        ['⏰',t('ot.adminOT'),'A_staffOT()'],
+        ['⏰',EN()?'Student late-pickup OT':'OT รับช้า (นักเรียน)','A_studentOT()'],
+        ['⏰',t('att.adminTitle'),'A_timeRequests()'],
+        ['🔁',t('corg.adminTitle'),'A_classChanges()'],
+      ]},
+      {t:EN()?'📄 Reports & records':'📄 รายงาน & เอกสาร', items:[
+        ['📒',t('jr.admin'),'A_journals()'],
+        ['🛡️',t('ins2.manage'),'A_insurance()'],
+        ['📈',t('dspm.manageTitle'),"GO_('dspmCriteria')"],
+        ['📜',t('act.open'),'A_activityLog()'],
+      ]},
+      {t:EN()?'⚙️ System settings':'⚙️ ตั้งค่าระบบ', items:[
+        ['⚙️',t('manage.settings'),'A_settings()'],
+        ['🗓️',t('manage.holidays'),"GO_('holidays')"],
+        ['📥',t('manage.importExport'),"GO_('importExport')"],
+        ['🔐',t('lbl.perms'),'A_perms()'],
+      ]},
+    ];
+    // some i18n labels already start with an emoji; strip it since the button shows its own icon
+    const stripIc=s=>{ const r=String(s).replace(/^[\p{Extended_Pictographic}️‍\s]+/u,'').trim(); return r||String(s); };
+    const amenu=MENU.map(g=>`<div class="card amenu"><h3>${esc(g.t)}</h3><div class="amenu-grid">${
+      g.items.map(([ic,label,fn])=>`<button class="amenu-btn" onclick="${fn}"><span class="amenu-ic">${ic}</span><span>${esc(stripIc(label))}</span></button>`).join('')
+    }</div></div>`).join('');
     app.innerHTML=`<h2 class="page">${esc(t('title.manage'))}</h2>
-      <div class="card"><div class="row">
-        <button class="btn sm" onclick="GO_('organize')">🔁 ${esc(t('manage.organize'))}</button>
-        <button class="btn sm outline" onclick="A_departments()">🏫 ${esc(t('manage.departments'))}</button>
-        <button class="btn sm outline" onclick="GO_('holidays')">🗓️ ${esc(t('manage.holidays'))}</button>
-        <button class="btn sm outline" onclick="GO_('importExport')">📥 ${esc(t('manage.importExport'))}</button>
-        <button class="btn sm outline" onclick="A_groups()">🕑 ${esc(t('manage.groups'))}</button>
-        <button class="btn sm outline" onclick="A_settings()">⚙️ ${esc(t('manage.settings'))}</button>
-        <button class="btn sm outline" onclick="A_staffOT()">⏰ ${esc(t('ot.adminOT'))}</button>
-        <button class="btn sm outline" onclick="A_classChanges()">🔁 ${esc(t('corg.adminTitle'))}</button>
-        <button class="btn sm outline" onclick="A_timeRequests()">⏰ ${esc(t('att.adminTitle'))}</button>
-        <button class="btn sm outline" onclick="A_studentOT()">⏰ ${EN()?'Student OT':'OT รับช้า (นักเรียน)'}</button>
-        <button class="btn sm outline" onclick="A_journals()">📒 ${esc(t('jr.admin'))}</button>
-        <button class="btn sm outline" onclick="A_insurance()">🛡️ ${esc(t('ins2.manage'))}</button>
-        <button class="btn sm outline" onclick="A_activityLog()">${esc(t('act.open'))}</button></div></div>
       ${wds.length?`<div class="card" style="background:#fff8e1;border-color:#f0e3b0"><h3>🚪 ${esc(t('wd.requests'))} (${wds.length})</h3>
         ${wds.map(w=>`<div class="list-item"><span><b>${esc(EN()?w.nameEN:w.name)}</b> <small class="muted">${esc(w.class||'')}</small><br><small class="muted">${esc(t('wd.reason.'+w.Reason)||w.Reason)}${w.Detail?' · '+esc(w.Detail):''} · ${esc(w.CreatedDate)}</small></span>
           <button class="btn sm pink" onclick="A_processWithdraw('${w.WithdrawID}','${w.StudentID}','${w.Reason}')">${esc(t('wd.process'))}</button></div>`).join('')}</div>`:''}
-      <div class="card"><h3>🔐 ${esc(t('lbl.perms'))}</h3><p class="muted" style="font-size:12px">${esc(t('perm.note'))}</p>
-        <div style="overflow:auto"><table style="width:100%;font-size:12px;border-collapse:collapse">
-        <tr style="background:#1565C0;color:#fff"><th style="padding:4px 6px;text-align:left">${esc(t('perm.role'))}</th>${CAPS.map(c=>`<th style="padding:4px 3px">${esc(t(c[1]))}</th>`).join('')}</tr>
-        ${ROLES.map(r=>`<tr style="border-bottom:1px solid #eee"><td style="padding:4px 6px"><b>${esc(t('role.'+r)||r)}</b></td>${CAPS.map(c=>`<td style="text-align:center"><input type="checkbox" style="width:auto" ${pm[r]&&pm[r][c[0]]?'checked':''} onchange="A_perm('${r}','${c[0]}',this.checked)"/></td>`).join('')}</tr>`).join('')}
-        </table></div></div>
-      <div class="card secw"><h3>⏱️ ${esc(t('lbl.requireCI'))}</h3><p class="muted" style="font-size:12px">${EN()?'Turn OFF for positions that need not clock in (e.g. leaders). Press Save after changes.':'ปิดสำหรับตำแหน่งที่ไม่ต้องลงเวลา (เช่น หัวหน้างาน) — กด บันทึก หลังเปลี่ยน'}</p>
-        ${searchBox(EN()?'search name':'ค้นหาชื่อ')}
-        ${staff.map(s=>`<div class="list-item" data-k="${esc((s.NameTH+' '+(s.NameEN||'')+' '+(s.Nickname||'')+' '+(s.PositionLevel||'')).toLowerCase())}"><span><b>${esc(nm(s))}</b> <small class="muted">${esc(s.PositionLevel)}</small></span>
-          <label class="switch"><input type="checkbox" data-sid="${s.StaffID}" ${s.RequireCheckin!==false?'checked':''}><span class="slider"></span></label></div>`).join('')}
-        <button class="btn block" style="margin-top:8px" onclick="A_saveReqCI(this)">💾 ${esc(t('c.save'))}</button></div>
+      ${amenu}
       <div class="card secw">${secHead('👩‍🏫',t('c.staff'),staff.length,`<button class="btn sm" onclick="event.stopPropagation();A_staffForm()">+ ${esc(t('manage.add'))}</button>`)}
         <div class="secbody" hidden>${searchBox(EN()?'name / nickname / dept':'ชื่อ / ชื่อเล่น / แผนก')}
         ${staff.map(s=>`<div class="list-item" data-k="${esc((s.NameTH+' '+(s.NameEN||'')+' '+(s.Nickname||'')+' '+(s.Position||'')+' '+(s.Department||'')).toLowerCase())}"><span style="display:flex;gap:8px;align-items:center">${personAvatar(s)}<span><b>${esc(dispNick(s))}</b> <small class="muted">${esc(nm(s))}</small><br><small class="muted">${esc(s.Position||'')} · ${esc(deptLabel(s))} · 🕑 ${esc(groupLabel(s.StaffGroup))}${groupHours(s.StaffGroup)?' ('+esc(groupHours(s.StaffGroup))+')':''}</small><br><small class="muted">${esc(t('staff.start'))} ${esc(s.StartDate||'-')} · ${esc(t('staff.tenure'))} ${esc(tenure(s.StartDate))}</small></span></span><span class="row"><button class="btn sm outline" onclick="A_staffForm('${s.StaffID}')">✏️</button><button class="btn sm pink" onclick="A_delStaff('${s.StaffID}')">🗑️</button></span></div>`).join('')}</div></div>
@@ -1737,7 +1802,7 @@
   };
   // navigate to an admin sub-screen (kept off the bottom nav)
   var ADMIN_SUB_organize, ADMIN_SUB_holidays, ADMIN_SUB_importExport;
-  const ADMIN_SUB = { organize:()=>ADMIN_SUB_organize(), holidays:()=>ADMIN_SUB_holidays(), importExport:()=>ADMIN_SUB_importExport() };
+  const ADMIN_SUB = { organize:()=>ADMIN_SUB_organize(), holidays:()=>ADMIN_SUB_holidays(), importExport:()=>ADMIN_SUB_importExport(), dspmCriteria:()=>A_dspmCriteria() };
   window.GO_=(k)=>{ CURRENT='manage'; setNav('manage'); (ADMIN_SUB[k]||(()=>{}))(); window.scrollTo(0,0); };
 
   // ---- Staff CRUD ----

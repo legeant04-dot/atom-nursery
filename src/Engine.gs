@@ -465,6 +465,20 @@ function createAtomAPI(M, GROWTH_STD) {
       M.journals[i].Status='DRAFT'; M.journals[i].SubmittedAt='';
       return {studentId:p.studentId,date,status:'DRAFT'}; },
     dspmCriteria: p => H.dspmStatus(p),
+    // Admin DSPM-criteria management (all rows for the editor). On GAS the mutations are in-place
+    // ROUTES (DspmAdmin.gs); these serve MOCK. Identify a row by (ItemNo, Track).
+    dspmAllCriteria: () => (M.dspmCriteria||[]).slice().sort((a,b)=>Number(a.ItemNo)-Number(b.ItemNo))
+      .map(r=>({AgeFrom:r.AgeFrom,AgeTo:r.AgeTo,AgeLabelTH:r.AgeLabelTH,ItemNo:r.ItemNo,Skill:r.Skill,Description:r.Description,DescriptionEN:r.DescriptionEN,Method:r.Method,PassCriteria:r.PassCriteria,Track:r.Track||'Teacher'})),
+    saveDspmCriteria: p => { const ap=staffById(p.staffId); if(ap.PositionLevel!=='Admin'&&ap.Role!=='Admin')fail('NO_PERMISSION','เฉพาะแอดมิน');
+      const d=p.data||{}; const track=d.Track||p.track||'Teacher'; const key=(p.itemNo!=null)?p.itemNo:d.ItemNo;
+      let r=(key!=null)?(M.dspmCriteria||[]).find(x=>Number(x.ItemNo)===Number(key)&&String(x.Track||'Teacher')===String(track)):null;
+      if(r){ ['AgeFrom','AgeTo','AgeLabelTH','Skill','Description','DescriptionEN','Method','PassCriteria'].forEach(k=>{ if(d[k]!==undefined)r[k]=(k==='AgeFrom'||k==='AgeTo')?(Number(d[k])||0):d[k]; }); r.Track=track; return {ok:true,itemNo:Number(r.ItemNo),updated:true}; }
+      let mx=0; (M.dspmCriteria||[]).forEach(x=>{const n=Number(x.ItemNo)||0; if(n>mx)mx=n;});
+      const rec=Object.assign({ItemNo:mx+1,Track:track},d); rec.AgeFrom=Number(rec.AgeFrom)||0; rec.AgeTo=Number(rec.AgeTo)||0;
+      (M.dspmCriteria=M.dspmCriteria||[]).push(rec); return {ok:true,itemNo:rec.ItemNo,updated:false}; },
+    deleteDspmCriteria: p => { const ap=staffById(p.staffId); if(ap.PositionLevel!=='Admin'&&ap.Role!=='Admin')fail('NO_PERMISSION','เฉพาะแอดมิน');
+      const track=p.track||'Teacher'; const i=(M.dspmCriteria||[]).findIndex(x=>Number(x.ItemNo)===Number(p.itemNo)&&String(x.Track||'Teacher')===String(track));
+      if(i<0)fail('NOT_FOUND','ไม่พบเกณฑ์'); M.dspmCriteria.splice(i,1); return {ok:true}; },
     submitAssessment: p => { const s=studentById(p.studentId); const age=ageMonths(s.DOB); const id='DA-'+String(Date.now()).slice(-4); let n=0;
       p.results.forEach(r=>{ if(r.result==='nottested'){ // remove any existing latest for this item (mark not tested)
           M.assessments=M.assessments.filter(a=>!(a.StudentID===p.studentId&&a.ItemNo===r.itemNo)); return; }

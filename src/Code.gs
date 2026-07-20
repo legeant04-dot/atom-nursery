@@ -80,6 +80,9 @@ var ROUTES = {
   reindexAnnouncements: function (p) { return handleReindexAnnouncements(p); },
   reindexParents:       function (p) { return handleReindexParents(p); },      // admin-only: fix duplicate ParentIDs
   checkDuplicateIds:    function ()  { return handleCheckDuplicateIds(); },     // admin-only: read-only id audit
+  // DSPM criteria admin CRUD (in-place). List defers to engine (dspmAllCriteria).
+  saveDspmCriteria:     function (p) { return handleSaveDspmCriteria(p); },
+  deleteDspmCriteria:   function (p) { return handleDeleteDspmCriteria(p); },
   // Big Cleaning Day (admin-managed workday, no fixed hours, diligence bonus)
   bigCleaningDays:  function ()  { return handleBigCleaningDays(); },
   addBigCleaning:   function (p) { return handleAddBigCleaning(p); },
@@ -164,7 +167,8 @@ function applyIdentity_(action, payload, sess) {
     confirmOT: 1, adminAddOT: 1, adminEditOT: 1, adminDeleteOT: 1,
     addBigCleaning: 1, removeBigCleaning: 1, editLeave: 1, cancelLeave: 1,
     decideClassChange: 1, confirmTimeRequest: 1,
-    addAnnouncement: 1, editAnnouncement: 1, deleteAnnouncement: 1, reindexAnnouncements: 1, reindexParents: 1, checkDuplicateIds: 1 };
+    addAnnouncement: 1, editAnnouncement: 1, deleteAnnouncement: 1, reindexAnnouncements: 1, reindexParents: 1, checkDuplicateIds: 1,
+    saveDspmCriteria: 1, deleteDspmCriteria: 1 };
   if (ADMIN_ONLY[action] && sess.role !== 'Admin') throw apiError_('NO_PERMISSION', 'เฉพาะแอดมิน');
   // Admin is fully trusted: may target ANY staff/student/parent (manage everyone + "view as" any role).
   if (sess.role === 'Admin') return payload;
