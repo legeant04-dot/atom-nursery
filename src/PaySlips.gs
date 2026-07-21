@@ -126,13 +126,9 @@ function paySlipRecompute_(kind, refId, paidDate) {
       readObjects_(so).forEach(function (o) { if (String(o.StudentID) === String(tgt.obj.StudentID) && pmYm_(o.Date) === bm && pmOtOpen_(o.Status)) updateRow_(so, o._row, { Status: 'PAID', PaidDate: pd }); });
       recCacheBust_('OT_DAILY');
     }
-    if (kind === 'prepay') {
-      var covered = tgt.obj.Covered; if (typeof covered === 'string') { try { covered = JSON.parse(covered); } catch (e) { covered = []; } }
-      covered = (covered || []).map(pmYm_);
-      var sb = sheet_(ss, 'BILLING');
-      readObjects_(sb).forEach(function (b) { if (String(b.StudentID) === String(tgt.obj.StudentID) && covered.indexOf(pmYm_(b.Month)) >= 0) updateRow_(sb, b._row, { Status: 'PAID', PaidDate: pd, VerifiedStatus: 'PREPAID' }); });
-      recCacheBust_('BILLING');
-    }
+    // prepay: tuition-only — do NOT flip the covered months' bills to PAID (that would waive the extras).
+    // The prepay row itself is PAID here; the engine's `payments` read credits the tuition per month.
+    if (kind === 'prepay') { /* covered-bill marking intentionally removed — advance payment covers tuition only */ }
   } else if (confirmed > 0) {
     updateRow_(tgt.sheet, tgt.row, { Status: 'PARTIAL', SlipAmount: submitted });
   } else if (submitted > 0) {
