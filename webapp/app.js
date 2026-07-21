@@ -24,7 +24,7 @@
     window.api=function(action,payload,opts){ if(!_isMut(action)) return _rawApi(action,payload,opts);
       _busyShow(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _busyHide(); throw e; }
       return Promise.resolve(pr).finally(_busyHide); }; }
-  const APP_VERSION = 'Version 1.087'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.088'; // bump each webapp change; shown only at the bottom of the Chat screen
   const verTag = () => `<div style="text-align:center;color:#c3c9d4;font-size:10px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
   const phoneFmt = p => { let d=String(p==null?'':p).replace(/\D/g,''); if(d.length===9) d='0'+d; return d; };
@@ -1217,6 +1217,8 @@
         <input id="injPlaceOther" placeholder="${esc(t('inj.place.other'))}" style="margin-top:6px"/></div>
       <div class="card"><h3>🩹 ${esc(t('inj.types'))}</h3>
         ${INJURY_TYPES.map(it=>`<label class="chk-inline" style="display:flex;gap:8px;align-items:flex-start;padding:5px 0;border-bottom:1px solid #f0f0f0"><input type="checkbox" class="injType" value="${it.n}" style="width:auto;margin-top:3px"/> <span><b>${it.n}.</b> ${esc(EN()?it.en:it.th)}</span></label>`).join('')}</div>
+      <label class="field" style="display:flex;align-items:center;gap:8px;background:#fff3e0;border:1px solid #ffcc80;border-radius:10px;padding:10px"><input type="checkbox" id="injNotifyParent" style="width:auto"/> 👪 <b>${EN()?'Also notify the parent now (accident/emergency)':'แจ้งเตือนผู้ปกครองด้วยทันที (กรณีอุบัติเหตุ/ฉุกเฉิน)'}</b></label>
+      <p class="muted" style="font-size:11.5px;margin:-2px 2px 6px">${EN()?'Admins & leaders are always alerted. Tick this to also LINE the parents right away.':'ระบบแจ้งแอดมิน/หัวหน้าครูทุกครั้งอยู่แล้ว · ติ๊กช่องนี้เพื่อส่ง LINE ถึงผู้ปกครองทันทีด้วย'}</p>
       <button class="btn block pink" onclick="T_injurySave()">${esc(t('inj.save'))}</button>
       <div class="card" style="margin-top:12px"><h3>🗒️ ${esc(t('inj.recent'))}</h3><div id="injRecent">${injuryListHTML(recent)}</div></div>`;
   };
@@ -1233,7 +1235,8 @@
       affiliationType:rad('injAff'),affiliationOther:v('#injAffOther'),district:v('#injDistrict'),recorderName:v('#injRecorder'),
       studentId,sex:rad('injSex'),ageYears:v('#injAgeY')!==''?+v('#injAgeY'):undefined,ageMonths:v('#injAgeM')!==''?+v('#injAgeM'):undefined,
       eduStatus:rad('injEdu'),eduGrade:v('#injGrade'),narrative:v('#injNarr'),causeObject:v('#injCause'),witness:rad('injWit'),
-      place:rad('injPlace'),placeOther:v('#injPlaceOther'),injuryTypes:types});
+      place:rad('injPlace'),placeOther:v('#injPlaceOther'),injuryTypes:types,
+      notifyParent:!!($('#injNotifyParent')&&$('#injNotifyParent').checked)});
       confirmSaved(t('inj.saved')); GO('injury'); }catch(e){err(e);} };
 
   SCREENS.Teacher.dspm = async () => { const cl=await api('classList',tc()); T_assess(cl.students[0].StudentID); };
@@ -2219,6 +2222,7 @@
 
   // ---- settings: diligence amounts + leave quota (Admin-editable) ----
   window.A_settings=async()=>{ const [q,sc,bc]=await Promise.all([api('getLeaveQuota'),api('schoolConfig'),api('bigCleaningDays')]); const cfg=MOCK.config;
+    const cfgOn=(k,def)=>{ const v=(sc&&sc[k]!=null)?sc[k]:cfg[k]; return v==null?def:(v===true||String(v).toLowerCase()==='true'); };
     modal(`<h3>⚙️ ${esc(t('manage.settings'))}</h3>
       <h4 style="margin:6px 0">📍 ${EN()?'Check-in location (geofence)':'พิกัดโรงเรียน (เช็คอิน)'}</h4>
       <p class="muted" style="font-size:11.5px">${EN()?'Open Google Maps → long-press the school → copy the lat, long numbers here.':'เปิด Google Maps → กดค้างที่ตำแหน่งโรงเรียน → คัดลอกเลข lat, long มาใส่'}</p>
@@ -2235,6 +2239,13 @@
       <div class="grid2" style="margin-top:6px"><input type="date" id="bcDate"/><button class="btn" onclick="A_bcAdd()">+ ${esc(t('manage.add'))}</button></div>
       <h4 style="margin:6px 0">${esc(t('set.leaveQuota'))}</h4>
       ${Object.keys(q).map(k=>`<label class="field"><span>${esc(tLeaveType(k))}</span><input type="number" id="lq_${esc(k)}" value="${q[k]}"/></label>`).join('')}
+      <h4 style="margin:10px 0 4px">🔔 ${EN()?'Notifications':'การแจ้งเตือน'}</h4>
+      <p class="muted" style="font-size:11.5px">${EN()?'To protect the LINE monthly quota, approval alerts go to the in-app bell 🔔. Turn options on to also use LINE. Emergencies (accidents) always LINE.':'เพื่อประหยัดโควตา LINE รายเดือน คำขออนุมัติจะเข้ากล่องแจ้งเตือนในแอป 🔔 · เปิดตัวเลือกเพื่อส่ง LINE เพิ่ม · เหตุฉุกเฉิน (อุบัติเหตุ) ส่ง LINE ทุกครั้ง'}</p>
+      <label class="field" style="display:flex;align-items:center;gap:8px"><input type="checkbox" id="setAdminLine" style="width:auto" ${cfgOn('AdminLineNotify',false)?'checked':''}/> 📲 ${EN()?'Also LINE-push admins for approvals (uses quota)':'ส่ง LINE ถึงแอดมินเมื่อมีคำขออนุมัติ (ใช้โควตา)'}</label>
+      <label class="field" style="display:flex;align-items:center;gap:8px"><input type="checkbox" id="setDigM" style="width:auto" ${cfgOn('DigestMorning',true)?'checked':''}/> 🌅 ${EN()?'Morning digest 10:00 (Big Cleaning + pending)':'สรุปเช้า 10:00 (Big Cleaning + รายการค้าง)'}</label>
+      <label class="field" style="display:flex;align-items:center;gap:8px"><input type="checkbox" id="setDigE" style="width:auto" ${cfgOn('DigestEvening',true)?'checked':''}/> 🌆 ${EN()?'Evening digest 20:00 (daily report)':'สรุปเย็น 20:00 (รายงานประจำวัน)'}</label>
+      <button class="btn sm outline block" style="margin-top:4px" onclick="A_reinstallTriggers(this)">🔄 ${EN()?'Apply digest schedule (10:00 / 20:00)':'อัปเดตตารางส่งสรุป (10:00 / 20:00)'}</button>
+      <p class="muted" style="font-size:11px">${EN()?'Digests skip weekends & holidays. Run "Apply" once after enabling.':'สรุปจะข้ามวันหยุด/เสาร์-อาทิตย์ · กด "อัปเดตตาราง" 1 ครั้งหลังเปิดใช้'}</p>
       <button class="btn block" onclick="A_saveSettings(this)">${esc(t('c.save'))}</button>`);
   };
   // Big Cleaning Day add/remove — persist immediately (also save the amount field first so it isn't lost)
@@ -2242,10 +2253,17 @@
     const amt=document.getElementById('setBC'); if(amt) await api('setSchoolConfig',{values:{BigCleaningAmount:+amt.value||0}});
     try{ await api('addBigCleaning',{date:d}); const m=document.querySelector('.modal'); if(m)m.remove(); toast(t('c.saved')); A_settings(); }catch(e){err(e);} };
   window.A_bcRemove=async(d)=>{ try{ await api('removeBigCleaning',{date:d}); const m=document.querySelector('.modal'); if(m)m.remove(); toast(t('manage.deleted')); A_settings(); }catch(e){err(e);} };
+  // (re)install the time triggers so the 10:00/20:00 digests are scheduled after enabling them
+  window.A_reinstallTriggers=async(btn)=>{ if(btn)btn.disabled=true; try{ const r=await api('reinstallTriggers',{}); toast((EN()?'Schedule updated · triggers: ':'อัปเดตตารางแล้ว · triggers: ')+(r&&r.triggers!=null?r.triggers:'?')); }catch(e){err(e);}finally{ if(btn)btn.disabled=false; } };
   window.A_saveSettings=async(btn)=>{ const m=btn.closest('.modal');
     const lat=parseFloat(m.querySelector('#cfgLat').value), lng=parseFloat(m.querySelector('#cfgLng').value), rad=parseFloat(m.querySelector('#cfgRadius').value);
     const gv={}; if(!isNaN(lat))gv.GPS_Lat=lat; if(!isNaN(lng))gv.GPS_Lng=lng; if(!isNaN(rad))gv.Radius=rad;
     const bcEl=m.querySelector('#setBC'); if(bcEl) gv.BigCleaningAmount=+bcEl.value||0;
+    // notification prefs (checkboxes) — stored in SCHOOL_CONFIG so the digests/triggers read them
+    const ck=id=>{ const e=m.querySelector(id); return e?(e.checked?'true':'false'):undefined; };
+    if(ck('#setAdminLine')!==undefined) gv.AdminLineNotify=ck('#setAdminLine');
+    if(ck('#setDigM')!==undefined) gv.DigestMorning=ck('#setDigM');
+    if(ck('#setDigE')!==undefined) gv.DigestEvening=ck('#setDigE');
     if(Object.keys(gv).length) await api('setSchoolConfig',{values:gv});
     await api('setConfigVal',{key:'DiligenceAttendanceAmount',value:+m.querySelector('#setAtt').value});
     await api('setConfigVal',{key:'DiligenceFacebookAmount',value:+m.querySelector('#setFb').value});
