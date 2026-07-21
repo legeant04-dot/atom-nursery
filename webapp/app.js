@@ -24,7 +24,7 @@
     window.api=function(action,payload,opts){ if(!_isMut(action)) return _rawApi(action,payload,opts);
       _busyShow(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _busyHide(); throw e; }
       return Promise.resolve(pr).finally(_busyHide); }; }
-  const APP_VERSION = 'Version 1.088'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.089'; // bump each webapp change; shown only at the bottom of the Chat screen
   const verTag = () => `<div style="text-align:center;color:#c3c9d4;font-size:10px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
   const phoneFmt = p => { let d=String(p==null?'':p).replace(/\D/g,''); if(d.length===9) d='0'+d; return d; };
@@ -597,7 +597,7 @@
       api('announcements'), api('calendar'), api('studentCheckinHistory',{studentId:k0.StudentID})
     ]);
     // рับ-ส่งเด็ก (GPS) is now on the home kid card: big IN/OUT buttons like the teacher's, no location bar
-    const kidsHtml = kids.map(k=>`<div class="card"><div class="spread"><div><b>${esc(nm(k))}</b>${nick(k)?` <span class="pill info">${esc(nick(k))}</span>`:''} <small class="muted">(${esc(EN()?k.NameTH:k.NameEN)})</small><br><small class="muted">${esc(k.Class)} · ${esc(ageYM(k.DOB))} · ${esc(planLabel(k.Plan))}<br>${EN()?'allergy':'แพ้'}: ${esc(k.Allergy||'-')}</small></div>${studentAvatar(k)}</div>
+    const kidsHtml = kids.map(k=>`<div class="card"><div class="spread"><div><b style="font-size:17px">${esc(dispNick(k))}</b> <small class="muted">${esc(nm(k))}</small><br><small class="muted">🏫 ${esc(k.Class||(EN()?'no class':'ยังไม่จัดชั้น'))} · ${esc(ageYM(k.DOB))} · ${esc(planLabel(k.Plan))}<br>${EN()?'allergy':'แพ้'}: ${esc(k.Allergy||'-')}</small></div>${studentAvatar(k)}</div>
       <div class="row" style="margin-top:12px;gap:10px"><button class="btn green" style="flex:1;padding:18px;font-size:18px;font-weight:700" onclick="P_punch('${k.StudentID}','IN',this)">🟢 ${EN()?'Drop off':'ส่งเข้าเรียน'}</button><button class="btn pink" style="flex:1;padding:18px;font-size:18px;font-weight:700" onclick="P_punch('${k.StudentID}','OUT',this)">🔴 ${EN()?'Pick up':'รับกลับ'}</button></div></div>`).join('');
     // header quick-actions: บันทึก / พัฒนาการ. (แจ้งลาออก removed — only Admin may withdraw a student.)
     setTopActions(`<button class="btn sm outline" onclick="P_journal('${k0.StudentID}')" title="${esc(t('nav.journal'))}">📒<span class="lbl"> ${esc(t('nav.journal'))}</span></button>
@@ -605,7 +605,7 @@
     const slHtml = sl.map(l=>`<div class="list-item"><span>${esc(ddmmyyyy(l.Date))} · <b>${esc(stdLeaveDesc(l))}</b></span><span class="pill info">${esc(tStat(l.Status))}</span></div>`).join('')||'<small class="muted">ไม่มีรายการ</small>';
     app.innerHTML = `<div class="spread"><h2 class="page">${esc(t('p.greeting'))}${esc(EN()?USER.nameEN:USER.nameTH)} 👋</h2><div class="row">${profileBtn}${addBtn}</div></div>
       ${kidsHtml}
-      <h3 style="margin:6px 2px">📒 บันทึกของ ${esc(nm(k0))} วันนี้</h3>${j?journalChecklist(j,{parentEditable:true,student:k0}):waitCard()}
+      <h3 style="margin:6px 2px">📒 ${EN()?'Journal of':'บันทึกของ'} ${esc(dispNick(k0))} ${EN()?'today':'วันนี้'}</h3>${j?journalChecklist(j,{parentEditable:true,student:k0}):waitCard()}
       <div class="card"><div class="spread"><h3>🏠 แจ้งลาบุตรหลาน</h3><button class="btn sm outline" onclick="P_absence()">+ แจ้งลา</button></div>${slHtml}</div>
       <div class="card" id="insCard"></div>
       <div class="card"><h3>📢 ประกาศจากโรงเรียน</h3>${anns.map(annRow).join('')}</div>
@@ -614,7 +614,7 @@
     // insurance status per child (parent fills once; shows "กรอกแล้ว" if done)
     try{ const sts=await Promise.all(kids.map(k=>api('insuranceStatus',{studentId:k.StudentID})));
       setHTML('#insCard', `<h3>🛡️ ${esc(t('ins2.manage'))}</h3>`+kids.map((k,i)=>{ const f=sts[i].filled;
-        return `<div class="list-item"><span><b>${esc(nm(k))}</b> <span class="pill ${f?'ok':'wait'}">${f?'✓ '+esc(t('ins2.filled')):esc(t('ins2.notFilled'))}</span></span>
+        return `<div class="list-item"><span><b>${esc(dispNick(k))}</b> <span class="pill ${f?'ok':'wait'}">${f?'✓ '+esc(t('ins2.filled')):esc(t('ins2.notFilled'))}</span></span>
           <button class="btn sm ${f?'outline':''}" onclick="P_insurance('${k.StudentID}')">${f?esc(t('lbl.view')):esc(t('ins2.btn'))}</button></div>`; }).join(''));
     }catch(e){ const c=$('#insCard'); if(c)c.remove(); }
   };
@@ -687,7 +687,7 @@
     try{ await api('saveStudentSelf',{studentId,data}); confirmSaved(t('c.saved')); }catch(e){err(e);}finally{ if(btn)btn.disabled=false; } };
   window.P_absence = async () => { const kids=await api('parentChildren',parentScope());
     const m=modal(`<h3>🏠 แจ้งลาบุตรหลาน</h3>
-      <label class="field"><span>บุตรหลาน</span><select id="aKid">${kids.map(k=>`<option value="${k.StudentID}">${esc(nm(k))}</option>`).join('')}</select></label>
+      <label class="field"><span>บุตรหลาน</span><select id="aKid">${kids.map(k=>`<option value="${k.StudentID}">${esc(dispNick(k))}</option>`).join('')}</select></label>
       <label class="field"><span>วันที่ลา</span><input type="date" id="aDate" value="${todayStr()}"/></label>
       <label class="field"><span>ประเภทการลา</span><select id="aType"><option>ลาป่วย</option><option>ลากิจ</option><option>ลาพักร้อน</option><option>อื่นๆ</option></select></label>
       <label class="field"><span>สาเหตุ (ถ้ามี)</span><textarea id="aReason" placeholder="เช่น เป็นไข้ / มีธุระครอบครัว"></textarea></label>
@@ -762,7 +762,7 @@
   SCREENS.Parent.checkin = async () => {
     showAnnPopups(); // must close active announcements before checking in/out
     const kids=await api('parentChildren',parentScope()); if(!kids.length){GO('home');return;}
-    const sel = kids.length>1 ? `<label class="field"><span>${EN()?'Select child':'เลือกบุตรหลาน'}</span><select id="kid">${kids.map(k=>`<option value="${k.StudentID}">${esc(nm(k))}</option>`).join('')}</select></label>` : `<input type="hidden" id="kid" value="${kids[0].StudentID}"/>`;
+    const sel = kids.length>1 ? `<label class="field"><span>${EN()?'Select child':'เลือกบุตรหลาน'}</span><select id="kid">${kids.map(k=>`<option value="${k.StudentID}">${esc(dispNick(k))}</option>`).join('')}</select></label>` : `<input type="hidden" id="kid" value="${kids[0].StudentID}"/>`;
     app.innerHTML = `<h2 class="page">${esc(t('title.checkin'))}</h2><div class="card">${sel}
       <div class="row" style="margin-top:6px;gap:10px"><button class="btn green" style="flex:1;padding:18px;font-size:18px;font-weight:700" onclick="P_punch($('#kid').value,'IN',this)">🟢 ${EN()?'Drop off':'ส่งเข้าเรียน'}</button><button class="btn pink" style="flex:1;padding:18px;font-size:18px;font-weight:700" onclick="P_punch($('#kid').value,'OUT',this)">🔴 ${EN()?'Pick up':'รับกลับ'}</button></div>
       <p class="muted" style="font-size:12px;margin-top:8px">${EN()?'You must be within':'ต้องอยู่ในรัศมี'} ${MOCK.config.Radius} ${EN()?'m of the school':'ม. จากโรงเรียน'}</p></div>
@@ -831,7 +831,7 @@
       ${ot.map(o=>{ const paid=o.Status==='PAID',partial=o.Status==='PARTIAL'; const sl=slipsOf('ot',o.OTID); const pend=sl.some(s=>s.Status==='SUBMITTED'); return `<div style="border-bottom:1px solid #f0f0f0;padding:4px 0"><div class="list-item"><span>${esc(ddmmyyyy(o.Date))} · ${esc(o.PickupTime)} <small class="muted">(${EN()?'late':'สาย'} ${o.LateMinutes}${esc(t('lbl.min'))} · ${o.Hours}${EN()?'h':'ชม.'})</small></span>
         <span><b>${baht(o.Amount)}</b> ${paid?`<span class="pill ok">${esc(t('s.paid'))}</span>`:partial?`<span class="pill wait">${EN()?'partial':'บางส่วน'}</span>`:pend?verifyPill:''} ${paid?'':`<button class="btn sm" onclick="P_payOT('${o.OTID}',${o.Amount})">${pend||partial?'📎':esc(t('lbl.pay'))}</button> <button class="btn sm gray" onclick="P_cash('ot','${o.OTID}',${o.Amount})">💵</button>`}</span></div>${slipHistoryHTML(sl)}</div>`; }).join('')}
       ${otOpen.length?`<div class="spread" style="margin-top:8px"><b>${esc(t('ot.unpaidTotal'))}</b><b style="color:#c62828">${baht(otOpen.reduce((a,o)=>a+o.Amount,0))}</b></div><small class="muted">${esc(t('ot.rollNote'))}</small>`:''}</div>`:'';
-    app.innerHTML = `<h2 class="page">${esc(t('title.payment'))}</h2>${preHtml}${otHtml}${ps.map(b=>{
+    app.innerHTML = `<h2 class="page">${esc(t('title.payment'))} · <span style="color:#1565C0">${esc(dispNick(kids[0]))}</span></h2>${preHtml}${otHtml}${ps.map(b=>{
       const paid=b.Status==='PAID',partial=b.Status==='PARTIAL'; const due=b.TotalDue!=null?b.TotalDue:b.Amount;
       const prepaid=b.VerifiedStatus==='PREPAID'; const confirmed=Number(b.PaidConfirmed||0); const outstanding=b.Outstanding!=null?Number(b.Outstanding):Math.max(0,due-confirmed);
       const billSlips=slipsOf('bill',b.BillingID); const hasPending=billSlips.some(s=>s.Status==='SUBMITTED');
@@ -940,8 +940,10 @@
     try{ await api('notifyCash',{kind,id,amount:amt,parentId:USER.parentId,uid:USER.uid}); m.remove(); confirmSaved(t('pay.cashNotified')); GO('payment'); }catch(e){err(e);} };
 
   SCREENS.Parent.journal = async () => { const kids=await api('parentChildren',parentScope()); if(!kids.length){GO('home');return;} P_journal(kids[0].StudentID); };
-  window.P_journal = async (sid) => { setNav('journal'); let j=await api('getJournal',{studentId:sid}); const hist=await api('journalHistory',{studentId:sid});
-    app.innerHTML=`<h2 class="page">${esc(t('title.journal'))}</h2>${j?journalChecklist(j,{parentEditable:true}):waitCard()}
+  window.P_journal = async (sid) => { setNav('journal');
+    const [kids,j,hist]=await Promise.all([api('parentChildren',parentScope()),api('getJournal',{studentId:sid}),api('journalHistory',{studentId:sid})]);
+    const kid=(kids||[]).find(k=>k.StudentID===sid)||{};
+    app.innerHTML=`<h2 class="page">${esc(t('title.journal'))} · <span style="color:#1565C0">${esc(dispNick(kid)||sid)}</span></h2>${j?journalChecklist(j,{parentEditable:true}):waitCard()}
       <h3 class="page" style="font-size:16px">ย้อนหลัง</h3>${hist.map(h=>`<div class="list-item"><span>${esc(h.Date)} · ${esc(MOODS[h.Mood]||'')} ${esc(h.Mood||'')}</span><button class="btn sm outline" onclick="P_showJ('${h.StudentID}','${h.Date}')">ดู</button></div>`).join('')||'<small class="muted">ไม่มี</small>'}`;
   };
   window.P_showJ=async(sid,date)=>{ const j=await api('getJournal',{studentId:sid,date}); app.innerHTML=`<h2 class="page">📒 ${esc(date)}</h2>${journalChecklist(j,{parentEditable:true})}<button class="btn outline" onclick="GO('journal')">← กลับ</button>`; window.scrollTo(0,0); };
@@ -950,14 +952,16 @@
   const DSPM_PILL=r=>{const c=r==='ผ่าน'?'ok':r==='ไม่ผ่าน'?'bad':'wait';return `<span class="pill ${c}">${esc(tStat(r))}</span>`;};
   const DT_KEY={GM:'dom.GM',FM:'dom.FM',RL:'dom.RL',EL:'dom.EL',PS:'dom.PS'};
   const DT=new Proxy({},{get:(_,k)=>t(DT_KEY[k]||k)});
-  window.P_dspm = async (sid) => { setNav('dspm'); const st=MOCK.students.find(x=>x.StudentID===sid)||{};
+  window.P_dspm = async (sid) => { setNav('dspm');
     // growth chart + vaccine card always render; the age-band assessment may be absent
     // (no DSPM_CRITERIA seeded for this age) — guard each call so the page never blanks.
-    // all 5 calls created in one tick → micro-batched into ONE GAS round-trip; allSettled so a
+    // all calls created in one tick → micro-batched into ONE GAS round-trip; allSettled so a
     // NO_CRITERIA from dspmStatus (no band for this age) doesn't blank the page.
-    const [rg,rvs,rvr,rs,rall]=await Promise.allSettled([
+    const [rg,rvs,rvr,rs,rall,rk]=await Promise.allSettled([
       api('growthHistory',{studentId:sid}),api('vaccineSchedule'),api('studentVaccines',{studentId:sid}),
-      api('dspmStatus',{studentId:sid}),api('studentAllBands',{studentId:sid})]);
+      api('dspmStatus',{studentId:sid}),api('studentAllBands',{studentId:sid}),api('parentChildren',parentScope())]);
+    const kidsD=rk.status==='fulfilled'?rk.value:[];
+    const st=(kidsD||[]).find(k=>k.StudentID===sid)||MOCK.students.find(x=>x.StudentID===sid)||{};
     const g=rg.status==='fulfilled'?rg.value:{records:[]};
     const vsched=rvs.status==='fulfilled'?rvs.value:[]; const vrecs=rvr.status==='fulfilled'?rvr.value:[];
     const s=rs.status==='fulfilled'?rs.value:null;            // NO_CRITERIA for this age → null
@@ -966,14 +970,14 @@
     const past=(all.bands||[]).filter(b=>!s||b.label!==s.ageLabel);
     const itemRow=i=>`<div class="list-item"><span><b>ข้อ ${i.itemNo}</b> <span class="pill info">${i.skill}</span> · ${DT[i.skill]||''}<br><small>${esc(EN()&&i.descriptionEN?i.descriptionEN:i.description)}</small></span>${DSPM_PILL(i.result)}</div>`;
     const assessCard = s
-      ? `<div class="card"><div class="spread"><b>${esc(nm(st)||sid)}</b><span class="muted">${s.ageMonth} เดือน</span></div>
+      ? `<div class="card"><div class="spread"><b>${esc(dispNick(st)||sid)}</b><span class="muted">${s.ageMonth} เดือน</span></div>
           <div class="spread"><b style="color:#1565C0">⭐ ช่วงวัยปัจจุบัน: ${esc(s.ageLabel)}</b></div>
           <p class="muted" style="font-size:12.5px">แสดงทุกข้อของช่วงวัยนี้ ที่ยังไม่ประเมินจะขึ้น "ยังไม่ได้รับการทดสอบ"</p>
           ${s.manualUrl?`<a class="btn sm outline" href="${esc(s.manualUrl)}" target="_blank">⬇️ ดาวน์โหลดคู่มือ DSPM</a>`:''}
           ${s.items.map(itemRow).join('')}</div>`
-      : `<div class="card"><div class="spread"><b>${esc(nm(st)||sid)}</b><span class="muted">${ageMo} เดือน</span></div>
+      : `<div class="card"><div class="spread"><b>${esc(dispNick(st)||sid)}</b><span class="muted">${ageMo} เดือน</span></div>
           <p class="muted" style="font-size:13px">ℹ️ ยังไม่มีเกณฑ์ประเมินพัฒนาการสำหรับช่วงวัยนี้ (อายุ ${ageMo} เดือน) — เมื่อโรงเรียนเพิ่มเกณฑ์ตามคู่มือ DSPM ของช่วงวัยนี้แล้ว รายการประเมินจะแสดงที่นี่</p></div>`;
-    app.innerHTML=`<h2 class="page">${esc(t('title.dspm'))}</h2>
+    app.innerHTML=`<h2 class="page">${esc(t('title.dspm'))} · <span style="color:#1565C0">${esc(dispNick(st)||sid)}</span></h2>
       <div class="card"><h3>📈 ${esc(t('growth.chartTitle'))}</h3><p class="muted" style="font-size:12px">${esc(t('growth.chartSub'))}</p>
         ${growthChartSVG(t('growth.weight'),g.records.map(r=>({x:r.AgeMonth,y:r.Weight})),gBand(g.weightBand,g.gender,g.records,'weight'),'kg')}
         ${growthChartSVG(t('growth.height'),g.records.map(r=>({x:r.AgeMonth,y:r.Height})),gBand(g.heightBand,g.gender,g.records,'height'),'cm')}
