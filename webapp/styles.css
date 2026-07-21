@@ -271,3 +271,11 @@ html,body{max-width:100%;overflow-x:hidden;}
   .bell{font-size:18px;padding:2px;}
   main{padding:12px 10px;}
 }
+
+/* ---- global processing overlay (blocks double-submit while a mutation is in flight) ---- */
+#busyOverlay{position:fixed;inset:0;z-index:99999;display:none;align-items:center;justify-content:center;background:rgba(255,255,255,.5);backdrop-filter:blur(1px);-webkit-backdrop-filter:blur(1px);}
+#busyOverlay.on{display:flex;}
+#busyOverlay .busy-box{background:#fff;border-radius:14px;padding:18px 26px;box-shadow:0 10px 34px rgba(0,0,0,.18);display:flex;flex-direction:column;align-items:center;gap:10px;}
+#busyOverlay .busy-spin{width:34px;height:34px;border:3px solid #e3e8f0;border-top-color:#1565C0;border-radius:50%;animation:busySpin .8s linear infinite;}
+#busyOverlay .busy-txt{font-size:14px;color:#1565C0;font-weight:600;}
+@keyframes busySpin{to{transform:rotate(360deg);}}
