@@ -91,6 +91,28 @@ function handleSaveStudent(p) {
   return { ok: true, studentId: p.studentId };
 }
 
+// Admin: unlink ONE parent from a child WITHOUT withdrawing the child. In-place — USER_LINKS is a
+// no-shrink sheet, so deleting rows must go through deleteRow (the engine's full rewrite is blocked).
+function handleUnlinkStudent(p) {
+  p = p || {};
+  if (!p.studentId || (!p.parentId && !p.uid)) throw apiError_('BAD_INPUT', 'ต้องระบุนักเรียนและผู้ปกครอง');
+  var uid = p.uid || '';
+  var pSheet = sheet_(getMainSpreadsheet_(), 'PARENTS');
+  if (!uid && p.parentId) { var pa = findObject_(pSheet, function (x) { return String(x.ParentID) === String(p.parentId); }); if (pa) uid = pa.LineUID; }
+  var removed = 0;
+  var ul = sheet_(getMainSpreadsheet_(), 'USER_LINKS');
+  // delete matching links bottom-up so row indices stay valid
+  var links = readObjects_(ul).filter(function (l) { return String(l.StudentID) === String(p.studentId) && uid && String(l.UserUID) === String(uid); });
+  links.sort(function (a, b) { return b._row - a._row; }).forEach(function (l) { ul.deleteRow(l._row); removed++; });
+  // legacy linkage: if the student's ParentID points to this parent, clear it too
+  var stSheet = sheet_(getMainSpreadsheet_(), 'STUDENTS');
+  var st = findObject_(stSheet, function (s) { return String(s.StudentID) === String(p.studentId); });
+  if (st && p.parentId && String(st.ParentID) === String(p.parentId)) { updateRow_(stSheet, st._row, { ParentID: '' }); recCacheBust_('STUDENTS'); }
+  try { CacheService.getScriptCache().removeAll(['rows:USER_LINKS', 'col:USER_LINKS']); } catch (e) {}
+  try { logAudit(p.adminId || 'admin', 'UNLINK_STUDENT', 'USER_LINKS', String(p.studentId) + ' <-> ' + (p.parentId || uid)); } catch (e) {}
+  return { ok: true, removed: removed };
+}
+
 function handleSaveParent(p) {
   p = p || {};
   var sh = sheet_(getMainSpreadsheet_(), 'PARENTS');
