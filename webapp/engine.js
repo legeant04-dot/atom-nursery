@@ -100,6 +100,13 @@ function createAtomAPI(M, GROWTH_STD) {
   // so a child whose day ends 18:00/19:00 is never charged OT from 17:00. Blank → fall back to plan end.
   const studentEndTime = s => { const e=String((s&&(s.EndTime||s.LeaveTime))||'').trim(); return /^\d{1,2}:\d{2}/.test(e) ? e.slice(0,5) : studentPlan(s).end; };
   const studentStartTime = s => { const e=String((s&&s.StartTime)||'').trim(); return /^\d{1,2}:\d{2}/.test(e) ? e.slice(0,5) : (cfg.DefaultStudentIn||'08:00'); };
+  // Default class for a NEW student by age band (Premium is never auto — school assigns it manually):
+  //   0–1y → Nursery Baby · 1–2y → Nursery 1 · 2–3y → Nursery 2 · 3y+ → Nursery 3.
+  // Only a class present in the department master is used; otherwise blank (school assigns manually).
+  function defaultClassByAge_(dob){ const m=ageMonths(dob); if(!(m>=0)) return '';
+    const name = m<12?'Nursery Baby' : m<24?'Nursery 1' : m<36?'Nursery 2' : 'Nursery 3';
+    const deps=(Array.isArray(cfg.Departments)?cfg.Departments:String(cfg.Departments||'').split(',')).map(x=>String(x).trim());
+    return deps.indexOf(name)>=0 ? name : ''; }
   // teacher OT hours: ≥OTRoundUpMinutes within an hour rounds up to a full hour
   function otHoursRule(min){ if(min<=0)return 0; const h=Math.floor(min/60), rem=min%60; return h+(rem>=Number(cfg.OTRoundUpMinutes||50)?1:0); }
   // Thai labour-law OT rate on a normal working day = 1.5 × hourly wage; monthly hourly = salary ÷ 30 ÷ 8.
@@ -152,6 +159,12 @@ function createAtomAPI(M, GROWTH_STD) {
     dept.split(',').map(x=>x.trim()).filter(Boolean).forEach(n=>names[n]=1);
     const cls=all.filter(c=>names[c.ClassName]);
     return cls.length?cls:[all.find(c=>c.TeacherID===staff.StaffID)||all[0]].filter(Boolean); }
+  // May this staff drag/move teachers & students between classes (the admin organize tool)? Admin/Leader
+  // always; a plain teacher only when the admin flags CanClassOrg on their record.
+  function canOrganize_(staff){ if(!staff||!staff.StaffID) return false;
+    const lvl=String(staff.PositionLevel||''), role=String(staff.Role||'');
+    if(lvl==='Admin'||lvl==='Leader'||role==='Admin') return true;
+    const v=staff.CanClassOrg; return v===true||v==='YES'||v===1||String(v).toUpperCase()==='TRUE'; }
   // OT for a pickup time (HH:MM) vs the student's plan end + grace; 100/started hour
   // OT that is PAID or CANCELLED is settled — it must never roll into a bill or count as outstanding.
   const OT_CLOSED = { PAID:1, CANCELLED:1 };
@@ -670,6 +683,7 @@ function createAtomAPI(M, GROWTH_STD) {
         Role:s.Role, PositionLevel:s.PositionLevel, Position:s.Position, Department:s.Department,
         StaffGroup:s.StaffGroup, Phone:s.Phone, DOB:s.DOB, StartDate:s.StartDate, NationalID:s.NationalID,
         RequireCheckin: s.RequireCheckin!==false, MustChangePassword: !!s.MustChangePassword,
+        CanClassOrg: canOrganize_(s),
         GroupIn: grp&&grp.CheckInTime||'', GroupOut: grp&&grp.CheckOutTime||'' }; },
     setRequireCheckin: p => { const s=M.staff.find(x=>x.StaffID===p.staffId); if(s) s.RequireCheckin=!!p.value; return {staffId:p.staffId, value:!!p.value}; },
     // staff edits their OWN record, whitelisted fields only (staffId injected server-side)
@@ -704,6 +718,7 @@ function createAtomAPI(M, GROWTH_STD) {
       const exPar=dupParent_(p.parent); if(exPar) fail('ALREADY_REGISTERED','ข้อมูลผู้ปกครองนี้ ('+(exPar.NameTH||exPar.Name||'')+') มีอยู่ในระบบแล้ว — ระบบไม่สร้างข้อมูลซ้ำ');
       const sid=nextSeqId_(M.students,'StudentID','STD',3); const pid=nextSeqId_(M.parents,'ParentID','PAR',3);
       const st=Object.assign({StudentID:sid,ParentID:pid,Status:'ACTIVE',CreatedDate:todayLocal(),EnrollDate:todayLocal(),LastGrowthUpdate:''}, p.student||{});
+      if(!String(st.Class||'').trim()) st.Class=defaultClassByAge_(st.DOB); // auto-assign class by age (school can move later)
       st.DriveFolderUrl=studentFolderUrl(st); // per-student Drive folder (GAS: DriveApp.createFolder under StudentFolderRoot)
       const par=Object.assign({ParentID:pid,StudentID:sid,LineUID:p.uid||''}, p.parent||{});
       if(par.Photo) par.RegisterPhotoUrl=registerPhotoUrl(pid); // mandatory ID photo saved to the "New Register Photo" folder
@@ -727,6 +742,7 @@ function createAtomAPI(M, GROWTH_STD) {
       const exSt=dupStudent_(p.student); if(exSt) fail('ALREADY_REGISTERED','ข้อมูลนักเรียนนี้มีอยู่ในระบบแล้ว ('+(exSt.NameTH||exSt.Name||'')+') — ระบบไม่สร้างข้อมูลซ้ำ');
       const sid=nextSeqId_(M.students,'StudentID','STD',3);
       const st=Object.assign({StudentID:sid,ParentID:p.parentId||'',Status:'ACTIVE',CreatedDate:todayLocal(),EnrollDate:todayLocal(),LastGrowthUpdate:''}, p.student||{});
+      if(!String(st.Class||'').trim()) st.Class=defaultClassByAge_(st.DOB); // auto-assign class by age (school can move later)
       st.DriveFolderUrl=studentFolderUrl(st); // per-student Drive folder
       M.students.push(st);
       if(p.uid) M.userLinks.push({UserUID:p.uid,StudentID:sid,VerifiedBy:'register',Date:todayLocal()});
@@ -836,6 +852,17 @@ function createAtomAPI(M, GROWTH_STD) {
     // move a student to another Nursery (class) / a teacher to another department
     moveStudent: p => { const s=studentById(p.studentId); if(!s)fail('NOT_FOUND','ไม่พบนักเรียน'); s.Class=p.toClass; return s; },
     moveTeacher: p => { const s=staffById(p.staffId); if(!s.StaffID)fail('NOT_FOUND','ไม่พบพนักงาน'); s.Department=p.toDept; return s; },
+    // Class-organize moves for a NON-admin caller granted the capability. The caller's staffId is injected
+    // server-side (never the target — so applyIdentity_ can't clobber the target id). Admin/Leader always
+    // qualify; a plain teacher needs CanClassOrg=true set by the admin on their staff record.
+    orgMoveTeacher: p => { const me=staffById(p.staffId)||{};
+      if(!canOrganize_(me)) fail('NO_PERMISSION','ไม่มีสิทธิ์จัดชั้นเรียน (ต้องได้รับสิทธิ์จากแอดมิน)');
+      const s=staffById(p.targetId); if(!s.StaffID)fail('NOT_FOUND','ไม่พบพนักงาน'); s.Department=p.toDept||'';
+      logAct('moveTeacher',p.targetId,'→ '+(p.toDept||'-'),actorOf(p)); return {ok:true}; },
+    orgMoveStudent: p => { const me=staffById(p.staffId)||{};
+      if(!canOrganize_(me)) fail('NO_PERMISSION','ไม่มีสิทธิ์จัดชั้นเรียน (ต้องได้รับสิทธิ์จากแอดมิน)');
+      const s=studentById(p.targetId); if(!s)fail('NOT_FOUND','ไม่พบนักเรียน'); s.Class=p.toClass||'';
+      logAct('moveStudent',p.targetId,'→ '+(p.toClass||'-'),actorOf(p)); return {ok:true}; },
 
     // ========== withdrawal / cancel enrolment (parent self-service + Admin direct) ==========
     // valid reason codes (config-driven): graduated | moved | transferred | other
