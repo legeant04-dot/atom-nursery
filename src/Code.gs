@@ -41,6 +41,7 @@ var ROUTES = {
   requestPasswordReset: function (p) { return handleRequestPasswordReset(p); },
   uploadSlip:     function (p) { return handleUploadSlip(p); },
   payOT:          function (p) { return handlePayOT(p); },
+  teacherPayOT:   function (p) { return handlePayOT(p); },   // teacher pays a student's OT on behalf (same in-place slip pipeline; read is class-scoped in the engine)
   payPrepay:      function (p) { return handlePayPrepay(p); },
   confirmSlip:    function (p) { return handleConfirmSlip(p); },
   rejectSlip:     function (p) { return handleRejectSlip(p); },
@@ -88,6 +89,7 @@ var ROUTES = {
   deleteStudentLeave:   function (p) { return handleDeleteStudentLeave(p); },
   deleteStudentLeaves:  function (p) { return handleDeleteStudentLeaves(p); },   // batch, admin-only
   dedupData:            function (p) { return handleDedupData(p); },        // {preview:true} read-only; else applies
+  lineDiag:             function (p) { return handleLineDiag(p); },          // admin-only: LINE push quota/token check
   // Big Cleaning Day (admin-managed workday, no fixed hours, diligence bonus)
   bigCleaningDays:  function ()  { return handleBigCleaningDays(); },
   addBigCleaning:   function (p) { return handleAddBigCleaning(p); },
@@ -174,7 +176,7 @@ function applyIdentity_(action, payload, sess) {
     decideClassChange: 1, confirmTimeRequest: 1,
     addAnnouncement: 1, editAnnouncement: 1, deleteAnnouncement: 1, reindexAnnouncements: 1, reindexParents: 1, checkDuplicateIds: 1,
     saveDspmCriteria: 1, deleteDspmCriteria: 1,
-    editStudentLeave: 1, deleteStudentLeave: 1, deleteStudentLeaves: 1, dedupData: 1 };
+    editStudentLeave: 1, deleteStudentLeave: 1, deleteStudentLeaves: 1, dedupData: 1, lineDiag: 1 };
   if (ADMIN_ONLY[action] && sess.role !== 'Admin') throw apiError_('NO_PERMISSION', 'เฉพาะแอดมิน');
   // Admin is fully trusted: may target ANY staff/student/parent (manage everyone + "view as" any role).
   if (sess.role === 'Admin') return payload;
@@ -234,7 +236,7 @@ function dispatch_(action, payload, token) {
 var MUTATING_RE = /^(submit|save|add|remove|delete|set|register|pay|upload|confirm|reject|issue|generate|move|import|compute|cancel|prepay|link|notify|request|mark|approve|edit|rename|update|change|seed|recompute|restore|bind|provision)/i;
 // dedupData/reindex* mutate but don't start with a MUTATING_RE verb — force them to take the write lock
 // (they read row indices then delete, so a concurrent append would shift rows and delete the wrong one).
-function isMutatingAction_(a) { a = String(a || ''); return MUTATING_RE.test(a) || /check(in|out)|absence|^dedup|^reindex/i.test(a); }
+function isMutatingAction_(a) { a = String(a || ''); return MUTATING_RE.test(a) || /check(in|out)|absence|^dedup|^reindex|payOT$/i.test(a); }
 
 /** Run fn under a script lock when it may write. Reads run unlocked (no queueing). */
 function withWriteLock_(needed, fn) {

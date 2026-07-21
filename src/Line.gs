@@ -64,3 +64,45 @@ function linePush_(toUid, messages) {
     return false;
   }
 }
+
+/**
+ * Admin diagnostic: is LINE actually able to push right now? Checks the token, the monthly push QUOTA
+ * and how much has been CONSUMED this month (this is the usual reason pushes silently stop — the free
+ * plan caps push messages per month, and linePush_ just returns false when the cap is hit). Also lets
+ * an admin fire a real test push to their own UID. payload: { testUid? }
+ */
+function handleLineDiag(p) {
+  p = p || {};
+  var token = getConfig_('LineChannelAccessToken', '');
+  var out = { tokenConfigured: !!(token && String(token).indexOf('<FILL') !== 0) };
+  if (!out.tokenConfigured) { out.note = 'LineChannelAccessToken ยังไม่ได้ตั้งค่าใน SCHOOL_CONFIG'; return out; }
+  var hdr = { Authorization: 'Bearer ' + token };
+  function get(url) {
+    try { var r = UrlFetchApp.fetch(url, { method: 'get', headers: hdr, muteHttpExceptions: true });
+      return { code: r.getResponseCode(), body: r.getContentText() }; }
+    catch (e) { return { code: -1, body: String(e) }; }
+  }
+  // monthly limit
+  var q = get('https://api.line.me/v2/bot/message/quota');
+  out.quotaHttp = q.code;
+  try { var qj = JSON.parse(q.body); out.quotaType = qj.type; out.quotaValue = (qj.type === 'limited') ? qj.value : 'unlimited'; }
+  catch (e) { out.quotaRaw = q.body; }
+  // consumption this month
+  var c = get('https://api.line.me/v2/bot/message/quota/consumption');
+  out.consumptionHttp = c.code;
+  try { out.totalUsage = JSON.parse(c.body).totalUsage; } catch (e) { out.consumptionRaw = c.body; }
+  // a 401 on these = bad/expired token; a valid token but totalUsage>=quotaValue = OUT OF QUOTA
+  if (out.quotaType === 'limited' && typeof out.quotaValue === 'number' && typeof out.totalUsage === 'number') {
+    out.remaining = out.quotaValue - out.totalUsage;
+    out.overLimit = out.remaining <= 0;
+  }
+  // optional live test push to a given UID (e.g. the admin's own)
+  if (p.testUid) {
+    var r = UrlFetchApp.fetch('https://api.line.me/v2/bot/message/push', {
+      method: 'post', contentType: 'application/json', headers: hdr, muteHttpExceptions: true,
+      payload: JSON.stringify({ to: p.testUid, messages: [{ type: 'text', text: '🔔 ทดสอบการแจ้งเตือนจากระบบ Atom (' + nowStr_() + ')' }] })
+    });
+    out.testPush = { http: r.getResponseCode(), body: r.getContentText().slice(0, 200) };
+  }
+  return out;
+}
