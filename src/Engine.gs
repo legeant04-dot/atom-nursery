@@ -173,6 +173,12 @@ function createAtomAPI(M, GROWTH_STD) {
   // OT that is PAID or CANCELLED is settled — it must never roll into a bill or count as outstanding.
   const OT_CLOSED = { PAID:1, CANCELLED:1 };
   const otOpenRec = o => !OT_CLOSED[o.Status];
+  // A month's TUITION is covered when the student has a CONFIRMED (PAID) advance payment whose Covered
+  // months include it. Advance payment covers ONLY the monthly tuition (plan price) — food/activity/
+  // special-class charges are still billed each of those months (they are NOT waived by the prepay).
+  function prepayCoveredMonths_(pp){ let c=pp&&pp.Covered; if(typeof c==='string'){ try{c=JSON.parse(c);}catch(e){c=[];} } return (Array.isArray(c)?c:[]).map(ym); }
+  function monthTuitionPrepaid_(studentId, month){ const mm=ym(month);
+    return (M.prepayments||[]).some(pp=> String(pp.StudentID)===String(studentId) && String(pp.Status)==='PAID' && prepayCoveredMonths_(pp).indexOf(mm)>=0); }
   // per-student OT rate overrides the global OTRatePerHour when set (> 0)
   const otRateFor = student => { const r=Number(student&&student.OTRate); return r>0?r:Number(cfg.OTRatePerHour||100); };
   function otFor(student, pickupHHMM){
@@ -219,7 +225,8 @@ function createAtomAPI(M, GROWTH_STD) {
     tgt.obj.SlipAmount=submitted;
     if(confirmed>=tgt.due && tgt.due>0){ tgt.obj.Status='PAID'; tgt.obj.PaidDate=paidDate||tgt.obj.PaidDate||todayLocal(); tgt.obj.VerifiedStatus='CONFIRMED';
       if(kind==='bill'){ const bm=ym(tgt.obj.Month); M.otDaily.filter(o=>o.StudentID===tgt.obj.StudentID&&ym(o.Date)===bm&&otOpenRec(o)).forEach(o=>{o.Status='PAID';o.PaidDate=tgt.obj.PaidDate;}); }
-      if(kind==='prepay'){ const cov=(tgt.obj.Covered||[]).map(ym); M.payments.forEach(b=>{ if(b.StudentID===tgt.obj.StudentID&&cov.indexOf(ym(b.Month))>=0){ b.Status='PAID'; b.PaidDate=tgt.obj.PaidDate; b.VerifiedStatus='PREPAID'; } }); }
+      // prepay: do NOT mark the covered months' bills PAID — advance payment covers tuition only. The
+      // monthly bills for those months then credit the tuition (see payments handler) and still bill extras.
     } else if(confirmed>0 || submitted>0){ tgt.obj.Status= confirmed>0?'PARTIAL':'PENDING_VERIFY'; }
     else { tgt.obj.Status='UNPAID'; tgt.obj.VerifiedStatus='REJECTED'; }
     return { confirmed, submitted, due:tgt.due, outstanding:Math.max(0,tgt.due-confirmed) }; }
@@ -348,7 +355,17 @@ function createAtomAPI(M, GROWTH_STD) {
         const roll=otOpen.reduce((a,o)=>a+o.Amount,0); const total=baseAmt+roll;
         // partial-payment view: sum of confirmed slips vs submitted-but-pending
         const confirmed=sumSlips_('bill', b.BillingID, ['CONFIRMED']); const submitted=sumSlips_('bill', b.BillingID, ['SUBMITTED']);
-        return Object.assign({},b,{Month:bm,Items:items,Amount:baseAmt,OTRollover:roll,TotalDue:total,PaidConfirmed:confirmed,PendingSubmitted:submitted,Outstanding:Math.max(0,total-confirmed)}); })
+        // advance payment covers this month's TUITION (plan price) only → credit it, extras still due.
+        const planPrice=Number(studentPlan(studentById(p.studentId)||{}).price||0);
+        const prepaidTuition = monthTuitionPrepaid_(p.studentId, bm) ? Math.min(planPrice, total) : 0;
+        const items2 = prepaidTuition>0 ? items.concat([['ค่าเทอม (ชำระล่วงหน้าแล้ว)', -prepaidTuition]]) : items;
+        const net = Math.max(0, total - prepaidTuition);              // due after the tuition credit
+        const outstanding = Math.max(0, net - confirmed);
+        let st = b.Status;
+        if((net>0 && outstanding===0) || (net===0 && prepaidTuition>0)) st='PAID';
+        else if(confirmed>0) st='PARTIAL';
+        return Object.assign({},b,{Month:bm,Items:items2,Amount:baseAmt,OTRollover:roll,TotalDue:net,GrossDue:total,Status:st,
+          PrepaidTuition:prepaidTuition,PaidConfirmed:confirmed,PendingSubmitted:submitted,Outstanding:outstanding}); })
       .sort((a,b)=>String(b.Month).localeCompare(String(a.Month))),
     // per-student extra charges (Admin)
     studentCharges: p => M.studentCharges.filter(c=>c.StudentID===p.studentId && (!p.month||ym(c.Month)===ym(p.month))),
@@ -649,8 +666,10 @@ function createAtomAPI(M, GROWTH_STD) {
         const b=bills.find(x=>x.Status==='PAID')||bills.find(x=>x.Status==='PARTIAL')||bills[0];
         const otOpen=M.otDaily.filter(o=>o.StudentID===s.StudentID&&ym(o.Date)===month&&otOpenRec(o)).reduce((a,o)=>a+o.Amount,0);
         const amount=b?Number(b.Amount||0):0; const due=amount+otOpen; const paid=!!b&&b.Status==='PAID';
-        // money actually IN = full amount if PAID, else the sum of CONFIRMED slips (partial)
-        const collected = b ? (paid?amount:sumSlips_('bill', b.BillingID, ['CONFIRMED'])) : 0;
+        // advance payment covers this month's tuition → counts as collected (extras/OT still tracked separately)
+        const prepaidTuition = monthTuitionPrepaid_(s.StudentID, month) ? Math.min(Number(studentPlan(s).price||0), due) : 0;
+        // money actually IN = full amount if PAID, else the sum of CONFIRMED slips (partial), + prepaid tuition
+        const collected = (b ? (paid?amount:sumSlips_('bill', b.BillingID, ['CONFIRMED'])) : 0) + prepaidTuition;
         return {studentId:s.StudentID,name:s.NameTH,nameEN:s.NameEN,plan:s.Plan,amount,collected,otOpen,due,paid,partial:!!b&&b.Status==='PARTIAL',status:b?b.Status:'NO_BILL',slipAmount:b?b.SlipAmount||0:0}; });
       const staff=M.staff.filter(s=>s.Role==='Teacher').map(s=>{ const pr=M.payroll.find(x=>x.StaffID===s.StaffID&&ym(x.Month)===month);
         return {staffId:s.StaffID,name:s.NameTH,nameEN:s.NameEN,net:pr?pr.NetPay:0,paid:!!pr&&pr.SlipSent==='YES',computed:!!pr}; });
@@ -1114,7 +1133,8 @@ function createAtomAPI(M, GROWTH_STD) {
         const bm=ym(b.Month); M.otDaily.filter(o=>o.StudentID===b.StudentID&&ym(o.Date)===bm&&otOpenRec(o)).forEach(o=>{o.Status='PAID';o.SlipRef=b.SlipUrl;o.PaidDate=paid;}); logAct('confirmPayment',b.BillingID,'ยืนยัน ('+(b.PaymentMethod||'transfer')+') '+b.SlipAmount+' จ่าย '+paid,actorOf(p)); return b; }
       if(p.kind==='ot'){ const o=M.otDaily.find(x=>x.OTID===p.id); if(!o)fail('NOT_FOUND','ไม่พบ OT'); o.Status='PAID'; o.PaidDate=paid; if(method)o.PaymentMethod=method; o.VerifiedStatus='CONFIRMED'; logAct('confirmPayment',o.OTID,'ยืนยัน ('+(o.PaymentMethod||'transfer')+') '+o.Amount+' จ่าย '+paid,actorOf(p)); return o; }
       if(p.kind==='prepay'){ const pp=M.prepayments.find(x=>x.PrepayID===p.id); if(!pp)fail('NOT_FOUND','ไม่พบรายการ'); pp.Status='PAID'; pp.PaidDate=paid; if(method)pp.PaymentMethod=method; pp.VerifiedBy=p.adminId||'admin';
-        const cov=(pp.Covered||[]).map(ym); M.payments.forEach(b=>{ if(b.StudentID===pp.StudentID&&cov.indexOf(ym(b.Month))>=0){ b.Status='PAID'; b.PaidDate=paid; b.VerifiedStatus='PREPAID'; } }); logAct('confirmPayment',pp.PrepayID,'ยืนยันชำระล่วงหน้า ('+(pp.PaymentMethod||'transfer')+') '+pp.Amount+' จ่าย '+paid,actorOf(p)); return pp; }
+        // tuition-only: don't flip the covered bills to PAID — the payments handler credits tuition per month.
+        logAct('confirmPayment',pp.PrepayID,'ยืนยันชำระล่วงหน้า (ค่าเทอม) ('+(pp.PaymentMethod||'transfer')+') '+pp.Amount+' จ่าย '+paid,actorOf(p)); return pp; }
       fail('BAD_KIND','ไม่ทราบประเภท'); },
     rejectPayment: p => {
       if(p.kind==='bill'){ const b=M.payments.find(x=>x.BillingID===p.id); if(b){b.Status='UNPAID';b.VerifiedStatus='REJECTED';b.SlipAmount=0;} }
