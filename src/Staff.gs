@@ -82,7 +82,7 @@ function mapName_(d) { var row = {}; for (var k in d) { if (d.hasOwnProperty(k))
 function handleSaveStudent(p) {
   p = p || {};
   var sh = sheet_(getMainSpreadsheet_(), 'STUDENTS');
-  try { ensureColumns_(sh, ['OTRate']); } catch (e) {}   // per-student OT rate override
+  try { ensureColumns_(sh, ['OTRate', 'StartTime', 'EndTime']); } catch (e) {}   // per-student OT rate + individual schedule
   var row = mapName_(p.data || {});
   var st = findObject_(sh, function (s) { return String(s.StudentID) === String(p.studentId); });
   if (!st) throw apiError_('NOT_FOUND', 'ไม่พบนักเรียน ' + p.studentId);

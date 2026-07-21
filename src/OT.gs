@@ -25,15 +25,23 @@ function otRateFor_(student) {
   if (r > 0) return r;
   return Number(getConfig_('OTRatePerHour', '100')) || 100;
 }
+/** The time a student is scheduled to leave. A per-student EndTime override (individual schedule,
+ *  e.g. 07:00–17:00 for one child vs 08:00–18:00 for another) wins; otherwise the plan's end.
+ *  This is what OT is measured against — so a child who ends at 18:00 is NOT charged from 17:00. */
+function otStudentEnd_(student) {
+  var e = String((student && (student.EndTime || student.LeaveTime)) || '').trim();
+  if (/^\d{1,2}:\d{2}/.test(e)) return toHHmm_(e);
+  return otPlanById_(student && student.Plan).end || '17:00';
+}
 /** {late, hours, amount, planEnd, rate} for a pickup time. Nothing charged inside the grace window. */
 function otComputeFor_(student, pickupHHMM) {
-  var plan = otPlanById_(student && student.Plan);
+  var planEnd = otStudentEnd_(student);
   var rate = otRateFor_(student);
-  var late = Math.max(0, otMinOfDay_(pickupHHMM) - otMinOfDay_(plan.end));
+  var late = Math.max(0, otMinOfDay_(pickupHHMM) - otMinOfDay_(planEnd));
   var grace = Number(getConfig_('OTGraceMinutes', '21')) || 21;
-  if (late <= grace) return { late: late, hours: 0, amount: 0, planEnd: plan.end, rate: rate };
+  if (late <= grace) return { late: late, hours: 0, amount: 0, planEnd: planEnd, rate: rate };
   var hours = Math.ceil(late / 60);
-  return { late: late, hours: hours, amount: hours * rate, planEnd: plan.end, rate: rate };
+  return { late: late, hours: hours, amount: hours * rate, planEnd: planEnd, rate: rate };
 }
 
 /**

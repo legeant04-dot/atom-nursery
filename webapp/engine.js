@@ -96,6 +96,10 @@ function createAtomAPI(M, GROWTH_STD) {
   // ---- plans / OT ----
   const planById = id => (cfg.Plans||[]).find(p=>p.id===id) || null;
   const studentPlan = s => planById(s&&s.Plan) || (cfg.Plans||[])[0] || {end:'17:00',price:0};
+  // Per-student leave time (individual schedule) overrides the plan end. OT is measured against THIS,
+  // so a child whose day ends 18:00/19:00 is never charged OT from 17:00. Blank → fall back to plan end.
+  const studentEndTime = s => { const e=String((s&&(s.EndTime||s.LeaveTime))||'').trim(); return /^\d{1,2}:\d{2}/.test(e) ? e.slice(0,5) : studentPlan(s).end; };
+  const studentStartTime = s => { const e=String((s&&s.StartTime)||'').trim(); return /^\d{1,2}:\d{2}/.test(e) ? e.slice(0,5) : (cfg.DefaultStudentIn||'08:00'); };
   // teacher OT hours: ≥OTRoundUpMinutes within an hour rounds up to a full hour
   function otHoursRule(min){ if(min<=0)return 0; const h=Math.floor(min/60), rem=min%60; return h+(rem>=Number(cfg.OTRoundUpMinutes||50)?1:0); }
   // Thai labour-law OT rate on a normal working day = 1.5 × hourly wage; monthly hourly = salary ÷ 30 ÷ 8.
@@ -155,10 +159,10 @@ function createAtomAPI(M, GROWTH_STD) {
   // per-student OT rate overrides the global OTRatePerHour when set (> 0)
   const otRateFor = student => { const r=Number(student&&student.OTRate); return r>0?r:Number(cfg.OTRatePerHour||100); };
   function otFor(student, pickupHHMM){
-    const plan=studentPlan(student); const late=Math.max(0, toMin(pickupHHMM)-toMin(plan.end));
+    const planEnd=studentEndTime(student); const late=Math.max(0, toMin(pickupHHMM)-toMin(planEnd));
     const grace=Number(cfg.OTGraceMinutes||21);
-    if(late<=grace) return {late, hours:0, amount:0, planEnd:plan.end, rate:otRateFor(student)};
-    const hours=Math.ceil(late/60); return {late, hours, amount:hours*otRateFor(student), planEnd:plan.end, rate:otRateFor(student)};
+    if(late<=grace) return {late, hours:0, amount:0, planEnd, rate:otRateFor(student)};
+    const hours=Math.ceil(late/60); return {late, hours, amount:hours*otRateFor(student), planEnd, rate:otRateFor(student)};
   }
 
   // ---- data-access links (a user sees only linked students) ----
@@ -389,8 +393,38 @@ function createAtomAPI(M, GROWTH_STD) {
       return M.otDaily.filter(o=>ym(o.Date)===month).sort((a,b)=>String(b.Date).localeCompare(String(a.Date))).map(o=>{
         const s=studentById(o.StudentID)||{};
         return { otId:o.OTID, date:o.Date, studentId:o.StudentID, name:s.NameTH, nameEN:s.NameEN,
+          nick:s.Nickname, nickEN:s.NicknameEN, class:s.Class, endTime:studentEndTime(s),
           planEnd:o.PlanEnd, pickupTime:o.PickupTime, lateMinutes:Number(o.LateMinutes||0), hours:Number(o.Hours||0),
           amount:Number(o.Amount||0), status:o.Status||'UNPAID', rate:otRateFor(s) }; }); },
+    // Teacher OT follow-up: outstanding student OT the teacher may act on. A homeroom teacher sees ONLY
+    // the students in the class(es) they cover; a head teacher / Leader / Admin sees all. Grouped by
+    // student with a running outstanding total so the teacher can chase payment or add a slip on behalf.
+    teacherStudentOtList: p => { const me=staffById(p.staffId)||{};
+      const covered=coveredClasses_(me).map(c=>c.ClassName);
+      const seeAll = me.PositionLevel==='Admin'||me.PositionLevel==='Leader'||me.Role==='Admin';
+      const canSee = s => seeAll || covered.indexOf(String(s.Class||''))>=0;
+      const month = p.month ? ym(p.month) : null;   // null = every month (all outstanding)
+      const rows=(M.otDaily||[]).filter(o=>{ if(month && ym(o.Date)!==month) return false;
+        const s=studentById(o.StudentID); return s && canSee(s); })
+        .sort((a,b)=>String(b.Date).localeCompare(String(a.Date)));
+      const byStudent={};
+      rows.forEach(o=>{ const s=studentById(o.StudentID)||{}; const sid=o.StudentID;
+        const confirmed=sumSlips_('ot',o.OTID,['CONFIRMED']); const submitted=sumSlips_('ot',o.OTID,['SUBMITTED','PENDING_VERIFY']);
+        const outstanding=OT_CLOSED[o.Status]?0:Math.max(0,Number(o.Amount||0)-confirmed);
+        const g=byStudent[sid]||(byStudent[sid]={studentId:sid,name:s.NameTH,nameEN:s.NameEN,nick:s.Nickname,nickEN:s.NicknameEN,class:s.Class,outstanding:0,items:[]});
+        g.outstanding+=outstanding;
+        g.items.push({otId:o.OTID,date:o.Date,pickupTime:o.PickupTime,planEnd:o.PlanEnd,hours:Number(o.Hours||0),
+          amount:Number(o.Amount||0),status:o.Status||'UNPAID',confirmed,submitted,outstanding}); });
+      const list=Object.keys(byStudent).map(k=>byStudent[k]).sort((a,b)=>b.outstanding-a.outstanding);
+      return { seeAll, classes:covered, totalOutstanding:list.reduce((a,s)=>a+s.outstanding,0), students:list }; },
+    // Teacher records a transfer slip for a student's OT on behalf of the parent — same slip pipeline
+    // as payOT, but gated to students the teacher covers (a homeroom teacher can't pay another class's OT).
+    teacherPayOT: p => { const me=staffById(p.staffId)||{}; const o=(M.otDaily||[]).find(x=>x.OTID===p.otId);
+      if(!o)fail('NOT_FOUND','ไม่พบรายการ OT'); const s=studentById(o.StudentID)||{};
+      const seeAll = me.PositionLevel==='Admin'||me.PositionLevel==='Leader'||me.Role==='Admin';
+      const covered=coveredClasses_(me).map(c=>c.ClassName);
+      if(!(seeAll || covered.indexOf(String(s.Class||''))>=0)) fail('NO_ACCESS','ครูดูแลได้เฉพาะนักเรียนในชั้นของตน');
+      return recordSlip_('ot', p.otId, p); },
     // recompute from a corrected pickup time, and/or override the amount outright. PAID rows are locked.
     adminUpdateOT: p => { const o=M.otDaily.find(x=>x.OTID===p.otId); if(!o)fail('NOT_FOUND','ไม่พบรายการ OT');
       if(o.Status==='PAID')fail('ALREADY_PAID','รายการนี้ชำระแล้ว แก้ไขไม่ได้');
