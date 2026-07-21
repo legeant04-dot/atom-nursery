@@ -1072,11 +1072,16 @@ function createAtomAPI(M, GROWTH_STD) {
       return {reqId:r.ReqID,status:r.Status}; },
 
     // ========== prepayment (advance tuition with discount) ==========
-    // months: 2→5%, 3→10%, 6→20%, 12→30%
-    prepayDiscount: m => ({2:5,3:10,6:20,12:30}[m]||0),
+    // Advance-tuition discount tiers (school policy): 2→5% · 3→10% · 6→15% · 12→20%.
+    // amount = monthlyPlanPrice × months × (100 − discount)/100. e.g. plan 6,900/mo:
+    //   2mo 5% = 13,110 (6,555/mo) · 3mo 10% = 18,630 (6,210/mo) · 6mo 15% = 35,190 (5,865/mo) · 12mo 20% = 66,240 (5,520/mo).
+    prepayDiscount: m => ({2:5,3:10,6:15,12:20}[m]||0),
     // create a PENDING prepay charge (summarized on the payment screen) — paid via QR + slip like the monthly bill
     prepay: p => { const s=studentById(p.studentId); if(!s)fail('NOT_FOUND','ไม่พบนักเรียน');
-      const months=Number(p.months); const disc=H.prepayDiscount(months); const plan=studentPlan(s); const monthly=plan.price||0;
+      const months=Number(p.months); const disc=H.prepayDiscount(months); const plan=studentPlan(s); const monthly=Number(plan.price||0);
+      if(!disc) fail('BAD_INPUT','เลือกจำนวนเดือนที่ชำระล่วงหน้า (2, 3, 6 หรือ 12 เดือน)');
+      // Advance payment is priced off the student's monthly plan price — it MUST be set, or the amount is meaningless.
+      if(!(monthly>0)) fail('NO_PLAN_PRICE','นักเรียนคนนี้ยังไม่ได้ตั้งแผนการเรียน/ราคาต่อเดือน — กรุณาให้แอดมินตั้งค่าแผนก่อนชำระล่วงหน้า');
       const gross=monthly*months; const amount=Math.round(gross*(100-disc)/100);
       const start=p.startMonth||todayLocal().slice(0,7); const covered=[]; let [y,mo]=start.split('-').map(Number);
       for(let i=0;i<months;i++){ covered.push(y+'-'+String(mo).padStart(2,'0')); mo++; if(mo>12){mo=1;y++;} }
