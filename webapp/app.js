@@ -24,7 +24,7 @@
     window.api=function(action,payload,opts){ if(!_isMut(action)) return _rawApi(action,payload,opts);
       _busyShow(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _busyHide(); throw e; }
       return Promise.resolve(pr).finally(_busyHide); }; }
-  const APP_VERSION = 'Version 1.090'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.091'; // bump each webapp change; shown only at the bottom of the Chat screen
   const verTag = () => `<div style="text-align:center;color:#c3c9d4;font-size:10px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
   const phoneFmt = p => { let d=String(p==null?'':p).replace(/\D/g,''); if(d.length===9) d='0'+d; return d; };
@@ -853,10 +853,18 @@
     }).join('')}`;
   };
   // prepay with discount: 2mo -5%, 3mo -10%, 6mo -20%, 12mo -30%
-  window.P_prepay=async(sid)=>{ const s=MOCK.students.find(x=>x.StudentID===sid)||{}; const plan=MOCK.config.Plans.find(p=>p.id===s.Plan)||{price:0};
-    const opt=(mo,disc)=>{ const gross=plan.price*mo, amt=Math.round(gross*(100-disc)/100); return `<button class="role-card" onclick="P_prepayDo('${sid}',${mo})"><span class="ic">${mo}</span><span><b>${esc(t('prepay.months').replace('{n}',mo))} · -${disc}%</b><br><small>${baht(gross)} → <b>${baht(amt)}</b></small></span></button>`; };
-    modal(`<h3>💰 ${esc(t('prepay.title'))}</h3><p class="muted" style="font-size:12px">${esc(planLabel(s.Plan))} · ${baht(plan.price)}/${EN()?'mo':'เดือน'}</p>
-      ${opt(2,5)}${opt(3,10)}${opt(6,20)}${opt(12,30)}
+  // Advance-tuition tiers must MATCH the engine (prepayDiscount): 2→5% · 3→10% · 6→15% · 12→20%.
+  // The monthly price is fetched from the server (studentBillBase) so the preview equals the real charge
+  // — never computed from the local MOCK seed, which differs from the student's real plan in gas mode.
+  const PREPAY_TIERS=[[2,5],[3,10],[6,15],[12,20]];
+  window.P_prepay=async(sid)=>{ const base=await api('studentBillBase',{studentId:sid}); const price=Number(base&&base.price||0);
+    const label=(EN()?(base&&base.labelEN):(base&&base.labelTH))||planLabel((MOCK.students.find(x=>x.StudentID===sid)||{}).Plan);
+    const opt=([mo,disc])=>{ const gross=price*mo, amt=Math.round(gross*(100-disc)/100), per=Math.round(amt/mo);
+      return `<button class="role-card" onclick="P_prepayDo('${sid}',${mo})"><span class="ic">${mo}</span><span><b>${esc(t('prepay.months').replace('{n}',mo))} · -${disc}%</b><br><small>${baht(gross)} → <b>${baht(amt)}</b> <span class="muted">(${EN()?'avg':'เฉลี่ย'} ${baht(per)}/${EN()?'mo':'เดือน'})</span></small></span></button>`; };
+    const body = price>0 ? PREPAY_TIERS.map(opt).join('')
+      : `<div class="card" style="background:#fff3e0;border-color:#ffcc80;color:#e65100">⚠️ ${EN()?'This child has no monthly plan price set yet — please ask the admin to set the plan before paying in advance.':'นักเรียนคนนี้ยังไม่ได้ตั้งราคาแผนรายเดือน — กรุณาติดต่อแอดมินให้ตั้งค่าแผนก่อนชำระล่วงหน้า'}</div>`;
+    modal(`<h3>💰 ${esc(t('prepay.title'))}</h3><p class="muted" style="font-size:12px">${esc(label)} · ${baht(price)}/${EN()?'mo':'เดือน'}</p>
+      ${body}
       <button class="btn outline block" style="margin-top:8px" onclick="this.closest('.modal').remove()">${esc(t('c.close'))}</button>`);
   };
   window.P_prepayDo=async(sid,months)=>{ try{ const r=await api('prepay',{studentId:sid,months}); const m=document.querySelector('.modal'); if(m)m.remove();
