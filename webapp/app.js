@@ -11,7 +11,7 @@
   // user can't double-tap a button or resubmit while the request is in flight. Reads are never covered
   // (they paint from cache instantly). Wraps window.api once, after api.js has defined it.
   const _mutRe = /^(submit|save|add|remove|delete|set|register|pay|upload|confirm|reject|issue|generate|move|export|import|compute|cancel|prepay|link|notify|request|mark|approve|edit|rename|update|change|seed|dedup|reindex)/i;
-  const _isMut = a => _mutRe.test(a) || /check(in|out)|absence|payOT$|^orgMove/i.test(a);
+  const _isMut = a => _mutRe.test(a) || /check(in|out)|absence|payOT$|^orgMove|^unlink/i.test(a);
   const _busyTxt = () => (typeof EN==='function' && EN()) ? 'Processing…' : 'ระบบกำลังดำเนินการ…';
   let _busyN = 0, _busyEl = null;
   function _busyShow(){ if(++_busyN!==1) return;
@@ -24,7 +24,7 @@
     window.api=function(action,payload,opts){ if(!_isMut(action)) return _rawApi(action,payload,opts);
       _busyShow(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _busyHide(); throw e; }
       return Promise.resolve(pr).finally(_busyHide); }; }
-  const APP_VERSION = 'Version 1.089'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.090'; // bump each webapp change; shown only at the bottom of the Chat screen
   const verTag = () => `<div style="text-align:center;color:#c3c9d4;font-size:10px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
   const phoneFmt = p => { let d=String(p==null?'':p).replace(/\D/g,''); if(d.length===9) d='0'+d; return d; };
@@ -2036,8 +2036,18 @@
         ${f('InsuranceExpiry',t('ins.expiry'),s.InsuranceExpiry,'date')}
         ${photoField('stf_InsCard',t('ins.card'),s.InsuranceCardImage,false)}</div>
       ${s.DriveFolderUrl?`<div class="card" style="background:#f7f9fc;padding:8px"><small class="muted">📁 ${esc(t('folder.student'))}<br><code style="font-size:11px">${esc(s.DriveFolderUrl)}</code><br>${esc(t('folder.note'))}</small></div>`:''}
+      ${id?`<button class="btn block outline" onclick="A_studentLinks('${id}')">🔗 ${EN()?'Linked parents / unlink':'ผู้ปกครองที่ผูก / ยกเลิกการผูก'}</button>`:''}
       <button class="btn block" onclick="A_saveStudent(this,'${id}')">${esc(t('c.save'))}</button>`);
   };
+  // Admin: list the parents linked to a child and unlink one (child stays enrolled — this is NOT a withdrawal).
+  window.A_studentLinks=async(sid)=>{ const d=await api('studentLinkedParents',{studentId:sid});
+    modal(`<h3>🔗 ${EN()?'Linked parents':'ผู้ปกครองที่ผูกกับ'} ${esc(d.nick||d.name||sid)}</h3>
+      <p class="muted" style="font-size:12px">${EN()?'Unlink detaches this parent from the child. The child stays enrolled (this is not a withdrawal).':'ยกเลิกการผูก = ตัดผู้ปกครองคนนี้ออกจากเด็ก โดยเด็กยังเรียนอยู่ในระบบ (ไม่ใช่การลาออก)'}</p>
+      ${(d.parents||[]).length?d.parents.map(pa=>`<div class="list-item"><span><b>${esc(pa.nick||pa.name||pa.parentId||pa.uid)}</b> ${pa.phone?`<small class="muted">${esc(phoneFmt(pa.phone))}</small>`:''} <span class="pill info" style="font-size:10px">${pa.via==='link'?'LINE':'legacy'}</span></span><button class="btn sm pink" onclick="A_unlink('${esc(sid)}','${esc(pa.parentId||'')}','${esc(pa.uid||'')}',this)">✂️ ${EN()?'Unlink':'ยกเลิกผูก'}</button></div>`).join(''):`<div class="card muted">${EN()?'No linked parents':'ไม่มีผู้ปกครองที่ผูกอยู่'}</div>`}
+      <button class="btn outline block" style="margin-top:8px" onclick="this.closest('.modal').remove()">${esc(t('c.close'))}</button>`);
+  };
+  window.A_unlink=async(sid,parentId,uid,btn)=>{ if(!confirm(EN()?'Unlink this parent from the child? The child stays enrolled.':'ยืนยันยกเลิกการผูกผู้ปกครองคนนี้ออกจากเด็ก? (เด็กยังเรียนอยู่)'))return; if(btn)btn.disabled=true;
+    try{ const r=await api('unlinkStudent',{studentId:sid,parentId:parentId||undefined,uid:uid||undefined,adminId:USER.staffId}); toast((EN()?'Unlinked · removed ':'ยกเลิกการผูกแล้ว · ตัด ')+(r&&r.removed!=null?r.removed:'')+(EN()?' link(s)':' รายการ')); const m=document.querySelector('.modal'); if(m)m.remove(); A_studentLinks(sid); }catch(e){ err(e); if(btn)btn.disabled=false; } };
   window.A_saveStudent=async(btn,id)=>{ const m=btn.closest('.modal'); const v=k=>{ const e=m.querySelector('#stf_'+k); return e?e.value.trim():''; };
     const data={NameTH:v('NameTH'),NameEN:v('NameEN'),Nickname:v('Nickname'),NicknameEN:v('NicknameEN'),NationalID:v('NationalID'),Class:v('Class'),Plan:v('Plan'),Allergy:v('Allergy'),MedicalHistory:v('MedicalHistory'),
       InsuranceHas:m.querySelector('#stf_Ins').checked,InsurancePolicyNo:v('InsurancePolicyNo'),InsuranceCompany:v('InsuranceCompany'),InsuranceExpiry:v('InsuranceExpiry'),

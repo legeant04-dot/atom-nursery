@@ -754,6 +754,26 @@ function createAtomAPI(M, GROWTH_STD) {
     linkExisting: p => { const s=M.students.find(x=>String(x.NationalID)===String(p.nationalId).trim()); if(!s)fail('NOT_FOUND','เลขบัตรไม่ตรงกับนักเรียนในระบบ');
       if(p.uid && !M.userLinks.find(l=>l.UserUID===p.uid&&l.StudentID===s.StudentID)) M.userLinks.push({UserUID:p.uid,StudentID:s.StudentID,VerifiedBy:'verify',Date:todayLocal()});
       return {studentId:s.StudentID,name:s.NameTH,nameEN:s.NameEN}; },
+    // Admin: parents currently linked to a student — via USER_LINKS (LINE uid) or legacy STUDENTS.ParentID.
+    studentLinkedParents: p => { const s=studentById(p.studentId); if(!s)fail('NOT_FOUND','ไม่พบนักเรียน');
+      const out=[], seen={};
+      (M.userLinks||[]).filter(l=>String(l.StudentID)===String(p.studentId)).forEach(l=>{
+        const pa=(M.parents||[]).find(x=>String(x.LineUID)===String(l.UserUID));
+        if(seen['uid:'+l.UserUID])return; seen['uid:'+l.UserUID]=1;
+        out.push({parentId:pa?pa.ParentID:'', uid:l.UserUID, name:pa?(pa.NameTH||pa.Name):l.UserUID, nick:pa?pa.Nickname:'', phone:pa?pa.Phone:'', via:'link'}); });
+      (M.parents||[]).filter(pa=>String(pa.StudentID)===String(p.studentId)||pa.ParentID===s.ParentID).forEach(pa=>{
+        if(seen['pid:'+pa.ParentID]||(pa.LineUID&&seen['uid:'+pa.LineUID]))return; seen['pid:'+pa.ParentID]=1;
+        out.push({parentId:pa.ParentID, uid:pa.LineUID||'', name:pa.NameTH||pa.Name, nick:pa.Nickname, phone:pa.Phone, via:'legacy'}); });
+      return {studentId:p.studentId, name:s.NameTH, nick:s.Nickname, parents:out}; },
+    // Admin: detach ONE parent from a child (keeps the child enrolled). GAS routes this to an in-place
+    // handler (USER_LINKS is a no-shrink sheet — the engine's full rewrite would be blocked by WRITE_GUARD).
+    unlinkStudent: p => { const s=studentById(p.studentId); if(!s)fail('NOT_FOUND','ไม่พบนักเรียน');
+      let uid=p.uid||''; if(!uid&&p.parentId){ const pa=(M.parents||[]).find(x=>x.ParentID===p.parentId); if(pa)uid=pa.LineUID; }
+      const before=(M.userLinks||[]).length;
+      M.userLinks=(M.userLinks||[]).filter(l=>!(String(l.StudentID)===String(p.studentId) && uid && String(l.UserUID)===String(uid)));
+      if(p.parentId && s.ParentID===p.parentId) s.ParentID='';
+      logAct('unlinkStudent',p.studentId,'ยกเลิกผูก '+(p.parentId||uid),actorOf(p));
+      return {ok:true, removed:before-(M.userLinks||[]).length}; },
 
     // ========== Group C: growth update ==========
     growthDue: p => { const s=studentById(p.studentId); if(!s)return{due:false};
