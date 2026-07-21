@@ -90,6 +90,14 @@ var ROUTES = {
   deleteStudentLeaves:  function (p) { return handleDeleteStudentLeaves(p); },   // batch, admin-only
   dedupData:            function (p) { return handleDedupData(p); },        // {preview:true} read-only; else applies
   lineDiag:             function (p) { return handleLineDiag(p); },          // admin-only: LINE push quota/token check
+  // notifications: the 🔔 bell now serves the in-app Admin inbox (cuts LINE admin pushes). Injury is an
+  // emergency (always LINE + optional parent). reinstallTriggers refreshes the 10:00/20:00 digest schedule.
+  notifications:        function (p) { return handleNotifications(p); },
+  markNotifsRead:       function (p) { return handleMarkNotifsRead(p); },
+  adminInbox:           function (p) { return handleAdminInbox(p); },
+  markInboxRead:        function (p) { return handleMarkInboxRead(p); },
+  submitInjury:         function (p) { return handleSubmitInjury(p); },
+  reinstallTriggers:    function (p) { return handleReinstallTriggers(p); },   // admin-only
   // Big Cleaning Day (admin-managed workday, no fixed hours, diligence bonus)
   bigCleaningDays:  function ()  { return handleBigCleaningDays(); },
   addBigCleaning:   function (p) { return handleAddBigCleaning(p); },
@@ -176,7 +184,8 @@ function applyIdentity_(action, payload, sess) {
     decideClassChange: 1, confirmTimeRequest: 1,
     addAnnouncement: 1, editAnnouncement: 1, deleteAnnouncement: 1, reindexAnnouncements: 1, reindexParents: 1, checkDuplicateIds: 1,
     saveDspmCriteria: 1, deleteDspmCriteria: 1,
-    editStudentLeave: 1, deleteStudentLeave: 1, deleteStudentLeaves: 1, dedupData: 1, lineDiag: 1 };
+    editStudentLeave: 1, deleteStudentLeave: 1, deleteStudentLeaves: 1, dedupData: 1, lineDiag: 1,
+    adminInbox: 1, markInboxRead: 1, reinstallTriggers: 1 };
   if (ADMIN_ONLY[action] && sess.role !== 'Admin') throw apiError_('NO_PERMISSION', 'เฉพาะแอดมิน');
   // Admin is fully trusted: may target ANY staff/student/parent (manage everyone + "view as" any role).
   if (sess.role === 'Admin') return payload;
