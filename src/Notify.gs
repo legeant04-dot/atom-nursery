@@ -43,7 +43,12 @@ function handleAdminInbox(p) {
   var sh = getMainSpreadsheet_().getSheetByName('ADMIN_INBOX');
   if (!sh) return { items: [], unread: 0 };
   var rows = readObjects_(sh).map(function (r) {
-    return { id: r.InboxID, date: inboxFmtDate_(r.Date), category: r.Category, text: r.Text, read: String(r.Read) === 'YES' };
+    // Prefer the epoch ms embedded in InboxID (IN-<ms>-…): an absolute instant, so formatting in tz_()
+    // is always correct regardless of the spreadsheet's own timezone (the Date cell can be re-parsed in
+    // the wrong TZ → an 11h shift). Fall back to the cell only when the id has no ms.
+    var mm = /^IN-(\d+)-/.exec(String(r.InboxID || ''));
+    var disp = mm ? Utilities.formatDate(new Date(parseInt(mm[1], 10)), tz_(), 'dd/MM HH:mm') : inboxFmtDate_(r.Date);
+    return { id: r.InboxID, date: disp, category: r.Category, text: r.Text, read: String(r.Read) === 'YES' };
   });
   rows.sort(function (a, b) { return String(b.id).localeCompare(String(a.id)); });
   return { items: rows.slice(0, 100), unread: rows.filter(function (r) { return !r.read; }).length };
