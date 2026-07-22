@@ -86,6 +86,35 @@ function paySlipRecord_(kind, refId, p) {
   return { ok: true, slipId: slipId, due: tgt.due, paidSoFar: submitted, outstanding: Math.max(0, tgt.due - confirmed), amountMatch: submitted >= tgt.due, verified: vr.verified };
 }
 
+// Audit (and optionally repair) bills wrongly marked fully PAID/PREPAID by the OLD prepay logic
+// (before prepay was changed to cover TUITION ONLY). {apply:true} resets those bills so the current
+// tuition-credit logic takes over (extras become due again). Admin-only. Read-only without apply.
+function handlePrepayAudit(p) {
+  p = p || {};
+  var ss = getMainSpreadsheet_();
+  var pps = readObjects_(sheet_(ss, 'PREPAYMENTS')).filter(function (x) { return String(x.Status) === 'PAID'; });
+  var billSh = sheet_(ss, 'BILLING');
+  var bills = readObjects_(billSh);
+  var students = readObjects_(sheet_(ss, 'STUDENTS'));
+  function sName(id) { for (var i = 0; i < students.length; i++) if (String(students[i].StudentID) === String(id)) return students[i].Nickname || students[i].Name || id; return id; }
+  var flagged = [], repaired = 0;
+  pps.forEach(function (pp) {
+    var cov = pp.Covered; if (typeof cov === 'string') { try { cov = JSON.parse(cov); } catch (e) { cov = []; } }
+    cov = (cov || []).map(function (m) { return String(m).slice(0, 7); });
+    bills.forEach(function (b) {
+      if (String(b.StudentID) === String(pp.StudentID) && cov.indexOf(String(b.Month).slice(0, 7)) >= 0 &&
+          (String(b.VerifiedStatus) === 'PREPAID' || String(b.Status) === 'PAID')) {
+        flagged.push({ student: sName(pp.StudentID), prepayId: pp.PrepayID, month: String(b.Month).slice(0, 7),
+          billingId: b.BillingID, status: b.Status, verified: b.VerifiedStatus, amount: Number(b.Amount || 0) });
+        // repair ONLY the bug's marker (VerifiedStatus PREPAID); never touch a bill the family truly paid.
+        if (p.apply && String(b.VerifiedStatus) === 'PREPAID') { updateRow_(billSh, b._row, { Status: 'UNPAID', VerifiedStatus: '', PaidDate: '' }); repaired++; }
+      }
+    });
+  });
+  if (p.apply) recCacheBust_('BILLING');
+  return { prepaysPaid: pps.length, flaggedBills: flagged.length, repaired: repaired, applied: !!p.apply, items: flagged.slice(0, 200) };
+}
+
 function handleUploadSlip(p) { return paySlipRecord_('bill', p.billingId, p); }
 function handlePayOT(p) { return paySlipRecord_('ot', p.otId, p); }
 function handlePayPrepay(p) { return paySlipRecord_('prepay', p.prepayId, p); }

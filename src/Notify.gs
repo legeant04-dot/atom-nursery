@@ -30,15 +30,22 @@ function inboxAdd_(category, text) {
   } catch (e) { try { Logger.log('inboxAdd_ ' + e.message); } catch (x) {} }
 }
 
-/** Admin reads the inbox (newest first). Non-admins get nothing. */
+/** Format an inbox Date cell for display. Sheets often coerces the stored "YYYY-MM-DD HH:mm" text into a
+ *  Date object, whose String() is "Thu Jul 22 2026 …" — format it back to a clean "dd/MM HH:mm". */
+function inboxFmtDate_(d) {
+  if (d instanceof Date) { try { return Utilities.formatDate(d, tz_(), 'dd/MM HH:mm'); } catch (e) { return ''; } }
+  return String(d || '').slice(0, 16);
+}
+/** Admin reads the inbox (newest first). Non-admins get nothing. Sort by InboxID (IN-<ms>-…) so it's
+ *  chronological regardless of how the Date cell was stored. */
 function handleAdminInbox(p) {
   p = p || {};
   var sh = getMainSpreadsheet_().getSheetByName('ADMIN_INBOX');
   if (!sh) return { items: [], unread: 0 };
   var rows = readObjects_(sh).map(function (r) {
-    return { id: r.InboxID, date: r.Date, category: r.Category, text: r.Text, read: String(r.Read) === 'YES' };
+    return { id: r.InboxID, date: inboxFmtDate_(r.Date), category: r.Category, text: r.Text, read: String(r.Read) === 'YES' };
   });
-  rows.sort(function (a, b) { return String(b.date).localeCompare(String(a.date)); });
+  rows.sort(function (a, b) { return String(b.id).localeCompare(String(a.id)); });
   return { items: rows.slice(0, 100), unread: rows.filter(function (r) { return !r.read; }).length };
 }
 function handleMarkInboxRead(p) {
