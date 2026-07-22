@@ -54,7 +54,8 @@ function handleParentCheckin(payload) {
   logAudit(parent.ParentID, 'STUDENT_CHECK' + type, 'CHECKIN_STUDENT', student.StudentID);
 
   var verb = (type === 'IN') ? 'มาถึงโรงเรียนแล้ว' : 'ผู้ปกครองรับกลับแล้ว';
-  notifyStudentTeacher_(student, '👶 ' + student.Name + ' ' + verb + ' (' + timeStr_(now) + ')');
+  // routine check-in/out: notify covering teachers only — do NOT fall back to the Admin inbox (avoids flooding it)
+  notifyStudentTeacher_(student, '👶 ' + student.Name + ' ' + verb + ' (' + timeStr_(now) + ')', { adminFallback: false });
 
   // late pickup → create/refresh the OT charge (it then rolls into this month's bill)
   var ot = null;
@@ -150,7 +151,8 @@ function staffCoversClass_(s, className) {
  * homeroom teacher AND any staff whose Department/Classes includes the student's class (so e.g. ครูจอย
  * who looks after Nursery Baby is notified even without a CLASSES row). Dedupes by LineUID.
  */
-function notifyStudentTeacher_(student, text) {
+function notifyStudentTeacher_(student, text, opts) {
+  opts = opts || {};
   var seen = {}, sent = false;
   var push = function (uid) { if (uid && !seen[uid]) { seen[uid] = 1; if (linePushText_(uid, text)) sent = true; } };
   // 1) homeroom teacher from CLASSES
@@ -164,7 +166,9 @@ function notifyStudentTeacher_(student, text) {
   readObjects_(sheet_(getHrSpreadsheet_(), 'STAFF')).forEach(function (s) {
     if (s.LineUID && String(s.Role) !== 'Admin' && String(s.Status || 'ACTIVE') === 'ACTIVE' && staffCoversClass_(s, student.Class)) push(s.LineUID);
   });
-  if (!sent) notifyAdmins_(text); // fallback so the message is never lost
+  // Fallback to the Admin in-app inbox only when asked. Routine check-in/out pass adminFallback:false so
+  // they don't flood the inbox (every drop-off/pickup); leaves keep the fallback so they're never lost.
+  if (!sent && opts.adminFallback !== false) notifyAdmins_(text);
   return sent;
 }
 
