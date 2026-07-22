@@ -676,9 +676,9 @@ function createAtomAPI(M, GROWTH_STD) {
         const prepaidTuition = monthTuitionPrepaid_(s.StudentID, month) ? Math.min(Number(studentPlan(s).price||0), due) : 0;
         // money actually IN = full amount if PAID, else the sum of CONFIRMED slips (partial), + prepaid tuition
         const collected = (b ? (paid?amount:sumSlips_('bill', b.BillingID, ['CONFIRMED'])) : 0) + prepaidTuition;
-        return {studentId:s.StudentID,name:s.NameTH,nameEN:s.NameEN,plan:s.Plan,amount,collected,otOpen,due,paid,partial:!!b&&b.Status==='PARTIAL',status:b?b.Status:'NO_BILL',slipAmount:b?b.SlipAmount||0:0}; });
+        return {studentId:s.StudentID,name:s.NameTH,nameEN:s.NameEN,nick:s.Nickname,nickEN:s.NicknameEN,plan:s.Plan,amount,collected,otOpen,due,paid,partial:!!b&&b.Status==='PARTIAL',status:b?b.Status:'NO_BILL',slipAmount:b?b.SlipAmount||0:0}; });
       const staff=M.staff.filter(s=>s.Role==='Teacher').map(s=>{ const pr=M.payroll.find(x=>x.StaffID===s.StaffID&&ym(x.Month)===month);
-        return {staffId:s.StaffID,name:s.NameTH,nameEN:s.NameEN,net:pr?pr.NetPay:0,paid:!!pr&&pr.SlipSent==='YES',computed:!!pr}; });
+        return {staffId:s.StaffID,name:s.NameTH,nameEN:s.NameEN,nick:s.Nickname,nickEN:s.NicknameEN,net:pr?pr.NetPay:0,paid:!!pr&&pr.SlipSent==='YES',computed:!!pr}; });
       const tuitionCollected=students.reduce((a,s)=>a+(s.collected||0),0);
       const otCollected=M.otDaily.filter(o=>ym(o.Date)===month&&o.Status==='PAID').reduce((a,o)=>a+o.Amount,0);
       const tuitionOutstanding=students.reduce((a,s)=>a+Math.max(0,s.due-(s.collected||0)),0);
