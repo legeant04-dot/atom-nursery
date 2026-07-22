@@ -119,9 +119,13 @@ function createAtomAPI(M, GROWTH_STD) {
   // check-in/out time (no lateness), and attendance credits a diligence bonus (เบี้ยขยัน).
   function bigCleaningList_(){ const v=cfg.BigCleaningDays; return (Array.isArray(v)?v:String(v||'').split(',')).map(x=>String(x).trim()).filter(Boolean); }
   const isBigCleaning_ = date => bigCleaningList_().indexOf(String(date))>=0;
-  // enrich an OT record with the staff's names for display (approval lists / admin manage)
-  function otView_(r){ const s=staffById_(r.StaffID); return Object.assign({}, r,
-    {name:s.NameTH,nameEN:s.NameEN,nick:s.Nickname,nickEN:s.NicknameEN,dept:s.Department}); }
+  // enrich an OT record with the staff's names + that day's check-in / check-out (so the approver can see
+  // when they arrived vs when they left — the leave time is what drove the OT).
+  function otView_(r){ const s=staffById_(r.StaffID); let ci='', co='';
+    if(ymd(r.Date)===todayLocal()){ const a=(M.staffAttendanceToday||[]).find(x=>x.StaffID===r.StaffID); if(a){ci=a.CheckIn||'';co=a.CheckOut||'';} }
+    else { const a=(M.staffAttendanceHistory||[]).find(x=>x.StaffID===r.StaffID&&ymd(x.Date)===ymd(r.Date)); if(a){ci=a.In||a.CheckIn||'';co=a.Out||a.CheckOut||'';} }
+    return Object.assign({}, r, {name:s.NameTH,nameEN:s.NameEN,nick:s.Nickname,nickEN:s.NicknameEN,dept:s.Department,
+      CheckIn:ci, CheckOutActual:co||r.ActualOut||''}); }
   // enrich a leave request with the requester's names (so lists show a nickname, not STF-xxx)
   function leaveView_(l){ const s=staffById_(l.StaffID); return Object.assign({}, l,
     {name:s.NameTH,nameEN:s.NameEN,nick:s.Nickname,nickEN:s.NicknameEN}); }
@@ -262,6 +266,12 @@ function createAtomAPI(M, GROWTH_STD) {
     // ---------- Parent ----------
     parentChildren: p => visibleStudents(p).map(s=>Object.assign({ageMonth:ageMonths(s.DOB)},s)),
     getPlans: () => cfg.Plans||[],
+    // Admin package (Plan) CRUD: the client sends the FULL plans array (add/edit/delete applied client-side).
+    // Each plan: {id, labelTH, labelEN, price, start:'HH:MM', end:'HH:MM'}. On GAS a route persists the JSON
+    // to SCHOOL_CONFIG (in-place); in mock this just replaces cfg.Plans in memory.
+    savePlans: p => { const arr=Array.isArray(p.plans)?p.plans:[];
+      arr.forEach(pl=>{ if(!pl.id) pl.id='pkg_'+Math.random().toString(36).slice(2,8); pl.price=Number(pl.price||0); });
+      cfg.Plans=arr; return {ok:true, plans:cfg.Plans}; },
     parentCheckin: p => { const d=geo(p.lat,p.lng); const t=timeLocal();
       // de-dup a rapid repeat (same student+type today within CheckinDedupMinutes) → keep only the latest time
       const win=Number(cfg.CheckinDedupMinutes||10); const nowMin=toMin(t);

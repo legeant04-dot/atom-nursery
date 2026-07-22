@@ -202,6 +202,16 @@ function handleSetSchoolConfig(p) {
   return { ok: true, wrote: wrote };
 }
 
+// Admin package (Plan) CRUD — persist the full Plans array as JSON in SCHOOL_CONFIG (in-place). Admin-only.
+// hydrateConfig_ JSON-parses it back into cfg.Plans (an array) on the next request.
+function handleSavePlans(p) {
+  p = p || {};
+  var arr = (p.plans && p.plans.length) ? p.plans : [];
+  arr.forEach(function (pl) { if (!pl.id) pl.id = 'pkg_' + Math.random().toString(36).slice(2, 8); pl.price = Number(pl.price || 0); });
+  setConfigValue_('Plans', JSON.stringify(arr));
+  return { ok: true, plans: arr };
+}
+
 // Admin deletes a bill in-place (one BILLING row). Admin-only (guarded in applyIdentity_).
 function handleDeleteBill(p) {
   p = p || {};

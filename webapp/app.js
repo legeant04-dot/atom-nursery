@@ -12,19 +12,25 @@
   // (they paint from cache instantly). Wraps window.api once, after api.js has defined it.
   const _mutRe = /^(submit|save|add|remove|delete|set|register|pay|upload|confirm|reject|issue|generate|move|export|import|compute|cancel|prepay|link|notify|request|mark|approve|edit|rename|update|change|seed|dedup|reindex)/i;
   const _isMut = a => _mutRe.test(a) || /check(in|out)|absence|payOT$|^orgMove|^unlink/i.test(a);
-  const _busyTxt = () => (typeof EN==='function' && EN()) ? 'Processing…' : 'ระบบกำลังดำเนินการ…';
-  let _busyN = 0, _busyEl = null;
-  function _busyShow(){ if(++_busyN!==1) return;
-    if(!_busyEl){ _busyEl=document.createElement('div'); _busyEl.id='busyOverlay';
-      _busyEl.innerHTML='<div class="busy-box"><div class="busy-spin"></div><div class="busy-txt"></div></div>';
-      document.body.appendChild(_busyEl); }
-    _busyEl.querySelector('.busy-txt').textContent=_busyTxt(); _busyEl.classList.add('on'); }
-  function _busyHide(){ if(_busyN>0)_busyN--; if(_busyN===0&&_busyEl) _busyEl.classList.remove('on'); }
+  const _EN = () => (typeof EN==='function' && EN());
+  const _busyTxt = () => _EN() ? 'Processing…' : 'ระบบกำลังดำเนินการ…';
+  let _busyN = 0, _busyEl = null, _busyFail = false, _busyOkT = null;
+  function _busyEnsure(){ if(!_busyEl){ _busyEl=document.createElement('div'); _busyEl.id='busyOverlay';
+      _busyEl.innerHTML='<div class="busy-box"><div class="busy-spin"></div><div class="busy-check">✓</div><div class="busy-txt"></div></div>';
+      document.body.appendChild(_busyEl); } return _busyEl; }
+  function _busyShow(){ if(++_busyN!==1) return; clearTimeout(_busyOkT); const el=_busyEnsure();
+    el.classList.remove('ok'); el.querySelector('.busy-txt').textContent=_busyTxt(); el.classList.add('on'); }
+  // On the LAST in-flight mutation finishing: flash a green ✓ "สำเร็จ" for feedback (unless something failed),
+  // then hide. Any role, any add/edit/delete → the user always sees "processing" then "done".
+  function _busyDone(ok){ if(!ok) _busyFail=true; if(_busyN>0)_busyN--; if(_busyN!==0||!_busyEl) return;
+    if(_busyFail){ _busyFail=false; _busyEl.classList.remove('on','ok'); return; }
+    _busyFail=false; _busyEl.classList.add('ok'); _busyEl.querySelector('.busy-txt').textContent=_EN()?'Done':'สำเร็จ';
+    clearTimeout(_busyOkT); _busyOkT=setTimeout(()=>{ if(_busyN===0&&_busyEl){ _busyEl.classList.remove('on','ok'); _busyEl.querySelector('.busy-txt').textContent=_busyTxt(); } }, 750); }
   if(window.api && !window.__apiBusyWrapped){ window.__apiBusyWrapped=true; const _rawApi=window.api;
     window.api=function(action,payload,opts){ if(!_isMut(action)) return _rawApi(action,payload,opts);
-      _busyShow(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _busyHide(); throw e; }
-      return Promise.resolve(pr).finally(_busyHide); }; }
-  const APP_VERSION = 'Version 1.092'; // bump each webapp change; shown only at the bottom of the Chat screen
+      _busyShow(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _busyDone(false); throw e; }
+      return Promise.resolve(pr).then(v=>{ _busyDone(true); return v; }, e=>{ _busyDone(false); throw e; }); }; }
+  const APP_VERSION = 'Version 1.093'; // bump each webapp change; shown only at the bottom of the Chat screen
   const verTag = () => `<div style="text-align:center;color:#c3c9d4;font-size:10px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
   const phoneFmt = p => { let d=String(p==null?'':p).replace(/\D/g,''); if(d.length===9) d='0'+d; return d; };
@@ -421,7 +427,7 @@
     if(!v('#rNameTH')&&!v('#rNameEN')){toast(EN()?'Enter student name':'กรอกชื่อนักเรียน');return;}
     const photo=photoVal(document,'rPhoto');
     const pickups=[]; for(let i=0;i<REG_PICKUPS;i++){ const n=v('#pkN'+i); if(n) pickups.push({Name:n,Phone:v('#pkP'+i),Relation:v('#pkR'+i)}); }
-    const student={NationalID:v('#rSNID'),NameTH:v('#rNameTH'),NameEN:v('#rNameEN'),Nickname:v('#rNick'),NicknameEN:v('#rNickEN'),Gender:$('#rGender').value,DOB:v('#rDOB'),Plan:'',Weight:+v('#rW')||'',Height:+v('#rH')||'',Photo:photo,BloodType:v('#rBlood'),RH:v('#rRH'),Allergy:v('#rAllergy')||'-',MedicalHistory:v('#rChronic')||'-',Class:'Nursery 1'};
+    const student={NationalID:v('#rSNID'),NameTH:v('#rNameTH'),NameEN:v('#rNameEN'),Nickname:v('#rNick'),NicknameEN:v('#rNickEN'),Gender:$('#rGender').value,DOB:v('#rDOB'),Plan:'',Weight:+v('#rW')||'',Height:+v('#rH')||'',Photo:photo,BloodType:v('#rBlood'),RH:v('#rRH'),Allergy:v('#rAllergy')||'-',MedicalHistory:v('#rChronic')||'-',Class:''};
     try{ await api('addChildNew',{uid:USER.uid,parentId:USER.parentId,student,pickupPersons:pickups}); confirmSaved(t('c.saved')); GO('home'); }catch(e){err(e);} };
 
   const SCREENS = { Parent:{}, Teacher:{}, Admin:{} };
@@ -1548,15 +1554,25 @@
     window._CALRENDER=render;
     return `<div class="card"><div id="calWrap">${render()}</div></div>`; }
 
-  let LV_TAB='pending';  // default tab = in-progress
+  let LV_TAB='pending';  // default sub-tab (teacher view) = in-progress
+  let LV_MAIN='staff';   // main tab: 'staff' (teachers) | 'student'
   SCREENS.Admin.leaves = async () => {
+    const mainSeg=`<div class="seg" style="margin-bottom:10px"><button class="${LV_MAIN==='staff'?'active':''}" onclick="A_lvMain('staff')">👩‍🏫 ${EN()?'Teachers':'คุณครู'}</button><button class="${LV_MAIN==='student'?'active':''}" onclick="A_lvMain('student')">👶 ${EN()?'Students':'นักเรียน'}</button></div>`;
+    if(LV_MAIN==='student'){
+      const leaves=await api('allStudentLeaves'); window._SLV_ALL=leaves||[];
+      window._CALRENDER=studentLeaveCalRender;
+      app.innerHTML=`<h2 class="page">✅ ${EN()?'Leave approval':'อนุมัติการลา'}</h2>${mainSeg}
+        <p class="muted" style="font-size:12px">${EN()?'Absences by day and class. Tap a day to see who is absent per class (history included).':'การลาแยกรายวันและชั้นเรียน · แตะวันเพื่อดูว่านักเรียนคนไหนขาดในแต่ละชั้น (ดูย้อนหลังได้)'}</p>
+        <div class="card"><div id="calWrap">${studentLeaveCalRender()}</div></div>`;
+      return;
+    }
     const [all,staff]=await Promise.all([api('allLeaves'),(A_CACHE.staff&&A_CACHE.staff.length)?Promise.resolve(A_CACHE.staff):api('listStaff')]);
     A_CACHE.staff=staff||A_CACHE.staff; window._LV_ALL=all;
     const pending=all.filter(l=>String(l.Status).indexOf('PENDING')===0);
     const resolved=all.filter(l=>String(l.Status).indexOf('PENDING')!==0);
     const none=`<div class="card muted">${esc(t('c.noItems'))}</div>`;
     const shown = LV_TAB==='pending'?pending:resolved;
-    app.innerHTML=`<h2 class="page">✅ ${EN()?'Leave approval':'อนุมัติการลา'}</h2>
+    app.innerHTML=`<h2 class="page">✅ ${EN()?'Leave approval':'อนุมัติการลา'}</h2>${mainSeg}
       <div class="leavegrid">
         <div class="lvcol">
           <div class="seg" style="margin-bottom:10px"><button class="${LV_TAB==='pending'?'active':''}" onclick="A_lvTab('pending')">⏳ ${EN()?'In progress':'กำลังดำเนินการ'} (${pending.length})</button><button class="${LV_TAB==='resolved'?'active':''}" onclick="A_lvTab('resolved')">✅ ${EN()?'Done':'อนุมัติแล้ว/เสร็จสิ้น'} (${resolved.length})</button></div>
@@ -1565,7 +1581,30 @@
         <div class="lvcol">${leaveCalendar(all)}</div>
       </div>`;
   };
+  window.A_lvMain=(m)=>{ LV_MAIN=m; CAL_OFF=0; SCREENS.Admin.leaves(); };
   window.A_lvTab=(tab)=>{ LV_TAB=tab; SCREENS.Admin.leaves(); };
+  // Student-absence calendar: each day shows the total absent count; tap a day → per-class breakdown popup.
+  function studentLeaveCalRender(){
+    const b=calBase(),y=b.getFullYear(),mo=b.getMonth(); const now=new Date(); const isCur=CAL_OFF===0;
+    const first=new Date(y,mo,1).getDay(),days=new Date(y,mo+1,0).getDate();
+    const byDay={}; (window._SLV_ALL||[]).forEach(l=>{ const dt=new Date(ymd(l.Date));
+      if(dt.getFullYear()===y&&dt.getMonth()===mo){ const d=dt.getDate(); (byDay[d]=byDay[d]||[]).push(l); } });
+    let cells=['อา','จ','อ','พ','พฤ','ศ','ส'].map(w=>`<div style="text-align:center;font-size:11px;color:#94a3b8">${EN()?({'อา':'Su','จ':'Mo','อ':'Tu','พ':'We','พฤ':'Th','ศ':'Fr','ส':'Sa'}[w]):w}</div>`).join('');
+    for(let i=0;i<first;i++)cells+='<div class="d dim"></div>';
+    for(let dd=1;dd<=days;dd++){ const items=byDay[dd]; const today=(isCur&&dd===now.getDate())?'today':''; const n=items?items.length:0;
+      const nCls=items?new Set(items.map(x=>x.class||'-')).size:0; const ds=`${y}-${String(mo+1).padStart(2,'0')}-${String(dd).padStart(2,'0')}`;
+      cells+=`<div class="d ${n?'ev':''} ${today}" style="min-height:52px;${n?'cursor:pointer;background:#fff3e0;border-color:#ffcc80;':''}" ${n?`onclick="A_slvDay('${ds}')"`:''}>${dd}${n?`<span class="io" style="text-align:left;color:#e65100;font-weight:700">${EN()?'absent':'ขาด'} ${n}<br><span style="font-weight:400;color:#94a3b8">${nCls} ${EN()?'class':'ชั้น'}</span></span>`:''}</div>`; }
+    return `${calNavHeader(y,mo)}<div class="cal">${cells}</div><small class="muted">${EN()?'Orange = students on leave that day. Tap to see details.':'สีส้ม = มีนักเรียนลาวันนั้น · แตะเพื่อดูรายละเอียด'}</small>`;
+  }
+  window.A_slvDay=(ds)=>{ const items=(window._SLV_ALL||[]).filter(l=>ymd(l.Date)===ds);
+    const byClass={}; items.forEach(l=>{ const c=l.class||(EN()?'(no class)':'(ไม่ระบุชั้น)'); (byClass[c]=byClass[c]||[]).push(l); });
+    const classes=Object.keys(byClass).sort();
+    modal(`<h3>🗓️ ${EN()?'Absent on':'ขาดเรียนวันที่'} ${esc(ddmmyyyy(ds))}</h3>
+      <p class="muted" style="font-size:12px">${EN()?'Total':'รวม'} <b>${items.length}</b> ${EN()?'across':'ใน'} ${classes.length} ${EN()?'class(es)':'ชั้นเรียน'}</p>
+      <div style="max-height:60vh;overflow:auto">${classes.length?classes.map(c=>`<div class="card" style="padding:8px"><div class="spread"><b>🏫 ${esc(c)}</b><span class="pill bad">${byClass[c].length} ${EN()?'absent':'ขาด'}</span></div>
+        ${byClass[c].map(l=>`<div class="list-item"><span>${esc((EN()?(l.nickEN||l.nick||l.nameEN):(l.nick||l.name))||l.StudentID)} ${l.Type?`<span class="pill info" style="font-size:10px">${esc(l.Type)}</span>`:''}</span><small class="muted">${esc(l.Reason||'')}</small></div>`).join('')}</div>`).join(''):`<div class="card muted">${EN()?'None':'ไม่มี'}</div>`}</div>
+      <button class="btn outline block" style="margin-top:8px" onclick="this.closest('.modal').remove()">${esc(t('c.close'))}</button>`);
+  };
   window.A_editLeave=async(id)=>{ const l=(await api('allLeaves')).find(x=>x.LeaveID===id); if(!l){toast(t('c.noItems'));return;}
     modal(`<h3>✏️ ${EN()?'Edit leave':'แก้ไขการลา'} — ${esc(leaveName(l))}</h3>
       <label class="field"><span>${EN()?'Type':'ประเภท'}</span><input id="elType" value="${esc(l.Type||'')}"/></label>
@@ -1882,6 +1921,7 @@
       {t:EN()?'👥 People & classes':'👥 บุคลากร & ชั้นเรียน', items:[
         ['🔁',t('manage.organize'),"GO_('organize')"],
         ['🏫',t('manage.departments'),'A_departments()'],
+        ['📦',EN()?'Packages':'แพ็กเกจ','A_packages()'],
         ['🕑',t('manage.groups'),'A_groups()'],
         ['⏱️',t('lbl.requireCI'),'A_requireCI()'],
       ]},
@@ -2021,6 +2061,42 @@
   window.A_delParent=async(id)=>{ if(!confirm(t('manage.confirmDel')))return; try{ await api('deleteParent',{parentId:id}); toast(t('manage.deleted')); GO('manage'); }catch(e){err(e);} };
 
   // ---- Student edit (incl. insurance) ----
+  // choosing a package fills the arrive/leave time from the package's schedule (still editable per student)
+  window.A_planFill=(sel)=>{ const pl=A_plans().find(p=>p.id===sel.value); if(!pl)return;
+    const st=document.getElementById('stf_StartTime'), en=document.getElementById('stf_EndTime');
+    if(st && pl.start) st.value=String(pl.start).slice(0,5);
+    if(en && pl.end) en.value=String(pl.end).slice(0,5); };
+
+  // ---- Package (Plan) CRUD: name / price / study time. Persists the whole list via savePlans. ----
+  window.A_packages=async()=>{ const plans=await api('getPlans'); A_CACHE.plans=plans||[];
+    const row=p=>`<div class="card" style="padding:8px"><div class="spread"><b>${esc(EN()?(p.labelEN||p.labelTH):(p.labelTH||p.labelEN))||p.id}</b><b style="color:#1565C0">${baht(p.price)}</b></div>
+      <small class="muted">🕗 ${esc(p.start||'-')} – ${esc(p.end||'-')} น.</small>
+      <div class="row" style="margin-top:6px"><button class="btn sm outline" onclick="A_pkgForm('${esc(p.id)}')">✏️ ${esc(t('c.edit'))}</button><button class="btn sm pink" onclick="A_pkgDelete('${esc(p.id)}')">🗑️ ${esc(t('manage.delete'))}</button></div></div>`;
+    modal(`<div class="spread"><h3>📦 ${EN()?'Packages':'แพ็กเกจการเรียน'}</h3><button class="btn sm" onclick="A_pkgForm()">+ ${esc(t('manage.add'))}</button></div>
+      <p class="muted" style="font-size:12px">${EN()?'Name, price and study time per package. The time auto-fills a student’s arrive/leave time when you assign the package (still editable).':'ตั้งชื่อ ราคา และช่วงเวลาเรียนของแต่ละแพ็กเกจ · เวลาจะถูกนำไปใส่ให้นักเรียนอัตโนมัติเมื่อเลือกแพ็กเกจ (แก้ไขรายคนได้)'}</p>
+      <div style="max-height:60vh;overflow:auto">${(plans||[]).length?plans.map(row).join(''):`<div class="card muted">${EN()?'No packages yet':'ยังไม่มีแพ็กเกจ'}</div>`}</div>
+      <button class="btn outline block" style="margin-top:8px" onclick="this.closest('.modal').remove()">${esc(t('c.close'))}</button>`);
+  };
+  window.A_pkgForm=(id)=>{ const p=(A_CACHE.plans||[]).find(x=>x.id===id)||{};
+    modal(`<h3>📦 ${id?esc(t('c.edit')):(EN()?'New package':'เพิ่มแพ็กเกจ')}</h3>
+      <div class="grid2"><label class="field"><span>${EN()?'Name (TH)':'ชื่อ (ไทย)'}</span><input id="pk_th" value="${esc(p.labelTH||'')}" placeholder="เช่น รายเดือน 07:00–17:00"/></label>
+        <label class="field"><span>${EN()?'Name (EN)':'ชื่อ (อังกฤษ)'}</span><input id="pk_en" value="${esc(p.labelEN||'')}"/></label></div>
+      <label class="field"><span>${EN()?'Price / month (฿)':'ราคาต่อเดือน (฿)'}</span><input id="pk_price" type="number" min="0" value="${esc(p.price!=null?p.price:'')}"/></label>
+      <div class="grid2"><label class="field"><span>🕗 ${EN()?'Arrive time':'เวลาเข้าเรียน'}</span><input id="pk_start" type="time" value="${esc(String(p.start||'').slice(0,5))}"/></label>
+        <label class="field"><span>🕔 ${EN()?'Leave time':'เวลาเลิกเรียน'}</span><input id="pk_end" type="time" value="${esc(String(p.end||'').slice(0,5))}"/></label></div>
+      <button class="btn block" onclick="A_pkgSave(this,'${id||''}')">${esc(t('c.save'))}</button>`);
+  };
+  window.A_pkgSave=async(btn,id)=>{ const m=btn.closest('.modal'); const v=s=>{ const e=m.querySelector(s); return e?e.value.trim():''; };
+    const th=v('#pk_th'), en=v('#pk_en'); if(!th&&!en){ toast(EN()?'Enter a name':'ใส่ชื่อแพ็กเกจ'); return; }
+    const rec={ id:id||undefined, labelTH:th||en, labelEN:en||th, price:Number(v('#pk_price'))||0, start:v('#pk_start'), end:v('#pk_end') };
+    const plans=(A_CACHE.plans||[]).slice();
+    if(id){ const i=plans.findIndex(x=>x.id===id); if(i>=0) plans[i]=Object.assign({},plans[i],rec); else plans.push(rec); }
+    else plans.push(rec);
+    try{ const r=await api('savePlans',{plans}); A_CACHE.plans=r.plans||plans; MOCK.config.Plans=A_CACHE.plans; m.remove(); confirmSaved(t('c.saved')); A_packages(); }catch(e){err(e);} };
+  window.A_pkgDelete=async(id)=>{ if(!confirm(EN()?'Delete this package? Students already on it keep their saved time.':'ลบแพ็กเกจนี้? นักเรียนที่ใช้อยู่จะยังคงเวลาที่บันทึกไว้'))return;
+    const plans=(A_CACHE.plans||[]).filter(x=>x.id!==id);
+    try{ const r=await api('savePlans',{plans}); A_CACHE.plans=r.plans||plans; MOCK.config.Plans=A_CACHE.plans; toast(t('manage.deleted')); const m=document.querySelector('.modal'); if(m)m.remove(); A_packages(); }catch(e){err(e);} };
+
   window.A_studentForm=(id)=>{ const s=findStudent(id);
     const f=(k,label,val,type)=>`<label class="field"><span>${esc(label)}</span><input id="stf_${k}" type="${type||'text'}" value="${esc(val!=null?val:'')}"/></label>`;
     modal(`<h3>✏️ ${esc(nm(s))}</h3>
@@ -2028,7 +2104,7 @@
       <div class="grid2">${f('Nickname',t('reg.nickname'),s.Nickname)}${f('NicknameEN',t('reg.nicknameEN'),s.NicknameEN)}</div>
       <div class="grid2">${f('NationalID',t('reg.nationalIdStudent'),s.NationalID)}
         <label class="field"><span>${esc(t('manage.class'))}</span><select id="stf_Class">${A_classOptions(s.Class).map(c=>`<option ${s.Class===c?'selected':''}>${esc(c)}</option>`).join('')}</select></label></div>
-      <div class="grid2"><label class="field"><span>${esc(t('reg.plan'))}</span><select id="stf_Plan"><option value="">${esc(t('manage.noPlan'))}</option>${A_plans().map(p=>`<option value="${p.id}" ${s.Plan===p.id?'selected':''}>${esc(EN()?p.labelEN:p.labelTH)} · ${baht(p.price)}</option>`).join('')}</select></label>
+      <div class="grid2"><label class="field"><span>${esc(t('reg.plan'))}</span><select id="stf_Plan" onchange="A_planFill(this)"><option value="">${esc(t('manage.noPlan'))}</option>${A_plans().map(p=>`<option value="${p.id}" ${s.Plan===p.id?'selected':''}>${esc(EN()?p.labelEN:p.labelTH)} · ${baht(p.price)}</option>`).join('')}</select></label>
         ${photoField('stf_Photo',t('growth.photo'),s.Photo,true)}</div>
       <div class="grid2">${f('Allergy',t('reg.allergy'),s.Allergy)}${f('MedicalHistory',t('reg.chronic'),s.MedicalHistory)}</div>
       <div class="grid2">
@@ -2382,31 +2458,49 @@
 
   // ---- Admin: staff OT approval + management (confirm/edit/reject/add/delete) ----
   let SOT_MONTH=null;
+  // Staff OT — same card/list template as student late-pickup OT. Shows check-in → check-out (the leave
+  // time that drove the OT). Batch: top-left select-all + top-right approve/reject selected. Rejected rows
+  // can be restored (re-approve). A single existing modal is replaced on refresh.
   window.A_staffOT=async(month)=>{ SOT_MONTH=month||SOT_MONTH||monthStr();
     const [rows,staff]=await Promise.all([api('adminOTList',{month:SOT_MONTH}), (A_CACHE.staff&&A_CACHE.staff.length)?Promise.resolve(A_CACHE.staff):api('listStaff')]);
     A_CACHE.staff=staff||A_CACHE.staff;
     const pend=rows.filter(o=>String(o.Status).toUpperCase()==='PENDING_ADMIN');
-    const row=o=>{ const st=String(o.Status).toUpperCase(); const isPA=st==='PENDING_ADMIN';
-      return `<div class="list-item"><span><b>${esc(dnick(o))}</b> · ${esc(ddmmyyyy(o.Date))}<br>
-        <input type="number" min="0" step="1" value="${esc(o.Hours)}" id="sot_h_${o.OTRecordID}" style="width:52px"/> ${EN()?'h':'ชม.'} ·
-        ฿<input type="number" min="0" value="${esc(o.Amount)}" id="sot_a_${o.OTRecordID}" style="width:64px"/>
-        ${o.Minutes?`<small class="muted"> (${esc(hmMin(o.Minutes))})</small>`:''}<br>${otStatusPill(o.Status)}</span>
-        <span class="row">${isPA?`<button class="btn sm green" onclick="A_confirmOT('${o.OTRecordID}')" title="${esc(t('ot.confirm'))}">✔</button><button class="btn sm pink" onclick="A_rejectOT('${o.OTRecordID}')">✕</button>`
-          :`<button class="btn sm outline" onclick="A_editOT('${o.OTRecordID}')" title="${EN()?'save edit':'บันทึกแก้ไข'}">💾</button>`}<button class="btn sm pink" onclick="A_deleteOT('${o.OTRecordID}')">🗑️</button></span></div>`; };
+    const pcls=st=>({PENDING_ADMIN:'wait',PENDING_LEADER:'wait',APPROVED:'ok',CONFIRMED:'ok',REJECTED:'bad'}[String(st||'').toUpperCase()]||'ok');
+    const plbl=st=>{ const k=String(st||'').toUpperCase()||'APPROVED'; return t('ot.st.'+k)||k; };
+    const row=o=>{ const st=String(o.Status).toUpperCase(); const isPA=st==='PENDING_ADMIN'; const rejected=st==='REJECTED';
+      return `<div class="card" style="padding:8px;${rejected?'opacity:.7':''}">
+        <div class="spread"><label style="display:flex;gap:6px;align-items:center"><input type="checkbox" class="sotchk" value="${esc(o.OTRecordID)}" ${isPA?'':'disabled'} style="width:auto" onchange="A_sotSel()"/> <b>${esc(dnick(o))}</b></label><span class="pill ${pcls(st)}" style="font-size:10px">${esc(plbl(st))}</span></div>
+        <small class="muted">${esc(ddmmyyyy(o.Date))} · ${EN()?'in':'เข้างาน'} <b>${esc(o.CheckIn||'--:--')}</b> → ${EN()?'out':'เลิกงาน'} <b>${esc(o.CheckOutActual||o.ActualOut||'--:--')}</b>${o.PlanOut?` <span class="muted">(${EN()?'plan':'แผน'} ${esc(o.PlanOut)})</span>`:''}</small>
+        <div class="grid2" style="margin-top:6px"><label class="field"><span>${EN()?'Hours':'ชั่วโมง'}</span><input type="number" min="0" step="1" value="${esc(o.Hours)}" id="sot_h_${o.OTRecordID}"/></label>
+          <label class="field"><span>${EN()?'Amount (฿)':'ยอด (฿)'}</span><input type="number" min="0" value="${esc(o.Amount)}" id="sot_a_${o.OTRecordID}"/></label></div>
+        ${o.Minutes?`<small class="muted">${esc(hmMin(o.Minutes))}</small>`:''}
+        <div class="row" style="margin-top:6px">${isPA
+          ?`<button class="btn sm green" onclick="A_confirmOT('${o.OTRecordID}')">✔ ${esc(t('c.approve'))}</button><button class="btn sm pink" onclick="A_rejectOT('${o.OTRecordID}')">✕ ${esc(t('c.reject'))}</button>`
+          :`<button class="btn sm outline" onclick="A_editOT('${o.OTRecordID}')">💾 ${esc(t('c.save'))}</button>${rejected?`<button class="btn sm outline" onclick="A_restoreStaffOT('${o.OTRecordID}')">♻️ ${EN()?'Restore':'คืนค่า'}</button>`:''}`}
+          <button class="btn sm pink" onclick="A_deleteOT('${o.OTRecordID}')">🗑️</button></div></div>`; };
     modal(`<h3>⏰ ${esc(t('ot.adminOT'))}</h3>
       <div class="spread"><label class="field" style="flex:1"><span>${EN()?'Month':'เดือน'}</span><input type="month" id="sotMonth" value="${SOT_MONTH}" onchange="A_staffOT(this.value)"/></label>
         <button class="btn sm" style="align-self:end;margin-bottom:2px" onclick="A_addOTForm()">${esc(t('ot.addOT'))}</button></div>
-      <p class="muted" style="font-size:11.5px">${EN()?'Confirm awaiting-admin OT (edit hours/amount first if needed). You can edit or delete any row.':'ยืนยัน OT ที่รอแอดมิน (แก้ชั่วโมง/ยอดก่อนได้) · แก้ไข/ลบรายการใดก็ได้'}</p>
+      ${pend.length?`<div style="position:sticky;top:0;z-index:2;background:#fff;border:1px solid var(--line);border-radius:8px;padding:6px 8px;margin-bottom:6px">
+        <div class="spread"><label style="display:flex;gap:6px;align-items:center"><input type="checkbox" id="sotAll" style="width:auto" onchange="A_sotToggleAll(this)"/> ${EN()?'Select all':'เลือกทั้งหมด'} <span class="muted" id="sotN">(0)</span></label></div>
+        <div class="row" style="margin-top:6px"><button class="btn sm green" onclick="A_sotBatch('approve')">✔ ${EN()?'Approve selected':'อนุมัติที่เลือก'}</button><button class="btn sm pink" onclick="A_sotBatch('reject')">✕ ${EN()?'Reject selected':'ไม่อนุมัติที่เลือก'}</button></div></div>`:''}
       ${pend.length?`<div style="background:#fff3e0;border-radius:8px;padding:6px;color:#e65100;font-size:12px;margin-bottom:6px">🔔 ${pend.length} ${EN()?'awaiting your confirmation':'รายการรอยืนยัน'}</div>`:''}
       <div style="max-height:52vh;overflow:auto">${rows.length?rows.map(row).join(''):`<small class="muted">${esc(t('ot.none'))}</small>`}</div>
       <button class="btn outline block" style="margin-top:8px" onclick="this.closest('.modal').remove()">${esc(t('c.close'))}</button>`);
   };
   const sotH=id=>{ const e=document.getElementById('sot_h_'+id); return e?e.value:undefined; };
   const sotA=id=>{ const e=document.getElementById('sot_a_'+id); return e?e.value:undefined; };
-  window.A_confirmOT=async(otId)=>{ try{ await api('confirmOT',{staffId:USER.staffId,otId,decision:'approve',hours:sotH(otId),amount:sotA(otId)}); toast(EN()?'Confirmed':'ยืนยันแล้ว'); A_staffOT(); }catch(e){err(e);} };
-  window.A_rejectOT=async(otId)=>{ if(!confirm(EN()?'Reject this OT?':'ปฏิเสธ OT นี้?'))return; try{ await api('confirmOT',{staffId:USER.staffId,otId,decision:'reject'}); toast(EN()?'Rejected':'ปฏิเสธแล้ว'); A_staffOT(); }catch(e){err(e);} };
-  window.A_editOT=async(otId)=>{ try{ await api('adminEditOT',{staffId:USER.staffId,otId,hours:sotH(otId),amount:sotA(otId)}); toast(t('c.saved')); A_staffOT(); }catch(e){err(e);} };
-  window.A_deleteOT=async(otId)=>{ if(!confirm(t('manage.confirmDel')))return; try{ await api('adminDeleteOT',{staffId:USER.staffId,otId}); toast(t('manage.deleted')); A_staffOT(); }catch(e){err(e);} };
+  const A_sotRefresh=()=>{ const x=document.querySelector('.modal'); if(x)x.remove(); A_staffOT(); };
+  window.A_sotSel=()=>{ const n=document.querySelectorAll('.sotchk:checked').length; const el=document.getElementById('sotN'); if(el)el.textContent='('+n+')'; };
+  window.A_sotToggleAll=(cb)=>{ document.querySelectorAll('.sotchk:not([disabled])').forEach(c=>{c.checked=cb.checked;}); A_sotSel(); };
+  window.A_sotBatch=async(decision)=>{ const ids=[...document.querySelectorAll('.sotchk:checked')].map(c=>c.value); if(!ids.length){toast(EN()?'Select at least one':'เลือกอย่างน้อย 1 รายการ');return;}
+    if(!confirm((decision==='approve'?(EN()?'Approve ':'อนุมัติ '):(EN()?'Reject ':'ไม่อนุมัติ '))+ids.length+(EN()?' item(s)?':' รายการ?')))return;
+    try{ for(const id of ids){ await api('confirmOT',{staffId:USER.staffId,otId:id,decision,hours:sotH(id),amount:sotA(id)}); } toast(EN()?'Done':'ดำเนินการแล้ว'); A_sotRefresh(); }catch(e){err(e);} };
+  window.A_restoreStaffOT=async(otId)=>{ try{ await api('confirmOT',{staffId:USER.staffId,otId,decision:'approve',hours:sotH(otId),amount:sotA(otId)}); toast(EN()?'Restored':'คืนค่าแล้ว'); A_sotRefresh(); }catch(e){err(e);} };
+  window.A_confirmOT=async(otId)=>{ try{ await api('confirmOT',{staffId:USER.staffId,otId,decision:'approve',hours:sotH(otId),amount:sotA(otId)}); toast(EN()?'Confirmed':'ยืนยันแล้ว'); A_sotRefresh(); }catch(e){err(e);} };
+  window.A_rejectOT=async(otId)=>{ if(!confirm(EN()?'Reject this OT?':'ปฏิเสธ OT นี้?'))return; try{ await api('confirmOT',{staffId:USER.staffId,otId,decision:'reject'}); toast(EN()?'Rejected':'ปฏิเสธแล้ว'); A_sotRefresh(); }catch(e){err(e);} };
+  window.A_editOT=async(otId)=>{ try{ await api('adminEditOT',{staffId:USER.staffId,otId,hours:sotH(otId),amount:sotA(otId)}); toast(t('c.saved')); A_sotRefresh(); }catch(e){err(e);} };
+  window.A_deleteOT=async(otId)=>{ if(!confirm(t('manage.confirmDel')))return; try{ await api('adminDeleteOT',{staffId:USER.staffId,otId}); toast(t('manage.deleted')); A_sotRefresh(); }catch(e){err(e);} };
   window.A_addOTForm=()=>{ const staff=(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin'||true);
     modal(`<h3>${esc(t('ot.addOT'))}</h3>
       <label class="field"><span>${esc(t('c.staff'))}</span><select id="aotStaff">${staff.map(s=>`<option value="${s.StaffID}">${esc(nmn(s))}</option>`).join('')}</select></label>
