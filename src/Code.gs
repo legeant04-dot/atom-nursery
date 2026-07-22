@@ -100,6 +100,9 @@ var ROUTES = {
   adminInbox:           function (p) { return handleAdminInbox(p); },
   markInboxRead:        function (p) { return handleMarkInboxRead(p); },
   submitInjury:         function (p) { return handleSubmitInjury(p); },
+  // new registrations run via the engine but also drop an in-app notice to Admin
+  registerNew:          function (p) { return handleRegisterNew(p); },
+  addChildNew:          function (p) { return handleAddChildNew(p); },
   reinstallTriggers:    function (p) { return handleReinstallTriggers(p); },   // admin-only
   // Big Cleaning Day (admin-managed workday, no fixed hours, diligence bonus)
   bigCleaningDays:  function ()  { return handleBigCleaningDays(); },

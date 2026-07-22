@@ -109,6 +109,21 @@ function handleSubmitInjury(p) {
   return res;
 }
 
+// New-registration notice → Admin in-app inbox (the parent-facing action runs via the shared engine;
+// this wrapper records it + then runs the engine). isNewParent flags a brand-new family (registerNew).
+function handleRegNotify_(action, p, isNewParent) {
+  var res = engineDispatch_(action, p);
+  try {
+    var st = (p && p.student) || {};
+    var who = st.NameTH || st.NameEN || (res && res.studentId) || '';
+    var nick = st.NicknameEN || st.Nickname || '';
+    inboxAdd_('registration', '🆕 ลงทะเบียนนักเรียนใหม่: ' + who + (nick ? (' (' + nick + ')') : '') + (isNewParent ? ' + ผู้ปกครองใหม่' : ''));
+  } catch (e) { try { Logger.log('handleRegNotify_ ' + e.message); } catch (x) {} }
+  return res;
+}
+function handleRegisterNew(p) { return handleRegNotify_('registerNew', p, true); }
+function handleAddChildNew(p) { return handleRegNotify_('addChildNew', p, false); }
+
 // ---- daily digests (skip weekends + holidays) ----------------------------------------------------
 function digestEvening_() {
   if (isSchoolClosed_(new Date())) return;
