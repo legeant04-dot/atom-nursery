@@ -30,7 +30,7 @@
     window.api=function(action,payload,opts){ if(!_isMut(action)) return _rawApi(action,payload,opts);
       _busyShow(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _busyDone(false); throw e; }
       return Promise.resolve(pr).then(v=>{ _busyDone(true); return v; }, e=>{ _busyDone(false); throw e; }); }; }
-  const APP_VERSION = 'Version 1.096'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.097'; // bump each webapp change; shown only at the bottom of the Chat screen
   const verTag = () => `<div style="text-align:center;color:#c3c9d4;font-size:10px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
   const phoneFmt = p => { let d=String(p==null?'':p).replace(/\D/g,''); if(d.length===9) d='0'+d; return d; };
@@ -2626,8 +2626,9 @@
 
   // ---- Finance: per-student detail (bill + extra charges + OT) — view/add/edit/delete in one place ----
   window.A_finStudent=async(sid)=>{ const month=FIN_MONTH||monthStr();
-    const [bills,charges,ot]=await Promise.all([api('payments',{studentId:sid}),api('studentCharges',{studentId:sid,month}),api('otDaily',{studentId:sid})]);
+    const [bills,charges,ot,allSlips]=await Promise.all([api('payments',{studentId:sid}),api('studentCharges',{studentId:sid,month}),api('otDaily',{studentId:sid}),api('paymentSlips',{studentId:sid})]);
     const s=(A_CACHE.students||[]).find(x=>x.StudentID===sid)||(MOCK.students||[]).find(x=>x.StudentID===sid)||{};
+    const slipsOf=(kind,id)=>(allSlips||[]).filter(x=>x.RefKind===kind&&x.RefID===id);
     const bill=(bills||[]).find(b=>ym(b.Month)===ym(month));
     const otM=(ot||[]).filter(o=>ym(o.Date)===ym(month));
     const stPill=st=>({UNPAID:'bad',PENDING_VERIFY:'wait',PARTIAL:'wait',PAID:'ok',CANCELLED:'info'}[st]||'info');
@@ -2636,14 +2637,15 @@
           <tr style="border-top:1px solid #ddd"><td><b>${EN()?'Total due':'ยอดรวม'}</b></td><td style="text-align:right"><b>${baht(bill.TotalDue!=null?bill.TotalDue:bill.Amount)}</b></td></tr>
           ${Number(bill.PaidConfirmed||0)>0?`<tr><td>${EN()?'Paid':'ชำระแล้ว'}</td><td style="text-align:right;color:#2e7d32">−${baht(bill.PaidConfirmed)}</td></tr>`:''}
           <tr><td><b>${EN()?'Outstanding':'คงค้าง'}</b></td><td style="text-align:right"><b style="color:${Number(bill.Outstanding||0)>0?'#c62828':'#2e7d32'}">${baht(bill.Outstanding||0)}</b></td></tr></table>
-        <div class="row"><button class="btn sm pink" onclick="A_finDelBill('${esc(bill.BillingID)}','${sid}')">🗑️ ${EN()?'Delete bill':'ลบบิล'}</button></div>`
+        ${slipHistoryHTML(slipsOf('bill',bill.BillingID))}
+        <div class="row" style="margin-top:6px"><button class="btn sm pink" onclick="A_finDelBill('${esc(bill.BillingID)}','${sid}')">🗑️ ${EN()?'Delete bill':'ลบบิล'}</button></div>`
       : `<p class="muted" style="font-size:12px">${EN()?'No bill issued for this month yet.':'ยังไม่ได้ออกบิลของเดือนนี้'}</p><button class="btn sm" onclick="A_finIssueBill('${sid}')">🧾 ${EN()?'Issue this month’s bill':'ออกบิลเดือนนี้'}</button>`;
     const chargeBox = `${(charges||[]).length?(charges).map(c=>`<div class="list-item"><span>${esc(c.Label)} <b>${baht(c.Amount)}</b></span><button class="btn sm pink" onclick="A_finDelCharge('${esc(c.ChargeID)}','${sid}')">🗑️</button></div>`).join(''):`<small class="muted">${EN()?'No extra charges':'ไม่มีรายการเพิ่มเติม'}</small>`}
       <div class="grid2" style="margin-top:6px"><input id="fcLabel" placeholder="${EN()?'e.g. Special class':'เช่น ค่าเรียนพิเศษ'}"/><input id="fcAmt" type="number" placeholder="${EN()?'amount':'จำนวนเงิน'}"/></div>
       <button class="btn sm outline block" style="margin-top:6px" onclick="A_finAddCharge('${sid}')">+ ${EN()?'Add charge':'เพิ่มรายการ'}</button>`;
-    const otBox = `${otM.length?otM.map(o=>{ const closed=o.Status==='PAID'||o.Status==='CANCELLED';
-      return `<div class="list-item"><span>${esc(ymd(o.Date))} · ${esc(String(o.PickupTime||'').slice(0,5))} <b>${baht(o.Amount)}</b> <span class="pill ${stPill(o.Status)}" style="font-size:10px">${esc(o.Status)}</span></span>
-        ${o.Status==='PAID'?'':`<span class="row">${o.Status==='CANCELLED'?`<button class="btn sm outline" onclick="A_finOt('${esc(o.OTID)}','restore','${sid}')">♻️</button>`:`<button class="btn sm pink" onclick="A_finOt('${esc(o.OTID)}','cancel','${sid}')">🚫</button>`}</span>`}</div>`; }).join(''):`<small class="muted">${EN()?'No OT this month':'ไม่มี OT เดือนนี้'}</small>`}`;
+    const otBox = `${otM.length?otM.map(o=>{ const sl=slipsOf('ot',o.OTID);
+      return `<div style="border-bottom:1px solid #f0f0f0;padding:4px 0"><div class="list-item"><span>${esc(ymd(o.Date))} · ${esc(String(o.PickupTime||'').slice(0,5))} <b>${baht(o.Amount)}</b> <span class="pill ${stPill(o.Status)}" style="font-size:10px">${esc(o.Status)}</span></span>
+        ${o.Status==='PAID'?'':`<span class="row">${o.Status==='CANCELLED'?`<button class="btn sm outline" onclick="A_finOt('${esc(o.OTID)}','restore','${sid}')">♻️</button>`:`<button class="btn sm pink" onclick="A_finOt('${esc(o.OTID)}','cancel','${sid}')">🚫</button>`}</span>`}</div>${slipHistoryHTML(sl)}</div>`; }).join(''):`<small class="muted">${EN()?'No OT this month':'ไม่มี OT เดือนนี้'}</small>`}`;
     modal(`<h3>💰 ${esc(dispNick(s)||sid)} <small class="muted" style="font-size:13px">${esc(planLabel(s.Plan))}${s.Class?' · '+esc(s.Class):''}</small></h3>
       <p class="muted" style="font-size:12px">${EN()?'Month':'เดือน'} <b>${esc(month)}</b> — ${EN()?'change the month at the finance page':'เปลี่ยนเดือนได้ที่หน้าการเงิน'}</p>
       <div class="card" style="padding:8px"><b>🧾 ${EN()?'Monthly bill':'บิลรายเดือน'}</b>${billBox}</div>
