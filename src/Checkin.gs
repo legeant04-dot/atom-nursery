@@ -136,10 +136,8 @@ function handleStaffCheckin(payload) {
   }
   logAuditHr(staff.StaffID, 'STAFF_CHECKIN', 'CHECKIN_STAFF', today);
 
-  var msg = '🟢 ' + staff.Name + ' เข้างาน ' + timeStr_(now) +
-            (lateMin > 0 ? ' (สาย ' + lateMin + ' นาที)' : ' (ตรงเวลา)') +
-            ' • ระยะ ' + dist + ' ม.';
-  notifyAdmins_(msg);
+  // routine staff check-in is NOT pushed to the Admin inbox (it's on the dashboard + the daily digest);
+  // this keeps the inbox to things that need attention (approvals / emergencies / new registrations).
   return { staffId: staff.StaffID, time: timeStr_(now), lateMinutes: lateMin, distance: dist };
 }
 
@@ -208,7 +206,7 @@ function handleStaffStudentCheckin(p) {
   try {
     var parent = student.ParentID ? findObject_(sheet_(getMainSpreadsheet_(), 'PARENTS'),
       function (pr) { return String(pr.ParentID) === String(student.ParentID); }) : null;
-    if (parent && parent.LineUID) linePushText_(parent.LineUID, msg); else notifyAdmins_(msg);
+    if (parent && parent.LineUID) linePushText_(parent.LineUID, msg); // routine check-in: no Admin-inbox fallback (avoids flooding)
   } catch (e) {}
   return { studentId: student.StudentID, type: type, time: timeStr_(now), remark: remark, ot: ot };
 }
@@ -258,9 +256,12 @@ function handleStaffCheckout(payload) {
   }
   logAuditHr(staff.StaffID, 'STAFF_CHECKOUT', 'CHECKIN_STAFF', today);
 
-  var msg = '🔴 ' + staff.Name + ' ออกงาน ' + timeStr_(now) +
-            (otHours >= 1 ? ' • OT ' + otHours + ' ชม. (' + hmMinTH_(otMin) + ') ≈ ' + otPay + ' บาท · รออนุมัติ' : '');
-  notifyAdmins_(msg);
+  // notify the Admin inbox ONLY when this check-out produced OT that needs approval; a routine check-out
+  // is not pushed (keeps the inbox clean — attendance is on the dashboard + the daily digest).
+  if (otHours >= 1) {
+    notifyAdmins_('🔴 ' + staff.Name + ' ออกงาน ' + timeStr_(now) +
+      ' • OT ' + otHours + ' ชม. (' + hmMinTH_(otMin) + ') ≈ ' + otPay + ' บาท · รออนุมัติ');
+  }
   return { staffId: staff.StaffID, time: timeStr_(now), otHours: otHours, otMinutes: otMin, otPay: otPay };
 }
 
