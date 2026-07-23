@@ -36,6 +36,8 @@ function createAtomAPI(M, GROWTH_STD) {
     return Math.round(R*2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a))); }
   function ageMonths(dob){ const d=new Date(dob),n=new Date(); let m=(n.getFullYear()-d.getFullYear())*12+(n.getMonth()-d.getMonth()); if(n.getDate()<d.getDate())m--; return Math.max(0,m); }
   function geo(lat,lng){ const dist=haversine(cfg.GPS_Lat,cfg.GPS_Lng,lat,lng); if(dist>cfg.Radius) fail('OUT_OF_RANGE',`อยู่นอกรัศมีโรงเรียน (${dist} ม. เกิน ${cfg.Radius} ม.)`); return dist; }
+  // distance without enforcing the fence — used for parent CHECK-IN (allowed from anywhere; check-out still fenced)
+  function geoSafe(lat,lng){ return haversine(cfg.GPS_Lat,cfg.GPS_Lng,lat,lng); }
   const studentById = id => M.students.find(s=>s.StudentID===id);
   const staffById = id => M.staff.find(s=>s.StaffID===id)||{};
   // Sequential id = MAX existing number + 1.
@@ -276,7 +278,7 @@ function createAtomAPI(M, GROWTH_STD) {
     savePlans: p => { const arr=Array.isArray(p.plans)?p.plans:[];
       arr.forEach(pl=>{ if(!pl.id) pl.id='pkg_'+Math.random().toString(36).slice(2,8); pl.price=Number(pl.price||0); });
       cfg.Plans=arr; return {ok:true, plans:cfg.Plans}; },
-    parentCheckin: p => { const d=geo(p.lat,p.lng); const t=timeLocal();
+    parentCheckin: p => { const d=(String(p.type||'IN').toUpperCase()==='OUT')?geo(p.lat,p.lng):geoSafe(p.lat,p.lng); const t=timeLocal();
       // de-dup a rapid repeat (same student+type today within CheckinDedupMinutes) → keep only the latest time
       const win=Number(cfg.CheckinDedupMinutes||10); const nowMin=toMin(t);
       const recent=(M.checkinStudent||[]).find(r=>r.StudentID===p.studentId&&String(r.Type).toUpperCase()===String(p.type).toUpperCase()&&ymd(r.Date)===todayLocal()&&Math.abs(nowMin-toMin(r.Time))<=win);

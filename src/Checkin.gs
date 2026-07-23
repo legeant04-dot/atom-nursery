@@ -33,6 +33,14 @@ function assertWithinGeofence_(lat, lng) {
   return dist;
 }
 
+// Distance to school WITHOUT enforcing the fence — for parent CHECK-IN (allowed anywhere). Returns
+// the distance for the record, or null if the GPS is missing/invalid (still allowed).
+function geoDistanceSafe_(lat, lng) {
+  if (typeof lat !== 'number' || typeof lng !== 'number' || isNaN(lat) || isNaN(lng)) return null;
+  var sLat = parseFloat(getConfig_('GPS_Lat')), sLng = parseFloat(getConfig_('GPS_Lng'));
+  return haversineMeters_(sLat, sLng, lat, lng);
+}
+
 // ---- Time helpers -------------------------------------------------
 function tz_() { return getConfig_('Timezone', 'Asia/Bangkok'); }
 function dateStr_(d) { return Utilities.formatDate(d, tz_(), 'yyyy-MM-dd'); }
