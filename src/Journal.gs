@@ -43,7 +43,7 @@ function handleSubmitJournal(payload) {
 
   var date = payload.date || dateStr_(new Date());
   var sheet = sheet_(getMainSpreadsheet_(), 'DAILY_JOURNAL');
-  ensureColumns_(sheet, ['HealthDetail', 'MilkTotal', 'Water', 'Theme', 'SubmittedAt', 'Status', 'UpdatedAt', 'MilkUnit', 'ParentComment']);
+  ensureColumns_(sheet, ['HealthDetail', 'MilkTotal', 'Water', 'Theme', 'SubmittedAt', 'Status', 'UpdatedAt', 'MilkUnit', 'ParentComment', 'TeacherReply']);
 
   var existing = findObject_(sheet, function (r) {
     return String(r.StudentID) === String(student.StudentID) && dateStr_(new Date(r.Date)) === date;
@@ -99,7 +99,7 @@ function handleUnlockJournal(payload) {
   var student = getStudent_(payload.studentId);
   var date = payload.date || dateStr_(new Date());
   var sheet = sheet_(getMainSpreadsheet_(), 'DAILY_JOURNAL');
-  ensureColumns_(sheet, ['HealthDetail', 'MilkTotal', 'Water', 'Theme', 'SubmittedAt', 'Status', 'UpdatedAt', 'MilkUnit', 'ParentComment']);
+  ensureColumns_(sheet, ['HealthDetail', 'MilkTotal', 'Water', 'Theme', 'SubmittedAt', 'Status', 'UpdatedAt', 'MilkUnit', 'ParentComment', 'TeacherReply']);
   var row = findObject_(sheet, function (r) {
     return String(r.StudentID) === String(student.StudentID) && dateStr_(new Date(r.Date)) === date;
   });
@@ -119,13 +119,38 @@ function handleSaveParentComment(payload) {
   var student = getStudent_(payload.studentId);
   var date = payload.date || dateStr_(new Date());
   var sheet = sheet_(getMainSpreadsheet_(), 'DAILY_JOURNAL');
-  ensureColumns_(sheet, ['MilkUnit', 'ParentComment']);
+  ensureColumns_(sheet, ['MilkUnit', 'ParentComment', 'TeacherReply']);
   var row = findObject_(sheet, function (r) {
     return String(r.StudentID) === String(student.StudentID) && dateStr_(new Date(r.Date)) === date;
   });
   if (!row) throw apiError_('NOT_FOUND', 'ยังไม่มีบันทึกของวันที่ ' + date);
   updateRow_(sheet, row._row, { ParentComment: String(payload.comment || '') });
   if (typeof cacheDel_ === 'function') { cacheDel_('col:DAILY_JOURNAL'); cacheDel_('rows:DAILY_JOURNAL'); }
+  // notify the class teacher(s) that a parent commented (falls back to the Admin inbox if no teacher LINE)
+  try {
+    notifyStudentTeacher_(student, '💬 ผู้ปกครองแสดงความคิดเห็นในบันทึกของ ' + (student.Nickname || student.Name) +
+      ' (' + date + '):\n' + String(payload.comment || ''));
+  } catch (e) {}
+  return { ok: true, studentId: student.StudentID, date: date };
+}
+
+/** Teacher replies to the parent's comment on a daily report → notify the parent(s). payload: { studentId, date, reply } */
+function handleSaveTeacherReply(payload) {
+  payload = payload || {};
+  var student = getStudent_(payload.studentId);
+  var date = payload.date || dateStr_(new Date());
+  var sheet = sheet_(getMainSpreadsheet_(), 'DAILY_JOURNAL');
+  ensureColumns_(sheet, ['ParentComment', 'TeacherReply']);
+  var row = findObject_(sheet, function (r) {
+    return String(r.StudentID) === String(student.StudentID) && dateStr_(new Date(r.Date)) === date;
+  });
+  if (!row) throw apiError_('NOT_FOUND', 'ยังไม่มีบันทึกของวันที่ ' + date);
+  updateRow_(sheet, row._row, { TeacherReply: String(payload.reply || '') });
+  if (typeof cacheDel_ === 'function') { cacheDel_('col:DAILY_JOURNAL'); cacheDel_('rows:DAILY_JOURNAL'); }
+  try {
+    notifyStudentParents_(student, '↩️ คุณครูตอบกลับความคิดเห็นในบันทึกของ ' + (student.Nickname || student.Name) +
+      ' (' + date + '):\n' + String(payload.reply || ''));
+  } catch (e) {}
   return { ok: true, studentId: student.StudentID, date: date };
 }
 

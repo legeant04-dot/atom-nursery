@@ -119,6 +119,7 @@ var ROUTES = {
   submitJournal:  function (p) { return handleSubmitJournal(p); },
   unlockJournal:  function (p) { return handleUnlockJournal(p); },   // admin-only, see ADMIN_ONLY
   saveParentComment: function (p) { return handleSaveParentComment(p); },   // parent comment (parentOwnsStudent_ gates)
+  saveTeacherReply:  function (p) { return handleSaveTeacherReply(p); },     // teacher replies to a parent comment → notifies the parent
   // Day 5 — DSPM Assessment + analytics
   dspmCriteria:      function (p) { return handleDspmCriteria(p); },
   submitAssessment:  function (p) { return handleSubmitAssessment(p); },
