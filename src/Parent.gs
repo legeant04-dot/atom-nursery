@@ -23,7 +23,8 @@ function handleParentCheckin(payload) {
   if (!payload.studentId) throw apiError_('BAD_INPUT', 'ต้องระบุ studentId');
   var type = String(payload.type || 'IN').toUpperCase();
   if (type !== 'IN' && type !== 'OUT') throw apiError_('BAD_TYPE', 'type ต้องเป็น IN หรือ OUT');
-  var dist = assertWithinGeofence_(payload.lat, payload.lng);
+  // Parent CHECK-IN is allowed from anywhere (no geofence); CHECK-OUT still must be within the school radius.
+  var dist = (type === 'OUT') ? assertWithinGeofence_(payload.lat, payload.lng) : geoDistanceSafe_(payload.lat, payload.lng);
 
   var student = findObject_(sheet_(getMainSpreadsheet_(), 'STUDENTS'),
     function (s) { return String(s.StudentID) === String(payload.studentId); });

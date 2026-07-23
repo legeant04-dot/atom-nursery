@@ -30,7 +30,7 @@
     window.api=function(action,payload,opts){ if(!_isMut(action)) return _rawApi(action,payload,opts);
       _busyShow(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _busyDone(false); throw e; }
       return Promise.resolve(pr).then(v=>{ _busyDone(true); return v; }, e=>{ _busyDone(false); throw e; }); }; }
-  const APP_VERSION = 'Version 1.097'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.098'; // bump each webapp change; shown only at the bottom of the Chat screen
   const verTag = () => `<div style="text-align:center;color:#c3c9d4;font-size:10px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
   const phoneFmt = p => { let d=String(p==null?'':p).replace(/\D/g,''); if(d.length===9) d='0'+d; return d; };
@@ -801,9 +801,13 @@
   window.P_do=async(btn)=>{ const studentId=$('#kid').value; P_TYPE=P_TYPE; return P_punch(studentId,P_TYPE,btn); };
   // one-tap check-in/out from the home kid card (or checkin screen): read GPS → parentCheckin directly
   window.P_punch=async(studentId,type,btn)=>{ if(btn)btn.disabled=true; const done=()=>{ if(btn)btn.disabled=false; };
-    try{ const {lat,lng}=await getPosition();
+    try{ let lat=null,lng=null;
+      // Check-in works from ANYWHERE — GPS is optional (tolerate denial). Check-out still needs a location (school enforces the radius).
+      if(type==='OUT'){ ({lat,lng}=await getPosition()); }
+      else { try{ ({lat,lng}=await getPosition()); }catch(e){ lat=null; lng=null; } }
       const r=await api('parentCheckin',{parentId:USER.parentId,uid:USER.uid,studentId,type,lat,lng});
-      toast(`✅ ${type==='IN'?(EN()?'Drop off':'ส่งเข้าเรียน'):(EN()?'Pick up':'รับกลับ')} ${r.time} (${EN()?'distance':'ระยะ'} ${r.distance} ${EN()?'m':'ม.'}) — ${EN()?'teacher notified':'แจ้งครูแล้ว'}`);
+      const distTxt=(r.distance!=null)?` (${EN()?'distance':'ระยะ'} ${r.distance} ${EN()?'m':'ม.'})`:'';
+      toast(`✅ ${type==='IN'?(EN()?'Drop off':'ส่งเข้าเรียน'):(EN()?'Pick up':'รับกลับ')} ${r.time}${distTxt} — ${EN()?'teacher notified':'แจ้งครูแล้ว'}`);
       if(r.ot){ P_otQR(r.ot); } // late pickup → OT charge: pop the KTB QR
     }catch(e){err(e);} finally{ done(); } };
   // OT charge popup after late pickup
