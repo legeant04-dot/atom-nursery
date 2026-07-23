@@ -325,6 +325,10 @@ function createAtomAPI(M, GROWTH_STD) {
     saveParentComment: p => { const date=p.date||todayLocal();
       const j=M.journals.find(x=>x.StudentID===p.studentId&&ymd(x.Date)===date); if(!j)fail('NOT_FOUND','ยังไม่มีบันทึกของวันนี้');
       j.ParentComment=String(p.comment||''); return {ok:true,studentId:p.studentId,date}; },
+    // Teacher replies to the parent's comment on a daily report (does not touch the parent's comment)
+    saveTeacherReply: p => { const date=p.date||todayLocal();
+      const j=M.journals.find(x=>x.StudentID===p.studentId&&ymd(x.Date)===date); if(!j)fail('NOT_FOUND','ยังไม่มีบันทึกของวันนี้');
+      j.TeacherReply=String(p.reply||''); return {ok:true,studentId:p.studentId,date}; },
     // which students already have a journal for `date`, and whether it is a DRAFT or SUBMITTED —
     // feeds the teacher's badge. Read-only, so it runs through the engine on GAS too (no route needed).
     journalStatus: p => { const date=p.date||todayLocal();
@@ -556,6 +560,7 @@ function createAtomAPI(M, GROWTH_STD) {
       const rec=Object.assign({},p,{Date:date,StudentID:p.studentId,
         TeacherID:(i>=0&&M.journals[i].TeacherID)||p.staffId,
         ParentComment:(i>=0&&M.journals[i].ParentComment)||'',  // preserve the parent's comment across teacher edits
+        TeacherReply:(i>=0&&M.journals[i].TeacherReply)||'',     // preserve the teacher's reply too
         Status:submit?'SUBMITTED':'DRAFT',UpdatedAt:now,SubmittedAt:submit?now:''});
       delete rec.staffId; delete rec.studentId; delete rec.date; delete rec.submit;
       const out={updated:i>=0,submitted:submit,status:rec.Status,submittedAt:rec.SubmittedAt,updatedAt:now};
@@ -709,6 +714,18 @@ function createAtomAPI(M, GROWTH_STD) {
         const onLeave=a.Status==='LEAVE'; return {staffId:s.StaffID,name:s.NameTH,nameEN:s.NameEN,nick:s.Nickname,nickEN:s.NicknameEN,dept:s.Department, status:a.Status||'ABSENT',
           checkIn:onLeave?'':(a.CheckIn||''), checkOut:onLeave?'':(a.CheckOut||''), late:onLeave?0:(a.Late||0), remark:onLeave?(a.Reason||'ลา'):''}; });
       return {classes:cls, staff:staffStat, pendingLeaves:M.leaves.filter(l=>l.Status.startsWith('PENDING')).length}; },
+    // Teacher home attendance card: today's มา/ลา/ขาด per class, scoped to the classes this teacher covers
+    // (homeroom teacher = own class; multi-class teacher = those; Leader/Admin-equivalent = every class).
+    teacherClassAttendance: p => { const me=staffById(p.staffId)||{};
+      const covered=coveredClasses_(me).map(c=>c.ClassName); const std=activeStudents();
+      const cls=covered.map(name=>{ const studs=std.filter(s=>String(s.Class)===String(name));
+        const stat=studs.map(s=>{ const a=M.studentAttendanceToday.find(x=>x.StudentID===s.StudentID);
+          return {studentId:s.StudentID,name:s.NameTH,nameEN:s.NameEN,nick:s.Nickname,nickEN:s.NicknameEN,
+            status:a?a.Status:'ABSENT', in:a?(a.CheckIn||a.Time||''):'', out:a?a.CheckOut||'':''}; });
+        return {className:name,total:studs.length,in:stat.filter(s=>s.status==='IN').length,out:stat.filter(s=>s.status==='OUT').length,
+          leave:stat.filter(s=>s.status==='LEAVE').length,absent:stat.filter(s=>s.status==='ABSENT').length,students:stat}; })
+        .filter(c=>c.total>0);
+      return {classes:cls, seeAll:(me.PositionLevel==='Admin'||me.PositionLevel==='Leader'||me.Role==='Admin')}; },
     pendingLeaves: p => { const lv=staffById(p.staffId).PositionLevel; if(lv==='Admin')return M.leaves.filter(l=>l.Status==='PENDING_ADMIN').map(leaveView_); if(lv==='Leader')return M.leaves.filter(l=>l.Status==='PENDING_LEADER').map(leaveView_); fail('NO_PERMISSION','ตำแหน่งนี้ไม่มีสิทธิ์อนุมัติ'); },
     listStaff: () => M.staff.map(s=>Object.assign({RequireCheckin: s.RequireCheckin!==false}, s)),
     // the caller's own staff record (sanitized — no PasswordHash) so screens don't rely on client MOCK.staff.
