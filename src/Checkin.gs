@@ -194,21 +194,32 @@ function handleStaffStudentCheckin(p) {
 
   var sh = sheet_(getMainSpreadsheet_(), 'CHECKIN_STUDENT');
   ensureColumns_(sh, ['Remark', 'ByStaffID']);
-  var now = new Date();
+  var now = new Date(), today = dateStr_(now);
+  // the teacher must record the ACTUAL drop-off / pick-up time — a child picked up at 12:57 must not
+  // read the wall-clock 17:26 and wrongly trigger OT. Accept an HH:mm override; blank → now.
+  var timeHM = /^\d{1,2}:\d{2}$/.test(String(p.time || '').trim()) ? String(p.time).trim() : timeStr_(now);
+  // one drop-off + one pick-up per day — block a second same-type record (button also fades client-side)
+  var already = readObjects_(sh).some(function (r) {
+    return String(r.StudentID) === String(student.StudentID) && dateStr_(new Date(r.Date)) === today &&
+           String(r.Type).toUpperCase() === type;
+  });
+  if (already) throw apiError_(type === 'IN' ? 'ALREADY_IN' : 'ALREADY_OUT',
+    (type === 'IN' ? 'ส่งเข้าเรียน' : 'รับกลับ') + 'ไปแล้ววันนี้');
   appendObject_(sh, {
-    Date: dateStr_(now), Time: timeStr_(now), StudentID: student.StudentID,
+    Date: today, Time: timeHM, StudentID: student.StudentID,
     ParentID: student.ParentID || '', Type: type, GPS_Lat: '', GPS_Lng: '', Status: 'OK',
     Remark: remark, ByStaffID: staff.StaffID
   });
   try { CacheService.getScriptCache().removeAll(['col:CHECKIN_STUDENT', 'rows:CHECKIN_STUDENT']); } catch (e) {}
-  try { logAudit(staff.StaffID, 'STUDENT_CHECK' + type + '_BY_STAFF', 'CHECKIN_STUDENT', student.StudentID); } catch (e) {}
+  // audit trail Admin can review: staff, actual time entered, type, and the reason
+  try { logAudit(staff.StaffID, 'STUDENT_CHECK' + type + '_BY_STAFF', 'CHECKIN_STUDENT', student.StudentID + ' @' + timeHM + ' — ' + remark); } catch (e) {}
 
-  // late pickup → create/refresh the OT charge (rolls into this month's bill)
-  var ot = (type === 'OUT') ? otUpsertForPickup_(student, timeStr_(now), dateStr_(now)) : null;
+  // late pickup → create/refresh the OT charge (rolls into this month's bill) — uses the ACTUAL time
+  var ot = (type === 'OUT') ? otUpsertForPickup_(student, timeHM, today) : null;
 
   // the parent wasn't the one dropping off / picking up — tell them who was
   var verb = (type === 'IN') ? 'มาถึงโรงเรียนแล้ว' : 'ถูกรับกลับแล้ว';
-  var msg = '👶 ' + student.Name + ' ' + verb + ' (' + timeStr_(now) + ')\nบันทึกโดยคุณครู ' +
+  var msg = '👶 ' + student.Name + ' ' + verb + ' (' + timeHM + ')\nบันทึกโดยคุณครู ' +
             (staff.Name || staff.StaffID) + '\nหมายเหตุ: ' + remark;
   if (ot) msg += '\n⏰ รับช้า ' + ot.lateMinutes + ' นาที · ค่าล่วงเวลา ' + ot.amount + ' บาท (รวมในบิลรายเดือน)';
   try {

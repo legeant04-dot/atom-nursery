@@ -35,7 +35,12 @@ function computePayroll(payload) {
 
   var base = num_(staff.BaseSalary);
 
-  // --- เบี้ยขยัน ---
+  // --- เบี้ยขยัน (รายได้พิเศษ) ---
+  // sick + personal leave over the monthly limit (default 3) forfeits the diligence bonus. This is a
+  // WARNING only — no field is locked; Admin may still tick attendanceOverride to force it back on.
+  var leaveDaysSP = sickPersonalLeaveDays_(staff.StaffID, month);
+  var leaveLimit = parseInt(getConfig_('DiligenceLeaveMaxDays', '3'), 10) || 3;
+  var leaveExceeds = leaveDaysSP > leaveLimit;
   var attEligible = (payload.attendanceOverride != null)
     ? !!payload.attendanceOverride : attendanceEligible_(staff.StaffID, month);
   var diligenceAttendance = attEligible ? num_(getConfig_('DiligenceAttendanceAmount', '500')) : 0;
@@ -81,6 +86,7 @@ function computePayroll(payload) {
     OTEvening: otEvening, HolidayBonus: holidayBonus, OtherIncome: otherIncome, GrossIncome: gross,
     SocialSecurity: ss, Contribution: contribution, OtherDeductions: otherDeductions, TotalDeductions: totalDeductions,
     NetPay: netPay, BankAccount: getConfig_('BankName', 'SCB'), SlipSent: existing ? existing.SlipSent : 'NO',
+    LeaveDaysSickPersonal: leaveDaysSP, LeaveLimit: leaveLimit, LeaveExceeds: leaveExceeds,
     GeneratedDate: new Date(), GeneratedBy: payload.generatedBy || 'system'
   };
   if (existing) { rec.PayrollID = existing.PayrollID; updateRow_(sheet, existing._row, rec); }
@@ -90,16 +96,26 @@ function computePayroll(payload) {
   return rec;
 }
 
-/** Eligible for attendance bonus = no late minutes and no approved leave in the month. */
+/** Approved sick + personal leave DAYS taken by a staff member in a month. */
+function sickPersonalLeaveDays_(staffId, month) {
+  var total = 0;
+  readObjects_(sheet_(getHrSpreadsheet_(), 'LEAVE_REQUEST')).forEach(function (r) {
+    if (String(r.StaffID) !== String(staffId) || String(r.Status) !== 'APPROVED') return;
+    if (monthOf_(r.StartDate) !== month) return;
+    if (!/ลาป่วย|ลากิจ|sick|personal/i.test(String(r.Type || ''))) return;
+    total += num_(r.Days, 1) || 1;
+  });
+  return total;
+}
+
+/** Eligible for the attendance bonus = no late minutes AND sick+personal leave within the monthly limit. */
 function attendanceEligible_(staffId, month) {
   var late = readObjects_(sheet_(getHrSpreadsheet_(), 'CHECKIN_STAFF')).some(function (r) {
     return String(r.StaffID) === String(staffId) && monthOf_(r.Date) === month && num_(r.LateMinutes) > 0;
   });
   if (late) return false;
-  var onLeave = readObjects_(sheet_(getHrSpreadsheet_(), 'LEAVE_REQUEST')).some(function (r) {
-    return String(r.StaffID) === String(staffId) && String(r.Status) === 'APPROVED' && monthOf_(r.StartDate) === month;
-  });
-  return !onLeave;
+  var limit = parseInt(getConfig_('DiligenceLeaveMaxDays', '3'), 10) || 3;
+  return sickPersonalLeaveDays_(staffId, month) <= limit;
 }
 
 /** Sum OT_RECORDS amounts for the month (falls back to hours*rate). */
