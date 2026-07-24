@@ -105,6 +105,10 @@ function createAtomAPI(M, GROWTH_STD) {
   // Per-student leave time (individual schedule) overrides the plan end. OT is measured against THIS,
   // so a child whose day ends 18:00/19:00 is never charged OT from 17:00. Blank → fall back to plan end.
   const studentEndTime = s => { const e=String((s&&(s.EndTime||s.LeaveTime))||'').trim(); return /^\d{1,2}:\d{2}/.test(e) ? e.slice(0,5) : studentPlan(s).end; };
+  // OT is measured against OTGraceUntil when set (a child on the 17:00 rate may be allowed to be
+  // picked up until 18:00 with NO OT), otherwise the nominal end time. Decoupled from EndTime so the
+  // plan price/schedule stays put while the OT-free cutoff moves per student.
+  const otThreshold = s => { const g=String((s&&s.OTGraceUntil)||'').trim(); return /^\d{1,2}:\d{2}/.test(g) ? g.slice(0,5) : studentEndTime(s); };
   const studentStartTime = s => { const e=String((s&&s.StartTime)||'').trim(); return /^\d{1,2}:\d{2}/.test(e) ? e.slice(0,5) : (cfg.DefaultStudentIn||'08:00'); };
   // Default class for a NEW student by age band (Premium is never auto — school assigns it manually):
   //   0–1y → Nursery Baby · 1–2y → Nursery 1 · 2–3y → Nursery 2 · 3y+ → Nursery 3.
@@ -188,7 +192,7 @@ function createAtomAPI(M, GROWTH_STD) {
   // per-student OT rate overrides the global OTRatePerHour when set (> 0)
   const otRateFor = student => { const r=Number(student&&student.OTRate); return r>0?r:Number(cfg.OTRatePerHour||100); };
   function otFor(student, pickupHHMM){
-    const planEnd=studentEndTime(student); const late=Math.max(0, toMin(pickupHHMM)-toMin(planEnd));
+    const planEnd=otThreshold(student); const late=Math.max(0, toMin(pickupHHMM)-toMin(planEnd));
     const grace=Number(cfg.OTGraceMinutes||21);
     if(late<=grace) return {late, hours:0, amount:0, planEnd, rate:otRateFor(student)};
     const hours=Math.ceil(late/60); return {late, hours, amount:hours*otRateFor(student), planEnd, rate:otRateFor(student)};

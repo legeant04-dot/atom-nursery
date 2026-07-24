@@ -33,9 +33,16 @@ function otStudentEnd_(student) {
   if (/^\d{1,2}:\d{2}/.test(e)) return toHHmm_(e);
   return otPlanById_(student && student.Plan).end || '17:00';
 }
+/** The time OT starts being charged. OTGraceUntil (per-student OT-free cutoff) wins when set — e.g. a
+ *  child on the 17:00 rate allowed to be picked up until 18:00 with no OT — else the nominal end. */
+function otThreshold_(student) {
+  var g = String((student && student.OTGraceUntil) || '').trim();
+  if (/^\d{1,2}:\d{2}/.test(g)) return toHHmm_(g);
+  return otStudentEnd_(student);
+}
 /** {late, hours, amount, planEnd, rate} for a pickup time. Nothing charged inside the grace window. */
 function otComputeFor_(student, pickupHHMM) {
-  var planEnd = otStudentEnd_(student);
+  var planEnd = otThreshold_(student);
   var rate = otRateFor_(student);
   var late = Math.max(0, otMinOfDay_(pickupHHMM) - otMinOfDay_(planEnd));
   var grace = Number(getConfig_('OTGraceMinutes', '21')) || 21;
