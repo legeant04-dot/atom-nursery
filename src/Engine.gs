@@ -302,7 +302,13 @@ function createAtomAPI(M, GROWTH_STD) {
       if(!remark) fail('REMARK_REQUIRED','ต้องระบุหมายเหตุ (ใครมารับ-ส่ง) ก่อนบันทึก');
       const st=studentById(p.studentId); if(!st) fail('NOT_FOUND','ไม่พบนักเรียน');
       const type=String(p.type||'').toUpperCase(); if(type!=='IN'&&type!=='OUT') fail('BAD_INPUT','ระบุ IN หรือ OUT');
-      const t=timeLocal();
+      // the teacher must record the ACTUAL drop-off / pick-up time (a child picked up at 12:57 must NOT
+      // read 17:26 and wrongly trigger OT). Accept an override HH:mm; blank → now.
+      const t=/^\d{1,2}:\d{2}$/.test(String(p.time||'').trim()) ? String(p.time).trim() : timeLocal();
+      // block a second same-type record for the day (button also fades client-side)
+      const done=M.studentCheckins.find(c=>c.StudentID===st.StudentID&&ymd(c.Date)===todayLocal())||{};
+      if(type==='IN'&&done.InTime) fail('ALREADY_IN','ส่งเข้าเรียนไปแล้ววันนี้ ('+done.InTime+')');
+      if(type==='OUT'&&done.OutTime) fail('ALREADY_OUT','รับกลับไปแล้ววันนี้ ('+done.OutTime+')');
       M.checkinStudent.push({Date:todayLocal(),Time:t,StudentID:st.StudentID,ParentID:st.ParentID||'',Type:type,Status:'OK',Remark:remark,ByStaffID:p.staffId||''});
       const ex=M.studentAttendanceToday.find(x=>x.StudentID===st.StudentID); if(ex){ex.Status=type;ex.Time=t;} else M.studentAttendanceToday.push({StudentID:st.StudentID,Status:type,Time:t});
       let h=M.studentCheckins.find(c=>c.StudentID===st.StudentID&&c.Date===todayLocal()); if(!h){h={Date:todayLocal(),StudentID:st.StudentID,InTime:'',OutTime:''};M.studentCheckins.push(h);} if(type==='IN')h.InTime=t; else h.OutTime=t;
@@ -313,8 +319,17 @@ function createAtomAPI(M, GROWTH_STD) {
           if(!rec){ rec={OTID:id,Date:todayLocal(),StudentID:st.StudentID,PickupTime:t,PlanEnd:o.planEnd,LateMinutes:o.late,Hours:o.hours,Amount:o.amount,Status:'UNPAID',SlipRef:'',SlipAmount:0}; M.otDaily.push(rec); }
           else { rec.PickupTime=t; rec.LateMinutes=o.late; rec.Hours=o.hours; rec.Amount=o.amount; }
           ot={otId:id,lateMinutes:o.late,hours:o.hours,amount:o.amount,planEnd:o.planEnd}; } }
-      logAct('staffStudentCheckin',st.StudentID,type+' — '+remark,actorOf(p));
+      logAct('staffStudentCheckin',st.StudentID,type+' @'+t+' — '+remark,actorOf(p));
       return {studentId:st.StudentID,type,time:t,remark,ot}; },
+    // Admin audit: every on-behalf student check-in/out (who recorded it, the time entered, the reason,
+    // and whether it produced an OT charge) — so a disputed pick-up time can be verified.
+    staffCheckinLog: p => { const days=Number(p.days||14); const cutoff=(()=>{ const d=new Date(); d.setDate(d.getDate()-days); return ymd(d.toISOString?d.toISOString():d); })();
+      const nameStaff=id=>{ const s=staffById(id)||{}; return s.Nickname||s.NameTH||id||''; };
+      return (M.checkinStudent||[]).filter(r=>r.ByStaffID&&ymd(r.Date)>=cutoff).map(r=>{ const st=studentById(r.StudentID)||{};
+          const otId='OT-'+ymd(r.Date).replace(/-/g,'')+'-'+r.StudentID; const ot=r.Type==='OUT'?(M.otDaily.find(o=>o.OTID===otId)||null):null;
+          return {date:ymd(r.Date),time:r.Time,type:r.Type,studentId:r.StudentID,nick:st.Nickname,nickEN:st.NicknameEN,name:st.NameTH,
+            byStaff:nameStaff(r.ByStaffID),byStaffId:r.ByStaffID,remark:r.Remark||'',otAmount:ot?ot.Amount:0,planEnd:ot?ot.PlanEnd:''}; })
+        .sort((a,b)=>(b.date+b.time).localeCompare(a.date+a.time)); },
     // a DRAFT is visible to staff only — the parent sees nothing until the teacher submits.
     // `role` is overwritten from the session token on GAS, so a parent client cannot forge it.
     getJournal: p => { const r=M.journals.find(x=>x.StudentID===p.studentId && ymd(x.Date)===(p.date||todayLocal()));
@@ -516,8 +531,15 @@ function createAtomAPI(M, GROWTH_STD) {
     classList: p => { const s=staffById(p.staffId); const covered=coveredClasses_(s);
       let cls = p.className ? covered.find(c=>c.ClassName===p.className) : null;
       if(!cls) cls = covered[0] || M.classes[0];
+      // today's attendance per student — the journal can only be filled once a child is checked IN,
+      // and the on-behalf check-in button fades once IN/OUT is already recorded for the day.
+      const today=todayLocal();
+      const attOf=sid=>{ const a=M.studentAttendanceToday.find(x=>x.StudentID===sid);
+        const h=M.studentCheckins.find(c=>c.StudentID===sid&&ymd(c.Date)===today)||{};
+        return {status:a?a.Status:'NONE', inTime:h.InTime||(a&&a.Status==='IN'?a.Time:'')||'', outTime:h.OutTime||(a&&a.Status==='OUT'?a.Time:'')||''}; };
       return {class:cls, classes:covered.map(c=>({className:c.ClassName,classNameEN:c.ClassNameEN||c.ClassName})),
-        students:activeStudents().filter(s2=>s2.Class===cls.ClassName).map(s2=>Object.assign({ageMonth:ageMonths(s2.DOB)},s2))}; },
+        students:activeStudents().filter(s2=>s2.Class===cls.ClassName).map(s2=>{ const at=attOf(s2.StudentID);
+          return Object.assign({ageMonth:ageMonths(s2.DOB), attStatus:at.status, inToday:!!at.inTime, outToday:!!at.outTime, inTime:at.inTime, outTime:at.outTime}, s2); })}; },
     // the class names this staff can pick between (used to show/hide a class switcher)
     myClasses: p => { const s=staffById(p.staffId); const covered=coveredClasses_(s);
       return {classes:covered.map(c=>({className:c.ClassName,classNameEN:c.ClassNameEN||c.ClassName})), all:covered.length===M.classes.length}; },
@@ -551,6 +573,10 @@ function createAtomAPI(M, GROWTH_STD) {
     // submit=false → DRAFT (editable, parent not notified); submit=true → sent to the parent and locked
     submitJournal: p => { const date=p.date||todayLocal();
       const submit = p.submit===true || String(p.submit)==='true';
+      // the daily journal can only be filled once the child has been checked IN that day (teacher
+      // must confirm attendance first). Only enforced for today; back-filling past days is allowed.
+      if(date===todayLocal()){ const a=M.studentAttendanceToday.find(x=>x.StudentID===p.studentId);
+        const inToday=a&&(a.Status==='IN'||a.Status==='OUT'); if(!inToday) fail('NOT_CHECKED_IN','ยังไม่ได้เช็คอินนักเรียนวันนี้ — กรุณาเช็คอินก่อนจึงจะบันทึกสมุดรายวันได้'); }
       const i=M.journals.findIndex(x=>x.StudentID===p.studentId&&ymd(x.Date)===date);
       if(i>=0 && jStatus_(M.journals[i])==='SUBMITTED') fail('JOURNAL_LOCKED','บันทึกของวันที่ '+date+' ส่งให้ผู้ปกครองแล้ว แก้ไขไม่ได้');
       if(submit && !p.Mood) fail('MISSING_FIELDS','กรุณาเลือกอารมณ์ (Mood)');
@@ -655,7 +681,11 @@ function createAtomAPI(M, GROWTH_STD) {
       // diligence amounts: per-staff override (payrollConfig) → else global config
       const attendAmt=p.diligenceAttend!=null?Number(p.diligenceAttend):(pc.DiligenceAttendanceAmount!=null?pc.DiligenceAttendanceAmount:cfg.DiligenceAttendanceAmount);
       const fbAmt=p.diligenceFb!=null?Number(p.diligenceFb):(pc.DiligenceFacebookAmount!=null?pc.DiligenceFacebookAmount:cfg.DiligenceFacebookAmount);
-      const dA=p.attendanceEligible!==false?attendAmt:0; const dF=p.facebookPosted?fbAmt:0; const dT=dA+dF;
+      // sick+personal leave over the monthly limit (default 3) forfeits the diligence bonus (รายได้พิเศษ).
+      // Auto-off when over the limit, but Admin may still tick the box to override (no field is locked).
+      const ls=H.staffLeaveSummary({staffId:p.staffId,month:p.month}); const leaveExceeds=ls.exceeds;
+      const attEligible = p.attendanceEligible!=null ? (p.attendanceEligible!==false) : !leaveExceeds;
+      const dA=attEligible?attendAmt:0; const dF=p.facebookPosted?fbAmt:0; const dT=dA+dF;
       const childMult=p.childMultiplier!=null?Number(p.childMultiplier):pc.ChildMultiplier;
       // child-rate count is AUTO from the DB unless overridden: children from #ChildThreshold onward
       const threshold=p.childThreshold!=null?Number(p.childThreshold):(pc.ChildThreshold||cfg.ExtraChildThreshold||31);
@@ -668,9 +698,16 @@ function createAtomAPI(M, GROWTH_STD) {
       const ssDeduct=(p.socialSecurityDeduct!=null?p.socialSecurityDeduct:pc.SocialSecurityDeduct)!==false;
       const ss=p.socialSecurity!=null?p.socialSecurity:(ssDeduct?Math.min(Math.round(base*cfg.SocialSecurityRate),cfg.SocialSecurityMax):0);
       const dd=(p.contribution||0)+(p.otherDeductions||0); const total=ss+dd; const net=gross-total+adjSum;
-      const rec={PayrollID:nextSeqId_(M.payroll,'PayrollID','PR',4),StaffID:p.staffId,Month:p.month,PayType:payType,DailyRate:dailyRate,DaysWorked:daysWorked,BaseSalary:base,DiligenceAttendance:dA,DiligenceFacebook:dF,DiligenceTotal:dT,ExtraChildAmount:ec,ChildCount:childCount,ChildThreshold:threshold,RatedTotal:ratedTotal,ChildMultiplier:childMult,TrainingCertAmount:tc,OTEvening:ot,HolidayBonus:hb,OtherIncome:oi,GrossIncome:gross,SocialSecurity:ss,Contribution:p.contribution||0,OtherDeductions:p.otherDeductions||0,TotalDeductions:total,Adjustments:adj,AdjustmentsTotal:adjSum,NetPay:net,BankAccount:cfg.BankName};
+      const rec={PayrollID:nextSeqId_(M.payroll,'PayrollID','PR',4),StaffID:p.staffId,Month:p.month,PayType:payType,DailyRate:dailyRate,DaysWorked:daysWorked,BaseSalary:base,DiligenceAttendance:dA,DiligenceFacebook:dF,DiligenceTotal:dT,ExtraChildAmount:ec,ChildCount:childCount,ChildThreshold:threshold,RatedTotal:ratedTotal,ChildMultiplier:childMult,TrainingCertAmount:tc,OTEvening:ot,HolidayBonus:hb,OtherIncome:oi,GrossIncome:gross,SocialSecurity:ss,Contribution:p.contribution||0,OtherDeductions:p.otherDeductions||0,TotalDeductions:total,Adjustments:adj,AdjustmentsTotal:adjSum,NetPay:net,BankAccount:cfg.BankName,LeaveDaysSickPersonal:ls.sickPersonalDays,LeaveLimit:ls.limit,LeaveExceeds:leaveExceeds};
       const i=M.payroll.findIndex(x=>x.StaffID===p.staffId&&x.Month===p.month); if(i>=0)M.payroll[i]=rec; else M.payroll.push(rec); return rec; },
     getPayslip: p => M.payroll.find(x=>x.StaffID===p.staffId&&x.Month===p.month) || null,
+    // approved sick + personal leave DAYS in a month, and whether it passes the diligence-bonus limit
+    staffLeaveSummary: p => { const month=ym(p.month||todayLocal().slice(0,7));
+      const sp=(M.leaves||[]).filter(l=>String(l.StaffID)===String(p.staffId)&&String(l.Status||'').toUpperCase()==='APPROVED'
+          &&/ลาป่วย|ลากิจ|sick|personal/i.test(String(l.Type||''))&&ym(l.StartDate||l.Date)===month)
+        .reduce((a,l)=>a+(Number(l.Days)||1),0);
+      const limit=Number(cfg.DiligenceLeaveMaxDays||3);
+      return {month, sickPersonalDays:sp, limit, exceeds:sp>limit}; },
     // Admin alert: payroll should be summarized 1 day before month-end
     payrollReminderDue: () => { const n=new Date(); const last=new Date(n.getFullYear(),n.getMonth()+1,0).getDate();
       return {due:n.getDate()===last-1, today:n.getDate(), lastDay:last, month:todayLocal().slice(0,7)}; },
@@ -906,11 +943,21 @@ function createAtomAPI(M, GROWTH_STD) {
 
     // ---- absence tracking + rate rule ----
     // students with total absence (leave+no-show) >= minDays, with follow-up note/status
+    // absence follow-up. Real sources: ABSENCE_LOG (no-shows) ∪ studentLeaves (parent/teacher-filed
+    // leave/absence). Distinct dates per student → count; group 2–5 vs >5; if the child later checked
+    // IN after the last absence, annotate the return date ("มาวันที่ …"). >5 days is flagged strongly.
     absenceReport: p => { const min=p.minDays||2;
-      const byStu={}; M.absenceLog.forEach(a=>{ (byStu[a.StudentID]=byStu[a.StudentID]||[]).push(a); });
-      return activeStudents().map(s=>{ const days=(byStu[s.StudentID]||[]); const fu=M.absenceFollowups.find(f=>f.StudentID===s.StudentID)||{};
-          return {studentId:s.StudentID,name:s.NameTH,nameEN:s.NameEN,class:s.Class,count:days.length,
-            reasons:[...new Set(days.map(d=>d.Reason).filter(Boolean))].join(', '),
+      const byStu={};
+      const add=(sid,date,reason)=>{ if(!sid)return; const d=ymd(date); if(!d)return; const b=byStu[sid]=byStu[sid]||{dates:{},reasons:{}}; b.dates[d]=1; if(reason)b.reasons[String(reason)]=1; };
+      (M.absenceLog||[]).forEach(a=>add(a.StudentID,a.Date,a.Reason));
+      (M.studentLeaves||[]).forEach(l=>add(l.StudentID,l.Date,l.Reason||l.Type));
+      const lastIn=sid=>{ const ins=(M.studentCheckins||[]).filter(c=>c.StudentID===sid&&c.InTime).map(c=>ymd(c.Date)).sort(); return ins.length?ins[ins.length-1]:''; };
+      return activeStudents().map(s=>{ const b=byStu[s.StudentID]||{dates:{},reasons:{}}; const dates=Object.keys(b.dates).sort(); const count=dates.length;
+          const fu=M.absenceFollowups.find(f=>f.StudentID===s.StudentID)||{};
+          const lastAbs=dates[dates.length-1]||''; const li=lastIn(s.StudentID); const returned=(li&&lastAbs&&li>lastAbs)?li:'';
+          return {studentId:s.StudentID,name:s.NameTH,nameEN:s.NameEN,nick:s.Nickname,nickEN:s.NicknameEN,class:s.Class,count,
+            group:(count>5?'over5':'range'), firstDate:dates[0]||'', lastDate:lastAbs, returnedDate:returned,
+            reasons:Object.keys(b.reasons).join(', '),
             note:fu.Note||'',status:fu.Status||'',followDate:fu.Date||''}; })
         .filter(x=>x.count>=min).sort((a,b)=>b.count-a.count); },
     setAbsenceFollowup: p => { let f=M.absenceFollowups.find(x=>x.StudentID===p.studentId);

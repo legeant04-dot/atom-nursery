@@ -30,7 +30,7 @@
     window.api=function(action,payload,opts){ if(!_isMut(action)) return _rawApi(action,payload,opts);
       _busyShow(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _busyDone(false); throw e; }
       return Promise.resolve(pr).then(v=>{ _busyDone(true); return v; }, e=>{ _busyDone(false); throw e; }); }; }
-  const APP_VERSION = 'Version 1.100'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.101'; // bump each webapp change; shown only at the bottom of the Chat screen
   const verTag = () => `<div style="text-align:center;color:#c3c9d4;font-size:10px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
   const phoneFmt = p => { let d=String(p==null?'':p).replace(/\D/g,''); if(d.length===9) d='0'+d; return d; };
@@ -1151,7 +1151,18 @@
   SCREENS.Teacher.class = async () => {
     const [cl,jstat]=await Promise.all([api('classList',tc()),api('journalStatus',{})]);
     const jdone=journalDoneMap(jstat);
-    app.innerHTML=`<h2 class="page">👶 ${esc(cl.class.ClassName)}</h2>${classSwitcher(cl)}`+cl.students.map(s=>`<div class="card spread"><div style="display:flex;gap:10px;align-items:center">${studentAvatar(s)}<div><b>${esc(dispNick(s))}</b> <small class="muted">${esc(nm(s))}</small><br><small class="muted">${esc(ageYM(s.DOB))} · ${EN()?'allergy':'แพ้'}: ${esc(s.Allergy||'-')}</small><br>${journalPill(jdone[s.StudentID])}</div></div><div class="row"><button class="btn sm ${jdone[s.StudentID]?'outline':''}" onclick="T_journal('${s.StudentID}')" title="${esc(journalBtnLabel(jdone[s.StudentID]))}">${!jdone[s.StudentID]?'📒':(jIsDraft(jdone[s.StudentID])?'✏️':'👁️')}</button><button class="btn sm outline" onclick="T_assess('${s.StudentID}')">📝</button><button class="btn sm green" onclick="T_studentCheckin('${s.StudentID}','${esc(nm(s))}')" title="${EN()?'Check in/out for a non-registered pickup person':'เช็คอิน/เอาท์แทน (คนมารับ-ส่งที่ไม่ได้อยู่ในระบบ)'}">📍</button><button class="btn sm outline" onclick="T_studentLeave('${s.StudentID}','${esc(dispNick(s))}')" title="${EN()?'File leave for this student':'แจ้งลาให้นักเรียน'}">🏖️</button></div></div>`).join(''); };
+    app.innerHTML=`<h2 class="page">👶 ${esc(cl.class.ClassName)}</h2>${classSwitcher(cl)}`+cl.students.map(s=>{
+      // the journal can only be filled once the child is checked IN today (unless one already exists)
+      const canJ = s.inToday || !!jdone[s.StudentID];
+      const jBtn = canJ
+        ? `<button class="btn sm ${jdone[s.StudentID]?'outline':''}" onclick="T_journal('${s.StudentID}')" title="${esc(journalBtnLabel(jdone[s.StudentID]))}">${!jdone[s.StudentID]?'📒':(jIsDraft(jdone[s.StudentID])?'✏️':'👁️')}</button>`
+        : `<button class="btn sm outline" disabled style="opacity:.45" title="${EN()?'Check the child in first':'เช็คอินนักเรียนก่อนจึงจะบันทึกได้'}">📒</button>`;
+      const bothDone = s.inToday && s.outToday;
+      const ciBtn = bothDone
+        ? `<button class="btn sm green" disabled style="opacity:.45" title="${EN()?'In & out already recorded':'เช็คอิน-เอาท์ครบแล้ววันนี้'}">📍</button>`
+        : `<button class="btn sm green" onclick="T_studentCheckin('${s.StudentID}','${esc(nm(s))}',${s.inToday?1:0},${s.outToday?1:0})" title="${EN()?'Check in/out on behalf':'เช็คอิน/เอาท์แทน'}">📍</button>`;
+      const attTag = s.inToday?`<small class="pill ok" style="margin-left:4px">${EN()?'in':'มา'} ${esc(s.inTime||'')}</small>`:'';
+      return `<div class="card spread"><div style="display:flex;gap:10px;align-items:center">${studentAvatar(s)}<div><b>${esc(dispNick(s))}</b> <small class="muted">${esc(nm(s))}</small>${attTag}<br><small class="muted">${esc(ageYM(s.DOB))} · ${EN()?'allergy':'แพ้'}: ${esc(s.Allergy||'-')}</small><br>${journalPill(jdone[s.StudentID])}</div></div><div class="row">${jBtn}<button class="btn sm outline" onclick="T_assess('${s.StudentID}')">📝</button>${ciBtn}<button class="btn sm outline" onclick="T_studentLeave('${s.StudentID}','${esc(dispNick(s))}')" title="${EN()?'File leave for this student':'แจ้งลาให้นักเรียน'}">🏖️</button></div></div>`; }).join(''); };
   // Teacher files a leave for a student → notifies the linked parents; shows in that student's parent calendar
   window.T_studentLeave=(sid,name)=>{ modal(`<h3>🏖️ ${EN()?'File student leave':'แจ้งลานักเรียน'} — ${esc(name)}</h3>
     <label class="field"><span>${EN()?'Type':'ประเภท'}</span><select id="tslType"><option>${EN()?'Sick leave':'ลาป่วย'}</option><option>${EN()?'Personal leave':'ลากิจ'}</option><option>${EN()?'Absent':'ขาด'}</option></select></label>
@@ -1161,24 +1172,34 @@
   window.T_studentLeaveDo=async(sid,btn)=>{ const m=btn.closest('.modal'); const g=x=>{const e=m.querySelector('#'+x);return e?e.value:'';};
     btn.disabled=true; try{ await api('teacherStudentLeave',{staffId:USER.staffId,studentId:sid,date:g('tslDate'),type:g('tslType'),reason:g('tslReason')}); m.remove(); confirmSaved(EN()?'Leave filed — parents notified':'แจ้งลาแล้ว — แจ้งผู้ปกครอง'); }catch(e){err(e);btn.disabled=false;} };
   // Teacher checks a student in/out on behalf of a pickup person who isn't a registered parent.
-  // The remark (who it was) is mandatory — the Save button stays disabled until it's filled.
-  window.T_studentCheckin=(sid,name)=>{ modal(`<h3>📍 ${EN()?'Check in / out for':'เช็คอิน-เอาท์แทน'} ${esc(name)}</h3>
-    <p class="muted" style="font-size:12px">${EN()?'Use this when someone who is NOT a registered parent drops off or picks up. A remark is required.':'ใช้เมื่อคนที่ไม่ได้อยู่ในระบบมารับ-ส่งเด็ก · ต้องกรอกหมายเหตุเสมอ'}</p>
-    <div class="seg"><button class="active" id="scIN" onclick="T_scType('IN')">${EN()?'Drop off (IN)':'ส่งเข้าเรียน (IN)'}</button><button id="scOUT" onclick="T_scType('OUT')">${EN()?'Pick up (OUT)':'รับกลับ (OUT)'}</button></div>
+  // The ACTUAL time and the remark (who it was) are BOTH mandatory — Save stays disabled until filled.
+  // inDone/outDone fade the type that's already recorded so it can't be double-entered.
+  window.T_studentCheckin=(sid,name,inDone,outDone)=>{ inDone=!!inDone; outDone=!!outDone;
+    const nowHM=(()=>{const d=new Date();return String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0');})();
+    SC_TYPE = inDone ? 'OUT' : 'IN';
+    modal(`<h3>📍 ${EN()?'Check in / out for':'เช็คอิน-เอาท์แทน'} ${esc(name)}</h3>
+    <p class="muted" style="font-size:12px">${EN()?'Record the REAL drop-off / pick-up time. Time + remark are required.':'บันทึกเวลาจริงที่มารับ-ส่ง · ต้องกรอกเวลาจริงและหมายเหตุเสมอ'}</p>
+    <div class="seg"><button class="${SC_TYPE==='IN'?'active':''}" id="scIN" ${inDone?'disabled style="opacity:.4"':`onclick="T_scType('IN')"`}>${EN()?'Drop off (IN)':'ส่งเข้าเรียน (IN)'}${inDone?' ✓':''}</button><button class="${SC_TYPE==='OUT'?'active':''}" id="scOUT" ${outDone?'disabled style="opacity:.4"':`onclick="T_scType('OUT')"`}>${EN()?'Pick up (OUT)':'รับกลับ (OUT)'}${outDone?' ✓':''}</button></div>
+    <label class="field"><span>${EN()?'Actual time (required)':'เวลาจริง (บังคับ)'}</span>
+      <input type="time" id="scTime" value="${nowHM}" oninput="T_scCheck()"/></label>
     <label class="field"><span>${EN()?'Remark — who dropped off / picked up? (required)':'หมายเหตุ — ใครมารับ-ส่ง? (บังคับ)'}</span>
       <textarea id="scRemark" placeholder="${EN()?'e.g. Grandmother Somsri, phone 08x-xxx-xxxx':'เช่น คุณยายสมศรี เบอร์ 08x-xxx-xxxx'}" oninput="T_scCheck()"></textarea></label>
-    <button class="btn block green" id="scSave" disabled onclick="T_studentCheckinDo('${sid}',this)">💾 ${EN()?'Save check-in':'บันทึก'}</button>
-    <button class="btn outline block" style="margin-top:8px" onclick="this.closest('.modal').remove()">${esc(t('c.close'))}</button>`);
-    SC_TYPE='IN'; };
+    <button class="btn block green" id="scSave" disabled onclick="T_studentCheckinDo('${sid}',this)">💾 ${EN()?'Save':'บันทึก'}</button>
+    <button class="btn outline block" style="margin-top:8px" onclick="this.closest('.modal').remove()">${esc(t('c.close'))}</button>`); };
   let SC_TYPE='IN';
   window.T_scType=(v)=>{ SC_TYPE=v; const i=document.getElementById('scIN'),o=document.getElementById('scOUT'); if(i)i.classList.toggle('active',v==='IN'); if(o)o.classList.toggle('active',v==='OUT'); };
-  window.T_scCheck=()=>{ const r=document.getElementById('scRemark'), b=document.getElementById('scSave'); if(b) b.disabled = !(r && r.value.trim()); };
+  window.T_scCheck=()=>{ const r=document.getElementById('scRemark'), tm=document.getElementById('scTime'), b=document.getElementById('scSave');
+    if(b) b.disabled = !(r && r.value.trim() && tm && /^\d{1,2}:\d{2}$/.test(tm.value)); };
   window.T_studentCheckinDo=async(sid,btn)=>{ const m=btn.closest('.modal'); const remark=(m.querySelector('#scRemark').value||'').trim();
+    const time=(m.querySelector('#scTime').value||'').trim();
+    if(!time){ toast(EN()?'Time is required':'ต้องกรอกเวลาจริงก่อน'); return; }
     if(!remark){ toast(EN()?'Remark is required':'ต้องกรอกหมายเหตุก่อน'); return; }
     btn.disabled=true;
-    try{ const r=await api('staffStudentCheckin',{staffId:USER.staffId,studentId:sid,type:SC_TYPE,remark});
+    try{ const r=await api('staffStudentCheckin',{staffId:USER.staffId,studentId:sid,type:SC_TYPE,remark,time});
       m.remove(); confirmSaved(`✅ ${SC_TYPE==='IN'?(EN()?'Dropped off':'ส่งเข้าเรียน'):(EN()?'Picked up':'รับกลับ')} ${r.time}`);
       if(r.ot) toast(`⏰ ${EN()?'Late pickup OT':'OT รับช้า'} ${baht(r.ot.amount)}`);
+      // re-render so the journal unlocks + the check-in button fades for this child
+      try{ if(SCREENS[USER.role]&&SCREENS[USER.role][CURRENT]) SCREENS[USER.role][CURRENT](); }catch(_){}
     }catch(e){ err(e); btn.disabled=false; } };
 
   SCREENS.Teacher.journal = async () => { const cl=await api('classList',tc()); T_journal(cl.students[0].StudentID); };
@@ -1449,7 +1470,7 @@
       <button class="btn block" onclick="T_slipUnlock()">${esc(t('lbl.openSlip'))}</button>
       <button class="btn-ghost block" style="margin-top:8px" onclick="T_changePw(false)">🔑 ${esc(t('pw.title'))}</button>
       <button class="btn-ghost block" style="margin-top:4px" onclick="T_forgotPw()">❓ ${EN()?'Forgot password':'ลืมรหัสผ่าน'}</button></div>`; return; }
-    const month=monthStr(); let pay=await api('getPayslip',{staffId:USER.staffId,month}); if(!pay) pay=await api('computePayroll',{staffId:USER.staffId,month,attendanceEligible:true});
+    const month=monthStr(); let pay=await api('getPayslip',{staffId:USER.staffId,month}); if(!pay) pay=await api('computePayroll',{staffId:USER.staffId,month});
     app.innerHTML=`<h2 class="page">💵 เงินเดือนของฉัน</h2>
       <div class="seg"><span class="muted" style="align-self:center">งวด:</span><input type="month" id="slipMonth" value="${month}" style="width:auto" onchange="T_slipMonth(this.value)"/>
       <button class="btn sm outline" onclick="SLIP_LOCK()">🔒 ล็อก</button></div>
@@ -1503,9 +1524,10 @@
     if(a!==b){toast(EN()?'Passwords do not match':'รหัสผ่านไม่ตรงกัน');return;}
     try{ await api('changeStaffPassword',{staffId:USER.staffId,newPassword:a}); confirmSaved(t('c.saved')); GO('home'); }catch(e){err(e);} };
   window.SLIP_LOCK=()=>{ SLIP_UNLOCKED=false; GO('slip'); };
-  window.T_slipMonth=async(m)=>{ let pay=await api('getPayslip',{staffId:USER.staffId,month:m}); if(!pay)pay=await api('computePayroll',{staffId:USER.staffId,month:m,attendanceEligible:true}); setHTML('#slipBox', payslipCard(pay)); };
-  window.T_slipDownload=async(m)=>{ m=m||($('#slipMonth')&&$('#slipMonth').value)||monthStr(); let pay=await api('getPayslip',{staffId:USER.staffId,month:m}); if(!pay)pay=await api('computePayroll',{staffId:USER.staffId,month:m,attendanceEligible:true}); openOrDownload(buildSlipsHTML([pay],m), 'payslip-'+USER.staffId+'-'+m+'.html'); };
+  window.T_slipMonth=async(m)=>{ let pay=await api('getPayslip',{staffId:USER.staffId,month:m}); if(!pay)pay=await api('computePayroll',{staffId:USER.staffId,month:m}); setHTML('#slipBox', payslipCard(pay)); };
+  window.T_slipDownload=async(m)=>{ m=m||($('#slipMonth')&&$('#slipMonth').value)||monthStr(); let pay=await api('getPayslip',{staffId:USER.staffId,month:m}); if(!pay)pay=await api('computePayroll',{staffId:USER.staffId,month:m}); openOrDownload(buildSlipsHTML([pay],m), 'payslip-'+USER.staffId+'-'+m+'.html'); };
   function payslipCard(r){ return `<div class="card"><h3>สลิป ${esc(staffName(r.StaffID))} · ${esc(r.Month)}</h3>
+    ${r.LeaveExceeds?`<div style="background:#fff3e0;border:1px solid #ffcc80;border-radius:8px;padding:6px 9px;margin-bottom:6px;color:#e65100;font-size:12.5px">⚠️ ลาป่วย/ลากิจ ${r.LeaveDaysSickPersonal} วัน (เกิน ${r.LeaveLimit||3} วัน) — ไม่คำนวณเบี้ยขยัน</div>`:''}
     <table style="width:100%;font-size:14px;border-collapse:collapse">
     <tr><td>เงินเดือน</td><td style="text-align:right">${baht(r.BaseSalary)}</td></tr>
     <tr><td>เบี้ยขยัน (มาครบ ${baht(r.DiligenceAttendance)} + FB ${baht(r.DiligenceFacebook)})</td><td style="text-align:right">${baht(r.DiligenceTotal)}</td></tr>
@@ -1680,6 +1702,7 @@
         <label class="field"><span>${esc(t('pay.daysWorked'))}</span><input id="pDays" type="number" value="0"/></label></div>
       <label class="field" style="display:flex;align-items:center;gap:8px"><input type="checkbox" id="pSS" style="width:auto"/> ${esc(t('pay.ssDeduct'))}</label>
       <div class="card" style="background:#f7f9fc;padding:8px"><b style="font-size:13px">⭐ ${esc(t('set.diligence'))} <small class="muted">(${esc(t('pay.perStaff'))})</small></b>
+        <div id="pLeaveWarn"></div>
         <div class="grid2" style="margin-top:6px"><label class="field" style="margin:0"><span style="display:flex;align-items:center;gap:6px"><input type="checkbox" id="pAtt" checked style="width:auto"/> ${esc(t('pay.attend'))}</span><input id="pAttendAmt" type="number"/></label>
           <label class="field" style="margin:0"><span style="display:flex;align-items:center;gap:6px"><input type="checkbox" id="pFb" style="width:auto"/> ${esc(t('pay.fb'))}</span><input id="pFbAmt" type="number"/></label></div></div>
       <div class="card" style="background:#eef6ff;padding:8px"><b style="font-size:13px">👶 ${esc(t('pay.childRate'))}</b>
@@ -1703,7 +1726,12 @@
     $('#pThreshold').value=pc.ChildThreshold||31; A_payTypeToggle(); A_recalcChild();
     // auto-pull this staff's OT hours for the selected month into the OT field
     try{ const ot=await api('staffMonthlyOT',{staffId:sid,month:$('#pMonth').value}); $('#pOt').value=ot.amount;
-      const n=$('#otNote'); if(n) n.innerHTML=`(${EN()?'auto':'อัตโนมัติ'} ${ot.hours} ${EN()?'hr':'ชม.'} × ${baht(ot.rate)})`; }catch(e){} };
+      const n=$('#otNote'); if(n) n.innerHTML=`(${EN()?'auto':'อัตโนมัติ'} ${ot.hours} ${EN()?'hr':'ชม.'} × ${baht(ot.rate)})`; }catch(e){}
+    // sick+personal leave over the limit → warn + auto-uncheck the diligence bonus (field NOT locked)
+    try{ const ls=await api('staffLeaveSummary',{staffId:sid,month:$('#pMonth').value}); const w=$('#pLeaveWarn'), att=$('#pAtt');
+      if(ls.exceeds){ if(att) att.checked=false;
+        if(w) w.innerHTML=`<div style="background:#fff3e0;border:1px solid #ffcc80;border-radius:8px;padding:7px 9px;margin-top:6px;color:#e65100;font-size:12.5px">⚠️ ${EN()?`Sick/personal leave ${ls.sickPersonalDays} days (> ${ls.limit}) — diligence bonus not applied. You can still tick it manually.`:`ลาป่วย/ลากิจ ${ls.sickPersonalDays} วัน (เกิน ${ls.limit} วัน) — ไม่คำนวณเบี้ยขยันให้ · ติ๊กเองได้หากต้องการ`}</div>`;
+      } else if(w){ w.innerHTML=''; } }catch(e){} };
   window.A_payTypeToggle=()=>{ const daily=$('#pType').value==='daily'; $('#pMonthlyBox').hidden=daily; $('#pDailyBox').hidden=!daily; };
   // auto child-rate count from DB: children from #threshold onward = rated − (threshold−1)
   window.A_recalcChild=()=>{ const r=window._RATED||{}; const th=+$('#pThreshold').value||31; const cnt=Math.max(0,(r.rated||0)-(th-1)); $('#pChild').value=cnt;
@@ -1984,6 +2012,7 @@
       ]},
       {t:EN()?'📄 Reports & records':'📄 รายงาน & เอกสาร', items:[
         ['📒',t('jr.admin'),'A_journals()'],
+        ['📍',EN()?'On-behalf check-in log':'ประวัติเช็คอิน-เอาท์แทน','A_checkinLog()'],
         ['🏠',t('slv.title'),"GO_('studentLeaves')"],
         ['🛡️',t('ins2.manage'),'A_insurance()'],
         ['📈',t('dspm.manageTitle'),"GO_('dspmCriteria')"],
@@ -2768,20 +2797,34 @@
 
   // ---- absence tracking (Teacher / Leader / Admin) ----
   async function absenceScreen(){ setNav(CURRENT);
-    const [r2,r5,rate]=await Promise.all([api('absenceReport',{minDays:2}),api('absenceReport',{minDays:5}),api('ratedChildCount')]);
+    const [all,rate]=await Promise.all([api('absenceReport',{minDays:2}),api('ratedChildCount')]);
+    const g1=all.filter(s=>s.group==='range'), g2=all.filter(s=>s.group==='over5');
     const STATUSES=['','กำลังติดตาม','ติดตามแล้ว','ลายาว','ออกกลางคัน'];
-    const row=(s,withReason)=>`<div class="list-item" style="flex-wrap:wrap"><span>${esc(EN()?s.nameEN:s.name)} <small class="muted">${esc(s.class)} · ${esc(t('abs.days').replace('{n}',s.count))}${withReason&&s.reasons?' · '+esc(s.reasons):''}</small></span>
+    // if the child has since returned, annotate the come-back date behind the count
+    const backNote=s=>s.returnedDate?` · <span style="color:#2e7d32;font-weight:600">${EN()?'came back':'มาแล้ว'} ${esc(s.returnedDate)}</span>`:` · <span style="color:#c62828">${EN()?'still absent':'ยังขาดอยู่'}</span>`;
+    const row=(s)=>`<div class="list-item" style="flex-wrap:wrap"><span><b>${esc(s.nick||s.name)}</b> <small class="muted">${esc(s.name)} · ${esc(s.class)} · ${esc(t('abs.days').replace('{n}',s.count))}${s.reasons?' · '+esc(s.reasons):''}</small>${backNote(s)}</span>
       <span class="row" style="width:100%;margin-top:6px"><input id="fn_${s.studentId}" placeholder="${esc(t('abs.note'))}" value="${esc(s.note)}" style="flex:1"/>
         <select id="fs_${s.studentId}">${STATUSES.map(st=>`<option ${s.status===st?'selected':''}>${esc(st||'-')}</option>`).join('')}</select>
         <button class="btn sm" onclick="A_followup('${s.studentId}')">${esc(t('c.save'))}</button></span></div>`;
     const back = USER.role==='Admin'?'manage':'home';
     app.innerHTML=`<button class="btn sm outline backbtn" onclick="GO('${back}')">${t('c.back')}</button><h2 class="page">🔎 ${esc(t('abs.title'))}</h2>
       <div class="card" style="background:#eef6ff"><div class="spread"><b>${esc(t('abs.rated'))}</b><b>${rate.rated}/${rate.total}</b></div><small class="muted">${esc(t('abs.rateNote').replace('{n}',rate.excludeDays).replace('{x}',rate.excluded))}</small></div>
-      <div class="card"><h3>⚠️ ${esc(t('abs.ge2'))}</h3>${r2.length?r2.map(s=>row(s,false)).join(''):`<small class="muted">${esc(t('c.noItems'))}</small>`}</div>
-      <div class="card"><h3>🚨 ${esc(t('abs.ge5'))}</h3>${r5.length?r5.map(s=>row(s,true)).join(''):`<small class="muted">${esc(t('c.noItems'))}</small>`}</div>`;
+      <div class="card"><h3>⚠️ ${EN()?'Absent 2–5 days':'ขาด 2–5 วัน'} <small class="muted">(${g1.length})</small></h3>${g1.length?g1.map(row).join(''):`<small class="muted">${esc(t('c.noItems'))}</small>`}</div>
+      <div class="card" style="border:1px solid #ffcdd2"><h3>🚨 ${EN()?'Absent over 5 days':'ขาดเกิน 5 วัน'} <small class="muted">(${g2.length})</small></h3>${g2.length?g2.map(row).join(''):`<small class="muted">${esc(t('c.noItems'))}</small>`}</div>`;
   }
   SCREENS.Teacher.absence = absenceScreen; SCREENS.Admin.absence = absenceScreen;
   window.A_followup=async(sid)=>{ await api('setAbsenceFollowup',{studentId:sid,note:$('#fn_'+sid).value,status:$('#fs_'+sid).value==='-'?'':$('#fs_'+sid).value}); confirmSaved(t('c.saved')); };
+
+  // Admin audit: every on-behalf student check-in/out (staff, ACTUAL time entered, reason, OT produced)
+  // so a disputed pick-up time — e.g. picked up 12:57 but recorded 17:26 → false OT — can be verified.
+  window.A_checkinLog=async()=>{ let rows=[]; try{ rows=await api('staffCheckinLog',{days:30})||[]; }catch(e){ err(e); return; }
+    const row=r=>`<div class="list-item" style="flex-wrap:wrap"><span><b>${r.type==='IN'?'🟢 '+(EN()?'IN':'ส่ง'):'🔵 '+(EN()?'OUT':'รับ')}</b> ${esc(r.nick||r.name||r.studentId)} <small class="muted">${esc(r.name||'')}</small><br>
+      <small class="muted">📅 ${esc(r.date)} · ⏰ ${esc(r.time)} · 👩‍🏫 ${esc(r.byStaff)}</small><br>
+      <small>📝 ${esc(r.remark||'-')}</small>${r.otAmount?`<br><small style="color:#e65100">⏰ ${EN()?'OT charged':'คิด OT'} ${baht(r.otAmount)}${r.planEnd?' ('+(EN()?'plan end ':'เลิก ')+esc(r.planEnd)+')':''}</small>`:''}</span></div>`;
+    modal(`<h3>📍 ${EN()?'On-behalf check-in log (30d)':'ประวัติเช็คอิน-เอาท์แทน (30 วัน)'}</h3>
+      <p class="muted" style="font-size:12px">${EN()?'Recorded by staff for a non-registered pickup. Time shown is the ACTUAL time the teacher entered.':'บันทึกโดยคุณครูแทนผู้มารับ-ส่ง · เวลาที่แสดงคือเวลาจริงที่คุณครูกรอก'}</p>
+      <div style="max-height:60vh;overflow:auto">${rows.length?rows.map(row).join(''):`<small class="muted">${EN()?'No records':'ยังไม่มีรายการ'}</small>`}</div>
+      <button class="btn outline block" style="margin-top:8px" onclick="this.closest('.modal').remove()">${esc(t('c.close'))}</button>`); };
 
   // Admin chat -> LINE OA (manage all conversations in one place)
   SCREENS.Admin.chat = async () => { const line=MOCK.config.Links.line||'#';

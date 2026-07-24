@@ -42,6 +42,15 @@ function handleSubmitJournal(payload) {
   var submit = payload.submit === true || String(payload.submit) === 'true';
 
   var date = payload.date || dateStr_(new Date());
+  // the daily journal can only be filled once the child has been checked IN that day (teacher must
+  // confirm attendance first). Only enforced for today — back-filling a past day stays allowed.
+  if (date === dateStr_(new Date())) {
+    var inToday = readObjects_(sheet_(getMainSpreadsheet_(), 'CHECKIN_STUDENT')).some(function (r) {
+      return String(r.StudentID) === String(student.StudentID) && dateStr_(new Date(r.Date)) === date &&
+             String(r.Type).toUpperCase() === 'IN';
+    });
+    if (!inToday) throw apiError_('NOT_CHECKED_IN', 'ยังไม่ได้เช็คอินนักเรียนวันนี้ — กรุณาเช็คอินก่อนจึงจะบันทึกสมุดรายวันได้');
+  }
   var sheet = sheet_(getMainSpreadsheet_(), 'DAILY_JOURNAL');
   ensureColumns_(sheet, ['HealthDetail', 'MilkTotal', 'Water', 'Theme', 'SubmittedAt', 'Status', 'UpdatedAt', 'MilkUnit', 'ParentComment', 'TeacherReply']);
 
