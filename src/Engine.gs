@@ -874,6 +874,21 @@ function createAtomAPI(M, GROWTH_STD) {
         if(seen['pid:'+pa.ParentID]||(pa.LineUID&&seen['uid:'+pa.LineUID]))return; seen['pid:'+pa.ParentID]=1;
         out.push({parentId:pa.ParentID, uid:pa.LineUID||'', name:pa.NameTH||pa.Name, nick:pa.Nickname, phone:pa.Phone, via:'legacy'}); });
       return {studentId:p.studentId, name:s.NameTH, nick:s.Nickname, parents:out}; },
+    // Admin: the students a parent is linked to — reverse of studentLinkedParents (USER_LINKS by the
+    // parent's LineUID ∪ legacy STUDENTS.ParentID). Feeds the "how many children" view.
+    parentLinkedStudents: p => { const pa=(M.parents||[]).find(x=>String(x.ParentID)===String(p.parentId)); if(!pa)fail('NOT_FOUND','ไม่พบผู้ปกครอง');
+      const out=[], seen={};
+      if(pa.LineUID) (M.userLinks||[]).filter(l=>String(l.UserUID)===String(pa.LineUID)).forEach(l=>{ const s=studentById(l.StudentID); if(!s||seen[l.StudentID])return; seen[l.StudentID]=1;
+        out.push({studentId:s.StudentID, name:s.NameTH, nameEN:s.NameEN, nick:s.Nickname, nickEN:s.NicknameEN, class:s.Class, status:s.Status||'Active', via:'link'}); });
+      (M.students||[]).filter(s=>String(s.ParentID)===String(p.parentId)).forEach(s=>{ if(seen[s.StudentID])return; seen[s.StudentID]=1;
+        out.push({studentId:s.StudentID, name:s.NameTH, nameEN:s.NameEN, nick:s.Nickname, nickEN:s.NicknameEN, class:s.Class, status:s.Status||'Active', via:'legacy'}); });
+      return {parentId:p.parentId, name:pa.NameTH||pa.Name, nick:pa.Nickname, students:out}; },
+    // Admin: {parentId: linked-children-count} for every parent (active children only) — for the list badge.
+    parentLinkCounts: () => { const cnt={}; const uidToPid={}; (M.parents||[]).forEach(pa=>{ if(pa.LineUID)uidToPid[pa.LineUID]=pa.ParentID; cnt[pa.ParentID]=0; });
+      const seen={}; const active=activeStudents();
+      active.forEach(s=>{ (M.userLinks||[]).filter(l=>String(l.StudentID)===String(s.StudentID)).forEach(l=>{ const pid=uidToPid[l.UserUID]; if(!pid)return; const k=pid+'|'+s.StudentID; if(seen[k])return; seen[k]=1; cnt[pid]=(cnt[pid]||0)+1; });
+        if(s.ParentID){ const k=s.ParentID+'|'+s.StudentID; if(!seen[k]){ seen[k]=1; cnt[s.ParentID]=(cnt[s.ParentID]||0)+1; } } });
+      return cnt; },
     // Admin: detach ONE parent from a child (keeps the child enrolled). GAS routes this to an in-place
     // handler (USER_LINKS is a no-shrink sheet — the engine's full rewrite would be blocked by WRITE_GUARD).
     unlinkStudent: p => { const s=studentById(p.studentId); if(!s)fail('NOT_FOUND','ไม่พบนักเรียน');
