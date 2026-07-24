@@ -224,7 +224,7 @@ function createAtomAPI(M, GROWTH_STD) {
   function recordSlip_(kind, refId, p){ const tgt=slipTarget_(kind, refId); if(!tgt)fail('NOT_FOUND','ไม่พบรายการ');
     const amt=Number(p.slipAmount||0);
     paySlips_().push({ SlipID:'SL-'+Date.now()+'-'+Math.floor(Math.random()*10000), RefKind:kind, RefID:refId, StudentID:tgt.studentId,
-      Amount:amt, Url:p.slipData||p.slipName||'', FileId:'', Verified:'', TransRef:'', Receiver:'', SubmittedDate:stampLocal(), Status:'SUBMITTED' });
+      Amount:amt, Url:p.slipData||p.slipName||'', FileId:'', Verified:'', TransRef:'', Receiver:'', SubmittedDate:stampLocal(), Status:'SUBMITTED', SlipGroup:p.slipGroup||'' });
     const submitted=sumSlips_(kind, refId, ['SUBMITTED','CONFIRMED']); const confirmed=sumSlips_(kind, refId, ['CONFIRMED']);
     tgt.obj.Status='PENDING_VERIFY'; tgt.obj.SlipUrl=p.slipData||p.slipName||''; tgt.obj.SlipAmount=submitted; tgt.obj.PaymentMethod='transfer'; tgt.obj.SubmittedDate=todayLocal();
     logAct('uploadSlip',refId,'โอน '+amt,actorOf(p));
@@ -432,9 +432,24 @@ function createAtomAPI(M, GROWTH_STD) {
       return {month,created}; },
     // attach a monthly slip → records a PAYMENT_SLIPS row (multiple allowed), bill → PENDING_VERIFY.
     uploadSlip: p => recordSlip_('bill', p.billingId, p),
+    // ONE transfer slip paying several siblings' bills. The ticked bills are summed; the slip amount MUST
+    // equal that total (else AMOUNT_MISMATCH → the client shows a red overlay and blocks). Each bill gets
+    // its own slip row (its share) sharing a SlipGroup so Admin sees they are one transfer. Ownership is
+    // enforced — every bill's student must belong to the caller's children.
+    payCombined: p => { const ids=Array.isArray(p.bills)?p.bills.filter(Boolean):[]; if(!ids.length)fail('BAD_INPUT','ยังไม่ได้เลือกบิล');
+      const mine=new Set(visibleStudents(p).map(s=>s.StudentID));
+      const items=ids.map(id=>{ const b=M.payments.find(x=>x.BillingID===id); if(!b)fail('NOT_FOUND','ไม่พบบิล '+id);
+        if(!mine.has(b.StudentID))fail('NO_PERMISSION','บิลนี้ไม่ใช่ของบุตรหลานท่าน');
+        const tgt=slipTarget_('bill',id); const confirmed=sumSlips_('bill',id,['CONFIRMED']); return {id,studentId:b.StudentID,out:Math.max(0,tgt.due-confirmed)}; });
+      const total=Math.round(items.reduce((a,x)=>a+x.out,0)); const amt=Math.round(Number(p.slipAmount||0));
+      if(Math.abs(amt-total)>0.5) fail('AMOUNT_MISMATCH','ยอดชำระ ฿'+amt+' ไม่ตรงกับยอดรวมในระบบ ฿'+total);
+      const groupId='SG-'+Date.now();
+      items.forEach(x=>{ recordSlip_('bill', x.id, {slipAmount:x.out, slipData:p.slipData, slipName:p.slipName, slipGroup:groupId, uid:p.uid, parentId:p.parentId, role:p.role}); });
+      logAct('payCombined', groupId, items.length+' คน รวม ฿'+total, actorOf(p));
+      return {ok:true, groupId, total, count:items.length}; },
     // all slips for a bill/OT/prepay (or a student) — history shown to parent + admin (rejected hidden)
     paymentSlips: p => paySlips_().filter(s=> (p.refKind?s.RefKind===p.refKind:true) && (p.refId?s.RefID===p.refId:true) && (p.studentId?s.StudentID===p.studentId:true) && (p.includeRejected?true:s.Status!=='REJECTED'))
-      .map(s=>({ SlipID:s.SlipID, RefKind:s.RefKind, RefID:s.RefID, Amount:Number(s.Amount||0), Url:s.Url, Verified:s.Verified, TransRef:s.TransRef, Receiver:s.Receiver, SubmittedDate:s.SubmittedDate, Status:s.Status })),
+      .map(s=>({ SlipID:s.SlipID, RefKind:s.RefKind, RefID:s.RefID, Amount:Number(s.Amount||0), Url:s.Url, Verified:s.Verified, TransRef:s.TransRef, Receiver:s.Receiver, SubmittedDate:s.SubmittedDate, Status:s.Status, SlipGroup:s.SlipGroup||'' })),
     // Admin confirms ONE slip; when confirmed total ≥ due the whole bill flips to PAID (else PARTIAL).
     confirmSlip: p => { const s=paySlips_().find(x=>x.SlipID===p.slipId); if(!s)fail('NOT_FOUND','ไม่พบสลิป'); s.Status='CONFIRMED'; s.VerifiedBy=p.adminId||'admin';
       const r=recomputeTarget_(s.RefKind, s.RefID, p.paidDate); logAct('confirmSlip',s.SlipID,'ยืนยัน '+s.Amount,actorOf(p)); return Object.assign({ok:true},r); },

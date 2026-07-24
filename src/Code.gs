@@ -43,6 +43,7 @@ var ROUTES = {
   adminResetPassword:   function (p) { return handleAdminResetPassword(p); },
   requestPasswordReset: function (p) { return handleRequestPasswordReset(p); },
   uploadSlip:     function (p) { return handleUploadSlip(p); },
+  payCombined:    function (p) { return handlePayCombined(p); },
   payOT:          function (p) { return handlePayOT(p); },
   teacherPayOT:   function (p) { return handlePayOT(p); },   // teacher pays a student's OT on behalf (same in-place slip pipeline; read is class-scoped in the engine)
   payPrepay:      function (p) { return handlePayPrepay(p); },

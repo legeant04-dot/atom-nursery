@@ -115,6 +115,49 @@ function handlePrepayAudit(p) {
   return { prepaysPaid: pps.length, flaggedBills: flagged.length, repaired: repaired, applied: !!p.apply, items: flagged.slice(0, 200) };
 }
 
+/**
+ * ONE transfer slip paying several siblings' bills. The ticked bills are summed; the slip amount MUST
+ * equal that total, else AMOUNT_MISMATCH (the client shows a red overlay and blocks). The slip image is
+ * uploaded to Drive ONCE and every bill gets its own PAYMENT_SLIPS row (its share) sharing a SlipGroup,
+ * so Admin sees they are one transfer. Every bill's student must belong to the caller (parentOwnsStudent_).
+ * payload: { bills:[billingId…], slipAmount, slipName, slipData, qrData? }  (uid injected by applyIdentity_)
+ */
+function handlePayCombined(p) {
+  p = p || {};
+  var ids = (p.bills || []).filter(function (x) { return !!x; });
+  if (!ids.length) throw apiError_('BAD_INPUT', 'ยังไม่ได้เลือกบิล');
+  var uid = p.uid || p.lineUID || '';
+  var items = ids.map(function (id) {
+    var tgt = paySlipTarget_('bill', id);
+    if (!tgt) throw apiError_('NOT_FOUND', 'ไม่พบบิล ' + id);
+    if (uid && !parentOwnsStudent_(uid, tgt.studentId)) throw apiError_('NO_PERMISSION', 'บิลนี้ไม่ใช่ของบุตรหลานท่าน');
+    var confirmed = paySlipSum_('bill', id, ['CONFIRMED']);
+    return { id: id, tgt: tgt, out: Math.max(0, tgt.due - confirmed) };
+  });
+  var total = Math.round(items.reduce(function (a, x) { return a + x.out; }, 0));
+  var amt = Math.round(Number(p.slipAmount || 0));
+  if (Math.abs(amt - total) > 0.5) throw apiError_('AMOUNT_MISMATCH', 'ยอดชำระ ฿' + amt + ' ไม่ตรงกับยอดรวมในระบบ ฿' + total);
+
+  // upload the slip image ONCE, verify it ONCE against the full total
+  var drive = { url: '', fileId: '' };
+  if (p.slipData) { var b64 = String(p.slipData).indexOf(',') >= 0 ? String(p.slipData).split(',')[1] : String(p.slipData); if (b64) drive = paySlipToDrive_(b64, p.slipName || ('slip-combined.jpg')); }
+  var vr = paySlipVerify_(p, total);
+  var groupId = 'SG-' + Date.now();
+  var sh = paySlipsSheet_(); ensureColumns_(sh, ['SlipGroup']);
+  var names = [];
+  items.forEach(function (x, i) {
+    appendObject_(sh, { SlipID: 'SL-' + Date.now() + '-' + i, RefKind: 'bill', RefID: x.id, StudentID: x.tgt.studentId, Amount: x.out,
+      Url: drive.url, FileId: drive.fileId, Verified: vr.verified, TransRef: vr.ref, Receiver: vr.receiver, SubmittedDate: nowStr_(), Status: 'SUBMITTED', SlipGroup: groupId });
+    var submitted = paySlipSum_('bill', x.id, ['SUBMITTED', 'CONFIRMED']);
+    updateRow_(x.tgt.sheet, x.tgt.row, { Status: 'PENDING_VERIFY', SlipAmount: submitted, PaymentMethod: 'transfer', TransactionDate: nowStr_() });
+    var st = findObject_(sheet_(getMainSpreadsheet_(), 'STUDENTS'), function (s) { return String(s.StudentID) === String(x.tgt.studentId); });
+    names.push(st ? (st.Nickname || st.Name || x.tgt.studentId) : x.tgt.studentId);
+  });
+  recCacheBust_('PAYMENT_SLIPS'); recCacheBust_('BILLING');
+  try { notifyAdmins_('💳 สลิปรวม ' + items.length + ' คน (' + names.join(', ') + ') · ฿' + total + ' — รอตรวจสอบ', { kind: 'combined_slip' }); } catch (e) {}
+  return { ok: true, groupId: groupId, total: total, count: items.length };
+}
+
 function handleUploadSlip(p) { return paySlipRecord_('bill', p.billingId, p); }
 function handlePayOT(p) { return paySlipRecord_('ot', p.otId, p); }
 function handlePayPrepay(p) { return paySlipRecord_('prepay', p.prepayId, p); }
