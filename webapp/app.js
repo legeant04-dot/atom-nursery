@@ -30,7 +30,7 @@
     window.api=function(action,payload,opts){ if(!_isMut(action)) return _rawApi(action,payload,opts);
       _busyShow(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _busyDone(false); throw e; }
       return Promise.resolve(pr).then(v=>{ _busyDone(true); return v; }, e=>{ _busyDone(false); throw e; }); }; }
-  const APP_VERSION = 'Version 1.105'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.106'; // bump each webapp change; shown only at the bottom of the Chat screen
   const verTag = () => `<div style="text-align:center;color:#c3c9d4;font-size:10px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
   const phoneFmt = p => { let d=String(p==null?'':p).replace(/\D/g,''); if(d.length===9) d='0'+d; return d; };
@@ -852,8 +852,22 @@
   function slipHistoryHTML(slips){ if(!slips||!slips.length)return '';
     return `<div style="margin-top:8px"><small class="muted">📎 ${EN()?'Submitted slips':'สลิปที่ส่งมา'}</small>${slips.map(s=>`<div class="list-item" style="gap:8px;align-items:center">${slipThumb(s.Url)}<span style="flex:1"><b>${baht(s.Amount)}</b> ${slipStatusPill(s.Status)} ${slipVerBadge(s.Verified)}${s.SlipGroup?` <span class="pill info" style="font-size:10px" title="${esc(s.SlipGroup)}">🔗 ${EN()?'combined':'สลิปรวมหลายคน'}</span>`:''}${s.Receiver?`<br><small class="muted">→ ${esc(s.Receiver)}</small>`:''}<br><small class="muted">${esc(String(s.SubmittedDate||'').slice(0,16))}</small></span></div>`).join('')}</div>`; }
 
+  window._PAY_KIDS=[];
   SCREENS.Parent.payment = async () => {
-    const kids=await api('parentChildren',parentScope()); if(!kids.length){GO('home');return;} const sid=kids[0].StudentID; window._PAY_SID=sid;
+    const kids=await api('parentChildren',parentScope()); if(!kids.length){GO('home');return;}
+    window._PAY_KIDS=kids; window._PAY_SID=kids[0].StudentID;
+    // combined pay across siblings (one slip) — only when >1 child
+    const multiBtn = kids.length>1 ? `<div class="card" style="background:#eef6ff;border-color:#bbdefb"><div class="spread"><div><b>👨‍👩‍👧‍👦 ${EN()?'Pay for several children in one slip':'จ่ายรวมหลายคนในสลิปเดียว'}</b><br><small class="muted">${EN()?'One transfer covering more than one child — the system checks the total.':'โอนครั้งเดียวครอบคลุมลูกหลายคน ระบบจะตรวจยอดรวมให้'}</small></div><button class="btn sm" onclick="P_combinedPay()">💳 ${EN()?'Combined':'จ่ายรวม'}</button></div></div>` : '';
+    // one tab per child so a parent with >1 child can see EACH child's bills (not just the first)
+    const switcher = kids.length>1 ? `<div class="seg" id="paySeg" style="margin-bottom:8px">${kids.map((k,i)=>`<button class="${i===0?'active':''}" onclick="P_paySel(${i})">${esc(dispNick(k))}</button>`).join('')}</div>` : '';
+    app.innerHTML = `<h2 class="page">${esc(t('title.payment'))}${kids.length===1?` · <span style="color:#1565C0">${esc(dispNick(kids[0]))}</span>`:''}</h2>${multiBtn}${switcher}<div id="payBody"><div class="card muted">${EN()?'Loading…':'กำลังโหลด…'}</div></div>`;
+    P_paySel(0);
+  };
+  // render the payment section for the selected child (index into _PAY_KIDS)
+  window.P_paySel=async(i)=>{ const kids=window._PAY_KIDS||[]; const k=kids[i]; if(!k)return; window._PAY_SID=k.StudentID;
+    const seg=document.getElementById('paySeg'); if(seg)[...seg.children].forEach((b,j)=>b.classList.toggle('active',j===i));
+    setHTML('#payBody', await P_payChildHTML(k)); window.scrollTo(0,0); };
+  async function P_payChildHTML(kid){ const sid=kid.StudentID;
     const [ps, ot, pre, allSlips] = await Promise.all([api('payments',{studentId:sid}), api('otDaily',{studentId:sid}), api('prepayments',{studentId:sid}), api('paymentSlips',{studentId:sid})]);
     const slipsOf=(kind,id)=>(allSlips||[]).filter(s=>s.RefKind===kind&&s.RefID===id);
     const per=EN()?'Period ':'งวด ';
@@ -869,8 +883,8 @@
       ${ot.map(o=>{ const paid=o.Status==='PAID',partial=o.Status==='PARTIAL'; const sl=slipsOf('ot',o.OTID); const pend=sl.some(s=>s.Status==='SUBMITTED'); return `<div style="border-bottom:1px solid #f0f0f0;padding:4px 0"><div class="list-item"><span>${esc(ddmmyyyy(o.Date))} · ${esc(o.PickupTime)} <small class="muted">(${EN()?'late':'สาย'} ${o.LateMinutes}${esc(t('lbl.min'))} · ${o.Hours}${EN()?'h':'ชม.'})</small></span>
         <span><b>${baht(o.Amount)}</b> ${paid?`<span class="pill ok">${esc(t('s.paid'))}</span>`:partial?`<span class="pill wait">${EN()?'partial':'บางส่วน'}</span>`:pend?verifyPill:''} ${paid?'':`<button class="btn sm" onclick="P_payOT('${o.OTID}',${o.Amount})">${pend||partial?'📎':esc(t('lbl.pay'))}</button> <button class="btn sm gray" onclick="P_cash('ot','${o.OTID}',${o.Amount})">💵</button>`}</span></div>${slipHistoryHTML(sl)}</div>`; }).join('')}
       ${otOpen.length?`<div class="spread" style="margin-top:8px"><b>${esc(t('ot.unpaidTotal'))}</b><b style="color:#c62828">${baht(otOpen.reduce((a,o)=>a+o.Amount,0))}</b></div><small class="muted">${esc(t('ot.rollNote'))}</small>`:''}</div>`:'';
-    const multiBtn = kids.length>1 ? `<div class="card" style="background:#eef6ff;border-color:#bbdefb"><div class="spread"><div><b>👨‍👩‍👧‍👦 ${EN()?'Pay for several children in one slip':'จ่ายรวมหลายคนในสลิปเดียว'}</b><br><small class="muted">${EN()?'One transfer covering more than one child — the system checks the total.':'โอนครั้งเดียวครอบคลุมลูกหลายคน ระบบจะตรวจยอดรวมให้'}</small></div><button class="btn sm" onclick="P_combinedPay()">💳 ${EN()?'Combined':'จ่ายรวม'}</button></div></div>` : '';
-    app.innerHTML = `<h2 class="page">${esc(t('title.payment'))} · <span style="color:#1565C0">${esc(dispNick(kids[0]))}</span></h2>${multiBtn}${preHtml}${otHtml}${ps.map(b=>{
+    const kidHead = window._PAY_KIDS.length>1 ? `<div class="card" style="background:#f7f9fc;padding:8px"><b>👶 ${esc(dispNick(kid))}</b> <small class="muted">${esc(nm(kid))} · ${esc(kid.Class||'')}</small></div>` : '';
+    return `${kidHead}${preHtml}${otHtml}${ps.map(b=>{
       const paid=b.Status==='PAID',partial=b.Status==='PARTIAL'; const due=b.TotalDue!=null?b.TotalDue:b.Amount;
       const prepaid=b.VerifiedStatus==='PREPAID'; const confirmed=Number(b.PaidConfirmed||0); const outstanding=b.Outstanding!=null?Number(b.Outstanding):Math.max(0,due-confirmed);
       const billSlips=slipsOf('bill',b.BillingID); const hasPending=billSlips.some(s=>s.Status==='SUBMITTED');
@@ -890,7 +904,7 @@
       ${paid||prepaid?`<div class="row" style="margin-top:10px"><button class="btn sm outline" onclick="P_receipt('${b.BillingID}')">🧾 ${esc(t('pay.receipt'))}</button></div>`
         :`<div class="row" style="margin-top:10px"><button class="btn sm" onclick="P_qr('${b.BillingID}',${topUp})">${esc(t('lbl.qr'))}</button><button class="btn sm outline" onclick="P_slip('${b.BillingID}',${topUp})">📎 ${hasPending||partial?(EN()?'Add another slip':'แนบสลิปเพิ่ม'):esc(t('lbl.attachSlip'))}</button><button class="btn sm gray" onclick="P_cash('bill','${b.BillingID}',${topUp})">💵 ${esc(t('pay.cash'))}</button></div>`}</div>`;
     }).join('')}`;
-  };
+  }
   // prepay with discount: 2mo -5%, 3mo -10%, 6mo -20%, 12mo -30%
   // Advance-tuition tiers must MATCH the engine (prepayDiscount): 2→5% · 3→10% · 6→15% · 12→20%.
   // The monthly price is fetched from the server (studentBillBase) so the preview equals the real charge
@@ -2274,6 +2288,22 @@
     modal(`<h3>🔗 ${EN()?'Children linked to':'บุตรที่ผูกกับ'} ${esc(d.nick||d.name||pid)} <span class="pill ${kids.length?'ok':'bad'}" style="font-size:11px">👶 ${kids.length}</span></h3>
       <p class="muted" style="font-size:12px">${EN()?'These are the students this parent can see & pay for. Unlink detaches one (the child stays enrolled).':'รายชื่อนักเรียนที่ผู้ปกครองคนนี้เห็นและชำระเงินได้ · ยกเลิกผูก = ตัดออก (เด็กยังเรียนอยู่)'}</p>
       ${kids.length?kids.map(s=>`<div class="list-item"><span><b>${esc(s.nick||s.name||s.studentId)}</b> <small class="muted">${esc(s.name||'')} · ${esc(s.class||(EN()?'no class':'ยังไม่จัดชั้น'))}${String(s.status).toLowerCase()!=='active'?' · <span style="color:#c62828">'+esc(s.status)+'</span>':''}</small> <span class="pill info" style="font-size:10px">${s.via==='link'?'LINE':'legacy'}</span></span><button class="btn sm pink" onclick="A_unlinkFromParent('${esc(s.studentId)}','${esc(pid)}',this)">✂️ ${EN()?'Unlink':'ยกเลิกผูก'}</button></div>`).join(''):`<div class="card muted">${EN()?'No linked children':'ยังไม่มีบุตรที่ผูก'}</div>`}
+      ${kids.length>1?`<button class="btn block" style="margin-top:8px" onclick="A_familyFinance('${esc(pid)}')">👁️ ${EN()?'Preview family finance (as parent sees it)':'ดูมุมมองการเงินของครอบครัว (แบบที่ผู้ปกครองเห็น)'}</button>`:''}
+      <button class="btn outline block" style="margin-top:8px" onclick="this.closest('.modal').remove()">${esc(t('c.close'))}</button>`);
+  };
+  // Admin read-only preview of a family's finances across ALL linked children (what the parent sees + combined total)
+  window.A_familyFinance=async(pid)=>{ let d; try{ d=await api('parentLinkedStudents',{parentId:pid}); }catch(e){ err(e); return; }
+    const kids=(d.students||[]).filter(s=>String(s.status||'active').toLowerCase()==='active'); if(!kids.length){ toast(EN()?'No active children':'ไม่มีบุตรที่กำลังเรียน'); return; }
+    const pers=await Promise.all(kids.map(k=>api('payments',{studentId:k.studentId})));
+    let grand=0;
+    const secs=kids.map((k,i)=>{ const bills=(pers[i]||[]).filter(b=>b.Status!=='PAID'&&b.VerifiedStatus!=='PREPAID');
+      const rows=bills.map(b=>{ const out=b.Outstanding!=null?Number(b.Outstanding):Number(b.TotalDue!=null?b.TotalDue:b.Amount); grand+=out;
+        return `<div class="list-item" style="align-items:flex-start"><span>${esc(b.Month)}<br><small class="muted">${(b.Items||[]).map(it=>esc(trItem(it[0]))+' '+baht(it[1])).join(' · ')}</small></span><b style="color:#c62828">${baht(out)}</b></div>`; }).join('') || `<small class="muted">${EN()?'no outstanding bills':'ไม่มีบิลค้างชำระ'}</small>`;
+      return `<div class="card" style="padding:8px"><b>👶 ${esc(k.nick||k.name)}</b> <small class="muted">${esc(k.class||'')}</small>${rows}</div>`; }).join('');
+    modal(`<h3>👁️ ${EN()?'Family finance':'มุมมองการเงินของครอบครัว'} — ${esc(d.nick||d.name)}</h3>
+      <p class="muted" style="font-size:12px">${EN()?'Outstanding bills across every child — this is what the combined-payment total would be.':'บิลค้างชำระของลูกทุกคน — เท่ากับยอดที่จะได้เมื่อกด "จ่ายรวม"'}</p>
+      ${secs}
+      <div class="card" style="background:#e8f5e9;padding:8px"><div class="spread"><b>${EN()?'Combined outstanding':'ยอดค้างรวมทุกคน'}</b><b style="color:#2e7d32;font-size:18px">${baht(grand)}</b></div></div>
       <button class="btn outline block" style="margin-top:8px" onclick="this.closest('.modal').remove()">${esc(t('c.close'))}</button>`);
   };
   window.A_unlinkFromParent=async(sid,pid,btn)=>{ if(!confirm(EN()?'Unlink this child from the parent? The child stays enrolled.':'ยืนยันตัดนักเรียนคนนี้ออกจากผู้ปกครอง? (เด็กยังเรียนอยู่)'))return; if(btn)btn.disabled=true;
