@@ -30,7 +30,7 @@
     window.api=function(action,payload,opts){ if(!_isMut(action)) return _rawApi(action,payload,opts);
       _busyShow(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _busyDone(false); throw e; }
       return Promise.resolve(pr).then(v=>{ _busyDone(true); return v; }, e=>{ _busyDone(false); throw e; }); }; }
-  const APP_VERSION = 'Version 1.102'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.103'; // bump each webapp change; shown only at the bottom of the Chat screen
   const verTag = () => `<div style="text-align:center;color:#c3c9d4;font-size:10px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
   const phoneFmt = p => { let d=String(p==null?'':p).replace(/\D/g,''); if(d.length===9) d='0'+d; return d; };
@@ -1527,7 +1527,7 @@
   window.T_slipMonth=async(m)=>{ let pay=await api('getPayslip',{staffId:USER.staffId,month:m}); if(!pay)pay=await api('computePayroll',{staffId:USER.staffId,month:m}); setHTML('#slipBox', payslipCard(pay)); };
   window.T_slipDownload=async(m)=>{ m=m||($('#slipMonth')&&$('#slipMonth').value)||monthStr(); let pay=await api('getPayslip',{staffId:USER.staffId,month:m}); if(!pay)pay=await api('computePayroll',{staffId:USER.staffId,month:m}); openOrDownload(buildSlipsHTML([pay],m), 'payslip-'+USER.staffId+'-'+m+'.html'); };
   function payslipCard(r){ return `<div class="card"><h3>สลิป ${esc(staffName(r.StaffID))} · ${esc(r.Month)}</h3>
-    ${r.LeaveExceeds?`<div style="background:#fff3e0;border:1px solid #ffcc80;border-radius:8px;padding:6px 9px;margin-bottom:6px;color:#e65100;font-size:12.5px">⚠️ ลาป่วย/ลากิจ ${r.LeaveDaysSickPersonal} วัน (เกิน ${r.LeaveLimit||3} วัน) — ไม่คำนวณเบี้ยขยัน</div>`:''}
+    ${r.LeaveExceeds?`<div style="background:#fff3e0;border:1px solid #ffcc80;border-radius:8px;padding:6px 9px;margin-bottom:6px;color:#e65100;font-size:12.5px">⚠️ ลาเกิน ${r.LeaveLimit||3} วัน (ลารวม ${r.LeaveDays} วัน) — ไม่คำนวณเรทจำนวนเด็ก</div>`:''}
     <table style="width:100%;font-size:14px;border-collapse:collapse">
     <tr><td>เงินเดือน</td><td style="text-align:right">${baht(r.BaseSalary)}</td></tr>
     <tr><td>เบี้ยขยัน (มาครบ ${baht(r.DiligenceAttendance)} + FB ${baht(r.DiligenceFacebook)})</td><td style="text-align:right">${baht(r.DiligenceTotal)}</td></tr>
@@ -1702,10 +1702,10 @@
         <label class="field"><span>${esc(t('pay.daysWorked'))}</span><input id="pDays" type="number" value="0"/></label></div>
       <label class="field" style="display:flex;align-items:center;gap:8px"><input type="checkbox" id="pSS" style="width:auto"/> ${esc(t('pay.ssDeduct'))}</label>
       <div class="card" style="background:#f7f9fc;padding:8px"><b style="font-size:13px">⭐ ${esc(t('set.diligence'))} <small class="muted">(${esc(t('pay.perStaff'))})</small></b>
-        <div id="pLeaveWarn"></div>
         <div class="grid2" style="margin-top:6px"><label class="field" style="margin:0"><span style="display:flex;align-items:center;gap:6px"><input type="checkbox" id="pAtt" checked style="width:auto"/> ${esc(t('pay.attend'))}</span><input id="pAttendAmt" type="number"/></label>
           <label class="field" style="margin:0"><span style="display:flex;align-items:center;gap:6px"><input type="checkbox" id="pFb" style="width:auto"/> ${esc(t('pay.fb'))}</span><input id="pFbAmt" type="number"/></label></div></div>
       <div class="card" style="background:#eef6ff;padding:8px"><b style="font-size:13px">👶 ${esc(t('pay.childRate'))}</b>
+        <div id="pLeaveWarn"></div>
         <div class="grid2" style="margin-top:6px"><label class="field" style="margin:0"><span>${esc(t('pay.childThreshold'))}</span><input id="pThreshold" type="number" onchange="A_recalcChild()"/></label>
           <label class="field" style="margin:0"><span>${esc(t('pay.childMultiplier'))} (฿)</span><input id="pChildMul2" type="number"/></label></div>
         <div id="childCalc" class="muted" style="font-size:12px;margin-top:6px"></div>
@@ -1727,10 +1727,10 @@
     // auto-pull this staff's OT hours for the selected month into the OT field
     try{ const ot=await api('staffMonthlyOT',{staffId:sid,month:$('#pMonth').value}); $('#pOt').value=ot.amount;
       const n=$('#otNote'); if(n) n.innerHTML=`(${EN()?'auto':'อัตโนมัติ'} ${ot.hours} ${EN()?'hr':'ชม.'} × ${baht(ot.rate)})`; }catch(e){}
-    // sick+personal leave over the limit → warn + auto-uncheck the diligence bonus (field NOT locked)
-    try{ const ls=await api('staffLeaveSummary',{staffId:sid,month:$('#pMonth').value}); const w=$('#pLeaveWarn'), att=$('#pAtt');
-      if(ls.exceeds){ if(att) att.checked=false;
-        if(w) w.innerHTML=`<div style="background:#fff3e0;border:1px solid #ffcc80;border-radius:8px;padding:7px 9px;margin-top:6px;color:#e65100;font-size:12.5px">⚠️ ${EN()?`Sick/personal leave ${ls.sickPersonalDays} days (> ${ls.limit}) — diligence bonus not applied. You can still tick it manually.`:`ลาป่วย/ลากิจ ${ls.sickPersonalDays} วัน (เกิน ${ls.limit} วัน) — ไม่คำนวณเบี้ยขยันให้ · ติ๊กเองได้หากต้องการ`}</div>`;
+    // leave (any type) over the limit → warn + auto-zero the child-rate count (field NOT locked; Admin can re-enter)
+    try{ const ls=await api('staffLeaveSummary',{staffId:sid,month:$('#pMonth').value}); const w=$('#pLeaveWarn'), ch=$('#pChild');
+      if(ls.exceeds){ if(ch) ch.value=0;
+        if(w) w.innerHTML=`<div style="background:#fff3e0;border:1px solid #ffcc80;border-radius:8px;padding:7px 9px;margin-bottom:6px;color:#e65100;font-size:12.5px">⚠️ ${EN()?`Leave ${ls.days} days (> ${ls.limit}) this month — child-rate income not calculated. You can still enter a count manually.`:`ลาเกิน ${ls.limit} วัน (ลารวม ${ls.days} วัน) เดือนนี้ — ไม่คำนวณเรทจำนวนเด็กให้ · กรอกจำนวนเองได้หากต้องการ`}</div>`;
       } else if(w){ w.innerHTML=''; } }catch(e){} };
   window.A_payTypeToggle=()=>{ const daily=$('#pType').value==='daily'; $('#pMonthlyBox').hidden=daily; $('#pDailyBox').hidden=!daily; };
   // auto child-rate count from DB: children from #threshold onward = rated − (threshold−1)

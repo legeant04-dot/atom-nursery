@@ -685,15 +685,15 @@ function createAtomAPI(M, GROWTH_STD) {
       // diligence amounts: per-staff override (payrollConfig) → else global config
       const attendAmt=p.diligenceAttend!=null?Number(p.diligenceAttend):(pc.DiligenceAttendanceAmount!=null?pc.DiligenceAttendanceAmount:cfg.DiligenceAttendanceAmount);
       const fbAmt=p.diligenceFb!=null?Number(p.diligenceFb):(pc.DiligenceFacebookAmount!=null?pc.DiligenceFacebookAmount:cfg.DiligenceFacebookAmount);
-      // sick+personal leave over the monthly limit (default 3) forfeits the diligence bonus (รายได้พิเศษ).
-      // Auto-off when over the limit, but Admin may still tick the box to override (no field is locked).
+      // any-type leave over the monthly limit (default 3) forfeits the CHILD-RATE income (เรทจำนวนเด็ก),
+      // applied to autoChild below. เบี้ยขยัน is untouched here (its own "ไม่ลา" rule already covers leave).
       const ls=H.staffLeaveSummary({staffId:p.staffId,month:p.month}); const leaveExceeds=ls.exceeds;
-      const attEligible = p.attendanceEligible!=null ? (p.attendanceEligible!==false) : !leaveExceeds;
-      const dA=attEligible?attendAmt:0; const dF=p.facebookPosted?fbAmt:0; const dT=dA+dF;
+      const dA=p.attendanceEligible!==false?attendAmt:0; const dF=p.facebookPosted?fbAmt:0; const dT=dA+dF;
       const childMult=p.childMultiplier!=null?Number(p.childMultiplier):pc.ChildMultiplier;
       // child-rate count is AUTO from the DB unless overridden: children from #ChildThreshold onward
       const threshold=p.childThreshold!=null?Number(p.childThreshold):(pc.ChildThreshold||cfg.ExtraChildThreshold||31);
-      const ratedTotal=H.ratedChildCount().rated; const autoChild=Math.max(0, ratedTotal-(threshold-1));
+      // leave over the limit → child-rate auto-count drops to 0 (Admin can still type a count to override).
+      const ratedTotal=H.ratedChildCount().rated; const autoChild=leaveExceeds?0:Math.max(0, ratedTotal-(threshold-1));
       const childCount=p.extraChildCount!=null?Math.max(0,p.extraChildCount):autoChild;
       const ec=childCount*childMult; const tc=Math.min(cfg.TrainingCertMaxPerMonth,Math.max(0,p.trainingCertCount||0))*cfg.TrainingCertRate;
       const oi=ec+tc+(p.otherIncome||0); const ot=p.otEvening||0; const hb=p.holidayBonus||0; const gross=base+dT+oi+ot+hb;
@@ -702,16 +702,17 @@ function createAtomAPI(M, GROWTH_STD) {
       const ssDeduct=(p.socialSecurityDeduct!=null?p.socialSecurityDeduct:pc.SocialSecurityDeduct)!==false;
       const ss=p.socialSecurity!=null?p.socialSecurity:(ssDeduct?Math.min(Math.round(base*cfg.SocialSecurityRate),cfg.SocialSecurityMax):0);
       const dd=(p.contribution||0)+(p.otherDeductions||0); const total=ss+dd; const net=gross-total+adjSum;
-      const rec={PayrollID:nextSeqId_(M.payroll,'PayrollID','PR',4),StaffID:p.staffId,Month:p.month,PayType:payType,DailyRate:dailyRate,DaysWorked:daysWorked,BaseSalary:base,DiligenceAttendance:dA,DiligenceFacebook:dF,DiligenceTotal:dT,ExtraChildAmount:ec,ChildCount:childCount,ChildThreshold:threshold,RatedTotal:ratedTotal,ChildMultiplier:childMult,TrainingCertAmount:tc,OTEvening:ot,HolidayBonus:hb,OtherIncome:oi,GrossIncome:gross,SocialSecurity:ss,Contribution:p.contribution||0,OtherDeductions:p.otherDeductions||0,TotalDeductions:total,Adjustments:adj,AdjustmentsTotal:adjSum,NetPay:net,BankAccount:cfg.BankName,LeaveDaysSickPersonal:ls.sickPersonalDays,LeaveLimit:ls.limit,LeaveExceeds:leaveExceeds};
+      const rec={PayrollID:nextSeqId_(M.payroll,'PayrollID','PR',4),StaffID:p.staffId,Month:p.month,PayType:payType,DailyRate:dailyRate,DaysWorked:daysWorked,BaseSalary:base,DiligenceAttendance:dA,DiligenceFacebook:dF,DiligenceTotal:dT,ExtraChildAmount:ec,ChildCount:childCount,ChildThreshold:threshold,RatedTotal:ratedTotal,ChildMultiplier:childMult,TrainingCertAmount:tc,OTEvening:ot,HolidayBonus:hb,OtherIncome:oi,GrossIncome:gross,SocialSecurity:ss,Contribution:p.contribution||0,OtherDeductions:p.otherDeductions||0,TotalDeductions:total,Adjustments:adj,AdjustmentsTotal:adjSum,NetPay:net,BankAccount:cfg.BankName,LeaveDays:ls.days,LeaveLimit:ls.limit,LeaveExceeds:leaveExceeds};
       const i=M.payroll.findIndex(x=>x.StaffID===p.staffId&&x.Month===p.month); if(i>=0)M.payroll[i]=rec; else M.payroll.push(rec); return rec; },
     getPayslip: p => M.payroll.find(x=>x.StaffID===p.staffId&&x.Month===p.month) || null,
-    // approved sick + personal leave DAYS in a month, and whether it passes the diligence-bonus limit
+    // approved leave DAYS of EVERY type (sick + personal + vacation …) in a month, and whether it
+    // passes the child-rate limit (leave > limit → the child-rate income เรทจำนวนเด็ก is not calculated)
     staffLeaveSummary: p => { const month=ym(p.month||todayLocal().slice(0,7));
-      const sp=(M.leaves||[]).filter(l=>String(l.StaffID)===String(p.staffId)&&String(l.Status||'').toUpperCase()==='APPROVED'
-          &&/ลาป่วย|ลากิจ|sick|personal/i.test(String(l.Type||''))&&ym(l.StartDate||l.Date)===month)
+      const days=(M.leaves||[]).filter(l=>String(l.StaffID)===String(p.staffId)&&String(l.Status||'').toUpperCase()==='APPROVED'
+          &&ym(l.StartDate||l.Date)===month)
         .reduce((a,l)=>a+(Number(l.Days)||1),0);
       const limit=Number(cfg.DiligenceLeaveMaxDays||3);
-      return {month, sickPersonalDays:sp, limit, exceeds:sp>limit}; },
+      return {month, days, limit, exceeds:days>limit}; },
     // Admin alert: payroll should be summarized 1 day before month-end
     payrollReminderDue: () => { const n=new Date(); const last=new Date(n.getFullYear(),n.getMonth()+1,0).getDate();
       return {due:n.getDate()===last-1, today:n.getDate(), lastDay:last, month:todayLocal().slice(0,7)}; },
