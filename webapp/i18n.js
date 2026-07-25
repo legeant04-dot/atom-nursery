@@ -19,7 +19,7 @@
     'login.lineBtn':['เข้าสู่ระบบด้วย LINE','Continue with LINE'], 'login.lineSub':['ใช้บัญชี LINE ที่เพิ่มเพื่อน OA ของโรงเรียน','Use the LINE account that added the school OA'],
     // nav
     'nav.home':['หน้าหลัก','Home'], 'nav.checkin':['รับ-ส่ง','Pickup'], 'nav.payment':['ชำระเงิน','Payment'],
-    'nav.journal':['บันทึก','Record'], 'nav.dspm':['พัฒนาการ','Development'], 'nav.chat':['แชท','Chat'],
+    'nav.journal':['บันทึก','Record'], 'nav.dspm':['DSPM','DSPM'], 'nav.growth':['เติบโต','Growth'], 'nav.chat':['แชท','Chat'],
     'nav.class':['นักเรียน','Students'], 'nav.leave':['ลางาน','Leave'], 'nav.schedule':['ตาราง','Schedule'],
     'nav.slip':['สลิป','Payslip'], 'nav.leaves':['อนุมัติลา','Approvals'], 'nav.payroll':['เงินเดือน','Payroll'],
     'nav.manage':['จัดการ','Manage'], 'nav.analytics':['วิเคราะห์','Analytics'],
@@ -73,7 +73,7 @@
     'lbl.dutyRoster':['เวรส่งนักเรียน','Student drop-off duty'], 'lbl.dailySummary':['สรุปรายวัน','Daily summary'], 'lbl.requireCI':['การบังคับลงเวลา (Check-in/out)','Check-in/out requirement'],
     'lbl.perms':['🔐 สิทธิการเข้าถึงข้อมูล (PDPA)','🔐 Data access permissions (PDPA)'], 'lbl.addAnn':['+ ประกาศ','+ Announce'],
     // statuses
-    's.pass':['ผ่าน','Pass'], 's.fail':['ไม่ผ่าน','Not passed'], 's.nottested':['ยังไม่ได้รับการทดสอบ','Not yet assessed'],
+    's.pass':['ผ่าน','Pass'], 's.fail':['ไม่ผ่าน','Not passed'], 's.nottested':['ยังไม่ได้รับการทดสอบ','Not yet assessed'], 's.notenrolled':['ยังไม่เข้าโรงเรียน','Not enrolled yet'],
     's.paid':['ชำระแล้ว','Paid'], 's.unpaid':['ค้างชำระ','Unpaid'], 's.verify':['รอตรวจสอบ','Verifying'],
     's.pending_leader':['รอหัวหน้างาน','Pending leader'], 's.pending_admin':['รอผู้บังคับบัญชา','Pending admin'], 's.approved':['อนุมัติแล้ว','Approved'], 's.rejected':['ปฏิเสธ','Rejected'],
     'dom.GM':['การเคลื่อนไหว','Gross Motor'], 'dom.FM':['กล้ามเนื้อมัดเล็ก','Fine Motor'], 'dom.RL':['เข้าใจภาษา','Receptive Lang.'], 'dom.EL':['ใช้ภาษา','Expressive Lang.'], 'dom.PS':['ช่วยเหลือตัวเอง','Personal/Social'],

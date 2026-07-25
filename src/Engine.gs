@@ -250,7 +250,8 @@ function createAtomAPI(M, GROWTH_STD) {
   function latestByItem(sid){ const map={}; M.assessments.filter(a=>a.StudentID===sid).forEach(a=>{ if(!map[a.ItemNo]||a.Date>=map[a.ItemNo].Date)map[a.ItemNo]=a; }); return map; }
   function summarize(sid){ const s=studentById(sid); const latest=latestByItem(sid);
     const dom={GM:{pass:0,fail:0},FM:{pass:0,fail:0},RL:{pass:0,fail:0},EL:{pass:0,fail:0},PS:{pass:0,fail:0}}; let tp=0,tf=0;
-    Object.values(latest).forEach(r=>{ if(dom[r.Skill])dom[r.Skill][r.Result==='ผ่าน'?'pass':'fail']++; r.Result==='ผ่าน'?tp++:tf++; });
+    Object.values(latest).forEach(r=>{ if(r.Result!=='ผ่าน'&&r.Result!=='ไม่ผ่าน')return;   // 'ยังไม่เข้าโรงเรียน' etc. not counted as pass/fail
+      if(dom[r.Skill])dom[r.Skill][r.Result==='ผ่าน'?'pass':'fail']++; r.Result==='ผ่าน'?tp++:tf++; });
     return {studentId:sid,name:s?s.NameTH:sid,nameEN:s?s.NameEN:sid,ageMonth:s?ageMonths(s.DOB):0,byDomain:dom,totalPass:tp,totalFail:tf}; }
 
   // ---- activity log (who did what) ----
@@ -644,7 +645,7 @@ function createAtomAPI(M, GROWTH_STD) {
     submitAssessment: p => { const s=studentById(p.studentId); const age=ageMonths(s.DOB); const id='DA-'+String(Date.now()).slice(-4); let n=0;
       p.results.forEach(r=>{ if(r.result==='nottested'){ // remove any existing latest for this item (mark not tested)
           M.assessments=M.assessments.filter(a=>!(a.StudentID===p.studentId&&a.ItemNo===r.itemNo)); return; }
-        const norm=(r.result==='pass'||r.result==='ผ่าน')?'ผ่าน':(r.result==='fail'||r.result==='ไม่ผ่าน')?'ไม่ผ่าน':null; if(!norm)return;
+        const norm=(r.result==='pass'||r.result==='ผ่าน')?'ผ่าน':(r.result==='fail'||r.result==='ไม่ผ่าน')?'ไม่ผ่าน':(r.result==='notenrolled'||r.result==='ยังไม่เข้าโรงเรียน')?'ยังไม่เข้าโรงเรียน':null; if(!norm)return;
         const sk=(M.dspmCriteria.find(c=>c.ItemNo===r.itemNo)||{}).Skill||'';
         M.assessments.push({AssessmentID:id,StudentID:p.studentId,AgeMonth:age,ItemNo:r.itemNo,Skill:sk,Result:norm,Date:todayLocal(),TeacherID:p.staffId}); n++; });
       return {assessmentId:id,saved:n}; },
