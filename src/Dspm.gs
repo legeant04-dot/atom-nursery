@@ -100,7 +100,8 @@ function handleSubmitAssessment(payload) {
   var saved = 0;
   payload.results.forEach(function (res) {
     var norm = (String(res.result) === 'pass' || String(res.result) === 'ผ่าน') ? 'ผ่าน'
-             : (String(res.result) === 'fail' || String(res.result) === 'ไม่ผ่าน') ? 'ไม่ผ่าน' : null;
+             : (String(res.result) === 'fail' || String(res.result) === 'ไม่ผ่าน') ? 'ไม่ผ่าน'
+             : (String(res.result) === 'notenrolled' || String(res.result) === 'ยังไม่เข้าโรงเรียน') ? 'ยังไม่เข้าโรงเรียน' : null;
     if (norm == null) return; // skip unanswered
     appendObject_(sheet, {
       AssessmentID: assessmentId, StudentID: student.StudentID, AgeMonth: age,
@@ -140,6 +141,7 @@ function handleStudentAssessment(payload) {
   DOMAINS.forEach(function (d) { byDomain[d] = { pass: 0, fail: 0 }; });
   Object.keys(latest).forEach(function (k) {
     var r = latest[k], d = r.Skill;
+    if (r.Result !== 'ผ่าน' && r.Result !== 'ไม่ผ่าน') return;   // 'ยังไม่เข้าโรงเรียน' etc. not counted
     if (byDomain[d]) byDomain[d][r.Result === 'ผ่าน' ? 'pass' : 'fail']++;
   });
   var totalPass = 0, totalFail = 0;

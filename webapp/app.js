@@ -30,7 +30,7 @@
     window.api=function(action,payload,opts){ if(!_isMut(action)) return _rawApi(action,payload,opts);
       _busyShow(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _busyDone(false); throw e; }
       return Promise.resolve(pr).then(v=>{ _busyDone(true); return v; }, e=>{ _busyDone(false); throw e; }); }; }
-  const APP_VERSION = 'Version 1.108'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.109'; // bump each webapp change; shown only at the bottom of the Chat screen
   const verTag = () => `<div style="text-align:center;color:#c3c9d4;font-size:10px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
   const phoneFmt = p => { let d=String(p==null?'':p).replace(/\D/g,''); if(d.length===9) d='0'+d; return d; };
@@ -138,7 +138,7 @@
   // scope for parent data calls (uid → links for isolation; parentId as fallback)
   const parentScope = () => ({ parentId:USER&&USER.parentId, uid:USER&&USER.uid });
   // translate a stored status (leave code / payment / dspm result) for display
-  const STAT = { PENDING_LEADER:'s.pending_leader', PENDING_ADMIN:'s.pending_admin', APPROVED:'s.approved', REJECTED:'s.rejected', PAID:'s.paid', UNPAID:'s.unpaid', PENDING_VERIFY:'s.verify', 'ผ่าน':'s.pass','ไม่ผ่าน':'s.fail','ยังไม่ได้รับการทดสอบ':'s.nottested' };
+  const STAT = { PENDING_LEADER:'s.pending_leader', PENDING_ADMIN:'s.pending_admin', APPROVED:'s.approved', REJECTED:'s.rejected', PAID:'s.paid', UNPAID:'s.unpaid', PENDING_VERIFY:'s.verify', 'ผ่าน':'s.pass','ไม่ผ่าน':'s.fail','ยังไม่ได้รับการทดสอบ':'s.nottested','ยังไม่เข้าโรงเรียน':'s.notenrolled' };
   const tStat = s => STAT[s] ? t(STAT[s]) : s;
   const MONEY_TR = { 'ค่าเทอม':'Tuition', 'ค่าอาหาร':'Meals', 'ค่ากิจกรรม':'Activities' };
   const trItem = s => EN() && MONEY_TR[s] ? MONEY_TR[s] : s;
@@ -187,7 +187,7 @@
     GO('home'); };
 
   const NAVS = {
-    Parent:[['home','🏠','nav.home'],['checkin','📍','nav.checkin'],['payment','💳','nav.payment'],['journal','📒','nav.journal'],['dspm','📈','nav.dspm'],['chat','💬','nav.chat']],
+    Parent:[['home','🏠','nav.home'],['checkin','📍','nav.checkin'],['payment','💳','nav.payment'],['journal','📒','nav.journal'],['growth','📈','nav.growth'],['dspm','📋','nav.dspm'],['chat','💬','nav.chat']],
     Teacher:[['home','🏠','nav.home'],['class','👶','nav.class'],['injury','🚑','inj.nav'],['leave','📩','nav.leave'],['schedule','📅','nav.schedule'],['slip','💵','nav.slip']],
     Admin:[['home','📊','nav.home'],['leaves','✅','nav.leaves'],['payroll','💵','nav.payroll'],['dspm','📈','nav.analytics'],['manage','🗂️','nav.manage'],['chat','💬','nav.chat']],
   };
@@ -1073,22 +1073,34 @@
   };
   window.P_showJ=async(sid,date)=>{ const j=await api('getJournal',{studentId:sid,date}); app.innerHTML=`<h2 class="page">📒 ${esc(date)}</h2>${journalChecklist(j,{parentEditable:true})}<button class="btn outline" onclick="GO('journal')">← กลับ</button>`; window.scrollTo(0,0); };
 
-  SCREENS.Parent.dspm = async () => { const kids=await api('parentChildren',parentScope()); if(!kids.length){GO('home');return;} P_dspm(kids[0].StudentID); };
-  const DSPM_PILL=r=>{const c=r==='ผ่าน'?'ok':r==='ไม่ผ่าน'?'bad':'wait';return `<span class="pill ${c}">${esc(tStat(r))}</span>`;};
+  const DSPM_PILL=r=>{const c=r==='ผ่าน'?'ok':r==='ไม่ผ่าน'?'bad':r==='ยังไม่เข้าโรงเรียน'?'info':'wait';return `<span class="pill ${c}">${esc(tStat(r))}</span>`;};
   const DT_KEY={GM:'dom.GM',FM:'dom.FM',RL:'dom.RL',EL:'dom.EL',PS:'dom.PS'};
   const DT=new Proxy({},{get:(_,k)=>t(DT_KEY[k]||k)});
-  window.P_dspm = async (sid) => { setNav('dspm');
-    // growth chart + vaccine card always render; the age-band assessment may be absent
-    // (no DSPM_CRITERIA seeded for this age) — guard each call so the page never blanks.
-    // all calls created in one tick → micro-batched into ONE GAS round-trip; allSettled so a
-    // NO_CRITERIA from dspmStatus (no band for this age) doesn't blank the page.
-    const [rg,rvs,rvr,rs,rall,rk]=await Promise.allSettled([
-      api('growthHistory',{studentId:sid}),api('vaccineSchedule'),api('studentVaccines',{studentId:sid}),
-      api('dspmStatus',{studentId:sid}),api('studentAllBands',{studentId:sid}),api('parentChildren',parentScope())]);
+  // ---- MODULE 1: การเจริญเติบโต (weight/height chart + vaccine) — separate page ----
+  SCREENS.Parent.growth = async () => { const kids=await api('parentChildren',parentScope()); if(!kids.length){GO('home');return;} P_growth(kids[0].StudentID); };
+  window.P_growth = async (sid) => { setNav('growth');
+    const [rg,rvs,rvr,rk]=await Promise.allSettled([
+      api('growthHistory',{studentId:sid}),api('vaccineSchedule'),api('studentVaccines',{studentId:sid}),api('parentChildren',parentScope())]);
     const kidsD=rk.status==='fulfilled'?rk.value:[];
     const st=(kidsD||[]).find(k=>k.StudentID===sid)||MOCK.students.find(x=>x.StudentID===sid)||{};
     const g=rg.status==='fulfilled'?rg.value:{records:[]};
     const vsched=rvs.status==='fulfilled'?rvs.value:[]; const vrecs=rvr.status==='fulfilled'?rvr.value:[];
+    app.innerHTML=`<h2 class="page">📈 ${EN()?'Growth':'การเจริญเติบโต'}${(kidsD&&kidsD.length>1)?'':` · <span style="color:#1565C0">${esc(dispNick(st)||sid)}</span>`}</h2>${childSwitcher(kidsD,sid,'P_growth')}
+      <div class="card"><h3>📈 ${esc(t('growth.chartTitle'))}</h3><p class="muted" style="font-size:12px">${esc(t('growth.chartSub'))}</p>
+        ${growthChartSVG(t('growth.weight'),g.records.map(r=>({x:r.AgeMonth,y:r.Weight})),gBand(g.weightBand,g.gender,g.records,'weight'),'kg')}
+        ${growthChartSVG(t('growth.height'),g.records.map(r=>({x:r.AgeMonth,y:r.Height})),gBand(g.heightBand,g.gender,g.records,'height'),'cm')}
+        <div class="row" style="font-size:11px;justify-content:center;margin-top:6px"><span>🟦 ${esc(t('growth.actual'))}</span><span>🟩 ${esc(t('growth.normalBand'))}</span></div>
+        ${growthRecordsList(g.records)}</div>
+      ${vaccineCard(vsched,vrecs,sid,true)}`;
+  };
+  // ---- MODULE 2: DSPM assessment only — separate page ----
+  SCREENS.Parent.dspm = async () => { const kids=await api('parentChildren',parentScope()); if(!kids.length){GO('home');return;} P_dspm(kids[0].StudentID); };
+  window.P_dspm = async (sid) => { setNav('dspm');
+    // the age-band assessment may be absent (no DSPM_CRITERIA for this age) — allSettled so it never blanks
+    const [rs,rall,rk]=await Promise.allSettled([
+      api('dspmStatus',{studentId:sid}),api('studentAllBands',{studentId:sid}),api('parentChildren',parentScope())]);
+    const kidsD=rk.status==='fulfilled'?rk.value:[];
+    const st=(kidsD||[]).find(k=>k.StudentID===sid)||MOCK.students.find(x=>x.StudentID===sid)||{};
     const s=rs.status==='fulfilled'?rs.value:null;            // NO_CRITERIA for this age → null
     const all=rall.status==='fulfilled'?rall.value:{bands:[]};
     const ageMo = (window.AGEMONTHS&&st.DOB)?window.AGEMONTHS(st.DOB):(s?s.ageMonth:'');
@@ -1102,13 +1114,7 @@
           ${s.items.map(itemRow).join('')}</div>`
       : `<div class="card"><div class="spread"><b>${esc(dispNick(st)||sid)}</b><span class="muted">${ageMo} เดือน</span></div>
           <p class="muted" style="font-size:13px">ℹ️ ยังไม่มีเกณฑ์ประเมินพัฒนาการสำหรับช่วงวัยนี้ (อายุ ${ageMo} เดือน) — เมื่อโรงเรียนเพิ่มเกณฑ์ตามคู่มือ DSPM ของช่วงวัยนี้แล้ว รายการประเมินจะแสดงที่นี่</p></div>`;
-    app.innerHTML=`<h2 class="page">${esc(t('title.dspm'))}${(kidsD&&kidsD.length>1)?'':` · <span style="color:#1565C0">${esc(dispNick(st)||sid)}</span>`}</h2>${childSwitcher(kidsD,sid,'P_dspm')}
-      <div class="card"><h3>📈 ${esc(t('growth.chartTitle'))}</h3><p class="muted" style="font-size:12px">${esc(t('growth.chartSub'))}</p>
-        ${growthChartSVG(t('growth.weight'),g.records.map(r=>({x:r.AgeMonth,y:r.Weight})),gBand(g.weightBand,g.gender,g.records,'weight'),'kg')}
-        ${growthChartSVG(t('growth.height'),g.records.map(r=>({x:r.AgeMonth,y:r.Height})),gBand(g.heightBand,g.gender,g.records,'height'),'cm')}
-        <div class="row" style="font-size:11px;justify-content:center;margin-top:6px"><span>🟦 ${esc(t('growth.actual'))}</span><span>🟩 ${esc(t('growth.normalBand'))}</span></div>
-        ${growthRecordsList(g.records)}</div>
-      ${vaccineCard(vsched,vrecs,sid,true)}
+    app.innerHTML=`<h2 class="page">📋 ${esc(t('title.dspm'))}${(kidsD&&kidsD.length>1)?'':` · <span style="color:#1565C0">${esc(dispNick(st)||sid)}</span>`}</h2>${childSwitcher(kidsD,sid,'P_dspm')}
       ${assessCard}
       ${past.length?`<h3 class="page" style="font-size:16px">📜 ผลย้อนหลัง (ช่วงวัยก่อนหน้า)</h3>`+past.reverse().map(b=>`<div class="card"><h3 style="font-size:14px">${esc(b.label)}</h3>${b.items.map(i=>`<div class="list-item"><span><b>ข้อ ${i.itemNo}</b> <span class="pill info">${i.skill}</span> <small>${esc(EN()&&i.descriptionEN?i.descriptionEN:i.description)}</small></span>${DSPM_PILL(i.result)}</div>`).join('')}</div>`).join(''):''}`;
   };
@@ -1433,7 +1439,7 @@
       <p class="muted" style="font-size:12px">เลือก "ยังไม่ได้ประเมิน" ได้ เพื่อให้ผู้ปกครองทราบว่ายังมีหัวข้อที่ต้องประเมิน · เทียบกับคู่มือที่ดาวน์โหลด</p>
       ${c.manualUrl?`<a class="btn sm outline" href="${esc(c.manualUrl)}" target="_blank">⬇️ ดาวน์โหลดคู่มือ DSPM</a>`:''}</div>
       ${c.items.map(i=>`<div class="card"><div style="margin-bottom:8px"><b>${EN()?'Item':'ข้อ'} ${i.itemNo}</b> <span class="pill info">${i.skill}</span> ${i.result!=='ยังไม่ได้รับการทดสอบ'?`<span class="pill ${i.result==='ผ่าน'?'ok':'bad'}">${EN()?'prev':'เดิม'}: ${esc(tStat(i.result))}</span>`:''}<br>${esc(EN()&&i.descriptionEN?i.descriptionEN:i.description)}</div>
-        <div class="choice"><button id="p${i.itemNo}" onclick="A_set(${i.itemNo},'pass')">✅ ${esc(t('s.pass'))}</button><button id="f${i.itemNo}" onclick="A_set(${i.itemNo},'fail')">❌ ${esc(t('s.fail'))}</button><button id="n${i.itemNo}" onclick="A_set(${i.itemNo},'nottested')">⊘ ${EN()?'Not assessed':'ยังไม่ได้ประเมิน'}</button></div></div>`).join('')}
+        <div class="choice"><button id="p${i.itemNo}" onclick="A_set(${i.itemNo},'pass')">✅ ${esc(t('s.pass'))}</button><button id="f${i.itemNo}" onclick="A_set(${i.itemNo},'fail')">❌ ${esc(t('s.fail'))}</button><button id="n${i.itemNo}" onclick="A_set(${i.itemNo},'nottested')">⊘ ${EN()?'Not assessed':'ยังไม่ได้ประเมิน'}</button><button id="e${i.itemNo}" onclick="A_set(${i.itemNo},'notenrolled')">🚪 ${EN()?'Not enrolled yet':'ยังไม่เข้าโรงเรียน'}</button></div></div>`).join('')}
       <div class="card"><h3>📏 ${esc(t('growth.section'))}</h3>
         ${due.due?`<div style="background:#fff8e1;border-radius:8px;padding:8px;color:#8a6d00;font-size:12.5px;margin-bottom:8px">⚠️ ${esc(t('growth.gate'))}</div>`:''}
         <div style="text-align:center;margin-bottom:8px">${studentAvatar(s)}</div>
@@ -1442,8 +1448,8 @@
         ${photoField('guPhoto',t('growth.photo'),s.Photo,true)}</div>
       <button class="btn block" onclick="T_saveAssess('${sid}')">${esc(t('growth.saveBoth'))}</button>`;
   };
-  window.A_set=(item,val)=>{ ASEL[item]=val; ['p','f','n'].forEach(pre=>{const el=document.getElementById(pre+item);if(el)el.classList.remove('pass','fail');});
-    if(val==='pass')$('#p'+item).classList.add('pass'); if(val==='fail')$('#f'+item).classList.add('fail'); if(val==='nottested')$('#n'+item).classList.add('pass'); };
+  window.A_set=(item,val)=>{ ASEL[item]=val; ['p','f','n','e'].forEach(pre=>{const el=document.getElementById(pre+item);if(el)el.classList.remove('pass','fail');});
+    if(val==='pass')$('#p'+item).classList.add('pass'); if(val==='fail')$('#f'+item).classList.add('fail'); if(val==='nottested')$('#n'+item).classList.add('pass'); if(val==='notenrolled'){const e=$('#e'+item);if(e)e.classList.add('pass');} };
 
   // Group C: bi-monthly growth update (height/weight/photo). gate=true when blocking assessment.
   window.T_growthUpdate = async (sid, gate)=>{ setNav('class');
@@ -1469,7 +1475,8 @@
     if(!results.length && !(w&&h)){toast(EN()?'Assess at least 1 item or enter weight/height':'เลือกผลอย่างน้อย 1 ข้อ หรือกรอกน้ำหนัก/ส่วนสูง');return;}
     try{ if(results.length) await api('submitAssessment',{studentId:sid,staffId:USER.staffId,results});
       if(w&&h) await api('updateGrowth',{studentId:sid,weight:w,height:h,photo});
-      confirmSaved(EN()?'Saved — parent notified':'บันทึกแล้ว — แจ้งผู้ปกครอง'); GO('class'); }catch(e){err(e);} };
+      // stay in the assessment (re-render) so the teacher keeps working; history is always kept
+      confirmSaved(EN()?'Saved — parent notified':'บันทึกแล้ว — แจ้งผู้ปกครอง'); T_assess(sid); }catch(e){err(e);} };
 
   SCREENS.Teacher.leave = async () => {
     const [quota,me] = await Promise.all([api('leaveQuota',{staffId:USER.staffId}),api('staffSelf',{staffId:USER.staffId})]);
@@ -1958,7 +1965,7 @@
     app.innerHTML=`<button class="btn sm outline backbtn" onclick="A_student('${sid}')">${t('c.back')}</button><h2 class="page">📝 ${esc(t('assess.edit'))} — ${esc(nm(s))}</h2>
       <div class="card"><div class="spread"><span>${esc(t('growth.section').split('/')[0])}: <b>${esc(c.ageLabel)}</b></span><span class="muted">${c.ageMonth} ${EN()?'mo':'เดือน'}</span></div></div>
       ${c.items.map(i=>`<div class="card"><div style="margin-bottom:8px"><b>${EN()?'Item':'ข้อ'} ${i.itemNo}</b> <span class="pill info">${i.skill}</span> ${i.result!=='ยังไม่ได้รับการทดสอบ'?`<span class="pill ${i.result==='ผ่าน'?'ok':'bad'}">${EN()?'now':'ปัจจุบัน'}: ${esc(tStat(i.result))}</span>`:''}<br>${esc(EN()&&i.descriptionEN?i.descriptionEN:i.description)}</div>
-        <div class="choice"><button id="p${i.itemNo}" onclick="A_set(${i.itemNo},'pass')">✅ ${esc(t('s.pass'))}</button><button id="f${i.itemNo}" onclick="A_set(${i.itemNo},'fail')">❌ ${esc(t('s.fail'))}</button><button id="n${i.itemNo}" onclick="A_set(${i.itemNo},'nottested')">⊘ ${EN()?'Not assessed':'ยังไม่ได้ประเมิน'}</button></div></div>`).join('')}
+        <div class="choice"><button id="p${i.itemNo}" onclick="A_set(${i.itemNo},'pass')">✅ ${esc(t('s.pass'))}</button><button id="f${i.itemNo}" onclick="A_set(${i.itemNo},'fail')">❌ ${esc(t('s.fail'))}</button><button id="n${i.itemNo}" onclick="A_set(${i.itemNo},'nottested')">⊘ ${EN()?'Not assessed':'ยังไม่ได้ประเมิน'}</button><button id="e${i.itemNo}" onclick="A_set(${i.itemNo},'notenrolled')">🚪 ${EN()?'Not enrolled yet':'ยังไม่เข้าโรงเรียน'}</button></div></div>`).join('')}
       <button class="btn block" onclick="A_saveAssess('${sid}')">${esc(t('lbl.saveAssess'))}</button>`;
   };
   window.A_saveAssess=async(sid)=>{ const results=Object.keys(ASEL).map(k=>({itemNo:Number(k),result:ASEL[k]})); if(!results.length){toast(EN()?'Select at least 1':'เลือกอย่างน้อย 1 ข้อ');return;}
