@@ -30,7 +30,7 @@
     window.api=function(action,payload,opts){ if(!_isMut(action)) return _rawApi(action,payload,opts);
       _busyShow(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _busyDone(false); throw e; }
       return Promise.resolve(pr).then(v=>{ _busyDone(true); return v; }, e=>{ _busyDone(false); throw e; }); }; }
-  const APP_VERSION = 'Version 1.109'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.110'; // bump each webapp change; shown only at the bottom of the Chat screen
   const verTag = () => `<div style="text-align:center;color:#c3c9d4;font-size:10px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
   const phoneFmt = p => { let d=String(p==null?'':p).replace(/\D/g,''); if(d.length===9) d='0'+d; return d; };
@@ -868,7 +868,7 @@
     const kids=await api('parentChildren',parentScope()); if(!kids.length){GO('home');return;}
     window._PAY_KIDS=kids; window._PAY_SID=kids[0].StudentID;
     // combined pay across siblings (one slip) — only when >1 child
-    const multiBtn = kids.length>1 ? `<div class="card" style="background:#eef6ff;border-color:#bbdefb"><div class="spread"><div><b>👨‍👩‍👧‍👦 ${EN()?'Pay for several children in one slip':'จ่ายรวมหลายคนในสลิปเดียว'}</b><br><small class="muted">${EN()?'One transfer covering more than one child — the system checks the total.':'โอนครั้งเดียวครอบคลุมลูกหลายคน ระบบจะตรวจยอดรวมให้'}</small></div><button class="btn sm" onclick="P_combinedPay()">💳 ${EN()?'Combined':'จ่ายรวม'}</button></div></div>` : '';
+    const multiBtn = `<div class="card" style="background:#eef6ff;border-color:#bbdefb"><div class="spread"><div><b>💳 ${EN()?'Pay several items in one slip':'จ่ายหลายรายการในสลิปเดียว'}</b><br><small class="muted">${EN()?'Tick tuition / extra charges / OT (any child) — one transfer, the system checks the total.':'ติ๊กค่าเทอม / ค่าเพิ่มเติม / OT (ลูกคนไหนก็ได้) โอนครั้งเดียว ระบบตรวจยอดรวมให้'}</small></div><button class="btn sm" onclick="P_combinedPay()">💳 ${EN()?'Combined':'จ่ายรวม'}</button></div></div>`;
     // one tab per child so a parent with >1 child can see EACH child's bills (not just the first)
     const switcher = kids.length>1 ? `<div class="seg" id="paySeg" style="margin-bottom:8px">${kids.map((k,i)=>`<button class="${i===0?'active':''}" onclick="P_paySel(${i})">${esc(dispNick(k))}</button>`).join('')}</div>` : '';
     app.innerHTML = `<h2 class="page">${esc(t('title.payment'))}${kids.length===1?` · <span style="color:#1565C0">${esc(dispNick(kids[0]))}</span>`:''}</h2>${multiBtn}${switcher}<div id="payBody"><div class="card muted">${EN()?'Loading…':'กำลังโหลด…'}</div></div>`;
@@ -879,7 +879,7 @@
     const seg=document.getElementById('paySeg'); if(seg)[...seg.children].forEach((b,j)=>b.classList.toggle('active',j===i));
     setHTML('#payBody', await P_payChildHTML(k)); window.scrollTo(0,0); };
   async function P_payChildHTML(kid){ const sid=kid.StudentID;
-    const [ps, ot, pre, allSlips] = await Promise.all([api('payments',{studentId:sid}), api('otDaily',{studentId:sid}), api('prepayments',{studentId:sid}), api('paymentSlips',{studentId:sid})]);
+    const [ps, ot, pre, allSlips, charges] = await Promise.all([api('payments',{studentId:sid}), api('otDaily',{studentId:sid}), api('prepayments',{studentId:sid}), api('paymentSlips',{studentId:sid}), api('studentCharges',{studentId:sid})]);
     const slipsOf=(kind,id)=>(allSlips||[]).filter(s=>s.RefKind===kind&&s.RefID===id);
     const per=EN()?'Period ':'งวด ';
     const verifyPill=`<span class="pill wait">${esc(t('pay.pendingVerify'))}</span>`;
@@ -894,8 +894,12 @@
       ${ot.map(o=>{ const paid=o.Status==='PAID',partial=o.Status==='PARTIAL'; const sl=slipsOf('ot',o.OTID); const pend=sl.some(s=>s.Status==='SUBMITTED'); return `<div style="border-bottom:1px solid #f0f0f0;padding:4px 0"><div class="list-item"><span>${esc(ddmmyyyy(o.Date))} · ${esc(o.PickupTime)} <small class="muted">(${EN()?'late':'สาย'} ${o.LateMinutes}${esc(t('lbl.min'))} · ${o.Hours}${EN()?'h':'ชม.'})</small></span>
         <span><b>${baht(o.Amount)}</b> ${paid?`<span class="pill ok">${esc(t('s.paid'))}</span>`:partial?`<span class="pill wait">${EN()?'partial':'บางส่วน'}</span>`:pend?verifyPill:''} ${paid?'':`<button class="btn sm" onclick="P_payOT('${o.OTID}',${o.Amount})">${pend||partial?'📎':esc(t('lbl.pay'))}</button> <button class="btn sm gray" onclick="P_cash('ot','${o.OTID}',${o.Amount})">💵</button>`}</span></div>${slipHistoryHTML(sl)}</div>`; }).join('')}
       ${otOpen.length?`<div class="spread" style="margin-top:8px"><b>${esc(t('ot.unpaidTotal'))}</b><b style="color:#c62828">${baht(otOpen.reduce((a,o)=>a+o.Amount,0))}</b></div><small class="muted">${esc(t('ot.rollNote'))}</small>`:''}</div>`:'';
+    // extra charges — each is its own payable item (ค่ากิจกรรม/ค่าพิเศษ ฯลฯ) paid separately from tuition
+    const chHtml = (charges&&charges.length)?`<div class="card"><h3>➕ ${EN()?'Extra charges':'ค่าใช้จ่ายเพิ่มเติม'}</h3>
+      ${charges.map(c=>{ const paid=c.Status==='PAID',partial=c.Status==='PARTIAL'; const sl=slipsOf('charge',c.ChargeID); const pend=sl.some(s=>s.Status==='SUBMITTED'); return `<div style="border-bottom:1px solid #f0f0f0;padding:4px 0"><div class="list-item"><span>${esc(c.Label)} <small class="muted">${esc(monthNameYear(c.Month))}</small></span>
+        <span><b>${baht(c.Amount)}</b> ${paid?`<span class="pill ok">${esc(t('s.paid'))}</span>`:partial?`<span class="pill wait">${EN()?'partial':'บางส่วน'}</span>`:pend?verifyPill:''} ${paid?'':`<button class="btn sm" onclick="P_payCharge('${c.ChargeID}',${c.Outstanding!=null?c.Outstanding:c.Amount})">${pend||partial?'📎':esc(t('lbl.pay'))}</button> <button class="btn sm gray" onclick="P_cash('charge','${c.ChargeID}',${c.Amount})">💵</button>`}</span></div>${slipHistoryHTML(sl)}</div>`; }).join('')}</div>`:'';
     const kidHead = window._PAY_KIDS.length>1 ? `<div class="card" style="background:#f7f9fc;padding:8px"><b>👶 ${esc(dispNick(kid))}</b> <small class="muted">${esc(nm(kid))} · ${esc(kid.Class||'')}</small></div>` : '';
-    return `${kidHead}${preHtml}${otHtml}${ps.map(b=>{
+    return `${kidHead}${preHtml}${chHtml}${otHtml}${ps.map(b=>{
       const paid=b.Status==='PAID',partial=b.Status==='PARTIAL'; const due=b.TotalDue!=null?b.TotalDue:b.Amount;
       const prepaid=b.VerifiedStatus==='PREPAID'; const confirmed=Number(b.PaidConfirmed||0); const outstanding=b.Outstanding!=null?Number(b.Outstanding):Math.max(0,due-confirmed);
       const billSlips=slipsOf('bill',b.BillingID); const hasPending=billSlips.some(s=>s.Status==='SUBMITTED');
@@ -949,6 +953,10 @@
   window.P_payOT=(otId,amt)=>{ qrModalHTML({ title:'⏰ '+t('ot.title'), amount:amt,
     img:MOCK.config.QRCode_OT, imgName:'OT-'+otId+'.png',
     extra:`<button class="btn block" style="margin-top:8px" onclick="this.closest('.modal').remove();P_slip('${otId}',${amt},'ot')">📎 ${esc(t('lbl.attachSlip'))}</button>` }); };
+  // paying an extra charge: monthly QR + attach slip (kind 'charge')
+  window.P_payCharge=(chargeId,amt)=>{ qrModalHTML({ title:'➕ '+(EN()?'Extra charge':'ค่าใช้จ่ายเพิ่มเติม'), amount:amt,
+    img:MOCK.config.QRCode_Monthly||MOCK.config.QRCode, imgName:'charge-'+chargeId+'.png',
+    extra:`<button class="btn block" style="margin-top:8px" onclick="this.closest('.modal').remove();P_slip('${chargeId}',${amt},'charge')">📎 ${esc(t('lbl.attachSlip'))}</button>` }); };
   // attach slip + enter the transferred amount → system verifies amount matches before marking paid
   window.P_slip=(id,due,kind)=>{ modal(`<h3>📎 ${esc(t('slip.title'))}</h3><p class="muted" style="font-size:12px">${esc(t('slip.note'))}</p>
     <label class="field"><span>${esc(t('slip.amountDue'))}</span><input id="slipDue" value="${due}" data-due="${due}" disabled style="font-weight:700"/></label>
@@ -997,6 +1005,7 @@
     try{ const args={slipName:f.name,slipAmount:amt,fromQR,slipData:dataUrl}; // slipData → saved to the Drive folder in GAS; SlipOK verifies it
       const r= kind==='teacherOt' ? await api('teacherPayOT',Object.assign({staffId:USER.staffId,otId:id},args))
              : kind==='ot' ? await api('payOT',Object.assign({otId:id},args))
+             : kind==='charge' ? await api('payCharge',Object.assign({chargeId:id},args))
              : kind==='prepay' ? await api('payPrepay',Object.assign({prepayId:id},args))
              : await api('uploadSlip',Object.assign({billingId:id},args));
       m.remove();
@@ -1012,33 +1021,34 @@
   window.P_cashDo=async(kind,id,amt,btn)=>{ const m=btn.closest('.modal');
     try{ await api('notifyCash',{kind,id,amount:amt,parentId:USER.parentId,uid:USER.uid}); m.remove(); confirmSaved(t('pay.cashNotified')); GO('payment'); }catch(e){err(e);} };
 
-  // ---- combined payment: one slip, several children (2-level tick: child → outstanding bill) ----
-  let _COMB={ids:[],due:0};
+  // ---- combined payment: one slip, several items (2-level tick: child → each outstanding item) ----
+  // items now include tuition bill + each extra charge + each open OT (item-level ticking).
+  let _COMB={items:[],due:0};
   window.P_combinedPay=async()=>{ const kids=await api('parentChildren',parentScope());
-    const per=await Promise.all(kids.map(k=>api('payments',{studentId:k.StudentID})));
-    // an outstanding bill = not PAID / not prepaid, with a positive remaining balance (tuition+extras+OT rolled in)
-    const groups=kids.map((k,i)=>{ const bills=(per[i]||[]).filter(b=>{ const out=b.Outstanding!=null?Number(b.Outstanding):Number(b.TotalDue!=null?b.TotalDue:b.Amount); return b.Status!=='PAID'&&b.VerifiedStatus!=='PREPAID'&&out>0; })
-        .map(b=>({billingId:b.BillingID, month:b.Month, out:Number(b.Outstanding!=null?b.Outstanding:(b.TotalDue!=null?b.TotalDue:b.Amount)), items:(b.Items||[])}));
-      return {kid:k, bills}; }).filter(g=>g.bills.length);
-    if(!groups.length){ toast(EN()?'No outstanding bills':'ไม่มีบิลค้างชำระ'); return; }
+    const data=await Promise.all(kids.map(k=>Promise.all([api('payments',{studentId:k.StudentID}),api('studentCharges',{studentId:k.StudentID}),api('otDaily',{studentId:k.StudentID})])));
+    const groups=kids.map((k,i)=>{ const pv=data[i][0]||[], chs=data[i][1]||[], ot=data[i][2]||[]; const rows=[];
+      pv.forEach(b=>{ const out=Number(b.Outstanding!=null?b.Outstanding:(b.TotalDue!=null?b.TotalDue:b.Amount)); if(b.Status!=='PAID'&&b.VerifiedStatus!=='PREPAID'&&out>0) rows.push({kind:'bill',id:b.BillingID,label:(EN()?'Tuition ':'ค่าเทอม ')+monthNameYear(b.Month),out}); });
+      chs.forEach(c=>{ const out=Number(c.Outstanding!=null?c.Outstanding:c.Amount); if(c.Status!=='PAID'&&out>0) rows.push({kind:'charge',id:c.ChargeID,label:c.Label,out}); });
+      ot.forEach(o=>{ if(o.Status!=='PAID'&&o.Status!=='PENDING_VERIFY'&&o.Status!=='PARTIAL'&&Number(o.Amount)>0) rows.push({kind:'ot',id:o.OTID,label:'OT '+ddmmyyyy(o.Date),out:Number(o.Amount)}); });
+      return {kid:k, rows}; }).filter(g=>g.rows.length);
+    if(!groups.length){ toast(EN()?'No outstanding items':'ไม่มีรายการค้างชำระ'); return; }
     const body=groups.map(g=>`<div class="card" style="padding:8px;margin:6px 0"><b>${esc(dispNick(g.kid))}</b> <small class="muted">${esc(nm(g.kid))}</small>
-      ${g.bills.map(b=>`<label class="field" style="display:block;background:#fafafa;border-radius:8px;padding:6px;margin:6px 0">
-        <span style="display:flex;align-items:center;gap:8px"><input type="checkbox" class="combCb" data-id="${esc(b.billingId)}" data-out="${b.out}" checked onchange="P_combRecalc()" style="width:auto"/> <b>${EN()?'Bill ':'บิล '}${esc(b.month)}</b> <b style="margin-left:auto;color:#1565C0">${baht(b.out)}</b></span>
-        <div style="font-size:11.5px;color:#888;margin:2px 0 0 26px">${(b.items||[]).map(it=>`${esc(trItem(it[0]))} ${baht(it[1])}`).join(' · ')}</div></label>`).join('')}</div>`).join('');
-    modal(`<h3>💳 ${EN()?'Combined payment':'จ่ายรวมหลายคน'}</h3>
-      <p class="muted" style="font-size:12px">${EN()?'Tick the children / bills paid in this one transfer. The system sums them and checks the slip total.':'ติ๊กลูก/บิลที่จ่ายรวมในการโอนครั้งนี้ ระบบจะรวมยอดและตรวจกับสลิป'}</p>
+      ${g.rows.map(r=>`<label class="field" style="display:block;background:#fafafa;border-radius:8px;padding:6px;margin:6px 0">
+        <span style="display:flex;align-items:center;gap:8px"><input type="checkbox" class="combCb" data-kind="${esc(r.kind)}" data-id="${esc(r.id)}" data-out="${r.out}" checked onchange="P_combRecalc()" style="width:auto"/> <b>${esc(r.label)}</b> <b style="margin-left:auto;color:#1565C0">${baht(r.out)}</b></span></label>`).join('')}</div>`).join('');
+    modal(`<h3>💳 ${EN()?'Combined payment':'จ่ายรวมหลายรายการ'}</h3>
+      <p class="muted" style="font-size:12px">${EN()?'Tick the items (tuition / extra charge / OT) paid in this one transfer. The system sums them and checks the slip total.':'ติ๊กรายการที่จ่ายรวมในการโอนครั้งนี้ (ค่าเทอม / ค่าเพิ่มเติม / OT) ระบบจะรวมยอดและตรวจกับสลิป'}</p>
       ${body}
       <div class="card" style="background:#e8f5e9;padding:8px"><div class="spread"><b>${EN()?'Total to transfer':'ยอดรวมที่ต้องโอน'}</b><b id="combTotal" style="font-size:18px;color:#2e7d32">฿0</b></div></div>
       <button class="btn block green" id="combNext" onclick="P_combinedNext()">📎 ${EN()?'Next: attach slip':'ถัดไป: แนบสลิป'}</button>
       <button class="btn outline block" style="margin-top:8px" onclick="this.closest('.modal').remove()">${esc(t('c.close'))}</button>`);
     P_combRecalc(); };
-  window.P_combRecalc=()=>{ const cbs=[...document.querySelectorAll('.combCb')]; let sum=0; const ids=[];
-    cbs.forEach(c=>{ if(c.checked){ sum+=Number(c.dataset.out||0); ids.push(c.dataset.id); } });
-    _COMB={ids, due:Math.round(sum)}; const tEl=document.getElementById('combTotal'); if(tEl)tEl.textContent=baht(_COMB.due);
-    const nx=document.getElementById('combNext'); if(nx) nx.disabled=!ids.length; };
-  window.P_combinedNext=()=>{ if(!_COMB.ids.length){ toast(EN()?'Select at least one bill':'เลือกอย่างน้อย 1 บิล'); return; }
+  window.P_combRecalc=()=>{ const cbs=[...document.querySelectorAll('.combCb')]; let sum=0; const items=[];
+    cbs.forEach(c=>{ if(c.checked){ sum+=Number(c.dataset.out||0); items.push({kind:c.dataset.kind,id:c.dataset.id}); } });
+    _COMB={items, due:Math.round(sum)}; const tEl=document.getElementById('combTotal'); if(tEl)tEl.textContent=baht(_COMB.due);
+    const nx=document.getElementById('combNext'); if(nx) nx.disabled=!items.length; };
+  window.P_combinedNext=()=>{ if(!_COMB.items.length){ toast(EN()?'Select at least one item':'เลือกอย่างน้อย 1 รายการ'); return; }
     const cur=document.querySelector('.modal'); if(cur)cur.remove();
-    modal(`<h3>📎 ${EN()?'Attach one slip':'แนบสลิปเดียว'} · <span style="color:#1565C0">${_COMB.ids.length} ${EN()?'bills':'บิล'}</span></h3>
+    modal(`<h3>📎 ${EN()?'Attach one slip':'แนบสลิปเดียว'} · <span style="color:#1565C0">${_COMB.items.length} ${EN()?'items':'รายการ'}</span></h3>
       <label class="field"><span>${EN()?'Total to transfer':'ยอดที่ต้องโอน'}</span><input id="slipDue" value="${_COMB.due}" data-due="${_COMB.due}" disabled style="font-weight:700"/></label>
       <label class="field"><span>${esc(t('slip.file'))}</span><input type="file" id="slipF" accept="image/*" onchange="P_slipDetect(this)"/></label>
       <div style="text-align:center"><img id="slipPrev" alt="" style="max-height:200px;border-radius:8px;border:1px solid #eee;margin:4px 0;cursor:zoom-in" hidden onclick="ZOOM_IMG(this.src)"/></div>
@@ -1053,13 +1063,13 @@
     if(Math.round(amt)!==Math.round(_COMB.due)){
       modal(`<div style="text-align:center;padding:6px"><div style="font-size:40px">⛔</div><h3 style="color:#c62828">${EN()?'Amount does not match':'ยอดชำระไม่ตรงกับระบบ'}</h3>
         <p style="font-size:14px">${EN()?'You entered':'คุณกรอก'} <b>${baht(amt)}</b><br>${EN()?'System total':'ยอดรวมในระบบ'} <b style="color:#c62828">${baht(_COMB.due)}</b></p>
-        <p class="muted" style="font-size:12px">${EN()?'Transfer the exact total, or go back and change which bills are ticked.':'กรุณาโอนยอดให้ตรง หรือย้อนกลับไปแก้บิลที่ติ๊ก'}</p>
+        <p class="muted" style="font-size:12px">${EN()?'Transfer the exact total, or go back and change which items are ticked.':'กรุณาโอนยอดให้ตรง หรือย้อนกลับไปแก้รายการที่ติ๊ก'}</p>
         <button class="btn block" onclick="this.closest('.modal').remove()">${esc(t('c.close'))}</button></div>`);
       return; }
     const dataUrl=await new Promise(r=>{const fr=new FileReader();fr.onload=()=>r(fr.result);fr.readAsDataURL(f);});
     if(btn)btn.disabled=true;
-    try{ const r=await api('payCombined',{bills:_COMB.ids, slipAmount:amt, fromQR, slipName:f.name, slipData:dataUrl});
-      m.remove(); confirmSaved(EN()?`Slip submitted for ${r.count} children (฿${r.total}) — admin will verify.`:`ส่งสลิปแล้ว สำหรับ ${r.count} คน (฿${r.total}) — แอดมินจะตรวจสอบ`); GO('payment'); }
+    try{ const r=await api('payCombined',{items:_COMB.items, slipAmount:amt, fromQR, slipName:f.name, slipData:dataUrl});
+      m.remove(); confirmSaved(EN()?`Slip submitted — ${r.count} items (฿${r.total}) — admin will verify.`:`ส่งสลิปแล้ว ${r.count} รายการ (฿${r.total}) — แอดมินจะตรวจสอบ`); GO('payment'); }
     catch(e){ err(e); if(btn)btn.disabled=false; } };
 
   // tabs to switch between linked children on a parent screen (calls fn(otherStudentId))

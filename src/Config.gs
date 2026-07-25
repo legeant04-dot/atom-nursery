@@ -79,7 +79,7 @@ SCHEMA[WB.MAIN] = {
   // Priority (appended at END): higher = more important; popups sort by it (important first) then date.
   ANNOUNCEMENTS:     ['AnnID', 'Title', 'TitleEN', 'Content', 'ContentEN', 'Image', 'Date', 'Type', 'TargetGroup', 'Popup', 'StartDate', 'EndDate', 'Priority'],
   // Per-student extra charges merged into the monthly bill
-  STUDENT_CHARGES:   ['ChargeID', 'StudentID', 'Month', 'Label', 'Amount'],
+  STUDENT_CHARGES:   ['ChargeID', 'StudentID', 'Month', 'Label', 'Amount', 'Status'],
   // Advance tuition payments (with discount) + the months they cover
   PREPAYMENTS:       ['PrepayID', 'StudentID', 'Months', 'Discount', 'Gross', 'Amount', 'Covered', 'Status', 'SlipUrl', 'SlipAmount', 'VerifiedStatus', 'Date', 'PaymentMethod', 'TransactionDate', 'PaidDate'],
   // Absence tracking (leave/no-show) + teacher follow-up
