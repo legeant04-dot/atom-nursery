@@ -41,21 +41,14 @@ function paySlipVerify_(p, due) {
 // An OT row is billable only while it is neither PAID nor CANCELLED (admin can cancel an OT charge).
 function pmOtOpen_(status) { var s = String(status || ''); return s !== 'PAID' && s !== 'CANCELLED'; }
 function pmYm_(v) { return String(v == null ? '' : v).slice(0, 7); }
-function paySlipBillDue_(b) {
-  var amount = Number(b.Amount || 0), charges = 0, ot = 0, ss = getMainSpreadsheet_(), bm = pmYm_(b.Month);
-  readObjects_(sheet_(ss, 'STUDENT_CHARGES')).forEach(function (c) {
-    if (String(c.StudentID) === String(b.StudentID) && pmYm_(c.Month) === bm) charges += Number(c.Amount || 0);
-  });
-  readObjects_(sheet_(ss, 'OT_DAILY')).forEach(function (o) {
-    if (String(o.StudentID) === String(b.StudentID) && pmYm_(o.Date) === bm && pmOtOpen_(o.Status)) ot += Number(o.Amount || 0);
-  });
-  return amount + charges + ot;
-}
+// a monthly bill covers TUITION ONLY now — extra charges + OT are each their own payable item.
+function paySlipBillDue_(b) { return Number(b.Amount || 0); }
 
 function paySlipTarget_(kind, refId) {
   var ss = getMainSpreadsheet_();
   if (kind === 'bill') { var sb = sheet_(ss, 'BILLING'); var b = findObject_(sb, function (x) { return String(x.BillingID) === String(refId); }); return b ? { sheet: sb, row: b._row, obj: b, due: paySlipBillDue_(b), studentId: b.StudentID } : null; }
   if (kind === 'ot') { var so = sheet_(ss, 'OT_DAILY'); var o = findObject_(so, function (x) { return String(x.OTID) === String(refId); }); return o ? { sheet: so, row: o._row, obj: o, due: Number(o.Amount || 0), studentId: o.StudentID } : null; }
+  if (kind === 'charge') { var sc = sheet_(ss, 'STUDENT_CHARGES'); var c = findObject_(sc, function (x) { return String(x.ChargeID) === String(refId); }); return c ? { sheet: sc, row: c._row, obj: c, due: Number(c.Amount || 0), studentId: c.StudentID } : null; }
   if (kind === 'prepay') { var sp = sheet_(ss, 'PREPAYMENTS'); var pp = findObject_(sp, function (x) { return String(x.PrepayID) === String(refId); }); return pp ? { sheet: sp, row: pp._row, obj: pp, due: Number(pp.Amount || 0), studentId: pp.StudentID } : null; }
   return null;
 }
@@ -124,15 +117,18 @@ function handlePrepayAudit(p) {
  */
 function handlePayCombined(p) {
   p = p || {};
-  var ids = (p.bills || []).filter(function (x) { return !!x; });
-  if (!ids.length) throw apiError_('BAD_INPUT', 'ยังไม่ได้เลือกบิล');
+  // items: [{kind:'bill'|'charge'|'ot', id}] (legacy: p.bills = bill ids)
+  var list = Array.isArray(p.items) ? p.items : ((p.bills || []).map(function (id) { return { kind: 'bill', id: id }; }));
+  list = list.filter(function (x) { return x && x.id; });
+  if (!list.length) throw apiError_('BAD_INPUT', 'ยังไม่ได้เลือกรายการ');
   var uid = p.uid || p.lineUID || '';
-  var items = ids.map(function (id) {
-    var tgt = paySlipTarget_('bill', id);
-    if (!tgt) throw apiError_('NOT_FOUND', 'ไม่พบบิล ' + id);
-    if (uid && !parentOwnsStudent_(uid, tgt.studentId)) throw apiError_('NO_PERMISSION', 'บิลนี้ไม่ใช่ของบุตรหลานท่าน');
-    var confirmed = paySlipSum_('bill', id, ['CONFIRMED']);
-    return { id: id, tgt: tgt, out: Math.max(0, tgt.due - confirmed) };
+  var items = list.map(function (it) {
+    var kind = it.kind || 'bill';
+    var tgt = paySlipTarget_(kind, it.id);
+    if (!tgt) throw apiError_('NOT_FOUND', 'ไม่พบรายการ ' + it.id);
+    if (uid && !parentOwnsStudent_(uid, tgt.studentId)) throw apiError_('NO_PERMISSION', 'รายการนี้ไม่ใช่ของบุตรหลานท่าน');
+    var confirmed = paySlipSum_(kind, it.id, ['CONFIRMED']);
+    return { kind: kind, id: it.id, tgt: tgt, out: Math.max(0, tgt.due - confirmed) };
   });
   var total = Math.round(items.reduce(function (a, x) { return a + x.out; }, 0));
   var amt = Math.round(Number(p.slipAmount || 0));
@@ -145,21 +141,24 @@ function handlePayCombined(p) {
   var groupId = 'SG-' + Date.now();
   var sh = paySlipsSheet_(); ensureColumns_(sh, ['SlipGroup']);
   var names = [];
+  var seen = {};
   items.forEach(function (x, i) {
-    appendObject_(sh, { SlipID: 'SL-' + Date.now() + '-' + i, RefKind: 'bill', RefID: x.id, StudentID: x.tgt.studentId, Amount: x.out,
+    appendObject_(sh, { SlipID: 'SL-' + Date.now() + '-' + i, RefKind: x.kind, RefID: x.id, StudentID: x.tgt.studentId, Amount: x.out,
       Url: drive.url, FileId: drive.fileId, Verified: vr.verified, TransRef: vr.ref, Receiver: vr.receiver, SubmittedDate: nowStr_(), Status: 'SUBMITTED', SlipGroup: groupId });
-    var submitted = paySlipSum_('bill', x.id, ['SUBMITTED', 'CONFIRMED']);
+    var submitted = paySlipSum_(x.kind, x.id, ['SUBMITTED', 'CONFIRMED']);
     updateRow_(x.tgt.sheet, x.tgt.row, { Status: 'PENDING_VERIFY', SlipAmount: submitted, PaymentMethod: 'transfer', TransactionDate: nowStr_() });
-    var st = findObject_(sheet_(getMainSpreadsheet_(), 'STUDENTS'), function (s) { return String(s.StudentID) === String(x.tgt.studentId); });
-    names.push(st ? (st.Nickname || st.Name || x.tgt.studentId) : x.tgt.studentId);
+    if (!seen[x.tgt.studentId]) { seen[x.tgt.studentId] = 1;
+      var st = findObject_(sheet_(getMainSpreadsheet_(), 'STUDENTS'), function (s) { return String(s.StudentID) === String(x.tgt.studentId); });
+      names.push(st ? (st.Nickname || st.Name || x.tgt.studentId) : x.tgt.studentId); }
   });
-  recCacheBust_('PAYMENT_SLIPS'); recCacheBust_('BILLING');
-  try { notifyAdmins_('💳 สลิปรวม ' + items.length + ' คน (' + names.join(', ') + ') · ฿' + total + ' — รอตรวจสอบ', { kind: 'combined_slip' }); } catch (e) {}
+  recCacheBust_('PAYMENT_SLIPS'); recCacheBust_('BILLING'); recCacheBust_('OT_DAILY'); recCacheBust_('STUDENT_CHARGES');
+  try { notifyAdmins_('💳 สลิปรวม ' + names.length + ' คน (' + names.join(', ') + ') · ' + items.length + ' รายการ · ฿' + total + ' — รอตรวจสอบ', { kind: 'combined_slip' }); } catch (e) {}
   return { ok: true, groupId: groupId, total: total, count: items.length };
 }
 
 function handleUploadSlip(p) { return paySlipRecord_('bill', p.billingId, p); }
 function handlePayOT(p) { return paySlipRecord_('ot', p.otId, p); }
+function handlePayCharge(p) { return paySlipRecord_('charge', p.chargeId, p); }
 function handlePayPrepay(p) { return paySlipRecord_('prepay', p.prepayId, p); }
 
 function handleConfirmSlip(p) {
@@ -193,11 +192,7 @@ function paySlipRecompute_(kind, refId, paidDate) {
   if (confirmed >= tgt.due && tgt.due > 0) {
     var pd = paidDate || nowStr_().slice(0, 10);
     updateRow_(tgt.sheet, tgt.row, { Status: 'PAID', PaidDate: pd, SlipAmount: confirmed, VerifiedStatus: 'CONFIRMED' });
-    if (kind === 'bill') {
-      var so = sheet_(ss, 'OT_DAILY'), bm = pmYm_(tgt.obj.Month);
-      readObjects_(so).forEach(function (o) { if (String(o.StudentID) === String(tgt.obj.StudentID) && pmYm_(o.Date) === bm && pmOtOpen_(o.Status)) updateRow_(so, o._row, { Status: 'PAID', PaidDate: pd }); });
-      recCacheBust_('OT_DAILY');
-    }
+    // bill now covers TUITION ONLY — do NOT cascade OT/charges to PAID (each is paid on its own).
     // prepay: tuition-only — do NOT flip the covered months' bills to PAID (that would waive the extras).
     // The prepay row itself is PAID here; the engine's `payments` read credits the tuition per month.
     if (kind === 'prepay') { /* covered-bill marking intentionally removed — advance payment covers tuition only */ }

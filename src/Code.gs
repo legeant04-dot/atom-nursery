@@ -45,6 +45,7 @@ var ROUTES = {
   uploadSlip:     function (p) { return handleUploadSlip(p); },
   payCombined:    function (p) { return handlePayCombined(p); },
   payOT:          function (p) { return handlePayOT(p); },
+  payCharge:      function (p) { return handlePayCharge(p); },
   teacherPayOT:   function (p) { return handlePayOT(p); },   // teacher pays a student's OT on behalf (same in-place slip pipeline; read is class-scoped in the engine)
   payPrepay:      function (p) { return handlePayPrepay(p); },
   confirmSlip:    function (p) { return handleConfirmSlip(p); },

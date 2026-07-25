@@ -216,12 +216,14 @@ function createAtomAPI(M, GROWTH_STD) {
 
   // ---- payment-slip helpers (multiple slips per bill/OT/prepay + partial payments) ----
   const paySlips_ = () => (M.paymentSlips = M.paymentSlips || []);
-  function billDue_(b){ const bm=ym(b.Month); const otOpen=M.otDaily.filter(o=>o.StudentID===b.StudentID&&ym(o.Date)===bm&&otOpenRec(o));
-    const charges=M.studentCharges.filter(c=>c.StudentID===b.StudentID&&ym(c.Month)===bm).reduce((a,c)=>a+Number(c.Amount||0),0);
-    return Number(b.Amount||0)+charges+otOpen.reduce((a,o)=>a+Number(o.Amount||0),0); }
+  // A monthly bill covers TUITION ONLY now. Extra charges (STUDENT_CHARGES) and late-pickup OT are each
+  // their own payable item (parent can tick/pay them individually) — so they are NOT folded into the bill.
+  function billDue_(b){ return Number(b.Amount||0); }
+  function chargeOpen_(c){ const st=String(c.Status||'UNPAID').toUpperCase(); return st!=='PAID'&&st!=='CANCELLED'; }
   function slipTarget_(kind, refId){
     if(kind==='bill'){ const b=M.payments.find(x=>x.BillingID===refId); return b?{obj:b, due:billDue_(b), studentId:b.StudentID}:null; }
     if(kind==='ot'){ const o=M.otDaily.find(x=>x.OTID===refId); return o?{obj:o, due:Number(o.Amount||0), studentId:o.StudentID}:null; }
+    if(kind==='charge'){ const c=M.studentCharges.find(x=>x.ChargeID===refId); return c?{obj:c, due:Number(c.Amount||0), studentId:c.StudentID}:null; }
     if(kind==='prepay'){ const pp=M.prepayments.find(x=>x.PrepayID===refId); return pp?{obj:pp, due:Number(pp.Amount||0), studentId:pp.StudentID}:null; }
     return null; }
   function sumSlips_(kind, refId, statuses){ return paySlips_().filter(s=>s.RefKind===kind&&s.RefID===refId&&statuses.indexOf(s.Status)>=0).reduce((a,s)=>a+Number(s.Amount||0),0); }
@@ -239,7 +241,7 @@ function createAtomAPI(M, GROWTH_STD) {
     const confirmed=sumSlips_(kind, refId, ['CONFIRMED']); const submitted=sumSlips_(kind, refId, ['SUBMITTED','CONFIRMED']);
     tgt.obj.SlipAmount=submitted;
     if(confirmed>=tgt.due && tgt.due>0){ tgt.obj.Status='PAID'; tgt.obj.PaidDate=paidDate||tgt.obj.PaidDate||todayLocal(); tgt.obj.VerifiedStatus='CONFIRMED';
-      if(kind==='bill'){ const bm=ym(tgt.obj.Month); M.otDaily.filter(o=>o.StudentID===tgt.obj.StudentID&&ym(o.Date)===bm&&otOpenRec(o)).forEach(o=>{o.Status='PAID';o.PaidDate=tgt.obj.PaidDate;}); }
+      // bill now covers TUITION ONLY — do NOT cascade OT/charges to PAID (each is paid on its own).
       // prepay: do NOT mark the covered months' bills PAID — advance payment covers tuition only. The
       // monthly bills for those months then credit the tuition (see payments handler) and still bill extras.
     } else if(confirmed>0 || submitted>0){ tgt.obj.Status= confirmed>0?'PARTIAL':'PENDING_VERIFY'; }
@@ -384,34 +386,37 @@ function createAtomAPI(M, GROWTH_STD) {
     studentLeaves: p => M.studentLeaves.filter(l=>l.StudentID===p.studentId).sort((a,b)=>b.Date.localeCompare(a.Date)),
     comments: p => M.comments.filter(c=>c.StudentID===p.studentId),
     addComment: p => { const c={CommentID:nextSeqId_(M.comments,'CommentID','CM',0),StudentID:p.studentId,ParentID:p.parentId||'',SenderRole:p.senderRole,SenderName:p.senderName||'',Message:p.message,Timestamp:stampLocal(),ReadStatus:'unread'}; M.comments.push(c); return c; },
-    // monthly bill = base items + per-student extra charges + any unpaid OT rolled over
+    // monthly bill = TUITION ONLY. Extra charges + late-pickup OT are separate payable items (see
+    // studentCharges / otDaily) so the parent can tick and pay them individually.
     payments: p => M.payments.filter(b=>b.StudentID===p.studentId).map(b=>{
-        const bm=ym(b.Month); const charges=M.studentCharges.filter(c=>c.StudentID===p.studentId&&ym(c.Month)===bm);
+        const bm=ym(b.Month);
         // Items may be absent (sheet has no Items column) or a JSON string — normalise to an array, default to one tuition line
         let base = Array.isArray(b.Items) ? b.Items : (typeof b.Items==='string' && b.Items ? (()=>{try{return JSON.parse(b.Items)}catch(e){return null}})() : null);
         if(!Array.isArray(base)) base = [['ค่าเทอม', b.Amount||0]];
-        const items=base.concat(charges.map(c=>[c.Label,c.Amount]));
-        const baseAmt=b.Amount+charges.reduce((a,c)=>a+c.Amount,0);
-        const otOpen=M.otDaily.filter(o=>o.StudentID===p.studentId&&otOpenRec(o)&&ym(o.Date)===bm);
-        const roll=otOpen.reduce((a,o)=>a+o.Amount,0); const total=baseAmt+roll;
+        const total=Number(b.Amount||0);   // tuition only
         // partial-payment view: sum of confirmed slips vs submitted-but-pending
         const confirmed=sumSlips_('bill', b.BillingID, ['CONFIRMED']); const submitted=sumSlips_('bill', b.BillingID, ['SUBMITTED']);
-        // advance payment covers this month's TUITION (plan price) only → credit it, extras still due.
+        // advance payment covers this month's TUITION (plan price) only → credit it.
         const planPrice=Number(studentPlan(studentById(p.studentId)||{}).price||0);
         const prepaidTuition = monthTuitionPrepaid_(p.studentId, bm) ? Math.min(planPrice, total) : 0;
-        const items2 = prepaidTuition>0 ? items.concat([['ค่าเทอม (ชำระล่วงหน้าแล้ว)', -prepaidTuition]]) : items;
+        const items2 = prepaidTuition>0 ? base.concat([['ค่าเทอม (ชำระล่วงหน้าแล้ว)', -prepaidTuition]]) : base;
         const net = Math.max(0, total - prepaidTuition);              // due after the tuition credit
         const outstanding = Math.max(0, net - confirmed);
         let st = b.Status;
         if((net>0 && outstanding===0) || (net===0 && prepaidTuition>0)) st='PAID';
         else if(confirmed>0) st='PARTIAL';
-        return Object.assign({},b,{Month:bm,Items:items2,Amount:baseAmt,OTRollover:roll,TotalDue:net,GrossDue:total,Status:st,
+        return Object.assign({},b,{Month:bm,Items:items2,Amount:total,OTRollover:0,TotalDue:net,GrossDue:total,Status:st,
           PrepaidTuition:prepaidTuition,PaidConfirmed:confirmed,PendingSubmitted:submitted,Outstanding:outstanding}); })
       .sort((a,b)=>String(b.Month).localeCompare(String(a.Month))),
-    // per-student extra charges (Admin)
-    studentCharges: p => M.studentCharges.filter(c=>c.StudentID===p.studentId && (!p.month||ym(c.Month)===ym(p.month))),
-    addStudentCharge: p => { const c={ChargeID:nextSeqId_(M.studentCharges,'ChargeID','CH',0),StudentID:p.studentId,Month:p.month||todayLocal().slice(0,7),Label:p.label,Amount:Number(p.amount||0)}; M.studentCharges.push(c); return c; },
+    // per-student extra charges (Admin) — each is its own payable item (parent pays like OT).
+    studentCharges: p => M.studentCharges.filter(c=>c.StudentID===p.studentId && (!p.month||ym(c.Month)===ym(p.month)))
+      .map(c=>{ const confirmed=sumSlips_('charge',c.ChargeID,['CONFIRMED']); const submitted=sumSlips_('charge',c.ChargeID,['SUBMITTED']);
+        const amt=Number(c.Amount||0); let st=c.Status||'UNPAID'; if(confirmed>=amt&&amt>0)st='PAID'; else if(confirmed>0)st='PARTIAL'; else if(submitted>0)st='PENDING_VERIFY';
+        return Object.assign({},c,{Amount:amt,Status:st,PaidConfirmed:confirmed,PendingSubmitted:submitted,Outstanding:Math.max(0,amt-confirmed)}); }),
+    addStudentCharge: p => { const c={ChargeID:nextSeqId_(M.studentCharges,'ChargeID','CH',0),StudentID:p.studentId,Month:p.month||todayLocal().slice(0,7),Label:p.label,Amount:Number(p.amount||0),Status:'UNPAID'}; M.studentCharges.push(c); return c; },
     removeStudentCharge: p => { const i=M.studentCharges.findIndex(c=>c.ChargeID===p.chargeId); if(i>=0)M.studentCharges.splice(i,1); return {ok:true}; },
+    // parent pays a single extra charge (SCB QR + attach slip), like payOT
+    payCharge: p => recordSlip_('charge', p.chargeId, p),
 
     // ---- billing generation (Admin) ----
     // monthly tuition base for a student (from their Plan)
@@ -445,16 +450,19 @@ function createAtomAPI(M, GROWTH_STD) {
     // equal that total (else AMOUNT_MISMATCH → the client shows a red overlay and blocks). Each bill gets
     // its own slip row (its share) sharing a SlipGroup so Admin sees they are one transfer. Ownership is
     // enforced — every bill's student must belong to the caller's children.
-    payCombined: p => { const ids=Array.isArray(p.bills)?p.bills.filter(Boolean):[]; if(!ids.length)fail('BAD_INPUT','ยังไม่ได้เลือกบิล');
+    // items: [{kind:'bill'|'charge'|'ot', id}] (legacy: p.bills = bill ids). Each item's outstanding is
+    // summed; the slip amount MUST equal the total. Every item's student must belong to the caller.
+    payCombined: p => { let list=Array.isArray(p.items)?p.items:(Array.isArray(p.bills)?p.bills.map(id=>({kind:'bill',id})):[]);
+      list=list.filter(x=>x&&x.id); if(!list.length)fail('BAD_INPUT','ยังไม่ได้เลือกรายการ');
       const mine=new Set(visibleStudents(p).map(s=>s.StudentID));
-      const items=ids.map(id=>{ const b=M.payments.find(x=>x.BillingID===id); if(!b)fail('NOT_FOUND','ไม่พบบิล '+id);
-        if(!mine.has(b.StudentID))fail('NO_PERMISSION','บิลนี้ไม่ใช่ของบุตรหลานท่าน');
-        const tgt=slipTarget_('bill',id); const confirmed=sumSlips_('bill',id,['CONFIRMED']); return {id,studentId:b.StudentID,out:Math.max(0,tgt.due-confirmed)}; });
+      const items=list.map(it=>{ const kind=it.kind||'bill'; const tgt=slipTarget_(kind,it.id); if(!tgt)fail('NOT_FOUND','ไม่พบรายการ '+it.id);
+        if(!mine.has(tgt.studentId))fail('NO_PERMISSION','รายการนี้ไม่ใช่ของบุตรหลานท่าน');
+        const confirmed=sumSlips_(kind,it.id,['CONFIRMED']); return {kind,id:it.id,studentId:tgt.studentId,out:Math.max(0,tgt.due-confirmed)}; });
       const total=Math.round(items.reduce((a,x)=>a+x.out,0)); const amt=Math.round(Number(p.slipAmount||0));
       if(Math.abs(amt-total)>0.5) fail('AMOUNT_MISMATCH','ยอดชำระ ฿'+amt+' ไม่ตรงกับยอดรวมในระบบ ฿'+total);
       const groupId='SG-'+Date.now();
-      items.forEach(x=>{ recordSlip_('bill', x.id, {slipAmount:x.out, slipData:p.slipData, slipName:p.slipName, slipGroup:groupId, uid:p.uid, parentId:p.parentId, role:p.role}); });
-      logAct('payCombined', groupId, items.length+' คน รวม ฿'+total, actorOf(p));
+      items.forEach(x=>{ recordSlip_(x.kind, x.id, {slipAmount:x.out, slipData:p.slipData, slipName:p.slipName, slipGroup:groupId, uid:p.uid, parentId:p.parentId, role:p.role}); });
+      logAct('payCombined', groupId, items.length+' รายการ รวม ฿'+total, actorOf(p));
       return {ok:true, groupId, total, count:items.length}; },
     // all slips for a bill/OT/prepay (or a student) — history shown to parent + admin (rejected hidden)
     paymentSlips: p => paySlips_().filter(s=> (p.refKind?s.RefKind===p.refKind:true) && (p.refId?s.RefID===p.refId:true) && (p.studentId?s.StudentID===p.studentId:true) && (p.includeRejected?true:s.Status!=='REJECTED'))
@@ -748,12 +756,17 @@ function createAtomAPI(M, GROWTH_STD) {
         const bills=M.payments.filter(x=>x.StudentID===s.StudentID&&ym(x.Month)===month);
         const b=bills.find(x=>x.Status==='PAID')||bills.find(x=>x.Status==='PARTIAL')||bills[0];
         const otOpen=M.otDaily.filter(o=>o.StudentID===s.StudentID&&ym(o.Date)===month&&otOpenRec(o)).reduce((a,o)=>a+o.Amount,0);
-        const amount=b?Number(b.Amount||0):0; const due=amount+otOpen; const paid=!!b&&b.Status==='PAID';
+        // extra charges (now separate payables): open = still owed, collected = confirmed slips
+        const chs=M.studentCharges.filter(c=>c.StudentID===s.StudentID&&ym(c.Month)===month);
+        const chOpen=chs.reduce((a,c)=>a+Math.max(0,Number(c.Amount||0)-sumSlips_('charge',c.ChargeID,['CONFIRMED'])),0);
+        const chCollected=chs.reduce((a,c)=>a+sumSlips_('charge',c.ChargeID,['CONFIRMED']),0);
+        const otCollected=M.otDaily.filter(o=>o.StudentID===s.StudentID&&ym(o.Date)===month&&o.Status==='PAID').reduce((a,o)=>a+Number(o.Amount||0),0);
+        const amount=b?Number(b.Amount||0):0; const due=amount+otOpen+chOpen; const paid=!!b&&b.Status==='PAID';
         // advance payment covers this month's tuition → counts as collected (extras/OT still tracked separately)
-        const prepaidTuition = monthTuitionPrepaid_(s.StudentID, month) ? Math.min(Number(studentPlan(s).price||0), due) : 0;
-        // money actually IN = full amount if PAID, else the sum of CONFIRMED slips (partial), + prepaid tuition
-        const collected = (b ? (paid?amount:sumSlips_('bill', b.BillingID, ['CONFIRMED'])) : 0) + prepaidTuition;
-        return {studentId:s.StudentID,name:s.NameTH,nameEN:s.NameEN,nick:s.Nickname,nickEN:s.NicknameEN,plan:s.Plan,amount,collected,otOpen,due,paid,partial:!!b&&b.Status==='PARTIAL',status:b?b.Status:'NO_BILL',slipAmount:b?b.SlipAmount||0:0}; });
+        const prepaidTuition = monthTuitionPrepaid_(s.StudentID, month) ? Math.min(Number(studentPlan(s).price||0), amount) : 0;
+        // money actually IN = tuition (full if PAID else confirmed slips) + prepaid tuition + confirmed charges + paid OT
+        const collected = (b ? (paid?amount:sumSlips_('bill', b.BillingID, ['CONFIRMED'])) : 0) + prepaidTuition + chCollected + otCollected;
+        return {studentId:s.StudentID,name:s.NameTH,nameEN:s.NameEN,nick:s.Nickname,nickEN:s.NicknameEN,plan:s.Plan,amount,collected,otOpen,chOpen,due,paid,partial:!!b&&b.Status==='PARTIAL',status:b?b.Status:'NO_BILL',slipAmount:b?b.SlipAmount||0:0}; });
       const staff=M.staff.filter(s=>s.Role==='Teacher').map(s=>{ const pr=M.payroll.find(x=>x.StaffID===s.StaffID&&ym(x.Month)===month);
         return {staffId:s.StaffID,name:s.NameTH,nameEN:s.NameEN,nick:s.Nickname,nickEN:s.NicknameEN,net:pr?pr.NetPay:0,paid:!!pr&&pr.SlipSent==='YES',computed:!!pr}; });
       const tuitionCollected=students.reduce((a,s)=>a+(s.collected||0),0);
