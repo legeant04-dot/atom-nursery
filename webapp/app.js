@@ -30,7 +30,7 @@
     window.api=function(action,payload,opts){ if(!_isMut(action)) return _rawApi(action,payload,opts);
       _busyShow(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _busyDone(false); throw e; }
       return Promise.resolve(pr).then(v=>{ _busyDone(true); return v; }, e=>{ _busyDone(false); throw e; }); }; }
-  const APP_VERSION = 'Version 1.107'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.108'; // bump each webapp change; shown only at the bottom of the Chat screen
   const verTag = () => `<div style="text-align:center;color:#c3c9d4;font-size:10px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
   const phoneFmt = p => { let d=String(p==null?'':p).replace(/\D/g,''); if(d.length===9) d='0'+d; return d; };
@@ -1062,11 +1062,13 @@
       m.remove(); confirmSaved(EN()?`Slip submitted for ${r.count} children (฿${r.total}) — admin will verify.`:`ส่งสลิปแล้ว สำหรับ ${r.count} คน (฿${r.total}) — แอดมินจะตรวจสอบ`); GO('payment'); }
     catch(e){ err(e); if(btn)btn.disabled=false; } };
 
+  // tabs to switch between linked children on a parent screen (calls fn(otherStudentId))
+  function childSwitcher(kids, sid, fn){ if(!kids||kids.length<2)return ''; return `<div class="seg" style="margin-bottom:8px">${kids.map(k=>`<button class="${k.StudentID===sid?'active':''}" onclick="${fn}('${k.StudentID}')">${esc(dispNick(k))}</button>`).join('')}</div>`; }
   SCREENS.Parent.journal = async () => { const kids=await api('parentChildren',parentScope()); if(!kids.length){GO('home');return;} P_journal(kids[0].StudentID); };
   window.P_journal = async (sid) => { setNav('journal');
     const [kids,j,hist]=await Promise.all([api('parentChildren',parentScope()),api('getJournal',{studentId:sid}),api('journalHistory',{studentId:sid})]);
     const kid=(kids||[]).find(k=>k.StudentID===sid)||{};
-    app.innerHTML=`<h2 class="page">${esc(t('title.journal'))} · <span style="color:#1565C0">${esc(dispNick(kid)||sid)}</span></h2>${j?journalChecklist(j,{parentEditable:true}):waitCard()}
+    app.innerHTML=`<h2 class="page">${esc(t('title.journal'))}${kids.length===1?` · <span style="color:#1565C0">${esc(dispNick(kid)||sid)}</span>`:''}</h2>${childSwitcher(kids,sid,'P_journal')}${j?journalChecklist(j,{parentEditable:true}):waitCard()}
       <h3 class="page" style="font-size:16px">ย้อนหลัง</h3>${hist.map(h=>`<div class="list-item"><span>${esc(h.Date)} · ${esc(MOODS[h.Mood]||'')} ${esc(h.Mood||'')}</span><button class="btn sm outline" onclick="P_showJ('${h.StudentID}','${h.Date}')">ดู</button></div>`).join('')||'<small class="muted">ไม่มี</small>'}`;
   };
   window.P_showJ=async(sid,date)=>{ const j=await api('getJournal',{studentId:sid,date}); app.innerHTML=`<h2 class="page">📒 ${esc(date)}</h2>${journalChecklist(j,{parentEditable:true})}<button class="btn outline" onclick="GO('journal')">← กลับ</button>`; window.scrollTo(0,0); };
@@ -1100,7 +1102,7 @@
           ${s.items.map(itemRow).join('')}</div>`
       : `<div class="card"><div class="spread"><b>${esc(dispNick(st)||sid)}</b><span class="muted">${ageMo} เดือน</span></div>
           <p class="muted" style="font-size:13px">ℹ️ ยังไม่มีเกณฑ์ประเมินพัฒนาการสำหรับช่วงวัยนี้ (อายุ ${ageMo} เดือน) — เมื่อโรงเรียนเพิ่มเกณฑ์ตามคู่มือ DSPM ของช่วงวัยนี้แล้ว รายการประเมินจะแสดงที่นี่</p></div>`;
-    app.innerHTML=`<h2 class="page">${esc(t('title.dspm'))} · <span style="color:#1565C0">${esc(dispNick(st)||sid)}</span></h2>
+    app.innerHTML=`<h2 class="page">${esc(t('title.dspm'))}${(kidsD&&kidsD.length>1)?'':` · <span style="color:#1565C0">${esc(dispNick(st)||sid)}</span>`}</h2>${childSwitcher(kidsD,sid,'P_dspm')}
       <div class="card"><h3>📈 ${esc(t('growth.chartTitle'))}</h3><p class="muted" style="font-size:12px">${esc(t('growth.chartSub'))}</p>
         ${growthChartSVG(t('growth.weight'),g.records.map(r=>({x:r.AgeMonth,y:r.Weight})),gBand(g.weightBand,g.gender,g.records,'weight'),'kg')}
         ${growthChartSVG(t('growth.height'),g.records.map(r=>({x:r.AgeMonth,y:r.Height})),gBand(g.heightBand,g.gender,g.records,'height'),'cm')}
@@ -1181,6 +1183,20 @@
     if(isLeader){ const tp=await api('teamPendingLeaves',{staffId:USER.staffId}); setHTML('#tp', tp.map(l=>teamLeaveRow(l)).join('')||'<small class="muted">ไม่มีคำขอรออนุมัติ</small>');
       const to=await api('teamPendingOT',{staffId:USER.staffId}); setHTML('#teamot', to.map(otApproveRow).join('')||`<small class="muted">${esc(t('ot.none'))}</small>`);
       const ccr=await api('myClassChanges',{staffId:USER.staffId}); setHTML('#myccr', ccr.slice(0,4).map(ccrRow).join('')||`<small class="muted">${esc(t('corg.noReq'))}</small>`); }
+    T_growthReminder();   // even-month weight/height measurement reminder (once per month)
+  };
+  // Even-numbered months (Feb, Apr, … Dec) are weight+height measurement months — remind teachers once,
+  // like a parent announcement. Dismissed per-month via localStorage so it shows once each even month.
+  window.T_growthReminder = () => {
+    const now=new Date(); const mo=now.getMonth()+1; if(mo%2!==0) return;   // even months only
+    const key='atom_growth_reminder_'+now.getFullYear()+'-'+mo;
+    try{ if(localStorage.getItem(key)) return; }catch(e){}
+    const monName=EN()?EN_MONTHS[mo-1]:TH_MONTHS[mo-1];
+    modal(`<div style="text-align:center"><div style="font-size:40px">📏⚖️</div>
+      <h3>${EN()?'Measurement month':'เดือนวัดการเจริญเติบโต'}</h3>
+      <p style="font-size:14px">${EN()?`${monName} is a weight & height measurement month. Please measure every student and record it in the growth module.`:`เดือน${monName}เป็นเดือนที่ต้องวัด<b>น้ำหนักและส่วนสูง</b>ของนักเรียนทุกคน · กรุณาวัดและบันทึกในเมนูพัฒนาการการเจริญเติบโต`}</p>
+      <label style="display:flex;align-items:center;gap:8px;justify-content:center;font-size:13px;color:#666"><input type="checkbox" id="grNoShow"> ${EN()?"Don't show again this month":'ไม่ต้องแสดงอีกในเดือนนี้'}</label>
+      <button class="btn block" style="margin-top:10px" onclick="if(document.getElementById('grNoShow').checked){try{localStorage.setItem('${key}','1')}catch(e){}}; this.closest('.modal').remove()">${esc(t('c.close'))}</button></div>`);
   };
   // OT status badge + row renderers (shared)
   // a blank Status is a legacy pre-workflow OT row → treat it as approved
