@@ -30,7 +30,7 @@
     window.api=function(action,payload,opts){ if(!_isMut(action)) return _rawApi(action,payload,opts);
       _busyShow(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _busyDone(false); throw e; }
       return Promise.resolve(pr).then(v=>{ _busyDone(true); return v; }, e=>{ _busyDone(false); throw e; }); }; }
-  const APP_VERSION = 'Version 1.106'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.107'; // bump each webapp change; shown only at the bottom of the Chat screen
   const verTag = () => `<div style="text-align:center;color:#c3c9d4;font-size:10px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
   const phoneFmt = p => { let d=String(p==null?'':p).replace(/\D/g,''); if(d.length===9) d='0'+d; return d; };
@@ -71,12 +71,12 @@
   // parent display: nickname → "คุณพ่อ/แม่ น้อง<child>" (by relationship) → title + full name
   function parentDisp(p, kid){
     if(!p) return '';
-    const k=nick(p); if(k) return k;
+    // always show the CHILD's nickname (คุณพ่อ/แม่น้อง<ชื่อเล่น>), never the parent's own nickname
     const dad=REL_DAD.test(p.Relationship||'')||REL_DAD.test(p.Title||''), mom=REL_MOM.test(p.Relationship||'')||REL_MOM.test(p.Title||'');
     const child = kid || findKid(p.StudentID);
     const kn = child ? dispNick(child) : '';
-    if(kn && (dad||mom)) return EN() ? `${kn}'s ${dad?'dad':'mom'}` : `${dad?'คุณพ่อน้อง':'คุณแม่น้อง'}${kn}`;
-    return titledName(p);
+    if(kn) return EN() ? `${kn}'s ${dad?'dad':mom?'mom':'parent'}` : `${dad?'คุณพ่อน้อง':mom?'คุณแม่น้อง':'ผู้ปกครองน้อง'}${kn}`;
+    return nick(p) || titledName(p);   // fall back only when the child can't be resolved
   }
   const EN = () => LANG()==='en';
   // OT duration as "X ชม. Y นาที" / "Xh Ym" (e.g. 0.77 hr → "46 นาที"); drops a zero part
@@ -534,6 +534,13 @@
   window.P_saveComment=async(sid,date,btn)=>{ const el=document.getElementById('jPC'); const comment=el?el.value:'';
     if(btn)btn.disabled=true; try{ await api('saveParentComment',{parentId:USER.parentId,uid:USER.uid,studentId:sid,date:date||undefined,comment}); confirmSaved(EN()?'Comment saved':'บันทึกความคิดเห็นแล้ว'); }catch(e){err(e);}finally{ if(btn)btn.disabled=false; } };
   function ddmmyyyy(s){ const d=new Date(s||todayStr()); return p2(d.getDate())+'-'+p2(d.getMonth()+1)+'-'+d.getFullYear(); }
+  // full Thai/English date + month names for the receipt (Buddhist year in Thai)
+  const TH_MONTHS=['มกราคม','กุมภาพันธ์','มีนาคม','เมษายน','พฤษภาคม','มิถุนายน','กรกฎาคม','สิงหาคม','กันยายน','ตุลาคม','พฤศจิกายน','ธันวาคม'];
+  const EN_MONTHS=['January','February','March','April','May','June','July','August','September','October','November','December'];
+  // "YYYY-MM" (or a date) → "กรกฎาคม 2569" / "July 2026"
+  function monthNameYear(v){ const s=String(v||''); const m=/^(\d{4})-(\d{1,2})/.exec(s); let y,mo; if(m){y=+m[1];mo=+m[2]-1;} else {const d=new Date(s);y=d.getFullYear();mo=d.getMonth();} if(mo<0||mo>11)return s; return EN()?`${EN_MONTHS[mo]} ${y}`:`${TH_MONTHS[mo]} ${y+543}`; }
+  // date → "25 กรกฎาคม 2569" / "25 July 2026"
+  function fullDate(v){ const d=new Date(v||todayStr()); if(isNaN(d))return String(v||''); const dd=d.getDate(),mo=d.getMonth(),y=d.getFullYear(); return EN()?`${dd} ${EN_MONTHS[mo]} ${y}`:`${dd} ${TH_MONTHS[mo]} ${y+543}`; }
   // student leave label: "ประเภท — เหตุผล" (type first, reason appended when present)
   const stdLeaveDesc = l => { const ty=(l&&l.Type||'').trim(), rs=(l&&l.Reason||'').trim(); return ty&&rs ? ty+' — '+rs : (ty||rs||'-'); };
   function waitCard(date){ return `<div class="card" style="text-align:center;color:#8a6d00;background:#fff8e1;border-color:#f0e3b0">⏳ รอคุณครูส่งข้อมูลของวันที่ ${ddmmyyyy(date)}</div>`; }
@@ -553,21 +560,25 @@
   function calNavHeader(y,mo){ const head=EN()?CAL_MTHE[mo]+' '+y:CAL_MTH[mo]+' '+(y+543);
     return `<div class="spread" style="margin-bottom:6px"><button class="btn sm outline" onclick="CAL_nav(-1)">◀</button><b style="font-size:14px">📅 ${esc(head)}</b><span class="row"><button class="btn sm outline" onclick="CAL_today()">${EN()?'Today':'วันนี้'}</button><button class="btn sm outline" onclick="CAL_nav(1)">▶</button></span></div>`; }
 
+  // light-red / cleaning background for weekend · holiday · Big Cleaning cells (shared by all calendars)
+  function calOffBg(y,mo,d,hol,bc){ const dow=new Date(y,mo,d).getDay(); if(hol)return 'background:#ffebee;border-color:#ef9a9a;'; if(bc)return 'background:#e0f7fa;border-color:#80deea;'; if(dow===0||dow===6)return 'background:#ffebee;border-color:#ffcdd2;'; return ''; }
   // Parent calendar: check-in/out times + school holidays + the LINKED student's leave days only.
   function calendarWidget(events, checkins, planEnd, studentLeaves){ checkins=checkins||[]; studentLeaves=studentLeaves||[];
     const grace=Number(MOCK.config.OTGraceMinutes||21); const toMin=hhmm=>{const[h,m]=String(hhmm||'0:0').split(':').map(Number);return (h||0)*60+(m||0);};
     const lateOut = out => planEnd && out && (toMin(out)-toMin(planEnd))>grace;
     const render=()=>{ const b=calBase(),y=b.getFullYear(),mo=b.getMonth(); const now=new Date(); const isCur=CAL_OFF===0;
       const first=new Date(y,mo,1).getDay(); const days=new Date(y,mo+1,0).getDate(); const evByDay={},ioByDay={},lvByDay={};
-      // parents don't see Big Cleaning — only holidays
-      events.filter(e=>e.type!=='bigclean').forEach(e=>{ const d=new Date(e.date); if(d.getFullYear()===y&&d.getMonth()===mo) (evByDay[d.getDate()]=evByDay[d.getDate()]||[]).push(e); });
+      events.forEach(e=>{ const d=new Date(e.date); if(d.getFullYear()===y&&d.getMonth()===mo) (evByDay[d.getDate()]=evByDay[d.getDate()]||[]).push(e); });
       checkins.forEach(c=>{ const d=new Date(c.Date); if(d.getFullYear()===y&&d.getMonth()===mo) ioByDay[d.getDate()]=c; });
       studentLeaves.forEach(l=>{ const d=new Date(l.Date); if(d.getFullYear()===y&&d.getMonth()===mo) (lvByDay[d.getDate()]=lvByDay[d.getDate()]||[]).push(l); });
       let cells=['อา','จ','อ','พ','พฤ','ศ','ส'].map(w=>`<div style="text-align:center;font-size:11px;color:#94a3b8">${EN()?({'อา':'Su','จ':'Mo','อ':'Tu','พ':'We','พฤ':'Th','ศ':'Fr','ส':'Sa'}[w]):w}</div>`).join('');
       for(let i=0;i<first;i++) cells+=`<div class="d dim"></div>`;
       for(let d=1;d<=days;d++){ const ev=evByDay[d]; const io=ioByDay[d]; const lv=lvByDay[d]; const et=ev?ev[0].type:''; const today=(isCur&&d===now.getDate())?'today':'';
+        const isBC=!!(ev&&ev.some(e=>e.type==='bigclean')); const isHol=!!(ev&&ev.some(e=>e.type!=='bigclean'));
         const outRed=io&&lateOut(io.OutTime); const outHtml=io?`<span style="${outRed?'color:#d50000;font-weight:800':''}">${esc(io.OutTime||'-')}</span>`:'';
-        cells+=`<div class="d ${ev?'ho':''} ${lv?'ev':''} ${today}" style="${lv?'background:#fff3e0;border-color:#f0c48a;':''}">${d}${ev?`<span class="dot" style="color:#c62828">🏖️ ${esc(EN()?(ev[0].titleEN||ev[0].title):ev[0].title)}</span>`:''}${lv?`<span class="dot" style="color:#e65100">🏠 ${esc(lv[0].Type||lv[0].Reason||(EN()?'leave':'ลา'))}</span>`:''}${io?`<span class="io">${esc(io.InTime||'-')}<br>${outHtml}</span>`:''}</div>`; }
+        // leave day keeps its orange; otherwise weekend/holiday/Big-Cleaning → light red / cleaning tint
+        const bg = lv?'background:#fff3e0;border-color:#f0c48a;':calOffBg(y,mo,d,isHol,isBC);
+        cells+=`<div class="d ${ev?'ho':''} ${lv?'ev':''} ${today}" style="${bg}">${d}${ev?`<span class="dot" style="color:${isBC&&!isHol?'#00838f':'#c62828'}">${isBC&&!isHol?'🧹':'🏖️'} ${esc(EN()?(ev[0].titleEN||ev[0].title):ev[0].title)}</span>`:''}${lv?`<span class="dot" style="color:#e65100">🏠 ${esc(lv[0].Type||lv[0].Reason||(EN()?'leave':'ลา'))}</span>`:''}${io?`<span class="io">${esc(io.InTime||'-')}<br>${outHtml}</span>`:''}</div>`; }
       return `${calNavHeader(y,mo)}<div class="cal">${cells}</div><small class="muted">${EN()?'↓in ↑out · 🏖️ holiday · 🏠 child on leave':'↓เข้า ↑ออก · 🏖️ วันหยุด · 🏠 ลา'}</small>`; };
     window._CALRENDER=render;
     return `<div class="card"><div id="calWrap">${render()}</div></div>`; }
@@ -894,12 +905,12 @@
         : partial?`<span class="pill wait">${EN()?'Partially paid':'ชำระบางส่วน'}</span>`
         : hasPending?`<span class="pill wait">${esc(t('pay.pendingVerify'))}</span>`
         : `<span class="pill bad">${esc(tStat(b.Status))}</span>`;
-      return `<div class="card"><div class="spread"><b>${per}${esc(b.Month)}</b>${statusPill}</div>
+      return `<div class="card"><div class="spread"><b>${per}${esc(monthNameYear(b.Month))}</b>${statusPill}</div>
       <table style="width:100%;font-size:14px;margin:8px 0">${b.Items.map(it=>`<tr><td>${esc(trItem(it[0]))}</td><td style="text-align:right">${baht(it[1])}</td></tr>`).join('')}
       ${b.OTRollover?`<tr><td>${esc(t('ot.rollover'))}</td><td style="text-align:right">${baht(b.OTRollover)}</td></tr>`:''}
       <tr style="border-top:1px solid #ddd"><td><b>${esc(t('c.total'))}</b></td><td style="text-align:right"><b>${baht(due)}</b></td></tr>
       ${confirmed>0&&!paid?`<tr><td>${EN()?'Paid':'ชำระแล้ว'}</td><td style="text-align:right;color:#2e7d32">−${baht(confirmed)}</td></tr><tr><td><b>${EN()?'Remaining':'คงค้าง'}</b></td><td style="text-align:right"><b style="color:#c62828">${baht(outstanding)}</b></td></tr>`:''}</table>
-      <small class="muted">${esc(t('c.due'))} ${esc(b.DueDate)}${b.PaidDate?' · '+esc(t('c.paid'))+' '+esc(b.PaidDate):''}</small>
+      <small class="muted">${esc(t('c.due'))} ${esc(fullDate(b.DueDate))}${b.PaidDate?' · '+esc(t('c.paid'))+' '+esc(fullDate(b.PaidDate)):''}</small>
       ${slipHistoryHTML(billSlips)}
       ${paid||prepaid?`<div class="row" style="margin-top:10px"><button class="btn sm outline" onclick="P_receipt('${b.BillingID}')">🧾 ${esc(t('pay.receipt'))}</button></div>`
         :`<div class="row" style="margin-top:10px"><button class="btn sm" onclick="P_qr('${b.BillingID}',${topUp})">${esc(t('lbl.qr'))}</button><button class="btn sm outline" onclick="P_slip('${b.BillingID}',${topUp})">📎 ${hasPending||partial?(EN()?'Add another slip':'แนบสลิปเพิ่ม'):esc(t('lbl.attachSlip'))}</button><button class="btn sm gray" onclick="P_cash('bill','${b.BillingID}',${topUp})">💵 ${esc(t('pay.cash'))}</button></div>`}</div>`;
@@ -929,7 +940,8 @@
     extra:`<button class="btn block" style="margin-top:8px" onclick="this.closest('.modal').remove();P_slip('${prepayId}',${amt},'prepay')">📎 ${esc(t('lbl.attachSlip'))}</button>` }); };
   // printable receipt
   window.P_receipt=async(billingId)=>{ const ps=await api('payments',{studentId:window._PAY_SID}); const b=ps.find(x=>x.BillingID===billingId); if(!b)return;
-    const s=MOCK.students.find(x=>x.StudentID===b.StudentID)||{}; openOrDownload(buildReceiptHTML(b,s),'receipt-'+billingId+'.html'); };
+    // use the real linked child (gas mode has no MOCK.students seed → the old lookup gave a blank name)
+    const s=(window._PAY_KIDS||[]).find(x=>x.StudentID===b.StudentID)||MOCK.students.find(x=>x.StudentID===b.StudentID)||{}; openOrDownload(buildReceiptHTML(b,s),'receipt-'+billingId+'.html'); };
   // monthly QR = SCB (config.QRCode_Monthly, fallback legacy QRCode/PromptPayQR)
   window.P_qr=(id,amt)=>{ qrModalHTML({ title:'📲 '+t('pay.scanMonthly'), amount:amt,
     img:MOCK.config.QRCode_Monthly||MOCK.config.QRCode||MOCK.config.PromptPayQR, imgName:'monthly-'+id+'.png' }); };
@@ -1504,7 +1516,7 @@
       let cells=['อา','จ','อ','พ','พฤ','ศ','ส'].map(w=>`<div style="text-align:center;font-size:11px;color:#94a3b8">${EN()?({'อา':'Su','จ':'Mo','อ':'Tu','พ':'We','พฤ':'Th','ศ':'Fr','ส':'Sa'}[w]):w}</div>`).join('');
       for(let i=0;i<first;i++) cells+='<div class="d dim"></div>';
       for(let dd=1;dd<=days;dd++){ const ppl=byDay[dd]; const hol=holByDay[dd]; const bc=bcByDay[dd]; const today=(isCur&&dd===now.getDate())?'today':'';
-        const holStyle=hol?'background:#ffebee;border-color:#ef9a9a;':(bc?'background:#e0f7fa;border-color:#80deea;':'');
+        const holStyle=calOffBg(y,mo,dd,hol,bc);   // holiday red · Big-Cleaning cyan · weekend light-red
         cells+=`<div class="d ${ppl?'ev':''} ${today}" style="min-height:64px;${holStyle}">${dd}`
           +(hol?`<span class="io" style="color:#c62828;text-align:left;font-weight:600">🏖️ ${esc(hol)}</span>`:'')
           +(bc&&!hol?`<span class="io" style="color:#00838f;text-align:left;font-weight:600">🧹 ${EN()?'Cleaning':'ทำความสะอาด'}</span>`:'')
@@ -1686,15 +1698,21 @@
         for(let dt=new Date(st);dt<=en;dt.setDate(dt.getDate()+1)){ if(dt.getFullYear()===y&&dt.getMonth()===mo)(byDay[dt.getDate()]=byDay[dt.getDate()]||[]).push(leaveName(l)); } });
       let cells=['อา','จ','อ','พ','พฤ','ศ','ส'].map(w=>`<div style="text-align:center;font-size:11px;color:#94a3b8">${EN()?({'อา':'Su','จ':'Mo','อ':'Tu','พ':'We','พฤ':'Th','ศ':'Fr','ส':'Sa'}[w]):w}</div>`).join('');
       for(let i=0;i<first;i++)cells+='<div class="d dim"></div>';
+      const holByDay={}; (window._LV_HOL||[]).forEach(h=>{ const d=new Date(h.Date); if(d.getFullYear()===y&&d.getMonth()===mo) holByDay[d.getDate()]=EN()?(h.NameEN||h.NameTH):(h.NameTH||h.NameEN); });
+      const bcByDay={}; (window._LV_BC||[]).forEach(s=>{ const d=new Date(s); if(d.getFullYear()===y&&d.getMonth()===mo) bcByDay[d.getDate()]=1; });
       for(let dd=1;dd<=days;dd++){ const ppl=byDay[dd]; const today=(isCur&&dd===now.getDate())?'today':''; const clash=ppl&&ppl.length>=2;
-        cells+=`<div class="d ${ppl?'ev':''} ${today}" style="min-height:52px;${clash?'background:#ffebee;border-color:#ef9a9a;':''}">${dd}${ppl?`<span class="io" style="text-align:left;color:${clash?'#c62828':'#2e7d32'};font-weight:600">${esc(ppl.join('\n'))}</span>`:''}</div>`; }
-      return `${calNavHeader(y,mo)}<div class="cal">${cells}</div><small class="muted">${EN()?'Red = 2+ staff on leave the same day':'สีแดง = ลาซ้ำวันเดียวกัน ≥2 คน'}</small>`; };
+        const bg=clash?'background:#ffebee;border-color:#ef9a9a;':calOffBg(y,mo,dd,holByDay[dd],bcByDay[dd]);
+        cells+=`<div class="d ${ppl?'ev':''} ${today}" style="min-height:52px;${bg}">${dd}${holByDay[dd]?`<span class="io" style="text-align:left;color:#c62828;font-weight:600">🏖️ ${esc(holByDay[dd])}</span>`:''}${bcByDay[dd]&&!holByDay[dd]?`<span class="io" style="text-align:left;color:#00838f;font-weight:600">🧹</span>`:''}${ppl?`<span class="io" style="text-align:left;color:${clash?'#c62828':'#2e7d32'};font-weight:600">${esc(ppl.join('\n'))}</span>`:''}</div>`; }
+      return `${calNavHeader(y,mo)}<div class="cal">${cells}</div><small class="muted">${EN()?'Red = 2+ staff on leave · weekend/holiday · 🧹 cleaning':'สีแดง = ลาซ้ำ ≥2 คน · เสาร์-อาทิตย์/วันหยุด · 🧹 ทำความสะอาด'}</small>`; };
     window._CALRENDER=render;
     return `<div class="card"><div id="calWrap">${render()}</div></div>`; }
 
   let LV_TAB='pending';  // default sub-tab (teacher view) = in-progress
   let LV_MAIN='staff';   // main tab: 'staff' (teachers) | 'student'
   SCREENS.Admin.leaves = async () => {
+    // school holidays + Big Cleaning days → light-red / cleaning cells on the approval calendars
+    try{ window._LV_HOL=await api('holidays'); }catch(e){ window._LV_HOL=window._LV_HOL||[]; }
+    try{ const bc=await api('bigCleaningDays'); window._LV_BC=(bc&&bc.days)||bc||[]; }catch(e){ window._LV_BC=window._LV_BC||[]; }
     const mainSeg=`<div class="seg" style="margin-bottom:10px"><button class="${LV_MAIN==='staff'?'active':''}" onclick="A_lvMain('staff')">👩‍🏫 ${EN()?'Teachers':'คุณครู'}</button><button class="${LV_MAIN==='student'?'active':''}" onclick="A_lvMain('student')">👶 ${EN()?'Students':'นักเรียน'}</button></div>`;
     if(LV_MAIN==='student'){
       const leaves=await api('allStudentLeaves'); window._SLV_ALL=leaves||[];
@@ -1727,12 +1745,15 @@
     const first=new Date(y,mo,1).getDay(),days=new Date(y,mo+1,0).getDate();
     const byDay={}; (window._SLV_ALL||[]).forEach(l=>{ const dt=new Date(ymd(l.Date));
       if(dt.getFullYear()===y&&dt.getMonth()===mo){ const d=dt.getDate(); (byDay[d]=byDay[d]||[]).push(l); } });
+    const holByDay={}; (window._LV_HOL||[]).forEach(h=>{ const d=new Date(h.Date); if(d.getFullYear()===y&&d.getMonth()===mo) holByDay[d.getDate()]=EN()?(h.NameEN||h.NameTH):(h.NameTH||h.NameEN); });
+    const bcByDay={}; (window._LV_BC||[]).forEach(s=>{ const d=new Date(s); if(d.getFullYear()===y&&d.getMonth()===mo) bcByDay[d.getDate()]=1; });
     let cells=['อา','จ','อ','พ','พฤ','ศ','ส'].map(w=>`<div style="text-align:center;font-size:11px;color:#94a3b8">${EN()?({'อา':'Su','จ':'Mo','อ':'Tu','พ':'We','พฤ':'Th','ศ':'Fr','ส':'Sa'}[w]):w}</div>`).join('');
     for(let i=0;i<first;i++)cells+='<div class="d dim"></div>';
     for(let dd=1;dd<=days;dd++){ const items=byDay[dd]; const today=(isCur&&dd===now.getDate())?'today':''; const n=items?items.length:0;
       const nCls=items?new Set(items.map(x=>x.class||'-')).size:0; const ds=`${y}-${String(mo+1).padStart(2,'0')}-${String(dd).padStart(2,'0')}`;
-      cells+=`<div class="d ${n?'ev':''} ${today}" style="min-height:52px;${n?'cursor:pointer;background:#fff3e0;border-color:#ffcc80;':''}" ${n?`onclick="A_slvDay('${ds}')"`:''}>${dd}${n?`<span class="io" style="text-align:left;color:#e65100;font-weight:700">${EN()?'absent':'ขาด'} ${n}<br><span style="font-weight:400;color:#94a3b8">${nCls} ${EN()?'class':'ชั้น'}</span></span>`:''}</div>`; }
-    return `${calNavHeader(y,mo)}<div class="cal">${cells}</div><small class="muted">${EN()?'Orange = students on leave that day. Tap to see details.':'สีส้ม = มีนักเรียนลาวันนั้น · แตะเพื่อดูรายละเอียด'}</small>`;
+      const bg = n?'cursor:pointer;background:#fff3e0;border-color:#ffcc80;':calOffBg(y,mo,dd,holByDay[dd],bcByDay[dd]);
+      cells+=`<div class="d ${n?'ev':''} ${today}" style="min-height:52px;${bg}" ${n?`onclick="A_slvDay('${ds}')"`:''}>${dd}${holByDay[dd]?`<span class="io" style="text-align:left;color:#c62828;font-weight:600">🏖️ ${esc(holByDay[dd])}</span>`:''}${bcByDay[dd]&&!holByDay[dd]?`<span class="io" style="text-align:left;color:#00838f;font-weight:600">🧹</span>`:''}${n?`<span class="io" style="text-align:left;color:#e65100;font-weight:700">${EN()?'absent':'ขาด'} ${n}<br><span style="font-weight:400;color:#94a3b8">${nCls} ${EN()?'class':'ชั้น'}</span></span>`:''}</div>`; }
+    return `${calNavHeader(y,mo)}<div class="cal">${cells}</div><small class="muted">${EN()?'Orange = absences · weekend/holiday red · 🧹 cleaning':'สีส้ม = มีนักเรียนลา · เสาร์-อาทิตย์/วันหยุดแดง · 🧹 ทำความสะอาด'}</small>`;
   }
   window.A_slvDay=(ds)=>{ const items=(window._SLV_ALL||[]).filter(l=>ymd(l.Date)===ds);
     const byClass={}; items.forEach(l=>{ const c=l.class||(EN()?'(no class)':'(ไม่ระบุชั้น)'); (byClass[c]=byClass[c]||[]).push(l); });
@@ -2265,6 +2286,9 @@
       <small class="muted" style="display:block;margin:-2px 0 6px">${EN()?'e.g. child on the 17:00 rate but allowed pickup to 18:00 with no OT → set 18:00. OT is charged only after this time.':'เช่น เด็กเรท 17:00 แต่อนุญาตให้รับถึง 18:00 โดยไม่คิด OT → ตั้ง 18:00 · จะคิด OT เฉพาะหลังเวลานี้'}</small>
       <label class="field"><span>📝 ${EN()?'Rate note (shown to the parent)':'หมายเหตุเรท (แสดงให้ผู้ปกครองเห็น)'}</span>
         <input id="stf_RateNote" value="${esc(s.RateNote||'')}" placeholder="${EN()?'e.g. Special: pickup until 18:00, no OT':'เช่น สิทธิพิเศษ: รับได้ถึง 18:00 ไม่คิด OT'}"/></label>
+      <div class="grid2"><label class="field"><span>🏷️ ${EN()?'Monthly discount (hidden from parent)':'ส่วนลดรายเดือน (ไม่แสดงให้ผู้ปกครอง)'}</span><input id="stf_DiscountAmount" type="number" min="0" value="${esc(s.DiscountAmount!=null&&s.DiscountAmount!==''?s.DiscountAmount:'')}" placeholder="0"/></label>
+        <label class="field"><span>${EN()?'Unit':'หน่วย'}</span><select id="stf_DiscountUnit"><option value="บาท" ${(s.DiscountUnit||'บาท')!=='%'?'selected':''}>${EN()?'THB':'บาท'}</option><option value="%" ${s.DiscountUnit==='%'?'selected':''}>%</option></select></label></div>
+      <small class="muted" style="display:block;margin:-2px 0 6px">${EN()?'Deducted silently from monthly tuition when a bill is issued — the parent only sees the reduced total.':'หักออกจากค่าเทอมรายเดือนตอนออกบิลโดยอัตโนมัติ · ผู้ปกครองเห็นแค่ยอดสุทธิ ไม่เห็นส่วนลด'}</small>
       <hr style="border:none;border-top:1px solid #eee;margin:8px 0">
       <label class="field" style="display:flex;align-items:center;gap:8px"><input type="checkbox" id="stf_Ins" ${s.InsuranceHas?'checked':''} style="width:auto" onchange="document.getElementById('insBox').hidden=!this.checked"/> 🛡️ ${esc(t('ins.has'))}</label>
       <div id="insBox" ${s.InsuranceHas?'':'hidden'}>
@@ -2315,6 +2339,7 @@
       InsuranceHas:m.querySelector('#stf_Ins').checked,InsurancePolicyNo:v('InsurancePolicyNo'),InsuranceCompany:v('InsuranceCompany'),InsuranceExpiry:v('InsuranceExpiry'),
       StartTime:v('StartTime'),EndTime:v('EndTime'),   // per-student individual schedule (EndTime drives OT)
       OTGraceUntil:v('OTGraceUntil'),RateNote:v('RateNote'),  // OT-free cutoff decoupled from EndTime + parent-facing note
+      DiscountAmount:v('DiscountAmount')===''?'':(Number(v('DiscountAmount'))||0),DiscountUnit:v('DiscountUnit')||'บาท',  // monthly tuition discount (master, hidden from parent)
       OTRate:v('OTRate')===''?'':(Number(v('OTRate'))||0)};   // blank = fall back to the school-wide OT rate
     const stp=photoVal(m,'stf_Photo'); if(stp) data.Photo=stp;
     const stc=photoVal(m,'stf_InsCard'); if(stc) data.InsuranceCardImage=stc;
@@ -2949,16 +2974,20 @@
   }
 
   // parent payment receipt (printable / downloadable)
-  function buildReceiptHTML(b,s){ const logo=window._LOGO||(location.origin+'/assets/logo.png'); const corner=window._LOGOCORNER||(location.origin+'/assets/logo-corner.jpg');
+  function buildReceiptHTML(b,s){ const logo=window._LOGO||(location.origin+'/assets/logo.png');
     const due=b.TotalDue!=null?b.TotalDue:b.Amount;
     const rows=(b.Items||[]).map(it=>`<tr><td>${esc(trItem(it[0]))}</td><td style="text-align:right">${baht(it[1])}</td></tr>`).join('')+(b.OTRollover?`<tr><td>OT</td><td style="text-align:right">${baht(b.OTRollover)}</td></tr>`:'');
+    // student headline: full name-surname (nickname)
+    const snick=(s.Nickname||s.NicknameEN||''); const sname=(s.NameTH||s.NameEN||'')+(snick?` (${snick})`:'');
     return `<!doctype html><html><head><meta charset="utf-8"><title>Receipt ${esc(b.BillingID)}</title><link href="https://fonts.googleapis.com/css2?family=Sarabun&display=swap" rel="stylesheet">
-      <style>@page{size:A5}body{font-family:Sarabun,sans-serif;margin:0;padding:18px;color:#222}.hd{display:flex;justify-content:space-between;align-items:center;border-bottom:2px solid #1565C0;padding-bottom:8px}
-      .hd img{height:46px} h1{font-size:20px;color:#1565C0;margin:0} .meta{font-size:13px;margin:10px 0} table{width:100%;border-collapse:collapse;font-size:14px;margin-top:8px}td{padding:5px 6px;border-bottom:1px solid #eee}
+      <style>@page{size:A5}body{font-family:Sarabun,sans-serif;margin:0;padding:18px;color:#222}.hd{display:flex;justify-content:center;align-items:center;gap:12px;border-bottom:2px solid #1565C0;padding-bottom:8px}
+      .hd img{height:46px} h1{font-size:20px;color:#1565C0;margin:0} .meta{font-size:13px;margin:10px 0;line-height:1.7} table{width:100%;border-collapse:collapse;font-size:14px;margin-top:8px}td{padding:5px 6px;border-bottom:1px solid #eee}
       .tot{font-size:18px;font-weight:bold;color:#1565C0} .paid{margin-top:10px;color:#2e7d32;font-weight:bold} .bar{padding:8px;text-align:center}@media print{.bar{display:none}}</style></head>
       <body><div class="bar"><button onclick="window.print()">🖨️ ${esc(t('c.print'))}</button></div>
-      <div class="hd"><img src="${logo}"/><div style="text-align:center"><h1>Atom Nursery</h1><div style="font-size:12px">${esc(t('pay.receipt'))} / Receipt</div></div><img src="${corner}" style="border-radius:6px"/></div>
-      <div class="meta"><b>${esc(t('reg.student'))}:</b> ${esc(s.NameTH||'')} (${esc(s.NameEN||'')})<br><b>${esc(t('c.month'))}:</b> ${esc(b.Month)} · <b>No.</b> ${esc(b.BillingID)} · <b>${esc(t('c.paid'))}:</b> ${esc(b.PaidDate||todayStr())}</div>
+      <div class="hd"><img src="${logo}"/><div style="text-align:center"><h1>Atom Nursery</h1><div style="font-size:12px">${esc(t('pay.receipt'))} / Receipt</div></div></div>
+      <div class="meta"><b>${esc(t('reg.student'))}:</b> ${esc(sname)}<br>
+      <b>${EN()?'Period':'งวดประจำเดือน'}:</b> ${esc(monthNameYear(b.Month))} · <b>No.</b> ${esc(b.BillingID)}<br>
+      <b>${esc(t('c.paid'))}:</b> ${esc(fullDate(b.PaidDate||todayStr()))}${b.DueDate?` · <b>${esc(t('c.due'))}:</b> ${esc(fullDate(b.DueDate))}`:''}</div>
       <table>${rows}<tr><td class="tot">${esc(t('c.total'))}</td><td class="tot" style="text-align:right">${baht(due)}</td></tr></table>
       <div class="paid">✅ ${esc(t('s.paid'))}${b.VerifiedStatus==='PREPAID'?' ('+esc(t('prepay.paidAhead'))+')':''}</div></body></html>`; }
 
