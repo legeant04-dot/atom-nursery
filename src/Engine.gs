@@ -109,6 +109,11 @@ function createAtomAPI(M, GROWTH_STD) {
   // picked up until 18:00 with NO OT), otherwise the nominal end time. Decoupled from EndTime so the
   // plan price/schedule stays put while the OT-free cutoff moves per student.
   const otThreshold = s => { const g=String((s&&s.OTGraceUntil)||'').trim(); return /^\d{1,2}:\d{2}/.test(g) ? g.slice(0,5) : studentEndTime(s); };
+  // per-student monthly discount (MASTER on the student) applied to the tuition base. Unit '%' or 'บาท'.
+  // Deducted silently at bill generation → the parent just sees a lower tuition, never a discount line.
+  const studentDiscount_ = (s, base) => { const amt=Number(s&&s.DiscountAmount||0); if(!(amt>0))return 0;
+    const pct=/%|percent/i.test(String((s&&s.DiscountUnit)||'')); const d=pct ? (Number(base)||0)*amt/100 : amt;
+    return Math.min(Math.max(0,Math.round(d)), Number(base)||0); };
   const studentStartTime = s => { const e=String((s&&s.StartTime)||'').trim(); return /^\d{1,2}:\d{2}/.test(e) ? e.slice(0,5) : (cfg.DefaultStudentIn||'08:00'); };
   // Default class for a NEW student by age band (Premium is never auto — school assigns it manually):
   //   0–1y → Nursery Baby · 1–2y → Nursery 1 · 2–3y → Nursery 2 · 3y+ → Nursery 3.
@@ -414,7 +419,9 @@ function createAtomAPI(M, GROWTH_STD) {
     // Admin issues a bill for one student. Pass paid:true to record it as ALREADY PAID (e.g. collected in advance
     // for a future month → that month shows "ชำระแล้ว"); paidDate/method optional, defaults today/cash.
     issueBill: p => { const s=studentById(p.studentId); if(!s)fail('NOT_FOUND','ไม่พบนักเรียน'); const month=p.month||todayLocal().slice(0,7);
-      const plan=studentPlan(s); const amount=p.amount!=null?Number(p.amount):(plan.price||0);
+      const plan=studentPlan(s); const planPrice=plan.price||0; const disc=studentDiscount_(s, planPrice);
+      // custom amount → respect as-is; default → plan price minus the student's monthly discount (hidden line)
+      const amount=p.amount!=null?Number(p.amount):Math.max(0, planPrice-disc);
       const label=p.label||('ค่าเทอม '+((plan&&plan.labelTH)||'')); const items=p.items||[[label,amount]];
       const paid=!!p.paid; const paidDate=p.paidDate||todayLocal(); const method=p.method||(paid?'cash':'');
       let b=M.payments.find(x=>x.StudentID===p.studentId&&ym(x.Month)===month);
@@ -428,7 +435,8 @@ function createAtomAPI(M, GROWTH_STD) {
     // auto-generate the month's bill for all active students from Plan price (skip if already billed)
     generateMonthlyBills: p => { const month=p.month||todayLocal().slice(0,7); let created=0;
       activeStudents().forEach(s=>{ if(M.payments.find(x=>x.StudentID===s.StudentID&&ym(x.Month)===month))return; const plan=studentPlan(s);
-        M.payments.push({BillingID:'BL-'+month+'-'+s.StudentID,StudentID:s.StudentID,Month:month,Items:[['ค่าเทอม '+((plan&&plan.labelTH)||''),plan.price||0]],Amount:plan.price||0,OTRollover:0,DueDate:month+'-05',PaidDate:'',Status:'UNPAID',SlipUrl:'',SlipAmount:0,VerifiedStatus:'',Auto:true}); created++; });
+        const price=plan.price||0; const net=Math.max(0, price-studentDiscount_(s, price));   // apply the student's monthly discount silently
+        M.payments.push({BillingID:'BL-'+month+'-'+s.StudentID,StudentID:s.StudentID,Month:month,Items:[['ค่าเทอม '+((plan&&plan.labelTH)||''),net]],Amount:net,OTRollover:0,DueDate:month+'-05',PaidDate:'',Status:'UNPAID',SlipUrl:'',SlipAmount:0,VerifiedStatus:'',Auto:true}); created++; });
       return {month,created}; },
     // attach a monthly slip → records a PAYMENT_SLIPS row (multiple allowed), bill → PENDING_VERIFY.
     uploadSlip: p => recordSlip_('bill', p.billingId, p),
