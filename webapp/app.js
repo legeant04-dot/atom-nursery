@@ -30,7 +30,7 @@
     window.api=function(action,payload,opts){ if(!_isMut(action)) return _rawApi(action,payload,opts);
       _busyShow(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _busyDone(false); throw e; }
       return Promise.resolve(pr).then(v=>{ _busyDone(true); return v; }, e=>{ _busyDone(false); throw e; }); }; }
-  const APP_VERSION = 'Version 1.118'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.119'; // bump each webapp change; shown only at the bottom of the Chat screen
   const verTag = () => `<div style="text-align:center;color:#c3c9d4;font-size:10px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
   const phoneFmt = p => { let d=String(p==null?'':p).replace(/\D/g,''); if(d.length===9) d='0'+d; return d; };
@@ -1787,7 +1787,9 @@
     // school holidays + Big Cleaning days → light-red / cleaning cells on the approval calendars
     try{ window._LV_HOL=await api('holidays'); }catch(e){ window._LV_HOL=window._LV_HOL||[]; }
     try{ const bc=await api('bigCleaningDays'); window._LV_BC=(bc&&bc.days)||bc||[]; }catch(e){ window._LV_BC=window._LV_BC||[]; }
-    const mainSeg=`<div class="seg" style="margin-bottom:10px"><button class="${LV_MAIN==='staff'?'active':''}" onclick="A_lvMain('staff')">👩‍🏫 ${EN()?'Teachers':'คุณครู'}</button><button class="${LV_MAIN==='student'?'active':''}" onclick="A_lvMain('student')">👶 ${EN()?'Students':'นักเรียน'}</button></div>`;
+    // pending teacher-leave count → badge on the tab so it's visible at a glance
+    let _lvPend=0; try{ const _al=await api('allLeaves'); window._LV_ALL=_al; _lvPend=_al.filter(l=>String(l.Status).indexOf('PENDING')===0).length; }catch(e){}
+    const mainSeg=`<div class="seg" style="margin-bottom:10px"><button class="${LV_MAIN==='staff'?'active':''}" onclick="A_lvMain('staff')">👩‍🏫 ${EN()?'Teachers':'คุณครู'}${_lvPend?` <span class="pill bad" style="font-size:10px">${_lvPend}</span>`:''}</button><button class="${LV_MAIN==='student'?'active':''}" onclick="A_lvMain('student')">👶 ${EN()?'Students':'นักเรียน'}</button></div>`;
     if(LV_MAIN==='student'){
       const leaves=await api('allStudentLeaves'); window._SLV_ALL=leaves||[];
       window._CALRENDER=studentLeaveCalRender;
@@ -1796,7 +1798,7 @@
         <div class="card"><div id="calWrap">${studentLeaveCalRender()}</div></div>`;
       return;
     }
-    const [all,staff]=await Promise.all([api('allLeaves'),(A_CACHE.staff&&A_CACHE.staff.length)?Promise.resolve(A_CACHE.staff):api('listStaff')]);
+    const [all,staff]=await Promise.all([window._LV_ALL?Promise.resolve(window._LV_ALL):api('allLeaves'),(A_CACHE.staff&&A_CACHE.staff.length)?Promise.resolve(A_CACHE.staff):api('listStaff')]);
     A_CACHE.staff=staff||A_CACHE.staff; window._LV_ALL=all;
     const pending=all.filter(l=>String(l.Status).indexOf('PENDING')===0);
     const resolved=all.filter(l=>String(l.Status).indexOf('PENDING')!==0);
@@ -1924,7 +1926,7 @@
   window.A_student=async(sid)=>{ const [d,g]=await Promise.all([api('studentAllBands',{studentId:sid}),api('growthHistory',{studentId:sid})]); const pill=DSPM_PILL;
     app.innerHTML=`<h2 class="page">📈 ${esc(dnick(d))} <small class="muted">(${esc(dn(d))})</small></h2>
       <div class="row"><button class="btn sm outline" onclick="GO('dspm')">← ${esc(t('c.back'))}</button><button class="btn sm" onclick="A_editAssess('${sid}')">📝 ${esc(t('assess.edit'))}</button></div>
-      <div class="card"><div class="spread"><b>อายุปัจจุบัน ${d.ageMonth} เดือน</b><span class="muted">เข้าเรียน ${esc(d.enrollDate||'-')}</span></div>
+      <div class="card"><div class="spread"><b>${EN()?'Age':'อายุ'} ${esc(ageYMfromMonths(d.ageMonth))} <small class="muted" style="font-weight:400">(${d.ageMonth} ${EN()?'mo':'เดือน'})</small></b><span class="muted">${EN()?'enrolled':'เข้าเรียน'} ${esc(d.enrollDate||'-')}</span></div>
       <p class="muted" style="font-size:12px">แสดงทุกช่วงวัยที่เด็กผ่านมา (ตั้งแต่เข้าเรียน) เพื่อดูพัฒนาการต่อเนื่อง</p></div>
       <div class="card"><h3>📈 ${esc(t('growth.chartTitle'))}</h3>
         <p class="muted" style="font-size:12px">${esc(t('growth.chartSub'))}</p>
@@ -3006,10 +3008,19 @@
   window.A_finCompute=async(sid)=>{ try{ await api('computePayroll',{staffId:sid,month:FIN_MONTH||monthStr()}); toast(EN()?'Computed':'คำนวณแล้ว'); const x=document.querySelector('.modal'); if(x)x.remove(); GO('finance'); }catch(e){err(e);} };
 
   // ---- Admin Daily Report (web + send to LINE OA) ----
-  SCREENS.Admin.daily = async () => { const r=await api('dailyReport');
+  SCREENS.Admin.daily = async () => { const [r,hol]=await Promise.all([api('dailyReport'),api('holidays').catch(()=>[])]);
     const dot=st=>st==='IN'?'dot-in':st==='OUT'?'dot-out':st==='LEAVE'?'dot-leave':'dot-absent';
-    app.innerHTML=`<h2 class="page">📋 ${esc(t('daily.title'))} (${esc(r.date)})</h2>
-      <div class="card"><div class="spread"><b>${esc(t('daily.overall'))}</b><span class="muted">${esc(t('lbl.present'))} ${r.totals.in} · ${esc(t('lbl.left'))} ${r.totals.out} · ${esc(t('lbl.onleave'))} ${r.totals.leave} · ${esc(t('lbl.absent'))} ${r.totals.absent} / ${r.totals.total}</span></div></div>
+    const _dow=new Date().getDay(); const _holT=(hol||[]).find(h=>ymd(h.Date)===todayStr()); const _closed=(_dow===0||_dow===6)||!!_holT;
+    const T=r.totals; const present=T.in+T.out; const pct=T.total?Math.round(present/T.total*100):100;
+    const summary=_closed
+      ? `<div class="card" style="background:#eceff1;border-color:#cfd8dc;color:#607d8b;text-align:center"><b>🏖️ ${EN()?'School closed today':'วันนี้โรงเรียนหยุด'} (${esc(_holT?(EN()?(_holT.NameEN||_holT.NameTH):(_holT.NameTH||_holT.NameEN)):(EN()?'weekend':'เสาร์/อาทิตย์'))}) — ${EN()?'attendance not counted':'ไม่นับการมาเรียน'}</b></div>`
+      : `<div class="kpigrid" style="grid-template-columns:repeat(4,1fr)">
+          <div class="kpi blue" style="cursor:default"><span class="kic">✅</span><b class="kn" style="color:${pctColor(pct)}">${pct}%</b><span class="kl">${EN()?'Attendance':'มาเรียน'} (${present}/${T.total})</span></div>
+          <div class="kpi green" style="cursor:default"><span class="kic">🟢</span><b class="kn">${present}</b><span class="kl">${EN()?'Present':'มา'}</span></div>
+          <div class="kpi amber" style="cursor:default"><span class="kic">🌴</span><b class="kn">${T.leave}</b><span class="kl">${EN()?'On leave':'ลา'}</span></div>
+          <div class="kpi pink" style="cursor:default"><span class="kic">⛔</span><b class="kn" style="color:${T.absent?'#c62828':'#2e7d32'}">${T.absent}</b><span class="kl">${EN()?'Absent':'ขาด'}</span></div></div>`;
+    app.innerHTML=`<div class="dash-h"><h2 class="page">📋 ${esc(t('daily.title'))}</h2><span class="dash-date">${esc(r.date)}</span></div>
+      ${summary}
       ${r.classes.map(c=>`<div class="card"><div class="spread"><b>${esc(c.className)}</b><span class="muted">${esc(t('lbl.present'))} ${c.in}·${esc(t('lbl.onleave'))} ${c.leave}·${esc(t('lbl.absent'))} ${c.absent}/${c.total}</span></div>
         <div>${c.students.map(s=>`<span class="att" style="display:inline-flex;margin-right:10px"><span class="dot-s ${dot(s.status)}"></span>${esc(dn(s))}${s.status==='LEAVE'?' ('+esc(t('lbl.onleave'))+')':s.status==='ABSENT'?' ('+esc(t('lbl.absent'))+')':''}</span>`).join('')}</div></div>`).join('')}
       <div class="card"><h3>⏰ ${esc(t('daily.lateStaff'))}</h3>${r.lateStaff.length?r.lateStaff.map(s=>`<div class="list-item"><span>${esc(EN()?s.nameEN:s.name)}</span><span class="pill bad">${esc(t('lbl.late'))} ${s.late} ${esc(t('lbl.min'))}</span></div>`).join(''):`<small class="muted">${esc(t('c.noItems'))}</small>`}</div>
