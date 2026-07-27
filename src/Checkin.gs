@@ -286,9 +286,10 @@ function handleStaffCheckout(payload) {
 
 // ---- Notification helpers ----------------------------------------
 /** Push a message to every Admin's LINE (USERS role=Admin with LineUID). */
-function notifyAdmins_(text) {
+function notifyAdmins_(text, category, ref) {
   // Always land in the in-app Admin inbox (the 🔔 bell) — this is what the admin actually reads now.
-  if (typeof inboxAdd_ === 'function') inboxAdd_('approval', text);
+  // category/ref (optional) let the bell deep-link straight to the item (e.g. a journal report).
+  if (typeof inboxAdd_ === 'function') inboxAdd_((category && typeof category === 'string') ? category : 'approval', text, ref);
   // LINE push to admins is OFF by default to protect the monthly push quota. Turn it on by setting
   // SCHOOL_CONFIG AdminLineNotify='true'. Emergencies use notifyAdminsUrgent_ and ignore this gate.
   if (String(getConfig_('AdminLineNotify', 'false')) !== 'true') return;

@@ -13,18 +13,19 @@
 function inboxSheet_() {
   var ss = getMainSpreadsheet_();
   var sh = ss.getSheetByName('ADMIN_INBOX');
-  if (!sh) { sh = ss.insertSheet('ADMIN_INBOX'); sh.appendRow(['InboxID', 'Date', 'Category', 'Text', 'Read']); }
+  if (!sh) { sh = ss.insertSheet('ADMIN_INBOX'); sh.appendRow(['InboxID', 'Date', 'Category', 'Text', 'Read', 'Ref']); }
   return sh;
 }
 function inboxBust_() { try { CacheService.getScriptCache().removeAll(['rows:ADMIN_INBOX', 'col:ADMIN_INBOX']); } catch (e) {} }
 
-/** Append a line to the Admin in-app inbox (best-effort; never throws into the caller). */
-function inboxAdd_(category, text) {
+/** Append a line to the Admin in-app inbox (best-effort; never throws into the caller).
+ *  ref (optional) = a deep-link "kind|studentId|date" so tapping the notification opens that exact item. */
+function inboxAdd_(category, text, ref) {
   try {
     var sh = inboxSheet_();
-    try { ensureColumns_(sh, ['InboxID', 'Date', 'Category', 'Text', 'Read']); } catch (e) {}
+    try { ensureColumns_(sh, ['InboxID', 'Date', 'Category', 'Text', 'Read', 'Ref']); } catch (e) {}
     var id = 'IN-' + Date.now() + '-' + Math.floor(Math.random() * 1000);
-    appendObject_(sh, { InboxID: id, Category: category || '', Text: String(text || ''), Read: '',
+    appendObject_(sh, { InboxID: id, Category: category || '', Text: String(text || ''), Read: '', Ref: ref || '',
       Date: dateStr_(new Date()) + ' ' + timeStr_(new Date()) });
     inboxBust_();
   } catch (e) { try { Logger.log('inboxAdd_ ' + e.message); } catch (x) {} }
@@ -48,7 +49,7 @@ function handleAdminInbox(p) {
     // the wrong TZ → an 11h shift). Fall back to the cell only when the id has no ms.
     var mm = /^IN-(\d+)-/.exec(String(r.InboxID || ''));
     var disp = mm ? Utilities.formatDate(new Date(parseInt(mm[1], 10)), tz_(), 'dd/MM HH:mm') : inboxFmtDate_(r.Date);
-    return { id: r.InboxID, date: disp, category: r.Category, text: r.Text, read: String(r.Read) === 'YES' };
+    return { id: r.InboxID, date: disp, category: r.Category, text: r.Text, read: String(r.Read) === 'YES', ref: r.Ref || '' };
   });
   rows.sort(function (a, b) { return String(b.id).localeCompare(String(a.id)); });
   return { items: rows.slice(0, 100), unread: rows.filter(function (r) { return !r.read; }).length };
@@ -71,7 +72,7 @@ function handleNotifications(p) {
   p = p || {};
   if (String(p.role) !== ROLES.ADMIN) { try { return engineDispatch_('notifications', p); } catch (e) { return []; } }
   return handleAdminInbox(p).items.map(function (it) {
-    return { id: it.id, text: it.text, textEN: '', time: String(it.date).slice(5, 16), read: it.read, category: it.category };
+    return { id: it.id, text: it.text, textEN: '', time: String(it.date).slice(5, 16), read: it.read, category: it.category, ref: it.ref };
   });
 }
 function handleMarkNotifsRead(p) {
