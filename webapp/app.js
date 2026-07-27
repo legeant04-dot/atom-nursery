@@ -30,7 +30,7 @@
     window.api=function(action,payload,opts){ if(!_isMut(action)) return _rawApi(action,payload,opts);
       _busyShow(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _busyDone(false); throw e; }
       return Promise.resolve(pr).then(v=>{ _busyDone(true); return v; }, e=>{ _busyDone(false); throw e; }); }; }
-  const APP_VERSION = 'Version 1.111'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.112'; // bump each webapp change; shown only at the bottom of the Chat screen
   const verTag = () => `<div style="text-align:center;color:#c3c9d4;font-size:10px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
   const phoneFmt = p => { let d=String(p==null?'':p).replace(/\D/g,''); if(d.length===9) d='0'+d; return d; };
@@ -254,8 +254,15 @@
     if(deferredInstall) $('#installBtn').hidden=false;
   }
   let deferredInstall=null;
-  window.addEventListener('beforeinstallprompt', e=>{ e.preventDefault(); deferredInstall=e; const b=document.getElementById('installBtn'); if(b)b.hidden=false; });
-  window.DO_INSTALL = async ()=>{ if(!deferredInstall){toast('เปิดเมนูเบราว์เซอร์ → Add to Home Screen');return;} deferredInstall.prompt(); deferredInstall=null; };
+  const _installBtns=()=>[...document.querySelectorAll('#installBtn')];
+  window.addEventListener('beforeinstallprompt', e=>{ e.preventDefault(); deferredInstall=e; _installBtns().forEach(b=>b.hidden=false); });
+  // already running as an installed PWA (standalone) → no need for the button
+  function _isStandalone(){ return (window.matchMedia&&matchMedia('(display-mode: standalone)').matches) || window.navigator.standalone===true; }
+  window.addEventListener('appinstalled', ()=>{ deferredInstall=null; _installBtns().forEach(b=>b.hidden=true); toast(EN()?'App installed ✓':'ติดตั้งแอปแล้ว ✓'); });
+  window.DO_INSTALL = async ()=>{ if(!deferredInstall){ toast(EN()?'Open the browser menu → Add to Home Screen':'เปิดเมนูเบราว์เซอร์ → เพิ่มลงในหน้าจอโฮม'); return; }
+    deferredInstall.prompt();
+    try{ const c=await deferredInstall.userChoice; if(c&&c.outcome==='accepted'){ _installBtns().forEach(b=>b.hidden=true); } }catch(e){}
+    deferredInstall=null; };
   const DEMO_USERS = {
     Parent:{role:'Parent',nameTH:'กานต์ ดีงาม',nameEN:'Ms.Karn',parentId:'PAR-1',uid:'U_p1'},
     Teacher:{role:'Teacher',nameTH:'เอ มานะ',nameEN:'A Mana',staffId:'STF-T1'},
@@ -668,7 +675,7 @@
       <h3 style="margin:6px 2px">📒 ${EN()?'Journal of':'บันทึกของ'} ${esc(dispNick(k0))} ${EN()?'today':'วันนี้'}</h3>${j?journalChecklist(j,{parentEditable:true,student:k0}):waitCard()}
       <div class="card"><div class="spread"><h3>🏠 แจ้งลาบุตรหลาน</h3><button class="btn sm outline" onclick="P_absence()">+ แจ้งลา</button></div>${slHtml}</div>
       <div class="card" id="insCard"></div>
-      <div class="card"><h3>📢 ประกาศจากโรงเรียน</h3>${anns.map(annRow).join('')}</div>
+      <div class="card"><h3>📢 ประกาศจากโรงเรียน</h3>${(()=>{ const td=todayStr(); const act=(anns||[]).filter(a=>(!a.StartDate||ymd(a.StartDate)<=td)&&(!a.EndDate||ymd(a.EndDate)>=td)); return act.length?act.map(annRow).join(''):`<small class="muted">${EN()?'No announcements from the school yet':'ยังไม่มีประกาศจากทางโรงเรียน'}</small>`; })()}</div>
       ${calendarWidget(cal, ci, (MOCK.config.Plans.find(p=>p.id===k0.Plan)||{}).end, sl)}
       ${socialFooter()}`;
     // insurance status per child (parent fills once; shows "กรอกแล้ว" if done)
@@ -1685,13 +1692,16 @@
       <div class="spread" style="font-size:13px"><span class="muted">${EN()?'Collected':'เก็บได้'} <b style="color:#2e7d32">${baht(fin.otCollected||0)}</b></span><span class="muted">${EN()?'Outstanding':'ค้างชำระ'} <b style="color:${(otDue-Number(fin.otCollected||0))>0?'#e65100':'#2e7d32'}">${baht(Math.max(0,otDue-Number(fin.otCollected||0)))}</b></span></div></div>`;
     const remHtml = rem.due?`<div class="card" style="background:#fff3e0;border-color:#ffcc80;color:#e65100"><div class="spread"><b>🔔 ${esc(t('admin.payrollReminder'))}</b><button class="btn sm" onclick="GO('payroll')">${esc(t('admin.goPayroll'))}</button></div><small>${esc(t('admin.payrollReminderSub').replace('{d}',rem.lastDay-1).replace('{last}',rem.lastDay))}</small></div>`:'';
     const leaveRemHtml = lrem.due?`<div class="card" style="background:#e8f5e9;border-color:#a5d6a7;color:#2e7d32"><div class="spread"><b>🗓️ ${esc(t('admin.leaveReset'))}</b><button class="btn sm" onclick="A_settings()">${esc(t('manage.settings'))}</button></div><small>${esc(t('admin.leaveResetSub'))}</small></div>`:'';
-    const _dow=new Date().getDay(); const _closed=(_dow===0||_dow===6);
-    const closedBanner=_closed?`<div class="card" style="background:#e8f5e9;border-color:#a5d6a7;color:#2e7d32;text-align:center"><b>🏖️ ${EN()?'School closed today (weekend) — no check-in required':'วันนี้โรงเรียนหยุด (เสาร์/อาทิตย์) — ไม่มีการลงเวลา'}</b></div>`:'';
+    const _dow=new Date().getDay(); const _hol=(d.holidays||[]).find(h=>ymd(h.Date)===todayStr());
+    const _bc=(d.bigCleaning||[]).some(x=>ymd(x)===todayStr()); const _closed=((_dow===0||_dow===6)||!!_hol)&&!_bc;
+    const _closedWhy=_hol?(EN()?(_hol.NameEN||_hol.NameTH):(_hol.NameTH||_hol.NameEN)):(EN()?'weekend':'เสาร์/อาทิตย์');
+    const closedBanner=_closed?`<div class="card" style="background:#eceff1;border-color:#cfd8dc;color:#607d8b;text-align:center"><b>🏖️ ${EN()?'School closed today':'วันนี้โรงเรียนหยุด'} (${esc(_closedWhy)}) — ${EN()?'attendance not counted':'ไม่นับการมาเรียน'}</b></div>`:'';
     app.innerHTML=`<h2 class="page">${esc(t('title.dashboard'))} (${esc(todayStr())})</h2>
       ${closedBanner}${remHtml}${leaveRemHtml}
       <div class="card"><div class="row"><button class="btn sm" onclick="GO('finance')">💰 ${esc(t('fin.title'))}</button><button class="btn sm ${pendN?'':'outline'}" onclick="GO('verify')">✅ ${esc(t('verify.title'))}${pendN?` (${pendN})`:''}</button><button class="btn sm" onclick="GO('daily')">📋 ${esc(t('daily.title'))}</button><button class="btn sm outline" onclick="GO('absence')">🔎 ${esc(t('abs.title'))}</button><button class="btn sm outline" onclick="A_addAnn()">+ ${esc(t('lbl.addAnn'))}</button><button class="btn sm outline" onclick="A_viewAs()">👁️ ${EN()?'View as':'ดูมุมมอง'}</button></div></div>
       ${payHtml}
-      <div class="card"><div class="spread"><h3>👶 ${EN()?'Attendance by class':'การมาเรียนแต่ละชั้น'}</h3><button class="btn sm outline" onclick="A_addAnn()">+ ${EN()?'Announce':'ประกาศ'}</button></div>
+      <div class="card ${_closed?'':''}"><div class="spread"><h3>👶 ${EN()?'Attendance by class':'การมาเรียนแต่ละชั้น'}</h3>${_closed?`<span class="pill" style="background:#eceff1;color:#607d8b">🏖️ ${EN()?'Holiday':'วันหยุด'}</span>`:`<button class="btn sm outline" onclick="A_addAnn()">+ ${EN()?'Announce':'ประกาศ'}</button>`}</div>
+        ${_closed?`<div style="text-align:center;color:#90a4ae;padding:10px 0"><b>${EN()?'School closed — no attendance today':'โรงเรียนหยุด — ไม่มีการมาเรียนวันนี้'}</b></div>`:`
         ${(()=>{ const ts=d.classes.reduce((a,c)=>{a.p+=c.in+c.out;a.t+=c.total;return a;},{p:0,t:0}); const tp=ts.t?Math.round(ts.p/ts.t*100):100;
           return `<div class="spread" style="font-size:15px;margin-bottom:8px"><b>${EN()?'Total':'รวมทั้งหมด'}</b><b style="color:${pctColor(tp)}">${tp}% <small class="muted" style="font-weight:400">(${ts.p}/${ts.t})</small></b></div>`; })()}
         ${d.classes.map(c=>{ const present=c.in+c.out; const pct=c.total?Math.round(present/c.total*100):100; const miss=(c.students||[]).filter(s=>s.status==='ABSENT'||s.status==='LEAVE');
@@ -1701,7 +1711,7 @@
               return `${inb.length?`<div><span class="pill ok">✅ ${EN()?'in':'มา'} (${inb.length})</span> <small class="muted">${inb.map(s=>esc(dnick(s))+(s.in?' '+esc(s.in):'')).join(', ')}</small></div>`:''}
                 ${lv.length?`<div style="margin-top:2px"><span class="pill wait">🌴 ${EN()?'leave':'ลา'} (${lv.length})</span> <small class="muted">${lv.map(s=>esc(dnick(s))).join(', ')}</small></div>`:''}
                 ${ab.length?`<div style="margin-top:2px"><span class="pill bad">⛔ ${EN()?'absent':'ขาด'} (${ab.length})</span> <small class="muted">${ab.map(s=>esc(dnick(s))).join(', ')}</small></div>`:''}
-                ${!lv.length&&!ab.length?`<small style="color:#2e7d32">✓ ${EN()?'All present':'มาครบทุกคน'}</small>`:''}`; })()}</div>`;}).join('')}</div>
+                ${!lv.length&&!ab.length?`<small style="color:#2e7d32">✓ ${EN()?'All present':'มาครบทุกคน'}</small>`:''}`; })()}</div>`;}).join('')}`}</div>
       <div class="card"><h3>👩‍🏫 ${EN()?'Staff today':'พนักงานวันนี้'}</h3>
         ${(()=>{ const present=d.staff.filter(s=>s.status==='IN'||s.status==='OUT').length; const t=d.staff.length; const pct=t?Math.round(present/t*100):100;
           const onTime=d.staff.filter(s=>(s.status==='IN'||s.status==='OUT')&&!s.late); const late=d.staff.filter(s=>s.late); const absent=d.staff.filter(s=>s.status==='ABSENT'||s.status==='LEAVE');
@@ -2529,9 +2539,11 @@
       (A_CACHE.students&&A_CACHE.students.length)?Promise.resolve(A_CACHE.students):api('listStudents'),
       (A_CACHE.staff&&A_CACHE.staff.length)?Promise.resolve(A_CACHE.staff):api('listStaff')]);
     A_CACHE.students=students||A_CACHE.students; A_CACHE.staff=staff||A_CACHE.staff;
-    const sName=id=>{ const s=(students||[]).find(x=>x.StudentID===id); return s?nm(s):id; };
+    const sObj=id=>(students||[]).find(x=>x.StudentID===id)||null;
+    const sName=id=>{ const s=sObj(id); return s?dispNick(s):id; };   // nickname headline
+    const sFull=id=>{ const s=sObj(id); return s?nm(s):''; };
     const tName=id=>{ const s=(staff||[]).find(x=>x.StaffID===id); return s?(nick(s)||nm(s)):(id||'-'); };
-    const rows=(st.done||[]).map(d=>`<div class="list-item"><span>${esc(sName(d.studentId))} ${journalPill(d)}<br><small class="muted">${esc(EN()?'by':'โดย')} ${esc(tName(d.teacherId))}</small></span>
+    const rows=(st.done||[]).map(d=>`<div class="list-item"><span><b>${esc(sName(d.studentId))}</b> <small class="muted">${esc(sFull(d.studentId))}</small> ${journalPill(d)}<br><small class="muted">${esc(EN()?'by':'โดย')} ${esc(tName(d.teacherId))}</small></span>
       <span class="row"><button class="btn sm outline" onclick="A_viewJournal('${d.studentId}','${day}')">👁️</button>
       ${jIsDraft(d)?`<button class="btn sm" onclick="A_editJournal('${d.studentId}','${day}')">✏️</button>`
                    :`<button class="btn sm pink" onclick="A_unlockJournal('${d.studentId}','${day}')">${esc(t('jr.unlock'))}</button>`}</span></div>`).join('');

@@ -401,7 +401,10 @@ function createAtomAPI(M, GROWTH_STD) {
         let st = b.Status;
         if((net>0 && outstanding===0) || (net===0 && prepaidTuition>0)) st='PAID';
         else if(confirmed>0) st='PARTIAL';
-        return Object.assign({},b,{Month:bm,Items:items2,Amount:total,OTRollover:0,TotalDue:net,GrossDue:total,Status:st,
+        // receipt "ชำระ" date = the slip's ACTUAL transfer date (SlipOK transDate) when we have it
+        const paidSlip=paySlips_().find(s=>s.RefKind==='bill'&&s.RefID===b.BillingID&&s.Status==='CONFIRMED'&&s.TransDate);
+        const paidDate=(paidSlip&&paidSlip.TransDate)||b.PaidDate||'';
+        return Object.assign({},b,{Month:bm,Items:items2,Amount:total,OTRollover:0,TotalDue:net,GrossDue:total,Status:st,PaidDate:paidDate,
           PrepaidTuition:prepaidTuition,PaidConfirmed:confirmed,PendingSubmitted:submitted,Outstanding:outstanding}); })
       .sort((a,b)=>String(b.Month).localeCompare(String(a.Month))),
     // per-student extra charges (Admin) — each is its own payable item (parent pays like OT).
@@ -788,7 +791,8 @@ function createAtomAPI(M, GROWTH_STD) {
       const staffStat=M.staff.filter(s=>s.Role==='Teacher'&&s.RequireCheckin!==false).map(s=>{ const a=M.staffAttendanceToday.find(x=>x.StaffID===s.StaffID)||{};
         const onLeave=a.Status==='LEAVE'; return {staffId:s.StaffID,name:s.NameTH,nameEN:s.NameEN,nick:s.Nickname,nickEN:s.NicknameEN,dept:s.Department, status:a.Status||'ABSENT',
           checkIn:onLeave?'':(a.CheckIn||''), checkOut:onLeave?'':(a.CheckOut||''), late:onLeave?0:(a.Late||0), remark:onLeave?(a.Reason||'ลา'):''}; });
-      return {classes:cls, staff:staffStat, pendingLeaves:M.leaves.filter(l=>l.Status.startsWith('PENDING')).length}; },
+      return {classes:cls, staff:staffStat, pendingLeaves:M.leaves.filter(l=>l.Status.startsWith('PENDING')).length,
+        holidays:(M.holidays||[]).map(h=>({Date:h.Date,NameTH:h.NameTH,NameEN:h.NameEN})), bigCleaning:bigCleaningList_()}; },
     // Teacher home attendance card: today's มา/ลา/ขาด per class, scoped to the classes this teacher covers
     // (homeroom teacher = own class; multi-class teacher = those; Leader/Admin-equivalent = every class).
     teacherClassAttendance: p => { const me=staffById(p.staffId)||{};
