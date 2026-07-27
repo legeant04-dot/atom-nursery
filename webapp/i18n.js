@@ -19,7 +19,7 @@
     'login.lineBtn':['เข้าสู่ระบบด้วย LINE','Continue with LINE'], 'login.lineSub':['ใช้บัญชี LINE ที่เพิ่มเพื่อน OA ของโรงเรียน','Use the LINE account that added the school OA'],
     // nav
     'nav.home':['หน้าหลัก','Home'], 'nav.checkin':['รับ-ส่ง','Pickup'], 'nav.payment':['ชำระเงิน','Payment'],
-    'nav.journal':['บันทึก','Record'], 'nav.dspm':['DSPM','DSPM'], 'nav.growth':['เติบโต','Growth'], 'nav.chat':['แชท','Chat'],
+    'nav.journal':['บันทึก','Record'], 'nav.dspm':['DSPM','DSPM'], 'nav.growth':['เติบโต','Growth'], 'nav.chat':['แชท','Chat'], 'nav.finance':['การเงิน','Finance'],
     'nav.class':['นักเรียน','Students'], 'nav.leave':['ลางาน','Leave'], 'nav.schedule':['ตาราง','Schedule'],
     'nav.slip':['สลิป','Payslip'], 'nav.leaves':['อนุมัติลา','Approvals'], 'nav.payroll':['เงินเดือน','Payroll'],
     'nav.manage':['จัดการ','Manage'], 'nav.analytics':['วิเคราะห์','Analytics'],

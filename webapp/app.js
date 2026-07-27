@@ -30,7 +30,7 @@
     window.api=function(action,payload,opts){ if(!_isMut(action)) return _rawApi(action,payload,opts);
       _busyShow(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _busyDone(false); throw e; }
       return Promise.resolve(pr).then(v=>{ _busyDone(true); return v; }, e=>{ _busyDone(false); throw e; }); }; }
-  const APP_VERSION = 'Version 1.116'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.117'; // bump each webapp change; shown only at the bottom of the Chat screen
   const verTag = () => `<div style="text-align:center;color:#c3c9d4;font-size:10px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
   const phoneFmt = p => { let d=String(p==null?'':p).replace(/\D/g,''); if(d.length===9) d='0'+d; return d; };
@@ -211,7 +211,7 @@
   const NAVS = {
     Parent:[['home','🏠','nav.home'],['checkin','📍','nav.checkin'],['payment','💳','nav.payment'],['journal','📒','nav.journal'],['growth','📈','nav.growth'],['dspm','📋','nav.dspm'],['chat','💬','nav.chat']],
     Teacher:[['home','🏠','nav.home'],['class','👶','nav.class'],['injury','🚑','inj.nav'],['leave','📩','nav.leave'],['schedule','📅','nav.schedule'],['slip','💵','nav.slip']],
-    Admin:[['home','📊','nav.home'],['leaves','✅','nav.leaves'],['payroll','💵','nav.payroll'],['dspm','📈','nav.analytics'],['manage','🗂️','nav.manage'],['chat','💬','nav.chat']],
+    Admin:[['home','📊','nav.home'],['leaves','✅','nav.leaves'],['finance','💰','nav.finance'],['dspm','📈','nav.analytics'],['manage','🗂️','nav.manage'],['chat','💬','nav.chat']],
   };
   function setNav(active){ if(!USER){nav.hidden=true;return;} nav.hidden=false;
     nav.innerHTML = NAVS[USER.role].map(([k,ic,l])=>`<button class="${k===active?'active':''}" onclick="GO('${k}')"><span class="ic">${ic}</span>${esc(t(l))}</button>`).join(''); }
@@ -1706,8 +1706,8 @@
     const _pl=Number(d.pendingLeaves||0);
     const kpi=`<div class="kpigrid">
       <button class="kpi blue" onclick="GO('daily')"><span class="kic">👶</span><b class="kn" style="color:${_closed?'#90a4ae':pctColor(_attPct)}">${_closed?(EN()?'Holiday':'หยุด'):_attPct+'%'}</b><span class="kl">${EN()?'Attendance today':'มาเรียนวันนี้'}</span></button>
-      <button class="kpi amber" onclick="GO('finance')"><span class="kic">💰</span><b class="kn" style="color:${tuiOut>0?'#c62828':'#2e7d32'}">${baht(tuiOut)}</b><span class="kl">${EN()?'Tuition outstanding':'ค่าเทอมค้างชำระ'}</span></button>
-      <button class="kpi green" onclick="GO('verify')"><span class="kic">✅</span><b class="kn" style="color:${pendN?'#e65100':'#2e7d32'}">${pendN}</b><span class="kl">${EN()?'Slips to verify':'รอตรวจสลิป'}</span></button>
+      <button class="kpi amber" onclick="A_finTab('in')"><span class="kic">💰</span><b class="kn" style="color:${tuiOut>0?'#c62828':'#2e7d32'}">${baht(tuiOut)}</b><span class="kl">${EN()?'Tuition outstanding':'ค่าเทอมค้างชำระ'}</span></button>
+      <button class="kpi green" onclick="A_finTab('wait')"><span class="kic">✅</span><b class="kn" style="color:${pendN?'#e65100':'#2e7d32'}">${pendN}</b><span class="kl">${EN()?'Slips to verify':'รอตรวจสลิป'}</span></button>
       <button class="kpi pink" onclick="GO('leaves')"><span class="kic">📩</span><b class="kn" style="color:${_pl?'#e65100':'#2e7d32'}">${_pl}</b><span class="kl">${EN()?'Leaves to approve':'รออนุมัติลา'}</span></button></div>`;
     const quick=`<div class="qbar"><button class="btn sm" onclick="GO('daily')">📋 ${esc(t('daily.title'))}</button><button class="btn sm outline" onclick="GO('absence')">🔎 ${esc(t('abs.title'))}</button><button class="btn sm outline" onclick="A_addAnn()">➕ ${esc(t('lbl.addAnn'))}</button><button class="btn sm outline" onclick="A_linkParent()">🔗 ${EN()?'Link parent':'เชื่อมผู้ปกครอง'}</button><button class="btn sm outline" onclick="A_viewAs()">👁️ ${EN()?'View as':'ดูมุมมอง'}</button><button class="btn sm outline" onclick="GO('manage')">🗂️ ${esc(t('title.manage'))}</button></div>`;
     app.innerHTML=`<div class="dash-h"><h2 class="page">${esc(t('title.dashboard'))}</h2><span class="dash-date">${esc(todayStr())}</span></div>
@@ -1853,7 +1853,7 @@
 
   let PAY_ADJ=[];
   SCREENS.Admin.payroll = async () => { const [staff,rate]=await Promise.all([api('listStaff'),api('ratedChildCount')]); PAY_ADJ=[]; window._RATED=rate;
-    app.innerHTML=`<h2 class="page">${esc(t('title.payroll'))}</h2><div class="card">
+    app.innerHTML=`<button class="btn sm outline backbtn" onclick="A_finTab('pay')">${t('c.back')} · ${EN()?'Finance':'การเงิน'}</button><h2 class="page">${esc(t('title.payroll'))}</h2><div class="card">
       <div class="grid2"><label class="field"><span>${esc(t('c.staff'))}</span><select id="pStaff" onchange="A_payStaff()">${staff.map(s=>`<option value="${s.StaffID}">${esc(nmn(s))}</option>`).join('')}</select></label>
         <label class="field"><span>${esc(t('c.month'))}</span><input id="pMonth" type="month" value="${monthStr()}" onchange="A_payStaff()"/></label></div>
       <label class="field"><span>${esc(t('pay.payType'))}</span><select id="pType" onchange="A_payTypeToggle()"><option value="monthly">${esc(t('pay.monthly'))}</option><option value="daily">${esc(t('pay.dailyType'))}</option></select></label>
@@ -2911,18 +2911,32 @@
       <button class="btn outline block" style="margin-top:8px" onclick="this.closest('.modal').remove()">${esc(t('c.close'))}</button>`);
     if(apply){ toast((EN()?'Repaired ':'แก้ไขแล้ว ')+r.repaired); }
   };
-  SCREENS.Admin.finance = async () => { const month=FIN_MONTH||monthStr(); const f=await api('financeSummary',{month});
+  // ---- การเงิน HUB: one place for รับเงิน (income) / จ่ายเงิน (payroll) / รออนุมัติ (verify) ----
+  let FIN_TAB='in';
+  window.A_finTab=(tab)=>{ FIN_TAB=tab; GO('finance'); };
+  SCREENS.Admin.finance = async () => { const month=FIN_MONTH||monthStr();
+    const [f,pend]=await Promise.all([api('financeSummary',{month}), api('pendingPayments')]);
+    const pendN=(pend||[]).length;
     const stat=(cls,n,l)=>`<div class="stat ${cls}"><div class="n">${n}</div><div class="l">${esc(l)}</div></div>`;
-    app.innerHTML=`<h2 class="page">💰 ${esc(t('fin.title'))} <button class="btn sm outline" style="float:right;font-size:12px" onclick="A_prepayAudit()">🔍 ${EN()?'Prepay check':'ตรวจ prepay ย้อนหลัง'}</button></h2>
-      <div class="card"><label class="field"><span>${esc(t('c.month'))}</span><input type="month" value="${month}" onchange="FIN_set(this.value)"/></label>
-        <div class="grid2"><div class="grid2" style="grid-template-columns:1fr 1fr;gap:8px">${stat('green',baht(f.income),t('fin.income'))}${stat('pink',baht(f.expense),t('fin.expense'))}</div>
-          <div class="grid2" style="grid-template-columns:1fr 1fr;gap:8px">${stat(f.net>=0?'':'amber',baht(f.net),t('fin.net'))}${stat('amber',baht(f.tuitionOutstanding),t('fin.outstanding'))}</div></div></div>
-      <div class="card"><div class="spread"><h3>👶 ${esc(t('fin.tuition'))}</h3><span class="pill ${f.studentsPaid>=f.studentsTotal?'ok':'wait'}">${f.studentsPaid}/${f.studentsTotal} ${esc(t('fin.paid'))}</span></div>
+    // income tab: tuition/OT/charges collection per student
+    const inTab=`<div class="card"><div class="spread"><h3>👶 ${esc(t('fin.tuition'))}</h3><span class="pill ${f.studentsPaid>=f.studentsTotal?'ok':'wait'}">${f.studentsPaid}/${f.studentsTotal} ${esc(t('fin.paid'))}</span></div>
         ${f.students.map(s=>`<div class="list-item" style="cursor:pointer" onclick="A_finStudent('${s.studentId}')"><span><b>${esc(dnick(s))}</b><br><small class="muted" style="font-weight:400">${esc(dn(s))} · ${esc(planLabel(s.plan))}</small></span><span>${baht(s.due||s.amount)} ${s.paid?`<span class="pill ok">${esc(t('s.paid'))}</span>`:s.partial?`<span class="pill wait">${EN()?'partial':'บางส่วน'} ${baht(s.collected)}</span>`:s.status==='NO_BILL'?`<span class="pill info">${esc(t('fin.noBill'))}</span>`:`<span class="pill bad">${esc(t('s.unpaid'))}</span>`} <span class="muted">›</span></span></div>`).join('')}
-        <div class="spread" style="margin-top:8px"><b>${esc(t('fin.collected'))}</b><b style="color:#2e7d32">${baht(f.tuitionCollected+f.otCollected)}</b></div></div>
-      <div class="card"><div class="spread"><h3>👩‍🏫 ${esc(t('fin.salary'))}</h3><span class="pill ${f.staffPaid>=f.staffTotal?'ok':'wait'}">${f.staffPaid}/${f.staffTotal} ${esc(t('fin.computed'))}</span></div>
+        <div class="spread" style="margin-top:8px"><b>${esc(t('fin.collected'))}</b><b style="color:#2e7d32">${baht(f.tuitionCollected+f.otCollected)}</b></div>
+        <button class="btn sm outline block" style="margin-top:10px" onclick="A_prepayAudit()">🔍 ${EN()?'Prepay check (retro)':'ตรวจ prepay ย้อนหลัง'}</button></div>`;
+    // payroll tab: per-staff salary + full payroll form
+    const payTab=`<div class="card"><div class="spread"><h3>👩‍🏫 ${esc(t('fin.salary'))}</h3><span class="pill ${f.staffPaid>=f.staffTotal?'ok':'wait'}">${f.staffPaid}/${f.staffTotal} ${esc(t('fin.computed'))}</span></div>
         ${f.staff.map(s=>`<div class="list-item" style="cursor:pointer" onclick="A_finStaff('${s.staffId}')"><span><b>${esc(dnick(s))}</b> <small class="muted" style="font-weight:400">${esc(dn(s))}</small></span><span>${baht(s.net)} ${s.computed?`<span class="pill ok">${esc(t('fin.done'))}</span>`:`<span class="pill bad">${esc(t('fin.pending'))}</span>`} <span class="muted">›</span></span></div>`).join('')}
-        <div class="spread" style="margin-top:8px"><b>${esc(t('fin.totalSalary'))}</b><b style="color:#c62828">${baht(f.expense)}</b></div></div>`;
+        <div class="spread" style="margin-top:8px"><b>${esc(t('fin.totalSalary'))}</b><b style="color:#c62828">${baht(f.expense)}</b></div>
+        <button class="btn sm block" style="margin-top:10px" onclick="GO('payroll')">📄 ${EN()?'Full payroll calculator':'เครื่องคำนวณเงินเดือน (เต็ม)'}</button></div>`;
+    // verify tab: pending slips/cash to confirm
+    const waitTab=`<p class="muted" style="font-size:12px;margin:2px 2px 8px">${esc(t('verify.note'))}</p>${verifyListHTML(pend||[])}`;
+    const tab=(k,ic,lbl,badge)=>`<button class="${FIN_TAB===k?'active':''}" onclick="A_finTab('${k}')">${ic} ${esc(lbl)}${badge?` (${badge})`:''}</button>`;
+    app.innerHTML=`<h2 class="page">💰 ${EN()?'Finance':'การเงิน'}</h2>
+      <div class="card"><label class="field" style="margin:0"><span>${esc(t('c.month'))}</span><input type="month" value="${month}" onchange="FIN_set(this.value)"/></label>
+        <div class="grid2" style="margin-top:10px"><div class="grid2" style="grid-template-columns:1fr 1fr;gap:8px">${stat('green',baht(f.income),t('fin.income'))}${stat('pink',baht(f.expense),t('fin.expense'))}</div>
+          <div class="grid2" style="grid-template-columns:1fr 1fr;gap:8px">${stat(f.net>=0?'':'amber',baht(f.net),t('fin.net'))}${stat('amber',baht(f.tuitionOutstanding),t('fin.outstanding'))}</div></div></div>
+      <div class="seg">${tab('in','💵',EN()?'Income':'รับเงิน')}${tab('pay','💸',EN()?'Payroll':'จ่ายเงิน')}${tab('wait','✅',EN()?'To approve':'รออนุมัติ',pendN)}</div>
+      ${FIN_TAB==='pay'?payTab:FIN_TAB==='wait'?waitTab:inTab}`;
   };
   window.FIN_set=(m)=>{ FIN_MONTH=m; GO('finance'); };
 
@@ -2998,14 +3012,13 @@
   window.A_sendLine=()=>{ toast(EN()?'Daily report sent to LINE OA (demo)':'ส่งสรุปไป LINE OA แล้ว (เดโม)'); };
 
   // ---- Admin: confirm parent payments (slips await admin verification) ----
-  SCREENS.Admin.verify = async () => { const list=await api('pendingPayments');
-    const kindLbl=k=>({bill:t('verify.monthly'),ot:'OT',prepay:t('prepay.title')}[k]||k);
-    app.innerHTML=`<h2 class="page">✅ ${esc(t('verify.title'))}</h2>
-      <p class="muted" style="font-size:12px">${esc(t('verify.note'))}</p>
-      ${list.length?list.map(x=>{
+  // pending-payment cards (slips + cash to confirm/reject) — shared by the standalone screen AND the
+  // การเงิน hub "รออนุมัติ" tab. kind = bill/ot/charge/prepay.
+  function verifyListHTML(list){ const kindLbl=k=>({bill:t('verify.monthly'),ot:'OT',charge:(EN()?'Charge':'ค่าเพิ่มเติม'),prepay:t('prepay.title')}[k]||k);
+    if(!list.length) return `<div class="card muted">${esc(t('verify.empty'))}</div>`;
+    return list.map(x=>{
         const cash=x.cash; const methodPill=`<span class="pill ${cash?'wait':'info'}">${cash?'💵 '+esc(t('pay.cash')):'🏦 '+esc(t('pay.transfer'))}</span>`;
         const confirmed=Number(x.confirmedPaid||0), outstanding=Number(x.outstanding!=null?x.outstanding:Math.max(0,x.due-confirmed));
-        // per-slip confirm/reject rows (each slip has its own image + SlipOK verified flag)
         const slipRows=(x.slips||[]).map(s=>`<div class="card" style="padding:8px;background:#fafbfe"><div class="row" style="gap:10px;align-items:flex-start">
             ${slipThumb2(s.url)}
             <div style="flex:1"><div><b>${baht(s.amount)}</b> ${slipVerBadge(s.verified)}</div>
@@ -3021,16 +3034,19 @@
           ${cash?`<div style="background:#fffbe6;border-radius:8px;padding:6px 8px;font-size:12.5px;color:#8a6d00;margin-bottom:6px">💵 ${esc(t('verify.cashPending'))} ${baht(x.slipAmount)}</div>
             <div class="row"><button class="btn sm green" onclick="A_confirmPay('${x.kind}','${x.id}','cash')">✅ ${esc(t('verify.confirm'))}</button><button class="btn sm pink" onclick="A_rejectPay('${x.kind}','${x.id}')">✗ ${esc(t('verify.reject'))}</button></div>`
             : (slipRows||`<small class="muted">${EN()?'no slips':'ไม่มีสลิป'}</small>`)}</div>`;
-      }).join(''):`<div class="card muted">${esc(t('verify.empty'))}</div>`}`;
+      }).join(''); }
+  SCREENS.Admin.verify = async () => { const list=await api('pendingPayments');
+    app.innerHTML=`<h2 class="page">✅ ${esc(t('verify.title'))}</h2>
+      <p class="muted" style="font-size:12px">${esc(t('verify.note'))}</p>${verifyListHTML(list)}`;
   };
   // bigger slip preview for the admin (tap to zoom)
   function slipThumb2(url){ return url?`<img src="${esc(url)}" alt="slip" style="width:90px;height:110px;object-fit:cover;border-radius:8px;border:1px solid #eee;cursor:zoom-in" onclick="ZOOM_IMG('${esc(url)}')" onerror="this.replaceWith(Object.assign(document.createElement('div'),{className:'qr-ph',textContent:'📎'}))"/>`:`<div class="qr-ph" style="width:90px;height:110px">📎</div>`; }
   window.A_confirmSlip=async(slipId,btn)=>{ const card=btn?btn.closest('.card'):null; const d=card&&card.parentElement?card.parentElement.querySelector('input[type=date]'):null; const paidDate=(d&&d.value)||todayStr();
-    try{ const r=await api('confirmSlip',{slipId,adminId:USER.staffId,paidDate}); const out=Number(r&&r.outstanding||0); confirmSaved(out>0?(EN()?`Confirmed. Still outstanding ${baht(out)}`:`ยืนยันแล้ว ยังค้าง ${baht(out)}`):t('verify.confirmed')); GO('verify'); }catch(e){err(e);} };
-  window.A_rejectSlip=async(slipId)=>{ if(!confirm(t('verify.rejectConfirm')))return; try{ await api('rejectSlip',{slipId}); toast(t('verify.rejected')); GO('verify'); }catch(e){err(e);} };
+    try{ const r=await api('confirmSlip',{slipId,adminId:USER.staffId,paidDate}); const out=Number(r&&r.outstanding||0); confirmSaved(out>0?(EN()?`Confirmed. Still outstanding ${baht(out)}`:`ยืนยันแล้ว ยังค้าง ${baht(out)}`):t('verify.confirmed')); GO(CURRENT); }catch(e){err(e);} };
+  window.A_rejectSlip=async(slipId)=>{ if(!confirm(t('verify.rejectConfirm')))return; try{ await api('rejectSlip',{slipId}); toast(t('verify.rejected')); GO(CURRENT); }catch(e){err(e);} };
   window.A_confirmPay=async(kind,id,method)=>{ const d=document.getElementById('pd_'+id); const paidDate=(d&&d.value)||todayStr();
-    try{ await api('confirmPayment',{kind,id,adminId:USER.staffId,paidDate,method}); confirmSaved(t('verify.confirmed')); GO('verify'); }catch(e){err(e);} };
-  window.A_rejectPay=async(kind,id)=>{ if(!confirm(t('verify.rejectConfirm')))return; try{ await api('rejectPayment',{kind,id}); toast(t('verify.rejected')); GO('verify'); }catch(e){err(e);} };
+    try{ await api('confirmPayment',{kind,id,adminId:USER.staffId,paidDate,method}); confirmSaved(t('verify.confirmed')); GO(CURRENT); }catch(e){err(e);} };
+  window.A_rejectPay=async(kind,id)=>{ if(!confirm(t('verify.rejectConfirm')))return; try{ await api('rejectPayment',{kind,id}); toast(t('verify.rejected')); GO(CURRENT); }catch(e){err(e);} };
 
   // ---- absence tracking (Teacher / Leader / Admin) ----
   async function absenceScreen(){ setNav(CURRENT);
