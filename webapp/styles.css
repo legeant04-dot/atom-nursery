@@ -2,6 +2,16 @@
   --blue:#1565C0; --blue-d:#0D47A1; --pink:#EC407A; --green:#43A047;
   --amber:#FBC02D; --bg:#F4F7FB; --card:#fff; --ink:#1f2937; --muted:#6b7280;
   --ok:#2e7d32; --bad:#c62828; --line:#e5e9f0; --radius:14px;
+  /* --- design-system tokens (added) --- */
+  --blue-weak:#e9f1fc;         /* soft tint for hovers/accents */
+  --ink-2:#334155;             /* secondary text stronger than --muted */
+  --line-2:#eef2f7;            /* hairline for inner dividers */
+  --radius-sm:10px; --radius-lg:18px; --radius-pill:999px;
+  --ring:0 0 0 3px rgba(21,101,192,.28);   /* keyboard focus ring */
+  --sh-sm:0 1px 2px rgba(16,24,40,.06);
+  --sh-md:0 6px 18px rgba(16,24,40,.08);
+  --sh-lg:0 16px 40px rgba(16,24,40,.16);
+  --dur:.18s;
 }
 *{box-sizing:border-box;}
 [hidden]{display:none !important;}
@@ -284,3 +294,67 @@ html,body{max-width:100%;overflow-x:hidden;}
 #busyOverlay.ok .busy-txt{color:#2E7D32;}
 @keyframes busySpin{to{transform:rotate(360deg);}}
 @keyframes busyPop{0%{transform:scale(.4);opacity:0;}100%{transform:scale(1);opacity:1;}}
+
+/* =====================================================================
+   DESIGN SYSTEM REFRESH (v1) — consistent depth, focus, buttons, cards.
+   CSS-only, same blue theme + same layout; appended so it wins cleanly.
+   ===================================================================== */
+body{-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility;}
+main{padding-top:16px;}
+
+/* Typography: clearer hierarchy */
+h2.page{font-weight:800;letter-spacing:-.01em;font-size:21px;line-height:1.25;}
+.card h3{color:var(--ink);font-weight:700;letter-spacing:-.01em;line-height:1.3;}
+.muted{color:var(--muted);}
+small{line-height:1.45;}
+
+/* Cards: softer modern elevation + consistent radius */
+.card{border-color:var(--line-2);box-shadow:var(--sh-sm);border-radius:var(--radius);}
+
+/* Buttons: unified transitions, hover, disabled, and a subtle lift on primary */
+.btn{transition:filter var(--dur),box-shadow var(--dur),transform .06s;box-shadow:0 1px 2px rgba(21,101,192,.18);line-height:1.15;}
+.btn:hover{filter:brightness(1.06);}
+.btn:active{transform:translateY(1px);filter:brightness(.97);}
+.btn.outline,.btn.sm.outline{box-shadow:none;}
+.btn.outline:hover{background:var(--blue-weak);}
+.btn:disabled,.btn[disabled]{opacity:.5;cursor:not-allowed;filter:none;box-shadow:none;}
+.btn-ghost{transition:background var(--dur),border-color var(--dur);}
+.btn-ghost:hover{background:var(--blue-weak);border-color:var(--blue);}
+
+/* Inputs: visible focus + comfortable rhythm */
+input,select,textarea{transition:border-color var(--dur),box-shadow var(--dur);}
+input::placeholder,textarea::placeholder{color:#9aa5b4;}
+input:focus,select:focus,textarea:focus{outline:none;border-color:var(--blue);box-shadow:var(--ring);}
+
+/* Pills: a touch more presence */
+.pill{padding:3px 11px;letter-spacing:.01em;}
+
+/* Segmented control: active gets depth, hover hint */
+.seg button{transition:background var(--dur),color var(--dur),border-color var(--dur);}
+.seg button:hover{border-color:var(--blue);color:var(--blue);}
+.seg button.active{box-shadow:0 2px 8px rgba(21,101,192,.25);}
+
+/* Interactive tiles lift on hover (pointer devices only) */
+@media(hover:hover){
+  .amenu-btn{transition:background var(--dur),box-shadow var(--dur),transform var(--dur);}
+  .amenu-btn:hover{background:#fff;box-shadow:var(--sh-md);transform:translateY(-1px);border-color:#d5e2f5;}
+  .role-card{transition:box-shadow var(--dur),transform var(--dur),border-color var(--dur);}
+  .role-card:hover{transform:translateY(-2px);box-shadow:var(--sh-md);}
+  .list-item .btn.sm{transition:filter var(--dur),transform .06s;}
+}
+
+/* Bottom nav: active tab gets an accent bar + safe-area inset on modern phones */
+.bottomnav{box-shadow:0 -1px 8px rgba(16,24,40,.06);padding-bottom:env(safe-area-inset-bottom,0);}
+.bottomnav button{position:relative;transition:color var(--dur);}
+.bottomnav button.active::before{content:"";position:absolute;top:0;left:50%;transform:translateX(-50%);
+  width:26px;height:3px;border-radius:0 0 3px 3px;background:var(--blue);}
+
+/* Modal: stronger elevation + gentle rise-in */
+.modal .sheet{box-shadow:var(--sh-lg);}
+@keyframes sheetIn{from{transform:translateY(14px);opacity:.6;}to{transform:none;opacity:1;}}
+.modal .sheet{animation:sheetIn var(--dur) ease-out;}
+
+/* Accessibility: clear keyboard focus everywhere, and respect reduced motion */
+a:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible,
+.role-card:focus-visible,.amenu-btn:focus-visible,.seg button:focus-visible{outline:none;box-shadow:var(--ring);border-radius:8px;}
+@media(prefers-reduced-motion:reduce){*{animation-duration:.001ms!important;transition-duration:.001ms!important;}}
