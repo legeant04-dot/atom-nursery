@@ -358,3 +358,24 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--blue);bo
 a:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible,
 .role-card:focus-visible,.amenu-btn:focus-visible,.seg button:focus-visible{outline:none;box-shadow:var(--ring);border-radius:8px;}
 @media(prefers-reduced-motion:reduce){*{animation-duration:.001ms!important;transition-duration:.001ms!important;}}
+
+/* ---- Admin dashboard: at-a-glance KPI tiles + quick-action bar ---- */
+.kpigrid{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:12px;}
+@media(max-width:640px){.kpigrid{grid-template-columns:1fr 1fr;}}
+.kpi{background:var(--card);border:1px solid var(--line-2);border-radius:var(--radius);padding:12px 13px;text-align:left;
+  cursor:pointer;font-family:inherit;box-shadow:var(--sh-sm);display:flex;flex-direction:column;gap:7px;min-width:0;
+  transition:box-shadow var(--dur),transform var(--dur),border-color var(--dur);}
+@media(hover:hover){.kpi:hover{box-shadow:var(--sh-md);transform:translateY(-2px);border-color:#d5e2f5;}}
+.kpi:active{transform:translateY(0);}
+.kpi .kic{width:34px;height:34px;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:18px;}
+.kpi .kn{font-size:22px;font-weight:800;letter-spacing:-.02em;line-height:1;color:var(--ink);
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.kpi .kl{font-size:12px;color:var(--muted);line-height:1.3;}
+.kpi.blue .kic{background:var(--blue-weak);} .kpi.green .kic{background:#e8f5e9;}
+.kpi.amber .kic{background:#fff3e0;} .kpi.pink .kic{background:#fce4ec;}
+/* quick-action bar: horizontally scrollable chips, tidy on any width */
+.qbar{display:flex;gap:8px;overflow-x:auto;padding:2px 2px 4px;-webkit-overflow-scrolling:touch;}
+.qbar::-webkit-scrollbar{height:0;}
+.qbar .btn{white-space:nowrap;flex:0 0 auto;}
+.dash-h{display:flex;align-items:baseline;gap:8px;margin:6px 2px 12px;}
+.dash-h h2{margin:0;} .dash-h .dash-date{font-size:13px;color:var(--muted);font-weight:600;}
