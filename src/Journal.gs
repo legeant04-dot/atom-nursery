@@ -138,7 +138,8 @@ function handleSaveParentComment(payload) {
   // notify the class teacher(s) that a parent commented (falls back to the Admin inbox if no teacher LINE)
   try {
     notifyStudentTeacher_(student, '💬 ผู้ปกครองแสดงความคิดเห็นในบันทึกของ ' + (student.Nickname || student.Name) +
-      ' (' + date + '):\n' + String(payload.comment || ''));
+      ' (' + date + '):\n' + String(payload.comment || ''),
+      { category: 'comment', ref: 'journal|' + student.StudentID + '|' + date });
   } catch (e) {}
   return { ok: true, studentId: student.StudentID, date: date };
 }

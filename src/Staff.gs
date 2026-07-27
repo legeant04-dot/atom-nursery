@@ -91,6 +91,41 @@ function handleSaveStudent(p) {
   return { ok: true, studentId: p.studentId };
 }
 
+// Admin bypass: link a parent's LINE UID to a student (found by National ID) when the parent can't
+// self-register; optionally fill the parent's info. In-place (USER_LINKS/PARENTS are no-shrink sheets).
+function handleLinkParentAdmin(p) {
+  p = p || {};
+  var uid = String(p.uid || '').trim(); var nid = String(p.nationalId || '').trim();
+  if (!uid) throw apiError_('BAD_INPUT', 'ต้องระบุ LINE UID ของผู้ปกครอง');
+  if (!nid) throw apiError_('BAD_INPUT', 'ต้องระบุเลขบัตรประชาชนนักเรียน');
+  var stSheet = sheet_(getMainSpreadsheet_(), 'STUDENTS');
+  var st = findObject_(stSheet, function (s) { return String(s.NationalID || '').trim() === nid; });
+  if (!st) throw apiError_('NOT_FOUND', 'ไม่พบนักเรียนจากเลขบัตรนี้');
+  // USER_LINKS: append the link if not already present (append is allowed on a no-shrink sheet)
+  var ul = sheet_(getMainSpreadsheet_(), 'USER_LINKS');
+  var exists = readObjects_(ul).some(function (l) { return String(l.UserUID) === uid && String(l.StudentID) === String(st.StudentID); });
+  if (!exists) appendObject_(ul, { UserUID: uid, StudentID: st.StudentID, VerifiedBy: 'admin', Date: dateStr_(new Date()) });
+  try { CacheService.getScriptCache().removeAll(['rows:USER_LINKS', 'col:USER_LINKS']); } catch (e) {}
+  // PARENTS: upsert by LineUID; create only when info is supplied
+  var d = p.data || {}; var hasInfo = !!(d.NameTH || d.NameEN || d.Phone || d.Nickname);
+  var pSheet = sheet_(getMainSpreadsheet_(), 'PARENTS');
+  try { ensureColumns_(pSheet, ['Nickname', 'NicknameEN', 'Title', 'LineUID']); } catch (e) {}
+  var pa = findObject_(pSheet, function (x) { return String(x.LineUID) === uid; });
+  var pid = pa ? pa.ParentID : '';
+  if (!pa && hasInfo) {
+    pid = nextId_(pSheet, 'ParentID', 'PAR');
+    appendObject_(pSheet, { ParentID: pid, LineUID: uid, NameTH: d.NameTH || '', NameEN: d.NameEN || '', Nickname: d.Nickname || '',
+      NicknameEN: d.NicknameEN || '', Phone: d.Phone || '', Relationship: d.Relationship || '', Title: d.Title || '' });
+  } else if (pa) {
+    var patch = {}; ['NameTH', 'NameEN', 'Nickname', 'NicknameEN', 'Phone', 'Relationship', 'Title'].forEach(function (k) { if (d[k] != null && d[k] !== '') patch[k] = d[k]; });
+    if (Object.keys(patch).length) updateRow_(pSheet, pa._row, patch);
+  }
+  if (pid && !st.ParentID) { updateRow_(stSheet, st._row, { ParentID: pid }); }
+  try { CacheService.getScriptCache().removeAll(['rows:PARENTS', 'col:PARENTS', 'rows:STUDENTS', 'col:STUDENTS']); } catch (e) {}
+  try { logAudit(p.adminId || 'admin', 'LINK_PARENT_ADMIN', 'USER_LINKS', st.StudentID + ' <- ' + uid); } catch (e) {}
+  return { ok: true, studentId: st.StudentID, name: st.NameTH, nick: st.Nickname, parentId: pid, needInfo: !pid };
+}
+
 // Admin: unlink ONE parent from a child WITHOUT withdrawing the child. In-place — USER_LINKS is a
 // no-shrink sheet, so deleting rows must go through deleteRow (the engine's full rewrite is blocked).
 function handleUnlinkStudent(p) {

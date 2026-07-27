@@ -30,7 +30,7 @@
     window.api=function(action,payload,opts){ if(!_isMut(action)) return _rawApi(action,payload,opts);
       _busyShow(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _busyDone(false); throw e; }
       return Promise.resolve(pr).then(v=>{ _busyDone(true); return v; }, e=>{ _busyDone(false); throw e; }); }; }
-  const APP_VERSION = 'Version 1.112'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.113'; // bump each webapp change; shown only at the bottom of the Chat screen
   const verTag = () => `<div style="text-align:center;color:#c3c9d4;font-size:10px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
   const phoneFmt = p => { let d=String(p==null?'':p).replace(/\D/g,''); if(d.length===9) d='0'+d; return d; };
@@ -176,6 +176,11 @@
     <button class="btn block outline" style="margin-top:10px" onclick="MARKREAD(this)">${t('c.markread')}</button>`); };
   // decide which screen a notification opens (by inbox category, falling back to keywords), role-aware
   function notifTarget(n){ const cat=String(n&&n.category||''); const s=String((n&&(n.text||n.textEN))||''); const role=USER&&USER.role;
+    // exact deep-link when the notification carries a ref "kind|studentId|date"
+    const ref=String(n&&n.ref||''); if(ref){ const pp=ref.split('|'); const rk=pp[0], sid=pp[1], date=pp[2]||todayStr();
+      if(rk==='journal'&&sid){ if(role==='Admin') return ()=>A_viewJournal(sid,date);
+        if(role==='Parent') return ()=>{ if(window.P_showJ)P_showJ(sid,date); else GO('journal'); };
+        return ()=>{ if(window.T_journal)T_journal(sid); else GO('class'); }; } }
     const has=re=>re.test(s);
     let key = cat==='comment'?'journal':cat==='leave'?'leave':cat==='ot'?'ot':cat==='registration'?'register':cat==='emergency'?'injury':cat==='payment'?'verify':cat==='digest'?'home':'';
     if(!key){ if(has(/ความคิดเห็น|คอมเมนต์|comment|ตอบกลับ|reply|บันทึกของ|รายงาน/i))key='journal';
@@ -1698,7 +1703,7 @@
     const closedBanner=_closed?`<div class="card" style="background:#eceff1;border-color:#cfd8dc;color:#607d8b;text-align:center"><b>🏖️ ${EN()?'School closed today':'วันนี้โรงเรียนหยุด'} (${esc(_closedWhy)}) — ${EN()?'attendance not counted':'ไม่นับการมาเรียน'}</b></div>`:'';
     app.innerHTML=`<h2 class="page">${esc(t('title.dashboard'))} (${esc(todayStr())})</h2>
       ${closedBanner}${remHtml}${leaveRemHtml}
-      <div class="card"><div class="row"><button class="btn sm" onclick="GO('finance')">💰 ${esc(t('fin.title'))}</button><button class="btn sm ${pendN?'':'outline'}" onclick="GO('verify')">✅ ${esc(t('verify.title'))}${pendN?` (${pendN})`:''}</button><button class="btn sm" onclick="GO('daily')">📋 ${esc(t('daily.title'))}</button><button class="btn sm outline" onclick="GO('absence')">🔎 ${esc(t('abs.title'))}</button><button class="btn sm outline" onclick="A_addAnn()">+ ${esc(t('lbl.addAnn'))}</button><button class="btn sm outline" onclick="A_viewAs()">👁️ ${EN()?'View as':'ดูมุมมอง'}</button></div></div>
+      <div class="card"><div class="row"><button class="btn sm" onclick="GO('finance')">💰 ${esc(t('fin.title'))}</button><button class="btn sm ${pendN?'':'outline'}" onclick="GO('verify')">✅ ${esc(t('verify.title'))}${pendN?` (${pendN})`:''}</button><button class="btn sm" onclick="GO('daily')">📋 ${esc(t('daily.title'))}</button><button class="btn sm outline" onclick="GO('absence')">🔎 ${esc(t('abs.title'))}</button><button class="btn sm outline" onclick="A_addAnn()">+ ${esc(t('lbl.addAnn'))}</button><button class="btn sm outline" onclick="A_viewAs()">👁️ ${EN()?'View as':'ดูมุมมอง'}</button><button class="btn sm outline" onclick="A_linkParent()">🔗 ${EN()?'Link parent':'เชื่อมผู้ปกครอง'}</button></div></div>
       ${payHtml}
       <div class="card ${_closed?'':''}"><div class="spread"><h3>👶 ${EN()?'Attendance by class':'การมาเรียนแต่ละชั้น'}</h3>${_closed?`<span class="pill" style="background:#eceff1;color:#607d8b">🏖️ ${EN()?'Holiday':'วันหยุด'}</span>`:`<button class="btn sm outline" onclick="A_addAnn()">+ ${EN()?'Announce':'ประกาศ'}</button>`}</div>
         ${_closed?`<div style="text-align:center;color:#90a4ae;padding:10px 0"><b>${EN()?'School closed — no attendance today':'โรงเรียนหยุด — ไม่มีการมาเรียนวันนี้'}</b></div>`:`
@@ -2190,7 +2195,7 @@
         <div class="secbody" hidden>${searchBox(EN()?'name / phone':'ชื่อ / เบอร์')}
         ${parents.map(p=>{ const lc=(window._LINKCOUNTS||{})[p.ParentID]||0; const lcBadge=`<span class="pill ${lc?'ok':'bad'}" style="font-size:10px" title="${EN()?'linked children':'จำนวนบุตรที่ผูก'}">👶 ${lc}</span>`;
           return `<div class="list-item" data-k="${esc((p.NameTH+' '+(p.NameEN||'')+' '+(p.Nickname||'')+' '+(p.NicknameEN||'')+' '+(p.Phone||'')+' '+(p.Relationship||'')).toLowerCase())}"><span style="display:flex;gap:8px;align-items:center">${personAvatar(p)}<span><b>${esc(parentDisp(p))}</b> ${lcBadge} <small class="muted">${esc(titledName(p))} · ${esc(p.Relationship||'')} · ${phoneLink(p.Phone)}</small></span></span><span class="row"><button class="btn sm outline" onclick="A_parentLinks('${p.ParentID}')" title="${EN()?'linked children':'บุตรที่ผูก'}">🔗</button><button class="btn sm outline" onclick="A_parentForm('${p.ParentID}')">✏️</button><button class="btn sm pink" onclick="A_delParent('${p.ParentID}')">🗑️</button></span></div>`; }).join('')}</div></div>
-      <div class="card secw">${secHead('👶',EN()?'Students':'นักเรียน',students.length,`<button class="btn sm" onclick="event.stopPropagation();A_genBills()">📅 ${esc(t('bill.genTitle'))}</button>`)}
+      <div class="card secw">${secHead('👶',EN()?'Students':'นักเรียน',students.length,`<span class="row"><button class="btn sm outline" onclick="event.stopPropagation();A_issueCombined()">🧾 ${EN()?'Issue (select)':'ออกบิล (เลือก)'}</button><button class="btn sm" onclick="event.stopPropagation();A_genBills()">📅 ${esc(t('bill.genTitle'))}</button></span>`)}
         <div class="secbody" hidden>${searchBox(EN()?'name / nickname / class':'ชื่อ / ชื่อเล่น / ชั้นเรียน')}
         ${students.map(s=>`<div class="list-item" data-k="${esc((s.NameTH+' '+(s.NameEN||'')+' '+(s.Nickname||'')+' '+(s.NicknameEN||'')+' '+(s.Class||'')+' '+(s.NationalID||'')).toLowerCase())}"><span>${studentAvatar(s)} <b>${esc(dispNick(s))}</b> <small class="muted">${esc(nm(s))} · ${esc(s.Class)} · ${esc(ageYM(s.DOB))}${s.InsuranceHas?' · 🛡️':''}</small><br><small class="muted">${EN()?'ID':'บัตร'}: ${esc(s.NationalID||'-')}</small></span><span class="row"><button class="btn sm outline" onclick="A_studentForm('${s.StudentID}')">✏️</button><button class="btn sm" onclick="A_issueBill('${s.StudentID}')">🧾</button><button class="btn sm" onclick="A_charges('${s.StudentID}')">💵</button><button class="btn sm outline" onclick="A_vaccines('${s.StudentID}')">💉</button><button class="btn sm gray" onclick="A_exportStudent('${s.StudentID}')">📤</button><button class="btn sm pink" onclick="A_removeStudent('${s.StudentID}')" title="${esc(t('wd.remove'))}">🚪</button></span></div>`).join('')}</div></div>`;
   };
@@ -2247,6 +2252,24 @@
 
   // ---- View-as: Admin previews the app as any role (stays logged in as admin; token is full-trust) ----
   let VIEW_AS_BACKUP=null;
+  // Admin bypass: link a parent's LINE UID to a student (by National ID) when the parent can't self-register.
+  window.A_linkParent=()=>{ modal(`<h3>🔗 ${EN()?'Link parent to student':'เชื่อมข้อมูลผู้ปกครองกับนักเรียน'}</h3>
+    <p class="muted" style="font-size:12px">${EN()?'For a parent who cannot register themselves. LINE UID + student National ID are required; fill the info below if the parent has none yet.':'สำหรับผู้ปกครองที่ลงทะเบียนเองไม่ได้ · ต้องมี LINE UID และเลขบัตรประชาชนนักเรียนเสมอ · ถ้ายังไม่มีข้อมูลผู้ปกครองให้กรอกด้านล่าง'}</p>
+    <label class="field"><span>LINE UID <span style="color:#c62828">*</span></span><input id="lp_uid" placeholder="U1234abcd…"/></label>
+    <label class="field"><span>${EN()?"Student National ID":'เลขบัตรประชาชนนักเรียน'} <span style="color:#c62828">*</span></span><input id="lp_nid" inputmode="numeric" placeholder="1-2345-…"/></label>
+    <hr style="border:none;border-top:1px solid #eee;margin:8px 0"><p class="muted" style="font-size:12px">${EN()?'Parent info (optional — fill if new):':'ข้อมูลผู้ปกครอง (ถ้ายังไม่มี ให้กรอก):'}</p>
+    <div class="grid2"><label class="field"><span>${EN()?'Full name':'ชื่อ-นามสกุล'}</span><input id="lp_name"/></label><label class="field"><span>${EN()?'Nickname':'ชื่อเล่น'}</span><input id="lp_nick"/></label></div>
+    <div class="grid2"><label class="field"><span>${EN()?'Phone':'เบอร์โทร'}</span><input id="lp_phone" inputmode="tel"/></label>
+      <label class="field"><span>${EN()?'Relationship':'ความสัมพันธ์'}</span><select id="lp_rel"><option value="">—</option><option value="บิดา">${EN()?'Father':'บิดา'}</option><option value="มารดา">${EN()?'Mother':'มารดา'}</option><option value="ผู้ปกครอง">${EN()?'Guardian':'ผู้ปกครอง'}</option></select></label></div>
+    <button class="btn block" onclick="A_linkParentDo(this)">🔗 ${EN()?'Link':'เชื่อมข้อมูล'}</button>
+    <button class="btn outline block" style="margin-top:8px" onclick="this.closest('.modal').remove()">${esc(t('c.close'))}</button>`); };
+  window.A_linkParentDo=async(btn)=>{ const m=btn.closest('.modal'); const g=x=>{const e=m.querySelector('#'+x);return e?e.value.trim():'';};
+    const uid=g('lp_uid'), nid=g('lp_nid'); if(!uid||!nid){ toast(EN()?'UID and National ID are required':'ต้องกรอก UID และเลขบัตร'); return; }
+    const data={NameTH:g('lp_name'),Nickname:g('lp_nick'),Phone:g('lp_phone'),Relationship:g('lp_rel')};
+    btn.disabled=true;
+    try{ const r=await api('linkParentAdmin',{uid,nationalId:nid,data,adminId:USER.staffId}); m.remove();
+      confirmSaved((EN()?'Linked to ':'เชื่อมกับ ')+(r.nick||r.name||r.studentId)+(r.needInfo?(EN()?' — no parent info yet':' — ยังไม่มีข้อมูลผู้ปกครอง'):'')); }
+    catch(e){ err(e); btn.disabled=false; } };
   window.A_viewAs=async()=>{
     // the lists are normally cached by manage(); fetch them so View-As works straight from home
     if(!(A_CACHE.staff&&A_CACHE.staff.length) || !(A_CACHE.students&&A_CACHE.students.length)){
@@ -2435,6 +2458,24 @@
         <label class="field"><span>${esc(t('bill.paidDate'))}</span><input type="date" id="biPaidDate" value="${todayStr()}"/></label></div>
       <button class="btn block" onclick="A_issueBillDo('${sid}',this)">${esc(t('bill.send'))}</button>`);
   };
+  // Admin: issue this month's bill for SEVERAL selected students at once + notify their parents.
+  // The parent then sees each child's bill and can pay them combined (one slip) or per item.
+  window.A_issueCombined=async()=>{ const students=(A_CACHE.students&&A_CACHE.students.length)?A_CACHE.students:await api('listStudents');
+    A_CACHE.students=students;
+    const rows=students.map(s=>`<label class="field" style="display:flex;align-items:center;gap:8px;margin:2px 0"><input type="checkbox" class="icStu" value="${s.StudentID}" style="width:auto"/> <b>${esc(dispNick(s))}</b> <small class="muted">${esc(nm(s))} · ${esc(s.Class||'')}</small></label>`).join('');
+    modal(`<h3>🧾 ${EN()?'Issue combined bills':'ออกบิลรวม (เลือกนักเรียน)'}</h3>
+      <p class="muted" style="font-size:12px">${EN()?'Pick 2+ students; this issues each one\'s monthly tuition bill and notifies the parents. Parents can pay them combined (one slip) or separately.':'เลือกนักเรียนตั้งแต่ 2 คนขึ้นไป · ระบบจะออกบิลค่าเทอมรายเดือนของแต่ละคนและแจ้งผู้ปกครอง · ผู้ปกครองเลือกจ่ายรวมสลิปเดียวหรือแยกได้'}</p>
+      <label class="field"><span>${esc(t('c.month'))}</span><input id="icMonth" type="month" value="${monthStr()}"/></label>
+      <label style="display:flex;align-items:center;gap:8px;font-size:13px;margin:4px 0"><input type="checkbox" id="icNotify" checked style="width:auto"/> ${EN()?'Notify parents':'แจ้งเตือนผู้ปกครอง'}</label>
+      <div style="max-height:40vh;overflow:auto;border:1px solid #eee;border-radius:8px;padding:6px;margin:6px 0"><label style="display:flex;align-items:center;gap:8px;font-size:13px;border-bottom:1px solid #eee;padding-bottom:4px"><input type="checkbox" id="icAll" onchange="document.querySelectorAll('.icStu').forEach(c=>c.checked=this.checked)" style="width:auto"/> <b>${EN()?'Select all':'เลือกทั้งหมด'}</b></label>${rows}</div>
+      <button class="btn block" onclick="A_issueCombinedDo(this)">🧾 ${EN()?'Issue bills':'ออกบิล'}</button>
+      <button class="btn outline block" style="margin-top:8px" onclick="this.closest('.modal').remove()">${esc(t('c.close'))}</button>`); };
+  window.A_issueCombinedDo=async(btn)=>{ const m=btn.closest('.modal'); const ids=[...m.querySelectorAll('.icStu:checked')].map(c=>c.value); const month=m.querySelector('#icMonth').value; const notify=m.querySelector('#icNotify').checked;
+    if(!ids.length){ toast(EN()?'Select at least one student':'เลือกนักเรียนอย่างน้อย 1 คน'); return; }
+    btn.disabled=true;
+    try{ const r=await api('issueBillsFor',{studentIds:ids,month}); if(notify){ try{ await api('notifyBills',{studentIds:ids,month}); }catch(e){} }
+      m.remove(); confirmSaved((EN()?'Issued ':'ออกบิลแล้ว ')+r.created+(EN()?' bills':' รายการ')+(notify?(EN()?' · parents notified':' · แจ้งผู้ปกครองแล้ว'):'')); }
+    catch(e){ err(e); btn.disabled=false; } };
   window.A_delBill=async(billingId,month,btn)=>{ if(!confirm((EN()?'Delete the bill for ':'ลบบิลงวด ')+month+' ?'))return;
     if(btn)btn.disabled=true;
     try{ await api('deleteBill',{billingId}); toast(t('manage.deleted')); const m=btn&&btn.closest('.modal'); if(m)m.remove(); GO('manage'); }catch(e){err(e);} };

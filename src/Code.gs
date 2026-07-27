@@ -27,6 +27,8 @@ var ROUTES = {
   saveFamilyParent: function (p) { return handleSaveFamilyParent(p); },
   saveStudentSelf:  function (p) { return handleSaveStudentSelf(p); },
   unlinkStudent:    function (p) { return handleUnlinkStudent(p); },   // admin-only: detach a parent from a child (child stays enrolled)
+  linkParentAdmin:  function (p) { return handleLinkParentAdmin(p); },   // admin-only: link a parent UID to a student by National ID (bypass)
+  notifyBills:      function (p) { return handleNotifyBills(p); },   // admin-only: notify parents that bills were issued
   savePlans:        function (p) { return handleSavePlans(p); },       // admin-only: package (Plan) CRUD → SCHOOL_CONFIG JSON
   prepayAudit:      function (p) { return handlePrepayAudit(p); },     // admin-only: find/repair bills over-credited by the old prepay logic
   deleteBill:       function (p) { return handleDeleteBill(p); },
@@ -194,7 +196,7 @@ function applyIdentity_(action, payload, sess) {
     addAnnouncement: 1, editAnnouncement: 1, deleteAnnouncement: 1, reindexAnnouncements: 1, reindexParents: 1, checkDuplicateIds: 1,
     saveDspmCriteria: 1, deleteDspmCriteria: 1,
     editStudentLeave: 1, deleteStudentLeave: 1, deleteStudentLeaves: 1, dedupData: 1, lineDiag: 1,
-    adminInbox: 1, markInboxRead: 1, reinstallTriggers: 1, unlinkStudent: 1, savePlans: 1, prepayAudit: 1 };
+    adminInbox: 1, markInboxRead: 1, reinstallTriggers: 1, unlinkStudent: 1, linkParentAdmin: 1, notifyBills: 1, issueBillsFor: 1, savePlans: 1, prepayAudit: 1 };
   if (ADMIN_ONLY[action] && sess.role !== 'Admin') throw apiError_('NO_PERMISSION', 'เฉพาะแอดมิน');
   // Admin is fully trusted: may target ANY staff/student/parent (manage everyone + "view as" any role).
   if (sess.role === 'Admin') return payload;

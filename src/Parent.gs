@@ -141,6 +141,22 @@ function notifyStudentParents_(student, text) {
   return sent;
 }
 
+/** Admin: notify the parents of several students that this month's bill was issued (LINE + inbox fallback). */
+function handleNotifyBills(p) {
+  p = p || {};
+  var ids = (p.studentIds || []).filter(function (x) { return !!x; });
+  var month = p.month || dateStr_(new Date()).slice(0, 7);
+  var stSheet = sheet_(getMainSpreadsheet_(), 'STUDENTS');
+  var n = 0;
+  ids.forEach(function (sid) {
+    var st = findObject_(stSheet, function (s) { return String(s.StudentID) === String(sid); });
+    if (!st) return;
+    var msg = '🧾 ออกบิลค่าเทอมเดือน ' + month + ' ของ ' + (st.Nickname || st.Name) + ' แล้ว — เปิดแอปเพื่อดู/ชำระเงิน';
+    try { if (notifyStudentParents_(st, msg) > 0) n++; } catch (e) {}
+  });
+  return { ok: true, notified: n, month: month };
+}
+
 /** True if a staff member covers a given class (Department/Classes = '*' | comma-list containing it). */
 function staffCoversClass_(s, className) {
   var d = String((s && s.Department) || '') + ',' + String((s && s.Classes) || '');
@@ -169,7 +185,7 @@ function notifyStudentTeacher_(student, text, opts) {
   });
   // Fallback to the Admin in-app inbox only when asked. Routine check-in/out pass adminFallback:false so
   // they don't flood the inbox (every drop-off/pickup); leaves keep the fallback so they're never lost.
-  if (!sent && opts.adminFallback !== false) notifyAdmins_(text);
+  if (!sent && opts.adminFallback !== false) notifyAdmins_(text, opts.category, opts.ref);
   return sent;
 }
 

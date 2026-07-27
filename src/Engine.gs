@@ -439,6 +439,13 @@ function createAtomAPI(M, GROWTH_STD) {
       else { b=Object.assign({BillingID:'BL-'+month+'-'+p.studentId,StudentID:p.studentId,Month:month,OTRollover:0,DueDate:month+'-05',SlipUrl:'',TransactionDate:paid?stampLocal():''},fields); M.payments.push(b); }
       logAct('issueBill',b.BillingID,month+' '+amount+(paid?' (ชำระล่วงหน้า)':''),actorOf(p));
       return b; },
+    // Admin: issue this month's bill for SEVERAL selected students at once (each = tuition − discount).
+    // The parent then sees each child's bill and can pay them combined (one slip) or separately.
+    issueBillsFor: p => { const month=p.month||todayLocal().slice(0,7); const ids=Array.isArray(p.studentIds)?p.studentIds.filter(Boolean):[];
+      if(!ids.length)fail('BAD_INPUT','ยังไม่ได้เลือกนักเรียน'); const out=[];
+      ids.forEach(sid=>{ const b=H.issueBill({studentId:sid,month}); const s=studentById(sid)||{}; out.push({studentId:sid,nick:s.Nickname,name:s.NameTH,amount:b.Amount}); });
+      logAct('issueBillsFor','', ids.length+' คน เดือน '+month, actorOf(p));
+      return {ok:true, month, created:out.length, students:out}; },
     // Admin deletes a bill (ยอดเรียกเก็บ). Removes the BILLING row; leaves any slip history in PAYMENT_SLIPS.
     deleteBill: p => { const i=M.payments.findIndex(x=>x.BillingID===p.billingId); if(i<0)fail('NOT_FOUND','ไม่พบบิล'); const b=M.payments[i]; M.payments.splice(i,1); logAct('deleteBill',p.billingId,'ลบบิล '+ym(b&&b.Month),actorOf(p)); return {ok:true}; },
     // auto-generate the month's bill for all active students from Plan price (skip if already billed)
@@ -915,6 +922,18 @@ function createAtomAPI(M, GROWTH_STD) {
       active.forEach(s=>{ (M.userLinks||[]).filter(l=>String(l.StudentID)===String(s.StudentID)).forEach(l=>{ const pid=uidToPid[l.UserUID]; if(!pid)return; const k=pid+'|'+s.StudentID; if(seen[k])return; seen[k]=1; cnt[pid]=(cnt[pid]||0)+1; });
         if(s.ParentID){ const k=s.ParentID+'|'+s.StudentID; if(!seen[k]){ seen[k]=1; cnt[s.ParentID]=(cnt[s.ParentID]||0)+1; } } });
       return cnt; },
+    // Admin bypass: link a parent's LINE UID to a student (found by the student's National ID) when the
+    // parent can't self-register. Optionally fills the parent's personal info. UID + National ID always required.
+    linkParentAdmin: p => { const uid=String(p.uid||'').trim(); const nid=String(p.nationalId||'').trim();
+      if(!uid) fail('BAD_INPUT','ต้องระบุ LINE UID ของผู้ปกครอง'); if(!nid) fail('BAD_INPUT','ต้องระบุเลขบัตรประชาชนนักเรียน');
+      const s=(M.students||[]).find(x=>String(x.NationalID||'').trim()===nid); if(!s) fail('NOT_FOUND','ไม่พบนักเรียนจากเลขบัตรนี้');
+      if(!(M.userLinks||[]).find(l=>String(l.UserUID)===uid&&String(l.StudentID)===String(s.StudentID))) (M.userLinks=M.userLinks||[]).push({UserUID:uid,StudentID:s.StudentID,VerifiedBy:'admin',Date:todayLocal()});
+      const d=p.data||{}; let pa=(M.parents||[]).find(x=>String(x.LineUID)===uid);
+      const hasInfo=!!(d.NameTH||d.NameEN||d.Phone||d.Nickname);
+      if(!pa && hasInfo){ pa={ParentID:nextSeqId_(M.parents,'ParentID','PAR',0),LineUID:uid}; M.parents.push(pa); }
+      if(pa){ ['NameTH','NameEN','Nickname','NicknameEN','Phone','Relationship','Title'].forEach(k=>{ if(d[k]!=null&&d[k]!=='')pa[k]=d[k]; }); if(!s.ParentID)s.ParentID=pa.ParentID; }
+      logAct('linkParentAdmin', s.StudentID, 'ผูก '+uid+' → '+s.StudentID+(hasInfo?' (+ข้อมูล)':''), actorOf(p));
+      return {ok:true, studentId:s.StudentID, name:s.NameTH, nick:s.Nickname, parentId:pa?pa.ParentID:'', needInfo:!pa}; },
     // Admin: detach ONE parent from a child (keeps the child enrolled). GAS routes this to an in-place
     // handler (USER_LINKS is a no-shrink sheet — the engine's full rewrite would be blocked by WRITE_GUARD).
     unlinkStudent: p => { const s=studentById(p.studentId); if(!s)fail('NOT_FOUND','ไม่พบนักเรียน');
