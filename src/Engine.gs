@@ -1247,7 +1247,7 @@ function createAtomAPI(M, GROWTH_STD) {
     // ---- Admin payment verification (confirm slips) ----
     // Admin verify queue: one entry per bill/OT/prepay that has unverified slips OR is a cash notice.
     // Each entry carries its SUBMITTED slips (image + amount + SlipOK verified flag) + confirmed/outstanding.
-    pendingPayments: () => { const nm=id=>{ const s=studentById(id)||{}; return {name:s.NameTH,nameEN:s.NameEN}; };
+    pendingPayments: () => { const nm=id=>{ const s=studentById(id)||{}; return {name:s.NameTH,nameEN:s.NameEN,nick:s.Nickname,nickEN:s.NicknameEN,class:s.Class}; };
       const out=[]; const add=(kind, rec, id, due, label)=>{
         const subs=paySlips_().filter(s=>s.RefKind===kind&&s.RefID===id&&s.Status==='SUBMITTED');
         const isCash = (rec.PaymentMethod==='cash') && (rec.Status==='PENDING_VERIFY');
@@ -1255,16 +1255,19 @@ function createAtomAPI(M, GROWTH_STD) {
         const confirmed=sumSlips_(kind, id, ['CONFIRMED']);
         out.push(Object.assign({ kind, id, studentId:rec.StudentID, label, due, confirmedPaid:confirmed, outstanding:Math.max(0,due-confirmed),
           method:rec.PaymentMethod||'transfer', transactionDate:rec.TransactionDate||'', cash:isCash, slipAmount:subs.reduce((a,s)=>a+Number(s.Amount||0),0),
-          slips: subs.map(s=>({ slipId:s.SlipID, amount:Number(s.Amount||0), url:s.Url, verified:s.Verified, receiver:s.Receiver, transRef:s.TransRef, date:s.SubmittedDate })) }, nm(rec.StudentID))); };
+          slips: subs.map(s=>({ slipId:s.SlipID, amount:Number(s.Amount||0), url:s.Url, verified:s.Verified, receiver:s.Receiver, transRef:s.TransRef, transDate:s.TransDate||'', date:s.SubmittedDate })) }, nm(rec.StudentID))); };
       M.payments.filter(b=>b.Status==='PENDING_VERIFY'||b.Status==='PARTIAL').forEach(b=>add('bill', b, b.BillingID, billDue_(b), ym(b.Month)));
       M.otDaily.filter(o=>o.Status==='PENDING_VERIFY'||o.Status==='PARTIAL').forEach(o=>add('ot', o, o.OTID, Number(o.Amount||0), o.Date+' OT'));
+      // extra charges are now their own payable → they must appear in the verify queue too
+      M.studentCharges.forEach(c=>add('charge', c, c.ChargeID, Number(c.Amount||0), c.Label||'ค่าใช้จ่ายเพิ่มเติม'));
       M.prepayments.filter(pp=>pp.Status==='PENDING_VERIFY'||pp.Status==='PARTIAL').forEach(pp=>add('prepay', pp, pp.PrepayID, Number(pp.Amount||0), pp.Months+'mo ('+pp.Covered[0]+'→'+pp.Covered[pp.Covered.length-1]+')'));
       return out; },
     // Admin confirms a payment. paidDate = the actual payment date (defaults today); recorded for retro audit.
     confirmPayment: p => { const paid=p.paidDate||todayLocal(); const method=p.method||'';
       if(p.kind==='bill'){ const b=M.payments.find(x=>x.BillingID===p.id); if(!b)fail('NOT_FOUND','ไม่พบบิล'); b.Status='PAID'; b.PaidDate=paid; if(method)b.PaymentMethod=method; b.VerifiedStatus='CONFIRMED'; b.VerifiedBy=p.adminId||'admin';
-        const bm=ym(b.Month); M.otDaily.filter(o=>o.StudentID===b.StudentID&&ym(o.Date)===bm&&otOpenRec(o)).forEach(o=>{o.Status='PAID';o.SlipRef=b.SlipUrl;o.PaidDate=paid;}); logAct('confirmPayment',b.BillingID,'ยืนยัน ('+(b.PaymentMethod||'transfer')+') '+b.SlipAmount+' จ่าย '+paid,actorOf(p)); return b; }
+        logAct('confirmPayment',b.BillingID,'ยืนยัน ('+(b.PaymentMethod||'transfer')+') '+b.SlipAmount+' จ่าย '+paid,actorOf(p)); return b; }  // bill = tuition only; no OT cascade
       if(p.kind==='ot'){ const o=M.otDaily.find(x=>x.OTID===p.id); if(!o)fail('NOT_FOUND','ไม่พบ OT'); o.Status='PAID'; o.PaidDate=paid; if(method)o.PaymentMethod=method; o.VerifiedStatus='CONFIRMED'; logAct('confirmPayment',o.OTID,'ยืนยัน ('+(o.PaymentMethod||'transfer')+') '+o.Amount+' จ่าย '+paid,actorOf(p)); return o; }
+      if(p.kind==='charge'){ const c=M.studentCharges.find(x=>x.ChargeID===p.id); if(!c)fail('NOT_FOUND','ไม่พบรายการ'); c.Status='PAID'; c.PaidDate=paid; if(method)c.PaymentMethod=method; c.VerifiedStatus='CONFIRMED'; logAct('confirmPayment',c.ChargeID,'ยืนยัน ('+(c.PaymentMethod||'transfer')+') '+c.Amount+' จ่าย '+paid,actorOf(p)); return c; }
       if(p.kind==='prepay'){ const pp=M.prepayments.find(x=>x.PrepayID===p.id); if(!pp)fail('NOT_FOUND','ไม่พบรายการ'); pp.Status='PAID'; pp.PaidDate=paid; if(method)pp.PaymentMethod=method; pp.VerifiedBy=p.adminId||'admin';
         // tuition-only: don't flip the covered bills to PAID — the payments handler credits tuition per month.
         logAct('confirmPayment',pp.PrepayID,'ยืนยันชำระล่วงหน้า (ค่าเทอม) ('+(pp.PaymentMethod||'transfer')+') '+pp.Amount+' จ่าย '+paid,actorOf(p)); return pp; }
