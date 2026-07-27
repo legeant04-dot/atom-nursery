@@ -28,13 +28,21 @@ function paySlipToDrive_(b64, name) {
   return { fileId: file.getId(), url: 'https://drive.google.com/thumbnail?id=' + file.getId() + '&sz=w1000' };
 }
 
+// normalise SlipOK's transDate (e.g. "2026-07-25" or "25/07/2026" or ISO) to YYYY-MM-DD for the receipt
+function paySlipTransDate_(v) {
+  var s = String(v || '').trim(); if (!s) return '';
+  var m = /^(\d{4})-(\d{2})-(\d{2})/.exec(s); if (m) return m[1] + '-' + m[2] + '-' + m[3];
+  m = /^(\d{1,2})\/(\d{1,2})\/(\d{4})/.exec(s); if (m) return m[3] + '-' + ('0' + m[2]).slice(-2) + '-' + ('0' + m[1]).slice(-2);
+  try { var d = new Date(s); if (!isNaN(d)) return Utilities.formatDate(d, getConfig_('Timezone', 'Asia/Bangkok'), 'yyyy-MM-dd'); } catch (e) {}
+  return '';
+}
 function paySlipVerify_(p, due) {
   try {
     var b64 = p.slipData ? (String(p.slipData).indexOf(',') >= 0 ? String(p.slipData).split(',')[1] : String(p.slipData)) : '';
     var v = handleVerifySlip({ qrData: p.qrData, slipBase64: b64, slipUrl: p.slipUrl, amount: (p.slipAmount || due) });
-    if (v && v.available) return { verified: v.ok ? 'YES' : ('NO:' + (v.code || v.message || 'unverified')), ref: v.ref || '', receiver: (v.receiver && v.receiver.name) || '' };
+    if (v && v.available) return { verified: v.ok ? 'YES' : ('NO:' + (v.code || v.message || 'unverified')), ref: v.ref || '', receiver: (v.receiver && v.receiver.name) || '', transDate: paySlipTransDate_(v.transDate) };
   } catch (e) {}
-  return { verified: '', ref: '', receiver: '' };
+  return { verified: '', ref: '', receiver: '', transDate: '' };
 }
 
 // Sheets coerces a 'YYYY-MM' cell to date 'YYYY-MM-01', so compare months by first 7 chars.
@@ -69,12 +77,14 @@ function paySlipRecord_(kind, refId, p) {
   if (p.slipData) { var b64 = String(p.slipData).indexOf(',') >= 0 ? String(p.slipData).split(',')[1] : String(p.slipData); if (b64) drive = paySlipToDrive_(b64, p.slipName || ('slip-' + refId + '.jpg')); }
   var vr = paySlipVerify_(p, tgt.due);
   var slipId = 'SL-' + Date.now();
-  appendObject_(paySlipsSheet_(), { SlipID: slipId, RefKind: kind, RefID: refId, StudentID: tgt.studentId, Amount: amt,
-    Url: drive.url, FileId: drive.fileId, Verified: vr.verified, TransRef: vr.ref, Receiver: vr.receiver, SubmittedDate: nowStr_(), Status: 'SUBMITTED' });
+  var sh0 = paySlipsSheet_(); ensureColumns_(sh0, ['TransDate']);
+  appendObject_(sh0, { SlipID: slipId, RefKind: kind, RefID: refId, StudentID: tgt.studentId, Amount: amt,
+    Url: drive.url, FileId: drive.fileId, Verified: vr.verified, TransRef: vr.ref, Receiver: vr.receiver, TransDate: vr.transDate || '', SubmittedDate: nowStr_(), Status: 'SUBMITTED' });
   recCacheBust_('PAYMENT_SLIPS');
   var submitted = paySlipSum_(kind, refId, ['SUBMITTED', 'CONFIRMED']);
   var confirmed = paySlipSum_(kind, refId, ['CONFIRMED']);
-  updateRow_(tgt.sheet, tgt.row, { Status: 'PENDING_VERIFY', SlipAmount: submitted, PaymentMethod: 'transfer', TransactionDate: nowStr_() });
+  // record the slip's actual transfer date (from SlipOK) as the payment date when we have it
+  updateRow_(tgt.sheet, tgt.row, { Status: 'PENDING_VERIFY', SlipAmount: submitted, PaymentMethod: 'transfer', TransactionDate: vr.transDate || nowStr_() });
   paySlipBustTarget_(kind);
   return { ok: true, slipId: slipId, due: tgt.due, paidSoFar: submitted, outstanding: Math.max(0, tgt.due - confirmed), amountMatch: submitted >= tgt.due, verified: vr.verified };
 }
@@ -139,14 +149,14 @@ function handlePayCombined(p) {
   if (p.slipData) { var b64 = String(p.slipData).indexOf(',') >= 0 ? String(p.slipData).split(',')[1] : String(p.slipData); if (b64) drive = paySlipToDrive_(b64, p.slipName || ('slip-combined.jpg')); }
   var vr = paySlipVerify_(p, total);
   var groupId = 'SG-' + Date.now();
-  var sh = paySlipsSheet_(); ensureColumns_(sh, ['SlipGroup']);
+  var sh = paySlipsSheet_(); ensureColumns_(sh, ['SlipGroup', 'TransDate']);
   var names = [];
   var seen = {};
   items.forEach(function (x, i) {
     appendObject_(sh, { SlipID: 'SL-' + Date.now() + '-' + i, RefKind: x.kind, RefID: x.id, StudentID: x.tgt.studentId, Amount: x.out,
-      Url: drive.url, FileId: drive.fileId, Verified: vr.verified, TransRef: vr.ref, Receiver: vr.receiver, SubmittedDate: nowStr_(), Status: 'SUBMITTED', SlipGroup: groupId });
+      Url: drive.url, FileId: drive.fileId, Verified: vr.verified, TransRef: vr.ref, Receiver: vr.receiver, TransDate: vr.transDate || '', SubmittedDate: nowStr_(), Status: 'SUBMITTED', SlipGroup: groupId });
     var submitted = paySlipSum_(x.kind, x.id, ['SUBMITTED', 'CONFIRMED']);
-    updateRow_(x.tgt.sheet, x.tgt.row, { Status: 'PENDING_VERIFY', SlipAmount: submitted, PaymentMethod: 'transfer', TransactionDate: nowStr_() });
+    updateRow_(x.tgt.sheet, x.tgt.row, { Status: 'PENDING_VERIFY', SlipAmount: submitted, PaymentMethod: 'transfer', TransactionDate: vr.transDate || nowStr_() });
     if (!seen[x.tgt.studentId]) { seen[x.tgt.studentId] = 1;
       var st = findObject_(sheet_(getMainSpreadsheet_(), 'STUDENTS'), function (s) { return String(s.StudentID) === String(x.tgt.studentId); });
       names.push(st ? (st.Nickname || st.Name || x.tgt.studentId) : x.tgt.studentId); }

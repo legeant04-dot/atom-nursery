@@ -30,7 +30,7 @@
     window.api=function(action,payload,opts){ if(!_isMut(action)) return _rawApi(action,payload,opts);
       _busyShow(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _busyDone(false); throw e; }
       return Promise.resolve(pr).then(v=>{ _busyDone(true); return v; }, e=>{ _busyDone(false); throw e; }); }; }
-  const APP_VERSION = 'Version 1.110'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.111'; // bump each webapp change; shown only at the bottom of the Chat screen
   const verTag = () => `<div style="text-align:center;color:#c3c9d4;font-size:10px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
   const phoneFmt = p => { let d=String(p==null?'':p).replace(/\D/g,''); if(d.length===9) d='0'+d; return d; };
@@ -171,9 +171,26 @@
   }
   function notifParams(){ return {role:USER.role, parentId:USER.parentId}; }
   async function refreshBell(){ try{ const ns=await api('notifications',notifParams()); const n=ns.filter(x=>!x.read).length; const b=$('#bellBadge'); b.hidden=!n; b.textContent=n; }catch(e){} }
-  window.BELL = async () => { const ns=await api('notifications',notifParams()); modal(`<div class="spread"><h3>🔔 ${t('c.notifications')}</h3><button class="btn-ghost" onclick="this.closest('.modal').remove()">${t('c.close')}</button></div>
-    ${ns.map(n=>`<div class="list-item"><span>${n.read?'':'🔵 '}${esc(EN()&&n.textEN?n.textEN:n.text)}</span><small class="muted">${esc(n.time)}</small></div>`).join('')||'<p class="muted">—</p>'}
+  window.BELL = async () => { const ns=await api('notifications',notifParams()); window._NOTIFS=ns; modal(`<div class="spread"><h3>🔔 ${t('c.notifications')}</h3><button class="btn-ghost" onclick="this.closest('.modal').remove()">${t('c.close')}</button></div>
+    ${ns.map((n,i)=>{ const go=notifTarget(n); return `<div class="list-item" ${go?`style="cursor:pointer" onclick="NOTIF_TAP(${i})"`:''}><span>${n.read?'':'🔵 '}${esc(EN()&&n.textEN?n.textEN:n.text)}</span><small class="muted">${esc(n.time)}${go?' ›':''}</small></div>`; }).join('')||'<p class="muted">—</p>'}
     <button class="btn block outline" style="margin-top:10px" onclick="MARKREAD(this)">${t('c.markread')}</button>`); };
+  // decide which screen a notification opens (by inbox category, falling back to keywords), role-aware
+  function notifTarget(n){ const cat=String(n&&n.category||''); const s=String((n&&(n.text||n.textEN))||''); const role=USER&&USER.role;
+    const has=re=>re.test(s);
+    let key = cat==='comment'?'journal':cat==='leave'?'leave':cat==='ot'?'ot':cat==='registration'?'register':cat==='emergency'?'injury':cat==='payment'?'verify':cat==='digest'?'home':'';
+    if(!key){ if(has(/ความคิดเห็น|คอมเมนต์|comment|ตอบกลับ|reply|บันทึกของ|รายงาน/i))key='journal';
+      else if(has(/แจ้งลา|ลาป่วย|ลากิจ|พักร้อน|\bลา\b|leave/i))key='leave';
+      else if(has(/OT|โอที|รับช้า|ล่วงเวลา/i))key='ot';
+      else if(has(/ลงทะเบียน|สมัคร|register|ผู้ปกครองใหม่|นักเรียนใหม่/i))key='register';
+      else if(has(/ชำระ|โอนเงิน|สลิป|slip|บิล|payment/i))key='verify';
+      else if(has(/สรุปประจำวัน|digest/i))key='home'; }
+    if(!key) return null;
+    // map the logical key to the actual screen for this role
+    const M={ Admin:{journal:()=>A_journals&&A_journals(), leave:()=>GO('leaves'), ot:()=>GO('manage'), register:()=>GO('manage'), verify:()=>GO('verify'), injury:()=>GO('home'), home:()=>GO('home')},
+      Teacher:{journal:()=>GO('class'), leave:()=>GO('leave'), ot:()=>GO('slip'), register:null, verify:null, injury:()=>GO('injury'), home:()=>GO('home')},
+      Parent:{journal:()=>GO('journal'), leave:()=>GO('home'), ot:()=>GO('payment'), register:null, verify:()=>GO('payment'), injury:()=>GO('home'), home:()=>GO('home')} };
+    const fn=(M[role]||{})[key]; return fn||null; }
+  window.NOTIF_TAP = (i)=>{ const n=(window._NOTIFS||[])[i]; if(!n)return; const go=notifTarget(n); const m=document.querySelector('.modal'); if(m)m.remove(); if(go){ try{ go(); }catch(e){} } };
   window.MARKREAD = async (btn)=>{ await api('markNotifsRead',notifParams()); btn.closest('.modal').remove(); refreshBell(); };
   // remembers which pre-login screen we're on, so the language toggle re-renders THAT screen
   let AUTH_RENDER = null;
@@ -1117,12 +1134,12 @@
     const past=(all.bands||[]).filter(b=>!s||b.label!==s.ageLabel);
     const itemRow=i=>`<div class="list-item"><span><b>ข้อ ${i.itemNo}</b> <span class="pill info">${i.skill}</span> · ${DT[i.skill]||''}<br><small>${esc(EN()&&i.descriptionEN?i.descriptionEN:i.description)}</small></span>${DSPM_PILL(i.result)}</div>`;
     const assessCard = s
-      ? `<div class="card"><div class="spread"><b>${esc(dispNick(st)||sid)}</b><span class="muted">${s.ageMonth} เดือน</span></div>
+      ? `<div class="card"><div class="spread"><b>${esc(dispNick(st)||sid)}</b><span class="muted">${esc(ageYMfromMonths(s.ageMonth))} (${s.ageMonth} ${EN()?'mo':'เดือน'})</span></div>
           <div class="spread"><b style="color:#1565C0">⭐ ช่วงวัยปัจจุบัน: ${esc(s.ageLabel)}</b></div>
           <p class="muted" style="font-size:12.5px">แสดงทุกข้อของช่วงวัยนี้ ที่ยังไม่ประเมินจะขึ้น "ยังไม่ได้รับการทดสอบ"</p>
           ${s.manualUrl?`<a class="btn sm outline" href="${esc(s.manualUrl)}" target="_blank">⬇️ ดาวน์โหลดคู่มือ DSPM</a>`:''}
           ${s.items.map(itemRow).join('')}</div>`
-      : `<div class="card"><div class="spread"><b>${esc(dispNick(st)||sid)}</b><span class="muted">${ageMo} เดือน</span></div>
+      : `<div class="card"><div class="spread"><b>${esc(dispNick(st)||sid)}</b><span class="muted">${esc(ageYMfromMonths(ageMo))} (${ageMo} ${EN()?'mo':'เดือน'})</span></div>
           <p class="muted" style="font-size:13px">ℹ️ ยังไม่มีเกณฑ์ประเมินพัฒนาการสำหรับช่วงวัยนี้ (อายุ ${ageMo} เดือน) — เมื่อโรงเรียนเพิ่มเกณฑ์ตามคู่มือ DSPM ของช่วงวัยนี้แล้ว รายการประเมินจะแสดงที่นี่</p></div>`;
     app.innerHTML=`<h2 class="page">📋 ${esc(t('title.dspm'))}${(kidsD&&kidsD.length>1)?'':` · <span style="color:#1565C0">${esc(dispNick(st)||sid)}</span>`}</h2>${childSwitcher(kidsD,sid,'P_dspm')}
       ${assessCard}
@@ -2933,11 +2950,12 @@
               ${s.receiver?`<small class="muted">→ ${esc(s.receiver)}</small><br>`:''}${s.transRef?`<small class="muted">ref ${esc(s.transRef)}</small><br>`:''}
               <small class="muted">${esc(String(s.date||'').slice(0,16))}</small></div></div>
             <div class="row" style="margin-top:6px"><button class="btn sm green" onclick="A_confirmSlip('${esc(s.slipId)}',this)">✅ ${EN()?'Confirm this slip':'ยืนยันสลิปนี้'}</button><button class="btn sm pink" onclick="A_rejectSlip('${esc(s.slipId)}')">✗ ${esc(t('verify.reject'))}</button></div></div>`).join('');
-        return `<div class="card"><div class="spread"><div><b>${esc(EN()?x.nameEN:x.name)}</b> <span class="pill info">${esc(kindLbl(x.kind))}</span> ${methodPill}<br><small class="muted">${esc(x.label)}${x.transactionDate?' · '+esc(t('pay.txnDate'))+' '+esc(x.transactionDate):''}</small></div></div>
+        const sNick=EN()?(x.nickEN||x.nick):(x.nick||x.nickEN);
+        return `<div class="card"><div class="spread"><div><b>👶 ${esc(sNick||x.name)}</b> <small class="muted">${esc(EN()?x.nameEN:x.name)}${x.class?' · '+esc(x.class):''}</small> <span class="pill info">${esc(kindLbl(x.kind))}</span> ${methodPill}<br><small class="muted">${esc(x.label)}${x.transactionDate?' · '+esc(t('pay.txnDate'))+' '+esc(x.transactionDate):''}</small></div></div>
           <table style="width:100%;font-size:13px;margin:6px 0"><tr><td>${esc(t('slip.amountDue'))}</td><td style="text-align:right"><b>${baht(x.due)}</b></td></tr>
           ${confirmed>0?`<tr><td>${EN()?'Confirmed so far':'ยืนยันแล้ว'}</td><td style="text-align:right;color:#2e7d32">${baht(confirmed)}</td></tr>`:''}
           <tr><td><b>${EN()?'Outstanding':'คงค้าง'}</b></td><td style="text-align:right"><b style="color:${outstanding>0?'#c62828':'#2e7d32'}">${baht(outstanding)}</b></td></tr></table>
-          <label class="field"><span>${esc(t('pay.paidDate'))}</span><input type="date" id="pd_${esc(x.id)}" value="${todayStr()}"/></label>
+          <label class="field"><span>${esc(t('pay.paidDate'))} <small class="muted">${(x.slips&&x.slips[0]&&/^\d{4}-\d{2}-\d{2}/.test(x.slips[0].transDate||''))?(EN()?'(from slip)':'(จากสลิป)'):''}</small></span><input type="date" id="pd_${esc(x.id)}" value="${(x.slips&&x.slips[0]&&/^\d{4}-\d{2}-\d{2}/.test(x.slips[0].transDate||''))?esc(x.slips[0].transDate.slice(0,10)):todayStr()}"/></label>
           ${cash?`<div style="background:#fffbe6;border-radius:8px;padding:6px 8px;font-size:12.5px;color:#8a6d00;margin-bottom:6px">💵 ${esc(t('verify.cashPending'))} ${baht(x.slipAmount)}</div>
             <div class="row"><button class="btn sm green" onclick="A_confirmPay('${x.kind}','${x.id}','cash')">✅ ${esc(t('verify.confirm'))}</button><button class="btn sm pink" onclick="A_rejectPay('${x.kind}','${x.id}')">✗ ${esc(t('verify.reject'))}</button></div>`
             : (slipRows||`<small class="muted">${EN()?'no slips':'ไม่มีสลิป'}</small>`)}</div>`;

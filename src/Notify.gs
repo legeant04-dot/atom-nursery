@@ -71,7 +71,7 @@ function handleNotifications(p) {
   p = p || {};
   if (String(p.role) !== ROLES.ADMIN) { try { return engineDispatch_('notifications', p); } catch (e) { return []; } }
   return handleAdminInbox(p).items.map(function (it) {
-    return { id: it.id, text: it.text, textEN: '', time: String(it.date).slice(5, 16), read: it.read };
+    return { id: it.id, text: it.text, textEN: '', time: String(it.date).slice(5, 16), read: it.read, category: it.category };
   });
 }
 function handleMarkNotifsRead(p) {
