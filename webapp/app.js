@@ -30,7 +30,7 @@
     window.api=function(action,payload,opts){ if(!_isMut(action)) return _rawApi(action,payload,opts);
       _busyShow(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _busyDone(false); throw e; }
       return Promise.resolve(pr).then(v=>{ _busyDone(true); return v; }, e=>{ _busyDone(false); throw e; }); }; }
-  const APP_VERSION = 'Version 1.121'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.122'; // bump each webapp change; shown only at the bottom of the Chat screen
   const verTag = () => `<div style="text-align:center;color:#c3c9d4;font-size:10px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
   const phoneFmt = p => { let d=String(p==null?'':p).replace(/\D/g,''); if(d.length===9) d='0'+d; return d; };
@@ -916,7 +916,10 @@
     const seg=document.getElementById('paySeg'); if(seg)[...seg.children].forEach((b,j)=>b.classList.toggle('active',j===i));
     setHTML('#payBody', await P_payChildHTML(k)); window.scrollTo(0,0); };
   async function P_payChildHTML(kid){ const sid=kid.StudentID;
-    const [ps, ot, pre, allSlips, charges] = await Promise.all([api('payments',{studentId:sid}), api('otDaily',{studentId:sid}), api('prepayments',{studentId:sid}), api('paymentSlips',{studentId:sid}), api('studentCharges',{studentId:sid})]);
+    const [ps, ot, pre, allSlips, charges, plans, qr] = await Promise.all([api('payments',{studentId:sid}), api('otDaily',{studentId:sid}), api('prepayments',{studentId:sid}), api('paymentSlips',{studentId:sid}), api('studentCharges',{studentId:sid}), api('getPlans').catch(()=>[]), api('getQRCodes').catch(()=>({qrs:[],otQrId:''}))]);
+    // resolve the bank QR bound to THIS child's package (tuition) and to OT — so money goes to the right account
+    const _qrs=(qr&&qr.qrs)||[]; const _plan=(plans||[]).find(p=>p.id===kid.Plan)||{}; const _img=id=>{ const q=_qrs.find(x=>x.id===id); return q?q.image:''; };
+    window._PAYQR={ bill:_img(_plan.qrId)||MOCK.config.QRCode_Monthly||MOCK.config.QRCode, ot:_img(qr&&qr.otQrId)||MOCK.config.QRCode_OT };
     const slipsOf=(kind,id)=>(allSlips||[]).filter(s=>s.RefKind===kind&&s.RefID===id);
     const per=EN()?'Period ':'งวด ';
     const verifyPill=`<span class="pill wait">${esc(t('pay.pendingVerify'))}</span>`;
@@ -983,16 +986,16 @@
   window.P_receipt=async(billingId)=>{ const ps=await api('payments',{studentId:window._PAY_SID}); const b=ps.find(x=>x.BillingID===billingId); if(!b)return;
     // use the real linked child (gas mode has no MOCK.students seed → the old lookup gave a blank name)
     const s=(window._PAY_KIDS||[]).find(x=>x.StudentID===b.StudentID)||MOCK.students.find(x=>x.StudentID===b.StudentID)||{}; openOrDownload(buildReceiptHTML(b,s),'receipt-'+billingId+'.html'); };
-  // monthly QR = SCB (config.QRCode_Monthly, fallback legacy QRCode/PromptPayQR)
+  // monthly QR = the bank account bound to this child's package (falls back to the default config QR)
   window.P_qr=(id,amt)=>{ qrModalHTML({ title:'📲 '+t('pay.scanMonthly'), amount:amt,
-    img:MOCK.config.QRCode_Monthly||MOCK.config.QRCode||MOCK.config.PromptPayQR, imgName:'monthly-'+id+'.png' }); };
-  // paying OT: show the KTB QR (tap to zoom, save) + an "attach slip" button → then the slip modal
+    img:(window._PAYQR&&window._PAYQR.bill)||MOCK.config.QRCode_Monthly||MOCK.config.QRCode||MOCK.config.PromptPayQR, imgName:'monthly-'+id+'.png' }); };
+  // paying OT: use the QR/account bound to OT (may be a different bank) + attach slip
   window.P_payOT=(otId,amt)=>{ qrModalHTML({ title:'⏰ '+t('ot.title'), amount:amt,
-    img:MOCK.config.QRCode_OT, imgName:'OT-'+otId+'.png',
+    img:(window._PAYQR&&window._PAYQR.ot)||MOCK.config.QRCode_OT, imgName:'OT-'+otId+'.png',
     extra:`<button class="btn block" style="margin-top:8px" onclick="this.closest('.modal').remove();P_slip('${otId}',${amt},'ot')">📎 ${esc(t('lbl.attachSlip'))}</button>` }); };
-  // paying an extra charge: monthly QR + attach slip (kind 'charge')
+  // paying an extra charge: use the package QR (tuition account) + attach slip (kind 'charge')
   window.P_payCharge=(chargeId,amt)=>{ qrModalHTML({ title:'➕ '+(EN()?'Extra charge':'ค่าใช้จ่ายเพิ่มเติม'), amount:amt,
-    img:MOCK.config.QRCode_Monthly||MOCK.config.QRCode, imgName:'charge-'+chargeId+'.png',
+    img:(window._PAYQR&&window._PAYQR.bill)||MOCK.config.QRCode_Monthly||MOCK.config.QRCode, imgName:'charge-'+chargeId+'.png',
     extra:`<button class="btn block" style="margin-top:8px" onclick="this.closest('.modal').remove();P_slip('${chargeId}',${amt},'charge')">📎 ${esc(t('lbl.attachSlip'))}</button>` }); };
   // attach slip + enter the transferred amount → system verifies amount matches before marking paid
   window.P_slip=(id,due,kind)=>{ modal(`<h3>📎 ${esc(t('slip.title'))}</h3><p class="muted" style="font-size:12px">${esc(t('slip.note'))}</p>
@@ -2357,11 +2360,12 @@
     if(en && pl.end) en.value=String(pl.end).slice(0,5); };
 
   // ---- Package (Plan) CRUD: name / price / study time. Persists the whole list via savePlans. ----
-  window.A_packages=async()=>{ const plans=await api('getPlans'); A_CACHE.plans=plans||[];
+  window.A_packages=async()=>{ const [plans,qr]=await Promise.all([api('getPlans'),api('getQRCodes').catch(()=>({qrs:[],otQrId:''}))]); A_CACHE.plans=plans||[]; window._QR=qr||{qrs:[],otQrId:''};
+    const qrName=id=>{ const q=(window._QR.qrs||[]).find(x=>x.id===id); return q?q.name:''; };
     const row=p=>`<div class="card" style="padding:8px"><div class="spread"><b>${esc(EN()?(p.labelEN||p.labelTH):(p.labelTH||p.labelEN))||p.id}</b><b style="color:#1565C0">${baht(p.price)}</b></div>
-      <small class="muted">🕗 ${esc(p.start||'-')} – ${esc(p.end||'-')} น.</small>
+      <small class="muted">🕗 ${esc(p.start||'-')} – ${esc(p.end||'-')} น.${p.qrId?` · 🏦 ${esc(qrName(p.qrId))||'QR'}`:''}</small>
       <div class="row" style="margin-top:6px"><button class="btn sm outline" onclick="A_pkgForm('${esc(p.id)}')">✏️ ${EN()?'Edit':'แก้ไข'}</button><button class="btn sm pink" onclick="A_pkgDelete('${esc(p.id)}')">🗑️ ${EN()?'Delete':'ลบ'}</button></div></div>`;
-    modal(`<div class="spread"><h3>📦 ${EN()?'Packages':'แพ็กเกจการเรียน'}</h3><button class="btn sm" onclick="A_pkgForm()">+ ${esc(t('manage.add'))}</button></div>
+    modal(`<div class="spread"><h3>📦 ${EN()?'Packages':'แพ็กเกจการเรียน'}</h3><span class="row"><button class="btn sm outline" onclick="A_qrCodes()">🏦 ${EN()?'QR accounts':'QR/บัญชี'}</button><button class="btn sm" onclick="A_pkgForm()">+ ${esc(t('manage.add'))}</button></span></div>
       <p class="muted" style="font-size:12px">${EN()?'Name, price and study time per package. The time auto-fills a student’s arrive/leave time when you assign the package (still editable).':'ตั้งชื่อ ราคา และช่วงเวลาเรียนของแต่ละแพ็กเกจ · เวลาจะถูกนำไปใส่ให้นักเรียนอัตโนมัติเมื่อเลือกแพ็กเกจ (แก้ไขรายคนได้)'}</p>
       <div style="max-height:60vh;overflow:auto">${(plans||[]).length?plans.map(row).join(''):`<div class="card muted">${EN()?'No packages yet':'ยังไม่มีแพ็กเกจ'}</div>`}</div>
       <button class="btn outline block" style="margin-top:8px" onclick="this.closest('.modal').remove()">${esc(t('c.close'))}</button>`);
@@ -2373,11 +2377,12 @@
       <label class="field"><span>${EN()?'Price / month (฿)':'ราคาต่อเดือน (฿)'}</span><input id="pk_price" type="number" min="0" value="${esc(p.price!=null?p.price:'')}"/></label>
       <div class="grid2"><label class="field"><span>🕗 ${EN()?'Arrive time':'เวลาเข้าเรียน'}</span><input id="pk_start" type="time" value="${esc(String(p.start||'').slice(0,5))}"/></label>
         <label class="field"><span>🕔 ${EN()?'Leave time':'เวลาเลิกเรียน'}</span><input id="pk_end" type="time" value="${esc(String(p.end||'').slice(0,5))}"/></label></div>
+      <label class="field"><span>🏦 ${EN()?'Bank QR / account for tuition':'QR/บัญชีธนาคารสำหรับค่าเทอม'}</span><select id="pk_qr"><option value="">${EN()?'(default account)':'(บัญชีเริ่มต้น)'}</option>${(window._QR&&window._QR.qrs||[]).map(q=>`<option value="${esc(q.id)}" ${p.qrId===q.id?'selected':''}>${esc(q.name)}</option>`).join('')}</select></label>
       <button class="btn block" onclick="A_pkgSave(this,'${id||''}')">${esc(t('c.save'))}</button>`);
   };
   window.A_pkgSave=async(btn,id)=>{ const m=btn.closest('.modal'); const v=s=>{ const e=m.querySelector(s); return e?e.value.trim():''; };
     const th=v('#pk_th'), en=v('#pk_en'); if(!th&&!en){ toast(EN()?'Enter a name':'ใส่ชื่อแพ็กเกจ'); return; }
-    const rec={ id:id||undefined, labelTH:th||en, labelEN:en||th, price:Number(v('#pk_price'))||0, start:v('#pk_start'), end:v('#pk_end') };
+    const rec={ id:id||undefined, labelTH:th||en, labelEN:en||th, price:Number(v('#pk_price'))||0, start:v('#pk_start'), end:v('#pk_end'), qrId:v('#pk_qr') };
     const plans=(A_CACHE.plans||[]).slice();
     if(id){ const i=plans.findIndex(x=>x.id===id); if(i>=0) plans[i]=Object.assign({},plans[i],rec); else plans.push(rec); }
     else plans.push(rec);
@@ -2385,6 +2390,27 @@
   window.A_pkgDelete=async(id)=>{ if(!confirm(EN()?'Delete this package? Students already on it keep their saved time.':'ลบแพ็กเกจนี้? นักเรียนที่ใช้อยู่จะยังคงเวลาที่บันทึกไว้'))return;
     const plans=(A_CACHE.plans||[]).filter(x=>x.id!==id);
     try{ const r=await api('savePlans',{plans}); A_CACHE.plans=r.plans||plans; MOCK.config.Plans=A_CACHE.plans; toast(t('manage.deleted')); const m=document.querySelector('.modal'); if(m)m.remove(); A_packages(); }catch(e){err(e);} };
+  // ---- QR-code MASTER: bank QR images bound per package (tuition) / OT, so fees go to different accounts ----
+  window.A_qrCodes=async()=>{ const qr=await api('getQRCodes').catch(()=>({qrs:[],otQrId:''})); window._QR=qr||{qrs:[],otQrId:''};
+    const rows=(window._QR.qrs||[]).map(q=>`<div class="card" style="padding:8px"><div class="spread"><b>${esc(q.name)}</b><button class="btn sm pink" onclick="A_qrDel('${esc(q.id)}')">🗑️ ${EN()?'Delete':'ลบ'}</button></div>${q.image?`<div style="text-align:center"><img src="${esc(q.image)}" style="max-height:120px;border-radius:8px;margin-top:6px;cursor:zoom-in" onclick="ZOOM_IMG('${esc(q.image)}')"/></div>`:''}</div>`).join('')||`<small class="muted">${EN()?'No QR accounts yet':'ยังไม่มี QR/บัญชี'}</small>`;
+    modal(`<div class="spread"><h3>🏦 ${EN()?'QR accounts (master)':'QR/บัญชีธนาคาร'}</h3><button class="btn sm" onclick="A_qrAdd()">+ ${esc(t('manage.add'))}</button></div>
+      <p class="muted" style="font-size:12px">${EN()?'Add bank QR images, then bind them per package (tuition) and for OT — so different fees go to different accounts.':'เพิ่ม QR ธนาคารได้หลายบัญชี แล้วผูกกับแต่ละแพ็กเกจ (ค่าเทอม) และ OT เพื่อแยกเงินเข้าคนละบัญชี'}</p>
+      <div style="max-height:44vh;overflow:auto">${rows}</div>
+      <label class="field" style="margin-top:10px"><span>⏰ ${EN()?'QR / account for OT payments':'QR/บัญชีสำหรับชำระ OT'}</span><select id="qr_ot"><option value="">${EN()?'(default account)':'(บัญชีเริ่มต้น)'}</option>${(window._QR.qrs||[]).map(q=>`<option value="${esc(q.id)}" ${window._QR.otQrId===q.id?'selected':''}>${esc(q.name)}</option>`).join('')}</select></label>
+      <button class="btn block" onclick="A_qrSaveOt(this)">💾 ${EN()?'Save OT account':'บันทึกบัญชี OT'}</button>
+      <button class="btn outline block" style="margin-top:8px" onclick="A_packages()">← ${EN()?'Packages':'แพ็กเกจ'}</button>`);
+  };
+  window.A_qrAdd=()=>{ modal(`<h3>🏦 ${EN()?'Add QR account':'เพิ่ม QR/บัญชี'}</h3>
+    <label class="field"><span>${EN()?'Account name':'ชื่อบัญชี'}</span><input id="qr_name" placeholder="${EN()?'e.g. SCB — tuition':'เช่น SCB — ค่าเทอม'}"/></label>
+    ${photoField('qr_img',EN()?'QR image':'รูป QR',null,false)}
+    <button class="btn block" onclick="A_qrAddDo(this)">${esc(t('c.save'))}</button>`); };
+  window.A_qrAddDo=async(btn)=>{ const m=btn.closest('.modal'); const name=(m.querySelector('#qr_name').value||'').trim(); const img=photoVal(m,'qr_img');
+    if(!name){ toast(EN()?'Enter a name':'ใส่ชื่อบัญชี'); return; } if(!img){ toast(EN()?'Add the QR image':'แนบรูป QR'); return; }
+    const qrs=(window._QR.qrs||[]).slice(); qrs.push({name,image:img});
+    btn.disabled=true; try{ const r=await api('saveQRCodes',{qrs,otQrId:window._QR.otQrId||''}); window._QR=r; m.remove(); confirmSaved(t('c.saved')); A_qrCodes(); }catch(e){err(e);btn.disabled=false;} };
+  window.A_qrDel=async(id)=>{ if(!confirm(EN()?'Delete this QR account?':'ลบ QR/บัญชีนี้?'))return; const qrs=(window._QR.qrs||[]).filter(q=>q.id!==id);
+    const otQrId=window._QR.otQrId===id?'':window._QR.otQrId; try{ const r=await api('saveQRCodes',{qrs,otQrId}); window._QR=r; const m=document.querySelector('.modal'); if(m)m.remove(); A_qrCodes(); }catch(e){err(e);} };
+  window.A_qrSaveOt=async(btn)=>{ const m=btn.closest('.modal'); const otQrId=m.querySelector('#qr_ot').value; try{ const r=await api('saveQRCodes',{qrs:window._QR.qrs||[],otQrId}); window._QR=r; confirmSaved(t('c.saved')); }catch(e){err(e);} };
 
   window.A_studentForm=(id)=>{ const s=findStudent(id);
     const f=(k,label,val,type)=>`<label class="field"><span>${esc(label)}</span><input id="stf_${k}" type="${type||'text'}" value="${esc(val!=null?val:'')}"/></label>`;

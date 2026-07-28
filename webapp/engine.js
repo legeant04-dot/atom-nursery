@@ -286,6 +286,11 @@ function createAtomAPI(M, GROWTH_STD) {
     savePlans: p => { const arr=Array.isArray(p.plans)?p.plans:[];
       arr.forEach(pl=>{ if(!pl.id) pl.id='pkg_'+Math.random().toString(36).slice(2,8); pl.price=Number(pl.price||0); });
       cfg.Plans=arr; return {ok:true, plans:cfg.Plans}; },
+    // QR-code MASTER: a list of bank QR images the school collects into different accounts. A plan can be
+    // bound to one (plan.qrId) and OT to another (OTQRId), so tuition vs OT go to separate bank accounts.
+    getQRCodes: () => ({ qrs: cfg.QRCodes||[], otQrId: cfg.OTQRId||'' }),
+    saveQRCodes: p => { const arr=Array.isArray(p.qrs)?p.qrs:[]; arr.forEach(q=>{ if(!q.id) q.id='qr_'+Math.random().toString(36).slice(2,8); });
+      cfg.QRCodes=arr; if(p.otQrId!==undefined) cfg.OTQRId=String(p.otQrId||''); return {ok:true, qrs:cfg.QRCodes, otQrId:cfg.OTQRId||''}; },
     parentCheckin: p => { const d=(String(p.type||'IN').toUpperCase()==='OUT')?geo(p.lat,p.lng):geoSafe(p.lat,p.lng); const t=timeLocal();
       // de-dup a rapid repeat (same student+type today within CheckinDedupMinutes) → keep only the latest time
       const win=Number(cfg.CheckinDedupMinutes||10); const nowMin=toMin(t);

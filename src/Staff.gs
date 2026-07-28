@@ -247,6 +247,23 @@ function handleSavePlans(p) {
   return { ok: true, plans: arr };
 }
 
+// QR-code master (bank QR images) + OT binding, so tuition vs OT can go to different bank accounts.
+function handleSaveQRCodes(p) {
+  p = p || {};
+  var arr = Array.isArray(p.qrs) ? p.qrs : [];
+  arr.forEach(function (q) {
+    if (!q.id) q.id = 'qr_' + Math.random().toString(36).slice(2, 8);
+    // upload a freshly-picked image (data URL) to Drive and keep only the short URL — several base64
+    // images in one config cell would blow past the 50k-char cell limit.
+    if (q.image && String(q.image).indexOf('data:') === 0) {
+      try { var b64 = String(q.image).split(',')[1]; if (b64) q.image = paySlipToDrive_(b64, 'qr-' + q.id + '.png').url; } catch (e) {}
+    }
+  });
+  setConfigValue_('QRCodes', JSON.stringify(arr));
+  if (p.otQrId !== undefined) setConfigValue_('OTQRId', String(p.otQrId || ''));
+  return { ok: true, qrs: arr, otQrId: getConfig_('OTQRId', '') };
+}
+
 // Admin deletes a bill in-place (one BILLING row). Admin-only (guarded in applyIdentity_).
 function handleDeleteBill(p) {
   p = p || {};
