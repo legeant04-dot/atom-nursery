@@ -30,7 +30,7 @@
     window.api=function(action,payload,opts){ if(!_isMut(action)) return _rawApi(action,payload,opts);
       _busyShow(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _busyDone(false); throw e; }
       return Promise.resolve(pr).then(v=>{ _busyDone(true); return v; }, e=>{ _busyDone(false); throw e; }); }; }
-  const APP_VERSION = 'Version 1.120'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.121'; // bump each webapp change; shown only at the bottom of the Chat screen
   const verTag = () => `<div style="text-align:center;color:#c3c9d4;font-size:10px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
   const phoneFmt = p => { let d=String(p==null?'':p).replace(/\D/g,''); if(d.length===9) d='0'+d; return d; };
@@ -255,19 +255,24 @@
       <p class="muted">${esc(t('chooser.sub'))}</p>
       ${rc('Parent','👪')}${rc('Teacher','👩‍🏫')}${rc('Admin','🛠️')}${rc('Leader','⭐')}
       <button class="btn-ghost block" style="margin-top:8px" onclick="accountStage()">${esc(t('c.back'))}</button>
-      <button class="btn outline block" id="installBtn" style="margin-top:10px" hidden onclick="DO_INSTALL()">📲 ${esc(t('install'))}</button></div>`;
-    if(deferredInstall) $('#installBtn').hidden=false;
+      ${installButtonsHTML()}</div>`;
   }
+  // two clear install buttons — parents on Android vs iPhone follow different steps
+  function installButtonsHTML(){ return `<div class="row" style="margin-top:10px;gap:8px"><button class="btn outline" style="flex:1" onclick="DO_INSTALL('android')">🤖 ${EN()?'Install (Android)':'ติดตั้ง Android'}</button><button class="btn outline" style="flex:1" onclick="DO_INSTALL('ios')">🍎 ${EN()?'Install (iOS)':'ติดตั้ง iOS'}</button></div>`; }
   let deferredInstall=null;
-  const _installBtns=()=>[...document.querySelectorAll('#installBtn')];
-  window.addEventListener('beforeinstallprompt', e=>{ e.preventDefault(); deferredInstall=e; _installBtns().forEach(b=>b.hidden=false); });
-  // already running as an installed PWA (standalone) → no need for the button
-  function _isStandalone(){ return (window.matchMedia&&matchMedia('(display-mode: standalone)').matches) || window.navigator.standalone===true; }
-  window.addEventListener('appinstalled', ()=>{ deferredInstall=null; _installBtns().forEach(b=>b.hidden=true); toast(EN()?'App installed ✓':'ติดตั้งแอปแล้ว ✓'); });
-  window.DO_INSTALL = async ()=>{ if(!deferredInstall){ toast(EN()?'Open the browser menu → Add to Home Screen':'เปิดเมนูเบราว์เซอร์ → เพิ่มลงในหน้าจอโฮม'); return; }
-    deferredInstall.prompt();
-    try{ const c=await deferredInstall.userChoice; if(c&&c.outcome==='accepted'){ _installBtns().forEach(b=>b.hidden=true); } }catch(e){}
-    deferredInstall=null; };
+  window.addEventListener('beforeinstallprompt', e=>{ e.preventDefault(); deferredInstall=e; });
+  window.addEventListener('appinstalled', ()=>{ deferredInstall=null; toast(EN()?'App installed ✓':'ติดตั้งแอปแล้ว ✓'); });
+  // step-by-step help for whichever platform the parent taps
+  function _installHelp(ios){ modal(`<div style="text-align:center"><div style="font-size:40px">${ios?'🍎':'🤖'}</div>
+    <h3>${ios?(EN()?'Install on iPhone / iPad':'ติดตั้งบน iPhone / iPad'):(EN()?'Install on Android':'ติดตั้งบน Android')}</h3>
+    <ol style="text-align:left;font-size:14px;line-height:1.7;padding-left:22px;margin:8px 0">
+    ${ios
+      ? `<li>${EN()?'Open this page in <b>Safari</b>':'เปิดหน้านี้ใน <b>Safari</b>'}</li><li>${EN()?'Tap <b>Share</b> ⬆️':'แตะปุ่ม <b>แชร์</b> ⬆️'}</li><li>${EN()?'Choose <b>Add to Home Screen</b>':'เลือก <b>เพิ่มลงในหน้าจอโฮม</b>'}</li><li>${EN()?'Tap <b>Add</b>':'แตะ <b>เพิ่ม</b>'}</li>`
+      : `<li>${EN()?'Tap the browser menu ⋮':'แตะเมนู ⋮ ของเบราว์เซอร์'}</li><li>${EN()?'Choose <b>Install app</b> / <b>Add to Home screen</b>':'เลือก <b>ติดตั้งแอป</b> / <b>เพิ่มลงในหน้าจอหลัก</b>'}</li><li>${EN()?'Confirm <b>Install</b>':'ยืนยัน <b>ติดตั้ง</b>'}</li>`}
+    </ol><button class="btn block" onclick="this.closest('.modal').remove()">${esc(t('c.close'))}</button></div>`); }
+  window.DO_INSTALL = async (platform)=>{
+    if(platform==='android' && deferredInstall){ deferredInstall.prompt(); try{ await deferredInstall.userChoice; }catch(e){} deferredInstall=null; return; }
+    _installHelp(platform==='ios'); };
   const DEMO_USERS = {
     Parent:{role:'Parent',nameTH:'กานต์ ดีงาม',nameEN:'Ms.Karn',parentId:'PAR-1',uid:'U_p1'},
     Teacher:{role:'Teacher',nameTH:'เอ มานะ',nameEN:'A Mana',staffId:'STF-T1'},
@@ -315,8 +320,7 @@
       <p class="muted">${esc(t('login.lineOnly'))}</p>
       <button class="role-card" onclick="LIFF_LOGIN()"><span class="ic" style="background:#06C755;color:#fff;font-weight:800">L</span><span><b>${esc(t('login.lineBtn'))}</b><br><small>${esc(t('login.lineSub'))}</small></span></button>
       <label style="display:flex;align-items:center;gap:8px;justify-content:center;margin-top:10px;font-size:13px"><input type="checkbox" id="rememberMe" checked style="width:auto"/> ${esc(t('login.remember'))}</label>
-      <button class="btn outline block" id="installBtn" style="margin-top:14px" hidden onclick="DO_INSTALL()">📲 ${esc(t('install'))}</button></div>`;
-    if(deferredInstall) $('#installBtn').hidden=false;
+      ${installButtonsHTML()}</div>`;
   }
   // In gas+LIFF mode: trigger real LINE login; otherwise fall through to demo chooser
   window.LIFF_LOGIN = () => {
@@ -2300,20 +2304,26 @@
     catch(e){ err(e); btn.disabled=false; } };
   window.A_viewAs=async()=>{
     // the lists are normally cached by manage(); fetch them so View-As works straight from home
-    if(!(A_CACHE.staff&&A_CACHE.staff.length) || !(A_CACHE.students&&A_CACHE.students.length)){
-      try{ const [staff,students]=await Promise.all([api('listStaff'),api('listStudents')]); if(staff)A_CACHE.staff=staff; if(students)A_CACHE.students=students; }catch(e){}
-    }
+    const need=[];
+    if(!(A_CACHE.staff&&A_CACHE.staff.length)) need.push(api('listStaff').then(r=>A_CACHE.staff=r||A_CACHE.staff));
+    if(!(A_CACHE.parents&&A_CACHE.parents.length)) need.push(api('listParents').then(r=>A_CACHE.parents=r||A_CACHE.parents));
+    if(!(window._LINKCOUNTS&&Object.keys(window._LINKCOUNTS).length)) need.push(api('parentLinkCounts').then(r=>window._LINKCOUNTS=r||{}).catch(()=>{}));
+    if(need.length){ try{ await Promise.all(need); }catch(e){} }
+    // parents WITH ≥1 linked child (so the multi-child view is meaningful) sorted by count desc
+    const cnt=window._LINKCOUNTS||{}; const paList=(A_CACHE.parents||[]).slice().sort((a,b)=>(cnt[b.ParentID]||0)-(cnt[a.ParentID]||0));
     modal(`<h3>👁️ ${EN()?'View as role':'ดูในมุมมอง (สลับ Role)'}</h3>
-    <p class="muted" style="font-size:12px">${EN()?'Preview the app as another role. You stay logged in as admin — tap "Back to Admin" to return.':'ดูแอปในมุมมองบทบาทอื่น (ยังเป็นแอดมินอยู่) — กด "กลับเป็น Admin" เพื่อกลับ'}</p>
+    <p class="muted" style="font-size:12px">${EN()?'Preview the app exactly as this person sees it. You stay logged in as admin — tap "Back to Admin" to return.':'ดูแอปแบบที่คน ๆ นั้นเห็นจริง (ยังเป็นแอดมินอยู่) — กด "กลับเป็น Admin" เพื่อกลับ'}</p>
     <label class="field"><span>👩‍🏫 ${EN()?'As teacher / leader':'มุมมองครู / หัวหน้า'}</span><select id="va_staff"><option value="">—</option>${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').map(s=>`<option value="${s.StaffID}">${esc(nmn(s))} · ${esc(s.PositionLevel||'')}</option>`).join('')}</select></label>
     <button class="btn block" onclick="A_viewAsStaff(this)">${EN()?'View as this staff':'ดูมุมมองครูคนนี้'}</button>
     <div style="height:12px"></div>
-    <label class="field"><span>👪 ${EN()?'As parent of…':'มุมมองผู้ปกครองของ…'}</span><select id="va_stu"><option value="">—</option>${(A_CACHE.students||[]).map(s=>`<option value="${s.StudentID}">${esc(nmn(s))} · ${esc(s.Class||'')}</option>`).join('')}</select></label>
-    <button class="btn block outline" onclick="A_viewAsParent(this)">${EN()?'View as this parent':'ดูมุมมองผู้ปกครอง'}</button>`); };
+    <label class="field"><span>👪 ${EN()?'As parent (all their children)':'มุมมองผู้ปกครอง (เห็นลูกทุกคนที่ผูก)'}</span><select id="va_parent"><option value="">—</option>${paList.map(p=>`<option value="${esc(p.ParentID)}">${esc(nm(p)||p.NameTH||p.ParentID)}${p.Phone?' · '+esc(p.Phone):''} · 👶 ${cnt[p.ParentID]||0}</option>`).join('')}</select></label>
+    <button class="btn block outline" onclick="A_viewAsParent(this)">${EN()?'View as this parent':'ดูมุมมองผู้ปกครองคนนี้'}</button>`); };
   window.A_viewAsStaff=(btn)=>{ const m=btn.closest('.modal'); const sid=m.querySelector('#va_staff').value; if(!sid){toast(EN()?'Pick a staff':'เลือกครูก่อน');return;} const s=findStaff(sid); m.remove();
     _enterViewAs({role:'Teacher',_roleKey:(s.PositionLevel==='Leader'?'Leader':'Teacher'),staffId:sid,nameEN:s.NameEN||s.NameTH||sid,nameTH:s.NameTH||sid}); };
-  window.A_viewAsParent=(btn)=>{ const m=btn.closest('.modal'); const sid=m.querySelector('#va_stu').value; if(!sid){toast(EN()?'Pick a student':'เลือกนักเรียนก่อน');return;} const s=findStudent(sid); m.remove();
-    _enterViewAs({role:'Parent',_roleKey:'Parent',parentId:s.ParentID,uid:s.ParentID||'',nameEN:(s.NameEN||s.NameTH)+' — parent',nameTH:(s.NameTH||'')+' — ผู้ปกครอง'}); };
+  window.A_viewAsParent=(btn)=>{ const m=btn.closest('.modal'); const pid=m.querySelector('#va_parent').value; if(!pid){toast(EN()?'Pick a parent':'เลือกผู้ปกครองก่อน');return;}
+    const p=(A_CACHE.parents||[]).find(x=>String(x.ParentID)===String(pid))||{}; m.remove();
+    // uid = their LINE UID so visibleStudents returns EVERY linked child (multi-child view); parentId for legacy links
+    _enterViewAs({role:'Parent',_roleKey:'Parent',parentId:pid,uid:p.LineUID||pid,nameEN:(p.NameEN||p.NameTH||pid)+' — parent',nameTH:(p.NameTH||pid)+' — ผู้ปกครอง'}); };
   function _enterViewAs(ctx){ if(!VIEW_AS_BACKUP) VIEW_AS_BACKUP=USER; USER=Object.assign({_viewAs:true},ctx); setHeader(); GO('home'); _viewAsBar(); }
   window.A_exitViewAs=()=>{ if(VIEW_AS_BACKUP){ USER=VIEW_AS_BACKUP; VIEW_AS_BACKUP=null; } const b=document.getElementById('viewAsBar'); if(b)b.remove(); setHeader(); GO('home'); };
   function _viewAsBar(){ let b=document.getElementById('viewAsBar'); if(!b){ b=document.createElement('div'); b.id='viewAsBar'; document.body.appendChild(b); }
