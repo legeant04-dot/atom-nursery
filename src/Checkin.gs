@@ -198,18 +198,22 @@ function handleStaffStudentCheckin(p) {
   // the teacher must record the ACTUAL drop-off / pick-up time — a child picked up at 12:57 must not
   // read the wall-clock 17:26 and wrongly trigger OT. Accept an HH:mm override; blank → now.
   var timeHM = /^\d{1,2}:\d{2}$/.test(String(p.time || '').trim()) ? String(p.time).trim() : timeStr_(now);
-  // one drop-off + one pick-up per day — block a second same-type record (button also fades client-side)
-  var already = readObjects_(sh).some(function (r) {
+  // If a same-type record already exists today, UPDATE its time (correct it) rather than blocking —
+  // so a teacher can fix a wrong pickup time (e.g. an accidental 07:50 → the real 16:50) and can always
+  // check a present child OUT. One drop-off + one pick-up per day, but editable.
+  var existing = findObject_(sh, function (r) {
     return String(r.StudentID) === String(student.StudentID) && dateStr_(new Date(r.Date)) === today &&
            String(r.Type).toUpperCase() === type;
   });
-  if (already) throw apiError_(type === 'IN' ? 'ALREADY_IN' : 'ALREADY_OUT',
-    (type === 'IN' ? 'ส่งเข้าเรียน' : 'รับกลับ') + 'ไปแล้ววันนี้');
-  appendObject_(sh, {
-    Date: today, Time: timeHM, StudentID: student.StudentID,
-    ParentID: student.ParentID || '', Type: type, GPS_Lat: '', GPS_Lng: '', Status: 'OK',
-    Remark: remark, ByStaffID: staff.StaffID
-  });
+  if (existing) {
+    updateRow_(sh, existing._row, { Time: timeHM, Remark: remark, ByStaffID: staff.StaffID });
+  } else {
+    appendObject_(sh, {
+      Date: today, Time: timeHM, StudentID: student.StudentID,
+      ParentID: student.ParentID || '', Type: type, GPS_Lat: '', GPS_Lng: '', Status: 'OK',
+      Remark: remark, ByStaffID: staff.StaffID
+    });
+  }
   try { CacheService.getScriptCache().removeAll(['col:CHECKIN_STUDENT', 'rows:CHECKIN_STUDENT']); } catch (e) {}
   // audit trail Admin can review: staff, actual time entered, type, and the reason
   try { logAudit(staff.StaffID, 'STUDENT_CHECK' + type + '_BY_STAFF', 'CHECKIN_STUDENT', student.StudentID + ' @' + timeHM + ' — ' + remark); } catch (e) {}

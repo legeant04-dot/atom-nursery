@@ -317,11 +317,11 @@ function createAtomAPI(M, GROWTH_STD) {
       // the teacher must record the ACTUAL drop-off / pick-up time (a child picked up at 12:57 must NOT
       // read 17:26 and wrongly trigger OT). Accept an override HH:mm; blank → now.
       const t=/^\d{1,2}:\d{2}$/.test(String(p.time||'').trim()) ? String(p.time).trim() : timeLocal();
-      // block a second same-type record for the day (button also fades client-side)
-      const done=M.studentCheckins.find(c=>c.StudentID===st.StudentID&&ymd(c.Date)===todayLocal())||{};
-      if(type==='IN'&&done.InTime) fail('ALREADY_IN','ส่งเข้าเรียนไปแล้ววันนี้ ('+done.InTime+')');
-      if(type==='OUT'&&done.OutTime) fail('ALREADY_OUT','รับกลับไปแล้ววันนี้ ('+done.OutTime+')');
-      M.checkinStudent.push({Date:todayLocal(),Time:t,StudentID:st.StudentID,ParentID:st.ParentID||'',Type:type,Status:'OK',Remark:remark,ByStaffID:p.staffId||''});
+      // if a same-type record exists today, UPDATE its time (correct it) instead of blocking — a teacher
+      // can fix a wrong pickup time and can always check a present child OUT.
+      const prev=M.checkinStudent.find(c=>c.StudentID===st.StudentID&&ymd(c.Date)===todayLocal()&&String(c.Type).toUpperCase()===type);
+      if(prev){ prev.Time=t; prev.Remark=remark; prev.ByStaffID=p.staffId||''; }
+      else M.checkinStudent.push({Date:todayLocal(),Time:t,StudentID:st.StudentID,ParentID:st.ParentID||'',Type:type,Status:'OK',Remark:remark,ByStaffID:p.staffId||''});
       const ex=M.studentAttendanceToday.find(x=>x.StudentID===st.StudentID); if(ex){ex.Status=type;ex.Time=t;} else M.studentAttendanceToday.push({StudentID:st.StudentID,Status:type,Time:t});
       let h=M.studentCheckins.find(c=>c.StudentID===st.StudentID&&c.Date===todayLocal()); if(!h){h={Date:todayLocal(),StudentID:st.StudentID,InTime:'',OutTime:''};M.studentCheckins.push(h);} if(type==='IN')h.InTime=t; else h.OutTime=t;
       let ot=null;

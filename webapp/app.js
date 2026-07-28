@@ -30,7 +30,7 @@
     window.api=function(action,payload,opts){ if(!_isMut(action)) return _rawApi(action,payload,opts);
       _busyShow(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _busyDone(false); throw e; }
       return Promise.resolve(pr).then(v=>{ _busyDone(true); return v; }, e=>{ _busyDone(false); throw e; }); }; }
-  const APP_VERSION = 'Version 1.119'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.120'; // bump each webapp change; shown only at the bottom of the Chat screen
   const verTag = () => `<div style="text-align:center;color:#c3c9d4;font-size:10px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
   const phoneFmt = p => { let d=String(p==null?'':p).replace(/\D/g,''); if(d.length===9) d='0'+d; return d; };
@@ -660,10 +660,14 @@
     // one batched round-trip: journal/leaves/announcements/calendar + each kid's check-in history (for today's status)
     const _res = await Promise.all([
       api('getJournal',{studentId:k0.StudentID}), api('studentLeaves',{studentId:k0.StudentID}),
-      api('announcements'), api('calendar'),
+      api('announcements'), api('calendar'), api('familyProfile',parentScope()).catch(()=>({parents:[]})),
       ...kids.map(k=>api('studentCheckinHistory',{studentId:k.StudentID}))
     ]);
-    const [j, sl, anns, cal] = _res; const ciAll=_res.slice(4); const ci=ciAll[0]||[];
+    const [j, sl, anns, cal, fam] = _res; const ciAll=_res.slice(5); const ci=ciAll[0]||[];
+    // greeting = คุณพ่อ/แม่ + first child's nickname (always), regardless of the parent's own nickname
+    const _me=((fam&&fam.parents)||[]).find(p=>p.isMe)||((fam&&fam.parents)||[])[0]||{}; const _rel=_me.Relationship||'';
+    const _k0n=dispNick(k0); const _dad=REL_DAD.test(_rel), _mom=REL_MOM.test(_rel);
+    const greetName=_k0n?(EN()?`${_k0n}'s ${_dad?'dad':_mom?'mom':'parent'}`:`${_dad?'คุณพ่อน้อง':_mom?'คุณแม่น้อง':'ผู้ปกครองน้อง'}${_k0n}`):(EN()?USER.nameEN:USER.nameTH);
     // today's IN/OUT time per kid → disable the button once done (one drop-off / one pick-up per day)
     const todayCI={}; kids.forEach((k,i)=>{ const r=(ciAll[i]||[]).find(x=>ymd(x.Date)===todayStr())||{}; todayCI[k.StudentID]={in:r.InTime||'',out:r.OutTime||''}; });
     const doneBtn=(done,txt)=> done ? `disabled style="flex:1;padding:18px;font-size:18px;font-weight:700;opacity:.45;cursor:not-allowed"` : `style="flex:1;padding:18px;font-size:18px;font-weight:700"`;
@@ -675,7 +679,7 @@
     setTopActions(`<button class="btn sm outline" onclick="P_journal('${k0.StudentID}')" title="${esc(t('nav.journal'))}">📒<span class="lbl"> ${esc(t('nav.journal'))}</span></button>
       <button class="btn sm outline" onclick="P_dspm('${k0.StudentID}')" title="${esc(t('nav.dspm'))}">📈<span class="lbl"> ${esc(t('nav.dspm'))}</span></button>`);
     const slHtml = sl.map(l=>`<div class="list-item"><span>${esc(ddmmyyyy(l.Date))} · <b>${esc(stdLeaveDesc(l))}</b></span><span class="pill info">${esc(tStat(l.Status))}</span></div>`).join('')||'<small class="muted">ไม่มีรายการ</small>';
-    app.innerHTML = `<div class="spread"><h2 class="page">${esc(t('p.greeting'))}${esc(EN()?USER.nameEN:USER.nameTH)} 👋</h2><div class="row">${profileBtn}${addBtn}</div></div>
+    app.innerHTML = `<div class="spread"><h2 class="page">${esc(t('p.greeting'))}${esc(greetName)} 👋</h2><div class="row">${profileBtn}${addBtn}</div></div>
       ${kidsHtml}
       <h3 style="margin:6px 2px">📒 ${EN()?'Journal of':'บันทึกของ'} ${esc(dispNick(k0))} ${EN()?'today':'วันนี้'}</h3>${j?journalChecklist(j,{parentEditable:true,student:k0}):waitCard()}
       <div class="card"><div class="spread"><h3>🏠 แจ้งลาบุตรหลาน</h3><button class="btn sm outline" onclick="P_absence()">+ แจ้งลา</button></div>${slHtml}</div>
@@ -1180,14 +1184,16 @@
   // teacher home attendance card — today's มา/ลา/ขาด per covered class + check-in-on-behalf for absentees
   function tcaHtml(d){ if(!d||!d.classes||!d.classes.length) return '';
     const cards=d.classes.map(c=>{ const present=c.in+c.out; const pct=c.total?Math.round(present/c.total*100):100;
-      const inb=(c.students||[]).filter(s=>s.status==='IN'||s.status==='OUT');
+      const inNow=(c.students||[]).filter(s=>s.status==='IN');    // present, not yet picked up
+      const outNow=(c.students||[]).filter(s=>s.status==='OUT');  // already picked up
       const lv=(c.students||[]).filter(s=>s.status==='LEAVE');
       const ab=(c.students||[]).filter(s=>s.status==='ABSENT');
       return `<div style="margin-bottom:12px"><div class="spread"><b>${esc(c.className)}</b><span style="font-weight:700;color:${pctColor(pct)}">${pct}% <small class="muted" style="font-weight:400">(${present}/${c.total})</small></span></div>
         <div style="height:6px;background:#eee;border-radius:4px;overflow:hidden;margin:4px 0"><div style="height:100%;width:${pct}%;background:${pctColor(pct)}"></div></div>
-        ${inb.length?`<div><span class="pill ok">✅ ${EN()?'in':'มา'} (${inb.length})</span> <small class="muted">${inb.map(s=>esc(dnick(s))+(s.in?' '+esc(s.in):'')).join(', ')}</small></div>`:''}
+        ${inNow.length?`<div style="margin-top:4px"><span class="pill ok">✅ ${EN()?'in — tap to pick up':'อยู่ที่โรงเรียน — แตะเพื่อรับกลับ'} (${inNow.length})</span><br>${inNow.map(s=>`<button class="btn sm pink" style="margin:3px 3px 0 0" onclick="T_studentCheckin('${s.studentId}','${esc(dnick(s))}','OUT')">🔴 ${esc(dnick(s))}${s.in?' ('+esc(s.in)+')':''}</button>`).join('')}</div>`:''}
+        ${outNow.length?`<div style="margin-top:4px"><span class="pill info">↩️ ${EN()?'picked up':'รับกลับแล้ว'} (${outNow.length})</span><br>${outNow.map(s=>`<button class="btn sm outline" style="margin:3px 3px 0 0" onclick="T_studentCheckin('${s.studentId}','${esc(dnick(s))}','OUT')">✏️ ${esc(dnick(s))}${s.out?' '+esc(s.out):''}</button>`).join('')}</div>`:''}
         ${lv.length?`<div style="margin-top:2px"><span class="pill wait">🌴 ${EN()?'leave':'ลา'} (${lv.length})</span> <small class="muted">${lv.map(s=>esc(dnick(s))).join(', ')}</small></div>`:''}
-        ${ab.length?`<div style="margin-top:4px"><span class="pill bad">⛔ ${EN()?'absent':'ขาด'} (${ab.length})</span> <small class="muted">${EN()?'tap to check in':'แตะเพื่อเช็คอินแทน'}</small><br>${ab.map(s=>`<button class="btn sm outline" style="margin:3px 3px 0 0" onclick="T_studentCheckin('${s.studentId}','${esc(dnick(s))}')">📍 ${esc(dnick(s))}</button>`).join('')}</div>`:''}
+        ${ab.length?`<div style="margin-top:4px"><span class="pill bad">⛔ ${EN()?'absent':'ขาด'} (${ab.length})</span> <small class="muted">${EN()?'tap to check in':'แตะเพื่อเช็คอินแทน'}</small><br>${ab.map(s=>`<button class="btn sm outline" style="margin:3px 3px 0 0" onclick="T_studentCheckin('${s.studentId}','${esc(dnick(s))}','IN')">📍 ${esc(dnick(s))}</button>`).join('')}</div>`:''}
         ${!lv.length&&!ab.length&&c.total?`<small style="color:#2e7d32">✓ ${EN()?'All present':'มาครบทุกคน'}</small>`:''}</div>`; }).join('');
     const ts=d.classes.reduce((a,c)=>{a.p+=c.in+c.out;a.t+=c.total;return a;},{p:0,t:0}); const tp=ts.t?Math.round(ts.p/ts.t*100):100;
     return `<div class="card"><div class="spread"><h3>👶 ${EN()?'Class attendance today':'การมาเรียนวันนี้'}</h3><b style="color:${pctColor(tp)}">${tp}% <small class="muted" style="font-weight:400">(${ts.p}/${ts.t})</small></b></div>
@@ -1295,10 +1301,8 @@
       const jBtn = canJ
         ? `<button class="btn sm ${jdone[s.StudentID]?'outline':''}" onclick="T_journal('${s.StudentID}')" title="${esc(journalBtnLabel(jdone[s.StudentID]))}">${!jdone[s.StudentID]?'📒':(jIsDraft(jdone[s.StudentID])?'✏️':'👁️')}</button>`
         : `<button class="btn sm outline" disabled style="opacity:.45" title="${EN()?'Check the child in first':'เช็คอินนักเรียนก่อนจึงจะบันทึกได้'}">📒</button>`;
-      const bothDone = s.inToday && s.outToday;
-      const ciBtn = bothDone
-        ? `<button class="btn sm green" disabled style="opacity:.45" title="${EN()?'In & out already recorded':'เช็คอิน-เอาท์ครบแล้ววันนี้'}">📍</button>`
-        : `<button class="btn sm green" onclick="T_studentCheckin('${s.StudentID}','${esc(nm(s))}',${s.inToday?1:0},${s.outToday?1:0})" title="${EN()?'Check in/out on behalf':'เช็คอิน/เอาท์แทน'}">📍</button>`;
+      // preselect OUT once the child is in (so "pick up" is one tap); always usable so a time can be corrected
+      const ciBtn = `<button class="btn sm green" onclick="T_studentCheckin('${s.StudentID}','${esc(nm(s))}','${s.inToday&&!s.outToday?'OUT':(s.outToday?'OUT':'IN')}')" title="${EN()?'Check in/out on behalf':'เช็คอิน/เอาท์แทน'}">📍</button>`;
       const attTag = s.inToday?`<small class="pill ok" style="margin-left:4px">${EN()?'in':'มา'} ${esc(s.inTime||'')}</small>`:'';
       return `<div class="card spread"><div style="display:flex;gap:10px;align-items:center">${studentAvatar(s)}<div><b>${esc(dispNick(s))}</b> <small class="muted">${esc(nm(s))}</small>${attTag}<br><small class="muted">${esc(ageYM(s.DOB))} · ${EN()?'allergy':'แพ้'}: ${esc(s.Allergy||'-')}</small><br>${journalPill(jdone[s.StudentID])}</div></div><div class="row">${jBtn}<button class="btn sm outline" onclick="T_assess('${s.StudentID}')">📝</button>${ciBtn}<button class="btn sm outline" onclick="T_studentLeave('${s.StudentID}','${esc(dispNick(s))}')" title="${EN()?'File leave for this student':'แจ้งลาให้นักเรียน'}">🏖️</button></div></div>`; }).join(''); };
   // Teacher files a leave for a student → notifies the linked parents; shows in that student's parent calendar
@@ -1312,12 +1316,13 @@
   // Teacher checks a student in/out on behalf of a pickup person who isn't a registered parent.
   // The ACTUAL time and the remark (who it was) are BOTH mandatory — Save stays disabled until filled.
   // inDone/outDone fade the type that's already recorded so it can't be double-entered.
-  window.T_studentCheckin=(sid,name,inDone,outDone)=>{ inDone=!!inDone; outDone=!!outDone;
+  // prefer = the type to preselect ('IN'|'OUT'); both are always selectable so a wrong time can be corrected
+  window.T_studentCheckin=(sid,name,prefer)=>{
     const nowHM=(()=>{const d=new Date();return String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0');})();
-    SC_TYPE = inDone ? 'OUT' : 'IN';
+    SC_TYPE = (String(prefer||'').toUpperCase()==='OUT') ? 'OUT' : 'IN';
     modal(`<h3>📍 ${EN()?'Check in / out for':'เช็คอิน-เอาท์แทน'} ${esc(name)}</h3>
-    <p class="muted" style="font-size:12px">${EN()?'Record the REAL drop-off / pick-up time. Time + remark are required.':'บันทึกเวลาจริงที่มารับ-ส่ง · ต้องกรอกเวลาจริงและหมายเหตุเสมอ'}</p>
-    <div class="seg"><button class="${SC_TYPE==='IN'?'active':''}" id="scIN" ${inDone?'disabled style="opacity:.4"':`onclick="T_scType('IN')"`}>${EN()?'Drop off (IN)':'ส่งเข้าเรียน (IN)'}${inDone?' ✓':''}</button><button class="${SC_TYPE==='OUT'?'active':''}" id="scOUT" ${outDone?'disabled style="opacity:.4"':`onclick="T_scType('OUT')"`}>${EN()?'Pick up (OUT)':'รับกลับ (OUT)'}${outDone?' ✓':''}</button></div>
+    <p class="muted" style="font-size:12px">${EN()?'Record the REAL drop-off / pick-up time. Re-recording the same type corrects the time. Time + remark are required.':'บันทึกเวลาจริงที่มารับ-ส่ง · บันทึกซ้ำประเภทเดิม = แก้เวลา · ต้องกรอกเวลาจริงและหมายเหตุเสมอ'}</p>
+    <div class="seg"><button class="${SC_TYPE==='IN'?'active':''}" id="scIN" onclick="T_scType('IN')">${EN()?'Drop off (IN)':'ส่งเข้าเรียน (IN)'}</button><button class="${SC_TYPE==='OUT'?'active':''}" id="scOUT" onclick="T_scType('OUT')">${EN()?'Pick up (OUT)':'รับกลับ (OUT)'}</button></div>
     <label class="field"><span>${EN()?'Actual time (required)':'เวลาจริง (บังคับ)'}</span>
       <input type="time" id="scTime" value="${nowHM}" oninput="T_scCheck()"/></label>
     <label class="field"><span>${EN()?'Remark — who dropped off / picked up? (required)':'หมายเหตุ — ใครมารับ-ส่ง? (บังคับ)'}</span>

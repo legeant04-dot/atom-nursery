@@ -232,19 +232,26 @@ function hydratePayrollConfig_() {
 }
 
 // ---- derivations -------------------------------------------------
+// A Time cell written as "16:50" text is sometimes coerced by Sheets into a Date/time value. Reading it
+// back then yields a Date — normalise to a clean "HH:mm" in the school timezone so the app never shows a
+// shifted/garbled time. Strings pass through (trimmed to HH:mm).
+function ciTimeHHmm_(v) {
+  if (v instanceof Date) { try { return Utilities.formatDate(v, getConfig_('Timezone', 'Asia/Bangkok'), 'HH:mm'); } catch (e) { return ''; } }
+  var m = /(\d{1,2}):(\d{2})/.exec(String(v == null ? '' : v)); return m ? (('0' + m[1]).slice(-2) + ':' + m[2]) : String(v || '');
+}
 function deriveStudentCheckins_(events) {
   var byDay = {};
   (events || []).forEach(function (e) {
-    var d = String(e.Date).slice(0, 10), key = d + '|' + e.StudentID;
+    var d = String(e.Date).slice(0, 10), key = d + '|' + e.StudentID; var tm = ciTimeHHmm_(e.Time);
     if (!byDay[key]) byDay[key] = { Date: d, StudentID: e.StudentID, InTime: '', OutTime: '' };
-    if (e.Type === 'IN') byDay[key].InTime = e.Time; else if (e.Type === 'OUT') byDay[key].OutTime = e.Time;
+    if (e.Type === 'IN') byDay[key].InTime = tm; else if (e.Type === 'OUT') byDay[key].OutTime = tm;
   });
   return Object.keys(byDay).map(function (k) { return byDay[k]; });
 }
 function deriveStudentToday_(events, leaves, today) {
   var st = {};
   (events || []).filter(function (e) { return String(e.Date).slice(0, 10) === today; })
-    .forEach(function (e) { st[e.StudentID] = { StudentID: e.StudentID, Status: e.Type, Time: e.Time }; });
+    .forEach(function (e) { st[e.StudentID] = { StudentID: e.StudentID, Status: e.Type, Time: ciTimeHHmm_(e.Time) }; });
   (leaves || []).filter(function (l) { return String(l.Date).slice(0, 10) === today; })
     .forEach(function (l) { st[l.StudentID] = { StudentID: l.StudentID, Status: 'LEAVE', Reason: l.Reason || 'ลา' }; });
   return Object.keys(st).map(function (k) { return st[k]; });
