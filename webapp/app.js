@@ -30,7 +30,7 @@
     window.api=function(action,payload,opts){ if(!_isMut(action)) return _rawApi(action,payload,opts);
       _busyShow(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _busyDone(false); throw e; }
       return Promise.resolve(pr).then(v=>{ _busyDone(true); return v; }, e=>{ _busyDone(false); throw e; }); }; }
-  const APP_VERSION = 'Version 1.123'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.124'; // bump each webapp change; shown only at the bottom of the Chat screen
   const verTag = () => `<div style="text-align:center;color:#c3c9d4;font-size:10px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
   const phoneFmt = p => { let d=String(p==null?'':p).replace(/\D/g,''); if(d.length===9) d='0'+d; return d; };
@@ -218,7 +218,37 @@
 
   // header quick-actions slot (before the language toggle); each screen fills it or it clears on nav
   window.setTopActions = html => { const el=document.getElementById('topActions'); if(el) el.innerHTML=html||''; };
-  window.GO = function(screen, opts){ CURRENT=screen; setNav(screen); if(!(opts&&opts.silent)){ setTopActions(''); CAL_OFF=0; window._CALRENDER=null; } const fn=(SCREENS[USER.role]||{})[screen];
+
+  // ---- Back-button support ---------------------------------------------------------------------
+  // Without this the Android hardware Back button LEAVES the app, losing whatever the user was in
+  // the middle of. Every real navigation now pushes a history entry, so Back walks the tabs instead.
+  // Two deliberate rules:
+  //   - a silent SWR re-render (__atomRevalidate) must NOT push, or Back would replay the same screen
+  //   - if a modal is open, Back CLOSES it and re-pushes the entry it consumed, so the user stays put.
+  //     Most data entry in this app happens in modals (แจ้งลา / แนบสลิป / เพิ่มประกาศ), which is
+  //     exactly where an accidental app exit hurt most.
+  // Full-screen sub-views opened directly (P_profile, T_journal, A_studentForm, …) still don't push;
+  // Back from those behaves as it always did.
+  function histPush(screen, fromPop){
+    if(fromPop || !USER) return;
+    const st=history.state;
+    if(st && st.atom && st.screen===screen) return;      // same screen again → don't stack duplicates
+    try{ history.pushState({atom:1,screen:screen},'','#'+screen); }catch(e){}
+  }
+  // the screen to open at login: honour a #hash deep link, but only if that screen exists for this role
+  function initialScreen(){
+    const want=String(location.hash||'').replace(/^#/,'');
+    return (want && SCREENS[USER.role] && SCREENS[USER.role][want]) ? want : 'home';
+  }
+  window.addEventListener('popstate', ev => {
+    const m=document.querySelector('.modal');
+    if(m){ m.remove(); if(USER&&CURRENT) try{ history.pushState({atom:1,screen:CURRENT},'','#'+CURRENT); }catch(e){} return; }
+    if(!USER) return;
+    const s=ev.state && ev.state.atom && ev.state.screen;
+    if(s && (SCREENS[USER.role]||{})[s]) GO(s,{fromPop:true});
+  });
+
+  window.GO = function(screen, opts){ CURRENT=screen; setNav(screen); if(!(opts&&opts.silent)) histPush(screen, opts&&opts.fromPop); if(!(opts&&opts.silent)){ setTopActions(''); CAL_OFF=0; window._CALRENDER=null; } const fn=(SCREENS[USER.role]||{})[screen];
     // paint an instant placeholder so a tap feels responsive instead of "stuck" on the old screen
     // while the first (uncached) fetch runs; skip on silent background re-renders to avoid flicker.
     if(fn && !(opts&&opts.silent)) app.innerHTML=`<div class="card" style="text-align:center;color:#94a3b8;padding:28px">⏳ ${EN()?'Loading…':'กำลังโหลด…'}</div>`;
@@ -281,12 +311,12 @@
   };
   window.LOGIN = function(roleKey){ if(!CONFIG.DEMO_MODE){ toast(EN()?'Demo login is disabled':'ปิดการเข้าสู่ระบบทดลองแล้ว'); return; } USER=Object.assign({},DEMO_USERS[roleKey]); USER._roleKey=roleKey;
     try{ localStorage.setItem('atom_session', JSON.stringify({roleKey, provider:PENDING_PROVIDER||'demo'})); }catch(e){}
-    setHeader(); GO('home'); PREFETCH();
+    setHeader(); GO(initialScreen()); PREFETCH();
   };
   // log in as a freshly registered/linked parent (carries its own uid for data isolation)
   window.LOGIN_PARENT = function(u){ USER=Object.assign({role:'Parent',_roleKey:'Parent'},u);
     try{ localStorage.setItem('atom_session', JSON.stringify({roleKey:'Parent', provider:PENDING_PROVIDER||'demo', parent:u})); }catch(e){}
-    setHeader(); GO('home'); PREFETCH();
+    setHeader(); GO(initialScreen()); PREFETCH();
   };
   // log in with real GAS auth result (LIFF flow)
   window.LOGIN_REAL = function(role, linkedId, displayName, pictureUrl) {
@@ -299,10 +329,12 @@
     else USER.staffId = linkedId;
     if (pictureUrl) USER.pictureUrl = pictureUrl;
     PENDING_LINE_UID = null;
-    setHeader(); GO('home'); PREFETCH();
+    setHeader(); GO(initialScreen()); PREFETCH();
   };
   function logout(){
     try{ localStorage.removeItem('atom_session'); }catch(e){}
+    // drop the #screen deep link too, or the next sign-in would reopen the previous user's tab
+    try{ history.replaceState(null,'',location.pathname+location.search); }catch(e){}
     USER=null; PENDING_PROVIDER=null; PENDING_LINE_UID=null;
     if (window.__atomCacheClear) window.__atomCacheClear(); // don't leave one account's data for the next login
     if (window.__atomClearSession) window.__atomClearSession();
@@ -578,7 +610,7 @@
   const stdLeaveDesc = l => { const ty=(l&&l.Type||'').trim(), rs=(l&&l.Reason||'').trim(); return ty&&rs ? ty+' — '+rs : (ty||rs||'-'); };
   function waitCard(date){ return `<div class="card" style="text-align:center;color:#8a6d00;background:#fff8e1;border-color:#f0e3b0">⏳ รอคุณครูส่งข้อมูลของวันที่ ${ddmmyyyy(date)}</div>`; }
   function annRow(a){ const ti=EN()?(a.TitleEN||a.Title):(a.Title||a.TitleEN); const co=EN()?(a.ContentEN||a.Content):(a.Content||a.ContentEN);
-    return `<div class="list-item"><div><b>${esc(ti)}</b><br><small class="muted">${esc(co)}</small>${a.Image?`<br><img src="${esc(a.Image)}" style="max-width:160px;border-radius:8px;margin-top:6px"/>`:''}</div><small class="muted">${esc(a.Date)}</small></div>`; }
+    return `<div class="list-item"><div><b>${esc(ti)}</b><br><small class="muted">${esc(co)}</small>${a.Image?`<br><img class="ann-thumb" src="${esc(a.Image)}" alt=""/>`:''}</div><small class="muted">${esc(a.Date)}</small></div>`; }
   const SCHOOL_MAP_URL = 'https://maps.app.goo.gl/jQhGb3KQj59RV2wXA';
   function socialFooter(){ const L=MOCK.config.Links||{}; return `<div class="social">
     <a href="${esc(L.line||'#')}" target="_blank"><span class="ic line">L</span>LINE OA</a>

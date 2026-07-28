@@ -9,13 +9,33 @@ window.CONFIG = { MODE: 'gas', GAS_URL: 'https://script.google.com/macros/s/AKfy
 
 (function () {
   const M = window.MOCK;
-  // seed: per-student Drive folder for the demo students (new students get one at registration)
-  M.students.forEach(s => { if (!s.DriveFolderUrl) s.DriveFolderUrl = 'drive://' + (M.config.StudentFolderRoot || 'AtomNursery_Students') + '/' + String(s.NameTH || s.StudentID).trim().replace(/\s+/g, '_'); });
+  // this file's own ?v=NN, reused for anything we load on demand so it can never go stale
+  const VQ = (function () { const s = document.currentScript && document.currentScript.src, q = s && s.split('?')[1]; return q ? '?' + q : ''; })();
 
-  // build the shared engine over the mock data; GROWTH_STD comes from growth_standard.js
-  const E = window.createAtomAPI(M, window.GROWTH_STD);
-  const H = E.H;
-  window.AGEMONTHS = E.ageMonths;
+  // engine.js (154KB) is NOT shipped any more: in gas mode every handler runs server-side on the
+  // same engine via src/Engine.gs, and the only thing the browser ever wanted out of it was this
+  // one helper. Keep it byte-identical to ageMonths() in engine.js / src/Engine.gs.
+  window.AGEMONTHS = function (dob) { const d = new Date(dob), n = new Date();
+    let m = (n.getFullYear() - d.getFullYear()) * 12 + (n.getMonth() - d.getMonth());
+    if (n.getDate() < d.getDate()) m--; return Math.max(0, m); };
+
+  // mock mode (dev/demo) still runs the whole engine in the browser — fetch it on the first call
+  // instead of on every page load, so production never pays for it.
+  let _H = null, _engineP = null;
+  function mockHandlers() {
+    if (_H) return Promise.resolve(_H);
+    if (!_engineP) _engineP = (window.createAtomAPI ? Promise.resolve() : new Promise((res, rej) => {
+      const s = document.createElement('script'); s.src = 'engine.js' + VQ;
+      s.onload = res; s.onerror = () => rej(new Error('engine.js failed to load'));
+      document.head.appendChild(s);
+    })).then(() => {
+      // seed: per-student Drive folder for the demo students (new students get one at registration)
+      M.students.forEach(s => { if (!s.DriveFolderUrl) s.DriveFolderUrl = 'drive://' + (M.config.StudentFolderRoot || 'AtomNursery_Students') + '/' + String(s.NameTH || s.StudentID).trim().replace(/\s+/g, '_'); });
+      _H = window.createAtomAPI(M, window.GROWTH_STD).H;   // GROWTH_STD comes from growth_standard.js
+      return _H;
+    });
+    return _engineP;
+  }
 
   // HMAC session token from auth — sent with every request so the server can verify the caller
   // and authorize by their real identity (enforced server-side once RequireSessionToken='true').
@@ -102,9 +122,9 @@ window.CONFIG = { MODE: 'gas', GAS_URL: 'https://script.google.com/macros/s/AKfy
       }
       return enqueueGas(action, payload).then(d => { rcSet(ck, d); return d; });        // first time → must fetch
     }
-    return new Promise((res, rej) => setTimeout(() => {
+    return mockHandlers().then(H => new Promise((res, rej) => setTimeout(() => {
       try { const h = H[action]; if (!h) { const e = new Error('ไม่รู้จัก action: ' + action); e.code = 'UNKNOWN_ACTION'; throw e; } res(h(payload)); }
       catch (e) { rej(e); }
-    }, 110));
+    }, 110)));
   };
 })();
