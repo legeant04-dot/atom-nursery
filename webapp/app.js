@@ -30,7 +30,7 @@
     window.api=function(action,payload,opts){ if(!_isMut(action)) return _rawApi(action,payload,opts);
       _busyShow(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _busyDone(false); throw e; }
       return Promise.resolve(pr).then(v=>{ _busyDone(true); return v; }, e=>{ _busyDone(false); throw e; }); }; }
-  const APP_VERSION = 'Version 1.126'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.127'; // bump each webapp change; shown only at the bottom of the Chat screen
   const verTag = () => `<div style="text-align:center;color:#c3c9d4;font-size:10px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
   const phoneFmt = p => { let d=String(p==null?'':p).replace(/\D/g,''); if(d.length===9) d='0'+d; return d; };
@@ -244,7 +244,9 @@
   window.addEventListener('popstate', ev => {
     const m=document.querySelector('.modal');
     if(m){ m.remove(); if(USER&&CURRENT) try{ history.pushState({atom:1,screen:CURRENT},'','#'+CURRENT); }catch(e){} return; }
-    if(!USER) return;
+    // signed-out: the only screen worth rescuing is the registration form (a new parent has typed a
+    // lot by then). #rPDPA = REG_FORM, #rNameTH = REG_CHILD_FORM.
+    if(!USER){ if(document.getElementById('rPDPA')||document.getElementById('rNameTH')) accountStage(); return; }
     const s=ev.state && ev.state.atom && ev.state.screen;
     if(s && (SCREENS[USER.role]||{})[s]) GO(s,{fromPop:true});
   });
@@ -3255,6 +3257,26 @@
       .meta{display:flex;justify-content:space-between;font-size:12px;margin:3px 0}.grid{width:100%;border-collapse:collapse;font-size:12px}.grid th,.grid td{border:1px solid #bbb;padding:2px 5px}.grid th{background:#1565C0;color:#fff}
       .grid td.n{text-align:right}.grid td.lbl{text-align:right;font-weight:bold;background:#f3f6fb}.grid td.net{text-align:center;font-size:18px;font-weight:bold;color:#1565C0}.fn{font-size:10px;color:#555;margin-top:3px}@media print{.bar{display:none}}</style></head>
       <body><div class="bar"><button onclick="window.print()">🖨️ พิมพ์ (3 สลิป/แผ่น A4 แนวนอน)</button></div>${pages}</body></html>`; }
+
+  // ---- Back-button support for full-screen SUB-VIEWS -------------------------------------------
+  // These replace #app directly instead of going through GO(), so Back used to walk past them and
+  // leave the app from the middle of a long form. Wrapping them here (rather than editing each one)
+  // pushes {screen:CURRENT, sub:name}; Back then pops to the plain {screen} entry and GO() re-renders
+  // whichever screen the form was opened from.
+  // Deliberately NOT listed: P_journal / P_growth / P_dspm — SCREENS.Parent.journal|growth|dspm call
+  // those directly, so pushing there would make Back re-enter the sub-view at once (Back looks dead).
+  // Admin's A_studentForm / A_parentForm aren't here either: they are modal(), already covered.
+  ['P_profile','P_insurance','REG_FORM','REG_CHILD_FORM','T_journal','T_assess','T_profile']
+    .forEach(name => { const orig = window[name]; if (typeof orig !== 'function') return;
+      window[name] = function () {
+        const st = history.state;
+        // re-entering the SAME sub-view (e.g. P_saveParent re-renders P_profile after a photo
+        // upload) must not stack another entry, or Back would need two presses.
+        if (!(st && st.atom && st.sub === name)) {
+          try { history.pushState({ atom:1, screen: CURRENT || 'home', sub: name }, '', '#' + (CURRENT || 'home')); } catch (e) {}
+        }
+        return orig.apply(this, arguments);
+      }; });
 
   // preload logos as dataURLs so printed/downloaded slips & receipts always show them
   (async function preloadLogos(){ const map={_LOGO:'assets/logo.png',_LOGOCORNER:'assets/logo-corner.jpg'};
