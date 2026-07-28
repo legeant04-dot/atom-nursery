@@ -14,3 +14,7 @@ Thumbs.db
 tools/_*.js
 *.zip
 _pchi/
+
+# local pre-shrink copies of the image assets (the real originals live in git history,
+# e.g. `git show d133896:webapp/assets/logo.png`) — see dist/shrink_assets.py
+dist/assets_original/
