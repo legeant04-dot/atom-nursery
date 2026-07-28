@@ -30,8 +30,8 @@ window.MOCK = {
     OTGraceMinutes: 21,     // free grace; >21 min late starts charging
     StaffOTHourlyRate: 100, // baht/hour for teacher OT (auto-pulled into payroll)
     // --- Payment QR images (drop the real QR files in webapp/assets with these names) ---
-    QRCode_Monthly: 'assets/qr_scb.png',  // SCB PromptPay — monthly tuition
-    QRCode_OT: 'assets/qr_ktb.png',       // KTB PromptPay — daily OT
+    QRCode_Monthly: 'assets/qr_scb.jpg',  // SCB PromptPay — monthly tuition
+    QRCode_OT: 'assets/qr_ktb.jpg',       // KTB PromptPay — daily OT
     SlipsFolderName: 'AtomNursery_Slips', // Google Drive folder where uploaded slips are stored (GAS deploy)
     RegisterPhotoFolderName: 'New Register Photo', // Drive folder for the mandatory registration ID photo (login security)
     StudentFolderRoot: 'AtomNursery_Students',     // each new student gets a Drive subfolder named after them

@@ -58,7 +58,9 @@ h2.page{font-size:20px;margin:6px 2px 14px;color:var(--blue-d);}
 
 label.field{display:block;margin:8px 0;font-size:14px;}
 label.field span{display:block;margin-bottom:4px;color:var(--muted);font-size:12.5px;}
-input,select,textarea{width:100%;padding:10px;border:1px solid var(--line);border-radius:10px;font-family:inherit;font-size:14px;background:#fff;}
+/* 16px is a hard floor on every focusable control: iOS Safari auto-zooms the whole page when a
+   focused input is smaller than that, which shifted the layout on every form tap. */
+input,select,textarea{width:100%;padding:10px;border:1px solid var(--line);border-radius:10px;font-family:inherit;font-size:16px;background:#fff;}
 textarea{min-height:70px;resize:vertical;}
 
 .btn{background:var(--blue);color:#fff;border:none;border-radius:10px;padding:11px 16px;font-size:15px;
@@ -220,7 +222,7 @@ textarea{min-height:70px;resize:vertical;}
 .org-col{min-height:80px;}
 .org-chip{display:flex;flex-direction:column;gap:4px;border:1px solid var(--line);border-radius:10px;padding:6px 8px;margin:6px 0;background:#fafcff;cursor:grab;}
 .org-chip span{display:flex;align-items:center;gap:6px;font-size:13px;font-weight:600;}
-.org-chip select{font-size:12px;padding:4px 6px;}
+.org-chip select{font-size:16px;padding:4px 6px;}  /* 16px: see the iOS zoom note on the base input rule */
 .org-col.dragover{border-color:var(--blue);background:#e3f2fd;}
 /* QR modal placeholder + full-image zoom */
 .qr-ph{width:210px;height:210px;margin:10px auto;border:2px dashed #bbb;border-radius:12px;display:flex;align-items:center;justify-content:center;color:#bbb;font-weight:700;font-size:22px;}
