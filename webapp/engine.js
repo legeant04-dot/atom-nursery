@@ -923,6 +923,17 @@ function createAtomAPI(M, GROWTH_STD) {
       active.forEach(s=>{ (M.userLinks||[]).filter(l=>String(l.StudentID)===String(s.StudentID)).forEach(l=>{ const pid=uidToPid[l.UserUID]; if(!pid)return; const k=pid+'|'+s.StudentID; if(seen[k])return; seen[k]=1; cnt[pid]=(cnt[pid]||0)+1; });
         if(s.ParentID){ const k=s.ParentID+'|'+s.StudentID; if(!seen[k]){ seen[k]=1; cnt[s.ParentID]=(cnt[s.ParentID]||0)+1; } } });
       return cnt; },
+    // Admin: {parentId: [child, ...]} for every parent — same link resolution as parentLinkCounts
+    // (USER_LINKS by LINE UID first, then the legacy STUDENTS.ParentID), active children only.
+    // Keys stay PascalCase so the client can feed these straight into parentDisp()/dispNick().
+    // Kept SEPARATE from parentLinkCounts on purpose: that one is consumed as a plain number.
+    parentKidsMap: () => { const out={}; const uidToPid={}; (M.parents||[]).forEach(pa=>{ if(pa.LineUID)uidToPid[pa.LineUID]=pa.ParentID; out[pa.ParentID]=[]; });
+      const seen={}; const push=(pid,s)=>{ const k=pid+'|'+s.StudentID; if(seen[k])return; seen[k]=1;
+        (out[pid]=out[pid]||[]).push({StudentID:s.StudentID, NameTH:s.NameTH, NameEN:s.NameEN, Nickname:s.Nickname, NicknameEN:s.NicknameEN, Class:s.Class}); };
+      activeStudents().forEach(s=>{
+        (M.userLinks||[]).filter(l=>String(l.StudentID)===String(s.StudentID)).forEach(l=>{ const pid=uidToPid[l.UserUID]; if(pid)push(pid,s); });
+        if(s.ParentID) push(s.ParentID,s); });
+      return out; },
     // Admin bypass: link a parent's LINE UID to a student (found by the student's National ID) when the
     // parent can't self-register. Optionally fills the parent's personal info. UID + National ID always required.
     linkParentAdmin: p => { const uid=String(p.uid||'').trim(); const nid=String(p.nationalId||'').trim();

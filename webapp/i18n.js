@@ -44,7 +44,7 @@
     'title.leave':['📩 การลางาน','📩 Leave'], 'title.schedule':['📅 ตารางการทำงาน & การลา','📅 Work schedule & leave'], 'title.slip':['💵 เงินเดือนของฉัน','💵 My Payslip'],
     'title.dashboard':['📊 แดชบอร์ดรายวัน','📊 Daily dashboard'], 'title.approvals':['✅ อนุมัติการลา (ขั้นสุดท้าย)','✅ Leave approval (final)'], 'title.payroll':['💵 เงินเดือน & สลิป','💵 Payroll & slips'],
     'title.analytics':['📈 วิเคราะห์ DSPM รายชั้นเรียน','📈 DSPM analytics by class'], 'title.manage':['🗂️ จัดการข้อมูล & สิทธิ','🗂️ Manage data & permissions'],
-    'p.greeting':['สวัสดีค่ะ คุณ','Hello, '], 't.greeting':['สวัสดีค่ะ ','Hello, '],
+    'p.greeting':['สวัสดีค่ะ ','Hello, '], 't.greeting':['สวัสดีค่ะ ','Hello, '],
     // sections / labels
     'lbl.announcements':['📢 ประกาศจากโรงเรียน','📢 School announcements'], 'lbl.absence':['🏠 แจ้งลาบุตรหลาน','🏠 Report child absence'], 'lbl.addAbsence':['+ แจ้งลา','+ Report'],
     'lbl.todayJournal':['📒 บันทึกของ {name} วันนี้','📒 {name}\'s journal today'], 'lbl.history':['ย้อนหลัง','History'], 'lbl.view':['ดู','View'],

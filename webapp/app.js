@@ -30,7 +30,7 @@
     window.api=function(action,payload,opts){ if(!_isMut(action)) return _rawApi(action,payload,opts);
       _busyShow(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _busyDone(false); throw e; }
       return Promise.resolve(pr).then(v=>{ _busyDone(true); return v; }, e=>{ _busyDone(false); throw e; }); }; }
-  const APP_VERSION = 'Version 1.124'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.126'; // bump each webapp change; shown only at the bottom of the Chat screen
   const verTag = () => `<div style="text-align:center;color:#c3c9d4;font-size:10px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
   const phoneFmt = p => { let d=String(p==null?'':p).replace(/\D/g,''); if(d.length===9) d='0'+d; return d; };
@@ -158,7 +158,8 @@
   function setHeader(){
     // version is shown only at the bottom of the Chat screen now (see verTag / APP_VERSION)
     $('#langBtn').textContent = LANG()==='en' ? 'EN' : 'TH';
-    $('#userName').textContent = USER ? USER.nameEN : '–';
+    // follow the chosen language — otherwise the Thai UI showed "Beam's mom" instead of "คุณแม่น้องบีม"
+    $('#userName').textContent = USER ? (EN() ? USER.nameEN : (USER.nameTH || USER.nameEN)) : '–';
     $('#userRole').textContent = USER ? t(ROLE_KEY(USER.role)) : '';
     // show the signed-in user's LINE profile picture in the header; fall back to their initial
     const av=$('#avatar'), pic=USER&&USER.pictureUrl;
@@ -690,7 +691,7 @@
     const kids = await api('parentChildren',parentScope());
     const addBtn = `<button class="btn sm outline" onclick="P_addChild()">+ ${esc(t('p.addChild'))}</button>`;
     const profileBtn = `<button class="btn sm outline" onclick="P_profile()">👤 ${EN()?'My info':'ข้อมูลของฉัน'}</button>`;
-    if(!kids.length){ app.innerHTML=`<h2 class="page">${esc(t('p.greeting'))}${esc(EN()?USER.nameEN:USER.nameTH)} 👋</h2>
+    if(!kids.length){ app.innerHTML=`<h2 class="page">${esc(t('p.greeting'))}${esc(EN()?USER.nameEN:'คุณ'+USER.nameTH)} 👋</h2>
       <div class="card" style="text-align:center"><p>${esc(t('p.noChild'))}</p><div class="row" style="justify-content:center">${addBtn}${profileBtn}</div></div>${socialFooter()}`; return; }
     const k0 = kids[0];
     // one batched round-trip: journal/leaves/announcements/calendar + each kid's check-in history (for today's status)
@@ -703,7 +704,9 @@
     // greeting = คุณพ่อ/แม่ + first child's nickname (always), regardless of the parent's own nickname
     const _me=((fam&&fam.parents)||[]).find(p=>p.isMe)||((fam&&fam.parents)||[])[0]||{}; const _rel=_me.Relationship||'';
     const _k0n=dispNick(k0); const _dad=REL_DAD.test(_rel), _mom=REL_MOM.test(_rel);
-    const greetName=_k0n?(EN()?`${_k0n}'s ${_dad?'dad':_mom?'mom':'parent'}`:`${_dad?'คุณพ่อน้อง':_mom?'คุณแม่น้อง':'ผู้ปกครองน้อง'}${_k0n}`):(EN()?USER.nameEN:USER.nameTH);
+    // 'p.greeting' is just "สวัสดีค่ะ " — the honorific belongs to the name, because the resolved form
+    // already starts with คุณพ่อ/คุณแม่ (it used to render "สวัสดีค่ะ คุณคุณพ่อน้องเอม").
+    const greetName=_k0n?(EN()?`${_k0n}'s ${_dad?'dad':_mom?'mom':'parent'}`:`${_dad?'คุณพ่อน้อง':_mom?'คุณแม่น้อง':'ผู้ปกครองน้อง'}${_k0n}`):(EN()?USER.nameEN:'คุณ'+USER.nameTH);
     // today's IN/OUT time per kid → disable the button once done (one drop-off / one pick-up per day)
     const todayCI={}; kids.forEach((k,i)=>{ const r=(ciAll[i]||[]).find(x=>ymd(x.Date)===todayStr())||{}; todayCI[k.StudentID]={in:r.InTime||'',out:r.OutTime||''}; });
     const doneBtn=(done,txt)=> done ? `disabled style="flex:1;padding:18px;font-size:18px;font-weight:700;opacity:.45;cursor:not-allowed"` : `style="flex:1;padding:18px;font-size:18px;font-weight:700"`;
@@ -2337,12 +2340,30 @@
     try{ const r=await api('linkParentAdmin',{uid,nationalId:nid,data,adminId:USER.staffId}); m.remove();
       confirmSaved((EN()?'Linked to ':'เชื่อมกับ ')+(r.nick||r.name||r.studentId)+(r.needInfo?(EN()?' — no parent info yet':' — ยังไม่มีข้อมูลผู้ปกครอง'):'')); }
     catch(e){ err(e); btn.disabled=false; } };
+  // How the school actually refers to a parent: "คุณแม่น้องบีม" / "Beam's mom" (+N for extra children).
+  // Built for an explicit language rather than reusing parentDisp(), so both nameTH and nameEN can be
+  // stored on the view-as USER and the header/bar keep working when the language is toggled.
+  function vaLabel(p, en){
+    const kids=(window._PKIDS||{})[p.ParentID]||[];
+    const own=(en?(p.NameEN||p.NameTH):(p.NameTH||p.NameEN))||p.ParentID;
+    if(!kids.length) return own;
+    const k=kids[0];
+    const kn=(en?(k.NicknameEN||k.Nickname||k.NameEN||k.NameTH):(k.Nickname||k.NicknameEN||k.NameTH||k.NameEN))||'';
+    if(!kn) return own;
+    const rel=String(p.Relationship||''), ti=String(p.Title||'');
+    const dad=REL_DAD.test(rel)||REL_DAD.test(ti), mom=REL_MOM.test(rel)||REL_MOM.test(ti);
+    const base=en ? `${kn}'s ${dad?'dad':mom?'mom':'parent'}`
+                  : `${dad?'คุณพ่อน้อง':mom?'คุณแม่น้อง':'ผู้ปกครองน้อง'}${kn}`;
+    return kids.length>1 ? base+' +'+(kids.length-1) : base;
+  }
   window.A_viewAs=async()=>{
     // the lists are normally cached by manage(); fetch them so View-As works straight from home
     const need=[];
     if(!(A_CACHE.staff&&A_CACHE.staff.length)) need.push(api('listStaff').then(r=>A_CACHE.staff=r||A_CACHE.staff));
     if(!(A_CACHE.parents&&A_CACHE.parents.length)) need.push(api('listParents').then(r=>A_CACHE.parents=r||A_CACHE.parents));
     if(!(window._LINKCOUNTS&&Object.keys(window._LINKCOUNTS).length)) need.push(api('parentLinkCounts').then(r=>window._LINKCOUNTS=r||{}).catch(()=>{}));
+    // children per parent, so this list can name people the way the school does: คุณแม่น้อง<ชื่อเล่น>
+    if(!(window._PKIDS&&Object.keys(window._PKIDS).length)) need.push(api('parentKidsMap').then(r=>window._PKIDS=r||{}).catch(()=>{}));
     if(need.length){ try{ await Promise.all(need); }catch(e){} }
     // parents WITH ≥1 linked child (so the multi-child view is meaningful) sorted by count desc
     const cnt=window._LINKCOUNTS||{}; const paList=(A_CACHE.parents||[]).slice().sort((a,b)=>(cnt[b.ParentID]||0)-(cnt[a.ParentID]||0));
@@ -2351,14 +2372,14 @@
     <label class="field"><span>👩‍🏫 ${EN()?'As teacher / leader':'มุมมองครู / หัวหน้า'}</span><select id="va_staff"><option value="">—</option>${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').map(s=>`<option value="${s.StaffID}">${esc(nmn(s))} · ${esc(s.PositionLevel||'')}</option>`).join('')}</select></label>
     <button class="btn block" onclick="A_viewAsStaff(this)">${EN()?'View as this staff':'ดูมุมมองครูคนนี้'}</button>
     <div style="height:12px"></div>
-    <label class="field"><span>👪 ${EN()?'As parent (all their children)':'มุมมองผู้ปกครอง (เห็นลูกทุกคนที่ผูก)'}</span><select id="va_parent"><option value="">—</option>${paList.map(p=>`<option value="${esc(p.ParentID)}">${esc(nm(p)||p.NameTH||p.ParentID)}${p.Phone?' · '+esc(p.Phone):''} · 👶 ${cnt[p.ParentID]||0}</option>`).join('')}</select></label>
+    <label class="field"><span>👪 ${EN()?'As parent (all their children)':'มุมมองผู้ปกครอง (เห็นลูกทุกคนที่ผูก)'}</span><select id="va_parent"><option value="">—</option>${paList.map(p=>`<option value="${esc(p.ParentID)}">${esc(vaLabel(p,EN()))}${p.Phone?' · '+esc(phoneFmt(p.Phone)):''} · 👶 ${cnt[p.ParentID]||0}</option>`).join('')}</select></label>
     <button class="btn block outline" onclick="A_viewAsParent(this)">${EN()?'View as this parent':'ดูมุมมองผู้ปกครองคนนี้'}</button>`); };
   window.A_viewAsStaff=(btn)=>{ const m=btn.closest('.modal'); const sid=m.querySelector('#va_staff').value; if(!sid){toast(EN()?'Pick a staff':'เลือกครูก่อน');return;} const s=findStaff(sid); m.remove();
     _enterViewAs({role:'Teacher',_roleKey:(s.PositionLevel==='Leader'?'Leader':'Teacher'),staffId:sid,nameEN:s.NameEN||s.NameTH||sid,nameTH:s.NameTH||sid}); };
   window.A_viewAsParent=(btn)=>{ const m=btn.closest('.modal'); const pid=m.querySelector('#va_parent').value; if(!pid){toast(EN()?'Pick a parent':'เลือกผู้ปกครองก่อน');return;}
     const p=(A_CACHE.parents||[]).find(x=>String(x.ParentID)===String(pid))||{}; m.remove();
     // uid = their LINE UID so visibleStudents returns EVERY linked child (multi-child view); parentId for legacy links
-    _enterViewAs({role:'Parent',_roleKey:'Parent',parentId:pid,uid:p.LineUID||pid,nameEN:(p.NameEN||p.NameTH||pid)+' — parent',nameTH:(p.NameTH||pid)+' — ผู้ปกครอง'}); };
+    _enterViewAs({role:'Parent',_roleKey:'Parent',parentId:pid,uid:p.LineUID||pid,nameEN:vaLabel(p,true),nameTH:vaLabel(p,false)}); };
   function _enterViewAs(ctx){ if(!VIEW_AS_BACKUP) VIEW_AS_BACKUP=USER; USER=Object.assign({_viewAs:true},ctx); setHeader(); GO('home'); _viewAsBar(); }
   window.A_exitViewAs=()=>{ if(VIEW_AS_BACKUP){ USER=VIEW_AS_BACKUP; VIEW_AS_BACKUP=null; } const b=document.getElementById('viewAsBar'); if(b)b.remove(); setHeader(); GO('home'); };
   function _viewAsBar(){ let b=document.getElementById('viewAsBar'); if(!b){ b=document.createElement('div'); b.id='viewAsBar'; document.body.appendChild(b); }
