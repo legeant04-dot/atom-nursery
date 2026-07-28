@@ -328,6 +328,11 @@ input,select,textarea{transition:border-color var(--dur),box-shadow var(--dur);}
 input::placeholder,textarea::placeholder{color:#9aa5b4;}
 input:focus,select:focus,textarea:focus{outline:none;border-color:var(--blue);box-shadow:var(--ring);}
 
+/* Touch targets: .btn.sm carries the actions people use most (จ่าย / แนบสลิป / แก้ไข) but sat at
+   ~30px tall, under the 44px Apple/Google minimum. inline-flex keeps the label centred once the
+   box is taller than the text, and leaves `flex:1` / inline usage inside .row untouched. */
+.btn.sm{min-height:44px;display:inline-flex;align-items:center;justify-content:center;gap:4px;}
+
 /* Pills: a touch more presence */
 .pill{padding:3px 11px;letter-spacing:.01em;}
 
@@ -384,3 +389,22 @@ a:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible,te
 /* section divider heading (Tools / Data groupings on the manage page) */
 .sec-divider{font-size:13px;font-weight:800;letter-spacing:.02em;color:var(--blue-d);
   margin:16px 4px 8px;padding-left:9px;border-left:4px solid var(--blue);}
+
+/* =====================================================================
+   LAYOUT STABILITY (CLS) — reserve space for anything that arrives late.
+   ===================================================================== */
+/* Screens paint first, then a second round-trip fills these in via setHTML(). They sit in the
+   MIDDLE of the page, so filling them shoved everything below them down. One row's worth of
+   reserved height absorbs the common case. */
+#insCard,#tcatt,#ml,#myot,#tp,#teamot,#myccr,#ciHist,#atmine,#attp,#slipBox,#childCalc{min-height:52px;}
+#payBody{min-height:200px;}
+
+/* Announcement thumbnail: a bare max-width left the height at 0 until the image decoded.
+   A fixed box + contain reserves the space without cropping anything out of the picture. */
+.ann-thumb{width:160px;max-width:100%;height:120px;object-fit:contain;object-position:left;
+  border-radius:8px;margin-top:6px;background:#f7f9fc;}
+/* Same idea for the announcement pop-up, which opens on load (so its shift is NOT excused by the
+   500ms-after-input rule the way a tap-opened modal's is). */
+.annpop-img{min-height:160px;}
+/* QR in the payment modal: reserve at least the placeholder's footprint while it decodes. */
+#qrImg{min-height:210px;}
