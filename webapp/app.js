@@ -30,11 +30,41 @@
     if(_busyFail){ _busyFail=false; _busyEl.classList.remove('on','ok'); return; }
     _busyFail=false; _busyEl.classList.add('ok'); _busyEl.querySelector('.busy-txt').textContent=_EN()?'Done':'สำเร็จ';
     clearTimeout(_busyOkT); _busyOkT=setTimeout(()=>{ if(_busyN===0&&_busyEl){ _busyEl.classList.remove('on','ok'); _busyEl.querySelector('.busy-txt').textContent=_busyTxt(); } }, 750); }
+  // ---- the same overlay for SLOW READS -----------------------------------------------------------
+  // Opening a screen used to give no feedback at all when the data wasn't cached yet: the old screen
+  // just sat there, so people tapped the tab again. Covering every read would be worse — most paint
+  // from cache instantly and an overlay would make the app FEEL slower. So the overlay is armed on a
+  // delay: if a read is still in flight after READ_LAG it is genuinely fetching, and the user sees
+  // "ระบบกำลังดำเนินการ". Anything faster than that shows nothing at all.
+  // Kept separate from the mutation counter on purpose — a read finishing must NOT flash the green ✓
+  // (nothing was saved) and must NOT clear FORM_DIRTY.
+  const READ_LAG = 350;   // slower than this and the user deserves to be told something is happening
+  const READ_IDLE = 120;  // gap allowed between chained fetches before the wait counts as over
+  let _readN=0, _readT=null, _readIdle=null, _readShown=false;
+  function _readStart(){ _readN++; clearTimeout(_readIdle); _readIdle=null;
+    if(_readT||_readShown) return;                     // a wait is already being timed
+    _readT=setTimeout(()=>{ _readT=null;
+      if(_readN>0 && _busyN===0){ _readShown=true; const el=_busyEnsure();
+        el.classList.remove('ok'); el.querySelector('.busy-txt').textContent=_busyTxt(); el.classList.add('on'); } }, READ_LAG); }
+  // Screens fetch in several steps (the deferred setHTML islands each run their own call), so the
+  // count drops to 0 between them while the user is still staring at a half-drawn page. Waiting out
+  // a short idle gap before disarming makes one screen load count as ONE wait — otherwise 5 chained
+  // 110ms fetches (measured: 571ms of real waiting) showed nothing at all.
+  function _readEnd(){ if(_readN>0)_readN--; if(_readN>0) return;
+    clearTimeout(_readIdle);
+    _readIdle=setTimeout(()=>{ _readIdle=null; if(_readN>0) return;
+      if(_readT){ clearTimeout(_readT); _readT=null; }
+      if(_readShown){ _readShown=false; if(_busyN===0 && _busyEl) _busyEl.classList.remove('on','ok'); } }, READ_IDLE); }
   if(window.api && !window.__apiBusyWrapped){ window.__apiBusyWrapped=true; const _rawApi=window.api;
-    window.api=function(action,payload,opts){ if(!_isMut(action)) return _rawApi(action,payload,opts);
-      _busyShow(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _busyDone(false); throw e; }
-      return Promise.resolve(pr).then(v=>{ _busyDone(true); return v; }, e=>{ _busyDone(false); throw e; }); }; }
-  const APP_VERSION = 'Version 1.140'; // bump each webapp change; shown only at the bottom of the Chat screen
+    window.api=function(action,payload,opts){
+      if(_isMut(action)){
+        _busyShow(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _busyDone(false); throw e; }
+        return Promise.resolve(pr).then(v=>{ _busyDone(true); return v; }, e=>{ _busyDone(false); throw e; });
+      }
+      if(opts&&opts.quiet) return _rawApi(action,payload,opts);   // PREFETCH: warming the cache in the background
+      _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
+      return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
+  const APP_VERSION = 'Version 1.145'; // bump each webapp change; shown only at the bottom of the Chat screen
   const verTag = () => `<div style="text-align:center;color:#c3c9d4;font-size:10px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
   const phoneFmt = p => { let d=String(p==null?'':p).replace(/\D/g,''); if(d.length===9) d='0'+d; return d; };
@@ -342,7 +372,8 @@
       : USER.role==='Admin'
         ? [['dashboard'],['pendingLeaves',{staffId:USER.staffId}],['pendingPayments'],['listStudents'],['listStaff'],['listParents']]
         : [['classList',{staffId:USER.staffId}],['schedule'],['myLeaves',{staffId:USER.staffId}]];
-    setTimeout(()=>{ jobs.forEach(j=>{ try{ api(j[0], j[1]||{}); }catch(e){} }); }, 500);
+    // quiet: this runs in the background right after login — it must never raise the overlay
+    setTimeout(()=>{ jobs.forEach(j=>{ try{ api(j[0], j[1]||{}, {quiet:true}); }catch(e){} }); }, 500);
   };
   function confirmSaved(msg){ msg=msg||t('c.saved'); if(window.trPhrase)msg=trPhrase(msg); const b=document.createElement('div'); b.className='savebar'; b.innerHTML=`✅ ${esc(msg)}`; document.body.appendChild(b); requestAnimationFrame(()=>b.classList.add('show')); setTimeout(()=>{b.classList.remove('show');setTimeout(()=>b.remove(),300);},1800); }
 
@@ -2289,9 +2320,40 @@
   window.A_jumpSec = (id)=>{ const el=document.getElementById(id); if(!el)return; const body=el.querySelector('.secbody');
     if(body&&body.hasAttribute('hidden')){ body.removeAttribute('hidden'); const car=el.querySelector('.caret'); if(car)car.textContent='▲'; }
     el.scrollIntoView({behavior:'smooth',block:'start'}); };
-  window.A_search = (inp)=>{ const b=inp.closest('.secw'); const q=inp.value.trim().toLowerCase(); b.querySelectorAll('.list-item').forEach(it=>{ it.style.display = (!q || it.dataset.k && it.dataset.k.indexOf(q)>=0) ? '' : 'none'; }); };
+  // ONE search box for the whole manage screen. It used to be three separate boxes, each buried
+  // INSIDE a collapsed section, so finding a person meant first guessing which section they were in
+  // and expanding it. This filters all three at once, opens whichever sections have hits, closes the
+  // ones that don't, and shows match counts on the section pills.
+  const MG_SECS = ['sec-staff','sec-parents','sec-students'];
+  window.A_search = (inp)=>{
+    const q=String(inp&&inp.value||'').trim().toLowerCase();
+    let total=0;
+    MG_SECS.forEach(id=>{
+      const sec=document.getElementById(id); if(!sec) return;
+      const body=sec.querySelector('.secbody'); const rows=[...sec.querySelectorAll('.list-item[data-k]')];
+      let hits=0;
+      rows.forEach(it=>{ const ok = !q || String(it.dataset.k||'').indexOf(q)>=0;
+        it.style.display = ok ? '' : 'none'; if(ok && q) hits++; });
+      total+=hits;
+      const pill=sec.querySelector('.pill');            // the header count (first .pill in the section)
+      if(pill) pill.textContent = q ? (hits+'/'+rows.length) : String(rows.length);
+      if(!body) return;
+      const car=sec.querySelector('.caret'), tog=sec.querySelector('.sectog');
+      if(q){ const open=hits>0;
+        if(open) body.removeAttribute('hidden'); else body.setAttribute('hidden','');
+        if(car) car.textContent = open?'▲':'▼';
+        if(tog) tog.setAttribute('aria-expanded', open?'true':'false'); }
+    });
+    const out=document.getElementById('mgSearchCount');
+    if(out) out.textContent = q ? (EN()?`${total} result${total===1?'':'s'}`:`พบ ${total} รายการ`) : '';
+  };
   const secHead = (icon,title,count,addBtn)=>`<div class="spread" style="cursor:pointer" onclick="A_toggleSec(this.querySelector('.sectog'))"><h3 style="margin:0">${icon} ${esc(title)} <span class="pill info">${count}</span></h3><span class="row" onclick="event.stopPropagation()">${addBtn||''}<button class="btn sm outline sectog" onclick="A_toggleSec(this)" aria-expanded="false" aria-label="${EN()?'Expand or collapse this section':'ย่อ/ขยายหมวดนี้'}"><span class="caret" aria-hidden="true">▼</span></button></span></div>`;
-  const searchBox = ph=>`<input class="asearch" placeholder="🔎 ${esc(ph)}" oninput="A_search(this)" style="width:100%;margin:8px 0;padding:8px 10px;border:1px solid var(--line);border-radius:8px"/>`;
+  const searchBox = ()=>`<div class="card" style="padding:10px 12px">
+    <input id="mgSearch" class="asearch" type="search" oninput="A_search(this)"
+      aria-label="${EN()?'Search staff, parents and students':'ค้นหาพนักงาน ผู้ปกครอง และนักเรียน'}"
+      placeholder="🔎 ${EN()?'Search staff, parents or students…':'ค้นหาพนักงาน ผู้ปกครอง หรือนักเรียน…'}"
+      style="width:100%;padding:11px 12px;border:1px solid var(--line);border-radius:10px"/>
+    <small id="mgSearchCount" class="muted" style="font-size:12px;display:block;margin-top:4px"></small></div>`;
 
   SCREENS.Admin.manage = async () => {
     const [staff,students,parents,pm,groups,exported,wds,classes,plans,depts,linkCounts]=await Promise.all([api('listStaff'),api('listStudents'),api('listParents'),api('permMatrix'),api('listStaffGroups'),api('listExportedStudents'),api('listWithdrawals',{pending:true}),api('listClasses'),api('getPlans'),api('listDepartments'),api('parentLinkCounts').catch(()=>({}))]);
@@ -2349,15 +2411,16 @@
       <div class="sec-divider">🛠️ ${EN()?'Tools':'เครื่องมือ'}</div>
       ${amenu}
       <div class="sec-divider">🗂️ ${EN()?'People & data':'บุคลากร & ข้อมูล'}</div>
+      ${searchBox()}
       <div class="card secw" id="sec-staff">${secHead('👩‍🏫',t('c.staff'),staff.length,`<button class="btn sm" onclick="event.stopPropagation();A_staffForm()">+ ${esc(t('manage.add'))}</button>`)}
-        <div class="secbody" hidden>${searchBox(EN()?'name / nickname / dept':'ชื่อ / ชื่อเล่น / แผนก')}
+        <div class="secbody" hidden>
         ${staff.map(s=>`<div class="list-item" data-k="${esc((s.NameTH+' '+(s.NameEN||'')+' '+(s.Nickname||'')+' '+(s.Position||'')+' '+(s.Department||'')).toLowerCase())}"><span style="display:flex;gap:8px;align-items:center">${personAvatar(s)}<span><b>${esc(dispNick(s))}</b> <small class="muted">${esc(nm(s))}</small><br><small class="muted">${esc(s.Position||'')} · ${esc(deptLabel(s))} · 🕑 ${_notr(groupLabel(s.StaffGroup))}${groupHours(s.StaffGroup)?' ('+esc(groupHours(s.StaffGroup))+')':''}</small><br><small class="muted">${esc(t('staff.start'))} ${esc(s.StartDate||'-')} · ${esc(t('staff.tenure'))} ${esc(tenure(s.StartDate))}</small></span></span><span class="row" style="flex-wrap:wrap;gap:6px;justify-content:flex-end;margin-top:6px"><button class="btn sm outline" onclick="A_staffForm('${s.StaffID}')">✏️ ${EN()?'Edit':'แก้ไข'}</button><button class="btn sm pink" onclick="A_delStaff('${s.StaffID}')">🗑️ ${EN()?'Delete':'ลบ'}</button></span></div>`).join('')}</div></div>
       <div class="card secw" id="sec-parents">${secHead('👪',t('manage.parents'),parents.length,`<button class="btn sm" onclick="event.stopPropagation();A_parentForm()">+ ${esc(t('manage.add'))}</button>`)}
-        <div class="secbody" hidden>${searchBox(EN()?'name / phone':'ชื่อ / เบอร์')}
+        <div class="secbody" hidden>
         ${parents.map(p=>{ const lc=(window._LINKCOUNTS||{})[p.ParentID]||0; const lcBadge=`<span class="pill ${lc?'ok':'bad'}" style="font-size:10px" title="${EN()?'linked children':'จำนวนบุตรที่ผูก'}">👶 ${lc}</span>`;
           return `<div class="list-item" data-k="${esc((p.NameTH+' '+(p.NameEN||'')+' '+(p.Nickname||'')+' '+(p.NicknameEN||'')+' '+(p.Phone||'')+' '+(p.Relationship||'')).toLowerCase())}"><span style="display:flex;gap:8px;align-items:center">${personAvatar(p)}<span><b>${esc(parentDisp(p))}</b> ${lcBadge} <small class="muted">${esc(titledName(p))} · ${esc(p.Relationship||'')} · ${phoneLink(p.Phone)}</small></span></span><span class="row" style="flex-wrap:wrap;gap:6px;justify-content:flex-end;margin-top:6px"><button class="btn sm outline" onclick="A_parentLinks('${p.ParentID}')">🔗 ${EN()?'Children':'บุตรที่ผูก'}</button><button class="btn sm outline" onclick="A_parentForm('${p.ParentID}')">✏️ ${EN()?'Edit':'แก้ไข'}</button><button class="btn sm pink" onclick="A_delParent('${p.ParentID}')">🗑️ ${EN()?'Delete':'ลบ'}</button></span></div>`; }).join('')}</div></div>
       <div class="card secw" id="sec-students">${secHead('👶',EN()?'Students':'นักเรียน',students.length,`<span class="row"><button class="btn sm outline" onclick="event.stopPropagation();A_issueCombined()">🧾 ${EN()?'Issue (select)':'ออกบิล (เลือก)'}</button><button class="btn sm" onclick="event.stopPropagation();A_genBills()">📅 ${esc(t('bill.genTitle'))}</button></span>`)}
-        <div class="secbody" hidden>${searchBox(EN()?'name / nickname / class':'ชื่อ / ชื่อเล่น / ชั้นเรียน')}
+        <div class="secbody" hidden>
         ${students.map(s=>`<div class="list-item" data-k="${esc((s.NameTH+' '+(s.NameEN||'')+' '+(s.Nickname||'')+' '+(s.NicknameEN||'')+' '+(s.Class||'')+' '+(s.NationalID||'')).toLowerCase())}"><span>${studentAvatar(s)} <b>${esc(dispNick(s))}</b> <small class="muted">${esc(nm(s))} · ${esc(s.Class)} · ${esc(ageYM(s.DOB))}${s.InsuranceHas?' · 🛡️':''}</small><br><small class="muted">${EN()?'ID':'บัตร'}: ${esc(s.NationalID||'-')}</small></span><span class="row" style="flex-wrap:wrap;gap:6px;justify-content:flex-end;margin-top:6px"><button class="btn sm outline" onclick="A_studentForm('${s.StudentID}')">✏️ ${EN()?'Edit':'แก้ไข'}</button><button class="btn sm" onclick="A_issueBill('${s.StudentID}')">🧾 ${EN()?'Bill':'ออกบิล'}</button><button class="btn sm" onclick="A_charges('${s.StudentID}')">💵 ${EN()?'Charges':'เรียกเก็บ'}</button><button class="btn sm outline" onclick="A_vaccines('${s.StudentID}')">💉 ${EN()?'Vaccine':'วัคซีน'}</button><button class="btn sm gray" onclick="A_exportStudent('${s.StudentID}')">📤 ${EN()?'Export':'ส่งออก'}</button><button class="btn sm pink" onclick="A_removeStudent('${s.StudentID}')">🚪 ${EN()?'Withdraw':'นำออก'}</button></span></div>`).join('')}</div></div>`;
   };
   // navigate to an admin sub-screen (kept off the bottom nav)
