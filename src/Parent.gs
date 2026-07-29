@@ -170,23 +170,34 @@ function staffCoversClass_(s, className) {
  */
 function notifyStudentTeacher_(student, text, opts) {
   opts = opts || {};
-  var seen = {}, sent = false;
-  var push = function (uid) { if (uid && !seen[uid]) { seen[uid] = 1; if (linePushText_(uid, text)) sent = true; } };
+  var seenStaff = {}, seenUid = {}, sent = false, inboxed = 0;
+  // Every targeted teacher gets an IN-APP inbox row, and a LINE push only if they have a UID. This
+  // used to be LINE-only, so with the school's free quota exhausted a parent's comment reached
+  // nobody at all — the teacher's bell was simply empty.
+  var reach = function (staff) {
+    if (!staff || !staff.StaffID || seenStaff[staff.StaffID]) return;
+    seenStaff[staff.StaffID] = 1;
+    inboxAdd_(opts.category, text, opts.ref, staff.StaffID); inboxed++;
+    var uid = staff.LineUID;
+    if (uid && !seenUid[uid]) { seenUid[uid] = 1; if (linePushText_(uid, text)) sent = true; }
+  };
+  var staffRows = readObjects_(sheet_(getHrSpreadsheet_(), 'STAFF'));
   // 1) homeroom teacher from CLASSES
   var cls = findObject_(sheet_(getMainSpreadsheet_(), 'CLASSES'),
     function (c) { return String(c.ClassName) === String(student.Class) || String(c.ClassID) === String(student.Class); });
   if (cls && cls.TeacherID) {
-    var t = findObject_(sheet_(getHrSpreadsheet_(), 'STAFF'), function (s) { return String(s.StaffID) === String(cls.TeacherID); });
-    if (t && t.LineUID) push(t.LineUID);
+    var t = null;
+    staffRows.forEach(function (s) { if (String(s.StaffID) === String(cls.TeacherID)) t = s; });
+    reach(t);
   }
   // 2) any active staff whose Department/Classes covers this class
-  readObjects_(sheet_(getHrSpreadsheet_(), 'STAFF')).forEach(function (s) {
-    if (s.LineUID && String(s.Role) !== 'Admin' && String(s.Status || 'ACTIVE') === 'ACTIVE' && staffCoversClass_(s, student.Class)) push(s.LineUID);
+  staffRows.forEach(function (s) {
+    if (String(s.Role) !== 'Admin' && String(s.Status || 'ACTIVE') === 'ACTIVE' && staffCoversClass_(s, student.Class)) reach(s);
   });
-  // Fallback to the Admin in-app inbox only when asked. Routine check-in/out pass adminFallback:false so
-  // they don't flood the inbox (every drop-off/pickup); leaves keep the fallback so they're never lost.
-  if (!sent && opts.adminFallback !== false) notifyAdmins_(text, opts.category, opts.ref);
-  return sent;
+  // Fallback to the Admin in-app inbox only when nobody at all was reached. Routine check-in/out pass
+  // adminFallback:false so they don't flood the inbox; leaves keep it so they're never lost.
+  if (!inboxed && !sent && opts.adminFallback !== false) notifyAdmins_(text, opts.category, opts.ref);
+  return sent || inboxed > 0;
 }
 
 /** Admin edits a student leave in place. payload: { staffId, leaveId, date?, reason?, type? } */
