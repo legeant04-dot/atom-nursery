@@ -390,6 +390,19 @@ a:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible,te
 .sec-divider{font-size:13px;font-weight:800;letter-spacing:.02em;color:var(--blue-d);
   margin:16px 4px 8px;padding-left:9px;border-left:4px solid var(--blue);}
 
+/* Rows with several actions (manage: staff / parents / students). .list-item is a flex ROW, so a
+   six-button action group wrapped around the name and produced ragged stacked strips. Stacking the
+   row puts the person's details on their own full-width line and the actions on a tidy one below,
+   right-aligned and all the same height. */
+.list-item.stack{flex-direction:column;align-items:stretch;gap:8px;}
+.list-item.stack .acts{display:flex;flex-wrap:wrap;gap:6px;justify-content:flex-end;}
+.list-item.stack .acts .btn{flex:0 0 auto;}
+@media(max-width:560px){
+  /* on a phone, share the width evenly instead of leaving one orphan button on its own line */
+  .list-item.stack .acts{justify-content:stretch;}
+  .list-item.stack .acts .btn{flex:1 1 auto;min-width:96px;}
+}
+
 /* =====================================================================
    LAYOUT STABILITY (CLS) — reserve space for anything that arrives late.
    ===================================================================== */
