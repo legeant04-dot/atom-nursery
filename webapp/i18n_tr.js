@@ -99,11 +99,19 @@
     for (var i = 0; i < _keys.length; i++) { var k = _keys[i]; if (k.length >= 3 && out.indexOf(k) >= 0) out = out.split(k).join(TR_DICT[k]); }
     return out;
   };
+  // This dictionary substitutes word-by-word, which is fine for UI copy but mangles DATA — a staff
+  // group called "ครูประจำ" came out as "Teacherประจำ". Anything inside translate="no" (the standard
+  // HTML attribute) or [data-notr] is therefore left exactly as stored: names, group names,
+  // addresses, and anything else the school typed in.
+  var SKIP = '[translate="no"],[data-notr]';
+  var skipped = function (node) { var el = node.parentElement; return !!(el && el.closest && el.closest(SKIP)); };
   window.translateTree = function (root) {
     if (!window.LANG || window.LANG() !== 'en' || !root) return;
     var wk = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, null), arr = [];
     while (wk.nextNode()) arr.push(wk.currentNode);
-    arr.forEach(function (n) { var v = n.nodeValue; if (!v || !v.trim()) return; var nv = window.trPhrase(v); if (nv !== v) n.nodeValue = nv; });
-    if (root.querySelectorAll) root.querySelectorAll('[placeholder]').forEach(function (el) { var nv = window.trPhrase(el.getAttribute('placeholder')); if (nv) el.setAttribute('placeholder', nv); });
+    arr.forEach(function (n) { var v = n.nodeValue; if (!v || !v.trim() || skipped(n)) return; var nv = window.trPhrase(v); if (nv !== v) n.nodeValue = nv; });
+    if (root.querySelectorAll) root.querySelectorAll('[placeholder]').forEach(function (el) {
+      if (el.closest && el.closest(SKIP)) return;
+      var nv = window.trPhrase(el.getAttribute('placeholder')); if (nv) el.setAttribute('placeholder', nv); });
   };
 })();
