@@ -55,16 +55,64 @@
     _readIdle=setTimeout(()=>{ _readIdle=null; if(_readN>0) return;
       if(_readT){ clearTimeout(_readT); _readT=null; }
       if(_readShown){ _readShown=false; if(_busyN===0 && _busyEl) _busyEl.classList.remove('on','ok'); } }, READ_IDLE); }
-  if(window.api && !window.__apiBusyWrapped){ window.__apiBusyWrapped=true; const _rawApi=window.api;
+  // ---- offline outbox ---------------------------------------------------------------------------
+  // Losing a morning's attendance because the school wi-fi dropped is the worst failure this app has.
+  // But a blind retry queue is worse than none: replaying a payment or a bill would create a second
+  // one. So ONLY actions that are safe to send twice are held. Each of these was checked in the GAS
+  // handler: staffStudentCheckin updates the existing row for that (student, date, type);
+  // submitJournal writes by (student, date); studentAbsence returns the existing leave on a
+  // duplicate; submitAssessment clears the previous result per item first. Everything that CREATES a
+  // row (payments, slips, bills, growth records) or deletes one is deliberately NOT queued.
+  const QUEUEABLE = { staffStudentCheckin:1, submitJournal:1, studentAbsence:1, submitAssessment:1 };
+  const QKEY='atom_outbox_v1';
+  const _isNetErr = e => { const m=String((e&&e.message)||e||'');
+    return (typeof navigator!=='undefined' && navigator.onLine===false) ||
+      /failed to fetch|networkerror|load failed|network request failed/i.test(m); };
+  const qLoad=()=>{ try{ return JSON.parse(localStorage.getItem(QKEY)||'[]'); }catch(e){ return []; } };
+  const qSave=l=>{ try{ localStorage.setItem(QKEY, JSON.stringify(l)); }catch(e){} qBadge(); };
+  function qAdd(action,payload){ const l=qLoad();
+    l.push({ id:Date.now()+'-'+Math.random().toString(36).slice(2,7), action, payload, at:new Date().toISOString() });
+    qSave(l); }
+  function qBadge(){ const n=qLoad().length; let el=document.getElementById('outbox');
+    if(!n){ if(el) el.remove(); return; }
+    if(!el){ el=document.createElement('button'); el.id='outbox'; el.type='button';
+      el.onclick=()=>qFlush(true); document.body.appendChild(el); }
+    el.textContent = (EN()?`📥 ${n} waiting to send — tap to retry`:`📥 รอส่ง ${n} รายการ · แตะเพื่อลองใหม่`); }
+  let _rawApi=null, _qFlushing=false;
+  async function qFlush(manual){
+    if(_qFlushing || !_rawApi) return;
+    let l=qLoad(); if(!l.length){ qBadge(); return; }
+    if(typeof navigator!=='undefined' && navigator.onLine===false){ if(manual) toast(EN()?'Still offline':'ยังออฟไลน์อยู่'); return; }
+    _qFlushing=true; const left=[]; let sent=0, dropped=0;
+    for(const it of l){
+      try{ await _rawApi(it.action, it.payload); sent++; }
+      catch(e){
+        if(_isNetErr(e)) left.push(it);        // still offline — keep it for next time
+        else dropped++;                        // the server rejected it; retrying forever won't help
+      }
+    }
+    _qFlushing=false; qSave(left);
+    if(sent) toast(EN()?`✅ Sent ${sent} saved item(s)`:`✅ ส่งข้อมูลที่ค้างไว้แล้ว ${sent} รายการ`, 3600, true);
+    if(dropped) toast(EN()?`⚠️ ${dropped} item(s) could not be sent and were discarded`:`⚠️ ส่งไม่สำเร็จ ${dropped} รายการ (ระบบปฏิเสธ)`, 5200, true);
+  }
+  window.addEventListener('online', ()=>qFlush());
+  if(typeof document!=='undefined') document.addEventListener('visibilitychange', ()=>{ if(!document.hidden) qFlush(); });
+
+  if(window.api && !window.__apiBusyWrapped){ window.__apiBusyWrapped=true; _rawApi=window.api;
     window.api=function(action,payload,opts){
       if(_isMut(action)){
         _busyShow(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _busyDone(false); throw e; }
-        return Promise.resolve(pr).then(v=>{ _busyDone(true); return v; }, e=>{ _busyDone(false); throw e; });
+        return Promise.resolve(pr).then(v=>{ _busyDone(true); qFlush(); return v; }, e=>{ _busyDone(false);
+          // network died mid-save and this action is replay-safe → keep it and let the UI carry on.
+          // The outbox pill is what tells the truth: "saved" plus "2 waiting to send".
+          if(!_qFlushing && QUEUEABLE[action] && _isNetErr(e)){ qAdd(action,payload); return {queued:true}; }
+          throw e; });
       }
       if(opts&&opts.quiet) return _rawApi(action,payload,opts);   // PREFETCH: warming the cache in the background
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
-  const APP_VERSION = 'Version 1.149'; // bump each webapp change; shown only at the bottom of the Chat screen
+  setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
+  const APP_VERSION = 'Version 1.151'; // bump each webapp change; shown only at the bottom of the Chat screen
   const verTag = () => `<div style="text-align:center;color:#c3c9d4;font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
   const phoneFmt = p => { let d=String(p==null?'':p).replace(/\D/g,''); if(d.length===9) d='0'+d; return d; };
@@ -411,6 +459,7 @@
     // every real navigation leaves whatever sub-view was open — check for unsaved work first.
     // Runs before CURRENT is reassigned so leaveOk() can re-push the entry the user came from.
     if(!(opts&&opts.silent)){ if(!leaveOk(opts)) return; CUR_SUB=null; FORM_DIRTY=false; }
+    if(window.__atomHideRefreshBar) __atomHideRefreshBar();   // a fresh render answers the offer
     CURRENT=screen; setNav(screen); if(!(opts&&opts.silent)) histPush(screen, opts&&opts.fromPop); if(!(opts&&opts.silent)){ setTopActions(''); CAL_OFF=0; window._CALRENDER=null; } const fn=(SCREENS[USER.role]||{})[screen];
     // paint an instant placeholder so a tap feels responsive instead of "stuck" on the old screen
     // while the first (uncached) fetch runs; skip on silent background re-renders to avoid flicker.
@@ -422,8 +471,28 @@
     } else app.innerHTML=`<div class="card">หน้านี้กำลังพัฒนา</div>`; window.scrollTo(0,0); };
   // SWR hook: api.js calls this when a background refresh found newer data than what's shown.
   // Re-render the current screen (silently, no skeleton), but never interrupt an open modal or active typing.
-  window.__atomRevalidate = () => { if(!USER||!CURRENT) return; if(document.querySelector('.modal')) return;
-    const ae=document.activeElement; if(ae && /^(INPUT|TEXTAREA|SELECT)$/.test(ae.tagName)) return; GO(CURRENT,{silent:true}); };
+  // Background refresh found newer data. Redrawing the screen underneath someone reading it — or
+  // about to tap a button — moves things at the worst possible moment, so offer it instead: a bar
+  // slides in and the user decides when. The one exception is a screen with nothing on it yet
+  // (first paint still pending), where there is nothing to disturb.
+  window.__atomRevalidate = () => {
+    if(!USER||!CURRENT) return;
+    if(document.querySelector('.modal')) return;
+    const ae=document.activeElement; if(ae && /^(INPUT|TEXTAREA|SELECT)$/.test(ae.tagName)) return;
+    if(FORM_DIRTY) return;                                   // never interrupt half-finished work
+    const empty=!app.querySelector('.card, .list-item, .kpigrid');
+    if(empty){ GO(CURRENT,{silent:true}); return; }
+    showRefreshBar();
+  };
+  function showRefreshBar(){
+    if(document.getElementById('refreshBar')) return;
+    const b=document.createElement('button'); b.id='refreshBar'; b.type='button';
+    b.innerHTML=`🔄 ${EN()?'New data available — tap to refresh':'มีข้อมูลใหม่ · แตะเพื่อรีเฟรช'}`;
+    b.onclick=()=>{ b.remove(); GO(CURRENT,{silent:true}); };
+    document.body.appendChild(b);
+    requestAnimationFrame(()=>b.classList.add('show'));
+  }
+  window.__atomHideRefreshBar = () => { const b=document.getElementById('refreshBar'); if(b) b.remove(); };
   // Warm the SWR cache for the other tabs right after login so navigating to them is instant
   // (the home screen loads first; these fire ~0.5s later and micro-batch into one request).
   window.PREFETCH = () => {

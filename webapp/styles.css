@@ -399,6 +399,25 @@ a:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible,te
 .sec-divider{font-size:13px;font-weight:800;letter-spacing:.02em;color:var(--blue-d);
   margin:16px 4px 8px;padding-left:9px;border-left:4px solid var(--blue);}
 
+/* Offline outbox: work saved on the device while the connection was down. Amber, and it stays put
+   until everything has actually reached the server — the one thing the user must not miss. */
+#outbox{position:fixed;left:50%;transform:translateX(-50%);
+  bottom:calc(78px + env(safe-area-inset-bottom,0px));z-index:46;
+  background:#fff3e0;color:#e65100;border:1px solid #ffcc80;border-radius:var(--radius-pill);
+  padding:10px 16px;font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;
+  box-shadow:var(--sh-md);max-width:92%;min-height:44px;}
+#outbox:hover{background:#ffe8cc;}
+
+/* "New data available" offer. The app used to silently redraw the screen when a background refresh
+   found changes, which moved content under the reader's finger. Now it asks. */
+#refreshBar{position:fixed;left:50%;bottom:calc(78px + env(safe-area-inset-bottom,0px));
+  transform:translate(-50%,14px);z-index:45;opacity:0;transition:opacity var(--dur),transform var(--dur);
+  background:var(--blue-d);color:#fff;border:none;border-radius:var(--radius-pill);
+  padding:11px 18px;font-family:inherit;font-size:13.5px;font-weight:600;cursor:pointer;
+  box-shadow:var(--sh-md);max-width:92%;min-height:44px;}
+#refreshBar.show{opacity:1;transform:translate(-50%,0);}
+#refreshBar:hover{filter:brightness(1.08);}
+
 /* "Viewing as …" banner. Below the header rather than above the bottom nav, where it used to cover
    the nav itself and the sticky save bar. z-index stays under the header (20) so the header wins. */
 #viewAsBar{position:fixed;left:0;right:0;z-index:19;background:var(--blue);color:#fff;
