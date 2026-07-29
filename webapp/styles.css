@@ -89,7 +89,9 @@ textarea{min-height:70px;resize:vertical;}
 .choice button.fail{background:#ffebee;border-color:#ef9a9a;color:var(--bad);}
 
 .toast{position:fixed;left:50%;bottom:84px;transform:translateX(-50%);background:#111;color:#fff;
-  padding:10px 16px;border-radius:10px;font-size:14px;z-index:50;opacity:0;transition:opacity .2s;max-width:90%;}
+  padding:10px 16px;border-radius:10px;font-size:14px;z-index:50;opacity:0;transition:opacity .2s;max-width:90%;
+  /* errors carry a second "what to do next" line */
+  white-space:pre-line;line-height:1.45;text-align:center;}
 .toast.show{opacity:.95;}
 
 /* Bottom nav */
@@ -332,6 +334,13 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--blue);bo
    ~30px tall, under the 44px Apple/Google minimum. inline-flex keeps the label centred once the
    box is taller than the text, and leaves `flex:1` / inline usage inside .row untouched. */
 .btn.sm{min-height:44px;display:inline-flex;align-items:center;justify-content:center;gap:4px;}
+/* the last two header controls still under the minimum: the bell and the language toggle */
+.bell,.langtoggle{min-width:44px;min-height:44px;display:inline-flex;align-items:center;justify-content:center;}
+/* Readability floor. Data people actually need to read (class, age, due date, phone) was sitting at
+   11–12px. Anything below 13px is nudged up to 13px; only true badges/counters stay smaller. */
+.muted,small,.jr-lbl,.jr-pill,.kpi .kl,.user-role{font-size:13px;}
+.pill{font-size:12.5px;}
+.bottomnav button{font-size:12px;}
 
 /* Pills: a touch more presence */
 .pill{padding:3px 11px;letter-spacing:.01em;}
@@ -389,6 +398,21 @@ a:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible,te
 /* section divider heading (Tools / Data groupings on the manage page) */
 .sec-divider{font-size:13px;font-weight:800;letter-spacing:.02em;color:var(--blue-d);
   margin:16px 4px 8px;padding-left:9px;border-left:4px solid var(--blue);}
+
+/* Sticky save bar for the long forms (journal, insurance, registration). These run well past two
+   screens, so the save button sat below the fold and had to be hunted for after every edit. sticky
+   keeps it in normal flow — no height reserved, no layout shift — and it parks just above the
+   bottom nav. The fade stops content from appearing to collide with it while scrolling. */
+/* NOT position:sticky — the dock is the last child of the screen, so a sticky element has no room
+   left inside its parent to stick against and just scrolls away. Fixed, sized to match <main>, and
+   <main> gets matching bottom padding so the dock never covers the end of the form. */
+.savedock{position:fixed;left:50%;transform:translateX(-50%);width:min(880px,100%);
+  bottom:calc(60px + env(safe-area-inset-bottom,0px));z-index:15;padding:10px 14px 8px;
+  background:linear-gradient(to top,var(--bg) 66%,rgba(244,247,251,0));}
+.savedock .btn{margin-top:0;}
+.savedock .btn + .btn{margin-top:8px;}
+main:has(.savedock){padding-bottom:120px;}
+main:has(.savedock .btn + .btn){padding-bottom:180px;}   /* two stacked buttons (the journal) */
 
 /* Rows with several actions (manage: staff / parents / students). .list-item is a flex ROW, so a
    six-button action group wrapped around the name and produced ragged stacked strips. Stacking the
