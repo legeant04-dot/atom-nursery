@@ -20,23 +20,25 @@
   <link rel="preconnect" href="https://static.line-scdn.net" crossorigin />
   <link rel="preconnect" href="https://script.google.com" />
   <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@400;500;600;700&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="styles.css?v=128" />
+  <link rel="stylesheet" href="styles.css?v=132" />
 </head>
 <body>
   <header class="topbar">
-    <div class="brand" title="Home" style="cursor:pointer" onclick="HOME_TAP()">
+    <!-- these three are clickable divs, so they need the button role + a tab stop to be reachable
+         from a keyboard; app.js maps Enter/Space onto a click for any [role=button] -->
+    <div class="brand" style="cursor:pointer" onclick="HOME_TAP()" role="button" tabindex="0" aria-label="กลับหน้าหลัก / Home">
       <img src="assets/logo.png" alt="Atom Nursery" class="logo" />
       <span class="brand-name">Atom Nursery</span>
     </div>
     <div class="user" id="userBox">
       <div class="topactions" id="topActions"></div>
-      <button class="langtoggle" id="langBtn" onclick="TOGGLE_LANG()">TH</button>
-      <button class="bell" id="bellBtn" hidden onclick="BELL()">🔔<span class="badge" id="bellBadge" hidden></span></button>
-      <div class="user-meta" style="cursor:pointer" onclick="NAME_TAP()">
+      <button class="langtoggle" id="langBtn" onclick="TOGGLE_LANG()" aria-label="เปลี่ยนภาษา / Switch language">TH</button>
+      <button class="bell" id="bellBtn" hidden onclick="BELL()" aria-label="การแจ้งเตือน / Notifications"><span aria-hidden="true">🔔</span><span class="badge" id="bellBadge" hidden></span></button>
+      <div class="user-meta" style="cursor:pointer" onclick="NAME_TAP()" role="button" tabindex="0" aria-label="ข้อมูลของฉัน / My profile">
         <span class="user-name" id="userName">–</span>
         <span class="user-role" id="userRole"></span>
       </div>
-      <div class="avatar" id="avatar" title="Profile" style="cursor:pointer" onclick="NAME_TAP()">–</div>
+      <div class="avatar" id="avatar" style="cursor:pointer" onclick="NAME_TAP()" role="button" tabindex="0" aria-label="ข้อมูลของฉัน / My profile">–</div>
       <button class="btn-ghost" id="logoutBtn" hidden>ออก</button>
     </div>
   </header>
@@ -50,13 +52,13 @@
        engine.js is deliberately absent: gas mode runs it server-side (src/Engine.gs), and api.js
        pulls it in on demand if anyone ever flips CONFIG.MODE back to 'mock'. -->
   <script defer src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
-  <script defer src="mockdata.js?v=128"></script>
-  <script defer src="growth_standard.js?v=128"></script>
-  <script defer src="xlsx_min.js?v=128"></script>
-  <script defer src="i18n.js?v=128"></script>
-  <script defer src="i18n_tr.js?v=128"></script>
-  <script defer src="api.js?v=128"></script>
-  <script defer src="app.js?v=128"></script>
+  <script defer src="mockdata.js?v=132"></script>
+  <script defer src="growth_standard.js?v=132"></script>
+  <script defer src="xlsx_min.js?v=132"></script>
+  <script defer src="i18n.js?v=132"></script>
+  <script defer src="i18n_tr.js?v=132"></script>
+  <script defer src="api.js?v=132"></script>
+  <script defer src="app.js?v=132"></script>
   <script>
     // Register SW but always pull fresh code: check for updates and auto-reload
     // once a new service worker takes control (prevents stale-cache showing old UI).
