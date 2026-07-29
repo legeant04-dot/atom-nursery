@@ -34,12 +34,15 @@
     window.api=function(action,payload,opts){ if(!_isMut(action)) return _rawApi(action,payload,opts);
       _busyShow(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _busyDone(false); throw e; }
       return Promise.resolve(pr).then(v=>{ _busyDone(true); return v; }, e=>{ _busyDone(false); throw e; }); }; }
-  const APP_VERSION = 'Version 1.134'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.140'; // bump each webapp change; shown only at the bottom of the Chat screen
   const verTag = () => `<div style="text-align:center;color:#c3c9d4;font-size:10px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
   const phoneFmt = p => { let d=String(p==null?'':p).replace(/\D/g,''); if(d.length===9) d='0'+d; return d; };
   const phoneLink = p => { const d=phoneFmt(p); return d?`<a href="tel:${d}" onclick="event.stopPropagation()" style="color:inherit;text-decoration:underline dotted">${esc(d)}</a>`:'-'; };
   const esc = s => String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+  // Escape AND shield from the EN phrase dictionary. Use for anything the school typed in (names,
+  // staff-group names, addresses): word-by-word substitution turned "ครูประจำ" into "Teacherประจำ".
+  const _notr = v => `<span translate="no">${esc(v)}</span>`;
   // password input with a 👁️ show/hide toggle
   const pwField = (id,label,ph)=>`<label class="field"><span>${esc(label)}</span><div class="row" style="gap:6px"><input type="password" id="${id}" placeholder="${esc(ph||'')}" style="flex:1"/><button type="button" class="btn sm outline" onclick="PW_toggle('${id}',this)" title="show/hide" aria-label="${EN()?"Show or hide password":"แสดง/ซ่อนรหัสผ่าน"}" title="${EN()?"Show or hide password":"แสดง/ซ่อนรหัสผ่าน"}">👁️</button></div></label>`;
   window.PW_toggle=(id,btn)=>{ const e=document.getElementById(id); if(!e)return; const show=e.type==='password'; e.type=show?'text':'password'; if(btn)btn.textContent=show?'🙈':'👁️'; };
@@ -127,6 +130,10 @@
   function ageYM(dob){ const m=window.AGEMONTHS?AGEMONTHS(dob):0; return ageYMfromMonths(m); }
   function ageYMfromMonths(m){ m=Math.max(0,Math.round(m)); const y=Math.floor(m/12), mo=m%12;
     return EN()? `${y}y ${mo}m` : `${y} ปี ${mo} เดือน`; }
+  // DSPM_CRITERIA only stores AgeLabelTH (there is no EN column, and adding one would mean a schema
+  // change plus data entry for every band), so swap the two units instead. The runtime translator
+  // used to convert เดือน but not ปี, which is what produced "1 ปี 1 mo".
+  const ageBandLabel = s => EN() ? String(s==null?'':s).replace(/เดือน/g,'mo').replace(/ปี/g,'y') : String(s==null?'':s);
   window.GROWTH_PT = lbl => toast(lbl);
   // staff tenure (years/months since StartDate)
   function tenure(startDate){ if(!startDate) return '-'; const d=new Date(startDate),n=new Date();
@@ -492,7 +499,7 @@
     app.innerHTML=`<h2 class="page">${esc(t('reg.titleParent'))}</h2>
       <div class="card" style="background:#f7f9fc"><small class="muted">${esc(t('reg.parentFirstNote'))}</small></div>
       <div class="card"><h3>👪 ${esc(t('reg.parent'))}</h3>
-        <div class="grid2"><label class="field"><span>${esc(t('reg.title'))}</span><select id="rTitle">${['นาย','นาง','นางสาว'].map(x=>`<option>${x}</option>`).join('')}</select></label>${fld_('rPNameTH',t('reg.nameTH'))}</div>
+        <div class="grid2"><label class="field"><span>${esc(t('reg.title'))}</span><select id="rTitle">${['นาย','นาง','นางสาว'].map(x=>`<option value="${x}">${EN()?({'นาย':'Mr.','นาง':'Mrs.','นางสาว':'Ms.'})[x]:x}</option>`).join('')}</select></label>${fld_('rPNameTH',t('reg.nameTH'))}</div>
         <div class="grid2">${fld_('rPNameEN',t('reg.nameEN'))}${fld_('rPNick',t('reg.nickname'))}</div>
         <div class="grid2">${fld_('rPNickEN',t('reg.nicknameEN'))}${fld_('rPNID',t('reg.nationalIdParent'))}</div>
         <div class="grid2"><label class="field"><span>${esc(t('reg.relationship'))}</span><select id="rRel" onchange="REG_titleFromRel()"><option>${esc(t('reg.father'))}</option><option>${esc(t('reg.mother'))}</option><option>${esc(t('reg.guardian'))}</option></select></label></div>
@@ -824,7 +831,7 @@
             ${p.Photo?`<button class="btn sm outline" onclick="P_useLinePic('${p.ParentID}',this)">↩︎ ${EN()?'Use my LINE picture':'ใช้รูป LINE แทน'}</button>`:''}
           </div>
         </div>
-        <div class="grid2"><label class="field"><span>${esc(t('reg.title'))}</span><select id="${pre}_Title">${['','นาย','นาง','นางสาว'].map(x=>`<option ${(p.Title||titleOf(p))===x?'selected':''}>${x}</option>`).join('')}</select></label>${ppFld(pre,'NameTH',EN()?'Name (TH)':'ชื่อ-สกุล (ไทย)',p.NameTH)}</div>
+        <div class="grid2"><label class="field"><span>${esc(t('reg.title'))}</span><select id="${pre}_Title">${['','นาย','นาง','นางสาว'].map(x=>`<option value="${x}" ${(p.Title||titleOf(p))===x?'selected':''}>${EN()?({'':'','นาย':'Mr.','นาง':'Mrs.','นางสาว':'Ms.'})[x]:x}</option>`).join('')}</select></label>${ppFld(pre,'NameTH',EN()?'Name (TH)':'ชื่อ-สกุล (ไทย)',p.NameTH)}</div>
         <div class="grid2">${ppFld(pre,'NameEN',EN()?'Name (EN)':'ชื่อ-สกุล (อังกฤษ)',p.NameEN)}${ppFld(pre,'Nickname',EN()?'Nickname (TH)':'ชื่อเล่น (ไทย)',p.Nickname)}</div>
         <div class="grid2">${ppFld(pre,'NicknameEN',EN()?'Nickname (EN)':'ชื่อเล่น (อังกฤษ)',p.NicknameEN)}<label class="field"><span>${EN()?'Relationship':'ความสัมพันธ์'}</span><input id="${pre}_Relationship" value="${esc(p.Relationship||'')}"/></label></div>
         <div class="grid2">${ppFld(pre,'Phone',EN()?'Phone':'เบอร์โทร',phoneFmt(p.Phone))}${ppFld(pre,'OfficePhone',EN()?'Office phone':'เบอร์ที่ทำงาน',phoneFmt(p.OfficePhone))}</div>
@@ -865,16 +872,19 @@
     if(btn)btn.disabled=true;
     try{ await api('saveStudentSelf',{studentId,data}); confirmSaved(t('c.saved')); }catch(e){err(e);}finally{ if(btn)btn.disabled=false; } };
   window.P_absence = async () => { const kids=await api('parentChildren',parentScope());
-    const m=modal(`<h3>🏠 แจ้งลาบุตรหลาน</h3>
-      <label class="field"><span>บุตรหลาน</span><select id="aKid">${kids.map(k=>`<option value="${k.StudentID}">${esc(dispNick(k))}</option>`).join('')}</select></label>
-      <label class="field"><span>วันที่ลา</span><input type="date" id="aDate" value="${todayStr()}"/></label>
-      <label class="field"><span>ประเภทการลา</span><select id="aType"><option>ลาป่วย</option><option>ลากิจ</option><option>ลาพักร้อน</option><option>อื่นๆ</option></select></label>
-      <label class="field"><span>สาเหตุ (ถ้ามี)</span><textarea id="aReason" placeholder="เช่น เป็นไข้ / มีธุระครอบครัว"></textarea></label>
-      <button class="btn block" onclick="P_absenceDo(this)">ส่งแจ้งลา</button>`);
+    // the option VALUES stay Thai — that is what the sheet stores and what studentAbsence expects;
+    // only the labels switch language (tLeaveType covers the three standard types).
+    const types=['ลาป่วย','ลากิจ','ลาพักร้อน','อื่นๆ'];
+    const m=modal(`<h3>🏠 ${EN()?'Report your child absent':'แจ้งลาบุตรหลาน'}</h3>
+      <label class="field"><span>${EN()?'Child':'บุตรหลาน'}</span><select id="aKid">${kids.map(k=>`<option value="${k.StudentID}">${esc(dispNick(k))}</option>`).join('')}</select></label>
+      <label class="field"><span>${EN()?'Date':'วันที่ลา'}</span><input type="date" id="aDate" value="${todayStr()}"/></label>
+      <label class="field"><span>${EN()?'Leave type':'ประเภทการลา'}</span><select id="aType">${types.map(x=>`<option value="${esc(x)}">${esc(x==='อื่นๆ'?(EN()?'Other':'อื่นๆ'):tLeaveType(x))}</option>`).join('')}</select></label>
+      <label class="field"><span>${EN()?'Reason (optional)':'สาเหตุ (ถ้ามี)'}</span><textarea id="aReason" placeholder="${EN()?'e.g. fever / family matter':'เช่น เป็นไข้ / มีธุระครอบครัว'}"></textarea></label>
+      <button class="btn block" onclick="P_absenceDo(this)">${EN()?'Send':'ส่งแจ้งลา'}</button>`);
   };
   window.P_absenceDo = async (btn) => { const m=btn.closest('.modal');
     await api('studentAbsence',{studentId:m.querySelector('#aKid').value,date:m.querySelector('#aDate').value,type:m.querySelector('#aType').value,reason:m.querySelector('#aReason').value});
-    m.remove(); toast('✅ แจ้งลาแล้ว — ครูได้รับทราบ'); GO('home'); };
+    m.remove(); toast(EN()?'✅ Absence reported — the teacher has been notified':'✅ แจ้งลาแล้ว — ครูได้รับทราบ'); GO('home'); };
 
   // shared withdrawal reason picker (4 standard reasons; "other" reveals a long-text box)
   const WD_REASONS=['graduated','moved','transferred','other'];
@@ -1270,15 +1280,15 @@
     const itemRow=i=>`<div class="list-item"><span><b>ข้อ ${i.itemNo}</b> <span class="pill info">${i.skill}</span> · ${DT[i.skill]||''}<br><small>${esc(EN()&&i.descriptionEN?i.descriptionEN:i.description)}</small></span>${DSPM_PILL(i.result)}</div>`;
     const assessCard = s
       ? `<div class="card"><div class="spread"><b>${esc(dispNick(st)||sid)}</b><span class="muted">${esc(ageYMfromMonths(s.ageMonth))} (${s.ageMonth} ${EN()?'mo':'เดือน'})</span></div>
-          <div class="spread"><b style="color:#1565C0">⭐ ช่วงวัยปัจจุบัน: ${esc(s.ageLabel)}</b></div>
-          <p class="muted" style="font-size:12.5px">แสดงทุกข้อของช่วงวัยนี้ ที่ยังไม่ประเมินจะขึ้น "ยังไม่ได้รับการทดสอบ"</p>
+          <div class="spread"><b style="color:#1565C0">⭐ ${EN()?'Current age band':'ช่วงวัยปัจจุบัน'}: ${esc(ageBandLabel(s.ageLabel))}</b></div>
+          <p class="muted" style="font-size:12.5px">${EN()?'Every item for this age band is listed; anything not assessed yet shows as "Not tested".':'แสดงทุกข้อของช่วงวัยนี้ ที่ยังไม่ประเมินจะขึ้น "ยังไม่ได้รับการทดสอบ"'}</p>
           ${s.manualUrl?`<a class="btn sm outline" href="${esc(s.manualUrl)}" target="_blank">⬇️ ดาวน์โหลดคู่มือ DSPM</a>`:''}
           ${s.items.map(itemRow).join('')}</div>`
       : `<div class="card"><div class="spread"><b>${esc(dispNick(st)||sid)}</b><span class="muted">${esc(ageYMfromMonths(ageMo))} (${ageMo} ${EN()?'mo':'เดือน'})</span></div>
           <p class="muted" style="font-size:13px">ℹ️ ยังไม่มีเกณฑ์ประเมินพัฒนาการสำหรับช่วงวัยนี้ (อายุ ${ageMo} เดือน) — เมื่อโรงเรียนเพิ่มเกณฑ์ตามคู่มือ DSPM ของช่วงวัยนี้แล้ว รายการประเมินจะแสดงที่นี่</p></div>`;
     app.innerHTML=`<h2 class="page">📋 ${esc(t('title.dspm'))}${(kidsD&&kidsD.length>1)?'':` · <span style="color:#1565C0">${esc(dispNick(st)||sid)}</span>`}</h2>${childSwitcher(kidsD,sid,'P_dspm')}
       ${assessCard}
-      ${past.length?`<h3 class="page" style="font-size:16px">📜 ผลย้อนหลัง (ช่วงวัยก่อนหน้า)</h3>`+past.reverse().map(b=>`<div class="card"><h3 style="font-size:14px">${esc(b.label)}</h3>${b.items.map(i=>`<div class="list-item"><span><b>ข้อ ${i.itemNo}</b> <span class="pill info">${i.skill}</span> <small>${esc(EN()&&i.descriptionEN?i.descriptionEN:i.description)}</small></span>${DSPM_PILL(i.result)}</div>`).join('')}</div>`).join(''):''}`;
+      ${past.length?`<h3 class="page" style="font-size:16px">📜 ${EN()?'Earlier results (previous age bands)':'ผลย้อนหลัง (ช่วงวัยก่อนหน้า)'}</h3>`+past.reverse().map(b=>`<div class="card"><h3 style="font-size:14px">${esc(ageBandLabel(b.label))}</h3>${b.items.map(i=>`<div class="list-item"><span><b>${EN()?'Item':'ข้อ'} ${i.itemNo}</b> <span class="pill info">${i.skill}</span> <small>${esc(EN()&&i.descriptionEN?i.descriptionEN:i.description)}</small></span>${DSPM_PILL(i.result)}</div>`).join('')}</div>`).join(''):''}`;
   };
 
   SCREENS.Parent.chat = async () => { const line=MOCK.config.Links.line||'#';
@@ -1598,7 +1608,7 @@
     let c; try{ c=await api('dspmStatus',{studentId:sid}); }catch(e){ app.innerHTML=`<button class="btn sm outline backbtn" onclick="GO('class')">${t('c.back')}</button><h2 class="page">📝 ประเมิน DSPM</h2><div class="card muted">${esc(e.message)}</div>`; return; }
     const s=(await api('classList',tc())).students.find(x=>x.StudentID===sid)||{NameTH:sid};
     app.innerHTML=`<button class="btn sm outline backbtn" onclick="GO('class')">${t('c.back')}</button><h2 class="page">📝 ประเมิน DSPM — ${esc(nm(s))}</h2>
-      <div class="card"><div class="spread"><span>ช่วงอายุ: <b>${esc(c.ageLabel)}</b></span><span class="muted">${c.ageMonth} เดือน</span></div>
+      <div class="card"><div class="spread"><span>ช่วงอายุ: <b>${esc(ageBandLabel(c.ageLabel))}</b></span><span class="muted">${c.ageMonth} เดือน</span></div>
       <p class="muted" style="font-size:12px">เลือก "ยังไม่ได้ประเมิน" ได้ เพื่อให้ผู้ปกครองทราบว่ายังมีหัวข้อที่ต้องประเมิน · เทียบกับคู่มือที่ดาวน์โหลด</p>
       ${c.manualUrl?`<a class="btn sm outline" href="${esc(c.manualUrl)}" target="_blank">⬇️ ดาวน์โหลดคู่มือ DSPM</a>`:''}</div>
       ${c.items.map(i=>`<div class="card"><div style="margin-bottom:8px"><b>${EN()?'Item':'ข้อ'} ${i.itemNo}</b> <span class="pill info">${i.skill}</span> ${i.result!=='ยังไม่ได้รับการทดสอบ'?`<span class="pill ${i.result==='ผ่าน'?'ok':'bad'}">${EN()?'prev':'เดิม'}: ${esc(tStat(i.result))}</span>`:''}<br>${esc(EN()&&i.descriptionEN?i.descriptionEN:i.description)}</div>
@@ -1684,8 +1694,10 @@
   const leaveName = l => (EN()?(l.nickEN||l.nick):(l.nick||l.nickEN)) || (EN()?(l.nameEN||l.name):(l.name||l.nameEN)) || staffNick(l.StaffID);
   // 📎 attachment link (medical cert / doc) if present
   const leaveDoc = l => l.Attachment ? ` <a href="${esc(l.Attachment)}" target="_blank" onclick="event.stopPropagation()">📎</a>` : '';
-  function leaveRow(l){ return `<div class="list-item"><div><b>${esc(l.Type)}</b> ${esc(l.StartDate)}→${esc(l.EndDate)} (${l.Days}ว.)${leaveDoc(l)}<br><small class="muted">${esc(l.LeaveID)}${l.Step1ApproverName?' · ขั้น1: '+esc(l.Step1ApproverName)+(l.Step1CrossDept==='YES'?' (ข้ามแผนก)':''):''}${l.Step2ApproverName?' · ขั้น2: '+esc(l.Step2ApproverName):''}</small></div>${leaveStatusPill(l.Status)}</div>`; }
-  function teamLeaveRow(l){ return `<div class="card" style="margin:8px 0"><div class="spread"><div><b>${esc(leaveName(l))}</b> <small class="muted">(${esc(l.Department)})</small><br>${esc(l.Type)} ${esc(l.StartDate)}→${esc(l.EndDate)} (${l.Days}ว.)${leaveDoc(l)}<br><small class="muted">${esc(l.Reason||'')}</small></div>${leaveStatusPill(l.Status)}</div><div class="row" style="margin-top:8px"><button class="btn sm green" onclick="T_teamApprove('${l.LeaveID}','approve')">อนุมัติ</button><button class="btn sm pink" onclick="T_teamApprove('${l.LeaveID}','reject')">ปฏิเสธ</button></div></div>`; }
+  // "2ว." never made it through the runtime translator; days/steps are spelled out per language now.
+  const lvDays = n => EN() ? `${n} d` : `${n}ว.`;
+  function leaveRow(l){ return `<div class="list-item"><div><b>${esc(tLeaveType(l.Type))}</b> ${esc(l.StartDate)}→${esc(l.EndDate)} (${lvDays(l.Days)})${leaveDoc(l)}<br><small class="muted">${esc(l.LeaveID)}${l.Step1ApproverName?(EN()?' · step 1: ':' · ขั้น1: ')+esc(l.Step1ApproverName)+(l.Step1CrossDept==='YES'?(EN()?' (cross-dept)':' (ข้ามแผนก)'):''):''}${l.Step2ApproverName?(EN()?' · step 2: ':' · ขั้น2: ')+esc(l.Step2ApproverName):''}</small></div>${leaveStatusPill(l.Status)}</div>`; }
+  function teamLeaveRow(l){ return `<div class="card" style="margin:8px 0"><div class="spread"><div><b>${esc(leaveName(l))}</b> <small class="muted">(${esc(l.Department)})</small><br>${esc(tLeaveType(l.Type))} ${esc(l.StartDate)}→${esc(l.EndDate)} (${lvDays(l.Days)})${leaveDoc(l)}<br><small class="muted">${esc(l.Reason||'')}</small></div>${leaveStatusPill(l.Status)}</div><div class="row" style="margin-top:8px"><button class="btn sm green" onclick="T_teamApprove('${l.LeaveID}','approve')">${esc(t('ot.approve'))}</button><button class="btn sm pink" onclick="T_teamApprove('${l.LeaveID}','reject')">${esc(t('ot.reject'))}</button></div></div>`; }
 
   const firstName = s => (nm(s)||'').split(' ')[0];
   // opts: { shortName(staffId), holidays:[{Date,NameTH,NameEN}], leaves:[approved] } — never reads MOCK.staff
@@ -1743,7 +1755,9 @@
   // staff/admin own profile (opened by tapping the header name/avatar)
   window.T_profile = async () => { setNav('home');
     const s = await api('staffSelf',{staffId:USER.staffId}) || {};
-    const ro=(label,val)=>`<div class="list-item"><span class="muted" style="font-size:12.5px">${esc(label)}</span><span><b>${esc(val==null||val===''?'-':val)}</b></span></div>`;
+    // every row here is a stored value (name, position, department, staff group) — shield them all,
+    // or the EN dictionary rewrites them word-by-word ("ครูประจำ" -> "Teacherประจำ")
+    const ro=(label,val)=>`<div class="list-item"><span class="muted" style="font-size:12.5px">${esc(label)}</span><span><b>${_notr(val==null||val===''?'-':val)}</b></span></div>`;
     const f=(k,label,val,type)=>`<label class="field"><span>${esc(label)}</span><input id="sp_${k}" type="${type||'text'}" value="${esc(val==null?'':val)}"/></label>`;
     app.innerHTML=`<div class="spread"><h2 class="page">👤 ${EN()?'My info':'ข้อมูลของฉัน'}</h2><button class="btn sm outline" onclick="GO('home')">← ${esc(t('c.back'))}</button></div>
       <div class="card"><h3>${esc(nm(s)||USER.nameTH||'')}</h3>
@@ -2058,7 +2072,7 @@
         ${growthChartSVG(t('growth.height'),g.records.map(r=>({x:r.AgeMonth,y:r.Height})),gBand(g.heightBand,g.gender,g.records,'height'),'cm')}
         <div class="row" style="font-size:11px;justify-content:center;margin-top:6px"><span>🟦 ${esc(t('growth.actual'))}</span><span>🟩 ${esc(t('growth.normalBand'))}</span></div>
         ${growthRecordsList(g.records)}</div>
-      ${d.bands.map(b=>`<div class="card"><h3>${esc(b.label)}</h3>${b.items.map(i=>`<div class="list-item"><span><b>ข้อ ${i.itemNo}</b> <span class="pill info">${i.skill}</span> <small>${esc(EN()&&i.descriptionEN?i.descriptionEN:i.description)}</small></span>${pill(i.result)}</div>`).join('')}</div>`).join('')}
+      ${d.bands.map(b=>`<div class="card"><h3>${esc(ageBandLabel(b.label))}</h3>${b.items.map(i=>`<div class="list-item"><span><b>ข้อ ${i.itemNo}</b> <span class="pill info">${i.skill}</span> <small>${esc(EN()&&i.descriptionEN?i.descriptionEN:i.description)}</small></span>${pill(i.result)}</div>`).join('')}</div>`).join('')}
       <button class="btn outline" onclick="GO('dspm')">← กลับหน้าวิเคราะห์</button>`; window.scrollTo(0,0); };
   // measurement history list (date · age-at-measurement · weight/height)
   function growthRecordsList(records, dob){ if(!records||!records.length) return '';
@@ -2140,7 +2154,7 @@
   window.A_editAssess=async(sid)=>{ ASEL={}; let c; try{ c=await api('dspmStatus',{studentId:sid}); }catch(e){ app.innerHTML=`<button class="btn sm outline backbtn" onclick="A_student('${sid}')">${t('c.back')}</button><div class="card muted">${esc(e.message)}</div>`; return; }
     const s=MOCK.students.find(x=>x.StudentID===sid)||{NameTH:sid};
     app.innerHTML=`<button class="btn sm outline backbtn" onclick="A_student('${sid}')">${t('c.back')}</button><h2 class="page">📝 ${esc(t('assess.edit'))} — ${esc(nm(s))}</h2>
-      <div class="card"><div class="spread"><span>${esc(t('growth.section').split('/')[0])}: <b>${esc(c.ageLabel)}</b></span><span class="muted">${c.ageMonth} ${EN()?'mo':'เดือน'}</span></div></div>
+      <div class="card"><div class="spread"><span>${esc(t('growth.section').split('/')[0])}: <b>${esc(ageBandLabel(c.ageLabel))}</b></span><span class="muted">${c.ageMonth} ${EN()?'mo':'เดือน'}</span></div></div>
       ${c.items.map(i=>`<div class="card"><div style="margin-bottom:8px"><b>${EN()?'Item':'ข้อ'} ${i.itemNo}</b> <span class="pill info">${i.skill}</span> ${i.result!=='ยังไม่ได้รับการทดสอบ'?`<span class="pill ${i.result==='ผ่าน'?'ok':'bad'}">${EN()?'now':'ปัจจุบัน'}: ${esc(tStat(i.result))}</span>`:''}<br>${esc(EN()&&i.descriptionEN?i.descriptionEN:i.description)}</div>
         <div class="choice"><button id="p${i.itemNo}" onclick="A_set(${i.itemNo},'pass')">✅ ${esc(t('s.pass'))}</button><button id="f${i.itemNo}" onclick="A_set(${i.itemNo},'fail')">❌ ${esc(t('s.fail'))}</button><button id="n${i.itemNo}" onclick="A_set(${i.itemNo},'nottested')">⊘ ${EN()?'Not assessed':'ยังไม่ได้ประเมิน'}</button><button id="e${i.itemNo}" onclick="A_set(${i.itemNo},'notenrolled')">🚪 ${EN()?'Not enrolled yet':'ยังไม่เข้าโรงเรียน'}</button></div></div>`).join('')}
       <button class="btn block" onclick="A_saveAssess('${sid}')">${esc(t('lbl.saveAssess'))}</button>`;
@@ -2337,7 +2351,7 @@
       <div class="sec-divider">🗂️ ${EN()?'People & data':'บุคลากร & ข้อมูล'}</div>
       <div class="card secw" id="sec-staff">${secHead('👩‍🏫',t('c.staff'),staff.length,`<button class="btn sm" onclick="event.stopPropagation();A_staffForm()">+ ${esc(t('manage.add'))}</button>`)}
         <div class="secbody" hidden>${searchBox(EN()?'name / nickname / dept':'ชื่อ / ชื่อเล่น / แผนก')}
-        ${staff.map(s=>`<div class="list-item" data-k="${esc((s.NameTH+' '+(s.NameEN||'')+' '+(s.Nickname||'')+' '+(s.Position||'')+' '+(s.Department||'')).toLowerCase())}"><span style="display:flex;gap:8px;align-items:center">${personAvatar(s)}<span><b>${esc(dispNick(s))}</b> <small class="muted">${esc(nm(s))}</small><br><small class="muted">${esc(s.Position||'')} · ${esc(deptLabel(s))} · 🕑 ${esc(groupLabel(s.StaffGroup))}${groupHours(s.StaffGroup)?' ('+esc(groupHours(s.StaffGroup))+')':''}</small><br><small class="muted">${esc(t('staff.start'))} ${esc(s.StartDate||'-')} · ${esc(t('staff.tenure'))} ${esc(tenure(s.StartDate))}</small></span></span><span class="row" style="flex-wrap:wrap;gap:6px;justify-content:flex-end;margin-top:6px"><button class="btn sm outline" onclick="A_staffForm('${s.StaffID}')">✏️ ${EN()?'Edit':'แก้ไข'}</button><button class="btn sm pink" onclick="A_delStaff('${s.StaffID}')">🗑️ ${EN()?'Delete':'ลบ'}</button></span></div>`).join('')}</div></div>
+        ${staff.map(s=>`<div class="list-item" data-k="${esc((s.NameTH+' '+(s.NameEN||'')+' '+(s.Nickname||'')+' '+(s.Position||'')+' '+(s.Department||'')).toLowerCase())}"><span style="display:flex;gap:8px;align-items:center">${personAvatar(s)}<span><b>${esc(dispNick(s))}</b> <small class="muted">${esc(nm(s))}</small><br><small class="muted">${esc(s.Position||'')} · ${esc(deptLabel(s))} · 🕑 ${_notr(groupLabel(s.StaffGroup))}${groupHours(s.StaffGroup)?' ('+esc(groupHours(s.StaffGroup))+')':''}</small><br><small class="muted">${esc(t('staff.start'))} ${esc(s.StartDate||'-')} · ${esc(t('staff.tenure'))} ${esc(tenure(s.StartDate))}</small></span></span><span class="row" style="flex-wrap:wrap;gap:6px;justify-content:flex-end;margin-top:6px"><button class="btn sm outline" onclick="A_staffForm('${s.StaffID}')">✏️ ${EN()?'Edit':'แก้ไข'}</button><button class="btn sm pink" onclick="A_delStaff('${s.StaffID}')">🗑️ ${EN()?'Delete':'ลบ'}</button></span></div>`).join('')}</div></div>
       <div class="card secw" id="sec-parents">${secHead('👪',t('manage.parents'),parents.length,`<button class="btn sm" onclick="event.stopPropagation();A_parentForm()">+ ${esc(t('manage.add'))}</button>`)}
         <div class="secbody" hidden>${searchBox(EN()?'name / phone':'ชื่อ / เบอร์')}
         ${parents.map(p=>{ const lc=(window._LINKCOUNTS||{})[p.ParentID]||0; const lcBadge=`<span class="pill ${lc?'ok':'bad'}" style="font-size:10px" title="${EN()?'linked children':'จำนวนบุตรที่ผูก'}">👶 ${lc}</span>`;
@@ -2467,7 +2481,7 @@
   window.A_parentForm=(id)=>{ const p=id?findParent(id):{};
     const f=(k,label,val)=>`<label class="field"><span>${esc(label)}</span><input id="pf_${k}" value="${esc(val!=null?val:'')}"/></label>`;
     modal(`<h3>${id?'✏️':'➕'} ${esc(t('manage.parents'))}</h3>
-      <div class="grid2"><label class="field"><span>${esc(t('reg.title'))}</span><select id="pf_Title">${['','นาย','นาง','นางสาว'].map(x=>`<option ${(p.Title||titleOf(p))===x?'selected':''}>${x}</option>`).join('')}</select></label>${f('NameTH',t('reg.nameTH'),p.NameTH)}</div>
+      <div class="grid2"><label class="field"><span>${esc(t('reg.title'))}</span><select id="pf_Title">${['','นาย','นาง','นางสาว'].map(x=>`<option value="${x}" ${(p.Title||titleOf(p))===x?'selected':''}>${EN()?({'':'','นาย':'Mr.','นาง':'Mrs.','นางสาว':'Ms.'})[x]:x}</option>`).join('')}</select></label>${f('NameTH',t('reg.nameTH'),p.NameTH)}</div>
       <div class="grid2">${f('NameEN',t('reg.nameEN'),p.NameEN)}${f('Nickname',t('reg.nickname'),p.Nickname)}</div>
       <div class="grid2">${f('NicknameEN',t('reg.nicknameEN'),p.NicknameEN)}${f('Relationship',t('reg.relationship'),p.Relationship)}</div>
       <div class="grid2">${f('NationalID',t('reg.nationalIdParent'),p.NationalID)}</div>
@@ -3128,7 +3142,11 @@
   // ---- Finance: per-student detail (bill + extra charges + OT) — view/add/edit/delete in one place ----
   window.A_finStudent=async(sid)=>{ const month=FIN_MONTH||monthStr();
     const [bills,charges,ot,allSlips]=await Promise.all([api('payments',{studentId:sid}),api('studentCharges',{studentId:sid,month}),api('otDaily',{studentId:sid}),api('paymentSlips',{studentId:sid})]);
-    const s=(A_CACHE.students||[]).find(x=>x.StudentID===sid)||(MOCK.students||[]).find(x=>x.StudentID===sid)||{};
+    // A_CACHE.students is only filled by the manage screen, so opening this from Finance left the
+    // header showing the raw StudentID ("💰 STD-018 -"). Fetch the roster once if it isn't loaded.
+    let s=(A_CACHE.students||[]).find(x=>x.StudentID===sid)||(MOCK.students||[]).find(x=>x.StudentID===sid);
+    if(!s){ try{ const list=await api('listStudents'); if(list&&list.length){ A_CACHE.students=list; s=list.find(x=>x.StudentID===sid); } }catch(e){} }
+    s=s||{};
     const slipsOf=(kind,id)=>(allSlips||[]).filter(x=>x.RefKind===kind&&x.RefID===id);
     const bill=(bills||[]).find(b=>ym(b.Month)===ym(month));
     const otM=(ot||[]).filter(o=>ym(o.Date)===ym(month));
@@ -3147,7 +3165,7 @@
     const otBox = `${otM.length?otM.map(o=>{ const sl=slipsOf('ot',o.OTID);
       return `<div style="border-bottom:1px solid #f0f0f0;padding:4px 0"><div class="list-item"><span>${esc(ymd(o.Date))} · ${esc(String(o.PickupTime||'').slice(0,5))} <b>${baht(o.Amount)}</b> <span class="pill ${stPill(o.Status)}" style="font-size:10px">${esc(o.Status)}</span></span>
         ${o.Status==='PAID'?'':`<span class="row">${o.Status==='CANCELLED'?`<button class="btn sm outline" onclick="A_finOt('${esc(o.OTID)}','restore','${sid}')" aria-label="${EN()?"Restore":"กู้คืน"}" title="${EN()?"Restore":"กู้คืน"}">♻️</button>`:`<button class="btn sm pink" onclick="A_finOt('${esc(o.OTID)}','cancel','${sid}')" aria-label="${EN()?"Cancel":"ยกเลิก"}" title="${EN()?"Cancel":"ยกเลิก"}">🚫</button>`}</span>`}</div>${slipHistoryHTML(sl)}</div>`; }).join(''):`<small class="muted">${EN()?'No OT this month':'ไม่มี OT เดือนนี้'}</small>`}`;
-    modal(`<h3>💰 ${esc(dispNick(s)||sid)} <small class="muted" style="font-size:13px">${esc(planLabel(s.Plan))}${s.Class?' · '+esc(s.Class):''}</small></h3>
+    modal(`<h3>💰 ${esc(dispNick(s)||sid)} <small class="muted" style="font-size:13px">${nm(s)?esc(nm(s))+' · ':''}${esc(planLabel(s.Plan))}${s.Class?' · '+esc(s.Class):''}</small></h3>
       <p class="muted" style="font-size:12px">${EN()?'Month':'เดือน'} <b>${esc(month)}</b> — ${EN()?'change the month at the finance page':'เปลี่ยนเดือนได้ที่หน้าการเงิน'}</p>
       <div class="card" style="padding:8px"><b>🧾 ${EN()?'Monthly bill':'บิลรายเดือน'}</b>${billBox}</div>
       <div class="card" style="padding:8px"><b>💵 ${EN()?'Extra charges':'ค่าใช้จ่ายเพิ่มเติม'}</b>${chargeBox}</div>
