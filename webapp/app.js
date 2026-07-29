@@ -112,7 +112,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.152'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.156'; // bump each webapp change; shown only at the bottom of the Chat screen
   const verTag = () => `<div style="text-align:center;color:#c3c9d4;font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
   const phoneFmt = p => { let d=String(p==null?'':p).replace(/\D/g,''); if(d.length===9) d='0'+d; return d; };
@@ -121,6 +121,12 @@
   // Escape AND shield from the EN phrase dictionary. Use for anything the school typed in (names,
   // staff-group names, addresses): word-by-word substitution turned "ครูประจำ" into "Teacherประจำ".
   const _notr = v => `<span translate="no">${esc(v)}</span>`;
+  // Relationship is free text in the sheet, but in practice it is one of three values. Translate
+  // those; anything else the school typed is shown as-is (and shielded, so the EN phrase dictionary
+  // can't chop it into a half-English hybrid).
+  const REL_EN = { 'บิดา':'Father', 'มารดา':'Mother', 'ผู้ปกครอง':'Guardian' };
+  const relLabel = v => { const s=String(v==null?'':v).trim(); if(!s) return '';
+    return (EN() && REL_EN[s]) ? esc(REL_EN[s]) : _notr(s); };
   // password input with a 👁️ show/hide toggle
   const pwField = (id,label,ph)=>`<label class="field"><span>${esc(label)}</span><div class="row" style="gap:6px"><input type="password" id="${id}" placeholder="${esc(ph||'')}" style="flex:1"/><button type="button" class="btn sm outline" onclick="PW_toggle('${id}',this)" title="show/hide" aria-label="${EN()?"Show or hide password":"แสดง/ซ่อนรหัสผ่าน"}" title="${EN()?"Show or hide password":"แสดง/ซ่อนรหัสผ่าน"}">👁️</button></div></label>`;
   window.PW_toggle=(id,btn)=>{ const e=document.getElementById(id); if(!e)return; const show=e.type==='password'; e.type=show?'text':'password'; if(btn)btn.textContent=show?'🙈':'👁️'; };
@@ -358,6 +364,8 @@
     av.classList.toggle('photo', !!pic);
     $('#logoutBtn').hidden = !USER; $('#logoutBtn').textContent = t('c.logout');
     $('#bellBtn').hidden = !USER;
+    // search lives in the header for admins so it is reachable from every screen, not just Manage
+    const sb=$('#searchBtn'); if(sb) sb.hidden = !(USER && USER.role==='Admin');
     if(USER) refreshBell();
   }
   function notifParams(){ return {role:USER.role, parentId:USER.parentId}; }
@@ -1044,7 +1052,7 @@
         </div>
         <div class="grid2"><label class="field"><span>${esc(t('reg.title'))}</span><select id="${pre}_Title">${['','นาย','นาง','นางสาว'].map(x=>`<option value="${x}" ${(p.Title||titleOf(p))===x?'selected':''}>${EN()?({'':'','นาย':'Mr.','นาง':'Mrs.','นางสาว':'Ms.'})[x]:x}</option>`).join('')}</select></label>${ppFld(pre,'NameTH',EN()?'Name (TH)':'ชื่อ-สกุล (ไทย)',p.NameTH)}</div>
         <div class="grid2">${ppFld(pre,'NameEN',EN()?'Name (EN)':'ชื่อ-สกุล (อังกฤษ)',p.NameEN)}${ppFld(pre,'Nickname',EN()?'Nickname (TH)':'ชื่อเล่น (ไทย)',p.Nickname)}</div>
-        <div class="grid2">${ppFld(pre,'NicknameEN',EN()?'Nickname (EN)':'ชื่อเล่น (อังกฤษ)',p.NicknameEN)}<label class="field"><span>${EN()?'Relationship':'ความสัมพันธ์'}</span><input id="${pre}_Relationship" value="${esc(p.Relationship||'')}"/></label></div>
+        <div class="grid2">${ppFld(pre,'NicknameEN',EN()?'Nickname (EN)':'ชื่อเล่น (อังกฤษ)',p.NicknameEN)}<label class="field"><span>${EN()?'Relationship':'ความสัมพันธ์'}</span><input id="${pre}_Relationship" value="${esc(relLabel(p.Relationship))}"/></label></div>
         <div class="grid2">${ppFld(pre,'Phone',EN()?'Phone':'เบอร์โทร',phoneFmt(p.Phone))}${ppFld(pre,'OfficePhone',EN()?'Office phone':'เบอร์ที่ทำงาน',phoneFmt(p.OfficePhone))}</div>
         <div class="grid2">${ppFld(pre,'Occupation',EN()?'Occupation':'อาชีพ',p.Occupation)}${ppFld(pre,'Workplace',EN()?'Workplace':'ที่ทำงาน',p.Workplace)}</div>
         <label class="field"><span>${EN()?'Address':'ที่อยู่'}</span><textarea id="${pre}_Address">${esc(p.Address||'')}</textarea></label>
@@ -2083,7 +2091,7 @@
             ${late.length?`<div style="margin-top:6px"><span class="pill bad">⏰ ${EN()?'Late':'มาสาย'} (${late.length})</span> <small style="color:#e65100">${late.map(s=>esc(dnick(s))+' '+esc(s.checkIn||'')+(s.late?` (${EN()?'late ':'สาย '}${s.late}${EN()?'m':'น.'})`:'')).join(', ')}</small></div>`:''}
             ${absent.length?`<div style="margin-top:6px"><span class="pill wait">⛔ ${EN()?'Absent/leave':'ขาด/ลา'} (${absent.length})</span> <small class="muted">${absent.map(s=>esc(dnick(s))+(s.status==='LEAVE'?(EN()?' (leave)':' (ลา)'):'')).join(', ')}</small></div>`:''}
             ${!late.length&&!absent.length?`<small style="color:#2e7d32">✓ ${EN()?'All present & on time':'มาครบ ตรงเวลา'}</small>`:''}`; })()}</div>
-      <div class="card"><h3>📢 ประกาศ</h3><div id="anns"></div></div>`;
+      <div class="card"><h3>📢 ${EN()?"Announcements":"ประกาศ"}</h3><div id="anns"></div></div>`;
     const _anns=await api('announcements'); A_CACHE.announcements=_anns;
     const _annEl=$('#anns'); if(!_annEl) return; // user navigated away before this resolved
     _annEl.innerHTML=_anns.map(a=>{ const ti=EN()?(a.TitleEN||a.Title):(a.Title||a.TitleEN);
@@ -2271,8 +2279,8 @@
     A_cls(order[0]);
   };
   window.A_cls=async(name,el)=>{ if(el){[...el.parentElement.children].forEach(b=>b.classList.remove('active'));el.classList.add('active');} const r=await api('classAssessment',{className:name});
-    $('#clsRes').innerHTML=`<div class="card"><div class="spread"><b>${esc(r.class)}</b><span class="pill ${r.passRate>=70?'ok':'wait'}">${EN()?'avg pass':'ผ่านเฉลี่ย'} ${r.passRate}%</span></div><small class="muted">${r.studentCount} ${EN()?'kids':'คน'}</small>
-      ${r.perStudent.length?r.perStudent.map(s=>`<div class="list-item"><span><b>${esc(dnick(s))}</b> ${dnSub(s)?`<small class="muted">${esc(dnSub(s))} · </small>`:""}<small class="muted">${s.ageMonth} ${EN()?'m.':'ด.'}</small></span><span><span class="pill ok">${s.pass}</span> <span class="pill bad">${s.fail}</span> <button class="btn sm outline" onclick="A_student('${s.studentId}')">${EN()?'view':'ดูราย นร.'}</button></span></div>`).join(''):`<small class="muted">${EN()?'No students in this class':'ยังไม่มีนักเรียนในชั้นนี้'}</small>`}</div>`; };
+    setHTML('#clsRes', `<div class="card"><div class="spread"><b>${esc(r.class)}</b><span class="pill ${r.passRate>=70?'ok':'wait'}">${EN()?'avg pass':'ผ่านเฉลี่ย'} ${r.passRate}%</span></div><small class="muted">${r.studentCount} ${EN()?'kids':'คน'}</small>
+      ${r.perStudent.length?r.perStudent.map(s=>`<div class="list-item"><span><b>${esc(dnick(s))}</b> ${dnSub(s)?`<small class="muted">${esc(dnSub(s))} · </small>`:""}<small class="muted">${s.ageMonth} ${EN()?'m.':'ด.'}</small></span><span><span class="pill ok">${s.pass}</span> <span class="pill bad">${s.fail}</span> <button class="btn sm outline" onclick="A_student('${s.studentId}')">${EN()?'view':'ดูราย นร.'}</button></span></div>`).join(''):`<small class="muted">${EN()?'No students in this class':'ยังไม่มีนักเรียนในชั้นนี้'}</small>`}</div>`); };
   window.A_student=async(sid)=>{ const [d,g]=await Promise.all([api('studentAllBands',{studentId:sid}),api('growthHistory',{studentId:sid})]); const pill=DSPM_PILL;
     app.innerHTML=`<h2 class="page">📈 ${esc(dnick(d))} <small class="muted">(${esc(dn(d))})</small></h2>
       <div class="row"><button class="btn sm outline" onclick="GO('dspm')">← ${esc(t('c.back'))}</button><button class="btn sm" onclick="A_editAssess('${sid}')">📝 ${esc(t('assess.edit'))}</button></div>
@@ -2517,6 +2525,54 @@
   // and expanding it. This filters all three at once, opens whichever sections have hits, closes the
   // ones that don't, and shows match counts on the section pills.
   const MG_SECS = ['sec-staff','sec-parents','sec-students'];
+  // ---- app-wide search (admin) -------------------------------------------------------------------
+  // The Manage screen's box only searches Manage. This one is in the header, so a name can be found
+  // from any screen, and each hit opens the record it belongs to instead of just scrolling to a row.
+  window.A_globalSearch = async ()=>{
+    const m=modal(`<h3>🔎 ${EN()?'Search':'ค้นหา'}</h3>
+      <input id="gsq" type="search" autocomplete="off" oninput="A_gsRun(this.value)"
+        aria-label="${EN()?'Search people':'ค้นหาบุคคล'}"
+        placeholder="${EN()?'Name, nickname, phone or ID…':'ชื่อ ชื่อเล่น เบอร์โทร หรือเลขบัตร…'}"
+        style="width:100%;padding:12px;border:1px solid var(--line);border-radius:10px"/>
+      <p class="muted" style="font-size:12px;margin:6px 2px">${EN()?'Students · parents · staff':'นักเรียน · ผู้ปกครอง · พนักงาน'}</p>
+      <div id="gsres" style="max-height:58vh;overflow:auto"></div>`);
+    const inp=m.querySelector('#gsq'); if(inp) setTimeout(()=>inp.focus(),80);
+    // load once; the lists are SWR-cached so this is usually instant
+    if(!(A_CACHE.students&&A_CACHE.students.length)||!(A_CACHE.parents&&A_CACHE.parents.length)||!(A_CACHE.staff&&A_CACHE.staff.length)){
+      try{ const [st,pa,sf,kids]=await Promise.all([api('listStudents'),api('listParents'),api('listStaff'),api('parentKidsMap').catch(()=>({}))]);
+        A_CACHE.students=st||A_CACHE.students; A_CACHE.parents=pa||A_CACHE.parents; A_CACHE.staff=sf||A_CACHE.staff;
+        if(kids&&Object.keys(kids).length) window._PKIDS=kids;
+      }catch(e){}
+    }
+  };
+  window.A_gsRun = (q)=>{
+    q=String(q||'').trim().toLowerCase();
+    const box=document.getElementById('gsres'); if(!box) return;
+    if(q.length<1){ box.innerHTML=''; return; }
+    const hit=(...parts)=>parts.filter(Boolean).join(' ').toLowerCase().indexOf(q)>=0;
+    const rows=[];
+    (A_CACHE.students||[]).forEach(s=>{ if(rows.length>40) return;
+      if(hit(s.NameTH,s.NameEN,s.Nickname,s.NicknameEN,s.Class,s.NationalID))
+        rows.push({ic:'👶',t:EN()?'Student':'นักเรียน',head:dispNick(s),sub:[nmSub(s),s.Class].filter(Boolean).join(' · '),
+                   go:`A_studentForm('${esc(s.StudentID)}')`}); });
+    (A_CACHE.parents||[]).forEach(p=>{ if(rows.length>40) return;
+      // phones are stored as numbers, so the leading 0 is gone — match both "811…" and "0811…"
+      if(hit(p.NameTH,p.NameEN,p.Nickname,p.NicknameEN,p.Phone,phoneFmt(p.Phone),p.NationalID))
+        rows.push({ic:'👪',t:EN()?'Parent':'ผู้ปกครอง',head:parentDisp(p),sub:[titledName(p),phoneFmt(p.Phone)].filter(Boolean).join(' · '),
+                   go:`A_parentForm('${esc(p.ParentID)}')`}); });
+    (A_CACHE.staff||[]).forEach(s=>{ if(rows.length>40) return;
+      if(hit(s.NameTH,s.NameEN,s.Nickname,s.Position,s.Department))
+        rows.push({ic:'👩‍🏫',t:EN()?'Staff':'พนักงาน',head:dispNick(s),sub:[nmSub(s),s.Position].filter(Boolean).join(' · '),
+                   go:`A_staffForm('${esc(s.StaffID)}')`}); });
+    box.innerHTML = rows.length
+      ? rows.map(r=>`<div class="list-item" style="cursor:pointer" onclick="A_gsOpen(&quot;${r.go.replace(/"/g,'&quot;')}&quot;)">
+          <span><b>${r.ic} ${esc(r.head)}</b> <span class="pill info" style="font-size:11px">${esc(r.t)}</span>
+          ${r.sub?`<br><small class="muted">${esc(r.sub)}</small>`:''}</span><span class="muted">›</span></div>`).join('')
+      : `<p class="muted" style="text-align:center;padding:14px">${EN()?'No matches':'ไม่พบข้อมูลที่ค้นหา'}</p>`;
+  };
+  window.A_gsOpen = (call)=>{ const m=document.querySelector('.modal'); if(m)m.remove();
+    try{ (new Function(call))(); }catch(e){ err(e); } };
+
   window.A_search = (inp)=>{
     const q=String(inp&&inp.value||'').trim().toLowerCase();
     let total=0;
@@ -2607,11 +2663,11 @@
       ${searchBox()}
       <div class="card secw" id="sec-staff">${secHead('👩‍🏫',t('c.staff'),staff.length,`<button class="btn sm" onclick="event.stopPropagation();A_staffForm()">+ ${esc(t('manage.add'))}</button>`)}
         <div class="secbody" hidden>
-        ${staff.map(s=>`<div class="list-item stack" data-k="${esc((s.NameTH+' '+(s.NameEN||'')+' '+(s.Nickname||'')+' '+(s.Position||'')+' '+(s.Department||'')).toLowerCase())}"><span style="display:flex;gap:8px;align-items:center">${personAvatar(s)}<span><b>${esc(dispNick(s))}</b> ${nmSub(s)?`<small class="muted">${esc(nmSub(s))}</small>`:""}<br><small class="muted">${esc(s.Position||'')} · ${esc(deptLabel(s))} · 🕑 ${_notr(groupLabel(s.StaffGroup))}${groupHours(s.StaffGroup)?' ('+esc(groupHours(s.StaffGroup))+')':''}</small><br><small class="muted">${esc(t('staff.start'))} ${esc(s.StartDate||'-')} · ${esc(t('staff.tenure'))} ${esc(tenure(s.StartDate))}</small></span></span><span class="acts"><button class="btn sm outline" onclick="A_staffForm('${s.StaffID}')">✏️ ${EN()?'Edit':'แก้ไข'}</button><button class="btn sm pink" onclick="A_delStaff('${s.StaffID}')">🗑️ ${EN()?'Delete':'ลบ'}</button></span></div>`).join('')}</div></div>
+        ${staff.map(s=>`<div class="list-item stack" data-k="${esc((s.NameTH+' '+(s.NameEN||'')+' '+(s.Nickname||'')+' '+(s.Position||'')+' '+(s.Department||'')).toLowerCase())}"><span style="display:flex;gap:8px;align-items:center">${personAvatar(s)}<span><b>${esc(dispNick(s))}</b> ${nmSub(s)?`<small class="muted">${esc(nmSub(s))}</small>`:""}<br><small class="muted">${_notr(s.Position||"")} · ${esc(deptLabel(s))} · 🕑 ${_notr(groupLabel(s.StaffGroup))}${groupHours(s.StaffGroup)?' ('+esc(groupHours(s.StaffGroup))+')':''}</small><br><small class="muted">${esc(t('staff.start'))} ${esc(s.StartDate||'-')} · ${esc(t('staff.tenure'))} ${esc(tenure(s.StartDate))}</small></span></span><span class="acts"><button class="btn sm outline" onclick="A_staffForm('${s.StaffID}')">✏️ ${EN()?'Edit':'แก้ไข'}</button><button class="btn sm pink" onclick="A_delStaff('${s.StaffID}')">🗑️ ${EN()?'Delete':'ลบ'}</button></span></div>`).join('')}</div></div>
       <div class="card secw" id="sec-parents">${secHead('👪',t('manage.parents'),parents.length,`<button class="btn sm" onclick="event.stopPropagation();A_parentForm()">+ ${esc(t('manage.add'))}</button>`)}
         <div class="secbody" hidden>
         ${parents.map(p=>{ const lc=(window._LINKCOUNTS||{})[p.ParentID]||0; const lcBadge=`<span class="pill ${lc?'ok':'bad'}" style="font-size:11px" title="${EN()?'linked children':'จำนวนบุตรที่ผูก'}">👶 ${lc}</span>`;
-          return `<div class="list-item stack" data-k="${esc((p.NameTH+' '+(p.NameEN||'')+' '+(p.Nickname||'')+' '+(p.NicknameEN||'')+' '+(p.Phone||'')+' '+(p.Relationship||'')).toLowerCase())}"><span style="display:flex;gap:8px;align-items:center">${personAvatar(p)}<span><b>${esc(parentDisp(p))}</b> ${lcBadge} <small class="muted">${esc(titledName(p))} · ${esc(p.Relationship||'')} · ${phoneLink(p.Phone)}</small></span></span><span class="acts"><button class="btn sm outline" onclick="A_parentLinks('${p.ParentID}')">🔗 ${EN()?'Children':'บุตรที่ผูก'}</button><button class="btn sm outline" onclick="A_parentForm('${p.ParentID}')">✏️ ${EN()?'Edit':'แก้ไข'}</button><button class="btn sm pink" onclick="A_delParent('${p.ParentID}')">🗑️ ${EN()?'Delete':'ลบ'}</button></span></div>`; }).join('')}</div></div>
+          return `<div class="list-item stack" data-k="${esc((p.NameTH+' '+(p.NameEN||'')+' '+(p.Nickname||'')+' '+(p.NicknameEN||'')+' '+(p.Phone||'')+' '+(p.Relationship||'')).toLowerCase())}"><span style="display:flex;gap:8px;align-items:center">${personAvatar(p)}<span><b>${esc(parentDisp(p))}</b> ${lcBadge} <small class="muted">${esc(titledName(p))} · ${esc(relLabel(p.Relationship))} · ${phoneLink(p.Phone)}</small></span></span><span class="acts"><button class="btn sm outline" onclick="A_parentLinks('${p.ParentID}')">🔗 ${EN()?'Children':'บุตรที่ผูก'}</button><button class="btn sm outline" onclick="A_parentForm('${p.ParentID}')">✏️ ${EN()?'Edit':'แก้ไข'}</button><button class="btn sm pink" onclick="A_delParent('${p.ParentID}')">🗑️ ${EN()?'Delete':'ลบ'}</button></span></div>`; }).join('')}</div></div>
       <div class="card secw" id="sec-students">${secHead('👶',EN()?'Students':'นักเรียน',students.length,`<span class="row"><button class="btn sm outline" onclick="event.stopPropagation();A_issueCombined()">🧾 ${EN()?'Issue (select)':'ออกบิล (เลือก)'}</button><button class="btn sm" onclick="event.stopPropagation();A_genBills()">📅 ${esc(t('bill.genTitle'))}</button></span>`)}
         <div class="secbody" hidden>
         ${students.map(s=>`<div class="list-item stack" data-k="${esc((s.NameTH+' '+(s.NameEN||'')+' '+(s.Nickname||'')+' '+(s.NicknameEN||'')+' '+(s.Class||'')+' '+(s.NationalID||'')).toLowerCase())}"><span>${studentAvatar(s)} <b>${esc(dispNick(s))}</b> <small class="muted">${nmSub(s)?esc(nmSub(s))+" · ":""}${esc(s.Class)} · ${esc(ageYM(s.DOB))}${s.InsuranceHas?' · 🛡️':''}</small><br><small class="muted">${EN()?'ID':'บัตร'}: ${esc(s.NationalID||'-')}</small></span><span class="acts"><button class="btn sm outline" onclick="A_studentForm('${s.StudentID}')">✏️ ${EN()?'Edit':'แก้ไข'}</button><button class="btn sm" onclick="A_issueBill('${s.StudentID}')">🧾 ${EN()?'Bill':'ออกบิล'}</button><button class="btn sm" onclick="A_charges('${s.StudentID}')">💵 ${EN()?'Charges':'เรียกเก็บ'}</button><button class="btn sm outline" onclick="A_stuMore('${s.StudentID}')" aria-label="${EN()?'More actions':'การทำงานเพิ่มเติม'}" title="${EN()?'More actions':'การทำงานเพิ่มเติม'}">⋯</button></span></div>`).join('')}</div></div>`;
@@ -3451,7 +3507,7 @@
   window.A_finStaff=async(sid)=>{ const month=FIN_MONTH||monthStr();
     const s=(A_CACHE.staff||[]).find(x=>x.StaffID===sid)||{};
     let otTotal=0; try{ const mo=await api('staffMonthlyOT',{staffId:sid,month}); otTotal=(mo||[]).reduce((a,o)=>a+Number(o.Amount||0),0); }catch(e){}
-    modal(`<h3>👩‍🏫 ${esc(dispNick(s)||sid)} <small class="muted" style="font-size:13px">${esc(s.Position||'')}</small></h3>
+    modal(`<h3>👩‍🏫 ${esc(dispNick(s)||sid)} <small class="muted" style="font-size:13px">${_notr(s.Position||"")}</small></h3>
       <div class="card" style="padding:8px"><label class="field"><span>${EN()?'Base salary (฿/month)':'ฐานเงินเดือน (฿/เดือน)'}</span><input id="fsBase" type="number" min="0" value="${esc(s.BaseSalary!=null?s.BaseSalary:'')}"/></label>
         <button class="btn sm block" onclick="A_finSaveBase('${sid}')">💾 ${EN()?'Save base salary':'บันทึกฐานเงินเดือน'}</button></div>
       <div class="card" style="padding:8px"><div class="spread"><span>⏰ ${EN()?'Approved OT this month':'OT อนุมัติเดือนนี้'}</span><b>${baht(otTotal)}</b></div></div>
