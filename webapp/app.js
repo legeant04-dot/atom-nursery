@@ -64,7 +64,7 @@
       if(opts&&opts.quiet) return _rawApi(action,payload,opts);   // PREFETCH: warming the cache in the background
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
-  const APP_VERSION = 'Version 1.148'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.149'; // bump each webapp change; shown only at the bottom of the Chat screen
   const verTag = () => `<div style="text-align:center;color:#c3c9d4;font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
   const phoneFmt = p => { let d=String(p==null?'':p).replace(/\D/g,''); if(d.length===9) d='0'+d; return d; };
@@ -180,8 +180,14 @@
     return ageYMfromMonths(m); }
   // MOCK.config.Plans holds only SEED plans in gas mode, so a live id like "p_6900" isn't found →
   // format it as "Plan 6900" instead of showing the raw id.
-  const planLabel = id => { const p=(MOCK.config.Plans||[]).find(x=>x.id===id); if(p) return EN()?p.labelEN:p.labelTH;
-    const m=String(id||'').match(/(\d{3,})/); return m?('Plan '+m[1]):(id||'-'); };
+  // Look in the LIVE plans first (A_CACHE.plans, loaded from getPlans) and only then the seed. Live
+  // ids look like "pkg_e32dd4" — no digits to fall back on — so reading the seed alone printed the
+  // raw id on screen. Last resort is "-": an internal id tells a parent or an admin nothing.
+  const planLabel = id => { if(!id) return '-';
+    const list=(window.A_plans?A_plans():null)||(MOCK.config.Plans||[]);
+    const p=list.find(x=>x.id===id)||(MOCK.config.Plans||[]).find(x=>x.id===id);
+    if(p) return (EN()?(p.labelEN||p.labelTH):(p.labelTH||p.labelEN))||'-';
+    const m=String(id).match(/(\d{3,})/); return m?('Plan '+m[1]):'-'; };
   const groupsSrc = () => (window.A_CACHE&&A_CACHE.groups&&A_CACHE.groups.length?A_CACHE.groups:MOCK.staffGroups)||[];
   const groupLabel = name => { const g=groupsSrc().find(x=>x.GroupName===name); return g?(EN()?g.GroupNameEN:g.GroupName):(name||''); };
   const groupHours = name => { const g=groupsSrc().find(x=>x.GroupName===name); return g&&(g.CheckInTime||g.CheckOutTime)?`${g.CheckInTime||'--'}–${g.CheckOutTime||'--'}`:''; };
@@ -786,6 +792,19 @@
   // light-red / cleaning background for weekend · holiday · Big Cleaning cells (shared by all calendars)
   function calOffBg(y,mo,d,hol,bc){ const dow=new Date(y,mo,d).getDay(); if(hol)return 'background:#ffebee;border-color:#ef9a9a;'; if(bc)return 'background:#e0f7fa;border-color:#80deea;'; if(dow===0||dow===6)return 'background:#ffebee;border-color:#ffcdd2;'; return ''; }
   // Parent calendar: check-in/out times + school holidays + the LINKED student's leave days only.
+  // A child's plan end time drives the "late pick-up" marker. Live plans first (seed ids never match
+  // the real pkg_* ids), and a per-student EndTime override wins — same rule the OT charge uses.
+  const planEndOf = s => { if(!s) return '';
+    if(s.EndTime) return String(s.EndTime).slice(0,5);
+    const list=(window.A_plans?A_plans():null)||(MOCK.config.Plans||[]);
+    const p=list.find(x=>x.id===s.Plan); return p?p.end:''; };
+  // Parent with more than one child: switch the bottom calendar between them.
+  window.P_calSel = (i)=>{ const d=window._CALDATA; if(!d||!d.kids[i]) return;
+    const seg=document.getElementById('calSeg'); if(seg)[...seg.children].forEach((b,j)=>b.classList.toggle('active',j===i));
+    const box=document.getElementById('calBox'); if(!box) return;
+    CAL_OFF=0;   // a fresh child starts on the current month
+    box.innerHTML=calendarWidget(d.cal, d.ciAll[i]||[], planEndOf(d.kids[i]), d.slAll[i]||[]);
+    if(window.translateTree) translateTree(box); };
   function calendarWidget(events, checkins, planEnd, studentLeaves){ checkins=checkins||[]; studentLeaves=studentLeaves||[];
     const grace=Number(MOCK.config.OTGraceMinutes||21); const toMin=hhmm=>{const[h,m]=String(hhmm||'0:0').split(':').map(Number);return (h||0)*60+(m||0);};
     const lateOut = out => planEnd && out && (toMin(out)-toMin(planEnd))>grace;
@@ -852,12 +871,20 @@
       <div class="card" style="text-align:center"><p>${esc(t('p.noChild'))}</p><div class="row" style="justify-content:center">${addBtn}${profileBtn}</div></div>${socialFooter()}`; return; }
     const k0 = kids[0];
     // one batched round-trip: journal/leaves/announcements/calendar + each kid's check-in history (for today's status)
+    // one batched round-trip. Check-ins AND leaves are fetched for every child, not just the first,
+    // so the calendar at the bottom can be switched per child (it only ever showed child #1 before).
     const _res = await Promise.all([
       api('getJournal',{studentId:k0.StudentID}), api('studentLeaves',{studentId:k0.StudentID}),
       api('announcements'), api('calendar'), api('familyProfile',parentScope()).catch(()=>({parents:[]})),
-      ...kids.map(k=>api('studentCheckinHistory',{studentId:k.StudentID}))
+      api('getPlans').catch(()=>[]),
+      ...kids.map(k=>api('studentCheckinHistory',{studentId:k.StudentID})),
+      ...kids.map(k=>api('studentLeaves',{studentId:k.StudentID}).catch(()=>[]))
     ]);
-    const [j, sl, anns, cal, fam] = _res; const ciAll=_res.slice(5); const ci=ciAll[0]||[];
+    const [j, sl, anns, cal, fam, plans] = _res;
+    const ciAll=_res.slice(6, 6+kids.length); const slAll=_res.slice(6+kids.length); const ci=ciAll[0]||[];
+    if(plans&&plans.length) A_CACHE.plans=plans;   // so planLabel() names the package, not "pkg_e32dd4"
+    // everything the per-child calendar needs, kept for P_calSel()
+    window._CALDATA={ kids, cal, ciAll, slAll, plans:plans||[] };
     // greeting = คุณพ่อ/แม่ + first child's nickname (always), regardless of the parent's own nickname
     const _me=((fam&&fam.parents)||[]).find(p=>p.isMe)||((fam&&fam.parents)||[])[0]||{}; const _rel=_me.Relationship||'';
     const _k0n=dispNick(k0); const _dad=REL_DAD.test(_rel), _mom=REL_MOM.test(_rel);
@@ -881,7 +908,8 @@
       <div class="card"><div class="spread"><h3>🏠 แจ้งลาบุตรหลาน</h3><button class="btn sm outline" onclick="P_absence()">+ แจ้งลา</button></div>${slHtml}</div>
       <div class="card" id="insCard"></div>
       <div class="card"><h3>📢 ประกาศจากโรงเรียน</h3>${(()=>{ const td=todayStr(); const act=(anns||[]).filter(a=>(!a.StartDate||ymd(a.StartDate)<=td)&&(!a.EndDate||ymd(a.EndDate)>=td)); return act.length?act.map(annRow).join(''):`<small class="muted">${EN()?'No announcements from the school yet':'ยังไม่มีประกาศจากทางโรงเรียน'}</small>`; })()}</div>
-      ${calendarWidget(cal, ci, (MOCK.config.Plans.find(p=>p.id===k0.Plan)||{}).end, sl)}
+      ${kids.length>1?`<div class="seg" id="calSeg" style="margin:14px 2px 6px">${kids.map((k,i)=>`<button class="${i===0?'active':''}" onclick="P_calSel(${i})">🗓️ ${esc(dispNick(k))}</button>`).join('')}</div>`:''}
+      <div id="calBox">${calendarWidget(cal, ci, planEndOf(k0), sl)}</div>
       ${socialFooter()}`;
     // insurance status per child (parent fills once; shows "กรอกแล้ว" if done)
     try{ const sts=await Promise.all(kids.map(k=>api('insuranceStatus',{studentId:k.StudentID})));
@@ -2379,6 +2407,7 @@
     return out;
   }
   const A_plans     = () => (A_CACHE.plans&&A_CACHE.plans.length)?A_CACHE.plans:((MOCK.config&&MOCK.config.Plans)||[]);
+  window.A_plans    = A_plans;   // planLabel() (defined much earlier) resolves live plans through this
   // generic client-side list filter + collapsible section (Admin manage). Sections start collapsed.
   window.A_toggleSec = (btn)=>{ const b=btn.closest('.secw'); const body=b.querySelector('.secbody'); const open=body.hasAttribute('hidden'); if(open)body.removeAttribute('hidden');else body.setAttribute('hidden',''); btn.querySelector('.caret').textContent=open?'▲':'▼'; btn.setAttribute('aria-expanded', open?'true':'false'); };
   // manage: open a data section (staff/parents/students) and scroll to it (from the count tiles)
@@ -2601,10 +2630,14 @@
     // uid = their LINE UID so visibleStudents returns EVERY linked child (multi-child view); parentId for legacy links
     _enterViewAs({role:'Parent',_roleKey:'Parent',parentId:pid,uid:p.LineUID||pid,nameEN:vaLabel(p,true),nameTH:vaLabel(p,false)}); };
   function _enterViewAs(ctx){ if(!VIEW_AS_BACKUP) VIEW_AS_BACKUP=USER; USER=Object.assign({_viewAs:true},ctx); setHeader(); GO('home'); _viewAsBar(); }
-  window.A_exitViewAs=()=>{ if(VIEW_AS_BACKUP){ USER=VIEW_AS_BACKUP; VIEW_AS_BACKUP=null; } const b=document.getElementById('viewAsBar'); if(b)b.remove(); setHeader(); GO('home'); };
+  window.A_exitViewAs=()=>{ if(VIEW_AS_BACKUP){ USER=VIEW_AS_BACKUP; VIEW_AS_BACKUP=null; } const b=document.getElementById('viewAsBar'); if(b)b.remove(); document.body.classList.remove('viewas'); setHeader(); GO('home'); };
+  // Sits directly under the header, not above the bottom nav. Anchored to the bottom it covered
+  // whatever the screen put there — the nav, and now the sticky save bar on the long forms.
   function _viewAsBar(){ let b=document.getElementById('viewAsBar'); if(!b){ b=document.createElement('div'); b.id='viewAsBar'; document.body.appendChild(b); }
-    b.style.cssText='position:fixed;bottom:66px;left:8px;right:8px;z-index:40;background:#1565C0;color:#fff;padding:8px 12px;border-radius:10px;display:flex;justify-content:space-between;align-items:center;font-size:13px;box-shadow:0 2px 8px rgba(0,0,0,.25)';
-    b.innerHTML=`<span>👁️ ${EN()?'Viewing as':'กำลังดูมุมมอง'}: <b>${esc(EN()?USER.nameEN:USER.nameTH)}</b></span><button onclick="A_exitViewAs()" style="background:#fff;color:#1565C0;border:none;padding:5px 12px;border-radius:6px;font-weight:700;cursor:pointer">${EN()?'Back to Admin':'กลับเป็น Admin'}</button>`; }
+    const hd=document.querySelector('.topbar');
+    b.style.top=((hd?hd.getBoundingClientRect().height:56))+'px';
+    document.body.classList.add('viewas');   // gives <main> matching top padding
+    b.innerHTML=`<span>👁️ ${EN()?'Viewing as':'กำลังดูมุมมอง'}: <b>${esc(EN()?USER.nameEN:USER.nameTH)}</b></span><button onclick="A_exitViewAs()">${EN()?'Back to Admin':'กลับเป็น Admin'}</button>`; }
 
   // ---- Parent CRUD ----
   window.A_parentForm=(id)=>{ const p=id?findParent(id):{};
@@ -3243,7 +3276,9 @@
   let FIN_TAB='in';
   window.A_finTab=(tab)=>{ FIN_TAB=tab; GO('finance'); };
   SCREENS.Admin.finance = async () => { const month=FIN_MONTH||monthStr();
-    const [f,pend]=await Promise.all([api('financeSummary',{month}), api('pendingPayments')]);
+    // plans come along so planLabel() can name the package instead of printing "pkg_e32dd4"
+    const [f,pend,plans]=await Promise.all([api('financeSummary',{month}), api('pendingPayments'), api('getPlans').catch(()=>[])]);
+    if(plans&&plans.length) A_CACHE.plans=plans;
     const pendN=(pend||[]).length;
     const stat=(cls,n,l)=>`<div class="stat ${cls}"><div class="n">${n}</div><div class="l">${esc(l)}</div></div>`;
     // income tab: tuition/OT/charges collection per student

@@ -14,20 +14,26 @@
   <link rel="manifest" href="manifest.json" />
   <!-- opaque on purpose: iOS composites a TRANSPARENT apple-touch-icon onto BLACK -->
   <link rel="apple-touch-icon" href="assets/logo-maskable.png" />
-  <!-- warm up the TLS handshake to the three third parties every session needs: fonts, the LIFF SDK, and the GAS API -->
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <!-- Only the two origins needed before first paint. PageSpeed warns above 4, and script.google.com
+       isn't touched until after sign-in anyway. -->
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="preconnect" href="https://static.line-scdn.net" crossorigin />
-  <link rel="preconnect" href="https://script.google.com" />
-  <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@400;500;600;700&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="styles.css?v=148" />
+  <!-- Our own CSS is the only render-blocking stylesheet. The Google Fonts sheet used to block too
+       (PageSpeed measured ~1.5s): load it as a non-blocking stylesheet instead. Sarabun still swaps
+       in as soon as it arrives (display=swap); until then Thai renders in the system font. -->
+  <link rel="stylesheet" href="styles.css?v=149" />
+  <link rel="stylesheet" media="print" onload="this.media='all';this.onload=null"
+        href="https://fonts.googleapis.com/css2?family=Sarabun:wght@400;500;600;700&display=swap" />
+  <noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Sarabun:wght@400;500;600;700&display=swap" /></noscript>
+  <!-- the header logo is the LCP element on the sign-in screen — let the browser find it early -->
+  <link rel="preload" as="image" href="assets/logo.png" fetchpriority="high" />
 </head>
 <body>
   <header class="topbar">
     <!-- these three are clickable divs, so they need the button role + a tab stop to be reachable
          from a keyboard; app.js maps Enter/Space onto a click for any [role=button] -->
     <div class="brand" style="cursor:pointer" onclick="HOME_TAP()" role="button" tabindex="0" aria-label="กลับหน้าหลัก / Home">
-      <img src="assets/logo.png" alt="Atom Nursery" class="logo" />
+      <img src="assets/logo.png" alt="Atom Nursery" class="logo" width="42" height="42" fetchpriority="high" />
       <span class="brand-name">Atom Nursery</span>
     </div>
     <div class="user" id="userBox">
@@ -52,13 +58,13 @@
        engine.js is deliberately absent: gas mode runs it server-side (src/Engine.gs), and api.js
        pulls it in on demand if anyone ever flips CONFIG.MODE back to 'mock'. -->
   <script defer src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
-  <script defer src="mockdata.js?v=148"></script>
-  <script defer src="growth_standard.js?v=148"></script>
-  <script defer src="xlsx_min.js?v=148"></script>
-  <script defer src="i18n.js?v=148"></script>
-  <script defer src="i18n_tr.js?v=148"></script>
-  <script defer src="api.js?v=148"></script>
-  <script defer src="app.js?v=148"></script>
+  <script defer src="mockdata.js?v=149"></script>
+  <script defer src="growth_standard.js?v=149"></script>
+  <script defer src="xlsx_min.js?v=149"></script>
+  <script defer src="i18n.js?v=149"></script>
+  <script defer src="i18n_tr.js?v=149"></script>
+  <script defer src="api.js?v=149"></script>
+  <script defer src="app.js?v=149"></script>
   <script>
     // Register SW but always pull fresh code: check for updates and auto-reload
     // once a new service worker takes control (prevents stale-cache showing old UI).

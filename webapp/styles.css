@@ -399,6 +399,16 @@ a:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible,te
 .sec-divider{font-size:13px;font-weight:800;letter-spacing:.02em;color:var(--blue-d);
   margin:16px 4px 8px;padding-left:9px;border-left:4px solid var(--blue);}
 
+/* "Viewing as …" banner. Below the header rather than above the bottom nav, where it used to cover
+   the nav itself and the sticky save bar. z-index stays under the header (20) so the header wins. */
+#viewAsBar{position:fixed;left:0;right:0;z-index:19;background:var(--blue);color:#fff;
+  padding:7px 12px;display:flex;justify-content:space-between;align-items:center;gap:10px;
+  font-size:13px;box-shadow:0 2px 8px rgba(16,24,40,.18);}
+#viewAsBar span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+#viewAsBar button{background:#fff;color:var(--blue);border:none;padding:7px 12px;border-radius:6px;
+  font-weight:700;cursor:pointer;font-family:inherit;font-size:13px;min-height:38px;white-space:nowrap;flex:0 0 auto;}
+body.viewas main{padding-top:52px;}
+
 /* Sticky save bar for the long forms (journal, insurance, registration). These run well past two
    screens, so the save button sat below the fold and had to be hunted for after every edit. sticky
    keeps it in normal flow — no height reserved, no layout shift — and it parks just above the
