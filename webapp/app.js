@@ -64,7 +64,7 @@
       if(opts&&opts.quiet) return _rawApi(action,payload,opts);   // PREFETCH: warming the cache in the background
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
-  const APP_VERSION = 'Version 1.145'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.146'; // bump each webapp change; shown only at the bottom of the Chat screen
   const verTag = () => `<div style="text-align:center;color:#c3c9d4;font-size:10px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
   const phoneFmt = p => { let d=String(p==null?'':p).replace(/\D/g,''); if(d.length===9) d='0'+d; return d; };
@@ -91,6 +91,11 @@
   // the same as an inline pill, for list rows
   const nickPill = o => nick(o) ? ` <span class="pill info">${esc(nick(o))}</span>` : '';
   const dn = o => o ? (LANG()==='en' ? (o.nameEN||o.name||'') : (o.name||o.nameEN||'')) : '';
+  // Secondary "full name" line. dispNick/dnick fall back to the full name when a nickname is missing,
+  // which printed the same name twice ("ธนิดา ศรีพลาย ธนิดา ศรีพลาย"). Return it only when it adds
+  // something. Both variants exist because engine DTOs are lowercase and sheet records PascalCase.
+  const dnSub = o => { const n=dn(o), k=dnick(o); return (n && n!==k) ? n : ''; };
+  const nmSub = o => { const n=nm(o), k=dispNick(o); return (n && n!==k) ? n : ''; };
   // nickname-first for lowercase DTOs (engine projections: name/nameEN/nick/nickEN)
   const dnick = o => o ? (LANG()==='en' ? (o.nickEN||o.nick||o.nameEN||o.name||'') : (o.nick||o.nickEN||o.name||o.nameEN||'')) : '';
 
@@ -105,15 +110,19 @@
   const deptLabel = s => { const d=String((s&&s.Department)||''); if(d==='*')return EN()?'All depts':'ทุกแผนก'; return d.split(',').map(x=>x.trim()).filter(Boolean).join(' · ')||'-'; };
   // look up a student we already fetched (admin caches; parent scope has kids on the page)
   const findKid = id => (window.A_CACHE&&(A_CACHE.students||[]).find(s=>s.StudentID===id)) || (window._KIDS&&_KIDS.find(s=>s.StudentID===id)) || null;
-  // parent display: nickname → "คุณพ่อ/แม่ น้อง<child>" (by relationship) → title + full name
+  // Parent display is ALWAYS "คุณพ่อ/คุณแม่น้อง<ชื่อเล่นลูก>". The parent's own nickname is kept on
+  // their record (and stays editable in the profile form) but is never used as a headline — the
+  // school refers to parents by their child.
   function parentDisp(p, kid){
     if(!p) return '';
-    // always show the CHILD's nickname (คุณพ่อ/แม่น้อง<ชื่อเล่น>), never the parent's own nickname
     const dad=REL_DAD.test(p.Relationship||'')||REL_DAD.test(p.Title||''), mom=REL_MOM.test(p.Relationship||'')||REL_MOM.test(p.Title||'');
-    const child = kid || findKid(p.StudentID);
+    // p.StudentID only exists on legacy rows; modern links live in USER_LINKS, which parentKidsMap
+    // resolves server-side (window._PKIDS) — without it a link-only parent fell back to their own
+    // nickname and showed up as "กิ๊บ" instead of "คุณแม่น้องเลอา".
+    const child = kid || findKid(p.StudentID) || ((window._PKIDS||{})[p.ParentID]||[])[0];
     const kn = child ? dispNick(child) : '';
     if(kn) return EN() ? `${kn}'s ${dad?'dad':mom?'mom':'parent'}` : `${dad?'คุณพ่อน้อง':mom?'คุณแม่น้อง':'ผู้ปกครองน้อง'}${kn}`;
-    return nick(p) || titledName(p);   // fall back only when the child can't be resolved
+    return titledName(p);   // no child resolvable → formal name, never their nickname
   }
   const EN = () => LANG()==='en';
   // OT duration as "X ชม. Y นาที" / "Xh Ym" (e.g. 0.77 hr → "46 นาที"); drops a zero part
@@ -1464,7 +1473,7 @@
       // preselect OUT once the child is in (so "pick up" is one tap); always usable so a time can be corrected
       const ciBtn = `<button class="btn sm green" onclick="T_studentCheckin('${s.StudentID}','${esc(nm(s))}','${s.inToday&&!s.outToday?'OUT':(s.outToday?'OUT':'IN')}')" title="${EN()?'Check in/out on behalf':'เช็คอิน/เอาท์แทน'}" aria-label="${EN()?"Check in":"เช็คอิน"}" title="${EN()?"Check in":"เช็คอิน"}">📍</button>`;
       const attTag = s.inToday?`<small class="pill ok" style="margin-left:4px">${EN()?'in':'มา'} ${esc(s.inTime||'')}</small>`:'';
-      return `<div class="card spread"><div style="display:flex;gap:10px;align-items:center">${studentAvatar(s)}<div><b>${esc(dispNick(s))}</b> <small class="muted">${esc(nm(s))}</small>${attTag}<br><small class="muted">${esc(ageYM(s.DOB))} · ${EN()?'allergy':'แพ้'}: ${esc(s.Allergy||'-')}</small><br>${journalPill(jdone[s.StudentID])}</div></div><div class="row">${jBtn}<button class="btn sm outline" onclick="T_assess('${s.StudentID}')" aria-label="${EN()?"Assess":"ประเมิน"}" title="${EN()?"Assess":"ประเมิน"}">📝</button>${ciBtn}<button class="btn sm outline" onclick="T_studentLeave('${s.StudentID}','${esc(dispNick(s))}')" title="${EN()?'File leave for this student':'แจ้งลาให้นักเรียน'}" aria-label="${EN()?"Report leave":"แจ้งลา"}" title="${EN()?"Report leave":"แจ้งลา"}">🏖️</button></div></div>`; }).join(''); };
+      return `<div class="card spread"><div style="display:flex;gap:10px;align-items:center">${studentAvatar(s)}<div><b>${esc(dispNick(s))}</b> ${nmSub(s)?`<small class="muted">${esc(nmSub(s))}</small>`:""}${attTag}<br><small class="muted">${esc(ageYM(s.DOB))} · ${EN()?'allergy':'แพ้'}: ${esc(s.Allergy||'-')}</small><br>${journalPill(jdone[s.StudentID])}</div></div><div class="row">${jBtn}<button class="btn sm outline" onclick="T_assess('${s.StudentID}')" aria-label="${EN()?"Assess":"ประเมิน"}" title="${EN()?"Assess":"ประเมิน"}">📝</button>${ciBtn}<button class="btn sm outline" onclick="T_studentLeave('${s.StudentID}','${esc(dispNick(s))}')" title="${EN()?'File leave for this student':'แจ้งลาให้นักเรียน'}" aria-label="${EN()?"Report leave":"แจ้งลา"}" title="${EN()?"Report leave":"แจ้งลา"}">🏖️</button></div></div>`; }).join(''); };
   // Teacher files a leave for a student → notifies the linked parents; shows in that student's parent calendar
   window.T_studentLeave=(sid,name)=>{ modal(`<h3>🏖️ ${EN()?'File student leave':'แจ้งลานักเรียน'} — ${esc(name)}</h3>
     <label class="field"><span>${EN()?'Type':'ประเภท'}</span><select id="tslType"><option>${EN()?'Sick leave':'ลาป่วย'}</option><option>${EN()?'Personal leave':'ลากิจ'}</option><option>${EN()?'Absent':'ขาด'}</option></select></label>
@@ -2091,7 +2100,7 @@
   };
   window.A_cls=async(name,el)=>{ if(el){[...el.parentElement.children].forEach(b=>b.classList.remove('active'));el.classList.add('active');} const r=await api('classAssessment',{className:name});
     $('#clsRes').innerHTML=`<div class="card"><div class="spread"><b>${esc(r.class)}</b><span class="pill ${r.passRate>=70?'ok':'wait'}">${EN()?'avg pass':'ผ่านเฉลี่ย'} ${r.passRate}%</span></div><small class="muted">${r.studentCount} ${EN()?'kids':'คน'}</small>
-      ${r.perStudent.length?r.perStudent.map(s=>`<div class="list-item"><span><b>${esc(dnick(s))}</b> <small class="muted">${esc(dn(s))} · ${s.ageMonth} ${EN()?'m.':'ด.'}</small></span><span><span class="pill ok">${s.pass}</span> <span class="pill bad">${s.fail}</span> <button class="btn sm outline" onclick="A_student('${s.studentId}')">${EN()?'view':'ดูราย นร.'}</button></span></div>`).join(''):`<small class="muted">${EN()?'No students in this class':'ยังไม่มีนักเรียนในชั้นนี้'}</small>`}</div>`; };
+      ${r.perStudent.length?r.perStudent.map(s=>`<div class="list-item"><span><b>${esc(dnick(s))}</b> ${dnSub(s)?`<small class="muted">${esc(dnSub(s))} · </small>`:""}<small class="muted">${s.ageMonth} ${EN()?'m.':'ด.'}</small></span><span><span class="pill ok">${s.pass}</span> <span class="pill bad">${s.fail}</span> <button class="btn sm outline" onclick="A_student('${s.studentId}')">${EN()?'view':'ดูราย นร.'}</button></span></div>`).join(''):`<small class="muted">${EN()?'No students in this class':'ยังไม่มีนักเรียนในชั้นนี้'}</small>`}</div>`; };
   window.A_student=async(sid)=>{ const [d,g]=await Promise.all([api('studentAllBands',{studentId:sid}),api('growthHistory',{studentId:sid})]); const pill=DSPM_PILL;
     app.innerHTML=`<h2 class="page">📈 ${esc(dnick(d))} <small class="muted">(${esc(dn(d))})</small></h2>
       <div class="row"><button class="btn sm outline" onclick="GO('dspm')">← ${esc(t('c.back'))}</button><button class="btn sm" onclick="A_editAssess('${sid}')">📝 ${esc(t('assess.edit'))}</button></div>
@@ -2301,6 +2310,16 @@
   window.A_CACHE = { staff:[], students:[], parents:[], classes:[], plans:[], announcements:[], depts:[] };
   const findStaff   = id => (A_CACHE.staff||[]).find(x=>x.StaffID===id)     || (MOCK.staff||[]).find(x=>x.StaffID===id)     || {};
   const findStudent = id => (A_CACHE.students||[]).find(x=>x.StudentID===id) || (MOCK.students||[]).find(x=>x.StudentID===id) || {};
+  // Six buttons per student row wrapped into ragged strips on a phone. The three everyday ones stay
+  // on the row; the rarer (and two destructive) ones move behind ⋯ so a mis-tap can't withdraw a
+  // child. Reuses modal(), so it is keyboard- and Esc-friendly for free.
+  window.A_stuMore = (sid)=>{ const s=findStudent(sid);
+    const close="this.closest('.modal').remove();";
+    modal(`<h3>👶 ${esc(dispNick(s)||sid)} ${nmSub(s)?`<small class="muted" style="font-size:13px">${esc(nmSub(s))}</small>`:''}</h3>
+      <button class="btn block outline" onclick="${close}A_vaccines('${esc(sid)}')">💉 ${EN()?'Vaccination record':'บันทึกวัคซีน'}</button>
+      <button class="btn block gray" style="margin-top:8px" onclick="${close}A_exportStudent('${esc(sid)}')">📤 ${EN()?'Export data':'ส่งออกข้อมูล'}</button>
+      <button class="btn block pink" style="margin-top:8px" onclick="${close}A_removeStudent('${esc(sid)}')">🚪 ${EN()?'Withdraw student':'นำนักเรียนออก'}</button>
+      <button class="btn block outline" style="margin-top:12px" onclick="${close}">${esc(t('c.close'))}</button>`); };
   const findParent  = id => (A_CACHE.parents||[]).find(x=>x.ParentID===id)   || (MOCK.parents||[]).find(x=>x.ParentID===id)   || {};
   const findAnn     = id => (A_CACHE.announcements||[]).find(x=>x.AnnID===id) || (MOCK.announcements||[]).find(x=>x.AnnID===id) || {};
   const A_classes   = () => (A_CACHE.classes&&A_CACHE.classes.length)?A_CACHE.classes:(MOCK.classes||[]);
@@ -2356,8 +2375,9 @@
     <small id="mgSearchCount" class="muted" style="font-size:12px;display:block;margin-top:4px"></small></div>`;
 
   SCREENS.Admin.manage = async () => {
-    const [staff,students,parents,pm,groups,exported,wds,classes,plans,depts,linkCounts]=await Promise.all([api('listStaff'),api('listStudents'),api('listParents'),api('permMatrix'),api('listStaffGroups'),api('listExportedStudents'),api('listWithdrawals',{pending:true}),api('listClasses'),api('getPlans'),api('listDepartments'),api('parentLinkCounts').catch(()=>({}))]);
+    const [staff,students,parents,pm,groups,exported,wds,classes,plans,depts,linkCounts,kidsMap]=await Promise.all([api('listStaff'),api('listStudents'),api('listParents'),api('permMatrix'),api('listStaffGroups'),api('listExportedStudents'),api('listWithdrawals',{pending:true}),api('listClasses'),api('getPlans'),api('listDepartments'),api('parentLinkCounts').catch(()=>({})),api('parentKidsMap').catch(()=>({}))]);
     window._LINKCOUNTS=linkCounts||{};
+    window._PKIDS=kidsMap||{};   // lets parentDisp() name every parent by their child, links included
     A_CACHE.staff=staff; A_CACHE.students=students; A_CACHE.parents=parents; A_CACHE.classes=classes||[]; A_CACHE.plans=plans||[]; A_CACHE.groups=groups||[]; A_CACHE.depts=depts||[];
     const CAPS=[['students','perm.students'],['staff','perm.staff'],['payroll','perm.payroll'],['parentPII','perm.parentPII'],['edit','perm.edit'],['approve','perm.approve']];
     const ROLES=['Admin','Leader','Teacher','Parent'];
@@ -2414,14 +2434,14 @@
       ${searchBox()}
       <div class="card secw" id="sec-staff">${secHead('👩‍🏫',t('c.staff'),staff.length,`<button class="btn sm" onclick="event.stopPropagation();A_staffForm()">+ ${esc(t('manage.add'))}</button>`)}
         <div class="secbody" hidden>
-        ${staff.map(s=>`<div class="list-item" data-k="${esc((s.NameTH+' '+(s.NameEN||'')+' '+(s.Nickname||'')+' '+(s.Position||'')+' '+(s.Department||'')).toLowerCase())}"><span style="display:flex;gap:8px;align-items:center">${personAvatar(s)}<span><b>${esc(dispNick(s))}</b> <small class="muted">${esc(nm(s))}</small><br><small class="muted">${esc(s.Position||'')} · ${esc(deptLabel(s))} · 🕑 ${_notr(groupLabel(s.StaffGroup))}${groupHours(s.StaffGroup)?' ('+esc(groupHours(s.StaffGroup))+')':''}</small><br><small class="muted">${esc(t('staff.start'))} ${esc(s.StartDate||'-')} · ${esc(t('staff.tenure'))} ${esc(tenure(s.StartDate))}</small></span></span><span class="row" style="flex-wrap:wrap;gap:6px;justify-content:flex-end;margin-top:6px"><button class="btn sm outline" onclick="A_staffForm('${s.StaffID}')">✏️ ${EN()?'Edit':'แก้ไข'}</button><button class="btn sm pink" onclick="A_delStaff('${s.StaffID}')">🗑️ ${EN()?'Delete':'ลบ'}</button></span></div>`).join('')}</div></div>
+        ${staff.map(s=>`<div class="list-item stack" data-k="${esc((s.NameTH+' '+(s.NameEN||'')+' '+(s.Nickname||'')+' '+(s.Position||'')+' '+(s.Department||'')).toLowerCase())}"><span style="display:flex;gap:8px;align-items:center">${personAvatar(s)}<span><b>${esc(dispNick(s))}</b> ${nmSub(s)?`<small class="muted">${esc(nmSub(s))}</small>`:""}<br><small class="muted">${esc(s.Position||'')} · ${esc(deptLabel(s))} · 🕑 ${_notr(groupLabel(s.StaffGroup))}${groupHours(s.StaffGroup)?' ('+esc(groupHours(s.StaffGroup))+')':''}</small><br><small class="muted">${esc(t('staff.start'))} ${esc(s.StartDate||'-')} · ${esc(t('staff.tenure'))} ${esc(tenure(s.StartDate))}</small></span></span><span class="acts"><button class="btn sm outline" onclick="A_staffForm('${s.StaffID}')">✏️ ${EN()?'Edit':'แก้ไข'}</button><button class="btn sm pink" onclick="A_delStaff('${s.StaffID}')">🗑️ ${EN()?'Delete':'ลบ'}</button></span></div>`).join('')}</div></div>
       <div class="card secw" id="sec-parents">${secHead('👪',t('manage.parents'),parents.length,`<button class="btn sm" onclick="event.stopPropagation();A_parentForm()">+ ${esc(t('manage.add'))}</button>`)}
         <div class="secbody" hidden>
         ${parents.map(p=>{ const lc=(window._LINKCOUNTS||{})[p.ParentID]||0; const lcBadge=`<span class="pill ${lc?'ok':'bad'}" style="font-size:10px" title="${EN()?'linked children':'จำนวนบุตรที่ผูก'}">👶 ${lc}</span>`;
-          return `<div class="list-item" data-k="${esc((p.NameTH+' '+(p.NameEN||'')+' '+(p.Nickname||'')+' '+(p.NicknameEN||'')+' '+(p.Phone||'')+' '+(p.Relationship||'')).toLowerCase())}"><span style="display:flex;gap:8px;align-items:center">${personAvatar(p)}<span><b>${esc(parentDisp(p))}</b> ${lcBadge} <small class="muted">${esc(titledName(p))} · ${esc(p.Relationship||'')} · ${phoneLink(p.Phone)}</small></span></span><span class="row" style="flex-wrap:wrap;gap:6px;justify-content:flex-end;margin-top:6px"><button class="btn sm outline" onclick="A_parentLinks('${p.ParentID}')">🔗 ${EN()?'Children':'บุตรที่ผูก'}</button><button class="btn sm outline" onclick="A_parentForm('${p.ParentID}')">✏️ ${EN()?'Edit':'แก้ไข'}</button><button class="btn sm pink" onclick="A_delParent('${p.ParentID}')">🗑️ ${EN()?'Delete':'ลบ'}</button></span></div>`; }).join('')}</div></div>
+          return `<div class="list-item stack" data-k="${esc((p.NameTH+' '+(p.NameEN||'')+' '+(p.Nickname||'')+' '+(p.NicknameEN||'')+' '+(p.Phone||'')+' '+(p.Relationship||'')).toLowerCase())}"><span style="display:flex;gap:8px;align-items:center">${personAvatar(p)}<span><b>${esc(parentDisp(p))}</b> ${lcBadge} <small class="muted">${esc(titledName(p))} · ${esc(p.Relationship||'')} · ${phoneLink(p.Phone)}</small></span></span><span class="acts"><button class="btn sm outline" onclick="A_parentLinks('${p.ParentID}')">🔗 ${EN()?'Children':'บุตรที่ผูก'}</button><button class="btn sm outline" onclick="A_parentForm('${p.ParentID}')">✏️ ${EN()?'Edit':'แก้ไข'}</button><button class="btn sm pink" onclick="A_delParent('${p.ParentID}')">🗑️ ${EN()?'Delete':'ลบ'}</button></span></div>`; }).join('')}</div></div>
       <div class="card secw" id="sec-students">${secHead('👶',EN()?'Students':'นักเรียน',students.length,`<span class="row"><button class="btn sm outline" onclick="event.stopPropagation();A_issueCombined()">🧾 ${EN()?'Issue (select)':'ออกบิล (เลือก)'}</button><button class="btn sm" onclick="event.stopPropagation();A_genBills()">📅 ${esc(t('bill.genTitle'))}</button></span>`)}
         <div class="secbody" hidden>
-        ${students.map(s=>`<div class="list-item" data-k="${esc((s.NameTH+' '+(s.NameEN||'')+' '+(s.Nickname||'')+' '+(s.NicknameEN||'')+' '+(s.Class||'')+' '+(s.NationalID||'')).toLowerCase())}"><span>${studentAvatar(s)} <b>${esc(dispNick(s))}</b> <small class="muted">${esc(nm(s))} · ${esc(s.Class)} · ${esc(ageYM(s.DOB))}${s.InsuranceHas?' · 🛡️':''}</small><br><small class="muted">${EN()?'ID':'บัตร'}: ${esc(s.NationalID||'-')}</small></span><span class="row" style="flex-wrap:wrap;gap:6px;justify-content:flex-end;margin-top:6px"><button class="btn sm outline" onclick="A_studentForm('${s.StudentID}')">✏️ ${EN()?'Edit':'แก้ไข'}</button><button class="btn sm" onclick="A_issueBill('${s.StudentID}')">🧾 ${EN()?'Bill':'ออกบิล'}</button><button class="btn sm" onclick="A_charges('${s.StudentID}')">💵 ${EN()?'Charges':'เรียกเก็บ'}</button><button class="btn sm outline" onclick="A_vaccines('${s.StudentID}')">💉 ${EN()?'Vaccine':'วัคซีน'}</button><button class="btn sm gray" onclick="A_exportStudent('${s.StudentID}')">📤 ${EN()?'Export':'ส่งออก'}</button><button class="btn sm pink" onclick="A_removeStudent('${s.StudentID}')">🚪 ${EN()?'Withdraw':'นำออก'}</button></span></div>`).join('')}</div></div>`;
+        ${students.map(s=>`<div class="list-item stack" data-k="${esc((s.NameTH+' '+(s.NameEN||'')+' '+(s.Nickname||'')+' '+(s.NicknameEN||'')+' '+(s.Class||'')+' '+(s.NationalID||'')).toLowerCase())}"><span>${studentAvatar(s)} <b>${esc(dispNick(s))}</b> <small class="muted">${nmSub(s)?esc(nmSub(s))+" · ":""}${esc(s.Class)} · ${esc(ageYM(s.DOB))}${s.InsuranceHas?' · 🛡️':''}</small><br><small class="muted">${EN()?'ID':'บัตร'}: ${esc(s.NationalID||'-')}</small></span><span class="acts"><button class="btn sm outline" onclick="A_studentForm('${s.StudentID}')">✏️ ${EN()?'Edit':'แก้ไข'}</button><button class="btn sm" onclick="A_issueBill('${s.StudentID}')">🧾 ${EN()?'Bill':'ออกบิล'}</button><button class="btn sm" onclick="A_charges('${s.StudentID}')">💵 ${EN()?'Charges':'เรียกเก็บ'}</button><button class="btn sm outline" onclick="A_stuMore('${s.StudentID}')" aria-label="${EN()?'More actions':'การทำงานเพิ่มเติม'}" title="${EN()?'More actions':'การทำงานเพิ่มเติม'}">⋯</button></span></div>`).join('')}</div></div>`;
   };
   // navigate to an admin sub-screen (kept off the bottom nav)
   var ADMIN_SUB_organize, ADMIN_SUB_holidays, ADMIN_SUB_importExport;
@@ -3182,7 +3202,7 @@
     const stat=(cls,n,l)=>`<div class="stat ${cls}"><div class="n">${n}</div><div class="l">${esc(l)}</div></div>`;
     // income tab: tuition/OT/charges collection per student
     const inTab=`<div class="card"><div class="spread"><h3>👶 ${esc(t('fin.tuition'))}</h3><span class="pill ${f.studentsPaid>=f.studentsTotal?'ok':'wait'}">${f.studentsPaid}/${f.studentsTotal} ${esc(t('fin.paid'))}</span></div>
-        ${f.students.map(s=>`<div class="list-item" style="cursor:pointer" onclick="A_finStudent('${s.studentId}')"><span><b>${esc(dnick(s))}</b><br><small class="muted" style="font-weight:400">${esc(dn(s))} · ${esc(planLabel(s.plan))}</small></span><span>${baht(s.due||s.amount)} ${s.paid?`<span class="pill ok">${esc(t('s.paid'))}</span>`:s.partial?`<span class="pill wait">${EN()?'partial':'บางส่วน'} ${baht(s.collected)}</span>`:s.status==='NO_BILL'?`<span class="pill info">${esc(t('fin.noBill'))}</span>`:`<span class="pill bad">${esc(t('s.unpaid'))}</span>`} <span class="muted">›</span></span></div>`).join('')}
+        ${f.students.map(s=>`<div class="list-item" style="cursor:pointer" onclick="A_finStudent('${s.studentId}')"><span><b>${esc(dnick(s))}</b><br><small class="muted" style="font-weight:400">${dnSub(s)?esc(dnSub(s))+" · ":""}${esc(planLabel(s.plan))}</small></span><span>${baht(s.due||s.amount)} ${s.paid?`<span class="pill ok">${esc(t('s.paid'))}</span>`:s.partial?`<span class="pill wait">${EN()?'partial':'บางส่วน'} ${baht(s.collected)}</span>`:s.status==='NO_BILL'?`<span class="pill info">${esc(t('fin.noBill'))}</span>`:`<span class="pill bad">${esc(t('s.unpaid'))}</span>`} <span class="muted">›</span></span></div>`).join('')}
         <div class="spread" style="margin-top:8px"><b>${esc(t('fin.collected'))}</b><b style="color:#2e7d32">${baht(f.tuitionCollected+f.otCollected)}</b></div>
         <button class="btn sm outline block" style="margin-top:10px" onclick="A_prepayAudit()">🔍 ${EN()?'Prepay check (retro)':'ตรวจ prepay ย้อนหลัง'}</button></div>`;
     // payroll tab: per-staff salary + full payroll form
@@ -3228,7 +3248,7 @@
     const otBox = `${otM.length?otM.map(o=>{ const sl=slipsOf('ot',o.OTID);
       return `<div style="border-bottom:1px solid #f0f0f0;padding:4px 0"><div class="list-item"><span>${esc(ymd(o.Date))} · ${esc(String(o.PickupTime||'').slice(0,5))} <b>${baht(o.Amount)}</b> <span class="pill ${stPill(o.Status)}" style="font-size:10px">${esc(o.Status)}</span></span>
         ${o.Status==='PAID'?'':`<span class="row">${o.Status==='CANCELLED'?`<button class="btn sm outline" onclick="A_finOt('${esc(o.OTID)}','restore','${sid}')" aria-label="${EN()?"Restore":"กู้คืน"}" title="${EN()?"Restore":"กู้คืน"}">♻️</button>`:`<button class="btn sm pink" onclick="A_finOt('${esc(o.OTID)}','cancel','${sid}')" aria-label="${EN()?"Cancel":"ยกเลิก"}" title="${EN()?"Cancel":"ยกเลิก"}">🚫</button>`}</span>`}</div>${slipHistoryHTML(sl)}</div>`; }).join(''):`<small class="muted">${EN()?'No OT this month':'ไม่มี OT เดือนนี้'}</small>`}`;
-    modal(`<h3>💰 ${esc(dispNick(s)||sid)} <small class="muted" style="font-size:13px">${nm(s)?esc(nm(s))+' · ':''}${esc(planLabel(s.Plan))}${s.Class?' · '+esc(s.Class):''}</small></h3>
+    modal(`<h3>💰 ${esc(dispNick(s)||sid)} <small class="muted" style="font-size:13px">${nmSub(s)?esc(nmSub(s))+' · ':''}${esc(planLabel(s.Plan))}${s.Class?' · '+esc(s.Class):''}</small></h3>
       <p class="muted" style="font-size:12px">${EN()?'Month':'เดือน'} <b>${esc(month)}</b> — ${EN()?'change the month at the finance page':'เปลี่ยนเดือนได้ที่หน้าการเงิน'}</p>
       <div class="card" style="padding:8px"><b>🧾 ${EN()?'Monthly bill':'บิลรายเดือน'}</b>${billBox}</div>
       <div class="card" style="padding:8px"><b>💵 ${EN()?'Extra charges':'ค่าใช้จ่ายเพิ่มเติม'}</b>${chargeBox}</div>
