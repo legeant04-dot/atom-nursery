@@ -1384,7 +1384,8 @@ function createAtomAPI(M, GROWTH_STD) {
 
     // ========== admin daily report ==========
     dailyReport: () => { const d=H.dashboard(); const abs2=H.absenceReport({minDays:2}); const abs5=H.absenceReport({minDays:5});
-      const lateStaff=d.staff.filter(s=>s.late>0).map(s=>({name:s.name,nameEN:s.nameEN,late:s.late}));
+      // carry the nickname through — the daily report shows staff by nickname like everywhere else
+      const lateStaff=d.staff.filter(s=>s.late>0).map(s=>({name:s.name,nameEN:s.nameEN,nick:s.nick,nickEN:s.nickEN,late:s.late}));
       const totals=d.classes.reduce((a,c)=>({in:a.in+c.in,out:a.out+c.out,leave:a.leave+c.leave,absent:a.absent+c.absent,total:a.total+c.total}),{in:0,out:0,leave:0,absent:0,total:0});
       const injuries=H.injuryReports({date:todayLocal()}); // today's injuries → shown + flagged in the report
       return {date:todayLocal(), classes:d.classes, totals, lateStaff, absent2:abs2, absent5:abs5, injuries}; },
