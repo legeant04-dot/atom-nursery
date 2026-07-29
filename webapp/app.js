@@ -112,7 +112,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.156'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.157'; // bump each webapp change; shown only at the bottom of the Chat screen
   const verTag = () => `<div style="text-align:center;color:#c3c9d4;font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
   const phoneFmt = p => { let d=String(p==null?'':p).replace(/\D/g,''); if(d.length===9) d='0'+d; return d; };
@@ -368,7 +368,8 @@
     const sb=$('#searchBtn'); if(sb) sb.hidden = !(USER && USER.role==='Admin');
     if(USER) refreshBell();
   }
-  function notifParams(){ return {role:USER.role, parentId:USER.parentId}; }
+  // staffId matters now: teachers have their own inbox rows (a parent's journal comment lands there)
+  function notifParams(){ return {role:USER.role, parentId:USER.parentId, staffId:USER.staffId}; }
   async function refreshBell(){ try{ const ns=await api('notifications',notifParams()); const n=ns.filter(x=>!x.read).length; const b=$('#bellBadge'); b.hidden=!n; b.textContent=n; }catch(e){} }
   window.BELL = async () => { const ns=await api('notifications',notifParams()); window._NOTIFS=ns; modal(`<div class="spread"><h3>🔔 ${t('c.notifications')}</h3><button class="btn-ghost" onclick="this.closest('.modal').remove()">${t('c.close')}</button></div>
     ${ns.map((n,i)=>{ const go=notifTarget(n); return `<div class="list-item" ${go?`style="cursor:pointer" onclick="NOTIF_TAP(${i})"`:''}><span>${n.read?'':'🔵 '}${esc(EN()&&n.textEN?n.textEN:n.text)}</span><small class="muted">${esc(n.time)}${go?' ›':''}</small></div>`; }).join('')||'<p class="muted">—</p>'}
