@@ -5,6 +5,9 @@
   // is gone and `el.innerHTML=` would throw "Cannot set properties of null" and clobber the new screen.
   const setHTML = (sel, html) => { const el = $(sel); if (el) el.innerHTML = html; };
   const app = $('#app'), nav = $('#bottomnav');
+  // Unsaved-changes guard (see the listeners + leaveOk() further down). Declared up here because the
+  // api() wrapper below clears FORM_DIRTY as soon as any mutation succeeds.
+  let FORM_DIRTY = false, CUR_SUB = null;
   const baht = n => (Number(n)||0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
   // ---- global "processing" overlay + double-submit guard ----------------------------------------
   // Any MUTATING api() call covers the screen with "ระบบกำลังดำเนินการ" (pointer-events blocked) so the
@@ -22,7 +25,8 @@
     el.classList.remove('ok'); el.querySelector('.busy-txt').textContent=_busyTxt(); el.classList.add('on'); }
   // On the LAST in-flight mutation finishing: flash a green ✓ "สำเร็จ" for feedback (unless something failed),
   // then hide. Any role, any add/edit/delete → the user always sees "processing" then "done".
-  function _busyDone(ok){ if(!ok) _busyFail=true; if(_busyN>0)_busyN--; if(_busyN!==0||!_busyEl) return;
+  function _busyDone(ok){ if(!ok) _busyFail=true; else FORM_DIRTY=false;   // saved → nothing left to lose
+    if(_busyN>0)_busyN--; if(_busyN!==0||!_busyEl) return;
     if(_busyFail){ _busyFail=false; _busyEl.classList.remove('on','ok'); return; }
     _busyFail=false; _busyEl.classList.add('ok'); _busyEl.querySelector('.busy-txt').textContent=_EN()?'Done':'สำเร็จ';
     clearTimeout(_busyOkT); _busyOkT=setTimeout(()=>{ if(_busyN===0&&_busyEl){ _busyEl.classList.remove('on','ok'); _busyEl.querySelector('.busy-txt').textContent=_busyTxt(); } }, 750); }
@@ -30,7 +34,7 @@
     window.api=function(action,payload,opts){ if(!_isMut(action)) return _rawApi(action,payload,opts);
       _busyShow(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _busyDone(false); throw e; }
       return Promise.resolve(pr).then(v=>{ _busyDone(true); return v; }, e=>{ _busyDone(false); throw e; }); }; }
-  const APP_VERSION = 'Version 1.127'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.128'; // bump each webapp change; shown only at the bottom of the Chat screen
   const verTag = () => `<div style="text-align:center;color:#c3c9d4;font-size:10px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
   const phoneFmt = p => { let d=String(p==null?'':p).replace(/\D/g,''); if(d.length===9) d='0'+d; return d; };
@@ -236,6 +240,18 @@
     if(st && st.atom && st.screen===screen) return;      // same screen again → don't stack duplicates
     try{ history.pushState({atom:1,screen:screen},'','#'+screen); }catch(e){}
   }
+  // Leaving a half-filled form used to throw the work away silently: Back stopped exiting the app in
+  // v127, but the teacher who reported it still lost a whole daily journal. Ask first. Answering "no"
+  // returns without touching the DOM, so every tick is still exactly where it was — and after a Back
+  // we re-push the entry we just consumed so the history stack stays honest.
+  function leaveOk(opts){
+    if(!FORM_DIRTY || !CUR_SUB) return true;
+    const msg = EN() ? 'You have unsaved changes. Leave now and lose them?\n\nPress Cancel to go back and save first.'
+                     : 'ยังไม่ได้บันทึก — ถ้าออกตอนนี้ ข้อมูลที่กรอกไว้จะหายทั้งหมด\n\nกด "ยกเลิก" เพื่อกลับไปบันทึกก่อน';
+    if(confirm(msg)) return true;
+    if(opts && opts.fromPop && CURRENT) try{ history.pushState({atom:1,screen:CURRENT,sub:CUR_SUB},'','#'+CURRENT); }catch(e){}
+    return false;
+  }
   // the screen to open at login: honour a #hash deep link, but only if that screen exists for this role
   function initialScreen(){
     const want=String(location.hash||'').replace(/^#/,'');
@@ -246,12 +262,17 @@
     if(m){ m.remove(); if(USER&&CURRENT) try{ history.pushState({atom:1,screen:CURRENT},'','#'+CURRENT); }catch(e){} return; }
     // signed-out: the only screen worth rescuing is the registration form (a new parent has typed a
     // lot by then). #rPDPA = REG_FORM, #rNameTH = REG_CHILD_FORM.
-    if(!USER){ if(document.getElementById('rPDPA')||document.getElementById('rNameTH')) accountStage(); return; }
+    if(!USER){ if(document.getElementById('rPDPA')||document.getElementById('rNameTH')){
+      if(!leaveOk({fromPop:true})) return; CUR_SUB=null; FORM_DIRTY=false; accountStage(); } return; }
     const s=ev.state && ev.state.atom && ev.state.screen;
     if(s && (SCREENS[USER.role]||{})[s]) GO(s,{fromPop:true});
   });
 
-  window.GO = function(screen, opts){ CURRENT=screen; setNav(screen); if(!(opts&&opts.silent)) histPush(screen, opts&&opts.fromPop); if(!(opts&&opts.silent)){ setTopActions(''); CAL_OFF=0; window._CALRENDER=null; } const fn=(SCREENS[USER.role]||{})[screen];
+  window.GO = function(screen, opts){
+    // every real navigation leaves whatever sub-view was open — check for unsaved work first.
+    // Runs before CURRENT is reassigned so leaveOk() can re-push the entry the user came from.
+    if(!(opts&&opts.silent)){ if(!leaveOk(opts)) return; CUR_SUB=null; FORM_DIRTY=false; }
+    CURRENT=screen; setNav(screen); if(!(opts&&opts.silent)) histPush(screen, opts&&opts.fromPop); if(!(opts&&opts.silent)){ setTopActions(''); CAL_OFF=0; window._CALRENDER=null; } const fn=(SCREENS[USER.role]||{})[screen];
     // paint an instant placeholder so a tap feels responsive instead of "stuck" on the old screen
     // while the first (uncached) fetch runs; skip on silent background re-renders to avoid flicker.
     if(fn && !(opts&&opts.silent)) app.innerHTML=`<div class="card" style="text-align:center;color:#94a3b8;padding:28px">⏳ ${EN()?'Loading…':'กำลังโหลด…'}</div>`;
@@ -3275,8 +3296,20 @@
         if (!(st && st.atom && st.sub === name)) {
           try { history.pushState({ atom:1, screen: CURRENT || 'home', sub: name }, '', '#' + (CURRENT || 'home')); } catch (e) {}
         }
+        CUR_SUB = name; FORM_DIRTY = false;   // freshly opened form — nothing to lose yet
         return orig.apply(this, arguments);
       }; });
+
+  // What counts as "the user has entered something". Typing covers the text/number/date/select
+  // fields; the journal's mood/meal pickers and the DSPM pass/fail buttons are plain <button>s, so
+  // their clicks are watched separately. #app is never replaced (only its innerHTML), so binding
+  // once here is enough for every screen.
+  const markDirty = () => { if (CUR_SUB) FORM_DIRTY = true; };
+  app.addEventListener('input', markDirty);
+  app.addEventListener('change', markDirty);
+  app.addEventListener('click', e => {
+    if (e.target.closest('.choice button, [data-g], [data-meal], .chk')) markDirty();
+  });
 
   // preload logos as dataURLs so printed/downloaded slips & receipts always show them
   (async function preloadLogos(){ const map={_LOGO:'assets/logo.png',_LOGOCORNER:'assets/logo-corner.jpg'};
