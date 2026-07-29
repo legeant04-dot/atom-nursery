@@ -34,7 +34,7 @@
     window.api=function(action,payload,opts){ if(!_isMut(action)) return _rawApi(action,payload,opts);
       _busyShow(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _busyDone(false); throw e; }
       return Promise.resolve(pr).then(v=>{ _busyDone(true); return v; }, e=>{ _busyDone(false); throw e; }); }; }
-  const APP_VERSION = 'Version 1.132'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.134'; // bump each webapp change; shown only at the bottom of the Chat screen
   const verTag = () => `<div style="text-align:center;color:#c3c9d4;font-size:10px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
   const phoneFmt = p => { let d=String(p==null?'':p).replace(/\D/g,''); if(d.length===9) d='0'+d; return d; };
@@ -150,7 +150,20 @@
   let toastT; function toast(m){ if(window.trPhrase) m=trPhrase(m); let t=$('.toast'); if(!t){t=document.createElement('div');t.className='toast';document.body.appendChild(t);} t.textContent=m; t.classList.add('show'); clearTimeout(toastT); toastT=setTimeout(()=>t.classList.remove('show'),2400); }
   // runtime translator hook: auto-translate any remaining Thai in #app when EN
   let _mo=null,_translating=false;
-  function ensureTranslateObserver(){ if(_mo||!window.translateTree)return; _mo=new MutationObserver(()=>{ if(_translating||LANG()!=='en')return; _translating=true; try{translateTree(app);}finally{_translating=false;} }); _mo.observe(app,{childList:true,subtree:true,characterData:true}); }
+  // English mode sweeps #app for any Thai the i18n keys didn't cover. It used to re-sweep the WHOLE
+  // subtree on every single mutation — a screen render fired it 3-8 times (5-8ms measured on a
+  // desktop, several times that on the phones the parents actually use). One render produces a burst
+  // of mutations but only needs one sweep, so they are now collapsed into a single pass per frame.
+  // characterData is dropped too: editing existing text never introduces new Thai to translate.
+  let _trQueued=false;
+  function ensureTranslateObserver(){ if(_mo||!window.translateTree)return;
+    const run=()=>{ _trQueued=false; if(LANG()!=='en')return;
+      _translating=true; try{translateTree(app);}finally{_translating=false;} };
+    // setTimeout, NOT requestAnimationFrame: rAF is suspended while the tab is hidden or not
+    // compositing, so a screen rendered in the background would never get translated at all.
+    _mo=new MutationObserver(()=>{ if(_translating||LANG()!=='en'||_trQueued)return;
+      _trQueued=true; setTimeout(run,0); });
+    _mo.observe(app,{childList:true,subtree:true}); }
   function applyLangNow(){ if(window.translateTree&&LANG()==='en'){ _translating=true; try{translateTree(app);}finally{_translating=false;} } }
   function err(e){ toast('⚠️ '+(e&&e.message||e)); }
   // Modals carry most of this app's data entry, so they need to behave like real dialogs: announced
