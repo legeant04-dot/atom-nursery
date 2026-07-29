@@ -112,7 +112,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.151'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.152'; // bump each webapp change; shown only at the bottom of the Chat screen
   const verTag = () => `<div style="text-align:center;color:#c3c9d4;font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
   const phoneFmt = p => { let d=String(p==null?'':p).replace(/\D/g,''); if(d.length===9) d='0'+d; return d; };
@@ -484,6 +484,34 @@
     if(empty){ GO(CURRENT,{silent:true}); return; }
     showRefreshBar();
   };
+  // ---- undo for deletes ---------------------------------------------------------------------
+  // Nothing in this app could be taken back. Rather than adding soft-delete to every sheet, the
+  // request is simply HELD: the screen updates at once so it feels instant, but nothing is sent
+  // until the window closes. "เลิกทำ" means the delete never happened at all — no server round trip,
+  // nothing to restore. If the app is closed inside the window the record survives, which is the
+  // safe direction to fail in.
+  const UNDO_MS=6000;
+  let _undo=null;   // {timer, send, label}
+  function undoCommit(){ if(!_undo) return; const u=_undo; _undo=null; clearTimeout(u.timer);
+    const bar=document.getElementById('undoBar'); if(bar) bar.remove();
+    Promise.resolve().then(u.send).catch(e=>err(e)); }
+  window.UNDO_cancel=()=>{ if(!_undo) return; const u=_undo; _undo=null; clearTimeout(u.timer);
+    const bar=document.getElementById('undoBar'); if(bar) bar.remove();
+    if(u.onUndo) try{ u.onUndo(); }catch(e){}
+    toast(EN()?'Undone — nothing was deleted':'เลิกทำแล้ว — ยังไม่ได้ลบข้อมูล'); };
+  // send: () => Promise (the actual api call).  after: run straight away to update the screen.
+  function deleteWithUndo(label, send, after, onUndo){
+    if(_undo) undoCommit();                       // only one pending delete at a time
+    if(after) try{ after(); }catch(e){}
+    _undo={ send, onUndo, label, timer:setTimeout(()=>{ undoCommit(); }, UNDO_MS) };
+    let bar=document.getElementById('undoBar');
+    if(!bar){ bar=document.createElement('div'); bar.id='undoBar'; document.body.appendChild(bar); }
+    bar.innerHTML=`<span>🗑️ ${esc(label)}</span><button type="button" onclick="UNDO_cancel()">${EN()?'Undo':'เลิกทำ'}</button>`;
+    requestAnimationFrame(()=>bar.classList.add('show'));
+  }
+  // a pending delete must not be lost silently if the tab goes away — send it
+  window.addEventListener('pagehide', ()=>{ if(_undo) undoCommit(); });
+
   function showRefreshBar(){
     if(document.getElementById('refreshBar')) return;
     const b=document.createElement('button'); b.id='refreshBar'; b.type='button';
@@ -2079,7 +2107,8 @@
     if(annId) await api('editAnnouncement',Object.assign({annId},data)); else await api('addAnnouncement',data);
     m.remove(); confirmSaved(t('c.saved')); GO('home'); };
   window.A_editAnn=(annId)=>A_addAnn(annId);
-  window.A_delAnn=async(annId)=>{ if(!confirm(t('manage.confirmDel')))return; try{ await api('deleteAnnouncement',{annId}); toast(t('manage.deleted')); GO('home'); }catch(e){err(e);} };
+  window.A_delAnn=(annId)=>{ if(!confirm(t('manage.confirmDel')))return;
+    deleteWithUndo(EN()?'Announcement deleted':'ลบประกาศแล้ว', ()=>api('deleteAnnouncement',{annId}).then(()=>GO('home')), ()=>GO('home')); };
 
   // one admin leave card: nickname + dept + type/dates + reason + status + actions (approve/reject/edit/cancel)
   function leaveAdminCard(l){ const isPA=String(l.Status)==='PENDING_ADMIN';
@@ -2633,7 +2662,8 @@
     const sfp=photoVal(m,'sf_Photo'); if(sfp) data.Photo=sfp;
     try{ await api('saveStaff',{staffId:id||null,data}); m.remove(); confirmSaved(t('c.saved')); GO('manage'); }catch(e){err(e);} };
   window.SF_allDept=(cb)=>{ const box=document.getElementById('sf_DeptList'); if(box){ box.style.opacity=cb.checked?'.4':''; box.style.pointerEvents=cb.checked?'none':''; } };
-  window.A_delStaff=async(id)=>{ if(!confirm(t('manage.confirmDel')))return; try{ await api('deleteStaff',{staffId:id}); toast(t('manage.deleted')); GO('manage'); }catch(e){err(e);} };
+  window.A_delStaff=(id)=>{ if(!confirm(t('manage.confirmDel')))return;
+    deleteWithUndo(EN()?'Staff removed':'ลบพนักงานแล้ว', ()=>api('deleteStaff',{staffId:id}).then(()=>GO('manage')), ()=>{ const r=document.querySelector('#sec-staff .list-item[data-k]'); }); };
   window.A_viewPw=async(id)=>{ const box=document.getElementById('pwView_'+id); try{ const r=await api('getStaffPassword',{staffId:id}); if(box)box.innerHTML=`${EN()?'Current password':'รหัสผ่านปัจจุบัน'}: <b>${esc(r.password)}</b>`; }catch(e){err(e);} };
   window.A_resetPw=async(id)=>{ if(!confirm(EN()?'Reset this staff\'s password? A temporary password will be shown.':'รีเซ็ตรหัสผ่านพนักงานคนนี้? ระบบจะแสดงรหัสชั่วคราว'))return;
     const box=document.getElementById('pwView_'+id); try{ const r=await api('adminResetPassword',{staffId:id}); if(box)box.innerHTML=`✅ ${EN()?'Reset. Temporary password':'รีเซ็ตแล้ว รหัสชั่วคราว'}: <b>${esc(r.tempPassword)}</b> — ${EN()?'staff must change it after unlocking':'พนักงานต้องเปลี่ยนใหม่หลังเข้าใช้'}`; toast(t('c.saved')); }catch(e){err(e);} };
@@ -2725,7 +2755,8 @@
     const data={Title:v('Title'),NameTH:v('NameTH'),NameEN:v('NameEN'),Nickname:v('Nickname'),NicknameEN:v('NicknameEN'),Relationship:v('Relationship'),NationalID:v('NationalID'),Phone:v('Phone'),OfficePhone:v('OfficePhone'),Occupation:v('Occupation'),Workplace:v('Workplace')};
     const pfp=photoVal(m,'pf_Photo'); if(pfp) data.Photo=pfp;
     try{ await api('saveParent',{parentId:id||null,data}); m.remove(); confirmSaved(t('c.saved')); GO('manage'); }catch(e){err(e);} };
-  window.A_delParent=async(id)=>{ if(!confirm(t('manage.confirmDel')))return; try{ await api('deleteParent',{parentId:id}); toast(t('manage.deleted')); GO('manage'); }catch(e){err(e);} };
+  window.A_delParent=(id)=>{ if(!confirm(t('manage.confirmDel')))return;
+    deleteWithUndo(EN()?'Parent removed':'ลบผู้ปกครองแล้ว', ()=>api('deleteParent',{parentId:id}).then(()=>GO('manage'))); };
 
   // ---- Student edit (incl. insurance) ----
   // choosing a package fills the arrive/leave time from the package's schedule (still editable per student)
@@ -3409,9 +3440,11 @@
   window.A_finAddCharge=async(sid)=>{ const m=document.querySelector('.modal'); const label=(m.querySelector('#fcLabel').value||'').trim(); const amt=Number(m.querySelector('#fcAmt').value)||0;
     if(!label||!amt){ toast(EN()?'Enter label and amount':'กรอกชื่อรายการและจำนวนเงิน'); return; }
     try{ await api('addStudentCharge',{studentId:sid,month:FIN_MONTH||monthStr(),label,amount:amt}); _finReopen(sid); }catch(e){err(e);} };
-  window.A_finDelCharge=async(chargeId,sid)=>{ try{ await api('removeStudentCharge',{chargeId}); _finReopen(sid); }catch(e){err(e);} };
+  window.A_finDelCharge=(chargeId,sid)=>{
+    deleteWithUndo(EN()?'Charge removed':'ลบรายการเรียกเก็บแล้ว', ()=>api('removeStudentCharge',{chargeId}).then(()=>_finReopen(sid))); };
   window.A_finIssueBill=async(sid)=>{ try{ await api('issueBill',{studentId:sid,month:FIN_MONTH||monthStr()}); _finReopen(sid); }catch(e){err(e);} };
-  window.A_finDelBill=async(billingId,sid)=>{ if(!confirm(EN()?'Delete this bill?':'ลบบิลนี้?'))return; try{ await api('deleteBill',{billingId}); _finReopen(sid); }catch(e){err(e);} };
+  window.A_finDelBill=(billingId,sid)=>{ if(!confirm(EN()?'Delete this bill?':'ลบบิลนี้?'))return;
+    deleteWithUndo(EN()?'Bill deleted':'ลบบิลแล้ว', ()=>api('deleteBill',{billingId}).then(()=>_finReopen(sid))); };
   window.A_finOt=async(otId,kind,sid)=>{ try{ await api(kind==='cancel'?'adminCancelOT':'adminRestoreOT',{otId}); _finReopen(sid); }catch(e){err(e);} };
 
   // ---- Finance: per-staff detail (salary base + this-month OT + compute) ----

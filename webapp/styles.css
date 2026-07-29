@@ -399,6 +399,19 @@ a:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible,te
 .sec-divider{font-size:13px;font-weight:800;letter-spacing:.02em;color:var(--blue-d);
   margin:16px 4px 8px;padding-left:9px;border-left:4px solid var(--blue);}
 
+/* Undo bar for a held delete. Dark like a toast (this is a transient consequence, not a warning),
+   and it sits above the outbox/refresh pills so it is never the thing that gets covered. */
+#undoBar{position:fixed;left:50%;transform:translate(-50%,14px);
+  bottom:calc(78px + env(safe-area-inset-bottom,0px));z-index:47;opacity:0;
+  transition:opacity var(--dur),transform var(--dur);
+  display:flex;align-items:center;gap:14px;background:#111;color:#fff;
+  border-radius:var(--radius-pill);padding:8px 10px 8px 18px;font-size:13.5px;
+  box-shadow:var(--sh-md);max-width:92%;}
+#undoBar.show{opacity:.97;transform:translate(-50%,0);}
+#undoBar button{background:transparent;color:#7fc4ff;border:none;font-family:inherit;
+  font-size:13.5px;font-weight:700;cursor:pointer;padding:8px 12px;min-height:40px;white-space:nowrap;}
+#undoBar button:hover{color:#a9d9ff;}
+
 /* Offline outbox: work saved on the device while the connection was down. Amber, and it stays put
    until everything has actually reached the server — the one thing the user must not miss. */
 #outbox{position:fixed;left:50%;transform:translateX(-50%);
