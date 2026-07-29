@@ -34,14 +34,14 @@
     window.api=function(action,payload,opts){ if(!_isMut(action)) return _rawApi(action,payload,opts);
       _busyShow(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _busyDone(false); throw e; }
       return Promise.resolve(pr).then(v=>{ _busyDone(true); return v; }, e=>{ _busyDone(false); throw e; }); }; }
-  const APP_VERSION = 'Version 1.128'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.132'; // bump each webapp change; shown only at the bottom of the Chat screen
   const verTag = () => `<div style="text-align:center;color:#c3c9d4;font-size:10px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
   const phoneFmt = p => { let d=String(p==null?'':p).replace(/\D/g,''); if(d.length===9) d='0'+d; return d; };
   const phoneLink = p => { const d=phoneFmt(p); return d?`<a href="tel:${d}" onclick="event.stopPropagation()" style="color:inherit;text-decoration:underline dotted">${esc(d)}</a>`:'-'; };
   const esc = s => String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
   // password input with a 👁️ show/hide toggle
-  const pwField = (id,label,ph)=>`<label class="field"><span>${esc(label)}</span><div class="row" style="gap:6px"><input type="password" id="${id}" placeholder="${esc(ph||'')}" style="flex:1"/><button type="button" class="btn sm outline" onclick="PW_toggle('${id}',this)" title="show/hide">👁️</button></div></label>`;
+  const pwField = (id,label,ph)=>`<label class="field"><span>${esc(label)}</span><div class="row" style="gap:6px"><input type="password" id="${id}" placeholder="${esc(ph||'')}" style="flex:1"/><button type="button" class="btn sm outline" onclick="PW_toggle('${id}',this)" title="show/hide" aria-label="${EN()?"Show or hide password":"แสดง/ซ่อนรหัสผ่าน"}" title="${EN()?"Show or hide password":"แสดง/ซ่อนรหัสผ่าน"}">👁️</button></div></label>`;
   window.PW_toggle=(id,btn)=>{ const e=document.getElementById(id); if(!e)return; const show=e.type==='password'; e.type=show?'text':'password'; if(btn)btn.textContent=show?'🙈':'👁️'; };
   const p2 = n => String(n).padStart(2,'0');
   const todayStr = () => { const d=new Date(); return d.getFullYear()+'-'+p2(d.getMonth()+1)+'-'+p2(d.getDate()); };
@@ -153,7 +153,34 @@
   function ensureTranslateObserver(){ if(_mo||!window.translateTree)return; _mo=new MutationObserver(()=>{ if(_translating||LANG()!=='en')return; _translating=true; try{translateTree(app);}finally{_translating=false;} }); _mo.observe(app,{childList:true,subtree:true,characterData:true}); }
   function applyLangNow(){ if(window.translateTree&&LANG()==='en'){ _translating=true; try{translateTree(app);}finally{_translating=false;} } }
   function err(e){ toast('⚠️ '+(e&&e.message||e)); }
-  function modal(html){ const m=document.createElement('div'); m.className='modal'; m.innerHTML=`<div class="sheet">${html}</div>`; m.onclick=e=>{ if(e.target===m)m.remove(); }; document.body.appendChild(m); if(window.translateTree) translateTree(m); return m; }
+  // Modals carry most of this app's data entry, so they need to behave like real dialogs: announced
+  // as one, closable with Esc, and keyboard focus kept inside instead of wandering onto the page
+  // behind them. Closing hands focus back to whatever opened the modal.
+  const FOCUSABLE='a[href],button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"])';
+  function modal(html){
+    const opener=document.activeElement;
+    const m=document.createElement('div'); m.className='modal';
+    m.innerHTML=`<div class="sheet" role="dialog" aria-modal="true" tabindex="-1">${html}</div>`;
+    m.onclick=e=>{ if(e.target===m)m.remove(); };
+    const onKey=e=>{
+      if(e.key==='Escape'){ e.preventDefault(); m.remove(); return; }
+      if(e.key!=='Tab') return;
+      const f=[...m.querySelectorAll(FOCUSABLE)].filter(el=>el.offsetParent!==null);
+      if(!f.length) return;
+      const first=f[0], last=f[f.length-1];
+      if(e.shiftKey && document.activeElement===first){ e.preventDefault(); last.focus(); }
+      else if(!e.shiftKey && document.activeElement===last){ e.preventDefault(); first.focus(); }
+    };
+    document.addEventListener('keydown',onKey);
+    // one instance-level override so EVERY existing `.remove()` call site cleans up and restores focus
+    const rm=Element.prototype.remove.bind(m);
+    m.remove=()=>{ document.removeEventListener('keydown',onKey); rm();
+      if(opener&&opener.focus) try{ opener.focus(); }catch(e){} };
+    document.body.appendChild(m);
+    // focus the sheet itself rather than the first field — focusing an input would throw the
+    // on-screen keyboard up over the dialog on a phone.
+    const sheet=m.querySelector('.sheet'); if(sheet) try{ sheet.focus({preventScroll:true}); }catch(e){}
+    if(window.translateTree) translateTree(m); return m; }
 
   let USER = null;
 
@@ -219,7 +246,8 @@
     Admin:[['home','📊','nav.home'],['leaves','✅','nav.leaves'],['finance','💰','nav.finance'],['dspm','📈','nav.analytics'],['manage','🗂️','nav.manage'],['chat','💬','nav.chat']],
   };
   function setNav(active){ if(!USER){nav.hidden=true;return;} nav.hidden=false;
-    nav.innerHTML = NAVS[USER.role].map(([k,ic,l])=>`<button class="${k===active?'active':''}" onclick="GO('${k}')"><span class="ic">${ic}</span>${esc(t(l))}</button>`).join(''); }
+    // aria-current marks the open tab for screen readers; the emoji is decorative next to the label
+    nav.innerHTML = NAVS[USER.role].map(([k,ic,l])=>`<button class="${k===active?'active':''}"${k===active?' aria-current="page"':''} onclick="GO('${k}')"><span class="ic" aria-hidden="true">${ic}</span>${esc(t(l))}</button>`).join(''); }
 
   // header quick-actions slot (before the language toggle); each screen fills it or it clears on nav
   window.setTopActions = html => { const el=document.getElementById('topActions'); if(el) el.innerHTML=html||''; };
@@ -610,7 +638,7 @@
       ${rows.length?`<div class="jr-rows">${rows.join('')}</div>`:`<div class="muted" style="text-align:center;padding:10px">${EN()?'The teacher has not filled in details yet.':'คุณครูยังไม่ได้กรอกรายละเอียด'}</div>`}
       ${j.Highlight?`<div class="jr-hl"><span>⭐ ${esc(jt("Today's Highlight"))}</span><div>${esc(j.Highlight)}</div></div>`:''}
       <div class="jr-cmt"><h4>💬 ${EN()?"Parent's comment":'ความคิดเห็นผู้ปกครอง'}</h4>${opts.parentEditable
-        ? `<div class="row"><textarea id="jPC" placeholder="${EN()?'Write a comment… (tap mic to speak)':'พิมพ์ความคิดเห็น... (กดไมค์เพื่อพูด)'}" style="flex:1">${esc(j.ParentComment||'')}</textarea><button class="micbtn" onclick="J_mic('jPC',this)">🎤</button></div>
+        ? `<div class="row"><textarea id="jPC" placeholder="${EN()?'Write a comment… (tap mic to speak)':'พิมพ์ความคิดเห็น... (กดไมค์เพื่อพูด)'}" style="flex:1">${esc(j.ParentComment||'')}</textarea><button class="micbtn" onclick="J_mic('jPC',this)" aria-label="${EN()?"Voice input":"พูดเพื่อกรอกข้อความ"}" title="${EN()?"Voice input":"พูดเพื่อกรอกข้อความ"}">🎤</button></div>
            <button class="btn sm block" style="margin-top:6px" onclick="P_saveComment('${esc(j.StudentID||opts.studentId||'')}','${esc(j.Date||opts.date||'')}',this)">💾 ${EN()?'Save comment':'บันทึกความคิดเห็น'}</button>`
         : `<div class="jr-cmt-box">${esc(j.ParentComment||(EN()?'— no comment —':'— ยังไม่มีความคิดเห็น —'))}</div>`}</div>
       ${(!opts.parentEditable && typeof USER!=='undefined' && USER && USER.role!=='Parent')
@@ -647,7 +675,7 @@
   const CAL_MTH=['ม.ค.','ก.พ.','มี.ค.','เม.ย.','พ.ค.','มิ.ย.','ก.ค.','ส.ค.','ก.ย.','ต.ค.','พ.ย.','ธ.ค.'], CAL_MTHE=['January','February','March','April','May','June','July','August','September','October','November','December'];
   const calBase=()=>{ const b=new Date(); b.setDate(1); b.setMonth(b.getMonth()+CAL_OFF); return b; };
   function calNavHeader(y,mo){ const head=EN()?CAL_MTHE[mo]+' '+y:CAL_MTH[mo]+' '+(y+543);
-    return `<div class="spread" style="margin-bottom:6px"><button class="btn sm outline" onclick="CAL_nav(-1)">◀</button><b style="font-size:14px">📅 ${esc(head)}</b><span class="row"><button class="btn sm outline" onclick="CAL_today()">${EN()?'Today':'วันนี้'}</button><button class="btn sm outline" onclick="CAL_nav(1)">▶</button></span></div>`; }
+    return `<div class="spread" style="margin-bottom:6px"><button class="btn sm outline" onclick="CAL_nav(-1)" aria-label="${EN()?"Previous month":"เดือนก่อนหน้า"}" title="${EN()?"Previous month":"เดือนก่อนหน้า"}">◀</button><b style="font-size:14px">📅 ${esc(head)}</b><span class="row"><button class="btn sm outline" onclick="CAL_today()">${EN()?'Today':'วันนี้'}</button><button class="btn sm outline" onclick="CAL_nav(1)" aria-label="${EN()?"Next month":"เดือนถัดไป"}" title="${EN()?"Next month":"เดือนถัดไป"}">▶</button></span></div>`; }
 
   // light-red / cleaning background for weekend · holiday · Big Cleaning cells (shared by all calendars)
   function calOffBg(y,mo,d,hol,bc){ const dow=new Date(y,mo,d).getDay(); if(hol)return 'background:#ffebee;border-color:#ef9a9a;'; if(bc)return 'background:#e0f7fa;border-color:#80deea;'; if(dow===0||dow===6)return 'background:#ffebee;border-color:#ffcdd2;'; return ''; }
@@ -944,8 +972,8 @@
     modal(`<div style="text-align:center"><h3>${esc(o.title||t('lbl.qr'))}</h3>
       ${qr?imgEl:phEl}
       <p>${o.note?`<span class="muted" style="font-size:12px">${esc(o.note)}</span><br>`:''}<b>${esc(t('c.total'))} ${baht(o.amount)} ${esc(EN()?'THB':'บาท')}</b></p>
-      <button class="btn block" onclick="SAVE_IMG('${esc(qr)}','${esc(o.imgName||'qr.png')}')">💾 ${esc(t('lbl.saveQR'))}</button>
       ${o.extra||''}
+      <button class="btn outline block" style="margin-top:8px" onclick="SAVE_IMG('${esc(qr)}','${esc(o.imgName||'qr.png')}')">💾 ${esc(t('lbl.saveQR'))}</button>
       <button class="btn outline block" style="margin-top:8px" onclick="this.closest('.modal').remove()">${esc(t('c.close'))}</button></div>`); }
   window.QR_PH=(img)=>{ const d=document.createElement('div'); d.className='qr-ph'; img.replaceWith(d); };
   window.ZOOM_IMG=(url)=>{ if(!url)return; const m=document.createElement('div'); m.className='modal imgzoom'; m.innerHTML=`<img src="${esc(url)}" alt="QR"/>`; m.onclick=()=>m.remove(); document.body.appendChild(m); };
@@ -986,16 +1014,16 @@
       <p class="muted" style="font-size:12px">${EN()?'Pay several months ahead for a discount — tap the button to see the options.':'จ่ายล่วงหน้าหลายเดือนรับส่วนลด — กดปุ่มเพื่อดูตัวเลือก'}</p>
       ${preShow.length?preShow.map(p=>{ const paid=p.Status==='PAID',partial=p.Status==='PARTIAL'; const sl=slipsOf('prepay',p.PrepayID); const pend=sl.some(s=>s.Status==='SUBMITTED');
         return `<div style="border-bottom:1px solid #f0f0f0;padding:4px 0"><div class="list-item"><span>${esc(t('prepay.months').replace('{n}',p.Months))} <span class="pill ok">-${p.Discount}%</span> <small class="muted">${esc(p.Covered[0])}→${esc(p.Covered[p.Covered.length-1])}</small></span>
-        <span><b>${baht(p.Amount)}</b> ${paid?`<span class="pill ok">${esc(t('prepay.paidAhead'))}</span>`:partial?`<span class="pill wait">${EN()?'partial':'บางส่วน'}</span>`:pend?verifyPill:''} ${paid?'':`<button class="btn sm" onclick="P_payPrepay('${p.PrepayID}',${p.Amount})">${pend||partial?'📎':esc(t('lbl.pay'))}</button> <button class="btn sm gray" onclick="P_cash('prepay','${p.PrepayID}',${p.Amount})">💵</button>`}</span></div>${slipHistoryHTML(sl)}</div>`; }).join(''):''}</div>`;
+        <span><b>${baht(p.Amount)}</b> ${paid?`<span class="pill ok">${esc(t('prepay.paidAhead'))}</span>`:partial?`<span class="pill wait">${EN()?'partial':'บางส่วน'}</span>`:pend?verifyPill:''} ${paid?'':`<button class="btn sm" onclick="P_pay('prepay','${p.PrepayID}',${p.Amount})">${pend||partial?'📎':'💳'} ${esc(t('lbl.pay'))}</button>`}</span></div>${slipHistoryHTML(sl)}</div>`; }).join(''):''}</div>`;
     const otOpen=ot.filter(o=>o.Status!=='PAID'&&o.Status!=='PENDING_VERIFY'&&o.Status!=='PARTIAL');
     const otHtml = ot.length?`<div class="card"><h3>⏰ ${esc(t('ot.daily'))}</h3>
       ${ot.map(o=>{ const paid=o.Status==='PAID',partial=o.Status==='PARTIAL'; const sl=slipsOf('ot',o.OTID); const pend=sl.some(s=>s.Status==='SUBMITTED'); return `<div style="border-bottom:1px solid #f0f0f0;padding:4px 0"><div class="list-item"><span>${esc(ddmmyyyy(o.Date))} · ${esc(o.PickupTime)} <small class="muted">(${EN()?'late':'สาย'} ${o.LateMinutes}${esc(t('lbl.min'))} · ${o.Hours}${EN()?'h':'ชม.'})</small></span>
-        <span><b>${baht(o.Amount)}</b> ${paid?`<span class="pill ok">${esc(t('s.paid'))}</span>`:partial?`<span class="pill wait">${EN()?'partial':'บางส่วน'}</span>`:pend?verifyPill:''} ${paid?'':`<button class="btn sm" onclick="P_payOT('${o.OTID}',${o.Amount})">${pend||partial?'📎':esc(t('lbl.pay'))}</button> <button class="btn sm gray" onclick="P_cash('ot','${o.OTID}',${o.Amount})">💵</button>`}</span></div>${slipHistoryHTML(sl)}</div>`; }).join('')}
+        <span><b>${baht(o.Amount)}</b> ${paid?`<span class="pill ok">${esc(t('s.paid'))}</span>`:partial?`<span class="pill wait">${EN()?'partial':'บางส่วน'}</span>`:pend?verifyPill:''} ${paid?'':`<button class="btn sm" onclick="P_pay('ot','${o.OTID}',${o.Amount})">${pend||partial?'📎':'💳'} ${esc(t('lbl.pay'))}</button>`}</span></div>${slipHistoryHTML(sl)}</div>`; }).join('')}
       ${otOpen.length?`<div class="spread" style="margin-top:8px"><b>${esc(t('ot.unpaidTotal'))}</b><b style="color:#c62828">${baht(otOpen.reduce((a,o)=>a+o.Amount,0))}</b></div><small class="muted">${esc(t('ot.rollNote'))}</small>`:''}</div>`:'';
     // extra charges — each is its own payable item (ค่ากิจกรรม/ค่าพิเศษ ฯลฯ) paid separately from tuition
     const chHtml = (charges&&charges.length)?`<div class="card"><h3>➕ ${EN()?'Extra charges':'ค่าใช้จ่ายเพิ่มเติม'}</h3>
       ${charges.map(c=>{ const paid=c.Status==='PAID',partial=c.Status==='PARTIAL'; const sl=slipsOf('charge',c.ChargeID); const pend=sl.some(s=>s.Status==='SUBMITTED'); return `<div style="border-bottom:1px solid #f0f0f0;padding:4px 0"><div class="list-item"><span>${esc(c.Label)} <small class="muted">${esc(monthNameYear(c.Month))}</small></span>
-        <span><b>${baht(c.Amount)}</b> ${paid?`<span class="pill ok">${esc(t('s.paid'))}</span>`:partial?`<span class="pill wait">${EN()?'partial':'บางส่วน'}</span>`:pend?verifyPill:''} ${paid?'':`<button class="btn sm" onclick="P_payCharge('${c.ChargeID}',${c.Outstanding!=null?c.Outstanding:c.Amount})">${pend||partial?'📎':esc(t('lbl.pay'))}</button> <button class="btn sm gray" onclick="P_cash('charge','${c.ChargeID}',${c.Amount})">💵</button>`}</span></div>${slipHistoryHTML(sl)}</div>`; }).join('')}</div>`:'';
+        <span><b>${baht(c.Amount)}</b> ${paid?`<span class="pill ok">${esc(t('s.paid'))}</span>`:partial?`<span class="pill wait">${EN()?'partial':'บางส่วน'}</span>`:pend?verifyPill:''} ${paid?'':`<button class="btn sm" onclick="P_pay('charge','${c.ChargeID}',${c.Outstanding!=null?c.Outstanding:c.Amount})">${pend||partial?'📎':'💳'} ${esc(t('lbl.pay'))}</button>`}</span></div>${slipHistoryHTML(sl)}</div>`; }).join('')}</div>`:'';
     const kidHead = window._PAY_KIDS.length>1 ? `<div class="card" style="background:#f7f9fc;padding:8px"><b>👶 ${esc(dispNick(kid))}</b> <small class="muted">${esc(nm(kid))} · ${esc(kid.Class||'')}</small></div>` : '';
     return `${kidHead}${preHtml}${chHtml}${otHtml}${ps.map(b=>{
       const paid=b.Status==='PAID',partial=b.Status==='PARTIAL'; const due=b.TotalDue!=null?b.TotalDue:b.Amount;
@@ -1015,7 +1043,7 @@
       <small class="muted">${esc(t('c.due'))} ${esc(fullDate(b.DueDate))}${b.PaidDate?' · '+esc(t('c.paid'))+' '+esc(fullDate(b.PaidDate)):''}</small>
       ${slipHistoryHTML(billSlips)}
       ${paid||prepaid?`<div class="row" style="margin-top:10px"><button class="btn sm outline" onclick="P_receipt('${b.BillingID}')">🧾 ${esc(t('pay.receipt'))}</button></div>`
-        :`<div class="row" style="margin-top:10px"><button class="btn sm" onclick="P_qr('${b.BillingID}',${topUp})">${esc(t('lbl.qr'))}</button><button class="btn sm outline" onclick="P_slip('${b.BillingID}',${topUp})">📎 ${hasPending||partial?(EN()?'Add another slip':'แนบสลิปเพิ่ม'):esc(t('lbl.attachSlip'))}</button><button class="btn sm gray" onclick="P_cash('bill','${b.BillingID}',${topUp})">💵 ${esc(t('pay.cash'))}</button></div>`}</div>`;
+        :`<div class="row" style="margin-top:10px"><button class="btn block" onclick="P_pay('bill','${b.BillingID}',${topUp})">${hasPending||partial?`📎 ${EN()?'Add another slip':'แนบสลิปเพิ่ม'}`:`💳 ${esc(t('lbl.pay'))} ${baht(topUp)}`}</button></div>`}</div>`;
     }).join('')}`;
   }
   // prepay with discount: 2mo -5%, 3mo -10%, 6mo -20%, 12mo -30%
@@ -1037,24 +1065,37 @@
     // one-shot: go straight to the QR + attach-slip flow for the chosen plan (no clutter on the payment screen)
     P_payPrepay(r.PrepayID, r.Amount); }catch(e){err(e);} };
   // pay a prepay charge: SCB QR + attach slip (kind 'prepay')
-  window.P_payPrepay=(prepayId,amt)=>{ qrModalHTML({ title:'💰 '+t('prepay.title'), amount:amt,
-    img:MOCK.config.QRCode_Monthly||MOCK.config.QRCode, imgName:'prepay-'+prepayId+'.png',
-    extra:`<button class="btn block" style="margin-top:8px" onclick="this.closest('.modal').remove();P_slip('${prepayId}',${amt},'prepay')">📎 ${esc(t('lbl.attachSlip'))}</button>` }); };
+  // ---- ONE way to pay anything -------------------------------------------------------------------
+  // Each payable row used to carry its own little cluster of buttons (QR + 📎 แนบสลิป + 💵 เงินสด),
+  // so a bill offered three equally-weighted choices before the parent had decided anything. Now every
+  // row has a single "ชำระเงิน" button that opens this sheet: the right bank QR, the amount, then the
+  // two things you can actually do next.
+  // slipKind/cashKind are kept exactly as the two APIs already expect them — note a monthly bill is
+  // 'monthly' to P_slip but 'bill' to P_cash; that mismatch is pre-existing and deliberate here.
+  const PAY_KIND = {
+    bill:   { ic:'📲', title:()=>t('pay.scanMonthly'),                     qr:'bill', slip:'monthly', cash:'bill'   },
+    ot:     { ic:'⏰', title:()=>t('ot.title'),                            qr:'ot',   slip:'ot',      cash:'ot'     },
+    charge: { ic:'➕', title:()=>EN()?'Extra charge':'ค่าใช้จ่ายเพิ่มเติม', qr:'bill', slip:'charge',  cash:'charge' },
+    prepay: { ic:'💰', title:()=>t('prepay.title'),                        qr:'bill', slip:'prepay',  cash:'prepay' },
+  };
+  const payQR = which => which==='ot'
+    ? ((window._PAYQR&&window._PAYQR.ot)||MOCK.config.QRCode_OT)
+    : ((window._PAYQR&&window._PAYQR.bill)||MOCK.config.QRCode_Monthly||MOCK.config.QRCode||MOCK.config.PromptPayQR);
+  window.P_pay=(kind,id,amt)=>{ const k=PAY_KIND[kind]; if(!k) return;
+    qrModalHTML({ title:k.ic+' '+k.title(), amount:amt, img:payQR(k.qr), imgName:kind+'-'+id+'.png',
+      extra:`<button class="btn block" onclick="this.closest('.modal').remove();P_slip('${esc(id)}',${amt},'${k.slip}')">${esc(t('lbl.attachSlip'))}</button>
+        <button class="btn block gray" style="margin-top:8px" onclick="this.closest('.modal').remove();P_cash('${k.cash}','${esc(id)}',${amt})">💵 ${esc(t('pay.cash'))}</button>` }); };
+  // kept as thin aliases: P_prepayDo and any older call sites still reach the same sheet.
+  // (prepay now uses the package QR like the rest of tuition — it used to ignore _PAYQR and always
+  // fall back to the default config QR, so advance payments could land in the wrong account.)
+  window.P_payPrepay=(prepayId,amt)=>P_pay('prepay',prepayId,amt);
   // printable receipt
   window.P_receipt=async(billingId)=>{ const ps=await api('payments',{studentId:window._PAY_SID}); const b=ps.find(x=>x.BillingID===billingId); if(!b)return;
     // use the real linked child (gas mode has no MOCK.students seed → the old lookup gave a blank name)
     const s=(window._PAY_KIDS||[]).find(x=>x.StudentID===b.StudentID)||MOCK.students.find(x=>x.StudentID===b.StudentID)||{}; openOrDownload(buildReceiptHTML(b,s),'receipt-'+billingId+'.html'); };
-  // monthly QR = the bank account bound to this child's package (falls back to the default config QR)
-  window.P_qr=(id,amt)=>{ qrModalHTML({ title:'📲 '+t('pay.scanMonthly'), amount:amt,
-    img:(window._PAYQR&&window._PAYQR.bill)||MOCK.config.QRCode_Monthly||MOCK.config.QRCode||MOCK.config.PromptPayQR, imgName:'monthly-'+id+'.png' }); };
-  // paying OT: use the QR/account bound to OT (may be a different bank) + attach slip
-  window.P_payOT=(otId,amt)=>{ qrModalHTML({ title:'⏰ '+t('ot.title'), amount:amt,
-    img:(window._PAYQR&&window._PAYQR.ot)||MOCK.config.QRCode_OT, imgName:'OT-'+otId+'.png',
-    extra:`<button class="btn block" style="margin-top:8px" onclick="this.closest('.modal').remove();P_slip('${otId}',${amt},'ot')">📎 ${esc(t('lbl.attachSlip'))}</button>` }); };
-  // paying an extra charge: use the package QR (tuition account) + attach slip (kind 'charge')
-  window.P_payCharge=(chargeId,amt)=>{ qrModalHTML({ title:'➕ '+(EN()?'Extra charge':'ค่าใช้จ่ายเพิ่มเติม'), amount:amt,
-    img:(window._PAYQR&&window._PAYQR.bill)||MOCK.config.QRCode_Monthly||MOCK.config.QRCode, imgName:'charge-'+chargeId+'.png',
-    extra:`<button class="btn block" style="margin-top:8px" onclick="this.closest('.modal').remove();P_slip('${chargeId}',${amt},'charge')">📎 ${esc(t('lbl.attachSlip'))}</button>` }); };
+  window.P_qr=(id,amt)=>P_pay('bill',id,amt);
+  window.P_payOT=(otId,amt)=>P_pay('ot',otId,amt);
+  window.P_payCharge=(chargeId,amt)=>P_pay('charge',chargeId,amt);
   // attach slip + enter the transferred amount → system verifies amount matches before marking paid
   window.P_slip=(id,due,kind)=>{ modal(`<h3>📎 ${esc(t('slip.title'))}</h3><p class="muted" style="font-size:12px">${esc(t('slip.note'))}</p>
     <label class="field"><span>${esc(t('slip.amountDue'))}</span><input id="slipDue" value="${due}" data-due="${due}" disabled style="font-weight:700"/></label>
@@ -1320,7 +1361,7 @@
     return `<span class="pill ${cls}">${esc(t('ot.st.'+k)||k)}</span>`; };
   function otRow(o){ return `<div class="list-item"><span>${esc(ddmmyyyy(o.Date))} · <b>${o.Hours} ${EN()?'h':'ชม.'}</b> ${esc(baht(o.Amount))}${o.Minutes?` <small class="muted">(${esc(hmMin(o.Minutes))})</small>`:''}</span>${otStatusPill(o.Status)}</div>`; }
   // leader approval row (approve / reject)
-  function otApproveRow(o){ return `<div class="list-item"><span><b>${esc(dnick(o))}</b> · ${esc(ddmmyyyy(o.Date))} · ${o.Hours} ${EN()?'h':'ชม.'} ${esc(baht(o.Amount))}<br><small class="muted">${esc(o.PlanOut||'')}→${esc(o.ActualOut||'')} (${esc(hmMin(o.Minutes))})</small></span><span class="row"><button class="btn sm green" onclick="T_approveOT('${o.OTRecordID}','approve')">✔</button><button class="btn sm pink" onclick="T_approveOT('${o.OTRecordID}','reject')">✕</button></span></div>`; }
+  function otApproveRow(o){ return `<div class="list-item"><span><b>${esc(dnick(o))}</b> · ${esc(ddmmyyyy(o.Date))} · ${o.Hours} ${EN()?'h':'ชม.'} ${esc(baht(o.Amount))}<br><small class="muted">${esc(o.PlanOut||'')}→${esc(o.ActualOut||'')} (${esc(hmMin(o.Minutes))})</small></span><span class="row"><button class="btn sm green" onclick="T_approveOT('${o.OTRecordID}','approve')" aria-label="${EN()?"Approve":"อนุมัติ"}" title="${EN()?"Approve":"อนุมัติ"}">✔</button><button class="btn sm pink" onclick="T_approveOT('${o.OTRecordID}','reject')" aria-label="${EN()?"Reject":"ปฏิเสธ"}" title="${EN()?"Reject":"ปฏิเสธ"}">✕</button></span></div>`; }
   window.T_approveOT=async(otId,decision)=>{ try{ await api('approveOT',{staffId:USER.staffId,otId,decision}); toast(decision==='approve'?(EN()?'Approved':'อนุมัติแล้ว'):(EN()?'Rejected':'ปฏิเสธแล้ว')); GO('home'); }catch(e){err(e);} };
   // Teacher OT follow-up: outstanding student OT (own class only; head teacher sees all) → chase or attach a slip on behalf.
   window.T_studentOT=async()=>{ const d=await api('teacherStudentOtList',{staffId:USER.staffId});
@@ -1364,12 +1405,12 @@
       // the journal can only be filled once the child is checked IN today (unless one already exists)
       const canJ = s.inToday || !!jdone[s.StudentID];
       const jBtn = canJ
-        ? `<button class="btn sm ${jdone[s.StudentID]?'outline':''}" onclick="T_journal('${s.StudentID}')" title="${esc(journalBtnLabel(jdone[s.StudentID]))}">${!jdone[s.StudentID]?'📒':(jIsDraft(jdone[s.StudentID])?'✏️':'👁️')}</button>`
-        : `<button class="btn sm outline" disabled style="opacity:.45" title="${EN()?'Check the child in first':'เช็คอินนักเรียนก่อนจึงจะบันทึกได้'}">📒</button>`;
+        ? `<button class="btn sm ${jdone[s.StudentID]?'outline':''}" onclick="T_journal('${s.StudentID}')" title="${esc(journalBtnLabel(jdone[s.StudentID]))}" aria-label="${esc(journalBtnLabel(jdone[s.StudentID]))} ${esc(dispNick(s))}">${!jdone[s.StudentID]?'📒':(jIsDraft(jdone[s.StudentID])?'✏️':'👁️')}</button>`
+        : `<button class="btn sm outline" disabled style="opacity:.45" title="${EN()?'Check the child in first':'เช็คอินนักเรียนก่อนจึงจะบันทึกได้'}" aria-label="${EN()?"Daily journal":"สมุดบันทึกประจำวัน"}" title="${EN()?"Daily journal":"สมุดบันทึกประจำวัน"}">📒</button>`;
       // preselect OUT once the child is in (so "pick up" is one tap); always usable so a time can be corrected
-      const ciBtn = `<button class="btn sm green" onclick="T_studentCheckin('${s.StudentID}','${esc(nm(s))}','${s.inToday&&!s.outToday?'OUT':(s.outToday?'OUT':'IN')}')" title="${EN()?'Check in/out on behalf':'เช็คอิน/เอาท์แทน'}">📍</button>`;
+      const ciBtn = `<button class="btn sm green" onclick="T_studentCheckin('${s.StudentID}','${esc(nm(s))}','${s.inToday&&!s.outToday?'OUT':(s.outToday?'OUT':'IN')}')" title="${EN()?'Check in/out on behalf':'เช็คอิน/เอาท์แทน'}" aria-label="${EN()?"Check in":"เช็คอิน"}" title="${EN()?"Check in":"เช็คอิน"}">📍</button>`;
       const attTag = s.inToday?`<small class="pill ok" style="margin-left:4px">${EN()?'in':'มา'} ${esc(s.inTime||'')}</small>`:'';
-      return `<div class="card spread"><div style="display:flex;gap:10px;align-items:center">${studentAvatar(s)}<div><b>${esc(dispNick(s))}</b> <small class="muted">${esc(nm(s))}</small>${attTag}<br><small class="muted">${esc(ageYM(s.DOB))} · ${EN()?'allergy':'แพ้'}: ${esc(s.Allergy||'-')}</small><br>${journalPill(jdone[s.StudentID])}</div></div><div class="row">${jBtn}<button class="btn sm outline" onclick="T_assess('${s.StudentID}')">📝</button>${ciBtn}<button class="btn sm outline" onclick="T_studentLeave('${s.StudentID}','${esc(dispNick(s))}')" title="${EN()?'File leave for this student':'แจ้งลาให้นักเรียน'}">🏖️</button></div></div>`; }).join(''); };
+      return `<div class="card spread"><div style="display:flex;gap:10px;align-items:center">${studentAvatar(s)}<div><b>${esc(dispNick(s))}</b> <small class="muted">${esc(nm(s))}</small>${attTag}<br><small class="muted">${esc(ageYM(s.DOB))} · ${EN()?'allergy':'แพ้'}: ${esc(s.Allergy||'-')}</small><br>${journalPill(jdone[s.StudentID])}</div></div><div class="row">${jBtn}<button class="btn sm outline" onclick="T_assess('${s.StudentID}')" aria-label="${EN()?"Assess":"ประเมิน"}" title="${EN()?"Assess":"ประเมิน"}">📝</button>${ciBtn}<button class="btn sm outline" onclick="T_studentLeave('${s.StudentID}','${esc(dispNick(s))}')" title="${EN()?'File leave for this student':'แจ้งลาให้นักเรียน'}" aria-label="${EN()?"Report leave":"แจ้งลา"}" title="${EN()?"Report leave":"แจ้งลา"}">🏖️</button></div></div>`; }).join(''); };
   // Teacher files a leave for a student → notifies the linked parents; shows in that student's parent calendar
   window.T_studentLeave=(sid,name)=>{ modal(`<h3>🏖️ ${EN()?'File student leave':'แจ้งลานักเรียน'} — ${esc(name)}</h3>
     <label class="field"><span>${EN()?'Type':'ประเภท'}</span><select id="tslType"><option>${EN()?'Sick leave':'ลาป่วย'}</option><option>${EN()?'Personal leave':'ลากิจ'}</option><option>${EN()?'Absent':'ขาด'}</option></select></label>
@@ -1432,7 +1473,7 @@
       <div style="background:#fff3e0;border-radius:8px;padding:8px;color:#e65100;font-size:13px;margin-bottom:8px">📝 ${esc(t('jr.draftHint'))}</div>
       <div class="jsec"><h4>😊 ${esc(jt('Mood'))} *</h4><div class="choice" id="g_Mood">${Object.keys(MOODS).map(m=>`<button type="button" data-g="Mood" data-v="${esc(m)}" onclick="J_pick('Mood','${m}',this,false)">${MOODS[m]} ${esc(jt(m))}</button>`).join('')}</div></div>
       <div class="jsec"><h4>❤️ ${esc(jt('Health'))}</h4><div class="choice">${seg('Health',HEALTHS,false)}</div>
-        <div class="row" style="margin-top:6px"><input id="jHealthD" value="${esc(jv.healthDetail)}" placeholder="รายละเอียดสุขภาพ/ยา" style="flex:1"/><button class="micbtn" onclick="J_mic('jHealthD',this)">🎤</button></div></div>
+        <div class="row" style="margin-top:6px"><input id="jHealthD" value="${esc(jv.healthDetail)}" placeholder="รายละเอียดสุขภาพ/ยา" style="flex:1"/><button class="micbtn" onclick="J_mic('jHealthD',this)" aria-label="${EN()?"Voice input":"พูดเพื่อกรอกข้อความ"}" title="${EN()?"Voice input":"พูดเพื่อกรอกข้อความ"}">🎤</button></div></div>
       <div class="jsec"><h4>🍼 ${esc(jt('Milk & Water'))}</h4>
         <div class="row" style="gap:8px;align-items:center"><select id="jMilkUnit" style="flex:0 0 auto">${[['box',EN()?'Box':'กล่อง'],['oz','Oz.']].map(([u,l])=>`<option value="${u}" ${jv.milkUnit===u?'selected':''}>${esc(l)}</option>`).join('')}</select>
           <select id="jMilkQty" style="flex:1">${['',...Array.from({length:20},(_,i)=>i+1)].map(n=>`<option value="${n}" ${String(jv.milkQty)===String(n)?'selected':''}>${n||'-'}</option>`).join('')}</select></div>
@@ -1443,7 +1484,7 @@
         ${[['Urination',URI],['Bowel',BOWEL],['Stool',STOOL],['Training',TT]].map(([k,opts])=>`<div><b style="font-size:13px">${esc(jt(k==='Training'?'Toilet Training':k))}:</b> <span class="choice" style="display:inline-flex">${opts.map(x=>`<button type="button" data-tl="${esc(k)}" data-v="${esc(x)}" onclick="J_tl('${k}','${x}',this)">${esc(jt(x))}</button>`).join('')}</span></div>`).join('')}</div>
       <div class="jsec"><h4>🎨 ${esc(jt('Learning Journey'))}</h4><div class="choice">${seg('Activity',ACTS,true)}</div><input id="jTheme" value="${esc(jv.theme)}" placeholder="Theme / Topic" style="margin-top:6px"/></div>
       <div class="jsec"><h4>🌟 ${esc(jt('Skills'))}</h4><div class="choice">${seg('Skills',SKILLS,true)}</div></div>
-      <div class="jsec"><h4>⭐ ${esc(jt('Highlight'))}</h4><div class="row"><textarea id="jHi" placeholder="เหตุการณ์น่าประทับใจ... (กดไมค์เพื่อพูด)" style="flex:1">${esc(jv.highlight)}</textarea><button class="micbtn" onclick="J_mic('jHi',this)">🎤</button></div></div>
+      <div class="jsec"><h4>⭐ ${esc(jt('Highlight'))}</h4><div class="row"><textarea id="jHi" placeholder="เหตุการณ์น่าประทับใจ... (กดไมค์เพื่อพูด)" style="flex:1">${esc(jv.highlight)}</textarea><button class="micbtn" onclick="J_mic('jHi',this)" aria-label="${EN()?"Voice input":"พูดเพื่อกรอกข้อความ"}" title="${EN()?"Voice input":"พูดเพื่อกรอกข้อความ"}">🎤</button></div></div>
       <button class="btn block outline" onclick="T_saveJournal('${sid}',false)">${esc(t('jr.saveDraft'))}</button>
       <button class="btn block green" style="margin-top:8px" onclick="T_saveJournal('${sid}',true)">${esc(t('jr.submit'))}</button></div>`;
     if(j) J_prefill(j);
@@ -1618,7 +1659,7 @@
   const timeTypeLabel = ty => String(ty).toUpperCase()==='IN'?(EN()?'Check-in':'เข้างาน'):(EN()?'Check-out':'เลิกงาน');
   const timeReqStatusPill = st => { const k=String(st||'PENDING_LEADER').toUpperCase(); const cls=k==='APPROVED'?'ok':(k==='REJECTED'?'bad':'wait'); return `<span class="pill ${cls}">${esc(t('att.st.'+k)||k)}</span>`; };
   function timeReqRow(r){ return `<div class="list-item"><span>${esc(timeTypeLabel(r.Type))} · <b style="color:#1565C0">${esc(r.RequestTime)}</b> · ${esc(ddmmyyyy(r.Date))}${r.Reason?`<br><small class="muted">${esc(r.Reason)}</small>`:''}</span>${timeReqStatusPill(r.Status)}</div>`; }
-  function timeReqApproveRow(r){ return `<div class="list-item"><span><b>${esc(dnick(r))}</b> · ${esc(timeTypeLabel(r.Type))} <b style="color:#1565C0">${esc(r.RequestTime)}</b> · ${esc(ddmmyyyy(r.Date))}${r.Reason?`<br><small class="muted">${esc(r.Reason)}</small>`:''}</span><span class="row"><button class="btn sm green" onclick="T_approveTimeReq('${r.ReqID}','approve')">✔</button><button class="btn sm pink" onclick="T_approveTimeReq('${r.ReqID}','reject')">✕</button></span></div>`; }
+  function timeReqApproveRow(r){ return `<div class="list-item"><span><b>${esc(dnick(r))}</b> · ${esc(timeTypeLabel(r.Type))} <b style="color:#1565C0">${esc(r.RequestTime)}</b> · ${esc(ddmmyyyy(r.Date))}${r.Reason?`<br><small class="muted">${esc(r.Reason)}</small>`:''}</span><span class="row"><button class="btn sm green" onclick="T_approveTimeReq('${r.ReqID}','approve')" aria-label="${EN()?"Approve":"อนุมัติ"}" title="${EN()?"Approve":"อนุมัติ"}">✔</button><button class="btn sm pink" onclick="T_approveTimeReq('${r.ReqID}','reject')" aria-label="${EN()?"Delete":"ลบ"}" title="${EN()?"Delete":"ลบ"}">✕</button></span></div>`; }
   window.T_submitTimeReq=async()=>{ const type=$('#atType').value, date=$('#atDate').value, time=$('#atTime').value, reason=$('#atReason').value;
     if(!time){toast(EN()?'Pick a time':'เลือกเวลา');return;}
     try{ await api('submitTimeRequest',{staffId:USER.staffId,type,date,time,reason}); confirmSaved(t('corg.submitted')); GO('leave'); }catch(e){err(e);} };
@@ -1808,7 +1849,7 @@
     const _anns=await api('announcements'); A_CACHE.announcements=_anns;
     const _annEl=$('#anns'); if(!_annEl) return; // user navigated away before this resolved
     _annEl.innerHTML=_anns.map(a=>{ const ti=EN()?(a.TitleEN||a.Title):(a.Title||a.TitleEN);
-      return `<div class="list-item"><div><b>${esc(ti)}</b>${a.Popup?` <span class="pill info" style="font-size:10px">Pop-up</span>`:''}${Number(a.Priority||0)>=2?` <span class="pill" style="font-size:10px;background:#fff3e0;color:#e65100">⭐ ${esc(t('ann.pri.high'))}</span>`:''}<br><small class="muted">${esc(a.StartDate||a.Date)}${a.EndDate?'→'+esc(a.EndDate):''}</small></div><span class="row"><button class="btn sm outline" onclick="A_editAnn('${a.AnnID}')">✏️</button><button class="btn sm pink" onclick="A_delAnn('${a.AnnID}')">🗑️</button></span></div>`; }).join('')||`<small class="muted">${esc(t('c.noItems'))}</small>`;
+      return `<div class="list-item"><div><b>${esc(ti)}</b>${a.Popup?` <span class="pill info" style="font-size:10px">Pop-up</span>`:''}${Number(a.Priority||0)>=2?` <span class="pill" style="font-size:10px;background:#fff3e0;color:#e65100">⭐ ${esc(t('ann.pri.high'))}</span>`:''}<br><small class="muted">${esc(a.StartDate||a.Date)}${a.EndDate?'→'+esc(a.EndDate):''}</small></div><span class="row"><button class="btn sm outline" onclick="A_editAnn('${a.AnnID}')" aria-label="${EN()?"Edit":"แก้ไข"}" title="${EN()?"Edit":"แก้ไข"}">✏️</button><button class="btn sm pink" onclick="A_delAnn('${a.AnnID}')" aria-label="${EN()?"Delete":"ลบ"}" title="${EN()?"Delete":"ลบ"}">🗑️</button></span></div>`; }).join('')||`<small class="muted">${esc(t('c.noItems'))}</small>`;
   };
   window.A_addAnn=(annId)=>{ const a=annId?findAnn(annId):{};
     modal(`<h3>📢 ${annId?esc(t('ann.edit')):'เพิ่มประกาศ / Add announcement'}</h3>
@@ -1971,7 +2012,7 @@
   window.A_addAdj=()=>{ PAY_ADJ.push({label:'',amount:0}); A_renderAdj(); };
   window.A_delAdj=(i)=>{ PAY_ADJ.splice(i,1); A_renderAdj(); };
   function A_renderAdj(){ const box=$('#adjList'); if(!box)return;
-    box.innerHTML=PAY_ADJ.map((a,i)=>`<div class="grid3" style="margin-bottom:6px;grid-template-columns:1fr 90px 36px"><input value="${esc(a.label)}" placeholder="${esc(t('pay.adjLabel'))}" oninput="PAY_ADJ_SET(${i},'label',this.value)"/><input type="number" value="${a.amount}" placeholder="±0" oninput="PAY_ADJ_SET(${i},'amount',this.value)"/><button class="btn sm pink" onclick="A_delAdj(${i})">✕</button></div>`).join(''); }
+    box.innerHTML=PAY_ADJ.map((a,i)=>`<div class="grid3" style="margin-bottom:6px;grid-template-columns:1fr 90px 36px"><input value="${esc(a.label)}" placeholder="${esc(t('pay.adjLabel'))}" oninput="PAY_ADJ_SET(${i},'label',this.value)"/><input type="number" value="${a.amount}" placeholder="±0" oninput="PAY_ADJ_SET(${i},'amount',this.value)"/><button class="btn sm pink" onclick="A_delAdj(${i})" aria-label="${EN()?"Delete":"ลบ"}" title="${EN()?"Delete":"ลบ"}">✕</button></div>`).join(''); }
   window.PAY_ADJ_SET=(i,k,v)=>{ PAY_ADJ[i][k]= k==='amount'?Number(v||0):v; };
   window.A_calc=async()=>{ const payType=$('#pType').value; const p={staffId:$('#pStaff').value,month:$('#pMonth').value,payType,baseSalary:+$('#pBase').value,dailyRate:+$('#pDaily').value,daysWorked:+$('#pDays').value,childMultiplier:+$('#pChildMul2').value,childThreshold:+$('#pThreshold').value,diligenceAttend:+$('#pAttendAmt').value,diligenceFb:+$('#pFbAmt').value,socialSecurityDeduct:$('#pSS').checked,facebookPosted:$('#pFb').checked,attendanceEligible:$('#pAtt').checked,extraChildCount:+$('#pChild').value,trainingCertCount:+$('#pCert').value,otEvening:+$('#pOt').value,holidayBonus:+$('#pHb').value,adjustments:PAY_ADJ.filter(a=>a.label||a.amount)};
     await api('setPayrollConfig',{staffId:p.staffId,config:{PayType:payType,DailyRate:p.dailyRate,ChildMultiplier:p.childMultiplier,ChildThreshold:p.childThreshold,DiligenceAttendanceAmount:p.diligenceAttend,DiligenceFacebookAmount:p.diligenceFb,SocialSecurityDeduct:p.socialSecurityDeduct}});
@@ -2017,7 +2058,7 @@
   // one editable date row (date input + ✕ remove); the remove just drops the row from the DOM.
   function vacDateInput(key,val){ return `<div class="row vacdrow" style="gap:5px;align-items:center;margin-top:4px">`
     +`<input type="date" class="vacdate" data-key="${esc(key)}" value="${esc(val||'')}" style="width:150px"/>`
-    +`<button class="btn sm gray" type="button" onclick="this.closest('.vacdrow').remove()" title="${EN()?'Remove':'ลบ'}">✕</button></div>`; }
+    +`<button class="btn sm gray" type="button" onclick="this.closest('.vacdrow').remove()" title="${EN()?'Remove':'ลบ'}" aria-label="${EN()?"Delete":"ลบ"}" title="${EN()?"Delete":"ลบ"}">✕</button></div>`; }
   function vaccineCard(sched, recs, sid, editable){
     if(editable){ window.__VAC_SCHED=sched; }  // stash for VAC_save (key→name lookup)
     const body = sched.map(grp=>`<div style="margin-bottom:8px"><b style="font-size:13px">${esc(EN()?grp.ageEN:grp.ageTH)}</b>
@@ -2117,7 +2158,7 @@
       <p class="muted" style="font-size:12px">${EN()?'Add, edit or remove milestone items. Grouped by age band.':'เพิ่ม แก้ไข หรือลบเกณฑ์พัฒนาการ · จัดกลุ่มตามช่วงอายุ'} (${rows.length})</p>
       ${ordered.map(b=>`<div class="card"><h3>${esc(b.label)} <small class="muted">(${b.items[0]?esc(b.items[0].AgeFrom+'–'+b.items[0].AgeTo+(EN()?' mo':' เดือน')):''})</small></h3>
         ${b.items.sort((x,y)=>Number(x.ItemNo)-Number(y.ItemNo)).map(r=>`<div class="list-item"><span><b>${esc(t('dspm.item'))} ${esc(r.ItemNo)}</b> <span class="pill info" style="font-size:10px">${esc(r.Skill||'')}</span><br><small class="muted">${esc(r.Description||'')}</small></span>
-          <span class="row"><button class="btn sm outline" onclick="A_dspmForm(${Number(r.ItemNo)},'${esc(r.Track||'Teacher')}')">✏️</button><button class="btn sm pink" onclick="A_dspmDel(${Number(r.ItemNo)},'${esc(r.Track||'Teacher')}')">🗑️</button></span></div>`).join('')}</div>`).join('')||`<div class="card muted">${esc(t('c.noItems'))}</div>`}`;
+          <span class="row"><button class="btn sm outline" onclick="A_dspmForm(${Number(r.ItemNo)},'${esc(r.Track||'Teacher')}')" aria-label="${EN()?"Edit":"แก้ไข"}" title="${EN()?"Edit":"แก้ไข"}">✏️</button><button class="btn sm pink" onclick="A_dspmDel(${Number(r.ItemNo)},'${esc(r.Track||'Teacher')}')" aria-label="${EN()?"Delete":"ลบ"}" title="${EN()?"Delete":"ลบ"}">🗑️</button></span></div>`).join('')}</div>`).join('')||`<div class="card muted">${esc(t('c.noItems'))}</div>`}`;
     window.scrollTo(0,0);
   };
   window.A_dspmForm = (itemNo,track)=>{ const rows=window._DSPM_ROWS||[];
@@ -2148,7 +2189,7 @@
       const studHtml=Object.keys(studs).map(sid=>{ const s=studs[sid]; s.leaves.sort((a,b)=>String(b.Date).localeCompare(String(a.Date)));
         return `<div class="slv-stud"><div class="spread"><b>${esc(s.name)}</b><span class="pill info">${s.leaves.length} ${EN()?'leaves':'ครั้ง'}</span></div>
           ${s.leaves.map(l=>`<div class="slv-row"><label class="slv-pick"><input type="checkbox" class="slvchk" value="${esc(l.LeaveID)}" onchange="A_slvCount()"><span><b style="color:#1565C0">${esc(ddmmyyyy(l.Date))}</b> <small class="muted">· ${esc(stdLeaveDesc(l))}</small></span></label>
-            <span class="row"><button class="btn sm outline" onclick="A_slvEdit('${l.LeaveID}')">✏️</button><button class="btn sm pink" onclick="A_slvDel('${l.LeaveID}')">🗑️</button></span></div>`).join('')}</div>`; }).join('');
+            <span class="row"><button class="btn sm outline" onclick="A_slvEdit('${l.LeaveID}')" aria-label="${EN()?"Edit":"แก้ไข"}" title="${EN()?"Edit":"แก้ไข"}">✏️</button><button class="btn sm pink" onclick="A_slvDel('${l.LeaveID}')" aria-label="${EN()?"Delete":"ลบ"}" title="${EN()?"Delete":"ลบ"}">🗑️</button></span></div>`).join('')}</div>`; }).join('');
       return `<div class="card"><div class="spread"><h3>👶 ${esc(c)}</h3><span class="muted" style="font-size:12px">${Object.keys(studs).length} ${EN()?'kids':'คน'} · ${total} ${EN()?'leaves':'ครั้ง'}</span></div>${studHtml}</div>`; }).join('');
     app.innerHTML=`<button class="btn sm outline backbtn" onclick="GO('manage')">${t('c.back')}</button>
       <h2 class="page">🏠 ${esc(t('slv.title'))}</h2>
@@ -2216,13 +2257,13 @@
   }
   const A_plans     = () => (A_CACHE.plans&&A_CACHE.plans.length)?A_CACHE.plans:((MOCK.config&&MOCK.config.Plans)||[]);
   // generic client-side list filter + collapsible section (Admin manage). Sections start collapsed.
-  window.A_toggleSec = (btn)=>{ const b=btn.closest('.secw'); const body=b.querySelector('.secbody'); const open=body.hasAttribute('hidden'); if(open)body.removeAttribute('hidden');else body.setAttribute('hidden',''); btn.querySelector('.caret').textContent=open?'▲':'▼'; };
+  window.A_toggleSec = (btn)=>{ const b=btn.closest('.secw'); const body=b.querySelector('.secbody'); const open=body.hasAttribute('hidden'); if(open)body.removeAttribute('hidden');else body.setAttribute('hidden',''); btn.querySelector('.caret').textContent=open?'▲':'▼'; btn.setAttribute('aria-expanded', open?'true':'false'); };
   // manage: open a data section (staff/parents/students) and scroll to it (from the count tiles)
   window.A_jumpSec = (id)=>{ const el=document.getElementById(id); if(!el)return; const body=el.querySelector('.secbody');
     if(body&&body.hasAttribute('hidden')){ body.removeAttribute('hidden'); const car=el.querySelector('.caret'); if(car)car.textContent='▲'; }
     el.scrollIntoView({behavior:'smooth',block:'start'}); };
   window.A_search = (inp)=>{ const b=inp.closest('.secw'); const q=inp.value.trim().toLowerCase(); b.querySelectorAll('.list-item').forEach(it=>{ it.style.display = (!q || it.dataset.k && it.dataset.k.indexOf(q)>=0) ? '' : 'none'; }); };
-  const secHead = (icon,title,count,addBtn)=>`<div class="spread" style="cursor:pointer" onclick="A_toggleSec(this.querySelector('.sectog'))"><h3 style="margin:0">${icon} ${esc(title)} <span class="pill info">${count}</span></h3><span class="row" onclick="event.stopPropagation()">${addBtn||''}<button class="btn sm outline sectog" onclick="A_toggleSec(this)"><span class="caret">▼</span></button></span></div>`;
+  const secHead = (icon,title,count,addBtn)=>`<div class="spread" style="cursor:pointer" onclick="A_toggleSec(this.querySelector('.sectog'))"><h3 style="margin:0">${icon} ${esc(title)} <span class="pill info">${count}</span></h3><span class="row" onclick="event.stopPropagation()">${addBtn||''}<button class="btn sm outline sectog" onclick="A_toggleSec(this)" aria-expanded="false" aria-label="${EN()?'Expand or collapse this section':'ย่อ/ขยายหมวดนี้'}"><span class="caret" aria-hidden="true">▼</span></button></span></div>`;
   const searchBox = ph=>`<input class="asearch" placeholder="🔎 ${esc(ph)}" oninput="A_search(this)" style="width:100%;margin:8px 0;padding:8px 10px;border:1px solid var(--line);border-radius:8px"/>`;
 
   SCREENS.Admin.manage = async () => {
@@ -2313,7 +2354,7 @@
       <div class="grid2">
         <label class="field"><span>${esc(t('manage.level'))}</span><select id="sf_PositionLevel">${['Admin','Leader','Officer','Assistant','Staff'].map(l=>`<option ${s.PositionLevel===l?'selected':''}>${esc(l)}</option>`).join('')}</select></label>
         <label class="field"><span>${EN()?'Work group & time (admin-managed)':'กลุ่มพนักงาน & เวลา (แอดมินจัดการ)'}</span>
-          <div class="row" style="gap:6px"><select id="sf_StaffGroup" style="flex:1">${grpOpts.map(g=>`<option value="${esc(g.GroupName)}" ${s.StaffGroup===g.GroupName?'selected':''}>${esc(g.GroupName)}${g.CheckInTime?` (${esc(g.CheckInTime)}–${esc(g.CheckOutTime||'')})`:''}</option>`).join('')}</select><button type="button" class="btn sm outline" onclick="A_groups()" title="${EN()?'Edit groups & times':'แก้ไขกลุ่ม & เวลา'}">✏️</button></div></label></div>
+          <div class="row" style="gap:6px"><select id="sf_StaffGroup" style="flex:1">${grpOpts.map(g=>`<option value="${esc(g.GroupName)}" ${s.StaffGroup===g.GroupName?'selected':''}>${esc(g.GroupName)}${g.CheckInTime?` (${esc(g.CheckInTime)}–${esc(g.CheckOutTime||'')})`:''}</option>`).join('')}</select><button type="button" class="btn sm outline" onclick="A_groups()" title="${EN()?'Edit groups & times':'แก้ไขกลุ่ม & เวลา'}" aria-label="${EN()?"Edit":"แก้ไข"}" title="${EN()?"Edit":"แก้ไข"}">✏️</button></div></label></div>
       <div class="jsec"><b style="font-size:13px">🏫 ${EN()?'Department(s) responsible (choose one or more)':'แผนกที่รับผิดชอบ (เลือกได้หลายแผนก)'}</b>
         <label style="display:block;margin:4px 0"><input type="checkbox" id="sf_AllDept" style="width:auto" ${s.Department==='*'||s.Classes==='*'?'checked':''} onchange="SF_allDept(this)"/> ${EN()?'All departments (head teacher)':'ทุกแผนก (หัวหน้าครู)'}</label>
         <div id="sf_DeptList" ${(s.Department==='*'||s.Classes==='*')?'style="opacity:.4;pointer-events:none"':''}>${A_classOptions(s.Department&&s.Department!=='*'?s.Department:'').map(d=>`<label style="margin-right:10px;font-size:13px"><input type="checkbox" class="sfDept" value="${esc(d)}" style="width:auto" ${String(s.Department||'').split(',').map(x=>x.trim()).indexOf(d)>=0?'checked':''}/> ${esc(d)}</label>`).join('')||`<small class="muted">${EN()?'no departments yet':'ยังไม่มีแผนก'}</small>`}</div>
@@ -2585,7 +2626,7 @@
   // ---- Admin issues a bill to a parent (custom amount for mid-month proration / ad-hoc) ----
   window.A_issueBill=async(sid)=>{ const s=findStudent(sid); const [base,bills]=await Promise.all([api('studentBillBase',{studentId:sid}),api('payments',{studentId:sid})]);
     const billRow=b=>{ const st={PAID:'ok',PARTIAL:'wait',PENDING_VERIFY:'wait'}[b.Status]||'bad';
-      return `<div class="list-item"><span><b>${esc(b.Month)}</b> ${baht(b.TotalDue!=null?b.TotalDue:b.Amount)} <span class="pill ${st}" style="font-size:10px">${esc(tStat(b.Status))}</span></span><button class="btn sm pink" onclick="A_delBill('${esc(b.BillingID)}','${esc(b.Month)}',this)">🗑️</button></div>`; };
+      return `<div class="list-item"><span><b>${esc(b.Month)}</b> ${baht(b.TotalDue!=null?b.TotalDue:b.Amount)} <span class="pill ${st}" style="font-size:10px">${esc(tStat(b.Status))}</span></span><button class="btn sm pink" onclick="A_delBill('${esc(b.BillingID)}','${esc(b.Month)}',this)" aria-label="${EN()?"Delete":"ลบ"}" title="${EN()?"Delete":"ลบ"}">🗑️</button></div>`; };
     modal(`<h3>🧾 ${esc(t('bill.issue'))} — ${esc(nm(s))}</h3><p class="muted" style="font-size:12px">${esc(t('bill.issueNote'))}</p>
       ${bills&&bills.length?`<div class="card" style="padding:8px;background:#fafbfe"><b style="font-size:13px">📋 ${EN()?'Existing bills':'บิลที่มีอยู่'}</b>${bills.map(billRow).join('')}</div>`:''}
       <div class="grid2"><label class="field"><span>${esc(t('c.month'))}</span><input type="month" id="biMonth" value="${monthStr()}"/></label>
@@ -2633,7 +2674,7 @@
   // ---- per-student extra charges (auto-merged into monthly bill) ----
   window.A_charges=async(sid)=>{ const s=MOCK.students.find(x=>x.StudentID===sid)||{}; const month=monthStr(); const list=await api('studentCharges',{studentId:sid,month});
     modal(`<h3>💵 ${esc(t('charge.title'))} — ${esc(nm(s))}</h3><p class="muted" style="font-size:12px">${esc(t('charge.note'))} (${esc(month)})</p>
-      <div id="chList">${list.map(c=>`<div class="list-item"><span>${esc(c.Label)}</span><span><b>${baht(c.Amount)}</b> <button class="btn sm pink" onclick="A_delCharge('${c.ChargeID}','${sid}')">✕</button></span></div>`).join('')||`<small class="muted">${esc(t('c.noItems'))}</small>`}</div>
+      <div id="chList">${list.map(c=>`<div class="list-item"><span>${esc(c.Label)}</span><span><b>${baht(c.Amount)}</b> <button class="btn sm pink" onclick="A_delCharge('${c.ChargeID}','${sid}')" aria-label="${EN()?"Delete":"ลบ"}" title="${EN()?"Delete":"ลบ"}">✕</button></span></div>`).join('')||`<small class="muted">${esc(t('c.noItems'))}</small>`}</div>
       <div class="grid2" style="margin-top:8px"><input id="chLabel" placeholder="${esc(t('charge.label'))}"/><input id="chAmt" type="number" placeholder="${esc(t('charge.amount'))}"/></div>
       <button class="btn block" style="margin-top:6px" onclick="A_addCharge('${sid}')">+ ${esc(t('charge.add'))}</button>
       <button class="btn outline block" style="margin-top:8px" onclick="this.closest('.modal').remove()">${esc(t('c.close'))}</button>`);
@@ -2702,7 +2743,7 @@
     const membersOf=name=>(staff||[]).filter(s=>s.StaffGroup===name);
     modal(`<h3>🕑 ${esc(t('manage.groups'))}</h3><p class="muted" style="font-size:12px">${esc(t('manage.groupsNote'))}</p>
       <div id="grpList">${groups.map(g=>{ const mem=membersOf(g.GroupName);
-        return `<div class="card" style="padding:10px"><div class="spread"><b>${esc(EN()?g.GroupNameEN:g.GroupName)}</b><button class="btn sm pink" onclick="A_delGroup('${esc(g.GroupName)}')">🗑️</button></div>
+        return `<div class="card" style="padding:10px"><div class="spread"><b>${esc(EN()?g.GroupNameEN:g.GroupName)}</b><button class="btn sm pink" onclick="A_delGroup('${esc(g.GroupName)}')" aria-label="${EN()?"Delete":"ลบ"}" title="${EN()?"Delete":"ลบ"}">🗑️</button></div>
         <div class="grid2" style="margin-top:6px"><label class="field"><span>${esc(t('lbl.checkIn'))}</span><input type="time" value="${esc(g.CheckInTime)}" onchange="A_setGroup('${esc(g.GroupName)}','in',this.value)"/></label>
           <label class="field"><span>${esc(t('lbl.checkOut'))}</span><input type="time" value="${esc(g.CheckOutTime)}" onchange="A_setGroup('${esc(g.GroupName)}','out',this.value)"/></label></div>
         <div style="margin-top:6px"><small class="muted">👥 ${EN()?'Members':'พนักงานในกลุ่ม'} (${mem.length})</small>${mem.length?`<div style="display:flex;flex-wrap:wrap;gap:4px;margin-top:4px">${mem.map(s=>`<span class="pill info" style="font-size:11px">${esc(nmn(s))}</span>`).join('')}</div>`:`<div class="muted" style="font-size:12px">— ${EN()?'no members':'ยังไม่มีพนักงาน'} —</div>`}</div></div>`; }).join('')}</div>
@@ -2725,8 +2766,8 @@
     const sFull=id=>{ const s=sObj(id); return s?nm(s):''; };
     const tName=id=>{ const s=(staff||[]).find(x=>x.StaffID===id); return s?(nick(s)||nm(s)):(id||'-'); };
     const rows=(st.done||[]).map(d=>`<div class="list-item"><span><b>${esc(sName(d.studentId))}</b> <small class="muted">${esc(sFull(d.studentId))}</small> ${journalPill(d)}<br><small class="muted">${esc(EN()?'by':'โดย')} ${esc(tName(d.teacherId))}</small></span>
-      <span class="row"><button class="btn sm outline" onclick="A_viewJournal('${d.studentId}','${day}')">👁️</button>
-      ${jIsDraft(d)?`<button class="btn sm" onclick="A_editJournal('${d.studentId}','${day}')">✏️</button>`
+      <span class="row"><button class="btn sm outline" onclick="A_viewJournal('${d.studentId}','${day}')" aria-label="${EN()?"View journal":"ดูบันทึกประจำวัน"}" title="${EN()?"View journal":"ดูบันทึกประจำวัน"}">👁️</button>
+      ${jIsDraft(d)?`<button class="btn sm" onclick="A_editJournal('${d.studentId}','${day}')" aria-label="${EN()?"Edit":"แก้ไข"}" title="${EN()?"Edit":"แก้ไข"}">✏️</button>`
                    :`<button class="btn sm pink" onclick="A_unlockJournal('${d.studentId}','${day}')">${esc(t('jr.unlock'))}</button>`}</span></div>`).join('');
     modal(`<h3>📒 ${esc(t('jr.admin'))}</h3>
       <label class="field"><span>${esc(t('inj.date'))}</span><input type="date" id="ajDate" value="${day}" onchange="A_journals(this.value)"/></label>
@@ -2754,7 +2795,7 @@
     const unassigned=active.filter(s=>!s.Department||deps.indexOf(s.Department)<0);
     modal(`<h3>🏫 ${esc(t('manage.departments'))}</h3>
       <div id="depList">${deps.map(d=>{ const ms=members(d); return `<div style="padding:6px 0;border-bottom:1px solid #f0f0f0">
-        <div class="list-item" style="border:none;padding:0"><input value="${esc(d)}" id="dep_${esc(d)}" style="flex:1"/><span class="row"><button class="btn sm" onclick="A_renameDep('${esc(d)}')">💾</button><button class="btn sm pink" onclick="A_delDep('${esc(d)}')">🗑️</button></span></div>
+        <div class="list-item" style="border:none;padding:0"><input value="${esc(d)}" id="dep_${esc(d)}" style="flex:1"/><span class="row"><button class="btn sm" onclick="A_renameDep('${esc(d)}')" aria-label="${EN()?"Save":"บันทึก"}" title="${EN()?"Save":"บันทึก"}">💾</button><button class="btn sm pink" onclick="A_delDep('${esc(d)}')" aria-label="${EN()?"Delete":"ลบ"}" title="${EN()?"Delete":"ลบ"}">🗑️</button></span></div>
         <div style="margin-top:4px">${ms.length?ms.map(chip).join(''):`<small class="muted">${esc(EN()?'No staff assigned':'ยังไม่มีคุณครูในแผนกนี้')}</small>`}
           <small class="muted" style="margin-left:4px">· ${ms.length} ${esc(EN()?'people':'คน')}</small></div></div>`; }).join('')}</div>
       ${unassigned.length?`<div style="margin-top:8px"><small class="muted">⚠️ ${esc(EN()?'Not in any department':'ยังไม่ได้อยู่แผนกใด')}:</small><div>${unassigned.map(chip).join('')}</div></div>`:''}
@@ -2780,7 +2821,7 @@
       <h4 style="margin:6px 0">🧹 ${EN()?'Big Cleaning Day':'วัน Big Cleaning'}</h4>
       <p class="muted" style="font-size:11.5px">${EN()?'A monthly mandatory workday with no fixed hours; attendance earns a diligence bonus.':'วันทำงานบังคับเดือนละครั้ง ไม่กำหนดเวลาเข้า-ออก · มาแล้วได้เบี้ยขยันเพิ่ม'}</p>
       <label class="field"><span>${EN()?'Bonus per cleaning day (฿)':'เบี้ยขยันต่อวัน (฿)'}</span><input id="setBC" type="number" value="${esc(bc.amount||0)}"/></label>
-      <div id="bcList">${(bc.days||[]).map(d=>`<div class="list-item"><span>🧹 ${esc(ddmmyyyy(d))}</span><button class="btn sm pink" onclick="A_bcRemove('${esc(d)}')">🗑️</button></div>`).join('')||`<small class="muted">${EN()?'no dates set':'ยังไม่ได้กำหนดวัน'}</small>`}</div>
+      <div id="bcList">${(bc.days||[]).map(d=>`<div class="list-item"><span>🧹 ${esc(ddmmyyyy(d))}</span><button class="btn sm pink" onclick="A_bcRemove('${esc(d)}')" aria-label="${EN()?"Delete":"ลบ"}" title="${EN()?"Delete":"ลบ"}">🗑️</button></div>`).join('')||`<small class="muted">${EN()?'no dates set':'ยังไม่ได้กำหนดวัน'}</small>`}</div>
       <div class="grid2" style="margin-top:6px"><input type="date" id="bcDate"/><button class="btn" onclick="A_bcAdd()">+ ${esc(t('manage.add'))}</button></div>
       <h4 style="margin:6px 0">${esc(t('set.leaveQuota'))}</h4>
       ${Object.keys(q).map(k=>`<label class="field"><span>${esc(tLeaveType(k))}</span><input type="number" id="lq_${esc(k)}" value="${q[k]}"/></label>`).join('')}
@@ -2933,7 +2974,7 @@
         <div class="row" style="margin-top:6px">${isPA
           ?`<button class="btn sm green" onclick="A_confirmOT('${o.OTRecordID}')">✔ ${esc(t('c.approve'))}</button><button class="btn sm pink" onclick="A_rejectOT('${o.OTRecordID}')">✕ ${esc(t('c.reject'))}</button>`
           :`<button class="btn sm outline" onclick="A_editOT('${o.OTRecordID}')">💾 ${esc(t('c.save'))}</button>${rejected?`<button class="btn sm outline" onclick="A_restoreStaffOT('${o.OTRecordID}')">♻️ ${EN()?'Restore':'คืนค่า'}</button>`:''}`}
-          <button class="btn sm pink" onclick="A_deleteOT('${o.OTRecordID}')">🗑️</button></div></div>`; };
+          <button class="btn sm pink" onclick="A_deleteOT('${o.OTRecordID}')" aria-label="${EN()?"Delete":"ลบ"}" title="${EN()?"Delete":"ลบ"}">🗑️</button></div></div>`; };
     modal(`<h3>⏰ ${esc(t('ot.adminOT'))}</h3>
       <div class="spread"><label class="field" style="flex:1"><span>${EN()?'Month':'เดือน'}</span><input type="month" id="sotMonth" value="${SOT_MONTH}" onchange="A_staffOT(this.value)"/></label>
         <button class="btn sm" style="align-self:end;margin-bottom:2px" onclick="A_addOTForm()">${esc(t('ot.addOT'))}</button></div>
@@ -3022,7 +3063,7 @@
           <label class="field" style="display:flex;align-items:center;gap:8px;margin-top:22px"><input type="checkbox" id="hRec" style="width:auto"/> ${esc(t('hol.recurring'))}</label></div>
         <div class="grid2"><label class="field"><span>${esc(t('hol.nameTH'))}</span><input id="hNameTH"/></label><label class="field"><span>${esc(t('hol.nameEN'))}</span><input id="hNameEN"/></label></div>
         <button class="btn block" onclick="A_addHoliday()">${esc(t('hol.add'))}</button></div>
-      <div class="card"><h3>📋 ${esc(t('hol.list'))}</h3>${hs.map(h=>`<div class="list-item"><span><b>${esc(h.Date)}</b> · ${esc(EN()?h.NameEN:h.NameTH)}${h.Recurring?` <span class="pill info">${esc(t('hol.yearly'))}</span>`:''}</span><button class="btn sm pink" onclick="A_removeHoliday('${h.Date}','${esc(h.NameTH)}')">🗑️</button></div>`).join('')}</div>`;
+      <div class="card"><h3>📋 ${esc(t('hol.list'))}</h3>${hs.map(h=>`<div class="list-item"><span><b>${esc(h.Date)}</b> · ${esc(EN()?h.NameEN:h.NameTH)}${h.Recurring?` <span class="pill info">${esc(t('hol.yearly'))}</span>`:''}</span><button class="btn sm pink" onclick="A_removeHoliday('${h.Date}','${esc(h.NameTH)}')" aria-label="${EN()?"Delete":"ลบ"}" title="${EN()?"Delete":"ลบ"}">🗑️</button></div>`).join('')}</div>`;
   };
   window.A_addHoliday=async()=>{ const d=$('#hDate').value; if(!d){toast(t('hol.date'));return;}
     await api('addHoliday',{date:d,nameTH:$('#hNameTH').value,nameEN:$('#hNameEN').value,recurring:$('#hRec').checked}); confirmSaved(t('c.saved')); GO_('holidays'); };
@@ -3087,12 +3128,12 @@
         ${slipHistoryHTML(slipsOf('bill',bill.BillingID))}
         <div class="row" style="margin-top:6px"><button class="btn sm pink" onclick="A_finDelBill('${esc(bill.BillingID)}','${sid}')">🗑️ ${EN()?'Delete bill':'ลบบิล'}</button></div>`
       : `<p class="muted" style="font-size:12px">${EN()?'No bill issued for this month yet.':'ยังไม่ได้ออกบิลของเดือนนี้'}</p><button class="btn sm" onclick="A_finIssueBill('${sid}')">🧾 ${EN()?'Issue this month’s bill':'ออกบิลเดือนนี้'}</button>`;
-    const chargeBox = `${(charges||[]).length?(charges).map(c=>`<div class="list-item"><span>${esc(c.Label)} <b>${baht(c.Amount)}</b></span><button class="btn sm pink" onclick="A_finDelCharge('${esc(c.ChargeID)}','${sid}')">🗑️</button></div>`).join(''):`<small class="muted">${EN()?'No extra charges':'ไม่มีรายการเพิ่มเติม'}</small>`}
+    const chargeBox = `${(charges||[]).length?(charges).map(c=>`<div class="list-item"><span>${esc(c.Label)} <b>${baht(c.Amount)}</b></span><button class="btn sm pink" onclick="A_finDelCharge('${esc(c.ChargeID)}','${sid}')" aria-label="${EN()?"Delete":"ลบ"}" title="${EN()?"Delete":"ลบ"}">🗑️</button></div>`).join(''):`<small class="muted">${EN()?'No extra charges':'ไม่มีรายการเพิ่มเติม'}</small>`}
       <div class="grid2" style="margin-top:6px"><input id="fcLabel" placeholder="${EN()?'e.g. Special class':'เช่น ค่าเรียนพิเศษ'}"/><input id="fcAmt" type="number" placeholder="${EN()?'amount':'จำนวนเงิน'}"/></div>
       <button class="btn sm outline block" style="margin-top:6px" onclick="A_finAddCharge('${sid}')">+ ${EN()?'Add charge':'เพิ่มรายการ'}</button>`;
     const otBox = `${otM.length?otM.map(o=>{ const sl=slipsOf('ot',o.OTID);
       return `<div style="border-bottom:1px solid #f0f0f0;padding:4px 0"><div class="list-item"><span>${esc(ymd(o.Date))} · ${esc(String(o.PickupTime||'').slice(0,5))} <b>${baht(o.Amount)}</b> <span class="pill ${stPill(o.Status)}" style="font-size:10px">${esc(o.Status)}</span></span>
-        ${o.Status==='PAID'?'':`<span class="row">${o.Status==='CANCELLED'?`<button class="btn sm outline" onclick="A_finOt('${esc(o.OTID)}','restore','${sid}')">♻️</button>`:`<button class="btn sm pink" onclick="A_finOt('${esc(o.OTID)}','cancel','${sid}')">🚫</button>`}</span>`}</div>${slipHistoryHTML(sl)}</div>`; }).join(''):`<small class="muted">${EN()?'No OT this month':'ไม่มี OT เดือนนี้'}</small>`}`;
+        ${o.Status==='PAID'?'':`<span class="row">${o.Status==='CANCELLED'?`<button class="btn sm outline" onclick="A_finOt('${esc(o.OTID)}','restore','${sid}')" aria-label="${EN()?"Restore":"กู้คืน"}" title="${EN()?"Restore":"กู้คืน"}">♻️</button>`:`<button class="btn sm pink" onclick="A_finOt('${esc(o.OTID)}','cancel','${sid}')" aria-label="${EN()?"Cancel":"ยกเลิก"}" title="${EN()?"Cancel":"ยกเลิก"}">🚫</button>`}</span>`}</div>${slipHistoryHTML(sl)}</div>`; }).join(''):`<small class="muted">${EN()?'No OT this month':'ไม่มี OT เดือนนี้'}</small>`}`;
     modal(`<h3>💰 ${esc(dispNick(s)||sid)} <small class="muted" style="font-size:13px">${esc(planLabel(s.Plan))}${s.Class?' · '+esc(s.Class):''}</small></h3>
       <p class="muted" style="font-size:12px">${EN()?'Month':'เดือน'} <b>${esc(month)}</b> — ${EN()?'change the month at the finance page':'เปลี่ยนเดือนได้ที่หน้าการเงิน'}</p>
       <div class="card" style="padding:8px"><b>🧾 ${EN()?'Monthly bill':'บิลรายเดือน'}</b>${billBox}</div>
@@ -3304,6 +3345,15 @@
   // fields; the journal's mood/meal pickers and the DSPM pass/fail buttons are plain <button>s, so
   // their clicks are watched separately. #app is never replaced (only its innerHTML), so binding
   // once here is enough for every screen.
+  // the header's brand / avatar / name are clickable <div role="button">s — make Enter and Space
+  // activate them the way a real <button> would, so they are usable without a pointer.
+  document.addEventListener('keydown', e => {
+    if (e.key !== 'Enter' && e.key !== ' ') return;
+    const el = e.target.closest && e.target.closest('[role="button"]');
+    if (!el || el.tagName === 'BUTTON') return;
+    e.preventDefault(); el.click();
+  });
+
   const markDirty = () => { if (CUR_SUB) FORM_DIRTY = true; };
   app.addEventListener('input', markDirty);
   app.addEventListener('change', markDirty);
