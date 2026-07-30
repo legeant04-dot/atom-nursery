@@ -26,9 +26,19 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: actions/configure-pages@v5
-      - name: Upload webapp/ as the Pages artifact
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      # webapp/ stays the readable source; what we publish is the same files with the JS and CSS
+      # minified (app.js 141 -> 107 KB gzipped, styles.css 9.7 -> 5.9). No bundling or renaming, so
+      # the ?v=NN query strings and the service worker keep working unchanged.
+      - name: Minify webapp/ into dist_pages/
+        run: |
+          npm --prefix tools install --no-audit --no-fund
+          node tools/build_web.js
+      - name: Upload dist_pages/ as the Pages artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: webapp
+          path: dist_pages
       - id: deployment
         uses: actions/deploy-pages@v4

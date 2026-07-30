@@ -3115,8 +3115,10 @@
   window.A_delCharge=async(id,sid)=>{ await api('removeStudentCharge',{chargeId:id}); const m=document.querySelector('.modal'); if(m)m.remove(); A_charges(sid); toast(t('manage.deleted')); };
 
   // ---- Import / Export students ----
+  // xlsx_min.js used to ship to every parent for the sake of these two admin screens — fetch it here
+  const needXLSX = () => window.__atomLoadScript ? __atomLoadScript('xlsx_min.js', ()=>!!window.XLSXMin) : Promise.resolve();
   window.A_exportStudent=async(id)=>{ if(!confirm(t('manage.confirmExport')))return;
-    try{ const r=await api('exportStudent',{studentId:id});
+    try{ const r=await api('exportStudent',{studentId:id}); await needXLSX();
       if(window.XLSXMin) XLSXMin.download(r.filename, r.rows, 'Student');
       confirmSaved((EN()?'Exported & removed: ':'นำออกแล้ว: ')+r.filename); GO('manage'); }catch(e){err(e);} };
   // ---- Admin: remove a student from the system (with required reason) ----
@@ -3166,7 +3168,7 @@
   };
   window.A_reimport=async(id)=>{ try{ await api('importStudent',{studentId:id}); confirmSaved(t('ie.imported')); GO_('importExport'); }catch(e){err(e);} };
   window.A_importFile=async()=>{ const f=$('#impF').files[0]; if(!f){toast(t('ie.chooseXlsx'));return;}
-    try{ const rows=await XLSXMin.parse(f); await api('importStudent',{rows}); confirmSaved(t('ie.imported')); GO_('importExport'); }catch(e){err(e);} };
+    try{ await needXLSX(); const rows=await XLSXMin.parse(f); await api('importStudent',{rows}); confirmSaved(t('ie.imported')); GO_('importExport'); }catch(e){err(e);} };
 
   // ---- Staff groups & hours ----
   window.A_groups=async()=>{ const [groups,staff]=await Promise.all([api('listStaffGroups'),api('listStaff')]);
