@@ -112,7 +112,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.159'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.160'; // bump each webapp change; shown only at the bottom of the Chat screen
   const verTag = () => `<div style="text-align:center;color:#c3c9d4;font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
   const phoneFmt = p => { let d=String(p==null?'':p).replace(/\D/g,''); if(d.length===9) d='0'+d; return d; };
@@ -474,20 +474,52 @@
     if(s && (SCREENS[USER.role]||{})[s]) GO(s,{fromPop:true});
   });
 
+  // ---- keep the user's place across a REDRAW ------------------------------------------------------
+  // Every screen paints by replacing the whole of #app. That is right for a real navigation, but when
+  // a save, a delete or a background refresh redraws the screen someone is ALREADY on, they were being
+  // thrown back to the top with every collapsible section shut and the search box cleared — the work
+  // they were in the middle of. Rather than rewrite rendering to diff (which would touch all ~60
+  // screens), snapshot the handful of things that live only in the DOM and put them back afterwards.
+  function uiSnap(){
+    const secs={};
+    document.querySelectorAll('#app .secw').forEach(w=>{ if(!w.id) return;
+      const b=w.querySelector('.secbody'); if(b) secs[w.id]=!b.hasAttribute('hidden'); });
+    const mg=document.getElementById('mgSearch'), ae=document.activeElement;
+    return { y:window.scrollY||window.pageYOffset||0, secs:secs, q:mg?mg.value:'',
+             focus:(ae&&ae.id)||'' };
+  }
+  function uiRestore(sn){
+    if(!sn) return;
+    Object.keys(sn.secs).forEach(id=>{ if(!sn.secs[id]) return;
+      const w=document.getElementById(id); const b=w&&w.querySelector('.secbody'); if(!b) return;
+      b.removeAttribute('hidden');
+      const c=w.querySelector('.caret'); if(c) c.textContent='▲';
+      const tg=w.querySelector('.sectog'); if(tg) tg.setAttribute('aria-expanded','true'); });
+    // a live filter decides for itself which sections are open, so it runs after them
+    const mg=document.getElementById('mgSearch');
+    if(mg && sn.q){ mg.value=sn.q; if(window.A_search) A_search(mg); }
+    if(sn.focus){ const el=document.getElementById(sn.focus); if(el&&el.focus) try{ el.focus(); }catch(e){} }
+    if(sn.y) window.scrollTo(0,sn.y);
+  }
   window.GO = function(screen, opts){
     // every real navigation leaves whatever sub-view was open — check for unsaved work first.
     // Runs before CURRENT is reassigned so leaveOk() can re-push the entry the user came from.
     if(!(opts&&opts.silent)){ if(!leaveOk(opts)) return; CUR_SUB=null; FORM_DIRTY=false; }
+    // a REDRAW of the screen we're already on (save/delete/refresh) keeps the user's place;
+    // a real navigation still starts at the top. Must be read before CURRENT is reassigned.
+    const snap = (screen===CURRENT && !(opts&&opts.fromPop)) ? uiSnap() : null;
     if(window.__atomHideRefreshBar) __atomHideRefreshBar();   // a fresh render answers the offer
     CURRENT=screen; setNav(screen); if(!(opts&&opts.silent)) histPush(screen, opts&&opts.fromPop); if(!(opts&&opts.silent)){ setTopActions(''); CAL_OFF=0; window._CALRENDER=null; } const fn=(SCREENS[USER.role]||{})[screen];
     // paint an instant placeholder so a tap feels responsive instead of "stuck" on the old screen
     // while the first (uncached) fetch runs; skip on silent background re-renders to avoid flicker.
-    if(fn && !(opts&&opts.silent)) app.innerHTML=`<div class="card" style="text-align:center;color:#94a3b8;padding:28px">⏳ ${EN()?'Loading…':'กำลังโหลด…'}</div>`;
+    if(fn && !(opts&&opts.silent) && !snap) app.innerHTML=`<div class="card" style="text-align:center;color:#94a3b8;padding:28px">⏳ ${EN()?'Loading…':'กำลังโหลด…'}</div>`;
     if(fn){ const r=fn(); // a screen that throws must not leave the loading skeleton stuck forever
+      if(snap){ if(r&&r.then) r.then(()=>uiRestore(snap),()=>{}); else uiRestore(snap); }
       // only show the error if STILL on this screen — a slow screen the user already left must not
       // clobber the new one (e.g. home's deferred #anns write firing after navigating to leaves).
       if(r&&r.catch) r.catch(e=>{ if(CURRENT!==screen)return; app.innerHTML=`<div class="card"><b>⚠️ ${EN()?'Could not load':'โหลดไม่สำเร็จ'}</b><br><small class="muted">${esc((e&&e.message)||e)}</small></div><button class="btn outline block" style="margin-top:10px" onclick="GO('${screen}')">🔄 ${EN()?'Retry':'ลองใหม่'}</button>`; });
-    } else app.innerHTML=`<div class="card">หน้านี้กำลังพัฒนา</div>`; window.scrollTo(0,0); };
+    } else app.innerHTML=`<div class="card">หน้านี้กำลังพัฒนา</div>`;
+    if(!snap) window.scrollTo(0,0); };
   // SWR hook: api.js calls this when a background refresh found newer data than what's shown.
   // Re-render the current screen (silently, no skeleton), but never interrupt an open modal or active typing.
   // Background refresh found newer data. Redrawing the screen underneath someone reading it — or
@@ -518,11 +550,20 @@
     const bar=document.getElementById('undoBar'); if(bar) bar.remove();
     if(u.onUndo) try{ u.onUndo(); }catch(e){}
     toast(EN()?'Undone — nothing was deleted':'เลิกทำแล้ว — ยังไม่ได้ลบข้อมูล'); };
+  // Take the row out of the list the moment the user confirms, and put it back on undo. The request is
+  // HELD for UNDO_MS, so the list used to sit there unchanged for six seconds — long enough that people
+  // pressed delete a second time. This is also the cheap half of "render only what changed": one node
+  // hidden instead of a whole screen (and 12 refetches) repainted.
+  function _rowOf(el){ return (el && el.closest) ? el.closest('.list-item, .card') : null; }
   // send: () => Promise (the actual api call).  after: run straight away to update the screen.
-  function deleteWithUndo(label, send, after, onUndo){
+  // row: the element the user tapped (or its row) — hidden now, restored if they undo.
+  function deleteWithUndo(label, send, after, onUndo, row){
     if(_undo) undoCommit();                       // only one pending delete at a time
+    const node=_rowOf(row), prevDisplay=node?node.style.display:null;
+    if(node) node.style.display='none';
     if(after) try{ after(); }catch(e){}
-    _undo={ send, onUndo, label, timer:setTimeout(()=>{ undoCommit(); }, UNDO_MS) };
+    const undoAll=()=>{ if(node) node.style.display=prevDisplay||''; if(onUndo) onUndo(); };
+    _undo={ send, onUndo:undoAll, label, timer:setTimeout(()=>{ undoCommit(); }, UNDO_MS) };
     let bar=document.getElementById('undoBar');
     if(!bar){ bar=document.createElement('div'); bar.id='undoBar'; document.body.appendChild(bar); }
     bar.innerHTML=`<span>🗑️ ${esc(label)}</span><button type="button" onclick="UNDO_cancel()">${EN()?'Undo':'เลิกทำ'}</button>`;
@@ -2715,11 +2756,11 @@
       ${searchBox()}
       <div class="card secw" id="sec-staff">${secHead('👩‍🏫',t('c.staff'),staff.length,`<button class="btn sm" onclick="event.stopPropagation();A_staffForm()">+ ${esc(t('manage.add'))}</button>`)}
         <div class="secbody" hidden>
-        ${staff.map(s=>`<div class="list-item stack" data-k="${esc((s.NameTH+' '+(s.NameEN||'')+' '+(s.Nickname||'')+' '+(s.Position||'')+' '+(s.Department||'')).toLowerCase())}"><span style="display:flex;gap:8px;align-items:center">${personAvatar(s)}<span><b>${esc(dispNick(s))}</b> ${nmSub(s)?`<small class="muted">${esc(nmSub(s))}</small>`:""}<br><small class="muted">${_notr(s.Position||"")} · ${esc(deptLabel(s))} · 🕑 ${_notr(groupLabel(s.StaffGroup))}${groupHours(s.StaffGroup)?' ('+esc(groupHours(s.StaffGroup))+')':''}</small><br><small class="muted">${esc(t('staff.start'))} ${esc(s.StartDate||'-')} · ${esc(t('staff.tenure'))} ${esc(tenure(s.StartDate))}</small></span></span><span class="acts"><button class="btn sm outline" onclick="A_staffForm('${s.StaffID}')">✏️ ${EN()?'Edit':'แก้ไข'}</button><button class="btn sm pink" onclick="A_delStaff('${s.StaffID}')">🗑️ ${EN()?'Delete':'ลบ'}</button></span></div>`).join('')}</div></div>
+        ${staff.map(s=>`<div class="list-item stack" data-k="${esc((s.NameTH+' '+(s.NameEN||'')+' '+(s.Nickname||'')+' '+(s.Position||'')+' '+(s.Department||'')).toLowerCase())}"><span style="display:flex;gap:8px;align-items:center">${personAvatar(s)}<span><b>${esc(dispNick(s))}</b> ${nmSub(s)?`<small class="muted">${esc(nmSub(s))}</small>`:""}<br><small class="muted">${_notr(s.Position||"")} · ${esc(deptLabel(s))} · 🕑 ${_notr(groupLabel(s.StaffGroup))}${groupHours(s.StaffGroup)?' ('+esc(groupHours(s.StaffGroup))+')':''}</small><br><small class="muted">${esc(t('staff.start'))} ${esc(s.StartDate||'-')} · ${esc(t('staff.tenure'))} ${esc(tenure(s.StartDate))}</small></span></span><span class="acts"><button class="btn sm outline" onclick="A_staffForm('${s.StaffID}')">✏️ ${EN()?'Edit':'แก้ไข'}</button><button class="btn sm pink" onclick="A_delStaff('${s.StaffID}',this)">🗑️ ${EN()?'Delete':'ลบ'}</button></span></div>`).join('')}</div></div>
       <div class="card secw" id="sec-parents">${secHead('👪',t('manage.parents'),parents.length,`<button class="btn sm" onclick="event.stopPropagation();A_parentForm()">+ ${esc(t('manage.add'))}</button>`)}
         <div class="secbody" hidden>
         ${parents.map(p=>{ const lc=(window._LINKCOUNTS||{})[p.ParentID]||0; const lcBadge=`<span class="pill ${lc?'ok':'bad'}" style="font-size:11px" title="${EN()?'linked children':'จำนวนบุตรที่ผูก'}">👶 ${lc}</span>`;
-          return `<div class="list-item stack" data-k="${esc((p.NameTH+' '+(p.NameEN||'')+' '+(p.Nickname||'')+' '+(p.NicknameEN||'')+' '+(p.Phone||'')+' '+String(p.Relationship||'').replace(/<[^>]*>/g,'')).toLowerCase())}"><span style="display:flex;gap:8px;align-items:center">${personAvatar(p)}<span><b>${esc(parentDisp(p))}</b> ${lcBadge} <small class="muted">${[p.NameTH||p.NameEN?esc(titledName(p)):'',relLabel(p.Relationship),p.Phone?phoneLink(p.Phone):(EN()?'no phone':'ไม่มีเบอร์โทร')].filter(Boolean).join(' · ')}</small></span></span><span class="acts"><button class="btn sm outline" onclick="A_parentLinks('${p.ParentID}')">🔗 ${EN()?'Children':'บุตรที่ผูก'}</button><button class="btn sm outline" onclick="A_parentForm('${p.ParentID}')">✏️ ${EN()?'Edit':'แก้ไข'}</button><button class="btn sm pink" onclick="A_delParent('${p.ParentID}')">🗑️ ${EN()?'Delete':'ลบ'}</button></span></div>`; }).join('')}</div></div>
+          return `<div class="list-item stack" data-k="${esc((p.NameTH+' '+(p.NameEN||'')+' '+(p.Nickname||'')+' '+(p.NicknameEN||'')+' '+(p.Phone||'')+' '+String(p.Relationship||'').replace(/<[^>]*>/g,'')).toLowerCase())}"><span style="display:flex;gap:8px;align-items:center">${personAvatar(p)}<span><b>${esc(parentDisp(p))}</b> ${lcBadge} <small class="muted">${[p.NameTH||p.NameEN?esc(titledName(p)):'',relLabel(p.Relationship),p.Phone?phoneLink(p.Phone):(EN()?'no phone':'ไม่มีเบอร์โทร')].filter(Boolean).join(' · ')}</small></span></span><span class="acts"><button class="btn sm outline" onclick="A_parentLinks('${p.ParentID}')">🔗 ${EN()?'Children':'บุตรที่ผูก'}</button><button class="btn sm outline" onclick="A_parentForm('${p.ParentID}')">✏️ ${EN()?'Edit':'แก้ไข'}</button><button class="btn sm pink" onclick="A_delParent('${p.ParentID}',this)">🗑️ ${EN()?'Delete':'ลบ'}</button></span></div>`; }).join('')}</div></div>
       <div class="card secw" id="sec-students">${secHead('👶',EN()?'Students':'นักเรียน',students.length,`<span class="row"><button class="btn sm outline" onclick="event.stopPropagation();A_issueCombined()">🧾 ${EN()?'Issue (select)':'ออกบิล (เลือก)'}</button><button class="btn sm" onclick="event.stopPropagation();A_genBills()">📅 ${esc(t('bill.genTitle'))}</button></span>`)}
         <div class="secbody" hidden>
         ${students.map(s=>`<div class="list-item stack" data-k="${esc((s.NameTH+' '+(s.NameEN||'')+' '+(s.Nickname||'')+' '+(s.NicknameEN||'')+' '+(s.Class||'')+' '+(s.NationalID||'')).toLowerCase())}"><span>${studentAvatar(s)} <b>${esc(dispNick(s))}</b> <small class="muted">${nmSub(s)?esc(nmSub(s))+" · ":""}${esc(s.Class)} · ${esc(ageYM(s.DOB))}${s.InsuranceHas?' · 🛡️':''}</small><br><small class="muted">${EN()?'ID':'บัตร'}: ${esc(s.NationalID||'-')}</small></span><span class="acts"><button class="btn sm outline" onclick="A_studentForm('${s.StudentID}')">✏️ ${EN()?'Edit':'แก้ไข'}</button><button class="btn sm" onclick="A_issueBill('${s.StudentID}')">🧾 ${EN()?'Bill':'ออกบิล'}</button><button class="btn sm" onclick="A_charges('${s.StudentID}')">💵 ${EN()?'Charges':'เรียกเก็บ'}</button><button class="btn sm outline" onclick="A_stuMore('${s.StudentID}')" aria-label="${EN()?'More actions':'การทำงานเพิ่มเติม'}" title="${EN()?'More actions':'การทำงานเพิ่มเติม'}">⋯</button></span></div>`).join('')}</div></div>`;
@@ -2770,8 +2811,8 @@
     const sfp=photoVal(m,'sf_Photo'); if(sfp) data.Photo=sfp;
     try{ await api('saveStaff',{staffId:id||null,data}); m.remove(); confirmSaved(t('c.saved')); GO('manage'); }catch(e){err(e);} };
   window.SF_allDept=(cb)=>{ const box=document.getElementById('sf_DeptList'); if(box){ box.style.opacity=cb.checked?'.4':''; box.style.pointerEvents=cb.checked?'none':''; } };
-  window.A_delStaff=(id)=>{ if(!confirm(t('manage.confirmDel')))return;
-    deleteWithUndo(EN()?'Staff removed':'ลบพนักงานแล้ว', ()=>api('deleteStaff',{staffId:id}).then(()=>GO('manage')), ()=>{ const r=document.querySelector('#sec-staff .list-item[data-k]'); }); };
+  window.A_delStaff=(id,btn)=>{ if(!confirm(t('manage.confirmDel')))return;
+    deleteWithUndo(EN()?'Staff removed':'ลบพนักงานแล้ว', ()=>api('deleteStaff',{staffId:id}).then(()=>GO('manage')), null, null, btn); };
   window.A_viewPw=async(id)=>{ const box=document.getElementById('pwView_'+id); try{ const r=await api('getStaffPassword',{staffId:id}); if(box)box.innerHTML=`${EN()?'Current password':'รหัสผ่านปัจจุบัน'}: <b>${esc(r.password)}</b>`; }catch(e){err(e);} };
   window.A_resetPw=async(id)=>{ if(!confirm(EN()?'Reset this staff\'s password? A temporary password will be shown.':'รีเซ็ตรหัสผ่านพนักงานคนนี้? ระบบจะแสดงรหัสชั่วคราว'))return;
     const box=document.getElementById('pwView_'+id); try{ const r=await api('adminResetPassword',{staffId:id}); if(box)box.innerHTML=`✅ ${EN()?'Reset. Temporary password':'รีเซ็ตแล้ว รหัสชั่วคราว'}: <b>${esc(r.tempPassword)}</b> — ${EN()?'staff must change it after unlocking':'พนักงานต้องเปลี่ยนใหม่หลังเข้าใช้'}`; toast(t('c.saved')); }catch(e){err(e);} };
@@ -2887,8 +2928,8 @@
     const data={Title:v('Title'),NameTH:v('NameTH'),NameEN:v('NameEN'),Nickname:v('Nickname'),NicknameEN:v('NicknameEN'),Relationship:v('Relationship'),NationalID:v('NationalID'),Phone:v('Phone'),OfficePhone:v('OfficePhone'),Occupation:v('Occupation'),Workplace:v('Workplace')};
     const pfp=photoVal(m,'pf_Photo'); if(pfp) data.Photo=pfp;
     try{ await api('saveParent',{parentId:id||null,data}); m.remove(); confirmSaved(t('c.saved')); GO('manage'); }catch(e){err(e);} };
-  window.A_delParent=(id)=>{ if(!confirm(t('manage.confirmDel')))return;
-    deleteWithUndo(EN()?'Parent removed':'ลบผู้ปกครองแล้ว', ()=>api('deleteParent',{parentId:id}).then(()=>GO('manage'))); };
+  window.A_delParent=(id,btn)=>{ if(!confirm(t('manage.confirmDel')))return;
+    deleteWithUndo(EN()?'Parent removed':'ลบผู้ปกครองแล้ว', ()=>api('deleteParent',{parentId:id}).then(()=>GO('manage')), null, null, btn); };
 
   // ---- Student edit (incl. insurance) ----
   // choosing a package fills the arrive/leave time from the package's schedule (still editable per student)
@@ -3565,9 +3606,9 @@
           ${Number(bill.PaidConfirmed||0)>0?`<tr><td>${EN()?'Paid':'ชำระแล้ว'}</td><td style="text-align:right;color:#2e7d32">−${baht(bill.PaidConfirmed)}</td></tr>`:''}
           <tr><td><b>${EN()?'Outstanding':'คงค้าง'}</b></td><td style="text-align:right"><b style="color:${Number(bill.Outstanding||0)>0?'#c62828':'#2e7d32'}">${baht(bill.Outstanding||0)}</b></td></tr></table>
         ${slipHistoryHTML(slipsOf('bill',bill.BillingID))}
-        <div class="row" style="margin-top:6px"><button class="btn sm pink" onclick="A_finDelBill('${esc(bill.BillingID)}','${sid}')">🗑️ ${EN()?'Delete bill':'ลบบิล'}</button></div>`
+        <div class="row" style="margin-top:6px"><button class="btn sm pink" onclick="A_finDelBill('${esc(bill.BillingID)}','${sid}',this)">🗑️ ${EN()?'Delete bill':'ลบบิล'}</button></div>`
       : `<p class="muted" style="font-size:13px">${EN()?'No bill issued for this month yet.':'ยังไม่ได้ออกบิลของเดือนนี้'}</p><button class="btn sm" onclick="A_finIssueBill('${sid}')">🧾 ${EN()?'Issue this month’s bill':'ออกบิลเดือนนี้'}</button>`;
-    const chargeBox = `${(charges||[]).length?(charges).map(c=>`<div class="list-item"><span>${esc(c.Label)} <b>${baht(c.Amount)}</b></span><button class="btn sm pink" onclick="A_finDelCharge('${esc(c.ChargeID)}','${sid}')" aria-label="${EN()?"Delete":"ลบ"}" title="${EN()?"Delete":"ลบ"}">🗑️</button></div>`).join(''):`<small class="muted">${EN()?'No extra charges':'ไม่มีรายการเพิ่มเติม'}</small>`}
+    const chargeBox = `${(charges||[]).length?(charges).map(c=>`<div class="list-item"><span>${esc(c.Label)} <b>${baht(c.Amount)}</b></span><button class="btn sm pink" onclick="A_finDelCharge('${esc(c.ChargeID)}','${sid}',this)" aria-label="${EN()?"Delete":"ลบ"}" title="${EN()?"Delete":"ลบ"}">🗑️</button></div>`).join(''):`<small class="muted">${EN()?'No extra charges':'ไม่มีรายการเพิ่มเติม'}</small>`}
       <div class="grid2" style="margin-top:6px"><input id="fcLabel" placeholder="${EN()?'e.g. Special class':'เช่น ค่าเรียนพิเศษ'}"/><input id="fcAmt" type="number" placeholder="${EN()?'amount':'จำนวนเงิน'}"/></div>
       <button class="btn sm outline block" style="margin-top:6px" onclick="A_finAddCharge('${sid}')">+ ${EN()?'Add charge':'เพิ่มรายการ'}</button>`;
     const otBox = `${otM.length?otM.map(o=>{ const sl=slipsOf('ot',o.OTID);
@@ -3584,11 +3625,11 @@
   window.A_finAddCharge=async(sid)=>{ const m=document.querySelector('.modal'); const label=(m.querySelector('#fcLabel').value||'').trim(); const amt=Number(m.querySelector('#fcAmt').value)||0;
     if(!label||!amt){ toast(EN()?'Enter label and amount':'กรอกชื่อรายการและจำนวนเงิน'); return; }
     try{ await api('addStudentCharge',{studentId:sid,month:FIN_MONTH||monthStr(),label,amount:amt}); _finReopen(sid); }catch(e){err(e);} };
-  window.A_finDelCharge=(chargeId,sid)=>{
-    deleteWithUndo(EN()?'Charge removed':'ลบรายการเรียกเก็บแล้ว', ()=>api('removeStudentCharge',{chargeId}).then(()=>_finReopen(sid))); };
+  window.A_finDelCharge=(chargeId,sid,btn)=>{
+    deleteWithUndo(EN()?'Charge removed':'ลบรายการเรียกเก็บแล้ว', ()=>api('removeStudentCharge',{chargeId}).then(()=>_finReopen(sid)), null, null, btn); };
   window.A_finIssueBill=async(sid)=>{ try{ await api('issueBill',{studentId:sid,month:FIN_MONTH||monthStr()}); _finReopen(sid); }catch(e){err(e);} };
-  window.A_finDelBill=(billingId,sid)=>{ if(!confirm(EN()?'Delete this bill?':'ลบบิลนี้?'))return;
-    deleteWithUndo(EN()?'Bill deleted':'ลบบิลแล้ว', ()=>api('deleteBill',{billingId}).then(()=>_finReopen(sid))); };
+  window.A_finDelBill=(billingId,sid,btn)=>{ if(!confirm(EN()?'Delete this bill?':'ลบบิลนี้?'))return;
+    deleteWithUndo(EN()?'Bill deleted':'ลบบิลแล้ว', ()=>api('deleteBill',{billingId}).then(()=>_finReopen(sid)), null, null, btn); };
   window.A_finOt=async(otId,kind,sid)=>{ try{ await api(kind==='cancel'?'adminCancelOT':'adminRestoreOT',{otId}); _finReopen(sid); }catch(e){err(e);} };
 
   // ---- Finance: per-staff detail (salary base + this-month OT + compute) ----
