@@ -147,6 +147,58 @@ function handleLinkParentAdmin(p) {
   return { ok: true, studentId: st.StudentID, name: st.NameTH, nick: st.Nickname, parentId: pid, via: via, needInfo: !pid };
 }
 
+// First LINE sign-in of a parent the school ALREADY has on file (imported, or entered by the admin):
+// claim that existing record instead of registering a second one — the gap that produced 84 duplicate
+// parents. Verified by the CHILD's National ID plus the parent's own National ID or the phone the school
+// recorded; a record with neither field filled cannot be claimed (the admin must link it instead).
+// In-place writes only: PARENTS/USER_LINKS are no-shrink sheets.
+function handleClaimParent(p) {
+  p = p || {};
+  var uid = String(p.uid || '').trim();
+  if (!uid) throw apiError_('NO_IDENTITY', 'ไม่พบบัญชี LINE — กรุณาเข้าผ่าน LINE อีกครั้ง');
+  var dig = function (v) { return String(v == null ? '' : v).replace(/\D/g, ''); };
+  var nid = dig(p.nationalId), ver = dig(p.verify);
+  if (nid.length !== 13) throw apiError_('BAD_INPUT', 'กรอกเลขบัตรประชาชนนักเรียน 13 หลัก');
+  if (ver.length < 9) throw apiError_('BAD_INPUT', 'กรอกเลขบัตรประชาชนของผู้ปกครอง หรือเบอร์โทรที่แจ้งกับโรงเรียน');
+  // brute-force guard: 5 wrong attempts per LINE account, then a 15-minute cool-off
+  var cache = null, ckey = 'claimfail:' + uid, fails = 0;
+  try { cache = CacheService.getScriptCache(); fails = Number(cache.get(ckey) || 0); } catch (e) {}
+  if (fails >= 5) throw apiError_('TOO_MANY_TRIES', 'ยืนยันไม่สำเร็จหลายครั้ง — กรุณารอ 15 นาที หรือติดต่อแอดมิน');
+  var bump = function () { try { if (cache) cache.put(ckey, String(fails + 1), 900); } catch (e) {} };
+
+  var stSheet = sheet_(getMainSpreadsheet_(), 'STUDENTS');
+  var st = findObject_(stSheet, function (s) { return dig(s.NationalID) === nid; });
+  if (!st) { bump(); throw apiError_('NOT_FOUND', 'ไม่พบนักเรียนจากเลขบัตรนี้ — ตรวจสอบเลขบัตร หรือติดต่อแอดมิน'); }
+  var pSheet = sheet_(getMainSpreadsheet_(), 'PARENTS');
+  try { ensureColumns_(pSheet, ['LineUID']); } catch (e) {}
+  var cands = readObjects_(pSheet).filter(function (x) {
+    return String(x.StudentID || '') === String(st.StudentID) || (st.ParentID && String(x.ParentID) === String(st.ParentID));
+  });
+  if (!cands.length) throw apiError_('NO_RECORD', 'ยังไม่มีข้อมูลผู้ปกครองของนักเรียนคนนี้ในระบบ — กรุณาเลือก "ลงทะเบียนใหม่"');
+  var same9 = function (a, b) { return a.length >= 9 && b.length >= 9 && a.slice(-9) === b.slice(-9); };
+  var hit = null;
+  cands.forEach(function (x) { if (hit) return; var n = dig(x.NationalID), ph = dig(x.Phone);
+    if ((n && n === ver) || (ph && same9(ph, ver))) hit = x; });
+  if (!hit) { bump(); throw apiError_('VERIFY_FAILED', 'ข้อมูลยืนยันไม่ตรงกับที่โรงเรียนมี — กรุณาติดต่อแอดมิน'); }
+  var own = String(hit.LineUID || '').trim();
+  if (own && own !== uid) throw apiError_('ALREADY_CLAIMED', 'ข้อมูลผู้ปกครองนี้ผูกกับบัญชี LINE อื่นอยู่แล้ว — กรุณาติดต่อแอดมิน');
+  if (own !== uid) updateRow_(pSheet, hit._row, { LineUID: uid });
+  // bring along EVERY child on that record, not just the one used to verify
+  var kids = readObjects_(stSheet).filter(function (x) { return String(x.ParentID || '') === String(hit.ParentID); });
+  if (!kids.some(function (x) { return String(x.StudentID) === String(st.StudentID); })) kids.push(st);
+  var ul = sheet_(getMainSpreadsheet_(), 'USER_LINKS');
+  var links = readObjects_(ul);
+  kids.forEach(function (k) {
+    var has = links.some(function (l) { return String(l.UserUID) === uid && String(l.StudentID) === String(k.StudentID); });
+    if (!has) appendObject_(ul, { UserUID: uid, StudentID: k.StudentID, VerifiedBy: 'claim', Date: dateStr_(new Date()) });
+  });
+  try { CacheService.getScriptCache().removeAll(['rows:USER_LINKS', 'col:USER_LINKS', 'rows:PARENTS', 'col:PARENTS']); } catch (e) {}
+  try { if (cache) cache.remove(ckey); } catch (e) {}
+  try { logAudit(hit.ParentID, 'CLAIM_PARENT', 'PARENTS', hit.ParentID + ' <- ' + uid + ' (' + kids.length + ' kid(s))'); } catch (e) {}
+  return { parentId: hit.ParentID, name: hit.NameTH || hit.Name || '', nameEN: hit.NameEN || '', nick: hit.Nickname || '',
+    students: kids.map(function (k) { return { studentId: k.StudentID, name: k.NameTH || k.Name || '', nick: k.Nickname || '' }; }) };
+}
+
 // Admin: unlink ONE parent from a child WITHOUT withdrawing the child. In-place — USER_LINKS is a
 // no-shrink sheet, so deleting rows must go through deleteRow (the engine's full rewrite is blocked).
 function handleUnlinkStudent(p) {

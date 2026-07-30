@@ -14,7 +14,7 @@
   // user can't double-tap a button or resubmit while the request is in flight. Reads are never covered
   // (they paint from cache instantly). Wraps window.api once, after api.js has defined it.
   const _mutRe = /^(submit|save|add|remove|delete|set|register|pay|upload|confirm|reject|issue|generate|move|export|import|compute|cancel|prepay|link|notify|request|mark|approve|edit|rename|update|change|seed|dedup|reindex)/i;
-  const _isMut = a => _mutRe.test(a) || /check(in|out)|absence|payOT$|^orgMove|^unlink/i.test(a);
+  const _isMut = a => _mutRe.test(a) || /check(in|out)|absence|payOT$|^orgMove|^unlink|^claim/i.test(a);
   const _EN = () => (typeof EN==='function' && EN());
   const _busyTxt = () => _EN() ? 'Processing…' : 'ระบบกำลังดำเนินการ…';
   let _busyN = 0, _busyEl = null, _busyFail = false, _busyOkT = null;
@@ -112,7 +112,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.158'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.159'; // bump each webapp change; shown only at the bottom of the Chat screen
   const verTag = () => `<div style="text-align:center;color:#c3c9d4;font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
   const phoneFmt = p => { let d=String(p==null?'':p).replace(/\D/g,''); if(d.length===9) d='0'+d; return d; };
@@ -302,6 +302,14 @@
     WEAK_PW:          ['รหัสผ่านสั้นหรือคาดเดาง่ายเกินไป','That password is too short or too easy to guess',
                        'ใช้อย่างน้อย 6 ตัว ผสมตัวเลขและตัวอักษร','Use at least 6 characters, mixing letters and numbers'],
     DUP:              ['มีรายการซ้ำอยู่แล้ว','A duplicate already exists','',''],
+    VERIFY_FAILED:    ['ข้อมูลยืนยันไม่ตรงกับที่โรงเรียนมี','The details do not match the school’s records',
+                       'ลองใช้เบอร์โทรที่แจ้งไว้กับโรงเรียน หรือเลขบัตรของผู้ปกครอง — หากยังไม่ได้ กรุณาติดต่อแอดมิน','Try the phone number you gave the school, or the parent’s National ID — otherwise contact the admin'],
+    NO_RECORD:        ['ยังไม่มีข้อมูลผู้ปกครองของนักเรียนคนนี้','The school has no parent record for this child',
+                       'เลือก "ลงทะเบียนใหม่" เพื่อกรอกข้อมูลของท่าน','Choose “Register” to enter your details'],
+    ALREADY_CLAIMED:  ['ข้อมูลนี้ผูกกับบัญชี LINE อื่นแล้ว','This record is already linked to another LINE account',
+                       'ติดต่อแอดมินเพื่อตรวจสอบ','Contact the admin to check it'],
+    TOO_MANY_TRIES:   ['ยืนยันไม่สำเร็จหลายครั้ง','Too many failed attempts',
+                       'กรุณารอ 15 นาทีแล้วลองใหม่ หรือติดต่อแอดมิน','Wait 15 minutes and try again, or contact the admin'],
   };
   function err(e){
     const code=String((e&&e.code)||'');
@@ -651,7 +659,39 @@
       ${PENDING_LINE_UID?`<div class="card" style="background:#f7f9fc;margin-top:10px"><small class="muted">${EN()?'Your LINE ID (give this to the admin to link your staff account):':'LINE ID ของคุณ (ส่งให้แอดมินเพื่อผูกบัญชีพนักงาน):'}</small><br><code style="font-size:13px;word-break:break-all" onclick="navigator.clipboard&&navigator.clipboard.writeText('${esc(PENDING_LINE_UID)}')">${esc(PENDING_LINE_UID)}</code></div>`:''}
       <button class="btn-ghost block" style="margin-top:8px" onclick="loginScreen()">${esc(t('c.back'))}</button></div>`;
   }
-  window.chooserExisting = ()=> chooser();
+  // "I already gave my details to the school" — in production this used to dead-end on a screen that just
+  // said "please sign in with LINE", so an imported parent had no way in and registered again (the cause of
+  // the duplicate-parent mess). Now it opens the claim form. DEMO_MODE keeps the old role chooser for testing.
+  window.chooserExisting = ()=> CONFIG.DEMO_MODE ? chooser() : CLAIM_FORM();
+  // claim an EXISTING parent record: child's National ID + one thing only the family knows//the school holds
+  window.CLAIM_FORM = (prefillNid)=>{ USER=null; AUTH_RENDER=()=>CLAIM_FORM(prefillNid); setHeader(); nav.hidden=true;
+    app.innerHTML=`<div class="rolewrap"><img src="assets/logo.png" class="logo-lg" alt="logo"/>
+      <h2 class="page" style="text-align:center">✅ ${EN()?'Use my existing details':'ใช้ข้อมูลที่เคยให้โรงเรียนไว้'}</h2>
+      <p class="muted">${EN()?'If you already gave your details to the school, connect this LINE account to that record — no need to fill everything again.':'ถ้าท่านเคยให้ข้อมูลกับโรงเรียนไว้แล้ว เชื่อมบัญชี LINE นี้เข้ากับข้อมูลเดิมได้เลย ไม่ต้องกรอกใหม่'}</p>
+      <div class="card">
+        <label class="field"><span>${EN()?"Child's National ID (13 digits)":'เลขบัตรประชาชนของบุตรหลาน (13 หลัก)'} <span style="color:#c62828">*</span></span>
+          <input id="cl_nid" inputmode="numeric" maxlength="17" placeholder="1-2345-67890-12-3" value="${esc(prefillNid||'')}"/></label>
+        <label class="field"><span>${EN()?'Your National ID or your phone number':'เลขบัตรประชาชนของท่าน หรือเบอร์โทรของท่าน'} <span style="color:#c62828">*</span></span>
+          <input id="cl_ver" inputmode="numeric" placeholder="${EN()?'as given to the school':'ตามที่แจ้งไว้กับโรงเรียน'}"/></label>
+        <small class="muted" style="font-size:13px">${EN()?'Used only to confirm you are this child’s parent.':'ใช้เพื่อยืนยันว่าท่านเป็นผู้ปกครองของเด็กคนนี้เท่านั้น'}</small>
+        <button class="btn block" style="margin-top:10px" onclick="CLAIM_DO(this)">🔗 ${EN()?'Connect my account':'เชื่อมข้อมูลของฉัน'}</button>
+      </div>
+      <button class="btn-ghost block" onclick="REG_START()">${EN()?'I have never given my details — register':'ยังไม่เคยให้ข้อมูล — ลงทะเบียนใหม่'}</button>
+      <button class="btn-ghost block" onclick="accountStage()">${esc(t('c.back'))}</button></div>`; };
+  window.CLAIM_DO = async (btn)=>{ const g=id=>{ const e=$('#'+id); return e?e.value.trim():''; };
+    const nid=g('cl_nid'), ver=g('cl_ver');
+    if(nid.replace(/\D/g,'').length!==13){ toast(EN()?"Enter the child's 13-digit National ID":'กรอกเลขบัตรประชาชนนักเรียน 13 หลัก'); return; }
+    if(ver.replace(/\D/g,'').length<9){ toast(EN()?'Enter your National ID or phone number':'กรอกเลขบัตรของท่าน หรือเบอร์โทรของท่าน'); return; }
+    btn.disabled=true;
+    // PENDING_LINE_UID is set on every LIFF boot; atom_last_uid is only a belt-and-braces fallback.
+    // On GAS the server overwrites uid from the verified guest token anyway (applyIdentity_).
+    try{ let uid=PENDING_LINE_UID||''; if(!uid){ try{ uid=localStorage.getItem('atom_last_uid')||''; }catch(_){} }
+      const r=await api('claimParent',{uid,nationalId:nid,verify:ver});
+      await UPGRADE_SESSION();   // guest token → Parent token now that PARENTS.LineUID is set
+      const kids=(r.students||[]).map(s=>s.nick||s.name).filter(Boolean).join(', ');
+      confirmSaved((EN()?'Connected':'เชื่อมข้อมูลเรียบร้อย')+(kids?' — '+kids:''));
+      LOGIN_PARENT({nameTH:r.name||r.nick||'',nameEN:r.nameEN||r.name||'',parentId:r.parentId,uid:uid||r.parentId}); }
+    catch(e){ err(e); btn.disabled=false; } };
   // expose auth screens so inline Back buttons (onclick="...") can reach them
   window.loginScreen = loginScreen; window.accountStage = accountStage; window.chooser = chooser;
 
@@ -735,7 +775,16 @@
       confirmSaved(EN()?'Registered — now add your child':'ลงทะเบียนแล้ว — เพิ่มข้อมูลบุตรหลานต่อ');
       LOGIN_PARENT({nameTH:parent.NameTH,nameEN:parent.NameEN||parent.NameTH,parentId:r.parentId,uid});
       setTimeout(()=>P_addChild(),300); // prompt to add/link a child right after
-    }catch(e){err(e);} };
+    }catch(e){
+      // the school already has this parent on file — send them to the claim form instead of leaving them
+      // stuck on an error they cannot act on (registering again is what created the duplicates)
+      if(String((e&&e.code)||'')==='ALREADY_REGISTERED'){
+        modal(`<h3>✅ ${EN()?'The school already has your details':'โรงเรียนมีข้อมูลของท่านอยู่แล้ว'}</h3>
+          <p class="muted" style="font-size:13px">${EN()?'No need to fill everything again — connect this LINE account to your existing record.':'ไม่ต้องกรอกใหม่ทั้งหมด · เชื่อมบัญชี LINE นี้เข้ากับข้อมูลเดิมได้เลย'}</p>
+          <button class="btn block" onclick="this.closest('.modal').remove();CLAIM_FORM()">🔗 ${EN()?'Connect to my existing record':'เชื่อมกับข้อมูลเดิมของฉัน'}</button>
+          <button class="btn outline block" style="margin-top:8px" onclick="this.closest('.modal').remove()">${esc(t('c.close'))}</button>`);
+        return; }
+      err(e); } };
 
   // ----- add a NEW child (student-only form) — used from P_addChild -----
   window.REG_CHILD_FORM = ()=>{ REG_PICKUPS=1;

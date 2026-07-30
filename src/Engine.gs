@@ -901,6 +901,33 @@ function createAtomAPI(M, GROWTH_STD) {
     linkExisting: p => { const s=M.students.find(x=>String(x.NationalID)===String(p.nationalId).trim()); if(!s)fail('NOT_FOUND','เลขบัตรไม่ตรงกับนักเรียนในระบบ');
       if(p.uid && !M.userLinks.find(l=>l.UserUID===p.uid&&l.StudentID===s.StudentID)) M.userLinks.push({UserUID:p.uid,StudentID:s.StudentID,VerifiedBy:'verify',Date:todayLocal()});
       return {studentId:s.StudentID,name:s.NameTH,nameEN:s.NameEN}; },
+    // First LINE sign-in of a parent the school ALREADY has on file (imported, or entered by the admin):
+    // claim that existing record instead of registering a second one. This is the gap that produced 84
+    // duplicate parents. Verified by the CHILD's National ID plus the parent's own National ID or the
+    // phone the school recorded — never by name, and never on a record that has neither field filled.
+    claimParent: p => {
+      const uid=String(p.uid||'').trim(); if(!uid) fail('NO_IDENTITY','ไม่พบบัญชี LINE — กรุณาเข้าผ่าน LINE อีกครั้ง');
+      const nid=_dig(p.nationalId); if(nid.length!==13) fail('BAD_INPUT','กรอกเลขบัตรประชาชนนักเรียน 13 หลัก');
+      const ver=_dig(p.verify); if(ver.length<9) fail('BAD_INPUT','กรอกเลขบัตรประชาชนของผู้ปกครอง หรือเบอร์โทรที่แจ้งกับโรงเรียน');
+      const s=(M.students||[]).find(x=>_dig(x.NationalID)===nid); if(!s) fail('NOT_FOUND','ไม่พบนักเรียนจากเลขบัตรนี้ — ตรวจสอบเลขบัตร หรือติดต่อแอดมิน');
+      // every parent record the school has attached to this child (both legacy pointers)
+      const cands=(M.parents||[]).filter(x=>String(x.StudentID||'')===String(s.StudentID) || (s.ParentID&&String(x.ParentID)===String(s.ParentID)));
+      if(!cands.length) fail('NO_RECORD','ยังไม่มีข้อมูลผู้ปกครองของนักเรียนคนนี้ในระบบ — กรุณาเลือก "ลงทะเบียนใหม่"');
+      const same9=(a,b)=>a.length>=9&&b.length>=9&&a.slice(-9)===b.slice(-9);   // tolerate 0-prefix / +66
+      const hit=cands.find(x=>{ const n=_dig(x.NationalID), ph=_dig(x.Phone);
+        return (n && n===ver) || (ph && same9(ph,ver)); });
+      if(!hit) fail('VERIFY_FAILED','ข้อมูลยืนยันไม่ตรงกับที่โรงเรียนมี — กรุณาติดต่อแอดมิน');
+      const own=String(hit.LineUID||'').trim();
+      if(own && own!==uid) fail('ALREADY_CLAIMED','ข้อมูลผู้ปกครองนี้ผูกกับบัญชี LINE อื่นอยู่แล้ว — กรุณาติดต่อแอดมิน');
+      hit.LineUID=uid;
+      // bring along EVERY child on that record, not just the one used to verify
+      const kids=(M.students||[]).filter(x=>String(x.ParentID||'')===String(hit.ParentID));
+      if(!kids.some(x=>String(x.StudentID)===String(s.StudentID))) kids.push(s);
+      kids.forEach(k=>{ if(!(M.userLinks||[]).some(l=>String(l.UserUID)===uid&&String(l.StudentID)===String(k.StudentID)))
+        (M.userLinks=M.userLinks||[]).push({UserUID:uid,StudentID:k.StudentID,VerifiedBy:'claim',Date:todayLocal()}); });
+      logAct('claimParent',hit.ParentID,'ผูกบัญชี LINE เข้ากับข้อมูลเดิม '+(hit.NameTH||hit.Name||hit.ParentID)+' · '+kids.length+' คน',{role:'Parent',id:hit.ParentID,name:hit.NameTH||hit.Name||hit.ParentID});
+      return {parentId:hit.ParentID, name:hit.NameTH||hit.Name||'', nameEN:hit.NameEN||'', nick:hit.Nickname||'',
+        students:kids.map(k=>({studentId:k.StudentID, name:k.NameTH||k.Name||'', nick:k.Nickname||''}))}; },
     // Admin: parents currently linked to a student — via USER_LINKS (LINE uid) or legacy STUDENTS.ParentID.
     studentLinkedParents: p => { const s=studentById(p.studentId); if(!s)fail('NOT_FOUND','ไม่พบนักเรียน');
       const out=[], seen={};
