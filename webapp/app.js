@@ -112,7 +112,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.161'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.162'; // bump each webapp change; shown only at the bottom of the Chat screen
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
   const phoneFmt = p => { let d=String(p==null?'':p).replace(/\D/g,''); if(d.length===9) d='0'+d; return d; };
@@ -419,14 +419,14 @@
   const _isDark = () => { const a=document.documentElement.getAttribute('data-theme'); return a?a==='dark':_prefersDark(); };
   function paintThemeBtn(){ const b=document.getElementById('themeBtn'); if(!b) return;
     const dark=_isDark();
-    b.innerHTML='<span aria-hidden="true">'+(dark?'☀️':'🌙')+'</span>';
+    if(window.svgIcon) b.innerHTML=svgIcon(dark?'sun':'moon',20);
     b.setAttribute('aria-label', dark ? (EN()?'Switch to light mode':'สลับเป็นโหมดสว่าง') : (EN()?'Switch to dark mode':'สลับเป็นโหมดมืด'));
     const m=document.querySelector('meta[name=theme-color]'); if(m) m.setAttribute('content', dark?'#1b2027':'#1565C0'); }
   window.TOGGLE_THEME = () => { const next=_isDark()?'light':'dark';
     document.documentElement.setAttribute('data-theme', next);
     try{ localStorage.setItem('atom_theme', next); }catch(e){}
     paintThemeBtn(); };
-  paintThemeBtn();
+  setTimeout(paintThemeBtn,0);   // svgIcon is defined further down this file
   window.addEventListener('DOMContentLoaded', paintThemeBtn);
   try{ window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', ()=>{ if(!localStorage.getItem('atom_theme')) paintThemeBtn(); }); }catch(e){}
 
@@ -438,14 +438,47 @@
     if(USER.staffId && typeof T_profile==='function'){ T_profile(); return; }
     GO('home'); };
 
+
+  // ---- icon set (Phase 6 #14) ---------------------------------------------------------------------
+  // The navigation and header used emoji, which every platform draws differently — Android, iOS and
+  // Windows each ship their own artwork, sizes wander, and a few (🗂️ 🚑) are barely legible at 22px.
+  // These are stroke icons on a 24x24 grid using currentColor, so they inherit the tab's colour and
+  // follow light/dark for free. Content emoji are deliberately left alone: they carry meaning in the
+  // journal, announcements and money screens, and parents like them.
+  const ICON = {
+    home:'M3 11l9-7 9 7M5 10v10h14V10M10 20v-6h4v6',
+    pin:'M12 21s7-5.6 7-11a7 7 0 1 0-14 0c0 5.4 7 11 7 11z M12 12.5a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5z',
+    card:'M3 7.5h18v10a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 17.5v-10z M3 11h18 M6.5 15.5h4',
+    book:'M5 4h9a3 3 0 0 1 3 3v13H8a3 3 0 0 1-3-3V4z M17 7h2v13H8 M8 8.5h6 M8 12h6',
+    chart:'M4 19V5 M4 19h16 M7.5 15.5l3.5-4 3 2.5 4.5-6',
+    clipboard:'M9 4.5h6v2H9z M7 5.5H6a1 1 0 0 0-1 1V19a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V6.5a1 1 0 0 0-1-1h-1 M8.5 11h7 M8.5 14.5h4.5',
+    chat:'M20 12a7.5 7.5 0 0 1-11 6.6L5 20l1.2-3.4A7.5 7.5 0 1 1 20 12z',
+    kids:'M9 11a3 3 0 1 0 0-6 3 3 0 0 0 0 6z M3.5 20v-1.5A4.5 4.5 0 0 1 8 14h2a4.5 4.5 0 0 1 4.5 4.5V20 M16.5 6.2a2.8 2.8 0 0 1 0 5.6 M17 14.2a4 4 0 0 1 3.5 4V20',
+    aid:'M4 8.5A2.5 2.5 0 0 1 6.5 6h11A2.5 2.5 0 0 1 20 8.5v7A2.5 2.5 0 0 1 17.5 18h-11A2.5 2.5 0 0 1 4 15.5v-7z M12 9v6 M9 12h6',
+    inbox:'M4 13.5 6.5 6h11L20 13.5V18a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1v-4.5z M4 13.5h4l1 2h6l1-2h4',
+    calendar:'M4 7.5h16V19a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7.5z M4 11h16 M8 4.5v4 M16 4.5v4',
+    cash:'M3 7.5h18v9H3z M12 15a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5z M6 10.5v3 M18 10.5v3',
+    check:'M20 7 10 18l-5-5',
+    money:'M12 20.5a8.5 8.5 0 1 0 0-17 8.5 8.5 0 0 0 0 17z M14.5 9.2A2.6 2.6 0 0 0 12 7.8c-1.4 0-2.5.9-2.5 2s1.1 2 2.5 2 2.5.9 2.5 2-1.1 2-2.5 2a2.6 2.6 0 0 1-2.5-1.4 M12 6v12',
+    folders:'M3 8V6a1 1 0 0 1 1-1h4l1.5 2H14a1 1 0 0 1 1 1v1 M3 9.5h16.5a1 1 0 0 1 1 1L20 18a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9.5z',
+    bell:'M18 15.5V11a6 6 0 1 0-12 0v4.5L4.5 18h15L18 15.5z M10 20.5a2.2 2.2 0 0 0 4 0',
+    search:'M10.5 17a6.5 6.5 0 1 0 0-13 6.5 6.5 0 0 0 0 13z M15.2 15.2 20 20',
+    moon:'M20 14.5A8 8 0 0 1 9.5 4 8.5 8.5 0 1 0 20 14.5z',
+    sun:'M12 16.5a4.5 4.5 0 1 0 0-9 4.5 4.5 0 0 0 0 9z M12 2.5v2 M12 19.5v2 M2.5 12h2 M19.5 12h2 M5.3 5.3l1.4 1.4 M17.3 17.3l1.4 1.4 M18.7 5.3l-1.4 1.4 M6.7 17.3l-1.4 1.4',
+  };
+  // `<svg>` with no width/height would collapse before CSS lands, so both are set inline
+  window.svgIcon = (name, size) => { const d=ICON[name]; if(!d) return '';
+    const paths=d.split(' M').map((p,i)=>`<path d="${i?'M'+p:p}"/>`).join('');
+    return `<svg class="i" width="${size||22}" height="${size||22}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">${paths}</svg>`; };
+
   const NAVS = {
-    Parent:[['home','🏠','nav.home'],['checkin','📍','nav.checkin'],['payment','💳','nav.payment'],['journal','📒','nav.journal'],['growth','📈','nav.growth'],['dspm','📋','nav.dspm'],['chat','💬','nav.chat']],
-    Teacher:[['home','🏠','nav.home'],['class','👶','nav.class'],['injury','🚑','inj.nav'],['leave','📩','nav.leave'],['schedule','📅','nav.schedule'],['slip','💵','nav.slip']],
-    Admin:[['home','📊','nav.home'],['leaves','✅','nav.leaves'],['finance','💰','nav.finance'],['dspm','📈','nav.analytics'],['manage','🗂️','nav.manage'],['chat','💬','nav.chat']],
+    Parent:[['home','home','nav.home'],['checkin','pin','nav.checkin'],['payment','card','nav.payment'],['journal','book','nav.journal'],['growth','chart','nav.growth'],['dspm','clipboard','nav.dspm'],['chat','chat','nav.chat']],
+    Teacher:[['home','home','nav.home'],['class','kids','nav.class'],['injury','aid','inj.nav'],['leave','inbox','nav.leave'],['schedule','calendar','nav.schedule'],['slip','cash','nav.slip']],
+    Admin:[['home','chart','nav.home'],['leaves','check','nav.leaves'],['finance','money','nav.finance'],['dspm','clipboard','nav.analytics'],['manage','folders','nav.manage'],['chat','chat','nav.chat']],
   };
   function setNav(active){ if(!USER){nav.hidden=true;return;} nav.hidden=false;
     // aria-current marks the open tab for screen readers; the emoji is decorative next to the label
-    nav.innerHTML = NAVS[USER.role].map(([k,ic,l])=>`<button class="${k===active?'active':''}"${k===active?' aria-current="page"':''} onclick="GO('${k}')"><span class="ic" aria-hidden="true">${ic}</span>${esc(t(l))}</button>`).join(''); }
+    nav.innerHTML = NAVS[USER.role].map(([k,ic,l])=>`<button class="${k===active?'active':''}"${k===active?' aria-current="page"':''} onclick="GO('${k}')"><span class="ic">${svgIcon(ic)}</span>${esc(t(l))}</button>`).join(''); }
 
   // header quick-actions slot (before the language toggle); each screen fills it or it clears on nav
   window.setTopActions = html => { const el=document.getElementById('topActions'); if(el) el.innerHTML=html||''; };
