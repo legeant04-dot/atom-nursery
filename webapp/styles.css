@@ -615,3 +615,9 @@ html[data-theme="dark"]{
 button{color:var(--ink);}   /* UA default is black — invisible on a dark bar */
 input,select,textarea{color:var(--ink);background:var(--surface);}
 input::placeholder,textarea::placeholder{color:var(--ink-3);}
+
+/* nav / header icons: stroke SVGs on currentColor, so a tab's active colour and the dark theme both
+   come for free. Emoji were drawn differently by every platform and 🗂️/🚑 were unreadable at 22px. */
+.i{display:block;flex:none;}
+.bottomnav .ic{display:flex;align-items:center;justify-content:center;height:22px;}
+.bell .i,.langtoggle .i{margin:0 auto;}
