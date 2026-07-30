@@ -19,16 +19,28 @@ window.CONFIG = { MODE: 'gas', GAS_URL: 'https://script.google.com/macros/s/AKfy
     let m = (n.getFullYear() - d.getFullYear()) * 12 + (n.getMonth() - d.getMonth());
     if (n.getDate() < d.getDate()) m--; return Math.max(0, m); };
 
-  // mock mode (dev/demo) still runs the whole engine in the browser — fetch it on the first call
-  // instead of on every page load, so production never pays for it.
+  // load one of our own scripts on demand, inheriting this file's ?v=NN so it can never go stale.
+  // Repeat calls for the same src share one promise, so two callers can't inject it twice.
+  const _loaded = {};
+  window.__atomLoadScript = function (file, isReady) {
+    if (isReady && isReady()) return Promise.resolve();
+    if (_loaded[file]) return _loaded[file];
+    return (_loaded[file] = new Promise((res, rej) => {
+      const s = document.createElement('script'); s.src = file + VQ;
+      s.onload = res; s.onerror = () => { delete _loaded[file]; rej(new Error(file + ' failed to load')); };
+      document.head.appendChild(s);
+    }));
+  };
+
+  // mock mode (dev/demo) still runs the whole engine in the browser — fetch it, and the sample rows,
+  // on the first call instead of on every page load, so production never pays for either.
   let _H = null, _engineP = null;
   function mockHandlers() {
     if (_H) return Promise.resolve(_H);
-    if (!_engineP) _engineP = (window.createAtomAPI ? Promise.resolve() : new Promise((res, rej) => {
-      const s = document.createElement('script'); s.src = 'engine.js' + VQ;
-      s.onload = res; s.onerror = () => rej(new Error('engine.js failed to load'));
-      document.head.appendChild(s);
-    })).then(() => {
+    if (!_engineP) _engineP = Promise.all([
+      window.__atomLoadScript('engine.js', () => !!window.createAtomAPI),
+      window.__atomLoadScript('mockdata.js', () => !!(M && M.students && M.students.length)),
+    ]).then(() => {
       // seed: per-student Drive folder for the demo students (new students get one at registration)
       M.students.forEach(s => { if (!s.DriveFolderUrl) s.DriveFolderUrl = 'drive://' + (M.config.StudentFolderRoot || 'AtomNursery_Students') + '/' + String(s.NameTH || s.StudentID).trim().replace(/\s+/g, '_'); });
       _H = window.createAtomAPI(M, window.GROWTH_STD).H;   // GROWTH_STD comes from growth_standard.js

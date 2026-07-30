@@ -7,6 +7,12 @@
       "runtimeExecutable": "node",
       "runtimeArgs": ["tools/serve.js"],
       "port": 8090
+    },
+    {
+      "name": "atom-dist",
+      "runtimeExecutable": "node",
+      "runtimeArgs": ["tools/serve.js", "8091", "dist_pages"],
+      "port": 8091
     }
   ]
 }
