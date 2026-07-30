@@ -112,7 +112,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.162'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.163'; // bump each webapp change; shown only at the bottom of the Chat screen
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
   const phoneFmt = p => { let d=String(p==null?'':p).replace(/\D/g,''); if(d.length===9) d='0'+d; return d; };
@@ -890,7 +890,6 @@
   // ----- add a NEW child (student-only form) — used from P_addChild -----
   window.REG_CHILD_FORM = ()=>{ REG_PICKUPS=1;
     app.innerHTML=`<button class="btn sm outline backbtn" onclick="GO('home')">${t('c.back')}</button><h2 class="page">👶 ${esc(t('reg.childTitle'))}</h2>
-      <div class="card" style="background:var(--surface-2)"><small class="muted">${esc(t('reg.planByAdmin'))}</small></div>
       <div class="card"><h3>👶 ${esc(t('reg.student'))}</h3>
         <p class="muted" style="font-size:13px">${EN()?'Fields marked * are required (incl. English name & nickname).':'ช่องที่มี * จำเป็นต้องกรอก (รวมชื่อจริงและชื่อเล่นภาษาอังกฤษ)'}</p>
         <div class="grid2">${fld_('rNameTH',t('reg.nameTH')+' *')}${fld_('rNameEN',t('reg.nameEN')+' *')}</div>
@@ -3201,7 +3200,13 @@
     <label class="field"><span>${esc(t('c.month'))}</span><input type="month" id="gbMonth" value="${monthStr()}"/></label>
     <button class="btn block" onclick="A_genBillsDo(this)">${esc(t('bill.genBtn'))}</button>`); };
   window.A_genBillsDo=async(btn)=>{ const m=btn.closest('.modal'); const r=await api('generateMonthlyBills',{month:m.querySelector('#gbMonth').value});
-    m.remove(); confirmSaved(t('bill.genDone').replace('{n}',r.created).replace('{m}',r.month)); };
+    m.remove(); confirmSaved(t('bill.genDone').replace('{n}',r.created).replace('{m}',r.month));
+    // children with no package are skipped rather than billed 0 — name them, or nobody would notice
+    const np=r.noPlan||[];
+    if(np.length) setTimeout(()=>modal(`<h3>⚠️ ${EN()?'Skipped — no package yet':'ข้ามไป — ยังไม่ได้เลือกแพ็กเกจ'} (${np.length})</h3>
+      <p class="muted" style="font-size:13px">${EN()?'These children were NOT billed because no package is set. Set one in the student record, then generate again.':'นักเรียนต่อไปนี้ยังไม่ได้ออกบิล เพราะยังไม่ได้ตั้งแพ็กเกจ · ตั้งแพ็กเกจในข้อมูลนักเรียนแล้วกดออกบิลอีกครั้ง'}</p>
+      ${np.map(x=>`<div class="list-item"><span><b>${esc(x.nick||x.name||x.studentId)}</b>${x.nick&&x.name?` <small class="muted">${esc(x.name)}</small>`:''}</span><button class="btn sm outline" onclick="this.closest('.modal').remove();A_studentForm('${esc(x.studentId)}')">✏️ ${EN()?'Set package':'ตั้งแพ็กเกจ'}</button></div>`).join('')}
+      <button class="btn outline block" style="margin-top:8px" onclick="this.closest('.modal').remove()">${esc(t('c.close'))}</button>`), 600); };
 
   // ---- per-student extra charges (auto-merged into monthly bill) ----
   window.A_charges=async(sid)=>{ const s=MOCK.students.find(x=>x.StudentID===sid)||{}; const month=monthStr(); const list=await api('studentCharges',{studentId:sid,month});
@@ -3387,7 +3392,8 @@
     if(Object.keys(gv).length) await api('setSchoolConfig',{values:gv});
     await api('setConfigVal',{key:'DiligenceAttendanceAmount',value:+m.querySelector('#setAtt').value});
     await api('setConfigVal',{key:'DiligenceFacebookAmount',value:+m.querySelector('#setFb').value});
-    for(const k of Object.keys(MOCK.config.LeaveQuota)){ const el=m.querySelector('#lq_'+k); if(el) await api('setLeaveQuota',{type:k,days:+el.value}); }
+    for(const el of m.querySelectorAll('input[id^="lq_"]')){ const type=el.id.slice(3); if(!type) continue;
+      await api('setLeaveQuota',{type,days:+el.value||0}); }
     m.remove(); confirmSaved(t('c.saved')); };
 
   // ---- OT verification (check the ≥50min→1hr rule on attendance) ----
