@@ -101,7 +101,14 @@ function createAtomAPI(M, GROWTH_STD) {
 
   // ---- plans / OT ----
   const planById = id => (cfg.Plans||[]).find(p=>p.id===id) || null;
-  const studentPlan = s => planById(s&&s.Plan) || (cfg.Plans||[])[0] || {end:'17:00',price:0};
+  // A child with NO package must cost NOTHING and show NOTHING. This used to fall back to the first
+  // plan in the list, so every unassigned child silently inherited it — on live that is the 3,000
+  // monthly package, and it reached the bills, the payment screens and prepay, not just a label.
+  // Only the END TIME still falls back (OT has to be measured against something, and the school-wide
+  // default is the honest answer there); the price is 0 and the labels are blank.
+  const NO_PLAN = () => ({ id:'', labelTH:'', labelEN:'', price:0,
+    end:String(cfg.DefaultCheckOutTime || ((cfg.Plans||[])[0]||{}).end || '17:00').slice(0,5) });
+  const studentPlan = s => planById(s&&s.Plan) || NO_PLAN();
   // Per-student leave time (individual schedule) overrides the plan end. OT is measured against THIS,
   // so a child whose day ends 18:00/19:00 is never charged OT from 17:00. Blank → fall back to plan end.
   const studentEndTime = s => { const e=String((s&&(s.EndTime||s.LeaveTime))||'').trim(); return /^\d{1,2}:\d{2}/.test(e) ? e.slice(0,5) : studentPlan(s).end; };
@@ -434,6 +441,8 @@ function createAtomAPI(M, GROWTH_STD) {
     // for a future month → that month shows "ชำระแล้ว"); paidDate/method optional, defaults today/cash.
     issueBill: p => { const s=studentById(p.studentId); if(!s)fail('NOT_FOUND','ไม่พบนักเรียน'); const month=p.month||todayLocal().slice(0,7);
       const plan=studentPlan(s); const planPrice=plan.price||0; const disc=studentDiscount_(s, planPrice);
+      // no package and no custom amount would silently issue a 0-baht bill; say so instead
+      if(p.amount==null && !p.items && planPrice<=0) fail('NO_PLAN_PRICE','นักเรียนคนนี้ยังไม่ได้เลือกแพ็กเกจ — กรุณาตั้งแพ็กเกจก่อนออกบิล');
       // custom amount → respect as-is; default → plan price minus the student's monthly discount (hidden line)
       const amount=p.amount!=null?Number(p.amount):Math.max(0, planPrice-disc);
       const label=p.label||('ค่าเทอม '+((plan&&plan.labelTH)||'')); const items=p.items||[[label,amount]];
@@ -454,11 +463,14 @@ function createAtomAPI(M, GROWTH_STD) {
     // Admin deletes a bill (ยอดเรียกเก็บ). Removes the BILLING row; leaves any slip history in PAYMENT_SLIPS.
     deleteBill: p => { const i=M.payments.findIndex(x=>x.BillingID===p.billingId); if(i<0)fail('NOT_FOUND','ไม่พบบิล'); const b=M.payments[i]; M.payments.splice(i,1); logAct('deleteBill',p.billingId,'ลบบิล '+ym(b&&b.Month),actorOf(p)); return {ok:true}; },
     // auto-generate the month's bill for all active students from Plan price (skip if already billed)
-    generateMonthlyBills: p => { const month=p.month||todayLocal().slice(0,7); let created=0;
+    generateMonthlyBills: p => { const month=p.month||todayLocal().slice(0,7); let created=0; const noPlan=[];
       activeStudents().forEach(s=>{ if(M.payments.find(x=>x.StudentID===s.StudentID&&ym(x.Month)===month))return; const plan=studentPlan(s);
         const price=plan.price||0; const net=Math.max(0, price-studentDiscount_(s, price));   // apply the student's monthly discount silently
+        // a child with no package gets NO bill rather than a phantom 0-baht one — reported back so the
+        // admin can see exactly who still needs a package assigned
+        if(price<=0){ noPlan.push({studentId:s.StudentID, name:s.NameTH||s.Name||'', nick:s.Nickname||''}); return; }
         M.payments.push({BillingID:'BL-'+month+'-'+s.StudentID,StudentID:s.StudentID,Month:month,Items:[['ค่าเทอม '+((plan&&plan.labelTH)||''),net]],Amount:net,OTRollover:0,DueDate:month+'-05',PaidDate:'',Status:'UNPAID',SlipUrl:'',SlipAmount:0,VerifiedStatus:'',Auto:true}); created++; });
-      return {month,created}; },
+      return {month,created,noPlan}; },
     // attach a monthly slip → records a PAYMENT_SLIPS row (multiple allowed), bill → PENDING_VERIFY.
     uploadSlip: p => recordSlip_('bill', p.billingId, p),
     // ONE transfer slip paying several siblings' bills. The ticked bills are summed; the slip amount MUST

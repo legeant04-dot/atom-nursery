@@ -315,6 +315,41 @@ function handleSetSchoolConfig(p) {
   return { ok: true, wrote: wrote };
 }
 
+// Leave quota + single config values. These USED to fall through to the engine, which only mutates its
+// in-memory cfg object — and GasEngine's persist() writes sheet COLLECTIONS, never SCHOOL_CONFIG. So the
+// app said "saved" and nothing changed: the quota AND both diligence amounts were silently discarded on
+// every save. Both now write the sheet in place and bust the config cache.
+// LeaveQuota lives as ONE JSON value so the leave types stay open-ended; hydrateConfig_ parses it back.
+function handleSetLeaveQuota(p) {
+  p = p || {};
+  var type = String(p.type || '').trim();
+  if (!type) throw apiError_('BAD_INPUT', 'ต้องระบุประเภทการลา');
+  var days = Number(p.days);
+  if (!isFinite(days) || days < 0) throw apiError_('BAD_INPUT', 'จำนวนวันต้องเป็นตัวเลข 0 ขึ้นไป');
+  var cur = getConfig_('LeaveQuota', '');
+  var q = {};
+  if (cur && typeof cur === 'object') q = cur;
+  else if (cur) { try { q = JSON.parse(String(cur)); } catch (e) { q = {}; } }
+  if (!q || typeof q !== 'object') q = {};
+  q[type] = days;
+  setConfigValue_('LeaveQuota', JSON.stringify(q));
+  try { logAudit(p.adminId || 'admin', 'SET_LEAVE_QUOTA', 'SCHOOL_CONFIG', type + '=' + days); } catch (e) {}
+  return q;
+}
+
+// One config value at a time, whitelisted the same way handleSetSchoolConfig is.
+function handleSetConfigVal(p) {
+  p = p || {};
+  var WHITE = { DiligenceAttendanceAmount: 1, DiligenceFacebookAmount: 1, ExtraChildRate: 1, TrainingCertRate: 1,
+    TrainingCertMaxPerMonth: 1, SocialSecurityRate: 1, SocialSecurityMax: 1, OTRatePerHour: 1, OTGraceMinutes: 1,
+    StaffOTHourlyRate: 1, LateGraceMinutes: 1, OTRoundUpMinutes: 1, AbsenceRateExcludeDays: 1, DspmManualUrl: 1 };
+  var key = String(p.key || '');
+  if (!WHITE[key]) throw apiError_('BAD_INPUT', 'ไม่อนุญาตให้แก้ค่านี้: ' + key);
+  setConfigValue_(key, p.value);
+  try { logAudit(p.adminId || 'admin', 'SET_CONFIG', 'SCHOOL_CONFIG', key + '=' + p.value); } catch (e) {}
+  return { key: key, value: p.value };
+}
+
 // Admin package (Plan) CRUD — persist the full Plans array as JSON in SCHOOL_CONFIG (in-place). Admin-only.
 // hydrateConfig_ JSON-parses it back into cfg.Plans (an array) on the next request.
 function handleSavePlans(p) {
