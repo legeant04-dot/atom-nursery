@@ -112,7 +112,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.164'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.165'; // bump each webapp change; shown only at the bottom of the Chat screen
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
   const phoneFmt = p => { let d=String(p==null?'':p).replace(/\D/g,''); if(d.length===9) d='0'+d; return d; };
@@ -727,11 +727,19 @@
   // ---- LINE / LIFF auth ----
   let PENDING_PROVIDER=null;
   let PENDING_LINE_UID=null; // real LINE userId from liff.getProfile() — used during registration
+  // index.html paints this same card from static HTML before any script runs, and it is
+  // character-for-character what this function produces (measured: same height, same text, same
+  // buttons). Replacing it with an identical render still creates NEW elements, and the browser treats
+  // a newly painted element of that size as a fresh Largest-Contentful-Paint candidate — which is why
+  // LCP sat ~3s behind FCP while nothing on screen changed. So when the shell is still there and we
+  // would draw exactly it, leave it alone. English re-renders (the shell is written in Thai), and once
+  // any other screen has replaced it the shell is gone and this renders normally.
   function loginScreen(){ USER=null; AUTH_RENDER=loginScreen; setHeader(); nav.hidden=true;
+    if(document.getElementById('bootSplash') && !EN()) return;
     app.innerHTML = `<div class="rolewrap"><img src="assets/logo.png" class="logo-lg" alt="logo"/>
       <h2 class="page" style="text-align:center">${esc(t('login.title'))}</h2>
       <p class="muted">${esc(t('login.lineOnly'))}</p>
-      <button class="role-card" onclick="LIFF_LOGIN()"><span class="ic" style="background:#06C755;color:var(--surface);font-weight:800">L</span><span><b>${esc(t('login.lineBtn'))}</b><br><small>${esc(t('login.lineSub'))}</small></span></button>
+      <button class="role-card" onclick="LIFF_LOGIN()"><span class="ic" style="background:#06C755;color:#fff;font-weight:800">L</span><span><b>${esc(t('login.lineBtn'))}</b><br><small>${esc(t('login.lineSub'))}</small></span></button>
       <label style="display:flex;align-items:center;gap:8px;justify-content:center;margin-top:10px;font-size:13px"><input type="checkbox" id="rememberMe" checked style="width:auto"/> ${esc(t('login.remember'))}</label>
       ${installButtonsHTML()}</div>`;
   }
