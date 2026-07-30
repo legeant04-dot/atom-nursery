@@ -903,10 +903,12 @@ function createAtomAPI(M, GROWTH_STD) {
       (M.userLinks||[]).filter(l=>String(l.StudentID)===String(p.studentId)).forEach(l=>{
         const pa=(M.parents||[]).find(x=>String(x.LineUID)===String(l.UserUID));
         if(seen['uid:'+l.UserUID])return; seen['uid:'+l.UserUID]=1;
-        out.push({parentId:pa?pa.ParentID:'', uid:l.UserUID, name:pa?(pa.NameTH||pa.Name):l.UserUID, nick:pa?pa.Nickname:'', phone:pa?pa.Phone:'', via:'link'}); });
+        out.push({parentId:pa?pa.ParentID:'', uid:l.UserUID, name:pa?(pa.NameTH||pa.Name):'', nick:pa?pa.Nickname:'', phone:pa?pa.Phone:'',
+          rel:pa?(pa.Relationship||''):'', title:pa?(pa.Title||''):'', via:'link'}); });
       (M.parents||[]).filter(pa=>String(pa.StudentID)===String(p.studentId)||pa.ParentID===s.ParentID).forEach(pa=>{
         if(seen['pid:'+pa.ParentID]||(pa.LineUID&&seen['uid:'+pa.LineUID]))return; seen['pid:'+pa.ParentID]=1;
-        out.push({parentId:pa.ParentID, uid:pa.LineUID||'', name:pa.NameTH||pa.Name, nick:pa.Nickname, phone:pa.Phone, via:'legacy'}); });
+        out.push({parentId:pa.ParentID, uid:pa.LineUID||'', name:pa.NameTH||pa.Name, nick:pa.Nickname, phone:pa.Phone,
+          rel:pa.Relationship||'', title:pa.Title||'', via:'legacy'}); });
       return {studentId:p.studentId, name:s.NameTH, nick:s.Nickname, parents:out}; },
     // Admin: the students a parent is linked to — reverse of studentLinkedParents (USER_LINKS by the
     // parent's LineUID ∪ legacy STUDENTS.ParentID). Feeds the "how many children" view.
@@ -936,25 +938,41 @@ function createAtomAPI(M, GROWTH_STD) {
       return out; },
     // Admin bypass: link a parent's LINE UID to a student (found by the student's National ID) when the
     // parent can't self-register. Optionally fills the parent's personal info. UID + National ID always required.
-    linkParentAdmin: p => { const uid=String(p.uid||'').trim(); const nid=String(p.nationalId||'').trim();
-      if(!uid) fail('BAD_INPUT','ต้องระบุ LINE UID ของผู้ปกครอง'); if(!nid) fail('BAD_INPUT','ต้องระบุเลขบัตรประชาชนนักเรียน');
-      const s=(M.students||[]).find(x=>String(x.NationalID||'').trim()===nid); if(!s) fail('NOT_FOUND','ไม่พบนักเรียนจากเลขบัตรนี้');
-      if(!(M.userLinks||[]).find(l=>String(l.UserUID)===uid&&String(l.StudentID)===String(s.StudentID))) (M.userLinks=M.userLinks||[]).push({UserUID:uid,StudentID:s.StudentID,VerifiedBy:'admin',Date:todayLocal()});
-      const d=p.data||{}; let pa=(M.parents||[]).find(x=>String(x.LineUID)===uid);
-      const hasInfo=!!(d.NameTH||d.NameEN||d.Phone||d.Nickname);
+    // The parent may be identified three ways, in this order: an existing PARENTS row (parentId — what
+    // the admin picks from a list), a LINE UID, or new info to create a row with. The student likewise by
+    // studentId or National ID. A parent who has never signed in with LINE has no UID to link, so they
+    // get the LEGACY linkage (STUDENTS.ParentID / PARENTS.StudentID) that the readers already understand.
+    linkParentAdmin: p => { const uid0=String(p.uid||'').trim(); const nid=String(p.nationalId||'').trim(); const sid=String(p.studentId||'').trim();
+      const s = sid ? studentById(sid) : (nid ? (M.students||[]).find(x=>String(x.NationalID||'').trim()===nid) : null);
+      if(!s) fail(sid||nid?'NOT_FOUND':'BAD_INPUT', sid?'ไม่พบนักเรียน':nid?'ไม่พบนักเรียนจากเลขบัตรนี้':'ต้องเลือกนักเรียน');
+      const d=p.data||{}; const hasInfo=!!(d.NameTH||d.NameEN||d.Phone||d.Nickname);
+      let pa = p.parentId ? (M.parents||[]).find(x=>String(x.ParentID)===String(p.parentId)) : null;
+      if(p.parentId && !pa) fail('NOT_FOUND','ไม่พบผู้ปกครอง');
+      let uid = uid0 || (pa?String(pa.LineUID||'').trim():'');
+      if(!pa && uid) pa=(M.parents||[]).find(x=>String(x.LineUID)===uid);
+      if(!pa && !uid && !hasInfo) fail('BAD_INPUT','ต้องเลือกผู้ปกครอง หรือกรอกข้อมูลผู้ปกครองใหม่');
       if(!pa && hasInfo){ pa={ParentID:nextSeqId_(M.parents,'ParentID','PAR',0),LineUID:uid}; M.parents.push(pa); }
-      if(pa){ ['NameTH','NameEN','Nickname','NicknameEN','Phone','Relationship','Title'].forEach(k=>{ if(d[k]!=null&&d[k]!=='')pa[k]=d[k]; }); if(!s.ParentID)s.ParentID=pa.ParentID; }
-      logAct('linkParentAdmin', s.StudentID, 'ผูก '+uid+' → '+s.StudentID+(hasInfo?' (+ข้อมูล)':''), actorOf(p));
-      return {ok:true, studentId:s.StudentID, name:s.NameTH, nick:s.Nickname, parentId:pa?pa.ParentID:'', needInfo:!pa}; },
+      if(pa){ ['NameTH','NameEN','Nickname','NicknameEN','Phone','Relationship','Title'].forEach(k=>{ if(d[k]!=null&&d[k]!=='')pa[k]=d[k]; }); }
+      let via='';
+      if(uid){ if(!(M.userLinks||[]).find(l=>String(l.UserUID)===uid&&String(l.StudentID)===String(s.StudentID))) (M.userLinks=M.userLinks||[]).push({UserUID:uid,StudentID:s.StudentID,VerifiedBy:'admin',Date:todayLocal()});
+        via='link'; if(pa && !s.ParentID) s.ParentID=pa.ParentID; }
+      else { if(!s.ParentID) s.ParentID=pa.ParentID;
+        else if(String(s.ParentID)!==String(pa.ParentID)){ if(!pa.StudentID) pa.StudentID=s.StudentID;
+          else fail('LINK_TAKEN','นักเรียนคนนี้ผูกกับผู้ปกครองรายอื่นแบบไม่มี LINE อยู่แล้ว — ยกเลิกการผูกเดิมก่อน'); }
+        via='legacy'; }
+      logAct('linkParentAdmin', s.StudentID, 'ผูก '+(pa?pa.ParentID:uid)+' → '+s.StudentID+' ('+via+')'+(hasInfo?' (+ข้อมูล)':''), actorOf(p));
+      return {ok:true, studentId:s.StudentID, name:s.NameTH, nick:s.Nickname, parentId:pa?pa.ParentID:'', via:via, needInfo:!pa}; },
     // Admin: detach ONE parent from a child (keeps the child enrolled). GAS routes this to an in-place
     // handler (USER_LINKS is a no-shrink sheet — the engine's full rewrite would be blocked by WRITE_GUARD).
     unlinkStudent: p => { const s=studentById(p.studentId); if(!s)fail('NOT_FOUND','ไม่พบนักเรียน');
       let uid=p.uid||''; if(!uid&&p.parentId){ const pa=(M.parents||[]).find(x=>x.ParentID===p.parentId); if(pa)uid=pa.LineUID; }
-      const before=(M.userLinks||[]).length;
+      const before=(M.userLinks||[]).length; let extra=0;
       M.userLinks=(M.userLinks||[]).filter(l=>!(String(l.StudentID)===String(p.studentId) && uid && String(l.UserUID)===String(uid)));
-      if(p.parentId && s.ParentID===p.parentId) s.ParentID='';
+      if(p.parentId && s.ParentID===p.parentId){ s.ParentID=''; extra++; }
+      // the other legacy pointer: PARENTS.StudentID (used when a child already had a legacy parent)
+      if(p.parentId){ const pa=(M.parents||[]).find(x=>String(x.ParentID)===String(p.parentId)); if(pa && String(pa.StudentID||'')===String(p.studentId)){ pa.StudentID=''; extra++; } }
       logAct('unlinkStudent',p.studentId,'ยกเลิกผูก '+(p.parentId||uid),actorOf(p));
-      return {ok:true, removed:before-(M.userLinks||[]).length}; },
+      return {ok:true, removed:before-(M.userLinks||[]).length+extra}; },
 
     // ========== Group C: growth update ==========
     growthDue: p => { const s=studentById(p.studentId); if(!s)return{due:false};

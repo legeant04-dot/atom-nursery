@@ -93,24 +93,27 @@ function handleSaveStudent(p) {
 
 // Admin bypass: link a parent's LINE UID to a student (found by National ID) when the parent can't
 // self-register; optionally fill the parent's info. In-place (USER_LINKS/PARENTS are no-shrink sheets).
+// The parent may be identified three ways, in this order: an existing PARENTS row (parentId — what the
+// admin picks from a list), a LINE UID, or new info to create a row with. The student likewise by
+// studentId or National ID. A parent who has never signed in with LINE has no UID to link, so they get
+// the LEGACY linkage (STUDENTS.ParentID / PARENTS.StudentID) that the readers already understand —
+// requiring a UID meant the admin could not link a phone-only parent at all.
 function handleLinkParentAdmin(p) {
   p = p || {};
-  var uid = String(p.uid || '').trim(); var nid = String(p.nationalId || '').trim();
-  if (!uid) throw apiError_('BAD_INPUT', 'ต้องระบุ LINE UID ของผู้ปกครอง');
-  if (!nid) throw apiError_('BAD_INPUT', 'ต้องระบุเลขบัตรประชาชนนักเรียน');
+  var uid = String(p.uid || '').trim(); var nid = String(p.nationalId || '').trim(); var sid = String(p.studentId || '').trim();
   var stSheet = sheet_(getMainSpreadsheet_(), 'STUDENTS');
-  var st = findObject_(stSheet, function (s) { return String(s.NationalID || '').trim() === nid; });
-  if (!st) throw apiError_('NOT_FOUND', 'ไม่พบนักเรียนจากเลขบัตรนี้');
-  // USER_LINKS: append the link if not already present (append is allowed on a no-shrink sheet)
-  var ul = sheet_(getMainSpreadsheet_(), 'USER_LINKS');
-  var exists = readObjects_(ul).some(function (l) { return String(l.UserUID) === uid && String(l.StudentID) === String(st.StudentID); });
-  if (!exists) appendObject_(ul, { UserUID: uid, StudentID: st.StudentID, VerifiedBy: 'admin', Date: dateStr_(new Date()) });
-  try { CacheService.getScriptCache().removeAll(['rows:USER_LINKS', 'col:USER_LINKS']); } catch (e) {}
-  // PARENTS: upsert by LineUID; create only when info is supplied
+  var st = sid ? findObject_(stSheet, function (s) { return String(s.StudentID) === sid; })
+    : (nid ? findObject_(stSheet, function (s) { return String(s.NationalID || '').trim() === nid; }) : null);
+  if (!st) throw apiError_(sid || nid ? 'NOT_FOUND' : 'BAD_INPUT', sid ? 'ไม่พบนักเรียน' : nid ? 'ไม่พบนักเรียนจากเลขบัตรนี้' : 'ต้องเลือกนักเรียน');
   var d = p.data || {}; var hasInfo = !!(d.NameTH || d.NameEN || d.Phone || d.Nickname);
   var pSheet = sheet_(getMainSpreadsheet_(), 'PARENTS');
   try { ensureColumns_(pSheet, ['Nickname', 'NicknameEN', 'Title', 'LineUID']); } catch (e) {}
-  var pa = findObject_(pSheet, function (x) { return String(x.LineUID) === uid; });
+  // resolve the parent row: picked from the list first, then by LINE UID
+  var pa = p.parentId ? findObject_(pSheet, function (x) { return String(x.ParentID) === String(p.parentId); }) : null;
+  if (p.parentId && !pa) throw apiError_('NOT_FOUND', 'ไม่พบผู้ปกครอง');
+  if (pa && !uid) uid = String(pa.LineUID || '').trim();
+  if (!pa && uid) pa = findObject_(pSheet, function (x) { return String(x.LineUID) === uid; });
+  if (!pa && !uid && !hasInfo) throw apiError_('BAD_INPUT', 'ต้องเลือกผู้ปกครอง หรือกรอกข้อมูลผู้ปกครองใหม่');
   var pid = pa ? pa.ParentID : '';
   if (!pa && hasInfo) {
     pid = nextId_(pSheet, 'ParentID', 'PAR');
@@ -120,10 +123,28 @@ function handleLinkParentAdmin(p) {
     var patch = {}; ['NameTH', 'NameEN', 'Nickname', 'NicknameEN', 'Phone', 'Relationship', 'Title'].forEach(function (k) { if (d[k] != null && d[k] !== '') patch[k] = d[k]; });
     if (Object.keys(patch).length) updateRow_(pSheet, pa._row, patch);
   }
-  if (pid && !st.ParentID) { updateRow_(stSheet, st._row, { ParentID: pid }); }
+  var via = '';
+  if (uid) {
+    // USER_LINKS: append the link if not already present (append is allowed on a no-shrink sheet)
+    var ul = sheet_(getMainSpreadsheet_(), 'USER_LINKS');
+    var exists = readObjects_(ul).some(function (l) { return String(l.UserUID) === uid && String(l.StudentID) === String(st.StudentID); });
+    if (!exists) appendObject_(ul, { UserUID: uid, StudentID: st.StudentID, VerifiedBy: 'admin', Date: dateStr_(new Date()) });
+    try { CacheService.getScriptCache().removeAll(['rows:USER_LINKS', 'col:USER_LINKS']); } catch (e) {}
+    via = 'link';
+    if (pid && !st.ParentID) updateRow_(stSheet, st._row, { ParentID: pid });
+  } else {
+    // no LINE account yet — legacy link, on whichever of the two pointers is free
+    if (!st.ParentID) updateRow_(stSheet, st._row, { ParentID: pid });
+    else if (String(st.ParentID) !== String(pid)) {
+      if (pa && !pa.StudentID) updateRow_(pSheet, pa._row, { StudentID: st.StudentID });
+      else throw apiError_('LINK_TAKEN', 'นักเรียนคนนี้ผูกกับผู้ปกครองรายอื่นแบบไม่มี LINE อยู่แล้ว — ยกเลิกการผูกเดิมก่อน');
+    }
+    via = 'legacy';
+  }
+  recCacheBust_('STUDENTS');
   try { CacheService.getScriptCache().removeAll(['rows:PARENTS', 'col:PARENTS', 'rows:STUDENTS', 'col:STUDENTS']); } catch (e) {}
-  try { logAudit(p.adminId || 'admin', 'LINK_PARENT_ADMIN', 'USER_LINKS', st.StudentID + ' <- ' + uid); } catch (e) {}
-  return { ok: true, studentId: st.StudentID, name: st.NameTH, nick: st.Nickname, parentId: pid, needInfo: !pid };
+  try { logAudit(p.adminId || 'admin', 'LINK_PARENT_ADMIN', 'USER_LINKS', st.StudentID + ' <- ' + (pid || uid) + ' (' + via + ')'); } catch (e) {}
+  return { ok: true, studentId: st.StudentID, name: st.NameTH, nick: st.Nickname, parentId: pid, via: via, needInfo: !pid };
 }
 
 // Admin: unlink ONE parent from a child WITHOUT withdrawing the child. In-place — USER_LINKS is a
@@ -142,7 +163,12 @@ function handleUnlinkStudent(p) {
   // legacy linkage: if the student's ParentID points to this parent, clear it too
   var stSheet = sheet_(getMainSpreadsheet_(), 'STUDENTS');
   var st = findObject_(stSheet, function (s) { return String(s.StudentID) === String(p.studentId); });
-  if (st && p.parentId && String(st.ParentID) === String(p.parentId)) { updateRow_(stSheet, st._row, { ParentID: '' }); recCacheBust_('STUDENTS'); }
+  if (st && p.parentId && String(st.ParentID) === String(p.parentId)) { updateRow_(stSheet, st._row, { ParentID: '' }); recCacheBust_('STUDENTS'); removed++; }
+  // the other legacy pointer: PARENTS.StudentID (set when the child already had a legacy parent)
+  if (p.parentId) {
+    var pa2 = findObject_(pSheet, function (x) { return String(x.ParentID) === String(p.parentId); });
+    if (pa2 && String(pa2.StudentID || '') === String(p.studentId)) { updateRow_(pSheet, pa2._row, { StudentID: '' }); removed++; }
+  }
   try { CacheService.getScriptCache().removeAll(['rows:USER_LINKS', 'col:USER_LINKS']); } catch (e) {}
   try { logAudit(p.adminId || 'admin', 'UNLINK_STUDENT', 'USER_LINKS', String(p.studentId) + ' <-> ' + (p.parentId || uid)); } catch (e) {}
   return { ok: true, removed: removed };
@@ -298,7 +324,10 @@ function handleSaveFamilyParent(p) {
   // (a data: URL is offloaded to Drive by updateRow_ -> driveifyImage_; LinePictureUrl is never written here)
   var d = p.data || {}, WHITE = ['NameTH', 'NameEN', 'Nickname', 'NicknameEN', 'Title', 'Relationship', 'Phone', 'Occupation', 'Workplace', 'OfficePhone', 'Address', 'Photo'];
   var row = {};
-  WHITE.forEach(function (k) { if (d[k] !== undefined) row[k] = d[k]; });
+  // never store markup in a name/relationship cell: v156-v157 briefly pre-filled the Relationship input
+  // with a rendered '<span translate="no">…</span>' label, so a parent saving My-info wrote it back
+  WHITE.forEach(function (k) { if (d[k] === undefined) return;
+    row[k] = (k === 'Photo' || typeof d[k] !== 'string') ? d[k] : d[k].replace(/<[^>]*>/g, '').trim(); });
   if (row.NameTH !== undefined) { row.Name = row.NameTH; delete row.NameTH; }
   updateRow_(sh, pa._row, row);
   recCacheBust_('PARENTS');
