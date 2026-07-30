@@ -112,7 +112,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.157'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.158'; // bump each webapp change; shown only at the bottom of the Chat screen
   const verTag = () => `<div style="text-align:center;color:#c3c9d4;font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
   const phoneFmt = p => { let d=String(p==null?'':p).replace(/\D/g,''); if(d.length===9) d='0'+d; return d; };
@@ -125,7 +125,9 @@
   // those; anything else the school typed is shown as-is (and shielded, so the EN phrase dictionary
   // can't chop it into a half-English hybrid).
   const REL_EN = { 'บิดา':'Father', 'มารดา':'Mother', 'ผู้ปกครอง':'Guardian' };
-  const relLabel = v => { const s=String(v==null?'':v).trim(); if(!s) return '';
+  // strip any tags: v156-v157 briefly rendered this label INTO the profile input, so a parent who saved
+  // My-info in that window stored '<span translate="no">มารดา</span>' in PARENTS.Relationship
+  const relLabel = v => { const s=String(v==null?'':v).replace(/<[^>]*>/g,'').trim(); if(!s) return '';
     return (EN() && REL_EN[s]) ? esc(REL_EN[s]) : _notr(s); };
   // password input with a 👁️ show/hide toggle
   const pwField = (id,label,ph)=>`<label class="field"><span>${esc(label)}</span><div class="row" style="gap:6px"><input type="password" id="${id}" placeholder="${esc(ph||'')}" style="flex:1"/><button type="button" class="btn sm outline" onclick="PW_toggle('${id}',this)" title="show/hide" aria-label="${EN()?"Show or hide password":"แสดง/ซ่อนรหัสผ่าน"}" title="${EN()?"Show or hide password":"แสดง/ซ่อนรหัสผ่าน"}">👁️</button></div></label>`;
@@ -1053,7 +1055,7 @@
         </div>
         <div class="grid2"><label class="field"><span>${esc(t('reg.title'))}</span><select id="${pre}_Title">${['','นาย','นาง','นางสาว'].map(x=>`<option value="${x}" ${(p.Title||titleOf(p))===x?'selected':''}>${EN()?({'':'','นาย':'Mr.','นาง':'Mrs.','นางสาว':'Ms.'})[x]:x}</option>`).join('')}</select></label>${ppFld(pre,'NameTH',EN()?'Name (TH)':'ชื่อ-สกุล (ไทย)',p.NameTH)}</div>
         <div class="grid2">${ppFld(pre,'NameEN',EN()?'Name (EN)':'ชื่อ-สกุล (อังกฤษ)',p.NameEN)}${ppFld(pre,'Nickname',EN()?'Nickname (TH)':'ชื่อเล่น (ไทย)',p.Nickname)}</div>
-        <div class="grid2">${ppFld(pre,'NicknameEN',EN()?'Nickname (EN)':'ชื่อเล่น (อังกฤษ)',p.NicknameEN)}<label class="field"><span>${EN()?'Relationship':'ความสัมพันธ์'}</span><input id="${pre}_Relationship" value="${esc(relLabel(p.Relationship))}"/></label></div>
+        <div class="grid2">${ppFld(pre,'NicknameEN',EN()?'Nickname (EN)':'ชื่อเล่น (อังกฤษ)',p.NicknameEN)}<label class="field"><span>${EN()?'Relationship':'ความสัมพันธ์'}</span><input id="${pre}_Relationship" value="${esc(String(p.Relationship||'').replace(/<[^>]*>/g,''))}"/></label></div>
         <div class="grid2">${ppFld(pre,'Phone',EN()?'Phone':'เบอร์โทร',phoneFmt(p.Phone))}${ppFld(pre,'OfficePhone',EN()?'Office phone':'เบอร์ที่ทำงาน',phoneFmt(p.OfficePhone))}</div>
         <div class="grid2">${ppFld(pre,'Occupation',EN()?'Occupation':'อาชีพ',p.Occupation)}${ppFld(pre,'Workplace',EN()?'Workplace':'ที่ทำงาน',p.Workplace)}</div>
         <label class="field"><span>${EN()?'Address':'ที่อยู่'}</span><textarea id="${pre}_Address">${esc(p.Address||'')}</textarea></label>
@@ -2668,7 +2670,7 @@
       <div class="card secw" id="sec-parents">${secHead('👪',t('manage.parents'),parents.length,`<button class="btn sm" onclick="event.stopPropagation();A_parentForm()">+ ${esc(t('manage.add'))}</button>`)}
         <div class="secbody" hidden>
         ${parents.map(p=>{ const lc=(window._LINKCOUNTS||{})[p.ParentID]||0; const lcBadge=`<span class="pill ${lc?'ok':'bad'}" style="font-size:11px" title="${EN()?'linked children':'จำนวนบุตรที่ผูก'}">👶 ${lc}</span>`;
-          return `<div class="list-item stack" data-k="${esc((p.NameTH+' '+(p.NameEN||'')+' '+(p.Nickname||'')+' '+(p.NicknameEN||'')+' '+(p.Phone||'')+' '+(p.Relationship||'')).toLowerCase())}"><span style="display:flex;gap:8px;align-items:center">${personAvatar(p)}<span><b>${esc(parentDisp(p))}</b> ${lcBadge} <small class="muted">${esc(titledName(p))} · ${esc(relLabel(p.Relationship))} · ${phoneLink(p.Phone)}</small></span></span><span class="acts"><button class="btn sm outline" onclick="A_parentLinks('${p.ParentID}')">🔗 ${EN()?'Children':'บุตรที่ผูก'}</button><button class="btn sm outline" onclick="A_parentForm('${p.ParentID}')">✏️ ${EN()?'Edit':'แก้ไข'}</button><button class="btn sm pink" onclick="A_delParent('${p.ParentID}')">🗑️ ${EN()?'Delete':'ลบ'}</button></span></div>`; }).join('')}</div></div>
+          return `<div class="list-item stack" data-k="${esc((p.NameTH+' '+(p.NameEN||'')+' '+(p.Nickname||'')+' '+(p.NicknameEN||'')+' '+(p.Phone||'')+' '+String(p.Relationship||'').replace(/<[^>]*>/g,'')).toLowerCase())}"><span style="display:flex;gap:8px;align-items:center">${personAvatar(p)}<span><b>${esc(parentDisp(p))}</b> ${lcBadge} <small class="muted">${[p.NameTH||p.NameEN?esc(titledName(p)):'',relLabel(p.Relationship),p.Phone?phoneLink(p.Phone):(EN()?'no phone':'ไม่มีเบอร์โทร')].filter(Boolean).join(' · ')}</small></span></span><span class="acts"><button class="btn sm outline" onclick="A_parentLinks('${p.ParentID}')">🔗 ${EN()?'Children':'บุตรที่ผูก'}</button><button class="btn sm outline" onclick="A_parentForm('${p.ParentID}')">✏️ ${EN()?'Edit':'แก้ไข'}</button><button class="btn sm pink" onclick="A_delParent('${p.ParentID}')">🗑️ ${EN()?'Delete':'ลบ'}</button></span></div>`; }).join('')}</div></div>
       <div class="card secw" id="sec-students">${secHead('👶',EN()?'Students':'นักเรียน',students.length,`<span class="row"><button class="btn sm outline" onclick="event.stopPropagation();A_issueCombined()">🧾 ${EN()?'Issue (select)':'ออกบิล (เลือก)'}</button><button class="btn sm" onclick="event.stopPropagation();A_genBills()">📅 ${esc(t('bill.genTitle'))}</button></span>`)}
         <div class="secbody" hidden>
         ${students.map(s=>`<div class="list-item stack" data-k="${esc((s.NameTH+' '+(s.NameEN||'')+' '+(s.Nickname||'')+' '+(s.NicknameEN||'')+' '+(s.Class||'')+' '+(s.NationalID||'')).toLowerCase())}"><span>${studentAvatar(s)} <b>${esc(dispNick(s))}</b> <small class="muted">${nmSub(s)?esc(nmSub(s))+" · ":""}${esc(s.Class)} · ${esc(ageYM(s.DOB))}${s.InsuranceHas?' · 🛡️':''}</small><br><small class="muted">${EN()?'ID':'บัตร'}: ${esc(s.NationalID||'-')}</small></span><span class="acts"><button class="btn sm outline" onclick="A_studentForm('${s.StudentID}')">✏️ ${EN()?'Edit':'แก้ไข'}</button><button class="btn sm" onclick="A_issueBill('${s.StudentID}')">🧾 ${EN()?'Bill':'ออกบิล'}</button><button class="btn sm" onclick="A_charges('${s.StudentID}')">💵 ${EN()?'Charges':'เรียกเก็บ'}</button><button class="btn sm outline" onclick="A_stuMore('${s.StudentID}')" aria-label="${EN()?'More actions':'การทำงานเพิ่มเติม'}" title="${EN()?'More actions':'การทำงานเพิ่มเติม'}">⋯</button></span></div>`).join('')}</div></div>`;
@@ -2727,23 +2729,47 @@
 
   // ---- View-as: Admin previews the app as any role (stays logged in as admin; token is full-trust) ----
   let VIEW_AS_BACKUP=null;
-  // Admin bypass: link a parent's LINE UID to a student (by National ID) when the parent can't self-register.
-  window.A_linkParent=()=>{ modal(`<h3>🔗 ${EN()?'Link parent to student':'เชื่อมข้อมูลผู้ปกครองกับนักเรียน'}</h3>
-    <p class="muted" style="font-size:13px">${EN()?'For a parent who cannot register themselves. LINE UID + student National ID are required; fill the info below if the parent has none yet.':'สำหรับผู้ปกครองที่ลงทะเบียนเองไม่ได้ · ต้องมี LINE UID และเลขบัตรประชาชนนักเรียนเสมอ · ถ้ายังไม่มีข้อมูลผู้ปกครองให้กรอกด้านล่าง'}</p>
-    <label class="field"><span>LINE UID <span style="color:#c62828">*</span></span><input id="lp_uid" placeholder="U1234abcd…"/></label>
-    <label class="field"><span>${EN()?"Student National ID":'เลขบัตรประชาชนนักเรียน'} <span style="color:#c62828">*</span></span><input id="lp_nid" inputmode="numeric" placeholder="1-2345-…"/></label>
-    <hr style="border:none;border-top:1px solid #eee;margin:8px 0"><p class="muted" style="font-size:13px">${EN()?'Parent info (optional — fill if new):':'ข้อมูลผู้ปกครอง (ถ้ายังไม่มี ให้กรอก):'}</p>
-    <div class="grid2"><label class="field"><span>${EN()?'Full name':'ชื่อ-นามสกุล'}</span><input id="lp_name"/></label><label class="field"><span>${EN()?'Nickname':'ชื่อเล่น'}</span><input id="lp_nick"/></label></div>
-    <div class="grid2"><label class="field"><span>${EN()?'Phone':'เบอร์โทร'}</span><input id="lp_phone" inputmode="tel"/></label>
-      <label class="field"><span>${EN()?'Relationship':'ความสัมพันธ์'}</span><select id="lp_rel"><option value="">—</option><option value="บิดา">${EN()?'Father':'บิดา'}</option><option value="มารดา">${EN()?'Mother':'มารดา'}</option><option value="ผู้ปกครอง">${EN()?'Guardian':'ผู้ปกครอง'}</option></select></label></div>
+  // Admin bypass: link a parent to a student on their behalf. It used to demand a LINE UID typed by
+  // hand plus the student's National ID — neither of which an admin can look up in the app, so the tool
+  // was effectively unusable. Now both sides are PICKED from a list and the UID is resolved server-side.
+  window.A_linkParent=async(preSid)=>{ let students,parents;
+    try{ [students,parents]=await Promise.all([api('listStudents'),api('listParents')]); }catch(e){ err(e); return; }
+    const act=(students||[]).filter(s=>String(s.Status||'ACTIVE').toUpperCase()!=='WITHDRAWN');
+    const sOpt=act.map(s=>`<option value="${esc(s.StudentID)}" ${preSid===s.StudentID?'selected':''}>${esc(dispNick(s))}${nmSub(s)?' · '+esc(nmSub(s)):''}${s.Class?' · '+esc(s.Class):''}</option>`).join('');
+    // "(LINE)" tells the admin which parents can actually be given app access right now
+    const pOpt=(parents||[]).map(p=>`<option value="${esc(p.ParentID)}" data-line="${p.LineUID?1:0}">${esc(titledName(p)||((EN()?'no name yet':'ยังไม่กรอกชื่อ')+' · '+p.ParentID))}${p.Phone?' · '+esc(phoneFmt(p.Phone)):''}${p.LineUID?' · LINE':''}</option>`).join('');
+    modal(`<h3>🔗 ${EN()?'Link parent to student':'เชื่อมข้อมูลผู้ปกครองกับนักเรียน'}</h3>
+    <p class="muted" style="font-size:13px">${EN()?'For a parent who cannot do it themselves — pick the child and the parent.':'สำหรับผู้ปกครองที่ทำเองไม่ได้ · เลือกนักเรียนและผู้ปกครองที่มีอยู่แล้วได้เลย'}</p>
+    <label class="field"><span>${EN()?'Student':'นักเรียน'} <span style="color:#c62828">*</span></span><select id="lp_sid">${sOpt}</select></label>
+    <label class="field"><span>${EN()?'Parent':'ผู้ปกครอง'}</span><select id="lp_pid" onchange="A_lpPick()"><option value="">— ${EN()?'new parent (fill in below)':'ผู้ปกครองใหม่ (กรอกด้านล่าง)'} —</option>${pOpt}</select></label>
+    <p id="lp_hint" class="muted" style="font-size:13px"></p>
+    <div id="lp_new">
+      <div class="grid2"><label class="field"><span>${EN()?'Full name':'ชื่อ-นามสกุล'}</span><input id="lp_name"/></label><label class="field"><span>${EN()?'Nickname':'ชื่อเล่น'}</span><input id="lp_nick"/></label></div>
+      <div class="grid2"><label class="field"><span>${EN()?'Phone':'เบอร์โทร'}</span><input id="lp_phone" inputmode="tel"/></label>
+        <label class="field"><span>${EN()?'Relationship':'ความสัมพันธ์'}</span><select id="lp_rel"><option value="">—</option><option value="บิดา">${EN()?'Father':'บิดา'}</option><option value="มารดา">${EN()?'Mother':'มารดา'}</option><option value="ผู้ปกครอง">${EN()?'Guardian':'ผู้ปกครอง'}</option></select></label></div>
+    </div>
+    <details style="margin:6px 0"><summary class="muted" style="font-size:13px">${EN()?'Advanced: enter a LINE UID':'ขั้นสูง: ระบุ LINE UID เอง'}</summary>
+      <label class="field"><span>LINE UID</span><input id="lp_uid" placeholder="U1234abcd…"/></label>
+      <small class="muted" style="font-size:13px">${EN()?'Only needed when the parent already uses LINE but has no record here yet.':'ใช้เมื่อผู้ปกครองมี LINE แล้วแต่ยังไม่มีข้อมูลในระบบ'}</small></details>
     <button class="btn block" onclick="A_linkParentDo(this)">🔗 ${EN()?'Link':'เชื่อมข้อมูล'}</button>
-    <button class="btn outline block" style="margin-top:8px" onclick="this.closest('.modal').remove()">${esc(t('c.close'))}</button>`); };
+    <button class="btn outline block" style="margin-top:8px" onclick="this.closest('.modal').remove()">${esc(t('c.close'))}</button>`);
+    A_lpPick(); };
+  // hide the "new parent" fields once an existing parent is picked, and say what the link will actually do
+  window.A_lpPick=()=>{ const sel=document.getElementById('lp_pid'); if(!sel)return;
+    const box=document.getElementById('lp_new'), hint=document.getElementById('lp_hint');
+    const picked=!!sel.value, hasLine=picked&&sel.selectedOptions[0].dataset.line==='1';
+    if(box) box.hidden=picked;
+    if(hint) hint.innerHTML = !picked ? (EN()?'A new parent record will be created.':'จะสร้างข้อมูลผู้ปกครองใหม่')
+      : hasLine ? '✅ '+(EN()?'This parent uses LINE — they will see the child right after this.':'ผู้ปกครองรายนี้ใช้ LINE อยู่แล้ว · จะเห็นข้อมูลนักเรียนทันทีหลังเชื่อม')
+      : '⚠️ '+(EN()?'This parent has never signed in with LINE. The link is recorded, but they still have to sign in with LINE once before they can see anything.':'ผู้ปกครองรายนี้ยังไม่เคยเข้าใช้งานด้วย LINE · ระบบจะบันทึกความสัมพันธ์ไว้ แต่ผู้ปกครองต้องเข้าสู่ระบบด้วย LINE เองหนึ่งครั้งจึงจะเห็นข้อมูล'); };
   window.A_linkParentDo=async(btn)=>{ const m=btn.closest('.modal'); const g=x=>{const e=m.querySelector('#'+x);return e?e.value.trim():'';};
-    const uid=g('lp_uid'), nid=g('lp_nid'); if(!uid||!nid){ toast(EN()?'UID and National ID are required':'ต้องกรอก UID และเลขบัตร'); return; }
-    const data={NameTH:g('lp_name'),Nickname:g('lp_nick'),Phone:g('lp_phone'),Relationship:g('lp_rel')};
+    const sid=g('lp_sid'), pid=g('lp_pid'), uid=g('lp_uid');
+    if(!sid){ toast(EN()?'Pick a student':'ต้องเลือกนักเรียน'); return; }
+    const data=pid?{}:{NameTH:g('lp_name'),Nickname:g('lp_nick'),Phone:g('lp_phone'),Relationship:g('lp_rel')};
+    if(!pid&&!uid&&!data.NameTH&&!data.Phone){ toast(EN()?'Pick a parent, or fill in the new one':'เลือกผู้ปกครอง หรือกรอกข้อมูลผู้ปกครองใหม่'); return; }
     btn.disabled=true;
-    try{ const r=await api('linkParentAdmin',{uid,nationalId:nid,data,adminId:USER.staffId}); m.remove();
-      confirmSaved((EN()?'Linked to ':'เชื่อมกับ ')+(r.nick||r.name||r.studentId)+(r.needInfo?(EN()?' — no parent info yet':' — ยังไม่มีข้อมูลผู้ปกครอง'):'')); }
+    try{ const r=await api('linkParentAdmin',{studentId:sid,parentId:pid||undefined,uid:uid||undefined,data,adminId:USER.staffId}); m.remove();
+      confirmSaved((EN()?'Linked to ':'เชื่อมกับ ')+(r.nick||r.name||r.studentId)+(r.via==='legacy'?(EN()?' — parent must sign in with LINE once':' — ผู้ปกครองต้องเข้าสู่ระบบด้วย LINE เองหนึ่งครั้ง'):'')); }
     catch(e){ err(e); btn.disabled=false; } };
   // How the school actually refers to a parent: "คุณแม่น้องบีม" / "Beam's mom" (+N for extra children).
   // Built for an explicit language rather than reusing parentDisp(), so both nameTH and nameEN can be
@@ -2911,9 +2937,19 @@
   };
   // Admin: list the parents linked to a child and unlink one (child stays enrolled — this is NOT a withdrawal).
   window.A_studentLinks=async(sid)=>{ const d=await api('studentLinkedParents',{studentId:sid});
-    modal(`<h3>🔗 ${EN()?'Linked parents':'ผู้ปกครองที่ผูกกับ'} ${esc(d.nick||d.name||sid)}</h3>
+    // Same naming rule as everywhere else: a parent is "คุณแม่น้องอลัน", with their own name as the
+    // muted sub-line. A parent who signed in with LINE but never filled the form has no name at all —
+    // that used to print the bare row id ("PAR-058"), which tells the admin nothing.
+    const kid=d.nick||d.name||sid;
+    const paLabel=pa=>{ const r=String(pa.rel||'')+' '+String(pa.title||'');
+      if(REL_DAD.test(r)) return EN()?`${kid}'s dad`:`คุณพ่อน้อง${kid}`;
+      if(REL_MOM.test(r)) return EN()?`${kid}'s mom`:`คุณแม่น้อง${kid}`;
+      if(pa.name) return titledName({Title:pa.title,NameTH:pa.name,NameEN:pa.name});
+      return EN()?`${kid}'s parent (name not filled in)`:`ผู้ปกครองน้อง${kid} (ยังไม่กรอกชื่อ)`; };
+    modal(`<h3>🔗 ${EN()?'Linked parents':'ผู้ปกครองที่ผูกกับ'} ${esc(kid)}</h3>
       <p class="muted" style="font-size:13px">${EN()?'Unlink detaches this parent from the child. The child stays enrolled (this is not a withdrawal).':'ยกเลิกการผูก = ตัดผู้ปกครองคนนี้ออกจากเด็ก โดยเด็กยังเรียนอยู่ในระบบ (ไม่ใช่การลาออก)'}</p>
-      ${(d.parents||[]).length?d.parents.map(pa=>`<div class="list-item"><span><b>${esc(pa.nick||pa.name||pa.parentId||pa.uid)}</b> ${pa.phone?`<small class="muted">${esc(phoneFmt(pa.phone))}</small>`:''} <span class="pill info" style="font-size:11px">${pa.via==='link'?'LINE':'legacy'}</span></span><button class="btn sm pink" onclick="A_unlink('${esc(sid)}','${esc(pa.parentId||'')}','${esc(pa.uid||'')}',this)">✂️ ${EN()?'Unlink':'ยกเลิกผูก'}</button></div>`).join(''):`<div class="card muted">${EN()?'No linked parents':'ไม่มีผู้ปกครองที่ผูกอยู่'}</div>`}
+      ${(d.parents||[]).length?d.parents.map(pa=>`<div class="list-item stack"><span><b>${esc(paLabel(pa))}</b> <span class="pill info" style="font-size:11px">${pa.via==='link'?'LINE':'legacy'}</span><br><small class="muted">${pa.name?esc(titledName({Title:pa.title,NameTH:pa.name,NameEN:pa.name}))+' · ':''}${pa.rel?relLabel(pa.rel)+' · ':''}${pa.phone?esc(phoneFmt(pa.phone)):(EN()?'no phone':'ไม่มีเบอร์โทร')}${pa.parentId?' · '+esc(pa.parentId):''}</small></span><span class="acts">${pa.parentId?`<button class="btn sm outline" onclick="this.closest('.modal').remove();A_parentForm('${esc(pa.parentId)}')">✏️ ${EN()?'Edit info':'แก้ข้อมูล'}</button>`:''}<button class="btn sm pink" onclick="A_unlink('${esc(sid)}','${esc(pa.parentId||'')}','${esc(pa.uid||'')}',this)">✂️ ${EN()?'Unlink':'ยกเลิกผูก'}</button></span></div>`).join(''):`<div class="card muted">${EN()?'No linked parents':'ไม่มีผู้ปกครองที่ผูกอยู่'}</div>`}
+      <button class="btn block" style="margin-top:8px" onclick="this.closest('.modal').remove();A_linkParent('${esc(sid)}')">➕ ${EN()?'Link another parent':'เพิ่มผู้ปกครองที่ผูก'}</button>
       <button class="btn outline block" style="margin-top:8px" onclick="this.closest('.modal').remove()">${esc(t('c.close'))}</button>`);
   };
   // Admin: the children a PARENT is linked to (reverse view) — shows how many + who, with unlink per child.
