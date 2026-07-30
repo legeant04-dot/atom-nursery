@@ -112,7 +112,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.163'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.164'; // bump each webapp change; shown only at the bottom of the Chat screen
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
   const phoneFmt = p => { let d=String(p==null?'':p).replace(/\D/g,''); if(d.length===9) d='0'+d; return d; };
@@ -737,7 +737,13 @@
   }
   // In gas+LIFF mode: trigger real LINE login; otherwise fall through to demo chooser
   window.LIFF_LOGIN = () => {
-    if (CONFIG.MODE === 'gas' && CONFIG.LIFF_ID && window.liff) { liff.login(); return; }
+    if (CONFIG.MODE === 'gas' && CONFIG.LIFF_ID) {                 // SDK may still be in flight — wait for it
+      if (window.liff) { liff.login(); return; }
+      toast(EN()?'Connecting to LINE…':'กำลังเชื่อมต่อ LINE…', 4000);
+      loadLiff().then(() => liff.init({ liffId: CONFIG.LIFF_ID })).then(() => liff.login())
+        .catch(() => toast(EN()?'Could not reach LINE — check your connection':'เชื่อมต่อ LINE ไม่สำเร็จ — ตรวจสอบอินเทอร์เน็ต'));
+      return;
+    }
     if (!CONFIG.DEMO_MODE) { toast(EN()?'Please open via LINE to sign in':'กรุณาเปิดผ่าน LINE เพื่อเข้าสู่ระบบ'); return; }
     PROVIDER('LINE');
   };
@@ -805,13 +811,30 @@
       if(s&&DEMO_USERS[s.roleKey]){ PENDING_PROVIDER=s.provider; LOGIN(s.roleKey); applyLangNow(); return true; } }catch(e){}
     return false;
   }
+  // The LINE SDK is 32 KB of third-party JS that also fetches its own manifest and message bundle.
+  // It used to sit in <head> as a <script defer>, so the browser started all of that WHILE it was still
+  // fetching the CSS and app.js — competing with the sign-in card for bandwidth and adding a big slice
+  // of the measured blocking time. Nothing on screen needs it until either auto-login or a tap on
+  // "เข้าสู่ระบบด้วย LINE", and the sign-in card is already painted from index.html, so it is fetched
+  // here instead: after the first paint.
+  let _liffP = null;
+  function loadLiff(){
+    if (window.liff) return Promise.resolve(window.liff);
+    if (!_liffP) _liffP = new Promise((res, rej) => {
+      const el = document.createElement('script');
+      el.src = 'https://static.line-scdn.net/liff/edge/2/sdk.js';
+      el.onload = () => res(window.liff); el.onerror = () => { _liffP = null; rej(new Error('LIFF SDK failed to load')); };
+      document.head.appendChild(el);
+    });
+    return _liffP;
+  }
   function boot(){ ensureTranslateObserver();
-    // LIFF path: gas mode + LIFF_ID set + SDK loaded → real LINE auth
-    if (CONFIG.MODE === 'gas' && CONFIG.LIFF_ID && window.liff) {
+    // LIFF path: gas mode + LIFF_ID set → fetch the SDK, then real LINE auth
+    if (CONFIG.MODE === 'gas' && CONFIG.LIFF_ID) {
       // not logged in / init failed (e.g. opened outside LINE) → keep an existing demo session if any,
       // else show login. Stops a reload from wiping a testing session.
       const fallback = () => { if(!restoreDemoOrLogin()){ loginScreen(); applyLangNow(); } };
-      liff.init({ liffId: CONFIG.LIFF_ID }).then(() => {
+      loadLiff().then(() => liff.init({ liffId: CONFIG.LIFF_ID })).then(() => {
         if (liff.isLoggedIn()) {
           liff.getProfile().then(profile => {
             PENDING_LINE_UID = profile.userId;
