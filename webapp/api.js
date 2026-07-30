@@ -62,7 +62,7 @@ window.CONFIG = { MODE: 'gas', GAS_URL: 'https://script.google.com/macros/s/AKfy
     try { const ks = []; for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); if (k && k.indexOf(CACHE_NS) === 0) ks.push(k); } ks.forEach(k => localStorage.removeItem(k)); } catch (e) {} }
   window.__atomCacheClear = rcClear; // app.js clears on logout / user switch (don't leak data across LINE accounts)
   const MUT = /^(submit|save|add|remove|delete|set|register|pay|upload|confirm|reject|issue|generate|move|export|import|compute|cancel|prepay|link|notify|request|mark|approve|edit|rename|update|change|seed|dedup|reindex)/i;
-  const isMutating = a => MUT.test(a) || /check(in|out)|absence|payOT$|^orgMove|^unlink/i.test(a);
+  const isMutating = a => MUT.test(a) || /check(in|out)|absence|payOT$|^orgMove|^unlink|^claim/i.test(a);
 
   // gas mode: micro-batch all api() calls made in the same tick (e.g. a screen's Promise.all)
   // into ONE request -> one round-trip, and GAS hydrates the sheets once for the whole batch.

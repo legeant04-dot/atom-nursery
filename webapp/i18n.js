@@ -88,7 +88,7 @@
     'acct.title':['คุณเป็นผู้ใช้ใหม่หรือเคยลงทะเบียนแล้ว?','New user or already registered?'],
     'acct.sub':['เลือกให้ตรงกับสถานะของคุณ','Pick the option that matches you'],
     'acct.new':['ผู้ใช้ใหม่ (ลงทะเบียน)','New user (register)'], 'acct.newSub':['กรอกข้อมูลผู้ปกครอง แล้วเพิ่ม/เชื่อมข้อมูลบุตรหลาน','Enter parent info, then add/link your child'],
-    'acct.existing':['เคยลงทะเบียนแล้ว','Already registered'], 'acct.existingSub':['เข้าใช้งานตามบทบาทของคุณ','Continue to your role'],
+    'acct.existing':['เคยให้ข้อมูลกับโรงเรียนแล้ว','The school already has my details'], 'acct.existingSub':['เชื่อมบัญชี LINE นี้เข้ากับข้อมูลเดิม ไม่ต้องกรอกใหม่','Connect this LINE account to that record — no re-typing'],
     // registration
     'reg.choosePlan':['เลือกแพ็กเกจ','Choose a plan'], 'reg.choosePlanSub':['อัตราค่าบริการ Atom Nursery','Atom Nursery service rates'], 'reg.perMonth':['/เดือน','/month'],
     'reg.title':['ลงทะเบียนนักเรียนใหม่','Register a new student'], 'reg.plan':['แพ็กเกจ','Plan'], 'reg.student':['ข้อมูลนักเรียน','Student information'],

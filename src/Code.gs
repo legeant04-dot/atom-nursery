@@ -28,6 +28,7 @@ var ROUTES = {
   saveStudentSelf:  function (p) { return handleSaveStudentSelf(p); },
   unlinkStudent:    function (p) { return handleUnlinkStudent(p); },   // admin-only: detach a parent from a child (child stays enrolled)
   linkParentAdmin:  function (p) { return handleLinkParentAdmin(p); },   // admin-only: link a parent UID to a student by National ID (bypass)
+  claimParent:      function (p) { return handleClaimParent(p); },   // onboarding: a parent the school already has on file claims that record instead of creating a duplicate
   notifyBills:      function (p) { return handleNotifyBills(p); },   // admin-only: notify parents that bills were issued
   saveQRCodes:      function (p) { return handleSaveQRCodes(p); },   // admin-only: QR-code master + OT binding
   savePlans:        function (p) { return handleSavePlans(p); },       // admin-only: package (Plan) CRUD → SCHOOL_CONFIG JSON
@@ -182,7 +183,7 @@ function applyIdentity_(action, payload, sess) {
   if (!sessionRequired_() || publicAction_(action)) return payload;       // dormant → current behavior
   if (!sess) throw apiError_('NO_SESSION', 'ต้องเข้าสู่ระบบใหม่ (เซสชันหมดอายุ)');
   if (sess.role === 'guest') {                                            // unregistered LINE user: onboarding only
-    var ONBOARD = { registerParent: 1, addChildNew: 1, linkExisting: 1, registerNew: 1 };
+    var ONBOARD = { registerParent: 1, addChildNew: 1, linkExisting: 1, registerNew: 1, claimParent: 1 };
     if (!ONBOARD[action]) throw apiError_('NEEDS_REGISTRATION', 'กรุณาลงทะเบียนก่อนใช้งาน');
     payload.uid = sess.uid;                                               // link records to the verified LINE id
     return payload;
@@ -258,7 +259,7 @@ function dispatch_(action, payload, token) {
 var MUTATING_RE = /^(submit|save|add|remove|delete|set|register|pay|upload|confirm|reject|issue|generate|move|import|compute|cancel|prepay|link|notify|request|mark|approve|edit|rename|update|change|seed|recompute|restore|bind|provision)/i;
 // dedupData/reindex* mutate but don't start with a MUTATING_RE verb — force them to take the write lock
 // (they read row indices then delete, so a concurrent append would shift rows and delete the wrong one).
-function isMutatingAction_(a) { a = String(a || ''); return MUTATING_RE.test(a) || /check(in|out)|absence|^dedup|^reindex|payOT$|^orgMove|^unlink/i.test(a); }
+function isMutatingAction_(a) { a = String(a || ''); return MUTATING_RE.test(a) || /check(in|out)|absence|^dedup|^reindex|payOT$|^orgMove|^unlink|^claim/i.test(a); }
 
 /** Run fn under a script lock when it may write. Reads run unlocked (no queueing). */
 function withWriteLock_(needed, fn) {
