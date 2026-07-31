@@ -112,7 +112,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.167'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.168'; // bump each webapp change; shown only at the bottom of the Chat screen
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
   const phoneFmt = p => { let d=String(p==null?'':p).replace(/\D/g,''); if(d.length===9) d='0'+d; return d; };
@@ -3776,9 +3776,13 @@
 
   // ---- Finance: per-staff detail (salary base + this-month OT + compute) ----
   window.A_finStaff=async(sid)=>{ const month=FIN_MONTH||monthStr();
-    const s=(A_CACHE.staff||[]).find(x=>x.StaffID===sid)||{};
+    // A_CACHE.staff is only filled by the manage/payroll screens, so opening this from Finance showed
+    // the raw StaffID ("STF-002"). Fetch the roster once if it isn't loaded — same fix as A_finStudent.
+    let s=(A_CACHE.staff||[]).find(x=>x.StaffID===sid);
+    if(!s){ try{ const list=await api('listStaff'); if(list&&list.length){ A_CACHE.staff=list; s=list.find(x=>x.StaffID===sid); } }catch(e){} }
+    s=s||{};
     let otTotal=0; try{ const mo=await api('staffMonthlyOT',{staffId:sid,month}); otTotal=(mo||[]).reduce((a,o)=>a+Number(o.Amount||0),0); }catch(e){}
-    modal(`<h3>👩‍🏫 ${esc(dispNick(s)||sid)} <small class="muted" style="font-size:13px">${_notr(s.Position||"")}</small></h3>
+    modal(`<h3>👩‍🏫 ${esc(dispNick(s)||sid)} ${nmSub(s)?`<small class="muted" style="font-size:13px;font-weight:400">${esc(nmSub(s))}</small>`:''}${s.Position?` <small class="muted" style="font-size:13px">${_notr(s.Position)}</small>`:''}</h3>
       <div class="card" style="padding:8px"><label class="field"><span>${EN()?'Base salary (฿/month)':'ฐานเงินเดือน (฿/เดือน)'}</span><input id="fsBase" type="number" min="0" value="${esc(s.BaseSalary!=null?s.BaseSalary:'')}"/></label>
         <button class="btn sm block" onclick="A_finSaveBase('${sid}')">💾 ${EN()?'Save base salary':'บันทึกฐานเงินเดือน'}</button></div>
       <div class="card" style="padding:8px"><div class="spread"><span>⏰ ${EN()?'Approved OT this month':'OT อนุมัติเดือนนี้'}</span><b>${baht(otTotal)}</b></div></div>
