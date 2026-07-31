@@ -112,7 +112,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.166'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.167'; // bump each webapp change; shown only at the bottom of the Chat screen
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
   const phoneFmt = p => { let d=String(p==null?'':p).replace(/\D/g,''); if(d.length===9) d='0'+d; return d; };
@@ -2205,6 +2205,9 @@
   window.SLIP_LOCK=()=>{ SLIP_UNLOCKED=false; GO('slip'); };
   window.T_slipMonth=async(m)=>{ let pay=await api('getPayslip',{staffId:USER.staffId,month:m}); if(!pay)pay=await api('computePayroll',{staffId:USER.staffId,month:m}); setHTML('#slipBox', payslipCard(pay)); };
   window.T_slipDownload=async(m)=>{ m=m||($('#slipMonth')&&$('#slipMonth').value)||monthStr(); let pay=await api('getPayslip',{staffId:USER.staffId,month:m}); if(!pay)pay=await api('computePayroll',{staffId:USER.staffId,month:m}); await ensureLogos(); openOrDownload(buildSlipsHTML([pay],m), 'payslip-'+USER.staffId+'-'+m+'.html'); };
+  // the sheet stores Adjustments as JSON text; the in-browser engine returns a real array
+  const adjRows = r => { const a=r&&r.Adjustments; if(Array.isArray(a)) return a;
+    if(typeof a==='string' && a.trim()){ try{ const v=JSON.parse(a); return Array.isArray(v)?v:[]; }catch(e){} } return []; };
   function payslipCard(r){ return `<div class="card"><h3>สลิป ${esc(staffName(r.StaffID))} · ${esc(r.Month)}</h3>
     ${r.LeaveExceeds?`<div style="background:var(--warn-bg);border:1px solid var(--warn-line);border-radius:8px;padding:6px 9px;margin-bottom:6px;color:var(--warn);font-size:13px">⚠️ ลาเกิน ${r.LeaveLimit||3} วัน (ลารวม ${r.LeaveDays} วัน) — ไม่คำนวณเรทจำนวนเด็ก</div>`:''}
     <table style="width:100%;font-size:14px;border-collapse:collapse">
@@ -2215,8 +2218,9 @@
     <tr><td>เงินพิเศษวันพักผ่อน</td><td style="text-align:right">${baht(r.HolidayBonus)}</td></tr>
     <tr style="border-top:1px solid var(--line)"><td><b>รวมรายได้</b></td><td style="text-align:right"><b>${baht(r.GrossIncome)}</b></td></tr>
     <tr><td>หัก ประกันสังคม</td><td style="text-align:right">-${baht(r.SocialSecurity)}</td></tr>
-    <tr><td>หัก เงินสมทบ/อื่นๆ</td><td style="text-align:right">-${baht(r.Contribution+r.OtherDeductions)}</td></tr>
-    ${(r.Adjustments||[]).map(a=>`<tr><td>${esc(a.label||'-')}</td><td style="text-align:right;color:${Number(a.amount)<0?'var(--bad)':'var(--ok)'}">${Number(a.amount)<0?'':'+'}${baht(a.amount)}</td></tr>`).join('')}
+    <tr><td>หัก เงินสมทบ</td><td style="text-align:right">-${baht(r.Contribution||0)}</td></tr>
+    ${Number(r.OtherDeductions||0)?`<tr><td>หัก อื่นๆ</td><td style="text-align:right">-${baht(r.OtherDeductions)}</td></tr>`:''}
+    ${adjRows(r).map(a=>`<tr><td>${esc(a.label||'-')}</td><td style="text-align:right;color:${Number(a.amount)<0?'var(--bad)':'var(--ok)'}">${Number(a.amount)<0?'':'+'}${baht(a.amount)}</td></tr>`).join('')}
     <tr style="border-top:2px solid var(--blue)"><td><b>โอนเข้า ${esc(r.BankAccount)} (สุทธิ)</b></td><td style="text-align:right;color:var(--blue);font-size:18px"><b>${baht(r.NetPay)}</b></td></tr>
     </table></div>`; }
 
@@ -2424,10 +2428,12 @@
         <label class="field" style="margin:6px 0 0"><span>${esc(t('pay.childCount'))} <small class="muted">(${esc(t('pay.autoEditable'))})</small></span><input id="pChild" type="number" value="0"/></label></div>
       <div class="grid2"><label class="field"><span>${esc(t('pay.cert'))}</span><input id="pCert" type="number" value="0"/></label>
         <label class="field"><span>${esc(t('pay.otEvening'))} <small id="otNote" class="muted"></small></span><input id="pOt" type="number" value="0"/></label></div>
-      <div class="grid2"><label class="field"><span>${esc(t('pay.holidayBonus'))}</span><input id="pHb" type="number" value="0"/></label></div>
+      <div class="grid2"><label class="field"><span>${esc(t('pay.holidayBonus'))}</span><input id="pHb" type="number" value="0"/></label>
+        <label class="field"><span>${EN()?'Contribution (deducted)':'เงินสมทบ (หัก)'}</span><input id="pContrib" type="number" value="0"/></label></div>
       <div class="card" style="background:var(--surface-2)"><div class="spread"><b style="font-size:13px">➕ ${esc(t('pay.adjustments'))}</b><button class="btn sm outline" onclick="A_addAdj()">+ ${esc(t('pay.addAdj'))}</button></div>
         <p class="muted" style="font-size:13px">${esc(t('pay.adjNote'))}</p><div id="adjList"></div></div>
-      <button class="btn block" onclick="A_calc()">${esc(t('c.calc'))}</button></div><div id="slipResult"></div>`;
+      <button class="btn block" onclick="A_calc()">💾 ${esc(t('c.calc'))} ${EN()?'& save':'และบันทึก'}</button>
+      <p class="muted" style="font-size:13px;text-align:center">${EN()?'Saving updates this month’s total expense on the finance page.':'เมื่อบันทึกแล้ว ยอดจะไปรวมใน "รายจ่ายรวม" ของหน้าการเงินทันที'}</p></div><div id="slipResult"></div>`;
     A_payStaff();
   };
   window.A_payStaff = async ()=>{ const sid=$('#pStaff').value; const pc=await api('payrollConfig',{staffId:sid});
@@ -2438,7 +2444,9 @@
     $('#pType').value=pc.PayType||'monthly'; $('#pDaily').value=pc.DailyRate||0;
     $('#pAttendAmt').value=pc.DiligenceAttendanceAmount!=null?pc.DiligenceAttendanceAmount:MOCK.config.DiligenceAttendanceAmount;
     $('#pFbAmt').value=pc.DiligenceFacebookAmount!=null?pc.DiligenceFacebookAmount:MOCK.config.DiligenceFacebookAmount;
-    $('#pThreshold').value=pc.ChildThreshold||31; A_payTypeToggle(); A_recalcChild();
+    $('#pThreshold').value=pc.ChildThreshold||31;
+    { const c=$('#pContrib'); if(c) c.value=pc.Contribution||0; }
+    A_payTypeToggle(); A_recalcChild();
     // auto-pull this staff's OT hours for the selected month into the OT field
     try{ const ot=await api('staffMonthlyOT',{staffId:sid,month:$('#pMonth').value}); $('#pOt').value=ot.amount;
       const n=$('#otNote'); if(n) n.innerHTML=`(${EN()?'auto':'อัตโนมัติ'} ${ot.hours} ${EN()?'hr':'ชม.'} × ${baht(ot.rate)})`; }catch(e){}
@@ -2456,15 +2464,22 @@
   function A_renderAdj(){ const box=$('#adjList'); if(!box)return;
     box.innerHTML=PAY_ADJ.map((a,i)=>`<div class="grid3" style="margin-bottom:6px;grid-template-columns:1fr 90px 36px"><input value="${esc(a.label)}" placeholder="${esc(t('pay.adjLabel'))}" oninput="PAY_ADJ_SET(${i},'label',this.value)"/><input type="number" value="${a.amount}" placeholder="±0" oninput="PAY_ADJ_SET(${i},'amount',this.value)"/><button class="btn sm pink" onclick="A_delAdj(${i})" aria-label="${EN()?"Delete":"ลบ"}" title="${EN()?"Delete":"ลบ"}">✕</button></div>`).join(''); }
   window.PAY_ADJ_SET=(i,k,v)=>{ PAY_ADJ[i][k]= k==='amount'?Number(v||0):v; };
-  window.A_calc=async()=>{ const payType=$('#pType').value; const p={staffId:$('#pStaff').value,month:$('#pMonth').value,payType,baseSalary:+$('#pBase').value,dailyRate:+$('#pDaily').value,daysWorked:+$('#pDays').value,childMultiplier:+$('#pChildMul2').value,childThreshold:+$('#pThreshold').value,diligenceAttend:+$('#pAttendAmt').value,diligenceFb:+$('#pFbAmt').value,socialSecurityDeduct:$('#pSS').checked,facebookPosted:$('#pFb').checked,attendanceEligible:$('#pAtt').checked,extraChildCount:+$('#pChild').value,trainingCertCount:+$('#pCert').value,otEvening:+$('#pOt').value,holidayBonus:+$('#pHb').value,adjustments:PAY_ADJ.filter(a=>a.label||a.amount)};
-    await api('setPayrollConfig',{staffId:p.staffId,config:{PayType:payType,DailyRate:p.dailyRate,ChildMultiplier:p.childMultiplier,ChildThreshold:p.childThreshold,DiligenceAttendanceAmount:p.diligenceAttend,DiligenceFacebookAmount:p.diligenceFb,SocialSecurityDeduct:p.socialSecurityDeduct}});
+  window.A_calc=async()=>{ const payType=$('#pType').value; const p={staffId:$('#pStaff').value,month:$('#pMonth').value,payType,baseSalary:+$('#pBase').value,dailyRate:+$('#pDaily').value,daysWorked:+$('#pDays').value,childMultiplier:+$('#pChildMul2').value,childThreshold:+$('#pThreshold').value,diligenceAttend:+$('#pAttendAmt').value,diligenceFb:+$('#pFbAmt').value,socialSecurityDeduct:$('#pSS').checked,facebookPosted:$('#pFb').checked,attendanceEligible:$('#pAtt').checked,extraChildCount:+$('#pChild').value,trainingCertCount:+$('#pCert').value,otEvening:+$('#pOt').value,holidayBonus:+$('#pHb').value,contribution:+($('#pContrib')||{}).value||0,adjustments:PAY_ADJ.filter(a=>a.label||a.amount)};
+    await api('setPayrollConfig',{staffId:p.staffId,config:{PayType:payType,DailyRate:p.dailyRate,ChildMultiplier:p.childMultiplier,ChildThreshold:p.childThreshold,DiligenceAttendanceAmount:p.diligenceAttend,DiligenceFacebookAmount:p.diligenceFb,SocialSecurityDeduct:p.socialSecurityDeduct,Contribution:p.contribution}});
     // the base salary belongs to the STAFF record, and setPayrollConfig never carried it — so the
     // number the admin typed was used for THIS calculation and then thrown away
     try{ await api('saveStaff',{staffId:p.staffId,data:{BaseSalary:p.baseSalary}});
       const cached=(A_CACHE.staff||[]).find(x=>x.StaffID===p.staffId); if(cached) cached.BaseSalary=p.baseSalary; }catch(e){}
-    const r=await api('computePayroll',p); $('#slipResult').innerHTML=payslipCard(r)+`<div class="row"><button class="btn outline" onclick="A_dlSlip('${r.StaffID}','${r.Month}')">⬇️ ${esc(t('pay.download'))}</button><button class="btn outline" onclick="A_print('${r.Month}')">🖨️ ${esc(t('pay.print3'))}</button></div>`; toast('✅ '+t('pay.calcSaved')); };
-  window.A_dlSlip=async(staffId,month)=>{ const r=MOCK.payroll.find(p=>p.StaffID===staffId&&p.Month===month); if(!r){toast('ยังไม่มีสลิป');return;} await ensureLogos(); openOrDownload(buildSlipsHTML([r],month),'payslip-'+staffId+'-'+month+'.html'); };
-  window.A_print=async(month)=>{ const rows=MOCK.payroll.filter(p=>p.Month===month); if(!rows.length){toast('ยังไม่มีสลิป');return;} await ensureLogos(); openOrDownload(buildSlipsHTML(rows,month), 'payslips-'+month+'.html'); };
+    const r=await api('computePayroll',p); $('#slipResult').innerHTML=payslipCard(r)+`<div class="row"><button class="btn outline" onclick="A_dlSlip('${r.StaffID}','${r.Month}')">⬇️ ${esc(t('pay.download'))}</button><button class="btn outline" onclick="A_print('${r.Month}')">🖨️ ${esc(t('pay.print3'))}</button></div>`; confirmSaved(EN()?'Payslip saved — included in this month’s expenses':'บันทึกสลิปแล้ว · รวมในรายจ่ายเดือนนี้'); };
+  // both of these read MOCK.payroll, which is empty in gas mode — so downloading or printing a slip on
+  // live always said "ยังไม่มีสลิป". Ask the server for the saved rows instead.
+  window.A_dlSlip=async(staffId,month)=>{ let r=null; try{ r=await api('getPayslip',{staffId,month}); }catch(e){}
+    if(!r){ toast(EN()?'No payslip for this month yet — press Calculate first':'ยังไม่มีสลิปของเดือนนี้ — กดคำนวณก่อน'); return; }
+    await ensureLogos(); openOrDownload(buildSlipsHTML([r],month),'payslip-'+staffId+'-'+month+'.html'); };
+  window.A_print=async(month)=>{ const list=(A_CACHE.staff&&A_CACHE.staff.length)?A_CACHE.staff:await api('listStaff').catch(()=>[]);
+    const rows=(await Promise.all((list||[]).map(x=>api('getPayslip',{staffId:x.StaffID,month}).catch(()=>null)))).filter(Boolean);
+    if(!rows.length){ toast(EN()?'No payslips for this month yet':'ยังไม่มีสลิปของเดือนนี้'); return; }
+    await ensureLogos(); openOrDownload(buildSlipsHTML(rows,month), 'payslips-'+month+'.html'); };
 
   // tabs = the departments master ∪ every class students are actually in, so no child is hidden
   SCREENS.Admin.dspm = async () => { const [students,depts]=await Promise.all([api('listStudents'),api('listDepartments')]);
@@ -2900,6 +2915,8 @@
       <label class="field" style="display:flex;align-items:center;gap:8px"><input type="checkbox" id="sf_CanClassOrg" style="width:auto" ${(s.CanClassOrg===true||s.CanClassOrg===1||['YES','TRUE'].indexOf(String(s.CanClassOrg||'').toUpperCase())>=0)?'checked':''}/> 🔁 ${EN()?'Allow this teacher to organize classes (move teachers/students, like Admin)':'ให้ครูคนนี้จัดชั้นเรียนได้ (ย้ายครู/นักเรียน เหมือนแอดมิน)'}</label>
       <div class="grid2">${f('Phone',t('reg.phone'),phoneFmt(s.Phone))}${f('NationalID',t('reg.nationalId'),s.NationalID)}</div>
       <div class="grid2">${f('StartDate',t('staff.startDate'),s.StartDate,'date')}${f('BaseSalary',t('pay.baseSalary'),s.BaseSalary,'number')}</div>
+      <div class="grid2"><label class="field"><span>🏦 ${EN()?'Bank':'ธนาคาร'}</span><select id="sf_BankName">${['','SCB','KBANK','KTB','BBL','TTB','BAY','GSB','KKP','TISCO','UOB','CIMB','BAAC','LHBANK'].map(b=>`<option value="${b}" ${String(s.BankName||'')===b?'selected':''}>${b||(EN()?'—':'—')}</option>`).join('')}</select></label>
+        ${f('BankAccount',(EN()?'Account number':'เลขที่บัญชี'),s.BankAccount)}</div>
       <label class="field"><span>🔗 LINE ID ${s.LineUID?'✅':''}</span><input id="sf_LineUID" value="${esc(s.LineUID||'')}" placeholder="Uxxxxxxxxxxxxxxxx"/></label>
       <div class="card" style="background:var(--surface-2);padding:8px"><small class="muted">${EN()?'To let this staff log in: they open the app via LINE → "New user or already registered?" shows their LINE ID → paste it here and Save.':'ให้ครูเข้าแอปผ่าน LINE → หน้า "New user or already registered?" จะโชว์ LINE ID ของครู → คัดลอกมาวางช่องนี้แล้วกดบันทึก'}</small></div>
       ${photoField('sf_Photo',t('manage.photo'),s.Photo,true)}
@@ -2913,7 +2930,7 @@
     const allDept=m.querySelector('#sf_AllDept')&&m.querySelector('#sf_AllDept').checked;
     const dept = allDept ? '*' : [...m.querySelectorAll('.sfDept:checked')].map(x=>x.value).join(',');
     const canOrg=m.querySelector('#sf_CanClassOrg')&&m.querySelector('#sf_CanClassOrg').checked;
-    const data={NameTH:v('NameTH'),NameEN:v('NameEN'),Nickname:v('Nickname'),NicknameEN:v('NicknameEN'),DOB:v('DOB'),Position:v('Position'),Department:dept,StaffGroup:v('StaffGroup'),PositionLevel:v('PositionLevel'),Phone:v('Phone'),NationalID:v('NationalID'),LineUID:v('LineUID'),StartDate:v('StartDate'),BaseSalary:+v('BaseSalary')||0,Classes:dept,CanClassOrg:canOrg?'YES':''};
+    const data={NameTH:v('NameTH'),NameEN:v('NameEN'),Nickname:v('Nickname'),NicknameEN:v('NicknameEN'),DOB:v('DOB'),Position:v('Position'),Department:dept,StaffGroup:v('StaffGroup'),PositionLevel:v('PositionLevel'),Phone:v('Phone'),NationalID:v('NationalID'),LineUID:v('LineUID'),StartDate:v('StartDate'),BaseSalary:+v('BaseSalary')||0,BankName:v('BankName'),BankAccount:v('BankAccount'),Classes:dept,CanClassOrg:canOrg?'YES':''};
     const sfp=photoVal(m,'sf_Photo'); if(sfp) data.Photo=sfp;
     try{ await api('saveStaff',{staffId:id||null,data}); m.remove(); confirmSaved(t('c.saved')); GO('manage'); }catch(e){err(e);} };
   window.SF_allDept=(cb)=>{ const box=document.getElementById('sf_DeptList'); if(box){ box.style.opacity=cb.checked?'.4':''; box.style.pointerEvents=cb.checked?'none':''; } };
@@ -3908,23 +3925,51 @@
       <table>${rows}<tr><td class="tot">${esc(t('c.total'))}</td><td class="tot" style="text-align:right">${baht(due)}</td></tr></table>
       <div class="paid">✅ ${esc(t('s.paid'))}${b.VerifiedStatus==='PREPAID'?' ('+esc(t('prepay.paidAhead'))+')':''}</div></body></html>`; }
 
-  function buildSlipsHTML(rows,month){ const logo=window._LOGO||(location.origin+'/assets/logo.png'); const corner=window._LOGOCORNER||(location.origin+'/assets/logo-corner.jpg');
-    const card=p=>`<div class="slip"><div class="hd"><img src="${logo}" style="height:34px"/><span class="conf">CONFIDENTIAL</span><span class="school">Atom Nursery</span><span>งวด ${esc(p.Month)}</span><img src="${corner}" style="height:34px;border-radius:6px"/></div>
-      <div class="meta"><span>ชื่อ: <b>${esc(staffName(p.StaffID))}</b></span><span>รหัส: ${esc(p.StaffID)}</span><span>พิมพ์: ${todayStr()}</span></div>
-      <table class="grid"><thead><tr><th colspan="2">รายได้</th><th colspan="2">รายการหัก</th><th>โอนเข้า ${esc(p.BankAccount)}</th></tr></thead><tbody>
-      <tr><td>เงินเดือน</td><td class="n">${baht(p.BaseSalary)}</td><td>ประกันสังคม</td><td class="n">${baht(p.SocialSecurity)}</td><td rowspan="3" class="net">${baht(p.NetPay)}</td></tr>
-      <tr><td>เบี้ยขยัน¹</td><td class="n">${baht(p.DiligenceTotal)}</td><td>เงินสมทบ</td><td class="n">${baht(p.Contribution)}</td></tr>
-      <tr><td>อื่นๆ²</td><td class="n">${baht(p.OtherIncome)}</td><td>อื่นๆ</td><td class="n">${baht(p.OtherDeductions)}</td></tr>
-      <tr><td>ค่าสวงเวลาตอนเย็น</td><td class="n">${baht(p.OTEvening)}</td><td class="lbl">รวมหัก</td><td class="n">${baht(p.TotalDeductions)}</td><td class="lbl">สุทธิ</td></tr>
-      <tr><td>เงินพิเศษวันพักผ่อนปี 68</td><td class="n">${baht(p.HolidayBonus)}</td><td class="lbl">รวมรายได้</td><td class="n">${baht(p.GrossIncome)}</td><td></td></tr>
-      </tbody></table><div class="fn">¹ มาครบ ไม่ลา ไม่สาย (500)+โพสต์ FB (500) &nbsp; ² เด็กคนที่ 31+ (300/คน)+ใบประกาศ (100/ใบ สูงสุด 2)</div></div>`;
+  // Printable payslip, laid out like the school's own document: CONFIDENTIAL mark, letterhead, the
+  // income / deduction / transfer three-column grid, and the footnotes explaining how เบี้ยขยัน and
+  // รายได้อื่นๆ are worked out. Three to an A4 landscape sheet with cut lines, as before.
+  const _beYear = m => { const y=parseInt(String(m).slice(0,4),10); return isNaN(y)?'':(y+543); };
+  const _periodTH = m => { const y=parseInt(String(m).slice(0,4),10), mo=parseInt(String(m).slice(5,7),10);
+    if(isNaN(y)||isNaN(mo)) return esc(m);
+    const last=new Date(y,mo,0).getDate(); return `01/${mo}/${y+543} ถึง ${last}/${mo}/${y+543}`; };
+  function buildSlipsHTML(rows,month){ const logo=window._LOGO||(location.origin+'/assets/logo.png');
+    const card=p=>{ const adj=adjRows(p); const bank=[p.BankName||'',p.BankAccount||''].filter(Boolean).join(' ');
+      const plus=adj.filter(a=>Number(a.amount)>0), minus=adj.filter(a=>Number(a.amount)<0);
+      const note=a=>a.label?` <span class="sub">(${esc(a.label)})</span>`:'';
+      return `<div class="slip">
+      <div class="hd"><span class="conf">CONFIDENTIAL</span><span class="cf">confidential เอกสารปกปิด เป็นความลับ ห้ามเปิดเผย</span><img src="${logo}" style="height:30px"/></div>
+      <div class="ttl">อะตอม เนอสเซอรี่</div>
+      <div class="meta"><span>พิมพ์วันที่ <b>${todayStr()}</b></span><span>ชื่อพนักงาน <b>${esc(p.StaffName||staffName(p.StaffID))}</b></span>
+        <span>รหัสพนักงาน <b>${esc(p.StaffID)}</b></span><span>ตำแหน่ง <b>${esc(p.Position||'-')}</b></span><span>งวดวันที่ <b>${_periodTH(p.Month)}</b></span></div>
+      <table class="grid"><thead>
+        <tr><th colspan="3">รายได้</th><th colspan="3">รายการหัก</th><th>จำนวนเงินโอนเข้าบัญชี</th></tr>
+        <tr><th>เงินเดือน</th><th>เบี้ยขยัน<sup>1</sup></th><th>อื่น ๆ<sup>2</sup></th><th>ประกันสังคม</th><th>เงินสมทบ</th><th>อื่น ๆ</th><th>${esc(bank||'-')}</th></tr></thead><tbody>
+        <tr><td class="n in">${baht(p.BaseSalary)}</td><td class="n in">${baht(p.DiligenceTotal)}</td><td class="n in">${baht(Number(p.OtherIncome||0)+plus.reduce((t,a)=>t+Number(a.amount),0))}</td>
+            <td class="n de">${Number(p.SocialSecurity||0)?baht(p.SocialSecurity):'-'}</td><td class="n de">${baht(p.Contribution||0)}</td>
+            <td class="n de">${baht(Number(p.OtherDeductions||0)+Math.abs(minus.reduce((t,a)=>t+Number(a.amount),0)))}</td><td class="n net">${baht(p.NetPay)}</td></tr>
+        <tr><td class="lbl">ค่าล่วงเวลาตอนเย็น</td><td class="n in">${baht(p.OTEvening)}</td><td class="lbl">เงินพิเศษวันพักผ่อน</td><td class="n in">${baht(p.HolidayBonus)}</td>
+            <td class="lbl">รวมรายได้</td><td class="n">${baht(p.GrossIncome)}</td><td class="sub">${minus.map(note).join('')||'&nbsp;'}</td></tr>
+      </tbody></table>
+      <div class="acc"><b>${baht(p.ContributionAccum||p.Contribution||0)}</b> เงินสมทบสะสม</div>
+      <div class="fn"><b>เบี้ยขยัน<sup>1</sup></b> คำนวณจากการมาทำงานทุกวันของแต่ละเดือน โดยไม่ลา ไม่มาสาย (${baht(p.DiligenceAttendance)})+Post รูป Facebook (${baht(p.DiligenceFacebook)})<br>
+        <b>รายได้อื่น ๆ<sup>2</sup></b> คำนวณจากจำนวนเด็กตั้งแต่คนที่ ${esc(p.ChildThreshold||31)} (ที่มาอยู่เต็มเดือน ${baht(p.ChildMultiplier||300)}/คน)* &nbsp; **ใบประกาศอบรม 100/ใบ สูงสุด 2 ใบ/เดือน</div></div>`; };
     let pages=''; for(let i=0;i<rows.length;i+=3) pages+=`<div class="sheet">${rows.slice(i,i+3).map(card).join('<div class="cut"></div>')}</div>`;
     return `<!doctype html><html><head><meta charset="utf-8"><title>Slips ${month}</title><link href="https://fonts.googleapis.com/css2?family=Sarabun&display=swap" rel="stylesheet"><style>
-      @page{size:A4 landscape;margin:6mm}*{box-sizing:border-box}body{font-family:Sarabun,sans-serif;margin:0}.bar{padding:8px;text-align:center;background:#eee}
-      .sheet{width:285mm;height:198mm;display:flex;flex-direction:column;justify-content:space-between;page-break-after:always;padding:2mm}.slip{border:1px solid #1565C0;border-radius:4px;padding:4mm;height:62mm}.cut{border-top:1px dashed #999;margin:1mm 0}
-      .hd{display:flex;justify-content:space-between;align-items:center;gap:6px;border-bottom:1px solid #1565C0;padding-bottom:2px}.conf{color:#c00;border:1px solid #c00;padding:0 4px;font-size:13px;font-weight:bold}.school{font-weight:bold;font-size:16px;flex:1}
-      .meta{display:flex;justify-content:space-between;font-size:13px;margin:3px 0}.grid{width:100%;border-collapse:collapse;font-size:13px}.grid th,.grid td{border:1px solid #bbb;padding:2px 5px}.grid th{background:#1565C0;color:#fff}
-      .grid td.n{text-align:right}.grid td.lbl{text-align:right;font-weight:bold;background:#f3f6fb}.grid td.net{text-align:center;font-size:18px;font-weight:bold;color:#1565C0}.fn{font-size:11px;color:#555;margin-top:3px}@media print{.bar{display:none}}</style></head>
+      @page{size:A4 landscape;margin:6mm}*{box-sizing:border-box}body{font-family:Sarabun,sans-serif;margin:0;color:#222}.bar{padding:8px;text-align:center;background:#eee}
+      .sheet{width:285mm;height:198mm;display:flex;flex-direction:column;justify-content:space-between;page-break-after:always;padding:2mm}
+      .slip{border:1px solid #1565C0;border-radius:4px;padding:3mm 4mm;height:62mm}.cut{border-top:1px dashed #999;margin:1mm 0}
+      .hd{display:flex;justify-content:space-between;align-items:center;gap:8px}
+      .conf{color:#c00;border:2px solid #c00;padding:0 5px;font-size:14px;font-weight:bold;letter-spacing:.5px}
+      .cf{font-size:11px;color:#555;flex:1;text-align:center}
+      .ttl{text-align:center;font-size:17px;font-weight:bold;margin:1mm 0 2mm}
+      .meta{display:flex;justify-content:space-between;font-size:11.5px;margin-bottom:2mm;gap:6px}
+      .grid{width:100%;border-collapse:collapse;font-size:11.5px}.grid th,.grid td{border:1px solid #333;padding:2px 5px;text-align:center}
+      .grid th{background:#fff;font-weight:bold}.grid td.n{text-align:right;font-weight:bold}
+      .grid td.in{color:#1565C0}.grid td.de{color:#c00}.grid td.net{color:#1565C0;font-size:14px}
+      .grid td.lbl{text-align:right;font-weight:normal}.sub{font-size:10.5px;color:#555;font-weight:normal}
+      .acc{text-align:center;font-size:12px;margin:1.5mm 0}
+      .fn{font-size:10px;color:#1565C0;line-height:1.5}.fn b{color:#222}
+      @media print{.bar{display:none}}</style></head>
       <body><div class="bar"><button onclick="window.print()">🖨️ พิมพ์ (3 สลิป/แผ่น A4 แนวนอน)</button></div>${pages}</body></html>`; }
 
   // ---- Back-button support for full-screen SUB-VIEWS -------------------------------------------
