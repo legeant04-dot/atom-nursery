@@ -112,7 +112,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.172'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.173'; // bump each webapp change; shown only at the bottom of the Chat screen
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
   const phoneFmt = p => { let d=String(p==null?'':p).replace(/\D/g,''); if(d.length===9) d='0'+d; return d; };
@@ -1835,7 +1835,7 @@
       // preselect OUT once the child is in (so "pick up" is one tap); always usable so a time can be corrected
       const ciBtn = `<button class="btn sm green" onclick="T_studentCheckin('${s.StudentID}','${esc(nm(s))}','${s.inToday&&!s.outToday?'OUT':(s.outToday?'OUT':'IN')}')" title="${EN()?'Check in/out on behalf':'เช็คอิน/เอาท์แทน'}" aria-label="${EN()?"Check in":"เช็คอิน"}" title="${EN()?"Check in":"เช็คอิน"}">📍</button>`;
       const attTag = s.inToday?`<small class="pill ok" style="margin-left:4px">${EN()?'in':'มา'} ${esc(s.inTime||'')}</small>`:'';
-      return `<div class="card spread"><div style="display:flex;gap:10px;align-items:center">${studentAvatar(s)}<div><b>${esc(dispNick(s))}</b> ${nmSub(s)?`<small class="muted">${esc(nmSub(s))}</small>`:""}${attTag}<br><small class="muted">${esc(ageYM(s.DOB))} · ${EN()?'allergy':'แพ้'}: ${esc(s.Allergy||'-')}</small><br>${journalPill(jdone[s.StudentID])}</div></div><div class="row">${jBtn}<button class="btn sm outline" onclick="T_assess('${s.StudentID}')" aria-label="${EN()?"Assess":"ประเมิน"}" title="${EN()?"Assess":"ประเมิน"}">📝</button>${ciBtn}<button class="btn sm outline" onclick="T_studentLeave('${s.StudentID}','${esc(dispNick(s))}')" title="${EN()?'File leave for this student':'แจ้งลาให้นักเรียน'}" aria-label="${EN()?"Report leave":"แจ้งลา"}" title="${EN()?"Report leave":"แจ้งลา"}">🏖️</button></div></div>`; }).join(''); };
+      return `<div class="card spread"><div style="display:flex;gap:10px;align-items:center">${studentAvatar(s)}<div><b>${esc(dispNick(s))}</b> ${nmSub(s)?`<small class="muted">${esc(nmSub(s))}</small>`:""}${attTag}<br><small class="muted">${esc(ageYM(s.DOB))} · ${EN()?'allergy':'แพ้'}: ${esc(s.Allergy||'-')}</small><br>${journalPill(jdone[s.StudentID])}</div></div><div class="row">${jBtn}<button class="btn sm outline" onclick="T_assess('${s.StudentID}')" aria-label="${EN()?"Assess":"ประเมิน"}" title="${EN()?"Assess":"ประเมิน"}">📝</button>${ciBtn}<button class="btn sm outline" onclick="T_studentLeave('${s.StudentID}','${esc(dispNick(s))}')" title="${EN()?'File leave for this student':'แจ้งลาให้นักเรียน'}" aria-label="${EN()?"Report leave":"แจ้งลา"}" title="${EN()?"Report leave":"แจ้งลา"}">🏖️</button><button class="btn sm outline" onclick="EDIT_ATT('${s.StudentID}')" aria-label="${EN()?"Correct times":"แก้ไขเวลา"}" title="${EN()?"Correct check-in / pick-up":"แก้ไขเวลารับ-ส่ง"}">🕑</button></div></div>`; }).join(''); };
   // Teacher files a leave for a student → notifies the linked parents; shows in that student's parent calendar
   window.T_studentLeave=(sid,name)=>{ modal(`<h3>🏖️ ${EN()?'File student leave':'แจ้งลานักเรียน'} — ${esc(name)}</h3>
     <label class="field"><span>${EN()?'Type':'ประเภท'}</span><select id="tslType"><option>${EN()?'Sick leave':'ลาป่วย'}</option><option>${EN()?'Personal leave':'ลากิจ'}</option><option>${EN()?'Absent':'ขาด'}</option></select></label>
@@ -2757,6 +2757,7 @@
     const close="this.closest('.modal').remove();";
     modal(`<h3>👶 ${esc(dispNick(s)||sid)} ${nmSub(s)?`<small class="muted" style="font-size:13px">${esc(nmSub(s))}</small>`:''}</h3>
       <button class="btn block outline" onclick="${close}A_vaccines('${esc(sid)}')">💉 ${EN()?'Vaccination record':'บันทึกวัคซีน'}</button>
+      <button class="btn block outline" style="margin-top:8px" onclick="${close}EDIT_ATT('${esc(sid)}')">🕑 ${EN()?'Correct check-in / pick-up':'แก้ไขเวลารับ-ส่ง'}</button>
       <button class="btn block gray" style="margin-top:8px" onclick="${close}A_exportStudent('${esc(sid)}')">📤 ${EN()?'Export data':'ส่งออกข้อมูล'}</button>
       <button class="btn block pink" style="margin-top:8px" onclick="${close}A_removeStudent('${esc(sid)}')">🚪 ${EN()?'Withdraw student':'นำนักเรียนออก'}</button>
       <button class="btn block outline" style="margin-top:12px" onclick="${close}">${esc(t('c.close'))}</button>`); };
@@ -3875,6 +3876,35 @@
     try{ await api('markSalaryPaid',{staffId:sid,month,paid,slipUrl:slipUrl||undefined,adminId:USER.staffId});
       if(m)m.remove(); confirmSaved(paid?(EN()?'Marked as paid':'บันทึกว่าจ่ายแล้ว'):(EN()?'Paid status removed':'ยกเลิกสถานะจ่ายแล้ว'));
       A_finStaff(sid); }catch(e){ err(e); } };
+  // ---- correct a student's check-in / pick-up -----------------------------------------------------
+  // A parent tapping "picked up" during class used to be permanent, and it raised an OT charge too.
+  // Teachers can fix their own classes; a head teacher and Admin can fix anyone (enforced server-side).
+  window.EDIT_ATT=async(sid,dateStr)=>{
+    let st=(A_CACHE.students||[]).find(x=>x.StudentID===sid);
+    if(!st){ try{ const l=await api('listStudents'); if(l&&l.length){ A_CACHE.students=l; st=l.find(x=>x.StudentID===sid); } }catch(e){} }
+    st=st||{StudentID:sid};
+    const date=dateStr||todayStr();
+    let rec={checkIn:'',checkOut:''};
+    try{ const h=await api('studentCheckinHistory',{studentId:sid}); const row=(h||[]).find(r=>ymd(r.Date)===date);
+      if(row){ rec.checkIn=String(row.InTime||row.CheckIn||'').slice(0,5); rec.checkOut=String(row.OutTime||row.CheckOut||'').slice(0,5); } }catch(e){}
+    modal(`<h3>🕑 ${EN()?'Correct times':'แก้ไขเวลารับ-ส่ง'} — ${esc(dispNick(st)||sid)}</h3>
+      <p class="muted" style="font-size:13px">${EN()?'Clearing the pick-up time puts the child back to "at school" and removes any OT that pick-up created. Parents see the correction.':'ลบเวลารับกลับ = เด็กกลับไปเป็น "อยู่ที่โรงเรียน" และ OT ที่เกิดจากการรับครั้งนั้นจะถูกยกเลิกด้วย · ผู้ปกครองจะเห็นผลการแก้ไข'}</p>
+      <label class="field"><span>${EN()?'Date':'วันที่'}</span><input type="date" id="eaDate" value="${esc(date)}" onchange="EDIT_ATT('${esc(sid)}',this.value)"/></label>
+      <div class="grid2"><label class="field"><span>🟢 ${EN()?'Dropped off':'เวลาส่ง (เข้าเรียน)'}</span><input type="time" id="eaIn" value="${esc(rec.checkIn)}"/></label>
+        <label class="field"><span>🔴 ${EN()?'Picked up':'เวลารับกลับ'}</span><input type="time" id="eaOut" value="${esc(rec.checkOut)}"/></label></div>
+      <button class="btn sm outline block" onclick="document.getElementById('eaOut').value=''">🚫 ${EN()?'Clear pick-up (tapped by mistake)':'ล้างเวลารับกลับ (กดผิด)'}</button>
+      <label class="field" style="margin-top:6px"><span>${EN()?'Reason (kept in the log)':'เหตุผล (บันทึกไว้ในประวัติ)'}</span><input id="eaWhy" placeholder="${EN()?'e.g. parent tapped by mistake':'เช่น ผู้ปกครองกดผิด'}"/></label>
+      <button class="btn block" onclick="EDIT_ATT_SAVE('${esc(sid)}',this)">${esc(t('c.save'))}</button>
+      <button class="btn outline block" style="margin-top:8px" onclick="this.closest('.modal').remove()">${esc(t('c.close'))}</button>`);
+  };
+  window.EDIT_ATT_SAVE=async(sid,btn)=>{ const m=btn.closest('.modal'); const g=id=>{ const e=m.querySelector('#'+id); return e?e.value.trim():''; };
+    btn.disabled=true;
+    try{ const r=await api('editStudentAttendance',{studentId:sid,date:g('eaDate'),checkIn:g('eaIn'),checkOut:g('eaOut'),
+        remark:g('eaWhy')||undefined,staffId:USER.staffId,role:USER.role});
+      m.remove();
+      confirmSaved((EN()?'Times updated':'แก้ไขเวลาแล้ว')+(r&&r.checkOut?'':' · '+(EN()?'back at school':'กลับเป็นอยู่ที่โรงเรียน')));
+      GO(CURRENT); }catch(e){ err(e); btn.disabled=false; } };
+
   window.A_finSaveBase=async(sid)=>{ const m=document.querySelector('.modal'); const base=Number(m.querySelector('#fsBase').value)||0;
     try{ await api('saveStaff',{staffId:sid,data:{BaseSalary:base}}); toast(t('c.saved')); }catch(e){err(e);} };
   window.A_finCompute=async(sid)=>{ try{ await api('computePayroll',{staffId:sid,month:FIN_MONTH||monthStr()}); toast(EN()?'Computed':'คำนวณแล้ว'); const x=document.querySelector('.modal'); if(x)x.remove(); GO('finance'); }catch(e){err(e);} };
@@ -4040,9 +4070,9 @@
             <td class="n net" rowspan="3">${baht(p.NetPay)}</td></tr>
         <tr><td class="lbl">ค่าล่วงเวลาตอนเย็น</td><td class="n in">${baht(p.OTEvening)}</td>
             <td class="lbl">เงินพิเศษวันพักผ่อน</td><td class="n in">${baht(p.HolidayBonus)}</td>
+            <td class="lbl">รวมหัก</td><td class="n">${baht(p.TotalDeductions)}</td></tr>
+        <tr><td colspan="4" class="sub lft">${minus.map(a=>esc(a.label||'')).filter(Boolean).join(' · ')||'&nbsp;'}</td>
             <td class="lbl">รวมรายได้</td><td class="n">${baht(p.GrossIncome)}</td></tr>
-        <tr><td class="lbl">รวมหัก</td><td class="n">${baht(p.TotalDeductions)}</td>
-            <td colspan="4" class="sub lft">${minus.map(a=>esc(a.label||'')).filter(Boolean).join(' · ')||'&nbsp;'}</td></tr>
       </tbody></table>
       <div class="acc"><b>${baht(p.ContributionAccum||p.Contribution||0)}</b> เงินสมทบสะสม</div>
       <div class="fn"><b>เบี้ยขยัน<sup>1</sup></b> คำนวณจากการมาทำงานทุกวันของแต่ละเดือน โดยไม่ลา ไม่มาสาย (${baht(p.DiligenceAttendance)})+Post รูป Facebook (${baht(p.DiligenceFacebook)})<br>
@@ -4061,7 +4091,8 @@
       .grid th,.grid td{border:1px solid #333;padding:1px 3px;text-align:center;overflow-wrap:anywhere;line-height:1.25}
       .grid th{background:#fff;font-weight:bold}.grid td.n{text-align:right;font-weight:bold}
       .grid td.lft{text-align:left}
-      .grid td.in{color:#1565C0}.grid td.de{color:#c00}.grid td.net{color:#1565C0;font-size:14px}
+      .grid td.in{color:#1565C0}.grid td.de{color:#c00}
+      .grid td.net{color:#1565C0;font-size:15px;text-align:center;vertical-align:middle;font-weight:bold}
       .grid td.lbl{text-align:right;font-weight:normal}.sub{font-size:10.5px;color:#555;font-weight:normal}
       .acc{text-align:right;font-size:11px;margin:1mm 0}
       .fn{font-size:9px;color:#1565C0;line-height:1.35}.fn b{color:#222}

@@ -345,6 +345,53 @@ function createAtomAPI(M, GROWTH_STD) {
           ot={otId:id,lateMinutes:o.late,hours:o.hours,amount:o.amount,planEnd:o.planEnd}; } }
       logAct('staffStudentCheckin',st.StudentID,type+' @'+t+' — '+remark,actorOf(p));
       return {studentId:st.StudentID,type,time:t,remark,ot}; },
+    // Correct a wrong check-in / pick-up — a parent tapping "picked up" mid-morning by mistake used to be
+    // permanent, and it also raised an OT charge. Clearing the OUT time puts the child back to "at
+    // school" and removes any OT that pick-up created. Scope: a teacher may only touch the classes they
+    // cover; a head teacher (Department '*') and Admin may touch anyone.
+    editStudentAttendance: p => {
+      const st=studentById(p.studentId); if(!st) fail('NOT_FOUND','ไม่พบนักเรียน');
+      if(String(p.role||'')!=='Admin'){
+        const me=staffById(p.staffId)||{};
+        const all=String(me.Department||'')==='*';
+        const cov=(coveredClasses_(me)||[]).map(c=>c.ClassName);
+        if(!all && cov.indexOf(st.Class)<0) fail('NO_ACCESS','แก้ไขได้เฉพาะนักเรียนในชั้นที่ดูแล');
+      }
+      const date=ymd(p.date||todayLocal());
+      const hhmm=v=>{ const t=String(v==null?'':v).trim(); return /^\d{1,2}:\d{2}$/.test(t)?t:''; };
+      const inT=p.checkIn!=null?hhmm(p.checkIn):null, outT=p.checkOut!=null?hhmm(p.checkOut):null;
+      const remark=String(p.remark||'').trim()||'แก้ไขโดยเจ้าหน้าที่';
+      const put=(type,t)=>{ const i=M.checkinStudent.findIndex(c=>c.StudentID===st.StudentID&&ymd(c.Date)===date&&String(c.Type).toUpperCase()===type);
+        if(!t){ if(i>=0) M.checkinStudent.splice(i,1); return; }
+        if(i>=0){ M.checkinStudent[i].Time=t; M.checkinStudent[i].Remark=remark; M.checkinStudent[i].ByStaffID=p.staffId||''; }
+        else M.checkinStudent.push({Date:date,Time:t,StudentID:st.StudentID,ParentID:st.ParentID||'',Type:type,Status:'OK',Remark:remark,ByStaffID:p.staffId||''}); };
+      if(inT!==null) put('IN',inT);
+      if(outT!==null) put('OUT',outT);
+      // the day's roll-up the app reads everywhere
+      let h=M.studentCheckins.find(c=>c.StudentID===st.StudentID&&ymd(c.Date)===date);
+      if(!h){ h={Date:date,StudentID:st.StudentID,InTime:'',OutTime:''}; M.studentCheckins.push(h); }
+      if(inT!==null) h.InTime=inT; if(outT!==null) h.OutTime=outT;
+      if(date===todayLocal()){
+        const status=(outT!==null?outT:h.OutTime)?'OUT':((inT!==null?inT:h.InTime)?'IN':'ABSENT');
+        const time=status==='OUT'?h.OutTime:h.InTime;
+        const ex=M.studentAttendanceToday.find(x=>x.StudentID===st.StudentID);
+        if(status==='ABSENT'){ if(ex){ ex.Status='ABSENT'; ex.Time=''; } }
+        else if(ex){ ex.Status=status; ex.Time=time; } else M.studentAttendanceToday.push({StudentID:st.StudentID,Status:status,Time:time});
+      }
+      // OT follows the pick-up time: cleared → the charge goes with it; changed → recompute
+      const otId='OT-'+date.replace(/-/g,'')+'-'+st.StudentID;
+      const oi=M.otDaily.findIndex(x=>x.OTID===otId);
+      let ot=null;
+      if(outT!==null){
+        if(!outT){ if(oi>=0 && String(M.otDaily[oi].Status||'')!=='PAID') M.otDaily.splice(oi,1); }
+        else { const o=otFor(st,outT);
+          if(o.amount>0){ if(oi>=0){ const r=M.otDaily[oi]; r.PickupTime=outT; r.PlanEnd=o.planEnd; r.LateMinutes=o.late; r.Hours=o.hours; r.Amount=o.amount; }
+            else M.otDaily.push({OTID:otId,Date:date,StudentID:st.StudentID,PickupTime:outT,PlanEnd:o.planEnd,LateMinutes:o.late,Hours:o.hours,Amount:o.amount,Status:'UNPAID',SlipRef:'',SlipAmount:0});
+            ot={otId,amount:o.amount,lateMinutes:o.late}; }
+          else if(oi>=0 && String(M.otDaily[oi].Status||'')!=='PAID') M.otDaily.splice(oi,1); }
+      }
+      logAct('editStudentAttendance',st.StudentID,date+' เข้า '+(h.InTime||'-')+' ออก '+(h.OutTime||'-')+' — '+remark,actorOf(p));
+      return {studentId:st.StudentID,date,checkIn:h.InTime||'',checkOut:h.OutTime||'',ot}; },
     // Admin audit: every on-behalf student check-in/out (who recorded it, the time entered, the reason,
     // and whether it produced an OT charge) — so a disputed pick-up time can be verified.
     staffCheckinLog: p => { const days=Number(p.days||14); const cutoff=(()=>{ const d=new Date(); d.setDate(d.getDate()-days); return ymd(d.toISOString?d.toISOString():d); })();
