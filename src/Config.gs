@@ -124,12 +124,12 @@ SCHEMA[WB.HR] = {
   // Department/PositionLevel/ReportsTo drive the org hierarchy & leave routing (chat spec)
   // Classes = extra classrooms this staff covers beyond their homeroom (comma-separated ClassNames, or
   // '*' = all). Admin/Leader cover all by default. Appended at END like NicknameEN.
-  STAFF:         ['StaffID', 'NationalID', 'Name', 'NameEN', 'Nickname', 'DOB', 'Position', 'Role', 'Department', 'PositionLevel', 'StaffGroup', 'ReportsTo', 'Phone', 'LineUID', 'StartDate', 'BaseSalary', 'RequireCheckin', 'PasswordHash', 'MustChangePassword', 'Photo', 'Status', 'NicknameEN', 'Classes'],
+  STAFF:         ['StaffID', 'NationalID', 'Name', 'NameEN', 'Nickname', 'DOB', 'Position', 'Role', 'Department', 'PositionLevel', 'StaffGroup', 'ReportsTo', 'Phone', 'LineUID', 'StartDate', 'BaseSalary', 'RequireCheckin', 'PasswordHash', 'MustChangePassword', 'Photo', 'Status', 'NicknameEN', 'Classes', 'BankName', 'BankAccount'],
   // Staff groups with their own (editable) work hours — Admin-managed
   STAFF_GROUPS:  ['GroupName', 'GroupNameEN', 'CheckInTime', 'CheckOutTime'],
   // Per-staff payroll config (Admin-editable). Widened to carry every field the engine's computePayroll uses
   // so it round-trips through the sheet: pay type/daily rate, SS flag, child threshold & multiplier, diligence amounts.
-  PAYROLL_CONFIG:['StaffID', 'PayType', 'DailyRate', 'BaseSalary', 'SocialSecurityDeduct', 'ChildThreshold', 'ChildMultiplier', 'DiligenceAttendanceAmount', 'DiligenceFacebookAmount', 'TaxDeduct'],
+  PAYROLL_CONFIG:['StaffID', 'PayType', 'DailyRate', 'BaseSalary', 'SocialSecurityDeduct', 'ChildThreshold', 'ChildMultiplier', 'DiligenceAttendanceAmount', 'DiligenceFacebookAmount', 'TaxDeduct', 'Contribution'],
   // InManual/OutManual = 'YES' when the time was set via an approved manual-attendance request (ขอลงเวลา);
   // the app renders a manual time in blue/bold to distinguish it from a normal GPS clock-in. Appended at END.
   CHECKIN_STAFF: ['Date', 'StaffID', 'CheckIn', 'CheckOut', 'LateMinutes', 'OTHours', 'Status', 'InManual', 'OutManual'],
@@ -150,7 +150,10 @@ SCHEMA[WB.HR] = {
                   'ExtraChildCount', 'ExtraChildAmount', 'TrainingCertCount', 'TrainingCertAmount',
                   'OTEvening', 'HolidayBonus', 'OtherIncome', 'GrossIncome',
                   'SocialSecurity', 'Contribution', 'OtherDeductions', 'TotalDeductions',
-                  'NetPay', 'BankAccount', 'SlipSent', 'GeneratedDate', 'GeneratedBy'],
+                  'NetPay', 'BankAccount', 'SlipSent', 'GeneratedDate', 'GeneratedBy',
+                  // added later — these were being written and silently dropped for want of a column
+                  'PayType', 'DailyRate', 'DaysWorked', 'ChildMultiplier', 'Adjustments', 'AdjustmentsTotal',
+                  'BankName', 'LeaveDays', 'LeaveLimit', 'LeaveExceeds', 'ContributionAccum', 'Position', 'StaffName'],
   TRAINING:      ['TrainingID', 'StaffID', 'CourseName', 'Date', 'Provider', 'Certificate', 'ExpireDate'],
   WORK_SCHEDULE: ['StaffID', 'DayOfWeek', 'CheckInTime', 'CheckOutTime', 'EffectiveDate'],
   // Manual attendance-time request (ขอลงเวลา): staff asks to record a check-in/out at a chosen time.

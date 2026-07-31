@@ -33,20 +33,31 @@ function computePayroll(payload) {
   if (!staff) throw apiError_('STAFF_NOT_FOUND', 'ไม่พบพนักงาน');
   var month = payload.month;
 
-  var base = num_(staff.BaseSalary);
+  // Everything the payroll screen sends is honoured here. This route SHADOWS the shared engine, and it
+  // used to ignore most of the payload — the per-staff diligence amounts, the child-rate settings, the
+  // social-security tick and the signed adjustment lines all did nothing on live, so the slip silently
+  // disagreed with what the admin had entered.
+  var payType = payload.payType || 'monthly';
+  var base = payType === 'daily'
+    ? num_(payload.dailyRate) * num_(payload.daysWorked)
+    : (payload.baseSalary != null ? num_(payload.baseSalary) : num_(staff.BaseSalary));
 
   // --- เบี้ยขยัน --- (unchanged: its own "no leave / no late" rule)
-  var attEligible = (payload.attendanceOverride != null)
-    ? !!payload.attendanceOverride : attendanceEligible_(staff.StaffID, month);
-  var diligenceAttendance = attEligible ? num_(getConfig_('DiligenceAttendanceAmount', '500')) : 0;
+  var attEligible = (payload.attendanceEligible != null) ? !!payload.attendanceEligible
+    : (payload.attendanceOverride != null) ? !!payload.attendanceOverride
+    : attendanceEligible_(staff.StaffID, month);
+  var attendAmt = (payload.diligenceAttend != null) ? num_(payload.diligenceAttend)
+    : num_(getConfig_('DiligenceAttendanceAmount', '500'));
+  var diligenceAttendance = attEligible ? attendAmt : 0;
 
   // --- กฎการลา: ลาทุกชนิดเกิน limit วัน/เดือน → ไม่คำนวณเรทจำนวนเด็ก ---
   // WARNING only; no field is locked — Admin may still enter a child count to override. Applied below.
   var leaveDays = allLeaveDays_(staff.StaffID, month);
   var leaveLimit = parseInt(getConfig_('DiligenceLeaveMaxDays', '3'), 10) || 3;
   var leaveExceeds = leaveDays > leaveLimit;
-  var diligenceFacebook = payload.facebookPosted
-    ? num_(payload.facebookAmount, num_(getConfig_('DiligenceFacebookAmount', '500'))) : 0;
+  var fbAmt = (payload.diligenceFb != null) ? num_(payload.diligenceFb)
+    : num_(payload.facebookAmount, num_(getConfig_('DiligenceFacebookAmount', '500')));
+  var diligenceFacebook = payload.facebookPosted ? fbAmt : 0;
   // Big Cleaning Day: attendance on an admin-set cleaning day earns a diligence bonus (เบี้ยขยัน)
   var diligenceBigClean = bigCleaningBonus_(staff.StaffID, month, payload);
   var diligenceTotal = diligenceAttendance + diligenceFacebook + diligenceBigClean;
@@ -57,7 +68,9 @@ function computePayroll(payload) {
   var extraChildCount = (payload.extraChildCount != null)
     ? Math.max(0, parseInt(payload.extraChildCount, 10) || 0)
     : (leaveExceeds ? 0 : 0);
-  var extraChildAmount = extraChildCount * num_(getConfig_('ExtraChildRate', '300'));
+  var childMultiplier = (payload.childMultiplier != null) ? num_(payload.childMultiplier)
+    : num_(getConfig_('ExtraChildRate', '300'));
+  var extraChildAmount = extraChildCount * childMultiplier;
   var certCap = parseInt(getConfig_('TrainingCertMaxPerMonth', '2'), 10);
   var trainingCertCount = Math.min(certCap, Math.max(0, parseInt(payload.trainingCertCount, 10) || 0));
   var trainingCertAmount = trainingCertCount * num_(getConfig_('TrainingCertRate', '100'));
@@ -71,15 +84,34 @@ function computePayroll(payload) {
   var gross = round2_(base + diligenceTotal + otherIncome + otEvening + holidayBonus);
 
   // --- รายการหัก ---
+  // the client sends socialSecurityDeduct (the checkbox). Only an explicit socialSecurity NUMBER
+  // overrides the calculation; unticking must zero it, which is what was being ignored.
+  var ssDeduct = (payload.socialSecurityDeduct != null) ? !!payload.socialSecurityDeduct : true;
   var ss = (payload.socialSecurity != null) ? num_(payload.socialSecurity)
-    : Math.min(round2_(base * num_(getConfig_('SocialSecurityRate', '0.05'))), num_(getConfig_('SocialSecurityMax', '750')));
+    : (ssDeduct ? Math.min(round2_(base * num_(getConfig_('SocialSecurityRate', '0.05'))), num_(getConfig_('SocialSecurityMax', '750'))) : 0);
   var contribution = num_(payload.contribution);
   var otherDeductions = num_(payload.otherDeductions);
   var totalDeductions = round2_(ss + contribution + otherDeductions);
 
-  var netPay = round2_(gross - totalDeductions);
+  // signed one-off lines from the screen, e.g. {label:'หักมาสาย', amount:-200}. They apply to the NET
+  // so a positive line is extra pay and a negative one is a deduction, exactly as typed.
+  var adjustments = Array.isArray(payload.adjustments) ? payload.adjustments.filter(function (a) {
+    return a && (String(a.label || '').trim() !== '' || num_(a.amount) !== 0); }) : [];
+  var adjustmentsTotal = round2_(adjustments.reduce(function (t, a) { return t + num_(a.amount); }, 0));
+
+  var netPay = round2_(gross - totalDeductions + adjustmentsTotal);
 
   var sheet = sheet_(getHrSpreadsheet_(), 'PAYROLL');
+  // running total of เงินสมทบ across every month on file — the school's slip prints it at the bottom
+  var contribAccum = contribution;
+  try {
+    readObjects_(sheet).forEach(function (r) {
+      if (String(r.StaffID) === String(staff.StaffID) && String(r.Month) !== month) contribAccum += num_(r.Contribution);
+    });
+  } catch (e) {}
+  try { ensureColumns_(sheet, ['PayType', 'DailyRate', 'DaysWorked', 'ChildMultiplier', 'Adjustments',
+    'AdjustmentsTotal', 'BankName', 'LeaveDays', 'LeaveLimit', 'LeaveExceeds',
+    'ContributionAccum', 'Position', 'StaffName']); } catch (e) {}
   var existing = findObject_(sheet, function (r) {
     return String(r.StaffID) === String(staff.StaffID) && String(r.Month) === month;
   });
@@ -90,7 +122,13 @@ function computePayroll(payload) {
     TrainingCertCount: trainingCertCount, TrainingCertAmount: trainingCertAmount,
     OTEvening: otEvening, HolidayBonus: holidayBonus, OtherIncome: otherIncome, GrossIncome: gross,
     SocialSecurity: ss, Contribution: contribution, OtherDeductions: otherDeductions, TotalDeductions: totalDeductions,
-    NetPay: netPay, BankAccount: getConfig_('BankName', 'SCB'), SlipSent: existing ? existing.SlipSent : 'NO',
+    PayType: payType, DailyRate: num_(payload.dailyRate), DaysWorked: num_(payload.daysWorked),
+    ChildMultiplier: childMultiplier,
+    Adjustments: JSON.stringify(adjustments), AdjustmentsTotal: adjustmentsTotal,
+    NetPay: netPay, BankName: staff.BankName || getConfig_('BankName', 'SCB'),
+    ContributionAccum: round2_(contribAccum), Position: staff.Position || '',
+    StaffName: staff.Name || staff.NameEN || '',
+    BankAccount: staff.BankAccount || '', SlipSent: existing ? existing.SlipSent : 'NO',
     LeaveDays: leaveDays, LeaveLimit: leaveLimit, LeaveExceeds: leaveExceeds,
     GeneratedDate: new Date(), GeneratedBy: payload.generatedBy || 'system'
   };
