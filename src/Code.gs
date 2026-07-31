@@ -137,6 +137,7 @@ var ROUTES = {
   // Payroll
   computePayroll: function (p) { return handleComputePayroll(p); },
   getPayslip:     function (p) { return handleGetPayslip(p); },
+  markSalaryPaid: function (p) { return handleMarkSalaryPaid(p); },   // admin-only: salary transferred (+ slip)
   // Day 6 — PCHI insurance (fill-once) + SlipOK slip verification
   insuranceStatus:    function (p) { return handleInsuranceStatus(p); },
   submitInsurance:    function (p) { return handleSubmitInsurance(p); },
@@ -200,7 +201,7 @@ function applyIdentity_(action, payload, sess) {
     addAnnouncement: 1, editAnnouncement: 1, deleteAnnouncement: 1, reindexAnnouncements: 1, reindexParents: 1, checkDuplicateIds: 1,
     saveDspmCriteria: 1, deleteDspmCriteria: 1,
     editStudentLeave: 1, deleteStudentLeave: 1, deleteStudentLeaves: 1, dedupData: 1, lineDiag: 1,
-    adminInbox: 1, markInboxRead: 1, reinstallTriggers: 1, unlinkStudent: 1, linkParentAdmin: 1, setLeaveQuota: 1, setConfigVal: 1, notifyBills: 1, issueBillsFor: 1, savePlans: 1, saveQRCodes: 1, prepayAudit: 1,
+    adminInbox: 1, markInboxRead: 1, reinstallTriggers: 1, unlinkStudent: 1, linkParentAdmin: 1, setLeaveQuota: 1, setConfigVal: 1, markSalaryPaid: 1, notifyBills: 1, issueBillsFor: 1, savePlans: 1, saveQRCodes: 1, prepayAudit: 1,
     parentKidsMap: 1 };  // every parent's children by name — admin-only (PII)
   if (ADMIN_ONLY[action] && sess.role !== 'Admin') throw apiError_('NO_PERMISSION', 'เฉพาะแอดมิน');
   // Admin is fully trusted: may target ANY staff/student/parent (manage everyone + "view as" any role).

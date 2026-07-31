@@ -211,6 +211,25 @@ function sumMonthlyOT_(staffId, month) {
 }
 
 /** Route: { staffId, month } -> stored payroll (for slip view). */
+// Admin records that a salary has actually been transferred: ticks it paid and (optionally) keeps the
+// transfer slip. financeSummary already reads SlipSent to decide the ✓ in the salary list.
+function handleMarkSalaryPaid(p) {
+  p = p || {};
+  var sh = sheet_(getHrSpreadsheet_(), 'PAYROLL');
+  try { ensureColumns_(sh, ['SlipUrl', 'PaidDate', 'PaidBy']); } catch (e) {}
+  var row = findObject_(sh, function (r) {
+    return String(r.StaffID) === String(p.staffId) && ym7_(r.Month) === ym7_(p.month);
+  });
+  if (!row) throw apiError_('NOT_FOUND', 'ยังไม่มีรายการจ่ายของเดือนนี้ — กดบันทึกเงินเดือนก่อน');
+  var paid = p.paid !== false;
+  var patch = { SlipSent: paid ? 'YES' : 'NO', PaidDate: paid ? dateStr_(new Date()) : '', PaidBy: p.adminId || 'admin' };
+  if (p.slipUrl) patch.SlipUrl = p.slipUrl;          // a data: URL is offloaded to Drive by updateRow_
+  if (!paid) patch.SlipUrl = '';
+  updateRow_(sh, row._row, patch);
+  try { logAuditHr(p.adminId || 'admin', paid ? 'SALARY_PAID' : 'SALARY_UNPAID', 'PAYROLL', row.PayrollID); } catch (e) {}
+  return { ok: true, staffId: p.staffId, month: p.month, paid: paid };
+}
+
 function handleGetPayslip(payload) {
   payload = payload || {};
   var row = findObject_(sheet_(getHrSpreadsheet_(), 'PAYROLL'), function (r) {

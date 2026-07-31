@@ -767,7 +767,12 @@ function createAtomAPI(M, GROWTH_STD) {
       if(p.preview){ rec.PayrollID=i>=0?M.payroll[i].PayrollID:''; rec.Preview=true; rec.Saved=i>=0; return rec; }
       rec.Saved=true;
       if(i>=0)M.payroll[i]=rec; else M.payroll.push(rec); return rec; },
-    getPayslip: p => M.payroll.find(x=>x.StaffID===p.staffId&&x.Month===p.month) || null,
+    getPayslip: p => M.payroll.find(x=>x.StaffID===p.staffId&&ym(x.Month)===ym(p.month)) || null,
+    markSalaryPaid: p => { const r=M.payroll.find(x=>x.StaffID===p.staffId&&ym(x.Month)===ym(p.month));
+      if(!r) fail('NOT_FOUND','ยังไม่มีรายการจ่ายของเดือนนี้ — กดบันทึกเงินเดือนก่อน');
+      const paid=p.paid!==false; r.SlipSent=paid?'YES':'NO'; r.PaidDate=paid?todayLocal():''; r.SlipUrl=paid?(p.slipUrl||r.SlipUrl||''):'';
+      logAct('markSalaryPaid',p.staffId,(paid?'จ่ายเงินเดือนแล้ว ':'ยกเลิกสถานะจ่าย ')+ym(p.month),actorOf(p));
+      return {ok:true,paid}; },
     // approved leave DAYS of EVERY type (sick + personal + vacation …) in a month, and whether it
     // passes the child-rate limit (leave > limit → the child-rate income เรทจำนวนเด็ก is not calculated)
     staffLeaveSummary: p => { const month=ym(p.month||todayLocal().slice(0,7));
