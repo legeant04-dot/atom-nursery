@@ -112,7 +112,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.165'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.166'; // bump each webapp change; shown only at the bottom of the Chat screen
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
   const phoneFmt = p => { let d=String(p==null?'':p).replace(/\D/g,''); if(d.length===9) d='0'+d; return d; };
@@ -2228,6 +2228,9 @@
     const otDue=(fin.students||[]).reduce((a,s)=>a+Number(s.otOpen||0),0)+Number(fin.otCollected||0);
     const tuiPct = fin.studentsTotal?Math.round(fin.studentsPaid/fin.studentsTotal*100):100;
     const tuiOut = Number(fin.tuitionOutstanding||0);
+    // outstanding OT was only inside the tracking card; the tile now carries it as a second, smaller
+    // line so the two numbers are never read as one
+    const _otOut = Math.max(0, otDue-Number(fin.otCollected||0));
     const payHtml=`<div class="card"><div class="spread"><h3>💰 ${EN()?'Payment tracking':'ติดตามการชำระเงิน'} <small class="muted">(${esc(fin.month||monthStr())})</small></h3><button class="btn sm outline" onclick="GO('finance')">${EN()?'Details':'รายละเอียด'}</button></div>
       <div class="spread" style="font-size:14px;margin-top:4px"><span>🏫 ${EN()?'Monthly tuition':'ค่าเทอมรายเดือน'}</span><b style="color:${pctColor(tuiPct)}">${fin.studentsPaid}/${fin.studentsTotal} <small class="muted" style="font-weight:400">(${tuiPct}%)</small></b></div>
       <div style="height:6px;background:var(--line);border-radius:4px;overflow:hidden;margin:4px 0"><div style="height:100%;width:${tuiPct}%;background:${pctColor(tuiPct)}"></div></div>
@@ -2246,7 +2249,8 @@
     const _pl=Number(d.pendingLeaves||0);
     const kpi=`<div class="kpigrid">
       <button class="kpi blue" onclick="GO('daily')"><span class="kic">👶</span><b class="kn" style="color:${_closed?'var(--ink-3)':pctColor(_attPct)}">${_closed?(EN()?'Holiday':'หยุด'):_attPct+'%'}</b><span class="kl">${EN()?'Attendance today':'มาเรียนวันนี้'}</span></button>
-      <button class="kpi amber" onclick="A_finTab('in')"><span class="kic">💰</span><b class="kn" style="color:${tuiOut>0?'var(--bad)':'var(--ok)'}">${baht(tuiOut)}</b><span class="kl">${EN()?'Tuition outstanding':'ค่าเทอมค้างชำระ'}</span></button>
+      <button class="kpi amber" onclick="A_finTab('in')"><span class="kic">💰</span><b class="kn" style="color:${tuiOut>0?'var(--bad)':'var(--ok)'}">${baht(tuiOut)}</b><span class="kl">${EN()?'Tuition outstanding':'ค้างค่าเทอม'}</span>
+        <span class="kl" style="margin-top:2px">⏰ ${EN()?'OT':'OT'} <b style="color:${_otOut>0?'var(--warn)':'var(--ok)'}">${baht(_otOut)}</b></span></button>
       <button class="kpi green" onclick="A_finTab('wait')"><span class="kic">✅</span><b class="kn" style="color:${pendN?'var(--warn)':'var(--ok)'}">${pendN}</b><span class="kl">${EN()?'Slips to verify':'รอตรวจสลิป'}</span></button>
       <button class="kpi pink" onclick="GO('leaves')"><span class="kic">📩</span><b class="kn" style="color:${_pl?'var(--warn)':'var(--ok)'}">${_pl}</b><span class="kl">${EN()?'Leaves to approve':'รออนุมัติลา'}</span></button></div>`;
     const quick=`<div class="qbar"><button class="btn sm" onclick="GO('daily')">📋 ${esc(t('daily.title'))}</button><button class="btn sm outline" onclick="GO('absence')">🔎 ${esc(t('abs.title'))}</button><button class="btn sm outline" onclick="A_addAnn()">➕ ${esc(t('lbl.addAnn'))}</button><button class="btn sm outline" onclick="A_linkParent()">🔗 ${EN()?'Link parent':'เชื่อมผู้ปกครอง'}</button><button class="btn sm outline" onclick="A_viewAs()">👁️ ${EN()?'View as':'ดูมุมมอง'}</button><button class="btn sm outline" onclick="GO('manage')">🗂️ ${esc(t('title.manage'))}</button></div>`;
@@ -2269,9 +2273,13 @@
       <div class="card"><h3>👩‍🏫 ${EN()?'Staff today':'พนักงานวันนี้'}</h3>
         ${(()=>{ const present=d.staff.filter(s=>s.status==='IN'||s.status==='OUT').length; const t=d.staff.length; const pct=t?Math.round(present/t*100):100;
           const onTime=d.staff.filter(s=>(s.status==='IN'||s.status==='OUT')&&!s.late); const late=d.staff.filter(s=>s.late); const absent=d.staff.filter(s=>s.status==='ABSENT'||s.status==='LEAVE');
+          // in-AND-out: the dashboard only ever showed the arrival, so there was no way to see who had
+          // already left. "–" with nothing after it means still at work.
+          const hhmm=v=>String(v||'').slice(0,5);
+          const inOut=s2=>{ const i=hhmm(s2.checkIn), o=hhmm(s2.checkOut); return i?(' '+i+'–'+(o||'')):''; };
           return `<div class="spread" style="font-size:15px"><b>${EN()?'Present':'มาทำงาน'}</b><b style="color:${pctColor(pct)}">${pct}% <small class="muted" style="font-weight:400">(${present}/${t})</small></b></div>
-            ${onTime.length?`<div style="margin-top:6px"><span class="pill ok">✅ ${EN()?'On time':'ตรงเวลา'} (${onTime.length})</span> <small class="muted">${onTime.map(s=>esc(dnick(s))+(s.checkIn?' '+esc(s.checkIn):'')).join(', ')}</small></div>`:''}
-            ${late.length?`<div style="margin-top:6px"><span class="pill bad">⏰ ${EN()?'Late':'มาสาย'} (${late.length})</span> <small style="color:var(--warn)">${late.map(s=>esc(dnick(s))+' '+esc(s.checkIn||'')+(s.late?` (${EN()?'late ':'สาย '}${s.late}${EN()?'m':'น.'})`:'')).join(', ')}</small></div>`:''}
+            ${onTime.length?`<div style="margin-top:6px"><span class="pill ok">✅ ${EN()?'On time':'ตรงเวลา'} (${onTime.length})</span> <small class="muted">${onTime.map(s=>esc(dnick(s))+esc(inOut(s))).join(', ')}</small></div>`:''}
+            ${late.length?`<div style="margin-top:6px"><span class="pill bad">⏰ ${EN()?'Late':'มาสาย'} (${late.length})</span> <small style="color:var(--warn)">${late.map(s=>esc(dnick(s))+esc(inOut(s))+(s.late?` (${EN()?'late ':'สาย '}${s.late}${EN()?'m':'น.'})`:'')).join(', ')}</small></div>`:''}
             ${absent.length?`<div style="margin-top:6px"><span class="pill wait">⛔ ${EN()?'Absent/leave':'ขาด/ลา'} (${absent.length})</span> <small class="muted">${absent.map(s=>esc(dnick(s))+(s.status==='LEAVE'?(EN()?' (leave)':' (ลา)'):'')).join(', ')}</small></div>`:''}
             ${!late.length&&!absent.length?`<small style="color:var(--ok)">✓ ${EN()?'All present & on time':'มาครบ ตรงเวลา'}</small>`:''}`; })()}</div>
       <div class="card"><h3>📢 ${EN()?"Announcements":"ประกาศ"}</h3><div id="anns"></div></div>`;
@@ -2396,6 +2404,7 @@
 
   let PAY_ADJ=[];
   SCREENS.Admin.payroll = async () => { const [staff,rate]=await Promise.all([api('listStaff'),api('ratedChildCount')]); PAY_ADJ=[]; window._RATED=rate;
+    A_CACHE.staff=staff||[];   // the base salary is read from HERE — MOCK.staff is empty in gas mode
     app.innerHTML=`<button class="btn sm outline backbtn" onclick="A_finTab('pay')">${t('c.back')} · ${EN()?'Finance':'การเงิน'}</button><h2 class="page">${esc(t('title.payroll'))}</h2><div class="card">
       <div class="grid2"><label class="field"><span>${esc(t('c.staff'))}</span><select id="pStaff" onchange="A_payStaff()">${staff.map(s=>`<option value="${s.StaffID}">${esc(nmn(s))}</option>`).join('')}</select></label>
         <label class="field"><span>${esc(t('c.month'))}</span><input id="pMonth" type="month" value="${monthStr()}" onchange="A_payStaff()"/></label></div>
@@ -2421,7 +2430,10 @@
       <button class="btn block" onclick="A_calc()">${esc(t('c.calc'))}</button></div><div id="slipResult"></div>`;
     A_payStaff();
   };
-  window.A_payStaff = async ()=>{ const sid=$('#pStaff').value; const s=MOCK.staff.find(x=>x.StaffID===sid)||{}; const pc=await api('payrollConfig',{staffId:sid});
+  window.A_payStaff = async ()=>{ const sid=$('#pStaff').value; const pc=await api('payrollConfig',{staffId:sid});
+    // this used to read MOCK.staff, which holds SEED rows (and is empty since the mockdata split), so
+    // the saved salary never came back — the field showed 0 every time the screen was opened
+    const s=(A_CACHE.staff||[]).find(x=>x.StaffID===sid)||{};
     $('#pBase').value=s.BaseSalary||0; $('#pChildMul2').value=pc.ChildMultiplier; $('#pSS').checked=pc.SocialSecurityDeduct!==false;
     $('#pType').value=pc.PayType||'monthly'; $('#pDaily').value=pc.DailyRate||0;
     $('#pAttendAmt').value=pc.DiligenceAttendanceAmount!=null?pc.DiligenceAttendanceAmount:MOCK.config.DiligenceAttendanceAmount;
@@ -2446,6 +2458,10 @@
   window.PAY_ADJ_SET=(i,k,v)=>{ PAY_ADJ[i][k]= k==='amount'?Number(v||0):v; };
   window.A_calc=async()=>{ const payType=$('#pType').value; const p={staffId:$('#pStaff').value,month:$('#pMonth').value,payType,baseSalary:+$('#pBase').value,dailyRate:+$('#pDaily').value,daysWorked:+$('#pDays').value,childMultiplier:+$('#pChildMul2').value,childThreshold:+$('#pThreshold').value,diligenceAttend:+$('#pAttendAmt').value,diligenceFb:+$('#pFbAmt').value,socialSecurityDeduct:$('#pSS').checked,facebookPosted:$('#pFb').checked,attendanceEligible:$('#pAtt').checked,extraChildCount:+$('#pChild').value,trainingCertCount:+$('#pCert').value,otEvening:+$('#pOt').value,holidayBonus:+$('#pHb').value,adjustments:PAY_ADJ.filter(a=>a.label||a.amount)};
     await api('setPayrollConfig',{staffId:p.staffId,config:{PayType:payType,DailyRate:p.dailyRate,ChildMultiplier:p.childMultiplier,ChildThreshold:p.childThreshold,DiligenceAttendanceAmount:p.diligenceAttend,DiligenceFacebookAmount:p.diligenceFb,SocialSecurityDeduct:p.socialSecurityDeduct}});
+    // the base salary belongs to the STAFF record, and setPayrollConfig never carried it — so the
+    // number the admin typed was used for THIS calculation and then thrown away
+    try{ await api('saveStaff',{staffId:p.staffId,data:{BaseSalary:p.baseSalary}});
+      const cached=(A_CACHE.staff||[]).find(x=>x.StaffID===p.staffId); if(cached) cached.BaseSalary=p.baseSalary; }catch(e){}
     const r=await api('computePayroll',p); $('#slipResult').innerHTML=payslipCard(r)+`<div class="row"><button class="btn outline" onclick="A_dlSlip('${r.StaffID}','${r.Month}')">⬇️ ${esc(t('pay.download'))}</button><button class="btn outline" onclick="A_print('${r.Month}')">🖨️ ${esc(t('pay.print3'))}</button></div>`; toast('✅ '+t('pay.calcSaved')); };
   window.A_dlSlip=async(staffId,month)=>{ const r=MOCK.payroll.find(p=>p.StaffID===staffId&&p.Month===month); if(!r){toast('ยังไม่มีสลิป');return;} await ensureLogos(); openOrDownload(buildSlipsHTML([r],month),'payslip-'+staffId+'-'+month+'.html'); };
   window.A_print=async(month)=>{ const rows=MOCK.payroll.filter(p=>p.Month===month); if(!rows.length){toast('ยังไม่มีสลิป');return;} await ensureLogos(); openOrDownload(buildSlipsHTML(rows,month), 'payslips-'+month+'.html'); };
@@ -3377,7 +3393,7 @@
   window.A_delDep=async(name)=>{ if(!confirm(t('manage.confirmDel')))return; try{ await api('removeDepartment',{name}); const m=document.querySelector('.modal'); if(m)m.remove(); A_departments(); toast(t('manage.deleted')); }catch(e){err(e);} };
 
   // ---- settings: diligence amounts + leave quota (Admin-editable) ----
-  window.A_settings=async()=>{ const [q,sc,bc]=await Promise.all([api('getLeaveQuota'),api('schoolConfig'),api('bigCleaningDays')]); const cfg=MOCK.config;
+  window.A_settings=async()=>{ const [q,sc]=await Promise.all([api('getLeaveQuota'),api('schoolConfig')]); const cfg=MOCK.config;
     const cfgOn=(k,def)=>{ const v=(sc&&sc[k]!=null)?sc[k]:cfg[k]; return v==null?def:(v===true||String(v).toLowerCase()==='true'); };
     modal(`<h3>⚙️ ${esc(t('manage.settings'))}</h3>
       <h4 style="margin:6px 0">📍 ${EN()?'Check-in location (geofence)':'พิกัดโรงเรียน (เช็คอิน)'}</h4>
@@ -3388,11 +3404,7 @@
       <h4 style="margin:6px 0">${esc(t('set.diligence'))}</h4>
       <div class="grid2"><label class="field"><span>${esc(t('set.attendAmt'))}</span><input id="setAtt" type="number" value="${cfg.DiligenceAttendanceAmount}"/></label>
         <label class="field"><span>${esc(t('set.fbAmt'))}</span><input id="setFb" type="number" value="${cfg.DiligenceFacebookAmount}"/></label></div>
-      <h4 style="margin:6px 0">🧹 ${EN()?'Big Cleaning Day':'วัน Big Cleaning'}</h4>
-      <p class="muted" style="font-size:13px">${EN()?'A monthly mandatory workday with no fixed hours; attendance earns a diligence bonus.':'วันทำงานบังคับเดือนละครั้ง ไม่กำหนดเวลาเข้า-ออก · มาแล้วได้เบี้ยขยันเพิ่ม'}</p>
-      <label class="field"><span>${EN()?'Bonus per cleaning day (฿)':'เบี้ยขยันต่อวัน (฿)'}</span><input id="setBC" type="number" value="${esc(bc.amount||0)}"/></label>
-      <div id="bcList">${(bc.days||[]).map(d=>`<div class="list-item"><span>🧹 ${esc(ddmmyyyy(d))}</span><button class="btn sm pink" onclick="A_bcRemove('${esc(d)}')" aria-label="${EN()?"Delete":"ลบ"}" title="${EN()?"Delete":"ลบ"}">🗑️</button></div>`).join('')||`<small class="muted">${EN()?'no dates set':'ยังไม่ได้กำหนดวัน'}</small>`}</div>
-      <div class="grid2" style="margin-top:6px"><input type="date" id="bcDate"/><button class="btn" onclick="A_bcAdd()">+ ${esc(t('manage.add'))}</button></div>
+      <p class="muted" style="font-size:13px">🧹 ${EN()?'Big Cleaning days moved to':'วัน Big Cleaning ย้ายไปที่'} <a href="#" onclick="event.preventDefault();this.closest('.modal').remove();GO_('holidays')"><b>${esc(t('manage.holidays'))}</b></a></p>
       <h4 style="margin:6px 0">${esc(t('set.leaveQuota'))}</h4>
       ${Object.keys(q).map(k=>`<label class="field"><span>${esc(tLeaveType(k))}</span><input type="number" id="lq_${esc(k)}" value="${q[k]}"/></label>`).join('')}
       <h4 style="margin:10px 0 4px">🔔 ${EN()?'Notifications':'การแจ้งเตือน'}</h4>
@@ -3407,14 +3419,14 @@
   // Big Cleaning Day add/remove — persist immediately (also save the amount field first so it isn't lost)
   window.A_bcAdd=async()=>{ const d=document.getElementById('bcDate').value; if(!d){toast(EN()?'Pick a date':'เลือกวันที่');return;}
     const amt=document.getElementById('setBC'); if(amt) await api('setSchoolConfig',{values:{BigCleaningAmount:+amt.value||0}});
-    try{ await api('addBigCleaning',{date:d}); const m=document.querySelector('.modal'); if(m)m.remove(); toast(t('c.saved')); A_settings(); }catch(e){err(e);} };
-  window.A_bcRemove=async(d)=>{ try{ await api('removeBigCleaning',{date:d}); const m=document.querySelector('.modal'); if(m)m.remove(); toast(t('manage.deleted')); A_settings(); }catch(e){err(e);} };
+    try{ await api('addBigCleaning',{date:d}); toast(t('c.saved')); GO_('holidays'); }catch(e){err(e);} };
+  window.A_bcRemove=async(d)=>{ try{ await api('removeBigCleaning',{date:d}); toast(t('manage.deleted')); GO_('holidays'); }catch(e){err(e);} };
   // (re)install the time triggers so the 10:00/20:00 digests are scheduled after enabling them
   window.A_reinstallTriggers=async(btn)=>{ if(btn)btn.disabled=true; try{ const r=await api('reinstallTriggers',{}); toast((EN()?'Schedule updated · triggers: ':'อัปเดตตารางแล้ว · triggers: ')+(r&&r.triggers!=null?r.triggers:'?')); }catch(e){err(e);}finally{ if(btn)btn.disabled=false; } };
   window.A_saveSettings=async(btn)=>{ const m=btn.closest('.modal');
     const lat=parseFloat(m.querySelector('#cfgLat').value), lng=parseFloat(m.querySelector('#cfgLng').value), rad=parseFloat(m.querySelector('#cfgRadius').value);
     const gv={}; if(!isNaN(lat))gv.GPS_Lat=lat; if(!isNaN(lng))gv.GPS_Lng=lng; if(!isNaN(rad))gv.Radius=rad;
-    const bcEl=m.querySelector('#setBC'); if(bcEl) gv.BigCleaningAmount=+bcEl.value||0;
+
     // notification prefs (checkboxes) — stored in SCHOOL_CONFIG so the digests/triggers read them
     const ck=id=>{ const e=m.querySelector(id); return e?(e.checked?'true':'false'):undefined; };
     if(ck('#setAdminLine')!==undefined) gv.AdminLineNotify=ck('#setAdminLine');
@@ -3627,8 +3639,13 @@
   window.T_organize=()=>{ window.__orgBack='home'; ADMIN_SUB_organize('home'); };
 
   // ---- Holiday DB ----
-  ADMIN_SUB_holidays = async ()=>{ const hs=await api('holidays');
+  ADMIN_SUB_holidays = async ()=>{ const [hs,bc]=await Promise.all([api('holidays'),api('bigCleaningDays')]);
     app.innerHTML=`<button class="btn sm outline backbtn" onclick="GO('manage')">${t('c.back')}</button><h2 class="page">🗓️ ${esc(t('manage.holidays'))}</h2>
+      <div class="card"><h3>🧹 ${EN()?'Big Cleaning Day':'วัน Big Cleaning'}</h3>
+        <p class="muted" style="font-size:13px">${EN()?'A monthly mandatory workday with no fixed hours; attendance earns a diligence bonus.':'วันทำงานบังคับเดือนละครั้ง ไม่กำหนดเวลาเข้า-ออก · มาแล้วได้เบี้ยขยันเพิ่ม'}</p>
+        <label class="field"><span>${EN()?'Bonus per cleaning day (฿)':'เบี้ยขยันต่อวัน (฿)'}</span><input id="setBC" type="number" value="${esc(bc.amount||0)}"/></label>
+        <div id="bcList">${(bc.days||[]).map(d=>`<div class="list-item"><span>🧹 ${esc(ddmmyyyy(d))}</span><button class="btn sm pink" onclick="A_bcRemove('${esc(d)}')" aria-label="${EN()?"Delete":"ลบ"}" title="${EN()?"Delete":"ลบ"}">🗑️</button></div>`).join('')||`<small class="muted">${EN()?'no dates set':'ยังไม่ได้กำหนดวัน'}</small>`}</div>
+        <div class="grid2" style="margin-top:6px"><input type="date" id="bcDate"/><button class="btn" onclick="A_bcAdd()">+ ${esc(t('manage.add'))}</button></div></div>
       <div class="card"><h3>➕ ${esc(t('hol.add'))}</h3>
         <div class="grid2"><label class="field"><span>${esc(t('hol.date'))}</span><input type="date" id="hDate"/></label>
           <label class="field" style="display:flex;align-items:center;gap:8px;margin-top:22px"><input type="checkbox" id="hRec" style="width:auto"/> ${esc(t('hol.recurring'))}</label></div>
@@ -3704,27 +3721,38 @@
           <tr><td><b>${EN()?'Outstanding':'คงค้าง'}</b></td><td style="text-align:right"><b style="color:${Number(bill.Outstanding||0)>0?'var(--bad)':'var(--ok)'}">${baht(bill.Outstanding||0)}</b></td></tr></table>
         ${slipHistoryHTML(slipsOf('bill',bill.BillingID))}
         <div class="row" style="margin-top:6px"><button class="btn sm pink" onclick="A_finDelBill('${esc(bill.BillingID)}','${sid}',this)">🗑️ ${EN()?'Delete bill':'ลบบิล'}</button></div>`
-      : `<p class="muted" style="font-size:13px">${EN()?'No bill issued for this month yet.':'ยังไม่ได้ออกบิลของเดือนนี้'}</p><button class="btn sm" onclick="A_finIssueBill('${sid}')">🧾 ${EN()?'Issue this month’s bill':'ออกบิลเดือนนี้'}</button>`;
-    const chargeBox = `${(charges||[]).length?(charges).map(c=>`<div class="list-item"><span>${esc(c.Label)} <b>${baht(c.Amount)}</b></span><button class="btn sm pink" onclick="A_finDelCharge('${esc(c.ChargeID)}','${sid}',this)" aria-label="${EN()?"Delete":"ลบ"}" title="${EN()?"Delete":"ลบ"}">🗑️</button></div>`).join(''):`<small class="muted">${EN()?'No extra charges':'ไม่มีรายการเพิ่มเติม'}</small>`}
-      <div class="grid2" style="margin-top:6px"><input id="fcLabel" placeholder="${EN()?'e.g. Special class':'เช่น ค่าเรียนพิเศษ'}"/><input id="fcAmt" type="number" placeholder="${EN()?'amount':'จำนวนเงิน'}"/></div>
+      : `<p class="muted" style="font-size:13px">${EN()?'No bill issued for this month yet.':'ยังไม่ได้ออกบิลของเดือนนี้'}</p>
+         <div class="grid2" style="align-items:end"><label class="field" style="margin:0"><span>${EN()?'Bill month':'เดือนที่จะออกบิล'}</span><input type="month" id="fbMonth" value="${esc(ym(month))}"/></label>
+           <button class="btn sm" onclick="A_finIssueBill('${sid}')">🧾 ${EN()?'Issue bill':'ออกบิล'}</button></div>`;
+    // the child's standing discount is applied to tuition on every bill — show it so the admin can see
+    // WHY the amount differs from the package price, instead of having to open the student record
+    const _disc=Number(s.DiscountAmount||0);
+    const discBox=_disc>0?`<div class="list-item" style="background:var(--ok-bg);border-radius:8px;padding:6px 8px;margin-top:4px"><span>🏷️ ${EN()?'Standing discount':'ส่วนลดประจำของนักเรียน'} <small class="muted">${EN()?'always applied to tuition':'หักจากค่าเทอมทุกบิล'}</small></span><b style="color:var(--ok)">−${/%|percent/i.test(String(s.DiscountUnit||''))?_disc+'%':baht(_disc)}</b></div>`:'';
+    const chargeBox = `${(charges||[]).length?(charges).map(c=>`<div class="list-item"><span>${Number(c.Amount)<0?'🏷️ ':''}${esc(c.Label)} <b style="color:${Number(c.Amount)<0?'var(--ok)':'inherit'}">${Number(c.Amount)<0?'−'+baht(Math.abs(c.Amount)):baht(c.Amount)}</b></span><button class="btn sm pink" onclick="A_finDelCharge('${esc(c.ChargeID)}','${sid}',this)" aria-label="${EN()?"Delete":"ลบ"}" title="${EN()?"Delete":"ลบ"}">🗑️</button></div>`).join(''):`<small class="muted">${EN()?'No extra charges':'ไม่มีรายการเพิ่มเติม'}</small>`}
+      <div class="grid2" style="margin-top:6px"><input id="fcLabel" placeholder="${EN()?'e.g. Special class':'เช่น ค่าเรียนพิเศษ'}"/>
+        <div class="row" style="gap:6px"><select id="fcSign" style="max-width:104px"><option value="1">+ ${EN()?'charge':'เรียกเก็บ'}</option><option value="-1">− ${EN()?'discount':'ส่วนลด'}</option></select><input id="fcAmt" type="number" min="0" placeholder="${EN()?'amount':'จำนวนเงิน'}" style="flex:1"/></div></div>
       <button class="btn sm outline block" style="margin-top:6px" onclick="A_finAddCharge('${sid}')">+ ${EN()?'Add charge':'เพิ่มรายการ'}</button>`;
     const otBox = `${otM.length?otM.map(o=>{ const sl=slipsOf('ot',o.OTID);
       return `<div style="border-bottom:1px solid var(--surface-3);padding:4px 0"><div class="list-item"><span>${esc(ymd(o.Date))} · ${esc(String(o.PickupTime||'').slice(0,5))} <b>${baht(o.Amount)}</b> <span class="pill ${stPill(o.Status)}" style="font-size:11px">${esc(o.Status)}</span></span>
         ${o.Status==='PAID'?'':`<span class="row">${o.Status==='CANCELLED'?`<button class="btn sm outline" onclick="A_finOt('${esc(o.OTID)}','restore','${sid}')" aria-label="${EN()?"Restore":"กู้คืน"}" title="${EN()?"Restore":"กู้คืน"}">♻️</button>`:`<button class="btn sm pink" onclick="A_finOt('${esc(o.OTID)}','cancel','${sid}')" aria-label="${EN()?"Cancel":"ยกเลิก"}" title="${EN()?"Cancel":"ยกเลิก"}">🚫</button>`}</span>`}</div>${slipHistoryHTML(sl)}</div>`; }).join(''):`<small class="muted">${EN()?'No OT this month':'ไม่มี OT เดือนนี้'}</small>`}`;
     modal(`<h3>💰 ${esc(dispNick(s)||sid)} <small class="muted" style="font-size:13px">${nmSub(s)?esc(nmSub(s))+' · ':''}${esc(planLabel(s.Plan))}${s.Class?' · '+esc(s.Class):''}</small></h3>
       <p class="muted" style="font-size:13px">${EN()?'Month':'เดือน'} <b>${esc(month)}</b> — ${EN()?'change the month at the finance page':'เปลี่ยนเดือนได้ที่หน้าการเงิน'}</p>
-      <div class="card" style="padding:8px"><b>🧾 ${EN()?'Monthly bill':'บิลรายเดือน'}</b>${billBox}</div>
+      <div class="card" style="padding:8px"><b>🧾 ${EN()?'Monthly bill':'บิลรายเดือน'}</b>${discBox}${billBox}</div>
       <div class="card" style="padding:8px"><b>💵 ${EN()?'Extra charges':'ค่าใช้จ่ายเพิ่มเติม'}</b>${chargeBox}</div>
       <div class="card" style="padding:8px"><b>⏰ ${EN()?'Late-pickup OT':'OT รับช้า'}</b>${otBox}</div>
       <button class="btn outline block" style="margin-top:8px" onclick="this.closest('.modal').remove()">${esc(t('c.close'))}</button>`);
   };
-  const _finReopen=(sid)=>{ const x=document.querySelector('.modal'); if(x)x.remove(); A_finStudent(sid); };
-  window.A_finAddCharge=async(sid)=>{ const m=document.querySelector('.modal'); const label=(m.querySelector('#fcLabel').value||'').trim(); const amt=Number(m.querySelector('#fcAmt').value)||0;
+  const _finReopen=(sid,month)=>{ const x=document.querySelector('.modal'); if(x)x.remove(); if(month) FIN_MONTH=month; A_finStudent(sid); };
+  window.A_finAddCharge=async(sid)=>{ const m=document.querySelector('.modal'); const label=(m.querySelector('#fcLabel').value||'').trim();
+    const sign=Number((m.querySelector('#fcSign')||{}).value||1)<0?-1:1;
+    const amt=Math.abs(Number(m.querySelector('#fcAmt').value)||0)*sign;
     if(!label||!amt){ toast(EN()?'Enter label and amount':'กรอกชื่อรายการและจำนวนเงิน'); return; }
     try{ await api('addStudentCharge',{studentId:sid,month:FIN_MONTH||monthStr(),label,amount:amt}); _finReopen(sid); }catch(e){err(e);} };
   window.A_finDelCharge=(chargeId,sid,btn)=>{
     deleteWithUndo(EN()?'Charge removed':'ลบรายการเรียกเก็บแล้ว', ()=>api('removeStudentCharge',{chargeId}).then(()=>_finReopen(sid)), null, null, btn); };
-  window.A_finIssueBill=async(sid)=>{ try{ await api('issueBill',{studentId:sid,month:FIN_MONTH||monthStr()}); _finReopen(sid); }catch(e){err(e);} };
+  window.A_finIssueBill=async(sid)=>{ const m=document.querySelector('.modal'); const pick=m&&m.querySelector('#fbMonth');
+    const month=(pick&&pick.value)||FIN_MONTH||monthStr();
+    try{ await api('issueBill',{studentId:sid,month}); _finReopen(sid,month); }catch(e){err(e);} };
   window.A_finDelBill=(billingId,sid,btn)=>{ if(!confirm(EN()?'Delete this bill?':'ลบบิลนี้?'))return;
     deleteWithUndo(EN()?'Bill deleted':'ลบบิลแล้ว', ()=>api('deleteBill',{billingId}).then(()=>_finReopen(sid)), null, null, btn); };
   window.A_finOt=async(otId,kind,sid)=>{ try{ await api(kind==='cancel'?'adminCancelOT':'adminRestoreOT',{otId}); _finReopen(sid); }catch(e){err(e);} };

@@ -21,7 +21,7 @@
     'nav.home':['หน้าหลัก','Home'], 'nav.checkin':['รับ-ส่ง','Pickup'], 'nav.payment':['ชำระเงิน','Payment'],
     'nav.journal':['บันทึก','Record'], 'nav.dspm':['DSPM','DSPM'], 'nav.growth':['เติบโต','Growth'], 'nav.chat':['แชท','Chat'], 'nav.finance':['การเงิน','Finance'],
     'nav.class':['นักเรียน','Students'], 'nav.leave':['ลางาน','Leave'], 'nav.schedule':['ตาราง','Schedule'],
-    'nav.slip':['สลิป','Payslip'], 'nav.leaves':['อนุมัติลา','Approvals'], 'nav.payroll':['เงินเดือน','Payroll'],
+    'nav.slip':['สลิป','Payslip'], 'nav.leaves':['ดำเนินการ','Actions'], 'nav.payroll':['เงินเดือน','Payroll'],
     'nav.manage':['จัดการ','Manage'], 'nav.analytics':['วิเคราะห์','Analytics'],
     // common
     'c.back':['← กลับ','← Back'], 'c.save':['บันทึก','Save'], 'c.submit':['ส่งคำขอ','Submit'],
@@ -184,7 +184,7 @@
     'bill.genBtn':['สร้างบิลทั้งหมด','Generate all'], 'bill.genDone':['สร้างบิลรายเดือน {m} แล้ว {n} รายการ','Generated {n} bills for {m}'],
     'slip.qrUnsupported':['เบราว์เซอร์นี้อ่าน QR จากรูปไม่ได้ — กรอกยอดเอง','This browser can\'t read QR from image — enter amount manually'], 'slip.qrReading':['กำลังอ่าน QR จากสลิป...','Reading QR from slip...'],
     'slip.qrNone':['ไม่พบ QR ในรูป — กรอกยอดเอง','No QR found — enter amount manually'], 'slip.qrMatch':['ยอดจาก QR ตรงกัน:','QR amount matches:'], 'slip.qrMismatch':['ยอดจาก QR ไม่ตรง:','QR amount mismatch:'], 'slip.qrNoAmount':['QR ไม่มีข้อมูลจำนวนเงิน — กรอกเอง','QR has no amount — enter manually'],
-    'manage.organize':['ย้าย/จัดชั้นเรียน','Organize classes'], 'manage.holidays':['วันหยุด','Holidays'], 'manage.importExport':['นำเข้า/นำออกนักเรียน','Import/Export students'], 'manage.groups':['กลุ่มพนักงาน & เวลา','Staff groups & hours'],
+    'manage.organize':['ย้าย/จัดชั้นเรียน','Organize classes'], 'manage.holidays':['วันหยุด / Big Cleaning','Holidays / Big Cleaning'], 'manage.importExport':['นำเข้า/นำออกนักเรียน','Import/Export students'], 'manage.groups':['กลุ่มพนักงาน & เวลา','Staff groups & hours'],
     'manage.add':['เพิ่ม','Add'], 'manage.parents':['ผู้ปกครอง','Parents'], 'manage.position':['ตำแหน่ง','Position'], 'manage.dept':['แผนก/Nursery','Department/Nursery'], 'manage.group':['กลุ่มพนักงาน','Staff group'], 'manage.level':['ระดับ','Level'], 'manage.class':['ชั้นเรียน','Class'],
     'manage.photo':['รูปถ่าย','Photo'],
     'perm.note':['ติ๊กเพื่อกำหนดว่าแต่ละบทบาทเห็น/ทำอะไรได้','Tick to set what each role can see/do'], 'perm.role':['บทบาท','Role'],
