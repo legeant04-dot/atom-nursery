@@ -14,7 +14,12 @@ function round2_(n) { return Math.round(n * 100) / 100; }
 // so every `String(row.Month) === '2026-07'` comparison silently failed: computePayroll never found the
 // existing row (appending a DUPLICATE on each press), getPayslip returned null ("ยังไม่มีสลิป"), and the
 // finance rollup could not match the payslip to the month. Compare the first 7 characters, always.
-function ym7_(v) { return String(v == null ? '' : v).slice(0, 7); }
+function ym7_(v) {
+  // readObjects_/findObject_ hand back RAW cell values, so a coerced month cell arrives as a Date
+  // object — String(date).slice(0,7) is "Mon Jul", which matched nothing. Format it properly first.
+  if (v instanceof Date) { try { return Utilities.formatDate(v, Session.getScriptTimeZone(), 'yyyy-MM'); } catch (e) {} }
+  return String(v == null ? '' : v).slice(0, 7);
+}
 function monthOf_(dateVal) { try { return dateStr_(new Date(dateVal)).slice(0, 7); } catch (e) { return ''; } }
 
 /**
@@ -108,7 +113,9 @@ function computePayroll(payload) {
 
   var sheet = sheet_(getHrSpreadsheet_(), 'PAYROLL');
   // running total of เงินสมทบ across every month on file — the school's slip prints it at the bottom
-  var contribAccum = contribution;
+  // the school carried an accumulated เงินสมทบ before the app existed; that opening balance lives on
+  // the staff record and every month's contribution adds on top of it
+  var contribAccum = num_(staff.ContributionOpening) + contribution;
   try {
     readObjects_(sheet).forEach(function (r) {
       if (String(r.StaffID) === String(staff.StaffID) && ym7_(r.Month) !== ym7_(month)) contribAccum += num_(r.Contribution);

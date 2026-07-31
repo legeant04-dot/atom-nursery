@@ -112,7 +112,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.169'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.170'; // bump each webapp change; shown only at the bottom of the Chat screen
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
   const phoneFmt = p => { let d=String(p==null?'':p).replace(/\D/g,''); if(d.length===9) d='0'+d; return d; };
@@ -2269,8 +2269,12 @@
         ${d.classes.map(c=>{ const present=c.in+c.out; const pct=c.total?Math.round(present/c.total*100):100; const miss=(c.students||[]).filter(s=>s.status==='ABSENT'||s.status==='LEAVE');
           return `<div style="margin-bottom:12px"><div class="spread"><b>${esc(c.className)}</b><span style="font-weight:700;color:${pctColor(pct)}">${pct}% <small class="muted" style="font-weight:400">(${present}/${c.total})</small></span></div>
             <div style="height:6px;background:var(--line);border-radius:4px;overflow:hidden;margin:4px 0"><div style="height:100%;width:${pct}%;background:${pctColor(pct)}"></div></div>
-            ${(()=>{ const inb=(c.students||[]).filter(s=>s.status==='IN'||s.status==='OUT'); const lv=(c.students||[]).filter(s=>s.status==='LEAVE'); const ab=(c.students||[]).filter(s=>s.status==='ABSENT');
-              return `${inb.length?`<div><span class="pill ok">✅ ${EN()?'in':'มา'} (${inb.length})</span> <small class="muted">${inb.map(s=>esc(dnick(s))+(s.in?' '+esc(s.in):'')).join(', ')}</small></div>`:''}
+            ${(()=>{ // teachers see "in" and "picked up" separately; Admin lumped them into one "มา"
+              // line, so the two screens disagreed on who was still at school
+              const inb=(c.students||[]).filter(s=>s.status==='IN'); const gone=(c.students||[]).filter(s=>s.status==='OUT');
+              const lv=(c.students||[]).filter(s=>s.status==='LEAVE'); const ab=(c.students||[]).filter(s=>s.status==='ABSENT');
+              return `${inb.length?`<div><span class="pill ok">✅ ${EN()?'at school':'อยู่ที่โรงเรียน'} (${inb.length})</span> <small class="muted">${inb.map(s=>esc(dnick(s))+(s.in?' '+esc(s.in):'')).join(', ')}</small></div>`:''}
+                ${gone.length?`<div style="margin-top:2px"><span class="pill info">🔄 ${EN()?'picked up':'รับกลับแล้ว'} (${gone.length})</span> <small class="muted">${gone.map(s=>esc(dnick(s))+(s.out?' '+esc(s.out):'')).join(', ')}</small></div>`:''}
                 ${lv.length?`<div style="margin-top:2px"><span class="pill wait">🌴 ${EN()?'leave':'ลา'} (${lv.length})</span> <small class="muted">${lv.map(s=>esc(dnick(s))).join(', ')}</small></div>`:''}
                 ${ab.length?`<div style="margin-top:2px"><span class="pill bad">⛔ ${EN()?'absent':'ขาด'} (${ab.length})</span> <small class="muted">${ab.map(s=>esc(dnick(s))).join(', ')}</small></div>`:''}
                 ${!lv.length&&!ab.length?`<small style="color:var(--ok)">✓ ${EN()?'All present':'มาครบทุกคน'}</small>`:''}`; })()}</div>`;}).join('')}`}</div>
@@ -2958,6 +2962,8 @@
       <div class="grid2">${f('StartDate',t('staff.startDate'),s.StartDate,'date')}${f('BaseSalary',t('pay.baseSalary'),s.BaseSalary,'number')}</div>
       <div class="grid2"><label class="field"><span>🏦 ${EN()?'Bank':'ธนาคาร'}</span><select id="sf_BankName">${['','SCB','KBANK','KTB','BBL','TTB','BAY','GSB','KKP','TISCO','UOB','CIMB','BAAC','LHBANK'].map(b=>`<option value="${b}" ${String(s.BankName||'')===b?'selected':''}>${b||(EN()?'—':'—')}</option>`).join('')}</select></label>
         ${f('BankAccount',(EN()?'Account number':'เลขที่บัญชี'),s.BankAccount)}</div>
+      <label class="field"><span>💰 ${EN()?'Opening accumulated contribution (฿)':'เงินสมทบสะสมยกมา (฿)'}</span><input id="sf_ContributionOpening" type="number" value="${esc(s.ContributionOpening!=null?s.ContributionOpening:0)}"/>
+        <small class="muted" style="font-size:13px">${EN()?'The balance carried over before the app. Each month’s contribution is added on top of it.':'ยอดสะสมเดิมก่อนใช้ระบบ · เงินสมทบของแต่ละเดือนจะบวกเพิ่มจากยอดนี้'}</small></label>
       <label class="field"><span>🔗 LINE ID ${s.LineUID?'✅':''}</span><input id="sf_LineUID" value="${esc(s.LineUID||'')}" placeholder="Uxxxxxxxxxxxxxxxx"/></label>
       <div class="card" style="background:var(--surface-2);padding:8px"><small class="muted">${EN()?'To let this staff log in: they open the app via LINE → "New user or already registered?" shows their LINE ID → paste it here and Save.':'ให้ครูเข้าแอปผ่าน LINE → หน้า "New user or already registered?" จะโชว์ LINE ID ของครู → คัดลอกมาวางช่องนี้แล้วกดบันทึก'}</small></div>
       ${photoField('sf_Photo',t('manage.photo'),s.Photo,true)}
@@ -2971,7 +2977,7 @@
     const allDept=m.querySelector('#sf_AllDept')&&m.querySelector('#sf_AllDept').checked;
     const dept = allDept ? '*' : [...m.querySelectorAll('.sfDept:checked')].map(x=>x.value).join(',');
     const canOrg=m.querySelector('#sf_CanClassOrg')&&m.querySelector('#sf_CanClassOrg').checked;
-    const data={NameTH:v('NameTH'),NameEN:v('NameEN'),Nickname:v('Nickname'),NicknameEN:v('NicknameEN'),DOB:v('DOB'),Position:v('Position'),Department:dept,StaffGroup:v('StaffGroup'),PositionLevel:v('PositionLevel'),Phone:v('Phone'),NationalID:v('NationalID'),LineUID:v('LineUID'),StartDate:v('StartDate'),BaseSalary:+v('BaseSalary')||0,BankName:v('BankName'),BankAccount:v('BankAccount'),Classes:dept,CanClassOrg:canOrg?'YES':''};
+    const data={NameTH:v('NameTH'),NameEN:v('NameEN'),Nickname:v('Nickname'),NicknameEN:v('NicknameEN'),DOB:v('DOB'),Position:v('Position'),Department:dept,StaffGroup:v('StaffGroup'),PositionLevel:v('PositionLevel'),Phone:v('Phone'),NationalID:v('NationalID'),LineUID:v('LineUID'),StartDate:v('StartDate'),BaseSalary:+v('BaseSalary')||0,BankName:v('BankName'),BankAccount:v('BankAccount'),ContributionOpening:+v('ContributionOpening')||0,Classes:dept,CanClassOrg:canOrg?'YES':''};
     const sfp=photoVal(m,'sf_Photo'); if(sfp) data.Photo=sfp;
     try{ await api('saveStaff',{staffId:id||null,data}); m.remove(); confirmSaved(t('c.saved')); GO('manage'); }catch(e){err(e);} };
   window.SF_allDept=(cb)=>{ const box=document.getElementById('sf_DeptList'); if(box){ box.style.opacity=cb.checked?'.4':''; box.style.pointerEvents=cb.checked?'none':''; } };

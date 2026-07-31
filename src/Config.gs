@@ -124,7 +124,7 @@ SCHEMA[WB.HR] = {
   // Department/PositionLevel/ReportsTo drive the org hierarchy & leave routing (chat spec)
   // Classes = extra classrooms this staff covers beyond their homeroom (comma-separated ClassNames, or
   // '*' = all). Admin/Leader cover all by default. Appended at END like NicknameEN.
-  STAFF:         ['StaffID', 'NationalID', 'Name', 'NameEN', 'Nickname', 'DOB', 'Position', 'Role', 'Department', 'PositionLevel', 'StaffGroup', 'ReportsTo', 'Phone', 'LineUID', 'StartDate', 'BaseSalary', 'RequireCheckin', 'PasswordHash', 'MustChangePassword', 'Photo', 'Status', 'NicknameEN', 'Classes', 'BankName', 'BankAccount'],
+  STAFF:         ['StaffID', 'NationalID', 'Name', 'NameEN', 'Nickname', 'DOB', 'Position', 'Role', 'Department', 'PositionLevel', 'StaffGroup', 'ReportsTo', 'Phone', 'LineUID', 'StartDate', 'BaseSalary', 'RequireCheckin', 'PasswordHash', 'MustChangePassword', 'Photo', 'Status', 'NicknameEN', 'Classes', 'BankName', 'BankAccount', 'ContributionOpening'],
   // Staff groups with their own (editable) work hours — Admin-managed
   STAFF_GROUPS:  ['GroupName', 'GroupNameEN', 'CheckInTime', 'CheckOutTime'],
   // Per-staff payroll config (Admin-editable). Widened to carry every field the engine's computePayroll uses
