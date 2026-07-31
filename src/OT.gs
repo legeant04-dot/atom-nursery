@@ -29,15 +29,20 @@ function otRateFor_(student) {
  *  e.g. 07:00–17:00 for one child vs 08:00–18:00 for another) wins; otherwise the plan's end.
  *  This is what OT is measured against — so a child who ends at 18:00 is NOT charged from 17:00. */
 function otStudentEnd_(student) {
-  var e = String((student && (student.EndTime || student.LeaveTime)) || '').trim();
-  if (/^\d{1,2}:\d{2}/.test(e)) return toHHmm_(e);
+  // toHHmm_ FIRST: a time-only cell reads back as an 1899-12-30 Date, and testing the regex on
+  // String(date) ("Sat Dec 30 1899 18:00:00…") fails — which silently threw the per-student end time
+  // away and measured OT from the plan end instead.
+  var e = toHHmm_((student && (student.EndTime || student.LeaveTime)) || '');
+  if (/^\d{1,2}:\d{2}$/.test(e)) return e;
   return otPlanById_(student && student.Plan).end || '17:00';
 }
 /** The time OT starts being charged. OTGraceUntil (per-student OT-free cutoff) wins when set — e.g. a
  *  child on the 17:00 rate allowed to be picked up until 18:00 with no OT — else the nominal end. */
 function otThreshold_(student) {
-  var g = String((student && student.OTGraceUntil) || '').trim();
-  if (/^\d{1,2}:\d{2}/.test(g)) return toHHmm_(g);
+  // same trap as otStudentEnd_ — normalise before testing, or "รับได้ถึง 18:00" is ignored and a 18:08
+  // pick-up is charged from 17:00 (68 min late -> 2 hours -> 200 baht, which is what happened)
+  var g = toHHmm_((student && student.OTGraceUntil) || '');
+  if (/^\d{1,2}:\d{2}$/.test(g)) return g;
   return otStudentEnd_(student);
 }
 /** {late, hours, amount, planEnd, rate} for a pickup time. Nothing charged inside the grace window. */
