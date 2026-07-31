@@ -91,6 +91,15 @@ function computePayroll(payload) {
   var otEvening = (payload.otEvening != null) ? num_(payload.otEvening) : sumMonthlyOT_(staff.StaffID, month);
   var holidayBonus = num_(payload.holidayBonus);
 
+  // Signed adjustment lines used to be applied straight to the net, which meant the slip printed an
+  // "อื่น ๆ" figure that was NOT inside รวมรายได้ / รวมหัก — the columns disagreed with their own totals.
+  // A positive line is income, a negative line is a deduction; fold them in before totalling.
+  var adjustments = Array.isArray(payload.adjustments) ? payload.adjustments.filter(function (a) {
+    return a && (String(a.label || '').trim() !== '' || num_(a.amount) !== 0); }) : [];
+  var adjPlus = 0, adjMinus = 0;
+  adjustments.forEach(function (a) { var v = num_(a.amount); if (v > 0) adjPlus += v; else adjMinus += -v; });
+  var adjustmentsTotal = round2_(adjPlus - adjMinus);
+  otherIncome = round2_(otherIncome + adjPlus);
   var gross = round2_(base + diligenceTotal + otherIncome + otEvening + holidayBonus);
 
   // --- รายการหัก ---
@@ -100,27 +109,23 @@ function computePayroll(payload) {
   var ss = (payload.socialSecurity != null) ? num_(payload.socialSecurity)
     : (ssDeduct ? Math.min(round2_(base * num_(getConfig_('SocialSecurityRate', '0.05'))), num_(getConfig_('SocialSecurityMax', '750'))) : 0);
   var contribution = num_(payload.contribution);
-  var otherDeductions = num_(payload.otherDeductions);
+  var otherDeductions = round2_(num_(payload.otherDeductions) + adjMinus);
   var totalDeductions = round2_(ss + contribution + otherDeductions);
 
-  // signed one-off lines from the screen, e.g. {label:'หักมาสาย', amount:-200}. They apply to the NET
-  // so a positive line is extra pay and a negative one is a deduction, exactly as typed.
-  var adjustments = Array.isArray(payload.adjustments) ? payload.adjustments.filter(function (a) {
-    return a && (String(a.label || '').trim() !== '' || num_(a.amount) !== 0); }) : [];
-  var adjustmentsTotal = round2_(adjustments.reduce(function (t, a) { return t + num_(a.amount); }, 0));
-
-  var netPay = round2_(gross - totalDeductions + adjustmentsTotal);
+  var netPay = round2_(gross - totalDeductions);   // adjustments are already inside the two totals
 
   var sheet = sheet_(getHrSpreadsheet_(), 'PAYROLL');
   // running total of เงินสมทบ across every month on file — the school's slip prints it at the bottom
   // the school carried an accumulated เงินสมทบ before the app existed; that opening balance lives on
   // the staff record and every month's contribution adds on top of it
+  // opening balance carried from before the app + every month recorded here (this one included)
   var contribAccum = num_(staff.ContributionOpening) + contribution;
   try {
     readObjects_(sheet).forEach(function (r) {
       if (String(r.StaffID) === String(staff.StaffID) && ym7_(r.Month) !== ym7_(month)) contribAccum += num_(r.Contribution);
     });
   } catch (e) {}
+  contribAccum = round2_(contribAccum);
   try { ensureColumns_(sheet, ['PayType', 'DailyRate', 'DaysWorked', 'ChildMultiplier', 'Adjustments',
     'AdjustmentsTotal', 'BankName', 'LeaveDays', 'LeaveLimit', 'LeaveExceeds',
     'ContributionAccum', 'Position', 'StaffName']); } catch (e) {}
@@ -148,6 +153,16 @@ function computePayroll(payload) {
     GeneratedDate: new Date(), GeneratedBy: payload.generatedBy || 'system'
   };
   if (previewOnly) { rec.PayrollID = existing ? existing.PayrollID : ''; rec.Preview = true; rec.Saved = !!existing; return rec; }
+  // mirror the running total onto the staff record so it can be read there too. ContributionOpening
+  // (the manual carried-over figure) is NEVER overwritten — otherwise the next calculation would add
+  // this month's contribution on top of itself.
+  try {
+    var stSh = sheet_(getHrSpreadsheet_(), 'STAFF');
+    try { ensureColumns_(stSh, ['ContributionOpening', 'ContributionAccum', 'ContributionLocked']); } catch (e) {}
+    var stRow = findObject_(stSh, function (x) { return String(x.StaffID) === String(staff.StaffID); });
+    if (stRow) { updateRow_(stSh, stRow._row, { ContributionAccum: contribAccum });
+      try { CacheService.getScriptCache().removeAll(['col:STAFF', 'rows:STAFF']); } catch (e) {} }
+  } catch (e) {}
   if (existing) { rec.PayrollID = existing.PayrollID; updateRow_(sheet, existing._row, rec); }
   else { rec.PayrollID = nextId_(sheet, 'PayrollID', 'PR'); appendObject_(sheet, rec); }
   rec.Saved = true;

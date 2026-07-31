@@ -112,7 +112,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.171'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.172'; // bump each webapp change; shown only at the bottom of the Chat screen
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
   const phoneFmt = p => { let d=String(p==null?'':p).replace(/\D/g,''); if(d.length===9) d='0'+d; return d; };
@@ -2220,7 +2220,8 @@
     <tr><td>หัก ประกันสังคม</td><td style="text-align:right">-${baht(r.SocialSecurity)}</td></tr>
     <tr><td>หัก เงินสมทบ</td><td style="text-align:right">-${baht(r.Contribution||0)}</td></tr>
     ${Number(r.OtherDeductions||0)?`<tr><td>หัก อื่นๆ</td><td style="text-align:right">-${baht(r.OtherDeductions)}</td></tr>`:''}
-    ${adjRows(r).map(a=>`<tr><td>${esc(a.label||'-')}</td><td style="text-align:right;color:${Number(a.amount)<0?'var(--bad)':'var(--ok)'}">${Number(a.amount)<0?'':'+'}${baht(a.amount)}</td></tr>`).join('')}
+    <tr><td><b>รวมหัก</b></td><td style="text-align:right"><b>-${baht(r.TotalDeductions)}</b></td></tr>
+    ${adjRows(r).length?`<tr><td colspan="2"><small class="muted">${adjRows(r).map(a=>esc(a.label||'-')+' '+(Number(a.amount)<0?'−':'+')+baht(Math.abs(a.amount))).join(' · ')}</small></td></tr>`:''}
     <tr style="border-top:2px solid var(--blue)"><td><b>โอนเข้า ${esc(r.BankAccount)} (สุทธิ)</b></td><td style="text-align:right;color:var(--blue);font-size:18px"><b>${baht(r.NetPay)}</b></td></tr>
     </table></div>`; }
 
@@ -2962,8 +2963,11 @@
       <div class="grid2">${f('StartDate',t('staff.startDate'),s.StartDate,'date')}${f('BaseSalary',t('pay.baseSalary'),s.BaseSalary,'number')}</div>
       <div class="grid2"><label class="field"><span>🏦 ${EN()?'Bank':'ธนาคาร'}</span><select id="sf_BankName">${['','SCB','KBANK','KTB','BBL','TTB','BAY','GSB','KKP','TISCO','UOB','CIMB','BAAC','LHBANK'].map(b=>`<option value="${b}" ${String(s.BankName||'')===b?'selected':''}>${b||(EN()?'—':'—')}</option>`).join('')}</select></label>
         ${f('BankAccount',(EN()?'Account number':'เลขที่บัญชี'),s.BankAccount)}</div>
-      <label class="field"><span>💰 ${EN()?'Opening accumulated contribution (฿)':'เงินสมทบสะสมยกมา (฿)'}</span><input id="sf_ContributionOpening" type="number" value="${esc(s.ContributionOpening!=null?s.ContributionOpening:0)}"/>
-        <small class="muted" style="font-size:13px">${EN()?'The balance carried over before the app. Each month’s contribution is added on top of it.':'ยอดสะสมเดิมก่อนใช้ระบบ · เงินสมทบของแต่ละเดือนจะบวกเพิ่มจากยอดนี้'}</small></label>
+      <div class="card" style="padding:8px;background:var(--surface-2)">
+        <label class="field" style="margin:0"><span>💰 ${EN()?'Opening accumulated contribution (฿)':'เงินสมทบสะสมยกมา (฿)'}</span>
+          <input id="sf_ContributionOpening" type="number" value="${esc(s.ContributionOpening!=null?s.ContributionOpening:0)}" ${String(s.ContributionLocked||'')==='YES'?'readonly style="background:var(--surface-3)"':''}/></label>
+        <label class="field" style="display:flex;align-items:center;gap:8px;margin:6px 0 0"><input type="checkbox" id="sf_ContributionLocked" style="width:auto" ${String(s.ContributionLocked||'')==='YES'?'checked':''}/> 🔒 ${EN()?'Lock this figure (no more edits)':'ล็อกยอดนี้ (ไม่ให้แก้ไขอีก)'}</label>
+        <small class="muted" style="font-size:13px">${EN()?'The balance carried over from before the app. Each month’s contribution is added on top of it.':'ยอดสะสมเดิมก่อนใช้ระบบ · เงินสมทบของแต่ละเดือนจะบวกเพิ่มจากยอดนี้'}${s.ContributionAccum!=null&&s.ContributionAccum!==''?`<br>${EN()?'Running total now':'ยอดสะสมปัจจุบัน'}: <b>${baht(s.ContributionAccum)}</b>`:''}</small></div>
       <label class="field"><span>🔗 LINE ID ${s.LineUID?'✅':''}</span><input id="sf_LineUID" value="${esc(s.LineUID||'')}" placeholder="Uxxxxxxxxxxxxxxxx"/></label>
       <div class="card" style="background:var(--surface-2);padding:8px"><small class="muted">${EN()?'To let this staff log in: they open the app via LINE → "New user or already registered?" shows their LINE ID → paste it here and Save.':'ให้ครูเข้าแอปผ่าน LINE → หน้า "New user or already registered?" จะโชว์ LINE ID ของครู → คัดลอกมาวางช่องนี้แล้วกดบันทึก'}</small></div>
       ${photoField('sf_Photo',t('manage.photo'),s.Photo,true)}
@@ -2977,7 +2981,7 @@
     const allDept=m.querySelector('#sf_AllDept')&&m.querySelector('#sf_AllDept').checked;
     const dept = allDept ? '*' : [...m.querySelectorAll('.sfDept:checked')].map(x=>x.value).join(',');
     const canOrg=m.querySelector('#sf_CanClassOrg')&&m.querySelector('#sf_CanClassOrg').checked;
-    const data={NameTH:v('NameTH'),NameEN:v('NameEN'),Nickname:v('Nickname'),NicknameEN:v('NicknameEN'),DOB:v('DOB'),Position:v('Position'),Department:dept,StaffGroup:v('StaffGroup'),PositionLevel:v('PositionLevel'),Phone:v('Phone'),NationalID:v('NationalID'),LineUID:v('LineUID'),StartDate:v('StartDate'),BaseSalary:+v('BaseSalary')||0,BankName:v('BankName'),BankAccount:v('BankAccount'),ContributionOpening:+v('ContributionOpening')||0,Classes:dept,CanClassOrg:canOrg?'YES':''};
+    const data={NameTH:v('NameTH'),NameEN:v('NameEN'),Nickname:v('Nickname'),NicknameEN:v('NicknameEN'),DOB:v('DOB'),Position:v('Position'),Department:dept,StaffGroup:v('StaffGroup'),PositionLevel:v('PositionLevel'),Phone:v('Phone'),NationalID:v('NationalID'),LineUID:v('LineUID'),StartDate:v('StartDate'),BaseSalary:+v('BaseSalary')||0,BankName:v('BankName'),BankAccount:v('BankAccount'),ContributionOpening:+v('ContributionOpening')||0,ContributionLocked:(m.querySelector('#sf_ContributionLocked')&&m.querySelector('#sf_ContributionLocked').checked)?'YES':'',Classes:dept,CanClassOrg:canOrg?'YES':''};
     const sfp=photoVal(m,'sf_Photo'); if(sfp) data.Photo=sfp;
     try{ await api('saveStaff',{staffId:id||null,data}); m.remove(); confirmSaved(t('c.saved')); GO('manage'); }catch(e){err(e);} };
   window.SF_allDept=(cb)=>{ const box=document.getElementById('sf_DeptList'); if(box){ box.style.opacity=cb.checked?'.4':''; box.style.pointerEvents=cb.checked?'none':''; } };
@@ -3778,11 +3782,24 @@
     const bill=(bills||[]).find(b=>ym(b.Month)===ym(month));
     const otM=(ot||[]).filter(o=>ym(o.Date)===ym(month));
     const stPill=st=>({UNPAID:'bad',PENDING_VERIFY:'wait',PARTIAL:'wait',PAID:'ok',CANCELLED:'info'}[st]||'info');
+    // The bill stores tuition already NET of the child's standing discount, because that is what the
+    // parent must see. The admin needs the working: full package price, the discount taken off, then the
+    // net — otherwise the number looks arbitrary and cannot be checked against the package.
+    const _planPrice=Number((A_plans().find(x=>x.id===s.Plan)||{}).price||0);
+    const _discAmt=Number(s.DiscountAmount||0);
+    const _discBaht=_discAmt>0 ? (/%|percent/i.test(String(s.DiscountUnit||'')) ? Math.round(_planPrice*_discAmt/100) : _discAmt) : 0;
+    const _isTuition=lbl=>/ค่าเทอม|tuition/i.test(String(lbl||''));
     const billBox = bill
-      ? `<table style="width:100%;font-size:13.5px;margin:4px 0">${(bill.Items||[]).map(it=>`<tr><td>${esc(it[0])}</td><td style="text-align:right">${baht(it[1])}</td></tr>`).join('')}
+      ? `<table style="width:100%;font-size:13.5px;margin:4px 0">${(bill.Items||[]).map(it=>{
+            // expand the single net tuition line into price − discount for the admin's eyes only
+            if(_discBaht>0 && _isTuition(it[0]) && Number(it[1])>0 && Math.abs(_planPrice-_discBaht-Number(it[1]))<1)
+              return `<tr><td>${esc(it[0])} <small class="muted">${EN()?'(package price)':'(ราคาแพ็กเกจ)'}</small></td><td style="text-align:right">${baht(_planPrice)}</td></tr>`
+                   + `<tr><td style="color:var(--ok)">🏷️ ${EN()?'student discount':'ส่วนลดของนักเรียน'} <small class="muted">${EN()?'admin only':'ผู้ปกครองไม่เห็นบรรทัดนี้'}</small></td><td style="text-align:right;color:var(--ok)">−${baht(_discBaht)}</td></tr>`;
+            return `<tr><td>${Number(it[1])<0?'🏷️ ':''}${esc(it[0])}</td><td style="text-align:right;color:${Number(it[1])<0?'var(--ok)':'inherit'}">${Number(it[1])<0?'−'+baht(Math.abs(it[1])):baht(it[1])}</td></tr>`; }).join('')}
           <tr style="border-top:1px solid var(--line)"><td><b>${EN()?'Total due':'ยอดรวม'}</b></td><td style="text-align:right"><b>${baht(bill.TotalDue!=null?bill.TotalDue:bill.Amount)}</b></td></tr>
           ${Number(bill.PaidConfirmed||0)>0?`<tr><td>${EN()?'Paid':'ชำระแล้ว'}</td><td style="text-align:right;color:var(--ok)">−${baht(bill.PaidConfirmed)}</td></tr>`:''}
           <tr><td><b>${EN()?'Outstanding':'คงค้าง'}</b></td><td style="text-align:right"><b style="color:${Number(bill.Outstanding||0)>0?'var(--bad)':'var(--ok)'}">${baht(bill.Outstanding||0)}</b></td></tr></table>
+        <div class="spread" style="margin:2px 0 4px"><span class="pill ${Number(bill.Outstanding||0)<=0?'ok':'bad'}">${Number(bill.Outstanding||0)<=0?('✅ '+(EN()?'paid in full':'ชำระครบแล้ว')):('⏳ '+(EN()?'outstanding':'ค้างชำระ')+' '+baht(bill.Outstanding))}</span><small class="muted">${esc(bill.Status||'')}</small></div>
         ${slipHistoryHTML(slipsOf('bill',bill.BillingID))}
         <div class="row" style="margin-top:6px"><button class="btn sm pink" onclick="A_finDelBill('${esc(bill.BillingID)}','${sid}',this)">🗑️ ${EN()?'Delete bill':'ลบบิล'}</button></div>`
       : `<p class="muted" style="font-size:13px">${EN()?'No bill issued for this month yet.':'ยังไม่ได้ออกบิลของเดือนนี้'}</p>
@@ -4017,9 +4034,9 @@
       <table class="grid"><thead>
         <tr><th colspan="3">รายได้</th><th colspan="3">รายการหัก</th><th rowspan="2">จำนวนเงินโอนเข้าบัญชี<br><span class="sub">${esc(bank||'-')}</span></th></tr>
         <tr><th>เงินเดือน</th><th>เบี้ยขยัน<sup>1</sup></th><th>อื่น ๆ<sup>2</sup></th><th>ประกันสังคม</th><th>เงินสมทบ</th><th>อื่น ๆ</th></tr></thead><tbody>
-        <tr><td class="n in">${baht(p.BaseSalary)}</td><td class="n in">${baht(p.DiligenceTotal)}</td><td class="n in">${baht(Number(p.OtherIncome||0)+plus.reduce((t,a)=>t+Number(a.amount),0))}</td>
+        <tr><td class="n in">${baht(p.BaseSalary)}</td><td class="n in">${baht(p.DiligenceTotal)}</td><td class="n in">${baht(p.OtherIncome)}</td>
             <td class="n de">${Number(p.SocialSecurity||0)?baht(p.SocialSecurity):'-'}</td><td class="n de">${baht(p.Contribution||0)}</td>
-            <td class="n de">${baht(Number(p.OtherDeductions||0)+Math.abs(minus.reduce((t,a)=>t+Number(a.amount),0)))}</td>
+            <td class="n de">${baht(p.OtherDeductions)}</td>
             <td class="n net" rowspan="3">${baht(p.NetPay)}</td></tr>
         <tr><td class="lbl">ค่าล่วงเวลาตอนเย็น</td><td class="n in">${baht(p.OTEvening)}</td>
             <td class="lbl">เงินพิเศษวันพักผ่อน</td><td class="n in">${baht(p.HolidayBonus)}</td>
