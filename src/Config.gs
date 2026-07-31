@@ -153,7 +153,7 @@ SCHEMA[WB.HR] = {
                   'NetPay', 'BankAccount', 'SlipSent', 'GeneratedDate', 'GeneratedBy',
                   // added later — these were being written and silently dropped for want of a column
                   'PayType', 'DailyRate', 'DaysWorked', 'ChildMultiplier', 'Adjustments', 'AdjustmentsTotal',
-                  'BankName', 'LeaveDays', 'LeaveLimit', 'LeaveExceeds', 'ContributionAccum', 'Position', 'StaffName'],
+                  'BankName', 'LeaveDays', 'LeaveLimit', 'LeaveExceeds', 'ContributionAccum', 'Position', 'StaffName', 'SlipUrl', 'PaidDate', 'PaidBy'],
   TRAINING:      ['TrainingID', 'StaffID', 'CourseName', 'Date', 'Provider', 'Certificate', 'ExpireDate'],
   WORK_SCHEDULE: ['StaffID', 'DayOfWeek', 'CheckInTime', 'CheckOutTime', 'EffectiveDate'],
   // Manual attendance-time request (ขอลงเวลา): staff asks to record a check-in/out at a chosen time.

@@ -112,7 +112,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.170'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.171'; // bump each webapp change; shown only at the bottom of the Chat screen
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
   const phoneFmt = p => { let d=String(p==null?'':p).replace(/\D/g,''); if(d.length===9) d='0'+d; return d; };
@@ -3829,13 +3829,35 @@
     if(!s){ try{ const list=await api('listStaff'); if(list&&list.length){ A_CACHE.staff=list; s=list.find(x=>x.StaffID===sid); } }catch(e){} }
     s=s||{};
     let otTotal=0; try{ const mo=await api('staffMonthlyOT',{staffId:sid,month}); otTotal=(mo||[]).reduce((a,o)=>a+Number(o.Amount||0),0); }catch(e){}
+    let pay=null; try{ pay=await api('getPayslip',{staffId:sid,month}); }catch(e){}   // null = nothing saved yet
     modal(`<h3>👩‍🏫 ${esc(dispNick(s)||sid)} ${nmSub(s)?`<small class="muted" style="font-size:13px;font-weight:400">${esc(nmSub(s))}</small>`:''}${s.Position?` <small class="muted" style="font-size:13px">${_notr(s.Position)}</small>`:''}</h3>
       <div class="card" style="padding:8px"><label class="field"><span>${EN()?'Base salary (฿/month)':'ฐานเงินเดือน (฿/เดือน)'}</span><input id="fsBase" type="number" min="0" value="${esc(s.BaseSalary!=null?s.BaseSalary:'')}"/></label>
         <button class="btn sm block" onclick="A_finSaveBase('${sid}')">💾 ${EN()?'Save base salary':'บันทึกฐานเงินเดือน'}</button></div>
       <div class="card" style="padding:8px"><div class="spread"><span>⏰ ${EN()?'Approved OT this month':'OT อนุมัติเดือนนี้'}</span><b>${baht(otTotal)}</b></div></div>
+      ${(()=>{ const paid=String(pay&&pay.SlipSent||'')==='YES';
+        if(!pay) return `<div class="card" style="padding:8px"><small class="muted">${EN()?'Nothing saved for this month yet — save the payroll first, then you can mark it paid.':'ยังไม่มีรายการจ่ายของเดือนนี้ — บันทึกเงินเดือนก่อน จึงจะติ๊กว่าจ่ายแล้วได้'}</small></div>`;
+        return `<div class="card" style="padding:8px;background:${paid?'var(--ok-bg)':'var(--surface-2)'}">
+          <div class="spread"><b>${EN()?'Transfer':'การจ่ายเงิน'}</b><b>${baht(pay.NetPay)}</b></div>
+          <div class="spread" style="font-size:13px;margin-top:2px"><span class="muted">${esc(pay.BankName||'')} ${esc(pay.BankAccount||'')}</span>
+            <span class="pill ${paid?'ok':'bad'}">${paid?('✅ '+(EN()?'paid':'จ่ายแล้ว')+(pay.PaidDate?' '+esc(ddmmyyyy(pay.PaidDate)):'')):'⏳ '+(EN()?'not paid':'ยังไม่จ่าย')}</span></div>
+          ${pay.SlipUrl?`<div style="margin-top:6px"><img src="${esc(pay.SlipUrl)}" style="max-width:100%;border-radius:8px;cursor:pointer" onclick="IMG_zoom('${esc(pay.SlipUrl)}')"/></div>`:''}
+          ${paid
+            ? `<button class="btn sm outline block" style="margin-top:6px" onclick="A_salaryPaid('${sid}',false)">↩︎ ${EN()?'Undo paid':'ยกเลิกสถานะจ่ายแล้ว'}</button>`
+            : `${photoField('fsSlip',(EN()?'Attach transfer slip (optional)':'แนบสลิปโอน (ถ้ามี)'),'',false)}
+               <button class="btn sm block" style="margin-top:6px" onclick="A_salaryPaid('${sid}',true)">✅ ${EN()?'Mark paid':'ติ๊กว่าจ่ายแล้ว'}</button>`}
+        </div>`; })()}
       <div class="row"><button class="btn sm" onclick="A_finCompute('${sid}')">🧮 ${EN()?'Compute payroll':'คำนวณเงินเดือน'}</button><button class="btn sm outline" onclick="this.closest('.modal').remove();GO('payroll')">📄 ${EN()?'Full payroll':'หน้าเงินเดือนเต็ม'}</button></div>
       <button class="btn outline block" style="margin-top:8px" onclick="this.closest('.modal').remove()">${esc(t('c.close'))}</button>`);
   };
+  // record that the salary was actually transferred, with the slip if the admin has one
+  window.A_salaryPaid=async(sid,paid)=>{ const m=document.querySelector('.modal'); const month=FIN_MONTH||monthStr();
+    let slipUrl='';
+    if(paid){ const inp=m&&m.querySelector('#fsSlip'); const f=inp&&inp.files&&inp.files[0];
+      if(f){ try{ slipUrl=inp.dataset.url||await compressImage(f); }catch(e){} } }
+    if(!paid && !confirm(EN()?'Undo the paid status for this month?':'ยกเลิกสถานะ "จ่ายแล้ว" ของเดือนนี้?')) return;
+    try{ await api('markSalaryPaid',{staffId:sid,month,paid,slipUrl:slipUrl||undefined,adminId:USER.staffId});
+      if(m)m.remove(); confirmSaved(paid?(EN()?'Marked as paid':'บันทึกว่าจ่ายแล้ว'):(EN()?'Paid status removed':'ยกเลิกสถานะจ่ายแล้ว'));
+      A_finStaff(sid); }catch(e){ err(e); } };
   window.A_finSaveBase=async(sid)=>{ const m=document.querySelector('.modal'); const base=Number(m.querySelector('#fsBase').value)||0;
     try{ await api('saveStaff',{staffId:sid,data:{BaseSalary:base}}); toast(t('c.saved')); }catch(e){err(e);} };
   window.A_finCompute=async(sid)=>{ try{ await api('computePayroll',{staffId:sid,month:FIN_MONTH||monthStr()}); toast(EN()?'Computed':'คำนวณแล้ว'); const x=document.querySelector('.modal'); if(x)x.remove(); GO('finance'); }catch(e){err(e);} };
@@ -3993,13 +4015,17 @@
       <div class="meta"><span>พิมพ์วันที่ <b>${todayStr()}</b></span><span>ชื่อพนักงาน <b>${esc(p.StaffName||staffName(p.StaffID))}</b></span>
         <span>รหัสพนักงาน <b>${esc(p.StaffID)}</b></span><span>ตำแหน่ง <b>${esc(p.Position||'-')}</b></span><span>งวดวันที่ <b>${_periodTH(p.Month)}</b></span></div>
       <table class="grid"><thead>
-        <tr><th colspan="3">รายได้</th><th colspan="3">รายการหัก</th><th>จำนวนเงินโอนเข้าบัญชี</th></tr>
-        <tr><th>เงินเดือน</th><th>เบี้ยขยัน<sup>1</sup></th><th>อื่น ๆ<sup>2</sup></th><th>ประกันสังคม</th><th>เงินสมทบ</th><th>อื่น ๆ</th><th>${esc(bank||'-')}</th></tr></thead><tbody>
+        <tr><th colspan="3">รายได้</th><th colspan="3">รายการหัก</th><th rowspan="2">จำนวนเงินโอนเข้าบัญชี<br><span class="sub">${esc(bank||'-')}</span></th></tr>
+        <tr><th>เงินเดือน</th><th>เบี้ยขยัน<sup>1</sup></th><th>อื่น ๆ<sup>2</sup></th><th>ประกันสังคม</th><th>เงินสมทบ</th><th>อื่น ๆ</th></tr></thead><tbody>
         <tr><td class="n in">${baht(p.BaseSalary)}</td><td class="n in">${baht(p.DiligenceTotal)}</td><td class="n in">${baht(Number(p.OtherIncome||0)+plus.reduce((t,a)=>t+Number(a.amount),0))}</td>
             <td class="n de">${Number(p.SocialSecurity||0)?baht(p.SocialSecurity):'-'}</td><td class="n de">${baht(p.Contribution||0)}</td>
-            <td class="n de">${baht(Number(p.OtherDeductions||0)+Math.abs(minus.reduce((t,a)=>t+Number(a.amount),0)))}</td><td class="n net">${baht(p.NetPay)}</td></tr>
-        <tr><td class="lbl">ค่าล่วงเวลาตอนเย็น</td><td class="n in">${baht(p.OTEvening)}</td><td class="lbl">เงินพิเศษวันพักผ่อน</td><td class="n in">${baht(p.HolidayBonus)}</td>
-            <td class="lbl">รวมรายได้</td><td class="n">${baht(p.GrossIncome)}</td><td class="sub">${minus.map(note).join('')||'&nbsp;'}</td></tr>
+            <td class="n de">${baht(Number(p.OtherDeductions||0)+Math.abs(minus.reduce((t,a)=>t+Number(a.amount),0)))}</td>
+            <td class="n net" rowspan="3">${baht(p.NetPay)}</td></tr>
+        <tr><td class="lbl">ค่าล่วงเวลาตอนเย็น</td><td class="n in">${baht(p.OTEvening)}</td>
+            <td class="lbl">เงินพิเศษวันพักผ่อน</td><td class="n in">${baht(p.HolidayBonus)}</td>
+            <td class="lbl">รวมรายได้</td><td class="n">${baht(p.GrossIncome)}</td></tr>
+        <tr><td class="lbl">รวมหัก</td><td class="n">${baht(p.TotalDeductions)}</td>
+            <td colspan="4" class="sub lft">${minus.map(a=>esc(a.label||'')).filter(Boolean).join(' · ')||'&nbsp;'}</td></tr>
       </tbody></table>
       <div class="acc"><b>${baht(p.ContributionAccum||p.Contribution||0)}</b> เงินสมทบสะสม</div>
       <div class="fn"><b>เบี้ยขยัน<sup>1</sup></b> คำนวณจากการมาทำงานทุกวันของแต่ละเดือน โดยไม่ลา ไม่มาสาย (${baht(p.DiligenceAttendance)})+Post รูป Facebook (${baht(p.DiligenceFacebook)})<br>
@@ -4013,13 +4039,15 @@
       .conf{color:#c00;border:2px solid #c00;padding:0 5px;font-size:14px;font-weight:bold;letter-spacing:.5px}
       .cf{font-size:11px;color:#555;flex:1;text-align:center}
       .ttl{text-align:center;font-size:17px;font-weight:bold;margin:1mm 0 2mm}
-      .meta{display:flex;justify-content:space-between;font-size:11.5px;margin-bottom:2mm;gap:6px}
-      .grid{width:100%;border-collapse:collapse;font-size:11.5px}.grid th,.grid td{border:1px solid #333;padding:2px 5px;text-align:center}
+      .meta{display:flex;justify-content:space-between;font-size:10.5px;margin-bottom:1.5mm;gap:4px;flex-wrap:wrap}
+      .grid{width:100%;border-collapse:collapse;font-size:10.5px;table-layout:fixed}
+      .grid th,.grid td{border:1px solid #333;padding:1px 3px;text-align:center;overflow-wrap:anywhere;line-height:1.25}
       .grid th{background:#fff;font-weight:bold}.grid td.n{text-align:right;font-weight:bold}
+      .grid td.lft{text-align:left}
       .grid td.in{color:#1565C0}.grid td.de{color:#c00}.grid td.net{color:#1565C0;font-size:14px}
       .grid td.lbl{text-align:right;font-weight:normal}.sub{font-size:10.5px;color:#555;font-weight:normal}
-      .acc{text-align:center;font-size:12px;margin:1.5mm 0}
-      .fn{font-size:10px;color:#1565C0;line-height:1.5}.fn b{color:#222}
+      .acc{text-align:right;font-size:11px;margin:1mm 0}
+      .fn{font-size:9px;color:#1565C0;line-height:1.35}.fn b{color:#222}
       @media print{.bar{display:none}}</style></head>
       <body><div class="bar"><button onclick="window.print()">🖨️ พิมพ์ (3 สลิป/แผ่น A4 แนวนอน)</button></div>${pages}</body></html>`; }
 
