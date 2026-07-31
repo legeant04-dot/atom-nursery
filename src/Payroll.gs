@@ -10,6 +10,11 @@
  */
 function num_(v, d) { var n = parseFloat(v); return isNaN(n) ? (d || 0) : n; }
 function round2_(n) { return Math.round(n * 100) / 100; }
+// 'YYYY-MM' written to a Sheets cell is coerced to the DATE 2026-07-01 and reads back as '2026-07-01',
+// so every `String(row.Month) === '2026-07'` comparison silently failed: computePayroll never found the
+// existing row (appending a DUPLICATE on each press), getPayslip returned null ("ยังไม่มีสลิป"), and the
+// finance rollup could not match the payslip to the month. Compare the first 7 characters, always.
+function ym7_(v) { return String(v == null ? '' : v).slice(0, 7); }
 function monthOf_(dateVal) { try { return dateStr_(new Date(dateVal)).slice(0, 7); } catch (e) { return ''; } }
 
 /**
@@ -106,14 +111,14 @@ function computePayroll(payload) {
   var contribAccum = contribution;
   try {
     readObjects_(sheet).forEach(function (r) {
-      if (String(r.StaffID) === String(staff.StaffID) && String(r.Month) !== month) contribAccum += num_(r.Contribution);
+      if (String(r.StaffID) === String(staff.StaffID) && ym7_(r.Month) !== ym7_(month)) contribAccum += num_(r.Contribution);
     });
   } catch (e) {}
   try { ensureColumns_(sheet, ['PayType', 'DailyRate', 'DaysWorked', 'ChildMultiplier', 'Adjustments',
     'AdjustmentsTotal', 'BankName', 'LeaveDays', 'LeaveLimit', 'LeaveExceeds',
     'ContributionAccum', 'Position', 'StaffName']); } catch (e) {}
   var existing = findObject_(sheet, function (r) {
-    return String(r.StaffID) === String(staff.StaffID) && String(r.Month) === month;
+    return String(r.StaffID) === String(staff.StaffID) && ym7_(r.Month) === ym7_(month);
   });
   var rec = {
     StaffID: staff.StaffID, Month: month, BaseSalary: base,
@@ -197,7 +202,7 @@ function sumMonthlyOT_(staffId, month) {
 function handleGetPayslip(payload) {
   payload = payload || {};
   var row = findObject_(sheet_(getHrSpreadsheet_(), 'PAYROLL'), function (r) {
-    return String(r.StaffID) === String(payload.staffId) && String(r.Month) === String(payload.month);
+    return String(r.StaffID) === String(payload.staffId) && ym7_(r.Month) === ym7_(payload.month);
   });
   if (!row) throw apiError_('NOT_FOUND', 'ยังไม่มีสลิปเงินเดือนของเดือนนี้');
   return row;

@@ -22,7 +22,8 @@ function getPayrollForMonth_(month, staffId) {
   var staffById = {};
   readObjects_(sheet_(getHrSpreadsheet_(), 'STAFF')).forEach(function (s) { staffById[String(s.StaffID)] = s; });
   return readObjects_(sheet_(getHrSpreadsheet_(), 'PAYROLL'))
-    .filter(function (r) { return String(r.Month) === String(month) && (!staffId || String(r.StaffID) === String(staffId)); })
+    // same 'YYYY-MM' date-coercion trap as Payroll.gs — compare the first 7 characters
+    .filter(function (r) { return String(r.Month).slice(0, 7) === String(month).slice(0, 7) && (!staffId || String(r.StaffID) === String(staffId)); })
     .map(function (r) { r._staff = staffById[String(r.StaffID)] || {}; return r; });
 }
 
