@@ -751,13 +751,17 @@ function createAtomAPI(M, GROWTH_STD) {
       const ratedTotal=H.ratedChildCount().rated; const autoChild=leaveExceeds?0:Math.max(0, ratedTotal-(threshold-1));
       const childCount=p.extraChildCount!=null?Math.max(0,p.extraChildCount):autoChild;
       const ec=childCount*childMult; const tc=Math.min(cfg.TrainingCertMaxPerMonth,Math.max(0,p.trainingCertCount||0))*cfg.TrainingCertRate;
-      const oi=ec+tc+(p.otherIncome||0); const ot=p.otEvening||0; const hb=p.holidayBonus||0; const gross=base+dT+oi+ot+hb;
-      // signed adjustment lines (e.g. {label:'มาสาย',amount:-200}); applied directly to net
-      const adj=Array.isArray(p.adjustments)?p.adjustments:[]; const adjSum=adj.reduce((a,x)=>a+Number(x.amount||0),0);
+      // signed adjustment lines (e.g. {label:'มาสาย',amount:-200}). A positive line is income and a
+      // negative one is a deduction, folded INTO the two totals — applying them to the net separately
+      // made the slip print an "อื่นๆ" figure that was not inside รวมรายได้ / รวมหัก.
+      const adj=(Array.isArray(p.adjustments)?p.adjustments:[]).filter(a=>a&&(String(a.label||'').trim()||Number(a.amount||0)));
+      let adjPlus=0, adjMinus=0; adj.forEach(a=>{ const v=Number(a.amount||0); if(v>0) adjPlus+=v; else adjMinus+=-v; });
+      const adjSum=adjPlus-adjMinus;
+      const oi=ec+tc+(p.otherIncome||0)+adjPlus; const ot=p.otEvening||0; const hb=p.holidayBonus||0; const gross=base+dT+oi+ot+hb;
       const ssDeduct=(p.socialSecurityDeduct!=null?p.socialSecurityDeduct:pc.SocialSecurityDeduct)!==false;
       const ss=p.socialSecurity!=null?p.socialSecurity:(ssDeduct?Math.min(Math.round(base*cfg.SocialSecurityRate),cfg.SocialSecurityMax):0);
-      const dd=(p.contribution||0)+(p.otherDeductions||0); const total=ss+dd; const net=gross-total+adjSum;
-      const rec={PayrollID:nextSeqId_(M.payroll,'PayrollID','PR',4),StaffID:p.staffId,Month:p.month,PayType:payType,DailyRate:dailyRate,DaysWorked:daysWorked,BaseSalary:base,DiligenceAttendance:dA,DiligenceFacebook:dF,DiligenceTotal:dT,ExtraChildAmount:ec,ChildCount:childCount,ChildThreshold:threshold,RatedTotal:ratedTotal,ChildMultiplier:childMult,TrainingCertAmount:tc,OTEvening:ot,HolidayBonus:hb,OtherIncome:oi,GrossIncome:gross,SocialSecurity:ss,Contribution:p.contribution||0,OtherDeductions:p.otherDeductions||0,TotalDeductions:total,Adjustments:adj,AdjustmentsTotal:adjSum,NetPay:net,BankAccount:cfg.BankName,LeaveDays:ls.days,LeaveLimit:ls.limit,LeaveExceeds:leaveExceeds};
+      const od=(p.otherDeductions||0)+adjMinus; const dd=(p.contribution||0)+od; const total=ss+dd; const net=gross-total;
+      const rec={PayrollID:nextSeqId_(M.payroll,'PayrollID','PR',4),StaffID:p.staffId,Month:p.month,PayType:payType,DailyRate:dailyRate,DaysWorked:daysWorked,BaseSalary:base,DiligenceAttendance:dA,DiligenceFacebook:dF,DiligenceTotal:dT,ExtraChildAmount:ec,ChildCount:childCount,ChildThreshold:threshold,RatedTotal:ratedTotal,ChildMultiplier:childMult,TrainingCertAmount:tc,OTEvening:ot,HolidayBonus:hb,OtherIncome:oi,GrossIncome:gross,SocialSecurity:ss,Contribution:p.contribution||0,OtherDeductions:od,TotalDeductions:total,Adjustments:adj,AdjustmentsTotal:adjSum,NetPay:net,BankAccount:cfg.BankName,LeaveDays:ls.days,LeaveLimit:ls.limit,LeaveExceeds:leaveExceeds};
       const i=M.payroll.findIndex(x=>x.StaffID===p.staffId&&ym(x.Month)===ym(p.month));
       // preview → return the numbers without persisting (see the GAS route)
       if(p.preview){ rec.PayrollID=i>=0?M.payroll[i].PayrollID:''; rec.Preview=true; rec.Saved=i>=0; return rec; }
