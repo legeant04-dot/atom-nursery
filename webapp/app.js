@@ -112,7 +112,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.173'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.174'; // bump each webapp change; shown only at the bottom of the Chat screen
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
   const phoneFmt = p => { let d=String(p==null?'':p).replace(/\D/g,''); if(d.length===9) d='0'+d; return d; };
@@ -381,16 +381,43 @@
   // staffId matters now: teachers have their own inbox rows (a parent's journal comment lands there)
   function notifParams(){ return {role:USER.role, parentId:USER.parentId, staffId:USER.staffId}; }
   async function refreshBell(){ try{ const ns=await api('notifications',notifParams()); const n=ns.filter(x=>!x.read).length; const b=$('#bellBadge'); b.hidden=!n; b.textContent=n; }catch(e){} }
-  window.BELL = async () => { const ns=await api('notifications',notifParams()); window._NOTIFS=ns; modal(`<div class="spread"><h3>🔔 ${t('c.notifications')}</h3><button class="btn-ghost" onclick="this.closest('.modal').remove()">${t('c.close')}</button></div>
-    ${ns.map((n,i)=>{ const go=notifTarget(n); return `<div class="list-item" ${go?`style="cursor:pointer" onclick="NOTIF_TAP(${i})"`:''}><span>${n.read?'':'🔵 '}${esc(EN()&&n.textEN?n.textEN:n.text)}</span><small class="muted">${esc(n.time)}${go?' ›':''}</small></div>`; }).join('')||'<p class="muted">—</p>'}
-    <button class="btn block outline" style="margin-top:10px" onclick="MARKREAD(this)">${t('c.markread')}</button>`); };
+  // Notifications drop down FROM the bell (like Google's app grid) instead of taking over the screen
+  // with a modal. Same behaviour otherwise: tap an item to go to it, and one button to mark all read.
+  window.NOTIF_CLOSE = () => { const d=document.getElementById('notifMenu'); if(d) d.remove();
+    document.removeEventListener('click', _notifAway, true); };
+  function _notifAway(ev){ const d=document.getElementById('notifMenu'); if(!d) return;
+    if(d.contains(ev.target)) return;
+    const b=document.getElementById('bellBtn'); if(b&&b.contains(ev.target)) return;   // the bell toggles it
+    NOTIF_CLOSE(); }
+  window.BELL = async () => {
+    if(document.getElementById('notifMenu')){ NOTIF_CLOSE(); return; }                 // tapping again closes
+    const ns=await api('notifications',notifParams()); window._NOTIFS=ns;
+    const d=document.createElement('div'); d.id='notifMenu'; d.setAttribute('role','menu');
+    d.innerHTML=`<div class="nm-head"><b>🔔 ${esc(t('c.notifications'))}</b><button class="btn-ghost" onclick="NOTIF_CLOSE()" aria-label="${EN()?'Close':'ปิด'}">✕</button></div>
+      <div class="nm-list">${ns.map((n,i)=>{ const go=notifTarget(n);
+        return `<div class="nm-item${n.read?'':' unread'}" ${go?`role="menuitem" tabindex="0" onclick="NOTIF_TAP(${i})"`:''}>
+          <span>${n.read?'':'🔵 '}${esc(EN()&&n.textEN?n.textEN:n.text)}</span>
+          <small class="muted">${esc(n.time)}${go?' ›':''}</small></div>`; }).join('')
+        ||`<div class="nm-item"><span class="muted">${EN()?'Nothing new':'ไม่มีรายการใหม่'}</span></div>`}</div>
+      <button class="btn sm outline block" style="margin:8px" onclick="MARKREAD(this)">${esc(t('c.markread'))}</button>`;
+    document.body.appendChild(d);
+    // sit under the bell, clamped inside the viewport on a narrow phone
+    const b=document.getElementById('bellBtn'); const r=b?b.getBoundingClientRect():{bottom:56,right:window.innerWidth-8};
+    const w=Math.min(340, window.innerWidth-16);
+    d.style.width=w+'px';
+    d.style.top=(r.bottom+6)+'px';
+    d.style.left=Math.max(8, Math.min(window.innerWidth-w-8, r.right-w))+'px';
+    setTimeout(()=>document.addEventListener('click', _notifAway, true), 0);
+  };
+
   // decide which screen a notification opens (by inbox category, falling back to keywords), role-aware
   function notifTarget(n){ const cat=String(n&&n.category||''); const s=String((n&&(n.text||n.textEN))||''); const role=USER&&USER.role;
     // exact deep-link when the notification carries a ref "kind|studentId|date"
     const ref=String(n&&n.ref||''); if(ref){ const pp=ref.split('|'); const rk=pp[0], sid=pp[1], date=pp[2]||todayStr();
       if(rk==='journal'&&sid){ if(role==='Admin') return ()=>A_viewJournal(sid,date);
         if(role==='Parent') return ()=>{ if(window.P_showJ)P_showJ(sid,date); else GO('journal'); };
-        return ()=>{ if(window.T_journal)T_journal(sid); else GO('class'); }; } }
+        // staff: show the report that was sent (the viewer offers an edit button when it is today)
+        return ()=>{ if(window.A_viewJournal) A_viewJournal(sid,date); else if(window.T_journal) T_journal(sid); else GO('class'); }; } }
     const has=re=>re.test(s);
     let key = cat==='comment'?'journal':cat==='leave'?'leave':cat==='ot'?'ot':cat==='registration'?'register':cat==='emergency'?'injury':cat==='payment'?'verify':cat==='digest'?'home':'';
     if(!key){ if(has(/ความคิดเห็น|คอมเมนต์|comment|ตอบกลับ|reply|บันทึกของ|รายงาน/i))key='journal';
@@ -405,8 +432,11 @@
       Teacher:{journal:()=>GO('class'), leave:()=>GO('leave'), ot:()=>GO('slip'), register:null, verify:null, injury:()=>GO('injury'), home:()=>GO('home')},
       Parent:{journal:()=>GO('journal'), leave:()=>GO('home'), ot:()=>GO('payment'), register:null, verify:()=>GO('payment'), injury:()=>GO('home'), home:()=>GO('home')} };
     const fn=(M[role]||{})[key]; return fn||null; }
-  window.NOTIF_TAP = (i)=>{ const n=(window._NOTIFS||[])[i]; if(!n)return; const go=notifTarget(n); const m=document.querySelector('.modal'); if(m)m.remove(); if(go){ try{ go(); }catch(e){} } };
-  window.MARKREAD = async (btn)=>{ await api('markNotifsRead',notifParams()); btn.closest('.modal').remove(); refreshBell(); };
+  window.NOTIF_TAP = (i)=>{ const n=(window._NOTIFS||[])[i]; if(!n)return; const go=notifTarget(n);
+    NOTIF_CLOSE(); const m=document.querySelector('.modal'); if(m)m.remove();
+    if(go){ try{ go(); }catch(e){} } };
+  window.MARKREAD = async (btn)=>{ await api('markNotifsRead',notifParams());
+    NOTIF_CLOSE(); const m=btn.closest('.modal'); if(m)m.remove(); refreshBell(); };
   // remembers which pre-login screen we're on, so the language toggle re-renders THAT screen
   let AUTH_RENDER = null;
   window.TOGGLE_LANG = () => { setLang(LANG()==='en'?'th':'en'); setHeader(); paintThemeBtn(); if(USER) GO(CURRENT); else (AUTH_RENDER||loginScreen)(); ensureTranslateObserver(); applyLangNow(); };
@@ -1835,7 +1865,7 @@
       // preselect OUT once the child is in (so "pick up" is one tap); always usable so a time can be corrected
       const ciBtn = `<button class="btn sm green" onclick="T_studentCheckin('${s.StudentID}','${esc(nm(s))}','${s.inToday&&!s.outToday?'OUT':(s.outToday?'OUT':'IN')}')" title="${EN()?'Check in/out on behalf':'เช็คอิน/เอาท์แทน'}" aria-label="${EN()?"Check in":"เช็คอิน"}" title="${EN()?"Check in":"เช็คอิน"}">📍</button>`;
       const attTag = s.inToday?`<small class="pill ok" style="margin-left:4px">${EN()?'in':'มา'} ${esc(s.inTime||'')}</small>`:'';
-      return `<div class="card spread"><div style="display:flex;gap:10px;align-items:center">${studentAvatar(s)}<div><b>${esc(dispNick(s))}</b> ${nmSub(s)?`<small class="muted">${esc(nmSub(s))}</small>`:""}${attTag}<br><small class="muted">${esc(ageYM(s.DOB))} · ${EN()?'allergy':'แพ้'}: ${esc(s.Allergy||'-')}</small><br>${journalPill(jdone[s.StudentID])}</div></div><div class="row">${jBtn}<button class="btn sm outline" onclick="T_assess('${s.StudentID}')" aria-label="${EN()?"Assess":"ประเมิน"}" title="${EN()?"Assess":"ประเมิน"}">📝</button>${ciBtn}<button class="btn sm outline" onclick="T_studentLeave('${s.StudentID}','${esc(dispNick(s))}')" title="${EN()?'File leave for this student':'แจ้งลาให้นักเรียน'}" aria-label="${EN()?"Report leave":"แจ้งลา"}" title="${EN()?"Report leave":"แจ้งลา"}">🏖️</button><button class="btn sm outline" onclick="EDIT_ATT('${s.StudentID}')" aria-label="${EN()?"Correct times":"แก้ไขเวลา"}" title="${EN()?"Correct check-in / pick-up":"แก้ไขเวลารับ-ส่ง"}">🕑</button></div></div>`; }).join(''); };
+      return `<div class="card spread"><div style="display:flex;gap:10px;align-items:center">${studentAvatar(s)}<div><b>${esc(dispNick(s))}</b> ${nmSub(s)?`<small class="muted">${esc(nmSub(s))}</small>`:""}${attTag}<br><small class="muted">${esc(ageYM(s.DOB))} · ${EN()?'allergy':'แพ้'}: ${esc(s.Allergy||'-')}</small><br>${journalPill(jdone[s.StudentID])}</div></div><div class="row">${jBtn}<button class="btn sm outline" onclick="T_assess('${s.StudentID}')" aria-label="${EN()?"Assess":"ประเมิน"}" title="${EN()?"Assess":"ประเมิน"}">📝</button>${ciBtn}<button class="btn sm outline" onclick="T_studentLeave('${s.StudentID}','${esc(dispNick(s))}')" title="${EN()?'File leave for this student':'แจ้งลาให้นักเรียน'}" aria-label="${EN()?"Report leave":"แจ้งลา"}" title="${EN()?"Report leave":"แจ้งลา"}">🏖️</button><button class="btn sm outline" onclick="EDIT_ATT('${s.StudentID}')" aria-label="${EN()?"Correct times":"แก้ไขเวลา"}" title="${EN()?"Correct check-in / pick-up":"แก้ไขเวลารับ-ส่ง"}">🕑</button><button class="btn sm outline" onclick="T_journalHistory('${s.StudentID}')" aria-label="${EN()?"Past reports":"บันทึกย้อนหลัง"}" title="${EN()?"Past daily reports":"ดูบันทึกย้อนหลัง"}">📅</button></div></div>`; }).join(''); };
   // Teacher files a leave for a student → notifies the linked parents; shows in that student's parent calendar
   window.T_studentLeave=(sid,name)=>{ modal(`<h3>🏖️ ${EN()?'File student leave':'แจ้งลานักเรียน'} — ${esc(name)}</h3>
     <label class="field"><span>${EN()?'Type':'ประเภท'}</span><select id="tslType"><option>${EN()?'Sick leave':'ลาป่วย'}</option><option>${EN()?'Personal leave':'ลากิจ'}</option><option>${EN()?'Absent':'ขาด'}</option></select></label>
@@ -3429,9 +3459,28 @@
       <div style="max-height:50vh;overflow:auto">${rows||`<small class="muted">${esc(t('jr.noneForDay'))}</small>`}</div>
       <button class="btn outline block" style="margin-top:8px" onclick="this.closest('.modal').remove()">${esc(t('c.close'))}</button>`);
   };
+  // Read-only view of a submitted report — the same one Admin sees. Teachers use it too: opening a
+  // notification about a past day, or browsing a child's history, must SHOW the report rather than
+  // reopening the entry form (which only ever holds today).
   window.A_viewJournal=async(sid,day)=>{ const j=await api('getJournal',{studentId:sid,date:day,role:USER.role});
     if(!j){ toast(t('jr.noneForDay')); return; }
-    modal(`<h3>📒 ${esc(day)}</h3>${journalChecklist(j)}<button class="btn outline block" onclick="this.closest('.modal').remove()">${esc(t('c.close'))}</button>`); };
+    const canEdit=(day===todayStr()) && (USER.role==='Admin' || !!USER.staffId);
+    modal(`<h3>📒 ${esc(day)}</h3>${journalChecklist(j)}
+      ${canEdit?`<button class="btn block" onclick="this.closest('.modal').remove();T_journal('${esc(sid)}')">✏️ ${EN()?'Edit today’s report':'แก้ไขบันทึกของวันนี้'}</button>`:''}
+      <button class="btn outline block" style="margin-top:8px" onclick="this.closest('.modal').remove()">${esc(t('c.close'))}</button>`); };
+  // a child's recent reports, for staff. Tap a day to read it exactly as Admin would.
+  window.T_journalHistory=async(sid)=>{ let st=(A_CACHE.students||[]).find(x=>x.StudentID===sid);
+    // a teacher rarely has the admin roster cached — fetch once so the title is a name, not an id
+    if(!st){ try{ const l=await api('listStudents'); if(l&&l.length){ A_CACHE.students=l; st=l.find(x=>x.StudentID===sid); } }catch(e){} }
+    st=st||{};
+    let rows=[]; try{ rows=await api('journalHistory',{studentId:sid,limit:14,role:USER.role,staffId:USER.staffId}); }catch(e){ err(e); return; }
+    modal(`<h3>📒 ${EN()?'Past reports':'บันทึกย้อนหลัง'} — ${esc(dispNick(st)||sid)}</h3>
+      <p class="muted" style="font-size:13px">${EN()?'Tap a day to read the report that was sent.':'แตะที่วันเพื่อดูบันทึกที่ส่งไปแล้ว'}</p>
+      ${(rows||[]).length?rows.map(r=>{ const d=ymd(r.Date); const sent=String(r.Status||'').toUpperCase()!=='DRAFT';
+          return `<div class="list-item" style="cursor:pointer" onclick="this.closest('.modal').remove();A_viewJournal('${esc(sid)}','${esc(d)}')">
+            <span><b>${esc(ddmmyyyy(d))}</b> ${sent?`<span class="pill ok" style="font-size:11px">${EN()?'sent':'ส่งแล้ว'}</span>`:`<span class="pill wait" style="font-size:11px">${EN()?'draft':'ร่าง'}</span>`}</span><span class="muted">›</span></div>`; }).join('')
+        :`<div class="card muted">${EN()?'No reports yet':'ยังไม่มีบันทึก'}</div>`}
+      <button class="btn outline block" style="margin-top:8px" onclick="this.closest('.modal').remove()">${esc(t('c.close'))}</button>`); };
   window.A_unlockJournal=async(sid,day)=>{ if(!confirm(t('jr.confirmUnlock')))return;
     try{ await api('unlockJournal',{studentId:sid,date:day}); const m=document.querySelector('.modal'); if(m)m.remove();
       toast(t('jr.unlocked')); A_journals(day); }catch(e){err(e);} };

@@ -621,3 +621,18 @@ input::placeholder,textarea::placeholder{color:var(--ink-3);}
 .i{display:block;flex:none;}
 .bottomnav .ic{display:flex;align-items:center;justify-content:center;height:22px;}
 .bell .i,.langtoggle .i{margin:0 auto;}
+
+/* Notifications drop down from the bell (Google-app-grid style) instead of a full modal, so the screen
+   underneath stays put. Fixed-position because the header is sticky and a phone viewport is short. */
+#notifMenu{position:fixed;z-index:70;background:var(--surface);border:1px solid var(--line);
+  border-radius:var(--radius);box-shadow:var(--sh-lg);overflow:hidden;animation:nmIn .14s ease-out;}
+@keyframes nmIn{from{opacity:0;transform:translateY(-6px)}to{opacity:1;transform:none}}
+#notifMenu .nm-head{display:flex;align-items:center;justify-content:space-between;gap:8px;
+  padding:10px 12px;border-bottom:1px solid var(--line);}
+#notifMenu .nm-list{max-height:min(56vh,420px);overflow:auto;}
+#notifMenu .nm-item{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;
+  padding:10px 12px;border-bottom:1px solid var(--line-2);font-size:14px;line-height:1.4;}
+#notifMenu .nm-item[role=menuitem]{cursor:pointer;}
+#notifMenu .nm-item[role=menuitem]:hover,#notifMenu .nm-item[role=menuitem]:focus{background:var(--blue-bg);outline:none;}
+#notifMenu .nm-item.unread{background:var(--surface-2);}
+#notifMenu .nm-item small{white-space:nowrap;font-size:12px;}
