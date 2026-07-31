@@ -120,6 +120,9 @@ function computePayroll(payload) {
   var existing = findObject_(sheet, function (r) {
     return String(r.StaffID) === String(staff.StaffID) && ym7_(r.Month) === ym7_(month);
   });
+  // preview: work the numbers out and hand them back WITHOUT touching the sheet, so "คำนวณ" can show
+  // the result while "บันทึก" stays the one action that creates the payable and moves the expense total
+  var previewOnly = !!payload.preview;
   var rec = {
     StaffID: staff.StaffID, Month: month, BaseSalary: base,
     DiligenceAttendance: diligenceAttendance, DiligenceFacebook: diligenceFacebook, DiligenceTotal: diligenceTotal,
@@ -137,8 +140,10 @@ function computePayroll(payload) {
     LeaveDays: leaveDays, LeaveLimit: leaveLimit, LeaveExceeds: leaveExceeds,
     GeneratedDate: new Date(), GeneratedBy: payload.generatedBy || 'system'
   };
+  if (previewOnly) { rec.PayrollID = existing ? existing.PayrollID : ''; rec.Preview = true; rec.Saved = !!existing; return rec; }
   if (existing) { rec.PayrollID = existing.PayrollID; updateRow_(sheet, existing._row, rec); }
   else { rec.PayrollID = nextId_(sheet, 'PayrollID', 'PR'); appendObject_(sheet, rec); }
+  rec.Saved = true;
   logAuditHr(payload.generatedBy || 'system', existing ? 'PAYROLL_UPDATE' : 'PAYROLL_CREATE', 'PAYROLL', rec.PayrollID);
 
   return rec;

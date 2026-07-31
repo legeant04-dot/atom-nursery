@@ -112,7 +112,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.168'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.169'; // bump each webapp change; shown only at the bottom of the Chat screen
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
   const phoneFmt = p => { let d=String(p==null?'':p).replace(/\D/g,''); if(d.length===9) d='0'+d; return d; };
@@ -2432,11 +2432,17 @@
         <label class="field"><span>${EN()?'Contribution (deducted)':'เงินสมทบ (หัก)'}</span><input id="pContrib" type="number" value="0"/></label></div>
       <div class="card" style="background:var(--surface-2)"><div class="spread"><b style="font-size:13px">➕ ${esc(t('pay.adjustments'))}</b><button class="btn sm outline" onclick="A_addAdj()">+ ${esc(t('pay.addAdj'))}</button></div>
         <p class="muted" style="font-size:13px">${esc(t('pay.adjNote'))}</p><div id="adjList"></div></div>
-      <button class="btn block" onclick="A_calc()">💾 ${esc(t('c.calc'))} ${EN()?'& save':'และบันทึก'}</button>
-      <p class="muted" style="font-size:13px;text-align:center">${EN()?'Saving updates this month’s total expense on the finance page.':'เมื่อบันทึกแล้ว ยอดจะไปรวมใน "รายจ่ายรวม" ของหน้าการเงินทันที'}</p></div><div id="slipResult"></div>`;
+      <div class="row" style="gap:8px"><button class="btn outline" style="flex:1" onclick="A_calc(false)">🧮 ${esc(t('c.calc'))}</button>
+        <button class="btn" style="flex:1" onclick="A_calc(true)">💾 ${EN()?'Save as payable':'บันทึกเป็นรายการจ่าย'}</button></div>
+      <p class="muted" style="font-size:13px;text-align:center">${EN()?'Calculate only checks the figures. Saving creates the payable and adds it to this month’s expenses.':'กด "คำนวณ" เพื่อดูตัวเลขอย่างเดียว · กด "บันทึก" เมื่อยืนยันแล้ว ระบบจึงตั้งเป็นรายการจ่ายและรวมในรายจ่ายเดือนนี้'}</p></div><div id="slipResult"></div>`;
     A_payStaff();
   };
-  window.A_payStaff = async ()=>{ const sid=$('#pStaff').value; const pc=await api('payrollConfig',{staffId:sid});
+  // switching staff (or month) fires this again while the previous one is still fetching; without a
+  // token the slower reply repaints the screen for the staff member you just left
+  let _payReq=0;
+  window.A_payStaff = async ()=>{ const sid=$('#pStaff').value; const my=++_payReq;
+    const stale=()=>my!==_payReq||$('#pStaff')&&$('#pStaff').value!==sid;
+    const pc=await api('payrollConfig',{staffId:sid}); if(stale())return;
     // this used to read MOCK.staff, which holds SEED rows (and is empty since the mockdata split), so
     // the saved salary never came back — the field showed 0 every time the screen was opened
     const s=(A_CACHE.staff||[]).find(x=>x.StaffID===sid)||{};
@@ -2448,8 +2454,33 @@
     { const c=$('#pContrib'); if(c) c.value=pc.Contribution||0; }
     A_payTypeToggle(); A_recalcChild();
     // auto-pull this staff's OT hours for the selected month into the OT field
-    try{ const ot=await api('staffMonthlyOT',{staffId:sid,month:$('#pMonth').value}); $('#pOt').value=ot.amount;
+    try{ const ot=await api('staffMonthlyOT',{staffId:sid,month:$('#pMonth').value}); if(stale())return; $('#pOt').value=ot.amount;
       const n=$('#otNote'); if(n) n.innerHTML=`(${EN()?'auto':'อัตโนมัติ'} ${ot.hours} ${EN()?'hr':'ชม.'} × ${baht(ot.rate)})`; }catch(e){}
+    // A saved payslip is the record of what was actually paid, so reopening the month must show THAT,
+    // not a fresh form with defaults — otherwise there is no way to check a previous month or to see
+    // what a figure was made of. Load it back into every field and show the slip as saved.
+    try{ const saved=await api('getPayslip',{staffId:sid,month:$('#pMonth').value}); if(stale())return;
+      if(saved){
+        const set=(id,v)=>{ const e=$(id); if(e&&v!=null) e.value=v; };
+        set('#pBase',saved.BaseSalary); set('#pType',saved.PayType||'monthly'); set('#pDaily',saved.DailyRate||0); set('#pDays',saved.DaysWorked||0);
+        set('#pChild',saved.ExtraChildCount!=null?saved.ExtraChildCount:saved.ChildCount);
+        set('#pThreshold',saved.ChildThreshold); set('#pChildMul2',saved.ChildMultiplier);
+        set('#pCert',saved.TrainingCertCount||0); set('#pOt',saved.OTEvening||0); set('#pHb',saved.HolidayBonus||0);
+        set('#pContrib',saved.Contribution||0);
+        // the amounts are stored as PAID (0 when not eligible), so >0 is what tells us the box was ticked
+        if($('#pAtt')) $('#pAtt').checked=Number(saved.DiligenceAttendance||0)>0;
+        if($('#pFb'))  $('#pFb').checked=Number(saved.DiligenceFacebook||0)>0;
+        if(Number(saved.DiligenceAttendance||0)>0) set('#pAttendAmt',saved.DiligenceAttendance);
+        if(Number(saved.DiligenceFacebook||0)>0) set('#pFbAmt',saved.DiligenceFacebook);
+        if($('#pSS')) $('#pSS').checked=Number(saved.SocialSecurity||0)>0;
+        PAY_ADJ=adjRows(saved).map(a=>({label:a.label||'',amount:Number(a.amount)||0})); A_renderAdj();
+        A_payTypeToggle();
+        const box=$('#slipResult');
+        if(box) box.innerHTML=`<div class="spread" style="margin:8px 2px 0"><b>${EN()?'Saved for this month':'ที่บันทึกไว้ของเดือนนี้'}</b><span class="pill ok">💾 ${EN()?'saved':'บันทึกแล้ว'}</span></div>`
+          + payslipCard(saved)
+          + `<div class="row"><button class="btn outline" onclick="A_dlSlip('${sid}','${$('#pMonth').value}')">⬇️ ${esc(t('pay.download'))}</button><button class="btn outline" onclick="A_print('${$('#pMonth').value}')">🖨️ ${esc(t('pay.print3'))}</button></div>`;
+      } else { const box=$('#slipResult'); if(box) box.innerHTML=`<p class="muted" style="font-size:13px;text-align:center;margin-top:8px">${EN()?'Nothing saved for this month yet.':'ยังไม่มีรายการที่บันทึกไว้ของเดือนนี้'}</p>`; }
+    }catch(e){}
     // leave (any type) over the limit → warn + auto-zero the child-rate count (field NOT locked; Admin can re-enter)
     try{ const ls=await api('staffLeaveSummary',{staffId:sid,month:$('#pMonth').value}); const w=$('#pLeaveWarn'), ch=$('#pChild');
       if(ls.exceeds){ if(ch) ch.value=0;
@@ -2464,13 +2495,23 @@
   function A_renderAdj(){ const box=$('#adjList'); if(!box)return;
     box.innerHTML=PAY_ADJ.map((a,i)=>`<div class="grid3" style="margin-bottom:6px;grid-template-columns:1fr 90px 36px"><input value="${esc(a.label)}" placeholder="${esc(t('pay.adjLabel'))}" oninput="PAY_ADJ_SET(${i},'label',this.value)"/><input type="number" value="${a.amount}" placeholder="±0" oninput="PAY_ADJ_SET(${i},'amount',this.value)"/><button class="btn sm pink" onclick="A_delAdj(${i})" aria-label="${EN()?"Delete":"ลบ"}" title="${EN()?"Delete":"ลบ"}">✕</button></div>`).join(''); }
   window.PAY_ADJ_SET=(i,k,v)=>{ PAY_ADJ[i][k]= k==='amount'?Number(v||0):v; };
-  window.A_calc=async()=>{ const payType=$('#pType').value; const p={staffId:$('#pStaff').value,month:$('#pMonth').value,payType,baseSalary:+$('#pBase').value,dailyRate:+$('#pDaily').value,daysWorked:+$('#pDays').value,childMultiplier:+$('#pChildMul2').value,childThreshold:+$('#pThreshold').value,diligenceAttend:+$('#pAttendAmt').value,diligenceFb:+$('#pFbAmt').value,socialSecurityDeduct:$('#pSS').checked,facebookPosted:$('#pFb').checked,attendanceEligible:$('#pAtt').checked,extraChildCount:+$('#pChild').value,trainingCertCount:+$('#pCert').value,otEvening:+$('#pOt').value,holidayBonus:+$('#pHb').value,contribution:+($('#pContrib')||{}).value||0,adjustments:PAY_ADJ.filter(a=>a.label||a.amount)};
+  window.A_calc=async(commit)=>{ const payType=$('#pType').value; const p={staffId:$('#pStaff').value,month:$('#pMonth').value,payType,baseSalary:+$('#pBase').value,dailyRate:+$('#pDaily').value,daysWorked:+$('#pDays').value,childMultiplier:+$('#pChildMul2').value,childThreshold:+$('#pThreshold').value,diligenceAttend:+$('#pAttendAmt').value,diligenceFb:+$('#pFbAmt').value,socialSecurityDeduct:$('#pSS').checked,facebookPosted:$('#pFb').checked,attendanceEligible:$('#pAtt').checked,extraChildCount:+$('#pChild').value,trainingCertCount:+$('#pCert').value,otEvening:+$('#pOt').value,holidayBonus:+$('#pHb').value,contribution:+($('#pContrib')||{}).value||0,adjustments:PAY_ADJ.filter(a=>a.label||a.amount)};
+    // the per-staff SETTINGS are remembered either way; only the payslip itself waits for "บันทึก"
     await api('setPayrollConfig',{staffId:p.staffId,config:{PayType:payType,DailyRate:p.dailyRate,ChildMultiplier:p.childMultiplier,ChildThreshold:p.childThreshold,DiligenceAttendanceAmount:p.diligenceAttend,DiligenceFacebookAmount:p.diligenceFb,SocialSecurityDeduct:p.socialSecurityDeduct,Contribution:p.contribution}});
     // the base salary belongs to the STAFF record, and setPayrollConfig never carried it — so the
     // number the admin typed was used for THIS calculation and then thrown away
     try{ await api('saveStaff',{staffId:p.staffId,data:{BaseSalary:p.baseSalary}});
       const cached=(A_CACHE.staff||[]).find(x=>x.StaffID===p.staffId); if(cached) cached.BaseSalary=p.baseSalary; }catch(e){}
-    const r=await api('computePayroll',p); $('#slipResult').innerHTML=payslipCard(r)+`<div class="row"><button class="btn outline" onclick="A_dlSlip('${r.StaffID}','${r.Month}')">⬇️ ${esc(t('pay.download'))}</button><button class="btn outline" onclick="A_print('${r.Month}')">🖨️ ${esc(t('pay.print3'))}</button></div>`; confirmSaved(EN()?'Payslip saved — included in this month’s expenses':'บันทึกสลิปแล้ว · รวมในรายจ่ายเดือนนี้'); };
+    const r=await api('computePayroll',Object.assign({},p,{preview:!commit}));
+    const savedBadge = commit
+      ? `<span class="pill ok">💾 ${EN()?'saved':'บันทึกแล้ว'}</span>`
+      : `<span class="pill wait">🧮 ${EN()?'preview — not saved yet':'ตัวอย่าง · ยังไม่บันทึก'}</span>`;
+    $('#slipResult').innerHTML=`<div class="spread" style="margin:8px 2px 0"><b>${EN()?'Result':'ผลการคำนวณ'}</b>${savedBadge}</div>`
+      + payslipCard(r)
+      + (commit?`<div class="row"><button class="btn outline" onclick="A_dlSlip('${r.StaffID}','${r.Month}')">⬇️ ${esc(t('pay.download'))}</button><button class="btn outline" onclick="A_print('${r.Month}')">🖨️ ${esc(t('pay.print3'))}</button></div>`
+              :`<p class="muted" style="font-size:13px">${EN()?'Press "Save as payable" to record this and add it to expenses.':'กด "บันทึกเป็นรายการจ่าย" เพื่อบันทึกและรวมเข้ารายจ่าย'}</p>`);
+    if(commit) confirmSaved(EN()?'Saved — included in this month’s expenses':'บันทึกแล้ว · รวมในรายจ่ายเดือนนี้');
+    else toast(EN()?'Calculated — not saved yet':'คำนวณแล้ว · ยังไม่บันทึก'); };
   // both of these read MOCK.payroll, which is empty in gas mode — so downloading or printing a slip on
   // live always said "ยังไม่มีสลิป". Ask the server for the saved rows instead.
   window.A_dlSlip=async(staffId,month)=>{ let r=null; try{ r=await api('getPayslip',{staffId,month}); }catch(e){}
