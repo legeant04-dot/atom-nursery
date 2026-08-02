@@ -112,7 +112,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.177'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.178'; // bump each webapp change; shown only at the bottom of the Chat screen
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
   const phoneFmt = p => { let d=String(p==null?'':p).replace(/\D/g,''); if(d.length===9) d='0'+d; return d; };
@@ -1504,6 +1504,7 @@
       ${b.OTRollover?`<tr><td>${esc(t('ot.rollover'))}</td><td style="text-align:right">${baht(b.OTRollover)}</td></tr>`:''}
       <tr style="border-top:1px solid var(--line)"><td><b>${esc(t('c.total'))}</b></td><td style="text-align:right"><b>${baht(due)}</b></td></tr>
       ${confirmed>0&&!paid?`<tr><td>${EN()?'Paid':'ชำระแล้ว'}</td><td style="text-align:right;color:var(--ok)">−${baht(confirmed)}</td></tr><tr><td><b>${EN()?'Remaining':'คงค้าง'}</b></td><td style="text-align:right"><b style="color:var(--bad)">${baht(outstanding)}</b></td></tr>`:''}</table>
+      ${b.Prepay?`<div class="card" style="background:var(--ok-bg);border-color:var(--ok-line);padding:6px 8px;margin:0 0 6px"><small style="color:var(--ok)">💰 ${esc(prepaySpan(b.Prepay))}</small></div>`:''}
       <small class="muted">${esc(t('c.due'))} ${esc(fullDate(b.DueDate))}${b.PaidDate?' · '+esc(t('c.paid'))+' '+esc(fullDate(b.PaidDate)):''}</small>
       ${slipHistoryHTML(billSlips)}
       ${paid||prepaid?`<div class="row" style="margin-top:10px"><button class="btn sm outline" onclick="P_receipt('${b.BillingID}')">🧾 ${esc(t('pay.receipt'))}</button></div>`
@@ -4035,6 +4036,35 @@
   // ---- การเงิน HUB: one place for รับเงิน (income) / จ่ายเงิน (payroll) / รออนุมัติ (verify) ----
   let FIN_TAB='in';
   window.A_finTab=(tab)=>{ FIN_TAB=tab; GO('finance'); };
+  // "ชำระล่วงหน้า 6 เดือน (ส.ค. 2569 – ม.ค. 2570) · เดือนที่ 1/6 · เหลืออีก 5 เดือน"
+  function prepaySpan(pp){ if(!pp) return '';
+    const range=(pp.from&&pp.to)?` (${monthNameYear(pp.from)} – ${monthNameYear(pp.to)})`:'';
+    const left=Number(pp.left||0);
+    return EN()
+      ? `Paid ${pp.months} months in advance${range} · month ${pp.index}/${pp.months}${left>1?` · ${left-1} more covered`:' · last covered month'}`
+      : `ชำระล่วงหน้า ${pp.months} เดือน${range} · เดือนที่ ${pp.index}/${pp.months}${left>1?` · เหลืออีก ${left-1} เดือน`:' · เดือนสุดท้ายที่ครอบคลุม'}`; }
+  /**
+   * One row in the finance income list. The amount shown is what is STILL OWED, not the gross bill —
+   * a prepaid family was being listed at the full tuition with a "ค้างชำระ" tag beside it. Tuition
+   * settled in advance says so; anything left over is labelled as NOT tuition.
+   */
+  function finStudentRow(s){
+    const tuiOpen=Number(s.tuitionOpen||0), othOpen=Number(s.otherOpen||0);
+    const pill = s.prepaid && tuiOpen<=0
+        ? `<span class="pill ok">💰 ${EN()?'paid in advance':'ชำระล่วงหน้าแล้ว'}</span>`
+      : s.paid ? `<span class="pill ok">${esc(t('s.paid'))}</span>`
+      : s.partial ? `<span class="pill wait">${EN()?'partial':'บางส่วน'} ${baht(s.collected)}</span>`
+      : s.status==='NO_BILL' ? `<span class="pill info">${esc(t('fin.noBill'))}</span>`
+      : `<span class="pill bad">${esc(t('s.unpaid'))}</span>`;
+    // tuition is covered but OT / extra charges are not — say which, so it is never read as unpaid tuition
+    const otherPill = (tuiOpen<=0 && othOpen>0)
+      ? `<br><span class="pill wait" style="font-size:11px">⚠️ ${EN()?`other charges due ${baht(othOpen)}`:`ค้างชำระอื่นๆ (ไม่ใช่ค่าเทอม) ${baht(othOpen)}`}</span>` : '';
+    const amount = (tuiOpen+othOpen)>0 ? baht(tuiOpen+othOpen) : `<span class="muted">${baht(0)}</span>`;
+    const sub = s.prepaid ? `<br><small style="color:var(--ok);font-weight:400">💰 ${esc(prepaySpan(s.prepay))}</small>` : '';
+    return `<div class="list-item" style="cursor:pointer" onclick="A_finStudent('${s.studentId}')">
+      <span><b>${esc(dnick(s))}</b><br><small class="muted" style="font-weight:400">${dnSub(s)?esc(dnSub(s))+" · ":""}${esc(planLabel(s.plan))}</small>${sub}</span>
+      <span style="text-align:right">${amount} ${pill}${otherPill} <span class="muted">›</span></span></div>`;
+  }
   SCREENS.Admin.finance = async () => { const month=FIN_MONTH||monthStr();
     // plans come along so planLabel() can name the package instead of printing "pkg_e32dd4"
     const [f,pend,plans]=await Promise.all([api('financeSummary',{month}), api('pendingPayments'), api('getPlans').catch(()=>[])]);
@@ -4043,7 +4073,7 @@
     const stat=(cls,n,l)=>`<div class="stat ${cls}"><div class="n">${n}</div><div class="l">${esc(l)}</div></div>`;
     // income tab: tuition/OT/charges collection per student
     const inTab=`<div class="card"><div class="spread"><h3>👶 ${esc(t('fin.tuition'))}</h3><span class="pill ${f.studentsPaid>=f.studentsTotal?'ok':'wait'}">${f.studentsPaid}/${f.studentsTotal} ${esc(t('fin.paid'))}</span></div>
-        ${f.students.map(s=>`<div class="list-item" style="cursor:pointer" onclick="A_finStudent('${s.studentId}')"><span><b>${esc(dnick(s))}</b><br><small class="muted" style="font-weight:400">${dnSub(s)?esc(dnSub(s))+" · ":""}${esc(planLabel(s.plan))}</small></span><span>${baht(s.due||s.amount)} ${s.paid?`<span class="pill ok">${esc(t('s.paid'))}</span>`:s.partial?`<span class="pill wait">${EN()?'partial':'บางส่วน'} ${baht(s.collected)}</span>`:s.status==='NO_BILL'?`<span class="pill info">${esc(t('fin.noBill'))}</span>`:`<span class="pill bad">${esc(t('s.unpaid'))}</span>`} <span class="muted">›</span></span></div>`).join('')}
+        ${f.students.map(s=>finStudentRow(s)).join('')}
         <div class="spread" style="margin-top:8px"><b>${esc(t('fin.collected'))}</b><b style="color:var(--ok)">${baht(f.tuitionCollected+f.otCollected)}</b></div>
         <button class="btn sm outline block" style="margin-top:10px" onclick="A_prepayAudit()">🔍 ${EN()?'Prepay check (retro)':'ตรวจ prepay ย้อนหลัง'}</button></div>`;
     // payroll tab: per-staff salary + full payroll form
@@ -4092,7 +4122,8 @@
           <tr style="border-top:1px solid var(--line)"><td><b>${EN()?'Total due':'ยอดรวม'}</b></td><td style="text-align:right"><b>${baht(bill.TotalDue!=null?bill.TotalDue:bill.Amount)}</b></td></tr>
           ${Number(bill.PaidConfirmed||0)>0?`<tr><td>${EN()?'Paid':'ชำระแล้ว'}</td><td style="text-align:right;color:var(--ok)">−${baht(bill.PaidConfirmed)}</td></tr>`:''}
           <tr><td><b>${EN()?'Outstanding':'คงค้าง'}</b></td><td style="text-align:right"><b style="color:${Number(bill.Outstanding||0)>0?'var(--bad)':'var(--ok)'}">${baht(bill.Outstanding||0)}</b></td></tr></table>
-        <div class="spread" style="margin:2px 0 4px"><span class="pill ${Number(bill.Outstanding||0)<=0?'ok':'bad'}">${Number(bill.Outstanding||0)<=0?('✅ '+(EN()?'paid in full':'ชำระครบแล้ว')):('⏳ '+(EN()?'outstanding':'ค้างชำระ')+' '+baht(bill.Outstanding))}</span><small class="muted">${esc(bill.Status||'')}</small></div>
+        <div class="spread" style="margin:2px 0 4px"><span class="pill ${Number(bill.Outstanding||0)<=0?'ok':'bad'}">${Number(bill.Outstanding||0)<=0?(Number(bill.PrepaidTuition||0)>0?('💰 '+(EN()?'paid in advance':'ชำระล่วงหน้าแล้ว')):('✅ '+(EN()?'paid in full':'ชำระครบแล้ว'))):('⏳ '+(EN()?'outstanding':'ค้างชำระ')+' '+baht(bill.Outstanding))}</span><small class="muted">${esc(bill.Status||'')}</small></div>
+        ${bill.Prepay?`<div class="card" style="background:var(--ok-bg);border-color:var(--ok-line);padding:6px 8px;margin:2px 0"><small style="color:var(--ok)">💰 ${esc(prepaySpan(bill.Prepay))}</small></div>`:''}
         ${slipHistoryHTML(slipsOf('bill',bill.BillingID))}
         <div class="row" style="margin-top:6px"><button class="btn sm pink" onclick="A_finDelBill('${esc(bill.BillingID)}','${sid}',this)">🗑️ ${EN()?'Delete bill':'ลบบิล'}</button></div>`
       : `<p class="muted" style="font-size:13px">${EN()?'No bill issued for this month yet.':'ยังไม่ได้ออกบิลของเดือนนี้'}</p>
