@@ -43,10 +43,15 @@ function handleConfirmOT(p) {
   var patch;
   if (p.decision === 'reject') { patch = { Step2By: ap.Name, Step2Status: 'Rejected', Status: 'REJECTED' }; }
   else {
-    var hours = Number(r.Hours) || 0, amount = Number(r.Amount) || 0;
-    if (p.hours != null) { hours = Number(p.hours) || 0; amount = Math.round(hours * otRateForStaff_(otStaffById_(r.StaffID))); }
+    var hours = Number(r.Hours) || 0;
+    var rate = otRateForStaff_(otStaffById_(r.StaffID));
+    if (p.hours != null) hours = Number(p.hours) || 0;
+    // A pending row carries the rate that applied when the check-out created it. Re-price it at
+    // approval time so a rate correction (e.g. the 89.38 → 100 fix) reaches everything not yet paid;
+    // an explicit amount from the Admin still wins.
+    var amount = Math.round(hours * rate);
     if (p.amount != null && p.amount !== '') amount = Number(p.amount) || 0;
-    patch = { Hours: hours, Amount: amount, Step2By: ap.Name, Step2Status: 'Approved', ApprovedBy: ap.Name, Status: 'APPROVED' };
+    patch = { Hours: hours, Rate: rate, Amount: amount, Step2By: ap.Name, Step2Status: 'Approved', ApprovedBy: ap.Name, Status: 'APPROVED' };
     if (p.note != null) patch.Note = p.note;
   }
   updateRow_(sh, r._row, patch); otBust_(); return { otId: p.otId, status: patch.Status };

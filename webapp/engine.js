@@ -127,11 +127,13 @@ function createAtomAPI(M, GROWTH_STD) {
     return deps.indexOf(name)>=0 ? name : ''; }
   // teacher OT hours: ≥OTRoundUpMinutes within an hour rounds up to a full hour
   function otHoursRule(min){ if(min<=0)return 0; const h=Math.floor(min/60), rem=min%60; return h+(rem>=Number(cfg.OTRoundUpMinutes||50)?1:0); }
-  // Thai labour-law OT rate on a normal working day = 1.5 × hourly wage; monthly hourly = salary ÷ 30 ÷ 8.
-  // Falls back to the flat StaffOTHourlyRate config when a staff has no BaseSalary on file.
-  function staffOtRate(staff){ const sal=Number((staff&&staff.BaseSalary)||0);
-    if(sal>0) return Math.round(sal/30/8*1.5*100)/100;
-    return Number(cfg.StaffOTHourlyRate||cfg.OTRatePerHour||100); }
+  // FLAT hourly rate for teacher OT — StaffOTHourlyRate (default 100), editable in Settings. It used
+  // to be derived per salary from the Thai labour-law formula (1.5 × salary ÷ 30 ÷ 8), which is why
+  // the payroll screen printed "× 89.38". The word 'auto' restores that derivation.
+  function staffOtRate(staff){ const c=String(cfg.StaffOTHourlyRate==null?100:cfg.StaffOTHourlyRate).trim();
+    if(c.toLowerCase()==='auto'){ const sal=Number((staff&&staff.BaseSalary)||0);
+      if(sal>0) return Math.round(sal/30/8*1.5*100)/100; }
+    return Number(parseFloat(c)||cfg.OTRatePerHour||100); }
   function staffById_(id){ return M.staff.find(x=>x.StaffID===id)||{}; }
   // Big Cleaning Day: a monthly mandatory workday the admin sets. Counts as work but has NO fixed
   // check-in/out time (no lateness), and attendance credits a diligence bonus (เบี้ยขยัน).
@@ -804,11 +806,27 @@ function createAtomAPI(M, GROWTH_STD) {
       const adj=(Array.isArray(p.adjustments)?p.adjustments:[]).filter(a=>a&&(String(a.label||'').trim()||Number(a.amount||0)));
       let adjPlus=0, adjMinus=0; adj.forEach(a=>{ const v=Number(a.amount||0); if(v>0) adjPlus+=v; else adjMinus+=-v; });
       const adjSum=adjPlus-adjMinus;
-      const oi=ec+tc+(p.otherIncome||0)+adjPlus; const ot=p.otEvening||0; const hb=p.holidayBonus||0; const gross=base+dT+oi+ot+hb;
+      // OT approved too late to make an earlier month's salary is paid here on its own line, so the
+      // teacher is never short-paid and the earlier slip stays exactly as it was signed off.
+      const carry=H.otCarryOver({staffId:p.staffId,month:p.month});
+      const otCarry=p.otCarry!=null?Number(p.otCarry):carry.total;
+      const oi=ec+tc+(p.otherIncome||0)+adjPlus; const ot=p.otEvening||0; const hb=p.holidayBonus||0;
+      const gross=base+dT+oi+ot+otCarry+hb;
       const ssDeduct=(p.socialSecurityDeduct!=null?p.socialSecurityDeduct:pc.SocialSecurityDeduct)!==false;
       const ss=p.socialSecurity!=null?p.socialSecurity:(ssDeduct?Math.min(Math.round(base*cfg.SocialSecurityRate),cfg.SocialSecurityMax):0);
-      const od=(p.otherDeductions||0)+adjMinus; const dd=(p.contribution||0)+od; const total=ss+dd; const net=gross-total;
-      const rec={PayrollID:nextSeqId_(M.payroll,'PayrollID','PR',4),StaffID:p.staffId,Month:p.month,PayType:payType,DailyRate:dailyRate,DaysWorked:daysWorked,BaseSalary:base,DiligenceAttendance:dA,DiligenceFacebook:dF,DiligenceTotal:dT,ExtraChildAmount:ec,ChildCount:childCount,ChildThreshold:threshold,RatedTotal:ratedTotal,ChildMultiplier:childMult,TrainingCertAmount:tc,OTEvening:ot,HolidayBonus:hb,OtherIncome:oi,GrossIncome:gross,SocialSecurity:ss,Contribution:p.contribution||0,OtherDeductions:od,TotalDeductions:total,Adjustments:adj,AdjustmentsTotal:adjSum,NetPay:net,BankAccount:cfg.BankName,LeaveDays:ls.days,LeaveLimit:ls.limit,LeaveExceeds:leaveExceeds};
+      // เงินสมทบ is a savings fund: the teacher's half is deducted, the school matches it, and the
+      // fund grows by BOTH halves. Only the teacher's half is a deduction.
+      const contrib=Number(p.contribution||0);
+      const matchRate=Number(cfg.ContributionMatchRate!=null?cfg.ContributionMatchRate:1);
+      const contribEmp=Math.round(contrib*matchRate*100)/100;
+      let accum=Number(st.ContributionOpening||0)+contrib+contribEmp;
+      (M.payroll||[]).forEach(r=>{ if(r.StaffID!==p.staffId||ym(r.Month)===ym(p.month))return;
+        const own=Number(r.Contribution||0);
+        const emp=(r.ContributionEmployer==null||r.ContributionEmployer==='')?Math.round(own*matchRate*100)/100:Number(r.ContributionEmployer);
+        accum+=own+emp; });
+      accum=Math.round(accum*100)/100;
+      const od=(p.otherDeductions||0)+adjMinus; const dd=contrib+od; const total=ss+dd; const net=gross-total;
+      const rec={PayrollID:nextSeqId_(M.payroll,'PayrollID','PR',4),StaffID:p.staffId,Month:p.month,PayType:payType,DailyRate:dailyRate,DaysWorked:daysWorked,BaseSalary:base,DiligenceAttendance:dA,DiligenceFacebook:dF,DiligenceTotal:dT,ExtraChildAmount:ec,ChildCount:childCount,ChildThreshold:threshold,RatedTotal:ratedTotal,ChildMultiplier:childMult,TrainingCertAmount:tc,OTEvening:ot,OTCarry:otCarry,OTCarryDetail:JSON.stringify(carry.detail||[]),HolidayBonus:hb,OtherIncome:oi,GrossIncome:gross,SocialSecurity:ss,Contribution:contrib,ContributionEmployer:contribEmp,ContributionAccum:accum,OtherDeductions:od,TotalDeductions:total,Adjustments:adj,AdjustmentsTotal:adjSum,NetPay:net,BankAccount:cfg.BankName,LeaveDays:ls.days,LeaveLimit:ls.limit,LeaveExceeds:leaveExceeds};
       const i=M.payroll.findIndex(x=>x.StaffID===p.staffId&&ym(x.Month)===ym(p.month));
       // preview → return the numbers without persisting (see the GAS route)
       if(p.preview){ rec.PayrollID=i>=0?M.payroll[i].PayrollID:''; rec.Preview=true; rec.Saved=i>=0; return rec; }
@@ -820,6 +838,23 @@ function createAtomAPI(M, GROWTH_STD) {
       const paid=p.paid!==false; r.SlipSent=paid?'YES':'NO'; r.PaidDate=paid?todayLocal():''; r.SlipUrl=paid?(p.slipUrl||r.SlipUrl||''):'';
       logAct('markSalaryPaid',p.staffId,(paid?'จ่ายเงินเดือนแล้ว ':'ยกเลิกสถานะจ่าย ')+ym(p.month),actorOf(p));
       return {ok:true,paid}; },
+    // Rebuild every staff member's accumulated เงินสมทบ from source (opening + both halves of every
+    // month). ALWAYS preview first — nothing is written until preview:false. Mirrors src/Payroll.gs.
+    recomputeContributions: p => { const preview=p.preview!==false;
+      const matchRate=Number(cfg.ContributionMatchRate!=null?cfg.ContributionMatchRate:1);
+      const rows=[]; let written=0;
+      M.staff.forEach(s=>{ const opening=Number(s.ContributionOpening||0); let own=0,emp=0,months=0;
+        (M.payroll||[]).forEach(r=>{ if(r.StaffID!==s.StaffID)return;
+          const c=Number(r.Contribution||0), e=Number(r.ContributionEmployer||0); if(!c&&!e)return;
+          months++; own+=c; emp+=(r.ContributionEmployer==null||r.ContributionEmployer==='')?Math.round(c*matchRate*100)/100:e; });
+        const after=Math.round((opening+own+emp)*100)/100, before=Number(s.ContributionAccum||0);
+        if(Math.abs(after-before)<0.005)return;
+        // ContributionLocked ('YES') locks the manually-entered OPENING balance, not this derived total
+        const lk=String(s.ContributionLocked||'').toUpperCase(); const locked=lk==='YES'||lk==='TRUE'||s.ContributionLocked===true;
+        rows.push({staffId:s.StaffID,name:s.NameTH||s.Name||s.StaffID,opening,months,employee:Math.round(own*100)/100,
+          employer:Math.round(emp*100)/100,before,after,diff:Math.round((after-before)*100)/100,locked});
+        if(!preview){ s.ContributionAccum=after; written++; } });
+      return {preview,matchRate,changed:rows.length,written,rows}; },
     // approved leave DAYS of EVERY type (sick + personal + vacation …) in a month, and whether it
     // passes the child-rate limit (leave > limit → the child-rate income เรทจำนวนเด็ก is not calculated)
     staffLeaveSummary: p => { const month=ym(p.month||todayLocal().slice(0,7));
@@ -1270,8 +1305,8 @@ function createAtomAPI(M, GROWTH_STD) {
     setLeaveQuota: p => { cfg.LeaveQuota=cfg.LeaveQuota||{}; cfg.LeaveQuota[p.type]=Number(p.days||0); return cfg.LeaveQuota; },
     getLeaveQuota: () => cfg.LeaveQuota,
     // admin edits whitelisted config (geofence etc.) — GAS route persists to SCHOOL_CONFIG; here = mock
-    schoolConfig: () => ({ GPS_Lat:cfg.GPS_Lat, GPS_Lng:cfg.GPS_Lng, Radius:cfg.Radius, LateGraceMinutes:cfg.LateGraceMinutes, OTRatePerHour:cfg.OTRatePerHour, StaffOTHourlyRate:cfg.StaffOTHourlyRate }),
-    setSchoolConfig: p => { const W={GPS_Lat:1,GPS_Lng:1,Radius:1,LateGraceMinutes:1,OTRatePerHour:1,OTGraceMinutes:1,StaffOTHourlyRate:1,OTRoundUpMinutes:1,DefaultCheckInTime:1,DefaultCheckOutTime:1,BigCleaningAmount:1,BigCleaningIn:1,BigCleaningOut:1}; const v=p.values||{};
+    schoolConfig: () => ({ GPS_Lat:cfg.GPS_Lat, GPS_Lng:cfg.GPS_Lng, Radius:cfg.Radius, LateGraceMinutes:cfg.LateGraceMinutes, OTRatePerHour:cfg.OTRatePerHour, StaffOTHourlyRate:cfg.StaffOTHourlyRate, ContributionMatchRate:cfg.ContributionMatchRate }),
+    setSchoolConfig: p => { const W={GPS_Lat:1,GPS_Lng:1,Radius:1,LateGraceMinutes:1,OTRatePerHour:1,OTGraceMinutes:1,StaffOTHourlyRate:1,OTRoundUpMinutes:1,DefaultCheckInTime:1,DefaultCheckOutTime:1,BigCleaningAmount:1,BigCleaningIn:1,BigCleaningOut:1,ContributionMatchRate:1}; const v=p.values||{};
       Object.keys(v).forEach(k=>{ if(W[k]) cfg[k]=isNaN(Number(v[k]))?v[k]:Number(v[k]); }); return {ok:true, wrote:v}; },
     leaveResetReminder: () => { const n=new Date(); return {due:n.getMonth()===0, month:n.getMonth()+1, year:n.getFullYear()}; }, // every January
     // verify the teacher OT computation across the attendance history (schedule out vs actual out)
@@ -1283,6 +1318,26 @@ function createAtomAPI(M, GROWTH_STD) {
     staffMonthlyOT: p => { const recs=(M.otRecords||[]).filter(r=>r.StaffID===p.staffId && String(r.Status||'').toUpperCase()==='APPROVED' && (!p.month||ym(r.Month||r.Date)===p.month));
       const hours=recs.reduce((a,r)=>a+(Number(r.Hours)||0),0); const amount=recs.reduce((a,r)=>a+(Number(r.Amount)||0),0);
       const rate=staffOtRate(staffById_(p.staffId)); return {staffId:p.staffId,month:p.month,hours,rate,amount:Math.round(amount),days:recs.length}; },
+    // OT approved AFTER an earlier month's payroll was already saved, and therefore never paid — e.g. a
+    // 31/07 late check-out approved in August once July's salary had gone out. Each earlier month owes
+    //   approved(m) − what that month's saved payslip paid − what later payslips already carried
+    // so nothing is paid twice and nothing is dropped. A month with NO saved payslip is not carried:
+    // its own payroll run pays it normally. Mirrors otCarryOver_ in src/Payroll.gs.
+    otCarryOver: p => { const mm=ym(p.month); const approved={};
+      (M.otRecords||[]).forEach(r=>{ if(r.StaffID!==p.staffId)return;
+        const st=String(r.Status||'').toUpperCase(); if(st&&st!=='APPROVED')return;
+        const m=ym(r.Month||r.Date); if(!m)return; approved[m]=(approved[m]||0)+(Number(r.Amount)||0); });
+      const paidFor={}, carriedFor={};
+      (M.payroll||[]).forEach(r=>{ if(r.StaffID!==p.staffId)return; const m=ym(r.Month);
+        if(!m||m>=mm)return;                       // this month's own row (and any later one) must not count
+        paidFor[m]=(paidFor[m]||0)+(Number(r.OTEvening)||0);
+        let d=r.OTCarryDetail; if(typeof d==='string'&&d){ try{d=JSON.parse(d);}catch(e){d=null;} }
+        (Array.isArray(d)?d:[]).forEach(c=>{ const cm=ym(c&&c.month); if(cm) carriedFor[cm]=(carriedFor[cm]||0)+(Number(c&&c.amount)||0); }); });
+      const detail=[]; let total=0;
+      Object.keys(paidFor).forEach(m=>{ const unpaid=Math.round(((approved[m]||0)-paidFor[m]-(carriedFor[m]||0))*100)/100;
+        if(unpaid>0.5){ detail.push({month:m,amount:unpaid}); total+=unpaid; } });
+      detail.sort((a,b)=>a.month<b.month?-1:(a.month>b.month?1:0));
+      return {staffId:p.staffId,month:p.month,total:Math.round(total*100)/100,detail}; },
 
     // ===== staff OT approval workflow (teacher → Leader → Admin) — OT_RECORDS is the source of truth =====
     // full-hour amount helper (rounded), used everywhere an OT amount is (re)computed
@@ -1305,7 +1360,9 @@ function createAtomAPI(M, GROWTH_STD) {
     confirmOT: p => { const ap=staffById(p.staffId); if(ap.PositionLevel!=='Admin'&&ap.Role!=='Admin')fail('NO_PERMISSION','เฉพาะแอดมิน');
       const r=(M.otRecords||[]).find(x=>x.OTRecordID===p.otId); if(!r)fail('NOT_FOUND','ไม่พบรายการ OT');
       const yes=p.decision!=='reject';
-      if(yes){ if(p.hours!=null){ r.Hours=Number(p.hours)||0; r.Amount=Math.round(r.Hours*staffOtRate(staffById_(r.StaffID))); }
+      if(yes){ if(p.hours!=null) r.Hours=Number(p.hours)||0;
+        // re-price at approval time so a rate correction reaches everything not yet paid
+        r.Rate=staffOtRate(staffById_(r.StaffID)); r.Amount=Math.round((Number(r.Hours)||0)*r.Rate);
         if(p.amount!=null&&p.amount!=='') r.Amount=Number(p.amount)||0;
         if(p.note!=null) r.Note=p.note; r.Step2By=ap.NameTH; r.Step2Status='Approved'; r.ApprovedBy=ap.NameTH; r.Status='APPROVED'; }
       else { r.Step2By=ap.NameTH; r.Step2Status='Rejected'; r.Status='REJECTED'; }
