@@ -82,7 +82,10 @@ function mapName_(d) { var row = {}; for (var k in d) { if (d.hasOwnProperty(k))
 function handleSaveStudent(p) {
   p = p || {};
   var sh = sheet_(getMainSpreadsheet_(), 'STUDENTS');
-  try { ensureColumns_(sh, ['OTRate', 'StartTime', 'EndTime', 'OTGraceUntil', 'RateNote', 'DiscountAmount', 'DiscountUnit']); } catch (e) {}   // per-student OT rate + schedule + OT-free cutoff + parent note + monthly discount
+  // per-student OT rate + schedule + OT-free cutoff + parent note + monthly discount, and how the
+  // FIRST month is charged when the child starts mid-month (ProrateMode/ProrateAmount)
+  try { ensureColumns_(sh, ['OTRate', 'StartTime', 'EndTime', 'OTGraceUntil', 'RateNote', 'DiscountAmount', 'DiscountUnit',
+    'ProrateMode', 'ProrateAmount']); } catch (e) {}
   var row = mapName_(p.data || {});
   var st = findObject_(sh, function (s) { return String(s.StudentID) === String(p.studentId); });
   if (!st) throw apiError_('NOT_FOUND', 'ไม่พบนักเรียน ' + p.studentId);
@@ -360,6 +363,26 @@ function handleSavePlans(p) {
   arr.forEach(function (pl) { if (!pl.id) pl.id = 'pkg_' + Math.random().toString(36).slice(2, 8); pl.price = Number(pl.price || 0); });
   setConfigValue_('Plans', JSON.stringify(arr));
   return { ok: true, plans: arr };
+}
+
+// Advance-tuition discount tiers (ชำระล่วงหน้า). These live in SCHOOL_CONFIG next to Plans because
+// they are pricing, not code — the school changes them without a release. GasEngine.persist() only
+// writes sheet COLLECTIONS, never SCHOOL_CONFIG, so the engine handler alone would be discarded
+// silently on live; this route is what actually saves them.
+function handleSavePrepayTiers(p) {
+  p = p || {};
+  var arr = Array.isArray(p.tiers) ? p.tiers : [];
+  var tiers = [];
+  arr.forEach(function (t) {
+    var m = parseInt(t && t.months, 10) || 0;
+    var d = Number(t && t.discount) || 0;
+    if (m > 0) tiers.push({ months: m, discount: Math.max(0, Math.min(100, d)) });
+  });
+  if (!tiers.length) throw apiError_('BAD_INPUT', 'ต้องมีอย่างน้อย 1 ระดับ');
+  tiers.sort(function (a, b) { return a.months - b.months; });
+  setConfigValue_('PrepayTiers', JSON.stringify(tiers));
+  try { logAudit(p.adminId || 'admin', 'SET_CONFIG', 'SCHOOL_CONFIG', 'PrepayTiers'); } catch (e) {}
+  return { ok: true, tiers: tiers };
 }
 
 // QR-code master (bank QR images) + OT binding, so tuition vs OT can go to different bank accounts.

@@ -122,6 +122,41 @@ function createAtomAPI(M, GROWTH_STD) {
     const pct=/%|percent/i.test(String((s&&s.DiscountUnit)||'')); const d=pct ? (Number(base)||0)*amt/100 : amt;
     return Math.min(Math.max(0,Math.round(d)), Number(base)||0); };
   const studentStartTime = s => { const e=String((s&&s.StartTime)||'').trim(); return /^\d{1,2}:\d{2}/.test(e) ? e.slice(0,5) : (cfg.DefaultStudentIn||'08:00'); };
+
+  // ---- enrolment date vs billing --------------------------------------------------------------
+  // A child is billed from the month they actually START, not from the month their record was typed
+  // in: a new student entered in August who starts in September must not get an August bill, and a
+  // returning child who comes back mid-month is charged by the school's chosen rule for that month.
+  // 'YYYY-MM-DD' of the first real day at school; blank = no restriction (bill as before).
+  const enrolDate_ = s => { const d=String((s&&s.EnrollDate)||'').trim(); const m=/^(\d{4})-(\d{2})-(\d{2})/.exec(d);
+    return m ? m[0] : (d ? (function(){ const x=new Date(d); return isNaN(x)?'':ymd(x); })() : ''); };
+  // has this student started by the given month? (blank enrol date = yes, as before)
+  function enrolledBy_(s, month){ const e=enrolDate_(s); return !e || e.slice(0,7) <= ym(month); }
+  const daysInMonth_ = mm => { const [y,m]=String(mm).split('-').map(Number); return new Date(y, m, 0).getDate(); };
+  /**
+   * Tuition for `month` after the mid-month rule. Full price for every month except the one the
+   * child actually starts in, and only when they start after the 1st. Modes (STUDENTS.ProrateMode):
+   *   FULL (default) · HALF · DAILY (price x remaining days / days in month) · MANUAL (ProrateAmount)
+   * Returns {amount, prorated, mode, days, ofDays} so the bill can say WHY it is not the full price.
+   */
+  function tuitionForMonth_(s, month, fullPrice){
+    const full=Math.max(0, Number(fullPrice)||0);
+    const e=enrolDate_(s), mm=ym(month);
+    if(!e || e.slice(0,7)!==mm) return {amount:full, prorated:false, mode:'FULL', days:0, ofDays:0};
+    const startDay=Number(e.slice(8,10))||1, total=daysInMonth_(mm);
+    if(startDay<=1) return {amount:full, prorated:false, mode:'FULL', days:total, ofDays:total};
+    const remain=total-startDay+1;
+    const mode=String((s&&s.ProrateMode)||'FULL').toUpperCase();
+    let amount=full;
+    if(mode==='HALF') amount=Math.round(full/2);
+    else if(mode==='DAILY') amount=Math.round(full*remain/total);
+    else if(mode==='MANUAL') amount=Math.max(0, Number((s&&s.ProrateAmount)||0));
+    return {amount, prorated:mode!=='FULL', mode, days:remain, ofDays:total};
+  }
+  // how the mid-month charge was worked out, in words the parent can read on the bill
+  const prorateLabel_ = pr => pr.mode==='HALF' ? 'ครึ่งเดือน'
+    : pr.mode==='DAILY' ? ('เฉลี่ยตามวัน '+pr.days+'/'+pr.ofDays+' วัน')
+    : pr.mode==='MANUAL' ? 'ยอดที่กำหนดเอง' : 'เต็มเดือน';
   // Default class for a NEW student by age band (Premium is never auto — school assigns it manually):
   //   0–1y → Nursery Baby · 1–2y → Nursery 1 · 2–3y → Nursery 2 · 3y+ → Nursery 3.
   // Only a class present in the department master is used; otherwise blank (school assigns manually).
@@ -203,6 +238,14 @@ function createAtomAPI(M, GROWTH_STD) {
   function prepayCoveredMonths_(pp){ let c=pp&&pp.Covered; if(typeof c==='string'){ try{c=JSON.parse(c);}catch(e){c=[];} } return (Array.isArray(c)?c:[]).map(ym); }
   function monthTuitionPrepaid_(studentId, month){ const mm=ym(month);
     return (M.prepayments||[]).some(pp=> String(pp.StudentID)===String(studentId) && String(pp.Status)==='PAID' && prepayCoveredMonths_(pp).indexOf(mm)>=0); }
+  // Advance-tuition discount tiers, Admin-editable (SCHOOL_CONFIG.PrepayTiers, JSON or array).
+  // Falls back to the school's current published table; a saved tier list always wins.
+  const PREPAY_TIERS_DEFAULT = [{months:3,discount:5},{months:6,discount:10},{months:12,discount:15}];
+  function prepayTiers_(){ let t=cfg.PrepayTiers;
+    if(typeof t==='string' && t.trim()){ try{ t=JSON.parse(t); }catch(e){ t=null; } }
+    if(!Array.isArray(t)||!t.length) return PREPAY_TIERS_DEFAULT.slice();
+    return t.map(x=>({months:Number(x.months)||0, discount:Number(x.discount)||0}))
+            .filter(x=>x.months>0).sort((a,b)=>a.months-b.months); }
   // per-student OT rate overrides the global OTRatePerHour when set (> 0)
   const otRateFor = student => { const r=Number(student&&student.OTRate); return r>0?r:Number(cfg.OTRatePerHour||100); };
   function otFor(student, pickupHHMM){
@@ -492,9 +535,15 @@ function createAtomAPI(M, GROWTH_STD) {
       const plan=studentPlan(s); const planPrice=plan.price||0; const disc=studentDiscount_(s, planPrice);
       // no package and no custom amount would silently issue a 0-baht bill; say so instead
       if(p.amount==null && !p.items && planPrice<=0) fail('NO_PLAN_PRICE','นักเรียนคนนี้ยังไม่ได้เลือกแพ็กเกจ — กรุณาตั้งแพ็กเกจก่อนออกบิล');
-      // custom amount → respect as-is; default → plan price minus the student's monthly discount (hidden line)
-      const amount=p.amount!=null?Number(p.amount):Math.max(0, planPrice-disc);
-      const label=p.label||('ค่าเทอม '+((plan&&plan.labelTH)||'')); const items=p.items||[[label,amount]];
+      // billing follows the child's real START DATE, not the day their record was created
+      if(p.amount==null && !p.items && !enrolledBy_(s, month))
+        fail('NOT_ENROLLED_YET','นักเรียนคนนี้เริ่มเรียน '+enrolDate_(s)+' — ยังไม่ถึงเดือนที่ต้องเรียกเก็บ');
+      // custom amount → respect as-is; default → (plan price − the student's monthly discount),
+      // then the mid-month rule for the month they actually start (see tuitionForMonth_)
+      const pr=tuitionForMonth_(s, month, Math.max(0, planPrice-disc));
+      const amount=p.amount!=null?Number(p.amount):pr.amount;
+      const prNote=(p.amount==null && pr.prorated) ? ` (เริ่มเรียน ${enrolDate_(s)} · ${prorateLabel_(pr)})` : '';
+      const label=p.label||('ค่าเทอม '+((plan&&plan.labelTH)||'')+prNote); const items=p.items||[[label,amount]];
       const paid=!!p.paid; const paidDate=p.paidDate||todayLocal(); const method=p.method||(paid?'cash':'');
       let b=M.payments.find(x=>x.StudentID===p.studentId&&ym(x.Month)===month);
       const fields={Items:items,Amount:amount,Status:paid?'PAID':'UNPAID',SlipAmount:paid?amount:0,VerifiedStatus:paid?'CONFIRMED':'',PaidDate:paid?paidDate:'',PaymentMethod:method,Note:p.note||''};
@@ -505,21 +554,32 @@ function createAtomAPI(M, GROWTH_STD) {
     // Admin: issue this month's bill for SEVERAL selected students at once (each = tuition − discount).
     // The parent then sees each child's bill and can pay them combined (one slip) or separately.
     issueBillsFor: p => { const month=p.month||todayLocal().slice(0,7); const ids=Array.isArray(p.studentIds)?p.studentIds.filter(Boolean):[];
-      if(!ids.length)fail('BAD_INPUT','ยังไม่ได้เลือกนักเรียน'); const out=[];
-      ids.forEach(sid=>{ const b=H.issueBill({studentId:sid,month}); const s=studentById(sid)||{}; out.push({studentId:sid,nick:s.Nickname,name:s.NameTH,amount:b.Amount}); });
-      logAct('issueBillsFor','', ids.length+' คน เดือน '+month, actorOf(p));
-      return {ok:true, month, created:out.length, students:out}; },
+      if(!ids.length)fail('BAD_INPUT','ยังไม่ได้เลือกนักเรียน'); const out=[], skipped=[];
+      // one child who has no package (or has not started yet) must not abort the whole batch —
+      // bill everyone who can be billed and hand back the reason for each one that was skipped
+      ids.forEach(sid=>{ const s=studentById(sid)||{};
+        try{ const b=H.issueBill({studentId:sid,month});
+          out.push({studentId:sid,nick:s.Nickname,name:s.NameTH,amount:b.Amount}); }
+        catch(e){ skipped.push({studentId:sid,nick:s.Nickname,name:s.NameTH,reason:(e&&e.message)||String(e)}); } });
+      logAct('issueBillsFor','', out.length+' คน เดือน '+month+(skipped.length?' (ข้าม '+skipped.length+')':''), actorOf(p));
+      return {ok:true, month, created:out.length, students:out, skipped}; },
     // Admin deletes a bill (ยอดเรียกเก็บ). Removes the BILLING row; leaves any slip history in PAYMENT_SLIPS.
     deleteBill: p => { const i=M.payments.findIndex(x=>x.BillingID===p.billingId); if(i<0)fail('NOT_FOUND','ไม่พบบิล'); const b=M.payments[i]; M.payments.splice(i,1); logAct('deleteBill',p.billingId,'ลบบิล '+ym(b&&b.Month),actorOf(p)); return {ok:true}; },
     // auto-generate the month's bill for all active students from Plan price (skip if already billed)
-    generateMonthlyBills: p => { const month=p.month||todayLocal().slice(0,7); let created=0; const noPlan=[];
+    generateMonthlyBills: p => { const month=p.month||todayLocal().slice(0,7); let created=0; const noPlan=[], notYet=[], prorated=[];
       activeStudents().forEach(s=>{ if(M.payments.find(x=>x.StudentID===s.StudentID&&ym(x.Month)===month))return; const plan=studentPlan(s);
-        const price=plan.price||0; const net=Math.max(0, price-studentDiscount_(s, price));   // apply the student's monthly discount silently
+        const price=plan.price||0;
         // a child with no package gets NO bill rather than a phantom 0-baht one — reported back so the
         // admin can see exactly who still needs a package assigned
         if(price<=0){ noPlan.push({studentId:s.StudentID, name:s.NameTH||s.Name||'', nick:s.Nickname||''}); return; }
-        M.payments.push({BillingID:'BL-'+month+'-'+s.StudentID,StudentID:s.StudentID,Month:month,Items:[['ค่าเทอม '+((plan&&plan.labelTH)||''),net]],Amount:net,OTRollover:0,DueDate:month+'-05',PaidDate:'',Status:'UNPAID',SlipUrl:'',SlipAmount:0,VerifiedStatus:'',Auto:true}); created++; });
-      return {month,created,noPlan}; },
+        // and a child whose first day is still in the future is not billed at all yet
+        if(!enrolledBy_(s, month)){ notYet.push({studentId:s.StudentID, name:s.NameTH||s.Name||'', nick:s.Nickname||'', enrolDate:enrolDate_(s)}); return; }
+        const net0=Math.max(0, price-studentDiscount_(s, price));   // the student's monthly discount, applied silently
+        const pr=tuitionForMonth_(s, month, net0);                  // mid-month rule for their starting month
+        const note=pr.prorated?` (เริ่มเรียน ${enrolDate_(s)} · ${prorateLabel_(pr)})`:'';
+        if(pr.prorated) prorated.push({studentId:s.StudentID, nick:s.Nickname||'', name:s.NameTH||s.Name||'', mode:pr.mode, full:net0, amount:pr.amount});
+        M.payments.push({BillingID:'BL-'+month+'-'+s.StudentID,StudentID:s.StudentID,Month:month,Items:[['ค่าเทอม '+((plan&&plan.labelTH)||'')+note,pr.amount]],Amount:pr.amount,OTRollover:0,DueDate:month+'-05',PaidDate:'',Status:'UNPAID',SlipUrl:'',SlipAmount:0,VerifiedStatus:'',Auto:true}); created++; });
+      return {month,created,noPlan,notYet,prorated}; },
     // attach a monthly slip → records a PAYMENT_SLIPS row (multiple allowed), bill → PENDING_VERIFY.
     uploadSlip: p => recordSlip_('bill', p.billingId, p),
     // ONE transfer slip paying several siblings' bills. The ticked bills are summed; the slip amount MUST
@@ -1440,11 +1500,36 @@ function createAtomAPI(M, GROWTH_STD) {
     // Advance-tuition discount tiers (school policy): 2→5% · 3→10% · 6→15% · 12→20%.
     // amount = monthlyPlanPrice × months × (100 − discount)/100. e.g. plan 6,900/mo:
     //   2mo 5% = 13,110 (6,555/mo) · 3mo 10% = 18,630 (6,210/mo) · 6mo 15% = 35,190 (5,865/mo) · 12mo 20% = 66,240 (5,520/mo).
-    prepayDiscount: m => ({2:5,3:10,6:15,12:20}[m]||0),
+    // Advance-tuition tiers are the school's own pricing, so they live in SCHOOL_CONFIG (PrepayTiers)
+    // and are edited from the Packages screen — they used to be hard-coded here, which meant a change
+    // of policy needed a release. Defaults match the school's current sheet: 3→5% · 6→10% · 12→15%.
+    prepayTiers: () => prepayTiers_(),
+    savePrepayTiers: p => { const ap=staffById(p.staffId); if(ap.PositionLevel!=='Admin'&&ap.Role!=='Admin')fail('NO_PERMISSION','เฉพาะแอดมิน');
+      const tiers=(Array.isArray(p.tiers)?p.tiers:[]).map(x=>({months:Number(x.months)||0,discount:Math.max(0,Math.min(100,Number(x.discount)||0))}))
+        .filter(x=>x.months>0).sort((a,b)=>a.months-b.months);
+      if(!tiers.length)fail('BAD_INPUT','ต้องมีอย่างน้อย 1 ระดับ');
+      cfg.PrepayTiers=tiers; logAct('savePrepayTiers','',tiers.map(t=>t.months+'ด -'+t.discount+'%').join(' · '),actorOf(p));
+      return {ok:true,tiers}; },
+    prepayDiscount: m => { const t=prepayTiers_().find(x=>Number(x.months)===Number(m)); return t?Number(t.discount)||0:0; },
     // create a PENDING prepay charge (summarized on the payment screen) — paid via QR + slip like the monthly bill
     prepay: p => { const s=studentById(p.studentId); if(!s)fail('NOT_FOUND','ไม่พบนักเรียน');
-      const months=Number(p.months); const disc=H.prepayDiscount(months); const plan=studentPlan(s); const monthly=Number(plan.price||0);
-      if(!disc) fail('BAD_INPUT','เลือกจำนวนเดือนที่ชำระล่วงหน้า (2, 3, 6 หรือ 12 เดือน)');
+      const months=Number(p.months); const plan=studentPlan(s); const monthly=Number(plan.price||0);
+      if(!(months>0)) fail('BAD_INPUT','ระบุจำนวนเดือนที่ชำระล่วงหน้า');
+      // An Admin may price a one-off deal (e.g. 2 months at 10% this month only); a parent may only
+      // pick a published tier. Whatever is agreed is FROZEN onto the record below, so changing the
+      // tier table later never re-prices a payment that has already been quoted or made.
+      // On GAS the session role is stamped onto the payload for everyone EXCEPT an Admin (who is
+      // returned untouched), so an absent role plus a staffId that resolves to an Admin is the Admin
+      // path. A parent always arrives with role='Parent', so they can never reach it.
+      const admin = (function(){ const r=String(p.role||'');
+        if(r==='Admin') return true;
+        if(r) return false;                       // any other stamped role is explicitly not an Admin
+        const ap=p.staffId?staffById(p.staffId):null;
+        return !!(ap && (ap.PositionLevel==='Admin'||ap.Role==='Admin')); })();
+      let disc;
+      if(admin && p.discount!=null && p.discount!==''){ disc=Math.max(0, Math.min(100, Number(p.discount)||0)); }
+      else { disc=H.prepayDiscount(months);
+        if(!disc) fail('BAD_INPUT','เลือกจำนวนเดือนที่ชำระล่วงหน้า ('+prepayTiers_().map(t=>t.months).join(', ')+' เดือน)'); }
       // Advance payment is priced off the student's monthly plan price — it MUST be set, or the amount is meaningless.
       if(!(monthly>0)) fail('NO_PLAN_PRICE','นักเรียนคนนี้ยังไม่ได้ตั้งแผนการเรียน/ราคาต่อเดือน — กรุณาให้แอดมินตั้งค่าแผนก่อนชำระล่วงหน้า');
       const gross=monthly*months; const amount=Math.round(gross*(100-disc)/100);
@@ -1454,6 +1539,23 @@ function createAtomAPI(M, GROWTH_STD) {
       M.prepayments.push(rec); return rec; },
     // attach prepay slip → records a PAYMENT_SLIPS row, prepay → PENDING_VERIFY (Admin confirms per slip)
     payPrepay: p => recordSlip_('prepay', p.prepayId, p),
+    // Admin re-prices an advance payment that has NOT been paid yet: change the months, the discount
+    // or the first month covered. A PAID one is deliberately untouchable — re-pricing money that has
+    // already changed hands would turn a settled parent into a debtor.
+    editPrepay: p => { const ap=staffById(p.staffId); if(ap.PositionLevel!=='Admin'&&ap.Role!=='Admin')fail('NO_PERMISSION','เฉพาะแอดมิน');
+      const pp=(M.prepayments||[]).find(x=>x.PrepayID===p.prepayId); if(!pp)fail('NOT_FOUND','ไม่พบรายการชำระล่วงหน้า');
+      if(String(pp.Status)==='PAID')fail('ALREADY_PAID','รายการนี้ชำระแล้ว — แก้ไขไม่ได้');
+      const s=studentById(pp.StudentID)||{}; const monthly=Number(studentPlan(s).price||0);
+      if(!(monthly>0))fail('NO_PLAN_PRICE','นักเรียนคนนี้ยังไม่ได้ตั้งแพ็กเกจ/ราคาต่อเดือน');
+      const months=p.months!=null?Math.max(1,Number(p.months)||0):Number(pp.Months);
+      const disc=p.discount!=null&&p.discount!==''?Math.max(0,Math.min(100,Number(p.discount)||0)):Number(pp.Discount)||0;
+      const start=p.startMonth||ym((prepayCoveredMonths_(pp)[0])||todayLocal());
+      const covered=[]; let [y,mo]=start.split('-').map(Number);
+      for(let i=0;i<months;i++){ covered.push(y+'-'+String(mo).padStart(2,'0')); mo++; if(mo>12){mo=1;y++;} }
+      pp.Months=months; pp.Discount=disc; pp.Gross=monthly*months;
+      pp.Amount=Math.round(pp.Gross*(100-disc)/100); pp.Covered=covered;
+      logAct('editPrepay',pp.PrepayID,months+' เดือน -'+disc+'% = '+pp.Amount+' เริ่ม '+start,actorOf(p));
+      return pp; },
     cancelPrepay: p => { const i=M.prepayments.findIndex(x=>x.PrepayID===p.prepayId); if(i>=0&&M.prepayments[i].Status==='UNPAID')M.prepayments.splice(i,1); return {ok:true}; },
     prepayments: p => M.prepayments.filter(x=>x.StudentID===p.studentId),
 

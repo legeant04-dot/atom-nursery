@@ -112,7 +112,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.175'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.176'; // bump each webapp change; shown only at the bottom of the Chat screen
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
   const phoneFmt = p => { let d=String(p==null?'':p).replace(/\D/g,''); if(d.length===9) d='0'+d; return d; };
@@ -1482,7 +1482,12 @@
     const kidHead = window._PAY_KIDS.length>1 ? `<div class="card" style="background:var(--surface-2);padding:8px"><b>👶 ${esc(dispNick(kid))}</b> <small class="muted">${esc(nm(kid))} · ${esc(kid.Class||'')}</small></div>` : '';
     return `${kidHead}${preHtml}${chHtml}${otHtml}${ps.map(b=>{
       const paid=b.Status==='PAID',partial=b.Status==='PARTIAL'; const due=b.TotalDue!=null?b.TotalDue:b.Amount;
-      const prepaid=b.VerifiedStatus==='PREPAID'; const confirmed=Number(b.PaidConfirmed||0); const outstanding=b.Outstanding!=null?Number(b.Outstanding):Math.max(0,due-confirmed);
+      // A month covered by an advance payment carries a PrepaidTuition credit. VerifiedStatus==='PREPAID'
+      // is the older marker and is no longer written (advance payment covers tuition only), so relying on
+      // it alone made a fully prepaid month read as an ordinary "ชำระแล้ว" with no explanation.
+      const prepaidCredit=Number(b.PrepaidTuition||0);
+      const prepaid=b.VerifiedStatus==='PREPAID'||prepaidCredit>0;
+      const confirmed=Number(b.PaidConfirmed||0); const outstanding=b.Outstanding!=null?Number(b.Outstanding):Math.max(0,due-confirmed);
       const billSlips=slipsOf('bill',b.BillingID); const hasPending=billSlips.some(s=>s.Status==='SUBMITTED');
       const topUp = outstanding>0?outstanding:due;
       const statusPill = prepaid?`<span class="pill ok">${esc(t('prepay.paidAhead'))}</span>`
@@ -1502,15 +1507,16 @@
     }).join('')}`;
   }
   // prepay with discount: 2mo -5%, 3mo -10%, 6mo -20%, 12mo -30%
-  // Advance-tuition tiers must MATCH the engine (prepayDiscount): 2→5% · 3→10% · 6→15% · 12→20%.
-  // The monthly price is fetched from the server (studentBillBase) so the preview equals the real charge
-  // — never computed from the local MOCK seed, which differs from the student's real plan in gas mode.
-  const PREPAY_TIERS=[[2,5],[3,10],[6,15],[12,20]];
-  window.P_prepay=async(sid)=>{ const base=await api('studentBillBase',{studentId:sid}); const price=Number(base&&base.price||0);
+  // Advance-tuition tiers are the SCHOOL's pricing, edited in Admin → แพ็กเกจการเรียน and stored in
+  // SCHOOL_CONFIG — they used to be duplicated here as a literal, so the screen and the engine could
+  // (and did) disagree. Fetch them, like the monthly price, which comes from studentBillBase so the
+  // preview equals the real charge instead of the local MOCK seed.
+  window.P_prepay=async(sid)=>{ const [base,tiers]=await Promise.all([api('studentBillBase',{studentId:sid}),api('prepayTiers').catch(()=>[])]);
+    const price=Number(base&&base.price||0);
     const label=(EN()?(base&&base.labelEN):(base&&base.labelTH))||planLabel((MOCK.students.find(x=>x.StudentID===sid)||{}).Plan);
-    const opt=([mo,disc])=>{ const gross=price*mo, amt=Math.round(gross*(100-disc)/100), per=Math.round(amt/mo);
+    const opt=({months:mo,discount:disc})=>{ const gross=price*mo, amt=Math.round(gross*(100-disc)/100), per=Math.round(amt/mo);
       return `<button class="role-card" onclick="P_prepayDo('${sid}',${mo})"><span class="ic">${mo}</span><span><b>${esc(t('prepay.months').replace('{n}',mo))} · -${disc}%</b><br><small>${baht(gross)} → <b>${baht(amt)}</b> <span class="muted">(${EN()?'avg':'เฉลี่ย'} ${baht(per)}/${EN()?'mo':'เดือน'})</span></small></span></button>`; };
-    const body = price>0 ? PREPAY_TIERS.map(opt).join('')
+    const body = price>0 ? (tiers||[]).map(opt).join('')
       : `<div class="card" style="background:var(--warn-bg);border-color:var(--warn-line);color:var(--warn)">⚠️ ${EN()?'This child has no monthly plan price set yet — please ask the admin to set the plan before paying in advance.':'นักเรียนคนนี้ยังไม่ได้ตั้งราคาแผนรายเดือน — กรุณาติดต่อแอดมินให้ตั้งค่าแผนก่อนชำระล่วงหน้า'}</div>`;
     modal(`<h3>💰 ${esc(t('prepay.title'))}</h3><p class="muted" style="font-size:13px">${esc(label)} · ${baht(price)}/${EN()?'mo':'เดือน'}</p>
       ${body}
@@ -3180,7 +3186,8 @@
 
   // ---- Student edit (incl. insurance) ----
   // choosing a package fills the arrive/leave time from the package's schedule (still editable per student)
-  window.A_planFill=(sel)=>{ const pl=A_plans().find(p=>p.id===sel.value); if(!pl)return;
+  window.A_planFill=(sel)=>{ setTimeout(()=>{ if(window.A_prorateHint) A_prorateHint(); },0);   // price changed → first-month figure changes
+    const pl=A_plans().find(p=>p.id===sel.value); if(!pl)return;
     const st=document.getElementById('stf_StartTime'), en=document.getElementById('stf_EndTime');
     if(st && pl.start) st.value=String(pl.start).slice(0,5);
     if(en && pl.end) en.value=String(pl.end).slice(0,5); };
@@ -3191,7 +3198,7 @@
     const row=p=>`<div class="card" style="padding:8px"><div class="spread"><b>${esc(EN()?(p.labelEN||p.labelTH):(p.labelTH||p.labelEN))||p.id}</b><b style="color:var(--blue)">${baht(p.price)}</b></div>
       <small class="muted">🕗 ${esc(p.start||'-')} – ${esc(p.end||'-')} น.${p.qrId?` · 🏦 ${esc(qrName(p.qrId))||'QR'}`:''}</small>
       <div class="row" style="margin-top:6px"><button class="btn sm outline" onclick="A_pkgForm('${esc(p.id)}')">✏️ ${EN()?'Edit':'แก้ไข'}</button><button class="btn sm pink" onclick="A_pkgDelete('${esc(p.id)}')">🗑️ ${EN()?'Delete':'ลบ'}</button></div></div>`;
-    modal(`<div class="spread"><h3>📦 ${EN()?'Packages':'แพ็กเกจการเรียน'}</h3><span class="row"><button class="btn sm outline" onclick="A_qrCodes()">🏦 ${EN()?'QR accounts':'QR/บัญชี'}</button><button class="btn sm" onclick="A_pkgForm()">+ ${esc(t('manage.add'))}</button></span></div>
+    modal(`<div class="spread"><h3>📦 ${EN()?'Packages':'แพ็กเกจการเรียน'}</h3><span class="row"><button class="btn sm outline" onclick="A_prepayTiers()">💰 ${EN()?'Advance-payment discounts':'ส่วนลดชำระล่วงหน้า'}</button><button class="btn sm outline" onclick="A_qrCodes()">🏦 ${EN()?'QR accounts':'QR/บัญชี'}</button><button class="btn sm" onclick="A_pkgForm()">+ ${esc(t('manage.add'))}</button></span></div>
       <p class="muted" style="font-size:13px">${EN()?'Name, price and study time per package. The time auto-fills a student’s arrive/leave time when you assign the package (still editable).':'ตั้งชื่อ ราคา และช่วงเวลาเรียนของแต่ละแพ็กเกจ · เวลาจะถูกนำไปใส่ให้นักเรียนอัตโนมัติเมื่อเลือกแพ็กเกจ (แก้ไขรายคนได้)'}</p>
       <div style="max-height:60vh;overflow:auto">${(plans||[]).length?plans.map(row).join(''):`<div class="card muted">${EN()?'No packages yet':'ยังไม่มีแพ็กเกจ'}</div>`}</div>
       <button class="btn outline block" style="margin-top:8px" onclick="this.closest('.modal').remove()">${esc(t('c.close'))}</button>`);
@@ -3216,6 +3223,36 @@
   window.A_pkgDelete=async(id)=>{ if(!confirm(EN()?'Delete this package? Students already on it keep their saved time.':'ลบแพ็กเกจนี้? นักเรียนที่ใช้อยู่จะยังคงเวลาที่บันทึกไว้'))return;
     const plans=(A_CACHE.plans||[]).filter(x=>x.id!==id);
     try{ const r=await api('savePlans',{plans}); A_CACHE.plans=r.plans||plans; MOCK.config.Plans=A_CACHE.plans; toast(t('manage.deleted')); const m=document.querySelector('.modal'); if(m)m.remove(); A_packages(); }catch(e){err(e);} };
+  // ---- Advance-tuition (ชำระล่วงหน้า) discount tiers — school pricing, edited beside the packages ----
+  // Was hard-coded in two places (engine + this file). Now one saved table drives both, and a preview
+  // against the largest package price shows what a parent will actually be charged.
+  let PP_TIERS=[];
+  window.A_prepayTiers=async()=>{ PP_TIERS=(await api('prepayTiers').catch(()=>[])).map(t=>({months:Number(t.months)||0,discount:Number(t.discount)||0}));
+    if(!PP_TIERS.length) PP_TIERS=[{months:3,discount:5},{months:6,discount:10},{months:12,discount:15}];
+    const prices=(A_CACHE.plans||[]).map(p=>Number(p.price)||0).filter(Boolean);
+    window._PP_PREVIEW=prices.length?Math.max.apply(null,prices):0;
+    modal(`<div class="spread"><h3>💰 ${EN()?'Advance-payment discounts':'ส่วนลดชำระล่วงหน้า'}</h3><button class="btn sm" onclick="A_ppAdd()">+ ${esc(t('manage.add'))}</button></div>
+      <p class="muted" style="font-size:13px">${EN()?'Pay several months up front, get a discount. These tiers are what parents see; an Admin can still agree a one-off rate for a single family.':'ชำระล่วงหน้าหลายเดือนแล้วได้ส่วนลด · ระดับเหล่านี้คือที่ผู้ปกครองเห็น · แอดมินยังตกลงเรตพิเศษเฉพาะรายได้'}</p>
+      <div id="ppList"></div>
+      <button class="btn block" style="margin-top:8px" onclick="A_ppSave(this)">${esc(t('c.save'))}</button>`);
+    A_ppRender(); };
+  function A_ppRender(){ const box=$('#ppList'); if(!box)return;
+    const price=Number(window._PP_PREVIEW||0);
+    box.innerHTML=PP_TIERS.map((t,i)=>{ const gross=price*t.months, amt=Math.round(gross*(100-t.discount)/100);
+      return `<div class="card" style="padding:8px;margin-bottom:6px"><div class="grid3" style="grid-template-columns:1fr 1fr 36px;gap:6px">
+        <label class="field" style="margin:0"><span>${EN()?'Months':'จำนวนเดือน'}</span><input type="number" min="1" value="${t.months}" oninput="PP_SET(${i},'months',this.value)"/></label>
+        <label class="field" style="margin:0"><span>${EN()?'Discount (%)':'ส่วนลด (%)'}</span><input type="number" min="0" max="100" value="${t.discount}" oninput="PP_SET(${i},'discount',this.value)"/></label>
+        <button class="btn sm pink" style="align-self:end" onclick="A_ppDel(${i})" aria-label="${EN()?'Delete':'ลบ'}">✕</button></div>
+        ${price>0?`<small class="muted">${EN()?'e.g.':'ตัวอย่าง'} ${baht(price)}/${EN()?'mo':'เดือน'} → ${baht(gross)} ${EN()?'becomes':'เหลือ'} <b>${baht(amt)}</b> (${EN()?'save':'ประหยัด'} ${baht(gross-amt)})</small>`:''}</div>`;
+    }).join('')||`<small class="muted">${EN()?'No tiers — parents cannot pay in advance.':'ยังไม่มีระดับส่วนลด — ผู้ปกครองจะชำระล่วงหน้าไม่ได้'}</small>`; }
+  window.PP_SET=(i,k,v)=>{ PP_TIERS[i][k]=Number(v)||0; if(k==='discount')A_ppRender(); };
+  window.A_ppAdd=()=>{ PP_TIERS.push({months:0,discount:0}); A_ppRender(); };
+  window.A_ppDel=(i)=>{ PP_TIERS.splice(i,1); A_ppRender(); };
+  window.A_ppSave=async(btn)=>{ const tiers=PP_TIERS.filter(t=>t.months>0);
+    if(!tiers.length){ toast(EN()?'Add at least one tier':'ต้องมีอย่างน้อย 1 ระดับ'); return; }
+    try{ const r=await api('savePrepayTiers',{tiers,staffId:USER.staffId}); MOCK.config.PrepayTiers=r.tiers||tiers;
+      const m=btn.closest('.modal'); if(m)m.remove(); confirmSaved(t('c.saved')); }catch(e){err(e);} };
+
   // ---- QR-code MASTER: bank QR images bound per package (tuition) / OT, so fees go to different accounts ----
   window.A_qrCodes=async()=>{ const qr=await api('getQRCodes').catch(()=>({qrs:[],otQrId:''})); window._QR=qr||{qrs:[],otQrId:''};
     const rows=(window._QR.qrs||[]).map(q=>`<div class="card" style="padding:8px"><div class="spread"><b>${esc(q.name)}</b><button class="btn sm pink" onclick="A_qrDel('${esc(q.id)}')">🗑️ ${EN()?'Delete':'ลบ'}</button></div>${q.image?`<div style="text-align:center"><img src="${esc(q.image)}" style="max-height:120px;border-radius:8px;margin-top:6px;cursor:zoom-in" onclick="ZOOM_IMG('${esc(q.image)}')"/></div>`:''}</div>`).join('')||`<small class="muted">${EN()?'No QR accounts yet':'ยังไม่มี QR/บัญชี'}</small>`;
@@ -3262,6 +3299,18 @@
       <div class="grid2"><label class="field"><span>🏷️ ${EN()?'Monthly discount (hidden from parent)':'ส่วนลดรายเดือน (ไม่แสดงให้ผู้ปกครอง)'}</span><input id="stf_DiscountAmount" type="number" min="0" value="${esc(s.DiscountAmount!=null&&s.DiscountAmount!==''?s.DiscountAmount:'')}" placeholder="0"/></label>
         <label class="field"><span>${EN()?'Unit':'หน่วย'}</span><select id="stf_DiscountUnit"><option value="บาท" ${(s.DiscountUnit||'บาท')!=='%'?'selected':''}>${EN()?'THB':'บาท'}</option><option value="%" ${s.DiscountUnit==='%'?'selected':''}>%</option></select></label></div>
       <small class="muted" style="display:block;margin:-2px 0 6px">${EN()?'Deducted silently from monthly tuition when a bill is issued — the parent only sees the reduced total.':'หักออกจากค่าเทอมรายเดือนตอนออกบิลโดยอัตโนมัติ · ผู้ปกครองเห็นแค่ยอดสุทธิ ไม่เห็นส่วนลด'}</small>
+      <div class="grid2"><label class="field"><span>📅 ${EN()?'First day at school':'วันเริ่มเรียนจริง'}</span>
+          <input id="stf_EnrollDate" type="date" value="${esc(String(s.EnrollDate||'').slice(0,10))}" onchange="A_prorateHint()"/></label>
+        <label class="field"><span>${EN()?'Charge for the starting month':'คิดค่าเทอมเดือนที่เริ่ม'}</span>
+          <select id="stf_ProrateMode" onchange="A_prorateHint()">
+            <option value="FULL" ${(s.ProrateMode||'FULL')==='FULL'?'selected':''}>${EN()?'Full month':'เต็มเดือน'}</option>
+            <option value="HALF" ${s.ProrateMode==='HALF'?'selected':''}>${EN()?'Half month':'ครึ่งเดือน'}</option>
+            <option value="DAILY" ${s.ProrateMode==='DAILY'?'selected':''}>${EN()?'Pro-rata by day':'เฉลี่ยตามวัน'}</option>
+            <option value="MANUAL" ${s.ProrateMode==='MANUAL'?'selected':''}>${EN()?'Set the amount myself':'กำหนดยอดเอง'}</option>
+          </select></label></div>
+      <label class="field" id="prorateAmtBox" ${s.ProrateMode==='MANUAL'?'':'hidden'}><span>${EN()?'Amount for the starting month (฿)':'ยอดของเดือนที่เริ่มเรียน (฿)'}</span>
+        <input id="stf_ProrateAmount" type="number" min="0" value="${esc(s.ProrateAmount!=null&&s.ProrateAmount!==''?s.ProrateAmount:'')}" oninput="A_prorateHint()"/></label>
+      <small class="muted" id="prorateHint" style="display:block;margin:-2px 0 6px"></small>
       <hr style="border:none;border-top:1px solid var(--line);margin:8px 0">
       <label class="field" style="display:flex;align-items:center;gap:8px"><input type="checkbox" id="stf_Ins" ${s.InsuranceHas?'checked':''} style="width:auto" onchange="document.getElementById('insBox').hidden=!this.checked"/> 🛡️ ${esc(t('ins.has'))}</label>
       <div id="insBox" ${s.InsuranceHas?'':'hidden'}>
@@ -3271,6 +3320,7 @@
       ${s.DriveFolderUrl?`<div class="card" style="background:var(--surface-2);padding:8px"><small class="muted">📁 ${esc(t('folder.student'))}<br><code style="font-size:13px">${esc(s.DriveFolderUrl)}</code><br>${esc(t('folder.note'))}</small></div>`:''}
       ${id?`<button class="btn block outline" onclick="A_studentLinks('${id}')">🔗 ${EN()?'Linked parents / unlink':'ผู้ปกครองที่ผูก / ยกเลิกการผูก'}</button>`:''}
       <button class="btn block" onclick="A_saveStudent(this,'${id}')">${esc(t('c.save'))}</button>`);
+    A_prorateHint();   // show the first-month figure straight away, not only after a field is touched
   };
   // Admin: list the parents linked to a child and unlink one (child stays enrolled — this is NOT a withdrawal).
   window.A_studentLinks=async(sid)=>{ const d=await api('studentLinkedParents',{studentId:sid});
@@ -3317,12 +3367,35 @@
     try{ const r=await api('unlinkStudent',{studentId:sid,parentId:pid,adminId:USER.staffId}); toast((EN()?'Unlinked · removed ':'ยกเลิกการผูกแล้ว · ตัด ')+(r&&r.removed!=null?r.removed:'')+(EN()?' link(s)':' รายการ')); const m=document.querySelector('.modal'); if(m)m.remove(); A_parentLinks(pid); }catch(e){ err(e); if(btn)btn.disabled=false; } };
   window.A_unlink=async(sid,parentId,uid,btn)=>{ if(!confirm(EN()?'Unlink this parent from the child? The child stays enrolled.':'ยืนยันยกเลิกการผูกผู้ปกครองคนนี้ออกจากเด็ก? (เด็กยังเรียนอยู่)'))return; if(btn)btn.disabled=true;
     try{ const r=await api('unlinkStudent',{studentId:sid,parentId:parentId||undefined,uid:uid||undefined,adminId:USER.staffId}); toast((EN()?'Unlinked · removed ':'ยกเลิกการผูกแล้ว · ตัด ')+(r&&r.removed!=null?r.removed:'')+(EN()?' link(s)':' รายการ')); const m=document.querySelector('.modal'); if(m)m.remove(); A_studentLinks(sid); }catch(e){ err(e); if(btn)btn.disabled=false; } };
+  // Live preview of the FIRST month's tuition under the chosen rule, so the admin sees the number
+  // before it becomes a bill. Mirrors tuitionForMonth_ in engine.js — keep the two in step.
+  window.A_prorateHint=()=>{ const hint=document.getElementById('prorateHint'); if(!hint)return;
+    const g=k=>{ const e=document.getElementById('stf_'+k); return e?e.value.trim():''; };
+    const mode=g('ProrateMode')||'FULL', box=document.getElementById('prorateAmtBox');
+    if(box) box.hidden = mode!=='MANUAL';
+    const d=g('EnrollDate');
+    if(!d){ hint.textContent=EN()?'No start date — billed from the month the bill is issued, as before.'
+      :'ไม่ได้ระบุวันเริ่มเรียน — ออกบิลตามเดือนที่เรียกเก็บเหมือนเดิม'; return; }
+    const price=Number((A_plans().find(x=>x.id===g('Plan'))||{}).price||0);
+    const day=Number(d.slice(8,10))||1, mm=d.slice(0,7);
+    const [yy,mo]=mm.split('-').map(Number); const total=new Date(yy,mo,0).getDate(), remain=total-day+1;
+    let amt=price, how=EN()?'full month':'เต็มเดือน';
+    if(day>1){ if(mode==='HALF'){ amt=Math.round(price/2); how=EN()?'half month':'ครึ่งเดือน'; }
+      else if(mode==='DAILY'){ amt=Math.round(price*remain/total); how=`${remain}/${total} ${EN()?'days':'วัน'}`; }
+      else if(mode==='MANUAL'){ amt=Number(g('ProrateAmount'))||0; how=EN()?'set manually':'กำหนดเอง'; } }
+    hint.innerHTML = price>0
+      ? `${EN()?'First bill':'บิลแรก'} <b>${esc(monthNameYear(mm))}</b> = <b style="color:var(--blue)">${baht(amt)}</b> <span class="muted">(${esc(how)}${day>1?'':EN()?', starts on the 1st':' · เริ่มวันที่ 1'})</span> · ${EN()?'earlier months are not billed':'เดือนก่อนหน้าจะไม่ออกบิล'}`
+      : (EN()?'Pick a package first — the amount is worked out from its monthly price.':'เลือกแพ็กเกจก่อน — ยอดคำนวณจากราคาต่อเดือนของแพ็กเกจ'); };
+
   window.A_saveStudent=async(btn,id)=>{ const m=btn.closest('.modal'); const v=k=>{ const e=m.querySelector('#stf_'+k); return e?e.value.trim():''; };
     const data={NameTH:v('NameTH'),NameEN:v('NameEN'),Nickname:v('Nickname'),NicknameEN:v('NicknameEN'),NationalID:v('NationalID'),Class:v('Class'),Plan:v('Plan'),Allergy:v('Allergy'),MedicalHistory:v('MedicalHistory'),
       InsuranceHas:m.querySelector('#stf_Ins').checked,InsurancePolicyNo:v('InsurancePolicyNo'),InsuranceCompany:v('InsuranceCompany'),InsuranceExpiry:v('InsuranceExpiry'),
       StartTime:v('StartTime'),EndTime:v('EndTime'),   // per-student individual schedule (EndTime drives OT)
       OTGraceUntil:v('OTGraceUntil'),RateNote:v('RateNote'),  // OT-free cutoff decoupled from EndTime + parent-facing note
       DiscountAmount:v('DiscountAmount')===''?'':(Number(v('DiscountAmount'))||0),DiscountUnit:v('DiscountUnit')||'บาท',  // monthly tuition discount (master, hidden from parent)
+      EnrollDate:v('EnrollDate'),                             // billing starts from the first REAL day, not the day the record was typed in
+      ProrateMode:v('ProrateMode')||'FULL',                   // how the STARTING month is charged
+      ProrateAmount:v('ProrateAmount')===''?'':(Number(v('ProrateAmount'))||0),
       OTRate:v('OTRate')===''?'':(Number(v('OTRate'))||0)};   // blank = fall back to the school-wide OT rate
     const stp=photoVal(m,'stf_Photo'); if(stp) data.Photo=stp;
     const stc=photoVal(m,'stf_InsCard'); if(stc) data.InsuranceCardImage=stc;
