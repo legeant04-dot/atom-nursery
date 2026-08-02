@@ -28,7 +28,8 @@ function fresh(students) {
       PrepayTiers: [{ months: 3, discount: 5 }, { months: 6, discount: 10 }, { months: 12, discount: 15 }],
       OTRatePerHour: 100, OTGraceMinutes: 21, DefaultCheckOutTime: '17:00' },
     students: students, staff: [{ StaffID: 'STF-A', NameTH: 'แอดมิน', Role: 'Admin', PositionLevel: 'Admin' }],
-    parents: [], payments: [], prepayments: [], studentCharges: [], otRecords: [], payroll: [],
+    parents: [], payments: [], prepayments: [], studentCharges: [], otDaily: [], paymentSlips: [],
+    otRecords: [], payroll: [],
     userLinks: [], checkinStudent: [], studentAttendanceToday: [], activityLog: [], studentLeaves: [], comments: []
   };
   return { M, H: createAtomAPI(M).H };
@@ -172,6 +173,67 @@ console.log('\n8) A prepaid month bills 0 and says so');
   H.generateMonthlyBills({ month: '2027-04' });
   const later = H.payments({ studentId: 'STD-1' }).find(b => b.Month === '2027-04');
   eq('full tuition due', later.TotalDue, 5900);
+}
+
+// ============================================================================
+console.log('\n9) A prepaid month owes no tuition, whatever the tuition happens to be');
+{
+  // the live case: the bill was issued at 7,500, the child's package is now 5,500, and the family
+  // had already paid the year up front. The credit used to be capped at the CURRENT package price,
+  // so 2,000 showed as outstanding tuition on money that was paid months ago.
+  const { M, H } = fresh([kid({ Plan: 'p1' })]);
+  const pp = H.prepay({ studentId: 'STD-1', months: 12, startMonth: '2026-08' });
+  pp.Status = 'PAID';
+  M.payments.push({ BillingID: 'BL-2026-08-STD-1', StudentID: 'STD-1', Month: '2026-08',
+    Items: [['ค่าเทอม รายเดือน', 7500]], Amount: 7500, Status: 'UNPAID', DueDate: '2026-08-05' });
+  M.config.Plans[0].price = 5500;                       // package price changed after the bill went out
+
+  const bill = H.payments({ studentId: 'STD-1' })[0];
+  eq('the whole 7,500 is credited', bill.PrepaidTuition, 7500);
+  eq('nothing left to pay', bill.TotalDue, 0);
+  eq('and no phantom outstanding', bill.Outstanding, 0);
+  eq('shown as paid', bill.Status, 'PAID');
+
+  const fin = H.financeSummary({ month: '2026-08' });
+  const row = fin.students.find(s => s.studentId === 'STD-1');
+  eq('finance says tuition is settled', row.tuitionOpen, 0);
+  eq('flagged as paid in advance', [row.paid, row.prepaid], [true, true]);
+  eq('school-wide tuition outstanding is 0', fin.tuitionOutstanding, 0);
+  eq('and it counts as money collected', row.collected, 7500);
+
+  console.log('   it also reports how much of the advance payment is left');
+  eq('12 months, this is the 1st', [row.prepay.months, row.prepay.index], [12, 1]);
+  eq('covering Aug 2026 → Jul 2027', [row.prepay.from, row.prepay.to], ['2026-08', '2027-07']);
+  eq('12 months still covered from here', row.prepay.left, 12);
+  const later = H.financeSummary({ month: '2027-07' }).students.find(s => s.studentId === 'STD-1');
+  eq('by the last month only 1 is left', later.prepay.left, 1);
+
+  console.log('   …and OT / extra charges that month are still owed, separately');
+  H.addStudentCharge({ studentId: 'STD-1', month: '2026-08', label: 'ค่าอาหาร', amount: 800 });
+  M.otDaily.push({ OTID: 'OT-9', StudentID: 'STD-1', Date: '2026-08-12', Amount: 200, Status: 'UNPAID' });
+  const fin2 = H.financeSummary({ month: '2026-08' }).students.find(s => s.studentId === 'STD-1');
+  eq('tuition still clear', fin2.tuitionOpen, 0);
+  eq('but 1,000 of other charges is owed', fin2.otherOpen, 1000);
+  eq('still counted as tuition-paid', fin2.paid, true);
+  eq('school-wide: tuition 0, other 1,000',
+    [H.financeSummary({ month: '2026-08' }).tuitionOutstanding, H.financeSummary({ month: '2026-08' }).otherOutstanding], [0, 1000]);
+}
+
+console.log('\n10) A month with no advance payment is unaffected');
+{
+  const { M, H } = fresh([kid({})]);
+  H.generateMonthlyBills({ month: '2026-08' });
+  const fin = H.financeSummary({ month: '2026-08' }).students[0];
+  eq('full tuition still owed', fin.tuitionOpen, 5900);
+  eq('not marked paid', fin.paid, false);
+  eq('not marked prepaid', fin.prepaid, false);
+  console.log('   …and a normal transfer still settles it');
+  const b = M.payments[0];
+  H.uploadSlip({ billingId: b.BillingID, slipAmount: 5900, slipData: 'x' });
+  M.paymentSlips[0].Status = 'CONFIRMED';
+  const fin2 = H.financeSummary({ month: '2026-08' }).students[0];
+  eq('nothing outstanding', fin2.tuitionOpen, 0);
+  eq('marked paid', fin2.paid, true);
 }
 
 console.log('\n' + (fail ? `${fail} FAILED, ${pass} passed` : `all ${pass} checks passed`));

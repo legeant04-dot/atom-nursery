@@ -238,6 +238,34 @@ function createAtomAPI(M, GROWTH_STD) {
   function prepayCoveredMonths_(pp){ let c=pp&&pp.Covered; if(typeof c==='string'){ try{c=JSON.parse(c);}catch(e){c=[];} } return (Array.isArray(c)?c:[]).map(ym); }
   function monthTuitionPrepaid_(studentId, month){ const mm=ym(month);
     return (M.prepayments||[]).some(pp=> String(pp.StudentID)===String(studentId) && String(pp.Status)==='PAID' && prepayCoveredMonths_(pp).indexOf(mm)>=0); }
+  /**
+   * The PAID advance payment covering this month, with what it bought — so a screen can say
+   * "6 เดือน (ส.ค. 2569 – ม.ค. 2570) · เหลืออีก 5 เดือน" instead of just "prepaid".
+   * `left` counts the covered months from this one onward, this month included.
+   */
+  function prepayInfo_(studentId, month){ const mm=ym(month);
+    const pp=(M.prepayments||[]).find(x=> String(x.StudentID)===String(studentId) && String(x.Status)==='PAID' && prepayCoveredMonths_(x).indexOf(mm)>=0);
+    if(!pp) return null;
+    const cov=prepayCoveredMonths_(pp);
+    return { prepayId:pp.PrepayID, months:Number(pp.Months)||cov.length, discount:Number(pp.Discount)||0,
+      amount:Number(pp.Amount||0), covered:cov, from:cov[0]||'', to:cov[cov.length-1]||'',
+      left:cov.filter(m=>m>=mm).length, index:cov.indexOf(mm)+1 }; }
+  /**
+   * How much of a bill is TUITION. Advance payment covers tuition and nothing else, so this is what
+   * it may credit. It used to be capped at the student's CURRENT plan price, which meant that as soon
+   * as a package price changed (or the bill had been issued at another price) the difference turned
+   * into a debt the family had already paid — the bill showed "ค่าเทอม 7,500 − ชำระล่วงหน้า 5,500 =
+   * ค้าง 2,000". A prepaid month owes no tuition, whatever the tuition happens to be.
+   */
+  function billTuition_(b){ if(!b) return 0;
+    let items=b.Items;
+    if(typeof items==='string' && items){ try{ items=JSON.parse(items); }catch(e){ items=null; } }
+    if(Array.isArray(items) && items.length){
+      const tui=items.filter(it=>Array.isArray(it) && /ค่าเทอม|tuition/i.test(String(it[0]||'')) && Number(it[1])>0)
+        .reduce((a,it)=>a+Number(it[1]||0),0);
+      if(tui>0) return Math.min(tui, Number(b.Amount||0)||tui);
+    }
+    return Number(b.Amount||0); }
   // Advance-tuition discount tiers, Admin-editable (SCHOOL_CONFIG.PrepayTiers, JSON or array).
   // Falls back to the school's current published table; a saved tier list always wins.
   const PREPAY_TIERS_DEFAULT = [{months:3,discount:5},{months:6,discount:10},{months:12,discount:15}];
@@ -500,9 +528,9 @@ function createAtomAPI(M, GROWTH_STD) {
         const total=Number(b.Amount||0);   // tuition only
         // partial-payment view: sum of confirmed slips vs submitted-but-pending
         const confirmed=sumSlips_('bill', b.BillingID, ['CONFIRMED']); const submitted=sumSlips_('bill', b.BillingID, ['SUBMITTED']);
-        // advance payment covers this month's TUITION (plan price) only → credit it.
-        const planPrice=Number(studentPlan(studentById(p.studentId)||{}).price||0);
-        const prepaidTuition = monthTuitionPrepaid_(p.studentId, bm) ? Math.min(planPrice, total) : 0;
+        // advance payment covers this month's TUITION in full → credit it (extras are still billed)
+        const prepay = prepayInfo_(p.studentId, bm);
+        const prepaidTuition = prepay ? billTuition_(b) : 0;
         const items2 = prepaidTuition>0 ? base.concat([['ค่าเทอม (ชำระล่วงหน้าแล้ว)', -prepaidTuition]]) : base;
         const net = Math.max(0, total - prepaidTuition);              // due after the tuition credit
         const outstanding = Math.max(0, net - confirmed);
@@ -513,7 +541,7 @@ function createAtomAPI(M, GROWTH_STD) {
         const paidSlip=paySlips_().find(s=>s.RefKind==='bill'&&s.RefID===b.BillingID&&s.Status==='CONFIRMED'&&s.TransDate);
         const paidDate=(paidSlip&&paidSlip.TransDate)||b.PaidDate||'';
         return Object.assign({},b,{Month:bm,Items:items2,Amount:total,OTRollover:0,TotalDue:net,GrossDue:total,Status:st,PaidDate:paidDate,
-          PrepaidTuition:prepaidTuition,PaidConfirmed:confirmed,PendingSubmitted:submitted,Outstanding:outstanding}); })
+          PrepaidTuition:prepaidTuition,Prepay:prepay,PaidConfirmed:confirmed,PendingSubmitted:submitted,Outstanding:outstanding}); })
       .sort((a,b)=>String(b.Month).localeCompare(String(a.Month))),
     // per-student extra charges (Admin) — each is its own payable item (parent pays like OT).
     studentCharges: p => M.studentCharges.filter(c=>c.StudentID===p.studentId && (!p.month||ym(c.Month)===ym(p.month)))
@@ -986,20 +1014,41 @@ function createAtomAPI(M, GROWTH_STD) {
         const chOpen=chs.reduce((a,c)=>a+Math.max(0,Number(c.Amount||0)-sumSlips_('charge',c.ChargeID,['CONFIRMED'])),0);
         const chCollected=chs.reduce((a,c)=>a+sumSlips_('charge',c.ChargeID,['CONFIRMED']),0);
         const otCollected=M.otDaily.filter(o=>o.StudentID===s.StudentID&&ym(o.Date)===month&&o.Status==='PAID').reduce((a,o)=>a+Number(o.Amount||0),0);
-        const amount=b?Number(b.Amount||0):0; const due=amount+otOpen+chOpen; const paid=!!b&&b.Status==='PAID';
-        // advance payment covers this month's tuition → counts as collected (extras/OT still tracked separately)
-        const prepaidTuition = monthTuitionPrepaid_(s.StudentID, month) ? Math.min(Number(studentPlan(s).price||0), amount) : 0;
+        const amount=b?Number(b.Amount||0):0;
+        // advance payment covers this month's tuition IN FULL → counts as collected (extras/OT are
+        // tracked separately and are still owed). Capping this at the current plan price left the
+        // difference showing as an unpaid balance the moment a package price changed.
+        const prepay = prepayInfo_(s.StudentID, month);
+        const prepaidTuition = (prepay && b) ? billTuition_(b) : 0;
+        const billConfirmed = b ? sumSlips_('bill', b.BillingID, ['CONFIRMED']) : 0;
+        // tuition still owed, after the advance-payment credit and any confirmed slips
+        const tuitionOpen = Math.max(0, amount - prepaidTuition - billConfirmed);
+        const otherOpen = otOpen + chOpen;                 // OT + extra charges — NOT tuition
+        const due = tuitionOpen + otherOpen;               // what this family actually still owes
         // money actually IN = tuition (full if PAID else confirmed slips) + prepaid tuition + confirmed charges + paid OT
-        const collected = (b ? (paid?amount:sumSlips_('bill', b.BillingID, ['CONFIRMED'])) : 0) + prepaidTuition + chCollected + otCollected;
-        return {studentId:s.StudentID,name:s.NameTH,nameEN:s.NameEN,nick:s.Nickname,nickEN:s.NicknameEN,plan:s.Plan,amount,collected,otOpen,chOpen,due,paid,partial:!!b&&b.Status==='PARTIAL',status:b?b.Status:'NO_BILL',slipAmount:b?b.SlipAmount||0:0}; });
+        const collected = (b ? (b.Status==='PAID'?amount:billConfirmed) : 0) + prepaidTuition + chCollected + otCollected;
+        // "paid" now means the TUITION is settled — by transfer, in cash, or in advance. The raw sheet
+        // Status alone said UNPAID for a prepaid month, so the finance list showed a debt that was
+        // already paid months ago.
+        const paid = tuitionOpen<=0 && (!!b || !!prepay);
+        return {studentId:s.StudentID,name:s.NameTH,nameEN:s.NameEN,nick:s.Nickname,nickEN:s.NicknameEN,plan:s.Plan,
+          amount,collected,otOpen,chOpen,tuitionOpen,otherOpen,due,paid,
+          prepaid:!!prepay,prepay:prepay||null,prepaidTuition,
+          partial:!b?false:(tuitionOpen>0 && (billConfirmed>0||prepaidTuition>0)),
+          status:b?b.Status:'NO_BILL',slipAmount:b?b.SlipAmount||0:0}; });
       const staff=M.staff.filter(s=>s.Role==='Teacher').map(s=>{ const pr=M.payroll.find(x=>x.StaffID===s.StaffID&&ym(x.Month)===month);
         return {staffId:s.StaffID,name:s.NameTH,nameEN:s.NameEN,nick:s.Nickname,nickEN:s.NicknameEN,net:pr?pr.NetPay:0,paid:!!pr&&pr.SlipSent==='YES',computed:!!pr}; });
       const tuitionCollected=students.reduce((a,s)=>a+(s.collected||0),0);
       const otCollected=M.otDaily.filter(o=>ym(o.Date)===month&&o.Status==='PAID').reduce((a,o)=>a+o.Amount,0);
-      const tuitionOutstanding=students.reduce((a,s)=>a+Math.max(0,s.due-(s.collected||0)),0);
+      // TUITION outstanding means tuition — it used to be (due − collected), which folded OT and extra
+      // charges into a tile labelled "ค้างค่าเทอม". They are reported separately as otherOutstanding.
+      const tuitionOutstanding=students.reduce((a,s)=>a+Number(s.tuitionOpen||0),0);
+      const otherOutstanding=students.reduce((a,s)=>a+Number(s.otherOpen||0),0);
       const salaryExpense=staff.reduce((a,s)=>a+s.net,0);
       const income=tuitionCollected+otCollected;
-      return {month, students, staff, income, tuitionCollected, otCollected, tuitionOutstanding, expense:salaryExpense, net:income-salaryExpense,
+      return {month, students, staff, income, tuitionCollected, otCollected, tuitionOutstanding, otherOutstanding,
+        expense:salaryExpense, net:income-salaryExpense,
+        prepaidStudents:students.filter(s=>s.prepaid).length,
         studentsPaid:students.filter(s=>s.paid).length, studentsTotal:students.length,
         staffPaid:staff.filter(s=>s.computed).length, staffTotal:staff.length}; },
 
