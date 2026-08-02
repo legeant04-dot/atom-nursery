@@ -114,8 +114,8 @@ function handleMarkNotifsRead(p) {
 }
 
 // ---- emergency push (always LINE; bypasses the quota gate) ----------------------------------------
-function notifyAdminsUrgent_(text) {
-  inboxAdd_('emergency', text);
+function notifyAdminsUrgent_(text, ref) {
+  inboxAdd_('emergency', text, ref);
   var users = readObjects_(sheet_(getMainSpreadsheet_(), 'USERS'));
   var sent = 0;
   users.forEach(function (u) { if (String(u.Role) === ROLES.ADMIN && u.LineUID) { if (linePushText_(u.LineUID, text)) sent++; } });
@@ -135,7 +135,11 @@ function handleSubmitInjury(p) {
     var who = student.Name || p.childName || p.studentId;
     var cls = student.Class ? (' · ' + student.Class) : '';
     var msg = '🚨 อุบัติเหตุ/เหตุฉุกเฉิน: ' + who + cls + '\nเวลา ' + (p.time || timeStr_(new Date())) + (p.narrative ? ('\nเหตุการณ์: ' + p.narrative) : '');
-    notifyAdminsUrgent_(msg);
+    // Carry the report id so tapping the notification opens THAT report. Without a ref the admin's
+    // notification only knew the category and fell back to the dashboard — which is why an emergency
+    // could be announced but not actually read.
+    var ref = (res && res.injuryId) ? ('injury|' + res.injuryId) : '';
+    notifyAdminsUrgent_(msg, ref);
     try { notifyLeaders_(msg); } catch (e) {}
     if (p.notifyParent) { try { notifyStudentParents_(student, '🚨 แจ้งเหตุจากโรงเรียน: ' + who + cls + '\nเวลา ' + (p.time || timeStr_(new Date())) + (p.narrative ? ('\n' + p.narrative) : '') + '\nคุณครูได้ดูแลเบื้องต้นแล้ว หากมีข้อสงสัยติดต่อโรงเรียน'); } catch (e) {} }
   } catch (e) { try { Logger.log('handleSubmitInjury notify ' + e.message); } catch (x) {} }

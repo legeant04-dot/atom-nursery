@@ -596,6 +596,49 @@ function createAtomAPI(M, GROWTH_STD) {
       items.forEach(x=>{ recordSlip_(x.kind, x.id, {slipAmount:x.out, slipData:p.slipData, slipName:p.slipName, slipGroup:groupId, uid:p.uid, parentId:p.parentId, role:p.role}); });
       logAct('payCombined', groupId, items.length+' รายการ รวม ฿'+total, actorOf(p));
       return {ok:true, groupId, total, count:items.length}; },
+    /**
+     * Payment history for a family — every amount that came in, when, for what, and the slip.
+     * One entry per SLIP (that is what "ยอดที่ชำระเข้ามาวันไหน" actually means), plus an entry for
+     * anything settled in cash, which leaves no slip behind. Each entry carries refKind/refId so the
+     * screen can jump straight to the bill or advance payment it belongs to.
+     * Scope: p.studentId (one child) or the caller's own children. Access is enforced by the route.
+     */
+    paymentLog: p => { p=p||{};
+      const ids = p.studentId ? [p.studentId] : visibleStudents(p).map(s=>s.StudentID);
+      const idSet = ids.reduce((a,x)=>(a[x]=1,a),{});
+      const kidOf = sid => { const s=studentById(sid)||{}; return {studentId:sid, name:s.NameTH||s.Name||'', nick:s.Nickname||''}; };
+      const labelFor = (kind, refId) => {
+        if(kind==='bill'){ const b=M.payments.find(x=>x.BillingID===refId); return {label:'ค่าเทอมรายเดือน', month:b?ym(b.Month):'', due:b?Number(b.Amount||0):0}; }
+        if(kind==='prepay'){ const pp=M.prepayments.find(x=>x.PrepayID===refId); const cov=pp?prepayCoveredMonths_(pp):[];
+          return {label:'ชำระล่วงหน้า '+(pp?pp.Months:'?')+' เดือน'+(cov.length?' ('+cov[0]+' → '+cov[cov.length-1]+')':''),
+            month:cov[0]||'', due:pp?Number(pp.Amount||0):0}; }
+        if(kind==='ot'){ const o=M.otDaily.find(x=>x.OTID===refId); return {label:'OT รับช้า'+(o?' '+ymd(o.Date):''), month:o?ym(o.Date):'', due:o?Number(o.Amount||0):0}; }
+        if(kind==='charge'){ const c=M.studentCharges.find(x=>x.ChargeID===refId); return {label:(c&&c.Label)||'ค่าใช้จ่ายเพิ่มเติม', month:c?ym(c.Month):'', due:c?Number(c.Amount||0):0}; }
+        return {label:kind, month:'', due:0}; };
+      const out=[];
+      paySlips_().forEach(s=>{ if(!idSet[s.StudentID])return;
+        if(!p.includeRejected && s.Status==='REJECTED')return;
+        const L=labelFor(s.RefKind, s.RefID);
+        out.push(Object.assign({ id:s.SlipID, via:'slip', date:ymd(s.TransDate||s.SubmittedDate), submittedAt:s.SubmittedDate||'',
+          transDate:ymd(s.TransDate||''), refKind:s.RefKind, refId:s.RefID, amount:Number(s.Amount||0),
+          status:s.Status, slipUrl:s.Url||'', transRef:s.TransRef||'', receiver:s.Receiver||'',
+          label:L.label, month:L.month, due:L.due }, kidOf(s.StudentID))); });
+      // cash settlements have no slip at all, so they would otherwise be invisible in the history
+      const cash = (rows, kind, idKey, dateKey) => rows.forEach(r=>{ if(!idSet[r.StudentID])return;
+        if(String(r.Status)!=='PAID' || String(r.PaymentMethod||'')!=='cash')return;
+        const L=labelFor(kind, r[idKey]);
+        out.push(Object.assign({ id:r[idKey], via:'cash', date:ymd(r[dateKey]||r.PaidDate||''), submittedAt:'',
+          transDate:'', refKind:kind, refId:r[idKey], amount:Number(r.SlipAmount||L.due||0), status:'CONFIRMED',
+          slipUrl:'', transRef:'', receiver:'', label:L.label+' (เงินสด)', month:L.month, due:L.due }, kidOf(r.StudentID))); });
+      cash(M.payments||[], 'bill', 'BillingID', 'PaidDate');
+      cash(M.prepayments||[], 'prepay', 'PrepayID', 'PaidDate');
+      cash(M.otDaily||[], 'ot', 'OTID', 'PaidDate');
+      cash(M.studentCharges||[], 'charge', 'ChargeID', 'PaidDate');
+      out.sort((a,b)=>String(b.date+b.submittedAt).localeCompare(String(a.date+a.submittedAt)));
+      const confirmed=out.filter(x=>x.status==='CONFIRMED').reduce((a,x)=>a+x.amount,0);
+      const pending=out.filter(x=>x.status==='SUBMITTED').reduce((a,x)=>a+x.amount,0);
+      return { students:ids.map(kidOf), entries:out, totalConfirmed:Math.round(confirmed*100)/100,
+        totalPending:Math.round(pending*100)/100, count:out.length }; },
     // all slips for a bill/OT/prepay (or a student) — history shown to parent + admin (rejected hidden)
     paymentSlips: p => paySlips_().filter(s=> (p.refKind?s.RefKind===p.refKind:true) && (p.refId?s.RefID===p.refId:true) && (p.studentId?s.StudentID===p.studentId:true) && (p.includeRejected?true:s.Status!=='REJECTED'))
       .map(s=>({ SlipID:s.SlipID, RefKind:s.RefKind, RefID:s.RefID, Amount:Number(s.Amount||0), Url:s.Url, Verified:s.Verified, TransRef:s.TransRef, Receiver:s.Receiver, SubmittedDate:s.SubmittedDate, Status:s.Status, SlipGroup:s.SlipGroup||'' })),
@@ -1610,13 +1653,42 @@ function createAtomAPI(M, GROWTH_STD) {
       M.injuryReports.push(rec);
       const nm=s.NameTH||p.childName||p.studentId;
       M.feed.unshift({id:'INJ-N'+M.injuryReports.length,text:'⚠️ บันทึกอุบัติเหตุ: '+nm+' ('+rec.InjuryTypes.length+' รายการ)',
-        textEN:'⚠️ Injury logged: '+(s.NameEN||nm)+' ('+rec.InjuryTypes.length+' item(s))',time:rec.Time,roles:['Admin','Leader'],read:false,studentId:p.studentId});
+        textEN:'⚠️ Injury logged: '+(s.NameEN||nm)+' ('+rec.InjuryTypes.length+' item(s))',time:rec.Time,roles:['Admin','Leader'],read:false,studentId:p.studentId,
+        category:'emergency',ref:'injury|'+id});   // ref = deep link so tapping opens THIS report
       logAct('submitInjury',p.studentId,nm+' — types '+rec.InjuryTypes.join(','),actorOf(p));
       return {injuryId:id}; },
-    // injury reports (Admin/teacher), optional date filter; newest first
-    injuryReports: p => M.injuryReports.filter(r=>!p||!p.date||r.Date===p.date)
-      .map(r=>{ const s=studentById(r.StudentID)||{}; return Object.assign({nameEN:s.NameEN,className:s.Class},r); })
-      .sort((a,b)=>(b.Date+b.Time).localeCompare(a.Date+a.Time)),
+    // injury reports (Admin/teacher). Optional date OR month filter; newest first.
+    injuryReports: p => M.injuryReports
+      .filter(r=>!p||((!p.date||ymd(r.Date)===ymd(p.date)) && (!p.month||ym(r.Date)===ym(p.month))))
+      .map(r=>{ const s=studentById(r.StudentID)||{}; return Object.assign({nameEN:s.NameEN,nick:s.Nickname,className:s.Class},r); })
+      .sort((a,b)=>(String(b.Date)+b.Time).localeCompare(String(a.Date)+a.Time)),
+    // one report, for the deep link from an emergency notification
+    injuryReport: p => { const r=(M.injuryReports||[]).find(x=>String(x.InjuryID)===String(p.injuryId));
+      if(!r)fail('NOT_FOUND','ไม่พบรายงานอุบัติเหตุ');
+      const s=studentById(r.StudentID)||{}; const t=(M.staff||[]).find(x=>x.StaffID===r.TeacherID)||{};
+      return Object.assign({nameEN:s.NameEN,nick:s.Nickname,className:s.Class,
+        teacherName:t.NameTH||t.Name||'',teacherNick:t.Nickname||''},r); },
+    /**
+     * Monthly injury summary: how many, and broken down by injury type and by class, so the school
+     * can see whether one classroom or one kind of accident keeps recurring. Types are stored as the
+     * numeric codes of the official แบบบันทึกการบาดเจ็บ form; the labels live in the client.
+     */
+    injurySummary: p => { const month=ym(p&&p.month||todayLocal());
+      const rows=(M.injuryReports||[]).filter(r=>ym(r.Date)===month);
+      const byType={}, byClass={}, byDay={};
+      rows.forEach(r=>{ const s=studentById(r.StudentID)||{};
+        let types=r.InjuryTypes; if(typeof types==='string'){ try{types=JSON.parse(types);}catch(e){ types=String(types).split(/[,\s]+/).filter(Boolean); } }
+        (Array.isArray(types)?types:[]).forEach(n=>{ byType[n]=(byType[n]||0)+1; });
+        const cl=s.Class||r.EduGrade||'—'; byClass[cl]=(byClass[cl]||0)+1;
+        const d=ymd(r.Date); byDay[d]=(byDay[d]||0)+1; });
+      const asList=o=>Object.keys(o).map(k=>({key:k,count:o[k]})).sort((a,b)=>b.count-a.count||String(a.key).localeCompare(String(b.key)));
+      return {month, total:rows.length, students:Object.keys(rows.reduce((a,r)=>(a[r.StudentID]=1,a),{})).length,
+        byType:asList(byType), byClass:asList(byClass), byDay:asList(byDay),
+        reports:rows.map(r=>{ const s=studentById(r.StudentID)||{};
+          return {injuryId:r.InjuryID,date:ymd(r.Date),time:r.Time,studentId:r.StudentID,
+            name:s.NameTH||r.ChildName||'',nick:s.Nickname||'',className:s.Class||'',
+            types:r.InjuryTypes,narrative:r.Narrative||''}; })
+          .sort((a,b)=>(b.date+b.time).localeCompare(a.date+a.time))}; },
 
     // ========== PCHI insurance member form ==========
     // Banks always come from the embedded reference list (cfg is SEED-only in gas mode), so the
