@@ -89,6 +89,11 @@ function computePayroll(payload) {
 
   // --- OT เย็น ---
   var otEvening = (payload.otEvening != null) ? num_(payload.otEvening) : sumMonthlyOT_(staff.StaffID, month);
+  // OT approved too late to make an earlier month's salary is paid here as its own line, so the
+  // teacher is never short-paid and the earlier slip stays exactly as it was signed off.
+  var carry = otCarryOver_(staff.StaffID, month);
+  var otCarry = (payload.otCarry != null) ? num_(payload.otCarry) : carry.total;
+  var otCarryDetail = (payload.otCarry != null && !carry.detail.length) ? [] : carry.detail;
   var holidayBonus = num_(payload.holidayBonus);
 
   // Signed adjustment lines used to be applied straight to the net, which meant the slip printed an
@@ -100,7 +105,7 @@ function computePayroll(payload) {
   adjustments.forEach(function (a) { var v = num_(a.amount); if (v > 0) adjPlus += v; else adjMinus += -v; });
   var adjustmentsTotal = round2_(adjPlus - adjMinus);
   otherIncome = round2_(otherIncome + adjPlus);
-  var gross = round2_(base + diligenceTotal + otherIncome + otEvening + holidayBonus);
+  var gross = round2_(base + diligenceTotal + otherIncome + otEvening + otCarry + holidayBonus);
 
   // --- รายการหัก ---
   // the client sends socialSecurityDeduct (the checkbox). Only an explicit socialSecurity NUMBER
@@ -108,7 +113,12 @@ function computePayroll(payload) {
   var ssDeduct = (payload.socialSecurityDeduct != null) ? !!payload.socialSecurityDeduct : true;
   var ss = (payload.socialSecurity != null) ? num_(payload.socialSecurity)
     : (ssDeduct ? Math.min(round2_(base * num_(getConfig_('SocialSecurityRate', '0.05'))), num_(getConfig_('SocialSecurityMax', '750'))) : 0);
+  // เงินสมทบ is a SAVINGS fund, not a cost to the teacher: the amount entered here is deducted from
+  // their pay AND the school puts in the same again. Only the teacher's half is a deduction; the fund
+  // grows by both halves. Entering 200 therefore deducts 200 and adds 400 to the accumulated total.
   var contribution = num_(payload.contribution);
+  var matchRate = num_(getConfig_('ContributionMatchRate', '1'), 1);
+  var contributionEmployer = round2_(contribution * matchRate);
   var otherDeductions = round2_(num_(payload.otherDeductions) + adjMinus);
   var totalDeductions = round2_(ss + contribution + otherDeductions);
 
@@ -118,17 +128,25 @@ function computePayroll(payload) {
   // running total of เงินสมทบ across every month on file — the school's slip prints it at the bottom
   // the school carried an accumulated เงินสมทบ before the app existed; that opening balance lives on
   // the staff record and every month's contribution adds on top of it
-  // opening balance carried from before the app + every month recorded here (this one included)
-  var contribAccum = num_(staff.ContributionOpening) + contribution;
+  // opening balance carried from before the app + every month recorded here (this one included),
+  // counting BOTH halves. Rows saved before the employer half was recorded have no
+  // ContributionEmployer cell, so their match is reconstructed at the current rate — the school did
+  // pay it, the app just never wrote it down. Use recomputeContributions (preview) to review this.
+  var contribAccum = num_(staff.ContributionOpening) + contribution + contributionEmployer;
   try {
     readObjects_(sheet).forEach(function (r) {
-      if (String(r.StaffID) === String(staff.StaffID) && ym7_(r.Month) !== ym7_(month)) contribAccum += num_(r.Contribution);
+      if (String(r.StaffID) !== String(staff.StaffID) || ym7_(r.Month) === ym7_(month)) return;
+      var own = num_(r.Contribution);
+      var emp = (r.ContributionEmployer === '' || r.ContributionEmployer == null)
+        ? round2_(own * matchRate) : num_(r.ContributionEmployer);
+      contribAccum += own + emp;
     });
   } catch (e) {}
   contribAccum = round2_(contribAccum);
   try { ensureColumns_(sheet, ['PayType', 'DailyRate', 'DaysWorked', 'ChildMultiplier', 'Adjustments',
     'AdjustmentsTotal', 'BankName', 'LeaveDays', 'LeaveLimit', 'LeaveExceeds',
-    'ContributionAccum', 'Position', 'StaffName']); } catch (e) {}
+    'ContributionAccum', 'Position', 'StaffName',
+    'ContributionEmployer', 'OTCarry', 'OTCarryDetail']); } catch (e) {}
   var existing = findObject_(sheet, function (r) {
     return String(r.StaffID) === String(staff.StaffID) && ym7_(r.Month) === ym7_(month);
   });
@@ -140,8 +158,10 @@ function computePayroll(payload) {
     DiligenceAttendance: diligenceAttendance, DiligenceFacebook: diligenceFacebook, DiligenceTotal: diligenceTotal,
     ExtraChildCount: extraChildCount, ExtraChildAmount: extraChildAmount,
     TrainingCertCount: trainingCertCount, TrainingCertAmount: trainingCertAmount,
-    OTEvening: otEvening, HolidayBonus: holidayBonus, OtherIncome: otherIncome, GrossIncome: gross,
-    SocialSecurity: ss, Contribution: contribution, OtherDeductions: otherDeductions, TotalDeductions: totalDeductions,
+    OTEvening: otEvening, OTCarry: otCarry, OTCarryDetail: JSON.stringify(otCarryDetail),
+    HolidayBonus: holidayBonus, OtherIncome: otherIncome, GrossIncome: gross,
+    SocialSecurity: ss, Contribution: contribution, ContributionEmployer: contributionEmployer,
+    OtherDeductions: otherDeductions, TotalDeductions: totalDeductions,
     PayType: payType, DailyRate: num_(payload.dailyRate), DaysWorked: num_(payload.daysWorked),
     ChildMultiplier: childMultiplier,
     Adjustments: JSON.stringify(adjustments), AdjustmentsTotal: adjustmentsTotal,
@@ -210,19 +230,66 @@ function bigCleaningBonus_(staffId, month, payload) {
   return round2_(amt * attended);
 }
 
-function sumMonthlyOT_(staffId, month) {
+/** APPROVED OT totalled per month for one staff member → { 'YYYY-MM': amount }. */
+function otApprovedByMonth_(staffId) {
   var rate = num_(getConfig_('OTEveningRate', '0'));
-  var total = 0;
+  var out = {};
   readObjects_(sheet_(getHrSpreadsheet_(), 'OT_RECORDS')).forEach(function (r) {
+    if (String(r.StaffID) !== String(staffId)) return;
     // only APPROVED OT is paid. A blank Status is a legacy pre-workflow row → treat it as approved.
     var st = String(r.Status || '').toUpperCase();
     if (st && st !== 'APPROVED') return;
-    var m = String(r.Month || '') || monthOf_(r.Date);
-    if (String(r.StaffID) === String(staffId) && String(m).slice(0, 7) === month) {
-      total += r.Amount !== '' ? num_(r.Amount) : num_(r.Hours) * rate;
-    }
+    // Month is written as 'YYYY-MM' and comes back from Sheets as a DATE — ym7_ before comparing,
+    // or every month bucket lands under the string "Mon Jul" and the totals read 0.
+    var m = ym7_(r.Month) || monthOf_(r.Date);
+    if (!m) return;
+    var amt = (r.Amount !== '' && r.Amount != null) ? num_(r.Amount) : num_(r.Hours) * rate;
+    out[m] = round2_((out[m] || 0) + amt);
   });
-  return round2_(total);
+  return out;
+}
+
+function sumMonthlyOT_(staffId, month) {
+  return round2_(otApprovedByMonth_(staffId)[ym7_(month)] || 0);
+}
+
+/**
+ * OT approved AFTER an earlier month's payroll was already saved, and therefore never paid — e.g. a
+ * 31/07 late check-out approved in August once July's salary had gone out. Each earlier month owes
+ *     approved(m) − what that month's saved payslip actually paid − what later payslips already carried
+ * so nothing is paid twice and nothing is silently dropped. A month with NO saved payslip is not
+ * carried: its own payroll run will pay it normally.
+ */
+function otCarryOver_(staffId, month) {
+  var mm = ym7_(month);
+  var approved = otApprovedByMonth_(staffId);
+  var paidFor = {}, carriedFor = {};
+  readObjects_(sheet_(getHrSpreadsheet_(), 'PAYROLL')).forEach(function (r) {
+    if (String(r.StaffID) !== String(staffId)) return;
+    var m = ym7_(r.Month);
+    if (!m || m >= mm) return;            // this month's own row (and any later one) must not count
+    paidFor[m] = round2_((paidFor[m] || 0) + num_(r.OTEvening));
+    var d = r.OTCarryDetail;
+    if (typeof d === 'string' && d) { try { d = JSON.parse(d); } catch (e) { d = null; } }
+    (Array.isArray(d) ? d : []).forEach(function (c) {
+      var cm = ym7_(c && c.month);
+      if (cm) carriedFor[cm] = round2_((carriedFor[cm] || 0) + num_(c && c.amount));
+    });
+  });
+  var detail = [], total = 0;
+  Object.keys(paidFor).forEach(function (m) {
+    var unpaid = round2_((approved[m] || 0) - paidFor[m] - (carriedFor[m] || 0));
+    if (unpaid > 0.5) { detail.push({ month: m, amount: unpaid }); total = round2_(total + unpaid); }
+  });
+  detail.sort(function (a, b) { return a.month < b.month ? -1 : (a.month > b.month ? 1 : 0); });
+  return { total: total, detail: detail };
+}
+
+/** Route: { staffId, month } -> unpaid OT carried from earlier months (shown on the payroll screen). */
+function handleOtCarryOver(p) {
+  p = p || {};
+  var c = otCarryOver_(p.staffId, p.month || dateStr_(new Date()).slice(0, 7));
+  return { staffId: p.staffId, month: p.month, total: c.total, detail: c.detail };
 }
 
 /** Route: { staffId, month } -> stored payroll (for slip view). */
@@ -256,3 +323,47 @@ function handleGetPayslip(payload) {
 
 /** Route: compute payroll then return it. */
 function handleComputePayroll(payload) { return computePayroll(payload); }
+
+/**
+ * Rebuild every staff member's accumulated เงินสมทบ from source:
+ *     ContributionOpening + Σ (each month's own half + the school's matching half)
+ * Payslips saved before the employer half existed have no ContributionEmployer cell, so their match
+ * is reconstructed at the current rate. ALWAYS runs as a preview first — the caller gets a
+ * before/after line per staff member and NOTHING is written until it is called with preview:false.
+ * ContributionLocked ('YES') locks the manually-entered OPENING balance, not this derived running
+ * total — the total is refreshed on every payroll save too, so it is refreshed here as well. The
+ * lock is still reported so the reviewer can see whose opening figure is fixed.
+ */
+function handleRecomputeContributions(p) {
+  p = p || {};
+  var preview = p.preview !== false;
+  var matchRate = num_(getConfig_('ContributionMatchRate', '1'), 1);
+  var stSh = sheet_(getHrSpreadsheet_(), 'STAFF');
+  try { ensureColumns_(stSh, ['ContributionOpening', 'ContributionAccum', 'ContributionLocked']); } catch (e) {}
+  var rows = readObjects_(sheet_(getHrSpreadsheet_(), 'PAYROLL'));
+  var out = [], written = 0;
+  readObjects_(stSh).forEach(function (s) {
+    var opening = num_(s.ContributionOpening), own = 0, emp = 0, months = 0;
+    rows.forEach(function (r) {
+      if (String(r.StaffID) !== String(s.StaffID)) return;
+      var c = num_(r.Contribution), e = num_(r.ContributionEmployer);
+      if (!c && !e) return;
+      months++; own += c;
+      emp += (r.ContributionEmployer === '' || r.ContributionEmployer == null) ? round2_(c * matchRate) : e;
+    });
+    var after = round2_(opening + own + emp);
+    var before = num_(s.ContributionAccum);
+    if (Math.abs(after - before) < 0.005) return;      // only report what actually moves
+    var lk = String(s.ContributionLocked || '').toUpperCase();
+    var locked = lk === 'YES' || lk === 'TRUE' || s.ContributionLocked === true;
+    out.push({ staffId: s.StaffID, name: s.Name || s.NameEN || s.StaffID, opening: opening, months: months,
+      employee: round2_(own), employer: round2_(emp), before: before, after: after,
+      diff: round2_(after - before), locked: locked });
+    if (!preview) { updateRow_(stSh, s._row, { ContributionAccum: after }); written++; }
+  });
+  if (!preview) {
+    try { CacheService.getScriptCache().removeAll(['col:STAFF', 'rows:STAFF']); } catch (e) {}
+    try { logAuditHr(p.adminId || 'admin', 'CONTRIB_RECOMPUTE', 'STAFF', String(written)); } catch (e) {}
+  }
+  return { preview: preview, matchRate: matchRate, changed: out.length, written: written, rows: out };
+}

@@ -49,11 +49,18 @@ function dayOfWeek_(d) { return Utilities.formatDate(d, tz_(), 'EEEE'); } // Mon
 // OT minutes → "X ชม. Y นาที" for the LINE message (drops a zero part)
 function hmMinTH_(total) { total = Math.max(0, Math.round(Number(total) || 0)); var h = Math.floor(total / 60), m = total % 60;
   return (h && m) ? (h + ' ชม. ' + m + ' นาที') : (h ? (h + ' ชม.') : (m + ' นาที')); }
-// Thai labour-law OT hourly rate on a normal working day = 1.5 × (monthly salary ÷ 30 ÷ 8);
-// falls back to the flat StaffOTHourlyRate config when the staff has no BaseSalary on file.
-function otRateForStaff_(staff) { var sal = Number((staff && staff.BaseSalary) || 0);
-  if (sal > 0) return Math.round(sal / 30 / 8 * 1.5 * 100) / 100;
-  return parseFloat(getConfig_('StaffOTHourlyRate', getConfig_('OTRatePerHour', '100'))) || 100; }
+// The school pays a FLAT hourly rate for teacher OT — StaffOTHourlyRate (default 100), editable in
+// Settings. This used to derive the rate from each salary via the Thai labour-law formula
+// (1.5 × salary ÷ 30 ÷ 8), which is why the payroll screen printed "× 89.38" instead of "× 100".
+// Setting the config to the word 'auto' restores that derivation for anyone who wants it.
+function otRateForStaff_(staff) {
+  var cfg = String(getConfig_('StaffOTHourlyRate', '100')).trim();
+  if (cfg.toLowerCase() === 'auto') {
+    var sal = Number((staff && staff.BaseSalary) || 0);
+    if (sal > 0) return Math.round(sal / 30 / 8 * 1.5 * 100) / 100;
+  }
+  return parseFloat(cfg) || parseFloat(getConfig_('OTRatePerHour', '100')) || 100;
+}
 function hhmmToMin_(s) {
   var m = /^(\d{1,2}):(\d{2})$/.exec(String(s || '').trim());
   return m ? parseInt(m[1], 10) * 60 + parseInt(m[2], 10) : null;

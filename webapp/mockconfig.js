@@ -38,7 +38,9 @@ window.MOCK = {
     // --- OT (daily overtime) — charged when pickup is later than the plan end-time ---
     OTRatePerHour: 100,     // baht per started hour beyond the grace window (parent pickup OT)
     OTGraceMinutes: 21,     // free grace; >21 min late starts charging
-    StaffOTHourlyRate: 100, // baht/hour for teacher OT (auto-pulled into payroll)
+    StaffOTHourlyRate: 100, // baht/hour for teacher OT, flat (auto-pulled into payroll). 'auto' = 1.5 × salary/30/8
+    // เงินสมทบ: the school matches the teacher's deduction 1:1, so 200 deducted grows the fund by 400
+    ContributionMatchRate: 1,
     // --- Payment QR images (drop the real QR files in webapp/assets with these names) ---
     QRCode_Monthly: 'assets/qr_scb.jpg',  // SCB PromptPay — monthly tuition
     QRCode_OT: 'assets/qr_ktb.jpg',       // KTB PromptPay — daily OT

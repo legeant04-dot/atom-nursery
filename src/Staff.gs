@@ -300,7 +300,8 @@ function handleRenameDepartment(p) {
 function handleSetSchoolConfig(p) {
   p = p || {};
   var WHITE = { GPS_Lat: 1, GPS_Lng: 1, Radius: 1, LateGraceMinutes: 1, OTRatePerHour: 1, OTGraceMinutes: 1, StaffOTHourlyRate: 1, OTRoundUpMinutes: 1, DefaultCheckInTime: 1, DefaultCheckOutTime: 1, BigCleaningAmount: 1, BigCleaningIn: 1, BigCleaningOut: 1,
-    AdminLineNotify: 1, DigestMorning: 1, DigestEvening: 1 };   // notification prefs (in-app inbox vs LINE + daily digests)
+    AdminLineNotify: 1, DigestMorning: 1, DigestEvening: 1,     // notification prefs (in-app inbox vs LINE + daily digests)
+    ContributionMatchRate: 1 };                                 // เงินสมทบ: school's share ÷ teacher's share
   var vals = p.values || {};
   var cfg = sheet_(getMainSpreadsheet_(), 'SCHOOL_CONFIG'), wrote = {};
   Object.keys(vals).forEach(function (k) {
@@ -342,7 +343,8 @@ function handleSetConfigVal(p) {
   p = p || {};
   var WHITE = { DiligenceAttendanceAmount: 1, DiligenceFacebookAmount: 1, ExtraChildRate: 1, TrainingCertRate: 1,
     TrainingCertMaxPerMonth: 1, SocialSecurityRate: 1, SocialSecurityMax: 1, OTRatePerHour: 1, OTGraceMinutes: 1,
-    StaffOTHourlyRate: 1, LateGraceMinutes: 1, OTRoundUpMinutes: 1, AbsenceRateExcludeDays: 1, DspmManualUrl: 1 };
+    StaffOTHourlyRate: 1, LateGraceMinutes: 1, OTRoundUpMinutes: 1, AbsenceRateExcludeDays: 1, DspmManualUrl: 1,
+    ContributionMatchRate: 1 };
   var key = String(p.key || '');
   if (!WHITE[key]) throw apiError_('BAD_INPUT', 'ไม่อนุญาตให้แก้ค่านี้: ' + key);
   setConfigValue_(key, p.value);

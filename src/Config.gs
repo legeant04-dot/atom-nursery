@@ -229,6 +229,8 @@ var SCHOOL_CONFIG_DEFAULTS = [
   // --- HR / Payroll defaults (used by Phase 2) ---
   ['OTRate',                '0'],            // baht per OT hour, or multiplier per HR policy
   ['OTEveningRate',         '0'],           // baht/hour for evening OT (ค่าสวงเวลาตอนเย็น) — set by HR
+  // เงินสมทบ: the school matches the teacher's deduction 1:1, so 200 deducted grows the fund by 400.
+  ['ContributionMatchRate', '1'],           // school's share ÷ teacher's share (0 = school adds nothing)
   ['DefaultCheckInTime',    '08:00'],
   ['DefaultCheckOutTime',   '17:00'],
   ['ForgotCheckInNotify',   '08:00'],       // daily reminder time if no check-in

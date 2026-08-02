@@ -112,7 +112,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.174'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.175'; // bump each webapp change; shown only at the bottom of the Chat screen
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
   const phoneFmt = p => { let d=String(p==null?'':p).replace(/\D/g,''); if(d.length===9) d='0'+d; return d; };
@@ -2238,6 +2238,10 @@
   // the sheet stores Adjustments as JSON text; the in-browser engine returns a real array
   const adjRows = r => { const a=r&&r.Adjustments; if(Array.isArray(a)) return a;
     if(typeof a==='string' && a.trim()){ try{ const v=JSON.parse(a); return Array.isArray(v)?v:[]; }catch(e){} } return []; };
+  // which earlier months the "ค้างจ่าย OT" line is made of — OTCarryDetail is JSON on the sheet row
+  function carryMonths(r){ let d=r.OTCarryDetail;
+    if(typeof d==='string'&&d){ try{ d=JSON.parse(d); }catch(e){ d=null; } }
+    return (Array.isArray(d)?d:[]).map(x=>monthNameYear(x.month)).join(', ')||'-'; }
   function payslipCard(r){ return `<div class="card"><h3>สลิป ${esc(staffName(r.StaffID))} · ${esc(r.Month)}</h3>
     ${r.LeaveExceeds?`<div style="background:var(--warn-bg);border:1px solid var(--warn-line);border-radius:8px;padding:6px 9px;margin-bottom:6px;color:var(--warn);font-size:13px">⚠️ ลาเกิน ${r.LeaveLimit||3} วัน (ลารวม ${r.LeaveDays} วัน) — ไม่คำนวณเรทจำนวนเด็ก</div>`:''}
     <table style="width:100%;font-size:14px;border-collapse:collapse">
@@ -2245,15 +2249,20 @@
     <tr><td>เบี้ยขยัน (มาครบ ${baht(r.DiligenceAttendance)} + FB ${baht(r.DiligenceFacebook)})</td><td style="text-align:right">${baht(r.DiligenceTotal)}</td></tr>
     <tr><td>รายได้อื่นๆ${r.ChildCount?` <small class="muted">(เด็ก ${r.ChildCount} คน × ${baht(r.ChildMultiplier)})</small>`:''}</td><td style="text-align:right">${baht(r.OtherIncome)}</td></tr>
     <tr><td>ค่าสวงเวลาตอนเย็น</td><td style="text-align:right">${baht(r.OTEvening)}</td></tr>
+    ${Number(r.OTCarry||0)?`<tr><td>ค้างจ่าย OT เดือนก่อน <small class="muted">(${esc(carryMonths(r))})</small></td><td style="text-align:right">${baht(r.OTCarry)}</td></tr>`:''}
     <tr><td>เงินพิเศษวันพักผ่อน</td><td style="text-align:right">${baht(r.HolidayBonus)}</td></tr>
     <tr style="border-top:1px solid var(--line)"><td><b>รวมรายได้</b></td><td style="text-align:right"><b>${baht(r.GrossIncome)}</b></td></tr>
     <tr><td>หัก ประกันสังคม</td><td style="text-align:right">-${baht(r.SocialSecurity)}</td></tr>
-    <tr><td>หัก เงินสมทบ</td><td style="text-align:right">-${baht(r.Contribution||0)}</td></tr>
+    <tr><td>หัก เงินสมทบ (พนักงาน)</td><td style="text-align:right">-${baht(r.Contribution||0)}</td></tr>
     ${Number(r.OtherDeductions||0)?`<tr><td>หัก อื่นๆ</td><td style="text-align:right">-${baht(r.OtherDeductions)}</td></tr>`:''}
     <tr><td><b>รวมหัก</b></td><td style="text-align:right"><b>-${baht(r.TotalDeductions)}</b></td></tr>
     ${adjRows(r).length?`<tr><td colspan="2"><small class="muted">${adjRows(r).map(a=>esc(a.label||'-')+' '+(Number(a.amount)<0?'−':'+')+baht(Math.abs(a.amount))).join(' · ')}</small></td></tr>`:''}
     <tr style="border-top:2px solid var(--blue)"><td><b>โอนเข้า ${esc(r.BankAccount)} (สุทธิ)</b></td><td style="text-align:right;color:var(--blue);font-size:18px"><b>${baht(r.NetPay)}</b></td></tr>
-    </table></div>`; }
+    </table>
+    ${Number(r.Contribution||0)||Number(r.ContributionAccum||0)?`<div style="margin-top:8px;padding-top:6px;border-top:1px dashed var(--line);font-size:13px" class="muted">
+      💰 เงินสมทบเดือนนี้: หักพนักงาน ${baht(r.Contribution||0)} + โรงเรียนสมทบ ${baht(r.ContributionEmployer!=null?r.ContributionEmployer:r.Contribution||0)}
+      · <b style="color:var(--ink)">เงินสมทบสะสมรวม ${baht(r.ContributionAccum||0)}</b></div>`:''}
+    </div>`; }
 
   // ================= ADMIN =================
   const pctColor = p => p>=100?'var(--ok)':p>=90?'var(--warn-2)':'var(--bad-2)'; // green / amber / red attendance
@@ -2463,8 +2472,10 @@
         <label class="field" style="margin:6px 0 0"><span>${esc(t('pay.childCount'))} <small class="muted">(${esc(t('pay.autoEditable'))})</small></span><input id="pChild" type="number" value="0"/></label></div>
       <div class="grid2"><label class="field"><span>${esc(t('pay.cert'))}</span><input id="pCert" type="number" value="0"/></label>
         <label class="field"><span>${esc(t('pay.otEvening'))} <small id="otNote" class="muted"></small></span><input id="pOt" type="number" value="0"/></label></div>
+      <div id="otCarryBox"></div>
       <div class="grid2"><label class="field"><span>${esc(t('pay.holidayBonus'))}</span><input id="pHb" type="number" value="0"/></label>
-        <label class="field"><span>${EN()?'Contribution (deducted)':'เงินสมทบ (หัก)'}</span><input id="pContrib" type="number" value="0"/></label></div>
+        <label class="field"><span>${EN()?'Contribution — deducted from staff':'เงินสมทบ (หักจากพนักงาน)'}</span><input id="pContrib" type="number" value="0" oninput="A_contribNote()"/></label></div>
+      <div id="contribNote" class="muted" style="font-size:13px;margin:-4px 2px 8px"></div>
       <div class="card" style="background:var(--surface-2)"><div class="spread"><b style="font-size:13px">➕ ${esc(t('pay.adjustments'))}</b><button class="btn sm outline" onclick="A_addAdj()">+ ${esc(t('pay.addAdj'))}</button></div>
         <p class="muted" style="font-size:13px">${esc(t('pay.adjNote'))}</p><div id="adjList"></div></div>
       <div class="row" style="gap:8px"><button class="btn outline" style="flex:1" onclick="A_calc(false)">🧮 ${esc(t('c.calc'))}</button>
@@ -2487,10 +2498,23 @@
     $('#pFbAmt').value=pc.DiligenceFacebookAmount!=null?pc.DiligenceFacebookAmount:MOCK.config.DiligenceFacebookAmount;
     $('#pThreshold').value=pc.ChildThreshold||31;
     { const c=$('#pContrib'); if(c) c.value=pc.Contribution||0; }
-    A_payTypeToggle(); A_recalcChild();
-    // auto-pull this staff's OT hours for the selected month into the OT field
-    try{ const ot=await api('staffMonthlyOT',{staffId:sid,month:$('#pMonth').value}); if(stale())return; $('#pOt').value=ot.amount;
+    A_payTypeToggle(); A_recalcChild(); A_contribNote();
+    // auto-pull this staff's APPROVED OT for the selected month into the OT field
+    let otAuto=null;
+    try{ const ot=await api('staffMonthlyOT',{staffId:sid,month:$('#pMonth').value}); if(stale())return; otAuto=ot; $('#pOt').value=ot.amount;
       const n=$('#otNote'); if(n) n.innerHTML=`(${EN()?'auto':'อัตโนมัติ'} ${ot.hours} ${EN()?'hr':'ชม.'} × ${baht(ot.rate)})`; }catch(e){}
+    // OT approved after an EARLIER month's payroll was saved was never paid — it is owed now, as its
+    // own line, so the earlier slip stays exactly as it was signed off (see otCarryOver_ in Payroll.gs)
+    try{ const cy=await api('otCarryOver',{staffId:sid,month:$('#pMonth').value}); if(stale())return;
+      const box=$('#otCarryBox'); if(!box) return;
+      if(cy && Number(cy.total)>0){
+        const list=(cy.detail||[]).map(d=>`${esc(monthNameYear(d.month))} ${baht(d.amount)}`).join(' · ');
+        box.innerHTML=`<div class="card" style="background:var(--warn-bg);border-color:var(--warn-line);padding:8px">
+          <label class="field" style="margin:0"><span style="color:var(--warn)">⏰ ${EN()?'Unpaid OT carried from earlier months':'ค้างจ่าย OT เดือนก่อนหน้า'}</span>
+          <input id="pOtCarry" type="number" value="${Number(cy.total)}"/></label>
+          <small class="muted">${EN()?'Approved after that month’s salary had already been paid':'อนุมัติหลังจากจ่ายเงินเดือนของเดือนนั้นไปแล้ว'} — ${list}</small></div>`;
+      } else box.innerHTML='';
+    }catch(e){}
     // A saved payslip is the record of what was actually paid, so reopening the month must show THAT,
     // not a fresh form with defaults — otherwise there is no way to check a previous month or to see
     // what a figure was made of. Load it back into every field and show the slip as saved.
@@ -2501,7 +2525,13 @@
         set('#pChild',saved.ExtraChildCount!=null?saved.ExtraChildCount:saved.ChildCount);
         set('#pThreshold',saved.ChildThreshold); set('#pChildMul2',saved.ChildMultiplier);
         set('#pCert',saved.TrainingCertCount||0); set('#pOt',saved.OTEvening||0); set('#pHb',saved.HolidayBonus||0);
-        set('#pContrib',saved.Contribution||0);
+        set('#pContrib',saved.Contribution||0); A_contribNote();
+        // Approved OT must ALWAYS reach this field. If more was approved after the slip was saved, the
+        // saved figure is stale — show the approved total and say so, rather than silently under-paying.
+        if(otAuto && Number(otAuto.amount||0) > Number(saved.OTEvening||0)+0.5){
+          set('#pOt',otAuto.amount);
+          const n=$('#otNote'); if(n) n.innerHTML=`<span style="color:var(--warn)">⚠️ ${EN()?`approved ${baht(otAuto.amount)} > saved ${baht(saved.OTEvening||0)} — recalculate & save`:`อนุมัติแล้ว ${baht(otAuto.amount)} มากกว่าที่บันทึกไว้ ${baht(saved.OTEvening||0)} — กดคำนวณและบันทึกใหม่`}</span>`;
+        }
         // the amounts are stored as PAID (0 when not eligible), so >0 is what tells us the box was ticked
         if($('#pAtt')) $('#pAtt').checked=Number(saved.DiligenceAttendance||0)>0;
         if($('#pFb'))  $('#pFb').checked=Number(saved.DiligenceFacebook||0)>0;
@@ -2522,6 +2552,15 @@
         if(w) w.innerHTML=`<div style="background:var(--warn-bg);border:1px solid var(--warn-line);border-radius:8px;padding:7px 9px;margin-bottom:6px;color:var(--warn);font-size:13px">⚠️ ${EN()?`Leave ${ls.days} days (> ${ls.limit}) this month — child-rate income not calculated. You can still enter a count manually.`:`ลาเกิน ${ls.limit} วัน (ลารวม ${ls.days} วัน) เดือนนี้ — ไม่คำนวณเรทจำนวนเด็กให้ · กรอกจำนวนเองได้หากต้องการ`}</div>`;
       } else if(w){ w.innerHTML=''; } }catch(e){} };
   window.A_payTypeToggle=()=>{ const daily=$('#pType').value==='daily'; $('#pMonthlyBox').hidden=daily; $('#pDailyBox').hidden=!daily; };
+  // เงินสมทบ is a savings fund, not a cost: the teacher's half is deducted and the school matches it,
+  // so the fund grows by both halves. Spell that out under the field — 200 deducted → +400 saved.
+  window.A_contribNote=()=>{ const el=$('#contribNote'), f=$('#pContrib'); if(!el||!f) return;
+    const v=Number(f.value||0); const mr=Number(MOCK.config.ContributionMatchRate!=null?MOCK.config.ContributionMatchRate:1);
+    if(!v){ el.innerHTML=''; return; }
+    const emp=Math.round(v*mr*100)/100;
+    el.innerHTML=EN()
+      ? `Deducted from staff ${baht(v)} + school matches ${baht(emp)} → <b>${baht(v+emp)}</b> added to the fund this month`
+      : `หักจากพนักงาน ${baht(v)} + โรงเรียนสมทบ ${baht(emp)} → เข้ากองทุนเดือนนี้ <b>${baht(v+emp)}</b>`; };
   // auto child-rate count from DB: children from #threshold onward = rated − (threshold−1)
   window.A_recalcChild=()=>{ const r=window._RATED||{}; const th=+$('#pThreshold').value||31; const cnt=Math.max(0,(r.rated||0)-(th-1)); $('#pChild').value=cnt;
     setHTML('#childCalc', `${esc(t('abs.rated'))} <b>${r.rated||0}</b> <span class="muted">(${esc(t('abs.rateNote').replace('{n}',r.excludeDays||6).replace('{x}',r.excluded||0))})</span> − ${esc(t('pay.fromChild'))} #${th} → <b style="color:var(--blue)">${cnt} ${EN()?'children':'คน'}</b>`); };
@@ -2531,6 +2570,9 @@
     box.innerHTML=PAY_ADJ.map((a,i)=>`<div class="grid3" style="margin-bottom:6px;grid-template-columns:1fr 90px 36px"><input value="${esc(a.label)}" placeholder="${esc(t('pay.adjLabel'))}" oninput="PAY_ADJ_SET(${i},'label',this.value)"/><input type="number" value="${a.amount}" placeholder="±0" oninput="PAY_ADJ_SET(${i},'amount',this.value)"/><button class="btn sm pink" onclick="A_delAdj(${i})" aria-label="${EN()?"Delete":"ลบ"}" title="${EN()?"Delete":"ลบ"}">✕</button></div>`).join(''); }
   window.PAY_ADJ_SET=(i,k,v)=>{ PAY_ADJ[i][k]= k==='amount'?Number(v||0):v; };
   window.A_calc=async(commit)=>{ const payType=$('#pType').value; const p={staffId:$('#pStaff').value,month:$('#pMonth').value,payType,baseSalary:+$('#pBase').value,dailyRate:+$('#pDaily').value,daysWorked:+$('#pDays').value,childMultiplier:+$('#pChildMul2').value,childThreshold:+$('#pThreshold').value,diligenceAttend:+$('#pAttendAmt').value,diligenceFb:+$('#pFbAmt').value,socialSecurityDeduct:$('#pSS').checked,facebookPosted:$('#pFb').checked,attendanceEligible:$('#pAtt').checked,extraChildCount:+$('#pChild').value,trainingCertCount:+$('#pCert').value,otEvening:+$('#pOt').value,holidayBonus:+$('#pHb').value,contribution:+($('#pContrib')||{}).value||0,adjustments:PAY_ADJ.filter(a=>a.label||a.amount)};
+    // Only override the carry-over when the field is actually on screen. Sending 0 unconditionally
+    // would wipe a genuine carry whenever its fetch was still in flight.
+    { const c=$('#pOtCarry'); if(c) p.otCarry=+c.value||0; }
     // the per-staff SETTINGS are remembered either way; only the payslip itself waits for "บันทึก"
     await api('setPayrollConfig',{staffId:p.staffId,config:{PayType:payType,DailyRate:p.dailyRate,ChildMultiplier:p.childMultiplier,ChildThreshold:p.childThreshold,DiligenceAttendanceAmount:p.diligenceAttend,DiligenceFacebookAmount:p.diligenceFb,SocialSecurityDeduct:p.socialSecurityDeduct,Contribution:p.contribution}});
     // the base salary belongs to the STAFF record, and setPayrollConfig never carried it — so the
@@ -3523,6 +3565,11 @@
       <div class="grid2"><label class="field"><span>${esc(t('set.attendAmt'))}</span><input id="setAtt" type="number" value="${cfg.DiligenceAttendanceAmount}"/></label>
         <label class="field"><span>${esc(t('set.fbAmt'))}</span><input id="setFb" type="number" value="${cfg.DiligenceFacebookAmount}"/></label></div>
       <p class="muted" style="font-size:13px">🧹 ${EN()?'Big Cleaning days moved to':'วัน Big Cleaning ย้ายไปที่'} <a href="#" onclick="event.preventDefault();this.closest('.modal').remove();GO_('holidays')"><b>${esc(t('manage.holidays'))}</b></a></p>
+      <h4 style="margin:6px 0">⏰ ${EN()?'Staff OT & provident fund':'OT พนักงาน & เงินสมทบ'}</h4>
+      <div class="grid2"><label class="field"><span>${EN()?'Staff OT (฿/hour)':'OT พนักงาน (฿/ชั่วโมง)'}</span><input id="setOtRate" type="number" min="0" value="${esc(sc.StaffOTHourlyRate!=null?sc.StaffOTHourlyRate:100)}"/></label>
+        <label class="field"><span>${EN()?'School match (× staff share)':'โรงเรียนสมทบ (เท่าของยอดหักพนักงาน)'}</span><input id="setMatch" type="number" min="0" step="0.1" value="${esc(sc.ContributionMatchRate!=null?sc.ContributionMatchRate:1)}"/></label></div>
+      <p class="muted" style="font-size:13px">${EN()?'Match 1 = deduct 200 from staff, school adds 200, fund grows 400.':'สมทบ 1 เท่า = หักพนักงาน 200 · โรงเรียนสมทบ 200 · เข้ากองทุน 400'}</p>
+      <button class="btn sm outline block" onclick="A_contribRecalc(this)">🧮 ${EN()?'Review accumulated fund totals':'ตรวจยอดเงินสมทบสะสมของทุกคน'}</button>
       <h4 style="margin:6px 0">${esc(t('set.leaveQuota'))}</h4>
       ${Object.keys(q).map(k=>`<label class="field"><span>${esc(tLeaveType(k))}</span><input type="number" id="lq_${esc(k)}" value="${q[k]}"/></label>`).join('')}
       <h4 style="margin:10px 0 4px">🔔 ${EN()?'Notifications':'การแจ้งเตือน'}</h4>
@@ -3534,6 +3581,29 @@
       <p class="muted" style="font-size:13px">${EN()?'Digests skip weekends & holidays. Run "Apply" once after enabling.':'สรุปจะข้ามวันหยุด/เสาร์-อาทิตย์ · กด "อัปเดตตาราง" 1 ครั้งหลังเปิดใช้'}</p>
       <button class="btn block" onclick="A_saveSettings(this)">${esc(t('c.save'))}</button>`);
   };
+  // ---- accumulated เงินสมทบ: review before overwriting ----------------------------------------
+  // The fund total used to be built from the staff half only. Correcting the formula changes a stored
+  // figure for every teacher, so this NEVER writes on its own — it shows before/after per person and
+  // waits for a second, explicit press. Rows ticked "locked" are listed but left alone.
+  window.A_contribRecalc=async(btn)=>{ if(btn)btn.disabled=true;
+    try{ const r=await api('recomputeContributions',{preview:true});
+      if(!r||!r.changed){ toast(EN()?'All fund totals already correct':'ยอดเงินสมทบสะสมถูกต้องอยู่แล้วทุกคน'); return; }
+      const rows=(r.rows||[]).map(x=>`<tr><td>${esc(x.name)}${x.locked?' 🔒':''}<br><small class="muted">${x.months} ${EN()?'months':'เดือน'} · ${EN()?'opening':'ยอดตั้งต้น'} ${baht(x.opening)}</small></td>
+        <td style="text-align:right">${baht(x.before)}</td>
+        <td style="text-align:right;color:var(--ok)"><b>${baht(x.after)}</b><br><small class="muted">${x.diff>0?'+':''}${baht(x.diff)}</small></td></tr>`).join('');
+      const locked=(r.rows||[]).filter(x=>x.locked).length;
+      modal(`<h3>💰 ${EN()?'Accumulated fund — review':'ตรวจยอดเงินสมทบสะสม'}</h3>
+        <p class="muted" style="font-size:13px">${EN()?`School match ×${r.matchRate}. ${r.changed} staff would change. Nothing is saved until you press Apply.`:`โรงเรียนสมทบ ${r.matchRate} เท่า · จะเปลี่ยน ${r.changed} คน · ยังไม่บันทึกจนกว่าจะกดยืนยัน`}</p>
+        <table style="width:100%;font-size:14px;border-collapse:collapse"><thead><tr><th style="text-align:left">${EN()?'Staff':'พนักงาน'}</th><th style="text-align:right">${EN()?'Before':'เดิม'}</th><th style="text-align:right">${EN()?'After':'ใหม่'}</th></tr></thead><tbody>${rows}</tbody></table>
+        ${locked?`<p class="muted" style="font-size:13px">🔒 ${EN()?`${locked} have a locked opening balance — that figure is not touched, only the running total is rebuilt.`:`ล็อคยอดตั้งต้นไว้ ${locked} คน — ยอดตั้งต้นไม่ถูกแตะ คำนวณใหม่เฉพาะยอดสะสมรวม`}</p>`:''}
+        <button class="btn block" onclick="A_contribApply(this)">✅ ${EN()?'Apply these totals':'ยืนยันบันทึกยอดใหม่'}</button>`);
+    }catch(e){err(e);}finally{ if(btn)btn.disabled=false; } };
+  window.A_contribApply=async(btn)=>{ if(btn)btn.disabled=true;
+    try{ const r=await api('recomputeContributions',{preview:false,adminId:USER.staffId});
+      const m=btn.closest('.modal'); if(m)m.remove();
+      confirmSaved(EN()?`Updated ${r.written} staff`:`บันทึกแล้ว ${r.written} คน`);
+    }catch(e){err(e);}finally{ if(btn)btn.disabled=false; } };
+
   // Big Cleaning Day add/remove — persist immediately (also save the amount field first so it isn't lost)
   window.A_bcAdd=async()=>{ const d=document.getElementById('bcDate').value; if(!d){toast(EN()?'Pick a date':'เลือกวันที่');return;}
     const amt=document.getElementById('setBC'); if(amt) await api('setSchoolConfig',{values:{BigCleaningAmount:+amt.value||0}});
@@ -3553,6 +3623,8 @@
     if(Object.keys(gv).length) await api('setSchoolConfig',{values:gv});
     await api('setConfigVal',{key:'DiligenceAttendanceAmount',value:+m.querySelector('#setAtt').value});
     await api('setConfigVal',{key:'DiligenceFacebookAmount',value:+m.querySelector('#setFb').value});
+    { const o=m.querySelector('#setOtRate'); if(o) await api('setConfigVal',{key:'StaffOTHourlyRate',value:+o.value||100}); }
+    { const c=m.querySelector('#setMatch'); if(c) await api('setConfigVal',{key:'ContributionMatchRate',value:c.value===''?1:+c.value}); }
     for(const el of m.querySelectorAll('input[id^="lq_"]')){ const type=el.id.slice(3); if(!type) continue;
       await api('setLeaveQuota',{type,days:+el.value||0}); }
     m.remove(); confirmSaved(t('c.saved')); };
@@ -3895,7 +3967,9 @@
     let s=(A_CACHE.staff||[]).find(x=>x.StaffID===sid);
     if(!s){ try{ const list=await api('listStaff'); if(list&&list.length){ A_CACHE.staff=list; s=list.find(x=>x.StaffID===sid); } }catch(e){} }
     s=s||{};
-    let otTotal=0; try{ const mo=await api('staffMonthlyOT',{staffId:sid,month}); otTotal=(mo||[]).reduce((a,o)=>a+Number(o.Amount||0),0); }catch(e){}
+    // staffMonthlyOT returns a SUMMARY OBJECT {hours, rate, amount}, not an array — the old .reduce()
+    // threw on every call and the catch swallowed it, so "OT อนุมัติเดือนนี้" always displayed 0.
+    let otTotal=0; try{ const mo=await api('staffMonthlyOT',{staffId:sid,month}); otTotal=Number((mo&&mo.amount)||0); }catch(e){}
     let pay=null; try{ pay=await api('getPayslip',{staffId:sid,month}); }catch(e){}   // null = nothing saved yet
     modal(`<h3>👩‍🏫 ${esc(dispNick(s)||sid)} ${nmSub(s)?`<small class="muted" style="font-size:13px;font-weight:400">${esc(nmSub(s))}</small>`:''}${s.Position?` <small class="muted" style="font-size:13px">${_notr(s.Position)}</small>`:''}</h3>
       <div class="card" style="padding:8px"><label class="field"><span>${EN()?'Base salary (฿/month)':'ฐานเงินเดือน (฿/เดือน)'}</span><input id="fsBase" type="number" min="0" value="${esc(s.BaseSalary!=null?s.BaseSalary:'')}"/></label>
@@ -4117,13 +4191,13 @@
             <td class="n de">${Number(p.SocialSecurity||0)?baht(p.SocialSecurity):'-'}</td><td class="n de">${baht(p.Contribution||0)}</td>
             <td class="n de">${baht(p.OtherDeductions)}</td>
             <td class="n net" rowspan="3">${baht(p.NetPay)}</td></tr>
-        <tr><td class="lbl">ค่าล่วงเวลาตอนเย็น</td><td class="n in">${baht(p.OTEvening)}</td>
+        <tr><td class="lbl">ค่าล่วงเวลาตอนเย็น${Number(p.OTCarry||0)?' + ค้างจ่าย*':''}</td><td class="n in">${baht(Number(p.OTEvening||0)+Number(p.OTCarry||0))}</td>
             <td class="lbl">เงินพิเศษวันพักผ่อน</td><td class="n in">${baht(p.HolidayBonus)}</td>
             <td class="lbl">รวมหัก</td><td class="n">${baht(p.TotalDeductions)}</td></tr>
         <tr><td colspan="4" class="sub lft">${minus.map(a=>esc(a.label||'')).filter(Boolean).join(' · ')||'&nbsp;'}</td>
             <td class="lbl">รวมรายได้</td><td class="n">${baht(p.GrossIncome)}</td></tr>
       </tbody></table>
-      <div class="acc"><b>${baht(p.ContributionAccum||p.Contribution||0)}</b> เงินสมทบสะสม</div>
+      <div class="acc">${Number(p.OTCarry||0)?`<span style="color:#1565C0">*รวมค้างจ่าย OT ${esc(carryMonths(p))} ${baht(p.OTCarry)}</span> &nbsp;·&nbsp; `:''}เงินสมทบเดือนนี้ หักพนักงาน ${baht(p.Contribution||0)} + โรงเรียนสมทบ ${baht(p.ContributionEmployer!=null?p.ContributionEmployer:p.Contribution||0)} · <b>${baht(p.ContributionAccum||p.Contribution||0)}</b> เงินสมทบสะสม</div>
       <div class="fn"><b>เบี้ยขยัน<sup>1</sup></b> คำนวณจากการมาทำงานทุกวันของแต่ละเดือน โดยไม่ลา ไม่มาสาย (${baht(p.DiligenceAttendance)})+Post รูป Facebook (${baht(p.DiligenceFacebook)})<br>
         <b>รายได้อื่น ๆ<sup>2</sup></b> คำนวณจากจำนวนเด็กตั้งแต่คนที่ ${esc(p.ChildThreshold||31)} (ที่มาอยู่เต็มเดือน ${baht(p.ChildMultiplier||300)}/คน)* &nbsp; **ใบประกาศอบรม 100/ใบ สูงสุด 2 ใบ/เดือน</div></div>`; };
     let pages=''; for(let i=0;i<rows.length;i+=3) pages+=`<div class="sheet">${rows.slice(i,i+3).map(card).join('<div class="cut"></div>')}</div>`;

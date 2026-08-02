@@ -138,6 +138,8 @@ var ROUTES = {
   computePayroll: function (p) { return handleComputePayroll(p); },
   getPayslip:     function (p) { return handleGetPayslip(p); },
   markSalaryPaid: function (p) { return handleMarkSalaryPaid(p); },   // admin-only: salary transferred (+ slip)
+  otCarryOver:    function (p) { return handleOtCarryOver(p); },      // OT approved after an earlier payroll was saved
+  recomputeContributions: function (p) { return handleRecomputeContributions(p); },  // admin-only, preview-first
   // Day 6 — PCHI insurance (fill-once) + SlipOK slip verification
   insuranceStatus:    function (p) { return handleInsuranceStatus(p); },
   submitInsurance:    function (p) { return handleSubmitInsurance(p); },
@@ -201,7 +203,7 @@ function applyIdentity_(action, payload, sess) {
     addAnnouncement: 1, editAnnouncement: 1, deleteAnnouncement: 1, reindexAnnouncements: 1, reindexParents: 1, checkDuplicateIds: 1,
     saveDspmCriteria: 1, deleteDspmCriteria: 1,
     editStudentLeave: 1, deleteStudentLeave: 1, deleteStudentLeaves: 1, dedupData: 1, lineDiag: 1,
-    adminInbox: 1, markInboxRead: 1, reinstallTriggers: 1, unlinkStudent: 1, linkParentAdmin: 1, setLeaveQuota: 1, setConfigVal: 1, markSalaryPaid: 1, notifyBills: 1, issueBillsFor: 1, savePlans: 1, saveQRCodes: 1, prepayAudit: 1,
+    adminInbox: 1, markInboxRead: 1, reinstallTriggers: 1, unlinkStudent: 1, linkParentAdmin: 1, setLeaveQuota: 1, setConfigVal: 1, markSalaryPaid: 1, notifyBills: 1, issueBillsFor: 1, savePlans: 1, saveQRCodes: 1, prepayAudit: 1, recomputeContributions: 1,
     parentKidsMap: 1 };  // every parent's children by name — admin-only (PII)
   if (ADMIN_ONLY[action] && sess.role !== 'Admin') throw apiError_('NO_PERMISSION', 'เฉพาะแอดมิน');
   // Admin is fully trusted: may target ANY staff/student/parent (manage everyone + "view as" any role).
@@ -262,7 +264,7 @@ function dispatch_(action, payload, token) {
 var MUTATING_RE = /^(submit|save|add|remove|delete|set|register|pay|upload|confirm|reject|issue|generate|move|import|compute|cancel|prepay|link|notify|request|mark|approve|edit|rename|update|change|seed|recompute|restore|bind|provision)/i;
 // dedupData/reindex* mutate but don't start with a MUTATING_RE verb — force them to take the write lock
 // (they read row indices then delete, so a concurrent append would shift rows and delete the wrong one).
-function isMutatingAction_(a) { a = String(a || ''); return MUTATING_RE.test(a) || /check(in|out)|absence|^dedup|^reindex|payOT$|^orgMove|^unlink|^claim/i.test(a); }
+function isMutatingAction_(a) { a = String(a || ''); return MUTATING_RE.test(a) || /check(in|out)|absence|^dedup|^reindex|payOT$|^orgMove|^unlink|^claim|^recompute/i.test(a); }
 
 /** Run fn under a script lock when it may write. Reads run unlocked (no queueing). */
 function withWriteLock_(needed, fn) {
