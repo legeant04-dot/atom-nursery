@@ -41,6 +41,8 @@ window.MOCK = {
     StaffOTHourlyRate: 100, // baht/hour for teacher OT, flat (auto-pulled into payroll). 'auto' = 1.5 × salary/30/8
     // เงินสมทบ: the school matches the teacher's deduction 1:1, so 200 deducted grows the fund by 400
     ContributionMatchRate: 1,
+    // ชำระล่วงหน้า discount tiers — school pricing, edited from Admin → แพ็กเกจการเรียน
+    PrepayTiers: [{months:3,discount:5},{months:6,discount:10},{months:12,discount:15}],
     // --- Payment QR images (drop the real QR files in webapp/assets with these names) ---
     QRCode_Monthly: 'assets/qr_scb.jpg',  // SCB PromptPay — monthly tuition
     QRCode_OT: 'assets/qr_ktb.jpg',       // KTB PromptPay — daily OT
