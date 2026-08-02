@@ -112,7 +112,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.176'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.177'; // bump each webapp change; shown only at the bottom of the Chat screen
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
   const phoneFmt = p => { let d=String(p==null?'':p).replace(/\D/g,''); if(d.length===9) d='0'+d; return d; };
@@ -417,7 +417,10 @@
       if(rk==='journal'&&sid){ if(role==='Admin') return ()=>A_viewJournal(sid,date);
         if(role==='Parent') return ()=>{ if(window.P_showJ)P_showJ(sid,date); else GO('journal'); };
         // staff: show the report that was sent (the viewer offers an edit button when it is today)
-        return ()=>{ if(window.A_viewJournal) A_viewJournal(sid,date); else if(window.T_journal) T_journal(sid); else GO('class'); }; } }
+        return ()=>{ if(window.A_viewJournal) A_viewJournal(sid,date); else if(window.T_journal) T_journal(sid); else GO('class'); }; }
+      // an emergency carries the report id, so the notification opens the report the teacher filed
+      // rather than dropping the admin on the dashboard with nothing to read
+      if(rk==='injury'&&sid) return ()=>{ if(window.A_viewInjury) A_viewInjury(sid); else GO('home'); }; }
     const has=re=>re.test(s);
     let key = cat==='comment'?'journal':cat==='leave'?'leave':cat==='ot'?'ot':cat==='registration'?'register':cat==='emergency'?'injury':cat==='payment'?'verify':cat==='digest'?'home':'';
     if(!key){ if(has(/ความคิดเห็น|คอมเมนต์|comment|ตอบกลับ|reply|บันทึกของ|รายงาน/i))key='journal';
@@ -428,7 +431,7 @@
       else if(has(/สรุปประจำวัน|digest/i))key='home'; }
     if(!key) return null;
     // map the logical key to the actual screen for this role
-    const M={ Admin:{journal:()=>A_journals&&A_journals(), leave:()=>GO('leaves'), ot:()=>GO('manage'), register:()=>GO('manage'), verify:()=>GO('verify'), injury:()=>GO('home'), home:()=>GO('home')},
+    const M={ Admin:{journal:()=>A_journals&&A_journals(), leave:()=>GO('leaves'), ot:()=>GO('manage'), register:()=>GO('manage'), verify:()=>GO('verify'), injury:()=>GO('injuries'), home:()=>GO('home')},
       Teacher:{journal:()=>GO('class'), leave:()=>GO('leave'), ot:()=>GO('slip'), register:null, verify:null, injury:()=>GO('injury'), home:()=>GO('home')},
       Parent:{journal:()=>GO('journal'), leave:()=>GO('home'), ot:()=>GO('payment'), register:null, verify:()=>GO('payment'), injury:()=>GO('home'), home:()=>GO('home')} };
     const fn=(M[role]||{})[key]; return fn||null; }
@@ -1449,7 +1452,8 @@
     const multiBtn = `<div class="card" style="background:var(--blue-bg);border-color:var(--blue-line)"><div class="spread"><div><b>💳 ${EN()?'Pay several items in one slip':'จ่ายหลายรายการในสลิปเดียว'}</b><br><small class="muted">${EN()?'Tick tuition / extra charges / OT (any child) — one transfer, the system checks the total.':'ติ๊กค่าเทอม / ค่าเพิ่มเติม / OT (ลูกคนไหนก็ได้) โอนครั้งเดียว ระบบตรวจยอดรวมให้'}</small></div><button class="btn sm" onclick="P_combinedPay()">💳 ${EN()?'Combined':'จ่ายรวม'}</button></div></div>`;
     // one tab per child so a parent with >1 child can see EACH child's bills (not just the first)
     const switcher = kids.length>1 ? `<div class="seg" id="paySeg" style="margin-bottom:8px">${kids.map((k,i)=>`<button class="${i===0?'active':''}" onclick="P_paySel(${i})">${esc(dispNick(k))}</button>`).join('')}</div>` : '';
-    app.innerHTML = `<h2 class="page">${esc(t('title.payment'))}${kids.length===1?` · <span style="color:var(--blue)">${esc(dispNick(kids[0]))}</span>`:''}</h2>${multiBtn}${switcher}<div id="payBody"><div class="card muted">${EN()?'Loading…':'กำลังโหลด…'}</div></div>`;
+    const logBtn = `<div class="row" style="margin-bottom:8px"><button class="btn sm outline block" onclick="A_payLog()">🧾 ${EN()?'My payment history':'ประวัติการชำระเงินของฉัน'}</button></div>`;
+    app.innerHTML = `<h2 class="page">${esc(t('title.payment'))}${kids.length===1?` · <span style="color:var(--blue)">${esc(dispNick(kids[0]))}</span>`:''}</h2>${multiBtn}${logBtn}${switcher}<div id="payBody"><div class="card muted">${EN()?'Loading…':'กำลังโหลด…'}</div></div>`;
     P_paySel(0);
   };
   // render the payment section for the selected child (index into _PAY_KIDS)
@@ -1610,8 +1614,22 @@
              : await api('uploadSlip',Object.assign({billingId:id},args));
       m.remove();
       const out=Number(r&&r.outstanding||0);
-      confirmSaved(out>0 ? (EN()?`Slip submitted. Remaining balance ${baht(out)} — you can attach more.`:`ส่งสลิปแล้ว ยอดค้าง ${baht(out)} — แนบสลิปเพิ่มได้`) : t('slip.submittedReview'));
-      if(kind==='teacherOt'){ if(window.T_studentOT) T_studentOT(); } else GO('payment'); }catch(e){err(e);} finally{ if(btn)btn.disabled=false; } };
+      if(kind==='teacherOt'){ confirmSaved(t('slip.submittedReview')); if(window.T_studentOT) T_studentOT(); }
+      else { P_thanks(amt, out); GO('payment'); }
+    }catch(e){err(e);} finally{ if(btn)btn.disabled=false; } };
+  // A parent has just paid the school. Say thank you properly — this is the one moment in the app
+  // where the family has done something for us, and a grey toast was all they got.
+  window.P_thanks=(amount, outstanding)=>{ const out=Number(outstanding||0);
+    modal(`<div style="text-align:center;padding:4px 2px">
+      <div style="font-size:46px;line-height:1.1">🙏</div>
+      <h3 style="margin:6px 0 2px">${EN()?'Thank you':'ขอบพระคุณค่ะ'}</h3>
+      ${amount?`<div style="font-size:22px;font-weight:700;color:var(--blue);margin:2px 0 6px">${baht(amount)}</div>`:''}
+      <p style="font-size:14px;line-height:1.7;margin:0 6px">${EN()
+        ? 'We have received your slip and will confirm it shortly. Thank you for trusting us with your child — every day they are with us, we look after them as our own.'
+        : 'ทางโรงเรียนได้รับสลิปของคุณเรียบร้อยแล้ว และจะตรวจสอบให้โดยเร็วที่สุดค่ะ<br><br>ขอบพระคุณที่ไว้วางใจให้เราดูแลลูกของคุณ ทุกวันที่น้องอยู่กับเรา เราดูแลเหมือนลูกของเราเองค่ะ 💛'}</p>
+      ${out>0?`<div class="card" style="background:var(--warn-bg);border-color:var(--warn-line);color:var(--warn);margin-top:10px;padding:8px;font-size:13px">
+        ${EN()?`Remaining balance ${baht(out)} — you can attach another slip any time.`:`ยังมียอดค้างอีก ${baht(out)} · แนบสลิปเพิ่มได้ทุกเมื่อค่ะ`}</div>`:''}
+      <button class="btn block" style="margin-top:12px" onclick="this.closest('.modal').remove()">${EN()?'You’re welcome':'ยินดีค่ะ'}</button></div>`); };
   // notify a CASH payment — staff confirm + record the payment date afterward
   window.P_cash=(kind,id,amt)=>{ modal(`<div style="text-align:center"><h3>💵 ${esc(t('pay.payCash'))}</h3>
     <p class="muted" style="font-size:13px">${esc(t('pay.cashNote'))}</p>
@@ -1619,7 +1637,8 @@
     <button class="btn block" onclick="P_cashDo('${kind}','${id}',${amt},this)">${esc(t('c.confirm'))}</button>
     <button class="btn outline block" style="margin-top:8px" onclick="this.closest('.modal').remove()">${esc(t('c.close'))}</button></div>`); };
   window.P_cashDo=async(kind,id,amt,btn)=>{ const m=btn.closest('.modal');
-    try{ await api('notifyCash',{kind,id,amount:amt,parentId:USER.parentId,uid:USER.uid}); m.remove(); confirmSaved(t('pay.cashNotified')); GO('payment'); }catch(e){err(e);} };
+    try{ await api('notifyCash',{kind,id,amount:amt,parentId:USER.parentId,uid:USER.uid}); m.remove();
+      toast(t('pay.cashNotified')); P_thanks(amt,0); GO('payment'); }catch(e){err(e);} };
 
   // ---- combined payment: one slip, several items (2-level tick: child → each outstanding item) ----
   // items now include tuition bill + each extra charge + each open OT (item-level ticking).
@@ -1669,7 +1688,7 @@
     const dataUrl=await new Promise(r=>{const fr=new FileReader();fr.onload=()=>r(fr.result);fr.readAsDataURL(f);});
     if(btn)btn.disabled=true;
     try{ const r=await api('payCombined',{items:_COMB.items, slipAmount:amt, fromQR, slipName:f.name, slipData:dataUrl});
-      m.remove(); confirmSaved(EN()?`Slip submitted — ${r.count} items (฿${r.total}) — admin will verify.`:`ส่งสลิปแล้ว ${r.count} รายการ (฿${r.total}) — แอดมินจะตรวจสอบ`); GO('payment'); }
+      m.remove(); toast(EN()?`Slip submitted — ${r.count} items`:`ส่งสลิปแล้ว ${r.count} รายการ`); P_thanks(r.total,0); GO('payment'); }
     catch(e){ err(e); if(btn)btn.disabled=false; } };
 
   // tabs to switch between linked children on a parent screen (calls fn(otherStudentId))
@@ -2023,8 +2042,57 @@
       <div class="card" style="margin-top:12px"><h3>🗒️ ${esc(t('inj.recent'))}</h3><div id="injRecent">${injuryListHTML(recent)}</div></div>`;
   };
   function injuryListHTML(rows){ if(!rows||!rows.length)return `<small class="muted">${esc(t('c.noItems'))}</small>`;
-    return rows.slice(0,10).map(r=>{ const types=(r.InjuryTypes||[]).map(n=>{const it=INJURY_TYPES.find(x=>x.n===n);return it?(EN()?it.en:it.th):n;}).join(', ');
-      return `<div class="list-item"><span><b>${esc(EN()?(r.nameEN||r.ChildName):r.ChildName)}</b> <small class="muted">${esc(r.Date)} ${esc(r.Time)}</small><br><small class="muted">${esc(types)}</small></span></div>`; }).join(''); }
+    return rows.slice(0,10).map(r=>{ const types=injTypeNames(r.InjuryTypes);
+      return `<div class="list-item" onclick="A_viewInjury('${esc(r.InjuryID||'')}')" style="cursor:pointer"><span><b>${esc(EN()?(r.nameEN||r.ChildName):r.ChildName)}</b> <small class="muted">${esc(ddmmyyyy(r.Date))} ${esc(r.Time)}</small><br><small class="muted">${esc(types)}</small></span><span class="muted">›</span></div>`; }).join(''); }
+  // injury type codes → the official form's wording. Stored as numbers; may arrive as a JSON string.
+  function injTypeNames(v){ let a=v; if(typeof a==='string'&&a){ try{ a=JSON.parse(a); }catch(e){ a=String(a).split(/[,\s]+/).filter(Boolean); } }
+    return (Array.isArray(a)?a:[]).map(n=>{ const it=INJURY_TYPES.find(x=>String(x.n)===String(n)); return it?(EN()?it.en:it.th):n; }).join(', '); }
+
+  // ---- Admin: read the injury reports teachers file, and the month at a glance -------------------
+  // An emergency notification used to land on the dashboard, so the admin was told an accident had
+  // happened but had no way to read what the teacher actually wrote. This is that screen.
+  let INJ_MONTH=null;
+  SCREENS.Admin.injuries = async () => A_injuries();
+  window.A_injuries=async(month)=>{ INJ_MONTH=month||INJ_MONTH||monthStr();
+    const sum=await api('injurySummary',{month:INJ_MONTH});
+    const bar=(rows,total)=>rows.map(r=>`<div style="margin-top:5px"><div class="spread" style="font-size:13px"><span>${esc(r.label||r.key)}</span><b>${r.count}</b></div>
+      <div style="height:6px;background:var(--surface-3);border-radius:3px;overflow:hidden"><div style="height:100%;width:${total?Math.round(r.count/total*100):0}%;background:var(--bad-2)"></div></div></div>`).join('');
+    const byType=(sum.byType||[]).map(r=>({label:injTypeNames([r.key]),count:r.count}));
+    app.innerHTML=`<h2 class="page">🚑 ${EN()?'Injury reports':'รายงานอุบัติเหตุ'}</h2>
+      <div class="card"><label class="field" style="margin:0"><span>${esc(t('c.month'))}</span>
+        <input type="month" value="${esc(sum.month)}" onchange="A_injuries(this.value)"/></label></div>
+      <div class="kpis">
+        <div class="kpi"><span class="kic">🚑</span><b class="kn" style="color:${sum.total?'var(--bad)':'var(--ok)'}">${sum.total}</b><span class="kl">${EN()?'Reports this month':'รายงานเดือนนี้'}</span></div>
+        <div class="kpi"><span class="kic">👶</span><b class="kn">${sum.students}</b><span class="kl">${EN()?'Children involved':'จำนวนเด็กที่เกี่ยวข้อง'}</span></div>
+      </div>
+      ${sum.total?`
+      <div class="card"><h3>🩹 ${EN()?'By injury type':'แยกตามชนิดการบาดเจ็บ'}</h3>${bar(byType,sum.total)}</div>
+      <div class="card"><h3>🏫 ${EN()?'By class':'แยกตามชั้นเรียน'}</h3>${bar((sum.byClass||[]).map(r=>({label:r.key,count:r.count})),sum.total)}</div>
+      <div class="card"><h3>📋 ${EN()?'Reports':'รายการทั้งหมด'}</h3>
+        ${sum.reports.map(r=>`<div class="list-item" onclick="A_viewInjury('${esc(r.injuryId)}')" style="cursor:pointer">
+          <span><b>${esc(r.nick||r.name||r.studentId)}</b> <small class="muted">${esc(r.className||'')}</small><br>
+          <small class="muted">${esc(ddmmyyyy(r.date))} ${esc(r.time)} · ${esc(injTypeNames(r.types))}</small></span><span class="muted">›</span></div>`).join('')}</div>`
+      : `<div class="card" style="text-align:center;color:var(--ok);padding:18px"><div style="font-size:34px">🎉</div><b>${EN()?'No injuries reported this month':'เดือนนี้ไม่มีรายงานอุบัติเหตุ'}</b></div>`}`;
+  };
+  // one report, exactly as the teacher filed it
+  window.A_viewInjury=async(id)=>{ if(!id){ GO('injuries'); return; }
+    let r=null; try{ r=await api('injuryReport',{injuryId:id}); }catch(e){ err(e); return; }
+    const row=(lbl,val)=>val?`<div class="list-item"><span class="muted">${esc(lbl)}</span><span style="text-align:right;max-width:60%">${esc(val)}</span></div>`:'';
+    modal(`<h3>🚑 ${EN()?'Injury report':'รายงานอุบัติเหตุ'}</h3>
+      <div class="card" style="background:var(--bad-bg);border-color:var(--bad-line);padding:8px">
+        <b style="font-size:16px">${esc(r.nick||r.ChildName||r.StudentID)}</b> <small class="muted">${esc(r.className||'')}</small><br>
+        <small class="muted">${esc(ddmmyyyy(r.Date))} ${esc(r.Time)} ${r.teacherNick||r.teacherName?'· '+esc(EN()?'reported by ':'ผู้บันทึก ')+esc(r.teacherNick||r.teacherName):''}</small></div>
+      <div class="card" style="padding:8px"><b style="font-size:13px">🩹 ${EN()?'Injury type':'ชนิดการบาดเจ็บ'}</b>
+        <div style="margin-top:4px">${esc(injTypeNames(r.InjuryTypes))||'-'}</div></div>
+      ${r.Narrative?`<div class="card" style="padding:8px"><b style="font-size:13px">📝 ${EN()?'What happened':'เหตุการณ์'}</b><div style="margin-top:4px;white-space:pre-wrap">${esc(r.Narrative)}</div></div>`:''}
+      <div class="card" style="padding:4px 8px">
+        ${row(EN()?'Place':'สถานที่', [r.Place,r.PlaceOther].filter(Boolean).join(' · '))}
+        ${row(EN()?'Cause / object':'สาเหตุ/สิ่งที่ทำให้บาดเจ็บ', r.CauseObject)}
+        ${row(EN()?'Witness':'พยาน', r.Witness)}
+        ${row(EN()?'Parent notified':'แจ้งผู้ปกครองแล้ว', String(r.NotifyParent||'')==='YES'?(EN()?'Yes':'แจ้งแล้ว'):(EN()?'No':'ยังไม่แจ้ง'))}
+        ${row(EN()?'Report no.':'เลขที่รายงาน', r.InjuryID)}
+      </div>
+      <button class="btn outline block" onclick="this.closest('.modal').remove()">${esc(t('c.close'))}</button>`); };
   window.T_injurySave = async ()=>{ const v=id=>{ const e=$(id); return e?e.value.trim():''; };
     const rad=name=>{ const e=document.querySelector(`input[name="${name}"]:checked`); return e?e.value:''; };
     const types=[...document.querySelectorAll('.injType:checked')].map(c=>Number(c.value));
@@ -2324,8 +2392,9 @@
                 ${lv.length?`<div style="margin-top:2px"><span class="pill wait">🌴 ${EN()?'leave':'ลา'} (${lv.length})</span> <small class="muted">${lv.map(s=>esc(dnick(s))).join(', ')}</small></div>`:''}
                 ${ab.length?`<div style="margin-top:2px"><span class="pill bad">⛔ ${EN()?'absent':'ขาด'} (${ab.length})</span> <small class="muted">${ab.map(s=>esc(dnick(s))).join(', ')}</small></div>`:''}
                 ${!lv.length&&!ab.length?`<small style="color:var(--ok)">✓ ${EN()?'All present':'มาครบทุกคน'}</small>`:''}`; })()}</div>`;}).join('')}`}</div>
-      <div class="card"><h3>👩‍🏫 ${EN()?'Staff today':'พนักงานวันนี้'}</h3>
-        ${(()=>{ const present=d.staff.filter(s=>s.status==='IN'||s.status==='OUT').length; const t=d.staff.length; const pct=t?Math.round(present/t*100):100;
+      <div class="card"><div class="spread"><h3>👩‍🏫 ${EN()?'Staff today':'พนักงานวันนี้'}</h3>${_closed?`<span class="pill" style="background:var(--surface-3);color:var(--ink-3)">🏖️ ${EN()?'Holiday':'วันหยุด'}</span>`:''}</div>
+        ${_closed?`<div style="text-align:center;color:var(--ink-3);padding:10px 0"><b>${EN()?'School closed — nobody is expected in today':'โรงเรียนหยุด — ไม่มีใครต้องเข้างานวันนี้'}</b></div>`:
+        (()=>{ const present=d.staff.filter(s=>s.status==='IN'||s.status==='OUT').length; const t=d.staff.length; const pct=t?Math.round(present/t*100):100;
           const onTime=d.staff.filter(s=>(s.status==='IN'||s.status==='OUT')&&!s.late); const late=d.staff.filter(s=>s.late); const absent=d.staff.filter(s=>s.status==='ABSENT'||s.status==='LEAVE');
           // in-AND-out: the dashboard only ever showed the arrival, so there was no way to see who had
           // already left. "–" with nothing after it means still at work.
@@ -2336,6 +2405,8 @@
             ${late.length?`<div style="margin-top:6px"><span class="pill bad">⏰ ${EN()?'Late':'มาสาย'} (${late.length})</span> <small style="color:var(--warn)">${late.map(s=>esc(dnick(s))+esc(inOut(s))+(s.late?` (${EN()?'late ':'สาย '}${s.late}${EN()?'m':'น.'})`:'')).join(', ')}</small></div>`:''}
             ${absent.length?`<div style="margin-top:6px"><span class="pill wait">⛔ ${EN()?'Absent/leave':'ขาด/ลา'} (${absent.length})</span> <small class="muted">${absent.map(s=>esc(dnick(s))+(s.status==='LEAVE'?(EN()?' (leave)':' (ลา)'):'')).join(', ')}</small></div>`:''}
             ${!late.length&&!absent.length?`<small style="color:var(--ok)">✓ ${EN()?'All present & on time':'มาครบ ตรงเวลา'}</small>`:''}`; })()}</div>
+      <div class="card"><div class="spread"><h3>🚑 ${EN()?'Injury reports':'รายงานอุบัติเหตุ'}</h3><button class="btn sm outline" onclick="A_injuries()">${EN()?'Open':'ดูรายงาน'}</button></div>
+        <small class="muted">${EN()?'Read what a teacher reported and see the month at a glance.':'อ่านรายงานที่คุณครูแจ้งมา และดูสรุปรายเดือน'}</small></div>
       <div class="card"><h3>📢 ${EN()?"Announcements":"ประกาศ"}</h3><div id="anns"></div></div>`;
     const _anns=await api('announcements'); A_CACHE.announcements=_anns;
     const _annEl=$('#anns'); if(!_annEl) return; // user navigated away before this resolved
@@ -3175,7 +3246,34 @@
       <div class="grid2">${f('Phone',t('reg.mobile'),phoneFmt(p.Phone))}${f('OfficePhone',t('reg.officePhone'),phoneFmt(p.OfficePhone))}</div>
       <div class="grid2">${f('Occupation',t('reg.occupation'),p.Occupation)}${f('Workplace',t('reg.workplace'),p.Workplace)}</div>
       ${photoField('pf_Photo',t('reg.parentPhoto'),p.Photo,true)}
+      ${id?`<button class="btn block outline" onclick="this.closest('.modal').remove();A_payLog('${esc(id)}')">🧾 ${EN()?'Payment history':'ประวัติการชำระเงิน'}</button>`:''}
       <button class="btn block" onclick="A_saveParent(this,'${id||''}')">${esc(t('c.save'))}</button>`);
+  };
+
+  // ---- Payment history (Data Log) --------------------------------------------------------------
+  // Every amount that came in for this family: when, for what, how much, and the slip. Tapping a row
+  // opens the slip. Built from PAYMENT_SLIPS plus anything settled in cash (which leaves no slip).
+  window.A_payLog=async(parentId, studentId)=>{
+    // Admin passes a parentId (or a studentId); a parent calls it with neither and gets their own
+    // children — parentScope() carries the uid/parentId the engine resolves links from, and on GAS the
+    // route overwrites it from the session anyway, so a parent can never widen the scope.
+    const q = studentId ? {studentId} : (parentId ? {parentId} : parentScope());
+    let d=null; try{ d=await api('paymentLog',q); }catch(e){ err(e); return; }
+    const kindIcon={bill:'🏫',prepay:'💰',ot:'⏰',charge:'🧾'};
+    const stat=s=>s==='CONFIRMED'?['ok',EN()?'confirmed':'ตรวจแล้ว']:s==='SUBMITTED'?['wait',EN()?'awaiting check':'รอตรวจสอบ']:['bad',EN()?'rejected':'ไม่ผ่าน'];
+    const rows=(d.entries||[]).map((e,i)=>{ const [cls,lbl]=stat(e.status);
+      return `<div class="list-item stack" ${e.slipUrl?`onclick="ZOOM_IMG('${esc(e.slipUrl)}')" style="cursor:zoom-in"`:''}>
+        <span><b>${kindIcon[e.refKind]||'💳'} ${esc(e.label)}</b>${e.month?` <small class="muted">${esc(monthNameYear(e.month))}</small>`:''}<br>
+          <small class="muted">${esc(dispNick({Nickname:e.nick,NameTH:e.name})||e.studentId)} · ${esc(e.date?fullDate(e.date):'-')}${e.transRef?' · '+esc(e.transRef):''}${e.via==='cash'?' · '+(EN()?'cash':'เงินสด'):''}</small></span>
+        <span style="text-align:right"><b>${baht(e.amount)}</b><br><span class="pill ${cls}" style="font-size:11px">${esc(lbl)}</span>${e.slipUrl?' 📎':''}</span></div>`; }).join('');
+    modal(`<h3>🧾 ${EN()?'Payment history':'ประวัติการชำระเงิน'}</h3>
+      <p class="muted" style="font-size:13px">${(d.students||[]).map(s=>esc(s.nick||s.name||s.studentId)).join(' · ')||'-'}</p>
+      <div class="grid2">
+        <div class="card" style="padding:8px;text-align:center"><small class="muted">${EN()?'Confirmed':'ตรวจสอบแล้ว'}</small><br><b style="color:var(--ok);font-size:18px">${baht(d.totalConfirmed)}</b></div>
+        <div class="card" style="padding:8px;text-align:center"><small class="muted">${EN()?'Awaiting check':'รอตรวจสอบ'}</small><br><b style="color:var(--warn);font-size:18px">${baht(d.totalPending)}</b></div></div>
+      <div style="max-height:56vh;overflow:auto">${rows||`<div class="card muted">${EN()?'No payments recorded yet':'ยังไม่มีรายการชำระเงิน'}</div>`}</div>
+      <p class="muted" style="font-size:13px">${EN()?'Tap a row with 📎 to see the slip.':'แตะรายการที่มี 📎 เพื่อดูสลิป'}</p>
+      <button class="btn outline block" onclick="this.closest('.modal').remove()">${esc(t('c.close'))}</button>`);
   };
   window.A_saveParent=async(btn,id)=>{ const m=btn.closest('.modal'); const v=k=>{ const e=m.querySelector('#pf_'+k); return e?e.value.trim():''; };
     const data={Title:v('Title'),NameTH:v('NameTH'),NameEN:v('NameEN'),Nickname:v('Nickname'),NicknameEN:v('NicknameEN'),Relationship:v('Relationship'),NationalID:v('NationalID'),Phone:v('Phone'),OfficePhone:v('OfficePhone'),Occupation:v('Occupation'),Workplace:v('Workplace')};
