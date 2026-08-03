@@ -112,7 +112,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.187'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.188'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -267,7 +267,16 @@
   const tStat = s => STAT[s] ? t(STAT[s]) : s;
   const MONEY_TR = { 'ค่าเทอม':'Tuition', 'ค่าอาหาร':'Meals', 'ค่ากิจกรรม':'Activities' };
   const trItem = s => EN() && MONEY_TR[s] ? MONEY_TR[s] : s;
-  const tLeaveType = s => ({ 'ลาป่วย':'leaveType.sick','ลากิจ':'leaveType.personal','ลาพักร้อน':'leaveType.vacation' }[s] ? t({ 'ลาป่วย':'leaveType.sick','ลากิจ':'leaveType.personal','ลาพักร้อน':'leaveType.vacation' }[s]) : s);
+  // Rows written while the app was in English hold an English type ("Sick Leave"), because the old
+  // dropdown had no value attribute and the runtime translator rewrote the option text. Map those
+  // back to the Thai name first, so an already-saved row still renders in the reader's language
+  // instead of showing English to a Thai user. The server normalises too (leaveTypeTH_ in Leave.gs).
+  const LEAVE_TH = { 'sick leave':'ลาป่วย','sick':'ลาป่วย','leave of absence':'ลากิจ','personal leave':'ลากิจ',
+    'personal':'ลากิจ','holiday leave':'ลาพักร้อน','vacation':'ลาพักร้อน','annual leave':'ลาพักร้อน','absent':'ขาด' };
+  const leaveTypeTH = s => LEAVE_TH[String(s||'').trim().toLowerCase()] || s;
+  const tLeaveType = s0 => { const s=leaveTypeTH(s0);
+    const k={ 'ลาป่วย':'leaveType.sick','ลากิจ':'leaveType.personal','ลาพักร้อน':'leaveType.vacation' }[s];
+    return k ? t(k) : s; };
   // ms: errors stay long enough to read a two-line hint. raw: skip the EN phrase dictionary for text
   // that is already in the right language (see err()).
   let toastT; function toast(m,ms,raw){ if(!raw && window.trPhrase) m=trPhrase(m); let t=$('.toast'); if(!t){t=document.createElement('div');t.className='toast';document.body.appendChild(t);} t.textContent=m; t.classList.add('show'); clearTimeout(toastT); toastT=setTimeout(()=>t.classList.remove('show'), ms||2400); }
@@ -1980,7 +1989,11 @@
       return `<div class="card spread"><div style="display:flex;gap:10px;align-items:center">${studentAvatar(s)}<div><b>${esc(dispNick(s))}</b> ${nmSub(s)?`<small class="muted">${esc(nmSub(s))}</small>`:""}${attTag}<br><small class="muted">${esc(ageYM(s.DOB))} · ${EN()?'allergy':'แพ้'}: ${esc(s.Allergy||'-')}</small><br>${journalPill(jdone[s.StudentID])}</div></div><div class="row">${jBtn}<button class="btn sm outline" onclick="T_assess('${s.StudentID}')" aria-label="${EN()?"Assess":"ประเมิน"}" title="${EN()?"Assess":"ประเมิน"}">📝</button>${ciBtn}<button class="btn sm outline" onclick="T_studentLeave('${s.StudentID}','${esc(dispNick(s))}')" title="${EN()?'File leave for this student':'แจ้งลาให้นักเรียน'}" aria-label="${EN()?"Report leave":"แจ้งลา"}" title="${EN()?"Report leave":"แจ้งลา"}">🏖️</button><button class="btn sm outline" onclick="EDIT_ATT('${s.StudentID}')" aria-label="${EN()?"Correct times":"แก้ไขเวลา"}" title="${EN()?"Correct check-in / pick-up":"แก้ไขเวลารับ-ส่ง"}">🕑</button><button class="btn sm outline" onclick="T_journalHistory('${s.StudentID}')" aria-label="${EN()?"Past reports":"บันทึกย้อนหลัง"}" title="${EN()?"Past daily reports":"ดูบันทึกย้อนหลัง"}">📅</button></div></div>`; }).join(''); };
   // Teacher files a leave for a student → notifies the linked parents; shows in that student's parent calendar
   window.T_studentLeave=(sid,name)=>{ modal(`<h3>🏖️ ${EN()?'File student leave':'แจ้งลานักเรียน'} — ${esc(name)}</h3>
-    <label class="field"><span>${EN()?'Type':'ประเภท'}</span><select id="tslType"><option>${EN()?'Sick leave':'ลาป่วย'}</option><option>${EN()?'Personal leave':'ลากิจ'}</option><option>${EN()?'Absent':'ขาด'}</option></select></label>
+    <!-- same trap as #lType: the value is what reaches the sheet, so it stays Thai in both languages -->
+    <label class="field"><span>${EN()?'Type':'ประเภท'}</span><select id="tslType" translate="no">
+      <option value="ลาป่วย">${EN()?'Sick leave (ลาป่วย)':'ลาป่วย'}</option>
+      <option value="ลากิจ">${EN()?'Personal leave (ลากิจ)':'ลากิจ'}</option>
+      <option value="ขาด">${EN()?'Absent (ขาด)':'ขาด'}</option></select></label>
     <label class="field"><span>${esc(t('inj.date'))}</span><input type="date" id="tslDate" value="${todayStr()}"/></label>
     <label class="field"><span>${EN()?'Reason':'เหตุผล'}</span><textarea id="tslReason" placeholder="${EN()?'reason…':'เหตุผล...'}"></textarea></label>
     <button class="btn block" onclick="T_studentLeaveDo('${sid}',this)">${EN()?'Notify parents':'แจ้งผู้ปกครอง'}</button>`); };
@@ -2250,7 +2263,15 @@
     app.innerHTML=`<h2 class="page">${esc(t('title.leave'))}</h2>
       <div class="card"><h3>สิทธิคงเหลือ</h3><div class="quota">${quota.map(q=>`<div class="q"><div class="n">${esc(halfNum(q.remain))}</div><div class="l">${esc(q.type)} ${esc(halfNum(q.used))}/${esc(halfNum(q.quota))}</div></div>`).join('')}</div></div>
       <div class="card"><h3>ยื่นใบลา</h3>
-        <label class="field"><span>ประเภท</span><select id="lType"><option>ลาป่วย</option><option>ลากิจ</option><option>ลาพักร้อน</option></select></label>
+        <!-- The VALUE must be Thai and must never be translatable. These options used to carry the
+             Thai text with no value attribute: in English mode i18n_tr.js rewrote that text to
+             "Sick Leave", and with no value attribute the translated label is what got SAVED —
+             which broke both the display and the entitlement counter. value= pins what we store,
+             translate="no" stops the text being rewritten at all. -->
+        <label class="field"><span>ประเภท</span><select id="lType" translate="no">
+          <option value="ลาป่วย">${EN()?'Sick leave (ลาป่วย)':'ลาป่วย'}</option>
+          <option value="ลากิจ">${EN()?'Personal leave (ลากิจ)':'ลากิจ'}</option>
+          <option value="ลาพักร้อน">${EN()?'Holiday leave (ลาพักร้อน)':'ลาพักร้อน'}</option></select></label>
         <div class="grid2"><label class="field"><span>วันที่เริ่ม</span><input type="date" id="lStart" value="${todayStr()}" onchange="T_halfToggle()"/></label><label class="field"><span>ถึงวันที่</span><input type="date" id="lEnd" value="${todayStr()}" onchange="T_halfToggle()"/></label></div>
         <label class="field" id="lHalfBox"><span>${EN()?'Half day?':'ลาครึ่งวันหรือไม่'}</span>
           <select id="lHalf"><option value="">${EN()?'Full day':'ลาเต็มวัน'}</option>
@@ -2620,13 +2641,27 @@
   };
   window.A_editLeave=async(id)=>{ const l=(await api('allLeaves')).find(x=>x.LeaveID===id); if(!l){toast(t('c.noItems'));return;}
     modal(`<h3>✏️ ${EN()?'Edit leave':'แก้ไขการลา'} — ${esc(leaveName(l))}</h3>
-      <label class="field"><span>${EN()?'Type':'ประเภท'}</span><input id="elType" value="${esc(l.Type||'')}"/></label>
+      ${(() => { const cur=leaveTypeTH(l.Type||''), std=['ลาป่วย','ลากิจ','ลาพักร้อน'];
+        // A free-text box is how a bad type got in and stayed in. Offer the real three; keep whatever
+        // odd value the row already has as a fourth option so editing can never silently change it.
+        const opts=std.concat(std.indexOf(cur)<0&&cur?[cur]:[]);
+        return `<label class="field"><span>${EN()?'Type':'ประเภท'}</span><select id="elType" translate="no">${
+          opts.map(x=>`<option value="${esc(x)}"${x===cur?' selected':''}>${esc(std.indexOf(x)<0?x:tLeaveType(x))}</option>`).join('')}</select></label>`; })()}
       <div class="grid2"><label class="field"><span>${EN()?'From':'ตั้งแต่'}</span><input type="date" id="elStart" value="${esc(String(l.StartDate).slice(0,10))}"/></label>
         <label class="field"><span>${EN()?'To':'ถึง'}</span><input type="date" id="elEnd" value="${esc(String(l.EndDate).slice(0,10))}"/></label></div>
+      <!-- Until now nothing in the app could turn a full day into a half day. A leave filed before
+           half-days existed, or ticked wrongly, was stuck at 1 day and quietly overcharged the
+           teacher's entitlement. -->
+      <label class="field"><span>${EN()?'Half day?':'ลาครึ่งวันหรือไม่'}</span>
+        <select id="elHalf"><option value=""${!l.HalfDay?' selected':''}>${EN()?'Full day (1)':'ลาเต็มวัน (1 วัน)'}</option>
+          <option value="AM"${l.HalfDay==='AM'?' selected':''}>${EN()?'Half day — morning (0.5)':'ครึ่งวันเช้า (0.5 วัน)'}</option>
+          <option value="PM"${l.HalfDay==='PM'?' selected':''}>${EN()?'Half day — afternoon (0.5)':'ครึ่งวันบ่าย (0.5 วัน)'}</option></select></label>
+      <small class="muted" style="display:block;margin:-2px 0 6px">${EN()?'Half day deducts 0.5 from the entitlement, and is only possible on a single-day request.':'ลาครึ่งวันหักสิทธิ 0.5 วัน · ใช้ได้เฉพาะใบลาวันเดียว'}</small>
       <label class="field"><span>${EN()?'Reason':'เหตุผล'}</span><textarea id="elReason">${esc(l.Reason||'')}</textarea></label>
       <button class="btn block" onclick="A_editLeaveDo('${id}',this)">${esc(t('c.save'))}</button>`); };
   window.A_editLeaveDo=async(id,btn)=>{ const m=btn.closest('.modal'); const g=x=>{const e=m.querySelector('#'+x);return e?e.value.trim():undefined;};
-    try{ await api('editLeave',{staffId:USER.staffId,leaveId:id,type:g('elType'),startDate:g('elStart'),endDate:g('elEnd'),reason:g('elReason')}); m.remove(); confirmSaved(t('c.saved')); GO('leaves'); }catch(e){err(e);} };
+    try{ await api('editLeave',{staffId:USER.staffId,leaveId:id,type:g('elType'),startDate:g('elStart'),endDate:g('elEnd'),reason:g('elReason'),halfDay:g('elHalf')||''});
+      m.remove(); confirmSaved(t('c.saved')); GO('leaves'); }catch(e){err(e);} };
   window.A_cancelLeave=async(id)=>{ if(!confirm(EN()?'Cancel/delete this leave request?':'ยกเลิก/ลบคำขอลานี้?'))return;
     try{ await api('cancelLeave',{staffId:USER.staffId,leaveId:id}); toast(t('manage.deleted')); GO('leaves'); }catch(e){err(e);} };
   window.A_leave=async(id,dec)=>{ try{ const r=await api('approveLeave',{staffId:USER.staffId,leaveId:id,decision:dec}); toast(`✅ ${dec==='approve'?'อนุมัติ':'ปฏิเสธ'}แล้ว (${r.status})`); GO('leaves'); }catch(e){err(e);} };

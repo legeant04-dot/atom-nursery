@@ -193,6 +193,14 @@ function createAtomAPI(M, GROWTH_STD) {
   // enrich a leave request with the requester's names (so lists show a nickname, not STF-xxx)
   // '' | 'AM' (ครึ่งวันเช้า) | 'PM' (ครึ่งวันบ่าย) — anything else is a full day
   function halfDay_(v){ const s=String(v||'').toUpperCase().trim(); return (s==='AM'||s==='PM')?s:''; }
+  // Canonical Thai leave type. Rows written while the app was in English hold the translated label
+  // ("Sick Leave"), because the old dropdown had no value attribute and i18n_tr.js rewrote the option
+  // text in place. The entitlement counter is keyed by the Thai name, so those rows counted as zero
+  // days used. Normalise on the way in and on the way out so old rows heal themselves.
+  const LEAVE_ALIAS_={'sick leave':'ลาป่วย','sick':'ลาป่วย','leave of absence':'ลากิจ','personal leave':'ลากิจ',
+    'personal':'ลากิจ','business leave':'ลากิจ','holiday leave':'ลาพักร้อน','vacation':'ลาพักร้อน',
+    'vacation leave':'ลาพักร้อน','annual leave':'ลาพักร้อน','absent':'ขาด'};
+  function leaveTypeTH_(v){ const s=String(v==null?'':v).trim(); return s?(LEAVE_ALIAS_[s.toLowerCase()]||s):''; }
   function leaveView_(l){ const s=staffById_(l.StaffID); return Object.assign({}, l,
     {name:s.NameTH,nameEN:s.NameEN,nick:s.Nickname,nickEN:s.NicknameEN,
      days:Number(l.Days)||0, halfDay:halfDay_(l.HalfDay)}); }
@@ -973,18 +981,27 @@ function createAtomAPI(M, GROWTH_STD) {
     // Admin edits a leave in place (dates/type/reason); recomputes Days
     editLeave: p => { const ap=staffById(p.staffId); if(ap.PositionLevel!=='Admin'&&ap.Role!=='Admin')fail('NO_PERMISSION','เฉพาะแอดมิน');
       const l=M.leaves.find(x=>x.LeaveID===p.leaveId); if(!l)fail('NOT_FOUND','ไม่พบคำขอ');
-      if(p.type!=null)l.Type=p.type; if(p.startDate)l.StartDate=p.startDate; if(p.endDate)l.EndDate=p.endDate; if(p.reason!=null)l.Reason=p.reason;
-      if(p.halfDay!==undefined) l.HalfDay=halfDay_(p.halfDay);
+      // Work out the whole result FIRST, then commit. This used to assign straight onto the stored
+      // record and only validate afterwards, so a rejected edit left the row half-changed — a
+      // refused "half day over 3 days" still turned a 0.5-day leave into a 3-day one.
+      const nStart=p.startDate||l.StartDate, nEnd=p.endDate||l.EndDate;
+      const nHalf=(p.halfDay===undefined)?halfDay_(l.HalfDay):halfDay_(p.halfDay);
+      let nDays=l.Days;
       if(p.startDate||p.endDate||p.halfDay!==undefined){
-        l.Days=Math.floor((new Date(l.EndDate)-new Date(l.StartDate))/864e5)+1;
-        if(l.HalfDay){ if(l.Days!==1) fail('BAD_INPUT','ลาครึ่งวันได้เฉพาะใบลาวันเดียว'); l.Days=0.5; } }
+        nDays=Math.floor((new Date(nEnd)-new Date(nStart))/864e5)+1;
+        if(nHalf){ if(nDays!==1) fail('BAD_INPUT','ลาครึ่งวันได้เฉพาะใบลาวันเดียว'); nDays=0.5; } }
+      if(p.type!=null)l.Type=leaveTypeTH_(p.type); if(p.reason!=null)l.Reason=p.reason;
+      l.StartDate=nStart; l.EndDate=nEnd; l.HalfDay=nHalf; l.Days=nDays;
       return leaveView_(l); },
     // Admin cancels/deletes a leave request
     cancelLeave: p => { const ap=staffById(p.staffId); if(ap.PositionLevel!=='Admin'&&ap.Role!=='Admin')fail('NO_PERMISSION','เฉพาะแอดมิน');
       const i=M.leaves.findIndex(x=>x.LeaveID===p.leaveId); if(i<0)fail('NOT_FOUND','ไม่พบคำขอ'); M.leaves.splice(i,1); return {ok:true}; },
     teamPendingLeaves: p => { const me=staffById(p.staffId); if(me.PositionLevel!=='Leader'&&me.PositionLevel!=='Admin')return [];
       return M.leaves.filter(l=>l.Status==='PENDING_LEADER').map(leaveView_); },
-    leaveQuota: p => { const used=M.leaveUsed[p.staffId]||{}; const q=cfg.LeaveQuota;
+    leaveQuota: p => { const raw=M.leaveUsed[p.staffId]||{}; const q=cfg.LeaveQuota;
+      // Fold any English-labelled total back onto the Thai key it belongs to, or a teacher who used
+      // the app in English reads "0 days used" however much leave they have actually taken.
+      const used={}; Object.keys(raw).forEach(k=>{ const n=leaveTypeTH_(k); used[n]=(used[n]||0)+(Number(raw[k])||0); });
       return Object.keys(q).map(t=>({type:t,quota:q[t],used:used[t]||0,remain:q[t]-(used[t]||0)})); },
     submitLeave: p => { const st=staffById(p.staffId); const id=nextSeqId_(M.leaves,'LeaveID','LV2026',3);
       // leave entitlement does not carry across the year — a request may not span 31 Dec → next year
@@ -995,7 +1012,7 @@ function createAtomAPI(M, GROWTH_STD) {
       const half=halfDay_(p.halfDay);
       if(half && days!==1) fail('BAD_INPUT','ลาครึ่งวันได้เฉพาะใบลาวันเดียว');
       if(half) days=0.5;
-      M.leaves.push({LeaveID:id,StaffID:p.staffId,Department:st.Department,Type:p.type,StartDate:p.startDate,EndDate:p.endDate,Days:days,HalfDay:half,Reason:p.reason,Status:lead?'PENDING_ADMIN':'PENDING_LEADER',Step1ApproverName:'',Step1Status:lead?'Skipped':'Pending',Step1CrossDept:'',Step2ApproverName:'',Step2Status:'Pending',CreatedDate:todayLocal(),Attachment:p.attachment||''});
+      M.leaves.push({LeaveID:id,StaffID:p.staffId,Department:st.Department,Type:leaveTypeTH_(p.type),StartDate:p.startDate,EndDate:p.endDate,Days:days,HalfDay:half,Reason:p.reason,Status:lead?'PENDING_ADMIN':'PENDING_LEADER',Step1ApproverName:'',Step1Status:lead?'Skipped':'Pending',Step1CrossDept:'',Step2ApproverName:'',Step2Status:'Pending',CreatedDate:todayLocal(),Attachment:p.attachment||''});
       return {leaveId:id,status:lead?'PENDING_ADMIN':'PENDING_LEADER',days,halfDay:half}; },
     approveLeave: p => { const ap=staffById(p.staffId); const l=M.leaves.find(x=>x.LeaveID===p.leaveId); if(!l)fail('NOT_FOUND','ไม่พบคำขอ'); const yes=p.decision==='approve';
       if(l.Status==='PENDING_LEADER'){ if(ap.PositionLevel!=='Leader'&&ap.PositionLevel!=='Admin')fail('NO_PERMISSION','เฉพาะหัวหน้างาน'); l.Step1ApproverName=ap.NameTH;l.Step1Status=yes?'Approved':'Rejected';l.Step1CrossDept=(ap.Department!==l.Department)?'YES':'NO';l.Status=yes?'PENDING_ADMIN':'REJECTED'; return {status:l.Status,crossDept:l.Step1CrossDept==='YES'}; }
