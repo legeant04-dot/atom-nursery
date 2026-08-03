@@ -71,11 +71,26 @@ function engineDispatch_(action, payload) {
 // payload.calls = [{action, payload}, ...] -> returns [{ok,data}|{ok:false,error}, ...] in order.
 // Engine actions share the same hydrated M (each sheet read at most once for the whole batch);
 // explicit ROUTES (auth/leave/checkin) run their own path. Persist happens once at the end.
+/**
+ * The caller matches results to calls BY POSITION, so this must ALWAYS return an array with exactly
+ * one entry per call — otherwise the client's `data.forEach` blows up and the whole screen dies with
+ * "data.forEach is not a function", telling the user nothing. Anything that goes wrong is reported
+ * as a failed ENTRY, never by changing the shape of the reply.
+ */
 function handleBatch(p) {
   var calls = (p && p.calls) || [];
+  if (!Array.isArray(calls)) calls = [];
   var sess = p && p.__sess;                                            // verified session from dispatch_ (null when dormant)
-  var ctx = hydrateLazy_();
-  var H = createAtomAPI(ctx.M, null).H;
+  var ctx, H;
+  try {
+    ctx = hydrateLazy_();
+    H = createAtomAPI(ctx.M, null).H;
+  } catch (setupErr) {
+    // could not even open the sheets — every call in this batch fails, but the SHAPE still holds
+    return calls.map(function () {
+      return { ok: false, error: { code: 'INTERNAL', message: (setupErr && setupErr.message) || String(setupErr) } };
+    });
+  }
   var out = calls.map(function (c) {
     try {
       var pl = (typeof applyIdentity_ === 'function') ? applyIdentity_(c.action, c.payload || {}, sess) : (c.payload || {});
@@ -87,7 +102,17 @@ function handleBatch(p) {
       return { ok: true, data: data };
     } catch (e) { return { ok: false, error: { code: e.apiCode || 'INTERNAL', message: e.message || String(e) } }; }
   });
-  ctx.persist();
+  // A failure to write the sheets back must not discard results the caller is waiting on — report it
+  // on the entries that could have written, and still hand back one entry per call.
+  try { ctx.persist(); }
+  catch (pe) {
+    try { Logger.log('handleBatch persist failed: ' + (pe && pe.stack || pe)); } catch (x) {}
+    out = out.map(function (r, i) {
+      var act = (calls[i] || {}).action;
+      if (!isMutatingAction_(act)) return r;                          // a pure read is unaffected
+      return { ok: false, error: { code: 'INTERNAL', message: 'บันทึกข้อมูลไม่สำเร็จ: ' + ((pe && pe.message) || String(pe)) } };
+    });
+  }
   return out;
 }
 
