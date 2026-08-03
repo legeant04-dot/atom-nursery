@@ -171,6 +171,43 @@ function handlePayOT(p) { return paySlipRecord_('ot', p.otId, p); }
 function handlePayCharge(p) { return paySlipRecord_('charge', p.chargeId, p); }
 function handlePayPrepay(p) { return paySlipRecord_('prepay', p.prepayId, p); }
 
+/**
+ * Admin records money received OUTSIDE the app — cash at the desk, or a transfer already seen in the
+ * bank — against any payable. It becomes a CONFIRMED slip row with no image, so the outstanding
+ * balance drops at once and it appears in the payment history like every other payment.
+ *
+ * This is what lets a mixed payment reconcile: the enrolment fee paid in cash is recorded here, so
+ * the slip the parent uploads only has to cover what is genuinely left.
+ */
+function handleRecordCashPayment(p) {
+  p = p || {};
+  var kind = String(p.kind || '');
+  var tgt = paySlipTarget_(kind, p.refId);
+  if (!tgt) throw apiError_('NOT_FOUND', 'ไม่พบรายการที่จะรับชำระ');
+  var amt = Math.round((Number(p.amount) || 0) * 100) / 100;
+  if (!(amt > 0)) throw apiError_('BAD_INPUT', 'ระบุจำนวนเงินที่รับมา');
+  var already = paySlipSum_(kind, p.refId, ['CONFIRMED']);
+  if (already + amt > tgt.due + 0.5) {
+    throw apiError_('OVERPAY', 'รับชำระเกินยอด — ค้างอยู่ ' + Math.max(0, tgt.due - already) + ' บาท');
+  }
+  var sh = paySlipsSheet_();
+  try { ensureColumns_(sh, ['SlipGroup', 'TransDate', 'Method']); } catch (e) {}
+  var when = String(p.date || dateStr_(new Date())).slice(0, 10);
+  var method = String(p.method || 'cash');
+  appendObject_(sh, {
+    SlipID: 'SL-' + Date.now() + '-' + Math.floor(Math.random() * 10000),
+    RefKind: kind, RefID: p.refId, StudentID: tgt.studentId, Amount: amt,
+    Url: '', FileId: '', Verified: 'MANUAL', TransRef: p.note || '',
+    Receiver: p.adminName || 'admin', SubmittedDate: nowStr_(), TransDate: when,
+    Status: 'CONFIRMED', SlipGroup: '', Method: method
+  });
+  paySlipRecompute_(kind, p.refId, when);
+  try { logAudit(p.adminId || 'admin', 'CASH_PAYMENT', String(kind).toUpperCase(), p.refId + ' ' + amt); } catch (e) {}
+  var confirmed = paySlipSum_(kind, p.refId, ['CONFIRMED']);
+  return { ok: true, kind: kind, refId: p.refId, amount: amt, due: tgt.due,
+    paidSoFar: confirmed, outstanding: Math.max(0, tgt.due - confirmed) };
+}
+
 function handleConfirmSlip(p) {
   var sh = paySlipsSheet_();
   var sl = findObject_(sh, function (x) { return String(x.SlipID) === String(p.slipId); });
@@ -216,4 +253,11 @@ function paySlipRecompute_(kind, refId, paidDate) {
   paySlipBustTarget_(kind);
 }
 
-function paySlipBustTarget_(kind) { recCacheBust_(kind === 'bill' ? 'BILLING' : kind === 'ot' ? 'OT_DAILY' : 'PREPAYMENTS'); }
+// An in-place updateRow_ does NOT invalidate the GasEngine sheet cache, so the slip list the app
+// reads back was served stale for up to CacheTTL after a confirm/reject — the admin approved a slip,
+// reopened the bill, and saw the old state (or nothing) until the cache expired. Bust the slip sheet
+// itself, not only the thing being paid for. STUDENT_CHARGES was missing from the target map too.
+function paySlipBustTarget_(kind) {
+  recCacheBust_('PAYMENT_SLIPS');
+  recCacheBust_(kind === 'bill' ? 'BILLING' : kind === 'ot' ? 'OT_DAILY' : kind === 'charge' ? 'STUDENT_CHARGES' : 'PREPAYMENTS');
+}

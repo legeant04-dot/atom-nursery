@@ -85,13 +85,44 @@ function handleSaveStudent(p) {
   // per-student OT rate + schedule + OT-free cutoff + parent note + monthly discount, and how the
   // FIRST month is charged when the child starts mid-month (ProrateMode/ProrateAmount)
   try { ensureColumns_(sh, ['OTRate', 'StartTime', 'EndTime', 'OTGraceUntil', 'RateNote', 'DiscountAmount', 'DiscountUnit',
-    'ProrateMode', 'ProrateAmount']); } catch (e) {}
+    'ProrateMode', 'ProrateAmount', 'PauseFrom', 'PauseTo', 'PauseReason']); } catch (e) {}
   var row = mapName_(p.data || {});
   var st = findObject_(sh, function (s) { return String(s.StudentID) === String(p.studentId); });
   if (!st) throw apiError_('NOT_FOUND', 'ไม่พบนักเรียน ' + p.studentId);
   updateRow_(sh, st._row, row);
   recCacheBust_('STUDENTS');
   return { ok: true, studentId: p.studentId };
+}
+
+/**
+ * Admin puts a child on temporary leave (ลาชั่วคราว), or brings them back. The child keeps their
+ * record, their history and their parent link; while paused they are not billed, not marked absent,
+ * and not on any class or activity list. Written IN PLACE — STUDENTS is a no-shrink sheet.
+ * { studentId, paused:true, from, to?, reason? } | { studentId, paused:false }
+ */
+function handleSetStudentPause(p) {
+  p = p || {};
+  var sh = sheet_(getMainSpreadsheet_(), 'STUDENTS');
+  try { ensureColumns_(sh, ['PauseFrom', 'PauseTo', 'PauseReason']); } catch (e) {}
+  var st = findObject_(sh, function (s) { return String(s.StudentID) === String(p.studentId); });
+  if (!st) throw apiError_('NOT_FOUND', 'ไม่พบนักเรียน ' + p.studentId);
+  var cur = String(st.Status || '');
+  if (cur === 'WITHDRAWN' || cur === 'EXPORTED') throw apiError_('BAD_STATE', 'นักเรียนคนนี้ออกจากโรงเรียนแล้ว — ใช้เมนูรับกลับเข้าเรียนแทน');
+  var patch;
+  if (p.paused === false) {
+    patch = { Status: 'ACTIVE', PauseFrom: '', PauseTo: '', PauseReason: '' };
+  } else {
+    var from = String(p.from || '').slice(0, 10);
+    var to = String(p.to || '').slice(0, 10);
+    if (!from) throw apiError_('BAD_INPUT', 'ระบุวันที่เริ่มลาชั่วคราว');
+    if (to && to < from) throw apiError_('BAD_INPUT', 'วันที่กลับมาต้องไม่ก่อนวันที่เริ่มลา');
+    patch = { Status: 'PAUSED', PauseFrom: from, PauseTo: to, PauseReason: p.reason || '' };
+  }
+  updateRow_(sh, st._row, patch);
+  recCacheBust_('STUDENTS');
+  try { logAudit(p.adminId || 'admin', p.paused === false ? 'STUDENT_RESUME' : 'STUDENT_PAUSE', 'STUDENTS',
+    p.studentId + (patch.PauseFrom ? (' ' + patch.PauseFrom + '–' + (patch.PauseTo || '')) : '')); } catch (e) {}
+  return { ok: true, studentId: p.studentId, status: patch.Status, from: patch.PauseFrom, to: patch.PauseTo, reason: patch.PauseReason };
 }
 
 // Admin bypass: link a parent's LINE UID to a student (found by National ID) when the parent can't

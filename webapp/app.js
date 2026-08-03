@@ -112,7 +112,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.178'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.179'; // bump each webapp change; shown only at the bottom of the Chat screen
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
   const phoneFmt = p => { let d=String(p==null?'':p).replace(/\D/g,''); if(d.length===9) d='0'+d; return d; };
@@ -1438,11 +1438,22 @@
   window.SAVE_IMG=(url,name)=>{ if(!url){toast(EN()?'No QR image set yet (add it in config)':'ยังไม่ได้ตั้งรูป QR (เพิ่มใน config)');return;} const a=document.createElement('a'); a.href=url; a.download=name; document.body.appendChild(a); a.click(); a.remove(); toast(EN()?'Saved '+name:'บันทึกรูปแล้ว'); };
 
   // ---- slip history rendering (shared parent + admin) ----
-  function slipVerBadge(v){ v=String(v||''); if(v.slice(0,3)==='YES')return `<span class="pill ok" style="font-size:11px">✓ ${EN()?'verified':'สลิปแท้'}</span>`; if(v.slice(0,2)==='NO')return `<span class="pill bad" style="font-size:11px">⚠ ${EN()?'not verified':'ตรวจไม่ผ่าน'}</span>`; return `<span class="pill info" style="font-size:11px">${EN()?'not checked':'ยังไม่ตรวจ'}</span>`; }
+  function slipVerBadge(v){ v=String(v||''); if(v.slice(0,3)==='YES')return `<span class="pill ok" style="font-size:11px">✓ ${EN()?'verified':'สลิปแท้'}</span>`; if(v.slice(0,2)==='NO')return `<span class="pill bad" style="font-size:11px">⚠ ${EN()?'not verified':'ตรวจไม่ผ่าน'}</span>`;
+    // MANUAL = an Admin recorded the money themselves (cash at the desk, or already seen in the bank).
+    // There is no slip to authenticate, so "ยังไม่ตรวจ" was misleading — nothing is waiting on anyone.
+    if(v==='MANUAL')return `<span class="pill ok" style="font-size:11px">✓ ${EN()?'recorded by admin':'แอดมินบันทึกเอง'}</span>`;
+    return `<span class="pill info" style="font-size:11px">${EN()?'not checked':'ยังไม่ตรวจ'}</span>`; }
   function slipStatusPill(s){ const c={SUBMITTED:'wait',CONFIRMED:'ok',PARTIAL:'wait',REJECTED:'bad'}[s]||'info'; const lbl={SUBMITTED:EN()?'pending':'รอตรวจ',CONFIRMED:EN()?'confirmed':'ยืนยันแล้ว',REJECTED:EN()?'rejected':'ปฏิเสธ'}[s]||s; return `<span class="pill ${c}" style="font-size:11px">${esc(lbl)}</span>`; }
   function slipThumb(url){ return url?`<img src="${esc(url)}" alt="slip" style="width:46px;height:46px;object-fit:cover;border-radius:6px;border:1px solid var(--line);cursor:zoom-in" onclick="ZOOM_IMG('${esc(url)}')" onerror="this.replaceWith(Object.assign(document.createElement('span'),{className:'pill info',textContent:'📎',style:'font-size:11px'}))"/>`:`<span class="pill info" style="font-size:13px">📎</span>`; }
+  // Payments recorded by an Admin (cash, or a transfer already seen in the bank) have no image, so the
+  // 📎 slip thumbnail read as "a slip that failed to load". They get a 💵 and their note instead.
+  const isCashRow = s => String(s.Method||'')==='cash' || (!s.Url && String(s.Verified||'')==='MANUAL');
   function slipHistoryHTML(slips){ if(!slips||!slips.length)return '';
-    return `<div style="margin-top:8px"><small class="muted">📎 ${EN()?'Submitted slips':'สลิปที่ส่งมา'}</small>${slips.map(s=>`<div class="list-item" style="gap:8px;align-items:center">${slipThumb(s.Url)}<span style="flex:1"><b>${baht(s.Amount)}</b> ${slipStatusPill(s.Status)} ${slipVerBadge(s.Verified)}${s.SlipGroup?` <span class="pill info" style="font-size:11px" title="${esc(s.SlipGroup)}">🔗 ${EN()?'combined':'สลิปรวมหลายคน'}</span>`:''}${s.Receiver?`<br><small class="muted">→ ${esc(s.Receiver)}</small>`:''}<br><small class="muted">${esc(String(s.SubmittedDate||'').slice(0,16))}</small></span></div>`).join('')}</div>`; }
+    const anySlip=slips.some(s=>!isCashRow(s));
+    return `<div style="margin-top:8px"><small class="muted">${anySlip?`📎 ${EN()?'Submitted slips':'สลิปที่ส่งมา'}`:`💵 ${EN()?'Payments received':'การรับชำระ'}`}</small>${slips.map(s=>{
+      const cash=isCashRow(s);
+      return `<div class="list-item" style="gap:8px;align-items:center">${cash?`<span class="pill ok" style="font-size:13px">💵</span>`:slipThumb(s.Url)}<span style="flex:1"><b>${baht(s.Amount)}</b> ${slipStatusPill(s.Status)} ${slipVerBadge(s.Verified)}${s.SlipGroup?` <span class="pill info" style="font-size:11px" title="${esc(s.SlipGroup)}">🔗 ${EN()?'combined':'สลิปรวมหลายคน'}</span>`:''}${cash&&s.TransRef?`<br><small class="muted">${esc(s.TransRef)}</small>`:''}${s.Receiver?`<br><small class="muted">→ ${esc(s.Receiver)}</small>`:''}<br><small class="muted">${esc(String(s.SubmittedDate||'').slice(0,16))}</small></span></div>`;
+    }).join('')}</div>`; }
 
   window._PAY_KIDS=[];
   SCREENS.Parent.payment = async () => {
@@ -3081,7 +3092,7 @@
           return `<div class="list-item stack" data-k="${esc((p.NameTH+' '+(p.NameEN||'')+' '+(p.Nickname||'')+' '+(p.NicknameEN||'')+' '+(p.Phone||'')+' '+String(p.Relationship||'').replace(/<[^>]*>/g,'')).toLowerCase())}"><span style="display:flex;gap:8px;align-items:center">${personAvatar(p)}<span><b>${esc(parentDisp(p))}</b> ${lcBadge} <small class="muted">${[p.NameTH||p.NameEN?esc(titledName(p)):'',relLabel(p.Relationship),p.Phone?phoneLink(p.Phone):(EN()?'no phone':'ไม่มีเบอร์โทร')].filter(Boolean).join(' · ')}</small></span></span><span class="acts"><button class="btn sm outline" onclick="A_parentLinks('${p.ParentID}')">🔗 ${EN()?'Children':'บุตรที่ผูก'}</button><button class="btn sm outline" onclick="A_parentForm('${p.ParentID}')">✏️ ${EN()?'Edit':'แก้ไข'}</button><button class="btn sm pink" onclick="A_delParent('${p.ParentID}',this)">🗑️ ${EN()?'Delete':'ลบ'}</button></span></div>`; }).join('')}</div></div>
       <div class="card secw" id="sec-students">${secHead('👶',EN()?'Students':'นักเรียน',students.length,`<span class="row"><button class="btn sm outline" onclick="event.stopPropagation();A_issueCombined()">🧾 ${EN()?'Issue (select)':'ออกบิล (เลือก)'}</button><button class="btn sm" onclick="event.stopPropagation();A_genBills()">📅 ${esc(t('bill.genTitle'))}</button></span>`)}
         <div class="secbody" hidden>
-        ${students.map(s=>`<div class="list-item stack" data-k="${esc((s.NameTH+' '+(s.NameEN||'')+' '+(s.Nickname||'')+' '+(s.NicknameEN||'')+' '+(s.Class||'')+' '+(s.NationalID||'')).toLowerCase())}"><span>${studentAvatar(s)} <b>${esc(dispNick(s))}</b> <small class="muted">${nmSub(s)?esc(nmSub(s))+" · ":""}${esc(s.Class)} · ${esc(ageYM(s.DOB))}${s.InsuranceHas?' · 🛡️':''}</small><br><small class="muted">${EN()?'ID':'บัตร'}: ${esc(s.NationalID||'-')}</small></span><span class="acts"><button class="btn sm outline" onclick="A_studentForm('${s.StudentID}')">✏️ ${EN()?'Edit':'แก้ไข'}</button><button class="btn sm" onclick="A_issueBill('${s.StudentID}')">🧾 ${EN()?'Bill':'ออกบิล'}</button><button class="btn sm" onclick="A_charges('${s.StudentID}')">💵 ${EN()?'Charges':'เรียกเก็บ'}</button><button class="btn sm outline" onclick="A_stuMore('${s.StudentID}')" aria-label="${EN()?'More actions':'การทำงานเพิ่มเติม'}" title="${EN()?'More actions':'การทำงานเพิ่มเติม'}">⋯</button></span></div>`).join('')}</div></div>`;
+        ${students.map(s=>`<div class="list-item stack" data-k="${esc((s.NameTH+' '+(s.NameEN||'')+' '+(s.Nickname||'')+' '+(s.NicknameEN||'')+' '+(s.Class||'')+' '+(s.NationalID||'')).toLowerCase())}"><span>${studentAvatar(s)} <b>${esc(dispNick(s))}</b> ${isPaused(s)?`<span class="pill wait" style="font-size:11px">⏸️ ${EN()?'on leave':'ลาชั่วคราว'}</span>`:''} <small class="muted">${nmSub(s)?esc(nmSub(s))+" · ":""}${esc(s.Class)} · ${esc(ageYM(s.DOB))}${s.InsuranceHas?' · 🛡️':''}</small><br><small class="muted">${EN()?'ID':'บัตร'}: ${esc(s.NationalID||'-')}</small>${isPaused(s)?`<br><small style="color:var(--warn)">⏸️ ${esc(pauseSpan(s))}</small>`:''}</span><span class="acts"><button class="btn sm outline" onclick="A_studentForm('${s.StudentID}')">✏️ ${EN()?'Edit':'แก้ไข'}</button><button class="btn sm" onclick="A_issueBill('${s.StudentID}')">🧾 ${EN()?'Bill':'ออกบิล'}</button><button class="btn sm" onclick="A_charges('${s.StudentID}')">💵 ${EN()?'Charges':'เรียกเก็บ'}</button><button class="btn sm outline" onclick="A_stuMore('${s.StudentID}')" aria-label="${EN()?'More actions':'การทำงานเพิ่มเติม'}" title="${EN()?'More actions':'การทำงานเพิ่มเติม'}">⋯</button></span></div>`).join('')}</div></div>`;
   };
   // navigate to an admin sub-screen (kept off the bottom nav)
   var ADMIN_SUB_organize, ADMIN_SUB_holidays, ADMIN_SUB_importExport;
@@ -3417,6 +3428,7 @@
         ${f('InsuranceExpiry',t('ins.expiry'),s.InsuranceExpiry,'date')}
         ${photoField('stf_InsCard',t('ins.card'),s.InsuranceCardImage,false)}</div>
       ${s.DriveFolderUrl?`<div class="card" style="background:var(--surface-2);padding:8px"><small class="muted">📁 ${esc(t('folder.student'))}<br><code style="font-size:13px">${esc(s.DriveFolderUrl)}</code><br>${esc(t('folder.note'))}</small></div>`:''}
+      ${id?A_pauseBox(s):''}
       ${id?`<button class="btn block outline" onclick="A_studentLinks('${id}')">🔗 ${EN()?'Linked parents / unlink':'ผู้ปกครองที่ผูก / ยกเลิกการผูก'}</button>`:''}
       <button class="btn block" onclick="A_saveStudent(this,'${id}')">${esc(t('c.save'))}</button>`);
     A_prorateHint();   // show the first-month figure straight away, not only after a field is touched
@@ -3466,6 +3478,46 @@
     try{ const r=await api('unlinkStudent',{studentId:sid,parentId:pid,adminId:USER.staffId}); toast((EN()?'Unlinked · removed ':'ยกเลิกการผูกแล้ว · ตัด ')+(r&&r.removed!=null?r.removed:'')+(EN()?' link(s)':' รายการ')); const m=document.querySelector('.modal'); if(m)m.remove(); A_parentLinks(pid); }catch(e){ err(e); if(btn)btn.disabled=false; } };
   window.A_unlink=async(sid,parentId,uid,btn)=>{ if(!confirm(EN()?'Unlink this parent from the child? The child stays enrolled.':'ยืนยันยกเลิกการผูกผู้ปกครองคนนี้ออกจากเด็ก? (เด็กยังเรียนอยู่)'))return; if(btn)btn.disabled=true;
     try{ const r=await api('unlinkStudent',{studentId:sid,parentId:parentId||undefined,uid:uid||undefined,adminId:USER.staffId}); toast((EN()?'Unlinked · removed ':'ยกเลิกการผูกแล้ว · ตัด ')+(r&&r.removed!=null?r.removed:'')+(EN()?' link(s)':' รายการ')); const m=document.querySelector('.modal'); if(m)m.remove(); A_studentLinks(sid); }catch(e){ err(e); if(btn)btn.disabled=false; } };
+  // ---- temporary leave (ลาชั่วคราว) — Admin only ----------------------------------------------
+  // A child who is away for a while and coming back: the record, the history and the parent link all
+  // stay, but while they are away they are not billed, not marked absent, and not on any class list.
+  // Distinct from withdrawing, which ends the enrolment.
+  const isPaused = s => String(s&&s.Status||'')==='PAUSED';
+  function pauseSpan(s){ const f=String(s.PauseFrom||'').slice(0,10), tt=String(s.PauseTo||'').slice(0,10);
+    if(!f) return '';
+    return tt ? `${fullDate(f)} – ${fullDate(tt)}` : (EN()?`from ${fullDate(f)} (open-ended)`:`ตั้งแต่ ${fullDate(f)} เป็นต้นไป (ยังไม่ระบุวันกลับ)`); }
+  function A_pauseBox(s){ const sid=s.StudentID;
+    if(isPaused(s)){
+      const back=String(s.PauseTo||'').slice(0,10);
+      const due = back && back < todayStr();     // the return date has passed — they are back already
+      return `<div class="card" style="background:${due?'var(--ok-bg)':'var(--warn-bg)'};border-color:${due?'var(--ok-line)':'var(--warn-line)'};padding:8px">
+        <b style="font-size:13px;color:${due?'var(--ok)':'var(--warn)'}">${due?'✅ '+(EN()?'Return date has passed':'ถึงกำหนดกลับมาเรียนแล้ว'):'⏸️ '+(EN()?'On temporary leave':'ลาชั่วคราว')}</b>
+        <div style="font-size:13px;margin-top:2px">${esc(pauseSpan(s))}</div>
+        ${s.PauseReason?`<div class="muted" style="font-size:13px">${esc(s.PauseReason)}</div>`:''}
+        <p class="muted" style="font-size:13px;margin:6px 0 4px">${EN()?'While away: no monthly bill, not counted absent, not on class or activity lists. The record and the parent link stay.':'ระหว่างลา: ไม่ออกบิลรายเดือน · ไม่นับขาด/ลา · ไม่ขึ้นชื่อในชั้นเรียนและกิจกรรม · ข้อมูลและการผูกผู้ปกครองยังอยู่ครบ'}</p>
+        <button class="btn sm block" onclick="A_resumeStudent('${esc(sid)}')">▶️ ${EN()?'Bring back to school':'กลับมาเรียนตามปกติ'}</button></div>`;
+    }
+    return `<button class="btn block outline" onclick="A_pauseForm('${esc(sid)}')">⏸️ ${EN()?'Temporary leave (keeps the record)':'ลาชั่วคราว (เก็บข้อมูลไว้)'}</button>`;
+  }
+  window.A_pauseForm=(sid)=>{ const s=findStudent(sid)||{};
+    modal(`<h3>⏸️ ${EN()?'Temporary leave':'ลาชั่วคราว'} — ${esc(dispNick(s)||sid)}</h3>
+      <p class="muted" style="font-size:13px">${EN()?'For a child who is away for a while and coming back. They stay in the system; while away they are not billed, not marked absent, and not on class or activity lists. To end the enrolment, use withdraw instead.':'สำหรับเด็กที่หยุดพักช่วงหนึ่งแล้วจะกลับมาเรียน · ข้อมูลยังอยู่ในระบบ ระหว่างลาจะไม่ออกบิล ไม่นับขาด/ลา และไม่ขึ้นชื่อในชั้นเรียน/กิจกรรม · หากจะออกจากโรงเรียนถาวร ให้ใช้เมนูลาออกแทน'}</p>
+      <div class="grid2"><label class="field"><span>${EN()?'Away from':'เริ่มลาวันที่'}</span><input type="date" id="pz_from" value="${esc(todayStr())}"/></label>
+        <label class="field"><span>${EN()?'Coming back (optional)':'กลับมาเรียนวันที่ (ไม่ระบุก็ได้)'}</span><input type="date" id="pz_to"/></label></div>
+      <label class="field"><span>${EN()?'Reason (for the school’s own record)':'เหตุผล (บันทึกไว้ในระบบ)'}</span><input id="pz_why" placeholder="${EN()?'e.g. travelling with family':'เช่น เดินทางไปต่างประเทศกับครอบครัว'}"/></label>
+      <p class="muted" style="font-size:13px">${EN()?'Leave the return date blank if it is not decided yet — you can end the leave at any time.':'ถ้ายังไม่รู้วันกลับ เว้นว่างไว้ได้ · กดให้กลับมาเรียนเมื่อไหร่ก็ได้'}</p>
+      <button class="btn block" onclick="A_pauseDo('${esc(sid)}',this)">${esc(t('c.save'))}</button>`); };
+  window.A_pauseDo=async(sid,btn)=>{ const m=btn.closest('.modal'); const v=x=>{const e=m.querySelector(x);return e?e.value.trim():'';};
+    const from=v('#pz_from'); if(!from){ toast(EN()?'Pick the start date':'เลือกวันที่เริ่มลา'); return; }
+    const to=v('#pz_to'); if(to && to<from){ toast(EN()?'The return date cannot be before the start':'วันที่กลับต้องไม่ก่อนวันที่เริ่มลา'); return; }
+    try{ await api('setStudentPause',{studentId:sid,paused:true,from,to,reason:v('#pz_why'),staffId:USER.staffId});
+      m.remove(); const m2=document.querySelector('.modal'); if(m2)m2.remove();
+      confirmSaved(EN()?'Marked as on temporary leave':'บันทึกเป็นลาชั่วคราวแล้ว'); GO('manage'); }catch(e){err(e);} };
+  window.A_resumeStudent=async(sid)=>{ if(!confirm(EN()?'Bring this child back to school? Billing and attendance resume.':'ให้นักเรียนคนนี้กลับมาเรียนตามปกติ? ระบบจะเริ่มออกบิลและนับการมาเรียนอีกครั้ง'))return;
+    try{ await api('setStudentPause',{studentId:sid,paused:false,staffId:USER.staffId});
+      const m=document.querySelector('.modal'); if(m)m.remove();
+      confirmSaved(EN()?'Back at school':'กลับมาเรียนตามปกติแล้ว'); GO('manage'); }catch(e){err(e);} };
+
   // Live preview of the FIRST month's tuition under the chosen rule, so the admin sees the number
   // before it becomes a bill. Mirrors tuitionForMonth_ in engine.js — keep the two in step.
   window.A_prorateHint=()=>{ const hint=document.getElementById('prorateHint'); if(!hint)return;
@@ -4095,7 +4147,7 @@
 
   // ---- Finance: per-student detail (bill + extra charges + OT) — view/add/edit/delete in one place ----
   window.A_finStudent=async(sid)=>{ const month=FIN_MONTH||monthStr();
-    const [bills,charges,ot,allSlips]=await Promise.all([api('payments',{studentId:sid}),api('studentCharges',{studentId:sid,month}),api('otDaily',{studentId:sid}),api('paymentSlips',{studentId:sid})]);
+    const [bills,charges,ot,allSlips,pre]=await Promise.all([api('payments',{studentId:sid}),api('studentCharges',{studentId:sid,month}),api('otDaily',{studentId:sid}),api('paymentSlips',{studentId:sid}),api('prepayments',{studentId:sid}).catch(()=>[])]);
     // A_CACHE.students is only filled by the manage screen, so opening this from Finance left the
     // header showing the raw StudentID ("💰 STD-018 -"). Fetch the roster once if it isn't loaded.
     let s=(A_CACHE.students||[]).find(x=>x.StudentID===sid)||(MOCK.students||[]).find(x=>x.StudentID===sid);
@@ -4125,6 +4177,7 @@
         <div class="spread" style="margin:2px 0 4px"><span class="pill ${Number(bill.Outstanding||0)<=0?'ok':'bad'}">${Number(bill.Outstanding||0)<=0?(Number(bill.PrepaidTuition||0)>0?('💰 '+(EN()?'paid in advance':'ชำระล่วงหน้าแล้ว')):('✅ '+(EN()?'paid in full':'ชำระครบแล้ว'))):('⏳ '+(EN()?'outstanding':'ค้างชำระ')+' '+baht(bill.Outstanding))}</span><small class="muted">${esc(bill.Status||'')}</small></div>
         ${bill.Prepay?`<div class="card" style="background:var(--ok-bg);border-color:var(--ok-line);padding:6px 8px;margin:2px 0"><small style="color:var(--ok)">💰 ${esc(prepaySpan(bill.Prepay))}</small></div>`:''}
         ${slipHistoryHTML(slipsOf('bill',bill.BillingID))}
+        ${Number(bill.Outstanding||0)>0?cashBox('bill',bill.BillingID,sid,Number(bill.Outstanding||0)):''}
         <div class="row" style="margin-top:6px"><button class="btn sm pink" onclick="A_finDelBill('${esc(bill.BillingID)}','${sid}',this)">🗑️ ${EN()?'Delete bill':'ลบบิล'}</button></div>`
       : `<p class="muted" style="font-size:13px">${EN()?'No bill issued for this month yet.':'ยังไม่ได้ออกบิลของเดือนนี้'}</p>
          <div class="grid2" style="align-items:end"><label class="field" style="margin:0"><span>${EN()?'Bill month':'เดือนที่จะออกบิล'}</span><input type="month" id="fbMonth" value="${esc(ym(month))}"/></label>
@@ -4133,10 +4186,24 @@
     // WHY the amount differs from the package price, instead of having to open the student record
     const _disc=Number(s.DiscountAmount||0);
     const discBox=_disc>0?`<div class="list-item" style="background:var(--ok-bg);border-radius:8px;padding:6px 8px;margin-top:4px"><span>🏷️ ${EN()?'Standing discount':'ส่วนลดประจำของนักเรียน'} <small class="muted">${EN()?'always applied to tuition':'หักจากค่าเทอมทุกบิล'}</small></span><b style="color:var(--ok)">−${/%|percent/i.test(String(s.DiscountUnit||''))?_disc+'%':baht(_disc)}</b></div>`:'';
-    const chargeBox = `${(charges||[]).length?(charges).map(c=>`<div class="list-item"><span>${Number(c.Amount)<0?'🏷️ ':''}${esc(c.Label)} <b style="color:${Number(c.Amount)<0?'var(--ok)':'inherit'}">${Number(c.Amount)<0?'−'+baht(Math.abs(c.Amount)):baht(c.Amount)}</b></span><button class="btn sm pink" onclick="A_finDelCharge('${esc(c.ChargeID)}','${sid}',this)" aria-label="${EN()?"Delete":"ลบ"}" title="${EN()?"Delete":"ลบ"}">🗑️</button></div>`).join(''):`<small class="muted">${EN()?'No extra charges':'ไม่มีรายการเพิ่มเติม'}</small>`}
+    const chargeBox = `${(charges||[]).length?(charges).map(c=>{ const cOut=Number(c.Outstanding!=null?c.Outstanding:c.Amount);
+      return `<div style="border-bottom:1px solid var(--surface-3);padding:4px 0"><div class="list-item"><span>${Number(c.Amount)<0?'🏷️ ':''}${esc(c.Label)} <b style="color:${Number(c.Amount)<0?'var(--ok)':'inherit'}">${Number(c.Amount)<0?'−'+baht(Math.abs(c.Amount)):baht(c.Amount)}</b> <span class="pill ${stPill(c.Status)}" style="font-size:11px">${esc(c.Status||'UNPAID')}</span></span><button class="btn sm pink" onclick="A_finDelCharge('${esc(c.ChargeID)}','${sid}',this)" aria-label="${EN()?"Delete":"ลบ"}" title="${EN()?"Delete":"ลบ"}">🗑️</button></div>${slipHistoryHTML(slipsOf('charge',c.ChargeID))}${cOut>0?cashBox('charge',c.ChargeID,sid,cOut):''}</div>`;
+      }).join(''):`<small class="muted">${EN()?'No extra charges':'ไม่มีรายการเพิ่มเติม'}</small>`}
       <div class="grid2" style="margin-top:6px"><input id="fcLabel" placeholder="${EN()?'e.g. Special class':'เช่น ค่าเรียนพิเศษ'}"/>
         <div class="row" style="gap:6px"><select id="fcSign" style="max-width:104px"><option value="1">+ ${EN()?'charge':'เรียกเก็บ'}</option><option value="-1">− ${EN()?'discount':'ส่วนลด'}</option></select><input id="fcAmt" type="number" min="0" placeholder="${EN()?'amount':'จำนวนเงิน'}" style="flex:1"/></div></div>
       <button class="btn sm outline block" style="margin-top:6px" onclick="A_finAddCharge('${sid}')">+ ${EN()?'Add charge':'เพิ่มรายการ'}</button>`;
+    // An advance payment is its own payable, so the parent's transfer is filed against IT, not against
+    // this month's bill. Without this box the admin opened the bill, saw no slip, and concluded the
+    // slip had vanished after approving it — it was simply attached to the prepay.
+    const preBox = `${(pre||[]).length?(pre).map(pp=>{ const sl=slipsOf('prepay',pp.PrepayID);
+      const cov=Array.isArray(pp.Covered)?pp.Covered:(()=>{try{return JSON.parse(pp.Covered||'[]')}catch(e){return []}})();
+      const out=Math.max(0, Number(pp.Amount||0)-(sl.filter(x=>x.Status==='CONFIRMED').reduce((a,x)=>a+Number(x.Amount||0),0)));
+      return `<div style="border-bottom:1px solid var(--surface-3);padding:4px 0"><div class="list-item">
+        <span><b>${pp.Months} ${EN()?'months':'เดือน'}</b> ${pp.Discount?`<small class="muted">−${pp.Discount}%</small>`:''} <b>${baht(pp.Amount)}</b>
+          <span class="pill ${stPill(pp.Status)}" style="font-size:11px">${esc(pp.Status)}</span>
+          ${cov.length?`<br><small class="muted">${esc(monthNameYear(cov[0]))} – ${esc(monthNameYear(cov[cov.length-1]))}</small>`:''}</span>
+        </div>${slipHistoryHTML(sl)}${out>0?cashBox('prepay',pp.PrepayID,sid,out):''}</div>`; }).join('')
+      :`<small class="muted">${EN()?'No advance payments':'ไม่มีรายการชำระล่วงหน้า'}</small>`}`;
     const otBox = `${otM.length?otM.map(o=>{ const sl=slipsOf('ot',o.OTID);
       return `<div style="border-bottom:1px solid var(--surface-3);padding:4px 0"><div class="list-item"><span>${esc(ymd(o.Date))} · ${esc(String(o.PickupTime||'').slice(0,5))} <b>${baht(o.Amount)}</b> <span class="pill ${stPill(o.Status)}" style="font-size:11px">${esc(o.Status)}</span></span>
         ${o.Status==='PAID'?'':`<span class="row">${o.Status==='CANCELLED'?`<button class="btn sm outline" onclick="A_finOt('${esc(o.OTID)}','restore','${sid}')" aria-label="${EN()?"Restore":"กู้คืน"}" title="${EN()?"Restore":"กู้คืน"}">♻️</button>`:`<button class="btn sm pink" onclick="A_finOt('${esc(o.OTID)}','cancel','${sid}')" aria-label="${EN()?"Cancel":"ยกเลิก"}" title="${EN()?"Cancel":"ยกเลิก"}">🚫</button>`}</span>`}</div>${slipHistoryHTML(sl)}</div>`; }).join(''):`<small class="muted">${EN()?'No OT this month':'ไม่มี OT เดือนนี้'}</small>`}`;
@@ -4144,10 +4211,38 @@
       <p class="muted" style="font-size:13px">${EN()?'Month':'เดือน'} <b>${esc(month)}</b> — ${EN()?'change the month at the finance page':'เปลี่ยนเดือนได้ที่หน้าการเงิน'}</p>
       <div class="card" style="padding:8px"><b>🧾 ${EN()?'Monthly bill':'บิลรายเดือน'}</b>${discBox}${billBox}</div>
       <div class="card" style="padding:8px"><b>💵 ${EN()?'Extra charges':'ค่าใช้จ่ายเพิ่มเติม'}</b>${chargeBox}</div>
+      <div class="card" style="padding:8px"><b>💰 ${EN()?'Advance payments':'ชำระล่วงหน้า'}</b>${preBox}</div>
       <div class="card" style="padding:8px"><b>⏰ ${EN()?'Late-pickup OT':'OT รับช้า'}</b>${otBox}</div>
       <button class="btn outline block" style="margin-top:8px" onclick="this.closest('.modal').remove()">${esc(t('c.close'))}</button>`);
   };
   const _finReopen=(sid,month)=>{ const x=document.querySelector('.modal'); if(x)x.remove(); if(month) FIN_MONTH=month; A_finStudent(sid); };
+  /**
+   * "Money received at the desk" for any payable. Families rarely pay one clean way: the enrolment fee
+   * comes in cash while the tuition is transferred, or two months are paid ahead in one go. Recording
+   * the cash part here first drops the outstanding balance, so the slip the parent uploads only has to
+   * cover what is genuinely left — instead of never matching the bill.
+   */
+  function cashBox(kind, refId, sid, outstanding){
+    return `<div class="card" style="background:var(--surface-2);padding:8px;margin-top:6px">
+      <b style="font-size:13px">💵 ${EN()?'Record money received (cash / already in the bank)':'บันทึกรับชำระ (เงินสด / เห็นยอดเข้าบัญชีแล้ว)'}</b>
+      <p class="muted" style="font-size:13px;margin:2px 0 6px">${EN()?`Outstanding ${baht(outstanding)}. Recording it here counts as paid straight away — no slip needed.`:`ค้างอยู่ ${baht(outstanding)} · บันทึกแล้วถือว่าชำระทันที ไม่ต้องแนบสลิป`}</p>
+      <div class="grid2" style="align-items:end">
+        <label class="field" style="margin:0"><span>${EN()?'Amount':'จำนวนเงิน'}</span><input type="number" min="0" id="cash_${esc(refId)}" value="${outstanding}"/></label>
+        <label class="field" style="margin:0"><span>${EN()?'Received on':'วันที่รับ'}</span><input type="date" id="cashd_${esc(refId)}" value="${esc(todayStr())}"/></label></div>
+      <input id="cashn_${esc(refId)}" placeholder="${EN()?'note, e.g. enrolment fee in cash':'หมายเหตุ เช่น ค่าธรรมเนียมแรกเข้า รับเป็นเงินสด'}" style="margin-top:6px"/>
+      <button class="btn sm block" style="margin-top:6px" onclick="A_finCash('${esc(kind)}','${esc(refId)}','${esc(sid)}',this)">💵 ${EN()?'Record as received':'บันทึกรับชำระ'}</button></div>`;
+  }
+  window.A_finCash=async(kind,refId,sid,btn)=>{ const m=btn.closest('.modal');
+    const g=id=>{ const e=m.querySelector('#'+id+'_'+CSS.escape(refId)); return e?e.value.trim():''; };
+    const amt=Number(g('cash')||0);
+    if(!(amt>0)){ toast(EN()?'Enter the amount received':'กรอกจำนวนเงินที่รับมา'); return; }
+    if(btn)btn.disabled=true;
+    try{ const r=await api('recordCashPayment',{kind,refId,amount:amt,date:g('cashd'),note:g('cashn'),staffId:USER.staffId});
+      toast(Number(r.outstanding||0)>0
+        ? (EN()?`Recorded. Still outstanding ${baht(r.outstanding)}`:`บันทึกแล้ว · ยังค้างอีก ${baht(r.outstanding)}`)
+        : (EN()?'Recorded — paid in full':'บันทึกแล้ว · ชำระครบ'));
+      _finReopen(sid);
+    }catch(e){ err(e); if(btn)btn.disabled=false; } };
   window.A_finAddCharge=async(sid)=>{ const m=document.querySelector('.modal'); const label=(m.querySelector('#fcLabel').value||'').trim();
     const sign=Number((m.querySelector('#fcSign')||{}).value||1)<0?-1:1;
     const amt=Math.abs(Number(m.querySelector('#fcAmt').value)||0)*sign;
