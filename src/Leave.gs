@@ -30,9 +30,14 @@ function handleSubmitLeave(payload) {
   if (!payload.startDate || !payload.endDate) throw apiError_('BAD_INPUT', 'ต้องระบุวันเริ่มและวันสิ้นสุดการลา');
   var days = inclusiveDays_(payload.startDate, payload.endDate);
   if (days < 1) throw apiError_('BAD_DATES', 'ช่วงวันลาไม่ถูกต้อง');
+  // Half a day off is half a day of entitlement. It used to be written in the reason box as free
+  // text and still deducted a whole day, so 30 days of sick leave went to 29 instead of 29.5.
+  var half = halfDayCode_(payload.halfDay);
+  if (half && days !== 1) throw apiError_('BAD_INPUT', 'ลาครึ่งวันได้เฉพาะใบลาวันเดียว');
+  if (half) days = 0.5;
 
   var sheet = sheet_(getHrSpreadsheet_(), 'LEAVE_REQUEST');
-  ensureColumns_(sheet, ['Attachment']);
+  ensureColumns_(sheet, ['Attachment', 'HalfDay']);
   var leaveId = genLeaveId_(sheet);
   var level = String(staff.PositionLevel || '');
   if (String(staff.Role || '') === 'Admin') level = 'Admin';
@@ -46,13 +51,15 @@ function handleSubmitLeave(payload) {
     Step1ApproverID: '', Step1ApproverName: '',
     Step1Status: requesterIsApprover ? STEP.SKIPPED : STEP.PENDING, Step1Date: '', Step1CrossDept: '',
     Step2ApproverID: '', Step2ApproverName: '', Step2Status: STEP.PENDING, Step2Date: '',
-    CreatedDate: new Date(), Attachment: payload.attachment || ''   // medical cert / doc → offloaded to Drive
+    CreatedDate: new Date(), Attachment: payload.attachment || '',  // medical cert / doc → offloaded to Drive
+    HalfDay: half
   };
   appendObject_(sheet, row);
   logAuditHr(staff.StaffID, 'LEAVE_SUBMIT', 'LEAVE_REQUEST', leaveId);
 
   var head = '📩 คำขอลา ' + leaveId + ' • ' + staff.Name + ' (' + (staff.Department || '-') + ')\n' +
-             row.Type + ' ' + payload.startDate + ' ถึง ' + payload.endDate + ' (' + days + ' วัน)\nเหตุผล: ' + row.Reason;
+             row.Type + ' ' + payload.startDate + ' ถึง ' + payload.endDate +
+             ' (' + days + ' วัน' + (half ? (' · ' + halfDayLabelTH_(half)) : '') + ')\nเหตุผล: ' + row.Reason;
   if (requesterIsApprover) notifyAdmins_('[รออนุมัติขั้นสุดท้าย]\n' + head);
   else notifyLeaders_('[รออนุมัติโดยหัวหน้างาน]\n' + head);
 
@@ -228,6 +235,10 @@ function genLeaveId_(sheet) {
   var num = String(max + 1); while (num.length < 3) num = '0' + num;
   return prefix + num;
 }
+
+// '' | 'AM' | 'PM' — anything else is treated as a full day
+function halfDayCode_(v) { var s = String(v || '').toUpperCase().trim(); return (s === 'AM' || s === 'PM') ? s : ''; }
+function halfDayLabelTH_(v) { return halfDayCode_(v) === 'AM' ? 'ครึ่งวันเช้า' : halfDayCode_(v) === 'PM' ? 'ครึ่งวันบ่าย' : ''; }
 
 function inclusiveDays_(start, end) {
   var s = new Date(start), e = new Date(end);
