@@ -1743,22 +1743,31 @@ function createAtomAPI(M, GROWTH_STD) {
       M.prepayments.push(rec); return rec; },
     // attach prepay slip → records a PAYMENT_SLIPS row, prepay → PENDING_VERIFY (Admin confirms per slip)
     payPrepay: p => recordSlip_('prepay', p.prepayId, p),
-    // Admin re-prices an advance payment that has NOT been paid yet: change the months, the discount
-    // or the first month covered. A PAID one is deliberately untouchable — re-pricing money that has
-    // already changed hands would turn a settled parent into a debtor.
+    /**
+     * Admin corrects an advance payment.
+     *  - NOT yet paid → everything: months, discount, and the month it starts from.
+     *  - Already PAID → the START MONTH only. Which months a payment applies to is bookkeeping and
+     *    does get entered wrong (a payment made on 31 July belongs to August, not July); re-pricing
+     *    money that has already changed hands is not, and would turn a settled family into a debtor.
+     */
     editPrepay: p => { const ap=staffById(p.staffId); if(ap.PositionLevel!=='Admin'&&ap.Role!=='Admin')fail('NO_PERMISSION','เฉพาะแอดมิน');
       const pp=(M.prepayments||[]).find(x=>x.PrepayID===p.prepayId); if(!pp)fail('NOT_FOUND','ไม่พบรายการชำระล่วงหน้า');
-      if(String(pp.Status)==='PAID')fail('ALREADY_PAID','รายการนี้ชำระแล้ว — แก้ไขไม่ได้');
+      const paid=String(pp.Status)==='PAID';
+      if(paid && ((p.months!=null && Number(p.months)!==Number(pp.Months)) ||
+                  (p.discount!=null && p.discount!=='' && Number(p.discount)!==Number(pp.Discount||0))))
+        fail('ALREADY_PAID','รายการนี้ชำระแล้ว — แก้ได้เฉพาะเดือนที่มีผล ไม่สามารถแก้จำนวนเดือนหรือส่วนลด');
       const s=studentById(pp.StudentID)||{}; const monthly=Number(studentPlan(s).price||0);
-      if(!(monthly>0))fail('NO_PLAN_PRICE','นักเรียนคนนี้ยังไม่ได้ตั้งแพ็กเกจ/ราคาต่อเดือน');
-      const months=p.months!=null?Math.max(1,Number(p.months)||0):Number(pp.Months);
-      const disc=p.discount!=null&&p.discount!==''?Math.max(0,Math.min(100,Number(p.discount)||0)):Number(pp.Discount)||0;
-      const start=p.startMonth||ym((prepayCoveredMonths_(pp)[0])||todayLocal());
+      const months=(!paid && p.months!=null)?Math.max(1,Number(p.months)||0):Number(pp.Months);
+      const disc=(!paid && p.discount!=null && p.discount!=='')?Math.max(0,Math.min(100,Number(p.discount)||0)):(Number(pp.Discount)||0);
+      const start=ym(p.startMonth||(prepayCoveredMonths_(pp)[0])||todayLocal());
+      if(!/^\d{4}-\d{2}$/.test(start))fail('BAD_INPUT','ระบุเดือนที่เริ่มมีผล');
       const covered=[]; let [y,mo]=start.split('-').map(Number);
       for(let i=0;i<months;i++){ covered.push(y+'-'+String(mo).padStart(2,'0')); mo++; if(mo>12){mo=1;y++;} }
-      pp.Months=months; pp.Discount=disc; pp.Gross=monthly*months;
-      pp.Amount=Math.round(pp.Gross*(100-disc)/100); pp.Covered=covered;
-      logAct('editPrepay',pp.PrepayID,months+' เดือน -'+disc+'% = '+pp.Amount+' เริ่ม '+start,actorOf(p));
+      pp.Months=months; pp.Discount=disc; pp.Covered=covered;
+      // the amount a PAID family actually transferred is never recalculated
+      if(!paid){ if(!(monthly>0))fail('NO_PLAN_PRICE','นักเรียนคนนี้ยังไม่ได้ตั้งแพ็กเกจ/ราคาต่อเดือน');
+        pp.Gross=monthly*months; pp.Amount=Math.round(pp.Gross*(100-disc)/100); }
+      logAct('editPrepay',pp.PrepayID,(paid?'แก้เดือนที่มีผล ':'')+months+' เดือน -'+disc+'% = '+pp.Amount+' · '+covered[0]+' – '+covered[covered.length-1],actorOf(p));
       return pp; },
     cancelPrepay: p => { const i=M.prepayments.findIndex(x=>x.PrepayID===p.prepayId); if(i>=0&&M.prepayments[i].Status==='UNPAID')M.prepayments.splice(i,1); return {ok:true}; },
     prepayments: p => M.prepayments.filter(x=>x.StudentID===p.studentId),

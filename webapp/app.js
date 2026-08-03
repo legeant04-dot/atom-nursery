@@ -112,7 +112,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.180'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.181'; // bump each webapp change; shown only at the bottom of the Chat screen
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
   const phoneFmt = p => { let d=String(p==null?'':p).replace(/\D/g,''); if(d.length===9) d='0'+d; return d; };
@@ -1556,23 +1556,42 @@
         :`<div class="row" style="margin-top:10px"><button class="btn block" onclick="P_pay('bill','${b.BillingID}',${topUp})">${hasPending||partial?`📎 ${EN()?'Add another slip':'แนบสลิปเพิ่ม'}`:`💳 ${esc(t('lbl.pay'))} ${baht(topUp)}`}</button></div>`}</div>`;
     }).join('')}`;
   }
-  // prepay with discount: 2mo -5%, 3mo -10%, 6mo -20%, 12mo -30%
-  // Advance-tuition tiers are the SCHOOL's pricing, edited in Admin → แพ็กเกจการเรียน and stored in
-  // SCHOOL_CONFIG — they used to be duplicated here as a literal, so the screen and the engine could
-  // (and did) disagree. Fetch them, like the monthly price, which comes from studentBillBase so the
-  // preview equals the real charge instead of the local MOCK seed.
+  // add n months to a 'YYYY-MM'
+  function addMonths(m, n){ let [y,mo]=String(m).split('-').map(Number); mo+=n;
+    while(mo>12){ mo-=12; y++; } while(mo<1){ mo+=12; y--; }
+    return y+'-'+String(mo).padStart(2,'0'); }
+  // which months an advance payment of n months starting at `from` covers, in words
+  function coverSpan(from, n){ const to=addMonths(from, Math.max(1,n)-1);
+    return `${monthNameYear(from)} – ${monthNameYear(to)}`; }
+
+  // Advance-tuition tiers are the SCHOOL's pricing, edited in Admin → แพ็กเกจ / ส่วนลดชำระล่วงหน้า and
+  // stored in SCHOOL_CONFIG — they used to be duplicated here as a literal, so the screen and the
+  // engine could (and did) disagree. Fetch them, like the monthly price, which comes from
+  // studentBillBase so the preview equals the real charge instead of the local MOCK seed.
   window.P_prepay=async(sid)=>{ const [base,tiers]=await Promise.all([api('studentBillBase',{studentId:sid}),api('prepayTiers').catch(()=>[])]);
     const price=Number(base&&base.price||0);
     const label=(EN()?(base&&base.labelEN):(base&&base.labelTH))||planLabel((MOCK.students.find(x=>x.StudentID===sid)||{}).Plan);
+    // WHICH months this covers is the parent's to choose. It used to be hard-wired to the current
+    // month, so a payment made on the 31st of July covered July — a month already billed — and the
+    // cover ran out one month early. Default to NEXT month, which is what "ล่วงหน้า" means, and let
+    // them move it.
+    const start=addMonths(monthStr(), 1);
     const opt=({months:mo,discount:disc})=>{ const gross=price*mo, amt=Math.round(gross*(100-disc)/100), per=Math.round(amt/mo);
-      return `<button class="role-card" onclick="P_prepayDo('${sid}',${mo})"><span class="ic">${mo}</span><span><b>${esc(t('prepay.months').replace('{n}',mo))} · -${disc}%</b><br><small>${baht(gross)} → <b>${baht(amt)}</b> <span class="muted">(${EN()?'avg':'เฉลี่ย'} ${baht(per)}/${EN()?'mo':'เดือน'})</span></small></span></button>`; };
+      return `<button class="role-card" data-mo="${mo}" onclick="P_prepayDo('${sid}',${mo})"><span class="ic">${mo}</span><span><b>${esc(t('prepay.months').replace('{n}',mo))} · -${disc}%</b><br><small>${baht(gross)} → <b>${baht(amt)}</b> <span class="muted">(${EN()?'avg':'เฉลี่ย'} ${baht(per)}/${EN()?'mo':'เดือน'})</span></small><br><small class="muted cov" data-mo="${mo}">${esc(coverSpan(start,mo))}</small></span></button>`; };
     const body = price>0 ? (tiers||[]).map(opt).join('')
       : `<div class="card" style="background:var(--warn-bg);border-color:var(--warn-line);color:var(--warn)">⚠️ ${EN()?'This child has no monthly plan price set yet — please ask the admin to set the plan before paying in advance.':'นักเรียนคนนี้ยังไม่ได้ตั้งราคาแผนรายเดือน — กรุณาติดต่อแอดมินให้ตั้งค่าแผนก่อนชำระล่วงหน้า'}</div>`;
     modal(`<h3>💰 ${esc(t('prepay.title'))}</h3><p class="muted" style="font-size:13px">${esc(label)} · ${baht(price)}/${EN()?'mo':'เดือน'}</p>
+      ${price>0?`<label class="field"><span>📅 ${EN()?'Starts from the month':'เริ่มมีผลตั้งแต่เดือน'}</span>
+        <input type="month" id="ppStart" value="${esc(start)}" onchange="P_prepayCov()"/></label>
+        <p class="muted" style="font-size:13px;margin:-2px 2px 8px">${EN()?'The months this payment covers. Months already billed and paid are not covered.':'เดือนที่การชำระนี้จะครอบคลุม · เดือนที่ออกบิลและชำระไปแล้วจะไม่ถูกนับ'}</p>`:''}
       ${body}
       <button class="btn outline block" style="margin-top:8px" onclick="this.closest('.modal').remove()">${esc(t('c.close'))}</button>`);
   };
-  window.P_prepayDo=async(sid,months)=>{ try{ const r=await api('prepay',{studentId:sid,months}); const m=document.querySelector('.modal'); if(m)m.remove();
+  // keep each tier's "covers …" line in step with the chosen start month
+  window.P_prepayCov=()=>{ const el=document.getElementById('ppStart'); if(!el)return; const from=el.value; if(!from)return;
+    document.querySelectorAll('.cov').forEach(c=>{ c.textContent=coverSpan(from, Number(c.dataset.mo)||1); }); };
+  window.P_prepayDo=async(sid,months)=>{ const el=document.getElementById('ppStart'); const startMonth=(el&&el.value)||undefined;
+    try{ const r=await api('prepay',{studentId:sid,months,startMonth}); const m=document.querySelector('.modal'); if(m)m.remove();
     // one-shot: go straight to the QR + attach-slip flow for the chosen plan (no clutter on the payment screen)
     P_payPrepay(r.PrepayID, r.Amount); }catch(e){err(e);} };
   // pay a prepay charge: SCB QR + attach slip (kind 'prepay')
@@ -3072,7 +3091,7 @@
       {t:EN()?'👥 People & classes':'👥 บุคลากร & ชั้นเรียน', items:[
         ['🔁',t('manage.organize'),"GO_('organize')"],
         ['🏫',t('manage.departments'),'A_departments()'],
-        ['📦',EN()?'Packages':'แพ็กเกจ','A_packages()'],
+        ['📦',EN()?'Packages / prepay discounts':'แพ็กเกจ / ส่วนลดชำระล่วงหน้า','A_packages()'],
         ['🕑',t('manage.groups'),'A_groups()'],
         ['⏱️',t('lbl.requireCI'),'A_requireCI()'],
       ]},
@@ -3342,7 +3361,7 @@
     const row=p=>`<div class="card" style="padding:8px"><div class="spread"><b>${esc(EN()?(p.labelEN||p.labelTH):(p.labelTH||p.labelEN))||p.id}</b><b style="color:var(--blue)">${baht(p.price)}</b></div>
       <small class="muted">🕗 ${esc(p.start||'-')} – ${esc(p.end||'-')} น.${p.qrId?` · 🏦 ${esc(qrName(p.qrId))||'QR'}`:''}</small>
       <div class="row" style="margin-top:6px"><button class="btn sm outline" onclick="A_pkgForm('${esc(p.id)}')">✏️ ${EN()?'Edit':'แก้ไข'}</button><button class="btn sm pink" onclick="A_pkgDelete('${esc(p.id)}')">🗑️ ${EN()?'Delete':'ลบ'}</button></div></div>`;
-    modal(`<div class="spread"><h3>📦 ${EN()?'Packages':'แพ็กเกจการเรียน'}</h3><span class="row"><button class="btn sm outline" onclick="A_prepayTiers()">💰 ${EN()?'Advance-payment discounts':'ส่วนลดชำระล่วงหน้า'}</button><button class="btn sm outline" onclick="A_qrCodes()">🏦 ${EN()?'QR accounts':'QR/บัญชี'}</button><button class="btn sm" onclick="A_pkgForm()">+ ${esc(t('manage.add'))}</button></span></div>
+    modal(`<div class="spread"><h3>📦 ${EN()?'Packages / prepay discounts':'แพ็กเกจ / ส่วนลดชำระล่วงหน้า'}</h3><span class="row"><button class="btn sm outline" onclick="A_prepayTiers()">💰 ${EN()?'Advance-payment discounts':'ส่วนลดชำระล่วงหน้า'}</button><button class="btn sm outline" onclick="A_qrCodes()">🏦 ${EN()?'QR accounts':'QR/บัญชี'}</button><button class="btn sm" onclick="A_pkgForm()">+ ${esc(t('manage.add'))}</button></span></div>
       <p class="muted" style="font-size:13px">${EN()?'Name, price and study time per package. The time auto-fills a student’s arrive/leave time when you assign the package (still editable).':'ตั้งชื่อ ราคา และช่วงเวลาเรียนของแต่ละแพ็กเกจ · เวลาจะถูกนำไปใส่ให้นักเรียนอัตโนมัติเมื่อเลือกแพ็กเกจ (แก้ไขรายคนได้)'}</p>
       <div style="max-height:60vh;overflow:auto">${(plans||[]).length?plans.map(row).join(''):`<div class="card muted">${EN()?'No packages yet':'ยังไม่มีแพ็กเกจ'}</div>`}</div>
       <button class="btn outline block" style="margin-top:8px" onclick="this.closest('.modal').remove()">${esc(t('c.close'))}</button>`);
@@ -4263,10 +4282,10 @@
       return `<div style="border-bottom:1px solid var(--surface-3);padding:4px 0"><div class="list-item">
         <span><b>${pp.Months} ${EN()?'months':'เดือน'}</b> ${pp.Discount?`<small class="muted">−${pp.Discount}%</small>`:''} <b>${baht(pp.Amount)}</b>
           <span class="pill ${stPill(pp.Status)}" style="font-size:11px">${esc(pp.Status)}</span>
-          ${cov.length?`<br><small class="muted">${esc(monthNameYear(cov[0]))} – ${esc(monthNameYear(cov[cov.length-1]))}</small>`:''}
+          ${cov.length?`<br><small class="muted">${EN()?'covers':'มีผล'} ${esc(monthNameYear(cov[0]))} – ${esc(monthNameYear(cov[cov.length-1]))}</small>`:''}
           ${dup?`<br><small style="color:var(--warn)">${EN()?'no slip attached — safe to delete':'ยังไม่มีสลิปแนบ — ลบได้'}</small>`:''}</span>
-        ${dup?`<button class="btn sm pink" onclick="A_delPrepay('${esc(pp.PrepayID)}','${esc(sid)}',this)" aria-label="${EN()?'Delete':'ลบ'}" title="${EN()?'Delete this empty entry':'ลบรายการที่ไม่มีสลิป'}">🗑️</button>`:''}
-        </div>${slipHistoryHTML(sl,true)}${out>0?cashBox('prepay',pp.PrepayID,sid,out):''}</div>`; }).join('')
+        <span class="acts"><button class="btn sm outline" onclick="A_editPrepay('${esc(pp.PrepayID)}','${esc(sid)}')" aria-label="${EN()?'Edit months':'แก้เดือนที่มีผล'}" title="${EN()?'Edit which months this covers':'แก้เดือนที่มีผล'}">📅</button>${dup?`<button class="btn sm pink" onclick="A_delPrepay('${esc(pp.PrepayID)}','${esc(sid)}',this)" aria-label="${EN()?'Delete':'ลบ'}" title="${EN()?'Delete this empty entry':'ลบรายการที่ไม่มีสลิป'}">🗑️</button>`:''}</span>
+        </div>${slipHistoryHTML(sl,true)}${out>0&&String(pp.Status)!=='PAID'?cashBox('prepay',pp.PrepayID,sid,out):''}</div>`; }).join('')
       :`<small class="muted">${EN()?'No advance payments':'ไม่มีรายการชำระล่วงหน้า'}</small>`}`;
     const otBox = `${otM.length?otM.map(o=>{ const sl=slipsOf('ot',o.OTID);
       return `<div style="border-bottom:1px solid var(--surface-3);padding:4px 0"><div class="list-item"><span>${esc(ymd(o.Date))} · ${esc(String(o.PickupTime||'').slice(0,5))} <b>${baht(o.Amount)}</b> <span class="pill ${stPill(o.Status)}" style="font-size:11px">${esc(o.Status)}</span></span>
@@ -4320,6 +4339,38 @@
   window.A_finDelBill=(billingId,sid,btn)=>{ if(!confirm(EN()?'Delete this bill?':'ลบบิลนี้?'))return;
     deleteWithUndo(EN()?'Bill deleted':'ลบบิลแล้ว', ()=>api('deleteBill',{billingId}).then(()=>_finReopen(sid)), null, null, btn); };
   window.A_finOt=async(otId,kind,sid)=>{ try{ await api(kind==='cancel'?'adminCancelOT':'adminRestoreOT',{otId}); _finReopen(sid); }catch(e){err(e);} };
+  /**
+   * Correct an advance payment. Getting the START MONTH wrong is the common mistake — a transfer made
+   * on 31 July belongs to August, not July — and it silently shortens the cover by a month. That is
+   * fixable even after payment; the months count and the discount are not, once money has moved.
+   */
+  window.A_editPrepay=async(prepayId,sid)=>{
+    const list=await api('prepayments',{studentId:sid}).catch(()=>[]);
+    const pp=(list||[]).find(x=>x.PrepayID===prepayId); if(!pp){ toast(t('c.noItems')); return; }
+    const cov=Array.isArray(pp.Covered)?pp.Covered:(()=>{try{return JSON.parse(pp.Covered||'[]')}catch(e){return []}})();
+    const paid=String(pp.Status)==='PAID';
+    const start=(cov[0]||monthStr()).slice(0,7);
+    modal(`<h3>📅 ${EN()?'Which months does this cover?':'แก้เดือนที่มีผล'}</h3>
+      <div class="card" style="padding:8px;background:var(--surface-2)"><b>${pp.Months} ${EN()?'months':'เดือน'}</b>${pp.Discount?` <small class="muted">−${pp.Discount}%</small>`:''} <b>${baht(pp.Amount)}</b>
+        <span class="pill ${paid?'ok':'bad'}" style="font-size:11px">${esc(pp.Status)}</span></div>
+      <label class="field"><span>${EN()?'Starts from the month':'เริ่มมีผลตั้งแต่เดือน'}</span>
+        <input type="month" id="epStart" value="${esc(start)}" onchange="A_epCov(${Number(pp.Months)||1})"/></label>
+      <p class="muted" style="font-size:13px" id="epCov">${EN()?'covers':'มีผล'} <b>${esc(coverSpan(start, Number(pp.Months)||1))}</b></p>
+      ${paid?`<div class="card" style="background:var(--ok-bg);border-color:var(--ok-line);padding:8px"><small style="color:var(--ok)">${EN()?'Already paid — only the months can be corrected. The amount the family transferred is never recalculated.':'ชำระแล้ว — แก้ได้เฉพาะเดือนที่มีผล · ยอดที่ผู้ปกครองโอนมาจะไม่ถูกคำนวณใหม่'}</small></div>`
+        :`<div class="grid2"><label class="field"><span>${EN()?'Months':'จำนวนเดือน'}</span><input type="number" min="1" id="epMonths" value="${Number(pp.Months)||1}" oninput="A_epCov(this.value)"/></label>
+          <label class="field"><span>${EN()?'Discount (%)':'ส่วนลด (%)'}</span><input type="number" min="0" max="100" id="epDisc" value="${Number(pp.Discount)||0}"/></label></div>
+          <p class="muted" style="font-size:13px">${EN()?'Not paid yet — the amount is re-quoted from the package price.':'ยังไม่ได้ชำระ — ระบบจะคิดยอดใหม่จากราคาแพ็กเกจ'}</p>`}
+      <button class="btn block" onclick="A_editPrepayDo('${esc(prepayId)}','${esc(sid)}',this)">${esc(t('c.save'))}</button>`);
+  };
+  window.A_epCov=(months)=>{ const el=document.getElementById('epStart'), box=document.getElementById('epCov');
+    if(!el||!box||!el.value)return;
+    box.innerHTML=`${EN()?'covers':'มีผล'} <b>${esc(coverSpan(el.value, Number(months)||1))}</b>`; };
+  window.A_editPrepayDo=async(prepayId,sid,btn)=>{ const m=btn.closest('.modal');
+    const g=id=>{ const e=m.querySelector('#'+id); return e?e.value.trim():undefined; };
+    const startMonth=g('epStart'); if(!startMonth){ toast(EN()?'Pick the start month':'เลือกเดือนที่เริ่มมีผล'); return; }
+    const p={prepayId,startMonth,staffId:USER.staffId};
+    if(m.querySelector('#epMonths')){ p.months=Number(g('epMonths'))||1; p.discount=g('epDisc'); }
+    try{ await api('editPrepay',p); m.remove(); confirmSaved(t('c.saved')); _finReopen(sid); }catch(e){err(e);} };
   // remove an advance-payment entry the parent created twice and never paid (cancelPrepay only ever
   // touches an UNPAID one, so a real payment can never be deleted this way)
   window.A_delPrepay=(prepayId,sid,btn)=>{ if(!confirm(EN()?'Delete this unpaid advance-payment entry?':'ลบรายการชำระล่วงหน้าที่ยังไม่ได้ชำระนี้?'))return;
