@@ -112,7 +112,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.188'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.189'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -4132,14 +4132,25 @@
   window.A_studentOT=async()=>{ const month=OT_MONTH||monthStr(); const rows=await api('studentOtList',{month});
     const pill=st=>({UNPAID:'bad',PENDING_VERIFY:'wait',PARTIAL:'wait',PAID:'ok',CANCELLED:'info'}[st]||'info');
     const lbl=st=>({UNPAID:EN()?'unpaid':'ค้างชำระ',PENDING_VERIFY:EN()?'pending':'รอตรวจ',PARTIAL:EN()?'partial':'บางส่วน',PAID:EN()?'paid':'ชำระแล้ว',CANCELLED:EN()?'cancelled':'ยกเลิกแล้ว'}[st]||st);
+    // "ปกติ 200 · ส่วนลดพิเศษ −100 · เก็บจริง 100" — the admin must be able to see at a glance that a
+    // row is discounted, not miscalculated. Rows with no discount just show the charge.
+    const otLine=(full,disc)=>disc>0
+      ? `<span class="muted">${EN()?'normally':'ปกติ'} ${baht(full)}</span> · <b style="color:var(--warn)">${EN()?'discount':'ส่วนลดพิเศษ'} −${baht(disc)}</b> · <b style="color:var(--ok)">${EN()?'charge':'เก็บจริง'} ${baht(Math.max(0,full-disc))}</b>`
+      : `<span class="muted">${EN()?'charge':'ยอดเต็ม'} ${baht(full)}</span>`;
     const row=o=>{ const paid=o.status==='PAID', cancelled=o.status==='CANCELLED';
+      const otFull=Number(o.fullAmount||o.amount||0), otDisc=Number(o.discount||0);
       return `<div class="card" style="padding:8px;${cancelled?'opacity:.6':''}">
         <div class="spread"><label style="display:flex;gap:6px;align-items:center"><input type="checkbox" class="sotoc" value="${esc(o.otId)}" ${paid?'disabled':''} style="width:auto" onchange="A_socSel()"/> <b>${esc((EN()?(o.nickEN||o.nick||o.nameEN):(o.nick||o.name))||o.studentId)}</b></label><span class="pill ${pill(o.status)}" style="font-size:11px">${esc(lbl(o.status))}</span></div>
         <small class="muted">${esc(String(o.date).slice(0,10))} · ${EN()?'leaves':'เลิกเรียน'} ${esc(o.endTime||o.planEnd||'-')} · ${EN()?'rate':'เรต'} ${baht(o.rate)}/${EN()?'hr':'ชม.'}</small>
         <div class="grid2" style="margin-top:6px">
           <label class="field"><span>${EN()?'Pickup time':'เวลารับ'}</span><input type="time" id="ot_t_${esc(o.otId)}" value="${esc(String(o.pickupTime||'').slice(0,5))}" data-orig="${esc(String(o.pickupTime||'').slice(0,5))}" ${paid?'disabled':''}/></label>
-          <label class="field"><span>${EN()?'Amount (฿)':'ยอด OT (฿)'}</span><input type="number" id="ot_a_${esc(o.otId)}" value="${o.amount}" data-orig="${o.amount}" ${paid?'disabled':''}/></label></div>
-        <small class="muted">${EN()?'late':'สาย'} ${o.lateMinutes} ${EN()?'min':'นาที'} · ${o.hours} ${EN()?'hr':'ชม.'}</small>
+          <!-- The admin types what the parent should ACTUALLY pay ("just pay 100"); the difference
+               from the real charge is stored as the discount. The charge itself is never overwritten,
+               so re-tapping check-out can no longer silently undo the school's goodwill. -->
+          <label class="field"><span>${EN()?'Parent pays (฿)':'ให้ผู้ปกครองจ่าย (฿)'}</span><input type="number" min="0" id="ot_a_${esc(o.otId)}" value="${o.amount}" data-orig="${o.amount}" ${paid?'disabled':''} oninput="A_otPreview('${esc(o.otId)}',${otFull})"/></label></div>
+        ${paid?'':`<label class="field"><span>${EN()?'Reason for the discount (optional)':'เหตุผลที่ให้ส่วนลด (ถ้ามี)'}</span><input id="ot_r_${esc(o.otId)}" value="${esc(o.discountReason||'')}" data-orig="${esc(o.discountReason||'')}" placeholder="${EN()?'e.g. heavy traffic, special case':'เช่น รถติดมาก / กรณีพิเศษ'}"/></label>`}
+        <div id="ot_p_${esc(o.otId)}" style="font-size:13px;margin-top:2px">${otLine(otFull,otDisc)}</div>
+        <small class="muted">${EN()?'late':'สาย'} ${o.lateMinutes} ${EN()?'min':'นาที'} · ${o.hours} ${EN()?'hr':'ชม.'}${o.discountBy?` · ${EN()?'discount by':'ส่วนลดโดย'} ${esc(staffNick(o.discountBy)||o.discountBy)}`:''}</small>
         ${paid?`<div class="muted" style="font-size:13px;margin-top:6px">🔒 ${EN()?'Paid — locked':'ชำระแล้ว แก้ไขไม่ได้'}</div>`
           :`<div class="row" style="margin-top:6px"><button class="btn sm green" onclick="A_otSave('${esc(o.otId)}',this)">💾 ${esc(t('c.save'))}</button>
             ${cancelled?`<button class="btn sm outline" onclick="A_otRestore('${esc(o.otId)}')">♻️ ${EN()?'Restore':'คืนค่า'}</button>`
@@ -4160,16 +4171,28 @@
     let ok=0,skip=0; for(const id of ids){ try{ await api(kind==='cancel'?'adminCancelOT':'adminRestoreOT',{otId:id}); ok++; }catch(e){ skip++; } }
     toast((EN()?'Done ':'สำเร็จ ')+ok+(skip?` · ${EN()?'skipped':'ข้าม'} ${skip}`:'')); const x=document.querySelector('.modal'); if(x)x.remove(); A_studentOT(); };
   window.A_otMonth=(m)=>{ OT_MONTH=m; const x=document.querySelector('.modal'); if(x)x.remove(); A_studentOT(); };
-  // Only send what actually changed: sending a stale amount alongside a new pickup time
-  // would override the recomputed value. If the admin edits the amount, that wins.
-  window.A_otSave=async(otId,btn)=>{ const tm=document.getElementById('ot_t_'+otId), am=document.getElementById('ot_a_'+otId);
-    const p={otId};
+  // live "ปกติ 200 · ส่วนลด −100 · เก็บจริง 100" as the admin types, so the discount being granted is
+  // never a surprise once saved
+  window.A_otPreview=(otId,full)=>{ const am=document.getElementById('ot_a_'+otId), box=document.getElementById('ot_p_'+otId);
+    if(!am||!box)return; const pay=Math.max(0,Math.min(Number(am.value)||0,full)); const disc=Math.max(0,full-pay);
+    box.innerHTML = disc>0
+      ? `<span class="muted">${EN()?'normally':'ปกติ'} ${baht(full)}</span> · <b style="color:var(--warn)">${EN()?'discount':'ส่วนลดพิเศษ'} −${baht(disc)}</b> · <b style="color:var(--ok)">${EN()?'charge':'เก็บจริง'} ${baht(pay)}</b>`
+      : `<span class="muted">${EN()?'charge':'ยอดเต็ม'} ${baht(full)}</span>`; };
+  // Only send what actually changed. The amount field is what the parent should PAY; the server turns
+  // the difference from the real charge into a recorded discount, so the charge itself is preserved.
+  window.A_otSave=async(otId,btn)=>{ const tm=document.getElementById('ot_t_'+otId), am=document.getElementById('ot_a_'+otId), rs=document.getElementById('ot_r_'+otId);
+    const p={otId,staffId:USER.staffId};
     if(tm && tm.value && tm.value!==tm.dataset.orig) p.pickupTime=tm.value;
     if(am && String(am.value)!==String(am.dataset.orig)) p.amount=am.value;
-    if(p.pickupTime===undefined && p.amount===undefined){ toast(EN()?'Nothing changed':'ไม่มีการเปลี่ยนแปลง'); return; }
+    if(rs && String(rs.value)!==String(rs.dataset.orig)) p.discountReason=rs.value;
+    if(p.pickupTime===undefined && p.amount===undefined && p.discountReason===undefined){ toast(EN()?'Nothing changed':'ไม่มีการเปลี่ยนแปลง'); return; }
+    // a reason-only edit still needs an amount for the server to act on
+    if(p.amount===undefined && p.discountReason!==undefined && am) p.amount=am.value;
     btn.disabled=true;
-    try{ const r=await api('adminUpdateOT',p);
-      toast(`✅ ${EN()?'Updated':'อัปเดตแล้ว'} — ${baht(r.Amount!=null?r.Amount:r.amount||0)}`); const x=document.querySelector('.modal'); if(x)x.remove(); A_studentOT();
+    try{ const r=await api('adminUpdateOT',p); const d=Number(r.discount||r.Discount||0);
+      toast(d>0 ? `✅ ${EN()?'Discount granted':'ให้ส่วนลดแล้ว'} −${baht(d)} · ${EN()?'charge':'เก็บจริง'} ${baht(r.amount!=null?r.amount:r.Amount||0)}`
+                : `✅ ${EN()?'Updated':'อัปเดตแล้ว'} — ${baht(r.amount!=null?r.amount:r.Amount||0)}`);
+      const x=document.querySelector('.modal'); if(x)x.remove(); A_studentOT();
     }catch(e){ err(e); btn.disabled=false; } };
   window.A_otCancel=async(otId)=>{ if(!confirm(EN()?'Cancel this OT charge? It will not be billed.':'ยกเลิกค่า OT รายการนี้? จะไม่ถูกเรียกเก็บ'))return;
     try{ await api('adminCancelOT',{otId}); toast(EN()?'OT cancelled':'ยกเลิก OT แล้ว'); const x=document.querySelector('.modal'); if(x)x.remove(); A_studentOT(); }catch(e){err(e);} };

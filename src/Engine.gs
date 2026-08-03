@@ -201,6 +201,12 @@ function createAtomAPI(M, GROWTH_STD) {
     'personal':'ลากิจ','business leave':'ลากิจ','holiday leave':'ลาพักร้อน','vacation':'ลาพักร้อน',
     'vacation leave':'ลาพักร้อน','annual leave':'ลาพักร้อน','absent':'ขาด'};
   function leaveTypeTH_(v){ const s=String(v==null?'':v).trim(); return s?(LEAVE_ALIAS_[s.toLowerCase()]||s):''; }
+  // ---- student OT: charge vs goodwill discount (see adminUpdateOT) ----
+  // Amount is always the NET payable. FullAmount is the charge before any waiver; rows written
+  // before discounts existed have none, in which case their Amount IS the full charge.
+  const otNum_=v=>{ const n=Number(v); return isFinite(n)&&n>0?n:0; };
+  const otFullOf_=o=>{ const f=Number(o&&o.FullAmount); return (isFinite(f)&&f>0)?f:otNum_(o&&o.Amount); };
+  const otDiscOf_=(o,full)=>Math.min(otNum_(o&&o.Discount), otNum_(full));
   function leaveView_(l){ const s=staffById_(l.StaffID); return Object.assign({}, l,
     {name:s.NameTH,nameEN:s.NameEN,nick:s.Nickname,nickEN:s.NicknameEN,
      days:Number(l.Days)||0, halfDay:halfDay_(l.HalfDay)}); }
@@ -499,8 +505,11 @@ function createAtomAPI(M, GROWTH_STD) {
       if(outT!==null){
         if(!outT){ if(oi>=0 && String(M.otDaily[oi].Status||'')!=='PAID') M.otDaily.splice(oi,1); }
         else { const o=otFor(st,outT);
-          if(o.amount>0){ if(oi>=0){ const r=M.otDaily[oi]; r.PickupTime=outT; r.PlanEnd=o.planEnd; r.LateMinutes=o.late; r.Hours=o.hours; r.Amount=o.amount; }
-            else M.otDaily.push({OTID:otId,Date:date,StudentID:st.StudentID,PickupTime:outT,PlanEnd:o.planEnd,LateMinutes:o.late,Hours:o.hours,Amount:o.amount,Status:'UNPAID',SlipRef:'',SlipAmount:0});
+          // correcting the pick-up time recomputes the CHARGE, but must keep any discount granted
+          if(o.amount>0){ if(oi>=0){ const r=M.otDaily[oi]; const d=otDiscOf_(r,o.amount);
+              r.PickupTime=outT; r.PlanEnd=o.planEnd; r.LateMinutes=o.late; r.Hours=o.hours;
+              r.FullAmount=o.amount; r.Discount=d; r.Amount=Math.max(0,o.amount-d); }
+            else M.otDaily.push({OTID:otId,Date:date,StudentID:st.StudentID,PickupTime:outT,PlanEnd:o.planEnd,LateMinutes:o.late,Hours:o.hours,FullAmount:o.amount,Discount:0,Amount:o.amount,Status:'UNPAID',SlipRef:'',SlipAmount:0});
             ot={otId,amount:o.amount,lateMinutes:o.late}; }
           else if(oi>=0 && String(M.otDaily[oi].Status||'')!=='PAID') M.otDaily.splice(oi,1); }
       }
@@ -692,7 +701,13 @@ function createAtomAPI(M, GROWTH_STD) {
         if(kind==='prepay'){ const pp=M.prepayments.find(x=>x.PrepayID===refId); const cov=pp?prepayCoveredMonths_(pp):[];
           return {label:'ชำระล่วงหน้า '+(pp?pp.Months:'?')+' เดือน'+(cov.length?' ('+cov[0]+' → '+cov[cov.length-1]+')':''),
             month:cov[0]||'', due:pp?Number(pp.Amount||0):0}; }
-        if(kind==='ot'){ const o=M.otDaily.find(x=>x.OTID===refId); return {label:'OT รับช้า'+(o?' '+ymd(o.Date):''), month:o?ym(o.Date):'', due:o?Number(o.Amount||0):0}; }
+        if(kind==='ot'){ const o=M.otDaily.find(x=>x.OTID===refId);
+          // Show the waiver on the parent's line. Billing only 100 with no explanation reads like a
+          // miscalculation; saying so is what turns the school's goodwill into something felt.
+          const d=o?otDiscOf_(o,otFullOf_(o)):0;
+          return {label:'OT รับช้า'+(o?' '+ymd(o.Date):'')+(d>0?' (ปกติ '+otFullOf_(o)+' · ส่วนลดพิเศษ −'+d+')':''),
+            month:o?ym(o.Date):'', due:o?Number(o.Amount||0):0,
+            fullAmount:o?otFullOf_(o):0, discount:d, discountReason:(o&&o.DiscountReason)||''}; }
         if(kind==='charge'){ const c=M.studentCharges.find(x=>x.ChargeID===refId); return {label:(c&&c.Label)||'ค่าใช้จ่ายเพิ่มเติม', month:c?ym(c.Month):'', due:c?Number(c.Amount||0):0}; }
         return {label:kind, month:'', due:0}; };
       const out=[];
@@ -807,7 +822,9 @@ function createAtomAPI(M, GROWTH_STD) {
         return { otId:o.OTID, date:o.Date, studentId:o.StudentID, name:s.NameTH, nameEN:s.NameEN,
           nick:s.Nickname, nickEN:s.NicknameEN, class:s.Class, endTime:studentEndTime(s),
           planEnd:o.PlanEnd, pickupTime:o.PickupTime, lateMinutes:Number(o.LateMinutes||0), hours:Number(o.Hours||0),
-          amount:Number(o.Amount||0), status:o.Status||'UNPAID', rate:otRateFor(s) }; }); },
+          amount:Number(o.Amount||0), status:o.Status||'UNPAID', rate:otRateFor(s),
+          fullAmount:otFullOf_(o), discount:otDiscOf_(o,otFullOf_(o)),
+          discountReason:o.DiscountReason||'', discountBy:o.DiscountBy||'' }; }); },
     // Teacher OT follow-up: outstanding student OT the teacher may act on. A homeroom teacher sees ONLY
     // the students in the class(es) they cover; a head teacher / Leader / Admin sees all. Grouped by
     // student with a running outstanding total so the teacher can chase payment or add a slip on behalf.
@@ -826,7 +843,8 @@ function createAtomAPI(M, GROWTH_STD) {
         const g=byStudent[sid]||(byStudent[sid]={studentId:sid,name:s.NameTH,nameEN:s.NameEN,nick:s.Nickname,nickEN:s.NicknameEN,class:s.Class,outstanding:0,items:[]});
         g.outstanding+=outstanding;
         g.items.push({otId:o.OTID,date:o.Date,pickupTime:o.PickupTime,planEnd:o.PlanEnd,hours:Number(o.Hours||0),
-          amount:Number(o.Amount||0),status:o.Status||'UNPAID',confirmed,submitted,outstanding}); });
+          amount:Number(o.Amount||0),status:o.Status||'UNPAID',confirmed,submitted,outstanding,
+          fullAmount:otFullOf_(o),discount:otDiscOf_(o,otFullOf_(o))}); });
       const list=Object.keys(byStudent).map(k=>byStudent[k]).sort((a,b)=>b.outstanding-a.outstanding);
       return { seeAll, classes:covered, totalOutstanding:list.reduce((a,s)=>a+s.outstanding,0), students:list }; },
     // Teacher records a transfer slip for a student's OT on behalf of the parent — same slip pipeline
@@ -838,14 +856,27 @@ function createAtomAPI(M, GROWTH_STD) {
       if(!(seeAll || covered.indexOf(String(s.Class||''))>=0)) fail('NO_ACCESS','ครูดูแลได้เฉพาะนักเรียนในชั้นของตน');
       return recordSlip_('ot', p.otId, p); },
     // recompute from a corrected pickup time, and/or override the amount outright. PAID rows are locked.
+    // Correct the pickup time and/or grant a goodwill discount. The charge (FullAmount) and the
+    // waiver (Discount) are stored separately so a recompute can never wipe the discount, and so a
+    // discount is always distinguishable from a miscalculation. Amount stays the NET payable, which
+    // is what billing, slips and the parent's payables all read.
     adminUpdateOT: p => { const o=M.otDaily.find(x=>x.OTID===p.otId); if(!o)fail('NOT_FOUND','ไม่พบรายการ OT');
       if(o.Status==='PAID')fail('ALREADY_PAID','รายการนี้ชำระแล้ว แก้ไขไม่ได้');
+      let full=otFullOf_(o), touched=false;
       if(p.pickupTime){ const s=studentById(o.StudentID)||{}; const c=otFor(s,p.pickupTime);
-        o.PickupTime=p.pickupTime; o.PlanEnd=c.planEnd; o.LateMinutes=c.late; o.Hours=c.hours; o.Amount=c.amount; }
-      if(p.amount!=null && p.amount!=='') o.Amount=Number(p.amount)||0;   // manual override wins
-      if(o.Status==='CANCELLED') o.Status='UNPAID';                        // editing revives a cancelled row
-      logAct('adminUpdateOT',o.OTID,'pickup '+o.PickupTime+' → '+o.Amount,actorOf(p));
-      return { otId:o.OTID, pickupTime:o.PickupTime, lateMinutes:o.LateMinutes, hours:o.Hours, amount:o.Amount, status:o.Status }; },
+        o.PickupTime=p.pickupTime; o.PlanEnd=c.planEnd; o.LateMinutes=c.late; o.Hours=c.hours; full=c.amount; touched=true; }
+      const had=otDiscOf_(o,otFullOf_(o));
+      let disc=Math.min(had,full);                                  // a smaller charge caps an old discount
+      if(p.discount!=null && p.discount!==''){ disc=Math.min(otNum_(p.discount),full); touched=true; }
+      else if(p.amount!=null && p.amount!==''){ disc=Math.min(Math.max(0,full-otNum_(p.amount)),full); touched=true; }
+      if(!touched) fail('BAD_INPUT','ไม่มีข้อมูลให้แก้ไข');
+      o.FullAmount=full; o.Discount=disc; o.Amount=Math.max(0,full-disc);
+      if(disc!==had){ o.DiscountReason=disc>0?String(p.discountReason||'').slice(0,200):'';
+        o.DiscountBy=disc>0?(p.staffId||p.adminId||'ADMIN'):''; o.DiscountAt=disc>0?todayLocal():''; }
+      if(o.Status==='CANCELLED') o.Status='UNPAID';                  // editing revives a cancelled row
+      logAct(disc!==had?'otDiscount':'adminUpdateOT',o.OTID,'เต็ม '+full+' ลด '+disc+' สุทธิ '+o.Amount+(o.DiscountReason?' ('+o.DiscountReason+')':''),actorOf(p));
+      return { otId:o.OTID, pickupTime:o.PickupTime, lateMinutes:o.LateMinutes, hours:o.Hours,
+        fullAmount:full, discount:disc, amount:o.Amount, status:o.Status }; },
     adminCancelOT: p => { const o=M.otDaily.find(x=>x.OTID===p.otId); if(!o)fail('NOT_FOUND','ไม่พบรายการ OT');
       if(o.Status==='PAID')fail('ALREADY_PAID','รายการนี้ชำระแล้ว ยกเลิกไม่ได้');
       o.Status='CANCELLED'; logAct('adminCancelOT',o.OTID,'ยกเลิก OT',actorOf(p)); return {otId:o.OTID,status:'CANCELLED'}; },
