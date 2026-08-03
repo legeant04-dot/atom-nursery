@@ -68,27 +68,37 @@ window.CONFIG = { MODE: 'gas', GAS_URL: 'https://script.google.com/macros/s/AKfy
   // Google rejects an oversized POST before the script runs and answers with an HTML page. Catch it
   // here, where we can still say which action and how big, instead of letting it look like a crash.
   const MAX_POST = 6000000;   // ~6 MB of JSON; a compressed slip is ~150 KB
-  const postGas = body => {
+  // Google occasionally answers a perfectly good request with an error PAGE instead of handing it to
+  // the script — observed live as a 404 + HTML on one call and a clean 200 on the identical call
+  // moments later. Retrying is what a person does anyway, so do it for them.
+  // Only for calls that cannot double-charge: a read, or auth/ping. A write is reported, never repeated.
+  const sleep = ms => new Promise(r => setTimeout(r, ms));
+  async function postGas(body, attempt) {
+    attempt = attempt || 0;
     const payload = JSON.stringify(Object.assign({ token: _session }, body));
     if (payload.length > MAX_POST) {
       const e = new Error('ไฟล์ที่แนบมาใหญ่เกินไป (' + Math.round(payload.length / 1048576) + ' MB) — กรุณาถ่ายใหม่หรือย่อรูปก่อน');
       e.code = 'TOO_LARGE';
-      return Promise.reject(e);
+      throw e;
     }
-    return fetch(CONFIG.GAS_URL, { method: 'POST', body: payload }).then(async r => {
-      const text = await r.text();
-      try { return JSON.parse(text); }
-      catch (e) {
-        const looksHTML = /^\s*<(!doctype|html)/i.test(text);
-        const err = new Error(looksHTML
-          ? 'ระบบของโรงเรียนตอบกลับไม่ถูกต้อง (HTTP ' + r.status + ') — กรุณาลองใหม่อีกครั้ง'
-          : 'อ่านคำตอบจากระบบไม่ได้ (HTTP ' + r.status + ')');
-        err.code = 'BAD_RESPONSE';
-        try { console.error('postGas non-JSON', r.status, text.slice(0, 300)); } catch (x) {}
-        throw err;
-      }
-    });
-  };
+    const r = await fetch(CONFIG.GAS_URL, { method: 'POST', body: payload });
+    const text = await r.text();
+    try { return JSON.parse(text); } catch (e) {
+      const looksHTML = /^\s*<(!doctype|html)/i.test(text);
+      try { console.error('postGas non-JSON', body && body.action, r.status, text.slice(0, 300)); } catch (x) {}
+      // a batch is retried only when every call in it is safe to repeat
+      const act = body && body.action;
+      const safe = act === 'batch'
+        ? (((body.payload || {}).calls) || []).every(c => RETRY_SAFE(c.action))
+        : RETRY_SAFE(act);
+      if (safe && attempt < 2) { await sleep(400 * (attempt + 1)); return postGas(body, attempt + 1); }
+      const err = new Error(looksHTML
+        ? 'ระบบของโรงเรียนตอบกลับไม่ถูกต้อง (HTTP ' + r.status + ') — กรุณาลองใหม่อีกครั้ง'
+        : 'อ่านคำตอบจากระบบไม่ได้ (HTTP ' + r.status + ')');
+      err.code = 'BAD_RESPONSE';
+      throw err;
+    }
+  }
 
   // ---- client read cache: persistent (localStorage) + stale-while-revalidate ----
   // Perceived zero-lag: a read paints instantly from the last-known value stored on the
@@ -110,6 +120,10 @@ window.CONFIG = { MODE: 'gas', GAS_URL: 'https://script.google.com/macros/s/AKfy
   window.__atomCacheClear = rcClear; // app.js clears on logout / user switch (don't leak data across LINE accounts)
   const MUT = /^(submit|save|add|remove|delete|set|register|pay|upload|confirm|reject|issue|generate|move|export|import|compute|cancel|prepay|link|notify|request|mark|approve|edit|rename|update|change|seed|dedup|reindex)/i;
   const isMutating = a => MUT.test(a) || /check(in|out)|absence|payOT$|^orgMove|^unlink|^claim|^recompute/i.test(a);
+  // Safe to send again if the reply was unreadable: reads, plus auth/ping. A write is never repeated
+  // — a retried payment or check-in would be worse than the error. Used by postGas (declared above,
+  // but only ever CALLED after this module has finished initialising).
+  const RETRY_SAFE = a => a === 'auth' || a === 'ping' || (a !== 'batch' && !isMutating(a));
 
   // gas mode: micro-batch all api() calls made in the same tick (e.g. a screen's Promise.all)
   // into ONE request -> one round-trip, and GAS hydrates the sheets once for the whole batch.
