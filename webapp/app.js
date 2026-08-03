@@ -112,7 +112,8 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.186'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.187'; // bump each webapp change; shown only at the bottom of the Chat screen
+  window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
   const phoneFmt = p => { let d=String(p==null?'':p).replace(/\D/g,''); if(d.length===9) d='0'+d; return d; };
@@ -611,10 +612,19 @@
     // paint an instant placeholder so a tap feels responsive instead of "stuck" on the old screen
     // while the first (uncached) fetch runs; skip on silent background re-renders to avoid flicker.
     if(fn && !(opts&&opts.silent) && !snap) app.innerHTML=`<div class="card" style="text-align:center;color:var(--ink-3);padding:28px">⏳ ${EN()?'Loading…':'กำลังโหลด…'}</div>`;
+    window.__atomScreen=screen;   // Phase 0: tags every API row, so we learn WHICH screen is slow
+    const _t0=Date.now();
     if(fn){ const r=fn(); // a screen that throws must not leave the loading skeleton stuck forever
+      // How long from tap to the screen actually being drawn — the number the user experiences.
+      // Measured only for real navigations; a silent background re-render is not something anyone waits for.
+      if(!(opts&&opts.silent)){ const done=()=>{ try{ window.__atomPerfMark&&__atomPerfMark('nav',screen,Date.now()-_t0); }catch(e){} };
+        if(r&&r.then) r.then(done,done); else done(); }
       if(snap){ if(r&&r.then) r.then(()=>uiRestore(snap),()=>{}); else uiRestore(snap); }
       // only show the error if STILL on this screen — a slow screen the user already left must not
       // clobber the new one (e.g. home's deferred #anns write firing after navigating to leaves).
+      // Every "โหลดไม่สำเร็จ" the user has ever seen has been invisible to us. Record it with the
+      // screen and the error code — this is the single most direct answer to "มี Error บางครั้งในมือถือ".
+      if(r&&r.catch) r.catch(e=>{ try{ window.__atomPerfErr&&__atomPerfErr('screen:'+screen,((e&&e.code)?e.code+' ':'')+((e&&e.message)||e)); }catch(x){} });
       if(r&&r.catch) r.catch(e=>{ if(CURRENT!==screen)return; app.innerHTML=`<div class="card"><b>⚠️ ${EN()?'Could not load':'โหลดไม่สำเร็จ'}</b><br><small class="muted">${esc((e&&e.message)||e)}</small></div><button class="btn outline block" style="margin-top:10px" onclick="GO('${screen}')">🔄 ${EN()?'Retry':'ลองใหม่'}</button>`; });
     } else app.innerHTML=`<div class="card">หน้านี้กำลังพัฒนา</div>`;
     if(!snap) window.scrollTo(0,0); };
@@ -3904,6 +3914,8 @@
       <button class="btn sm outline block" onclick="A_contribRecalc(this)">🧮 ${EN()?'Review accumulated fund totals':'ตรวจยอดเงินสมทบสะสมของทุกคน'}</button>
       <h4 style="margin:6px 0">🔍 ${EN()?'Slip verification (SlipOK)':'การตรวจสลิป (SlipOK)'}</h4>
       <button class="btn sm outline block" onclick="A_slipDiag(this)">${EN()?'Check whether slip verification is working':'ตรวจว่าระบบตรวจสลิปทำงานอยู่ไหม'}</button>
+      <h4 style="margin:6px 0">⚡ ${EN()?'System speed & errors':'ความเร็วและข้อผิดพลาดของระบบ'}</h4>
+      <button class="btn sm outline block" onclick="this.closest('.modal').remove();A_perfReport(7)">${EN()?'Which screens are slow, what is breaking':'ดูว่าหน้าไหนช้า อะไรพังบ้าง'}</button>
       <h4 style="margin:6px 0">${esc(t('set.leaveQuota'))}</h4>
       ${Object.keys(q).map(k=>`<label class="field"><span>${esc(tLeaveType(k))}</span><input type="number" id="lq_${esc(k)}" value="${q[k]}"/></label>`).join('')}
       <h4 style="margin:10px 0 4px">🔔 ${EN()?'Notifications':'การแจ้งเตือน'}</h4>
@@ -3959,6 +3971,99 @@
           ${d.byCode.map(x=>`<div class="list-item"><span>${esc(why[x.code]||x.code)} <small class="muted">(${esc(x.code)})</small></span><b>${x.count}</b></div>`).join('')}
           <p class="muted" style="font-size:13px;margin:6px 0 0">${EN()?'An objection is not proof of fraud — a re-sent slip or an amount typed differently both trigger one. Open the slip and judge it yourself.':'การทักท้วงไม่ได้แปลว่าสลิปปลอม — ส่งสลิปซ้ำ หรือกรอกยอดไม่ตรง ก็ขึ้นได้ · เปิดดูสลิปแล้วตัดสินเองได้เลย'}</p></div>`:''}
         <button class="btn outline block" onclick="this.closest('.modal').remove()">${esc(t('c.close'))}</button>`);
+    }catch(e){err(e);}finally{ if(btn)btn.disabled=false; } };
+
+  // ---- Phase 0: "where is it actually slow, and what is actually breaking?" ---------------------
+  // Nobody can read a raw log sheet and act on it, so this ranks the answer instead of dumping rows.
+  // Slow actions are ranked by TOTAL waiting time (how often × how slow), because a 4s call that runs
+  // once a month matters far less than a 900ms call that runs on every screen.
+  const msFmt=n=>n>=1000?(n/1000).toFixed(1)+' วิ':Math.round(n)+' ms';
+  const msColor=n=>n<600?'var(--ok)':(n<1500?'var(--warn)':'var(--bad)');
+  window.A_perfReport=async(days)=>{
+    days=days||7;
+    try{
+      const d=await api('perfSummary',{days,staffId:USER.staffId},{fresh:true});
+      if(d.empty){ modal(`<h3>⚡ ${EN()?'System speed':'ความเร็วระบบ'}</h3>
+        <div class="card" style="padding:10px"><b>${EN()?'No data yet':'ยังไม่มีข้อมูล'}</b>
+          <p class="muted" style="font-size:13px;margin:6px 0 0">${esc(d.note||'')}</p></div>
+        <button class="btn outline block" onclick="this.closest('.modal').remove()">${esc(t('c.close'))}</button>`); return; }
+
+      const bar=(label,val,max,color)=>`<div style="margin:4px 0"><div style="display:flex;justify-content:space-between;font-size:13px"><span>${label}</span><b style="color:${color||'var(--ink)'}">${val}</b></div>
+        <div style="height:5px;background:var(--line);border-radius:3px;overflow:hidden"><div style="height:100%;width:${Math.min(100,max)}%;background:${color||'var(--brand)'}"></div></div></div>`;
+
+      const worstCost=Math.max(1,...(d.slowest||[]).map(x=>x.cost));
+      const slow=(d.slowest||[]).slice(0,10).map(x=>bar(
+        `${esc(x.action)} <small class="muted">×${x.n}${x.fail?` · <span style="color:var(--bad)">พลาด ${x.fail}</span>`:''}</small>`,
+        `${msFmt(x.p50)} <small class="muted">(p95 ${msFmt(x.p95)})</small>`,
+        x.cost/worstCost*100, msColor(x.p50))).join('');
+
+      const worstScr=Math.max(1,...(d.slowScreens||[]).map(x=>x.p95));
+      const scr=(d.slowScreens||[]).filter(x=>x.n).slice(0,10).map(x=>bar(
+        `${esc(x.screen)} <small class="muted">×${x.n}</small>`,
+        `${msFmt(x.p50)} <small class="muted">(p95 ${msFmt(x.p95)})</small>`,
+        x.p95/worstScr*100, msColor(x.p95))).join('');
+
+      // "how many PEOPLE hit this" is the number that decides what to fix first — a crash 40 times
+      // on one phone is a different problem from a crash once on 40 phones.
+      const probs=(d.problems||[]).slice(0,12).map(x=>`<div class="list-item" style="align-items:flex-start">
+        <span style="flex:1"><b>${esc(x.what)}</b><br><small class="muted">${esc(x.detail||'-')}</small></span>
+        <span style="text-align:right;white-space:nowrap"><b style="color:var(--bad)">${x.users} ${EN()?'user(s)':'คน'}</b><br><small class="muted">${x.n} ${EN()?'times':'ครั้ง'}</small></span></div>`).join('')
+        || `<p class="muted" style="font-size:13px">✅ ${EN()?'No errors recorded in this window.':'ไม่พบ error ในช่วงเวลานี้'}</p>`;
+
+      const fails=(d.failing||[]).slice(0,10).map(x=>`<div class="list-item"><span>${esc(x.action)}<br><small class="muted">${Object.keys(x.codes||{}).map(c=>esc(c)+' ×'+x.codes[c]).join(' · ')}</small></span>
+        <b style="color:${x.rate>10?'var(--bad)':'var(--warn)'}">${x.rate}%</b></div>`).join('')
+        || `<p class="muted" style="font-size:13px">✅ ${EN()?'Every request succeeded.':'ทุกคำขอสำเร็จหมด'}</p>`;
+
+      const devs=(d.byDev||[]).map(x=>`<div class="list-item"><span>${esc(x.dev)} <small class="muted">×${x.n}</small></span>
+        <span style="text-align:right"><b style="color:${msColor(x.p50)}">${msFmt(x.p50)}</b>${x.fail?` <small style="color:var(--bad)">· ${EN()?'fail':'พลาด'} ${x.rate}%</small>`:''}</span></div>`).join('');
+      const nets=(d.byNet||[]).filter(x=>x.net).map(x=>`<div class="list-item"><span>${esc(x.net)} <small class="muted">×${x.n}</small></span><b style="color:${msColor(x.p50)}">${msFmt(x.p50)}</b></div>`).join('');
+      const boots=(d.boot||[]).map(x=>`<div class="list-item"><span>${esc(x.mark)}</span><b>${msFmt(x.p50)}</b></div>`).join('');
+
+      modal(`<h3>⚡ ${EN()?'System speed & errors':'ความเร็วและข้อผิดพลาดของระบบ'}</h3>
+        <p class="muted" style="font-size:12px">${esc(String(d.from||'').slice(0,16))} → ${esc(String(d.to||'').slice(0,16))} · ${d.sessions} ${EN()?'sessions':'เซสชัน'}</p>
+        <div class="kpigrid" style="margin-bottom:8px">
+          <div class="kpi"><b style="color:${msColor(d.p50)}">${msFmt(d.p50)}</b><small>${EN()?'typical wait':'รอโดยทั่วไป'}</small></div>
+          <div class="kpi"><b style="color:${msColor(d.p95)}">${msFmt(d.p95)}</b><small>${EN()?'slowest 5%':'ช้าสุด 5%'}</small></div>
+          <div class="kpi"><b style="color:${d.failRate>2?'var(--bad)':'var(--ok)'}">${d.failRate}%</b><small>${EN()?'failed':'ล้มเหลว'}</small></div>
+          <div class="kpi"><b style="color:var(--ok)">${d.cacheRate}%</b><small>${EN()?'instant (cached)':'ทันที (แคช)'}</small></div>
+        </div>
+        <p class="muted" style="font-size:13px">${EN()?`${d.calls} requests measured. "Instant" means it was served from the phone without waiting for the server.`:`วัดจาก ${d.calls} คำขอ · "ทันที" คือได้ข้อมูลจากเครื่องเลย ไม่ต้องรอเซิร์ฟเวอร์`}</p>
+
+        <h4 style="margin:12px 0 4px">🐌 ${EN()?'Where the waiting actually goes':'เวลารอหมดไปกับอะไร'}</h4>
+        <p class="muted" style="font-size:12px;margin:0 0 6px">${EN()?'Ranked by total time waited (how often × how slow) — fix the top one first.':'เรียงตามเวลารอรวม (บ่อยแค่ไหน × ช้าแค่ไหน) — แก้ตัวบนสุดก่อนคุ้มที่สุด'}</p>
+        ${slow||`<p class="muted" style="font-size:13px">-</p>`}
+
+        <h4 style="margin:12px 0 4px">📱 ${EN()?'Slowest screens to open':'หน้าจอที่เปิดช้าที่สุด'}</h4>
+        ${scr||`<p class="muted" style="font-size:13px">-</p>`}
+
+        <h4 style="margin:12px 0 4px">🚨 ${EN()?'What is breaking':'อะไรพังบ้าง'}</h4>
+        ${probs}
+
+        <h4 style="margin:12px 0 4px">❌ ${EN()?'Requests that failed':'คำขอที่ล้มเหลว'}</h4>
+        ${fails}
+
+        <h4 style="margin:12px 0 4px">📟 ${EN()?'By device / connection':'แยกตามเครื่อง / สัญญาณ'}</h4>
+        ${devs||''}${nets||''}
+        ${boots?`<h4 style="margin:12px 0 4px">🚀 ${EN()?'App start-up':'เวลาเปิดแอป'}</h4>${boots}`:''}
+
+        <p class="muted" style="font-size:12px;margin-top:12px">${EN()?`Log holds ${d.rows} of max ${d.cap} rows. No names, ids or amounts are recorded — only action names and timings.`:`บันทึกไว้ ${d.rows} แถว (สูงสุด ${d.cap}) · ไม่มีการเก็บชื่อ รหัส หรือยอดเงินใดๆ เก็บเฉพาะชื่อคำสั่งและเวลาที่ใช้`}</p>
+        <div class="row" style="gap:8px;margin-top:8px">
+          <button class="btn sm outline" style="flex:1" onclick="this.closest('.modal').remove();A_perfReport(1)">${EN()?'1 day':'1 วัน'}</button>
+          <button class="btn sm outline" style="flex:1" onclick="this.closest('.modal').remove();A_perfReport(7)">${EN()?'7 days':'7 วัน'}</button>
+          <button class="btn sm outline" style="flex:1" onclick="this.closest('.modal').remove();A_perfReport(30)">${EN()?'30 days':'30 วัน'}</button>
+        </div>
+        <button class="btn sm outline block" style="margin-top:8px" onclick="A_perfClear(this)">🧹 ${EN()?'Clear the log and start a fresh measurement window':'ล้างบันทึกแล้วเริ่มเก็บข้อมูลรอบใหม่'}</button>
+        <button class="btn outline block" style="margin-top:8px" onclick="this.closest('.modal').remove()">${esc(t('c.close'))}</button>`);
+    }catch(e){err(e);}
+  };
+  // Used after acting on a finding ("did that fix it?"), so the next report is not diluted by the
+  // old numbers. Only the log is deleted — nothing the school depends on lives in it.
+  window.A_perfClear=async(btn)=>{
+    if(!confirm(EN()?'Delete all collected speed/error data and start again?':'ลบข้อมูลความเร็ว/ข้อผิดพลาดทั้งหมด แล้วเริ่มเก็บใหม่?'))return;
+    if(btn)btn.disabled=true;
+    try{ const r=await api('deletePerfLog',{staffId:USER.staffId});
+      const m=btn.closest('.modal'); if(m)m.remove();
+      toast((EN()?'Cleared ':'ล้างแล้ว ')+(r&&r.cleared!=null?r.cleared:0)+(EN()?' rows':' แถว'));
     }catch(e){err(e);}finally{ if(btn)btn.disabled=false; } };
 
   // Big Cleaning Day add/remove — persist immediately (also save the amount field first so it isn't lost)
