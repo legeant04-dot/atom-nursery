@@ -145,6 +145,19 @@ window.CONFIG = { MODE: 'gas', GAS_URL: 'https://script.google.com/macros/s/AKfy
     postGas({ action: 'batch', payload: { calls: q.map(c => ({ action: c.action, payload: c.payload })) } })
       .then(j => {
         if (!j.ok) { const e = new Error(j.error.message); e.code = j.error.code; throw e; }
+        // Results are matched to calls BY POSITION. If the reply is not the array we expect, calling
+        // .forEach on it threw "data.forEach is not a function" and took the whole screen down with a
+        // message nobody can act on. Send each call again on its own instead — one extra round trip,
+        // but the screen loads and any genuine per-call error is reported properly.
+        if (!Array.isArray(j.data)) {
+          try { console.error('batch reply was not an array', j); } catch (x) {}
+          q.forEach(c => {
+            postGas({ action: c.action, payload: c.payload })
+              .then(r => { if (!r.ok) { const e = new Error(r.error.message); e.code = r.error.code; throw e; } c.res(r.data); })
+              .catch(e => { dropDeadSession(e); c.rej(e); });
+          });
+          return;
+        }
         j.data.forEach((r, i) => { if (r && r.ok) q[i].res(r.data); else { const e = new Error(r && r.error ? r.error.message : 'batch error'); e.code = r && r.error ? r.error.code : 'INTERNAL'; dropDeadSession(e); q[i].rej(e); } });
       })
       .catch(e => { dropDeadSession(e); q.forEach(c => c.rej(e)); });
