@@ -112,7 +112,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.181'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.182'; // bump each webapp change; shown only at the bottom of the Chat screen
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
   const phoneFmt = p => { let d=String(p==null?'':p).replace(/\D/g,''); if(d.length===9) d='0'+d; return d; };
@@ -2744,7 +2744,12 @@
   // tabs = the departments master ∪ every class students are actually in, so no child is hidden
   SCREENS.Admin.dspm = async () => { const [students,depts]=await Promise.all([api('listStudents'),api('listDepartments')]);
     A_CACHE.students=students||A_CACHE.students;
-    const present={}; (students||[]).forEach(s=>{ if(s.Class) present[s.Class]=(present[s.Class]||0)+1; });
+    // Count the tabs by exactly the rule classAssessment uses, or the tab and the card disagree —
+    // the roster now includes children on temporary leave, and children whose first day is still
+    // ahead, and neither can have been assessed.
+    const today=todayStr();
+    const countable = s => !isPaused(s) && (!s.EnrollDate || String(s.EnrollDate).slice(0,10) <= today);
+    const present={}; (students||[]).forEach(s=>{ if(s.Class && countable(s)) present[s.Class]=(present[s.Class]||0)+1; });
     const order=[]; (depts||[]).forEach(d=>{ if(order.indexOf(d)<0) order.push(d); });
     Object.keys(present).forEach(c=>{ if(order.indexOf(c)<0) order.push(c); });
     if(!order.length) order.push('-');
@@ -2753,8 +2758,29 @@
     A_cls(order[0]);
   };
   window.A_cls=async(name,el)=>{ if(el){[...el.parentElement.children].forEach(b=>b.classList.remove('active'));el.classList.add('active');} const r=await api('classAssessment',{className:name});
-    setHTML('#clsRes', `<div class="card"><div class="spread"><b>${esc(r.class)}</b><span class="pill ${r.passRate>=70?'ok':'wait'}">${EN()?'avg pass':'ผ่านเฉลี่ย'} ${r.passRate}%</span></div><small class="muted">${r.studentCount} ${EN()?'kids':'คน'}</small>
-      ${r.perStudent.length?r.perStudent.map(s=>`<div class="list-item"><span><b>${esc(dnick(s))}</b> ${dnSub(s)?`<small class="muted">${esc(dnSub(s))} · </small>`:""}<small class="muted">${s.ageMonth} ${EN()?'m.':'ด.'}</small></span><span><span class="pill ok">${s.pass}</span> <span class="pill bad">${s.fail}</span> <button class="btn sm outline" onclick="A_student('${s.studentId}')">${EN()?'view':'ดูราย นร.'}</button></span></div>`).join(''):`<small class="muted">${EN()?'No students in this class':'ยังไม่มีนักเรียนในชั้นนี้'}</small>`}</div>`); };
+    // Coverage is the headline and starts at 0 — "ผ่านเฉลี่ย 100%" off a single assessed child said
+    // the class was finished while five children had not been looked at. The pass rate is still
+    // shown, but only once there is something to average, and labelled as being of what was assessed.
+    const cov=Number(r.coverage||0);
+    const headline = r.assessed
+      ? `<span class="pill ${cov>=100?'ok':'wait'}">${EN()?'assessed':'ประเมินแล้ว'} ${r.assessed}/${r.studentCount} (${cov}%)</span>`
+      : `<span class="pill info">${EN()?'not assessed yet':'ยังไม่ได้ประเมิน'} 0%</span>`;
+    const rate = r.assessed
+      ? `<div class="spread" style="font-size:14px;margin-top:4px"><span class="muted">${EN()?'pass rate of what was assessed':'ผ่านเฉลี่ย (เฉพาะที่ประเมินแล้ว)'}</span><b style="color:${r.passRate>=70?'var(--ok)':'var(--warn)'}">${r.passRate}% <small class="muted" style="font-weight:400">(${EN()?'pass':'ผ่าน'} ${r.totalPass} / ${EN()?'fail':'ไม่ผ่าน'} ${r.totalFail})</small></b></div>` : '';
+    const todo = r.notAssessed
+      ? `<div style="background:var(--warn-bg);border:1px solid var(--warn-line);border-radius:8px;padding:6px 9px;margin-top:6px;color:var(--warn);font-size:13px">⚠️ ${EN()?`${r.notAssessed} child(ren) not assessed yet`:`ยังไม่ได้ประเมิน ${r.notAssessed} คน`}</div>` : '';
+    const skip = r.skipped
+      ? `<small class="muted" style="display:block;margin-top:4px">${EN()?`${r.skipped} not counted (on leave or not started yet)`:`ไม่นับ ${r.skipped} คน (ลาชั่วคราว / ยังไม่เริ่มเรียน)`}</small>` : '';
+    setHTML('#clsRes', `<div class="card"><div class="spread"><b>${esc(r.class)}</b>${headline}</div>
+      <small class="muted">${r.studentCount} ${EN()?'kids':'คน'}</small>${rate}${todo}${skip}
+      ${r.perStudent.length?r.perStudent.map(s=>{
+        // nickname leads; the real name sits under it, small and light
+        const nick=dnick(s), real=dnSub(s);
+        return `<div class="list-item"><span><b>${esc(nick)}</b> <small class="muted">${s.ageMonth} ${EN()?'m.':'ด.'}</small>${real?`<br><small class="muted" style="font-weight:400">${esc(real)}</small>`:''}</span>
+        <span>${s.assessed
+          ? `<span class="pill ok">${s.pass}</span> <span class="pill bad">${s.fail}</span>`
+          : `<span class="pill info" style="font-size:11px">${EN()?'not assessed':'ยังไม่ประเมิน'}</span>`} <button class="btn sm outline" onclick="A_student('${s.studentId}')">${EN()?'view':'ดูราย นร.'}</button></span></div>`;
+      }).join(''):`<small class="muted">${EN()?'No students in this class':'ยังไม่มีนักเรียนในชั้นนี้'}</small>`}</div>`); };
   window.A_student=async(sid)=>{ const [d,g]=await Promise.all([api('studentAllBands',{studentId:sid}),api('growthHistory',{studentId:sid})]); const pill=DSPM_PILL;
     app.innerHTML=`<h2 class="page">📈 ${esc(dnick(d))} <small class="muted">(${esc(dn(d))})</small></h2>
       <div class="row"><button class="btn sm outline" onclick="GO('dspm')">← ${esc(t('c.back'))}</button><button class="btn sm" onclick="A_editAssess('${sid}')">📝 ${esc(t('assess.edit'))}</button></div>

@@ -1205,8 +1205,31 @@ function createAtomAPI(M, GROWTH_STD) {
         active:studentPaused_(s), due:!!(s.PauseTo && ymd(s.PauseTo)<todayLocal())}))
       .sort((a,b)=>String(a.from).localeCompare(String(b.from))),
     listClasses: () => M.classes,
-    classAssessment: p => { const ss=activeStudents().filter(s=>s.Class===p.className); const per=ss.map(s=>{const x=summarize(s.StudentID);return{studentId:s.StudentID,name:s.NameTH,nameEN:s.NameEN,nick:s.Nickname,nickEN:s.NicknameEN,ageMonth:x.ageMonth,pass:x.totalPass,fail:x.totalFail};});
-      const pass=per.reduce((a,b)=>a+b.pass,0),fl=per.reduce((a,b)=>a+b.fail,0); return {class:p.className,studentCount:ss.length,passRate:(pass+fl)?Math.round(pass/(pass+fl)*100):0,perStudent:per}; },
+    /**
+     * DSPM by class. Two different questions, which were being answered with one number:
+     *   passRate = of the items that HAVE been assessed, how many passed
+     *   coverage = how much of the class has been assessed at all
+     * A class where one child of six was assessed and passed everything used to read "ผ่านเฉลี่ย
+     * 100%", which says the class is done when five children have not been looked at. Coverage is
+     * the honest headline and starts at 0.
+     * Children who are not at school are left out entirely — paused (ลาชั่วคราว) or not started yet.
+     * Individual items marked 'ยังไม่เข้าโรงเรียน' are already skipped by summarize().
+     */
+    classAssessment: p => {
+      const ss=activeStudents().filter(s=>s.Class===p.className && enrolledBy_(s, todayLocal()));
+      const per=ss.map(s=>{ const x=summarize(s.StudentID); const done=x.totalPass+x.totalFail;
+        return {studentId:s.StudentID,name:s.NameTH,nameEN:s.NameEN,nick:s.Nickname,nickEN:s.NicknameEN,
+          ageMonth:x.ageMonth,pass:x.totalPass,fail:x.totalFail,assessed:done>0,
+          rate:done?Math.round(x.totalPass/done*100):null}; });
+      const pass=per.reduce((a,b)=>a+b.pass,0), fl=per.reduce((a,b)=>a+b.fail,0);
+      const assessed=per.filter(x=>x.assessed).length;
+      // how many enrolled children were left out of the count, so the number can be explained
+      const skipped=M.students.filter(s=>s.Class===p.className && !INACTIVE[s.Status] &&
+        (studentPaused_(s) || !enrolledBy_(s, todayLocal()))).length;
+      return {class:p.className, studentCount:ss.length, assessed, notAssessed:ss.length-assessed, skipped,
+        passRate:(pass+fl)?Math.round(pass/(pass+fl)*100):0,
+        coverage: ss.length?Math.round(assessed/ss.length*100):0,
+        totalPass:pass, totalFail:fl, perStudent:per}; },
     // unique AnnID = max existing numeric +1 (length+1 collided after a delete → duplicate ids hid popups)
     addAnnouncement: p => { let mx=0; M.announcements.forEach(x=>{ const m=/^ANN-?(\d+)$/.exec(String(x.AnnID||'')); if(m){const n=+m[1]; if(n>mx)mx=n;} });
       const a={AnnID:'ANN-'+(mx+1),Title:p.title,TitleEN:p.titleEN||'',Content:p.content,ContentEN:p.contentEN||'',Image:p.image||'',Date:todayLocal(),Type:p.type||'news',TargetGroup:p.target||'all',Popup:!!p.popup,StartDate:p.startDate||todayLocal(),EndDate:p.endDate||'',Priority:Number(p.priority)||0}; M.announcements.unshift(a); return a; },
