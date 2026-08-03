@@ -679,8 +679,10 @@ function createAtomAPI(M, GROWTH_STD) {
       paySlips_().forEach(s=>{ if(!idSet[s.StudentID])return;
         if(!p.includeRejected && s.Status==='REJECTED')return;
         const L=labelFor(s.RefKind, s.RefID);
-        out.push(Object.assign({ id:s.SlipID, via:'slip', date:ymd(s.TransDate||s.SubmittedDate), submittedAt:s.SubmittedDate||'',
-          transDate:ymd(s.TransDate||''), refKind:s.RefKind, refId:s.RefID, amount:Number(s.Amount||0),
+        // date = when the money MOVED (off the slip), falling back to the upload time only when
+        // SlipOK could not read one — the upload time is not what anyone is looking for
+        out.push(Object.assign({ id:s.SlipID, via:String(s.Method||'')==='cash'?'cash':'slip', date:ymd(s.TransDate||s.SubmittedDate), submittedAt:s.SubmittedDate||'',
+          transDate:ymd(s.TransDate||''), transTime:String(s.TransTime||'').slice(0,5), refKind:s.RefKind, refId:s.RefID, amount:Number(s.Amount||0),
           status:s.Status, slipUrl:s.Url||'', transRef:s.TransRef||'', receiver:s.Receiver||'',
           label:L.label, month:L.month, due:L.due }, kidOf(s.StudentID))); });
       // Cash settled through notifyCash leaves NO payment row at all, so it would otherwise be
@@ -692,7 +694,7 @@ function createAtomAPI(M, GROWTH_STD) {
         if(hasRows(kind, r[idKey])) return;
         const L=labelFor(kind, r[idKey]);
         out.push(Object.assign({ id:r[idKey], via:'cash', date:ymd(r[dateKey]||r.PaidDate||''), submittedAt:'',
-          transDate:'', refKind:kind, refId:r[idKey], amount:Number(r.SlipAmount||L.due||0), status:'CONFIRMED',
+          transDate:'', transTime:'', refKind:kind, refId:r[idKey], amount:Number(r.SlipAmount||L.due||0), status:'CONFIRMED',
           slipUrl:'', transRef:'', receiver:'', label:L.label+' (เงินสด)', month:L.month, due:L.due }, kidOf(r.StudentID))); });
       cash(M.payments||[], 'bill', 'BillingID', 'PaidDate');
       cash(M.prepayments||[], 'prepay', 'PrepayID', 'PaidDate');
@@ -731,7 +733,31 @@ function createAtomAPI(M, GROWTH_STD) {
         outstanding:Math.max(0, tgt.due-confirmed)}, r||{}); },
     // all slips for a bill/OT/prepay (or a student) — history shown to parent + admin (rejected hidden)
     paymentSlips: p => paySlips_().filter(s=> (p.refKind?s.RefKind===p.refKind:true) && (p.refId?s.RefID===p.refId:true) && (p.studentId?s.StudentID===p.studentId:true) && (p.includeRejected?true:s.Status!=='REJECTED'))
-      .map(s=>({ SlipID:s.SlipID, RefKind:s.RefKind, RefID:s.RefID, Amount:Number(s.Amount||0), Url:s.Url, Verified:s.Verified, TransRef:s.TransRef, Receiver:s.Receiver, SubmittedDate:s.SubmittedDate, Status:s.Status, SlipGroup:s.SlipGroup||'', Method:s.Method||'', TransDate:s.TransDate||'' })),
+      .map(s=>({ SlipID:s.SlipID, RefKind:s.RefKind, RefID:s.RefID, Amount:Number(s.Amount||0), Url:s.Url, Verified:s.Verified, TransRef:s.TransRef, Receiver:s.Receiver, SubmittedDate:s.SubmittedDate, Status:s.Status, SlipGroup:s.SlipGroup||'', Method:s.Method||'', TransDate:s.TransDate||'', TransTime:s.TransTime||'', Sender:s.Sender||'' })),
+    /**
+     * Is slip verification actually working, and what has it been saying? A 'NO:<code>' is SlipOK's
+     * VERDICT, not a broken connection — it read the slip and then objected. Mirrors handleSlipDiag.
+     */
+    slipDiag: p => { const ap=staffById(p&&p.staffId); if(ap.PositionLevel!=='Admin'&&ap.Role!=='Admin')fail('NO_PERMISSION','เฉพาะแอดมิน');
+      const rows=paySlips_(); const counts={total:rows.length,verified:0,rejected:0,unchecked:0,manual:0}; const byCode={};
+      rows.forEach(s=>{ const v=String(s.Verified||'');
+        if(v.slice(0,3)==='YES')counts.verified++;
+        else if(v==='MANUAL')counts.manual++;
+        else if(v.slice(0,2)==='NO'){ counts.rejected++; const c=v.slice(3)||'?'; byCode[c]=(byCode[c]||0)+1; }
+        else counts.unchecked++; });
+      return { configured:!!(cfg.SlipOK_Url&&cfg.SlipOK_ApiKey), url:'', counts,
+        byCode:Object.keys(byCode).map(c=>({code:c,count:byCode[c]})).sort((a,b)=>b.count-a.count) }; },
+    // Admin: delete a payment record. Only ever a row with NO slip image — a double-tap that left an
+    // empty entry, or a cash receipt entered by mistake. A real slip is evidence and stays; reject it
+    // instead. Recomputes what is owed afterwards, so the balance is right either way.
+    deleteSlip: p => { const ap=staffById(p.staffId); if(ap.PositionLevel!=='Admin'&&ap.Role!=='Admin')fail('NO_PERMISSION','เฉพาะแอดมิน');
+      const i=paySlips_().findIndex(s=>String(s.SlipID)===String(p.slipId)); if(i<0)fail('NOT_FOUND','ไม่พบรายการชำระ');
+      const s=paySlips_()[i];
+      if(s.Url) fail('HAS_SLIP','รายการนี้มีสลิปแนบอยู่ — ใช้ปุ่มปฏิเสธสลิปแทนการลบ');
+      const kind=s.RefKind, refId=s.RefID; paySlips_().splice(i,1);
+      const r=recomputeTarget_(kind, refId);
+      logAct('deleteSlip', refId, 'ลบรายการรับชำระ '+s.Amount, actorOf(p));
+      return Object.assign({ok:true, kind, refId}, r||{}); },
     // Admin confirms ONE slip; when confirmed total ≥ due the whole bill flips to PAID (else PARTIAL).
     confirmSlip: p => { const s=paySlips_().find(x=>x.SlipID===p.slipId); if(!s)fail('NOT_FOUND','ไม่พบสลิป'); s.Status='CONFIRMED'; s.VerifiedBy=p.adminId||'admin';
       const r=recomputeTarget_(s.RefKind, s.RefID, p.paidDate); logAct('confirmSlip',s.SlipID,'ยืนยัน '+s.Amount,actorOf(p)); return Object.assign({ok:true},r); },
