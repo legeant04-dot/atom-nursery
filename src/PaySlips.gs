@@ -246,6 +246,54 @@ function handleDeleteSlip(p) {
 }
 
 /**
+ * Admin corrects an advance payment, IN PLACE.
+ *  - not yet paid → months, discount and the start month (the amount is re-quoted)
+ *  - already PAID → the START MONTH only. Which months a payment applies to does get entered wrong
+ *    (a transfer made on 31 July belongs to August, not July) and is pure bookkeeping; re-pricing
+ *    money that has already changed hands is not, and would turn a settled family into a debtor.
+ */
+function handleEditPrepay(p) {
+  p = p || {};
+  var ss = getMainSpreadsheet_();
+  var sh = sheet_(ss, 'PREPAYMENTS');
+  var pp = findObject_(sh, function (x) { return String(x.PrepayID) === String(p.prepayId); });
+  if (!pp) throw apiError_('NOT_FOUND', 'ไม่พบรายการชำระล่วงหน้า');
+  var paid = String(pp.Status) === 'PAID';
+  var curMonths = parseInt(pp.Months, 10) || 0;
+  var curDisc = Number(pp.Discount) || 0;
+  if (paid && ((p.months != null && (parseInt(p.months, 10) || 0) !== curMonths) ||
+               (p.discount != null && p.discount !== '' && (Number(p.discount) || 0) !== curDisc))) {
+    throw apiError_('ALREADY_PAID', 'รายการนี้ชำระแล้ว — แก้ได้เฉพาะเดือนที่มีผล ไม่สามารถแก้จำนวนเดือนหรือส่วนลด');
+  }
+  var months = (!paid && p.months != null) ? Math.max(1, parseInt(p.months, 10) || 0) : curMonths;
+  var disc = (!paid && p.discount != null && p.discount !== '') ? Math.max(0, Math.min(100, Number(p.discount) || 0)) : curDisc;
+
+  var cov = pp.Covered; if (typeof cov === 'string') { try { cov = JSON.parse(cov); } catch (e) { cov = []; } }
+  var firstCovered = (cov && cov.length) ? String(cov[0]).slice(0, 7) : '';
+  var start = String(p.startMonth || firstCovered || dateStr_(new Date())).slice(0, 7);
+  if (!/^\d{4}-\d{2}$/.test(start)) throw apiError_('BAD_INPUT', 'ระบุเดือนที่เริ่มมีผล');
+
+  var covered = [], y = parseInt(start.slice(0, 4), 10), mo = parseInt(start.slice(5, 7), 10);
+  for (var i = 0; i < months; i++) { covered.push(y + '-' + ('0' + mo).slice(-2)); mo++; if (mo > 12) { mo = 1; y++; } }
+
+  var patch = { Months: months, Discount: disc, Covered: JSON.stringify(covered) };
+  if (!paid) {
+    var st = findObject_(sheet_(ss, 'STUDENTS'), function (s) { return String(s.StudentID) === String(pp.StudentID); }) || {};
+    var plans = []; try { plans = JSON.parse(getConfig_('Plans', '[]')); } catch (e) {}
+    var plan = null; for (var j = 0; j < plans.length; j++) if (String(plans[j].id) === String(st.Plan)) plan = plans[j];
+    var monthly = Number((plan && plan.price) || 0);
+    if (!(monthly > 0)) throw apiError_('NO_PLAN_PRICE', 'นักเรียนคนนี้ยังไม่ได้ตั้งแพ็กเกจ/ราคาต่อเดือน');
+    patch.Gross = monthly * months;
+    patch.Amount = Math.round(patch.Gross * (100 - disc) / 100);
+  }
+  updateRow_(sh, pp._row, patch);
+  recCacheBust_('PREPAYMENTS');
+  try { logAudit(p.adminId || 'admin', 'PREPAY_EDIT', 'PREPAYMENTS', p.prepayId + ' ' + covered[0] + '–' + covered[covered.length - 1]); } catch (e) {}
+  return { ok: true, prepayId: p.prepayId, months: months, discount: disc, covered: covered,
+    amount: patch.Amount != null ? patch.Amount : Number(pp.Amount || 0) };
+}
+
+/**
  * Admin removes an advance-payment entry the parent created twice and never paid. In place — going
  * through the engine would rewrite the whole PREPAYMENTS collection, which this project does not do.
  * Refuses anything already paid, or anything with a slip against it: that is a real payment.

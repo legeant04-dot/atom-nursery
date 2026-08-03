@@ -236,5 +236,53 @@ console.log('\n10) A month with no advance payment is unaffected');
   eq('marked paid', fin2.paid, true);
 }
 
+// ============================================================================
+console.log('\n11) The months an advance payment covers — the น้องข้าวสวย case');
+{
+  // paid on 31 July for 6 months; the cover belongs to Aug–Jan, and Feb bills normally again
+  const { M, H } = fresh([kid({})]);
+  const pp = H.prepay({ studentId: 'STD-1', months: 6, startMonth: '2026-08' });
+  eq('covers Aug 2026 → Jan 2027', pp.Covered, ['2026-08', '2026-09', '2026-10', '2026-11', '2026-12', '2027-01']);
+  pp.Status = 'PAID';
+  H.generateMonthlyBills({ month: '2026-08' });
+  H.generateMonthlyBills({ month: '2027-01' });
+  H.generateMonthlyBills({ month: '2027-02' });
+  const bills = H.payments({ studentId: 'STD-1' });
+  eq('August is covered', bills.find(b => b.Month === '2026-08').TotalDue, 0);
+  eq('January is the last covered month', bills.find(b => b.Month === '2027-01').TotalDue, 0);
+  eq('February is billed normally again', bills.find(b => b.Month === '2027-02').TotalDue, 5900);
+}
+
+console.log('\n12) Admin fixes a cover that was entered a month early');
+{
+  const { M, H } = fresh([kid({})]);
+  const pp = H.prepay({ studentId: 'STD-1', months: 6, startMonth: '2026-07' });   // entered wrong
+  pp.Status = 'PAID';
+  const paidAmount = pp.Amount;
+  eq('as entered, it ends in December', pp.Covered[pp.Covered.length - 1], '2026-12');
+
+  const fixed = H.editPrepay({ staffId: 'STF-A', prepayId: pp.PrepayID, startMonth: '2026-08' });
+  eq('shifted to Aug → Jan', [fixed.Covered[0], fixed.Covered[fixed.Covered.length - 1]], ['2026-08', '2027-01']);
+  eq('still 6 months', fixed.Months, 6);
+  eq('and the amount they transferred is untouched', fixed.Amount, paidAmount);
+
+  console.log('   …but a paid one cannot be re-priced');
+  eq('months are locked',
+    (() => { try { H.editPrepay({ staffId: 'STF-A', prepayId: pp.PrepayID, months: 12 }); return 'ALLOWED'; }
+      catch (e) { return e.code; } })(), 'ALREADY_PAID');
+  eq('so is the discount',
+    (() => { try { H.editPrepay({ staffId: 'STF-A', prepayId: pp.PrepayID, discount: 50 }); return 'ALLOWED'; }
+      catch (e) { return e.code; } })(), 'ALREADY_PAID');
+  eq('a teacher cannot touch it at all',
+    (() => { try { H.editPrepay({ staffId: 'nobody', prepayId: pp.PrepayID, startMonth: '2026-09' }); return 'ALLOWED'; }
+      catch (e) { return e.code; } })(), 'NO_PERMISSION');
+
+  console.log('   an UNPAID one can still be changed completely');
+  const un = H.prepay({ studentId: 'STD-1', months: 3, startMonth: '2026-09' });
+  const re = H.editPrepay({ staffId: 'STF-A', prepayId: un.PrepayID, months: 12, discount: 15, startMonth: '2027-02' });
+  eq('re-quoted', re.Amount, Math.round(5900 * 12 * 0.85));
+  eq('and re-covered', [re.Covered[0], re.Covered[11]], ['2027-02', '2028-01']);
+}
+
 console.log('\n' + (fail ? `${fail} FAILED, ${pass} passed` : `all ${pass} checks passed`));
 process.exit(fail ? 1 : 0);

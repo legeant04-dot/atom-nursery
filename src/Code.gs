@@ -39,6 +39,7 @@ var ROUTES = {
   recordCashPayment: function (p) { return handleRecordCashPayment(p); }, // admin-only: money received outside the app
   deleteSlip:       function (p) { return handleDeleteSlip(p); },      // admin-only: remove an empty payment row (no image)
   cancelPrepay:     function (p) { return handleCancelPrepay(p); },    // admin-only: delete an UNPAID advance payment, in place
+  editPrepay:       function (p) { return handleEditPrepay(p); },      // admin-only: correct the months an advance payment covers
   slipDiag:         function (p) { return handleSlipDiag(p); },        // admin-only: is SlipOK reachable, and what did it say
   prepayAudit:      function (p) { return handlePrepayAudit(p); },     // admin-only: find/repair bills over-credited by the old prepay logic
   deleteBill:       function (p) { return handleDeleteBill(p); },
