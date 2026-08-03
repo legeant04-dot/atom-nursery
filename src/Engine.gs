@@ -292,7 +292,32 @@ function createAtomAPI(M, GROWTH_STD) {
                    : M.students.filter(s=>s.ParentID===p.parentId);
     return list.filter(s=>!INACTIVE[s.Status]); }
   const INACTIVE = { EXPORTED:1, WITHDRAWN:1 };
-  const activeStudents = () => M.students.filter(s=>!INACTIVE[s.Status]);
+  /**
+   * A child can be paused: away for a while (family abroad, a long illness) and coming back. They
+   * keep their record, their history and their parent link, but while paused they are not billed,
+   * not marked absent, and not on any class or activity list. Only an Admin sets this.
+   * PauseFrom/PauseTo bound it, so the child comes back on their own date without anyone
+   * remembering to flip a switch; a pause with no PauseTo runs until the Admin ends it.
+   */
+  const PAUSED_STATUS = 'PAUSED';
+  function studentPaused_(s, onDate){ if(!s || String(s.Status)!==PAUSED_STATUS) return false;
+    const d=ymd(onDate||todayLocal()), from=ymd(s.PauseFrom||''), to=ymd(s.PauseTo||'');
+    if(from && d<from) return false;
+    if(to && d>to) return false;                 // the return date has passed → back on the roster
+    return true; }
+  // paused for EVERY day of this month → no bill for it (a partly-paused month is still billed,
+  // and the Admin can adjust that bill by hand rather than have the system guess)
+  function pausedWholeMonth_(s, month){ if(!s || String(s.Status)!==PAUSED_STATUS) return false;
+    const mm=ym(month); const first=mm+'-01';
+    const last=mm+'-'+String(new Date(Number(mm.slice(0,4)), Number(mm.slice(5,7)), 0).getDate()).padStart(2,'0');
+    const from=ymd(s.PauseFrom||''), to=ymd(s.PauseTo||'');
+    if(from && from>first) return false;
+    if(to && to<last) return false;
+    return true; }
+  // everyone still enrolled, INCLUDING the currently paused — the roster the Admin manages
+  const enrolledStudents = () => M.students.filter(s=>!INACTIVE[s.Status]);
+  // everyone actually attending today: drives attendance, class lists, billing and the dashboard
+  const activeStudents = () => M.students.filter(s=>!INACTIVE[s.Status] && !studentPaused_(s));
 
   // ---- payment-slip helpers (multiple slips per bill/OT/prepay + partial payments) ----
   const paySlips_ = () => (M.paymentSlips = M.paymentSlips || []);
@@ -566,6 +591,9 @@ function createAtomAPI(M, GROWTH_STD) {
       // billing follows the child's real START DATE, not the day their record was created
       if(p.amount==null && !p.items && !enrolledBy_(s, month))
         fail('NOT_ENROLLED_YET','นักเรียนคนนี้เริ่มเรียน '+enrolDate_(s)+' — ยังไม่ถึงเดือนที่ต้องเรียกเก็บ');
+      // a child on temporary leave for the whole month is not charged for it
+      if(p.amount==null && !p.items && pausedWholeMonth_(s, month))
+        fail('STUDENT_PAUSED','นักเรียนคนนี้ลาชั่วคราวตลอดเดือนนี้ — ไม่เรียกเก็บค่าเทอม');
       // custom amount → respect as-is; default → (plan price − the student's monthly discount),
       // then the mid-month rule for the month they actually start (see tuitionForMonth_)
       const pr=tuitionForMonth_(s, month, Math.max(0, planPrice-disc));
@@ -594,8 +622,12 @@ function createAtomAPI(M, GROWTH_STD) {
     // Admin deletes a bill (ยอดเรียกเก็บ). Removes the BILLING row; leaves any slip history in PAYMENT_SLIPS.
     deleteBill: p => { const i=M.payments.findIndex(x=>x.BillingID===p.billingId); if(i<0)fail('NOT_FOUND','ไม่พบบิล'); const b=M.payments[i]; M.payments.splice(i,1); logAct('deleteBill',p.billingId,'ลบบิล '+ym(b&&b.Month),actorOf(p)); return {ok:true}; },
     // auto-generate the month's bill for all active students from Plan price (skip if already billed)
-    generateMonthlyBills: p => { const month=p.month||todayLocal().slice(0,7); let created=0; const noPlan=[], notYet=[], prorated=[];
-      activeStudents().forEach(s=>{ if(M.payments.find(x=>x.StudentID===s.StudentID&&ym(x.Month)===month))return; const plan=studentPlan(s);
+    generateMonthlyBills: p => { const month=p.month||todayLocal().slice(0,7); let created=0; const noPlan=[], notYet=[], prorated=[], paused=[];
+      // enrolledStudents, not activeStudents: a child paused only PART of this month is still billed,
+      // and the paused-all-month check below is what actually excludes them (with a reason).
+      enrolledStudents().forEach(s=>{ if(M.payments.find(x=>x.StudentID===s.StudentID&&ym(x.Month)===month))return;
+        if(pausedWholeMonth_(s, month)){ paused.push({studentId:s.StudentID, name:s.NameTH||s.Name||'', nick:s.Nickname||'', from:ymd(s.PauseFrom||''), to:ymd(s.PauseTo||'')}); return; }
+        const plan=studentPlan(s);
         const price=plan.price||0;
         // a child with no package gets NO bill rather than a phantom 0-baht one — reported back so the
         // admin can see exactly who still needs a package assigned
@@ -607,7 +639,7 @@ function createAtomAPI(M, GROWTH_STD) {
         const note=pr.prorated?` (เริ่มเรียน ${enrolDate_(s)} · ${prorateLabel_(pr)})`:'';
         if(pr.prorated) prorated.push({studentId:s.StudentID, nick:s.Nickname||'', name:s.NameTH||s.Name||'', mode:pr.mode, full:net0, amount:pr.amount});
         M.payments.push({BillingID:'BL-'+month+'-'+s.StudentID,StudentID:s.StudentID,Month:month,Items:[['ค่าเทอม '+((plan&&plan.labelTH)||'')+note,pr.amount]],Amount:pr.amount,OTRollover:0,DueDate:month+'-05',PaidDate:'',Status:'UNPAID',SlipUrl:'',SlipAmount:0,VerifiedStatus:'',Auto:true}); created++; });
-      return {month,created,noPlan,notYet,prorated}; },
+      return {month,created,noPlan,notYet,prorated,paused}; },
     // attach a monthly slip → records a PAYMENT_SLIPS row (multiple allowed), bill → PENDING_VERIFY.
     uploadSlip: p => recordSlip_('bill', p.billingId, p),
     // ONE transfer slip paying several siblings' bills. The ticked bills are summed; the slip amount MUST
@@ -655,9 +687,13 @@ function createAtomAPI(M, GROWTH_STD) {
           transDate:ymd(s.TransDate||''), refKind:s.RefKind, refId:s.RefID, amount:Number(s.Amount||0),
           status:s.Status, slipUrl:s.Url||'', transRef:s.TransRef||'', receiver:s.Receiver||'',
           label:L.label, month:L.month, due:L.due }, kidOf(s.StudentID))); });
-      // cash settlements have no slip at all, so they would otherwise be invisible in the history
+      // Cash settled through notifyCash leaves NO payment row at all, so it would otherwise be
+      // invisible here. Anything an Admin recorded with recordCashPayment DOES have a row (above) and
+      // must be skipped, or the same money would be listed — and totalled — twice.
+      const hasRows = (kind, refId) => paySlips_().some(s=>s.RefKind===kind && s.RefID===refId);
       const cash = (rows, kind, idKey, dateKey) => rows.forEach(r=>{ if(!idSet[r.StudentID])return;
         if(String(r.Status)!=='PAID' || String(r.PaymentMethod||'')!=='cash')return;
+        if(hasRows(kind, r[idKey])) return;
         const L=labelFor(kind, r[idKey]);
         out.push(Object.assign({ id:r[idKey], via:'cash', date:ymd(r[dateKey]||r.PaidDate||''), submittedAt:'',
           transDate:'', refKind:kind, refId:r[idKey], amount:Number(r.SlipAmount||L.due||0), status:'CONFIRMED',
@@ -671,9 +707,35 @@ function createAtomAPI(M, GROWTH_STD) {
       const pending=out.filter(x=>x.status==='SUBMITTED').reduce((a,x)=>a+x.amount,0);
       return { students:ids.map(kidOf), entries:out, totalConfirmed:Math.round(confirmed*100)/100,
         totalPending:Math.round(pending*100)/100, count:out.length }; },
+    /**
+     * Admin records money received OUTSIDE the app — cash at the desk, or a transfer already seen in
+     * the bank. It lands as a CONFIRMED payment row with no image, so the outstanding balance drops
+     * immediately and it shows up in the payment history like everything else.
+     *
+     * This is what makes a mixed payment work: a family pays the enrolment fee in cash and transfers
+     * the rest, so the slip they upload will never equal the whole bill. Record the cash part here
+     * first and the transfer then matches what is actually left.
+     * { kind:'bill'|'ot'|'charge'|'prepay', refId, amount, date?, note?, method? }
+     */
+    recordCashPayment: p => { const ap=staffById(p.staffId); if(ap.PositionLevel!=='Admin'&&ap.Role!=='Admin')fail('NO_PERMISSION','เฉพาะแอดมิน');
+      const kind=String(p.kind||''); const tgt=slipTarget_(kind, p.refId); if(!tgt)fail('NOT_FOUND','ไม่พบรายการที่จะรับชำระ');
+      const amt=Math.round(Number(p.amount||0)*100)/100; if(!(amt>0))fail('BAD_INPUT','ระบุจำนวนเงินที่รับมา');
+      const already=sumSlips_(kind, p.refId, ['CONFIRMED']);
+      if(already+amt > tgt.due+0.5) fail('OVERPAY','รับชำระเกินยอด — ค้างอยู่ '+Math.max(0,tgt.due-already)+' บาท');
+      const method=String(p.method||'cash');
+      paySlips_().push({ SlipID:'SL-'+Date.now()+'-'+Math.floor(Math.random()*10000), RefKind:kind, RefID:p.refId,
+        StudentID:tgt.studentId, Amount:amt, Url:'', FileId:'', Verified:'MANUAL', TransRef:p.note||'',
+        Receiver:ap.NameTH||ap.Name||'admin', SubmittedDate:stampLocal(), TransDate:ymd(p.date||todayLocal()),
+        Status:'CONFIRMED', SlipGroup:'', Method:method });
+      const r=recomputeTarget_(kind, p.refId, ymd(p.date||todayLocal()));
+      if(tgt.obj) tgt.obj.PaymentMethod = method;
+      logAct('recordCashPayment', p.refId, (method==='cash'?'รับเงินสด ':'บันทึกรับชำระ ')+amt+(p.note?(' · '+p.note):''), actorOf(p));
+      const confirmed=sumSlips_(kind, p.refId, ['CONFIRMED']);
+      return Object.assign({ok:true, kind, refId:p.refId, amount:amt, due:tgt.due, paidSoFar:confirmed,
+        outstanding:Math.max(0, tgt.due-confirmed)}, r||{}); },
     // all slips for a bill/OT/prepay (or a student) — history shown to parent + admin (rejected hidden)
     paymentSlips: p => paySlips_().filter(s=> (p.refKind?s.RefKind===p.refKind:true) && (p.refId?s.RefID===p.refId:true) && (p.studentId?s.StudentID===p.studentId:true) && (p.includeRejected?true:s.Status!=='REJECTED'))
-      .map(s=>({ SlipID:s.SlipID, RefKind:s.RefKind, RefID:s.RefID, Amount:Number(s.Amount||0), Url:s.Url, Verified:s.Verified, TransRef:s.TransRef, Receiver:s.Receiver, SubmittedDate:s.SubmittedDate, Status:s.Status, SlipGroup:s.SlipGroup||'' })),
+      .map(s=>({ SlipID:s.SlipID, RefKind:s.RefKind, RefID:s.RefID, Amount:Number(s.Amount||0), Url:s.Url, Verified:s.Verified, TransRef:s.TransRef, Receiver:s.Receiver, SubmittedDate:s.SubmittedDate, Status:s.Status, SlipGroup:s.SlipGroup||'', Method:s.Method||'', TransDate:s.TransDate||'' })),
     // Admin confirms ONE slip; when confirmed total ≥ due the whole bill flips to PAID (else PARTIAL).
     confirmSlip: p => { const s=paySlips_().find(x=>x.SlipID===p.slipId); if(!s)fail('NOT_FOUND','ไม่พบสลิป'); s.Status='CONFIRMED'; s.VerifiedBy=p.adminId||'admin';
       const r=recomputeTarget_(s.RefKind, s.RefID, p.paidDate); logAct('confirmSlip',s.SlipID,'ยืนยัน '+s.Amount,actorOf(p)); return Object.assign({ok:true},r); },
@@ -1095,7 +1157,31 @@ function createAtomAPI(M, GROWTH_STD) {
     // staff edits their OWN record, whitelisted fields only (staffId injected server-side)
     saveStaffSelf: p => { const s=staffById(p.staffId); if(!s.StaffID)fail('NOT_FOUND','ไม่พบพนักงาน');
       const d=p.data||{}; ['NameEN','Nickname','NicknameEN','Phone','DOB','Photo'].forEach(k=>{ if(d[k]!==undefined) s[k]=d[k]; }); return {ok:true, staffId:p.staffId}; },
-    listStudents: () => activeStudents().map(s=>Object.assign({ageMonth:ageMonths(s.DOB)},s)),
+    // the Admin roster keeps paused children visible (with a flag) — hiding them would leave no way
+    // to see who is away, or to bring them back
+    listStudents: () => enrolledStudents().map(s=>Object.assign({ageMonth:ageMonths(s.DOB),
+      paused:studentPaused_(s), pauseFrom:ymd(s.PauseFrom||''), pauseTo:ymd(s.PauseTo||''), pauseReason:s.PauseReason||''}, s)),
+    /**
+     * Admin puts a child on temporary leave, or brings them back. Admin only.
+     * { studentId, paused:true, from?, to?, reason? } | { studentId, paused:false }
+     */
+    setStudentPause: p => { const ap=staffById(p.staffId); if(ap.PositionLevel!=='Admin'&&ap.Role!=='Admin')fail('NO_PERMISSION','เฉพาะแอดมิน');
+      const s=studentById(p.studentId); if(!s)fail('NOT_FOUND','ไม่พบนักเรียน');
+      if(INACTIVE[s.Status])fail('BAD_STATE','นักเรียนคนนี้ออกจากโรงเรียนแล้ว — ใช้เมนูรับกลับเข้าเรียนแทน');
+      if(p.paused===false){ s.Status='ACTIVE'; s.PauseFrom=''; s.PauseTo=''; s.PauseReason='';
+        logAct('setStudentPause',p.studentId,'กลับมาเรียนตามปกติ',actorOf(p));
+        return {ok:true,studentId:p.studentId,status:'ACTIVE',paused:false}; }
+      if(!p.from)fail('BAD_INPUT','ระบุวันที่เริ่มลาชั่วคราว');
+      if(p.to && ymd(p.to)<ymd(p.from))fail('BAD_INPUT','วันที่กลับมาต้องไม่ก่อนวันที่เริ่มลา');
+      s.Status=PAUSED_STATUS; s.PauseFrom=ymd(p.from); s.PauseTo=p.to?ymd(p.to):''; s.PauseReason=p.reason||'';
+      logAct('setStudentPause',p.studentId,'ลาชั่วคราว '+s.PauseFrom+(s.PauseTo?(' – '+s.PauseTo):' เป็นต้นไป')+(s.PauseReason?(' · '+s.PauseReason):''),actorOf(p));
+      return {ok:true,studentId:p.studentId,status:PAUSED_STATUS,paused:studentPaused_(s),from:s.PauseFrom,to:s.PauseTo,reason:s.PauseReason}; },
+    // children currently away, so the Admin can see them in one place and bring them back
+    pausedStudents: () => M.students.filter(s=>String(s.Status)===PAUSED_STATUS)
+      .map(s=>({studentId:s.StudentID,name:s.NameTH||s.Name,nameEN:s.NameEN,nick:s.Nickname,className:s.Class,
+        from:ymd(s.PauseFrom||''), to:ymd(s.PauseTo||''), reason:s.PauseReason||'',
+        active:studentPaused_(s), due:!!(s.PauseTo && ymd(s.PauseTo)<todayLocal())}))
+      .sort((a,b)=>String(a.from).localeCompare(String(b.from))),
     listClasses: () => M.classes,
     classAssessment: p => { const ss=activeStudents().filter(s=>s.Class===p.className); const per=ss.map(s=>{const x=summarize(s.StudentID);return{studentId:s.StudentID,name:s.NameTH,nameEN:s.NameEN,nick:s.Nickname,nickEN:s.NicknameEN,ageMonth:x.ageMonth,pass:x.totalPass,fail:x.totalFail};});
       const pass=per.reduce((a,b)=>a+b.pass,0),fl=per.reduce((a,b)=>a+b.fail,0); return {class:p.className,studentCount:ss.length,passRate:(pass+fl)?Math.round(pass/(pass+fl)*100):0,perStudent:per}; },
