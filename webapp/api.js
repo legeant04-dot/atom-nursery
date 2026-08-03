@@ -51,9 +51,44 @@ window.CONFIG = { MODE: 'gas', GAS_URL: 'https://script.google.com/macros/s/AKfy
 
   // HMAC session token from auth — sent with every request so the server can verify the caller
   // and authorize by their real identity (enforced server-side once RequireSessionToken='true').
-  let _session = null; try { _session = localStorage.getItem('atom_session_token') || null; } catch (e) {}
+  // A session token is "<base64 body>.<signature>". Anything else stored here is junk from an older
+  // build or a truncated write — sending it achieves nothing and used to be able to take the whole
+  // request down server-side, so drop it on the way in rather than carry it around.
+  let _session = null;
+  try { const t = localStorage.getItem('atom_session_token');
+    if (t && t.indexOf('.') > 0) _session = t; else if (t) localStorage.removeItem('atom_session_token');
+  } catch (e) {}
   window.__atomClearSession = () => { _session = null; try { localStorage.removeItem('atom_session_token'); } catch (e) {} };
-  const postGas = body => fetch(CONFIG.GAS_URL, { method: 'POST', body: JSON.stringify(Object.assign({ token: _session }, body)) }).then(r => r.json());
+  /**
+   * The API always answers JSON. If it does not, something upstream replied for it — Apps Script's
+   * own HTML error page, a Google sign-in page, or a captive portal — and r.json() would surface
+   * 'Unexpected token "<", "<!DOCTYPE"...' to the user, which tells them nothing. Say what actually
+   * happened instead, and keep the first slice of the body for diagnosis.
+   */
+  // Google rejects an oversized POST before the script runs and answers with an HTML page. Catch it
+  // here, where we can still say which action and how big, instead of letting it look like a crash.
+  const MAX_POST = 6000000;   // ~6 MB of JSON; a compressed slip is ~150 KB
+  const postGas = body => {
+    const payload = JSON.stringify(Object.assign({ token: _session }, body));
+    if (payload.length > MAX_POST) {
+      const e = new Error('ไฟล์ที่แนบมาใหญ่เกินไป (' + Math.round(payload.length / 1048576) + ' MB) — กรุณาถ่ายใหม่หรือย่อรูปก่อน');
+      e.code = 'TOO_LARGE';
+      return Promise.reject(e);
+    }
+    return fetch(CONFIG.GAS_URL, { method: 'POST', body: payload }).then(async r => {
+      const text = await r.text();
+      try { return JSON.parse(text); }
+      catch (e) {
+        const looksHTML = /^\s*<(!doctype|html)/i.test(text);
+        const err = new Error(looksHTML
+          ? 'ระบบของโรงเรียนตอบกลับไม่ถูกต้อง (HTTP ' + r.status + ') — กรุณาลองใหม่อีกครั้ง'
+          : 'อ่านคำตอบจากระบบไม่ได้ (HTTP ' + r.status + ')');
+        err.code = 'BAD_RESPONSE';
+        try { console.error('postGas non-JSON', r.status, text.slice(0, 300)); } catch (x) {}
+        throw err;
+      }
+    });
+  };
 
   // ---- client read cache: persistent (localStorage) + stale-while-revalidate ----
   // Perceived zero-lag: a read paints instantly from the last-known value stored on the
@@ -82,20 +117,23 @@ window.CONFIG = { MODE: 'gas', GAS_URL: 'https://script.google.com/macros/s/AKfy
   function enqueueGas(action, payload) {
     return new Promise((res, rej) => { _q.push({ action, payload, res, rej }); if (!_scheduled) { _scheduled = true; Promise.resolve().then(flush); } });
   }
+  // The server has told us the token is no good. Keeping it means every later call fails the same
+  // way and the user is stuck on a screen that will not load — drop it so the next sign-in is clean.
+  const dropDeadSession = e => { if (e && (e.code === 'NO_SESSION' || e.code === 'INVALID_TOKEN')) window.__atomClearSession(); };
   function flush() {
     const q = _q; _q = []; _scheduled = false;
     if (q.length === 1) { // single call → no batch wrapper
       postGas({ action: q[0].action, payload: q[0].payload })
         .then(j => { if (!j.ok) { const e = new Error(j.error.message); e.code = j.error.code; throw e; } q[0].res(j.data); })
-        .catch(e => q[0].rej(e));
+        .catch(e => { dropDeadSession(e); q[0].rej(e); });
       return;
     }
     postGas({ action: 'batch', payload: { calls: q.map(c => ({ action: c.action, payload: c.payload })) } })
       .then(j => {
         if (!j.ok) { const e = new Error(j.error.message); e.code = j.error.code; throw e; }
-        j.data.forEach((r, i) => { if (r && r.ok) q[i].res(r.data); else { const e = new Error(r && r.error ? r.error.message : 'batch error'); e.code = r && r.error ? r.error.code : 'INTERNAL'; q[i].rej(e); } });
+        j.data.forEach((r, i) => { if (r && r.ok) q[i].res(r.data); else { const e = new Error(r && r.error ? r.error.message : 'batch error'); e.code = r && r.error ? r.error.code : 'INTERNAL'; dropDeadSession(e); q[i].rej(e); } });
       })
-      .catch(e => q.forEach(c => c.rej(e)));
+      .catch(e => { dropDeadSession(e); q.forEach(c => c.rej(e)); });
   }
 
   // stale-while-revalidate: refetch a cached read in the background; re-render only if it changed.

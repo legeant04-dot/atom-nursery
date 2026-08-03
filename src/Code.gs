@@ -166,26 +166,44 @@ var ROUTES = {
 };
 
 function doGet(e) {
-  // HTML views (printable). e.g. ?view=slips&month=YYYY-MM
-  var view = e && e.parameter && e.parameter.view;
-  if (view === 'slips') return serveSlips_(e);
+  try {
+    // HTML views (printable). e.g. ?view=slips&month=YYYY-MM
+    var view = e && e.parameter && e.parameter.view;
+    if (view === 'slips') return serveSlips_(e);
 
-  // Health check + optional ?action= for read-only calls / quick testing.
-  var action = e && e.parameter && e.parameter.action;
-  if (!action) {
-    return jsonOut_({ ok: true, data: { service: 'Atom Nursery API', status: 'up', time: new Date().toISOString() } });
+    // Health check + optional ?action= for read-only calls / quick testing.
+    var action = e && e.parameter && e.parameter.action;
+    if (!action) {
+      return jsonOut_({ ok: true, data: { service: 'Atom Nursery API', status: 'up', time: new Date().toISOString() } });
+    }
+    return dispatch_(action, e.parameter || {}, (e.parameter || {}).token);
+  } catch (fatal) {
+    try { Logger.log('doGet fatal: ' + (fatal && fatal.stack || fatal)); } catch (x) {}
+    return jsonOut_({ ok: false, error: { code: 'INTERNAL', message: 'ระบบขัดข้องชั่วคราว กรุณาลองใหม่อีกครั้ง' } });
   }
-  return dispatch_(action, e.parameter || {}, (e.parameter || {}).token);
 }
 
+/**
+ * EVERY path out of here must be JSON. If an exception escapes, Apps Script replies with its own
+ * HTML error page, the client's r.json() dies on "<!DOCTYPE", and the user is told
+ * "Unexpected token '<'" — which says nothing and, on the login screen, looks like the app is
+ * broken. That is exactly what happened: dispatch_ ran verifySession_ OUTSIDE its try, so a bad
+ * stored token could take the whole request down. Catch everything, always answer JSON.
+ */
 function doPost(e) {
-  var body = {};
   try {
-    if (e && e.postData && e.postData.contents) body = JSON.parse(e.postData.contents);
-  } catch (err) {
-    return jsonOut_({ ok: false, error: { code: 'BAD_JSON', message: 'ส่ง JSON ไม่ถูกต้อง' } });
+    var body = {};
+    try {
+      if (e && e.postData && e.postData.contents) body = JSON.parse(e.postData.contents);
+    } catch (err) {
+      return jsonOut_({ ok: false, error: { code: 'BAD_JSON', message: 'ส่ง JSON ไม่ถูกต้อง' } });
+    }
+    return dispatch_(body.action, body.payload || {}, body.token);
+  } catch (fatal) {
+    try { Logger.log('doPost fatal: ' + (fatal && fatal.stack || fatal)); } catch (x) {}
+    return jsonOut_({ ok: false, error: { code: 'INTERNAL',
+      message: 'ระบบขัดข้องชั่วคราว กรุณาลองใหม่อีกครั้ง' + (fatal && fatal.message ? (' (' + fatal.message + ')') : '') } });
   }
-  return dispatch_(body.action, body.payload || {}, body.token);
 }
 
 // ---- session enforcement (gated by SCHOOL_CONFIG RequireSessionToken='true') ----
@@ -250,7 +268,10 @@ function dispatch_(action, payload, token) {
   if (!handler) {
     return jsonOut_({ ok: false, error: { code: 'UNKNOWN_ACTION', message: 'ไม่รู้จัก action: ' + action } });
   }
-  var sess = verifySession_(token);
+  // A stored token that is corrupt (or a hiccup reading the signing secret) must never take the
+  // request down — it used to throw out here, outside the try, and the caller got an HTML error page.
+  var sess = null;
+  try { sess = verifySession_(token); } catch (se) { sess = null; }
   if (sessionRequired_() && !publicAction_(action) && !sess) {
     return jsonOut_({ ok: false, error: { code: 'NO_SESSION', message: 'ต้องเข้าสู่ระบบใหม่ (เซสชันหมดอายุ)' } });
   }
