@@ -281,10 +281,29 @@ function deriveStudentToday_(events, leaves, today) {
     .forEach(function (l) { st[l.StudentID] = { StudentID: l.StudentID, Status: 'LEAVE', Reason: l.Reason || 'ลา' }; });
   return Object.keys(st).map(function (k) { return st[k]; });
 }
+/**
+ * Days of entitlement each staff member has used this year, by leave type.
+ *
+ * Two things this has to survive, both of which made it silently return 0 for real teachers:
+ *  - The type may be stored as an ENGLISH label ("Sick Leave"), written by the app while it was in
+ *    English before the dropdown carried explicit values. The quota is keyed by the Thai name, so an
+ *    unnormalised key never matched and the teacher's used total stayed 0 forever. See leaveTypeTH_.
+ *  - StartDate may come back as a Date object rather than a string, in which case String(...) gives
+ *    "Mon Jul 27 2026…" and .slice(0,4) is "Mon " — never equal to the year, so every row was
+ *    filtered out. ymd4_ takes the year off either shape.
+ */
+function ymd4_(v) {
+  if (Object.prototype.toString.call(v) === '[object Date]') return String(v.getFullYear());
+  return String(v == null ? '' : v).slice(0, 4);
+}
 function deriveLeaveUsed_(leaves) {
   var used = {}, yr = gasToday_().slice(0, 4);
-  (leaves || []).filter(function (l) { return l.Status === 'APPROVED' && String(l.StartDate).slice(0, 4) === yr; })
-    .forEach(function (l) { (used[l.StaffID] = used[l.StaffID] || {})[l.Type] = (used[l.StaffID][l.Type] || 0) + (Number(l.Days) || 0); });
+  var norm = (typeof leaveTypeTH_ === 'function') ? leaveTypeTH_ : function (x) { return x; };
+  (leaves || []).filter(function (l) { return l.Status === 'APPROVED' && ymd4_(l.StartDate) === yr; })
+    .forEach(function (l) {
+      var ty = norm(l.Type);
+      (used[l.StaffID] = used[l.StaffID] || {})[ty] = (used[l.StaffID][ty] || 0) + (Number(l.Days) || 0);
+    });
   return used;
 }
 

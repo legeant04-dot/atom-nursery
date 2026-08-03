@@ -22,6 +22,34 @@ var LEAVE_STATUS = {
 };
 var STEP = { APPROVED: 'Approved', REJECTED: 'Rejected', PENDING: 'Pending', SKIPPED: 'Skipped' };
 
+/**
+ * Canonical Thai leave type.
+ *
+ * WHY: the leave-type dropdown used to be `<option>ลาป่วย</option>` — a raw Thai literal with no
+ * value attribute. i18n_tr.js substring-replaces Thai text in the DOM when the app is in English,
+ * so the option's TEXT became "Sick Leave" — and because there was no value attribute, that
+ * translated label is what `select.value` returned and what got SAVED to the sheet.
+ *
+ * The damage was silent and double: the leave list showed English even in Thai mode, and the
+ * entitlement counter (which is keyed by the Thai type name) never matched, so every teacher who
+ * used the app in English read "0 days used" no matter how much leave they had taken.
+ *
+ * The dropdown now carries explicit Thai values, so no new rows can be corrupted. This normalises
+ * on the way IN and on the way OUT as well, so the rows already written heal themselves without
+ * anyone having to edit the spreadsheet by hand.
+ */
+var LEAVE_TYPE_ALIAS_ = {
+  'sick leave': 'ลาป่วย', 'sick': 'ลาป่วย',
+  'leave of absence': 'ลากิจ', 'personal leave': 'ลากิจ', 'personal': 'ลากิจ', 'business leave': 'ลากิจ',
+  'holiday leave': 'ลาพักร้อน', 'vacation': 'ลาพักร้อน', 'vacation leave': 'ลาพักร้อน', 'annual leave': 'ลาพักร้อน',
+  'absent': 'ขาด', 'maternity leave': 'ลาคลอด', 'ordination leave': 'ลาบวช'
+};
+function leaveTypeTH_(v) {
+  var s = String(v == null ? '' : v).trim();
+  if (!s) return '';
+  return LEAVE_TYPE_ALIAS_[s.toLowerCase()] || s;
+}
+
 // ---- Submit -------------------------------------------------------
 /** payload: { staffId|lineUid, type, startDate, endDate, reason } */
 function handleSubmitLeave(payload) {
@@ -45,7 +73,7 @@ function handleSubmitLeave(payload) {
 
   var row = {
     LeaveID: leaveId, StaffID: staff.StaffID, Department: staff.Department || '',
-    Type: payload.type || 'ลากิจ', StartDate: payload.startDate, EndDate: payload.endDate,
+    Type: leaveTypeTH_(payload.type) || 'ลากิจ', StartDate: payload.startDate, EndDate: payload.endDate,
     Days: days, Reason: payload.reason || '',
     Status: requesterIsApprover ? LEAVE_STATUS.PENDING_ADMIN : LEAVE_STATUS.PENDING_LEADER,
     Step1ApproverID: '', Step1ApproverName: '',
@@ -63,7 +91,7 @@ function handleSubmitLeave(payload) {
   if (requesterIsApprover) notifyAdmins_('[รออนุมัติขั้นสุดท้าย]\n' + head);
   else notifyLeaders_('[รออนุมัติโดยหัวหน้างาน]\n' + head);
 
-  return { leaveId: leaveId, status: row.Status, days: days };
+  return { leaveId: leaveId, status: row.Status, days: days, halfDay: half };
 }
 
 // ---- Approve / Reject --------------------------------------------
@@ -178,13 +206,24 @@ function handleEditLeave(payload) {
   var leave = findObject_(sheet, function (r) { return String(r.LeaveID) === String(payload.leaveId); });
   if (!leave) throw apiError_('NOT_FOUND', 'ไม่พบคำขอลา');
   var patch = {};
-  if (payload.type != null) patch.Type = payload.type;
+  if (payload.type != null) patch.Type = leaveTypeTH_(payload.type);
   if (payload.startDate) patch.StartDate = payload.startDate;
   if (payload.endDate) patch.EndDate = payload.endDate;
   if (payload.reason != null) patch.Reason = payload.reason;
-  if (payload.startDate || payload.endDate) {
+
+  // Half day. Admin needs this to CORRECT a record — a leave filed before half-days existed, or one
+  // the teacher submitted as a full day by mistake, could not be fixed from anywhere in the app.
+  // `payload.halfDay === undefined` means "leave it as it is"; '' means "make it a full day".
+  var half = (payload.halfDay === undefined) ? halfDayCode_(leave.HalfDay) : halfDayCode_(payload.halfDay);
+  if (payload.halfDay !== undefined) { ensureColumns_(sheet, ['HalfDay']); patch.HalfDay = half; }
+
+  if (payload.startDate || payload.endDate || payload.halfDay !== undefined) {
     var s = new Date(patch.StartDate || leave.StartDate), e = new Date(patch.EndDate || leave.EndDate);
-    patch.Days = Math.floor((e - s) / 864e5) + 1;
+    var d = Math.floor((e - s) / 864e5) + 1;
+    // Recomputing Days from the dates alone used to WIPE a half day back to a full one: correcting
+    // a typo in the reason of a 0.5-day leave silently gave the teacher a whole day back.
+    if (half && d !== 1) throw apiError_('BAD_INPUT', 'ลาครึ่งวันได้เฉพาะใบลาวันเดียว');
+    patch.Days = half ? 0.5 : d;
   }
   updateRow_(sheet, leave._row, patch);
   try { CacheService.getScriptCache().removeAll(['rows:LEAVE_REQUEST', 'col:LEAVE_REQUEST']); } catch (e) {}
