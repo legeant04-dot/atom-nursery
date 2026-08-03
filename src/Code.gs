@@ -41,6 +41,11 @@ var ROUTES = {
   cancelPrepay:     function (p) { return handleCancelPrepay(p); },    // admin-only: delete an UNPAID advance payment, in place
   editPrepay:       function (p) { return handleEditPrepay(p); },      // admin-only: correct the months an advance payment covers
   slipDiag:         function (p) { return handleSlipDiag(p); },        // admin-only: is SlipOK reachable, and what did it say
+  // Phase 0 telemetry (src/Perf.gs). perfLog is PUBLIC on purpose — a user who cannot sign in has
+  // no token, and their rows are the ones we most need. See the security fence in Perf.gs.
+  perfLog:          function (p) { return handlePerfLog(p); },
+  perfSummary:      function (p) { return handlePerfSummary(p); },     // admin-only: the ranked report
+  deletePerfLog:    function (p) { return handlePerfClear(p); },       // admin-only: start a fresh measurement window ("delete" prefix => takes the write lock)
   prepayAudit:      function (p) { return handlePrepayAudit(p); },     // admin-only: find/repair bills over-credited by the old prepay logic
   deleteBill:       function (p) { return handleDeleteBill(p); },
   setSchoolConfig:  function (p) { return handleSetSchoolConfig(p); },
@@ -208,7 +213,10 @@ function doPost(e) {
 
 // ---- session enforcement (gated by SCHOOL_CONFIG RequireSessionToken='true') ----
 function sessionRequired_() { try { return String(getConfig_('RequireSessionToken', '')) === 'true'; } catch (e) { return false; } }
-function publicAction_(a) { return a === 'ping' || a === 'auth'; }
+// perfLog is public because the most valuable telemetry comes from a session that never happened
+// (sign-in failing, the shell erroring before auth). It can only write to the isolated PERF_LOG
+// sheet and every field is whitelisted + sanitised in Perf.gs. READING it back is admin-only.
+function publicAction_(a) { return a === 'ping' || a === 'auth' || a === 'perfLog'; }
 /** Inject the caller's trusted identity (from the verified token) into the payload and
  *  block parents from reading a student that isn't theirs. No-op while dormant. */
 function applyIdentity_(action, payload, sess) {
@@ -231,7 +239,7 @@ function applyIdentity_(action, payload, sess) {
     addAnnouncement: 1, editAnnouncement: 1, deleteAnnouncement: 1, reindexAnnouncements: 1, reindexParents: 1, checkDuplicateIds: 1,
     saveDspmCriteria: 1, deleteDspmCriteria: 1,
     editStudentLeave: 1, deleteStudentLeave: 1, deleteStudentLeaves: 1, dedupData: 1, lineDiag: 1,
-    adminInbox: 1, markInboxRead: 1, reinstallTriggers: 1, unlinkStudent: 1, linkParentAdmin: 1, setLeaveQuota: 1, setConfigVal: 1, markSalaryPaid: 1, notifyBills: 1, issueBillsFor: 1, savePlans: 1, saveQRCodes: 1, prepayAudit: 1, recomputeContributions: 1, savePrepayTiers: 1, editPrepay: 1, setStudentPause: 1, recordCashPayment: 1, pausedStudents: 1, deleteSlip: 1, slipDiag: 1, cancelPrepay: 1,
+    adminInbox: 1, markInboxRead: 1, reinstallTriggers: 1, unlinkStudent: 1, linkParentAdmin: 1, setLeaveQuota: 1, setConfigVal: 1, markSalaryPaid: 1, notifyBills: 1, issueBillsFor: 1, savePlans: 1, saveQRCodes: 1, prepayAudit: 1, recomputeContributions: 1, savePrepayTiers: 1, editPrepay: 1, setStudentPause: 1, recordCashPayment: 1, pausedStudents: 1, deleteSlip: 1, slipDiag: 1, cancelPrepay: 1, perfSummary: 1, deletePerfLog: 1,
     parentKidsMap: 1 };  // every parent's children by name — admin-only (PII)
   if (ADMIN_ONLY[action] && sess.role !== 'Admin') throw apiError_('NO_PERMISSION', 'เฉพาะแอดมิน');
   // Admin is fully trusted: may target ANY staff/student/parent (manage everyone + "view as" any role).
@@ -284,6 +292,10 @@ function dispatch_(action, payload, token) {
       : isMutatingAction_(action);
     return withWriteLock_(mutates, function () {
       if (action === 'batch') { (payload = payload || {}).__sess = sess; return jsonOut_({ ok: true, data: handler(payload) }); }
+      // perfLog records WHICH ROLE was affected. That must come from the verified session, never
+      // from the client — otherwise the one report we use to make decisions is trivially poisoned.
+      // No session is itself the signal we want (a user who could not sign in), recorded as 'anon'.
+      if (action === 'perfLog') { (payload = payload || {}).__sess = sess; return jsonOut_({ ok: true, data: handler(payload) }); }
       payload = applyIdentity_(action, payload, sess);
       return jsonOut_({ ok: true, data: handler(payload) });
     });

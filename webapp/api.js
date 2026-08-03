@@ -100,6 +100,131 @@ window.CONFIG = { MODE: 'gas', GAS_URL: 'https://script.google.com/macros/s/AKfy
     }
   }
 
+  /* ---- Phase 0 telemetry: how slow is it REALLY, and where does it break? ------------------
+   * PageSpeed can only measure the signed-out login page. Everything users complain about —
+   * "the finance screen takes forever", "it errors on my phone" — happens AFTER sign-in, behind
+   * LINE, where no external tool can reach. So the app measures itself.
+   *
+   * PRIVACY (PDPA): rows carry NO names, NO student/parent/staff ids, and NO payloads — only the
+   * action name, how long it took, whether it failed, and coarse device/connection class. The
+   * session id is random per browser session and is never linked to a person.
+   *
+   * SAFETY: telemetry is best-effort and must never be able to slow down, block, or break real
+   * work. Every path is wrapped; a failure to log is simply dropped. It calls postGas directly,
+   * bypassing window.api, so it can never take the write lock, bust the read cache, or be timed
+   * by itself (which would recurse).
+   *
+   * OFF SWITCH: localStorage.atom_perf_off='1' on a device, or SCHOOL_CONFIG PerfLog='off'
+   * server-side to stop collection for everyone.
+   */
+  const PERF = (function () {
+    let off = false;
+    try { off = localStorage.getItem('atom_perf_off') === '1'; } catch (e) {}
+    const BUF_MAX = 40;          // flush early once this many rows are queued
+    const FLUSH_MS = 25000;      // ...otherwise every 25s, so one bad phone costs ~3 requests/min
+    const SESSION_CAP = 2000;    // hard stop: a runaway loop must never spam the sheet
+    const MSG_MAX = 200;         // truncate error text; never send a whole stack
+
+    let sid = '';
+    try { sid = sessionStorage.getItem('atom_perf_sid') || ''; } catch (e) {}
+    if (!sid) {
+      sid = Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-4);
+      try { sessionStorage.setItem('atom_perf_sid', sid); } catch (e) {}
+    }
+
+    // coarse buckets only — enough to answer "is it only on old Android / on 3G?", not enough to
+    // identify a device.
+    const dev = (function () {
+      try {
+        const u = navigator.userAgent || '';
+        if (/iPad/.test(u) || (/Macintosh/.test(u) && navigator.maxTouchPoints > 1)) return 'iPad';
+        if (/iPhone|iPod/.test(u)) return 'iOS';
+        if (/Android/.test(u)) return 'Android';
+        return 'Desktop';
+      } catch (e) { return '?'; }
+    })();
+    const net = () => { try { return (navigator.connection && navigator.connection.effectiveType) || ''; } catch (e) { return ''; } };
+    const standalone = (function () {
+      try { return (window.matchMedia && matchMedia('(display-mode: standalone)').matches) || navigator.standalone === true; }
+      catch (e) { return false; }
+    })();
+
+    let buf = [], timer = null, total = 0, sending = false;
+    // Cache hits are far too frequent to be worth a row each — they would eat the session cap and
+    // bury the real data. Count them instead: the ratio is what matters (a high hit rate is why the
+    // app feels instant, and a low one on a given screen explains why that screen does not).
+    let hits = 0, misses = 0;
+
+    function flush(beacon) {
+      if ((!buf.length && !hits && !misses) || sending) return;
+      const rows = buf; buf = [];
+      const h = hits, m = misses; hits = 0; misses = 0;
+      clearTimeout(timer); timer = null;
+      // The token is sent so the SERVER can label the row with the caller's verified role. The
+      // client never states its own role — a self-reported role would make the one report we base
+      // decisions on trivial to poison. No token is fine, and is itself the interesting case.
+      const body = JSON.stringify({
+        action: 'perfLog', token: _session,
+        payload: { sid: sid, ver: (window.__atomVer || ''), dev: dev, net: net(), pwa: standalone ? 1 : 0, hit: h, miss: m, rows: rows }
+      });
+      // A page being closed cancels an in-flight fetch; sendBeacon survives it. This is exactly the
+      // moment we most want the data — a user giving up on a slow screen and closing the app.
+      if (beacon) {
+        try { if (navigator.sendBeacon && navigator.sendBeacon(CONFIG.GAS_URL, new Blob([body], { type: 'text/plain' }))) return; } catch (e) {}
+      }
+      sending = true;
+      try {
+        fetch(CONFIG.GAS_URL, { method: 'POST', body: body, keepalive: true })
+          .catch(() => {}).then(() => { sending = false; });
+      } catch (e) { sending = false; }
+    }
+
+    function push(row) {
+      if (off || CONFIG.MODE !== 'gas') return;
+      if (total >= SESSION_CAP) return;
+      total++;
+      try {
+        row.s = String(window.__atomScreen || '').slice(0, 30);
+        buf.push(row);
+        if (buf.length >= BUF_MAX) flush(false);
+        else if (!timer) timer = setTimeout(() => flush(false), FLUSH_MS);
+      } catch (e) {}
+    }
+
+    // t = 'api' | 'nav' | 'boot' | 'err'
+    const api = (action, ms, ok, code, batch) => push({ t: 'api', a: String(action || '').slice(0, 40), ms: Math.round(ms), ok: ok ? 1 : 0, c: String(code || '').slice(0, 30), b: batch || 1 });
+    const mark = (type, name, ms) => push({ t: String(type).slice(0, 8), a: String(name || '').slice(0, 40), ms: Math.round(ms), ok: 1, c: '', b: 1 });
+    const err = (kind, message) => push({ t: 'err', a: String(kind || 'js').slice(0, 40), ms: 0, ok: 0, c: String(message || '').replace(/\s+/g, ' ').slice(0, MSG_MAX), b: 1 });
+
+    if (typeof document !== 'undefined') {
+      document.addEventListener('visibilitychange', () => { if (document.hidden) flush(true); });
+      window.addEventListener('pagehide', () => flush(true));
+      // The errors the user reports as "it broke on my phone" mostly arrive here and are never seen
+      // by anyone, because nobody has a console open on a parent's phone.
+      window.addEventListener('error', e => {
+        try { err('onerror', (e.message || '') + ' @' + String(e.filename || '').split('/').pop() + ':' + (e.lineno || 0)); } catch (x) {}
+      });
+      window.addEventListener('unhandledrejection', e => {
+        try { const r = e.reason; err('unhandled', (r && (r.code ? r.code + ' ' : '') + (r.message || r)) || 'rejection'); } catch (x) {}
+      });
+      // navigation timing: how long the shell itself took, once, per session
+      window.addEventListener('load', () => setTimeout(() => {
+        try {
+          const n = (performance.getEntriesByType && performance.getEntriesByType('navigation')[0]);
+          if (n) { mark('boot', 'domReady', n.domContentLoadedEventEnd); mark('boot', 'loaded', n.loadEventEnd || n.duration); }
+          const p = performance.getEntriesByType && performance.getEntriesByType('paint');
+          if (p) p.forEach(x => { if (x.name === 'first-contentful-paint') mark('boot', 'fcp', x.startTime); });
+        } catch (e) {}
+      }, 0));
+    }
+    const hit = () => { if (!off && CONFIG.MODE === 'gas') { hits++; if (!timer) timer = setTimeout(() => flush(false), FLUSH_MS); } };
+    const miss = () => { if (!off && CONFIG.MODE === 'gas') misses++; };
+    return { api: api, mark: mark, err: err, hit: hit, miss: miss, flush: flush, off: () => off };
+  })();
+  // app.js reports screen render time and the version string through these
+  window.__atomPerfMark = (type, name, ms) => { try { PERF.mark(type, name, ms); } catch (e) {} };
+  window.__atomPerfErr = (kind, msg) => { try { PERF.err(kind, msg); } catch (e) {} };
+
   // ---- client read cache: persistent (localStorage) + stale-while-revalidate ----
   // Perceived zero-lag: a read paints instantly from the last-known value stored on the
   // device, then refreshes in the background and re-renders only if the data changed.
@@ -136,10 +261,14 @@ window.CONFIG = { MODE: 'gas', GAS_URL: 'https://script.google.com/macros/s/AKfy
   const dropDeadSession = e => { if (e && (e.code === 'NO_SESSION' || e.code === 'INVALID_TOKEN')) window.__atomClearSession(); };
   function flush() {
     const q = _q; _q = []; _scheduled = false;
+    // Phase 0: time every round trip. t0 is taken here, so what we measure is exactly what the
+    // user waits for — queueing, network, GAS hydration and the handler, all of it.
+    const t0 = Date.now();
+    const took = () => Date.now() - t0;
     if (q.length === 1) { // single call → no batch wrapper
       postGas({ action: q[0].action, payload: q[0].payload })
-        .then(j => { if (!j.ok) { const e = new Error(j.error.message); e.code = j.error.code; throw e; } q[0].res(j.data); })
-        .catch(e => { dropDeadSession(e); q[0].rej(e); });
+        .then(j => { if (!j.ok) { const e = new Error(j.error.message); e.code = j.error.code; throw e; } PERF.api(q[0].action, took(), 1, '', 1); q[0].res(j.data); })
+        .catch(e => { PERF.api(q[0].action, took(), 0, (e && e.code) || 'ERR', 1); dropDeadSession(e); q[0].rej(e); });
       return;
     }
     postGas({ action: 'batch', payload: { calls: q.map(c => ({ action: c.action, payload: c.payload })) } })
@@ -151,16 +280,21 @@ window.CONFIG = { MODE: 'gas', GAS_URL: 'https://script.google.com/macros/s/AKfy
         // but the screen loads and any genuine per-call error is reported properly.
         if (!Array.isArray(j.data)) {
           try { console.error('batch reply was not an array', j); } catch (x) {}
+          // This is the v186 incident. It is rare and we could not reproduce it — so record every
+          // occurrence with its shape, which is what finally identifies the trigger.
+          PERF.err('batchShape', 'typeof data=' + (typeof j.data) + ' keys=' + Object.keys(j || {}).join(','));
           q.forEach(c => {
+            const t1 = Date.now();
             postGas({ action: c.action, payload: c.payload })
-              .then(r => { if (!r.ok) { const e = new Error(r.error.message); e.code = r.error.code; throw e; } c.res(r.data); })
-              .catch(e => { dropDeadSession(e); c.rej(e); });
+              .then(r => { if (!r.ok) { const e = new Error(r.error.message); e.code = r.error.code; throw e; } PERF.api(c.action, Date.now() - t1, 1, 'RESENT', 1); c.res(r.data); })
+              .catch(e => { PERF.api(c.action, Date.now() - t1, 0, (e && e.code) || 'ERR', 1); dropDeadSession(e); c.rej(e); });
           });
           return;
         }
-        j.data.forEach((r, i) => { if (r && r.ok) q[i].res(r.data); else { const e = new Error(r && r.error ? r.error.message : 'batch error'); e.code = r && r.error ? r.error.code : 'INTERNAL'; dropDeadSession(e); q[i].rej(e); } });
+        const ms = took(), n = q.length;
+        j.data.forEach((r, i) => { if (r && r.ok) { PERF.api(q[i].action, ms, 1, '', n); q[i].res(r.data); } else { const e = new Error(r && r.error ? r.error.message : 'batch error'); e.code = r && r.error ? r.error.code : 'INTERNAL'; PERF.api(q[i].action, ms, 0, e.code, n); dropDeadSession(e); q[i].rej(e); } });
       })
-      .catch(e => { dropDeadSession(e); q.forEach(c => c.rej(e)); });
+      .catch(e => { const ms = took(), n = q.length; dropDeadSession(e); q.forEach(c => { PERF.api(c.action, ms, 0, (e && e.code) || 'ERR', n); c.rej(e); }); });
   }
 
   // stale-while-revalidate: refetch a cached read in the background; re-render only if it changed.
@@ -194,9 +328,11 @@ window.CONFIG = { MODE: 'gas', GAS_URL: 'https://script.google.com/macros/s/AKfy
       if (opts && opts.fresh) return enqueueGas(action, payload).then(d => { rcSet(ck, d); return d; });
       const hit = _rc.get(ck);
       if (hit) {                                                                        // local-first: paint instantly
+        PERF.hit();
         if (Date.now() - hit.t >= RC_TTL) revalidate(ck);                               // stale → refresh in background
         return Promise.resolve(hit.data);
       }
+      PERF.miss();
       return enqueueGas(action, payload).then(d => { rcSet(ck, d); return d; });        // first time → must fetch
     }
     return mockHandlers().then(H => new Promise((res, rej) => setTimeout(() => {
