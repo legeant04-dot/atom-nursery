@@ -56,6 +56,27 @@ function otComputeFor_(student, pickupHHMM) {
   return { late: late, hours: hours, amount: hours * rate, planEnd: planEnd, rate: rate };
 }
 
+/* ---- goodwill discount (ส่วนลดพิเศษ) --------------------------------------------------------
+ * The school sometimes waives part of a late-pickup charge — "200 due, pay 100 and we'll call it
+ * even". That used to be done by typing 100 over the amount, which had three problems: the real
+ * charge was gone so nobody could tell a discount from a miscalculation, there was no record of who
+ * granted it or why, and — worst — ANY later check-out for that child recomputed the row and
+ * silently put it back to 200.
+ *
+ * So the charge and the waiver are stored separately:
+ *   FullAmount  what the late pickup actually costs (recomputed freely and safely)
+ *   Discount    what the school is waiving
+ *   Amount      FullAmount - Discount = what is billed  (unchanged meaning, so billing, slips,
+ *               finance totals and the parent's payables all keep working untouched)
+ * A recompute now only ever rewrites FullAmount and re-derives Amount; the discount survives.
+ */
+var OT_DISCOUNT_COLS_ = ['FullAmount', 'Discount', 'DiscountReason', 'DiscountBy', 'DiscountAt'];
+function otNum_(v) { var n = Number(v); return isFinite(n) && n > 0 ? n : 0; }
+/** Rows written before discounts existed have no FullAmount — their Amount IS the full charge. */
+function otFullOf_(o) { var f = Number(o && o.FullAmount); return (isFinite(f) && f > 0) ? f : otNum_(o && o.Amount); }
+/** A discount can never be negative, nor larger than the charge (that would be paying the parent). */
+function otDiscOf_(o, full) { return Math.min(otNum_(o && o.Discount), otNum_(full)); }
+
 /**
  * Create/refresh today's OT row for a late pickup. Returns the OT summary, or null when there is
  * nothing to charge (inside grace), or when the existing row is already PAID/CANCELLED.
@@ -64,15 +85,21 @@ function otUpsertForPickup_(student, pickupHHMM, dateS) {
   var c = otComputeFor_(student, pickupHHMM);
   if (c.amount <= 0) return null;
   var sh = sheet_(getMainSpreadsheet_(), 'OT_DAILY');
+  ensureColumns_(sh, OT_DISCOUNT_COLS_);
   var otId = 'OT-' + String(dateS).replace(/-/g, '') + '-' + student.StudentID;
   var ex = findObject_(sh, function (x) { return String(x.OTID) === otId; });
   if (ex) {
     var st = String(ex.Status || '');
     if (st === 'PAID' || st === 'CANCELLED') return null;          // settled — never re-charge
-    updateRow_(sh, ex._row, { PickupTime: pickupHHMM, PlanEnd: c.planEnd, LateMinutes: c.late, Hours: c.hours, Amount: c.amount });
+    // Recompute the charge, but KEEP any discount the admin granted. Overwriting Amount outright
+    // is what used to wipe a goodwill discount the moment anyone re-tapped check-out.
+    var disc = otDiscOf_(ex, c.amount);
+    updateRow_(sh, ex._row, { PickupTime: pickupHHMM, PlanEnd: c.planEnd, LateMinutes: c.late, Hours: c.hours,
+      FullAmount: c.amount, Discount: disc, Amount: Math.max(0, c.amount - disc) });
   } else {
     appendObject_(sh, { OTID: otId, Date: dateS, StudentID: student.StudentID, PickupTime: pickupHHMM,
-      PlanEnd: c.planEnd, LateMinutes: c.late, Hours: c.hours, Amount: c.amount, Status: 'UNPAID', SlipRef: '', SlipAmount: 0 });
+      PlanEnd: c.planEnd, LateMinutes: c.late, Hours: c.hours, FullAmount: c.amount, Discount: 0,
+      Amount: c.amount, Status: 'UNPAID', SlipRef: '', SlipAmount: 0 });
   }
   otBust_();
   return { otId: otId, lateMinutes: c.late, hours: c.hours, amount: c.amount, planEnd: c.planEnd, rate: c.rate };
@@ -86,24 +113,60 @@ function otRow_(otId) {
   return { sh: sh, o: o };
 }
 
-/** Correct the pickup time (recomputes) and/or override the amount. PAID rows are locked. */
+/**
+ * Correct the pickup time (recomputes) and/or grant a goodwill discount. PAID rows are locked.
+ *
+ * payload: { otId, pickupTime?, discount?, amount?, discountReason?, staffId? }
+ *   discount  — the amount to waive (what the school gives up)
+ *   amount    — what the parent should actually pay; the difference from the full charge becomes
+ *               the discount. This is how the admin thinks about it ("just pay 100"), and it also
+ *               keeps every older client that still sends a plain amount working correctly.
+ */
 function handleAdminUpdateOT(p) {
   p = p || {};
   var r = otRow_(p.otId);
   if (String(r.o.Status) === 'PAID') throw apiError_('ALREADY_PAID', 'รายการนี้ชำระแล้ว แก้ไขไม่ได้');
-  var patch = {};
+  ensureColumns_(r.sh, OT_DISCOUNT_COLS_);
+
+  var patch = {}, touched = false;
+  var full = otFullOf_(r.o);
   if (p.pickupTime) {
     var student = findObject_(sheet_(getMainSpreadsheet_(), 'STUDENTS'), function (s) { return String(s.StudentID) === String(r.o.StudentID); }) || {};
     var c = otComputeFor_(student, p.pickupTime);
     patch.PickupTime = toHHmm_(p.pickupTime); patch.PlanEnd = c.planEnd;
-    patch.LateMinutes = c.late; patch.Hours = c.hours; patch.Amount = c.amount;
+    patch.LateMinutes = c.late; patch.Hours = c.hours;
+    full = c.amount; touched = true;
   }
-  if (p.amount !== undefined && p.amount !== null && p.amount !== '') patch.Amount = Number(p.amount) || 0;  // manual override wins
-  if (!Object.keys(patch).length) throw apiError_('BAD_INPUT', 'ไม่มีข้อมูลให้แก้ไข');
+
+  var had = otDiscOf_(r.o, otFullOf_(r.o));
+  var disc = Math.min(had, full);                              // a smaller charge caps an old discount
+  if (p.discount !== undefined && p.discount !== null && p.discount !== '') {
+    disc = Math.min(otNum_(p.discount), full); touched = true;
+  } else if (p.amount !== undefined && p.amount !== null && p.amount !== '') {
+    disc = Math.min(Math.max(0, full - otNum_(p.amount)), full); touched = true;
+  }
+  if (!touched) throw apiError_('BAD_INPUT', 'ไม่มีข้อมูลให้แก้ไข');
+
+  patch.FullAmount = full;
+  patch.Discount = disc;
+  patch.Amount = Math.max(0, full - disc);
+  if (disc !== had) {
+    // Who granted it and why. Without this a discount is indistinguishable from a mistake, and there
+    // is nothing to show if a parent or an auditor ever asks.
+    patch.DiscountReason = disc > 0 ? String(p.discountReason || '').slice(0, 200) : '';
+    patch.DiscountBy = disc > 0 ? String(p.staffId || p.adminId || 'ADMIN') : '';
+    patch.DiscountAt = disc > 0 ? new Date() : '';
+  }
   if (String(r.o.Status) === 'CANCELLED') patch.Status = 'UNPAID';    // editing revives a cancelled row
   updateRow_(r.sh, r.o._row, patch);
   otBust_();
-  return Object.assign({ otId: p.otId }, patch);
+  // The engine logged this; the route that shadows it never did, so on live an amount override left
+  // no trace at all. Money changing by admin decision must always be traceable.
+  try {
+    logAudit(p.staffId || p.adminId || 'ADMIN', disc !== had ? 'OT_DISCOUNT' : 'OT_UPDATE', 'OT_DAILY',
+      p.otId + ' full=' + full + ' disc=' + disc + ' net=' + patch.Amount + (patch.DiscountReason ? ' (' + patch.DiscountReason + ')' : ''));
+  } catch (e) {}
+  return Object.assign({ otId: p.otId, fullAmount: full, discount: disc, amount: patch.Amount }, patch);
 }
 
 function handleAdminCancelOT(p) {
