@@ -181,5 +181,63 @@ console.log('\n7) The same works on an advance payment — the อาโป case
   eq('the whole family history shows both', H.paymentLog({ studentId: 'STD-1' }).count, 2);
 }
 
+// ============================================================================
+console.log('\n8) Deleting an entry that was created twice and never paid');
+{
+  const { M, H } = fresh();
+  const a = H.prepay({ studentId: 'STD-1', months: 2, startMonth: THIS_MONTH });
+  const b = H.prepay({ studentId: 'STD-1', months: 2, startMonth: THIS_MONTH });   // the double-tap
+  eq('two entries exist', M.prepayments.length, 2);
+  H.payPrepay({ prepayId: a.PrepayID, slipAmount: a.Amount, slipData: 'data:image/png;base64,Z' });
+  M.paymentSlips[0].Status = 'CONFIRMED'; M.prepayments[0].Status = 'PAID';
+
+  H.cancelPrepay({ prepayId: b.PrepayID, staffId: 'STF-A' });
+  eq('the empty one goes', M.prepayments.length, 1);
+  eq('the paid one stays', M.prepayments[0].PrepayID, a.PrepayID);
+  console.log('   …and the one that was actually paid cannot be deleted this way');
+  H.cancelPrepay({ prepayId: a.PrepayID, staffId: 'STF-A' });
+  eq('still there', M.prepayments.length, 1);
+}
+
+console.log('\n9) An empty payment row can be deleted; one with a slip cannot');
+{
+  const { M, H } = fresh();
+  H.generateMonthlyBills({ month: THIS_MONTH });
+  const bill = M.payments.find(b => b.StudentID === 'STD-1');
+  H.recordCashPayment({ staffId: 'STF-A', kind: 'bill', refId: bill.BillingID, amount: 2000, note: 'พิมพ์ผิด' });
+  const cashRow = M.paymentSlips[0];
+  eq('outstanding after the mistake', H.payments({ studentId: 'STD-1' })[0].Outstanding, 3900);
+
+  eq('a teacher cannot delete it', code(() => H.deleteSlip({ staffId: 'STF-T1', slipId: cashRow.SlipID })), 'NO_PERMISSION');
+  H.deleteSlip({ staffId: 'STF-A', slipId: cashRow.SlipID });
+  eq('gone', M.paymentSlips.length, 0);
+  eq('and the balance is put back', H.payments({ studentId: 'STD-1' })[0].Outstanding, 5900);
+
+  H.uploadSlip({ billingId: bill.BillingID, slipAmount: 5900, slipData: 'data:image/png;base64,K' });
+  eq('a row WITH a slip is protected — reject it instead',
+    code(() => H.deleteSlip({ staffId: 'STF-A', slipId: M.paymentSlips[0].SlipID })), 'HAS_SLIP');
+}
+
+console.log('\n10) The history shows when the money MOVED, not when the file was attached');
+{
+  const { M, H } = fresh();
+  H.generateMonthlyBills({ month: THIS_MONTH });
+  const bill = M.payments.find(b => b.StudentID === 'STD-1');
+  H.uploadSlip({ billingId: bill.BillingID, slipAmount: 5900, slipData: 'data:image/png;base64,M' });
+  // SlipOK read the slip: transferred late on the 2nd, uploaded the next morning
+  Object.assign(M.paymentSlips[0], { Status: 'CONFIRMED', TransDate: '2026-08-02', TransTime: '18:45',
+    SubmittedDate: '2026-08-03 08:06', TransRef: '0142XYZ', Sender: 'ปรเมศวร์ ไจไลสถาพร' });
+
+  const slips = H.paymentSlips({ studentId: 'STD-1' });
+  eq('the transfer moment is carried', [slips[0].TransDate, slips[0].TransTime], ['2026-08-02', '18:45']);
+  eq('the upload moment is kept too, separately', slips[0].SubmittedDate, '2026-08-03 08:06');
+  eq('and who sent it', slips[0].Sender, 'ปรเมศวร์ ไจไลสถาพร');
+
+  const log = H.paymentLog({ studentId: 'STD-1' });
+  eq('the log dates it by the transfer', log.entries[0].date, '2026-08-02');
+  eq('with the time', log.entries[0].transTime, '18:45');
+  eq('not by the upload', log.entries[0].date === '2026-08-03', false);
+}
+
 console.log('\n' + (fail ? `${fail} FAILED, ${pass} passed` : `all ${pass} checks passed`));
 process.exit(fail ? 1 : 0);

@@ -36,13 +36,28 @@ function paySlipTransDate_(v) {
   try { var d = new Date(s); if (!isNaN(d)) return Utilities.formatDate(d, getConfig_('Timezone', 'Asia/Bangkok'), 'yyyy-MM-dd'); } catch (e) {}
   return '';
 }
+// SlipOK's transTime comes back as 'HH:mm:ss' (or sometimes with the date) — keep 'HH:mm'
+function paySlipTransTime_(v) {
+  var s = String(v || '').trim(); if (!s) return '';
+  var m = /(\d{1,2}):(\d{2})/.exec(s);
+  return m ? (('0' + m[1]).slice(-2) + ':' + m[2]) : '';
+}
 function paySlipVerify_(p, due) {
   try {
     var b64 = p.slipData ? (String(p.slipData).indexOf(',') >= 0 ? String(p.slipData).split(',')[1] : String(p.slipData)) : '';
     var v = handleVerifySlip({ qrData: p.qrData, slipBase64: b64, slipUrl: p.slipUrl, amount: (p.slipAmount || due) });
-    if (v && v.available) return { verified: v.ok ? 'YES' : ('NO:' + (v.code || v.message || 'unverified')), ref: v.ref || '', receiver: (v.receiver && v.receiver.name) || '', transDate: paySlipTransDate_(v.transDate) };
+    if (v && v.available) return {
+      // 'NO:<code>' is a SlipOK VERDICT, not a failure to read the slip — it read it fine (that is
+      // where the ref, the receiver and the transfer date come from) and then objected to something:
+      // 1011 no such transaction · 1012 this slip was already used · 1013 amount differs · 1014 wrong
+      // receiver account. The code is kept so the app can say WHICH, instead of a bare "ตรวจไม่ผ่าน".
+      verified: v.ok ? 'YES' : ('NO:' + (v.code || v.message || 'unverified')),
+      ref: v.ref || '', receiver: (v.receiver && v.receiver.name) || '',
+      transDate: paySlipTransDate_(v.transDate), transTime: paySlipTransTime_(v.transTime),
+      sender: v.sender || '', slipAmount: (v.amount != null ? v.amount : '')
+    };
   } catch (e) {}
-  return { verified: '', ref: '', receiver: '', transDate: '' };
+  return { verified: '', ref: '', receiver: '', transDate: '', transTime: '', sender: '', slipAmount: '' };
 }
 
 // Sheets coerces a 'YYYY-MM' cell to date 'YYYY-MM-01', so compare months by first 7 chars.
@@ -77,9 +92,12 @@ function paySlipRecord_(kind, refId, p) {
   if (p.slipData) { var b64 = String(p.slipData).indexOf(',') >= 0 ? String(p.slipData).split(',')[1] : String(p.slipData); if (b64) drive = paySlipToDrive_(b64, p.slipName || ('slip-' + refId + '.jpg')); }
   var vr = paySlipVerify_(p, tgt.due);
   var slipId = 'SL-' + Date.now();
-  var sh0 = paySlipsSheet_(); ensureColumns_(sh0, ['TransDate']);
+  var sh0 = paySlipsSheet_(); ensureColumns_(sh0, ['TransDate', 'TransTime', 'Sender', 'Method']);
   appendObject_(sh0, { SlipID: slipId, RefKind: kind, RefID: refId, StudentID: tgt.studentId, Amount: amt,
-    Url: drive.url, FileId: drive.fileId, Verified: vr.verified, TransRef: vr.ref, Receiver: vr.receiver, TransDate: vr.transDate || '', SubmittedDate: nowStr_(), Status: 'SUBMITTED' });
+    Url: drive.url, FileId: drive.fileId, Verified: vr.verified, TransRef: vr.ref, Receiver: vr.receiver,
+    // the moment the money actually MOVED, read off the slip — not the moment the file was attached
+    TransDate: vr.transDate || '', TransTime: vr.transTime || '', Sender: vr.sender || '',
+    Method: 'transfer', SubmittedDate: nowStr_(), Status: 'SUBMITTED' });
   recCacheBust_('PAYMENT_SLIPS');
   var submitted = paySlipSum_(kind, refId, ['SUBMITTED', 'CONFIRMED']);
   var confirmed = paySlipSum_(kind, refId, ['CONFIRMED']);
@@ -206,6 +224,71 @@ function handleRecordCashPayment(p) {
   var confirmed = paySlipSum_(kind, p.refId, ['CONFIRMED']);
   return { ok: true, kind: kind, refId: p.refId, amount: amt, due: tgt.due,
     paidSoFar: confirmed, outstanding: Math.max(0, tgt.due - confirmed) };
+}
+
+/**
+ * Admin deletes a payment record that has NO slip image — a double-tap that left an empty entry, or
+ * a cash receipt entered by mistake. A row WITH a slip is evidence and is never deleted here; reject
+ * it instead, which keeps the image and the audit trail. Recomputes the balance afterwards.
+ */
+function handleDeleteSlip(p) {
+  p = p || {};
+  var sh = paySlipsSheet_();
+  var sl = findObject_(sh, function (x) { return String(x.SlipID) === String(p.slipId); });
+  if (!sl) throw apiError_('NOT_FOUND', 'ไม่พบรายการชำระ');
+  if (sl.Url) throw apiError_('HAS_SLIP', 'รายการนี้มีสลิปแนบอยู่ — ใช้ปุ่มปฏิเสธสลิปแทนการลบ');
+  var kind = String(sl.RefKind), refId = sl.RefID, amt = Number(sl.Amount || 0);
+  sh.deleteRow(sl._row);
+  recCacheBust_('PAYMENT_SLIPS');
+  paySlipRecompute_(kind, refId);
+  try { logAudit(p.adminId || 'admin', 'SLIP_DELETE', 'PAYMENT_SLIPS', p.slipId + ' ' + amt); } catch (e) {}
+  return { ok: true, kind: kind, refId: refId };
+}
+
+/**
+ * Admin removes an advance-payment entry the parent created twice and never paid. In place — going
+ * through the engine would rewrite the whole PREPAYMENTS collection, which this project does not do.
+ * Refuses anything already paid, or anything with a slip against it: that is a real payment.
+ */
+function handleCancelPrepay(p) {
+  p = p || {};
+  var sh = sheet_(getMainSpreadsheet_(), 'PREPAYMENTS');
+  var pp = findObject_(sh, function (x) { return String(x.PrepayID) === String(p.prepayId); });
+  if (!pp) throw apiError_('NOT_FOUND', 'ไม่พบรายการชำระล่วงหน้า');
+  if (String(pp.Status) === 'PAID') throw apiError_('ALREADY_PAID', 'รายการนี้ชำระแล้ว — ลบไม่ได้');
+  var slips = readObjects_(paySlipsSheet_()).filter(function (s) {
+    return String(s.RefKind) === 'prepay' && String(s.RefID) === String(p.prepayId) && String(s.Status) !== 'REJECTED';
+  });
+  if (slips.length) throw apiError_('HAS_SLIP', 'รายการนี้มีสลิปแนบอยู่ — ปฏิเสธสลิปก่อนจึงจะลบได้');
+  sh.deleteRow(pp._row);
+  recCacheBust_('PREPAYMENTS');
+  try { logAudit(p.adminId || 'admin', 'PREPAY_DELETE', 'PREPAYMENTS', p.prepayId + ' ' + (pp.Amount || '')); } catch (e) {}
+  return { ok: true, prepayId: p.prepayId };
+}
+
+/**
+ * Is SlipOK actually reachable, and what does it say about the slips we already hold?
+ * Admin-only diagnostic — answers "is verification working?" without uploading anything.
+ */
+function handleSlipDiag(p) {
+  var url = getConfig_('SlipOK_Url', ''), key = getConfig_('SlipOK_ApiKey', '');
+  var rows = readObjects_(paySlipsSheet_());
+  var counts = { total: rows.length, verified: 0, rejected: 0, unchecked: 0, manual: 0 };
+  var byCode = {};
+  rows.forEach(function (s) {
+    var v = String(s.Verified || '');
+    if (v.slice(0, 3) === 'YES') counts.verified++;
+    else if (v === 'MANUAL') counts.manual++;
+    else if (v.slice(0, 2) === 'NO') { counts.rejected++; var c = v.slice(3) || '?'; byCode[c] = (byCode[c] || 0) + 1; }
+    else counts.unchecked++;
+  });
+  return {
+    configured: !!(url && key),
+    url: url ? String(url).replace(/\/[^/]*$/, '/…') : '',
+    counts: counts,
+    byCode: Object.keys(byCode).map(function (c) { return { code: c, count: byCode[c] }; })
+      .sort(function (a, b) { return b.count - a.count; })
+  };
 }
 
 function handleConfirmSlip(p) {

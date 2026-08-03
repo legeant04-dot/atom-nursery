@@ -112,7 +112,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.179'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.180'; // bump each webapp change; shown only at the bottom of the Chat screen
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
   const phoneFmt = p => { let d=String(p==null?'':p).replace(/\D/g,''); if(d.length===9) d='0'+d; return d; };
@@ -1438,22 +1438,56 @@
   window.SAVE_IMG=(url,name)=>{ if(!url){toast(EN()?'No QR image set yet (add it in config)':'ยังไม่ได้ตั้งรูป QR (เพิ่มใน config)');return;} const a=document.createElement('a'); a.href=url; a.download=name; document.body.appendChild(a); a.click(); a.remove(); toast(EN()?'Saved '+name:'บันทึกรูปแล้ว'); };
 
   // ---- slip history rendering (shared parent + admin) ----
-  function slipVerBadge(v){ v=String(v||''); if(v.slice(0,3)==='YES')return `<span class="pill ok" style="font-size:11px">✓ ${EN()?'verified':'สลิปแท้'}</span>`; if(v.slice(0,2)==='NO')return `<span class="pill bad" style="font-size:11px">⚠ ${EN()?'not verified':'ตรวจไม่ผ่าน'}</span>`;
-    // MANUAL = an Admin recorded the money themselves (cash at the desk, or already seen in the bank).
-    // There is no slip to authenticate, so "ยังไม่ตรวจ" was misleading — nothing is waiting on anyone.
-    if(v==='MANUAL')return `<span class="pill ok" style="font-size:11px">✓ ${EN()?'recorded by admin':'แอดมินบันทึกเอง'}</span>`;
-    return `<span class="pill info" style="font-size:11px">${EN()?'not checked':'ยังไม่ตรวจ'}</span>`; }
+  /**
+   * What SlipOK said about a slip. A "NO:<code>" is a VERDICT, not a failure to read — SlipOK read
+   * the slip fine (that is where the reference, the receiver and the transfer time come from) and
+   * then objected to something specific. Saying only "ตรวจไม่ผ่าน" left the admin with no idea what
+   * to do about it, so each code now explains itself.
+   */
+  const SLIPOK_CODES = {
+    '1011': [EN2=>EN2?'No such transaction at the bank':'ธนาคารไม่พบรายการโอนนี้', 'bad'],
+    '1012': [EN2=>EN2?'This slip was already used':'สลิปนี้เคยถูกใช้แล้ว (ส่งซ้ำ)', 'wait'],
+    '1013': [EN2=>EN2?'Amount differs from the bill':'ยอดในสลิปไม่ตรงกับยอดที่แจ้ง', 'wait'],
+    '1014': [EN2=>EN2?'Paid into a different account':'โอนเข้าบัญชีอื่น ไม่ใช่บัญชีโรงเรียน', 'bad'],
+  };
+  function slipVerInfo(v){ v=String(v||'');
+    if(v.slice(0,3)==='YES') return {cls:'ok', icon:'✓', text:EN()?'verified':'สลิปแท้', why:''};
+    if(v==='MANUAL') return {cls:'ok', icon:'✓', text:EN()?'recorded by admin':'แอดมินบันทึกเอง', why:''};
+    if(v.slice(0,2)==='NO'){ const code=v.slice(3).trim(); const hit=SLIPOK_CODES[code];
+      return hit ? {cls:hit[1], icon:'⚠', text:hit[0](EN()), why:code}
+                 : {cls:'bad', icon:'⚠', text:EN()?'not verified':'ตรวจไม่ผ่าน', why:code}; }
+    return {cls:'info', icon:'', text:EN()?'not checked':'ยังไม่ตรวจ', why:''}; }
+  function slipVerBadge(v){ const i=slipVerInfo(v);
+    return `<span class="pill ${i.cls}" style="font-size:11px"${i.why?` title="SlipOK ${esc(i.why)}"`:''}>${i.icon?i.icon+' ':''}${esc(i.text)}</span>`; }
   function slipStatusPill(s){ const c={SUBMITTED:'wait',CONFIRMED:'ok',PARTIAL:'wait',REJECTED:'bad'}[s]||'info'; const lbl={SUBMITTED:EN()?'pending':'รอตรวจ',CONFIRMED:EN()?'confirmed':'ยืนยันแล้ว',REJECTED:EN()?'rejected':'ปฏิเสธ'}[s]||s; return `<span class="pill ${c}" style="font-size:11px">${esc(lbl)}</span>`; }
   function slipThumb(url){ return url?`<img src="${esc(url)}" alt="slip" style="width:46px;height:46px;object-fit:cover;border-radius:6px;border:1px solid var(--line);cursor:zoom-in" onclick="ZOOM_IMG('${esc(url)}')" onerror="this.replaceWith(Object.assign(document.createElement('span'),{className:'pill info',textContent:'📎',style:'font-size:11px'}))"/>`:`<span class="pill info" style="font-size:13px">📎</span>`; }
   // Payments recorded by an Admin (cash, or a transfer already seen in the bank) have no image, so the
   // 📎 slip thumbnail read as "a slip that failed to load". They get a 💵 and their note instead.
   const isCashRow = s => String(s.Method||'')==='cash' || (!s.Url && String(s.Verified||'')==='MANUAL');
-  function slipHistoryHTML(slips){ if(!slips||!slips.length)return '';
+  /**
+   * When the money MOVED, taken off the slip by SlipOK — not when the file happened to be attached.
+   * Those are different moments (a parent often transfers at night and uploads the next morning), and
+   * the upload time is the one nobody cares about. Falls back to the upload time, clearly labelled,
+   * when SlipOK could not read a transfer time.
+   */
+  function slipWhen(s){
+    const d=String(s.TransDate||'').slice(0,10), tm=String(s.TransTime||'').slice(0,5);
+    if(d) return `<b>${esc(fullDate(d))}${tm?' · '+esc(tm)+' '+(EN()?'':'น.'):''}</b> <span class="muted">${EN()?'transferred':'เวลาที่โอน'}</span>`;
+    const sub=String(s.SubmittedDate||'').slice(0,16);
+    return `<span class="muted">${esc(sub)} ${EN()?'(uploaded — no transfer time on the slip)':'(เวลาที่แนบไฟล์ — อ่านเวลาโอนจากสลิปไม่ได้)'}</span>`;
+  }
+  function slipHistoryHTML(slips, canDelete){ if(!slips||!slips.length)return '';
     const anySlip=slips.some(s=>!isCashRow(s));
     return `<div style="margin-top:8px"><small class="muted">${anySlip?`📎 ${EN()?'Submitted slips':'สลิปที่ส่งมา'}`:`💵 ${EN()?'Payments received':'การรับชำระ'}`}</small>${slips.map(s=>{
       const cash=isCashRow(s);
-      return `<div class="list-item" style="gap:8px;align-items:center">${cash?`<span class="pill ok" style="font-size:13px">💵</span>`:slipThumb(s.Url)}<span style="flex:1"><b>${baht(s.Amount)}</b> ${slipStatusPill(s.Status)} ${slipVerBadge(s.Verified)}${s.SlipGroup?` <span class="pill info" style="font-size:11px" title="${esc(s.SlipGroup)}">🔗 ${EN()?'combined':'สลิปรวมหลายคน'}</span>`:''}${cash&&s.TransRef?`<br><small class="muted">${esc(s.TransRef)}</small>`:''}${s.Receiver?`<br><small class="muted">→ ${esc(s.Receiver)}</small>`:''}<br><small class="muted">${esc(String(s.SubmittedDate||'').slice(0,16))}</small></span></div>`;
+      // an empty row (no image at all) is a double-tap or a mistaken cash entry — the admin can bin it.
+      // A row WITH a slip is evidence: reject it instead, which keeps the image and the trail.
+      const del = canDelete && !s.Url ? `<button class="btn sm pink" onclick="A_delSlip('${esc(s.SlipID)}',this)" aria-label="${EN()?'Delete':'ลบ'}" title="${EN()?'Delete this empty entry':'ลบรายการที่ไม่มีสลิป'}">🗑️</button>` : '';
+      return `<div class="list-item" style="gap:8px;align-items:center">${cash?`<span class="pill ok" style="font-size:13px">💵</span>`:slipThumb(s.Url)}<span style="flex:1"><b>${baht(s.Amount)}</b> ${slipStatusPill(s.Status)} ${slipVerBadge(s.Verified)}${s.SlipGroup?` <span class="pill info" style="font-size:11px" title="${esc(s.SlipGroup)}">🔗 ${EN()?'combined':'สลิปรวมหลายคน'}</span>`:''}${cash&&s.TransRef?`<br><small class="muted">${esc(s.TransRef)}</small>`:''}${!cash&&s.TransRef?`<br><small class="muted">${EN()?'ref':'เลขอ้างอิง'} ${esc(s.TransRef)}</small>`:''}${s.Sender?`<br><small class="muted">${EN()?'from':'จาก'} ${esc(s.Sender)}</small>`:''}${s.Receiver?`<br><small class="muted">→ ${esc(s.Receiver)}</small>`:''}<br><small>${slipWhen(s)}</small></span>${del}</div>`;
     }).join('')}</div>`; }
+  window.A_delSlip=async(slipId,btn)=>{ if(!confirm(EN()?'Delete this empty payment entry? The balance is recalculated.':'ลบรายการรับชำระที่ไม่มีสลิปนี้? ระบบจะคำนวณยอดค้างใหม่'))return;
+    const sid=window._FIN_SID;
+    try{ await api('deleteSlip',{slipId,staffId:USER.staffId}); toast(EN()?'Deleted':'ลบแล้ว'); if(sid) _finReopen(sid); }catch(e){err(e);} };
 
   window._PAY_KIDS=[];
   SCREENS.Parent.payment = async () => {
@@ -3276,7 +3310,7 @@
     const rows=(d.entries||[]).map((e,i)=>{ const [cls,lbl]=stat(e.status);
       return `<div class="list-item stack" ${e.slipUrl?`onclick="ZOOM_IMG('${esc(e.slipUrl)}')" style="cursor:zoom-in"`:''}>
         <span><b>${kindIcon[e.refKind]||'💳'} ${esc(e.label)}</b>${e.month?` <small class="muted">${esc(monthNameYear(e.month))}</small>`:''}<br>
-          <small class="muted">${esc(dispNick({Nickname:e.nick,NameTH:e.name})||e.studentId)} · ${esc(e.date?fullDate(e.date):'-')}${e.transRef?' · '+esc(e.transRef):''}${e.via==='cash'?' · '+(EN()?'cash':'เงินสด'):''}</small></span>
+          <small class="muted">${esc(dispNick({Nickname:e.nick,NameTH:e.name})||e.studentId)} · ${esc(e.date?fullDate(e.date):'-')}${e.transTime?' '+esc(e.transTime)+(EN()?'':' น.'):''}${e.transRef?' · '+esc(e.transRef):''}${e.via==='cash'?' · '+(EN()?'cash':'เงินสด'):''}</small></span>
         <span style="text-align:right"><b>${baht(e.amount)}</b><br><span class="pill ${cls}" style="font-size:11px">${esc(lbl)}</span>${e.slipUrl?' 📎':''}</span></div>`; }).join('');
     modal(`<h3>🧾 ${EN()?'Payment history':'ประวัติการชำระเงิน'}</h3>
       <p class="muted" style="font-size:13px">${(d.students||[]).map(s=>esc(s.nick||s.name||s.studentId)).join(' · ')||'-'}</p>
@@ -3794,6 +3828,8 @@
         <label class="field"><span>${EN()?'School match (× staff share)':'โรงเรียนสมทบ (เท่าของยอดหักพนักงาน)'}</span><input id="setMatch" type="number" min="0" step="0.1" value="${esc(sc.ContributionMatchRate!=null?sc.ContributionMatchRate:1)}"/></label></div>
       <p class="muted" style="font-size:13px">${EN()?'Match 1 = deduct 200 from staff, school adds 200, fund grows 400.':'สมทบ 1 เท่า = หักพนักงาน 200 · โรงเรียนสมทบ 200 · เข้ากองทุน 400'}</p>
       <button class="btn sm outline block" onclick="A_contribRecalc(this)">🧮 ${EN()?'Review accumulated fund totals':'ตรวจยอดเงินสมทบสะสมของทุกคน'}</button>
+      <h4 style="margin:6px 0">🔍 ${EN()?'Slip verification (SlipOK)':'การตรวจสลิป (SlipOK)'}</h4>
+      <button class="btn sm outline block" onclick="A_slipDiag(this)">${EN()?'Check whether slip verification is working':'ตรวจว่าระบบตรวจสลิปทำงานอยู่ไหม'}</button>
       <h4 style="margin:6px 0">${esc(t('set.leaveQuota'))}</h4>
       ${Object.keys(q).map(k=>`<label class="field"><span>${esc(tLeaveType(k))}</span><input type="number" id="lq_${esc(k)}" value="${q[k]}"/></label>`).join('')}
       <h4 style="margin:10px 0 4px">🔔 ${EN()?'Notifications':'การแจ้งเตือน'}</h4>
@@ -3826,6 +3862,29 @@
     try{ const r=await api('recomputeContributions',{preview:false,adminId:USER.staffId});
       const m=btn.closest('.modal'); if(m)m.remove();
       confirmSaved(EN()?`Updated ${r.written} staff`:`บันทึกแล้ว ${r.written} คน`);
+    }catch(e){err(e);}finally{ if(btn)btn.disabled=false; } };
+
+  // ---- "is slip verification actually working?" ------------------------------------------------
+  // A slip marked ⚠ is SlipOK's VERDICT, not a broken connection — it read the slip (that is where the
+  // reference and the transfer time come from) and then objected. This says which, and how often.
+  window.A_slipDiag=async(btn)=>{ if(btn)btn.disabled=true;
+    try{ const d=await api('slipDiag',{staffId:USER.staffId}); const c=d.counts||{};
+      const why={'1011':EN()?'no such transaction at the bank':'ธนาคารไม่พบรายการโอน',
+        '1012':EN()?'slip already used (sent twice)':'สลิปถูกใช้ไปแล้ว (ส่งซ้ำ)',
+        '1013':EN()?'amount differs from the bill':'ยอดในสลิปไม่ตรงกับยอดที่แจ้ง',
+        '1014':EN()?'paid into a different account':'โอนเข้าบัญชีอื่น'};
+      modal(`<h3>🔍 ${EN()?'Slip verification':'การตรวจสลิป'}</h3>
+        <div class="card" style="background:${d.configured?'var(--ok-bg)':'var(--warn-bg)'};border-color:${d.configured?'var(--ok-line)':'var(--warn-line)'};padding:8px">
+          <b style="color:${d.configured?'var(--ok)':'var(--warn)'}">${d.configured?'✅ '+(EN()?'SlipOK is connected and running':'SlipOK เชื่อมต่ออยู่และทำงานปกติ'):'⚠️ '+(EN()?'SlipOK is not configured — slips are stored but never checked':'ยังไม่ได้ตั้งค่า SlipOK — ระบบเก็บสลิปไว้แต่ไม่ได้ตรวจ')}</b></div>
+        <div class="card" style="padding:8px"><b style="font-size:13px">${EN()?'Slips on file':'สลิปทั้งหมดในระบบ'} (${c.total||0})</b>
+          <div class="list-item"><span>✓ ${EN()?'genuine':'สลิปแท้'}</span><b style="color:var(--ok)">${c.verified||0}</b></div>
+          <div class="list-item"><span>⚠ ${EN()?'SlipOK objected':'SlipOK ทักท้วง'}</span><b style="color:var(--warn)">${c.rejected||0}</b></div>
+          <div class="list-item"><span>💵 ${EN()?'recorded by admin (no slip)':'แอดมินบันทึกเอง (ไม่มีสลิป)'}</span><b>${c.manual||0}</b></div>
+          <div class="list-item"><span>— ${EN()?'not checked':'ยังไม่ได้ตรวจ'}</span><b>${c.unchecked||0}</b></div></div>
+        ${(d.byCode||[]).length?`<div class="card" style="padding:8px"><b style="font-size:13px">${EN()?'Why they were objected to':'เหตุผลที่ทักท้วง'}</b>
+          ${d.byCode.map(x=>`<div class="list-item"><span>${esc(why[x.code]||x.code)} <small class="muted">(${esc(x.code)})</small></span><b>${x.count}</b></div>`).join('')}
+          <p class="muted" style="font-size:13px;margin:6px 0 0">${EN()?'An objection is not proof of fraud — a re-sent slip or an amount typed differently both trigger one. Open the slip and judge it yourself.':'การทักท้วงไม่ได้แปลว่าสลิปปลอม — ส่งสลิปซ้ำ หรือกรอกยอดไม่ตรง ก็ขึ้นได้ · เปิดดูสลิปแล้วตัดสินเองได้เลย'}</p></div>`:''}
+        <button class="btn outline block" onclick="this.closest('.modal').remove()">${esc(t('c.close'))}</button>`);
     }catch(e){err(e);}finally{ if(btn)btn.disabled=false; } };
 
   // Big Cleaning Day add/remove — persist immediately (also save the amount field first so it isn't lost)
@@ -4146,7 +4205,7 @@
   window.FIN_set=(m)=>{ FIN_MONTH=m; GO('finance'); };
 
   // ---- Finance: per-student detail (bill + extra charges + OT) — view/add/edit/delete in one place ----
-  window.A_finStudent=async(sid)=>{ const month=FIN_MONTH||monthStr();
+  window.A_finStudent=async(sid)=>{ const month=FIN_MONTH||monthStr(); window._FIN_SID=sid;
     const [bills,charges,ot,allSlips,pre]=await Promise.all([api('payments',{studentId:sid}),api('studentCharges',{studentId:sid,month}),api('otDaily',{studentId:sid}),api('paymentSlips',{studentId:sid}),api('prepayments',{studentId:sid}).catch(()=>[])]);
     // A_CACHE.students is only filled by the manage screen, so opening this from Finance left the
     // header showing the raw StudentID ("💰 STD-018 -"). Fetch the roster once if it isn't loaded.
@@ -4176,7 +4235,7 @@
           <tr><td><b>${EN()?'Outstanding':'คงค้าง'}</b></td><td style="text-align:right"><b style="color:${Number(bill.Outstanding||0)>0?'var(--bad)':'var(--ok)'}">${baht(bill.Outstanding||0)}</b></td></tr></table>
         <div class="spread" style="margin:2px 0 4px"><span class="pill ${Number(bill.Outstanding||0)<=0?'ok':'bad'}">${Number(bill.Outstanding||0)<=0?(Number(bill.PrepaidTuition||0)>0?('💰 '+(EN()?'paid in advance':'ชำระล่วงหน้าแล้ว')):('✅ '+(EN()?'paid in full':'ชำระครบแล้ว'))):('⏳ '+(EN()?'outstanding':'ค้างชำระ')+' '+baht(bill.Outstanding))}</span><small class="muted">${esc(bill.Status||'')}</small></div>
         ${bill.Prepay?`<div class="card" style="background:var(--ok-bg);border-color:var(--ok-line);padding:6px 8px;margin:2px 0"><small style="color:var(--ok)">💰 ${esc(prepaySpan(bill.Prepay))}</small></div>`:''}
-        ${slipHistoryHTML(slipsOf('bill',bill.BillingID))}
+        ${slipHistoryHTML(slipsOf('bill',bill.BillingID),true)}
         ${Number(bill.Outstanding||0)>0?cashBox('bill',bill.BillingID,sid,Number(bill.Outstanding||0)):''}
         <div class="row" style="margin-top:6px"><button class="btn sm pink" onclick="A_finDelBill('${esc(bill.BillingID)}','${sid}',this)">🗑️ ${EN()?'Delete bill':'ลบบิล'}</button></div>`
       : `<p class="muted" style="font-size:13px">${EN()?'No bill issued for this month yet.':'ยังไม่ได้ออกบิลของเดือนนี้'}</p>
@@ -4187,7 +4246,7 @@
     const _disc=Number(s.DiscountAmount||0);
     const discBox=_disc>0?`<div class="list-item" style="background:var(--ok-bg);border-radius:8px;padding:6px 8px;margin-top:4px"><span>🏷️ ${EN()?'Standing discount':'ส่วนลดประจำของนักเรียน'} <small class="muted">${EN()?'always applied to tuition':'หักจากค่าเทอมทุกบิล'}</small></span><b style="color:var(--ok)">−${/%|percent/i.test(String(s.DiscountUnit||''))?_disc+'%':baht(_disc)}</b></div>`:'';
     const chargeBox = `${(charges||[]).length?(charges).map(c=>{ const cOut=Number(c.Outstanding!=null?c.Outstanding:c.Amount);
-      return `<div style="border-bottom:1px solid var(--surface-3);padding:4px 0"><div class="list-item"><span>${Number(c.Amount)<0?'🏷️ ':''}${esc(c.Label)} <b style="color:${Number(c.Amount)<0?'var(--ok)':'inherit'}">${Number(c.Amount)<0?'−'+baht(Math.abs(c.Amount)):baht(c.Amount)}</b> <span class="pill ${stPill(c.Status)}" style="font-size:11px">${esc(c.Status||'UNPAID')}</span></span><button class="btn sm pink" onclick="A_finDelCharge('${esc(c.ChargeID)}','${sid}',this)" aria-label="${EN()?"Delete":"ลบ"}" title="${EN()?"Delete":"ลบ"}">🗑️</button></div>${slipHistoryHTML(slipsOf('charge',c.ChargeID))}${cOut>0?cashBox('charge',c.ChargeID,sid,cOut):''}</div>`;
+      return `<div style="border-bottom:1px solid var(--surface-3);padding:4px 0"><div class="list-item"><span>${Number(c.Amount)<0?'🏷️ ':''}${esc(c.Label)} <b style="color:${Number(c.Amount)<0?'var(--ok)':'inherit'}">${Number(c.Amount)<0?'−'+baht(Math.abs(c.Amount)):baht(c.Amount)}</b> <span class="pill ${stPill(c.Status)}" style="font-size:11px">${esc(c.Status||'UNPAID')}</span></span><button class="btn sm pink" onclick="A_finDelCharge('${esc(c.ChargeID)}','${sid}',this)" aria-label="${EN()?"Delete":"ลบ"}" title="${EN()?"Delete":"ลบ"}">🗑️</button></div>${slipHistoryHTML(slipsOf('charge',c.ChargeID),true)}${cOut>0?cashBox('charge',c.ChargeID,sid,cOut):''}</div>`;
       }).join(''):`<small class="muted">${EN()?'No extra charges':'ไม่มีรายการเพิ่มเติม'}</small>`}
       <div class="grid2" style="margin-top:6px"><input id="fcLabel" placeholder="${EN()?'e.g. Special class':'เช่น ค่าเรียนพิเศษ'}"/>
         <div class="row" style="gap:6px"><select id="fcSign" style="max-width:104px"><option value="1">+ ${EN()?'charge':'เรียกเก็บ'}</option><option value="-1">− ${EN()?'discount':'ส่วนลด'}</option></select><input id="fcAmt" type="number" min="0" placeholder="${EN()?'amount':'จำนวนเงิน'}" style="flex:1"/></div></div>
@@ -4198,11 +4257,16 @@
     const preBox = `${(pre||[]).length?(pre).map(pp=>{ const sl=slipsOf('prepay',pp.PrepayID);
       const cov=Array.isArray(pp.Covered)?pp.Covered:(()=>{try{return JSON.parse(pp.Covered||'[]')}catch(e){return []}})();
       const out=Math.max(0, Number(pp.Amount||0)-(sl.filter(x=>x.Status==='CONFIRMED').reduce((a,x)=>a+Number(x.Amount||0),0)));
+      // a duplicate created by a double-tap: still UNPAID with no slip against it at all → binnable.
+      // Anything with a slip, or already paid, is left alone.
+      const dup = String(pp.Status)==='UNPAID' && !sl.length;
       return `<div style="border-bottom:1px solid var(--surface-3);padding:4px 0"><div class="list-item">
         <span><b>${pp.Months} ${EN()?'months':'เดือน'}</b> ${pp.Discount?`<small class="muted">−${pp.Discount}%</small>`:''} <b>${baht(pp.Amount)}</b>
           <span class="pill ${stPill(pp.Status)}" style="font-size:11px">${esc(pp.Status)}</span>
-          ${cov.length?`<br><small class="muted">${esc(monthNameYear(cov[0]))} – ${esc(monthNameYear(cov[cov.length-1]))}</small>`:''}</span>
-        </div>${slipHistoryHTML(sl)}${out>0?cashBox('prepay',pp.PrepayID,sid,out):''}</div>`; }).join('')
+          ${cov.length?`<br><small class="muted">${esc(monthNameYear(cov[0]))} – ${esc(monthNameYear(cov[cov.length-1]))}</small>`:''}
+          ${dup?`<br><small style="color:var(--warn)">${EN()?'no slip attached — safe to delete':'ยังไม่มีสลิปแนบ — ลบได้'}</small>`:''}</span>
+        ${dup?`<button class="btn sm pink" onclick="A_delPrepay('${esc(pp.PrepayID)}','${esc(sid)}',this)" aria-label="${EN()?'Delete':'ลบ'}" title="${EN()?'Delete this empty entry':'ลบรายการที่ไม่มีสลิป'}">🗑️</button>`:''}
+        </div>${slipHistoryHTML(sl,true)}${out>0?cashBox('prepay',pp.PrepayID,sid,out):''}</div>`; }).join('')
       :`<small class="muted">${EN()?'No advance payments':'ไม่มีรายการชำระล่วงหน้า'}</small>`}`;
     const otBox = `${otM.length?otM.map(o=>{ const sl=slipsOf('ot',o.OTID);
       return `<div style="border-bottom:1px solid var(--surface-3);padding:4px 0"><div class="list-item"><span>${esc(ymd(o.Date))} · ${esc(String(o.PickupTime||'').slice(0,5))} <b>${baht(o.Amount)}</b> <span class="pill ${stPill(o.Status)}" style="font-size:11px">${esc(o.Status)}</span></span>
@@ -4256,6 +4320,10 @@
   window.A_finDelBill=(billingId,sid,btn)=>{ if(!confirm(EN()?'Delete this bill?':'ลบบิลนี้?'))return;
     deleteWithUndo(EN()?'Bill deleted':'ลบบิลแล้ว', ()=>api('deleteBill',{billingId}).then(()=>_finReopen(sid)), null, null, btn); };
   window.A_finOt=async(otId,kind,sid)=>{ try{ await api(kind==='cancel'?'adminCancelOT':'adminRestoreOT',{otId}); _finReopen(sid); }catch(e){err(e);} };
+  // remove an advance-payment entry the parent created twice and never paid (cancelPrepay only ever
+  // touches an UNPAID one, so a real payment can never be deleted this way)
+  window.A_delPrepay=(prepayId,sid,btn)=>{ if(!confirm(EN()?'Delete this unpaid advance-payment entry?':'ลบรายการชำระล่วงหน้าที่ยังไม่ได้ชำระนี้?'))return;
+    deleteWithUndo(EN()?'Entry removed':'ลบรายการแล้ว', ()=>api('cancelPrepay',{prepayId}).then(()=>_finReopen(sid)), null, null, btn); };
 
   // ---- Finance: per-staff detail (salary base + this-month OT + compute) ----
   window.A_finStaff=async(sid)=>{ const month=FIN_MONTH||monthStr();

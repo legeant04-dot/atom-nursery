@@ -88,7 +88,9 @@ SCHEMA[WB.MAIN] = {
   // Per-student vaccine records (standard schedule 1mo–6yr)
   VACCINE_RECORDS:   ['StudentID', 'VaccineKey', 'VaccineName', 'DoseDate', 'Note'],
   // Method: 'transfer' (a slip) or 'cash' (recorded at the desk by an Admin, no image)
-  PAYMENT_SLIPS:     ['SlipID', 'RefKind', 'RefID', 'StudentID', 'Amount', 'Url', 'FileId', 'Verified', 'TransRef', 'Receiver', 'SubmittedDate', 'Status', 'SlipGroup', 'TransDate', 'Method'],
+  // TransDate/TransTime = when the money actually moved (read off the slip by SlipOK); SubmittedDate
+  // = when the file was attached. Method: 'transfer' (a slip) or 'cash' (recorded by an Admin).
+  PAYMENT_SLIPS:     ['SlipID', 'RefKind', 'RefID', 'StudentID', 'Amount', 'Url', 'FileId', 'Verified', 'TransRef', 'Receiver', 'SubmittedDate', 'Status', 'SlipGroup', 'TransDate', 'TransTime', 'Sender', 'Method'],
   LEAVE_REQUEST_STD: ['LeaveID', 'StudentID', 'Date', 'Reason', 'Status', 'TeacherNotified'],
   // Withdrawal / cancel-enrolment requests — parent self-service OR Admin direct. Reason is one of the
   // standard codes (graduated / moved / transferred / other) + free-text detail; Admin processes -> removes the student.
