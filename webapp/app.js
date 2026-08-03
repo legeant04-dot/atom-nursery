@@ -112,7 +112,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.183'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.184'; // bump each webapp change; shown only at the bottom of the Chat screen
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
   const phoneFmt = p => { let d=String(p==null?'':p).replace(/\D/g,''); if(d.length===9) d='0'+d; return d; };
@@ -208,6 +208,18 @@
           try{ resolve(c.toDataURL('image/jpeg',quality)); }catch(e){ resolve(String(fr.result||'')); } };
         img.src=String(fr.result||''); };
       fr.readAsDataURL(file); }); }
+  /**
+   * A slip photo, sized so it still POSTs. Photo FIELDS have been compressed for a long time, but the
+   * three slip-upload paths read the raw file — and a phone camera slip is 2–6 MB, which base64
+   * inflates by a third. Google rejects a POST that large before the script even runs, answering with
+   * an HTML page, and the parent saw 'Unexpected token "<"' with no idea what went wrong.
+   * 1400px keeps the reference number and the amount legible for SlipOK and for the admin's eyes.
+   * A PDF (or anything not an image) is passed through untouched.
+   */
+  async function slipDataUrl(f){
+    if (f && /^image\//.test(f.type)) { const small = await compressImage(f, 1400, 0.85); if (small) return small; }
+    return await new Promise(r=>{ const fr=new FileReader(); fr.onload=()=>r(fr.result); fr.readAsDataURL(f); });
+  }
   // HTML for a photo field: file input + status line + preview thumb. The compressed dataURL is stashed
   // on the input's dataset by PHOTO_pick, so save handlers read photoVal() (no second, uncompressed read).
   const photoField = (id,label,cur,round)=>`<label class="field"><span>${esc(label)}</span>
@@ -1646,7 +1658,7 @@
     let qr=null;
     if('BarcodeDetector' in window){ try{ const bmp=await createImageBitmap(f); const det=new window.BarcodeDetector({formats:['qr_code']}); const codes=await det.detect(bmp); if(codes.length) qr=codes[0].rawValue; }catch(e){} }
     // 2) SlipOK: server verifies the slip against the bank + cross-checks the amount (we send the due).
-    try{ const dataUrl=await new Promise(r=>{const fr=new FileReader();fr.onload=()=>r(fr.result);fr.readAsDataURL(f);});
+    try{ const dataUrl=await slipDataUrl(f);
       const slipBase64=String(dataUrl).split(',')[1]||'';
       const vk=await api('verifySlip', Object.assign(qr?{qrData:qr}:{slipBase64}, {amount:due, log:false})); // log:false = pre-check only, don't consume the slip
       if(vk&&vk.available){
@@ -1669,7 +1681,7 @@
   window.P_slipDo=async(id,btn,kind)=>{ const m=btn.closest('.modal'); const aEl=m.querySelector('#slipAmt'); const f=m.querySelector('#slipF').files[0]; const amt=Number(aEl.value||0); const fromQR=aEl.dataset.fromqr==='1';
     if(!f){toast(EN()?'Please choose a slip file':'กรุณาเลือกไฟล์สลิป');return;}
     if(!amt){toast(EN()?'Enter the transferred amount':'กรอกยอดที่โอน');return;}
-    const dataUrl=await new Promise(r=>{const fr=new FileReader();fr.onload=()=>r(fr.result);fr.readAsDataURL(f);});
+    const dataUrl=await slipDataUrl(f);
     if(btn)btn.disabled=true;
     try{ const args={slipName:f.name,slipAmount:amt,fromQR,slipData:dataUrl}; // slipData → saved to the Drive folder in GAS; SlipOK verifies it
       const r= kind==='teacherOt' ? await api('teacherPayOT',Object.assign({staffId:USER.staffId,otId:id},args))
@@ -1750,7 +1762,7 @@
         <p class="muted" style="font-size:13px">${EN()?'Transfer the exact total, or go back and change which items are ticked.':'กรุณาโอนยอดให้ตรง หรือย้อนกลับไปแก้รายการที่ติ๊ก'}</p>
         <button class="btn block" onclick="this.closest('.modal').remove()">${esc(t('c.close'))}</button></div>`);
       return; }
-    const dataUrl=await new Promise(r=>{const fr=new FileReader();fr.onload=()=>r(fr.result);fr.readAsDataURL(f);});
+    const dataUrl=await slipDataUrl(f);
     if(btn)btn.disabled=true;
     try{ const r=await api('payCombined',{items:_COMB.items, slipAmount:amt, fromQR, slipName:f.name, slipData:dataUrl});
       m.remove(); toast(EN()?`Slip submitted — ${r.count} items`:`ส่งสลิปแล้ว ${r.count} รายการ`); P_thanks(r.total,0); GO('payment'); }
