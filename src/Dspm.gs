@@ -157,6 +157,13 @@ function handleStudentAssessment(payload) {
 }
 
 /** Per-class analytics for Admin: pass rate by domain + per-student totals. */
+/**
+ * DEAD — no longer routed. This shadowed the shared engine's classAssessment and returned a
+ * different shape: only s.Name (so the nickname never reached the screen), no per-child "assessed"
+ * flag, no coverage figure, and no filtering of withdrawn / paused / not-yet-started children. Every
+ * improvement made in the engine was therefore invisible on live. Kept only for reference; the
+ * engine version in Engine.gs is the one that runs. Do not re-route this without porting it.
+ */
 function handleClassAssessment(payload) {
   payload = payload || {};
   var students = readObjects_(sheet_(getMainSpreadsheet_(), 'STUDENTS')).filter(function (s) {

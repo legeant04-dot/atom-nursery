@@ -139,7 +139,10 @@ SCHEMA[WB.HR] = {
   // 2-step approval: Leader (step 1) -> Admin (step 2); cross-dept flagged. (chat spec)
   LEAVE_REQUEST: ['LeaveID', 'StaffID', 'Department', 'Type', 'StartDate', 'EndDate', 'Days', 'Reason', 'Status',
                   'Step1ApproverID', 'Step1ApproverName', 'Step1Status', 'Step1Date', 'Step1CrossDept',
-                  'Step2ApproverID', 'Step2ApproverName', 'Step2Status', 'Step2Date', 'CreatedDate', 'Attachment'],
+                  'Step2ApproverID', 'Step2ApproverName', 'Step2Status', 'Step2Date', 'CreatedDate', 'Attachment',
+                  // HalfDay: '' (full day) | 'AM' (ครึ่งวันเช้า) | 'PM' (ครึ่งวันบ่าย). A half day
+                  // deducts 0.5 from the entitlement, so 30 days of sick leave becomes 29.5.
+                  'HalfDay'],
   // Student leave/absence filed by a teacher — shown in the linked parents' calendar only.
   // (LEAVE_REQUEST_STD already exists; Type added for sick/absence distinction — appended at END.)
   // Staff evening OT with a 2-step approval lifecycle (teacher → Leader → Admin). Status =

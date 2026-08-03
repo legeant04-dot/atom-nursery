@@ -112,7 +112,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.182'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.183'; // bump each webapp change; shown only at the bottom of the Chat screen
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
   const phoneFmt = p => { let d=String(p==null?'':p).replace(/\D/g,''); if(d.length===9) d='0'+d; return d; };
@@ -2226,10 +2226,15 @@
     const [quota,me] = await Promise.all([api('leaveQuota',{staffId:USER.staffId}),api('staffSelf',{staffId:USER.staffId})]);
     const isLeader=(me&&(me.PositionLevel==='Leader'||me.Role==='Leader'))||USER.role==='Leader';
     app.innerHTML=`<h2 class="page">${esc(t('title.leave'))}</h2>
-      <div class="card"><h3>สิทธิคงเหลือ</h3><div class="quota">${quota.map(q=>`<div class="q"><div class="n">${q.remain}</div><div class="l">${esc(q.type)} ${q.used}/${q.quota}</div></div>`).join('')}</div></div>
+      <div class="card"><h3>สิทธิคงเหลือ</h3><div class="quota">${quota.map(q=>`<div class="q"><div class="n">${esc(halfNum(q.remain))}</div><div class="l">${esc(q.type)} ${esc(halfNum(q.used))}/${esc(halfNum(q.quota))}</div></div>`).join('')}</div></div>
       <div class="card"><h3>ยื่นใบลา</h3>
         <label class="field"><span>ประเภท</span><select id="lType"><option>ลาป่วย</option><option>ลากิจ</option><option>ลาพักร้อน</option></select></label>
-        <div class="grid2"><label class="field"><span>วันที่เริ่ม</span><input type="date" id="lStart" value="${todayStr()}"/></label><label class="field"><span>ถึงวันที่</span><input type="date" id="lEnd" value="${todayStr()}"/></label></div>
+        <div class="grid2"><label class="field"><span>วันที่เริ่ม</span><input type="date" id="lStart" value="${todayStr()}" onchange="T_halfToggle()"/></label><label class="field"><span>ถึงวันที่</span><input type="date" id="lEnd" value="${todayStr()}" onchange="T_halfToggle()"/></label></div>
+        <label class="field" id="lHalfBox"><span>${EN()?'Half day?':'ลาครึ่งวันหรือไม่'}</span>
+          <select id="lHalf"><option value="">${EN()?'Full day':'ลาเต็มวัน'}</option>
+            <option value="AM">${EN()?'Half day — morning (0.5)':'ครึ่งวันเช้า (0.5 วัน)'}</option>
+            <option value="PM">${EN()?'Half day — afternoon (0.5)':'ครึ่งวันบ่าย (0.5 วัน)'}</option></select></label>
+        <small class="muted" style="display:block;margin:-2px 0 6px">${EN()?'A half day deducts 0.5 from your entitlement — e.g. 30 days of sick leave becomes 29.5.':'ลาครึ่งวันจะหักสิทธิ 0.5 วัน เช่น ลาป่วย 30 วัน เหลือ 29.5 วัน · เลือกได้เมื่อลาวันเดียว'}</small>
         <label class="field"><span>เหตุผล</span><textarea id="lReason"></textarea></label>
         ${photoField('lDoc',(EN()?'Attachment (medical cert / doc — optional)':'เอกสารแนบ (ใบรับรองแพทย์ ฯลฯ — ถ้ามี)'),'',false)}
         <button class="btn block" onclick="T_submitLeave()">ส่งคำขอ</button></div>
@@ -2258,7 +2263,19 @@
     if(!time){toast(EN()?'Pick a time':'เลือกเวลา');return;}
     try{ await api('submitTimeRequest',{staffId:USER.staffId,type,date,time,reason}); confirmSaved(t('corg.submitted')); GO('leave'); }catch(e){err(e);} };
   window.T_approveTimeReq=async(reqId,dec)=>{ try{ await api('approveTimeRequest',{staffId:USER.staffId,reqId,decision:dec}); toast(dec==='approve'?(EN()?'Approved (→Admin)':'อนุมัติ (ส่งต่อแอดมิน)'):(EN()?'Rejected':'ปฏิเสธแล้ว')); GO('leave'); }catch(e){err(e);} };
-  window.T_submitLeave=async()=>{ const attachment=photoVal(document,'lDoc'); try{ const r=await api('submitLeave',{staffId:USER.staffId,type:$('#lType').value,startDate:$('#lStart').value,endDate:$('#lEnd').value,reason:$('#lReason').value,attachment}); toast(`✅ ส่งคำขอ ${r.leaveId} (${r.days} วัน)`); GO('leave'); }catch(e){err(e);} };
+  // half a day is only meaningful on a single-day request — hide (and clear) it on a range
+  window.T_halfToggle=()=>{ const a=$('#lStart'), b=$('#lEnd'), box=$('#lHalfBox'), sel=$('#lHalf');
+    if(!a||!b||!box)return; const one=a.value && a.value===b.value;
+    box.hidden=!one; if(!one && sel) sel.value=''; };
+  window.T_submitLeave=async()=>{ const attachment=photoVal(document,'lDoc');
+    const halfDay=(($('#lHalf')||{}).value)||'';
+    try{ const r=await api('submitLeave',{staffId:USER.staffId,type:$('#lType').value,startDate:$('#lStart').value,endDate:$('#lEnd').value,reason:$('#lReason').value,halfDay,attachment});
+      toast(`✅ ส่งคำขอ ${r.leaveId} (${leaveDays(r.days)}${r.halfDay?' · '+halfLabel(r.halfDay):''})`); GO('leave'); }catch(e){err(e);} };
+  // "1 วัน" / "0.5 วัน" — never "0.5 วันเต็ม"
+  // 29.5 stays 29.5; 29.0 prints as 29 (a whole entitlement should not read "29.0 วัน")
+  const halfNum = n => { const v=Number(n)||0; return (Math.round(v*2)/2)%1 ? (Math.round(v*2)/2).toFixed(1) : String(Math.round(v)); };
+  const leaveDays = d => { const n=Number(d)||0; return (EN()? (n===0.5?'half a day':halfNum(n)+' day'+(n===1?'':'s')) : (halfNum(n)+' วัน')); };
+  const halfLabel = h => String(h)==='AM' ? (EN()?'morning':'ครึ่งวันเช้า') : String(h)==='PM' ? (EN()?'afternoon':'ครึ่งวันบ่าย') : '';
   window.T_teamApprove=async(id,dec)=>{ try{ const r=await api('approveLeave',{staffId:USER.staffId,leaveId:id,decision:dec}); toast(`✅ ${dec==='approve'?'อนุมัติ(ส่งต่อ Admin)':'ปฏิเสธ'} — ${r.status}`); GO('leave'); }catch(e){err(e);} };
   function leaveStatusPill(st){ const c={PENDING_LEADER:'wait',PENDING_ADMIN:'wait',APPROVED:'ok',REJECTED:'bad'}[st]||'info'; return `<span class="pill ${c}">${esc(tStat(st))}</span>`; }
   // display name for a leave row: nickname first (enriched l.nick/l.name), else staff-cache lookup
@@ -2266,9 +2283,9 @@
   // 📎 attachment link (medical cert / doc) if present
   const leaveDoc = l => l.Attachment ? ` <a href="${esc(l.Attachment)}" target="_blank" onclick="event.stopPropagation()">📎</a>` : '';
   // "2ว." never made it through the runtime translator; days/steps are spelled out per language now.
-  const lvDays = n => EN() ? `${n} d` : `${n}ว.`;
-  function leaveRow(l){ return `<div class="list-item"><div><b>${esc(tLeaveType(l.Type))}</b> ${esc(l.StartDate)}→${esc(l.EndDate)} (${lvDays(l.Days)})${leaveDoc(l)}<br><small class="muted">${esc(l.LeaveID)}${l.Step1ApproverName?(EN()?' · step 1: ':' · ขั้น1: ')+esc(l.Step1ApproverName)+(l.Step1CrossDept==='YES'?(EN()?' (cross-dept)':' (ข้ามแผนก)'):''):''}${l.Step2ApproverName?(EN()?' · step 2: ':' · ขั้น2: ')+esc(l.Step2ApproverName):''}</small></div>${leaveStatusPill(l.Status)}</div>`; }
-  function teamLeaveRow(l){ return `<div class="card" style="margin:8px 0"><div class="spread"><div><b>${esc(leaveName(l))}</b> <small class="muted">(${esc(l.Department)})</small><br>${esc(tLeaveType(l.Type))} ${esc(l.StartDate)}→${esc(l.EndDate)} (${lvDays(l.Days)})${leaveDoc(l)}<br><small class="muted">${esc(l.Reason||'')}</small></div>${leaveStatusPill(l.Status)}</div><div class="row" style="margin-top:8px"><button class="btn sm green" onclick="T_teamApprove('${l.LeaveID}','approve')">${esc(t('ot.approve'))}</button><button class="btn sm pink" onclick="T_teamApprove('${l.LeaveID}','reject')">${esc(t('ot.reject'))}</button></div></div>`; }
+  const lvDays = n => EN() ? `${halfNum(n)} d` : `${halfNum(n)}ว.`;
+  function leaveRow(l){ return `<div class="list-item"><div><b>${esc(tLeaveType(l.Type))}</b> ${esc(l.StartDate)}→${esc(l.EndDate)} (${lvDays(l.Days)}${l.HalfDay?" · "+esc(halfLabel(l.HalfDay)):""})${leaveDoc(l)}<br><small class="muted">${esc(l.LeaveID)}${l.Step1ApproverName?(EN()?' · step 1: ':' · ขั้น1: ')+esc(l.Step1ApproverName)+(l.Step1CrossDept==='YES'?(EN()?' (cross-dept)':' (ข้ามแผนก)'):''):''}${l.Step2ApproverName?(EN()?' · step 2: ':' · ขั้น2: ')+esc(l.Step2ApproverName):''}</small></div>${leaveStatusPill(l.Status)}</div>`; }
+  function teamLeaveRow(l){ return `<div class="card" style="margin:8px 0"><div class="spread"><div><b>${esc(leaveName(l))}</b> <small class="muted">(${esc(l.Department)})</small><br>${esc(tLeaveType(l.Type))} ${esc(l.StartDate)}→${esc(l.EndDate)} (${lvDays(l.Days)}${l.HalfDay?" · "+esc(halfLabel(l.HalfDay)):""})${leaveDoc(l)}<br><small class="muted">${esc(l.Reason||'')}</small></div>${leaveStatusPill(l.Status)}</div><div class="row" style="margin-top:8px"><button class="btn sm green" onclick="T_teamApprove('${l.LeaveID}','approve')">${esc(t('ot.approve'))}</button><button class="btn sm pink" onclick="T_teamApprove('${l.LeaveID}','reject')">${esc(t('ot.reject'))}</button></div></div>`; }
 
   const firstName = s => (nm(s)||'').split(' ')[0];
   // opts: { shortName(staffId), holidays:[{Date,NameTH,NameEN}], leaves:[approved] } — never reads MOCK.staff
@@ -2501,7 +2518,7 @@
 
   // one admin leave card: nickname + dept + type/dates + reason + status + actions (approve/reject/edit/cancel)
   function leaveAdminCard(l){ const isPA=String(l.Status)==='PENDING_ADMIN';
-    return `<div class="card"><div class="spread"><div><b>${esc(leaveName(l))}</b> <small class="muted">(${esc(l.Department||'-')})</small><br>${esc(l.Type)} ${esc(l.StartDate)}→${esc(l.EndDate)} (${l.Days} ${EN()?'d':'วัน'})${leaveDoc(l)}<br><small class="muted">${esc(l.Reason||'')}</small>${l.Step1ApproverName?`<br><small>${EN()?'via leader':'ผ่านหัวหน้างาน'}: ${esc(l.Step1ApproverName)}${l.Step1CrossDept==='YES'?' ⚠️ '+(EN()?'cross-dept':'ข้ามแผนก'):''}</small>`:''}</div>${leaveStatusPill(l.Status)}</div>
+    return `<div class="card"><div class="spread"><div><b>${esc(leaveName(l))}</b> <small class="muted">(${esc(l.Department||'-')})</small><br>${esc(l.Type)} ${esc(l.StartDate)}→${esc(l.EndDate)} (${esc(leaveDays(l.Days))}${l.HalfDay?' · '+esc(halfLabel(l.HalfDay)):''})${leaveDoc(l)}<br><small class="muted">${esc(l.Reason||'')}</small>${l.Step1ApproverName?`<br><small>${EN()?'via leader':'ผ่านหัวหน้างาน'}: ${esc(l.Step1ApproverName)}${l.Step1CrossDept==='YES'?' ⚠️ '+(EN()?'cross-dept':'ข้ามแผนก'):''}</small>`:''}</div>${leaveStatusPill(l.Status)}</div>
       <div class="row" style="margin-top:8px">${isPA?`<button class="btn sm green" onclick="A_leave('${l.LeaveID}','approve')">${esc(t('ot.approve'))}</button><button class="btn sm pink" onclick="A_leave('${l.LeaveID}','reject')">${esc(t('ot.reject'))}</button>`:''}<button class="btn sm outline" onclick="A_editLeave('${l.LeaveID}')">✏️ ${EN()?'Edit':'แก้ไข'}</button><button class="btn sm pink" onclick="A_cancelLeave('${l.LeaveID}')">🗑️ ${EN()?'Cancel':'ยกเลิก'}</button></div></div>`; }
   // month calendar of who is on leave each day (spot same-day overlaps — ≥2 on a day is flagged red)
   function leaveCalendar(all){

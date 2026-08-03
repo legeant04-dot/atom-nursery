@@ -101,5 +101,58 @@ console.log('\n6) Names carry the nickname AND the real name');
   eq('real name kept for the sub-line', s.name, 'ธนิดา ศรีพลาย');
 }
 
+console.log('\n7) A child starting LATER THIS MONTH is not on today\'s list');
+{
+  // this is what made the tab say 9 and the card 11: the tab used a day rule, the card a month rule
+  const later = TODAY.slice(0, 8) + '28';
+  const { H } = fresh([kid('S1'), kid('S2', { EnrollDate: later })]);
+  const r = H.classAssessment({ className: 'Nursery Baby' });
+  eq('only the child who is already here', r.studentCount, Number(TODAY.slice(8, 10)) >= 28 ? 2 : 1);
+  if (Number(TODAY.slice(8, 10)) < 28) eq('the other is set aside, with a reason', r.skipped, 1);
+}
+
+// ============================================================================
+console.log('\n8) Half-day leave takes half a day of entitlement');
+{
+  const M = {
+    config: { LeaveQuota: { 'ลาป่วย': 30, 'ลากิจ': 6, 'ลาพักร้อน': 6 }, Plans: [] },
+    students: [], staff: [{ StaffID: 'T1', NameTH: 'ลินน์', Nickname: 'ลินน์', Department: 'Nursery 1', PositionLevel: 'Staff' },
+      { StaffID: 'A1', NameTH: 'แอดมิน', Role: 'Admin', PositionLevel: 'Admin' }],
+    parents: [], classes: [], leaves: [], assessments: [], payments: [], prepayments: [],
+    studentCharges: [], otDaily: [], paymentSlips: [], otRecords: [], payroll: [], userLinks: [],
+    feed: [], injuryReports: [], checkinStudent: [], studentCheckins: [], studentAttendanceToday: [],
+    staffAttendanceToday: [], activityLog: [], studentLeaves: [], comments: [], announcements: [],
+    withdrawals: [], attendanceReq: [], classChangeReq: [], absenceLog: [], leaveUsed: {}
+  };
+  const H = createAtomAPI(M).H;
+
+  const full = H.submitLeave({ staffId: 'T1', type: 'ลาป่วย', startDate: '2026-08-10', endDate: '2026-08-10', reason: 'ไข้' });
+  eq('a normal single day is 1', full.days, 1);
+
+  const half = H.submitLeave({ staffId: 'T1', type: 'ลาป่วย', startDate: '2026-08-11', endDate: '2026-08-11', reason: 'พบแพทย์', halfDay: 'AM' });
+  eq('half a day is 0.5', half.days, 0.5);
+  eq('and which half is recorded', half.halfDay, 'AM');
+  eq('stored on the row too', M.leaves[1].Days, 0.5);
+
+  eq('a half day over a RANGE is refused',
+    (() => { try { H.submitLeave({ staffId: 'T1', type: 'ลากิจ', startDate: '2026-08-12', endDate: '2026-08-14', halfDay: 'PM' }); return 'ALLOWED'; }
+      catch (e) { return e.code; } })(), 'BAD_INPUT');
+  eq('a stray value is treated as a full day',
+    H.submitLeave({ staffId: 'T1', type: 'ลากิจ', startDate: '2026-08-15', endDate: '2026-08-15', halfDay: 'อะไรก็ไม่รู้' }).days, 1);
+
+  console.log('   …and the entitlement comes out at 29.5');
+  M.leaves.forEach(l => { l.Status = 'APPROVED'; });
+  M.leaveUsed = M.leaves.filter(l => l.Status === 'APPROVED')
+    .reduce((a, l) => { (a[l.StaffID] = a[l.StaffID] || {})[l.Type] = (a[l.StaffID][l.Type] || 0) + Number(l.Days); return a; }, {});
+  const sick = H.leaveQuota({ staffId: 'T1' }).find(q => q.type === 'ลาป่วย');
+  eq('used 1 + 0.5', sick.used, 1.5);
+  eq('remaining 30 − 1.5', sick.remain, 28.5);
+
+  console.log('   admin can switch an existing request to half a day');
+  const ed = H.editLeave({ staffId: 'A1', leaveId: M.leaves[0].LeaveID, halfDay: 'PM' });
+  eq('now 0.5', ed.Days, 0.5);
+  eq('and back to a full day', H.editLeave({ staffId: 'A1', leaveId: M.leaves[0].LeaveID, halfDay: '' }).Days, 1);
+}
+
 console.log('\n' + (fail ? `${fail} FAILED, ${pass} passed` : `all ${pass} checks passed`));
 process.exit(fail ? 1 : 0);

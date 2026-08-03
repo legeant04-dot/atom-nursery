@@ -130,8 +130,13 @@ function createAtomAPI(M, GROWTH_STD) {
   // 'YYYY-MM-DD' of the first real day at school; blank = no restriction (bill as before).
   const enrolDate_ = s => { const d=String((s&&s.EnrollDate)||'').trim(); const m=/^(\d{4})-(\d{2})-(\d{2})/.exec(d);
     return m ? m[0] : (d ? (function(){ const x=new Date(d); return isNaN(x)?'':ymd(x); })() : ''); };
-  // has this student started by the given month? (blank enrol date = yes, as before)
+  // has this student started by the given MONTH? used for billing, which is monthly
   function enrolledBy_(s, month){ const e=enrolDate_(s); return !e || e.slice(0,7) <= ym(month); }
+  // has this student started by the given DAY? used wherever "is this child here right now" is the
+  // question — a child starting on the 15th is not on today's class list on the 3rd. Billing and
+  // attendance genuinely need different granularities; using the monthly one for both made the DSPM
+  // tab (day rule, client-side) and the DSPM card (month rule) disagree — 9 vs 11 in Nursery 1.
+  function enrolledOn_(s, date){ const e=enrolDate_(s); return !e || e <= ymd(date||todayLocal()); }
   const daysInMonth_ = mm => { const [y,m]=String(mm).split('-').map(Number); return new Date(y, m, 0).getDate(); };
   /**
    * Tuition for `month` after the mid-month rule. Full price for every month except the one the
@@ -186,8 +191,11 @@ function createAtomAPI(M, GROWTH_STD) {
     return Object.assign({}, r, {name:s.NameTH,nameEN:s.NameEN,nick:s.Nickname,nickEN:s.NicknameEN,dept:s.Department,
       CheckIn:ci, CheckOutActual:co||r.ActualOut||''}); }
   // enrich a leave request with the requester's names (so lists show a nickname, not STF-xxx)
+  // '' | 'AM' (ครึ่งวันเช้า) | 'PM' (ครึ่งวันบ่าย) — anything else is a full day
+  function halfDay_(v){ const s=String(v||'').toUpperCase().trim(); return (s==='AM'||s==='PM')?s:''; }
   function leaveView_(l){ const s=staffById_(l.StaffID); return Object.assign({}, l,
-    {name:s.NameTH,nameEN:s.NameEN,nick:s.Nickname,nickEN:s.NicknameEN}); }
+    {name:s.NameTH,nameEN:s.NameEN,nick:s.Nickname,nickEN:s.NicknameEN,
+     days:Number(l.Days)||0, halfDay:halfDay_(l.HalfDay)}); }
   // enrich a manual-attendance request with the requester's names
   function atrView_(r){ const s=staffById_(r.StaffID); return Object.assign({}, r,
     {name:s.NameTH,nameEN:s.NameEN,nick:s.Nickname,nickEN:s.NicknameEN}); }
@@ -966,7 +974,10 @@ function createAtomAPI(M, GROWTH_STD) {
     editLeave: p => { const ap=staffById(p.staffId); if(ap.PositionLevel!=='Admin'&&ap.Role!=='Admin')fail('NO_PERMISSION','เฉพาะแอดมิน');
       const l=M.leaves.find(x=>x.LeaveID===p.leaveId); if(!l)fail('NOT_FOUND','ไม่พบคำขอ');
       if(p.type!=null)l.Type=p.type; if(p.startDate)l.StartDate=p.startDate; if(p.endDate)l.EndDate=p.endDate; if(p.reason!=null)l.Reason=p.reason;
-      if(p.startDate||p.endDate) l.Days=Math.floor((new Date(l.EndDate)-new Date(l.StartDate))/864e5)+1;
+      if(p.halfDay!==undefined) l.HalfDay=halfDay_(p.halfDay);
+      if(p.startDate||p.endDate||p.halfDay!==undefined){
+        l.Days=Math.floor((new Date(l.EndDate)-new Date(l.StartDate))/864e5)+1;
+        if(l.HalfDay){ if(l.Days!==1) fail('BAD_INPUT','ลาครึ่งวันได้เฉพาะใบลาวันเดียว'); l.Days=0.5; } }
       return leaveView_(l); },
     // Admin cancels/deletes a leave request
     cancelLeave: p => { const ap=staffById(p.staffId); if(ap.PositionLevel!=='Admin'&&ap.Role!=='Admin')fail('NO_PERMISSION','เฉพาะแอดมิน');
@@ -978,9 +989,14 @@ function createAtomAPI(M, GROWTH_STD) {
     submitLeave: p => { const st=staffById(p.staffId); const id=nextSeqId_(M.leaves,'LeaveID','LV2026',3);
       // leave entitlement does not carry across the year — a request may not span 31 Dec → next year
       if(String(p.startDate).slice(0,4)!==String(p.endDate).slice(0,4)) fail('CROSS_YEAR','ใช้สิทธิลาข้ามปีไม่ได้ — กรุณาแยกใบลาภายในปีเดียวกัน');
-      const lead=(st.PositionLevel==='Leader'||st.PositionLevel==='Admin'); const days=Math.floor((new Date(p.endDate)-new Date(p.startDate))/864e5)+1;
-      M.leaves.push({LeaveID:id,StaffID:p.staffId,Department:st.Department,Type:p.type,StartDate:p.startDate,EndDate:p.endDate,Days:days,Reason:p.reason,Status:lead?'PENDING_ADMIN':'PENDING_LEADER',Step1ApproverName:'',Step1Status:lead?'Skipped':'Pending',Step1CrossDept:'',Step2ApproverName:'',Step2Status:'Pending',CreatedDate:todayLocal(),Attachment:p.attachment||''});
-      return {leaveId:id,status:lead?'PENDING_ADMIN':'PENDING_LEADER',days}; },
+      const lead=(st.PositionLevel==='Leader'||st.PositionLevel==='Admin');
+      let days=Math.floor((new Date(p.endDate)-new Date(p.startDate))/864e5)+1;
+      // half a day off is half a day of entitlement — 30 days of sick leave becomes 29.5, not 29
+      const half=halfDay_(p.halfDay);
+      if(half && days!==1) fail('BAD_INPUT','ลาครึ่งวันได้เฉพาะใบลาวันเดียว');
+      if(half) days=0.5;
+      M.leaves.push({LeaveID:id,StaffID:p.staffId,Department:st.Department,Type:p.type,StartDate:p.startDate,EndDate:p.endDate,Days:days,HalfDay:half,Reason:p.reason,Status:lead?'PENDING_ADMIN':'PENDING_LEADER',Step1ApproverName:'',Step1Status:lead?'Skipped':'Pending',Step1CrossDept:'',Step2ApproverName:'',Step2Status:'Pending',CreatedDate:todayLocal(),Attachment:p.attachment||''});
+      return {leaveId:id,status:lead?'PENDING_ADMIN':'PENDING_LEADER',days,halfDay:half}; },
     approveLeave: p => { const ap=staffById(p.staffId); const l=M.leaves.find(x=>x.LeaveID===p.leaveId); if(!l)fail('NOT_FOUND','ไม่พบคำขอ'); const yes=p.decision==='approve';
       if(l.Status==='PENDING_LEADER'){ if(ap.PositionLevel!=='Leader'&&ap.PositionLevel!=='Admin')fail('NO_PERMISSION','เฉพาะหัวหน้างาน'); l.Step1ApproverName=ap.NameTH;l.Step1Status=yes?'Approved':'Rejected';l.Step1CrossDept=(ap.Department!==l.Department)?'YES':'NO';l.Status=yes?'PENDING_ADMIN':'REJECTED'; return {status:l.Status,crossDept:l.Step1CrossDept==='YES'}; }
       if(l.Status==='PENDING_ADMIN'){ if(ap.PositionLevel!=='Admin')fail('NO_PERMISSION','เฉพาะผู้บังคับบัญชา'); l.Step2ApproverName=ap.NameTH;l.Step2Status=yes?'Approved':'Rejected';l.Status=yes?'APPROVED':'REJECTED'; return {status:l.Status}; }
@@ -1220,7 +1236,7 @@ function createAtomAPI(M, GROWTH_STD) {
      * Individual items marked 'ยังไม่เข้าโรงเรียน' are already skipped by summarize().
      */
     classAssessment: p => {
-      const ss=activeStudents().filter(s=>s.Class===p.className && enrolledBy_(s, todayLocal()));
+      const ss=activeStudents().filter(s=>s.Class===p.className && enrolledOn_(s));
       const per=ss.map(s=>{ const x=summarize(s.StudentID); const done=x.totalPass+x.totalFail;
         return {studentId:s.StudentID,name:s.NameTH,nameEN:s.NameEN,nick:s.Nickname,nickEN:s.NicknameEN,
           ageMonth:x.ageMonth,pass:x.totalPass,fail:x.totalFail,assessed:done>0,
@@ -1229,7 +1245,7 @@ function createAtomAPI(M, GROWTH_STD) {
       const assessed=per.filter(x=>x.assessed).length;
       // how many enrolled children were left out of the count, so the number can be explained
       const skipped=M.students.filter(s=>s.Class===p.className && !INACTIVE[s.Status] &&
-        (studentPaused_(s) || !enrolledBy_(s, todayLocal()))).length;
+        (studentPaused_(s) || !enrolledOn_(s))).length;
       return {class:p.className, studentCount:ss.length, assessed, notAssessed:ss.length-assessed, skipped,
         passRate:(pass+fl)?Math.round(pass/(pass+fl)*100):0,
         coverage: ss.length?Math.round(assessed/ss.length*100):0,

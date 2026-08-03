@@ -139,7 +139,10 @@ var ROUTES = {
   dspmCriteria:      function (p) { return handleDspmCriteria(p); },
   submitAssessment:  function (p) { return handleSubmitAssessment(p); },
   studentAssessment: function (p) { return handleStudentAssessment(p); },
-  classAssessment:   function (p) { return handleClassAssessment(p); },
+  // classAssessment is deliberately NOT routed: it now falls through to the shared engine. The route
+  // that used to sit here shadowed the engine and returned a different shape (no nickname, no
+  // per-child "assessed" flag, no coverage, and no filtering of withdrawn/paused children), so every
+  // improvement made in the engine was invisible on live. See handleClassAssessment in Dspm.gs.
   dspmManual:        function ()  { return handleDspmManual(); },
   // Payroll
   computePayroll: function (p) { return handleComputePayroll(p); },
