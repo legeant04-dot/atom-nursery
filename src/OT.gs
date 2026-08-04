@@ -105,6 +105,25 @@ function otUpsertForPickup_(student, pickupHHMM, dateS) {
   return { otId: otId, lateMinutes: c.late, hours: c.hours, amount: c.amount, planEnd: c.planEnd, rate: c.rate };
 }
 
+/**
+ * Re-settle an OT row against its slips after its AMOUNT changed. Returns the new status if it
+ * moved, else null.
+ *
+ * Only called when the row actually has slips: paySlipRecompute_'s "nothing submitted" branch
+ * stamps VerifiedStatus='REJECTED', which would be a lie on a row nobody has ever paid towards.
+ */
+function otResettle_(otId) {
+  try {
+    if (typeof paySlipRecompute_ !== 'function' || typeof paySlipSum_ !== 'function') return null;
+    if (paySlipSum_('ot', otId, ['SUBMITTED', 'CONFIRMED']) <= 0) return null;
+    var before = String(otRow_(otId).o.Status || '');
+    paySlipRecompute_('ot', otId);
+    otBust_();
+    var after = String(otRow_(otId).o.Status || '');
+    return after === before ? null : after;
+  } catch (e) { return null; }
+}
+
 // ---- Admin management (admin-only via applyIdentity_ ADMIN_ONLY) ----
 function otRow_(otId) {
   var sh = sheet_(getMainSpreadsheet_(), 'OT_DAILY');
@@ -138,6 +157,7 @@ function handleAdminUpdateOT(p) {
     full = c.amount; touched = true;
   }
 
+  var hadStatus = String(r.o.Status || '');
   var had = otDiscOf_(r.o, otFullOf_(r.o));
   var disc = Math.min(had, full);                              // a smaller charge caps an old discount
   if (p.discount !== undefined && p.discount !== null && p.discount !== '') {
@@ -145,7 +165,14 @@ function handleAdminUpdateOT(p) {
   } else if (p.amount !== undefined && p.amount !== null && p.amount !== '') {
     disc = Math.min(Math.max(0, full - otNum_(p.amount)), full); touched = true;
   }
-  if (!touched) throw apiError_('BAD_INPUT', 'ไม่มีข้อมูลให้แก้ไข');
+  if (!touched) {
+    // Nothing to change — but the row may still be mis-settled against its slips (any discount
+    // granted before this fix left the row PARTIAL even though it was fully covered). Pressing save
+    // heals it instead of just refusing.
+    var healed = otResettle_(p.otId);
+    if (healed) return { otId: p.otId, resettled: true, status: healed, amount: otNum_(r.o.Amount) };
+    throw apiError_('BAD_INPUT', 'ไม่มีข้อมูลให้แก้ไข');
+  }
 
   patch.FullAmount = full;
   patch.Discount = disc;
@@ -158,8 +185,15 @@ function handleAdminUpdateOT(p) {
     patch.DiscountAt = disc > 0 ? new Date() : '';
   }
   if (String(r.o.Status) === 'CANCELLED') patch.Status = 'UNPAID';    // editing revives a cancelled row
+  // Waiving the whole charge leaves nothing to collect, so the row is settled, not "owing 0".
+  if (patch.Amount === 0) { patch.Status = 'PAID'; patch.PaidDate = patch.PaidDate || nowStr_().slice(0, 10); }
   updateRow_(r.sh, r.o._row, patch);
   otBust_();
+  // A row is only ever re-settled when a SLIP changes — never when the amount does. So a parent who
+  // had already paid 100 against a 200 charge stayed PARTIAL after the discount made 100 the full
+  // amount owed, and the finance screen kept showing them as still owing. Re-settle against the new
+  // amount here, which is what makes the OT screen and the finance screen agree.
+  otResettle_(p.otId);
   // The engine logged this; the route that shadows it never did, so on live an amount override left
   // no trace at all. Money changing by admin decision must always be traceable.
   try {

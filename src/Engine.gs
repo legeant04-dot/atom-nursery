@@ -207,6 +207,13 @@ function createAtomAPI(M, GROWTH_STD) {
   const otNum_=v=>{ const n=Number(v); return isFinite(n)&&n>0?n:0; };
   const otFullOf_=o=>{ const f=Number(o&&o.FullAmount); return (isFinite(f)&&f>0)?f:otNum_(o&&o.Amount); };
   const otDiscOf_=(o,full)=>Math.min(otNum_(o&&o.Discount), otNum_(full));
+  // Re-settle an OT row against its slips after its AMOUNT changed. Only when it actually has slips:
+  // recomputeTarget_'s "nothing submitted" branch stamps VerifiedStatus='REJECTED', which would be a
+  // lie on a row nobody has ever paid towards. Returns the new status if it moved, else null.
+  function otResettle_(o){ if(!o) return null;
+    try{ if(sumSlips_('ot',o.OTID,['SUBMITTED','CONFIRMED'])<=0) return null;
+      const before=String(o.Status||''); recomputeTarget_('ot',o.OTID);
+      const after=String(o.Status||''); return after===before?null:after; }catch(e){ return null; } }
   function leaveView_(l){ const s=staffById_(l.StaffID); return Object.assign({}, l,
     {name:s.NameTH,nameEN:s.NameEN,nick:s.Nickname,nickEN:s.NicknameEN,
      days:Number(l.Days)||0, halfDay:halfDay_(l.HalfDay)}); }
@@ -869,11 +876,21 @@ function createAtomAPI(M, GROWTH_STD) {
       let disc=Math.min(had,full);                                  // a smaller charge caps an old discount
       if(p.discount!=null && p.discount!==''){ disc=Math.min(otNum_(p.discount),full); touched=true; }
       else if(p.amount!=null && p.amount!==''){ disc=Math.min(Math.max(0,full-otNum_(p.amount)),full); touched=true; }
-      if(!touched) fail('BAD_INPUT','ไม่มีข้อมูลให้แก้ไข');
+      if(!touched){
+        // nothing to change, but the row may still be mis-settled against its slips — heal it
+        const healed=otResettle_(o); if(healed) return { otId:o.OTID, resettled:true, status:o.Status, amount:Number(o.Amount||0) };
+        fail('BAD_INPUT','ไม่มีข้อมูลให้แก้ไข');
+      }
       o.FullAmount=full; o.Discount=disc; o.Amount=Math.max(0,full-disc);
       if(disc!==had){ o.DiscountReason=disc>0?String(p.discountReason||'').slice(0,200):'';
         o.DiscountBy=disc>0?(p.staffId||p.adminId||'ADMIN'):''; o.DiscountAt=disc>0?todayLocal():''; }
       if(o.Status==='CANCELLED') o.Status='UNPAID';                  // editing revives a cancelled row
+      // waiving the whole charge leaves nothing to collect — settled, not "owing 0"
+      if(o.Amount===0){ o.Status='PAID'; o.PaidDate=o.PaidDate||todayLocal(); }
+      // A row is only re-settled when a SLIP changes, never when the AMOUNT does. A parent who had
+      // paid 100 against a 200 charge stayed PARTIAL after the discount made 100 the whole amount,
+      // and finance kept listing them as owing. This is what makes the two screens agree.
+      otResettle_(o);
       logAct(disc!==had?'otDiscount':'adminUpdateOT',o.OTID,'เต็ม '+full+' ลด '+disc+' สุทธิ '+o.Amount+(o.DiscountReason?' ('+o.DiscountReason+')':''),actorOf(p));
       return { otId:o.OTID, pickupTime:o.PickupTime, lateMinutes:o.LateMinutes, hours:o.Hours,
         fullAmount:full, discount:disc, amount:o.Amount, status:o.Status }; },
