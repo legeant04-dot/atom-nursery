@@ -112,7 +112,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.190'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.191'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -1816,6 +1816,7 @@
         ${growthChartSVG(t('growth.height'),g.records.map(r=>({x:r.AgeMonth,y:r.Height})),gBand(g.heightBand,g.gender,g.records,'height'),'cm')}
         <div class="row" style="font-size:13px;justify-content:center;margin-top:6px"><span>🟦 ${esc(t('growth.actual'))}</span><span>🟩 ${esc(t('growth.normalBand'))}</span></div>
         ${growthRecordsList(g.records)}</div>
+      ${reportButtons(sid)}
       ${vaccineCard(vsched,vrecs,sid,true)}`;
   };
   // ---- MODULE 2: DSPM assessment only — separate page ----
@@ -2855,9 +2856,30 @@
           ? `<span class="pill ok">${s.pass}</span> <span class="pill bad">${s.fail}</span>`
           : `<span class="pill info" style="font-size:11px">${EN()?'not assessed':'ยังไม่ประเมิน'}</span>`} <button class="btn sm outline" onclick="A_student('${s.studentId}')">${EN()?'view':'ดูราย นร.'}</button></span></div>`;
       }).join(''):`<small class="muted">${EN()?'No students in this class':'ยังไม่มีนักเรียนในชั้นนี้'}</small>`}</div>`); };
+  /* ---- one-page report card (PDF / JPEG) --------------------------------------------------
+   * PDPA: the file is drawn on THIS device and handed straight to the download. Nothing is
+   * uploaded, nothing is stored on a server, and there is no link that could be forwarded or
+   * indexed. The renderer (report_card.js, ~15 KB) is fetched only when someone actually exports.
+   */
+  window.EXPORT_REPORT=async(sid,kind,btn)=>{
+    const old=btn?btn.innerHTML:''; if(btn){ btn.disabled=true; btn.innerHTML='⏳ '+(EN()?'Preparing…':'กำลังสร้าง…'); }
+    try{
+      const d=await api('studentReportCard',USER.role==='Parent'?{studentId:sid}:{studentId:sid,staffId:USER.staffId},{fresh:true});
+      await window.__atomLoadScript('report_card.js',()=>!!window.AtomReportCard);
+      await (kind==='pdf' ? AtomReportCard.savePdf(d) : AtomReportCard.saveJpeg(d));
+      toast(EN()?'Saved to your device':'บันทึกลงเครื่องแล้ว');
+    }catch(e){ err(e); }
+    finally{ if(btn){ btn.disabled=false; btn.innerHTML=old; } } };
+  const reportButtons=sid=>`<div class="card"><div class="spread"><b>📄 ${EN()?'One-page report':'รายงานสรุป 1 หน้า'}</b></div>
+    <p class="muted" style="font-size:13px">${EN()?'Growth + development on a single A4 page. The file is created on this device — nothing is uploaded and no link is shared.':'การเจริญเติบโต + พัฒนาการ รวมใน A4 หน้าเดียว · ไฟล์สร้างบนเครื่องนี้ ไม่มีการอัปโหลดและไม่มีลิงก์แชร์'}</p>
+    <div class="row" style="gap:8px"><button class="btn sm outline" style="flex:1" onclick="EXPORT_REPORT('${esc(sid)}','pdf',this)">📕 PDF</button>
+      <button class="btn sm outline" style="flex:1" onclick="EXPORT_REPORT('${esc(sid)}','jpg',this)">🖼️ ${EN()?'Image':'รูปภาพ'}</button></div>
+    <p class="muted" style="font-size:12px;margin:6px 0 0">🔒 ${EN()?'Contains health information — keep it private.':'มีข้อมูลสุขภาพของเด็ก — โปรดเก็บเป็นความลับ'}</p></div>`;
+
   window.A_student=async(sid)=>{ const [d,g]=await Promise.all([api('studentAllBands',{studentId:sid}),api('growthHistory',{studentId:sid})]); const pill=DSPM_PILL;
     app.innerHTML=`<h2 class="page">📈 ${esc(dnick(d))} <small class="muted">(${esc(dn(d))})</small></h2>
       <div class="row"><button class="btn sm outline" onclick="GO('dspm')">← ${esc(t('c.back'))}</button><button class="btn sm" onclick="A_editAssess('${sid}')">📝 ${esc(t('assess.edit'))}</button></div>
+      ${reportButtons(sid)}
       <div class="card"><div class="spread"><b>${EN()?'Age':'อายุ'} ${esc(ageYMfromMonths(d.ageMonth))} <small class="muted" style="font-weight:400">(${d.ageMonth} ${EN()?'mo':'เดือน'})</small></b><span class="muted">${EN()?'enrolled':'เข้าเรียน'} ${esc(d.enrollDate||'-')}</span></div>
       <p class="muted" style="font-size:13px">แสดงทุกช่วงวัยที่เด็กผ่านมา (ตั้งแต่เข้าเรียน) เพื่อดูพัฒนาการต่อเนื่อง</p></div>
       <div class="card"><h3>📈 ${esc(t('growth.chartTitle'))}</h3>

@@ -1494,6 +1494,54 @@ function createAtomAPI(M, GROWTH_STD) {
       return {studentId:p.studentId,name:s.NameTH,nameEN:s.NameEN,gender:s.Gender,ageMonth:ageMonths(s.DOB),
         records:recs, weightBand:band('weight'), heightBand:band('height')}; },
 
+    /**
+     * Everything one child's printable report card needs, in ONE round trip.
+     *
+     * The file itself is built on the reader's own device (see webapp/report_card.js) and never
+     * touches a server — this holds a child's health and development data, so there is deliberately
+     * no stored copy and no shareable link to leak. This handler only returns what the caller is
+     * already allowed to see: a parent is scoped to their own children by applyIdentity_, and a
+     * teacher to the classes they cover.
+     *
+     * Growth BANDS are not computed here: the reference tables (growth_standard.js) ship with the
+     * app, not with the server engine, so the client derives them from these records.
+     */
+    studentReportCard: p => {
+      const s=studentById(p.studentId); if(!s) fail('NOT_FOUND','ไม่พบนักเรียน');
+      if(p.staffId){ const me=staffById(p.staffId)||{};
+        const seeAll = me.PositionLevel==='Admin'||me.PositionLevel==='Leader'||me.Role==='Admin';
+        const covered=coveredClasses_(me).map(c=>c.ClassName);
+        if(!seeAll && covered.indexOf(String(s.Class||''))<0) fail('NO_ACCESS','ดูได้เฉพาะนักเรียนในชั้นที่ดูแล'); }
+
+      const recs=(M.growthRecords||[]).filter(r=>String(r.StudentID)===String(p.studentId))
+        .sort((a,b)=>Number(a.AgeMonth)-Number(b.AgeMonth))
+        .map(r=>({ageMonth:Number(r.AgeMonth)||0, weight:Number(r.Weight)||0, height:Number(r.Height)||0, date:ymd(r.Date)}));
+
+      const age=ageMonths(s.DOB);
+      const band=(M.dspmCriteria||[]).filter(c=>Number(c.AgeFrom)<=age && age<=Number(c.AgeTo))
+        .sort((a,b)=>Number(a.ItemNo)-Number(b.ItemNo));
+      const latest=latestByItem(p.studentId);
+      const items=band.map(c=>{ const a=latest[c.ItemNo];
+        return {itemNo:c.ItemNo, skill:c.Skill, description:c.Description,
+          result:a?a.Result:'', date:a?ymd(a.Date):''}; });
+      // "assessed" is what has actually been judged — an item nobody has looked at yet is not a fail.
+      const passed=items.filter(i=>i.result==='ผ่าน').length;
+      const failed=items.filter(i=>i.result==='ไม่ผ่าน').length;
+      const done=passed+failed;
+
+      return {
+        student:{ studentId:s.StudentID, nick:s.Nickname||'', nickEN:s.NicknameEN||'',
+          name:s.NameTH||s.Name||'', nameEN:s.NameEN||'', cls:s.Class||'', dob:ymd(s.DOB),
+          gender:s.Gender||'', ageMonth:age, photo:s.Photo||'', allergy:s.Allergy||'' },
+        growth: recs,
+        dspm:{ ageLabel: band.length?band[0].AgeLabelTH:'', items,
+          passed, failed, pending: items.length-done, total: items.length,
+          coverage: items.length?Math.round(done/items.length*100):0,
+          passRate: done?Math.round(passed/done*100):null },
+        school:{ name: cfg.SchoolName||'Atom Nursery' },
+        generatedAt: stampLocal()
+      }; },
+
     // ========== Group D: staff/parent CRUD, groups, holidays, move, import/export ==========
     listStaffGroups: () => M.staffGroups,
     setStaffGroupHours: p => { const g=M.staffGroups.find(x=>x.GroupName===p.group); if(!g)fail('NOT_FOUND','ไม่พบกลุ่ม'); if(p.checkIn)g.CheckInTime=p.checkIn; if(p.checkOut)g.CheckOutTime=p.checkOut; return g; },
