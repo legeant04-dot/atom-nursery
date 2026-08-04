@@ -212,5 +212,73 @@ function loadRC() {
     RC.safeName({ student: { nick: 'a/b\\c:d' }, generatedAt: '2026-08-04' }, 'jpg').indexOf('/') < 0);
 }
 
+console.log('\n6) More assessments means more SHEETS, never dropped data');
+{
+  const RC = loadRC();
+  const items = n => Array.from({ length: n }, (_, i) => ({ itemNo: i + 1, skill: 'GM', description: 'ข้อ ' + (i + 1), result: '' }));
+  eq('a short band stays on one sheet', RC.paginate(items(5)).length, 1);
+  eq('...and every item is on it', RC.paginate(items(5))[0].length, 5);
+
+  // the old behaviour printed "และอีก N ข้อ" and dropped the rest — that must not come back
+  const big = RC.paginate(items(40));
+  ok_('a long band runs onto more sheets', big.length > 1);
+  eq('and NOT ONE item is lost', big.reduce((a, p) => a + p.length, 0), 40);
+  ok_('the items stay in order across the sheets',
+    JSON.stringify([].concat.apply([], big).map(x => x.itemNo)) === JSON.stringify(items(40).map(x => x.itemNo)));
+  ok_('no sheet is left empty', big.every(p => p.length > 0));
+
+  [1, 8, 9, 16, 17, 25, 60, 120].forEach(n => {
+    const ps = RC.paginate(items(n));
+    const flat = [].concat.apply([], ps);
+    ok_(n + ' items -> ' + ps.length + ' sheet(s), all ' + flat.length + ' present',
+      flat.length === n && ps.every(p => p.length > 0));
+  });
+  eq('no items at all is still one sheet (growth + notes are worth printing)', RC.paginate([]).length, 1);
+}
+
+console.log('\n7) A multi-sheet PDF is one valid file, not several');
+{
+  const RC = loadRC();
+  const mk = k => { const a = new Uint8Array(1000); a.fill(k); return a; };
+  const sheets = [{ bytes: mk(1), w: 1240, h: 1754 }, { bytes: mk(2), w: 1240, h: 1754 }, { bytes: mk(3), w: 1240, h: 1754 }];
+  const pdf = Buffer.from(RC.buildPdf(sheets));
+  const s = pdf.toString('latin1');
+
+  eq('three pages declared', (s.match(/\/Type \/Page[^s]/g) || []).length, 3);
+  ok_('the page tree counts three', /\/Count 3/.test(s));
+  ok_('the page tree lists all three kids', /\/Kids \[3 0 R 6 0 R 9 0 R\]/.test(s));
+  eq('three images embedded', (s.match(/\/DCTDecode/g) || []).length, 3);
+  sheets.forEach((sh, i) => ok_('sheet ' + (i + 1) + ' bytes are present', pdf.indexOf(Buffer.from(sh.bytes)) > 0));
+
+  // 2 + 3*3 = 11 objects; every xref offset must still land on its object
+  ok_('the xref sizes itself to the object count', /xref\n0 12\n/.test(s) && /\/Size 12/.test(s));
+  const sx = Number(s.slice(s.lastIndexOf('startxref') + 9).trim().split('\n')[0]);
+  const rows = s.slice(sx).split('\n').slice(3, 3 + 11);
+  const bad = [];
+  rows.forEach((r, i) => {
+    const off = Number(r.slice(0, 10)), want = (i + 1) + ' 0 obj';
+    if (s.slice(off, off + want.length) !== want) bad.push(want + '@' + off);
+  });
+  eq('all 11 xref offsets land on their objects', bad, []);
+}
+{
+  const RC = loadRC();
+  // the old single-image call must keep working (nothing else should have to change)
+  const pdf = Buffer.from(RC.buildPdf(new Uint8Array([1, 2, 3, 4]), 100, 200));
+  const s = pdf.toString('latin1');
+  ok_('a single image still produces a one-page file', /\/Count 1/.test(s) && /xref\n0 6\n/.test(s));
+}
+
+console.log('\n8) There is room to actually sign');
+{
+  const rc = fs.readFileSync(path.join(__dirname, '..', 'webapp', 'report_card.js'), 'utf8');
+  const sig = rc.match(/var SIG_Y = H - (\d+)/);
+  ok_('the signature rule sits near the foot of the page', !!sig && Number(sig[1]) >= 150);
+  const notesMax = rc.match(/NOTES_TOP_MAX = SIG_Y - 96 - 150/);
+  ok_('with clear space above it for a signature', !!notesMax);
+  ok_('and a name line under each rule', /\(\.{5,}\)/.test(rc));
+  ok_('each sheet is numbered when there is more than one', /หน้า ' \+ pageNo \+ ' \/ ' \+ pageCount/.test(rc));
+}
+
 console.log('\n' + (fail ? 'FAILED ' + fail + ' / ' : 'ALL PASS ') + (pass + fail) + ' checks');
 process.exit(fail ? 1 : 0);
