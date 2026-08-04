@@ -127,17 +127,89 @@
   }
 
   // ---- the page --------------------------------------------------------------------------
-  function draw(ctx, d, logo) {
+  // ---- page furniture --------------------------------------------------------------------
+  var ROW = 40;                    // one DSPM item
+  var SIG_Y = H - 176;             // the signature RULE. Everything above it is space to sign in.
+  var ITEM_BOTTOM = H - 128;       // items may run this far down on a page that carries no notes
+  var NOTES_MIN = 300;             // notes box + the gap that makes it signable
+
+  function header(ctx, d, logo, compact) {
+    ctx.fillStyle = C.brandSoft; ctx.fillRect(0, 0, W, compact ? 116 : 168);
+    var ly = compact ? 22 : 40, ls = compact ? 62 : 88;
+    if (logo) { try { ctx.drawImage(logo, PAD, ly, ls, ls); } catch (e) {} }
+    text(ctx, (d.school && d.school.name) || 'Atom Nursery', PAD + ls + 20, compact ? 60 : 78,
+      { size: compact ? 24 : 30, weight: 700, color: C.brand });
+    if (!compact) text(ctx, 'รายงานพัฒนาการและการเจริญเติบโต', PAD + 108, 114, { size: 21, color: C.ink2 });
+    else text(ctx, 'รายงานพัฒนาการและการเจริญเติบโต', PAD + ls + 20, 88, { size: 17, color: C.ink2 });
+    text(ctx, 'พิมพ์เมื่อ ' + (d.generatedAt || ''), W - PAD, compact ? 60 : 114,
+      { size: 17, color: C.ink3, align: 'right' });
+  }
+
+  function footer(ctx, d, pageNo, pageCount) {
+    ctx.strokeStyle = C.line; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(PAD, H - 92); ctx.lineTo(W - PAD, H - 92); ctx.stroke();
+    text(ctx, 'เอกสารนี้มีข้อมูลสุขภาพของเด็ก — โปรดเก็บเป็นความลับ และแบ่งปันเฉพาะผู้ที่เกี่ยวข้อง',
+      PAD, H - 56, { size: 17, color: C.ink3 });
+    text(ctx, 'DSPM เป็นเครื่องมือเฝ้าระวัง ไม่ใช่การวินิจฉัยทางการแพทย์',
+      PAD, H - 30, { size: 16, color: C.ink3 });
+    // A multi-page report has to say so, or a reader cannot tell a second sheet is missing.
+    text(ctx, pageCount > 1 ? 'หน้า ' + pageNo + ' / ' + pageCount : ((d.school && d.school.name) || 'Atom Nursery'),
+      W - PAD, H - 30, { size: 16, color: C.ink3, align: 'right' });
+  }
+
+  /** The teacher's handwriting area plus the two signature rules. Only ever on the LAST page. */
+  function notesAndSignatures(ctx, top) {
+    // grow into whatever the item list left behind, but never so far that the signing gap disappears
+    var nh = Math.max(150, Math.min(400, SIG_Y - 96 - top));
+    card(ctx, PAD, top, W - PAD * 2, nh);
+    text(ctx, 'บันทึกเพิ่มเติมของครู / สิ่งที่ควรส่งเสริมที่บ้าน', PAD + 20, top + 34, { size: 20, weight: 700 });
+    ctx.strokeStyle = C.line; ctx.lineWidth = 1.5;
+    for (var r = top + 68; r < top + nh - 16; r += 42) {
+      ctx.beginPath(); ctx.moveTo(PAD + 20, r); ctx.lineTo(W - PAD - 20, r); ctx.stroke();
+    }
+    // The rule sits low on the page so there is real room to sign ABOVE it, which is where a
+    // signature actually goes — the first version left barely a finger's width.
+    ctx.strokeStyle = C.ink3; ctx.lineWidth = 1.5;
+    [[PAD, 'ครูประจำชั้น'], [W / 2 + 20, 'ผู้ปกครอง']].forEach(function (sig) {
+      ctx.beginPath(); ctx.moveTo(sig[0], SIG_Y); ctx.lineTo(sig[0] + 380, SIG_Y); ctx.stroke();
+      text(ctx, 'ลงชื่อ ' + sig[1], sig[0], SIG_Y + 28, { size: 17, color: C.ink3 });
+      text(ctx, '(............................................)', sig[0], SIG_Y + 56, { size: 15, color: C.ink3 });
+    });
+  }
+
+  /** One DSPM row. Returns the y for the next row. */
+  function itemRow(ctx, it, ly) {
+    var mark = it.result === 'ผ่าน' ? '✓' : it.result === 'ไม่ผ่าน' ? '✗' : '–';
+    var col = it.result === 'ผ่าน' ? C.ok : it.result === 'ไม่ผ่าน' ? C.bad : C.ink3;
+    var bg = it.result === 'ผ่าน' ? C.okSoft : it.result === 'ไม่ผ่าน' ? C.badSoft : '#F3F5F9';
+    ctx.fillStyle = bg; roundRect(ctx, PAD, ly - 26, 34, 34, 10); ctx.fill();
+    text(ctx, mark, PAD + 17, ly, { size: 21, weight: 700, color: col, align: 'center' });
+    text(ctx, String(it.itemNo), PAD + 50, ly, { size: 18, color: C.ink3 });
+    clipText(ctx, it.description || '', PAD + 96, ly, W - PAD * 2 - 260, { size: 19 });
+    text(ctx, it.skill || '', W - PAD, ly, { size: 17, color: C.ink3, align: 'right' });
+    return ly + ROW;
+  }
+
+  /** Pages 2+: nothing but the child's name, the continued item list, and (last page) the notes. */
+  function drawContinuation(ctx, d, logo, slice, isLast, pageNo, pageCount) {
+    var st = d.student || {};
+    ctx.fillStyle = C.paper; ctx.fillRect(0, 0, W, H);
+    header(ctx, d, logo, true);
+    text(ctx, st.nick || st.name || st.studentId, PAD, 178, { size: 30, weight: 700 });
+    text(ctx, (st.name || '') + '  ·  ' + (st.cls || ''), PAD, 208, { size: 18, color: C.ink3 });
+    text(ctx, 'พัฒนาการตามวัย (DSPM) — ต่อ', W - PAD, 200, { size: 22, weight: 700, color: C.ink2, align: 'right' });
+
+    var ly = 262;
+    slice.forEach(function (it) { ly = itemRow(ctx, it, ly); });
+    if (isLast) notesAndSignatures(ctx, ly + 20);
+    footer(ctx, d, pageNo, pageCount);
+  }
+
+  function draw(ctx, d, logo, slice, isLast, pageCount) {
     var st = d.student || {}, dp = d.dspm || {}, gr = d.growth || [];
 
     ctx.fillStyle = C.paper; ctx.fillRect(0, 0, W, H);
-
-    // header band
-    ctx.fillStyle = C.brandSoft; ctx.fillRect(0, 0, W, 168);
-    if (logo) { try { ctx.drawImage(logo, PAD, 40, 88, 88); } catch (e) {} }
-    text(ctx, (d.school && d.school.name) || 'Atom Nursery', PAD + 108, 78, { size: 30, weight: 700, color: C.brand });
-    text(ctx, 'รายงานพัฒนาการและการเจริญเติบโต', PAD + 108, 114, { size: 21, color: C.ink2 });
-    text(ctx, 'พิมพ์เมื่อ ' + (d.generatedAt || ''), W - PAD, 114, { size: 17, color: C.ink3, align: 'right' });
+    header(ctx, d, logo, false);
 
     // who this is about — nickname leads, real name small and light (the school's own convention)
     var y = 214;
@@ -200,56 +272,44 @@
       roundRect(ctx, PAD, by + 12, Math.max(16, (W - PAD * 2) * dp.coverage / 100), 16, 8); ctx.fill();
     }
 
-    // per-item list — as many as fit on the page, then an honest "and N more"
-    var ly = by + 66, rowH = 40, maxY = H - 150;
-    var items = dp.items || [];
-    var shown = 0;
-    for (var i = 0; i < items.length && ly + rowH < maxY; i++) {
-      var it = items[i];
-      var mark = it.result === 'ผ่าน' ? '✓' : it.result === 'ไม่ผ่าน' ? '✗' : '–';
-      var col = it.result === 'ผ่าน' ? C.ok : it.result === 'ไม่ผ่าน' ? C.bad : C.ink3;
-      var bg = it.result === 'ผ่าน' ? C.okSoft : it.result === 'ไม่ผ่าน' ? C.badSoft : '#F3F5F9';
-      ctx.fillStyle = bg; roundRect(ctx, PAD, ly - 26, 34, 34, 10); ctx.fill();
-      text(ctx, mark, PAD + 17, ly, { size: 21, weight: 700, color: col, align: 'center' });
-      text(ctx, String(it.itemNo), PAD + 50, ly, { size: 18, color: C.ink3 });
-      clipText(ctx, it.description || '', PAD + 96, ly, W - PAD * 2 - 260, { size: 19 });
-      text(ctx, it.skill || '', W - PAD, ly, { size: 17, color: C.ink3, align: 'right' });
-      ly += rowH; shown++;
-    }
-    if (shown < items.length) {
-      text(ctx, 'และอีก ' + (items.length - shown) + ' ข้อ — ดูทั้งหมดได้ในแอป',
-        PAD, ly + 4, { size: 18, color: C.ink3 });
-      ly += rowH;
-    }
+    // this page's share of the item list (the rest continues on later pages)
+    var ly = by + 66;
+    (slice || []).forEach(function (it) { ly = itemRow(ctx, it, ly); });
 
     // A short list leaves most of an A4 page blank. Rather than pad it out, give the space to the
     // two things a printed report is actually used for: a teacher writing something by hand for the
     // parents, and a signature the receiving doctor or school can rely on.
-    var noteTop = ly + 14, noteBottom = H - 116;
-    if (noteBottom - noteTop > 200) {
-      var nh = Math.min(260, noteBottom - noteTop - 84);
-      card(ctx, PAD, noteTop, W - PAD * 2, nh);
-      text(ctx, 'บันทึกเพิ่มเติมของครู / สิ่งที่ควรส่งเสริมที่บ้าน', PAD + 20, noteTop + 34, { size: 20, weight: 700 });
-      ctx.strokeStyle = C.line; ctx.lineWidth = 1.5;
-      for (var r = noteTop + 68; r < noteTop + nh - 16; r += 42) {
-        ctx.beginPath(); ctx.moveTo(PAD + 20, r); ctx.lineTo(W - PAD - 20, r); ctx.stroke();
-      }
-      var sy = noteTop + nh + 62;
-      ctx.strokeStyle = C.ink3; ctx.lineWidth = 1.5;
-      [[PAD, 'ครูประจำชั้น'], [W / 2 + 20, 'ผู้ปกครอง']].forEach(function (sig) {
-        ctx.beginPath(); ctx.moveTo(sig[0], sy); ctx.lineTo(sig[0] + 380, sy); ctx.stroke();
-        text(ctx, 'ลงชื่อ ' + sig[1], sig[0], sy + 26, { size: 17, color: C.ink3 });
-      });
-    }
+    if (isLast) notesAndSignatures(ctx, ly + 20);
+    footer(ctx, d, 1, pageCount);
+  }
 
-    // footer — the confidentiality note is the point, not decoration
-    ctx.strokeStyle = C.line; ctx.lineWidth = 2;
-    ctx.beginPath(); ctx.moveTo(PAD, H - 92); ctx.lineTo(W - PAD, H - 92); ctx.stroke();
-    text(ctx, 'เอกสารนี้มีข้อมูลสุขภาพของเด็ก — โปรดเก็บเป็นความลับ และแบ่งปันเฉพาะผู้ที่เกี่ยวข้อง',
-      PAD, H - 56, { size: 17, color: C.ink3 });
-    text(ctx, 'DSPM เป็นเครื่องมือเฝ้าระวัง ไม่ใช่การวินิจฉัยทางการแพทย์',
-      PAD, H - 30, { size: 16, color: C.ink3 });
-    text(ctx, (d.school && d.school.name) || 'Atom Nursery', W - PAD, H - 30, { size: 16, color: C.ink3, align: 'right' });
+  /**
+   * How the items are split across sheets.
+   *
+   * The report used to be one page whatever happened, printing "และอีก N ข้อ" and dropping the rest —
+   * which is the wrong answer for a document whose purpose is to be complete when it leaves the
+   * school. Age bands with a lot of items now simply continue onto further sheets, each numbered
+   * "หน้า x / y" so a missing sheet is obvious.
+   */
+  var FIRST_TOP = 976;                     // y of the first item row on page 1 (under the DSPM card)
+  var CONT_TOP = 262;                      // ...and on a continuation page
+  var NOTES_TOP_MAX = SIG_Y - 96 - 150;    // the lowest the notes box may start and still be usable
+
+  function paginate(items) {
+    items = items || [];
+    var fit = function (top, bottom) { return Math.max(0, Math.floor((bottom - top) / ROW)); };
+    var withNotes = function (top) { return fit(top, NOTES_TOP_MAX - 20); };  // page that also carries notes+signatures
+    var full = function (top) { return fit(top, ITEM_BOTTOM); };              // page that is items all the way down
+
+    if (items.length <= withNotes(FIRST_TOP)) return [items];                 // one sheet is enough
+
+    var pages = [], rest = items.slice();
+    pages.push(rest.splice(0, full(FIRST_TOP)));
+    while (rest.length) {
+      if (rest.length <= withNotes(CONT_TOP)) { pages.push(rest.splice(0, rest.length)); break; }
+      pages.push(rest.splice(0, full(CONT_TOP)));
+    }
+    return pages;
   }
 
   // ---- rendering -------------------------------------------------------------------------
@@ -262,18 +322,28 @@
     });
   }
 
-  /** Draw the card and hand back a JPEG data URL. Everything stays in this tab. */
+  /**
+   * Draw the whole report and hand back one JPEG per sheet. Everything stays in this tab.
+   * `dataUrl`/`width`/`height` describe the first sheet; `pages` is every sheet in order.
+   */
   function render(d) {
     // Thai renders as boxes if the webfont has not arrived yet, so wait for it — but never hang on it.
     var fonts = (typeof document !== 'undefined' && document.fonts && document.fonts.ready)
       ? Promise.race([document.fonts.ready, new Promise(function (r) { setTimeout(r, 1500); })])
       : Promise.resolve();
     return Promise.all([fonts, loadLogo()]).then(function (r) {
-      var cv = document.createElement('canvas');
-      cv.width = W; cv.height = H;
-      var ctx = cv.getContext('2d');
-      draw(ctx, d, r[1]);
-      return { dataUrl: cv.toDataURL('image/jpeg', 0.92), width: W, height: H };
+      var logo = r[1];
+      var sheets = paginate((d.dspm || {}).items);
+      var n = sheets.length, out = [];
+      for (var i = 0; i < n; i++) {
+        var cv = document.createElement('canvas');
+        cv.width = W; cv.height = H;
+        var ctx = cv.getContext('2d');
+        if (i === 0) draw(ctx, d, logo, sheets[0], n === 1, n);
+        else drawContinuation(ctx, d, logo, sheets[i], i === n - 1, i + 1, n);
+        out.push({ dataUrl: cv.toDataURL('image/jpeg', 0.92), width: W, height: H });
+      }
+      return { pages: out, pageCount: n, dataUrl: out[0].dataUrl, width: W, height: H };
     });
   }
 
@@ -291,35 +361,48 @@
    * assembled as byte chunks and measured as it goes, never as a string (a Thai character is one
    * char but three bytes, and counting characters would corrupt every offset after it).
    */
-  function buildPdf(jpegBytes, w, h) {
+  function buildPdf(pagesOrBytes, w, h) {
+    // accepts either a single image (bytes, w, h) or a list of [{bytes,w,h}] — one entry per sheet
+    var pages = Array.isArray(pagesOrBytes) ? pagesOrBytes : [{ bytes: pagesOrBytes, w: w, h: h }];
     var A4W = 595.28, A4H = 841.89;
     var chunks = [], len = 0, offsets = [];
     var enc = function (s) { var a = new Uint8Array(s.length); for (var i = 0; i < s.length; i++) a[i] = s.charCodeAt(i) & 0xFF; return a; };
     var put = function (x) { var b = (typeof x === 'string') ? enc(x) : x; chunks.push(b); len += b.length; };
     var obj = function (n, body) { offsets[n] = len; put(n + ' 0 obj\n' + body + '\nendobj\n'); };
 
-    // fit the image inside the page, centred, keeping its proportions
-    var scale = Math.min(A4W / w, A4H / h);
-    var iw = w * scale, ih = h * scale, ix = (A4W - iw) / 2, iy = (A4H - ih) / 2;
-    var content = 'q ' + iw.toFixed(2) + ' 0 0 ' + ih.toFixed(2) + ' ' + ix.toFixed(2) + ' ' + iy.toFixed(2) + ' cm /Im0 Do Q';
+    var N = pages.length;
+    // object numbering: 1 catalog, 2 page tree, then per sheet {page, image, content}
+    var pageObj = function (i) { return 3 + i * 3; };
+    var total = 2 + N * 3;
 
     put('%PDF-1.4\n%\xE2\xE3\xCF\xD3\n');   // the binary comment marks the file as non-text
     obj(1, '<< /Type /Catalog /Pages 2 0 R >>');
-    obj(2, '<< /Type /Pages /Kids [3 0 R] /Count 1 >>');
-    obj(3, '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ' + A4W + ' ' + A4H + ']' +
-           ' /Resources << /XObject << /Im0 4 0 R >> >> /Contents 5 0 R >>');
-    offsets[4] = len;
-    put('4 0 obj\n<< /Type /XObject /Subtype /Image /Width ' + w + ' /Height ' + h +
-        ' /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ' + jpegBytes.length + ' >>\nstream\n');
-    put(jpegBytes);
-    put('\nendstream\nendobj\n');
-    obj(5, '<< /Length ' + content.length + ' >>\nstream\n' + content + '\nendstream');
+    var kids = [];
+    for (var k = 0; k < N; k++) kids.push(pageObj(k) + ' 0 R');
+    obj(2, '<< /Type /Pages /Kids [' + kids.join(' ') + '] /Count ' + N + ' >>');
+
+    for (var i = 0; i < N; i++) {
+      var p = pages[i], pn = pageObj(i), imn = pn + 1, cn = pn + 2;
+      // fit each image inside the page, centred, keeping its proportions
+      var scale = Math.min(A4W / p.w, A4H / p.h);
+      var iw = p.w * scale, ih = p.h * scale, ix = (A4W - iw) / 2, iy = (A4H - ih) / 2;
+      var content = 'q ' + iw.toFixed(2) + ' 0 0 ' + ih.toFixed(2) + ' ' + ix.toFixed(2) + ' ' + iy.toFixed(2) + ' cm /Im0 Do Q';
+
+      obj(pn, '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ' + A4W + ' ' + A4H + ']' +
+              ' /Resources << /XObject << /Im0 ' + imn + ' 0 R >> >> /Contents ' + cn + ' 0 R >>');
+      offsets[imn] = len;
+      put(imn + ' 0 obj\n<< /Type /XObject /Subtype /Image /Width ' + p.w + ' /Height ' + p.h +
+          ' /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ' + p.bytes.length + ' >>\nstream\n');
+      put(p.bytes);
+      put('\nendstream\nendobj\n');
+      obj(cn, '<< /Length ' + content.length + ' >>\nstream\n' + content + '\nendstream');
+    }
 
     var xref = len;
     var pad = function (n) { var s = String(n); while (s.length < 10) s = '0' + s; return s; };
-    var t = 'xref\n0 6\n0000000000 65535 f \n';
-    for (var i = 1; i <= 5; i++) t += pad(offsets[i]) + ' 00000 n \n';
-    t += 'trailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n' + xref + '\n%%EOF\n';
+    var t = 'xref\n0 ' + (total + 1) + '\n0000000000 65535 f \n';
+    for (var j = 1; j <= total; j++) t += pad(offsets[j]) + ' 00000 n \n';
+    t += 'trailer\n<< /Size ' + (total + 1) + ' /Root 1 0 R >>\nstartxref\n' + xref + '\n%%EOF\n';
     put(t);
 
     var out = new Uint8Array(len), at = 0;
@@ -348,15 +431,27 @@
     buildPdf: buildPdf,
     b64ToBytes: b64ToBytes,
     safeName: safeName,
-    /** Draw, then save as a JPEG. Nothing leaves the device. */
+    paginate: paginate,
+    /**
+     * Save as image(s). A JPEG holds one page, so a report that runs to several sheets downloads as
+     * several files, named _1of3 etc. so they cannot be mixed up or silently lost.
+     */
     saveJpeg: function (d) {
-      return render(d).then(function (r) { download(r.dataUrl, safeName(d, 'jpg')); return r; });
+      return render(d).then(function (r) {
+        r.pages.forEach(function (p, i) {
+          var suffix = r.pageCount > 1 ? '_' + (i + 1) + 'of' + r.pageCount : '';
+          download(p.dataUrl, safeName(d, 'jpg').replace(/\.jpg$/, suffix + '.jpg'));
+        });
+        return r;
+      });
     },
-    /** Draw, wrap the same JPEG in a one-page A4 PDF, save. Nothing leaves the device. */
+    /** Save every sheet as ONE A4 PDF. Nothing leaves the device. */
     savePdf: function (d) {
       return render(d).then(function (r) {
-        var bytes = b64ToBytes(r.dataUrl.split(',')[1]);
-        download(buildPdf(bytes, r.width, r.height), safeName(d, 'pdf'), 'application/pdf');
+        var sheets = r.pages.map(function (p) {
+          return { bytes: b64ToBytes(p.dataUrl.split(',')[1]), w: p.width, h: p.height };
+        });
+        download(buildPdf(sheets), safeName(d, 'pdf'), 'application/pdf');
         return r;
       });
     }
