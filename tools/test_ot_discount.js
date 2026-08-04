@@ -178,7 +178,59 @@ console.log('\n6) Everyone who needs to see the discount, sees it');
   eq('outstanding is the net', t.totalOutstanding, 100);
 }
 
-console.log('\n7) The live GAS route keeps the same promises (it shadows the engine)');
+console.log("\n7) น้องธาม's live case: already paid 100 of 200, then the rest is waived");
+{
+  // OT 200. Parent transfers 100, admin confirms it -> PARTIAL (100 of 200).
+  const { M, H } = fresh([ot()]);
+  M.paymentSlips.push({ SlipID: 'SL-1', RefKind: 'ot', RefID: OTID, StudentID: 'STD-01', Amount: 100,
+    Url: 'x', Status: 'CONFIRMED', SubmittedDate: TODAY });
+  M.otDaily[0].Status = 'PARTIAL'; M.otDaily[0].SlipAmount = 100;
+
+  // admin waives the other 100 — the parent now owes nothing
+  H.adminUpdateOT({ staffId: 'STF-A', otId: OTID, amount: 100, discountReason: 'ดูแลกันครับ' });
+  eq('the OT settles instead of staying PARTIAL', M.otDaily[0].Status, 'PAID');
+  eq('charge / waiver / net', [M.otDaily[0].FullAmount, M.otDaily[0].Discount, M.otDaily[0].Amount], [200, 100, 100]);
+
+  // ...and the finance screen must now agree with the OT screen
+  const fin = H.financeSummary({ month: MONTH });
+  const s = (fin.students || []).find(x => x.studentId === 'STD-01') || {};
+  eq('finance shows nothing outstanding for this child', Number(s.otOpen || 0), 0);
+  ok_('no "ค้างชำระอื่นๆ" left to report', !(Number(s.otOpen || 0) > 0));
+}
+{
+  // rows already stuck by the old behaviour heal when the admin just presses save
+  const { M, H } = fresh([ot({ Status: 'PARTIAL', SlipAmount: 100, FullAmount: 200, Discount: 100, Amount: 100 })]);
+  M.paymentSlips.push({ SlipID: 'SL-1', RefKind: 'ot', RefID: OTID, StudentID: 'STD-01', Amount: 100,
+    Url: 'x', Status: 'CONFIRMED', SubmittedDate: TODAY });
+  const r = H.adminUpdateOT({ staffId: 'STF-A', otId: OTID });      // no changes at all
+  eq('an unchanged save re-settles a stuck row', [r.resettled, M.otDaily[0].Status], [true, 'PAID']);
+}
+{
+  // a row nobody has paid towards must NOT be touched by the re-settle
+  const { M, H } = fresh([ot()]);
+  H.adminUpdateOT({ staffId: 'STF-A', otId: OTID, amount: 150 });
+  eq('still unpaid, and not falsely marked rejected', [M.otDaily[0].Status, M.otDaily[0].VerifiedStatus], ['UNPAID', undefined]);
+  throws_('and an empty save on it is still refused', () => H.adminUpdateOT({ staffId: 'STF-A', otId: OTID }), 'BAD_INPUT');
+}
+{
+  // waiving the whole charge: nothing to collect, so it is settled — not "owing 0"
+  const { M, H } = fresh([ot()]);
+  H.adminUpdateOT({ staffId: 'STF-A', otId: OTID, amount: 0, discountReason: 'ยกให้ทั้งหมด' });
+  eq('a full waiver settles the row', [M.otDaily[0].Amount, M.otDaily[0].Status], [0, 'PAID']);
+  const fin = H.financeSummary({ month: MONTH });
+  const s = (fin.students || []).find(x => x.studentId === 'STD-01') || {};
+  eq('and finance reports nothing outstanding', Number(s.otOpen || 0), 0);
+}
+{
+  // the reverse: taking a discount away re-opens what is owed
+  const { M, H } = fresh([ot()]);
+  M.paymentSlips.push({ SlipID: 'SL-1', RefKind: 'ot', RefID: OTID, StudentID: 'STD-01', Amount: 100,
+    Url: 'x', Status: 'CONFIRMED', SubmittedDate: TODAY });
+  H.adminUpdateOT({ staffId: 'STF-A', otId: OTID, amount: 100 });
+  eq('settled at 100', M.otDaily[0].Status, 'PAID');
+}
+
+console.log('\n8) The live GAS route keeps the same promises (it shadows the engine)');
 {
   const src = fs.readFileSync(path.join(__dirname, '..', 'src', 'OT.gs'), 'utf8');
   ok_('the recompute preserves the discount', /otDiscOf_\(ex, c\.amount\)/.test(src));
@@ -188,6 +240,11 @@ console.log('\n7) The live GAS route keeps the same promises (it shadows the eng
   ok_('a discount is written to the audit log', /logAudit\([^)]*OT_DISCOUNT/.test(src));
   ok_('the discount is capped at the charge', /Math\.min\(otNum_\(p\.discount\), full\)/.test(src));
   ok_('paying more than the charge cannot go negative', /Math\.max\(0, full - otNum_\(p\.amount\)\)/.test(src));
+  ok_('the row is re-settled after the amount changes', /otResettle_\(p\.otId\)/.test(src));
+  ok_('a full waiver settles the row', /patch\.Amount === 0.*\n?.*Status. = .PAID./.test(src) || /if \(patch\.Amount === 0\)/.test(src));
+  ok_('the re-settle only runs when slips exist (no false REJECTED)',
+    /paySlipSum_\('ot', otId, \['SUBMITTED', 'CONFIRMED'\]\) <= 0\) return null/.test(src));
+  ok_('an unchanged save heals a stuck row instead of erroring', /var healed = otResettle_\(p\.otId\)/.test(src));
 }
 
 console.log('\n' + (fail ? 'FAILED ' + fail + ' / ' : 'ALL PASS ') + (pass + fail) + ' checks');
