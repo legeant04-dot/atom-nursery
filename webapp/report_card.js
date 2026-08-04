@@ -133,14 +133,15 @@
   var ITEM_BOTTOM = H - 128;       // items may run this far down on a page that carries no notes
   var NOTES_MIN = 300;             // notes box + the gap that makes it signable
 
-  function header(ctx, d, logo, compact) {
+  function header(ctx, d, logo, compact, subtitle) {
+    subtitle = subtitle || 'รายงานพัฒนาการและการเจริญเติบโต';
     ctx.fillStyle = C.brandSoft; ctx.fillRect(0, 0, W, compact ? 116 : 168);
     var ly = compact ? 22 : 40, ls = compact ? 62 : 88;
     if (logo) { try { ctx.drawImage(logo, PAD, ly, ls, ls); } catch (e) {} }
     text(ctx, (d.school && d.school.name) || 'Atom Nursery', PAD + ls + 20, compact ? 60 : 78,
       { size: compact ? 24 : 30, weight: 700, color: C.brand });
-    if (!compact) text(ctx, 'รายงานพัฒนาการและการเจริญเติบโต', PAD + 108, 114, { size: 21, color: C.ink2 });
-    else text(ctx, 'รายงานพัฒนาการและการเจริญเติบโต', PAD + ls + 20, 88, { size: 17, color: C.ink2 });
+    if (!compact) text(ctx, subtitle, PAD + 108, 114, { size: 21, color: C.ink2 });
+    else text(ctx, subtitle, PAD + ls + 20, 88, { size: 17, color: C.ink2 });
     text(ctx, 'พิมพ์เมื่อ ' + (d.generatedAt || ''), W - PAD, compact ? 60 : 114,
       { size: 17, color: C.ink3, align: 'right' });
   }
@@ -426,8 +427,112 @@
     return 'รายงานพัฒนาการ_' + n + '_' + String(d.generatedAt || '').slice(0, 10) + '.' + ext;
   }
 
+  /* ---- A4 food menu, same on-device rules ------------------------------------------------
+   * Printed and pinned up at the school, and sent home. Weekends are greyed rather than dropped so
+   * a parent can see at a glance that a blank Saturday is not a missing menu.
+   */
+  function daysOf(month) {
+    var p = String(month).split('-'), y = Number(p[0]), m = Number(p[1]);
+    var n = new Date(y, m, 0).getDate(), out = [];
+    for (var d = 1; d <= n; d++) out.push(month + '-' + (d < 10 ? '0' : '') + d);
+    return out;
+  }
+  var DOW_TH = ['อา', 'จ', 'อ', 'พ', 'พฤ', 'ศ', 'ส'];
+  var MEALS = [['breakfast', 'เช้า'], ['snackAM', 'ว่างเช้า'], ['lunch', 'กลางวัน'], ['snackPM', 'ว่างบ่าย']];
+
+  function drawMenu(ctx, d, logo, slice, pageNo, pageCount, empty) {
+    ctx.fillStyle = C.paper; ctx.fillRect(0, 0, W, H);
+    header(ctx, d, logo, false, 'เมนูอาหารประจำเดือน');
+    text(ctx, 'เมนูอาหาร' + (d.className ? ' · ' + d.className : ''), PAD, 214, { size: 40, weight: 700 });
+    text(ctx, 'ประจำเดือน ' + (d.month || ''), PAD, 250, { size: 22, color: C.ink2 });
+    if (empty) {
+      // a blank grid looks like a broken export; say plainly that nothing has been entered yet
+      card(ctx, PAD, 300, W - PAD * 2, 120);
+      text(ctx, 'ยังไม่มีเมนูอาหารสำหรับเดือนนี้', W / 2, 360, { size: 26, weight: 700, color: C.ink3, align: 'center' });
+      text(ctx, 'กรุณาบันทึกเมนูในระบบก่อนพิมพ์', W / 2, 396, { size: 18, color: C.ink3, align: 'center' });
+    }
+
+    var y = 288, colW = [90, 250, 250, 250, 218];
+    var head = ['วันที่', 'เช้า', 'ว่างเช้า', 'กลางวัน', 'ว่างบ่าย'];
+    ctx.fillStyle = C.brandSoft; roundRect(ctx, PAD, y, W - PAD * 2, 40, 8); ctx.fill();
+    var cx = PAD + 12;
+    head.forEach(function (hd, i) { text(ctx, hd, cx, y + 27, { size: 19, weight: 700, color: C.brand }); cx += colW[i]; });
+    y += 66;                          // clear of the header pill — the first row used to sit on top of it
+
+    slice.forEach(function (row) {
+      var g = new Date(row.date + 'T00:00:00').getDay(), we = (g === 0 || g === 6);
+      if (we) { ctx.fillStyle = '#F5F7FA'; roundRect(ctx, PAD, y - 24, W - PAD * 2, 40, 6); ctx.fill(); }
+      var x = PAD + 12;
+      text(ctx, Number(row.date.slice(8)) + ' ' + DOW_TH[g] + '.', x, y, { size: 19, weight: we ? 400 : 600, color: we ? C.ink3 : C.ink });
+      x += colW[0];
+      MEALS.forEach(function (mm, i) {
+        clipText(ctx, row[mm[0]] || (we ? '' : '-'), x, y, colW[i + 1] - 14, { size: 18, color: we ? C.ink3 : C.ink });
+        x += colW[i + 1];
+      });
+      y += 40;
+      if (row.note) { text(ctx, '📌 ' + row.note, PAD + 102, y - 12, { size: 15, color: C.ink3 }); y += 22; }
+      ctx.strokeStyle = C.line; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(PAD, y - 30); ctx.lineTo(W - PAD, y - 30); ctx.stroke();
+    });
+
+    ctx.strokeStyle = C.line; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(PAD, H - 92); ctx.lineTo(W - PAD, H - 92); ctx.stroke();
+    text(ctx, 'เมนูอาจปรับเปลี่ยนตามวัตถุดิบที่มีในแต่ละวัน · แจ้งครูประจำชั้นได้หากบุตรหลานมีอาหารที่แพ้',
+      PAD, H - 56, { size: 17, color: C.ink3 });
+    text(ctx, pageCount > 1 ? 'หน้า ' + pageNo + ' / ' + pageCount : ((d.school && d.school.name) || 'Atom Nursery'),
+      W - PAD, H - 30, { size: 16, color: C.ink3, align: 'right' });
+  }
+
+  function renderMenu(d) {
+    d = d || {};
+    // A missing/garbled month used to yield daysOf(undefined) -> NaN -> a silently blank sheet.
+    if (!/^\d{4}-\d{2}$/.test(String(d.month || ''))) d.month = new Date().toISOString().slice(0, 7);
+    var fonts = (typeof document !== 'undefined' && document.fonts && document.fonts.ready)
+      ? Promise.race([document.fonts.ready, new Promise(function (r) { setTimeout(r, 1500); })])
+      : Promise.resolve();
+    return Promise.all([fonts, loadLogo()]).then(function (r) {
+      var by = {}, filled = 0;
+      (d.days || []).forEach(function (x) {
+        by[x.date] = x;
+        if (x.breakfast || x.snackAM || x.lunch || x.snackPM || x.note) filled++;
+      });
+      if (!filled) {
+        var cv0 = document.createElement('canvas'); cv0.width = W; cv0.height = H;
+        drawMenu(cv0.getContext('2d'), d, r[1], [], 1, 1, true);
+        return { pages: [{ dataUrl: cv0.toDataURL('image/jpeg', 0.92), width: W, height: H }], pageCount: 1, empty: true };
+      }
+      // every day of the month, so the sheet reads as a calendar and a gap is visibly a gap
+      var rows = daysOf(d.month).map(function (ds) { return Object.assign({ date: ds }, by[ds] || {}); });
+      var PER = 26, sheets = [];
+      for (var i = 0; i < rows.length; i += PER) sheets.push(rows.slice(i, i + PER));
+      var out = [];
+      for (var s = 0; s < sheets.length; s++) {
+        var cv = document.createElement('canvas'); cv.width = W; cv.height = H;
+        drawMenu(cv.getContext('2d'), d, r[1], sheets[s], s + 1, sheets.length, false);
+        out.push({ dataUrl: cv.toDataURL('image/jpeg', 0.92), width: W, height: H });
+      }
+      return { pages: out, pageCount: out.length, empty: false };
+    });
+  }
+
   window.AtomReportCard = {
     render: render,
+    renderMenu: renderMenu,
+    /** A4 food menu → PDF (one file) or image(s). Built here, never uploaded. */
+    saveMenu: function (d, kind) {
+      return renderMenu(d).then(function (r) {
+        var base = 'เมนูอาหาร_' + String(d.className || '').replace(/[\\/:*?"<>|\s]+/g, '_') + '_' + (d.month || '');
+        if (kind === 'pdf') {
+          var sheets = r.pages.map(function (p) { return { bytes: b64ToBytes(p.dataUrl.split(',')[1]), w: p.width, h: p.height }; });
+          download(buildPdf(sheets), base + '.pdf', 'application/pdf');
+        } else {
+          r.pages.forEach(function (p, i) {
+            download(p.dataUrl, base + (r.pageCount > 1 ? '_' + (i + 1) + 'of' + r.pageCount : '') + '.jpg');
+          });
+        }
+        return r;
+      });
+    },
     buildPdf: buildPdf,
     b64ToBytes: b64ToBytes,
     safeName: safeName,

@@ -41,6 +41,9 @@ var COLLECTION_MAP = {
   injuryReports:   { wb: 'MAIN', sheet: 'INJURY_REPORTS' },
   insurancePCHI:   { wb: 'MAIN', sheet: 'INSURANCE_PCHI' },
   activityLog:     { wb: 'MAIN', sheet: 'ACTIVITY_LOG' },
+  foodMenus:       { wb: 'MAIN', sheet: 'FOOD_MENU' },
+  surveys:         { wb: 'MAIN', sheet: 'SURVEYS' },
+  surveyResponses: { wb: 'MAIN', sheet: 'SURVEY_RESPONSES' },
   staff:           { wb: 'HR',   sheet: 'STAFF' },
   staffGroups:     { wb: 'HR',   sheet: 'STAFF_GROUPS' },
   workSchedule:    { wb: 'HR',   sheet: 'WORK_SCHEDULE' },
@@ -192,16 +195,45 @@ function readRows_(wb, sheet) {
   var r = sh ? readObjects_(sh).map(function (row) { var o = {}; for (var c in row) o[c] = decodeCell_(row[c]); return o; }) : [];
   cachePut_('rows:' + sheet, r); return r;
 }
+/**
+ * Sheets this build introduces. A collection whose sheet does not exist yet is silently dropped by
+ * writeRows_ (`if (!sh) return;`), so a brand-new feature would appear to save and lose everything.
+ * Declaring the headers here lets the sheet be created on first use, with no manual setup step for
+ * the school and no chance of the columns being wrong.
+ */
+var COLLECTION_HEADERS_ = {
+  FOOD_MENU:        ['MenuID', 'Class', 'Date', 'Breakfast', 'SnackAM', 'Lunch', 'SnackPM', 'Note', 'UpdatedBy', 'UpdatedAt'],
+  SURVEYS:          ['SurveyID', 'Title', 'Description', 'Type', 'Options', 'Scope', 'Target',
+                     'StartDate', 'EndDate', 'Status', 'Anonymous', 'CreatedBy', 'CreatedAt'],
+  SURVEY_RESPONSES: ['ResponseID', 'SurveyID', 'StudentID', 'ParentID', 'Rating', 'Choice', 'Comment', 'SubmittedAt']
+};
+function ensureCollectionSheet_(def) {
+  var ss = wbOf_(def.wb);
+  var sh = ss.getSheetByName(def.sheet);
+  if (sh) return sh;
+  var hdr = COLLECTION_HEADERS_[def.sheet];
+  if (!hdr) return null;                       // an unknown sheet is NOT invented — that would hide a typo
+  sh = ss.insertSheet(def.sheet);
+  sh.getRange(1, 1, 1, hdr.length).setValues([hdr]);
+  sh.setFrozenRows(1);
+  try { sh.getRange(1, 1, 1, hdr.length).setFontWeight('bold'); } catch (e) {}
+  return sh;
+}
+
 function readCollection_(key) {
   var def = COLLECTION_MAP[key];
   var hit = cacheGet_('col:' + def.sheet); if (hit) return hit;
-  var sh = wbOf_(def.wb).getSheetByName(def.sheet);
+  var sh = wbOf_(def.wb).getSheetByName(def.sheet) || ensureCollectionSheet_(def);
   if (!sh) return [];
   var alias = FIELD_ALIAS[def.sheet] || {};
   var rows = readObjects_(sh).map(function (r) { var o = {}; for (var col in r) o[alias[col] || col] = decodeCell_(r[col]); return o; });
   cachePut_('col:' + def.sheet, rows); return rows;
 }
-function writeCollection_(key, list) { writeRows_(COLLECTION_MAP[key].wb, COLLECTION_MAP[key].sheet, list, FIELD_ALIAS[COLLECTION_MAP[key].sheet] || {}); }
+function writeCollection_(key, list) {
+  var def = COLLECTION_MAP[key];
+  ensureCollectionSheet_(def);                 // a sheet that does not exist would swallow the write
+  writeRows_(def.wb, def.sheet, list, FIELD_ALIAS[def.sheet] || {});
+}
 
 // Sheets whose rows must NEVER disappear via a full-collection rewrite. Every legitimate deletion
 // there goes through an explicit in-place route (deleteRow). So ANY shrink here is a truncation bug

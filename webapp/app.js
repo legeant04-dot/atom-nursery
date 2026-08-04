@@ -112,7 +112,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.192'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.193'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -1258,6 +1258,9 @@
       ${kidsHtml}
       <h3 style="margin:6px 2px">📒 ${EN()?'Journal of':'บันทึกของ'} ${esc(dispNick(k0))} ${EN()?'today':'วันนี้'}</h3>${j?journalChecklist(j,{parentEditable:true,student:k0}):waitCard()}
       <div class="card"><div class="spread"><h3>🏠 แจ้งลาบุตรหลาน</h3><button class="btn sm outline" onclick="P_absence()">+ แจ้งลา</button></div>${slHtml}</div>
+      <div id="svCard"></div>
+      <div class="card"><div class="spread"><h3>🍚 ${EN()?'Food menu':'เมนูอาหาร'}</h3><button class="btn sm outline" onclick="P_menu('${k0.StudentID}')">${EN()?'View':'ดูเมนู'}</button></div>
+        <small class="muted">${EN()?'This month\'s menu for':'เมนูเดือนนี้ของชั้น'} ${esc(k0.Class||'')}</small></div>
       <div class="card" id="insCard"></div>
       <div class="card"><h3>📢 ประกาศจากโรงเรียน</h3>${(()=>{ const td=todayStr(); const act=(anns||[]).filter(a=>(!a.StartDate||ymd(a.StartDate)<=td)&&(!a.EndDate||ymd(a.EndDate)>=td)); return act.length?act.map(annRow).join(''):`<small class="muted">${EN()?'No announcements from the school yet':'ยังไม่มีประกาศจากทางโรงเรียน'}</small>`; })()}</div>
       ${kids.length>1?`<div class="seg" id="calSeg" style="margin:14px 2px 6px">${kids.map((k,i)=>`<button class="${i===0?'active':''}" onclick="P_calSel(${i})">🗓️ ${esc(dispNick(k))}</button>`).join('')}</div>`:''}
@@ -1265,6 +1268,15 @@
       ${socialFooter()}`;
     // insurance status per child (parent fills once; shows "กรอกแล้ว" if done)
     try{ const sts=await Promise.all(kids.map(k=>api('insuranceStatus',{studentId:k.StudentID})));
+      // an open survey is offered, never forced: a dismissible card, and answering is one tap
+      api('openSurveys',parentScope()).then(list=>{
+        const open=(list||[]).filter(s=>!s.answered);
+        if(!open.length) return;
+        setHTML('#svCard', open.slice(0,2).map(s=>`<div class="card" style="border-color:var(--brand-line);background:var(--brand-soft)">
+          <div class="spread"><b>💬 ${esc(s.title)}</b>${s.anonymous?`<span class="pill info" style="font-size:11px">${EN()?'anonymous':'ไม่ระบุชื่อ'}</span>`:''}</div>
+          ${s.description?`<small class="muted">${esc(s.description)}</small>`:''}
+          <button class="btn sm block" style="margin-top:8px" onclick="P_survey('${esc(s.surveyId)}')">${EN()?'Answer — it takes a moment':'ร่วมตอบแบบสอบถาม ใช้เวลาไม่ถึงนาที'}</button></div>`).join(''));
+      }).catch(()=>{});
       setHTML('#insCard', `<h3>🛡️ ${esc(t('ins2.manage'))}</h3>`+kids.map((k,i)=>{ const f=sts[i].filled;
         return `<div class="list-item"><span><b>${esc(dispNick(k))}</b> <span class="pill ${f?'ok':'wait'}">${f?'✓ '+esc(t('ins2.filled')):esc(t('ins2.notFilled'))}</span></span>
           <button class="btn sm ${f?'outline':''}" onclick="P_insurance('${k.StudentID}')">${f?esc(t('lbl.view')):esc(t('ins2.btn'))}</button></div>`; }).join(''));
@@ -1803,6 +1815,60 @@
   const DT=new Proxy({},{get:(_,k)=>t(DT_KEY[k]||k)});
   // ---- MODULE 1: การเจริญเติบโต (weight/height chart + vaccine) — separate page ----
   SCREENS.Parent.growth = async () => { const kids=await api('parentChildren',parentScope()); if(!kids.length){GO('home');return;} P_growth(kids[0].StudentID); };
+  /* ================= Phase 7: what the PARENT sees ==========================================
+   * Menu: only their own child's class, resolved server-side so it can never be the wrong one.
+   * Survey: a card on the home screen while one is open for them, answerable in one tap.
+   */
+  window.P_menu = async (sid, month) => {
+    const d = await api('myFoodMenu', Object.assign({}, parentScope(), sid?{studentId:sid}:{}, month?{month}:{}), {fresh:true});
+    const by={}; (d.days||[]).forEach(x=>by[x.date]=x);
+    const today=todayStr();
+    const rows=fmDays(d.month).map(ds=>{ const v=by[ds]; if(!v) return '';
+      const meals=FM_MEALS.filter(([k])=>v[k]).map(([k,lb])=>`<div class="list-item" style="padding:3px 0"><span class="muted" style="min-width:96px">${esc(lb())}</span><span>${esc(v[k])}</span></div>`).join('');
+      if(!meals && !v.note) return '';
+      return `<div class="card" style="padding:8px;${ds===today?'border-color:var(--brand);box-shadow:0 0 0 2px var(--brand-soft)':''}">
+        <div class="spread"><b>${esc(ds)} (${esc(fmDow(ds))}.)</b>${ds===today?`<span class="pill ok" style="font-size:11px">${EN()?'today':'วันนี้'}</span>`:''}</div>
+        ${meals}${v.note?`<small class="muted">📌 ${esc(v.note)}</small>`:''}</div>`; }).join('');
+    const kidSel=(d.kids||[]).length>1?`<label class="field"><span>${EN()?'Child':'บุตรหลาน'}</span><select onchange="P_menu(this.value,'${esc(d.month)}')">${
+      (d.kids||[]).map(k=>`<option value="${esc(k.studentId)}"${k.studentId===d.studentId?' selected':''}>${esc(k.nick||k.name)} (${esc(k.cls||'')})</option>`).join('')}</select></label>`:'';
+    modal(`<h3>🍚 ${EN()?'Food menu':'เมนูอาหาร'} — ${esc(d.className||'')}</h3>
+      ${kidSel}
+      <label class="field"><span>${esc(t('c.month'))}</span><input type="month" value="${esc(d.month)}" onchange="P_menu('${esc(d.studentId)}',this.value)"/></label>
+      <div style="max-height:60vh;overflow:auto">${rows||`<div class="card muted">${EN()?'No menu published for this month yet.':'เดือนนี้ยังไม่มีเมนูอาหาร'}</div>`}</div>
+      <button class="btn outline block" style="margin-top:8px" onclick="this.closest('.modal').remove()">${esc(t('c.close'))}</button>`);
+  };
+  window.P_survey = async (id) => {
+    const list = await api('openSurveys', parentScope(), {fresh:true});
+    // with no id, offer something they have NOT answered yet rather than reopening an old answer
+    const s = list.find(x=>x.surveyId===id) || list.find(x=>!x.answered) || list[0];
+    if(!s){ toast(EN()?'No survey open':'ยังไม่มีแบบสอบถาม'); return; }
+    const a = s.myAnswer||{};
+    const faces = s.type==='rating' ? `<div class="row" style="justify-content:space-between;margin:10px 0">${
+      SV_FACE.map((f,i)=>`<button type="button" class="btn outline" id="svf${i+1}" style="flex:1;font-size:30px;padding:10px 0${a.rating===i+1?';border-color:var(--brand);background:var(--brand-soft)':''}" onclick="P_svPick(${i+1})">${f}</button>`).join('')}</div>
+      <div style="text-align:center" class="muted"><small>${EN()?'1 = not happy · 5 = very happy':'1 = ไม่พอใจ · 5 = พอใจมาก'}</small></div>` : '';
+    const votes = s.type==='vote' ? `<div style="margin:8px 0">${s.options.map((o,i)=>
+      `<label class="field" style="display:flex;align-items:center;gap:8px"><input type="radio" name="svv" value="${esc(o)}" style="width:auto" ${a.choice===o?'checked':''}/> ${esc(o)}</label>`).join('')}</div>` : '';
+    modal(`<h3>💬 ${esc(s.title)}</h3>
+      ${s.description?`<p class="muted" style="font-size:14px">${esc(s.description)}</p>`:''}
+      ${s.anonymous?`<p class="muted" style="font-size:13px">🕶️ ${EN()?'Anonymous — the school will not see who answered.':'ไม่ระบุชื่อ — โรงเรียนจะไม่เห็นว่าใครตอบ'}</p>`:''}
+      ${faces}${votes}
+      <label class="field"><span>${s.type==='comment'?(EN()?'Your comment':'ความคิดเห็นของคุณ'):(EN()?'Anything to add? (optional)':'อยากบอกอะไรเพิ่มไหม (ถ้ามี)')}</span><textarea id="svC" rows="3">${esc(a.comment||'')}</textarea></label>
+      ${s.answered?`<p class="muted" style="font-size:13px">✅ ${EN()?'You already answered — saving again updates your answer.':'คุณตอบไปแล้ว — บันทึกอีกครั้งจะเป็นการแก้ไขคำตอบเดิม'}</p>`:''}
+      <button class="btn block" onclick="P_svSend('${esc(s.surveyId)}','${esc(s.type)}',this)">${s.answered?(EN()?'Update my answer':'แก้ไขคำตอบ'):(EN()?'Send':'ส่งคำตอบ')}</button>`);
+    window.__SVR = a.rating||0;
+  };
+  window.P_svPick=(n)=>{ window.__SVR=n;
+    for(let i=1;i<=5;i++){ const b=document.getElementById('svf'+i); if(!b)continue;
+      b.style.borderColor = i===n?'var(--brand)':''; b.style.background = i===n?'var(--brand-soft)':''; } };
+  window.P_svSend=async(id,type,btn)=>{ const m=btn.closest('.modal');
+    const choice=(m.querySelector('input[name=svv]:checked')||{}).value||'';
+    const comment=(m.querySelector('#svC')||{}).value||'';
+    if(btn)btn.disabled=true;
+    try{ const r=await api('submitSurvey',Object.assign({},parentScope(),{surveyId:id,rating:window.__SVR||0,choice,comment}));
+      m.remove(); confirmSaved(r.updated?(EN()?'Answer updated — thank you':'แก้ไขคำตอบแล้ว ขอบคุณค่ะ'):(EN()?'Thank you!':'ขอบคุณสำหรับความคิดเห็นค่ะ 🙏'));
+      GO('home');
+    }catch(e){err(e); if(btn)btn.disabled=false;} };
+
   window.P_growth = async (sid) => { setNav('growth');
     const [rg,rvs,rvr,rk]=await Promise.allSettled([
       api('growthHistory',{studentId:sid}),api('vaccineSchedule'),api('studentVaccines',{studentId:sid}),api('parentChildren',parentScope())]);
@@ -3229,6 +3295,8 @@
         ['🏠',t('slv.title'),"GO_('studentLeaves')"],
         ['🛡️',t('ins2.manage'),'A_insurance()'],
         ['📈',t('dspm.manageTitle'),"GO_('dspmCriteria')"],
+        ['🍚',EN()?'Food menu':'เมนูอาหาร','A_foodMenu()'],
+        ['💬',EN()?'Satisfaction survey':'แบบสอบถามความพึงพอใจ','A_surveys()'],
         ['📜',t('act.open'),'A_activityLog()'],
       ]},
       {t:EN()?'⚙️ System settings':'⚙️ ตั้งค่าระบบ', items:[
@@ -4122,6 +4190,175 @@
       const m=btn.closest('.modal'); if(m)m.remove();
       toast((EN()?'Cleared ':'ล้างแล้ว ')+(r&&r.cleared!=null?r.cleared:0)+(EN()?' rows':' แถว'));
     }catch(e){err(e);}finally{ if(btn)btn.disabled=false; } };
+
+  /* ================= Phase 7a: food menu (Admin edits by class + month) =======================
+   * One class, one month, one screen. The kitchen plans per class, and a parent must never have to
+   * work out which of five menus applies to their child — so the parent view resolves the class for
+   * them and the A4 sheet is printed per class.
+   */
+  let FM_CLASS=null, FM_MONTH=null;
+  const FM_MEALS=[['breakfast',()=>EN()?'Breakfast':'อาหารเช้า'],['snackAM',()=>EN()?'Morning snack':'ว่างเช้า'],
+                  ['lunch',()=>EN()?'Lunch':'อาหารกลางวัน'],['snackPM',()=>EN()?'Afternoon snack':'ว่างบ่าย']];
+  const fmDays=(month)=>{ const [y,m]=month.split('-').map(Number); const n=new Date(y,m,0).getDate(); const out=[];
+    for(let d=1;d<=n;d++) out.push(`${month}-${String(d).padStart(2,'0')}`); return out; };
+  const fmDow=ds=>['อา','จ','อ','พ','พฤ','ศ','ส'][new Date(ds+'T00:00:00').getDay()];
+  const fmWeekend=ds=>{ const g=new Date(ds+'T00:00:00').getDay(); return g===0||g===6; };
+
+  window.A_foodMenu=async()=>{
+    // Classes come from departments ∪ CLASSES ∪ whatever students are actually in — the same union the
+    // dashboard uses, because CLASSES only holds rows that have a homeroom teacher.
+    const [deps,cls,studs]=await Promise.all([
+      api('listDepartments').catch(()=>[]), api('listClasses').catch(()=>[]),
+      (A_CACHE.students&&A_CACHE.students.length)?Promise.resolve(A_CACHE.students):api('listStudents').catch(()=>[])]);
+    const list=[...new Set([].concat(
+      (deps||[]).map(d=>typeof d==='string'?d:(d.name||d.Name||'')),
+      (cls||[]).map(c=>c.ClassName||c.className||''),
+      (studs||[]).map(s=>s.Class||'')).filter(Boolean))].sort();
+    FM_CLASS=FM_CLASS||list[0]||''; FM_MONTH=FM_MONTH||monthStr();
+    if(!FM_CLASS){ toast(EN()?'No classes yet':'ยังไม่มีชั้นเรียน'); return; }
+    const d=await api('foodMenu',{className:FM_CLASS,month:FM_MONTH},{fresh:true});
+    const by={}; (d.days||[]).forEach(x=>by[x.date]=x);
+    const rows=fmDays(FM_MONTH).map(ds=>{ const v=by[ds]||{}; const we=fmWeekend(ds);
+      return `<div class="card" style="padding:8px;${we?'background:var(--surface-2);opacity:.75':''}">
+        <div class="spread"><b>${esc(ds.slice(8))} ${esc(fmDow(ds))}.</b><small class="muted">${esc(ds)}</small></div>
+        <div class="grid2" style="margin-top:4px">${FM_MEALS.map(([k,lb])=>
+          `<label class="field"><span>${esc(lb())}</span><input id="fm_${k}_${ds}" value="${esc(v[k]||'')}" placeholder="-"/></label>`).join('')}</div>
+        <label class="field"><span>${EN()?'Note':'หมายเหตุ'}</span><input id="fm_note_${ds}" value="${esc(v.note||'')}" placeholder="${EN()?'e.g. birthday cake':'เช่น มีเค้กวันเกิด'}"/></label></div>`;
+    }).join('');
+    modal(`<h3>🍚 ${EN()?'Food menu':'เมนูอาหาร'}</h3>
+      <div class="grid2">
+        <label class="field"><span>${EN()?'Class':'ชั้นเรียน'}</span><select id="fmCls" onchange="A_fmPick(this.value,null)">${
+          list.map(c=>`<option value="${esc(c)}"${c===FM_CLASS?' selected':''}>${esc(c)}</option>`).join('')}</select></label>
+        <label class="field"><span>${esc(t('c.month'))}</span><input type="month" value="${esc(FM_MONTH)}" onchange="A_fmPick(null,this.value)"/></label></div>
+      <p class="muted" style="font-size:13px">${EN()?'Leave a day blank to remove it. Parents see only their own child\'s class.':'เว้นว่างไว้ = ไม่มีเมนูวันนั้น · ผู้ปกครองจะเห็นเฉพาะชั้นของลูกตัวเอง'}</p>
+      <div class="row" style="gap:8px;margin-bottom:6px">
+        <button class="btn sm" style="flex:1" onclick="A_fmSave(this)">💾 ${esc(t('c.save'))}</button>
+        <button class="btn sm outline" style="flex:1" onclick="A_fmExport('pdf',this)">📕 A4 PDF</button>
+        <button class="btn sm outline" style="flex:1" onclick="A_fmExport('jpg',this)">🖼️ ${EN()?'Image':'รูป'}</button></div>
+      <div style="max-height:56vh;overflow:auto">${rows}</div>
+      <button class="btn outline block" style="margin-top:8px" onclick="this.closest('.modal').remove()">${esc(t('c.close'))}</button>`);
+  };
+  window.A_fmPick=(cls,month)=>{ if(cls)FM_CLASS=cls; if(month)FM_MONTH=month;
+    const m=document.querySelector('.modal'); if(m)m.remove(); A_foodMenu(); };
+  window.A_fmCollect=()=>fmDays(FM_MONTH).map(ds=>{ const g=k=>{const e=document.getElementById('fm_'+k+'_'+ds); return e?e.value.trim():'';};
+    return {date:ds, breakfast:g('breakfast'), snackAM:g('snackAM'), lunch:g('lunch'), snackPM:g('snackPM'), note:g('note')}; });
+  window.A_fmSave=async(btn)=>{ if(btn)btn.disabled=true;
+    try{ await api('saveFoodMenu',{staffId:USER.staffId,className:FM_CLASS,month:FM_MONTH,days:A_fmCollect()});
+      confirmSaved(t('c.saved'));
+    }catch(e){err(e);}finally{ if(btn)btn.disabled=false; } };
+  window.A_fmExport=async(kind,btn)=>{ const old=btn?btn.innerHTML:'';
+    if(btn){ btn.disabled=true; btn.innerHTML='⏳'; }
+    try{
+      await window.__atomLoadScript('report_card.js',()=>!!window.AtomReportCard);
+      await AtomReportCard.saveMenu({className:FM_CLASS, month:FM_MONTH, days:A_fmCollect(),
+        school:{name:'Atom Nursery'}, generatedAt:new Date().toISOString().slice(0,16).replace('T',' ')}, kind);
+      toast(EN()?'Saved to your device':'บันทึกลงเครื่องแล้ว');
+    }catch(e){ err(e); }finally{ if(btn){ btn.disabled=false; btn.innerHTML=old; } } };
+
+  /* ================= Phase 7b: satisfaction survey (Admin) ================================= */
+  const SV_TYPE=t0=>({rating:EN()?'1-5 faces':'ให้คะแนน 1-5',vote:EN()?'Choose one':'เลือกตอบ',comment:EN()?'Comment only':'ความคิดเห็น'})[t0]||t0;
+  const SV_FACE=['😡','🙁','😐','🙂','😍'];
+  window.A_surveys=async()=>{
+    const list=await api('surveys',{staffId:USER.staffId},{fresh:true});
+    const row=s=>`<div class="card" style="padding:8px">
+      <div class="spread"><b>${esc(s.title)}</b><span class="pill ${s.status==='OPEN'?'ok':'info'}" style="font-size:11px">${s.status==='OPEN'?(EN()?'open':'เปิดรับ'):(EN()?'closed':'ปิดแล้ว')}</span></div>
+      <small class="muted">${esc(SV_TYPE(s.type))} · ${esc(s.scope==='all'?(EN()?'everyone':'ทุกคน'):(s.scope==='class'?(EN()?'class ':'ชั้น ')+s.target:(EN()?'one child':'รายบุคคล')))}${s.anonymous?' · '+(EN()?'anonymous':'ไม่ระบุชื่อ'):''} · ${EN()?'answers':'คำตอบ'} <b>${s.responses}</b></small>
+      <div class="row" style="gap:6px;margin-top:6px">
+        <button class="btn sm outline" onclick="A_svResults('${esc(s.surveyId)}')">📊 ${EN()?'Results':'ผลลัพธ์'}</button>
+        <button class="btn sm outline" onclick="A_svForm('${esc(s.surveyId)}')">✏️ ${esc(t('c.edit')||'แก้ไข')}</button>
+        <button class="btn sm outline" onclick="A_svClose('${esc(s.surveyId)}',${s.status==='OPEN'?'false':'true'})">${s.status==='OPEN'?'🔒 '+(EN()?'Close':'ปิดรับ'):'🔓 '+(EN()?'Reopen':'เปิดใหม่')}</button>
+        <button class="btn sm pink" onclick="A_svDelete('${esc(s.surveyId)}')">🗑️</button></div></div>`;
+    modal(`<h3>💬 ${EN()?'Satisfaction survey':'แบบสอบถามความพึงพอใจ'}</h3>
+      <div class="row" style="gap:8px;margin-bottom:6px">
+        <button class="btn sm" style="flex:1" onclick="A_svForm('')">+ ${EN()?'New survey':'สร้างแบบสอบถาม'}</button>
+        <button class="btn sm outline" style="flex:1" onclick="A_svMonth()">📅 ${EN()?'Monthly summary':'สรุปรายเดือน'}</button></div>
+      <div style="max-height:60vh;overflow:auto">${list.length?list.map(row).join(''):`<div class="card muted">${EN()?'No surveys yet':'ยังไม่มีแบบสอบถาม'}</div>`}</div>
+      <button class="btn outline block" style="margin-top:8px" onclick="this.closest('.modal').remove()">${esc(t('c.close'))}</button>`);
+  };
+  window.A_svForm=async(id)=>{
+    // the manage screen may not have been opened yet, so never assume the cache is warm
+    const [list,studs]=await Promise.all([
+      id?api('surveys',{staffId:USER.staffId}):Promise.resolve([]),
+      (A_CACHE.students&&A_CACHE.students.length)?Promise.resolve(A_CACHE.students):api('listStudents').catch(()=>[])]);
+    A_CACHE.students=studs||[];
+    const s=list.find(x=>x.surveyId===id)||{type:'rating',scope:'all',options:[],status:'OPEN'};
+    const classes=[...new Set((A_CACHE.students||[]).map(x=>x.Class).filter(Boolean))];
+    const kids=(A_CACHE.students||[]).filter(x=>x.Status!=='WITHDRAWN');
+    modal(`<h3>${id?'✏️ '+(EN()?'Edit survey':'แก้ไขแบบสอบถาม'):'➕ '+(EN()?'New survey':'สร้างแบบสอบถาม')}</h3>
+      <label class="field"><span>${EN()?'Title':'หัวข้อ'}</span><input id="svT" value="${esc(s.title||'')}" placeholder="${EN()?'e.g. How happy are you with the food?':'เช่น พอใจกับอาหารกลางวันแค่ไหน'}"/></label>
+      <label class="field"><span>${EN()?'Description (optional)':'คำอธิบาย (ถ้ามี)'}</span><textarea id="svD">${esc(s.description||'')}</textarea></label>
+      <div class="grid2">
+        <label class="field"><span>${EN()?'Answer type':'รูปแบบคำตอบ'}</span><select id="svType" onchange="A_svTypeChg(this.value)">
+          ${['rating','vote','comment'].map(x=>`<option value="${x}"${s.type===x?' selected':''}>${esc(SV_TYPE(x))}</option>`).join('')}</select></label>
+        <label class="field"><span>${EN()?'Ask who?':'ถามใคร'}</span><select id="svScope" onchange="A_svScopeChg(this.value)">
+          <option value="all"${s.scope==='all'?' selected':''}>${EN()?'Everyone':'ผู้ปกครองทุกคน'}</option>
+          <option value="class"${s.scope==='class'?' selected':''}>${EN()?'One class':'เฉพาะชั้นเรียน'}</option>
+          <option value="student"${s.scope==='student'?' selected':''}>${EN()?'One child':'รายบุคคล'}</option></select></label></div>
+      <div id="svOptBox" ${s.type==='vote'?'':'hidden'}><label class="field"><span>${EN()?'Options (one per line)':'ตัวเลือก (บรรทัดละ 1 ข้อ)'}</span><textarea id="svOpts" rows="4">${esc((s.options||[]).join('\n'))}</textarea></label></div>
+      <div id="svTgtBox" ${s.scope==='all'?'hidden':''}><label class="field"><span>${EN()?'Target':'เป้าหมาย'}</span><select id="svTgt">
+        ${s.scope==='student'?kids.map(k=>`<option value="${esc(k.StudentID)}"${s.target===k.StudentID?' selected':''}>${esc(dispNick(k))} (${esc(k.Class||'')})</option>`).join('')
+                             :classes.map(c=>`<option value="${esc(c)}"${s.target===c?' selected':''}>${esc(c)}</option>`).join('')}</select></label></div>
+      <div class="grid2">
+        <label class="field"><span>${EN()?'Open from':'เริ่ม'}</span><input type="date" id="svS" value="${esc(s.startDate||todayStr())}"/></label>
+        <label class="field"><span>${EN()?'Until (optional)':'ถึง (ถ้ามี)'}</span><input type="date" id="svE" value="${esc(s.endDate||'')}"/></label></div>
+      <label class="field" style="display:flex;align-items:center;gap:8px"><input type="checkbox" id="svAnon" style="width:auto" ${s.anonymous?'checked':''}/> 🕶️ ${EN()?'Anonymous — never show who said what':'ไม่ระบุชื่อผู้ตอบ — ระบบจะไม่แสดงว่าใครตอบอะไร'}</label>
+      <p class="muted" style="font-size:12px">${EN()?'Once promised, this is kept: an anonymous survey never returns names, even to an admin.':'เมื่อเลือกแล้วระบบจะไม่คืนชื่อผู้ตอบให้ใครเลย แม้แต่แอดมิน'}</p>
+      <button class="btn block" onclick="A_svSave('${esc(id||'')}',this)">${esc(t('c.save'))}</button>`);
+  };
+  window.A_svTypeChg=(v)=>{ const b=document.getElementById('svOptBox'); if(b)b.hidden=(v!=='vote'); };
+  window.A_svScopeChg=(v)=>{ const b=document.getElementById('svTgtBox'); if(b)b.hidden=(v==='all');
+    const m=document.querySelector('.modal'); if(!m)return; const sel=m.querySelector('#svTgt'); if(!sel)return;
+    const classes=[...new Set((A_CACHE.students||[]).map(x=>x.Class).filter(Boolean))];
+    const kids=(A_CACHE.students||[]).filter(x=>x.Status!=='WITHDRAWN');
+    sel.innerHTML = v==='student' ? kids.map(k=>`<option value="${esc(k.StudentID)}">${esc(dispNick(k))} (${esc(k.Class||'')})</option>`).join('')
+                                  : classes.map(c=>`<option value="${esc(c)}">${esc(c)}</option>`).join(''); };
+  window.A_svSave=async(id,btn)=>{ const m=btn.closest('.modal'); const g=x=>{const e=m.querySelector('#'+x);return e?e.value:'';};
+    if(btn)btn.disabled=true;
+    try{ await api('saveSurvey',{staffId:USER.staffId,survey:{ surveyId:id||undefined, title:g('svT'), description:g('svD'),
+        type:g('svType'), scope:g('svScope'), target:g('svTgt'),
+        options:g('svOpts').split('\n').map(x=>x.trim()).filter(Boolean),
+        startDate:g('svS'), endDate:g('svE'), anonymous:!!m.querySelector('#svAnon').checked }});
+      m.remove(); confirmSaved(t('c.saved')); A_surveys();
+    }catch(e){err(e); if(btn)btn.disabled=false;} };
+  window.A_svClose=async(id,reopen)=>{ try{ await api('setSurveyStatus',{staffId:USER.staffId,surveyId:id,reopen});
+    const m=document.querySelector('.modal'); if(m)m.remove(); A_surveys(); }catch(e){err(e);} };
+  window.A_svDelete=async(id)=>{ if(!confirm(EN()?'Delete this survey AND every answer given to it?':'ลบแบบสอบถามนี้ พร้อมคำตอบทั้งหมดที่ผู้ปกครองตอบมา?'))return;
+    try{ const r=await api('deleteSurvey',{staffId:USER.staffId,surveyId:id});
+      const m=document.querySelector('.modal'); if(m)m.remove();
+      toast((EN()?'Deleted · answers removed ':'ลบแล้ว · ลบคำตอบ ')+(r.removedResponses||0)); A_surveys(); }catch(e){err(e);} };
+  window.A_svResults=async(id)=>{
+    const d=await api('surveyResults',{staffId:USER.staffId,surveyId:id},{fresh:true});
+    const max=Math.max(1,...(d.dist||[0]));
+    const bars=(d.type==='rating')?(d.dist||[]).map((n,i)=>`<div style="display:flex;align-items:center;gap:8px;margin:3px 0">
+        <span style="width:28px;font-size:20px">${SV_FACE[i]}</span><span class="muted" style="width:16px">${i+1}</span>
+        <div style="flex:1;height:14px;background:var(--line);border-radius:7px;overflow:hidden"><div style="height:100%;width:${n/max*100}%;background:var(--brand)"></div></div>
+        <b style="width:32px;text-align:right">${n}</b></div>`).join(''):'';
+    const votes=(d.type==='vote')?Object.keys(d.tally||{}).map(k=>`<div class="list-item"><span>${esc(k)}</span><b>${d.tally[k]}</b></div>`).join(''):'';
+    const cms=(d.comments||[]).map(c=>`<div class="card" style="padding:8px;margin:4px 0"><div style="font-size:14px">${esc(c.comment)}</div>
+      <small class="muted">${c.rating?SV_FACE[c.rating-1]+' ':''}${esc(c.who||(EN()?'anonymous':'ไม่ระบุชื่อ'))} · ${esc(String(c.at||'').slice(0,16))}</small></div>`).join('');
+    modal(`<h3>📊 ${esc(d.title)}</h3>
+      <div class="kpigrid" style="margin-bottom:8px">
+        <div class="kpi"><b>${d.responses}</b><small>${EN()?'answers':'คำตอบ'}</small></div>
+        ${d.average!=null?`<div class="kpi"><b style="color:var(--brand)">${d.average}</b><small>${EN()?'average (of 5)':'ค่าเฉลี่ย (เต็ม 5)'}</small></div>`:''}
+        <div class="kpi"><b>${(d.comments||[]).length}</b><small>${EN()?'comments':'ข้อความ'}</small></div></div>
+      ${bars?`<div class="card" style="padding:8px">${bars}</div>`:''}
+      ${votes?`<div class="card" style="padding:8px">${votes}</div>`:''}
+      ${d.anonymous?`<p class="muted" style="font-size:13px">🕶️ ${EN()?'Anonymous survey — names are never returned, not even here.':'แบบสอบถามไม่ระบุชื่อ — ระบบไม่คืนชื่อผู้ตอบ แม้ในหน้านี้'}</p>`:''}
+      ${cms?`<h4 style="margin:10px 0 4px">${EN()?'Comments':'ความคิดเห็น'}</h4><div style="max-height:40vh;overflow:auto">${cms}</div>`:`<p class="muted" style="font-size:13px">${EN()?'No written comments yet.':'ยังไม่มีข้อความ'}</p>`}
+      <button class="btn outline block" style="margin-top:8px" onclick="this.closest('.modal').remove();A_surveys()">${esc(t('c.close'))}</button>`);
+  };
+  window.A_svMonth=async(month)=>{ const m0=month||monthStr();
+    const d=await api('surveySummary',{staffId:USER.staffId,month:m0},{fresh:true});
+    modal(`<h3>📅 ${EN()?'Survey summary':'สรุปแบบสอบถาม'} ${esc(m0)}</h3>
+      <label class="field"><span>${esc(t('c.month'))}</span><input type="month" value="${esc(m0)}" onchange="this.closest('.modal').remove();A_svMonth(this.value)"/></label>
+      <div class="kpigrid" style="margin-bottom:8px">
+        <div class="kpi"><b>${d.responses}</b><small>${EN()?'answers':'คำตอบ'}</small></div>
+        <div class="kpi"><b style="color:var(--brand)">${d.average!=null?d.average:'-'}</b><small>${EN()?'average (of 5)':'ค่าเฉลี่ย (เต็ม 5)'}</small></div></div>
+      ${(d.surveys||[]).length?(d.surveys||[]).map(s=>`<div class="list-item"><span>${esc(s.title)}<br><small class="muted">${esc(SV_TYPE(s.type))}</small></span>
+        <span style="text-align:right"><b>${s.responses}</b>${s.average!=null?`<br><small class="muted">${EN()?'avg':'เฉลี่ย'} ${s.average}</small>`:''}</span></div>`).join('')
+        :`<div class="card muted">${EN()?'No answers this month':'เดือนนี้ยังไม่มีคำตอบ'}</div>`}
+      <button class="btn outline block" style="margin-top:8px" onclick="this.closest('.modal').remove();A_surveys()">${esc(t('c.close'))}</button>`);
+  };
 
   // Big Cleaning Day add/remove — persist immediately (also save the amount field first so it isn't lost)
   window.A_bcAdd=async()=>{ const d=document.getElementById('bcDate').value; if(!d){toast(EN()?'Pick a date':'เลือกวันที่');return;}

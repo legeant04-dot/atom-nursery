@@ -203,6 +203,12 @@ function createAtomAPI(M, GROWTH_STD) {
   const otNum_=v=>{ const n=Number(v); return isFinite(n)&&n>0?n:0; };
   const otFullOf_=o=>{ const f=Number(o&&o.FullAmount); return (isFinite(f)&&f>0)?f:otNum_(o&&o.Amount); };
   const otDiscOf_=(o,full)=>Math.min(otNum_(o&&o.Discount), otNum_(full));
+  // ---- survey row -> the shape every screen reads (Options is stored as JSON in one cell) ----
+  function surveyView_(s){ let opts=[]; try{ opts=JSON.parse(s.Options||'[]')||[]; }catch(e){ opts=[]; }
+    return { surveyId:s.SurveyID, title:s.Title||'', description:s.Description||'', type:s.Type||'rating',
+      options:opts, scope:s.Scope||'all', target:s.Target||'', startDate:ymd(s.StartDate||''),
+      endDate:ymd(s.EndDate||''), status:s.Status||'OPEN', anonymous:String(s.Anonymous||'')==='YES',
+      createdAt:s.CreatedAt||'' }; }
   // Re-settle an OT row against its slips after its AMOUNT changed. Only when it actually has slips:
   // recomputeTarget_'s "nothing submitted" branch stamps VerifiedStatus='REJECTED', which would be a
   // lie on a row nobody has ever paid towards. Returns the new status if it moved, else null.
@@ -1541,6 +1547,160 @@ function createAtomAPI(M, GROWTH_STD) {
         school:{ name: cfg.SchoolName||'Atom Nursery' },
         generatedAt: stampLocal()
       }; },
+
+    /* ================= Phase 7a: food menu, per class, per month =========================
+     * The kitchen plans by class (the babies do not eat what Nursery 3 eats), so the menu is stored
+     * one row per class per DAY. A parent is shown ONLY their own child's class — they should not
+     * have to work out which of five menus applies to them.
+     */
+    foodMenu: p => { const cls=String(p.className||''); const month=ym(p.month||todayLocal().slice(0,7));
+      const rows=(M.foodMenus||[]).filter(r=>String(r.Class)===cls && ym(r.Date)===month)
+        .sort((a,b)=>String(a.Date).localeCompare(String(b.Date)));
+      return { className:cls, month,
+        days: rows.map(r=>({ date:ymd(r.Date), breakfast:r.Breakfast||'', snackAM:r.SnackAM||'',
+          lunch:r.Lunch||'', snackPM:r.SnackPM||'', note:r.Note||'' })),
+        updatedAt: rows.reduce((a,r)=>String(r.UpdatedAt||'')>a?String(r.UpdatedAt):a,'') }; },
+
+    /** Parent view: resolve the child's class for them, so the menu is never the wrong one. */
+    myFoodMenu: p => { const kids=visibleStudents(p);
+      const kid = p.studentId ? kids.find(s=>s.StudentID===p.studentId) : kids[0];
+      if(!kid) fail('NOT_FOUND','ไม่พบนักเรียน');
+      const r=H.foodMenu({ className:kid.Class, month:p.month });
+      r.studentId=kid.StudentID; r.nick=kid.Nickname||''; r.name=kid.NameTH||'';
+      r.kids=kids.map(s=>({studentId:s.StudentID, nick:s.Nickname||'', name:s.NameTH||'', cls:s.Class}));
+      return r; },
+
+    /** Admin saves a whole month for one class in one go (one round trip, one consistent picture). */
+    saveFoodMenu: p => { const ap=staffById(p.staffId)||{};
+      if(ap.PositionLevel!=='Admin'&&ap.Role!=='Admin') fail('NO_PERMISSION','เฉพาะแอดมิน');
+      const cls=String(p.className||''); if(!cls) fail('BAD_INPUT','ระบุชั้นเรียน');
+      const month=ym(p.month||todayLocal().slice(0,7));
+      M.foodMenus=M.foodMenus||[];
+      const stamp=stampLocal();
+      (p.days||[]).forEach(d=>{
+        const date=ymd(d.date); if(!date || ym(date)!==month) return;      // never write outside the month being edited
+        const blank=!(d.breakfast||d.snackAM||d.lunch||d.snackPM||d.note);
+        const i=M.foodMenus.findIndex(r=>String(r.Class)===cls && ymd(r.Date)===date);
+        if(blank){ if(i>=0) M.foodMenus.splice(i,1); return; }             // clearing a day removes it
+        const rec={ MenuID:'FM-'+cls.replace(/\s+/g,'')+'-'+date, Class:cls, Date:date,
+          Breakfast:d.breakfast||'', SnackAM:d.snackAM||'', Lunch:d.lunch||'', SnackPM:d.snackPM||'',
+          Note:d.note||'', UpdatedBy:p.staffId||'', UpdatedAt:stamp };
+        if(i>=0) M.foodMenus[i]=Object.assign(M.foodMenus[i],rec); else M.foodMenus.push(rec);
+      });
+      logAct('saveFoodMenu',cls,month+' ('+(p.days||[]).length+' วัน)',actorOf(p));
+      return H.foodMenu({className:cls, month}); },
+
+    /* ================= Phase 7b: satisfaction survey ====================================
+     * Three shapes, because a school asks three different kinds of question:
+     *   rating  — 1..5 faces ("how happy are you with…")
+     *   vote    — pick one of the school's own options
+     *   comment — free text only
+     * Scope decides who is asked: everyone, one class, or one child's family.
+     */
+    surveys: p => { const ap=staffById(p.staffId)||{};
+      if(ap.PositionLevel!=='Admin'&&ap.Role!=='Admin') fail('NO_PERMISSION','เฉพาะแอดมิน');
+      return (M.surveys||[]).slice().sort((a,b)=>String(b.CreatedAt||'').localeCompare(String(a.CreatedAt||'')))
+        .map(s=>Object.assign(surveyView_(s), { responses:(M.surveyResponses||[]).filter(r=>r.SurveyID===s.SurveyID).length })); },
+
+    saveSurvey: p => { const ap=staffById(p.staffId)||{};
+      if(ap.PositionLevel!=='Admin'&&ap.Role!=='Admin') fail('NO_PERMISSION','เฉพาะแอดมิน');
+      const d=p.survey||{}; if(!String(d.title||'').trim()) fail('BAD_INPUT','ใส่หัวข้อแบบสอบถาม');
+      const type=['rating','vote','comment'].indexOf(String(d.type))>=0?String(d.type):'rating';
+      if(type==='vote' && !(d.options||[]).filter(x=>String(x).trim()).length) fail('BAD_INPUT','ใส่ตัวเลือกอย่างน้อย 1 ข้อ');
+      M.surveys=M.surveys||[];
+      const rec={ Title:String(d.title).trim(), Description:String(d.description||''), Type:type,
+        Options:JSON.stringify((d.options||[]).map(x=>String(x).trim()).filter(Boolean)),
+        Scope:['all','class','student'].indexOf(String(d.scope))>=0?String(d.scope):'all',
+        Target:String(d.target||''), StartDate:ymd(d.startDate||todayLocal()), EndDate:ymd(d.endDate||''),
+        Status:d.status==='CLOSED'?'CLOSED':'OPEN', Anonymous:d.anonymous?'YES':'' };
+      if(d.surveyId){ const s=(M.surveys||[]).find(x=>x.SurveyID===d.surveyId); if(!s)fail('NOT_FOUND','ไม่พบแบบสอบถาม');
+        Object.assign(s,rec); logAct('editSurvey',s.SurveyID,s.Title,actorOf(p)); return surveyView_(s); }
+      const s=Object.assign({ SurveyID:nextSeqId_(M.surveys,'SurveyID','SV',3), CreatedBy:p.staffId||'', CreatedAt:stampLocal() },rec);
+      M.surveys.push(s); logAct('addSurvey',s.SurveyID,s.Title,actorOf(p)); return surveyView_(s); },
+
+    setSurveyStatus: p => { const ap=staffById(p.staffId)||{};
+      if(ap.PositionLevel!=='Admin'&&ap.Role!=='Admin') fail('NO_PERMISSION','เฉพาะแอดมิน');
+      const s=(M.surveys||[]).find(x=>x.SurveyID===p.surveyId); if(!s)fail('NOT_FOUND','ไม่พบแบบสอบถาม');
+      s.Status = p.reopen ? 'OPEN' : 'CLOSED';
+      logAct('setSurveyStatus',s.SurveyID,s.Status,actorOf(p)); return surveyView_(s); },
+
+    // Deleting a survey deletes the answers people gave it — say how many, and log it.
+    deleteSurvey: p => { const ap=staffById(p.staffId)||{};
+      if(ap.PositionLevel!=='Admin'&&ap.Role!=='Admin') fail('NO_PERMISSION','เฉพาะแอดมิน');
+      const i=(M.surveys||[]).findIndex(x=>x.SurveyID===p.surveyId); if(i<0)fail('NOT_FOUND','ไม่พบแบบสอบถาม');
+      const s=M.surveys[i];
+      const kept=(M.surveyResponses||[]).filter(r=>r.SurveyID!==p.surveyId);
+      const removed=(M.surveyResponses||[]).length-kept.length;
+      M.surveyResponses=kept; M.surveys.splice(i,1);
+      logAct('deleteSurvey',p.surveyId,s.Title+' (ลบคำตอบ '+removed+')',actorOf(p));
+      return {ok:true, removedResponses:removed}; },
+
+    /** What THIS family is being asked right now, with anything they already answered. */
+    openSurveys: p => { const kids=visibleStudents(p); const today=todayLocal();
+      const mine=(M.surveys||[]).filter(s=>{
+        if(String(s.Status)!=='OPEN') return false;
+        if(s.StartDate && ymd(s.StartDate)>today) return false;
+        if(s.EndDate && ymd(s.EndDate)<today) return false;
+        if(s.Scope==='class') return kids.some(k=>String(k.Class)===String(s.Target));
+        if(s.Scope==='student') return kids.some(k=>k.StudentID===String(s.Target));
+        return true; });
+      return mine.map(s=>{
+        const answered=(M.surveyResponses||[]).filter(r=>r.SurveyID===s.SurveyID &&
+          (p.parentId ? r.ParentID===p.parentId : kids.some(k=>k.StudentID===r.StudentID)));
+        return Object.assign(surveyView_(s), { answered:answered.length>0,
+          myAnswer: answered.length?{rating:Number(answered[0].Rating)||0, choice:answered[0].Choice||'', comment:answered[0].Comment||''}:null }); }); },
+
+    /** One answer per family per survey — re-submitting EDITS it rather than stuffing the ballot. */
+    submitSurvey: p => { const s=(M.surveys||[]).find(x=>x.SurveyID===p.surveyId);
+      if(!s) fail('NOT_FOUND','ไม่พบแบบสอบถาม');
+      if(String(s.Status)!=='OPEN') fail('CLOSED','แบบสอบถามนี้ปิดรับคำตอบแล้ว');
+      const kids=visibleStudents(p); const sid=p.studentId||(kids[0]&&kids[0].StudentID)||'';
+      if(kids.length && !kids.some(k=>k.StudentID===sid)) fail('NO_ACCESS','ไม่มีสิทธิ์ตอบแทนนักเรียนคนนี้');
+      const rating=Math.max(0,Math.min(5,Math.round(Number(p.rating)||0)));
+      if(s.Type==='rating' && !rating) fail('BAD_INPUT','เลือกระดับความพึงพอใจ');
+      if(s.Type==='vote' && !String(p.choice||'').trim()) fail('BAD_INPUT','เลือกคำตอบ');
+      if(s.Type==='comment' && !String(p.comment||'').trim()) fail('BAD_INPUT','กรุณาเขียนความคิดเห็น');
+      M.surveyResponses=M.surveyResponses||[];
+      const mine=M.surveyResponses.find(r=>r.SurveyID===p.surveyId &&
+        (p.parentId ? r.ParentID===p.parentId : r.StudentID===sid));
+      const rec={ SurveyID:p.surveyId, StudentID:sid, ParentID:p.parentId||'',
+        Rating:rating, Choice:String(p.choice||''), Comment:String(p.comment||'').slice(0,1000), SubmittedAt:stampLocal() };
+      if(mine){ Object.assign(mine,rec); return {ok:true, updated:true}; }
+      M.surveyResponses.push(Object.assign({ResponseID:nextSeqId_(M.surveyResponses,'ResponseID','SR',4)},rec));
+      return {ok:true, updated:false}; },
+
+    surveyResults: p => { const ap=staffById(p.staffId)||{};
+      if(ap.PositionLevel!=='Admin'&&ap.Role!=='Admin') fail('NO_PERMISSION','เฉพาะแอดมิน');
+      const s=(M.surveys||[]).find(x=>x.SurveyID===p.surveyId); if(!s)fail('NOT_FOUND','ไม่พบแบบสอบถาม');
+      const rs=(M.surveyResponses||[]).filter(r=>r.SurveyID===p.surveyId);
+      const dist=[0,0,0,0,0];                                   // how many gave 1..5
+      let sum=0, rated=0;
+      rs.forEach(r=>{ const v=Number(r.Rating)||0; if(v>=1&&v<=5){ dist[v-1]++; sum+=v; rated++; } });
+      const tally={}; JSON.parse(s.Options||'[]').forEach(o=>tally[o]=0);
+      rs.forEach(r=>{ const c=String(r.Choice||''); if(c) tally[c]=(tally[c]||0)+1; });
+      const anon=String(s.Anonymous||'')==='YES';
+      return Object.assign(surveyView_(s), {
+        responses:rs.length, rated, average: rated?Math.round(sum/rated*10)/10:null, dist, tally,
+        // an anonymous survey must not hand back who said what — that is the promise made to parents
+        comments: rs.filter(r=>String(r.Comment||'').trim()).map(r=>({
+          comment:r.Comment, rating:Number(r.Rating)||0, at:r.SubmittedAt,
+          who: anon ? '' : (studentById(r.StudentID)||{}).Nickname || '' })) }); },
+
+    /** Monthly rollup across every survey — what the school reads at the end of a month. */
+    surveySummary: p => { const ap=staffById(p.staffId)||{};
+      if(ap.PositionLevel!=='Admin'&&ap.Role!=='Admin') fail('NO_PERMISSION','เฉพาะแอดมิน');
+      const month=ym(p.month||todayLocal().slice(0,7));
+      const rs=(M.surveyResponses||[]).filter(r=>ym(r.SubmittedAt)===month);
+      const byS={}; rs.forEach(r=>{ (byS[r.SurveyID]=byS[r.SurveyID]||[]).push(r); });
+      let sum=0, rated=0;
+      rs.forEach(r=>{ const v=Number(r.Rating)||0; if(v>=1&&v<=5){ sum+=v; rated++; } });
+      return { month, responses:rs.length, rated, average: rated?Math.round(sum/rated*10)/10:null,
+        surveys: Object.keys(byS).map(id=>{ const s=(M.surveys||[]).find(x=>x.SurveyID===id)||{};
+          const g=byS[id]; let ss=0, sn=0;
+          g.forEach(r=>{ const v=Number(r.Rating)||0; if(v>=1&&v<=5){ ss+=v; sn++; } });
+          return { surveyId:id, title:s.Title||id, type:s.Type||'', responses:g.length,
+            average: sn?Math.round(ss/sn*10)/10:null }; })
+          .sort((a,b)=>b.responses-a.responses) }; },
 
     // ========== Group D: staff/parent CRUD, groups, holidays, move, import/export ==========
     listStaffGroups: () => M.staffGroups,

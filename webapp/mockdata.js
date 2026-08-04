@@ -163,6 +163,10 @@ Object.assign(window.MOCK, {
     { OTID:'OT-2026-06-03-STD1', Date:'2026-06-03', StudentID:'STD-1', PickupTime:'18:10', PlanEnd:'17:00', LateMinutes:70, Hours:2, Amount:200, Status:'UNPAID', SlipRef:'', SlipAmount:0 },
   ],
   // Growth measurement history (weight/height) for the development line charts
+  // Phase 7 — start empty; the demo fills them by using the screens
+  foodMenus: [],
+  surveys: [],
+  surveyResponses: [],
   growthRecords: [
     { Date:'2025-06-01', StudentID:'STD-1', AgeMonth:1,  Weight:4.2, Height:54 },
     { Date:'2025-12-01', StudentID:'STD-1', AgeMonth:7,  Weight:7.6, Height:67 },
