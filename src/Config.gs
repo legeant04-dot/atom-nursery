@@ -72,7 +72,7 @@ SCHEMA[WB.MAIN] = {
   // A blank Status is a legacy row from before the draft flow: treat it as SUBMITTED.
   // SubmittedAt = when it was sent; UpdatedAt = last save of either kind.
   // Milk = quantity (number); MilkUnit = box|oz. ParentComment = the parent's comment on the report.
-  DAILY_JOURNAL:     ['Date', 'StudentID', 'TeacherID', 'Mood', 'Health', 'Milk', 'Meals', 'Sleep', 'Toilet', 'Activity', 'Skills', 'Highlight', 'HealthDetail', 'MilkTotal', 'Water', 'Theme', 'SubmittedAt', 'Status', 'UpdatedAt', 'MilkUnit', 'ParentComment'],
+  DAILY_JOURNAL:     ['Date', 'StudentID', 'TeacherID', 'Mood', 'Health', 'Milk', 'Meals', 'Sleep', 'Toilet', 'Activity', 'Skills', 'Highlight', 'HealthDetail', 'MilkTotal', 'Water', 'Theme', 'SubmittedAt', 'Status', 'UpdatedAt', 'MilkUnit', 'ParentComment', 'MealItems'],
   DSPM_ASSESSMENT:   ['AssessmentID', 'StudentID', 'AgeMonth', 'ItemNo', 'Skill', 'Result', 'Date', 'TeacherID'],
   // PaymentMethod = transfer | cash; TransactionDate = when payment was notified; PaidDate = Admin-confirmed payment date (retro-auditable).
   BILLING:           ['BillingID', 'StudentID', 'Month', 'Amount', 'OTRollover', 'DueDate', 'PaidDate', 'Status', 'SlipAmount', 'VerifiedStatus', 'QRRef', 'PaymentMethod', 'TransactionDate'],

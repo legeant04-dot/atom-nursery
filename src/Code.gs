@@ -242,7 +242,7 @@ function applyIdentity_(action, payload, sess) {
     adminInbox: 1, markInboxRead: 1, reinstallTriggers: 1, unlinkStudent: 1, linkParentAdmin: 1, setLeaveQuota: 1, setConfigVal: 1, markSalaryPaid: 1, notifyBills: 1, issueBillsFor: 1, savePlans: 1, saveQRCodes: 1, prepayAudit: 1, recomputeContributions: 1, savePrepayTiers: 1, editPrepay: 1, setStudentPause: 1, recordCashPayment: 1, pausedStudents: 1, deleteSlip: 1, slipDiag: 1, cancelPrepay: 1, perfSummary: 1, deletePerfLog: 1,
     // Phase 7. The engine handlers already check the caller's role; listing them here as well means a
     // bug in one of those checks still cannot expose survey results or let anyone rewrite the menu.
-    saveFoodMenu: 1, surveys: 1, saveSurvey: 1, setSurveyStatus: 1, deleteSurvey: 1, surveyResults: 1, surveySummary: 1,
+    saveFoodMenu: 1, deleteFoodItem: 1, seedFoodItems: 1, surveys: 1, saveSurvey: 1, setSurveyStatus: 1, deleteSurvey: 1, surveyResults: 1, surveySummary: 1,
     parentKidsMap: 1 };  // every parent's children by name — admin-only (PII)
   if (ADMIN_ONLY[action] && sess.role !== 'Admin') throw apiError_('NO_PERMISSION', 'เฉพาะแอดมิน');
   // Admin is fully trusted: may target ANY staff/student/parent (manage everyone + "view as" any role).
