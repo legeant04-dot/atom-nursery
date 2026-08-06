@@ -112,7 +112,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.193'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.194'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -1085,8 +1085,11 @@
     row('😊', jt("Today's Mood"), j.Mood?`${MOODS[j.Mood]||''} ${esc(jt(j.Mood))}`:'');
     row('❤️', jt('Health Update'), j.Health?(esc(jt(j.Health))+(j.HealthDetail?` <span class="muted">· ${esc(j.HealthDetail)}</span>`:'')):'');
     row('🍼', jt('Milk & Water'), (milkQty&&milkQty!==0?`<b>${esc(milkQty)} ${esc(milkUnitL)}</b>`:'')+(j.Water?(milkQty?' · ':'')+esc(jt(j.Water)):''));
-    { const ms=['Breakfast','Lunch','Dinner'].filter(m=>meals[m]).map(m=>`${esc(jt(m))}: ${pill(jt(meals[m]))}`);
-      row('🍽', jt('Meals & Snacks'), ms.length?ms.join(' '):''); }
+    // what the child ate, then how much of it — "ข้าวต้มไก่ · หมด" says far more than "หมด"
+    { let mi={}; try{ mi=typeof j.MealItems==='string'?JSON.parse(j.MealItems||'{}'):(j.MealItems||{}); }catch(e){ mi={}; }
+      const ms=['Breakfast','Lunch','Dinner','Snack'].filter(m=>meals[m]||mi[m]).map(m=>
+        `${esc(jt(m))}: ${mi[m]?`<b>${esc(mi[m])}</b>${meals[m]?' ':''}`:''}${meals[m]?pill(jt(meals[m])):''}`);
+      row('🍽', jt('Meals & Snacks'), ms.length?ms.join('<br>'):''); }
     { const parts=sleep.map(x=>x.from+'–'+x.to); row('😴', jt('Sleep Record'), parts.length?parts.join(', ')+(j.SleepTotal?` <span class="muted">(${EN()?'total':'รวม'} ${esc(j.SleepTotal)})</span>`:''):''); }
     { const tp=[]; if(tl.Urination)tp.push(`${esc(jt('Urination'))}: ${pill(jt(tl.Urination))}`);
       if(tl.Bowel)tp.push(`${esc(jt('Bowel'))}: ${pill(jt(tl.Bowel))}`);
@@ -2105,8 +2108,12 @@
   window.J_exit = () => { if(J_isAdmin()){ GO('manage'); setTimeout(()=>A_journals(),120); } else GO('class'); };
   window.T_journal = async (sid) => { if(!J_isAdmin()) setNav('class'); JSEL={Mood:'',Health:'',Water:'',Meals:{},Toilet:{},Activity:new Set(),Skills:new Set()};
     // role lets the engine hand a DRAFT to staff (a parent gets null until it is submitted)
-    const [cl,j]=await Promise.all([api('classList',tc()),api('getJournal',{studentId:sid,role:USER.role})]);
+    const [cl,j,food]=await Promise.all([api('classList',tc()),api('getJournal',{studentId:sid,role:USER.role}),
+      api('foodItems',{}).catch(()=>[])]);
+    JFOOD=food||[];
     const s=cl.students.find(x=>x.StudentID===sid)||(A_CACHE.students||[]).find(x=>x.StudentID===sid)||{NameTH:sid};
+    // which meals this class records — Nursery 1 eats dinner here, the older classes do not
+    try{ JSLOTS=(await api('mealSlots',{className:s.Class||''})).slots||JSLOTS; }catch(e){}
     const sent=jTime(j), draft=jIsDraft(j), jv=journalValues(j);
 
     // once submitted the entry is final — show it read-only rather than a form that cannot save
@@ -2125,7 +2132,10 @@
         <div class="row" style="gap:8px;align-items:center"><select id="jMilkUnit" style="flex:0 0 auto">${[['box',EN()?'Box':'กล่อง'],['oz','Oz.']].map(([u,l])=>`<option value="${u}" ${jv.milkUnit===u?'selected':''}>${esc(l)}</option>`).join('')}</select>
           <select id="jMilkQty" style="flex:1">${['',...Array.from({length:20},(_,i)=>i+1)].map(n=>`<option value="${n}" ${String(jv.milkQty)===String(n)?'selected':''}>${n||'-'}</option>`).join('')}</select></div>
         <div class="choice" style="margin-top:6px">${seg('Water',WATERS,false)}</div></div>
-      <div class="jsec"><h4>🍽 ${esc(jt('Meals'))}</h4>${['Breakfast','Lunch','Dinner'].map(m=>`<div style="margin:4px 0"><b style="font-size:13px">${esc(jt(m))}:</b> <span class="choice" style="display:inline-flex">${MEAL_AMT.map(a=>`<button type="button" data-meal="${esc(m)}" data-v="${esc(a)}" onclick="J_meal('${m}','${a}',this)">${esc(jt(a))}</button>`).join('')}</span></div>`).join('')}</div>
+      <!-- What the child ate AND how much. The dish comes from the school's master list; anything
+           not on it can be typed and is added to the list on save, so the next teacher just picks it.
+           Which meals appear depends on the class — the older classes do not eat dinner here. -->
+      <div class="jsec"><h4>🍽 ${esc(jt('Meals'))}</h4><div id="jMealBox">${jMealRows(JSLOTS,jv)}</div></div>
       <div class="jsec"><h4>😴 ${esc(jt('Sleep'))}</h4><input id="jSleep" value="${esc(jv.sleep)}" placeholder="เช่น 12:30-14:00 (คั่นหลายช่วงด้วย ,)"/></div>
       <div class="jsec"><h4>🚽 ${esc(jt('Toileting'))}</h4>
         ${[['Urination',URI],['Bowel',BOWEL],['Stool',STOOL],['Training',TT]].map(([k,opts])=>`<div><b style="font-size:13px">${esc(jt(k==='Training'?'Toilet Training':k))}:</b> <span class="choice" style="display:inline-flex">${opts.map(x=>`<button type="button" data-tl="${esc(k)}" data-v="${esc(x)}" onclick="J_tl('${k}','${x}',this)">${esc(jt(x))}</button>`).join('')}</span></div>`).join('')}</div>
@@ -2157,6 +2167,54 @@
   window.J_pick=(g,v,el,multi)=>{ if(multi){ JSEL[g].has(v)?JSEL[g].delete(v):JSEL[g].add(v); el.classList.toggle('pass'); }
     else { JSEL[g]=v; [...el.parentElement.children].forEach(b=>b.classList.remove('pass')); el.classList.add('pass'); } };
   window.J_meal=(m,a,el)=>{ JSEL.Meals[m]=a; [...el.parentElement.children].forEach(b=>b.classList.remove('pass')); el.classList.add('pass'); };
+  /* ---- meals: which dish, and how much ------------------------------------------------------
+   * JSLOTS is set when the journal opens (it depends on the child's class); JFOOD is the master
+   * list. A teacher who picks "➕ เพิ่มเมนูใหม่" gets a text box, and on save that dish is written
+   * into the master so it is a normal choice from then on.
+   */
+  let JSLOTS=[{key:'Breakfast',th:'อาหารเช้า',en:'Breakfast'},{key:'Lunch',th:'อาหารกลางวัน',en:'Lunch'},{key:'Dinner',th:'อาหารเย็น',en:'Dinner'}];
+  let JFOOD=[];
+  const FOOD_CAT={savoury:()=>EN()?'Savoury':'ของคาว',dessert:()=>EN()?'Dessert':'ของหวาน',fruit:()=>EN()?'Fruit':'ผลไม้',other:()=>EN()?'Other':'อื่นๆ'};
+  const foodLabel=i=>EN()?(i.nameEN||i.nameTH):(i.nameTH+(i.nameEN?` (${i.nameEN})`:''));
+  function jFoodOptions(sel){
+    const groups=['savoury','dessert','fruit','other'].map(c=>{
+      const its=JFOOD.filter(i=>i.category===c); if(!its.length) return '';
+      return `<optgroup label="${esc(FOOD_CAT[c]())}">${its.map(i=>
+        `<option value="${esc(i.nameTH)}"${i.nameTH===sel?' selected':''}>${esc(foodLabel(i))}</option>`).join('')}</optgroup>`;
+    }).join('');
+    // a dish already written on an older journal but since retired must still show, not vanish
+    const orphan=sel&&!JFOOD.some(i=>i.nameTH===sel)?`<option value="${esc(sel)}" selected>${esc(sel)}</option>`:'';
+    return `<option value="">${EN()?'– not recorded –':'– ยังไม่ระบุ –'}</option>${orphan}${groups}<option value="__new">➕ ${EN()?'Add a new dish…':'เพิ่มเมนูใหม่…'}</option>`;
+  }
+  function jMealRows(slots,jv){
+    const items=(jv&&jv.mealItems)||{};
+    return slots.map(s=>`<div style="margin:8px 0;padding:6px 0;border-top:1px solid var(--line)">
+      <b style="font-size:13px">${esc(EN()?s.en:s.th)}</b>
+      <select id="jFood_${esc(s.key)}" style="width:100%;margin:4px 0" onchange="J_foodPick('${esc(s.key)}',this)">${jFoodOptions(items[s.key]||'')}</select>
+      <input id="jFoodNew_${esc(s.key)}" hidden placeholder="${EN()?'Dish name in Thai':'ชื่อเมนู (ภาษาไทย)'}" style="width:100%;margin-bottom:4px"/>
+      <input id="jFoodNewEN_${esc(s.key)}" hidden placeholder="${EN()?'English name (optional)':'ชื่อภาษาอังกฤษ (ถ้ามี)'}" style="width:100%;margin-bottom:4px"/>
+      <span class="choice" style="display:inline-flex">${MEAL_AMT.map(a=>`<button type="button" data-meal="${esc(s.key)}" data-v="${esc(a)}" class="${(JSEL.Meals||{})[s.key]===a?'pass':''}" onclick="J_meal('${s.key}','${a}',this)">${esc(jt(a))}</button>`).join('')}</span></div>`).join('');
+  }
+  window.J_foodPick=(k,sel)=>{ const isNew=sel.value==='__new';
+    const a=document.getElementById('jFoodNew_'+k), b=document.getElementById('jFoodNewEN_'+k);
+    if(a){ a.hidden=!isNew; if(isNew) a.focus(); } if(b) b.hidden=!isNew; };
+  /** Collect the meals, registering any newly typed dish in the master list first. */
+  async function jCollectMeals(){
+    const items={};
+    for(const s of JSLOTS){
+      const sel=document.getElementById('jFood_'+s.key); if(!sel) continue;
+      if(sel.value==='__new'){
+        const th=(document.getElementById('jFoodNew_'+s.key)||{}).value||'';
+        const en=(document.getElementById('jFoodNewEN_'+s.key)||{}).value||'';
+        if(th.trim()){
+          // add to the master so the next teacher just picks it from the list
+          try{ await api('saveFoodItem',{staffId:USER.staffId,item:{nameTH:th.trim(),nameEN:en.trim(),category:'other'}}); }catch(e){}
+          items[s.key]=th.trim();
+        }
+      } else if(sel.value) items[s.key]=sel.value;
+    }
+    return items;
+  }
   window.J_tl=(k,v,el)=>{ JSEL.Toilet[k]=v; [...el.parentElement.children].forEach(b=>b.classList.remove('pass')); el.classList.add('pass'); };
   window.J_mic=(targetId,btn)=>{ const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
     if(!SR){ toast('เบราว์เซอร์นี้ไม่รองรับ Voice — ใช้ Chrome บนมือถือ/คอม'); return; }
@@ -2168,7 +2226,9 @@
     if(submit && !confirm(t('jr.confirmSubmit'))) return;
     const milkQty=+($('#jMilkQty').value||0)||0; const milkUnit=$('#jMilkUnit').value||'box';
     const sleep=($('#jSleep').value||'').split(',').map(x=>x.trim()).filter(Boolean).map(s=>({from:(s.split('-')[0]||'').trim(),to:(s.split('-')[1]||'').trim()}));
-    try{ const r=await api('submitJournal',{studentId:sid,staffId:USER.staffId,submit:!!submit,Mood:JSEL.Mood,Health:JSEL.Health,HealthDetail:$('#jHealthD').value,Milk:milkQty,MilkUnit:milkUnit,MilkTotal:milkQty,Water:JSEL.Water,Meals:JSEL.Meals,Sleep:sleep,Toilet:JSEL.Toilet,Activity:[...JSEL.Activity],Theme:$('#jTheme').value,Skills:[...JSEL.Skills],Highlight:$('#jHi').value});
+    // any dish typed as new is registered in the master list here, before the journal is written
+    const mealItems=await jCollectMeals();
+    try{ const r=await api('submitJournal',{studentId:sid,staffId:USER.staffId,submit:!!submit,Mood:JSEL.Mood,Health:JSEL.Health,HealthDetail:$('#jHealthD').value,Milk:milkQty,MilkUnit:milkUnit,MilkTotal:milkQty,Water:JSEL.Water,Meals:JSEL.Meals,MealItems:mealItems,Sleep:sleep,Toilet:JSEL.Toilet,Activity:[...JSEL.Activity],Theme:$('#jTheme').value,Skills:[...JSEL.Skills],Highlight:$('#jHi').value});
       confirmSaved(r.submitted?(EN()?'Sent to the parent':'ส่งให้ผู้ปกครองแล้ว'):(EN()?'Draft saved — not sent yet':'บันทึกร่างแล้ว — ยังไม่ได้ส่ง')); J_exit(); }catch(e){err(e);} };
 
   // ===== injury / accident report (แบบบันทึกการบาดเจ็บรายบุคคล) — teacher & leader =====
@@ -3295,7 +3355,8 @@
         ['🏠',t('slv.title'),"GO_('studentLeaves')"],
         ['🛡️',t('ins2.manage'),'A_insurance()'],
         ['📈',t('dspm.manageTitle'),"GO_('dspmCriteria')"],
-        ['🍚',EN()?'Food menu':'เมนูอาหาร','A_foodMenu()'],
+        ['🍚',EN()?'Food list (master)':'รายการอาหาร (ตัวหลัก)','A_foodItems()'],
+        ['📅',EN()?'Monthly menu':'เมนูอาหารรายเดือน','A_foodMenu()'],
         ['💬',EN()?'Satisfaction survey':'แบบสอบถามความพึงพอใจ','A_surveys()'],
         ['📜',t('act.open'),'A_activityLog()'],
       ]},
@@ -4196,6 +4257,47 @@
    * work out which of five menus applies to their child — so the parent view resolves the class for
    * them and the A4 sheet is printed per class.
    */
+  /* ---- master food list: what the daily journal picks from -------------------------------- */
+  window.A_foodItems=async()=>{
+    const items=await api('foodItems',{all:true},{fresh:true});
+    const byCat=c=>items.filter(i=>i.category===c);
+    const sec=(c)=>{ const its=byCat(c); return `<h4 style="margin:10px 0 4px">${esc(FOOD_CAT[c]())} <small class="muted">(${its.length})</small></h4>${
+      its.length?its.map(i=>`<div class="list-item"${i.active?'':' style="opacity:.5"'}>
+        <span><b>${esc(i.nameTH)}</b>${i.nameEN?`<br><small class="muted">${esc(i.nameEN)}</small>`:`<br><small style="color:var(--warn)">${EN()?'no English name yet':'ยังไม่มีชื่อภาษาอังกฤษ'}</small>`}</span>
+        <span><button class="btn sm outline" onclick="A_fiEdit('${esc(i.itemId)}')">✏️</button>${i.active?`<button class="btn sm pink" onclick="A_fiRetire('${esc(i.itemId)}')" title="${EN()?'Retire':'เลิกใช้'}">🚫</button>`:''}</span></div>`).join('')
+        :`<small class="muted">-</small>`}`; };
+    modal(`<h3>🍚 ${EN()?'Food list (master)':'รายการอาหาร (ตัวหลัก)'}</h3>
+      <p class="muted" style="font-size:13px">${EN()?'This is what teachers pick from in the daily journal. A dish a teacher types in is added here automatically.':'รายการนี้คือตัวเลือกที่คุณครูใช้ในสมุดบันทึกประจำวัน · เมนูที่คุณครูพิมพ์เพิ่มเองจะถูกบันทึกเข้ามาที่นี่อัตโนมัติ'}</p>
+      <div class="row" style="gap:8px;margin-bottom:6px">
+        <button class="btn sm" style="flex:1" onclick="A_fiEdit('')">+ ${EN()?'Add dish':'เพิ่มเมนู'}</button>
+        <button class="btn sm outline" style="flex:1" onclick="A_fiSeed(this)">🍚 ${EN()?'Load the school list':'เพิ่มรายการมาตรฐานของโรงเรียน'}</button></div>
+      <div style="max-height:60vh;overflow:auto">${['savoury','dessert','fruit','other'].map(sec).join('')}</div>
+      <button class="btn outline block" style="margin-top:8px" onclick="this.closest('.modal').remove()">${esc(t('c.close'))}</button>`);
+  };
+  window.A_fiEdit=async(id)=>{ const items=await api('foodItems',{all:true});
+    const i=items.find(x=>x.itemId===id)||{category:'savoury',active:true};
+    modal(`<h3>${id?'✏️ '+(EN()?'Edit dish':'แก้ไขเมนู'):'➕ '+(EN()?'Add dish':'เพิ่มเมนู')}</h3>
+      <label class="field"><span>${EN()?'Name (Thai)':'ชื่อเมนู (ภาษาไทย)'}</span><input id="fiTH" value="${esc(i.nameTH||'')}"/></label>
+      <label class="field"><span>${EN()?'Name (English)':'ชื่อเมนู (ภาษาอังกฤษ)'}</span><input id="fiEN" value="${esc(i.nameEN||'')}" placeholder="${EN()?'e.g. Chicken rice porridge':'เช่น Chicken rice porridge'}"/></label>
+      <p class="muted" style="font-size:12px">${EN()?'Parents reading the app in English see the English name.':'ผู้ปกครองที่ใช้แอปภาษาอังกฤษจะเห็นชื่อภาษาอังกฤษ'}</p>
+      <label class="field"><span>${EN()?'Category':'หมวด'}</span><select id="fiCat" translate="no">${
+        ['savoury','dessert','fruit','other'].map(c=>`<option value="${c}"${i.category===c?' selected':''}>${esc(FOOD_CAT[c]())}</option>`).join('')}</select></label>
+      <button class="btn block" onclick="A_fiSave('${esc(id||'')}',this)">${esc(t('c.save'))}</button>`);
+  };
+  window.A_fiSave=async(id,btn)=>{ const m=btn.closest('.modal'); const g=x=>(m.querySelector('#'+x)||{}).value||'';
+    if(btn)btn.disabled=true;
+    try{ await api('saveFoodItem',{staffId:USER.staffId,item:{itemId:id||undefined,nameTH:g('fiTH'),nameEN:g('fiEN'),category:g('fiCat')}});
+      m.remove(); confirmSaved(t('c.saved')); A_foodItems();
+    }catch(e){err(e); if(btn)btn.disabled=false;} };
+  window.A_fiRetire=async(id)=>{ if(!confirm(EN()?'Stop offering this dish? Journals already written keep it.':'เลิกใช้เมนูนี้? บันทึกที่เขียนไปแล้วยังคงแสดงตามเดิม'))return;
+    try{ await api('deleteFoodItem',{staffId:USER.staffId,itemId:id});
+      const m=document.querySelector('.modal'); if(m)m.remove(); A_foodItems(); }catch(e){err(e);} };
+  window.A_fiSeed=async(btn)=>{ if(btn)btn.disabled=true;
+    try{ const r=await api('seedFoodItems',{staffId:USER.staffId});
+      const m=document.querySelector('.modal'); if(m)m.remove();
+      toast((EN()?'Added ':'เพิ่มแล้ว ')+r.added+(EN()?' dishes':' รายการ')); A_foodItems();
+    }catch(e){err(e);}finally{ if(btn)btn.disabled=false; } };
+
   let FM_CLASS=null, FM_MONTH=null;
   const FM_MEALS=[['breakfast',()=>EN()?'Breakfast':'อาหารเช้า'],['snackAM',()=>EN()?'Morning snack':'ว่างเช้า'],
                   ['lunch',()=>EN()?'Lunch':'อาหารกลางวัน'],['snackPM',()=>EN()?'Afternoon snack':'ว่างบ่าย']];
@@ -4495,12 +4597,23 @@
   window.CCR_decide=async(reqId,dec)=>{ try{ await api('decideClassChange',{staffId:USER.staffId,reqId,decision:dec}); toast(dec==='approve'?(EN()?'Approved & applied':'อนุมัติและปรับแล้ว'):(EN()?'Rejected':'ปฏิเสธแล้ว')); const m=document.querySelector('.modal'); if(m)m.remove(); A_classChanges(); }catch(e){err(e);} };
 
   // Admin: confirm/reject manual attendance-time requests (final step → writes CHECKIN_STAFF)
-  window.A_timeRequests=async()=>{ const rows=await api('pendingAdminTimeRequests',{staffId:USER.staffId});
+  window.A_timeRequests=async()=>{ const rows=await api('pendingAdminTimeRequests',{staffId:USER.staffId},{fresh:true});
     const tyLabel=ty=>String(ty).toUpperCase()==='IN'?(EN()?'Check-in':'เข้างาน'):(EN()?'Check-out':'เลิกงาน');
+    // The list used to show only what was waiting on the ADMIN, so a request still with the head
+    // teacher was invisible here even though the admin had been notified about it. Both stages now
+    // appear, each labelled, and the admin can settle either.
+    const card=r=>`<div class="card" style="margin:8px 0"><div class="spread"><div><b>${esc(dnick(r))}</b> · ${esc(tyLabel(r.Type))} <b style="color:var(--blue)">${esc(r.RequestTime)}</b> · ${esc(ddmmyyyy(r.Date))}</div>
+        <span class="pill ${r.stage==='leader'?'wait':'info'}" style="font-size:11px">${r.stage==='leader'?(EN()?'with head teacher':'รอหัวหน้าครู'):(EN()?'your turn':'รอคุณอนุมัติ')}</span></div>
+      ${r.Reason?`<small class="muted">${esc(r.Reason)}</small>`:''}
+      ${r.stage==='leader'?`<small class="muted" style="display:block;margin-top:4px">${EN()?'Approving here settles it without waiting for the head teacher — it is recorded that you did.':'กดอนุมัติที่นี่ = ปิดคำขอโดยไม่ต้องรอหัวหน้าครู · ระบบจะบันทึกว่าแอดมินอนุมัติแทน'}</small>`:''}
+      <div class="row" style="margin-top:8px"><button class="btn sm green" onclick="ATR_decide('${esc(r.ReqID)}','approve')">✔ ${esc(t('c.approve'))}</button><button class="btn sm pink" onclick="ATR_decide('${esc(r.ReqID)}','reject')">✕ ${esc(t('c.reject'))}</button></div></div>`;
+    const mine=rows.filter(r=>r.stage!=='leader'), lead=rows.filter(r=>r.stage==='leader');
     modal(`<h3>⏰ ${esc(t('att.adminTitle'))}</h3>
       <p class="muted" style="font-size:13px">${EN()?'Approving writes the time into attendance and recomputes late/OT.':'อนุมัติแล้วจะบันทึกเวลาลงในระบบและคำนวณสาย/OT ใหม่'}</p>
-      <div style="max-height:60vh;overflow:auto">${rows.length?rows.map(r=>`<div class="card" style="margin:8px 0"><div><b>${esc(dnick(r))}</b> · ${esc(tyLabel(r.Type))} <b style="color:var(--blue)">${esc(r.RequestTime)}</b> · ${esc(ddmmyyyy(r.Date))}</div>${r.Reason?`<small class="muted">${esc(r.Reason)}</small>`:''}
-        <div class="row" style="margin-top:8px"><button class="btn sm green" onclick="ATR_decide('${r.ReqID}','approve')">✔ ${esc(t('c.approve'))}</button><button class="btn sm pink" onclick="ATR_decide('${r.ReqID}','reject')">✕ ${esc(t('c.reject'))}</button></div></div>`).join(''):`<small class="muted">${esc(t('corg.noPending'))}</small>`}</div>
+      <div style="max-height:60vh;overflow:auto">
+        ${mine.length?`<h4 style="margin:6px 0">${EN()?'Waiting for you':'รอคุณอนุมัติ (ขั้นสุดท้าย)'} (${mine.length})</h4>${mine.map(card).join('')}`:''}
+        ${lead.length?`<h4 style="margin:12px 0 6px">${EN()?'Still with the head teacher':'ยังรอหัวหน้าครู'} (${lead.length})</h4>${lead.map(card).join('')}`:''}
+        ${rows.length?'':`<small class="muted">${esc(t('corg.noPending'))}</small>`}</div>
       <button class="btn outline block" style="margin-top:8px" onclick="this.closest('.modal').remove()">${esc(t('c.close'))}</button>`);
   };
   window.ATR_decide=async(reqId,dec)=>{ try{ await api('confirmTimeRequest',{staffId:USER.staffId,reqId,decision:dec}); toast(dec==='approve'?(EN()?'Approved & written':'อนุมัติและบันทึกแล้ว'):(EN()?'Rejected':'ปฏิเสธแล้ว')); const m=document.querySelector('.modal'); if(m)m.remove(); A_timeRequests(); }catch(e){err(e);} };
@@ -4663,9 +4776,15 @@
       : s.partial ? `<span class="pill wait">${EN()?'partial':'บางส่วน'} ${baht(s.collected)}</span>`
       : s.status==='NO_BILL' ? `<span class="pill info">${esc(t('fin.noBill'))}</span>`
       : `<span class="pill bad">${esc(t('s.unpaid'))}</span>`;
-    // tuition is covered but OT / extra charges are not — say which, so it is never read as unpaid tuition
+    // A slip the parent already sent is NOT the family owing money — it is the school owing them a
+    // check. Showing "ค้างชำระ" for it made admins chase people who had already transferred.
+    const othPend=Number(s.otherPending||0), othReal=Math.max(0,othOpen-othPend);
     const otherPill = (tuiOpen<=0 && othOpen>0)
-      ? `<br><span class="pill wait" style="font-size:11px">⚠️ ${EN()?`other charges due ${baht(othOpen)}`:`ค้างชำระอื่นๆ (ไม่ใช่ค่าเทอม) ${baht(othOpen)}`}</span>` : '';
+      ? (othReal>0
+          ? `<br><span class="pill wait" style="font-size:11px">⚠️ ${EN()?`other charges due ${baht(othReal)}`:`ค้างชำระอื่นๆ (ไม่ใช่ค่าเทอม) ${baht(othReal)}`}</span>`
+          : '')
+        + (othPend>0 ? `<br><span class="pill info" style="font-size:11px">🕐 ${EN()?`slip sent — awaiting your check ${baht(othPend)}`:`แนบสลิปแล้ว รอตรวจสอบ ${baht(othPend)}`}</span>` : '')
+      : '';
     const amount = (tuiOpen+othOpen)>0 ? baht(tuiOpen+othOpen) : `<span class="muted">${baht(0)}</span>`;
     const sub = s.prepaid ? `<br><small style="color:var(--ok);font-weight:400">💰 ${esc(prepaySpan(s.prepay))}</small>` : '';
     return `<div class="list-item" style="cursor:pointer" onclick="A_finStudent('${s.studentId}')">

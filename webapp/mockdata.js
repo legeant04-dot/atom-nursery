@@ -165,6 +165,7 @@ Object.assign(window.MOCK, {
   // Growth measurement history (weight/height) for the development line charts
   // Phase 7 — start empty; the demo fills them by using the screens
   foodMenus: [],
+  foodItems: [],
   surveys: [],
   surveyResponses: [],
   growthRecords: [

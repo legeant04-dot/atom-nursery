@@ -97,9 +97,19 @@ function handleConfirmTimeRequest(p) {
   p = p || {}; var ap = arStaffById_(p.staffId);
   if (!arIsAdmin_(ap)) throw apiError_('NO_PERMISSION', 'เฉพาะแอดมิน');
   var sh = arSheet_(); var r = arFind_(sh, p.reqId); if (!r) throw apiError_('NOT_FOUND', 'ไม่พบคำขอ');
+  var done = String(r.Status || '').toUpperCase();
+  if (done === 'APPROVED' || done === 'REJECTED') throw apiError_('BAD_STATE', 'คำขอนี้ตัดสินไปแล้ว');
   var yes = p.decision === 'approve';
   if (yes) arApply_(r);
-  updateRow_(sh, r._row, { Step2By: ap.Name, Step2Status: yes ? 'Approved' : 'Rejected', Status: yes ? 'APPROVED' : 'REJECTED' });
+  var patch = { Step2By: ap.Name, Step2Status: yes ? 'Approved' : 'Rejected', Status: yes ? 'APPROVED' : 'REJECTED' };
+  // The admin list now includes requests still sitting with the head teacher, so an admin can settle
+  // one directly. Record that it happened that way — otherwise the sheet would show a step-1 approval
+  // by a leader who never saw it.
+  if (done === 'PENDING_LEADER') {
+    patch.Step1By = ap.Name + ' (แอดมินอนุมัติแทน)';
+    patch.Step1Status = yes ? 'Approved' : 'Rejected';
+  }
+  updateRow_(sh, r._row, patch);
   arBust_();
   try {
     var st = arStaffById_(r.StaffID);

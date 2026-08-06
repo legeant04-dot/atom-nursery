@@ -203,6 +203,65 @@ function createAtomAPI(M, GROWTH_STD) {
   const otNum_=v=>{ const n=Number(v); return isFinite(n)&&n>0?n:0; };
   const otFullOf_=o=>{ const f=Number(o&&o.FullAmount); return (isFinite(f)&&f>0)?f:otNum_(o&&o.Amount); };
   const otDiscOf_=(o,full)=>Math.min(otNum_(o&&o.Discount), otNum_(full));
+  /* ---- the school's own food list, used to seed FOOD_ITEMS on first use --------------------
+   * [ชื่อไทย, English, category]. English names are what a parent reading the app in English sees,
+   * so they are written as a person would say them, not transliterated.
+   */
+  const FOOD_SEED_ = [
+    ['ข้าวต้มไก่', 'Chicken rice porridge', 'savoury'],
+    ['ข้าวต้มปลา', 'Fish rice porridge', 'savoury'],
+    ['ต้มจืดผักรวมไก่สับ', 'Clear soup with mixed vegetables and minced chicken', 'savoury'],
+    ['ข้าวผัดใส่ผัก', 'Fried rice with vegetables', 'savoury'],
+    ['ข้าวต้มจืดผักกาดขาวไก่สับ', 'Clear soup with napa cabbage and minced chicken', 'savoury'],
+    ['ข้าวผัดคะน้าใส่ไข่ + ไก่สับ', 'Fried rice with kale, egg and minced chicken', 'savoury'],
+    ['ข้าวผัดฟัก', 'Fried rice with winter melon', 'savoury'],
+    ['ข้าวต้มจืดฟัก', 'Clear winter melon soup with rice', 'savoury'],
+    ['ข้าวผัดรวมมิตร', 'Mixed fried rice', 'savoury'],
+    ['ก๋วยเตี๋ยวเส้นใหญ่น้ำใส', 'Wide rice noodles in clear broth', 'savoury'],
+    ['ผัดวุ้นเส้น', 'Stir-fried glass noodles', 'savoury'],
+    ['ข้าวไข่ตุ๋น', 'Steamed egg with rice', 'savoury'],
+    ['ข้าวไข่พะโล้', 'Five-spice stewed egg with rice', 'savoury'],
+    ['ข้าวไก่ทอด', 'Fried chicken with rice', 'savoury'],
+    ['ข้าวไก่หวาน', 'Sweet braised chicken with rice', 'savoury'],
+    ['ข้าวตุ๋นปลากะพง', 'Steamed sea bass with rice', 'savoury'],
+    ['ข้าวตุ๋นปลาซาลมอน', 'Steamed salmon with rice', 'savoury'],
+    ['ข้าวตุ๋นไข่', 'Steamed egg custard with rice', 'savoury'],
+    ['ข้าวมันไก่', 'Hainanese chicken rice', 'savoury'],
+    ['เกี๊ยวน้ำใส', 'Wonton in clear soup', 'savoury'],
+    ['ข้าวต้มจืดหัวไชเท้า', 'Clear radish soup with rice', 'savoury'],
+    ['ผัดผักรวมมิตร', 'Stir-fried mixed vegetables', 'savoury'],
+    ['ผลไม้', 'Fruit', 'fruit'],
+    ['กล้วย', 'Banana', 'fruit'],
+    ['ส้ม', 'Orange', 'fruit'],
+    ['แก้วมังกร', 'Dragon fruit', 'fruit'],
+    ['แอปเปิ้ล', 'Apple', 'fruit'],
+    ['มะม่วง', 'Mango', 'fruit'],
+    ['ฝรั่ง', 'Guava', 'fruit'],
+    ['อโวคาโด้', 'Avocado', 'fruit'],
+    ['องุ่น', 'Grapes', 'fruit'],
+    ['มะละกอ', 'Papaya', 'fruit'],
+    ['กีวี', 'Kiwi', 'fruit']
+  ];
+
+  /**
+   * Which meals a class records in the daily journal.
+   * The school's rule: Nursery 1 (the youngest) stay for dinner and record all four; Nursery 2, 3
+   * and Premium record breakfast, lunch and a snack only.
+   */
+  function mealSlotsFor_(className) {
+    const c = String(className || '');
+    // keys match the journal's own field names, so no mapping layer can drift out of step
+    const all = [
+      { key: 'Breakfast', th: 'อาหารเช้า', en: 'Breakfast' },
+      { key: 'Lunch', th: 'อาหารกลางวัน', en: 'Lunch' },
+      { key: 'Dinner', th: 'อาหารเย็น', en: 'Dinner' },
+      { key: 'Snack', th: 'อาหารว่าง', en: 'Snack' }
+    ];
+    // "Nursery 1" and the baby class eat dinner here; 2 / 3 / Premium go home before it.
+    const staysForDinner = /(^|\s)(1|baby|เบบี้)(\s|$)/i.test(c) || /nursery\s*1\b/i.test(c);
+    return staysForDinner ? all : all.filter(s => s.key !== 'Dinner');
+  }
+
   // ---- survey row -> the shape every screen reads (Options is stored as JSON in one cell) ----
   function surveyView_(s){ let opts=[]; try{ opts=JSON.parse(s.Options||'[]')||[]; }catch(e){ opts=[]; }
     return { surveyId:s.SurveyID, title:s.Title||'', description:s.Description||'', type:s.Type||'rating',
@@ -1179,12 +1238,21 @@ function createAtomAPI(M, GROWTH_STD) {
         // a student may (wrongly) have >1 bill for a month — prefer the PAID/PARTIAL one over duplicates
         const bills=M.payments.filter(x=>x.StudentID===s.StudentID&&ym(x.Month)===month);
         const b=bills.find(x=>x.Status==='PAID')||bills.find(x=>x.Status==='PARTIAL')||bills[0];
-        const otOpen=M.otDaily.filter(o=>o.StudentID===s.StudentID&&ym(o.Date)===month&&otOpenRec(o)).reduce((a,o)=>a+o.Amount,0);
+        // OT: subtract what has actually been confirmed, exactly as extra charges do below. This used
+        // to count the WHOLE amount of any non-PAID row, so a family who had transferred and had the
+        // slip approved still read as owing the full sum until the row happened to flip to PAID.
+        const otRows=M.otDaily.filter(o=>o.StudentID===s.StudentID&&ym(o.Date)===month);
+        const otOpen=otRows.filter(otOpenRec)
+          .reduce((a,o)=>a+Math.max(0,Number(o.Amount||0)-sumSlips_('ot',o.OTID,['CONFIRMED'])),0);
+        const otCollected=otRows.reduce((a,o)=>a+(o.Status==='PAID'?Number(o.Amount||0):sumSlips_('ot',o.OTID,['CONFIRMED'])),0);
         // extra charges (now separate payables): open = still owed, collected = confirmed slips
         const chs=M.studentCharges.filter(c=>c.StudentID===s.StudentID&&ym(c.Month)===month);
         const chOpen=chs.reduce((a,c)=>a+Math.max(0,Number(c.Amount||0)-sumSlips_('charge',c.ChargeID,['CONFIRMED'])),0);
         const chCollected=chs.reduce((a,c)=>a+sumSlips_('charge',c.ChargeID,['CONFIRMED']),0);
-        const otCollected=M.otDaily.filter(o=>o.StudentID===s.StudentID&&ym(o.Date)===month&&o.Status==='PAID').reduce((a,o)=>a+Number(o.Amount||0),0);
+        // Money the parent HAS sent that is only waiting for the school to check the slip. It is not
+        // collected yet, but calling it "ค้างชำระ" blames the family for the school's own queue.
+        const otPending=otRows.filter(otOpenRec).reduce((a,o)=>a+sumSlips_('ot',o.OTID,['SUBMITTED','PENDING_VERIFY']),0);
+        const chPending=chs.reduce((a,c)=>a+sumSlips_('charge',c.ChargeID,['SUBMITTED','PENDING_VERIFY']),0);
         const amount=b?Number(b.Amount||0):0;
         // advance payment covers this month's tuition IN FULL → counts as collected (extras/OT are
         // tracked separately and are still owed). Capping this at the current plan price left the
@@ -1192,9 +1260,13 @@ function createAtomAPI(M, GROWTH_STD) {
         const prepay = prepayInfo_(s.StudentID, month);
         const prepaidTuition = (prepay && b) ? billTuition_(b) : 0;
         const billConfirmed = b ? sumSlips_('bill', b.BillingID, ['CONFIRMED']) : 0;
+        const billPending = b ? sumSlips_('bill', b.BillingID, ['SUBMITTED', 'PENDING_VERIFY']) : 0;
         // tuition still owed, after the advance-payment credit and any confirmed slips
         const tuitionOpen = Math.max(0, amount - prepaidTuition - billConfirmed);
         const otherOpen = otOpen + chOpen;                 // OT + extra charges — NOT tuition
+        // of what is still open, how much is already sitting in the admin's slip queue
+        const tuitionPending = Math.min(tuitionOpen, billPending);
+        const otherPending = Math.min(otherOpen, otPending + chPending);
         const due = tuitionOpen + otherOpen;               // what this family actually still owes
         // money actually IN = tuition (full if PAID else confirmed slips) + prepaid tuition + confirmed charges + paid OT
         const collected = (b ? (b.Status==='PAID'?amount:billConfirmed) : 0) + prepaidTuition + chCollected + otCollected;
@@ -1204,6 +1276,7 @@ function createAtomAPI(M, GROWTH_STD) {
         const paid = tuitionOpen<=0 && (!!b || !!prepay);
         return {studentId:s.StudentID,name:s.NameTH,nameEN:s.NameEN,nick:s.Nickname,nickEN:s.NicknameEN,plan:s.Plan,
           amount,collected,otOpen,chOpen,tuitionOpen,otherOpen,due,paid,
+          tuitionPending,otherPending,pendingVerify:tuitionPending+otherPending,
           prepaid:!!prepay,prepay:prepay||null,prepaidTuition,
           partial:!b?false:(tuitionOpen>0 && (billConfirmed>0||prepaidTuition>0)),
           status:b?b.Status:'NO_BILL',slipAmount:b?b.SlipAmount||0:0}; });
@@ -1589,6 +1662,67 @@ function createAtomAPI(M, GROWTH_STD) {
       });
       logAct('saveFoodMenu',cls,month+' ('+(p.days||[]).length+' วัน)',actorOf(p));
       return H.foodMenu({className:cls, month}); },
+
+    /* ---- master food list (ของคาว / ของหวาน / ผลไม้ / อื่นๆ) ---------------------------------
+     * This is what the teacher's daily journal picks from. It is deliberately NOT a fixed list: a
+     * dish typed into the journal that is not here yet is added on submit, so the catalogue grows
+     * from what the kitchen actually cooks instead of having to be complete on day one.
+     * Every item carries both names — the app is bilingual and a parent reading in English should
+     * not be shown Thai they cannot read.
+     */
+    foodItems: p => { p=p||{};
+      const rows=(M.foodItems||[]).filter(i=>p.all?true:String(i.Active||'YES')!=='NO');
+      const order={savoury:0,dessert:1,fruit:2,other:3};
+      return rows.map(i=>({ itemId:i.ItemID, nameTH:i.NameTH||'', nameEN:i.NameEN||'',
+          category:i.Category||'other', active:String(i.Active||'YES')!=='NO' }))
+        .sort((a,b)=>(order[a.category]-order[b.category])||String(a.nameTH).localeCompare(String(b.nameTH),'th')); },
+
+    /** Add or edit one item. Teachers may ADD (that is the point); only admin may edit or retire. */
+    saveFoodItem: p => { const me=staffById(p.staffId)||{};
+      const isAdmin = me.PositionLevel==='Admin'||me.Role==='Admin';
+      const nameTH=String((p.item||{}).nameTH||'').trim();
+      if(!nameTH) fail('BAD_INPUT','ใส่ชื่อเมนู (ภาษาไทย)');
+      const cat=['savoury','dessert','fruit','other'].indexOf(String((p.item||{}).category))>=0?String(p.item.category):'other';
+      M.foodItems=M.foodItems||[];
+      if(p.item.itemId){ if(!isAdmin) fail('NO_PERMISSION','แก้ไขรายการหลักได้เฉพาะแอดมิน');
+        const it=M.foodItems.find(x=>x.ItemID===p.item.itemId); if(!it)fail('NOT_FOUND','ไม่พบเมนู');
+        it.NameTH=nameTH; it.NameEN=String(p.item.nameEN||'').trim(); it.Category=cat;
+        it.Active=p.item.active===false?'NO':'YES';
+        logAct('editFoodItem',it.ItemID,nameTH,actorOf(p)); return {itemId:it.ItemID}; }
+      // adding the same dish twice is a data problem, not a new item — return the one that exists
+      const dup=M.foodItems.find(x=>String(x.NameTH||'').trim()===nameTH);
+      if(dup){ if(String(dup.Active||'YES')==='NO'){ dup.Active='YES'; } return {itemId:dup.ItemID, existed:true}; }
+      const it={ ItemID:nextSeqId_(M.foodItems,'ItemID','FI',4), NameTH:nameTH,
+        NameEN:String(p.item.nameEN||'').trim(), Category:cat, Active:'YES',
+        CreatedBy:p.staffId||'', CreatedAt:stampLocal() };
+      M.foodItems.push(it); logAct('addFoodItem',it.ItemID,nameTH,actorOf(p));
+      return {itemId:it.ItemID, existed:false}; },
+
+    deleteFoodItem: p => { const me=staffById(p.staffId)||{};
+      if(me.PositionLevel!=='Admin'&&me.Role!=='Admin') fail('NO_PERMISSION','เฉพาะแอดมิน');
+      const it=(M.foodItems||[]).find(x=>x.ItemID===p.itemId); if(!it)fail('NOT_FOUND','ไม่พบเมนู');
+      // retire rather than delete: journals already written refer to it by name
+      it.Active='NO'; logAct('retireFoodItem',it.ItemID,it.NameTH,actorOf(p));
+      return {itemId:it.ItemID, active:false}; },
+
+    /** One-off seed of the school's own list, so nobody has to type 30 dishes to get started. */
+    seedFoodItems: p => { const me=staffById(p.staffId)||{};
+      if(me.PositionLevel!=='Admin'&&me.Role!=='Admin') fail('NO_PERMISSION','เฉพาะแอดมิน');
+      M.foodItems=M.foodItems||[];
+      let added=0;
+      (FOOD_SEED_||[]).forEach(row=>{
+        if(M.foodItems.some(x=>String(x.NameTH||'').trim()===row[0])) return;
+        M.foodItems.push({ ItemID:nextSeqId_(M.foodItems,'ItemID','FI',4), NameTH:row[0], NameEN:row[1],
+          Category:row[2], Active:'YES', CreatedBy:p.staffId||'', CreatedAt:stampLocal() });
+        added++; });
+      logAct('seedFoodItems','-','เพิ่ม '+added+' รายการ',actorOf(p));
+      return {added, total:M.foodItems.length}; },
+
+    /**
+     * Which meals a class records. The youngest stay for dinner; the older classes and Premium do
+     * not, and showing them an empty dinner box every day is just noise.
+     */
+    mealSlots: p => ({ className:String(p.className||''), slots: mealSlotsFor_(p.className) }),
 
     /* ================= Phase 7b: satisfaction survey ====================================
      * Three shapes, because a school asks three different kinds of question:
@@ -1995,8 +2129,20 @@ function createAtomAPI(M, GROWTH_STD) {
     myTimeRequests: p => (M.attendanceReq||[]).filter(r=>r.StaffID===p.staffId).sort((a,b)=>String(b.CreatedDate).localeCompare(String(a.CreatedDate))).map(atrView_),
     teamPendingTimeRequests: p => { const me=staffById(p.staffId); if(me.PositionLevel!=='Leader'&&me.PositionLevel!=='Admin'&&me.Role!=='Admin')return [];
       return (M.attendanceReq||[]).filter(r=>String(r.Status).toUpperCase()==='PENDING_LEADER').map(atrView_); },
+    /**
+     * Everything still waiting, at EITHER step.
+     *
+     * This used to return only PENDING_ADMIN, so a request sitting with the head teacher was
+     * invisible to the admin — while the admin had already been notified about it. They were told
+     * about something they could not open, could not see, and could not unblock if the head teacher
+     * was away. An admin is fully trusted everywhere else in this app; the queue is now shown whole,
+     * labelled by which step it is on.
+     */
     pendingAdminTimeRequests: p => { const ap=staffById(p.staffId); if(ap.PositionLevel!=='Admin'&&ap.Role!=='Admin')fail('NO_PERMISSION','เฉพาะแอดมิน');
-      return (M.attendanceReq||[]).filter(r=>String(r.Status).toUpperCase()==='PENDING_ADMIN').map(atrView_); },
+      return (M.attendanceReq||[])
+        .filter(r=>{ const s=String(r.Status).toUpperCase(); return s==='PENDING_ADMIN'||s==='PENDING_LEADER'; })
+        .sort((a,b)=>String(a.CreatedDate||'').localeCompare(String(b.CreatedDate||'')))
+        .map(r=>Object.assign(atrView_(r), { stage: String(r.Status).toUpperCase()==='PENDING_LEADER'?'leader':'admin' })); },
     approveTimeRequest: p => { const ap=staffById(p.staffId); const r=(M.attendanceReq||[]).find(x=>x.ReqID===p.reqId); if(!r)fail('NOT_FOUND','ไม่พบคำขอ');
       if(String(r.Status).toUpperCase()!=='PENDING_LEADER')fail('BAD_STATE','ไม่ได้รออนุมัติจากหัวหน้า');
       if(ap.PositionLevel!=='Leader'&&ap.PositionLevel!=='Admin'&&ap.Role!=='Admin')fail('NO_PERMISSION','เฉพาะหัวหน้าครู');
@@ -2004,8 +2150,15 @@ function createAtomAPI(M, GROWTH_STD) {
       return {reqId:r.ReqID,status:r.Status}; },
     confirmTimeRequest: p => { const ap=staffById(p.staffId); if(ap.PositionLevel!=='Admin'&&ap.Role!=='Admin')fail('NO_PERMISSION','เฉพาะแอดมิน');
       const r=(M.attendanceReq||[]).find(x=>x.ReqID===p.reqId); if(!r)fail('NOT_FOUND','ไม่พบคำขอ');
-      const yes=p.decision==='approve'; r.Step2By=ap.NameTH||ap.Name; r.Step2Status=yes?'Approved':'Rejected'; r.Status=yes?'APPROVED':'REJECTED';
-      if(yes) applyTimeRequest_(r); logAct('confirmTimeRequest',r.ReqID,r.Type+' '+r.Date+' '+r.RequestTime,actorOf(p));
+      const done=String(r.Status).toUpperCase();
+      if(done==='APPROVED'||done==='REJECTED') fail('BAD_STATE','คำขอนี้ตัดสินไปแล้ว');
+      const yes=p.decision==='approve';
+      // An admin may settle a request still sitting with the head teacher — but the record must say
+      // so, or the sheet would claim a step-1 approval that never happened.
+      if(done==='PENDING_LEADER'){ r.Step1By=(ap.NameTH||ap.Name)+' (แอดมินอนุมัติแทน)'; r.Step1Status=yes?'Approved':'Rejected'; }
+      r.Step2By=ap.NameTH||ap.Name; r.Step2Status=yes?'Approved':'Rejected'; r.Status=yes?'APPROVED':'REJECTED';
+      if(yes) applyTimeRequest_(r);
+      logAct('confirmTimeRequest',r.ReqID,r.Type+' '+r.Date+' '+r.RequestTime+(done==='PENDING_LEADER'?' (ข้ามขั้นหัวหน้า)':''),actorOf(p));
       return {reqId:r.ReqID,status:r.Status}; },
 
     // ========== prepayment (advance tuition with discount) ==========
