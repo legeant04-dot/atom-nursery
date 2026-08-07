@@ -38,7 +38,7 @@ console.log('\n1) Only OT -> the OT account');
   ok_('and it says so', /OT/.test(pick([IT('ot', 'STD-01')]).note));
 }
 
-console.log("\n2) One child's tuition / charges -> that child's package account");
+console.log("\n2) Anything with a bill -> the PACKAGE account");
 {
   eq('tuition alone', pick([IT('bill', 'STD-01')]).img, 'QR_PKG_A');
   eq('an extra charge alone', pick([IT('charge', 'STD-01')]).img, 'QR_PKG_A');
@@ -46,13 +46,25 @@ console.log("\n2) One child's tuition / charges -> that child's package account"
   eq('the OTHER child uses THEIR package account', pick([IT('bill', 'STD-02')]).img, 'QR_PKG_B');
   ok_('never the wrong sibling', pick([IT('bill', 'STD-02')]).img !== 'QR_PKG_A');
 }
-
-console.log('\n3) Anything mixed -> the school account');
 {
-  eq('tuition + OT (same child)', pick([IT('bill', 'STD-01'), IT('ot', 'STD-01')]).img, 'QR_SCHOOL');
-  eq('two children\'s tuition', pick([IT('bill', 'STD-01'), IT('bill', 'STD-02')]).img, 'QR_SCHOOL');
-  eq('everything at once', pick([IT('bill', 'STD-01'), IT('charge', 'STD-01'), IT('ot', 'STD-02')]).img, 'QR_SCHOOL');
-  ok_('and it says which account', /โรงเรียน|school/.test(pick([IT('bill', 'STD-01'), IT('bill', 'STD-02')]).note));
+  // a combined bill is still tuition money — it follows the package, not the general account
+  eq('tuition + OT bundled into one transfer', pick([IT('bill', 'STD-01'), IT('ot', 'STD-01')]).img, 'QR_PKG_A');
+  eq('tuition + charge + OT', pick([IT('bill', 'STD-01'), IT('charge', 'STD-01'), IT('ot', 'STD-01')]).img, 'QR_PKG_A');
+  ok_('and it is described as the package account',
+    /แพ็กเกจ|package/.test(pick([IT('bill', 'STD-01'), IT('ot', 'STD-01')]).note));
+}
+{
+  // two children on the SAME package account can still go in one transfer
+  ctx.window._PICKQR = { ot: 'QR_OT', school: 'QR_SCHOOL', byKid: { 'STD-01': 'QR_PKG_A', 'STD-02': 'QR_PKG_A' } };
+  eq('siblings sharing an account use it', ctx.P_pickQR([IT('bill', 'STD-01'), IT('bill', 'STD-02')]).img, 'QR_PKG_A');
+}
+
+console.log('\n3) Two DIFFERENT package accounts — the one case with no right answer');
+{
+  eq('two children on different accounts', pick([IT('bill', 'STD-01'), IT('bill', 'STD-02')]).img, 'QR_SCHOOL');
+  eq('everything at once, across children', pick([IT('bill', 'STD-01'), IT('charge', 'STD-01'), IT('ot', 'STD-02')]).img, 'QR_SCHOOL');
+  ok_('and the parent is TOLD why, not left guessing',
+    /คนละบัญชี|different accounts/.test(pick([IT('bill', 'STD-01'), IT('bill', 'STD-02')]).note));
 }
 
 console.log('\n4) It never hands back nothing');
