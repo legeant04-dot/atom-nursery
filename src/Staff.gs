@@ -386,6 +386,31 @@ function handleSetConfigVal(p) {
   return { key: key, value: p.value };
 }
 
+/**
+ * SlipOK branch id + API key, editable by the admin.
+ *
+ * These lived only in the Config.gs defaults, so a school on a different branch (or one that renews
+ * on a NEW branch, which SlipOK issues a fresh id for) had no way to point the app at it — every slip
+ * came back "package expired" and the only fix was editing code. The key is never returned; the
+ * caller re-reads the masked tail from slipDiag.
+ */
+function handleSaveSlipOk(p) {
+  p = p || {};
+  // Accept either a bare branch id or the whole URL pasted out of the SlipOK dashboard.
+  var raw = String(p.branch == null ? '' : p.branch).trim().replace(/\/+$/, '');
+  // Only a real URL is reduced to its last segment. Anything else containing a slash is a mistake,
+  // and quietly keeping the tail of it ('../../etc' -> 'etc') would save a branch nobody chose.
+  var branch = /^https?:\/\//i.test(raw) ? raw.split('/').pop() : raw;
+  if (!/^[A-Za-z0-9_-]+$/.test(branch)) throw apiError_('BAD_INPUT', 'เลขสาขาไม่ถูกต้อง — ใส่เฉพาะเลขสาขาจากหน้า SlipOK');
+  setConfigValue_('SlipOK_Url', 'https://api.slipok.com/api/line/apikey/' + branch);
+  // Blank key = "leave the current one alone", so the admin can fix only the branch without
+  // having to fetch the key again (and without it ever being displayed to re-type).
+  var key = String(p.apiKey == null ? '' : p.apiKey).trim();
+  if (key) setConfigValue_('SlipOK_ApiKey', key);
+  try { logAudit(p.adminId || 'admin', 'SET_SLIPOK', 'SCHOOL_CONFIG', 'branch=' + branch + (key ? ' +key' : '')); } catch (e) {}
+  return handleSlipDiag(p);   // answer with a fresh live probe: did that actually fix it?
+}
+
 // Admin package (Plan) CRUD — persist the full Plans array as JSON in SCHOOL_CONFIG (in-place). Admin-only.
 // hydrateConfig_ JSON-parses it back into cfg.Plans (an array) on the next request.
 function handleSavePlans(p) {

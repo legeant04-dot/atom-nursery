@@ -112,7 +112,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.199'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.200'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -4299,7 +4299,20 @@
   // A slip marked ⚠ is SlipOK's VERDICT, not a broken connection — it read the slip (that is where the
   // reference and the transfer time come from) and then objected. This says which, and how often.
   window.A_slipDiag=async(btn)=>{ if(btn)btn.disabled=true;
-    try{ const d=await api('slipDiag',{staffId:USER.staffId}); const c=d.counts||{};
+    try{ A_slipDiagShow(await api('slipDiag',{staffId:USER.staffId}));
+    }catch(e){err(e);}finally{ if(btn)btn.disabled=false; } };
+  // Save the branch id (and optionally the key), then redraw with the LIVE probe that comes back —
+  // so the answer to "did that fix it?" is on screen immediately, not a second trip through Settings.
+  window.A_slipOkSave=async(btn)=>{
+    const m=btn.closest('.modal'), b=m.querySelector('#sokBranch').value.trim(), k=m.querySelector('#sokKey').value.trim();
+    if(!b){ toast(EN()?'Enter the branch id':'ใส่เลขสาขาก่อน'); return; }
+    btn.disabled=true;
+    try{ const d=await api('saveSlipOk',{branch:b,apiKey:k,staffId:USER.staffId,adminId:USER.staffId});
+      m.remove(); A_slipDiagShow(d);
+      toast(d.working?(EN()?'Saved — SlipOK is answering now':'บันทึกแล้ว — SlipOK ตอบกลับได้แล้ว')
+        :(EN()?'Saved, but SlipOK still is not answering':'บันทึกแล้ว แต่ SlipOK ยังไม่ตอบกลับ'));
+    }catch(e){err(e); btn.disabled=false;} };
+  window.A_slipDiagShow=(d)=>{ const c=d.counts||{};
       const why={'1011':EN()?'no such transaction at the bank':'ธนาคารไม่พบรายการโอน',
         '1012':EN()?'slip already used (sent twice)':'สลิปถูกใช้ไปแล้ว (ส่งซ้ำ)',
         '1013':EN()?'amount differs from the bill':'ยอดในสลิปไม่ตรงกับยอดที่แจ้ง',
@@ -4316,6 +4329,11 @@
           ${lv.checked&&lv.message?`<div style="font-size:13px;margin-top:4px">${EN()?'SlipOK says':'ข้อความจาก SlipOK'}: <b>${esc(lv.message)}</b>${lv.code?` <span class="muted">(code ${esc(String(lv.code))})</span>`:''}</div>`:''}
           ${lv.checked&&lv.branch?`<div class="muted" style="font-size:12px;margin-top:4px">${EN()?'Branch in use':'สาขาที่ระบบใช้อยู่'}: <b>${esc(lv.branch)}</b> · ${EN()?'API key':'คีย์'} ${esc(lv.keyTail||'')}</div>`:''}
           ${!good&&!off?`<div class="muted" style="font-size:13px;margin-top:6px">${EN()?'Compare the branch above with your SlipOK dashboard — a renewal on a different branch will not reach this one. Slips still upload; an admin just has to check them by eye.':'นำเลขสาขาด้านบนไปเทียบกับหน้า SlipOK ของโรงเรียน — ถ้าต่ออายุคนละสาขา สาขานี้จะยังหมดอายุอยู่ · ระหว่างนี้ผู้ปกครองยังแนบสลิปได้ตามปกติ เพียงแต่แอดมินต้องตรวจเอง'}</div>`:''}</div>
+        <div class="card" style="padding:8px"><b style="font-size:13px">🔧 ${EN()?'Point the app at the right branch':'ตั้งค่าสาขาที่ถูกต้อง'}</b>
+          <p class="muted" style="font-size:13px;margin:4px 0">${EN()?'Copy the branch id and API key from your SlipOK dashboard. Renewing on a new branch gives you a NEW id — the app keeps using the old one until it is changed here.':'คัดลอกเลขสาขาและ API key จากหน้า SlipOK ของโรงเรียนมาใส่ · การต่ออายุแบบเปิดสาขาใหม่จะได้เลขสาขาใหม่ ระบบจะยังใช้เลขเดิมจนกว่าจะแก้ตรงนี้'}</p>
+          <label class="field"><span>${EN()?'Branch id':'เลขสาขา (Branch ID)'}</span><input id="sokBranch" value="${esc(lv.branch||'')}" placeholder="${EN()?'e.g. 69307':'เช่น 69307'}"/></label>
+          <label class="field"><span>${EN()?'API key':'API key'} <small class="muted">${EN()?'leave blank to keep the current one':'เว้นว่างไว้ = ใช้คีย์เดิม'} ${esc(lv.keyTail||'')}</small></span><input id="sokKey" placeholder="SLIPOK…"/></label>
+          <button class="btn sm block" onclick="A_slipOkSave(this)">💾 ${EN()?'Save and test again':'บันทึกแล้วตรวจใหม่'}</button></div>
         <div class="card" style="padding:8px"><b style="font-size:13px">${EN()?'Slips on file':'สลิปทั้งหมดในระบบ'} (${c.total||0})</b>
           <div class="list-item"><span>✓ ${EN()?'genuine':'สลิปแท้'}</span><b style="color:var(--ok)">${c.verified||0}</b></div>
           <div class="list-item"><span>⚠ ${EN()?'SlipOK objected':'SlipOK ทักท้วง'}</span><b style="color:var(--warn)">${c.rejected||0}</b></div>
@@ -4325,7 +4343,7 @@
           ${d.byCode.map(x=>`<div class="list-item"><span>${esc(why[x.code]||x.code)} <small class="muted">(${esc(x.code)})</small></span><b>${x.count}</b></div>`).join('')}
           <p class="muted" style="font-size:13px;margin:6px 0 0">${EN()?'An objection is not proof of fraud — a re-sent slip or an amount typed differently both trigger one. Open the slip and judge it yourself.':'การทักท้วงไม่ได้แปลว่าสลิปปลอม — ส่งสลิปซ้ำ หรือกรอกยอดไม่ตรง ก็ขึ้นได้ · เปิดดูสลิปแล้วตัดสินเองได้เลย'}</p></div>`:''}
         <button class="btn outline block" onclick="this.closest('.modal').remove()">${esc(t('c.close'))}</button>`);
-    }catch(e){err(e);}finally{ if(btn)btn.disabled=false; } };
+  };
 
   // ---- Phase 0: "where is it actually slow, and what is actually breaking?" ---------------------
   // Nobody can read a raw log sheet and act on it, so this ranks the answer instead of dumping rows.
@@ -4342,6 +4360,7 @@
           <p class="muted" style="font-size:13px;margin:6px 0 0">${esc(d.note||'')}</p></div>
         <button class="btn outline block" onclick="this.closest('.modal').remove()">${esc(t('c.close'))}</button>`); return; }
 
+      window._PERF=d;   // kept so the report can be copied out as text without re-fetching
       const bar=(label,val,max,color)=>`<div style="margin:4px 0"><div style="display:flex;justify-content:space-between;font-size:13px"><span>${label}</span><b style="color:${color||'var(--ink)'}">${val}</b></div>
         <div style="height:5px;background:var(--line);border-radius:3px;overflow:hidden"><div style="height:100%;width:${Math.min(100,max)}%;background:${color||'var(--brand)'}"></div></div></div>`;
 
@@ -4406,9 +4425,37 @@
           <button class="btn sm outline" style="flex:1" onclick="this.closest('.modal').remove();A_perfReport(7)">${EN()?'7 days':'7 วัน'}</button>
           <button class="btn sm outline" style="flex:1" onclick="this.closest('.modal').remove();A_perfReport(30)">${EN()?'30 days':'30 วัน'}</button>
         </div>
+        <button class="btn sm outline block" style="margin-top:8px" onclick="A_perfCopy(this)">📋 ${EN()?'Copy this report as text (to send on)':'คัดลอกรายงานเป็นข้อความ (ไว้ส่งต่อ)'}</button>
         <button class="btn sm outline block" style="margin-top:8px" onclick="A_perfClear(this)">🧹 ${EN()?'Clear the log and start a fresh measurement window':'ล้างบันทึกแล้วเริ่มเก็บข้อมูลรอบใหม่'}</button>
         <button class="btn outline block" style="margin-top:8px" onclick="this.closest('.modal').remove()">${esc(t('c.close'))}</button>`);
     }catch(e){err(e);}
+  };
+  // The report is only useful if it can leave the phone — a screenshot of a scrolling modal loses
+  // most of it. This flattens the same ranked numbers into plain text. It carries no names, ids or
+  // amounts (the log itself holds none), so it is safe to paste anywhere.
+  window.A_perfCopy=async(btn)=>{
+    const d=window._PERF; if(!d)return;
+    const L=[], ms=n=>n>=1000?(n/1000).toFixed(1)+'s':Math.round(n)+'ms';
+    L.push('ATOM PERF '+String(d.from||'').slice(0,16)+' -> '+String(d.to||'').slice(0,16));
+    L.push('calls='+d.calls+' sessions='+d.sessions+' p50='+ms(d.p50)+' p95='+ms(d.p95)+' fail='+d.failRate+'% cache='+d.cacheRate+'%');
+    L.push('SLOWEST (by total wait):');
+    (d.slowest||[]).slice(0,10).forEach(x=>L.push('  '+x.action+' x'+x.n+' p50='+ms(x.p50)+' p95='+ms(x.p95)+(x.fail?' fail='+x.fail:'')));
+    L.push('SCREENS:');
+    (d.slowScreens||[]).filter(x=>x.n).slice(0,10).forEach(x=>L.push('  '+x.screen+' x'+x.n+' p50='+ms(x.p50)+' p95='+ms(x.p95)));
+    L.push('PROBLEMS:');
+    (d.problems||[]).slice(0,12).forEach(x=>L.push('  ['+x.users+' users x'+x.n+'] '+x.what+' :: '+(x.detail||'-')));
+    L.push('FAILING:');
+    (d.failing||[]).slice(0,10).forEach(x=>L.push('  '+x.action+' '+x.rate+'% '+Object.keys(x.codes||{}).map(c=>c+'x'+x.codes[c]).join(',')));
+    L.push('DEVICES: '+(d.byDev||[]).map(x=>x.dev+' x'+x.n+' p50='+ms(x.p50)+(x.fail?' fail'+x.rate+'%':'')).join(' | '));
+    L.push('NETWORK: '+(d.byNet||[]).filter(x=>x.net).map(x=>x.net+' x'+x.n+' p50='+ms(x.p50)).join(' | '));
+    L.push('BOOT: '+(d.boot||[]).map(x=>x.mark+'='+ms(x.p50)).join(' | '));
+    L.push('rows='+d.rows+'/'+d.cap);
+    const txt=L.join('\n');
+    try{ await navigator.clipboard.writeText(txt); toast(EN()?'Copied':'คัดลอกแล้ว'); return; }catch(e){}
+    // Clipboard is blocked in plenty of in-app browsers — show it selectable instead of failing.
+    modal(`<h3>📋 ${EN()?'Copy this text':'คัดลอกข้อความนี้'}</h3>
+      <textarea readonly style="width:100%;height:50vh;font-family:monospace;font-size:12px" onclick="this.select()">${esc(txt)}</textarea>
+      <button class="btn outline block" onclick="this.closest('.modal').remove()">${esc(t('c.close'))}</button>`);
   };
   // Used after acting on a finding ("did that fix it?"), so the next report is not diluted by the
   // old numbers. Only the log is deleted — nothing the school depends on lives in it.
