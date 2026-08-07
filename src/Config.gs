@@ -72,7 +72,7 @@ SCHEMA[WB.MAIN] = {
   // A blank Status is a legacy row from before the draft flow: treat it as SUBMITTED.
   // SubmittedAt = when it was sent; UpdatedAt = last save of either kind.
   // Milk = quantity (number); MilkUnit = box|oz. ParentComment = the parent's comment on the report.
-  DAILY_JOURNAL:     ['Date', 'StudentID', 'TeacherID', 'Mood', 'Health', 'Milk', 'Meals', 'Sleep', 'Toilet', 'Activity', 'Skills', 'Highlight', 'HealthDetail', 'MilkTotal', 'Water', 'Theme', 'SubmittedAt', 'Status', 'UpdatedAt', 'MilkUnit', 'ParentComment', 'MealItems'],
+  DAILY_JOURNAL:     ['Date', 'StudentID', 'TeacherID', 'Mood', 'Health', 'Milk', 'Meals', 'Sleep', 'Toilet', 'Activity', 'Skills', 'Highlight', 'HealthDetail', 'MilkTotal', 'Water', 'Theme', 'SubmittedAt', 'Status', 'UpdatedAt', 'MilkUnit', 'ParentComment', 'MealItems', 'MilkTimes'],
   DSPM_ASSESSMENT:   ['AssessmentID', 'StudentID', 'AgeMonth', 'ItemNo', 'Skill', 'Result', 'Date', 'TeacherID'],
   // PaymentMethod = transfer | cash; TransactionDate = when payment was notified; PaidDate = Admin-confirmed payment date (retro-auditable).
   BILLING:           ['BillingID', 'StudentID', 'Month', 'Amount', 'OTRollover', 'DueDate', 'PaidDate', 'Status', 'SlipAmount', 'VerifiedStatus', 'QRRef', 'PaymentMethod', 'TransactionDate'],
@@ -127,7 +127,7 @@ SCHEMA[WB.HR] = {
   // Department/PositionLevel/ReportsTo drive the org hierarchy & leave routing (chat spec)
   // Classes = extra classrooms this staff covers beyond their homeroom (comma-separated ClassNames, or
   // '*' = all). Admin/Leader cover all by default. Appended at END like NicknameEN.
-  STAFF:         ['StaffID', 'NationalID', 'Name', 'NameEN', 'Nickname', 'DOB', 'Position', 'Role', 'Department', 'PositionLevel', 'StaffGroup', 'ReportsTo', 'Phone', 'LineUID', 'StartDate', 'BaseSalary', 'RequireCheckin', 'PasswordHash', 'MustChangePassword', 'Photo', 'Status', 'NicknameEN', 'Classes', 'BankName', 'BankAccount', 'ContributionOpening', 'ContributionAccum', 'ContributionLocked'],
+  STAFF:         ['StaffID', 'NationalID', 'Name', 'NameEN', 'Nickname', 'DOB', 'Position', 'Role', 'Department', 'PositionLevel', 'StaffGroup', 'ReportsTo', 'Phone', 'LineUID', 'StartDate', 'BaseSalary', 'RequireCheckin', 'PasswordHash', 'MustChangePassword', 'Photo', 'Status', 'NicknameEN', 'Classes', 'BankName', 'BankAccount', 'ContributionOpening', 'ContributionAccum', 'ContributionLocked', 'CanClassOrg', 'CanFoodMenu'],
   // Staff groups with their own (editable) work hours — Admin-managed
   STAFF_GROUPS:  ['GroupName', 'GroupNameEN', 'CheckInTime', 'CheckOutTime'],
   // Per-staff payroll config (Admin-editable). Widened to carry every field the engine's computePayroll uses

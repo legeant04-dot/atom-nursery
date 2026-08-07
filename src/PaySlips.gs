@@ -92,11 +92,17 @@ function paySlipRecord_(kind, refId, p) {
   if (p.slipData) { var b64 = String(p.slipData).indexOf(',') >= 0 ? String(p.slipData).split(',')[1] : String(p.slipData); if (b64) drive = paySlipToDrive_(b64, p.slipName || ('slip-' + refId + '.jpg')); }
   var vr = paySlipVerify_(p, tgt.due);
   var slipId = 'SL-' + Date.now();
-  var sh0 = paySlipsSheet_(); ensureColumns_(sh0, ['TransDate', 'TransTime', 'Sender', 'Method']);
+  var sh0 = paySlipsSheet_();
+  ensureColumns_(sh0, ['TransDate', 'TransTime', 'Sender', 'Method', 'StatedDate', 'StatedTime']);
+  // When the slip cannot be read, all the school could see was when the FILE was attached — which is
+  // not when the money moved. The parent states it, and we keep BOTH: the verified time still wins,
+  // and the stated one is clearly marked as the family's own word rather than a bank fact.
+  var statedDate = paySlipTransDate_(p.statedDate), statedTime = paySlipTransTime_(p.statedTime);
   appendObject_(sh0, { SlipID: slipId, RefKind: kind, RefID: refId, StudentID: tgt.studentId, Amount: amt,
     Url: drive.url, FileId: drive.fileId, Verified: vr.verified, TransRef: vr.ref, Receiver: vr.receiver,
     // the moment the money actually MOVED, read off the slip — not the moment the file was attached
     TransDate: vr.transDate || '', TransTime: vr.transTime || '', Sender: vr.sender || '',
+    StatedDate: statedDate, StatedTime: statedTime,
     Method: 'transfer', SubmittedDate: nowStr_(), Status: 'SUBMITTED' });
   recCacheBust_('PAYMENT_SLIPS');
   var submitted = paySlipSum_(kind, refId, ['SUBMITTED', 'CONFIRMED']);

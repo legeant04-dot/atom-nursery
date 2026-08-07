@@ -199,6 +199,20 @@ function handleStaffStudentCheckin(p) {
     function (s) { return String(s.StudentID) === String(p.studentId); });
   if (!student) throw apiError_('STUDENT_NOT_FOUND', 'ไม่พบข้อมูลนักเรียน');
 
+  // The parent already told us the child is away today. Recording an arrival would contradict the
+  // leave and quietly make the attendance figures wrong, so refuse and say why.
+  try {
+    var lvSh = getMainSpreadsheet_().getSheetByName('LEAVE_REQUEST_STD');
+    if (lvSh) {
+      var d0 = dateStr_(new Date());
+      var lv = findObject_(lvSh, function (l) {
+        return String(l.StudentID) === String(p.studentId) && String(l.Date).slice(0, 10) === d0;
+      });
+      if (lv) throw apiError_('ON_LEAVE', 'นักเรียนแจ้งลาวันนี้แล้ว (' + (lv.Type || 'ลา') +
+        (lv.Reason ? ' · ' + lv.Reason : '') + ') — หากมาจริงให้ยกเลิกใบลาก่อน');
+    }
+  } catch (e) { if (e && e.apiCode === 'ON_LEAVE') throw e; }
+
   var sh = sheet_(getMainSpreadsheet_(), 'CHECKIN_STUDENT');
   ensureColumns_(sh, ['Remark', 'ByStaffID']);
   var now = new Date(), today = dateStr_(now);

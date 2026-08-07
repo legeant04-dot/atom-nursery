@@ -11,7 +11,7 @@
 function handleSaveStaff(p) {
   p = p || {};
   var sh = sheet_(getHrSpreadsheet_(), 'STAFF');
-  try { ensureColumns_(sh, ['NicknameEN', 'Classes', 'CanClassOrg', 'BankName', 'BankAccount', 'ContributionOpening']); } catch (e) {}
+  try { ensureColumns_(sh, ['NicknameEN', 'Classes', 'CanClassOrg', 'CanFoodMenu', 'BankName', 'BankAccount', 'ContributionOpening']); } catch (e) {}
   var d = p.data || {};
   var row = {};
   for (var k in d) { if (d.hasOwnProperty(k)) row[k] = d[k]; }

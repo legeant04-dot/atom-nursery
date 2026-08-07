@@ -112,7 +112,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.194'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.195'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -1084,7 +1084,10 @@
     const pill=x=>`<span class="jr-pill">${esc(x)}</span>`;
     row('😊', jt("Today's Mood"), j.Mood?`${MOODS[j.Mood]||''} ${esc(jt(j.Mood))}`:'');
     row('❤️', jt('Health Update'), j.Health?(esc(jt(j.Health))+(j.HealthDetail?` <span class="muted">· ${esc(j.HealthDetail)}</span>`:'')):'');
-    row('🍼', jt('Milk & Water'), (milkQty&&milkQty!==0?`<b>${esc(milkQty)} ${esc(milkUnitL)}</b>`:'')+(j.Water?(milkQty?' · ':'')+esc(jt(j.Water)):''));
+    { const mt=jMilkTimes(j);
+      row('🍼', jt('Milk & Water'), (milkQty&&milkQty!==0?`<b>${esc(milkQty)} ${esc(milkUnitL)}</b>`:'')
+        + (mt.length?` <span class="muted">(${esc(mt.join(', '))}${EN()?'':' น.'})</span>`:'')
+        + (j.Water?(milkQty?' · ':'')+esc(jt(j.Water)):'')); }
     // what the child ate, then how much of it — "ข้าวต้มไก่ · หมด" says far more than "หมด"
     { let mi={}; try{ mi=typeof j.MealItems==='string'?JSON.parse(j.MealItems||'{}'):(j.MealItems||{}); }catch(e){ mi={}; }
       const ms=['Breakfast','Lunch','Dinner','Snack'].filter(m=>meals[m]||mi[m]).map(m=>
@@ -1516,11 +1519,20 @@
    * the upload time is the one nobody cares about. Falls back to the upload time, clearly labelled,
    * when SlipOK could not read a transfer time.
    */
+  /**
+   * When the money moved — and how sure we are of it.
+   * 1. read off the slip by SlipOK: a bank fact
+   * 2. otherwise what the parent typed: their own word, and labelled as such so nobody mistakes it
+   *    for verified
+   * 3. otherwise all we ever had — the moment the file was attached
+   */
   function slipWhen(s){
     const d=String(s.TransDate||'').slice(0,10), tm=String(s.TransTime||'').slice(0,5);
-    if(d) return `<b>${esc(fullDate(d))}${tm?' · '+esc(tm)+' '+(EN()?'':'น.'):''}</b> <span class="muted">${EN()?'transferred':'เวลาที่โอน'}</span>`;
+    if(d) return `<b>${esc(fullDate(d))}${tm?' · '+esc(tm)+' '+(EN()?'':'น.'):''}</b> <span class="muted">${EN()?'transferred (from the slip)':'เวลาที่โอน (อ่านจากสลิป)'}</span>`;
+    const sd=String(s.StatedDate||'').slice(0,10), stm=String(s.StatedTime||'').slice(0,5);
+    if(sd) return `<b>${esc(fullDate(sd))}${stm?' · '+esc(stm)+' '+(EN()?'':'น.'):''}</b> <span class="muted">${EN()?'transferred (stated by the parent)':'เวลาที่โอน (ผู้ปกครองแจ้ง)'}</span>`;
     const sub=String(s.SubmittedDate||'').slice(0,16);
-    return `<span class="muted">${esc(sub)} ${EN()?'(uploaded — no transfer time on the slip)':'(เวลาที่แนบไฟล์ — อ่านเวลาโอนจากสลิปไม่ได้)'}</span>`;
+    return `<span class="muted">${esc(sub)} ${EN()?'(uploaded — no transfer time given)':'(เวลาที่แนบไฟล์ — ไม่มีข้อมูลเวลาโอน)'}</span>`;
   }
   function slipHistoryHTML(slips, canDelete){ if(!slips||!slips.length)return '';
     const anySlip=slips.some(s=>!isCashRow(s));
@@ -1678,6 +1690,13 @@
     <label class="field"><span>${esc(t('slip.file'))}</span><input type="file" id="slipF" accept="image/*" onchange="P_slipDetect(this)"/></label>
     <div style="text-align:center"><img id="slipPrev" alt="" style="max-height:200px;border-radius:8px;border:1px solid var(--line);margin:4px 0;cursor:zoom-in" hidden onclick="ZOOM_IMG(this.src)"/></div>
     <label class="field"><span>${esc(t('slip.amountPaid'))}</span><input id="slipAmt" type="number" inputmode="decimal" placeholder="${esc(t('slip.amountPh'))}"/></label>
+    <!-- The system can only ever know when the FILE was attached. When the slip cannot be read
+         automatically that is all the school sees, which is not the same as when the money moved —
+         so the parent states it. Pre-filled with now, because that is the common case. -->
+    <div class="grid2">
+      <label class="field"><span>${EN()?'Date transferred':'วันที่โอนจริง'}</span><input type="date" id="slipDate" value="${todayStr()}"/></label>
+      <label class="field"><span>${EN()?'Time transferred':'เวลาที่โอน'}</span><input type="time" id="slipTime" value="${nowTime()}"/></label></div>
+    <small class="muted" style="display:block;margin:-2px 0 6px">${EN()?'Taken from the slip automatically when it can be read; otherwise what you enter here is used.':'ถ้าระบบอ่านสลิปได้จะใช้เวลาจากสลิป · ถ้าอ่านไม่ได้จะใช้เวลาที่กรอกนี้'}</small>
     <div id="qrDetect" class="muted" style="font-size:13px"></div>
     <button class="btn block" onclick="P_slipDo('${id}',this,'${kind||'monthly'}')">${esc(t('slip.upload'))}</button>`); };
   // try to read the QR in the attached slip image and extract the amount (EMVCo tag 54)
@@ -1717,7 +1736,9 @@
     if(!amt){toast(EN()?'Enter the transferred amount':'กรอกยอดที่โอน');return;}
     const dataUrl=await slipDataUrl(f);
     if(btn)btn.disabled=true;
-    try{ const args={slipName:f.name,slipAmount:amt,fromQR,slipData:dataUrl}; // slipData → saved to the Drive folder in GAS; SlipOK verifies it
+    // what the parent says about WHEN they transferred — used only when the slip itself cannot be read
+    const sd=(m.querySelector('#slipDate')||{}).value||'', st=(m.querySelector('#slipTime')||{}).value||'';
+    try{ const args={slipName:f.name,slipAmount:amt,fromQR,slipData:dataUrl,statedDate:sd,statedTime:st}; // slipData → saved to the Drive folder in GAS; SlipOK verifies it
       const r= kind==='teacherOt' ? await api('teacherPayOT',Object.assign({staffId:USER.staffId,otId:id},args))
              : kind==='ot' ? await api('payOT',Object.assign({otId:id},args))
              : kind==='charge' ? await api('payCharge',Object.assign({chargeId:id},args))
@@ -1958,6 +1979,8 @@
     if(me0.MustChangePassword){ T_changePw(true); return; } // force password change on first login
     const isLeader = me0.PositionLevel==='Leader' || me0.Role==='Leader' || USER.role==='Leader';
     const canOrg = !!me0.CanClassOrg || isLeader;   // may use the drag class-organize tool (admin-granted)
+    // the teacher the admin put in charge of the kitchen menu gets the monthly menu screen too
+    const canFood = ['YES','TRUE','1'].indexOf(String(me0.CanFoodMenu||'').toUpperCase())>=0 || me0.CanFoodMenu===true;
     // a manually-requested time (ขอลงเวลา, approved) shows blue+bold to distinguish it from a normal GPS clock-in
     const mtime=(v,manual)=>manual?`<b style="color:var(--blue)" title="${EN()?'manual (requested)':'ขอลงเวลา'}">${v||'--:--'} •</b>`:`<b>${v||'--:--'}</b>`;
     const recentRows = recent.map((a,i)=>`<div class="list-item"><span>${i===0?'<b>'+esc(t('c.today'))+'</b>':esc(ddmmyyyy(a.date))}</span><span style="font-size:13px">${esc(t('lbl.checkIn'))} ${mtime(a.checkIn,a.manualIn)} · ${esc(t('lbl.checkOut'))} ${mtime(a.checkOut,a.manualOut)} · ${a.late?`<span class="pill bad">${esc(t('lbl.late'))} ${a.late} ${esc(t('lbl.min'))}</span>`:`<span class="pill ok">${esc(t('lbl.onTime'))}</span>`}</span></div>`).join('');
@@ -1977,7 +2000,8 @@
       ${isLeader?`<div class="card"><div class="spread"><h3>${esc(t('corg.title'))}</h3><button class="btn sm" onclick="T_classOrg()">🔁 ${esc(t('corg.manage'))}</button></div><small class="muted">${esc(t('corg.leaderNote'))}</small><div id="myccr" style="margin-top:8px"></div></div>`:''}
       <div class="card"><div class="row"><button class="btn sm outline" onclick="GO('absence')">🔎 ${esc(t('abs.title'))}</button>
         <button class="btn sm outline" onclick="T_studentOT()">⏰ ${EN()?'Student OT (follow-up)':'OT นักเรียน (ติดตามชำระ)'}</button>
-        ${canOrg?`<button class="btn sm outline" onclick="T_organize()">🔁 ${EN()?'Organize classes':'จัดชั้นเรียน'}</button>`:''}</div></div>
+        ${canOrg?`<button class="btn sm outline" onclick="T_organize()">🔁 ${EN()?'Organize classes':'จัดชั้นเรียน'}</button>`:''}
+        ${canFood?`<button class="btn sm outline" onclick="A_foodMenu()">🍚 ${EN()?'Monthly food menu':'เมนูอาหารรายเดือน'}</button>`:''}</div></div>
       <div class="card"><div class="spread"><h3>👶 ${esc(cl.class.ClassName)}</h3><span class="muted">${cl.students.length} ${EN()?'kids':'คน'}</span></div>${classSwitcher(cl)}
         ${cl.students.map(s=>`<div class="list-item"><span>${studentAvatar(s)} <b>${esc(dispNick(s))}</b> ${journalPill(jdone[s.StudentID])}</span><span><button class="btn sm outline" onclick="T_journal('${s.StudentID}')">${esc(journalBtnLabel(jdone[s.StudentID]))}</button> <button class="btn sm outline" onclick="T_assess('${s.StudentID}')">${esc(t('lbl.assess'))}</button></span></div>`).join('')}</div>`;
     const tca=await api('teacherClassAttendance',{staffId:USER.staffId}); setHTML('#tcatt', tcaHtml(tca));
@@ -2054,8 +2078,14 @@
         ? `<button class="btn sm ${jdone[s.StudentID]?'outline':''}" onclick="T_journal('${s.StudentID}')" title="${esc(journalBtnLabel(jdone[s.StudentID]))}" aria-label="${esc(journalBtnLabel(jdone[s.StudentID]))} ${esc(dispNick(s))}">${!jdone[s.StudentID]?'📒':(jIsDraft(jdone[s.StudentID])?'✏️':'👁️')}</button>`
         : `<button class="btn sm outline" disabled style="opacity:.45" title="${EN()?'Check the child in first':'เช็คอินนักเรียนก่อนจึงจะบันทึกได้'}" aria-label="${EN()?"Daily journal":"สมุดบันทึกประจำวัน"}" title="${EN()?"Daily journal":"สมุดบันทึกประจำวัน"}">📒</button>`;
       // preselect OUT once the child is in (so "pick up" is one tap); always usable so a time can be corrected
-      const ciBtn = `<button class="btn sm green" onclick="T_studentCheckin('${s.StudentID}','${esc(nm(s))}','${s.inToday&&!s.outToday?'OUT':(s.outToday?'OUT':'IN')}')" title="${EN()?'Check in/out on behalf':'เช็คอิน/เอาท์แทน'}" aria-label="${EN()?"Check in":"เช็คอิน"}" title="${EN()?"Check in":"เช็คอิน"}">📍</button>`;
-      const attTag = s.inToday?`<small class="pill ok" style="margin-left:4px">${EN()?'in':'มา'} ${esc(s.inTime||'')}</small>`:'';
+      // A child their parent has reported away today cannot be checked in — the leave IS the record,
+      // and a stray check-in would contradict it. The button is replaced by why they are away.
+      const ciBtn = s.onLeave
+        ? `<button class="btn sm outline" disabled style="opacity:.45" title="${EN()?'On leave today':'ลาวันนี้ — เช็คอินไม่ได้'}" aria-label="${EN()?'On leave':'ลา'}">🚫</button>`
+        : `<button class="btn sm green" onclick="T_studentCheckin('${s.StudentID}','${esc(nm(s))}','${s.inToday&&!s.outToday?'OUT':(s.outToday?'OUT':'IN')}')" title="${EN()?'Check in/out on behalf':'เช็คอิน/เอาท์แทน'}" aria-label="${EN()?"Check in":"เช็คอิน"}">📍</button>`;
+      const attTag = s.onLeave
+        ? `<small class="pill warn" style="margin-left:4px">🏖️ ${esc(s.leaveType||(EN()?'on leave':'ลา'))}${s.leaveReason?' · '+esc(s.leaveReason):''}</small>`
+        : (s.inToday?`<small class="pill ok" style="margin-left:4px">${EN()?'in':'มา'} ${esc(s.inTime||'')}</small>`:'');
       return `<div class="card spread"><div style="display:flex;gap:10px;align-items:center">${studentAvatar(s)}<div><b>${esc(dispNick(s))}</b> ${nmSub(s)?`<small class="muted">${esc(nmSub(s))}</small>`:""}${attTag}<br><small class="muted">${esc(ageYM(s.DOB))} · ${EN()?'allergy':'แพ้'}: ${esc(s.Allergy||'-')}</small><br>${journalPill(jdone[s.StudentID])}</div></div><div class="row">${jBtn}<button class="btn sm outline" onclick="T_assess('${s.StudentID}')" aria-label="${EN()?"Assess":"ประเมิน"}" title="${EN()?"Assess":"ประเมิน"}">📝</button>${ciBtn}<button class="btn sm outline" onclick="T_studentLeave('${s.StudentID}','${esc(dispNick(s))}')" title="${EN()?'File leave for this student':'แจ้งลาให้นักเรียน'}" aria-label="${EN()?"Report leave":"แจ้งลา"}" title="${EN()?"Report leave":"แจ้งลา"}">🏖️</button><button class="btn sm outline" onclick="EDIT_ATT('${s.StudentID}')" aria-label="${EN()?"Correct times":"แก้ไขเวลา"}" title="${EN()?"Correct check-in / pick-up":"แก้ไขเวลารับ-ส่ง"}">🕑</button><button class="btn sm outline" onclick="T_journalHistory('${s.StudentID}')" aria-label="${EN()?"Past reports":"บันทึกย้อนหลัง"}" title="${EN()?"Past daily reports":"ดูบันทึกย้อนหลัง"}">📅</button></div></div>`; }).join(''); };
   // Teacher files a leave for a student → notifies the linked parents; shows in that student's parent calendar
   window.T_studentLeave=(sid,name)=>{ modal(`<h3>🏖️ ${EN()?'File student leave':'แจ้งลานักเรียน'} — ${esc(name)}</h3>
@@ -2131,6 +2161,10 @@
       <div class="jsec"><h4>🍼 ${esc(jt('Milk & Water'))}</h4>
         <div class="row" style="gap:8px;align-items:center"><select id="jMilkUnit" style="flex:0 0 auto">${[['box',EN()?'Box':'กล่อง'],['oz','Oz.']].map(([u,l])=>`<option value="${u}" ${jv.milkUnit===u?'selected':''}>${esc(l)}</option>`).join('')}</select>
           <select id="jMilkQty" style="flex:1">${['',...Array.from({length:20},(_,i)=>i+1)].map(n=>`<option value="${n}" ${String(jv.milkQty)===String(n)?'selected':''}>${n||'-'}</option>`).join('')}</select></div>
+        <!-- "3 boxes" does not tell a parent whether the last one was at 09:00 or 16:00, which is
+             exactly what they need to plan the evening feed. -->
+        <label class="field" style="margin-top:6px"><span>${EN()?'Times fed':'เวลาที่กินนม'}</span>
+          <input id="jMilkTimes" value="${esc(jv.milkTimes)}" placeholder="${EN()?'e.g. 09:00, 12:30, 15:00':'เช่น 09:00, 12:30, 15:00'}"/></label>
         <div class="choice" style="margin-top:6px">${seg('Water',WATERS,false)}</div></div>
       <!-- What the child ate AND how much. The dish comes from the school's master list; anything
            not on it can be typed and is added to the list on save, so the next teacher just picks it.
@@ -2158,11 +2192,16 @@
     Object.keys(j.Toilet||{}).forEach(k=>{ const v=j.Toilet[k]; if(!v)return; JSEL.Toilet[k]=v; mark(`[data-tl="${cssq(k)}"][data-v="${cssq(v)}"]`); });
   }
   // text/number inputs are prefilled inline via value="" — flatten the record's shapes first
+  // MilkTimes is stored as a JSON array in one cell; older journals have none.
+  function jMilkTimes(j){ let v=(j&&j.MilkTimes)||[];
+    if(typeof v==='string'){ try{ v=JSON.parse(v); }catch(e){ v=String(v).split(','); } }
+    return (Array.isArray(v)?v:[]).map(x=>String(x).trim()).filter(x=>/^\d{1,2}:\d{2}$/.test(x)); }
   function journalValues(j){ j=j||{};
     // milk is now qty + unit (box|oz). Legacy journals stored Milk as an oz array → derive the total.
     const mq = Array.isArray(j.Milk) ? (j.Milk.reduce((a,b)=>a+(+b||0),0)||'') : (j.Milk!=null&&j.Milk!==''?Number(j.Milk):(j.MilkTotal||''));
     return { healthDetail: j.HealthDetail||'', theme: j.Theme||'', highlight: j.Highlight||'',
       milkQty: mq===0?'':mq, milkUnit: j.MilkUnit || (Array.isArray(j.Milk)?'oz':'box'),
+      milkTimes: jMilkTimes(j).join(', '),
       sleep: jArr(j.Sleep).map(s=>`${s.from||''}-${s.to||''}`).filter(x=>x!=='-').join(', ') }; }
   window.J_pick=(g,v,el,multi)=>{ if(multi){ JSEL[g].has(v)?JSEL[g].delete(v):JSEL[g].add(v); el.classList.toggle('pass'); }
     else { JSEL[g]=v; [...el.parentElement.children].forEach(b=>b.classList.remove('pass')); el.classList.add('pass'); } };
@@ -2225,10 +2264,13 @@
   window.T_saveJournal=async(sid,submit)=>{
     if(submit && !confirm(t('jr.confirmSubmit'))) return;
     const milkQty=+($('#jMilkQty').value||0)||0; const milkUnit=$('#jMilkUnit').value||'box';
+    // accept "9:00, 12.30 15:00" and keep only what is really a time — a typo must not be stored
+    const milkTimes=(($('#jMilkTimes')||{}).value||'').split(/[,\s]+/).map(x=>x.trim().replace('.',':'))
+      .filter(x=>/^\d{1,2}:\d{2}$/.test(x)).map(x=>('0'+x).slice(-5));
     const sleep=($('#jSleep').value||'').split(',').map(x=>x.trim()).filter(Boolean).map(s=>({from:(s.split('-')[0]||'').trim(),to:(s.split('-')[1]||'').trim()}));
     // any dish typed as new is registered in the master list here, before the journal is written
     const mealItems=await jCollectMeals();
-    try{ const r=await api('submitJournal',{studentId:sid,staffId:USER.staffId,submit:!!submit,Mood:JSEL.Mood,Health:JSEL.Health,HealthDetail:$('#jHealthD').value,Milk:milkQty,MilkUnit:milkUnit,MilkTotal:milkQty,Water:JSEL.Water,Meals:JSEL.Meals,MealItems:mealItems,Sleep:sleep,Toilet:JSEL.Toilet,Activity:[...JSEL.Activity],Theme:$('#jTheme').value,Skills:[...JSEL.Skills],Highlight:$('#jHi').value});
+    try{ const r=await api('submitJournal',{studentId:sid,staffId:USER.staffId,submit:!!submit,Mood:JSEL.Mood,Health:JSEL.Health,HealthDetail:$('#jHealthD').value,Milk:milkQty,MilkUnit:milkUnit,MilkTotal:milkQty,MilkTimes:milkTimes,Water:JSEL.Water,Meals:JSEL.Meals,MealItems:mealItems,Sleep:sleep,Toilet:JSEL.Toilet,Activity:[...JSEL.Activity],Theme:$('#jTheme').value,Skills:[...JSEL.Skills],Highlight:$('#jHi').value});
       confirmSaved(r.submitted?(EN()?'Sent to the parent':'ส่งให้ผู้ปกครองแล้ว'):(EN()?'Draft saved — not sent yet':'บันทึกร่างแล้ว — ยังไม่ได้ส่ง')); J_exit(); }catch(e){err(e);} };
 
   // ===== injury / accident report (แบบบันทึกการบาดเจ็บรายบุคคล) — teacher & leader =====
@@ -3425,6 +3467,7 @@
         <div id="sf_DeptList" ${(s.Department==='*'||s.Classes==='*')?'style="opacity:.4;pointer-events:none"':''}>${A_classOptions(s.Department&&s.Department!=='*'?s.Department:'').map(d=>`<label style="margin-right:10px;font-size:13px"><input type="checkbox" class="sfDept" value="${esc(d)}" style="width:auto" ${String(s.Department||'').split(',').map(x=>x.trim()).indexOf(d)>=0?'checked':''}/> ${esc(d)}</label>`).join('')||`<small class="muted">${EN()?'no departments yet':'ยังไม่มีแผนก'}</small>`}</div>
         <small class="muted" style="font-size:13px">${EN()?'Department = responsibility (can be several). Work time is set by the group, not the department.':'แผนก = ส่วนที่รับผิดชอบ (มีได้หลายแผนก) · เวลาเข้างานกำหนดที่กลุ่มพนักงาน ไม่ผูกกับแผนก'}</small></div>
       <label class="field" style="display:flex;align-items:center;gap:8px"><input type="checkbox" id="sf_CanClassOrg" style="width:auto" ${(s.CanClassOrg===true||s.CanClassOrg===1||['YES','TRUE'].indexOf(String(s.CanClassOrg||'').toUpperCase())>=0)?'checked':''}/> 🔁 ${EN()?'Allow this teacher to organize classes (move teachers/students, like Admin)':'ให้ครูคนนี้จัดชั้นเรียนได้ (ย้ายครู/นักเรียน เหมือนแอดมิน)'}</label>
+      <label class="field" style="display:flex;align-items:center;gap:8px"><input type="checkbox" id="sf_CanFoodMenu" style="width:auto" ${(s.CanFoodMenu===true||s.CanFoodMenu===1||['YES','TRUE'].indexOf(String(s.CanFoodMenu||'').toUpperCase())>=0)?'checked':''}/> 🍚 ${EN()?'Allow this teacher to manage the monthly food menu':'ให้ครูคนนี้จัดการเมนูอาหารรายเดือนได้'}</label>
       <div class="grid2">${f('Phone',t('reg.phone'),phoneFmt(s.Phone))}${f('NationalID',t('reg.nationalId'),s.NationalID)}</div>
       <div class="grid2">${f('StartDate',t('staff.startDate'),s.StartDate,'date')}${f('BaseSalary',t('pay.baseSalary'),s.BaseSalary,'number')}</div>
       <div class="grid2"><label class="field"><span>🏦 ${EN()?'Bank':'ธนาคาร'}</span><select id="sf_BankName">${['','SCB','KBANK','KTB','BBL','TTB','BAY','GSB','KKP','TISCO','UOB','CIMB','BAAC','LHBANK'].map(b=>`<option value="${b}" ${String(s.BankName||'')===b?'selected':''}>${b||(EN()?'—':'—')}</option>`).join('')}</select></label>
@@ -3447,7 +3490,8 @@
     const allDept=m.querySelector('#sf_AllDept')&&m.querySelector('#sf_AllDept').checked;
     const dept = allDept ? '*' : [...m.querySelectorAll('.sfDept:checked')].map(x=>x.value).join(',');
     const canOrg=m.querySelector('#sf_CanClassOrg')&&m.querySelector('#sf_CanClassOrg').checked;
-    const data={NameTH:v('NameTH'),NameEN:v('NameEN'),Nickname:v('Nickname'),NicknameEN:v('NicknameEN'),DOB:v('DOB'),Position:v('Position'),Department:dept,StaffGroup:v('StaffGroup'),PositionLevel:v('PositionLevel'),Phone:v('Phone'),NationalID:v('NationalID'),LineUID:v('LineUID'),StartDate:v('StartDate'),BaseSalary:+v('BaseSalary')||0,BankName:v('BankName'),BankAccount:v('BankAccount'),ContributionOpening:+v('ContributionOpening')||0,ContributionLocked:(m.querySelector('#sf_ContributionLocked')&&m.querySelector('#sf_ContributionLocked').checked)?'YES':'',Classes:dept,CanClassOrg:canOrg?'YES':''};
+    const canFood=m.querySelector('#sf_CanFoodMenu')&&m.querySelector('#sf_CanFoodMenu').checked;
+    const data={NameTH:v('NameTH'),NameEN:v('NameEN'),Nickname:v('Nickname'),NicknameEN:v('NicknameEN'),DOB:v('DOB'),Position:v('Position'),Department:dept,StaffGroup:v('StaffGroup'),PositionLevel:v('PositionLevel'),Phone:v('Phone'),NationalID:v('NationalID'),LineUID:v('LineUID'),StartDate:v('StartDate'),BaseSalary:+v('BaseSalary')||0,BankName:v('BankName'),BankAccount:v('BankAccount'),ContributionOpening:+v('ContributionOpening')||0,ContributionLocked:(m.querySelector('#sf_ContributionLocked')&&m.querySelector('#sf_ContributionLocked').checked)?'YES':'',Classes:dept,CanClassOrg:canOrg?'YES':'',CanFoodMenu:canFood?'YES':''};
     const sfp=photoVal(m,'sf_Photo'); if(sfp) data.Photo=sfp;
     try{ await api('saveStaff',{staffId:id||null,data}); m.remove(); confirmSaved(t('c.saved')); GO('manage'); }catch(e){err(e);} };
   window.SF_allDept=(cb)=>{ const box=document.getElementById('sf_DeptList'); if(box){ box.style.opacity=cb.checked?'.4':''; box.style.pointerEvents=cb.checked?'none':''; } };
@@ -4320,8 +4364,15 @@
     if(!FM_CLASS){ toast(EN()?'No classes yet':'ยังไม่มีชั้นเรียน'); return; }
     const d=await api('foodMenu',{className:FM_CLASS,month:FM_MONTH},{fresh:true});
     const by={}; (d.days||[]).forEach(x=>by[x.date]=x);
-    const rows=fmDays(FM_MONTH).map(ds=>{ const v=by[ds]||{}; const we=fmWeekend(ds);
-      return `<div class="card" style="padding:8px;${we?'background:var(--surface-2);opacity:.75':''}">
+    // The kitchen does not cook at the weekend, so those rows are just noise to scroll past. A public
+    // holiday IS worth showing — with its name — because that is a day a parent might otherwise expect
+    // a menu for.
+    const hol={}; (await api('holidays',{}).catch(()=>[])).forEach(h=>{ const k=ymd(h.Date||h.date); if(k) hol[k]=h.NameTH||h.Name||h.name||h.NameEN||''; });
+    const rows=fmDays(FM_MONTH).filter(ds=>!fmWeekend(ds)).map(ds=>{ const v=by[ds]||{};
+      if(hol[ds]) return `<div class="card" style="padding:8px;background:var(--bad-bg);border-color:var(--bad-line)">
+        <div class="spread"><b>${esc(ds.slice(8))} ${esc(fmDow(ds))}.</b><span class="pill bad" style="font-size:11px">🏖️ ${esc(hol[ds])}</span></div>
+        <small class="muted">${EN()?'School closed — no menu needed':'วันหยุด — ไม่ต้องลงเมนู'}</small></div>`;
+      return `<div class="card" style="padding:8px">
         <div class="spread"><b>${esc(ds.slice(8))} ${esc(fmDow(ds))}.</b><small class="muted">${esc(ds)}</small></div>
         <div class="grid2" style="margin-top:4px">${FM_MEALS.map(([k,lb])=>
           `<label class="field"><span>${esc(lb())}</span><input id="fm_${k}_${ds}" value="${esc(v[k]||'')}" placeholder="-"/></label>`).join('')}</div>
