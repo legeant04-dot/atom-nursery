@@ -112,7 +112,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.196'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.197'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -1551,12 +1551,15 @@
   SCREENS.Parent.payment = async () => {
     const kids=await api('parentChildren',parentScope()); if(!kids.length){GO('home');return;}
     window._PAY_KIDS=kids; window._PAY_SID=kids[0].StudentID;
-    // combined pay across siblings (one slip) — only when >1 child
-    const multiBtn = `<div class="card" style="background:var(--blue-bg);border-color:var(--blue-line)"><div class="spread"><div><b>💳 ${EN()?'Pay several items in one slip':'จ่ายหลายรายการในสลิปเดียว'}</b><br><small class="muted">${EN()?'Tick tuition / extra charges / OT (any child) — one transfer, the system checks the total.':'ติ๊กค่าเทอม / ค่าเพิ่มเติม / OT (ลูกคนไหนก็ได้) โอนครั้งเดียว ระบบตรวจยอดรวมให้'}</small></div><button class="btn sm" onclick="P_combinedPay()">💳 ${EN()?'Combined':'จ่ายรวม'}</button></div></div>`;
     // one tab per child so a parent with >1 child can see EACH child's bills (not just the first)
     const switcher = kids.length>1 ? `<div class="seg" id="paySeg" style="margin-bottom:8px">${kids.map((k,i)=>`<button class="${i===0?'active':''}" onclick="P_paySel(${i})">${esc(dispNick(k))}</button>`).join('')}</div>` : '';
     const logBtn = `<div class="row" style="margin-bottom:8px"><button class="btn sm outline block" onclick="A_payLog()">🧾 ${EN()?'My payment history':'ประวัติการชำระเงินของฉัน'}</button></div>`;
-    app.innerHTML = `<h2 class="page">${esc(t('title.payment'))}${kids.length===1?` · <span style="color:var(--blue)">${esc(dispNick(kids[0]))}</span>`:''}</h2>${multiBtn}${logBtn}${switcher}<div id="payBody"><div class="card muted">${EN()?'Loading…':'กำลังโหลด…'}</div></div>`;
+    // The pick-and-pay list is the FIRST thing on this screen now. It used to be a button that
+    // opened a dialog, so the main action of the page was hidden behind an extra tap.
+    app.innerHTML = `<h2 class="page">${esc(t('title.payment'))}${kids.length===1?` · <span style="color:var(--blue)">${esc(dispNick(kids[0]))}</span>`:''}</h2>
+      <div id="payPick"><div class="card muted">${EN()?'Loading…':'กำลังโหลด…'}</div></div>${logBtn}${switcher}
+      <div id="payBody"><div class="card muted">${EN()?'Loading…':'กำลังโหลด…'}</div></div>`;
+    P_pickRender();
     P_paySel(0);
   };
   // render the payment section for the selected child (index into _PAY_KIDS)
@@ -1775,28 +1778,103 @@
   // ---- combined payment: one slip, several items (2-level tick: child → each outstanding item) ----
   // items now include tuition bill + each extra charge + each open OT (item-level ticking).
   let _COMB={items:[],due:0};
-  window.P_combinedPay=async()=>{ const kids=await api('parentChildren',parentScope());
-    const data=await Promise.all(kids.map(k=>Promise.all([api('payments',{studentId:k.StudentID}),api('studentCharges',{studentId:k.StudentID}),api('otDaily',{studentId:k.StudentID})])));
-    const groups=kids.map((k,i)=>{ const pv=data[i][0]||[], chs=data[i][1]||[], ot=data[i][2]||[]; const rows=[];
-      pv.forEach(b=>{ const out=Number(b.Outstanding!=null?b.Outstanding:(b.TotalDue!=null?b.TotalDue:b.Amount)); if(b.Status!=='PAID'&&b.VerifiedStatus!=='PREPAID'&&out>0) rows.push({kind:'bill',id:b.BillingID,label:(EN()?'Tuition ':'ค่าเทอม ')+monthNameYear(b.Month),out}); });
-      chs.forEach(c=>{ const out=Number(c.Outstanding!=null?c.Outstanding:c.Amount); if(c.Status!=='PAID'&&out>0) rows.push({kind:'charge',id:c.ChargeID,label:c.Label,out}); });
-      ot.forEach(o=>{ if(o.Status!=='PAID'&&o.Status!=='PENDING_VERIFY'&&o.Status!=='PARTIAL'&&Number(o.Amount)>0) rows.push({kind:'ot',id:o.OTID,label:'OT '+ddmmyyyy(o.Date),out:Number(o.Amount)}); });
+  /* ================= pick what to pay, right on the payment screen =========================
+   * Everything still owed, grouped per child (nickname first, so a parent with three children can
+   * tell at a glance which charge belongs to whom). Tick any combination — one child's tuition, one
+   * OT, or the lot — and the total and the QR follow the selection.
+   *
+   * WHICH QR: the money has to land in the right account, so the QR is chosen by what is ticked:
+   *   only OT           -> the OT account
+   *   only one child's tuition/charges -> that child's package account
+   *   anything mixed    -> the school's main account
+   */
+  window._PICK={groups:[], items:[], due:0};
+  async function P_pickLoad(){
+    const kids=window._PAY_KIDS||[];
+    const [data,plans,qr] = await Promise.all([
+      Promise.all(kids.map(k=>Promise.all([api('payments',{studentId:k.StudentID}),api('studentCharges',{studentId:k.StudentID}),api('otDaily',{studentId:k.StudentID})]))),
+      api('getPlans').catch(()=>[]), api('getQRCodes').catch(()=>({qrs:[],otQrId:''}))]);
+    const qrs=(qr&&qr.qrs)||[]; const imgOf=id=>{ const q=qrs.find(x=>x.id===id); return q?q.image:''; };
+    window._PICKQR={ ot: imgOf(qr&&qr.otQrId)||MOCK.config.QRCode_OT||'',
+      school: MOCK.config.QRCode_Monthly||MOCK.config.QRCode||MOCK.config.PromptPayQR||'',
+      byKid: {} };
+    return kids.map((k,i)=>{ const pv=data[i][0]||[], chs=data[i][1]||[], ot=data[i][2]||[]; const rows=[];
+      const plan=(plans||[]).find(p=>p.id===k.Plan)||{};
+      window._PICKQR.byKid[k.StudentID]=imgOf(plan.qrId)||window._PICKQR.school;
+      pv.forEach(b=>{ const out=Number(b.Outstanding!=null?b.Outstanding:(b.TotalDue!=null?b.TotalDue:b.Amount));
+        if(b.Status!=='PAID'&&b.VerifiedStatus!=='PREPAID'&&out>0) rows.push({kind:'bill',id:b.BillingID,label:(EN()?'Tuition ':'ค่าเทอม ')+monthNameYear(b.Month),out}); });
+      chs.forEach(c=>{ const out=Number(c.Outstanding!=null?c.Outstanding:c.Amount);
+        if(c.Status!=='PAID'&&out>0) rows.push({kind:'charge',id:c.ChargeID,label:c.Label,out}); });
+      ot.forEach(o=>{ if(o.Status!=='PAID'&&o.Status!=='PENDING_VERIFY'&&o.Status!=='PARTIAL'&&Number(o.Amount)>0)
+        rows.push({kind:'ot',id:o.OTID,label:'OT '+ddmmyyyy(o.Date),out:Number(o.Amount)}); });
       return {kid:k, rows}; }).filter(g=>g.rows.length);
-    if(!groups.length){ toast(EN()?'No outstanding items':'ไม่มีรายการค้างชำระ'); return; }
-    const body=groups.map(g=>`<div class="card" style="padding:8px;margin:6px 0"><b>${esc(dispNick(g.kid))}</b> <small class="muted">${esc(nm(g.kid))}</small>
-      ${g.rows.map(r=>`<label class="field" style="display:block;background:var(--surface);border-radius:8px;padding:6px;margin:6px 0">
-        <span style="display:flex;align-items:center;gap:8px"><input type="checkbox" class="combCb" data-kind="${esc(r.kind)}" data-id="${esc(r.id)}" data-out="${r.out}" checked onchange="P_combRecalc()" style="width:auto"/> <b>${esc(r.label)}</b> <b style="margin-left:auto;color:var(--blue)">${baht(r.out)}</b></span></label>`).join('')}</div>`).join('');
-    modal(`<h3>💳 ${EN()?'Combined payment':'จ่ายรวมหลายรายการ'}</h3>
-      <p class="muted" style="font-size:13px">${EN()?'Tick the items (tuition / extra charge / OT) paid in this one transfer. The system sums them and checks the slip total.':'ติ๊กรายการที่จ่ายรวมในการโอนครั้งนี้ (ค่าเทอม / ค่าเพิ่มเติม / OT) ระบบจะรวมยอดและตรวจกับสลิป'}</p>
+  }
+  window.P_pickRender=async()=>{
+    let groups=[]; try{ groups=await P_pickLoad(); }catch(e){ setHTML('#payPick',''); return; }
+    window._PICK.groups=groups;
+    if(!groups.length){ setHTML('#payPick', `<div class="card" style="background:var(--ok-bg);border-color:var(--ok-line)">
+      <b style="color:var(--ok)">✅ ${EN()?'Nothing outstanding right now':'ไม่มียอดค้างชำระในขณะนี้'}</b></div>`); return; }
+    const multi=(window._PAY_KIDS||[]).length>1;
+    const body=groups.map((g,gi)=>`<div class="card" style="padding:8px;margin:6px 0">
+      <label class="spread" style="cursor:pointer">
+        <span><b style="font-size:16px">${esc(dispNick(g.kid))}</b> <small class="muted">${esc(nm(g.kid))}</small></span>
+        <span style="display:flex;align-items:center;gap:6px;font-size:13px" class="muted">${EN()?'all':'ทั้งหมด'}
+          <input type="checkbox" class="pickAllKid" data-g="${gi}" checked onchange="P_pickAllKid(${gi},this.checked)" style="width:auto"/></span></label>
+      ${g.rows.map((r,ri)=>`<label class="field" style="display:block;background:var(--surface);border-radius:8px;padding:6px;margin:6px 0">
+        <span style="display:flex;align-items:center;gap:8px"><input type="checkbox" class="pickCb" data-g="${gi}" data-kind="${esc(r.kind)}" data-id="${esc(r.id)}" data-out="${r.out}" data-sid="${esc(g.kid.StudentID)}" checked onchange="P_pickRecalc()" style="width:auto"/>
+          <b>${esc(r.label)}</b> <b style="margin-left:auto;color:var(--blue)">${baht(r.out)}</b></span></label>`).join('')}</div>`).join('');
+    setHTML('#payPick', `<div class="card" style="background:var(--blue-bg);border-color:var(--blue-line)">
+      <div class="spread"><b>💳 ${EN()?'Choose what to pay':'เลือกรายการที่จะชำระ'}</b>
+        <label style="display:flex;align-items:center;gap:6px;font-size:13px" class="muted">${EN()?'select all':'เลือกทั้งหมด'}
+          <input type="checkbox" id="pickAll" checked onchange="P_pickAll(this.checked)" style="width:auto"/></label></div>
+      <small class="muted">${multi?(EN()?'Split by child. Tick any items — one transfer covers them all.':'แยกตามรายบุคคล · ติ๊กรายการไหนก็ได้ โอนครั้งเดียวจบ')
+        :(EN()?'Tick the items you are paying now — one transfer covers them all.':'ติ๊กรายการที่จะจ่ายรอบนี้ · โอนครั้งเดียวจบ')}</small>
       ${body}
-      <div class="card" style="background:var(--ok-bg);padding:8px"><div class="spread"><b>${EN()?'Total to transfer':'ยอดรวมที่ต้องโอน'}</b><b id="combTotal" style="font-size:18px;color:var(--ok)">฿0</b></div></div>
-      <button class="btn block green" id="combNext" onclick="P_combinedNext()">📎 ${EN()?'Next: attach slip':'ถัดไป: แนบสลิป'}</button>
-      <button class="btn outline block" style="margin-top:8px" onclick="this.closest('.modal').remove()">${esc(t('c.close'))}</button>`);
-    P_combRecalc(); };
-  window.P_combRecalc=()=>{ const cbs=[...document.querySelectorAll('.combCb')]; let sum=0; const items=[];
-    cbs.forEach(c=>{ if(c.checked){ sum+=Number(c.dataset.out||0); items.push({kind:c.dataset.kind,id:c.dataset.id}); } });
-    _COMB={items, due:Math.round(sum)}; const tEl=document.getElementById('combTotal'); if(tEl)tEl.textContent=baht(_COMB.due);
-    const nx=document.getElementById('combNext'); if(nx) nx.disabled=!items.length; };
+      <div class="card" style="background:var(--ok-bg);padding:8px;margin-top:4px"><div class="spread">
+        <b>${EN()?'Total to transfer':'ยอดรวมที่ต้องโอน'}</b><b id="pickTotal" style="font-size:20px;color:var(--ok)">฿0</b></div>
+        <small class="muted" id="pickQrNote"></small></div>
+      <button class="btn block green" id="pickNext" onclick="P_pickPay()">📱 ${EN()?'Next: QR & slip':'ถัดไป: สแกน QR แล้วแนบสลิป'}</button></div>`);
+    P_pickRecalc();
+  };
+  window.P_pickAll=(on)=>{ document.querySelectorAll('.pickCb,.pickAllKid').forEach(c=>c.checked=on); P_pickRecalc(); };
+  window.P_pickAllKid=(gi,on)=>{ document.querySelectorAll('.pickCb[data-g="'+gi+'"]').forEach(c=>c.checked=on); P_pickRecalc(); };
+  /** Which account this selection should be paid into. */
+  function P_pickQR(items){
+    const q=window._PICKQR||{};
+    if(!items.length) return {img:q.school||'', note:''};
+    const kinds=[...new Set(items.map(i=>i.kind))], sids=[...new Set(items.map(i=>i.sid))];
+    if(kinds.length===1 && kinds[0]==='ot')
+      return {img:q.ot||q.school||'', note:EN()?'OT account':'บัญชีสำหรับค่า OT'};
+    if(sids.length===1 && kinds.indexOf('ot')<0)
+      return {img:(q.byKid||{})[sids[0]]||q.school||'', note:EN()?'the account for this package':'บัญชีตามแพ็กเกจของนักเรียน'};
+    return {img:q.school||'', note:EN()?'the school\'s main account':'บัญชีหลักของโรงเรียน'};
+  }
+  window.P_pickRecalc=()=>{ const cbs=[...document.querySelectorAll('.pickCb')]; let sum=0; const items=[];
+    cbs.forEach(c=>{ if(c.checked){ sum+=Number(c.dataset.out||0); items.push({kind:c.dataset.kind,id:c.dataset.id,sid:c.dataset.sid}); } });
+    window._PICK.items=items; window._PICK.due=Math.round(sum);
+    const tEl=document.getElementById('pickTotal'); if(tEl)tEl.textContent=baht(window._PICK.due);
+    const nx=document.getElementById('pickNext'); if(nx) nx.disabled=!items.length;
+    // keep the per-child and master boxes honest about what is actually ticked
+    document.querySelectorAll('.pickAllKid').forEach(k=>{ const gi=k.dataset.g;
+      const all=[...document.querySelectorAll('.pickCb[data-g="'+gi+'"]')];
+      k.checked=all.length>0&&all.every(c=>c.checked); });
+    const master=document.getElementById('pickAll'); if(master) master.checked=cbs.length>0&&cbs.every(c=>c.checked);
+    const note=document.getElementById('pickQrNote');
+    if(note){ const q=P_pickQR(items); note.textContent = items.length&&q.note ? (EN()?'Pay into ':'โอนเข้า')+q.note : ''; }
+  };
+  /** Show the right QR for the selection, then hand over to the one-slip flow. */
+  window.P_pickPay=()=>{ const items=(window._PICK.items||[]);
+    if(!items.length){ toast(EN()?'Select at least one item':'เลือกอย่างน้อย 1 รายการ'); return; }
+    _COMB={items:items.map(i=>({kind:i.kind,id:i.id})), due:window._PICK.due};
+    const q=P_pickQR(items);
+    qrModalHTML({ title:'💳 '+(EN()?'Scan to transfer':'สแกนเพื่อโอน'), amount:window._PICK.due,
+      img:q.img, imgName:'pay-'+items.length+'.png',
+      extra:`${q.note?`<p class="muted" style="font-size:13px;text-align:center">${EN()?'Pay into ':'โอนเข้า'}${esc(q.note)}</p>`:''}
+        <button class="btn block green" onclick="this.closest('.modal').remove();P_combinedNext()">📎 ${EN()?'I have transferred — attach slip':'โอนแล้ว — แนบสลิป'}</button>` });
+  };
+
+  // (the old combined-payment DIALOG lived here. The pick list on the payment screen replaced it;
+  //  keeping both would have meant two lists of the same thing drifting apart.)
   window.P_combinedNext=()=>{ if(!_COMB.items.length){ toast(EN()?'Select at least one item':'เลือกอย่างน้อย 1 รายการ'); return; }
     const cur=document.querySelector('.modal'); if(cur)cur.remove();
     modal(`<h3>📎 ${EN()?'Attach one slip':'แนบสลิปเดียว'} · <span style="color:var(--blue)">${_COMB.items.length} ${EN()?'items':'รายการ'}</span></h3>
