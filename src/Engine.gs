@@ -430,7 +430,10 @@ function createAtomAPI(M, GROWTH_STD) {
   function recordSlip_(kind, refId, p){ const tgt=slipTarget_(kind, refId); if(!tgt)fail('NOT_FOUND','ไม่พบรายการ');
     const amt=Number(p.slipAmount||0);
     paySlips_().push({ SlipID:'SL-'+Date.now()+'-'+Math.floor(Math.random()*10000), RefKind:kind, RefID:refId, StudentID:tgt.studentId,
-      Amount:amt, Url:p.slipData||p.slipName||'', FileId:'', Verified:'', TransRef:'', Receiver:'', SubmittedDate:stampLocal(), Status:'SUBMITTED', SlipGroup:p.slipGroup||'' });
+      Amount:amt, Url:p.slipData||p.slipName||'', FileId:'', Verified:'', TransRef:'', Receiver:'',
+      // what the parent says about when they transferred — kept apart from a bank-verified TransDate
+      StatedDate:ymd(p.statedDate||''), StatedTime:String(p.statedTime||'').slice(0,5),
+      SubmittedDate:stampLocal(), Status:'SUBMITTED', SlipGroup:p.slipGroup||'' });
     const submitted=sumSlips_(kind, refId, ['SUBMITTED','CONFIRMED']); const confirmed=sumSlips_(kind, refId, ['CONFIRMED']);
     tgt.obj.Status='PENDING_VERIFY'; tgt.obj.SlipUrl=p.slipData||p.slipName||''; tgt.obj.SlipAmount=submitted; tgt.obj.PaymentMethod='transfer'; tgt.obj.SubmittedDate=todayLocal();
     logAct('uploadSlip',refId,'โอน '+amt,actorOf(p));
@@ -518,6 +521,11 @@ function createAtomAPI(M, GROWTH_STD) {
       if(!remark) fail('REMARK_REQUIRED','ต้องระบุหมายเหตุ (ใครมารับ-ส่ง) ก่อนบันทึก');
       const st=studentById(p.studentId); if(!st) fail('NOT_FOUND','ไม่พบนักเรียน');
       const type=String(p.type||'').toUpperCase(); if(type!=='IN'&&type!=='OUT') fail('BAD_INPUT','ระบุ IN หรือ OUT');
+      // The parent already told us the child is away today. Recording an arrival would contradict
+      // the leave and quietly make the attendance figures wrong, so refuse and say why.
+      { const d=ymd(p.date||todayLocal());
+        const lv=(M.studentLeaves||[]).find(l=>l.StudentID===p.studentId&&ymd(l.Date)===d);
+        if(lv) fail('ON_LEAVE','นักเรียนแจ้งลาวันนี้แล้ว ('+(lv.Type||'ลา')+(lv.Reason?' · '+lv.Reason:'')+') — หากมาจริงให้ยกเลิกใบลาก่อน'); }
       // the teacher must record the ACTUAL drop-off / pick-up time (a child picked up at 12:57 must NOT
       // read 17:26 and wrongly trigger OT). Accept an override HH:mm; blank → now.
       const t=/^\d{1,2}:\d{2}$/.test(String(p.time||'').trim()) ? String(p.time).trim() : timeLocal();
@@ -840,7 +848,7 @@ function createAtomAPI(M, GROWTH_STD) {
         outstanding:Math.max(0, tgt.due-confirmed)}, r||{}); },
     // all slips for a bill/OT/prepay (or a student) — history shown to parent + admin (rejected hidden)
     paymentSlips: p => paySlips_().filter(s=> (p.refKind?s.RefKind===p.refKind:true) && (p.refId?s.RefID===p.refId:true) && (p.studentId?s.StudentID===p.studentId:true) && (p.includeRejected?true:s.Status!=='REJECTED'))
-      .map(s=>({ SlipID:s.SlipID, RefKind:s.RefKind, RefID:s.RefID, Amount:Number(s.Amount||0), Url:s.Url, Verified:s.Verified, TransRef:s.TransRef, Receiver:s.Receiver, SubmittedDate:s.SubmittedDate, Status:s.Status, SlipGroup:s.SlipGroup||'', Method:s.Method||'', TransDate:s.TransDate||'', TransTime:s.TransTime||'', Sender:s.Sender||'' })),
+      .map(s=>({ SlipID:s.SlipID, RefKind:s.RefKind, RefID:s.RefID, Amount:Number(s.Amount||0), Url:s.Url, Verified:s.Verified, TransRef:s.TransRef, Receiver:s.Receiver, SubmittedDate:s.SubmittedDate, Status:s.Status, SlipGroup:s.SlipGroup||'', Method:s.Method||'', TransDate:s.TransDate||'', TransTime:s.TransTime||'', StatedDate:s.StatedDate||'', StatedTime:s.StatedTime||'', Sender:s.Sender||'' })),
     /**
      * Is slip verification actually working, and what has it been saying? A 'NO:<code>' is SlipOK's
      * VERDICT, not a broken connection — it read the slip and then objected. Mirrors handleSlipDiag.
@@ -996,10 +1004,16 @@ function createAtomAPI(M, GROWTH_STD) {
       const today=todayLocal();
       const attOf=sid=>{ const a=M.studentAttendanceToday.find(x=>x.StudentID===sid);
         const h=M.studentCheckins.find(c=>c.StudentID===sid&&ymd(c.Date)===today)||{};
-        return {status:a?a.Status:'NONE', inTime:h.InTime||(a&&a.Status==='IN'?a.Time:'')||'', outTime:h.OutTime||(a&&a.Status==='OUT'?a.Time:'')||''}; };
+        // A child whose parent told us they are away today must not be checked in by mistake — the
+        // leave itself is the record. Carry the type and reason so the class list can say why.
+        const lv=(M.studentLeaves||[]).find(l=>l.StudentID===sid&&ymd(l.Date)===today)||null;
+        return {status: lv?'LEAVE':(a?a.Status:'NONE'),
+          inTime:h.InTime||(a&&a.Status==='IN'?a.Time:'')||'', outTime:h.OutTime||(a&&a.Status==='OUT'?a.Time:'')||'',
+          onLeave:!!lv, leaveType:lv?(lv.Type||'ลา'):'', leaveReason:lv?(lv.Reason||''):''}; };
       return {class:cls, classes:covered.map(c=>({className:c.ClassName,classNameEN:c.ClassNameEN||c.ClassName})),
         students:activeStudents().filter(s2=>s2.Class===cls.ClassName).map(s2=>{ const at=attOf(s2.StudentID);
-          return Object.assign({ageMonth:ageMonths(s2.DOB), attStatus:at.status, inToday:!!at.inTime, outToday:!!at.outTime, inTime:at.inTime, outTime:at.outTime}, s2); })}; },
+          return Object.assign({ageMonth:ageMonths(s2.DOB), attStatus:at.status, inToday:!!at.inTime, outToday:!!at.outTime,
+            inTime:at.inTime, outTime:at.outTime, onLeave:at.onLeave, leaveType:at.leaveType, leaveReason:at.leaveReason}, s2); })}; },
     // the class names this staff can pick between (used to show/hide a class switcher)
     myClasses: p => { const s=staffById(p.staffId); const covered=coveredClasses_(s);
       return {classes:covered.map(c=>({className:c.ClassName,classNameEN:c.ClassNameEN||c.ClassName})), all:covered.length===M.classes.length}; },
@@ -1649,7 +1663,10 @@ function createAtomAPI(M, GROWTH_STD) {
 
     /** Admin saves a whole month for one class in one go (one round trip, one consistent picture). */
     saveFoodMenu: p => { const ap=staffById(p.staffId)||{};
-      if(ap.PositionLevel!=='Admin'&&ap.Role!=='Admin') fail('NO_PERMISSION','เฉพาะแอดมิน');
+      // Admin, or a teacher the admin put in charge of the menu (CanFoodMenu) — the kitchen is often
+      // run by one teacher, and making them ask an admin for every change helps nobody.
+      const yes=['YES','TRUE','1'].indexOf(String(ap.CanFoodMenu||'').toUpperCase())>=0 || ap.CanFoodMenu===true;
+      if(ap.PositionLevel!=='Admin'&&ap.Role!=='Admin'&&!yes) fail('NO_PERMISSION','ไม่มีสิทธิ์จัดการเมนูอาหาร');
       const cls=String(p.className||''); if(!cls) fail('BAD_INPUT','ระบุชั้นเรียน');
       const month=ym(p.month||todayLocal().slice(0,7));
       M.foodMenus=M.foodMenus||[];

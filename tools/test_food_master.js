@@ -234,7 +234,8 @@ console.log('\n5) The plumbing');
   const jr = fs.readFileSync(path.join(__dirname, '..', 'src', 'Journal.gs'), 'utf8');
   ok_('...is a saved journal field', /JOURNAL_FIELDS = \[[^\]]*'MealItems'/.test(jr));
   ok_('...and the column is created on write (a field with no column is dropped silently)',
-    /ensureColumns_\(sheet, \[[^\]]*'MealItems'\]/.test(jr));
+    // don't pin it as the LAST column — the next new field would break this for no reason
+    /ensureColumns_\(sheet, \[[^\]]*'MealItems'/.test(jr));
   const code = fs.readFileSync(path.join(__dirname, '..', 'src', 'Code.gs'), 'utf8');
   ['deleteFoodItem', 'seedFoodItems'].forEach(a =>
     ok_(a + ' is admin-gated at the router too', new RegExp('\\b' + a + ': 1').test(code)));
