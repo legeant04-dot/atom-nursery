@@ -263,11 +263,37 @@ function createAtomAPI(M, GROWTH_STD) {
   }
 
   // ---- survey row -> the shape every screen reads (Options is stored as JSON in one cell) ----
-  function surveyView_(s){ let opts=[]; try{ opts=JSON.parse(s.Options||'[]')||[]; }catch(e){ opts=[]; }
-    return { surveyId:s.SurveyID, title:s.Title||'', description:s.Description||'', type:s.Type||'rating',
-      options:opts, scope:s.Scope||'all', target:s.Target||'', startDate:ymd(s.StartDate||''),
+  const SURVEY_MAX_Q = 5;                       // the school's cap — more than this and nobody answers
+  const SURVEY_TYPES = ['rating', 'vote', 'comment'];
+  /**
+   * A survey holds up to five questions, stored as JSON in one cell.
+   *
+   * Surveys written before this existed have a single Type/Options at the survey level and use the
+   * TITLE as the question. They are read back as a one-question survey rather than migrated, so an
+   * already-answered survey keeps working and nothing has to be rewritten in the sheet.
+   */
+  function surveyQuestions_(s){
+    let qs=[]; try{ qs=JSON.parse(s.Questions||'[]')||[]; }catch(e){ qs=[]; }
+    if(Array.isArray(qs) && qs.length){
+      return qs.slice(0,SURVEY_MAX_Q).map((q,i)=>({ id:'q'+(i+1), text:String(q.text||'').trim(),
+        type:SURVEY_TYPES.indexOf(String(q.type))>=0?String(q.type):'rating',
+        options:(Array.isArray(q.options)?q.options:[]).map(x=>String(x).trim()).filter(Boolean) }));
+    }
+    let opts=[]; try{ opts=JSON.parse(s.Options||'[]')||[]; }catch(e){ opts=[]; }
+    return [{ id:'q1', text:s.Title||'', type:s.Type||'rating', options:opts }];   // legacy shape
+  }
+  function surveyView_(s){ const qs=surveyQuestions_(s);
+    return { surveyId:s.SurveyID, title:s.Title||'', description:s.Description||'',
+      questions:qs, questionCount:qs.length,
+      // kept so older screens and the legacy single-question path still read the same fields
+      type:qs[0]?qs[0].type:'rating', options:qs[0]?qs[0].options:[],
+      scope:s.Scope||'all', target:s.Target||'', startDate:ymd(s.StartDate||''),
       endDate:ymd(s.EndDate||''), status:s.Status||'OPEN', anonymous:String(s.Anonymous||'')==='YES',
       createdAt:s.CreatedAt||'' }; }
+  /** One family's answers, as an array aligned to the questions. */
+  function surveyAnswers_(r){ let a=[]; try{ a=JSON.parse(r.Answers||'[]')||[]; }catch(e){ a=[]; }
+    if(Array.isArray(a) && a.length) return a.map(x=>({rating:Number(x.rating)||0, choice:String(x.choice||''), comment:String(x.comment||'')}));
+    return [{rating:Number(r.Rating)||0, choice:String(r.Choice||''), comment:String(r.Comment||'')}]; }
   // Re-settle an OT row against its slips after its AMOUNT changed. Only when it actually has slips:
   // recomputeTarget_'s "nothing submitted" branch stamps VerifiedStatus='REJECTED', which would be a
   // lie on a row nobody has ever paid towards. Returns the new status if it moved, else null.
@@ -1756,11 +1782,24 @@ function createAtomAPI(M, GROWTH_STD) {
     saveSurvey: p => { const ap=staffById(p.staffId)||{};
       if(ap.PositionLevel!=='Admin'&&ap.Role!=='Admin') fail('NO_PERMISSION','เฉพาะแอดมิน');
       const d=p.survey||{}; if(!String(d.title||'').trim()) fail('BAD_INPUT','ใส่หัวข้อแบบสอบถาม');
-      const type=['rating','vote','comment'].indexOf(String(d.type))>=0?String(d.type):'rating';
-      if(type==='vote' && !(d.options||[]).filter(x=>String(x).trim()).length) fail('BAD_INPUT','ใส่ตัวเลือกอย่างน้อย 1 ข้อ');
+      // One to five questions. A caller still sending the old single type/options is accepted and
+      // turned into one question, so nothing that already works has to change.
+      let raw = Array.isArray(d.questions) && d.questions.length ? d.questions
+              : [{ text:d.title, type:d.type, options:d.options }];
+      raw = raw.filter(q=>String((q&&q.text)||'').trim());
+      if(!raw.length) fail('BAD_INPUT','ใส่คำถามอย่างน้อย 1 ข้อ');
+      if(raw.length>SURVEY_MAX_Q) fail('BAD_INPUT','ใส่คำถามได้ไม่เกิน '+SURVEY_MAX_Q+' ข้อ');
+      const questions = raw.map((q,i)=>{
+        const ty=SURVEY_TYPES.indexOf(String(q.type))>=0?String(q.type):'rating';
+        const opts=(Array.isArray(q.options)?q.options:[]).map(x=>String(x).trim()).filter(Boolean);
+        if(ty==='vote' && !opts.length) fail('BAD_INPUT','ข้อ '+(i+1)+': ใส่ตัวเลือกอย่างน้อย 1 ข้อ');
+        return { text:String(q.text).trim(), type:ty, options:opts };
+      });
       M.surveys=M.surveys||[];
-      const rec={ Title:String(d.title).trim(), Description:String(d.description||''), Type:type,
-        Options:JSON.stringify((d.options||[]).map(x=>String(x).trim()).filter(Boolean)),
+      const rec={ Title:String(d.title).trim(), Description:String(d.description||''),
+        Questions:JSON.stringify(questions),
+        // the first question is mirrored into the old columns so anything still reading them agrees
+        Type:questions[0].type, Options:JSON.stringify(questions[0].options),
         Scope:['all','class','student'].indexOf(String(d.scope))>=0?String(d.scope):'all',
         Target:String(d.target||''), StartDate:ymd(d.startDate||todayLocal()), EndDate:ymd(d.endDate||''),
         Status:d.status==='CLOSED'?'CLOSED':'OPEN', Anonymous:d.anonymous?'YES':'' };
@@ -1799,7 +1838,9 @@ function createAtomAPI(M, GROWTH_STD) {
         const answered=(M.surveyResponses||[]).filter(r=>r.SurveyID===s.SurveyID &&
           (p.parentId ? r.ParentID===p.parentId : kids.some(k=>k.StudentID===r.StudentID)));
         return Object.assign(surveyView_(s), { answered:answered.length>0,
-          myAnswer: answered.length?{rating:Number(answered[0].Rating)||0, choice:answered[0].Choice||'', comment:answered[0].Comment||''}:null }); }); },
+          myAnswers: answered.length?surveyAnswers_(answered[0]):null,
+          // kept for anything still reading a single answer
+          myAnswer: answered.length?surveyAnswers_(answered[0])[0]:null }); }); },
 
     /** One answer per family per survey — re-submitting EDITS it rather than stuffing the ballot. */
     submitSurvey: p => { const s=(M.surveys||[]).find(x=>x.SurveyID===p.surveyId);
@@ -1807,15 +1848,28 @@ function createAtomAPI(M, GROWTH_STD) {
       if(String(s.Status)!=='OPEN') fail('CLOSED','แบบสอบถามนี้ปิดรับคำตอบแล้ว');
       const kids=visibleStudents(p); const sid=p.studentId||(kids[0]&&kids[0].StudentID)||'';
       if(kids.length && !kids.some(k=>k.StudentID===sid)) fail('NO_ACCESS','ไม่มีสิทธิ์ตอบแทนนักเรียนคนนี้');
-      const rating=Math.max(0,Math.min(5,Math.round(Number(p.rating)||0)));
-      if(s.Type==='rating' && !rating) fail('BAD_INPUT','เลือกระดับความพึงพอใจ');
-      if(s.Type==='vote' && !String(p.choice||'').trim()) fail('BAD_INPUT','เลือกคำตอบ');
-      if(s.Type==='comment' && !String(p.comment||'').trim()) fail('BAD_INPUT','กรุณาเขียนความคิดเห็น');
+      // Answers arrive as an array aligned to the questions. A caller sending the old single
+      // rating/choice/comment is treated as answering question 1.
+      const qs=surveyQuestions_(s);
+      const given=Array.isArray(p.answers)&&p.answers.length ? p.answers
+                : [{rating:p.rating, choice:p.choice, comment:p.comment}];
+      const answers=qs.map((q,i)=>{
+        const a=given[i]||{};
+        const rating=Math.max(0,Math.min(5,Math.round(Number(a.rating)||0)));
+        const choice=String(a.choice||'').trim(), comment=String(a.comment||'').slice(0,1000);
+        const where='ข้อ '+(i+1)+': ';
+        if(q.type==='rating' && !rating) fail('BAD_INPUT',(qs.length>1?where:'')+'เลือกระดับความพึงพอใจ');
+        if(q.type==='vote' && !choice) fail('BAD_INPUT',(qs.length>1?where:'')+'เลือกคำตอบ');
+        if(q.type==='comment' && !comment.trim()) fail('BAD_INPUT',(qs.length>1?where:'')+'กรุณาเขียนความคิดเห็น');
+        return {rating, choice, comment};
+      });
       M.surveyResponses=M.surveyResponses||[];
       const mine=M.surveyResponses.find(r=>r.SurveyID===p.surveyId &&
         (p.parentId ? r.ParentID===p.parentId : r.StudentID===sid));
       const rec={ SurveyID:p.surveyId, StudentID:sid, ParentID:p.parentId||'',
-        Rating:rating, Choice:String(p.choice||''), Comment:String(p.comment||'').slice(0,1000), SubmittedAt:stampLocal() };
+        Answers:JSON.stringify(answers),
+        // question 1 mirrored into the old columns, so the sheet stays readable at a glance
+        Rating:answers[0].rating, Choice:answers[0].choice, Comment:answers[0].comment, SubmittedAt:stampLocal() };
       if(mine){ Object.assign(mine,rec); return {ok:true, updated:true}; }
       M.surveyResponses.push(Object.assign({ResponseID:nextSeqId_(M.surveyResponses,'ResponseID','SR',4)},rec));
       return {ok:true, updated:false}; },
@@ -1824,18 +1878,33 @@ function createAtomAPI(M, GROWTH_STD) {
       if(ap.PositionLevel!=='Admin'&&ap.Role!=='Admin') fail('NO_PERMISSION','เฉพาะแอดมิน');
       const s=(M.surveys||[]).find(x=>x.SurveyID===p.surveyId); if(!s)fail('NOT_FOUND','ไม่พบแบบสอบถาม');
       const rs=(M.surveyResponses||[]).filter(r=>r.SurveyID===p.surveyId);
-      const dist=[0,0,0,0,0];                                   // how many gave 1..5
-      let sum=0, rated=0;
-      rs.forEach(r=>{ const v=Number(r.Rating)||0; if(v>=1&&v<=5){ dist[v-1]++; sum+=v; rated++; } });
-      const tally={}; JSON.parse(s.Options||'[]').forEach(o=>tally[o]=0);
-      rs.forEach(r=>{ const c=String(r.Choice||''); if(c) tally[c]=(tally[c]||0)+1; });
+      const qs=surveyQuestions_(s);
       const anon=String(s.Anonymous||'')==='YES';
+      // an anonymous survey must not hand back who said what — that is the promise made to parents
+      const whoOf=r=> anon ? '' : ((studentById(r.StudentID)||{}).Nickname || '');
+
+      const perQ=qs.map((q,i)=>{
+        const dist=[0,0,0,0,0]; let sum=0, rated=0;
+        const tally={}; q.options.forEach(o=>tally[o]=0);
+        const comments=[];
+        rs.forEach(r=>{ const a=surveyAnswers_(r)[i]; if(!a) return;
+          if(a.rating>=1&&a.rating<=5){ dist[a.rating-1]++; sum+=a.rating; rated++; }
+          if(a.choice) tally[a.choice]=(tally[a.choice]||0)+1;
+          if(String(a.comment||'').trim()) comments.push({comment:a.comment, rating:a.rating, at:r.SubmittedAt, who:whoOf(r)});
+        });
+        return { id:q.id, text:q.text, type:q.type, options:q.options,
+          dist, tally, rated, average: rated?Math.round(sum/rated*10)/10:null, comments };
+      });
+
+      // survey-level headline: every rating answer across every question
+      let sum=0, rated=0;
+      perQ.forEach(q=>{ q.dist.forEach((n,i)=>{ sum+=n*(i+1); rated+=n; }); });
       return Object.assign(surveyView_(s), {
-        responses:rs.length, rated, average: rated?Math.round(sum/rated*10)/10:null, dist, tally,
-        // an anonymous survey must not hand back who said what — that is the promise made to parents
-        comments: rs.filter(r=>String(r.Comment||'').trim()).map(r=>({
-          comment:r.Comment, rating:Number(r.Rating)||0, at:r.SubmittedAt,
-          who: anon ? '' : (studentById(r.StudentID)||{}).Nickname || '' })) }); },
+        responses:rs.length, rated, average: rated?Math.round(sum/rated*10)/10:null,
+        perQuestion: perQ,
+        // question 1, so the older single-question view keeps working unchanged
+        dist: perQ[0]?perQ[0].dist:[0,0,0,0,0], tally: perQ[0]?perQ[0].tally:{},
+        comments: perQ.reduce((a,q)=>a.concat(q.comments),[]) }); },
 
     /** Monthly rollup across every survey — what the school reads at the end of a month. */
     surveySummary: p => { const ap=staffById(p.staffId)||{};
@@ -1843,13 +1912,17 @@ function createAtomAPI(M, GROWTH_STD) {
       const month=ym(p.month||todayLocal().slice(0,7));
       const rs=(M.surveyResponses||[]).filter(r=>ym(r.SubmittedAt)===month);
       const byS={}; rs.forEach(r=>{ (byS[r.SurveyID]=byS[r.SurveyID]||[]).push(r); });
+      // average over EVERY rating answer, not just question 1 — otherwise four of five questions
+      // would be silently left out of the school's monthly number
+      const ratings=r=>surveyAnswers_(r).map(a=>Number(a.rating)||0).filter(v=>v>=1&&v<=5);
       let sum=0, rated=0;
-      rs.forEach(r=>{ const v=Number(r.Rating)||0; if(v>=1&&v<=5){ sum+=v; rated++; } });
+      rs.forEach(r=>ratings(r).forEach(v=>{ sum+=v; rated++; }));
       return { month, responses:rs.length, rated, average: rated?Math.round(sum/rated*10)/10:null,
         surveys: Object.keys(byS).map(id=>{ const s=(M.surveys||[]).find(x=>x.SurveyID===id)||{};
           const g=byS[id]; let ss=0, sn=0;
-          g.forEach(r=>{ const v=Number(r.Rating)||0; if(v>=1&&v<=5){ ss+=v; sn++; } });
+          g.forEach(r=>ratings(r).forEach(v=>{ ss+=v; sn++; }));
           return { surveyId:id, title:s.Title||id, type:s.Type||'', responses:g.length,
+            questionCount: s.SurveyID?surveyQuestions_(s).length:1,
             average: sn?Math.round(ss/sn*10)/10:null }; })
           .sort((a,b)=>b.responses-a.responses) }; },
 
