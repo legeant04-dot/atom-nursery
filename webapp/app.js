@@ -112,7 +112,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.197'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.198'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -1838,16 +1838,30 @@
   };
   window.P_pickAll=(on)=>{ document.querySelectorAll('.pickCb,.pickAllKid').forEach(c=>c.checked=on); P_pickRecalc(); };
   window.P_pickAllKid=(gi,on)=>{ document.querySelectorAll('.pickCb[data-g="'+gi+'"]').forEach(c=>c.checked=on); P_pickRecalc(); };
-  /** Which account this selection should be paid into. */
+  /**
+   * Which account this selection should be paid into.
+   *
+   *   only OT                -> the OT account
+   *   anything with a bill   -> the PACKAGE account. A combined payment is still tuition money, so
+   *                             it follows the package rather than going to the general account —
+   *                             even when an OT is bundled into the same transfer.
+   *
+   * Two children whose packages point at DIFFERENT accounts is the one case with no right answer:
+   * one transfer cannot land in two places. Rather than silently picking one, it falls back to the
+   * school account and says so.
+   */
   function P_pickQR(items){
-    const q=window._PICKQR||{};
+    const q=window._PICKQR||{}, byKid=q.byKid||{};
     if(!items.length) return {img:q.school||'', note:''};
-    const kinds=[...new Set(items.map(i=>i.kind))], sids=[...new Set(items.map(i=>i.sid))];
+    const kinds=[...new Set(items.map(i=>i.kind))];
     if(kinds.length===1 && kinds[0]==='ot')
       return {img:q.ot||q.school||'', note:EN()?'OT account':'บัญชีสำหรับค่า OT'};
-    if(sids.length===1 && kinds.indexOf('ot')<0)
-      return {img:(q.byKid||{})[sids[0]]||q.school||'', note:EN()?'the account for this package':'บัญชีตามแพ็กเกจของนักเรียน'};
-    return {img:q.school||'', note:EN()?'the school\'s main account':'บัญชีหลักของโรงเรียน'};
+    // every package account involved in this selection (OT rows follow whoever they belong to)
+    const accts=[...new Set(items.map(i=>byKid[i.sid]||q.school||'').filter(Boolean))];
+    if(accts.length===1)
+      return {img:accts[0], note:EN()?'the account for this package':'บัญชีตามแพ็กเกจของนักเรียน'};
+    return {img:q.school||'', note:EN()?'the school\'s main account (the children\'s packages use different accounts)'
+      :'บัญชีหลักของโรงเรียน (แพ็กเกจของนักเรียนแต่ละคนคนละบัญชี)'};
   }
   window.P_pickRecalc=()=>{ const cbs=[...document.querySelectorAll('.pickCb')]; let sum=0; const items=[];
     cbs.forEach(c=>{ if(c.checked){ sum+=Number(c.dataset.out||0); items.push({kind:c.dataset.kind,id:c.dataset.id,sid:c.dataset.sid}); } });
