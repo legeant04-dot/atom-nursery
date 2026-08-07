@@ -173,12 +173,17 @@ function handlePayCombined(p) {
   if (p.slipData) { var b64 = String(p.slipData).indexOf(',') >= 0 ? String(p.slipData).split(',')[1] : String(p.slipData); if (b64) drive = paySlipToDrive_(b64, p.slipName || ('slip-combined.jpg')); }
   var vr = paySlipVerify_(p, total);
   var groupId = 'SG-' + Date.now();
-  var sh = paySlipsSheet_(); ensureColumns_(sh, ['SlipGroup', 'TransDate']);
+  var sh = paySlipsSheet_();
+  ensureColumns_(sh, ['SlipGroup', 'TransDate', 'TransTime', 'StatedDate', 'StatedTime']);
+  // what the parent said about when they transferred — the same fields as a single-item slip
+  var statedDate = paySlipTransDate_(p.statedDate), statedTime = paySlipTransTime_(p.statedTime);
   var names = [];
   var seen = {};
   items.forEach(function (x, i) {
     appendObject_(sh, { SlipID: 'SL-' + Date.now() + '-' + i, RefKind: x.kind, RefID: x.id, StudentID: x.tgt.studentId, Amount: x.out,
-      Url: drive.url, FileId: drive.fileId, Verified: vr.verified, TransRef: vr.ref, Receiver: vr.receiver, TransDate: vr.transDate || '', SubmittedDate: nowStr_(), Status: 'SUBMITTED', SlipGroup: groupId });
+      Url: drive.url, FileId: drive.fileId, Verified: vr.verified, TransRef: vr.ref, Receiver: vr.receiver, TransDate: vr.transDate || '', TransTime: vr.transTime || '',
+      StatedDate: statedDate, StatedTime: statedTime,
+      SubmittedDate: nowStr_(), Status: 'SUBMITTED', SlipGroup: groupId });
     var submitted = paySlipSum_(x.kind, x.id, ['SUBMITTED', 'CONFIRMED']);
     updateRow_(x.tgt.sheet, x.tgt.row, { Status: 'PENDING_VERIFY', SlipAmount: submitted, PaymentMethod: 'transfer', TransactionDate: vr.transDate || nowStr_() });
     if (!seen[x.tgt.studentId]) { seen[x.tgt.studentId] = 1;
@@ -336,8 +341,36 @@ function handleSlipDiag(p) {
     else if (v.slice(0, 2) === 'NO') { counts.rejected++; var c = v.slice(3) || '?'; byCode[c] = (byCode[c] || 0) + 1; }
     else counts.unchecked++;
   });
+  // Having a URL and a key configured is NOT the same as the service working. An expired package or
+  // a wrong branch id used to read here as "connected and running normally" while every single slip
+  // was being rejected — so actually ask SlipOK, with log:false so the probe consumes nothing.
+  var live = { checked: false };
+  if (url && key) {
+    try {
+      var res = UrlFetchApp.fetch(url, {
+        method: 'post', contentType: 'application/json',
+        headers: { 'x-authorization': key },
+        payload: JSON.stringify({ data: '00000000000000000000', log: false }),
+        muteHttpExceptions: true
+      });
+      var http = res.getResponseCode();
+      var body = {}; try { body = JSON.parse(res.getContentText()); } catch (e) {}
+      var code = body.code || null, msg = String(body.message || '');
+      // 1011/1012 mean "that is not a real transaction" — which is the RIGHT answer to a dummy
+      // reference, and therefore proof the account is alive and answering.
+      var alive = (http === 200 && body.success === true) || code === 1011 || code === 1012;
+      live = { checked: true, http: http, code: code, message: msg, alive: alive,
+        // the two things needed to compare against the SlipOK dashboard
+        branch: String(url).replace(/\/+$/, '').split('/').pop(),
+        keyTail: key.length > 4 ? ('••••' + key.slice(-4)) : '••••' };
+    } catch (e) {
+      live = { checked: true, alive: false, message: 'ติดต่อ SlipOK ไม่ได้: ' + String(e), branch: '', keyTail: '' };
+    }
+  }
   return {
     configured: !!(url && key),
+    working: !!live.alive,
+    live: live,
     url: url ? String(url).replace(/\/[^/]*$/, '/…') : '',
     counts: counts,
     byCode: Object.keys(byCode).map(function (c) { return { code: c, count: byCode[c] }; })

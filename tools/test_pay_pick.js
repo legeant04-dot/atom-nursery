@@ -92,5 +92,41 @@ console.log('\n5) The screen itself');
   ok_('the superseded dialog was removed', src.indexOf('P_combinedPay') < 0 && src.indexOf('combCb') < 0);
 }
 
+console.log('\n6) EVERY slip form asks when the money actually moved');
+{
+  // this was added to the single-item form only, and the combined form is the one almost everyone
+  // uses — so in practice nobody was ever asked
+  const forms = src.split('modal(`').filter(b => /id="slipF"/.test(b));
+  ok_('found both slip forms (' + forms.length + ')', forms.length >= 2);
+  forms.forEach((b, i) => {
+    const which = /_COMB\.due/.test(b) ? 'combined' : 'single';
+    ok_(which + ' form asks for the transfer DATE', /id="slipDate"/.test(b));
+    ok_(which + ' form asks for the transfer TIME', /id="slipTime"/.test(b));
+  });
+  ok_('the single-item submit sends it', /statedDate:sd,\s*statedTime:st\}/.test(src));
+  ok_('the combined submit sends it too', /payCombined[\s\S]{0,200}statedDate:sd,\s*statedTime:st/.test(src));
+  const ps = fs.readFileSync(path.join(__dirname, '..', 'src', 'PaySlips.gs'), 'utf8');
+  ok_('the combined route stores it', /StatedDate: statedDate, StatedTime: statedTime,[\s\S]{0,200}SlipGroup: groupId/.test(ps));
+  ok_('...in columns it creates on demand', /ensureColumns_\(sh, \[[^\]]*'StatedDate', 'StatedTime'\]/.test(ps));
+  const eng = fs.readFileSync(path.join(__dirname, '..', 'webapp', 'engine.js'), 'utf8');
+  ok_('and the engine passes it through the combined path', /statedDate:p\.statedDate, statedTime:p\.statedTime/.test(eng));
+}
+
+console.log('\n7) The slip-check diagnostic tells the truth about SlipOK');
+{
+  const ps = fs.readFileSync(path.join(__dirname, '..', 'src', 'PaySlips.gs'), 'utf8');
+  ok_('it actually CALLS SlipOK rather than only checking that settings exist',
+    /function handleSlipDiag[\s\S]{0,1600}UrlFetchApp\.fetch/.test(ps));
+  ok_('the probe does not consume a slip', /handleSlipDiag[\s\S]{0,1600}log: false/.test(ps));
+  ok_('a dummy reference being rejected counts as ALIVE, not broken',
+    /code === 1011 \|\| code === 1012/.test(ps));
+  ok_('it reports the branch id, which is what you compare with the dashboard', /branch: String\(url\)/.test(ps));
+  ok_('the API key is masked, never returned whole', /keyTail[\s\S]{0,60}slice\(-4\)/.test(ps));
+  ok_('the admin screen distinguishes "configured" from "working"', /d\.working/.test(src));
+  ok_('and shows what SlipOK actually said', /ข้อความจาก SlipOK/.test(src));
+  ok_('a subscription problem is not blamed on the parent',
+    /หมดอายุ\|expire[\s\S]{0,400}ระบบตรวจสลิปอัตโนมัติใช้งานไม่ได้ชั่วคราว/.test(src));
+}
+
 console.log('\n' + (fail ? 'FAILED ' + fail + ' / ' : 'ALL PASS ') + (pass + fail) + ' checks');
 process.exit(fail ? 1 : 0);

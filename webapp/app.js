@@ -112,7 +112,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.198'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.199'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -1723,7 +1723,13 @@
         if(vk.code===1014){ if(vk.amount!=null)setAmt(vk.amount); const rcv=vk.receiver&&vk.receiver.name?esc(vk.receiver.name):'';
           out.innerHTML=`⚠️ SlipOK: ${EN()?'the slip receiver':'บัญชีผู้รับในสลิป'}${rcv?` (<b>${rcv}</b>)`:''} ${EN()?"doesn't match the account registered in SlipOK — you can still submit; the admin will verify":'ยังไม่ตรงกับบัญชีที่ลงทะเบียนไว้ใน SlipOK — ส่งได้เลย แอดมินจะตรวจสอบอีกครั้ง'}`; return; }
         if(vk.code===1012){ out.innerHTML=`⚠️ ${EN()?'Duplicate slip (already used)':'สลิปนี้เคยใช้แล้ว (สลิปซ้ำ)'}`; return; }
-        if(vk.message){ out.innerHTML=`ℹ️ SlipOK: ${esc(vk.message)}`; }
+        // A raw SlipOK message like "Package ของคุณหมดอายุแล้ว" is about the SCHOOL's subscription,
+        // not this family's slip — shown as-is it reads like the parent did something wrong.
+        if(vk.message){
+          const school=/หมดอายุ|expire|สาขา|branch|apikey|api key|quota|โควต/i.test(String(vk.message));
+          out.innerHTML = school
+            ? `ℹ️ ${EN()?'Automatic slip checking is unavailable at the moment — attach your slip as usual, the school will confirm it.':'ระบบตรวจสลิปอัตโนมัติใช้งานไม่ได้ชั่วคราว — แนบสลิปได้ตามปกติ ทางโรงเรียนจะตรวจสอบให้'}`
+            : `ℹ️ SlipOK: ${esc(vk.message)}`; }
       }
     }catch(e){}
     // 3) fallback: parse an EMVCo PAYMENT QR amount locally (a verification QR usually has none)
@@ -1896,6 +1902,13 @@
       <label class="field"><span>${esc(t('slip.file'))}</span><input type="file" id="slipF" accept="image/*" onchange="P_slipDetect(this)"/></label>
       <div style="text-align:center"><img id="slipPrev" alt="" style="max-height:200px;border-radius:8px;border:1px solid var(--line);margin:4px 0;cursor:zoom-in" hidden onclick="ZOOM_IMG(this.src)"/></div>
       <label class="field"><span>${esc(t('slip.amountPaid'))}</span><input id="slipAmt" type="number" inputmode="decimal" placeholder="${esc(t('slip.amountPh'))}"/></label>
+      <!-- The same "when did you actually transfer" fields as the single-item form. They were only
+           added there, and this is now the flow almost everyone uses — so in practice nobody was
+           being asked, and the school was still left with only the upload time. -->
+      <div class="grid2">
+        <label class="field"><span>${EN()?'Date transferred':'วันที่โอนจริง'}</span><input type="date" id="slipDate" value="${todayStr()}"/></label>
+        <label class="field"><span>${EN()?'Time transferred':'เวลาที่โอน'}</span><input type="time" id="slipTime" value="${nowTime()}"/></label></div>
+      <small class="muted" style="display:block;margin:-2px 0 6px">${EN()?'Taken from the slip automatically when it can be read; otherwise what you enter here is used.':'ถ้าระบบอ่านสลิปได้จะใช้เวลาจากสลิป · ถ้าอ่านไม่ได้จะใช้เวลาที่กรอกนี้'}</small>
       <div id="qrDetect" class="muted" style="font-size:13px"></div>
       <button class="btn block green" onclick="P_combinedSlipDo(this)">${esc(t('slip.upload'))}</button>
       <button class="btn outline block" style="margin-top:8px" onclick="this.closest('.modal').remove()">${esc(t('c.close'))}</button>`); };
@@ -1911,7 +1924,8 @@
       return; }
     const dataUrl=await slipDataUrl(f);
     if(btn)btn.disabled=true;
-    try{ const r=await api('payCombined',{items:_COMB.items, slipAmount:amt, fromQR, slipName:f.name, slipData:dataUrl});
+    const sd=(m.querySelector('#slipDate')||{}).value||'', st=(m.querySelector('#slipTime')||{}).value||'';
+    try{ const r=await api('payCombined',{items:_COMB.items, slipAmount:amt, fromQR, slipName:f.name, slipData:dataUrl, statedDate:sd, statedTime:st});
       m.remove(); toast(EN()?`Slip submitted — ${r.count} items`:`ส่งสลิปแล้ว ${r.count} รายการ`); P_thanks(r.total,0); GO('payment'); }
     catch(e){ err(e); if(btn)btn.disabled=false; } };
 
@@ -4290,9 +4304,18 @@
         '1012':EN()?'slip already used (sent twice)':'สลิปถูกใช้ไปแล้ว (ส่งซ้ำ)',
         '1013':EN()?'amount differs from the bill':'ยอดในสลิปไม่ตรงกับยอดที่แจ้ง',
         '1014':EN()?'paid into a different account':'โอนเข้าบัญชีอื่น'};
+      // "configured" only ever meant a URL and a key exist. It said "connected and running normally"
+      // while an expired package rejected every slip — so report what SlipOK ACTUALLY answered.
+      const lv=d.live||{}; const good=d.working, off=!d.configured;
       modal(`<h3>🔍 ${EN()?'Slip verification':'การตรวจสลิป'}</h3>
-        <div class="card" style="background:${d.configured?'var(--ok-bg)':'var(--warn-bg)'};border-color:${d.configured?'var(--ok-line)':'var(--warn-line)'};padding:8px">
-          <b style="color:${d.configured?'var(--ok)':'var(--warn)'}">${d.configured?'✅ '+(EN()?'SlipOK is connected and running':'SlipOK เชื่อมต่ออยู่และทำงานปกติ'):'⚠️ '+(EN()?'SlipOK is not configured — slips are stored but never checked':'ยังไม่ได้ตั้งค่า SlipOK — ระบบเก็บสลิปไว้แต่ไม่ได้ตรวจ')}</b></div>
+        <div class="card" style="background:${good?'var(--ok-bg)':(off?'var(--warn-bg)':'var(--bad-bg)')};border-color:${good?'var(--ok-line)':(off?'var(--warn-line)':'var(--bad-line)')};padding:8px">
+          <b style="color:${good?'var(--ok)':(off?'var(--warn)':'var(--bad)')}">${
+            off ? '⚠️ '+(EN()?'SlipOK is not configured — slips are stored but never checked':'ยังไม่ได้ตั้งค่า SlipOK — ระบบเก็บสลิปไว้แต่ไม่ได้ตรวจ')
+            : good ? '✅ '+(EN()?'SlipOK answered — the account is active':'SlipOK ตอบกลับปกติ — บัญชียังใช้งานได้')
+            : '⛔ '+(EN()?'SlipOK is NOT working right now':'SlipOK ใช้งานไม่ได้ในขณะนี้')}</b>
+          ${lv.checked&&lv.message?`<div style="font-size:13px;margin-top:4px">${EN()?'SlipOK says':'ข้อความจาก SlipOK'}: <b>${esc(lv.message)}</b>${lv.code?` <span class="muted">(code ${esc(String(lv.code))})</span>`:''}</div>`:''}
+          ${lv.checked&&lv.branch?`<div class="muted" style="font-size:12px;margin-top:4px">${EN()?'Branch in use':'สาขาที่ระบบใช้อยู่'}: <b>${esc(lv.branch)}</b> · ${EN()?'API key':'คีย์'} ${esc(lv.keyTail||'')}</div>`:''}
+          ${!good&&!off?`<div class="muted" style="font-size:13px;margin-top:6px">${EN()?'Compare the branch above with your SlipOK dashboard — a renewal on a different branch will not reach this one. Slips still upload; an admin just has to check them by eye.':'นำเลขสาขาด้านบนไปเทียบกับหน้า SlipOK ของโรงเรียน — ถ้าต่ออายุคนละสาขา สาขานี้จะยังหมดอายุอยู่ · ระหว่างนี้ผู้ปกครองยังแนบสลิปได้ตามปกติ เพียงแต่แอดมินต้องตรวจเอง'}</div>`:''}</div>
         <div class="card" style="padding:8px"><b style="font-size:13px">${EN()?'Slips on file':'สลิปทั้งหมดในระบบ'} (${c.total||0})</b>
           <div class="list-item"><span>✓ ${EN()?'genuine':'สลิปแท้'}</span><b style="color:var(--ok)">${c.verified||0}</b></div>
           <div class="list-item"><span>⚠ ${EN()?'SlipOK objected':'SlipOK ทักท้วง'}</span><b style="color:var(--warn)">${c.rejected||0}</b></div>
