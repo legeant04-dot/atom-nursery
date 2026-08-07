@@ -883,8 +883,24 @@ function createAtomAPI(M, GROWTH_STD) {
         else if(v==='MANUAL')counts.manual++;
         else if(v.slice(0,2)==='NO'){ counts.rejected++; const c=v.slice(3)||'?'; byCode[c]=(byCode[c]||0)+1; }
         else counts.unchecked++; });
-      return { configured:!!(cfg.SlipOK_Url&&cfg.SlipOK_ApiKey), url:'', counts,
+      const url=String(cfg.SlipOK_Url||''), key=String(cfg.SlipOK_ApiKey||''), on=!!(url&&key);
+      // No network here — mock reports the CONFIGURED branch so the screen can be exercised offline.
+      return { configured:on, working:on, url:'', counts,
+        live:{ checked:on, alive:on, code:null, message:'', branch:url.replace(/\/+$/,'').split('/').pop(),
+          keyTail:key.length>4?('••••'+key.slice(-4)):'••••' },
         byCode:Object.keys(byCode).map(c=>({code:c,count:byCode[c]})).sort((a,b)=>b.count-a.count) }; },
+    /**
+     * Point the app at the right SlipOK branch. A school that renews on a NEW branch gets a new id,
+     * and until this existed the only way to follow it was editing code — every slip meanwhile came
+     * back "package expired". A blank key means "keep the current one".
+     */
+    saveSlipOk: p => { const ap=staffById(p&&p.staffId); if(ap.PositionLevel!=='Admin'&&ap.Role!=='Admin')fail('NO_PERMISSION','เฉพาะแอดมิน');
+      const raw=String((p&&p.branch)==null?'':p.branch).trim().replace(/\/+$/,'');
+      const branch=/^https?:\/\//i.test(raw)?raw.split('/').pop():raw;   // only a real URL is trimmed
+      if(!/^[A-Za-z0-9_-]+$/.test(branch))fail('BAD_INPUT','เลขสาขาไม่ถูกต้อง — ใส่เฉพาะเลขสาขาจากหน้า SlipOK');
+      cfg.SlipOK_Url='https://api.slipok.com/api/line/apikey/'+branch;
+      const k=String((p&&p.apiKey)==null?'':p.apiKey).trim(); if(k)cfg.SlipOK_ApiKey=k;
+      return H.slipDiag(p); },
     // Admin: delete a payment record. Only ever a row with NO slip image — a double-tap that left an
     // empty entry, or a cash receipt entered by mistake. A real slip is evidence and stays; reject it
     // instead. Recomputes what is owed afterwards, so the balance is right either way.
