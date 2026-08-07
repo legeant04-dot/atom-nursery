@@ -207,9 +207,9 @@ var COLLECTION_HEADERS_ = {
   // The master food list the teacher's daily journal picks from. A dish typed into the journal that
   // is not here yet gets added, so the list grows from real use instead of needing to be complete.
   FOOD_ITEMS:       ['ItemID', 'NameTH', 'NameEN', 'Category', 'Active', 'CreatedBy', 'CreatedAt'],
-  SURVEYS:          ['SurveyID', 'Title', 'Description', 'Type', 'Options', 'Scope', 'Target',
+  SURVEYS:          ['SurveyID', 'Title', 'Description', 'Type', 'Options', 'Questions', 'Scope', 'Target',
                      'StartDate', 'EndDate', 'Status', 'Anonymous', 'CreatedBy', 'CreatedAt'],
-  SURVEY_RESPONSES: ['ResponseID', 'SurveyID', 'StudentID', 'ParentID', 'Rating', 'Choice', 'Comment', 'SubmittedAt']
+  SURVEY_RESPONSES: ['ResponseID', 'SurveyID', 'StudentID', 'ParentID', 'Rating', 'Choice', 'Comment', 'Answers', 'SubmittedAt']
 };
 function ensureCollectionSheet_(def) {
   var ss = wbOf_(def.wb);

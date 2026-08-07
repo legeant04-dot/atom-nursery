@@ -112,7 +112,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.195'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.196'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -1866,29 +1866,38 @@
     // with no id, offer something they have NOT answered yet rather than reopening an old answer
     const s = list.find(x=>x.surveyId===id) || list.find(x=>!x.answered) || list[0];
     if(!s){ toast(EN()?'No survey open':'ยังไม่มีแบบสอบถาม'); return; }
-    const a = s.myAnswer||{};
-    const faces = s.type==='rating' ? `<div class="row" style="justify-content:space-between;margin:10px 0">${
-      SV_FACE.map((f,i)=>`<button type="button" class="btn outline" id="svf${i+1}" style="flex:1;font-size:30px;padding:10px 0${a.rating===i+1?';border-color:var(--brand);background:var(--brand-soft)':''}" onclick="P_svPick(${i+1})">${f}</button>`).join('')}</div>
-      <div style="text-align:center" class="muted"><small>${EN()?'1 = not happy · 5 = very happy':'1 = ไม่พอใจ · 5 = พอใจมาก'}</small></div>` : '';
-    const votes = s.type==='vote' ? `<div style="margin:8px 0">${s.options.map((o,i)=>
-      `<label class="field" style="display:flex;align-items:center;gap:8px"><input type="radio" name="svv" value="${esc(o)}" style="width:auto" ${a.choice===o?'checked':''}/> ${esc(o)}</label>`).join('')}</div>` : '';
+    // one block per question; a survey with a single question looks exactly as it did before
+    const qs = (s.questions&&s.questions.length) ? s.questions : [{text:s.title,type:s.type,options:s.options||[]}];
+    const prev = s.myAnswers || (s.myAnswer?[s.myAnswer]:[]);
+    window.__SVA = qs.map((q,i)=>Number((prev[i]||{}).rating)||0);
+    const block=(q,i)=>{ const a=prev[i]||{};
+      const faces = q.type==='rating' ? `<div class="row" style="justify-content:space-between;margin:8px 0">${
+        SV_FACE.map((f,n)=>`<button type="button" class="btn outline" id="svf${i}_${n+1}" style="flex:1;font-size:26px;padding:8px 0${a.rating===n+1?';border-color:var(--brand);background:var(--brand-soft)':''}" onclick="P_svPick(${i},${n+1})">${f}</button>`).join('')}</div>
+        <div style="text-align:center" class="muted"><small>${EN()?'1 = not happy · 5 = very happy':'1 = ไม่พอใจ · 5 = พอใจมาก'}</small></div>` : '';
+      const votes = q.type==='vote' ? `<div style="margin:6px 0">${(q.options||[]).map(o=>
+        `<label class="field" style="display:flex;align-items:center;gap:8px"><input type="radio" name="svv${i}" value="${esc(o)}" style="width:auto" ${a.choice===o?'checked':''}/> ${esc(o)}</label>`).join('')}</div>` : '';
+      return `<div class="card" style="padding:10px;margin:8px 0">
+        <b>${qs.length>1?`${i+1}. `:''}${esc(q.text)}</b>
+        ${faces}${votes}
+        <label class="field" style="margin-top:4px"><span>${q.type==='comment'?(EN()?'Your comment':'ความคิดเห็นของคุณ'):(EN()?'Anything to add? (optional)':'อยากบอกอะไรเพิ่มไหม (ถ้ามี)')}</span><textarea id="svC${i}" rows="2">${esc(a.comment||'')}</textarea></label></div>`; };
     modal(`<h3>💬 ${esc(s.title)}</h3>
       ${s.description?`<p class="muted" style="font-size:14px">${esc(s.description)}</p>`:''}
       ${s.anonymous?`<p class="muted" style="font-size:13px">🕶️ ${EN()?'Anonymous — the school will not see who answered.':'ไม่ระบุชื่อ — โรงเรียนจะไม่เห็นว่าใครตอบ'}</p>`:''}
-      ${faces}${votes}
-      <label class="field"><span>${s.type==='comment'?(EN()?'Your comment':'ความคิดเห็นของคุณ'):(EN()?'Anything to add? (optional)':'อยากบอกอะไรเพิ่มไหม (ถ้ามี)')}</span><textarea id="svC" rows="3">${esc(a.comment||'')}</textarea></label>
+      ${qs.length>1?`<p class="muted" style="font-size:13px">${EN()?`${qs.length} questions — it takes about a minute.`:`มี ${qs.length} ข้อ · ใช้เวลาประมาณ 1 นาที`}</p>`:''}
+      <div style="max-height:56vh;overflow:auto">${qs.map(block).join('')}</div>
       ${s.answered?`<p class="muted" style="font-size:13px">✅ ${EN()?'You already answered — saving again updates your answer.':'คุณตอบไปแล้ว — บันทึกอีกครั้งจะเป็นการแก้ไขคำตอบเดิม'}</p>`:''}
-      <button class="btn block" onclick="P_svSend('${esc(s.surveyId)}','${esc(s.type)}',this)">${s.answered?(EN()?'Update my answer':'แก้ไขคำตอบ'):(EN()?'Send':'ส่งคำตอบ')}</button>`);
-    window.__SVR = a.rating||0;
+      <button class="btn block" onclick="P_svSend('${esc(s.surveyId)}',${qs.length},this)">${s.answered?(EN()?'Update my answer':'แก้ไขคำตอบ'):(EN()?'Send':'ส่งคำตอบ')}</button>`);
   };
-  window.P_svPick=(n)=>{ window.__SVR=n;
-    for(let i=1;i<=5;i++){ const b=document.getElementById('svf'+i); if(!b)continue;
+  window.P_svPick=(qi,n)=>{ (window.__SVA=window.__SVA||[])[qi]=n;
+    for(let i=1;i<=5;i++){ const b=document.getElementById('svf'+qi+'_'+i); if(!b)continue;
       b.style.borderColor = i===n?'var(--brand)':''; b.style.background = i===n?'var(--brand-soft)':''; } };
-  window.P_svSend=async(id,type,btn)=>{ const m=btn.closest('.modal');
-    const choice=(m.querySelector('input[name=svv]:checked')||{}).value||'';
-    const comment=(m.querySelector('#svC')||{}).value||'';
+  window.P_svSend=async(id,nq,btn)=>{ const m=btn.closest('.modal');
+    const answers=Array.from({length:nq||1},(_,i)=>({
+      rating:(window.__SVA||[])[i]||0,
+      choice:(m.querySelector('input[name=svv'+i+']:checked')||{}).value||'',
+      comment:(m.querySelector('#svC'+i)||{}).value||'' }));
     if(btn)btn.disabled=true;
-    try{ const r=await api('submitSurvey',Object.assign({},parentScope(),{surveyId:id,rating:window.__SVR||0,choice,comment}));
+    try{ const r=await api('submitSurvey',Object.assign({},parentScope(),{surveyId:id,answers}));
       m.remove(); confirmSaved(r.updated?(EN()?'Answer updated — thank you':'แก้ไขคำตอบแล้ว ขอบคุณค่ะ'):(EN()?'Thank you!':'ขอบคุณสำหรับความคิดเห็นค่ะ 🙏'));
       GO('home');
     }catch(e){err(e); if(btn)btn.disabled=false;} };
@@ -4415,7 +4424,7 @@
     const list=await api('surveys',{staffId:USER.staffId},{fresh:true});
     const row=s=>`<div class="card" style="padding:8px">
       <div class="spread"><b>${esc(s.title)}</b><span class="pill ${s.status==='OPEN'?'ok':'info'}" style="font-size:11px">${s.status==='OPEN'?(EN()?'open':'เปิดรับ'):(EN()?'closed':'ปิดแล้ว')}</span></div>
-      <small class="muted">${esc(SV_TYPE(s.type))} · ${esc(s.scope==='all'?(EN()?'everyone':'ทุกคน'):(s.scope==='class'?(EN()?'class ':'ชั้น ')+s.target:(EN()?'one child':'รายบุคคล')))}${s.anonymous?' · '+(EN()?'anonymous':'ไม่ระบุชื่อ'):''} · ${EN()?'answers':'คำตอบ'} <b>${s.responses}</b></small>
+      <small class="muted">${s.questionCount>1?(EN()?s.questionCount+' questions':s.questionCount+' ข้อ'):esc(SV_TYPE(s.type))} · ${esc(s.scope==='all'?(EN()?'everyone':'ทุกคน'):(s.scope==='class'?(EN()?'class ':'ชั้น ')+s.target:(EN()?'one child':'รายบุคคล')))}${s.anonymous?' · '+(EN()?'anonymous':'ไม่ระบุชื่อ'):''} · ${EN()?'answers':'คำตอบ'} <b>${s.responses}</b></small>
       <div class="row" style="gap:6px;margin-top:6px">
         <button class="btn sm outline" onclick="A_svResults('${esc(s.surveyId)}')">📊 ${EN()?'Results':'ผลลัพธ์'}</button>
         <button class="btn sm outline" onclick="A_svForm('${esc(s.surveyId)}')">✏️ ${esc(t('c.edit')||'แก้ไข')}</button>
@@ -4440,14 +4449,15 @@
     modal(`<h3>${id?'✏️ '+(EN()?'Edit survey':'แก้ไขแบบสอบถาม'):'➕ '+(EN()?'New survey':'สร้างแบบสอบถาม')}</h3>
       <label class="field"><span>${EN()?'Title':'หัวข้อ'}</span><input id="svT" value="${esc(s.title||'')}" placeholder="${EN()?'e.g. How happy are you with the food?':'เช่น พอใจกับอาหารกลางวันแค่ไหน'}"/></label>
       <label class="field"><span>${EN()?'Description (optional)':'คำอธิบาย (ถ้ามี)'}</span><textarea id="svD">${esc(s.description||'')}</textarea></label>
-      <div class="grid2">
-        <label class="field"><span>${EN()?'Answer type':'รูปแบบคำตอบ'}</span><select id="svType" onchange="A_svTypeChg(this.value)">
-          ${['rating','vote','comment'].map(x=>`<option value="${x}"${s.type===x?' selected':''}>${esc(SV_TYPE(x))}</option>`).join('')}</select></label>
-        <label class="field"><span>${EN()?'Ask who?':'ถามใคร'}</span><select id="svScope" onchange="A_svScopeChg(this.value)">
-          <option value="all"${s.scope==='all'?' selected':''}>${EN()?'Everyone':'ผู้ปกครองทุกคน'}</option>
-          <option value="class"${s.scope==='class'?' selected':''}>${EN()?'One class':'เฉพาะชั้นเรียน'}</option>
-          <option value="student"${s.scope==='student'?' selected':''}>${EN()?'One child':'รายบุคคล'}</option></select></label></div>
-      <div id="svOptBox" ${s.type==='vote'?'':'hidden'}><label class="field"><span>${EN()?'Options (one per line)':'ตัวเลือก (บรรทัดละ 1 ข้อ)'}</span><textarea id="svOpts" rows="4">${esc((s.options||[]).join('\n'))}</textarea></label></div>
+      <!-- Up to five questions. More than that and people stop answering, which is worse than
+           asking less. -->
+      <div class="spread" style="margin:10px 0 4px"><b>❓ ${EN()?'Questions':'คำถาม'} <small class="muted" id="svQCount"></small></b>
+        <button class="btn sm outline" onclick="A_svQAdd()">+ ${EN()?'Add question':'เพิ่มคำถาม'}</button></div>
+      <div id="svQBox"></div>
+      <label class="field"><span>${EN()?'Ask who?':'ถามใคร'}</span><select id="svScope" onchange="A_svScopeChg(this.value)">
+        <option value="all"${s.scope==='all'?' selected':''}>${EN()?'Everyone':'ผู้ปกครองทุกคน'}</option>
+        <option value="class"${s.scope==='class'?' selected':''}>${EN()?'One class':'เฉพาะชั้นเรียน'}</option>
+        <option value="student"${s.scope==='student'?' selected':''}>${EN()?'One child':'รายบุคคล'}</option></select></label>
       <div id="svTgtBox" ${s.scope==='all'?'hidden':''}><label class="field"><span>${EN()?'Target':'เป้าหมาย'}</span><select id="svTgt">
         ${s.scope==='student'?kids.map(k=>`<option value="${esc(k.StudentID)}"${s.target===k.StudentID?' selected':''}>${esc(dispNick(k))} (${esc(k.Class||'')})</option>`).join('')
                              :classes.map(c=>`<option value="${esc(c)}"${s.target===c?' selected':''}>${esc(c)}</option>`).join('')}</select></label></div>
@@ -4457,8 +4467,32 @@
       <label class="field" style="display:flex;align-items:center;gap:8px"><input type="checkbox" id="svAnon" style="width:auto" ${s.anonymous?'checked':''}/> 🕶️ ${EN()?'Anonymous — never show who said what':'ไม่ระบุชื่อผู้ตอบ — ระบบจะไม่แสดงว่าใครตอบอะไร'}</label>
       <p class="muted" style="font-size:12px">${EN()?'Once promised, this is kept: an anonymous survey never returns names, even to an admin.':'เมื่อเลือกแล้วระบบจะไม่คืนชื่อผู้ตอบให้ใครเลย แม้แต่แอดมิน'}</p>
       <button class="btn block" onclick="A_svSave('${esc(id||'')}',this)">${esc(t('c.save'))}</button>`);
+    // seed the question editor from the survey (a legacy one-question survey comes back as one row)
+    SV_Q = (s.questions&&s.questions.length ? s.questions : [{text:s.title||'',type:s.type||'rating',options:s.options||[]}])
+      .map(q=>({text:q.text||'',type:q.type||'rating',options:(q.options||[]).slice()}));
+    A_svQRender();
   };
-  window.A_svTypeChg=(v)=>{ const b=document.getElementById('svOptBox'); if(b)b.hidden=(v!=='vote'); };
+  /* ---- the question editor -------------------------------------------------------------- */
+  const SV_MAX_Q=5;
+  let SV_Q=[];
+  window.A_svQRender=()=>{ const box=document.getElementById('svQBox'); if(!box)return;
+    box.innerHTML = SV_Q.map((q,i)=>`<div class="card" style="padding:8px;margin:6px 0">
+      <div class="spread"><b style="font-size:13px">${EN()?'Question':'ข้อ'} ${i+1}</b>
+        ${SV_Q.length>1?`<button class="btn sm pink" onclick="A_svQDel(${i})" title="${EN()?'Remove':'ลบข้อนี้'}">🗑️</button>`:''}</div>
+      <input id="svQT${i}" value="${esc(q.text)}" oninput="A_svQSet(${i},'text',this.value)" placeholder="${EN()?'e.g. How happy are you with the food?':'เช่น พอใจกับอาหารกลางวันแค่ไหน'}" style="width:100%;margin:4px 0"/>
+      <select id="svQY${i}" onchange="A_svQSet(${i},'type',this.value)" style="width:100%">${
+        ['rating','vote','comment'].map(x=>`<option value="${x}"${q.type===x?' selected':''}>${esc(SV_TYPE(x))}</option>`).join('')}</select>
+      <div id="svQO${i}" ${q.type==='vote'?'':'hidden'} style="margin-top:4px">
+        <textarea id="svQOpts${i}" rows="3" oninput="A_svQSet(${i},'options',this.value)" placeholder="${EN()?'Options, one per line':'ตัวเลือก บรรทัดละ 1 ข้อ'}">${esc((q.options||[]).join('\n'))}</textarea></div></div>`).join('');
+    const c=document.getElementById('svQCount'); if(c) c.textContent=`(${SV_Q.length}/${SV_MAX_Q})`;
+  };
+  window.A_svQSet=(i,k,v)=>{ if(!SV_Q[i])return;
+    if(k==='options') SV_Q[i].options=String(v).split('\n').map(x=>x.trim()).filter(Boolean);
+    else SV_Q[i][k]=v;
+    if(k==='type'){ const b=document.getElementById('svQO'+i); if(b) b.hidden=(v!=='vote'); } };
+  window.A_svQAdd=()=>{ if(SV_Q.length>=SV_MAX_Q){ toast(EN()?`Up to ${SV_MAX_Q} questions`:`ใส่คำถามได้ไม่เกิน ${SV_MAX_Q} ข้อ`); return; }
+    SV_Q.push({text:'',type:'rating',options:[]}); A_svQRender(); };
+  window.A_svQDel=(i)=>{ if(SV_Q.length<=1)return; SV_Q.splice(i,1); A_svQRender(); };
   window.A_svScopeChg=(v)=>{ const b=document.getElementById('svTgtBox'); if(b)b.hidden=(v==='all');
     const m=document.querySelector('.modal'); if(!m)return; const sel=m.querySelector('#svTgt'); if(!sel)return;
     const classes=[...new Set((A_CACHE.students||[]).map(x=>x.Class).filter(Boolean))];
@@ -4468,8 +4502,8 @@
   window.A_svSave=async(id,btn)=>{ const m=btn.closest('.modal'); const g=x=>{const e=m.querySelector('#'+x);return e?e.value:'';};
     if(btn)btn.disabled=true;
     try{ await api('saveSurvey',{staffId:USER.staffId,survey:{ surveyId:id||undefined, title:g('svT'), description:g('svD'),
-        type:g('svType'), scope:g('svScope'), target:g('svTgt'),
-        options:g('svOpts').split('\n').map(x=>x.trim()).filter(Boolean),
+        questions:SV_Q.filter(q=>String(q.text||'').trim()),
+        scope:g('svScope'), target:g('svTgt'),
         startDate:g('svS'), endDate:g('svE'), anonymous:!!m.querySelector('#svAnon').checked }});
       m.remove(); confirmSaved(t('c.saved')); A_surveys();
     }catch(e){err(e); if(btn)btn.disabled=false;} };
@@ -4481,23 +4515,30 @@
       toast((EN()?'Deleted · answers removed ':'ลบแล้ว · ลบคำตอบ ')+(r.removedResponses||0)); A_surveys(); }catch(e){err(e);} };
   window.A_svResults=async(id)=>{
     const d=await api('surveyResults',{staffId:USER.staffId,surveyId:id},{fresh:true});
-    const max=Math.max(1,...(d.dist||[0]));
-    const bars=(d.type==='rating')?(d.dist||[]).map((n,i)=>`<div style="display:flex;align-items:center;gap:8px;margin:3px 0">
-        <span style="width:28px;font-size:20px">${SV_FACE[i]}</span><span class="muted" style="width:16px">${i+1}</span>
-        <div style="flex:1;height:14px;background:var(--line);border-radius:7px;overflow:hidden"><div style="height:100%;width:${n/max*100}%;background:var(--brand)"></div></div>
-        <b style="width:32px;text-align:right">${n}</b></div>`).join(''):'';
-    const votes=(d.type==='vote')?Object.keys(d.tally||{}).map(k=>`<div class="list-item"><span>${esc(k)}</span><b>${d.tally[k]}</b></div>`).join(''):'';
-    const cms=(d.comments||[]).map(c=>`<div class="card" style="padding:8px;margin:4px 0"><div style="font-size:14px">${esc(c.comment)}</div>
-      <small class="muted">${c.rating?SV_FACE[c.rating-1]+' ':''}${esc(c.who||(EN()?'anonymous':'ไม่ระบุชื่อ'))} · ${esc(String(c.at||'').slice(0,16))}</small></div>`).join('');
+    // one result block per question, so a five-question survey is read question by question rather
+    // than as one pile of numbers
+    const qs=(d.perQuestion&&d.perQuestion.length)?d.perQuestion
+      :[{text:d.title,type:d.type,options:d.options||[],dist:d.dist,tally:d.tally,average:d.average,comments:d.comments||[]}];
+    const qBlock=(q,i)=>{
+      const max=Math.max(1,...(q.dist||[0]));
+      const bars=(q.type==='rating')?(q.dist||[]).map((n,k)=>`<div style="display:flex;align-items:center;gap:8px;margin:3px 0">
+          <span style="width:28px;font-size:20px">${SV_FACE[k]}</span><span class="muted" style="width:16px">${k+1}</span>
+          <div style="flex:1;height:14px;background:var(--line);border-radius:7px;overflow:hidden"><div style="height:100%;width:${n/max*100}%;background:var(--brand)"></div></div>
+          <b style="width:32px;text-align:right">${n}</b></div>`).join(''):'';
+      const votes=(q.type==='vote')?Object.keys(q.tally||{}).map(k=>`<div class="list-item"><span>${esc(k)}</span><b>${q.tally[k]}</b></div>`).join(''):'';
+      const cms=(q.comments||[]).map(c=>`<div class="card" style="padding:8px;margin:4px 0"><div style="font-size:14px">${esc(c.comment)}</div>
+        <small class="muted">${c.rating?SV_FACE[c.rating-1]+' ':''}${esc(c.who||(EN()?'anonymous':'ไม่ระบุชื่อ'))} · ${esc(String(c.at||'').slice(0,16))}</small></div>`).join('');
+      return `<div class="card" style="padding:10px;margin:8px 0">
+        <div class="spread"><b>${qs.length>1?`${i+1}. `:''}${esc(q.text)}</b>${q.average!=null?`<span class="pill info">${EN()?'avg':'เฉลี่ย'} ${q.average}</span>`:''}</div>
+        ${bars}${votes}
+        ${cms?`<div style="margin-top:6px"><small class="muted">${EN()?'Comments':'ความคิดเห็น'} (${(q.comments||[]).length})</small>${cms}</div>`:''}</div>`; };
     modal(`<h3>📊 ${esc(d.title)}</h3>
       <div class="kpigrid" style="margin-bottom:8px">
-        <div class="kpi"><b>${d.responses}</b><small>${EN()?'answers':'คำตอบ'}</small></div>
+        <div class="kpi"><b>${d.responses}</b><small>${EN()?'families answered':'ครอบครัวที่ตอบ'}</small></div>
         ${d.average!=null?`<div class="kpi"><b style="color:var(--brand)">${d.average}</b><small>${EN()?'average (of 5)':'ค่าเฉลี่ย (เต็ม 5)'}</small></div>`:''}
-        <div class="kpi"><b>${(d.comments||[]).length}</b><small>${EN()?'comments':'ข้อความ'}</small></div></div>
-      ${bars?`<div class="card" style="padding:8px">${bars}</div>`:''}
-      ${votes?`<div class="card" style="padding:8px">${votes}</div>`:''}
+        <div class="kpi"><b>${qs.length}</b><small>${EN()?'questions':'คำถาม'}</small></div></div>
       ${d.anonymous?`<p class="muted" style="font-size:13px">🕶️ ${EN()?'Anonymous survey — names are never returned, not even here.':'แบบสอบถามไม่ระบุชื่อ — ระบบไม่คืนชื่อผู้ตอบ แม้ในหน้านี้'}</p>`:''}
-      ${cms?`<h4 style="margin:10px 0 4px">${EN()?'Comments':'ความคิดเห็น'}</h4><div style="max-height:40vh;overflow:auto">${cms}</div>`:`<p class="muted" style="font-size:13px">${EN()?'No written comments yet.':'ยังไม่มีข้อความ'}</p>`}
+      <div style="max-height:58vh;overflow:auto">${qs.map(qBlock).join('')}</div>
       <button class="btn outline block" style="margin-top:8px" onclick="this.closest('.modal').remove();A_surveys()">${esc(t('c.close'))}</button>`);
   };
   window.A_svMonth=async(month)=>{ const m0=month||monthStr();
@@ -4507,7 +4548,7 @@
       <div class="kpigrid" style="margin-bottom:8px">
         <div class="kpi"><b>${d.responses}</b><small>${EN()?'answers':'คำตอบ'}</small></div>
         <div class="kpi"><b style="color:var(--brand)">${d.average!=null?d.average:'-'}</b><small>${EN()?'average (of 5)':'ค่าเฉลี่ย (เต็ม 5)'}</small></div></div>
-      ${(d.surveys||[]).length?(d.surveys||[]).map(s=>`<div class="list-item"><span>${esc(s.title)}<br><small class="muted">${esc(SV_TYPE(s.type))}</small></span>
+      ${(d.surveys||[]).length?(d.surveys||[]).map(s=>`<div class="list-item"><span>${esc(s.title)}<br><small class="muted">${s.questionCount>1?(EN()?s.questionCount+' questions':s.questionCount+' ข้อ'):esc(SV_TYPE(s.type))}</small></span>
         <span style="text-align:right"><b>${s.responses}</b>${s.average!=null?`<br><small class="muted">${EN()?'avg':'เฉลี่ย'} ${s.average}</small>`:''}</span></div>`).join('')
         :`<div class="card muted">${EN()?'No answers this month':'เดือนนี้ยังไม่มีคำตอบ'}</div>`}
       <button class="btn outline block" style="margin-top:8px" onclick="this.closest('.modal').remove();A_surveys()">${esc(t('c.close'))}</button>`);
