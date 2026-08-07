@@ -784,7 +784,8 @@ function createAtomAPI(M, GROWTH_STD) {
       const total=Math.round(items.reduce((a,x)=>a+x.out,0)); const amt=Math.round(Number(p.slipAmount||0));
       if(Math.abs(amt-total)>0.5) fail('AMOUNT_MISMATCH','ยอดชำระ ฿'+amt+' ไม่ตรงกับยอดรวมในระบบ ฿'+total);
       const groupId='SG-'+Date.now();
-      items.forEach(x=>{ recordSlip_(x.kind, x.id, {slipAmount:x.out, slipData:p.slipData, slipName:p.slipName, slipGroup:groupId, uid:p.uid, parentId:p.parentId, role:p.role}); });
+      items.forEach(x=>{ recordSlip_(x.kind, x.id, {slipAmount:x.out, slipData:p.slipData, slipName:p.slipName, slipGroup:groupId, uid:p.uid, parentId:p.parentId, role:p.role,
+        statedDate:p.statedDate, statedTime:p.statedTime}); });
       logAct('payCombined', groupId, items.length+' รายการ รวม ฿'+total, actorOf(p));
       return {ok:true, groupId, total, count:items.length}; },
     /**
