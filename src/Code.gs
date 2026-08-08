@@ -242,6 +242,11 @@ function sessionRequired_() { try { return String(getConfig_('RequireSessionToke
 // (sign-in failing, the shell erroring before auth). It can only write to the isolated PERF_LOG
 // sheet and every field is whitelisted + sanitised in Perf.gs. READING it back is admin-only.
 function publicAction_(a) { return a === 'ping' || a === 'auth' || a === 'perfLog'; }
+/** Ride a renewed session token back on a normal reply, so an active user is never signed out. */
+function withRenewal_(env, sess) {
+  try { var t = renewSession_(sess); if (t) env.token = t; } catch (e) {}
+  return env;
+}
 /** Inject the caller's trusted identity (from the verified token) into the payload and
  *  block parents from reading a student that isn't theirs. No-op while dormant. */
 function applyIdentity_(action, payload, sess) {
@@ -319,13 +324,13 @@ function dispatch_(action, payload, token) {
       ? ((payload && payload.calls) || []).some(function (c) { return isMutatingAction_(c.action); })
       : isMutatingAction_(action);
     return withWriteLock_(mutates, function () {
-      if (action === 'batch') { (payload = payload || {}).__sess = sess; return jsonOut_({ ok: true, data: handler(payload) }); }
+      if (action === 'batch') { (payload = payload || {}).__sess = sess; return jsonOut_(withRenewal_({ ok: true, data: handler(payload) }, sess)); }
       // perfLog records WHICH ROLE was affected. That must come from the verified session, never
       // from the client — otherwise the one report we use to make decisions is trivially poisoned.
       // No session is itself the signal we want (a user who could not sign in), recorded as 'anon'.
       if (action === 'perfLog') { (payload = payload || {}).__sess = sess; return jsonOut_({ ok: true, data: handler(payload) }); }
       payload = applyIdentity_(action, payload, sess);
-      return jsonOut_({ ok: true, data: handler(payload) });
+      return jsonOut_(withRenewal_({ ok: true, data: handler(payload) }, sess));
     });
   } catch (err) {
     var code = (err && err.apiCode) ? err.apiCode : 'INTERNAL';

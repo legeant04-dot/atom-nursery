@@ -31,6 +31,20 @@ function issueSession_(uid, role, linkedId) {
   var sig = Utilities.base64EncodeWebSafe(Utilities.computeHmacSha256Signature(body, sessionSecret_()));
   return body + '.' + sig;
 }
+/**
+ * Hand back a fresh token when the one in use is over halfway through its life.
+ *
+ * The expiry was ABSOLUTE: whatever you were doing, twelve hours after signing in the next tap
+ * failed with "ต้องเข้าสู่ระบบใหม่". A teacher who signs in at 07:00 was thrown out at 19:00 —
+ * mid check-out, in the middle of the busiest part of the day. Renewing while someone is still
+ * working means an active user is never interrupted, while an abandoned token still dies on time.
+ */
+function renewSession_(sess) {
+  if (!sess || !sess.exp) return '';
+  var left = sess.exp - Date.now();
+  if (left <= 0 || left > (SESSION_TTL_SEC * 1000) / 2) return '';
+  return issueSession_(sess.uid, sess.role, sess.linkedId);
+}
 function verifySession_(token) {
   if (!token || String(token).indexOf('.') < 0) return null;
   var parts = String(token).split('.');
