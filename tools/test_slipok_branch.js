@@ -102,7 +102,7 @@ console.log('\n6) The engine mirrors it (mock mode must not diverge from live)')
 {
   ok_('engine has saveSlipOk', /saveSlipOk:\s*p\s*=>/.test(eng));
   ok_('engine enforces admin', /saveSlipOk[\s\S]{0,200}NO_PERMISSION/.test(eng));
-  ok_('engine validates the same way', /saveSlipOk[\s\S]{0,400}\[A-Za-z0-9_-\]\+/.test(eng));
+  ok_('engine validates the same way', /saveSlipOk[\s\S]{0,900}\[A-Za-z0-9_-\]\+/.test(eng));
   ok_('engine re-probes after saving', /saveSlipOk[\s\S]{0,700}H\.slipDiag\(p\)/.test(eng));
   ok_('slipDiag now reports the branch in mock too', /slipDiag[\s\S]{0,1800}branch:url/.test(eng));
   ok_('the built Engine.gs carries it (build_engine was run)', /saveSlipOk/.test(gasEng));
@@ -123,7 +123,59 @@ console.log('\n7) The admin can reach it — on the screen that told them someth
   ok_('the original entry point still works', /window\.A_slipDiag=async/.test(app) && /A_slipDiagShow\(await api\('slipDiag'/.test(app));
 }
 
-console.log('\n8) The speed report can leave the phone');
+console.log('\n8) Undo — the key box overwrites the only copy the app holds');
+{
+  // this is not hypothetical: the notification reference (slipok-<uuid>) was pasted into the key box,
+  // and because the key is never displayed there was nothing to read back off the screen.
+  const r = runGas({ branch: '70537', apiKey: 'slipok-311a005e-614e-4932-bf60-eee786032e79' });
+  eq('the overwritten key is kept', r.cfg.SlipOK_ApiKeyPrev, 'SLIPOKOLD1234');
+  eq('...and the new one is in use', r.cfg.SlipOK_ApiKey, 'slipok-311a005e-614e-4932-bf60-eee786032e79');
+
+  // restoring runs against the state the mistake left behind
+  const back = runGas({ restorePrev: true }, { SlipOK_ApiKey: 'slipok-311a005e', SlipOK_ApiKeyPrev: 'SLIPOKOLD1234' });
+  eq('undo puts the old key back', back.cfg.SlipOK_ApiKey, 'SLIPOKOLD1234');
+  eq('...and does not leave a stale undo behind', back.cfg.SlipOK_ApiKeyPrev, '');
+  ok_('undo re-probes too', back.out && back.out.__diag === true);
+  ok_('undo is refused when there is nothing to undo', !!runGas({ restorePrev: true }, { SlipOK_ApiKeyPrev: '' }).thrown);
+
+  const same = runGas({ branch: '70537', apiKey: 'SLIPOKOLD1234' });
+  eq('re-saving the SAME key does not destroy the undo', same.cfg.SlipOK_ApiKeyPrev, undefined);
+  const bo = runGas({ branch: '70537' }, { SlipOK_ApiKeyPrev: 'KEEPME' });
+  eq('changing only the branch leaves the undo intact', bo.cfg.SlipOK_ApiKeyPrev, 'KEEPME');
+  // the diagnostic reads the key in order to USE it — what must never happen is handing it back
+  const diag = R('src/PaySlips.gs').split('function handleSlipDiag')[1] || '';
+  ok_('the key is never handed back to the browser', !/\bkey: key\b/.test(diag) && !/apiKey:/.test(diag));
+  ok_('...only a masked tail is', /keyTail: key\.length > 4/.test(diag));
+  ok_('only WHETHER an undo exists is reported', /hasPrevKey: !!getConfig_/.test(R('src/PaySlips.gs')));
+  ok_('the undo button only shows when there is something to undo', /d\.hasPrevKey\?/.test(app));
+  ok_('...and is wired up', /A_slipOkUndo\(this\)/.test(app) && /window\.A_slipOkUndo=/.test(app));
+  ok_('engine mirrors the undo', /restorePrev[\s\S]{0,200}SlipOK_ApiKeyPrev/.test(eng));
+}
+
+console.log('\n9) The probe asks SlipOK the question the school actually has');
+{
+  const ps = R('src/PaySlips.gs');
+  // Slice the actual function rather than allowing N characters after its name — a distance bound
+  // silently breaks on a comment edit or a CRLF checkout, and then reports a fault that is not there.
+  const dg = ps.slice(ps.indexOf('function handleSlipDiag'));
+  // /quota costs nothing and returns the expiry date + slips remaining; a dummy-slip POST returns
+  // neither, and cannot tell a wrong branch from a wrong key from an unpaid package.
+  ok_('it calls the quota endpoint', /\+ '\/quota'/.test(dg));
+  ok_('...with GET', /method: 'get'/.test(dg));
+  ok_('it reports how many slips are left', /quota: \(q\.quota/.test(ps));
+  ok_('it reports when the package expires', /endDate: String\(q\.endDate/.test(ps));
+  ok_('1001 is identified as a wrong BRANCH', /badBranch: code === 1001/.test(ps));
+  ok_('1002 as a wrong KEY', /badKey: code === 1002/.test(ps));
+  ok_('1003\/1004\/1015 as a package problem', /expired: code === 1003 \|\| code === 1004 \|\| code === 1015/.test(ps));
+  // the three answers are useless unless they reach the person who has to act
+  ok_('the screen says which one is wrong — branch', /lv\.badBranch\?/.test(app));
+  ok_('— key', /lv\.badKey\?/.test(app));
+  ok_('— package', /lv\.expired\?/.test(app));
+  ok_('and warns that the notification reference is not the API key', /slipok-xxxx[\s\S]{0,40}ไม่ใช่<\/b> API key/.test(app));
+  ok_('expiry and quota are shown when healthy', /โควตาคงเหลือ/.test(app) && /ใช้ได้ถึง/.test(app));
+}
+
+console.log('\n10) The speed report can leave the phone');
 {
   ok_('there is a copy button', /A_perfCopy\(this\)/.test(app));
   ok_('the report data is kept for it', /window\._PERF=d/.test(app));

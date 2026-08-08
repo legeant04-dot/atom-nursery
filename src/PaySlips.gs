@@ -346,20 +346,25 @@ function handleSlipDiag(p) {
   // was being rejected — so actually ask SlipOK, with log:false so the probe consumes nothing.
   var live = { checked: false };
   if (url && key) {
+    // SlipOK's own /quota endpoint is the right probe: it consumes nothing, and it answers the two
+    // questions the school actually has — is the package still valid (endDate), and how many slips
+    // are left. It also separates the failure modes, which a dummy-slip POST cannot: a wrong BRANCH
+    // fails at 1001 before auth, a wrong KEY at 1002, an unpaid package at 1003/1015.
     try {
-      var res = UrlFetchApp.fetch(url, {
-        method: 'post', contentType: 'application/json',
-        headers: { 'x-authorization': key },
-        payload: JSON.stringify({ data: '00000000000000000000', log: false }),
-        muteHttpExceptions: true
+      var res = UrlFetchApp.fetch(String(url).replace(/\/+$/, '') + '/quota', {
+        method: 'get', headers: { 'x-authorization': key }, muteHttpExceptions: true
       });
       var http = res.getResponseCode();
       var body = {}; try { body = JSON.parse(res.getContentText()); } catch (e) {}
       var code = body.code || null, msg = String(body.message || '');
-      // 1011/1012 mean "that is not a real transaction" — which is the RIGHT answer to a dummy
-      // reference, and therefore proof the account is alive and answering.
-      var alive = (http === 200 && body.success === true) || code === 1011 || code === 1012;
+      var q = body.data || {};
+      var alive = (http === 200 && body.success === true);
       live = { checked: true, http: http, code: code, message: msg, alive: alive,
+        // which of the two values is wrong decides what the admin has to go and fetch
+        badBranch: code === 1001, badKey: code === 1002, expired: code === 1003 || code === 1004 || code === 1015,
+        quota: (q.quota != null ? Number(q.quota) : null),
+        overQuota: (q.overQuota != null ? Number(q.overQuota) : null),
+        endDate: String(q.endDate || ''),
         // the two things needed to compare against the SlipOK dashboard
         branch: String(url).replace(/\/+$/, '').split('/').pop(),
         keyTail: key.length > 4 ? ('••••' + key.slice(-4)) : '••••' };
@@ -371,6 +376,8 @@ function handleSlipDiag(p) {
     configured: !!(url && key),
     working: !!live.alive,
     live: live,
+    // Whether an undo is available at all. The key itself is never returned — only that one exists.
+    hasPrevKey: !!getConfig_('SlipOK_ApiKeyPrev', ''),
     url: url ? String(url).replace(/\/[^/]*$/, '/…') : '',
     counts: counts,
     byCode: Object.keys(byCode).map(function (c) { return { code: c, count: byCode[c] }; })

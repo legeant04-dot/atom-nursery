@@ -23,7 +23,8 @@ function throws_(label, fn, code) {
   catch (e) { const c = e && (e.code || e.apiCode); const ok = !code || c === code;
     console.log((ok ? '  ok   ' : '  FAIL ') + label + '  code=' + c); ok ? pass++ : fail++; }
 }
-const TODAY = new Date().toISOString().slice(0, 10);
+const TODAY = (() => { const d = new Date(), p = n => String(n).padStart(2, '0'); return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()); })();  // LOCAL date, like the engine's todayLocal(). A UTC date here silently disagrees with the
+// engine for the 7 hours after 17:00 Bangkok time, and the suite fails for reasons nobody changed.
 const MONTH = TODAY.slice(0, 7);
 
 function fresh() {

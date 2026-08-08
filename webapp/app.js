@@ -112,7 +112,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.200'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.201'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -4312,6 +4312,13 @@
       toast(d.working?(EN()?'Saved — SlipOK is answering now':'บันทึกแล้ว — SlipOK ตอบกลับได้แล้ว')
         :(EN()?'Saved, but SlipOK still is not answering':'บันทึกแล้ว แต่ SlipOK ยังไม่ตอบกลับ'));
     }catch(e){err(e); btn.disabled=false;} };
+  // Pasting the wrong thing into the key box overwrites the only copy the app holds, and the key is
+  // never shown, so there is nothing to read back off the screen. One generation of undo.
+  window.A_slipOkUndo=async(btn)=>{ btn.disabled=true;
+    try{ const d=await api('saveSlipOk',{restorePrev:true,staffId:USER.staffId,adminId:USER.staffId});
+      const m=btn.closest('.modal'); if(m)m.remove(); A_slipDiagShow(d);
+      toast(EN()?'Previous key restored':'ย้อนกลับไปใช้คีย์เดิมแล้ว');
+    }catch(e){err(e); btn.disabled=false;} };
   window.A_slipDiagShow=(d)=>{ const c=d.counts||{};
       const why={'1011':EN()?'no such transaction at the bank':'ธนาคารไม่พบรายการโอน',
         '1012':EN()?'slip already used (sent twice)':'สลิปถูกใช้ไปแล้ว (ส่งซ้ำ)',
@@ -4328,12 +4335,19 @@
             : '⛔ '+(EN()?'SlipOK is NOT working right now':'SlipOK ใช้งานไม่ได้ในขณะนี้')}</b>
           ${lv.checked&&lv.message?`<div style="font-size:13px;margin-top:4px">${EN()?'SlipOK says':'ข้อความจาก SlipOK'}: <b>${esc(lv.message)}</b>${lv.code?` <span class="muted">(code ${esc(String(lv.code))})</span>`:''}</div>`:''}
           ${lv.checked&&lv.branch?`<div class="muted" style="font-size:12px;margin-top:4px">${EN()?'Branch in use':'สาขาที่ระบบใช้อยู่'}: <b>${esc(lv.branch)}</b> · ${EN()?'API key':'คีย์'} ${esc(lv.keyTail||'')}</div>`:''}
-          ${!good&&!off?`<div class="muted" style="font-size:13px;margin-top:6px">${EN()?'Compare the branch above with your SlipOK dashboard — a renewal on a different branch will not reach this one. Slips still upload; an admin just has to check them by eye.':'นำเลขสาขาด้านบนไปเทียบกับหน้า SlipOK ของโรงเรียน — ถ้าต่ออายุคนละสาขา สาขานี้จะยังหมดอายุอยู่ · ระหว่างนี้ผู้ปกครองยังแนบสลิปได้ตามปกติ เพียงแต่แอดมินต้องตรวจเอง'}</div>`:''}</div>
+          ${good&&(lv.quota!=null||lv.endDate)?`<div style="font-size:13px;margin-top:4px">${lv.quota!=null?`${EN()?'Slips left':'โควตาคงเหลือ'}: <b>${lv.quota}</b>${lv.overQuota?` <span style="color:var(--warn)">(${EN()?'over by':'ใช้เกิน'} ${lv.overQuota})</span>`:''}`:''}${lv.endDate?` · ${EN()?'valid until':'ใช้ได้ถึง'} <b>${esc(lv.endDate)}</b>`:''}</div>`:''}
+          ${!good&&!off?`<div class="muted" style="font-size:13px;margin-top:6px">${
+            lv.badBranch?(EN()?'The BRANCH ID is wrong — SlipOK has no branch with this number. Copy "เลขอ้างอิงสาขา" from your SlipOK branch page.':'<b>เลขสาขาผิด</b> — SlipOK ไม่มีสาขาเลขนี้ · ให้คัดลอก "เลขอ้างอิงสาขา" จากหน้าสาขาใน SlipOK มาใส่')
+            :lv.badKey?(EN()?'The branch is correct but the API KEY is not accepted. Note: the notification reference (slipok-xxxx-…) is NOT the API key — the key is issued per branch, so a new branch needs its own key.':'<b>เลขสาขาถูกแล้ว แต่ API key ไม่ผ่าน</b> · หมายเหตุ: "เลขอ้างอิงการแจ้งเตือน" (slipok-xxxx-…) <b>ไม่ใช่</b> API key — คีย์ออกแยกตามสาขา สาขาใหม่ต้องใช้คีย์ของสาขานั้น')
+            :lv.expired?(EN()?'The branch and key are accepted, but the package is expired or over quota. Renew it on this branch.':'เลขสาขาและคีย์ถูกต้อง แต่<b>แพ็กเกจหมดอายุหรือใช้เกินโควตา</b> — ต่ออายุที่สาขานี้')
+            :(EN()?'Compare the branch above with your SlipOK dashboard.':'นำเลขสาขาด้านบนไปเทียบกับหน้า SlipOK ของโรงเรียน')
+          }<br>${EN()?'Slips still upload; an admin just has to check them by eye.':'ระหว่างนี้ผู้ปกครองยังแนบสลิปได้ตามปกติ เพียงแต่แอดมินต้องตรวจเอง'}</div>`:''}</div>
         <div class="card" style="padding:8px"><b style="font-size:13px">🔧 ${EN()?'Point the app at the right branch':'ตั้งค่าสาขาที่ถูกต้อง'}</b>
           <p class="muted" style="font-size:13px;margin:4px 0">${EN()?'Copy the branch id and API key from your SlipOK dashboard. Renewing on a new branch gives you a NEW id — the app keeps using the old one until it is changed here.':'คัดลอกเลขสาขาและ API key จากหน้า SlipOK ของโรงเรียนมาใส่ · การต่ออายุแบบเปิดสาขาใหม่จะได้เลขสาขาใหม่ ระบบจะยังใช้เลขเดิมจนกว่าจะแก้ตรงนี้'}</p>
           <label class="field"><span>${EN()?'Branch id':'เลขสาขา (Branch ID)'}</span><input id="sokBranch" value="${esc(lv.branch||'')}" placeholder="${EN()?'e.g. 69307':'เช่น 69307'}"/></label>
           <label class="field"><span>${EN()?'API key':'API key'} <small class="muted">${EN()?'leave blank to keep the current one':'เว้นว่างไว้ = ใช้คีย์เดิม'} ${esc(lv.keyTail||'')}</small></span><input id="sokKey" placeholder="SLIPOK…"/></label>
-          <button class="btn sm block" onclick="A_slipOkSave(this)">💾 ${EN()?'Save and test again':'บันทึกแล้วตรวจใหม่'}</button></div>
+          <button class="btn sm block" onclick="A_slipOkSave(this)">💾 ${EN()?'Save and test again':'บันทึกแล้วตรวจใหม่'}</button>
+          ${d.hasPrevKey?`<button class="btn sm outline block" style="margin-top:6px" onclick="A_slipOkUndo(this)">↩️ ${EN()?'Put the previous API key back':'ย้อนกลับไปใช้ API key เดิม'}</button>`:''}</div>
         <div class="card" style="padding:8px"><b style="font-size:13px">${EN()?'Slips on file':'สลิปทั้งหมดในระบบ'} (${c.total||0})</b>
           <div class="list-item"><span>✓ ${EN()?'genuine':'สลิปแท้'}</span><b style="color:var(--ok)">${c.verified||0}</b></div>
           <div class="list-item"><span>⚠ ${EN()?'SlipOK objected':'SlipOK ทักท้วง'}</span><b style="color:var(--warn)">${c.rejected||0}</b></div>
