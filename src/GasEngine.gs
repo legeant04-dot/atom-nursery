@@ -185,10 +185,60 @@ function wbOf_(which) { return which === 'HR' ? getHrSpreadsheet_() : getMainSpr
 
 // ---- short-lived sheet cache (CacheService) — cuts repeated sheet reads across requests ----
 // Best-effort: skips values >~95KB (cache limit) and degrades to live reads if CacheService is absent.
-function cacheTtl_() { var t = Number(getConfig_ ? getConfig_('CacheTTL', 60) : 60); return (t >= 1 && t <= 600) ? t : 60; }
-function cacheGet_(k) { try { var v = CacheService.getScriptCache().get(k); return v ? JSON.parse(v) : null; } catch (e) { return null; } }
-function cachePut_(k, o) { try { var s = JSON.stringify(o); if (s.length < 95000) CacheService.getScriptCache().put(k, s, cacheTtl_()); } catch (e) {} }
-function cacheDel_(k) { try { CacheService.getScriptCache().remove(k); } catch (e) {} }
+/**
+ * How long a sheet's cached copy lives.
+ *
+ * Measured on the live school: reading the seven collections a screen needs takes ~10.8 SECONDS
+ * from the sheets and ~0.28s from this cache. At the old 60s the first person to arrive in any
+ * given minute paid the full ten seconds, which is most of the 8.9s typical wait.
+ *
+ * Sixty seconds was the right number while invalidation was incomplete. Every write now drops the
+ * sheet it touched — writeRows_ always did, and appendObject_/updateRow_ do since this change — so
+ * the only way to see something stale is to edit the spreadsheet BY HAND, outside the app. Five
+ * minutes bounds that, and the school can change it in Settings.
+ */
+function cacheTtl_() { var t = Number(getConfig_ ? getConfig_('CacheTTL', 300) : 300); return (t >= 1 && t <= 21600) ? t : 300; }
+/**
+ * One cache entry can hold ~100KB. The busiest sheets — check-ins, journals, payments — passed that
+ * long ago, and the old code simply gave up on them ("if (s.length < 95000)"), so precisely the
+ * sheets that cost the most to read were the ones never cached and re-read in full on every single
+ * request. Split them across numbered parts instead.
+ */
+var CACHE_PART_ = 90000, CACHE_MAX_PARTS_ = 12;   // up to ~1MB per collection
+function cacheGet_(k) {
+  try {
+    var v = CacheService.getScriptCache().get(k);
+    if (!v) return null;
+    var m = /^__parts:(\d+)$/.exec(v);
+    if (!m) return JSON.parse(v);
+    var n = Number(m[1]), keys = [], i;
+    for (i = 0; i < n; i++) keys.push(k + '~' + i);
+    var got = CacheService.getScriptCache().getAll(keys), s = '';
+    // A part can expire on its own; a half-string would throw or, far worse, parse into
+    // something plausible. Treat any gap as a miss and read the sheet.
+    for (i = 0; i < n; i++) { var part = got[keys[i]]; if (part == null) return null; s += part; }
+    return JSON.parse(s);
+  } catch (e) { return null; }
+}
+function cachePut_(k, o) {
+  try {
+    var s = JSON.stringify(o), ttl = cacheTtl_(), c = CacheService.getScriptCache();
+    if (s.length < 95000) { c.put(k, s, ttl); return; }
+    var n = Math.ceil(s.length / CACHE_PART_);
+    if (n > CACHE_MAX_PARTS_) { c.remove(k); return; }        // genuinely too big — read it live
+    var map = {};
+    for (var i = 0; i < n; i++) map[k + '~' + i] = s.substr(i * CACHE_PART_, CACHE_PART_);
+    c.putAll(map, ttl);
+    c.put(k, '__parts:' + n, ttl);                            // written last: no pointer without parts
+  } catch (e) {}
+}
+function cacheDel_(k) {
+  try {
+    var c = CacheService.getScriptCache(), v = c.get(k), m = v && /^__parts:(\d+)$/.exec(v);
+    if (m) { var keys = []; for (var i = 0; i < Number(m[1]); i++) keys.push(k + '~' + i); c.removeAll(keys); }
+    c.remove(k);
+  } catch (e) {}
+}
 
 function readRows_(wb, sheet) {
   var hit = cacheGet_('rows:' + sheet); if (hit) return hit;
