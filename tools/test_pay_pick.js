@@ -117,9 +117,12 @@ console.log('\n7) The slip-check diagnostic tells the truth about SlipOK');
   const ps = fs.readFileSync(path.join(__dirname, '..', 'src', 'PaySlips.gs'), 'utf8');
   ok_('it actually CALLS SlipOK rather than only checking that settings exist',
     /function handleSlipDiag[\s\S]{0,1600}UrlFetchApp\.fetch/.test(ps));
-  ok_('the probe does not consume a slip', /handleSlipDiag[\s\S]{0,1600}log: false/.test(ps));
-  ok_('a dummy reference being rejected counts as ALIVE, not broken',
-    /code === 1011 \|\| code === 1012/.test(ps));
+  // It used to POST a dummy slip and read 1011/1012 ("no such transaction") as proof of life. The
+  // /quota endpoint is strictly better: it cannot consume a slip at all, and it returns the expiry
+  // date and remaining quota, which is what the school actually needs to know.
+  ok_('the probe cannot consume a slip', /handleSlipDiag[\s\S]{0,1600}\/quota'/.test(ps));
+  ok_('health is decided by SlipOK saying yes, not by guessing from an error code',
+    /alive = \(http === 200 && body\.success === true\)/.test(ps));
   ok_('it reports the branch id, which is what you compare with the dashboard', /branch: String\(url\)/.test(ps));
   ok_('the API key is masked, never returned whole', /keyTail[\s\S]{0,60}slice\(-4\)/.test(ps));
   ok_('the admin screen distinguishes "configured" from "working"', /d\.working/.test(src));

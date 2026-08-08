@@ -396,6 +396,16 @@ function handleSetConfigVal(p) {
  */
 function handleSaveSlipOk(p) {
   p = p || {};
+  // Undo. Pasting the wrong value into the key box overwrites the only copy the app holds, and the
+  // key is deliberately never logged or displayed — so keep exactly one generation back.
+  if (p.restorePrev) {
+    var prev = getConfig_('SlipOK_ApiKeyPrev', '');
+    if (!prev) throw apiError_('BAD_INPUT', 'ไม่มีคีย์เดิมให้ย้อนกลับ');
+    setConfigValue_('SlipOK_ApiKey', prev);
+    setConfigValue_('SlipOK_ApiKeyPrev', '');
+    try { logAudit(p.adminId || 'admin', 'SET_SLIPOK', 'SCHOOL_CONFIG', 'restored previous key'); } catch (e) {}
+    return handleSlipDiag(p);
+  }
   // Accept either a bare branch id or the whole URL pasted out of the SlipOK dashboard.
   var raw = String(p.branch == null ? '' : p.branch).trim().replace(/\/+$/, '');
   // Only a real URL is reduced to its last segment. Anything else containing a slash is a mistake,
@@ -406,7 +416,11 @@ function handleSaveSlipOk(p) {
   // Blank key = "leave the current one alone", so the admin can fix only the branch without
   // having to fetch the key again (and without it ever being displayed to re-type).
   var key = String(p.apiKey == null ? '' : p.apiKey).trim();
-  if (key) setConfigValue_('SlipOK_ApiKey', key);
+  if (key) {
+    var cur = getConfig_('SlipOK_ApiKey', '');
+    if (cur && cur !== key) setConfigValue_('SlipOK_ApiKeyPrev', cur);   // one generation of undo
+    setConfigValue_('SlipOK_ApiKey', key);
+  }
   try { logAudit(p.adminId || 'admin', 'SET_SLIPOK', 'SCHOOL_CONFIG', 'branch=' + branch + (key ? ' +key' : '')); } catch (e) {}
   return handleSlipDiag(p);   // answer with a fresh live probe: did that actually fix it?
 }

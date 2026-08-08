@@ -50,7 +50,7 @@ const lv = (id, type, days, extra) => Object.assign({
 // ---- deriveLeaveUsed_ from GasEngine.gs, loaded standalone -------------------------------
 function gasCtx() {
   const ctx = { console, Object, String, Number, Array, Date, JSON,
-    gasToday_: () => new Date().toISOString().slice(0, 10) };
+    gasToday_: () => (() => { const d = new Date(), p = n => String(n).padStart(2, '0'); return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()); })() };
   vm.createContext(ctx);
   const src = fs.readFileSync(path.join(__dirname, '..', 'src', 'GasEngine.gs'), 'utf8');
   const grab = name => { const i = src.indexOf('function ' + name); let d = 0, j = src.indexOf('{', i);

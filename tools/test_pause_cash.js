@@ -13,7 +13,8 @@ function eq(label, got, want) {
 }
 function code(fn) { try { fn(); return 'RETURNED'; } catch (e) { return (e && e.code) || String(e); } }
 
-const TODAY = new Date().toISOString().slice(0, 10);
+const TODAY = (() => { const d = new Date(), p = n => String(n).padStart(2, '0'); return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()); })();  // LOCAL date, like the engine's todayLocal(). A UTC date here silently disagrees with the
+// engine for the 7 hours after 17:00 Bangkok time, and the suite fails for reasons nobody changed.
 const THIS_MONTH = TODAY.slice(0, 7);
 const shift = (m, n) => { let [y, mo] = m.split('-').map(Number); mo += n; while (mo > 12) { mo -= 12; y++; } while (mo < 1) { mo += 12; y--; } return y + '-' + String(mo).padStart(2, '0'); };
 
