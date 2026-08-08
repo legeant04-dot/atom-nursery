@@ -73,6 +73,14 @@ window.CONFIG = { MODE: 'gas', GAS_URL: 'https://script.google.com/macros/s/AKfy
   // moments later. Retrying is what a person does anyway, so do it for them.
   // Only for calls that cannot double-charge: a read, or auth/ping. A write is reported, never repeated.
   const sleep = ms => new Promise(r => setTimeout(r, ms));
+  // Resolve when the app is on screen again. Retrying while it is still in the background just
+  // gets cancelled a second time on iOS.
+  const visible = () => new Promise(r => {
+    if (typeof document === 'undefined' || !document.hidden) return r();
+    const on = () => { if (!document.hidden) { document.removeEventListener('visibilitychange', on); r(); } };
+    document.addEventListener('visibilitychange', on);
+    setTimeout(() => { document.removeEventListener('visibilitychange', on); r(); }, 30000);   // never hang forever
+  });
   async function postGas(body, attempt) {
     attempt = attempt || 0;
     const payload = JSON.stringify(Object.assign({ token: _session }, body));
@@ -81,9 +89,41 @@ window.CONFIG = { MODE: 'gas', GAS_URL: 'https://script.google.com/macros/s/AKfy
       e.code = 'TOO_LARGE';
       throw e;
     }
-    const r = await fetch(CONFIG.GAS_URL, { method: 'POST', body: payload });
+    /* The request never reached Google at all.
+     *
+     * fetch() rejects with a bare TypeError — Safari words it "Load failed" — and that message went
+     * straight to the user and into the error log, where it was the top unexplained failure on iOS
+     * (8% of calls, against 0% on desktop). The usual cause is not a broken network: iOS cancels an
+     * in-flight request when the app goes to the background, and with calls that took nine seconds,
+     * switching away for a moment was enough. There was also NO retry on this path — only on an
+     * unreadable reply — so one blip failed the screen outright.
+     *
+     * So: wait for the app to come back to the foreground, then try again, and only give up with a
+     * message that says what actually happened. A write is still never repeated.
+     */
+    let r;
+    try { r = await fetch(CONFIG.GAS_URL, { method: 'POST', body: payload }); }
+    catch (netErr) {
+      const act0 = body && body.action;
+      const safe0 = act0 === 'batch'
+        ? (((body.payload || {}).calls) || []).every(c => RETRY_SAFE(c.action))
+        : RETRY_SAFE(act0);
+      if (safe0 && attempt < 2) {
+        if (typeof document !== 'undefined' && document.hidden) await visible();
+        await sleep(400 * (attempt + 1));
+        return postGas(body, attempt + 1);
+      }
+      const e2 = new Error('เชื่อมต่อไม่ได้ — กรุณาตรวจสอบสัญญาณอินเทอร์เน็ตแล้วลองใหม่');
+      e2.code = 'OFFLINE';
+      throw e2;
+    }
     const text = await r.text();
-    try { return JSON.parse(text); } catch (e) {
+    try {
+      const j = JSON.parse(text);
+      // the server hands back a fresh token when the current one is over halfway through its life
+      if (j && j.token) { _session = j.token; try { localStorage.setItem('atom_session_token', j.token); } catch (x) {} }
+      return j;
+    } catch (e) {
       const looksHTML = /^\s*<(!doctype|html)/i.test(text);
       try { console.error('postGas non-JSON', body && body.action, r.status, text.slice(0, 300)); } catch (x) {}
       // a batch is retried only when every call in it is safe to repeat
@@ -273,7 +313,29 @@ window.CONFIG = { MODE: 'gas', GAS_URL: 'https://script.google.com/macros/s/AKfy
   }
   // The server has told us the token is no good. Keeping it means every later call fails the same
   // way and the user is stuck on a screen that will not load — drop it so the next sign-in is clean.
-  const dropDeadSession = e => { if (e && (e.code === 'NO_SESSION' || e.code === 'INVALID_TOKEN')) window.__atomClearSession(); };
+  /**
+   * The session expired mid-use — do not throw the user out for it.
+   *
+   * The token used to last exactly 12 hours from sign-in, whatever you were doing, so a teacher who
+   * signed in at 07:00 was bounced to the login screen at 19:00. The server now renews a token that
+   * is still in use (see renewSession_), which prevents almost all of these. For the rest — a token
+   * that expired while the app was closed, or a secret that was rotated — the LINE session behind it
+   * is usually still valid, so we can quietly sign in again and carry on.
+   *
+   * Retrying the failed call afterwards is safe even for a payment: NO_SESSION is returned by
+   * dispatch_ BEFORE the handler runs, so the write it was refusing never happened.
+   */
+  let _reauthP = null;
+  function reauth() {
+    if (_reauthP) return _reauthP;                       // one attempt shared by every waiting call
+    _reauthP = Promise.resolve()
+      .then(() => (typeof window.__atomReauth === 'function' ? window.__atomReauth() : null))
+      .then(ok => { _reauthP = null; return !!ok; })
+      .catch(() => { _reauthP = null; return false; });
+    return _reauthP;
+  }
+  const isDeadSession = e => !!(e && (e.code === 'NO_SESSION' || e.code === 'INVALID_TOKEN'));
+  const dropDeadSession = e => { if (isDeadSession(e)) window.__atomClearSession(); };
   function flush() {
     const q = _q; _q = []; _scheduled = false;
     // Phase 0: time every round trip. t0 is taken here, so what we measure is exactly what the
@@ -350,7 +412,13 @@ window.CONFIG = { MODE: 'gas', GAS_URL: 'https://script.google.com/macros/s/AKfy
   const shapeOf = d => Array.isArray(d) ? 'list' : (d && typeof d === 'object' ? 'object' : 'value');
   const shapeNote = d => shapeOf(d) === 'object' ? ' keys=' + Object.keys(d || {}).slice(0, 6).join(',') : (d === null ? ' (null)' : '');
   function guarded(action, payload) {
-    return enqueueGas(action, payload).then(d => {
+    // An expired session is recoverable: sign in again behind the scenes and repeat the call. Safe
+    // for a write too — NO_SESSION is refused before the handler runs, so nothing was written.
+    const send = () => enqueueGas(action, payload).catch(e => {
+      if (!isDeadSession(e) || action === 'auth') throw e;
+      return reauth().then(ok => { if (!ok) throw e; return enqueueGas(action, payload); });
+    });
+    return send().then(d => {
       const got = shapeOf(d), prev = _shape.get(action);
       if (prev === undefined) { _shape.set(action, got); return d; }
       if (prev === got) return d;

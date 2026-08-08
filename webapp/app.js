@@ -112,7 +112,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.203'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.204'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -808,6 +808,25 @@
       ${installButtonsHTML()}</div>`;
   }
   // In gas+LIFF mode: trigger real LINE login; otherwise fall through to demo chooser
+  /**
+   * Get a working session again WITHOUT sending the user back to the login screen.
+   *
+   * api.js calls this when the server refuses a request for an expired session. The LINE session
+   * behind the app outlives ours by a long way, so in almost every case we can mint a new token
+   * from it and the person carries on with what they were doing — the failed call is repeated for
+   * them. Returns false if LINE cannot vouch for them either, and only then do they see a login.
+   */
+  window.__atomReauth = async () => {
+    try {
+      if (CONFIG.MODE !== 'gas' || !CONFIG.LIFF_ID) return false;
+      await loadLiff();
+      if (!window.liff) return false;
+      try { await liff.init({ liffId: CONFIG.LIFF_ID }); } catch (e) {}
+      if (!liff.isLoggedIn()) return false;
+      const u = await api('auth', { accessToken: liff.getAccessToken() });
+      return !!(u && u.role && u.role !== 'guest');
+    } catch (e) { return false; }
+  };
   window.LIFF_LOGIN = () => {
     if (CONFIG.MODE === 'gas' && CONFIG.LIFF_ID) {                 // SDK may still be in flight — wait for it
       if (window.liff) { liff.login(); return; }
