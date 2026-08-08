@@ -113,7 +113,11 @@ const realCalls = ctx => ctx.__sent.filter(b => b.action !== 'perfLog');
     c.document.hidden = true; c.__fire('visibilitychange'); await wait(20);
     const rows = perfCalls(c)[0].payload.rows;
     const shape = rows.find(r => r.a === 'batchShape');
-    ok_('the bad shape is captured for diagnosis', !!shape && /typeof data=object/.test(shape.c));
+    // The outer keys are always "ok,data" and identified nothing across 35 real occurrences. What
+    // can identify the trigger is the INNER shape and which calls shared the batch.
+    ok_('the bad shape is captured for diagnosis', !!shape && /data=object/.test(shape.c));
+    ok_('...including the inner keys', !!shape && /inner=oops/.test(shape.c));
+    ok_('...and which calls were in the batch', !!shape && /n=2/.test(shape.c) && /dashboard/.test(shape.c));
     eq('and the resent calls are tagged', rows.filter(r => r.c === 'RESENT').length, 2);
   }
 
