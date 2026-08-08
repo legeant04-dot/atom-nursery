@@ -50,6 +50,8 @@ function ensureWorkbook_(name, propKey, log) {
   }
   var ss = SpreadsheetApp.create(name);
   props.setProperty(propKey, ss.getId());
+  // The id just changed; anything memoised for this execution points at a workbook that is gone.
+  try { resetWorkbookCache_(); } catch (e) {}
   log.push('+ Workbook created: ' + name + ' (' + ss.getId() + ')');
   return ss;
 }

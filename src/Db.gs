@@ -73,11 +73,29 @@ function driveifyImages_(obj) {
 }
 
 /** Append a record. Missing fields are written blank; extras ignored. */
+/**
+ * Every in-place write must drop that sheet's cached copy.
+ *
+ * writeRows_ has always done this, but the explicit routes edit rows directly through the helpers
+ * below, and each one had to remember to bust the cache by hand. Roughly twenty places do; the rest
+ * do not, and a forgotten one serves data that is out of date for as long as the cache lives — which
+ * is also the reason the cache had to expire after 60 seconds, making almost every request pay the
+ * full ~10 seconds of sheet reading. Doing it here means no caller can forget.
+ */
+function bustSheetCache_(sheet) {
+  try {
+    var n = sheet && sheet.getName && sheet.getName(); if (!n) return;
+    if (typeof cacheDel_ === 'function') { cacheDel_('col:' + n); cacheDel_('rows:' + n); }
+    if (n === 'SCHOOL_CONFIG') { _configCache = null; if (typeof cacheDel_ === 'function') cacheDel_('cfg'); }
+  } catch (e) {}
+}
+
 function appendObject_(sheet, obj) {
   driveifyImages_(obj);
   var hdr = headers_(sheet);
   var row = hdr.map(function (h) { return (obj[h] === undefined || obj[h] === null) ? '' : obj[h]; });
   sheet.appendRow(row);
+  bustSheetCache_(sheet);
   return sheet.getLastRow();
 }
 
@@ -93,6 +111,7 @@ function updateRow_(sheet, rowIndex, patch) {
     else if (IMAGE_COLS_[h]) current[c] = driveifyImage_(current[c], h + '-' + Date.now() + '.jpg');
   });
   sheet.getRange(rowIndex, 1, 1, hdr.length).setValues([current]);
+  bustSheetCache_(sheet);
 }
 
 /**

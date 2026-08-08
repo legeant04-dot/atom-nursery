@@ -378,7 +378,7 @@ function handleSetConfigVal(p) {
   var WHITE = { DiligenceAttendanceAmount: 1, DiligenceFacebookAmount: 1, ExtraChildRate: 1, TrainingCertRate: 1,
     TrainingCertMaxPerMonth: 1, SocialSecurityRate: 1, SocialSecurityMax: 1, OTRatePerHour: 1, OTGraceMinutes: 1,
     StaffOTHourlyRate: 1, LateGraceMinutes: 1, OTRoundUpMinutes: 1, AbsenceRateExcludeDays: 1, DspmManualUrl: 1,
-    ContributionMatchRate: 1 };
+    ContributionMatchRate: 1, CacheTTL: 1 };
   var key = String(p.key || '');
   if (!WHITE[key]) throw apiError_('BAD_INPUT', 'ไม่อนุญาตให้แก้ค่านี้: ' + key);
   setConfigValue_(key, p.value);

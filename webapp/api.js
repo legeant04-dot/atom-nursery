@@ -244,7 +244,22 @@ window.CONFIG = { MODE: 'gas', GAS_URL: 'https://script.google.com/macros/s/AKfy
     try { const ks = []; for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); if (k && k.indexOf(CACHE_NS) === 0) ks.push(k); } ks.forEach(k => localStorage.removeItem(k)); } catch (e) {} }
   window.__atomCacheClear = rcClear; // app.js clears on logout / user switch (don't leak data across LINE accounts)
   const MUT = /^(submit|save|add|remove|delete|set|register|pay|upload|confirm|reject|issue|generate|move|export|import|compute|cancel|prepay|link|notify|request|mark|approve|edit|rename|update|change|seed|dedup|reindex)/i;
-  const isMutating = a => MUT.test(a) || /check(in|out)|absence|payOT$|^orgMove|^unlink|^claim|^recompute/i.test(a);
+  /**
+   * Reads that the verb list catches by accident — "payments", "prepayments", "paymentLog" and the
+   * rest only LOOK like writes. Being treated as one cost them twice over: they were never cached,
+   * AND each one wiped the entire cache, so simply opening the payment screen threw away everything
+   * the app had and made the next several screens wait for the server again.
+   *
+   * Every name here was checked against its handler in engine.js and confirmed to touch nothing.
+   * That matters beyond caching: a read may be safely re-sent when a reply is unreadable, so listing
+   * a real write here could submit a payment twice. exportStudent looks like a read and is NOT here,
+   * because it stamps Status='EXPORTED'.
+   */
+  const READ_ONLY = {
+    absenceReport: 1, paymentLog: 1, paymentSlips: 1, payments: 1, payrollConfig: 1,
+    payrollReminderDue: 1, prepayTiers: 1, prepayments: 1, staffCheckinLog: 1, studentCheckinHistory: 1
+  };
+  const isMutating = a => !READ_ONLY[a] && (MUT.test(a) || /check(in|out)|absence|payOT$|^orgMove|^unlink|^claim|^recompute/i.test(a));
   // Safe to send again if the reply was unreadable: reads, plus auth/ping. A write is never repeated
   // — a retried payment or check-in would be worse than the error. Used by postGas (declared above,
   // but only ever CALLED after this module has finished initialising).
@@ -366,6 +381,35 @@ window.CONFIG = { MODE: 'gas', GAS_URL: 'https://script.google.com/macros/s/AKfy
   }
   // refresh everything cached in one batched tick (used on app-focus + a light 60s heartbeat)
   function revalidateAll() { _rc.forEach((e, ck) => revalidate(ck)); }
+
+  /* ---- re-warm after a write --------------------------------------------------------------
+   * A write has to throw the cache away — showing a check-in that has just been undone would be
+   * far worse than any delay. But the cache does not have to STAY empty, and until now it did: in
+   * a nursery morning a teacher writes constantly, so every screen afterwards went back to waiting
+   * on a server that takes seconds to answer.
+   *
+   * So the entries the user was actually using are fetched again, in ONE batched request, while
+   * they are still looking at the result of their write. It is capped, debounced so a burst of
+   * check-ins costs one refill rather than ten, and it deliberately does NOT offer the "new data"
+   * bar — nothing on screen has changed under the user, the cache is simply full again.
+   */
+  const REWARM_MAX = 10, REWARM_WAIT = 1200;
+  let _rewarmT = null, _rewarmKeys = [];
+  const rcRecentKeys = () => [..._rc.entries()].sort((a, b) => b[1].t - a[1].t).map(e => e[0]);
+  function rewarmLater(keys) {
+    _rewarmKeys = [...new Set(_rewarmKeys.concat(keys))];
+    clearTimeout(_rewarmT);
+    _rewarmT = setTimeout(() => {
+      const ks = _rewarmKeys.slice(0, REWARM_MAX); _rewarmKeys = [];
+      ks.forEach(ck => {
+        if (_rc.has(ck) || _inflight.has(ck)) return;         // already back, or on its way
+        _inflight.add(ck);
+        const i = ck.indexOf('|'); let payload = {};
+        try { payload = JSON.parse(ck.slice(i + 1) || '{}'); } catch (e) {}
+        guarded(ck.slice(0, i), payload).then(d => rcSet(ck, d)).catch(() => {}).then(() => _inflight.delete(ck));
+      });
+    }, REWARM_WAIT);
+  }
   if (typeof document !== 'undefined') {
     document.addEventListener('visibilitychange', () => { if (!document.hidden && CONFIG.MODE === 'gas') revalidateAll(); });
     setInterval(() => { if (!document.hidden && CONFIG.MODE === 'gas') revalidateAll(); }, 60000); // “latest data every minute”
@@ -377,7 +421,9 @@ window.CONFIG = { MODE: 'gas', GAS_URL: 'https://script.google.com/macros/s/AKfy
       if (action === 'auth') {                                                          // capture the session token; never cache auth
         return enqueueGas(action, payload).then(d => { if (d && d.token) { _session = d.token; try { localStorage.setItem('atom_session_token', d.token); } catch (e) {} } return d; });
       }
-      if (isMutating(action)) { rcClear(); return guarded(action, payload); }      // write → bust cache (memory + disk)
+      // write → bust the cache (memory + disk), then quietly fill it again so the next screen is
+      // instant instead of waiting on the server all over again
+      if (isMutating(action)) { const was = rcRecentKeys(); rcClear(); return guarded(action, payload).then(d => { rewarmLater(was); return d; }); }
       const ck = action + '|' + JSON.stringify(payload);
       // opts.fresh: never serve a possibly-stale cached value — always fetch (still populates the cache).
       // Used for time-sensitive reads like the announcement popup, where a stale empty must not suppress it.

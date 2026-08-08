@@ -112,7 +112,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.202'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.203'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -4260,6 +4260,8 @@
       <h4 style="margin:6px 0">🔍 ${EN()?'Slip verification (SlipOK)':'การตรวจสลิป (SlipOK)'}</h4>
       <button class="btn sm outline block" onclick="A_slipDiag(this)">${EN()?'Check whether slip verification is working':'ตรวจว่าระบบตรวจสลิปทำงานอยู่ไหม'}</button>
       <h4 style="margin:6px 0">⚡ ${EN()?'System speed & errors':'ความเร็วและข้อผิดพลาดของระบบ'}</h4>
+      <label class="field"><span>${EN()?'Keep data ready for (seconds)':'เก็บข้อมูลไว้ให้พร้อมใช้ (วินาที)'}</span><input id="setTtl" type="number" min="30" max="21600" value="${esc(sc.CacheTTL!=null?sc.CacheTTL:300)}"/></label>
+      <p class="muted" style="font-size:13px">${EN()?'Reading the sheets takes about 10 seconds; reading this ready-made copy takes under half a second. Saving anything in the app refreshes it immediately, so this only matters if someone edits the Google Sheet BY HAND — then the app can lag behind by up to this long. 300 = 5 minutes.':'การอ่านจากชีตใช้เวลาราว 10 วินาที · อ่านจากสำเนาที่เตรียมไว้ใช้ไม่ถึงครึ่งวินาที · การบันทึกผ่านแอปจะรีเฟรชให้ทันทีเสมอ ค่านี้จึงมีผลเฉพาะกรณีมีคนไปแก้ Google Sheet ด้วยมือ — แอปอาจตามช้าได้ไม่เกินเวลานี้ · 300 = 5 นาที'}</p>
       <button class="btn sm outline block" onclick="this.closest('.modal').remove();A_perfReport(7)">${EN()?'Which screens are slow, what is breaking':'ดูว่าหน้าไหนช้า อะไรพังบ้าง'}</button>
       <h4 style="margin:6px 0">${esc(t('set.leaveQuota'))}</h4>
       ${Object.keys(q).map(k=>`<label class="field"><span>${esc(tLeaveType(k))}</span><input type="number" id="lq_${esc(k)}" value="${q[k]}"/></label>`).join('')}
@@ -4751,6 +4753,7 @@
     await api('setConfigVal',{key:'DiligenceFacebookAmount',value:+m.querySelector('#setFb').value});
     { const o=m.querySelector('#setOtRate'); if(o) await api('setConfigVal',{key:'StaffOTHourlyRate',value:+o.value||100}); }
     { const c=m.querySelector('#setMatch'); if(c) await api('setConfigVal',{key:'ContributionMatchRate',value:c.value===''?1:+c.value}); }
+    { const t=m.querySelector('#setTtl'); if(t) await api('setConfigVal',{key:'CacheTTL',value:Math.max(30,Math.min(21600,+t.value||300))}); }
     for(const el of m.querySelectorAll('input[id^="lq_"]')){ const type=el.id.slice(3); if(!type) continue;
       await api('setLeaveQuota',{type,days:+el.value||0}); }
     m.remove(); confirmSaved(t('c.saved')); };

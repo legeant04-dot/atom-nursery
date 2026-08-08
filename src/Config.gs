@@ -268,18 +268,38 @@ var SCHOOL_CONFIG_DEFAULTS = [
 
   // --- System ---
   ['SeedMockKey',           'atom-seed-2026'],       // gate for the TEST-ONLY seedMock action (remove before go-live)
-  ['CacheTTL',              '60'],                   // seconds the engine caches sheet reads (CacheService); writes invalidate
+  // Seconds the engine keeps a sheet's rows ready to use. Measured live: reading the seven
+  // collections a screen needs costs ~10.8s from the sheets and ~0.28s from here. 60 was right while
+  // invalidation was incomplete; every write now drops the sheet it touched, so only a BY-HAND edit
+  // of the spreadsheet can go unnoticed, and only for this long. Editable in Settings.
+  ['CacheTTL',              '300'],
   ['BackupFolderName',      'AtomNursery_Backups'],
   ['BackupRetentionDays',   '14'],          // dailyBackup() keeps copies for this many days, then prunes
   ['SchemaVersion',         '2.1']
 ];
 
 // ---- Helpers ------------------------------------------------------
+/**
+ * The workbook handles and their ids, opened ONCE per execution.
+ *
+ * These are called from 116 places. Every one of them used to cost a PropertiesService read plus a
+ * SpreadsheetApp.openById — both are round trips to Google's services, and a single request makes
+ * that journey many times over. Live telemetry put the typical wait at 8.9 seconds while a request
+ * that touches no sheet at all takes about 3, so this repetition is a large part of the difference.
+ *
+ * A GAS execution serves exactly one request and its globals die with it, so this cache can never
+ * outlive the request or be shared between users. The handle stays live: writes through it are seen
+ * by later reads in the same request, exactly as before.
+ */
+var _WB_CACHE_ = {}, _WB_ID_CACHE_ = {};
 function getWorkbookId_(propKey) {
+  if (_WB_ID_CACHE_[propKey]) return _WB_ID_CACHE_[propKey];
   var id = PropertiesService.getScriptProperties().getProperty(propKey);
   if (!id) throw new Error('Workbook id not set for ' + propKey + '. Run setupAll() first.');
-  return id;
+  return (_WB_ID_CACHE_[propKey] = id);
 }
+/** setupAll() creates the workbooks and then stores their ids — drop anything memoised before that. */
+function resetWorkbookCache_() { _WB_CACHE_ = {}; _WB_ID_CACHE_ = {}; }
 
-function getMainSpreadsheet_() { return SpreadsheetApp.openById(getWorkbookId_(PROP.MAIN_ID)); }
-function getHrSpreadsheet_()   { return SpreadsheetApp.openById(getWorkbookId_(PROP.HR_ID)); }
+function getMainSpreadsheet_() { return _WB_CACHE_.main || (_WB_CACHE_.main = SpreadsheetApp.openById(getWorkbookId_(PROP.MAIN_ID))); }
+function getHrSpreadsheet_()   { return _WB_CACHE_.hr   || (_WB_CACHE_.hr   = SpreadsheetApp.openById(getWorkbookId_(PROP.HR_ID))); }

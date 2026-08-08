@@ -13,7 +13,31 @@
 
 // action name -> handler(payload) -> data object
 var ROUTES = {
-  ping:           function ()  { return { pong: true, time: new Date().toISOString() }; },
+  // ?probe=1 additionally reports how long the two things EVERY request pays for actually take:
+  // opening the workbook and reading the config. Both are work a normal request does anyway, and
+  // neither returns any school data — just milliseconds — so this is safe on a public action.
+  // It is the only way to tell "the server is slow" apart from "the phone's network is slow".
+  ping:           function (p)  {
+    var out = { pong: true, time: new Date().toISOString() };
+    if (p && p.probe) {
+      var t0 = Date.now(); try { getMainSpreadsheet_(); } catch (e) {}
+      var t1 = Date.now(); try { getMainSpreadsheet_(); } catch (e) {}   // memoised: should be ~0ms
+      var t2 = Date.now(); try { hydrateConfig_(); } catch (e) {}
+      out.ms = { openFirst: t1 - t0, openAgain: t2 - t1, config: Date.now() - t2 };
+      // Opening a workbook turns out to be lazy and free; READING a sheet is what costs. Time the
+      // collections a normal screen pulls, so "which sheet is slow" stops being guesswork.
+      // Milliseconds only — no rows, no counts, nothing about any child leaves here.
+      if (p.probe === 2 || p.probe === '2') {
+        out.read = {};
+        ['students', 'staff', 'checkinStudent', 'journals', 'payments', 'otDaily', 'leaves'].forEach(function (k) {
+          var s = Date.now();
+          try { readCollection_(k); } catch (e) {}
+          out.read[k] = Date.now() - s;
+        });
+      }
+    }
+    return out;
+  },
   auth:           function (p) { return handleAuth(p); },
   changePassword: function (p) { return handleChangePassword(p); },
   // in-place staff CRUD (override the engine's full-collection rewrite, which could wipe other rows)
