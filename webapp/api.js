@@ -278,11 +278,30 @@ window.CONFIG = { MODE: 'gas', GAS_URL: 'https://script.google.com/macros/s/AKfy
         // .forEach on it threw "data.forEach is not a function" and took the whole screen down with a
         // message nobody can act on. Send each call again on its own instead — one extra round trip,
         // but the screen loads and any genuine per-call error is reported properly.
+        // Results are matched to calls BY POSITION, so a reply with the wrong NUMBER of entries is
+        // just as dangerous as one that is not an array: every call after the gap would be handed
+        // another action's data, which is exactly what "x.map is not a function" looks like. Short
+        // of that, the tail of the batch would hang forever on a screen stuck at "กำลังโหลด…".
+        if (Array.isArray(j.data) && j.data.length !== q.length) {
+          PERF.err('batchLength', 'got ' + j.data.length + ' for ' + q.length +
+            ' [' + q.map(c => c.action).slice(0, 6).join(' ') + ']');
+          q.forEach(c => {
+            const t1 = Date.now();
+            postGas({ action: c.action, payload: c.payload })
+              .then(r => { if (!r.ok) { const e = new Error(r.error.message); e.code = r.error.code; throw e; } PERF.api(c.action, Date.now() - t1, 1, 'RESENT', 1); c.res(r.data); })
+              .catch(e => { PERF.api(c.action, Date.now() - t1, 0, (e && e.code) || 'ERR', 1); dropDeadSession(e); c.rej(e); });
+          });
+          return;
+        }
         if (!Array.isArray(j.data)) {
           try { console.error('batch reply was not an array', j); } catch (x) {}
           // This is the v186 incident. It is rare and we could not reproduce it — so record every
           // occurrence with its shape, which is what finally identifies the trigger.
-          PERF.err('batchShape', 'typeof data=' + (typeof j.data) + ' keys=' + Object.keys(j || {}).join(','));
+          // The first version of this recorded the OUTER keys, which are always "ok,data" and told us
+          // nothing. What identifies the trigger is the INNER shape and which calls were in the batch.
+          PERF.err('batchShape', 'data=' + (j.data === null ? 'null' : typeof j.data) +
+            (j.data && typeof j.data === 'object' ? ' inner=' + Object.keys(j.data).slice(0, 6).join(',') : '') +
+            ' n=' + q.length + ' [' + q.map(c => c.action).slice(0, 6).join(' ') + ']');
           q.forEach(c => {
             const t1 = Date.now();
             postGas({ action: c.action, payload: c.payload })
@@ -297,6 +316,43 @@ window.CONFIG = { MODE: 'gas', GAS_URL: 'https://script.google.com/macros/s/AKfy
       .catch(e => { const ms = took(), n = q.length; dropDeadSession(e); q.forEach(c => { PERF.api(c.action, ms, 0, (e && e.code) || 'ERR', n); c.rej(e); }); });
   }
 
+  /* ---- response-shape guard ------------------------------------------------------------------
+   * A reply that arrives as an object where the screen expects a list crashes it with
+   * "x.map is not a function" — around a dozen people hit exactly that on the home screen last
+   * week, and saw a message about JavaScript instead of their child's information.
+   *
+   * The cause is still unproven, so this does not assume one. It REMEMBERS the shape each action
+   * returned last time and, when a reply disagrees, simply ASKS AGAIN. If the second reply is the
+   * expected list the damage happened in transit and has now been repaired without anyone noticing;
+   * if it disagrees the same way twice the action genuinely changed shape, which is accepted and
+   * remembered. Either way the real shape is recorded, so the next speed report can identify the
+   * trigger that months of guessing could not.
+   *
+   * It can only ever cost one extra round trip, and only for an action that has already been seen
+   * returning something else — so it cannot break a screen that works today.
+   */
+  const _shape = new Map();
+  const shapeOf = d => Array.isArray(d) ? 'list' : (d && typeof d === 'object' ? 'object' : 'value');
+  const shapeNote = d => shapeOf(d) === 'object' ? ' keys=' + Object.keys(d || {}).slice(0, 6).join(',') : (d === null ? ' (null)' : '');
+  function guarded(action, payload) {
+    return enqueueGas(action, payload).then(d => {
+      const got = shapeOf(d), prev = _shape.get(action);
+      if (prev === undefined) { _shape.set(action, got); return d; }
+      if (prev === got) return d;
+      PERF.err('shapeChanged', action + ' was ' + prev + ' now ' + got + shapeNote(d));
+      // Only a reply that LOST its list shape can crash a screen; anything else is just recorded.
+      if (prev !== 'list') { _shape.set(action, got); return d; }
+      // NEVER re-send a write. The reply is only being re-asked for because it looked wrong, and a
+      // repeated payment or check-in is far worse than a screen that fails honestly. Same rule as
+      // postGas's RETRY_SAFE, for the same reason.
+      if (isMutating(action)) { _shape.set(action, got); return d; }
+      return enqueueGas(action, payload).then(d2 => {
+        if (shapeOf(d2) === 'list') { PERF.err('shapeRepaired', action + ' — second reply was the expected list'); return d2; }
+        _shape.set(action, shapeOf(d2)); return d2;      // twice in a row: it really did change
+      });
+    });
+  }
+
   // stale-while-revalidate: refetch a cached read in the background; re-render only if it changed.
   const _inflight = new Set(); let _renderT = null;
   function scheduleRender() { clearTimeout(_renderT); _renderT = setTimeout(() => { try { if (window.__atomRevalidate) window.__atomRevalidate(); } catch (e) {} }, 150); }
@@ -304,7 +360,7 @@ window.CONFIG = { MODE: 'gas', GAS_URL: 'https://script.google.com/macros/s/AKfy
     if (_inflight.has(ck)) return; _inflight.add(ck);
     const i = ck.indexOf('|'); const action = ck.slice(0, i); let payload = {};
     try { payload = JSON.parse(ck.slice(i + 1) || '{}'); } catch (e) {}
-    enqueueGas(action, payload).then(d => { const prev = _rc.get(ck); rcSet(ck, d);
+    guarded(action, payload).then(d => { const prev = _rc.get(ck); rcSet(ck, d);
       if (!prev || JSON.stringify(prev.data) !== JSON.stringify(d)) scheduleRender(); })
       .catch(() => {}).then(() => _inflight.delete(ck));
   }
@@ -321,11 +377,11 @@ window.CONFIG = { MODE: 'gas', GAS_URL: 'https://script.google.com/macros/s/AKfy
       if (action === 'auth') {                                                          // capture the session token; never cache auth
         return enqueueGas(action, payload).then(d => { if (d && d.token) { _session = d.token; try { localStorage.setItem('atom_session_token', d.token); } catch (e) {} } return d; });
       }
-      if (isMutating(action)) { rcClear(); return enqueueGas(action, payload); }      // write → bust cache (memory + disk)
+      if (isMutating(action)) { rcClear(); return guarded(action, payload); }      // write → bust cache (memory + disk)
       const ck = action + '|' + JSON.stringify(payload);
       // opts.fresh: never serve a possibly-stale cached value — always fetch (still populates the cache).
       // Used for time-sensitive reads like the announcement popup, where a stale empty must not suppress it.
-      if (opts && opts.fresh) return enqueueGas(action, payload).then(d => { rcSet(ck, d); return d; });
+      if (opts && opts.fresh) return guarded(action, payload).then(d => { rcSet(ck, d); return d; });
       const hit = _rc.get(ck);
       if (hit) {                                                                        // local-first: paint instantly
         PERF.hit();
@@ -333,7 +389,7 @@ window.CONFIG = { MODE: 'gas', GAS_URL: 'https://script.google.com/macros/s/AKfy
         return Promise.resolve(hit.data);
       }
       PERF.miss();
-      return enqueueGas(action, payload).then(d => { rcSet(ck, d); return d; });        // first time → must fetch
+      return guarded(action, payload).then(d => { rcSet(ck, d); return d; });          // first time → must fetch
     }
     return mockHandlers().then(H => new Promise((res, rej) => setTimeout(() => {
       try { const h = H[action]; if (!h) { const e = new Error('ไม่รู้จัก action: ' + action); e.code = 'UNKNOWN_ACTION'; throw e; } res(h(payload)); }
