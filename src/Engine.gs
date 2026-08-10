@@ -1604,10 +1604,25 @@ function createAtomAPI(M, GROWTH_STD) {
         out.push({studentId:s.StudentID, name:s.NameTH, nameEN:s.NameEN, nick:s.Nickname, nickEN:s.NicknameEN, class:s.Class, status:s.Status||'Active', via:'legacy'}); });
       return {parentId:p.parentId, name:pa.NameTH||pa.Name, nick:pa.Nickname, students:out}; },
     // Admin: {parentId: linked-children-count} for every parent (active children only) — for the list badge.
+    /**
+     * How many children each parent has, for the admin's lists.
+     *
+     * enrolledStudents, NOT activeStudents: a child on temporary leave still belongs to their
+     * parent. Counting only the active ones made a linked family read as "👶 0" on the admin screen
+     * while the parent themselves was looking at that very child — the parent side resolves links
+     * through visibleStudents, which has always kept paused children. Withdrawn children are still
+     * excluded, by both.
+     */
     parentLinkCounts: () => { const cnt={}; const uidToPid={}; (M.parents||[]).forEach(pa=>{ if(pa.LineUID)uidToPid[pa.LineUID]=pa.ParentID; cnt[pa.ParentID]=0; });
-      const seen={}; const active=activeStudents();
+      const seen={}; const active=enrolledStudents();
       active.forEach(s=>{ (M.userLinks||[]).filter(l=>String(l.StudentID)===String(s.StudentID)).forEach(l=>{ const pid=uidToPid[l.UserUID]; if(!pid)return; const k=pid+'|'+s.StudentID; if(seen[k])return; seen[k]=1; cnt[pid]=(cnt[pid]||0)+1; });
         if(s.ParentID){ const k=s.ParentID+'|'+s.StudentID; if(!seen[k]){ seen[k]=1; cnt[s.ParentID]=(cnt[s.ParentID]||0)+1; } } });
+      // Third link: PARENTS.StudentID. It is the oldest of the three and these lists never consulted
+      // it, yet the server trusts it for ACCESS (parentOwnsStudent_) — so a family linked that way
+      // could open the child while the admin's list called them unlinked.
+      (M.parents||[]).forEach(pa=>{ if(!pa.StudentID)return; const s=studentById(pa.StudentID);
+        if(!s||INACTIVE[s.Status])return; const k=pa.ParentID+'|'+s.StudentID; if(seen[k])return; seen[k]=1;
+        cnt[pa.ParentID]=(cnt[pa.ParentID]||0)+1; });
       return cnt; },
     // Admin: {parentId: [child, ...]} for every parent — same link resolution as parentLinkCounts
     // (USER_LINKS by LINE UID first, then the legacy STUDENTS.ParentID), active children only.
@@ -1615,10 +1630,16 @@ function createAtomAPI(M, GROWTH_STD) {
     // Kept SEPARATE from parentLinkCounts on purpose: that one is consumed as a plain number.
     parentKidsMap: () => { const out={}; const uidToPid={}; (M.parents||[]).forEach(pa=>{ if(pa.LineUID)uidToPid[pa.LineUID]=pa.ParentID; out[pa.ParentID]=[]; });
       const seen={}; const push=(pid,s)=>{ const k=pid+'|'+s.StudentID; if(seen[k])return; seen[k]=1;
-        (out[pid]=out[pid]||[]).push({StudentID:s.StudentID, NameTH:s.NameTH, NameEN:s.NameEN, Nickname:s.Nickname, NicknameEN:s.NicknameEN, Class:s.Class}); };
-      activeStudents().forEach(s=>{
+        (out[pid]=out[pid]||[]).push({StudentID:s.StudentID, NameTH:s.NameTH, NameEN:s.NameEN, Nickname:s.Nickname, NicknameEN:s.NicknameEN, Class:s.Class,
+          paused:studentPaused_(s)}); };
+      // enrolledStudents, not activeStudents — see parentLinkCounts above: a child on temporary leave
+      // still belongs to their parent, and leaving them out made a linked family read as unlinked.
+      enrolledStudents().forEach(s=>{
         (M.userLinks||[]).filter(l=>String(l.StudentID)===String(s.StudentID)).forEach(l=>{ const pid=uidToPid[l.UserUID]; if(pid)push(pid,s); });
         if(s.ParentID) push(s.ParentID,s); });
+      // and the oldest linkage of the three — see parentLinkCounts
+      (M.parents||[]).forEach(pa=>{ if(!pa.StudentID)return; const s=studentById(pa.StudentID);
+        if(s && !INACTIVE[s.Status]) push(pa.ParentID,s); });
       return out; },
     // Admin bypass: link a parent's LINE UID to a student (found by the student's National ID) when the
     // parent can't self-register. Optionally fills the parent's personal info. UID + National ID always required.
