@@ -112,7 +112,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.206'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.207'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -155,6 +155,49 @@
   const nmSub = o => { const n=nm(o), k=dispNick(o); return (n && n!==k) ? n : ''; };
   // nickname-first for lowercase DTOs (engine projections: name/nameEN/nick/nickEN)
   const dnick = o => o ? (LANG()==='en' ? (o.nickEN||o.nick||o.nameEN||o.name||'') : (o.nick||o.nickEN||o.name||o.nameEN||'')) : '';
+
+  /* ---- one alphabetical order for the whole app ---------------------------------------------
+   * Every list of people or things reads in the same order, in Thai and in English.
+   *
+   * Thai cannot be sorted with a plain string comparison: it puts ก…ฮ in Unicode order and gets the
+   * leading vowels (เ แ โ ใ ไ) wrong, because those are written before the consonant they are
+   * pronounced after — so เก้า would land far from where anyone looks for it. Intl.Collator with the
+   * Thai locale knows the dictionary order. The browser has full data for this; Apps Script does not,
+   * which is why the sorting happens here and not on the server.
+   *
+   * Titles are stripped first, so a list of children is not one long run of "ด.ช./ด.ญ." and parents
+   * do not group into all the fathers followed by all the mothers. "คุณแม่น้องเก้า" therefore sorts
+   * under เก้า — next to that child's other parent, which is how the school talks about them.
+   */
+  const TITLE_RE = /^(?:ด\.?\s*ช\.?|ด\.?\s*ญ\.?|เด็กชาย|เด็กหญิง|นางสาว|นาง|นาย|คุณพ่อน้อง|คุณแม่น้อง|ผู้ปกครองน้อง|คุณพ่อ|คุณแม่|คุณ|น้อง|Master|Miss|Mrs\.?|Mr\.?|Ms\.?)\s*/i;
+  const sortKey = v => { let s=String(v==null?'':v).trim();
+    for (let i=0;i<3 && TITLE_RE.test(s);i++) s=s.replace(TITLE_RE,'').trim();   // "นาย" + "น้อง" can stack
+    return s || String(v==null?'':v).trim(); };                                  // a bare title still sorts somewhere
+  let _collLang=null, _coll=null;
+  /**
+   * Two passes, on purpose.
+   *
+   * The first ignores tone marks and capitals, so นอง / น่อง / น้อง land together where someone
+   * scanning the list expects them — which is the point of an alphabetical list. But "together" left
+   * their order down to whatever the sheet happened to hold, so the same three names could appear in
+   * a different order on two screens. The second pass breaks that tie by full comparison, which is
+   * only ever reached for names the first pass called equal.
+   */
+  const collator = () => { const l=LANG()==='en'?'en':'th-TH';
+    if (_collLang!==l) { _collLang=l;
+      try {
+        const base=new Intl.Collator(l,{numeric:true,sensitivity:'base',ignorePunctuation:true});
+        const exact=new Intl.Collator(l,{numeric:true,sensitivity:'variant'});
+        _coll={ compare:(a,b)=>base.compare(a,b) || exact.compare(a,b) };
+      } catch(e){ _coll={compare:(a,b)=>String(a).localeCompare(String(b),l,{numeric:true})}; } }
+    return _coll; };
+  // sort a COPY, never the caller's array — several of these lists are shared caches
+  const sortBy = (list, keyFn) => (list||[]).slice().sort((a,b)=>collator().compare(sortKey(keyFn(a)), sortKey(keyFn(b))));
+  // the three shapes the app has: PascalCase records, lowercase DTOs, and plain strings
+  const sortPeople  = list => sortBy(list, dispNick);
+  const sortPeopleD = list => sortBy(list, dnick);
+  const sortText    = list => sortBy(list, x=>x);
+  window.__atomSortKey = sortKey;   // used by the tests
 
   // ---- display names: nickname-first everywhere; formal name kept for payroll/records ----
   const REL_DAD = /บิดา|father|พ่อ|^นาย|mr/i, REL_MOM = /มารดา|mother|แม่|^นาง|ms|mrs|miss/i;
@@ -474,7 +517,10 @@
     NOTIF_CLOSE(); const m=btn.closest('.modal'); if(m)m.remove(); refreshBell(); };
   // remembers which pre-login screen we're on, so the language toggle re-renders THAT screen
   let AUTH_RENDER = null;
-  window.TOGGLE_LANG = () => { setLang(LANG()==='en'?'th':'en'); setHeader(); paintThemeBtn(); if(USER) GO(CURRENT); else (AUTH_RENDER||loginScreen)(); ensureTranslateObserver(); applyLangNow(); };
+  window.TOGGLE_LANG = () => { setLang(LANG()==='en'?'th':'en');
+    // the cached rosters are ordered by the name being SHOWN, which just changed
+    try { window.__atomResort && __atomResort(); } catch(e) {}
+    setHeader(); paintThemeBtn(); if(USER) GO(CURRENT); else (AUTH_RENDER||loginScreen)(); ensureTranslateObserver(); applyLangNow(); };
   // ---- light / dark (Phase 6 #15) -----------------------------------------------------------------
   // With no stored choice the app follows the phone's own setting, which is what most people expect and
   // means nothing has to be tapped. Tapping picks the opposite of what is on screen right now and
@@ -2374,7 +2420,7 @@
   const foodLabel=i=>EN()?(i.nameEN||i.nameTH):(i.nameTH+(i.nameEN?` (${i.nameEN})`:''));
   function jFoodOptions(sel){
     const groups=['savoury','dessert','fruit','other'].map(c=>{
-      const its=JFOOD.filter(i=>i.category===c); if(!its.length) return '';
+      const its=sortBy(JFOOD.filter(i=>i.category===c), foodLabel); if(!its.length) return '';
       return `<optgroup label="${esc(FOOD_CAT[c]())}">${its.map(i=>
         `<option value="${esc(i.nameTH)}"${i.nameTH===sel?' selected':''}>${esc(foodLabel(i))}</option>`).join('')}</optgroup>`;
     }).join('');
@@ -3408,7 +3454,30 @@
   };
   // Admin forms must read the LIVE records (gas mode), not the stale window.MOCK arrays.
   // manage()/home() fill this cache; the edit forms + dropdowns read from it (fallback to MOCK).
-  window.A_CACHE = { staff:[], students:[], parents:[], classes:[], plans:[], announcements:[], depts:[] };
+  /**
+   * Every roster the admin screens use, kept in alphabetical order.
+   *
+   * These three are assigned from eighteen different places and feed nearly every list and dropdown
+   * in the app. Sorting at each of those sites would work until the nineteenth forgot, so the order
+   * is applied HERE, once, on the way in — a list cannot enter the cache unsorted.
+   *
+   * Re-sorted on language change too: Thai and English order differently, and the key is the name
+   * being displayed, which itself changes with the language.
+   */
+  const _AC = { staff:[], students:[], parents:[], classes:[], plans:[], announcements:[], depts:[] };
+  window.A_CACHE = {
+    get classes(){ return _AC.classes; },       set classes(v){ _AC.classes=v||[]; },
+    get plans(){ return _AC.plans; },           set plans(v){ _AC.plans=v||[]; },
+    get announcements(){ return _AC.announcements; }, set announcements(v){ _AC.announcements=v||[]; },
+    get depts(){ return _AC.depts; },           set depts(v){ _AC.depts=v||[]; },
+    get groups(){ return _AC.groups; },         set groups(v){ _AC.groups=v||[]; },
+    get staff(){ return _AC.staff; },           set staff(v){ _AC.staff=sortPeople(v||[]); },
+    get students(){ return _AC.students; },     set students(v){ _AC.students=sortPeople(v||[]); },
+    get parents(){ return _AC.parents; },       set parents(v){ _AC.parents=sortPeople(v||[]); }
+  };
+  // the stored order follows the language on screen, so switching TH/EN re-orders rather than keeping
+  // an order built from names nobody is looking at any more
+  window.__atomResort = () => { ['staff','students','parents'].forEach(k => { A_CACHE[k]=_AC[k]; }); };
   const findStaff   = id => (A_CACHE.staff||[]).find(x=>x.StaffID===id)     || (MOCK.staff||[]).find(x=>x.StaffID===id)     || {};
   const findStudent = id => (A_CACHE.students||[]).find(x=>x.StudentID===id) || (MOCK.students||[]).find(x=>x.StudentID===id) || {};
   // Six buttons per student row wrapped into ragged strips on a phone. The three everyday ones stay
@@ -3791,7 +3860,10 @@
     if(!(window._PKIDS&&Object.keys(window._PKIDS).length)) need.push(api('parentKidsMap').then(r=>window._PKIDS=r||{}).catch(()=>{}));
     if(need.length){ try{ await Promise.all(need); }catch(e){} }
     // parents WITH ≥1 linked child (so the multi-child view is meaningful) sorted by count desc
-    const cnt=window._LINKCOUNTS||{}; const paList=(A_CACHE.parents||[]).slice().sort((a,b)=>(cnt[b.ParentID]||0)-(cnt[a.ParentID]||0));
+    // alphabetical, but families WITH a linked child first — picking someone with no child
+    // opens an empty view, so those stay at the bottom rather than scattered through the list
+    const cnt=window._LINKCOUNTS||{};
+    const paList=sortBy(A_CACHE.parents||[], p=>vaLabel(p,EN())).sort((a,b)=>((cnt[b.ParentID]||0)>0?1:0)-((cnt[a.ParentID]||0)>0?1:0));
     modal(`<h3>👁️ ${EN()?'View as role':'ดูในมุมมอง (สลับ Role)'}</h3>
     <p class="muted" style="font-size:13px">${EN()?'Preview the app exactly as this person sees it. You stay logged in as admin — tap "Back to Admin" to return.':'ดูแอปแบบที่คน ๆ นั้นเห็นจริง (ยังเป็นแอดมินอยู่) — กด "กลับเป็น Admin" เพื่อกลับ'}</p>
     <label class="field"><span>👩‍🏫 ${EN()?'As teacher / leader':'มุมมองครู / หัวหน้า'}</span><select id="va_staff"><option value="">—</option>${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').map(s=>`<option value="${s.StaffID}">${esc(nmn(s))} · ${esc(s.PositionLevel||'')}</option>`).join('')}</select></label>
@@ -4598,7 +4670,8 @@
   /* ---- master food list: what the daily journal picks from -------------------------------- */
   window.A_foodItems=async()=>{
     const items=await api('foodItems',{all:true},{fresh:true});
-    const byCat=c=>items.filter(i=>i.category===c);
+    // dishes read alphabetically within their category, in whichever language is on screen
+    const byCat=c=>sortBy(items.filter(i=>i.category===c), i=>(LANG()==='en'?(i.nameEN||i.nameTH):(i.nameTH||i.nameEN)));
     const sec=(c)=>{ const its=byCat(c); return `<h4 style="margin:10px 0 4px">${esc(FOOD_CAT[c]())} <small class="muted">(${its.length})</small></h4>${
       its.length?its.map(i=>`<div class="list-item"${i.active?'':' style="opacity:.5"'}>
         <span><b>${esc(i.nameTH)}</b>${i.nameEN?`<br><small class="muted">${esc(i.nameEN)}</small>`:`<br><small style="color:var(--warn)">${EN()?'no English name yet':'ยังไม่มีชื่อภาษาอังกฤษ'}</small>`}</span>
@@ -5182,12 +5255,12 @@
     const stat=(cls,n,l)=>`<div class="stat ${cls}"><div class="n">${n}</div><div class="l">${esc(l)}</div></div>`;
     // income tab: tuition/OT/charges collection per student
     const inTab=`<div class="card"><div class="spread"><h3>👶 ${esc(t('fin.tuition'))}</h3><span class="pill ${f.studentsPaid>=f.studentsTotal?'ok':'wait'}">${f.studentsPaid}/${f.studentsTotal} ${esc(t('fin.paid'))}</span></div>
-        ${f.students.map(s=>finStudentRow(s)).join('')}
+        ${sortBy(f.students,dnick).sort((a,b)=>(a.paused?1:0)-(b.paused?1:0)).map(s=>finStudentRow(s)).join('')}
         <div class="spread" style="margin-top:8px"><b>${esc(t('fin.collected'))}</b><b style="color:var(--ok)">${baht(f.tuitionCollected+f.otCollected)}</b></div>
         <button class="btn sm outline block" style="margin-top:10px" onclick="A_prepayAudit()">🔍 ${EN()?'Prepay check (retro)':'ตรวจ prepay ย้อนหลัง'}</button></div>`;
     // payroll tab: per-staff salary + full payroll form
     const payTab=`<div class="card"><div class="spread"><h3>👩‍🏫 ${esc(t('fin.salary'))}</h3><span class="pill ${f.staffPaid>=f.staffTotal?'ok':'wait'}">${f.staffPaid}/${f.staffTotal} ${esc(t('fin.computed'))}</span></div>
-        ${f.staff.map(s=>`<div class="list-item" style="cursor:pointer" onclick="A_finStaff('${s.staffId}')"><span><b>${esc(dnick(s))}</b>${dnSub(s)?` <small class="muted" style="font-weight:400">${esc(dnSub(s))}</small>`:""}</span><span>${baht(s.net)} ${s.computed?`<span class="pill ok">${esc(t('fin.done'))}</span>`:`<span class="pill bad">${esc(t('fin.pending'))}</span>`} <span class="muted">›</span></span></div>`).join('')}
+        ${sortPeopleD(f.staff).map(s=>`<div class="list-item" style="cursor:pointer" onclick="A_finStaff('${s.staffId}')"><span><b>${esc(dnick(s))}</b>${dnSub(s)?` <small class="muted" style="font-weight:400">${esc(dnSub(s))}</small>`:""}</span><span>${baht(s.net)} ${s.computed?`<span class="pill ok">${esc(t('fin.done'))}</span>`:`<span class="pill bad">${esc(t('fin.pending'))}</span>`} <span class="muted">›</span></span></div>`).join('')}
         <div class="spread" style="margin-top:8px"><b>${esc(t('fin.totalSalary'))}</b><b style="color:var(--bad)">${baht(f.expense)}</b></div>
         <button class="btn sm block" style="margin-top:10px" onclick="GO('payroll')">📄 ${EN()?'Full payroll calculator':'เครื่องคำนวณเงินเดือน (เต็ม)'}</button></div>`;
     // verify tab: pending slips/cash to confirm
@@ -5543,7 +5616,16 @@
   const isObserver = () => !!(USER && USER.role === 'Observer');
   {
     const _api = window.api;
+    // Rosters come back in sheet order, and a dozen screens read them WITHOUT going through A_CACHE.
+    // Ordering them here means one rule for every caller — including the next one somebody writes.
+    // Classes and departments are deliberately absent: their order is the school's (Baby, 1, 2, 3,
+    // Premium), which alphabetical would scramble.
+    const ROSTER = { listStaff:1, listStudents:1, listParents:1, listExportedStudents:1 };
     window.api = function (action, payload, opts) {
+      if (ROSTER[action]) return _api(action, payload, opts).then(r => Array.isArray(r) ? sortPeople(r) : r);
+      // a class roster is a list of children too, just wrapped in the class it belongs to
+      if (action === 'classList') return _api(action, payload, opts)
+        .then(r => (r && Array.isArray(r.students)) ? Object.assign({}, r, { students: sortPeople(r.students) }) : r);
       if (isObserver() && window.__atomIsMutating && window.__atomIsMutating(action)) {
         toast('👁️ ' + (EN() ? 'View-only account — you can open anything, but not change it'
                              : 'บัญชีนี้ดูอย่างเดียว — เปิดดูได้ทุกอย่าง แต่แก้ไขไม่ได้'));
