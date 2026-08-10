@@ -300,6 +300,8 @@ window.CONFIG = { MODE: 'gas', GAS_URL: 'https://script.google.com/macros/s/AKfy
     payrollReminderDue: 1, prepayTiers: 1, prepayments: 1, staffCheckinLog: 1, studentCheckinHistory: 1
   };
   const isMutating = a => !READ_ONLY[a] && (MUT.test(a) || /check(in|out)|absence|payOT$|^orgMove|^unlink|^claim|^recompute/i.test(a));
+  // app.js asks the same question for the Observer role, so "does this write?" has ONE answer
+  window.__atomIsMutating = isMutating;
   // Safe to send again if the reply was unreadable: reads, plus auth/ping. A write is never repeated
   // — a retried payment or check-in would be worse than the error. Used by postGas (declared above,
   // but only ever CALLED after this module has finished initialising).

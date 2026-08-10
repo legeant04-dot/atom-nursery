@@ -43,6 +43,7 @@ var ROUTES = {
   // in-place staff CRUD (override the engine's full-collection rewrite, which could wipe other rows)
   saveStaff:      function (p) { return handleSaveStaff(p); },
   saveStaffSelf:  function (p) { return handleSaveStaffSelf(p); },
+  setStaffEnd:    function (p) { return handleSetStaffEnd(p); },   // admin-only: end (or resume) employment; the record is kept
   setRequireCheckin: function (p) { return handleSetRequireCheckin(p); },
   deleteStaff:    function (p) { return handleDeleteStaff(p); },
   saveStudent:    function (p) { return handleSaveStudent(p); },
@@ -269,14 +270,17 @@ function applyIdentity_(action, payload, sess) {
     addAnnouncement: 1, editAnnouncement: 1, deleteAnnouncement: 1, reindexAnnouncements: 1, reindexParents: 1, checkDuplicateIds: 1,
     saveDspmCriteria: 1, deleteDspmCriteria: 1,
     editStudentLeave: 1, deleteStudentLeave: 1, deleteStudentLeaves: 1, dedupData: 1, lineDiag: 1,
-    adminInbox: 1, markInboxRead: 1, reinstallTriggers: 1, unlinkStudent: 1, linkParentAdmin: 1, setLeaveQuota: 1, setConfigVal: 1, markSalaryPaid: 1, notifyBills: 1, issueBillsFor: 1, savePlans: 1, saveQRCodes: 1, prepayAudit: 1, recomputeContributions: 1, savePrepayTiers: 1, editPrepay: 1, setStudentPause: 1, recordCashPayment: 1, pausedStudents: 1, deleteSlip: 1, slipDiag: 1, saveSlipOk: 1, cancelPrepay: 1, perfSummary: 1, deletePerfLog: 1,
+    adminInbox: 1, markInboxRead: 1, reinstallTriggers: 1, unlinkStudent: 1, linkParentAdmin: 1, setLeaveQuota: 1, setConfigVal: 1, markSalaryPaid: 1, notifyBills: 1, issueBillsFor: 1, savePlans: 1, saveQRCodes: 1, prepayAudit: 1, recomputeContributions: 1, savePrepayTiers: 1, editPrepay: 1, setStudentPause: 1, setStaffEnd: 1, recordCashPayment: 1, pausedStudents: 1, deleteSlip: 1, slipDiag: 1, saveSlipOk: 1, cancelPrepay: 1, perfSummary: 1, deletePerfLog: 1,
     // Phase 7. The engine handlers already check the caller's role; listing them here as well means a
     // bug in one of those checks still cannot expose survey results or let anyone rewrite the menu.
     saveFoodMenu: 1, deleteFoodItem: 1, seedFoodItems: 1, surveys: 1, saveSurvey: 1, setSurveyStatus: 1, deleteSurvey: 1, surveyResults: 1, surveySummary: 1,
     parentKidsMap: 1 };  // every parent's children by name — admin-only (PII)
-  if (ADMIN_ONLY[action] && sess.role !== 'Admin') throw apiError_('NO_PERMISSION', 'เฉพาะแอดมิน');
+  // Observer reads these too — the role exists to see the whole school. It cannot write: dispatch_
+  // has already refused every mutating action for it before this runs.
+  if (ADMIN_ONLY[action] && sess.role !== 'Admin' && sess.role !== ROLES.OBSERVER) throw apiError_('NO_PERMISSION', 'เฉพาะแอดมิน');
   // Admin is fully trusted: may target ANY staff/student/parent (manage everyone + "view as" any role).
-  if (sess.role === 'Admin') return payload;
+  // Observer is shaped the same way so it can OPEN any record; it simply cannot change one.
+  if (sess.role === 'Admin' || sess.role === ROLES.OBSERVER) return payload;
   payload.uid = sess.uid; payload.role = sess.role;                       // overwrite — never trust client identity
   if (sess.role === ROLES.PARENT) {
     payload.parentId = sess.linkedId;
@@ -323,6 +327,13 @@ function dispatch_(action, payload, token) {
     var mutates = (action === 'batch')
       ? ((payload && payload.calls) || []).some(function (c) { return isMutatingAction_(c.action); })
       : isMutatingAction_(action);
+    // Observer is read-only. Checked HERE, against the verified session, because it is the one place
+    // every request passes through — hiding buttons would leave the rule dependent on the screen a
+    // person happens to be on, and on the app being the only way in.
+    if (mutates && sess && String(sess.role) === 'Observer') {
+      return jsonOut_({ ok: false, error: { code: 'READ_ONLY',
+        message: 'บัญชีนี้เป็นสิทธิ์ดูอย่างเดียว (Observer) — ดูข้อมูลได้ทุกหน้า แต่แก้ไขไม่ได้' } });
+    }
     return withWriteLock_(mutates, function () {
       if (action === 'batch') { (payload = payload || {}).__sess = sess; return jsonOut_(withRenewal_({ ok: true, data: handler(payload) }, sess)); }
       // perfLog records WHICH ROLE was affected. That must come from the verified session, never

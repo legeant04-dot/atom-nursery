@@ -11,7 +11,10 @@
  * ------------------------------------------------------------------
  */
 
-var ROLES = { ADMIN: 'Admin', TEACHER: 'Teacher', PARENT: 'Parent' };
+// Observer: sees what an Admin sees on the four whole-school screens and can open any record, but
+// cannot change anything. Enforced on the SERVER (see observerBlocked_ in Code.gs) rather than by
+// hiding buttons, so it holds however the request is made.
+var ROLES = { ADMIN: 'Admin', TEACHER: 'Teacher', PARENT: 'Parent', OBSERVER: 'Observer' };
 var USER_STATUS = { ACTIVE: 'ACTIVE', MUST_CHANGE: 'MUST_CHANGE_PASSWORD', DISABLED: 'DISABLED' };
 
 // ---- Session tokens (HMAC-signed) ---------------------------------

@@ -433,6 +433,24 @@ function createAtomAPI(M, GROWTH_STD) {
   // everyone still enrolled, INCLUDING the currently paused — the roster the Admin manages
   const enrolledStudents = () => M.students.filter(s=>!INACTIVE[s.Status]);
   // everyone actually attending today: drives attendance, class lists, billing and the dashboard
+  /**
+   * May this person SEE what an admin sees? Observer may — that is the whole point of the role: the
+   * same four whole-school screens, every record openable, nothing changeable.
+   *
+   * This gate is about visibility. What stops an Observer WRITING is dispatch_ in src/Code.gs, which
+   * refuses every mutating action for that role before any handler runs — one gate on the one path
+   * every request takes, rather than a rule each of these thirty-five checks would have to repeat.
+   */
+  const adminLike_ = s => !!s && (s.PositionLevel==='Admin' || s.Role==='Admin' || s.Role==='Observer');
+  /**
+   * Has this person actually started yet?
+   *
+   * A teacher hired to begin on the 13th exists in the system from the day they are entered, and
+   * until now the days in between counted against them: no check-in row meant "absent", which is
+   * both wrong and awkward to explain on a first payslip. Before their start date they are simply
+   * not part of attendance at all — they cannot check in, and nothing counts them.
+   */
+  const staffStarted_ = (s, onDate) => { const d=ymd((s&&s.StartDate)||''); return !d || d <= ymd(onDate||todayLocal()); };
   const activeStudents = () => M.students.filter(s=>!INACTIVE[s.Status] && !studentPaused_(s));
 
   // ---- payment-slip helpers (multiple slips per bill/OT/prepay + partial payments) ----
@@ -506,7 +524,11 @@ function createAtomAPI(M, GROWTH_STD) {
     activityLog: p => M.activityLog.slice().sort((a,b)=>b.Timestamp.localeCompare(a.Timestamp)).slice(0,(p&&p.limit)||200),
 
     // ---------- Parent ----------
-    parentChildren: p => visibleStudents(p).map(s=>Object.assign({ageMonth:ageMonths(s.DOB)},s)),
+    // A paused child is STILL returned — the family keeps their record, the menu, the bills and their
+    // own details. The flags let the screen drop only the drop-off/pick-up buttons, which would have
+    // nothing to record.
+    parentChildren: p => visibleStudents(p).map(s=>Object.assign({ageMonth:ageMonths(s.DOB),
+      paused:studentPaused_(s), pauseFrom:ymd(s.PauseFrom||''), pauseTo:ymd(s.PauseTo||''), pauseReason:s.PauseReason||''},s)),
     getPlans: () => cfg.Plans||[],
     // Admin package (Plan) CRUD: the client sends the FULL plans array (add/edit/delete applied client-side).
     // Each plan: {id, labelTH, labelEN, price, start:'HH:MM', end:'HH:MM'}. On GAS a route persists the JSON
@@ -519,7 +541,12 @@ function createAtomAPI(M, GROWTH_STD) {
     getQRCodes: () => ({ qrs: cfg.QRCodes||[], otQrId: cfg.OTQRId||'' }),
     saveQRCodes: p => { const arr=Array.isArray(p.qrs)?p.qrs:[]; arr.forEach(q=>{ if(!q.id) q.id='qr_'+Math.random().toString(36).slice(2,8); });
       cfg.QRCodes=arr; if(p.otQrId!==undefined) cfg.OTQRId=String(p.otQrId||''); return {ok:true, qrs:cfg.QRCodes, otQrId:cfg.OTQRId||''}; },
-    parentCheckin: p => { const d=(String(p.type||'IN').toUpperCase()==='OUT')?geo(p.lat,p.lng):geoSafe(p.lat,p.lng); const t=timeLocal();
+    parentCheckin: p => {
+      // A child on temporary leave has no attendance to record; the buttons are hidden, and this
+      // makes sure a stale screen (or a second device) cannot slip one through anyway.
+      { const _s=studentById(p.studentId); if(_s && studentPaused_(_s))
+          fail('STUDENT_PAUSED','นักเรียนอยู่ระหว่างลาชั่วคราว — ยังไม่ถึงกำหนดเข้าเรียน'); }
+      const d=(String(p.type||'IN').toUpperCase()==='OUT')?geo(p.lat,p.lng):geoSafe(p.lat,p.lng); const t=timeLocal();
       // de-dup a rapid repeat (same student+type today within CheckinDedupMinutes) → keep only the latest time
       const win=Number(cfg.CheckinDedupMinutes||10); const nowMin=toMin(t);
       const recent=(M.checkinStudent||[]).find(r=>r.StudentID===p.studentId&&String(r.Type).toUpperCase()===String(p.type).toUpperCase()&&ymd(r.Date)===todayLocal()&&Math.abs(nowMin-toMin(r.Time))<=win);
@@ -657,13 +684,13 @@ function createAtomAPI(M, GROWTH_STD) {
     // ---- Admin: manage student leaves (list all / edit / delete). On GAS the mutations are in-place ROUTES. ----
     allStudentLeaves: p => (M.studentLeaves||[]).slice().sort((a,b)=>String(b.Date).localeCompare(String(a.Date))).map(l=>{ const s=studentById(l.StudentID)||{};
       return Object.assign({},l,{name:s.NameTH||s.Name,nameEN:s.NameEN,nick:s.Nickname,class:s.Class}); }),
-    editStudentLeave: p => { const ap=staffById(p.staffId); if(ap.PositionLevel!=='Admin'&&ap.Role!=='Admin')fail('NO_PERMISSION','เฉพาะแอดมิน');
+    editStudentLeave: p => { const ap=staffById(p.staffId); if(!adminLike_(ap))fail('NO_PERMISSION','เฉพาะแอดมิน');
       const l=(M.studentLeaves||[]).find(x=>x.LeaveID===p.leaveId); if(!l)fail('NOT_FOUND','ไม่พบการลา');
       if(p.date!=null)l.Date=p.date; if(p.reason!=null)l.Reason=p.reason; if(p.type!=null)l.Type=p.type; return {ok:true,leaveId:l.LeaveID}; },
-    deleteStudentLeave: p => { const ap=staffById(p.staffId); if(ap.PositionLevel!=='Admin'&&ap.Role!=='Admin')fail('NO_PERMISSION','เฉพาะแอดมิน');
+    deleteStudentLeave: p => { const ap=staffById(p.staffId); if(!adminLike_(ap))fail('NO_PERMISSION','เฉพาะแอดมิน');
       const i=(M.studentLeaves||[]).findIndex(x=>x.LeaveID===p.leaveId); if(i<0)fail('NOT_FOUND','ไม่พบการลา'); M.studentLeaves.splice(i,1); return {ok:true}; },
     // batch delete (admin ticks several leaves → one call)
-    deleteStudentLeaves: p => { const ap=staffById(p.staffId); if(ap.PositionLevel!=='Admin'&&ap.Role!=='Admin')fail('NO_PERMISSION','เฉพาะแอดมิน');
+    deleteStudentLeaves: p => { const ap=staffById(p.staffId); if(!adminLike_(ap))fail('NO_PERMISSION','เฉพาะแอดมิน');
       const ids=new Set((p.leaveIds||[]).map(String)); let n=0;
       for(let i=(M.studentLeaves||[]).length-1;i>=0;i--){ if(ids.has(String(M.studentLeaves[i].LeaveID))){ M.studentLeaves.splice(i,1); n++; } }
       return {ok:true,deleted:n}; },
@@ -853,7 +880,7 @@ function createAtomAPI(M, GROWTH_STD) {
      * first and the transfer then matches what is actually left.
      * { kind:'bill'|'ot'|'charge'|'prepay', refId, amount, date?, note?, method? }
      */
-    recordCashPayment: p => { const ap=staffById(p.staffId); if(ap.PositionLevel!=='Admin'&&ap.Role!=='Admin')fail('NO_PERMISSION','เฉพาะแอดมิน');
+    recordCashPayment: p => { const ap=staffById(p.staffId); if(!adminLike_(ap))fail('NO_PERMISSION','เฉพาะแอดมิน');
       const kind=String(p.kind||''); const tgt=slipTarget_(kind, p.refId); if(!tgt)fail('NOT_FOUND','ไม่พบรายการที่จะรับชำระ');
       const amt=Math.round(Number(p.amount||0)*100)/100; if(!(amt>0))fail('BAD_INPUT','ระบุจำนวนเงินที่รับมา');
       const already=sumSlips_(kind, p.refId, ['CONFIRMED']);
@@ -876,7 +903,7 @@ function createAtomAPI(M, GROWTH_STD) {
      * Is slip verification actually working, and what has it been saying? A 'NO:<code>' is SlipOK's
      * VERDICT, not a broken connection — it read the slip and then objected. Mirrors handleSlipDiag.
      */
-    slipDiag: p => { const ap=staffById(p&&p.staffId); if(ap.PositionLevel!=='Admin'&&ap.Role!=='Admin')fail('NO_PERMISSION','เฉพาะแอดมิน');
+    slipDiag: p => { const ap=staffById(p&&p.staffId); if(!adminLike_(ap))fail('NO_PERMISSION','เฉพาะแอดมิน');
       const rows=paySlips_(); const counts={total:rows.length,verified:0,rejected:0,unchecked:0,manual:0}; const byCode={};
       rows.forEach(s=>{ const v=String(s.Verified||'');
         if(v.slice(0,3)==='YES')counts.verified++;
@@ -895,7 +922,7 @@ function createAtomAPI(M, GROWTH_STD) {
      * and until this existed the only way to follow it was editing code — every slip meanwhile came
      * back "package expired". A blank key means "keep the current one".
      */
-    saveSlipOk: p => { const ap=staffById(p&&p.staffId); if(ap.PositionLevel!=='Admin'&&ap.Role!=='Admin')fail('NO_PERMISSION','เฉพาะแอดมิน');
+    saveSlipOk: p => { const ap=staffById(p&&p.staffId); if(!adminLike_(ap))fail('NO_PERMISSION','เฉพาะแอดมิน');
       if(p&&p.restorePrev){ if(!cfg.SlipOK_ApiKeyPrev)fail('BAD_INPUT','ไม่มีคีย์เดิมให้ย้อนกลับ');
         cfg.SlipOK_ApiKey=cfg.SlipOK_ApiKeyPrev; cfg.SlipOK_ApiKeyPrev=''; return H.slipDiag(p); }
       const raw=String((p&&p.branch)==null?'':p.branch).trim().replace(/\/+$/,'');
@@ -908,7 +935,7 @@ function createAtomAPI(M, GROWTH_STD) {
     // Admin: delete a payment record. Only ever a row with NO slip image — a double-tap that left an
     // empty entry, or a cash receipt entered by mistake. A real slip is evidence and stays; reject it
     // instead. Recomputes what is owed afterwards, so the balance is right either way.
-    deleteSlip: p => { const ap=staffById(p.staffId); if(ap.PositionLevel!=='Admin'&&ap.Role!=='Admin')fail('NO_PERMISSION','เฉพาะแอดมิน');
+    deleteSlip: p => { const ap=staffById(p.staffId); if(!adminLike_(ap))fail('NO_PERMISSION','เฉพาะแอดมิน');
       const i=paySlips_().findIndex(s=>String(s.SlipID)===String(p.slipId)); if(i<0)fail('NOT_FOUND','ไม่พบรายการชำระ');
       const s=paySlips_()[i];
       if(s.Url) fail('HAS_SLIP','รายการนี้มีสลิปแนบอยู่ — ใช้ปุ่มปฏิเสธสลิปแทนการลบ');
@@ -1062,7 +1089,10 @@ function createAtomAPI(M, GROWTH_STD) {
       return {classes:covered.map(c=>({className:c.ClassName,classNameEN:c.ClassNameEN||c.ClassName})), all:covered.length===M.classes.length}; },
     myAttendanceToday: p => { const r=M.staffAttendanceToday.find(x=>x.StaffID===p.staffId);
       const sch=M.workSchedule.find(w=>w.StaffID===p.staffId)||{CheckInTime:cfg.DefaultCheckInTime,CheckOutTime:'17:00'};
+      const me=staffById(p.staffId)||{};
       return {date:todayLocal(), schedule:sch, checkIn:r?r.CheckIn:'', checkOut:r?r.CheckOut:'', late:r?r.Late||0:0, status:r?r.Status:'NONE',
+        // before the first working day the buttons are locked and the date is shown instead
+        notStarted:!staffStarted_(me), startDate:ymd(me.StartDate||''),
         manualIn:!!(r&&r.InManual&&String(r.InManual).toUpperCase()==='YES'), manualOut:!!(r&&r.OutManual&&String(r.OutManual).toUpperCase()==='YES')}; },
     // today + previous working days (with late status) for the teacher work-time card
     recentAttendance: p => { const sch=M.workSchedule.find(w=>w.StaffID===p.staffId)||{CheckInTime:'08:00'};
@@ -1073,7 +1103,9 @@ function createAtomAPI(M, GROWTH_STD) {
       M.staffAttendanceHistory.filter(h=>h.StaffID===p.staffId).sort((a,b)=>b.Date.localeCompare(a.Date)).slice(0,3)
         .forEach(h=>out.push({date:h.Date, checkIn:h.In||'', checkOut:h.Out||'', late:lateOf(h.In), status:h.In?'IN':'ABSENT', manualIn:yes(h.InManual), manualOut:yes(h.OutManual)}));
       return out; },
-    staffCheckin: p => { const d=geo(p.lat,p.lng); const t=new Date(); const sch=M.workSchedule.find(w=>w.StaffID===p.staffId)||{CheckInTime:'08:00'};
+    staffCheckin: p => { const _me=staffById(p.staffId)||{};
+      if(!staffStarted_(_me)) fail('NOT_STARTED','วันแรกของการทำงานคือ '+ymd(_me.StartDate||'')+' — ยังลงเวลาไม่ได้');
+      const d=geo(p.lat,p.lng); const t=new Date(); const sch=M.workSchedule.find(w=>w.StaffID===p.staffId)||{CheckInTime:'08:00'};
       // A Big Cleaning Day is a special workday with fixed hours 08:30–17:00 (config BigCleaningIn) — late is
       // measured against 08:30 that day, not the staff's group time.
       const bc=isBigCleaning_(todayLocal()); const inT=bc?(cfg.BigCleaningIn||'08:30'):sch.CheckInTime;
@@ -1121,14 +1153,14 @@ function createAtomAPI(M, GROWTH_STD) {
     // ROUTES (DspmAdmin.gs); these serve MOCK. Identify a row by (ItemNo, Track).
     dspmAllCriteria: () => (M.dspmCriteria||[]).slice().sort((a,b)=>Number(a.ItemNo)-Number(b.ItemNo))
       .map(r=>({AgeFrom:r.AgeFrom,AgeTo:r.AgeTo,AgeLabelTH:r.AgeLabelTH,ItemNo:r.ItemNo,Skill:r.Skill,Description:r.Description,DescriptionEN:r.DescriptionEN,Method:r.Method,PassCriteria:r.PassCriteria,Track:r.Track||'Teacher'})),
-    saveDspmCriteria: p => { const ap=staffById(p.staffId); if(ap.PositionLevel!=='Admin'&&ap.Role!=='Admin')fail('NO_PERMISSION','เฉพาะแอดมิน');
+    saveDspmCriteria: p => { const ap=staffById(p.staffId); if(!adminLike_(ap))fail('NO_PERMISSION','เฉพาะแอดมิน');
       const d=p.data||{}; const track=d.Track||p.track||'Teacher'; const key=(p.itemNo!=null)?p.itemNo:d.ItemNo;
       let r=(key!=null)?(M.dspmCriteria||[]).find(x=>Number(x.ItemNo)===Number(key)&&String(x.Track||'Teacher')===String(track)):null;
       if(r){ ['AgeFrom','AgeTo','AgeLabelTH','Skill','Description','DescriptionEN','Method','PassCriteria'].forEach(k=>{ if(d[k]!==undefined)r[k]=(k==='AgeFrom'||k==='AgeTo')?(Number(d[k])||0):d[k]; }); r.Track=track; return {ok:true,itemNo:Number(r.ItemNo),updated:true}; }
       let mx=0; (M.dspmCriteria||[]).forEach(x=>{const n=Number(x.ItemNo)||0; if(n>mx)mx=n;});
       const rec=Object.assign({ItemNo:mx+1,Track:track},d); rec.AgeFrom=Number(rec.AgeFrom)||0; rec.AgeTo=Number(rec.AgeTo)||0;
       (M.dspmCriteria=M.dspmCriteria||[]).push(rec); return {ok:true,itemNo:rec.ItemNo,updated:false}; },
-    deleteDspmCriteria: p => { const ap=staffById(p.staffId); if(ap.PositionLevel!=='Admin'&&ap.Role!=='Admin')fail('NO_PERMISSION','เฉพาะแอดมิน');
+    deleteDspmCriteria: p => { const ap=staffById(p.staffId); if(!adminLike_(ap))fail('NO_PERMISSION','เฉพาะแอดมิน');
       const track=p.track||'Teacher'; const i=(M.dspmCriteria||[]).findIndex(x=>Number(x.ItemNo)===Number(p.itemNo)&&String(x.Track||'Teacher')===String(track));
       if(i<0)fail('NOT_FOUND','ไม่พบเกณฑ์'); M.dspmCriteria.splice(i,1); return {ok:true}; },
     submitAssessment: p => { const s=studentById(p.studentId); const age=ageMonths(s.DOB); const id='DA-'+String(Date.now()).slice(-4); let n=0;
@@ -1149,7 +1181,7 @@ function createAtomAPI(M, GROWTH_STD) {
     // Admin: every leave request (for the list split into pending vs resolved) + the calendar
     allLeaves: p => (M.leaves||[]).slice().sort((a,b)=>String(b.CreatedDate||b.StartDate).localeCompare(String(a.CreatedDate||a.StartDate))).map(leaveView_),
     // Admin edits a leave in place (dates/type/reason); recomputes Days
-    editLeave: p => { const ap=staffById(p.staffId); if(ap.PositionLevel!=='Admin'&&ap.Role!=='Admin')fail('NO_PERMISSION','เฉพาะแอดมิน');
+    editLeave: p => { const ap=staffById(p.staffId); if(!adminLike_(ap))fail('NO_PERMISSION','เฉพาะแอดมิน');
       const l=M.leaves.find(x=>x.LeaveID===p.leaveId); if(!l)fail('NOT_FOUND','ไม่พบคำขอ');
       // Work out the whole result FIRST, then commit. This used to assign straight onto the stored
       // record and only validate afterwards, so a rejected edit left the row half-changed — a
@@ -1164,7 +1196,7 @@ function createAtomAPI(M, GROWTH_STD) {
       l.StartDate=nStart; l.EndDate=nEnd; l.HalfDay=nHalf; l.Days=nDays;
       return leaveView_(l); },
     // Admin cancels/deletes a leave request
-    cancelLeave: p => { const ap=staffById(p.staffId); if(ap.PositionLevel!=='Admin'&&ap.Role!=='Admin')fail('NO_PERMISSION','เฉพาะแอดมิน');
+    cancelLeave: p => { const ap=staffById(p.staffId); if(!adminLike_(ap))fail('NO_PERMISSION','เฉพาะแอดมิน');
       const i=M.leaves.findIndex(x=>x.LeaveID===p.leaveId); if(i<0)fail('NOT_FOUND','ไม่พบคำขอ'); M.leaves.splice(i,1); return {ok:true}; },
     teamPendingLeaves: p => { const me=staffById(p.staffId); if(me.PositionLevel!=='Leader'&&me.PositionLevel!=='Admin')return [];
       return M.leaves.filter(l=>l.Status==='PENDING_LEADER').map(leaveView_); },
@@ -1202,7 +1234,7 @@ function createAtomAPI(M, GROWTH_STD) {
     staffingByNursery: () => { const deps=(Array.isArray(cfg.Departments)?cfg.Departments:String(cfg.Departments||'').split(',')).map(d=>String(d).trim()).filter(Boolean);
       const covers=(s,dep)=>{ const d=String(s.Department||''); return d==='*'||d.split(',').map(x=>x.trim()).indexOf(dep)>=0; };
       return deps.map(dep=>{
-        const team=M.staff.filter(s=>covers(s,dep)&&s.Role==='Teacher'&&s.RequireCheckin!==false);
+        const team=M.staff.filter(s=>covers(s,dep)&&s.Role==='Teacher'&&s.RequireCheckin!==false&&staffStarted_(s));
         const present=team.filter(s=>{ const a=M.staffAttendanceToday.find(x=>x.StaffID===s.StaffID); return a&&(a.Status==='IN'||a.Status==='OUT'); }).length;
         return {dept:dep, present, total:team.length}; }).filter(x=>x.total>0); },
 
@@ -1295,7 +1327,10 @@ function createAtomAPI(M, GROWTH_STD) {
 
     // Admin finance dashboard: tuition collection per student + salary payout per teacher + income/expense
     financeSummary: p => { const month=ym(p.month||todayLocal().slice(0,7));
-      const students=activeStudents().map(s=>{
+      // enrolledStudents, not activeStudents: a child on temporary leave still has to be billable —
+      // this is how the school collects a deposit or a first month BEFORE the child starts. They are
+      // listed last (see the sort below) so they never crowd the children currently attending.
+      const students=enrolledStudents().map(s=>{
         // a student may (wrongly) have >1 bill for a month — prefer the PAID/PARTIAL one over duplicates
         const bills=M.payments.filter(x=>x.StudentID===s.StudentID&&ym(x.Month)===month);
         const b=bills.find(x=>x.Status==='PAID')||bills.find(x=>x.Status==='PARTIAL')||bills[0];
@@ -1340,7 +1375,10 @@ function createAtomAPI(M, GROWTH_STD) {
           tuitionPending,otherPending,pendingVerify:tuitionPending+otherPending,
           prepaid:!!prepay,prepay:prepay||null,prepaidTuition,
           partial:!b?false:(tuitionOpen>0 && (billConfirmed>0||prepaidTuition>0)),
-          status:b?b.Status:'NO_BILL',slipAmount:b?b.SlipAmount||0:0}; });
+          paused:studentPaused_(s), pauseFrom:ymd(s.PauseFrom||''), pauseTo:ymd(s.PauseTo||''),
+          status:b?b.Status:'NO_BILL',slipAmount:b?b.SlipAmount||0:0}; })
+        // children currently attending first, those on temporary leave at the bottom
+        .sort((a,b2)=>(a.paused?1:0)-(b2.paused?1:0));
       const staff=M.staff.filter(s=>s.Role==='Teacher').map(s=>{ const pr=M.payroll.find(x=>x.StaffID===s.StaffID&&ym(x.Month)===month);
         return {staffId:s.StaffID,name:s.NameTH,nameEN:s.NameEN,nick:s.Nickname,nickEN:s.NicknameEN,net:pr?pr.NetPay:0,paid:!!pr&&pr.SlipSent==='YES',computed:!!pr}; });
       const tuitionCollected=students.reduce((a,s)=>a+(s.collected||0),0);
@@ -1368,7 +1406,7 @@ function createAtomAPI(M, GROWTH_STD) {
         return {className:name,total:studs.length,in:stat.filter(s=>s.status==='IN').length,out:stat.filter(s=>s.status==='OUT').length,leave:stat.filter(s=>s.status==='LEAVE').length,absent:stat.filter(s=>s.status==='ABSENT').length,students:stat}; })
         .filter(c=>c.total>0 || (M.classes||[]).some(mc=>mc.ClassName===c.className)); // hide empty extra depts, keep real classes
       // staff with check-in turned OFF never clock in — exclude them entirely (not counted, not "absent")
-      const staffStat=M.staff.filter(s=>s.Role==='Teacher'&&s.RequireCheckin!==false).map(s=>{ const a=M.staffAttendanceToday.find(x=>x.StaffID===s.StaffID)||{};
+      const staffStat=M.staff.filter(s=>s.Role==='Teacher'&&s.RequireCheckin!==false&&staffStarted_(s)).map(s=>{ const a=M.staffAttendanceToday.find(x=>x.StaffID===s.StaffID)||{};
         const onLeave=a.Status==='LEAVE'; return {staffId:s.StaffID,name:s.NameTH,nameEN:s.NameEN,nick:s.Nickname,nickEN:s.NicknameEN,dept:s.Department, status:a.Status||'ABSENT',
           checkIn:onLeave?'':(a.CheckIn||''), checkOut:onLeave?'':(a.CheckOut||''), late:onLeave?0:(a.Late||0), remark:onLeave?(a.Reason||'ลา'):''}; });
       return {classes:cls, staff:staffStat, pendingLeaves:M.leaves.filter(l=>l.Status.startsWith('PENDING')).length,
@@ -1408,7 +1446,7 @@ function createAtomAPI(M, GROWTH_STD) {
      * Admin puts a child on temporary leave, or brings them back. Admin only.
      * { studentId, paused:true, from?, to?, reason? } | { studentId, paused:false }
      */
-    setStudentPause: p => { const ap=staffById(p.staffId); if(ap.PositionLevel!=='Admin'&&ap.Role!=='Admin')fail('NO_PERMISSION','เฉพาะแอดมิน');
+    setStudentPause: p => { const ap=staffById(p.staffId); if(!adminLike_(ap))fail('NO_PERMISSION','เฉพาะแอดมิน');
       const s=studentById(p.studentId); if(!s)fail('NOT_FOUND','ไม่พบนักเรียน');
       if(INACTIVE[s.Status])fail('BAD_STATE','นักเรียนคนนี้ออกจากโรงเรียนแล้ว — ใช้เมนูรับกลับเข้าเรียนแทน');
       if(p.paused===false){ s.Status='ACTIVE'; s.PauseFrom=''; s.PauseTo=''; s.PauseReason='';
@@ -1709,7 +1747,7 @@ function createAtomAPI(M, GROWTH_STD) {
       // Admin, or a teacher the admin put in charge of the menu (CanFoodMenu) — the kitchen is often
       // run by one teacher, and making them ask an admin for every change helps nobody.
       const yes=['YES','TRUE','1'].indexOf(String(ap.CanFoodMenu||'').toUpperCase())>=0 || ap.CanFoodMenu===true;
-      if(ap.PositionLevel!=='Admin'&&ap.Role!=='Admin'&&!yes) fail('NO_PERMISSION','ไม่มีสิทธิ์จัดการเมนูอาหาร');
+      if(!adminLike_(ap)&&!yes) fail('NO_PERMISSION','ไม่มีสิทธิ์จัดการเมนูอาหาร');
       const cls=String(p.className||''); if(!cls) fail('BAD_INPUT','ระบุชั้นเรียน');
       const month=ym(p.month||todayLocal().slice(0,7));
       M.foodMenus=M.foodMenus||[];
@@ -1763,7 +1801,7 @@ function createAtomAPI(M, GROWTH_STD) {
       return {itemId:it.ItemID, existed:false}; },
 
     deleteFoodItem: p => { const me=staffById(p.staffId)||{};
-      if(me.PositionLevel!=='Admin'&&me.Role!=='Admin') fail('NO_PERMISSION','เฉพาะแอดมิน');
+      if(!adminLike_(me)) fail('NO_PERMISSION','เฉพาะแอดมิน');
       const it=(M.foodItems||[]).find(x=>x.ItemID===p.itemId); if(!it)fail('NOT_FOUND','ไม่พบเมนู');
       // retire rather than delete: journals already written refer to it by name
       it.Active='NO'; logAct('retireFoodItem',it.ItemID,it.NameTH,actorOf(p));
@@ -1771,7 +1809,7 @@ function createAtomAPI(M, GROWTH_STD) {
 
     /** One-off seed of the school's own list, so nobody has to type 30 dishes to get started. */
     seedFoodItems: p => { const me=staffById(p.staffId)||{};
-      if(me.PositionLevel!=='Admin'&&me.Role!=='Admin') fail('NO_PERMISSION','เฉพาะแอดมิน');
+      if(!adminLike_(me)) fail('NO_PERMISSION','เฉพาะแอดมิน');
       M.foodItems=M.foodItems||[];
       let added=0;
       (FOOD_SEED_||[]).forEach(row=>{
@@ -1796,12 +1834,12 @@ function createAtomAPI(M, GROWTH_STD) {
      * Scope decides who is asked: everyone, one class, or one child's family.
      */
     surveys: p => { const ap=staffById(p.staffId)||{};
-      if(ap.PositionLevel!=='Admin'&&ap.Role!=='Admin') fail('NO_PERMISSION','เฉพาะแอดมิน');
+      if(!adminLike_(ap)) fail('NO_PERMISSION','เฉพาะแอดมิน');
       return (M.surveys||[]).slice().sort((a,b)=>String(b.CreatedAt||'').localeCompare(String(a.CreatedAt||'')))
         .map(s=>Object.assign(surveyView_(s), { responses:(M.surveyResponses||[]).filter(r=>r.SurveyID===s.SurveyID).length })); },
 
     saveSurvey: p => { const ap=staffById(p.staffId)||{};
-      if(ap.PositionLevel!=='Admin'&&ap.Role!=='Admin') fail('NO_PERMISSION','เฉพาะแอดมิน');
+      if(!adminLike_(ap)) fail('NO_PERMISSION','เฉพาะแอดมิน');
       const d=p.survey||{}; if(!String(d.title||'').trim()) fail('BAD_INPUT','ใส่หัวข้อแบบสอบถาม');
       // One to five questions. A caller still sending the old single type/options is accepted and
       // turned into one question, so nothing that already works has to change.
@@ -1830,14 +1868,14 @@ function createAtomAPI(M, GROWTH_STD) {
       M.surveys.push(s); logAct('addSurvey',s.SurveyID,s.Title,actorOf(p)); return surveyView_(s); },
 
     setSurveyStatus: p => { const ap=staffById(p.staffId)||{};
-      if(ap.PositionLevel!=='Admin'&&ap.Role!=='Admin') fail('NO_PERMISSION','เฉพาะแอดมิน');
+      if(!adminLike_(ap)) fail('NO_PERMISSION','เฉพาะแอดมิน');
       const s=(M.surveys||[]).find(x=>x.SurveyID===p.surveyId); if(!s)fail('NOT_FOUND','ไม่พบแบบสอบถาม');
       s.Status = p.reopen ? 'OPEN' : 'CLOSED';
       logAct('setSurveyStatus',s.SurveyID,s.Status,actorOf(p)); return surveyView_(s); },
 
     // Deleting a survey deletes the answers people gave it — say how many, and log it.
     deleteSurvey: p => { const ap=staffById(p.staffId)||{};
-      if(ap.PositionLevel!=='Admin'&&ap.Role!=='Admin') fail('NO_PERMISSION','เฉพาะแอดมิน');
+      if(!adminLike_(ap)) fail('NO_PERMISSION','เฉพาะแอดมิน');
       const i=(M.surveys||[]).findIndex(x=>x.SurveyID===p.surveyId); if(i<0)fail('NOT_FOUND','ไม่พบแบบสอบถาม');
       const s=M.surveys[i];
       const kept=(M.surveyResponses||[]).filter(r=>r.SurveyID!==p.surveyId);
@@ -1896,7 +1934,7 @@ function createAtomAPI(M, GROWTH_STD) {
       return {ok:true, updated:false}; },
 
     surveyResults: p => { const ap=staffById(p.staffId)||{};
-      if(ap.PositionLevel!=='Admin'&&ap.Role!=='Admin') fail('NO_PERMISSION','เฉพาะแอดมิน');
+      if(!adminLike_(ap)) fail('NO_PERMISSION','เฉพาะแอดมิน');
       const s=(M.surveys||[]).find(x=>x.SurveyID===p.surveyId); if(!s)fail('NOT_FOUND','ไม่พบแบบสอบถาม');
       const rs=(M.surveyResponses||[]).filter(r=>r.SurveyID===p.surveyId);
       const qs=surveyQuestions_(s);
@@ -1929,7 +1967,7 @@ function createAtomAPI(M, GROWTH_STD) {
 
     /** Monthly rollup across every survey — what the school reads at the end of a month. */
     surveySummary: p => { const ap=staffById(p.staffId)||{};
-      if(ap.PositionLevel!=='Admin'&&ap.Role!=='Admin') fail('NO_PERMISSION','เฉพาะแอดมิน');
+      if(!adminLike_(ap)) fail('NO_PERMISSION','เฉพาะแอดมิน');
       const month=ym(p.month||todayLocal().slice(0,7));
       const rs=(M.surveyResponses||[]).filter(r=>ym(r.SubmittedAt)===month);
       const byS={}; rs.forEach(r=>{ (byS[r.SurveyID]=byS[r.SurveyID]||[]).push(r); });
@@ -2165,7 +2203,7 @@ function createAtomAPI(M, GROWTH_STD) {
     // reads:
     myOT: p => (M.otRecords||[]).filter(r=>r.StaffID===p.staffId && (!p.month||ym(r.Month||r.Date)===p.month)).sort((a,b)=>String(b.Date).localeCompare(String(a.Date))),
     // Leader/Admin: OT awaiting the first (Leader) approval
-    teamPendingOT: p => { const me=staffById(p.staffId); if(me.PositionLevel!=='Leader'&&me.PositionLevel!=='Admin'&&me.Role!=='Admin')return [];
+    teamPendingOT: p => { const me=staffById(p.staffId); if(me.PositionLevel!=='Leader'&&!adminLike_(me))return [];
       return (M.otRecords||[]).filter(r=>String(r.Status).toUpperCase()==='PENDING_LEADER').map(otView_); },
     // Admin: OT the Leader approved, awaiting Admin confirmation
     pendingAdminOT: () => (M.otRecords||[]).filter(r=>String(r.Status).toUpperCase()==='PENDING_ADMIN').map(otView_),
@@ -2174,11 +2212,11 @@ function createAtomAPI(M, GROWTH_STD) {
     // Leader step-1 decision
     approveOT: p => { const ap=staffById(p.staffId); const r=(M.otRecords||[]).find(x=>x.OTRecordID===p.otId); if(!r)fail('NOT_FOUND','ไม่พบรายการ OT');
       if(String(r.Status).toUpperCase()!=='PENDING_LEADER')fail('BAD_STATE','รายการนี้ไม่ได้รออนุมัติจากหัวหน้า');
-      if(ap.PositionLevel!=='Leader'&&ap.PositionLevel!=='Admin'&&ap.Role!=='Admin')fail('NO_PERMISSION','เฉพาะหัวหน้าครู');
+      if(ap.PositionLevel!=='Leader'&&!adminLike_(ap))fail('NO_PERMISSION','เฉพาะหัวหน้าครู');
       const yes=p.decision==='approve'; r.Step1By=ap.NameTH; r.Step1Status=yes?'Approved':'Rejected'; r.Status=yes?'PENDING_ADMIN':'REJECTED';
       return {otId:r.OTRecordID,status:r.Status}; },
     // Admin step-2 confirm (optionally editing hours/amount), or reject
-    confirmOT: p => { const ap=staffById(p.staffId); if(ap.PositionLevel!=='Admin'&&ap.Role!=='Admin')fail('NO_PERMISSION','เฉพาะแอดมิน');
+    confirmOT: p => { const ap=staffById(p.staffId); if(!adminLike_(ap))fail('NO_PERMISSION','เฉพาะแอดมิน');
       const r=(M.otRecords||[]).find(x=>x.OTRecordID===p.otId); if(!r)fail('NOT_FOUND','ไม่พบรายการ OT');
       const yes=p.decision!=='reject';
       if(yes){ if(p.hours!=null) r.Hours=Number(p.hours)||0;
@@ -2189,7 +2227,7 @@ function createAtomAPI(M, GROWTH_STD) {
       else { r.Step2By=ap.NameTH; r.Step2Status='Rejected'; r.Status='REJECTED'; }
       return {otId:r.OTRecordID,status:r.Status,hours:r.Hours,amount:r.Amount}; },
     // Admin adds an OT directly (already approved). date + hours (+optional amount/note)
-    adminAddOT: p => { const ap=staffById(p.staffId); if(ap.PositionLevel!=='Admin'&&ap.Role!=='Admin')fail('NO_PERMISSION','เฉพาะแอดมิน');
+    adminAddOT: p => { const ap=staffById(p.staffId); if(!adminLike_(ap))fail('NO_PERMISSION','เฉพาะแอดมิน');
       const target=p.targetStaffId||p.forStaffId; const st=staffById_(target); if(!st.StaffID)fail('NOT_FOUND','ไม่พบพนักงาน');
       const hours=Number(p.hours)||0; if(hours<=0)fail('BAD_INPUT','ระบุจำนวนชั่วโมง');
       const amount=(p.amount!=null&&p.amount!=='')?Number(p.amount):Math.round(hours*staffOtRate(st));
@@ -2197,13 +2235,13 @@ function createAtomAPI(M, GROWTH_STD) {
       M.otRecords.push({OTRecordID:id,StaffID:target,Date:date,Hours:hours,Rate:staffOtRate(st),Amount:amount,ApprovedBy:ap.NameTH,Status:'APPROVED',Minutes:hours*60,PlanOut:'',ActualOut:'',Month:ym(date),Step1By:ap.NameTH,Step1Status:'Approved',Step2By:ap.NameTH,Step2Status:'Approved',Note:p.note||''});
       return {otId:id,status:'APPROVED'}; },
     // Admin edits any OT (hours/amount/note). Recomputes amount from hours unless amount is given.
-    adminEditOT: p => { const ap=staffById(p.staffId); if(ap.PositionLevel!=='Admin'&&ap.Role!=='Admin')fail('NO_PERMISSION','เฉพาะแอดมิน');
+    adminEditOT: p => { const ap=staffById(p.staffId); if(!adminLike_(ap))fail('NO_PERMISSION','เฉพาะแอดมิน');
       const r=(M.otRecords||[]).find(x=>x.OTRecordID===p.otId); if(!r)fail('NOT_FOUND','ไม่พบรายการ OT');
       if(p.hours!=null){ r.Hours=Number(p.hours)||0; r.Amount=Math.round(r.Hours*staffOtRate(staffById_(r.StaffID))); }
       if(p.amount!=null&&p.amount!=='') r.Amount=Number(p.amount)||0;
       if(p.note!=null) r.Note=p.note; if(p.date) { r.Date=p.date; r.Month=ym(p.date); }
       return {otId:r.OTRecordID,hours:r.Hours,amount:r.Amount}; },
-    adminDeleteOT: p => { const ap=staffById(p.staffId); if(ap.PositionLevel!=='Admin'&&ap.Role!=='Admin')fail('NO_PERMISSION','เฉพาะแอดมิน');
+    adminDeleteOT: p => { const ap=staffById(p.staffId); if(!adminLike_(ap))fail('NO_PERMISSION','เฉพาะแอดมิน');
       const i=(M.otRecords||[]).findIndex(x=>x.OTRecordID===p.otId); if(i<0)fail('NOT_FOUND','ไม่พบรายการ OT'); M.otRecords.splice(i,1); return {ok:true}; },
 
     // ===== class-management change requests (ย้ายครูประจำชั้น/แผนก): Leader submits → Admin approves (applies+logs) =====
@@ -2218,9 +2256,9 @@ function createAtomAPI(M, GROWTH_STD) {
       if(isAdmin){ changes.forEach(c=>{ const s=staffById_(c.staffId); if(s.StaffID){ s.Department=c.after; s.Classes=c.after; } }); logAct('classChange',id,changes.map(c=>c.name+':'+c.before+'→'+c.after).join(', '),actorOf(p)); }
       return {reqId:id,status:isAdmin?'APPROVED':'PENDING_ADMIN'}; },
     myClassChanges: p => (M.classChangeReq||[]).filter(r=>r.RequestBy===p.staffId).sort((a,b)=>String(b.CreatedDate).localeCompare(String(a.CreatedDate))),
-    pendingClassChanges: p => { const ap=staffById(p.staffId); if(ap.PositionLevel!=='Admin'&&ap.Role!=='Admin')fail('NO_PERMISSION','เฉพาะแอดมิน');
+    pendingClassChanges: p => { const ap=staffById(p.staffId); if(!adminLike_(ap))fail('NO_PERMISSION','เฉพาะแอดมิน');
       return (M.classChangeReq||[]).filter(r=>String(r.Status).toUpperCase()==='PENDING_ADMIN').sort((a,b)=>String(a.CreatedDate).localeCompare(String(b.CreatedDate))); },
-    decideClassChange: p => { const ap=staffById(p.staffId); if(ap.PositionLevel!=='Admin'&&ap.Role!=='Admin')fail('NO_PERMISSION','เฉพาะแอดมิน');
+    decideClassChange: p => { const ap=staffById(p.staffId); if(!adminLike_(ap))fail('NO_PERMISSION','เฉพาะแอดมิน');
       const r=(M.classChangeReq||[]).find(x=>x.ReqID===p.reqId); if(!r)fail('NOT_FOUND','ไม่พบคำขอ');
       if(String(r.Status).toUpperCase()!=='PENDING_ADMIN')fail('ALREADY_RESOLVED','คำขอนี้ดำเนินการแล้ว');
       const yes=p.decision==='approve';
@@ -2238,7 +2276,7 @@ function createAtomAPI(M, GROWTH_STD) {
       (M.attendanceReq=M.attendanceReq||[]).push({ReqID:id,StaffID:p.staffId,Date:p.date,Type:type,RequestTime:p.time,Reason:p.reason||'',Status:lead?'PENDING_ADMIN':'PENDING_LEADER',Step1By:'',Step1Status:lead?'Skipped':'Pending',Step2By:'',Step2Status:'Pending',CreatedDate:todayLocal()});
       return {reqId:id,status:lead?'PENDING_ADMIN':'PENDING_LEADER'}; },
     myTimeRequests: p => (M.attendanceReq||[]).filter(r=>r.StaffID===p.staffId).sort((a,b)=>String(b.CreatedDate).localeCompare(String(a.CreatedDate))).map(atrView_),
-    teamPendingTimeRequests: p => { const me=staffById(p.staffId); if(me.PositionLevel!=='Leader'&&me.PositionLevel!=='Admin'&&me.Role!=='Admin')return [];
+    teamPendingTimeRequests: p => { const me=staffById(p.staffId); if(me.PositionLevel!=='Leader'&&!adminLike_(me))return [];
       return (M.attendanceReq||[]).filter(r=>String(r.Status).toUpperCase()==='PENDING_LEADER').map(atrView_); },
     /**
      * Everything still waiting, at EITHER step.
@@ -2249,17 +2287,17 @@ function createAtomAPI(M, GROWTH_STD) {
      * was away. An admin is fully trusted everywhere else in this app; the queue is now shown whole,
      * labelled by which step it is on.
      */
-    pendingAdminTimeRequests: p => { const ap=staffById(p.staffId); if(ap.PositionLevel!=='Admin'&&ap.Role!=='Admin')fail('NO_PERMISSION','เฉพาะแอดมิน');
+    pendingAdminTimeRequests: p => { const ap=staffById(p.staffId); if(!adminLike_(ap))fail('NO_PERMISSION','เฉพาะแอดมิน');
       return (M.attendanceReq||[])
         .filter(r=>{ const s=String(r.Status).toUpperCase(); return s==='PENDING_ADMIN'||s==='PENDING_LEADER'; })
         .sort((a,b)=>String(a.CreatedDate||'').localeCompare(String(b.CreatedDate||'')))
         .map(r=>Object.assign(atrView_(r), { stage: String(r.Status).toUpperCase()==='PENDING_LEADER'?'leader':'admin' })); },
     approveTimeRequest: p => { const ap=staffById(p.staffId); const r=(M.attendanceReq||[]).find(x=>x.ReqID===p.reqId); if(!r)fail('NOT_FOUND','ไม่พบคำขอ');
       if(String(r.Status).toUpperCase()!=='PENDING_LEADER')fail('BAD_STATE','ไม่ได้รออนุมัติจากหัวหน้า');
-      if(ap.PositionLevel!=='Leader'&&ap.PositionLevel!=='Admin'&&ap.Role!=='Admin')fail('NO_PERMISSION','เฉพาะหัวหน้าครู');
+      if(ap.PositionLevel!=='Leader'&&!adminLike_(ap))fail('NO_PERMISSION','เฉพาะหัวหน้าครู');
       const yes=p.decision==='approve'; r.Step1By=ap.NameTH||ap.Name; r.Step1Status=yes?'Approved':'Rejected'; r.Status=yes?'PENDING_ADMIN':'REJECTED';
       return {reqId:r.ReqID,status:r.Status}; },
-    confirmTimeRequest: p => { const ap=staffById(p.staffId); if(ap.PositionLevel!=='Admin'&&ap.Role!=='Admin')fail('NO_PERMISSION','เฉพาะแอดมิน');
+    confirmTimeRequest: p => { const ap=staffById(p.staffId); if(!adminLike_(ap))fail('NO_PERMISSION','เฉพาะแอดมิน');
       const r=(M.attendanceReq||[]).find(x=>x.ReqID===p.reqId); if(!r)fail('NOT_FOUND','ไม่พบคำขอ');
       const done=String(r.Status).toUpperCase();
       if(done==='APPROVED'||done==='REJECTED') fail('BAD_STATE','คำขอนี้ตัดสินไปแล้ว');
@@ -2280,7 +2318,7 @@ function createAtomAPI(M, GROWTH_STD) {
     // and are edited from the Packages screen — they used to be hard-coded here, which meant a change
     // of policy needed a release. Defaults match the school's current sheet: 3→5% · 6→10% · 12→15%.
     prepayTiers: () => prepayTiers_(),
-    savePrepayTiers: p => { const ap=staffById(p.staffId); if(ap.PositionLevel!=='Admin'&&ap.Role!=='Admin')fail('NO_PERMISSION','เฉพาะแอดมิน');
+    savePrepayTiers: p => { const ap=staffById(p.staffId); if(!adminLike_(ap))fail('NO_PERMISSION','เฉพาะแอดมิน');
       const tiers=(Array.isArray(p.tiers)?p.tiers:[]).map(x=>({months:Number(x.months)||0,discount:Math.max(0,Math.min(100,Number(x.discount)||0))}))
         .filter(x=>x.months>0).sort((a,b)=>a.months-b.months);
       if(!tiers.length)fail('BAD_INPUT','ต้องมีอย่างน้อย 1 ระดับ');
@@ -2322,7 +2360,7 @@ function createAtomAPI(M, GROWTH_STD) {
      *    does get entered wrong (a payment made on 31 July belongs to August, not July); re-pricing
      *    money that has already changed hands is not, and would turn a settled family into a debtor.
      */
-    editPrepay: p => { const ap=staffById(p.staffId); if(ap.PositionLevel!=='Admin'&&ap.Role!=='Admin')fail('NO_PERMISSION','เฉพาะแอดมิน');
+    editPrepay: p => { const ap=staffById(p.staffId); if(!adminLike_(ap))fail('NO_PERMISSION','เฉพาะแอดมิน');
       const pp=(M.prepayments||[]).find(x=>x.PrepayID===p.prepayId); if(!pp)fail('NOT_FOUND','ไม่พบรายการชำระล่วงหน้า');
       const paid=String(pp.Status)==='PAID';
       if(paid && ((p.months!=null && Number(p.months)!==Number(pp.Months)) ||

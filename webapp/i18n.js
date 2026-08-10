@@ -5,7 +5,7 @@
     devbar:        ['🧪 โหมดทดลอง (Mock Data) — ยังไม่เชื่อม LINE/GAS · เลือกบทบาทเพื่อลองใช้งาน', '🧪 Demo mode (mock data) — not connected to LINE/GAS yet · pick a role to try'],
     'chooser.title':['เลือกบทบาทเพื่อทดลองใช้งาน','Choose a role to try'],
     'chooser.sub':  ['โหมดทดลอง — เมื่อเชื่อม LINE แล้ว ระบบจะรู้บทบาทอัตโนมัติ','Demo — once LINE is connected the role is detected automatically'],
-    'role.Parent':  ['ผู้ปกครอง','Parent'], 'role.Teacher':['คุณครู','Teacher'], 'role.Admin':['ผู้ดูแลระบบ','Admin'], 'role.Leader':['คุณครู (หัวหน้าชั้น)','Teacher (Leader)'],
+    'role.Parent':  ['ผู้ปกครอง','Parent'], 'role.Teacher':['คุณครู','Teacher'], 'role.Admin':['ผู้ดูแลระบบ','Admin'], 'role.Observer':['ผู้ตรวจสอบ (ดูอย่างเดียว)','Observer (view only)'], 'role.Leader':['คุณครู (หัวหน้าชั้น)','Teacher (Leader)'],
     'desc.Parent':  ['รับ-ส่งเด็ก · ชำระเงิน · บันทึก · พัฒนาการ · แชท','Pickup · Payment · Journal · Development · Chat'],
     'desc.Teacher': ['เช็คอิน · นักเรียน · ลางาน · ตาราง · สลิป','Check-in · Students · Leave · Schedule · Payslip'],
     'desc.Admin':   ['แดชบอร์ด · อนุมัติ · เงินเดือน · วิเคราะห์ · จัดการ','Dashboard · Approvals · Payroll · Analytics · Manage'],
@@ -139,7 +139,7 @@
     // admin
     'admin.payrollReminder':['ใกล้ถึงกำหนดสรุปเงินเดือน','Payroll summary due soon'], 'admin.goPayroll':['สรุปเงินเดือน','Go to payroll'], 'admin.payrollReminderSub':['กรุณาสรุปเงินเดือนพนักงานภายในวันที่ {d} (ก่อนสิ้นเดือน วันที่ {last})','Please finalize payroll by day {d} (before month-end day {last})'],
     'pay.baseSalary':['เงินเดือนฐาน','Base salary'], 'pay.childMultiplier':['ตัวคูณต่อเด็ก (บาท/คน)','Per-child rate (baht)'], 'pay.ssDeduct':['หักประกันสังคม','Deduct social security'],
-    'pay.fb':['โพสต์ Facebook (+500)','Facebook post (+500)'], 'pay.attend':['มาครบ ไม่ลา ไม่สาย (+500)','Full attendance (+500)'], 'pay.extraChild':['จำนวนเด็กที่ได้เรท','Children counted'], 'pay.cert':['ใบประกาศ (สูงสุด 2 ×100)','Certificates (max 2 ×100)'],
+    'pay.fb':['โพสต์ Facebook','Facebook post'], 'pay.attend':['มาครบ ไม่ลา ไม่สาย','Full attendance'], 'pay.extraChild':['จำนวนเด็กที่ได้เรท','Children counted'], 'pay.cert':['ใบประกาศ (สูงสุด 2 ×100)','Certificates (max 2 ×100)'],
     'pay.otEvening':['OT เย็น','Evening OT'], 'pay.holidayBonus':['เงินพิเศษวันพักผ่อน','Holiday bonus'], 'pay.adjustments':['รายการคำนวณเพิ่มเติม','Adjustment lines'], 'pay.addAdj':['เพิ่มรายการ','Add line'],
     'pay.adjNote':['ใส่ตัวเลขตรงๆ เช่น หักมาสาย ใส่ -200','Enter plain numbers, e.g. late deduction = -200'], 'pay.adjLabel':['รายละเอียด เช่น มาสาย','Label e.g. late'], 'pay.print3':['พิมพ์สลิป 3/แผ่น A4','Print 3 slips/A4'], 'pay.calcSaved':['คำนวณ & บันทึกแล้ว','Calculated & saved'], 'pay.download':['ดาวน์โหลดสลิป','Download slip'],
     'pay.payType':['รูปแบบจ่าย','Pay type'], 'pay.monthly':['รายเดือน','Monthly'], 'pay.dailyType':['รายวัน','Daily'], 'pay.dailyRate':['ค่าจ้างต่อวัน','Daily rate'], 'pay.daysWorked':['จำนวนวันทำงาน','Days worked'],

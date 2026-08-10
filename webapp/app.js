@@ -112,7 +112,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.204'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.205'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -382,7 +382,7 @@
   let USER = null;
 
   let CURRENT = 'home';
-  const ROLE_KEY = r => ({Parent:'role.Parent',Teacher:'role.Teacher',Admin:'role.Admin'}[r]||r);
+  const ROLE_KEY = r => ({Parent:'role.Parent',Teacher:'role.Teacher',Admin:'role.Admin',Observer:'role.Observer'}[r]||r);
   function setHeader(){
     // version is shown only at the bottom of the Chat screen now (see verTag / APP_VERSION)
     $('#langBtn').textContent = LANG()==='en' ? 'EN' : 'TH';
@@ -398,6 +398,16 @@
     $('#bellBtn').hidden = !USER;
     // search lives in the header for admins so it is reachable from every screen, not just Manage
     const sb=$('#searchBtn'); if(sb) sb.hidden = !(USER && USER.role==='Admin');
+    // Say it once, at the top, rather than letting someone discover it by pressing a button that
+    // refuses. Reuses the "viewing as" bar so there is one strip in one place, never two.
+    if (USER && USER.role === 'Observer') {
+      let b=document.getElementById('viewAsBar');
+      if(!b){ b=document.createElement('div'); b.id='viewAsBar'; document.body.appendChild(b); }
+      const hd=document.querySelector('.topbar');
+      b.style.top=((hd?hd.getBoundingClientRect().height:56))+'px';
+      document.body.classList.add('viewas');
+      b.innerHTML=`<span>👁️ ${EN()?'View only — you can open anything, but not change it':'ดูอย่างเดียว — เปิดดูได้ทุกอย่าง แต่แก้ไขไม่ได้'}</span>`;
+    }
     if(USER) refreshBell();
   }
   // staffId matters now: teachers have their own inbox rows (a parent's journal comment lands there)
@@ -530,6 +540,9 @@
     Parent:[['home','home','nav.home'],['checkin','pin','nav.checkin'],['payment','card','nav.payment'],['journal','book','nav.journal'],['growth','chart','nav.growth'],['dspm','clipboard','nav.dspm'],['chat','chat','nav.chat']],
     Teacher:[['home','home','nav.home'],['class','kids','nav.class'],['injury','aid','inj.nav'],['leave','inbox','nav.leave'],['schedule','calendar','nav.schedule'],['slip','cash','nav.slip']],
     Admin:[['home','chart','nav.home'],['leaves','check','nav.leaves'],['finance','money','nav.finance'],['dspm','clipboard','nav.analytics'],['manage','folders','nav.manage'],['chat','chat','nav.chat']],
+    // Observer sees the four whole-school screens an Admin does. "จัดการ" is absent because every
+    // one of its tools exists to change something, and offering them would only produce refusals.
+    Observer:[['home','chart','nav.home'],['leaves','check','nav.leaves'],['finance','money','nav.finance'],['dspm','clipboard','nav.analytics']],
   };
   function setNav(active){ if(!USER){nav.hidden=true;return;} nav.hidden=false;
     // aria-current marks the open tab for screen readers; the emoji is decorative next to the label
@@ -753,6 +766,8 @@
     Teacher:{role:'Teacher',nameTH:'เอ มานะ',nameEN:'A Mana',staffId:'STF-T1'},
     Leader:{role:'Teacher',nameTH:'แนน ใจดี',nameEN:'Nan J.',staffId:'STF-L1'},
     Admin:{role:'Admin',nameTH:'อารยา ผ่องใส',nameEN:'Araya P.',staffId:'STF-ADM'},
+    // demo/testing only — in the real school this comes from STAFF.Role
+    Observer:{role:'Observer',nameTH:'ผู้ตรวจสอบ',nameEN:'Observer',staffId:'STF-OBS'},
   };
   window.LOGIN = function(roleKey){ if(!CONFIG.DEMO_MODE){ toast(EN()?'Demo login is disabled':'ปิดการเข้าสู่ระบบทดลองแล้ว'); return; } USER=Object.assign({},DEMO_USERS[roleKey]); USER._roleKey=roleKey;
     try{ localStorage.setItem('atom_session', JSON.stringify({roleKey, provider:PENDING_PROVIDER||'demo'})); }catch(e){}
@@ -1044,7 +1059,7 @@
     const student={NationalID:v('#rSNID'),NameTH:v('#rNameTH'),NameEN:v('#rNameEN'),Nickname:v('#rNick'),NicknameEN:v('#rNickEN'),Gender:$('#rGender').value,DOB:v('#rDOB'),Plan:'',Weight:+v('#rW')||'',Height:+v('#rH')||'',Photo:photo,BloodType:v('#rBlood'),RH:v('#rRH'),Allergy:v('#rAllergy')||'-',MedicalHistory:v('#rChronic')||'-',Class:''};
     try{ await api('addChildNew',{uid:USER.uid,parentId:USER.parentId,student,pickupPersons:pickups}); confirmSaved(t('c.saved')); GO('home'); }catch(e){err(e);} };
 
-  const SCREENS = { Parent:{}, Teacher:{}, Admin:{} };
+  const SCREENS = { Parent:{}, Teacher:{}, Admin:{}, Observer:{} };
 
   // ===== shared: journal checklist render =====
   const MOODS={Happy:'😀',Cheerful:'😄',Calm:'🙂',Active:'🤩',Tired:'😴',Sensitive:'😢'};
@@ -1274,7 +1289,15 @@
     // рับ-ส่งเด็ก (GPS) is now on the home kid card: big IN/OUT buttons like the teacher's, no location bar
     const kidsHtml = kids.map(k=>{ const din=todayCI[k.StudentID].in, dout=todayCI[k.StudentID].out;
       return `<div class="card"><div class="spread"><div><b style="font-size:17px">${esc(dispNick(k))}</b> <small class="muted">${esc(nm(k))}</small><br><small class="muted">🏫 ${esc(k.Class||(EN()?'no class':'ยังไม่จัดชั้น'))} · ${esc(ageYM(k.DOB))} · ${esc(planLabel(k.Plan))}<br>${EN()?'allergy':'แพ้'}: ${esc(k.Allergy||'-')}</small>${k.RateNote?`<br><small style="color:var(--blue)">🕕 ${esc(k.RateNote)}</small>`:''}</div>${studentAvatar(k)}</div>
-      <div class="row" style="margin-top:12px;gap:10px"><button class="btn green" ${doneBtn(din)} onclick="P_punch('${k.StudentID}','IN',this)">🟢 ${din?(EN()?'Dropped off ':'ส่งแล้ว ')+esc(din):(EN()?'Drop off':'ส่งเข้าเรียน')}</button><button class="btn pink" ${doneBtn(dout)} onclick="P_punch('${k.StudentID}','OUT',this)">🔴 ${dout?(EN()?'Picked up ':'รับแล้ว ')+esc(dout):(EN()?'Pick up':'รับกลับ')}</button></div></div>`; }).join('');
+      ${k.paused
+        // On temporary leave (or not started yet): there is nothing to record, so the buttons go
+        // rather than sitting there doing nothing. Everything else about the child stays visible —
+        // the family still needs the menu, the bills and their own details.
+        ? `<div class="card" style="background:var(--warn-bg);border-color:var(--warn-line);margin-top:12px;padding:10px;text-align:center">
+             <b style="color:var(--warn)">⏳ ${EN()?'Not due to attend yet':'ยังไม่ถึงกำหนดเข้าเรียน'}</b>
+             ${k.pauseFrom?`<br><small class="muted">${EN()?'from':'ตั้งแต่'} ${esc(k.pauseFrom)}${k.pauseTo?` ${EN()?'to':'ถึง'} ${esc(k.pauseTo)}`:''}</small>`:''}
+             ${k.pauseReason?`<br><small class="muted">${esc(k.pauseReason)}</small>`:''}</div>`
+        : `<div class="row" style="margin-top:12px;gap:10px"><button class="btn green" ${doneBtn(din)} onclick="P_punch('${k.StudentID}','IN',this)">🟢 ${din?(EN()?'Dropped off ':'ส่งแล้ว ')+esc(din):(EN()?'Drop off':'ส่งเข้าเรียน')}</button><button class="btn pink" ${doneBtn(dout)} onclick="P_punch('${k.StudentID}','OUT',this)">🔴 ${dout?(EN()?'Picked up ':'รับแล้ว ')+esc(dout):(EN()?'Pick up':'รับกลับ')}</button></div>`}</div>`; }).join('');
     // header quick-actions: บันทึก / พัฒนาการ. (แจ้งลาออก removed — only Admin may withdraw a student.)
     setTopActions(`<button class="btn sm outline" onclick="P_journal('${k0.StudentID}')" title="${esc(t('nav.journal'))}">📒<span class="lbl"> ${esc(t('nav.journal'))}</span></button>
       <button class="btn sm outline" onclick="P_dspm('${k0.StudentID}')" title="${esc(t('nav.dspm'))}">📈<span class="lbl"> ${esc(t('nav.dspm'))}</span></button>`);
@@ -3507,6 +3530,11 @@
     window._LINKCOUNTS=linkCounts||{};
     window._PKIDS=kidsMap||{};   // lets parentDisp() name every parent by their child, links included
     A_CACHE.staff=staff; A_CACHE.students=students; A_CACHE.parents=parents; A_CACHE.classes=classes||[]; A_CACHE.plans=plans||[]; A_CACHE.groups=groups||[]; A_CACHE.depts=depts||[];
+    // Someone who has left keeps their record — payroll and attendance history still point at it —
+    // but they do not belong in the working list. They get their own collapsed section below.
+    const _left=v=>String(v||'ACTIVE').toUpperCase()==='INACTIVE';
+    const _stAct=(staff||[]).filter(s=>!_left(s.Status));
+    const _stGone=(staff||[]).filter(s=>_left(s.Status));
     const CAPS=[['students','perm.students'],['staff','perm.staff'],['payroll','perm.payroll'],['parentPII','perm.parentPII'],['edit','perm.edit'],['approve','perm.approve']];
     const ROLES=['Admin','Leader','Teacher','Parent'];
     window._PERM=pm; window._PERM_STAFF=staff;
@@ -3563,9 +3591,13 @@
       ${amenu}
       <div class="sec-divider">🗂️ ${EN()?'People & data':'บุคลากร & ข้อมูล'}</div>
       ${searchBox()}
-      <div class="card secw" id="sec-staff">${secHead('👩‍🏫',t('c.staff'),staff.length,`<button class="btn sm" onclick="event.stopPropagation();A_staffForm()">+ ${esc(t('manage.add'))}</button>`)}
+      <div class="card secw" id="sec-staff">${secHead('👩‍🏫',t('c.staff'),_stAct.length,`<button class="btn sm" onclick="event.stopPropagation();A_staffForm()">+ ${esc(t('manage.add'))}</button>`)}
         <div class="secbody" hidden>
-        ${staff.map(s=>`<div class="list-item stack" data-k="${esc((s.NameTH+' '+(s.NameEN||'')+' '+(s.Nickname||'')+' '+(s.Position||'')+' '+(s.Department||'')).toLowerCase())}"><span style="display:flex;gap:8px;align-items:center">${personAvatar(s)}<span><b>${esc(dispNick(s))}</b> ${nmSub(s)?`<small class="muted">${esc(nmSub(s))}</small>`:""}<br><small class="muted">${_notr(s.Position||"")} · ${esc(deptLabel(s))} · 🕑 ${_notr(groupLabel(s.StaffGroup))}${groupHours(s.StaffGroup)?' ('+esc(groupHours(s.StaffGroup))+')':''}</small><br><small class="muted">${esc(t('staff.start'))} ${esc(s.StartDate||'-')} · ${esc(t('staff.tenure'))} ${esc(tenure(s.StartDate))}</small></span></span><span class="acts"><button class="btn sm outline" onclick="A_staffForm('${s.StaffID}')">✏️ ${EN()?'Edit':'แก้ไข'}</button><button class="btn sm pink" onclick="A_delStaff('${s.StaffID}',this)">🗑️ ${EN()?'Delete':'ลบ'}</button></span></div>`).join('')}</div></div>
+        ${_stAct.map(s=>`<div class="list-item stack" data-k="${esc((s.NameTH+' '+(s.NameEN||'')+' '+(s.Nickname||'')+' '+(s.Position||'')+' '+(s.Department||'')).toLowerCase())}"><span style="display:flex;gap:8px;align-items:center">${personAvatar(s)}<span><b>${esc(dispNick(s))}</b> ${nmSub(s)?`<small class="muted">${esc(nmSub(s))}</small>`:""}<br><small class="muted">${_notr(s.Position||"")} · ${esc(deptLabel(s))} · 🕑 ${_notr(groupLabel(s.StaffGroup))}${groupHours(s.StaffGroup)?' ('+esc(groupHours(s.StaffGroup))+')':''}</small><br><small class="muted">${esc(t('staff.start'))} ${esc(s.StartDate||'-')} · ${esc(t('staff.tenure'))} ${esc(tenure(s.StartDate))}</small></span></span><span class="acts"><button class="btn sm outline" onclick="A_staffForm('${s.StaffID}')">✏️ ${EN()?'Edit':'แก้ไข'}</button><button class="btn sm pink" onclick="A_delStaff('${s.StaffID}',this)">🗑️ ${EN()?'Delete':'ลบ'}</button></span></div>`).join('')}</div></div>
+      ${_stGone.length?`<div class="card secw" id="sec-staff-gone">${secHead('🚪',EN()?'No longer working here':'สิ้นสุดการทำงานแล้ว',_stGone.length,'')}
+        <div class="secbody" hidden>
+        <p class="muted" style="font-size:13px;margin:2px 2px 8px">${EN()?'Kept on purpose — payroll and attendance history still refer to these records. Open one to bring the person back.':'เก็บไว้โดยตั้งใจ — ประวัติเงินเดือนและการลงเวลายังอ้างอิงถึงข้อมูลเหล่านี้ · เปิดดูเพื่อนำกลับเข้าทำงานได้'}</p>
+        ${_stGone.map(s=>`<div class="list-item stack"><span style="display:flex;gap:8px;align-items:center">${personAvatar(s)}<span><b>${esc(dispNick(s))}</b> ${nmSub(s)?`<small class="muted">${esc(nmSub(s))}</small>`:""}<br><small class="muted">${esc(t('staff.start'))} ${esc(s.StartDate||'-')} → ${esc(s.EndDate||'-')}</small>${s.EndReason?`<br><small style="color:var(--warn)">${esc(s.EndReason)}</small>`:''}${s.EndRemark?`<br><small class="muted" style="white-space:pre-wrap">${esc(s.EndRemark)}</small>`:''}</span></span><span class="acts"><button class="btn sm outline" onclick="A_staffForm('${s.StaffID}')">👁️ ${EN()?'Open':'เปิดดู'}</button><button class="btn sm" onclick="A_staffReturn('${s.StaffID}',this)">↩️ ${EN()?'Bring back':'นำกลับ'}</button></span></div>`).join('')}</div></div>`:''}
       <div class="card secw" id="sec-parents">${secHead('👪',t('manage.parents'),parents.length,`<button class="btn sm" onclick="event.stopPropagation();A_parentForm()">+ ${esc(t('manage.add'))}</button>`)}
         <div class="secbody" hidden>
         ${parents.map(p=>{ const lc=(window._LINKCOUNTS||{})[p.ParentID]||0; const lcBadge=`<span class="pill ${lc?'ok':'bad'}" style="font-size:11px" title="${EN()?'linked children':'จำนวนบุตรที่ผูก'}">👶 ${lc}</span>`;
@@ -3594,6 +3626,9 @@
       <div class="grid2">${f('DOB',t('reg.dob'),s.DOB,'date')}${f('Position',t('manage.position'),s.Position)}</div>
       <div class="grid2">
         <label class="field"><span>${esc(t('manage.level'))}</span><select id="sf_PositionLevel">${['Admin','Leader','Officer','Assistant','Staff'].map(l=>`<option ${s.PositionLevel===l?'selected':''}>${esc(l)}</option>`).join('')}</select></label>
+        <label class="field"><span>🔐 ${EN()?'Access':'สิทธิ์การใช้งาน'}</span><select id="sf_Role">${
+          [['Teacher',EN()?'Teacher':'คุณครู'],['Admin',EN()?'Admin — full access':'ผู้ดูแลระบบ — ทำได้ทุกอย่าง'],['Observer',EN()?'Observer — view only':'ผู้ตรวจสอบ — ดูอย่างเดียว']]
+            .map(([v,l])=>`<option value="${v}" ${String(s.Role||'Teacher')===v?'selected':''}>${esc(l)}</option>`).join('')}</select></label>
         <label class="field"><span>${EN()?'Work group & time (admin-managed)':'กลุ่มพนักงาน & เวลา (แอดมินจัดการ)'}</span>
           <div class="row" style="gap:6px"><select id="sf_StaffGroup" style="flex:1">${grpOpts.map(g=>`<option value="${esc(g.GroupName)}" ${s.StaffGroup===g.GroupName?'selected':''}>${esc(g.GroupName)}${g.CheckInTime?` (${esc(g.CheckInTime)}–${esc(g.CheckOutTime||'')})`:''}</option>`).join('')}</select><button type="button" class="btn sm outline" onclick="A_groups()" title="${EN()?'Edit groups & times':'แก้ไขกลุ่ม & เวลา'}" aria-label="${EN()?"Edit":"แก้ไข"}" title="${EN()?"Edit":"แก้ไข"}">✏️</button></div></label></div>
       <div class="jsec"><b style="font-size:13px">🏫 ${EN()?'Department(s) responsible (choose one or more)':'แผนกที่รับผิดชอบ (เลือกได้หลายแผนก)'}</b>
@@ -3604,6 +3639,28 @@
       <label class="field" style="display:flex;align-items:center;gap:8px"><input type="checkbox" id="sf_CanFoodMenu" style="width:auto" ${(s.CanFoodMenu===true||s.CanFoodMenu===1||['YES','TRUE'].indexOf(String(s.CanFoodMenu||'').toUpperCase())>=0)?'checked':''}/> 🍚 ${EN()?'Allow this teacher to manage the monthly food menu':'ให้ครูคนนี้จัดการเมนูอาหารรายเดือนได้'}</label>
       <div class="grid2">${f('Phone',t('reg.phone'),phoneFmt(s.Phone))}${f('NationalID',t('reg.nationalId'),s.NationalID)}</div>
       <div class="grid2">${f('StartDate',t('staff.startDate'),s.StartDate,'date')}${f('BaseSalary',t('pay.baseSalary'),s.BaseSalary,'number')}</div>
+      <p class="muted" style="font-size:13px;margin:-4px 2px 8px">${EN()?'Before the first working day this person cannot log time, and nothing counts them present or absent.':'ก่อนถึงวันเข้าทำงานวันแรก จะลงเวลาไม่ได้ และระบบจะไม่นับมา/ขาด/สายให้'}</p>
+      <div class="card" style="background:var(--surface-2);padding:8px"><b style="font-size:13px">⭐ ${EN()?'Diligence bonus for this person':'เบี้ยขยันของพนักงานคนนี้'}</b>
+        <p class="muted" style="font-size:13px;margin:2px 0 6px">${EN()?'Set per person — the payroll screen starts from these figures instead of the school-wide default.':'ตั้งได้รายบุคคล ไม่จำเป็นต้องเท่ากันทุกคน · หน้าคำนวณเงินเดือนจะดึงค่านี้ไปใช้แทนค่ากลางของโรงเรียน'}</p>
+        <div class="grid2"><label class="field" style="margin:0"><span>${esc(t('set.attendAmt'))} (฿)</span><input id="sf_DiligenceAttendanceAmount" type="number" min="0" value="${esc(s.DiligenceAttendanceAmount!=null&&s.DiligenceAttendanceAmount!==''?s.DiligenceAttendanceAmount:'')}" placeholder="${esc(String((MOCK.config&&MOCK.config.DiligenceAttendanceAmount)||500))}"/></label>
+          <label class="field" style="margin:0"><span>${esc(t('set.fbAmt'))} (฿)</span><input id="sf_DiligenceFacebookAmount" type="number" min="0" value="${esc(s.DiligenceFacebookAmount!=null&&s.DiligenceFacebookAmount!==''?s.DiligenceFacebookAmount:'')}" placeholder="${esc(String((MOCK.config&&MOCK.config.DiligenceFacebookAmount)||500))}"/></label></div></div>
+      ${id?(String(s.Status||'ACTIVE').toUpperCase()==='INACTIVE'
+        ? `<div class="card" style="background:var(--warn-bg);border-color:var(--warn-line);padding:8px">
+             <b style="font-size:13px;color:var(--warn)">🚪 ${EN()?'No longer working here':'สิ้นสุดการทำงานแล้ว'}</b>
+             <div style="font-size:13px;margin-top:4px">${esc(s.EndDate||'')}${s.EndReason?` · ${esc(s.EndReason)}`:''}</div>
+             ${s.EndRemark?`<div class="muted" style="font-size:13px;white-space:pre-wrap">${esc(s.EndRemark)}</div>`:''}
+             <p class="muted" style="font-size:13px;margin:6px 0 0">${EN()?'The record was kept — payroll and attendance history still refer to it.':'ระบบเก็บข้อมูลไว้ครบ — ประวัติเงินเดือนและการลงเวลายังอ้างอิงถึงคนนี้อยู่'}</p>
+             <button type="button" class="btn sm block" style="margin-top:6px" onclick="A_staffReturn('${id}',this)">↩️ ${EN()?'Bring this person back':'นำกลับเข้าทำงาน'}</button></div>`
+        : `<details class="card" style="background:var(--surface-2);padding:8px"><summary style="font-size:13px;cursor:pointer"><b>🚪 ${EN()?'End employment':'สิ้นสุดการทำงาน'}</b></summary>
+             <p class="muted" style="font-size:13px;margin:6px 0">${EN()?'Removes them from the active lists. Nothing is deleted — payroll and attendance history are kept, and they can be brought back later.':'จะนำชื่อออกจากรายชื่อที่ใช้งานอยู่ · ไม่มีการลบข้อมูล ประวัติเงินเดือนและการลงเวลายังอยู่ครบ และนำกลับเข้ามาใหม่ได้'}</p>
+             <div class="grid2"><label class="field" style="margin:0"><span>${EN()?'Last working day':'วันสิ้นสุดการทำงาน'}</span><input id="sf_EndDate" type="date" value="${esc(s.EndDate||'')}"/></label>
+               <label class="field" style="margin:0"><span>${EN()?'Reason':'เหตุผล'}</span><select id="sf_EndReason" translate="no">
+                 <option value="">—</option>
+                 <option value="ไม่ผ่านการทดลองงาน">${EN()?'Did not pass probation':'ไม่ผ่านการทดลองงาน'}</option>
+                 <option value="ลาออก">${EN()?'Resigned':'ลาออก'}</option>
+                 <option value="ให้ออก">${EN()?'Dismissed':'ให้ออก'}</option></select></label></div>
+             <label class="field"><span>${EN()?'Notes':'รายละเอียดเพิ่มเติม'}</span><textarea id="sf_EndRemark" rows="3" style="width:100%"></textarea></label>
+             <button type="button" class="btn sm pink block" onclick="A_staffEnd('${id}',this)">${EN()?'Save and remove from lists':'บันทึกและนำออกจากรายชื่อ'}</button></details>`):''}
       <div class="grid2"><label class="field"><span>🏦 ${EN()?'Bank':'ธนาคาร'}</span><select id="sf_BankName">${['','SCB','KBANK','KTB','BBL','TTB','BAY','GSB','KKP','TISCO','UOB','CIMB','BAAC','LHBANK'].map(b=>`<option value="${b}" ${String(s.BankName||'')===b?'selected':''}>${b||(EN()?'—':'—')}</option>`).join('')}</select></label>
         ${f('BankAccount',(EN()?'Account number':'เลขที่บัญชี'),s.BankAccount)}</div>
       <div class="card" style="padding:8px;background:var(--surface-2)">
@@ -3626,8 +3683,37 @@
     const canOrg=m.querySelector('#sf_CanClassOrg')&&m.querySelector('#sf_CanClassOrg').checked;
     const canFood=m.querySelector('#sf_CanFoodMenu')&&m.querySelector('#sf_CanFoodMenu').checked;
     const data={NameTH:v('NameTH'),NameEN:v('NameEN'),Nickname:v('Nickname'),NicknameEN:v('NicknameEN'),DOB:v('DOB'),Position:v('Position'),Department:dept,StaffGroup:v('StaffGroup'),PositionLevel:v('PositionLevel'),Phone:v('Phone'),NationalID:v('NationalID'),LineUID:v('LineUID'),StartDate:v('StartDate'),BaseSalary:+v('BaseSalary')||0,BankName:v('BankName'),BankAccount:v('BankAccount'),ContributionOpening:+v('ContributionOpening')||0,ContributionLocked:(m.querySelector('#sf_ContributionLocked')&&m.querySelector('#sf_ContributionLocked').checked)?'YES':'',Classes:dept,CanClassOrg:canOrg?'YES':'',CanFoodMenu:canFood?'YES':''};
+    data.Role=v('Role')||'Teacher';
     const sfp=photoVal(m,'sf_Photo'); if(sfp) data.Photo=sfp;
-    try{ await api('saveStaff',{staffId:id||null,data}); m.remove(); confirmSaved(t('c.saved')); GO('manage'); }catch(e){err(e);} };
+    try{ const r=await api('saveStaff',{staffId:id||null,data});
+      // The diligence figures live with the rest of this person's pay settings (PAYROLL_CONFIG), which
+      // is where the payroll screen already reads them from — one place, not two that can disagree.
+      const sid=id||(r&&r.staffId);
+      const att=m.querySelector('#sf_DiligenceAttendanceAmount'), fb=m.querySelector('#sf_DiligenceFacebookAmount');
+      if(sid && att && fb && (att.value!==''||fb.value!=='')){
+        const cur=await api('payrollConfig',{staffId:sid}).catch(()=>({}));
+        await api('setPayrollConfig',{staffId:sid,config:Object.assign({},cur,{
+          DiligenceAttendanceAmount: att.value===''?undefined:+att.value,
+          DiligenceFacebookAmount:  fb.value===''?undefined:+fb.value })});
+      }
+      m.remove(); confirmSaved(t('c.saved')); GO('manage'); }catch(e){err(e);} };
+  // Leaving is not deleting: the row stays so payroll and attendance history keep their meaning.
+  window.A_staffEnd=async(id,btn)=>{ const m=btn.closest('.modal');
+    const endDate=(m.querySelector('#sf_EndDate')||{}).value||'';
+    const reason=(m.querySelector('#sf_EndReason')||{}).value||'';
+    const remark=(m.querySelector('#sf_EndRemark')||{}).value||'';
+    if(!endDate){ toast(EN()?'Pick the last working day':'กรุณาเลือกวันสิ้นสุดการทำงาน'); return; }
+    if(!reason){ toast(EN()?'Pick a reason':'กรุณาเลือกเหตุผล'); return; }
+    if(!confirm(EN()?'Remove this person from the active lists?':'ยืนยันนำชื่อออกจากรายชื่อที่ใช้งานอยู่?'))return;
+    btn.disabled=true;
+    try{ await api('setStaffEnd',{staffId:id,endDate,reason,remark,adminId:USER.staffId});
+      m.remove(); confirmSaved(EN()?'Recorded — the record is kept':'บันทึกแล้ว — ข้อมูลยังเก็บไว้ครบ'); GO('manage');
+    }catch(e){err(e); btn.disabled=false;} };
+  window.A_staffReturn=async(id,btn)=>{ if(!confirm(EN()?'Bring this person back to the active lists?':'นำกลับเข้าทำงานและกลับไปอยู่ในรายชื่อ?'))return;
+    btn.disabled=true; const m=btn.closest('.modal');
+    try{ await api('setStaffEnd',{staffId:id,restore:true,adminId:USER.staffId});
+      if(m)m.remove(); confirmSaved(EN()?'Back on the active list':'นำกลับเข้าทำงานแล้ว'); GO('manage');
+    }catch(e){err(e); btn.disabled=false;} };
   window.SF_allDept=(cb)=>{ const box=document.getElementById('sf_DeptList'); if(box){ box.style.opacity=cb.checked?'.4':''; box.style.pointerEvents=cb.checked?'none':''; } };
   window.A_delStaff=(id,btn)=>{ if(!confirm(t('manage.confirmDel')))return;
     deleteWithUndo(EN()?'Staff removed':'ลบพนักงานแล้ว', ()=>api('deleteStaff',{staffId:id}).then(()=>GO('manage')), null, null, btn); };
@@ -3739,6 +3825,8 @@
       <div class="grid2">${f('NationalID',t('reg.nationalIdParent'),p.NationalID)}</div>
       <div class="grid2">${f('Phone',t('reg.mobile'),phoneFmt(p.Phone))}${f('OfficePhone',t('reg.officePhone'),phoneFmt(p.OfficePhone))}</div>
       <div class="grid2">${f('Occupation',t('reg.occupation'),p.Occupation)}${f('Workplace',t('reg.workplace'),p.Workplace)}</div>
+      <label class="field"><span>🔗 LINE ID ${p.LineUID?'✅':''}</span><input id="pf_LineUID" value="${esc(p.LineUID||'')}" placeholder="Uxxxxxxxxxxxxxxxx"/></label>
+      <div class="card" style="background:var(--surface-2);padding:8px"><small class="muted">${EN()?'This is what ties the account to their LINE. If they change phone or LINE account, have them open the app once — the sign-in screen shows their new LINE ID — then paste it here and Save. Nothing else has to be re-entered.':'ช่องนี้คือสิ่งที่ผูกบัญชีเข้ากับ LINE ของผู้ปกครอง · หากเปลี่ยนเครื่องหรือเปลี่ยนบัญชี LINE ให้เปิดแอปหนึ่งครั้ง หน้าเข้าสู่ระบบจะแสดง LINE ID ใหม่ → คัดลอกมาวางช่องนี้แล้วกดบันทึก ข้อมูลอื่นไม่ต้องกรอกใหม่'}</small></div>
       ${photoField('pf_Photo',t('reg.parentPhoto'),p.Photo,true)}
       ${id?`<button class="btn block outline" onclick="this.closest('.modal').remove();A_payLog('${esc(id)}')">🧾 ${EN()?'Payment history':'ประวัติการชำระเงิน'}</button>`:''}
       <button class="btn block" onclick="A_saveParent(this,'${id||''}')">${esc(t('c.save'))}</button>`);
@@ -3770,7 +3858,7 @@
       <button class="btn outline block" onclick="this.closest('.modal').remove()">${esc(t('c.close'))}</button>`);
   };
   window.A_saveParent=async(btn,id)=>{ const m=btn.closest('.modal'); const v=k=>{ const e=m.querySelector('#pf_'+k); return e?e.value.trim():''; };
-    const data={Title:v('Title'),NameTH:v('NameTH'),NameEN:v('NameEN'),Nickname:v('Nickname'),NicknameEN:v('NicknameEN'),Relationship:v('Relationship'),NationalID:v('NationalID'),Phone:v('Phone'),OfficePhone:v('OfficePhone'),Occupation:v('Occupation'),Workplace:v('Workplace')};
+    const data={Title:v('Title'),NameTH:v('NameTH'),NameEN:v('NameEN'),Nickname:v('Nickname'),NicknameEN:v('NicknameEN'),Relationship:v('Relationship'),NationalID:v('NationalID'),Phone:v('Phone'),OfficePhone:v('OfficePhone'),Occupation:v('Occupation'),Workplace:v('Workplace'),LineUID:v('LineUID')};
     const pfp=photoVal(m,'pf_Photo'); if(pfp) data.Photo=pfp;
     try{ await api('saveParent',{parentId:id||null,data}); m.remove(); confirmSaved(t('c.saved')); GO('manage'); }catch(e){err(e);} };
   window.A_delParent=(id,btn)=>{ if(!confirm(t('manage.confirmDel')))return;
@@ -5077,8 +5165,13 @@
       : '';
     const amount = (tuiOpen+othOpen)>0 ? baht(tuiOpen+othOpen) : `<span class="muted">${baht(0)}</span>`;
     const sub = s.prepaid ? `<br><small style="color:var(--ok);font-weight:400">💰 ${esc(prepaySpan(s.prepay))}</small>` : '';
-    return `<div class="list-item" style="cursor:pointer" onclick="A_finStudent('${s.studentId}')">
-      <span><b>${esc(dnick(s))}</b><br><small class="muted" style="font-weight:400">${dnSub(s)?esc(dnSub(s))+" · ":""}${esc(planLabel(s.plan))}</small>${sub}</span>
+    // Children on temporary leave are still billable — this is how a deposit or a first month is
+    // collected BEFORE a child starts — so they stay on the list, marked, at the bottom.
+    const pausedTag = s.paused
+      ? `<br><small style="color:var(--warn);font-weight:400">⏳ ${EN()?'on temporary leave':'ลาชั่วคราว'}${s.pauseFrom?` · ${esc(s.pauseFrom)}${s.pauseTo?`–${esc(s.pauseTo)}`:''}`:''}</small>`
+      : '';
+    return `<div class="list-item" style="cursor:pointer${s.paused?';opacity:.75':''}" onclick="A_finStudent('${s.studentId}')">
+      <span><b>${esc(dnick(s))}</b><br><small class="muted" style="font-weight:400">${dnSub(s)?esc(dnSub(s))+" · ":""}${esc(planLabel(s.plan))}</small>${sub}${pausedTag}</span>
       <span style="text-align:right">${amount} ${pill}${otherPill} <span class="muted">›</span></span></div>`;
   }
   SCREENS.Admin.finance = async () => { const month=FIN_MONTH||monthStr();
@@ -5437,6 +5530,30 @@
         <a class="btn block green" href="${esc(line)}" target="_blank">${esc(t('chat.openLine'))} →</a>
         <p class="muted" style="font-size:13px;margin-top:10px">${esc(t('chat.lineNote'))}</p></div>${verTag()}`;
   };
+
+  /* ===== Observer: everything an Admin can SEE, nothing an Admin can change =====================
+   * The four whole-school screens are the SAME functions, not copies — a copy would drift, and the
+   * point of the role is that an Observer and an Admin are looking at the same thing.
+   *
+   * What actually enforces read-only is the server (dispatch_ refuses every mutating action for this
+   * role). The guard below is there so nothing is half-done on screen and the person gets a plain
+   * explanation instead of a failure, and the banner is there so they know why.
+   */
+  ['home','leaves','finance','dspm'].forEach(k => { SCREENS.Observer[k] = (...a) => SCREENS.Admin[k](...a); });
+  const isObserver = () => !!(USER && USER.role === 'Observer');
+  {
+    const _api = window.api;
+    window.api = function (action, payload, opts) {
+      if (isObserver() && window.__atomIsMutating && window.__atomIsMutating(action)) {
+        toast('👁️ ' + (EN() ? 'View-only account — you can open anything, but not change it'
+                             : 'บัญชีนี้ดูอย่างเดียว — เปิดดูได้ทุกอย่าง แต่แก้ไขไม่ได้'));
+        const e = new Error(EN() ? 'View-only account' : 'บัญชีนี้เป็นสิทธิ์ดูอย่างเดียว (Observer)');
+        e.code = 'READ_ONLY';
+        return Promise.reject(e);
+      }
+      return _api(action, payload, opts);
+    };
+  }
 
   // look up a staff record from the admin cache first (MOCK.staff is empty in gas mode)
   const staffRec = id => (window.A_CACHE&&(A_CACHE.staff||[]).find(x=>x.StaffID===id)) || (MOCK.staff||[]).find(x=>x.StaffID===id) || null;

@@ -11,7 +11,8 @@
 function handleSaveStaff(p) {
   p = p || {};
   var sh = sheet_(getHrSpreadsheet_(), 'STAFF');
-  try { ensureColumns_(sh, ['NicknameEN', 'Classes', 'CanClassOrg', 'CanFoodMenu', 'BankName', 'BankAccount', 'ContributionOpening']); } catch (e) {}
+  try { ensureColumns_(sh, ['NicknameEN', 'Classes', 'CanClassOrg', 'CanFoodMenu', 'BankName', 'BankAccount', 'ContributionOpening',
+    'StartDate', 'EndDate', 'EndReason', 'EndRemark']); } catch (e) {}
   var d = p.data || {};
   var row = {};
   for (var k in d) { if (d.hasOwnProperty(k)) row[k] = d[k]; }
@@ -32,6 +33,40 @@ function handleSaveStaff(p) {
   appendObject_(sh, row);
   staffCacheBust_();
   return { ok: true, staffId: id };
+}
+
+/**
+ * A staff member leaves — or comes back.
+ *
+ * Deleting the row would take their payroll history, attendance and leave with it, and those must
+ * survive: the school still has to be able to answer questions about a month someone was paid for.
+ * So the record STAYS and only Status changes, with the date and reason recorded next to it. Coming
+ * back is then a single toggle, with nothing to re-enter.
+ *
+ * p: { staffId, endDate, reason, remark, adminId } | { staffId, restore:true, adminId }
+ */
+var STAFF_END_REASONS_ = ['ไม่ผ่านการทดลองงาน', 'ลาออก', 'ให้ออก'];
+function handleSetStaffEnd(p) {
+  p = p || {};
+  var sh = sheet_(getHrSpreadsheet_(), 'STAFF');
+  try { ensureColumns_(sh, ['EndDate', 'EndReason', 'EndRemark']); } catch (e) {}
+  var st = findObject_(sh, function (s) { return String(s.StaffID) === String(p.staffId); });
+  if (!st) throw apiError_('NOT_FOUND', 'ไม่พบพนักงาน ' + p.staffId);
+
+  if (p.restore) {
+    updateRow_(sh, st._row, { Status: 'ACTIVE', EndDate: '', EndReason: '', EndRemark: '' });
+    staffCacheBust_();
+    try { logAuditHr(p.adminId || 'admin', 'STAFF_RESTORE', 'STAFF', String(p.staffId)); } catch (e) {}
+    return { ok: true, staffId: p.staffId, status: 'ACTIVE' };
+  }
+  var reason = String(p.reason || '');
+  if (STAFF_END_REASONS_.indexOf(reason) < 0) throw apiError_('BAD_INPUT', 'กรุณาเลือกเหตุผลการสิ้นสุดการทำงาน');
+  var end = String(p.endDate || '').slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(end)) throw apiError_('BAD_INPUT', 'กรุณาระบุวันสิ้นสุดการทำงาน');
+  updateRow_(sh, st._row, { Status: 'INACTIVE', EndDate: end, EndReason: reason, EndRemark: String(p.remark || '') });
+  staffCacheBust_();
+  try { logAuditHr(p.adminId || 'admin', 'STAFF_END', 'STAFF', String(p.staffId) + ' ' + end + ' ' + reason); } catch (e) {}
+  return { ok: true, staffId: p.staffId, status: 'INACTIVE', endDate: end, reason: reason };
 }
 
 // Staff edits their OWN record — whitelisted fields, in-place. staffId is injected by applyIdentity_
@@ -263,7 +298,7 @@ function handleUnlinkStudent(p) {
 function handleSaveParent(p) {
   p = p || {};
   var sh = sheet_(getMainSpreadsheet_(), 'PARENTS');
-  try { ensureColumns_(sh, ['Nickname', 'NicknameEN', 'Title']); } catch (e) {}
+  try { ensureColumns_(sh, ['Nickname', 'NicknameEN', 'Title', 'LineUID']); } catch (e) {}
   var row = mapName_(p.data || {});
   if (p.parentId) {
     var pa = findObject_(sh, function (x) { return String(x.ParentID) === String(p.parentId); });
