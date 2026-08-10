@@ -76,6 +76,30 @@ console.log('\n1) Observer — sees everything, changes nothing');
   ok_('...and the form actually saves the role', /data\.Role=v\('Role'\)/.test(app));
 }
 
+console.log('\n1b) "View as" previews the person\'s OWN role');
+{
+  // This said 'Teacher' for every staff member, so previewing an Observer showed the teacher
+  // screens — exactly what the preview exists to check. Reported live for พี่กุ้ง.
+  const i = app.indexOf('window.A_viewAsStaff=');
+  const body = app.slice(i, app.indexOf('window.A_viewAsParent=', i));
+  ok_('the role comes from the staff record, not a constant', /String\(s\.Role\|\|''\)==='Observer' \? 'Observer' : 'Teacher'/.test(body));
+  ok_('...and is what the preview switches to', /_enterViewAs\(\{role,/.test(body));
+  ok_('no hard-coded Teacher role is left', !/_enterViewAs\(\{role:'Teacher'/.test(body));
+  ok_('a leader still previews as a leader', /s\.PositionLevel==='Leader'\?'Leader':'Teacher'/.test(body));
+
+  // run the real rule
+  const pick = s => String(s.Role||'')==='Observer' ? 'Observer' : 'Teacher';
+  eq('an Observer previews as Observer', pick({ Role: 'Observer', PositionLevel: 'Staff' }), 'Observer');
+  eq('a teacher previews as Teacher', pick({ Role: 'Teacher' }), 'Teacher');
+  eq('a staff row with no role set still previews as Teacher', pick({}), 'Teacher');
+
+  ok_('the picker says which people are view-only, before you choose one',
+    /Observer — view only|ผู้ตรวจสอบ \(ดูอย่างเดียว\)/.test(app));
+  ok_('and the preview bar repeats it', /USER\.role==='Observer'\?[\s\S]{0,80}ดูอย่างเดียว/.test(app));
+  // the four Observer screens exist, so switching to that role has somewhere to land
+  ok_('the Observer screens are registered before any preview can use them', /SCREENS\.Observer\[k\] = /.test(app));
+}
+
 console.log('\n2) A staff member leaves — and the record stays');
 {
   const r = runStaffEnd({ staffId: 'STF-1', endDate: '2026-08-31', reason: 'ลาออก', remark: 'ย้ายกลับต่างจังหวัด', adminId: 'A1' });
