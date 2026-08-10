@@ -112,7 +112,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.209'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.210'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -2992,8 +2992,94 @@
         ${smStat(tot.ab, EN()?'absent days':'วันขาด', tot.ab?'pink':'')}</div>
       <p class="muted" style="font-size:13px">${EN()?'Everyone who logs time, this month. Tap a person for their day-by-day record. Weekends, holidays and days before someone started are not counted as absent.':'ทุกคนที่ต้องลงเวลา ในเดือนนี้ · แตะที่ชื่อเพื่อดูรายวันทั้งเดือน · เสาร์-อาทิตย์ วันหยุด และวันก่อนเริ่มงาน ไม่นับเป็นขาด'}</p>
       <div style="max-height:52vh;overflow:auto">${rows||`<div class="card muted">${esc(t('c.noItems'))}</div>`}</div>
+      <div class="row" style="gap:8px;margin-top:8px">
+        <button class="btn sm outline" style="flex:1" onclick="A_staffMonthExport('pdf')">📄 PDF</button>
+        <button class="btn sm outline" style="flex:1" onclick="A_staffMonthExport('jpg')">🖼️ JPG</button></div>
       <button class="btn outline block" style="margin-top:8px" onclick="this.closest('.modal').remove()">${esc(t('c.close'))}</button>`);
   };
+  // Export uses the same A4 renderer as the report card, so every document the school prints looks
+  // like it came from the same place. Built on the device — no report is uploaded anywhere.
+  const withReportKit = fn => __atomLoadScript('report_card.js', ()=>!!window.AtomReportCard).then(fn).catch(e=>err(e));
+  window.A_staffMonthExport = (kind) => withReportKit(()=>{
+    const d=window._SM||{}; const list=sortPeopleD(d.staff||[]);
+    const tot=list.reduce((a,s)=>({p:a.p+s.present,l:a.l+s.lateDays,v:a.v+s.leaveDays,ab:a.ab+s.absent}),{p:0,l:0,v:0,ab:0});
+    AtomReportCard.saveTable({
+      title:'สรุปเวลาทำงานของครู', subtitle:monthNameYear(d.month),
+      filename:'เวลาทำงานครู_'+String(d.month||''),
+      stats:[{n:list.length,label:'คุณครู'},{n:tot.p,label:'วันมาทำงาน'},{n:tot.l,label:'วันมาสาย'},
+             {n:tot.v,label:'วันลา'},{n:tot.ab,label:'วันขาด'}],
+      note:'เสาร์-อาทิตย์ วันหยุด วันก่อนเริ่มงาน และวันนี้ ไม่นับเป็นวันขาด',
+      columns:[{key:'name',label:'ชื่อ',width:3,bold:true},{key:'present',label:'มาทำงาน',width:1.2,align:'right'},
+        {key:'late',label:'สาย (วัน/นาที)',width:1.6,align:'right'},{key:'leave',label:'ลา',width:1,align:'right'},
+        {key:'absent',label:'ขาด',width:1,align:'right'},{key:'ot',label:'OT (ชม.)',width:1.2,align:'right'}],
+      rows:list.map(s=>({name:dnick(s)+(dnSub(s)?' ('+dnSub(s)+')':''), present:s.present,
+        late:s.lateDays+(s.lateMinutes?' / '+s.lateMinutes:''), leave:s.leaveDays, absent:s.absent,
+        ot:s.otHours||'', _warn:s.absent>0})),
+      footer:'ออกโดยระบบ Atom Nursery · '+todayStr()
+    }, kind);
+  });
+
+  /* ---- the class report the school did not have ------------------------------------------------
+   * Attendance, leave, consecutive absence, growth and DSPM for every child, grouped by class.
+   * The pieces existed one child at a time; this is the page that answers "how is Nursery 2 doing".
+   */
+  let SR_MONTH=null;
+  window.A_studentReport = async (month) => {
+    SR_MONTH = month || SR_MONTH || monthStr();
+    let d; try { d = await api('studentMonthReport',{month:SR_MONTH,staffId:USER.staffId}); } catch(e){ err(e); return; }
+    window._SR = d;
+    const T=d.totals||{};
+    const cls=(d.classes||[]).map(c=>`
+      <div class="card" style="padding:8px">
+        <div class="spread"><b>🏫 ${esc(c.className)}</b><span class="muted" style="font-size:13px">${c.count} ${EN()?'children':'คน'}</span></div>
+        <div class="muted" style="font-size:13px;margin:2px 0 6px">${EN()?'present':'มาเรียน'} ${c.present} · ${EN()?'absent':'ขาด'} ${c.absent} · ${EN()?'sick':'ลาป่วย'} ${c.sick} · ${EN()?'personal':'ลากิจ'} ${c.personal}
+          ${c.watch?` · <span style="color:var(--bad);font-weight:600">${EN()?'to follow up':'ต้องติดตาม'} ${c.watch}</span>`:''}</div>
+        ${sortPeopleD(c.students).map(s=>`<div class="list-item" style="align-items:flex-start${s.paused?';opacity:.7':''}">
+          <span style="flex:1"><b>${esc(dnick(s))}</b>${s.paused?` <span class="pill info" style="font-size:11px">${EN()?'on leave':'ลาชั่วคราว'}</span>`:''}
+            <br><small class="muted">${EN()?'present':'มา'} ${s.present} · ${EN()?'absent':'ขาด'} ${s.absent} · ${EN()?'sick':'ป่วย'} ${s.sick} · ${EN()?'personal':'กิจ'} ${s.personal}</small>
+            <br><small class="muted">⚖️ ${s.weight?esc(s.weight)+' kg':'—'} · 📏 ${s.height?esc(s.height)+' cm':'—'}${s.measuredAt?` <span style="color:var(--ink-3)">(${esc(s.measuredAt)})</span>`:` <span style="color:var(--warn)">${EN()?'never measured':'ยังไม่เคยชั่ง/วัด'}</span>`}</small>
+            <br><small class="muted">📈 DSPM ${s.dspmTotal?`${s.dspmDone}/${s.dspmTotal}${s.dspmDone?` · ${EN()?'passed':'ผ่าน'} ${s.dspmPass}`:''}`:(EN()?'no criteria for this age':'ยังไม่มีเกณฑ์ตามอายุ')}</small></span>
+          <span style="text-align:right">${s.maxConsecutive>=3
+            ? `<span class="pill bad">${EN()?'absent':'ขาดต่อเนื่อง'} ${s.maxConsecutive}</span>`
+            : (s.maxConsecutive>=2?`<span class="pill wait">${EN()?'absent':'ขาดต่อเนื่อง'} ${s.maxConsecutive}</span>`:'')}</span></div>`).join('')}
+      </div>`).join('');
+    modal(`<h3>📊 ${EN()?'Class report':'สรุปรายชั้นเรียน'}</h3>
+      <label class="field"><span>${esc(t('c.month'))}</span><input type="month" value="${esc(d.month)}" onchange="A_studentReport(this.value)"/></label>
+      <div class="kpigrid" style="margin-bottom:8px">
+        <div class="kpi"><b>${T.students||0}</b><small>${EN()?'children':'นักเรียน'}</small></div>
+        <div class="kpi"><b style="color:var(--ok)">${T.present||0}</b><small>${EN()?'days present':'วันมาเรียน'}</small></div>
+        <div class="kpi"><b style="color:var(--warn)">${(T.sick||0)+(T.personal||0)}</b><small>${EN()?'leave days':'วันลา'}</small></div>
+        <div class="kpi"><b style="color:${T.watch?'var(--bad)':'var(--ink)'}">${T.watch||0}</b><small>${EN()?'to follow up':'ต้องติดตาม'}</small></div></div>
+      <p class="muted" style="font-size:13px">${EN()?`${d.schoolDays} school days this month. "To follow up" = absent 3 days or more in a row. Weekends, holidays and days a child was on temporary leave are not absences.`:`เดือนนี้มีวันเรียน ${d.schoolDays} วัน · "ต้องติดตาม" = ขาดติดต่อกัน 3 วันขึ้นไป · เสาร์-อาทิตย์ วันหยุด และวันที่ลาชั่วคราว ไม่นับเป็นขาด`}</p>
+      <div style="max-height:50vh;overflow:auto">${cls||`<div class="card muted">${esc(t('c.noItems'))}</div>`}</div>
+      <div class="row" style="gap:8px;margin-top:8px">
+        <button class="btn sm outline" style="flex:1" onclick="A_studentReportExport('pdf')">📄 PDF</button>
+        <button class="btn sm outline" style="flex:1" onclick="A_studentReportExport('jpg')">🖼️ JPG</button></div>
+      <button class="btn outline block" style="margin-top:8px" onclick="this.closest('.modal').remove()">${esc(t('c.close'))}</button>`);
+  };
+  window.A_studentReportExport = (kind) => withReportKit(()=>{
+    const d=window._SR||{}; const T=d.totals||{};
+    AtomReportCard.saveTable({
+      title:'สรุปนักเรียนรายชั้นเรียน', subtitle:monthNameYear(d.month)+' · วันเรียน '+(d.schoolDays||0)+' วัน',
+      filename:'สรุปนักเรียน_'+String(d.month||''),
+      stats:[{n:T.students||0,label:'นักเรียน'},{n:T.present||0,label:'วันมาเรียน'},{n:T.absent||0,label:'วันขาด'},
+             {n:T.sick||0,label:'ลาป่วย'},{n:T.personal||0,label:'ลากิจ'},{n:T.watch||0,label:'ต้องติดตาม'}],
+      note:'"ต้องติดตาม" = ขาดติดต่อกัน 3 วันขึ้นไป · เสาร์-อาทิตย์ วันหยุด และวันที่ลาชั่วคราว ไม่นับเป็นขาด',
+      columns:[{key:'name',label:'ชื่อ',width:2.6,bold:true},{key:'present',label:'มา',width:0.8,align:'right'},
+        {key:'absent',label:'ขาด',width:0.8,align:'right'},{key:'sick',label:'ป่วย',width:0.8,align:'right'},
+        {key:'personal',label:'กิจ',width:0.8,align:'right'},{key:'run',label:'ขาดต่อเนื่อง',width:1.2,align:'right'},
+        {key:'wh',label:'น้ำหนัก/ส่วนสูง',width:1.6,align:'right'},{key:'dspm',label:'DSPM',width:1,align:'right'}],
+      groups:(d.classes||[]).map(c=>({
+        title:c.className+'  ('+c.count+' คน · มา '+c.present+' · ขาด '+c.absent+(c.watch?' · ต้องติดตาม '+c.watch:'')+')',
+        rows:sortPeopleD(c.students).map(s=>({
+          name:dnick(s)+(s.paused?' (ลาชั่วคราว)':''), present:s.present, absent:s.absent, sick:s.sick, personal:s.personal,
+          run:s.maxConsecutive||'', wh:(s.weight?s.weight+' kg':'—')+' / '+(s.height?s.height+' cm':'—'),
+          dspm:s.dspmTotal?(s.dspmDone+'/'+s.dspmTotal):'—', _warn:s.maxConsecutive>=3 }))
+      })),
+      footer:'ออกโดยระบบ Atom Nursery · '+todayStr()
+    }, kind);
+  });
+
   window.A_staffMonthOne = (sid) => {
     const d=window._SM||{}; const s=(d.staff||[]).find(x=>x.staffId===sid); if(!s) return;
     const [Y,Mo]=String(d.month).split('-').map(Number);
@@ -3040,7 +3126,8 @@
       const leaves=await api('allStudentLeaves'); window._SLV_ALL=leaves||[];
       window._CALRENDER=studentLeaveCalRender;
       app.innerHTML=`<h2 class="page">✅ ${EN()?'Operations':'ดำเนินการ'}</h2>${mainSeg}
-        ${opTools([['⏰',EN()?'Student late-pickup OT':'OT รับช้า (นักเรียน)','A_studentOT()']])}
+        ${opTools([['⏰',EN()?'Student late-pickup OT':'OT รับช้า (นักเรียน)','A_studentOT()'],
+                   ['📊',EN()?'Class report':'สรุปรายชั้นเรียน','A_studentReport()']])}
         <p class="muted" style="font-size:13px">${EN()?'Absences by day and class. Tap a day to see who is absent per class (history included).':'การลาแยกรายวันและชั้นเรียน · แตะวันเพื่อดูว่านักเรียนคนไหนขาดในแต่ละชั้น (ดูย้อนหลังได้)'}</p>
         <div class="card"><div id="calWrap">${studentLeaveCalRender()}</div></div>`;
       return;

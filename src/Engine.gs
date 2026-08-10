@@ -1110,6 +1110,82 @@ function createAtomAPI(M, GROWTH_STD) {
      * Big Cleaning day has different hours, so recomputing them afterwards would quietly disagree
      * with the payslip. Days before someone started, weekends and holidays are not absences.
      */
+    /**
+     * One month of every class: how each child attended, and where they stand on growth and DSPM.
+     *
+     * The school had the pieces — today's attendance on the dashboard, absences in the leave
+     * calendar, DSPM and growth one child at a time — but nothing that answers "how is Nursery 2
+     * doing this month" on one page. This is that page, and it is what the PDF prints.
+     *
+     * CONSECUTIVE ABSENCE is the number the school actually acts on: a child missing several days in
+     * a row is a phone call home, and counting it needs the days in order, skipping weekends and
+     * holidays so a Friday-then-Monday absence reads as two in a row rather than four.
+     */
+    studentMonthReport: p => {
+      { const me=staffById(p&&p.staffId); if(!adminLike_(me)) fail('NO_PERMISSION','เฉพาะแอดมิน'); }
+      const month = ym((p&&p.month)||todayLocal().slice(0,7));
+      const [Y,Mo] = month.split('-').map(Number);
+      const days = new Date(Y, Mo, 0).getDate();
+      const today = todayLocal();
+      const hol={}; (M.holidays||[]).forEach(h=>{ const d=ymd(h.Date); if(d.slice(0,7)===month) hol[d]=1; });
+      // the school days of this month, in order — the only days a child can be present or absent
+      const schoolDays=[];
+      for(let dd=1; dd<=days; dd++){
+        const ds = Y+'-'+String(Mo).padStart(2,'0')+'-'+String(dd).padStart(2,'0');
+        const dow = new Date(ds).getDay();
+        if(dow===0||dow===6||hol[ds]||ds>today) continue;
+        schoolDays.push(ds);
+      }
+      const inOn={}; (M.checkinStudent||[]).forEach(c=>{ const d=ymd(c.Date);
+        if(d.slice(0,7)===month && String(c.Type).toUpperCase()==='IN') inOn[c.StudentID+'|'+d]=1; });
+      const leaveOn={}; (M.studentLeaves||[]).forEach(l=>{ const d=ymd(l.Date);
+        if(d.slice(0,7)===month) leaveOn[l.StudentID+'|'+d]={type:String(l.Type||''), reason:l.Reason||''}; });
+      // 'ลาป่วย' vs anything else the school records; an unlabelled leave counts as ลากิจ
+      const isSick = t => /ป่วย|sick/i.test(String(t||''));
+
+      const rows = enrolledStudents().map(s=>{
+        let present=0, absent=0, sick=0, personal=0, run=0, worstRun=0, lastAbsent='';
+        schoolDays.forEach(ds=>{
+          // a child on temporary leave for that day is not expected in, so it is not an absence
+          if(studentPaused_(s, ds)) { run=0; return; }
+          if(inOn[s.StudentID+'|'+ds]) { present++; run=0; return; }
+          const lv=leaveOn[s.StudentID+'|'+ds];
+          if(lv){ if(isSick(lv.type)) sick++; else personal++; run=0; return; }
+          absent++; run++; if(run>worstRun){ worstRun=run; } lastAbsent=ds;
+        });
+        const g=(M.growthRecords||[]).filter(r=>r.StudentID===s.StudentID)
+          .sort((a,b)=>String(a.Date).localeCompare(String(b.Date)));
+        const last=g[g.length-1]||null;
+        // DSPM: how many of the items for this child's age have been assessed, and how many passed
+        const age=ageMonths(s.DOB);
+        const band=(M.dspmCriteria||[]).filter(c=>c.AgeFrom<=age&&age<=c.AgeTo);
+        const latest=latestByItem(s.StudentID);
+        let done=0, pass=0;
+        band.forEach(c=>{ const r=latest[c.ItemNo]; if(!r||!r.Result||r.Result==='ยังไม่ได้รับการทดสอบ') return;
+          done++; if(/ผ่าน|pass/i.test(String(r.Result)) && !/ไม่ผ่าน|not/i.test(String(r.Result))) pass++; });
+        return {studentId:s.StudentID, name:s.NameTH||s.Name||'', nameEN:s.NameEN||'', nick:s.Nickname||'', nickEN:s.NicknameEN||'',
+          class:s.Class||'', ageMonth:age, paused:studentPaused_(s),
+          present, absent, sick, personal, maxConsecutive:worstRun, lastAbsent,
+          weight:last?Number(last.Weight)||0:0, height:last?Number(last.Height)||0:0, measuredAt:last?ymd(last.Date):'',
+          dspmTotal:band.length, dspmDone:done, dspmPass:pass};
+      });
+
+      // grouped by class, because that is the unit a teacher and a head teacher think in
+      const byClass={};
+      rows.forEach(r=>{ const c=r.class||'(ยังไม่จัดชั้น)'; (byClass[c]=byClass[c]||[]).push(r); });
+      const classes=Object.keys(byClass).map(c=>{
+        const list=byClass[c];
+        const sum=k=>list.reduce((a,x)=>a+(x[k]||0),0);
+        return {className:c, count:list.length, students:list,
+          present:sum('present'), absent:sum('absent'), sick:sum('sick'), personal:sum('personal'),
+          watch:list.filter(x=>x.maxConsecutive>=3).length,
+          noGrowth:list.filter(x=>!x.measuredAt).length,
+          dspmPending:list.filter(x=>x.dspmTotal>0 && x.dspmDone<x.dspmTotal).length};
+      });
+      return {month, schoolDays:schoolDays.length, today, classes,
+        totals:{students:rows.length, present:rows.reduce((a,x)=>a+x.present,0), absent:rows.reduce((a,x)=>a+x.absent,0),
+          sick:rows.reduce((a,x)=>a+x.sick,0), personal:rows.reduce((a,x)=>a+x.personal,0),
+          watch:rows.filter(x=>x.maxConsecutive>=3).length}}; },
     staffAttendanceMonth: p => {
       // everyone's working time is not a teacher's business — admin (or a read-only Observer) only
       { const me=staffById(p&&p.staffId); if(!adminLike_(me)) fail('NO_PERMISSION','เฉพาะแอดมิน'); }
