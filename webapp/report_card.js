@@ -515,9 +515,119 @@
     });
   }
 
+  /* ---- generic A4 table ----------------------------------------------------------------------
+   * The staff month and the class report are both "a title, some totals, and a table that runs onto
+   * as many sheets as it needs". Written once here rather than twice, so the two reports cannot end
+   * up looking like they came from different systems.
+   *
+   * spec = { title, subtitle, note, stats:[{n,label}], columns:[{key,label,width,align}], rows:[{...}],
+   *          groups:[{title, rows:[...]}] }   // groups OR rows
+   * A column width is a share of the printable width, not pixels, so the table always fills the page.
+   */
+  function renderTable(spec) {
+    var pagesOut = [], pageNo = 0, ctx = null, y = 0, cvs = null;
+    var cols = spec.columns || [];
+    var totalW = cols.reduce(function (a, c) { return a + (c.width || 1); }, 0);
+    var inner = W - PAD * 2;
+    var xs = [], acc = PAD;
+    cols.forEach(function (c) { xs.push(acc); acc += inner * ((c.width || 1) / totalW); });
+    var colW = function (i) { return inner * ((cols[i].width || 1) / totalW); };
+
+    function newPage() {
+      cvs = document.createElement('canvas'); cvs.width = W; cvs.height = H;
+      ctx = cvs.getContext('2d');
+      ctx.fillStyle = C.paper; ctx.fillRect(0, 0, W, H);
+      pageNo++;
+      // header band, repeated so a loose sheet still says what it is and which page it is
+      ctx.fillStyle = C.brandSoft; ctx.fillRect(0, 0, W, 118);
+      text(ctx, spec.title || '', PAD, 58, { size: 34, weight: 700, color: C.brand });
+      if (spec.subtitle) text(ctx, spec.subtitle, PAD, 96, { size: 21, color: C.ink2 });
+      text(ctx, 'Atom Nursery', W - PAD, 58, { size: 20, weight: 600, color: C.brand, align: 'right' });
+      y = 150;
+      pagesOut.push(cvs);
+      return ctx;
+    }
+    function headerRow() {
+      ctx.fillStyle = C.band; ctx.fillRect(PAD, y - 4, inner, 40);
+      cols.forEach(function (c, i) {
+        clipText(ctx, c.label, c.align === 'right' ? xs[i] + colW(i) - 8 : xs[i] + 8, y + 22,
+          colW(i) - 16, { size: 19, weight: 700, color: C.ink2, align: c.align || 'left' });
+      });
+      y += 46;
+    }
+    function room(px) { if (y + px > H - 70) { newPage(); headerRow(); } }
+
+    newPage();
+    // the totals strip, on the first sheet only — it describes the whole report, not each page
+    if (spec.stats && spec.stats.length) {
+      var sw = inner / spec.stats.length;
+      spec.stats.forEach(function (s, i) {
+        var x = PAD + sw * i;
+        card(ctx, x + 4, y, sw - 8, 86, C.paper);
+        text(ctx, s.n, x + sw / 2, y + 46, { size: 32, weight: 700, align: 'center', color: s.color || C.brand });
+        text(ctx, s.label, x + sw / 2, y + 72, { size: 17, align: 'center', color: C.ink3 });
+      });
+      y += 106;
+    }
+    if (spec.note) { text(ctx, spec.note, PAD, y + 14, { size: 17, color: C.ink3 }); y += 34; }
+
+    function drawRows(rows) {
+      rows.forEach(function (r, idx) {
+        room(40);
+        if (idx % 2 === 1) { ctx.fillStyle = '#F7F9FC'; ctx.fillRect(PAD, y - 2, inner, 38); }
+        cols.forEach(function (c, i) {
+          var v = r[c.key]; if (v == null) v = '';
+          clipText(ctx, v, c.align === 'right' ? xs[i] + colW(i) - 8 : xs[i] + 8, y + 24, colW(i) - 16,
+            { size: 19, weight: c.bold ? 700 : 400, color: (r._warn && c.key === cols[0].key) ? C.bad : C.ink, align: c.align || 'left' });
+        });
+        ctx.strokeStyle = C.line; ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.moveTo(PAD, y + 34); ctx.lineTo(W - PAD, y + 34); ctx.stroke();
+        y += 38;
+      });
+    }
+
+    if (spec.groups && spec.groups.length) {
+      spec.groups.forEach(function (g) {
+        room(90);
+        ctx.fillStyle = C.brandSoft; roundRect(ctx, PAD, y, inner, 38, 8); ctx.fill();
+        text(ctx, g.title, PAD + 12, y + 26, { size: 21, weight: 700, color: C.brand });
+        y += 48;
+        headerRow();
+        drawRows(g.rows || []);
+        y += 18;
+      });
+    } else { headerRow(); drawRows(spec.rows || []); }
+
+    // page numbers last, once the total is known
+    pagesOut.forEach(function (c, i) {
+      var g = c.getContext('2d');
+      text(g, (i + 1) + ' / ' + pagesOut.length, W - PAD, H - 40, { size: 17, color: C.ink3, align: 'right' });
+      text(g, spec.footer || '', PAD, H - 40, { size: 17, color: C.ink3 });
+    });
+    var pages = pagesOut.map(function (c) { return { dataUrl: c.toDataURL('image/jpeg', 0.92), width: W, height: H }; });
+    return { pages: pages, pageCount: pages.length };
+  }
+
+  /** Save any table spec as one A4 PDF, or as one JPEG per sheet. Built here; nothing is uploaded. */
+  function saveTable(spec, kind) {
+    var r = renderTable(spec);
+    var base = String(spec.filename || spec.title || 'report').replace(/[\\/:*?"<>|\s]+/g, '_');
+    if (kind === 'pdf') {
+      var sheets = r.pages.map(function (p) { return { bytes: b64ToBytes(p.dataUrl.split(',')[1]), w: p.width, h: p.height }; });
+      download(buildPdf(sheets), base + '.pdf', 'application/pdf');
+    } else {
+      r.pages.forEach(function (p, i) {
+        download(p.dataUrl, base + (r.pageCount > 1 ? '_' + (i + 1) + 'of' + r.pageCount : '') + '.jpg');
+      });
+    }
+    return r;
+  }
+
   window.AtomReportCard = {
     render: render,
     renderMenu: renderMenu,
+    renderTable: renderTable,
+    saveTable: saveTable,
     /** A4 food menu → PDF (one file) or image(s). Built here, never uploaded. */
     saveMenu: function (d, kind) {
       return renderMenu(d).then(function (r) {
