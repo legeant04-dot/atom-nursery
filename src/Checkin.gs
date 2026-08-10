@@ -118,11 +118,26 @@ function resolveStaff_(payload) {
   return rec;
 }
 
+/**
+ * Somebody who has not started yet cannot log time.
+ *
+ * A teacher due to begin on the 13th is entered in the system days beforehand; without this, the
+ * days in between produce attendance rows and count as worked or missed. Before the start date they
+ * are simply not part of attendance.
+ */
+function assertStaffStarted_(rec) {
+  var start = String((rec && rec.StartDate) || '').slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(start)) return;             // no start date recorded → unchanged
+  if (dateStr_(new Date()) >= start) return;
+  throw apiError_('NOT_STARTED', 'วันแรกของการทำงานคือ ' + start + ' — ยังลงเวลาไม่ได้');
+}
+
 // ---- Check-in -----------------------------------------------------
 /** payload: { staffId|lineUid, lat, lng } */
 function handleStaffCheckin(payload) {
   payload = payload || {};
   var staff = resolveStaff_(payload);
+  assertStaffStarted_(staff);
   var dist = assertWithinGeofence_(payload.lat, payload.lng);
   var now = new Date(), today = dateStr_(now);
   var sheet = sheet_(getHrSpreadsheet_(), 'CHECKIN_STAFF');
@@ -260,6 +275,7 @@ function handleStaffStudentCheckin(p) {
 function handleStaffCheckout(payload) {
   payload = payload || {};
   var staff = resolveStaff_(payload);
+  assertStaffStarted_(staff);
   var dist = assertWithinGeofence_(payload.lat, payload.lng);
   var now = new Date(), today = dateStr_(now);
   var sheet = sheet_(getHrSpreadsheet_(), 'CHECKIN_STAFF');

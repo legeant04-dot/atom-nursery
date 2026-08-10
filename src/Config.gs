@@ -127,7 +127,11 @@ SCHEMA[WB.HR] = {
   // Department/PositionLevel/ReportsTo drive the org hierarchy & leave routing (chat spec)
   // Classes = extra classrooms this staff covers beyond their homeroom (comma-separated ClassNames, or
   // '*' = all). Admin/Leader cover all by default. Appended at END like NicknameEN.
-  STAFF:         ['StaffID', 'NationalID', 'Name', 'NameEN', 'Nickname', 'DOB', 'Position', 'Role', 'Department', 'PositionLevel', 'StaffGroup', 'ReportsTo', 'Phone', 'LineUID', 'StartDate', 'BaseSalary', 'RequireCheckin', 'PasswordHash', 'MustChangePassword', 'Photo', 'Status', 'NicknameEN', 'Classes', 'BankName', 'BankAccount', 'ContributionOpening', 'ContributionAccum', 'ContributionLocked', 'CanClassOrg', 'CanFoodMenu'],
+  STAFF:         ['StaffID', 'NationalID', 'Name', 'NameEN', 'Nickname', 'DOB', 'Position', 'Role', 'Department', 'PositionLevel', 'StaffGroup', 'ReportsTo', 'Phone', 'LineUID', 'StartDate', 'BaseSalary', 'RequireCheckin', 'PasswordHash', 'MustChangePassword', 'Photo', 'Status', 'NicknameEN', 'Classes', 'BankName', 'BankAccount', 'ContributionOpening', 'ContributionAccum', 'ContributionLocked', 'CanClassOrg', 'CanFoodMenu',
+                  // Leaving: the record is KEPT (payroll history, past attendance and leave all refer
+                  // to it) — Status goes INACTIVE and these say when and why, so the person can be
+                  // brought back later without re-entering anything.
+                  'EndDate', 'EndReason', 'EndRemark'],
   // Staff groups with their own (editable) work hours — Admin-managed
   STAFF_GROUPS:  ['GroupName', 'GroupNameEN', 'CheckInTime', 'CheckOutTime'],
   // Per-staff payroll config (Admin-editable). Widened to carry every field the engine's computePayroll uses
