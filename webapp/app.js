@@ -112,7 +112,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.208'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.209'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -2954,6 +2954,81 @@
 
   let LV_TAB='pending';  // default sub-tab (teacher view) = in-progress
   let LV_MAIN='staff';   // main tab: 'staff' (teachers) | 'student'
+  // The ⏰ time/OT tools used to live under จัดการ, two screens away from the approving they belong
+  // to. They sit here now, split the same way the tabs are: teacher tools on the teacher tab,
+  // the student one on the student tab.
+  // some labels already carry their own icon (t('ot.adminOT') is "⏰ OT คุณครู") — don't print it twice
+  const opTools = items => `<div class="card" style="padding:8px"><div class="grid2" style="gap:8px">${
+    items.map(([ic,label,fn])=>{ const L=String(label); const dup=L.slice(0,3).indexOf(ic)>=0;
+      return `<button class="btn sm outline" style="text-align:left" onclick="${fn}">${dup?'':ic+' '}${esc(L)}</button>`;
+    }).join('')}</div></div>`;
+
+  /* ---- one month of working time, per teacher --------------------------------------------------
+   * The school could see who was on leave and who was in today, but not how a teacher's MONTH went
+   * without opening the spreadsheet. Overview first — one row per teacher with the totals — then any
+   * row opens the day-by-day calendar behind those totals.
+   *
+   * Late minutes and OT are shown as they were RECORDED on the day, so this cannot drift away from
+   * the payslip. Weekends, holidays and days before someone started are not absences.
+   */
+  let SM_MONTH=null;
+  const smStat = (n,label,color) => `<div class="stat ${color||''}"><div class="n">${n}</div><div class="l">${esc(label)}</div></div>`;
+  window.A_staffMonth = async (month) => {
+    SM_MONTH = month || SM_MONTH || monthStr();
+    let d; try { d = await api('staffAttendanceMonth',{month:SM_MONTH,staffId:USER.staffId}); } catch(e){ err(e); return; }
+    window._SM = d;
+    const rows = sortPeopleD(d.staff||[]).map(s=>`
+      <div class="list-item" style="cursor:pointer" onclick="A_staffMonthOne('${esc(s.staffId)}')">
+        <span><b>${esc(dnick(s))}</b>${dnSub(s)?` <small class="muted" style="font-weight:400">${esc(dnSub(s))}</small>`:''}
+          <br><small class="muted">${EN()?'present':'มาทำงาน'} ${s.present} · ${EN()?'late':'สาย'} ${s.lateDays}${s.lateMinutes?` (${s.lateMinutes} ${EN()?'min':'นาที'})`:''} · ${EN()?'leave':'ลา'} ${s.leaveDays} · ${EN()?'absent':'ขาด'} ${s.absent}${s.otHours?` · OT ${s.otHours} ${EN()?'hr':'ชม.'}`:''}</small></span>
+        <span style="text-align:right">${s.absent?`<span class="pill bad">${EN()?'absent':'ขาด'} ${s.absent}</span>`:(s.lateDays?`<span class="pill wait">${EN()?'late':'สาย'} ${s.lateDays}</span>`:`<span class="pill ok">${EN()?'full':'ครบ'}</span>`)} <span class="muted">›</span></span></div>`).join('');
+    const tot = (d.staff||[]).reduce((a,s)=>({p:a.p+s.present,l:a.l+s.lateDays,v:a.v+s.leaveDays,ab:a.ab+s.absent,ot:a.ot+s.otHours}),{p:0,l:0,v:0,ab:0,ot:0});
+    modal(`<h3>🗓️ ${EN()?'Monthly work time':'เวลาเข้า-ออกรายเดือน'}</h3>
+      <label class="field"><span>${esc(t('c.month'))}</span><input type="month" value="${esc(d.month)}" onchange="A_staffMonth(this.value)"/></label>
+      <div class="kpigrid" style="margin-bottom:8px">
+        ${smStat(tot.p, EN()?'days present':'วันมาทำงาน','green')}
+        ${smStat(tot.l, EN()?'late days':'วันมาสาย','amber')}
+        ${smStat(tot.v, EN()?'leave days':'วันลา','')}
+        ${smStat(tot.ab, EN()?'absent days':'วันขาด', tot.ab?'pink':'')}</div>
+      <p class="muted" style="font-size:13px">${EN()?'Everyone who logs time, this month. Tap a person for their day-by-day record. Weekends, holidays and days before someone started are not counted as absent.':'ทุกคนที่ต้องลงเวลา ในเดือนนี้ · แตะที่ชื่อเพื่อดูรายวันทั้งเดือน · เสาร์-อาทิตย์ วันหยุด และวันก่อนเริ่มงาน ไม่นับเป็นขาด'}</p>
+      <div style="max-height:52vh;overflow:auto">${rows||`<div class="card muted">${esc(t('c.noItems'))}</div>`}</div>
+      <button class="btn outline block" style="margin-top:8px" onclick="this.closest('.modal').remove()">${esc(t('c.close'))}</button>`);
+  };
+  window.A_staffMonthOne = (sid) => {
+    const d=window._SM||{}; const s=(d.staff||[]).find(x=>x.staffId===sid); if(!s) return;
+    const [Y,Mo]=String(d.month).split('-').map(Number);
+    const first=new Date(Y,Mo-1,1).getDay();
+    // colour says what KIND of day it was; the times and the reason are written in the cell
+    const cell = r => {
+      const map={ IN:['var(--ok-bg)','var(--ok-line)'], LEAVE:['var(--blue-bg)','var(--blue-line)'],
+        ABSENT:['var(--bad-bg)','var(--bad-line)'], HOLIDAY:['var(--warn-bg)','var(--warn-line)'],
+        OFF:['var(--surface-2)','var(--line)'], BEFORE:['var(--surface-2)','var(--line)'],
+        TODAY:['','var(--blue-line)'], FUTURE:['','var(--line)'] };
+      const [bg,bd]=map[r.status]||['',''];
+      const body =
+        r.status==='IN' ? `<span class="io" style="text-align:left;color:${r.late?'var(--warn)':'var(--ok)'};font-weight:600">${esc(r.in||'')}${r.out?`–${esc(r.out)}`:''}${r.late?`<br>${EN()?'late':'สาย'} ${r.late}′`:''}${r.otHours?`<br>OT ${r.otHours}`:''}${r.manual?'<br>✍️':''}</span>`
+        : r.status==='LEAVE' ? `<span class="io" style="text-align:left;color:var(--blue);font-weight:600">${esc(r.leaveType||'ลา')}${r.leaveHalf?` (${r.leaveHalf==='AM'?(EN()?'AM':'เช้า'):(EN()?'PM':'บ่าย')})`:''}</span>`
+        : r.status==='HOLIDAY' ? `<span class="io" style="text-align:left;color:var(--bad);font-weight:600">🏖️ ${esc(r.holiday)}</span>`
+        : r.status==='ABSENT' ? `<span class="io" style="text-align:left;color:var(--bad);font-weight:700">${EN()?'absent':'ขาด'}</span>`
+        : r.status==='BEFORE' ? `<span class="io" style="text-align:left;color:var(--ink-3)">–</span>`
+        : r.status==='TODAY' ? `<span class="io" style="text-align:left;color:var(--ink-3)">${EN()?'today':'วันนี้'}</span>` : '';
+      return `<div class="d" style="min-height:56px;background:${bg};border-color:${bd}">${r.day}${r.bigCleaning?' 🧹':''}${body}</div>`;
+    };
+    let cells=['อา','จ','อ','พ','พฤ','ศ','ส'].map(w=>`<div style="text-align:center;font-size:13px;color:var(--ink-3)">${EN()?({'อา':'Su','จ':'Mo','อ':'Tu','พ':'We','พฤ':'Th','ศ':'Fr','ส':'Sa'}[w]):w}</div>`).join('');
+    for(let i=0;i<first;i++) cells+='<div class="d dim"></div>';
+    s.days.forEach(r=>{ cells+=cell(r); });
+    modal(`<h3>🗓️ ${esc(dnick(s))} <small class="muted" style="font-weight:400">${esc(monthNameYear(d.month))}</small></h3>
+      ${s.startDate?`<p class="muted" style="font-size:13px">${EN()?'Started':'เริ่มงาน'} ${esc(s.startDate)}</p>`:''}
+      <div class="kpigrid" style="margin-bottom:8px">
+        ${smStat(s.present, EN()?'present':'มาทำงาน','green')}
+        ${smStat(s.lateDays, EN()?'late':'สาย','amber')}
+        ${smStat(s.leaveDays, EN()?'leave':'ลา','')}
+        ${smStat(s.absent, EN()?'absent':'ขาด', s.absent?'pink':'')}</div>
+      ${s.lateMinutes?`<p class="muted" style="font-size:13px">${EN()?'Total minutes late':'รวมเวลามาสาย'} <b>${s.lateMinutes}</b> ${EN()?'min':'นาที'}${s.otHours?` · OT <b>${s.otHours}</b> ${EN()?'hr':'ชม.'}`:''}</p>`:''}
+      <div class="cal">${cells}</div>
+      <small class="muted">${EN()?'green = worked · blue = leave · red = absent · orange = holiday · ✍️ = time entered by request. Today is not counted as absent until the day is over.':'เขียว = มาทำงาน · ฟ้า = ลา · แดง = ขาด · ส้ม = วันหยุด · ✍️ = ลงเวลาย้อนหลังจากคำขอ · วันนี้ยังไม่นับเป็นขาดจนกว่าจะหมดวัน'}</small>
+      <button class="btn outline block" style="margin-top:8px" onclick="this.closest('.modal').remove()">${esc(t('c.close'))}</button>`);
+  };
   SCREENS.Admin.leaves = async () => {
     // school holidays + Big Cleaning days → light-red / cleaning cells on the approval calendars
     try{ window._LV_HOL=await api('holidays'); }catch(e){ window._LV_HOL=window._LV_HOL||[]; }
@@ -2964,7 +3039,8 @@
     if(LV_MAIN==='student'){
       const leaves=await api('allStudentLeaves'); window._SLV_ALL=leaves||[];
       window._CALRENDER=studentLeaveCalRender;
-      app.innerHTML=`<h2 class="page">✅ ${EN()?'Leave approval':'อนุมัติการลา'}</h2>${mainSeg}
+      app.innerHTML=`<h2 class="page">✅ ${EN()?'Operations':'ดำเนินการ'}</h2>${mainSeg}
+        ${opTools([['⏰',EN()?'Student late-pickup OT':'OT รับช้า (นักเรียน)','A_studentOT()']])}
         <p class="muted" style="font-size:13px">${EN()?'Absences by day and class. Tap a day to see who is absent per class (history included).':'การลาแยกรายวันและชั้นเรียน · แตะวันเพื่อดูว่านักเรียนคนไหนขาดในแต่ละชั้น (ดูย้อนหลังได้)'}</p>
         <div class="card"><div id="calWrap">${studentLeaveCalRender()}</div></div>`;
       return;
@@ -2975,7 +3051,11 @@
     const resolved=all.filter(l=>String(l.Status).indexOf('PENDING')!==0);
     const none=`<div class="card muted">${esc(t('c.noItems'))}</div>`;
     const shown = LV_TAB==='pending'?pending:resolved;
-    app.innerHTML=`<h2 class="page">✅ ${EN()?'Leave approval':'อนุมัติการลา'}</h2>${mainSeg}
+    app.innerHTML=`<h2 class="page">✅ ${EN()?'Operations':'ดำเนินการ'}</h2>${mainSeg}
+      ${opTools([['⏰',t('ot.adminOT'),'A_staffOT()'],
+                 ['⏰',t('att.adminTitle'),'A_timeRequests()'],
+                 ['🔁',t('corg.adminTitle'),'A_classChanges()'],
+                 ['🗓️',EN()?'Monthly work time':'เวลาเข้า-ออกรายเดือน','A_staffMonth()']])}
       <div class="leavegrid">
         <div class="lvcol">
           <div class="seg" style="margin-bottom:10px"><button class="${LV_TAB==='pending'?'active':''}" onclick="A_lvTab('pending')">⏳ ${EN()?'In progress':'กำลังดำเนินการ'} (${pending.length})</button><button class="${LV_TAB==='resolved'?'active':''}" onclick="A_lvTab('resolved')">✅ ${EN()?'Done':'อนุมัติแล้ว/เสร็จสิ้น'} (${resolved.length})</button></div>
@@ -3616,12 +3696,9 @@
         ['🕑',t('manage.groups'),'A_groups()'],
         ['⏱️',t('lbl.requireCI'),'A_requireCI()'],
       ]},
-      {t:EN()?'⏰ Time & OT':'⏰ เวลา & OT', items:[
-        ['⏰',t('ot.adminOT'),'A_staffOT()'],
-        ['⏰',EN()?'Student late-pickup OT':'OT รับช้า (นักเรียน)','A_studentOT()'],
-        ['⏰',t('att.adminTitle'),'A_timeRequests()'],
-        ['🔁',t('corg.adminTitle'),'A_classChanges()'],
-      ]},
+      // ⏰ Time & OT moved to the ดำเนินการ screen, where the day-to-day approving happens: the
+      // teacher tools sit under 👩‍🏫 คุณครู and the student one under 👶 นักเรียน. Keeping them here
+      // as well would be two doors to the same room, and the second one always goes stale.
       {t:EN()?'📄 Reports & records':'📄 รายงาน & เอกสาร', items:[
         ['📒',t('jr.admin'),'A_journals()'],
         ['📍',EN()?'On-behalf check-in log':'ประวัติเช็คอิน-เอาท์แทน','A_checkinLog()'],

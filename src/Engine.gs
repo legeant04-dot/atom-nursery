@@ -1099,6 +1099,80 @@ function createAtomAPI(M, GROWTH_STD) {
         notStarted:!staffStarted_(me), startDate:ymd(me.StartDate||''),
         manualIn:!!(r&&r.InManual&&String(r.InManual).toUpperCase()==='YES'), manualOut:!!(r&&r.OutManual&&String(r.OutManual).toUpperCase()==='YES')}; },
     // today + previous working days (with late status) for the teacher work-time card
+    /**
+     * One month of working time for every teacher: the day-by-day record, and the totals.
+     *
+     * The admin could see who is on leave (the approval calendar) and who is in TODAY (the dashboard),
+     * but nowhere could they answer "how was this teacher's month" without reading the sheet. This
+     * gives both halves the school asked for: a summary per person, and every day behind it.
+     *
+     * Late minutes and OT come from what was RECORDED on the day, against that day's schedule — a
+     * Big Cleaning day has different hours, so recomputing them afterwards would quietly disagree
+     * with the payslip. Days before someone started, weekends and holidays are not absences.
+     */
+    staffAttendanceMonth: p => {
+      // everyone's working time is not a teacher's business — admin (or a read-only Observer) only
+      { const me=staffById(p&&p.staffId); if(!adminLike_(me)) fail('NO_PERMISSION','เฉพาะแอดมิน'); }
+      const month = ym((p&&p.month)||todayLocal().slice(0,7));
+      const [Y,Mo] = month.split('-').map(Number);
+      const days = new Date(Y, Mo, 0).getDate();
+      const today = todayLocal();
+      const hol = {}; (M.holidays||[]).forEach(h=>{ const d=ymd(h.Date); if(d.slice(0,7)===month) hol[d]=h.NameTH||h.NameEN||'วันหยุด'; });
+      const bc = {}; bigCleaningList_().forEach(s=>{ const d=ymd(s); if(d.slice(0,7)===month) bc[d]=1; });
+      // approved leave, expanded across its date range so a 3-day leave marks all three days
+      const leaveOn = {};
+      (M.leaves||[]).filter(l=>String(l.Status||'').toUpperCase()==='APPROVED').forEach(l=>{
+        const s=ymd(l.StartDate), e=ymd(l.EndDate||l.StartDate); if(!s) return;
+        for(let d=new Date(s); ymd(d.toISOString?d.toISOString():d)<=e; d.setDate(d.getDate()+1)){
+          const ds=ymd(d.toISOString?d.toISOString():d); if(ds.slice(0,7)!==month) continue;
+          leaveOn[l.StaffID+'|'+ds]={type:l.Type||'ลา', half:halfDay_(l.HalfDay), reason:l.Reason||''};
+        }
+      });
+      const hist={}; (M.staffAttendanceHistory||[]).forEach(h=>{ const d=ymd(h.Date); if(d.slice(0,7)===month) hist[h.StaffID+'|'+d]=h; });
+      const yes=v=>!!(v&&String(v).toUpperCase()==='YES');
+
+      const people = M.staff
+        .filter(s=>String(s.Status||'ACTIVE').toUpperCase()!=='INACTIVE' && s.RequireCheckin!==false)
+        .map(s=>{
+          const rows=[]; let present=0, lateDays=0, lateMin=0, leaveDays=0, absent=0, ot=0;
+          for(let dd=1; dd<=days; dd++){
+            const ds = Y+'-'+String(Mo).padStart(2,'0')+'-'+String(dd).padStart(2,'0');
+            const dow = new Date(ds).getDay();
+            const weekend = (dow===0||dow===6) && !bc[ds];
+            // someone who had not started yet is simply not part of this month
+            const beforeStart = !staffStarted_(s, ds);
+            const lv = leaveOn[s.StaffID+'|'+ds] || null;
+            let inT='', outT='', lt=0, oth=0, manual=false;
+            if(ds===today){ const a=(M.staffAttendanceToday||[]).find(x=>x.StaffID===s.StaffID);
+              if(a){ inT=a.CheckIn||''; outT=a.CheckOut||''; lt=Number(a.Late||0); oth=Number(a.OTHours||0); manual=yes(a.InManual)||yes(a.OutManual); } }
+            else { const h=hist[s.StaffID+'|'+ds];
+              if(h){ inT=h.In||''; outT=h.Out||''; lt=Number(h.Late||0); oth=Number(h.OTHours||0); manual=yes(h.InManual)||yes(h.OutManual); } }
+            let status;
+            if(beforeStart) status='BEFORE';
+            else if(inT) status='IN';
+            else if(lv) status='LEAVE';
+            else if(hol[ds]) status='HOLIDAY';
+            else if(weekend) status='OFF';
+            else if(ds>today) status='FUTURE';
+            // Today is not over. Someone who has not checked in by the time an admin opens this is
+            // not yet an absence — the dashboard is where "who is missing right now" belongs, and
+            // counting it here would put a red mark against a teacher at 07:30.
+            else if(ds===today) status='TODAY';
+            else status='ABSENT';
+            if(status==='IN'){ present++; ot+=oth; if(lt>0){ lateDays++; lateMin+=lt; } }
+            else if(status==='LEAVE') leaveDays += (lv&&lv.half) ? 0.5 : 1;
+            else if(status==='ABSENT') absent++;
+            rows.push({date:ds, day:dd, status, in:inT, out:outT, late:lt, otHours:oth, manual,
+              holiday:hol[ds]||'', bigCleaning:!!bc[ds],
+              leaveType:lv?lv.type:'', leaveHalf:lv?lv.half:'', leaveReason:lv?lv.reason:''});
+          }
+          return {staffId:s.StaffID, name:s.NameTH||s.Name||'', nameEN:s.NameEN||'', nick:s.Nickname||'', nickEN:s.NicknameEN||'',
+            dept:s.Department||'', startDate:ymd(s.StartDate||''),
+            present, lateDays, lateMinutes:lateMin, leaveDays, absent, otHours:Math.round(ot*100)/100, days:rows};
+        });
+      return {month, daysInMonth:days, today,
+        holidays:Object.keys(hol).map(d=>({date:d,name:hol[d]})), bigCleaning:Object.keys(bc),
+        staff:people}; },
     recentAttendance: p => { const sch=M.workSchedule.find(w=>w.StaffID===p.staffId)||{CheckInTime:'08:00'};
       const lateOf=hhmm=>{ if(!hhmm)return 0; const raw=Math.max(0,toMin(hhmm)-toMin(sch.CheckInTime)); return raw<=Number(cfg.LateGraceMinutes||0)?0:raw; };
       const yes=v=>!!(v&&String(v).toUpperCase()==='YES');
