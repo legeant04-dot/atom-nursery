@@ -112,7 +112,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.207'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.208'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -3866,13 +3866,18 @@
     const paList=sortBy(A_CACHE.parents||[], p=>vaLabel(p,EN())).sort((a,b)=>((cnt[b.ParentID]||0)>0?1:0)-((cnt[a.ParentID]||0)>0?1:0));
     modal(`<h3>👁️ ${EN()?'View as role':'ดูในมุมมอง (สลับ Role)'}</h3>
     <p class="muted" style="font-size:13px">${EN()?'Preview the app exactly as this person sees it. You stay logged in as admin — tap "Back to Admin" to return.':'ดูแอปแบบที่คน ๆ นั้นเห็นจริง (ยังเป็นแอดมินอยู่) — กด "กลับเป็น Admin" เพื่อกลับ'}</p>
-    <label class="field"><span>👩‍🏫 ${EN()?'As teacher / leader':'มุมมองครู / หัวหน้า'}</span><select id="va_staff"><option value="">—</option>${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').map(s=>`<option value="${s.StaffID}">${esc(nmn(s))} · ${esc(s.PositionLevel||'')}</option>`).join('')}</select></label>
+    <label class="field"><span>👩‍🏫 ${EN()?'As teacher / leader':'มุมมองครู / หัวหน้า'}</span><select id="va_staff"><option value="">—</option>${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').map(s=>`<option value="${s.StaffID}">${esc(nmn(s))} · ${esc(String(s.Role||'')==='Observer'?(EN()?'Observer — view only':'ผู้ตรวจสอบ (ดูอย่างเดียว)'):(s.PositionLevel||''))}</option>`).join('')}</select></label>
     <button class="btn block" onclick="A_viewAsStaff(this)">${EN()?'View as this staff':'ดูมุมมองครูคนนี้'}</button>
     <div style="height:12px"></div>
     <label class="field"><span>👪 ${EN()?'As parent (all their children)':'มุมมองผู้ปกครอง (เห็นลูกทุกคนที่ผูก)'}</span><select id="va_parent"><option value="">—</option>${paList.map(p=>`<option value="${esc(p.ParentID)}">${esc(vaLabel(p,EN()))}${p.Phone?' · '+esc(phoneFmt(p.Phone)):''} · 👶 ${cnt[p.ParentID]||0}</option>`).join('')}</select></label>
     <button class="btn block outline" onclick="A_viewAsParent(this)">${EN()?'View as this parent':'ดูมุมมองผู้ปกครองคนนี้'}</button>`); };
   window.A_viewAsStaff=(btn)=>{ const m=btn.closest('.modal'); const sid=m.querySelector('#va_staff').value; if(!sid){toast(EN()?'Pick a staff':'เลือกครูก่อน');return;} const s=findStaff(sid); m.remove();
-    _enterViewAs({role:'Teacher',_roleKey:(s.PositionLevel==='Leader'?'Leader':'Teacher'),staffId:sid,nameEN:s.NameEN||s.NameTH||sid,nameTH:s.NameTH||sid}); };
+    // Preview the person's OWN role. This said 'Teacher' for everybody, so previewing an Observer
+    // showed the teacher screens — the very thing the preview exists to check. Their real role is on
+    // their staff record; anything that is not an Observer previews as a teacher exactly as before.
+    const role = String(s.Role||'')==='Observer' ? 'Observer' : 'Teacher';
+    _enterViewAs({role, _roleKey:(role==='Observer'?'Observer':(s.PositionLevel==='Leader'?'Leader':'Teacher')),
+      staffId:sid,nameEN:s.NameEN||s.NameTH||sid,nameTH:s.NameTH||sid}); };
   window.A_viewAsParent=(btn)=>{ const m=btn.closest('.modal'); const pid=m.querySelector('#va_parent').value; if(!pid){toast(EN()?'Pick a parent':'เลือกผู้ปกครองก่อน');return;}
     const p=(A_CACHE.parents||[]).find(x=>String(x.ParentID)===String(pid))||{}; m.remove();
     // uid = their LINE UID so visibleStudents returns EVERY linked child (multi-child view); parentId for legacy links
@@ -3885,7 +3890,7 @@
     const hd=document.querySelector('.topbar');
     b.style.top=((hd?hd.getBoundingClientRect().height:56))+'px';
     document.body.classList.add('viewas');   // gives <main> matching top padding
-    b.innerHTML=`<span>👁️ ${EN()?'Viewing as':'กำลังดูมุมมอง'}: <b>${esc(EN()?USER.nameEN:USER.nameTH)}</b></span><button onclick="A_exitViewAs()">${EN()?'Back to Admin':'กลับเป็น Admin'}</button>`; }
+    b.innerHTML=`<span>👁️ ${EN()?'Viewing as':'กำลังดูมุมมอง'}: <b>${esc(EN()?USER.nameEN:USER.nameTH)}</b>${USER.role==='Observer'?` · ${EN()?'view only':'ดูอย่างเดียว'}`:''}</span><button onclick="A_exitViewAs()">${EN()?'Back to Admin':'กลับเป็น Admin'}</button>`; }
 
   // ---- Parent CRUD ----
   window.A_parentForm=(id)=>{ const p=id?findParent(id):{};
