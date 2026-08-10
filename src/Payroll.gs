@@ -312,12 +312,46 @@ function handleMarkSalaryPaid(p) {
   return { ok: true, staffId: p.staffId, month: p.month, paid: paid };
 }
 
+/**
+ * The slip, with the accumulated fund WORKED OUT rather than read back.
+ *
+ * เงินสมทบ is a savings fund: the teacher's half is deducted and the school matches it, so the fund
+ * grows by BOTH halves — 200 deducted means 400 added. The running total was written onto the
+ * payroll row when it was calculated, so a row saved before the employer half was recorded holds a
+ * total short by the school's share for every such month. That is "35,200 where it should say
+ * 35,400": one month's matching 200 missing from a figure computed before the app tracked it.
+ *
+ * The total is derivable — opening balance plus both halves of every month — so it is derived here
+ * on every read, and a stale stored figure can no longer reach a payslip. A month whose employer
+ * half was never written down has it reconstructed at the current match rate: the school did pay it,
+ * the app just did not record it. Mirrors the engine's getPayslip.
+ */
 function handleGetPayslip(payload) {
   payload = payload || {};
-  var row = findObject_(sheet_(getHrSpreadsheet_(), 'PAYROLL'), function (r) {
+  var sheet = sheet_(getHrSpreadsheet_(), 'PAYROLL');
+  var row = findObject_(sheet, function (r) {
     return String(r.StaffID) === String(payload.staffId) && ym7_(r.Month) === ym7_(payload.month);
   });
   if (!row) throw apiError_('NOT_FOUND', 'ยังไม่มีสลิปเงินเดือนของเดือนนี้');
+
+  var staff = findObject_(sheet_(getHrSpreadsheet_(), 'STAFF'), function (s) {
+    return String(s.StaffID) === String(payload.staffId);
+  }) || {};
+  var matchRate = num_(getConfig_('ContributionMatchRate', '1'), 1);
+  var empOf = function (r) {
+    var own = num_(r.Contribution);
+    return (r.ContributionEmployer === '' || r.ContributionEmployer == null) ? round2_(own * matchRate) : num_(r.ContributionEmployer);
+  };
+  var accum = num_(staff.ContributionOpening);
+  try {
+    readObjects_(sheet).forEach(function (r) {
+      if (String(r.StaffID) !== String(payload.staffId)) return;
+      accum += num_(r.Contribution) + empOf(r);
+    });
+  } catch (e) { accum = num_(row.ContributionAccum); }   // never fail the slip over a total
+
+  row.ContributionEmployer = empOf(row);
+  row.ContributionAccum = round2_(accum);
   return row;
 }
 
