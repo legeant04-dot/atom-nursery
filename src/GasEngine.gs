@@ -257,7 +257,7 @@ function readRows_(wb, sheet) {
  * the school and no chance of the columns being wrong.
  */
 var COLLECTION_HEADERS_ = {
-  FOOD_MENU:        ['MenuID', 'Class', 'Date', 'Breakfast', 'SnackAM', 'Lunch', 'SnackPM', 'Note', 'UpdatedBy', 'UpdatedAt'],
+  FOOD_MENU:        ['MenuID', 'Class', 'Date', 'Breakfast', 'SnackAM', 'Lunch', 'Dinner', 'SnackPM', 'Note', 'UpdatedBy', 'UpdatedAt'],
   // The master food list the teacher's daily journal picks from. A dish typed into the journal that
   // is not here yet gets added, so the list grows from real use instead of needing to be complete.
   FOOD_ITEMS:       ['ItemID', 'NameTH', 'NameEN', 'Category', 'Active', 'CreatedBy', 'CreatedAt'],

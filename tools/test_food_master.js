@@ -109,8 +109,10 @@ console.log('\n2) Which meals a class records');
   const { H } = fresh();
   eq('Nursery 1 eats dinner here', H.mealSlots({ className: 'Nursery 1' }).slots.map(s => s.key),
     ['Breakfast', 'Lunch', 'Dinner', 'Snack']);
-  eq('the baby class too', H.mealSlots({ className: 'Nursery Baby' }).slots.map(s => s.key),
-    ['Breakfast', 'Lunch', 'Dinner', 'Snack']);
+  // The school's rule: the babies are fed on their own schedule and recorded as milk feeds, so the
+  // meal section is EMPTY for them — not "all four".
+  eq('the baby class records no meals at all', H.mealSlots({ className: 'Nursery Baby' }).slots.map(s => s.key), []);
+  eq('...however it is written', H.mealSlots({ className: 'เนอสเซอรี่ เบบี้' }).slots.length, 0);
   eq('Nursery 2 goes home before dinner', H.mealSlots({ className: 'Nursery 2' }).slots.map(s => s.key),
     ['Breakfast', 'Lunch', 'Snack']);
   eq('Nursery 3 as well', H.mealSlots({ className: 'Nursery 3' }).slots.map(s => s.key),

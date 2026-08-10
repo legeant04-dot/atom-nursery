@@ -257,10 +257,16 @@ function createAtomAPI(M, GROWTH_STD) {
       { key: 'Dinner', th: 'อาหารเย็น', en: 'Dinner' },
       { key: 'Snack', th: 'อาหารว่าง', en: 'Snack' }
     ];
-    // "Nursery 1" and the baby class eat dinner here; 2 / 3 / Premium go home before it.
-    const staysForDinner = /(^|\s)(1|baby|เบบี้)(\s|$)/i.test(c) || /nursery\s*1\b/i.test(c);
-    return staysForDinner ? all : all.filter(s => s.key !== 'Dinner');
+    // The babies are fed on their own schedule, recorded as milk feeds rather than meals, so the
+    // meal section is empty for them — an empty list, not "all of them".
+    if (isBabyClass_(c)) return [];
+    // Nursery 1 stays for dinner; 2 / 3 / Premium go home before it.
+    return staysForDinner_(c) ? all : all.filter(s => s.key !== 'Dinner');
   }
+  // "Nursery Baby" / "เบบี้". Matched on the word, so "Nursery 1" can never fall in here.
+  function isBabyClass_(c) { return /baby|เบบี้|เบบี|ทารก/i.test(String(c || '')); }
+  // Only Nursery 1 — NOT Nursery 10 or Nursery 12, hence the boundary after the digit.
+  function staysForDinner_(c) { return /(^|[^\d])1([^\d]|$)/.test(String(c || '')) && !isBabyClass_(c); }
 
   // ---- survey row -> the shape every screen reads (Options is stored as JSON in one cell) ----
   const SURVEY_MAX_Q = 5;                       // the school's cap — more than this and nobody answers
@@ -1440,7 +1446,28 @@ function createAtomAPI(M, GROWTH_STD) {
       if(p.preview){ rec.PayrollID=i>=0?M.payroll[i].PayrollID:''; rec.Preview=true; rec.Saved=i>=0; return rec; }
       rec.Saved=true;
       if(i>=0)M.payroll[i]=rec; else M.payroll.push(rec); return rec; },
-    getPayslip: p => M.payroll.find(x=>x.StaffID===p.staffId&&ym(x.Month)===ym(p.month)) || null,
+    /**
+     * The slip, with the accumulated fund WORKED OUT rather than read back.
+     *
+     * เงินสมทบ is a savings fund: the teacher's half is deducted and the school matches it, so the
+     * fund grows by BOTH halves — 200 deducted means 400 added. The running total used to be stored
+     * on the payroll row when it was calculated, and a row saved before the employer half was
+     * recorded therefore holds a total that is short by the school's share for every such month.
+     * That is exactly what "35,200 where it should say 35,400" is.
+     *
+     * The total is derivable — opening balance plus both halves of every month — so it is derived
+     * here, every time, and a stale stored figure can no longer be shown to anyone. Months whose
+     * employer half was never written down have it reconstructed at the current match rate: the
+     * school did pay it, the app simply did not record it.
+     */
+    getPayslip: p => { const r=M.payroll.find(x=>x.StaffID===p.staffId&&ym(x.Month)===ym(p.month)); if(!r) return null;
+      const st=staffById(p.staffId)||{};
+      const matchRate=Number(cfg.ContributionMatchRate!=null?cfg.ContributionMatchRate:1);
+      const empOf=x=>{ const own=Number(x.Contribution||0);
+        return (x.ContributionEmployer==null||x.ContributionEmployer==='')?Math.round(own*matchRate*100)/100:Number(x.ContributionEmployer); };
+      let accum=Number(st.ContributionOpening||0);
+      (M.payroll||[]).forEach(x=>{ if(x.StaffID!==p.staffId)return; accum+=Number(x.Contribution||0)+empOf(x); });
+      return Object.assign({},r,{ContributionEmployer:empOf(r), ContributionAccum:Math.round(accum*100)/100}); },
     markSalaryPaid: p => { const r=M.payroll.find(x=>x.StaffID===p.staffId&&ym(x.Month)===ym(p.month));
       if(!r) fail('NOT_FOUND','ยังไม่มีรายการจ่ายของเดือนนี้ — กดบันทึกเงินเดือนก่อน');
       const paid=p.paid!==false; r.SlipSent=paid?'YES':'NO'; r.PaidDate=paid?todayLocal():''; r.SlipUrl=paid?(p.slipUrl||r.SlipUrl||''):'';
@@ -1900,8 +1927,10 @@ function createAtomAPI(M, GROWTH_STD) {
       const rows=(M.foodMenus||[]).filter(r=>String(r.Class)===cls && ym(r.Date)===month)
         .sort((a,b)=>String(a.Date).localeCompare(String(b.Date)));
       return { className:cls, month,
+        // the meals this class actually records, so the menu screen and the journal cannot disagree
+        slots: mealSlotsFor_(cls),
         days: rows.map(r=>({ date:ymd(r.Date), breakfast:r.Breakfast||'', snackAM:r.SnackAM||'',
-          lunch:r.Lunch||'', snackPM:r.SnackPM||'', note:r.Note||'' })),
+          lunch:r.Lunch||'', dinner:r.Dinner||'', snackPM:r.SnackPM||'', note:r.Note||'' })),
         updatedAt: rows.reduce((a,r)=>String(r.UpdatedAt||'')>a?String(r.UpdatedAt):a,'') }; },
 
     /** Parent view: resolve the child's class for them, so the menu is never the wrong one. */
@@ -1925,11 +1954,11 @@ function createAtomAPI(M, GROWTH_STD) {
       const stamp=stampLocal();
       (p.days||[]).forEach(d=>{
         const date=ymd(d.date); if(!date || ym(date)!==month) return;      // never write outside the month being edited
-        const blank=!(d.breakfast||d.snackAM||d.lunch||d.snackPM||d.note);
+        const blank=!(d.breakfast||d.snackAM||d.lunch||d.dinner||d.snackPM||d.note);
         const i=M.foodMenus.findIndex(r=>String(r.Class)===cls && ymd(r.Date)===date);
         if(blank){ if(i>=0) M.foodMenus.splice(i,1); return; }             // clearing a day removes it
         const rec={ MenuID:'FM-'+cls.replace(/\s+/g,'')+'-'+date, Class:cls, Date:date,
-          Breakfast:d.breakfast||'', SnackAM:d.snackAM||'', Lunch:d.lunch||'', SnackPM:d.snackPM||'',
+          Breakfast:d.breakfast||'', SnackAM:d.snackAM||'', Lunch:d.lunch||'', Dinner:d.dinner||'', SnackPM:d.snackPM||'',
           Note:d.note||'', UpdatedBy:p.staffId||'', UpdatedAt:stamp };
         if(i>=0) M.foodMenus[i]=Object.assign(M.foodMenus[i],rec); else M.foodMenus.push(rec);
       });
@@ -1995,7 +2024,25 @@ function createAtomAPI(M, GROWTH_STD) {
      * Which meals a class records. The youngest stay for dinner; the older classes and Premium do
      * not, and showing them an empty dinner box every day is just noise.
      */
-    mealSlots: p => ({ className:String(p.className||''), slots: mealSlotsFor_(p.className) }),
+    /**
+     * Which meals this class records — and what the kitchen planned for that day.
+     *
+     * The monthly menu already says what is being served; making a teacher type it again into every
+     * child's journal is both wasted work and a way for the two to disagree. The planned dish comes
+     * back as the DEFAULT: it fills an empty slot, and never overwrites something a teacher wrote.
+     */
+    mealSlots: p => {
+      const cls=String(p.className||''), slots=mealSlotsFor_(cls);
+      const out={ className:cls, slots, planned:{} };
+      if(!slots.length || !p.date) return out;                 // the baby class records no meals
+      const date=ymd(p.date);
+      const m=(M.foodMenus||[]).find(r=>String(r.Class)===cls && ymd(r.Date)===date);
+      if(!m) return out;
+      // SnackAM is the morning snack the school plans; the journal has one snack slot, so that is
+      // the one it defaults from, falling back to the afternoon one when only that is planned.
+      const byKey={ Breakfast:m.Breakfast, Lunch:m.Lunch, Dinner:m.Dinner, Snack:(m.SnackAM||m.SnackPM) };
+      slots.forEach(s=>{ const v=String(byKey[s.key]||'').trim(); if(v) out.planned[s.key]=v; });
+      return out; },
 
     /* ================= Phase 7b: satisfaction survey ====================================
      * Three shapes, because a school asks three different kinds of question:

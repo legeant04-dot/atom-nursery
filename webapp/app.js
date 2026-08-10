@@ -112,7 +112,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.210'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.211'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -2040,6 +2040,9 @@
   window.P_menu = async (sid, month) => {
     const d = await api('myFoodMenu', Object.assign({}, parentScope(), sid?{studentId:sid}:{}, month?{month}:{}), {fresh:true});
     const by={}; (d.days||[]).forEach(x=>by[x.date]=x);
+    // the engine says which meals this class records; the editor follows it rather than repeating
+    // the rule and drifting out of step (the baby class records none at all)
+    window._FM_SLOTS=(d.slots||[]).map(x=>x.key);
     const today=todayStr();
     const rows=fmDays(d.month).map(ds=>{ const v=by[ds]; if(!v) return '';
       const meals=FM_MEALS.filter(([k])=>v[k]).map(([k,lb])=>`<div class="list-item" style="padding:3px 0"><span class="muted" style="min-width:96px">${esc(lb())}</span><span>${esc(v[k])}</span></div>`).join('');
@@ -2189,7 +2192,13 @@
     const recentRows = recent.map((a,i)=>`<div class="list-item"><span>${i===0?'<b>'+esc(t('c.today'))+'</b>':esc(ddmmyyyy(a.date))}</span><span style="font-size:13px">${esc(t('lbl.checkIn'))} ${mtime(a.checkIn,a.manualIn)} · ${esc(t('lbl.checkOut'))} ${mtime(a.checkOut,a.manualOut)} · ${a.late?`<span class="pill bad">${esc(t('lbl.late'))} ${a.late} ${esc(t('lbl.min'))}</span>`:`<span class="pill ok">${esc(t('lbl.onTime'))}</span>`}</span></div>`).join('');
     app.innerHTML = `<h2 class="page">${esc(t('t.greeting'))}${esc(EN()?USER.nameEN:USER.nameTH)} 👩‍🏫</h2>
       <div class="card"><h3>⏱️ ${esc(t('lbl.worktime'))} (${esc(att.date)})</h3>
-        ${me0.RequireCheckin===false?`<div style="background:var(--blue-bg);border-radius:8px;padding:8px;color:var(--blue);font-size:13px">ℹ️ ${esc(t('ci.notRequired'))}</div>`:`
+        ${me0.RequireCheckin===false?`<div style="background:var(--blue-bg);border-radius:8px;padding:8px;color:var(--blue);font-size:13px">ℹ️ ${esc(t('ci.notRequired'))}</div>`
+        // Hired but not started yet: the server already refuses the check-in, so leaving live buttons
+        // here only produced an error. Say when the first day is instead.
+        :att.notStarted?`<div style="background:var(--warn-bg);border:1px solid var(--warn-line);border-radius:8px;padding:12px;text-align:center">
+          <b style="color:var(--warn)">⏳ ${EN()?'Not started yet':'ยังไม่ถึงวันเริ่มงาน'}</b>
+          <br><span style="font-size:15px">${EN()?'First working day':'วันแรกของการทำงาน'}: <b>${esc(att.startDate||'-')}</b></span>
+          <br><small class="muted">${EN()?'Clocking in opens on that day. Nothing counts as late or absent before it.':'ปุ่มลงเวลาจะเปิดให้ใช้ในวันนั้น · ก่อนหน้านั้นระบบไม่นับสาย/ขาดงาน'}</small></div>`:`
         <div class="spread" style="font-size:15px"><span>${esc(t('lbl.checkIn'))} ${mtime(att.checkIn,att.manualIn)}</span><span>${esc(t('lbl.checkOut'))} ${mtime(att.checkOut,att.manualOut)}</span><span>${esc(t('lbl.late'))} <b style="color:${att.late?'var(--bad)':'var(--ok)'}">${att.late||0}</b> ${esc(t('lbl.min'))}</span></div>
         <div class="row" style="margin-top:12px;gap:10px"><button class="btn green" ${att.checkIn?'disabled':''} style="flex:1;padding:18px;font-size:18px;font-weight:700${att.checkIn?';opacity:.45;cursor:not-allowed':''}" onclick="T_punch('in',this)">🟢 ${att.checkIn?(EN()?'Checked in ':'เข้างานแล้ว ')+esc(att.checkIn):esc(t('lbl.checkIn'))}</button><button class="btn pink" ${att.checkOut?'disabled':''} style="flex:1;padding:18px;font-size:18px;font-weight:700${att.checkOut?';opacity:.45;cursor:not-allowed':''}" onclick="T_punch('out',this)">🔴 ${att.checkOut?(EN()?'Checked out ':'เลิกงานแล้ว ')+esc(att.checkOut):esc(t('lbl.checkOut'))}</button></div>
         <div style="margin-top:10px"><b style="font-size:13px">📅 ${esc(t('lbl.recentDays'))}</b>${recentRows}</div>`}</div>
@@ -2345,8 +2354,11 @@
       api('foodItems',{}).catch(()=>[])]);
     JFOOD=food||[];
     const s=cl.students.find(x=>x.StudentID===sid)||(A_CACHE.students||[]).find(x=>x.StudentID===sid)||{NameTH:sid};
-    // which meals this class records — Nursery 1 eats dinner here, the older classes do not
-    try{ JSLOTS=(await api('mealSlots',{className:s.Class||''})).slots||JSLOTS; }catch(e){}
+    // which meals this class records (the baby class records none; Nursery 1 also eats dinner here),
+    // and what the kitchen planned for today — used to pre-fill an empty slot
+    JPLAN={};
+    try{ const ms=await api('mealSlots',{className:s.Class||'',date:todayStr()});
+      JSLOTS=ms.slots||JSLOTS; JPLAN=ms.planned||{}; }catch(e){}
     const sent=jTime(j), draft=jIsDraft(j), jv=journalValues(j);
 
     // once submitted the entry is final — show it read-only rather than a form that cannot save
@@ -2415,6 +2427,8 @@
    * into the master so it is a normal choice from then on.
    */
   let JSLOTS=[{key:'Breakfast',th:'อาหารเช้า',en:'Breakfast'},{key:'Lunch',th:'อาหารกลางวัน',en:'Lunch'},{key:'Dinner',th:'อาหารเย็น',en:'Dinner'}];
+  // what the monthly menu says is being served today, per meal — a DEFAULT for an empty slot only
+  let JPLAN={};
   let JFOOD=[];
   const FOOD_CAT={savoury:()=>EN()?'Savoury':'ของคาว',dessert:()=>EN()?'Dessert':'ของหวาน',fruit:()=>EN()?'Fruit':'ผลไม้',other:()=>EN()?'Other':'อื่นๆ'};
   const foodLabel=i=>EN()?(i.nameEN||i.nameTH):(i.nameTH+(i.nameEN?` (${i.nameEN})`:''));
@@ -2430,9 +2444,13 @@
   }
   function jMealRows(slots,jv){
     const items=(jv&&jv.mealItems)||{};
+    // A slot the teacher has already filled keeps what they wrote; an empty one starts from what the
+    // kitchen planned, so the usual case is confirm-and-move-on rather than retype.
+    const chosen = k => items[k] || JPLAN[k] || '';
+    if(!slots.length) return `<p class="muted" style="font-size:13px">${EN()?'This class records milk feeds rather than meals.':'ชั้นนี้บันทึกเป็นมื้อนมแทนมื้ออาหาร'}</p>`;
     return slots.map(s=>`<div style="margin:8px 0;padding:6px 0;border-top:1px solid var(--line)">
-      <b style="font-size:13px">${esc(EN()?s.en:s.th)}</b>
-      <select id="jFood_${esc(s.key)}" style="width:100%;margin:4px 0" onchange="J_foodPick('${esc(s.key)}',this)">${jFoodOptions(items[s.key]||'')}</select>
+      <b style="font-size:13px">${esc(EN()?s.en:s.th)}</b>${(!items[s.key]&&JPLAN[s.key])?` <small style="color:var(--blue)">· ${EN()?'from the monthly menu':'จากเมนูประจำเดือน'}</small>`:''}
+      <select id="jFood_${esc(s.key)}" style="width:100%;margin:4px 0" onchange="J_foodPick('${esc(s.key)}',this)">${jFoodOptions(chosen(s.key))}</select>
       <input id="jFoodNew_${esc(s.key)}" hidden placeholder="${EN()?'Dish name in Thai':'ชื่อเมนู (ภาษาไทย)'}" style="width:100%;margin-bottom:4px"/>
       <input id="jFoodNewEN_${esc(s.key)}" hidden placeholder="${EN()?'English name (optional)':'ชื่อภาษาอังกฤษ (ถ้ามี)'}" style="width:100%;margin-bottom:4px"/>
       <span class="choice" style="display:inline-flex">${MEAL_AMT.map(a=>`<button type="button" data-meal="${esc(s.key)}" data-v="${esc(a)}" class="${(JSEL.Meals||{})[s.key]===a?'pass':''}" onclick="J_meal('${s.key}','${a}',this)">${esc(jt(a))}</button>`).join('')}</span></div>`).join('');
@@ -4879,8 +4897,24 @@
     }catch(e){err(e);}finally{ if(btn)btn.disabled=false; } };
 
   let FM_CLASS=null, FM_MONTH=null;
+  // Dinner is planned here too, for the class that stays for it. The editor hides the field for a
+  // class that does not eat dinner, so nobody plans a meal that will never be served.
   const FM_MEALS=[['breakfast',()=>EN()?'Breakfast':'อาหารเช้า'],['snackAM',()=>EN()?'Morning snack':'ว่างเช้า'],
-                  ['lunch',()=>EN()?'Lunch':'อาหารกลางวัน'],['snackPM',()=>EN()?'Afternoon snack':'ว่างบ่าย']];
+                  ['lunch',()=>EN()?'Lunch':'อาหารกลางวัน'],['snackPM',()=>EN()?'Afternoon snack':'ว่างบ่าย'],
+                  ['dinner',()=>EN()?'Dinner':'อาหารเย็น']];
+  /**
+   * Does THIS class plan this meal?
+   *
+   * The menu has two snacks (morning and afternoon) where the journal has one, so the mapping is not
+   * one-to-one: both snacks belong to the journal's single Snack slot. Dinner is the meal that
+   * actually varies by class, and the baby class plans nothing at all.
+   */
+  const fmShows = k => { const slots=window._FM_SLOTS;
+    if(!slots) return true;                                  // not loaded yet → show everything
+    if(!slots.length) return false;                          // the baby class records no meals
+    if(k==='snackAM'||k==='snackPM') return slots.indexOf('Snack')>=0;
+    return slots.indexOf(k.charAt(0).toUpperCase()+k.slice(1))>=0;
+  };
   const fmDays=(month)=>{ const [y,m]=month.split('-').map(Number); const n=new Date(y,m,0).getDate(); const out=[];
     for(let d=1;d<=n;d++) out.push(`${month}-${String(d).padStart(2,'0')}`); return out; };
   const fmDow=ds=>['อา','จ','อ','พ','พฤ','ศ','ส'][new Date(ds+'T00:00:00').getDay()];
@@ -4900,6 +4934,9 @@
     if(!FM_CLASS){ toast(EN()?'No classes yet':'ยังไม่มีชั้นเรียน'); return; }
     const d=await api('foodMenu',{className:FM_CLASS,month:FM_MONTH},{fresh:true});
     const by={}; (d.days||[]).forEach(x=>by[x.date]=x);
+    // the engine says which meals this class records; the editor follows it rather than repeating
+    // the rule and drifting out of step (the baby class records none at all)
+    window._FM_SLOTS=(d.slots||[]).map(x=>x.key);
     // The kitchen does not cook at the weekend, so those rows are just noise to scroll past. A public
     // holiday IS worth showing — with its name — because that is a day a parent might otherwise expect
     // a menu for.
@@ -4910,7 +4947,7 @@
         <small class="muted">${EN()?'School closed — no menu needed':'วันหยุด — ไม่ต้องลงเมนู'}</small></div>`;
       return `<div class="card" style="padding:8px">
         <div class="spread"><b>${esc(ds.slice(8))} ${esc(fmDow(ds))}.</b><small class="muted">${esc(ds)}</small></div>
-        <div class="grid2" style="margin-top:4px">${FM_MEALS.map(([k,lb])=>
+        <div class="grid2" style="margin-top:4px">${FM_MEALS.filter(([k])=>fmShows(k)).map(([k,lb])=>
           `<label class="field"><span>${esc(lb())}</span><input id="fm_${k}_${ds}" value="${esc(v[k]||'')}" placeholder="-"/></label>`).join('')}</div>
         <label class="field"><span>${EN()?'Note':'หมายเหตุ'}</span><input id="fm_note_${ds}" value="${esc(v.note||'')}" placeholder="${EN()?'e.g. birthday cake':'เช่น มีเค้กวันเกิด'}"/></label></div>`;
     }).join('');
@@ -4930,7 +4967,7 @@
   window.A_fmPick=(cls,month)=>{ if(cls)FM_CLASS=cls; if(month)FM_MONTH=month;
     const m=document.querySelector('.modal'); if(m)m.remove(); A_foodMenu(); };
   window.A_fmCollect=()=>fmDays(FM_MONTH).map(ds=>{ const g=k=>{const e=document.getElementById('fm_'+k+'_'+ds); return e?e.value.trim():'';};
-    return {date:ds, breakfast:g('breakfast'), snackAM:g('snackAM'), lunch:g('lunch'), snackPM:g('snackPM'), note:g('note')}; });
+    return {date:ds, breakfast:g('breakfast'), snackAM:g('snackAM'), lunch:g('lunch'), dinner:g('dinner'), snackPM:g('snackPM'), note:g('note')}; });
   window.A_fmSave=async(btn)=>{ if(btn)btn.disabled=true;
     try{ await api('saveFoodMenu',{staffId:USER.staffId,className:FM_CLASS,month:FM_MONTH,days:A_fmCollect()});
       confirmSaved(t('c.saved'));
