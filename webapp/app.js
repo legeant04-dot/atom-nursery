@@ -112,7 +112,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.214'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.215'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -2771,11 +2771,11 @@
       <button class="btn block" onclick="T_slipUnlock()">${esc(t('lbl.openSlip'))}</button>
       <button class="btn-ghost block" style="margin-top:8px" onclick="T_changePw(false)">🔑 ${esc(t('pw.title'))}</button>
       <button class="btn-ghost block" style="margin-top:4px" onclick="T_forgotPw()">❓ ${EN()?'Forgot password':'ลืมรหัสผ่าน'}</button></div>`; return; }
-    const month=monthStr(); let pay=await api('getPayslip',{staffId:USER.staffId,month}); if(!pay) pay=await api('computePayroll',{staffId:USER.staffId,month});
+    const month=monthStr(); const pay=await T_slipFor(month);
     app.innerHTML=`<h2 class="page">💵 เงินเดือนของฉัน</h2>
       <div class="seg"><span class="muted" style="align-self:center">งวด:</span><input type="month" id="slipMonth" value="${month}" style="width:auto" onchange="T_slipMonth(this.value)"/>
       <button class="btn sm outline" onclick="SLIP_LOCK()">🔒 ล็อก</button></div>
-      <div id="slipBox">${payslipCard(pay)}</div>
+      <div id="slipBox">${payslipCard(pay,month)}</div>
       <button class="btn outline block" onclick="T_slipDownload()">⬇️ ${esc(t('lbl.downloadSlip'))}</button>`;
   };
   // staff/admin own profile (opened by tapping the header name/avatar)
@@ -2827,8 +2827,23 @@
     if(a!==b){toast(EN()?'Passwords do not match':'รหัสผ่านไม่ตรงกัน');return;}
     try{ await api('changeStaffPassword',{staffId:USER.staffId,newPassword:a}); confirmSaved(t('c.saved')); GO('home'); }catch(e){err(e);} };
   window.SLIP_LOCK=()=>{ SLIP_UNLOCKED=false; GO('slip'); };
-  window.T_slipMonth=async(m)=>{ let pay=await api('getPayslip',{staffId:USER.staffId,month:m}); if(!pay)pay=await api('computePayroll',{staffId:USER.staffId,month:m}); setHTML('#slipBox', payslipCard(pay)); };
-  window.T_slipDownload=async(m)=>{ m=m||($('#slipMonth')&&$('#slipMonth').value)||monthStr(); let pay=await api('getPayslip',{staffId:USER.staffId,month:m}); if(!pay)pay=await api('computePayroll',{staffId:USER.staffId,month:m}); await ensureLogos(); openOrDownload(buildSlipsHTML([pay],m), 'payslip-'+USER.staffId+'-'+m+'.html'); };
+  /**
+   * This month's slip for the signed-in person: the SAVED one if the admin has run payroll, otherwise
+   * a calculated preview. Both steps are guarded — someone who has just typed their password to open
+   * their own salary must never be answered with a blank screen, and "no slip yet" is a normal state,
+   * not an error (the server answers it with null).
+   */
+  async function T_slipFor(m){
+    let pay=null;
+    try{ pay=await api('getPayslip',{staffId:USER.staffId,month:m}); }catch(e){}
+    if(!pay){ try{ pay=await api('computePayroll',{staffId:USER.staffId,month:m}); }catch(e){} }
+    return pay;
+  }
+  window.T_slipMonth=async(m)=>{ setHTML('#slipBox', payslipCard(await T_slipFor(m), m)); };
+  window.T_slipDownload=async(m)=>{ m=m||($('#slipMonth')&&$('#slipMonth').value)||monthStr();
+    const pay=await T_slipFor(m);
+    if(!pay){ toast(EN()?'No payslip for this month yet':'ยังไม่มีสลิปของเดือนนี้'); return; }
+    await ensureLogos(); openOrDownload(buildSlipsHTML([pay],m), 'payslip-'+USER.staffId+'-'+m+'.html'); };
   // the sheet stores Adjustments as JSON text; the in-browser engine returns a real array
   const adjRows = r => { const a=r&&r.Adjustments; if(Array.isArray(a)) return a;
     if(typeof a==='string' && a.trim()){ try{ const v=JSON.parse(a); return Array.isArray(v)?v:[]; }catch(e){} } return []; };
@@ -2836,7 +2851,11 @@
   function carryMonths(r){ let d=r.OTCarryDetail;
     if(typeof d==='string'&&d){ try{ d=JSON.parse(d); }catch(e){ d=null; } }
     return (Array.isArray(d)?d:[]).map(x=>monthNameYear(x.month)).join(', ')||'-'; }
-  function payslipCard(r){ return `<div class="card"><h3>สลิป ${esc(staffName(r.StaffID))} · ${esc(r.Month)}</h3>
+  function payslipCard(r,month){
+    // no slip AND no preview: say so, rather than dying on r.StaffID and leaving the screen empty
+    if(!r) return `<div class="card"><b>${EN()?'No payslip for this month yet':'ยังไม่มีสลิปเงินเดือนของเดือนนี้'}${month?` · ${esc(month)}`:''}</b>
+      <br><small class="muted">${EN()?'It appears once the school has run payroll for this month.':'สลิปจะขึ้นเมื่อโรงเรียนคำนวณเงินเดือนของเดือนนี้แล้ว'}</small></div>`;
+    return `<div class="card"><h3>สลิป ${esc(staffName(r.StaffID))} · ${esc(r.Month)}</h3>
     ${r.LeaveExceeds?`<div style="background:var(--warn-bg);border:1px solid var(--warn-line);border-radius:8px;padding:6px 9px;margin-bottom:6px;color:var(--warn);font-size:13px">⚠️ ลาเกิน ${r.LeaveLimit||3} วัน (ลารวม ${r.LeaveDays} วัน) — ไม่คำนวณเรทจำนวนเด็ก</div>`:''}
     <table style="width:100%;font-size:14px;border-collapse:collapse">
     <tr><td>เงินเดือน</td><td style="text-align:right">${baht(r.BaseSalary)}</td></tr>
