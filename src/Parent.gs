@@ -23,8 +23,27 @@ function handleParentCheckin(payload) {
   if (!payload.studentId) throw apiError_('BAD_INPUT', 'ต้องระบุ studentId');
   var type = String(payload.type || 'IN').toUpperCase();
   if (type !== 'IN' && type !== 'OUT') throw apiError_('BAD_TYPE', 'type ต้องเป็น IN หรือ OUT');
-  // Parent CHECK-IN is allowed from anywhere (no geofence); CHECK-OUT still must be within the school radius.
-  var dist = (type === 'OUT') ? assertWithinGeofence_(payload.lat, payload.lng) : geoDistanceSafe_(payload.lat, payload.lng);
+  // Parent CHECK-IN is allowed from anywhere (no geofence); CHECK-OUT still must be within the school
+  // radius — a pickup is a safety record and it starts the late-pickup OT clock.
+  // A REFUSED pickup is written to the audit log with the distance (metres only — never coordinates),
+  // because "14% OUT_OF_RANGE" cannot be judged without knowing whether those parents were 40 m away
+  // at the gate or 4 km away at home. One is a fence set too tight; the other is the rule working.
+  var dist;
+  if (type === 'OUT') {
+    try {
+      dist = assertWithinGeofence_(payload.lat, payload.lng, payload.acc);
+    } catch (geoErr) {
+      if (geoErr && geoErr.apiCode === 'OUT_OF_RANGE') {
+        try {
+          logAudit(parent.ParentID, 'STUDENT_CHECKOUT_OUT_OF_RANGE', 'CHECKIN_STUDENT',
+            String(payload.studentId) + ' · ' + geoDistanceSafe_(payload.lat, payload.lng) + 'm acc=' + (Number(payload.acc) || 0) + 'm');
+        } catch (logErr) {}
+      }
+      throw geoErr;
+    }
+  } else {
+    dist = geoDistanceSafe_(payload.lat, payload.lng);
+  }
 
   var student = findObject_(sheet_(getMainSpreadsheet_(), 'STUDENTS'),
     function (s) { return String(s.StudentID) === String(payload.studentId); });

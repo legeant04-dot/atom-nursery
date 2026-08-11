@@ -13,7 +13,7 @@
 window.MOCK = {
   config: {
     SchoolName: 'Atom Nursery',
-    GPS_Lat: 13.792472, GPS_Lng: 100.646389, Radius: 50, BigCleaningIn: '08:30', BigCleaningOut: '17:00',
+    GPS_Lat: 13.792472, GPS_Lng: 100.646389, Radius: 50, GpsAccuracySlack: 50, BigCleaningIn: '08:30', BigCleaningOut: '17:00',
     Departments: ['Nursery 0','Nursery 1','Nursery 2','Nursery 3'],
     DiligenceAttendanceAmount: 500, DiligenceFacebookAmount: 500,
     ExtraChildRate: 300, TrainingCertRate: 100, TrainingCertMaxPerMonth: 2,
