@@ -332,7 +332,15 @@ function handleGetPayslip(payload) {
   var row = findObject_(sheet, function (r) {
     return String(r.StaffID) === String(payload.staffId) && ym7_(r.Month) === ym7_(payload.month);
   });
-  if (!row) throw apiError_('NOT_FOUND', 'ยังไม่มีสลิปเงินเดือนของเดือนนี้');
+  // NULL, not an error. "No slip saved for this month yet" is the NORMAL state until the admin runs
+  // payroll, and the engine has always answered it with null — but this route shadows the engine and
+  // used to throw, so every caller written against null broke on live:
+  //   · a teacher unlocking their own payslip screen got nothing at all, instead of the calculated
+  //     preview the very next line falls back to;
+  //   · printing a month produced one failure per staff member.
+  // It is also 21% of all getPayslip calls in the 2026-08-11 report — a normal state counted as a
+  // failure, which hides the real ones.
+  if (!row) return null;
 
   var staff = findObject_(sheet_(getHrSpreadsheet_(), 'STAFF'), function (s) {
     return String(s.StaffID) === String(payload.staffId);
