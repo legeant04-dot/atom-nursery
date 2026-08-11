@@ -261,15 +261,18 @@ function createAtomAPI(M, GROWTH_STD) {
    * The school's rule: Nursery 1 (the youngest) stay for dinner and record all four; Nursery 2, 3
    * and Premium record breakfast, lunch and a snack only.
    */
-  function mealSlotsFor_(className) {
-    const c = String(className || '');
-    // keys match the journal's own field names, so no mapping layer can drift out of step
-    const all = [
+  // keys match the journal's own field names, so no mapping layer can drift out of step
+  function allMealSlots_() {
+    return [
       { key: 'Breakfast', th: 'อาหารเช้า', en: 'Breakfast' },
       { key: 'Lunch', th: 'อาหารกลางวัน', en: 'Lunch' },
       { key: 'Dinner', th: 'อาหารเย็น', en: 'Dinner' },
       { key: 'Snack', th: 'อาหารว่าง', en: 'Snack' }
     ];
+  }
+  function mealSlotsFor_(className) {
+    const c = String(className || '');
+    const all = allMealSlots_();
     // The babies are fed on their own schedule, recorded as milk feeds rather than meals, so the
     // meal section is empty for them — an empty list, not "all of them".
     if (isBabyClass_(c)) return [];
@@ -280,6 +283,38 @@ function createAtomAPI(M, GROWTH_STD) {
   function isBabyClass_(c) { return /baby|เบบี้|เบบี|ทารก/i.test(String(c || '')); }
   // Only Nursery 1 — NOT Nursery 10 or Nursery 12, hence the boundary after the digit.
   function staysForDinner_(c) { return /(^|[^\d])1([^\d]|$)/.test(String(c || '')) && !isBabyClass_(c); }
+
+  /**
+   * ONE menu a day, for the whole school.
+   *
+   * The kitchen cooks once and every class eats the same food, so the menu is entered once per day.
+   * WHO eats which meal stays a class rule, applied where the menu is SHOWN (mealSlotsFor_ above):
+   * Nursery Baby records no meals at all, Nursery 1 stays for dinner, Nursery 2 / 3 / Premium go
+   * home before it. Planning per class only ever meant typing the same dish four times.
+   *
+   * Menus written before this change are keyed by class. They are still read, as a FALLBACK for any
+   * day with no shared menu, so nothing typed in the past disappears — and where several classes
+   * have a row for the same day, the fullest one wins, because that loses the least. A shared menu
+   * always beats a legacy one; and clearing a day deletes BOTH, or "I deleted it" would be followed
+   * by the old class menu reappearing in its place.
+   */
+  const MENU_ALL_ = 'ALL';
+  const MENU_FIELDS_ = ['Breakfast', 'SnackAM', 'Lunch', 'SnackPM', 'Dinner'];
+  function menuRowsByDate_(M, month) {
+    const shared = {}, legacy = {};
+    (M.foodMenus || []).forEach(r => {
+      const d = ymd(r.Date); if (!d || ym(d) !== month) return;
+      if (String(r.Class) === MENU_ALL_) shared[d] = r; else (legacy[d] || (legacy[d] = [])).push(r);
+    });
+    const filled = r => MENU_FIELDS_.reduce((a, k) => a + (String(r[k] || '').trim() ? 1 : 0), 0);
+    const out = {};
+    Object.keys(legacy).forEach(d => {
+      out[d] = legacy[d].slice().sort((a, b) => (filled(b) - filled(a)) ||
+        String(a.Class || '').localeCompare(String(b.Class || '')))[0];
+    });
+    Object.keys(shared).forEach(d => { out[d] = shared[d]; });
+    return out;
+  }
 
   // ---- survey row -> the shape every screen reads (Options is stored as JSON in one cell) ----
   const SURVEY_MAX_Q = 5;                       // the school's cap — more than this and nobody answers
@@ -1971,13 +2006,17 @@ function createAtomAPI(M, GROWTH_STD) {
      * have to work out which of five menus applies to them.
      */
     foodMenu: p => { const cls=String(p.className||''); const month=ym(p.month||todayLocal().slice(0,7));
-      const rows=(M.foodMenus||[]).filter(r=>String(r.Class)===cls && ym(r.Date)===month)
-        .sort((a,b)=>String(a.Date).localeCompare(String(b.Date)));
-      return { className:cls, month,
-        // the meals this class actually records, so the menu screen and the journal cannot disagree
-        slots: mealSlotsFor_(cls),
+      // ONE menu a day for the whole school (see menuRowsByDate_). A className is no longer WHICH
+      // menu — it only says which meals that class eats, so the parent screen shows a Nursery 2
+      // family lunch and not dinner. No class given = the planning screen, which shows every meal.
+      const byDate=menuRowsByDate_(M, month);
+      const rows=Object.keys(byDate).sort().map(d=>byDate[d]);
+      return { className:cls, month, shared:true,
+        slots: cls?mealSlotsFor_(cls):allMealSlots_(),
         days: rows.map(r=>({ date:ymd(r.Date), breakfast:r.Breakfast||'', snackAM:r.SnackAM||'',
-          lunch:r.Lunch||'', dinner:r.Dinner||'', snackPM:r.SnackPM||'', note:r.Note||'' })),
+          lunch:r.Lunch||'', dinner:r.Dinner||'', snackPM:r.SnackPM||'', note:r.Note||'',
+          // a day still coming from an old per-class row, so the screen can say so
+          legacyClass: String(r.Class)===MENU_ALL_?'':String(r.Class||'') })),
         updatedAt: rows.reduce((a,r)=>String(r.UpdatedAt||'')>a?String(r.UpdatedAt):a,'') }; },
 
     /** Parent view: resolve the child's class for them, so the menu is never the wrong one. */
@@ -1989,25 +2028,26 @@ function createAtomAPI(M, GROWTH_STD) {
       r.kids=kids.map(s=>({studentId:s.StudentID, nick:s.Nickname||'', name:s.NameTH||'', cls:s.Class}));
       return r; },
 
-    /** Admin saves a whole month for one class in one go (one round trip, one consistent picture). */
+    /** A whole month for the WHOLE SCHOOL in one go (one round trip, one consistent picture). */
     saveFoodMenu: p => { const ap=staffById(p.staffId)||{};
       if(!canFoodMenu_(ap)) fail('NO_PERMISSION','ไม่มีสิทธิ์จัดการเมนูอาหาร');
-      const cls=String(p.className||''); if(!cls) fail('BAD_INPUT','ระบุชั้นเรียน');
       const month=ym(p.month||todayLocal().slice(0,7));
       M.foodMenus=M.foodMenus||[];
       const stamp=stampLocal();
       (p.days||[]).forEach(d=>{
         const date=ymd(d.date); if(!date || ym(date)!==month) return;      // never write outside the month being edited
         const blank=!(d.breakfast||d.snackAM||d.lunch||d.dinner||d.snackPM||d.note);
-        const i=M.foodMenus.findIndex(r=>String(r.Class)===cls && ymd(r.Date)===date);
-        if(blank){ if(i>=0) M.foodMenus.splice(i,1); return; }             // clearing a day removes it
-        const rec={ MenuID:'FM-'+cls.replace(/\s+/g,'')+'-'+date, Class:cls, Date:date,
+        // clearing a day means CLEARED: the old per-class rows go too, or the legacy fallback would
+        // put yesterday's class menu straight back on a day somebody had just emptied
+        if(blank){ for(let i=M.foodMenus.length-1;i>=0;i--){ if(ymd(M.foodMenus[i].Date)===date) M.foodMenus.splice(i,1); } return; }
+        const i=M.foodMenus.findIndex(r=>String(r.Class)===MENU_ALL_ && ymd(r.Date)===date);
+        const rec={ MenuID:'FM-'+MENU_ALL_+'-'+date, Class:MENU_ALL_, Date:date,
           Breakfast:d.breakfast||'', SnackAM:d.snackAM||'', Lunch:d.lunch||'', Dinner:d.dinner||'', SnackPM:d.snackPM||'',
           Note:d.note||'', UpdatedBy:p.staffId||'', UpdatedAt:stamp };
         if(i>=0) M.foodMenus[i]=Object.assign(M.foodMenus[i],rec); else M.foodMenus.push(rec);
       });
-      logAct('saveFoodMenu',cls,month+' ('+(p.days||[]).length+' วัน)',actorOf(p));
-      return H.foodMenu({className:cls, month}); },
+      logAct('saveFoodMenu',MENU_ALL_,month+' ('+(p.days||[]).length+' วัน)',actorOf(p));
+      return H.foodMenu({month}); },
 
     /* ---- master food list (ของคาว / ของหวาน / ผลไม้ / อื่นๆ) ---------------------------------
      * This is what the teacher's daily journal picks from. It is deliberately NOT a fixed list: a
@@ -2080,7 +2120,9 @@ function createAtomAPI(M, GROWTH_STD) {
       const out={ className:cls, slots, planned:{} };
       if(!slots.length || !p.date) return out;                 // the baby class records no meals
       const date=ymd(p.date);
-      const m=(M.foodMenus||[]).find(r=>String(r.Class)===cls && ymd(r.Date)===date);
+      // ONE menu a day for the whole school; `slots` above is what decides which of it this class
+      // actually eats, so a Nursery 2 journal never pre-fills a dinner nobody served them.
+      const m=menuRowsByDate_(M, ym(date))[date];
       if(!m) return out;
       // SnackAM is the morning snack the school plans; the journal has one snack slot, so that is
       // the one it defaults from, falling back to the afternoon one when only that is planned.

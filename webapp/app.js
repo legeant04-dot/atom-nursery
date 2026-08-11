@@ -112,7 +112,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.219'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.220'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -2062,7 +2062,11 @@
     window._FM_SLOTS=(d.slots||[]).map(x=>x.key);
     const today=todayStr();
     const rows=fmDays(d.month).map(ds=>{ const v=by[ds]; if(!v) return '';
-      const meals=FM_MEALS.filter(([k])=>v[k]).map(([k,lb])=>`<div class="list-item" style="padding:3px 0"><span class="muted" style="min-width:96px">${esc(lb())}</span><span>${esc(v[k])}</span></div>`).join('');
+      // ONE menu is now planned for the whole school, so THIS is where a family is shown only what
+      // their own child is served: nothing at all for Nursery Baby, and no dinner for the classes
+      // that go home before it. Without this filter a Nursery 2 parent would be shown a dinner
+      // their child never had.
+      const meals=FM_MEALS.filter(([k])=>v[k]&&fmShows(k)).map(([k,lb])=>`<div class="list-item" style="padding:3px 0"><span class="muted" style="min-width:96px">${esc(lb())}</span><span>${esc(v[k])}</span></div>`).join('');
       if(!meals && !v.note) return '';
       return `<div class="card" style="padding:8px;${ds===today?'border-color:var(--brand);box-shadow:0 0 0 2px var(--brand-soft)':''}">
         <div class="spread"><b>${esc(ds)} (${esc(fmDow(ds))}.)</b>${ds===today?`<span class="pill ok" style="font-size:11px">${EN()?'today':'วันนี้'}</span>`:''}</div>
@@ -2930,7 +2934,17 @@
     // outstanding OT was only inside the tracking card; the tile now carries it as a second, smaller
     // line so the two numbers are never read as one
     const _otOut = Math.max(0, otDue-Number(fin.otCollected||0));
+    // The card showed what came in and what is still owed, but never the two added up — so "how much
+    // is this month worth in total?" could not be read off it, only worked out on paper.
+    const _otCol=Number(fin.otCollected||0);
+    const _allIn=Number(fin.tuitionCollected||0)+_otCol;      // money actually received
+    const _allOut=tuiOut+_otOut;                              // still owed
+    const _allTotal=_allIn+_allOut;                           // everything billed this month
     const payHtml=`<div class="card"><div class="spread"><h3>💰 ${EN()?'Payment tracking':'ติดตามการชำระเงิน'} <small class="muted">(${esc(fin.month||monthStr())})</small></h3><button class="btn sm outline" onclick="GO('finance')">${EN()?'Details':'รายละเอียด'}</button></div>
+      <div style="text-align:center;margin:6px 0 8px;padding:8px;background:var(--surface-2);border-radius:10px">
+        <small class="muted">${EN()?'Total billed this month (tuition + student OT)':'ยอดทั้งหมดเดือนนี้ (ค่าเทอม + OT นักเรียน)'}</small>
+        <div style="font-size:24px;font-weight:800;line-height:1.2">${baht(_allTotal)}</div>
+        <small class="muted">${EN()?'Collected':'เก็บได้'} <b style="color:var(--ok)">${baht(_allIn)}</b> · ${EN()?'Outstanding':'ค้างชำระ'} <b style="color:${_allOut>0?'var(--bad)':'var(--ok)'}">${baht(_allOut)}</b></small></div>
       <div class="spread" style="font-size:14px;margin-top:4px"><span>🏫 ${EN()?'Monthly tuition':'ค่าเทอมรายเดือน'}</span><b style="color:${pctColor(tuiPct)}">${fin.studentsPaid}/${fin.studentsTotal} <small class="muted" style="font-weight:400">(${tuiPct}%)</small></b></div>
       <div style="height:6px;background:var(--line);border-radius:4px;overflow:hidden;margin:4px 0"><div style="height:100%;width:${tuiPct}%;background:${pctColor(tuiPct)}"></div></div>
       <div class="spread" style="font-size:13px"><span class="muted">${EN()?'Collected':'เก็บได้'} <b style="color:var(--ok)">${baht(fin.tuitionCollected||0)}</b></span><span class="muted">${EN()?'Outstanding':'ค้างชำระ'} <b style="color:${tuiOut>0?'var(--bad)':'var(--ok)'}">${baht(tuiOut)}</b></span></div>
@@ -4964,12 +4978,18 @@
       toast((EN()?'Added ':'เพิ่มแล้ว ')+r.added+(EN()?' dishes':' รายการ')); A_foodItems();
     }catch(e){err(e);}finally{ if(btn)btn.disabled=false; } };
 
-  let FM_CLASS=null, FM_MONTH=null, FM_FOOD=[];
-  // Dinner is planned here too, for the class that stays for it. The editor hides the field for a
-  // class that does not eat dinner, so nobody plans a meal that will never be served.
+  let FM_MONTH=null, FM_FOOD=[];
+  // The kitchen cooks ONCE a day and every class eats the same food, so the menu is planned once —
+  // there is no class to pick. Who EATS which meal is still a class rule, applied where the menu is
+  // shown (the journal and the parent's copy), which is what these notes spell out.
   const FM_MEALS=[['breakfast',()=>EN()?'Breakfast':'อาหารเช้า'],['snackAM',()=>EN()?'Morning snack':'ว่างเช้า'],
                   ['lunch',()=>EN()?'Lunch':'อาหารกลางวัน'],['snackPM',()=>EN()?'Afternoon snack':'ว่างบ่าย'],
                   ['dinner',()=>EN()?'Dinner':'อาหารเย็น']];
+  // who actually eats each planned meal — shown under the field so the person entering the menu can
+  // see it without having to remember the rule
+  const FM_WHO={ dinner:()=>EN()?'Nursery 1 only':'เฉพาะ Nursery 1',
+                 _default:()=>EN()?'every class except Nursery Baby':'ทุกชั้น ยกเว้น Nursery Baby' };
+  const fmWho = k => (FM_WHO[k]||FM_WHO._default)();
   /**
    * Does THIS class plan this meal?
    *
@@ -4989,26 +5009,20 @@
   const fmWeekend=ds=>{ const g=new Date(ds+'T00:00:00').getDay(); return g===0||g===6; };
 
   window.A_foodMenu=async()=>{
-    // Classes come from departments ∪ CLASSES ∪ whatever students are actually in — the same union the
-    // dashboard uses, because CLASSES only holds rows that have a homeroom teacher.
     // the master food list is what the menu is planned FROM — same catalogue the journal picks from,
     // so a planned dish and a recorded dish are always the same string
-    const [deps,cls,studs,food]=await Promise.all([
-      api('listDepartments').catch(()=>[]), api('listClasses').catch(()=>[]),
-      (A_CACHE.students&&A_CACHE.students.length)?Promise.resolve(A_CACHE.students):api('listStudents').catch(()=>[]),
-      api('foodItems',{}).catch(()=>[])]);
+    FM_MONTH=FM_MONTH||monthStr();
+    const [food,d]=await Promise.all([
+      api('foodItems',{}).catch(()=>[]),
+      api('foodMenu',{month:FM_MONTH},{fresh:true})]);
     FM_FOOD=food||[];
-    const list=[...new Set([].concat(
-      (deps||[]).map(d=>typeof d==='string'?d:(d.name||d.Name||'')),
-      (cls||[]).map(c=>c.ClassName||c.className||''),
-      (studs||[]).map(s=>s.Class||'')).filter(Boolean))].sort();
-    FM_CLASS=FM_CLASS||list[0]||''; FM_MONTH=FM_MONTH||monthStr();
-    if(!FM_CLASS){ toast(EN()?'No classes yet':'ยังไม่มีชั้นเรียน'); return; }
-    const d=await api('foodMenu',{className:FM_CLASS,month:FM_MONTH},{fresh:true});
     const by={}; (d.days||[]).forEach(x=>by[x.date]=x);
-    // the engine says which meals this class records; the editor follows it rather than repeating
-    // the rule and drifting out of step (the baby class records none at all)
+    // no class is chosen here any more, so the planner shows every meal; the class rule is applied
+    // where the menu is READ (journal + parent), not where it is written
     window._FM_SLOTS=(d.slots||[]).map(x=>x.key);
+    // a day still coming from an old per-class menu, kept as a fallback so nothing typed before this
+    // change disappeared — saying so is better than the person wondering where it came from
+    const legacyDays=(d.days||[]).filter(x=>x.legacyClass).length;
     // The kitchen does not cook at the weekend, so those rows are just noise to scroll past. A public
     // holiday IS worth showing — with its name — because that is a day a parent might otherwise expect
     // a menu for.
@@ -5019,17 +5033,16 @@
         <small class="muted">${EN()?'School closed — no menu needed':'วันหยุด — ไม่ต้องลงเมนู'}</small></div>`;
       return `<div class="card" style="padding:8px">
         <div class="spread"><b>${esc(ds.slice(8))} ${esc(fmDow(ds))}.</b><small class="muted">${esc(ds)}</small></div>
-        <div class="grid2" style="margin-top:4px">${FM_MEALS.filter(([k])=>fmShows(k)).map(([k,lb])=>
-          `<label class="field"><span>${esc(lb())}</span><select id="fm_${k}_${ds}" data-prev="${esc(v[k]||'')}" onchange="A_fmFoodPick(this)">${
+        <div class="grid2" style="margin-top:4px">${FM_MEALS.map(([k,lb])=>
+          `<label class="field"><span>${esc(lb())} <small class="muted" style="font-weight:400">· ${esc(fmWho(k))}</small></span><select id="fm_${k}_${ds}" data-prev="${esc(v[k]||'')}" onchange="A_fmFoodPick(this)">${
             jFoodOptions(v[k]||'',FM_FOOD,EN()?'– no dish –':'– ไม่มีเมนู –')}</select></label>`).join('')}</div>
-        <label class="field"><span>${EN()?'Note':'หมายเหตุ'}</span><input id="fm_note_${ds}" value="${esc(v.note||'')}" placeholder="${EN()?'e.g. birthday cake':'เช่น มีเค้กวันเกิด'}"/></label></div>`;
+        <label class="field"><span>${EN()?'Note':'หมายเหตุ'}</span><input id="fm_note_${ds}" value="${esc(v.note||'')}" placeholder="${EN()?'e.g. birthday cake':'เช่น มีเค้กวันเกิด'}"/></label>
+        ${v.legacyClass?`<small class="muted">📋 ${EN()?'from the old '+v.legacyClass+' menu — saving makes it the school-wide one':'มาจากเมนูเดิมของ '+v.legacyClass+' · กดบันทึกแล้วจะกลายเป็นเมนูรวมของทั้งโรงเรียน'}</small>`:''}</div>`;
     }).join('');
-    modal(`<h3>🍚 ${EN()?'Food menu':'เมนูอาหาร'}</h3>
-      <div class="grid2">
-        <label class="field"><span>${EN()?'Class':'ชั้นเรียน'}</span><select id="fmCls" onchange="A_fmPick(this.value,null)">${
-          list.map(c=>`<option value="${esc(c)}"${c===FM_CLASS?' selected':''}>${esc(c)}</option>`).join('')}</select></label>
-        <label class="field"><span>${esc(t('c.month'))}</span><input type="month" value="${esc(FM_MONTH)}" onchange="A_fmPick(null,this.value)"/></label></div>
-      <p class="muted" style="font-size:13px">${EN()?'Leave a day blank to remove it. Parents see only their own child\'s class.':'เว้นว่างไว้ = ไม่มีเมนูวันนั้น · ผู้ปกครองจะเห็นเฉพาะชั้นของลูกตัวเอง'}</p>
+    modal(`<h3>🍚 ${EN()?'Food menu':'เมนูอาหาร'} <small class="muted" style="font-size:13px;font-weight:400">· ${EN()?'whole school':'ทุกชั้นเรียน'}</small></h3>
+      <label class="field"><span>${esc(t('c.month'))}</span><input type="month" value="${esc(FM_MONTH)}" onchange="A_fmPick(this.value)"/></label>
+      <p class="muted" style="font-size:13px">${EN()?'One menu a day for the whole school. Nursery Baby records no meals; Nursery 1 eats dinner too; Nursery 2 / 3 / Premium go home before dinner. Leave a day blank to remove it.':'ลงเมนูวันละครั้ง ใช้ร่วมกันทุกชั้นเรียน · Nursery Baby ไม่แสดงมื้ออาหาร · Nursery 1 ได้ครบทุกมื้อรวมมื้อเย็น · Nursery 2 / 3 / Premium ได้ทุกมื้อยกเว้นมื้อเย็น · เว้นว่างไว้ = ไม่มีเมนูวันนั้น'}</p>
+      ${legacyDays?`<div class="card" style="padding:8px;background:var(--warn-bg);border-color:var(--warn-line);color:var(--warn);font-size:13px">📋 ${EN()?legacyDays+' day(s) still show a menu entered per class before this change. They are kept as-is until you save.':'มี '+legacyDays+' วัน ที่ยังแสดงเมนูเดิมซึ่งเคยลงแยกตามชั้นเรียน · ระบบเก็บไว้ให้ จนกว่าจะกดบันทึกทับ'}</div>`:''}
       <div class="row" style="gap:8px;margin-bottom:6px">
         <button class="btn sm" style="flex:1" onclick="A_fmSave(this)">💾 ${esc(t('c.save'))}</button>
         <button class="btn sm outline" style="flex:1" onclick="A_fmExport('pdf',this)">📕 A4 PDF</button>
@@ -5037,7 +5050,7 @@
       <div style="max-height:56vh;overflow:auto">${rows}</div>
       <button class="btn outline block" style="margin-top:8px" onclick="this.closest('.modal').remove()">${esc(t('c.close'))}</button>`);
   };
-  window.A_fmPick=(cls,month)=>{ if(cls)FM_CLASS=cls; if(month)FM_MONTH=month;
+  window.A_fmPick=(month)=>{ if(month)FM_MONTH=month;
     const m=document.querySelector('.modal'); if(m)m.remove(); A_foodMenu(); };
   /**
    * "➕ เพิ่มเมนูใหม่…" from inside the menu editor. The dish goes into the master list, so it is a
@@ -5062,14 +5075,14 @@
   window.A_fmCollect=()=>fmDays(FM_MONTH).map(ds=>{ const g=k=>{const e=document.getElementById('fm_'+k+'_'+ds); return e?e.value.trim():'';};
     return {date:ds, breakfast:g('breakfast'), snackAM:g('snackAM'), lunch:g('lunch'), dinner:g('dinner'), snackPM:g('snackPM'), note:g('note')}; });
   window.A_fmSave=async(btn)=>{ if(btn)btn.disabled=true;
-    try{ await api('saveFoodMenu',{staffId:USER.staffId,className:FM_CLASS,month:FM_MONTH,days:A_fmCollect()});
+    try{ await api('saveFoodMenu',{staffId:USER.staffId,month:FM_MONTH,days:A_fmCollect()});
       confirmSaved(t('c.saved'));
     }catch(e){err(e);}finally{ if(btn)btn.disabled=false; } };
   window.A_fmExport=async(kind,btn)=>{ const old=btn?btn.innerHTML:'';
     if(btn){ btn.disabled=true; btn.innerHTML='⏳'; }
     try{
       await window.__atomLoadScript('report_card.js',()=>!!window.AtomReportCard);
-      await AtomReportCard.saveMenu({className:FM_CLASS, month:FM_MONTH, days:A_fmCollect(),
+      await AtomReportCard.saveMenu({className:(EN()?'Whole school':'ทุกชั้นเรียน'), month:FM_MONTH, days:A_fmCollect(),
         school:{name:'Atom Nursery'}, generatedAt:new Date().toISOString().slice(0,16).replace('T',' ')}, kind);
       toast(EN()?'Saved to your device':'บันทึกลงเครื่องแล้ว');
     }catch(e){ err(e); }finally{ if(btn){ btn.disabled=false; btn.innerHTML=old; } } };
