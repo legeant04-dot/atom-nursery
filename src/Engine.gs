@@ -453,6 +453,18 @@ function createAtomAPI(M, GROWTH_STD) {
    */
   const adminLike_ = s => !!s && (s.PositionLevel==='Admin' || s.Role==='Admin' || s.Role==='Observer');
   /**
+   * May this person edit the monthly food menu? An admin, or the teacher the admin ticked
+   * "ให้ครูคนนี้จัดการเมนูอาหารรายเดือนได้" (CanFoodMenu) — the kitchen is usually run by one teacher.
+   *
+   * ONE rule, used by both the screen that shows the button and the handler that accepts the save.
+   * They were two rules before, and the two disagreed: the button was never shown, because
+   * staffSelf did not return the flag at all.
+   */
+  function canFoodMenu_(staff){ if(!staff||!staff.StaffID) return false;
+    if(adminLike_(staff)) return true;
+    const v=staff.CanFoodMenu;
+    return v===true||v===1||['YES','TRUE','1'].indexOf(String(v).toUpperCase())>=0; }
+  /**
    * Has this person actually started yet?
    *
    * A teacher hired to begin on the 13th exists in the system from the day they are entered, and
@@ -1613,7 +1625,7 @@ function createAtomAPI(M, GROWTH_STD) {
         Role:s.Role, PositionLevel:s.PositionLevel, Position:s.Position, Department:s.Department,
         StaffGroup:s.StaffGroup, Phone:s.Phone, DOB:s.DOB, StartDate:s.StartDate, NationalID:s.NationalID,
         RequireCheckin: s.RequireCheckin!==false, MustChangePassword: !!s.MustChangePassword,
-        CanClassOrg: canOrganize_(s),
+        CanClassOrg: canOrganize_(s), CanFoodMenu: canFoodMenu_(s),
         GroupIn: grp&&grp.CheckInTime||'', GroupOut: grp&&grp.CheckOutTime||'' }; },
     setRequireCheckin: p => { const s=M.staff.find(x=>x.StaffID===p.staffId); if(s) s.RequireCheckin=!!p.value; return {staffId:p.staffId, value:!!p.value}; },
     // staff edits their OWN record, whitelisted fields only (staffId injected server-side)
@@ -1948,10 +1960,7 @@ function createAtomAPI(M, GROWTH_STD) {
 
     /** Admin saves a whole month for one class in one go (one round trip, one consistent picture). */
     saveFoodMenu: p => { const ap=staffById(p.staffId)||{};
-      // Admin, or a teacher the admin put in charge of the menu (CanFoodMenu) — the kitchen is often
-      // run by one teacher, and making them ask an admin for every change helps nobody.
-      const yes=['YES','TRUE','1'].indexOf(String(ap.CanFoodMenu||'').toUpperCase())>=0 || ap.CanFoodMenu===true;
-      if(!adminLike_(ap)&&!yes) fail('NO_PERMISSION','ไม่มีสิทธิ์จัดการเมนูอาหาร');
+      if(!canFoodMenu_(ap)) fail('NO_PERMISSION','ไม่มีสิทธิ์จัดการเมนูอาหาร');
       const cls=String(p.className||''); if(!cls) fail('BAD_INPUT','ระบุชั้นเรียน');
       const month=ym(p.month||todayLocal().slice(0,7));
       M.foodMenus=M.foodMenus||[];

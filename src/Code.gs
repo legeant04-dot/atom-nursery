@@ -273,7 +273,11 @@ function applyIdentity_(action, payload, sess) {
     adminInbox: 1, markInboxRead: 1, reinstallTriggers: 1, unlinkStudent: 1, linkParentAdmin: 1, setLeaveQuota: 1, setConfigVal: 1, markSalaryPaid: 1, notifyBills: 1, issueBillsFor: 1, savePlans: 1, saveQRCodes: 1, prepayAudit: 1, recomputeContributions: 1, savePrepayTiers: 1, editPrepay: 1, setStudentPause: 1, setStaffEnd: 1, staffAttendanceMonth: 1, studentMonthReport: 1, recordCashPayment: 1, pausedStudents: 1, deleteSlip: 1, slipDiag: 1, saveSlipOk: 1, cancelPrepay: 1, perfSummary: 1, deletePerfLog: 1,
     // Phase 7. The engine handlers already check the caller's role; listing them here as well means a
     // bug in one of those checks still cannot expose survey results or let anyone rewrite the menu.
-    saveFoodMenu: 1, deleteFoodItem: 1, seedFoodItems: 1, surveys: 1, saveSurvey: 1, setSurveyStatus: 1, deleteSurvey: 1, surveyResults: 1, surveySummary: 1,
+    // saveFoodMenu is deliberately NOT here: it is the one action an admin can DELEGATE to a
+    // teacher (CanFoodMenu), and this list cannot see that flag — it would refuse the very teacher
+    // the admin just put in charge. The engine's canFoodMenu_ is the gate, and it is the same rule
+    // that decides whether the button appears at all.
+    deleteFoodItem: 1, seedFoodItems: 1, surveys: 1, saveSurvey: 1, setSurveyStatus: 1, deleteSurvey: 1, surveyResults: 1, surveySummary: 1,
     parentKidsMap: 1 };  // every parent's children by name — admin-only (PII)
   // Observer reads these too — the role exists to see the whole school. It cannot write: dispatch_
   // has already refused every mutating action for it before this runs.

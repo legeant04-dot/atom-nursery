@@ -283,8 +283,14 @@ console.log('\n7) The plumbing that would otherwise lose everything silently');
     ok_(k + ' is mapped to a sheet so persist() writes it', new RegExp(k + ':\\s*\\{ wb:').test(ge)));
 
   const code = fs.readFileSync(path.join(__dirname, '..', 'src', 'Code.gs'), 'utf8');
-  ['saveFoodMenu', 'surveys', 'saveSurvey', 'setSurveyStatus', 'deleteSurvey', 'surveyResults', 'surveySummary']
+  ['surveys', 'saveSurvey', 'setSurveyStatus', 'deleteSurvey', 'surveyResults', 'surveySummary']
     .forEach(a => ok_(a + ' is admin-gated at the router too', new RegExp('\\b' + a + ': 1').test(code)));
+  // saveFoodMenu is the exception, and deliberately so: it is the one action an admin can DELEGATE
+  // to a teacher (CanFoodMenu). ADMIN_ONLY cannot see that flag, so listing it here refused the very
+  // teacher the admin had just put in charge. The engine's canFoodMenu_ is the gate — see
+  // tools/test_food_perm.js, which proves an untick is still refused.
+  ok_('saveFoodMenu is NOT router-gated, so a delegated teacher can save',
+    !/\bsaveFoodMenu: 1/.test(code));
   ok_('no explicit route shadows the engine for Phase 7',
     !/\b(saveFoodMenu|saveSurvey|submitSurvey|deleteSurvey)\s*:\s*function/.test(code));
 
