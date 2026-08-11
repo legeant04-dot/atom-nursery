@@ -92,7 +92,7 @@ console.log('\n4) a dish that IS on the master list is selected, not duplicated'
 
 console.log('\n5) the menu screen is wired to the master list');
 {
-  ok_('A_foodMenu loads foodItems', /const \[deps,cls,studs,food\]=await Promise\.all\(\[[\s\S]{0,400}api\('foodItems'/.test(app));
+  ok_('A_foodMenu loads foodItems', /const \[food,d\]=await Promise\.all\(\[\s*\n?\s*api\('foodItems'/.test(app));
   ok_('meal cells are <select>, not free text', /<select id="fm_\$\{k\}_\$\{ds\}"/.test(app));
   ok_('no free-text meal input left behind', !/<input id="fm_\$\{k\}_\$\{ds\}"/.test(app));
   ok_('cells are built from the master list', /jFoodOptions\(v\[k\]\|\|'',FM_FOOD/.test(app));
@@ -109,7 +109,10 @@ console.log('\n6) adding a dish from inside the editor keeps unsaved work');
   ok_('the modal is not rebuilt (that would lose unsaved edits)', !/A_foodMenu\(\)/.test(fn));
   ok_('a duplicate name is not re-sent to the server', /if\(!FM_FOOD\.some\(/.test(fn));
   // the class/month <select> is id="fmCls" — it must not be caught by the refresh sweep
-  ok_('the class picker is not a "fm_" id', /id="fmCls"/.test(app) && !/id="fm_Cls"/.test(app));
+  // v220 removed the class picker entirely — one menu a day for the whole school. The refresh sweep
+  // therefore has nothing but meal cells to hit, and must still not catch the month input.
+  ok_('there is no class picker left to catch', !/id="fmCls"/.test(app));
+  ok_('the month field is not a "fm_" id either', !/id="fm_month"/i.test(app));
 }
 
 console.log('\n7) what is collected still saves the same shape');

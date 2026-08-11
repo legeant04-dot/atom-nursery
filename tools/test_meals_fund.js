@@ -171,9 +171,12 @@ console.log('\n5) Dinner exists everywhere the menu does');
   ok_('a day holding only a dinner is not treated as empty and deleted', /const blank=!\(d\.breakfast\|\|d\.snackAM\|\|d\.lunch\|\|d\.dinner\|\|d\.snackPM\|\|d\.note\)/.test(eng));
   ok_('the editor offers a dinner field', /\['dinner',\(\)=>EN\(\)\?'Dinner':'อาหารเย็น'\]/.test(app));
   ok_('...and sends it', /dinner:g\('dinner'\)/.test(app));
-  ok_('the editor only shows the meals that class actually records', /FM_MEALS\.filter\(\(\[k\]\)=>fmShows\(k\)\)/.test(app));
+  // v220: ONE menu a day for the whole school. The PLANNER shows every meal (the kitchen cooks it
+  // once); the class rule moved to where the menu is READ — the parent's copy and the journal.
+  ok_('the planner shows every meal, and says who eats each one', /FM_MEALS\.map\(\(\[k,lb\]\)=>/.test(app) && /fmWho\(k\)/.test(app));
+  ok_('the PARENT copy is filtered by their own child\'s class', /FM_MEALS\.filter\(\(\[k\]\)=>v\[k\]&&fmShows\(k\)\)/.test(app));
   ok_('both snacks map onto the journal’s single snack slot', /if\(k==='snackAM'\|\|k==='snackPM'\) return slots\.indexOf\('Snack'\)>=0/.test(app));
-  ok_('the menu carries the slot list so the screens cannot invent their own rule', /slots: mealSlotsFor_\(cls\)/.test(eng));
+  ok_('the menu carries the slot list so the screens cannot invent their own rule', /slots: cls\?mealSlotsFor_\(cls\):allMealSlots_\(\)/.test(eng));
 }
 
 console.log('\n' + (fail ? 'FAILED ' + fail + ' / ' : 'ALL PASS ') + (pass + fail) + ' checks');

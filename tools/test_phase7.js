@@ -90,28 +90,48 @@ console.log('\n1) Food menu: the kitchen plans per class');
     H.saveFoodMenu({ staffId: 'STF-T', className: 'Nursery 1', month: MONTH, days: [] }), 'NO_PERMISSION');
   throws_('nor can a parent', () =>
     H.saveFoodMenu({ className: 'Nursery 1', month: MONTH, days: [] }), 'NO_PERMISSION');
-  throws_('a class must be named', () =>
-    H.saveFoodMenu({ staffId: 'STF-A', className: '', month: MONTH, days: [] }), 'BAD_INPUT');
+  // v220: the kitchen cooks once a day for everyone, so there is no class to name any more
+  H.saveFoodMenu({ staffId: 'STF-A', month: MONTH, days: [{ date: D(1), lunch: 'ของทั้งโรงเรียน' }] });
+  eq('no class is needed to save a menu', H.foodMenu({ month: MONTH }).days.map(d => d.lunch), ['ของทั้งโรงเรียน']);
 }
 
-console.log("\n2) A parent gets THEIR child's menu — never another class's");
+console.log("\n2) Every family sees the SAME food — but only the meals their own child is served");
 {
+  // v220. The school cooks one menu a day for everyone; what differs by class is which MEALS they
+  // get: Nursery Baby records none, Nursery 1 stays for dinner, Nursery 2 / 3 / Premium go home
+  // before it. So the dish must be identical for both families, and the dinner must not be.
   const { H } = fresh();
-  H.saveFoodMenu({ staffId: 'STF-A', className: 'Nursery 1', month: MONTH, days: [{ date: D(1), lunch: 'ของชั้น 1' }] });
-  H.saveFoodMenu({ staffId: 'STF-A', className: 'Nursery 2', month: MONTH, days: [{ date: D(1), lunch: 'ของชั้น 2' }] });
-  const a = H.myFoodMenu(Object.assign({}, P1, { month: MONTH }));
-  const b = H.myFoodMenu(Object.assign({}, P2, { month: MONTH }));
-  eq('parent 1 sees Nursery 1', [a.className, a.days[0].lunch], ['Nursery 1', 'ของชั้น 1']);
-  eq('parent 2 sees Nursery 2', [b.className, b.days[0].lunch], ['Nursery 2', 'ของชั้น 2']);
-  ok_('the class is resolved for them, not asked for', !('className' in P1));
+  H.saveFoodMenu({ staffId: 'STF-A', month: MONTH,
+    days: [{ date: D(1), lunch: 'ข้าวมันไก่', dinner: 'ข้าวต้ม' }] });
+  const a = H.myFoodMenu(Object.assign({}, P1, { month: MONTH }));   // Nursery 1
+  const b = H.myFoodMenu(Object.assign({}, P2, { month: MONTH }));   // Nursery 2
+  eq('both families are served the same lunch', [a.days[0].lunch, b.days[0].lunch], ['ข้าวมันไก่', 'ข้าวมันไก่']);
+  eq('Nursery 1 is offered dinner', a.slots.map(s => s.key).indexOf('Dinner') >= 0, true);
+  eq('Nursery 2 is NOT', b.slots.map(s => s.key).indexOf('Dinner') >= 0, false);
+  eq('the child\'s class is still resolved for them', [a.className, b.className], ['Nursery 1', 'Nursery 2']);
+  ok_('...and never asked for', !('className' in P1));
 }
 {
   const { M, H } = fresh();
   M.userLinks.push({ UserUID: 'U1', StudentID: 'STD-02' });      // a family with children in two classes
-  H.saveFoodMenu({ staffId: 'STF-A', className: 'Nursery 2', month: MONTH, days: [{ date: D(1), lunch: 'ของชั้น 2' }] });
+  H.saveFoodMenu({ staffId: 'STF-A', month: MONTH, days: [{ date: D(1), lunch: 'ก๋วยเตี๋ยว' }] });
   const r = H.myFoodMenu(Object.assign({}, P1, { studentId: 'STD-02', month: MONTH }));
-  eq('a second child can be picked', [r.className, r.days[0].lunch], ['Nursery 2', 'ของชั้น 2']);
+  eq('a second child can be picked', [r.className, r.days[0].lunch], ['Nursery 2', 'ก๋วยเตี๋ยว']);
   eq('and both children are offered', r.kids.length, 2);
+}
+{
+  // menus typed per class BEFORE this change must not vanish — they are the fallback for any day
+  // with no shared menu, and the fullest one wins so the least is lost
+  const { M, H } = fresh();
+  M.foodMenus.push({ MenuID: 'FM-N1', Class: 'Nursery 1', Date: D(1), Lunch: 'เมนูเก่า 1', Dinner: 'เย็นเก่า' },
+                   { MenuID: 'FM-N2', Class: 'Nursery 2', Date: D(1), Lunch: 'เมนูเก่า 2' });
+  eq('an old per-class menu still shows', H.foodMenu({ month: MONTH }).days[0].lunch, 'เมนูเก่า 1');
+  eq('...and is flagged as coming from one', H.foodMenu({ month: MONTH }).days[0].legacyClass, 'Nursery 1');
+  H.saveFoodMenu({ staffId: 'STF-A', month: MONTH, days: [{ date: D(1), lunch: 'เมนูใหม่' }] });
+  eq('a shared menu replaces it', H.foodMenu({ month: MONTH }).days[0].lunch, 'เมนูใหม่');
+  eq('...and stops being flagged', H.foodMenu({ month: MONTH }).days[0].legacyClass, '');
+  H.saveFoodMenu({ staffId: 'STF-A', month: MONTH, days: [{ date: D(1) }] });
+  eq('clearing a day clears it for good — the old class menus go too', H.foodMenu({ month: MONTH }).days.length, 0);
 }
 
 console.log('\n3) Survey: three shapes, and who gets asked');
