@@ -112,7 +112,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.217'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.218'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -2196,6 +2196,21 @@
       <p class="muted" style="font-size:13px">${d.seeAll?(EN()?'All classes (head teacher)':'ทุกชั้นเรียน (หัวหน้าครู)'):(EN()?'Your class(es) only':'เฉพาะชั้นที่ดูแล')}</p>
       ${cards}</div>`; }
   SCREENS.Teacher.home = async () => {
+    /* ONE round trip for the whole screen.
+     *
+     * api.js micro-batches every api() call made in the SAME TICK, so what decides the number of
+     * requests is not how many calls there are — it is whether they all start together. These three
+     * used to be fetched one after another further down (`const x = await api(...)`, three times),
+     * which on live is three separate requests at the ~3s Apps Script floor. Nothing below depends
+     * on them, so they start here and are awaited where they are rendered.
+     * That is where "home p95 17.6s" came from.
+     *
+     * Each carries its own fallback: one broken section must never blank the rest of the screen —
+     * a failure used to abort the entire tail, including the growth reminder.
+     */
+    const p_tca = api('teacherClassAttendance',{staffId:USER.staffId}).catch(()=>null);
+    const p_ml  = api('myLeaves',{staffId:USER.staffId}).catch(()=>[]);
+    const p_ot  = api('myOT',{staffId:USER.staffId}).catch(()=>[]);
     const [att,recent,cl,quota,me0raw,jstat] = await Promise.all([api('myAttendanceToday',{staffId:USER.staffId}),api('recentAttendance',{staffId:USER.staffId}),api('classList',tc()),api('leaveQuota',{staffId:USER.staffId}),api('staffSelf',{staffId:USER.staffId}),api('journalStatus',{})]);
     const jdone = journalDoneMap(jstat);
     const me0=me0raw||{};
@@ -2233,12 +2248,22 @@
         ${canFood?`<button class="btn sm outline" onclick="A_foodMenu()">🍚 ${EN()?'Monthly food menu':'เมนูอาหารรายเดือน'}</button>`:''}</div></div>
       <div class="card"><div class="spread"><h3>👶 ${esc(cl.class.ClassName)}</h3><span class="muted">${cl.students.length} ${EN()?'kids':'คน'}</span></div>${classSwitcher(cl)}
         ${cl.students.map(s=>`<div class="list-item"><span>${studentAvatar(s)} <b>${esc(dispNick(s))}</b> ${journalPill(jdone[s.StudentID])}</span><span><button class="btn sm outline" onclick="T_journal('${s.StudentID}')">${esc(journalBtnLabel(jdone[s.StudentID]))}</button> <button class="btn sm outline" onclick="T_assess('${s.StudentID}')">${esc(t('lbl.assess'))}</button></span></div>`).join('')}</div>`;
-    const tca=await api('teacherClassAttendance',{staffId:USER.staffId}); setHTML('#tcatt', tcaHtml(tca));
-    const ml=await api('myLeaves',{staffId:USER.staffId}); setHTML('#ml', ml.map(leaveRow).join('')||'<small class="muted">ยังไม่มีรายการ</small>');
-    const myot=await api('myOT',{staffId:USER.staffId}); setHTML('#myot', myot.map(otRow).join('')||`<small class="muted">${esc(t('ot.none'))}</small>`);
-    if(isLeader){ const tp=await api('teamPendingLeaves',{staffId:USER.staffId}); setHTML('#tp', tp.map(l=>teamLeaveRow(l)).join('')||'<small class="muted">ไม่มีคำขอรออนุมัติ</small>');
-      const to=await api('teamPendingOT',{staffId:USER.staffId}); setHTML('#teamot', to.map(otApproveRow).join('')||`<small class="muted">${esc(t('ot.none'))}</small>`);
-      const ccr=await api('myClassChanges',{staffId:USER.staffId}); setHTML('#myccr', ccr.slice(0,4).map(ccrRow).join('')||`<small class="muted">${esc(t('corg.noReq'))}</small>`); }
+    // render, don't fetch: these three were started before the batch above and travelled with it
+    const tca=await p_tca; setHTML('#tcatt', tca?tcaHtml(tca):'');
+    const ml=await p_ml; setHTML('#ml', ml.map(leaveRow).join('')||'<small class="muted">ยังไม่มีรายการ</small>');
+    const myot=await p_ot; setHTML('#myot', myot.map(otRow).join('')||`<small class="muted">${esc(t('ot.none'))}</small>`);
+    // A leader has three more sections. They cannot join the batch above — whether this person IS a
+    // leader is only known once staffSelf has answered — but they can share ONE round trip with each
+    // other instead of taking three, and one failing section no longer hides the other two.
+    if(isLeader){
+      const p_tp=api('teamPendingLeaves',{staffId:USER.staffId}).catch(()=>[]);
+      const p_to=api('teamPendingOT',{staffId:USER.staffId}).catch(()=>[]);
+      const p_cc=api('myClassChanges',{staffId:USER.staffId}).catch(()=>[]);
+      const [tp,to,ccr]=await Promise.all([p_tp,p_to,p_cc]);
+      setHTML('#tp', tp.map(l=>teamLeaveRow(l)).join('')||'<small class="muted">ไม่มีคำขอรออนุมัติ</small>');
+      setHTML('#teamot', to.map(otApproveRow).join('')||`<small class="muted">${esc(t('ot.none'))}</small>`);
+      setHTML('#myccr', ccr.slice(0,4).map(ccrRow).join('')||`<small class="muted">${esc(t('corg.noReq'))}</small>`);
+    }
     T_growthReminder();   // even-month weight/height measurement reminder (once per month)
   };
   // Even-numbered months (Feb, Apr, … Dec) are weight+height measurement months — remind teachers once,
