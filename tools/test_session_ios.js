@@ -84,7 +84,8 @@ const reached = (c, a) => c.__sent.reduce((n, b) =>
 
     const code = R('src/Code.gs');
     ok_('the renewed token rides back on a normal reply', /function withRenewal_/.test(code));
-    ok_('...on single calls', /return jsonOut_\(withRenewal_\(\{ ok: true, data: handler\(payload\) \}, sess\)\);/.test(code));
+    // reply_ is jsonOut_ plus the action name — see tools/test_lost_reply.js
+    ok_('...on single calls', /return reply_\(withRenewal_\(\{ ok: true, data: handler\(payload\) \}, sess\)\);/.test(code));
     ok_('...and on batches', /action === 'batch'[\s\S]{0,160}withRenewal_/.test(code));
     ok_('a failure to renew can never take the request down', /try \{ var t = renewSession_\(sess\); [\s\S]{0,80}catch \(e\) \{\}/.test(code));
   }
