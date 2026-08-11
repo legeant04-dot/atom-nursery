@@ -95,8 +95,15 @@ function handleBatch(p) {
       return { ok: false, error: { code: 'INTERNAL', message: (setupErr && setupErr.message) || String(setupErr) } };
     });
   }
+  var isObs = sess && String(sess.role) === 'Observer';
   var out = calls.map(function (c) {
     try {
+      // Observer is read-only. Refused HERE, per call, so the reads sharing this batch still answer —
+      // dispatch_ used to refuse the whole batch, which is why an Observer's home screen went blank.
+      if (isObs && typeof isMutatingAction_ === 'function' && isMutatingAction_(c.action)) {
+        return { ok: false, error: { code: 'READ_ONLY',
+          message: (typeof OBSERVER_READ_ONLY_MSG_ !== 'undefined') ? OBSERVER_READ_ONLY_MSG_ : 'read only' } };
+      }
       var pl = (typeof applyIdentity_ === 'function') ? applyIdentity_(c.action, c.payload || {}, sess) : (c.payload || {});
       var fn = (typeof ROUTES !== 'undefined') ? ROUTES[c.action] : null;
       var data;

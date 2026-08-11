@@ -122,6 +122,35 @@ window.CONFIG = { MODE: 'gas', GAS_URL: 'https://script.google.com/macros/s/AKfy
       const j = JSON.parse(text);
       // the server hands back a fresh token when the current one is over halfway through its life
       if (j && j.token) { _session = j.token; try { localStorage.setItem('atom_session_token', j.token); } catch (x) {} }
+      /* ---- does this reply answer the question we asked? --------------------------------------
+       * A POST whose body is lost in transit reaches the web app as an action-less GET. The server
+       * used to answer that with its health check — ok:true, data {service,status,time} — and this
+       * function handed it back as if it were the data. The screen then died on
+       * "x.map is not a function": the v186 crash, still in the 2026-08-11 report as
+       *   batchShape :: data=object inner=service,status,time
+       * Every reply now names its action, so an answer to a DIFFERENT question is caught here
+       * instead of reaching a screen. A reply with no name at all is from an older deployment and
+       * is left alone, so the app keeps working while the two sides roll out.
+       */
+      const asked = (body && body.action) || '';
+      const lost = j && (
+        (j.error && j.error.code === 'NO_ACTION') ||        // the body never arrived: nothing ran
+        (j.a && asked && j.a !== asked));                   // answered something else entirely
+      if (lost) {
+        // never log the logger: a lost perfLog reply that recorded itself could feed itself forever
+        if (asked !== 'perfLog') PERF.err('lostReply', asked + ' got ' + ((j.a || (j.error && j.error.code)) || '?') + ' attempt=' + attempt);
+        const act1 = body && body.action;
+        const safe1 = act1 === 'batch'
+          ? (((body.payload || {}).calls) || []).every(c => RETRY_SAFE(c.action))
+          : RETRY_SAFE(act1);
+        // A read is simply asked again. A WRITE is never repeated — we know this reply came from a
+        // request that did nothing, but not that the original POST did nothing at every hop, and a
+        // duplicated payment is worse than an error the person can act on.
+        if (safe1 && attempt < 2) { await sleep(400 * (attempt + 1)); return postGas(body, attempt + 1); }
+        const e3 = new Error('คำขอไม่ถึงระบบ กรุณาลองใหม่อีกครั้ง');
+        e3.code = 'LOST_REQUEST';
+        throw e3;
+      }
       return j;
     } catch (e) {
       const looksHTML = /^\s*<(!doctype|html)/i.test(text);
@@ -299,7 +328,19 @@ window.CONFIG = { MODE: 'gas', GAS_URL: 'https://script.google.com/macros/s/AKfy
     absenceReport: 1, paymentLog: 1, paymentSlips: 1, payments: 1, payrollConfig: 1,
     payrollReminderDue: 1, prepayTiers: 1, prepayments: 1, staffCheckinLog: 1, studentCheckinHistory: 1
   };
-  const isMutating = a => !READ_ONLY[a] && (MUT.test(a) || /check(in|out)|absence|payOT$|^orgMove|^unlink|^claim|^recompute/i.test(a));
+  /**
+   * The mirror: WRITES whose name does not start with a mutating verb. Missing them meant the cache
+   * was NOT cleared afterwards — an admin who recorded a cash payment kept seeing the bill unpaid
+   * until the cache expired — and, worse on the server, they ran without the write lock.
+   * Each was confirmed against its handler (updateRow_ / appendObject_ / deleteRow).
+   * Keep identical to WRITES_ACTIONS_ in src/Code.gs.
+   */
+  const WRITES = {
+    recordCashPayment: 1, teacherStudentLeave: 1, unlockJournal: 1,
+    adminResetPassword: 1, adminUpdateOT: 1, adminCancelOT: 1, adminRestoreOT: 1,
+    adminAddOT: 1, adminEditOT: 1, adminDeleteOT: 1, decideClassChange: 1, reinstallTriggers: 1
+  };
+  const isMutating = a => !READ_ONLY[a] && !!(WRITES[a] || MUT.test(a) || /check(in|out)|absence|payOT$|^orgMove|^unlink|^claim|^recompute/i.test(a));
   // app.js asks the same question for the Observer role, so "does this write?" has ONE answer
   window.__atomIsMutating = isMutating;
   // Safe to send again if the reply was unreadable: reads, plus auth/ping. A write is never repeated

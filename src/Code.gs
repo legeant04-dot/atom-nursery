@@ -205,7 +205,14 @@ function doGet(e) {
     // Health check + optional ?action= for read-only calls / quick testing.
     var action = e && e.parameter && e.parameter.action;
     if (!action) {
-      return jsonOut_({ ok: true, data: { service: 'Atom Nursery API', status: 'up', time: new Date().toISOString() } });
+      // NOT ok:true. This used to answer "the service is up" as if it were a successful reply, and
+      // an app POST whose body was lost in transit arrives here — as an action-less GET. The client
+      // then treated {service,status,time} as the data it had asked for and the screen crashed on
+      // "x.map is not a function". Answering ok:false makes a lost request look like what it is:
+      // a failure the client can retry, never data. The JSON body still proves the service is up.
+      return jsonOut_({ ok: false, a: 'health', error: { code: 'NO_ACTION',
+        service: 'Atom Nursery API', status: 'up', time: new Date().toISOString(),
+        message: 'Atom Nursery API พร้อมใช้งาน — คำขอนี้ไม่มี action (คำขออาจสูญหายระหว่างทาง กรุณาลองใหม่)' } });
     }
     return dispatch_(action, e.parameter || {}, (e.parameter || {}).token);
   } catch (fatal) {
@@ -314,15 +321,26 @@ function dispatch_(action, payload, token) {
   if (!handler && ENGINE_FALLBACK && typeof engineDispatch_ === 'function') {
     handler = function (p) { return engineDispatch_(action, p); };
   }
+  /**
+   * Every reply says WHICH QUESTION it answers.
+   *
+   * A POST whose body is lost in transit reaches the web app as an action-less GET, and doGet
+   * answered that with the health check — ok:true, data {service,status,time}. The client had no way
+   * to tell that apart from a real answer, so it handed the health check to the screen, and the
+   * screen died on "x.map is not a function". That is the crash we chased from v186 to the
+   * batchShape rows in the 2026-08-11 report, which finally named the shape.
+   * With the action echoed back, an answer to a DIFFERENT question is recognised and asked again.
+   */
+  function reply_(o) { o.a = action; return jsonOut_(o); }
   if (!handler) {
-    return jsonOut_({ ok: false, error: { code: 'UNKNOWN_ACTION', message: 'ไม่รู้จัก action: ' + action } });
+    return reply_({ ok: false, error: { code: 'UNKNOWN_ACTION', message: 'ไม่รู้จัก action: ' + action } });
   }
   // A stored token that is corrupt (or a hiccup reading the signing secret) must never take the
   // request down — it used to throw out here, outside the try, and the caller got an HTML error page.
   var sess = null;
   try { sess = verifySession_(token); } catch (se) { sess = null; }
   if (sessionRequired_() && !publicAction_(action) && !sess) {
-    return jsonOut_({ ok: false, error: { code: 'NO_SESSION', message: 'ต้องเข้าสู่ระบบใหม่ (เซสชันหมดอายุ)' } });
+    return reply_({ ok: false, error: { code: 'NO_SESSION', message: 'ต้องเข้าสู่ระบบใหม่ (เซสชันหมดอายุ)' } });
   }
   try {
     // Serialize anything that can WRITE. A request hydrates sheets then persists them, so two
@@ -335,31 +353,67 @@ function dispatch_(action, payload, token) {
     // every request passes through — hiding buttons would leave the rule dependent on the screen a
     // person happens to be on, and on the app being the only way in.
     if (mutates && sess && String(sess.role) === 'Observer') {
-      return jsonOut_({ ok: false, error: { code: 'READ_ONLY',
-        message: 'บัญชีนี้เป็นสิทธิ์ดูอย่างเดียว (Observer) — ดูข้อมูลได้ทุกหน้า แต่แก้ไขไม่ได้' } });
+      // A single action is refused outright. A BATCH is refused call by call in handleBatch, because
+      // refusing the whole thing also took down the reads travelling with it — one flagged call and
+      // an Observer's home screen failed entirely (READ_ONLY on notifications, 2026-08-11 report).
+      if (action !== 'batch') {
+        return reply_({ ok: false, error: { code: 'READ_ONLY', message: OBSERVER_READ_ONLY_MSG_ } });
+      }
+      mutates = false;   // nothing in this batch will be allowed to write, so it needs no write lock
     }
     return withWriteLock_(mutates, function () {
-      if (action === 'batch') { (payload = payload || {}).__sess = sess; return jsonOut_(withRenewal_({ ok: true, data: handler(payload) }, sess)); }
+      if (action === 'batch') { (payload = payload || {}).__sess = sess; return reply_(withRenewal_({ ok: true, data: handler(payload) }, sess)); }
       // perfLog records WHICH ROLE was affected. That must come from the verified session, never
       // from the client — otherwise the one report we use to make decisions is trivially poisoned.
       // No session is itself the signal we want (a user who could not sign in), recorded as 'anon'.
-      if (action === 'perfLog') { (payload = payload || {}).__sess = sess; return jsonOut_({ ok: true, data: handler(payload) }); }
+      if (action === 'perfLog') { (payload = payload || {}).__sess = sess; return reply_({ ok: true, data: handler(payload) }); }
       payload = applyIdentity_(action, payload, sess);
-      return jsonOut_(withRenewal_({ ok: true, data: handler(payload) }, sess));
+      return reply_(withRenewal_({ ok: true, data: handler(payload) }, sess));
     });
   } catch (err) {
     var code = (err && err.apiCode) ? err.apiCode : 'INTERNAL';
     var msg = (err && err.message) ? err.message : String(err);
     if (code === 'INTERNAL') Logger.log('Unhandled error in ' + action + ': ' + (err && err.stack || err));
-    return jsonOut_({ ok: false, error: { code: code, message: msg } });
+    return reply_({ ok: false, error: { code: code, message: msg } });
   }
 }
 
+var OBSERVER_READ_ONLY_MSG_ = 'บัญชีนี้เป็นสิทธิ์ดูอย่างเดียว (Observer) — ดูข้อมูลได้ทุกหน้า แต่แก้ไขไม่ได้';
 /** Does this action write anything? (mirrors the client's MUT regex in api.js) */
 var MUTATING_RE = /^(submit|save|add|remove|delete|set|register|pay|upload|confirm|reject|issue|generate|move|import|compute|cancel|prepay|link|notify|request|mark|approve|edit|rename|update|change|seed|recompute|restore|bind|provision)/i;
+/**
+ * Reads whose NAME looks like a write. pay*, check*in, absence* — every one of these only filters
+ * and maps; none touches a sheet (verified handler by handler in webapp/engine.js).
+ *
+ * The client has had this exact list since v198. The server did not, and the disagreement cost real
+ * users twice over:
+ *   - an Observer opening the home screen was refused outright, because payrollReminderDue counted
+ *     as a write and ONE flagged call refuses the WHOLE batch it travelled in;
+ *   - these reads queued behind the write lock for no reason, which is where the BUSY failures on
+ *     studentCheckinHistory / studentLeaves / getPlans came from.
+ * Keep it identical to READ_ONLY in webapp/api.js — tools/test_readonly_sync.js fails if it drifts.
+ */
+var READ_ONLY_ACTIONS_ = { absenceReport: 1, paymentLog: 1, paymentSlips: 1, payments: 1, payrollConfig: 1,
+  payrollReminderDue: 1, prepayTiers: 1, prepayments: 1, staffCheckinLog: 1, studentCheckinHistory: 1 };
+/**
+ * WRITES whose name does not start with a mutating verb — the mirror of the list above, and the
+ * dangerous half. Found by running this very classifier over all 124 routes while fixing the
+ * read side, then reading each handler: every one of these calls updateRow_, appendObject_ or
+ * deleteRow. adminDeleteOT deletes a row by INDEX, which is exactly the row-shift hazard the
+ * write lock exists for (see dedupData below and the 2026-07-09 wipe).
+ * Their absence also meant the CLIENT never cleared its read cache after one, so an admin who
+ * recorded a cash payment kept seeing the bill as unpaid.
+ * Keep identical to WRITES in webapp/api.js — tools/test_lost_reply.js fails if it drifts.
+ */
+var WRITES_ACTIONS_ = { recordCashPayment: 1, teacherStudentLeave: 1, unlockJournal: 1,
+  adminResetPassword: 1, adminUpdateOT: 1, adminCancelOT: 1, adminRestoreOT: 1,
+  adminAddOT: 1, adminEditOT: 1, adminDeleteOT: 1, decideClassChange: 1, reinstallTriggers: 1 };
 // dedupData/reindex* mutate but don't start with a MUTATING_RE verb — force them to take the write lock
 // (they read row indices then delete, so a concurrent append would shift rows and delete the wrong one).
-function isMutatingAction_(a) { a = String(a || ''); return MUTATING_RE.test(a) || /check(in|out)|absence|^dedup|^reindex|payOT$|^orgMove|^unlink|^claim|^recompute/i.test(a); }
+function isMutatingAction_(a) { a = String(a || '');
+  if (READ_ONLY_ACTIONS_[a]) return false;
+  if (WRITES_ACTIONS_[a]) return true;
+  return MUTATING_RE.test(a) || /check(in|out)|absence|^dedup|^reindex|payOT$|^orgMove|^unlink|^claim|^recompute/i.test(a); }
 
 /** Run fn under a script lock when it may write. Reads run unlocked (no queueing). */
 function withWriteLock_(needed, fn) {
