@@ -90,7 +90,8 @@ console.log('\n4) The rule is applied once, where it cannot be forgotten');
   ok_('so is the finance list of children', /sortBy\(f\.students,dnick\)/.test(app));
   ok_('and the salary list', /sortPeopleD\(f\.staff\)/.test(app));
   ok_('the food master, within each category', /const byCat=c=>sortBy\(items\.filter/.test(app));
-  ok_("and the teacher's dish dropdown", /const its=sortBy\(JFOOD\.filter\(i=>i\.category===c\), foodLabel\)/.test(app));
+  // one picker serves both the journal and the monthly menu, so one sort covers both
+  ok_("and the dish dropdown", /const its=sortBy\(L\.filter\(i=>i\.category===c\), foodLabel\)/.test(app));
   ok_('switching language re-sorts, because the names on screen changed',
     /window\.__atomResort/.test(app) && /TOGGLE_LANG[\s\S]{0,200}__atomResort\(\)/.test(app));
   ok_('sorting never mutates the caller’s array — these lists are shared caches',

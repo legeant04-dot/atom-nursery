@@ -112,7 +112,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.211'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.212'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -2432,15 +2432,20 @@
   let JFOOD=[];
   const FOOD_CAT={savoury:()=>EN()?'Savoury':'ของคาว',dessert:()=>EN()?'Dessert':'ของหวาน',fruit:()=>EN()?'Fruit':'ผลไม้',other:()=>EN()?'Other':'อื่นๆ'};
   const foodLabel=i=>EN()?(i.nameEN||i.nameTH):(i.nameTH+(i.nameEN?` (${i.nameEN})`:''));
-  function jFoodOptions(sel){
+  /**
+   * The dish picker, shared by the daily journal and the monthly menu editor so both offer exactly
+   * the same catalogue. `list` defaults to the journal's copy; the menu editor passes its own.
+   */
+  function jFoodOptions(sel,list,blank){
+    const L=list||JFOOD;
     const groups=['savoury','dessert','fruit','other'].map(c=>{
-      const its=sortBy(JFOOD.filter(i=>i.category===c), foodLabel); if(!its.length) return '';
+      const its=sortBy(L.filter(i=>i.category===c), foodLabel); if(!its.length) return '';
       return `<optgroup label="${esc(FOOD_CAT[c]())}">${its.map(i=>
         `<option value="${esc(i.nameTH)}"${i.nameTH===sel?' selected':''}>${esc(foodLabel(i))}</option>`).join('')}</optgroup>`;
     }).join('');
     // a dish already written on an older journal but since retired must still show, not vanish
-    const orphan=sel&&!JFOOD.some(i=>i.nameTH===sel)?`<option value="${esc(sel)}" selected>${esc(sel)}</option>`:'';
-    return `<option value="">${EN()?'– not recorded –':'– ยังไม่ระบุ –'}</option>${orphan}${groups}<option value="__new">➕ ${EN()?'Add a new dish…':'เพิ่มเมนูใหม่…'}</option>`;
+    const orphan=sel&&!L.some(i=>i.nameTH===sel)?`<option value="${esc(sel)}" selected>${esc(sel)}</option>`:'';
+    return `<option value="">${esc(blank||(EN()?'– not recorded –':'– ยังไม่ระบุ –'))}</option>${orphan}${groups}<option value="__new">➕ ${EN()?'Add a new dish…':'เพิ่มเมนูใหม่…'}</option>`;
   }
   function jMealRows(slots,jv){
     const items=(jv&&jv.mealItems)||{};
@@ -4896,7 +4901,7 @@
       toast((EN()?'Added ':'เพิ่มแล้ว ')+r.added+(EN()?' dishes':' รายการ')); A_foodItems();
     }catch(e){err(e);}finally{ if(btn)btn.disabled=false; } };
 
-  let FM_CLASS=null, FM_MONTH=null;
+  let FM_CLASS=null, FM_MONTH=null, FM_FOOD=[];
   // Dinner is planned here too, for the class that stays for it. The editor hides the field for a
   // class that does not eat dinner, so nobody plans a meal that will never be served.
   const FM_MEALS=[['breakfast',()=>EN()?'Breakfast':'อาหารเช้า'],['snackAM',()=>EN()?'Morning snack':'ว่างเช้า'],
@@ -4923,9 +4928,13 @@
   window.A_foodMenu=async()=>{
     // Classes come from departments ∪ CLASSES ∪ whatever students are actually in — the same union the
     // dashboard uses, because CLASSES only holds rows that have a homeroom teacher.
-    const [deps,cls,studs]=await Promise.all([
+    // the master food list is what the menu is planned FROM — same catalogue the journal picks from,
+    // so a planned dish and a recorded dish are always the same string
+    const [deps,cls,studs,food]=await Promise.all([
       api('listDepartments').catch(()=>[]), api('listClasses').catch(()=>[]),
-      (A_CACHE.students&&A_CACHE.students.length)?Promise.resolve(A_CACHE.students):api('listStudents').catch(()=>[])]);
+      (A_CACHE.students&&A_CACHE.students.length)?Promise.resolve(A_CACHE.students):api('listStudents').catch(()=>[]),
+      api('foodItems',{}).catch(()=>[])]);
+    FM_FOOD=food||[];
     const list=[...new Set([].concat(
       (deps||[]).map(d=>typeof d==='string'?d:(d.name||d.Name||'')),
       (cls||[]).map(c=>c.ClassName||c.className||''),
@@ -4948,7 +4957,8 @@
       return `<div class="card" style="padding:8px">
         <div class="spread"><b>${esc(ds.slice(8))} ${esc(fmDow(ds))}.</b><small class="muted">${esc(ds)}</small></div>
         <div class="grid2" style="margin-top:4px">${FM_MEALS.filter(([k])=>fmShows(k)).map(([k,lb])=>
-          `<label class="field"><span>${esc(lb())}</span><input id="fm_${k}_${ds}" value="${esc(v[k]||'')}" placeholder="-"/></label>`).join('')}</div>
+          `<label class="field"><span>${esc(lb())}</span><select id="fm_${k}_${ds}" data-prev="${esc(v[k]||'')}" onchange="A_fmFoodPick(this)">${
+            jFoodOptions(v[k]||'',FM_FOOD,EN()?'– no dish –':'– ไม่มีเมนู –')}</select></label>`).join('')}</div>
         <label class="field"><span>${EN()?'Note':'หมายเหตุ'}</span><input id="fm_note_${ds}" value="${esc(v.note||'')}" placeholder="${EN()?'e.g. birthday cake':'เช่น มีเค้กวันเกิด'}"/></label></div>`;
     }).join('');
     modal(`<h3>🍚 ${EN()?'Food menu':'เมนูอาหาร'}</h3>
@@ -4966,6 +4976,26 @@
   };
   window.A_fmPick=(cls,month)=>{ if(cls)FM_CLASS=cls; if(month)FM_MONTH=month;
     const m=document.querySelector('.modal'); if(m)m.remove(); A_foodMenu(); };
+  /**
+   * "➕ เพิ่มเมนูใหม่…" from inside the menu editor. The dish goes into the master list, so it is a
+   * normal choice everywhere from then on — and every cell in the open month is refreshed IN PLACE,
+   * keeping whatever has been picked but not saved yet.
+   */
+  window.A_fmFoodPick=async(el)=>{
+    if(el.value!=='__new'){ el.dataset.prev=el.value; return; }
+    el.value=el.dataset.prev||'';                                  // never leave "__new" as the value
+    const th=String(prompt(EN()?'New dish (Thai name)':'ชื่อเมนูใหม่ (ภาษาไทย)')||'').trim();
+    if(!th) return;
+    if(!FM_FOOD.some(i=>String(i.nameTH)===th)){
+      const en=String(prompt(EN()?'English name (optional)':'ชื่อภาษาอังกฤษ (ถ้ามี)')||'').trim();
+      try{ await api('saveFoodItem',{staffId:USER.staffId,item:{nameTH:th,nameEN:en,category:'other'}}); }
+      catch(e){ err(e); return; }
+      FM_FOOD.push({itemId:'',nameTH:th,nameEN:en,category:'other',active:true});
+    }
+    document.querySelectorAll('select[id^="fm_"]').forEach(s=>{ const cur=s.value;
+      s.innerHTML=jFoodOptions(cur,FM_FOOD,EN()?'– no dish –':'– ไม่มีเมนู –'); s.value=cur; s.dataset.prev=cur; });
+    el.value=th; el.dataset.prev=th;
+  };
   window.A_fmCollect=()=>fmDays(FM_MONTH).map(ds=>{ const g=k=>{const e=document.getElementById('fm_'+k+'_'+ds); return e?e.value.trim():'';};
     return {date:ds, breakfast:g('breakfast'), snackAM:g('snackAM'), lunch:g('lunch'), dinner:g('dinner'), snackPM:g('snackPM'), note:g('note')}; });
   window.A_fmSave=async(btn)=>{ if(btn)btn.disabled=true;
