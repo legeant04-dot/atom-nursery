@@ -463,6 +463,18 @@ window.CONFIG = { MODE: 'gas', GAS_URL: 'https://script.google.com/macros/s/AKfy
     });
     return send().then(d => {
       const got = shapeOf(d), prev = _shape.get(action);
+      /* null is NOT a shape — it is "nothing yet", and it is a normal answer.
+       *
+       * getJournal returns null until the teacher writes the entry and an object afterwards; the
+       * same is true of getPayslip since v215. Treating null as a shape made every one of those a
+       * "shape changed" alarm: 237 of the 240 rows in the 2026-08-11 report, from 34 people, none
+       * of them a fault — and they buried the ones that were. So a null neither reports nor
+       * overwrites what this action is known to return.
+       *
+       * The ONE exception is a reply that was a LIST and came back null: that is the reply a screen
+       * .maps over, and it is exactly the crash this guard exists to catch. It falls through.
+       */
+      if (d === null && prev !== 'list') return d;
       if (prev === undefined) { _shape.set(action, got); return d; }
       if (prev === got) return d;
       PERF.err('shapeChanged', action + ' was ' + prev + ' now ' + got + shapeNote(d));
