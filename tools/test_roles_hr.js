@@ -200,8 +200,10 @@ console.log('\n6) A child on temporary leave: no attendance, but still billable'
   ok_('only the buttons change, the rest of the card is untouched',
     /\$\{k\.paused[\s\S]{0,1400}: `<div class="row"[\s\S]{0,400}P_punch/.test(app));
 
+  // the window is wide because financeSummary now groups its collections before walking the roll
+  // (v219, tools/test_finance_index.js) — the roll itself is still enrolledStudents()
   ok_('finance lists them, so a deposit can be billed before the child starts',
-    /financeSummary: p =>[\s\S]{0,400}enrolledStudents\(\)\.map/.test(eng));
+    /financeSummary: p =>[\s\S]{0,2600}enrolledStudents\(\)\.map/.test(eng));
   ok_('...at the BOTTOM, so they never crowd the children attending',
     /\.sort\(\(a,b2\)=>\(a\.paused\?1:0\)-\(b2\.paused\?1:0\)\)/.test(eng));
   ok_('and they are marked, not silently mixed in', /on temporary leave|ลาชั่วคราว/.test(app));

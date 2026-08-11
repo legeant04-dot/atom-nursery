@@ -1529,36 +1529,58 @@ function createAtomAPI(M, GROWTH_STD) {
 
     // Admin finance dashboard: tuition collection per student + salary payout per teacher + income/expense
     financeSummary: p => { const month=ym(p.month||todayLocal().slice(0,7));
+      /* Group ONCE, then look up — instead of re-scanning every collection for every child.
+       *
+       * The work used to be shaped like this: for each child, scan all bills, then all OT rows, then
+       * all charges, and for each of THOSE items scan the whole slip book again. At the live school's
+       * size that is 806 passes over PAYMENT_SLIPS and 424,000 rows visited for 31 children
+       * (measured — tools/bench_finance.js). It grows with students × slips, so it gets worse every
+       * term. Grouping first makes it one pass over each collection, whatever the roll.
+       *
+       * The arithmetic below is untouched — only where the rows come from changed. RefKind/RefID/
+       * Status are ids and enums (strings on the sheet), which is what makes a keyed sum equivalent
+       * to the filter it replaces; tools/test_finance_index.js checks the two agree student by
+       * student, including duplicate bills, rejected slips and part payments.
+       */
+      const groupBy=(arr,key,keep)=>{ const m={}; (arr||[]).forEach(r=>{ if(keep&&!keep(r)) return;
+        const k=String(r[key]||''); (m[k]||(m[k]=[])).push(r); }); return m; };
+      const billsBy=groupBy(M.payments,'StudentID',x=>ym(x.Month)===month);
+      const otBy=groupBy(M.otDaily,'StudentID',o=>ym(o.Date)===month);
+      const chBy=groupBy(M.studentCharges,'StudentID',c=>ym(c.Month)===month);
+      const slipSum={};                                   // 'kind|refId|STATUS' -> total amount
+      paySlips_().forEach(s=>{ const k=s.RefKind+'|'+s.RefID+'|'+s.Status; slipSum[k]=(slipSum[k]||0)+Number(s.Amount||0); });
+      const sum=(kind,refId,statuses)=>statuses.reduce((a,st)=>a+(slipSum[kind+'|'+refId+'|'+st]||0),0);
       // enrolledStudents, not activeStudents: a child on temporary leave still has to be billable —
       // this is how the school collects a deposit or a first month BEFORE the child starts. They are
       // listed last (see the sort below) so they never crowd the children currently attending.
       const students=enrolledStudents().map(s=>{
         // a student may (wrongly) have >1 bill for a month — prefer the PAID/PARTIAL one over duplicates
-        const bills=M.payments.filter(x=>x.StudentID===s.StudentID&&ym(x.Month)===month);
+        const bills=billsBy[String(s.StudentID)]||[];
         const b=bills.find(x=>x.Status==='PAID')||bills.find(x=>x.Status==='PARTIAL')||bills[0];
         // OT: subtract what has actually been confirmed, exactly as extra charges do below. This used
         // to count the WHOLE amount of any non-PAID row, so a family who had transferred and had the
         // slip approved still read as owing the full sum until the row happened to flip to PAID.
-        const otRows=M.otDaily.filter(o=>o.StudentID===s.StudentID&&ym(o.Date)===month);
-        const otOpen=otRows.filter(otOpenRec)
-          .reduce((a,o)=>a+Math.max(0,Number(o.Amount||0)-sumSlips_('ot',o.OTID,['CONFIRMED'])),0);
-        const otCollected=otRows.reduce((a,o)=>a+(o.Status==='PAID'?Number(o.Amount||0):sumSlips_('ot',o.OTID,['CONFIRMED'])),0);
+        const otRows=otBy[String(s.StudentID)]||[];
+        const otOpenRows=otRows.filter(otOpenRec);
+        const otOpen=otOpenRows
+          .reduce((a,o)=>a+Math.max(0,Number(o.Amount||0)-sum('ot',o.OTID,['CONFIRMED'])),0);
+        const otCollected=otRows.reduce((a,o)=>a+(o.Status==='PAID'?Number(o.Amount||0):sum('ot',o.OTID,['CONFIRMED'])),0);
         // extra charges (now separate payables): open = still owed, collected = confirmed slips
-        const chs=M.studentCharges.filter(c=>c.StudentID===s.StudentID&&ym(c.Month)===month);
-        const chOpen=chs.reduce((a,c)=>a+Math.max(0,Number(c.Amount||0)-sumSlips_('charge',c.ChargeID,['CONFIRMED'])),0);
-        const chCollected=chs.reduce((a,c)=>a+sumSlips_('charge',c.ChargeID,['CONFIRMED']),0);
+        const chs=chBy[String(s.StudentID)]||[];
+        const chOpen=chs.reduce((a,c)=>a+Math.max(0,Number(c.Amount||0)-sum('charge',c.ChargeID,['CONFIRMED'])),0);
+        const chCollected=chs.reduce((a,c)=>a+sum('charge',c.ChargeID,['CONFIRMED']),0);
         // Money the parent HAS sent that is only waiting for the school to check the slip. It is not
         // collected yet, but calling it "ค้างชำระ" blames the family for the school's own queue.
-        const otPending=otRows.filter(otOpenRec).reduce((a,o)=>a+sumSlips_('ot',o.OTID,['SUBMITTED','PENDING_VERIFY']),0);
-        const chPending=chs.reduce((a,c)=>a+sumSlips_('charge',c.ChargeID,['SUBMITTED','PENDING_VERIFY']),0);
+        const otPending=otOpenRows.reduce((a,o)=>a+sum('ot',o.OTID,['SUBMITTED','PENDING_VERIFY']),0);
+        const chPending=chs.reduce((a,c)=>a+sum('charge',c.ChargeID,['SUBMITTED','PENDING_VERIFY']),0);
         const amount=b?Number(b.Amount||0):0;
         // advance payment covers this month's tuition IN FULL → counts as collected (extras/OT are
         // tracked separately and are still owed). Capping this at the current plan price left the
         // difference showing as an unpaid balance the moment a package price changed.
         const prepay = prepayInfo_(s.StudentID, month);
         const prepaidTuition = (prepay && b) ? billTuition_(b) : 0;
-        const billConfirmed = b ? sumSlips_('bill', b.BillingID, ['CONFIRMED']) : 0;
-        const billPending = b ? sumSlips_('bill', b.BillingID, ['SUBMITTED', 'PENDING_VERIFY']) : 0;
+        const billConfirmed = b ? sum('bill', b.BillingID, ['CONFIRMED']) : 0;
+        const billPending = b ? sum('bill', b.BillingID, ['SUBMITTED', 'PENDING_VERIFY']) : 0;
         // tuition still owed, after the advance-payment credit and any confirmed slips
         const tuitionOpen = Math.max(0, amount - prepaidTuition - billConfirmed);
         const otherOpen = otOpen + chOpen;                 // OT + extra charges — NOT tuition

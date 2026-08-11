@@ -29,7 +29,11 @@ var ROUTES = {
       // Milliseconds only — no rows, no counts, nothing about any child leaves here.
       if (p.probe === 2 || p.probe === '2') {
         out.read = {};
-        ['students', 'staff', 'checkinStudent', 'journals', 'payments', 'otDaily', 'leaves'].forEach(function (k) {
+        // the finance ones are here because financeSummary is the slowest action in the report and
+        // "the sheets are slow" had to be proved or ruled out. payroll lives in the SECOND workbook,
+        // which is the one thing on this list that could cost more than a read.
+        ['students', 'staff', 'checkinStudent', 'journals', 'payments', 'otDaily', 'leaves',
+         'paymentSlips', 'studentCharges', 'prepayments', 'payroll'].forEach(function (k) {
           var s = Date.now();
           try { readCollection_(k); } catch (e) {}
           out.read[k] = Date.now() - s;
