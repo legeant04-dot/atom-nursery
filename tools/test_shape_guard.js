@@ -172,6 +172,55 @@ console.log('\n1) A list that arrives as an object is re-asked for, and the scre
       eq('a check-in is not repeated either', k, 2);
     }
 
+    console.log('\n7b) "nothing yet" is not a shape change — the alarm that cried wolf 237 times');
+    {
+      // getJournal answers null until the teacher writes the entry, and an object afterwards. That
+      // is normal, and it produced 237 of the 240 shapeChanged rows from 34 people in the
+      // 2026-08-11 report, burying the real ones. Same for getPayslip since v215.
+      let k = 0;
+      const c9 = boot(b => { if (b.action !== 'getJournal') return { ok: true, data: { from: b.action } };
+        k++; return { ok: true, data: k === 1 ? null : { Mood: 'happy' } }; });
+      eq('no entry yet → null reaches the screen', await c9.api('getJournal', { studentId: 'S1' }, { fresh: true }), null);
+      eq('written → the entry reaches the screen', await c9.api('getJournal', { studentId: 'S1' }, { fresh: true }), { Mood: 'happy' });
+      eq('and it was never re-asked', k, 2);
+      await flushPerf(c9);
+      eq('NOTHING was reported', perfRows(c9).filter(r => r.a === 'shapeChanged').length, 0);
+    }
+    {
+      // and the other way round: object first, then null
+      let k = 0;
+      const c10 = boot(b => { if (b.action !== 'getPayslip') return { ok: true, data: { from: b.action } };
+        k++; return { ok: true, data: k === 1 ? { BaseSalary: 15000 } : null }; });
+      await c10.api('getPayslip', { month: '2026-08' }, { fresh: true });
+      eq('a month with no slip returns null', await c10.api('getPayslip', { month: '2026-07' }, { fresh: true }), null);
+      eq('not re-asked', k, 2);
+      await flushPerf(c10);
+      eq('and not reported', perfRows(c10).filter(r => r.a === 'shapeChanged').length, 0);
+    }
+    {
+      // THE EXCEPTION THAT MUST SURVIVE: a LIST that comes back null is what crashes a screen's .map
+      let k = 0;
+      const c11 = boot(b => { if (b.action !== 'myLeaves') return { ok: true, data: { from: b.action } };
+        k++; return { ok: true, data: k === 1 ? [{ id: 1 }] : (k === 2 ? null : [{ id: 2 }]) }; });
+      await c11.api('myLeaves', {}, { fresh: true });
+      eq('a list that turns null IS re-asked, and the list is recovered', await c11.api('myLeaves', {}, { fresh: true }), [{ id: 2 }]);
+      eq('...which cost exactly one extra round trip', k, 3);
+      await flushPerf(c11);
+      ok_('...and it IS reported', perfRows(c11).some(r => r.a === 'shapeChanged' && /myLeaves/.test(r.c)));
+    }
+    {
+      // a first-ever null must not teach the guard that this action returns a 'value'
+      let k = 0;
+      const c12 = boot(b => { if (b.action !== 'getJournal') return { ok: true, data: { from: b.action } };
+        k++; return { ok: true, data: k <= 2 ? null : { Mood: 'ok' } }; });
+      await c12.api('getJournal', { studentId: 'A' }, { fresh: true });
+      await c12.api('getJournal', { studentId: 'B' }, { fresh: true });
+      await c12.api('getJournal', { studentId: 'C' }, { fresh: true });
+      await flushPerf(c12);
+      eq('two nulls then an object is still silent', perfRows(c12).filter(r => r.a === 'shapeChanged').length, 0);
+      eq('and none of them was re-asked', k, 3);
+    }
+
     console.log('\n8) A failed service-worker update check is not a crash');
     {
       // 18 reported "crashes" across 13 people in one week were this, and not one of them affected
