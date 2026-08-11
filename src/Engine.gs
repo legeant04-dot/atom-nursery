@@ -35,7 +35,16 @@ function createAtomAPI(M, GROWTH_STD) {
     const dLa=r(la2-la1),dLn=r(ln2-ln1); const a=Math.sin(dLa/2)**2+Math.cos(r(la1))*Math.cos(r(la2))*Math.sin(dLn/2)**2;
     return Math.round(R*2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a))); }
   function ageMonths(dob){ const d=new Date(dob),n=new Date(); let m=(n.getFullYear()-d.getFullYear())*12+(n.getMonth()-d.getMonth()); if(n.getDate()<d.getDate())m--; return Math.max(0,m); }
-  function geo(lat,lng){ const dist=haversine(cfg.GPS_Lat,cfg.GPS_Lng,lat,lng); if(dist>cfg.Radius) fail('OUT_OF_RANGE',`อยู่นอกรัศมีโรงเรียน (${dist} ม. เกิน ${cfg.Radius} ม.)`); return dist; }
+  // A phone reports a point AND its own margin of error. Asking "is the dot inside?" instead of
+  // "could they be inside?" told parents standing at the gate they were outside the school — 14% of
+  // pickups in the 2026-08-11 report. The slack is capped (GpsAccuracySlack, default 50 m) so a
+  // useless fix can never wave through someone at home. Mirrors assertWithinGeofence_ in Checkin.gs.
+  function gpsSlack(acc){ const cap=Number(cfg.GpsAccuracySlack!=null?cfg.GpsAccuracySlack:50);
+    const a=Number(acc); if(!isFinite(a)||a<=0) return 0;
+    return Math.min(Math.round(a), (isFinite(cap)&&cap>=0)?cap:50); }
+  function geo(lat,lng,acc){ const dist=haversine(cfg.GPS_Lat,cfg.GPS_Lng,lat,lng); const slack=gpsSlack(acc);
+    if(dist-slack>cfg.Radius) fail('OUT_OF_RANGE',`อยู่นอกรัศมีโรงเรียน (${dist} ม. เกิน ${cfg.Radius} ม.${slack?` · เผื่อความคลาดเคลื่อน GPS ${slack} ม.`:''})`);
+    return dist; }
   // distance without enforcing the fence — used for parent CHECK-IN (allowed from anywhere; check-out still fenced)
   function geoSafe(lat,lng){ return haversine(cfg.GPS_Lat,cfg.GPS_Lng,lat,lng); }
   const studentById = id => M.students.find(s=>s.StudentID===id);
@@ -568,7 +577,7 @@ function createAtomAPI(M, GROWTH_STD) {
       // makes sure a stale screen (or a second device) cannot slip one through anyway.
       { const _s=studentById(p.studentId); if(_s && studentPaused_(_s))
           fail('STUDENT_PAUSED','นักเรียนอยู่ระหว่างลาชั่วคราว — ยังไม่ถึงกำหนดเข้าเรียน'); }
-      const d=(String(p.type||'IN').toUpperCase()==='OUT')?geo(p.lat,p.lng):geoSafe(p.lat,p.lng); const t=timeLocal();
+      const d=(String(p.type||'IN').toUpperCase()==='OUT')?geo(p.lat,p.lng,p.acc):geoSafe(p.lat,p.lng); const t=timeLocal();
       // de-dup a rapid repeat (same student+type today within CheckinDedupMinutes) → keep only the latest time
       const win=Number(cfg.CheckinDedupMinutes||10); const nowMin=toMin(t);
       const recent=(M.checkinStudent||[]).find(r=>r.StudentID===p.studentId&&String(r.Type).toUpperCase()===String(p.type).toUpperCase()&&ymd(r.Date)===todayLocal()&&Math.abs(nowMin-toMin(r.Time))<=win);
@@ -1277,7 +1286,7 @@ function createAtomAPI(M, GROWTH_STD) {
       return out; },
     staffCheckin: p => { const _me=staffById(p.staffId)||{};
       if(!staffStarted_(_me)) fail('NOT_STARTED','วันแรกของการทำงานคือ '+ymd(_me.StartDate||'')+' — ยังลงเวลาไม่ได้');
-      const d=geo(p.lat,p.lng); const t=new Date(); const sch=M.workSchedule.find(w=>w.StaffID===p.staffId)||{CheckInTime:'08:00'};
+      const d=geo(p.lat,p.lng,p.acc); const t=new Date(); const sch=M.workSchedule.find(w=>w.StaffID===p.staffId)||{CheckInTime:'08:00'};
       // A Big Cleaning Day is a special workday with fixed hours 08:30–17:00 (config BigCleaningIn) — late is
       // measured against 08:30 that day, not the staff's group time.
       const bc=isBigCleaning_(todayLocal()); const inT=bc?(cfg.BigCleaningIn||'08:30'):sch.CheckInTime;
@@ -1285,7 +1294,7 @@ function createAtomAPI(M, GROWTH_STD) {
       let r=M.staffAttendanceToday.find(x=>x.StaffID===p.staffId);
       if(!r){r={StaffID:p.staffId,CheckIn:'',CheckOut:'',Status:'NONE',Late:0};M.staffAttendanceToday.push(r);} r.CheckIn=timeLocal();r.Late=late;r.Status='IN';
       return {time:r.CheckIn,lateMinutes:late,rawLate:raw,distance:d}; },
-    staffCheckout: p => { const d=geo(p.lat,p.lng); const t=new Date(); const sch=M.workSchedule.find(w=>w.StaffID===p.staffId)||{CheckOutTime:'17:00'};
+    staffCheckout: p => { const d=geo(p.lat,p.lng,p.acc); const t=new Date(); const sch=M.workSchedule.find(w=>w.StaffID===p.staffId)||{CheckOutTime:'17:00'};
       const outT=isBigCleaning_(todayLocal())?(cfg.BigCleaningOut||'17:00'):sch.CheckOutTime;
       const ot=Math.max(0,(t.getHours()*60+t.getMinutes())-toMin(outT));
       // OT rule: ≥OTRoundUpMinutes (50) within an hour rounds up to a full hour

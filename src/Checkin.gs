@@ -19,16 +19,36 @@ function haversineMeters_(lat1, lng1, lat2, lng2) {
   return Math.round(R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)));
 }
 
-/** Throw OUT_OF_RANGE unless (lat,lng) is within the school geofence. */
-function assertWithinGeofence_(lat, lng) {
+/**
+ * How much slack the phone's own margin of error is allowed to buy, in metres.
+ * A phone does not report a POINT, it reports a point AND how sure it is. With Radius=30 and a
+ * typical ±30–60 m fix under a roof or beside a building, someone standing at the gate was being
+ * told they were "outside the school" — 14% of parent check-outs in the 2026-08-11 report.
+ * So the test is "could they be inside?", not "does the dot land inside?". Capped, so a useless
+ * fix (±2 km) can never wave through someone who is genuinely at home. 0 restores the old rule.
+ */
+function gpsSlack_(accuracy) {
+  var cap = parseFloat(getConfig_('GpsAccuracySlack', '50'));
+  if (!isFinite(cap) || cap < 0) cap = 50;
+  var a = Number(accuracy);
+  if (!isFinite(a) || a <= 0) return 0;                  // no accuracy reported → old behaviour
+  return Math.min(Math.round(a), cap);
+}
+
+/** Throw OUT_OF_RANGE unless (lat,lng) could be within the school geofence. */
+function assertWithinGeofence_(lat, lng, accuracy) {
   if (typeof lat !== 'number' || typeof lng !== 'number' || isNaN(lat) || isNaN(lng)) {
     throw apiError_('BAD_GPS', 'ไม่พบพิกัด GPS ที่ถูกต้อง');
   }
   var sLat = parseFloat(getConfig_('GPS_Lat')), sLng = parseFloat(getConfig_('GPS_Lng'));
   var radius = parseFloat(getConfig_('Radius', '30'));
   var dist = haversineMeters_(sLat, sLng, lat, lng);
-  if (dist > radius) {
-    throw apiError_('OUT_OF_RANGE', 'อยู่นอกรัศมีโรงเรียน (' + dist + ' ม. เกินกำหนด ' + radius + ' ม.)');
+  var slack = gpsSlack_(accuracy);
+  if (dist - slack > radius) {
+    // the numbers are the message: "too far" alone tells nobody whether to walk 20 steps or
+    // whether the fence is set wrong
+    throw apiError_('OUT_OF_RANGE', 'อยู่นอกรัศมีโรงเรียน (' + dist + ' ม. เกินกำหนด ' + radius + ' ม.' +
+      (slack ? ' · เผื่อความคลาดเคลื่อน GPS ' + slack + ' ม.' : '') + ')');
   }
   return dist;
 }
@@ -138,7 +158,7 @@ function handleStaffCheckin(payload) {
   payload = payload || {};
   var staff = resolveStaff_(payload);
   assertStaffStarted_(staff);
-  var dist = assertWithinGeofence_(payload.lat, payload.lng);
+  var dist = assertWithinGeofence_(payload.lat, payload.lng, payload.acc);
   var now = new Date(), today = dateStr_(now);
   var sheet = sheet_(getHrSpreadsheet_(), 'CHECKIN_STAFF');
 
@@ -276,7 +296,7 @@ function handleStaffCheckout(payload) {
   payload = payload || {};
   var staff = resolveStaff_(payload);
   assertStaffStarted_(staff);
-  var dist = assertWithinGeofence_(payload.lat, payload.lng);
+  var dist = assertWithinGeofence_(payload.lat, payload.lng, payload.acc);
   var now = new Date(), today = dateStr_(now);
   var sheet = sheet_(getHrSpreadsheet_(), 'CHECKIN_STAFF');
 

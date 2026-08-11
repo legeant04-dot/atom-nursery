@@ -112,7 +112,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.215'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.216'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -347,8 +347,8 @@
   const ERR_MSG = {
     NOT_CHECKED_IN:   ['ยังไม่ได้เช็คอินนักเรียนคนนี้วันนี้','This child has not been checked in today',
                        'เช็คอินให้นักเรียนก่อน แล้วจึงบันทึกสมุดอีกครั้ง','Check the child in first, then save the journal again'],
-    OUT_OF_RANGE:     ['อยู่นอกรัศมีของโรงเรียน','You are outside the school area',
-                       'เข้ามาในบริเวณโรงเรียนแล้วลงเวลาอีกครั้ง หรือใช้ "ขอลงเวลา"','Move inside the school grounds, or use the manual time request'],
+    // OUT_OF_RANGE is deliberately NOT here — it is handled in err() so the server's sentence, which
+    // carries the real distance and the limit, survives instead of being replaced by a generic one.
     AMOUNT_MISMATCH:  ['ยอดเงินในสลิปไม่ตรงกับยอดที่ต้องชำระ','The slip amount does not match the amount due',
                        'ตรวจยอดในสลิปอีกครั้ง หรือแนบสลิปให้ครบทุกใบ','Re-check the slip, or attach every slip that makes up the total'],
     NO_PLAN_PRICE:    ['นักเรียนคนนี้ยังไม่ได้ตั้งราคาแพ็กเกจรายเดือน','This child has no monthly package price set',
@@ -385,6 +385,20 @@
     if(offline){
       head=EN()?'No connection to the school system':'เชื่อมต่อระบบของโรงเรียนไม่ได้';
       hint=EN()?'Check your internet and try again — nothing has been saved.':'ตรวจสอบอินเทอร์เน็ตแล้วลองใหม่ — ยังไม่มีการบันทึกข้อมูล';
+    } else if(code==='OUT_OF_RANGE'){
+      // KEEP the server's sentence here: it carries the actual distance and the limit. "You are
+      // outside the school area" alone tells nobody whether to walk twenty steps or whether the
+      // fence is set wrong — and it is the number the school needs when a parent reports it.
+      head = raw;
+      // the manual time request is a STAFF tool; telling a parent to use it sends them nowhere
+      hint = (USER&&USER.role==='Parent')
+        ? (EN()?'Stand near the school entrance and try again. If it still refuses, tell the teacher the distance shown above.'
+               :'ลองยืนใกล้ประตูโรงเรียนแล้วกดใหม่ · ถ้ายังไม่ผ่าน แจ้งคุณครูพร้อมบอกระยะที่ขึ้นด้านบน')
+        : (EN()?'Move inside the school grounds, or use the manual time request'
+               :'เข้ามาในบริเวณโรงเรียนแล้วลงเวลาอีกครั้ง หรือใช้ "ขอลงเวลา"');
+      // record HOW FAR the refusals actually are — metres only, no coordinates. Without this the
+      // next speed report can only say "14% refused", never whether the fence is too tight.
+      try{ window.__atomPerfErr&&window.__atomPerfErr('outOfRange', raw); }catch(_){}
     } else {
       const m=ERR_MSG[code];
       head = m ? (EN()?m[1]:m[0]) : raw;      // unlisted code → the server's own sentence
@@ -1532,20 +1546,23 @@
   };
   let P_TYPE='IN'; window.P_type=t=>{P_TYPE=t;$('#tIN').classList.toggle('active',t==='IN');$('#tOUT').classList.toggle('active',t==='OUT');};
   // real device geolocation → {lat,lng}. Backend enforces the school geofence (OUT_OF_RANGE).
+  // `acc` is the phone's OWN margin of error in metres, and the server needs it: a ±60 m fix at the
+  // school gate is not evidence that anyone is outside a 30 m fence. Sending it is what lets the
+  // server ask "could they be inside?" instead of trusting the dot.
   function getPosition(){ return new Promise((resolve,reject)=>{
     if(!navigator.geolocation){ reject(new Error(EN()?'This device does not support GPS':'อุปกรณ์นี้ไม่รองรับ GPS')); return; }
     navigator.geolocation.getCurrentPosition(
-      pos=>resolve({lat:pos.coords.latitude,lng:pos.coords.longitude}),
+      pos=>resolve({lat:pos.coords.latitude,lng:pos.coords.longitude,acc:Math.round(pos.coords.accuracy)||0}),
       e=>reject(new Error(EN()?'Cannot get your location — please allow location access and try again':'ระบุตำแหน่งไม่ได้ — กรุณาอนุญาตการเข้าถึงตำแหน่ง แล้วลองใหม่')),
       {enableHighAccuracy:true,timeout:10000,maximumAge:0}); }); }
   window.P_do=async(btn)=>{ const studentId=$('#kid').value; P_TYPE=P_TYPE; return P_punch(studentId,P_TYPE,btn); };
   // one-tap check-in/out from the home kid card (or checkin screen): read GPS → parentCheckin directly
   window.P_punch=async(studentId,type,btn)=>{ if(btn)btn.disabled=true; const done=()=>{ if(btn)btn.disabled=false; };
-    try{ let lat=null,lng=null;
+    try{ let lat=null,lng=null,acc=0;
       // Check-in works from ANYWHERE — GPS is optional (tolerate denial). Check-out still needs a location (school enforces the radius).
-      if(type==='OUT'){ ({lat,lng}=await getPosition()); }
-      else { try{ ({lat,lng}=await getPosition()); }catch(e){ lat=null; lng=null; } }
-      const r=await api('parentCheckin',{parentId:USER.parentId,uid:USER.uid,studentId,type,lat,lng});
+      if(type==='OUT'){ ({lat,lng,acc}=await getPosition()); }
+      else { try{ ({lat,lng,acc}=await getPosition()); }catch(e){ lat=null; lng=null; acc=0; } }
+      const r=await api('parentCheckin',{parentId:USER.parentId,uid:USER.uid,studentId,type,lat,lng,acc});
       const distTxt=(r.distance!=null)?` (${EN()?'distance':'ระยะ'} ${r.distance} ${EN()?'m':'ม.'})`:'';
       toast(`✅ ${type==='IN'?(EN()?'Drop off':'ส่งเข้าเรียน'):(EN()?'Pick up':'รับกลับ')} ${r.time}${distTxt} — ${EN()?'teacher notified':'แจ้งครูแล้ว'}`);
       // keep the button faded + un-clickable for the rest of the day (prevents double-submit; one per day)
@@ -2264,8 +2281,8 @@
   };
   window.T_payOT=(otId,amt)=>{ const x=document.querySelector('.modal'); if(x)x.remove(); P_slip(otId,amt,'teacherOt'); };
   window.T_punch=async(kind,btn)=>{ if(btn){ btn.disabled=true; btn.style.opacity='.45'; btn.style.cursor='not-allowed'; }  // prevent double-tap immediately
-    try{ const {lat,lng}=await getPosition();
-      const r=await api(kind==='in'?'staffCheckin':'staffCheckout',{staffId:USER.staffId,lat,lng}); toast(kind==='in'?`✅ ${t('lbl.checkIn')} ${r.time}${r.lateMinutes>0?` (${t('lbl.late')} ${r.lateMinutes} ${t('lbl.min')})`:' ('+t('lbl.onTime')+')'}`:`✅ ${t('lbl.checkOut')} ${r.time}${r.otHours>0?` · OT ${hmHours(r.otHours)}${r.otPay?' ≈ '+baht(r.otPay):''}`:''}`); GO('home'); }
+    try{ const {lat,lng,acc}=await getPosition();
+      const r=await api(kind==='in'?'staffCheckin':'staffCheckout',{staffId:USER.staffId,lat,lng,acc}); toast(kind==='in'?`✅ ${t('lbl.checkIn')} ${r.time}${r.lateMinutes>0?` (${t('lbl.late')} ${r.lateMinutes} ${t('lbl.min')})`:' ('+t('lbl.onTime')+')'}`:`✅ ${t('lbl.checkOut')} ${r.time}${r.otHours>0?` · OT ${hmHours(r.otHours)}${r.otPay?' ≈ '+baht(r.otPay):''}`:''}`); GO('home'); }
     catch(e){ err(e); if(btn){ btn.disabled=false; btn.style.opacity=''; btn.style.cursor=''; } } };  // re-enable on error (GO('home') re-renders disabled on success)
 
   // daily-report badge — journalStatus returns every student with an entry for `date` + its DRAFT/SUBMITTED state
@@ -4637,7 +4654,9 @@
       <p class="muted" style="font-size:13px">${EN()?'Open Google Maps → long-press the school → copy the lat, long numbers here.':'เปิด Google Maps → กดค้างที่ตำแหน่งโรงเรียน → คัดลอกเลข lat, long มาใส่'}</p>
       <div class="grid2"><label class="field"><span>Latitude</span><input id="cfgLat" type="number" step="any" value="${esc(sc.GPS_Lat!=null?sc.GPS_Lat:'')}"/></label>
         <label class="field"><span>Longitude</span><input id="cfgLng" type="number" step="any" value="${esc(sc.GPS_Lng!=null?sc.GPS_Lng:'')}"/></label></div>
-      <label class="field"><span>${EN()?'Radius (metres)':'รัศมี (เมตร)'}</span><input id="cfgRadius" type="number" value="${esc(sc.Radius!=null?sc.Radius:30)}"/></label>
+      <div class="grid2"><label class="field"><span>${EN()?'Radius (metres)':'รัศมี (เมตร)'}</span><input id="cfgRadius" type="number" value="${esc(sc.Radius!=null?sc.Radius:30)}"/></label>
+        <label class="field"><span>${EN()?'GPS tolerance (metres)':'เผื่อความคลาดเคลื่อน GPS (เมตร)'}</span><input id="cfgSlack" type="number" min="0" value="${esc(sc.GpsAccuracySlack!=null?sc.GpsAccuracySlack:50)}"/></label></div>
+      <p class="muted" style="font-size:13px">${EN()?'A phone reports how sure it is of your position. This is how much of that margin may count in your favour, so someone standing at the gate with a poor signal is not refused. 0 = judge by the dot alone (strict).':'มือถือจะบอกด้วยว่าตำแหน่งที่จับได้คลาดเคลื่อนได้เท่าไร · ค่านี้คือส่วนที่ยอมให้นับเป็นประโยชน์กับผู้ใช้ คนที่ยืนอยู่หน้าประตูแต่สัญญาณไม่ดีจะได้ไม่ถูกปฏิเสธ · ใส่ 0 = ตัดสินจากจุดที่จับได้อย่างเดียว (เข้มงวด)'}</p>
       <h4 style="margin:6px 0">${esc(t('set.diligence'))}</h4>
       <div class="grid2"><label class="field"><span>${esc(t('set.attendAmt'))}</span><input id="setAtt" type="number" value="${cfg.DiligenceAttendanceAmount}"/></label>
         <label class="field"><span>${esc(t('set.fbAmt'))}</span><input id="setFb" type="number" value="${cfg.DiligenceFacebookAmount}"/></label></div>
@@ -5176,7 +5195,9 @@
   window.A_reinstallTriggers=async(btn)=>{ if(btn)btn.disabled=true; try{ const r=await api('reinstallTriggers',{}); toast((EN()?'Schedule updated · triggers: ':'อัปเดตตารางแล้ว · triggers: ')+(r&&r.triggers!=null?r.triggers:'?')); }catch(e){err(e);}finally{ if(btn)btn.disabled=false; } };
   window.A_saveSettings=async(btn)=>{ const m=btn.closest('.modal');
     const lat=parseFloat(m.querySelector('#cfgLat').value), lng=parseFloat(m.querySelector('#cfgLng').value), rad=parseFloat(m.querySelector('#cfgRadius').value);
+    const slackEl=m.querySelector('#cfgSlack'); const slack=slackEl?parseFloat(slackEl.value):NaN;
     const gv={}; if(!isNaN(lat))gv.GPS_Lat=lat; if(!isNaN(lng))gv.GPS_Lng=lng; if(!isNaN(rad))gv.Radius=rad;
+    if(!isNaN(slack)&&slack>=0) gv.GpsAccuracySlack=slack;   // 0 is a real choice (strict), so test for NaN, not falsiness
 
     // notification prefs (checkboxes) — stored in SCHOOL_CONFIG so the digests/triggers read them
     const ck=id=>{ const e=m.querySelector(id); return e?(e.checked?'true':'false'):undefined; };

@@ -192,6 +192,11 @@ var SCHOOL_CONFIG_DEFAULTS = [
   ['GPS_Lat',               '13.792472'],
   ['GPS_Lng',               '100.646389'],
   ['Radius',                '30'],            // §12 recommended 30m to absorb GPS drift (±5–15m). Confirmed by school.
+  // ...but a real phone often reports ±20–65 m (indoors, under a roof, beside a building), and the
+  // fence was judging the reported dot as if it were exact. This is how much of the phone's OWN
+  // stated margin may count in the user's favour, capped so a useless fix cannot pass someone at
+  // home. 0 = the old strict rule. See gpsSlack_ in Checkin.gs.
+  ['GpsAccuracySlack',      '50'],
   ['LateGraceMinutes',      '0'],            // grace window before "late" is counted
 
   // --- Billing ---
