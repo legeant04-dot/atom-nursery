@@ -174,8 +174,10 @@ console.log('\n5) Dinner exists everywhere the menu does');
   // v220: ONE menu a day for the whole school. The PLANNER shows every meal (the kitchen cooks it
   // once); the class rule moved to where the menu is READ — the parent's copy and the journal.
   ok_('the planner shows every meal, and says who eats each one', /FM_MEALS\.map\(\(\[k,lb\]\)=>/.test(app) && /fmWho\(k\)/.test(app));
-  ok_('the PARENT copy is filtered by their own child\'s class', /FM_MEALS\.filter\(\(\[k\]\)=>v\[k\]&&fmShows\(k\)\)/.test(app));
-  ok_('both snacks map onto the journal’s single snack slot', /if\(k==='snackAM'\|\|k==='snackPM'\) return slots\.indexOf\('Snack'\)>=0/.test(app));
+  // v221 removed the parent's own copy of the menu — the day's food is on the child's JOURNAL, which
+  // is where a family reads what was actually eaten, and which already applies the class rule.
+  ok_('the parent has no second, plan-only menu screen to keep in step', !/window\.P_menu = async/.test(app));
+  ok_('both snacks still map onto the journal’s single snack slot', /Snack:\(m\.SnackAM\|\|m\.SnackPM\)/.test(eng));
   ok_('the menu carries the slot list so the screens cannot invent their own rule', /slots: cls\?mealSlotsFor_\(cls\):allMealSlots_\(\)/.test(eng));
 }
 

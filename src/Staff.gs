@@ -63,10 +63,25 @@ function handleSetStaffEnd(p) {
   if (STAFF_END_REASONS_.indexOf(reason) < 0) throw apiError_('BAD_INPUT', 'กรุณาเลือกเหตุผลการสิ้นสุดการทำงาน');
   var end = String(p.endDate || '').slice(0, 10);
   if (!/^\d{4}-\d{2}-\d{2}$/.test(end)) throw apiError_('BAD_INPUT', 'กรุณาระบุวันสิ้นสุดการทำงาน');
-  updateRow_(sh, st._row, { Status: 'INACTIVE', EndDate: end, EndReason: reason, EndRemark: String(p.remark || '') });
+  /**
+   * A LAST WORKING DAY, not "remove now".
+   *
+   * An admin told on the 11th that someone leaves on the 30th has to be able to record it on the
+   * 11th — with the reason and the remark, while it is fresh — without that person vanishing from
+   * the roster for the nineteen days they are still turning up, still clocking in and still being
+   * paid. So the record is written today and the status flips ON the date, not at save time.
+   * Reading it is what makes that happen (staffEnded_ in the engine treats "EndDate has passed" as
+   * ended), so nothing depends on a trigger running that day.
+   */
+  var today = dateStr_(new Date());
+  var due = end < today;                     // the last working day still counts as working
+  var patch = { EndDate: end, EndReason: reason, EndRemark: String(p.remark || '') };
+  if (due) patch.Status = 'INACTIVE';
+  updateRow_(sh, st._row, patch);
   staffCacheBust_();
-  try { logAuditHr(p.adminId || 'admin', 'STAFF_END', 'STAFF', String(p.staffId) + ' ' + end + ' ' + reason); } catch (e) {}
-  return { ok: true, staffId: p.staffId, status: 'INACTIVE', endDate: end, reason: reason };
+  try { logAuditHr(p.adminId || 'admin', due ? 'STAFF_END' : 'STAFF_END_SCHEDULED', 'STAFF', String(p.staffId) + ' ' + end + ' ' + reason); } catch (e) {}
+  return { ok: true, staffId: p.staffId, status: due ? 'INACTIVE' : 'ACTIVE',
+    endDate: end, reason: reason, scheduled: !due };
 }
 
 // Staff edits their OWN record — whitelisted fields, in-place. staffId is injected by applyIdentity_

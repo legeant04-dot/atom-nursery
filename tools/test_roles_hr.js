@@ -37,7 +37,9 @@ function runStaffEnd(payload, rows) {
     findObject_: (s, fn) => s.findObject(fn),
     updateRow_: (s, row, patch) => s.update(row, patch),
     staffCacheBust_: () => {}, logAuditHr: (...a) => audit.push(a),
-    apiError_: (c, m) => Object.assign(new Error(m), { code: c }), console
+    // the handler now compares the leaving date with TODAY, so the harness has to supply one
+    dateStr_: d => new Date(d).toISOString().slice(0, 10),
+    apiError_: (c, m) => Object.assign(new Error(m), { code: c }), console, Date
   };
   vm.createContext(ctx);
   const i = staffGs.indexOf('var STAFF_END_REASONS_');
@@ -102,10 +104,18 @@ console.log('\n1b) "View as" previews the person\'s OWN role');
 
 console.log('\n2) A staff member leaves — and the record stays');
 {
-  const r = runStaffEnd({ staffId: 'STF-1', endDate: '2026-08-31', reason: 'ลาออก', remark: 'ย้ายกลับต่างจังหวัด', adminId: 'A1' });
+  // v221: EndDate is a LAST WORKING DAY, recorded in advance. Someone leaving at the end of the
+  // month must stay on the roster until then — they are still turning up, still clocking in, still
+  // being paid — so the record is written today and the status flips ON the date.
+  const FUTURE = new Date(Date.now() + 20 * 864e5).toISOString().slice(0, 10);
+  const PAST = new Date(Date.now() - 1 * 864e5).toISOString().slice(0, 10);
+  const r = runStaffEnd({ staffId: 'STF-1', endDate: FUTURE, reason: 'ลาออก', remark: 'ย้ายกลับต่างจังหวัด', adminId: 'A1' });
   ok_('no error', !r.thrown);
-  eq('they come off the active lists', r.row.Status, 'INACTIVE');
-  eq('the last working day is recorded', r.row.EndDate, '2026-08-31');
+  eq('a FUTURE leaving date does not remove them yet', r.row.Status, 'ACTIVE');
+  eq('...and the save says it is scheduled', r.out && r.out.scheduled, true);
+  const gone = runStaffEnd({ staffId: 'STF-1', endDate: PAST, reason: 'ลาออก', adminId: 'A1' });
+  eq('a date that has PASSED takes them off the active lists', gone.row.Status, 'INACTIVE');
+  eq('the last working day is recorded', r.row.EndDate, FUTURE);
   eq('the reason too', r.row.EndReason, 'ลาออก');
   eq('and the free-text note', r.row.EndRemark, 'ย้ายกลับต่างจังหวัด');
   eq('THE RECORD IS STILL THERE — payroll history depends on it', r.row.StaffID, 'STF-1');
@@ -115,10 +125,11 @@ console.log('\n2) A staff member leaves — and the record stays');
     /function handleSetStaffEnd[\s\S]{0,1400}updateRow_/.test(staffGs) && !/function handleSetStaffEnd[\s\S]{0,1400}deleteRow/.test(staffGs));
 }
 {
+  const FUTURE2 = new Date(Date.now() + 20 * 864e5).toISOString().slice(0, 10);
   ['ไม่ผ่านการทดลองงาน', 'ลาออก', 'ให้ออก'].forEach(x =>
-    ok_('reason accepted: ' + x, !runStaffEnd({ staffId: 'STF-1', endDate: '2026-08-31', reason: x }).thrown));
-  ok_('a reason outside the three is refused', !!runStaffEnd({ staffId: 'STF-1', endDate: '2026-08-31', reason: 'อื่นๆ' }).thrown);
-  ok_('no reason at all is refused', !!runStaffEnd({ staffId: 'STF-1', endDate: '2026-08-31' }).thrown);
+    ok_('reason accepted: ' + x, !runStaffEnd({ staffId: 'STF-1', endDate: FUTURE2, reason: x }).thrown));
+  ok_('a reason outside the three is refused', !!runStaffEnd({ staffId: 'STF-1', endDate: FUTURE2, reason: 'อื่นๆ' }).thrown);
+  ok_('no reason at all is refused', !!runStaffEnd({ staffId: 'STF-1', endDate: FUTURE2 }).thrown);
   ok_('no date is refused', !!runStaffEnd({ staffId: 'STF-1', reason: 'ลาออก' }).thrown);
   ok_('a malformed date is refused', !!runStaffEnd({ staffId: 'STF-1', endDate: '31/08/2026', reason: 'ลาออก' }).thrown);
   const bad = runStaffEnd({ staffId: 'STF-1', endDate: '', reason: 'ลาออก' });
@@ -148,7 +159,11 @@ console.log('\n3) Someone who has not started yet is not part of attendance');
   ok_('the server refuses to log their time', /function assertStaffStarted_/.test(checkin));
   eq('both check-in and check-out are guarded', (checkin.match(/assertStaffStarted_\(staff\);/g) || []).length, 2);
   ok_('the message says WHEN they start, not just "no"', /วันแรกของการทำงานคือ/.test(checkin));
-  ok_('no start date recorded → nothing changes for anyone else', /if \(!\/\^\\d\{4\}-\\d\{2\}-\\d\{2\}\$\/\.test\(start\)\) return;/.test(checkin));
+  // v221 added the OTHER end (EndDate) to the same guard, so the shape changed: no start date on
+  // record must still mean "no opinion", not "blocked"
+  ok_('no start date recorded → nothing changes for anyone else',
+    /if \(\/\^\\d\{4\}-\\d\{2\}-\\d\{2\}\$\/\.test\(start\) && today < start\)/.test(checkin));
+  ok_('...and a leaving date only blocks AFTER it has passed', /test\(end\) && today > end/.test(checkin));
   ok_('the engine agrees', /const staffStarted_ =/.test(eng));
   ok_('the screen can show it', /notStarted:!staffStarted_\(me\), startDate:/.test(eng));
   // the point of the request: no phantom absences before the first day
@@ -197,8 +212,11 @@ console.log('\n6) A child on temporary leave: no attendance, but still billable'
   ok_('a stale screen cannot slip a check-in through anyway', /STUDENT_PAUSED/.test(eng));
   // only the buttons are swapped — the name, class, age, package and allergy line are outside the
   // ternary, so a paused child's card still tells the family everything it did before
+  // v221 put a THIRD branch first (school closed today), so the paused branch is no longer the
+  // opening test — but it still only swaps the buttons
   ok_('only the buttons change, the rest of the card is untouched',
-    /\$\{k\.paused[\s\S]{0,1400}: `<div class="row"[\s\S]{0,400}P_punch/.test(app));
+    /: k\.paused[\s\S]{0,1400}: `<div class="row"[\s\S]{0,400}P_punch/.test(app));
+  ok_('...and a closed day replaces them for every child', /window\._SCHOOLDAY&&window\._SCHOOLDAY\.closed/.test(app));
 
   // the window is wide because financeSummary now groups its collections before walking the roll
   // (v219, tools/test_finance_index.js) — the roll itself is still enrolledStudents()

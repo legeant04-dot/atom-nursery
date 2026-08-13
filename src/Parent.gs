@@ -23,6 +23,8 @@ function handleParentCheckin(payload) {
   if (!payload.studentId) throw apiError_('BAD_INPUT', 'ต้องระบุ studentId');
   var type = String(payload.type || 'IN').toUpperCase();
   if (type !== 'IN' && type !== 'OUT') throw apiError_('BAD_TYPE', 'type ต้องเป็น IN หรือ OUT');
+  // no attendance on a day the school is shut — same rule, and the same message, as the staff side
+  assertSchoolOpen_();
   // Parent CHECK-IN is allowed from anywhere (no geofence); CHECK-OUT still must be within the school
   // radius — a pickup is a safety record and it starts the late-pickup OT clock.
   // A REFUSED pickup is written to the audit log with the distance (metres only — never coordinates),

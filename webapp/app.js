@@ -112,7 +112,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.220'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.221'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -1329,11 +1329,15 @@
       api('getJournal',{studentId:k0.StudentID}), api('studentLeaves',{studentId:k0.StudentID}),
       api('announcements'), api('calendar'), api('familyProfile',parentScope()).catch(()=>({parents:[]})),
       api('getPlans').catch(()=>[]),
+      api('schoolDay',{}).then(d=>{ window._SCHOOLDAY=d; return d; }).catch(()=>null),
       ...kids.map(k=>api('studentCheckinHistory',{studentId:k.StudentID})),
       ...kids.map(k=>api('studentLeaves',{studentId:k.StudentID}).catch(()=>[]))
     ]);
+    // 7 fixed entries now (schoolDay was added), then one check-in history per child, then one
+    // leave list per child — the offsets below MUST move with that count or every child's calendar
+    // is handed another child's data
     const [j, sl, anns, cal, fam, plans] = _res;
-    const ciAll=_res.slice(6, 6+kids.length); const slAll=_res.slice(6+kids.length); const ci=ciAll[0]||[];
+    const ciAll=_res.slice(7, 7+kids.length); const slAll=_res.slice(7+kids.length); const ci=ciAll[0]||[];
     if(plans&&plans.length) A_CACHE.plans=plans;   // so planLabel() names the package, not "pkg_e32dd4"
     // everything the per-child calendar needs, kept for P_calSel()
     window._CALDATA={ kids, cal, ciAll, slAll, plans:plans||[] };
@@ -1349,10 +1353,16 @@
     // рับ-ส่งเด็ก (GPS) is now on the home kid card: big IN/OUT buttons like the teacher's, no location bar
     const kidsHtml = kids.map(k=>{ const din=todayCI[k.StudentID].in, dout=todayCI[k.StudentID].out;
       return `<div class="card"><div class="spread"><div><b style="font-size:17px">${esc(dispNick(k))}</b> <small class="muted">${esc(nm(k))}</small><br><small class="muted">🏫 ${esc(k.Class||(EN()?'no class':'ยังไม่จัดชั้น'))} · ${esc(ageYM(k.DOB))} · ${esc(planLabel(k.Plan))}<br>${EN()?'allergy':'แพ้'}: ${esc(k.Allergy||'-')}</small>${k.RateNote?`<br><small style="color:var(--blue)">🕕 ${esc(k.RateNote)}</small>`:''}</div>${studentAvatar(k)}</div>
-      ${k.paused
+      ${(window._SCHOOLDAY&&window._SCHOOLDAY.closed)
+        // School shut today: the server refuses a check-in anyway, so offering the buttons could only
+        // produce an error. Say WHICH holiday — that is the thing a parent actually wants to know.
+        ? `<div class="card" style="background:var(--surface-3);border-color:var(--line-strong);margin-top:12px;padding:10px;text-align:center">
+             <b>🏖️ ${EN()?'School closed today':'วันนี้โรงเรียนหยุด'}</b>
+             <br><small class="muted">${esc(EN()?(window._SCHOOLDAY.reasonEN||'Holiday'):(window._SCHOOLDAY.reason||'วันหยุด'))} · ${EN()?'no drop-off or pick-up to record':'ไม่ต้องบันทึกส่ง-รับ'}</small></div>`
+        : k.paused
         // On temporary leave (or not started yet): there is nothing to record, so the buttons go
         // rather than sitting there doing nothing. Everything else about the child stays visible —
-        // the family still needs the menu, the bills and their own details.
+        // the family still needs the bills and their own details.
         ? `<div class="card" style="background:var(--warn-bg);border-color:var(--warn-line);margin-top:12px;padding:10px;text-align:center">
              <b style="color:var(--warn)">⏳ ${EN()?'Not due to attend yet':'ยังไม่ถึงกำหนดเข้าเรียน'}</b>
              ${k.pauseFrom?`<br><small class="muted">${EN()?'from':'ตั้งแต่'} ${esc(k.pauseFrom)}${k.pauseTo?` ${EN()?'to':'ถึง'} ${esc(k.pauseTo)}`:''}</small>`:''}
@@ -1367,8 +1377,9 @@
       <h3 style="margin:6px 2px">📒 ${EN()?'Journal of':'บันทึกของ'} ${esc(dispNick(k0))} ${EN()?'today':'วันนี้'}</h3>${j?journalChecklist(j,{parentEditable:true,student:k0}):waitCard()}
       <div class="card"><div class="spread"><h3>🏠 แจ้งลาบุตรหลาน</h3><button class="btn sm outline" onclick="P_absence()">+ แจ้งลา</button></div>${slHtml}</div>
       <div id="svCard"></div>
-      <div class="card"><div class="spread"><h3>🍚 ${EN()?'Food menu':'เมนูอาหาร'}</h3><button class="btn sm outline" onclick="P_menu('${k0.StudentID}')">${EN()?'View':'ดูเมนู'}</button></div>
-        <small class="muted">${EN()?'This month\'s menu for':'เมนูเดือนนี้ของชั้น'} ${esc(k0.Class||'')}</small></div>
+<!-- the food-menu card was here. Removed on the owner's call: the day's meals are already on the
+           child's daily journal, where a parent reads what their child actually ATE rather than what
+           was planned. P_menu went with it — see below. -->
       <div class="card" id="insCard"></div>
       <div class="card"><h3>📢 ประกาศจากโรงเรียน</h3>${(()=>{ const td=todayStr(); const act=(anns||[]).filter(a=>(!a.StartDate||ymd(a.StartDate)<=td)&&(!a.EndDate||ymd(a.EndDate)>=td)); return act.length?act.map(annRow).join(''):`<small class="muted">${EN()?'No announcements from the school yet':'ยังไม่มีประกาศจากทางโรงเรียน'}</small>`; })()}</div>
       ${kids.length>1?`<div class="seg" id="calSeg" style="margin:14px 2px 6px">${kids.map((k,i)=>`<button class="${i===0?'active':''}" onclick="P_calSel(${i})">🗓️ ${esc(dispNick(k))}</button>`).join('')}</div>`:''}
@@ -2054,31 +2065,9 @@
    * Menu: only their own child's class, resolved server-side so it can never be the wrong one.
    * Survey: a card on the home screen while one is open for them, answerable in one tap.
    */
-  window.P_menu = async (sid, month) => {
-    const d = await api('myFoodMenu', Object.assign({}, parentScope(), sid?{studentId:sid}:{}, month?{month}:{}), {fresh:true});
-    const by={}; (d.days||[]).forEach(x=>by[x.date]=x);
-    // the engine says which meals this class records; the editor follows it rather than repeating
-    // the rule and drifting out of step (the baby class records none at all)
-    window._FM_SLOTS=(d.slots||[]).map(x=>x.key);
-    const today=todayStr();
-    const rows=fmDays(d.month).map(ds=>{ const v=by[ds]; if(!v) return '';
-      // ONE menu is now planned for the whole school, so THIS is where a family is shown only what
-      // their own child is served: nothing at all for Nursery Baby, and no dinner for the classes
-      // that go home before it. Without this filter a Nursery 2 parent would be shown a dinner
-      // their child never had.
-      const meals=FM_MEALS.filter(([k])=>v[k]&&fmShows(k)).map(([k,lb])=>`<div class="list-item" style="padding:3px 0"><span class="muted" style="min-width:96px">${esc(lb())}</span><span>${esc(v[k])}</span></div>`).join('');
-      if(!meals && !v.note) return '';
-      return `<div class="card" style="padding:8px;${ds===today?'border-color:var(--brand);box-shadow:0 0 0 2px var(--brand-soft)':''}">
-        <div class="spread"><b>${esc(ds)} (${esc(fmDow(ds))}.)</b>${ds===today?`<span class="pill ok" style="font-size:11px">${EN()?'today':'วันนี้'}</span>`:''}</div>
-        ${meals}${v.note?`<small class="muted">📌 ${esc(v.note)}</small>`:''}</div>`; }).join('');
-    const kidSel=(d.kids||[]).length>1?`<label class="field"><span>${EN()?'Child':'บุตรหลาน'}</span><select onchange="P_menu(this.value,'${esc(d.month)}')">${
-      (d.kids||[]).map(k=>`<option value="${esc(k.studentId)}"${k.studentId===d.studentId?' selected':''}>${esc(k.nick||k.name)} (${esc(k.cls||'')})</option>`).join('')}</select></label>`:'';
-    modal(`<h3>🍚 ${EN()?'Food menu':'เมนูอาหาร'} — ${esc(d.className||'')}</h3>
-      ${kidSel}
-      <label class="field"><span>${esc(t('c.month'))}</span><input type="month" value="${esc(d.month)}" onchange="P_menu('${esc(d.studentId)}',this.value)"/></label>
-      <div style="max-height:60vh;overflow:auto">${rows||`<div class="card muted">${EN()?'No menu published for this month yet.':'เดือนนี้ยังไม่มีเมนูอาหาร'}</div>`}</div>
-      <button class="btn outline block" style="margin-top:8px" onclick="this.closest('.modal').remove()">${esc(t('c.close'))}</button>`);
-  };
+  // P_menu (the parent's own copy of the monthly menu) was removed on the owner's call: the day's
+  // meals are already on the child's daily journal, which is what the family actually reads — a
+  // second place showing the PLAN could only ever disagree with the record.
   window.P_survey = async (id) => {
     const list = await api('openSurveys', parentScope(), {fresh:true});
     // with no id, offer something they have NOT answered yet rather than reopening an old answer
@@ -2212,11 +2201,13 @@
      * Each carries its own fallback: one broken section must never blank the rest of the screen —
      * a failure used to abort the entire tail, including the growth reminder.
      */
+    const p_day = api('schoolDay',{}).catch(()=>null);
     const p_tca = api('teacherClassAttendance',{staffId:USER.staffId}).catch(()=>null);
     const p_ml  = api('myLeaves',{staffId:USER.staffId}).catch(()=>[]);
     const p_ot  = api('myOT',{staffId:USER.staffId}).catch(()=>[]);
     const [att,recent,cl,quota,me0raw,jstat] = await Promise.all([api('myAttendanceToday',{staffId:USER.staffId}),api('recentAttendance',{staffId:USER.staffId}),api('classList',tc()),api('leaveQuota',{staffId:USER.staffId}),api('staffSelf',{staffId:USER.staffId}),api('journalStatus',{})]);
     const jdone = journalDoneMap(jstat);
+    const day0 = await p_day;                 // already in flight with the batch above — no extra trip
     const me0=me0raw||{};
     if(me0.MustChangePassword){ T_changePw(true); return; } // force password change on first login
     const isLeader = me0.PositionLevel==='Leader' || me0.Role==='Leader' || USER.role==='Leader';
@@ -2229,6 +2220,14 @@
     app.innerHTML = `<h2 class="page">${esc(t('t.greeting'))}${esc(EN()?USER.nameEN:USER.nameTH)} 👩‍🏫</h2>
       <div class="card"><h3>⏱️ ${esc(t('lbl.worktime'))} (${esc(att.date)})</h3>
         ${me0.RequireCheckin===false?`<div style="background:var(--blue-bg);border-radius:8px;padding:8px;color:var(--blue);font-size:13px">ℹ️ ${esc(t('ci.notRequired'))}</div>`
+        // School shut today: the server refuses the punch anyway (assertSchoolOpen_), so live buttons
+        // could only produce an error. Name the holiday — the recent-days list stays, because that is
+        // still what a teacher wants to check on a day off.
+        :(day0&&day0.closed)?`<div style="background:var(--surface-3);border:1px solid var(--line-strong);border-radius:8px;padding:12px;text-align:center">
+          <b>🏖️ ${EN()?'School closed today':'วันนี้โรงเรียนหยุด'}</b>
+          <br><span style="font-size:15px">${esc(EN()?(day0.reasonEN||'Holiday'):(day0.reason||'วันหยุด'))}</span>
+          <br><small class="muted">${EN()?'No clocking in today. Nothing counts as late or absent.':'วันนี้ไม่ต้องลงเวลา · ระบบไม่นับสาย/ขาดงาน'}</small>
+          <div style="margin-top:10px;text-align:left"><b style="font-size:13px">📅 ${esc(t('lbl.recentDays'))}</b>${recentRows}</div></div>`
         // Hired but not started yet: the server already refuses the check-in, so leaving live buttons
         // here only produced an error. Say when the first day is instead.
         :att.notStarted?`<div style="background:var(--warn-bg);border:1px solid var(--warn-line);border-radius:8px;padding:12px;text-align:center">
@@ -4990,19 +4989,11 @@
   const FM_WHO={ dinner:()=>EN()?'Nursery 1 only':'เฉพาะ Nursery 1',
                  _default:()=>EN()?'every class except Nursery Baby':'ทุกชั้น ยกเว้น Nursery Baby' };
   const fmWho = k => (FM_WHO[k]||FM_WHO._default)();
-  /**
-   * Does THIS class plan this meal?
-   *
-   * The menu has two snacks (morning and afternoon) where the journal has one, so the mapping is not
-   * one-to-one: both snacks belong to the journal's single Snack slot. Dinner is the meal that
-   * actually varies by class, and the baby class plans nothing at all.
-   */
-  const fmShows = k => { const slots=window._FM_SLOTS;
-    if(!slots) return true;                                  // not loaded yet → show everything
-    if(!slots.length) return false;                          // the baby class records no meals
-    if(k==='snackAM'||k==='snackPM') return slots.indexOf('Snack')>=0;
-    return slots.indexOf(k.charAt(0).toUpperCase()+k.slice(1))>=0;
-  };
+  // fmShows() lived here: it turned the engine's per-class slot list into "does this class get this
+  // planned meal?", for the parent's copy of the menu. That screen is gone (the journal is where a
+  // family reads the day's food), and the planner shows every meal, so nothing asked the question
+  // any more. The RULE itself is untouched — it lives in mealSlotsFor_ in the engine, which the
+  // journal still reads to decide which meal slots a class records.
   const fmDays=(month)=>{ const [y,m]=month.split('-').map(Number); const n=new Date(y,m,0).getDate(); const out=[];
     for(let d=1;d<=n;d++) out.push(`${month}-${String(d).padStart(2,'0')}`); return out; };
   const fmDow=ds=>['อา','จ','อ','พ','พฤ','ศ','ส'][new Date(ds+'T00:00:00').getDay()];

@@ -513,6 +513,31 @@ function createAtomAPI(M, GROWTH_STD) {
    * not part of attendance at all — they cannot check in, and nothing counts them.
    */
   const staffStarted_ = (s, onDate) => { const d=ymd((s&&s.StartDate)||''); return !d || d <= ymd(onDate||todayLocal()); };
+  /**
+   * Nobody clocks in on a day the school is shut — the SAME rule the screens ask about (schoolDay)
+   * and the GAS routes enforce (assertSchoolOpen_ in Checkin.gs). It lives here as well so the two
+   * halves cannot drift: an action that ever reaches the engine directly must refuse it too.
+   * Big Cleaning is a WORKING day that happens to fall at the weekend.
+   */
+  function assertSchoolOpen_(date){ const d=ymd(date||todayLocal());
+    if(isBigCleaning_(d)) return;
+    const hol=(M.holidays||[]).find(h=>ymd(h.Date)===d);
+    const g=new Date(d+'T00:00:00').getDay();
+    if(!hol && g!==0 && g!==6) return;
+    fail('SCHOOL_CLOSED','วันนี้โรงเรียนหยุด ('+(hol?(hol.NameTH||hol.NameEN||'วันหยุด'):'วันหยุดสุดสัปดาห์')+') — ไม่ต้องลงเวลา'); }
+  /**
+   * Has this person's employment ENDED yet?
+   *
+   * EndDate is a LAST WORKING DAY the admin records in advance, so somebody leaving on the 30th is
+   * still on the roster on the 11th — still clocking in, still paid. Reading the date is what
+   * retires them, on the day, with nothing scheduled to run and nothing to forget. An explicitly
+   * INACTIVE status still counts, so a record ended before this existed keeps behaving.
+   */
+  const staffEnded_ = (s, onDate) => { if(!s) return false;
+    if(String(s.Status||'').toUpperCase()==='INACTIVE') return true;
+    // the last WORKING day still counts as working — they are in until the end of it, which is also
+    // what the check-in guard says (assertStaffStarted_ refuses only when today > end)
+    const d=ymd(s.EndDate||''); return !!d && d < ymd(onDate||todayLocal()); };
   const activeStudents = () => M.students.filter(s=>!INACTIVE[s.Status] && !studentPaused_(s));
 
   // ---- payment-slip helpers (multiple slips per bill/OT/prepay + partial payments) ----
@@ -608,6 +633,7 @@ function createAtomAPI(M, GROWTH_STD) {
       // makes sure a stale screen (or a second device) cannot slip one through anyway.
       { const _s=studentById(p.studentId); if(_s && studentPaused_(_s))
           fail('STUDENT_PAUSED','นักเรียนอยู่ระหว่างลาชั่วคราว — ยังไม่ถึงกำหนดเข้าเรียน'); }
+      assertSchoolOpen_();
       const d=(String(p.type||'IN').toUpperCase()==='OUT')?geo(p.lat,p.lng,p.acc):geoSafe(p.lat,p.lng); const t=timeLocal();
       // de-dup a rapid repeat (same student+type today within CheckinDedupMinutes) → keep only the latest time
       const win=Number(cfg.CheckinDedupMinutes||10); const nowMin=toMin(t);
@@ -1112,6 +1138,23 @@ function createAtomAPI(M, GROWTH_STD) {
         bigCleaningList_().map(d=>({date:d,title:'Big Cleaning Day 🧹',titleEN:'Big Cleaning Day 🧹',type:'bigclean'})))
       .slice().sort((a,b)=>a.date.localeCompare(b.date)),
     // admin-managed Big Cleaning Days (read + add/remove) — stored in SCHOOL_CONFIG on GAS
+    /**
+     * Is the school open today, and if not, why?
+     *
+     * ONE answer, read by every screen that shows a check-in button — the parent's kid card and the
+     * teacher's work-time card — so the button and the server can never disagree. The server refuses
+     * a check-in on a closed day (assertSchoolOpen_ / parentCheckin); this is what lets the screen
+     * say so instead of offering a button that will fail.
+     * A Big Cleaning day is a WORKING day that happens to fall at the weekend, so it is NOT closed.
+     */
+    schoolDay: p => { const date=ymd((p&&p.date)||todayLocal());
+      const bc=isBigCleaning_(date);
+      const hol=(M.holidays||[]).find(h=>ymd(h.Date)===date);
+      const g=new Date(date+'T00:00:00').getDay(); const weekend=(g===0||g===6);
+      const closed=!bc && (weekend || !!hol);
+      return { date, closed, bigCleaning:bc, weekend,
+        reason: closed ? (hol?(hol.NameTH||hol.NameEN||hol.Name||'วันหยุด'):'วันหยุดสุดสัปดาห์') : '',
+        reasonEN: closed ? (hol?(hol.NameEN||hol.NameTH||hol.Name||'Holiday'):'Weekend') : '' }; },
     bigCleaningDays: () => ({ days: bigCleaningList_(), amount: Number(cfg.BigCleaningAmount||0) }),
     addBigCleaning: p => { const l=bigCleaningList_(); if(p.date && l.indexOf(p.date)<0) l.push(p.date); cfg.BigCleaningDays=l.slice().sort(); return {ok:true,days:cfg.BigCleaningDays}; },
     removeBigCleaning: p => { cfg.BigCleaningDays=bigCleaningList_().filter(d=>d!==p.date); return {ok:true,days:cfg.BigCleaningDays}; },
@@ -1266,7 +1309,7 @@ function createAtomAPI(M, GROWTH_STD) {
       const yes=v=>!!(v&&String(v).toUpperCase()==='YES');
 
       const people = M.staff
-        .filter(s=>String(s.Status||'ACTIVE').toUpperCase()!=='INACTIVE' && s.RequireCheckin!==false)
+        .filter(s=>!staffEnded_(s) && s.RequireCheckin!==false)
         .map(s=>{
           const rows=[]; let present=0, lateDays=0, lateMin=0, leaveDays=0, absent=0, ot=0;
           for(let dd=1; dd<=days; dd++){
@@ -1317,7 +1360,7 @@ function createAtomAPI(M, GROWTH_STD) {
       return out; },
     staffCheckin: p => { const _me=staffById(p.staffId)||{};
       if(!staffStarted_(_me)) fail('NOT_STARTED','วันแรกของการทำงานคือ '+ymd(_me.StartDate||'')+' — ยังลงเวลาไม่ได้');
-      const d=geo(p.lat,p.lng,p.acc); const t=new Date(); const sch=M.workSchedule.find(w=>w.StaffID===p.staffId)||{CheckInTime:'08:00'};
+      assertSchoolOpen_(); const d=geo(p.lat,p.lng,p.acc); const t=new Date(); const sch=M.workSchedule.find(w=>w.StaffID===p.staffId)||{CheckInTime:'08:00'};
       // A Big Cleaning Day is a special workday with fixed hours 08:30–17:00 (config BigCleaningIn) — late is
       // measured against 08:30 that day, not the staff's group time.
       const bc=isBigCleaning_(todayLocal()); const inT=bc?(cfg.BigCleaningIn||'08:30'):sch.CheckInTime;
@@ -1325,7 +1368,7 @@ function createAtomAPI(M, GROWTH_STD) {
       let r=M.staffAttendanceToday.find(x=>x.StaffID===p.staffId);
       if(!r){r={StaffID:p.staffId,CheckIn:'',CheckOut:'',Status:'NONE',Late:0};M.staffAttendanceToday.push(r);} r.CheckIn=timeLocal();r.Late=late;r.Status='IN';
       return {time:r.CheckIn,lateMinutes:late,rawLate:raw,distance:d}; },
-    staffCheckout: p => { const d=geo(p.lat,p.lng,p.acc); const t=new Date(); const sch=M.workSchedule.find(w=>w.StaffID===p.staffId)||{CheckOutTime:'17:00'};
+    staffCheckout: p => { assertSchoolOpen_(); const d=geo(p.lat,p.lng,p.acc); const t=new Date(); const sch=M.workSchedule.find(w=>w.StaffID===p.staffId)||{CheckOutTime:'17:00'};
       const outT=isBigCleaning_(todayLocal())?(cfg.BigCleaningOut||'17:00'):sch.CheckOutTime;
       const ot=Math.max(0,(t.getHours()*60+t.getMinutes())-toMin(outT));
       // OT rule: ≥OTRoundUpMinutes (50) within an hour rounds up to a full hour
@@ -1679,7 +1722,10 @@ function createAtomAPI(M, GROWTH_STD) {
         .filter(c=>c.total>0);
       return {classes:cls, seeAll:(me.PositionLevel==='Admin'||me.PositionLevel==='Leader'||me.Role==='Admin')}; },
     pendingLeaves: p => { const lv=staffById(p.staffId).PositionLevel; if(lv==='Admin')return M.leaves.filter(l=>l.Status==='PENDING_ADMIN').map(leaveView_); if(lv==='Leader')return M.leaves.filter(l=>l.Status==='PENDING_LEADER').map(leaveView_); fail('NO_PERMISSION','ตำแหน่งนี้ไม่มีสิทธิ์อนุมัติ'); },
-    listStaff: () => M.staff.map(s=>Object.assign({RequireCheckin: s.RequireCheckin!==false}, s)),
+    // `ended` = employment is over TODAY (status INACTIVE, or a last working day that has passed);
+    // `endScheduled` = a leaving date is on record but has not arrived, so they are still staff.
+    listStaff: () => M.staff.map(s=>Object.assign({RequireCheckin: s.RequireCheckin!==false,
+      ended: staffEnded_(s), endScheduled: !staffEnded_(s) && !!ymd(s.EndDate||'')}, s)),
     // the caller's own staff record (sanitized — no PasswordHash) so screens don't rely on client MOCK.staff.
     staffSelf: p => { const s=staffById(p.staffId); if(!s.StaffID)return null;
       const grp=(M.staffGroups||[]).find(g=>g.GroupName===s.StaffGroup)||null;
