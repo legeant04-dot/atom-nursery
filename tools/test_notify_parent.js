@@ -33,8 +33,9 @@ console.log('\n1) the column is declared');
   ok_('INJURY_REPORTS has a NotifyParent column', cols.indexOf('NotifyParent') >= 0);
   ok_('...and the rest of the form is still there', ['InjuryID', 'StudentID', 'InjuryTypes', 'TeacherID'].every(c => cols.indexOf(c) >= 0));
   // 24 form fields + the 8 approval columns added in v224 (Status, LeaderBy/At, AdminBy/At,
-  // RejectReason, UpdatedBy/At)
-  eq('nothing was dropped while adding it', cols.length, 32);
+  // RejectReason, UpdatedBy/At) + the 9 added in v225 (ShareJournal, Photo1-3, Wounds and the
+  // four Treatment* fields of page 2)
+  eq('nothing was dropped while adding it', cols.length, 41);
   ok_('...and the approval trail is stored, not just displayed',
     ['Status', 'LeaderBy', 'AdminBy', 'RejectReason'].every(c => cols.indexOf(c) >= 0));
 }
@@ -112,8 +113,10 @@ console.log('\n3) the value survives a real write once the header is right');
 
 console.log('\n4) the rest of the chain was always right — check it still is');
 {
-  ok_('the teacher form has the tick', /id="injNotifyParent"/.test(app));
-  ok_('...and sends it', /notifyParent:!!\(\$\('#injNotifyParent'\)/.test(app));
+  // the form is built by injFormHTML now (one builder for filing AND correcting), so the ids carry
+  // its prefix — the tick and the value that is sent must still be there
+  ok_('the teacher form has the tick', /id="\$\{id\('injNotifyParent'\)\}"/.test(app));
+  ok_('...and sends it', /notifyParent:!!\(box\.querySelector\('#'\+pfx\+'injNotifyParent'\)\|\|\{\}\)\.checked/.test(app));
   ok_('the engine records it on the row', /NotifyParent:p\.notifyParent\?'YES':''/.test(eng));
   ok_('the report screen shows it', /แจ้งผู้ปกครองแล้ว/.test(app));
   ok_('...reading the stored value, not guessing', /String\(r\.NotifyParent\|\|''\)==='YES'/.test(app));

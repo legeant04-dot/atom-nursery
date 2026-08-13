@@ -112,7 +112,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.224'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.225'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -2062,12 +2062,29 @@
   function childSwitcher(kids, sid, fn){ if(!kids||kids.length<2)return ''; return `<div class="seg" style="margin-bottom:8px">${kids.map(k=>`<button class="${k.StudentID===sid?'active':''}" onclick="${fn}('${k.StudentID}')">${esc(dispNick(k))}</button>`).join('')}</div>`; }
   SCREENS.Parent.journal = async () => { const kids=await api('parentChildren',parentScope()); if(!kids.length){GO('home');return;} P_journal(kids[0].StudentID); };
   window.P_journal = async (sid) => { setNav('journal');
-    const [kids,j,hist]=await Promise.all([api('parentChildren',parentScope()),api('getJournal',{studentId:sid}),api('journalHistory',{studentId:sid})]);
+    // journalInjuries rides in the SAME batch as the journal — an injury the teacher chose to share
+    // must appear with the day it belongs to, and not at the cost of another round trip.
+    const [kids,j,hist,inj]=await Promise.all([api('parentChildren',parentScope()),api('getJournal',{studentId:sid}),
+      api('journalHistory',{studentId:sid}),api('journalInjuries',{studentId:sid}).catch(()=>[])]);
     const kid=(kids||[]).find(k=>k.StudentID===sid)||{};
-    app.innerHTML=`<h2 class="page">${esc(t('title.journal'))}${kids.length===1?` · <span style="color:var(--blue)">${esc(dispNick(kid)||sid)}</span>`:''}</h2>${childSwitcher(kids,sid,'P_journal')}${j?journalChecklist(j,{parentEditable:true}):waitCard()}
+    app.innerHTML=`<h2 class="page">${esc(t('title.journal'))}${kids.length===1?` · <span style="color:var(--blue)">${esc(dispNick(kid)||sid)}</span>`:''}</h2>${childSwitcher(kids,sid,'P_journal')}${injJournalHTML(inj)}${j?journalChecklist(j,{parentEditable:true}):waitCard()}
       <h3 class="page" style="font-size:16px">ย้อนหลัง</h3>${hist.map(h=>`<div class="list-item"><span>${esc(h.Date)} · ${esc(MOODS[h.Mood]||'')} ${esc(h.Mood||'')}</span><button class="btn sm outline" onclick="P_showJ('${h.StudentID}','${h.Date}')">ดู</button></div>`).join('')||'<small class="muted">ไม่มี</small>'}`;
   };
-  window.P_showJ=async(sid,date)=>{ const j=await api('getJournal',{studentId:sid,date}); app.innerHTML=`<h2 class="page">📒 ${esc(date)}</h2>${journalChecklist(j,{parentEditable:true})}<button class="btn outline" onclick="GO('journal')">← กลับ</button>`; window.scrollTo(0,0); };
+  window.P_showJ=async(sid,date)=>{ const [j,inj]=await Promise.all([api('getJournal',{studentId:sid,date}),api('journalInjuries',{studentId:sid,date}).catch(()=>[])]);
+    app.innerHTML=`<h2 class="page">📒 ${esc(date)}</h2>${injJournalHTML(inj)}${journalChecklist(j,{parentEditable:true})}<button class="btn outline" onclick="GO('journal')">← กลับ</button>`; window.scrollTo(0,0); };
+  /**
+   * An injury the teacher chose to attach to the journal, in the parents' words rather than the
+   * authority's: what happened, the pictures, and what was done. The tick box on the report is the
+   * only thing that puts it here — a report kept in the system never reaches this screen.
+   */
+  function injJournalHTML(list){ if(!list||!list.length) return '';
+    return list.map(r=>`<div class="card" style="background:var(--bad-bg);border-color:var(--bad-line)">
+      <div class="spread"><b>🚑 ${EN()?'Injury today':'แจ้งการบาดเจ็บ'}</b><small class="muted">${esc(r.time||'')}</small></div>
+      <div style="margin-top:4px;font-size:13px">${esc(injTypeNames(r.types))}</div>
+      ${r.narrative?`<div style="margin-top:6px;white-space:pre-wrap">${esc(r.narrative)}</div>`:''}
+      ${r.treatmentType?`<div class="muted" style="margin-top:6px;font-size:13px">🩺 ${r.treatmentType==='none'?(EN()?'No treatment needed':'ไม่ต้องรับการรักษาใดๆ'):(EN()?'Received treatment':'ได้รับการรักษาพยาบาล')}${r.treatmentBy?' · '+esc(r.treatmentBy):''}</div>`:''}
+      ${(r.photos||[]).length?`<div class="row" style="gap:6px;margin-top:8px;flex-wrap:wrap">${r.photos.map(u=>`<img src="${esc(u)}" onclick="IMG_zoom('${esc(u)}')" style="width:88px;height:88px;object-fit:cover;border-radius:8px;cursor:zoom-in"/>`).join('')}</div>`:''}
+      <p class="muted" style="font-size:12px;margin:8px 2px 0">${EN()?'Please contact the school if you have any questions.':'หากมีข้อสงสัย กรุณาติดต่อโรงเรียนค่ะ'}</p></div>`).join(''); }
 
   const DSPM_PILL=r=>{const c=r==='ผ่าน'?'ok':r==='ไม่ผ่าน'?'bad':r==='ยังไม่เข้าโรงเรียน'?'info':'wait';return `<span class="pill ${c}">${esc(tStat(r))}</span>`;};
   const DT_KEY={GM:'dom.GM',FM:'dom.FM',RL:'dom.RL',EL:'dom.EL',PS:'dom.PS'};
@@ -2562,39 +2579,131 @@
       confirmSaved(r.submitted?(EN()?'Sent to the parent':'ส่งให้ผู้ปกครองแล้ว'):(EN()?'Draft saved — not sent yet':'บันทึกร่างแล้ว — ยังไม่ได้ส่ง')); J_exit(); }catch(e){err(e);} };
 
   // ===== injury / accident report (แบบบันทึกการบาดเจ็บรายบุคคล) — teacher & leader =====
-  SCREENS.Teacher.injury = async () => {
-    const [cl,recent]=await Promise.all([api('classList',tc()),api('injuryReports',{})]);
-    const radio=(name,val,label,checked)=>`<label class="chk-inline"><input type="radio" name="${name}" value="${val}" ${checked?'checked':''}/> ${esc(label)}</label>`;
-    app.innerHTML=`<h2 class="page">🚑 ${esc(t('inj.title'))}</h2>
+  // ลักษณะการบาดเจ็บ ๑–๑๔ — the legend on page 2 of the official form; the number is what is stored.
+  const INJ_CHARS=[
+    {n:1, th:'บาดแผลถลอก', en:'Abrasion'}, {n:2, th:'บาดแผลฉีกขาด', en:'Laceration'},
+    {n:3, th:'บาดแผลถูกแทง', en:'Puncture wound'}, {n:4, th:'ฟกช้ำ', en:'Bruise / contusion'},
+    {n:5, th:'บาดแผลจากวัตถุระเบิดหรือกระสุนปืน', en:'Blast / gunshot wound'},
+    {n:6, th:'บิดแพลง / เคล็ดขัดยอก', en:'Sprain / strain'}, {n:7, th:'กระดูกเคลื่อนหรือหัก', en:'Dislocation / fracture'},
+    {n:8, th:'แผลไหม้ น้ำร้อนลวก', en:'Burn / scald'}, {n:9, th:'ไฟฟ้าดูด / ช็อต', en:'Electric shock'},
+    {n:10,th:'สารพิษ / พิษแมลง', en:'Poison / insect venom'}, {n:11,th:'ขาดอากาศหายใจ', en:'Asphyxia'},
+    {n:12,th:'บาดเจ็บทรวงอก–อวัยวะช่องท้อง', en:'Chest / abdominal injury'},
+    {n:13,th:'บาดเจ็บสมอง', en:'Brain injury'}, {n:14,th:'อื่นๆ', en:'Other'}];
+  // การช่วยเหลือการบาดเจ็บ — where the child was treated (page 2, right-hand column)
+  const INJ_TREAT_PLACES=[['nurse','ห้องพยาบาลของโรงเรียน','School nurse room'],
+    ['health','ศูนย์บริการสาธารณสุข / สถานีอนามัย','Public health centre'],['clinic','คลินิก','Clinic'],
+    ['hosp_gov','โรงพยาบาลรัฐบาล','Government hospital'],['hosp_pri','โรงพยาบาลเอกชน','Private hospital'],
+    ['dentist','ทันตแพทย์','Dentist'],['other','อื่นๆ','Other']];
+  const injTL=o=>EN()?o.en:o.th;
+  // stored codes, whatever shape they came back in (array, JSON string, or "1,2")
+  function injCodes(v){ let a=v; if(typeof a==='string'&&a){ try{ a=JSON.parse(a); }catch(e){ a=String(a).split(/[,\s]+/).filter(Boolean); } }
+    return (Array.isArray(a)?a:[]).map(String); }
+  // Wounds is stored as a JSON string: [{pos, char}]
+  function injWounds(v){ let a=v; if(typeof a==='string'&&a){ try{ a=JSON.parse(a); }catch(e){ a=[]; } }
+    return Array.isArray(a)?a:[]; }
+
+  /**
+   * THE injury form — one builder, used to file a new report and to correct an existing one, so a
+   * field cannot exist on one path and be quietly missing from the other.
+   *
+   * `pfx` prefixes every id and radio name. The correction modal can be opened ON TOP of the filing
+   * screen, and two elements sharing an id would hand the save handler the wrong one without a word.
+   */
+  function injFormHTML(pfx, o){
+    o=o||{}; const r=o.r||{}, edit=!!o.r;
+    const id=s=>pfx+s, V=v=>esc(v==null?'':String(v));
+    const radio=(name,val,label,on)=>`<label class="chk-inline"><input type="radio" name="${pfx+name}" value="${val}" ${on?'checked':''}/> ${esc(label)}</label>`;
+    const types=injCodes(r.InjuryTypes), wounds=injWounds(r.Wounds), tPlaces=injCodes(r.TreatmentPlaces);
+    const photos=[r.Photo1,r.Photo2,r.Photo3];
+    const aff=String(r.AffiliationType||'social'), sex=String(r.Sex||'').toUpperCase();
+    const edu=String(r.EduStatus||'grade'), wit=String(r.Witness||'unsure'), place=String(r.Place||'school');
+    const treat=String(r.TreatmentType||'');
+    return `<div id="${id('injForm')}" data-ph1="${V(photos[0])}" data-ph2="${V(photos[1])}" data-ph3="${V(photos[2])}">
       <div class="card">
-        <div class="grid2"><label class="field"><span>${esc(t('inj.date'))}</span><input type="date" id="injDate" value="${todayStr()}"/></label>
-          <label class="field"><span>${esc(t('inj.time'))}</span><input type="time" id="injTime" value="${nowTime()}"/></label></div>
-        <label class="field"><span>${esc(t('inj.center'))}</span><input id="injCenter" value="${esc(MOCK.config.SchoolName||'')}"/></label>
+        <div class="grid2"><label class="field"><span>${esc(t('inj.date'))}</span><input type="date" id="${id('injDate')}" value="${V(edit?String(r.Date||'').slice(0,10):todayStr())}"/></label>
+          <label class="field"><span>${esc(t('inj.time'))}</span><input type="time" id="${id('injTime')}" value="${V(edit?String(r.Time||'').slice(0,5):nowTime())}"/></label></div>
+        <label class="field"><span>${esc(t('inj.center'))}</span><input id="${id('injCenter')}" value="${V(edit?r.CenterName:(MOCK.config.SchoolName||''))}"/></label>
         <div class="jsec"><h4>${esc(t('inj.affiliation'))}</h4>
-          ${radio('injAff','social',t('inj.aff.social'),true)} ${radio('injAff','other',t('inj.aff.other'),false)}
-          <input id="injAffOther" placeholder="${esc(t('inj.aff.other'))}" style="margin-top:6px"/>
-          <label class="field" style="margin-top:6px"><span>${esc(t('inj.district'))}</span><input id="injDistrict"/></label></div>
-        <label class="field"><span>${esc(t('inj.recorder'))}</span><input id="injRecorder" value="${esc(EN()?USER.nameEN:USER.nameTH)}"/></label>
+          ${radio('injAff','social',t('inj.aff.social'),aff!=='other')} ${radio('injAff','other',t('inj.aff.other'),aff==='other')}
+          <input id="${id('injAffOther')}" placeholder="${esc(t('inj.aff.other'))}" value="${V(r.AffiliationOther)}" style="margin-top:6px"/>
+          <label class="field" style="margin-top:6px"><span>${esc(t('inj.district'))}</span><input id="${id('injDistrict')}" value="${V(r.District)}"/></label></div>
+        <label class="field"><span>${esc(t('inj.recorder'))}</span><input id="${id('injRecorder')}" value="${V(edit?r.RecorderName:(EN()?USER.nameEN:USER.nameTH))}"/></label>
       </div>
       <div class="card"><h3>👶 ${esc(t('inj.child'))}</h3>
-        <label class="field"><span>${esc(t('inj.selectChild'))}</span><select id="injChild">${cl.students.map(s=>`<option value="${s.StudentID}">${esc(nm(s))} (${esc(ageYM(s.DOB))})</option>`).join('')}</select></label>
-        <div class="jsec"><h4>${esc(t('inj.sex'))}</h4>${radio('injSex','M',t('inj.male'),false)} ${radio('injSex','F',t('inj.female'),false)}</div>
-        <div class="grid2"><label class="field"><span>${esc(t('inj.age'))} (${esc(t('inj.years'))})</span><input type="number" id="injAgeY" placeholder="–"/></label><label class="field"><span>${esc(t('inj.age'))} (${esc(t('inj.months'))})</span><input type="number" id="injAgeM" placeholder="–"/></label></div>
-        <div class="jsec"><h4>${esc(t('inj.edu'))}</h4>${radio('injEdu','none',t('inj.edu.none'),false)} ${radio('injEdu','grade',t('inj.edu.grade'),true)}
-          <input id="injGrade" placeholder="${esc(t('inj.edu.grade'))}" style="margin-top:6px"/></div>
+        ${edit ? `<div class="list-item"><span class="muted">${esc(t('inj.child'))}</span><b>${esc(r.nick||r.ChildName||r.StudentID)}</b></div>`
+               : `<label class="field"><span>${esc(t('inj.selectChild'))}</span><select id="${id('injChild')}">${(o.students||[]).map(s=>`<option value="${s.StudentID}">${esc(nm(s))} (${esc(ageYM(s.DOB))})</option>`).join('')}</select></label>`}
+        <div class="jsec"><h4>${esc(t('inj.sex'))}</h4>${radio('injSex','M',t('inj.male'),sex==='M')} ${radio('injSex','F',t('inj.female'),sex==='F')}</div>
+        <div class="grid2"><label class="field"><span>${esc(t('inj.age'))} (${esc(t('inj.years'))})</span><input type="number" id="${id('injAgeY')}" value="${V(r.AgeYears)}" placeholder="–"/></label><label class="field"><span>${esc(t('inj.age'))} (${esc(t('inj.months'))})</span><input type="number" id="${id('injAgeM')}" value="${V(r.AgeMonths)}" placeholder="–"/></label></div>
+        <div class="jsec"><h4>${esc(t('inj.edu'))}</h4>${radio('injEdu','none',t('inj.edu.none'),edu==='none')} ${radio('injEdu','grade',t('inj.edu.grade'),edu!=='none')}
+          <input id="${id('injGrade')}" placeholder="${esc(t('inj.edu.grade'))}" value="${V(edit?r.EduGrade:'')}" style="margin-top:6px"/></div>
       </div>
       <div class="card"><h3>📝 ${esc(t('inj.narrative'))}</h3><p class="muted" style="font-size:13px">${esc(t('inj.narrativeHint'))}</p>
-        <textarea id="injNarr" rows="3"></textarea>
-        <label class="field" style="margin-top:8px"><span>${esc(t('inj.cause'))}</span><input id="injCause" placeholder="${esc(t('inj.causePh'))}"/></label>
-        <div class="jsec"><h4>${esc(t('inj.witness'))}</h4>${radio('injWit','yes',t('inj.witness.yes'),false)} ${radio('injWit','no',t('inj.witness.no'),false)} ${radio('injWit','unsure',t('inj.witness.unsure'),true)}</div>
+        <textarea id="${id('injNarr')}" rows="3">${V(r.Narrative)}</textarea>
+        <label class="field" style="margin-top:8px"><span>${esc(t('inj.cause'))}</span><input id="${id('injCause')}" placeholder="${esc(t('inj.causePh'))}" value="${V(r.CauseObject)}"/></label>
+        <div class="jsec"><h4>${esc(t('inj.witness'))}</h4>${radio('injWit','yes',t('inj.witness.yes'),wit==='yes')} ${radio('injWit','no',t('inj.witness.no'),wit==='no')} ${radio('injWit','unsure',t('inj.witness.unsure'),wit!=='yes'&&wit!=='no')}</div>
       </div>
       <div class="card"><h3>📍 ${esc(t('inj.place'))}</h3>
-        ${PLACE_OPTS.map((p,i)=>radio('injPlace',p[0],t(p[1]),i===1)).join(' ')}
-        <input id="injPlaceOther" placeholder="${esc(t('inj.place.other'))}" style="margin-top:6px"/></div>
+        ${PLACE_OPTS.map(p=>radio('injPlace',p[0],t(p[1]),place===p[0])).join(' ')}
+        <input id="${id('injPlaceOther')}" placeholder="${esc(t('inj.place.other'))}" value="${V(r.PlaceOther)}" style="margin-top:6px"/></div>
       <div class="card"><h3>🩹 ${esc(t('inj.types'))}</h3>
-        ${INJURY_TYPES.map(it=>`<label class="chk-inline" style="display:flex;gap:8px;align-items:flex-start;padding:5px 0;border-bottom:1px solid var(--surface-3)"><input type="checkbox" class="injType" value="${it.n}" style="width:auto;margin-top:3px"/> <span><b>${it.n}.</b> ${esc(EN()?it.en:it.th)}</span></label>`).join('')}</div>
-      <label class="field" style="display:flex;align-items:center;gap:8px;background:var(--warn-bg);border:1px solid var(--warn-line);border-radius:10px;padding:10px"><input type="checkbox" id="injNotifyParent" style="width:auto"/> 👪 <b>${EN()?'Also notify the parent now (accident/emergency)':'แจ้งเตือนผู้ปกครองด้วยทันที (กรณีอุบัติเหตุ/ฉุกเฉิน)'}</b></label>
+        ${INJURY_TYPES.map(it=>`<label class="chk-inline" style="display:flex;gap:8px;align-items:flex-start;padding:5px 0;border-bottom:1px solid var(--surface-3)"><input type="checkbox" class="injType" value="${it.n}" ${types.indexOf(String(it.n))>=0?'checked':''} style="width:auto;margin-top:3px"/> <span><b>${it.n}.</b> ${esc(injTL(it))}</span></label>`).join('')}</div>
+
+      <div class="card"><h3>🖼️ ${EN()?'Photos of the injury':'รูปการบาดเจ็บ'}</h3>
+        <p class="muted" style="font-size:13px;margin-top:-4px">${EN()?'Up to 3. They are stored with the report and shown to the parents only if you share it below.':'ได้สูงสุด 3 รูป · เก็บไว้กับรายงาน และจะให้ผู้ปกครองเห็นก็ต่อเมื่อเลือกแนบสมุดรายวันด้านล่าง'}</p>
+        ${[0,1,2].map(i=>photoField(id('injPh'+(i+1)), (EN()?'Photo ':'รูปที่ ')+(i+1), photos[i]||'')).join('')}</div>
+
+      <div class="card"><h3>👪 ${EN()?'Who sees this report':'ใครเห็นรายงานนี้'}</h3>
+        ${radio('injShare','keep',EN()?'Keep in the system only (school + authority)':'เก็บไว้ในระบบเท่านั้น (โรงเรียน/หน่วยงานราชการ)',String(r.ShareJournal||'').toUpperCase()!=='YES')}
+        ${radio('injShare','journal',EN()?'Also attach to the daily journal for the parents':'แนบไปกับสมุดรายวันให้ผู้ปกครองทราบด้วย',String(r.ShareJournal||'').toUpperCase()==='YES')}
+        <p class="muted" style="font-size:13px;margin:6px 2px 0">${EN()?'Attaching shows the account, the photos and the treatment on that day’s journal. It does not wait for approval.':'ถ้าแนบ ผู้ปกครองจะเห็นเหตุการณ์ รูป และการรักษาในสมุดรายวันของวันนั้น · ไม่ต้องรออนุมัติ'}</p></div>
+
+      <div class="card"><h3>📄 ${EN()?'Page 2 — wounds & treatment':'หน้า 2 — บาดแผลและการรักษา'}</h3>
+        <p class="muted" style="font-size:13px;margin-top:-4px">${EN()?'Fill in what you can; anything left blank prints as an empty line on the official form.':'กรอกเท่าที่มี · ช่องที่เว้นไว้จะพิมพ์เป็นเส้นว่างในแบบฟอร์มราชการ'}</p>
+        ${[0,1,2,3,4,5,6,7].map(i=>{ const wnd=wounds[i]||{};
+          return `<div class="grid2" style="gap:6px;margin-bottom:4px">
+            <label class="field" style="margin:0"><span>${EN()?'Wound ':'บาดแผลที่ '}${i+1} · ${EN()?'position':'ตำแหน่ง'}</span><input id="${id('injW'+i+'p')}" value="${V(wnd.pos)}" placeholder="${EN()?'e.g. left forearm':'เช่น แขนซ้ายท่อนล่าง'}"/></label>
+            <label class="field" style="margin:0"><span>${EN()?'nature':'ลักษณะ'}</span><select id="${id('injW'+i+'c')}"><option value="">–</option>${INJ_CHARS.map(c=>`<option value="${c.n}" ${String(wnd.char||'')===String(c.n)?'selected':''}>${c.n}. ${esc(injTL(c))}</option>`).join('')}</select></label></div>`; }).join('')}
+        <div class="jsec"><h4>${EN()?'Help given':'การช่วยเหลือการบาดเจ็บ'}</h4>
+          ${radio('injTreat','none',EN()?'No treatment needed':'ไม่ต้องรับการรักษาใดๆ',treat==='none')}
+          ${radio('injTreat','treated',EN()?'Received treatment':'ได้รับการรักษาพยาบาล',treat==='treated')}
+          <label class="field" style="margin-top:6px"><span>${EN()?'Treated at':'รักษาที่'}</span><input id="${id('injTreatBy')}" value="${V(r.TreatmentBy)}" placeholder="${EN()?'name of the place / person':'ชื่อสถานที่ / ผู้ให้การรักษา'}"/></label>
+          <div style="margin-top:4px">${INJ_TREAT_PLACES.map(p=>`<label class="chk-inline"><input type="checkbox" class="injTP" value="${p[0]}" ${tPlaces.indexOf(p[0])>=0?'checked':''}/> ${esc(EN()?p[2]:p[1])}</label>`).join(' ')}</div>
+          <input id="${id('injTreatOther')}" placeholder="${EN()?'Other — specify':'อื่นๆ ระบุ'}" value="${V(r.TreatmentPlaceOther)}" style="margin-top:6px"/></div>
+      </div>
+
+      <label class="field" style="display:flex;align-items:center;gap:8px;background:var(--warn-bg);border:1px solid var(--warn-line);border-radius:10px;padding:10px"><input type="checkbox" id="${id('injNotifyParent')}" ${String(r.NotifyParent||'')==='YES'?'checked':''} style="width:auto"/> 👪 <b>${EN()?'Also notify the parent now (accident/emergency)':'แจ้งเตือนผู้ปกครองด้วยทันที (กรณีอุบัติเหตุ/ฉุกเฉิน)'}</b></label>
       <p class="muted" style="font-size:13px;margin:-2px 2px 6px">${EN()?'Admins & leaders are always alerted. Tick this to also LINE the parents right away.':'ระบบแจ้งแอดมิน/หัวหน้าครูทุกครั้งอยู่แล้ว · ติ๊กช่องนี้เพื่อส่ง LINE ถึงผู้ปกครองทันทีด้วย'}</p>
+    </div>`;
+  }
+  /** Read the form back. Scoped to its own container, so the modal and the screen never cross. */
+  function injFormVals(pfx){
+    const box=document.getElementById(pfx+'injForm')||document;
+    const v=s=>{ const e=box.querySelector('#'+pfx+s); return e?String(e.value).trim():''; };
+    const rad=n=>{ const e=box.querySelector(`input[name="${pfx+n}"]:checked`); return e?e.value:''; };
+    const wounds=[]; for(let i=0;i<8;i++){ const pos=v('injW'+i+'p'), ch=v('injW'+i+'c');
+      if(pos||ch) wounds.push({no:i+1,pos,char:ch}); }
+    return {
+      date:v('injDate'), time:v('injTime'), centerName:v('injCenter'),
+      affiliationType:rad('injAff'), affiliationOther:v('injAffOther'), district:v('injDistrict'),
+      recorderName:v('injRecorder'), sex:rad('injSex'),
+      ageYears:v('injAgeY')!==''?+v('injAgeY'):undefined, ageMonths:v('injAgeM')!==''?+v('injAgeM'):undefined,
+      eduStatus:rad('injEdu'), eduGrade:v('injGrade'), narrative:v('injNarr'), causeObject:v('injCause'),
+      witness:rad('injWit'), place:rad('injPlace'), placeOther:v('injPlaceOther'),
+      injuryTypes:[...box.querySelectorAll('.injType:checked')].map(c=>Number(c.value)),
+      notifyParent:!!(box.querySelector('#'+pfx+'injNotifyParent')||{}).checked,
+      shareJournal:rad('injShare')==='journal',
+      // a picked photo wins; otherwise KEEP the one already on the report. Sending '' for a slot the
+      // editor never touched would erase a picture of a child's injury on every correction.
+      photos:[0,1,2].map(i=>photoVal(box,pfx+'injPh'+(i+1)) || (box.dataset?box.dataset['ph'+(i+1)]:'') || ''),
+      wounds, treatmentType:rad('injTreat'), treatmentBy:v('injTreatBy'),
+      treatmentPlaces:[...box.querySelectorAll('.injTP:checked')].map(c=>c.value),
+      treatmentPlaceOther:v('injTreatOther')
+    };
+  }
+  SCREENS.Teacher.injury = async () => {
+    const [cl,recent]=await Promise.all([api('classList',tc()),api('injuryReports',{})]);
+    app.innerHTML=`<h2 class="page">🚑 ${esc(t('inj.title'))}</h2>
+      ${injFormHTML('',{students:cl.students})}
       <button class="btn block pink" onclick="T_injurySave()">${esc(t('inj.save'))}</button>
       <div class="card" style="margin-top:12px"><h3>🗒️ ${esc(t('inj.recent'))}</h3><div id="injRecent">${injuryListHTML(recent)}</div></div>`;
   };
@@ -2620,6 +2729,21 @@
   // injury type codes → the official form's wording. Stored as numbers; may arrive as a JSON string.
   function injTypeNames(v){ let a=v; if(typeof a==='string'&&a){ try{ a=JSON.parse(a); }catch(e){ a=String(a).split(/[,\s]+/).filter(Boolean); } }
     return (Array.isArray(a)?a:[]).map(n=>{ const it=INJURY_TYPES.find(x=>String(x.n)===String(n)); return it?(EN()?it.en:it.th):n; }).join(', '); }
+
+  /** The pictures on a report — nothing at all when there are none, rather than an empty box. */
+  function injPhotosHTML(r){ const ph=[r.Photo1,r.Photo2,r.Photo3].filter(Boolean); if(!ph.length) return '';
+    return `<div class="card" style="padding:8px"><b style="font-size:13px">🖼️ ${EN()?'Photos':'รูปการบาดเจ็บ'}</b>
+      <div class="row" style="gap:6px;margin-top:6px;flex-wrap:wrap">${ph.map(u=>`<img src="${esc(u)}" onclick="IMG_zoom('${esc(u)}')" style="width:96px;height:96px;object-fit:cover;border-radius:8px;cursor:zoom-in"/>`).join('')}</div></div>`; }
+  /** Page 2 as recorded: the wounds and what was done about them. */
+  function injPage2HTML(r){
+    const wounds=injWounds(r.Wounds), tType=String(r.TreatmentType||'');
+    const places=injCodes(r.TreatmentPlaces).map(c=>{ const p=INJ_TREAT_PLACES.find(x=>x[0]===c); return p?(EN()?p[2]:p[1]):c; });
+    if(!wounds.length && !tType && !places.length && !r.TreatmentBy) return '';
+    const charName=n=>{ const c=INJ_CHARS.find(x=>String(x.n)===String(n)); return c?injTL(c):''; };
+    return `<div class="card" style="padding:8px"><b style="font-size:13px">🩺 ${EN()?'Wounds & treatment':'บาดแผลและการรักษา'}</b>
+      ${wounds.map(w=>`<div style="margin-top:4px;font-size:13px">• ${esc(w.pos||'-')}${w.char?` <span class="muted">(${esc(charName(w.char))})</span>`:''}</div>`).join('')}
+      ${tType?`<div style="margin-top:6px;font-size:13px">${tType==='none'?(EN()?'No treatment needed':'ไม่ต้องรับการรักษาใดๆ'):(EN()?'Received treatment':'ได้รับการรักษาพยาบาล')}${r.TreatmentBy?' · '+esc(r.TreatmentBy):''}</div>`:''}
+      ${places.length?`<div class="muted" style="font-size:13px">${esc(places.join(' · '))}${r.TreatmentPlaceOther?' · '+esc(r.TreatmentPlaceOther):''}</div>`:''}</div>`; }
 
   // ---- Admin: read the injury reports teachers file, and the month at a glance -------------------
   // An emergency notification used to land on the dashboard, so the admin was told an accident had
@@ -2663,8 +2787,12 @@
         ${row(EN()?'Cause / object':'สาเหตุ/สิ่งที่ทำให้บาดเจ็บ', r.CauseObject)}
         ${row(EN()?'Witness':'พยาน', r.Witness)}
         ${row(EN()?'Parent notified':'แจ้งผู้ปกครองแล้ว', String(r.NotifyParent||'')==='YES'?(EN()?'Yes':'แจ้งแล้ว'):(EN()?'No':'ยังไม่แจ้ง'))}
+        ${row(EN()?'Shown to parents':'แสดงให้ผู้ปกครอง', String(r.ShareJournal||'').toUpperCase()==='YES'
+          ? (EN()?'Attached to the daily journal':'แนบในสมุดรายวัน') : (EN()?'Kept in the system only':'เก็บในระบบเท่านั้น'))}
         ${row(EN()?'Report no.':'เลขที่รายงาน', r.InjuryID)}
       </div>
+      ${injPhotosHTML(r)}
+      ${injPage2HTML(r)}
       <div class="card" style="padding:8px">
         <div class="spread"><b style="font-size:13px">✅ ${EN()?'Approval':'การอนุมัติ'}</b>${injStatusPill(r)}</div>
         <div style="margin-top:4px;font-size:13px">
@@ -2676,6 +2804,7 @@
         ${injCanDecide(r)?`<div class="row" style="gap:8px;margin-top:8px">
           <button class="btn" style="flex:1" onclick="A_injDecide('${esc(r.InjuryID)}','approve',this)">✅ ${EN()?'Approve':'อนุมัติ'}</button>
           <button class="btn pink" style="flex:1" onclick="A_injDecide('${esc(r.InjuryID)}','reject',this)">↩️ ${EN()?'Send back':'ตีกลับ'}</button></div>`:''}
+        ${injCanEdit(r)?`<button class="btn sm outline block" style="margin-top:8px" onclick="A_injEdit('${esc(r.InjuryID)}')">✏️ ${EN()?'Correct this report':'แก้ไขรายงาน'}</button>`:''}
         ${isAdmin()?`<div class="row" style="gap:8px;margin-top:8px">
           ${injStatus(r)==='APPROVED'?`<button class="btn sm outline" style="flex:1" onclick="A_injUnlock('${esc(r.InjuryID)}',this)">🔓 ${EN()?'Unlock to edit':'ปลดล็อกให้แก้ไข'}</button>`:''}
           <button class="btn sm pink" style="flex:1" onclick="A_injDelete('${esc(r.InjuryID)}',this)">🗑️ ${EN()?'Delete':'ลบรายงาน'}</button></div>`:''}
@@ -2683,7 +2812,7 @@
       <div class="row" style="gap:8px">
         <button class="btn" style="flex:1" onclick="A_injuryPdf('${esc(r.InjuryID||'')}',this)">📄 ${EN()?'Official form (PDF)':'แบบฟอร์มราชการ (PDF)'}</button>
         <button class="btn outline" style="flex:1" onclick="A_injuryPdf('${esc(r.InjuryID||'')}',this,'jpg')">🖼️ ${EN()?'Image':'รูป'}</button></div>
-      <p class="muted" style="font-size:12px;margin:6px 2px">${EN()?'Page 2 (body diagram, wound list, treatment) prints blank — the app does not collect those yet, so they are filled in by hand.':'หน้า 2 (ภาพตำแหน่งบาดแผล · รายการบาดแผล · การรักษา) จะพิมพ์เป็นช่องว่างให้กรอกด้วยมือ เพราะระบบยังไม่ได้เก็บข้อมูลส่วนนี้'}</p>
+      <p class="muted" style="font-size:12px;margin:6px 2px">${EN()?'The body diagram on page 2 is printed blank for the wound positions to be marked by hand; everything recorded here is printed in place. Photos are not printed — they stay in the app.':'ภาพตำแหน่งบาดแผลในหน้า 2 พิมพ์เป็นภาพเปล่าให้ทำเครื่องหมายด้วยมือ · ข้อมูลที่บันทึกไว้จะพิมพ์ให้ครบทุกช่อง · รูปถ่ายไม่ถูกพิมพ์ลงฟอร์ม เก็บไว้ในระบบ'}</p>
       <button class="btn outline block" onclick="this.closest('.modal').remove()">${esc(t('c.close'))}</button>`); };
   /**
    * The filled-in official form, built on this device. The report holds a child's health data, so it
@@ -2742,19 +2871,47 @@
       await AtomReportCard.saveInjury(r, kind);
       toast(EN()?'Saved to your device':'บันทึกลงเครื่องแล้ว');
     }catch(e){ err(e); }finally{ if(btn){ btn.disabled=false; btn.innerHTML=old; } } };
-  window.T_injurySave = async ()=>{ const v=id=>{ const e=$(id); return e?e.value.trim():''; };
-    const rad=name=>{ const e=document.querySelector(`input[name="${name}"]:checked`); return e?e.value:''; };
-    const types=[...document.querySelectorAll('.injType:checked')].map(c=>Number(c.value));
+  window.T_injurySave = async ()=>{
+    const f=injFormVals('');
     const studentId=$('#injChild')&&$('#injChild').value;
     if(!studentId){toast(t('inj.needChild'));return;}
-    if(!types.length){toast(t('inj.needType'));return;}
-    try{ await api('submitInjury',{staffId:USER.staffId,date:v('#injDate'),time:v('#injTime'),centerName:v('#injCenter'),
-      affiliationType:rad('injAff'),affiliationOther:v('#injAffOther'),district:v('#injDistrict'),recorderName:v('#injRecorder'),
-      studentId,sex:rad('injSex'),ageYears:v('#injAgeY')!==''?+v('#injAgeY'):undefined,ageMonths:v('#injAgeM')!==''?+v('#injAgeM'):undefined,
-      eduStatus:rad('injEdu'),eduGrade:v('#injGrade'),narrative:v('#injNarr'),causeObject:v('#injCause'),witness:rad('injWit'),
-      place:rad('injPlace'),placeOther:v('#injPlaceOther'),injuryTypes:types,
-      notifyParent:!!($('#injNotifyParent')&&$('#injNotifyParent').checked)});
+    if(!f.injuryTypes.length){toast(t('inj.needType'));return;}
+    try{ await api('submitInjury',Object.assign({staffId:USER.staffId,studentId},f));
       confirmSaved(t('inj.saved')); GO('injury'); }catch(e){err(e);} };
+  /**
+   * Correct a report. Who may is decided by the SERVER (editInjury); this only offers the button.
+   * The person who filed it and any leader may correct it while it is still moving; once both
+   * signatures are on it, only an admin — after an admin has unlocked it, everyone is back in.
+   */
+  function injCanEdit(r){ const s=injStatus(r);
+    if(isAdmin()) return true;
+    if(s==='APPROVED') return false;
+    return isLeaderRole() || String(r.TeacherID||'')===String(USER.staffId||'');
+  }
+  window.A_injEdit=async(id)=>{
+    let r=null; try{ r=await api('injuryReport',{injuryId:id}); }catch(e){ err(e); return; }
+    const m=document.querySelector('.modal'); if(m)m.remove();
+    modal(`<h3>✏️ ${EN()?'Correct the injury report':'แก้ไขรายงานอุบัติเหตุ'}</h3>
+      ${injStatus(r)==='APPROVED'?`<div class="card" style="background:var(--warn-bg);border-color:var(--warn-line);padding:8px;font-size:13px">🔓 ${EN()?'This report is already approved. Your correction is logged against your name.':'รายงานนี้อนุมัติครบแล้ว การแก้ไขจะถูกบันทึกในชื่อของคุณ'}</div>`:''}
+      ${injFormHTML('e',{r})}
+      <div class="row" style="gap:8px">
+        <button class="btn" style="flex:1" onclick="A_injEditSave('${esc(r.InjuryID)}',this)">💾 ${esc(t('c.save'))}</button>
+        <button class="btn outline" style="flex:1" onclick="this.closest('.modal').remove();A_viewInjury('${esc(r.InjuryID)}')">${EN()?'Cancel':'ยกเลิก'}</button></div>`);
+  };
+  window.A_injEditSave=async(id,btn)=>{
+    const f=injFormVals('e');
+    if(!f.injuryTypes.length){ toast(t('inj.needType')); return; }
+    if(btn)btn.disabled=true;
+    // scalars travel in `data` (the engine's whitelist); photos/journal/page-2 ride at the top level
+    const data={Date:f.date,Time:f.time,CenterName:f.centerName,AffiliationType:f.affiliationType,
+      AffiliationOther:f.affiliationOther,District:f.district,RecorderName:f.recorderName,Sex:f.sex,
+      AgeYears:f.ageYears,AgeMonths:f.ageMonths,EduStatus:f.eduStatus,EduGrade:f.eduGrade,
+      Narrative:f.narrative,CauseObject:f.causeObject,Witness:f.witness,Place:f.place,
+      PlaceOther:f.placeOther,InjuryTypes:f.injuryTypes,NotifyParent:f.notifyParent};
+    try{ await api('editInjury',Object.assign({staffId:USER.staffId,injuryId:id,data},f));
+      confirmSaved(EN()?'Saved':'บันทึกแล้ว');
+      const m=document.querySelector('.modal'); if(m)m.remove(); A_viewInjury(id);
+    }catch(e){ err(e); if(btn)btn.disabled=false; } };
 
   SCREENS.Teacher.dspm = async () => { const cl=await api('classList',tc()); T_assess(cl.students[0].StudentID); };
   let ASEL={};

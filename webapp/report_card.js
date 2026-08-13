@@ -630,11 +630,11 @@
    * the authority as-is. It follows the original's layout box for box: same order, same wording,
    * same tick boxes — because a form an official does not recognise is a form they send back.
    *
-   * WHAT IS FILLED IN vs WHAT PRINTS BLANK. Everything the app collects is printed in place. The
-   * second page of the original — the body diagram, the eight numbered wounds, and the treatment
-   * given — has no fields in the app yet, so it prints as the EMPTY form for someone to complete by
-   * hand. That is deliberate: printing those boxes blank is honest, and a form missing its second
-   * page is not the same document.
+   * WHAT IS FILLED IN vs WHAT PRINTS BLANK. Everything the app collects is printed in place — page
+   * 2's wound list and การช่วยเหลือ included, now that the app asks for them. The BODY DIAGRAM is
+   * still printed as an empty outline: a wound position is a mark on a picture, and inventing one
+   * from a line of text would put a claim on an official document that nobody made. Photographs are
+   * deliberately not printed either — they stay in the app under the same PDPA rule as the rest.
    * ========================================================================================== */
   var INJ_TYPES_TH = [
     'พลัดตกหกล้ม',
@@ -655,7 +655,7 @@
     'ทำร้ายตนเอง',
     'อื่นๆ'
   ];
-  var INJ_CHAR_TH = ['บาดแผลถลอก', 'บาดแผลฉีกขาด', 'บาดแผลที่มแทง', 'ฟกช้ำ',
+  var INJ_CHAR_TH = ['บาดแผลถลอก', 'บาดแผลฉีกขาด', 'บาดแผลถูกแทง', 'ฟกช้ำ',
     'บาดแผลจากวัตถุระเบิดหรือกระสุนปืน', 'บิดแพลง / เคล็ดขัดยอก', 'กระดูกเคลื่อน หรือหัก',
     'แผลไหม้ น้ำร้อนลวก', 'ไฟฟ้าดูด / ช็อต', 'สารพิษ / พิษแมลง', 'ขาดอากาศหายใจ',
     'บาดเจ็บทรวงอก-อวัยวะช่องท้อง', 'บาดเจ็บสมอง', 'อื่นๆ ..............................'];
@@ -687,22 +687,70 @@
     ctx.beginPath(); ctx.moveTo(x, y + 3); ctx.lineTo(x + w, y + 3); ctx.stroke(); ctx.restore();
     if (val != null && String(val) !== '') clipText(ctx, val, x + 4, y, w - 8, { size: o.size || 17 });
   }
+  /**
+   * Break `s` into lines that fit maxW — the ONE place line breaking is decided, so measuring a
+   * block and drawing it can never disagree.
+   *
+   * Thai does not put spaces between words. Splitting on whitespace alone leaves runs like
+   * 'ถูกน้ำร้อนลวกหรือวัตถุร้อน' as a single unbreakable "word" that simply ran past the frame, so a
+   * run wider than the column is broken character by character instead.
+   */
+  function wrapLines(ctx, s, maxW, size) {
+    ctx.font = font(size || 17, 400);
+    var words = String(s == null ? '' : s).split(/(\s+)/), out = [], line = '';
+    function pushWord(word) {
+      while (ctx.measureText(word).width > maxW) {          // no space to break at — break the run
+        var cut = 1;
+        while (cut < word.length && ctx.measureText(word.slice(0, cut + 1)).width <= maxW) cut++;
+        out.push(word.slice(0, cut)); word = word.slice(cut);
+      }
+      line = word;
+    }
+    for (var i = 0; i < words.length; i++) {
+      var next = line + words[i];
+      if (ctx.measureText(next).width > maxW && line) { out.push(line); pushWord(words[i].replace(/^\s+/, '')); }
+      else if (ctx.measureText(next).width > maxW) pushWord(next);
+      else line = next;
+    }
+    if (line) out.push(line);
+    return out;
+  }
   /** Wrap into a fixed box; returns the y after the last line drawn. */
   function wrap(ctx, s, x, y, maxW, lineH, maxLines, size) {
+    var lines = wrapLines(ctx, s, maxW, size);
     ctx.font = font(size || 17, 400); ctx.fillStyle = '#000';
-    var words = String(s == null ? '' : s).split(/(\s+)/), line = '', n = 0;
-    for (var i = 0; i < words.length && n < maxLines; i++) {
-      var t2 = line + words[i];
-      if (ctx.measureText(t2).width > maxW && line) { ctx.fillText(line, x, y); y += lineH; n++; line = words[i].replace(/^\s+/, ''); }
-      else line = t2;
-    }
-    if (line && n < maxLines) { ctx.fillText(line, x, y); y += lineH; }
+    for (var i = 0; i < lines.length && i < maxLines; i++) { ctx.fillText(lines[i], x, y); y += lineH; }
     return y;
+  }
+  /** first name / surname, so each lands in its own box on the form as the original expects. */
+  function splitName(s) {
+    var t = String(s == null ? '' : s).trim().replace(/\s+/g, ' ');
+    if (!t) return ['', ''];
+    var i = t.indexOf(' ');
+    return i < 0 ? [t, ''] : [t.slice(0, i), t.slice(i + 1)];
+  }
+  /**
+   * The recorder's REAL name. The form field is free text and teachers type their nickname into it
+   * ("ฟิล์ม"), which leaves the surname box on an official document empty. A name with no space is
+   * treated as a nickname and the roster's full name (teacherName) is used instead.
+   */
+  function recorderFull(d) {
+    var typed = String((d && d.RecorderName) || '').trim(), roster = String((d && d.teacherName) || '').trim();
+    if (/\s/.test(typed)) return typed;
+    if (/\s/.test(roster)) return roster;
+    return typed || roster;
   }
   function injTypeList(v) {
     var a = v;
     if (typeof a === 'string' && a) { try { a = JSON.parse(a); } catch (e) { a = String(a).split(/[,\s]+/).filter(Boolean); } }
     return (Array.isArray(a) ? a : []).map(function (n) { return String(n); });
+  }
+  var injCodeList = injTypeList;                       // same shape, read the same way
+  /** Page 2's wounds. Stored as a JSON string: [{no, pos, char}]. */
+  function injWoundList(d) {
+    var a = d && d.Wounds;
+    if (typeof a === 'string' && a) { try { a = JSON.parse(a); } catch (e) { a = []; } }
+    return Array.isArray(a) ? a : [];
   }
 
   function drawInjuryPage1(ctx, d) {
@@ -746,19 +794,22 @@
     fill(ctx, d.District || '', bx + 54, y + 66, R - bx - 68, { size: 15 });
     y += h2;
 
-    // --- recorder / child ---
-    [['ผู้บันทึก', d.RecorderName], ['เด็กที่บาดเจ็บ', d.ChildName]].forEach(function (r) {
+    // --- recorder / child: given name and surname each in their own box, as the original has them ---
+    [['ผู้บันทึก', recorderFull(d)], ['เด็กที่บาดเจ็บ', d.ChildName]].forEach(function (r) {
+      var nm2 = splitName(r[1]);
       frame(ctx, L, y, w, 46);
       text(ctx, r[0], L + 10, y + 31, { size: 17, weight: 700 });
       text(ctx, 'ชื่อ', L + 150, y + 31, { size: 17 });
-      fill(ctx, r[1] || '', L + 186, y + 31, 320);
+      fill(ctx, nm2[0], L + 186, y + 31, 320);
       text(ctx, 'นามสกุล', L + 520, y + 31, { size: 17 });
-      fill(ctx, '', L + 600, y + 31, R - L - 610);
+      fill(ctx, nm2[1], L + 600, y + 31, R - L - 610);
       y += 46;
     });
 
     // --- sex / age / education ---
-    var h3 = 46, s1 = L + 90, s2 = L + 430, s3 = L + 700;
+    // The sex cell only ever holds two tick boxes; it used to be 340pt wide and starved the
+    // "เรียนชั้น" blank at the far right, so a class name did not fit on its own line.
+    var h3 = 46, s1 = L + 90, s2 = L + 270, s3 = L + 560;
     frame(ctx, L, y, w, h3); [s1, s2, s3].forEach(function (v) { vline(ctx, v, y, y + h3); });
     text(ctx, 'เพศ', L + 10, y + 31, { size: 17, weight: 700 });
     var sx = tick(ctx, s1 + 14, y + 31, String(d.Sex || '').toUpperCase() === 'M');
@@ -815,19 +866,40 @@
     });
     y += h5;
 
-    // --- injury types: two columns, exactly as printed ---
+    /* --- injury types: 1-8 left, 9-17 right, exactly as printed ---
+     * The list is SIZED TO ITS FRAME. It used to be drawn at a fixed 14.5pt with a hard 3-line cap:
+     * the long entries (11 in particular) were both cut off and pushed past the border, which on an
+     * official form reads as a different document. The type size is stepped down until the taller
+     * column fits, so every entry is printed in full and nothing crosses the box. */
     var picked = injTypeList(d.InjuryTypes), h6 = H - 96 - y;
-    frame(ctx, L, y, w, h6); vline(ctx, L + 620, y, y + h6);
+    var splitX = L + 620;
+    frame(ctx, L, y, w, h6); vline(ctx, splitX, y, y + h6);
     text(ctx, 'ชนิดการบาดเจ็บ  ใส่ / ที่ช่อง [ ]', L + 12, y + 26, { size: 17, weight: 700 });
-    var ty = y + 56, col = 0, cxs = [L + 12, L + 632], colW = [590, w - 632 + L - 12];
+    var cxs = [L + 12, splitX + 12], colRight = [splitX - 10, R - 10];
+    var top6 = y + 54, avail = h6 - (top6 - y) - 12;
+    var size6 = 15, lineH6, textW = [0, 0], gap = 5;
+    function colHeight(c, size, lh) {
+      var from = c ? 8 : 0, to = c ? 17 : 8, tot = 0;
+      for (var i = from; i < to; i++) tot += Math.max(1, wrapLines(ctx, INJ_TYPES_TH[i], textW[c], size).length) * lh + gap;
+      return tot;
+    }
+    for (;;) {
+      lineH6 = Math.round(size6 * 1.45);
+      textW = [colRight[0] - (cxs[0] + 54), colRight[1] - (cxs[1] + 54)];
+      if (Math.max(colHeight(0, size6, lineH6), colHeight(1, size6, lineH6)) <= avail || size6 <= 10) break;
+      size6 -= 0.5;
+    }
+    var ty = top6, col = 0;
     for (var k = 0; k < 17; k++) {
-      if (k === 8) { col = 1; ty = y + 56; }
+      if (k === 8) { col = 1; ty = top6; }
       var on = picked.indexOf(String(k + 1)) >= 0;
       var bx2 = cxs[col];
-      text(ctx, (k + 1) + '.', bx2, ty, { size: 15 });
+      text(ctx, (k + 1) + '.', bx2, ty, { size: size6 });
       var tx = tick(ctx, bx2 + 34, ty, on, 14);
-      var end = wrap(ctx, INJ_TYPES_TH[k], tx, ty, colW[col] - 60, 22, 3, 14.5);
-      ty = Math.max(end, ty + 22) + 4;
+      var lines = wrapLines(ctx, INJ_TYPES_TH[k], textW[col], size6);
+      ctx.font = font(size6, 400); ctx.fillStyle = '#000';
+      for (var li = 0; li < lines.length; li++) ctx.fillText(lines[li], tx, ty + li * lineH6);
+      ty += Math.max(1, lines.length) * lineH6 + gap;
     }
     text(ctx, '| ๙๖ |', W / 2, H - 46, { size: 15, align: 'center' });
   }
@@ -852,11 +924,17 @@
     text(ctx, 'รายละเอียดการบาดเจ็บของบาดแผล', c1 + 12, y + 30, { size: 15 });
     text(ctx, '(ระบุเลข ๑-๑๔ ตามตารางซ้ายมือสุด)', c1 + 12, y + 52, { size: 12, color: '#333' });
     text(ctx, 'รายละเอียดลักษณะการบาดเจ็บ', c2 + 12, y + 30, { size: 15 });
-    var ry = y + 68;
+    var ry = y + 68, wounds = injWoundList(d);
     hline(ctx, x, ry, c2);
     for (var r2 = 0; r2 < 8; r2++) {
-      var rowY = ry + r2 * 40;
+      var rowY = ry + r2 * 40, wnd = wounds[r2];
       text(ctx, 'บาดแผลหมายเลข ' + '๑๒๓๔๕๖๗๘'.charAt(r2), x + 16, rowY + 28, { size: 15 });
+      if (wnd) {
+        // the number from the legend on the right is what the form asks for; the position the
+        // teacher recorded follows it, because the body diagram is marked by hand
+        var lbl = (wnd.char ? String(wnd.char) : '') + (wnd.char && wnd.pos ? ' · ' : '') + (wnd.pos || '');
+        clipText(ctx, lbl, c1 + 12, rowY + 28, c2 - c1 - 24, { size: 15 });
+      }
       if (r2 < 7) hline(ctx, x, rowY + 40, c2);
     }
     var ly = y + 56;
@@ -871,18 +949,20 @@
     frame(ctx, x, y, w, hH); vline(ctx, c3, y, y + hH);
     text(ctx, 'การช่วยเหลือการบาดเจ็บ', x + 200, y + 34, { size: 17, weight: 700 });
     hline(ctx, x + 200, y + 40, x + 480);
-    var gx = tick(ctx, x + 16, y + 82, false);
+    var tType = String((d && d.TreatmentType) || ''), tPlaces = injCodeList(d && d.TreatmentPlaces);
+    var gx = tick(ctx, x + 16, y + 82, tType === 'none');
     text(ctx, 'ไม่ต้องรับการรักษาใดๆ', gx, y + 82, { size: 15 });
-    gx = tick(ctx, x + 250, y + 82, false);
+    gx = tick(ctx, x + 250, y + 82, tType === 'treated');
     text(ctx, 'ได้รับการรักษาพยาบาล ที่', gx, y + 82, { size: 15 });
-    fill(ctx, '', x + 480, y + 82, c3 - x - 500, { size: 14 });
-    var places = ['ห้องพยาบาลของโรงเรียน', 'ศูนย์บริการสาธารณสุข\nสถานีอนามัย', 'คลินิก',
-      'โรงพยาบาลรัฐบาล', 'โรงพยาบาลเอกชน', 'ทันตแพทย์', 'อื่นๆ ........................................'];
+    fill(ctx, (d && d.TreatmentBy) || '', x + 480, y + 82, c3 - x - 500, { size: 14 });
+    var places = [['nurse', 'ห้องพยาบาลของโรงเรียน'], ['health', 'ศูนย์บริการสาธารณสุข\nสถานีอนามัย'], ['clinic', 'คลินิก'],
+      ['hosp_gov', 'โรงพยาบาลรัฐบาล'], ['hosp_pri', 'โรงพยาบาลเอกชน'], ['dentist', 'ทันตแพทย์'], ['other', 'อื่นๆ']];
     var hy = y + 34;
     places.forEach(function (p) {
-      var lines = p.split('\n');
-      var px2 = tick(ctx, c3 + 14, hy, false, 14);
+      var lines = p[1].split('\n');
+      var px2 = tick(ctx, c3 + 14, hy, tPlaces.indexOf(p[0]) >= 0, 14);
       text(ctx, lines[0], px2, hy, { size: 14 });
+      if (p[0] === 'other') fill(ctx, (d && d.TreatmentPlaceOther) || '', px2 + 46, hy, x + w - px2 - 60, { size: 13 });
       hy += 22;
       if (lines[1]) { text(ctx, lines[1], px2, hy, { size: 14 }); hy += 22; }
     });
