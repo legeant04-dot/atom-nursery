@@ -143,7 +143,9 @@ console.log('\n6) the screens follow the same rule');
   ok_('...each labelled with who eats it', /fmWho\(k\)/.test(app) && /เฉพาะ Nursery 1/.test(app));
   ok_('the save sends no class', /api\('saveFoodMenu',\{staffId:USER\.staffId,month:FM_MONTH,days:A_fmCollect\(\)\}\)/.test(app));
   ok_('the month picker still works on its own', /A_fmPick=\(month\)=>/.test(app));
-  ok_('the parent copy is filtered by their child\'s class', /FM_MEALS\.filter\(\(\[k\]\)=>v\[k\]&&fmShows\(k\)\)/.test(app));
+  // the parent's plan-only menu screen was removed in v221: the JOURNAL is where a family reads the
+  // day's food, and it already applies the class rule (section 3 above)
+  ok_('the parent has no separate menu screen to keep in step', !/window\.P_menu = async/.test(app));
   ok_('the rule itself lives in ONE place in the engine', /function mealSlotsFor_\(className\)/.test(eng) &&
     (eng.match(/staysForDinner_\(c\) \? all : all\.filter/g) || []).length === 1);
   ok_('a day from an old class menu is labelled on screen', /v\.legacyClass\?/.test(app));

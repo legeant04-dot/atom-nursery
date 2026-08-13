@@ -147,9 +147,39 @@ function resolveStaff_(payload) {
  */
 function assertStaffStarted_(rec) {
   var start = String((rec && rec.StartDate) || '').slice(0, 10);
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(start)) return;             // no start date recorded → unchanged
-  if (dateStr_(new Date()) >= start) return;
-  throw apiError_('NOT_STARTED', 'วันแรกของการทำงานคือ ' + start + ' — ยังลงเวลาไม่ได้');
+  var today = dateStr_(new Date());
+  if (/^\d{4}-\d{2}-\d{2}$/.test(start) && today < start) {
+    throw apiError_('NOT_STARTED', 'วันแรกของการทำงานคือ ' + start + ' — ยังลงเวลาไม่ได้');
+  }
+  // ...and the other end of it. EndDate is a LAST WORKING DAY recorded in advance, so it must not
+  // block anything until it has passed — the person is still turning up until then.
+  var end = String((rec && rec.EndDate) || '').slice(0, 10);
+  if (/^\d{4}-\d{2}-\d{2}$/.test(end) && today > end) {
+    throw apiError_('ENDED', 'สิ้นสุดการทำงานเมื่อ ' + end + ' — ลงเวลาไม่ได้แล้ว');
+  }
+}
+
+/**
+ * Nobody clocks in on a day the school is shut.
+ *
+ * The dashboard already greyed the day out and the digests already skipped it, but the BUTTONS
+ * still worked — so a holiday could collect check-ins that then had to be explained. One rule
+ * (isSchoolClosed_), used by everything, is what keeps the screen and the record agreeing.
+ * A Big Cleaning day is a WORKING day that happens to fall at the weekend, so it is not closed.
+ */
+function assertSchoolOpen_(d) {
+  d = d || new Date();
+  var ds = dateStr_(d);
+  try { if (isBigCleaningDay_(ds)) return; } catch (e) {}
+  if (!isSchoolClosed_(d)) return;
+  var why = '';
+  try {
+    var hs = readObjects_(sheet_(getMainSpreadsheet_(), 'HOLIDAYS'));
+    var h = hs.filter(function (x) { return dateStr_(new Date(x.Date)) === ds; })[0];
+    if (h) why = String(h.NameTH || h.Name || h.NameEN || '');
+  } catch (e) {}
+  if (!why) { var g = d.getDay(); why = (g === 0 || g === 6) ? 'วันหยุดสุดสัปดาห์' : 'วันหยุด'; }
+  throw apiError_('SCHOOL_CLOSED', 'วันนี้โรงเรียนหยุด (' + why + ') — ไม่ต้องลงเวลา');
 }
 
 // ---- Check-in -----------------------------------------------------
@@ -158,6 +188,7 @@ function handleStaffCheckin(payload) {
   payload = payload || {};
   var staff = resolveStaff_(payload);
   assertStaffStarted_(staff);
+  assertSchoolOpen_();
   var dist = assertWithinGeofence_(payload.lat, payload.lng, payload.acc);
   var now = new Date(), today = dateStr_(now);
   var sheet = sheet_(getHrSpreadsheet_(), 'CHECKIN_STAFF');
@@ -296,6 +327,7 @@ function handleStaffCheckout(payload) {
   payload = payload || {};
   var staff = resolveStaff_(payload);
   assertStaffStarted_(staff);
+  assertSchoolOpen_();
   var dist = assertWithinGeofence_(payload.lat, payload.lng, payload.acc);
   var now = new Date(), today = dateStr_(now);
   var sheet = sheet_(getHrSpreadsheet_(), 'CHECKIN_STAFF');
