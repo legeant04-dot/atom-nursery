@@ -538,6 +538,27 @@ function createAtomAPI(M, GROWTH_STD) {
     // the last WORKING day still counts as working — they are in until the end of it, which is also
     // what the check-in guard says (assertStaffStarted_ refuses only when today > end)
     const d=ymd(s.EndDate||''); return !!d && d < ymd(onDate||todayLocal()); };
+
+  /* The parts of an injury report that are not plain scalars, normalised in ONE place so filing
+   * (submitInjury) and correcting (editInjury) can never disagree about how they are stored.
+   *  · photos → Photo1..3. Sent as data URLs; on GAS Db.gs writes them to Drive and keeps only the
+   *    short link, because a photo's base64 is far past a cell's 50,000-char limit.
+   *  · wounds / treatmentPlaces → a JSON STRING, never a raw array: an array lands in a sheet cell as
+   *    "[object Object]" and the report reads back as nonsense.
+   * Only keys the caller actually sent come back, so an edit never blanks a field it didn't touch.
+   */
+  const injJson_ = v => { if(v==null) return undefined;
+    if(typeof v==='string') return v;
+    try{ return JSON.stringify(v); }catch(e){ return ''; } };
+  const injExtras_ = p => { const o={};
+    if(p.shareJournal!==undefined) o.ShareJournal = p.shareJournal ? 'YES' : '';
+    if(Array.isArray(p.photos)) for(let i=0;i<3;i++) o['Photo'+(i+1)] = p.photos[i]||'';
+    const w=injJson_(p.wounds); if(w!==undefined) o.Wounds=w;
+    const tp=injJson_(p.treatmentPlaces); if(tp!==undefined) o.TreatmentPlaces=tp;
+    if(p.treatmentType!==undefined) o.TreatmentType=String(p.treatmentType||'');
+    if(p.treatmentPlaceOther!==undefined) o.TreatmentPlaceOther=String(p.treatmentPlaceOther||'');
+    if(p.treatmentBy!==undefined) o.TreatmentBy=String(p.treatmentBy||'');
+    return o; };
   const activeStudents = () => M.students.filter(s=>!INACTIVE[s.Status] && !studentPaused_(s));
 
   // ---- payment-slip helpers (multiple slips per bill/OT/prepay + partial payments) ----
@@ -2782,6 +2803,10 @@ function createAtomAPI(M, GROWTH_STD) {
         Witness:p.witness||'',Place:p.place||'',PlaceOther:p.placeOther||'',InjuryTypes:p.injuryTypes,TeacherID:p.staffId||'',NotifyParent:p.notifyParent?'YES':'',CreatedDate:todayLocal(),
         // filed, not finished: หัวหน้าครู reads it first, then แอดมิน (see approveInjury)
         Status:'PENDING_LEADER',LeaderBy:'',LeaderAt:'',AdminBy:'',AdminAt:'',RejectReason:''};
+      // a NEW record carries every column, blank when unused — an absent key reads back as
+      // undefined and the report screen cannot tell "not shared" from "column missing"
+      Object.assign(rec, {ShareJournal:'',Photo1:'',Photo2:'',Photo3:'',Wounds:'',
+        TreatmentType:'',TreatmentPlaces:'',TreatmentPlaceOther:'',TreatmentBy:''}, injExtras_(p));
       M.injuryReports.push(rec);
       const nm=s.NameTH||p.childName||p.studentId;
       M.feed.unshift({id:'INJ-N'+M.injuryReports.length,text:'⚠️ บันทึกอุบัติเหตุ: '+nm+' ('+rec.InjuryTypes.length+' รายการ)',
@@ -2839,6 +2864,10 @@ function createAtomAPI(M, GROWTH_STD) {
        'Witness','Place','PlaceOther'].forEach(k=>{ if(d[k]!==undefined) r[k]=d[k]; });
       if(Array.isArray(d.InjuryTypes)&&d.InjuryTypes.length) r.InjuryTypes=d.InjuryTypes;
       if(d.NotifyParent!==undefined) r.NotifyParent=d.NotifyParent?'YES':'';
+      // photos, the journal tick and page 2 — same normalisation as filing it (injExtras_).
+      // These ride at the TOP level of the call (p.photos, p.wounds…), not inside p.data, so that
+      // filing and editing send them in exactly the same shape.
+      Object.assign(r, injExtras_(p));
       r.UpdatedBy=ap.NameTH||ap.StaffID||''; r.UpdatedAt=stampLocal();
       logAct('editInjury',r.InjuryID,'แก้ไขรายงาน',actorOf(p));
       return {injuryId:r.InjuryID, status:r.Status}; },
@@ -2871,6 +2900,23 @@ function createAtomAPI(M, GROWTH_STD) {
         .map(r=>{ const s=studentById(r.StudentID)||{};
           return Object.assign({nameEN:s.NameEN,nick:s.Nickname,className:s.Class},r); })
         .sort((a,b)=>(String(b.Date)+b.Time).localeCompare(String(a.Date)+a.Time)); },
+    /**
+     * The injury reports attached to one child's สมุดรายวัน for one day — the parent's view.
+     *
+     * ONLY the ones the teacher ticked to share. A report kept in the system is for the school and
+     * the authority; putting it in front of the family anyway would break the promise the tick makes.
+     * Approval is deliberately NOT required: the tick means "tell the parents", and a family waiting
+     * on two signatures to hear their child was hurt is exactly what we refuse to build.
+     * Narrative, photos and the day are shared; the official-form scaffolding is not.
+     */
+    journalInjuries: p => (M.injuryReports||[])
+      .filter(r=>String(r.StudentID)===String(p.studentId) && ymd(r.Date)===ymd(p.date||todayLocal())
+                 && String(r.ShareJournal||'').toUpperCase()==='YES')
+      .map(r=>({injuryId:r.InjuryID, date:ymd(r.Date), time:r.Time||'', narrative:r.Narrative||'',
+                types:r.InjuryTypes, place:r.Place||'', placeOther:r.PlaceOther||'',
+                photos:[r.Photo1,r.Photo2,r.Photo3].filter(Boolean),
+                treatmentType:r.TreatmentType||'', treatmentBy:r.TreatmentBy||''}))
+      .sort((a,b)=>String(a.time).localeCompare(String(b.time))),
     // injury reports (Admin/teacher). Optional date OR month filter; newest first.
     injuryReports: p => M.injuryReports
       .filter(r=>!p||((!p.date||ymd(r.Date)===ymd(p.date)) && (!p.month||ym(r.Date)===ym(p.month))))

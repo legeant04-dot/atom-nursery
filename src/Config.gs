@@ -118,7 +118,15 @@ SCHEMA[WB.MAIN] = {
                       'NotifyParent',
                       // two-step approval (teacher → หัวหน้าครู → แอดมิน), mirroring a leave request.
                       // Status: PENDING_LEADER | PENDING_ADMIN | APPROVED | REJECTED
-                      'Status', 'LeaderBy', 'LeaderAt', 'AdminBy', 'AdminAt', 'RejectReason', 'UpdatedBy', 'UpdatedAt'],
+                      'Status', 'LeaderBy', 'LeaderAt', 'AdminBy', 'AdminAt', 'RejectReason', 'UpdatedBy', 'UpdatedAt',
+                      // ShareJournal YES = the report is ALSO attached to the สมุดรายวัน of that day so parents
+                      // read it there. Blank = kept in the system for the school and the authority only.
+                      // Photo1..3 = pictures of the injury. Written as data URLs; Db.gs offloads them to Drive
+                      // (IMAGE_COLS_) because the base64 of a photo blows past the 50,000-char cell limit.
+                      'ShareJournal', 'Photo1', 'Photo2', 'Photo3',
+                      // page 2 of the official form. Wounds = a JSON array of pos + char (up to 8; char is
+                      // 1-14 of ลักษณะการบาดเจ็บ); Treatment* = การช่วยเหลือการบาดเจ็บ.
+                      'Wounds', 'TreatmentType', 'TreatmentPlaces', 'TreatmentPlaceOther', 'TreatmentBy'],
   // PCHI (Pacific Cross) insurance member form — columns mirror the official xlsx "Input Data" sheet.
   // ONE record per student (unique by StudentID / NationalID). Parent fills once; Admin reviews/edits. Insurance data
   // is written ONLY to this sheet. (Deploy: this sheet IS the Google Sheet generated from the supplied form file.)

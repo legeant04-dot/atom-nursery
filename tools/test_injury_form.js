@@ -92,8 +92,10 @@ console.log('\n4) what is filled in, and what is deliberately left blank');
   ['CenterName', 'RecorderName', 'ChildName', 'Narrative', 'CauseObject', 'Witness', 'Place', 'InjuryTypes']
     .forEach(c => ok_(c + ' is stored, so it can be printed', cols.indexOf(c) >= 0));
   ok_('page 2 is still drawn, not dropped', /function drawInjuryPage2/.test(rc));
-  ok_('...and the reader is told why it is blank', /ยังไม่ได้เก็บข้อมูลส่วนนี้/.test(app));
-  ok_('the reason is written down in the code too', /prints as the EMPTY form/.test(rc));
+  // page 2 used to print entirely blank; it is now filled in from the record, EXCEPT the body
+  // diagram — a wound position is a mark on a picture and must not be invented from a line of text
+  ok_('...and the reader is told what is still filled in by hand', /ทำเครื่องหมายด้วยมือ/.test(app));
+  ok_('the reason is written down in the code too', /still printed as an empty outline/.test(rc));
 }
 
 console.log('\n5) two A4 pages, built on the device, never uploaded');

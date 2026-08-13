@@ -50,7 +50,9 @@ function findObject_(sheet, predicate) {
 // setValues THROW — that was the silent "attach a photo, press Save, nothing happens" bug. Any cell
 // holding a `data:image/...` URL is written to Drive instead and only the (short) thumbnail URL is
 // stored. A value that is already a URL (or not an image) passes straight through.
-var IMAGE_COLS_ = { Photo: 1, InsuranceCardImage: 1, Image: 1, RegisterPhotoUrl: 1, Attachment: 1 };
+var IMAGE_COLS_ = { Photo: 1, InsuranceCardImage: 1, Image: 1, RegisterPhotoUrl: 1, Attachment: 1,
+  // injury-report pictures — same rule, three of them
+  Photo1: 1, Photo2: 1, Photo3: 1 };
 function driveifyImage_(value, name) {
   if (typeof value !== 'string' || value.indexOf('data:image/') !== 0) return value;
   try {
