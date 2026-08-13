@@ -112,7 +112,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.222'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.223'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -2632,7 +2632,24 @@
         ${row(EN()?'Parent notified':'แจ้งผู้ปกครองแล้ว', String(r.NotifyParent||'')==='YES'?(EN()?'Yes':'แจ้งแล้ว'):(EN()?'No':'ยังไม่แจ้ง'))}
         ${row(EN()?'Report no.':'เลขที่รายงาน', r.InjuryID)}
       </div>
+      <div class="row" style="gap:8px">
+        <button class="btn" style="flex:1" onclick="A_injuryPdf('${esc(r.InjuryID||'')}',this)">📄 ${EN()?'Official form (PDF)':'แบบฟอร์มราชการ (PDF)'}</button>
+        <button class="btn outline" style="flex:1" onclick="A_injuryPdf('${esc(r.InjuryID||'')}',this,'jpg')">🖼️ ${EN()?'Image':'รูป'}</button></div>
+      <p class="muted" style="font-size:12px;margin:6px 2px">${EN()?'Page 2 (body diagram, wound list, treatment) prints blank — the app does not collect those yet, so they are filled in by hand.':'หน้า 2 (ภาพตำแหน่งบาดแผล · รายการบาดแผล · การรักษา) จะพิมพ์เป็นช่องว่างให้กรอกด้วยมือ เพราะระบบยังไม่ได้เก็บข้อมูลส่วนนี้'}</p>
       <button class="btn outline block" onclick="this.closest('.modal').remove()">${esc(t('c.close'))}</button>`); };
+  /**
+   * The filled-in official form, built on this device. The report holds a child's health data, so it
+   * follows the same PDPA rule as the report card: drawn in the browser, downloaded, never uploaded
+   * and never given a shareable URL.
+   */
+  window.A_injuryPdf=async(id,btn,kind)=>{ const old=btn?btn.innerHTML:'';
+    if(btn){ btn.disabled=true; btn.innerHTML='⏳'; }
+    try{
+      const r=await api('injuryReport',{injuryId:id});
+      await window.__atomLoadScript('report_card.js',()=>!!(window.AtomReportCard&&window.AtomReportCard.saveInjury));
+      await AtomReportCard.saveInjury(r, kind);
+      toast(EN()?'Saved to your device':'บันทึกลงเครื่องแล้ว');
+    }catch(e){ err(e); }finally{ if(btn){ btn.disabled=false; btn.innerHTML=old; } } };
   window.T_injurySave = async ()=>{ const v=id=>{ const e=$(id); return e?e.value.trim():''; };
     const rad=name=>{ const e=document.querySelector(`input[name="${name}"]:checked`); return e?e.value:''; };
     const types=[...document.querySelectorAll('.injType:checked')].map(c=>Number(c.value));

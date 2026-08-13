@@ -623,8 +623,326 @@
     return r;
   }
 
+  /* ==========================================================================================
+   * แบบบันทึกการบาดเจ็บรายบุคคล — *๑๐ (๑.๓.๗)
+   *
+   * A rebuild of the school's official paper form, so a filled report can be printed and handed to
+   * the authority as-is. It follows the original's layout box for box: same order, same wording,
+   * same tick boxes — because a form an official does not recognise is a form they send back.
+   *
+   * WHAT IS FILLED IN vs WHAT PRINTS BLANK. Everything the app collects is printed in place. The
+   * second page of the original — the body diagram, the eight numbered wounds, and the treatment
+   * given — has no fields in the app yet, so it prints as the EMPTY form for someone to complete by
+   * hand. That is deliberate: printing those boxes blank is honest, and a form missing its second
+   * page is not the same document.
+   * ========================================================================================== */
+  var INJ_TYPES_TH = [
+    'พลัดตกหกล้ม',
+    'ถูกแรงกระทำโดยวัตถุ เช่น ถูกชน กระแทก ของหล่นใส่ ถูกกด หนีบ บีบทับ บาด ตำ ทิ่มแทง ยกเว้นการจราจร',
+    'ถูกแรงระเบิดโดยไม่ตั้งใจ เช่น เล่นปืน ดอกไม้ไฟ พลุ ประทัด วัตถุระเบิดอื่น',
+    'ถูกแรงกระทำจากสัตว์ เช่น กัด ชน กระแทก ยกเว้นแมลง สัตว์มีพิษ – งู',
+    'ตกน้ำ จมน้ำ',
+    'สิ่งแปลกปลอมเข้าหู จมูก ตา คอ เช่น ก้างปลา ลูกปัด ติดในจมูก ยกเว้นสิ่งแปลกปลอมอุดตันทางเดินหายใจหลอดลม',
+    'ถูกควันไฟและเปลวไฟ',
+    'ขาดอากาศหายใจแบบอื่น รวมสิ่งแปลกปลอมอุดตันหลอดลมและการสำลักควันไฟ ยกเว้นการจมน้ำ',
+    'ถูกไฟฟ้าดูด',
+    'ถูกน้ำร้อนลวกหรือวัตถุร้อน',
+    'ได้รับสารพิษ เช่น น้ำยาเคมี สารเคมี ยาเกินขนาด ไอระเหย รวมทั้งสัตว์มีพิษ พืชมีพิษ',
+    'การจราจร เช่น ถูกรถชน',
+    'ถูกกระทำจากคนโดยไม่ตั้งใจ เช่น ชนกระแทก เล่นผลักแล้วล้ม',
+    'จากการออกแรงมากเกินไป เช่น ดึง ดันของหนักมากเกินไป',
+    'ถูกทำร้ายร่างกาย หรือน่าจะถูกทำร้ายร่างกาย',
+    'ทำร้ายตนเอง',
+    'อื่นๆ'
+  ];
+  var INJ_CHAR_TH = ['บาดแผลถลอก', 'บาดแผลฉีกขาด', 'บาดแผลที่มแทง', 'ฟกช้ำ',
+    'บาดแผลจากวัตถุระเบิดหรือกระสุนปืน', 'บิดแพลง / เคล็ดขัดยอก', 'กระดูกเคลื่อน หรือหัก',
+    'แผลไหม้ น้ำร้อนลวก', 'ไฟฟ้าดูด / ช็อต', 'สารพิษ / พิษแมลง', 'ขาดอากาศหายใจ',
+    'บาดเจ็บทรวงอก-อวัยวะช่องท้อง', 'บาดเจ็บสมอง', 'อื่นๆ ..............................'];
+  var INJ_PLACES = [['home', 'บ้าน'], ['school', 'โรงเรียน'], ['center', 'ศูนย์พัฒนาเด็กหรือศูนย์เลี้ยงเด็ก'],
+    ['road', 'ถนน'], ['park', 'สวนสาธารณะหรือลานกีฬาสาธารณะ'], ['other', 'อื่นๆ']];
+  var TH_MONTH_NAMES = ['มกราคม', 'กุมภาพันธ์', 'มีนาคม', 'เมษายน', 'พฤษภาคม', 'มิถุนายน',
+    'กรกฎาคม', 'สิงหาคม', 'กันยายน', 'ตุลาคม', 'พฤศจิกายน', 'ธันวาคม'];
+  var TH_DAY_NAMES = ['อาทิตย์', 'จันทร์', 'อังคาร', 'พุธ', 'พฤหัสบดี', 'ศุกร์', 'เสาร์'];
+
+  // ---- form primitives: a plain 1px grid, like the printed original ----------------------
+  function frame(ctx, x, y, w, h) { ctx.strokeStyle = '#000'; ctx.lineWidth = 1.4; ctx.strokeRect(x, y, w, h); }
+  function hline(ctx, x1, y, x2) { ctx.strokeStyle = '#000'; ctx.lineWidth = 1.4; ctx.beginPath(); ctx.moveTo(x1, y); ctx.lineTo(x2, y); ctx.stroke(); }
+  function vline(ctx, x, y1, y2) { ctx.strokeStyle = '#000'; ctx.lineWidth = 1.4; ctx.beginPath(); ctx.moveTo(x, y1); ctx.lineTo(x, y2); ctx.stroke(); }
+  /** A tick box. `on` draws the ✓ — the value the app recorded, so nobody has to re-read the file. */
+  function tick(ctx, x, y, on, size) {
+    size = size || 16;
+    ctx.strokeStyle = '#000'; ctx.lineWidth = 1.4; ctx.strokeRect(x, y - size + 2, size, size);
+    if (on) {
+      ctx.lineWidth = 2.4; ctx.beginPath();
+      ctx.moveTo(x + 3, y - size / 2 + 2); ctx.lineTo(x + size / 2, y - 1); ctx.lineTo(x + size - 2, y - size + 5);
+      ctx.stroke(); ctx.lineWidth = 1.4;
+    }
+    return x + size + 6;
+  }
+  /** A filled-in blank: the value on a dotted rule, exactly where the paper form has one. */
+  function fill(ctx, val, x, y, w, o) {
+    o = o || {};
+    ctx.save(); ctx.setLineDash([2, 3]); ctx.strokeStyle = '#000'; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(x, y + 3); ctx.lineTo(x + w, y + 3); ctx.stroke(); ctx.restore();
+    if (val != null && String(val) !== '') clipText(ctx, val, x + 4, y, w - 8, { size: o.size || 17 });
+  }
+  /** Wrap into a fixed box; returns the y after the last line drawn. */
+  function wrap(ctx, s, x, y, maxW, lineH, maxLines, size) {
+    ctx.font = font(size || 17, 400); ctx.fillStyle = '#000';
+    var words = String(s == null ? '' : s).split(/(\s+)/), line = '', n = 0;
+    for (var i = 0; i < words.length && n < maxLines; i++) {
+      var t2 = line + words[i];
+      if (ctx.measureText(t2).width > maxW && line) { ctx.fillText(line, x, y); y += lineH; n++; line = words[i].replace(/^\s+/, ''); }
+      else line = t2;
+    }
+    if (line && n < maxLines) { ctx.fillText(line, x, y); y += lineH; }
+    return y;
+  }
+  function injTypeList(v) {
+    var a = v;
+    if (typeof a === 'string' && a) { try { a = JSON.parse(a); } catch (e) { a = String(a).split(/[,\s]+/).filter(Boolean); } }
+    return (Array.isArray(a) ? a : []).map(function (n) { return String(n); });
+  }
+
+  function drawInjuryPage1(ctx, d) {
+    var x = 60, w = W - 120, y = 92;
+    ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, W, H);
+    text(ctx, '*๑๐ (๑.๓.๗) แบบบันทึกการบาดเจ็บรายบุคคล', x, y, { size: 21, weight: 700 }); y += 40;
+    text(ctx, 'แบบบันทึกการบาดเจ็บรายบุคคล', W / 2, y, { size: 22, weight: 700, align: 'center' }); y += 26;
+
+    var top = y, rowH = 62, L = x, R = x + w;
+    // --- date / time ---
+    var splitT = x + w - 300;
+    frame(ctx, L, y, w, rowH); vline(ctx, splitT, y, y + rowH);
+    text(ctx, 'วันที่เกิดการบาดเจ็บ', L + 10, y + 24, { size: 18, weight: 700 });
+    var dt = String(d.Date || '').slice(0, 10), dd = dt ? new Date(dt + 'T00:00:00') : null;
+    var cx = L + 10;
+    text(ctx, 'วัน', cx, y + 50, { size: 17 }); cx += 30;
+    fill(ctx, dd ? TH_DAY_NAMES[dd.getDay()] : '', cx, y + 50, 110); cx += 118;
+    text(ctx, 'ที่', cx, y + 50, { size: 17 }); cx += 22;
+    fill(ctx, dd ? dd.getDate() : '', cx, y + 50, 50); cx += 58;
+    text(ctx, 'เดือน', cx, y + 50, { size: 17 }); cx += 48;
+    fill(ctx, dd ? TH_MONTH_NAMES[dd.getMonth()] : '', cx, y + 50, 140); cx += 148;
+    text(ctx, 'พ.ศ. ๒๕', cx, y + 50, { size: 17 }); cx += 66;
+    fill(ctx, dd ? String(dd.getFullYear() + 543).slice(2) : '', cx, y + 50, 46);
+    text(ctx, 'เวลา', splitT + 14, y + 50, { size: 17 });
+    fill(ctx, String(d.Time || '').slice(0, 5), splitT + 60, y + 50, 130);
+    text(ctx, 'น.', splitT + 200, y + 50, { size: 17 });
+    y += rowH;
+
+    // --- centre / affiliation ---
+    var h2 = 84, cCol = L + 120, aCol = x + w - 470;
+    frame(ctx, L, y, w, h2); vline(ctx, cCol, y, y + h2); vline(ctx, aCol, y, y + h2);
+    text(ctx, 'ชื่อศูนย์', L + 10, y + 34, { size: 17, weight: 700 });
+    clipText(ctx, d.CenterName || '', cCol + 10, y + 34, aCol - cCol - 20, { size: 17 });
+    text(ctx, 'สังกัด', aCol + 10, y + 30, { size: 17, weight: 700 });
+    var ax = aCol + 78, aff = String(d.AffiliationType || '');
+    ax = tick(ctx, ax, y + 30, aff === 'social'); text(ctx, 'สำนักพัฒนาสังคม', ax, y + 30, { size: 16 });
+    ax = tick(ctx, ax + 150, y + 30, aff === 'other'); text(ctx, 'อื่นๆ ระบุ', ax, y + 30, { size: 16 });
+    fill(ctx, aff === 'other' ? d.AffiliationOther : '', ax + 74, y + 30, R - ax - 88, { size: 15 });
+    var bx = tick(ctx, aCol + 78, y + 66, !!d.District);
+    text(ctx, 'ชื่อเขต', bx, y + 66, { size: 16 });
+    fill(ctx, d.District || '', bx + 54, y + 66, R - bx - 68, { size: 15 });
+    y += h2;
+
+    // --- recorder / child ---
+    [['ผู้บันทึก', d.RecorderName], ['เด็กที่บาดเจ็บ', d.ChildName]].forEach(function (r) {
+      frame(ctx, L, y, w, 46);
+      text(ctx, r[0], L + 10, y + 31, { size: 17, weight: 700 });
+      text(ctx, 'ชื่อ', L + 150, y + 31, { size: 17 });
+      fill(ctx, r[1] || '', L + 186, y + 31, 320);
+      text(ctx, 'นามสกุล', L + 520, y + 31, { size: 17 });
+      fill(ctx, '', L + 600, y + 31, R - L - 610);
+      y += 46;
+    });
+
+    // --- sex / age / education ---
+    var h3 = 46, s1 = L + 90, s2 = L + 430, s3 = L + 700;
+    frame(ctx, L, y, w, h3); [s1, s2, s3].forEach(function (v) { vline(ctx, v, y, y + h3); });
+    text(ctx, 'เพศ', L + 10, y + 31, { size: 17, weight: 700 });
+    var sx = tick(ctx, s1 + 14, y + 31, String(d.Sex || '').toUpperCase() === 'M');
+    text(ctx, 'ชาย', sx, y + 31, { size: 17 });
+    sx = tick(ctx, sx + 60, y + 31, String(d.Sex || '').toUpperCase() === 'F');
+    text(ctx, 'หญิง', sx, y + 31, { size: 17 });
+    text(ctx, 'อายุ', s2 + 12, y + 31, { size: 17 });
+    fill(ctx, d.AgeYears, s2 + 58, y + 31, 60); text(ctx, 'ปี', s2 + 124, y + 31, { size: 17 });
+    fill(ctx, d.AgeMonths, s2 + 150, y + 31, 60); text(ctx, 'เดือน', s2 + 216, y + 31, { size: 17 });
+    text(ctx, 'การศึกษา', s3 + 12, y + 31, { size: 17 });
+    var ex = tick(ctx, s3 + 100, y + 31, String(d.EduStatus || '') === 'none');
+    text(ctx, 'ไม่ได้เรียน', ex, y + 31, { size: 17 });
+    ex = tick(ctx, ex + 106, y + 31, String(d.EduStatus || '') === 'grade');
+    text(ctx, 'เรียนชั้น', ex, y + 31, { size: 17 });
+    fill(ctx, d.EduGrade || '', ex + 76, y + 31, R - ex - 90);
+    y += h3;
+
+    // --- narrative | cause + witness ---
+    var h4 = 210, mid = L + 640;
+    frame(ctx, L, y, w, h4); vline(ctx, mid, y, y + h4);
+    text(ctx, 'เหตุนำและเหตุการณ์ของการบาดเจ็บ', L + 160, y + 28, { size: 17, weight: 700 });
+    ctx.strokeStyle = '#000'; hline(ctx, L + 160, y + 34, L + 470);
+    text(ctx, '(ให้บันทึกเหตุการณ์ก่อนและขณะเกิดการบาดเจ็บ เช่น เดินเข้าห้องครัว ปีนโต๊ะแล้วตกลงมา)', L + 20, y + 54, { size: 13, color: '#333' });
+    var ny = y + 84;
+    ny = wrap(ctx, d.Narrative || '', L + 20, ny, mid - L - 40, 26, 4);
+    for (var i = 0; i < 4; i++) hline(ctx, L + 20, y + 84 + i * 26 + 6, mid - 20);
+    text(ctx, 'สิ่งของที่เกี่ยวข้องและเป็น', mid + (R - mid) / 2, y + 28, { size: 16, weight: 700, align: 'center' });
+    text(ctx, 'สาเหตุหลักการบาดเจ็บ', mid + (R - mid) / 2, y + 52, { size: 16, weight: 700, align: 'center' });
+    hline(ctx, mid + 30, y + 58, R - 30);
+    text(ctx, 'เช่น โต๊ะ เก้าอี้ ชิงช้า พื้น เสามีด', mid + 16, y + 82, { size: 14, color: '#333' });
+    text(ctx, 'ดินสอ', mid + 16, y + 106, { size: 15 });
+    fill(ctx, d.CauseObject || '', mid + 66, y + 106, R - mid - 86, { size: 15 });
+    text(ctx, 'มีผู้พบเห็นเหตุการณ์โดยตรง', mid + (R - mid) / 2, y + 142, { size: 16, weight: 700, align: 'center' });
+    text(ctx, 'ขณะเกิดเหตุ', mid + (R - mid) / 2, y + 166, { size: 16, weight: 700, align: 'center' });
+    hline(ctx, mid + 30, y + 172, R - 30);
+    var wit = String(d.Witness || ''), wx = mid + 16;
+    wx = tick(ctx, wx, y + 200, wit === 'yes'); text(ctx, 'มี', wx, y + 200, { size: 16 });
+    wx = tick(ctx, wx + 36, y + 200, wit === 'no'); text(ctx, 'ไม่มี', wx, y + 200, { size: 16 });
+    wx = tick(ctx, wx + 54, y + 200, wit === 'unsure'); text(ctx, 'ไม่แน่ใจ', wx, y + 200, { size: 16 });
+    y += h4;
+
+    // --- place ---
+    var h5 = 96;
+    frame(ctx, L, y, w, h5);
+    text(ctx, 'สถานที่เกิดเหตุ', W / 2, y + 28, { size: 17, weight: 700, align: 'center' });
+    hline(ctx, W / 2 - 80, y + 34, W / 2 + 80);
+    var pl = String(d.Place || ''), px = L + 16, py = y + 62;
+    INJ_PLACES.forEach(function (p, i) {
+      if (i === 3) { px = L + 16; py = y + 88; }
+      px = tick(ctx, px, py, pl === p[0]);
+      text(ctx, p[1], px, py, { size: 16 });
+      ctx.font = font(16, 400); px += ctx.measureText(p[1]).width + 26;
+      if (p[0] === 'other') fill(ctx, pl === 'other' ? d.PlaceOther : '', px, py, R - px - 20, { size: 15 });
+    });
+    y += h5;
+
+    // --- injury types: two columns, exactly as printed ---
+    var picked = injTypeList(d.InjuryTypes), h6 = H - 96 - y;
+    frame(ctx, L, y, w, h6); vline(ctx, L + 620, y, y + h6);
+    text(ctx, 'ชนิดการบาดเจ็บ  ใส่ / ที่ช่อง [ ]', L + 12, y + 26, { size: 17, weight: 700 });
+    var ty = y + 56, col = 0, cxs = [L + 12, L + 632], colW = [590, w - 632 + L - 12];
+    for (var k = 0; k < 17; k++) {
+      if (k === 8) { col = 1; ty = y + 56; }
+      var on = picked.indexOf(String(k + 1)) >= 0;
+      var bx2 = cxs[col];
+      text(ctx, (k + 1) + '.', bx2, ty, { size: 15 });
+      var tx = tick(ctx, bx2 + 34, ty, on, 14);
+      var end = wrap(ctx, INJ_TYPES_TH[k], tx, ty, colW[col] - 60, 22, 3, 14.5);
+      ty = Math.max(end, ty + 22) + 4;
+    }
+    text(ctx, '| ๙๖ |', W / 2, H - 46, { size: 15, align: 'center' });
+  }
+
+  function drawInjuryPage2(ctx, d) {
+    var x = 90, w = W - 180, y = 110;
+    ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, W, H);
+    var boxH = 470;
+    frame(ctx, x, y, w, boxH);
+    text(ctx, 'ตำแหน่งการบาดเจ็บ', x + 16, y + 34, { size: 18, weight: 700 });
+    // four figures — front, front, back, side, as on the printed sheet
+    var fx = x + 90, fy = y + 70, fh = 300;
+    for (var i = 0; i < 4; i++) bodyOutline(ctx, fx + i * ((w - 180) / 3.4), fy, fh, i === 3 || i === 0);
+    text(ctx, 'ระบายตำแหน่งที่มีการบาดเจ็บทั้งหมด พร้อมระบุหมายเลขบาดแผล เพื่อบันทึกในช่องต่อไป',
+      x + 16, y + boxH - 22, { size: 15 });
+    y += boxH;
+
+    // wound table + characteristics legend
+    var tH = 430, c1 = x + 230, c2 = x + 640;
+    frame(ctx, x, y, w, tH); vline(ctx, c1, y, y + tH); vline(ctx, c2, y, y + tH);
+    text(ctx, 'หมายเลขบาดแผลตามรูป', x + 16, y + 30, { size: 15 });
+    text(ctx, 'รายละเอียดการบาดเจ็บของบาดแผล', c1 + 12, y + 30, { size: 15 });
+    text(ctx, '(ระบุเลข ๑-๑๔ ตามตารางซ้ายมือสุด)', c1 + 12, y + 52, { size: 12, color: '#333' });
+    text(ctx, 'รายละเอียดลักษณะการบาดเจ็บ', c2 + 12, y + 30, { size: 15 });
+    var ry = y + 68;
+    hline(ctx, x, ry, c2);
+    for (var r2 = 0; r2 < 8; r2++) {
+      var rowY = ry + r2 * 40;
+      text(ctx, 'บาดแผลหมายเลข ' + '๑๒๓๔๕๖๗๘'.charAt(r2), x + 16, rowY + 28, { size: 15 });
+      if (r2 < 7) hline(ctx, x, rowY + 40, c2);
+    }
+    var ly = y + 56;
+    INJ_CHAR_TH.forEach(function (s, i) {
+      text(ctx, (i + 1) + '. ' + s, c2 + 12, ly, { size: 13.5 });
+      ly += 24;
+    });
+    y += tH;
+
+    // help given
+    var hH = H - 96 - y, c3 = x + 640;
+    frame(ctx, x, y, w, hH); vline(ctx, c3, y, y + hH);
+    text(ctx, 'การช่วยเหลือการบาดเจ็บ', x + 200, y + 34, { size: 17, weight: 700 });
+    hline(ctx, x + 200, y + 40, x + 480);
+    var gx = tick(ctx, x + 16, y + 82, false);
+    text(ctx, 'ไม่ต้องรับการรักษาใดๆ', gx, y + 82, { size: 15 });
+    gx = tick(ctx, x + 250, y + 82, false);
+    text(ctx, 'ได้รับการรักษาพยาบาล ที่', gx, y + 82, { size: 15 });
+    fill(ctx, '', x + 480, y + 82, c3 - x - 500, { size: 14 });
+    var places = ['ห้องพยาบาลของโรงเรียน', 'ศูนย์บริการสาธารณสุข\nสถานีอนามัย', 'คลินิก',
+      'โรงพยาบาลรัฐบาล', 'โรงพยาบาลเอกชน', 'ทันตแพทย์', 'อื่นๆ ........................................'];
+    var hy = y + 34;
+    places.forEach(function (p) {
+      var lines = p.split('\n');
+      var px2 = tick(ctx, c3 + 14, hy, false, 14);
+      text(ctx, lines[0], px2, hy, { size: 14 });
+      hy += 22;
+      if (lines[1]) { text(ctx, lines[1], px2, hy, { size: 14 }); hy += 22; }
+    });
+    text(ctx, '| ๙๗ |', W / 2, H - 46, { size: 15, align: 'center' });
+  }
+
+  /** A plain line-art body, front (with a face line) or back. Enough to mark a wound position on. */
+  function bodyOutline(ctx, cx, top, h, front) {
+    var u = h / 8;                                  // one "head" tall ≈ 1/8 of the figure
+    ctx.strokeStyle = '#000'; ctx.lineWidth = 1.6; ctx.beginPath();
+    ctx.ellipse(cx, top + u * 0.55, u * 0.36, u * 0.55, 0, 0, Math.PI * 2); ctx.stroke();   // head
+    ctx.beginPath();
+    ctx.moveTo(cx - u * 0.16, top + u * 1.1); ctx.lineTo(cx - u * 0.9, top + u * 1.6);       // shoulders
+    ctx.lineTo(cx - u * 1.05, top + u * 3.9);                                                // left arm
+    ctx.lineTo(cx - u * 0.78, top + u * 3.95); ctx.lineTo(cx - u * 0.62, top + u * 2.2);
+    ctx.lineTo(cx - u * 0.62, top + u * 4.2);                                                // waist/hip
+    ctx.lineTo(cx - u * 0.58, top + u * 7.8); ctx.lineTo(cx - u * 0.16, top + u * 7.85);
+    ctx.lineTo(cx, top + u * 4.6);                                                           // crotch
+    ctx.lineTo(cx + u * 0.16, top + u * 7.85); ctx.lineTo(cx + u * 0.58, top + u * 7.8);
+    ctx.lineTo(cx + u * 0.62, top + u * 4.2); ctx.lineTo(cx + u * 0.62, top + u * 2.2);
+    ctx.lineTo(cx + u * 0.78, top + u * 3.95); ctx.lineTo(cx + u * 1.05, top + u * 3.9);
+    ctx.lineTo(cx + u * 0.9, top + u * 1.6); ctx.lineTo(cx + u * 0.16, top + u * 1.1);
+    ctx.closePath(); ctx.stroke();
+    if (front) {                                     // a hint of a face, so front/back read apart
+      ctx.lineWidth = 1.2; ctx.beginPath();
+      ctx.moveTo(cx - u * 0.16, top + u * 0.5); ctx.lineTo(cx - u * 0.08, top + u * 0.5);
+      ctx.moveTo(cx + u * 0.08, top + u * 0.5); ctx.lineTo(cx + u * 0.16, top + u * 0.5);
+      ctx.stroke();
+    }
+  }
+
+  function renderInjury(d) {
+    return (document.fonts && document.fonts.ready ? Promise.race([document.fonts.ready, new Promise(function (r) { setTimeout(r, 1500); })]) : Promise.resolve())
+      .then(function () {
+        return [drawInjuryPage1, drawInjuryPage2].map(function (fn) {
+          var cv = document.createElement('canvas'); cv.width = W; cv.height = H;
+          var ctx = cv.getContext('2d'); fn(ctx, d || {});
+          return { dataUrl: cv.toDataURL('image/jpeg', 0.94), width: W, height: H };
+        });
+      })
+      .then(function (pages) { return { pages: pages, pageCount: pages.length }; });
+  }
+
   window.AtomReportCard = {
     render: render,
+    renderInjury: renderInjury,
+    /** The official injury form, filled in, as a 2-page A4 PDF. Built here; nothing is uploaded. */
+    saveInjury: function (d, kind) {
+      return renderInjury(d).then(function (r) {
+        var who = String((d && (d.ChildName || d.nick)) || '').replace(/[\\/:*?"<>|\s]+/g, '_');
+        var base = 'แบบบันทึกการบาดเจ็บ_' + (who || 'เด็ก') + '_' + String((d && d.Date) || '').slice(0, 10);
+        if (kind === 'jpg') {
+          r.pages.forEach(function (p, i) { download(p.dataUrl, base + '_' + (i + 1) + 'of' + r.pageCount + '.jpg'); });
+        } else {
+          var sheets = r.pages.map(function (p) { return { bytes: b64ToBytes(p.dataUrl.split(',')[1]), w: p.width, h: p.height }; });
+          download(buildPdf(sheets), base + '.pdf', 'application/pdf');
+        }
+        return r;
+      });
+    },
     renderMenu: renderMenu,
     renderTable: renderTable,
     saveTable: saveTable,
