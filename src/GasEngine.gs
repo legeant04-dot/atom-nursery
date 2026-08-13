@@ -275,8 +275,22 @@ var COLLECTION_HEADERS_ = {
 function ensureCollectionSheet_(def) {
   var ss = wbOf_(def.wb);
   var sh = ss.getSheetByName(def.sheet);
-  if (sh) return sh;
   var hdr = COLLECTION_HEADERS_[def.sheet];
+  if (sh) {
+    /**
+     * The sheet exists — but does it have every column we declare?
+     *
+     * writeRows_ maps each row onto the sheet's EXISTING headers, so a field with no column is
+     * dropped WITHOUT AN ERROR. Declaring a new one in Config.gs therefore fixed nothing for a
+     * sheet already created: the write kept vanishing. That is how INJURY_REPORTS.NotifyParent was
+     * lost — the app sent it, the screen displayed it, and every emergency still read back as
+     * "the parents were not told".
+     * Topping the header up here fixes that whole class of bug once, for every collection. It only
+     * ever APPENDS declared names at the end; nothing is renamed, reordered or removed.
+     */
+    if (hdr) { try { ensureColumns_(sh, hdr); } catch (e) {} }
+    return sh;
+  }
   if (!hdr) return null;                       // an unknown sheet is NOT invented — that would hide a typo
   sh = ss.insertSheet(def.sheet);
   sh.getRange(1, 1, 1, hdr.length).setValues([hdr]);

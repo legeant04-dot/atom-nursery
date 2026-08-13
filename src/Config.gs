@@ -111,7 +111,11 @@ SCHEMA[WB.MAIN] = {
   // 17 standard type codes; Place = code + PlaceOther free text; Witness = yes|no|unsure. Surfaces in the Daily Report + notifies Admin.
   INJURY_REPORTS:    ['InjuryID', 'Date', 'Time', 'CenterName', 'AffiliationType', 'AffiliationOther', 'District',
                       'RecorderName', 'StudentID', 'ChildName', 'Sex', 'AgeYears', 'AgeMonths', 'EduStatus', 'EduGrade',
-                      'Narrative', 'CauseObject', 'Witness', 'Place', 'PlaceOther', 'InjuryTypes', 'TeacherID', 'CreatedDate'],
+                      'Narrative', 'CauseObject', 'Witness', 'Place', 'PlaceOther', 'InjuryTypes', 'TeacherID', 'CreatedDate',
+                      // whether the parents were told at the time. The engine has always SENT this and the
+                      // report screen has always DISPLAYED it, but the column was missing — so every
+                      // emergency read back as "ยังไม่แจ้ง" even when the family had been messaged.
+                      'NotifyParent'],
   // PCHI (Pacific Cross) insurance member form — columns mirror the official xlsx "Input Data" sheet.
   // ONE record per student (unique by StudentID / NationalID). Parent fills once; Admin reviews/edits. Insurance data
   // is written ONLY to this sheet. (Deploy: this sheet IS the Google Sheet generated from the supplied form file.)
