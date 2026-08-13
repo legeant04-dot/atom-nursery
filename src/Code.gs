@@ -280,6 +280,10 @@ function applyIdentity_(action, payload, sess) {
     decideClassChange: 1, confirmTimeRequest: 1,
     addAnnouncement: 1, editAnnouncement: 1, deleteAnnouncement: 1, reindexAnnouncements: 1, reindexParents: 1, checkDuplicateIds: 1,
     saveDspmCriteria: 1, deleteDspmCriteria: 1,
+    // injury: unlocking a finished report and deleting one are the admin's alone. approveInjury and
+    // editInjury are NOT here — a หัวหน้าครู takes the first step and the teacher who filed it may
+    // still correct it, and this list cannot see either of those rules. The engine checks them.
+    unlockInjury: 1, deleteInjury: 1,
     editStudentLeave: 1, deleteStudentLeave: 1, deleteStudentLeaves: 1, dedupData: 1, lineDiag: 1,
     adminInbox: 1, markInboxRead: 1, reinstallTriggers: 1, unlinkStudent: 1, linkParentAdmin: 1, setLeaveQuota: 1, setConfigVal: 1, markSalaryPaid: 1, notifyBills: 1, issueBillsFor: 1, savePlans: 1, saveQRCodes: 1, prepayAudit: 1, recomputeContributions: 1, savePrepayTiers: 1, editPrepay: 1, setStudentPause: 1, setStaffEnd: 1, staffAttendanceMonth: 1, studentMonthReport: 1, recordCashPayment: 1, pausedStudents: 1, deleteSlip: 1, slipDiag: 1, saveSlipOk: 1, cancelPrepay: 1, perfSummary: 1, deletePerfLog: 1,
     // Phase 7. The engine handlers already check the caller's role; listing them here as well means a
@@ -409,7 +413,7 @@ var READ_ONLY_ACTIONS_ = { absenceReport: 1, paymentLog: 1, paymentSlips: 1, pay
  * recorded a cash payment kept seeing the bill as unpaid.
  * Keep identical to WRITES in webapp/api.js — tools/test_lost_reply.js fails if it drifts.
  */
-var WRITES_ACTIONS_ = { recordCashPayment: 1, teacherStudentLeave: 1, unlockJournal: 1,
+var WRITES_ACTIONS_ = { recordCashPayment: 1, teacherStudentLeave: 1, unlockJournal: 1, unlockInjury: 1,
   adminResetPassword: 1, adminUpdateOT: 1, adminCancelOT: 1, adminRestoreOT: 1,
   adminAddOT: 1, adminEditOT: 1, adminDeleteOT: 1, decideClassChange: 1, reinstallTriggers: 1 };
 // dedupData/reindex* mutate but don't start with a MUTATING_RE verb — force them to take the write lock

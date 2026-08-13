@@ -2783,14 +2783,98 @@ function createAtomAPI(M, GROWTH_STD) {
         RecorderName:p.recorderName||'',StudentID:p.studentId,ChildName:s.NameTH||p.childName||'',Sex:s.Gender||p.sex||'',
         AgeYears:p.ageYears!=null?p.ageYears:(s.DOB?Math.floor(ageMonths(s.DOB)/12):''),AgeMonths:p.ageMonths!=null?p.ageMonths:(s.DOB?ageMonths(s.DOB)%12:''),
         EduStatus:p.eduStatus||'',EduGrade:p.eduGrade||'',Narrative:p.narrative||'',CauseObject:p.causeObject||'',
-        Witness:p.witness||'',Place:p.place||'',PlaceOther:p.placeOther||'',InjuryTypes:p.injuryTypes,TeacherID:p.staffId||'',NotifyParent:p.notifyParent?'YES':'',CreatedDate:todayLocal()};
+        Witness:p.witness||'',Place:p.place||'',PlaceOther:p.placeOther||'',InjuryTypes:p.injuryTypes,TeacherID:p.staffId||'',NotifyParent:p.notifyParent?'YES':'',CreatedDate:todayLocal(),
+        // filed, not finished: หัวหน้าครู reads it first, then แอดมิน (see approveInjury)
+        Status:'PENDING_LEADER',LeaderBy:'',LeaderAt:'',AdminBy:'',AdminAt:'',RejectReason:''};
       M.injuryReports.push(rec);
       const nm=s.NameTH||p.childName||p.studentId;
       M.feed.unshift({id:'INJ-N'+M.injuryReports.length,text:'⚠️ บันทึกอุบัติเหตุ: '+nm+' ('+rec.InjuryTypes.length+' รายการ)',
         textEN:'⚠️ Injury logged: '+(s.NameEN||nm)+' ('+rec.InjuryTypes.length+' item(s))',time:rec.Time,roles:['Admin','Leader'],read:false,studentId:p.studentId,
         category:'emergency',ref:'injury|'+id});   // ref = deep link so tapping opens THIS report
       logAct('submitInjury',p.studentId,nm+' — types '+rec.InjuryTypes.join(','),actorOf(p));
-      return {injuryId:id}; },
+      return {injuryId:id, status:rec.Status}; },
+
+    /* ---- injury: two-step approval, like a leave request ------------------------------------
+     * teacher files → หัวหน้าครู approves → แอดมิน approves → the record is final.
+     *
+     * The APPROVAL IS PAPERWORK, NOT A GATE ON TELLING PEOPLE. The emergency notification to admins,
+     * leaders and (if ticked) the parents still goes out the moment the teacher saves — waiting for
+     * a signature before saying a child is hurt would be indefensible. What the chain adds is that
+     * the document sent to the authority has been read and agreed by two people.
+     *
+     * The report stays EDITABLE until it is final: the person who filed it and any leader/admin may
+     * correct it while it is still moving, and an admin may correct, unlock or delete it at any
+     * time. Each change is logged, because this is the record of an accident to a child.
+     */
+    approveInjury: p => { const ap=staffById(p.staffId)||{};
+      const r=(M.injuryReports||[]).find(x=>String(x.InjuryID)===String(p.injuryId));
+      if(!r)fail('NOT_FOUND','ไม่พบรายงานอุบัติเหตุ');
+      const yes=p.decision==='approve', st=String(r.Status||'PENDING_LEADER').toUpperCase();
+      const isAdmin=adminLike_(ap), isLeader=ap.PositionLevel==='Leader'||isAdmin;
+      const stamp=stampLocal();
+      if(st==='PENDING_LEADER'){
+        if(!isLeader)fail('NO_PERMISSION','เฉพาะหัวหน้าครูหรือแอดมิน');
+        r.LeaderBy=ap.NameTH||ap.StaffID||''; r.LeaderAt=stamp;
+        r.Status=yes?'PENDING_ADMIN':'REJECTED';
+      } else if(st==='PENDING_ADMIN'){
+        if(!isAdmin)fail('NO_PERMISSION','เฉพาะแอดมิน');
+        r.AdminBy=ap.NameTH||ap.StaffID||''; r.AdminAt=stamp;
+        r.Status=yes?'APPROVED':'REJECTED';
+      } else fail('ALREADY_RESOLVED','รายงานนี้ดำเนินการเรียบร้อยแล้ว');
+      if(!yes) r.RejectReason=String(p.reason||'');
+      logAct('approveInjury',r.InjuryID,(yes?'อนุมัติ':'ตีกลับ')+' → '+r.Status,actorOf(p));
+      return {injuryId:r.InjuryID, status:r.Status}; },
+
+    /** Correct a report. Anyone involved while it is still moving; an admin whenever. */
+    editInjury: p => { const ap=staffById(p.staffId)||{};
+      const r=(M.injuryReports||[]).find(x=>String(x.InjuryID)===String(p.injuryId));
+      if(!r)fail('NOT_FOUND','ไม่พบรายงานอุบัติเหตุ');
+      const isAdmin=adminLike_(ap);
+      const st=String(r.Status||'PENDING_LEADER').toUpperCase();
+      if(!isAdmin){
+        if(st==='APPROVED')fail('LOCKED','รายงานนี้อนุมัติครบแล้ว — ให้แอดมินปลดล็อกก่อนแก้ไข');
+        const mine=String(r.TeacherID||'')===String(p.staffId);
+        if(!mine && ap.PositionLevel!=='Leader')fail('NO_PERMISSION','แก้ไขได้เฉพาะผู้บันทึกหรือหัวหน้าครู');
+      }
+      const d=p.data||{};
+      // whitelisted: the form's own fields. Status and the approval trail are NOT editable here.
+      ['Date','Time','CenterName','AffiliationType','AffiliationOther','District','RecorderName',
+       'ChildName','Sex','AgeYears','AgeMonths','EduStatus','EduGrade','Narrative','CauseObject',
+       'Witness','Place','PlaceOther'].forEach(k=>{ if(d[k]!==undefined) r[k]=d[k]; });
+      if(Array.isArray(d.InjuryTypes)&&d.InjuryTypes.length) r.InjuryTypes=d.InjuryTypes;
+      if(d.NotifyParent!==undefined) r.NotifyParent=d.NotifyParent?'YES':'';
+      r.UpdatedBy=ap.NameTH||ap.StaffID||''; r.UpdatedAt=stampLocal();
+      logAct('editInjury',r.InjuryID,'แก้ไขรายงาน',actorOf(p));
+      return {injuryId:r.InjuryID, status:r.Status}; },
+
+    /** Admin sends a finished report back for correction. */
+    unlockInjury: p => { const ap=staffById(p.staffId)||{};
+      if(!adminLike_(ap))fail('NO_PERMISSION','เฉพาะแอดมิน');
+      const r=(M.injuryReports||[]).find(x=>String(x.InjuryID)===String(p.injuryId));
+      if(!r)fail('NOT_FOUND','ไม่พบรายงานอุบัติเหตุ');
+      r.Status='PENDING_LEADER'; r.LeaderBy=''; r.LeaderAt=''; r.AdminBy=''; r.AdminAt=''; r.RejectReason='';
+      r.UpdatedBy=ap.NameTH||ap.StaffID||''; r.UpdatedAt=stampLocal();
+      logAct('unlockInjury',r.InjuryID,'ปลดล็อกให้แก้ไข',actorOf(p));
+      return {injuryId:r.InjuryID, status:r.Status}; },
+
+    deleteInjury: p => { const ap=staffById(p.staffId)||{};
+      if(!adminLike_(ap))fail('NO_PERMISSION','เฉพาะแอดมิน');
+      const i=(M.injuryReports||[]).findIndex(x=>String(x.InjuryID)===String(p.injuryId));
+      if(i<0)fail('NOT_FOUND','ไม่พบรายงานอุบัติเหตุ');
+      const r=M.injuryReports[i]; M.injuryReports.splice(i,1);
+      logAct('deleteInjury',r.InjuryID,(r.ChildName||'')+' '+ymd(r.Date),actorOf(p));
+      return {ok:true, injuryId:p.injuryId}; },
+
+    /** Reports waiting for THIS person to act — the leader's queue, then the admin's. */
+    pendingInjuries: p => { const ap=staffById(p&&p.staffId)||{};
+      const isAdmin=adminLike_(ap), isLeader=ap.PositionLevel==='Leader'||isAdmin;
+      if(!isLeader) return [];
+      const want = isAdmin ? ['PENDING_LEADER','PENDING_ADMIN'] : ['PENDING_LEADER'];
+      return (M.injuryReports||[])
+        .filter(r=>want.indexOf(String(r.Status||'PENDING_LEADER').toUpperCase())>=0)
+        .map(r=>{ const s=studentById(r.StudentID)||{};
+          return Object.assign({nameEN:s.NameEN,nick:s.Nickname,className:s.Class},r); })
+        .sort((a,b)=>(String(b.Date)+b.Time).localeCompare(String(a.Date)+a.Time)); },
     // injury reports (Admin/teacher). Optional date OR month filter; newest first.
     injuryReports: p => M.injuryReports
       .filter(r=>!p||((!p.date||ymd(r.Date)===ymd(p.date)) && (!p.month||ym(r.Date)===ym(p.month))))

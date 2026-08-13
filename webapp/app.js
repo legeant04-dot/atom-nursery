@@ -112,7 +112,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.223'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.224'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -290,6 +290,19 @@
   function tenure(startDate){ if(!startDate) return '-'; const d=new Date(startDate),n=new Date();
     let m=(n.getFullYear()-d.getFullYear())*12+(n.getMonth()-d.getMonth()); if(n.getDate()<d.getDate())m--; m=Math.max(0,m);
     return ageYMfromMonths(m); }
+  /**
+   * A leaving date that has been agreed but not arrived, shown under the start date.
+   *
+   * ADMIN ONLY, on purpose. This is on the admin roster and nowhere else: the teacher's own profile
+   * reads staffSelf, whose whitelist does not include EndDate, so nobody learns their last day from
+   * the app — the school tells them. Somebody still on the roster for another three weeks must not
+   * open the app one morning and find out that way.
+   */
+  function endNote(s){
+    const d=String((s&&s.EndDate)||'').slice(0,10); if(!d) return '';
+    const why=[s.EndReason, s.EndRemark].filter(Boolean).join(' · ');
+    return `<br><small style="color:var(--warn)">🚪 ${EN()?'Last working day':'วันสิ้นสุดการทำงาน'} ${esc(d)}${why?' · '+esc(why):''}</small>`;
+  }
   // MOCK.config.Plans holds only SEED plans in gas mode, so a live id like "p_6900" isn't found →
   // format it as "Plan 6900" instead of showing the raw id.
   // Look in the LIVE plans first (A_CACHE.plans, loaded from getPlans) and only then the seed. Live
@@ -2211,6 +2224,7 @@
     const me0=me0raw||{};
     if(me0.MustChangePassword){ T_changePw(true); return; } // force password change on first login
     const isLeader = me0.PositionLevel==='Leader' || me0.Role==='Leader' || USER.role==='Leader';
+    USER._isLeader = isLeader;   // remembered for screens that cannot re-read the staff record (isLeaderRole)
     const canOrg = !!me0.CanClassOrg || isLeader;   // may use the drag class-organize tool (admin-granted)
     // the teacher the admin put in charge of the kitchen menu gets the monthly menu screen too
     const canFood = ['YES','TRUE','1'].indexOf(String(me0.CanFoodMenu||'').toUpperCase())>=0 || me0.CanFoodMenu===true;
@@ -2242,6 +2256,7 @@
         <div class="quota">${quota.map(q=>`<div class="q"><div class="n">${q.remain}</div><div class="l">${esc(q.type)}<br>${q.used}/${q.quota}</div></div>`).join('')}</div>
         <div id="ml" style="margin-top:8px"></div><button class="btn sm outline" style="margin-top:6px" onclick="GO('leave')">+ ยื่น/ดูใบลา</button></div>
       ${isLeader?`<div class="card"><div class="spread"><h3>⭐ คำขอลาของลูกน้อง (รออนุมัติ)</h3></div><div id="tp"></div></div>`:''}
+      ${isLeader?`<div class="card"><div class="spread"><h3>🚑 ${EN()?'Injury reports to approve':'รายงานอุบัติเหตุ (รออนุมัติ)'}</h3></div><div id="tinj"></div></div>`:''}
       <div class="card"><h3>${esc(t('ot.myOT'))}</h3><div id="myot"></div></div>
       ${isLeader?`<div class="card"><h3>${esc(t('ot.teamOT'))}</h3><div id="teamot"></div></div>`:''}
       ${isLeader?`<div class="card"><div class="spread"><h3>${esc(t('corg.title'))}</h3><button class="btn sm" onclick="T_classOrg()">🔁 ${esc(t('corg.manage'))}</button></div><small class="muted">${esc(t('corg.leaderNote'))}</small><div id="myccr" style="margin-top:8px"></div></div>`:''}
@@ -2262,7 +2277,9 @@
       const p_tp=api('teamPendingLeaves',{staffId:USER.staffId}).catch(()=>[]);
       const p_to=api('teamPendingOT',{staffId:USER.staffId}).catch(()=>[]);
       const p_cc=api('myClassChanges',{staffId:USER.staffId}).catch(()=>[]);
-      const [tp,to,ccr]=await Promise.all([p_tp,p_to,p_cc]);
+      const p_ti=api('pendingInjuries',{staffId:USER.staffId}).catch(()=>[]);
+      const [tp,to,ccr,ti]=await Promise.all([p_tp,p_to,p_cc,p_ti]);
+      setHTML('#tinj', injuryListHTML(ti));
       setHTML('#tp', tp.map(l=>teamLeaveRow(l)).join('')||'<small class="muted">ไม่มีคำขอรออนุมัติ</small>');
       setHTML('#teamot', to.map(otApproveRow).join('')||`<small class="muted">${esc(t('ot.none'))}</small>`);
       setHTML('#myccr', ccr.slice(0,4).map(ccrRow).join('')||`<small class="muted">${esc(t('corg.noReq'))}</small>`);
@@ -2581,9 +2598,25 @@
       <button class="btn block pink" onclick="T_injurySave()">${esc(t('inj.save'))}</button>
       <div class="card" style="margin-top:12px"><h3>🗒️ ${esc(t('inj.recent'))}</h3><div id="injRecent">${injuryListHTML(recent)}</div></div>`;
   };
+  /* ---- injury approval: teacher → หัวหน้าครู → แอดมิน ----------------------------------------
+   * The same two steps as a leave request, and shown the same way, so nobody has to learn a second
+   * vocabulary. The emergency notification is NOT part of this: it goes out when the teacher saves,
+   * because a hurt child cannot wait for a signature. This chain is about the DOCUMENT.
+   */
+  const INJ_STATUS = {
+    PENDING_LEADER: ()=>EN()?'Waiting for the head teacher':'รอหัวหน้าครู',
+    PENDING_ADMIN:  ()=>EN()?'Waiting for the admin':'รอแอดมิน',
+    APPROVED:       ()=>EN()?'Approved':'อนุมัติแล้ว',
+    REJECTED:       ()=>EN()?'Sent back':'ตีกลับให้แก้ไข'
+  };
+  const injStatus = r => String((r&&r.Status)||'PENDING_LEADER').toUpperCase();
+  function injStatusPill(r){ const s=injStatus(r);
+    const cls = s==='APPROVED'?'ok' : s==='REJECTED'?'bad' : 'wait';
+    return `<span class="pill ${cls}" style="font-size:11px">${esc((INJ_STATUS[s]||INJ_STATUS.PENDING_LEADER)())}</span>`;
+  }
   function injuryListHTML(rows){ if(!rows||!rows.length)return `<small class="muted">${esc(t('c.noItems'))}</small>`;
     return rows.slice(0,10).map(r=>{ const types=injTypeNames(r.InjuryTypes);
-      return `<div class="list-item" onclick="A_viewInjury('${esc(r.InjuryID||'')}')" style="cursor:pointer"><span><b>${esc(EN()?(r.nameEN||r.ChildName):r.ChildName)}</b> <small class="muted">${esc(ddmmyyyy(r.Date))} ${esc(r.Time)}</small><br><small class="muted">${esc(types)}</small></span><span class="muted">›</span></div>`; }).join(''); }
+      return `<div class="list-item" onclick="A_viewInjury('${esc(r.InjuryID||'')}')" style="cursor:pointer"><span><b>${esc(EN()?(r.nameEN||r.ChildName):r.ChildName)}</b> <small class="muted">${esc(ddmmyyyy(r.Date))} ${esc(r.Time)}</small><br><small class="muted">${esc(types)}</small></span><span>${injStatusPill(r)} <span class="muted">›</span></span></div>`; }).join(''); }
   // injury type codes → the official form's wording. Stored as numbers; may arrive as a JSON string.
   function injTypeNames(v){ let a=v; if(typeof a==='string'&&a){ try{ a=JSON.parse(a); }catch(e){ a=String(a).split(/[,\s]+/).filter(Boolean); } }
     return (Array.isArray(a)?a:[]).map(n=>{ const it=INJURY_TYPES.find(x=>String(x.n)===String(n)); return it?(EN()?it.en:it.th):n; }).join(', '); }
@@ -2632,6 +2665,21 @@
         ${row(EN()?'Parent notified':'แจ้งผู้ปกครองแล้ว', String(r.NotifyParent||'')==='YES'?(EN()?'Yes':'แจ้งแล้ว'):(EN()?'No':'ยังไม่แจ้ง'))}
         ${row(EN()?'Report no.':'เลขที่รายงาน', r.InjuryID)}
       </div>
+      <div class="card" style="padding:8px">
+        <div class="spread"><b style="font-size:13px">✅ ${EN()?'Approval':'การอนุมัติ'}</b>${injStatusPill(r)}</div>
+        <div style="margin-top:4px;font-size:13px">
+          <div>1. ${EN()?'Head teacher':'หัวหน้าครู'}: ${r.LeaderBy?`<b>${esc(r.LeaderBy)}</b> <small class="muted">${esc(r.LeaderAt||'')}</small>`:`<span class="muted">${EN()?'not yet':'ยังไม่ดำเนินการ'}</span>`}</div>
+          <div>2. ${EN()?'Admin':'แอดมิน'}: ${r.AdminBy?`<b>${esc(r.AdminBy)}</b> <small class="muted">${esc(r.AdminAt||'')}</small>`:`<span class="muted">${EN()?'not yet':'ยังไม่ดำเนินการ'}</span>`}</div>
+          ${r.RejectReason?`<div style="color:var(--bad);margin-top:4px">↩️ ${esc(r.RejectReason)}</div>`:''}
+          ${r.UpdatedBy?`<div class="muted" style="margin-top:4px">✏️ ${EN()?'last edited by':'แก้ไขล่าสุดโดย'} ${esc(r.UpdatedBy)} ${esc(r.UpdatedAt||'')}</div>`:''}
+        </div>
+        ${injCanDecide(r)?`<div class="row" style="gap:8px;margin-top:8px">
+          <button class="btn" style="flex:1" onclick="A_injDecide('${esc(r.InjuryID)}','approve',this)">✅ ${EN()?'Approve':'อนุมัติ'}</button>
+          <button class="btn pink" style="flex:1" onclick="A_injDecide('${esc(r.InjuryID)}','reject',this)">↩️ ${EN()?'Send back':'ตีกลับ'}</button></div>`:''}
+        ${isAdmin()?`<div class="row" style="gap:8px;margin-top:8px">
+          ${injStatus(r)==='APPROVED'?`<button class="btn sm outline" style="flex:1" onclick="A_injUnlock('${esc(r.InjuryID)}',this)">🔓 ${EN()?'Unlock to edit':'ปลดล็อกให้แก้ไข'}</button>`:''}
+          <button class="btn sm pink" style="flex:1" onclick="A_injDelete('${esc(r.InjuryID)}',this)">🗑️ ${EN()?'Delete':'ลบรายงาน'}</button></div>`:''}
+      </div>
       <div class="row" style="gap:8px">
         <button class="btn" style="flex:1" onclick="A_injuryPdf('${esc(r.InjuryID||'')}',this)">📄 ${EN()?'Official form (PDF)':'แบบฟอร์มราชการ (PDF)'}</button>
         <button class="btn outline" style="flex:1" onclick="A_injuryPdf('${esc(r.InjuryID||'')}',this,'jpg')">🖼️ ${EN()?'Image':'รูป'}</button></div>
@@ -2642,6 +2690,50 @@
    * follows the same PDPA rule as the report card: drawn in the browser, downloaded, never uploaded
    * and never given a shareable URL.
    */
+  /**
+   * Is it THIS person's turn? The server decides for real (approveInjury); this only decides whether
+   * to offer a button, so nobody is shown one that will be refused.
+   */
+  const isAdmin = () => USER.role==='Admin';
+  /**
+   * USER.role is 'Teacher' for a head teacher too — being a leader lives on the STAFF RECORD
+   * (PositionLevel), which is why the home screen reads staffSelf to decide its leader-only cards.
+   * It stores the answer here so every other screen uses that same one rather than guessing from
+   * the role name, which reads "คุณครู" for a leader and would hide the approve button from them.
+   */
+  const isLeaderRole = () => USER.role==='Admin' || USER.role==='Leader' || USER._isLeader===true;
+  function injCanDecide(r){ const s=injStatus(r);
+    if(s==='PENDING_LEADER') return isLeaderRole();
+    if(s==='PENDING_ADMIN') return isAdmin();
+    return false;
+  }
+  window.A_injDecide=async(id,decision,btn)=>{
+    let reason='';
+    if(decision==='reject'){
+      reason=String(prompt(EN()?'Why is it being sent back? (the teacher will see this)':'ตีกลับเพราะอะไร? (ผู้บันทึกจะเห็นข้อความนี้)')||'').trim();
+      if(!reason) return;                       // cancelled — nothing happens
+    }
+    if(btn)btn.disabled=true;
+    try{ const r=await api('approveInjury',{staffId:USER.staffId,injuryId:id,decision,reason});
+      confirmSaved(decision==='approve'?(EN()?'Approved':'อนุมัติแล้ว'):(EN()?'Sent back':'ตีกลับแล้ว'));
+      const m=document.querySelector('.modal'); if(m)m.remove(); A_viewInjury(id);
+    }catch(e){ err(e); if(btn)btn.disabled=false; } };
+  window.A_injUnlock=async(id,btn)=>{
+    if(!confirm(EN()?'Unlock this report so it can be corrected? It goes back to the head teacher for approval.'
+                    :'ปลดล็อกรายงานนี้เพื่อแก้ไข? สถานะจะกลับไปรออนุมัติจากหัวหน้าครูอีกครั้ง')) return;
+    if(btn)btn.disabled=true;
+    try{ await api('unlockInjury',{staffId:USER.staffId,injuryId:id});
+      confirmSaved(EN()?'Unlocked':'ปลดล็อกแล้ว');
+      const m=document.querySelector('.modal'); if(m)m.remove(); A_viewInjury(id);
+    }catch(e){ err(e); if(btn)btn.disabled=false; } };
+  window.A_injDelete=async(id,btn)=>{
+    if(!confirm(EN()?'Delete this injury report for good? This is the record of an accident to a child.'
+                    :'ลบรายงานอุบัติเหตุนี้ถาวร? นี่คือบันทึกอุบัติเหตุที่เกิดกับเด็ก')) return;
+    if(btn)btn.disabled=true;
+    try{ await api('deleteInjury',{staffId:USER.staffId,injuryId:id});
+      const m=document.querySelector('.modal'); if(m)m.remove();
+      toast(EN()?'Deleted':'ลบแล้ว'); if(SCREENS[USER.role]&&SCREENS[USER.role][CURRENT]) SCREENS[USER.role][CURRENT]();
+    }catch(e){ err(e); if(btn)btn.disabled=false; } };
   window.A_injuryPdf=async(id,btn,kind)=>{ const old=btn?btn.innerHTML:'';
     if(btn){ btn.disabled=true; btn.innerHTML='⏳'; }
     try{
@@ -3940,7 +4032,7 @@
       ${searchBox()}
       <div class="card secw" id="sec-staff">${secHead('👩‍🏫',t('c.staff'),_stAct.length,`<button class="btn sm" onclick="event.stopPropagation();A_staffForm()">+ ${esc(t('manage.add'))}</button>`)}
         <div class="secbody" hidden>
-        ${_stAct.map(s=>`<div class="list-item stack" data-k="${esc((s.NameTH+' '+(s.NameEN||'')+' '+(s.Nickname||'')+' '+(s.Position||'')+' '+(s.Department||'')).toLowerCase())}"><span style="display:flex;gap:8px;align-items:center">${personAvatar(s)}<span><b>${esc(dispNick(s))}</b> ${nmSub(s)?`<small class="muted">${esc(nmSub(s))}</small>`:""}<br><small class="muted">${_notr(s.Position||"")} · ${esc(deptLabel(s))} · 🕑 ${_notr(groupLabel(s.StaffGroup))}${groupHours(s.StaffGroup)?' ('+esc(groupHours(s.StaffGroup))+')':''}</small><br><small class="muted">${esc(t('staff.start'))} ${esc(s.StartDate||'-')} · ${esc(t('staff.tenure'))} ${esc(tenure(s.StartDate))}</small></span></span><span class="acts"><button class="btn sm outline" onclick="A_staffForm('${s.StaffID}')">✏️ ${EN()?'Edit':'แก้ไข'}</button><button class="btn sm pink" onclick="A_delStaff('${s.StaffID}',this)">🗑️ ${EN()?'Delete':'ลบ'}</button></span></div>`).join('')}</div></div>
+        ${_stAct.map(s=>`<div class="list-item stack" data-k="${esc((s.NameTH+' '+(s.NameEN||'')+' '+(s.Nickname||'')+' '+(s.Position||'')+' '+(s.Department||'')).toLowerCase())}"><span style="display:flex;gap:8px;align-items:center">${personAvatar(s)}<span><b>${esc(dispNick(s))}</b> ${nmSub(s)?`<small class="muted">${esc(nmSub(s))}</small>`:""}<br><small class="muted">${_notr(s.Position||"")} · ${esc(deptLabel(s))} · 🕑 ${_notr(groupLabel(s.StaffGroup))}${groupHours(s.StaffGroup)?' ('+esc(groupHours(s.StaffGroup))+')':''}</small><br><small class="muted">${esc(t('staff.start'))} ${esc(s.StartDate||'-')} · ${esc(t('staff.tenure'))} ${esc(tenure(s.StartDate))}</small>${endNote(s)}</span></span><span class="acts"><button class="btn sm outline" onclick="A_staffForm('${s.StaffID}')">✏️ ${EN()?'Edit':'แก้ไข'}</button><button class="btn sm pink" onclick="A_delStaff('${s.StaffID}',this)">🗑️ ${EN()?'Delete':'ลบ'}</button></span></div>`).join('')}</div></div>
       ${_stGone.length?`<div class="card secw" id="sec-staff-gone">${secHead('🚪',EN()?'No longer working here':'สิ้นสุดการทำงานแล้ว',_stGone.length,'')}
         <div class="secbody" hidden>
         <p class="muted" style="font-size:13px;margin:2px 2px 8px">${EN()?'Kept on purpose — payroll and attendance history still refer to these records. Open one to bring the person back.':'เก็บไว้โดยตั้งใจ — ประวัติเงินเดือนและการลงเวลายังอ้างอิงถึงข้อมูลเหล่านี้ · เปิดดูเพื่อนำกลับเข้าทำงานได้'}</p>
