@@ -115,7 +115,10 @@ SCHEMA[WB.MAIN] = {
                       // whether the parents were told at the time. The engine has always SENT this and the
                       // report screen has always DISPLAYED it, but the column was missing — so every
                       // emergency read back as "ยังไม่แจ้ง" even when the family had been messaged.
-                      'NotifyParent'],
+                      'NotifyParent',
+                      // two-step approval (teacher → หัวหน้าครู → แอดมิน), mirroring a leave request.
+                      // Status: PENDING_LEADER | PENDING_ADMIN | APPROVED | REJECTED
+                      'Status', 'LeaderBy', 'LeaderAt', 'AdminBy', 'AdminAt', 'RejectReason', 'UpdatedBy', 'UpdatedAt'],
   // PCHI (Pacific Cross) insurance member form — columns mirror the official xlsx "Input Data" sheet.
   // ONE record per student (unique by StudentID / NationalID). Parent fills once; Admin reviews/edits. Insurance data
   // is written ONLY to this sheet. (Deploy: this sheet IS the Google Sheet generated from the supplied form file.)

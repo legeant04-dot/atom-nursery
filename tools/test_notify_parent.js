@@ -32,7 +32,11 @@ console.log('\n1) the column is declared');
   const cols = (hdr ? hdr[1].match(/'[^']+'/g) || [] : []).map(s => s.slice(1, -1));
   ok_('INJURY_REPORTS has a NotifyParent column', cols.indexOf('NotifyParent') >= 0);
   ok_('...and the rest of the form is still there', ['InjuryID', 'StudentID', 'InjuryTypes', 'TeacherID'].every(c => cols.indexOf(c) >= 0));
-  eq('nothing was dropped while adding it', cols.length, 24);
+  // 24 form fields + the 8 approval columns added in v224 (Status, LeaderBy/At, AdminBy/At,
+  // RejectReason, UpdatedBy/At)
+  eq('nothing was dropped while adding it', cols.length, 32);
+  ok_('...and the approval trail is stored, not just displayed',
+    ['Status', 'LeaderBy', 'AdminBy', 'RejectReason'].every(c => cols.indexOf(c) >= 0));
 }
 
 console.log('\n2) a sheet that ALREADY exists gains the column');
