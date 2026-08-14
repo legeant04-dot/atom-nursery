@@ -196,8 +196,13 @@ function createAtomAPI(M, GROWTH_STD) {
    */
   function bigCleaningList_(){ const v=cfg.BigCleaningDays; return (Array.isArray(v)?v:String(v||'').split(',')).map(x=>String(x).trim()).filter(Boolean); }
   const isBigCleaning_ = date => bigCleaningList_().indexOf(String(date))>=0;
-  const bigCleaningIn_  = () => String(cfg.BigCleaningIn  || '08:30').slice(0,5);
-  const bigCleaningOut_ = () => String(cfg.BigCleaningOut || '17:00').slice(0,5);
+  // A time that isn't a real HH:mm falls back to the default rather than becoming midnight — a
+  // config cell can come back from Sheets as a Date, and 'Sat Dec 30 1899…' must never be treated
+  // as a working time (see getConfigTime_ / hydrateConfig_ on the GAS side).
+  const cfgTime_ = (v, dflt) => { const s=String(v==null?'':v).trim().slice(0,5);
+    return /^\d{2}:\d{2}$/.test(s) ? s : dflt; };
+  const bigCleaningIn_  = () => cfgTime_(cfg.BigCleaningIn,  '08:30');
+  const bigCleaningOut_ = () => cfgTime_(cfg.BigCleaningOut, '17:00');
   // enrich an OT record with the staff's names + that day's check-in / check-out (so the approver can see
   // when they arrived vs when they left — the leave time is what drove the OT).
   function otView_(r){ const s=staffById_(r.StaffID); let ci='', co='';
