@@ -188,10 +188,16 @@ function createAtomAPI(M, GROWTH_STD) {
       if(sal>0) return Math.round(sal/30/8*1.5*100)/100; }
     return Number(parseFloat(c)||cfg.OTRatePerHour||100); }
   function staffById_(id){ return M.staff.find(x=>x.StaffID===id)||{}; }
-  // Big Cleaning Day: a monthly mandatory workday the admin sets. Counts as work but has NO fixed
-  // check-in/out time (no lateness), and attendance credits a diligence bonus (เบี้ยขยัน).
+  /* Big Cleaning Day: a monthly mandatory workday the admin sets. It COUNTS AS WORK — it is not a
+   * holiday even when it lands on a Saturday — but it is worked to its OWN hours rather than each
+   * staff group's normal schedule, so lateness and OT that day are measured against these two and
+   * nobody is marked late for keeping to the day they were actually asked to work. Attendance also
+   * credits a diligence bonus (เบี้ยขยัน). Set by the admin; the defaults are the school's usual ones.
+   */
   function bigCleaningList_(){ const v=cfg.BigCleaningDays; return (Array.isArray(v)?v:String(v||'').split(',')).map(x=>String(x).trim()).filter(Boolean); }
   const isBigCleaning_ = date => bigCleaningList_().indexOf(String(date))>=0;
+  const bigCleaningIn_  = () => String(cfg.BigCleaningIn  || '08:30').slice(0,5);
+  const bigCleaningOut_ = () => String(cfg.BigCleaningOut || '17:00').slice(0,5);
   // enrich an OT record with the staff's names + that day's check-in / check-out (so the approver can see
   // when they arrived vs when they left — the leave time is what drove the OT).
   function otView_(r){ const s=staffById_(r.StaffID); let ci='', co='';
@@ -1178,9 +1184,12 @@ function createAtomAPI(M, GROWTH_STD) {
       const g=new Date(date+'T00:00:00').getDay(); const weekend=(g===0||g===6);
       const closed=!bc && (weekend || !!hol);
       return { date, closed, bigCleaning:bc, weekend,
+        // a Big Cleaning day is worked to ITS OWN hours, so the screen can say which ones apply
+        bcIn: bc ? bigCleaningIn_() : '', bcOut: bc ? bigCleaningOut_() : '',
         reason: closed ? (hol?(hol.NameTH||hol.NameEN||hol.Name||'วันหยุด'):'วันหยุดสุดสัปดาห์') : '',
         reasonEN: closed ? (hol?(hol.NameEN||hol.NameTH||hol.Name||'Holiday'):'Weekend') : '' }; },
-    bigCleaningDays: () => ({ days: bigCleaningList_(), amount: Number(cfg.BigCleaningAmount||0) }),
+    bigCleaningDays: () => ({ days: bigCleaningList_(), amount: Number(cfg.BigCleaningAmount||0),
+      checkIn: bigCleaningIn_(), checkOut: bigCleaningOut_() }),
     addBigCleaning: p => { const l=bigCleaningList_(); if(p.date && l.indexOf(p.date)<0) l.push(p.date); cfg.BigCleaningDays=l.slice().sort(); return {ok:true,days:cfg.BigCleaningDays}; },
     removeBigCleaning: p => { cfg.BigCleaningDays=bigCleaningList_().filter(d=>d!==p.date); return {ok:true,days:cfg.BigCleaningDays}; },
     announcements: () => M.announcements,
@@ -1386,15 +1395,15 @@ function createAtomAPI(M, GROWTH_STD) {
     staffCheckin: p => { const _me=staffById(p.staffId)||{};
       if(!staffStarted_(_me)) fail('NOT_STARTED','วันแรกของการทำงานคือ '+ymd(_me.StartDate||'')+' — ยังลงเวลาไม่ได้');
       assertSchoolOpen_(); const d=geo(p.lat,p.lng,p.acc); const t=new Date(); const sch=M.workSchedule.find(w=>w.StaffID===p.staffId)||{CheckInTime:'08:00'};
-      // A Big Cleaning Day is a special workday with fixed hours 08:30–17:00 (config BigCleaningIn) — late is
-      // measured against 08:30 that day, not the staff's group time.
-      const bc=isBigCleaning_(todayLocal()); const inT=bc?(cfg.BigCleaningIn||'08:30'):sch.CheckInTime;
+      // A Big Cleaning Day is worked to ITS OWN hours (BigCleaningIn/Out, set by the admin) — late is
+      // measured against that time, not the staff's group schedule.
+      const bc=isBigCleaning_(todayLocal()); const inT=bc?(bigCleaningIn_()):sch.CheckInTime;
       const raw=lateVs(inT,t); const late=raw<=Number(cfg.LateGraceMinutes||0)?0:raw;
       let r=M.staffAttendanceToday.find(x=>x.StaffID===p.staffId);
       if(!r){r={StaffID:p.staffId,CheckIn:'',CheckOut:'',Status:'NONE',Late:0};M.staffAttendanceToday.push(r);} r.CheckIn=timeLocal();r.Late=late;r.Status='IN';
       return {time:r.CheckIn,lateMinutes:late,rawLate:raw,distance:d}; },
     staffCheckout: p => { assertSchoolOpen_(); const d=geo(p.lat,p.lng,p.acc); const t=new Date(); const sch=M.workSchedule.find(w=>w.StaffID===p.staffId)||{CheckOutTime:'17:00'};
-      const outT=isBigCleaning_(todayLocal())?(cfg.BigCleaningOut||'17:00'):sch.CheckOutTime;
+      const outT=isBigCleaning_(todayLocal())?(bigCleaningOut_()):sch.CheckOutTime;
       const ot=Math.max(0,(t.getHours()*60+t.getMinutes())-toMin(outT));
       // OT rule: ≥OTRoundUpMinutes (50) within an hour rounds up to a full hour
       let r=M.staffAttendanceToday.find(x=>x.StaffID===p.staffId); if(!r)fail('NOT_CHECKED_IN','ยังไม่ได้ลงเวลาเข้างาน'); r.CheckOut=timeLocal();r.Status='OUT';r.OTHours=otHoursRule(ot);
