@@ -361,7 +361,9 @@ function handleStaffCheckout(payload) {
       OTRecordID: nextId_(otSheet, 'OTRecordID', 'OTR'), StaffID: staff.StaffID, Date: today,
       Hours: otHours, Rate: rate, Amount: otPay, ApprovedBy: '',
       Status: isLeaderSelf ? 'PENDING_ADMIN' : 'PENDING_LEADER', Minutes: otMin,
-      PlanOut: sched.checkOut, ActualOut: timeStr_(now), Month: today.slice(0, 7),
+      // the time they were actually due to leave — on a Big Cleaning day that is the day's own end
+      // time, not their group's, or the approver reads OT measured against a shift nobody worked
+      PlanOut: outHHmm, ActualOut: timeStr_(now), Month: today.slice(0, 7),
       Step1By: '', Step1Status: isLeaderSelf ? 'Skipped' : 'Pending', Step2By: '', Step2Status: 'Pending', Note: ''
     });
     if (typeof cacheDel_ === 'function') { cacheDel_('col:OT_RECORDS'); cacheDel_('rows:OT_RECORDS'); }
@@ -453,7 +455,15 @@ function handleRemoveBigCleaning(p) {
   p = p || {}; var d = otNormDate_(p.date); var l = bigCleaningDays_().filter(function (x) { return x !== d; });
   return { ok: true, days: writeBigCleaning_(l) };
 }
-function handleBigCleaningDays() { return { days: bigCleaningDays_(), amount: Number(getConfig_('BigCleaningAmount', '0')) || 0 }; }
+function handleBigCleaningDays() {
+  return {
+    days: bigCleaningDays_(), amount: Number(getConfig_('BigCleaningAmount', '0')) || 0,
+    // the day's own hours — check-in/out already measure lateness and OT against these, but there
+    // was no way to see or set them, so the school was working to numbers it could not read
+    checkIn: String(getConfig_('BigCleaningIn', '08:30')).slice(0, 5),
+    checkOut: String(getConfig_('BigCleaningOut', '17:00')).slice(0, 5)
+  };
+}
 
 // ---- Attendance reminder triggers (skip weekends + holidays) -------
 /** Run ~06:50: morning reminder for active staff to clock in at 07:00 (skip on closed days). */

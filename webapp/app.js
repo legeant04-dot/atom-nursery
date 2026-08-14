@@ -112,7 +112,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.225'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.226'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -2248,8 +2248,15 @@
     // a manually-requested time (ขอลงเวลา, approved) shows blue+bold to distinguish it from a normal GPS clock-in
     const mtime=(v,manual)=>manual?`<b style="color:var(--blue)" title="${EN()?'manual (requested)':'ขอลงเวลา'}">${v||'--:--'} •</b>`:`<b>${v||'--:--'}</b>`;
     const recentRows = recent.map((a,i)=>`<div class="list-item"><span>${i===0?'<b>'+esc(t('c.today'))+'</b>':esc(ddmmyyyy(a.date))}</span><span style="font-size:13px">${esc(t('lbl.checkIn'))} ${mtime(a.checkIn,a.manualIn)} · ${esc(t('lbl.checkOut'))} ${mtime(a.checkOut,a.manualOut)} · ${a.late?`<span class="pill bad">${esc(t('lbl.late'))} ${a.late} ${esc(t('lbl.min'))}</span>`:`<span class="pill ok">${esc(t('lbl.onTime'))}</span>`}</span></div>`).join('');
+    // A Big Cleaning day IS a working day — often a Saturday — but it runs to its own hours. Say so
+    // on the clock card, or a teacher works to their normal shift and is marked late for no reason.
+    const bcBar = (day0&&day0.bigCleaning&&day0.bcIn)
+      ? `<div style="background:var(--warn-bg);border:1px solid var(--warn-line);border-radius:8px;padding:8px;margin-bottom:8px;font-size:13px">
+          🧹 <b>${EN()?'Big Cleaning Day':'วัน Big Cleaning'}</b> — ${EN()?'today’s hours':'เวลาทำงานวันนี้'} <b>${esc(day0.bcIn)}–${esc(day0.bcOut)}</b>
+          <br><span class="muted">${EN()?'Late and OT are measured against these, not your usual shift.':'การมาสายและ OT ของวันนี้คิดจากเวลานี้ ไม่ใช่เวลาปกติ'}</span></div>`
+      : '';
     app.innerHTML = `<h2 class="page">${esc(t('t.greeting'))}${esc(EN()?USER.nameEN:USER.nameTH)} 👩‍🏫</h2>
-      <div class="card"><h3>⏱️ ${esc(t('lbl.worktime'))} (${esc(att.date)})</h3>
+      <div class="card"><h3>⏱️ ${esc(t('lbl.worktime'))} (${esc(att.date)})</h3>${bcBar}
         ${me0.RequireCheckin===false?`<div style="background:var(--blue-bg);border-radius:8px;padding:8px;color:var(--blue);font-size:13px">ℹ️ ${esc(t('ci.notRequired'))}</div>`
         // School shut today: the server refuses the punch anyway (assertSchoolOpen_), so live buttons
         // could only produce an error. Name the holiday — the recent-days list stays, because that is
@@ -2282,7 +2289,13 @@
         ${canOrg?`<button class="btn sm outline" onclick="T_organize()">🔁 ${EN()?'Organize classes':'จัดชั้นเรียน'}</button>`:''}
         ${canFood?`<button class="btn sm outline" onclick="A_foodMenu()">🍚 ${EN()?'Monthly food menu':'เมนูอาหารรายเดือน'}</button>`:''}</div></div>
       <div class="card"><div class="spread"><h3>👶 ${esc(cl.class.ClassName)}</h3><span class="muted">${cl.students.length} ${EN()?'kids':'คน'}</span></div>${classSwitcher(cl)}
-        ${cl.students.map(s=>`<div class="list-item"><span>${studentAvatar(s)} <b>${esc(dispNick(s))}</b> ${journalPill(jdone[s.StudentID])}</span><span><button class="btn sm outline" onclick="T_journal('${s.StudentID}')">${esc(journalBtnLabel(jdone[s.StudentID]))}</button> <button class="btn sm outline" onclick="T_assess('${s.StudentID}')">${esc(t('lbl.assess'))}</button></span></div>`).join('')}</div>`;
+        ${cl.students.map(s=>{
+          // same rule as the class screen and as the server: no journal until the child has arrived
+          const done=jdone[s.StudentID], canJ = s.inToday || !!done;
+          const jBtn = canJ
+            ? `<button class="btn sm outline" onclick="T_journal('${s.StudentID}')">${esc(journalBtnLabel(done))}</button>`
+            : `<button class="btn sm outline" disabled style="opacity:.45" title="${s.onLeave?(EN()?'On leave today — the leave is the record':'ลาวันนี้ — การลาคือบันทึกของวันนี้'):(EN()?'Check the child in first':'ต้องเช็คอินนักเรียนก่อนจึงจะบันทึกได้')}">${esc(t('lbl.record'))}</button>`;
+          return `<div class="list-item"><span>${studentAvatar(s)} <b>${esc(dispNick(s))}</b> ${journalPill(done)}</span><span>${jBtn} <button class="btn sm outline" onclick="T_assess('${s.StudentID}')">${esc(t('lbl.assess'))}</button></span></div>`; }).join('')}</div>`;
     // render, don't fetch: these three were started before the batch above and travelled with it
     const tca=await p_tca; setHTML('#tcatt', tca?tcaHtml(tca):'');
     const ml=await p_ml; setHTML('#ml', ml.map(leaveRow).join('')||'<small class="muted">ยังไม่มีรายการ</small>');
@@ -2359,25 +2372,53 @@
   // no entry → write it; draft → keep editing; submitted → read-only
   const journalBtnLabel = d => !d ? t('lbl.record') : (jIsDraft(d) ? t('jr.edit') : t('jr.view'));
 
+  /**
+   * A child's row of actions, WITH THE ACTION WRITTEN ON IT.
+   *
+   * These were six unlabelled icons and teachers could not tell 📝 (assess) from 📒 (journal) or
+   * 🕑 (correct a time) from 📅 (past reports) — a tooltip is no help on a phone, where there is no
+   * hover. Every button now says what it does in two or three words; the emoji stays as a visual
+   * anchor, matching the rest of the app.
+   *
+   * The journal is CLOSED until the child is checked in — the same rule the server enforces
+   * (submitJournal → NOT_CHECKED_IN), said out loud on the button rather than as a refusal after
+   * the teacher has filled a page in. A child on leave is closed for the same reason: the leave is
+   * the record of their day.
+   */
+  function studentRowButtons(s, jdone){
+    const done=jdone[s.StudentID], canJ = s.inToday || !!done;
+    const B=(cls,onclick,icon,label,title)=>`<button class="btn sm ${cls}" ${onclick?`onclick="${onclick}"`:'disabled style="opacity:.45"'} title="${esc(title||label)}" aria-label="${esc(label)}">${icon} ${esc(label)}</button>`;
+    const jLabel = journalBtnLabel(done);
+    const jBtn = canJ
+      ? B(done?'outline':'', `T_journal('${s.StudentID}')`, !done?'📒':(jIsDraft(done)?'✏️':'👁️'), jLabel, jLabel+' — '+dispNick(s))
+      : B('outline', '', '📒', EN()?'Journal':'บันทึก',
+          s.onLeave ? (EN()?'On leave today — the leave is the record':'ลาวันนี้ — การลาคือบันทึกของวันนี้')
+                    : (EN()?'Check the child in first':'ต้องเช็คอินนักเรียนก่อนจึงจะบันทึกได้'));
+    // preselect OUT once the child is in (so "pick up" is one tap); always usable so a time can be corrected.
+    // A child their parent has reported away today cannot be checked in — the leave IS the record, and a
+    // stray check-in would contradict it.
+    const ciBtn = s.onLeave
+      ? B('outline', '', '🚫', EN()?'On leave':'ลาวันนี้', EN()?'On leave today — cannot check in':'ลาวันนี้ — เช็คอินไม่ได้')
+      : B('green', `T_studentCheckin('${s.StudentID}','${esc(nm(s))}','${s.inToday&&!s.outToday?'OUT':(s.outToday?'OUT':'IN')}')`,
+          '📍', s.inToday&&!s.outToday?(EN()?'Pick up':'รับกลับ'):(EN()?'Check in':'เช็คอิน'),
+          EN()?'Check in / pick up on behalf':'เช็คอิน / รับกลับ แทนผู้ปกครอง');
+    return [jBtn,
+      B('outline', `T_assess('${s.StudentID}')`, '📝', EN()?'Assess':'ประเมิน', EN()?'DSPM assessment':'ประเมินพัฒนาการ DSPM'),
+      ciBtn,
+      B('outline', `T_studentLeave('${s.StudentID}','${esc(dispNick(s))}')`, '🏖️', EN()?'Leave':'แจ้งลา', EN()?'File leave for this student':'แจ้งลาให้นักเรียน'),
+      B('outline', `EDIT_ATT('${s.StudentID}')`, '🕑', EN()?'Fix time':'แก้เวลา', EN()?'Correct check-in / pick-up':'แก้ไขเวลารับ-ส่ง'),
+      B('outline', `T_journalHistory('${s.StudentID}')`, '📅', EN()?'History':'ย้อนหลัง', EN()?'Past daily reports':'ดูบันทึกย้อนหลัง')
+    ].join('');
+  }
   SCREENS.Teacher.class = async () => {
     const [cl,jstat]=await Promise.all([api('classList',tc()),api('journalStatus',{})]);
     const jdone=journalDoneMap(jstat);
     app.innerHTML=`<h2 class="page">👶 ${esc(cl.class.ClassName)}</h2>${classSwitcher(cl)}`+cl.students.map(s=>{
-      // the journal can only be filled once the child is checked IN today (unless one already exists)
-      const canJ = s.inToday || !!jdone[s.StudentID];
-      const jBtn = canJ
-        ? `<button class="btn sm ${jdone[s.StudentID]?'outline':''}" onclick="T_journal('${s.StudentID}')" title="${esc(journalBtnLabel(jdone[s.StudentID]))}" aria-label="${esc(journalBtnLabel(jdone[s.StudentID]))} ${esc(dispNick(s))}">${!jdone[s.StudentID]?'📒':(jIsDraft(jdone[s.StudentID])?'✏️':'👁️')}</button>`
-        : `<button class="btn sm outline" disabled style="opacity:.45" title="${EN()?'Check the child in first':'เช็คอินนักเรียนก่อนจึงจะบันทึกได้'}" aria-label="${EN()?"Daily journal":"สมุดบันทึกประจำวัน"}" title="${EN()?"Daily journal":"สมุดบันทึกประจำวัน"}">📒</button>`;
-      // preselect OUT once the child is in (so "pick up" is one tap); always usable so a time can be corrected
-      // A child their parent has reported away today cannot be checked in — the leave IS the record,
-      // and a stray check-in would contradict it. The button is replaced by why they are away.
-      const ciBtn = s.onLeave
-        ? `<button class="btn sm outline" disabled style="opacity:.45" title="${EN()?'On leave today':'ลาวันนี้ — เช็คอินไม่ได้'}" aria-label="${EN()?'On leave':'ลา'}">🚫</button>`
-        : `<button class="btn sm green" onclick="T_studentCheckin('${s.StudentID}','${esc(nm(s))}','${s.inToday&&!s.outToday?'OUT':(s.outToday?'OUT':'IN')}')" title="${EN()?'Check in/out on behalf':'เช็คอิน/เอาท์แทน'}" aria-label="${EN()?"Check in":"เช็คอิน"}">📍</button>`;
       const attTag = s.onLeave
         ? `<small class="pill warn" style="margin-left:4px">🏖️ ${esc(s.leaveType||(EN()?'on leave':'ลา'))}${s.leaveReason?' · '+esc(s.leaveReason):''}</small>`
         : (s.inToday?`<small class="pill ok" style="margin-left:4px">${EN()?'in':'มา'} ${esc(s.inTime||'')}</small>`:'');
-      return `<div class="card spread"><div style="display:flex;gap:10px;align-items:center">${studentAvatar(s)}<div><b>${esc(dispNick(s))}</b> ${nmSub(s)?`<small class="muted">${esc(nmSub(s))}</small>`:""}${attTag}<br><small class="muted">${esc(ageYM(s.DOB))} · ${EN()?'allergy':'แพ้'}: ${esc(s.Allergy||'-')}</small><br>${journalPill(jdone[s.StudentID])}</div></div><div class="row">${jBtn}<button class="btn sm outline" onclick="T_assess('${s.StudentID}')" aria-label="${EN()?"Assess":"ประเมิน"}" title="${EN()?"Assess":"ประเมิน"}">📝</button>${ciBtn}<button class="btn sm outline" onclick="T_studentLeave('${s.StudentID}','${esc(dispNick(s))}')" title="${EN()?'File leave for this student':'แจ้งลาให้นักเรียน'}" aria-label="${EN()?"Report leave":"แจ้งลา"}" title="${EN()?"Report leave":"แจ้งลา"}">🏖️</button><button class="btn sm outline" onclick="EDIT_ATT('${s.StudentID}')" aria-label="${EN()?"Correct times":"แก้ไขเวลา"}" title="${EN()?"Correct check-in / pick-up":"แก้ไขเวลารับ-ส่ง"}">🕑</button><button class="btn sm outline" onclick="T_journalHistory('${s.StudentID}')" aria-label="${EN()?"Past reports":"บันทึกย้อนหลัง"}" title="${EN()?"Past daily reports":"ดูบันทึกย้อนหลัง"}">📅</button></div></div>`; }).join(''); };
+      return `<div class="card"><div style="display:flex;gap:10px;align-items:center">${studentAvatar(s)}<div><b>${esc(dispNick(s))}</b> ${nmSub(s)?`<small class="muted">${esc(nmSub(s))}</small>`:""}${attTag}<br><small class="muted">${esc(ageYM(s.DOB))} · ${EN()?'allergy':'แพ้'}: ${esc(s.Allergy||'-')}</small><br>${journalPill(jdone[s.StudentID])}</div></div>
+        <div class="row" style="flex-wrap:wrap;gap:6px;margin-top:8px">${studentRowButtons(s,jdone)}</div></div>`; }).join(''); };
   // Teacher files a leave for a student → notifies the linked parents; shows in that student's parent calendar
   window.T_studentLeave=(sid,name)=>{ modal(`<h3>🏖️ ${EN()?'File student leave':'แจ้งลานักเรียน'} — ${esc(name)}</h3>
     <!-- same trap as #lType: the value is what reaches the sheet, so it stays Thai in both languages -->
@@ -3490,6 +3531,7 @@
       window._CALRENDER=studentLeaveCalRender;
       app.innerHTML=`<h2 class="page">✅ ${EN()?'Operations':'ดำเนินการ'}</h2>${mainSeg}
         ${opTools([['⏰',EN()?'Student late-pickup OT':'OT รับช้า (นักเรียน)','A_studentOT()'],
+                   ['🕑',EN()?'Correct check-in / pick-up':'แก้ไขเวลารับ-ส่ง','A_editAttPick()'],
                    ['📊',EN()?'Class report':'สรุปรายชั้นเรียน','A_studentReport()']])}
         <p class="muted" style="font-size:13px">${EN()?'Absences by day and class. Tap a day to see who is absent per class (history included).':'การลาแยกรายวันและชั้นเรียน · แตะวันเพื่อดูว่านักเรียนคนไหนขาดในแต่ละชั้น (ดูย้อนหลังได้)'}</p>
         <div class="card"><div id="calWrap">${studentLeaveCalRender()}</div></div>`;
@@ -4017,7 +4059,8 @@
     const close="this.closest('.modal').remove();";
     modal(`<h3>👶 ${esc(dispNick(s)||sid)} ${nmSub(s)?`<small class="muted" style="font-size:13px">${esc(nmSub(s))}</small>`:''}</h3>
       <button class="btn block outline" onclick="${close}A_vaccines('${esc(sid)}')">💉 ${EN()?'Vaccination record':'บันทึกวัคซีน'}</button>
-      <button class="btn block outline" style="margin-top:8px" onclick="${close}EDIT_ATT('${esc(sid)}')">🕑 ${EN()?'Correct check-in / pick-up':'แก้ไขเวลารับ-ส่ง'}</button>
+      <!-- correcting a time moved to ดำเนินการ → นักเรียน (A_editAttPick): it is a daily attendance job,
+           not something you go looking for inside one child's record -->
       <button class="btn block gray" style="margin-top:8px" onclick="${close}A_exportStudent('${esc(sid)}')">📤 ${EN()?'Export data':'ส่งออกข้อมูล'}</button>
       <button class="btn block pink" style="margin-top:8px" onclick="${close}A_removeStudent('${esc(sid)}')">🚪 ${EN()?'Withdraw student':'นำนักเรียนออก'}</button>
       <button class="btn block outline" style="margin-top:12px" onclick="${close}">${esc(t('c.close'))}</button>`); };
@@ -5481,9 +5524,19 @@
       <button class="btn outline block" style="margin-top:8px" onclick="this.closest('.modal').remove();A_surveys()">${esc(t('c.close'))}</button>`);
   };
 
-  // Big Cleaning Day add/remove — persist immediately (also save the amount field first so it isn't lost)
+  /** The day's own hours + the bonus. Read straight back out of the form, so nothing is remembered. */
+  function bcHourValues(){ const g=id=>{ const e=document.getElementById(id); return e?e.value.trim():''; };
+    const v={BigCleaningAmount:+g('setBC')||0};
+    // an empty time field means "leave it as it is" — never write a blank over a working schedule
+    if(/^\d{2}:\d{2}$/.test(g('setBCIn')))  v.BigCleaningIn  = g('setBCIn');
+    if(/^\d{2}:\d{2}$/.test(g('setBCOut'))) v.BigCleaningOut = g('setBCOut');
+    return v; }
+  window.A_bcSaveHours=async(btn)=>{ if(btn)btn.disabled=true;
+    try{ await api('setSchoolConfig',{values:bcHourValues()}); confirmSaved(t('c.saved')); }
+    catch(e){ err(e); } finally{ if(btn)btn.disabled=false; } };
+  // Big Cleaning Day add/remove — persist immediately (the hours/bonus go first so they aren't lost)
   window.A_bcAdd=async()=>{ const d=document.getElementById('bcDate').value; if(!d){toast(EN()?'Pick a date':'เลือกวันที่');return;}
-    const amt=document.getElementById('setBC'); if(amt) await api('setSchoolConfig',{values:{BigCleaningAmount:+amt.value||0}});
+    await api('setSchoolConfig',{values:bcHourValues()});
     try{ await api('addBigCleaning',{date:d}); toast(t('c.saved')); GO_('holidays'); }catch(e){err(e);} };
   window.A_bcRemove=async(d)=>{ try{ await api('removeBigCleaning',{date:d}); toast(t('manage.deleted')); GO_('holidays'); }catch(e){err(e);} };
   // (re)install the time triggers so the 10:00/20:00 digests are scheduled after enabling them
@@ -5746,8 +5799,12 @@
   ADMIN_SUB_holidays = async ()=>{ const [hs,bc]=await Promise.all([api('holidays'),api('bigCleaningDays')]);
     app.innerHTML=`<button class="btn sm outline backbtn" onclick="GO('manage')">${t('c.back')}</button><h2 class="page">🗓️ ${esc(t('manage.holidays'))}</h2>
       <div class="card"><h3>🧹 ${EN()?'Big Cleaning Day':'วัน Big Cleaning'}</h3>
-        <p class="muted" style="font-size:13px">${EN()?'A monthly mandatory workday with no fixed hours; attendance earns a diligence bonus.':'วันทำงานบังคับเดือนละครั้ง ไม่กำหนดเวลาเข้า-ออก · มาแล้วได้เบี้ยขยันเพิ่ม'}</p>
+        <p class="muted" style="font-size:13px">${EN()?'A monthly mandatory workday — it counts as work even on a Saturday, but it is worked to the hours below rather than each group’s normal shift. Lateness and OT that day are measured against them, and attendance earns a diligence bonus.':'วันทำงานบังคับเดือนละครั้ง · นับเป็นวันทำงาน (แม้ตรงเสาร์-อาทิตย์) แต่ใช้เวลาเข้า-ออกด้านล่างแทนเวลาปกติของกลุ่ม · การมาสายและ OT ของวันนั้นคิดจากเวลานี้ · มาแล้วได้เบี้ยขยันเพิ่ม'}</p>
+        <div class="grid2">
+          <label class="field"><span>🕗 ${EN()?'Check-in time':'เวลาเข้างาน'}</span><input id="setBCIn" type="time" value="${esc(bc.checkIn||'08:30')}"/></label>
+          <label class="field"><span>🕔 ${EN()?'Check-out time':'เวลาออกงาน'}</span><input id="setBCOut" type="time" value="${esc(bc.checkOut||'17:00')}"/></label></div>
         <label class="field"><span>${EN()?'Bonus per cleaning day (฿)':'เบี้ยขยันต่อวัน (฿)'}</span><input id="setBC" type="number" value="${esc(bc.amount||0)}"/></label>
+        <button class="btn sm outline block" onclick="A_bcSaveHours(this)">💾 ${EN()?'Save hours & bonus':'บันทึกเวลาและเบี้ยขยัน'}</button>
         <div id="bcList">${(bc.days||[]).map(d=>`<div class="list-item"><span>🧹 ${esc(ddmmyyyy(d))}</span><button class="btn sm pink" onclick="A_bcRemove('${esc(d)}')" aria-label="${EN()?"Delete":"ลบ"}" title="${EN()?"Delete":"ลบ"}">🗑️</button></div>`).join('')||`<small class="muted">${EN()?'no dates set':'ยังไม่ได้กำหนดวัน'}</small>`}</div>
         <div class="grid2" style="margin-top:6px"><input type="date" id="bcDate"/><button class="btn" onclick="A_bcAdd()">+ ${esc(t('manage.add'))}</button></div></div>
       <div class="card"><h3>➕ ${esc(t('hol.add'))}</h3>
@@ -6038,6 +6095,29 @@
     try{ await api('markSalaryPaid',{staffId:sid,month,paid,slipUrl:slipUrl||undefined,adminId:USER.staffId});
       if(m)m.remove(); confirmSaved(paid?(EN()?'Marked as paid':'บันทึกว่าจ่ายแล้ว'):(EN()?'Paid status removed':'ยกเลิกสถานะจ่ายแล้ว'));
       A_finStaff(sid); }catch(e){ err(e); } };
+  /**
+   * Pick the child whose time needs correcting. Admin reaches this from ดำเนินการ → นักเรียน,
+   * because "a parent tapped picked-up by mistake" is an attendance job you arrive at knowing the
+   * child's name — not something to go hunting for inside one student's record.
+   * Teachers still have the button on their own class row, where the child is already in front of them.
+   */
+  window.A_editAttPick=async()=>{
+    let list=A_CACHE.students;
+    if(!list||!list.length){ try{ list=await api('listStudents'); A_CACHE.students=list; }catch(e){ list=[]; } }
+    const active=(list||[]).filter(s=>String(s.Status||'ACTIVE').toUpperCase()!=='WITHDRAWN');
+    modal(`<h3>🕑 ${EN()?'Correct check-in / pick-up':'แก้ไขเวลารับ-ส่ง'}</h3>
+      <p class="muted" style="font-size:13px">${EN()?'Pick the child, then the day and the times.':'เลือกนักเรียน แล้วจึงเลือกวันและเวลา'}</p>
+      <input id="eaFind" placeholder="🔎 ${EN()?'search by name or nickname':'ค้นหาชื่อ / ชื่อเล่น'}" oninput="A_editAttFilter(this.value)"/>
+      <div id="eaList" style="max-height:52vh;overflow:auto;margin-top:8px">${active.map(s=>
+        `<div class="list-item eaRow" data-k="${esc(((dispNick(s)||'')+' '+(nmSub(s)||'')+' '+(s.NameEN||'')).toLowerCase())}">
+          <span>${studentAvatar(s)} <b>${esc(dispNick(s)||s.StudentID)}</b> <small class="muted">${esc(s.Class||'')}</small></span>
+          <button class="btn sm outline" onclick="this.closest('.modal').remove();EDIT_ATT('${esc(s.StudentID)}')">${EN()?'Correct':'แก้ไข'}</button></div>`).join('')
+        ||`<div class="card muted">${esc(t('c.noItems'))}</div>`}</div>
+      <button class="btn outline block" style="margin-top:8px" onclick="this.closest('.modal').remove()">${esc(t('c.close'))}</button>`);
+  };
+  window.A_editAttFilter=(q)=>{ const k=String(q||'').trim().toLowerCase();
+    document.querySelectorAll('#eaList .eaRow').forEach(el=>{ el.style.display = (!k || el.dataset.k.indexOf(k)>=0) ? '' : 'none'; }); };
+
   // ---- correct a student's check-in / pick-up -----------------------------------------------------
   // A parent tapping "picked up" during class used to be permanent, and it raised an OT charge too.
   // Teachers can fix their own classes; a head teacher and Admin can fix anyone (enforced server-side).
