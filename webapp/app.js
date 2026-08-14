@@ -112,7 +112,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.226'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.227'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -2237,6 +2237,7 @@
     const p_ot  = api('myOT',{staffId:USER.staffId}).catch(()=>[]);
     const [att,recent,cl,quota,me0raw,jstat] = await Promise.all([api('myAttendanceToday',{staffId:USER.staffId}),api('recentAttendance',{staffId:USER.staffId}),api('classList',tc()),api('leaveQuota',{staffId:USER.staffId}),api('staffSelf',{staffId:USER.staffId}),api('journalStatus',{})]);
     const jdone = journalDoneMap(jstat);
+    T_STU={}; (cl.students||[]).forEach(s=>{ T_STU[s.StudentID]=s; });   // names for the ⋯ menu
     const day0 = await p_day;                 // already in flight with the batch above — no extra trip
     const me0=me0raw||{};
     if(me0.MustChangePassword){ T_changePw(true); return; } // force password change on first login
@@ -2402,17 +2403,31 @@
       : B('green', `T_studentCheckin('${s.StudentID}','${esc(nm(s))}','${s.inToday&&!s.outToday?'OUT':(s.outToday?'OUT':'IN')}')`,
           '📍', s.inToday&&!s.outToday?(EN()?'Pick up':'รับกลับ'):(EN()?'Check in':'เช็คอิน'),
           EN()?'Check in / pick up on behalf':'เช็คอิน / รับกลับ แทนผู้ปกครอง');
+    // Three everyday actions stay on the row; the three occasional ones go behind ⋯, the same way
+    // the admin's student list already works. Six labelled buttons wrapped onto three lines and
+    // buried the one a teacher reaches for twenty times a day.
     return [jBtn,
       B('outline', `T_assess('${s.StudentID}')`, '📝', EN()?'Assess':'ประเมิน', EN()?'DSPM assessment':'ประเมินพัฒนาการ DSPM'),
       ciBtn,
-      B('outline', `T_studentLeave('${s.StudentID}','${esc(dispNick(s))}')`, '🏖️', EN()?'Leave':'แจ้งลา', EN()?'File leave for this student':'แจ้งลาให้นักเรียน'),
-      B('outline', `EDIT_ATT('${s.StudentID}')`, '🕑', EN()?'Fix time':'แก้เวลา', EN()?'Correct check-in / pick-up':'แก้ไขเวลารับ-ส่ง'),
-      B('outline', `T_journalHistory('${s.StudentID}')`, '📅', EN()?'History':'ย้อนหลัง', EN()?'Past daily reports':'ดูบันทึกย้อนหลัง')
+      B('outline', `T_stuMore('${s.StudentID}')`, '⋯', EN()?'More':'เพิ่มเติม', EN()?'File leave · correct times · past reports':'แจ้งลา · แก้ไขเวลา · บันทึกย้อนหลัง')
     ].join('');
   }
+  /**
+   * The rest of a child's actions, as a list. Keyed off the class list the screen just drew
+   * (T_STU) so it needs no extra round trip and shows the same name the row does.
+   */
+  let T_STU={};
+  window.T_stuMore=(sid)=>{ const s=T_STU[sid]||{StudentID:sid};
+    const close="this.closest('.modal').remove();";
+    modal(`<h3>👶 ${esc(dispNick(s)||sid)} ${nmSub(s)?`<small class="muted" style="font-size:13px">${esc(nmSub(s))}</small>`:''}</h3>
+      <button class="btn block outline" onclick="${close}T_studentLeave('${esc(sid)}','${esc(dispNick(s)||sid)}')">🏖️ ${EN()?'File leave for this student':'แจ้งลาให้นักเรียน'}</button>
+      <button class="btn block outline" style="margin-top:8px" onclick="${close}EDIT_ATT('${esc(sid)}')">🕑 ${EN()?'Correct check-in / pick-up':'แก้ไขเวลารับ-ส่ง'}</button>
+      <button class="btn block outline" style="margin-top:8px" onclick="${close}T_journalHistory('${esc(sid)}')">📅 ${EN()?'Past daily reports':'ดูบันทึกย้อนหลัง'}</button>
+      <button class="btn block outline" style="margin-top:12px" onclick="${close}">${esc(t('c.close'))}</button>`); };
   SCREENS.Teacher.class = async () => {
     const [cl,jstat]=await Promise.all([api('classList',tc()),api('journalStatus',{})]);
     const jdone=journalDoneMap(jstat);
+    T_STU={}; cl.students.forEach(s=>{ T_STU[s.StudentID]=s; });
     app.innerHTML=`<h2 class="page">👶 ${esc(cl.class.ClassName)}</h2>${classSwitcher(cl)}`+cl.students.map(s=>{
       const attTag = s.onLeave
         ? `<small class="pill warn" style="margin-left:4px">🏖️ ${esc(s.leaveType||(EN()?'on leave':'ลา'))}${s.leaveReason?' · '+esc(s.leaveReason):''}</small>`
