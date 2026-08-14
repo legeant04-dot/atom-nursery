@@ -19,7 +19,7 @@ function eq(label, got, want) {
 }
 function ok_(label, cond) { console.log((cond ? '  ok   ' : '  FAIL ') + label); cond ? pass++ : fail++; }
 const R = f => fs.readFileSync(path.join(__dirname, '..', f), 'utf8').replace(/\r\n/g, '\n');
-const app = R('webapp/app.js'), eng = R('webapp/engine.js'), ci = R('src/Checkin.gs');
+const app = R('webapp/app.js'), eng = R('webapp/engine.js'), ci = R('src/Checkin.gs'), css = R('webapp/styles.css');
 
 function boot(cfgExtra) {
   const M = {
@@ -48,14 +48,21 @@ function grab(fn) { let e = null; try { fn(); } catch (x) { e = x.message || Str
 
 console.log('\n=== 1. the buttons say what they do ===');
 ok_('one builder for a child’s row', /function studentRowButtons\(s, jdone\)/.test(app));
-// the three a teacher uses all day stay on the row…
-[['บันทึก', 'journal'], ['ประเมิน', 'assess'], ['เช็คอิน', 'check in'], ['รับกลับ', 'pick up'],
- ['ลาวันนี้', 'on leave'], ['เพิ่มเติม', 'more']]
+// the three a teacher uses all day stay on the row, each named in ONE word
+[['บันทึก', 'journal — none yet'], ['แก้ไข', 'journal — draft'], ['ดู', 'journal — sent'],
+ ['ประเมิน', 'assess'], ['เช็คอิน', 'check in'], ['รับกลับ', 'pick up'], ['ลา', 'on leave']]
   .forEach(w => ok_('the row offers "' + w[0] + '" in words (' + w[1] + ')', app.indexOf("'" + w[0] + "'") > 0));
+ok_('the long labels are gone from the row', /const jShortLabel = d =>/.test(app));
+ok_('…but the full sentence is still on the tooltip', /journalBtnLabel\(done\)\+' — '\+dispNick\(s\)/.test(app));
 ok_('exactly four things on the row: journal, assess, check-in, ⋯',
-  /return \[jBtn,\n\s*B\('outline', `T_assess[\s\S]{0,200}ciBtn,\n\s*B\('outline', `T_stuMore[^\]]*\n\s*\]\.join\(''\);/.test(app));
-ok_('every button carries an icon AND a label', /\$\{icon\} \$\{esc\(label\)\}/.test(app));
-ok_('…and wraps instead of running off a phone', /flex-wrap:wrap;gap:6px/.test(app));
+  /return `<div class="stuacts">\$\{\[jBtn,\n\s*B\('outline', `T_assess[\s\S]{0,220}ciBtn,\n\s*B\('outline more', `T_stuMore[^\]]*\n\s*\]\.join\(''\)\}<\/div>`;/.test(app));
+ok_('⋯ is the icon alone — a word there costs a third of the row', /B\('outline more', `T_stuMore\('\$\{s\.StudentID\}'\)`, '⋯', '',/.test(app));
+ok_('…and the helper knows an empty label means icon-only', /\$\{icon\}\$\{label\?' '\+esc\(label\):''\}/.test(app));
+ok_('the row is a GRID, so every card lines up', /\.stuacts\{display:grid;grid-template-columns:1fr 1fr 1fr 46px/.test(css));
+ok_('…mobile first: the phone layout is the default, relaxed upward', /@media\(min-width:520px\)\{\n\s*\.stuacts\{/.test(css));
+ok_('the ⋯ column is narrow on purpose', /\.stuacts \.btn\.sm\.more\{/.test(css));
+ok_('the two-action home rows are an even pair, not a wrapping strip', /\.acts2\{display:grid;grid-template-columns:1fr 1fr/.test(css));
+ok_('…and the name column may shrink so they fit beside it', /min-width:0;flex:1/.test(app));
 
 console.log('\n=== 1b. the occasional three live behind ⋯, as a list ===');
 ok_('there is a ⋯ menu for a child', /window\.T_stuMore=\(sid\)=>/.test(app));

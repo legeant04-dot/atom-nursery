@@ -507,6 +507,22 @@ main:has(.savedock .btn + .btn){padding-bottom:180px;}   /* two stacked buttons 
   .list-item.stack .acts .btn{flex:1 1 auto;min-width:96px;}
 }
 
+/* A child's actions on the teacher's screens. MOBILE FIRST: laid out for a 360px phone and only
+   relaxed upward, because a phone is the only place a teacher ever uses it.
+   Three equal columns for the everyday actions and a narrow one for ⋯ — a GRID, not a wrapping
+   flex row, so every card has its buttons in the same place. Wrapping put ⋯ alone on a second line
+   and gave each card a different height, which is what made the list hard to read down. */
+.stuacts{display:grid;grid-template-columns:1fr 1fr 1fr 46px;gap:6px;margin-top:8px;}
+.stuacts .btn.sm{width:100%;min-width:0;padding:7px 4px;font-size:12.5px;gap:3px;white-space:nowrap;}
+.stuacts .btn.sm.more{padding:7px 0;font-size:17px;letter-spacing:1px;}
+@media(min-width:520px){
+  .stuacts{grid-template-columns:1fr 1fr 1fr 52px;gap:8px;}
+  .stuacts .btn.sm{font-size:13px;padding:7px 10px;}
+}
+/* the two-action rows on the home screen's class list: equal widths, side by side, never stacked */
+.acts2{display:grid;grid-template-columns:1fr 1fr;gap:6px;flex:0 0 auto;}
+.acts2 .btn.sm{width:100%;min-width:62px;padding:7px 6px;font-size:12.5px;white-space:nowrap;}
+
 /* =====================================================================
    LAYOUT STABILITY (CLS) — reserve space for anything that arrives late.
    ===================================================================== */
