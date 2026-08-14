@@ -99,6 +99,21 @@ function toHHmm_(v) {
   var m = /^(\d{1,2}):(\d{2})/.exec(String(v).trim());
   return m ? (('0' + m[1]).slice(-2) + ':' + m[2]) : String(v).trim();
 }
+/**
+ * A SCHOOL_CONFIG value that is a TIME. Always read one through here.
+ *
+ * Writing '09:15' into a cell makes Sheets store a TIME, which reads back as a Date on the
+ * 1899-12-30 epoch. Anything that treats it as a string then gets 'Sat Dec 30 1899…' — the admin
+ * screen showed an empty box (an <input type="time"> silently rejects a value it cannot parse, so
+ * the setting looked like it had never saved) and hhmmToMin_ returned null, so lateness and OT on a
+ * Big Cleaning day were quietly measured against the fallback instead of the time that was set.
+ * Nothing that isn't a real HH:mm is returned: a damaged cell falls back to the default rather than
+ * silently becoming midnight.
+ */
+function getConfigTime_(key, dflt) {
+  var s = toHHmm_(getConfig_(key, ''));
+  return /^\d{2}:\d{2}$/.test(s) ? s : dflt;
+}
 
 /** The staff's group work hours (STAFF_GROUPS) — used when there's no per-day WORK_SCHEDULE row. */
 function staffGroupTimes_(staffId) {
@@ -203,7 +218,7 @@ function handleStaffCheckin(payload) {
   var sched = staffSchedule_(staff.StaffID, now);
   var grace = parseInt(getConfig_('LateGraceMinutes', '0'), 10) || 0;
   // a Big Cleaning Day is a special workday with fixed hours 08:30–17:00 → late is measured vs 08:30
-  var expectHHmm = isBigCleaningDay_(today) ? getConfig_('BigCleaningIn', '08:30') : sched.checkIn;
+  var expectHHmm = isBigCleaningDay_(today) ? getConfigTime_('BigCleaningIn', '08:30') : sched.checkIn;
   var expectMin = hhmmToMin_(expectHHmm); if (expectMin == null) expectMin = hhmmToMin_('08:00');
   var lateMin = Math.max(0, minOfDay_(now) - (expectMin + grace));
 
@@ -339,7 +354,7 @@ function handleStaffCheckout(payload) {
   if (row.CheckOut) throw apiError_('ALREADY_CHECKED_OUT', 'ลงเวลาออกงานวันนี้ไปแล้ว (' + toHHmm_(row.CheckOut) + ')');
 
   var sched = staffSchedule_(staff.StaffID, now);
-  var outHHmm = isBigCleaningDay_(today) ? getConfig_('BigCleaningOut', '17:00') : sched.checkOut;
+  var outHHmm = isBigCleaningDay_(today) ? getConfigTime_('BigCleaningOut', '17:00') : sched.checkOut;
   var outMin = hhmmToMin_(outHHmm); if (outMin == null) outMin = hhmmToMin_('17:00');
   var otMin = Math.max(0, minOfDay_(now) - outMin);
   // FULL-hour OT: the last hour rounds up only when ≥ OTRoundUpMinutes (default 50), else it drops.
@@ -460,8 +475,8 @@ function handleBigCleaningDays() {
     days: bigCleaningDays_(), amount: Number(getConfig_('BigCleaningAmount', '0')) || 0,
     // the day's own hours — check-in/out already measure lateness and OT against these, but there
     // was no way to see or set them, so the school was working to numbers it could not read
-    checkIn: String(getConfig_('BigCleaningIn', '08:30')).slice(0, 5),
-    checkOut: String(getConfig_('BigCleaningOut', '17:00')).slice(0, 5)
+    checkIn: getConfigTime_('BigCleaningIn', '08:30'),
+    checkOut: getConfigTime_('BigCleaningOut', '17:00')
   };
 }
 

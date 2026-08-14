@@ -446,7 +446,11 @@ function hydrateConfig_() {
     if (CONFIG_ARRAY_KEYS[k]) cfg[k] = String(v).split(',').map(function (x) { return x.trim(); }).filter(Boolean);
     else if (typeof v === 'string' && /^[\[{]/.test(v.trim())) { try { cfg[k] = JSON.parse(v); } catch (e) { cfg[k] = v; } }
     else if (typeof v === 'string' && /^-?\d+(\.\d+)?$/.test(v)) cfg[k] = Number(v);
-    else cfg[k] = v;
+    // A config cell holding a TIME ('09:15') comes back from Sheets as a Date on the 1899-12-30
+    // epoch. Handing that to the engine, which slices config values as strings, produced
+    // 'Sat Dec 30 1899…' — decodeCell_ turns it back into 'HH:mm' the same way every other sheet
+    // value is normalised. Doing it HERE means no config key can be caught by this again.
+    else cfg[k] = decodeCell_(v);
   }
   if (cfg.GrowthUpdateMonths && cfg.GrowthUpdateMonths.map) cfg.GrowthUpdateMonths = cfg.GrowthUpdateMonths.map(Number);
   cfg.Links = { line: raw.Links_LINE || '', facebook: raw.Links_Facebook || '', website: raw.Links_Website || '', map: raw.Links_Map || '' };

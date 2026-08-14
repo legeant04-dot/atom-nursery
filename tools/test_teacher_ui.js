@@ -126,7 +126,8 @@ console.log('\n=== 4. Big Cleaning: a working day with its own hours ===');
 ok_('check-in measures late against the day’s own start', /const bc=isBigCleaning_\(todayLocal\(\)\); const inT=bc\?\(bigCleaningIn_\(\)\):sch\.CheckInTime/.test(eng));
 ok_('check-out measures OT against the day’s own end', /isBigCleaning_\(todayLocal\(\)\)\?\(bigCleaningOut_\(\)\):sch\.CheckOutTime/.test(eng));
 ok_('the two times live in one place', /const bigCleaningIn_  = \(\) =>/.test(eng) && /const bigCleaningOut_ = \(\) =>/.test(eng));
-ok_('GAS reports them to the admin screen too', /checkIn: String\(getConfig_\('BigCleaningIn', '08:30'\)\)/.test(ci));
+// v229: read through getConfigTime_ — a time cell comes back from Sheets as a Date (test_config_time.js)
+ok_('GAS reports them to the admin screen too', /checkIn: getConfigTime_\('BigCleaningIn', '08:30'\)/.test(ci));
 ok_('the OT record’s PlanOut is the day’s real end time, not the group shift', /PlanOut: outHHmm,/.test(ci));
 ok_('the admin can set them', /setBCIn/.test(app) && /setBCOut/.test(app) && /A_bcSaveHours/.test(app));
 ok_('a blank time never overwrites a working schedule', /an empty time field means "leave it as it is"/.test(app));
