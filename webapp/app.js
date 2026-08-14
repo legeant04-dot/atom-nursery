@@ -112,7 +112,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.227'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.228'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -2294,9 +2294,11 @@
           // same rule as the class screen and as the server: no journal until the child has arrived
           const done=jdone[s.StudentID], canJ = s.inToday || !!done;
           const jBtn = canJ
-            ? `<button class="btn sm outline" onclick="T_journal('${s.StudentID}')">${esc(journalBtnLabel(done))}</button>`
-            : `<button class="btn sm outline" disabled style="opacity:.45" title="${s.onLeave?(EN()?'On leave today — the leave is the record':'ลาวันนี้ — การลาคือบันทึกของวันนี้'):(EN()?'Check the child in first':'ต้องเช็คอินนักเรียนก่อนจึงจะบันทึกได้')}">${esc(t('lbl.record'))}</button>`;
-          return `<div class="list-item"><span>${studentAvatar(s)} <b>${esc(dispNick(s))}</b> ${journalPill(done)}</span><span>${jBtn} <button class="btn sm outline" onclick="T_assess('${s.StudentID}')">${esc(t('lbl.assess'))}</button></span></div>`; }).join('')}</div>`;
+            ? `<button class="btn sm outline" onclick="T_journal('${s.StudentID}')" title="${esc(journalBtnLabel(done))}">${esc(jShortLabel(done))}</button>`
+            : `<button class="btn sm outline" disabled style="opacity:.45" title="${s.onLeave?(EN()?'On leave today — the leave is the record':'ลาวันนี้ — การลาคือบันทึกของวันนี้'):(EN()?'Check the child in first':'ต้องเช็คอินนักเรียนก่อนจึงจะบันทึกได้')}">${esc(EN()?'Write':'บันทึก')}</button>`;
+          // min-width:0 lets the name column shrink; without it the two buttons were pushed onto
+          // their own lines and every row ended up a different height
+          return `<div class="list-item"><span style="min-width:0;flex:1">${studentAvatar(s)} <b>${esc(dispNick(s))}</b> ${journalPill(done)}</span><span class="acts2">${jBtn}<button class="btn sm outline" onclick="T_assess('${s.StudentID}')">${esc(t('lbl.assess'))}</button></span></div>`; }).join('')}</div>`;
     // render, don't fetch: these three were started before the batch above and travelled with it
     const tca=await p_tca; setHTML('#tcatt', tca?tcaHtml(tca):'');
     const ml=await p_ml; setHTML('#ml', ml.map(leaveRow).join('')||'<small class="muted">ยังไม่มีรายการ</small>');
@@ -2386,31 +2388,38 @@
    * the teacher has filled a page in. A child on leave is closed for the same reason: the leave is
    * the record of their day.
    */
+  /**
+   * ONE WORD WHERE ONE WORD WILL DO. The button is 1/3 of a phone's width, and "แก้ไขบันทึก" in
+   * that space either wraps the card or shrinks past reading size. The card already says what the
+   * child's journal is (the ⏳/📝/✅ pill), so the button only has to say what tapping it does.
+   * The full sentence stays on `title` for anyone on a desktop.
+   */
+  const jShortLabel = d => !d ? (EN()?'Write':'บันทึก') : (jIsDraft(d) ? (EN()?'Edit':'แก้ไข') : (EN()?'View':'ดู'));
   function studentRowButtons(s, jdone){
     const done=jdone[s.StudentID], canJ = s.inToday || !!done;
-    const B=(cls,onclick,icon,label,title)=>`<button class="btn sm ${cls}" ${onclick?`onclick="${onclick}"`:'disabled style="opacity:.45"'} title="${esc(title||label)}" aria-label="${esc(label)}">${icon} ${esc(label)}</button>`;
-    const jLabel = journalBtnLabel(done);
+    // label '' = icon only (the ⋯ menu): a word there would cost a third of the row for nothing
+    const B=(cls,onclick,icon,label,title)=>`<button class="btn sm ${cls}" ${onclick?`onclick="${onclick}"`:'disabled style="opacity:.45"'} title="${esc(title||label)}" aria-label="${esc(label||title||'')}">${icon}${label?' '+esc(label):''}</button>`;
     const jBtn = canJ
-      ? B(done?'outline':'', `T_journal('${s.StudentID}')`, !done?'📒':(jIsDraft(done)?'✏️':'👁️'), jLabel, jLabel+' — '+dispNick(s))
-      : B('outline', '', '📒', EN()?'Journal':'บันทึก',
+      ? B(done?'outline':'', `T_journal('${s.StudentID}')`, !done?'📒':(jIsDraft(done)?'✏️':'👁️'),
+          jShortLabel(done), journalBtnLabel(done)+' — '+dispNick(s))
+      : B('outline', '', '📒', EN()?'Write':'บันทึก',
           s.onLeave ? (EN()?'On leave today — the leave is the record':'ลาวันนี้ — การลาคือบันทึกของวันนี้')
                     : (EN()?'Check the child in first':'ต้องเช็คอินนักเรียนก่อนจึงจะบันทึกได้'));
     // preselect OUT once the child is in (so "pick up" is one tap); always usable so a time can be corrected.
     // A child their parent has reported away today cannot be checked in — the leave IS the record, and a
     // stray check-in would contradict it.
     const ciBtn = s.onLeave
-      ? B('outline', '', '🚫', EN()?'On leave':'ลาวันนี้', EN()?'On leave today — cannot check in':'ลาวันนี้ — เช็คอินไม่ได้')
+      ? B('outline', '', '🚫', EN()?'Leave':'ลา', EN()?'On leave today — cannot check in':'ลาวันนี้ — เช็คอินไม่ได้')
       : B('green', `T_studentCheckin('${s.StudentID}','${esc(nm(s))}','${s.inToday&&!s.outToday?'OUT':(s.outToday?'OUT':'IN')}')`,
-          '📍', s.inToday&&!s.outToday?(EN()?'Pick up':'รับกลับ'):(EN()?'Check in':'เช็คอิน'),
+          '📍', s.inToday&&!s.outToday?(EN()?'Out':'รับกลับ'):(EN()?'In':'เช็คอิน'),
           EN()?'Check in / pick up on behalf':'เช็คอิน / รับกลับ แทนผู้ปกครอง');
     // Three everyday actions stay on the row; the three occasional ones go behind ⋯, the same way
-    // the admin's student list already works. Six labelled buttons wrapped onto three lines and
-    // buried the one a teacher reaches for twenty times a day.
-    return [jBtn,
+    // the admin's student list already works.
+    return `<div class="stuacts">${[jBtn,
       B('outline', `T_assess('${s.StudentID}')`, '📝', EN()?'Assess':'ประเมิน', EN()?'DSPM assessment':'ประเมินพัฒนาการ DSPM'),
       ciBtn,
-      B('outline', `T_stuMore('${s.StudentID}')`, '⋯', EN()?'More':'เพิ่มเติม', EN()?'File leave · correct times · past reports':'แจ้งลา · แก้ไขเวลา · บันทึกย้อนหลัง')
-    ].join('');
+      B('outline more', `T_stuMore('${s.StudentID}')`, '⋯', '', EN()?'File leave · correct times · past reports':'แจ้งลา · แก้ไขเวลา · บันทึกย้อนหลัง')
+    ].join('')}</div>`;
   }
   /**
    * The rest of a child's actions, as a list. Keyed off the class list the screen just drew
@@ -2432,8 +2441,8 @@
       const attTag = s.onLeave
         ? `<small class="pill warn" style="margin-left:4px">🏖️ ${esc(s.leaveType||(EN()?'on leave':'ลา'))}${s.leaveReason?' · '+esc(s.leaveReason):''}</small>`
         : (s.inToday?`<small class="pill ok" style="margin-left:4px">${EN()?'in':'มา'} ${esc(s.inTime||'')}</small>`:'');
-      return `<div class="card"><div style="display:flex;gap:10px;align-items:center">${studentAvatar(s)}<div><b>${esc(dispNick(s))}</b> ${nmSub(s)?`<small class="muted">${esc(nmSub(s))}</small>`:""}${attTag}<br><small class="muted">${esc(ageYM(s.DOB))} · ${EN()?'allergy':'แพ้'}: ${esc(s.Allergy||'-')}</small><br>${journalPill(jdone[s.StudentID])}</div></div>
-        <div class="row" style="flex-wrap:wrap;gap:6px;margin-top:8px">${studentRowButtons(s,jdone)}</div></div>`; }).join(''); };
+      return `<div class="card"><div style="display:flex;gap:10px;align-items:center">${studentAvatar(s)}<div style="min-width:0"><b>${esc(dispNick(s))}</b> ${nmSub(s)?`<small class="muted">${esc(nmSub(s))}</small>`:""}${attTag}<br><small class="muted">${esc(ageYM(s.DOB))} · ${EN()?'allergy':'แพ้'}: ${esc(s.Allergy||'-')}</small><br>${journalPill(jdone[s.StudentID])}</div></div>
+        ${studentRowButtons(s,jdone)}</div>`; }).join(''); };
   // Teacher files a leave for a student → notifies the linked parents; shows in that student's parent calendar
   window.T_studentLeave=(sid,name)=>{ modal(`<h3>🏖️ ${EN()?'File student leave':'แจ้งลานักเรียน'} — ${esc(name)}</h3>
     <!-- same trap as #lType: the value is what reaches the sheet, so it stays Thai in both languages -->
