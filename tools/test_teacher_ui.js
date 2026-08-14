@@ -48,11 +48,24 @@ function grab(fn) { let e = null; try { fn(); } catch (x) { e = x.message || Str
 
 console.log('\n=== 1. the buttons say what they do ===');
 ok_('one builder for a child’s row', /function studentRowButtons\(s, jdone\)/.test(app));
+// the three a teacher uses all day stay on the row…
 [['บันทึก', 'journal'], ['ประเมิน', 'assess'], ['เช็คอิน', 'check in'], ['รับกลับ', 'pick up'],
- ['แจ้งลา', 'leave'], ['แก้เวลา', 'fix time'], ['ย้อนหลัง', 'history'], ['ลาวันนี้', 'on leave']]
+ ['ลาวันนี้', 'on leave'], ['เพิ่มเติม', 'more']]
   .forEach(w => ok_('the row offers "' + w[0] + '" in words (' + w[1] + ')', app.indexOf("'" + w[0] + "'") > 0));
+ok_('exactly four things on the row: journal, assess, check-in, ⋯',
+  /return \[jBtn,\n\s*B\('outline', `T_assess[\s\S]{0,200}ciBtn,\n\s*B\('outline', `T_stuMore[^\]]*\n\s*\]\.join\(''\);/.test(app));
 ok_('every button carries an icon AND a label', /\$\{icon\} \$\{esc\(label\)\}/.test(app));
 ok_('…and wraps instead of running off a phone', /flex-wrap:wrap;gap:6px/.test(app));
+
+console.log('\n=== 1b. the occasional three live behind ⋯, as a list ===');
+ok_('there is a ⋯ menu for a child', /window\.T_stuMore=\(sid\)=>/.test(app));
+[['T_studentLeave', 'file leave'], ['EDIT_ATT', 'correct times'], ['T_journalHistory', 'past reports']]
+  .forEach(w => ok_('⋯ offers ' + w[1], new RegExp('\\$\\{close\\}' + w[0] + "\\('\\$\\{esc\\(sid\\)\\}'").test(app)));
+ok_('…each on its own full-width line, like the admin’s ⋯',
+  (app.match(/<button class="btn block outline"[^>]*onclick="\$\{close\}(T_studentLeave|EDIT_ATT|T_journalHistory)/g) || []).length === 3);
+ok_('the menu knows the child’s name without another round trip', /let T_STU=\{\}/.test(app) && /T_STU\[s\.StudentID\]=s;/.test(app));
+ok_('…filled by BOTH screens that list children',
+  (app.match(/T_STU\[s\.StudentID\]=s;/g) || []).length === 2);
 // the old row was six bare icons with the meaning hidden in a title=""
 ok_('the bare-icon row is gone', app.indexOf('aria-label="${EN()?"Assess":"ประเมิน"}" title="${EN()?"Assess":"ประเมิน"}">📝</button>') < 0);
 
@@ -78,8 +91,9 @@ ok_('…sat between OT รับช้า and สรุปรายชั้น�
   /A_studentOT\(\)'\][\s\S]{0,160}A_editAttPick\(\)'\][\s\S]{0,160}A_studentReport\(\)'\]/.test(app));
 ok_('it is a picker, so the child is chosen by name', /A_editAttFilter/.test(app) && /eaRow/.test(app));
 ok_('…and hands off to the existing corrector', /EDIT_ATT\('\$\{esc\(s\.StudentID\)\}'\)/.test(app));
-ok_('it is gone from the per-student ⋯ menu', app.indexOf("${close}EDIT_ATT(") < 0);
-ok_('the teacher keeps it on their own class row', /EDIT_ATT\('\$\{s\.StudentID\}'\)/.test(app));
+ok_('it is gone from the ADMIN’s per-student ⋯ menu',
+  app.indexOf("correcting a time moved to ดำเนินการ → นักเรียน") > 0);
+ok_('the teacher keeps it, now on their own ⋯ menu', /\$\{close\}EDIT_ATT\('\$\{esc\(sid\)\}'\)/.test(app));
 
 console.log('\n=== 4. Big Cleaning: a working day with its own hours ===');
 {
@@ -123,9 +137,9 @@ console.log('\n=== 5. nothing else moved ===');
   eq('a plain weekend is still closed', H.schoolDay({ date: sat }).closed, true);
   eq('…and carries no cleaning hours', H.schoolDay({ date: sat }).bcIn, '');
 }
-ok_('the assess button is still there', /T_assess\('\$\{s\.StudentID\}'\)/.test(app));
-ok_('the past-reports button is still there', /T_journalHistory\('\$\{s\.StudentID\}'\)/.test(app));
-ok_('filing a student leave is still there', /T_studentLeave\('\$\{s\.StudentID\}'/.test(app));
+ok_('the assess button is still on the row', /T_assess\('\$\{s\.StudentID\}'\)/.test(app));
+ok_('past reports are still reachable', /T_journalHistory\('\$\{esc\(sid\)\}'\)/.test(app));
+ok_('filing a student leave is still reachable', /T_studentLeave\('\$\{esc\(sid\)\}'/.test(app));
 
 console.log('\n' + (fail ? '❌ ' : '✅ ') + pass + ' passed, ' + fail + ' failed\n');
 process.exit(fail ? 1 : 0);
