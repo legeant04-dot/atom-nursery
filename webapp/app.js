@@ -112,7 +112,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.239'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.240'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -722,11 +722,13 @@
     // while the first (uncached) fetch runs; skip on silent background re-renders to avoid flicker.
     if(fn && !(opts&&opts.silent) && !snap) app.innerHTML=`<div class="card" style="text-align:center;color:var(--ink-3);padding:28px">⏳ ${EN()?'Loading…':'กำลังโหลด…'}</div>`;
     window.__atomScreen=screen;   // Phase 0: tags every API row, so we learn WHICH screen is slow
-    const _t0=Date.now();
+    // a stopwatch that stops while the app is off screen. "leaves p95=407.2s" was one person opening
+    // the screen and putting their phone in their pocket — not a screen that takes seven minutes.
+    const _took=(window.__atomAwakeTimer?window.__atomAwakeTimer():(t0=>()=>Date.now()-t0)(Date.now()));
     if(fn){ const r=fn(); // a screen that throws must not leave the loading skeleton stuck forever
       // How long from tap to the screen actually being drawn — the number the user experiences.
       // Measured only for real navigations; a silent background re-render is not something anyone waits for.
-      if(!(opts&&opts.silent)){ const done=()=>{ try{ window.__atomPerfMark&&__atomPerfMark('nav',screen,Date.now()-_t0); }catch(e){} };
+      if(!(opts&&opts.silent)){ const done=()=>{ try{ window.__atomPerfMark&&__atomPerfMark('nav',screen,_took()); }catch(e){} };
         if(r&&r.then) r.then(done,done); else done(); }
       if(snap){ if(r&&r.then) r.then(()=>uiRestore(snap),()=>{}); else uiRestore(snap); }
       // only show the error if STILL on this screen — a slow screen the user already left must not
@@ -5551,6 +5553,12 @@
 
       const devs=(d.byDev||[]).map(x=>`<div class="list-item"><span>${esc(x.dev)} <small class="muted">×${x.n}</small></span>
         <span style="text-align:right"><b style="color:${msColor(x.p50)}">${msFmt(x.p50)}</b>${x.fail?` <small style="color:var(--bad)">· ${EN()?'fail':'พลาด'} ${x.rate}%</small>`:''}</span></div>`).join('');
+      // The device breakdown was being read as a claim about hardware ("desktops are slow"). It is
+      // not: the office computer is the ADMIN, whose screens ask for far more than a parent's. Role
+      // — verified server-side on every row — says which it is, and CALLS PER SESSION is the number
+      // that actually explains a queue.
+      const roles=(d.byRole||[]).map(x=>`<div class="list-item"><span>${esc(x.role)} <small class="muted">×${x.n} · ${x.sessions} ${EN()?'sessions':'เซสชัน'}</small></span>
+        <span style="text-align:right"><b style="color:${msColor(x.p50)}">${msFmt(x.p50)}</b><br><small class="muted">${x.perSession} ${EN()?'calls/session':'ครั้ง/เซสชัน'}</small></span></div>`).join('');
       const nets=(d.byNet||[]).filter(x=>x.net).map(x=>`<div class="list-item"><span>${esc(x.net)} <small class="muted">×${x.n}</small></span><b style="color:${msColor(x.p50)}">${msFmt(x.p50)}</b></div>`).join('');
       const boots=(d.boot||[]).map(x=>`<div class="list-item"><span>${esc(x.mark)}</span><b>${msFmt(x.p50)}</b></div>`).join('');
 
@@ -5577,8 +5585,12 @@
         <h4 style="margin:12px 0 4px">❌ ${EN()?'Requests that failed':'คำขอที่ล้มเหลว'}</h4>
         ${fails}
 
+        ${roles?`<h4 style="margin:12px 0 4px">👥 ${EN()?'By role — and how many calls each visit costs':'แยกตามบทบาท — และหนึ่งครั้งที่เข้าใช้ ยิงกี่คำขอ'}</h4>${roles}
+        <p class="muted" style="font-size:12px">${EN()?'Calls per session is the number that explains a queue: Apps Script runs one at a time per user, so the more a visit asks for, the longer everything else waits.':'“ครั้ง/เซสชัน” คือตัวเลขที่อธิบายอาการช้า — Apps Script รันทีละคำสั่งต่อผู้ใช้หนึ่งคน ยิ่งเข้าใช้ครั้งหนึ่งยิงเยอะ ทุกอย่างยิ่งต้องรอคิว'}</p>`:''}
+
         <h4 style="margin:12px 0 4px">📟 ${EN()?'By device / connection':'แยกตามเครื่อง / สัญญาณ'}</h4>
         ${devs||''}${nets||''}
+        <p class="muted" style="font-size:12px">${EN()?'A device is not a speed: the desktop is the office admin, whose screens ask for the most. Read this next to the role list above.':'ตัวเครื่องไม่ได้บอกความเร็ว — เครื่อง Desktop คือแอดมินที่ออฟฟิศ ซึ่งเปิดหน้าที่ดึงข้อมูลหนักที่สุด · ให้ดูคู่กับตารางบทบาทด้านบน'}</p>
         ${boots?`<h4 style="margin:12px 0 4px">🚀 ${EN()?'App start-up':'เวลาเปิดแอป'}</h4>${boots}`:''}
 
         <p class="muted" style="font-size:12px;margin-top:12px">${EN()?`Log holds ${d.rows} of max ${d.cap} rows. No names, ids or amounts are recorded — only action names and timings.`:`บันทึกไว้ ${d.rows} แถว (สูงสุด ${d.cap}) · ไม่มีการเก็บชื่อ รหัส หรือยอดเงินใดๆ เก็บเฉพาะชื่อคำสั่งและเวลาที่ใช้`}</p>
@@ -5599,7 +5611,9 @@
     const d=window._PERF; if(!d)return;
     const L=[], ms=n=>n>=1000?(n/1000).toFixed(1)+'s':Math.round(n)+'ms';
     L.push('ATOM PERF '+String(d.from||'').slice(0,16)+' -> '+String(d.to||'').slice(0,16));
-    L.push('calls='+d.calls+' sessions='+d.sessions+' p50='+ms(d.p50)+' p95='+ms(d.p95)+' fail='+d.failRate+'% cache='+d.cacheRate+'%');
+    L.push('calls='+d.calls+' sessions='+d.sessions+' perSession='+(d.perSession!=null?d.perSession:'?')
+      +' p50='+ms(d.p50)+' p95='+ms(d.p95)+' fail='+d.failRate+'% cache='+d.cacheRate+'%');
+    if((d.byRole||[]).length) L.push('ROLES: '+d.byRole.map(x=>x.role+' x'+x.n+'/'+x.sessions+'s ='+x.perSession+'/session p50='+ms(x.p50)).join(' | '));
     L.push('SLOWEST (by total wait):');
     (d.slowest||[]).slice(0,10).forEach(x=>L.push('  '+x.action+' x'+x.n+' p50='+ms(x.p50)+' p95='+ms(x.p95)+(x.fail?' fail='+x.fail:'')));
     L.push('SCREENS:');
