@@ -111,8 +111,11 @@ console.log('\n2) the Admin dashboard asks, and asks the RIGHT half');
   ok_('...nor undoes the closure because it is a Big Cleaning day', !/&&!_bc;/.test(app));
   ok_('the children\'s card follows the CHILDREN\'s answer', /const closedBanner=_closedStd\?/.test(app));
   ok_('the staff card follows the STAFF\'s answer', /'Staff today':'พนักงานวันนี้'\}<\/h3>\$\{_closedStaff\?/.test(app));
-  ok_('...and on a Big Cleaning day it says so rather than looking like an ordinary day', /🧹 Big Cleaning<\/span>/.test(app));
-  ok_('the banner explains the split — staff in, children not', /วัน Big Cleaning — พนักงานทำงาน/.test(app));
+  // v237: the day is called a MEETING now, and the label lives in one place (BC_ICON/BC_NAME/BC_SHORT)
+  ok_('...and on a meeting day it says so rather than looking like an ordinary day',
+    /pill wait">\$\{BC_ICON\} \$\{BC_SHORT\(\)\}<\/span>/.test(app));
+  ok_('the banner explains the split — staff in, children not',
+    /\$\{BC_NAME\(\)\} — พนักงานทำงาน/.test(app));
   ok_('the attendance card still prints the holiday instead of a percentage', /โรงเรียนหยุด — ไม่มีการมาเรียนวันนี้/.test(app));
   ok_('the KPI tile says หยุด rather than 0%', /_closed\?\(EN\(\)\?'Holiday':'หยุด'\)/.test(app));
 }

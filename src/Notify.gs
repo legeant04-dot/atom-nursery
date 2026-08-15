@@ -187,7 +187,7 @@ function digestMorning_() {
   if (String(getConfig_('DigestMorning', 'true')) !== 'true') return;
   var today = dateStr_(new Date());
   var lines = ['🌅 สรุปเช้า ' + today];
-  if (isBigCleaningDay_(today)) lines.push('🧹 วันนี้เป็นวัน Big Cleaning');
+  if (isBigCleaningDay_(today)) lines.push('👥 วันนี้เป็นวันประชุม');
   try {
     var lv = readObjects_(sheet_(getHrSpreadsheet_(), 'LEAVE_REQUEST')).filter(function (l) { return String(l.Status).indexOf('PENDING') === 0; });
     if (lv.length) lines.push('⏳ ใบลา (ครู) รออนุมัติ: ' + lv.length);
