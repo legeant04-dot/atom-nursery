@@ -120,7 +120,8 @@ const fresh = { fresh: true };   // every section is live data; the cache is not
   console.log('\n5) the screen is written that way');
   {
     const home = app.slice(app.indexOf('SCREENS.Teacher.home = async () => {'), app.indexOf('window.T_growthReminder ='));
-    ok_('the three sections start before the first await', /const p_tca = api\('teacherClassAttendance'[\s\S]{0,400}const \[att,recent,cl,quota,me0raw,jstat\] = await Promise\.all\(/.test(home));
+    // v232: myLeaves/myOT/recentAttendance left with the lists they fed (📅 ตาราง and 💵 การเงิน)
+    ok_('the remaining section starts before the first await', /const p_tca = api\('teacherClassAttendance'[\s\S]{0,600}const \[att,cl,quota,me0raw,jstat\] = await Promise\.all\(/.test(home));
     ok_('...and are only AWAITED at render time', /const tca=await p_tca; setHTML\('#tcatt'/.test(home));
     ok_('no sequential fetch is left', !/const (tca|ml|myot)=await api\(/.test(home));
     ok_('each carries its own fallback', (home.match(/\.catch\(\(\)=>(\[\]|null)\)/g) || []).length >= 6);

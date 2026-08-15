@@ -7,7 +7,7 @@
     'chooser.sub':  ['โหมดทดลอง — เมื่อเชื่อม LINE แล้ว ระบบจะรู้บทบาทอัตโนมัติ','Demo — once LINE is connected the role is detected automatically'],
     'role.Parent':  ['ผู้ปกครอง','Parent'], 'role.Teacher':['คุณครู','Teacher'], 'role.Admin':['ผู้ดูแลระบบ','Admin'], 'role.Observer':['ผู้ตรวจสอบ (ดูอย่างเดียว)','Observer (view only)'], 'role.Leader':['คุณครู (หัวหน้าชั้น)','Teacher (Leader)'],
     'desc.Parent':  ['รับ-ส่งเด็ก · ชำระเงิน · บันทึก · พัฒนาการ · แชท','Pickup · Payment · Journal · Development · Chat'],
-    'desc.Teacher': ['เช็คอิน · นักเรียน · ลางาน · ตาราง · สลิป','Check-in · Students · Leave · Schedule · Payslip'],
+    'desc.Teacher': ['เช็คอิน · นักเรียน · ลางาน · ตาราง · การเงิน','Check-in · Students · Leave · Schedule · Finance'],
     'desc.Admin':   ['แดชบอร์ด · อนุมัติ · เงินเดือน · วิเคราะห์ · จัดการ','Dashboard · Approvals · Payroll · Analytics · Manage'],
     'desc.Leader':  ['เหมือนครู + เห็นคำขอลาของลูกน้อง','Like Teacher + sees team leave requests'],
     install:        ['ติดตั้งลงมือถือ','Install app'],
@@ -21,7 +21,9 @@
     'nav.home':['หน้าหลัก','Home'], 'nav.checkin':['รับ-ส่ง','Pickup'], 'nav.payment':['ชำระเงิน','Payment'],
     'nav.journal':['บันทึก','Record'], 'nav.dspm':['DSPM','DSPM'], 'nav.growth':['เติบโต','Growth'], 'nav.chat':['แชท','Chat'], 'nav.finance':['การเงิน','Finance'],
     'nav.class':['นักเรียน','Students'], 'nav.leave':['ลางาน','Leave'], 'nav.schedule':['ตาราง','Schedule'],
-    'nav.slip':['สลิป','Payslip'], 'nav.leaves':['ดำเนินการ','Actions'], 'nav.payroll':['เงินเดือน','Payroll'],
+    // "สลิป" named the document; the tab now holds the payslip AND the OT history, so it is named
+    // for what it is about — this teacher's money.
+    'nav.slip':['การเงิน','Finance'], 'nav.leaves':['ดำเนินการ','Actions'], 'nav.payroll':['เงินเดือน','Payroll'],
     'nav.manage':['จัดการ','Manage'], 'nav.analytics':['วิเคราะห์','Analytics'],
     // common
     'c.back':['← กลับ','← Back'], 'c.save':['บันทึก','Save'], 'c.submit':['ส่งคำขอ','Submit'],
@@ -41,7 +43,7 @@
     // screen titles
     'title.checkin':['📍 รับ-ส่งเด็ก (GPS)','📍 Pickup / Drop-off (GPS)'], 'title.payment':['💳 การชำระเงิน','💳 Payment'], 'title.journal':['📒 บันทึกประจำวัน','📒 Daily Journal'],
     'title.dspm':['📈 พัฒนาการ (DSPM)','📈 Development (DSPM)'], 'title.chat':['💬 แชทกับโรงเรียน','💬 Chat with school'], 'title.class':['👶 ชั้นเรียน','👶 My Class'],
-    'title.leave':['📩 การลางาน','📩 Leave'], 'title.schedule':['📅 ตารางการทำงาน & การลา','📅 Work schedule & leave'], 'title.slip':['💵 เงินเดือนของฉัน','💵 My Payslip'],
+    'title.leave':['📩 การลางาน','📩 Leave'], 'title.schedule':['📅 ตารางการทำงาน & การลา','📅 Work schedule & leave'], 'title.slip':['💵 การเงินของฉัน','💵 My finances'],
     'title.dashboard':['📊 แดชบอร์ดรายวัน','📊 Daily dashboard'], 'title.approvals':['✅ อนุมัติการลา (ขั้นสุดท้าย)','✅ Leave approval (final)'], 'title.payroll':['💵 เงินเดือน & สลิป','💵 Payroll & slips'],
     'title.analytics':['📈 วิเคราะห์ DSPM รายชั้นเรียน','📈 DSPM analytics by class'], 'title.manage':['🗂️ จัดการข้อมูล & สิทธิ','🗂️ Manage data & permissions'],
     'p.greeting':['สวัสดีค่ะ ','Hello, '], 't.greeting':['สวัสดีค่ะ ','Hello, '],

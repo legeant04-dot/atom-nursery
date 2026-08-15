@@ -1403,9 +1403,12 @@ function createAtomAPI(M, GROWTH_STD) {
         totals:{students:rows.length, present:rows.reduce((a,x)=>a+x.present,0), absent:rows.reduce((a,x)=>a+x.absent,0),
           sick:rows.reduce((a,x)=>a+x.sick,0), personal:rows.reduce((a,x)=>a+x.personal,0),
           watch:rows.filter(x=>x.maxConsecutive>=3).length}}; },
+    /** Your OWN month. Same rows as the admin's view, narrowed to you — see staffAttendanceMonth. */
+    myAttendanceMonth: p => H.staffAttendanceMonth(Object.assign({}, p, {onlySelf:true})),
     staffAttendanceMonth: p => {
-      // everyone's working time is not a teacher's business — admin (or a read-only Observer) only
-      { const me=staffById(p&&p.staffId); if(!adminLike_(me)) fail('NO_PERMISSION','เฉพาะแอดมิน'); }
+      // EVERYONE's working time is not a teacher's business — admin (or a read-only Observer) only.
+      // Your own is a different question, and the answer is yes: onlySelf narrows this to the caller.
+      { const me=staffById(p&&p.staffId); if(!adminLike_(me) && !(p&&p.onlySelf)) fail('NO_PERMISSION','เฉพาะแอดมิน'); }
       const month = ym((p&&p.month)||todayLocal().slice(0,7));
       const [Y,Mo] = month.split('-').map(Number);
       const days = new Date(Y, Mo, 0).getDate();
@@ -1424,8 +1427,12 @@ function createAtomAPI(M, GROWTH_STD) {
       const hist={}; (M.staffAttendanceHistory||[]).forEach(h=>{ const d=ymd(h.Date); if(d.slice(0,7)===month) hist[h.StaffID+'|'+d]=h; });
       const yes=v=>!!(v&&String(v).toUpperCase()==='YES');
 
+      // onlySelf → just the caller, and someone who is exempt from clocking in still gets their own
+      // (mostly empty) month rather than a screen that looks broken
+      const self = !!(p && p.onlySelf);
       const people = M.staff
-        .filter(s=>!staffEnded_(s) && s.RequireCheckin!==false)
+        .filter(s=>!self || String(s.StaffID)===String(p.staffId))
+        .filter(s=>!staffEnded_(s) && (self || s.RequireCheckin!==false))
         .map(s=>{
           const rows=[]; let present=0, lateDays=0, lateMin=0, leaveDays=0, absent=0, ot=0;
           for(let dd=1; dd<=days; dd++){

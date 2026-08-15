@@ -112,7 +112,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.231'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.232'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -2299,9 +2299,10 @@
      */
     const p_day = api('schoolDay',{}).catch(()=>null);
     const p_tca = api('teacherClassAttendance',{staffId:USER.staffId}).catch(()=>null);
-    const p_ml  = api('myLeaves',{staffId:USER.staffId}).catch(()=>[]);
-    const p_ot  = api('myOT',{staffId:USER.staffId}).catch(()=>[]);
-    const [att,recent,cl,quota,me0raw,jstat] = await Promise.all([api('myAttendanceToday',{staffId:USER.staffId}),api('recentAttendance',{staffId:USER.staffId}),api('classList',tc()),api('leaveQuota',{staffId:USER.staffId}),api('staffSelf',{staffId:USER.staffId}),api('journalStatus',{})]);
+    // myLeaves / myOT / recentAttendance were fetched here for lists that have MOVED — the leave
+    // history and the work-time history to 📅 ตาราง, the OT history to 💵 การเงิน. Fetching them
+    // for a screen that no longer shows them would be three requests spent on nothing.
+    const [att,cl,quota,me0raw,jstat] = await Promise.all([api('myAttendanceToday',{staffId:USER.staffId}),api('classList',tc()),api('leaveQuota',{staffId:USER.staffId}),api('staffSelf',{staffId:USER.staffId}),api('journalStatus',{})]);
     const jdone = journalDoneMap(jstat);
     T_STU={}; (cl.students||[]).forEach(s=>{ T_STU[s.StudentID]=s; });   // names for the ⋯ menu
     const day0 = await p_day;                 // already in flight with the batch above — no extra trip
@@ -2314,7 +2315,6 @@
     const canFood = ['YES','TRUE','1'].indexOf(String(me0.CanFoodMenu||'').toUpperCase())>=0 || me0.CanFoodMenu===true;
     // a manually-requested time (ขอลงเวลา, approved) shows blue+bold to distinguish it from a normal GPS clock-in
     const mtime=(v,manual)=>manual?`<b style="color:var(--blue)" title="${EN()?'manual (requested)':'ขอลงเวลา'}">${v||'--:--'} •</b>`:`<b>${v||'--:--'}</b>`;
-    const recentRows = recent.map((a,i)=>`<div class="list-item"><span>${i===0?'<b>'+esc(t('c.today'))+'</b>':esc(ddmmyyyy(a.date))}</span><span style="font-size:13px">${esc(t('lbl.checkIn'))} ${mtime(a.checkIn,a.manualIn)} · ${esc(t('lbl.checkOut'))} ${mtime(a.checkOut,a.manualOut)} · ${a.late?`<span class="pill bad">${esc(t('lbl.late'))} ${a.late} ${esc(t('lbl.min'))}</span>`:`<span class="pill ok">${esc(t('lbl.onTime'))}</span>`}</span></div>`).join('');
     // A Big Cleaning day IS a working day — often a Saturday — but it runs to its own hours. Say so
     // on the clock card, or a teacher works to their normal shift and is marked late for no reason.
     const bcBar = (day0&&day0.bigCleaning&&day0.bcIn)
@@ -2331,8 +2331,7 @@
         :(day0&&day0.closed)?`<div style="background:var(--surface-3);border:1px solid var(--line-strong);border-radius:8px;padding:12px;text-align:center">
           <b>🏖️ ${EN()?'School closed today':'วันนี้โรงเรียนหยุด'}</b>
           <br><span style="font-size:15px">${esc(EN()?(day0.reasonEN||'Holiday'):(day0.reason||'วันหยุด'))}</span>
-          <br><small class="muted">${EN()?'No clocking in today. Nothing counts as late or absent.':'วันนี้ไม่ต้องลงเวลา · ระบบไม่นับสาย/ขาดงาน'}</small>
-          <div style="margin-top:10px;text-align:left"><b style="font-size:13px">📅 ${esc(t('lbl.recentDays'))}</b>${recentRows}</div></div>`
+          <br><small class="muted">${EN()?'No clocking in today. Nothing counts as late or absent.':'วันนี้ไม่ต้องลงเวลา · ระบบไม่นับสาย/ขาดงาน'}</small></div>`
         // Hired but not started yet: the server already refuses the check-in, so leaving live buttons
         // here only produced an error. Say when the first day is instead.
         :att.notStarted?`<div style="background:var(--warn-bg);border:1px solid var(--warn-line);border-radius:8px;padding:12px;text-align:center">
@@ -2340,14 +2339,16 @@
           <br><span style="font-size:15px">${EN()?'First working day':'วันแรกของการทำงาน'}: <b>${esc(att.startDate||'-')}</b></span>
           <br><small class="muted">${EN()?'Clocking in opens on that day. Nothing counts as late or absent before it.':'ปุ่มลงเวลาจะเปิดให้ใช้ในวันนั้น · ก่อนหน้านั้นระบบไม่นับสาย/ขาดงาน'}</small></div>`:`
         <div class="spread" style="font-size:15px"><span>${esc(t('lbl.checkIn'))} ${mtime(att.checkIn,att.manualIn)}</span><span>${esc(t('lbl.checkOut'))} ${mtime(att.checkOut,att.manualOut)}</span><span>${esc(t('lbl.late'))} <b style="color:${att.late?'var(--bad)':'var(--ok)'}">${att.late||0}</b> ${esc(t('lbl.min'))}</span></div>
-        <div class="row" style="margin-top:12px;gap:10px"><button class="btn green" ${att.checkIn?'disabled':''} style="flex:1;padding:18px;font-size:18px;font-weight:700${att.checkIn?';opacity:.45;cursor:not-allowed':''}" onclick="T_punch('in',this)">🟢 ${att.checkIn?(EN()?'Checked in ':'เข้างานแล้ว ')+esc(att.checkIn):esc(t('lbl.checkIn'))}</button><button class="btn pink" ${att.checkOut?'disabled':''} style="flex:1;padding:18px;font-size:18px;font-weight:700${att.checkOut?';opacity:.45;cursor:not-allowed':''}" onclick="T_punch('out',this)">🔴 ${att.checkOut?(EN()?'Checked out ':'เลิกงานแล้ว ')+esc(att.checkOut):esc(t('lbl.checkOut'))}</button></div>
-        <div style="margin-top:10px"><b style="font-size:13px">📅 ${esc(t('lbl.recentDays'))}</b>${recentRows}</div>`}</div>
+        <div class="row" style="margin-top:12px;gap:10px"><button class="btn green" ${att.checkIn?'disabled':''} style="flex:1;padding:18px;font-size:18px;font-weight:700${att.checkIn?';opacity:.45;cursor:not-allowed':''}" onclick="T_punch('in',this)">🟢 ${att.checkIn?(EN()?'Checked in ':'เข้างานแล้ว ')+esc(att.checkIn):esc(t('lbl.checkIn'))}</button><button class="btn pink" ${att.checkOut?'disabled':''} style="flex:1;padding:18px;font-size:18px;font-weight:700${att.checkOut?';opacity:.45;cursor:not-allowed':''}" onclick="T_punch('out',this)">🔴 ${att.checkOut?(EN()?'Checked out ':'เลิกงานแล้ว ')+esc(att.checkOut):esc(t('lbl.checkOut'))}</button></div>`}
+        <!-- The recent-days list and the leave history used to sit here. They are RECORDS, not
+             today's job: they moved to 📅 ตาราง, where they can be filtered by month and folded
+             away. The home screen is what you do this morning. -->
+        <button class="btn sm outline block" style="margin-top:10px" onclick="GO('schedule')">📅 ${EN()?'Work history & leave history':'เวลาทำงานย้อนหลัง · ประวัติการลา'} →</button></div>
       ${isLeader?`<div id="tapprove"><div class="card muted">${EN()?'Loading approvals…':'กำลังโหลดรายการรออนุมัติ…'}</div></div>`:''}
       <div id="tcatt"></div>
-      <div class="card"><h3>📩 การลาของฉัน · สิทธิคงเหลือ</h3>
+      <div class="card"><h3>📩 ${EN()?'My leave · remaining':'สิทธิการลาคงเหลือ'}</h3>
         <div class="quota">${quota.map(q=>`<div class="q"><div class="n">${q.remain}</div><div class="l">${esc(q.type)}<br>${q.used}/${q.quota}</div></div>`).join('')}</div>
-        <div id="ml" style="margin-top:8px"></div><button class="btn sm outline" style="margin-top:6px" onclick="GO('leave')">+ ยื่น/ดูใบลา</button></div>
-      <div class="card"><h3>${esc(t('ot.myOT'))}</h3><div id="myot"></div></div>
+        <button class="btn sm outline block" style="margin-top:8px" onclick="GO('leave')">+ ยื่น/ดูใบลา</button></div>
       ${isLeader?`<div class="card"><div class="spread"><h3>${esc(t('corg.title'))}</h3><button class="btn sm" onclick="T_classOrg()">🔁 ${esc(t('corg.manage'))}</button></div><small class="muted">${esc(t('corg.leaderNote'))}</small><div id="myccr" style="margin-top:8px"></div></div>`:''}
       <div class="card"><div class="row"><button class="btn sm outline" onclick="GO('absence')">🔎 ${esc(t('abs.title'))}</button>
         <button class="btn sm outline" onclick="T_studentOT()">⏰ ${EN()?'Student OT (follow-up)':'OT นักเรียน (ติดตามชำระ)'}</button>
@@ -2363,10 +2364,8 @@
           // min-width:0 lets the name column shrink; without it the two buttons were pushed onto
           // their own lines and every row ended up a different height
           return `<div class="list-item"><span style="min-width:0;flex:1">${studentAvatar(s)} <b>${esc(dispNick(s))}</b> ${journalPill(done)}</span><span class="acts2">${jBtn}<button class="btn sm outline" onclick="T_assess('${s.StudentID}')">${esc(t('lbl.assess'))}</button></span></div>`; }).join('')}</div>`;
-    // render, don't fetch: these three were started before the batch above and travelled with it
+    // render, don't fetch: this was started before the batch above and travelled with it
     const tca=await p_tca; setHTML('#tcatt', tca?tcaHtml(tca):'');
-    const ml=await p_ml; setHTML('#ml', ml.map(leaveRow).join('')||'<small class="muted">ยังไม่มีรายการ</small>');
-    const myot=await p_ot; setHTML('#myot', myot.map(otRow).join('')||`<small class="muted">${esc(t('ot.none'))}</small>`);
     // A leader has three more sections. They cannot join the batch above — whether this person IS a
     // leader is only known once staffSelf has answered — but they can share ONE round trip with each
     // other instead of taking three, and one failing section no longer hides the other two.
@@ -3244,23 +3243,110 @@
       ${ratioHtml}
       ${staffSchedCalendar(d.history,{shortName,holidays:d.holidays,bigCleaning:d.bigCleaning,leaves:d.leavesToday})}
       <div class="card"><h3>📋 ${esc(t('lbl.dailySummary'))} (${esc(todayStr())})</h3>${d.attendance.map(a=>{const cls=a.Status==='IN'?'dot-in':a.Status==='OUT'?'dot-out':a.Status==='LEAVE'?'dot-leave':'dot-absent';return `<div class="att"><span class="dot-s ${cls}"></span> ${esc(fullName(a.StaffID))} — ${a.Status==='LEAVE'?(EN()?'Leave':'ลา')+' ('+esc(a.Reason||'')+')':a.Status+(a.CheckIn?' '+a.CheckIn:'')}</span></div>`;}).join('')||`<small class="muted">${esc(t('c.noItems'))}</small>`}
-        <div style="margin-top:8px"><b style="font-size:13px">${EN()?'Approved leave (for coverage)':'การลาที่อนุมัติแล้ว (วางแผนสับเปลี่ยน)'}:</b>${d.leavesToday.map(l=>`<div class="list-item"><span>${esc(fullName(l.StaffID))} · ${esc(tLeaveType(l.Type))}</span><span class="muted">${esc(l.StartDate)}→${esc(l.EndDate)}</span></div>`).join('')||`<small class="muted">${esc(t('c.noItems'))}</small>`}</div></div>`;
+        <div style="margin-top:8px"><b style="font-size:13px">${EN()?'Approved leave (for coverage)':'การลาที่อนุมัติแล้ว (วางแผนสับเปลี่ยน)'}:</b>${d.leavesToday.map(l=>`<div class="list-item"><span>${esc(fullName(l.StaffID))} · ${esc(tLeaveType(l.Type))}</span><span class="muted">${esc(l.StartDate)}→${esc(l.EndDate)}</span></div>`).join('')||`<small class="muted">${esc(t('c.noItems'))}</small>`}</div></div>
+      <!-- MY OWN records. They used to sit on the home screen, where a month of history had nowhere
+           to go and every day of it was in the way of this morning's job. Folded shut by default:
+           open one when you want it. -->
+      <details class="card" id="myAttBox"><summary style="cursor:pointer;font-weight:700">🕘 ${EN()?'My work history':'เวลาทำงานย้อนหลังของฉัน'}</summary>
+        <div class="row" style="margin:8px 0"><input type="month" id="mhMonth" value="${monthStr()}" onchange="T_myHistory(this.value)"/>
+          <select id="mhFilter" onchange="T_myHistoryFilter()">
+            <option value="all">${EN()?'All days':'ทุกวัน'}</option>
+            <option value="worked">${EN()?'Worked':'วันที่มาทำงาน'}</option>
+            <option value="late">${EN()?'Late only':'เฉพาะวันที่สาย'}</option>
+            <option value="leave">${EN()?'Leave':'วันลา'}</option>
+            <option value="absent">${EN()?'Absent':'ขาดงาน'}</option></select></div>
+        <div id="mhBox"><small class="muted">${EN()?'Loading…':'กำลังโหลด…'}</small></div></details>
+      <details class="card" id="myLvBox"><summary style="cursor:pointer;font-weight:700">📩 ${EN()?'My leave history':'ประวัติการลาของฉัน'}</summary>
+        <div class="row" style="margin:8px 0"><select id="mlFilter" onchange="T_myLeaveFilter()">
+            <option value="all">${EN()?'All':'ทั้งหมด'}</option>
+            <option value="pending">${EN()?'Awaiting approval':'รออนุมัติ'}</option>
+            <option value="approved">${EN()?'Approved':'อนุมัติแล้ว'}</option>
+            <option value="rejected">${EN()?'Rejected':'ไม่อนุมัติ'}</option></select></div>
+        <div id="mlBox"><small class="muted">${EN()?'Loading…':'กำลังโหลด…'}</small></div></details>`;
+    // both lists load AFTER the screen is on the page, and only once — opening a <details> costs
+    // nothing, so a teacher who never opens them still pays for the fetch, but only two of them
+    T_myHistory(monthStr());
+    api('myLeaves',{staffId:USER.staffId}).then(l=>{ MY_LEAVES=l||[]; T_myLeaveFilter(); })
+      .catch(()=>setHTML('#mlBox', `<small class="muted">${esc(t('c.noItems'))}</small>`));
+  };
+  /* ---- my own work history + leave history (📅 ตาราง) --------------------------------------
+   * Filters, because a month is 30 rows and the question is almost always narrower than that:
+   * "which days was I late", "did that leave get approved".
+   */
+  let MY_DAYS=[], MY_LEAVES=[];
+  const MH_LABEL = { IN:()=>EN()?'Worked':'มาทำงาน', LEAVE:()=>EN()?'Leave':'ลา', HOLIDAY:()=>EN()?'Holiday':'วันหยุด',
+    OFF:()=>EN()?'Weekend':'เสาร์-อาทิตย์', ABSENT:()=>EN()?'Absent':'ขาดงาน', TODAY:()=>EN()?'Today':'วันนี้',
+    FUTURE:()=>'-', BEFORE:()=>EN()?'Before start':'ก่อนเริ่มงาน' };
+  window.T_myHistory=async(month)=>{
+    setHTML('#mhBox', `<small class="muted">${EN()?'Loading…':'กำลังโหลด…'}</small>`);
+    try{ const r=await api('myAttendanceMonth',{staffId:USER.staffId,month});
+      MY_DAYS=((r.staff||[])[0]||{}).days||[];
+      const me=(r.staff||[])[0]||{};
+      setHTML('#mhSum', '');
+      window._MH_SUM=me;
+    }catch(e){ MY_DAYS=[]; }
+    T_myHistoryFilter();
+  };
+  window.T_myHistoryFilter=()=>{
+    const f=(($('#mhFilter')||{}).value)||'all';
+    const keep=d=> f==='all' ? d.status!=='FUTURE' && d.status!=='BEFORE'
+      : f==='worked' ? d.status==='IN'
+      : f==='late'   ? d.status==='IN' && Number(d.late)>0
+      : f==='leave'  ? d.status==='LEAVE'
+      : /* absent */   d.status==='ABSENT';
+    const rows=MY_DAYS.filter(keep);
+    const me=window._MH_SUM||{};
+    const sum=`<div class="row" style="gap:6px;margin-bottom:6px;flex-wrap:wrap">
+      <span class="pill ok">${EN()?'worked':'มาทำงาน'} ${me.present||0}</span>
+      <span class="pill ${me.lateDays?'bad':'ok'}">${EN()?'late':'สาย'} ${me.lateDays||0} ${EN()?'days':'วัน'} (${me.lateMinutes||0} ${esc(t('lbl.min'))})</span>
+      <span class="pill info">${EN()?'leave':'ลา'} ${me.leaveDays||0}</span>
+      <span class="pill ${me.absent?'bad':'ok'}">${EN()?'absent':'ขาด'} ${me.absent||0}</span>
+      ${me.otHours?`<span class="pill wait">OT ${me.otHours} ${EN()?'hr':'ชม.'}</span>`:''}</div>`;
+    setHTML('#mhBox', sum + (rows.map(d=>{
+      const late=Number(d.late)||0;
+      const right = d.status==='IN'
+        ? `${esc(t('lbl.checkIn'))} <b>${esc(d.in||'--:--')}</b> · ${esc(t('lbl.checkOut'))} <b>${esc(d.out||'--:--')}</b> ${late?`<span class="pill bad">${esc(t('lbl.late'))} ${late}</span>`:`<span class="pill ok">${esc(t('lbl.onTime'))}</span>`}`
+        : `<span class="pill ${d.status==='ABSENT'?'bad':d.status==='LEAVE'?'info':'wait'}">${esc((MH_LABEL[d.status]||MH_LABEL.FUTURE)())}${d.leaveType?' · '+esc(d.leaveType):''}${d.holiday?' · '+esc(d.holiday):''}</span>`;
+      return `<div class="list-item"><span>${esc(ddmmyyyy(d.date))}${d.bigCleaning?' 🧹':''}${d.manual?' <small class="muted">✍️</small>':''}</span><span style="font-size:13px;text-align:right">${right}</span></div>`;
+    }).join('') || `<small class="muted">${esc(t('c.noItems'))}</small>`));
+  };
+  window.T_myLeaveFilter=()=>{
+    const f=(($('#mlFilter')||{}).value)||'all';
+    const st=l=>String(l.Status||'').toUpperCase();
+    const keep=l=> f==='all' ? true
+      : f==='pending'  ? st(l).indexOf('PENDING')===0
+      : f==='approved' ? st(l)==='APPROVED'
+      : /* rejected */   st(l)==='REJECTED';
+    const rows=MY_LEAVES.filter(keep);
+    setHTML('#mlBox', rows.map(leaveRow).join('') || `<small class="muted">${esc(t('c.noItems'))}</small>`);
   };
 
   let SLIP_UNLOCKED=false;
+  /**
+   * 💵 การเงิน — everything about this teacher's own money: the payslip AND their OT history.
+   *
+   * The OT list used to be on the home screen. It is pay, not a task, and it belongs with the
+   * payslip behind the same password: an OT record IS an amount of money owed to this person, and
+   * the school locked the payslip for exactly that reason.
+   */
   SCREENS.Teacher.slip = async () => {
-    if(!SLIP_UNLOCKED){ app.innerHTML=`<h2 class="page">💵 เงินเดือนของฉัน</h2>
-      <div class="card" style="text-align:center"><div style="font-size:42px">🔒</div><p>ข้อมูลเงินเดือนเป็นความลับ — กรุณาใส่รหัสผ่านของคุณ</p>
+    if(!SLIP_UNLOCKED){ app.innerHTML=`<h2 class="page">${esc(t('title.slip'))}</h2>
+      <div class="card" style="text-align:center"><div style="font-size:42px">🔒</div><p>${EN()?'Pay information is private — enter your password.':'ข้อมูลการเงินเป็นความลับ — กรุณาใส่รหัสผ่านของคุณ'}</p>
       ${pwField('slipPw',t('lbl.password'),'')}
       <button class="btn block" onclick="T_slipUnlock()">${esc(t('lbl.openSlip'))}</button>
       <button class="btn-ghost block" style="margin-top:8px" onclick="T_changePw(false)">🔑 ${esc(t('pw.title'))}</button>
       <button class="btn-ghost block" style="margin-top:4px" onclick="T_forgotPw()">❓ ${EN()?'Forgot password':'ลืมรหัสผ่าน'}</button></div>`; return; }
-    const month=monthStr(); const pay=await T_slipFor(month);
-    app.innerHTML=`<h2 class="page">💵 เงินเดือนของฉัน</h2>
+    const month=monthStr();
+    const p_ot=api('myOT',{staffId:USER.staffId}).catch(()=>[]);   // travels with the payslip fetch
+    const pay=await T_slipFor(month);
+    app.innerHTML=`<h2 class="page">${esc(t('title.slip'))}</h2>
       <div class="seg"><span class="muted" style="align-self:center">งวด:</span><input type="month" id="slipMonth" value="${month}" style="width:auto" onchange="T_slipMonth(this.value)"/>
       <button class="btn sm outline" onclick="SLIP_LOCK()">🔒 ล็อก</button></div>
       <div id="slipBox">${payslipCard(pay,month)}</div>
-      <button class="btn outline block" onclick="T_slipDownload()">⬇️ ${esc(t('lbl.downloadSlip'))}</button>`;
+      <button class="btn outline block" onclick="T_slipDownload()">⬇️ ${esc(t('lbl.downloadSlip'))}</button>
+      <details class="card" style="margin-top:10px" open><summary style="cursor:pointer;font-weight:700">${esc(t('ot.myOT'))}</summary>
+        <div id="myot" style="margin-top:8px"><small class="muted">${EN()?'Loading…':'กำลังโหลด…'}</small></div></details>`;
+    const myot=await p_ot; setHTML('#myot', myot.map(otRow).join('')||`<small class="muted">${esc(t('ot.none'))}</small>`);
   };
   // staff/admin own profile (opened by tapping the header name/avatar)
   window.T_profile = async () => { setNav('home');
