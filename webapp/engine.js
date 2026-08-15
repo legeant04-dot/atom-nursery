@@ -195,6 +195,28 @@ function createAtomAPI(M, GROWTH_STD) {
    */
   function bigCleaningList_(){ const v=cfg.BigCleaningDays; return (Array.isArray(v)?v:String(v||'').split(',')).map(x=>String(x).trim()).filter(Boolean); }
   const isBigCleaning_ = date => bigCleaningList_().indexOf(String(date))>=0;
+  /**
+   * Is the school open, and OPEN TO WHOM — the one answer, computed once and served to every screen.
+   *
+   * There are two questions here and they have different answers on a Big Cleaning day: the teachers
+   * are in and being paid, the nursery is shut to the families. Anything that re-derives this on the
+   * client gets it wrong sooner or later — the Admin dashboard did exactly that and, on a holiday
+   * that was also a Big Cleaning day, marked all 31 children ขาด. So the rule lives HERE and the
+   * handlers (schoolDay, dashboard) hand it out; no screen works it out for itself.
+   */
+  const schoolDayFor_ = d => { const date=ymd(d||todayLocal());
+    const bc=isBigCleaning_(date);
+    const hol=(M.holidays||[]).find(h=>ymd(h.Date)===date);
+    const g=new Date(date+'T00:00:00').getDay(); const weekend=(g===0||g===6);
+    const closed=!bc && (weekend || !!hol);      // answers for STAFF
+    const closedStd=!!(weekend || hol);          // answers for the CHILDREN
+    return { date, closed, closedForStudents:closedStd, bigCleaning:bc, weekend,
+      // a Big Cleaning day is worked to ITS OWN hours, so the screen can say which ones apply
+      bcIn: bc ? bigCleaningIn_() : '', bcOut: bc ? bigCleaningOut_() : '',
+      // the reason follows whoever is shut out — on a Big Cleaning Saturday the staff are in but the
+      // families are not, and their card still has to say why
+      reason: closedStd ? (hol?(hol.NameTH||hol.NameEN||hol.Name||'วันหยุด'):'วันหยุดสุดสัปดาห์') : '',
+      reasonEN: closedStd ? (hol?(hol.NameEN||hol.NameTH||hol.Name||'Holiday'):'Weekend') : '' }; };
   // A time that isn't a real HH:mm falls back to the default rather than becoming midnight — a
   // config cell can come back from Sheets as a Date, and 'Sat Dec 30 1899…' must never be treated
   // as a working time (see getConfigTime_ / hydrateConfig_ on the GAS side).
@@ -1276,22 +1298,7 @@ function createAtomAPI(M, GROWTH_STD) {
      * say so instead of offering a button that will fail.
      * A Big Cleaning day is a WORKING day that happens to fall at the weekend, so it is NOT closed.
      */
-    schoolDay: p => { const date=ymd((p&&p.date)||todayLocal());
-      const bc=isBigCleaning_(date);
-      const hol=(M.holidays||[]).find(h=>ymd(h.Date)===date);
-      const g=new Date(date+'T00:00:00').getDay(); const weekend=(g===0||g===6);
-      const closed=!bc && (weekend || !!hol);
-      // `closed` answers for STAFF. The children's answer is different on a Big Cleaning day: the
-      // teachers are in, the nursery is shut to the families. Screens that show drop-off / pick-up
-      // buttons must ask closedForStudents, or they offer a tap the server will refuse.
-      const closedStd = !!(weekend || hol);
-      return { date, closed, closedForStudents:closedStd, bigCleaning:bc, weekend,
-        // a Big Cleaning day is worked to ITS OWN hours, so the screen can say which ones apply
-        bcIn: bc ? bigCleaningIn_() : '', bcOut: bc ? bigCleaningOut_() : '',
-        // the reason follows whoever is shut out — on a Big Cleaning Saturday the staff are in but
-        // the families are not, and their card still has to say why
-        reason: closedStd ? (hol?(hol.NameTH||hol.NameEN||hol.Name||'วันหยุด'):'วันหยุดสุดสัปดาห์') : '',
-        reasonEN: closedStd ? (hol?(hol.NameEN||hol.NameTH||hol.Name||'Holiday'):'Weekend') : '' }; },
+    schoolDay: p => schoolDayFor_((p&&p.date)||todayLocal()),
     bigCleaningDays: () => ({ days: bigCleaningList_(), amount: Number(cfg.BigCleaningAmount||0),
       checkIn: bigCleaningIn_(), checkOut: bigCleaningOut_() }),
     addBigCleaning: p => { const l=bigCleaningList_(); if(p.date && l.indexOf(p.date)<0) l.push(p.date); cfg.BigCleaningDays=l.slice().sort(); return {ok:true,days:cfg.BigCleaningDays}; },
@@ -1932,7 +1939,10 @@ function createAtomAPI(M, GROWTH_STD) {
         const onLeave=a.Status==='LEAVE'; return {staffId:s.StaffID,name:s.NameTH,nameEN:s.NameEN,nick:s.Nickname,nickEN:s.NicknameEN,dept:s.Department, status:a.Status||'ABSENT',
           checkIn:onLeave?'':(a.CheckIn||''), checkOut:onLeave?'':(a.CheckOut||''), late:onLeave?0:(a.Late||0), remark:onLeave?(a.Reason||'ลา'):''}; });
       return {classes:cls, staff:staffStat, pendingLeaves:M.leaves.filter(l=>l.Status.startsWith('PENDING')).length,
-        holidays:(M.holidays||[]).map(h=>({Date:h.Date,NameTH:h.NameTH,NameEN:h.NameEN})), bigCleaning:bigCleaningList_()}; },
+        holidays:(M.holidays||[]).map(h=>({Date:h.Date,NameTH:h.NameTH,NameEN:h.NameEN})), bigCleaning:bigCleaningList_(),
+        // whether today is open, and TO WHOM — travels with the dashboard so the screen never has to
+        // work it out from holidays/bigCleaning and get the Big Cleaning case wrong again
+        day: schoolDayFor_(todayLocal())}; },
     // Teacher home attendance card: today's มา/ลา/ขาด per class, scoped to the classes this teacher covers
     // (homeroom teacher = own class; multi-class teacher = those; Leader/Admin-equivalent = every class).
     teacherClassAttendance: p => { const me=staffById(p.staffId)||{};
