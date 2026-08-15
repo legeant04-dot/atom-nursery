@@ -113,9 +113,11 @@ console.log('\n2) A child reported away cannot be checked in');
   const app = fs.readFileSync(path.join(__dirname, '..', 'webapp', 'app.js'), 'utf8');
   // v226: the row is built by studentRowButtons, which disables any button given no onclick —
   // the on-leave branch passes '' for exactly that reason
+  // v234: the school-closed case is checked FIRST (a Big Cleaning day is shut to the children), then
+  // the leave — both give the button no onclick, which is what disables it
   ok_('the check-in button is disabled for a child on leave',
     /onclick\?`onclick="\$\{onclick\}"`:'disabled/.test(app) &&
-    /const ciBtn = s\.onLeave\s*\n\s*\? B\('outline', '', '🚫'/.test(app));
+    /: s\.onLeave\s*\n\s*\? B\('outline', '', '🚫'/.test(app));
   ok_('and the card says the type and reason instead', /s\.leaveType[\s\S]{0,80}s\.leaveReason/.test(app));
   const ck = fs.readFileSync(path.join(__dirname, '..', 'src', 'Checkin.gs'), 'utf8');
   ok_('the LIVE route refuses too — the UI is only courtesy', /ON_LEAVE/.test(ck));

@@ -73,7 +73,12 @@ SCHEMA[WB.MAIN] = {
   // SubmittedAt = when it was sent; UpdatedAt = last save of either kind.
   // Milk = quantity (number); MilkUnit = box|oz. ParentComment = the parent's comment on the report.
   DAILY_JOURNAL:     ['Date', 'StudentID', 'TeacherID', 'Mood', 'Health', 'Milk', 'Meals', 'Sleep', 'Toilet', 'Activity', 'Skills', 'Highlight', 'HealthDetail', 'MilkTotal', 'Water', 'Theme', 'SubmittedAt', 'Status', 'UpdatedAt', 'MilkUnit', 'ParentComment', 'MealItems', 'MilkTimes'],
-  DSPM_ASSESSMENT:   ['AssessmentID', 'StudentID', 'AgeMonth', 'ItemNo', 'Skill', 'Result', 'Date', 'TeacherID'],
+  // Date is the DAY; Timestamp is the moment it was recorded and TeacherName is who recorded it, so a
+  // result can be read back months later without looking a staff id up by hand. AdminComment is the
+  // admin's note on ONE item (with who wrote it and when) — a second opinion beside the teacher's
+  // result, never replacing it.
+  DSPM_ASSESSMENT:   ['AssessmentID', 'StudentID', 'AgeMonth', 'ItemNo', 'Skill', 'Result', 'Date', 'TeacherID',
+                      'TeacherName', 'Timestamp', 'AdminComment', 'CommentBy', 'CommentAt'],
   // PaymentMethod = transfer | cash; TransactionDate = when payment was notified; PaidDate = Admin-confirmed payment date (retro-auditable).
   BILLING:           ['BillingID', 'StudentID', 'Month', 'Amount', 'OTRollover', 'DueDate', 'PaidDate', 'Status', 'SlipAmount', 'VerifiedStatus', 'QRRef', 'PaymentMethod', 'TransactionDate'],
   // Priority (appended at END): higher = more important; popups sort by it (important first) then date.

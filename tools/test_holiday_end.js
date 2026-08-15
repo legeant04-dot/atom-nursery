@@ -70,11 +70,14 @@ console.log('\n1) which days the school is shut — one answer, for every screen
 
 console.log('\n2) the server refuses attendance on a closed day');
 {
-  ok_('one helper decides it', /function assertSchoolOpen_\(d\)/.test(checkin));
+  ok_('one helper decides it', /function assertSchoolOpen_\(d, forStudents\)/.test(checkin));
   ok_('...built on the SAME isSchoolClosed_ the digests use', /if \(!isSchoolClosed_\(d\)\) return;/.test(checkin));
-  ok_('a Big Cleaning day is let through', /if \(isBigCleaningDay_\(ds\)\) return;/.test(checkin));
+  // v234: a Big Cleaning day is a working Saturday for the STAFF. No child comes to school, so it
+  // is let through only when the question is about staff.
+  ok_('a Big Cleaning day is let through — for STAFF',
+    /if \(!forStudents\) \{ try \{ if \(isBigCleaningDay_\(ds\)\) return; \} catch \(e\) \{\} \}/.test(checkin));
   eq('staff check-IN and check-OUT are both guarded', (checkin.match(/assertSchoolOpen_\(\);/g) || []).length, 2);
-  ok_('and the student side too', /assertSchoolOpen_\(\);/.test(parent));
+  ok_('and the student side too, asking the CHILDREN’s question', /assertSchoolOpen_\(null, true\);/.test(parent));
   ok_('the refusal names the day, not just "no"', /วันนี้โรงเรียนหยุด \(' \+ why \+ '\)/.test(checkin));
   ok_('it is a code the client can act on', /apiError_\('SCHOOL_CLOSED'/.test(checkin));
 }
@@ -88,7 +91,9 @@ console.log('\n3) the screens stop offering a button that would fail');
   // card now points there instead of printing four rows nobody asked for.
   ok_('...and points at the history rather than printing it', /onclick="GO\('schedule'\)">📅/.test(app));
   ok_('both ask the server, rather than working it out twice', /api\('schoolDay'/.test(app));
-  eq('...once on each home screen', (app.match(/api\('schoolDay'/g) || []).length, 2);
+  // three since v234: the teacher's class screen asks too, so the on-behalf check-in button knows
+  // whether the nursery is open TO THE CHILDREN today
+  eq('...once on each screen that offers a check-in', (app.match(/api\('schoolDay'/g) || []).length, 3);
   // the teacher's copy must travel with the batch, not cost another round trip
   ok_('the teacher fetches it with the rest of the screen', /const p_day = api\('schoolDay'[\s\S]{0,700}await Promise\.all\(/.test(app));
 }

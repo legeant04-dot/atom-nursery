@@ -416,6 +416,8 @@ var READ_ONLY_ACTIONS_ = { absenceReport: 1, paymentLog: 1, paymentSlips: 1, pay
  * Keep identical to WRITES in webapp/api.js — tools/test_lost_reply.js fails if it drifts.
  */
 var WRITES_ACTIONS_ = { recordCashPayment: 1, teacherStudentLeave: 1, unlockJournal: 1, unlockInjury: 1,
+  commentAssessment: 1,   // writes a note onto an assessment row; "comment" is not a mutating verb
+
   adminResetPassword: 1, adminUpdateOT: 1, adminCancelOT: 1, adminRestoreOT: 1,
   adminAddOT: 1, adminEditOT: 1, adminDeleteOT: 1, decideClassChange: 1, reinstallTriggers: 1 };
 // dedupData/reindex* mutate but don't start with a MUTATING_RE verb — force them to take the write lock
