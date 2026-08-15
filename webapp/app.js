@@ -112,7 +112,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.236'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.237'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -228,6 +228,17 @@
     return titledName(p);   // no child resolvable → formal name, never their nickname
   }
   const EN = () => LANG()==='en';
+  /* What the staff's extra scheduled workday is CALLED.
+   *
+   * It was "Big Cleaning Day" (🧹) and the school asked for it to read as a meeting instead — a
+   * nursery's calendar is seen by parents, and a day named after cleaning says the wrong thing
+   * about the place. Only the label changed: the stored config keys (BigCleaningDays / In / Out /
+   * Amount) and every column already on the sheets are untouched, because renaming live data to
+   * relabel a screen is how a term's records go missing. One name, one icon, one place — the
+   * screens below all read these, so the next rename is a two-line change. */
+  const BC_ICON  = '👥';
+  const BC_NAME  = () => EN()?'Meeting day':'วันประชุม';
+  const BC_SHORT = () => EN()?'Meeting':'ประชุม';
   // OT duration as "X ชม. Y นาที" / "Xh Ym" (e.g. 0.77 hr → "46 นาที"); drops a zero part
   const hmMin = total => { total=Math.max(0,Math.round(Number(total)||0)); const h=Math.floor(total/60), m=total%60;
     const H=EN()?'h':'ชม.', M=EN()?'min':'นาที'; return (h&&m)?`${h} ${H} ${m} ${M}`:(h?`${h} ${H}`:`${m} ${M}`); };
@@ -1270,7 +1281,7 @@
   function calNavHeader(y,mo){ const head=EN()?CAL_MTHE[mo]+' '+y:CAL_MTH[mo]+' '+(y+543);
     return `<div class="spread" style="margin-bottom:6px"><button class="btn sm outline" onclick="CAL_nav(-1)" aria-label="${EN()?"Previous month":"เดือนก่อนหน้า"}" title="${EN()?"Previous month":"เดือนก่อนหน้า"}">◀</button><b style="font-size:14px">📅 ${esc(head)}</b><span class="row"><button class="btn sm outline" onclick="CAL_today()">${EN()?'Today':'วันนี้'}</button><button class="btn sm outline" onclick="CAL_nav(1)" aria-label="${EN()?"Next month":"เดือนถัดไป"}" title="${EN()?"Next month":"เดือนถัดไป"}">▶</button></span></div>`; }
 
-  // light-red / cleaning background for weekend · holiday · Big Cleaning cells (shared by all calendars)
+  // light-red / teal background for weekend · holiday · meeting-day cells (shared by all calendars)
   function calOffBg(y,mo,d,hol,bc){ const dow=new Date(y,mo,d).getDay(); if(hol)return 'background:var(--bad-bg);border-color:var(--bad-line);'; if(bc)return 'background:var(--teal-bg);border-color:var(--teal-line);'; if(dow===0||dow===6)return 'background:var(--bad-bg);border-color:var(--bad-line);'; return ''; }
   // Parent calendar: check-in/out times + school holidays + the LINKED student's leave days only.
   // A child's plan end time drives the "late pick-up" marker. Live plans first (seed ids never match
@@ -1301,7 +1312,7 @@
         const outRed=io&&lateOut(io.OutTime); const outHtml=io?`<span style="${outRed?'color:var(--bad-2);font-weight:800':''}">${esc(io.OutTime||'-')}</span>`:'';
         // leave day keeps its orange; otherwise weekend/holiday/Big-Cleaning → light red / cleaning tint
         const bg = lv?'background:var(--warn-bg);border-color:var(--warn-line);':calOffBg(y,mo,d,isHol,isBC);
-        cells+=`<div class="d ${ev?'ho':''} ${lv?'ev':''} ${today}" style="${bg}">${d}${ev?`<span class="dot" style="color:${isBC&&!isHol?'var(--teal)':'var(--bad)'}">${isBC&&!isHol?'🧹':'🏖️'} ${esc(EN()?(ev[0].titleEN||ev[0].title):ev[0].title)}</span>`:''}${lv?`<span class="dot" style="color:var(--warn)">🏠 ${esc(lv[0].Type||lv[0].Reason||(EN()?'leave':'ลา'))}</span>`:''}${io?`<span class="io">${esc(io.InTime||'-')}<br>${outHtml}</span>`:''}</div>`; }
+        cells+=`<div class="d ${ev?'ho':''} ${lv?'ev':''} ${today}" style="${bg}">${d}${ev?`<span class="dot" style="color:${isBC&&!isHol?'var(--teal)':'var(--bad)'}">${isBC&&!isHol?BC_ICON:'🏖️'} ${esc(EN()?(ev[0].titleEN||ev[0].title):ev[0].title)}</span>`:''}${lv?`<span class="dot" style="color:var(--warn)">🏠 ${esc(lv[0].Type||lv[0].Reason||(EN()?'leave':'ลา'))}</span>`:''}${io?`<span class="io">${esc(io.InTime||'-')}<br>${outHtml}</span>`:''}</div>`; }
       return `${calNavHeader(y,mo)}<div class="cal">${cells}</div><small class="muted">${EN()?'↓in ↑out · 🏖️ holiday · 🏠 child on leave':'↓เข้า ↑ออก · 🏖️ วันหยุด · 🏠 ลา'}</small>`; };
     window._CALRENDER=render;
     return `<div class="card"><div id="calWrap">${render()}</div></div>`; }
@@ -2335,11 +2346,11 @@
     const canFood = ['YES','TRUE','1'].indexOf(String(me0.CanFoodMenu||'').toUpperCase())>=0 || me0.CanFoodMenu===true;
     // a manually-requested time (ขอลงเวลา, approved) shows blue+bold to distinguish it from a normal GPS clock-in
     const mtime=(v,manual)=>manual?`<b style="color:var(--blue)" title="${EN()?'manual (requested)':'ขอลงเวลา'}">${v||'--:--'} •</b>`:`<b>${v||'--:--'}</b>`;
-    // A Big Cleaning day IS a working day — often a Saturday — but it runs to its own hours. Say so
+    // A meeting day IS a working day — often a Saturday — but it runs to its own hours. Say so
     // on the clock card, or a teacher works to their normal shift and is marked late for no reason.
     const bcBar = (day0&&day0.bigCleaning&&day0.bcIn)
       ? `<div style="background:var(--warn-bg);border:1px solid var(--warn-line);border-radius:8px;padding:8px;margin-bottom:8px;font-size:13px">
-          🧹 <b>${EN()?'Big Cleaning Day':'วัน Big Cleaning'}</b> — ${EN()?'today’s hours':'เวลาทำงานวันนี้'} <b>${esc(day0.bcIn)}–${esc(day0.bcOut)}</b>
+          ${BC_ICON} <b>${BC_NAME()}</b> — ${EN()?'today’s hours':'เวลาทำงานวันนี้'} <b>${esc(day0.bcIn)}–${esc(day0.bcOut)}</b>
           <br><span class="muted">${EN()?'Late and OT are measured against these, not your usual shift.':'การมาสายและ OT ของวันนี้คิดจากเวลานี้ ไม่ใช่เวลาปกติ'}</span></div>`
       : '';
     app.innerHTML = `<h2 class="page">${esc(t('t.greeting'))}${esc(EN()?USER.nameEN:USER.nameTH)} 👩‍🏫</h2>
@@ -2529,7 +2540,7 @@
     // preselect OUT once the child is in (so "pick up" is one tap); always usable so a time can be corrected.
     // A child their parent has reported away today cannot be checked in — the leave IS the record, and a
     // stray check-in would contradict it.
-    // shut to the children today (weekend / holiday — and a Big Cleaning day IS shut to them, even
+    // shut to the children today (weekend / holiday — and a meeting day IS shut to them, even
     // though the teachers are in). The server refuses it, so offering the tap only produces an error.
     const stdClosed = !!(window._SCHOOLDAY && window._SCHOOLDAY.closedForStudents);
     const ciBtn = stdClosed
@@ -3294,7 +3305,7 @@
 
   const firstName = s => (nm(s)||'').split(' ')[0];
   // opts: { shortName(staffId), holidays:[{Date,NameTH,NameEN}], leaves:[approved] } — never reads MOCK.staff
-  // Teacher calendar: check-in/out times + holidays + Big Cleaning + leaves of ALL staff. Navigable (all months).
+  // Teacher calendar: check-in/out times + holidays + meeting days + leaves of ALL staff. Navigable (all months).
   function staffSchedCalendar(history, opts){ opts=opts||{};
     const shortName=opts.shortName||(id=>id);
     const render=()=>{ const b=calBase(),y=b.getFullYear(),mo=b.getMonth(); const now=new Date(); const isCur=CAL_OFF===0;
@@ -3310,9 +3321,9 @@
         const holStyle=calOffBg(y,mo,dd,hol,bc);   // holiday red · Big-Cleaning cyan · weekend light-red
         cells+=`<div class="d ${ppl?'ev':''} ${today}" style="min-height:64px;${holStyle}">${dd}`
           +(hol?`<span class="io" style="color:var(--bad);text-align:left;font-weight:600">🏖️ ${esc(hol)}</span>`:'')
-          +(bc&&!hol?`<span class="io" style="color:var(--teal);text-align:left;font-weight:600">🧹 ${EN()?'Cleaning':'ทำความสะอาด'}</span>`:'')
+          +(bc&&!hol?`<span class="io" style="color:var(--teal);text-align:left;font-weight:600">${BC_ICON} ${BC_SHORT()}</span>`:'')
           +(ppl?`<span class="io" style="color:var(--ok);text-align:left">${esc(ppl.join('\n'))}</span>`:'')+`</div>`; }
-      return `${calNavHeader(y,mo)}<div class="cal">${cells}</div><small class="muted">${EN()?'↓in ↑out · 🏖️ holiday · 🧹 cleaning · 🏠 on leave (all staff)':'↓เข้า ↑ออก · 🏖️ วันหยุด · 🧹 ทำความสะอาด · 🏠 ลา (พนักงานทุกคน)'}</small>`; };
+      return `${calNavHeader(y,mo)}<div class="cal">${cells}</div><small class="muted">${EN()?`↓in ↑out · 🏖️ holiday · ${BC_ICON} meeting · 🏠 on leave (all staff)`:`↓เข้า ↑ออก · 🏖️ วันหยุด · ${BC_ICON} ประชุม · 🏠 ลา (พนักงานทุกคน)`}</small>`; };
     window._CALRENDER=render;
     return `<div class="card"><div id="calWrap">${render()}</div></div>`; }
   SCREENS.Teacher.schedule = async () => { const d=await api('schedule');
@@ -3391,7 +3402,7 @@
       const right = d.status==='IN'
         ? `${esc(t('lbl.checkIn'))} <b>${esc(d.in||'--:--')}</b> · ${esc(t('lbl.checkOut'))} <b>${esc(d.out||'--:--')}</b> ${late?`<span class="pill bad">${esc(t('lbl.late'))} ${late}</span>`:`<span class="pill ok">${esc(t('lbl.onTime'))}</span>`}`
         : `<span class="pill ${d.status==='ABSENT'?'bad':d.status==='LEAVE'?'info':'wait'}">${esc((MH_LABEL[d.status]||MH_LABEL.FUTURE)())}${d.leaveType?' · '+esc(d.leaveType):''}${d.holiday?' · '+esc(d.holiday):''}</span>`;
-      return `<div class="list-item"><span>${esc(ddmmyyyy(d.date))}${d.bigCleaning?' 🧹':''}${d.manual?' <small class="muted">✍️</small>':''}</span><span style="font-size:13px;text-align:right">${right}</span></div>`;
+      return `<div class="list-item"><span>${esc(ddmmyyyy(d.date))}${d.bigCleaning?' '+BC_ICON:''}${d.manual?' <small class="muted">✍️</small>':''}</span><span style="font-size:13px;text-align:right">${right}</span></div>`;
     }).join('') || `<small class="muted">${esc(t('c.noItems'))}</small>`));
   };
   window.T_myLeaveFilter=()=>{
@@ -3566,13 +3577,13 @@
      * Cleaning day it marked all 31 children ขาด. The server already answers both questions
      * (schoolDayFor_) and now sends the answer with the dashboard; the two cards ask different halves:
      *   · the children's card → closedForStudents (the nursery is shut to the families)
-     *   · the staff card      → closed            (a Big Cleaning Saturday IS a working day)
+     *   · the staff card      → closed            (a meeting Saturday IS a working day)
      */
     const _day=d.day||{};
     const _closedStd=!!_day.closedForStudents, _closedStaff=!!_day.closed;
     const _closed=_closedStd;                                   // the dashboard is mostly about the children
     const _closedWhy=EN()?(_day.reasonEN||'holiday'):(_day.reason||'วันหยุด');
-    const closedBanner=_closedStd?`<div class="card" style="background:var(--surface-3);border-color:var(--line-strong);color:var(--ink-3);text-align:center"><b>🏖️ ${EN()?'School closed today':'วันนี้โรงเรียนหยุด'} (${esc(_closedWhy)}) — ${EN()?'attendance not counted':'ไม่นับการมาเรียน'}</b>${_day.bigCleaning?`<br><small>🧹 ${EN()?`Big Cleaning day — staff work ${esc(_day.bcIn||'')}–${esc(_day.bcOut||'')}`:`วัน Big Cleaning — พนักงานทำงาน ${esc(_day.bcIn||'')}–${esc(_day.bcOut||'')}`}</small>`:''}</div>`:'';
+    const closedBanner=_closedStd?`<div class="card" style="background:var(--surface-3);border-color:var(--line-strong);color:var(--ink-3);text-align:center"><b>🏖️ ${EN()?'School closed today':'วันนี้โรงเรียนหยุด'} (${esc(_closedWhy)}) — ${EN()?'attendance not counted':'ไม่นับการมาเรียน'}</b>${_day.bigCleaning?`<br><small>${BC_ICON} ${EN()?`Meeting day — staff work ${esc(_day.bcIn||'')}–${esc(_day.bcOut||'')}`:`${BC_NAME()} — พนักงานทำงาน ${esc(_day.bcIn||'')}–${esc(_day.bcOut||'')}`}</small>`:''}</div>`:'';
     // at-a-glance KPI tiles (tap → the relevant screen)
     const _attTs=d.classes.reduce((a,c)=>{a.p+=c.in+c.out;a.t+=c.total;return a;},{p:0,t:0}); const _attPct=_attTs.t?Math.round(_attTs.p/_attTs.t*100):100;
     const _pl=Number(d.pendingLeaves||0);
@@ -3603,7 +3614,7 @@
                 ${lv.length?`<div style="margin-top:2px"><span class="pill wait">🌴 ${EN()?'leave':'ลา'} (${lv.length})</span> <small class="muted">${lv.map(s=>esc(dnick(s))).join(', ')}</small></div>`:''}
                 ${ab.length?`<div style="margin-top:2px"><span class="pill bad">⛔ ${EN()?'absent':'ขาด'} (${ab.length})</span> <small class="muted">${ab.map(s=>esc(dnick(s))).join(', ')}</small></div>`:''}
                 ${!lv.length&&!ab.length?`<small style="color:var(--ok)">✓ ${EN()?'All present':'มาครบทุกคน'}</small>`:''}`; })()}</div>`;}).join('')}`}</div>
-      <div class="card"><div class="spread"><h3>👩‍🏫 ${EN()?'Staff today':'พนักงานวันนี้'}</h3>${_closedStaff?`<span class="pill" style="background:var(--surface-3);color:var(--ink-3)">🏖️ ${EN()?'Holiday':'วันหยุด'}</span>`:(_day.bigCleaning?`<span class="pill wait">🧹 Big Cleaning</span>`:'')}</div>
+      <div class="card"><div class="spread"><h3>👩‍🏫 ${EN()?'Staff today':'พนักงานวันนี้'}</h3>${_closedStaff?`<span class="pill" style="background:var(--surface-3);color:var(--ink-3)">🏖️ ${EN()?'Holiday':'วันหยุด'}</span>`:(_day.bigCleaning?`<span class="pill wait">${BC_ICON} ${BC_SHORT()}</span>`:'')}</div>
         ${_closedStaff?`<div style="text-align:center;color:var(--ink-3);padding:10px 0"><b>${EN()?'School closed — nobody is expected in today':'โรงเรียนหยุด — ไม่มีใครต้องเข้างานวันนี้'}</b></div>`:
         (()=>{ const present=d.staff.filter(s=>s.status==='IN'||s.status==='OUT').length; const t=d.staff.length; const pct=t?Math.round(present/t*100):100;
           const onTime=d.staff.filter(s=>(s.status==='IN'||s.status==='OUT')&&!s.late); const late=d.staff.filter(s=>s.late); const absent=d.staff.filter(s=>s.status==='ABSENT'||s.status==='LEAVE');
@@ -3661,8 +3672,8 @@
       const bcByDay={}; (window._LV_BC||[]).forEach(s=>{ const d=new Date(s); if(d.getFullYear()===y&&d.getMonth()===mo) bcByDay[d.getDate()]=1; });
       for(let dd=1;dd<=days;dd++){ const ppl=byDay[dd]; const today=(isCur&&dd===now.getDate())?'today':''; const clash=ppl&&ppl.length>=2;
         const bg=clash?'background:var(--bad-bg);border-color:var(--bad-line);':calOffBg(y,mo,dd,holByDay[dd],bcByDay[dd]);
-        cells+=`<div class="d ${ppl?'ev':''} ${today}" style="min-height:52px;${bg}">${dd}${holByDay[dd]?`<span class="io" style="text-align:left;color:var(--bad);font-weight:600">🏖️ ${esc(holByDay[dd])}</span>`:''}${bcByDay[dd]&&!holByDay[dd]?`<span class="io" style="text-align:left;color:var(--teal);font-weight:600">🧹</span>`:''}${ppl?`<span class="io" style="text-align:left;color:${clash?'var(--bad)':'var(--ok)'};font-weight:600">${esc(ppl.join('\n'))}</span>`:''}</div>`; }
-      return `${calNavHeader(y,mo)}<div class="cal">${cells}</div><small class="muted">${EN()?'Red = 2+ staff on leave · weekend/holiday · 🧹 cleaning':'สีแดง = ลาซ้ำ ≥2 คน · เสาร์-อาทิตย์/วันหยุด · 🧹 ทำความสะอาด'}</small>`; };
+        cells+=`<div class="d ${ppl?'ev':''} ${today}" style="min-height:52px;${bg}">${dd}${holByDay[dd]?`<span class="io" style="text-align:left;color:var(--bad);font-weight:600">🏖️ ${esc(holByDay[dd])}</span>`:''}${bcByDay[dd]&&!holByDay[dd]?`<span class="io" style="text-align:left;color:var(--teal);font-weight:600">${BC_ICON}</span>`:''}${ppl?`<span class="io" style="text-align:left;color:${clash?'var(--bad)':'var(--ok)'};font-weight:600">${esc(ppl.join('\n'))}</span>`:''}</div>`; }
+      return `${calNavHeader(y,mo)}<div class="cal">${cells}</div><small class="muted">${EN()?`Red = 2+ staff on leave · weekend/holiday · ${BC_ICON} meeting`:`สีแดง = ลาซ้ำ ≥2 คน · เสาร์-อาทิตย์/วันหยุด · ${BC_ICON} ประชุม`}</small>`; };
     window._CALRENDER=render;
     return `<div class="card"><div id="calWrap">${render()}</div></div>`; }
 
@@ -3812,7 +3823,7 @@
         : r.status==='ABSENT' ? `<span class="io" style="text-align:left;color:var(--bad);font-weight:700">${EN()?'absent':'ขาด'}</span>`
         : r.status==='BEFORE' ? `<span class="io" style="text-align:left;color:var(--ink-3)">–</span>`
         : r.status==='TODAY' ? `<span class="io" style="text-align:left;color:var(--ink-3)">${EN()?'today':'วันนี้'}</span>` : '';
-      return `<div class="d" style="min-height:56px;background:${bg};border-color:${bd}">${r.day}${r.bigCleaning?' 🧹':''}${body}</div>`;
+      return `<div class="d" style="min-height:56px;background:${bg};border-color:${bd}">${r.day}${r.bigCleaning?' '+BC_ICON:''}${body}</div>`;
     };
     let cells=['อา','จ','อ','พ','พฤ','ศ','ส'].map(w=>`<div style="text-align:center;font-size:13px;color:var(--ink-3)">${EN()?({'อา':'Su','จ':'Mo','อ':'Tu','พ':'We','พฤ':'Th','ศ':'Fr','ส':'Sa'}[w]):w}</div>`).join('');
     for(let i=0;i<first;i++) cells+='<div class="d dim"></div>';
@@ -3830,7 +3841,7 @@
       <button class="btn outline block" style="margin-top:8px" onclick="this.closest('.modal').remove()">${esc(t('c.close'))}</button>`);
   };
   SCREENS.Admin.leaves = async () => {
-    // school holidays + Big Cleaning days → light-red / cleaning cells on the approval calendars
+    // school holidays + meeting days → light-red / teal cells on the approval calendars
     try{ window._LV_HOL=await api('holidays'); }catch(e){ window._LV_HOL=window._LV_HOL||[]; }
     try{ const bc=await api('bigCleaningDays'); window._LV_BC=(bc&&bc.days)||bc||[]; }catch(e){ window._LV_BC=window._LV_BC||[]; }
     // pending teacher-leave count → badge on the tab so it's visible at a glance
@@ -3892,8 +3903,8 @@
       const nCls=items?new Set(items.map(x=>x.class||'-')).size:0; const ds=`${y}-${String(mo+1).padStart(2,'0')}-${String(dd).padStart(2,'0')}`;
       const bg = n?'cursor:pointer;background:var(--warn-bg);border-color:var(--warn-line);':calOffBg(y,mo,dd,holByDay[dd],bcByDay[dd]);
       const bd = (bdayByDay[dd]||[]);
-      cells+=`<div class="d ${n?'ev':''} ${today}" style="min-height:52px;${bg}" ${n?`onclick="A_slvDay('${ds}')"`:''}>${dd}${holByDay[dd]?`<span class="io" style="text-align:left;color:var(--bad);font-weight:600">🏖️ ${esc(holByDay[dd])}</span>`:''}${bcByDay[dd]&&!holByDay[dd]?`<span class="io" style="text-align:left;color:var(--teal);font-weight:600">🧹</span>`:''}${bd.length?`<span class="io" style="text-align:left;color:var(--brand);font-weight:700" title="${esc(bd.map(b=>dnick(b)).join(', '))}">🎂 ${bd.length===1?esc(dnick(bd[0])):bd.length}</span>`:''}${n?`<span class="io" style="text-align:left;color:var(--warn);font-weight:700">${EN()?'absent':'ขาด'} ${n}<br><span style="font-weight:400;color:var(--ink-3)">${nCls} ${EN()?'class':'ชั้น'}</span></span>`:''}</div>`; }
-    return `${calNavHeader(y,mo)}<div class="cal">${cells}</div><small class="muted">${EN()?'Orange = absences · weekend/holiday red · 🧹 cleaning · 🎂 birthday':'สีส้ม = มีนักเรียนลา · เสาร์-อาทิตย์/วันหยุดแดง · 🧹 ทำความสะอาด · 🎂 วันเกิด'}</small>`;
+      cells+=`<div class="d ${n?'ev':''} ${today}" style="min-height:52px;${bg}" ${n?`onclick="A_slvDay('${ds}')"`:''}>${dd}${holByDay[dd]?`<span class="io" style="text-align:left;color:var(--bad);font-weight:600">🏖️ ${esc(holByDay[dd])}</span>`:''}${bcByDay[dd]&&!holByDay[dd]?`<span class="io" style="text-align:left;color:var(--teal);font-weight:600">${BC_ICON}</span>`:''}${bd.length?`<span class="io" style="text-align:left;color:var(--brand);font-weight:700" title="${esc(bd.map(b=>dnick(b)).join(', '))}">🎂 ${bd.length===1?esc(dnick(bd[0])):bd.length}</span>`:''}${n?`<span class="io" style="text-align:left;color:var(--warn);font-weight:700">${EN()?'absent':'ขาด'} ${n}<br><span style="font-weight:400;color:var(--ink-3)">${nCls} ${EN()?'class':'ชั้น'}</span></span>`:''}</div>`; }
+    return `${calNavHeader(y,mo)}<div class="cal">${cells}</div><small class="muted">${EN()?`Orange = absences · weekend/holiday red · ${BC_ICON} meeting · 🎂 birthday`:`สีส้ม = มีนักเรียนลา · เสาร์-อาทิตย์/วันหยุดแดง · ${BC_ICON} ประชุม · 🎂 วันเกิด`}</small>`;
   }
   /**
    * Birthdays this month. The school wants to know BEFORE the day, which is why this is a month at
@@ -5369,7 +5380,7 @@
       <h4 style="margin:6px 0">${esc(t('set.diligence'))}</h4>
       <div class="grid2"><label class="field"><span>${esc(t('set.attendAmt'))}</span><input id="setAtt" type="number" value="${cfg.DiligenceAttendanceAmount}"/></label>
         <label class="field"><span>${esc(t('set.fbAmt'))}</span><input id="setFb" type="number" value="${cfg.DiligenceFacebookAmount}"/></label></div>
-      <p class="muted" style="font-size:13px">🧹 ${EN()?'Big Cleaning days moved to':'วัน Big Cleaning ย้ายไปที่'} <a href="#" onclick="event.preventDefault();this.closest('.modal').remove();GO_('holidays')"><b>${esc(t('manage.holidays'))}</b></a></p>
+      <p class="muted" style="font-size:13px">${BC_ICON} ${EN()?'Meeting days moved to':'วันประชุมย้ายไปที่'} <a href="#" onclick="event.preventDefault();this.closest('.modal').remove();GO_('holidays')"><b>${esc(t('manage.holidays'))}</b></a></p>
       <h4 style="margin:6px 0">⏰ ${EN()?'Staff OT & provident fund':'OT พนักงาน & เงินสมทบ'}</h4>
       <div class="grid2"><label class="field"><span>${EN()?'Staff OT (฿/hour)':'OT พนักงาน (฿/ชั่วโมง)'}</span><input id="setOtRate" type="number" min="0" value="${esc(sc.StaffOTHourlyRate!=null?sc.StaffOTHourlyRate:100)}"/></label>
         <label class="field"><span>${EN()?'School match (× staff share)':'โรงเรียนสมทบ (เท่าของยอดหักพนักงาน)'}</span><input id="setMatch" type="number" min="0" step="0.1" value="${esc(sc.ContributionMatchRate!=null?sc.ContributionMatchRate:1)}"/></label></div>
@@ -5386,7 +5397,7 @@
       <h4 style="margin:10px 0 4px">🔔 ${EN()?'Notifications':'การแจ้งเตือน'}</h4>
       <p class="muted" style="font-size:13px">${EN()?'To protect the LINE monthly quota, approval alerts go to the in-app bell 🔔. Turn options on to also use LINE. Emergencies (accidents) always LINE.':'เพื่อประหยัดโควตา LINE รายเดือน คำขออนุมัติจะเข้ากล่องแจ้งเตือนในแอป 🔔 · เปิดตัวเลือกเพื่อส่ง LINE เพิ่ม · เหตุฉุกเฉิน (อุบัติเหตุ) ส่ง LINE ทุกครั้ง'}</p>
       <label class="field" style="display:flex;align-items:center;gap:8px"><input type="checkbox" id="setAdminLine" style="width:auto" ${cfgOn('AdminLineNotify',false)?'checked':''}/> 📲 ${EN()?'Also LINE-push admins for approvals (uses quota)':'ส่ง LINE ถึงแอดมินเมื่อมีคำขออนุมัติ (ใช้โควตา)'}</label>
-      <label class="field" style="display:flex;align-items:center;gap:8px"><input type="checkbox" id="setDigM" style="width:auto" ${cfgOn('DigestMorning',true)?'checked':''}/> 🌅 ${EN()?'Morning digest 10:00 (Big Cleaning + pending)':'สรุปเช้า 10:00 (Big Cleaning + รายการค้าง)'}</label>
+      <label class="field" style="display:flex;align-items:center;gap:8px"><input type="checkbox" id="setDigM" style="width:auto" ${cfgOn('DigestMorning',true)?'checked':''}/> 🌅 ${EN()?`Morning digest 10:00 (${BC_NAME()} + pending)`:`สรุปเช้า 10:00 (${BC_NAME()} + รายการค้าง)`}</label>
       <label class="field" style="display:flex;align-items:center;gap:8px"><input type="checkbox" id="setDigE" style="width:auto" ${cfgOn('DigestEvening',true)?'checked':''}/> 🌆 ${EN()?'Evening digest 20:00 (daily report)':'สรุปเย็น 20:00 (รายงานประจำวัน)'}</label>
       <button class="btn sm outline block" style="margin-top:4px" onclick="A_reinstallTriggers(this)">🔄 ${EN()?'Apply digest schedule (10:00 / 20:00)':'อัปเดตตารางส่งสรุป (10:00 / 20:00)'}</button>
       <p class="muted" style="font-size:13px">${EN()?'Digests skip weekends & holidays. Run "Apply" once after enabling.':'สรุปจะข้ามวันหยุด/เสาร์-อาทิตย์ · กด "อัปเดตตาราง" 1 ครั้งหลังเปิดใช้'}</p>
@@ -5898,7 +5909,7 @@
   window.A_bcSaveHours=async(btn)=>{ if(btn)btn.disabled=true;
     try{ await api('setSchoolConfig',{values:bcHourValues()}); confirmSaved(t('c.saved')); }
     catch(e){ err(e); } finally{ if(btn)btn.disabled=false; } };
-  // Big Cleaning Day add/remove — persist immediately (the hours/bonus go first so they aren't lost)
+  // Meeting-day add/remove — persist immediately (the hours/bonus go first so they aren't lost)
   window.A_bcAdd=async()=>{ const d=document.getElementById('bcDate').value; if(!d){toast(EN()?'Pick a date':'เลือกวันที่');return;}
     await api('setSchoolConfig',{values:bcHourValues()});
     try{ await api('addBigCleaning',{date:d}); toast(t('c.saved')); GO_('holidays'); }catch(e){err(e);} };
@@ -6220,14 +6231,14 @@
   // ---- Holiday DB ----
   ADMIN_SUB_holidays = async ()=>{ const [hs,bc]=await Promise.all([api('holidays'),api('bigCleaningDays')]);
     app.innerHTML=`<button class="btn sm outline backbtn" onclick="GO('manage')">${t('c.back')}</button><h2 class="page">🗓️ ${esc(t('manage.holidays'))}</h2>
-      <div class="card"><h3>🧹 ${EN()?'Big Cleaning Day':'วัน Big Cleaning'}</h3>
+      <div class="card"><h3>${BC_ICON} ${BC_NAME()}</h3>
         <p class="muted" style="font-size:13px">${EN()?'A monthly mandatory workday — it counts as work even on a Saturday, but it is worked to the hours below rather than each group’s normal shift. Lateness and OT that day are measured against them, and attendance earns a diligence bonus.':'วันทำงานบังคับเดือนละครั้ง · นับเป็นวันทำงาน (แม้ตรงเสาร์-อาทิตย์) แต่ใช้เวลาเข้า-ออกด้านล่างแทนเวลาปกติของกลุ่ม · การมาสายและ OT ของวันนั้นคิดจากเวลานี้ · มาแล้วได้เบี้ยขยันเพิ่ม'}</p>
         <div class="grid2">
           <label class="field"><span>🕗 ${EN()?'Check-in time':'เวลาเข้างาน'}</span><input id="setBCIn" type="time" value="${esc(bc.checkIn||'08:30')}"/></label>
           <label class="field"><span>🕔 ${EN()?'Check-out time':'เวลาออกงาน'}</span><input id="setBCOut" type="time" value="${esc(bc.checkOut||'17:00')}"/></label></div>
-        <label class="field"><span>${EN()?'Bonus per cleaning day (฿)':'เบี้ยขยันต่อวัน (฿)'}</span><input id="setBC" type="number" value="${esc(bc.amount||0)}"/></label>
+        <label class="field"><span>${EN()?'Bonus per meeting day (฿)':'เบี้ยขยันต่อวัน (฿)'}</span><input id="setBC" type="number" value="${esc(bc.amount||0)}"/></label>
         <button class="btn sm outline block" onclick="A_bcSaveHours(this)">💾 ${EN()?'Save hours & bonus':'บันทึกเวลาและเบี้ยขยัน'}</button>
-        <div id="bcList">${(bc.days||[]).map(d=>`<div class="list-item"><span>🧹 ${esc(ddmmyyyy(d))}</span><button class="btn sm pink" onclick="A_bcRemove('${esc(d)}')" aria-label="${EN()?"Delete":"ลบ"}" title="${EN()?"Delete":"ลบ"}">🗑️</button></div>`).join('')||`<small class="muted">${EN()?'no dates set':'ยังไม่ได้กำหนดวัน'}</small>`}</div>
+        <div id="bcList">${(bc.days||[]).map(d=>`<div class="list-item"><span>${BC_ICON} ${esc(ddmmyyyy(d))}</span><button class="btn sm pink" onclick="A_bcRemove('${esc(d)}')" aria-label="${EN()?"Delete":"ลบ"}" title="${EN()?"Delete":"ลบ"}">🗑️</button></div>`).join('')||`<small class="muted">${EN()?'no dates set':'ยังไม่ได้กำหนดวัน'}</small>`}</div>
         <div class="grid2" style="margin-top:6px"><input type="date" id="bcDate"/><button class="btn" onclick="A_bcAdd()">+ ${esc(t('manage.add'))}</button></div></div>
       <div class="card"><h3>➕ ${esc(t('hol.add'))}</h3>
         <div class="grid2"><label class="field"><span>${esc(t('hol.date'))}</span><input type="date" id="hDate"/></label>

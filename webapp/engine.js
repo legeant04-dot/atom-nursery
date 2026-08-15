@@ -1286,7 +1286,9 @@ function createAtomAPI(M, GROWTH_STD) {
     payOT: p => recordSlip_('ot', p.otId, p),
 
     calendar: () => M.calendar.concat((M.holidays||[]).map(h=>({date:h.Date,title:(h.NameTH||h.NameEN),titleEN:(h.NameEN||h.NameTH),type:'holiday'})),
-        bigCleaningList_().map(d=>({date:d,title:'Big Cleaning Day 🧹',titleEN:'Big Cleaning Day 🧹',type:'bigclean'})))
+        // the label the calendar prints. The config key and the type stay 'bigclean' — the day was
+        // renamed on screen, not in the data (see BC_NAME in app.js)
+        bigCleaningList_().map(d=>({date:d,title:'วันประชุม 👥',titleEN:'Meeting day 👥',type:'bigclean'})))
       .slice().sort((a,b)=>a.date.localeCompare(b.date)),
     // admin-managed Big Cleaning Days (read + add/remove) — stored in SCHOOL_CONFIG on GAS
     /**
