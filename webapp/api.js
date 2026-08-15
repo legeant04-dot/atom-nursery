@@ -422,13 +422,40 @@ window.CONFIG = { MODE: 'gas', GAS_URL: 'https://script.google.com/macros/s/AKfy
     return _reauthP;
   }
   const isDeadSession = e => !!(e && (e.code === 'NO_SESSION' || e.code === 'INVALID_TOKEN'));
+  /* ---- measure what the user WAITED for, not what the clock did ---------------------------------
+   *
+   * A request that is in flight when the phone is locked, or the app is switched away from, does not
+   * settle until the app comes back. The wall clock keeps running the whole time, so the row we
+   * recorded said the call took as long as the user was away. That is how "leaves p50=5ms
+   * p95=407.2s" got into the report: almost every open of that screen was instant, and one person
+   * opened it and put their phone in their pocket for seven minutes.
+   *
+   * It is not a harmless outlier. p95 is exactly the number we use to decide what to fix, and a
+   * report about to be used to judge whether Phase 1 worked must not be measuring pocket time. So
+   * the clock only runs while the app is on screen; a call made entirely in the background (a
+   * heartbeat is not — those are suppressed — but a save queued offline can be) records the real
+   * work, not the wait for the user to come back.
+   */
+  let _hidTotal = 0, _hidAt = 0;
+  try { if (typeof document !== 'undefined' && document.hidden) _hidAt = Date.now(); } catch (e) {}
+  const hidNow = () => _hidTotal + (_hidAt ? Date.now() - _hidAt : 0);
+  try {
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden) { if (!_hidAt) _hidAt = Date.now(); }
+      else if (_hidAt) { _hidTotal += Date.now() - _hidAt; _hidAt = 0; }
+    });
+  } catch (e) {}
+  // start a stopwatch that only advances while the app is visible
+  function awakeTimer() { const t0 = Date.now(), h0 = hidNow();
+    return () => Math.max(0, (Date.now() - t0) - (hidNow() - h0)); }
+  window.__atomAwakeTimer = awakeTimer;   // app.js times a screen with the same clock
+
   const dropDeadSession = e => { if (isDeadSession(e)) window.__atomClearSession(); };
   function flush() {
     const q = _q; _q = []; _scheduled = false;
     // Phase 0: time every round trip. t0 is taken here, so what we measure is exactly what the
     // user waits for — queueing, network, GAS hydration and the handler, all of it.
-    const t0 = Date.now();
-    const took = () => Date.now() - t0;
+    const took = awakeTimer();   // counts only the time the app was actually on screen
     if (q.length === 1) { // single call → no batch wrapper
       postGas({ action: q[0].action, payload: q[0].payload })
         .then(j => { if (!j.ok) { const e = new Error(j.error.message); e.code = j.error.code; throw e; } PERF.api(q[0].action, took(), 1, '', 1); q[0].res(j.data); })
@@ -450,10 +477,10 @@ window.CONFIG = { MODE: 'gas', GAS_URL: 'https://script.google.com/macros/s/AKfy
           PERF.err('batchLength', 'got ' + j.data.length + ' for ' + q.length +
             ' [' + q.map(c => c.action).slice(0, 6).join(' ') + ']');
           q.forEach(c => {
-            const t1 = Date.now();
+            const t1 = awakeTimer();
             postGas({ action: c.action, payload: c.payload })
-              .then(r => { if (!r.ok) { const e = new Error(r.error.message); e.code = r.error.code; throw e; } PERF.api(c.action, Date.now() - t1, 1, 'RESENT', 1); c.res(r.data); })
-              .catch(e => { PERF.api(c.action, Date.now() - t1, 0, (e && e.code) || 'ERR', 1); dropDeadSession(e); c.rej(e); });
+              .then(r => { if (!r.ok) { const e = new Error(r.error.message); e.code = r.error.code; throw e; } PERF.api(c.action, t1(), 1, 'RESENT', 1); c.res(r.data); })
+              .catch(e => { PERF.api(c.action, t1(), 0, (e && e.code) || 'ERR', 1); dropDeadSession(e); c.rej(e); });
           });
           return;
         }
@@ -467,10 +494,10 @@ window.CONFIG = { MODE: 'gas', GAS_URL: 'https://script.google.com/macros/s/AKfy
             (j.data && typeof j.data === 'object' ? ' inner=' + Object.keys(j.data).slice(0, 6).join(',') : '') +
             ' n=' + q.length + ' [' + q.map(c => c.action).slice(0, 6).join(' ') + ']');
           q.forEach(c => {
-            const t1 = Date.now();
+            const t1 = awakeTimer();
             postGas({ action: c.action, payload: c.payload })
-              .then(r => { if (!r.ok) { const e = new Error(r.error.message); e.code = r.error.code; throw e; } PERF.api(c.action, Date.now() - t1, 1, 'RESENT', 1); c.res(r.data); })
-              .catch(e => { PERF.api(c.action, Date.now() - t1, 0, (e && e.code) || 'ERR', 1); dropDeadSession(e); c.rej(e); });
+              .then(r => { if (!r.ok) { const e = new Error(r.error.message); e.code = r.error.code; throw e; } PERF.api(c.action, t1(), 1, 'RESENT', 1); c.res(r.data); })
+              .catch(e => { PERF.api(c.action, t1(), 0, (e && e.code) || 'ERR', 1); dropDeadSession(e); c.rej(e); });
           });
           return;
         }

@@ -172,7 +172,7 @@ function handlePerfSummary(p) {
   var cutoff = new Date(); cutoff.setDate(cutoff.getDate() - days);
   var cutStr = Utilities.formatDate(cutoff, perfTz_(), 'yyyy-MM-dd HH:mm:ss');
 
-  var acts = {}, screens = {}, errs = {}, devs = {}, nets = {}, sids = {}, boot = {};
+  var acts = {}, screens = {}, errs = {}, devs = {}, nets = {}, sids = {}, boot = {}, roles = {};
   var cacheHit = 0, cacheMiss = 0, total = 0, failed = 0, firstTs = '', lastTs = '';
 
   for (var i = 0; i < vals.length; i++) {
@@ -181,7 +181,7 @@ function handlePerfSummary(p) {
     if (ts < cutStr) continue;
     if (!firstTs || ts < firstTs) firstTs = ts;
     if (ts > lastTs) lastTs = ts;
-    var sid = String(r[1]), type = String(r[3]), action = String(r[4]),
+    var sid = String(r[1]), role = String(r[2] || ''), type = String(r[3]), action = String(r[4]),
         ms = Number(r[5]) || 0, ok = Number(r[6]) === 1, code = String(r[7]),
         batch = Number(r[8]) || 0, screen = String(r[9]), dev = String(r[10]), net = String(r[11]);
     sids[sid] = 1;
@@ -208,6 +208,13 @@ function handlePerfSummary(p) {
     if (!ok) { a.fail++; failed++; a.codes[code || 'ERR'] = (a.codes[code || 'ERR'] || 0) + 1; }
     if (dev) devs[dev] = devs[dev] || { dev: dev, n: 0, fail: 0, ms: [] };
     if (dev) { devs[dev].n++; devs[dev].ms.push(ms); if (!ok) devs[dev].fail++; }
+    /* "Desktop p50 10.7s vs Android 5.8s" invited the conclusion that desktops are slow. They are
+     * not: the office computer is the ADMIN, whose screens (finance, payroll, the dashboard) ask for
+     * far more than a parent's do, and whose browser stays open all day. The role is already
+     * recorded on every row — verified server-side, never self-reported — so summarise it, and the
+     * device breakdown stops being read as a claim about hardware. */
+    if (role) { roles[role] = roles[role] || { role: role, n: 0, fail: 0, ms: [], sids: {} };
+      roles[role].n++; roles[role].ms.push(ms); roles[role].sids[sid] = 1; if (!ok) roles[role].fail++; }
     if (net) nets[net] = nets[net] || { net: net, n: 0, ms: [] };
     if (net) { nets[net].n++; nets[net].ms.push(ms); }
     if (screen) {
@@ -255,6 +262,15 @@ function handlePerfSummary(p) {
     return { dev: d.dev, n: d.n, fail: d.fail, rate: d.n ? Math.round(d.fail / d.n * 100) : 0, p50: st.p50, p95: st.p95 };
   }).sort(function (x, y) { return y.n - x.n; });
 
+  // calls PER SESSION is the number Phase 1 set out to move: it was 71, and it is the reason every
+  // action queued behind another. A total on its own hides it — 17,308 calls means nothing until you
+  // know how many visits produced them.
+  var byRole = Object.keys(roles).map(function (k) {
+    var t = roles[k], st = statify(t), ns = Object.keys(t.sids).length;
+    return { role: t.role, n: t.n, sessions: ns, perSession: ns ? Math.round(t.n / ns) : 0,
+      fail: t.fail, p50: st.p50, p95: st.p95 };
+  }).sort(function (x, y) { return y.n - x.n; });
+
   var byNet = Object.keys(nets).map(function (k) {
     var t = nets[k], st = statify(t);
     return { net: t.net, n: t.n, p50: st.p50, p95: st.p95 };
@@ -277,7 +293,8 @@ function handlePerfSummary(p) {
     cacheHit: cacheHit, cacheMiss: cacheMiss,
     cacheRate: (cacheHit + cacheMiss) ? Math.round(cacheHit / (cacheHit + cacheMiss) * 100) : 0,
     slowest: slowest, slowScreens: slowScreens, problems: problems, failing: failing,
-    byDev: byDev, byNet: byNet, boot: bootStats,
+    byDev: byDev, byNet: byNet, byRole: byRole, boot: bootStats,
+    perSession: Object.keys(sids).length ? Math.round(total / Object.keys(sids).length) : 0,
     rows: Math.max(0, sh.getLastRow() - 1), cap: PERF_MAX_KEEP
   };
 }
