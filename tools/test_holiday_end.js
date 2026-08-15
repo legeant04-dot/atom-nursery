@@ -99,8 +99,10 @@ console.log('\n4) the parent home screen still pairs each child with their OWN r
   const home = app.slice(start, app.indexOf('setTopActions(', start));
   const head = home.slice(home.indexOf('const _res = await Promise.all(['), home.indexOf('...kids.map('));
   const fixed = (head.match(/api\('/g) || []).length;
-  eq('seven fixed calls before the per-child ones', fixed, 7);
-  ok_('and the slice starts after all seven', /_res\.slice\(7, 7\+kids\.length\)/.test(home) && /_res\.slice\(7\+kids\.length\)/.test(home));
+  // v231: parentDue joined the batch — the count lives in FIXED so it moves in one place
+  eq('eight fixed calls before the per-child ones', fixed, 8);
+  ok_('and the slice starts after all eight, from ONE named constant',
+    /const FIXED = 8;/.test(home) && /_res\.slice\(FIXED, FIXED\+kids\.length\)/.test(home) && /_res\.slice\(FIXED\+kids\.length\)/.test(home));
 }
 
 console.log('\n5) a leaving date is a DATE, not a delete button');
