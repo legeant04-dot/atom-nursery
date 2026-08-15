@@ -1289,6 +1289,56 @@ function createAtomAPI(M, GROWTH_STD) {
       return {studentId:p.studentId,ageMonth:age,ageLabel:band[0].AgeLabelTH,manualUrl:cfg.DspmManualUrl,
         items:band.map(c=>({itemNo:c.ItemNo,skill:c.Skill,description:c.Description,descriptionEN:(M.dspmEN&&M.dspmEN[c.ItemNo])||'',result:latest[c.ItemNo]?latest[c.ItemNo].Result:'ยังไม่ได้รับการทดสอบ',date:latest[c.ItemNo]?latest[c.ItemNo].Date:''}))}; },
 
+    /**
+     * The two things about a child that nobody should have to go looking for: a BIRTHDAY this month,
+     * and a DSPM assessment that has come due.
+     *
+     * One call, because both are "what needs attention about these children" and a screen that shows
+     * one should not pay twice to show the other.
+     *
+     * SCOPE: an admin sees the whole school; a teacher sees the classes they actually cover. A head
+     * teacher covers more, so they see more — the same rule the class list already uses.
+     *
+     * DSPM DUE means: this child's age falls in a band, and at least one item in that band has never
+     * been given a real result. "ยังไม่ได้ประเมิน" is a real answer to record but NOT an assessment,
+     * so it keeps the reminder up — which is the point of being able to record it.
+     * Finish the band and the reminder goes, on its own, with nothing to dismiss.
+     */
+    studentAlerts: p => {
+      const me = staffById(p&&p.staffId);
+      const all = adminLike_(me) || String((p&&p.role)||'')==='Admin';
+      const mine = all ? null : new Set(coveredClasses_(me).map(c=>c.ClassName));
+      const kids = activeStudents().filter(s=>all || mine.has(s.Class));
+      const month = ym((p&&p.month)||todayLocal());
+      const mo = Number(month.slice(5,7));
+      const thisYear = Number(month.slice(0,4));
+
+      const birthdays = kids.filter(s=>{ const d=ymd(s.DOB); return d && Number(d.slice(5,7))===mo; })
+        .map(s=>{ const d=ymd(s.DOB), day=Number(d.slice(8,10));
+          return { studentId:s.StudentID, name:s.NameTH||s.Name||'', nameEN:s.NameEN||'', nick:s.Nickname||'',
+                   nickEN:s.NicknameEN||'', class:s.Class||'', dob:d, day,
+                   turning: thisYear - Number(d.slice(0,4)) };})
+        .sort((a,b)=>a.day-b.day || String(a.nick||a.name).localeCompare(String(b.nick||b.name)));
+
+      const ASSESSED = { 'ผ่าน':1, 'ไม่ผ่าน':1 };
+      const dspmDue = [];
+      kids.forEach(s=>{
+        const age = ageMonths(s.DOB);
+        const band = (M.dspmCriteria||[]).filter(c=>c.AgeFrom<=age && age<=c.AgeTo);
+        if(!band.length) return;                                  // no criteria for this age yet
+        const latest = latestByItem(s.StudentID);
+        const done = band.filter(c=>{ const r=latest[c.ItemNo]; return r && ASSESSED[r.Result]; }).length;
+        if(done >= band.length) return;                           // finished — say nothing
+        dspmDue.push({ studentId:s.StudentID, name:s.NameTH||s.Name||'', nameEN:s.NameEN||'',
+          nick:s.Nickname||'', nickEN:s.NicknameEN||'', class:s.Class||'', ageMonth:age,
+          ageLabel: band[0].AgeLabelTH||'', band: band[0].AgeFrom+'-'+band[0].AgeTo,
+          done, total: band.length });
+      });
+      dspmDue.sort((a,b)=>String(a.class).localeCompare(String(b.class)) || a.ageMonth-b.ageMonth);
+      return { month, scope: all?'school':'myClasses', birthdays, dspmDue,
+               counts:{ birthdays:birthdays.length, dspmDue:dspmDue.length } };
+    },
+
     // ---------- Teacher / staff ----------
     // classes a staff member is responsible for: Admin/Leader (or Classes='*') → all; else homeroom
     // (CLASSES.TeacherID) ∪ the explicit Classes list ∪ the class matching their Department.
