@@ -338,7 +338,7 @@ window.CONFIG = { MODE: 'gas', GAS_URL: 'https://script.google.com/macros/s/AKfy
   const WRITES = {
     recordCashPayment: 1, teacherStudentLeave: 1, unlockJournal: 1, unlockInjury: 1,
     adminResetPassword: 1, adminUpdateOT: 1, adminCancelOT: 1, adminRestoreOT: 1,
-    adminAddOT: 1, adminEditOT: 1, adminDeleteOT: 1, decideClassChange: 1, reinstallTriggers: 1,
+    adminAddOT: 1, adminAddHolidayOT: 1, adminEditOT: 1, adminDeleteOT: 1, decideClassChange: 1, reinstallTriggers: 1,
     commentAssessment: 1   // writes a note onto an assessment row; "comment" is not a mutating verb
   };
   const isMutating = a => !READ_ONLY[a] && !!(WRITES[a] || MUT.test(a) || /check(in|out)|absence|payOT$|^orgMove|^unlink|^claim|^recompute/i.test(a));

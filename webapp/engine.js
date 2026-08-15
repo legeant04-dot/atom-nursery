@@ -214,6 +214,9 @@ function createAtomAPI(M, GROWTH_STD) {
   const bigCleaningOut_ = () => cfgTime_(cfg.BigCleaningOut, '17:00');
   // enrich an OT record with the staff's names + that day's check-in / check-out (so the approver can see
   // when they arrived vs when they left — the leave time is what drove the OT).
+  // OT วันหยุด is a lump sum with no hours behind it — asked in one place so no re-pricing path
+  // (approval, edit, a rate correction) can quietly turn an agreed amount into hours × rate = 0.
+  const isHolidayOT_ = r => String((r&&r.Kind)||'').toUpperCase()==='HOLIDAY';
   function otView_(r){ const s=staffById_(r.StaffID); let ci='', co='';
     if(ymd(r.Date)===todayLocal()){ const a=(M.staffAttendanceToday||[]).find(x=>x.StaffID===r.StaffID); if(a){ci=a.CheckIn||'';co=a.CheckOut||'';} }
     else { const a=(M.staffAttendanceHistory||[]).find(x=>x.StaffID===r.StaffID&&ymd(x.Date)===ymd(r.Date)); if(a){ci=a.In||a.CheckIn||'';co=a.Out||a.CheckOut||'';} }
@@ -2752,9 +2755,15 @@ function createAtomAPI(M, GROWTH_STD) {
         const min=Math.max(0,toMin(h.Out)-toMin(sch.CheckOutTime)); const rate=staffOtRate(staffById_(h.StaffID));
         const otH=Math.round(min/60*100)/100; return {date:h.Date,staffId:h.StaffID,out:h.Out,schedOut:sch.CheckOutTime,otMinutes:min,otHours:otHoursRule(min),otRate:rate,otPay:Math.round(otH*rate)}; }); },
     // sum a staff's APPROVED OT for a month (auto-pulled into payroll). Source of truth = OT_RECORDS.
+    // The total is what payroll uses; hours/holiday are split out so the payroll screen can SAY what
+    // the number is made of — holiday OT has no hours, so "5 ชม. × ฿100 = ฿2,300" would look wrong.
     staffMonthlyOT: p => { const recs=(M.otRecords||[]).filter(r=>r.StaffID===p.staffId && String(r.Status||'').toUpperCase()==='APPROVED' && (!p.month||ym(r.Month||r.Date)===p.month));
-      const hours=recs.reduce((a,r)=>a+(Number(r.Hours)||0),0); const amount=recs.reduce((a,r)=>a+(Number(r.Amount)||0),0);
-      const rate=staffOtRate(staffById_(p.staffId)); return {staffId:p.staffId,month:p.month,hours,rate,amount:Math.round(amount),days:recs.length}; },
+      const isHol=r=>String(r.Kind||'').toUpperCase()==='HOLIDAY';
+      const hours=recs.reduce((a,r)=>a+(isHol(r)?0:(Number(r.Hours)||0)),0); const amount=recs.reduce((a,r)=>a+(Number(r.Amount)||0),0);
+      const holRecs=recs.filter(isHol); const holiday=holRecs.reduce((a,r)=>a+(Number(r.Amount)||0),0);
+      const rate=staffOtRate(staffById_(p.staffId));
+      return {staffId:p.staffId,month:p.month,hours,rate,amount:Math.round(amount),days:recs.length,
+        holiday:Math.round(holiday),holidayDays:holRecs.length,daily:Math.round(amount-holiday)}; },
     // OT approved AFTER an earlier month's payroll was already saved, and therefore never paid — e.g. a
     // 31/07 late check-out approved in August once July's salary had gone out. Each earlier month owes
     //   approved(m) − what that month's saved payslip paid − what later payslips already carried
@@ -2798,8 +2807,9 @@ function createAtomAPI(M, GROWTH_STD) {
       const r=(M.otRecords||[]).find(x=>x.OTRecordID===p.otId); if(!r)fail('NOT_FOUND','ไม่พบรายการ OT');
       const yes=p.decision!=='reject';
       if(yes){ if(p.hours!=null) r.Hours=Number(p.hours)||0;
-        // re-price at approval time so a rate correction reaches everything not yet paid
-        r.Rate=staffOtRate(staffById_(r.StaffID)); r.Amount=Math.round((Number(r.Hours)||0)*r.Rate);
+        // re-price at approval time so a rate correction reaches everything not yet paid — but a
+        // holiday OT is an agreed SUM with no hours behind it, and hours×rate would zero it
+        if(!isHolidayOT_(r)){ r.Rate=staffOtRate(staffById_(r.StaffID)); r.Amount=Math.round((Number(r.Hours)||0)*r.Rate); }
         if(p.amount!=null&&p.amount!=='') r.Amount=Number(p.amount)||0;
         if(p.note!=null) r.Note=p.note; r.Step2By=ap.NameTH; r.Step2Status='Approved'; r.ApprovedBy=ap.NameTH; r.Status='APPROVED'; }
       else { r.Step2By=ap.NameTH; r.Step2Status='Rejected'; r.Status='REJECTED'; }
@@ -2812,10 +2822,28 @@ function createAtomAPI(M, GROWTH_STD) {
       const id='OTR-'+String(Date.now()).slice(-6); const date=p.date||todayLocal();
       M.otRecords.push({OTRecordID:id,StaffID:target,Date:date,Hours:hours,Rate:staffOtRate(st),Amount:amount,ApprovedBy:ap.NameTH,Status:'APPROVED',Minutes:hours*60,PlanOut:'',ActualOut:'',Month:ym(date),Step1By:ap.NameTH,Step1Status:'Approved',Step2By:ap.NameTH,Step2Status:'Approved',Note:p.note||''});
       return {otId:id,status:'APPROVED'}; },
+    // OT วันหยุด — Admin ticks several staff, picks the day, writes WHY, and sets one amount each.
+    // No hours: a day off worked is agreed as a sum, not clocked. One row PER person so each payslip
+    // and OT history carries its own line and one can be corrected without touching the others.
+    // Approved on the spot — the Admin granting it IS the approval. Mirrors handleAdminAddHolidayOT
+    // in src/OtStaff.gs, which is the route that actually runs on GAS.
+    adminAddHolidayOT: p => { const ap=staffById(p.staffId); if(!adminLike_(ap))fail('NO_PERMISSION','เฉพาะแอดมิน');
+      let ids=p.staffIds||p.targetStaffIds||(p.targetStaffId?[p.targetStaffId]:[]); if(!Array.isArray(ids))ids=[ids];
+      const targets=[]; ids.map(x=>String(x||'').trim()).filter(x=>x).forEach(id=>{ if(targets.indexOf(id)<0)targets.push(id); });
+      if(!targets.length)fail('BAD_INPUT','เลือกพนักงานอย่างน้อย 1 คน');
+      const amount=Number(p.amount)||0; if(amount<=0)fail('BAD_INPUT','ระบุจำนวนเงิน OT');
+      const note=String(p.note==null?'':p.note).trim(); if(!note)fail('BAD_INPUT','ระบุรายละเอียดการทำงานวันหยุด');
+      const date=p.date||todayLocal(); const added=[];
+      targets.forEach((target,i)=>{ const st=staffById_(target); if(!st.StaffID)fail('NOT_FOUND','ไม่พบพนักงาน '+target);
+        M.otRecords.push({OTRecordID:'OTR-'+String(Date.now()).slice(-6)+'-'+i,StaffID:target,Date:date,Hours:0,Rate:0,Amount:amount,
+          ApprovedBy:ap.NameTH,Status:'APPROVED',Minutes:0,PlanOut:'',ActualOut:'',Month:ym(date),
+          Step1By:ap.NameTH,Step1Status:'Approved',Step2By:ap.NameTH,Step2Status:'Approved',Note:note,Kind:'HOLIDAY'});
+        added.push(target); });
+      return {count:added.length,date,amount,staffIds:added,status:'APPROVED'}; },
     // Admin edits any OT (hours/amount/note). Recomputes amount from hours unless amount is given.
     adminEditOT: p => { const ap=staffById(p.staffId); if(!adminLike_(ap))fail('NO_PERMISSION','เฉพาะแอดมิน');
       const r=(M.otRecords||[]).find(x=>x.OTRecordID===p.otId); if(!r)fail('NOT_FOUND','ไม่พบรายการ OT');
-      if(p.hours!=null){ r.Hours=Number(p.hours)||0; r.Amount=Math.round(r.Hours*staffOtRate(staffById_(r.StaffID))); }
+      if(p.hours!=null){ r.Hours=Number(p.hours)||0; if(!isHolidayOT_(r)) r.Amount=Math.round(r.Hours*staffOtRate(staffById_(r.StaffID))); }
       if(p.amount!=null&&p.amount!=='') r.Amount=Number(p.amount)||0;
       if(p.note!=null) r.Note=p.note; if(p.date) { r.Date=p.date; r.Month=ym(p.date); }
       return {otId:r.OTRecordID,hours:r.Hours,amount:r.Amount}; },

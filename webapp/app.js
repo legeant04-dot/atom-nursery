@@ -112,7 +112,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.234'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.235'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -2445,7 +2445,13 @@
   // a blank Status is a legacy pre-workflow OT row → treat it as approved
   const otStatusPill = st => { const k=String(st||'').toUpperCase()||'APPROVED'; const cls=k==='APPROVED'?'ok':(k==='REJECTED'?'bad':'wait');
     return `<span class="pill ${cls}">${esc(t('ot.st.'+k)||k)}</span>`; };
-  function otRow(o){ return `<div class="list-item"><span>${esc(ddmmyyyy(o.Date))} · <b>${o.Hours} ${EN()?'h':'ชม.'}</b> ${esc(baht(o.Amount))}${o.Minutes?` <small class="muted">(${esc(hmMin(o.Minutes))})</small>`:''}</span>${otStatusPill(o.Status)}</div>`; }
+  // a holiday OT has no hours behind it — printing "0 ชม." would read as a mistake, so it says what
+  // it is and shows the reason the Admin wrote down instead
+  const isHolOT=o=>String((o&&o.Kind)||'').toUpperCase()==='HOLIDAY';
+  function otRow(o){ const hol=isHolOT(o);
+    const mid=hol?`🎉 <b>${EN()?'Holiday OT':'OT วันหยุด'}</b> ${esc(baht(o.Amount))}${o.Note?`<br><small class="muted">${esc(o.Note)}</small>`:''}`
+                 :`<b>${o.Hours} ${EN()?'h':'ชม.'}</b> ${esc(baht(o.Amount))}${o.Minutes?` <small class="muted">(${esc(hmMin(o.Minutes))})</small>`:''}`;
+    return `<div class="list-item"><span>${esc(ddmmyyyy(o.Date))} · ${mid}</span>${otStatusPill(o.Status)}</div>`; }
   // leader approval row (approve / reject)
   function otApproveRow(o){ return `<div class="list-item"><span><b>${esc(dnick(o))}</b> · ${esc(ddmmyyyy(o.Date))} · ${o.Hours} ${EN()?'h':'ชม.'} ${esc(baht(o.Amount))}<br><small class="muted">${esc(o.PlanOut||'')}→${esc(o.ActualOut||'')} (${esc(hmMin(o.Minutes))})</small></span><span class="row"><button class="btn sm green" onclick="T_approveOT('${o.OTRecordID}','approve')" aria-label="${EN()?"Approve":"อนุมัติ"}" title="${EN()?"Approve":"อนุมัติ"}">✔</button><button class="btn sm pink" onclick="T_approveOT('${o.OTRecordID}','reject')" aria-label="${EN()?"Reject":"ปฏิเสธ"}" title="${EN()?"Reject":"ปฏิเสธ"}">✕</button></span></div>`; }
   window.T_approveOT=async(otId,decision)=>{ try{ await api('approveOT',{staffId:USER.staffId,otId,decision}); toast(decision==='approve'?(EN()?'Approved':'อนุมัติแล้ว'):(EN()?'Rejected':'ปฏิเสธแล้ว')); GO('home'); }catch(e){err(e);} };
@@ -3840,6 +3846,7 @@
     const shown = LV_TAB==='pending'?pending:resolved;
     app.innerHTML=`<h2 class="page">✅ ${EN()?'Operations':'ดำเนินการ'}</h2>${mainSeg}
       ${opTools([['⏰',t('ot.adminOT'),'A_staffOT()'],
+                 ['🎉',EN()?'Holiday OT':'OT วันหยุด','A_holidayOT()'],
                  ['⏰',t('att.adminTitle'),'A_timeRequests()'],
                  ['🔁',t('corg.adminTitle'),'A_classChanges()'],
                  ['🗓️',EN()?'Monthly work time':'เวลาเข้า-ออกรายเดือน','A_staffMonth()']])}
@@ -4000,7 +4007,9 @@
     // auto-pull this staff's APPROVED OT for the selected month into the OT field
     let otAuto=null;
     try{ const ot=await api('staffMonthlyOT',{staffId:sid,month:$('#pMonth').value}); if(stale())return; otAuto=ot; $('#pOt').value=ot.amount;
-      const n=$('#otNote'); if(n) n.innerHTML=`(${EN()?'auto':'อัตโนมัติ'} ${ot.hours} ${EN()?'hr':'ชม.'} × ${baht(ot.rate)})`; }catch(e){}
+      // holiday OT is in the same total but has no hours behind it — say so, or "8 ชม. × ฿100" will
+      // not add up to the figure in the box and the Admin will "correct" a number that is right
+      const n=$('#otNote'); if(n) n.innerHTML=`(${EN()?'auto':'อัตโนมัติ'} ${ot.hours} ${EN()?'hr':'ชม.'} × ${baht(ot.rate)}${Number(ot.holiday)>0?` + 🎉 ${EN()?'holiday OT':'OT วันหยุด'} ${baht(ot.holiday)}`:''})`; }catch(e){}
     // OT approved after an EARLIER month's payroll was saved was never paid — it is owed now, as its
     // own line, so the earlier slip stays exactly as it was signed off (see otCarryOver_ in Payroll.gs)
     try{ const cy=await api('otCarryOver',{staffId:sid,month:$('#pMonth').value}); if(stale())return;
@@ -6046,10 +6055,12 @@
     const pcls=st=>({PENDING_ADMIN:'wait',PENDING_LEADER:'wait',APPROVED:'ok',CONFIRMED:'ok',REJECTED:'bad'}[String(st||'').toUpperCase()]||'ok');
     const plbl=st=>{ const k=String(st||'').toUpperCase()||'APPROVED'; return t('ot.st.'+k)||k; };
     const row=o=>{ const st=String(o.Status).toUpperCase(); const isPA=st==='PENDING_ADMIN'; const rejected=st==='REJECTED';
+      const hol=isHolOT(o);
       return `<div class="card" style="padding:8px;${rejected?'opacity:.7':''}">
-        <div class="spread"><label style="display:flex;gap:6px;align-items:center"><input type="checkbox" class="sotchk" value="${esc(o.OTRecordID)}" style="width:auto" onchange="A_sotSel()"/> <b>${esc(dnick(o))}</b></label><span class="pill ${pcls(st)}" style="font-size:11px">${esc(plbl(st))}</span></div>
-        <small class="muted">${esc(ddmmyyyy(o.Date))} · ${EN()?'in':'เข้างาน'} <b>${esc(o.CheckIn||'--:--')}</b> → ${EN()?'out':'เลิกงาน'} <b>${esc(o.CheckOutActual||o.ActualOut||'--:--')}</b>${o.PlanOut?` <span class="muted">(${EN()?'plan':'แผน'} ${esc(o.PlanOut)})</span>`:''}</small>
-        <div class="grid2" style="margin-top:6px"><label class="field"><span>${EN()?'Hours':'ชั่วโมง'}</span><input type="number" min="0" step="1" value="${esc(o.Hours)}" id="sot_h_${o.OTRecordID}"/></label>
+        <div class="spread"><label style="display:flex;gap:6px;align-items:center"><input type="checkbox" class="sotchk" value="${esc(o.OTRecordID)}" style="width:auto" onchange="A_sotSel()"/> <b>${esc(dnick(o))}</b>${hol?` <span class="pill" style="font-size:11px">🎉 ${EN()?'Holiday':'วันหยุด'}</span>`:''}</label><span class="pill ${pcls(st)}" style="font-size:11px">${esc(plbl(st))}</span></div>
+        ${hol?`<small class="muted">${esc(ddmmyyyy(o.Date))}${o.Note?` · ${esc(o.Note)}`:''}</small>`
+             :`<small class="muted">${esc(ddmmyyyy(o.Date))} · ${EN()?'in':'เข้างาน'} <b>${esc(o.CheckIn||'--:--')}</b> → ${EN()?'out':'เลิกงาน'} <b>${esc(o.CheckOutActual||o.ActualOut||'--:--')}</b>${o.PlanOut?` <span class="muted">(${EN()?'plan':'แผน'} ${esc(o.PlanOut)})</span>`:''}</small>`}
+        <div class="grid2" style="margin-top:6px"><label class="field"><span>${EN()?'Hours':'ชั่วโมง'}</span><input type="number" min="0" step="1" value="${esc(o.Hours)}" id="sot_h_${o.OTRecordID}" ${hol?'disabled':''}/></label>
           <label class="field"><span>${EN()?'Amount (฿)':'ยอด (฿)'}</span><input type="number" min="0" value="${esc(o.Amount)}" id="sot_a_${o.OTRecordID}"/></label></div>
         ${o.Minutes?`<small class="muted">${esc(hmMin(o.Minutes))}</small>`:''}
         <div class="row" style="margin-top:6px">${isPA
@@ -6091,6 +6102,62 @@
   window.A_addOTDo=async(btn)=>{ const m=btn.closest('.modal'); const g=id=>{const e=m.querySelector('#'+id);return e?e.value:'';};
     const hours=Number(g('aotHours'))||0; if(hours<=0){toast(EN()?'Enter hours':'ระบุจำนวนชั่วโมง');return;}
     try{ await api('adminAddOT',{staffId:USER.staffId,targetStaffId:g('aotStaff'),date:g('aotDate'),hours,amount:g('aotAmount'),note:g('aotNote')}); m.remove(); confirmSaved(t('c.saved')); A_staffOT(); }catch(e){err(e);} };
+
+  /* ---- Admin: OT วันหยุด (holiday OT) ----------------------------------------------------------
+   * A day off that was worked is agreed as a SUM, not clocked: the Admin ticks who came in, picks the
+   * day, writes down what they did (that note is the only record of it) and sets one amount each.
+   * It is written into OT_RECORDS as APPROVED, so it reaches the salary through the same path as the
+   * evening OT — including the carry-over that pays it late rather than dropping it.
+   * Mobile-first: one column, the form collapsed under a summary so the month's list is what you see
+   * first, and the staff list scrolls inside its own box rather than pushing the Save button off-screen.
+   */
+  let HOT_MONTH=null;
+  window.A_holidayOT=async(month)=>{ HOT_MONTH=month||HOT_MONTH||monthStr();
+    const [rows,staff]=await Promise.all([api('adminOTList',{month:HOT_MONTH}), (A_CACHE.staff&&A_CACHE.staff.length)?Promise.resolve(A_CACHE.staff):api('listStaff')]);
+    A_CACHE.staff=staff||A_CACHE.staff;
+    const hol=(rows||[]).filter(o=>String(o.Kind||'').toUpperCase()==='HOLIDAY');
+    const total=hol.reduce((a,o)=>a+(Number(o.Amount)||0),0);
+    const people=(A_CACHE.staff||[]).filter(s=>!s.ended);
+    const row=o=>`<div class="card" style="padding:8px">
+      <div class="spread"><b>${esc(dnick(o))}</b><span class="pill ok" style="font-size:11px">${esc(ddmmyyyy(o.Date))}</span></div>
+      <label class="field" style="margin-top:6px"><span>${EN()?'Amount (฿)':'จำนวนเงิน (฿)'}</span><input type="number" min="0" id="hot_a_${o.OTRecordID}" value="${esc(o.Amount)}"/></label>
+      <label class="field"><span>${EN()?'Details':'รายละเอียด'}</span><textarea id="hot_n_${o.OTRecordID}" rows="2">${esc(o.Note||'')}</textarea></label>
+      <div class="row"><button class="btn sm outline" onclick="A_hotSave('${o.OTRecordID}')">💾 ${esc(t('c.save'))}</button>
+        <button class="btn sm pink" onclick="A_hotDel('${o.OTRecordID}')">🗑️ ${EN()?'Delete':'ลบ'}</button></div></div>`;
+    modal(`<h3>🎉 ${EN()?'Holiday OT':'OT วันหยุด'}</h3>
+      <label class="field"><span>${EN()?'Month':'เดือน'}</span><input type="month" id="hotMonth" value="${HOT_MONTH}" onchange="A_holidayOT(this.value)"/></label>
+      <details class="card" style="padding:8px" ${hol.length?'':'open'}>
+        <summary style="cursor:pointer;font-weight:700">➕ ${EN()?'Record holiday OT':'บันทึก OT วันหยุด'}</summary>
+        <label class="field" style="margin-top:8px"><span>${EN()?'Date worked':'วันที่มาทำงาน'}</span><input type="date" id="hotDate" value="${todayStr()}"/></label>
+        <label class="field"><span>${EN()?'Amount each (฿)':'จำนวนเงินต่อคน (฿)'}</span><input type="number" min="0" id="hotAmount" placeholder="0"/></label>
+        <label class="field"><span>${EN()?'Details of the work':'รายละเอียดการทำงาน'}</span><textarea id="hotNote" rows="3" placeholder="${EN()?'What was done on the day off':'ทำอะไรในวันหยุด'}"></textarea></label>
+        <div class="spread" style="margin:6px 0"><b style="font-size:13px">${EN()?'Staff':'พนักงาน'} <span class="muted" id="hotN">(0)</span></b>
+          <label style="display:flex;gap:6px;align-items:center;font-size:13px"><input type="checkbox" id="hotAll" style="width:auto" onchange="A_hotToggleAll(this)"/> ${EN()?'All':'ทั้งหมด'}</label></div>
+        <div style="max-height:34vh;overflow:auto;border:1px solid var(--line);border-radius:8px;padding:6px">
+          ${people.map(s=>`<label class="list-item" style="gap:8px;cursor:pointer"><input type="checkbox" class="hotchk" value="${esc(s.StaffID)}" style="width:auto" onchange="A_hotSel()"/><span>${esc(nmn(s))}</span></label>`).join('')||`<small class="muted">${esc(t('c.noItems'))}</small>`}</div>
+        <button class="btn block green" style="margin-top:8px" onclick="A_hotAdd(this)">💾 ${esc(t('c.save'))}</button>
+      </details>
+      ${hol.length?`<div class="spread" style="margin:8px 0"><b>${EN()?'This month':'เดือนนี้'} (${hol.length})</b><b>${esc(baht(total))}</b></div>`:''}
+      <div style="max-height:44vh;overflow:auto">${hol.length?hol.map(row).join(''):`<small class="muted">${EN()?'No holiday OT this month':'ยังไม่มี OT วันหยุดในเดือนนี้'}</small>`}</div>
+      <button class="btn outline block" style="margin-top:8px" onclick="this.closest('.modal').remove()">${esc(t('c.close'))}</button>`);
+    A_hotSel();
+  };
+  const A_hotRefresh=()=>{ const x=document.querySelector('.modal'); if(x)x.remove(); A_holidayOT(); };
+  window.A_hotSel=()=>{ const n=document.querySelectorAll('.hotchk:checked').length; const el=document.getElementById('hotN'); if(el)el.textContent='('+n+')'; };
+  window.A_hotToggleAll=(cb)=>{ document.querySelectorAll('.hotchk').forEach(c=>{c.checked=cb.checked;}); A_hotSel(); };
+  window.A_hotAdd=async(btn)=>{ const m=btn.closest('.modal'); const g=id=>{const e=m.querySelector('#'+id);return e?e.value:'';};
+    const staffIds=[...m.querySelectorAll('.hotchk:checked')].map(c=>c.value);
+    if(!staffIds.length){toast(EN()?'Select at least one':'เลือกพนักงานอย่างน้อย 1 คน');return;}
+    const amount=Number(g('hotAmount'))||0; if(amount<=0){toast(EN()?'Enter the amount':'ระบุจำนวนเงิน');return;}
+    const note=g('hotNote').trim(); if(!note){toast(EN()?'Enter the details':'ระบุรายละเอียดการทำงาน');return;}
+    // said out loud before it is written: the amount is PER PERSON, so ticking five people spends five times it
+    if(!confirm((EN()?`Pay ${baht(amount)} each to ${staffIds.length} staff?`:`จ่าย ${baht(amount)} ต่อคน ให้ ${staffIds.length} คน (รวม ${baht(amount*staffIds.length)}) ใช่หรือไม่?`)))return;
+    try{ await api('adminAddHolidayOT',{staffId:USER.staffId,staffIds,date:g('hotDate'),amount,note});
+      confirmSaved(t('c.saved')); A_hotRefresh(); }catch(e){err(e);} };
+  window.A_hotSave=async(otId)=>{ const a=document.getElementById('hot_a_'+otId), n=document.getElementById('hot_n_'+otId);
+    try{ await api('adminEditOT',{staffId:USER.staffId,otId,amount:a?a.value:undefined,note:n?n.value:undefined}); toast(t('c.saved')); A_hotRefresh(); }catch(e){err(e);} };
+  window.A_hotDel=async(otId)=>{ if(!confirm(t('manage.confirmDel')))return;
+    try{ await api('adminDeleteOT',{staffId:USER.staffId,otId}); toast(t('manage.deleted')); A_hotRefresh(); }catch(e){err(e);} };
 
   window.A_otVerify=async()=>{ const rows=await api('otVerification',{});
     modal(`<h3>⏱️ ${esc(t('manage.otVerify'))}</h3><p class="muted" style="font-size:13px">${esc(t('ot.verifyNote'))}</p>
