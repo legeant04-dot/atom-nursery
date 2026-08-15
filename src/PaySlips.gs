@@ -428,10 +428,24 @@ function handleSlipDiag(p) {
       live = { checked: true, alive: false, message: 'ติดต่อ SlipOK ไม่ได้: ' + String(e), branch: '', keyTail: '' };
     }
   }
+  /* "Is it checking?" cannot be answered by a total. 49 slips and 0 genuine reads the same whether
+   * verification has never run or whether it ran and objected to all 49 — and the quota sitting at
+   * its full number says only that nothing has been charged against THIS package, which is also what
+   * you would see if simply no one had paid by transfer since it was bought. The last few slips, with
+   * the day they arrived and what SlipOK said about each, separate those cases at a glance.
+   * A cash row has no verdict by design (there is no slip to read) and is labelled as such. */
+  var recent = rows.slice(-6).reverse().map(function (s) {
+    var v = String(s.Verified || '');
+    return { date: String(s.SubmittedDate || '').slice(0, 16), kind: String(s.RefKind || ''),
+      amount: Number(s.Amount || 0), method: String(s.Method || 'transfer'),
+      verdict: v.slice(0, 3) === 'YES' ? 'YES' : (v === 'MANUAL' ? 'MANUAL' : (v.slice(0, 2) === 'NO' ? v : '')),
+      hasImage: !!s.Url };
+  });
   return {
     configured: !!(url && key),
     working: !!live.alive,
     live: live,
+    recent: recent,
     // Whether an undo is available at all. The key itself is never returned — only that one exists.
     hasPrevKey: !!getConfig_('SlipOK_ApiKeyPrev', ''),
     url: url ? String(url).replace(/\/[^/]*$/, '/…') : '',

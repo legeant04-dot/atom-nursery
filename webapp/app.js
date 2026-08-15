@@ -112,7 +112,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.237'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.238'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -5454,7 +5454,14 @@
       const why={'1011':EN()?'no such transaction at the bank':'ธนาคารไม่พบรายการโอน',
         '1012':EN()?'slip already used (sent twice)':'สลิปถูกใช้ไปแล้ว (ส่งซ้ำ)',
         '1013':EN()?'amount differs from the bill':'ยอดในสลิปไม่ตรงกับยอดที่แจ้ง',
-        '1014':EN()?'paid into a different account':'โอนเข้าบัญชีอื่น'};
+        '1014':EN()?'paid into a different account':'โอนเข้าบัญชีอื่น',
+        // not a verdict on the slip at all — SlipOK refused to look. These are the ones that mean
+        // "the school's package lapsed", and they used to show as a bare number next to real fraud
+        // reasons, which reads as if the parents' slips were the problem.
+        '1001':EN()?'wrong branch id — SlipOK did not check the slip':'เลขสาขาผิด — SlipOK ไม่ได้ตรวจสลิปใบนี้',
+        '1002':EN()?'API key rejected — SlipOK did not check the slip':'API key ไม่ผ่าน — SlipOK ไม่ได้ตรวจสลิปใบนี้',
+        '1003':EN()?'package expired — SlipOK did not check the slip':'แพ็กเกจหมดอายุ — SlipOK ไม่ได้ตรวจสลิปใบนี้',
+        '1015':EN()?'over quota — SlipOK did not check the slip':'ใช้เกินโควตา — SlipOK ไม่ได้ตรวจสลิปใบนี้'};
       // "configured" only ever meant a URL and a key exist. It said "connected and running normally"
       // while an expired package rejected every slip — so report what SlipOK ACTUALLY answered.
       const lv=d.live||{}; const good=d.working, off=!d.configured;
@@ -5484,6 +5491,16 @@
           <div class="list-item"><span>⚠ ${EN()?'SlipOK objected':'SlipOK ทักท้วง'}</span><b style="color:var(--warn)">${c.rejected||0}</b></div>
           <div class="list-item"><span>💵 ${EN()?'recorded by admin (no slip)':'แอดมินบันทึกเอง (ไม่มีสลิป)'}</span><b>${c.manual||0}</b></div>
           <div class="list-item"><span>— ${EN()?'not checked':'ยังไม่ได้ตรวจ'}</span><b>${c.unchecked||0}</b></div></div>
+        ${(d.recent||[]).length?`<div class="card" style="padding:8px"><b style="font-size:13px">🕘 ${EN()?'The last few slips — was each one checked?':'สลิปล่าสุด — แต่ละใบถูกตรวจไหม'}</b>
+          <p class="muted" style="font-size:13px;margin:4px 0">${EN()?'A total cannot tell "never checked" from "checked and objected to". These can.':'ตัวเลขรวมบอกไม่ได้ว่า "ไม่เคยตรวจ" หรือ "ตรวจแล้วไม่ผ่าน" — ดูรายการนี้แทน'}</p>
+          ${d.recent.map(r=>{ const v=String(r.verdict||'');
+            const tag = v.slice(0,3)==='YES' ? `<b style="color:var(--ok)">✓ ${EN()?'genuine':'ผ่าน'}</b>`
+              : v==='MANUAL' ? `<b>${EN()?'entered by admin':'แอดมินบันทึก'}</b>`
+              : v.slice(0,2)==='NO' ? `<b style="color:var(--warn)">⚠ ${esc(why[v.slice(3)]||v.slice(3))}</b>`
+              : r.method==='cash' ? `<span class="muted">💵 ${EN()?'cash — nothing to check':'เงินสด — ไม่มีสลิปให้ตรวจ'}</span>`
+              : `<b style="color:var(--bad)">— ${EN()?'NOT checked':'ไม่ได้ตรวจ'}</b>`;
+            return `<div class="list-item"><span><small class="muted">${esc(r.date||'-')}</small> · ${esc(baht(r.amount))}</span>${tag}</div>`; }).join('')}
+          <p class="muted" style="font-size:13px;margin:6px 0 0">${EN()?'A transfer slip that says NOT checked means verification did not run on it — that is the case to report. Cash rows never have a verdict.':'ถ้าสลิป<b>โอนเงิน</b>ขึ้นว่า “ไม่ได้ตรวจ” แปลว่าตอนนั้นระบบไม่ได้ตรวจจริงๆ — กรณีนี้ให้แจ้ง · ส่วนรายการเงินสดไม่มีผลตรวจอยู่แล้ว'}</p></div>`:''}
         ${(d.byCode||[]).length?`<div class="card" style="padding:8px"><b style="font-size:13px">${EN()?'Why they were objected to':'เหตุผลที่ทักท้วง'}</b>
           ${d.byCode.map(x=>`<div class="list-item"><span>${esc(why[x.code]||x.code)} <small class="muted">(${esc(x.code)})</small></span><b>${x.count}</b></div>`).join('')}
           <p class="muted" style="font-size:13px;margin:6px 0 0">${EN()?'An objection is not proof of fraud — a re-sent slip or an amount typed differently both trigger one. Open the slip and judge it yourself.':'การทักท้วงไม่ได้แปลว่าสลิปปลอม — ส่งสลิปซ้ำ หรือกรอกยอดไม่ตรง ก็ขึ้นได้ · เปิดดูสลิปแล้วตัดสินเองได้เลย'}</p></div>`:''}
