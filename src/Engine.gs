@@ -547,12 +547,24 @@ function createAtomAPI(M, GROWTH_STD) {
    * halves cannot drift: an action that ever reaches the engine directly must refuse it too.
    * Big Cleaning is a WORKING day that happens to fall at the weekend.
    */
-  function assertSchoolOpen_(date){ const d=ymd(date||todayLocal());
-    if(isBigCleaning_(d)) return;
+  /* A BIG CLEANING DAY IS FOR THE STAFF, NOT THE CHILDREN. It is a working Saturday: teachers clock
+   * in and are paid, and nobody's child comes to school. Treating it as "open" full stop left the
+   * children's drop-off / pick-up buttons live on a day the nursery was shut to them — reported
+   * 2026-08-15, a Saturday. `forStudents` is the whole difference, and it is the only difference. */
+  const schoolClosedFor_ = (d, forStudents) => {
+    if(!forStudents && isBigCleaning_(d)) return null;         // staff work it
     const hol=(M.holidays||[]).find(h=>ymd(h.Date)===d);
+    if(hol) return hol.NameTH||hol.NameEN||hol.Name||'วันหยุด';
     const g=new Date(d+'T00:00:00').getDay();
-    if(!hol && g!==0 && g!==6) return;
-    fail('SCHOOL_CLOSED','วันนี้โรงเรียนหยุด ('+(hol?(hol.NameTH||hol.NameEN||'วันหยุด'):'วันหยุดสุดสัปดาห์')+') — ไม่ต้องลงเวลา'); }
+    if(g===0||g===6) return 'วันหยุดสุดสัปดาห์';
+    return null;
+  };
+  function assertSchoolOpen_(date, forStudents){ const d=ymd(date||todayLocal());
+    const why=schoolClosedFor_(d, forStudents);
+    if(!why) return;
+    fail('SCHOOL_CLOSED', forStudents
+      ? 'วันนี้โรงเรียนหยุด ('+why+') — ไม่มีการรับ-ส่งนักเรียน'
+      : 'วันนี้โรงเรียนหยุด ('+why+') — ไม่ต้องลงเวลา'); }
   /**
    * Has this person's employment ENDED yet?
    *
@@ -721,7 +733,7 @@ function createAtomAPI(M, GROWTH_STD) {
       // while (ON_LEAVE); the engine did not, so mock and live disagreed about the same tap.
       { const _lv=studentLeaveToday_(p.studentId);
         if(_lv.onLeave) fail('ON_LEAVE','นักเรียนแจ้งลาวันนี้แล้ว ('+_lv.leaveType+(_lv.leaveReason?' · '+_lv.leaveReason:'')+') — หากมาจริงให้ยกเลิกใบลาก่อน'); }
-      assertSchoolOpen_();
+      assertSchoolOpen_(null, true);   // a Big Cleaning day is a working day for STAFF, not for children
       const d=(String(p.type||'IN').toUpperCase()==='OUT')?geo(p.lat,p.lng,p.acc):geoSafe(p.lat,p.lng); const t=timeLocal();
       // de-dup a rapid repeat (same student+type today within CheckinDedupMinutes) → keep only the latest time
       const win=Number(cfg.CheckinDedupMinutes||10); const nowMin=toMin(t);
@@ -1270,11 +1282,17 @@ function createAtomAPI(M, GROWTH_STD) {
       const hol=(M.holidays||[]).find(h=>ymd(h.Date)===date);
       const g=new Date(date+'T00:00:00').getDay(); const weekend=(g===0||g===6);
       const closed=!bc && (weekend || !!hol);
-      return { date, closed, bigCleaning:bc, weekend,
+      // `closed` answers for STAFF. The children's answer is different on a Big Cleaning day: the
+      // teachers are in, the nursery is shut to the families. Screens that show drop-off / pick-up
+      // buttons must ask closedForStudents, or they offer a tap the server will refuse.
+      const closedStd = !!(weekend || hol);
+      return { date, closed, closedForStudents:closedStd, bigCleaning:bc, weekend,
         // a Big Cleaning day is worked to ITS OWN hours, so the screen can say which ones apply
         bcIn: bc ? bigCleaningIn_() : '', bcOut: bc ? bigCleaningOut_() : '',
-        reason: closed ? (hol?(hol.NameTH||hol.NameEN||hol.Name||'วันหยุด'):'วันหยุดสุดสัปดาห์') : '',
-        reasonEN: closed ? (hol?(hol.NameEN||hol.NameTH||hol.Name||'Holiday'):'Weekend') : '' }; },
+        // the reason follows whoever is shut out — on a Big Cleaning Saturday the staff are in but
+        // the families are not, and their card still has to say why
+        reason: closedStd ? (hol?(hol.NameTH||hol.NameEN||hol.Name||'วันหยุด'):'วันหยุดสุดสัปดาห์') : '',
+        reasonEN: closedStd ? (hol?(hol.NameEN||hol.NameTH||hol.Name||'Holiday'):'Weekend') : '' }; },
     bigCleaningDays: () => ({ days: bigCleaningList_(), amount: Number(cfg.BigCleaningAmount||0),
       checkIn: bigCleaningIn_(), checkOut: bigCleaningOut_() }),
     addBigCleaning: p => { const l=bigCleaningList_(); if(p.date && l.indexOf(p.date)<0) l.push(p.date); cfg.BigCleaningDays=l.slice().sort(); return {ok:true,days:cfg.BigCleaningDays}; },
@@ -1287,7 +1305,12 @@ function createAtomAPI(M, GROWTH_STD) {
       if(!band.length) fail('NO_CRITERIA',`ยังไม่มีเกณฑ์สำหรับอายุ ${age} เดือน`);
       const latest=latestByItem(p.studentId);
       return {studentId:p.studentId,ageMonth:age,ageLabel:band[0].AgeLabelTH,manualUrl:cfg.DspmManualUrl,
-        items:band.map(c=>({itemNo:c.ItemNo,skill:c.Skill,description:c.Description,descriptionEN:(M.dspmEN&&M.dspmEN[c.ItemNo])||'',result:latest[c.ItemNo]?latest[c.ItemNo].Result:'ยังไม่ได้รับการทดสอบ',date:latest[c.ItemNo]?latest[c.ItemNo].Date:''}))}; },
+        // who judged it and when, plus the admin's note — the result alone does not say whose it is
+        items:band.map(c=>{ const r=latest[c.ItemNo]||null;
+          return {itemNo:c.ItemNo,skill:c.Skill,description:c.Description,descriptionEN:(M.dspmEN&&M.dspmEN[c.ItemNo])||'',
+            result:r?r.Result:'ยังไม่ได้รับการทดสอบ', date:r?r.Date:'',
+            by:r?(r.TeacherName||''):'', at:r?(r.Timestamp||''):'',
+            comment:r?(r.AdminComment||''):'', commentBy:r?(r.CommentBy||''):'', commentAt:r?(r.CommentAt||''):''}; })}; },
 
     /**
      * The two things about a child that nobody should have to go looking for: a BIRTHDAY this month,
@@ -1595,13 +1618,38 @@ function createAtomAPI(M, GROWTH_STD) {
     deleteDspmCriteria: p => { const ap=staffById(p.staffId); if(!adminLike_(ap))fail('NO_PERMISSION','เฉพาะแอดมิน');
       const track=p.track||'Teacher'; const i=(M.dspmCriteria||[]).findIndex(x=>Number(x.ItemNo)===Number(p.itemNo)&&String(x.Track||'Teacher')===String(track));
       if(i<0)fail('NOT_FOUND','ไม่พบเกณฑ์'); M.dspmCriteria.splice(i,1); return {ok:true}; },
+    /**
+     * A result is not just a tick — it is SOMEONE'S JUDGEMENT, ON A DAY. The row now carries who
+     * made it and the moment it was recorded, so a parent (or a nurse, or the next teacher) reading
+     * it in six months can tell whose opinion they are looking at without decoding a staff id.
+     * A re-assessment appends; the latest wins, and the earlier one keeps its own name and time.
+     */
     submitAssessment: p => { const s=studentById(p.studentId); const age=ageMonths(s.DOB); const id='DA-'+String(Date.now()).slice(-4); let n=0;
+      const who=staffById(p.staffId)||{}; const at=stampLocal();
       p.results.forEach(r=>{ if(r.result==='nottested'){ // remove any existing latest for this item (mark not tested)
           M.assessments=M.assessments.filter(a=>!(a.StudentID===p.studentId&&a.ItemNo===r.itemNo)); return; }
         const norm=(r.result==='pass'||r.result==='ผ่าน')?'ผ่าน':(r.result==='fail'||r.result==='ไม่ผ่าน')?'ไม่ผ่าน':(r.result==='notenrolled'||r.result==='ยังไม่เข้าโรงเรียน')?'ยังไม่เข้าโรงเรียน':null; if(!norm)return;
         const sk=(M.dspmCriteria.find(c=>c.ItemNo===r.itemNo)||{}).Skill||'';
-        M.assessments.push({AssessmentID:id,StudentID:p.studentId,AgeMonth:age,ItemNo:r.itemNo,Skill:sk,Result:norm,Date:todayLocal(),TeacherID:p.staffId}); n++; });
-      return {assessmentId:id,saved:n}; },
+        M.assessments.push({AssessmentID:id,StudentID:p.studentId,AgeMonth:age,ItemNo:r.itemNo,Skill:sk,Result:norm,
+          Date:todayLocal(), TeacherID:p.staffId||'', TeacherName:who.NameTH||who.Name||'', Timestamp:at,
+          AdminComment:'', CommentBy:'', CommentAt:''}); n++; });
+      return {assessmentId:id,saved:n,by:who.NameTH||who.Name||'',at}; },
+    /**
+     * The admin's note on ONE assessed item. It sits BESIDE the teacher's result and never replaces
+     * it: a second reader disagreeing, or asking for a re-check, is information — overwriting the
+     * result would destroy the thing being discussed.
+     * Admin only, and it goes on the LATEST result for that item, which is the one on screen.
+     */
+    commentAssessment: p => { const ap=staffById(p.staffId); if(!adminLike_(ap))fail('NO_PERMISSION','เฉพาะแอดมิน');
+      const rows=(M.assessments||[]).filter(a=>String(a.StudentID)===String(p.studentId)&&String(a.ItemNo)===String(p.itemNo));
+      if(!rows.length)fail('NOT_FOUND','ยังไม่มีผลประเมินของข้อนี้');
+      const latest=rows.reduce((a,b)=>(String(b.Date||'')>=String(a.Date||'')?b:a));
+      const text=String(p.comment==null?'':p.comment).trim();
+      latest.AdminComment=text;
+      latest.CommentBy = text ? (ap.NameTH||ap.Name||ap.StaffID||'') : '';
+      latest.CommentAt = text ? stampLocal() : '';
+      logAct('commentAssessment', p.studentId, 'ข้อ '+p.itemNo+(text?': '+text:' (ลบความเห็น)'), actorOf(p));
+      return {ok:true, itemNo:Number(p.itemNo), comment:latest.AdminComment, by:latest.CommentBy, at:latest.CommentAt}; },
     studentAssessment: p => { const sum=summarize(p.studentId); sum.items=Object.values(latestByItem(p.studentId)).map(r=>({itemNo:r.ItemNo,skill:r.Skill,result:r.Result,date:r.Date})).sort((a,b)=>a.itemNo-b.itemNo); return sum; },
     // all bands the child has reached (enroll age -> now), each band with items + status
     studentAllBands: p => { const s=studentById(p.studentId); const age=ageMonths(s.DOB); const latest=latestByItem(p.studentId);

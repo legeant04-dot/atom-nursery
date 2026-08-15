@@ -182,10 +182,17 @@ function assertStaffStarted_(rec) {
  * (isSchoolClosed_), used by everything, is what keeps the screen and the record agreeing.
  * A Big Cleaning day is a WORKING day that happens to fall at the weekend, so it is not closed.
  */
-function assertSchoolOpen_(d) {
+/**
+ * @param {Date} d
+ * @param {boolean} forStudents  A BIG CLEANING DAY IS FOR THE STAFF, NOT THE CHILDREN. It is a
+ *   working Saturday: teachers clock in and are paid, and nobody's child comes to school. Treating
+ *   it as "open" full stop left the children's drop-off / pick-up live on a day the nursery was shut
+ *   to them (reported 2026-08-15, a Saturday). This flag is the whole difference.
+ */
+function assertSchoolOpen_(d, forStudents) {
   d = d || new Date();
   var ds = dateStr_(d);
-  try { if (isBigCleaningDay_(ds)) return; } catch (e) {}
+  if (!forStudents) { try { if (isBigCleaningDay_(ds)) return; } catch (e) {} }
   if (!isSchoolClosed_(d)) return;
   var why = '';
   try {

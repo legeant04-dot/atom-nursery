@@ -112,7 +112,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.233'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.234'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -1386,7 +1386,7 @@
     // рับ-ส่งเด็ก (GPS) is now on the home kid card: big IN/OUT buttons like the teacher's, no location bar
     const kidsHtml = kids.map(k=>{ const din=todayCI[k.StudentID].in, dout=todayCI[k.StudentID].out;
       return `<div class="card"><div class="spread"><div><b style="font-size:17px">${esc(dispNick(k))}</b> <small class="muted">${esc(nm(k))}</small><br><small class="muted">🏫 ${esc(k.Class||(EN()?'no class':'ยังไม่จัดชั้น'))} · ${esc(ageYM(k.DOB))} · ${esc(planLabel(k.Plan))}<br>${EN()?'allergy':'แพ้'}: ${esc(k.Allergy||'-')}</small>${k.RateNote?`<br><small style="color:var(--blue)">🕕 ${esc(k.RateNote)}</small>`:''}</div>${studentAvatar(k)}</div>
-      ${(window._SCHOOLDAY&&window._SCHOOLDAY.closed)
+      ${(window._SCHOOLDAY&&window._SCHOOLDAY.closedForStudents)
         // School shut today: the server refuses a check-in anyway, so offering the buttons could only
         // produce an error. Say WHICH holiday — that is the thing a parent actually wants to know.
         ? `<div class="card" style="background:var(--surface-3);border-color:var(--line-strong);margin-top:12px;padding:10px;text-align:center">
@@ -2517,7 +2517,14 @@
     // preselect OUT once the child is in (so "pick up" is one tap); always usable so a time can be corrected.
     // A child their parent has reported away today cannot be checked in — the leave IS the record, and a
     // stray check-in would contradict it.
-    const ciBtn = s.onLeave
+    // shut to the children today (weekend / holiday — and a Big Cleaning day IS shut to them, even
+    // though the teachers are in). The server refuses it, so offering the tap only produces an error.
+    const stdClosed = !!(window._SCHOOLDAY && window._SCHOOLDAY.closedForStudents);
+    const ciBtn = stdClosed
+      ? B('outline', '', '🏖️', EN()?'Closed':'หยุด',
+          (EN()?'School closed to children today':'วันนี้โรงเรียนหยุดสำหรับนักเรียน')+
+          ((window._SCHOOLDAY&&(EN()?window._SCHOOLDAY.reasonEN:window._SCHOOLDAY.reason))?' · '+(EN()?window._SCHOOLDAY.reasonEN:window._SCHOOLDAY.reason):''))
+      : s.onLeave
       ? B('outline', '', '🚫', EN()?'Leave':'ลา', EN()?'On leave today — cannot check in':'ลาวันนี้ — เช็คอินไม่ได้')
       : B('green', `T_studentCheckin('${s.StudentID}','${esc(nm(s))}','${s.inToday&&!s.outToday?'OUT':(s.outToday?'OUT':'IN')}')`,
           '📍', s.inToday&&!s.outToday?(EN()?'Out':'รับกลับ'):(EN()?'In':'เช็คอิน'),
@@ -2549,7 +2556,9 @@
   function setAlerts(al){ DSPM_DUE={}; ((al&&al.dspmDue)||[]).forEach(k=>{ DSPM_DUE[k.studentId]=k; }); return al; }
   SCREENS.Teacher.class = async () => {
     const [cl,jstat,al]=await Promise.all([api('classList',tc()),api('journalStatus',{}),
-      api('studentAlerts',{staffId:USER.staffId,role:USER.role}).catch(()=>null)]);
+      api('studentAlerts',{staffId:USER.staffId,role:USER.role}).catch(()=>null),
+      // the on-behalf check-in button must know whether the nursery is open TO THE CHILDREN today
+      api('schoolDay',{}).then(d=>{ window._SCHOOLDAY=d; return d; }).catch(()=>null)]);
     const jdone=journalDoneMap(jstat); setAlerts(al);
     T_STU={}; cl.students.forEach(s=>{ T_STU[s.StudentID]=s; });
     app.innerHTML=`<h2 class="page">👶 ${esc(cl.class.ClassName)}</h2>${classSwitcher(cl)}${birthdayCard(al)}`+cl.students.map(s=>{
@@ -3107,6 +3116,7 @@
       <p class="muted" style="font-size:13px">เลือก "ยังไม่ได้ประเมิน" ได้ เพื่อให้ผู้ปกครองทราบว่ายังมีหัวข้อที่ต้องประเมิน · เทียบกับคู่มือที่ดาวน์โหลด</p>
       ${c.manualUrl?`<a class="btn sm outline" href="${esc(c.manualUrl)}" target="_blank">⬇️ ดาวน์โหลดคู่มือ DSPM</a>`:''}</div>
       ${c.items.map(i=>`<div class="card"><div style="margin-bottom:8px"><b>${EN()?'Item':'ข้อ'} ${i.itemNo}</b> <span class="pill info">${i.skill}</span> ${i.result!=='ยังไม่ได้รับการทดสอบ'?`<span class="pill ${i.result==='ผ่าน'?'ok':'bad'}">${EN()?'prev':'เดิม'}: ${esc(tStat(i.result))}</span>`:''}<br>${esc(EN()&&i.descriptionEN?i.descriptionEN:i.description)}</div>
+        ${assessMetaHTML(i, sid)}
         <div class="choice"><button id="p${i.itemNo}" onclick="A_set(${i.itemNo},'pass')">✅ ${esc(t('s.pass'))}</button><button id="f${i.itemNo}" onclick="A_set(${i.itemNo},'fail')">❌ ${esc(t('s.fail'))}</button><button id="n${i.itemNo}" onclick="A_set(${i.itemNo},'nottested')">⊘ ${EN()?'Not assessed':'ยังไม่ได้ประเมิน'}</button><button id="e${i.itemNo}" onclick="A_set(${i.itemNo},'notenrolled')">🚪 ${EN()?'Not enrolled yet':'ยังไม่เข้าโรงเรียน'}</button></div></div>`).join('')}
       <div class="card"><h3>📏 ${esc(t('growth.section'))}</h3>
         ${due.due?`<div style="background:var(--warn-bg);border-radius:8px;padding:8px;color:var(--warn-ink);font-size:13px;margin-bottom:8px">⚠️ ${esc(t('growth.gate'))}</div>`:''}
@@ -3117,6 +3127,43 @@
         ${photoField('guPhoto',t('growth.photo'),s.Photo,true)}</div>
       <div class="savedock"><button class="btn block" onclick="T_saveAssess('${sid}')">${esc(t('growth.saveBoth'))}</button></div>`;
   };
+  /**
+   * WHOSE judgement this is, and WHEN — plus the admin's note on that one item.
+   *
+   * A DSPM result is an opinion about a child, and an opinion with no name on it cannot be asked
+   * about. Whoever reads it later — the next teacher, a nurse, the parent — can now see who made
+   * the call and the moment it was recorded.
+   *
+   * The admin's comment sits BESIDE the result and never replaces it: a second reader disagreeing,
+   * or asking for a re-check, is information. Overwriting the result would destroy the very thing
+   * being discussed. Only an admin can write one; everyone working on this screen can read it.
+   */
+  function assessMetaHTML(i, sid){
+    if(!i || i.result==='ยังไม่ได้รับการทดสอบ') return '';
+    const when = i.at || i.date;
+    const stamp = when ? (String(when).length>10 ? esc(ddmmyyyy(when)+' '+String(when).slice(11,16)) : esc(ddmmyyyy(when))) : '';
+    const cmt = i.comment
+      ? `<div style="margin-top:6px;background:var(--surface);border-left:3px solid var(--brand);border-radius:6px;padding:6px 8px">
+           <small class="muted">💬 ${EN()?'Admin note':'ความเห็นแอดมิน'}${i.commentBy?' · '+esc(i.commentBy):''}${i.commentAt?' · '+esc(ddmmyyyy(i.commentAt)):''}</small>
+           <div style="white-space:pre-wrap">${esc(i.comment)}</div></div>`
+      : '';
+    const btn = isAdmin()
+      ? `<button class="btn sm outline" style="margin-top:6px" onclick="A_assessComment('${esc(sid)}',${i.itemNo},this)">💬 ${i.comment?(EN()?'Edit note':'แก้ไขความเห็น'):(EN()?'Add note':'เพิ่มความเห็น')}</button>`
+      : '';
+    return `<div style="margin-bottom:8px;font-size:13px">
+      <small class="muted">👩‍🏫 ${EN()?'assessed by':'ผู้ประเมิน'} <b>${esc(i.by||(EN()?'unknown':'ไม่ระบุ'))}</b>${stamp?` · 🕘 ${stamp}`:''}</small>
+      ${cmt}${btn}</div>`;
+  }
+  window.A_assessComment=async(sid,itemNo,btn)=>{
+    let cur=''; try{ const c=await api('dspmStatus',{studentId:sid}); const it=(c.items||[]).find(x=>String(x.itemNo)===String(itemNo)); cur=(it&&it.comment)||''; }catch(e){}
+    const txt=prompt(EN()?'Note on this item (leave empty to remove):':'ความเห็นสำหรับข้อนี้ (เว้นว่าง = ลบความเห็น):', cur);
+    if(txt===null) return;                                  // cancelled — nothing happens
+    if(btn)btn.disabled=true;
+    try{ await api('commentAssessment',{staffId:USER.staffId,studentId:sid,itemNo,comment:txt});
+      confirmSaved(String(txt).trim()?(EN()?'Note saved':'บันทึกความเห็นแล้ว'):(EN()?'Note removed':'ลบความเห็นแล้ว'));
+      // redraw whichever assessment screen we are on
+      if(typeof A_editAssess==='function' && CURRENT==='manage') A_editAssess(sid); else T_assess(sid);
+    }catch(e){ err(e); if(btn)btn.disabled=false; } };
   window.A_set=(item,val)=>{ ASEL[item]=val; ['p','f','n','e'].forEach(pre=>{const el=document.getElementById(pre+item);if(el)el.classList.remove('pass','fail');});
     if(val==='pass')$('#p'+item).classList.add('pass'); if(val==='fail')$('#f'+item).classList.add('fail'); if(val==='nottested')$('#n'+item).classList.add('pass'); if(val==='notenrolled'){const e=$('#e'+item);if(e)e.classList.add('pass');} };
 
@@ -4206,6 +4253,7 @@
     app.innerHTML=`<button class="btn sm outline backbtn" onclick="A_student('${sid}')">${t('c.back')}</button><h2 class="page">📝 ${esc(t('assess.edit'))} — ${esc(nm(s))}</h2>
       <div class="card"><div class="spread"><span>${esc(t('growth.section').split('/')[0])}: <b>${esc(ageBandLabel(c.ageLabel))}</b></span><span class="muted">${c.ageMonth} ${EN()?'mo':'เดือน'}</span></div></div>
       ${c.items.map(i=>`<div class="card"><div style="margin-bottom:8px"><b>${EN()?'Item':'ข้อ'} ${i.itemNo}</b> <span class="pill info">${i.skill}</span> ${i.result!=='ยังไม่ได้รับการทดสอบ'?`<span class="pill ${i.result==='ผ่าน'?'ok':'bad'}">${EN()?'now':'ปัจจุบัน'}: ${esc(tStat(i.result))}</span>`:''}<br>${esc(EN()&&i.descriptionEN?i.descriptionEN:i.description)}</div>
+        ${assessMetaHTML(i, sid)}
         <div class="choice"><button id="p${i.itemNo}" onclick="A_set(${i.itemNo},'pass')">✅ ${esc(t('s.pass'))}</button><button id="f${i.itemNo}" onclick="A_set(${i.itemNo},'fail')">❌ ${esc(t('s.fail'))}</button><button id="n${i.itemNo}" onclick="A_set(${i.itemNo},'nottested')">⊘ ${EN()?'Not assessed':'ยังไม่ได้ประเมิน'}</button><button id="e${i.itemNo}" onclick="A_set(${i.itemNo},'notenrolled')">🚪 ${EN()?'Not enrolled yet':'ยังไม่เข้าโรงเรียน'}</button></div></div>`).join('')}
       <button class="btn block" onclick="A_saveAssess('${sid}')">${esc(t('lbl.saveAssess'))}</button>`;
   };
