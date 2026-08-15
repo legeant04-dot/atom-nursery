@@ -30,7 +30,10 @@ function createAtomAPI(M, GROWTH_STD) {
   function haversine(la1,ln1,la2,ln2){ const R=6371000,r=x=>x*Math.PI/180;
     const dLa=r(la2-la1),dLn=r(ln2-ln1); const a=Math.sin(dLa/2)**2+Math.cos(r(la1))*Math.cos(r(la2))*Math.sin(dLn/2)**2;
     return Math.round(R*2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a))); }
-  function ageMonths(dob){ const d=new Date(dob),n=new Date(); let m=(n.getFullYear()-d.getFullYear())*12+(n.getMonth()-d.getMonth()); if(n.getDate()<d.getDate())m--; return Math.max(0,m); }
+  // age in whole months, TODAY by default — `on` gives the age on another day, which is what a
+  // growth record needs: the age when they were measured, not when the numbers were typed in
+  function ageMonths(dob,on){ const d=new Date(dob),n=on?new Date(String(on).slice(0,10)+'T00:00:00'):new Date();
+    let m=(n.getFullYear()-d.getFullYear())*12+(n.getMonth()-d.getMonth()); if(n.getDate()<d.getDate())m--; return Math.max(0,m); }
   // A phone reports a point AND its own margin of error. Asking "is the dot inside?" instead of
   // "could they be inside?" told parents standing at the gate they were outside the school — 14% of
   // pickups in the 2026-08-11 report. The slack is capped (GpsAccuracySlack, default 50 m) so a
@@ -671,6 +674,28 @@ function createAtomAPI(M, GROWTH_STD) {
     parentChildren: p => visibleStudents(p).map(s=>Object.assign({ageMonth:ageMonths(s.DOB),
       paused:studentPaused_(s), pauseFrom:ymd(s.PauseFrom||''), pauseTo:ymd(s.PauseTo||''), pauseReason:s.PauseReason||''},
       studentLeaveToday_(s.StudentID), s)),
+    /**
+     * What this family still owes, in ONE call — so the home screen can say it without fanning out
+     * three requests per child. A parent should not have to open the payment screen to find out
+     * whether they owe anything; the answer belongs where they already are.
+     *
+     * It reads through the SAME handlers the payment screen uses (payments / studentCharges /
+     * otDaily), so the figure here and the figure there cannot disagree.
+     */
+    parentDue: p => { const children=[]; let total=0;
+      visibleStudents(p).forEach(s=>{ const sid=s.StudentID; let due=0, n=0;
+        (H.payments({studentId:sid})||[]).forEach(b=>{
+          const o=Number(b.Outstanding!=null?b.Outstanding:(b.TotalDue!=null?b.TotalDue:b.Amount))||0;
+          if(b.Status!=='PAID' && b.VerifiedStatus!=='PREPAID' && o>0){ due+=o; n++; } });
+        (H.studentCharges({studentId:sid})||[]).forEach(c=>{
+          const o=Number(c.Outstanding!=null?c.Outstanding:c.Amount)||0;
+          if(c.Status!=='PAID' && o>0){ due+=o; n++; } });
+        (H.otDaily({studentId:sid})||[]).forEach(o2=>{ const a=Number(o2.Amount||0);
+          if(o2.Status!=='PAID' && o2.Status!=='PENDING_VERIFY' && o2.Status!=='PARTIAL' && a>0){ due+=a; n++; } });
+        total+=due;
+        if(due>0) children.push({studentId:sid, nick:s.Nickname||'', name:s.NameTH||s.Name||'',
+          due:Math.round(due*100)/100, count:n}); });
+      return { total:Math.round(total*100)/100, children, count:children.reduce((a,c)=>a+c.count,0) }; },
     getPlans: () => cfg.Plans||[],
     // Admin package (Plan) CRUD: the client sends the FULL plans array (add/edit/delete applied client-side).
     // Each plan: {id, labelTH, labelEN, price, start:'HH:MM', end:'HH:MM'}. On GAS a route persists the JSON
@@ -2072,11 +2097,22 @@ function createAtomAPI(M, GROWTH_STD) {
       const months=cfg.GrowthUpdateMonths||[]; const m=new Date().getMonth()+1; const period=todayLocal().slice(0,7);
       const updatedThisPeriod=(s.LastGrowthUpdate||'').slice(0,7)===period;
       return {due: months.indexOf(m)>=0 && !updatedThisPeriod, month:m, lastUpdate:s.LastGrowthUpdate||''}; },
+    /**
+     * Weight / height, and THE DAY THEY WERE MEASURED.
+     *
+     * The date used to be "whenever this was typed in". A class is weighed on one day and the
+     * numbers are entered later, so the growth chart plotted a measurement on a day nobody stood on
+     * the scales — and that chart is what a nurse reads. The teacher now says when, defaulting to
+     * today; a future date is refused, because it cannot have happened yet.
+     */
     updateGrowth: p => { const s=studentById(p.studentId); if(!s)fail('NOT_FOUND','ไม่พบนักเรียน');
+      const on=ymd(p.date||todayLocal());
+      if(on>todayLocal()) fail('BAD_INPUT','วันที่ชั่ง/วัด ต้องไม่เป็นวันในอนาคต');
       if(p.weight!=null) s.Weight=+p.weight; if(p.height!=null) s.Height=+p.height; if(p.photo) s.Photo=p.photo;
-      s.LastGrowthUpdate=todayLocal();
-      M.growthRecords.push({Date:todayLocal(),StudentID:s.StudentID,AgeMonth:ageMonths(s.DOB),Weight:s.Weight||0,Height:s.Height||0});
-      return {ok:true,lastUpdate:s.LastGrowthUpdate}; },
+      s.LastGrowthUpdate=on;
+      // age at the time of MEASUREMENT, not at the time of typing — the chart is plotted against it
+      M.growthRecords.push({Date:on,StudentID:s.StudentID,AgeMonth:ageMonths(s.DOB,on),Weight:s.Weight||0,Height:s.Height||0});
+      return {ok:true,lastUpdate:s.LastGrowthUpdate,date:on}; },
 
     // ========== Group E: growth history vs standard band ==========
     growthHistory: p => { const s=studentById(p.studentId)||{}; const recs=M.growthRecords.filter(r=>r.StudentID===p.studentId).sort((a,b)=>a.AgeMonth-b.AgeMonth);

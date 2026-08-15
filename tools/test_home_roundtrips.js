@@ -126,7 +126,8 @@ const fresh = { fresh: true };   // every section is live data; the cache is not
     ok_('each carries its own fallback', (home.match(/\.catch\(\(\)=>(\[\]|null)\)/g) || []).length >= 6);
     ok_('a null attendance section renders empty instead of throwing', /tca\?tcaHtml\(tca\):''/.test(home));
     // four of them since v224 — the injury queue joined the leave/OT/class-change ones
-    ok_('the leader sections share one round trip', /await Promise\.all\(\[p_tp,p_to,p_cc,p_ti\]\)/.test(home));
+    // five since v231 — the time-correction queue joined leave/OT/class-change/injury
+    ok_('the leader sections share one round trip', /await Promise\.all\(\[p_tp,p_to,p_cc,p_ti,p_tt\]\)/.test(home));
     ok_('and the growth reminder is no longer behind a fetch that can fail', home.indexOf('T_growthReminder();') > home.indexOf('setHTML(\'#myccr\''));
   }
 

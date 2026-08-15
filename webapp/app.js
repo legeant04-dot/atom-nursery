@@ -112,7 +112,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.230'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.231'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -139,6 +139,9 @@
   const ymd = v => String(v==null?'':v).slice(0,10);   // date part 'YYYY-MM-DD' (dates arrive as strings from the engine)
   const ym = v => String(v==null?'':v).slice(0,7);      // month part 'YYYY-MM'
   const nowTime = () => { const d=new Date(); return p2(d.getHours())+':'+p2(d.getMinutes()); };
+  // "printed at" for an exported document. LOCAL, never toISOString() — that is UTC, and a sheet
+  // printed at 14:08 in Bangkok came out stamped 07:08.
+  const nowStamp = () => todayStr()+' '+nowTime();
   const initialEN = name => { let s=String(name||'?').replace(/^(Ms\.|Mr\.|Mrs\.|Miss|Master)\s*/i,'').trim(); const m=s.match(/[A-Za-z]/); return (m?m[0]:s[0]||'?').toUpperCase(); };
   const nm = o => o ? (LANG()==='en' ? (o.NameEN||o.NameTH||'') : (o.NameTH||o.NameEN||'')) : '';
   // language-aware nickname (EN nickname shown in English mode, Thai otherwise)
@@ -1343,14 +1346,18 @@
       api('announcements'), api('calendar'), api('familyProfile',parentScope()).catch(()=>({parents:[]})),
       api('getPlans').catch(()=>[]),
       api('schoolDay',{}).then(d=>{ window._SCHOOLDAY=d; return d; }).catch(()=>null),
+      // what the family still owes — rides in the SAME batch, so telling them costs no extra trip
+      api('parentDue',parentScope()).catch(()=>null),
       ...kids.map(k=>api('studentCheckinHistory',{studentId:k.StudentID})),
       ...kids.map(k=>api('studentLeaves',{studentId:k.StudentID}).catch(()=>[]))
     ]);
-    // 7 fixed entries now (schoolDay was added), then one check-in history per child, then one
+    // 8 fixed entries now (parentDue was added), then one check-in history per child, then one
     // leave list per child — the offsets below MUST move with that count or every child's calendar
-    // is handed another child's data
-    const [j, sl, anns, cal, fam, plans] = _res;
-    const ciAll=_res.slice(7, 7+kids.length); const slAll=_res.slice(7+kids.length); const ci=ciAll[0]||[];
+    // is handed another child's data. FIXED is the count, in one place, so adding the ninth cannot
+    // silently shift them again.
+    const FIXED = 8;
+    const [j, sl, anns, cal, fam, plans] = _res; const due = _res[7];
+    const ciAll=_res.slice(FIXED, FIXED+kids.length); const slAll=_res.slice(FIXED+kids.length); const ci=ciAll[0]||[];
     if(plans&&plans.length) A_CACHE.plans=plans;   // so planLabel() names the package, not "pkg_e32dd4"
     // everything the per-child calendar needs, kept for P_calSel()
     window._CALDATA={ kids, cal, ciAll, slAll, plans:plans||[] };
@@ -1389,12 +1396,32 @@
              ${k.pauseFrom?`<br><small class="muted">${EN()?'from':'ตั้งแต่'} ${esc(k.pauseFrom)}${k.pauseTo?` ${EN()?'to':'ถึง'} ${esc(k.pauseTo)}`:''}</small>`:''}
              ${k.pauseReason?`<br><small class="muted">${esc(k.pauseReason)}</small>`:''}</div>`
         : `<div class="row" style="margin-top:12px;gap:10px"><button class="btn green" ${doneBtn(din)} onclick="P_punch('${k.StudentID}','IN',this)">🟢 ${din?(EN()?'Dropped off ':'ส่งแล้ว ')+esc(din):(EN()?'Drop off':'ส่งเข้าเรียน')}</button><button class="btn pink" ${doneBtn(dout)} onclick="P_punch('${k.StudentID}','OUT',this)">🔴 ${dout?(EN()?'Picked up ':'รับแล้ว ')+esc(dout):(EN()?'Pick up':'รับกลับ')}</button></div>`}</div>`; }).join('');
-    // header quick-actions: บันทึก / พัฒนาการ. (แจ้งลาออก removed — only Admin may withdraw a student.)
+    /**
+   * What the family still owes, right under the drop-off / pick-up card — the place they already
+   * look every morning. Tapping it goes to the payment screen; it is the whole card, not a small
+   * link, because the number is the point.
+   *
+   * Nothing owed prints NOTHING. A green "you're all paid up" banner every single day is noise, and
+   * noise is what makes people stop reading the screen that does matter.
+   */
+  function parentDueCard(due){
+    if(!due || !(Number(due.total)>0)) return '';
+    const kids=(due.children||[]);
+    return `<div class="card" style="background:var(--warn-bg);border-color:var(--warn-line);cursor:pointer" onclick="GO('payment')">
+      <div class="spread"><b>💳 ${EN()?'Outstanding':'ยอดค้างชำระ'}</b>
+        <b style="font-size:22px;color:var(--warn)">${baht(due.total)}</b></div>
+      ${kids.length>1 ? kids.map(c=>`<div class="list-item" style="padding:6px 0"><span>${esc(c.nick||c.name)}</span>
+        <span><b>${baht(c.due)}</b> <small class="muted">${c.count} ${EN()?'items':'รายการ'}</small></span></div>`).join('')
+        : `<small class="muted">${due.count} ${EN()?'item(s) to pay':'รายการที่ต้องชำระ'}</small>`}
+      <button class="btn sm block" style="margin-top:8px" onclick="event.stopPropagation();GO('payment')">${EN()?'Go to payment':'ไปหน้าชำระเงิน'} →</button></div>`;
+  }
+  // header quick-actions: บันทึก / พัฒนาการ. (แจ้งลาออก removed — only Admin may withdraw a student.)
     setTopActions(`<button class="btn sm outline" onclick="P_journal('${k0.StudentID}')" title="${esc(t('nav.journal'))}">📒<span class="lbl"> ${esc(t('nav.journal'))}</span></button>
       <button class="btn sm outline" onclick="P_dspm('${k0.StudentID}')" title="${esc(t('nav.dspm'))}">📈<span class="lbl"> ${esc(t('nav.dspm'))}</span></button>`);
     const slHtml = sl.map(l=>`<div class="list-item"><span>${esc(ddmmyyyy(l.Date))} · <b>${esc(stdLeaveDesc(l))}</b></span><span class="pill info">${esc(tStat(l.Status))}</span></div>`).join('')||'<small class="muted">ไม่มีรายการ</small>';
     app.innerHTML = `<div class="spread"><h2 class="page">${esc(t('p.greeting'))}${esc(greetName)} 👋</h2><div class="row">${profileBtn}${addBtn}</div></div>
       ${kidsHtml}
+      <div id="pDue"></div>
       <h3 style="margin:6px 2px">📒 ${EN()?'Journal of':'บันทึกของ'} ${esc(dispNick(k0))} ${EN()?'today':'วันนี้'}</h3>${j?journalChecklist(j,{parentEditable:true,student:k0}):waitCard()}
       <div class="card"><div class="spread"><h3>🏠 แจ้งลาบุตรหลาน</h3><button class="btn sm outline" onclick="P_absence()">+ แจ้งลา</button></div>${slHtml}</div>
       <div id="svCard"></div>
@@ -1406,6 +1433,7 @@
       ${kids.length>1?`<div class="seg" id="calSeg" style="margin:14px 2px 6px">${kids.map((k,i)=>`<button class="${i===0?'active':''}" onclick="P_calSel(${i})">🗓️ ${esc(dispNick(k))}</button>`).join('')}</div>`:''}
       <div id="calBox">${calendarWidget(cal, ci, planEndOf(k0), sl)}</div>
       ${socialFooter()}`;
+    setHTML('#pDue', parentDueCard(due));
     // insurance status per child (parent fills once; shows "กรอกแล้ว" if done)
     try{ const sts=await Promise.all(kids.map(k=>api('insuranceStatus',{studentId:k.StudentID})));
       // an open survey is offered, never forced: a dismissible card, and answering is one tap
@@ -2314,14 +2342,12 @@
         <div class="spread" style="font-size:15px"><span>${esc(t('lbl.checkIn'))} ${mtime(att.checkIn,att.manualIn)}</span><span>${esc(t('lbl.checkOut'))} ${mtime(att.checkOut,att.manualOut)}</span><span>${esc(t('lbl.late'))} <b style="color:${att.late?'var(--bad)':'var(--ok)'}">${att.late||0}</b> ${esc(t('lbl.min'))}</span></div>
         <div class="row" style="margin-top:12px;gap:10px"><button class="btn green" ${att.checkIn?'disabled':''} style="flex:1;padding:18px;font-size:18px;font-weight:700${att.checkIn?';opacity:.45;cursor:not-allowed':''}" onclick="T_punch('in',this)">🟢 ${att.checkIn?(EN()?'Checked in ':'เข้างานแล้ว ')+esc(att.checkIn):esc(t('lbl.checkIn'))}</button><button class="btn pink" ${att.checkOut?'disabled':''} style="flex:1;padding:18px;font-size:18px;font-weight:700${att.checkOut?';opacity:.45;cursor:not-allowed':''}" onclick="T_punch('out',this)">🔴 ${att.checkOut?(EN()?'Checked out ':'เลิกงานแล้ว ')+esc(att.checkOut):esc(t('lbl.checkOut'))}</button></div>
         <div style="margin-top:10px"><b style="font-size:13px">📅 ${esc(t('lbl.recentDays'))}</b>${recentRows}</div>`}</div>
+      ${isLeader?`<div id="tapprove"><div class="card muted">${EN()?'Loading approvals…':'กำลังโหลดรายการรออนุมัติ…'}</div></div>`:''}
       <div id="tcatt"></div>
       <div class="card"><h3>📩 การลาของฉัน · สิทธิคงเหลือ</h3>
         <div class="quota">${quota.map(q=>`<div class="q"><div class="n">${q.remain}</div><div class="l">${esc(q.type)}<br>${q.used}/${q.quota}</div></div>`).join('')}</div>
         <div id="ml" style="margin-top:8px"></div><button class="btn sm outline" style="margin-top:6px" onclick="GO('leave')">+ ยื่น/ดูใบลา</button></div>
-      ${isLeader?`<div class="card"><div class="spread"><h3>⭐ คำขอลาของลูกน้อง (รออนุมัติ)</h3></div><div id="tp"></div></div>`:''}
-      ${isLeader?`<div class="card"><div class="spread"><h3>🚑 ${EN()?'Injury reports to approve':'รายงานอุบัติเหตุ (รออนุมัติ)'}</h3></div><div id="tinj"></div></div>`:''}
       <div class="card"><h3>${esc(t('ot.myOT'))}</h3><div id="myot"></div></div>
-      ${isLeader?`<div class="card"><h3>${esc(t('ot.teamOT'))}</h3><div id="teamot"></div></div>`:''}
       ${isLeader?`<div class="card"><div class="spread"><h3>${esc(t('corg.title'))}</h3><button class="btn sm" onclick="T_classOrg()">🔁 ${esc(t('corg.manage'))}</button></div><small class="muted">${esc(t('corg.leaderNote'))}</small><div id="myccr" style="margin-top:8px"></div></div>`:''}
       <div class="card"><div class="row"><button class="btn sm outline" onclick="GO('absence')">🔎 ${esc(t('abs.title'))}</button>
         <button class="btn sm outline" onclick="T_studentOT()">⏰ ${EN()?'Student OT (follow-up)':'OT นักเรียน (ติดตามชำระ)'}</button>
@@ -2349,14 +2375,44 @@
       const p_to=api('teamPendingOT',{staffId:USER.staffId}).catch(()=>[]);
       const p_cc=api('myClassChanges',{staffId:USER.staffId}).catch(()=>[]);
       const p_ti=api('pendingInjuries',{staffId:USER.staffId}).catch(()=>[]);
-      const [tp,to,ccr,ti]=await Promise.all([p_tp,p_to,p_cc,p_ti]);
-      setHTML('#tinj', injuryListHTML(ti));
-      setHTML('#tp', tp.map(l=>teamLeaveRow(l)).join('')||'<small class="muted">ไม่มีคำขอรออนุมัติ</small>');
-      setHTML('#teamot', to.map(otApproveRow).join('')||`<small class="muted">${esc(t('ot.none'))}</small>`);
+      // time-correction requests were the one approval a head teacher could only reach by going to
+      // the leave screen and finding a tab — so they sat unanswered
+      const p_tt=api('teamPendingTimeRequests',{staffId:USER.staffId}).catch(()=>[]);
+      const [tp,to,ccr,ti,tt]=await Promise.all([p_tp,p_to,p_cc,p_ti,p_tt]);
+      setHTML('#tapprove', leaderApprovalsHTML({leaves:tp, ot:to, times:tt, injuries:ti}));
       setHTML('#myccr', ccr.slice(0,4).map(ccrRow).join('')||`<small class="muted">${esc(t('corg.noReq'))}</small>`);
     }
     T_growthReminder();   // even-month weight/height measurement reminder (once per month)
   };
+  /**
+   * EVERYTHING a head teacher has to approve, in one card, directly under the clock they already
+   * tap every morning.
+   *
+   * These were four separate cards scattered down the page — and the time-correction requests were
+   * on none of them: the only way to them was the leave screen, behind a tab, so they sat there
+   * unanswered while the teacher who asked waited. A queue nobody can see is a queue nobody works.
+   *
+   * A section with nothing in it is not drawn. When ALL four are empty the card says so once,
+   * quietly, rather than printing four "no items" lines.
+   */
+  function leaderApprovalsHTML(q){
+    const secs=[
+      ['📩', EN()?'Leave requests':'ใบลาของลูกน้อง',      q.leaves,   l=>teamLeaveRow(l)],
+      ['⏰', EN()?'Overtime':'OT ของลูกน้อง',              q.ot,       otApproveRow],
+      ['🕑', EN()?'Time corrections':'คำขอแก้ไข/ลงเวลา',   q.times,    timeReqApproveRow],
+      ['🚑', EN()?'Injury reports':'รายงานอุบัติเหตุ',      q.injuries, null]   // rendered as a list
+    ];
+    const total=secs.reduce((a,s)=>a+((s[2]||[]).length),0);
+    if(!total) return `<div class="card" style="background:var(--ok-bg);border-color:var(--ok-line)">
+      <b style="color:var(--ok)">✅ ${EN()?'Nothing waiting for your approval':'ไม่มีรายการรออนุมัติ'}</b></div>`;
+    return `<div class="card" style="border-color:var(--brand-line)">
+      <div class="spread"><h3 style="margin:0">⭐ ${EN()?'Waiting for you':'รออนุมัติจากคุณ'}</h3>
+        <span class="pill bad">${total}</span></div>
+      ${secs.map(s=>{ const rows=s[2]||[]; if(!rows.length) return '';
+        return `<div style="margin-top:10px"><div class="spread" style="margin-bottom:4px">
+            <b style="font-size:14px">${s[0]} ${esc(s[1])}</b><span class="pill wait" style="font-size:11px">${rows.length}</span></div>
+          ${s[3] ? rows.map(s[3]).join('') : injuryListHTML(rows)}</div>`; }).join('')}</div>`;
+  }
   // Even-numbered months (Feb, Apr, … Dec) are weight+height measurement months — remind teachers once,
   // like a parent announcement. Dismissed per-month via localStorage so it shows once each even month.
   window.T_growthReminder = () => {
@@ -3033,6 +3089,7 @@
         <div style="text-align:center;margin-bottom:8px">${studentAvatar(s)}</div>
         <div class="grid2"><label class="field"><span>${esc(t('reg.weight'))} (kg)</span><input id="guW" type="number" value="${esc(s.Weight||'')}"/></label>
           <label class="field"><span>${esc(t('reg.height'))} (cm)</span><input id="guH" type="number" value="${esc(s.Height||'')}"/></label></div>
+        ${growthDateField(s)}
         ${photoField('guPhoto',t('growth.photo'),s.Photo,true)}</div>
       <div class="savedock"><button class="btn block" onclick="T_saveAssess('${sid}')">${esc(t('growth.saveBoth'))}</button></div>`;
   };
@@ -3049,20 +3106,33 @@
         <div style="text-align:center;margin-bottom:8px">${studentAvatar(s)}</div>
         <div class="grid2"><label class="field"><span>${esc(t('reg.weight'))} (kg)</span><input id="guW" type="number" value="${esc(s.Weight||'')}"/></label>
           <label class="field"><span>${esc(t('reg.height'))} (cm)</span><input id="guH" type="number" value="${esc(s.Height||'')}"/></label></div>
+        ${growthDateField(s)}
         ${photoField('guPhoto',t('growth.photo'),s.Photo,true)}
         <button class="btn block" onclick="T_growthSave('${sid}',${gate?'true':'false'})">${esc(t('c.save'))}</button></div>`;
   };
+  /**
+   * WHEN they were weighed and measured. A class is weighed on one day and the numbers are typed in
+   * later, so recording "today" plotted the measurement on a day nobody stood on the scales — and
+   * that chart is what a nurse reads. Defaults to today; a future date is refused by the server too.
+   */
+  function growthDateField(s){
+    const last=ymd(s&&s.LastGrowthUpdate||'');
+    return `<label class="field"><span>📅 ${EN()?'Date measured':'วันที่ชั่ง / วัด'}</span>
+      <input type="date" id="guDate" value="${todayStr()}" max="${todayStr()}"/>
+      <small class="muted">${EN()?'The day it was actually done — not the day it is typed in.':'วันที่ชั่ง/วัดจริง ไม่ใช่วันที่กรอกข้อมูล'}${last?` · ${EN()?'last':'ครั้งล่าสุด'} ${esc(ddmmyyyy(last))}`:''}</small></label>`;
+  }
+  const growthDateVal = () => { const e=$('#guDate'); const v=e?e.value:''; return /^\d{4}-\d{2}-\d{2}$/.test(v)?v:todayStr(); };
   window.T_growthSave = async (sid, gate)=>{ const w=+$('#guW').value||null, h=+$('#guH').value||null;
     if(!w||!h){toast(EN()?'Enter weight & height':'กรอกน้ำหนักและส่วนสูง');return;}
     const photo=photoVal(document,'guPhoto');
-    try{ await api('updateGrowth',{studentId:sid,weight:w,height:h,photo}); confirmSaved(t('growth.saved'));
+    try{ await api('updateGrowth',{studentId:sid,weight:w,height:h,photo,date:growthDateVal()}); confirmSaved(t('growth.saved'));
       if(gate) T_assess(sid); else GO('class'); }catch(e){err(e);} };
   window.T_saveAssess=async(sid)=>{ const results=Object.keys(ASEL).map(k=>({itemNo:Number(k),result:ASEL[k]}));
     // also persist the growth fields shown below the assessment (weight/height/photo)
     const w=+$('#guW').value||null, h=+$('#guH').value||null; const photo=photoVal(document,'guPhoto');
     if(!results.length && !(w&&h)){toast(EN()?'Assess at least 1 item or enter weight/height':'เลือกผลอย่างน้อย 1 ข้อ หรือกรอกน้ำหนัก/ส่วนสูง');return;}
     try{ if(results.length) await api('submitAssessment',{studentId:sid,staffId:USER.staffId,results});
-      if(w&&h) await api('updateGrowth',{studentId:sid,weight:w,height:h,photo});
+      if(w&&h) await api('updateGrowth',{studentId:sid,weight:w,height:h,photo,date:growthDateVal()});
       // stay in the assessment (re-render) so the teacher keeps working; history is always kept
       confirmSaved(EN()?'Saved — parent notified':'บันทึกแล้ว — แจ้งผู้ปกครอง'); T_assess(sid); }catch(e){err(e);} };
 
@@ -5445,7 +5515,9 @@
     try{
       await window.__atomLoadScript('report_card.js',()=>!!window.AtomReportCard);
       await AtomReportCard.saveMenu({className:(EN()?'Whole school':'ทุกชั้นเรียน'), month:FM_MONTH, days:A_fmCollect(),
-        school:{name:'Atom Nursery'}, generatedAt:new Date().toISOString().slice(0,16).replace('T',' ')}, kind);
+        // LOCAL time. toISOString() is UTC, so a sheet printed at 14:08 in Bangkok was stamped
+        // 07:08 — seven hours out, on a document people file and refer back to.
+        school:{name:'Atom Nursery'}, generatedAt:nowStamp()}, kind);
       toast(EN()?'Saved to your device':'บันทึกลงเครื่องแล้ว');
     }catch(e){ err(e); }finally{ if(btn){ btn.disabled=false; btn.innerHTML=old; } } };
 
