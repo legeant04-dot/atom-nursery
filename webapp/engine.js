@@ -1149,9 +1149,15 @@ function createAtomAPI(M, GROWTH_STD) {
         else if(v==='MANUAL')counts.manual++;
         else if(v.slice(0,2)==='NO'){ counts.rejected++; const c=v.slice(3)||'?'; byCode[c]=(byCode[c]||0)+1; }
         else counts.unchecked++; });
+      // the last few slips with what SlipOK said about each — a total cannot tell "never checked"
+      // apart from "checked and objected", and that is the question being asked (see handleSlipDiag)
+      const recent=rows.slice(-6).reverse().map(s=>{ const v=String(s.Verified||'');
+        return { date:String(s.SubmittedDate||'').slice(0,16), kind:String(s.RefKind||''), amount:Number(s.Amount||0),
+          method:String(s.Method||'transfer'), hasImage:!!s.Url,
+          verdict: v.slice(0,3)==='YES'?'YES':(v==='MANUAL'?'MANUAL':(v.slice(0,2)==='NO'?v:'')) }; });
       const url=String(cfg.SlipOK_Url||''), key=String(cfg.SlipOK_ApiKey||''), on=!!(url&&key);
       // No network here — mock reports the CONFIGURED branch so the screen can be exercised offline.
-      return { configured:on, working:on, url:'', counts, hasPrevKey:!!cfg.SlipOK_ApiKeyPrev,
+      return { configured:on, working:on, url:'', counts, recent, hasPrevKey:!!cfg.SlipOK_ApiKeyPrev,
         live:{ checked:on, alive:on, code:null, message:'', branch:url.replace(/\/+$/,'').split('/').pop(),
           badBranch:false, badKey:false, expired:false, quota:null, overQuota:null, endDate:'',
           keyTail:key.length>4?('••••'+key.slice(-4)):'••••' },
