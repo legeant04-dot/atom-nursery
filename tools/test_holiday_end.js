@@ -84,11 +84,13 @@ console.log('\n3) the screens stop offering a button that would fail');
   ok_('the parent card shows the holiday instead of the buttons', /window\._SCHOOLDAY&&window\._SCHOOLDAY\.closed/.test(app));
   ok_('...naming it', /window\._SCHOOLDAY\.reason/.test(app));
   ok_('the teacher card does the same', /:\(day0&&day0\.closed\)\?/.test(app));
-  ok_('...and keeps the recent-days list, which is still worth reading', /day0&&day0\.closed[\s\S]{0,700}recentRows/.test(app));
+  // v232: the recent-days list moved to 📅 ตาราง, where it can be filtered by month. The closed-day
+  // card now points there instead of printing four rows nobody asked for.
+  ok_('...and points at the history rather than printing it', /onclick="GO\('schedule'\)">📅/.test(app));
   ok_('both ask the server, rather than working it out twice', /api\('schoolDay'/.test(app));
   eq('...once on each home screen', (app.match(/api\('schoolDay'/g) || []).length, 2);
   // the teacher's copy must travel with the batch, not cost another round trip
-  ok_('the teacher fetches it with the rest of the screen', /const p_day = api\('schoolDay'[\s\S]{0,400}await Promise\.all\(/.test(app));
+  ok_('the teacher fetches it with the rest of the screen', /const p_day = api\('schoolDay'[\s\S]{0,700}await Promise\.all\(/.test(app));
 }
 
 console.log('\n4) the parent home screen still pairs each child with their OWN rows');
