@@ -119,6 +119,7 @@ var ROUTES = {
   approveOT:      function (p) { return handleApproveOT(p); },
   confirmOT:      function (p) { return handleConfirmOT(p); },
   adminAddOT:     function (p) { return handleAdminAddOT(p); },
+  adminAddHolidayOT: function (p) { return handleAdminAddHolidayOT(p); },
   adminEditOT:    function (p) { return handleAdminEditOT(p); },
   adminDeleteOT:  function (p) { return handleAdminDeleteOT(p); },
   // duty roster (กะเวร) — reads via engine (dutyList); writes in-place with LINE notify
@@ -277,7 +278,7 @@ function applyIdentity_(action, payload, sess) {
   var ADMIN_ONLY = { deleteBill: 1, adminResetPassword: 1, getStaffPassword: 1, setSchoolConfig: 1, recomputeAttendance: 1,
     addDepartment: 1, removeDepartment: 1, renameDepartment: 1, listBackups: 1, restoreSheet: 1, setRequireCheckin: 1,
     adminUpdateOT: 1, adminCancelOT: 1, adminRestoreOT: 1, unlockJournal: 1,
-    confirmOT: 1, adminAddOT: 1, adminEditOT: 1, adminDeleteOT: 1,
+    confirmOT: 1, adminAddOT: 1, adminAddHolidayOT: 1, adminEditOT: 1, adminDeleteOT: 1,
     addBigCleaning: 1, removeBigCleaning: 1, editLeave: 1, cancelLeave: 1,
     decideClassChange: 1, confirmTimeRequest: 1,
     addAnnouncement: 1, editAnnouncement: 1, deleteAnnouncement: 1, reindexAnnouncements: 1, reindexParents: 1, checkDuplicateIds: 1,
@@ -419,7 +420,7 @@ var WRITES_ACTIONS_ = { recordCashPayment: 1, teacherStudentLeave: 1, unlockJour
   commentAssessment: 1,   // writes a note onto an assessment row; "comment" is not a mutating verb
 
   adminResetPassword: 1, adminUpdateOT: 1, adminCancelOT: 1, adminRestoreOT: 1,
-  adminAddOT: 1, adminEditOT: 1, adminDeleteOT: 1, decideClassChange: 1, reinstallTriggers: 1 };
+  adminAddOT: 1, adminAddHolidayOT: 1, adminEditOT: 1, adminDeleteOT: 1, decideClassChange: 1, reinstallTriggers: 1 };
 // dedupData/reindex* mutate but don't start with a MUTATING_RE verb — force them to take the write lock
 // (they read row indices then delete, so a concurrent append would shift rows and delete the wrong one).
 function isMutatingAction_(a) { a = String(a || '');

@@ -172,8 +172,10 @@ SCHEMA[WB.HR] = {
   // Staff evening OT with a 2-step approval lifecycle (teacher → Leader → Admin). Status =
   // PENDING_LEADER | PENDING_ADMIN | APPROVED | REJECTED; only APPROVED counts in payroll.
   // Hours are FULL hours (≥50 min in the last hour rounds up, else drops). Minutes..Note appended at END.
+  // Kind = '' | 'DAILY' (the evening late-checkout flow) | 'HOLIDAY' (OT วันหยุด: Admin records a
+  // lump sum for a staff member who came in on a day off — no hours, an amount and a reason).
   OT_RECORDS:    ['OTRecordID', 'StaffID', 'Date', 'Hours', 'Rate', 'Amount', 'ApprovedBy',
-                  'Status', 'Minutes', 'PlanOut', 'ActualOut', 'Month', 'Step1By', 'Step1Status', 'Step2By', 'Step2Status', 'Note'],
+                  'Status', 'Minutes', 'PlanOut', 'ActualOut', 'Month', 'Step1By', 'Step1Status', 'Step2By', 'Step2Status', 'Note', 'Kind'],
   // Full salary-slip breakdown (chat spec): income components + deductions + net to SCB
   PAYROLL:       ['PayrollID', 'StaffID', 'Month', 'BaseSalary',
                   'DiligenceAttendance', 'DiligenceFacebook', 'DiligenceTotal',
