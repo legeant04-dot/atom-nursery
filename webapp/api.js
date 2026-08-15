@@ -297,7 +297,44 @@ window.CONFIG = { MODE: 'gas', GAS_URL: 'https://script.google.com/macros/s/AKfy
   // ---- client read cache: persistent (localStorage) + stale-while-revalidate ----
   // Perceived zero-lag: a read paints instantly from the last-known value stored on the
   // device, then refreshes in the background and re-renders only if the data changed.
-  const RC_TTL = 30000;            // younger than this → serve cache without hitting the network
+  /* ---- how long an answer stays good for -------------------------------------------------------
+   *
+   * Every read used to be treated as if it went stale after 30 seconds, and a heartbeat re-fetched
+   * EVERY cached entry every minute whether or not its answer could possibly have changed. Measured
+   * over one day: 17,308 calls across 244 sessions — 71 per session — of which ~2,500 were asking
+   * again for things that change once a term (getPlans ×329, classList ×594, payrollConfig ×230) or
+   * once a day (schoolDay ×608, announcements ×344).
+   *
+   * That is not just wasted traffic. Apps Script runs ONE execution at a time per user, so those
+   * calls queue behind each other, and the queue is what everything else then waits in — which is
+   * why every single action measured the same 6–8 seconds regardless of how little work it did.
+   *
+   * So an answer now keeps for as long as it is actually good for. Three tiers, and the DEFAULT is
+   * still the cautious one: anything not named here behaves exactly as before.
+   *
+   * Two things make the long tiers safe:
+   *   · every WRITE still clears the whole cache (rcClear) — so the person who changed something
+   *     never sees their own stale copy, whatever tier it is in;
+   *   · an entry cached on a different DAY is never served (rcFresh below), so nothing dated can
+   *     survive midnight in an app left open overnight.
+   * Money and roll data deliberately sit in the short tier: another device changing a price or a
+   * child's class must reach this one in minutes, not hours.
+   */
+  const RC_TTL = 30000;            // default — live data (check-ins, journals, notifications)
+  const TTL_SLOW = 10 * 60000;     // changes now and then, and matters when it does
+  const TTL_STATIC = 4 * 3600000;  // structural: changes when someone reorganises the school
+  const TTL_BY_ACTION = {
+    // structural — a term or a year between changes
+    classList: TTL_STATIC, dspmCriteria: TTL_STATIC, staffGroups: TTL_STATIC, permissions: TTL_STATIC,
+    holidays: TTL_STATIC, bigCleaningDays: TTL_STATIC, vaccineSchedule: TTL_STATIC, payrollConfig: TTL_STATIC,
+    departments: TTL_STATIC, dspmItems: TTL_STATIC, qrCodes: TTL_STATIC,
+    // once a day, or when an admin posts something — minutes of lag is not noticeable, hours is
+    schoolDay: TTL_SLOW, announcements: TTL_SLOW, listStaff: TTL_SLOW, staffSelf: TTL_SLOW,
+    students: TTL_SLOW, parentChildren: TTL_SLOW, getPlans: TTL_SLOW, foodMenu: TTL_SLOW,
+    insuranceStatus: TTL_SLOW, prepayTiers: TTL_SLOW, leaveQuota: TTL_SLOW
+  };
+  const ttlOf = a => TTL_BY_ACTION[a] || RC_TTL;
+  window.__atomTtlOf = ttlOf;      // the speed report reads this to explain what it is seeing
   const CACHE_NS = 'atom_rc_v1_';  // bump to invalidate persisted cache across incompatible deploys
   const MAX_PERSIST = 120000;      // skip persisting entries larger than ~120KB (keeps localStorage healthy)
   const _rc = new Map();
@@ -306,9 +343,15 @@ window.CONFIG = { MODE: 'gas', GAS_URL: 'https://script.google.com/macros/s/AKfy
     if (k && k.indexOf(CACHE_NS) === 0) { try { _rc.set(k.slice(CACHE_NS.length), JSON.parse(localStorage.getItem(k))); } catch (x) {} } } } catch (e) {}
   function rcPrune() { try { const es = [..._rc.entries()].sort((a, b) => a[1].t - b[1].t); const n = Math.ceil(es.length / 2);
     for (let i = 0; i < n; i++) localStorage.removeItem(CACHE_NS + es[i][0]); } catch (e) {} }
-  function rcSet(ck, data) { const e = { t: Date.now(), data: data }; _rc.set(ck, e);
+  // the LOCAL calendar day an entry was cached on. Not a duration: "today's attendance" and "is the
+  // school open today" are answers about a DATE, and an app left open overnight (a phone on a
+  // bedside table) would otherwise serve yesterday's answer all morning under the long tiers.
+  const rcDay = () => { const d = new Date(); return d.getFullYear() + '-' + (d.getMonth() + 1) + '-' + d.getDate(); };
+  function rcSet(ck, data) { const e = { t: Date.now(), d: rcDay(), data: data }; _rc.set(ck, e);
     try { const s = JSON.stringify(e); if (s.length <= MAX_PERSIST) localStorage.setItem(CACHE_NS + ck, s); }
     catch (x) { rcPrune(); try { localStorage.setItem(CACHE_NS + ck, JSON.stringify(e)); } catch (y) {} } }
+  // an entry from another day is not stale — it is about a different day, and must not be shown at all
+  const rcSameDay = e => !e || !e.d || e.d === rcDay();
   function rcClear() { _rc.clear();
     try { const ks = []; for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); if (k && k.indexOf(CACHE_NS) === 0) ks.push(k); } ks.forEach(k => localStorage.removeItem(k)); } catch (e) {} }
   window.__atomCacheClear = rcClear; // app.js clears on logout / user switch (don't leak data across LINE accounts)
@@ -503,8 +546,41 @@ window.CONFIG = { MODE: 'gas', GAS_URL: 'https://script.google.com/macros/s/AKfy
       if (!prev || JSON.stringify(prev.data) !== JSON.stringify(d)) scheduleRender(); })
       .catch(() => {}).then(() => _inflight.delete(ck));
   }
-  // refresh everything cached in one batched tick (used on app-focus + a light 60s heartbeat)
-  function revalidateAll() { _rc.forEach((e, ck) => revalidate(ck)); }
+  /* The heartbeat used to refresh EVERY cached entry, every minute, forever — including the class
+   * list, the price list and the payroll config, none of which change while someone watches a screen.
+   * An app left open all morning therefore made 15–25 requests a minute, and since Apps Script runs
+   * one execution at a time per user, everything else queued behind them.
+   *
+   * Two limits now, and both have to be passed:
+   *   IN USE   — the key was read by a screen in the last few minutes. Cached answers for screens
+   *              nobody is looking at are left alone; they refresh the moment that screen is opened.
+   *   DUE      — the answer is older than what that action is actually good for (ttlOf).
+   * `_touched` is bounded by the number of distinct reads the app makes, and pruned with the cache. */
+  const _touched = new Map();
+  const ACTIVE_WINDOW = 5 * 60000;
+  function revalidateDue(now) {
+    now = now || Date.now();
+    _rc.forEach((e, ck) => {
+      const used = _touched.get(ck) || 0;
+      if (now - used > ACTIVE_WINDOW) return;                       // no screen is showing this
+      if (!rcSameDay(e)) { revalidate(ck); return; }                // yesterday's answer — always refresh
+      if (now - e.t < ttlOf(ck.slice(0, ck.indexOf('|')))) return;  // still good
+      revalidate(ck);
+    });
+  }
+  /* A screen that sits untouched — a teacher watching the drop-off list — reads its data once and
+   * would age out of the window while they are still looking straight at it. Any real interaction
+   * says "I am still here": the keys that screen most recently read are marked in use again. It is
+   * capped at the working set of one screen, so this cannot drift back into refreshing everything. */
+  const ACTIVE_SET = 12;
+  function bumpActive() {
+    const now = Date.now();
+    [..._touched.entries()].sort((a, b) => b[1] - a[1]).slice(0, ACTIVE_SET)
+      .forEach(([ck]) => _touched.set(ck, now));
+  }
+  // coming back to the app is the one moment a person EXPECTS a refresh — but still only of what
+  // they are looking at, and still only if it is due
+  function revalidateAll() { bumpActive(); revalidateDue(); }
 
   /* ---- re-warm after a write --------------------------------------------------------------
    * A write has to throw the cache away — showing a check-in that has just been undone would be
@@ -536,7 +612,12 @@ window.CONFIG = { MODE: 'gas', GAS_URL: 'https://script.google.com/macros/s/AKfy
   }
   if (typeof document !== 'undefined') {
     document.addEventListener('visibilitychange', () => { if (!document.hidden && CONFIG.MODE === 'gas') revalidateAll(); });
-    setInterval(() => { if (!document.hidden && CONFIG.MODE === 'gas') revalidateAll(); }, 60000); // “latest data every minute”
+    // a tap or a keystroke says the person is still on this screen — it does NOT fetch anything by
+    // itself, it only keeps that screen's data inside the refresh window
+    ['pointerdown', 'keydown'].forEach(ev => { try { document.addEventListener(ev, bumpActive, { passive: true }); } catch (e) {} });
+    // the heartbeat now costs nothing on a quiet screen: it refreshes only what is BOTH in use and
+    // past what that action is good for (revalidateDue), instead of every cached key every minute
+    setInterval(() => { if (!document.hidden && CONFIG.MODE === 'gas') revalidateDue(); }, 60000);
   }
 
   window.api = function (action, payload, opts) {
@@ -553,9 +634,10 @@ window.CONFIG = { MODE: 'gas', GAS_URL: 'https://script.google.com/macros/s/AKfy
       // Used for time-sensitive reads like the announcement popup, where a stale empty must not suppress it.
       if (opts && opts.fresh) return guarded(action, payload).then(d => { rcSet(ck, d); return d; });
       const hit = _rc.get(ck);
-      if (hit) {                                                                        // local-first: paint instantly
+      _touched.set(ck, Date.now());   // this key is in USE — the heartbeat only refreshes these
+      if (hit && rcSameDay(hit)) {                                                      // local-first: paint instantly
         PERF.hit();
-        if (Date.now() - hit.t >= RC_TTL) revalidate(ck);                               // stale → refresh in background
+        if (Date.now() - hit.t >= ttlOf(action)) revalidate(ck);                        // stale → refresh in background
         return Promise.resolve(hit.data);
       }
       PERF.miss();
