@@ -112,7 +112,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.232'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.233'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -1250,8 +1250,21 @@
     <a href="${esc(L.map||SCHOOL_MAP_URL)}" target="_blank"><span class="ic web">📍</span>${EN()?'Map':'แผนที่'}</a></div>`; }
   // ---- navigable month calendar (all roles: browse ahead/back) ----
   let CAL_OFF=0;  // month offset from the current month; reset on screen nav (GO)
-  window.CAL_nav=(d)=>{ CAL_OFF+=d; const w=document.getElementById('calWrap'); if(w&&window._CALRENDER) w.innerHTML=window._CALRENDER(); };
-  window.CAL_today=()=>{ CAL_OFF=0; const w=document.getElementById('calWrap'); if(w&&window._CALRENDER) w.innerHTML=window._CALRENDER(); };
+  const CAL_redraw=()=>{ const w=document.getElementById('calWrap'); if(w&&window._CALRENDER) w.innerHTML=window._CALRENDER();
+    // birthdays belong to the month on screen, so they follow the arrows. Only the student-leave
+    // calendar has them; everywhere else this is a no-op.
+    if(document.getElementById('bdayCard')) CAL_birthdays(); };
+  window.CAL_nav=(d)=>{ CAL_OFF+=d; CAL_redraw(); };
+  window.CAL_today=()=>{ CAL_OFF=0; CAL_redraw(); };
+  window.CAL_birthdays=async()=>{ const b=calBase();
+    const month=b.getFullYear()+'-'+String(b.getMonth()+1).padStart(2,'0');
+    if(window._SALERTS && window._SALERTS.month===month){ setHTML('#bdayCard', birthdayCard(window._SALERTS)); return; }
+    try{ window._SALERTS=await api('studentAlerts',{staffId:USER.staffId,role:USER.role,month});
+      setHTML('#bdayCard', birthdayCard(window._SALERTS));
+      setHTML('#dspmDueCard', dspmDueCard(window._SALERTS));
+      const w=document.getElementById('calWrap'); if(w&&window._CALRENDER) w.innerHTML=window._CALRENDER();
+    }catch(e){}
+  };
   const CAL_MTH=['ม.ค.','ก.พ.','มี.ค.','เม.ย.','พ.ค.','มิ.ย.','ก.ค.','ส.ค.','ก.ย.','ต.ค.','พ.ย.','ธ.ค.'], CAL_MTHE=['January','February','March','April','May','June','July','August','September','October','November','December'];
   const calBase=()=>{ const b=new Date(); b.setDate(1); b.setMonth(b.getMonth()+CAL_OFF); return b; };
   function calNavHeader(y,mo){ const head=EN()?CAL_MTHE[mo]+' '+y:CAL_MTH[mo]+' '+(y+543);
@@ -2302,8 +2315,9 @@
     // myLeaves / myOT / recentAttendance were fetched here for lists that have MOVED — the leave
     // history and the work-time history to 📅 ตาราง, the OT history to 💵 การเงิน. Fetching them
     // for a screen that no longer shows them would be three requests spent on nothing.
-    const [att,cl,quota,me0raw,jstat] = await Promise.all([api('myAttendanceToday',{staffId:USER.staffId}),api('classList',tc()),api('leaveQuota',{staffId:USER.staffId}),api('staffSelf',{staffId:USER.staffId}),api('journalStatus',{})]);
-    const jdone = journalDoneMap(jstat);
+    const [att,cl,quota,me0raw,jstat,al] = await Promise.all([api('myAttendanceToday',{staffId:USER.staffId}),api('classList',tc()),api('leaveQuota',{staffId:USER.staffId}),api('staffSelf',{staffId:USER.staffId}),api('journalStatus',{}),
+      api('studentAlerts',{staffId:USER.staffId,role:USER.role}).catch(()=>null)]);
+    const jdone = journalDoneMap(jstat); setAlerts(al);
     T_STU={}; (cl.students||[]).forEach(s=>{ T_STU[s.StudentID]=s; });   // names for the ⋯ menu
     const day0 = await p_day;                 // already in flight with the batch above — no extra trip
     const me0=me0raw||{};
@@ -2363,7 +2377,9 @@
             : `<button class="btn sm outline" disabled style="opacity:.45" title="${s.onLeave?(EN()?'On leave today — the leave is the record':'ลาวันนี้ — การลาคือบันทึกของวันนี้'):(EN()?'Check the child in first':'ต้องเช็คอินนักเรียนก่อนจึงจะบันทึกได้')}">${esc(EN()?'Write':'บันทึก')}</button>`;
           // min-width:0 lets the name column shrink; without it the two buttons were pushed onto
           // their own lines and every row ended up a different height
-          return `<div class="list-item"><span style="min-width:0;flex:1">${studentAvatar(s)} <b>${esc(dispNick(s))}</b> ${journalPill(done)}</span><span class="acts2">${jBtn}<button class="btn sm outline" onclick="T_assess('${s.StudentID}')">${esc(t('lbl.assess'))}</button></span></div>`; }).join('')}</div>`;
+          const dueA=dspmDueOf(s.StudentID);
+          return `<div class="list-item"><span style="min-width:0;flex:1">${studentAvatar(s)} <b>${esc(dispNick(s))}</b> ${dueA?dspmDueBadge(dueA):''} ${journalPill(done)}</span><span class="acts2">${jBtn}<button class="btn sm outline" onclick="T_assess('${s.StudentID}')">${esc(t('lbl.assess'))}</button></span></div>`; }).join('')}</div>
+      ${birthdayCard(al)}`;
     // render, don't fetch: this was started before the batch above and travelled with it
     const tca=await p_tca; setHTML('#tcatt', tca?tcaHtml(tca):'');
     // A leader has three more sections. They cannot join the batch above — whether this person IS a
@@ -2526,15 +2542,24 @@
       <button class="btn block outline" style="margin-top:8px" onclick="${close}EDIT_ATT('${esc(sid)}')">🕑 ${EN()?'Correct check-in / pick-up':'แก้ไขเวลารับ-ส่ง'}</button>
       <button class="btn block outline" style="margin-top:8px" onclick="${close}T_journalHistory('${esc(sid)}')">📅 ${EN()?'Past daily reports':'ดูบันทึกย้อนหลัง'}</button>
       <button class="btn block outline" style="margin-top:12px" onclick="${close}">${esc(t('c.close'))}</button>`); };
+  // who is due a DSPM assessment / whose birthday it is, keyed by student — filled by any screen
+  // that fetches studentAlerts, read by the row renderers
+  let DSPM_DUE={};
+  const dspmDueOf = sid => DSPM_DUE[sid];
+  function setAlerts(al){ DSPM_DUE={}; ((al&&al.dspmDue)||[]).forEach(k=>{ DSPM_DUE[k.studentId]=k; }); return al; }
   SCREENS.Teacher.class = async () => {
-    const [cl,jstat]=await Promise.all([api('classList',tc()),api('journalStatus',{})]);
-    const jdone=journalDoneMap(jstat);
+    const [cl,jstat,al]=await Promise.all([api('classList',tc()),api('journalStatus',{}),
+      api('studentAlerts',{staffId:USER.staffId,role:USER.role}).catch(()=>null)]);
+    const jdone=journalDoneMap(jstat); setAlerts(al);
     T_STU={}; cl.students.forEach(s=>{ T_STU[s.StudentID]=s; });
-    app.innerHTML=`<h2 class="page">👶 ${esc(cl.class.ClassName)}</h2>${classSwitcher(cl)}`+cl.students.map(s=>{
+    app.innerHTML=`<h2 class="page">👶 ${esc(cl.class.ClassName)}</h2>${classSwitcher(cl)}${birthdayCard(al)}`+cl.students.map(s=>{
       const attTag = s.onLeave
         ? `<small class="pill warn" style="margin-left:4px">🏖️ ${esc(s.leaveType||(EN()?'on leave':'ลา'))}${s.leaveReason?' · '+esc(s.leaveReason):''}</small>`
         : (s.inToday?`<small class="pill ok" style="margin-left:4px">${EN()?'in':'มา'} ${esc(s.inTime||'')}</small>`:'');
-      return `<div class="card"><div style="display:flex;gap:10px;align-items:center">${studentAvatar(s)}<div style="min-width:0"><b>${esc(dispNick(s))}</b> ${nmSub(s)?`<small class="muted">${esc(nmSub(s))}</small>`:""}${attTag}<br><small class="muted">${esc(ageYM(s.DOB))} · ${EN()?'allergy':'แพ้'}: ${esc(s.Allergy||'-')}</small><br>${journalPill(jdone[s.StudentID])}</div></div>
+      // the DSPM reminder rides after the name, where the teacher is already looking, and clears
+      // itself once the band is finished
+      const due=dspmDueOf(s.StudentID);
+      return `<div class="card"><div style="display:flex;gap:10px;align-items:center">${studentAvatar(s)}<div style="min-width:0"><b>${esc(dispNick(s))}</b> ${due?dspmDueBadge(due):''} ${nmSub(s)?`<small class="muted">${esc(nmSub(s))}</small>`:""}${attTag}<br><small class="muted">${esc(ageYM(s.DOB))} · ${EN()?'allergy':'แพ้'}: ${esc(s.Allergy||'-')}</small><br>${journalPill(jdone[s.StudentID])}</div></div>
         ${studentRowButtons(s,jdone)}</div>`; }).join(''); };
   // Teacher files a leave for a student → notifies the linked parents; shows in that student's parent calendar
   window.T_studentLeave=(sid,name)=>{ modal(`<h3>🏖️ ${EN()?'File student leave':'แจ้งลานักเรียน'} — ${esc(name)}</h3>
@@ -3747,12 +3772,17 @@
     if(LV_MAIN==='student'){
       const leaves=await api('allStudentLeaves'); window._SLV_ALL=leaves||[];
       window._CALRENDER=studentLeaveCalRender;
+      // birthdays this month + the DSPM assessments that have come due — one call, drawn ON the
+      // calendar and summarised under it
+      try{ window._SALERTS=await api('studentAlerts',{staffId:USER.staffId,role:USER.role}); }catch(e){ window._SALERTS=null; }
       app.innerHTML=`<h2 class="page">✅ ${EN()?'Operations':'ดำเนินการ'}</h2>${mainSeg}
         ${opTools([['⏰',EN()?'Student late-pickup OT':'OT รับช้า (นักเรียน)','A_studentOT()'],
                    ['🕑',EN()?'Correct check-in / pick-up':'แก้ไขเวลารับ-ส่ง','A_editAttPick()'],
                    ['📊',EN()?'Class report':'สรุปรายชั้นเรียน','A_studentReport()']])}
         <p class="muted" style="font-size:13px">${EN()?'Absences by day and class. Tap a day to see who is absent per class (history included).':'การลาแยกรายวันและชั้นเรียน · แตะวันเพื่อดูว่านักเรียนคนไหนขาดในแต่ละชั้น (ดูย้อนหลังได้)'}</p>
-        <div class="card"><div id="calWrap">${studentLeaveCalRender()}</div></div>`;
+        <div class="card"><div id="calWrap">${studentLeaveCalRender()}</div></div>
+        <div id="bdayCard">${birthdayCard(window._SALERTS)}</div>
+        <div id="dspmDueCard">${dspmDueCard(window._SALERTS)}</div>`;
       return;
     }
     const [all,staff]=await Promise.all([window._LV_ALL?Promise.resolve(window._LV_ALL):api('allLeaves'),(A_CACHE.staff&&A_CACHE.staff.length)?Promise.resolve(A_CACHE.staff):api('listStaff')]);
@@ -3784,14 +3814,57 @@
       if(dt.getFullYear()===y&&dt.getMonth()===mo){ const d=dt.getDate(); (byDay[d]=byDay[d]||[]).push(l); } });
     const holByDay={}; (window._LV_HOL||[]).forEach(h=>{ const d=new Date(h.Date); if(d.getFullYear()===y&&d.getMonth()===mo) holByDay[d.getDate()]=EN()?(h.NameEN||h.NameTH):(h.NameTH||h.NameEN); });
     const bcByDay={}; (window._LV_BC||[]).forEach(s=>{ const d=new Date(s); if(d.getFullYear()===y&&d.getMonth()===mo) bcByDay[d.getDate()]=1; });
+    // birthdays belong to a month, not a year — only mark them on the month they were fetched for
+    const bdayByDay={}; const _al=window._SALERTS;
+    if(_al && _al.month===`${y}-${String(mo+1).padStart(2,'0')}`)
+      (_al.birthdays||[]).forEach(b=>{ (bdayByDay[b.day]=bdayByDay[b.day]||[]).push(b); });
     let cells=['อา','จ','อ','พ','พฤ','ศ','ส'].map(w=>`<div style="text-align:center;font-size:13px;color:var(--ink-3)">${EN()?({'อา':'Su','จ':'Mo','อ':'Tu','พ':'We','พฤ':'Th','ศ':'Fr','ส':'Sa'}[w]):w}</div>`).join('');
     for(let i=0;i<first;i++)cells+='<div class="d dim"></div>';
     for(let dd=1;dd<=days;dd++){ const items=byDay[dd]; const today=(isCur&&dd===now.getDate())?'today':''; const n=items?items.length:0;
       const nCls=items?new Set(items.map(x=>x.class||'-')).size:0; const ds=`${y}-${String(mo+1).padStart(2,'0')}-${String(dd).padStart(2,'0')}`;
       const bg = n?'cursor:pointer;background:var(--warn-bg);border-color:var(--warn-line);':calOffBg(y,mo,dd,holByDay[dd],bcByDay[dd]);
-      cells+=`<div class="d ${n?'ev':''} ${today}" style="min-height:52px;${bg}" ${n?`onclick="A_slvDay('${ds}')"`:''}>${dd}${holByDay[dd]?`<span class="io" style="text-align:left;color:var(--bad);font-weight:600">🏖️ ${esc(holByDay[dd])}</span>`:''}${bcByDay[dd]&&!holByDay[dd]?`<span class="io" style="text-align:left;color:var(--teal);font-weight:600">🧹</span>`:''}${n?`<span class="io" style="text-align:left;color:var(--warn);font-weight:700">${EN()?'absent':'ขาด'} ${n}<br><span style="font-weight:400;color:var(--ink-3)">${nCls} ${EN()?'class':'ชั้น'}</span></span>`:''}</div>`; }
-    return `${calNavHeader(y,mo)}<div class="cal">${cells}</div><small class="muted">${EN()?'Orange = absences · weekend/holiday red · 🧹 cleaning':'สีส้ม = มีนักเรียนลา · เสาร์-อาทิตย์/วันหยุดแดง · 🧹 ทำความสะอาด'}</small>`;
+      const bd = (bdayByDay[dd]||[]);
+      cells+=`<div class="d ${n?'ev':''} ${today}" style="min-height:52px;${bg}" ${n?`onclick="A_slvDay('${ds}')"`:''}>${dd}${holByDay[dd]?`<span class="io" style="text-align:left;color:var(--bad);font-weight:600">🏖️ ${esc(holByDay[dd])}</span>`:''}${bcByDay[dd]&&!holByDay[dd]?`<span class="io" style="text-align:left;color:var(--teal);font-weight:600">🧹</span>`:''}${bd.length?`<span class="io" style="text-align:left;color:var(--brand);font-weight:700" title="${esc(bd.map(b=>dnick(b)).join(', '))}">🎂 ${bd.length===1?esc(dnick(bd[0])):bd.length}</span>`:''}${n?`<span class="io" style="text-align:left;color:var(--warn);font-weight:700">${EN()?'absent':'ขาด'} ${n}<br><span style="font-weight:400;color:var(--ink-3)">${nCls} ${EN()?'class':'ชั้น'}</span></span>`:''}</div>`; }
+    return `${calNavHeader(y,mo)}<div class="cal">${cells}</div><small class="muted">${EN()?'Orange = absences · weekend/holiday red · 🧹 cleaning · 🎂 birthday':'สีส้ม = มีนักเรียนลา · เสาร์-อาทิตย์/วันหยุดแดง · 🧹 ทำความสะอาด · 🎂 วันเกิด'}</small>`;
   }
+  /**
+   * Birthdays this month. The school wants to know BEFORE the day, which is why this is a month at
+   * a time and not a "today" banner: a card that only appears on the morning itself is a card that
+   * arrives too late to do anything with.
+   * Only rendered when the calendar is showing the month the birthdays belong to.
+   */
+  function birthdayCard(al){
+    const list=(al&&al.birthdays)||[]; if(!list.length) return '';
+    const b=calBase(); const shown=b.getFullYear()+'-'+String(b.getMonth()+1).padStart(2,'0');
+    if(al.month && shown!==al.month) return '';
+    const today=new Date(); const isThisMonth = shown===todayStr().slice(0,7);
+    const dayNow=today.getDate();
+    return `<div class="card" style="border-color:var(--brand-line);background:var(--brand-soft)">
+      <div class="spread"><b>🎂 ${EN()?'Birthdays this month':'วันเกิดนักเรียนเดือนนี้'}</b><span class="pill info">${list.length}</span></div>
+      ${list.map(k=>{ const past = isThisMonth && k.day<dayNow, isToday = isThisMonth && k.day===dayNow;
+        return `<div class="list-item"${past?' style="opacity:.5"':''}>
+          <span>${isToday?'🎉 ':''}<b>${esc(dnick(k))}</b> <small class="muted">${esc(k.class||'')}</small></span>
+          <span style="text-align:right"><b>${esc(ddmmyyyy(k.dob).slice(0,5))}</b>${k.turning?` <small class="muted">${EN()?'turns':'ครบ'} ${k.turning} ${EN()?'yrs':'ขวบ'}</small>`:''}</span></div>`; }).join('')}</div>`;
+  }
+  /**
+   * Who is due a DSPM assessment. The reminder is the ONLY thing that makes a bi-monthly assessment
+   * happen on time, and it clears itself: finish the band and the child drops off this list.
+   */
+  function dspmDueCard(al){
+    const list=(al&&al.dspmDue)||[]; if(!list.length) return '';
+    const byClass={}; list.forEach(k=>{ (byClass[k.class||'-']=byClass[k.class||'-']||[]).push(k); });
+    return `<div class="card" style="border-color:var(--warn-line);background:var(--warn-bg)">
+      <div class="spread"><b>📝 ${EN()?'DSPM assessments due':'ถึงกำหนดประเมิน DSPM'}</b><span class="pill warn">${list.length}</span></div>
+      <small class="muted">${EN()?'By age band. A child drops off this list once every item in their band has a result.':'ตามช่วงอายุ · เมื่อประเมินครบทุกข้อในช่วงนั้นแล้ว ชื่อจะหายไปเอง'}</small>
+      ${Object.keys(byClass).sort().map(c=>`<div style="margin-top:8px"><b style="font-size:13px">🏫 ${esc(c)}</b>
+        ${byClass[c].map(k=>`<div class="list-item"><span><b>${esc(dnick(k))}</b> <small class="muted">${esc(ageMonthLabel(k.ageMonth))}</small></span>
+          <span>${dspmDueBadge(k)}</span></div>`).join('')}</div>`).join('')}</div>`;
+  }
+  // "2 ปี 8 เดือน" from a month count — the same way the child's age reads everywhere else
+  const ageMonthLabel = m => { m=Number(m)||0; const y=Math.floor(m/12), r=m%12;
+    return EN() ? `${y}y ${r}m` : `${y} ปี ${r} เดือน`; };
+  /** The band a child is due, and how far through it they are. Small enough to sit after a name. */
+  const dspmDueBadge = k => `<span class="pill warn" style="font-size:11px" title="${esc((EN()?'DSPM ':'ประเมิน DSPM ')+(k.ageLabel||k.band))}">📝 ${esc(k.band)} ${EN()?'mo':'เดือน'}${k.done?` · ${k.done}/${k.total}`:''}</span>`;
   window.A_slvDay=(ds)=>{ const items=(window._SLV_ALL||[]).filter(l=>ymd(l.Date)===ds);
     const byClass={}; items.forEach(l=>{ const c=l.class||(EN()?'(no class)':'(ไม่ระบุชั้น)'); (byClass[c]=byClass[c]||[]).push(l); });
     const classes=Object.keys(byClass).sort();
