@@ -141,7 +141,14 @@ console.log('\n=== 5. nothing else moved ===');
   const { H, M } = boot({ BigCleaningDays: [today] });
   M.holidays.push({ Date: '2026-12-31', NameTH: 'สิ้นปี' });
   eq('a real holiday still closes the school', H.schoolDay({ date: '2026-12-31' }).closed, true);
-  const sat = '2026-08-15';   // a Saturday that is NOT a cleaning day here
+  // a Saturday that is NOT the cleaning day — found from the calendar, never hard-coded, or the
+  // test passes until the real date happens to land on it (it did: 2026-08-15)
+  const sat = (() => { const d = new Date(2026, 0, 3);            // 2026-01-03 is a Saturday
+    for (let i = 0; i < 400; i++) { const p = n => String(n).padStart(2, '0');
+      const ds = d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate());
+      if (d.getDay() === 6 && ds !== today) return ds;
+      d.setDate(d.getDate() + 7); }
+    return '2026-01-03'; })();
   eq('a plain weekend is still closed', H.schoolDay({ date: sat }).closed, true);
   eq('…and carries no cleaning hours', H.schoolDay({ date: sat }).bcIn, '');
 }

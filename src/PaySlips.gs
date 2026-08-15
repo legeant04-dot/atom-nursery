@@ -195,6 +195,62 @@ function handlePayCombined(p) {
   return { ok: true, groupId: groupId, total: total, count: items.length };
 }
 
+/**
+ * The same selection, paid in CASH at the school. payload: { items:[{kind,id}], amount, paidDate }
+ *
+ * Money changes hands at the door as often as it goes through the bank, and a parent had no way to
+ * say so — they were shown a QR for something they had already handed over, and the school had to
+ * remember it by hand. This records what a slip records, minus the slip: one row per item, the
+ * amount, and THE DAY THE MONEY WAS HANDED OVER (a parent may be telling us on Monday about Friday).
+ *
+ * It is NOT marked paid. It lands as PENDING_VERIFY with Method=cash and waits for someone at the
+ * school to confirm they have the money — "paid" on the parent's word alone would leave a hole in
+ * the accounts that nobody would notice. The amount must match the total exactly, the same rule a
+ * transfer follows, so cash is not a way around it.
+ */
+function handlePayCombinedCash(p) {
+  p = p || {};
+  var list = (Array.isArray(p.items) ? p.items : []).filter(function (x) { return x && x.id; });
+  if (!list.length) throw apiError_('BAD_INPUT', 'ยังไม่ได้เลือกรายการ');
+  var uid = p.uid || p.lineUID || '';
+  var items = list.map(function (it) {
+    var kind = it.kind || 'bill';
+    var tgt = paySlipTarget_(kind, it.id);
+    if (!tgt) throw apiError_('NOT_FOUND', 'ไม่พบรายการ ' + it.id);
+    if (uid && !parentOwnsStudent_(uid, tgt.studentId)) throw apiError_('NO_PERMISSION', 'รายการนี้ไม่ใช่ของบุตรหลานท่าน');
+    var confirmed = paySlipSum_(kind, it.id, ['CONFIRMED']);
+    return { kind: kind, id: it.id, tgt: tgt, out: Math.max(0, tgt.due - confirmed) };
+  });
+  var total = Math.round(items.reduce(function (a, x) { return a + x.out; }, 0));
+  var amt = Math.round(Number(p.amount || 0));
+  if (Math.abs(amt - total) > 0.5) throw apiError_('AMOUNT_MISMATCH', 'ยอดชำระ ฿' + amt + ' ไม่ตรงกับยอดรวมในระบบ ฿' + total);
+  var today = dateStr_(new Date());
+  var paidOn = paySlipTransDate_(p.paidDate) || today;
+  if (paidOn > today) throw apiError_('BAD_INPUT', 'วันที่ชำระต้องไม่เป็นวันในอนาคต');
+
+  var groupId = 'CG-' + Date.now();
+  var sh = paySlipsSheet_();
+  ensureColumns_(sh, ['SlipGroup', 'TransDate', 'TransTime', 'StatedDate', 'StatedTime', 'Method']);
+  var names = [], seen = {};
+  items.forEach(function (x, i) {
+    appendObject_(sh, { SlipID: 'SL-' + Date.now() + '-' + i, RefKind: x.kind, RefID: x.id, StudentID: x.tgt.studentId, Amount: x.out,
+      Url: '', FileId: '', Verified: '', TransRef: '', Receiver: '',
+      // no slip to read, so the day the parent names IS the payment date
+      TransDate: paidOn, TransTime: '', StatedDate: paidOn, StatedTime: '', Method: 'cash',
+      SubmittedDate: nowStr_(), Status: 'SUBMITTED', SlipGroup: groupId });
+    var submitted = paySlipSum_(x.kind, x.id, ['SUBMITTED', 'CONFIRMED']);
+    updateRow_(x.tgt.sheet, x.tgt.row, { Status: 'PENDING_VERIFY', SlipAmount: submitted, PaymentMethod: 'cash', TransactionDate: paidOn });
+    if (!seen[x.tgt.studentId]) { seen[x.tgt.studentId] = 1;
+      var st = findObject_(sheet_(getMainSpreadsheet_(), 'STUDENTS'), function (s) { return String(s.StudentID) === String(x.tgt.studentId); });
+      names.push(st ? (st.Nickname || st.Name || x.tgt.studentId) : x.tgt.studentId); }
+  });
+  recCacheBust_('PAYMENT_SLIPS'); recCacheBust_('BILLING'); recCacheBust_('OT_DAILY'); recCacheBust_('STUDENT_CHARGES');
+  // the admin MUST be told: unlike a transfer, there is no bank record to find this later
+  try { notifyAdmins_('💵 แจ้งชำระเงินสด ' + names.length + ' คน (' + names.join(', ') + ') · ' +
+    items.length + ' รายการ · ฿' + total + ' · ชำระวันที่ ' + paidOn + ' — รอตรวจสอบ', { kind: 'cash_payment' }); } catch (e) {}
+  return { ok: true, groupId: groupId, total: total, count: items.length, paidDate: paidOn, method: 'cash' };
+}
+
 function handleUploadSlip(p) { return paySlipRecord_('bill', p.billingId, p); }
 function handlePayOT(p) { return paySlipRecord_('ot', p.otId, p); }
 function handlePayCharge(p) { return paySlipRecord_('charge', p.chargeId, p); }

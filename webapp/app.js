@@ -112,7 +112,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.229'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.230'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -1372,6 +1372,14 @@
         ? `<div class="card" style="background:var(--surface-3);border-color:var(--line-strong);margin-top:12px;padding:10px;text-align:center">
              <b>🏖️ ${EN()?'School closed today':'วันนี้โรงเรียนหยุด'}</b>
              <br><small class="muted">${esc(EN()?(window._SCHOOLDAY.reasonEN||'Holiday'):(window._SCHOOLDAY.reason||'วันหยุด'))} · ${EN()?'no drop-off or pick-up to record':'ไม่ต้องบันทึกส่ง-รับ'}</small></div>`
+        : k.onLeave
+        // Away today. The family told us themselves, so the leave IS the record of this child's day
+        // — offering drop-off / pick-up would only produce a refusal (ON_LEAVE). This is PER CHILD:
+        // a sibling who did go to school keeps their buttons on the very same screen.
+        ? `<div class="card" style="background:var(--warn-bg);border-color:var(--warn-line);margin-top:12px;padding:10px;text-align:center">
+             <b style="color:var(--warn)">🏖️ ${EN()?'On leave today':'ลาวันนี้'}</b>
+             <br><small class="muted">${esc(k.leaveType||(EN()?'leave':'ลา'))}${k.leaveReason?' · '+esc(k.leaveReason):''}</small>
+             <br><small class="muted">${EN()?'Nothing to record today. Cancel the leave first if they do come in.':'วันนี้ไม่ต้องบันทึกส่ง-รับ · หากมาจริงกรุณายกเลิกใบลาก่อน'}</small></div>`
         : k.paused
         // On temporary leave (or not started yet): there is nothing to record, so the buttons go
         // rather than sitting there doing nothing. Everything else about the child stays visible —
@@ -2019,8 +2027,38 @@
     qrModalHTML({ title:'💳 '+(EN()?'Scan to transfer':'สแกนเพื่อโอน'), amount:window._PICK.due,
       img:q.img, imgName:'pay-'+items.length+'.png',
       extra:`${q.note?`<p class="muted" style="font-size:13px;text-align:center">${EN()?'Pay into ':'โอนเข้า'}${esc(q.note)}</p>`:''}
-        <button class="btn block green" onclick="this.closest('.modal').remove();P_combinedNext()">📎 ${EN()?'I have transferred — attach slip':'โอนแล้ว — แนบสลิป'}</button>` });
+        <button class="btn block green" onclick="this.closest('.modal').remove();P_combinedNext()">📎 ${EN()?'I have transferred — attach slip':'โอนแล้ว — แนบสลิป'}</button>
+        <button class="btn block gray" style="margin-top:8px" onclick="this.closest('.modal').remove();P_combinedCash()">💵 ${EN()?'Paid in cash at the school':'ชำระเงินสดที่โรงเรียน'}</button>` });
   };
+  /**
+   * Cash handed over at the school. The amount is filled in for them and must match, exactly as a
+   * transfer must — it is prefilled, not free text, because the point is to confirm the figure, not
+   * to negotiate it. The DATE is theirs to set: a parent often tells us on Monday about Friday.
+   */
+  window.P_combinedCash=()=>{ if(!_COMB.items.length){ toast(EN()?'Select at least one item':'เลือกอย่างน้อย 1 รายการ'); return; }
+    const cur=document.querySelector('.modal'); if(cur)cur.remove();
+    modal(`<h3>💵 ${EN()?'Paid in cash':'ชำระเงินสด'} · <span style="color:var(--blue)">${_COMB.items.length} ${EN()?'items':'รายการ'}</span></h3>
+      <p class="muted" style="font-size:13px">${EN()?'Tell the school you have handed the money over. It is recorded against these items and waits for the school to confirm — you will see it as paid once they do.':'แจ้งโรงเรียนว่าได้ชำระเงินสดแล้ว · ระบบจะบันทึกไว้กับรายการที่เลือก และรอโรงเรียนตรวจสอบ · เมื่อยืนยันแล้วจะขึ้นเป็นชำระแล้ว'}</p>
+      <label class="field"><span>${EN()?'Amount paid':'จำนวนเงินที่ชำระ'}</span>
+        <input id="cashAmt" type="number" inputmode="decimal" value="${_COMB.due}" data-due="${_COMB.due}" style="font-weight:700"/></label>
+      <label class="field"><span>${EN()?'Date paid':'วันที่ชำระ'}</span><input type="date" id="cashDate" value="${todayStr()}" max="${todayStr()}"/></label>
+      <small class="muted" style="display:block;margin:-2px 0 8px">${EN()?'The day you handed the money over — not today, if they are different.':'วันที่ยื่นเงินให้โรงเรียนจริง · ถ้าไม่ใช่วันนี้ให้เลือกวันที่จ่ายจริง'}</small>
+      <button class="btn block green" onclick="P_combinedCashDo(this)">${EN()?'Confirm cash payment':'ยืนยันการชำระเงินสด'}</button>
+      <button class="btn outline block" style="margin-top:8px" onclick="this.closest('.modal').remove()">${esc(t('c.close'))}</button>`); };
+  window.P_combinedCashDo=async(btn)=>{ const m=btn.closest('.modal');
+    const amt=Number(m.querySelector('#cashAmt').value||0), date=m.querySelector('#cashDate').value;
+    if(!date){ toast(EN()?'Pick the date you paid':'เลือกวันที่ชำระ'); return; }
+    // the same hard block as a transfer: cash must not be the way round the amount rule
+    if(Math.round(amt)!==Math.round(_COMB.due)){
+      toast((EN()?'Amount must be ':'ยอดต้องเท่ากับ ')+baht(_COMB.due)); return; }
+    btn.disabled=true;
+    // parentScope() so the handler knows whose children these are; on GAS applyIdentity_ overrides
+    // it from the session, so it can only ever narrow the scope, never widen it
+    try{ const r=await api('payCombinedCash',Object.assign({items:_COMB.items, amount:amt, paidDate:date},parentScope()));
+      m.remove();
+      confirmSaved(EN()?'Cash payment sent to the school':'แจ้งชำระเงินสดแล้ว — รอโรงเรียนตรวจสอบ');
+      P_thanks(r&&r.total||amt,0); GO('payment');
+    }catch(e){ err(e); btn.disabled=false; } };
 
   // (the old combined-payment DIALOG lived here. The pick list on the payment screen replaced it;
   //  keeping both would have meant two lists of the same thing drifting apart.)

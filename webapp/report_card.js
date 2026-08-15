@@ -438,7 +438,11 @@
     return out;
   }
   var DOW_TH = ['อา', 'จ', 'อ', 'พ', 'พฤ', 'ศ', 'ส'];
-  var MEALS = [['breakfast', 'เช้า'], ['snackAM', 'ว่างเช้า'], ['lunch', 'กลางวัน'], ['snackPM', 'ว่างบ่าย']];
+  // The five meals of the day, in the order they are served. DINNER was missing from the printed
+  // sheet entirely — the kitchen was planning a meal the printout did not show. Only Nursery 1 stays
+  // for it, which the column header says so nobody hands the sheet to the wrong class and wonders.
+  var MEALS = [['breakfast', 'เช้า'], ['snackAM', 'ว่างเช้า'], ['lunch', 'กลางวัน'],
+               ['snackPM', 'ว่างบ่าย'], ['dinner', 'เย็น', '(เฉพาะ Nursery 1)']];
 
   function drawMenu(ctx, d, logo, slice, pageNo, pageCount, empty) {
     ctx.fillStyle = C.paper; ctx.fillRect(0, 0, W, H);
@@ -452,12 +456,18 @@
       text(ctx, 'กรุณาบันทึกเมนูในระบบก่อนพิมพ์', W / 2, 396, { size: 18, color: C.ink3, align: 'center' });
     }
 
-    var y = 288, colW = [90, 250, 250, 250, 218];
-    var head = ['วันที่', 'เช้า', 'ว่างเช้า', 'กลางวัน', 'ว่างบ่าย'];
-    ctx.fillStyle = C.brandSoft; roundRect(ctx, PAD, y, W - PAD * 2, 40, 8); ctx.fill();
+    // date + the five meals. Lunch is the longest dish name, the snacks are usually one fruit.
+    var y = 288, colW = [84, 205, 175, 235, 175, 214];
+    ctx.fillStyle = C.brandSoft; roundRect(ctx, PAD, y, W - PAD * 2, 56, 8); ctx.fill();
     var cx = PAD + 12;
-    head.forEach(function (hd, i) { text(ctx, hd, cx, y + 27, { size: 19, weight: 700, color: C.brand }); cx += colW[i]; });
-    y += 66;                          // clear of the header pill — the first row used to sit on top of it
+    text(ctx, 'วันที่', cx, y + 26, { size: 19, weight: 700, color: C.brand }); cx += colW[0];
+    MEALS.forEach(function (mm, i) {
+      text(ctx, mm[1], cx, y + 26, { size: 19, weight: 700, color: C.brand });
+      // who the meal is for, under its own column — it is a fact about that column, not a footnote
+      if (mm[2]) text(ctx, mm[2], cx, y + 46, { size: 14, color: C.ink3 });
+      cx += colW[i + 1];
+    });
+    y += 82;                          // clear of the header pill — the first row used to sit on top of it
 
     slice.forEach(function (row) {
       var g = new Date(row.date + 'T00:00:00').getDay(), we = (g === 0 || g === 6);
@@ -494,7 +504,8 @@
       var by = {}, filled = 0;
       (d.days || []).forEach(function (x) {
         by[x.date] = x;
-        if (x.breakfast || x.snackAM || x.lunch || x.snackPM || x.note) filled++;
+        // dinner counts: a month with only Nursery 1's dinners entered is NOT an empty month
+        if (x.breakfast || x.snackAM || x.lunch || x.snackPM || x.dinner || x.note) filled++;
       });
       if (!filled) {
         var cv0 = document.createElement('canvas'); cv0.width = W; cv0.height = H;
