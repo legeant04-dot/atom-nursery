@@ -197,6 +197,16 @@ function createAtomAPI(M, GROWTH_STD) {
   // as a working time (see getConfigTime_ / hydrateConfig_ on the GAS side).
   const cfgTime_ = (v, dflt) => { const s=String(v==null?'':v).trim().slice(0,5);
     return /^\d{2}:\d{2}$/.test(s) ? s : dflt; };
+  /**
+   * Is this child away today, and why? ONE answer, used by the teacher's class list, the parent's
+   * home screen and the check-in guard — a leave that one screen honours and another does not is
+   * worse than no leave at all.
+   */
+  function studentLeaveToday_(sid, onDate){
+    const d=ymd(onDate||todayLocal());
+    const lv=(M.studentLeaves||[]).find(l=>String(l.StudentID)===String(sid)&&ymd(l.Date)===d)||null;
+    return {onLeave:!!lv, leaveType:lv?(lv.Type||'ลา'):'', leaveReason:lv?(lv.Reason||''):''};
+  }
   const bigCleaningIn_  = () => cfgTime_(cfg.BigCleaningIn,  '08:30');
   const bigCleaningOut_ = () => cfgTime_(cfg.BigCleaningOut, '17:00');
   // enrich an OT record with the staff's names + that day's check-in / check-out (so the approver can see
@@ -588,14 +598,18 @@ function createAtomAPI(M, GROWTH_STD) {
   // append a slip (mock stores the dataURL directly in Url; GAS routes override to save the image to Drive + run SlipOK)
   function recordSlip_(kind, refId, p){ const tgt=slipTarget_(kind, refId); if(!tgt)fail('NOT_FOUND','ไม่พบรายการ');
     const amt=Number(p.slipAmount||0);
+    // cash leaves no slip to read, so the day the parent names IS the payment date. It still waits
+    // for the school to confirm the money arrived — see payCombinedCash.
+    const method=p.method==='cash'?'cash':'transfer';
     paySlips_().push({ SlipID:'SL-'+Date.now()+'-'+Math.floor(Math.random()*10000), RefKind:kind, RefID:refId, StudentID:tgt.studentId,
       Amount:amt, Url:p.slipData||p.slipName||'', FileId:'', Verified:'', TransRef:'', Receiver:'',
       // what the parent says about when they transferred — kept apart from a bank-verified TransDate
       StatedDate:ymd(p.statedDate||''), StatedTime:String(p.statedTime||'').slice(0,5),
+      TransDate:method==='cash'?ymd(p.statedDate||''):'', TransTime:'', Method:method,
       SubmittedDate:stampLocal(), Status:'SUBMITTED', SlipGroup:p.slipGroup||'' });
     const submitted=sumSlips_(kind, refId, ['SUBMITTED','CONFIRMED']); const confirmed=sumSlips_(kind, refId, ['CONFIRMED']);
-    tgt.obj.Status='PENDING_VERIFY'; tgt.obj.SlipUrl=p.slipData||p.slipName||''; tgt.obj.SlipAmount=submitted; tgt.obj.PaymentMethod='transfer'; tgt.obj.SubmittedDate=todayLocal();
-    logAct('uploadSlip',refId,'โอน '+amt,actorOf(p));
+    tgt.obj.Status='PENDING_VERIFY'; tgt.obj.SlipUrl=p.slipData||p.slipName||''; tgt.obj.SlipAmount=submitted; tgt.obj.PaymentMethod=method; tgt.obj.SubmittedDate=todayLocal();
+    logAct(method==='cash'?'payCash':'uploadSlip',refId,(method==='cash'?'เงินสด ':'โอน ')+amt,actorOf(p));
     return { ok:true, due:tgt.due, paidSoFar:submitted, outstanding:Math.max(0,tgt.due-confirmed), amountMatch:submitted>=tgt.due }; }
   // after confirm/reject a slip, recompute the target's Status + outstanding
   function recomputeTarget_(kind, refId, paidDate){ const tgt=slipTarget_(kind, refId); if(!tgt)return;
@@ -646,8 +660,17 @@ function createAtomAPI(M, GROWTH_STD) {
     // A paused child is STILL returned — the family keeps their record, the menu, the bills and their
     // own details. The flags let the screen drop only the drop-off/pick-up buttons, which would have
     // nothing to record.
+    /**
+     * The caller's children. Carries TODAY'S LEAVE for each of them.
+     *
+     * A parent with two children could have one away and one at school, and the away child's
+     * drop-off / pick-up buttons stayed live: the server refused the tap (ON_LEAVE), but only after
+     * it had been made. The leave is the record of that child's day, and the card should say so
+     * instead of offering a button that cannot work — the same rule the teacher's class list uses.
+     */
     parentChildren: p => visibleStudents(p).map(s=>Object.assign({ageMonth:ageMonths(s.DOB),
-      paused:studentPaused_(s), pauseFrom:ymd(s.PauseFrom||''), pauseTo:ymd(s.PauseTo||''), pauseReason:s.PauseReason||''},s)),
+      paused:studentPaused_(s), pauseFrom:ymd(s.PauseFrom||''), pauseTo:ymd(s.PauseTo||''), pauseReason:s.PauseReason||''},
+      studentLeaveToday_(s.StudentID), s)),
     getPlans: () => cfg.Plans||[],
     // Admin package (Plan) CRUD: the client sends the FULL plans array (add/edit/delete applied client-side).
     // Each plan: {id, labelTH, labelEN, price, start:'HH:MM', end:'HH:MM'}. On GAS a route persists the JSON
@@ -665,6 +688,10 @@ function createAtomAPI(M, GROWTH_STD) {
       // makes sure a stale screen (or a second device) cannot slip one through anyway.
       { const _s=studentById(p.studentId); if(_s && studentPaused_(_s))
           fail('STUDENT_PAUSED','นักเรียนอยู่ระหว่างลาชั่วคราว — ยังไม่ถึงกำหนดเข้าเรียน'); }
+      // told us they are away today → the leave IS the record. The GAS route has refused this for a
+      // while (ON_LEAVE); the engine did not, so mock and live disagreed about the same tap.
+      { const _lv=studentLeaveToday_(p.studentId);
+        if(_lv.onLeave) fail('ON_LEAVE','นักเรียนแจ้งลาวันนี้แล้ว ('+_lv.leaveType+(_lv.leaveReason?' · '+_lv.leaveReason:'')+') — หากมาจริงให้ยกเลิกใบลาก่อน'); }
       assertSchoolOpen_();
       const d=(String(p.type||'IN').toUpperCase()==='OUT')?geo(p.lat,p.lng,p.acc):geoSafe(p.lat,p.lng); const t=timeLocal();
       // de-dup a rapid repeat (same student+type today within CheckinDedupMinutes) → keep only the latest time
@@ -935,6 +962,36 @@ function createAtomAPI(M, GROWTH_STD) {
         statedDate:p.statedDate, statedTime:p.statedTime}); });
       logAct('payCombined', groupId, items.length+' รายการ รวม ฿'+total, actorOf(p));
       return {ok:true, groupId, total, count:items.length}; },
+
+    /**
+     * The same selection, paid in CASH at the school. Money changes hands at the door as often as it
+     * goes through the bank, and the parent had no way to say so — they were left staring at a QR
+     * for something they had already handed over, and the school had to remember it by hand.
+     *
+     * It records exactly what a slip does, minus the slip: one row per item, the amount, and THE DAY
+     * THE MONEY WAS HANDED OVER (not today — a parent may be telling us on Monday about Friday).
+     * It is NOT marked paid: it goes to the admin as PENDING_VERIFY, method=cash, and stays there
+     * until someone at the school confirms they have the money. Saying "paid" on the parent's word
+     * alone would put a hole in the accounts that nobody would notice.
+     *
+     * The amount must equal the total, exactly as a transfer must — the same rule, so cash is not a
+     * way around it.
+     */
+    payCombinedCash: p => { let list=Array.isArray(p.items)?p.items:[];
+      list=list.filter(x=>x&&x.id); if(!list.length)fail('BAD_INPUT','ยังไม่ได้เลือกรายการ');
+      const mine=new Set(visibleStudents(p).map(s=>s.StudentID));
+      const items=list.map(it=>{ const kind=it.kind||'bill'; const tgt=slipTarget_(kind,it.id); if(!tgt)fail('NOT_FOUND','ไม่พบรายการ '+it.id);
+        if(!mine.has(tgt.studentId))fail('NO_PERMISSION','รายการนี้ไม่ใช่ของบุตรหลานท่าน');
+        const confirmed=sumSlips_(kind,it.id,['CONFIRMED']); return {kind,id:it.id,studentId:tgt.studentId,out:Math.max(0,tgt.due-confirmed)}; });
+      const total=Math.round(items.reduce((a,x)=>a+x.out,0)); const amt=Math.round(Number(p.amount||0));
+      if(Math.abs(amt-total)>0.5) fail('AMOUNT_MISMATCH','ยอดชำระ ฿'+amt+' ไม่ตรงกับยอดรวมในระบบ ฿'+total);
+      const paidOn=ymd(p.paidDate||todayLocal());
+      if(paidOn>todayLocal()) fail('BAD_INPUT','วันที่ชำระต้องไม่เป็นวันในอนาคต');
+      const groupId='CG-'+Date.now();
+      items.forEach(x=>{ recordSlip_(x.kind, x.id, {slipAmount:x.out, slipName:'', slipGroup:groupId,
+        uid:p.uid, parentId:p.parentId, role:p.role, method:'cash', statedDate:paidOn}); });
+      logAct('payCombinedCash', groupId, items.length+' รายการ เงินสด ฿'+total+' · ชำระ '+paidOn, actorOf(p));
+      return {ok:true, groupId, total, count:items.length, paidDate:paidOn, method:'cash'}; },
     /**
      * Payment history for a family — every amount that came in, when, for what, and the slip.
      * One entry per SLIP (that is what "ยอดที่ชำระเข้ามาวันไหน" actually means), plus an entry for
@@ -1216,10 +1273,9 @@ function createAtomAPI(M, GROWTH_STD) {
         const h=M.studentCheckins.find(c=>c.StudentID===sid&&ymd(c.Date)===today)||{};
         // A child whose parent told us they are away today must not be checked in by mistake — the
         // leave itself is the record. Carry the type and reason so the class list can say why.
-        const lv=(M.studentLeaves||[]).find(l=>l.StudentID===sid&&ymd(l.Date)===today)||null;
-        return {status: lv?'LEAVE':(a?a.Status:'NONE'),
-          inTime:h.InTime||(a&&a.Status==='IN'?a.Time:'')||'', outTime:h.OutTime||(a&&a.Status==='OUT'?a.Time:'')||'',
-          onLeave:!!lv, leaveType:lv?(lv.Type||'ลา'):'', leaveReason:lv?(lv.Reason||''):''}; };
+        const lv=studentLeaveToday_(sid);
+        return Object.assign({status: lv.onLeave?'LEAVE':(a?a.Status:'NONE'),
+          inTime:h.InTime||(a&&a.Status==='IN'?a.Time:'')||'', outTime:h.OutTime||(a&&a.Status==='OUT'?a.Time:'')||''}, lv); };
       return {class:cls, classes:covered.map(c=>({className:c.ClassName,classNameEN:c.ClassNameEN||c.ClassName})),
         students:activeStudents().filter(s2=>s2.Class===cls.ClassName).map(s2=>{ const at=attOf(s2.StudentID);
           return Object.assign({ageMonth:ageMonths(s2.DOB), attStatus:at.status, inToday:!!at.inTime, outToday:!!at.outTime,

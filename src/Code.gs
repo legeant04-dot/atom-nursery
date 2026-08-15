@@ -92,6 +92,8 @@ var ROUTES = {
   requestPasswordReset: function (p) { return handleRequestPasswordReset(p); },
   uploadSlip:     function (p) { return handleUploadSlip(p); },
   payCombined:    function (p) { return handlePayCombined(p); },
+  // the same selection, handed over in cash at the school — no slip, but the same amount rule
+  payCombinedCash: function (p) { return handlePayCombinedCash(p); },
   payOT:          function (p) { return handlePayOT(p); },
   payCharge:      function (p) { return handlePayCharge(p); },
   teacherPayOT:   function (p) { return handlePayOT(p); },   // teacher pays a student's OT on behalf (same in-place slip pipeline; read is class-scoped in the engine)
