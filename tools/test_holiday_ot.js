@@ -207,5 +207,57 @@ console.log('\n6) the screen: ดำเนินการ → คุณครู
   ok_('the payroll screen explains a total that hours × rate cannot account for', /Number\(ot\.holiday\)>0\?` \+ 🎉 /.test(app));
 }
 
+console.log('\n7) the real GAS code, against a sheet that predates the Kind column');
+{
+  // The live OT_RECORDS was created without Kind. writeRows_ maps onto the SHEET's headers, so a
+  // field with no column is dropped SILENTLY — every holiday row would come back looking like an
+  // ordinary OT and the next re-price would pay ฿0. This runs the actual handler against an
+  // in-memory spreadsheet built the OLD way, which is the only way to see that happen.
+  const HRN = require(path.join(__dirname, 'gas_test_harness.js'));
+  const { run } = HRN(['Config', 'Db', 'Checkin', 'Staff', 'OtStaff']);
+  const res = JSON.parse(run(function () {
+    var main = SpreadsheetApp.create('MAIN'), hr = SpreadsheetApp.create('HR');
+    PropertiesService.getScriptProperties().setProperty('WB_MAIN_ID', main.getId());
+    PropertiesService.getScriptProperties().setProperty('WB_HR_ID', hr.getId());
+    main.insertSheet('SCHOOL_CONFIG').appendRow(['Key', 'Value']);
+    var st = hr.insertSheet('STAFF');
+    st.appendRow(['StaffID', 'Name', 'NameTH', 'Role', 'PositionLevel', 'Salary', 'Status']);
+    st.appendRow(['A1', 'แอดมิน', 'แอดมิน', 'Admin', 'Admin', 20000, 'ACTIVE']);
+    st.appendRow(['S1', 'ครูเอ', 'ครูเอ', 'Teacher', '', 15000, 'ACTIVE']);
+    st.appendRow(['S2', 'ครูบี', 'ครูบี', 'Teacher', '', 15000, 'ACTIVE']);
+    // the OLD header — no Kind, exactly like the sheet in production
+    hr.insertSheet('OT_RECORDS').appendRow(['OTRecordID', 'StaffID', 'Date', 'Hours', 'Rate', 'Amount',
+      'ApprovedBy', 'Status', 'Minutes', 'PlanOut', 'ActualOut', 'Month', 'Step1By', 'Step1Status',
+      'Step2By', 'Step2Status', 'Note']);
+    var out = {};
+    out.added = handleAdminAddHolidayOT({ staffId: 'A1', staffIds: ['S1', 'S2'], date: '2026-08-16',
+      amount: 800, note: 'มาจัดห้องเรียนใหม่ทั้งวัน' });
+    var sh = hr.getSheetByName('OT_RECORDS');
+    out.header = sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0];
+    out.rows = readObjects_(sh).map(function (r) {
+      return { id: r.OTRecordID, staff: r.StaffID, amt: r.Amount, hrs: r.Hours, kind: r.Kind, note: r.Note, status: r.Status, month: r.Month }; });
+    // the re-pricing paths, on the real rows
+    handleConfirmOT({ staffId: 'A1', otId: out.rows[0].id, decision: 'approve' });
+    handleAdminEditOT({ staffId: 'A1', otId: out.rows[1].id, hours: 0 });
+    out.after = readObjects_(sh).map(function (r) { return r.Amount; });
+    out.refused = [];
+    [{ staffIds: [] }, { amount: 0 }, { note: '' }, { staffId: 'S1' }].forEach(function (bad) {
+      try { handleAdminAddHolidayOT(Object.assign({ staffId: 'A1', staffIds: ['S1'], date: '2026-08-16',
+        amount: 800, note: 'x' }, bad)); out.refused.push('ALLOWED'); }
+      catch (e) { out.refused.push(String(e.message).slice(0, 20)); } });
+    out.total = readObjects_(sh).length;
+    return JSON.stringify(out);
+  }));
+  eq('two rows written into the real sheet', res.added.count, 2);
+  ok_('the Kind column was added to a sheet that did not have it', res.header.indexOf('Kind') >= 0);
+  eq('...and the value actually landed in it, rather than being dropped', res.rows.map(r => r.kind), ['HOLIDAY', 'HOLIDAY']);
+  eq('one row per person, each with the agreed amount and no hours', res.rows.map(r => [r.staff, r.amt, r.hrs]), [['S1', 800, 0], ['S2', 800, 0]]);
+  eq('approved, and bucketed into the month payroll reads', res.rows.map(r => [r.status, r.month]), [['APPROVED', '2026-08'], ['APPROVED', '2026-08']]);
+  eq('the reason survived the round trip through the sheet', res.rows[0].note, 'มาจัดห้องเรียนใหม่ทั้งวัน');
+  eq('re-approving and editing hours leave both amounts standing', res.after, [800, 800]);
+  eq('and the four refusals are refused by the code that really runs', res.refused.filter(x => x !== 'ALLOWED').length, 4);
+  eq('nothing extra was written along the way', res.total, 2);
+}
+
 console.log('\n' + (fail ? 'FAILED ' : 'PASSED ') + pass + ' passed, ' + fail + ' failed\n');
 process.exit(fail ? 1 : 0);
