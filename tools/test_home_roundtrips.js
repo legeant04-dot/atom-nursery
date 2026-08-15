@@ -125,7 +125,9 @@ const fresh = { fresh: true };   // every section is live data; the cache is not
     ok_('...and are only AWAITED at render time', /const tca=await p_tca; setHTML\('#tcatt'/.test(home));
     ok_('no sequential fetch is left', !/const (tca|ml|myot)=await api\(/.test(home));
     ok_('each carries its own fallback', (home.match(/\.catch\(\(\)=>(\[\]|null)\)/g) || []).length >= 6);
-    ok_('a null attendance section renders empty instead of throwing', /tca\?tcaHtml\(tca\):''/.test(home));
+    // v236: the card is also handed today's schoolDay, so a holiday says so instead of listing the
+    // whole class as absent — but a failed fetch must still render empty rather than throw
+    ok_('a null attendance section renders empty instead of throwing', /tca\?tcaHtml\(tca,day0\):''/.test(home));
     // four of them since v224 — the injury queue joined the leave/OT/class-change ones
     // five since v231 — the time-correction queue joined leave/OT/class-change/injury
     ok_('the leader sections share one round trip', /await Promise\.all\(\[p_tp,p_to,p_cc,p_ti,p_tt\]\)/.test(home));

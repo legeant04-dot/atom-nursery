@@ -112,7 +112,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.235'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.236'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -2280,7 +2280,13 @@
     return `<div class="clsw" style="display:flex;gap:6px;overflow-x:auto;padding:2px 0 8px">${list.map(c=>`<button class="btn sm ${c.className===cur?'':'outline'}" onclick="T_pickClass('${esc(c.className)}','${esc(scr)}')">${esc(c.className)}</button>`).join('')}</div>`; }
   window.T_pickClass = (name,scr)=>{ window.T_CLASS=name; GO(scr||'class'); };
   // teacher home attendance card — today's มา/ลา/ขาด per covered class + check-in-on-behalf for absentees
-  function tcaHtml(d){ if(!d||!d.classes||!d.classes.length) return '';
+  // `day` is the server's answer about TODAY. On a day the nursery is shut to the families nobody is
+  // absent — they are on holiday — and every "แตะเพื่อเช็คอินแทน" button here would be refused by the
+  // server anyway (assertSchoolOpen_ with forStudents). Say the day is closed instead of accusing
+  // the whole roll of not turning up.
+  function tcaHtml(d, day){ if(!d||!d.classes||!d.classes.length) return '';
+    if(day&&day.closedForStudents) return `<div class="card"><div class="spread"><h3>👶 ${EN()?'Class attendance today':'การมาเรียนวันนี้'}</h3><span class="pill" style="background:var(--surface-3);color:var(--ink-3)">🏖️ ${EN()?'Holiday':'วันหยุด'}</span></div>
+      <div style="text-align:center;color:var(--ink-3);padding:10px 0"><b>${EN()?'School closed today':'วันนี้โรงเรียนหยุด'}${day.reason?` (${esc(EN()?(day.reasonEN||day.reason):day.reason)})`:''}</b><br><small>${EN()?'no drop-off or pick-up':'ไม่มีการรับ-ส่งนักเรียน'}</small></div></div>`;
     const cards=d.classes.map(c=>{ const present=c.in+c.out; const pct=c.total?Math.round(present/c.total*100):100;
       const inNow=(c.students||[]).filter(s=>s.status==='IN');    // present, not yet picked up
       const outNow=(c.students||[]).filter(s=>s.status==='OUT');  // already picked up
@@ -2381,7 +2387,7 @@
           return `<div class="list-item"><span style="min-width:0;flex:1">${studentAvatar(s)} <b>${esc(dispNick(s))}</b> ${dueA?dspmDueBadge(dueA):''} ${journalPill(done)}</span><span class="acts2">${jBtn}<button class="btn sm outline" onclick="T_assess('${s.StudentID}')">${esc(t('lbl.assess'))}</button></span></div>`; }).join('')}</div>
       ${birthdayCard(al)}`;
     // render, don't fetch: this was started before the batch above and travelled with it
-    const tca=await p_tca; setHTML('#tcatt', tca?tcaHtml(tca):'');
+    const tca=await p_tca; setHTML('#tcatt', tca?tcaHtml(tca,day0):'');
     // A leader has three more sections. They cannot join the batch above — whether this person IS a
     // leader is only known once staffSelf has answered — but they can share ONE round trip with each
     // other instead of taking three, and one failing section no longer hides the other two.
@@ -3555,10 +3561,18 @@
       <div class="spread" style="font-size:13px"><span class="muted">${EN()?'Collected':'เก็บได้'} <b style="color:var(--ok)">${baht(fin.otCollected||0)}</b></span><span class="muted">${EN()?'Outstanding':'ค้างชำระ'} <b style="color:${(otDue-Number(fin.otCollected||0))>0?'var(--warn)':'var(--ok)'}">${baht(Math.max(0,otDue-Number(fin.otCollected||0)))}</b></span></div></div>`;
     const remHtml = rem.due?`<div class="card" style="background:var(--warn-bg);border-color:var(--warn-line);color:var(--warn)"><div class="spread"><b>🔔 ${esc(t('admin.payrollReminder'))}</b><button class="btn sm" onclick="GO('payroll')">${esc(t('admin.goPayroll'))}</button></div><small>${esc(t('admin.payrollReminderSub').replace('{d}',rem.lastDay-1).replace('{last}',rem.lastDay))}</small></div>`:'';
     const leaveRemHtml = lrem.due?`<div class="card" style="background:var(--ok-bg);border-color:var(--ok-line);color:var(--ok)"><div class="spread"><b>🗓️ ${esc(t('admin.leaveReset'))}</b><button class="btn sm" onclick="A_settings()">${esc(t('manage.settings'))}</button></div><small>${esc(t('admin.leaveResetSub'))}</small></div>`:'';
-    const _dow=new Date().getDay(); const _hol=(d.holidays||[]).find(h=>ymd(h.Date)===todayStr());
-    const _bc=(d.bigCleaning||[]).some(x=>ymd(x)===todayStr()); const _closed=((_dow===0||_dow===6)||!!_hol)&&!_bc;
-    const _closedWhy=_hol?(EN()?(_hol.NameEN||_hol.NameTH):(_hol.NameTH||_hol.NameEN)):(EN()?'weekend':'เสาร์/อาทิตย์');
-    const closedBanner=_closed?`<div class="card" style="background:var(--surface-3);border-color:var(--line-strong);color:var(--ink-3);text-align:center"><b>🏖️ ${EN()?'School closed today':'วันนี้โรงเรียนหยุด'} (${esc(_closedWhy)}) — ${EN()?'attendance not counted':'ไม่นับการมาเรียน'}</b></div>`:'';
+    /* Open — but open TO WHOM. The dashboard used to work this out for itself and treated a Big
+     * Cleaning day as an ordinary working day for everybody, so on a holiday that was also a Big
+     * Cleaning day it marked all 31 children ขาด. The server already answers both questions
+     * (schoolDayFor_) and now sends the answer with the dashboard; the two cards ask different halves:
+     *   · the children's card → closedForStudents (the nursery is shut to the families)
+     *   · the staff card      → closed            (a Big Cleaning Saturday IS a working day)
+     */
+    const _day=d.day||{};
+    const _closedStd=!!_day.closedForStudents, _closedStaff=!!_day.closed;
+    const _closed=_closedStd;                                   // the dashboard is mostly about the children
+    const _closedWhy=EN()?(_day.reasonEN||'holiday'):(_day.reason||'วันหยุด');
+    const closedBanner=_closedStd?`<div class="card" style="background:var(--surface-3);border-color:var(--line-strong);color:var(--ink-3);text-align:center"><b>🏖️ ${EN()?'School closed today':'วันนี้โรงเรียนหยุด'} (${esc(_closedWhy)}) — ${EN()?'attendance not counted':'ไม่นับการมาเรียน'}</b>${_day.bigCleaning?`<br><small>🧹 ${EN()?`Big Cleaning day — staff work ${esc(_day.bcIn||'')}–${esc(_day.bcOut||'')}`:`วัน Big Cleaning — พนักงานทำงาน ${esc(_day.bcIn||'')}–${esc(_day.bcOut||'')}`}</small>`:''}</div>`:'';
     // at-a-glance KPI tiles (tap → the relevant screen)
     const _attTs=d.classes.reduce((a,c)=>{a.p+=c.in+c.out;a.t+=c.total;return a;},{p:0,t:0}); const _attPct=_attTs.t?Math.round(_attTs.p/_attTs.t*100):100;
     const _pl=Number(d.pendingLeaves||0);
@@ -3589,8 +3603,8 @@
                 ${lv.length?`<div style="margin-top:2px"><span class="pill wait">🌴 ${EN()?'leave':'ลา'} (${lv.length})</span> <small class="muted">${lv.map(s=>esc(dnick(s))).join(', ')}</small></div>`:''}
                 ${ab.length?`<div style="margin-top:2px"><span class="pill bad">⛔ ${EN()?'absent':'ขาด'} (${ab.length})</span> <small class="muted">${ab.map(s=>esc(dnick(s))).join(', ')}</small></div>`:''}
                 ${!lv.length&&!ab.length?`<small style="color:var(--ok)">✓ ${EN()?'All present':'มาครบทุกคน'}</small>`:''}`; })()}</div>`;}).join('')}`}</div>
-      <div class="card"><div class="spread"><h3>👩‍🏫 ${EN()?'Staff today':'พนักงานวันนี้'}</h3>${_closed?`<span class="pill" style="background:var(--surface-3);color:var(--ink-3)">🏖️ ${EN()?'Holiday':'วันหยุด'}</span>`:''}</div>
-        ${_closed?`<div style="text-align:center;color:var(--ink-3);padding:10px 0"><b>${EN()?'School closed — nobody is expected in today':'โรงเรียนหยุด — ไม่มีใครต้องเข้างานวันนี้'}</b></div>`:
+      <div class="card"><div class="spread"><h3>👩‍🏫 ${EN()?'Staff today':'พนักงานวันนี้'}</h3>${_closedStaff?`<span class="pill" style="background:var(--surface-3);color:var(--ink-3)">🏖️ ${EN()?'Holiday':'วันหยุด'}</span>`:(_day.bigCleaning?`<span class="pill wait">🧹 Big Cleaning</span>`:'')}</div>
+        ${_closedStaff?`<div style="text-align:center;color:var(--ink-3);padding:10px 0"><b>${EN()?'School closed — nobody is expected in today':'โรงเรียนหยุด — ไม่มีใครต้องเข้างานวันนี้'}</b></div>`:
         (()=>{ const present=d.staff.filter(s=>s.status==='IN'||s.status==='OUT').length; const t=d.staff.length; const pct=t?Math.round(present/t*100):100;
           const onTime=d.staff.filter(s=>(s.status==='IN'||s.status==='OUT')&&!s.late); const late=d.staff.filter(s=>s.late); const absent=d.staff.filter(s=>s.status==='ABSENT'||s.status==='LEAVE');
           // in-AND-out: the dashboard only ever showed the arrival, so there was no way to see who had
@@ -6560,12 +6574,14 @@
   window.A_finCompute=async(sid)=>{ try{ await api('computePayroll',{staffId:sid,month:FIN_MONTH||monthStr()}); toast(EN()?'Computed':'คำนวณแล้ว'); const x=document.querySelector('.modal'); if(x)x.remove(); GO('finance'); }catch(e){err(e);} };
 
   // ---- Admin Daily Report (web + send to LINE OA) ----
-  SCREENS.Admin.daily = async () => { const [r,hol]=await Promise.all([api('dailyReport'),api('holidays').catch(()=>[])]);
+  SCREENS.Admin.daily = async () => { const [r,_d]=await Promise.all([api('dailyReport'),api('schoolDay',{}).catch(()=>({}))]);
     const dot=st=>st==='IN'?'dot-in':st==='OUT'?'dot-out':st==='LEAVE'?'dot-leave':'dot-absent';
-    const _dow=new Date().getDay(); const _holT=(hol||[]).find(h=>ymd(h.Date)===todayStr()); const _closed=(_dow===0||_dow===6)||!!_holT;
+    // the report is about the CHILDREN, so it asks the children's half — and it asks the server
+    // rather than working the calendar out here for the third time (see schoolDayFor_ in engine.js)
+    const _closed=!!_d.closedForStudents;
     const T=r.totals; const present=T.in+T.out; const pct=T.total?Math.round(present/T.total*100):100;
     const summary=_closed
-      ? `<div class="card" style="background:var(--surface-3);border-color:var(--line-strong);color:var(--ink-3);text-align:center"><b>🏖️ ${EN()?'School closed today':'วันนี้โรงเรียนหยุด'} (${esc(_holT?(EN()?(_holT.NameEN||_holT.NameTH):(_holT.NameTH||_holT.NameEN)):(EN()?'weekend':'เสาร์/อาทิตย์'))}) — ${EN()?'attendance not counted':'ไม่นับการมาเรียน'}</b></div>`
+      ? `<div class="card" style="background:var(--surface-3);border-color:var(--line-strong);color:var(--ink-3);text-align:center"><b>🏖️ ${EN()?'School closed today':'วันนี้โรงเรียนหยุด'} (${esc(EN()?(_d.reasonEN||'holiday'):(_d.reason||'วันหยุด'))}) — ${EN()?'attendance not counted':'ไม่นับการมาเรียน'}</b></div>`
       : `<div class="kpigrid" style="grid-template-columns:repeat(4,1fr)">
           <div class="kpi blue" style="cursor:default"><span class="kic">✅</span><b class="kn" style="color:${pctColor(pct)}">${pct}%</b><span class="kl">${EN()?'Attendance':'มาเรียน'} (${present}/${T.total})</span></div>
           <div class="kpi green" style="cursor:default"><span class="kic">🟢</span><b class="kn">${present}</b><span class="kl">${EN()?'Present':'มา'}</span></div>

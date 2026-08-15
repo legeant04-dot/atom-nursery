@@ -91,9 +91,9 @@ console.log('\n3) the screens stop offering a button that would fail');
   // card now points there instead of printing four rows nobody asked for.
   ok_('...and points at the history rather than printing it', /onclick="GO\('schedule'\)">📅/.test(app));
   ok_('both ask the server, rather than working it out twice', /api\('schoolDay'/.test(app));
-  // three since v234: the teacher's class screen asks too, so the on-behalf check-in button knows
-  // whether the nursery is open TO THE CHILDREN today
-  eq('...once on each screen that offers a check-in', (app.match(/api\('schoolDay'/g) || []).length, 3);
+  // four since v236: the Admin daily report asks as well, instead of re-deriving the calendar from
+  // the holiday list — that third copy of the rule is what put every child down as ขาด on a holiday
+  eq('...once on each screen that reports on a day', (app.match(/api\('schoolDay'/g) || []).length, 4);
   // the teacher's copy must travel with the batch, not cost another round trip
   ok_('the teacher fetches it with the rest of the screen', /const p_day = api\('schoolDay'[\s\S]{0,700}await Promise\.all\(/.test(app));
 }
