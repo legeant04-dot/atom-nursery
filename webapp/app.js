@@ -112,7 +112,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.240'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.241'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -1455,7 +1455,12 @@
            child's daily journal, where a parent reads what their child actually ATE rather than what
            was planned. P_menu went with it — see below. -->
       <div class="card" id="insCard"></div>
-      <div class="card"><h3>📢 ประกาศจากโรงเรียน</h3>${(()=>{ const td=todayStr(); const act=(anns||[]).filter(a=>(!a.StartDate||ymd(a.StartDate)<=td)&&(!a.EndDate||ymd(a.EndDate)>=td)); return act.length?act.map(annRow).join(''):`<small class="muted">${EN()?'No announcements from the school yet':'ยังไม่มีประกาศจากทางโรงเรียน'}</small>`; })()}</div>
+      <div class="card"><h3>📢 ประกาศจากโรงเรียน</h3>${(()=>{
+        // whether an announcement is on show is the SERVER's answer (annPhase_), not a second copy
+        // of the rule here — a screen that disagrees with the server about a window is the bug that
+        // has already cost us twice with "is the school open today"
+        const act=(anns||[]).filter(a=>a.Active!==false);
+        return act.length?act.map(annRow).join(''):`<small class="muted">${EN()?'No announcements from the school yet':'ยังไม่มีประกาศจากทางโรงเรียน'}</small>`; })()}</div>
       ${kids.length>1?`<div class="seg" id="calSeg" style="margin:14px 2px 6px">${kids.map((k,i)=>`<button class="${i===0?'active':''}" onclick="P_calSel(${i})">🗓️ ${esc(dispNick(k))}</button>`).join('')}</div>`:''}
       <div id="calBox">${calendarWidget(cal, ci, planEndOf(k0), sl)}</div>
       ${socialFooter()}`;
@@ -3631,11 +3636,44 @@
             ${!late.length&&!absent.length?`<small style="color:var(--ok)">✓ ${EN()?'All present & on time':'มาครบ ตรงเวลา'}</small>`:''}`; })()}</div>
       <div class="card"><div class="spread"><h3>🚑 ${EN()?'Injury reports':'รายงานอุบัติเหตุ'}</h3><button class="btn sm outline" onclick="A_injuries()">${EN()?'Open':'ดูรายงาน'}</button></div>
         <small class="muted">${EN()?'Read what a teacher reported and see the month at a glance.':'อ่านรายงานที่คุณครูแจ้งมา และดูสรุปรายเดือน'}</small></div>
-      <div class="card"><h3>📢 ${EN()?"Announcements":"ประกาศ"}</h3><div id="anns"></div></div>`;
+      <div class="card"><div class="spread"><h3>📢 ${EN()?"Announcements":"ประกาศ"}</h3><div id="annTabs"></div></div><div id="anns"></div></div>`;
     const _anns=await api('announcements'); A_CACHE.announcements=_anns;
     const _annEl=$('#anns'); if(!_annEl) return; // user navigated away before this resolved
-    _annEl.innerHTML=_anns.map(a=>{ const ti=EN()?(a.TitleEN||a.Title):(a.Title||a.TitleEN);
-      return `<div class="list-item"><div><b>${esc(ti)}</b>${a.Popup?` <span class="pill info" style="font-size:11px">Pop-up</span>`:''}${Number(a.Priority||0)>=2?` <span class="pill" style="font-size:11px;background:var(--warn-bg);color:var(--warn)">⭐ ${esc(t('ann.pri.high'))}</span>`:''}<br><small class="muted">${esc(a.StartDate||a.Date)}${a.EndDate?'→'+esc(a.EndDate):''}</small></div><span class="row"><button class="btn sm outline" onclick="A_editAnn('${a.AnnID}')" aria-label="${EN()?"Edit":"แก้ไข"}" title="${EN()?"Edit":"แก้ไข"}">✏️</button><button class="btn sm pink" onclick="A_delAnn('${a.AnnID}')" aria-label="${EN()?"Delete":"ลบ"}" title="${EN()?"Delete":"ลบ"}">🗑️</button></span></div>`; }).join('')||`<small class="muted">${esc(t('c.noItems'))}</small>`;
+    A_annRender();
+  };
+  /* The list was every announcement the school has ever posted, in whatever order the sheet held
+   * them, with no way to tell which are actually on show. It is now filtered by the phase the
+   * SERVER computed (annPhase_ — one rule, so the list and the parents' screens cannot disagree),
+   * newest first, and each row says its window in words. Mobile-first: the filter is a single row of
+   * short chips, and the list scrolls inside its own box instead of pushing the page down. */
+  let ANN_TAB='live';
+  window.A_annTab=(k)=>{ ANN_TAB=k; A_annRender(); };
+  window.A_annRender=()=>{
+    const all=A_CACHE.announcements||[];
+    const of=k=>all.filter(a=>String(a.Phase||'live')===k);
+    const groups={live:of('live'),soon:of('soon'),ended:of('ended'),all:all};
+    const tabs=[['live','▶️',EN()?'Showing':'กำลังแสดง'],['soon','🕘',EN()?'Scheduled':'ยังไม่ถึงเวลา'],
+                ['ended','🔕',EN()?'Ended':'จบแล้ว'],['all','📋',EN()?'All':'ทั้งหมด']];
+    const tEl=document.getElementById('annTabs');
+    if(tEl) tEl.innerHTML=`<div class="seg" style="margin:0">${tabs.map(([k,ic,lb])=>
+      `<button class="${ANN_TAB===k?'active':''}" style="font-size:12px;padding:4px 8px" onclick="A_annTab('${k}')">${ic} ${esc(lb)} (${groups[k].length})</button>`).join('')}</div>`;
+    const el=document.getElementById('anns'); if(!el) return;
+    // "19/08/2026 06:00 → 19/08/2026 12:30", collapsing to a bare date when no time was set
+    const when=a=>{ const s=a.StartDate?ddmmyyyy(a.StartDate)+(a.StartTime?' '+a.StartTime:''):'';
+      const e=a.EndDate?ddmmyyyy(a.EndDate)+(a.EndTime?' '+a.EndTime:''):'';
+      return e?`${s} → ${e}`:(s?`${s} → ${EN()?'no end':'ไม่มีวันสิ้นสุด'}`:'-'); };
+    const phasePill=a=>({live:`<span class="pill ok" style="font-size:11px">▶️ ${EN()?'showing':'กำลังแสดง'}</span>`,
+      soon:`<span class="pill wait" style="font-size:11px">🕘 ${EN()?'scheduled':'รอเวลา'}</span>`,
+      ended:`<span class="pill" style="font-size:11px;background:var(--surface-3);color:var(--ink-3)">🔕 ${EN()?'ended':'จบแล้ว'}</span>`}[String(a.Phase||'live')]||'');
+    const rows=groups[ANN_TAB]||[];
+    el.innerHTML=rows.length?`<div style="max-height:46vh;overflow:auto">${rows.map(a=>{
+      const ti=EN()?(a.TitleEN||a.Title):(a.Title||a.TitleEN);
+      return `<div class="list-item" style="align-items:flex-start"><div style="flex:1;min-width:0">
+        <b>${esc(ti)}</b> ${phasePill(a)}${a.Popup?` <span class="pill info" style="font-size:11px">Pop-up</span>`:''}${Number(a.Priority||0)>=2?` <span class="pill" style="font-size:11px;background:var(--warn-bg);color:var(--warn)">⭐ ${esc(t('ann.pri.high'))}</span>`:''}
+        <br><small class="muted">${esc(when(a))}</small></div>
+        <span class="row" style="flex:0 0 auto"><button class="btn sm outline" onclick="A_editAnn('${a.AnnID}')" aria-label="${EN()?"Edit":"แก้ไข"}" title="${EN()?"Edit":"แก้ไข"}">✏️</button><button class="btn sm pink" onclick="A_delAnn('${a.AnnID}')" aria-label="${EN()?"Delete":"ลบ"}" title="${EN()?"Delete":"ลบ"}">🗑️</button></span></div>`;
+      }).join('')}</div>`
+      : `<small class="muted">${ANN_TAB==='live'?(EN()?'Nothing is showing right now':'ตอนนี้ไม่มีประกาศที่กำลังแสดง'):esc(t('c.noItems'))}</small>`;
   };
   window.A_addAnn=(annId)=>{ const a=annId?findAnn(annId):{};
     modal(`<h3>📢 ${annId?esc(t('ann.edit')):'เพิ่มประกาศ / Add announcement'}</h3>
@@ -3646,12 +3684,21 @@
     ${photoField('anImg',(EN()?'Attach image (optional)':'แนบรูป (ถ้ามี)'),a.Image,false)}
     <label class="field" style="display:flex;align-items:center;gap:8px"><input type="checkbox" id="anPopup" ${a.Popup!==false?'checked':''} style="width:auto"/> ${esc(t('ann.popup'))}</label>
     <label class="field"><span>${esc(t('ann.priority'))}</span><select id="anPri">${[[2,t('ann.pri.high')],[1,t('ann.pri.normal')],[0,t('ann.pri.low')]].map(([v,l])=>`<option value="${v}" ${Number(a.Priority||1)===v?'selected':''}>${esc(l)}</option>`).join('')}</select></label>
-    <div class="grid2"><label class="field"><span>${esc(t('ann.start'))}</span><input type="date" id="anStart" value="${esc(a.StartDate||todayStr())}"/></label><label class="field"><span>${esc(t('ann.end'))}</span><input type="date" id="anEnd" value="${esc(a.EndDate||'')}"/></label></div>
-    <button class="btn block" onclick="A_addAnnDo(this,'${annId||''}')">บันทึกประกาศ / Save</button>`); };
+    <div class="grid2"><label class="field"><span>${esc(t('ann.start'))}</span><input type="date" id="anStart" value="${esc(a.StartDate||todayStr())}"/></label><label class="field"><span>${esc(t('ann.startTime'))}</span><input type="time" id="anStartT" value="${esc(a.StartTime||'')}"/></label></div>
+    <div class="grid2"><label class="field"><span>${esc(t('ann.end'))}</span><input type="date" id="anEnd" value="${esc(a.EndDate||'')}"/></label><label class="field"><span>${esc(t('ann.endTime'))}</span><input type="time" id="anEndT" value="${esc(a.EndTime||'')}"/></label></div>
+    <small class="muted">${esc(t('ann.timeNote'))}</small>
+    <button class="btn block" style="margin-top:8px" onclick="A_addAnnDo(this,'${annId||''}')">บันทึกประกาศ / Save</button>`); };
   window.A_addAnnDo=async(btn,annId)=>{ const m=btn.closest('.modal'); const q=s=>m.querySelector(s).value.trim();
     const title=q('#anT'), titleEN=q('#anTE'); if(!title&&!titleEN){toast('ใส่หัวข้อ / Enter a title');return;}
     const image=photoVal(m,'anImg');
-    const data={title:title||titleEN,titleEN:titleEN||title,content:q('#anC'),contentEN:q('#anCE'),image,popup:m.querySelector('#anPopup').checked,priority:Number(m.querySelector('#anPri').value)||0,startDate:q('#anStart'),endDate:q('#anEnd')};
+    const data={title:title||titleEN,titleEN:titleEN||title,content:q('#anC'),contentEN:q('#anCE'),image,popup:m.querySelector('#anPopup').checked,priority:Number(m.querySelector('#anPri').value)||0,
+      startDate:q('#anStart'),endDate:q('#anEnd'),startTime:q('#anStartT'),endTime:q('#anEndT')};
+    // an end time with no end DATE would never arrive — say so rather than saving something that
+    // silently never stops
+    if(data.endTime&&!data.endDate){ toast(EN()?'Set the end date too':'ใส่วันที่สิ้นสุดด้วย'); return; }
+    if(data.endDate&&data.startDate&&data.endDate<data.startDate){ toast(EN()?'The end is before the start':'วันสิ้นสุดอยู่ก่อนวันเริ่ม'); return; }
+    if(data.endDate&&data.endDate===data.startDate&&data.startTime&&data.endTime&&data.endTime<data.startTime){
+      toast(EN()?'On the same day, the end time is before the start time':'วันเดียวกัน แต่เวลาสิ้นสุดอยู่ก่อนเวลาเริ่ม'); return; }
     if(annId) await api('editAnnouncement',Object.assign({annId},data)); else await api('addAnnouncement',data);
     m.remove(); confirmSaved(t('c.saved')); GO('home'); };
   window.A_editAnn=(annId)=>A_addAnn(annId);

@@ -223,6 +223,34 @@ function createAtomAPI(M, GROWTH_STD) {
   const cfgTime_ = (v, dflt) => { const s=String(v==null?'':v).trim().slice(0,5);
     return /^\d{2}:\d{2}$/.test(s) ? s : dflt; };
   /**
+   * WHEN is an announcement on show — one answer, for every screen.
+   *
+   * A school announcement now has a time as well as a date: "19/08 from 06:00 until 19/08 12:30".
+   * A missing time means the whole of that day — 00:00 at the start, 23:59 at the end — so every
+   * announcement written before this existed keeps behaving exactly as it did.
+   *
+   * The parent's list used to apply the date rule itself, in the browser, while the popup applied it
+   * here. Two copies of a rule is how a screen ends up showing something the server thinks is over
+   * (it has happened twice this month with "is the school open"), so the phase is computed HERE and
+   * sent with each row: 'soon' (not started) · 'live' (showing) · 'ended'.
+   *
+   * A Sheets cell may hand back a time as a 1899 Date; cfgTime_ turns anything unparseable into the
+   * default rather than into midnight, which would silently end an announcement a day early.
+   */
+  const annPhase_ = (a, nowD, nowT) => {
+    const d = nowD || todayLocal(), t = nowT || timeLocal();
+    const s = ymd(a && a.StartDate), e = ymd(a && a.EndDate);
+    if (s) { const st = cfgTime_(a.StartTime, '00:00');
+      if (d < s || (d === s && t < st)) return 'soon'; }
+    if (e) { const et = cfgTime_(a.EndTime, '23:59');
+      if (d > e || (d === e && t > et)) return 'ended'; }
+    return 'live';
+  };
+  // newest first, by the day it was created and then by id — two announcements written on the same
+  // day still come back in the order they were written, because AnnID counts up
+  const annNum_ = a => { const m=/^ANN-?(\d+)$/.exec(String((a&&a.AnnID)||'')); return m?Number(m[1]):0; };
+  const annSort_ = (a,b) => String(ymd(b.Date||b.StartDate)).localeCompare(String(ymd(a.Date||a.StartDate))) || (annNum_(b)-annNum_(a));
+  /**
    * Is this child away today, and why? ONE answer, used by the teacher's class list, the parent's
    * home screen and the check-in guard — a leave that one screen honours and another does not is
    * worse than no leave at all.
@@ -1311,7 +1339,10 @@ function createAtomAPI(M, GROWTH_STD) {
       checkIn: bigCleaningIn_(), checkOut: bigCleaningOut_() }),
     addBigCleaning: p => { const l=bigCleaningList_(); if(p.date && l.indexOf(p.date)<0) l.push(p.date); cfg.BigCleaningDays=l.slice().sort(); return {ok:true,days:cfg.BigCleaningDays}; },
     removeBigCleaning: p => { cfg.BigCleaningDays=bigCleaningList_().filter(d=>d!==p.date); return {ok:true,days:cfg.BigCleaningDays}; },
-    announcements: () => M.announcements,
+    // newest created first, each row already told whether it is showing right now — so no screen has
+    // to work the window out for itself (see annPhase_)
+    announcements: () => M.announcements.slice().sort(annSort_)
+      .map(a => Object.assign({}, a, { Phase: annPhase_(a), Active: annPhase_(a)==='live' })),
 
     // DSPM status for a student's current band (all items + status)
     dspmStatus: p => { const s=studentById(p.studentId); const age=p.ageMonth??ageMonths(s.DOB);
@@ -2034,9 +2065,14 @@ function createAtomAPI(M, GROWTH_STD) {
         totalPass:pass, totalFail:fl, perStudent:per}; },
     // unique AnnID = max existing numeric +1 (length+1 collided after a delete → duplicate ids hid popups)
     addAnnouncement: p => { let mx=0; M.announcements.forEach(x=>{ const m=/^ANN-?(\d+)$/.exec(String(x.AnnID||'')); if(m){const n=+m[1]; if(n>mx)mx=n;} });
-      const a={AnnID:'ANN-'+(mx+1),Title:p.title,TitleEN:p.titleEN||'',Content:p.content,ContentEN:p.contentEN||'',Image:p.image||'',Date:todayLocal(),Type:p.type||'news',TargetGroup:p.target||'all',Popup:!!p.popup,StartDate:p.startDate||todayLocal(),EndDate:p.endDate||'',Priority:Number(p.priority)||0}; M.announcements.unshift(a); return a; },
+      const a={AnnID:'ANN-'+(mx+1),Title:p.title,TitleEN:p.titleEN||'',Content:p.content,ContentEN:p.contentEN||'',Image:p.image||'',Date:todayLocal(),Type:p.type||'news',TargetGroup:p.target||'all',Popup:!!p.popup,StartDate:p.startDate||todayLocal(),EndDate:p.endDate||'',
+        // blank = the whole day, which is how every announcement written before this behaved
+        StartTime:cfgTime_(p.startTime,''),EndTime:cfgTime_(p.endTime,''),Priority:Number(p.priority)||0}; M.announcements.unshift(a); return a; },
     editAnnouncement: p => { const a=M.announcements.find(x=>x.AnnID===p.annId); if(!a)fail('NOT_FOUND','ไม่พบประกาศ');
       ['Title','TitleEN','Content','ContentEN','Popup','StartDate','EndDate','Priority'].forEach(k=>{ const kk=k.charAt(0).toLowerCase()+k.slice(1); if(p[kk]!==undefined)a[k]=(k==='Priority'?(Number(p[kk])||0):p[kk]); });
+      // a time is CLEARABLE — sending '' must mean "the whole day" again, not "leave it as it was"
+      if(p.startTime!==undefined)a.StartTime=cfgTime_(p.startTime,'');
+      if(p.endTime!==undefined)a.EndTime=cfgTime_(p.endTime,'');
       if(p.image!==undefined&&p.image!=='')a.Image=p.image; return a; },
     deleteAnnouncement: p => { const i=M.announcements.findIndex(x=>x.AnnID===p.annId); if(i>=0)M.announcements.splice(i,1); return {ok:true}; },
     notifications: p => M.feed.filter(n=> n.roles.includes(p.role) && (!n.parentId || n.parentId===p.parentId)),
@@ -3040,9 +3076,9 @@ function createAtomAPI(M, GROWTH_STD) {
       if(p.kind==='prepay'){ const pp=M.prepayments.find(x=>x.PrepayID===p.id); if(pp){pp.Status='UNPAID';pp.VerifiedStatus='REJECTED';pp.SlipAmount=0;} }
       return {ok:true}; },
 
-    // ========== announcements (popup + date range) ==========
-    activeAnnouncements: () => { const today=todayLocal(); const on=v=>v===true||String(v).toUpperCase()==='TRUE'||v==='1';
-      return M.announcements.filter(a=>on(a.Popup) && (!a.StartDate||ymd(a.StartDate)<=today) && (!a.EndDate||ymd(a.EndDate)>=today))
+    // ========== announcements (popup + date/time window) ==========
+    activeAnnouncements: () => { const on=v=>v===true||String(v).toUpperCase()==='TRUE'||v==='1';
+      return M.announcements.filter(a=>on(a.Popup) && annPhase_(a)==='live')
         // most important first (Priority desc), then newest (StartDate/Date desc)
         .sort((a,b)=>(Number(b.Priority||0)-Number(a.Priority||0)) || String(ymd(b.StartDate||b.Date)).localeCompare(String(ymd(a.StartDate||a.Date)))); },
 

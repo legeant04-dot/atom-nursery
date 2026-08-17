@@ -82,7 +82,9 @@ SCHEMA[WB.MAIN] = {
   // PaymentMethod = transfer | cash; TransactionDate = when payment was notified; PaidDate = Admin-confirmed payment date (retro-auditable).
   BILLING:           ['BillingID', 'StudentID', 'Month', 'Amount', 'OTRollover', 'DueDate', 'PaidDate', 'Status', 'SlipAmount', 'VerifiedStatus', 'QRRef', 'PaymentMethod', 'TransactionDate'],
   // Priority (appended at END): higher = more important; popups sort by it (important first) then date.
-  ANNOUNCEMENTS:     ['AnnID', 'Title', 'TitleEN', 'Content', 'ContentEN', 'Image', 'Date', 'Type', 'TargetGroup', 'Popup', 'StartDate', 'EndDate', 'Priority'],
+  // StartTime/EndTime appended at END (blank = the whole of that day, which is how every
+  // announcement written before they existed behaved).
+  ANNOUNCEMENTS:     ['AnnID', 'Title', 'TitleEN', 'Content', 'ContentEN', 'Image', 'Date', 'Type', 'TargetGroup', 'Popup', 'StartDate', 'EndDate', 'Priority', 'StartTime', 'EndTime'],
   // Per-student extra charges merged into the monthly bill
   STUDENT_CHARGES:   ['ChargeID', 'StudentID', 'Month', 'Label', 'Amount', 'Status'],
   // Advance tuition payments (with discount) + the months they cover
