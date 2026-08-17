@@ -112,7 +112,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.242'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.243'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -2339,7 +2339,9 @@
     // myLeaves / myOT / recentAttendance were fetched here for lists that have MOVED — the leave
     // history and the work-time history to 📅 ตาราง, the OT history to 💵 การเงิน. Fetching them
     // for a screen that no longer shows them would be three requests spent on nothing.
-    const [att,cl,quota,me0raw,jstat,al] = await Promise.all([api('myAttendanceToday',{staffId:USER.staffId}),api('classList',tc()),api('leaveQuota',{staffId:USER.staffId}),api('staffSelf',{staffId:USER.staffId}),api('journalStatus',{}),
+    // leaveQuota left this batch with the remaining-days grid it fed — the leave screen fetches it
+    // where it is actually read, and the home screen stops paying for a figure it no longer shows
+    const [att,cl,me0raw,jstat,al] = await Promise.all([api('myAttendanceToday',{staffId:USER.staffId}),api('classList',tc()),api('staffSelf',{staffId:USER.staffId}),api('journalStatus',{}),
       api('studentAlerts',{staffId:USER.staffId,role:USER.role}).catch(()=>null)]);
     const jdone = journalDoneMap(jstat); setAlerts(al);
     T_STU={}; (cl.students||[]).forEach(s=>{ T_STU[s.StudentID]=s; });   // names for the ⋯ menu
@@ -2384,9 +2386,10 @@
         <button class="btn sm outline block" style="margin-top:10px" onclick="GO('schedule')">📅 ${EN()?'Work history & leave history':'เวลาทำงานย้อนหลัง · ประวัติการลา'} →</button></div>
       ${isLeader?`<div id="tapprove"><div class="card muted">${EN()?'Loading approvals…':'กำลังโหลดรายการรออนุมัติ…'}</div></div>`:''}
       <div id="tcatt"></div>
-      <div class="card"><h3>📩 ${EN()?'My leave · remaining':'สิทธิการลาคงเหลือ'}</h3>
-        <div class="quota">${quota.map(q=>`<div class="q"><div class="n">${q.remain}</div><div class="l">${esc(q.type)}<br>${q.used}/${q.quota}</div></div>`).join('')}</div>
-        <button class="btn sm outline block" style="margin-top:8px" onclick="GO('leave')">+ ยื่น/ดูใบลา</button></div>
+      <!-- The remaining-days grid used to sit here. It is a reference figure, not a morning job, and
+           it is on the leave screen itself where a teacher is actually deciding whether to file one.
+           The home screen keeps the way IN. -->
+      <div class="card"><button class="btn sm outline block" onclick="GO('leave')">📩 ${EN()?'Leave — file or view':'ยื่น/ดูใบลา'}</button></div>
       ${isLeader?`<div class="card"><div class="spread"><h3>${esc(t('corg.title'))}</h3><button class="btn sm" onclick="T_classOrg()">🔁 ${esc(t('corg.manage'))}</button></div><small class="muted">${esc(t('corg.leaderNote'))}</small><div id="myccr" style="margin-top:8px"></div></div>`:''}
       <div class="card"><div class="row"><button class="btn sm outline" onclick="GO('absence')">🔎 ${esc(t('abs.title'))}</button>
         <button class="btn sm outline" onclick="T_studentOT()">⏰ ${EN()?'Student OT (follow-up)':'OT นักเรียน (ติดตามชำระ)'}</button>
@@ -3345,7 +3348,13 @@
       ${ratioHtml}
       ${staffSchedCalendar(d.history,{shortName,holidays:d.holidays,bigCleaning:d.bigCleaning,leaves:d.leavesToday})}
       <div class="card"><h3>📋 ${esc(t('lbl.dailySummary'))} (${esc(todayStr())})</h3>${d.attendance.map(a=>{const cls=a.Status==='IN'?'dot-in':a.Status==='OUT'?'dot-out':a.Status==='LEAVE'?'dot-leave':'dot-absent';return `<div class="att"><span class="dot-s ${cls}"></span> ${esc(fullName(a.StaffID))} — ${a.Status==='LEAVE'?(EN()?'Leave':'ลา')+' ('+esc(a.Reason||'')+')':a.Status+(a.CheckIn?' '+a.CheckIn:'')}</span></div>`;}).join('')||`<small class="muted">${esc(t('c.noItems'))}</small>`}
-        <div style="margin-top:8px"><b style="font-size:13px">${EN()?'Approved leave (for coverage)':'การลาที่อนุมัติแล้ว (วางแผนสับเปลี่ยน)'}:</b>${d.leavesToday.map(l=>`<div class="list-item"><span>${esc(fullName(l.StaffID))} · ${esc(tLeaveType(l.Type))}</span><span class="muted">${esc(l.StartDate)}→${esc(l.EndDate)}</span></div>`).join('')||`<small class="muted">${esc(t('c.noItems'))}</small>`}</div></div>
+        <!-- Approved leave was printed in full underneath the summary every time. It is a "who do I
+             need to cover for" reference, not something to read daily — folded shut, with the count
+             on the summary line so you can see whether it is worth opening. -->
+        <details style="margin-top:8px"><summary style="cursor:pointer;font-weight:700;font-size:13px">${EN()?'Approved leave (for coverage)':'การลาที่อนุมัติแล้ว (วางแผนสับเปลี่ยน)'} <span class="pill ${d.leavesToday.length?'wait':'ok'}" style="font-size:11px">${d.leavesToday.length}</span></summary>
+          <div style="margin-top:6px">${d.leavesToday.map(l=>`<div class="list-item"><span>${esc(fullName(l.StaffID))} · ${esc(tLeaveType(l.Type))}</span><span class="muted">${esc(l.StartDate)}→${esc(l.EndDate)}</span></div>`).join('')||`<small class="muted">${esc(t('c.noItems'))}</small>`}</div></details>
+        <!-- my own OT วันหยุด, in the place a teacher already comes to check their own days -->
+        <div id="myHolOT"></div></div>
       <!-- MY OWN records. They used to sit on the home screen, where a month of history had nowhere
            to go and every day of it was in the way of this morning's job. Folded shut by default:
            open one when you want it. -->
@@ -3370,6 +3379,18 @@
     T_myHistory(monthStr());
     api('myLeaves',{staffId:USER.staffId}).then(l=>{ MY_LEAVES=l||[]; T_myLeaveFilter(); })
       .catch(()=>setHTML('#mlBox', `<small class="muted">${esc(t('c.noItems'))}</small>`));
+    /* My own OT วันหยุด. The Admin agrees it and the teacher is told once, in a notification that
+     * scrolls away; after that the only record was inside a payslip they may not open for weeks.
+     * This is the screen they already use to check their own days, so it belongs here. Loaded after
+     * the screen is drawn — it must never hold up the summary above it. */
+    api('myOT',{staffId:USER.staffId}).then(rows=>{
+      const hol=(rows||[]).filter(o=>String(o.Kind||'').toUpperCase()==='HOLIDAY'&&String(o.Status||'').toUpperCase()!=='REJECTED');
+      if(!hol.length) return;                       // nothing to say → no empty card in the way
+      const total=hol.reduce((a,o)=>a+(Number(o.Amount)||0),0);
+      setHTML('#myHolOT', `<details style="margin-top:8px"><summary style="cursor:pointer;font-weight:700;font-size:13px">🎉 ${EN()?'My holiday OT':'OT วันหยุดของฉัน'} <span class="pill ok" style="font-size:11px">${hol.length}</span> <span class="muted" style="font-weight:400">${esc(baht(total))}</span></summary>
+        <div style="margin-top:6px">${hol.map(o=>`<div class="list-item" style="align-items:flex-start"><span style="flex:1;min-width:0"><b>${esc(ddmmyyyy(o.Date))}</b>${o.Note?`<br><small class="muted">${esc(o.Note)}</small>`:''}</span><b style="color:var(--ok);white-space:nowrap">${esc(baht(o.Amount))}</b></div>`).join('')}
+        <small class="muted">${EN()?'Paid on its own line of your payslip.':'จ่ายเป็นบรรทัดแยกในสลิปเงินเดือน'}</small></div></details>`);
+    }).catch(()=>{});
   };
   /* ---- my own work history + leave history (📅 ตาราง) --------------------------------------
    * Filters, because a month is 30 rows and the question is almost always narrower than that:

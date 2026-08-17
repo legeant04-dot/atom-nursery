@@ -111,7 +111,13 @@ console.log('\n=== 3. the home screen gave them up ===');
   ok_('the OT list is gone from home', home.indexOf("setHTML('#myot'") < 0);
   ok_('…and so are the three fetches that fed them',
     home.indexOf("api('myLeaves'") < 0 && home.indexOf("api('myOT'") < 0 && home.indexOf("api('recentAttendance'") < 0);
-  ok_('the leave QUOTA stays — it is a fact about today, not history', /class="quota"/.test(home));
+  // v243: the school asked for the remaining-days grid to go from home too. It is a reference
+  // figure, not a morning job, and it is still on the leave screen — where a teacher is actually
+  // deciding whether to file one. The way IN stays here.
+  ok_('the remaining-days grid is gone from home', !/class="quota"/.test(home));
+  ok_('...and so is the fetch that fed it', home.indexOf("api('leaveQuota'") < 0);
+  ok_('the way in to leave is still on home', /onclick="GO\('leave'\)">📩/.test(home));
+  ok_('...and the figure still exists on the leave screen itself', /<h3>สิทธิคงเหลือ<\/h3><div class="quota">/.test(app));
   ok_('and there is a way through to the records', /onclick="GO\('schedule'\)">📅/.test(home));
 }
 
