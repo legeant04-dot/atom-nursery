@@ -188,6 +188,8 @@
     'bill.genBtn':['สร้างบิลทั้งหมด','Generate all'], 'bill.genDone':['สร้างบิลรายเดือน {m} แล้ว {n} รายการ','Generated {n} bills for {m}'],
     'slip.qrUnsupported':['เบราว์เซอร์นี้อ่าน QR จากรูปไม่ได้ — กรอกยอดเอง','This browser can\'t read QR from image — enter amount manually'], 'slip.qrReading':['กำลังอ่าน QR จากสลิป...','Reading QR from slip...'],
     'slip.qrNone':['ไม่พบ QR ในรูป — กรอกยอดเอง','No QR found — enter amount manually'], 'slip.qrMatch':['ยอดจาก QR ตรงกัน:','QR amount matches:'], 'slip.qrMismatch':['ยอดจาก QR ไม่ตรง:','QR amount mismatch:'], 'slip.qrNoAmount':['QR ไม่มีข้อมูลจำนวนเงิน — กรอกเอง','QR has no amount — enter manually'],
+    'hol.startTime':['เวลาเริ่มหยุด','Closed from'], 'hol.endTime':['เวลาสิ้นสุด','Until'],
+    'hol.timeNote':['เว้นเวลาว่างไว้ = หยุดทั้งวัน · ใส่เวลา = หยุดเฉพาะช่วงนั้น (เช่น 08:00-12:30 หยุดครึ่งวัน · นอกช่วงนี้ยังเช็คอินได้ตามปกติ)','Leave the times blank to close all day · set them to close only for that window (e.g. 08:00–12:30 — check-in works as usual outside it)'],
     'manage.organize':['ย้าย/จัดชั้นเรียน','Organize classes'], 'manage.holidays':['วันหยุด / วันประชุม','Holidays / Meetings'], 'manage.importExport':['นำเข้า/นำออกนักเรียน','Import/Export students'], 'manage.groups':['กลุ่มพนักงาน & เวลา','Staff groups & hours'],
     'manage.add':['เพิ่ม','Add'], 'manage.parents':['ผู้ปกครอง','Parents'], 'manage.position':['ตำแหน่ง','Position'], 'manage.dept':['แผนก/Nursery','Department/Nursery'], 'manage.group':['กลุ่มพนักงาน','Staff group'], 'manage.level':['ระดับ','Level'], 'manage.class':['ชั้นเรียน','Class'],
     'manage.photo':['รูปถ่าย','Photo'],

@@ -112,7 +112,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.243'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.244'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -239,6 +239,14 @@
   const BC_ICON  = '👥';
   const BC_NAME  = () => EN()?'Meeting day':'วันประชุม';
   const BC_SHORT = () => EN()?'Meeting':'ประชุม';
+  /* A holiday can be HALF a day: "19/08 08:00–12:30". These two put it in words in the one place
+   * every calendar and list reads, so a half-day never prints as if the school were shut all day.
+   * Blank (or an unreadable cell) means the whole day — the way every holiday behaved before. */
+  const holWindow = h => { const ok=v=>/^\d{2}:\d{2}$/.test(v)?v:'';
+    const S=ok(String((h&&h.StartTime)||'').slice(0,5)), E=ok(String((h&&h.EndTime)||'').slice(0,5));
+    return (S||E) ? `${S||'00:00'}-${E||'23:59'}` : ''; };
+  const holLabel = h => { const nm=EN()?(h.NameEN||h.NameTH):(h.NameTH||h.NameEN); const w=holWindow(h);
+    return w ? `${nm} ${w}` : nm; };
   // OT duration as "X ชม. Y นาที" / "Xh Ym" (e.g. 0.77 hr → "46 นาที"); drops a zero part
   const hmMin = total => { total=Math.max(0,Math.round(Number(total)||0)); const h=Math.floor(total/60), m=total%60;
     const H=EN()?'h':'ชม.', M=EN()?'min':'นาที'; return (h&&m)?`${h} ${H} ${m} ${M}`:(h?`${h} ${H}`:`${m} ${M}`); };
@@ -1402,9 +1410,11 @@
       ${(window._SCHOOLDAY&&window._SCHOOLDAY.closedForStudents)
         // School shut today: the server refuses a check-in anyway, so offering the buttons could only
         // produce an error. Say WHICH holiday — that is the thing a parent actually wants to know.
+        // a HALF-day holiday says the window, and says the buttons come back after it — otherwise a
+        // parent reads "closed today" at 09:00 and does not come back at 13:00
         ? `<div class="card" style="background:var(--surface-3);border-color:var(--line-strong);margin-top:12px;padding:10px;text-align:center">
-             <b>🏖️ ${EN()?'School closed today':'วันนี้โรงเรียนหยุด'}</b>
-             <br><small class="muted">${esc(EN()?(window._SCHOOLDAY.reasonEN||'Holiday'):(window._SCHOOLDAY.reason||'วันหยุด'))} · ${EN()?'no drop-off or pick-up to record':'ไม่ต้องบันทึกส่ง-รับ'}</small></div>`
+             <b>🏖️ ${window._SCHOOLDAY.partial?(EN()?'School closed just now':'ขณะนี้โรงเรียนหยุด'):(EN()?'School closed today':'วันนี้โรงเรียนหยุด')}</b>
+             <br><small class="muted">${esc(EN()?(window._SCHOOLDAY.reasonEN||'Holiday'):(window._SCHOOLDAY.reason||'วันหยุด'))}${window._SCHOOLDAY.partial?` <b>${esc((window._SCHOOLDAY.holStart||'00:00')+'-'+(window._SCHOOLDAY.holEnd||'23:59'))}</b>`:''} · ${window._SCHOOLDAY.partial?(EN()?'the buttons return after that time':'หลังเวลานี้จะกลับมาใช้ปุ่มได้ตามปกติ'):(EN()?'no drop-off or pick-up to record':'ไม่ต้องบันทึกส่ง-รับ')}</small></div>`
         : k.onLeave
         // Away today. The family told us themselves, so the leave IS the record of this child's day
         // — offering drop-off / pick-up would only produce a refusal (ON_LEAVE). This is PER CHILD:
@@ -2369,9 +2379,9 @@
         // could only produce an error. Name the holiday — the recent-days list stays, because that is
         // still what a teacher wants to check on a day off.
         :(day0&&day0.closed)?`<div style="background:var(--surface-3);border:1px solid var(--line-strong);border-radius:8px;padding:12px;text-align:center">
-          <b>🏖️ ${EN()?'School closed today':'วันนี้โรงเรียนหยุด'}</b>
-          <br><span style="font-size:15px">${esc(EN()?(day0.reasonEN||'Holiday'):(day0.reason||'วันหยุด'))}</span>
-          <br><small class="muted">${EN()?'No clocking in today. Nothing counts as late or absent.':'วันนี้ไม่ต้องลงเวลา · ระบบไม่นับสาย/ขาดงาน'}</small></div>`
+          <b>🏖️ ${day0.partial?(EN()?'School closed just now':'ขณะนี้โรงเรียนหยุด'):(EN()?'School closed today':'วันนี้โรงเรียนหยุด')}</b>
+          <br><span style="font-size:15px">${esc(EN()?(day0.reasonEN||'Holiday'):(day0.reason||'วันหยุด'))}${day0.partial?' '+esc((day0.holStart||'00:00')+'-'+(day0.holEnd||'23:59')):''}</span>
+          <br><small class="muted">${day0.partial?(EN()?'Clocking in works again after that time.':'หลังเวลานี้ลงเวลาได้ตามปกติ'):(EN()?'No clocking in today. Nothing counts as late or absent.':'วันนี้ไม่ต้องลงเวลา · ระบบไม่นับสาย/ขาดงาน')}</small></div>`
         // Hired but not started yet: the server already refuses the check-in, so leaving live buttons
         // here only produced an error. Say when the first day is instead.
         :att.notStarted?`<div style="background:var(--warn-bg);border:1px solid var(--warn-line);border-radius:8px;padding:12px;text-align:center">
@@ -3320,7 +3330,7 @@
     const shortName=opts.shortName||(id=>id);
     const render=()=>{ const b=calBase(),y=b.getFullYear(),mo=b.getMonth(); const now=new Date(); const isCur=CAL_OFF===0;
       const first=new Date(y,mo,1).getDay(),days=new Date(y,mo+1,0).getDate(); const byDay={};
-      const holByDay={}; (opts.holidays||[]).forEach(h=>{ const d=new Date(h.Date); if(d.getFullYear()===y&&d.getMonth()===mo) holByDay[d.getDate()]=EN()?(h.NameEN||h.NameTH):(h.NameTH||h.NameEN); });
+      const holByDay={}; (opts.holidays||[]).forEach(h=>{ const d=new Date(h.Date); if(d.getFullYear()===y&&d.getMonth()===mo) holByDay[d.getDate()]=holLabel(h); });
       const bcByDay={}; (opts.bigCleaning||[]).forEach(s=>{ const d=new Date(s); if(d.getFullYear()===y&&d.getMonth()===mo) bcByDay[d.getDate()]=1; });
       (history||[]).forEach(h=>{ const d=new Date(h.Date); if(d.getFullYear()===y&&d.getMonth()===mo){ const io=(h.In?'↓'+h.In:'')+(h.Out?' ↑'+h.Out:''); (byDay[d.getDate()]=byDay[d.getDate()]||[]).push(shortName(h.StaffID)+(io?' '+io:'')); } });
       // approved leaves of ALL staff overlapping each day → "Nickname (LeaveType)"
@@ -3739,7 +3749,7 @@
         for(let dt=new Date(st);dt<=en;dt.setDate(dt.getDate()+1)){ if(dt.getFullYear()===y&&dt.getMonth()===mo)(byDay[dt.getDate()]=byDay[dt.getDate()]||[]).push(leaveName(l)); } });
       let cells=['อา','จ','อ','พ','พฤ','ศ','ส'].map(w=>`<div style="text-align:center;font-size:13px;color:var(--ink-3)">${EN()?({'อา':'Su','จ':'Mo','อ':'Tu','พ':'We','พฤ':'Th','ศ':'Fr','ส':'Sa'}[w]):w}</div>`).join('');
       for(let i=0;i<first;i++)cells+='<div class="d dim"></div>';
-      const holByDay={}; (window._LV_HOL||[]).forEach(h=>{ const d=new Date(h.Date); if(d.getFullYear()===y&&d.getMonth()===mo) holByDay[d.getDate()]=EN()?(h.NameEN||h.NameTH):(h.NameTH||h.NameEN); });
+      const holByDay={}; (window._LV_HOL||[]).forEach(h=>{ const d=new Date(h.Date); if(d.getFullYear()===y&&d.getMonth()===mo) holByDay[d.getDate()]=holLabel(h); });
       const bcByDay={}; (window._LV_BC||[]).forEach(s=>{ const d=new Date(s); if(d.getFullYear()===y&&d.getMonth()===mo) bcByDay[d.getDate()]=1; });
       // OT วันหยุด on the calendar: a day someone came in on their day off is the sort of thing that
       // has to be VISIBLE next to the leave it sits among, or the only place it exists is a list
@@ -3972,7 +3982,7 @@
     const first=new Date(y,mo,1).getDay(),days=new Date(y,mo+1,0).getDate();
     const byDay={}; (window._SLV_ALL||[]).forEach(l=>{ const dt=new Date(ymd(l.Date));
       if(dt.getFullYear()===y&&dt.getMonth()===mo){ const d=dt.getDate(); (byDay[d]=byDay[d]||[]).push(l); } });
-    const holByDay={}; (window._LV_HOL||[]).forEach(h=>{ const d=new Date(h.Date); if(d.getFullYear()===y&&d.getMonth()===mo) holByDay[d.getDate()]=EN()?(h.NameEN||h.NameTH):(h.NameTH||h.NameEN); });
+    const holByDay={}; (window._LV_HOL||[]).forEach(h=>{ const d=new Date(h.Date); if(d.getFullYear()===y&&d.getMonth()===mo) holByDay[d.getDate()]=holLabel(h); });
     const bcByDay={}; (window._LV_BC||[]).forEach(s=>{ const d=new Date(s); if(d.getFullYear()===y&&d.getMonth()===mo) bcByDay[d.getDate()]=1; });
     // birthdays belong to a month, not a year — only mark them on the month they were fetched for
     const bdayByDay={}; const _al=window._SALERTS;
@@ -6375,11 +6385,17 @@
         <div class="grid2"><label class="field"><span>${esc(t('hol.date'))}</span><input type="date" id="hDate"/></label>
           <label class="field" style="display:flex;align-items:center;gap:8px;margin-top:22px"><input type="checkbox" id="hRec" style="width:auto"/> ${esc(t('hol.recurring'))}</label></div>
         <div class="grid2"><label class="field"><span>${esc(t('hol.nameTH'))}</span><input id="hNameTH"/></label><label class="field"><span>${esc(t('hol.nameEN'))}</span><input id="hNameEN"/></label></div>
-        <button class="btn block" onclick="A_addHoliday()">${esc(t('hol.add'))}</button></div>
-      <div class="card"><h3>📋 ${esc(t('hol.list'))}</h3>${hs.map(h=>`<div class="list-item"><span><b>${esc(h.Date)}</b> · ${esc(EN()?h.NameEN:h.NameTH)}${h.Recurring?` <span class="pill info">${esc(t('hol.yearly'))}</span>`:''}</span><button class="btn sm pink" onclick="A_removeHoliday('${h.Date}','${esc(h.NameTH)}')" aria-label="${EN()?"Delete":"ลบ"}" title="${EN()?"Delete":"ลบ"}">🗑️</button></div>`).join('')}</div>`;
+        <div class="grid2"><label class="field"><span>${esc(t('hol.startTime'))}</span><input type="time" id="hStart"/></label><label class="field"><span>${esc(t('hol.endTime'))}</span><input type="time" id="hEnd"/></label></div>
+        <small class="muted">${esc(t('hol.timeNote'))}</small>
+        <button class="btn block" style="margin-top:8px" onclick="A_addHoliday()">${esc(t('hol.add'))}</button></div>
+      <div class="card"><h3>📋 ${esc(t('hol.list'))}</h3>${hs.map(h=>`<div class="list-item"><span><b>${esc(h.Date)}</b> · ${esc(EN()?h.NameEN:h.NameTH)}${holWindow(h)?` <span class="pill wait" style="font-size:11px">🕘 ${esc(holWindow(h))}</span>`:''}${h.Recurring?` <span class="pill info">${esc(t('hol.yearly'))}</span>`:''}</span><button class="btn sm pink" onclick="A_removeHoliday('${h.Date}','${esc(h.NameTH)}')" aria-label="${EN()?"Delete":"ลบ"}" title="${EN()?"Delete":"ลบ"}">🗑️</button></div>`).join('')}</div>`;
   };
   window.A_addHoliday=async()=>{ const d=$('#hDate').value; if(!d){toast(t('hol.date'));return;}
-    await api('addHoliday',{date:d,nameTH:$('#hNameTH').value,nameEN:$('#hNameEN').value,recurring:$('#hRec').checked}); confirmSaved(t('c.saved')); GO_('holidays'); };
+    const s=($('#hStart')||{}).value||'', e=($('#hEnd')||{}).value||'';
+    // half a day means a window, and a window that ends before it starts is not one
+    if(s&&e&&e<s){ toast(EN()?'The end time is before the start time':'เวลาสิ้นสุดอยู่ก่อนเวลาเริ่ม'); return; }
+    await api('addHoliday',{date:d,nameTH:$('#hNameTH').value,nameEN:$('#hNameEN').value,recurring:$('#hRec').checked,startTime:s,endTime:e}); confirmSaved(t('c.saved')); GO_('holidays'); };
+  // "08:00-12:30", or '' when the holiday covers the whole day
   window.A_removeHoliday=async(date,nameTH)=>{ await api('removeHoliday',{date,nameTH}); toast(t('manage.deleted')); GO_('holidays'); };
 
   // Admin finance dashboard — tuition collection + salary payout + income/expense

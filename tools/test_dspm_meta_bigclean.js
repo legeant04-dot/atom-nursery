@@ -161,7 +161,8 @@ console.log('\n=== 3. a Big Cleaning day is for the STAFF, not the children ==='
     !/SCHOOL_CLOSED/.test(grab(() => H.parentCheckin({ studentId: 'S1', type: 'IN', lat: 0, lng: 0, parentId: 'PAR-1' })) || '') ||
     new Date(TODAY + 'T00:00:00').getDay() % 6 === 0);
 }
-ok_('the rule is written down once', /const schoolClosedFor_ = \(d, forStudents\)/.test(eng));
+// v244: + atTime, so a half-day holiday refuses only during its own window
+ok_('the rule is written down once', /const schoolClosedFor_ = \(d, forStudents, atTime\)/.test(eng));
 ok_('the parent path asks the children’s question', /assertSchoolOpen_\(null, true\);   \/\/ a Big Cleaning day is a working day for STAFF, not for children/.test(eng));
 ok_('the GAS route asks it too', /assertSchoolOpen_\(null, true\);/.test(par) && /function assertSchoolOpen_\(d, forStudents\)/.test(ci));
 ok_('…and the staff routes still do not', (ci.match(/assertSchoolOpen_\(\);/g) || []).length === 2);

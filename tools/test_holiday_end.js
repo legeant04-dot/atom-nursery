@@ -78,7 +78,8 @@ console.log('\n2) the server refuses attendance on a closed day');
     /if \(!forStudents\) \{ try \{ if \(isBigCleaningDay_\(ds\)\) return; \} catch \(e\) \{\} \}/.test(checkin));
   eq('staff check-IN and check-OUT are both guarded', (checkin.match(/assertSchoolOpen_\(\);/g) || []).length, 2);
   ok_('and the student side too, asking the CHILDREN’s question', /assertSchoolOpen_\(null, true\);/.test(parent));
-  ok_('the refusal names the day, not just "no"', /วันนี้โรงเรียนหยุด \(' \+ why \+ '\)/.test(checkin));
+  // v244: "ขณะนี้" rather than "วันนี้" — a holiday may now cover only part of the day
+  ok_('the refusal names the day, not just "no"', /ขณะนี้โรงเรียนหยุด \(' \+ why \+ '\)/.test(checkin));
   ok_('it is a code the client can act on', /apiError_\('SCHOOL_CLOSED'/.test(checkin));
 }
 

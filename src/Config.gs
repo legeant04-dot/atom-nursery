@@ -66,7 +66,9 @@ SCHEMA[WB.MAIN] = {
   // Growth measurement history feeding the development line charts
   GROWTH_RECORDS:    ['Date', 'StudentID', 'AgeMonth', 'Weight', 'Height'],
   // Holiday database (editable per year) merged into the shared calendar
-  HOLIDAYS:          ['Date', 'NameTH', 'NameEN', 'Recurring'],
+  // StartTime/EndTime appended at END: a holiday can be HALF a day ("19/08 08:00–12:30"). Both blank
+  // = the whole day, which is how every holiday entered before these existed behaved.
+  HOLIDAYS:          ['Date', 'NameTH', 'NameEN', 'Recurring', 'StartTime', 'EndTime'],
   // HealthDetail..UpdatedAt were appended after go-live — new columns only ever go at the END.
   // Status = DRAFT (teacher keeps editing, parent not notified) | SUBMITTED (sent to the parent, locked).
   // A blank Status is a legacy row from before the draft flow: treat it as SUBMITTED.
