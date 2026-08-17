@@ -112,7 +112,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.241'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.242'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -3535,6 +3535,7 @@
     <tr><td>รายได้อื่นๆ${r.ChildCount?` <small class="muted">(เด็ก ${r.ChildCount} คน × ${baht(r.ChildMultiplier)})</small>`:''}</td><td style="text-align:right">${baht(r.OtherIncome)}</td></tr>
     <tr><td>ค่าสวงเวลาตอนเย็น</td><td style="text-align:right">${baht(r.OTEvening)}</td></tr>
     ${Number(r.OTCarry||0)?`<tr><td>ค้างจ่าย OT เดือนก่อน <small class="muted">(${esc(carryMonths(r))})</small></td><td style="text-align:right">${baht(r.OTCarry)}</td></tr>`:''}
+    ${Number(r.OTHoliday||0)?`<tr><td>🎉 OT วันหยุด</td><td style="text-align:right">${baht(r.OTHoliday)}</td></tr>`:''}
     <tr><td>เงินพิเศษวันพักผ่อน</td><td style="text-align:right">${baht(r.HolidayBonus)}</td></tr>
     <tr style="border-top:1px solid var(--line)"><td><b>รวมรายได้</b></td><td style="text-align:right"><b>${baht(r.GrossIncome)}</b></td></tr>
     <tr><td>หัก ประกันสังคม</td><td style="text-align:right">-${baht(r.SocialSecurity)}</td></tr>
@@ -3719,10 +3720,16 @@
       for(let i=0;i<first;i++)cells+='<div class="d dim"></div>';
       const holByDay={}; (window._LV_HOL||[]).forEach(h=>{ const d=new Date(h.Date); if(d.getFullYear()===y&&d.getMonth()===mo) holByDay[d.getDate()]=EN()?(h.NameEN||h.NameTH):(h.NameTH||h.NameEN); });
       const bcByDay={}; (window._LV_BC||[]).forEach(s=>{ const d=new Date(s); if(d.getFullYear()===y&&d.getMonth()===mo) bcByDay[d.getDate()]=1; });
+      // OT วันหยุด on the calendar: a day someone came in on their day off is the sort of thing that
+      // has to be VISIBLE next to the leave it sits among, or the only place it exists is a list
+      // nobody opens. Names, so the admin can see at a glance who was in.
+      const otByDay={}; (window._LV_HOT||[]).forEach(o=>{ const d=new Date(o.Date);
+        if(d.getFullYear()===y&&d.getMonth()===mo){ (otByDay[d.getDate()]=otByDay[d.getDate()]||[]).push(dnick(o)); } });
       for(let dd=1;dd<=days;dd++){ const ppl=byDay[dd]; const today=(isCur&&dd===now.getDate())?'today':''; const clash=ppl&&ppl.length>=2;
         const bg=clash?'background:var(--bad-bg);border-color:var(--bad-line);':calOffBg(y,mo,dd,holByDay[dd],bcByDay[dd]);
-        cells+=`<div class="d ${ppl?'ev':''} ${today}" style="min-height:52px;${bg}">${dd}${holByDay[dd]?`<span class="io" style="text-align:left;color:var(--bad);font-weight:600">🏖️ ${esc(holByDay[dd])}</span>`:''}${bcByDay[dd]&&!holByDay[dd]?`<span class="io" style="text-align:left;color:var(--teal);font-weight:600">${BC_ICON}</span>`:''}${ppl?`<span class="io" style="text-align:left;color:${clash?'var(--bad)':'var(--ok)'};font-weight:600">${esc(ppl.join('\n'))}</span>`:''}</div>`; }
-      return `${calNavHeader(y,mo)}<div class="cal">${cells}</div><small class="muted">${EN()?`Red = 2+ staff on leave · weekend/holiday · ${BC_ICON} meeting`:`สีแดง = ลาซ้ำ ≥2 คน · เสาร์-อาทิตย์/วันหยุด · ${BC_ICON} ประชุม`}</small>`; };
+        const ot=otByDay[dd];
+        cells+=`<div class="d ${ppl||ot?'ev':''} ${today}" style="min-height:52px;${bg}">${dd}${holByDay[dd]?`<span class="io" style="text-align:left;color:var(--bad);font-weight:600">🏖️ ${esc(holByDay[dd])}</span>`:''}${bcByDay[dd]&&!holByDay[dd]?`<span class="io" style="text-align:left;color:var(--teal);font-weight:600">${BC_ICON}</span>`:''}${ot?`<span class="io" style="text-align:left;color:var(--warn);font-weight:700" title="${esc(EN()?'Holiday OT':'OT วันหยุด')}: ${esc(ot.join(', '))}">🎉 ${esc(ot.length===1?ot[0]:ot.length)}</span>`:''}${ppl?`<span class="io" style="text-align:left;color:${clash?'var(--bad)':'var(--ok)'};font-weight:600">${esc(ppl.join('\n'))}</span>`:''}</div>`; }
+      return `${calNavHeader(y,mo)}<div class="cal">${cells}</div><small class="muted">${EN()?`Red = 2+ staff on leave · weekend/holiday · ${BC_ICON} meeting · 🎉 holiday OT`:`สีแดง = ลาซ้ำ ≥2 คน · เสาร์-อาทิตย์/วันหยุด · ${BC_ICON} ประชุม · 🎉 OT วันหยุด`}</small>`; };
     window._CALRENDER=render;
     return `<div class="card"><div id="calWrap">${render()}</div></div>`; }
 
@@ -3893,6 +3900,10 @@
     // school holidays + meeting days → light-red / teal cells on the approval calendars
     try{ window._LV_HOL=await api('holidays'); }catch(e){ window._LV_HOL=window._LV_HOL||[]; }
     try{ const bc=await api('bigCleaningDays'); window._LV_BC=(bc&&bc.days)||bc||[]; }catch(e){ window._LV_BC=window._LV_BC||[]; }
+    // holiday OT for the month on show, so the leave calendar can mark the days someone came in
+    try{ const _ot=await api('adminOTList',{month:monthStr()});
+      window._LV_HOT=(_ot||[]).filter(o=>String(o.Kind||'').toUpperCase()==='HOLIDAY'&&String(o.Status||'').toUpperCase()!=='REJECTED');
+    }catch(e){ window._LV_HOT=window._LV_HOT||[]; }
     // pending teacher-leave count → badge on the tab so it's visible at a glance
     let _lvPend=0; try{ const _al=await api('allLeaves'); window._LV_ALL=_al; _lvPend=_al.filter(l=>String(l.Status).indexOf('PENDING')===0).length; }catch(e){}
     const mainSeg=`<div class="seg" style="margin-bottom:10px"><button class="${LV_MAIN==='staff'?'active':''}" onclick="A_lvMain('staff')">👩‍🏫 ${EN()?'Teachers':'คุณครู'}${_lvPend?` <span class="pill bad" style="font-size:11px">${_lvPend}</span>`:''}</button><button class="${LV_MAIN==='student'?'active':''}" onclick="A_lvMain('student')">👶 ${EN()?'Students':'นักเรียน'}</button></div>`;
@@ -4052,7 +4063,9 @@
       <div class="grid2"><label class="field"><span>${esc(t('pay.cert'))}</span><input id="pCert" type="number" value="0"/></label>
         <label class="field"><span>${esc(t('pay.otEvening'))} <small id="otNote" class="muted"></small></span><input id="pOt" type="number" value="0"/></label></div>
       <div id="otCarryBox"></div>
-      <div class="grid2"><label class="field"><span>${esc(t('pay.holidayBonus'))}</span><input id="pHb" type="number" value="0"/></label>
+      <div class="grid2"><label class="field"><span>🎉 ${esc(t('pay.otHoliday'))} <small id="otHolNote" class="muted"></small></span><input id="pOtHol" type="number" value="0"/></label>
+        <label class="field"><span>${esc(t('pay.holidayBonus'))}</span><input id="pHb" type="number" value="0"/></label></div>
+      <div class="grid2">
         <label class="field"><span>${EN()?'Contribution — deducted from staff':'เงินสมทบ (หักจากพนักงาน)'}</span><input id="pContrib" type="number" value="0" oninput="A_contribNote()"/></label></div>
       <div id="contribNote" class="muted" style="font-size:13px;margin:-4px 2px 8px"></div>
       <div class="card" style="background:var(--surface-2)"><div class="spread"><b style="font-size:13px">➕ ${esc(t('pay.adjustments'))}</b><button class="btn sm outline" onclick="A_addAdj()">+ ${esc(t('pay.addAdj'))}</button></div>
@@ -4080,10 +4093,15 @@
     A_payTypeToggle(); A_recalcChild(); A_contribNote();
     // auto-pull this staff's APPROVED OT for the selected month into the OT field
     let otAuto=null;
-    try{ const ot=await api('staffMonthlyOT',{staffId:sid,month:$('#pMonth').value}); if(stale())return; otAuto=ot; $('#pOt').value=ot.amount;
-      // holiday OT is in the same total but has no hours behind it — say so, or "8 ชม. × ฿100" will
-      // not add up to the figure in the box and the Admin will "correct" a number that is right
-      const n=$('#otNote'); if(n) n.innerHTML=`(${EN()?'auto':'อัตโนมัติ'} ${ot.hours} ${EN()?'hr':'ชม.'} × ${baht(ot.rate)}${Number(ot.holiday)>0?` + 🎉 ${EN()?'holiday OT':'OT วันหยุด'} ${baht(ot.holiday)}`:''})`; }catch(e){}
+    try{ const ot=await api('staffMonthlyOT',{staffId:sid,month:$('#pMonth').value}); if(stale())return; otAuto=ot;
+      // the EVENING field gets only the evening OT; the holiday OT has its own field and its own
+      // line on the slip, so the two are never added together behind the admin's back
+      $('#pOt').value=(ot.daily!=null?ot.daily:ot.amount);
+      const hol=$('#pOtHol'); if(hol) hol.value=Number(ot.holiday||0);
+      const hn=$('#otHolNote'); if(hn) hn.innerHTML=Number(ot.holiday||0)>0
+        ? `(${EN()?'auto':'อัตโนมัติ'} ${ot.holidayDays||0} ${EN()?'day(s)':'วัน'})`
+        : `(${EN()?'none this month':'เดือนนี้ไม่มี'})`;
+      const n=$('#otNote'); if(n) n.innerHTML=`(${EN()?'auto':'อัตโนมัติ'} ${ot.hours} ${EN()?'hr':'ชม.'} × ${baht(ot.rate)})`; }catch(e){}
     // OT approved after an EARLIER month's payroll was saved was never paid — it is owed now, as its
     // own line, so the earlier slip stays exactly as it was signed off (see otCarryOver_ in Payroll.gs)
     try{ const cy=await api('otCarryOver',{staffId:sid,month:$('#pMonth').value}); if(stale())return;
@@ -4106,12 +4124,19 @@
         set('#pChild',saved.ExtraChildCount!=null?saved.ExtraChildCount:saved.ChildCount);
         set('#pThreshold',saved.ChildThreshold); set('#pChildMul2',saved.ChildMultiplier);
         set('#pCert',saved.TrainingCertCount||0); set('#pOt',saved.OTEvening||0); set('#pHb',saved.HolidayBonus||0);
+        set('#pOtHol',saved.OTHoliday||0);
         set('#pContrib',saved.Contribution||0); A_contribNote();
         // Approved OT must ALWAYS reach this field. If more was approved after the slip was saved, the
         // saved figure is stale — show the approved total and say so, rather than silently under-paying.
-        if(otAuto && Number(otAuto.amount||0) > Number(saved.OTEvening||0)+0.5){
-          set('#pOt',otAuto.amount);
-          const n=$('#otNote'); if(n) n.innerHTML=`<span style="color:var(--warn)">⚠️ ${EN()?`approved ${baht(otAuto.amount)} > saved ${baht(saved.OTEvening||0)} — recalculate & save`:`อนุมัติแล้ว ${baht(otAuto.amount)} มากกว่าที่บันทึกไว้ ${baht(saved.OTEvening||0)} — กดคำนวณและบันทึกใหม่`}</span>`;
+        const _dailyAuto=otAuto?Number(otAuto.daily!=null?otAuto.daily:otAuto.amount):0;
+        if(otAuto && _dailyAuto > Number(saved.OTEvening||0)+0.5){
+          set('#pOt',_dailyAuto);
+          const n=$('#otNote'); if(n) n.innerHTML=`<span style="color:var(--warn)">⚠️ ${EN()?`approved ${baht(_dailyAuto)} > saved ${baht(saved.OTEvening||0)} — recalculate & save`:`อนุมัติแล้ว ${baht(_dailyAuto)} มากกว่าที่บันทึกไว้ ${baht(saved.OTEvening||0)} — กดคำนวณและบันทึกใหม่`}</span>`;
+        }
+        // the same check for the holiday line — approved after the slip was saved must not be lost
+        if(otAuto && Number(otAuto.holiday||0) > Number(saved.OTHoliday||0)+0.5){
+          set('#pOtHol',Number(otAuto.holiday||0));
+          const hn=$('#otHolNote'); if(hn) hn.innerHTML=`<span style="color:var(--warn)">⚠️ ${EN()?`approved ${baht(otAuto.holiday)} > saved ${baht(saved.OTHoliday||0)}`:`อนุมัติแล้ว ${baht(otAuto.holiday)} มากกว่าที่บันทึกไว้ ${baht(saved.OTHoliday||0)}`}</span>`;
         }
         // the amounts are stored as PAID (0 when not eligible), so >0 is what tells us the box was ticked
         if($('#pAtt')) $('#pAtt').checked=Number(saved.DiligenceAttendance||0)>0;
@@ -4150,7 +4175,7 @@
   function A_renderAdj(){ const box=$('#adjList'); if(!box)return;
     box.innerHTML=PAY_ADJ.map((a,i)=>`<div class="grid3" style="margin-bottom:6px;grid-template-columns:1fr 90px 36px"><input value="${esc(a.label)}" placeholder="${esc(t('pay.adjLabel'))}" oninput="PAY_ADJ_SET(${i},'label',this.value)"/><input type="number" value="${a.amount}" placeholder="±0" oninput="PAY_ADJ_SET(${i},'amount',this.value)"/><button class="btn sm pink" onclick="A_delAdj(${i})" aria-label="${EN()?"Delete":"ลบ"}" title="${EN()?"Delete":"ลบ"}">✕</button></div>`).join(''); }
   window.PAY_ADJ_SET=(i,k,v)=>{ PAY_ADJ[i][k]= k==='amount'?Number(v||0):v; };
-  window.A_calc=async(commit)=>{ const payType=$('#pType').value; const p={staffId:$('#pStaff').value,month:$('#pMonth').value,payType,baseSalary:+$('#pBase').value,dailyRate:+$('#pDaily').value,daysWorked:+$('#pDays').value,childMultiplier:+$('#pChildMul2').value,childThreshold:+$('#pThreshold').value,diligenceAttend:+$('#pAttendAmt').value,diligenceFb:+$('#pFbAmt').value,socialSecurityDeduct:$('#pSS').checked,facebookPosted:$('#pFb').checked,attendanceEligible:$('#pAtt').checked,extraChildCount:+$('#pChild').value,trainingCertCount:+$('#pCert').value,otEvening:+$('#pOt').value,holidayBonus:+$('#pHb').value,contribution:+($('#pContrib')||{}).value||0,adjustments:PAY_ADJ.filter(a=>a.label||a.amount)};
+  window.A_calc=async(commit)=>{ const payType=$('#pType').value; const p={staffId:$('#pStaff').value,month:$('#pMonth').value,payType,baseSalary:+$('#pBase').value,dailyRate:+$('#pDaily').value,daysWorked:+$('#pDays').value,childMultiplier:+$('#pChildMul2').value,childThreshold:+$('#pThreshold').value,diligenceAttend:+$('#pAttendAmt').value,diligenceFb:+$('#pFbAmt').value,socialSecurityDeduct:$('#pSS').checked,facebookPosted:$('#pFb').checked,attendanceEligible:$('#pAtt').checked,extraChildCount:+$('#pChild').value,trainingCertCount:+$('#pCert').value,otEvening:+$('#pOt').value,otHoliday:+(($('#pOtHol')||{}).value||0),holidayBonus:+$('#pHb').value,contribution:+($('#pContrib')||{}).value||0,adjustments:PAY_ADJ.filter(a=>a.label||a.amount)};
     // Only override the carry-over when the field is actually on screen. Sending 0 unconditionally
     // would wipe a genuine carry whenever its fetch was still in flight.
     { const c=$('#pOtCarry'); if(c) p.otCarry=+c.value||0; }
@@ -6245,7 +6270,14 @@
       <button class="btn outline block" style="margin-top:8px" onclick="this.closest('.modal').remove()">${esc(t('c.close'))}</button>`);
     A_hotSel();
   };
-  const A_hotRefresh=()=>{ const x=document.querySelector('.modal'); if(x)x.remove(); A_holidayOT(); };
+  // the calendar underneath is showing the same days — refresh its copy too, or a grant appears in
+  // the list and not on the calendar until the screen is reopened
+  const A_hotRefresh=async()=>{ const x=document.querySelector('.modal'); if(x)x.remove();
+    try{ const _ot=await api('adminOTList',{month:monthStr()});
+      window._LV_HOT=(_ot||[]).filter(o=>String(o.Kind||'').toUpperCase()==='HOLIDAY'&&String(o.Status||'').toUpperCase()!=='REJECTED');
+      if(window._CALRENDER){ const w=document.getElementById('calWrap'); if(w) w.innerHTML=window._CALRENDER(); }
+    }catch(e){}
+    A_holidayOT(); };
   window.A_hotSel=()=>{ const n=document.querySelectorAll('.hotchk:checked').length; const el=document.getElementById('hotN'); if(el)el.textContent='('+n+')'; };
   window.A_hotToggleAll=(cb)=>{ document.querySelectorAll('.hotchk').forEach(c=>{c.checked=cb.checked;}); A_hotSel(); };
   window.A_hotAdd=async(btn)=>{ const m=btn.closest('.modal'); const g=id=>{const e=m.querySelector('#'+id);return e?e.value:'';};
@@ -6857,7 +6889,7 @@
             <td class="n de">${baht(p.OtherDeductions)}</td>
             <td class="n net" rowspan="3">${baht(p.NetPay)}</td></tr>
         <tr><td class="lbl">ค่าล่วงเวลาตอนเย็น${Number(p.OTCarry||0)?' + ค้างจ่าย*':''}</td><td class="n in">${baht(Number(p.OTEvening||0)+Number(p.OTCarry||0))}</td>
-            <td class="lbl">เงินพิเศษวันพักผ่อน</td><td class="n in">${baht(p.HolidayBonus)}</td>
+            <td class="lbl">${Number(p.OTHoliday||0)?'OT วันหยุด':'เงินพิเศษวันพักผ่อน'}</td><td class="n in">${baht(Number(p.OTHoliday||0)?p.OTHoliday:p.HolidayBonus)}</td>
             <td class="lbl">รวมหัก</td><td class="n">${baht(p.TotalDeductions)}</td></tr>
         <tr><td colspan="4" class="sub lft">${minus.map(a=>esc(a.label||'')).filter(Boolean).join(' · ')||'&nbsp;'}</td>
             <td class="lbl">รวมรายได้</td><td class="n">${baht(p.GrossIncome)}</td></tr>

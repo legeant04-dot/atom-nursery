@@ -94,6 +94,8 @@ function computePayroll(payload) {
   var carry = otCarryOver_(staff.StaffID, month);
   var otCarry = (payload.otCarry != null) ? num_(payload.otCarry) : carry.total;
   var otCarryDetail = (payload.otCarry != null && !carry.detail.length) ? [] : carry.detail;
+  // OT วันหยุด — a day off that was worked. Its own line, so the slip says what the money was for.
+  var otHoliday = (payload.otHoliday != null) ? num_(payload.otHoliday) : sumMonthlyHolidayOT_(staff.StaffID, month);
   var holidayBonus = num_(payload.holidayBonus);
 
   // Signed adjustment lines used to be applied straight to the net, which meant the slip printed an
@@ -105,7 +107,7 @@ function computePayroll(payload) {
   adjustments.forEach(function (a) { var v = num_(a.amount); if (v > 0) adjPlus += v; else adjMinus += -v; });
   var adjustmentsTotal = round2_(adjPlus - adjMinus);
   otherIncome = round2_(otherIncome + adjPlus);
-  var gross = round2_(base + diligenceTotal + otherIncome + otEvening + otCarry + holidayBonus);
+  var gross = round2_(base + diligenceTotal + otherIncome + otEvening + otCarry + otHoliday + holidayBonus);
 
   // --- รายการหัก ---
   // the client sends socialSecurityDeduct (the checkbox). Only an explicit socialSecurity NUMBER
@@ -146,7 +148,7 @@ function computePayroll(payload) {
   try { ensureColumns_(sheet, ['PayType', 'DailyRate', 'DaysWorked', 'ChildMultiplier', 'Adjustments',
     'AdjustmentsTotal', 'BankName', 'LeaveDays', 'LeaveLimit', 'LeaveExceeds',
     'ContributionAccum', 'Position', 'StaffName',
-    'ContributionEmployer', 'OTCarry', 'OTCarryDetail']); } catch (e) {}
+    'ContributionEmployer', 'OTCarry', 'OTCarryDetail', 'OTHoliday']); } catch (e) {}
   var existing = findObject_(sheet, function (r) {
     return String(r.StaffID) === String(staff.StaffID) && ym7_(r.Month) === ym7_(month);
   });
@@ -159,6 +161,7 @@ function computePayroll(payload) {
     ExtraChildCount: extraChildCount, ExtraChildAmount: extraChildAmount,
     TrainingCertCount: trainingCertCount, TrainingCertAmount: trainingCertAmount,
     OTEvening: otEvening, OTCarry: otCarry, OTCarryDetail: JSON.stringify(otCarryDetail),
+    OTHoliday: otHoliday,
     HolidayBonus: holidayBonus, OtherIncome: otherIncome, GrossIncome: gross,
     SocialSecurity: ss, Contribution: contribution, ContributionEmployer: contributionEmployer,
     OtherDeductions: otherDeductions, TotalDeductions: totalDeductions,
@@ -230,8 +233,19 @@ function bigCleaningBonus_(staffId, month, payload) {
   return round2_(amt * attended);
 }
 
-/** APPROVED OT totalled per month for one staff member → { 'YYYY-MM': amount }. */
-function otApprovedByMonth_(staffId) {
+/**
+ * APPROVED OT totalled per month for one staff member → { 'YYYY-MM': amount }.
+ *
+ * `kind` splits the two things the slip must show APART: 'daily' is the evening late-checkout OT,
+ * 'holiday' is a day off that was worked and agreed as a sum. Folding them into one figure was the
+ * first version of this and it was wrong on the slip — a teacher saw "ค่าล่วงเวลาตอนเย็น 1,200"
+ * on a month where 500 of it was a Sunday they came in for, and nothing said so.
+ *
+ * It matters beyond the slip: otCarryOver_ compares what a month APPROVED against what its saved
+ * payslip PAID into OTEvening. If holiday OT is paid on its own line but still counted here as
+ * evening OT, every month would look short-paid and carry the same amount forward for ever.
+ */
+function otApprovedByMonth_(staffId, kind) {
   var rate = num_(getConfig_('OTEveningRate', '0'));
   var out = {};
   readObjects_(sheet_(getHrSpreadsheet_(), 'OT_RECORDS')).forEach(function (r) {
@@ -239,6 +253,9 @@ function otApprovedByMonth_(staffId) {
     // only APPROVED OT is paid. A blank Status is a legacy pre-workflow row → treat it as approved.
     var st = String(r.Status || '').toUpperCase();
     if (st && st !== 'APPROVED') return;
+    var isHol = otIsHoliday_(r);
+    if (kind === 'holiday' && !isHol) return;
+    if (kind !== 'holiday' && isHol) return;      // default = daily only
     // Month is written as 'YYYY-MM' and comes back from Sheets as a DATE — ym7_ before comparing,
     // or every month bucket lands under the string "Mon Jul" and the totals read 0.
     var m = ym7_(r.Month) || monthOf_(r.Date);
@@ -251,6 +268,10 @@ function otApprovedByMonth_(staffId) {
 
 function sumMonthlyOT_(staffId, month) {
   return round2_(otApprovedByMonth_(staffId)[ym7_(month)] || 0);
+}
+/** OT วันหยุด approved for that month — its own line on the slip, never inside OT เย็น. */
+function sumMonthlyHolidayOT_(staffId, month) {
+  return round2_(otApprovedByMonth_(staffId, 'holiday')[ym7_(month)] || 0);
 }
 
 /**

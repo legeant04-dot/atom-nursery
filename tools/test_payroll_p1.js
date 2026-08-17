@@ -35,7 +35,11 @@ global.getConfig_ = (k, d) => (CONFIG[k] !== undefined ? CONFIG[k] : d);
 global.setConfigValue_ = (k, v) => { CONFIG[k] = v; };
 global.bigCleaningDays_ = () => [];
 
-// load the real file into the global scope
+// load the real files into the global scope. OtStaff.gs comes first: since v242 the OT total is
+// split daily-vs-holiday (holiday OT is paid on its own payslip line, so it must not count against
+// what OTEvening paid) and otIsHoliday_ — the ONE predicate that decides which is which — lives
+// there. Loading the real one, rather than stubbing it, means a change to it is caught here.
+(0, eval)(fs.readFileSync(path.join(ROOT, 'src', 'OtStaff.gs'), 'utf8'));
 (0, eval)(fs.readFileSync(path.join(ROOT, 'src', 'Payroll.gs'), 'utf8'));
 
 // ---- assertions -------------------------------------------------------------

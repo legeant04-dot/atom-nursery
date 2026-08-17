@@ -204,7 +204,11 @@ console.log('\n6) the screen: ดำเนินการ → คุณครู
   ok_('...and shows the reason', /o\.Note\?`<br><small class="muted">\$\{esc\(o\.Note\)\}/.test(app));
   ok_('the Admin OT list badges it', /🎉 \$\{EN\(\)\?'Holiday':'วันหยุด'\}/.test(app));
   ok_('...and does not offer to edit hours it does not have', /id="sot_h_\$\{o\.OTRecordID\}" \$\{hol\?'disabled':''\}/.test(app));
-  ok_('the payroll screen explains a total that hours × rate cannot account for', /Number\(ot\.holiday\)>0\?` \+ 🎉 /.test(app));
+  // v242: folding it into OT เย็น was wrong on the SLIP — a teacher saw "ค่าล่วงเวลาตอนเย็น 1,200"
+  // for a month where 500 of it was a Sunday they came in for. It has its own field and its own line.
+  ok_('the payroll screen has its OWN field for it', /id="pOtHol"/.test(app) && /'pay\.otHoliday'/.test(app));
+  ok_('...the evening field gets only the evening OT', /\$\('#pOt'\)\.value=\(ot\.daily!=null\?ot\.daily:ot\.amount\);/.test(app));
+  ok_('...and it is sent to be calculated', /otHoliday:\+\(\(\$\('#pOtHol'\)\|\|\{\}\)\.value\|\|0\)/.test(app));
 }
 
 console.log('\n7) the real GAS code, against a sheet that predates the Kind column');

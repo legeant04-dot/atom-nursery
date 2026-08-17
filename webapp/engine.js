@@ -1794,7 +1794,9 @@ function createAtomAPI(M, GROWTH_STD) {
       const carry=H.otCarryOver({staffId:p.staffId,month:p.month});
       const otCarry=p.otCarry!=null?Number(p.otCarry):carry.total;
       const oi=ec+tc+(p.otherIncome||0)+adjPlus; const ot=p.otEvening||0; const hb=p.holidayBonus||0;
-      const gross=base+dT+oi+ot+otCarry+hb;
+      // OT วันหยุด — its own line, so the slip says what the money was for
+      const otHol=p.otHoliday!=null?Number(p.otHoliday):H.staffMonthlyOT({staffId:p.staffId,month:p.month}).holiday;
+      const gross=base+dT+oi+ot+otCarry+otHol+hb;
       const ssDeduct=(p.socialSecurityDeduct!=null?p.socialSecurityDeduct:pc.SocialSecurityDeduct)!==false;
       const ss=p.socialSecurity!=null?p.socialSecurity:(ssDeduct?Math.min(Math.round(base*cfg.SocialSecurityRate),cfg.SocialSecurityMax):0);
       // เงินสมทบ is a savings fund: the teacher's half is deducted, the school matches it, and the
@@ -1809,7 +1811,7 @@ function createAtomAPI(M, GROWTH_STD) {
         accum+=own+emp; });
       accum=Math.round(accum*100)/100;
       const od=(p.otherDeductions||0)+adjMinus; const dd=contrib+od; const total=ss+dd; const net=gross-total;
-      const rec={PayrollID:nextSeqId_(M.payroll,'PayrollID','PR',4),StaffID:p.staffId,Month:p.month,PayType:payType,DailyRate:dailyRate,DaysWorked:daysWorked,BaseSalary:base,DiligenceAttendance:dA,DiligenceFacebook:dF,DiligenceTotal:dT,ExtraChildAmount:ec,ChildCount:childCount,ChildThreshold:threshold,RatedTotal:ratedTotal,ChildMultiplier:childMult,TrainingCertAmount:tc,OTEvening:ot,OTCarry:otCarry,OTCarryDetail:JSON.stringify(carry.detail||[]),HolidayBonus:hb,OtherIncome:oi,GrossIncome:gross,SocialSecurity:ss,Contribution:contrib,ContributionEmployer:contribEmp,ContributionAccum:accum,OtherDeductions:od,TotalDeductions:total,Adjustments:adj,AdjustmentsTotal:adjSum,NetPay:net,BankAccount:cfg.BankName,LeaveDays:ls.days,LeaveLimit:ls.limit,LeaveExceeds:leaveExceeds};
+      const rec={PayrollID:nextSeqId_(M.payroll,'PayrollID','PR',4),StaffID:p.staffId,Month:p.month,PayType:payType,DailyRate:dailyRate,DaysWorked:daysWorked,BaseSalary:base,DiligenceAttendance:dA,DiligenceFacebook:dF,DiligenceTotal:dT,ExtraChildAmount:ec,ChildCount:childCount,ChildThreshold:threshold,RatedTotal:ratedTotal,ChildMultiplier:childMult,TrainingCertAmount:tc,OTEvening:ot,OTCarry:otCarry,OTCarryDetail:JSON.stringify(carry.detail||[]),OTHoliday:otHol,HolidayBonus:hb,OtherIncome:oi,GrossIncome:gross,SocialSecurity:ss,Contribution:contrib,ContributionEmployer:contribEmp,ContributionAccum:accum,OtherDeductions:od,TotalDeductions:total,Adjustments:adj,AdjustmentsTotal:adjSum,NetPay:net,BankAccount:cfg.BankName,LeaveDays:ls.days,LeaveLimit:ls.limit,LeaveExceeds:leaveExceeds};
       const i=M.payroll.findIndex(x=>x.StaffID===p.staffId&&ym(x.Month)===ym(p.month));
       // preview → return the numbers without persisting (see the GAS route)
       if(p.preview){ rec.PayrollID=i>=0?M.payroll[i].PayrollID:''; rec.Preview=true; rec.Saved=i>=0; return rec; }
@@ -2826,6 +2828,9 @@ function createAtomAPI(M, GROWTH_STD) {
     otCarryOver: p => { const mm=ym(p.month); const approved={};
       (M.otRecords||[]).forEach(r=>{ if(r.StaffID!==p.staffId)return;
         const st=String(r.Status||'').toUpperCase(); if(st&&st!=='APPROVED')return;
+        // holiday OT is paid on its OWN payslip line, so it must not be counted here against what
+        // OTEvening paid — every month would look short-paid and carry the same amount for ever
+        if(isHolidayOT_(r))return;
         const m=ym(r.Month||r.Date); if(!m)return; approved[m]=(approved[m]||0)+(Number(r.Amount)||0); });
       const paidFor={}, carriedFor={};
       (M.payroll||[]).forEach(r=>{ if(r.StaffID!==p.staffId)return; const m=ym(r.Month);
