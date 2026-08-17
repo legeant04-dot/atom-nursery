@@ -10,9 +10,13 @@ function annStaffById_(id) {
 }
 function annSheet_() {
   var sh = sheet_(getMainSpreadsheet_(), 'ANNOUNCEMENTS');
-  ensureColumns_(sh, ['Popup', 'StartDate', 'EndDate', 'Priority']);
+  ensureColumns_(sh, ['Popup', 'StartDate', 'EndDate', 'Priority', 'StartTime', 'EndTime']);
   return sh;
 }
+// A time is written as text, never as a bare 'HH:mm' value Sheets would turn into a 1899 Date — the
+// bug that made the Big Cleaning hours look unsaved (see getConfigTime_). Blank = the whole day.
+function annTime_(v) { var s = String(v == null ? '' : v).trim().slice(0, 5);
+  return /^\d{2}:\d{2}$/.test(s) ? s : ''; }
 function annBust_() { if (typeof cacheDel_ === 'function') { cacheDel_('col:ANNOUNCEMENTS'); cacheDel_('rows:ANNOUNCEMENTS'); } }
 
 /** payload: { title, titleEN?, content?, contentEN?, image?, popup?, startDate?, endDate?, priority?, type?, target? } */
@@ -24,7 +28,8 @@ function handleAddAnnouncement(p) {
   appendObject_(sh, {
     AnnID: id, Title: p.title || '', TitleEN: p.titleEN || '', Content: p.content || '', ContentEN: p.contentEN || '',
     Image: p.image || '', Date: today, Type: p.type || 'news', TargetGroup: p.target || 'all',
-    Popup: !!p.popup, StartDate: p.startDate || today, EndDate: p.endDate || '', Priority: Number(p.priority) || 0
+    Popup: !!p.popup, StartDate: p.startDate || today, EndDate: p.endDate || '', Priority: Number(p.priority) || 0,
+    StartTime: annTime_(p.startTime), EndTime: annTime_(p.endTime)
   });
   annBust_();
   return { AnnID: id };
@@ -45,6 +50,9 @@ function handleEditAnnouncement(p) {
   if (p.startDate != null) patch.StartDate = p.startDate;
   if (p.endDate != null) patch.EndDate = p.endDate;
   if (p.priority != null) patch.Priority = Number(p.priority) || 0;
+  // a time is CLEARABLE: sending '' means "the whole day again", so these check for undefined only
+  if (p.startTime !== undefined) patch.StartTime = annTime_(p.startTime);
+  if (p.endTime !== undefined) patch.EndTime = annTime_(p.endTime);
   if (p.image != null && p.image !== '') patch.Image = p.image;   // keep the existing image when blank
   updateRow_(sh, r._row, patch); annBust_();
   return { AnnID: r.AnnID };
