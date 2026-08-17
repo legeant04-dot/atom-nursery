@@ -208,19 +208,36 @@ function createAtomAPI(M, GROWTH_STD) {
    * that was also a Big Cleaning day, marked all 31 children ขาด. So the rule lives HERE and the
    * handlers (schoolDay, dashboard) hand it out; no screen works it out for itself.
    */
-  const schoolDayFor_ = d => { const date=ymd(d||todayLocal());
+  const schoolDayFor_ = (d, atTime) => { const date=ymd(d||todayLocal());
     const bc=isBigCleaning_(date);
     const hol=(M.holidays||[]).find(h=>ymd(h.Date)===date);
     const g=new Date(date+'T00:00:00').getDay(); const weekend=(g===0||g===6);
-    const closed=!bc && (weekend || !!hol);      // answers for STAFF
-    const closedStd=!!(weekend || hol);          // answers for the CHILDREN
+    /* A HOLIDAY CAN BE HALF A DAY. "19/08 08:00–12:30" means the school is shut for that window and
+     * open around it: no check-in or pick-up while it lasts, and the calendar says so. Both times
+     * blank means the whole day, which is how every holiday entered before this behaved — and an
+     * unreadable cell (Sheets can hand a time back as an 1899 Date) falls back to blank, i.e. the
+     * whole day, rather than to midnight, which would silently un-close the afternoon.
+     * A weekend and a Big Cleaning day are whole-day facts and are not affected. */
+    const hs=hol?cfgTime_(hol.StartTime,''):'', he=hol?cfgTime_(hol.EndTime,''):'';
+    const partial=!!(hol&&(hs||he));
+    // "now" only means something for TODAY. Asked about another date, the honest answer is whether
+    // that day is off ALL day; the window is reported separately for the calendar to draw.
+    const isToday=(date===todayLocal());
+    const now=cfgTime_(atTime, timeLocal());
+    const holNow=!!hol && (!partial || !isToday || ((!hs||now>=hs) && (!he||now<=he)));
+    const holAllDay=!!hol && !partial;
+    const closed=!bc && (weekend || holNow);              // shut RIGHT NOW, for STAFF
+    const closedStd=!!(weekend || holNow);                // ...and for the CHILDREN
     return { date, closed, closedForStudents:closedStd, bigCleaning:bc, weekend,
+      // the whole day off, as opposed to shut for part of it — what a calendar cell needs to know
+      closedAllDay: !bc && (weekend || holAllDay),
+      partial, holStart:hs, holEnd:he,
       // a Big Cleaning day is worked to ITS OWN hours, so the screen can say which ones apply
       bcIn: bc ? bigCleaningIn_() : '', bcOut: bc ? bigCleaningOut_() : '',
       // the reason follows whoever is shut out — on a Big Cleaning Saturday the staff are in but the
       // families are not, and their card still has to say why
-      reason: closedStd ? (hol?(hol.NameTH||hol.NameEN||hol.Name||'วันหยุด'):'วันหยุดสุดสัปดาห์') : '',
-      reasonEN: closedStd ? (hol?(hol.NameEN||hol.NameTH||hol.Name||'Holiday'):'Weekend') : '' }; };
+      reason: (weekend||hol) ? (hol?(hol.NameTH||hol.NameEN||hol.Name||'วันหยุด'):'วันหยุดสุดสัปดาห์') : '',
+      reasonEN: (weekend||hol) ? (hol?(hol.NameEN||hol.NameTH||hol.Name||'Holiday'):'Weekend') : '' }; };
   // A time that isn't a real HH:mm falls back to the default rather than becoming midnight — a
   // config cell can come back from Sheets as a Date, and 'Sat Dec 30 1899…' must never be treated
   // as a working time (see getConfigTime_ / hydrateConfig_ on the GAS side).
@@ -604,10 +621,20 @@ function createAtomAPI(M, GROWTH_STD) {
    * in and are paid, and nobody's child comes to school. Treating it as "open" full stop left the
    * children's drop-off / pick-up buttons live on a day the nursery was shut to them — reported
    * 2026-08-15, a Saturday. `forStudents` is the whole difference, and it is the only difference. */
-  const schoolClosedFor_ = (d, forStudents) => {
+  const schoolClosedFor_ = (d, forStudents, atTime) => {
     if(!forStudents && isBigCleaning_(d)) return null;         // staff work it
     const hol=(M.holidays||[]).find(h=>ymd(h.Date)===d);
-    if(hol) return hol.NameTH||hol.NameEN||hol.Name||'วันหยุด';
+    if(hol){
+      // a half-day holiday only refuses DURING its window — the same window schoolDayFor_ reports,
+      // so the button a screen offers and the answer the server gives cannot disagree
+      const hs=cfgTime_(hol.StartTime,''), he=cfgTime_(hol.EndTime,'');
+      if(hs||he){ const now=cfgTime_(atTime, timeLocal());
+        const inWindow=(!hs||now>=hs)&&(!he||now<=he);
+        if(!inWindow) return null;
+        const nm=hol.NameTH||hol.NameEN||hol.Name||'วันหยุด';
+        return nm+' '+(hs||'00:00')+'-'+(he||'23:59'); }
+      return hol.NameTH||hol.NameEN||hol.Name||'วันหยุด';
+    }
     const g=new Date(d+'T00:00:00').getDay();
     if(g===0||g===6) return 'วันหยุดสุดสัปดาห์';
     return null;
@@ -2663,7 +2690,10 @@ function createAtomAPI(M, GROWTH_STD) {
     saveStudent: p => { const d=p.data||{}; const s=studentById(p.studentId); if(!s)fail('NOT_FOUND','ไม่พบนักเรียน'); Object.assign(s,d); return s; },
 
     holidays: () => M.holidays.slice().sort((a,b)=>a.Date.localeCompare(b.Date)),
-    addHoliday: p => { M.holidays.push({Date:p.date,NameTH:p.nameTH||p.nameEN||'',NameEN:p.nameEN||p.nameTH||'',Recurring:!!p.recurring}); return {ok:true}; },
+    // blank times = the whole day. cfgTime_ turns anything unreadable into blank rather than into
+    // midnight, which would leave the afternoon quietly open.
+    addHoliday: p => { M.holidays.push({Date:p.date,NameTH:p.nameTH||p.nameEN||'',NameEN:p.nameEN||p.nameTH||'',Recurring:!!p.recurring,
+      StartTime:cfgTime_(p.startTime,''),EndTime:cfgTime_(p.endTime,'')}); return {ok:true}; },
     removeHoliday: p => { const i=M.holidays.findIndex(h=>h.Date===p.date&&(h.NameTH===p.nameTH||!p.nameTH)); if(i>=0)M.holidays.splice(i,1); return {ok:true}; },
 
     // ---- vaccines ----

@@ -189,19 +189,43 @@ function assertStaffStarted_(rec) {
  *   it as "open" full stop left the children's drop-off / pick-up live on a day the nursery was shut
  *   to them (reported 2026-08-15, a Saturday). This flag is the whole difference.
  */
+/** A holiday time as text, or '' for "the whole day". Mirrors cfgTime_ in the engine: anything that
+ *  is not a real HH:mm — including the 1899 Date a Sheets time cell decodes to — becomes blank, i.e.
+ *  the whole day, never midnight (which would leave the afternoon open on a full-day holiday). */
+function holTime_(v) {
+  if (v instanceof Date) { try { return Utilities.formatDate(v, tz_(), 'HH:mm'); } catch (e) { return ''; } }
+  var s = String(v == null ? '' : v).trim().slice(0, 5);
+  return /^\d{2}:\d{2}$/.test(s) ? s : '';
+}
 function assertSchoolOpen_(d, forStudents) {
   d = d || new Date();
   var ds = dateStr_(d);
   if (!forStudents) { try { if (isBigCleaningDay_(ds)) return; } catch (e) {} }
   if (!isSchoolClosed_(d)) return;
-  var why = '';
+  var why = '', h = null;
   try {
     var hs = readObjects_(sheet_(getMainSpreadsheet_(), 'HOLIDAYS'));
-    var h = hs.filter(function (x) { return dateStr_(new Date(x.Date)) === ds; })[0];
+    h = hs.filter(function (x) { return dateStr_(new Date(x.Date)) === ds; })[0] || null;
     if (h) why = String(h.NameTH || h.Name || h.NameEN || '');
   } catch (e) {}
+  /* A HOLIDAY CAN BE HALF A DAY: "19/08 08:00–12:30" shuts the school for that window and leaves it
+   * open around it. Outside the window this is an ordinary working day and the check-in must go
+   * through — so the guard lets it past rather than refusing the whole date. isSchoolClosed_ still
+   * answers per-DAY (it is what the digests use to skip a day), which is why the window is checked
+   * here, where the question is "may this person clock in right now". */
+  if (h) {
+    var hs2 = holTime_(h.StartTime), he2 = holTime_(h.EndTime);
+    if (hs2 || he2) {
+      var now = timeStr_(d);
+      var inWindow = (!hs2 || now >= hs2) && (!he2 || now <= he2);
+      if (!inWindow) return;
+      why = why + ' ' + (hs2 || '00:00') + '-' + (he2 || '23:59');
+    }
+  }
   if (!why) { var g = d.getDay(); why = (g === 0 || g === 6) ? 'วันหยุดสุดสัปดาห์' : 'วันหยุด'; }
-  throw apiError_('SCHOOL_CLOSED', 'วันนี้โรงเรียนหยุด (' + why + ') — ไม่ต้องลงเวลา');
+  throw apiError_('SCHOOL_CLOSED', forStudents
+    ? 'ขณะนี้โรงเรียนหยุด (' + why + ') — ไม่มีการรับ-ส่งนักเรียน'
+    : 'ขณะนี้โรงเรียนหยุด (' + why + ') — ไม่ต้องลงเวลา');
 }
 
 // ---- Check-in -----------------------------------------------------

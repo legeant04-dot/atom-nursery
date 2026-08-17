@@ -94,7 +94,8 @@ console.log('\n1) the dashboard carries the answer instead of leaving the screen
     config: { Plans: [], LeaveQuota: {}, BigCleaningDays: [today], Departments: 'Nursery 1' } });
   const a = H.schoolDay({}), b = (H.dashboard() || {}).day || {};
   eq('the two handlers give byte-identical answers', JSON.stringify(a), JSON.stringify(b));
-  ok_('...because there is only one of them', /const schoolDayFor_ = d => \{/.test(eng));
+  // v244: it takes a TIME as well — a holiday can now cover only part of a day
+  ok_('...because there is only one of them', /const schoolDayFor_ = \(d, atTime\) => \{/.test(eng));
   ok_('schoolDay just hands it out', /schoolDay: p => schoolDayFor_\(\(p&&p\.date\)\|\|todayLocal\(\)\),/.test(eng));
   ok_('...and so does the dashboard', /day: schoolDayFor_\(todayLocal\(\)\)\}; \},/.test(eng));
 }
