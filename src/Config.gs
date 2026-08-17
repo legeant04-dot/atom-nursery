@@ -182,7 +182,10 @@ SCHEMA[WB.HR] = {
   PAYROLL:       ['PayrollID', 'StaffID', 'Month', 'BaseSalary',
                   'DiligenceAttendance', 'DiligenceFacebook', 'DiligenceTotal',
                   'ExtraChildCount', 'ExtraChildAmount', 'TrainingCertCount', 'TrainingCertAmount',
-                  'OTEvening', 'HolidayBonus', 'OtherIncome', 'GrossIncome',
+                  // OTHoliday (OT วันหยุด) is its OWN line — never folded into OTEvening, or the slip
+                  // says "evening overtime" for a Sunday the teacher came in for, and otCarryOver_
+                  // (which compares approved-vs-paid on OTEvening) carries it forward for ever.
+                  'OTEvening', 'OTHoliday', 'HolidayBonus', 'OtherIncome', 'GrossIncome',
                   'SocialSecurity', 'Contribution', 'OtherDeductions', 'TotalDeductions',
                   'NetPay', 'BankAccount', 'SlipSent', 'GeneratedDate', 'GeneratedBy',
                   // added later — these were being written and silently dropped for want of a column

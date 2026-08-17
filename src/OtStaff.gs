@@ -116,6 +116,15 @@ function handleAdminAddHolidayOT(p) {
       Step1By: ap.Name, Step1Status: 'Approved', Step2By: ap.Name, Step2Status: 'Approved', Note: note, Kind: 'HOLIDAY'
     });
     added.push(target);
+    /* Tell the teacher. Money agreed for a day they worked, that they are never told about, is
+     * indistinguishable from money that was forgotten — and the person who would notice it missing
+     * from their pay is the one person who was not told. It lands in their own 🔔 bell (the same
+     * per-staff inbox their leave decisions use), not the shared Admin one. */
+    try {
+      inboxAdd_('ot', '🎉 OT วันหยุด ' + date + ' · ' + amount + ' บาท\n' + note +
+        '\n(บันทึกโดย ' + (ap.Name || 'แอดมิน') + ' · จะรวมในเงินเดือนเดือน ' + String(date).slice(0, 7) + ')',
+        'ot|' + target + '|' + date, target);
+    } catch (e) {}
   });
   otBust_();
   return { count: added.length, date: date, amount: amount, staffIds: added, status: 'APPROVED' };
