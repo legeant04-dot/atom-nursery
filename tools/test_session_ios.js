@@ -195,8 +195,11 @@ const reached = (c, a) => c.__sent.reduce((n, b) =>
   {
     const src = R('webapp/api.js');
     ok_('the wait for the foreground cannot hang forever', /removeEventListener\('visibilitychange', on\); r\(\); \}, 30000\)/.test(src));
+    // v247: the rule moved into one canRepeat, used by all three retry paths — a batch is still
+    // only repeatable when EVERY call in it is
     ok_('a batch is only retried if EVERY call in it is safe to repeat',
-      /catch \(netErr\)[\s\S]{0,300}calls\) \|\| \[\]\)\.every\(c => RETRY_SAFE\(c\.action\)\)/.test(src));
+      /catch \(netErr\)[\s\S]{0,200}if \(canRepeat\(body\) && attempt < 2\)/.test(src)
+      && /a === 'batch'\s*\n\s*\? \(\(\(body\.payload \|\| \{\}\)\.calls\) \|\| \[\]\)\.every\(c => ok\(c\.action\)\)/.test(src));
   }
 
   console.log('\n' + (fail ? 'FAILED ' + fail + ' / ' : 'ALL PASS ') + (pass + fail) + ' checks');
