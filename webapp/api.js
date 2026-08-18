@@ -397,9 +397,9 @@ window.CONFIG = { MODE: 'gas', GAS_URL: 'https://script.google.com/macros/s/AKfy
     dspmItems:       /^(save|delete)DspmCriteria|^seedDspm/i,
     vaccineSchedule: /^setSchoolConfig/i,
     // the calendar — only the two screens that edit it
-    holidays:        /^(add|remove)Holiday|^setSchoolConfig/i,
+    holidays:        /^(add|remove|edit)Holiday|^setSchoolConfig/i,
     bigCleaningDays: /^(add|remove)BigCleaning|^setSchoolConfig/i,
-    schoolDay:       /^(add|remove)Holiday|^(add|remove)BigCleaning|^setSchoolConfig/i,
+    schoolDay:       /^(add|remove|edit)Holiday|^(add|remove)BigCleaning|^setSchoolConfig/i,
     // money SETTINGS (not the money itself — bills and slips are live data and stay uncached-on-write)
     getPlans:        /^savePlans|^savePrepayTiers|^setSchoolConfig/i,
     prepayTiers:     /^savePrepayTiers|^savePlans|^setSchoolConfig/i,
@@ -435,7 +435,7 @@ window.CONFIG = { MODE: 'gas', GAS_URL: 'https://script.google.com/macros/s/AKfy
     'confirmSlip', 'rejectSlip', 'deleteSlip', 'recordCashPayment', 'notifyCash', 'issueBillsFor',
     'notifyBills', 'markSalaryPaid', 'computePayroll', 'setPayrollConfig', 'recomputeContributions',
     // the settings screens themselves — each owns something in the table above
-    'addHoliday', 'removeHoliday', 'addBigCleaning', 'removeBigCleaning', 'setSchoolConfig',
+    'addHoliday', 'removeHoliday', 'editHoliday', 'addBigCleaning', 'removeBigCleaning', 'setSchoolConfig',
     'savePlans', 'savePrepayTiers', 'saveQRCodes', 'saveDspmCriteria', 'deleteDspmCriteria',
     'addAnnouncement', 'editAnnouncement', 'deleteAnnouncement', 'reindexAnnouncements',
     'addDepartment', 'removeDepartment', 'renameDepartment', 'decideClassChange', 'submitClassChange',

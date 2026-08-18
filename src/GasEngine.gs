@@ -272,10 +272,34 @@ var COLLECTION_HEADERS_ = {
                      'StartDate', 'EndDate', 'Status', 'Anonymous', 'CreatedBy', 'CreatedAt'],
   SURVEY_RESPONSES: ['ResponseID', 'SurveyID', 'StudentID', 'ParentID', 'Rating', 'Choice', 'Comment', 'Answers', 'SubmittedAt']
 };
+/**
+ * The declared columns for a collection's sheet: the map above first, then the DATABASE SCHEMA in
+ * Config.gs, which is where every other sheet's columns already live.
+ *
+ * This fallback is the whole fix for a bug that had cost the school twice. The comment below claims
+ * topping the header up fixes the dropped-column problem "once, for every collection" — it did not,
+ * because the map it read held only the four sheets that one build introduced. Every OTHER sheet's
+ * new columns were declared in Config.gs SCHEMA, where nothing ever looked, so writeRows_ mapped the
+ * row onto the OLD header and dropped them without a word:
+ *   - HOLIDAYS.StartTime/EndTime (v244) — a half-day holiday saved and came back a whole-day one,
+ *     which also meant the check-in guard never closed the half day it was told to close;
+ *   - ANNOUNCEMENTS.StartTime/EndTime (v241) — the same, for an announcement's showing window.
+ * Neither could be seen in testing: a fresh sheet is created WITH the new columns, so only a school
+ * that already had the sheet — i.e. only the live one — lost the data.
+ */
+function collectionHeaders_(def) {
+  if (COLLECTION_HEADERS_[def.sheet]) return COLLECTION_HEADERS_[def.sheet];
+  try {
+    var wb = (def.wb === 'HR') ? WB.HR : WB.MAIN;
+    var s = SCHEMA[wb] && SCHEMA[wb][def.sheet];
+    if (s && s.length) return s;
+  } catch (e) {}
+  return null;
+}
 function ensureCollectionSheet_(def) {
   var ss = wbOf_(def.wb);
   var sh = ss.getSheetByName(def.sheet);
-  var hdr = COLLECTION_HEADERS_[def.sheet];
+  var hdr = collectionHeaders_(def);
   if (sh) {
     /**
      * The sheet exists — but does it have every column we declare?
