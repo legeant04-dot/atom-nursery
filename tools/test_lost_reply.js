@@ -116,8 +116,11 @@ console.log('\n6) the client refuses a reply that answers a different question')
   ok_('a NO_ACTION reply is treated as lost', /j\.error\.code === 'NO_ACTION'/.test(post));
   ok_('a mismatched action is treated as lost', /j\.a && asked && j\.a !== asked/.test(post));
   ok_('a reply with no name is left alone (older deployment)', /j\.a && asked/.test(post));
-  ok_('a lost READ is asked again', /if \(safe1 && attempt < 2\)/.test(post));
-  ok_('a lost WRITE is never repeated', /safe1 = act1 === 'batch'[\s\S]{0,200}RETRY_SAFE\(act1\)/.test(post));
+  // v247: the three retry paths ask ONE question now (canRepeat), instead of spelling the rule out
+  // three times — see tools/test_lost_request.js for what it answers, including the two staff
+  // punches, which are safe to repeat because the SERVER refuses the duplicate.
+  ok_('a lost READ is asked again', /if \(canRepeat\(body\) && attempt < 2\)/.test(post));
+  ok_('a lost WRITE is never repeated', /const canRepeat = body => \{/.test(api) && /RETRY_SAFE\(x\) \|\| IDEMPOTENT_WRITE\.test/.test(api));
   ok_('and it fails with a code, not a JavaScript message', /e3\.code = 'LOST_REQUEST'/.test(post));
   ok_('it is recorded so we can see whether it stops', /PERF\.err\('lostReply'/.test(post));
   ok_('the logger never logs itself', /asked !== 'perfLog'/.test(post));

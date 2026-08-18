@@ -104,11 +104,7 @@ window.CONFIG = { MODE: 'gas', GAS_URL: 'https://script.google.com/macros/s/AKfy
     let r;
     try { r = await fetch(CONFIG.GAS_URL, { method: 'POST', body: payload }); }
     catch (netErr) {
-      const act0 = body && body.action;
-      const safe0 = act0 === 'batch'
-        ? (((body.payload || {}).calls) || []).every(c => RETRY_SAFE(c.action))
-        : RETRY_SAFE(act0);
-      if (safe0 && attempt < 2) {
+      if (canRepeat(body) && attempt < 2) {
         if (typeof document !== 'undefined' && document.hidden) await visible();
         await sleep(400 * (attempt + 1));
         return postGas(body, attempt + 1);
@@ -137,30 +133,50 @@ window.CONFIG = { MODE: 'gas', GAS_URL: 'https://script.google.com/macros/s/AKfy
         (j.error && j.error.code === 'NO_ACTION') ||        // the body never arrived: nothing ran
         (j.a && asked && j.a !== asked));                   // answered something else entirely
       if (lost) {
+        /* WHY does a POST arrive as an action-less GET? Eight of these across seven people in one
+         * day and we still cannot say. Guessing is how the v186 crash went unexplained for months,
+         * so record the three facts that would identify it instead: the HTTP status, whether the
+         * response came back from a REDIRECT, and where it finally landed. Apps Script answers /exec
+         * with a 302 to googleusercontent.com, and a 302 on a POST is re-issued by the browser as a
+         * GET — which is exactly what an action-less GET looks like from the server's side. If that
+         * is the mechanism these three fields will say so, and if it is not they rule it out. */
+        let diag = '';
+        try { diag = ' http=' + r.status + (r.redirected ? ' redirected' : '') +
+          ' via=' + String(r.url || '').replace(/^https?:\/\//, '').split('/')[0]; } catch (x) {}
         // never log the logger: a lost perfLog reply that recorded itself could feed itself forever
-        if (asked !== 'perfLog') PERF.err('lostReply', asked + ' got ' + ((j.a || (j.error && j.error.code)) || '?') + ' attempt=' + attempt);
-        const act1 = body && body.action;
-        const safe1 = act1 === 'batch'
-          ? (((body.payload || {}).calls) || []).every(c => RETRY_SAFE(c.action))
-          : RETRY_SAFE(act1);
-        // A read is simply asked again. A WRITE is never repeated — we know this reply came from a
-        // request that did nothing, but not that the original POST did nothing at every hop, and a
-        // duplicated payment is worse than an error the person can act on.
-        if (safe1 && attempt < 2) { await sleep(400 * (attempt + 1)); return postGas(body, attempt + 1); }
-        const e3 = new Error('คำขอไม่ถึงระบบ กรุณาลองใหม่อีกครั้ง');
+        if (asked !== 'perfLog') PERF.err('lostReply', asked + ' got ' + ((j.a || (j.error && j.error.code)) || '?') + ' attempt=' + attempt + diag);
+        /* A read is simply asked again. A WRITE is not repeated — a duplicated payment is worse
+         * than an error the person can act on — EXCEPT where the server itself refuses the
+         * duplicate: a second check-in is answered ALREADY_CHECKED_IN, which the app now treats as
+         * the success it is (v245). Those two are safe to repeat because the SERVER makes them
+         * safe, not because we hope the first one did nothing. That is the whole of the exception,
+         * and it is why a teacher whose morning punch is lost in transit no longer has to notice. */
+        if (canRepeat(body) && attempt < 2) {
+          await sleep(400 * (attempt + 1));
+          return postGas(body, attempt + 1).then(d => {
+            // the retry worked: say so, or the report accuses a request nobody ever saw fail
+            if (asked !== 'perfLog') { try { PERF.mark('healed', asked, 0); } catch (x) {} }
+            return d;
+          });
+        }
+        // NO_ACTION means the server never dispatched anything, so nothing was saved — say that,
+        // because it is what tells the person it is safe to simply do it again.
+        const e3 = new Error('คำขอไม่ถึงระบบ — ยังไม่มีการบันทึกข้อมูล กรุณาลองใหม่อีกครั้ง');
         e3.code = 'LOST_REQUEST';
         throw e3;
       }
       return j;
     } catch (e) {
+      /* The reply above was READ fine — it just was not ours, and the branch that decided so threw
+       * from INSIDE this try. Without this line that carefully-worded refusal ("nothing was saved,
+       * it is safe to do again") was caught here and replaced with "อ่านคำตอบจากระบบไม่ได้", which
+       * is both wrong and useless to the person holding the phone; the log said BAD_RESPONSE for
+       * what was really a lost request, so the two were indistinguishable in the report. */
+      if (e && e.code === 'LOST_REQUEST') throw e;
       const looksHTML = /^\s*<(!doctype|html)/i.test(text);
       try { console.error('postGas non-JSON', body && body.action, r.status, text.slice(0, 300)); } catch (x) {}
       // a batch is retried only when every call in it is safe to repeat
-      const act = body && body.action;
-      const safe = act === 'batch'
-        ? (((body.payload || {}).calls) || []).every(c => RETRY_SAFE(c.action))
-        : RETRY_SAFE(act);
-      if (safe && attempt < 2) { await sleep(400 * (attempt + 1)); return postGas(body, attempt + 1); }
+      if (canRepeat(body) && attempt < 2) { await sleep(400 * (attempt + 1)); return postGas(body, attempt + 1); }
       const err = new Error(looksHTML
         ? 'ระบบของโรงเรียนตอบกลับไม่ถูกต้อง (HTTP ' + r.status + ') — กรุณาลองใหม่อีกครั้ง'
         : 'อ่านคำตอบจากระบบไม่ได้ (HTTP ' + r.status + ')');
@@ -478,6 +494,24 @@ window.CONFIG = { MODE: 'gas', GAS_URL: 'https://script.google.com/macros/s/AKfy
   // — a retried payment or check-in would be worse than the error. Used by postGas (declared above,
   // but only ever CALLED after this module has finished initialising).
   const RETRY_SAFE = a => a === 'auth' || a === 'ping' || (a !== 'batch' && !isMutating(a));
+  /* Writes the SERVER refuses to do twice. A second staff punch is answered ALREADY_CHECKED_IN /
+   * ALREADY_CHECKED_OUT — it cannot create a duplicate row — and since v245 the app reads that as
+   * the success it is and shows the real time. So these are safe to send again when a request is
+   * lost in transit, and only these: the safety comes from the server's own guard, not from hoping
+   * the first attempt did nothing. Nothing to do with money is here, and nothing should be added
+   * without a guard on the handler to point at. */
+  const IDEMPOTENT_WRITE = /^(staffCheckin|staffCheckout)$/;
+  /* "May this request be sent again?" — asked in THREE places (the connection never opened, the
+   * reply was unreadable, the reply answered a different question) and, until now, written out
+   * three times. Three copies of one rule is how a batch ends up retryable on one path and not on
+   * another; it is the same mistake as "is the school open today", which cost two releases. */
+  const canRepeat = body => {
+    const a = body && body.action;
+    const ok = x => RETRY_SAFE(x) || IDEMPOTENT_WRITE.test(String(x || ''));
+    return a === 'batch'
+      ? (((body.payload || {}).calls) || []).every(c => ok(c.action))
+      : ok(a);
+  };
 
   // gas mode: micro-batch all api() calls made in the same tick (e.g. a screen's Promise.all)
   // into ONE request -> one round-trip, and GAS hydrates the sheets once for the whole batch.
