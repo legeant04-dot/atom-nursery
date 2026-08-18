@@ -94,8 +94,12 @@ ok_('a child simply not here yet is told to check them in',
 
 console.log('\n=== 3. correcting a time is an attendance job ===');
 ok_('the admin reaches it from ดำเนินการ → นักเรียน', /A_editAttPick\(\)/.test(app));
+// v248 slotted the attendance CHECK (A_attAudit) into the same row, between the OT list and the
+// correction tool — the order is still OT → check → correct → report, which is the order of the job
 ok_('…sat between OT รับช้า and สรุปรายชั้นเรียน',
-  /A_studentOT\(\)'\][\s\S]{0,160}A_editAttPick\(\)'\][\s\S]{0,160}A_studentReport\(\)'\]/.test(app));
+  /A_studentOT\(\)'\][\s\S]{0,320}A_editAttPick\(\)'\][\s\S]{0,160}A_studentReport\(\)'\]/.test(app));
+ok_('…with the new attendance check between the OT list and the correction tool',
+  /A_studentOT\(\)'\][\s\S]{0,160}A_attAudit\(\)'\][\s\S]{0,160}A_editAttPick\(\)'\]/.test(app));
 ok_('it is a picker, so the child is chosen by name', /A_editAttFilter/.test(app) && /eaRow/.test(app));
 ok_('…and hands off to the existing corrector', /EDIT_ATT\('\$\{esc\(s\.StudentID\)\}'\)/.test(app));
 ok_('it is gone from the ADMIN’s per-student ⋯ menu',
