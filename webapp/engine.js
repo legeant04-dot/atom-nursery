@@ -912,6 +912,51 @@ function createAtomAPI(M, GROWTH_STD) {
       }
       logAct('editStudentAttendance',st.StudentID,date+' เข้า '+(h.InTime||'-')+' ออก '+(h.OutTime||'-')+' — '+remark,actorOf(p));
       return {studentId:st.StudentID,date,checkIn:h.InTime||'',checkOut:h.OutTime||'',ot}; },
+    /**
+     * WHO IS STILL UNACCOUNTED FOR — one day, every child, and what is missing.
+     *
+     * A pick-up that nobody tapped is not a small thing: the child is left showing "at school"
+     * forever, the day's attendance is wrong, and the late-pickup OT that the family owes is never
+     * raised. The app knew this per child, on the class screen, one at a time; nobody could see the
+     * whole day at once, which is exactly the view you need to close it out at 18:00.
+     *
+     * A missing OUT is left OPEN on purpose — the system must NOT invent a going-home time. A teacher
+     * or head teacher enters the real one (editStudentAttendance), and the OT is then charged from
+     * that time like any other pick-up: dropped off 07:50, entered as 18:40 → 1 hour of OT.
+     *
+     * Scope is the same rule as everywhere else: Admin (and a head teacher, Department '*') sees the
+     * school; a teacher sees the classes they cover — the same classes they are allowed to correct.
+     */
+    attendanceAudit: p => {
+      const date=ymd(p.date||todayLocal());
+      const day=schoolDayFor_(date);
+      const isAdmin=String(p.role||'')==='Admin'||String(p.role||'')==='Observer';
+      const me=staffById(p.staffId)||{};
+      const all=isAdmin || String(me.Department||'')==='*';
+      const cov=all?null:(coveredClasses_(me)||[]).map(c=>c.ClassName);
+      const rows=activeStudents()
+        .filter(s=>!studentPaused_(s,date))
+        .filter(s=>all || cov.indexOf(s.Class)>=0)
+        .filter(s=>!p.className || s.Class===p.className)
+        .map(s=>{
+          const h=(M.studentCheckins||[]).find(c=>String(c.StudentID)===String(s.StudentID)&&ymd(c.Date)===date)||{};
+          const inT=String(h.InTime||'').slice(0,5), outT=String(h.OutTime||'').slice(0,5);
+          const lv=studentLeaveToday_(s.StudentID, date);
+          // a leave answers for the day: a child the family told us about is not "missing"
+          const status = lv.onLeave ? 'LEAVE' : (inT&&outT) ? 'DONE' : inT ? 'OPEN' : 'NONE';
+          const ot=(M.otDaily||[]).find(o=>String(o.StudentID)===String(s.StudentID)&&ymd(o.Date)===date)||null;
+          return { studentId:s.StudentID, nick:s.Nickname, nickEN:s.NicknameEN, name:s.NameTH, nameEN:s.NameEN,
+            class:s.Class, photo:s.PhotoURL||'', status, inTime:inT, outTime:outT,
+            planEnd:otThreshold(s), leaveType:lv.leaveType, leaveReason:lv.leaveReason,
+            otAmount:ot?Number(ot.Amount||0):0, otLate:ot?Number(ot.LateMinutes||0):0, otStatus:ot?String(ot.Status||''):'' }; })
+        .sort((a,b)=>String(a.class).localeCompare(String(b.class))||String(a.nick||a.name).localeCompare(String(b.nick||b.name)));
+      const n=st=>rows.filter(r=>r.status===st).length;
+      return { date, scope:all?'school':'myClasses', canEdit:!!(isAdmin||p.staffId),
+        closed:!!day.closedForStudents, closedAllDay:!!day.closedAllDay, holiday:day.partial?{start:day.holStart,end:day.holEnd}:null,
+        classes:[...new Set(rows.map(r=>r.class))],
+        counts:{ total:rows.length, done:n('DONE'), open:n('OPEN'), none:n('NONE'), leave:n('LEAVE') },
+        rows }; },
+
     // Admin audit: every on-behalf student check-in/out (who recorded it, the time entered, the reason,
     // and whether it produced an OT charge) — so a disputed pick-up time can be verified.
     staffCheckinLog: p => { const days=Number(p.days||14); const cutoff=(()=>{ const d=new Date(); d.setDate(d.getDate()-days); return ymd(d.toISOString?d.toISOString():d); })();
@@ -2701,6 +2746,30 @@ function createAtomAPI(M, GROWTH_STD) {
     addHoliday: p => { M.holidays.push({Date:p.date,NameTH:p.nameTH||p.nameEN||'',NameEN:p.nameEN||p.nameTH||'',Recurring:!!p.recurring,
       StartTime:cfgTime_(p.startTime,''),EndTime:cfgTime_(p.endTime,'')}); return {ok:true}; },
     removeHoliday: p => { const i=M.holidays.findIndex(h=>h.Date===p.date&&(h.NameTH===p.nameTH||!p.nameTH)); if(i>=0)M.holidays.splice(i,1); return {ok:true}; },
+    /**
+     * Correct a holiday IN PLACE. A wrong date or a wrong half-day window used to mean delete-then-
+     * add: two writes, and if the second one failed the school was left with no holiday at all —
+     * on a day the check-in guard had already been told to close.
+     *
+     * `date`+`nameTH` identify the row as they do for removeHoliday; anything else given is the new
+     * value, and anything omitted is left alone. Blank times mean the whole day, exactly as they do
+     * on the way in — passing '' is how you turn a half day back into a full one.
+     */
+    editHoliday: p => { const from=ymd(p.date||''), name=String(p.nameTH==null?'':p.nameTH);
+      const h=M.holidays.find(x=>ymd(x.Date)===from&&(String(x.NameTH||'')===name||!name));
+      if(!h) fail('NOT_FOUND','ไม่พบวันหยุดที่ต้องการแก้ไข');
+      const to=ymd(p.newDate||'')||from;
+      if(to!==from && M.holidays.some(x=>x!==h&&ymd(x.Date)===to)) fail('DUPLICATE','มีวันหยุดของวันนี้อยู่แล้ว');
+      const s=cfgTime_(p.startTime,''), e=cfgTime_(p.endTime,'');
+      if(s&&e&&e<s) fail('BAD_INPUT','เวลาสิ้นสุดอยู่ก่อนเวลาเริ่ม');
+      h.Date=to;
+      if(p.newNameTH!=null||p.newNameEN!=null){
+        const th=String(p.newNameTH!=null?p.newNameTH:(h.NameTH||'')), en=String(p.newNameEN!=null?p.newNameEN:(h.NameEN||''));
+        h.NameTH=th||en; h.NameEN=en||th; }
+      if(p.recurring!=null) h.Recurring=!!p.recurring;
+      if(p.startTime!=null) h.StartTime=s;
+      if(p.endTime!=null) h.EndTime=e;
+      return {ok:true, date:h.Date, nameTH:h.NameTH, startTime:h.StartTime||'', endTime:h.EndTime||''}; },
 
     // ---- vaccines ----
     // A vaccine record holds MULTIPLE dose dates per (StudentID, Key) — some vaccines need several shots.

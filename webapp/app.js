@@ -112,7 +112,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.247'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.248'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -720,7 +720,7 @@
   window.GO = function(screen, opts){
     // every real navigation leaves whatever sub-view was open — check for unsaved work first.
     // Runs before CURRENT is reassigned so leaveOk() can re-push the entry the user came from.
-    if(!(opts&&opts.silent)){ if(!leaveOk(opts)) return; CUR_SUB=null; FORM_DIRTY=false; }
+    if(!(opts&&opts.silent)){ if(!leaveOk(opts)) return; CUR_SUB=null; FORM_DIRTY=false; window._ATTA_OPEN=false; }
     // a REDRAW of the screen we're already on (save/delete/refresh) keeps the user's place;
     // a real navigation still starts at the top. Must be read before CURRENT is reassigned.
     const snap = (screen===CURRENT && !(opts&&opts.fromPop)) ? uiSnap() : null;
@@ -1966,14 +1966,23 @@
     }catch(e){err(e);} finally{ if(btn)btn.disabled=false; } };
   // A parent has just paid the school. Say thank you properly — this is the one moment in the app
   // where the family has done something for us, and a grey toast was all they got.
-  window.P_thanks=(amount, outstanding)=>{ const out=Number(outstanding||0);
+  // `method` — 'cash' when the money was handed over at the school, anything else (blank) when a slip
+  // was attached. A family who paid in cash was being thanked for a slip they never sent, which reads
+  // as though the school did not notice what they actually did. What we PROMISE differs too: a slip is
+  // checked, cash has to be confirmed as received.
+  window.P_thanks=(amount, outstanding, method)=>{ const out=Number(outstanding||0);
+    const cash = String(method||'')==='cash';
     modal(`<div style="text-align:center;padding:4px 2px">
       <div style="font-size:46px;line-height:1.1">🙏</div>
       <h3 style="margin:6px 0 2px">${EN()?'Thank you':'ขอบพระคุณค่ะ'}</h3>
       ${amount?`<div style="font-size:22px;font-weight:700;color:var(--blue);margin:2px 0 6px">${baht(amount)}</div>`:''}
-      <p style="font-size:14px;line-height:1.7;margin:0 6px">${EN()
-        ? 'We have received your slip and will confirm it shortly. Thank you for trusting us with your child — every day they are with us, we look after them as our own.'
-        : 'ทางโรงเรียนได้รับสลิปของคุณเรียบร้อยแล้ว และจะตรวจสอบให้โดยเร็วที่สุดค่ะ<br><br>ขอบพระคุณที่ไว้วางใจให้เราดูแลลูกของคุณ ทุกวันที่น้องอยู่กับเรา เราดูแลเหมือนลูกของเราเองค่ะ 💛'}</p>
+      <p style="font-size:14px;line-height:1.7;margin:0 6px">${
+        cash ? (EN()
+          ? 'Thank you for paying in cash at the school. We will confirm the amount received in the system as soon as possible. Thank you for trusting us with your child — every day they are with us, we look after them as our own.'
+          : 'ขอบพระคุณสำหรับการชำระเป็นเงินสดที่โรงเรียนค่ะ ทางโรงเรียนจะทำการยืนยันยอดเงินสดที่ได้รับในระบบโดยเร็วที่สุดค่ะ<br><br>ขอบพระคุณที่ไว้วางใจให้เราดูแลลูกของคุณ ทุกวันที่น้องอยู่กับเรา เราดูแลเหมือนลูกของเราเองค่ะ 💛')
+        : (EN()
+          ? 'We have received your slip and will confirm it shortly. Thank you for trusting us with your child — every day they are with us, we look after them as our own.'
+          : 'ทางโรงเรียนได้รับสลิปของคุณเรียบร้อยแล้ว และจะตรวจสอบให้โดยเร็วที่สุดค่ะ<br><br>ขอบพระคุณที่ไว้วางใจให้เราดูแลลูกของคุณ ทุกวันที่น้องอยู่กับเรา เราดูแลเหมือนลูกของเราเองค่ะ 💛')}</p>
       ${out>0?`<div class="card" style="background:var(--warn-bg);border-color:var(--warn-line);color:var(--warn);margin-top:10px;padding:8px;font-size:13px">
         ${EN()?`Remaining balance ${baht(out)} — you can attach another slip any time.`:`ยังมียอดค้างอีก ${baht(out)} · แนบสลิปเพิ่มได้ทุกเมื่อค่ะ`}</div>`:''}
       <button class="btn block" style="margin-top:12px" onclick="this.closest('.modal').remove()">${EN()?'You’re welcome':'ยินดีค่ะ'}</button></div>`); };
@@ -1985,7 +1994,7 @@
     <button class="btn outline block" style="margin-top:8px" onclick="this.closest('.modal').remove()">${esc(t('c.close'))}</button></div>`); };
   window.P_cashDo=async(kind,id,amt,btn)=>{ const m=btn.closest('.modal');
     try{ await api('notifyCash',{kind,id,amount:amt,parentId:USER.parentId,uid:USER.uid}); m.remove();
-      toast(t('pay.cashNotified')); P_thanks(amt,0); GO('payment'); }catch(e){err(e);} };
+      toast(t('pay.cashNotified')); P_thanks(amt,0,'cash'); GO('payment'); }catch(e){err(e);} };
 
   // ---- combined payment: one slip, several items (2-level tick: child → each outstanding item) ----
   // items now include tuition bill + each extra charge + each open OT (item-level ticking).
@@ -2045,7 +2054,10 @@
       <div class="card" style="background:var(--ok-bg);padding:8px;margin-top:4px"><div class="spread">
         <b>${EN()?'Total to transfer':'ยอดรวมที่ต้องโอน'}</b><b id="pickTotal" style="font-size:20px;color:var(--ok)">฿0</b></div>
         <small class="muted" id="pickQrNote"></small></div>
-      <button class="btn block green" id="pickNext" onclick="P_pickPay()">📱 ${EN()?'Next: QR & slip':'ถัดไป: สแกน QR แล้วแนบสลิป'}</button></div>`);
+      <!-- The button used to say "Next: scan the QR and attach a slip". The school takes CASH too,
+           and the next screen offers both — naming only one of them told half the families the
+           wrong thing about how they are allowed to pay. -->
+      <button class="btn block green" id="pickNext" onclick="P_pickPay()">💳 ${EN()?'Pay':'ชำระ'}</button></div>`);
     P_pickRecalc();
   };
   window.P_pickAll=(on)=>{ document.querySelectorAll('.pickCb,.pickAllKid').forEach(c=>c.checked=on); P_pickRecalc(); };
@@ -2126,7 +2138,7 @@
     try{ const r=await api('payCombinedCash',Object.assign({items:_COMB.items, amount:amt, paidDate:date},parentScope()));
       m.remove();
       confirmSaved(EN()?'Cash payment sent to the school':'แจ้งชำระเงินสดแล้ว — รอโรงเรียนตรวจสอบ');
-      P_thanks(r&&r.total||amt,0); GO('payment');
+      P_thanks(r&&r.total||amt,0,'cash'); GO('payment');
     }catch(e){ err(e); btn.disabled=false; } };
 
   // (the old combined-payment DIALOG lived here. The pick list on the payment screen replaced it;
@@ -2403,6 +2415,7 @@
       ${isLeader?`<div class="card"><div class="spread"><h3>${esc(t('corg.title'))}</h3><button class="btn sm" onclick="T_classOrg()">🔁 ${esc(t('corg.manage'))}</button></div><small class="muted">${esc(t('corg.leaderNote'))}</small><div id="myccr" style="margin-top:8px"></div></div>`:''}
       <div class="card"><div class="row"><button class="btn sm outline" onclick="GO('absence')">🔎 ${esc(t('abs.title'))}</button>
         <button class="btn sm outline" onclick="T_studentOT()">⏰ ${EN()?'Student OT (follow-up)':'OT นักเรียน (ติดตามชำระ)'}</button>
+        <button class="btn sm outline" onclick="A_attAudit()">🕵️ ${EN()?'Attendance check':'ตรวจสอบการลงเวลา'}</button>
         ${canOrg?`<button class="btn sm outline" onclick="T_organize()">🔁 ${EN()?'Organize classes':'จัดชั้นเรียน'}</button>`:''}
         ${canFood?`<button class="btn sm outline" onclick="A_foodMenu()">🍚 ${EN()?'Monthly food menu':'เมนูอาหารรายเดือน'}</button>`:''}</div></div>
       <div class="card"><div class="spread"><h3>👶 ${esc(cl.class.ClassName)}</h3><span class="muted">${cl.students.length} ${EN()?'kids':'คน'}</span></div>${classSwitcher(cl)}
@@ -3958,6 +3971,7 @@
       try{ window._SALERTS=await api('studentAlerts',{staffId:USER.staffId,role:USER.role}); }catch(e){ window._SALERTS=null; }
       app.innerHTML=`<h2 class="page">✅ ${EN()?'Operations':'ดำเนินการ'}</h2>${mainSeg}
         ${opTools([['⏰',EN()?'Student late-pickup OT':'OT รับช้า (นักเรียน)','A_studentOT()'],
+                   ['🕵️',EN()?'Attendance check':'ตรวจสอบการลงเวลา','A_attAudit()'],
                    ['🕑',EN()?'Correct check-in / pick-up':'แก้ไขเวลารับ-ส่ง','A_editAttPick()'],
                    ['📊',EN()?'Class report':'สรุปรายชั้นเรียน','A_studentReport()']])}
         <p class="muted" style="font-size:13px">${EN()?'Absences by day and class. Tap a day to see who is absent per class (history included).':'การลาแยกรายวันและชั้นเรียน · แตะวันเพื่อดูว่านักเรียนคนไหนขาดในแต่ละชั้น (ดูย้อนหลังได้)'}</p>
@@ -6405,8 +6419,34 @@
         <div class="grid2"><label class="field"><span>${esc(t('hol.startTime'))}</span><input type="time" id="hStart"/></label><label class="field"><span>${esc(t('hol.endTime'))}</span><input type="time" id="hEnd"/></label></div>
         <small class="muted">${esc(t('hol.timeNote'))}</small>
         <button class="btn block" style="margin-top:8px" onclick="A_addHoliday()">${esc(t('hol.add'))}</button></div>
-      <div class="card"><h3>📋 ${esc(t('hol.list'))}</h3>${hs.map(h=>`<div class="list-item"><span><b>${esc(h.Date)}</b> · ${esc(EN()?h.NameEN:h.NameTH)}${holWindow(h)?` <span class="pill wait" style="font-size:11px">🕘 ${esc(holWindow(h))}</span>`:''}${h.Recurring?` <span class="pill info">${esc(t('hol.yearly'))}</span>`:''}</span><button class="btn sm pink" onclick="A_removeHoliday('${h.Date}','${esc(h.NameTH)}')" aria-label="${EN()?"Delete":"ลบ"}" title="${EN()?"Delete":"ลบ"}">🗑️</button></div>`).join('')}</div>`;
+      <div class="card"><h3>📋 ${esc(t('hol.list'))}</h3>${hs.map(h=>`<div class="list-item"><span><b>${esc(h.Date)}</b> · ${esc(EN()?h.NameEN:h.NameTH)}${holWindow(h)?` <span class="pill wait" style="font-size:11px">🕘 ${esc(holWindow(h))}</span>`:''}${h.Recurring?` <span class="pill info">${esc(t('hol.yearly'))}</span>`:''}</span><span class="acts2"><button class="btn sm outline" onclick="A_editHoliday('${esc(h.Date)}','${esc(h.NameTH||'')}')" aria-label="${EN()?"Edit":"แก้ไข"}" title="${EN()?"Edit":"แก้ไข"}">✏️</button><button class="btn sm pink" onclick="A_removeHoliday('${h.Date}','${esc(h.NameTH)}')" aria-label="${EN()?"Delete":"ลบ"}" title="${EN()?"Delete":"ลบ"}">🗑️</button></span></div>`).join('')}</div>`;
+    window._HOLS=hs;
   };
+  /**
+   * Correct a holiday that is already saved. A typo in the date, or a half-day window that turned out
+   * to be the wrong half, used to mean deleting it and adding it again — and between those two steps
+   * the day was open for check-in with nobody at school.
+   */
+  window.A_editHoliday=(date,nameTH)=>{ const h=(window._HOLS||[]).find(x=>String(x.Date)===String(date)&&String(x.NameTH||'')===String(nameTH))||{Date:date,NameTH:nameTH};
+    modal(`<h3>✏️ ${EN()?'Edit holiday':'แก้ไขวันหยุด'} — ${esc(h.Date)}</h3>
+      <div class="grid2"><label class="field"><span>${esc(t('hol.date'))}</span><input type="date" id="ehDate" value="${esc(ymd(h.Date))}"/></label>
+        <label class="field" style="display:flex;align-items:center;gap:8px;margin-top:22px"><input type="checkbox" id="ehRec" style="width:auto" ${h.Recurring?'checked':''}/> ${esc(t('hol.recurring'))}</label></div>
+      <div class="grid2"><label class="field"><span>${esc(t('hol.nameTH'))}</span><input id="ehNameTH" value="${esc(h.NameTH||'')}"/></label>
+        <label class="field"><span>${esc(t('hol.nameEN'))}</span><input id="ehNameEN" value="${esc(h.NameEN||'')}"/></label></div>
+      <div class="grid2"><label class="field"><span>${esc(t('hol.startTime'))}</span><input type="time" id="ehStart" value="${esc(String(h.StartTime||'').slice(0,5))}"/></label>
+        <label class="field"><span>${esc(t('hol.endTime'))}</span><input type="time" id="ehEnd" value="${esc(String(h.EndTime||'').slice(0,5))}"/></label></div>
+      <small class="muted">${esc(t('hol.timeNote'))}</small>
+      <button class="btn sm outline block" style="margin-top:6px" onclick="document.getElementById('ehStart').value='';document.getElementById('ehEnd').value=''">🕘 ${EN()?'Clear the times (all day)':'ล้างเวลา (หยุดทั้งวัน)'}</button>
+      <button class="btn block" style="margin-top:8px" onclick="A_editHolidaySave('${esc(h.Date)}','${esc(h.NameTH||'')}',this)">${esc(t('c.save'))}</button>
+      <button class="btn outline block" style="margin-top:8px" onclick="this.closest('.modal').remove()">${esc(t('c.close'))}</button>`); };
+  window.A_editHolidaySave=async(date,nameTH,btn)=>{ const m=btn.closest('.modal'); const g=id=>{ const e=m.querySelector('#'+id); return e?e.value.trim():''; };
+    const s=g('ehStart'), e=g('ehEnd');
+    if(s&&e&&e<s){ toast(EN()?'The end time is before the start time':'เวลาสิ้นสุดอยู่ก่อนเวลาเริ่ม'); return; }
+    if(!g('ehDate')){ toast(t('hol.date')); return; }
+    btn.disabled=true;
+    try{ await api('editHoliday',{date,nameTH,newDate:g('ehDate'),newNameTH:g('ehNameTH'),newNameEN:g('ehNameEN'),
+        recurring:m.querySelector('#ehRec').checked,startTime:s,endTime:e});
+      m.remove(); confirmSaved(t('c.saved')); GO_('holidays'); }catch(err_){ err(err_); btn.disabled=false; } };
   window.A_addHoliday=async()=>{ const d=$('#hDate').value; if(!d){toast(t('hol.date'));return;}
     const s=($('#hStart')||{}).value||'', e=($('#hEnd')||{}).value||'';
     // half a day means a window, and a window that ends before it starts is not one
@@ -6720,6 +6760,10 @@
   // Teachers can fix their own classes; a head teacher and Admin can fix anyone (enforced server-side).
   window.EDIT_ATT=async(sid,dateStr)=>{
     let st=(A_CACHE.students||[]).find(x=>x.StudentID===sid);
+    // the attendance-check screen already knows this child's name, and a teacher may not be allowed
+    // to list every student in the school — ask the page before asking the server
+    if(!st && window._ATTA){ const r=(_ATTA.rows||[]).find(x=>x.studentId===sid);
+      if(r) st={StudentID:sid,Nickname:r.nick,NicknameEN:r.nickEN,NameTH:r.name,NameEN:r.nameEN,Class:r.class}; }
     if(!st){ try{ const l=await api('listStudents'); if(l&&l.length){ A_CACHE.students=l; st=l.find(x=>x.StudentID===sid); } }catch(e){} }
     st=st||{StudentID:sid};
     const date=dateStr||todayStr();
@@ -6742,7 +6786,107 @@
         remark:g('eaWhy')||undefined,staffId:USER.staffId,role:USER.role});
       m.remove();
       confirmSaved((EN()?'Times updated':'แก้ไขเวลาแล้ว')+(r&&r.checkOut?'':' · '+(EN()?'back at school':'กลับเป็นอยู่ที่โรงเรียน')));
+      if(window._ATTA_OPEN){ A_attAudit((window._ATTA||{}).date); return; }
       GO(CURRENT); }catch(e){ err(e); btn.disabled=false; } };
+
+  /* ================= ตรวจสอบการลงเวลานักเรียน =====================================================
+   * The whole day on one screen: who arrived, who went home, and who is still unaccounted for.
+   *
+   * A child nobody checked OUT stays "at school" for ever, the day's attendance is wrong, and the
+   * late-pickup OT the family owes is never raised. The app could fix that one child at a time, from
+   * the class screen — but nobody could SEE the list, which is the thing you need at 18:00.
+   *
+   * The system never guesses a going-home time. It leaves the day OPEN and a teacher or head teacher
+   * enters the real one; the OT is then charged from that time like any other pick-up (dropped off
+   * 07:50, entered as 18:40 → 1 hour). It writes through editStudentAttendance, so the class scope,
+   * the OT recompute and the activity log are the ones that already exist — not a second copy.
+   */
+  let ATTA={date:'',filter:'all',className:''};
+  window.A_attAudit=async(date)=>{ ATTA.date=date||ATTA.date||todayStr();
+    const back=(USER&&USER.role==='Admin')?'leaves':'home';
+    app.innerHTML=`<button class="btn sm outline backbtn" onclick="GO('${back}')">${t('c.back')}</button>
+      <h2 class="page">🕵️ ${EN()?'Attendance check':'ตรวจสอบการลงเวลานักเรียน'}</h2>
+      <div class="card muted">${EN()?'Loading…':'กำลังโหลด…'}</div>`;
+    let d; try{ d=await api('attendanceAudit',{date:ATTA.date,staffId:USER.staffId,role:USER.role}); }
+    catch(e){ err(e); return; }
+    window._ATTA=d; A_attRender(); };
+  window.A_attDate=(v)=>{ A_attAudit(v); };
+  window.A_attTab=(f)=>{ ATTA.filter=f; A_attRender(); };
+  window.A_attClass=(c)=>{ ATTA.className=c||''; A_attRender(); };
+  function A_attRender(){ const d=window._ATTA; if(!d)return;
+    const c=d.counts||{}, back=(USER&&USER.role==='Admin')?'leaves':'home';
+    const tab=(k,icon,label,n,cls)=>`<button class="btn sm ${ATTA.filter===k?'':'outline'}" onclick="A_attTab('${k}')" style="flex:1;min-width:88px">${icon} ${esc(label)} <b>${n}</b></button>`;
+    let rows=(d.rows||[]).filter(r=>!ATTA.className||r.class===ATTA.className);
+    if(ATTA.filter!=='all') rows=rows.filter(r=>r.status===ATTA.filter);
+    const dn=r=>EN()?(r.nickEN||r.nameEN||r.nick||r.name||r.studentId):(r.nick||r.name||r.studentId);
+    const pill=r=>r.status==='DONE'?`<span class="pill ok">✅ ${EN()?'complete':'ครบ'}</span>`
+      :r.status==='OPEN'?`<span class="pill wait">⏳ ${EN()?'not picked up':'ยังไม่ลงเวลากลับ'}</span>`
+      :r.status==='LEAVE'?`<span class="pill info">📩 ${esc(r.leaveType||(EN()?'on leave':'ลา'))}</span>`
+      :`<span class="pill bad">➖ ${EN()?'no times':'ยังไม่ลงเวลา'}</span>`;
+    // an Observer may look at the day but not change it — the server refuses anyway, so showing the
+    // buttons would only be an invitation to an error message
+    const canEdit=USER&&USER.role!=='Observer';
+    const row=r=>`<div class="list-item" style="flex-wrap:wrap;gap:6px">
+      <span style="min-width:0;flex:1"><b>${esc(dn(r))}</b> <small class="muted">${esc(r.class||'')}</small><br>
+        <small class="muted">🟢 ${esc(r.inTime||'—')} → 🔴 ${esc(r.outTime||'—')} · ${EN()?'ends':'เลิกเรียน'} ${esc(r.planEnd||'')}</small>
+        ${r.otAmount>0?`<br><small style="color:var(--warn)">⏰ OT ${esc(String(r.otLate||0))} ${EN()?'min':'นาที'} · ${baht(r.otAmount)}${r.otStatus==='PAID'?' ✅':''}</small>`:''}</span>
+      <span style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">${pill(r)}
+        ${canEdit&&r.status==='OPEN'?`<button class="btn sm pink" onclick="A_attPunch('${esc(r.studentId)}','OUT')">🔴 ${EN()?'Record pick-up':'ลงเวลากลับ'}</button>`:''}
+        ${canEdit&&r.status==='NONE'?`<button class="btn sm green" onclick="A_attPunch('${esc(r.studentId)}','IN')">🟢 ${EN()?'Record arrival':'ลงเวลาเข้า'}</button>`:''}
+        ${canEdit?`<button class="btn sm outline" onclick="EDIT_ATT('${esc(r.studentId)}','${esc(d.date)}')" aria-label="${EN()?'Edit':'แก้ไข'}" title="${EN()?'Edit':'แก้ไข'}">✏️</button>`:''}</span></div>`;
+    app.innerHTML=`<button class="btn sm outline backbtn" onclick="GO('${back}')">${t('c.back')}</button>
+      <h2 class="page">🕵️ ${EN()?'Attendance check':'ตรวจสอบการลงเวลานักเรียน'}</h2>
+      <div class="card">
+        <label class="field"><span>${EN()?'Day':'วันที่'}</span><input type="date" value="${esc(d.date)}" max="${esc(todayStr())}" onchange="A_attDate(this.value)"/></label>
+        ${d.closed?`<div class="card" style="background:var(--warn-bg);border-color:var(--warn-line);color:var(--warn);padding:8px;font-size:13px">
+          🎉 ${EN()?'The school was closed for children on this day':'วันนี้โรงเรียนหยุดสำหรับนักเรียน'}${d.holiday?` (${esc(d.holiday.start||'')}–${esc(d.holiday.end||'')})`:''}</div>`:''}
+        ${(d.classes||[]).length>1?`<label class="field"><span>${EN()?'Class':'ชั้นเรียน'}</span><select onchange="A_attClass(this.value)">
+          <option value="">${EN()?'All classes':'ทุกชั้นเรียน'}</option>
+          ${d.classes.map(c=>`<option value="${esc(c)}" ${ATTA.className===c?'selected':''}>${esc(c)}</option>`).join('')}</select></label>`:''}
+        <div class="row" style="flex-wrap:wrap;gap:6px;margin-top:4px">
+          ${tab('all','👶',EN()?'All':'ทั้งหมด',c.total||0)}
+          ${tab('OPEN','⏳',EN()?'Not picked up':'ยังไม่ลงเวลากลับ',c.open||0)}
+          ${tab('NONE','➖',EN()?'No times':'ยังไม่ลงเวลา',c.none||0)}
+          ${tab('DONE','✅',EN()?'Complete':'ครบ',c.done||0)}
+          ${tab('LEAVE','📩',EN()?'On leave':'ลา',c.leave||0)}</div>
+        <small class="muted" style="display:block;margin-top:6px">${EN()
+          ? 'The system never invents a pick-up time. Enter the real one — OT is charged from it, exactly as it would be if the parent had tapped.'
+          : 'ระบบจะไม่เดาเวลากลับให้ · ให้ใส่เวลาที่นักเรียนกลับบ้านจริง (ใกล้เคียงที่สุด) · OT จะคิดตามเวลานั้นเหมือนผู้ปกครองกดเอง'}</small></div>
+      ${rows.length?rows.map(row).join(''):`<div class="card muted">${esc(t('c.noItems'))}</div>`}`;
+    // so a correction made through the shared ✏️ form comes back HERE instead of bouncing the user
+    // to whichever screen they arrived from (GO clears it on any real navigation)
+    window._ATTA_OPEN=true;
+    window.scrollTo(0,0); }
+  /**
+   * Enter the time a child really arrived or really went home. Defaulting it to "now" would be the
+   * easy thing and the wrong one — this screen is used hours after the fact, and a default of 18:47
+   * silently bills a family for OT they did not incur. The field starts EMPTY on a past day.
+   */
+  window.A_attPunch=(sid,type)=>{ const d=window._ATTA||{}; const r=(d.rows||[]).find(x=>x.studentId===sid)||{};
+    const dn=EN()?(r.nickEN||r.nameEN||r.nick||r.name||sid):(r.nick||r.name||sid);
+    const isToday=String(d.date)===todayStr();
+    modal(`<h3>${type==='OUT'?'🔴 '+(EN()?'Record pick-up':'ลงเวลากลับ'):'🟢 '+(EN()?'Record arrival':'ลงเวลาเข้า')} — ${esc(dn)}</h3>
+      <p class="muted" style="font-size:13px">${esc(d.date)}${type==='OUT'?` · ${EN()?'school ends':'เลิกเรียน'} ${esc(r.planEnd||'')}${r.inTime?` · ${EN()?'arrived':'เข้าเรียน'} ${esc(r.inTime)}`:''}`:''}</p>
+      <label class="field"><span>${type==='OUT'?(EN()?'Time the child actually went home':'เวลาที่นักเรียนกลับบ้านจริง'):(EN()?'Time the child actually arrived':'เวลาที่นักเรียนมาถึงจริง')}</span>
+        <input type="time" id="apTime" value="${isToday?esc(nowTime()):''}"/></label>
+      ${type==='OUT'?`<div class="card" style="background:var(--warn-bg);border-color:var(--warn-line);padding:8px;font-size:13px">⏰ ${EN()
+        ? 'If it is past the end of the school day, late-pickup OT is charged from this time.'
+        : 'หากเลยเวลาเลิกเรียน ระบบจะคิด OT รับช้าตามเวลานี้ตามจริง'}</div>`:''}
+      <label class="field" style="margin-top:6px"><span>${EN()?'Reason (kept in the log)':'เหตุผล (บันทึกไว้ในประวัติ)'}</span>
+        <input id="apWhy" placeholder="${EN()?'e.g. nobody tapped at pick-up':'เช่น ลืมลงเวลาตอนรับกลับ'}"/></label>
+      <button class="btn block" onclick="A_attPunchSave('${esc(sid)}','${type}',this)">${esc(t('c.save'))}</button>
+      <button class="btn outline block" style="margin-top:8px" onclick="this.closest('.modal').remove()">${esc(t('c.close'))}</button>`); };
+  window.A_attPunchSave=async(sid,type,btn)=>{ const m=btn.closest('.modal'); const d=window._ATTA||{};
+    const time=(m.querySelector('#apTime')||{}).value||'', why=(m.querySelector('#apWhy')||{}).value||'';
+    if(!time){ toast(EN()?'Enter the time':'กรุณาใส่เวลา'); return; }
+    btn.disabled=true;
+    try{ const body={studentId:sid,date:d.date,remark:why||undefined,staffId:USER.staffId,role:USER.role};
+      body[type==='OUT'?'checkOut':'checkIn']=time;
+      const r=await api('editStudentAttendance',body);
+      m.remove();
+      const ot=r&&r.ot;
+      confirmSaved((EN()?'Saved ':'บันทึกแล้ว ')+time+(ot&&ot.amount>0?` · OT ${ot.lateMinutes} ${EN()?'min':'นาที'} ${baht(ot.amount)}`:''));
+      A_attAudit(d.date); }catch(e){ err(e); btn.disabled=false; } };
 
   window.A_finSaveBase=async(sid)=>{ const m=document.querySelector('.modal'); const base=Number(m.querySelector('#fsBase').value)||0;
     try{ await api('saveStaff',{staffId:sid,data:{BaseSalary:base}}); toast(t('c.saved')); }catch(e){err(e);} };
