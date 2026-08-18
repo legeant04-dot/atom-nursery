@@ -355,6 +355,93 @@ window.CONFIG = { MODE: 'gas', GAS_URL: 'https://script.google.com/macros/s/AKfy
   function rcClear() { _rc.clear();
     try { const ks = []; for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); if (k && k.indexOf(CACHE_NS) === 0) ks.push(k); } ks.forEach(k => localStorage.removeItem(k)); } catch (e) {} }
   window.__atomCacheClear = rcClear; // app.js clears on logout / user switch (don't leak data across LINE accounts)
+  /* ---- what a WRITE actually invalidates ------------------------------------------------------
+   *
+   * Every write used to throw away the WHOLE cache, the four-hour tier included, and then refetch
+   * the ten most recent keys. For a parent that is nothing — they write twice a day. For the ADMIN,
+   * who saves constantly, it meant destroying their own cache over and over: measured 17–18 Aug,
+   * one admin visit cost 482 requests against a teacher's 99 and a parent's 32, 16 admin sessions
+   * made 47% of all traffic, the cache hit rate FELL from 75% to 67% after the tiers were added,
+   * and payrollConfig — a four-hour entry — was still fetched 220 times at p50 13.8s.
+   *
+   * So: a read listed here has exactly one set of writes that can change it. Any other write leaves
+   * it alone. Everything NOT listed is cleared exactly as before, which is what makes this safe —
+   * forgetting to list something costs a refetch, never a stale screen. Showing a teacher yesterday's
+   * roll would be far worse than any delay, and that trade is the whole design of this table.
+   */
+  const OWNED_BY = {
+    // the shape of the school — changes when someone reorganises it, not when the day is worked
+    // saveStaff is here because a teacher's Department decides which class they are shown against —
+    // a staff edit CAN change what this returns, even though it is not obviously about a class
+    classList:       /^(add|remove|rename)Class|^orgMove|^moveStudent|^(save|register)Student|^registerNew|^(add|remove|rename)Department|^decideClassChange|^saveStaff|^setStaffEnd/i,
+    departments:     /^(add|remove|rename)Department|^decideClassChange/i,
+    staffGroups:     /^saveStaffGroup|^setSchoolConfig|^saveStaff|^setStaffEnd/i,
+    permissions:     /^saveStaff|^setPermission|^setSchoolConfig/i,
+    dspmCriteria:    /^(save|delete)DspmCriteria|^seedDspm/i,
+    dspmItems:       /^(save|delete)DspmCriteria|^seedDspm/i,
+    vaccineSchedule: /^setSchoolConfig/i,
+    // the calendar — only the two screens that edit it
+    holidays:        /^(add|remove)Holiday|^setSchoolConfig/i,
+    bigCleaningDays: /^(add|remove)BigCleaning|^setSchoolConfig/i,
+    schoolDay:       /^(add|remove)Holiday|^(add|remove)BigCleaning|^setSchoolConfig/i,
+    // money SETTINGS (not the money itself — bills and slips are live data and stay uncached-on-write)
+    getPlans:        /^savePlans|^savePrepayTiers|^setSchoolConfig/i,
+    prepayTiers:     /^savePrepayTiers|^savePlans|^setSchoolConfig/i,
+    payrollConfig:   /^setPayrollConfig|^computePayroll|^saveStaff|^setSchoolConfig|^recomputeContributions/i,
+    leaveQuota:      /^setLeaveQuota|^submitLeave|^approveLeave|^confirmLeave|^cancelLeave|^editLeave|^setSchoolConfig/i,
+    qrCodes:         /^saveQRCodes|^setSchoolConfig/i,
+    // the announcements board
+    announcements:   /^(add|edit|delete)Announcement|^reindexAnnouncements/i,
+    // who I am — only my own record changes it
+    staffSelf:       /^saveStaff|^saveProfile|^setStaffEnd|^adminResetPassword|^changePassword|^setRequireCheckin/i
+  };
+  /* The other half of the safety property, and the one that is easy to get wrong: the table above
+   * says which writes DO change a read — so an unknown write, one nobody has thought about yet,
+   * would slip through every one of those tests and keep the long tier. The next feature to touch
+   * the payroll config would then show a stale figure for four hours.
+   *
+   * So a write must be named HERE as well: one we have actually reasoned about. Anything else — a
+   * new action, a renamed one, a typo — clears everything, exactly as before. Adding a write to
+   * this list is a deliberate act; forgetting to costs a refetch and nothing else. */
+  const SCOPED_WRITES = new RegExp('^(' + [
+    // attendance and the daily record — the things a teacher does all morning
+    'staffCheckin', 'staffCheckout', 'parentCheckin', 'staffStudentCheckin', 'studentAbsence',
+    'submitJournal', 'unlockJournal', 'submitAssessment', 'commentAssessment', 'updateGrowth',
+    'submitInjury', 'editInjury', 'approveInjury', 'unlockInjury', 'deleteInjury',
+    // OT, leave and time — what the admin and the head teacher spend the day approving
+    'adminAddOT', 'adminAddHolidayOT', 'adminEditOT', 'adminDeleteOT', 'approveOT', 'confirmOT', 'payOT',
+    'adminUpdateOT', 'adminCancelOT', 'adminRestoreOT',
+    'submitLeave', 'approveLeave', 'confirmLeave', 'cancelLeave', 'editLeave', 'teacherStudentLeave',
+    'editStudentLeave', 'deleteStudentLeave', 'deleteStudentLeaves', 'setLeaveQuota',
+    'submitTimeRequest', 'approveTimeRequest', 'confirmTimeRequest',
+    // money — bills and slips are live data; only the SETTINGS are cached long
+    'uploadSlip', 'payCombined', 'payCombinedCash', 'payCharge', 'payPrepay', 'prepay', 'cancelPrepay',
+    'confirmSlip', 'rejectSlip', 'deleteSlip', 'recordCashPayment', 'notifyCash', 'issueBillsFor',
+    'notifyBills', 'markSalaryPaid', 'computePayroll', 'setPayrollConfig', 'recomputeContributions',
+    // the settings screens themselves — each owns something in the table above
+    'addHoliday', 'removeHoliday', 'addBigCleaning', 'removeBigCleaning', 'setSchoolConfig',
+    'savePlans', 'savePrepayTiers', 'saveQRCodes', 'saveDspmCriteria', 'deleteDspmCriteria',
+    'addAnnouncement', 'editAnnouncement', 'deleteAnnouncement', 'reindexAnnouncements',
+    'addDepartment', 'removeDepartment', 'renameDepartment', 'decideClassChange', 'submitClassChange',
+    'orgMoveTeacher', 'orgMoveStudent', 'moveStudent', 'saveStaff', 'setStaffEnd', 'setRequireCheckin',
+    'saveStudent', 'registerStudent', 'registerNew', 'saveStaffGroup', 'setPermission', 'seedDspm',
+    'saveProfile', 'adminResetPassword', 'changePassword',
+    'markInboxRead', 'markNotifsRead'
+  ].join('|') + ')$', 'i');
+  const rcOwner = ck => OWNED_BY[ck.slice(0, ck.indexOf('|'))];
+  /** Clear everything this write could have touched; keep only what it provably could not. */
+  function rcClearFor(action) {
+    const keep = [];
+    // a write nobody has reasoned about is treated as if it could have changed anything
+    if (SCOPED_WRITES.test(String(action || ''))) {
+      _rc.forEach((e, ck) => { const own = rcOwner(ck); if (own && !own.test(action)) keep.push([ck, e]); });
+    }
+    rcClear();
+    keep.forEach(([ck, e]) => { _rc.set(ck, e);
+      try { const s = JSON.stringify(e); if (s.length <= MAX_PERSIST) localStorage.setItem(CACHE_NS + ck, s); } catch (x) {} });
+    return keep.length;
+  }
+  window.__atomClearFor = rcClearFor;   // the speed test drives this directly
   const MUT = /^(submit|save|add|remove|delete|set|register|pay|upload|confirm|reject|issue|generate|move|export|import|compute|cancel|prepay|link|notify|request|mark|approve|edit|rename|update|change|seed|dedup|reindex)/i;
   /**
    * Reads that the verb list catches by accident — "payments", "prepayments", "paymentLog" and the
@@ -664,9 +751,9 @@ window.CONFIG = { MODE: 'gas', GAS_URL: 'https://script.google.com/macros/s/AKfy
       if (action === 'auth') {                                                          // capture the session token; never cache auth
         return enqueueGas(action, payload).then(d => { if (d && d.token) { _session = d.token; try { localStorage.setItem('atom_session_token', d.token); } catch (e) {} } return d; });
       }
-      // write → bust the cache (memory + disk), then quietly fill it again so the next screen is
-      // instant instead of waiting on the server all over again
-      if (isMutating(action)) { const was = rcRecentKeys(); rcClear(); return guarded(action, payload).then(d => { rewarmLater(was); return d; }); }
+      // write → throw away what it could have changed, then quietly fill it again so the next
+      // screen is instant instead of waiting on the server all over again
+      if (isMutating(action)) { const was = rcRecentKeys(); rcClearFor(action); return guarded(action, payload).then(d => { rewarmLater(was); return d; }); }
       const ck = action + '|' + JSON.stringify(payload);
       // opts.fresh: never serve a possibly-stale cached value — always fetch (still populates the cache).
       // Used for time-sensitive reads like the announcement popup, where a stale empty must not suppress it.

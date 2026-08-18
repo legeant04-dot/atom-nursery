@@ -105,21 +105,39 @@ const reached = (c, a) => c.__sent.reduce((n, b) =>
     });
   }
 
-  console.log('\n3) A write empties the cache, then fills it again');
+  console.log('\n3) A write empties what it CHANGED, then fills it again');
   {
+    /* v246: a write used to empty the whole cache. It now empties what that write could have
+     * changed and leaves the rest — writing a journal cannot alter the class list. The measured
+     * reason: an admin saves constantly, and clearing everything each time cost them 482 requests
+     * per visit against a teacher's 99. What must not change is the part below: the LIVE entries
+     * still go, and they come back by themselves in one batched request.
+     * The narrowing itself is covered by tools/test_phase1b_write_scope.js. */
     const c = boot();
     await c.api('classList', {});
     await c.api('notifications', {});
-    await c.api('submitJournal', { studentId: 'S1' });        // a write: cache must go
-    eq('the cache really was emptied', c.__store ? Object.keys(c.__store).filter(k => k.indexOf('atom_rc_') === 0).length : -1, 0);
+    await c.api('submitJournal', { studentId: 'S1' });        // a write: the live cache must go
+    const left = c.__store ? Object.keys(c.__store).filter(k => k.indexOf('atom_rc_') === 0) : [];
+    ok_('the live entry really was emptied', !left.some(k => k.indexOf('notifications') >= 0));
+    ok_('...and the class list, which the journal cannot have changed, was kept', left.some(k => k.indexOf('classList') >= 0));
     await wait(1500);                                        // debounce window
-    ok_('the entries came back on their own', reached(c, 'classList') === 2 && reached(c, 'notifications') === 2);
+    eq('the emptied entry came back on its own', reached(c, 'notifications'), 2);
+    eq('...and the kept one was not re-fetched', reached(c, 'classList'), 1);
+    // and now the next screen costs nothing
+    const before = reached(c, 'notifications');
+    await c.api('notifications', {});
+    eq('the next tap is instant', reached(c, 'notifications'), before);
+  }
+  {
+    // a write that DOES own a long entry still clears it, and the re-warm is still one request
+    const c = boot();
+    await c.api('classList', {});
+    await c.api('notifications', {});
+    await c.api('orgMoveStudent', { studentId: 'S1' });       // this one DOES change the class list
+    await wait(1500);
+    ok_('both came back', reached(c, 'classList') === 2 && reached(c, 'notifications') === 2);
     const last = c.__sent[c.__sent.length - 1];
     eq('...in ONE batched request, not one each', last.action, 'batch');
-    // and now the next screen costs nothing
-    const before = reached(c, 'classList');
-    await c.api('classList', {});
-    eq('the next tap is instant', reached(c, 'classList'), before);
   }
   {
     const c = boot();
