@@ -175,7 +175,10 @@ console.log('\n4) the rules that must not bend');
   eq('a write goes to the server every time', total(t.sent) - before >= 1, true);
   const after = total(t.sent);
   await t.ctx.api('classList', {}); await t.settle();
-  ok_('...and throws the cache away, long tier included', total(t.sent) > after);
+  // v246: a write now throws away what it COULD have changed rather than everything. saveStaff is
+  // named as an owner of classList (a teacher's department decides the class they are shown
+  // against), so this still holds — and tools/test_phase1b_write_scope.js covers the narrowing.
+  ok_('...and throws away the long-tier entries it owns', total(t.sent) > after);
 }
 {
   // nothing dated may cross midnight, however long its tier is
