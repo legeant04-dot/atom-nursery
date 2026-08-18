@@ -127,8 +127,13 @@ console.log('\n=== 4. Big Cleaning: a working day with its own hours ===');
   eq('an ordinary day carries no Big Cleaning hours', H.schoolDay({ date: '2026-08-19' }).bcIn, '');
   ok_('…and today does', !!d.bcIn);
 }
-ok_('check-in measures late against the day’s own start', /const bc=isBigCleaning_\(todayLocal\(\)\); const inT=bc\?\(bigCleaningIn_\(\)\):sch\.CheckInTime/.test(eng));
-ok_('check-out measures OT against the day’s own end', /isBigCleaning_\(todayLocal\(\)\)\?\(bigCleaningOut_\(\)\):sch\.CheckOutTime/.test(eng));
+// v249: the day's hours moved into ONE place (atomStaffHours_, asked via staffHoursOn_) because a
+// half-day holiday needed the same treatment and five call sites were answering for themselves.
+ok_('check-in measures late against the day’s own start', /const hrs=staffHoursOn_\(p\.staffId, todayLocal\(\)\);/.test(eng)
+  && /const raw=lateVs\(hrs\.checkIn,t\);/.test(eng));
+ok_('check-out measures OT against the day’s own end', /const outT=staffHoursOn_\(p\.staffId, todayLocal\(\)\)\.checkOut;/.test(eng));
+ok_('…and a meeting day still replaces the shift entirely',
+  /bigCleaning: isBigCleaning_\(d\), bigCleanIn: bigCleaningIn_\(\), bigCleanOut: bigCleaningOut_\(\)/.test(eng));
 ok_('the two times live in one place', /const bigCleaningIn_  = \(\) =>/.test(eng) && /const bigCleaningOut_ = \(\) =>/.test(eng));
 // v229: read through getConfigTime_ — a time cell comes back from Sheets as a Date (test_config_time.js)
 ok_('GAS reports them to the admin screen too', /checkIn: getConfigTime_\('BigCleaningIn', '08:30'\)/.test(ci));

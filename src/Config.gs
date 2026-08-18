@@ -227,6 +227,12 @@ var SCHOOL_CONFIG_DEFAULTS = [
   // home. 0 = the old strict rule. See gpsSlack_ in Checkin.gs.
   ['GpsAccuracySlack',      '50'],
   ['LateGraceMinutes',      '0'],            // grace window before "late" is counted
+  /* A half-day holiday that ends at noon makes noon the start of work (atomStaffHours_). This is how
+   * many minutes either side of that moment the app is reasonable about: clocking in opens this far
+   * BEFORE the school does, and the same minutes are forgiven AFTER. Without it, a teacher standing
+   * at the gate at 11:58 has to wait, taps at 12:01, and loses the month's ฿500 เบี้ยขยัน to the
+   * loading spinner — attendanceEligible_ drops it on a single late minute. */
+  ['HolidayReopenWindowMinutes', '15'],
 
   // --- Billing ---
   ['QRCode',                '<FILL PromptPay QR payload / image URL>'],   // legacy alias of QRCode_Monthly

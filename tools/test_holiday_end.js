@@ -70,13 +70,20 @@ console.log('\n1) which days the school is shut — one answer, for every screen
 
 console.log('\n2) the server refuses attendance on a closed day');
 {
-  ok_('one helper decides it', /function assertSchoolOpen_\(d, forStudents\)/.test(checkin));
+  // v249: + openFrom — staff only, and only on a day that reopens partway through (atomStaffHours_)
+  ok_('one helper decides it', /function assertSchoolOpen_\(d, forStudents, openFrom\)/.test(checkin));
   ok_('...built on the SAME isSchoolClosed_ the digests use', /if \(!isSchoolClosed_\(d\)\) return;/.test(checkin));
   // v234: a Big Cleaning day is a working Saturday for the STAFF. No child comes to school, so it
   // is let through only when the question is about staff.
   ok_('a Big Cleaning day is let through — for STAFF',
     /if \(!forStudents\) \{ try \{ if \(isBigCleaningDay_\(ds\)\) return; \} catch \(e\) \{\} \}/.test(checkin));
-  eq('staff check-IN and check-OUT are both guarded', (checkin.match(/assertSchoolOpen_\(\);/g) || []).length, 2);
+  /* v249: check-IN is guarded (and now knows the day's own opening time, so a teacher may tap in the
+   * last 15 minutes before the school reopens). Check-OUT is guarded NO LONGER: an afternoon closure
+   * trapped every teacher already at work and left the day with no end time. */
+  eq('staff check-IN is guarded, and knows when the day opens',
+    (checkin.match(/assertSchoolOpen_\(now, false, hrs\.openFrom\);/g) || []).length, 1);
+  ok_('staff check-OUT is not guarded at all, and says why',
+    /Clocking OUT is never refused, on any day/.test(checkin));
   ok_('and the student side too, asking the CHILDREN’s question', /assertSchoolOpen_\(null, true\);/.test(parent));
   // v244: "ขณะนี้" rather than "วันนี้" — a holiday may now cover only part of the day
   ok_('the refusal names the day, not just "no"', /ขณะนี้โรงเรียนหยุด \(' \+ why \+ '\)/.test(checkin));

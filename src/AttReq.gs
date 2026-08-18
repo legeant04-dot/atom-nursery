@@ -39,19 +39,21 @@ function arApply_(req) {
   var date = String(req.Date).slice(0, 10);
   var time = toHHmm_(req.RequestTime);
   var type = String(req.Type).toUpperCase();
-  var sched = staffSchedule_(req.StaffID, new Date(date + 'T00:00:00'));
-  var grace = parseInt(getConfig_('LateGraceMinutes', '0'), 10) || 0;
+  // the day being approved may have had its own hours — a Big Cleaning day, or a holiday that ran
+  // until noon. Asking staffDayHours_ for THAT date is what stops an approval disagreeing with what
+  // the check-in would have recorded on the day itself.
+  var hrs = staffDayHours_(req.StaffID, new Date(date + 'T00:00:00'));
   var row = findObject_(sh, function (r) { return String(r.StaffID) === String(req.StaffID) && String(r.Date).slice(0, 10) === date; });
   var patch = {};
   if (type === 'IN') {
-    var expectHHmm = isBigCleaningDay_(date) ? getConfig_('BigCleaningIn', '08:30') : sched.checkIn;
-    var expectMin = hhmmToMin_(expectHHmm); if (expectMin == null) expectMin = hhmmToMin_('08:00');
+    var expectMin = hhmmToMin_(hrs.checkIn); if (expectMin == null) expectMin = hhmmToMin_('08:00');
     var reqMin = hhmmToMin_(time); if (reqMin == null) reqMin = expectMin;
-    patch.CheckIn = time; patch.LateMinutes = Math.max(0, reqMin - (expectMin + grace)); patch.InManual = 'YES';
+    patch.CheckIn = time;
+    patch.LateMinutes = hrs.dayOff ? 0 : Math.max(0, reqMin - (expectMin + hrs.grace));
+    patch.InManual = 'YES';
     if (!row || !row.Status || String(row.Status) === 'NONE') patch.Status = 'IN';
   } else {
-    var outHHmm = isBigCleaningDay_(date) ? getConfig_('BigCleaningOut', '17:00') : sched.checkOut;
-    var outMin = hhmmToMin_(outHHmm); if (outMin == null) outMin = hhmmToMin_('17:00');
+    var outMin = hhmmToMin_(hrs.checkOut); if (outMin == null) outMin = hhmmToMin_('17:00');
     var rMin = hhmmToMin_(time); if (rMin == null) rMin = outMin;
     var otMin = Math.max(0, rMin - outMin);
     var roundUp = parseInt(getConfig_('OTRoundUpMinutes', '50'), 10) || 50;

@@ -112,7 +112,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.248'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.249'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -2384,8 +2384,24 @@
           ${BC_ICON} <b>${BC_NAME()}</b> — ${EN()?'today’s hours':'เวลาทำงานวันนี้'} <b>${esc(day0.bcIn)}–${esc(day0.bcOut)}</b>
           <br><span class="muted">${EN()?'Late and OT are measured against these, not your usual shift.':'การมาสายและ OT ของวันนี้คิดจากเวลานี้ ไม่ใช่เวลาปกติ'}</span></div>`
       : '';
+    /* The school shut for part of today and opens again partway through. The teacher must be able to
+     * SEE that their day starts then — reading their usual 08:00 off the roster while the gate is
+     * locked is how someone concludes they are already hours late. The server computed this
+     * (atomStaffHours_); the card only prints it. */
+    const hrs0 = att && att.hours;
+    const reopenBar = (hrs0 && hrs0.reopened)
+      ? `<div style="background:var(--blue-bg);border:1px solid var(--blue-line);border-radius:8px;padding:8px;margin-bottom:8px;font-size:13px">
+          🎉 <b>${EN()?'The school is closed this morning':'วันนี้โรงเรียนหยุดช่วงแรก'}</b> — ${EN()?'work starts':'เริ่มงาน'} <b>${esc(hrs0.checkIn)}</b> · ${EN()?'finish':'เลิกงาน'} <b>${esc(hrs0.checkOut)}</b>
+          <br><span class="muted">${EN()
+            ? `You are not late before ${hrs0.checkIn}, and you can clock in from ${hrs0.openFrom}. OT still runs from ${hrs0.checkOut}.`
+            : `ไม่นับสายก่อน ${esc(hrs0.checkIn)} · ลงเวลาได้ตั้งแต่ ${esc(hrs0.openFrom)} · OT ยังคิดจาก ${esc(hrs0.checkOut)} ตามเดิม`}</span></div>`
+      : (hrs0 && hrs0.dayOff)
+      ? `<div style="background:var(--warn-bg);border:1px solid var(--warn-line);border-radius:8px;padding:8px;margin-bottom:8px;font-size:13px">
+          🎉 <b>${EN()?'A day off — no need to clock in':'วันนี้เป็นวันหยุด — ไม่ต้องลงเวลา'}</b>
+          <br><span class="muted">${EN()?'The holiday covers your whole shift. Nothing counts as late or absent.':'เวลาวันหยุดครอบคลุมทั้งกะของคุณ · ไม่นับสายและไม่นับขาดงาน'}</span></div>`
+      : '';
     app.innerHTML = `<h2 class="page">${esc(t('t.greeting'))}${esc(EN()?USER.nameEN:USER.nameTH)} 👩‍🏫</h2>
-      <div class="card"><h3>⏱️ ${esc(t('lbl.worktime'))} (${esc(att.date)})</h3>${bcBar}
+      <div class="card"><h3>⏱️ ${esc(t('lbl.worktime'))} (${esc(att.date)})</h3>${bcBar}${reopenBar}
         ${me0.RequireCheckin===false?`<div style="background:var(--blue-bg);border-radius:8px;padding:8px;color:var(--blue);font-size:13px">ℹ️ ${esc(t('ci.notRequired'))}</div>`
         // School shut today: the server refuses the punch anyway (assertSchoolOpen_), so live buttons
         // could only produce an error. Name the holiday — the recent-days list stays, because that is

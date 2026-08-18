@@ -164,8 +164,13 @@ console.log('\n=== 3. a Big Cleaning day is for the STAFF, not the children ==='
 // v244: + atTime, so a half-day holiday refuses only during its own window
 ok_('the rule is written down once', /const schoolClosedFor_ = \(d, forStudents, atTime\)/.test(eng));
 ok_('the parent path asks the children’s question', /assertSchoolOpen_\(null, true\);   \/\/ a Big Cleaning day is a working day for STAFF, not for children/.test(eng));
-ok_('the GAS route asks it too', /assertSchoolOpen_\(null, true\);/.test(par) && /function assertSchoolOpen_\(d, forStudents\)/.test(ci));
-ok_('…and the staff routes still do not', (ci.match(/assertSchoolOpen_\(\);/g) || []).length === 2);
+// v249: + openFrom, so a teacher may clock in the last few minutes before the school reopens
+ok_('the GAS route asks it too', /assertSchoolOpen_\(null, true\);/.test(par) && /function assertSchoolOpen_\(d, forStudents, openFrom\)/.test(ci));
+ok_('…and the staff routes still do not ask the children’s question',
+  !/assertSchoolOpen_\([^)]*,\s*true/.test(ci.slice(ci.indexOf('function handleStaffCheckin'))));
+// v249: check-OUT is no longer guarded at all — someone at work must always be able to go home
+ok_('…the staff check-IN is the only staff path that is guarded',
+  (ci.match(/assertSchoolOpen_\(now, false, hrs\.openFrom\);/g) || []).length === 1);
 ok_('the parent card reads closedForStudents', /window\._SCHOOLDAY\.closedForStudents/.test(app));
 ok_('the teacher’s on-behalf button is closed too', /const stdClosed = !!\(window\._SCHOOLDAY && window\._SCHOOLDAY\.closedForStudents\)/.test(app));
 ok_('…and says the nursery is shut to the children', /วันนี้โรงเรียนหยุดสำหรับนักเรียน/.test(app));

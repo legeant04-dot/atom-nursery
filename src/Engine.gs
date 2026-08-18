@@ -7,6 +7,76 @@
  * hydrated-from-Sheets on GAS). Handlers in H read/mutate M.* and return plain data — no DOM/window.
  * Browser loads this via <script>; GAS uses the generated copy src/Engine.gs (run tools/build_engine.js).
  */
+/* ============================================================================================
+ * WHAT HOURS DOES THIS PERSON WORK, ON THIS DAY — one answer, for everything that asks.
+ *
+ * Five places used to work this out for themselves: the check-in (lateness), the check-out (OT), the
+ * recompute tool, the approval of a back-dated attendance request, and the teacher's own history
+ * card. Big Cleaning was already special-cased in some of them and not others.
+ *
+ * Then a HALF-DAY HOLIDAY made the disagreement expensive. "07:00–12:00" shuts the school until
+ * noon; a teacher who arrives the moment it reopens was recorded 241 minutes late — and
+ * attendanceEligible_ drops the whole month's เบี้ยขยัน (฿500) on a single late minute. Nobody was
+ * late. The school was shut.
+ *
+ * The rule the school gave (2026-08-18):
+ *   - start work at the END of the holiday window, when that window covers their normal start
+ *   - finish at their OWN normal time, and OT still runs from that same time
+ *   - a window that swallows the whole shift is a day off — not a late mark, not an absence
+ *
+ * Two more decisions, because a rule that is right on paper and unusable in the doorway is not
+ * right: clocking in opens WINDOW minutes before the school does, and the same WINDOW minutes are
+ * forgiven after it. Otherwise a teacher standing at the gate at 11:58 has to wait, tap at 12:01,
+ * and lose ฿500 to the loading spinner.
+ *
+ * This function is PURE — times in, times out, no sheets, no M. That is what lets the Apps Script
+ * routes (Checkin.gs, AttReq.gs) and the engine handlers share it instead of keeping five opinions.
+ * It lives at the top level of engine.js so the generated Engine.gs makes it a GAS global.
+ *
+ *   o.checkIn/checkOut   the person's normal shift (from WORK_SCHEDULE, their group, or the default)
+ *   o.bigCleaning        + bigCleanIn/bigCleanOut — that day's own hours replace the shift entirely
+ *   o.holStart/holEnd    the holiday window on this date; BOTH blank = a whole-day holiday, which is
+ *                        not this function's business (nobody works, so nobody is late)
+ *   o.grace              the school's normal lateness grace (LateGraceMinutes)
+ *   o.window             minutes either side of a reopening (HolidayReopenWindowMinutes, default 15)
+ *
+ * -> { checkIn, checkOut, grace, dayOff, reopened, openFrom, holEnd }
+ * ========================================================================================== */
+function atomStaffHours_(o) {
+  o = o || {};
+  var hhmm = function (v) { var s = String(v == null ? '' : v).trim();
+    var m = /^(\d{1,2}):(\d{2})/.exec(s); return m ? (('0' + m[1]).slice(-2) + ':' + m[2]) : ''; };
+  var toMin = function (v) { var t = hhmm(v); if (!t) return null;
+    return parseInt(t.slice(0, 2), 10) * 60 + parseInt(t.slice(3, 5), 10); };
+  var addMin = function (v, n) { var m = toMin(v); if (m == null) return '';
+    m = Math.max(0, Math.min(24 * 60 - 1, m + n));
+    return ('0' + Math.floor(m / 60)).slice(-2) + ':' + ('0' + (m % 60)).slice(-2); };
+
+  var inT  = hhmm(o.bigCleaning ? (o.bigCleanIn  || o.checkIn)  : o.checkIn)  || '08:00';
+  var outT = hhmm(o.bigCleaning ? (o.bigCleanOut || o.checkOut) : o.checkOut) || '17:00';
+  var grace = Math.max(0, Number(o.grace) || 0);
+  var win = (o.window == null || o.window === '') ? 15 : Math.max(0, Number(o.window) || 0);
+  var res = { checkIn: inT, checkOut: outT, grace: grace, dayOff: false, reopened: false, openFrom: '', holEnd: '' };
+
+  var hs = hhmm(o.holStart), he = hhmm(o.holEnd);
+  if (!hs && !he) return res;                       // no window on this day (or a whole-day holiday)
+  var hsM = hs ? toMin(hs) : 0, heM = he ? toMin(he) : 24 * 60 - 1;
+  var inM = toMin(inT), outM = toMin(outT);
+  // The window only moves the start when it actually COVERS the start. An afternoon closure
+  // (13:00–15:00 on an 08:00 shift) must not push a teacher's start time to 15:00 — they worked
+  // the morning. Leaving early because the school shut is not measured here: nothing in the app
+  // penalises an early finish, and OT still runs from the person's own end time.
+  if (hsM > inM || heM < inM) return res;
+  if (heM >= outM) { res.dayOff = true; res.holEnd = he; return res; }   // the window ate the shift
+
+  res.checkIn = he;
+  res.reopened = true;
+  res.holEnd = he;
+  res.openFrom = win > 0 ? addMin(he, -win) : he;   // clocking in opens before the school does
+  res.grace = Math.max(grace, win);                 // ...and the same minutes are forgiven after
+  return res;
+}
+
 function createAtomAPI(M, GROWTH_STD) {
   const cfg = M.config;
   const p2 = n => String(n).padStart(2,'0');
@@ -198,6 +268,24 @@ function createAtomAPI(M, GROWTH_STD) {
    * credits a diligence bonus (เบี้ยขยัน). Set by the admin; the defaults are the school's usual ones.
    */
   function bigCleaningList_(){ const v=cfg.BigCleaningDays; return (Array.isArray(v)?v:String(v||'').split(',')).map(x=>String(x).trim()).filter(Boolean); }
+  /**
+   * This person's hours on this date — the shift, what a Big Cleaning day or a half-day holiday does
+   * to it, and how late counts as late. Gathers the facts out of M and hands them to atomStaffHours_,
+   * which holds the rule (see the block above createAtomAPI). Nothing here decides anything.
+   */
+  function staffHoursOn_(staffId, date){
+    const d=ymd(date||todayLocal());
+    const w=(M.workSchedule||[]).find(x=>String(x.StaffID)===String(staffId))||{};
+    const s=staffById_(staffId)||{};
+    const g=(M.staffGroups||[]).find(x=>x.GroupName===s.StaffGroup)||{};
+    const hol=(M.holidays||[]).find(h=>ymd(h.Date)===d)||null;
+    return atomStaffHours_({
+      checkIn:  cfgTime_(w.CheckInTime,'')  || cfgTime_(g.CheckInTime,'')  || cfgTime_(cfg.DefaultCheckInTime,'08:00'),
+      checkOut: cfgTime_(w.CheckOutTime,'') || cfgTime_(g.CheckOutTime,'') || cfgTime_(cfg.DefaultCheckOutTime,'17:00'),
+      bigCleaning: isBigCleaning_(d), bigCleanIn: bigCleaningIn_(), bigCleanOut: bigCleaningOut_(),
+      holStart: hol?cfgTime_(hol.StartTime,''):'', holEnd: hol?cfgTime_(hol.EndTime,''):'',
+      grace: Number(cfg.LateGraceMinutes||0), window: cfg.HolidayReopenWindowMinutes });
+  }
   const isBigCleaning_ = date => bigCleaningList_().indexOf(String(date))>=0;
   /**
    * Is the school open, and OPEN TO WHOM — the one answer, computed once and served to every screen.
@@ -641,7 +729,13 @@ function createAtomAPI(M, GROWTH_STD) {
     if(g===0||g===6) return 'วันหยุดสุดสัปดาห์';
     return null;
   };
-  function assertSchoolOpen_(date, forStudents){ const d=ymd(date||todayLocal());
+  /**
+   * `openFrom` — staff only, and only on a day the school REOPENS partway through: clocking in is
+   * allowed from that time even though the school is still shut, so a teacher standing at the gate
+   * does not have to wait for the minute hand and then be marked late for tapping at 12:01.
+   */
+  function assertSchoolOpen_(date, forStudents, openFrom){ const d=ymd(date||todayLocal());
+    if(!forStudents && openFrom && d===todayLocal() && timeLocal()>=openFrom) return;
     const why=schoolClosedFor_(d, forStudents);
     if(!why) return;
     fail('SCHOOL_CLOSED', forStudents
@@ -1517,9 +1611,12 @@ function createAtomAPI(M, GROWTH_STD) {
     myClasses: p => { const s=staffById(p.staffId); const covered=coveredClasses_(s);
       return {classes:covered.map(c=>({className:c.ClassName,classNameEN:c.ClassNameEN||c.ClassName})), all:covered.length===M.classes.length}; },
     myAttendanceToday: p => { const r=M.staffAttendanceToday.find(x=>x.StaffID===p.staffId);
-      const sch=M.workSchedule.find(w=>w.StaffID===p.staffId)||{CheckInTime:cfg.DefaultCheckInTime,CheckOutTime:'17:00'};
       const me=staffById(p.staffId)||{};
-      return {date:todayLocal(), schedule:sch, checkIn:r?r.CheckIn:'', checkOut:r?r.CheckOut:'', late:r?r.Late||0:0, status:r?r.Status:'NONE',
+      // the hours that apply TODAY, not the ones on the person's row — on a day the school reopens at
+      // noon the teacher's card must say 12:00, or they will read 08:00 and think they are hours late
+      const h=staffHoursOn_(p.staffId, todayLocal());
+      const sch={CheckInTime:h.checkIn, CheckOutTime:h.checkOut};
+      return {date:todayLocal(), schedule:sch, hours:h, checkIn:r?r.CheckIn:'', checkOut:r?r.CheckOut:'', late:r?r.Late||0:0, status:r?r.Status:'NONE',
         // before the first working day the buttons are locked and the date is shown instead
         notStarted:!staffStarted_(me), startDate:ymd(me.StartDate||''),
         manualIn:!!(r&&r.InManual&&String(r.InManual).toUpperCase()==='YES'), manualOut:!!(r&&r.OutManual&&String(r.OutManual).toUpperCase()==='YES')}; },
@@ -1681,26 +1778,43 @@ function createAtomAPI(M, GROWTH_STD) {
       return {month, daysInMonth:days, today,
         holidays:Object.keys(hol).map(d=>({date:d,name:hol[d]})), bigCleaning:Object.keys(bc),
         staff:people}; },
-    recentAttendance: p => { const sch=M.workSchedule.find(w=>w.StaffID===p.staffId)||{CheckInTime:'08:00'};
-      const lateOf=hhmm=>{ if(!hhmm)return 0; const raw=Math.max(0,toMin(hhmm)-toMin(sch.CheckInTime)); return raw<=Number(cfg.LateGraceMinutes||0)?0:raw; };
+    recentAttendance: p => {
+      // per DAY, not per person: a half-day holiday or a Big Cleaning day two days ago had different
+      // hours, and re-measuring those mornings against today's shift is how a teacher's own history
+      // card ended up disagreeing with what was recorded on the day
+      const lateOf=(hhmm,onDate)=>{ if(!hhmm)return 0; const h=staffHoursOn_(p.staffId,onDate);
+        if(h.dayOff) return 0;
+        const raw=Math.max(0,toMin(hhmm)-toMin(h.checkIn)); return Math.max(0, raw-h.grace); };
       const yes=v=>!!(v&&String(v).toUpperCase()==='YES');
       const today=M.staffAttendanceToday.find(x=>x.StaffID===p.staffId);
       const out=[{date:todayLocal(), checkIn:today?today.CheckIn:'', checkOut:today?today.CheckOut:'', late:today?today.Late||0:0, status:today?today.Status:'NONE', manualIn:yes(today&&today.InManual), manualOut:yes(today&&today.OutManual)}];
       M.staffAttendanceHistory.filter(h=>h.StaffID===p.staffId).sort((a,b)=>b.Date.localeCompare(a.Date)).slice(0,3)
-        .forEach(h=>out.push({date:h.Date, checkIn:h.In||'', checkOut:h.Out||'', late:lateOf(h.In), status:h.In?'IN':'ABSENT', manualIn:yes(h.InManual), manualOut:yes(h.OutManual)}));
+        .forEach(h=>out.push({date:h.Date, checkIn:h.In||'', checkOut:h.Out||'', late:lateOf(h.In,h.Date), status:h.In?'IN':'ABSENT', manualIn:yes(h.InManual), manualOut:yes(h.OutManual)}));
       return out; },
     staffCheckin: p => { const _me=staffById(p.staffId)||{};
       if(!staffStarted_(_me)) fail('NOT_STARTED','วันแรกของการทำงานคือ '+ymd(_me.StartDate||'')+' — ยังลงเวลาไม่ได้');
-      assertSchoolOpen_(); const d=geo(p.lat,p.lng,p.acc); const t=new Date(); const sch=M.workSchedule.find(w=>w.StaffID===p.staffId)||{CheckInTime:'08:00'};
-      // A Big Cleaning Day is worked to ITS OWN hours (BigCleaningIn/Out, set by the admin) — late is
-      // measured against that time, not the staff's group schedule.
-      const bc=isBigCleaning_(todayLocal()); const inT=bc?(bigCleaningIn_()):sch.CheckInTime;
-      const raw=lateVs(inT,t); const late=raw<=Number(cfg.LateGraceMinutes||0)?0:raw;
+      const hrs=staffHoursOn_(p.staffId, todayLocal());
+      // On a day the school reopens at noon, clocking in opens 15 minutes before it does — see
+      // atomStaffHours_. Outside that, a closed school still refuses.
+      if(hrs.dayOff) fail('SCHOOL_CLOSED','วันนี้เป็นวันหยุดของโรงเรียน — ไม่ต้องลงเวลา');
+      assertSchoolOpen_(null, false, hrs.openFrom);
+      const d=geo(p.lat,p.lng,p.acc); const t=new Date();
+      // A Big Cleaning day is worked to ITS OWN hours, and a half-day holiday moves the start to the
+      // moment the school opens. Both live in atomStaffHours_, so lateness has ONE definition.
+      // Grace is SUBTRACTED, not a threshold: 15 minutes of grace and an arrival 40 minutes after the
+      // start is 25 minutes late, not 40. The engine used to treat it as a threshold and Apps Script
+      // (handleStaffCheckin, which is what runs live) subtracted it — the two agreed only because the
+      // school's grace was 0. Raising it to 15 for a reopening would have made them differ by the
+      // grace itself, on the very rows that decide a month's เบี้ยขยัน.
+      const raw=lateVs(hrs.checkIn,t); const late=Math.max(0, raw-hrs.grace);
       let r=M.staffAttendanceToday.find(x=>x.StaffID===p.staffId);
       if(!r){r={StaffID:p.staffId,CheckIn:'',CheckOut:'',Status:'NONE',Late:0};M.staffAttendanceToday.push(r);} r.CheckIn=timeLocal();r.Late=late;r.Status='IN';
       return {time:r.CheckIn,lateMinutes:late,rawLate:raw,distance:d}; },
-    staffCheckout: p => { assertSchoolOpen_(); const d=geo(p.lat,p.lng,p.acc); const t=new Date(); const sch=M.workSchedule.find(w=>w.StaffID===p.staffId)||{CheckOutTime:'17:00'};
-      const outT=isBigCleaning_(todayLocal())?(bigCleaningOut_()):sch.CheckOutTime;
+    /* Clocking OUT is never refused, on any day. Someone who is here and going home must be able to
+     * say so — an afternoon closure (13:00–17:00) used to trap every teacher who was already at work,
+     * leaving the day with no end time at all. The school's decision, 2026-08-18. */
+    staffCheckout: p => { const d=geo(p.lat,p.lng,p.acc); const t=new Date();
+      const outT=staffHoursOn_(p.staffId, todayLocal()).checkOut;
       const ot=Math.max(0,(t.getHours()*60+t.getMinutes())-toMin(outT));
       // OT rule: ≥OTRoundUpMinutes (50) within an hour rounds up to a full hour
       let r=M.staffAttendanceToday.find(x=>x.StaffID===p.staffId); if(!r)fail('NOT_CHECKED_IN','ยังไม่ได้ลงเวลาเข้างาน'); r.CheckOut=timeLocal();r.Status='OUT';r.OTHours=otHoursRule(ot);
