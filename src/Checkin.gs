@@ -140,6 +140,37 @@ function staffSchedule_(staffId, date) {
   };
 }
 
+/** The holiday row for a date, or null. Read through this so every caller sees the same day. */
+function holidayOn_(ds) {
+  try {
+    var hs = readObjects_(sheet_(getMainSpreadsheet_(), 'HOLIDAYS'));
+    return hs.filter(function (x) { return dateStr_(new Date(x.Date)) === ds; })[0] || null;
+  } catch (e) { return null; }
+}
+
+/**
+ * THE hours this person works on this day — shift, Big Cleaning, half-day holiday, and the grace.
+ *
+ * The rule itself is atomStaffHours_ in Engine.gs (generated from webapp/engine.js), which is a GAS
+ * global and pure — no sheets. This function only fetches the facts. Everything that used to work
+ * lateness out for itself now asks here: check-in, check-out, the recompute tool, and the approval
+ * of a back-dated attendance request. Five opinions became one.
+ */
+function staffDayHours_(staffId, date) {
+  date = date || new Date();
+  var ds = dateStr_(date);
+  var sched = staffSchedule_(staffId, date);
+  var h = holidayOn_(ds);
+  return atomStaffHours_({
+    checkIn: sched.checkIn, checkOut: sched.checkOut,
+    bigCleaning: isBigCleaningDay_(ds),
+    bigCleanIn: getConfigTime_('BigCleaningIn', '08:30'), bigCleanOut: getConfigTime_('BigCleaningOut', '17:00'),
+    holStart: h ? holTime_(h.StartTime) : '', holEnd: h ? holTime_(h.EndTime) : '',
+    grace: parseInt(getConfig_('LateGraceMinutes', '0'), 10) || 0,
+    window: getConfig_('HolidayReopenWindowMinutes', '15')
+  });
+}
+
 /** Resolve the acting staff record from payload (staffId or lineUid). */
 function resolveStaff_(payload) {
   var staff = sheet_(getHrSpreadsheet_(), 'STAFF');
@@ -197,15 +228,21 @@ function holTime_(v) {
   var s = String(v == null ? '' : v).trim().slice(0, 5);
   return /^\d{2}:\d{2}$/.test(s) ? s : '';
 }
-function assertSchoolOpen_(d, forStudents) {
+/**
+ * `openFrom` — STAFF only, and only on a day the school reopens partway through (see
+ * atomStaffHours_). Clocking in is allowed from that time even though the school is still shut, so a
+ * teacher waiting at the gate for noon does not tap at 12:01 and get marked late. Students are never
+ * let in early: the school asked for their side to keep the original condition.
+ */
+function assertSchoolOpen_(d, forStudents, openFrom) {
   d = d || new Date();
   var ds = dateStr_(d);
   if (!forStudents) { try { if (isBigCleaningDay_(ds)) return; } catch (e) {} }
+  if (!forStudents && openFrom && ds === dateStr_(new Date()) && timeStr_(d) >= openFrom) return;
   if (!isSchoolClosed_(d)) return;
   var why = '', h = null;
   try {
-    var hs = readObjects_(sheet_(getMainSpreadsheet_(), 'HOLIDAYS'));
-    h = hs.filter(function (x) { return dateStr_(new Date(x.Date)) === ds; })[0] || null;
+    h = holidayOn_(ds);
     if (h) why = String(h.NameTH || h.Name || h.NameEN || '');
   } catch (e) {}
   /* A HOLIDAY CAN BE HALF A DAY: "19/08 08:00–12:30" shuts the school for that window and leaves it
@@ -234,9 +271,15 @@ function handleStaffCheckin(payload) {
   payload = payload || {};
   var staff = resolveStaff_(payload);
   assertStaffStarted_(staff);
-  assertSchoolOpen_();
-  var dist = assertWithinGeofence_(payload.lat, payload.lng, payload.acc);
   var now = new Date(), today = dateStr_(now);
+  // The day's real hours decide BOTH questions here: may this person clock in yet, and are they late.
+  // On a day the school reopens at noon, clocking in opens 15 minutes early (openFrom) and the same
+  // 15 minutes are forgiven after — a teacher at the gate must not lose a month's เบี้ยขยัน to a
+  // loading spinner. See atomStaffHours_ in Engine.gs.
+  var hrs = staffDayHours_(staff.StaffID, now);
+  if (hrs.dayOff) throw apiError_('SCHOOL_CLOSED', 'วันนี้เป็นวันหยุดของโรงเรียน — ไม่ต้องลงเวลา');
+  assertSchoolOpen_(now, false, hrs.openFrom);
+  var dist = assertWithinGeofence_(payload.lat, payload.lng, payload.acc);
   var sheet = sheet_(getHrSpreadsheet_(), 'CHECKIN_STAFF');
 
   var existing = findObject_(sheet, function (r) {
@@ -246,12 +289,8 @@ function handleStaffCheckin(payload) {
     throw apiError_('ALREADY_CHECKED_IN', 'ลงเวลาเข้างานวันนี้ไปแล้ว (' + toHHmm_(existing.CheckIn) + ')');
   }
 
-  var sched = staffSchedule_(staff.StaffID, now);
-  var grace = parseInt(getConfig_('LateGraceMinutes', '0'), 10) || 0;
-  // a Big Cleaning Day is a special workday with fixed hours 08:30–17:00 → late is measured vs 08:30
-  var expectHHmm = isBigCleaningDay_(today) ? getConfigTime_('BigCleaningIn', '08:30') : sched.checkIn;
-  var expectMin = hhmmToMin_(expectHHmm); if (expectMin == null) expectMin = hhmmToMin_('08:00');
-  var lateMin = Math.max(0, minOfDay_(now) - (expectMin + grace));
+  var expectMin = hhmmToMin_(hrs.checkIn); if (expectMin == null) expectMin = hhmmToMin_('08:00');
+  var lateMin = Math.max(0, minOfDay_(now) - (expectMin + hrs.grace));
 
   if (existing) {
     updateRow_(sheet, existing._row, { CheckIn: timeStr_(now), LateMinutes: lateMin, Status: 'IN' });
@@ -273,15 +312,16 @@ function handleStaffCheckin(payload) {
 function handleRecomputeAttendance(p) {
   var sheet = sheet_(getHrSpreadsheet_(), 'CHECKIN_STAFF');
   var today = dateStr_(new Date());
-  var grace = parseInt(getConfig_('LateGraceMinutes', '0'), 10) || 0;
   var fixed = [];
   readObjects_(sheet).forEach(function (r) {
     if (dateStr_(new Date(r.Date)) !== today || !r.CheckIn) return;
     var ci = toHHmm_(r.CheckIn); var m = /^(\d\d):(\d\d)/.exec(ci); if (!m) return;
     var minOfCI = parseInt(m[1], 10) * 60 + parseInt(m[2], 10);
-    var sched = staffSchedule_(r.StaffID, new Date());
-    var expect = hhmmToMin_(sched.checkIn); if (expect == null) expect = hhmmToMin_('08:00');
-    var late = Math.max(0, minOfCI - (expect + grace));
+    // the SAME hours the check-in used — this tool exists to repair rows, not to introduce a second
+    // opinion about what time the day started (it used to ignore Big Cleaning entirely)
+    var hrs = staffDayHours_(r.StaffID, new Date());
+    var expect = hhmmToMin_(hrs.checkIn); if (expect == null) expect = hhmmToMin_('08:00');
+    var late = hrs.dayOff ? 0 : Math.max(0, minOfCI - (expect + hrs.grace));
     if (Number(r.LateMinutes) !== late) { updateRow_(sheet, r._row, { LateMinutes: late }); fixed.push({ staffId: r.StaffID, checkIn: ci, was: Number(r.LateMinutes) || 0, late: late }); }
   });
   try { CacheService.getScriptCache().removeAll(['rows:CHECKIN_STAFF', 'col:CHECKIN_STAFF']); } catch (e) {}
@@ -373,7 +413,10 @@ function handleStaffCheckout(payload) {
   payload = payload || {};
   var staff = resolveStaff_(payload);
   assertStaffStarted_(staff);
-  assertSchoolOpen_();
+  /* Clocking OUT is never refused, on any day. Someone who is here and going home must be able to
+   * say so — an afternoon closure (13:00–17:00) trapped every teacher who was already at work and
+   * left the day with no end time at all, which is also how a day ends up needing correcting by hand.
+   * The school's decision, 2026-08-18. */
   var dist = assertWithinGeofence_(payload.lat, payload.lng, payload.acc);
   var now = new Date(), today = dateStr_(now);
   var sheet = sheet_(getHrSpreadsheet_(), 'CHECKIN_STAFF');
@@ -384,8 +427,9 @@ function handleStaffCheckout(payload) {
   if (!row || !row.CheckIn) throw apiError_('NOT_CHECKED_IN', 'ยังไม่ได้ลงเวลาเข้างานวันนี้');
   if (row.CheckOut) throw apiError_('ALREADY_CHECKED_OUT', 'ลงเวลาออกงานวันนี้ไปแล้ว (' + toHHmm_(row.CheckOut) + ')');
 
-  var sched = staffSchedule_(staff.StaffID, now);
-  var outHHmm = isBigCleaningDay_(today) ? getConfigTime_('BigCleaningOut', '17:00') : sched.checkOut;
+  // OT runs from the person's OWN end time, even on a day the school opened late — the school asked
+  // for exactly that: "เลิกงานตามกะเวลาเดิมของตนเอง และ OT ตามกะเวลายังดำเนินอยู่".
+  var outHHmm = staffDayHours_(staff.StaffID, now).checkOut;
   var outMin = hhmmToMin_(outHHmm); if (outMin == null) outMin = hhmmToMin_('17:00');
   var otMin = Math.max(0, minOfDay_(now) - outMin);
   // FULL-hour OT: the last hour rounds up only when ≥ OTRoundUpMinutes (default 50), else it drops.
