@@ -112,7 +112,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.244'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.245'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -2513,7 +2513,19 @@
   window.T_punch=async(kind,btn)=>{ if(btn){ btn.disabled=true; btn.style.opacity='.45'; btn.style.cursor='not-allowed'; }  // prevent double-tap immediately
     try{ const {lat,lng,acc}=await getPosition();
       const r=await api(kind==='in'?'staffCheckin':'staffCheckout',{staffId:USER.staffId,lat,lng,acc}); toast(kind==='in'?`✅ ${t('lbl.checkIn')} ${r.time}${r.lateMinutes>0?` (${t('lbl.late')} ${r.lateMinutes} ${t('lbl.min')})`:' ('+t('lbl.onTime')+')'}`:`✅ ${t('lbl.checkOut')} ${r.time}${r.otHours>0?` · OT ${hmHours(r.otHours)}${r.otPay?' ≈ '+baht(r.otPay):''}`:''}`); GO('home'); }
-    catch(e){ err(e); if(btn){ btn.disabled=false; btn.style.opacity=''; btn.style.cursor=''; } } };  // re-enable on error (GO('home') re-renders disabled on success)
+    catch(e){
+      /* "You already clocked in/out today" is not a failure — it is the work having been DONE, and
+       * the app not knowing it yet. It happens when the reply to the first tap was lost in transit
+       * (the app retries a read, never a write) or when the punch was made on another device. The
+       * teacher should be told the time it actually happened and see the screen catch up, not a red
+       * error about something that already worked. 33% of check-outs "failed" this way in one day.
+       */
+      const code=(e&&e.code)||'';
+      if(code==='ALREADY_CHECKED_IN'||code==='ALREADY_CHECKED_OUT'){
+        toast('✅ '+((e&&e.message)||(EN()?'Already recorded':'บันทึกไว้แล้ว')));
+        GO('home'); return;                                   // re-reads the real times from the server
+      }
+      err(e); if(btn){ btn.disabled=false; btn.style.opacity=''; btn.style.cursor=''; } } };  // re-enable on error (GO('home') re-renders disabled on success)
 
   // daily-report badge — journalStatus returns every student with an entry for `date` + its DRAFT/SUBMITTED state
   function journalDoneMap(st){ const m={}; ((st&&st.done)||[]).forEach(d=>{ m[d.studentId]=d; }); return m; }
@@ -5686,6 +5698,10 @@
         ${probs}
 
         <h4 style="margin:12px 0 4px">❌ ${EN()?'Requests that failed':'คำขอที่ล้มเหลว'}</h4>
+        ${Number(d.healed)>0?`<div class="card" style="background:var(--ok-bg);border-color:var(--ok-line);padding:8px;margin-bottom:6px">
+          <b style="color:var(--ok)">🔄 ${EN()?`${d.healed} of these recovered by themselves`:`${d.healed} รายการในนี้ ระบบกู้คืนให้เองแล้ว`}</b>
+          <div class="muted" style="font-size:13px;margin-top:2px">${EN()?`An expired session signed back in behind the scenes and the request went through — nobody saw an error. Failure rate excluding these: <b>${d.realFailRate}%</b>.`:`เซสชันหมดอายุแล้วระบบเข้าใหม่ให้เงียบๆ คำขอผ่านเรียบร้อย ผู้ใช้ไม่เห็น error · อัตราพลาดจริงหลังหักส่วนนี้: <b>${d.realFailRate}%</b>`}</div>
+          ${(d.healedBy||[]).length?`<div class="muted" style="font-size:12px;margin-top:4px">${d.healedBy.map(x=>esc(x.action)+' ×'+x.n).join(' · ')}</div>`:''}</div>`:''}
         ${fails}
 
         ${roles?`<h4 style="margin:12px 0 4px">👥 ${EN()?'By role — and how many calls each visit costs':'แยกตามบทบาท — และหนึ่งครั้งที่เข้าใช้ ยิงกี่คำขอ'}</h4>${roles}
@@ -5717,6 +5733,7 @@
     L.push('calls='+d.calls+' sessions='+d.sessions+' perSession='+(d.perSession!=null?d.perSession:'?')
       +' p50='+ms(d.p50)+' p95='+ms(d.p95)+' fail='+d.failRate+'% cache='+d.cacheRate+'%');
     if((d.byRole||[]).length) L.push('ROLES: '+d.byRole.map(x=>x.role+' x'+x.n+'/'+x.sessions+'s ='+x.perSession+'/session p50='+ms(x.p50)).join(' | '));
+    if(Number(d.healed)>0) L.push('SELF-HEALED: '+d.healed+' (real fail='+d.realFailRate+'%) '+(d.healedBy||[]).map(x=>x.action+' x'+x.n).join(' '));
     L.push('SLOWEST (by total wait):');
     (d.slowest||[]).slice(0,10).forEach(x=>L.push('  '+x.action+' x'+x.n+' p50='+ms(x.p50)+' p95='+ms(x.p95)+(x.fail?' fail='+x.fail:'')));
     L.push('SCREENS:');

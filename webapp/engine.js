@@ -284,7 +284,7 @@ function createAtomAPI(M, GROWTH_STD) {
   // OT วันหยุด is a lump sum with no hours behind it — asked in one place so no re-pricing path
   // (approval, edit, a rate correction) can quietly turn an agreed amount into hours × rate = 0.
   const isHolidayOT_ = r => String((r&&r.Kind)||'').toUpperCase()==='HOLIDAY';
-  function otView_(r){ const s=staffById_(r.StaffID); let ci='', co='';
+  function otView_(r){ const s=staffById_(r.StaffID)||{}; let ci='', co='';
     if(ymd(r.Date)===todayLocal()){ const a=(M.staffAttendanceToday||[]).find(x=>x.StaffID===r.StaffID); if(a){ci=a.CheckIn||'';co=a.CheckOut||'';} }
     else { const a=(M.staffAttendanceHistory||[]).find(x=>x.StaffID===r.StaffID&&ymd(x.Date)===ymd(r.Date)); if(a){ci=a.In||a.CheckIn||'';co=a.Out||a.CheckOut||'';} }
     return Object.assign({}, r, {name:s.NameTH,nameEN:s.NameEN,nick:s.Nickname,nickEN:s.NicknameEN,dept:s.Department,
@@ -445,11 +445,13 @@ function createAtomAPI(M, GROWTH_STD) {
     try{ if(sumSlips_('ot',o.OTID,['SUBMITTED','CONFIRMED'])<=0) return null;
       const before=String(o.Status||''); recomputeTarget_('ot',o.OTID);
       const after=String(o.Status||''); return after===before?null:after; }catch(e){ return null; } }
-  function leaveView_(l){ const s=staffById_(l.StaffID); return Object.assign({}, l,
-    {name:s.NameTH,nameEN:s.NameEN,nick:s.Nickname,nickEN:s.NicknameEN,
+  function leaveView_(l){ const s=staffById_(l.StaffID)||{}; return Object.assign({}, l,
+    // a staff row that has been deleted leaves the id as the name — a row with no name at all is
+    // indistinguishable from a bug, and the admin still needs to know WHOSE leave this is
+    {name:s.NameTH||l.StaffID,nameEN:s.NameEN||l.StaffID,nick:s.Nickname,nickEN:s.NicknameEN,
      days:Number(l.Days)||0, halfDay:halfDay_(l.HalfDay)}); }
   // enrich a manual-attendance request with the requester's names
-  function atrView_(r){ const s=staffById_(r.StaffID); return Object.assign({}, r,
+  function atrView_(r){ const s=staffById_(r.StaffID)||{}; return Object.assign({}, r,
     {name:s.NameTH,nameEN:s.NameEN,nick:s.Nickname,nickEN:s.NicknameEN}); }
   // MOCK apply of an approved manual-attendance request: write the check-in/out into the day's record
   // (create it if absent), recompute late/OT vs the staff's schedule, and flag the value as manual.
@@ -720,7 +722,7 @@ function createAtomAPI(M, GROWTH_STD) {
 
   // latest assessment per item for a student
   function latestByItem(sid){ const map={}; M.assessments.filter(a=>a.StudentID===sid).forEach(a=>{ if(!map[a.ItemNo]||a.Date>=map[a.ItemNo].Date)map[a.ItemNo]=a; }); return map; }
-  function summarize(sid){ const s=studentById(sid); const latest=latestByItem(sid);
+  function summarize(sid){ const s=studentById(sid)||{}; const latest=latestByItem(sid);
     const dom={GM:{pass:0,fail:0},FM:{pass:0,fail:0},RL:{pass:0,fail:0},EL:{pass:0,fail:0},PS:{pass:0,fail:0}}; let tp=0,tf=0;
     Object.values(latest).forEach(r=>{ if(r.Result!=='ผ่าน'&&r.Result!=='ไม่ผ่าน')return;   // 'ยังไม่เข้าโรงเรียน' etc. not counted as pass/fail
       if(dom[r.Skill])dom[r.Skill][r.Result==='ผ่าน'?'pass':'fail']++; r.Result==='ผ่าน'?tp++:tf++; });
@@ -741,8 +743,10 @@ function createAtomAPI(M, GROWTH_STD) {
 
   // resolve the actor from a payload's common id fields (for logging)
   function actorOf(p){ p=p||{};
-    if(p.staffId){ const s=staffById(p.staffId); return {role:s.Role||'Staff',id:p.staffId,name:s.NameTH||p.staffId}; }
-    if(p.adminId){ const s=staffById(p.adminId); return {role:'Admin',id:p.adminId,name:s.NameTH||p.adminId}; }
+    // who DID this, for the activity log. A staff row that has since been deleted must still
+    // produce a log line naming the id — losing the whole entry would be worse than losing the name.
+    if(p.staffId){ const s=staffById(p.staffId)||{}; return {role:s.Role||'Staff',id:p.staffId,name:s.NameTH||p.staffId}; }
+    if(p.adminId){ const s=staffById(p.adminId)||{}; return {role:'Admin',id:p.adminId,name:s.NameTH||p.adminId}; }
     if(p.parentId||p.uid){ const pa=M.parents.find(x=>x.ParentID===p.parentId)||{}; return {role:'Parent',id:p.parentId||p.uid,name:pa.NameTH||p.parentId||'ผู้ปกครอง'}; }
     return {role:'',id:'',name:''}; }
 
@@ -1372,7 +1376,13 @@ function createAtomAPI(M, GROWTH_STD) {
       .map(a => Object.assign({}, a, { Phase: annPhase_(a), Active: annPhase_(a)==='live' })),
 
     // DSPM status for a student's current band (all items + status)
-    dspmStatus: p => { const s=studentById(p.studentId); const age=p.ageMonth??ageMonths(s.DOB);
+    /* A child who is not on the roll any more — withdrawn, or an id kept open in a tab that has since
+     * been deleted — used to crash here: studentById returns undefined and .DOB threw a TypeError,
+     * which reached the teacher as "INTERNAL" and told them nothing (4 of these in one day's log).
+     * Say which child could not be found instead; the caller can act on that. */
+    dspmStatus: p => { const s=studentById(p.studentId);
+      if(!s) fail('NOT_FOUND','ไม่พบนักเรียนรายนี้ (อาจถูกย้ายหรือลาออกแล้ว)');
+      const age=p.ageMonth??ageMonths(s.DOB);
       const band=M.dspmCriteria.filter(c=>c.AgeFrom<=age&&age<=c.AgeTo).sort((a,b)=>a.ItemNo-b.ItemNo);
       if(!band.length) fail('NO_CRITERIA',`ยังไม่มีเกณฑ์สำหรับอายุ ${age} เดือน`);
       const latest=latestByItem(p.studentId);
@@ -1696,7 +1706,7 @@ function createAtomAPI(M, GROWTH_STD) {
      * it in six months can tell whose opinion they are looking at without decoding a staff id.
      * A re-assessment appends; the latest wins, and the earlier one keeps its own name and time.
      */
-    submitAssessment: p => { const s=studentById(p.studentId); const age=ageMonths(s.DOB); const id='DA-'+String(Date.now()).slice(-4); let n=0;
+    submitAssessment: p => { const s=studentById(p.studentId); if(!s)fail('NOT_FOUND','ไม่พบนักเรียนรายนี้'); const age=ageMonths(s.DOB); const id='DA-'+String(Date.now()).slice(-4); let n=0;
       const who=staffById(p.staffId)||{}; const at=stampLocal();
       p.results.forEach(r=>{ if(r.result==='nottested'){ // remove any existing latest for this item (mark not tested)
           M.assessments=M.assessments.filter(a=>!(a.StudentID===p.studentId&&a.ItemNo===r.itemNo)); return; }
@@ -1724,7 +1734,7 @@ function createAtomAPI(M, GROWTH_STD) {
       return {ok:true, itemNo:Number(p.itemNo), comment:latest.AdminComment, by:latest.CommentBy, at:latest.CommentAt}; },
     studentAssessment: p => { const sum=summarize(p.studentId); sum.items=Object.values(latestByItem(p.studentId)).map(r=>({itemNo:r.ItemNo,skill:r.Skill,result:r.Result,date:r.Date})).sort((a,b)=>a.itemNo-b.itemNo); return sum; },
     // all bands the child has reached (enroll age -> now), each band with items + status
-    studentAllBands: p => { const s=studentById(p.studentId); const age=ageMonths(s.DOB); const latest=latestByItem(p.studentId);
+    studentAllBands: p => { const s=studentById(p.studentId); if(!s)fail('NOT_FOUND','ไม่พบนักเรียนรายนี้'); const age=ageMonths(s.DOB); const latest=latestByItem(p.studentId);
       const bands={}; M.dspmCriteria.filter(c=>c.AgeFrom<=age).forEach(c=>{ (bands[c.AgeLabelTH]=bands[c.AgeLabelTH]||{label:c.AgeLabelTH,from:c.AgeFrom,items:[]}).items.push({itemNo:c.ItemNo,skill:c.Skill,description:c.Description,descriptionEN:(M.dspmEN&&M.dspmEN[c.ItemNo])||'',result:latest[c.ItemNo]?latest[c.ItemNo].Result:'ยังไม่ได้รับการทดสอบ'}); });
       return {studentId:p.studentId,name:s.NameTH,nameEN:s.NameEN,nick:s.Nickname,nickEN:s.NicknameEN,ageMonth:age,enrollDate:s.EnrollDate,
         bands:Object.values(bands).sort((a,b)=>a.from-b.from)}; },
@@ -1750,7 +1760,7 @@ function createAtomAPI(M, GROWTH_STD) {
     // Admin cancels/deletes a leave request
     cancelLeave: p => { const ap=staffById(p.staffId); if(!adminLike_(ap))fail('NO_PERMISSION','เฉพาะแอดมิน');
       const i=M.leaves.findIndex(x=>x.LeaveID===p.leaveId); if(i<0)fail('NOT_FOUND','ไม่พบคำขอ'); M.leaves.splice(i,1); return {ok:true}; },
-    teamPendingLeaves: p => { const me=staffById(p.staffId); if(me.PositionLevel!=='Leader'&&me.PositionLevel!=='Admin')return [];
+    teamPendingLeaves: p => { const me=staffById(p.staffId)||{}; if(me.PositionLevel!=='Leader'&&me.PositionLevel!=='Admin')return [];
       return M.leaves.filter(l=>l.Status==='PENDING_LEADER').map(leaveView_); },
     leaveQuota: p => { const raw=M.leaveUsed[p.staffId]||{}; const q=cfg.LeaveQuota;
       // Fold any English-labelled total back onto the Thai key it belongs to, or a teacher who used
@@ -1768,7 +1778,7 @@ function createAtomAPI(M, GROWTH_STD) {
       if(half) days=0.5;
       M.leaves.push({LeaveID:id,StaffID:p.staffId,Department:st.Department,Type:leaveTypeTH_(p.type),StartDate:p.startDate,EndDate:p.endDate,Days:days,HalfDay:half,Reason:p.reason,Status:lead?'PENDING_ADMIN':'PENDING_LEADER',Step1ApproverName:'',Step1Status:lead?'Skipped':'Pending',Step1CrossDept:'',Step2ApproverName:'',Step2Status:'Pending',CreatedDate:todayLocal(),Attachment:p.attachment||''});
       return {leaveId:id,status:lead?'PENDING_ADMIN':'PENDING_LEADER',days,halfDay:half}; },
-    approveLeave: p => { const ap=staffById(p.staffId); const l=M.leaves.find(x=>x.LeaveID===p.leaveId); if(!l)fail('NOT_FOUND','ไม่พบคำขอ'); const yes=p.decision==='approve';
+    approveLeave: p => { const ap=staffById(p.staffId)||{}; const l=M.leaves.find(x=>x.LeaveID===p.leaveId); if(!l)fail('NOT_FOUND','ไม่พบคำขอ'); const yes=p.decision==='approve';
       if(l.Status==='PENDING_LEADER'){ if(ap.PositionLevel!=='Leader'&&ap.PositionLevel!=='Admin')fail('NO_PERMISSION','เฉพาะหัวหน้างาน'); l.Step1ApproverName=ap.NameTH;l.Step1Status=yes?'Approved':'Rejected';l.Step1CrossDept=(ap.Department!==l.Department)?'YES':'NO';l.Status=yes?'PENDING_ADMIN':'REJECTED'; return {status:l.Status,crossDept:l.Step1CrossDept==='YES'}; }
       if(l.Status==='PENDING_ADMIN'){ if(ap.PositionLevel!=='Admin')fail('NO_PERMISSION','เฉพาะผู้บังคับบัญชา'); l.Step2ApproverName=ap.NameTH;l.Step2Status=yes?'Approved':'Rejected';l.Status=yes?'APPROVED':'REJECTED'; return {status:l.Status}; }
       fail('ALREADY_RESOLVED','คำขอนี้ดำเนินการแล้ว'); },
@@ -2879,14 +2889,14 @@ function createAtomAPI(M, GROWTH_STD) {
     // reads:
     myOT: p => (M.otRecords||[]).filter(r=>r.StaffID===p.staffId && (!p.month||ym(r.Month||r.Date)===p.month)).sort((a,b)=>String(b.Date).localeCompare(String(a.Date))),
     // Leader/Admin: OT awaiting the first (Leader) approval
-    teamPendingOT: p => { const me=staffById(p.staffId); if(me.PositionLevel!=='Leader'&&!adminLike_(me))return [];
+    teamPendingOT: p => { const me=staffById(p.staffId)||{}; if(me.PositionLevel!=='Leader'&&!adminLike_(me))return [];
       return (M.otRecords||[]).filter(r=>String(r.Status).toUpperCase()==='PENDING_LEADER').map(otView_); },
     // Admin: OT the Leader approved, awaiting Admin confirmation
     pendingAdminOT: () => (M.otRecords||[]).filter(r=>String(r.Status).toUpperCase()==='PENDING_ADMIN').map(otView_),
     // Admin: everything for a month (any status) — the manage screen
     adminOTList: p => (M.otRecords||[]).filter(r=>!p.month||ym(r.Month||r.Date)===p.month).sort((a,b)=>String(b.Date).localeCompare(String(a.Date))).map(otView_),
     // Leader step-1 decision
-    approveOT: p => { const ap=staffById(p.staffId); const r=(M.otRecords||[]).find(x=>x.OTRecordID===p.otId); if(!r)fail('NOT_FOUND','ไม่พบรายการ OT');
+    approveOT: p => { const ap=staffById(p.staffId)||{}; const r=(M.otRecords||[]).find(x=>x.OTRecordID===p.otId); if(!r)fail('NOT_FOUND','ไม่พบรายการ OT');
       if(String(r.Status).toUpperCase()!=='PENDING_LEADER')fail('BAD_STATE','รายการนี้ไม่ได้รออนุมัติจากหัวหน้า');
       if(ap.PositionLevel!=='Leader'&&!adminLike_(ap))fail('NO_PERMISSION','เฉพาะหัวหน้าครู');
       const yes=p.decision==='approve'; r.Step1By=ap.NameTH; r.Step1Status=yes?'Approved':'Rejected'; r.Status=yes?'PENDING_ADMIN':'REJECTED';
@@ -2942,13 +2952,13 @@ function createAtomAPI(M, GROWTH_STD) {
     // ===== class-management change requests (ย้ายครูประจำชั้น/แผนก): Leader submits → Admin approves (applies+logs) =====
     // NOTE: on GAS the mutations (submit/decide) are in-place ROUTES (ClassOrg.gs) that win over these
     // engine handlers — these serve MOCK mode. The READS (myClassChanges/pendingClassChanges) run here.
-    submitClassChange: p => { const ap=staffById(p.staffId); const isAdmin=ap.PositionLevel==='Admin'||ap.Role==='Admin';
+    submitClassChange: p => { const ap=staffById(p.staffId)||{}; const isAdmin=ap.PositionLevel==='Admin'||ap.Role==='Admin';
       if(!isAdmin&&ap.PositionLevel!=='Leader')fail('NO_PERMISSION','เฉพาะหัวหน้าครูหรือแอดมิน');
       const changes=(p.changes||[]).filter(c=>c&&c.staffId&&c.after!==c.before);
       if(!changes.length)fail('BAD_INPUT','ไม่มีการเปลี่ยนแปลง');
       const id='CCR-'+String(((M.classChangeReq||[]).length)+1).padStart(3,'0');
       (M.classChangeReq=M.classChangeReq||[]).push({ReqID:id,RequestBy:p.staffId,RequestByName:ap.NameTH||ap.Name||p.staffId,CreatedDate:todayLocal(),Status:isAdmin?'APPROVED':'PENDING_ADMIN',Changes:changes,Note:p.note||'',Step2By:isAdmin?(ap.NameTH||p.staffId):'',DecidedDate:isAdmin?todayLocal():''});
-      if(isAdmin){ changes.forEach(c=>{ const s=staffById_(c.staffId); if(s.StaffID){ s.Department=c.after; s.Classes=c.after; } }); logAct('classChange',id,changes.map(c=>c.name+':'+c.before+'→'+c.after).join(', '),actorOf(p)); }
+      if(isAdmin){ changes.forEach(c=>{ const s=staffById_(c.staffId)||{}; if(s.StaffID){ s.Department=c.after; s.Classes=c.after; } }); logAct('classChange',id,changes.map(c=>c.name+':'+c.before+'→'+c.after).join(', '),actorOf(p)); }
       return {reqId:id,status:isAdmin?'APPROVED':'PENDING_ADMIN'}; },
     myClassChanges: p => (M.classChangeReq||[]).filter(r=>r.RequestBy===p.staffId).sort((a,b)=>String(b.CreatedDate).localeCompare(String(a.CreatedDate))),
     pendingClassChanges: p => { const ap=staffById(p.staffId); if(!adminLike_(ap))fail('NO_PERMISSION','เฉพาะแอดมิน');
@@ -2957,7 +2967,7 @@ function createAtomAPI(M, GROWTH_STD) {
       const r=(M.classChangeReq||[]).find(x=>x.ReqID===p.reqId); if(!r)fail('NOT_FOUND','ไม่พบคำขอ');
       if(String(r.Status).toUpperCase()!=='PENDING_ADMIN')fail('ALREADY_RESOLVED','คำขอนี้ดำเนินการแล้ว');
       const yes=p.decision==='approve';
-      if(yes){ (r.Changes||[]).forEach(c=>{ const s=staffById_(c.staffId); if(s.StaffID){ s.Department=c.after; s.Classes=c.after; } }); logAct('classChange',r.ReqID,(r.Changes||[]).map(c=>c.name+':'+c.before+'→'+c.after).join(', '),actorOf(p)); }
+      if(yes){ (r.Changes||[]).forEach(c=>{ const s=staffById_(c.staffId)||{}; if(s.StaffID){ s.Department=c.after; s.Classes=c.after; } }); logAct('classChange',r.ReqID,(r.Changes||[]).map(c=>c.name+':'+c.before+'→'+c.after).join(', '),actorOf(p)); }
       r.Status=yes?'APPROVED':'REJECTED'; r.Step2By=ap.NameTH||ap.Name||p.staffId; r.DecidedDate=todayLocal();
       return {reqId:r.ReqID,status:r.Status}; },
 
@@ -2971,7 +2981,7 @@ function createAtomAPI(M, GROWTH_STD) {
       (M.attendanceReq=M.attendanceReq||[]).push({ReqID:id,StaffID:p.staffId,Date:p.date,Type:type,RequestTime:p.time,Reason:p.reason||'',Status:lead?'PENDING_ADMIN':'PENDING_LEADER',Step1By:'',Step1Status:lead?'Skipped':'Pending',Step2By:'',Step2Status:'Pending',CreatedDate:todayLocal()});
       return {reqId:id,status:lead?'PENDING_ADMIN':'PENDING_LEADER'}; },
     myTimeRequests: p => (M.attendanceReq||[]).filter(r=>r.StaffID===p.staffId).sort((a,b)=>String(b.CreatedDate).localeCompare(String(a.CreatedDate))).map(atrView_),
-    teamPendingTimeRequests: p => { const me=staffById(p.staffId); if(me.PositionLevel!=='Leader'&&!adminLike_(me))return [];
+    teamPendingTimeRequests: p => { const me=staffById(p.staffId)||{}; if(me.PositionLevel!=='Leader'&&!adminLike_(me))return [];
       return (M.attendanceReq||[]).filter(r=>String(r.Status).toUpperCase()==='PENDING_LEADER').map(atrView_); },
     /**
      * Everything still waiting, at EITHER step.
@@ -2987,7 +2997,7 @@ function createAtomAPI(M, GROWTH_STD) {
         .filter(r=>{ const s=String(r.Status).toUpperCase(); return s==='PENDING_ADMIN'||s==='PENDING_LEADER'; })
         .sort((a,b)=>String(a.CreatedDate||'').localeCompare(String(b.CreatedDate||'')))
         .map(r=>Object.assign(atrView_(r), { stage: String(r.Status).toUpperCase()==='PENDING_LEADER'?'leader':'admin' })); },
-    approveTimeRequest: p => { const ap=staffById(p.staffId); const r=(M.attendanceReq||[]).find(x=>x.ReqID===p.reqId); if(!r)fail('NOT_FOUND','ไม่พบคำขอ');
+    approveTimeRequest: p => { const ap=staffById(p.staffId)||{}; const r=(M.attendanceReq||[]).find(x=>x.ReqID===p.reqId); if(!r)fail('NOT_FOUND','ไม่พบคำขอ');
       if(String(r.Status).toUpperCase()!=='PENDING_LEADER')fail('BAD_STATE','ไม่ได้รออนุมัติจากหัวหน้า');
       if(ap.PositionLevel!=='Leader'&&!adminLike_(ap))fail('NO_PERMISSION','เฉพาะหัวหน้าครู');
       const yes=p.decision==='approve'; r.Step1By=ap.NameTH||ap.Name; r.Step1Status=yes?'Approved':'Rejected'; r.Status=yes?'PENDING_ADMIN':'REJECTED';

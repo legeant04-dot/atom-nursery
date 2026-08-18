@@ -1,5 +1,9 @@
 const harness = require('./gas_test_harness');
-const { run } = harness(['Config','Db','Audit','Line','Auth','Code','Setup','Dspm_Seed','Checkin','Triggers','Leave','Parent']);
+// Notify.gs is loaded because Parent.gs calls inboxAdd_ from it: a parent's check-in now drops a
+// line in the child's teacher's inbox. On GAS every file shares one global scope, so the real code
+// was never broken — only this harness, which loads a subset. Loading the REAL file rather than
+// stubbing it means a change to the notification path is caught here too.
+const { run } = harness(['Config','Db','Audit','Line','Auth','Code','Setup','Dspm_Seed','Checkin','Triggers','Leave','Notify','Parent']);
 
 // run inside the vm context so all functions/vars (incl. PUSH) are visible
 const result = run(function () {
@@ -39,7 +43,15 @@ const result = run(function () {
   const a1 = handleApproveLeave({ leaveId: sub.leaveId, staffId: 'STF-L2', decision: 'approve' });
   ok(a1.status === 'PENDING_ADMIN' && a1.crossDept === true, 'L2 cross-dept approve -> PENDING_ADMIN + crossDept');
   ok(PUSH.some(p => p.to === 'Uleader1' && /ข้ามแผนก/.test(p.text)), 'owning dept leader notified of cross-dept');
-  ok(PUSH.some(p => p.to === 'Uadmin'), 'admin notified for final approval');
+  /* The admin IS told — but since the LINE quota ran out (C11) that happens through the in-app
+   * inbox (the 🔔 bell), and a LINE push only when SCHOOL_CONFIG AdminLineNotify='true', which is
+   * off by default. This test used to demand the push and so failed on a change that was made on
+   * purpose. What matters is that the admin LEARNS about it, so assert the channel the school is
+   * actually configured for. */
+  var adminTold = (String(getConfig_('AdminLineNotify', 'false')) === 'true')
+    ? PUSH.some(p => p.to === 'Uadmin')
+    : readObjects_(inboxSheet_()).some(function (r) { return /รออนุมัติขั้นสุดท้าย/.test(String(r.Text || '')); });
+  ok(adminTold, 'admin notified for final approval (inbox, or LINE when enabled)');
 
   // 4. Admin final approve
   PUSH.length = 0;

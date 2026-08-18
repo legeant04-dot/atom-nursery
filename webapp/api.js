@@ -528,9 +528,20 @@ window.CONFIG = { MODE: 'gas', GAS_URL: 'https://script.google.com/macros/s/AKfy
   function guarded(action, payload) {
     // An expired session is recoverable: sign in again behind the scenes and repeat the call. Safe
     // for a write too — NO_SESSION is refused before the handler runs, so nothing was written.
+    /* An expired session is recoverable: sign in again behind the scenes and repeat the call. Safe
+     * for a write too — NO_SESSION is refused before the handler runs, so nothing was written.
+     *
+     * It already worked. What did NOT work was SAYING so: the first attempt was recorded as a
+     * failure and the recovery was invisible, so a day's log showed "NO_SESSION ×10" across seven
+     * actions — all of them one morning's silent re-login that no teacher ever saw — and we spent
+     * time hunting a problem that had already fixed itself. A recovered failure is now marked as
+     * such, so the report can tell "broke and healed" from "broke". */
     const send = () => enqueueGas(action, payload).catch(e => {
       if (!isDeadSession(e) || action === 'auth') throw e;
-      return reauth().then(ok => { if (!ok) throw e; return enqueueGas(action, payload); });
+      return reauth().then(ok => {
+        if (!ok) throw e;
+        return enqueueGas(action, payload).then(d => { PERF.mark('healed', action, 0); return d; });
+      });
     });
     return send().then(d => {
       const got = shapeOf(d), prev = _shape.get(action);

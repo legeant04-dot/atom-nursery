@@ -45,12 +45,18 @@ const result = run(function () {
   appendObject_(sheet_(HR, 'STAFF'), { StaffID: 'STF-T1', Name: 'ครูเอ', Position: 'ครู', Role: 'Teacher', Department: 'Nursery 1', PositionLevel: 'Officer', LineUID: 'Uteacher', StartDate: new Date(), BaseSalary: 15000, Status: 'ACTIVE' });
   appendObject_(sheet_(MAIN, 'PARENTS'), { ParentID: 'PAR-1', Name: 'แม่', Phone: '', LineUID: 'Uparent', StudentID: 'STD-1', Address: '' });
   appendObject_(sheet_(MAIN, 'CLASSES'), { ClassID: 'CL1', ClassName: 'Nursery 1', TeacherID: 'STF-T1', AgeRange: '1-2', Capacity: 20 });
-  // child ~13 months old as of 2026-06-08
-  appendObject_(sheet_(MAIN, 'STUDENTS'), { StudentID: 'STD-1', Name: 'น้องบีม', DOB: '2025-05-01', Class: 'Nursery 1', ParentID: 'PAR-1', Status: 'ACTIVE' });
+  /* A child thirteen months old TODAY, whenever today is.
+   * The date of birth used to be written down as a literal ('2025-05-01', "~13 months as of
+   * 2026-06-08"). Age is computed against the real clock, so the test aged with the calendar and
+   * failed by itself in August — a red light that meant nothing, of exactly the kind nobody looks
+   * at any more. Anchor the fixture to now and it stays true for ever. */
+  var _b = new Date(); _b.setMonth(_b.getMonth() - 13); _b.setDate(1);
+  var DOB13 = dateStr_(_b);
+  appendObject_(sheet_(MAIN, 'STUDENTS'), { StudentID: 'STD-1', Name: 'น้องบีม', DOB: DOB13, Class: 'Nursery 1', ParentID: 'PAR-1', Status: 'ACTIVE' });
 
   // ---- DSPM criteria by age ----
   const cri = handleDspmCriteria({ studentId: 'STD-1' });
-  ok(cri.ageMonth >= 12 && cri.ageMonth <= 14, 'age computed ~13 months (' + cri.ageMonth + ')');
+  ok(cri.ageMonth >= 12 && cri.ageMonth <= 14, 'age computed ~13 months (' + cri.ageMonth + ' from DOB ' + DOB13 + ')');
   ok(cri.items.length === 5, 'returns 5 domain items for the age band');
   ok(cri.items.map(i => i.itemNo).join(',') === '40,41,42,43,44', 'items are 40-44 (13-15 band)');
   ok(cri.manualUrl.indexOf('FILEID123') > 0, 'manual download url built');
@@ -75,8 +81,17 @@ const result = run(function () {
   const jrBody = { studentId: 'STD-1', staffId: 'STF-T1', date: '2026-06-08',
     Mood: 'Happy', Health: 'ปกติ', Milk: [{ oz: 6 }, { oz: 4 }], Meals: { lunch: 'All' }, Sleep: [{ from: '12:30', to: '14:00' }],
     Toilet: { pee: 'Normal' }, Activity: ['Circle Time', 'Art'], Skills: ['Fine Motor'], Highlight: 'วาดรูปสวยมาก' };
+  /* Since v226 the journal cannot be written for TODAY until the child has been checked in — so a
+   * submit with no check-in is refused for that reason first, before the required fields are even
+   * looked at. This test predates the rule and demanded MISSING_FIELDS on a child who had never
+   * arrived. Check the child in, then check that the field rule still bites. Both matter; they are
+   * two separate gates and this now proves both, in the order the teacher meets them.
+   */
+  try { handleSubmitJournal({ studentId: 'STD-1', staffId: 'STF-T1', Health: 'ปกติ', submit: true }); ok(false, 'a journal before check-in should throw'); }
+  catch (e) { ok(e.apiCode === 'NOT_CHECKED_IN', 'journal is refused until the child is checked in'); }
+  appendObject_(sheet_(MAIN, 'CHECKIN_STUDENT'), { StudentID: 'STD-1', Date: dateStr_(new Date()), Type: 'IN', Time: '08:00', By: 'PAR-1' });
   try { handleSubmitJournal({ studentId: 'STD-1', staffId: 'STF-T1', Health: 'ปกติ', submit: true }); ok(false, 'missing Mood should throw'); }
-  catch (e) { ok(e.apiCode === 'MISSING_FIELDS', 'submit blocks missing required field'); }
+  catch (e) { ok(e.apiCode === 'MISSING_FIELDS', 'submit blocks missing required field (' + e.apiCode + ')'); }
 
   const jd = handleSubmitJournal(Object.assign({}, jrBody, { Mood: '' }));       // draft: incomplete is fine
   ok(jd.status === 'DRAFT' && jd.updated === false, 'draft created, no required-field check');

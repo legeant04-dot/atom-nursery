@@ -173,6 +173,7 @@ function handlePerfSummary(p) {
   var cutStr = Utilities.formatDate(cutoff, perfTz_(), 'yyyy-MM-dd HH:mm:ss');
 
   var acts = {}, screens = {}, errs = {}, devs = {}, nets = {}, sids = {}, boot = {}, roles = {};
+  var healed = {}, healedTotal = 0;
   var cacheHit = 0, cacheMiss = 0, total = 0, failed = 0, firstTs = '', lastTs = '';
 
   for (var i = 0; i < vals.length; i++) {
@@ -188,6 +189,12 @@ function handlePerfSummary(p) {
 
     if (type === 'cache') { if (action === 'readCache') cacheHit += batch; else cacheMiss += batch; continue; }
     if (type === 'boot') { (boot[action] = boot[action] || []).push(ms); continue; }
+    /* A call that failed and then RECOVERED — an expired session signed back in behind the scenes
+     * and the call went through. The first attempt is still recorded as a failure (it was one), but
+     * without this the report showed "NO_SESSION ×10" for a morning nobody noticed, and we went
+     * looking for a fault that had already fixed itself. Counted per action, and subtracted from
+     * the failure count so the headline rate reflects what people actually experienced. */
+    if (type === 'healed') { healed[action] = (healed[action] || 0) + 1; healedTotal++; continue; }
     if (type === 'err') {
       var ek = action + ' · ' + code;
       var e = errs[ek] || (errs[ek] = { what: action, detail: code, n: 0, users: {} });
@@ -294,6 +301,12 @@ function handlePerfSummary(p) {
     cacheRate: (cacheHit + cacheMiss) ? Math.round(cacheHit / (cacheHit + cacheMiss) * 100) : 0,
     slowest: slowest, slowScreens: slowScreens, problems: problems, failing: failing,
     byDev: byDev, byNet: byNet, byRole: byRole, boot: bootStats,
+    // failures that recovered by themselves, and what is left after taking them out
+    healed: healedTotal,
+    healedBy: Object.keys(healed).map(function (k) { return { action: k, n: healed[k] }; })
+      .sort(function (x, y) { return y.n - x.n; }).slice(0, 10),
+    realFailed: Math.max(0, failed - healedTotal),
+    realFailRate: total ? Math.round(Math.max(0, failed - healedTotal) / total * 1000) / 10 : 0,
     perSession: Object.keys(sids).length ? Math.round(total / Object.keys(sids).length) : 0,
     rows: Math.max(0, sh.getLastRow() - 1), cap: PERF_MAX_KEEP
   };
