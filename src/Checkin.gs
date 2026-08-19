@@ -140,11 +140,33 @@ function staffSchedule_(staffId, date) {
   };
 }
 
-/** The holiday row for a date, or null. Read through this so every caller sees the same day. */
+/**
+ * The holiday row for a date, or null — with its times decoded THE SAME WAY THE ENGINE DECODES THEM.
+ *
+ * This is the whole of the 2026-08-19 incident. A time cell comes back from Sheets as a Date on the
+ * 1899 epoch and has to be formatted to 'HH:mm' by somebody. The engine does it in decodeCell_, in
+ * the SPREADSHEET's timezone (ssTz_). holTime_ did it in the timezone from SCHOOL_CONFIG (tz_).
+ * While those two settings agree, so do the answers; the moment they do not, the same cell is two
+ * different times — and the two halves of the app quietly went different ways:
+ *
+ *   the app said   "เริ่มงาน 12:00 · ลงเวลาได้ตั้งแต่ 11:45"   (engine: window 07:00–12:00)
+ *   the server did  late = 12:08 − 07:00 = 308 minutes         (route: no window at all)
+ *
+ * Four teachers were recorded 250–311 minutes late for arriving as the school reopened, and clocking
+ * in at 11:45 was refused by a server that did not know there was anything to reopen.
+ *
+ * So it is decoded ONCE, by the engine's own decoder. Nothing here formats a date.
+ */
 function holidayOn_(ds) {
   try {
     var hs = readObjects_(sheet_(getMainSpreadsheet_(), 'HOLIDAYS'));
-    return hs.filter(function (x) { return dateStr_(new Date(x.Date)) === ds; })[0] || null;
+    var row = hs.filter(function (x) { return dateStr_(new Date(x.Date)) === ds; })[0] || null;
+    if (!row) return null;
+    if (typeof decodeCell_ === 'function') {
+      var o = {}; for (var k in row) o[k] = decodeCell_(row[k]);
+      return o;
+    }
+    return row;
   } catch (e) { return null; }
 }
 
@@ -169,6 +191,59 @@ function staffDayHours_(staffId, date) {
     grace: parseInt(getConfig_('LateGraceMinutes', '0'), 10) || 0,
     window: getConfig_('HolidayReopenWindowMinutes', '15')
   });
+}
+
+/**
+ * WHAT DOES THE SERVER THINK TODAY IS — the answer, per person, in one call.
+ *
+ * On 2026-08-19 the app told four teachers "เริ่มงาน 12:00" while the server recorded them 250–311
+ * minutes late, and neither of them could say what the other was seeing. Diagnosing it meant reading
+ * code and guessing at a spreadsheet nobody could open from here.
+ *
+ * So the server now says it out loud: the two timezones (whose disagreement caused it), the holiday
+ * row exactly as read AND as decoded, and the hours resolved for every member of staff. Admin-only,
+ * read-only, no side effects.
+ */
+function handleDiagDay(p) {
+  p = p || {};
+  var d = p.date ? new Date(String(p.date) + 'T12:00:00') : new Date();
+  var ds = dateStr_(d);
+  var raw = null, dec = null;
+  try {
+    var hs = readObjects_(sheet_(getMainSpreadsheet_(), 'HOLIDAYS'));
+    var row = hs.filter(function (x) { return dateStr_(new Date(x.Date)) === ds; })[0] || null;
+    if (row) {
+      // what TYPE the cell is matters more than its value — a Date is the whole class of bug
+      raw = { StartTime: String(row.StartTime), EndTime: String(row.EndTime),
+        startIsDate: (row.StartTime instanceof Date), endIsDate: (row.EndTime instanceof Date),
+        name: String(row.NameTH || row.NameEN || '') };
+    }
+  } catch (e) { raw = { error: String((e && e.message) || e) }; }
+  var h = holidayOn_(ds);
+  if (h) dec = { StartTime: holTime_(h.StartTime), EndTime: holTime_(h.EndTime) };
+
+  var staff = [];
+  try {
+    readObjects_(sheet_(getHrSpreadsheet_(), 'STAFF')).forEach(function (s) {
+      if (!s.StaffID || String(s.Status || 'ACTIVE').toUpperCase() === 'INACTIVE') return;
+      var sc = staffSchedule_(s.StaffID, d), hh = staffDayHours_(s.StaffID, d);
+      staff.push({ staffId: s.StaffID, nick: s.Nickname || s.NameTH || s.Name || '',
+        shift: sc.checkIn + '-' + sc.checkOut,
+        start: hh.checkIn, end: hh.checkOut, grace: hh.grace,
+        openFrom: hh.openFrom, reopened: !!hh.reopened, dayOff: !!hh.dayOff });
+    });
+  } catch (e) { staff.push({ error: String((e && e.message) || e) }); }
+
+  return {
+    date: ds, now: timeStr_(new Date()),
+    // if these two differ, every time-only cell has two readings — see holidayOn_
+    ssTimezone: (typeof ssTz_ === 'function') ? ssTz_() : '?', configTimezone: tz_(),
+    holidayRaw: raw, holidayDecoded: dec,
+    bigCleaning: isBigCleaningDay_(ds),
+    grace: parseInt(getConfig_('LateGraceMinutes', '0'), 10) || 0,
+    reopenWindow: getConfig_('HolidayReopenWindowMinutes', '15'),
+    staff: staff
+  };
 }
 
 /** Resolve the acting staff record from payload (staffId or lineUid). */
@@ -224,7 +299,14 @@ function assertStaffStarted_(rec) {
  *  is not a real HH:mm — including the 1899 Date a Sheets time cell decodes to — becomes blank, i.e.
  *  the whole day, never midnight (which would leave the afternoon open on a full-day holiday). */
 function holTime_(v) {
-  if (v instanceof Date) { try { return Utilities.formatDate(v, tz_(), 'HH:mm'); } catch (e) { return ''; } }
+  /* A Date still gets formatted in the SPREADSHEET's timezone, exactly as decodeCell_ does — never in
+   * the SCHOOL_CONFIG one. Formatting the same cell two ways is what made the server measure a
+   * teacher's lateness against a window the app was showing her a different version of (2026-08-19).
+   * In practice holidayOn_ has already decoded it and this branch is a belt-and-braces fallback. */
+  if (v instanceof Date) {
+    try { return Utilities.formatDate(v, (typeof ssTz_ === 'function') ? ssTz_() : tz_(), 'HH:mm'); }
+    catch (e) { return ''; }
+  }
   var s = String(v == null ? '' : v).trim().slice(0, 5);
   return /^\d{2}:\d{2}$/.test(s) ? s : '';
 }

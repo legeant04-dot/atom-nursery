@@ -112,7 +112,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.250'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.251'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -5548,6 +5548,12 @@
       <label class="field" style="display:flex;align-items:center;gap:8px"><input type="checkbox" id="setDigE" style="width:auto" ${cfgOn('DigestEvening',true)?'checked':''}/> 🌆 ${EN()?'Evening digest 20:00 (daily report)':'สรุปเย็น 20:00 (รายงานประจำวัน)'}</label>
       <button class="btn sm outline block" style="margin-top:4px" onclick="A_reinstallTriggers(this)">🔄 ${EN()?'Apply digest schedule (10:00 / 20:00)':'อัปเดตตารางส่งสรุป (10:00 / 20:00)'}</button>
       <p class="muted" style="font-size:13px">${EN()?'Digests skip weekends & holidays. Run "Apply" once after enabling.':'สรุปจะข้ามวันหยุด/เสาร์-อาทิตย์ · กด "อัปเดตตาราง" 1 ครั้งหลังเปิดใช้'}</p>
+      <h4 style="margin:10px 0 4px">🕑 ${EN()?'Today’s working hours':'เวลาทำงานของวันนี้'}</h4>
+      <p class="muted" style="font-size:13px">${EN()
+        ? 'If a half-day holiday was added or corrected AFTER someone had already clocked in, their late minutes were measured against the old hours. Recalculate rewrites today’s rows from the day’s real hours.'
+        : 'ถ้าเพิ่ม/แก้วันหยุดครึ่งวัน "หลังจาก" มีคนลงเวลาไปแล้ว นาทีสายของคนนั้นจะคิดจากเวลาเดิม · กดคำนวณใหม่เพื่อเขียนทับด้วยเวลาจริงของวันนี้'}</p>
+      <button class="btn sm outline block" onclick="A_recomputeAtt(this)">🕑 ${EN()?'Recalculate today’s late minutes':'คำนวณนาทีสายของวันนี้ใหม่'}</button>
+      <button class="btn sm outline block" style="margin-top:4px" onclick="A_diagDay()">🔍 ${EN()?'What the server thinks today is':'ตรวจสอบว่าระบบมองวันนี้อย่างไร'}</button>
       <button class="btn block" onclick="A_saveSettings(this)">${esc(t('c.save'))}</button>`);
   };
   // ---- accumulated เงินสมทบ: review before overwriting ----------------------------------------
@@ -6096,6 +6102,51 @@
     try{ await api('addBigCleaning',{date:d}); toast(t('c.saved')); GO_('holidays'); }catch(e){err(e);} };
   window.A_bcRemove=async(d)=>{ try{ await api('removeBigCleaning',{date:d}); toast(t('manage.deleted')); GO_('holidays'); }catch(e){err(e);} };
   // (re)install the time triggers so the 10:00/20:00 digests are scheduled after enabling them
+  /**
+   * Rewrite today's late minutes from the day's REAL hours.
+   *
+   * A half-day holiday added (or corrected) after someone has already clocked in leaves their row
+   * measured against the hours that were in force at the moment they tapped. That is not a bug to
+   * paper over — the row was right when it was written — but somebody has to be able to put it
+   * right, and on 2026-08-19 four teachers sat at 250–311 minutes late with no way to fix it.
+   */
+  window.A_recomputeAtt=async(btn)=>{ if(btn)btn.disabled=true;
+    try{ const r=await api('recomputeAttendance',{});
+      const f=(r&&r.fixed)||[];
+      modal(`<h3>🕑 ${EN()?'Late minutes recalculated':'คำนวณนาทีสายใหม่แล้ว'}</h3>
+        ${f.length?`<p class="muted" style="font-size:13px">${EN()?'Rows corrected today':'แถวที่แก้ไขวันนี้'}: <b>${f.length}</b></p>
+          ${f.map(x=>`<div class="list-item"><span><b>${esc(x.staffId)}</b> <small class="muted">${EN()?'in':'เข้า'} ${esc(x.checkIn)}</small></span>
+            <span>${x.was} → <b style="color:${x.late?'var(--bad)':'var(--ok)'}">${x.late}</b> ${EN()?'min':'นาที'}</span></div>`).join('')}`
+          :`<div class="card" style="background:var(--ok-bg);border-color:var(--ok-line);color:var(--ok)">✓ ${EN()?'Everything already matches today’s hours.':'ทุกแถวตรงกับเวลาทำงานของวันนี้อยู่แล้ว'}</div>`}
+        <button class="btn block" style="margin-top:8px" onclick="this.closest('.modal').remove()">${esc(t('c.close'))}</button>`);
+    }catch(e){err(e);}finally{ if(btn)btn.disabled=false; } };
+  /* The server saying out loud what it thinks today is. Added after the app and the server spent a
+   * morning disagreeing about a half-day holiday with no way to see which of them was wrong. */
+  window.A_diagDay=async(date)=>{
+    let d; try{ d=await api('diagDay',date?{date}:{}); }catch(e){ err(e); return; }
+    const tzBad = d.ssTimezone!==d.configTimezone;
+    const row=(l,v)=>`<div class="spread" style="font-size:13px;padding:2px 0"><span class="muted">${esc(l)}</span><b>${esc(String(v==null?'-':v))}</b></div>`;
+    modal(`<h3>🔍 ${EN()?'What the server thinks today is':'ระบบมองวันนี้อย่างไร'}</h3>
+      <label class="field"><span>${EN()?'Day':'วันที่'}</span><input type="date" value="${esc(d.date)}" onchange="this.closest('.modal').remove();A_diagDay(this.value)"/></label>
+      ${tzBad?`<div class="card" style="background:var(--bad-bg,var(--warn-bg));border-color:var(--warn-line);color:var(--bad);padding:8px;font-size:13px">
+        ⚠️ ${EN()?'The spreadsheet timezone and the app setting disagree — every time-only cell then has two readings.':'เขตเวลาของสเปรดชีตกับที่ตั้งไว้ในระบบไม่ตรงกัน — เวลาในเซลล์จะถูกอ่านได้ 2 แบบ'}</div>`:''}
+      <div class="card" style="padding:8px">
+        ${row(EN()?'Spreadsheet timezone':'เขตเวลาสเปรดชีต', d.ssTimezone)}
+        ${row(EN()?'App setting':'เขตเวลาในระบบ', d.configTimezone)}
+        ${row(EN()?'Late grace / reopen window':'ผ่อนผัน / ช่วงเปิดระบบ', d.grace+' / '+d.reopenWindow)}
+        ${row(BC_NAME(), d.bigCleaning?'✓':'—')}</div>
+      <div class="card" style="padding:8px"><b style="font-size:13px">🎉 ${EN()?'Holiday row':'แถววันหยุด'}</b>
+        ${d.holidayRaw?`${row(EN()?'Name':'ชื่อ', d.holidayRaw.name)}
+          ${row(EN()?'Stored as':'เก็บเป็น', (d.holidayRaw.startIsDate?'Date':'text')+' / '+(d.holidayRaw.endIsDate?'Date':'text'))}
+          ${row(EN()?'Read as':'อ่านได้เป็น', d.holidayDecoded?((d.holidayDecoded.StartTime||'—')+' – '+(d.holidayDecoded.EndTime||'—')):'—')}`
+        :`<small class="muted">${EN()?'no holiday on this day':'วันนี้ไม่มีวันหยุด'}</small>`}</div>
+      <div class="card" style="padding:8px"><b style="font-size:13px">👩‍🏫 ${EN()?'Hours resolved per person':'เวลาทำงานที่ระบบคิดให้แต่ละคน'}</b>
+        ${(d.staff||[]).map(s=>`<div class="list-item"><span><b>${esc(s.nick||s.staffId)}</b>
+          <small class="muted">${EN()?'shift':'กะ'} ${esc(s.shift)}</small></span>
+          <span style="font-size:13px">${s.dayOff?`<span class="pill info">${EN()?'day off':'หยุด'}</span>`
+            :`<b>${esc(s.start)}–${esc(s.end)}</b>${s.reopened?` <span class="pill wait">${EN()?'from':'ลงเวลา'} ${esc(s.openFrom)}</span>`:''}`}</span></div>`).join('')}</div>
+      <button class="btn outline block" style="margin-top:8px" onclick="this.closest('.modal').remove()">${esc(t('c.close'))}</button>`);
+  };
   window.A_reinstallTriggers=async(btn)=>{ if(btn)btn.disabled=true; try{ const r=await api('reinstallTriggers',{}); toast((EN()?'Schedule updated · triggers: ':'อัปเดตตารางแล้ว · triggers: ')+(r&&r.triggers!=null?r.triggers:'?')); }catch(e){err(e);}finally{ if(btn)btn.disabled=false; } };
   window.A_saveSettings=async(btn)=>{ const m=btn.closest('.modal');
     const lat=parseFloat(m.querySelector('#cfgLat').value), lng=parseFloat(m.querySelector('#cfgLng').value), rad=parseFloat(m.querySelector('#cfgRadius').value);

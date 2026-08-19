@@ -124,7 +124,11 @@ console.log('\n=== 4. Big Cleaning: a working day with its own hours ===');
   eq('unset falls back to the school’s usual start', bc.checkIn, '08:30');
   eq('unset falls back to the school’s usual end', bc.checkOut, '17:00');
   const d = H.schoolDay({});
-  eq('an ordinary day carries no Big Cleaning hours', H.schoolDay({ date: '2026-08-19' }).bcIn, '');
+  // NOT a literal: the date this fixture calls "ordinary" must be a day that is not `today`, or the
+  // test passes for 364 days and fails on the one where the calendar catches up with it — which is
+  // exactly what happened on 2026-08-19, the day the literal used to be.
+  const otherDay = today === '2026-08-19' ? '2026-08-18' : '2026-08-19';
+  eq('an ordinary day carries no Big Cleaning hours', H.schoolDay({ date: otherDay }).bcIn, '');
   ok_('…and today does', !!d.bcIn);
 }
 // v249: the day's hours moved into ONE place (atomStaffHours_, asked via staffHoursOn_) because a
