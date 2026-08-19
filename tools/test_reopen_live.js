@@ -36,7 +36,7 @@ function ok_(label, cond) { console.log((cond ? '  ok   ' : '  FAIL ') + label);
 const R = f => fs.readFileSync(path.join(__dirname, '..', f), 'utf8').replace(/\r\n/g, '\n');
 const ci = R('src/Checkin.gs'), code = R('src/Code.gs'), app = R('webapp/app.js');
 
-const { run } = H(['Config', 'Db', 'Audit', 'Engine', 'GasEngine', 'Checkin', 'Staff', 'Notify', 'Line']);
+const { run } = H(['Config', 'Db', 'Audit', 'Engine', 'GasEngine', 'Checkin', 'Staff', 'Notify', 'Line', 'Code']);
 const res = JSON.parse(run(function () {
   // apiError_ lives in Code.gs, which this harness does not load (it is the whole dispatcher). Under
   // GAS every file shares one global scope, so the real one is always there.
@@ -100,6 +100,13 @@ const res = JSON.parse(run(function () {
   Date.now = function () { return at2.getTime(); }; Date.prototype = real2.prototype;
   out.repair = handleRecomputeAttendance({});
   out.diag = handleDiagDay({ date: '2026-08-19' });
+
+  /* The admin corrects the holiday at 13:00, hours after everyone clocked in. Nobody should have to
+   * know that today's rows now need repairing — the write that invalidated them repairs them. */
+  ck.data = [ck.data[0]];
+  ck.appendRow(['2026-08-19', 'STF-001', '12:08', '', 308, '', 'IN', '', '']);
+  out.autoFix = holidayWrite_('editHoliday', { date: '2026-08-19', nameTH: 'ปิดครึ่งวันเช้า', startTime: '07:00', endTime: '12:00' });
+  out.afterAuto = Number(readObjects_(ck).filter(function (r) { return String(r.StaffID) === 'STF-001'; })[0].LateMinutes);
   Date = real2;
   return JSON.stringify(out);
 }));
@@ -125,6 +132,16 @@ console.log('\n3) a row already written wrong can be put right');
   const f = (res.repair && res.repair.fixed) || [];
   eq('the stale row is found', f.length, 1);
   eq('...and 308 becomes 0', [f[0].was, f[0].late], [308, 0]);
+  // and it SAYS what it measured against, changed or not — otherwise "1 row fixed" cannot tell you
+  // whether the holiday is being read or the same wrong number has just been written again
+  const rows = (res.repair && res.repair.rows) || [];
+  eq('every row is reported, with the hours behind it', rows.length, 1);
+  eq('...naming the start it used and why', [rows[0].start, rows[0].reopened, rows[0].grace], ['12:00', true, 15]);
+}
+{
+  // the tidy-up nobody has to remember: changing a holiday repairs the day it changed
+  eq('saving the holiday recalculated today by itself', res.autoFix.recomputed, 1);
+  eq('...and the row is now zero', res.afterAuto, 0);
 }
 
 console.log('\n4) the server can now be ASKED what it thinks the day is');
@@ -153,7 +170,17 @@ console.log('\n6) and an admin can reach both tools without asking anyone');
   ok_('...admin-only', /ADMIN_ONLY = \{[^}]*diagDay: 1/.test(code));
   ok_('...and it is a READ, so it never queues behind the write lock', !/^(submit|save|add)/.test('diagDay'));
   ok_('the repair has a button at last', /A_recomputeAtt\(this\)/.test(app) && /คำนวณนาทีสายของวันนี้ใหม่/.test(app));
-  ok_('...and says what it changed, per person', /\$\{x\.was\} → <b style="color:\$\{x\.late\?'var\(--bad\)':'var\(--ok\)'\}">\$\{x\.late\}<\/b>/.test(app));
+  ok_('...and says what it changed, per person', /\$\{x\.changed\?`\$\{x\.was\} → `:''\}<b style="color:\$\{x\.late\?'var\(--bad\)':'var\(--ok\)'\}">\$\{x\.late\}<\/b>/.test(app));
+  ok_('...and the hours it measured against, so the screen answers the question by itself',
+    /\$\{EN\(\)\?'start':'เริ่มงาน'\} \$\{esc\(x\.start\)\}/.test(app) && /วันหยุดครึ่งวัน/.test(app));
+  ok_('...and says what to do if the start is STILL the ordinary shift',
+    /ถ้า "เริ่มงาน" ยังเป็นเวลากะปกติ/.test(app));
+  ok_('a holiday write repairs the day it changed, without anyone remembering',
+    /addHoliday:\s+function \(p\) \{ return holidayWrite_\('addHoliday', p\); \}/.test(code)
+    && /editHoliday:\s+function \(p\) \{ return holidayWrite_\('editHoliday', p\); \}/.test(code)
+    && /removeHoliday:\s+function \(p\) \{ return holidayWrite_\('removeHoliday', p\); \}/.test(code));
+  ok_('...and a failed repair never claims the holiday did not save',
+    /The repair must never take the write down with it/.test(code));
   ok_('the diagnostic has one too', /A_diagDay\(\)/.test(app) && /ตรวจสอบว่าระบบมองวันนี้อย่างไร/.test(app));
   ok_('...and shouts if the two timezones disagree', /const tzBad = d\.ssTimezone!==d\.configTimezone;/.test(app));
 }

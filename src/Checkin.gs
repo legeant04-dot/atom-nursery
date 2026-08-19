@@ -394,7 +394,7 @@ function handleStaffCheckin(payload) {
 function handleRecomputeAttendance(p) {
   var sheet = sheet_(getHrSpreadsheet_(), 'CHECKIN_STAFF');
   var today = dateStr_(new Date());
-  var fixed = [];
+  var fixed = [], rows = [];
   readObjects_(sheet).forEach(function (r) {
     if (dateStr_(new Date(r.Date)) !== today || !r.CheckIn) return;
     var ci = toHHmm_(r.CheckIn); var m = /^(\d\d):(\d\d)/.exec(ci); if (!m) return;
@@ -404,10 +404,18 @@ function handleRecomputeAttendance(p) {
     var hrs = staffDayHours_(r.StaffID, new Date());
     var expect = hhmmToMin_(hrs.checkIn); if (expect == null) expect = hhmmToMin_('08:00');
     var late = hrs.dayOff ? 0 : Math.max(0, minOfCI - (expect + hrs.grace));
-    if (Number(r.LateMinutes) !== late) { updateRow_(sheet, r._row, { LateMinutes: late }); fixed.push({ staffId: r.StaffID, checkIn: ci, was: Number(r.LateMinutes) || 0, late: late }); }
+    var was = Number(r.LateMinutes) || 0;
+    /* Every row is reported, changed or not, WITH the hours it was measured against. A repair that
+     * says only "3 rows fixed" cannot tell you the difference between "the holiday is now being read
+     * correctly" and "the server still cannot see it and has just written the same wrong number
+     * again" — which is exactly the question that was open on 2026-08-19. */
+    rows.push({ staffId: r.StaffID, checkIn: ci, was: was, late: late,
+      start: hrs.checkIn, grace: hrs.grace, reopened: !!hrs.reopened, dayOff: !!hrs.dayOff,
+      changed: was !== late });
+    if (was !== late) { updateRow_(sheet, r._row, { LateMinutes: late }); fixed.push({ staffId: r.StaffID, checkIn: ci, was: was, late: late }); }
   });
   try { CacheService.getScriptCache().removeAll(['rows:CHECKIN_STAFF', 'col:CHECKIN_STAFF']); } catch (e) {}
-  return { ok: true, fixed: fixed };
+  return { ok: true, date: today, fixed: fixed, rows: rows };
 }
 
 /** Append any missing header columns at the END of a sheet (never reorders existing ones). */

@@ -112,7 +112,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.251'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.252'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -6112,12 +6112,19 @@
    */
   window.A_recomputeAtt=async(btn)=>{ if(btn)btn.disabled=true;
     try{ const r=await api('recomputeAttendance',{});
-      const f=(r&&r.fixed)||[];
+      const rows=(r&&r.rows)||[], f=(r&&r.fixed)||[];
+      // every row, with the hours it was measured against — "3 rows fixed" cannot tell you whether
+      // the server is now reading the holiday or has just rewritten the same wrong number
+      const line=x=>`<div class="list-item"><span><b>${esc(x.staffId)}</b>
+          <small class="muted">${EN()?'in':'เข้า'} ${esc(x.checkIn)} · ${EN()?'start':'เริ่มงาน'} ${esc(x.start)}${x.reopened?(EN()?' (reopening)':' (วันหยุดครึ่งวัน)'):''}${x.dayOff?(EN()?' (day off)':' (วันหยุด)'):''}${x.grace?` · ${EN()?'grace':'ผ่อนผัน'} ${x.grace}`:''}</small></span>
+        <span>${x.changed?`${x.was} → `:''}<b style="color:${x.late?'var(--bad)':'var(--ok)'}">${x.late}</b> ${EN()?'min':'นาที'}</span></div>`;
       modal(`<h3>🕑 ${EN()?'Late minutes recalculated':'คำนวณนาทีสายใหม่แล้ว'}</h3>
-        ${f.length?`<p class="muted" style="font-size:13px">${EN()?'Rows corrected today':'แถวที่แก้ไขวันนี้'}: <b>${f.length}</b></p>
-          ${f.map(x=>`<div class="list-item"><span><b>${esc(x.staffId)}</b> <small class="muted">${EN()?'in':'เข้า'} ${esc(x.checkIn)}</small></span>
-            <span>${x.was} → <b style="color:${x.late?'var(--bad)':'var(--ok)'}">${x.late}</b> ${EN()?'min':'นาที'}</span></div>`).join('')}`
-          :`<div class="card" style="background:var(--ok-bg);border-color:var(--ok-line);color:var(--ok)">✓ ${EN()?'Everything already matches today’s hours.':'ทุกแถวตรงกับเวลาทำงานของวันนี้อยู่แล้ว'}</div>`}
+        <p class="muted" style="font-size:13px">${esc(r.date||'')} · ${EN()?'corrected':'แก้ไข'} <b>${f.length}</b> / ${rows.length} ${EN()?'rows':'แถว'}</p>
+        ${rows.length?rows.map(line).join('')
+          :`<div class="card muted">${EN()?'Nobody has clocked in today yet.':'วันนี้ยังไม่มีใครลงเวลา'}</div>`}
+        <p class="muted" style="font-size:13px;margin-top:6px">${EN()
+          ? 'If “start” still shows the ordinary shift on a half-day holiday, the server is not reading the holiday — send this screen.'
+          : 'ถ้า "เริ่มงาน" ยังเป็นเวลากะปกติทั้งที่เป็นวันหยุดครึ่งวัน แปลว่าระบบยังอ่านวันหยุดไม่ได้ — ส่งภาพหน้านี้มาได้เลย'}</p>
         <button class="btn block" style="margin-top:8px" onclick="this.closest('.modal').remove()">${esc(t('c.close'))}</button>`);
     }catch(e){err(e);}finally{ if(btn)btn.disabled=false; } };
   /* The server saying out loud what it thinks today is. Added after the app and the server spent a
