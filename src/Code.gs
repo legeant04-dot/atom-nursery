@@ -80,6 +80,7 @@ var ROUTES = {
   deleteBill:       function (p) { return handleDeleteBill(p); },
   setSchoolConfig:  function (p) { return handleSetSchoolConfig(p); },
   recomputeAttendance: function (p) { return handleRecomputeAttendance(p); },
+  diagDay:          function (p) { return handleDiagDay(p); },         // admin-only READ: what the server thinks today is
   listBackups:      function (p) { return handleListBackups(p); },
   restoreSheet:     function (p) { return handleRestoreSheet(p); },
   addDepartment:    function (p) { return handleAddDepartment(p); },
@@ -275,7 +276,7 @@ function applyIdentity_(action, payload, sess) {
     return payload;
   }
   // Admin-only destructive/sensitive actions — block non-admins (parent/teacher tokens).
-  var ADMIN_ONLY = { deleteBill: 1, adminResetPassword: 1, getStaffPassword: 1, setSchoolConfig: 1, recomputeAttendance: 1,
+  var ADMIN_ONLY = { deleteBill: 1, adminResetPassword: 1, getStaffPassword: 1, setSchoolConfig: 1, recomputeAttendance: 1, diagDay: 1,
     addDepartment: 1, removeDepartment: 1, renameDepartment: 1, listBackups: 1, restoreSheet: 1, setRequireCheckin: 1,
     adminUpdateOT: 1, adminCancelOT: 1, adminRestoreOT: 1, unlockJournal: 1,
     confirmOT: 1, adminAddOT: 1, adminAddHolidayOT: 1, adminEditOT: 1, adminDeleteOT: 1,
