@@ -81,6 +81,19 @@ var ROUTES = {
   setSchoolConfig:  function (p) { return handleSetSchoolConfig(p); },
   recomputeAttendance: function (p) { return handleRecomputeAttendance(p); },
   diagDay:          function (p) { return handleDiagDay(p); },         // admin-only READ: what the server thinks today is
+  /**
+   * Changing a holiday changes what TODAY'S hours were, and rows already written keep the lateness
+   * they were given at the moment they were tapped. On 2026-08-19 that left four teachers at 250–311
+   * minutes late for arriving as the school reopened, and the only cure was a repair tool with no
+   * button on it — so nobody could have run it even if they had known it existed.
+   *
+   * The thing that invalidates those rows is this write, so this write repairs them. No one has to
+   * know, and no one has to remember. The three actions still do their real work in the engine;
+   * these routes only add the tidy-up afterwards.
+   */
+  addHoliday:       function (p) { return holidayWrite_('addHoliday', p); },
+  editHoliday:      function (p) { return holidayWrite_('editHoliday', p); },
+  removeHoliday:    function (p) { return holidayWrite_('removeHoliday', p); },
   listBackups:      function (p) { return handleListBackups(p); },
   restoreSheet:     function (p) { return handleRestoreSheet(p); },
   addDepartment:    function (p) { return handleAddDepartment(p); },
@@ -422,6 +435,31 @@ var WRITES_ACTIONS_ = { recordCashPayment: 1, teacherStudentLeave: 1, unlockJour
 
   adminResetPassword: 1, adminUpdateOT: 1, adminCancelOT: 1, adminRestoreOT: 1,
   adminAddOT: 1, adminAddHolidayOT: 1, adminEditOT: 1, adminDeleteOT: 1, decideClassChange: 1, reinstallTriggers: 1 };
+/**
+ * A holiday write, plus the tidy-up it makes necessary.
+ *
+ * The engine still does the work — this only asks, afterwards, whether the day that changed is TODAY,
+ * and if so rewrites today's late minutes from the day's real hours. A holiday added at noon must not
+ * leave the morning's check-ins measured against hours that no longer exist.
+ *
+ * The repair must never take the write down with it: the holiday IS saved, and a failure to
+ * recalculate is a number that can be fixed with the button in Settings, not a reason to tell the
+ * admin their holiday did not save.
+ */
+function holidayWrite_(action, p) {
+  var res = engineDispatch_(action, p);
+  try {
+    var today = dateStr_(new Date());
+    var dates = [String((p && p.date) || ''), String((p && p.newDate) || ''), String((res && res.date) || '')];
+    var touchesToday = dates.some(function (d) { return d.slice(0, 10) === today; });
+    if (touchesToday) {
+      var fixed = handleRecomputeAttendance({});
+      res = res || {};
+      res.recomputed = (fixed && fixed.fixed) ? fixed.fixed.length : 0;
+    }
+  } catch (e) { try { Logger.log('holidayWrite_ recompute failed: ' + (e && e.stack || e)); } catch (x) {} }
+  return res;
+}
 // dedupData/reindex* mutate but don't start with a MUTATING_RE verb — force them to take the write lock
 // (they read row indices then delete, so a concurrent append would shift rows and delete the wrong one).
 function isMutatingAction_(a) { a = String(a || '');
