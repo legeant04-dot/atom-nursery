@@ -85,6 +85,28 @@ var OT_CANCEL_COLS_ = ['CancelledBy', 'CancelNote'];
 var OT_CANCEL_AUTO_ = 'AUTO_TIME';
 
 /**
+ * HAS MONEY ACTUALLY BEEN RECEIVED against this charge?
+ *
+ * 'PAID' means two different things on an OT row: a family who paid, and a charge waived in full
+ * (a zero amount is marked PAID — "nothing left to collect"). Nothing could tell them apart, so a
+ * waived row was frozen for ever: correcting the pick-up time back to a genuinely late one could
+ * never bring the charge back, and the family was neither billed nor told. Reported on ธันวา,
+ * 18/08 — cancelled at 16:40, re-entered as 18:09, and nothing happened.
+ *
+ * Money received is the only thing that must never be recomputed. A waiver is a decision about a
+ * charge; a charge that turns out to be real again is chargeable again.
+ */
+function otMoneyReceived_(o) {
+  if (!o) return false;
+  if (Number(o.SlipAmount || 0) > 0) return true;
+  if (String(o.Status || '') === 'PAID' && Number(o.Amount || 0) > 0) return true;
+  try {
+    if (typeof paySlipSum_ === 'function' && paySlipSum_('ot', o.OTID, ['SUBMITTED', 'CONFIRMED']) > 0) return true;
+  } catch (e) {}
+  return false;
+}
+
+/**
  * Create/refresh today's OT row for a late pickup. Returns the OT summary, or null when there is
  * nothing to charge.
  *
@@ -108,11 +130,12 @@ function otUpsertForPickup_(student, pickupHHMM, dateS) {
   var otId = 'OT-' + String(dateS).replace(/-/g, '') + '-' + student.StudentID;
   var ex = findObject_(sh, function (x) { return String(x.OTID) === otId; });
   var st = ex ? String(ex.Status || '') : '';
+  var settled = otMoneyReceived_(ex);
 
   // ---- nothing is owed at this time ----
   if (c.amount <= 0) {
     if (!ex) return null;                                          // nothing to charge, nothing to undo
-    if (st === 'PAID') return null;                                // settled money is never rewritten here
+    if (settled) return null;                                      // settled money is never rewritten here
     // The charge existed only because of a time that has now been corrected away. Keep the row so the
     // correction can be seen (and so a slip already attached still points at something), at zero.
     updateRow_(sh, ex._row, { PickupTime: pickupHHMM, PlanEnd: c.planEnd, LateMinutes: c.late, Hours: 0,
@@ -124,7 +147,7 @@ function otUpsertForPickup_(student, pickupHHMM, dateS) {
 
   // ---- something is owed ----
   if (ex) {
-    if (st === 'PAID') return null;                                // settled — never re-charge
+    if (settled) return null;                                      // settled — never re-charge
     // A charge an ADMIN cancelled stays cancelled: that was a decision about the money, and a later
     // check-out tap must not quietly reinstate it. One cancelled by the arithmetic above is different
     // — the arithmetic has changed, so the charge comes back.
@@ -135,6 +158,8 @@ function otUpsertForPickup_(student, pickupHHMM, dateS) {
     var patch = { PickupTime: pickupHHMM, PlanEnd: c.planEnd, LateMinutes: c.late, Hours: c.hours,
       FullAmount: c.amount, Discount: disc, Amount: Math.max(0, c.amount - disc) };
     if (st === 'CANCELLED') { patch.Status = 'UNPAID'; patch.CancelledBy = ''; patch.CancelNote = ''; }
+    // a zero-amount row marked PAID was a WAIVER, not a payment (see otMoneyReceived_)
+    if (st === 'PAID') { patch.Status = 'UNPAID'; patch.PaidDate = ''; }
     updateRow_(sh, ex._row, patch);
   } else {
     appendObject_(sh, { OTID: otId, Date: dateS, StudentID: student.StudentID, PickupTime: pickupHHMM,

@@ -587,6 +587,23 @@ function createAtomAPI(M, GROWTH_STD) {
   const OT_CLOSED = { PAID:1, CANCELLED:1 };
   const otOpenRec = o => !OT_CLOSED[o.Status];
   /**
+   * HAS MONEY ACTUALLY BEEN RECEIVED against this charge?
+   *
+   * 'PAID' was being used for two different things: a family who paid, and a charge waived in full
+   * (adminUpdateOT marks a zero amount PAID — "nothing to collect"). Nothing could tell them apart,
+   * so a waived row was frozen for ever: when the pick-up time was corrected back to a genuinely
+   * late one, the charge could not come back, the family was never billed and never told. Reported
+   * on ธันวา, 18/08: cancelled at 16:40, then re-entered as 18:09 — and nothing happened.
+   *
+   * Money received is the only thing that must never be recomputed. A waiver is a decision about a
+   * charge, and a charge that turns out to be real again is chargeable again.
+   */
+  function otSettled_(o){ if(!o) return false;
+    if(Number(o.SlipAmount||0)>0) return true;
+    if(String(o.Status||'')==='PAID' && Number(o.Amount||0)>0) return true;
+    try{ if(paySlipSum_('ot', o.OTID, ['SUBMITTED','CONFIRMED'])>0) return true; }catch(e){}
+    return false; }
+  /**
    * RECONCILE a day's late-pickup charge WITH THE PICK-UP TIME. The only way any of them may.
    *
    * Three handlers used to do this for themselves — the parent's check-out, the teacher's on-behalf
@@ -608,7 +625,7 @@ function createAtomAPI(M, GROWTH_STD) {
     const i=M.otDaily.findIndex(x=>x.OTID===otId);
     const r=i>=0?M.otDaily[i]:null;
     const status=r?String(r.Status||''):'';
-    if(status==='PAID') return null;
+    if(otSettled_(r)) return null;
     const o=pickupHHMM?otFor(student,pickupHHMM):{amount:0,late:0,hours:0,planEnd:otThreshold(student)};
     if(o.amount<=0){
       if(!r) return null;
@@ -619,6 +636,8 @@ function createAtomAPI(M, GROWTH_STD) {
     }
     if(r){
       if(status==='CANCELLED' && String(r.CancelledBy||'')!=='AUTO_TIME') return null;
+      // a row marked PAID with no money behind it is a WAIVER, not a payment — it may be re-charged
+      if(status==='PAID'){ r.Status='UNPAID'; r.PaidDate=''; }
       const disc=otDiscOf_(r,o.amount);
       r.PickupTime=pickupHHMM; r.PlanEnd=o.planEnd; r.LateMinutes=o.late; r.Hours=o.hours;
       r.FullAmount=o.amount; r.Discount=disc; r.Amount=Math.max(0,o.amount-disc);
@@ -700,11 +719,21 @@ function createAtomAPI(M, GROWTH_STD) {
    * remembering to flip a switch; a pause with no PauseTo runs until the Admin ends it.
    */
   const PAUSED_STATUS = 'PAUSED';
+  /**
+   * PauseTo is the day the child COMES BACK, not the last day away. "กลับมาเรียนวันที่ 20/08" means
+   * they walk in on the 20th — so the 20th is a school day and check-in must work. It used to keep
+   * them paused through the whole of that date and let them back on the 21st, which is a day of the
+   * parent tapping a button that refuses them.
+   */
   function studentPaused_(s, onDate){ if(!s || String(s.Status)!==PAUSED_STATUS) return false;
     const d=ymd(onDate||todayLocal()), from=ymd(s.PauseFrom||''), to=ymd(s.PauseTo||'');
     if(from && d<from) return false;
-    if(to && d>to) return false;                 // the return date has passed → back on the roster
+    if(to && d>=to) return false;                // the return date IS a school day → back on the roster
     return true; }
+  // Still flagged PAUSED, but the return date has come: back in every list, and the admin is asked to
+  // confirm the child really did come back (which clears the pause for good).
+  const pauseDue_ = (s, onDate) => !!(s && String(s.Status)===PAUSED_STATUS && ymd(s.PauseTo||'') &&
+    ymd(onDate||todayLocal()) >= ymd(s.PauseTo));
   // paused for EVERY day of this month → no bill for it (a partly-paused month is still billed,
   // and the Admin can adjust that bill by hand rather than have the system guess)
   function pausedWholeMonth_(s, month){ if(!s || String(s.Status)!==PAUSED_STATUS) return false;
@@ -2225,7 +2254,9 @@ function createAtomAPI(M, GROWTH_STD) {
         const names=[]; const add=n=>{ if(n&&names.indexOf(n)<0)names.push(n); };
         (M.classes||[]).forEach(c=>add(c.ClassName)); (Array.isArray(cfg.Departments)?cfg.Departments:String(cfg.Departments||'').split(',')).forEach(d=>add(String(d).trim())); std.forEach(s=>add(s.Class));
         const cls=names.map(name=>{ const studs=std.filter(s=>s.Class===name);
-        const stat=studs.map(s=>{ const a=M.studentAttendanceToday.find(x=>x.StudentID===s.StudentID); return {studentId:s.StudentID,name:s.NameTH,nameEN:s.NameEN,nick:s.Nickname,nickEN:s.NicknameEN, status:a?a.Status:'ABSENT', in:a?a.CheckIn||'':'', out:a?a.CheckOut||'':'', reason:a?a.Reason:''}; });
+        const stat=studs.map(s=>{ const a=M.studentAttendanceToday.find(x=>x.StudentID===s.StudentID); return {studentId:s.StudentID,name:s.NameTH,nameEN:s.NameEN,nick:s.Nickname,nickEN:s.NicknameEN, status:a?a.Status:'ABSENT', in:a?a.CheckIn||'':'', out:a?a.CheckOut||'':'', reason:a?a.Reason:'',
+          // back on the list because the return date has come — still marked, until someone confirms
+          pauseDue:pauseDue_(s), pauseTo:ymd(s.PauseTo||'')}; });
         return {className:name,total:studs.length,in:stat.filter(s=>s.status==='IN').length,out:stat.filter(s=>s.status==='OUT').length,leave:stat.filter(s=>s.status==='LEAVE').length,absent:stat.filter(s=>s.status==='ABSENT').length,students:stat}; })
         .filter(c=>c.total>0 || (M.classes||[]).some(mc=>mc.ClassName===c.className)); // hide empty extra depts, keep real classes
       // staff with check-in turned OFF never clock in — exclude them entirely (not counted, not "absent")
@@ -2233,6 +2264,10 @@ function createAtomAPI(M, GROWTH_STD) {
         const onLeave=a.Status==='LEAVE'; return {staffId:s.StaffID,name:s.NameTH,nameEN:s.NameEN,nick:s.Nickname,nickEN:s.NicknameEN,dept:s.Department, status:a.Status||'ABSENT',
           checkIn:onLeave?'':(a.CheckIn||''), checkOut:onLeave?'':(a.CheckOut||''), late:onLeave?0:(a.Late||0), remark:onLeave?(a.Reason||'ลา'):''}; });
       return {classes:cls, staff:staffStat, pendingLeaves:M.leaves.filter(l=>l.Status.startsWith('PENDING')).length,
+        // Children on a temporary leave, and the ones whose return date has come. They used to be
+        // invisible on the one screen the admin looks at every morning: away for a month with nothing
+        // to say so, and back with nothing to say that either.
+        paused:H.pausedStudents(),
         holidays:(M.holidays||[]).map(h=>({Date:h.Date,NameTH:h.NameTH,NameEN:h.NameEN})), bigCleaning:bigCleaningList_(),
         // whether today is open, and TO WHOM — travels with the dashboard so the screen never has to
         // work it out from holidays/bigCleaning and get the Big Cleaning case wrong again
@@ -2288,9 +2323,11 @@ function createAtomAPI(M, GROWTH_STD) {
       return {ok:true,studentId:p.studentId,status:PAUSED_STATUS,paused:studentPaused_(s),from:s.PauseFrom,to:s.PauseTo,reason:s.PauseReason}; },
     // children currently away, so the Admin can see them in one place and bring them back
     pausedStudents: () => M.students.filter(s=>String(s.Status)===PAUSED_STATUS)
-      .map(s=>({studentId:s.StudentID,name:s.NameTH||s.Name,nameEN:s.NameEN,nick:s.Nickname,className:s.Class,
+      .map(s=>({studentId:s.StudentID,name:s.NameTH||s.Name,nameEN:s.NameEN,nick:s.Nickname,nickEN:s.NicknameEN,className:s.Class,
         from:ymd(s.PauseFrom||''), to:ymd(s.PauseTo||''), reason:s.PauseReason||'',
-        active:studentPaused_(s), due:!!(s.PauseTo && ymd(s.PauseTo)<todayLocal())}))
+        // `active` = away right now. `due` = the return date has come (or passed) and nobody has
+        // confirmed the child is back — they are already on every list, waiting to be tidied up.
+        active:studentPaused_(s), due:pauseDue_(s), dueToday:!!(s.PauseTo && ymd(s.PauseTo)===todayLocal())}))
       .sort((a,b)=>String(a.from).localeCompare(String(b.from))),
     listClasses: () => M.classes,
     /**

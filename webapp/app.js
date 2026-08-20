@@ -112,7 +112,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.253'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.254'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -3721,7 +3721,12 @@
                 ${gone.length?`<div style="margin-top:2px"><span class="pill info">🔄 ${EN()?'picked up':'รับกลับแล้ว'} (${gone.length})</span> <small class="muted">${gone.map(s=>esc(dnick(s))+(s.out?' '+esc(s.out):'')).join(', ')}</small></div>`:''}
                 ${lv.length?`<div style="margin-top:2px"><span class="pill wait">🌴 ${EN()?'leave':'ลา'} (${lv.length})</span> <small class="muted">${lv.map(s=>esc(dnick(s))).join(', ')}</small></div>`:''}
                 ${ab.length?`<div style="margin-top:2px"><span class="pill bad">⛔ ${EN()?'absent':'ขาด'} (${ab.length})</span> <small class="muted">${ab.map(s=>esc(dnick(s))).join(', ')}</small></div>`:''}
-                ${!lv.length&&!ab.length?`<small style="color:var(--ok)">✓ ${EN()?'All present':'มาครบทุกคน'}</small>`:''}`; })()}</div>`;}).join('')}`}</div>
+                ${!lv.length&&!ab.length?`<small style="color:var(--ok)">✓ ${EN()?'All present':'มาครบทุกคน'}</small>`:''}
+                ${(()=>{ // a child whose temporary leave has run out is back on this list — say so, or
+                  // "ขาด" is the only word anyone sees for a child everybody knew was away
+                  const due=(c.students||[]).filter(s=>s.pauseDue);
+                  return due.length?`<div style="margin-top:2px"><span class="pill info">🔄 ${EN()?'due back from leave':'ลาชั่วคราว · ครบกำหนดแล้ว'} (${due.length})</span> <small class="muted">${due.map(s=>esc(dnick(s))).join(', ')}</small></div>`:''; })()}`; })()}</div>`;}).join('')}`}</div>
+      ${A_pausedCard(d.paused)}
       <div class="card"><div class="spread"><h3>👩‍🏫 ${EN()?'Staff today':'พนักงานวันนี้'}</h3>${_closedStaff?`<span class="pill" style="background:var(--surface-3);color:var(--ink-3)">🏖️ ${EN()?'Holiday':'วันหยุด'}</span>`:(_day.bigCleaning?`<span class="pill wait">${BC_ICON} ${BC_SHORT()}</span>`:'')}</div>
         ${_closedStaff?`<div style="text-align:center;color:var(--ink-3);padding:10px 0"><b>${EN()?'School closed — nobody is expected in today':'โรงเรียนหยุด — ไม่มีใครต้องเข้างานวันนี้'}</b></div>`:
         (()=>{ const present=d.staff.filter(s=>s.status==='IN'||s.status==='OUT').length; const t=d.staff.length; const pct=t?Math.round(present/t*100):100;
@@ -5288,10 +5293,34 @@
     try{ await api('setStudentPause',{studentId:sid,paused:true,from,to,reason:v('#pz_why'),staffId:USER.staffId});
       m.remove(); const m2=document.querySelector('.modal'); if(m2)m2.remove();
       confirmSaved(EN()?'Marked as on temporary leave':'บันทึกเป็นลาชั่วคราวแล้ว'); GO('manage'); }catch(e){err(e);} };
-  window.A_resumeStudent=async(sid)=>{ if(!confirm(EN()?'Bring this child back to school? Billing and attendance resume.':'ให้นักเรียนคนนี้กลับมาเรียนตามปกติ? ระบบจะเริ่มออกบิลและนับการมาเรียนอีกครั้ง'))return;
+  window.A_resumeStudent=async(sid,back)=>{ if(!confirm(EN()?'Bring this child back to school? Billing and attendance resume.':'ให้นักเรียนคนนี้กลับมาเรียนตามปกติ? ระบบจะเริ่มออกบิลและนับการมาเรียนอีกครั้ง'))return;
     try{ await api('setStudentPause',{studentId:sid,paused:false,staffId:USER.staffId});
       const m=document.querySelector('.modal'); if(m)m.remove();
-      confirmSaved(EN()?'Back at school':'กลับมาเรียนตามปกติแล้ว'); GO('manage'); }catch(e){err(e);} };
+      confirmSaved(EN()?'Back at school':'กลับมาเรียนตามปกติแล้ว'); GO(back||'manage'); }catch(e){err(e);} };
+  /**
+   * Children on a temporary leave, on the screen the admin actually opens every morning.
+   *
+   * They used to be invisible here: away for a month with nothing to say so, and back with nothing
+   * to say that either — the return date came and went and the only sign was the child appearing
+   * among "ขาด". Now the leave is listed with its dates, the day it runs out is called out, and
+   * confirming the return is one tap from the same screen (early returns included, which is what
+   * the "มาก่อนกำหนด" case needs).
+   */
+  window.A_pausedCard=(list)=>{ list=list||[]; if(!list.length) return '';
+    const dn=x=>EN()?(x.nickEN||x.nameEN||x.nick||x.name):(x.nick||x.name);
+    const due=list.filter(x=>x.due), away=list.filter(x=>!x.due);
+    const row=(x,isDue)=>`<div class="list-item"><span><b>${esc(dn(x))}</b> <small class="muted">${esc(x.className||'')}</small>
+        <br><small class="muted">${esc(ddmmyyyy(x.from))} → ${x.to?esc(ddmmyyyy(x.to)):(EN()?'not decided':'ยังไม่กำหนด')}${x.reason?' · '+esc(x.reason):''}</small>
+        ${isDue?`<br><small style="color:var(--warn)">${x.dueToday?(EN()?'⏰ due back TODAY':'⏰ ครบกำหนดวันนี้'):(EN()?'⏰ the return date has passed':'⏰ เลยกำหนดกลับมาแล้ว')}</small>`:''}</span>
+      <button class="btn sm ${isDue?'green':'outline'}" onclick="A_resumeStudent('${esc(x.studentId)}','home')">▶️ ${EN()?'Back':'กลับมาเรียน'}</button></div>`;
+    return `<div class="card"><div class="spread"><h3>⏸️ ${EN()?'Temporary leave':'นักเรียนลาชั่วคราว'}</h3>
+        <span class="muted">${list.length} ${EN()?'children':'คน'}</span></div>
+      ${due.length?`<div class="card" style="background:var(--warn-bg);border-color:var(--warn-line);padding:8px;margin:4px 0">
+        <b style="color:var(--warn)">🔄 ${EN()?'Due back — confirm they have returned':'ครบกำหนดแล้ว — กดยืนยันว่ากลับมาเรียนแล้ว'} (${due.length})</b>
+        <small class="muted" style="display:block;margin-top:2px">${EN()?'They are already back on the class lists and can be checked in. Confirming clears the leave.':'ระบบนำชื่อกลับเข้าชั้นเรียนและเปิดให้เช็คอินแล้ว · กดยืนยันเพื่อล้างสถานะลาชั่วคราว'}</small>
+        ${due.map(x=>row(x,true)).join('')}</div>`:''}
+      ${away.map(x=>row(x,false)).join('')}
+      <small class="muted">${EN()?'While away a child is not billed, not marked absent, and not on class lists.':'ระหว่างลาชั่วคราว จะไม่ออกบิล ไม่นับขาด และไม่ขึ้นชื่อในชั้นเรียน'}</small></div>`; };
 
   // Live preview of the FIRST month's tuition under the chosen rule, so the admin sees the number
   // before it becomes a bill. Mirrors tuitionForMonth_ in engine.js — keep the two in step.
