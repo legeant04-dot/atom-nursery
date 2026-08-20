@@ -180,6 +180,18 @@ function digestEvening_() {
     if (sor.length) lines.push('OT ครูรออนุมัติ: ' + sor.length + ' ราย');
   } catch (e) {}
   if (r && r.injuries && r.injuries.length) lines.push('⚠️ อุบัติเหตุวันนี้: ' + r.injuries.length + ' ราย');
+  /* Days somebody clocked IN and never OUT. Nobody was told — not the teacher, not the head teacher,
+   * not the admin — and the monthly screen called the month "ครบ" anyway. The teacher sees it on
+   * their own home screen; this is how it reaches the people who can chase it. */
+  try {
+    var mo = engineDispatch_('staffMissingCheckout', {});
+    if (mo && mo.count) {
+      lines.push('⏳ ยังไม่ได้ลงเวลาออก ' + mo.count + ' วัน (เดือนนี้) — ให้คุณครูส่งคำขอลงเวลา');
+      (mo.staff || []).forEach(function (s) {
+        lines.push('   • ' + (s.nick || s.name || s.staffId) + ': ' + (s.days || []).join(', '));
+      });
+    }
+  } catch (e) {}
   notifyAdmins_(lines.join('\n'));
 }
 function digestMorning_() {

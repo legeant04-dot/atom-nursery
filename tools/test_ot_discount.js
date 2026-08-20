@@ -237,7 +237,8 @@ console.log('\n8) The live GAS route keeps the same promises (it shadows the eng
   ok_('the recompute preserves the discount', /otDiscOf_\(ex, c\.amount\)/.test(src));
   ok_('...and never writes a bare Amount from the computed charge',
     !/updateRow_\(sh, ex\._row, \{ PickupTime: pickupHHMM[^}]*Amount: c\.amount \}/.test(src));
-  ok_('the new columns are created on demand', /ensureColumns_\(sh, OT_DISCOUNT_COLS_\)/.test(src));
+  // v253: + the cancel columns, so a charge removed by a corrected time can say who removed it and why
+  ok_('the new columns are created on demand', /ensureColumns_\(sh, OT_DISCOUNT_COLS_\.concat\(OT_CANCEL_COLS_\)\)/.test(src));
   ok_('a discount is written to the audit log', /logAudit\([^)]*OT_DISCOUNT/.test(src));
   ok_('the discount is capped at the charge', /Math\.min\(otNum_\(p\.discount\), full\)/.test(src));
   ok_('paying more than the charge cannot go negative', /Math\.max\(0, full - otNum_\(p\.amount\)\)/.test(src));

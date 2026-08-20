@@ -586,6 +586,52 @@ function createAtomAPI(M, GROWTH_STD) {
   // OT that is PAID or CANCELLED is settled — it must never roll into a bill or count as outstanding.
   const OT_CLOSED = { PAID:1, CANCELLED:1 };
   const otOpenRec = o => !OT_CLOSED[o.Status];
+  /**
+   * RECONCILE a day's late-pickup charge WITH THE PICK-UP TIME. The only way any of them may.
+   *
+   * Three handlers used to do this for themselves — the parent's check-out, the teacher's on-behalf
+   * check-out, and the correction form — and each stopped at `if (amount > 0)`. So a pick-up time
+   * corrected DOWNWARD created no charge and removed none: on 18/08 ธันวา was recorded home at 16:40
+   * and still billed 2 hours against 18:09, the moment the teacher happened to tap. Money that a
+   * teacher had already put right, still on the family's bill.
+   *
+   * The rule, in one place:
+   *   nothing owed  -> an existing charge is CANCELLED (kept, at zero, so the correction is visible)
+   *   something owed-> created or recomputed, keeping any discount the school granted
+   *   PAID          -> never touched here
+   *   CANCELLED by an ADMIN -> stays cancelled; that was a decision about money
+   *   CANCELLED by this rule -> comes back if the time changes again; that was only arithmetic
+   */
+  function otReconcile_(student, date, pickupHHMM){
+    const d=ymd(date), sid=student.StudentID;
+    const otId='OT-'+d.replace(/-/g,'')+'-'+sid;
+    const i=M.otDaily.findIndex(x=>x.OTID===otId);
+    const r=i>=0?M.otDaily[i]:null;
+    const status=r?String(r.Status||''):'';
+    if(status==='PAID') return null;
+    const o=pickupHHMM?otFor(student,pickupHHMM):{amount:0,late:0,hours:0,planEnd:otThreshold(student)};
+    if(o.amount<=0){
+      if(!r) return null;
+      r.PickupTime=pickupHHMM||''; r.PlanEnd=o.planEnd; r.LateMinutes=o.late||0; r.Hours=0;
+      r.FullAmount=0; r.Amount=0; r.Status='CANCELLED'; r.CancelledBy='AUTO_TIME';
+      r.CancelNote=pickupHHMM?('แก้เวลารับกลับเป็น '+pickupHHMM+' — ไม่เข้าเงื่อนไข OT'):'ล้างเวลารับกลับ — ไม่เข้าเงื่อนไข OT';
+      return null;
+    }
+    if(r){
+      if(status==='CANCELLED' && String(r.CancelledBy||'')!=='AUTO_TIME') return null;
+      const disc=otDiscOf_(r,o.amount);
+      r.PickupTime=pickupHHMM; r.PlanEnd=o.planEnd; r.LateMinutes=o.late; r.Hours=o.hours;
+      r.FullAmount=o.amount; r.Discount=disc; r.Amount=Math.max(0,o.amount-disc);
+      if(status==='CANCELLED'){ r.Status='UNPAID'; r.CancelledBy=''; r.CancelNote=''; }
+      // `amount` is the CHARGE (what the late pick-up costs), matching the Apps Script route and what
+      // every caller has always been handed; `net` is what is actually billed after a waiver.
+      return {otId, lateMinutes:o.late, hours:o.hours, amount:o.amount, net:r.Amount, planEnd:o.planEnd};
+    }
+    M.otDaily.push({OTID:otId,Date:d,StudentID:sid,PickupTime:pickupHHMM,PlanEnd:o.planEnd,
+      LateMinutes:o.late,Hours:o.hours,FullAmount:o.amount,Discount:0,Amount:o.amount,
+      Status:'UNPAID',SlipRef:'',SlipAmount:0});
+    return {otId, lateMinutes:o.late, hours:o.hours, amount:o.amount, net:o.amount, planEnd:o.planEnd};
+  }
   // A month's TUITION is covered when the student has a CONFIRMED (PAID) advance payment whose Covered
   // months include it. Advance payment covers ONLY the monthly tuition (plan price) — food/activity/
   // special-class charges are still billed each of those months (they are NOT waived by the prepay).
@@ -920,14 +966,8 @@ function createAtomAPI(M, GROWTH_STD) {
       M.checkinStudent.push({Date:todayLocal(),Time:t,StudentID:p.studentId,ParentID:p.parentId,Type:p.type,Status:'OK'});
       const ex=M.studentAttendanceToday.find(x=>x.StudentID===p.studentId); if(ex){ex.Status=p.type;ex.Time=t;} else M.studentAttendanceToday.push({StudentID:p.studentId,Status:p.type,Time:t});
       let h=M.studentCheckins.find(c=>c.StudentID===p.studentId&&c.Date===todayLocal()); if(!h){h={Date:todayLocal(),StudentID:p.studentId,InTime:'',OutTime:''};M.studentCheckins.push(h);} if(p.type==='IN')h.InTime=t; else h.OutTime=t;
-      let ot=null;
-      if(p.type==='OUT'){ const st=studentById(p.studentId); const o=otFor(st,t);
-        if(o.amount>0){ const id='OT-'+todayLocal().replace(/-/g,'')+'-'+p.studentId;
-          let rec=M.otDaily.find(x=>x.OTID===id);
-          if(!rec){ rec={OTID:id,Date:todayLocal(),StudentID:p.studentId,PickupTime:t,PlanEnd:o.planEnd,LateMinutes:o.late,Hours:o.hours,Amount:o.amount,Status:'UNPAID',SlipRef:'',SlipAmount:0}; M.otDaily.push(rec); }
-          else { rec.PickupTime=t; rec.LateMinutes=o.late; rec.Hours=o.hours; rec.Amount=o.amount; }
-          ot={otId:id,lateMinutes:o.late,hours:o.hours,amount:o.amount,planEnd:o.planEnd}; }
-      }
+      // one rule for the charge — see otReconcile_
+      const ot = p.type==='OUT' ? otReconcile_(studentById(p.studentId)||{StudentID:p.studentId}, todayLocal(), t) : null;
       return {type:p.type,time:t,distance:d,ot}; },
 
     // Teacher/Leader checks a student in/out on behalf of a pickup person who isn't a registered
@@ -951,13 +991,9 @@ function createAtomAPI(M, GROWTH_STD) {
       else M.checkinStudent.push({Date:todayLocal(),Time:t,StudentID:st.StudentID,ParentID:st.ParentID||'',Type:type,Status:'OK',Remark:remark,ByStaffID:p.staffId||''});
       const ex=M.studentAttendanceToday.find(x=>x.StudentID===st.StudentID); if(ex){ex.Status=type;ex.Time=t;} else M.studentAttendanceToday.push({StudentID:st.StudentID,Status:type,Time:t});
       let h=M.studentCheckins.find(c=>c.StudentID===st.StudentID&&c.Date===todayLocal()); if(!h){h={Date:todayLocal(),StudentID:st.StudentID,InTime:'',OutTime:''};M.studentCheckins.push(h);} if(type==='IN')h.InTime=t; else h.OutTime=t;
-      let ot=null;
-      if(type==='OUT'){ const o=otFor(st,t);
-        if(o.amount>0){ const id='OT-'+todayLocal().replace(/-/g,'')+'-'+st.StudentID;
-          let rec=M.otDaily.find(x=>x.OTID===id);
-          if(!rec){ rec={OTID:id,Date:todayLocal(),StudentID:st.StudentID,PickupTime:t,PlanEnd:o.planEnd,LateMinutes:o.late,Hours:o.hours,Amount:o.amount,Status:'UNPAID',SlipRef:'',SlipAmount:0}; M.otDaily.push(rec); }
-          else { rec.PickupTime=t; rec.LateMinutes=o.late; rec.Hours=o.hours; rec.Amount=o.amount; }
-          ot={otId:id,lateMinutes:o.late,hours:o.hours,amount:o.amount,planEnd:o.planEnd}; } }
+      // The charge follows the time the TEACHER entered, not the moment they tapped — and a corrected
+      // time that owes nothing cancels the charge the old one made. See otReconcile_.
+      const ot = type==='OUT' ? otReconcile_(st, todayLocal(), t) : null;
       logAct('staffStudentCheckin',st.StudentID,type+' @'+t+' — '+remark,actorOf(p));
       return {studentId:st.StudentID,type,time:t,remark,ot}; },
     // Correct a wrong check-in / pick-up — a parent tapping "picked up" mid-morning by mistake used to be
@@ -993,21 +1029,16 @@ function createAtomAPI(M, GROWTH_STD) {
         if(status==='ABSENT'){ if(ex){ ex.Status='ABSENT'; ex.Time=''; } }
         else if(ex){ ex.Status=status; ex.Time=time; } else M.studentAttendanceToday.push({StudentID:st.StudentID,Status:status,Time:time});
       }
-      // OT follows the pick-up time: cleared → the charge goes with it; changed → recompute
-      const otId='OT-'+date.replace(/-/g,'')+'-'+st.StudentID;
-      const oi=M.otDaily.findIndex(x=>x.OTID===otId);
-      let ot=null;
-      if(outT!==null){
-        if(!outT){ if(oi>=0 && String(M.otDaily[oi].Status||'')!=='PAID') M.otDaily.splice(oi,1); }
-        else { const o=otFor(st,outT);
-          // correcting the pick-up time recomputes the CHARGE, but must keep any discount granted
-          if(o.amount>0){ if(oi>=0){ const r=M.otDaily[oi]; const d=otDiscOf_(r,o.amount);
-              r.PickupTime=outT; r.PlanEnd=o.planEnd; r.LateMinutes=o.late; r.Hours=o.hours;
-              r.FullAmount=o.amount; r.Discount=d; r.Amount=Math.max(0,o.amount-d); }
-            else M.otDaily.push({OTID:otId,Date:date,StudentID:st.StudentID,PickupTime:outT,PlanEnd:o.planEnd,LateMinutes:o.late,Hours:o.hours,FullAmount:o.amount,Discount:0,Amount:o.amount,Status:'UNPAID',SlipRef:'',SlipAmount:0});
-            ot={otId,amount:o.amount,lateMinutes:o.late}; }
-          else if(oi>=0 && String(M.otDaily[oi].Status||'')!=='PAID') M.otDaily.splice(oi,1); }
-      }
+      /* OT follows the pick-up time — and a charge that no longer applies is CANCELLED, not deleted.
+       *
+       * This used to splice the row out of existence, while the Apps Script path (otUpsertForPickup_,
+       * which the teacher's on-behalf button uses) left the old charge standing untouched. Two ways to
+       * correct the same pick-up, two different answers about money — and the one that ran live is
+       * how ธันวา was billed 2 hours against 18:09 after a teacher had recorded 16:40.
+       *
+       * Both now do the same thing, and keep the row: a correction that removes a charge is something
+       * the school should be able to SEE afterwards, not something that leaves no trace. */
+      const ot = (outT!==null) ? otReconcile_(st, date, outT) : null;
       logAct('editStudentAttendance',st.StudentID,date+' เข้า '+(h.InTime||'-')+' ออก '+(h.OutTime||'-')+' — '+remark,actorOf(p));
       return {studentId:st.StudentID,date,checkIn:h.InTime||'',checkOut:h.OutTime||'',ot}; },
     /**
@@ -1739,7 +1770,7 @@ function createAtomAPI(M, GROWTH_STD) {
         .filter(s=>!self || String(s.StaffID)===String(p.staffId))
         .filter(s=>!staffEnded_(s) && (self || s.RequireCheckin!==false))
         .map(s=>{
-          const rows=[]; let present=0, lateDays=0, lateMin=0, leaveDays=0, absent=0, ot=0;
+          const rows=[], missingOut=[]; let present=0, lateDays=0, lateMin=0, leaveDays=0, absent=0, ot=0;
           for(let dd=1; dd<=days; dd++){
             const ds = Y+'-'+String(Mo).padStart(2,'0')+'-'+String(dd).padStart(2,'0');
             const dow = new Date(ds).getDay();
@@ -1764,20 +1795,42 @@ function createAtomAPI(M, GROWTH_STD) {
             // counting it here would put a red mark against a teacher at 07:30.
             else if(ds===today) status='TODAY';
             else status='ABSENT';
+            /* CAME IN AND NEVER CLOCKED OUT. The month read "ครบ" for ก้อย while two of her days —
+             * 07/08 and 19/08 — had an arrival and no departure. A day with no end time has no OT
+             * and no hours behind it, and nobody was told: not her, not the head teacher, not the
+             * admin. It is only counted once the day is OVER, because an open day at 15:00 is
+             * simply someone still at work. */
+            const openDay = (status==='IN') && !outT && ds < today;
+            if(openDay) missingOut.push(ds);
             if(status==='IN'){ present++; ot+=oth; if(lt>0){ lateDays++; lateMin+=lt; } }
             else if(status==='LEAVE') leaveDays += (lv&&lv.half) ? 0.5 : 1;
             else if(status==='ABSENT') absent++;
-            rows.push({date:ds, day:dd, status, in:inT, out:outT, late:lt, otHours:oth, manual,
+            rows.push({date:ds, day:dd, status, in:inT, out:outT, late:lt, otHours:oth, manual, missingOut:openDay,
               holiday:hol[ds]||'', bigCleaning:!!bc[ds],
               leaveType:lv?lv.type:'', leaveHalf:lv?lv.half:'', leaveReason:lv?lv.reason:''});
           }
           return {staffId:s.StaffID, name:s.NameTH||s.Name||'', nameEN:s.NameEN||'', nick:s.Nickname||'', nickEN:s.NicknameEN||'',
             dept:s.Department||'', startDate:ymd(s.StartDate||''),
-            present, lateDays, lateMinutes:lateMin, leaveDays, absent, otHours:Math.round(ot*100)/100, days:rows};
+            present, lateDays, lateMinutes:lateMin, leaveDays, absent, otHours:Math.round(ot*100)/100,
+            missingOut:missingOut.length, missingOutDays:missingOut, days:rows};
         });
       return {month, daysInMonth:days, today,
         holidays:Object.keys(hol).map(d=>({date:d,name:hol[d]})), bigCleaning:Object.keys(bc),
+        missingOut:people.filter(x=>x.missingOut>0).map(x=>({staffId:x.staffId,nick:x.nick,nickEN:x.nickEN,name:x.name,days:x.missingOutDays})),
         staff:people}; },
+    /**
+     * Days somebody clocked IN and never clocked OUT — the thing the monthly screen used to call
+     * "ครบ". Answered on its own so the teacher's home card, the admin's alert and the evening digest
+     * all ask the same question rather than three approximations of it.
+     *
+     * `staffId` narrows it to one person (a teacher may only ask about themselves; the check is the
+     * caller's, since a teacher's own home screen is the main user of this).
+     */
+    staffMissingCheckout: p => {
+      const month = ym((p&&p.month)||todayLocal().slice(0,7));
+      const d = H.staffAttendanceMonth({month, staffId:(p&&p.staffId)||'', onlySelf:true});
+      const list = (d.missingOut||[]).filter(x=>!p||!p.staffId||String(x.staffId)===String(p.staffId));
+      return { month, count:list.reduce((a,x)=>a+x.days.length,0), staff:list }; },
     recentAttendance: p => {
       // per DAY, not per person: a half-day holiday or a Big Cleaning day two days ago had different
       // hours, and re-measuring those mornings against today's shift is how a teacher's own history

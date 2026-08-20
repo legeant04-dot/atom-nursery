@@ -112,7 +112,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.252'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.253'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -1635,15 +1635,30 @@
   window.P_insuranceSave = async (sid)=>{ const d=readInsuranceForm(); if(!insValid(d)){toast(t('ins2.required'));return;}
     try{ await api('submitInsurance',{studentId:sid,parentId:USER.parentId,uid:USER.uid,data:d}); confirmSaved(t('ins2.saved')); GO('home'); }catch(e){err(e);} };
 
+  /**
+   * The pick-up history. A parent with more than one child used to see ONE of them — kids[0] — with
+   * nothing on the screen to say which, and no way to reach the others. Two children's mornings look
+   * much alike, so the wrong one is not obviously the wrong one.
+   *
+   * Nickname tabs, the same way every other multi-child screen in the app does it (childSwitcher),
+   * and the name is repeated on the card so a screenshot of it is unambiguous.
+   */
   SCREENS.Parent.checkin = async () => {
     showAnnPopups();
     const kids=await api('parentChildren',parentScope()); if(!kids.length){GO('home');return;}
-    // The send/pick-up BUTTONS live only on the home kid card now — this screen is the history view.
+    window._CI_KIDS=kids;
+    P_ciHist(kids[0].StudentID);
+  };
+  window.P_ciHist = async (sid) => { setNav('checkin');
+    const kids=window._CI_KIDS||[]; const kid=kids.find(k=>k.StudentID===sid)||kids[0]||{};
     app.innerHTML = `<h2 class="page">${esc(t('title.checkin'))}</h2>
       <div class="card" style="background:var(--blue-bg);border-color:var(--blue-line)"><div class="spread"><small class="muted" style="font-size:13px">${EN()?'Drop-off / pick-up buttons are on the Home page (on each child’s card).':'ปุ่มส่งเข้าเรียน / รับกลับ อยู่ที่หน้าหลัก (บนการ์ดของบุตรหลานแต่ละคน)'}</small><button class="btn sm" onclick="GO('home')">🏠 ${EN()?'Home':'ไปหน้าหลัก'}</button></div></div>
-      <div class="card"><h3>🗓️ ประวัติการรับ-ส่ง</h3><div id="ciHist"></div></div>`;
-    const hist=await api('studentCheckinHistory',{studentId:kids[0].StudentID});
-    setHTML('#ciHist', hist.map(h=>`<div class="list-item"><span>${esc(ddmmyyyy(h.Date))}</span><span><span class="pill ok">↓ ${esc(h.InTime||'--:--')}</span> <span class="pill info">↑ ${esc(h.OutTime||'--:--')}</span></span></div>`).join('')||'<small class="muted">ยังไม่มีประวัติ</small>');
+      ${childSwitcher(kids, sid, 'P_ciHist')}
+      <div class="card"><div class="spread"><h3>🗓️ ${EN()?'Drop-off / pick-up history':'ประวัติการรับ-ส่ง'}</h3>
+        <span><b>${esc(dispNick(kid))}</b> <small class="muted">${esc(kid.Class||'')}</small></span></div>
+        <div id="ciHist"><div class="card muted">${EN()?'Loading…':'กำลังโหลด…'}</div></div></div>`;
+    let hist=[]; try{ hist=await api('studentCheckinHistory',{studentId:sid})||[]; }catch(e){ err(e); return; }
+    setHTML('#ciHist', hist.map(h=>`<div class="list-item"><span>${esc(ddmmyyyy(h.Date))}</span><span><span class="pill ok">↓ ${esc(h.InTime||'--:--')}</span> <span class="pill info">↑ ${esc(h.OutTime||'--:--')}</span></span></div>`).join('')||`<small class="muted">${EN()?'no history yet':'ยังไม่มีประวัติ'}</small>`);
   };
   let P_TYPE='IN'; window.P_type=t=>{P_TYPE=t;$('#tIN').classList.toggle('active',t==='IN');$('#tOUT').classList.toggle('active',t==='OUT');};
   // real device geolocation → {lat,lng}. Backend enforces the school geofence (OUT_OF_RANGE).
@@ -2427,6 +2442,7 @@
       <!-- The remaining-days grid used to sit here. It is a reference figure, not a morning job, and
            it is on the leave screen itself where a teacher is actually deciding whether to file one.
            The home screen keeps the way IN. -->
+      <div id="tmissout"></div>
       <div class="card"><button class="btn sm outline block" onclick="GO('leave')">📩 ${EN()?'Leave — file or view':'ยื่น/ดูใบลา'}</button></div>
       ${isLeader?`<div class="card"><div class="spread"><h3>${esc(t('corg.title'))}</h3><button class="btn sm" onclick="T_classOrg()">🔁 ${esc(t('corg.manage'))}</button></div><small class="muted">${esc(t('corg.leaderNote'))}</small><div id="myccr" style="margin-top:8px"></div></div>`:''}
       <div class="card"><div class="row"><button class="btn sm outline" onclick="GO('absence')">🔎 ${esc(t('abs.title'))}</button>
@@ -2448,6 +2464,18 @@
       ${birthdayCard(al)}`;
     // render, don't fetch: this was started before the batch above and travelled with it
     const tca=await p_tca; setHTML('#tcatt', tca?tcaHtml(tca,day0):'');
+    /* A day you clocked into and never out of is nobody's fault and everybody's problem: it has no
+     * hours, no OT, and the month reads "ครบ" while two days sit half-written. Only the person who
+     * was there knows what time they left, so they are told first — with the way to fix it. */
+    api('staffMissingCheckout',{staffId:USER.staffId}).then(mo=>{
+      if(!mo||!mo.count){ setHTML('#tmissout',''); return; }
+      const days=((mo.staff||[])[0]||{}).days||[];
+      setHTML('#tmissout', `<div class="card" style="background:var(--warn-bg);border-color:var(--warn-line)">
+        <b style="color:var(--warn)">⏳ ${EN()?`${mo.count} day(s) with no check-out`:`มี ${mo.count} วันที่ยังไม่ได้ลงเวลาออก`}</b>
+        <div style="font-size:14px;margin:4px 0">${days.map(d=>esc(ddmmyyyy(d))).join(' · ')}</div>
+        <small class="muted">${EN()?'Those days have no working hours and no OT until they are completed. Send a time request with the time you actually left.':'วันเหล่านี้จะยังไม่มีชั่วโมงทำงานและไม่มี OT จนกว่าจะลงเวลาให้ครบ · ส่งคำขอลงเวลาโดยระบุเวลาที่กลับจริง'}</small>
+        <button class="btn sm block" style="margin-top:8px" onclick="GO('leave')">📤 ${esc(t('att.title'))}</button></div>`);
+    }).catch(()=>{});
     // A leader has three more sections. They cannot join the batch above — whether this person IS a
     // leader is only known once staffSelf has answered — but they can share ONE round trip with each
     // other instead of taking three, and one failing section no longer hides the other two.
@@ -3834,15 +3862,25 @@
       <div class="list-item" style="cursor:pointer" onclick="A_staffMonthOne('${esc(s.staffId)}')">
         <span><b>${esc(dnick(s))}</b>${dnSub(s)?` <small class="muted" style="font-weight:400">${esc(dnSub(s))}</small>`:''}
           <br><small class="muted">${EN()?'present':'มาทำงาน'} ${s.present} · ${EN()?'late':'สาย'} ${s.lateDays}${s.lateMinutes?` (${s.lateMinutes} ${EN()?'min':'นาที'})`:''} · ${EN()?'leave':'ลา'} ${s.leaveDays} · ${EN()?'absent':'ขาด'} ${s.absent}${s.otHours?` · OT ${s.otHours} ${EN()?'hr':'ชม.'}`:''}</small></span>
-        <span style="text-align:right">${s.absent?`<span class="pill bad">${EN()?'absent':'ขาด'} ${s.absent}</span>`:(s.lateDays?`<span class="pill wait">${EN()?'late':'สาย'} ${s.lateDays}</span>`:`<span class="pill ok">${EN()?'full':'ครบ'}</span>`)} <span class="muted">›</span></span></div>`).join('');
-    const tot = (d.staff||[]).reduce((a,s)=>({p:a.p+s.present,l:a.l+s.lateDays,v:a.v+s.leaveDays,ab:a.ab+s.absent,ot:a.ot+s.otHours}),{p:0,l:0,v:0,ab:0,ot:0});
+        <span style="text-align:right">${
+          // a day with an arrival and no departure is NOT "ครบ" — that is what let ก้อย read as
+          // complete with two open days in the month
+          s.missingOut?`<span class="pill bad">⏳ ${EN()?'no check-out':'ไม่ได้ลงเวลาออก'} ${s.missingOut}</span>`
+          :s.absent?`<span class="pill bad">${EN()?'absent':'ขาด'} ${s.absent}</span>`
+          :(s.lateDays?`<span class="pill wait">${EN()?'late':'สาย'} ${s.lateDays}</span>`:`<span class="pill ok">${EN()?'full':'ครบ'}</span>`)} <span class="muted">›</span></span></div>`).join('');
+    const tot = (d.staff||[]).reduce((a,s)=>({p:a.p+s.present,l:a.l+s.lateDays,v:a.v+s.leaveDays,ab:a.ab+s.absent,ot:a.ot+s.otHours,mo:a.mo+(s.missingOut||0)}),{p:0,l:0,v:0,ab:0,ot:0,mo:0});
     modal(`<h3>🗓️ ${EN()?'Monthly work time':'เวลาเข้า-ออกรายเดือน'}</h3>
       <label class="field"><span>${esc(t('c.month'))}</span><input type="month" value="${esc(d.month)}" onchange="A_staffMonth(this.value)"/></label>
       <div class="kpigrid" style="margin-bottom:8px">
         ${smStat(tot.p, EN()?'days present':'วันมาทำงาน','green')}
         ${smStat(tot.l, EN()?'late days':'วันมาสาย','amber')}
         ${smStat(tot.v, EN()?'leave days':'วันลา','')}
-        ${smStat(tot.ab, EN()?'absent days':'วันขาด', tot.ab?'pink':'')}</div>
+        ${smStat(tot.ab, EN()?'absent days':'วันขาด', tot.ab?'pink':'')}
+        ${smStat(tot.mo, EN()?'no check-out':'ไม่ได้ลงเวลาออก', tot.mo?'pink':'')}</div>
+      ${(d.missingOut||[]).length?`<div class="card" style="background:var(--warn-bg);border-color:var(--warn-line);padding:8px;font-size:13px">
+        ⏳ <b>${EN()?'Days with an arrival and no departure':'วันที่มีเวลาเข้า แต่ไม่มีเวลาออก'}</b>
+        ${d.missingOut.map(x=>`<div style="margin-top:2px">• <b>${esc(EN()?(x.nickEN||x.name):(x.nick||x.name))}</b> — ${x.days.map(dd=>esc(ddmmyyyy(dd))).join(', ')}</div>`).join('')}
+        <div class="muted" style="margin-top:4px">${EN()?'Ask them to file a time request so the day can be completed.':'แจ้งให้คุณครูส่งคำขอลงเวลา เพื่อให้วันนั้นสมบูรณ์'}</div></div>`:''}
       <p class="muted" style="font-size:13px">${EN()?'Everyone who logs time, this month. Tap a person for their day-by-day record. Weekends, holidays and days before someone started are not counted as absent.':'ทุกคนที่ต้องลงเวลา ในเดือนนี้ · แตะที่ชื่อเพื่อดูรายวันทั้งเดือน · เสาร์-อาทิตย์ วันหยุด และวันก่อนเริ่มงาน ไม่นับเป็นขาด'}</p>
       <div style="max-height:52vh;overflow:auto">${rows||`<div class="card muted">${esc(t('c.noItems'))}</div>`}</div>
       <div class="row" style="gap:8px;margin-top:8px">
