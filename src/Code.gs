@@ -94,6 +94,13 @@ var ROUTES = {
   addHoliday:       function (p) { return holidayWrite_('addHoliday', p); },
   editHoliday:      function (p) { return holidayWrite_('editHoliday', p); },
   removeHoliday:    function (p) { return holidayWrite_('removeHoliday', p); },
+  /**
+   * Correcting a pick-up time can CREATE a charge — a day back-filled as 18:09 owes late-pickup OT
+   * exactly as a live tap at 18:09 would. The live tap tells the parent (handleStaffStudentCheckin
+   * pushes them a message); the correction told nobody at all, so a charge could appear on a family's
+   * bill days later with no word about where it came from. The engine still does the work.
+   */
+  editStudentAttendance: function (p) { return editAttendanceWrite_(p); },
   listBackups:      function (p) { return handleListBackups(p); },
   restoreSheet:     function (p) { return handleRestoreSheet(p); },
   addDepartment:    function (p) { return handleAddDepartment(p); },
@@ -463,6 +470,40 @@ function holidayWrite_(action, p) {
       res.recomputed = (fixed && fixed.fixed) ? fixed.fixed.length : 0;
     }
   } catch (e) { try { Logger.log('holidayWrite_ recompute failed: ' + (e && e.stack || e)); } catch (x) {} }
+  return res;
+}
+/**
+ * A back-dated attendance correction, and the people it has to reach.
+ *
+ * If the correction raises a late-pickup charge, the family must be told the same way a live
+ * check-out tells them — with the DAY named, because a charge for last Tuesday arriving on Friday
+ * with no explanation is how a school loses an argument it should never have had. The admin inbox
+ * gets it too, so finance is not the last to know.
+ *
+ * Notification never breaks the correction: the times ARE saved, and a failed LINE push is a message
+ * that did not arrive, not a reason to tell the teacher their correction failed.
+ */
+function editAttendanceWrite_(p) {
+  var res = engineDispatch_('editStudentAttendance', p);
+  try {
+    var ot = res && res.ot;
+    if (!ot || !(Number(ot.amount) > 0)) return res;
+    var date = String((res && res.date) || (p && p.date) || '');
+    var st = findObject_(sheet_(getMainSpreadsheet_(), 'STUDENTS'),
+      function (s) { return String(s.StudentID) === String(res.studentId); }) || {};
+    var who = st.Nickname || st.Name || st.NameTH || res.studentId;
+    var msg = '⏰ ค่าล่วงเวลา (รับช้า) ย้อนหลัง\n' +
+      '👶 ' + who + ' · วันที่ ' + date + '\n' +
+      'เวลารับกลับที่บันทึก ' + (res.checkOut || '-') + ' · เลิกเรียน ' + (ot.planEnd || '-') + '\n' +
+      'รับช้า ' + ot.lateMinutes + ' นาที · ค่าล่วงเวลา ' + (ot.net != null ? ot.net : ot.amount) + ' บาท (รวมในบิลรายเดือน)\n' +
+      'หมายเหตุ: รายการนี้เกิดจากการแก้ไขเวลารับ-ส่งของวันดังกล่าว';
+    try {
+      var parent = st.ParentID ? findObject_(sheet_(getMainSpreadsheet_(), 'PARENTS'),
+        function (pr) { return String(pr.ParentID) === String(st.ParentID); }) : null;
+      if (parent && parent.LineUID && typeof linePushText_ === 'function') linePushText_(parent.LineUID, msg);
+    } catch (e) {}
+    try { if (typeof notifyAdmins_ === 'function') notifyAdmins_(msg); } catch (e) {}
+  } catch (e) { try { Logger.log('editAttendanceWrite_ notify failed: ' + (e && e.stack || e)); } catch (x) {} }
   return res;
 }
 // dedupData/reindex* mutate but don't start with a MUTATING_RE verb — force them to take the write lock

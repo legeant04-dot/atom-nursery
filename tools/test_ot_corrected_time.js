@@ -168,7 +168,10 @@ console.log('\n5) one rule, in one place, on each side');
   ok_('the Apps Script route no longer leaves early when nothing is owed',
     !/var c = otComputeFor_\(student, pickupHHMM\);\s*\n\s*if \(c\.amount <= 0\) return null;/.test(otgs));
   ok_('...it cancels the charge the old time made', /Status: 'CANCELLED', CancelledBy: OT_CANCEL_AUTO_/.test(otgs));
-  ok_('...keeps a PAID row untouched', /if \(st === 'PAID'\) return null;\s+\/\/ settled money is never rewritten here/.test(otgs));
+  // v254: "PAID" alone is not enough — a fully waived charge is marked PAID with nothing received,
+  // and freezing THAT is what stopped a corrected time from ever charging again
+  ok_('...keeps a row with money received untouched', /if \(settled\) return null;\s+\/\/ settled money is never rewritten here/.test(otgs));
+  ok_('...and asks whether money actually arrived, not just the status', /function otMoneyReceived_\(o\) \{/.test(otgs));
   ok_('...leaves an ADMIN\'s cancellation alone', /if \(st === 'CANCELLED' && String\(ex\.CancelledBy \|\| ''\) !== OT_CANCEL_AUTO_\) return null;/.test(otgs));
   ok_('...and revives its own', /if \(st === 'CANCELLED'\) \{ patch\.Status = 'UNPAID'; patch\.CancelledBy = ''; patch\.CancelNote = ''; \}/.test(otgs));
   ok_('the incident is named where the next person will look', /ธันวา on 18\/08/.test(otgs));

@@ -110,8 +110,11 @@ console.log('\n3) Consecutive absence — the number the school acts on');
 }
 {
   // a child on temporary leave is not expected in — that is not an absence
+  // PauseTo is the day they COME BACK (v254), so a child away for the whole of August returns on
+  // 1 September. Written as 08-31 this used to mean "away through the 31st"; it now means the 31st
+  // is their first day back, and being absent on it is a real absence.
   const H = boot({ staff: [ADMIN],
-    students: [kid('เอ','Nursery 1', { Status:'PAUSED', PauseFrom:'2026-08-01', PauseTo:'2026-08-31' })] });
+    students: [kid('เอ','Nursery 1', { Status:'PAUSED', PauseFrom:'2026-08-01', PauseTo:'2026-09-01' })] });
   const s = find(H.studentMonthReport({ month: '2026-08', staffId: 'ADM' }), 'เอ');
   eq('temporary leave is not absence', s.absent, 0);
   eq('...nor a run to follow up', s.maxConsecutive, 0);

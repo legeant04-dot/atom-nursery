@@ -44,7 +44,8 @@ console.log('\n1) The reported case: a child on TEMPORARY LEAVE still belongs to
 {
   // exactly the live shape: linked through USER_LINKS by LINE UID, child paused 03/08–20/08
   const H = boot({
-    students: [kid('โมน่า', { Status: 'PAUSED', PauseFrom: '2026-08-03', PauseTo: '2026-08-20' })],
+    // PauseTo is the day the child COMES BACK (v254) — a date in the future keeps them away today
+    students: [kid('โมน่า', { Status: 'PAUSED', PauseFrom: '2026-08-03', PauseTo: '2099-01-01' })],
     parents: [par('PAR-1', { NameTH: 'อัจฉยะ อัศวเดชาสกุล', LineUID: 'U_ajch' })],
     userLinks: [{ UserUID: 'U_ajch', StudentID: 'โมน่า' }]
   });
