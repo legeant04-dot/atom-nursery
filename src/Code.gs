@@ -419,7 +419,12 @@ var MUTATING_RE = /^(submit|save|add|remove|delete|set|register|pay|upload|confi
  * Keep it identical to READ_ONLY in webapp/api.js — tools/test_readonly_sync.js fails if it drifts.
  */
 var READ_ONLY_ACTIONS_ = { absenceReport: 1, paymentLog: 1, paymentSlips: 1, payments: 1, payrollConfig: 1,
-  payrollReminderDue: 1, prepayTiers: 1, prepayments: 1, staffCheckinLog: 1, studentCheckinHistory: 1 };
+  payrollReminderDue: 1, prepayTiers: 1, prepayments: 1, staffCheckinLog: 1, studentCheckinHistory: 1,
+  // "staffMissingCheckout" contains the word "Checkout", so the verb test calls it a write. It only
+  // reads the month and reports the days nobody closed — and an unlisted "write" on a teacher's home
+  // screen is refused for an Observer and takes the whole batch down with it, which is what these
+  // ten are here to prevent.
+  staffMissingCheckout: 1 };
 /**
  * WRITES whose name does not start with a mutating verb — the mirror of the list above, and the
  * dangerous half. Found by running this very classifier over all 124 routes while fixing the

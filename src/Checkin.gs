@@ -494,7 +494,9 @@ function handleStaffStudentCheckin(p) {
       function (pr) { return String(pr.ParentID) === String(student.ParentID); }) : null;
     if (parent && parent.LineUID) linePushText_(parent.LineUID, msg); // routine check-in: no Admin-inbox fallback (avoids flooding)
   } catch (e) {}
-  return { studentId: student.StudentID, type: type, time: timeStr_(now), remark: remark, ot: ot };
+  // the time RECORDED, not the moment the button was pressed — the two differ whenever a teacher
+  // enters the real time, and the confirmation must show what was actually written down
+  return { studentId: student.StudentID, type: type, time: timeHM, remark: remark, ot: ot };
 }
 
 // ---- Check-out ----------------------------------------------------

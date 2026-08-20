@@ -91,7 +91,10 @@ const reached = (c, a) => c.__sent.reduce((n, b) =>
     // every name on the list was verified against its handler; a write here could be re-sent
     const list = (/const READ_ONLY = \{([\s\S]*?)\};/.exec(src) || [])[1] || '';
     const names = list.match(/[A-Za-z]+(?=: 1)/g) || [];
-    eq('the list is exactly the ten that were checked', names.length, 10);
+    // eleven since v253 (staffMissingCheckout — its NAME contains "Checkout"). Pinned deliberately:
+    // every entry here has been read against its handler, and the count is what makes an unchecked
+    // addition impossible to slip in.
+    eq('the list is exactly the eleven that were checked', names.length, 11);
     const eng = R('webapp/engine.js');
     names.forEach(n => {
       const i = eng.indexOf('\n    ' + n + ':');

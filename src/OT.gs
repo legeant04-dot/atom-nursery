@@ -77,25 +77,65 @@ function otFullOf_(o) { var f = Number(o && o.FullAmount); return (isFinite(f) &
 /** A discount can never be negative, nor larger than the charge (that would be paying the parent). */
 function otDiscOf_(o, full) { return Math.min(otNum_(o && o.Discount), otNum_(full)); }
 
+/* Who cancelled a charge, and why. 'AUTO_TIME' means nobody decided anything — the pick-up time was
+ * corrected to one that owes nothing. That distinction matters: a charge an ADMIN cancelled is a
+ * decision and stays cancelled, while one cancelled by arithmetic comes back if the arithmetic
+ * changes again. */
+var OT_CANCEL_COLS_ = ['CancelledBy', 'CancelNote'];
+var OT_CANCEL_AUTO_ = 'AUTO_TIME';
+
 /**
  * Create/refresh today's OT row for a late pickup. Returns the OT summary, or null when there is
- * nothing to charge (inside grace), or when the existing row is already PAID/CANCELLED.
+ * nothing to charge.
+ *
+ * THE CORRECTED TIME IS THE TIME. Reported 2026-08-19 about ธันวา on 18/08: a teacher recorded the
+ * real pick-up as 16:40, and the child was still charged 2 hours of OT against 18:09 — the moment
+ * the teacher happened to press the button. The check-in row said 16:40; the charge said 18:09.
+ *
+ * The cause was one line: `if (c.amount <= 0) return null;` at the top. A corrected time that owes
+ * nothing left the function before it could look at the charge the OLD time had created, so the
+ * charge simply stayed. Correcting a pick-up DOWNWARD could never remove money; only correcting it
+ * upward ever worked. A family was billed for OT a teacher had already cancelled by hand.
+ *
+ * Now the row is always reconciled with the time: zero owed means the charge is cancelled (kept, at
+ * zero, so the correction is visible), and a charge cancelled that way is revived if a later
+ * correction owes something again.
  */
 function otUpsertForPickup_(student, pickupHHMM, dateS) {
   var c = otComputeFor_(student, pickupHHMM);
-  if (c.amount <= 0) return null;
   var sh = sheet_(getMainSpreadsheet_(), 'OT_DAILY');
-  ensureColumns_(sh, OT_DISCOUNT_COLS_);
+  ensureColumns_(sh, OT_DISCOUNT_COLS_.concat(OT_CANCEL_COLS_));
   var otId = 'OT-' + String(dateS).replace(/-/g, '') + '-' + student.StudentID;
   var ex = findObject_(sh, function (x) { return String(x.OTID) === otId; });
+  var st = ex ? String(ex.Status || '') : '';
+
+  // ---- nothing is owed at this time ----
+  if (c.amount <= 0) {
+    if (!ex) return null;                                          // nothing to charge, nothing to undo
+    if (st === 'PAID') return null;                                // settled money is never rewritten here
+    // The charge existed only because of a time that has now been corrected away. Keep the row so the
+    // correction can be seen (and so a slip already attached still points at something), at zero.
+    updateRow_(sh, ex._row, { PickupTime: pickupHHMM, PlanEnd: c.planEnd, LateMinutes: c.late, Hours: 0,
+      FullAmount: 0, Amount: 0, Status: 'CANCELLED', CancelledBy: OT_CANCEL_AUTO_,
+      CancelNote: 'แก้เวลารับกลับเป็น ' + pickupHHMM + ' — ไม่เข้าเงื่อนไข OT' });
+    otBust_();
+    return null;
+  }
+
+  // ---- something is owed ----
   if (ex) {
-    var st = String(ex.Status || '');
-    if (st === 'PAID' || st === 'CANCELLED') return null;          // settled — never re-charge
+    if (st === 'PAID') return null;                                // settled — never re-charge
+    // A charge an ADMIN cancelled stays cancelled: that was a decision about the money, and a later
+    // check-out tap must not quietly reinstate it. One cancelled by the arithmetic above is different
+    // — the arithmetic has changed, so the charge comes back.
+    if (st === 'CANCELLED' && String(ex.CancelledBy || '') !== OT_CANCEL_AUTO_) return null;
     // Recompute the charge, but KEEP any discount the admin granted. Overwriting Amount outright
     // is what used to wipe a goodwill discount the moment anyone re-tapped check-out.
     var disc = otDiscOf_(ex, c.amount);
-    updateRow_(sh, ex._row, { PickupTime: pickupHHMM, PlanEnd: c.planEnd, LateMinutes: c.late, Hours: c.hours,
-      FullAmount: c.amount, Discount: disc, Amount: Math.max(0, c.amount - disc) });
+    var patch = { PickupTime: pickupHHMM, PlanEnd: c.planEnd, LateMinutes: c.late, Hours: c.hours,
+      FullAmount: c.amount, Discount: disc, Amount: Math.max(0, c.amount - disc) };
+    if (st === 'CANCELLED') { patch.Status = 'UNPAID'; patch.CancelledBy = ''; patch.CancelNote = ''; }
+    updateRow_(sh, ex._row, patch);
   } else {
     appendObject_(sh, { OTID: otId, Date: dateS, StudentID: student.StudentID, PickupTime: pickupHHMM,
       PlanEnd: c.planEnd, LateMinutes: c.late, Hours: c.hours, FullAmount: c.amount, Discount: 0,

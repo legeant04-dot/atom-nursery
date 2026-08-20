@@ -472,7 +472,9 @@ window.CONFIG = { MODE: 'gas', GAS_URL: 'https://script.google.com/macros/s/AKfy
    */
   const READ_ONLY = {
     absenceReport: 1, paymentLog: 1, paymentSlips: 1, payments: 1, payrollConfig: 1,
-    payrollReminderDue: 1, prepayTiers: 1, prepayments: 1, staffCheckinLog: 1, studentCheckinHistory: 1
+    payrollReminderDue: 1, prepayTiers: 1, prepayments: 1, staffCheckinLog: 1, studentCheckinHistory: 1,
+    // contains "Checkout", so the verb test calls it a write; it only reads (see Code.gs)
+    staffMissingCheckout: 1
   };
   /**
    * The mirror: WRITES whose name does not start with a mutating verb. Missing them meant the cache
