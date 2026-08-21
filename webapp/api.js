@@ -487,7 +487,9 @@ window.CONFIG = { MODE: 'gas', GAS_URL: 'https://script.google.com/macros/s/AKfy
     recordCashPayment: 1, teacherStudentLeave: 1, unlockJournal: 1, unlockInjury: 1,
     adminResetPassword: 1, adminUpdateOT: 1, adminCancelOT: 1, adminRestoreOT: 1,
     adminAddOT: 1, adminAddHolidayOT: 1, adminEditOT: 1, adminDeleteOT: 1, decideClassChange: 1, reinstallTriggers: 1,
-    commentAssessment: 1   // writes a note onto an assessment row; "comment" is not a mutating verb
+    commentAssessment: 1,  // writes a note onto an assessment row; "comment" is not a mutating verb
+    // who is expected on a closed day — none of the three starts with a mutating verb
+    holidayAttendSet: 1, holidayAttendAdd: 1, holidayAttendRemove: 1
   };
   const isMutating = a => !READ_ONLY[a] && !!(WRITES[a] || MUT.test(a) || /check(in|out)|absence|payOT$|^orgMove|^unlink|^claim|^recompute/i.test(a));
   // app.js asks the same question for the Observer role, so "does this write?" has ONE answer

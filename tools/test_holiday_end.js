@@ -84,7 +84,9 @@ console.log('\n2) the server refuses attendance on a closed day');
     (checkin.match(/assertSchoolOpen_\(now, false, hrs\.openFrom\);/g) || []).length, 1);
   ok_('staff check-OUT is not guarded at all, and says why',
     /Clocking OUT is never refused, on any day/.test(checkin));
-  ok_('and the student side too, asking the CHILDREN’s question', /assertSchoolOpen_\(null, true\);/.test(parent));
+  // v257: the children's door is assertStudentDayOpen_ — the same closed-day rule, plus "is THIS
+  // child on today's list", because an OT วันหยุด day can be open to the children named for it
+  ok_('and the student side too, asking the CHILDREN’s question', /assertStudentDayOpen_\(payload\.studentId\);/.test(parent));
   // v244: "ขณะนี้" rather than "วันนี้" — a holiday may now cover only part of the day
   ok_('the refusal names the day, not just "no"', /ขณะนี้โรงเรียนหยุด \(' \+ why \+ '\)/.test(checkin));
   ok_('it is a code the client can act on', /apiError_\('SCHOOL_CLOSED'/.test(checkin));

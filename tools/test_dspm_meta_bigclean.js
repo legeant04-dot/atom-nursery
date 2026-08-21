@@ -163,9 +163,15 @@ console.log('\n=== 3. a Big Cleaning day is for the STAFF, not the children ==='
 }
 // v244: + atTime, so a half-day holiday refuses only during its own window
 ok_('the rule is written down once', /const schoolClosedFor_ = \(d, forStudents, atTime\)/.test(eng));
-ok_('the parent path asks the children’s question', /assertSchoolOpen_\(null, true\);   \/\/ a Big Cleaning day is a working day for STAFF, not for children/.test(eng));
+// v257: the children's question grew a second half — "…and is THIS child expected today", because a
+// holiday can now be open to the children named for an OT วันหยุด day. assertStudentDayOpen_ asks
+// both, and is the only thing that does.
+ok_('the parent path asks the children’s question', /assertStudentDayOpen_\(p\.studentId\);/.test(eng)
+  && /a Big Cleaning day is a working day for STAFF, not for children/.test(eng));
 // v249: + openFrom, so a teacher may clock in the last few minutes before the school reopens
-ok_('the GAS route asks it too', /assertSchoolOpen_\(null, true\);/.test(par) && /function assertSchoolOpen_\(d, forStudents, openFrom\)/.test(ci));
+ok_('the GAS route asks it too', /assertStudentDayOpen_\(payload\.studentId\);/.test(par)
+  && /function assertStudentDayOpen_\(studentId, d\) \{/.test(ci)
+  && /function assertSchoolOpen_\(d, forStudents, openFrom\)/.test(ci));
 ok_('…and the staff routes still do not ask the children’s question',
   !/assertSchoolOpen_\([^)]*,\s*true/.test(ci.slice(ci.indexOf('function handleStaffCheckin'))));
 // v249: check-OUT is no longer guarded at all — someone at work must always be able to go home

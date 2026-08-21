@@ -136,8 +136,10 @@ console.log('\n6b) what "grace" MEANS — the two engines disagreed, and it was 
    * agreed exactly, so nothing ever showed. Giving a reopening 15 minutes would have made them
    * differ BY the grace — on the rows that decide a month's เบี้ยขยัน. Subtraction wins: it is what
    * has been writing the live sheet. */
-  ok_('Apps Script subtracts the grace', /var lateMin = Math\.max\(0, minOfDay_\(now\) - \(expectMin \+ hrs\.grace\)\);/.test(ci));
-  ok_('...and so does the engine now', /const late=Math\.max\(0, raw-hrs\.grace\);/.test(eng));
+  // v257: both now short-circuit to 0 on an OT วันหยุด day (a holiday has no shift to be late for),
+  // and subtract the grace on every other day exactly as before
+  ok_('Apps Script subtracts the grace', /var lateMin = holOT \? 0 : Math\.max\(0, minOfDay_\(now\) - \(expectMin \+ hrs\.grace\)\);/.test(ci));
+  ok_('...and so does the engine now', /const late=holOT\?0:Math\.max\(0, raw-hrs\.grace\);/.test(eng));
   ok_('...and the history card', /return Math\.max\(0, raw-h\.grace\);/.test(eng));
   ok_('no threshold form is left anywhere', !/raw<=hrs\.grace\?0:raw/.test(eng) && !/raw<=h\.grace\?0:raw/.test(eng));
   ok_('the reason is written down where the next person will look', /Grace is SUBTRACTED, not a threshold/.test(eng));
