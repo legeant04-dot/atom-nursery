@@ -112,7 +112,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.255'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.256'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -209,6 +209,14 @@
   const titledName = p => { const ti=EN()?'':titleOf(p); const n=nm(p); return ti?`${ti} ${n}`:n; };
   // student / staff: nickname first, else full name
   const dispNick = o => nick(o) || nm(o);
+  /* Is this OT record the holiday LUMP SUM (as opposed to hours × rate)? The engine owns this rule
+   * (isHolidayOT_) and Apps Script has its own (otIsHoliday_), because the three runtimes cannot
+   * share a function — but the CLIENT had written it out five separate times, which is one drift
+   * away from a calendar and a payslip disagreeing about the same row. One copy here, and
+   * tools/test_one_rule.js fails if a sixth appears. */
+  const isHolOT = o => String((o && o.Kind) || '').toUpperCase() === 'HOLIDAY';
+  // ...and a holiday OT that is still countable: rejected ones are not on anybody's calendar or pay
+  const isLiveHolOT = o => isHolOT(o) && String((o && o.Status) || '').toUpperCase() !== 'REJECTED';
   // a staff's department(s) for display — '*' = all, comma-list joined with ·
   const deptLabel = s => { const d=String((s&&s.Department)||''); if(d==='*')return EN()?'All depts':'ทุกแผนก'; return d.split(',').map(x=>x.trim()).filter(Boolean).join(' · ')||'-'; };
   // look up a student we already fetched (admin caches; parent scope has kids on the page)
@@ -2540,8 +2548,7 @@
   const otStatusPill = st => { const k=String(st||'').toUpperCase()||'APPROVED'; const cls=k==='APPROVED'?'ok':(k==='REJECTED'?'bad':'wait');
     return `<span class="pill ${cls}">${esc(t('ot.st.'+k)||k)}</span>`; };
   // a holiday OT has no hours behind it — printing "0 ชม." would read as a mistake, so it says what
-  // it is and shows the reason the Admin wrote down instead
-  const isHolOT=o=>String((o&&o.Kind)||'').toUpperCase()==='HOLIDAY';
+  // it is and shows the reason the Admin wrote down instead. isHolOT is defined once, near the top.
   function otRow(o){ const hol=isHolOT(o);
     const mid=hol?`🎉 <b>${EN()?'Holiday OT':'OT วันหยุด'}</b> ${esc(baht(o.Amount))}${o.Note?`<br><small class="muted">${esc(o.Note)}</small>`:''}`
                  :`<b>${o.Hours} ${EN()?'h':'ชม.'}</b> ${esc(baht(o.Amount))}${o.Minutes?` <small class="muted">(${esc(hmMin(o.Minutes))})</small>`:''}`;
@@ -3463,7 +3470,7 @@
      * This is the screen they already use to check their own days, so it belongs here. Loaded after
      * the screen is drawn — it must never hold up the summary above it. */
     api('myOT',{staffId:USER.staffId}).then(rows=>{
-      const hol=(rows||[]).filter(o=>String(o.Kind||'').toUpperCase()==='HOLIDAY'&&String(o.Status||'').toUpperCase()!=='REJECTED');
+      const hol=(rows||[]).filter(isLiveHolOT);
       if(!hol.length) return;                       // nothing to say → no empty card in the way
       const total=hol.reduce((a,o)=>a+(Number(o.Amount)||0),0);
       setHTML('#myHolOT', `<details style="margin-top:8px"><summary style="cursor:pointer;font-weight:700;font-size:13px">🎉 ${EN()?'My holiday OT':'OT วันหยุดของฉัน'} <span class="pill ok" style="font-size:11px">${hol.length}</span> <span class="muted" style="font-weight:400">${esc(baht(total))}</span></summary>
@@ -4017,7 +4024,7 @@
     try{ const bc=await api('bigCleaningDays'); window._LV_BC=(bc&&bc.days)||bc||[]; }catch(e){ window._LV_BC=window._LV_BC||[]; }
     // holiday OT for the month on show, so the leave calendar can mark the days someone came in
     try{ const _ot=await api('adminOTList',{month:monthStr()});
-      window._LV_HOT=(_ot||[]).filter(o=>String(o.Kind||'').toUpperCase()==='HOLIDAY'&&String(o.Status||'').toUpperCase()!=='REJECTED');
+      window._LV_HOT=(_ot||[]).filter(isLiveHolOT);
     }catch(e){ window._LV_HOT=window._LV_HOT||[]; }
     // pending teacher-leave count → badge on the tab so it's visible at a glance
     let _lvPend=0; try{ const _al=await api('allLeaves'); window._LV_ALL=_al; _lvPend=_al.filter(l=>String(l.Status).indexOf('PENDING')===0).length; }catch(e){}
@@ -5846,7 +5853,11 @@
     L.push('SLOWEST (by total wait):');
     (d.slowest||[]).slice(0,10).forEach(x=>L.push('  '+x.action+' x'+x.n+' p50='+ms(x.p50)+' p95='+ms(x.p95)+(x.fail?' fail='+x.fail:'')));
     L.push('SCREENS:');
-    (d.slowScreens||[]).filter(x=>x.n).slice(0,10).forEach(x=>L.push('  '+x.screen+' x'+x.n+' p50='+ms(x.p50)+' p95='+ms(x.p95)));
+    // calls/visit is what a screen's wait is really made of — every request queues behind the last
+    (d.slowScreens||[]).filter(x=>x.n).slice(0,10).forEach(x=>L.push('  '+x.screen+' x'+x.n+' p50='+ms(x.p50)+' p95='+ms(x.p95)
+      +(x.perVisit!=null?' calls/visit='+x.perVisit+(x.over?' ⚠️OVER budget '+x.budget:''):'')));
+    const over=(d.slowScreens||[]).filter(x=>x.over);
+    if(over.length) L.push('OVER BUDGET: '+over.map(x=>x.screen+' '+x.perVisit+'>'+x.budget).join(' · '));
     L.push('PROBLEMS:');
     (d.problems||[]).slice(0,12).forEach(x=>L.push('  ['+x.users+' users x'+x.n+'] '+x.what+' :: '+(x.detail||'-')));
     L.push('FAILING:');
@@ -6452,7 +6463,7 @@
   window.A_holidayOT=async(month)=>{ HOT_MONTH=month||HOT_MONTH||monthStr();
     const [rows,staff]=await Promise.all([api('adminOTList',{month:HOT_MONTH}), (A_CACHE.staff&&A_CACHE.staff.length)?Promise.resolve(A_CACHE.staff):api('listStaff')]);
     A_CACHE.staff=staff||A_CACHE.staff;
-    const hol=(rows||[]).filter(o=>String(o.Kind||'').toUpperCase()==='HOLIDAY');
+    const hol=(rows||[]).filter(isHolOT);
     const total=hol.reduce((a,o)=>a+(Number(o.Amount)||0),0);
     const people=(A_CACHE.staff||[]).filter(s=>!s.ended);
     const row=o=>`<div class="card" style="padding:8px">
@@ -6483,7 +6494,7 @@
   // the list and not on the calendar until the screen is reopened
   const A_hotRefresh=async()=>{ const x=document.querySelector('.modal'); if(x)x.remove();
     try{ const _ot=await api('adminOTList',{month:monthStr()});
-      window._LV_HOT=(_ot||[]).filter(o=>String(o.Kind||'').toUpperCase()==='HOLIDAY'&&String(o.Status||'').toUpperCase()!=='REJECTED');
+      window._LV_HOT=(_ot||[]).filter(isLiveHolOT);
       if(window._CALRENDER){ const w=document.getElementById('calWrap'); if(w) w.innerHTML=window._CALRENDER(); }
     }catch(e){}
     A_holidayOT(); };

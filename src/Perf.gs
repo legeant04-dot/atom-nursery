@@ -175,6 +175,30 @@ var PERF_EXPECTED_ = {
   ALREADY_PAID: 1, DUPLICATE: 1, NOT_FOUND: 1
 };
 
+/**
+ * WHAT A SCREEN SHOULD COST, in round trips per visit.
+ *
+ * Not a limit the code enforces — a screen that needs more must be allowed to have more. It is the
+ * number that makes growth VISIBLE: every request queues behind the last one (Apps Script runs a
+ * single execution at a time per user), so a screen quietly going from four requests to nine is
+ * twice the wait, with no individual call getting any slower and nothing in the report to say why.
+ *
+ * Batching is why these are as low as they are: a screen fetching six things in one batch counts as
+ * ONE. So a number well over budget usually means something was added outside the batch.
+ *
+ * Raising a figure here is a decision, taken once, with a reason — not something that happens by
+ * itself over six releases.
+ */
+var SCREEN_BUDGET_DEFAULT_ = 4;
+var SCREEN_BUDGET_ = {
+  home: 6,        // the busiest screen in the app, for every role
+  finance: 8,     // bills, slips, payroll and the month's totals
+  leaves: 6,      // approvals + both calendars
+  manage: 5,
+  class: 4, journal: 4, checkin: 3, payment: 5, growth: 3, dspm: 4,
+  chat: 2, schedule: 4, leave: 4, absence: 3, daily: 3, injury: 3
+};
+
 function perfStamp_(d) { return Utilities.formatDate(d, perfTz_(), 'yyyy-MM-dd HH:mm:ss'); }
 function perfTs_(v) {
   if (Object.prototype.toString.call(v) === '[object Date]') return perfStamp_(v);
@@ -298,10 +322,20 @@ function handlePerfSummary(p) {
              cost: Math.round(a.n * st.p50 / 1000), codes: a.codes };
   }).sort(function (x, y) { return y.cost - x.cost; }).slice(0, 20);
 
+  /* CALLS PER VISIT — the number a screen's cost is actually made of, and the one nobody could see.
+   * Every round trip queues behind the last (Apps Script runs one execution at a time per user), so a
+   * screen that grew from 4 requests to 9 got twice as slow without any single call getting slower —
+   * and the report, which only ever showed p50 and p95, made that look like the server having a bad
+   * week. It is not a limit the code enforces; it is the figure that makes the growth visible while
+   * it is still one screen and not the whole app. SCREEN_BUDGET_ is what we think each should need.
+   */
   var slowScreens = Object.keys(screens).map(function (k) {
     var s = screens[k], st = statify({ ms: s.ms || [] });
+    var per = s.n ? Math.round((s.apiN || 0) / s.n * 10) / 10 : 0;
+    var budget = SCREEN_BUDGET_[s.screen] != null ? SCREEN_BUDGET_[s.screen] : SCREEN_BUDGET_DEFAULT_;
     return { screen: s.screen, n: s.n, p50: st.p50, p95: st.p95, max: st.max,
-             apiCalls: s.apiN || 0, apiMs: s.apiMs || 0 };
+             apiCalls: s.apiN || 0, apiMs: s.apiMs || 0,
+             perVisit: per, budget: budget, over: per > budget };
   }).filter(function (s) { return s.n > 0; }).sort(function (x, y) { return y.p95 - x.p95; }).slice(0, 20);
 
   var problems = Object.keys(errs).map(function (k) {

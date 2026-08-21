@@ -43,7 +43,10 @@ console.log('\n1) the column is declared');
 console.log('\n2) a sheet that ALREADY exists gains the column');
 {
   // run the real ensureCollectionSheet_ against a stub workbook
-  const src = ge.slice(ge.indexOf('function ensureCollectionSheet_('), ge.indexOf('function readCollection_('));
+  // v250 put collectionHeaders_ in front of ensureCollectionSheet_ (the declared columns now come
+  // from the database SCHEMA as well as this build's own map), so the slice has to start there —
+  // otherwise this whole block throws ReferenceError and the suite dies before asserting anything.
+  const src = ge.slice(ge.indexOf('function collectionHeaders_('), ge.indexOf('function readCollection_('));
   const written = [];
   function sheetStub(hdr) {
     return { _hdr: hdr.slice(),
