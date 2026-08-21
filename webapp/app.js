@@ -112,7 +112,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.257'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.258'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -2456,6 +2456,7 @@
       ${isLeader?`<div class="card"><div class="spread"><h3>${esc(t('corg.title'))}</h3><button class="btn sm" onclick="T_classOrg()">🔁 ${esc(t('corg.manage'))}</button></div><small class="muted">${esc(t('corg.leaderNote'))}</small><div id="myccr" style="margin-top:8px"></div></div>`:''}
       <div class="card"><div class="row"><button class="btn sm outline" onclick="GO('absence')">🔎 ${esc(t('abs.title'))}</button>
         <button class="btn sm outline" onclick="T_studentOT()">⏰ ${EN()?'Student OT (follow-up)':'OT นักเรียน (ติดตามชำระ)'}</button>
+        <button class="btn sm outline" onclick="T_holidayOT()">🎉 ${EN()?'My holiday OT':'OT วันหยุดของฉัน'}</button>
         <button class="btn sm outline" onclick="A_attAudit()">🕵️ ${EN()?'Attendance check':'ตรวจสอบการลงเวลา'}</button>
         ${canOrg?`<button class="btn sm outline" onclick="T_organize()">🔁 ${EN()?'Organize classes':'จัดชั้นเรียน'}</button>`:''}
         ${canFood?`<button class="btn sm outline" onclick="A_foodMenu()">🍚 ${EN()?'Monthly food menu':'เมนูอาหารรายเดือน'}</button>`:''}</div></div>
@@ -2490,7 +2491,7 @@
         ${(h.students||[]).map(s=>`<div class="list-item"><span><b>${esc(dn(s))}</b> <small class="muted">${esc(s.class||'')}</small>
             <br><small class="muted">🟢 ${esc(s.inTime||'—')} → 🔴 ${esc(s.outTime||'—')}${s.otAmount>0?` · <span style="color:var(--warn)">OT ${esc(baht(s.otAmount))}</span>`:''}</small></span>
           <button class="btn sm outline" onclick="T_studentCheckin('${esc(s.studentId)}','${esc(dn(s))}','${s.inTime&&!s.outTime?'OUT':'IN'}')">🕑 ${EN()?'Record':'ลงเวลา'}</button></div>`).join('')}
-        <button class="btn sm outline block" style="margin-top:6px" onclick="T_holAddStudent()">➕ ${EN()?'A child turned up who is not on the list':'มีนักเรียนมาเพิ่ม (ไม่อยู่ในรายชื่อ)'}</button></div>`);
+        <button class="btn sm outline block" style="margin-top:6px" onclick="T_holAddStudent('${esc(h.date)}')">➕ ${EN()?'A child turned up who is not on the list':'มีนักเรียนมาเพิ่ม (ไม่อยู่ในรายชื่อ)'}</button></div>`);
     }).catch(()=>{});
     /* A day you clocked into and never out of is nobody's fault and everybody's problem: it has no
      * hours, no OT, and the month reads "ครบ" while two days sit half-written. Only the person who
@@ -2738,33 +2739,70 @@
     <button class="btn block green" id="scSave" disabled onclick="T_studentCheckinDo('${sid}',this)">💾 ${EN()?'Save':'บันทึก'}</button>
     <button class="btn outline block" style="margin-top:8px" onclick="this.closest('.modal').remove()">${esc(t('c.close'))}</button>`); };
   /**
+   * A teacher's own OT วันหยุด, and the children attached to each of those days.
+   *
+   * The home card only appears ON the day itself. A teacher asked to work a Saturday needs to see it
+   * BEFORE the Saturday — what was agreed, what the note says, and which children she is expecting —
+   * and on the day she needs to add the one who turned up anyway. Both live here.
+   */
+  window.T_holidayOT=async(month)=>{
+    const mth=month||monthStr();
+    let rows=[]; try{ rows=await api('myOT',{staffId:USER.staffId,month:mth})||[]; }catch(e){ err(e); return; }
+    const hol=rows.filter(isLiveHolOT).sort((a,b)=>String(b.Date).localeCompare(String(a.Date)));
+    const total=hol.reduce((a,o)=>a+(Number(o.Amount)||0),0);
+    modal(`<h3>🎉 ${EN()?'My holiday OT':'OT วันหยุดของฉัน'}</h3>
+      <label class="field"><span>${esc(t('c.month'))}</span><input type="month" value="${esc(mth)}" onchange="this.closest('.modal').remove();T_holidayOT(this.value)"/></label>
+      ${hol.length?`<div class="spread" style="margin:6px 0"><b>${EN()?'This month':'เดือนนี้'} (${hol.length})</b><b style="color:var(--ok)">${esc(baht(total))}</b></div>`:''}
+      <div style="max-height:56vh;overflow:auto">${hol.length?hol.map(o=>`<div class="card" style="padding:8px">
+        <div class="spread"><b>${esc(ddmmyyyy(o.Date))}</b><b style="color:var(--ok)">${esc(baht(o.Amount))}</b></div>
+        ${o.Note?`<div style="font-size:14px;margin-top:2px">${esc(o.Note)}</div>`:''}
+        <div id="tho_${esc(ymd(o.Date))}" class="muted" style="font-size:13px;margin-top:4px">…</div>
+        <button class="btn sm outline block" style="margin-top:6px" onclick="T_holAddStudent('${esc(ymd(o.Date))}')">➕ ${EN()?'Add a child to this day':'เพิ่มนักเรียนของวันนี้'}</button>
+      </div>`).join(''):`<div class="card muted">${EN()?'No holiday OT this month':'ยังไม่มี OT วันหยุดในเดือนนี้'}</div>`}</div>
+      <p class="muted" style="font-size:13px">${EN()
+        ? 'The amount is a lump sum for the day: clocking in on it adds no hourly OT and counts no lateness. Children ticked for the day check in and out as usual.'
+        : 'ยอดนี้เป็นเงินก้อนของทั้งวัน · การลงเวลาวันนั้นจะไม่คิด OT รายชั่วโมงเพิ่มและไม่นับสาย · นักเรียนที่อยู่ในรายชื่อจะรับ-ส่งได้ตามปกติ'}</p>
+      <button class="btn outline block" onclick="this.closest('.modal').remove()">${esc(t('c.close'))}</button>`);
+    [...new Set(hol.map(o=>ymd(o.Date)))].forEach(async d=>{
+      let l=null; try{ l=await api('holidayAttendList',{date:d}); }catch(e){}
+      const el=document.getElementById('tho_'+d); if(!el)return;
+      const dn=x=>EN()?(x.nickEN||x.nameEN||x.nick||x.name):(x.nick||x.name);
+      el.innerHTML = (l&&l.count)
+        ? `👶 ${EN()?'children':'นักเรียน'} (${l.count}): ${l.students.map(s=>`<b>${esc(dn(s))}</b> <small>${esc(s.inTime||'—')}→${esc(s.outTime||'—')}</small>`).join(' · ')}`
+        : `👶 <span class="muted">${EN()?'no children — your clock only':'ไม่มีนักเรียน — เปิดเฉพาะการลงเวลาของคุณ'}</span>`;
+    });
+  };
+  /**
    * A family turned up on a closed day with a child nobody put on the list. Refusing them at the
    * door with no way to say yes is not a safety rule, it is an obstacle — so a teacher can add the
    * name here, and the engine records who did it and when.
    */
-  window.T_holAddStudent=async()=>{
+  window.T_holAddStudent=async(date)=>{
     let list=A_CACHE.students;
     if(!list||!list.length){ try{ list=await api('listStudents'); A_CACHE.students=list; }catch(e){ list=[]; } }
-    let already=[]; try{ already=((await api('holidayAttendList',{}))||{}).students||[]; }catch(e){}
+    const d=date||todayStr();
+    let already=[]; try{ already=((await api('holidayAttendList',{date:d}))||{}).students||[]; }catch(e){}
     const on={}; already.forEach(x=>{ on[x.studentId]=1; });
     const active=(list||[]).filter(s=>String(s.Status||'ACTIVE').toUpperCase()!=='WITHDRAWN' && !on[s.StudentID]);
-    modal(`<h3>➕ ${EN()?'Add a child to today':'เพิ่มนักเรียนที่มาวันนี้'}</h3>
+    const isToday=(d===todayStr());
+    modal(`<h3>➕ ${EN()?'Add a child to':'เพิ่มนักเรียนวันที่'} ${esc(isToday?(EN()?'today':'วันนี้'):ddmmyyyy(d))}</h3>
       <p class="muted" style="font-size:13px">${EN()
-        ? 'The school is closed today. Adding a name opens that child\'s check-in for the day — everything else then works as usual.'
-        : 'วันนี้โรงเรียนหยุด · การเพิ่มชื่อจะเปิดการลงเวลาของนักเรียนคนนั้นสำหรับวันนี้ — ส่วนอื่นทำงานเหมือนวันปกติ'}</p>
+        ? 'The school is closed that day. Adding a name opens that child\'s check-in for it — everything else then works as usual.'
+        : 'วันนั้นโรงเรียนหยุด · การเพิ่มชื่อจะเปิดการลงเวลาของนักเรียนคนนั้นสำหรับวันนั้น — ส่วนอื่นทำงานเหมือนวันปกติ'}</p>
       <input id="haFind" placeholder="🔎 ${EN()?'search by name or nickname':'ค้นหาชื่อ / ชื่อเล่น'}" oninput="A_editAttFilter(this.value)"/>
       <div id="eaList" style="max-height:52vh;overflow:auto;margin-top:8px">${active.map(s=>
         `<div class="list-item eaRow" data-k="${esc(((dispNick(s)||'')+' '+(nmSub(s)||'')+' '+(s.NameEN||'')).toLowerCase())}">
           <span>${studentAvatar(s)} <b>${esc(dispNick(s)||s.StudentID)}</b> <small class="muted">${esc(s.Class||'')}</small></span>
-          <button class="btn sm green" onclick="T_holAddDo('${esc(s.StudentID)}',this)">➕ ${EN()?'Add':'เพิ่ม'}</button></div>`).join('')
-        ||`<div class="card muted">${esc(t('c.noItems'))}</div>`}</div>
+          <button class="btn sm green" onclick="T_holAddDo('${esc(s.StudentID)}','${esc(d)}',this)">➕ ${EN()?'Add':'เพิ่ม'}</button></div>`).join('')
+        ||`<div class="card muted">${EN()?'Everyone is already on the list':'ทุกคนอยู่ในรายชื่อแล้ว'}</div>`}</div>
       <button class="btn outline block" style="margin-top:8px" onclick="this.closest('.modal').remove()">${esc(t('c.close'))}</button>`);
   };
-  window.T_holAddDo=async(sid,btn)=>{ if(btn)btn.disabled=true;
-    try{ await api('holidayAttendAdd',{staffId:USER.staffId,studentId:sid});
+  window.T_holAddDo=async(sid,date,btn)=>{ if(btn)btn.disabled=true;
+    try{ await api('holidayAttendAdd',{staffId:USER.staffId,studentId:sid,date});
       const m=document.querySelector('.modal'); if(m)m.remove();
-      confirmSaved(EN()?'Added — their check-in is open for today':'เพิ่มแล้ว — เปิดการลงเวลาของวันนี้ให้แล้ว');
-      GO('home'); }catch(e){ err(e); if(btn)btn.disabled=false; } };
+      confirmSaved(EN()?'Added — their check-in is open for that day':'เพิ่มแล้ว — เปิดการลงเวลาของวันนั้นให้แล้ว');
+      if(date && date!==todayStr()) T_holidayOT(String(date).slice(0,7)); else GO('home');
+    }catch(e){ err(e); if(btn)btn.disabled=false; } };
   let SC_TYPE='IN';
   window.T_scType=(v)=>{ SC_TYPE=v; const i=document.getElementById('scIN'),o=document.getElementById('scOUT'); if(i)i.classList.toggle('active',v==='IN'); if(o)o.classList.toggle('active',v==='OUT'); };
   window.T_scCheck=()=>{ const r=document.getElementById('scRemark'), tm=document.getElementById('scTime'), b=document.getElementById('scSave');
@@ -6519,13 +6557,18 @@
       <div class="spread"><b>${esc(dnick(o))}</b><span class="pill ok" style="font-size:11px">${esc(ddmmyyyy(o.Date))}</span></div>
       <label class="field" style="margin-top:6px"><span>${EN()?'Amount (฿)':'จำนวนเงิน (฿)'}</span><input type="number" min="0" id="hot_a_${o.OTRecordID}" value="${esc(o.Amount)}"/></label>
       <label class="field"><span>${EN()?'Details':'รายละเอียด'}</span><textarea id="hot_n_${o.OTRecordID}" rows="2">${esc(o.Note||'')}</textarea></label>
+      <!-- the children bound to that DAY. They belong to the date, not to this one teacher's row, so
+           two teachers working the same holiday see (and edit) the same list — said out loud below. -->
+      <div id="hotKids_${esc(ymd(o.Date))}" class="muted" style="font-size:13px;margin:4px 0">…</div>
       <div class="row"><button class="btn sm outline" onclick="A_hotSave('${o.OTRecordID}')">💾 ${esc(t('c.save'))}</button>
+        <button class="btn sm outline" onclick="A_hotKidsEdit('${esc(ymd(o.Date))}')">👶 ${EN()?'Children':'นักเรียน'}</button>
         <button class="btn sm pink" onclick="A_hotDel('${o.OTRecordID}')">🗑️ ${EN()?'Delete':'ลบ'}</button></div></div>`;
     modal(`<h3>🎉 ${EN()?'Holiday OT':'OT วันหยุด'}</h3>
       <label class="field"><span>${EN()?'Month':'เดือน'}</span><input type="month" id="hotMonth" value="${HOT_MONTH}" onchange="A_holidayOT(this.value)"/></label>
       <details class="card" style="padding:8px" ${hol.length?'':'open'}>
         <summary style="cursor:pointer;font-weight:700">➕ ${EN()?'Record holiday OT':'บันทึก OT วันหยุด'}</summary>
-        <label class="field" style="margin-top:8px"><span>${EN()?'Date worked':'วันที่มาทำงาน'}</span><input type="date" id="hotDate" value="${todayStr()}" onchange="A_hotStdList(this.value)"/></label>
+        <label class="field" style="margin-top:8px"><span>${EN()?'Date worked (holidays only)':'วันที่มาทำงาน (เฉพาะวันหยุด)'}</span><input type="date" id="hotDate" value="${todayStr()}" onchange="A_hotDate(this.value)"/></label>
+        <div id="hotDateWhy" style="font-size:13px;margin:-4px 0 6px"></div>
         <label class="field"><span>${EN()?'Amount each (฿)':'จำนวนเงินต่อคน (฿)'}</span><input type="number" min="0" id="hotAmount" placeholder="0"/></label>
         <label class="field"><span>${EN()?'Details of the work':'รายละเอียดการทำงาน'}</span><textarea id="hotNote" rows="3" placeholder="${EN()?'What was done on the day off':'ทำอะไรในวันหยุด'}"></textarea></label>
         <div class="spread" style="margin:6px 0"><b style="font-size:13px">${EN()?'Staff':'พนักงาน'} <span class="muted" id="hotN">(0)</span></b>
@@ -6548,7 +6591,75 @@
       <div style="max-height:44vh;overflow:auto">${hol.length?hol.map(row).join(''):`<small class="muted">${EN()?'No holiday OT this month':'ยังไม่มี OT วันหยุดในเดือนนี้'}</small>`}</div>
       <button class="btn outline block" style="margin-top:8px" onclick="this.closest('.modal').remove()">${esc(t('c.close'))}</button>`);
     A_hotSel();
-    A_hotStdList();
+    A_hotDate();
+    // fill in each record's "children on this day" line — one call per DATE, not per record
+    [...new Set(hol.map(o=>ymd(o.Date)))].forEach(async d=>{
+      let l=null; try{ l=await api('holidayAttendList',{date:d}); }catch(e){}
+      const el=document.getElementById('hotKids_'+d); if(!el)return;
+      const dn=x=>EN()?(x.nickEN||x.nameEN||x.nick||x.name):(x.nick||x.name);
+      el.innerHTML = (l&&l.count)
+        ? `👶 ${EN()?'children that day':'นักเรียนวันนั้น'} (${l.count}): <b>${l.students.map(s=>esc(dn(s))).join(', ')}</b>`
+        : `👶 <span class="muted">${EN()?'no children that day — the teacher\'s clock only':'ไม่มีนักเรียนวันนั้น — เปิดเฉพาะการลงเวลาของครู'}</span>`;
+    });
+  };
+  /**
+   * The children on a holiday, edited after the fact — somebody was added, somebody cancelled.
+   *
+   * The list belongs to the DATE. Two teachers on the same holiday share it, and the form says so,
+   * because "I changed mine and hers changed too" is the kind of surprise that stops people trusting
+   * a screen.
+   */
+  window.A_hotKidsEdit=async(date)=>{
+    let list=A_CACHE.students;
+    if(!list||!list.length){ try{ list=await api('listStudents'); A_CACHE.students=list; }catch(e){ list=[]; } }
+    let cur=[]; let staff=[];
+    try{ const l=await api('holidayAttendList',{date}); cur=l.students||[]; staff=l.staff||[]; }catch(e){}
+    const on={}; cur.forEach(x=>{ on[x.studentId]=1; });
+    const active=(list||[]).filter(s=>String(s.Status||'ACTIVE').toUpperCase()!=='WITHDRAWN'
+      && String(s.Status||'').toUpperCase()!=='EXPORTED');
+    const byClass={}; active.forEach(s=>{ const c=s.Class||(EN()?'(no class)':'(ยังไม่จัดชั้น)'); (byClass[c]=byClass[c]||[]).push(s); });
+    modal(`<h3>👶 ${EN()?'Children on':'นักเรียนวันที่'} ${esc(ddmmyyyy(date))}</h3>
+      <p class="muted" style="font-size:13px">${EN()
+        ? 'Ticking a child opens their check-in for that day. This list belongs to the DAY — every teacher working that holiday shares it.'
+        : 'ติ๊กชื่อเพื่อเปิดการลงเวลาของวันนั้น · รายชื่อนี้เป็นของ "วัน" — คุณครูทุกคนที่ทำงานวันหยุดนั้นใช้รายชื่อเดียวกัน'}${staff.length?` (${staff.length} ${EN()?'staff':'คน'})`:''}</p>
+      <div class="spread" style="margin:4px 0"><b style="font-size:13px">${EN()?'Selected':'เลือกแล้ว'} <span class="muted" id="hkN">(0)</span></b>
+        <label style="display:flex;gap:6px;align-items:center;font-size:13px"><input type="checkbox" style="width:auto" onchange="document.querySelectorAll('.hkchk').forEach(c=>c.checked=this.checked);A_hkSel()"/> ${EN()?'All':'ทั้งหมด'}</label></div>
+      <div style="max-height:50vh;overflow:auto;border:1px solid var(--line);border-radius:8px;padding:6px">
+        ${Object.keys(byClass).sort().map(c=>`<div style="margin-bottom:6px">
+          <b style="font-size:13px">${esc(c)}</b>
+          ${sortPeople(byClass[c]).map(s=>`<label class="list-item" style="gap:8px;cursor:pointer;padding:4px 6px">
+            <input type="checkbox" class="hkchk" value="${esc(s.StudentID)}" style="width:auto" ${on[s.StudentID]?'checked':''} onchange="A_hkSel()"/>
+            <span><b>${esc(dispNick(s))}</b>${nmSub(s)?` <small class="muted">${esc(nmSub(s))}</small>`:''}</span></label>`).join('')}
+        </div>`).join('')||`<small class="muted">${esc(t('c.noItems'))}</small>`}</div>
+      <button class="btn block green" style="margin-top:8px" onclick="A_hotKidsSave('${esc(date)}',this)">💾 ${esc(t('c.save'))}</button>
+      <button class="btn outline block" style="margin-top:8px" onclick="this.closest('.modal').remove()">${esc(t('c.close'))}</button>`);
+    A_hkSel();
+  };
+  window.A_hkSel=()=>{ const n=document.querySelectorAll('.hkchk:checked').length;
+    const el=document.getElementById('hkN'); if(el)el.textContent='('+n+')'; };
+  window.A_hotKidsSave=async(date,btn)=>{ const m=btn.closest('.modal');
+    const studentIds=[...m.querySelectorAll('.hkchk:checked')].map(c=>c.value);
+    btn.disabled=true;
+    try{ await api('holidayAttendSet',{staffId:USER.staffId,date,studentIds});
+      m.remove(); confirmSaved(t('c.saved')); A_hotRefresh(); }catch(e){ err(e); btn.disabled=false; } };
+  /**
+   * The date box says, as it is typed, whether the day is one OT วันหยุด may be recorded against.
+   *
+   * The server refuses a working day outright (assertHolidayDate_) — but being told AFTER filling in
+   * the amount, the note and five names is a form that wastes your afternoon. So it answers here
+   * first, and the save button follows.
+   */
+  window.A_hotDate=async(date)=>{
+    const d=date||(document.getElementById('hotDate')||{}).value||todayStr();
+    const why=document.getElementById('hotDateWhy'); const box=document.getElementById('hotStd');
+    let r=null; try{ r=await api('holidayDateCheck',{date:d}); }catch(e){}
+    if(why){ why.innerHTML = !r ? ''
+      : r.holiday
+        ? `<span style="color:var(--ok)">✓ ${esc(r.name||(r.weekend?(EN()?'weekend':'เสาร์-อาทิตย์'):(EN()?'holiday':'วันหยุด')))}</span>`
+        : `<span style="color:var(--bad)">⛔ ${EN()?'This is an ordinary working day — holiday OT cannot be recorded on it. Use hourly OT instead.':'วันนี้เป็นวันทำงานปกติ — บันทึก OT วันหยุดไม่ได้ · ให้ใช้ OT รายชั่วโมงแทน'}</span>`; }
+    // a working day gets no student list either: nothing about that day is going to be saved
+    if(box && r && !r.holiday){ box.innerHTML=`<small class="muted">${EN()?'Pick a holiday first.':'เลือกวันหยุดก่อน'}</small>`; A_hotStdSel(); return; }
+    A_hotStdList(d);
   };
   /**
    * The children who might come in on the chosen day — nickname first, grouped by class, because
@@ -6595,6 +6706,10 @@
     if(!staffIds.length){toast(EN()?'Select at least one':'เลือกพนักงานอย่างน้อย 1 คน');return;}
     const amount=Number(g('hotAmount'))||0; if(amount<=0){toast(EN()?'Enter the amount':'ระบุจำนวนเงิน');return;}
     const note=g('hotNote').trim(); if(!note){toast(EN()?'Enter the details':'ระบุรายละเอียดการทำงาน');return;}
+    // the server refuses a working day anyway; asking here keeps the answer in front of the person
+    try{ const dc=await api('holidayDateCheck',{date:g('hotDate')});
+      if(dc && !dc.holiday){ toast(EN()?'Holiday OT can only be recorded on a holiday':'OT วันหยุดบันทึกได้เฉพาะวันหยุดเท่านั้น'); return; }
+    }catch(e){}
     const studentIds=[...m.querySelectorAll('.hotstd:checked')].map(c=>c.value);
     // said out loud before it is written: the amount is PER PERSON, so ticking five people spends five times it
     if(!confirm((EN()?`Pay ${baht(amount)} each to ${staffIds.length} staff?`:`จ่าย ${baht(amount)} ต่อคน ให้ ${staffIds.length} คน (รวม ${baht(amount*staffIds.length)}) ใช่หรือไม่?`)

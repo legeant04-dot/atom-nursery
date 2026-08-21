@@ -828,6 +828,26 @@ function createAtomAPI(M, GROWTH_STD) {
    * the spot when a family turns up, which is a decision someone takes, not a gap someone falls
    * through.
    */
+  /**
+   * IS THIS DATE A HOLIDAY AT ALL? — a weekend, or a day the school put in HOLIDAYS.
+   *
+   * OT วันหยุด is payment for coming in on a day off. Recording it against an ordinary Tuesday is
+   * not a small mistake: it is a lump sum with no hours behind it, approved on the spot, that
+   * bypasses the hourly OT the day should have produced. Nothing stopped it before — the date box
+   * accepted any date at all.
+   *
+   * A HALF-day holiday counts. The school shut for part of it and asked someone to come in anyway,
+   * which is exactly the case the payment is for.
+   */
+  function isHolidayDate_(date){ const d=ymd(date||todayLocal());
+    if((M.holidays||[]).some(h=>ymd(h.Date)===d)) return true;
+    const g=new Date(d+'T00:00:00').getDay();
+    return g===0||g===6; }
+  function assertHolidayDate_(date){ const d=ymd(date||'');
+    if(!d) fail('BAD_INPUT','ระบุวันที่');
+    if(isHolidayDate_(d)) return;
+    fail('NOT_A_HOLIDAY','วันที่ '+d+' ไม่ใช่วันหยุด — OT วันหยุดเลือกได้เฉพาะเสาร์-อาทิตย์ หรือวันหยุดที่โรงเรียนกำหนดไว้ · หากเป็นวันทำงานปกติให้ใช้ OT รายชั่วโมงแทน'); }
+
   const holidayAttend_ = () => (M.holidayAttend = M.holidayAttend || []);
   const holidayAttendIds_ = date => { const d=ymd(date||todayLocal());
     return holidayAttend_().filter(r=>ymd(r.Date)===d).map(r=>String(r.StudentID)); };
@@ -2392,9 +2412,16 @@ function createAtomAPI(M, GROWTH_STD) {
       const day=schoolDayFor_(d);
       return { date:d, closed:!!day.closedForStudents, count:rows.length,
                staff:holidayOTStaff_(d), students:rows }; },
+    /** Is a date eligible for OT วันหยุด? Asked by the form before it lets the admin save. */
+    holidayDateCheck: p => { const d=ymd((p&&p.date)||todayLocal());
+      const hol=(M.holidays||[]).find(h=>ymd(h.Date)===d);
+      const g=new Date(d+'T00:00:00').getDay();
+      return { date:d, holiday:isHolidayDate_(d), weekend:(g===0||g===6),
+               name:hol?(hol.NameTH||hol.NameEN||''):'' }; },
     /** Admin: replace the whole list for a date (the tick-boxes on the OT วันหยุด form). */
     holidayAttendSet: p => { const me=staffById(p&&p.staffId); if(!adminLike_(me)) fail('NO_PERMISSION','เฉพาะแอดมิน');
       const d=ymd((p&&p.date)||''); if(!d) fail('BAD_INPUT','ระบุวันที่');
+      assertHolidayDate_(d);
       let ids=(p&&p.studentIds)||[]; if(!Array.isArray(ids)) ids=[ids];
       ids=[...new Set(ids.map(x=>String(x||'').trim()).filter(Boolean))];
       ids.forEach(id=>{ if(!studentById(id)) fail('NOT_FOUND','ไม่พบนักเรียน '+id); });
@@ -2404,6 +2431,11 @@ function createAtomAPI(M, GROWTH_STD) {
       return { date:d, count:ids.length, studentIds:ids }; },
     /** Teacher or admin: one more name, because a family turned up. */
     holidayAttendAdd: p => { const d=ymd((p&&p.date)||todayLocal());
+      /* STAFF ONLY. This action decides whether a child may be checked in on a day the school is
+       * shut — in a parent's hands it would be a button that lets them open their own child's day,
+       * which is the one thing the allowlist exists to prevent.
+       * staffById returns {} for an unknown id, never null, so the test has to be on the ID. */
+      if(!staffById(p&&p.staffId).StaffID) fail('NO_PERMISSION','เฉพาะคุณครูหรือแอดมิน');
       const st=studentById(p&&p.studentId); if(!st) fail('NOT_FOUND','ไม่พบนักเรียน');
       if(isHolidayAttendee_(st.StudentID,d)) return { date:d, studentId:st.StudentID, already:true };
       holidayAttend_().push({Date:d,StudentID:st.StudentID,AddedBy:(p&&p.staffId)||'',AddedAt:stampLocal()});
@@ -2411,7 +2443,7 @@ function createAtomAPI(M, GROWTH_STD) {
       return { date:d, studentId:st.StudentID, added:true }; },
     /** ...and take one off again (ticked by mistake, or the family cancelled). */
     holidayAttendRemove: p => { const d=ymd((p&&p.date)||todayLocal());
-      const me=staffById(p&&p.staffId);
+      if(!staffById(p&&p.staffId).StaffID) fail('NO_PERMISSION','เฉพาะคุณครูหรือแอดมิน');   // {} is truthy
       const i=holidayAttend_().findIndex(r=>ymd(r.Date)===d&&String(r.StudentID)===String(p&&p.studentId));
       if(i<0) return { date:d, removed:false };
       // a child already checked in that day is a FACT — removing the name would leave a record nobody
