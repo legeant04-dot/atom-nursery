@@ -226,7 +226,68 @@ console.log('\n7) the screens');
   ok_('saving writes the list beside the OT', /await api\('holidayAttendSet',\{staffId:USER\.staffId,date:g\('hotDate'\),studentIds\}\)/.test(app));
   ok_('reopening the form shows what was saved', /picked\.forEach\(x=>\{ on\[x\.studentId\]=1; \}\)/.test(app));
   ok_('the teacher sees the day\'s children on their home screen', /api\('holidayAttendList',\{\}\)/.test(app));
-  ok_('...and can add one who turned up', /window\.T_holAddStudent=async\(\)=>/.test(app) && /holidayAttendAdd/.test(app));
+  ok_('...and can add one who turned up', /window\.T_holAddStudent=async\(date\)=>/.test(app) && /holidayAttendAdd/.test(app));
+}
+
+console.log('\n7b) OT วันหยุด can only be recorded ON a holiday');
+{
+  /* It is a lump sum with no hours behind it, approved on the spot, and it REPLACES the hourly OT
+   * the day would otherwise have produced (v257). Recorded against an ordinary Tuesday that is not a
+   * typo, it is a payment nobody can reconstruct. The date box used to take any date at all. */
+  const { H } = boot({});
+  eq('a Saturday is a holiday', H.holidayDateCheck({ date: '2026-08-22' }).holiday, true);
+  eq('...and a Sunday', H.holidayDateCheck({ date: '2026-08-23' }).holiday, true);
+  eq('an ordinary Thursday is not', H.holidayDateCheck({ date: '2026-08-20' }).holiday, false);
+}
+{
+  const { H } = boot({});
+  H.addHoliday({ date: '2026-08-20', nameTH: 'วันหยุดพิเศษ' });
+  const c = H.holidayDateCheck({ date: '2026-08-20' });
+  eq('a day the school declared IS one, and it says which', [c.holiday, c.weekend, c.name], [true, false, 'วันหยุดพิเศษ']);
+}
+{
+  const { H } = boot({});
+  H.addHoliday({ date: '2026-08-20', nameTH: 'ปิดครึ่งวัน', startTime: '08:00', endTime: '12:00' });
+  eq('a HALF-day holiday counts too — somebody was still asked to come in', H.holidayDateCheck({ date: '2026-08-20' }).holiday, true);
+}
+{
+  const { H } = boot({});
+  throws_('the list cannot be set on a working day either', () =>
+    H.holidayAttendSet({ staffId: 'STF-1', date: '2026-08-20', studentIds: ['S1'] }), 'ไม่ใช่วันหยุด');
+  ok_('...and the refusal says what to use instead', /ให้ใช้ OT รายชั่วโมงแทน/.test(eng));
+}
+{
+  const gs = R('src/OtStaff.gs');
+  ok_('Apps Script refuses it at the source', /assertHolidayDate_\(date\);/.test(gs));
+  ok_('...and refuses MOVING one onto a working day', /if \(otIsHoliday_\(r\)\) assertHolidayDate_\(p\.date\);/.test(gs));
+  ok_('the rule itself is in both runtimes',
+    /function assertHolidayDate_\(ds\) \{/.test(ci) && /function assertHolidayDate_\(date\)\{/.test(eng));
+  ok_('the form says so as the date is typed', /window\.A_hotDate=async\(date\)=>/.test(app));
+  ok_('...naming the day when it is valid', /✓ \$\{esc\(r\.name/.test(app));
+  ok_('...and refusing to offer children on a day that cannot be saved', /Pick a holiday first\.|เลือกวันหยุดก่อน/.test(app));
+  ok_('...and it checks once more before saving', /const dc=await api\('holidayDateCheck',\{date:g\('hotDate'\)\}\)/.test(app));
+}
+
+console.log('\n7c) the record can be opened again — including its children');
+{
+  ok_('each holiday-OT card says who is coming that day', /id="hotKids_\$\{esc\(ymd\(o\.Date\)\)\}"/.test(app));
+  ok_('...and has a button to change it', /A_hotKidsEdit\('\$\{esc\(ymd\(o\.Date\)\)\}'\)/.test(app));
+  ok_('the editor ticks what is already saved', /cur\.forEach\(x=>\{ on\[x\.studentId\]=1; \}\)/.test(app));
+  ok_('...and says the list belongs to the DAY, not to one teacher', /คุณครูทุกคนที่ทำงานวันหยุดนั้นใช้รายชื่อเดียวกัน/.test(app));
+  ok_('a teacher has their own screen for it', /window\.T_holidayOT=async\(month\)=>/.test(app));
+  ok_('...reachable from their tool row', /onclick="T_holidayOT\(\)">🎉/.test(app));
+  ok_('...showing the amount and the note that was agreed', /esc\(baht\(o\.Amount\)\)/.test(app) && /o\.Note\?`<div style="font-size:14px/.test(app));
+  ok_('...the children on each day, with their times', /id="tho_\$\{esc\(ymd\(o\.Date\)\)\}"/.test(app));
+  ok_('...and an add button per day, not just for today', /T_holAddStudent\('\$\{esc\(ymd\(o\.Date\)\)\}'\)/.test(app));
+  ok_('...saying the day pays no hourly OT and counts no lateness', /จะไม่คิด OT รายชั่วโมงเพิ่มและไม่นับสาย/.test(app));
+}
+{
+  // the door this opens must never be in a parent's hand
+  const { H } = boot({ otRecords: HOLOT() });
+  throws_('only staff may add a name', () =>
+    H.holidayAttendAdd({ staffId: 'PAR-1', studentId: 'S1' }), 'เฉพาะคุณครูหรือแอดมิน');
+  throws_('...and only staff may take one off', () =>
+    H.holidayAttendRemove({ staffId: '', studentId: 'S1' }), 'เฉพาะคุณครูหรือแอดมิน');
 }
 
 console.log('\n8) a tick box beside its label, on a phone');

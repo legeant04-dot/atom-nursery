@@ -106,6 +106,7 @@ function handleAdminAddHolidayOT(p) {
   var note = String(p.note == null ? '' : p.note).trim();
   if (!note) throw apiError_('BAD_INPUT', 'ระบุรายละเอียดการทำงานวันหยุด');
   var date = p.date || dateStr_(new Date());
+  assertHolidayDate_(date);
   var sh = otSheet_(), added = [];
   targets.forEach(function (target) {
     var st = otStaffById_(target);
@@ -140,7 +141,10 @@ function handleAdminEditOT(p) {
     if (!otIsHoliday_(r)) patch.Amount = Math.round(patch.Hours * otRateForStaff_(otStaffById_(r.StaffID))); }
   if (p.amount != null && p.amount !== '') patch.Amount = Number(p.amount) || 0;
   if (p.note != null) patch.Note = p.note;
-  if (p.date) { patch.Date = p.date; patch.Month = String(p.date).slice(0, 7); }
+  // moving a HOLIDAY lump sum onto a working day is the same mistake as recording it there in the
+  // first place — the guard has to be on the edit as well, or the form is just a slower way in
+  if (p.date) { if (otIsHoliday_(r)) assertHolidayDate_(p.date);
+    patch.Date = p.date; patch.Month = String(p.date).slice(0, 7); }
   updateRow_(sh, r._row, patch); otBust_(); return { otId: p.otId, hours: patch.Hours, amount: patch.Amount };
 }
 

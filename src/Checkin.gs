@@ -266,6 +266,27 @@ function staffHasHolidayOT_(staffId, ds) {
 }
 
 /**
+ * IS THIS DATE A HOLIDAY AT ALL? — a weekend, or a day the school put in HOLIDAYS.
+ *
+ * OT วันหยุด is payment for coming in on a day off. Recording it against an ordinary Tuesday is not
+ * a small mistake: it is a lump sum with no hours behind it, approved on the spot, that replaces the
+ * hourly OT the day should have produced. Nothing stopped it — the date box took any date at all.
+ * A HALF-day holiday counts: the school shut for part of it and asked someone in anyway.
+ */
+function isHolidayDate_(ds) {
+  try { if (holidayOn_(ds)) return true; } catch (e) {}
+  var g = new Date(String(ds) + 'T00:00:00').getDay();
+  return g === 0 || g === 6;
+}
+function assertHolidayDate_(ds) {
+  ds = String(ds || '').slice(0, 10);
+  if (!ds) throw apiError_('BAD_INPUT', 'ระบุวันที่');
+  if (isHolidayDate_(ds)) return;
+  throw apiError_('NOT_A_HOLIDAY', 'วันที่ ' + ds + ' ไม่ใช่วันหยุด — OT วันหยุดเลือกได้เฉพาะเสาร์-อาทิตย์ ' +
+    'หรือวันหยุดที่โรงเรียนกำหนดไว้ · หากเป็นวันทำงานปกติให้ใช้ OT รายชั่วโมงแทน');
+}
+
+/**
  * Children NAMED for a closed day — the ones coming in alongside a teacher's OT วันหยุด. For them
  * the day behaves like any other: check in, check out, the journal, the history, and the late-pickup
  * charge if somebody is collected late. For everybody else the school stays shut.
