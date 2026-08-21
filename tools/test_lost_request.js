@@ -123,8 +123,14 @@ console.log('\n3) a teacher\'s morning punch is no longer lost with the request'
   await t.settle();
   ok_('the check-in went through', !!d);
   eq('...because it was sent again', attempts(t.sent, 'staffCheckin'), 2);
-  ok_('the exception is named and justified by the SERVER\'s guard', /const IDEMPOTENT_WRITE = \/\^\(staffCheckin\|staffCheckout\)\$\//.test(src));
-  ok_('...and says why nothing else may join it', /Nothing to do with money is here, and nothing should be added\s*\n\s*\* without a guard on the handler to point at/.test(src));
+  /* v255 added the four the offline outbox has replayed since v198 — each verified in its GAS
+   * handler to update an existing row rather than create one. A lost reply is a WEAKER demand than
+   * the outbox (same second, not hours later), and a teacher lost her daily report twice in a week
+   * for want of it. */
+  ok_('the exception is named and justified by the SERVER\'s guard',
+    /const IDEMPOTENT_WRITE = \/\^\(staffCheckin\|staffCheckout\|staffStudentCheckin\|submitJournal\|studentAbsence\|submitAssessment\)\$\//.test(src));
+  ok_('...each one pointing at what makes it safe', /submitJournal writes by \(student, date\)/.test(src));
+  ok_('...and says why nothing else may join it', /Everything that CREATES a row — payments, slips, bills, growth records — is deliberately absent,\s*\n\s*\* and nothing joins this list without a guard in its handler to point at\./.test(src));
 }
 {
   // …and a payment still is not, however lost it was
