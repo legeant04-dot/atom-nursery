@@ -103,7 +103,7 @@ function handlePerfLog(p) {
 
     var sid = perfCell_(p.sid, 20), dev = perfCell_(p.dev, 10), net = perfCell_(p.net, 8),
         ver = perfCell_(p.ver, 20), pwa = p.pwa ? 1 : 0;
-    var ts = Utilities.formatDate(new Date(), perfTz_(), 'yyyy-MM-dd HH:mm:ss');
+    var ts = perfStamp_(new Date());
 
     var out = rows.map(function (r) {
       r = r || {};
@@ -139,6 +139,48 @@ function perfTz_() {
   try { return getMainSpreadsheet_().getSpreadsheetTimeZone() || 'Asia/Bangkok'; } catch (e) { return 'Asia/Bangkok'; }
 }
 
+/**
+ * A timestamp that SORTS. Every number in this report depends on it, and it was wrong.
+ *
+ * The rows are written as 'yyyy-MM-dd HH:mm:ss', which sorts correctly as text — but Sheets stores
+ * that as a DATE, and getValues() hands it back as a Date object. `String(date)` is
+ * "Fri Aug 21 2026 10:00:00 GMT+0700", which starts with the WEEKDAY. Two consequences, neither
+ * visible in the numbers themselves:
+ *
+ *   - the "last N days" filter compared "Fri Aug 21…" against "2026-08-14…". Digits sort before
+ *     letters, so every row passed. The report has been covering the whole log, not the window it
+ *     printed, so figures from two reports were never over the same period.
+ *   - the header read "Fri Aug 21 2026 -> Wed Aug 19 2026", because min and max were alphabetical
+ *     by weekday name.
+ *
+ * Same trap as the holiday times (v251): a Sheets cell read back as a Date and treated as a string.
+ */
+/**
+ * Answers the server gives ON PURPOSE. Every one of these is the rule working: the person was
+ * outside the geofence, had already clocked in, left a required field empty, tried to edit a journal
+ * the parent has already been sent. None of them is a fault in the app, and counting them as
+ * failures put "staffCheckin 53%" at the top of a report where it drowned the things that were.
+ *
+ * Adding to this list is a deliberate act. Anything not listed is OURS until proven otherwise —
+ * which is the right way round for a list that decides what we stop looking at.
+ */
+var PERF_EXPECTED_ = {
+  OUT_OF_RANGE: 1,          // standing away from the school — the geofence doing its job
+  ALREADY_CHECKED_IN: 1, ALREADY_CHECKED_OUT: 1,   // the server refusing a duplicate punch
+  MISSING_FIELDS: 1, BAD_INPUT: 1,                 // a form submitted incomplete
+  JOURNAL_LOCKED: 1,        // already sent to the parent
+  ON_LEAVE: 1,              // the family told us the child is away today
+  SCHOOL_CLOSED: 1, NOT_STARTED: 1, STUDENT_PAUSED: 1,
+  NO_PERMISSION: 1, READ_ONLY: 1,                  // asking for something this role may not have
+  ALREADY_PAID: 1, DUPLICATE: 1, NOT_FOUND: 1
+};
+
+function perfStamp_(d) { return Utilities.formatDate(d, perfTz_(), 'yyyy-MM-dd HH:mm:ss'); }
+function perfTs_(v) {
+  if (Object.prototype.toString.call(v) === '[object Date]') return perfStamp_(v);
+  return String(v == null ? '' : v);
+}
+
 /** Keep the sheet bounded: drop the oldest rows once it passes the cap. */
 function perfTrim_(sh) {
   try {
@@ -170,16 +212,17 @@ function handlePerfSummary(p) {
   var last = sh.getLastRow();
   var vals = sh.getRange(2, 1, last - 1, PERF_HEADERS.length).getValues();
   var cutoff = new Date(); cutoff.setDate(cutoff.getDate() - days);
-  var cutStr = Utilities.formatDate(cutoff, perfTz_(), 'yyyy-MM-dd HH:mm:ss');
+  var cutStr = perfStamp_(cutoff);
 
   var acts = {}, screens = {}, errs = {}, devs = {}, nets = {}, sids = {}, boot = {}, roles = {};
   var healed = {}, healedTotal = 0;
-  var cacheHit = 0, cacheMiss = 0, total = 0, failed = 0, firstTs = '', lastTs = '';
+  var cacheHit = 0, cacheMiss = 0, total = 0, failed = 0, firstTs = '', lastTs = '', skipped = 0;
+  var refusedTotal = 0, refusals = {};
 
   for (var i = 0; i < vals.length; i++) {
     var r = vals[i];
-    var ts = String(r[0]);
-    if (ts < cutStr) continue;
+    var ts = perfTs_(r[0]);
+    if (ts < cutStr) { skipped++; continue; }
     if (!firstTs || ts < firstTs) firstTs = ts;
     if (ts > lastTs) lastTs = ts;
     var sid = String(r[1]), role = String(r[2] || ''), type = String(r[3]), action = String(r[4]),
@@ -210,18 +253,26 @@ function handlePerfSummary(p) {
     }
     // type === 'api'
     total++;
-    var a = acts[action] || (acts[action] = { action: action, n: 0, fail: 0, ms: [], codes: {} });
+    /* REFUSED IS NOT BROKEN. "staffCheckin fail 53%" was six people standing outside the geofence
+     * and four tapping a button they had already used — the server working exactly as designed,
+     * reported as though the app were falling over. Mixed into the headline it hides the failures
+     * that ARE ours, and a report that cries wolf stops being read. Counted separately, and kept
+     * out of the failure figures. */
+    var refused = !ok && PERF_EXPECTED_[code] === 1;
+    if (refused) { refusedTotal++; refusals[code] = (refusals[code] || 0) + 1; }
+    var a = acts[action] || (acts[action] = { action: action, n: 0, fail: 0, refused: 0, ms: [], codes: {} });
     a.n++; a.ms.push(ms);
-    if (!ok) { a.fail++; failed++; a.codes[code || 'ERR'] = (a.codes[code || 'ERR'] || 0) + 1; }
+    if (!ok) { a.codes[code || 'ERR'] = (a.codes[code || 'ERR'] || 0) + 1;
+      if (refused) a.refused++; else { a.fail++; failed++; } }
     if (dev) devs[dev] = devs[dev] || { dev: dev, n: 0, fail: 0, ms: [] };
-    if (dev) { devs[dev].n++; devs[dev].ms.push(ms); if (!ok) devs[dev].fail++; }
+    if (dev) { devs[dev].n++; devs[dev].ms.push(ms); if (!ok && !refused) devs[dev].fail++; }
     /* "Desktop p50 10.7s vs Android 5.8s" invited the conclusion that desktops are slow. They are
      * not: the office computer is the ADMIN, whose screens (finance, payroll, the dashboard) ask for
      * far more than a parent's do, and whose browser stays open all day. The role is already
      * recorded on every row — verified server-side, never self-reported — so summarise it, and the
      * device breakdown stops being read as a claim about hardware. */
     if (role) { roles[role] = roles[role] || { role: role, n: 0, fail: 0, ms: [], sids: {} };
-      roles[role].n++; roles[role].ms.push(ms); roles[role].sids[sid] = 1; if (!ok) roles[role].fail++; }
+      roles[role].n++; roles[role].ms.push(ms); roles[role].sids[sid] = 1; if (!ok && !refused) roles[role].fail++; }
     if (net) nets[net] = nets[net] || { net: net, n: 0, ms: [] };
     if (net) { nets[net].n++; nets[net].ms.push(ms); }
     if (screen) {
@@ -259,9 +310,12 @@ function handlePerfSummary(p) {
   }).sort(function (x, y) { return (y.users - x.users) || (y.n - x.n); }).slice(0, 25);
 
   // failing ACTIONS are a different question from crashing screens — rank them separately
+  // ranked by REAL failures. An action that only ever refuses on purpose does not belong on a list
+  // headed FAILING — the refusals are still shown beside it, so nothing is hidden.
   var failing = Object.keys(acts).filter(function (k) { return acts[k].fail > 0; }).map(function (k) {
     var a = acts[k];
-    return { action: a.action, n: a.n, fail: a.fail, rate: Math.round(a.fail / a.n * 100), codes: a.codes };
+    return { action: a.action, n: a.n, fail: a.fail, refused: a.refused || 0,
+             rate: Math.round(a.fail / a.n * 100), codes: a.codes };
   }).sort(function (x, y) { return y.fail - x.fail; }).slice(0, 20);
 
   var byDev = Object.keys(devs).map(function (k) {
@@ -308,7 +362,17 @@ function handlePerfSummary(p) {
     realFailed: Math.max(0, failed - healedTotal),
     realFailRate: total ? Math.round(Math.max(0, failed - healedTotal) / total * 1000) / 10 : 0,
     perSession: Object.keys(sids).length ? Math.round(total / Object.keys(sids).length) : 0,
-    rows: Math.max(0, sh.getLastRow() - 1), cap: PERF_MAX_KEEP
+    rows: Math.max(0, sh.getLastRow() - 1), cap: PERF_MAX_KEEP,
+    /* The window may be shorter than the one asked for. The log is capped, so once it is full the
+     * oldest rows are dropped — and if NOTHING was skipped as too old, the earliest row we have is
+     * younger than the cutoff and the report covers less than `days`. Saying so is the difference
+     * between "the school got quieter" and "we are looking at a shorter period". */
+    older: skipped,
+    truncated: (skipped === 0 && Math.max(0, sh.getLastRow() - 1) >= PERF_MAX_KEEP),
+    // refused on purpose — the rule working, not the app failing (see PERF_EXPECTED_)
+    refused: refusedTotal,
+    refusedBy: Object.keys(refusals).map(function (k) { return { code: k, n: refusals[k] }; })
+      .sort(function (x, y) { return y.n - x.n; })
   };
 }
 

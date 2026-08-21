@@ -502,7 +502,19 @@ window.CONFIG = { MODE: 'gas', GAS_URL: 'https://script.google.com/macros/s/AKfy
    * lost in transit, and only these: the safety comes from the server's own guard, not from hoping
    * the first attempt did nothing. Nothing to do with money is here, and nothing should be added
    * without a guard on the handler to point at. */
-  const IDEMPOTENT_WRITE = /^(staffCheckin|staffCheckout)$/;
+  /* The four after the punches are the SAME four the offline outbox has been replaying since v198
+   * (QUEUEABLE in app.js), each checked in its GAS handler: staffStudentCheckin updates the existing
+   * row for that (student, date, type); submitJournal writes by (student, date); studentAbsence
+   * returns the existing leave on a duplicate; submitAssessment clears the previous result per item
+   * first. Sending one again cannot create a second row.
+   *
+   * They are added here because a lost reply is a WEAKER demand than the outbox: the outbox replays
+   * minutes or hours later, this retries within the same second. A teacher's daily report was lost
+   * twice in one week (submitJournal, 2026-08-21) and she was told to type it again.
+   *
+   * Everything that CREATES a row — payments, slips, bills, growth records — is deliberately absent,
+   * and nothing joins this list without a guard in its handler to point at. */
+  const IDEMPOTENT_WRITE = /^(staffCheckin|staffCheckout|staffStudentCheckin|submitJournal|studentAbsence|submitAssessment)$/;
   /* "May this request be sent again?" — asked in THREE places (the connection never opened, the
    * reply was unreadable, the reply answered a different question) and, until now, written out
    * three times. Three copies of one rule is how a batch ends up retryable on one path and not on

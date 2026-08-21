@@ -112,7 +112,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.254'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.255'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -5833,8 +5833,14 @@
     const d=window._PERF; if(!d)return;
     const L=[], ms=n=>n>=1000?(n/1000).toFixed(1)+'s':Math.round(n)+'ms';
     L.push('ATOM PERF '+String(d.from||'').slice(0,16)+' -> '+String(d.to||'').slice(0,16));
+    // the window may be shorter than the one asked for — the log is capped and drops its oldest rows
+    if(d.truncated) L.push('WINDOW: capped at '+d.cap+' rows — this covers LESS than '+d.days+' days');
     L.push('calls='+d.calls+' sessions='+d.sessions+' perSession='+(d.perSession!=null?d.perSession:'?')
       +' p50='+ms(d.p50)+' p95='+ms(d.p95)+' fail='+d.failRate+'% cache='+d.cacheRate+'%');
+    // refused ON PURPOSE (outside the geofence, already clocked in, a field left empty). Kept out of
+    // fail% — it is the rule working, and mixed in it buried the failures that were ours.
+    if(Number(d.refused)>0) L.push('REFUSED (working as intended): '+d.refused+' '
+      +(d.refusedBy||[]).map(x=>x.code+' x'+x.n).join(' '));
     if((d.byRole||[]).length) L.push('ROLES: '+d.byRole.map(x=>x.role+' x'+x.n+'/'+x.sessions+'s ='+x.perSession+'/session p50='+ms(x.p50)).join(' | '));
     if(Number(d.healed)>0) L.push('SELF-HEALED: '+d.healed+' (real fail='+d.realFailRate+'%) '+(d.healedBy||[]).map(x=>x.action+' x'+x.n).join(' '));
     L.push('SLOWEST (by total wait):');
@@ -5844,7 +5850,7 @@
     L.push('PROBLEMS:');
     (d.problems||[]).slice(0,12).forEach(x=>L.push('  ['+x.users+' users x'+x.n+'] '+x.what+' :: '+(x.detail||'-')));
     L.push('FAILING:');
-    (d.failing||[]).slice(0,10).forEach(x=>L.push('  '+x.action+' '+x.rate+'% '+Object.keys(x.codes||{}).map(c=>c+'x'+x.codes[c]).join(',')));
+    (d.failing||[]).slice(0,10).forEach(x=>L.push('  '+x.action+' '+x.rate+'%'+(x.refused?' (+'+x.refused+' refused)':'')+' '+Object.keys(x.codes||{}).map(c=>c+'x'+x.codes[c]).join(',')));
     L.push('DEVICES: '+(d.byDev||[]).map(x=>x.dev+' x'+x.n+' p50='+ms(x.p50)+(x.fail?' fail'+x.rate+'%':'')).join(' | '));
     L.push('NETWORK: '+(d.byNet||[]).filter(x=>x.net).map(x=>x.net+' x'+x.n+' p50='+ms(x.p50)).join(' | '));
     L.push('BOOT: '+(d.boot||[]).map(x=>x.mark+'='+ms(x.p50)).join(' | '));

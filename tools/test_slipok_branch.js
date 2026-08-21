@@ -179,8 +179,13 @@ console.log('\n10) The speed report can leave the phone');
 {
   ok_('there is a copy button', /A_perfCopy\(this\)/.test(app));
   ok_('the report data is kept for it', /window\._PERF=d/.test(app));
-  ok_('it copies to the clipboard', /A_perfCopy[\s\S]{0,1800}clipboard\.writeText/.test(app));
-  ok_('with a fallback for browsers that block the clipboard', /A_perfCopy[\s\S]{0,2400}<textarea readonly/.test(app));
+  // the windows grew with the report itself (v255 added WINDOW and REFUSED); what is being pinned is
+  // that both paths are still inside A_perfCopy, not how many characters it takes to reach them
+  ok_('it copies to the clipboard', /A_perfCopy[\s\S]{0,2600}clipboard\.writeText/.test(app));
+  ok_('with a fallback for browsers that block the clipboard', /A_perfCopy[\s\S]{0,3200}<textarea readonly/.test(app));
+  // v255: two lines that stop the report lying to us
+  ok_('it says when the window is shorter than it claims', /A_perfCopy[\s\S]{0,1200}'WINDOW: capped at '/.test(app));
+  ok_('...and separates refusals from failures', /A_perfCopy[\s\S]{0,1600}'REFUSED \(working as intended\): '/.test(app));
   ['SLOWEST', 'SCREENS', 'PROBLEMS', 'FAILING', 'DEVICES', 'BOOT'].forEach(k =>
     ok_('the text includes ' + k, new RegExp("A_perfCopy[\\s\\S]{0,2200}'" + k).test(app)));
 }
