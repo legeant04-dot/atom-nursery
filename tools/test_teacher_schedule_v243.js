@@ -36,8 +36,11 @@ const leaveScr = app.slice(app.indexOf("SCREENS.Teacher.leave"), app.indexOf("SC
 console.log('\n1) my OT วันหยุด, under the daily summary in 📅 ตาราง');
 {
   ok_('the schedule screen asks for my OT', /api\('myOT',\{staffId:USER\.staffId\}\)\.then\(rows=>\{/.test(sched));
-  ok_('...and keeps only the holiday ones', /String\(o\.Kind\|\|''\)\.toUpperCase\(\)==='HOLIDAY'/.test(sched));
-  ok_('...that were not rejected', /String\(o\.Status\|\|''\)\.toUpperCase\(\)!=='REJECTED'/.test(sched));
+  // v256: "a holiday OT that still counts" is one helper (isLiveHolOT) instead of the same pair of
+  // string tests written out at four call sites
+  ok_('...and keeps only the holiday ones that were not rejected', /\.filter\(isLiveHolOT\)/.test(sched));
+  // the helper itself lives at the top of app.js, outside this screen's slice — which is the point
+  ok_('...which is what isLiveHolOT means', /const isLiveHolOT = o => isHolOT\(o\) && String\(\(o && o\.Status\) \|\| ''\)\.toUpperCase\(\) !== 'REJECTED';/.test(app));
   ok_('it sits under the daily summary, not in a card of its own', /<div id="myHolOT"><\/div><\/div>/.test(sched));
   ok_('...inside the same card as the summary', sched.indexOf('lbl.dailySummary') < sched.indexOf('id="myHolOT"'));
   ok_('each row shows the day, the reason and the amount', /<b>\$\{esc\(ddmmyyyy\(o\.Date\)\)\}<\/b>\$\{o\.Note\?/.test(sched) && /\$\{esc\(baht\(o\.Amount\)\)\}<\/b>/.test(sched));

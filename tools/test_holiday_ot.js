@@ -199,7 +199,10 @@ console.log('\n6) the screen: ดำเนินการ → คุณครู
 }
 {
   // it must READ as holiday OT everywhere an OT is shown, or "0 ชม." looks like a broken record
-  ok_('one helper decides how it is labelled', /const isHolOT=o=>String\(\(o&&o\.Kind\)\|\|''\)\.toUpperCase\(\)==='HOLIDAY';/.test(app));
+  // v256: the helper moved to the top of app.js and the four screens that had written the test out
+  // for themselves now call it. tools/test_one_rule.js fails if a second copy appears.
+  ok_('one helper decides how it is labelled', /const isHolOT = o => String\(\(o && o\.Kind\) \|\| ''\)\.toUpperCase\(\) === 'HOLIDAY';/.test(app));
+  ok_('...and nobody writes the test out beside it', ((app.match(/toUpperCase\(\)\s*===?\s*'HOLIDAY'/g) || []).length) === 1);
   ok_('the teacher\'s OT history says what it is instead of "0 hr"', /const mid=hol\?`🎉 <b>\$\{EN\(\)\?'Holiday OT':'OT วันหยุด'\}/.test(app));
   ok_('...and shows the reason', /o\.Note\?`<br><small class="muted">\$\{esc\(o\.Note\)\}/.test(app));
   ok_('the Admin OT list badges it', /🎉 \$\{EN\(\)\?'Holiday':'วันหยุด'\}/.test(app));

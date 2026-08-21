@@ -145,8 +145,9 @@ console.log('\n4) the teacher is told');
 
 console.log('\n5) it shows on the calendar the Admin actually looks at');
 {
-  ok_('the ops screen fetches the month\'s holiday OT', /window\._LV_HOT=\(_ot\|\|\[\]\)\.filter\(o=>String\(o\.Kind\|\|''\)\.toUpperCase\(\)==='HOLIDAY'/.test(app));
-  ok_('...and rejected ones are not drawn', /String\(o\.Status\|\|''\)\.toUpperCase\(\)!=='REJECTED'/.test(app));
+  // v256: the same pair of string tests appeared at four call sites; isLiveHolOT is now the one place
+  ok_('the ops screen fetches the month\'s holiday OT', /window\._LV_HOT=\(_ot\|\|\[\]\)\.filter\(isLiveHolOT\)/.test(app));
+  ok_('...and rejected ones are not drawn', /const isLiveHolOT = o => isHolOT\(o\) && String\(\(o && o\.Status\) \|\| ''\)\.toUpperCase\(\) !== 'REJECTED';/.test(app));
   ok_('the calendar marks the day', /const otByDay=\{\}; \(window\._LV_HOT\|\|\[\]\)\.forEach/.test(app));
   ok_('...with who was in, by name', /title="\$\{esc\(EN\(\)\?'Holiday OT':'OT วันหยุด'\)\}: \$\{esc\(ot\.join\(', '\)\)\}"/.test(app));
   ok_('...one name, or a count when there were several', /🎉 \$\{esc\(ot\.length===1\?ot\[0\]:ot\.length\)\}/.test(app));
