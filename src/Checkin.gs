@@ -246,6 +246,57 @@ function handleDiagDay(p) {
   };
 }
 
+/**
+ * Was this person given OT วันหยุด on this date? If so the day is a working day FOR THEM: they may
+ * clock in and out on a day the school is shut, and neither lateness nor hourly OT is computed,
+ * because the money for that day was agreed as a lump sum when the OT was recorded.
+ */
+function staffHasHolidayOT_(staffId, ds) {
+  try {
+    var rows = readObjects_(sheet_(getHrSpreadsheet_(), 'OT_RECORDS'));
+    return rows.some(function (r) {
+      // otIsHoliday_ (OtStaff.gs) owns "is this the holiday lump sum" on the Apps Script side —
+      // writing the Kind test out again here is how a payslip and a calendar start disagreeing
+      return String(r.StaffID) === String(staffId) &&
+             dateStr_(new Date(r.Date)) === ds &&
+             otIsHoliday_(r) &&
+             String(r.Status || '').toUpperCase() !== 'REJECTED';
+    });
+  } catch (e) { return false; }
+}
+
+/**
+ * Children NAMED for a closed day — the ones coming in alongside a teacher's OT วันหยุด. For them
+ * the day behaves like any other: check in, check out, the journal, the history, and the late-pickup
+ * charge if somebody is collected late. For everybody else the school stays shut.
+ *
+ * An ALLOWLIST, not a plan: a child nobody expected has nobody responsible for them. A teacher can
+ * add a name on the spot (holidayAttendAdd) when a family turns up.
+ */
+function holidayAttendIds_(ds) {
+  try {
+    var sh = getMainSpreadsheet_().getSheetByName('HOLIDAY_ATTEND');
+    if (!sh) return [];
+    return readObjects_(sh).filter(function (r) { return dateStr_(new Date(r.Date)) === ds; })
+      .map(function (r) { return String(r.StudentID); });
+  } catch (e) { return []; }
+}
+function isHolidayAttendee_(studentId, ds) { return holidayAttendIds_(ds).indexOf(String(studentId)) >= 0; }
+
+/** May THIS CHILD be checked in or out on this date? One door, for the parent's button and the
+ *  teacher's on-behalf button alike. */
+function assertStudentDayOpen_(studentId, d) {
+  d = d || new Date();
+  var ds = dateStr_(d);
+  if (!isSchoolClosed_(d)) return;                                  // an ordinary open day
+  if (isHolidayAttendee_(studentId, ds)) return;                    // expected today, by name
+  var why = '';
+  try { var h = holidayOn_(ds); if (h) why = String(h.NameTH || h.Name || h.NameEN || ''); } catch (e) {}
+  if (!why) { var g = d.getDay(); why = (g === 0 || g === 6) ? 'วันหยุดสุดสัปดาห์' : 'วันหยุด'; }
+  throw apiError_('SCHOOL_CLOSED', 'วันนี้โรงเรียนหยุด (' + why + ') — ' +
+    'นักเรียนคนนี้ไม่ได้อยู่ในรายชื่อที่มาโรงเรียนวันนี้ · หากมาจริง ให้คุณครูเพิ่มชื่อก่อนจึงจะลงเวลาได้');
+}
+
 /** Resolve the acting staff record from payload (staffId or lineUid). */
 function resolveStaff_(payload) {
   var staff = sheet_(getHrSpreadsheet_(), 'STAFF');
@@ -359,8 +410,15 @@ function handleStaffCheckin(payload) {
   // 15 minutes are forgiven after — a teacher at the gate must not lose a month's เบี้ยขยัน to a
   // loading spinner. See atomStaffHours_ in Engine.gs.
   var hrs = staffDayHours_(staff.StaffID, now);
-  if (hrs.dayOff) throw apiError_('SCHOOL_CLOSED', 'วันนี้เป็นวันหยุดของโรงเรียน — ไม่ต้องลงเวลา');
-  assertSchoolOpen_(now, false, hrs.openFrom);
+  /* OT วันหยุด opens the day for the person who was given it, and nobody else. The money was agreed
+   * as a LUMP SUM, so the punch records WHEN they were here — it is not a second thing to be paid
+   * for: no lateness (a holiday has no shift to be late for) and no hourly OT on top. The school's
+   * decision, 2026-08-21. */
+  var holOT = staffHasHolidayOT_(staff.StaffID, today);
+  if (!holOT) {
+    if (hrs.dayOff) throw apiError_('SCHOOL_CLOSED', 'วันนี้เป็นวันหยุดของโรงเรียน — ไม่ต้องลงเวลา');
+    assertSchoolOpen_(now, false, hrs.openFrom);
+  }
   var dist = assertWithinGeofence_(payload.lat, payload.lng, payload.acc);
   var sheet = sheet_(getHrSpreadsheet_(), 'CHECKIN_STAFF');
 
@@ -372,7 +430,7 @@ function handleStaffCheckin(payload) {
   }
 
   var expectMin = hhmmToMin_(hrs.checkIn); if (expectMin == null) expectMin = hhmmToMin_('08:00');
-  var lateMin = Math.max(0, minOfDay_(now) - (expectMin + hrs.grace));
+  var lateMin = holOT ? 0 : Math.max(0, minOfDay_(now) - (expectMin + hrs.grace));
 
   if (existing) {
     updateRow_(sheet, existing._row, { CheckIn: timeStr_(now), LateMinutes: lateMin, Status: 'IN' });
@@ -455,6 +513,11 @@ function handleStaffStudentCheckin(p) {
     }
   } catch (e) { if (e && e.apiCode === 'ON_LEAVE') throw e; }
 
+  // the same door as the parent's button. This path never had the check at all — a teacher could
+  // record a child on any closed day — and now that a closed day CAN be open to some children,
+  // "who is expected today" has to be asked here too.
+  assertStudentDayOpen_(student.StudentID);
+
   var sh = sheet_(getMainSpreadsheet_(), 'CHECKIN_STUDENT');
   ensureColumns_(sh, ['Remark', 'ByStaffID']);
   var now = new Date(), today = dateStr_(now);
@@ -523,7 +586,8 @@ function handleStaffCheckout(payload) {
   // for exactly that: "เลิกงานตามกะเวลาเดิมของตนเอง และ OT ตามกะเวลายังดำเนินอยู่".
   var outHHmm = staffDayHours_(staff.StaffID, now).checkOut;
   var outMin = hhmmToMin_(outHHmm); if (outMin == null) outMin = hhmmToMin_('17:00');
-  var otMin = Math.max(0, minOfDay_(now) - outMin);
+  // ...but a day already paid as a LUMP SUM (OT วันหยุด) produces no hourly OT on top of it
+  var otMin = staffHasHolidayOT_(staff.StaffID, today) ? 0 : Math.max(0, minOfDay_(now) - outMin);
   // FULL-hour OT: the last hour rounds up only when ≥ OTRoundUpMinutes (default 50), else it drops.
   // e.g. plan 18:00, out 18:53 → 53 min → 1 hr; out 18:45 → 45 min → 0 hr (not enough).
   var roundUp = parseInt(getConfig_('OTRoundUpMinutes', '50'), 10) || 50;

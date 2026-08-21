@@ -812,6 +812,37 @@ function createAtomAPI(M, GROWTH_STD) {
     fail('SCHOOL_CLOSED', forStudents
       ? 'วันนี้โรงเรียนหยุด ('+why+') — ไม่มีการรับ-ส่งนักเรียน'
       : 'วันนี้โรงเรียนหยุด ('+why+') — ไม่ต้องลงเวลา'); }
+
+  /* ---- a closed day that is open to SOME people ------------------------------------------------
+   * A teacher comes in on a holiday (OT วันหยุด) and a few children come with her. For those
+   * children the day has to behave like any other — check in, check out, the journal, the history,
+   * and the late-pickup charge if somebody is collected late — while the school stays shut to
+   * everyone else.
+   *
+   * It is an ALLOWLIST, not a plan. "Who is coming" is the only thing that makes opening a closed
+   * day safe: a child nobody expected has nobody responsible for them. A teacher can add a name on
+   * the spot when a family turns up, which is a decision someone takes, not a gap someone falls
+   * through.
+   */
+  const holidayAttend_ = () => (M.holidayAttend = M.holidayAttend || []);
+  const holidayAttendIds_ = date => { const d=ymd(date||todayLocal());
+    return holidayAttend_().filter(r=>ymd(r.Date)===d).map(r=>String(r.StudentID)); };
+  const isHolidayAttendee_ = (sid, date) => holidayAttendIds_(date).indexOf(String(sid))>=0;
+  /** Staff who were given OT วันหยุด on this date — the day is a working day for them, and only them. */
+  const holidayOTStaff_ = date => { const d=ymd(date||todayLocal());
+    return (M.otRecords||[]).filter(r=>isHolidayOT_(r) && ymd(r.Date)===d &&
+      String(r.Status||'').toUpperCase()!=='REJECTED').map(r=>String(r.StaffID)); };
+  const hasHolidayOT_ = (staffId, date) => holidayOTStaff_(date).indexOf(String(staffId))>=0;
+  /**
+   * May this CHILD be checked in or out on this date? The one place that answers it, for the parent's
+   * button, the teacher's on-behalf button and the correction form alike.
+   */
+  function assertStudentDayOpen_(studentId, date){ const d=ymd(date||todayLocal());
+    const why=schoolClosedFor_(d, true);
+    if(!why) return;                                     // an ordinary open day
+    if(isHolidayAttendee_(studentId, d)) return;          // expected today, by name
+    fail('SCHOOL_CLOSED', 'วันนี้โรงเรียนหยุด ('+why+') — '+
+      'นักเรียนคนนี้ไม่ได้อยู่ในรายชื่อที่มาโรงเรียนวันนี้ · หากมาจริง ให้คุณครูเพิ่มชื่อก่อนจึงจะลงเวลาได้'); }
   /**
    * Has this person's employment ENDED yet?
    *
@@ -982,7 +1013,9 @@ function createAtomAPI(M, GROWTH_STD) {
       // while (ON_LEAVE); the engine did not, so mock and live disagreed about the same tap.
       { const _lv=studentLeaveToday_(p.studentId);
         if(_lv.onLeave) fail('ON_LEAVE','นักเรียนแจ้งลาวันนี้แล้ว ('+_lv.leaveType+(_lv.leaveReason?' · '+_lv.leaveReason:'')+') — หากมาจริงให้ยกเลิกใบลาก่อน'); }
-      assertSchoolOpen_(null, true);   // a Big Cleaning day is a working day for STAFF, not for children
+      // a Big Cleaning day is a working day for STAFF, not for children — and a holiday is open to
+      // the children who were named for it (assertStudentDayOpen_)
+      assertStudentDayOpen_(p.studentId);
       const d=(String(p.type||'IN').toUpperCase()==='OUT')?geo(p.lat,p.lng,p.acc):geoSafe(p.lat,p.lng); const t=timeLocal();
       // de-dup a rapid repeat (same student+type today within CheckinDedupMinutes) → keep only the latest time
       const win=Number(cfg.CheckinDedupMinutes||10); const nowMin=toMin(t);
@@ -1001,6 +1034,10 @@ function createAtomAPI(M, GROWTH_STD) {
       if(!remark) fail('REMARK_REQUIRED','ต้องระบุหมายเหตุ (ใครมารับ-ส่ง) ก่อนบันทึก');
       const st=studentById(p.studentId); if(!st) fail('NOT_FOUND','ไม่พบนักเรียน');
       const type=String(p.type||'').toUpperCase(); if(type!=='IN'&&type!=='OUT') fail('BAD_INPUT','ระบุ IN หรือ OUT');
+      // the same door as the parent's button. This path never had the check at all — a teacher could
+      // record a child on any closed day — and now that a closed day CAN be open to some children,
+      // "who is expected today" has to be asked here too.
+      assertStudentDayOpen_(st.StudentID, p.date);
       // The parent already told us the child is away today. Recording an arrival would contradict
       // the leave and quietly make the attendance figures wrong, so refuse and say why.
       { const d=ymd(p.date||todayLocal());
@@ -1874,8 +1911,15 @@ function createAtomAPI(M, GROWTH_STD) {
       const hrs=staffHoursOn_(p.staffId, todayLocal());
       // On a day the school reopens at noon, clocking in opens 15 minutes before it does — see
       // atomStaffHours_. Outside that, a closed school still refuses.
-      if(hrs.dayOff) fail('SCHOOL_CLOSED','วันนี้เป็นวันหยุดของโรงเรียน — ไม่ต้องลงเวลา');
-      assertSchoolOpen_(null, false, hrs.openFrom);
+      /* OT วันหยุด opens the day for the person who was given it, and for nobody else. The money was
+       * agreed as a LUMP SUM, so the punch is a record of when they were here — not a second thing to
+       * be paid for: no lateness (a holiday has no shift to be late for) and no hourly OT on top.
+       * The school's decision, 2026-08-21. */
+      const holOT=hasHolidayOT_(p.staffId, todayLocal());
+      if(!holOT){
+        if(hrs.dayOff) fail('SCHOOL_CLOSED','วันนี้เป็นวันหยุดของโรงเรียน — ไม่ต้องลงเวลา');
+        assertSchoolOpen_(null, false, hrs.openFrom);
+      }
       const d=geo(p.lat,p.lng,p.acc); const t=new Date();
       // A Big Cleaning day is worked to ITS OWN hours, and a half-day holiday moves the start to the
       // moment the school opens. Both live in atomStaffHours_, so lateness has ONE definition.
@@ -1884,19 +1928,22 @@ function createAtomAPI(M, GROWTH_STD) {
       // (handleStaffCheckin, which is what runs live) subtracted it — the two agreed only because the
       // school's grace was 0. Raising it to 15 for a reopening would have made them differ by the
       // grace itself, on the very rows that decide a month's เบี้ยขยัน.
-      const raw=lateVs(hrs.checkIn,t); const late=Math.max(0, raw-hrs.grace);
+      const raw=lateVs(hrs.checkIn,t); const late=holOT?0:Math.max(0, raw-hrs.grace);
       let r=M.staffAttendanceToday.find(x=>x.StaffID===p.staffId);
       if(!r){r={StaffID:p.staffId,CheckIn:'',CheckOut:'',Status:'NONE',Late:0};M.staffAttendanceToday.push(r);} r.CheckIn=timeLocal();r.Late=late;r.Status='IN';
-      return {time:r.CheckIn,lateMinutes:late,rawLate:raw,distance:d}; },
+      return {time:r.CheckIn,lateMinutes:late,rawLate:raw,distance:d,holidayOT:holOT}; },
     /* Clocking OUT is never refused, on any day. Someone who is here and going home must be able to
      * say so — an afternoon closure (13:00–17:00) used to trap every teacher who was already at work,
      * leaving the day with no end time at all. The school's decision, 2026-08-18. */
     staffCheckout: p => { const d=geo(p.lat,p.lng,p.acc); const t=new Date();
       const outT=staffHoursOn_(p.staffId, todayLocal()).checkOut;
-      const ot=Math.max(0,(t.getHours()*60+t.getMinutes())-toMin(outT));
+      // A day already paid as a LUMP SUM produces no hourly OT — the punch records when they were
+      // here, it does not price it a second time.
+      const holOT=hasHolidayOT_(p.staffId, todayLocal());
+      const ot=holOT?0:Math.max(0,(t.getHours()*60+t.getMinutes())-toMin(outT));
       // OT rule: ≥OTRoundUpMinutes (50) within an hour rounds up to a full hour
       let r=M.staffAttendanceToday.find(x=>x.StaffID===p.staffId); if(!r)fail('NOT_CHECKED_IN','ยังไม่ได้ลงเวลาเข้างาน'); r.CheckOut=timeLocal();r.Status='OUT';r.OTHours=otHoursRule(ot);
-      return {time:r.CheckOut,otHours:r.OTHours,otMinutes:ot,distance:d}; },
+      return {time:r.CheckOut,otHours:r.OTHours,otMinutes:ot,distance:d,holidayOT:holOT}; },
     // submit=false → DRAFT (editable, parent not notified); submit=true → sent to the parent and locked
     submitJournal: p => { const date=p.date||todayLocal();
       const submit = p.submit===true || String(p.submit)==='true';
@@ -2325,6 +2372,52 @@ function createAtomAPI(M, GROWTH_STD) {
         // confirmed the child is back — they are already on every list, waiting to be tidied up.
         active:studentPaused_(s), due:pauseDue_(s), dueToday:!!(s.PauseTo && ymd(s.PauseTo)===todayLocal())}))
       .sort((a,b)=>String(a.from).localeCompare(String(b.from))),
+    /* ---- children expected on a closed day (OT วันหยุด) -----------------------------------------
+     * Who is coming, by name, on a day the school is otherwise shut. See assertStudentDayOpen_ for
+     * why this is an allowlist rather than a plan.
+     */
+    holidayAttendList: p => { const d=ymd((p&&p.date)||todayLocal());
+      const ids=holidayAttendIds_(d);
+      const rows=enrolledStudents().filter(s=>ids.indexOf(String(s.StudentID))>=0).map(s=>{
+        const h=(M.studentCheckins||[]).find(c=>String(c.StudentID)===String(s.StudentID)&&ymd(c.Date)===d)||{};
+        const ot=(M.otDaily||[]).find(o=>String(o.StudentID)===String(s.StudentID)&&ymd(o.Date)===d)||null;
+        return { studentId:s.StudentID, nick:s.Nickname, nickEN:s.NicknameEN, name:s.NameTH, nameEN:s.NameEN,
+          class:s.Class||'', inTime:String(h.InTime||'').slice(0,5), outTime:String(h.OutTime||'').slice(0,5),
+          planEnd:otThreshold(s), otAmount:ot?Number(ot.Amount||0):0, otStatus:ot?String(ot.Status||''):'' };
+      }).sort((a,b)=>String(a.class).localeCompare(String(b.class)));
+      const day=schoolDayFor_(d);
+      return { date:d, closed:!!day.closedForStudents, count:rows.length,
+               staff:holidayOTStaff_(d), students:rows }; },
+    /** Admin: replace the whole list for a date (the tick-boxes on the OT วันหยุด form). */
+    holidayAttendSet: p => { const me=staffById(p&&p.staffId); if(!adminLike_(me)) fail('NO_PERMISSION','เฉพาะแอดมิน');
+      const d=ymd((p&&p.date)||''); if(!d) fail('BAD_INPUT','ระบุวันที่');
+      let ids=(p&&p.studentIds)||[]; if(!Array.isArray(ids)) ids=[ids];
+      ids=[...new Set(ids.map(x=>String(x||'').trim()).filter(Boolean))];
+      ids.forEach(id=>{ if(!studentById(id)) fail('NOT_FOUND','ไม่พบนักเรียน '+id); });
+      const keep=holidayAttend_().filter(r=>ymd(r.Date)!==d);
+      M.holidayAttend=keep.concat(ids.map(id=>({Date:d,StudentID:id,AddedBy:(p&&p.staffId)||'',AddedAt:stampLocal()})));
+      logAct('holidayAttendSet',d,'นักเรียนที่มาวันหยุด '+ids.length+' คน',actorOf(p));
+      return { date:d, count:ids.length, studentIds:ids }; },
+    /** Teacher or admin: one more name, because a family turned up. */
+    holidayAttendAdd: p => { const d=ymd((p&&p.date)||todayLocal());
+      const st=studentById(p&&p.studentId); if(!st) fail('NOT_FOUND','ไม่พบนักเรียน');
+      if(isHolidayAttendee_(st.StudentID,d)) return { date:d, studentId:st.StudentID, already:true };
+      holidayAttend_().push({Date:d,StudentID:st.StudentID,AddedBy:(p&&p.staffId)||'',AddedAt:stampLocal()});
+      logAct('holidayAttendAdd',st.StudentID,'เพิ่มชื่อมาโรงเรียนวันหยุด '+d,actorOf(p));
+      return { date:d, studentId:st.StudentID, added:true }; },
+    /** ...and take one off again (ticked by mistake, or the family cancelled). */
+    holidayAttendRemove: p => { const d=ymd((p&&p.date)||todayLocal());
+      const me=staffById(p&&p.staffId);
+      const i=holidayAttend_().findIndex(r=>ymd(r.Date)===d&&String(r.StudentID)===String(p&&p.studentId));
+      if(i<0) return { date:d, removed:false };
+      // a child already checked in that day is a FACT — removing the name would leave a record nobody
+      // can explain, so the attendance has to be corrected first
+      const h=(M.studentCheckins||[]).find(c=>String(c.StudentID)===String(p.studentId)&&ymd(c.Date)===d);
+      if(h&&(h.InTime||h.OutTime)) fail('BAD_STATE','นักเรียนคนนี้ลงเวลาไปแล้วในวันนั้น — แก้ไขเวลารับ-ส่งก่อน');
+      M.holidayAttend.splice(i,1);
+      logAct('holidayAttendRemove',String(p.studentId),'เอาออกจากรายชื่อวันหยุด '+d,actorOf(p));
+      return { date:d, studentId:p.studentId, removed:true }; },
+
     listClasses: () => M.classes,
     /**
      * DSPM by class. Two different questions, which were being answered with one number:

@@ -101,6 +101,23 @@ label.field span{display:block;margin-bottom:4px;color:var(--muted);font-size:12
 input,select,textarea{width:100%;padding:10px;border:1px solid var(--line);border-radius:10px;font-family:inherit;font-size:16px;background:var(--surface);}
 textarea{min-height:70px;resize:vertical;}
 
+/* A TICK BOX BESIDE ITS LABEL, not above it.
+   `input{width:100%}` above is right for text fields and wrong for a checkbox or radio: the control
+   took the whole line and its label dropped underneath, so on the injury form every option sat under
+   the box BEFORE it — "ห้องพยาบาลของโรงเรียน" reading as the label of the tick above it. Reported
+   2026-08-21 with the mismatch marked in red.
+   Laid out for a thumb: the whole row is the target (44px, the iOS minimum), the box does not shrink
+   when the text wraps, and the two stay on the same line at any width. */
+.chk-inline{display:flex;align-items:flex-start;gap:10px;min-height:44px;padding:8px 2px;
+  cursor:pointer;font-size:15px;line-height:1.45;border-bottom:1px solid var(--surface-3);}
+.chk-inline:last-child{border-bottom:none;}
+.chk-inline input[type=checkbox],.chk-inline input[type=radio]{width:22px;height:22px;min-width:22px;
+  margin:1px 0 0;padding:0;flex:0 0 auto;accent-color:var(--blue);}
+.chk-inline > span{flex:1;min-width:0;}
+/* two columns of options on a wide screen, one on a phone */
+.chk-cols{display:grid;grid-template-columns:1fr;gap:0 14px;}
+@media(min-width:560px){ .chk-cols{grid-template-columns:1fr 1fr;} }
+
 .btn{background:var(--blue);color:var(--on-accent);border:none;border-radius:10px;padding:11px 16px;font-size:15px;
   font-weight:600;cursor:pointer;font-family:inherit;}
 .btn:active{transform:translateY(1px);}

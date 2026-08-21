@@ -24,8 +24,9 @@ function handleParentCheckin(payload) {
   var type = String(payload.type || 'IN').toUpperCase();
   if (type !== 'IN' && type !== 'OUT') throw apiError_('BAD_TYPE', 'type ต้องเป็น IN หรือ OUT');
   // no attendance on a day the school is shut to the CHILDREN — a Big Cleaning day is a working
-  // Saturday for the staff, and no child comes in
-  assertSchoolOpen_(null, true);
+  // Saturday for the staff, and no child comes in. A holiday is open to the children NAMED for it
+  // (an OT วันหยุด day), and to nobody else — see holidayAttendIds_ in Checkin.gs.
+  assertStudentDayOpen_(payload.studentId);
   // Parent CHECK-IN is allowed from anywhere (no geofence); CHECK-OUT still must be within the school
   // radius — a pickup is a safety record and it starts the late-pickup OT clock.
   // A REFUSED pickup is written to the audit log with the distance (metres only — never coordinates),

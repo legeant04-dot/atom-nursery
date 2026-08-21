@@ -94,6 +94,11 @@ SCHEMA[WB.MAIN] = {
   // Absence tracking (leave/no-show) + teacher follow-up
   ABSENCE_LOG:       ['StudentID', 'Date', 'Type', 'Reason'],
   ABSENCE_FOLLOWUP:  ['StudentID', 'Note', 'Status', 'Date'],
+  /* Children expected on a day the school is otherwise CLOSED — the ones coming in alongside a
+   * teacher's OT วันหยุด. One row per (Date, StudentID). It is an ALLOWLIST, not a plan: a child who
+   * is not on it cannot be checked in that day, because "who is coming" is the only thing that makes
+   * a closed day safe to open. A teacher can add a name on the spot. */
+  HOLIDAY_ATTEND:    ['Date', 'StudentID', 'AddedBy', 'AddedAt'],
   // Per-student vaccine records (standard schedule 1mo–6yr)
   VACCINE_RECORDS:   ['StudentID', 'VaccineKey', 'VaccineName', 'DoseDate', 'Note'],
   // Method: 'transfer' (a slip) or 'cash' (recorded at the desk by an Admin, no image)

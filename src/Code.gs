@@ -301,6 +301,10 @@ function applyIdentity_(action, payload, sess) {
     adminUpdateOT: 1, adminCancelOT: 1, adminRestoreOT: 1, unlockJournal: 1,
     confirmOT: 1, adminAddOT: 1, adminAddHolidayOT: 1, adminEditOT: 1, adminDeleteOT: 1,
     addBigCleaning: 1, removeBigCleaning: 1, editLeave: 1, cancelLeave: 1,
+    // holidayAttendSet REPLACES the whole day's list — admin only. Adding ONE name (holidayAttendAdd)
+    // is deliberately not here: a teacher standing in front of a family who turned up must be able
+    // to do it, and the engine records who did.
+    holidayAttendSet: 1,
     decideClassChange: 1, confirmTimeRequest: 1,
     addAnnouncement: 1, editAnnouncement: 1, deleteAnnouncement: 1, reindexAnnouncements: 1, reindexParents: 1, checkDuplicateIds: 1,
     saveDspmCriteria: 1, deleteDspmCriteria: 1,
@@ -446,7 +450,11 @@ var WRITES_ACTIONS_ = { recordCashPayment: 1, teacherStudentLeave: 1, unlockJour
   commentAssessment: 1,   // writes a note onto an assessment row; "comment" is not a mutating verb
 
   adminResetPassword: 1, adminUpdateOT: 1, adminCancelOT: 1, adminRestoreOT: 1,
-  adminAddOT: 1, adminAddHolidayOT: 1, adminEditOT: 1, adminDeleteOT: 1, decideClassChange: 1, reinstallTriggers: 1 };
+  adminAddOT: 1, adminAddHolidayOT: 1, adminEditOT: 1, adminDeleteOT: 1, decideClassChange: 1, reinstallTriggers: 1,
+  // who is expected on a closed day. None of the three starts with a mutating verb, and all three
+  // decide whether a child may be checked in that day — a read lock on any of them is a wrong answer
+  // waiting to happen.
+  holidayAttendSet: 1, holidayAttendAdd: 1, holidayAttendRemove: 1 };
 /**
  * A holiday write, plus the tidy-up it makes necessary.
  *
