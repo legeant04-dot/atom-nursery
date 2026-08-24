@@ -112,7 +112,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.260'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.261'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -2462,6 +2462,7 @@
       <!-- The remaining-days grid used to sit here. It is a reference figure, not a morning job, and
            it is on the leave screen itself where a teacher is actually deciding whether to file one.
            The home screen keeps the way IN. -->
+      <div id="tholnext"></div>
       <div id="tholday"></div>
       <div id="tmissout"></div>
       <div class="card"><button class="btn sm outline block" onclick="GO('leave')">📩 ${EN()?'Leave — file or view':'ยื่น/ดูใบลา'}</button></div>
@@ -2491,6 +2492,30 @@
      * screen answers that and on a holiday there is no class. And when a family turns up who is not
      * on the list, adding them is one tap: refusing a child at the door with no way to say yes is
      * not a safety rule, it is an obstacle. */
+    /* "I DID NOT KNOW I WAS DUE IN ON SATURDAY."
+     *
+     * The admin agrees an OT วันหยุด days or weeks ahead; the teacher is told once, in a bell
+     * notification that scrolls away. Then the day arrives and the only place it was written down is
+     * a payslip. This is the standing reminder, on the screen somebody actually opens on a Friday —
+     * and on the day itself it says so in the present tense, next to the clock-in button. */
+    api('myHolidayOTNext',{staffId:USER.staffId}).then(n=>{
+      if(!n||!n.count){ setHTML('#tholnext',''); return; }
+      const today=(n.rows||[]).filter(r=>r.date===n.today);
+      const ahead=(n.rows||[]).filter(r=>r.date>n.today);
+      const dayName=d=>{ const g=new Date(d+'T00:00:00').getDay();
+        return (EN()?['Sun','Mon','Tue','Wed','Thu','Fri','Sat']:['อาทิตย์','จันทร์','อังคาร','พุธ','พฤหัสบดี','ศุกร์','เสาร์'])[g]; };
+      const away=d=>Math.round((new Date(d+'T00:00:00')-new Date(n.today+'T00:00:00'))/86400000);
+      setHTML('#tholnext', `<div class="card" style="background:var(--ok-bg,var(--blue-bg));border-color:var(--ok-line,var(--blue-line))">
+        <b>🎉 ${EN()?'Holiday OT':'OT วันหยุดของคุณ'}</b>
+        ${today.map(r=>`<div class="list-item"><span><b>${EN()?'Today':'วันนี้'}</b> · ${esc(ddmmyyyy(r.date))} (${esc(dayName(r.date))})${r.note?`<br><small class="muted">${esc(r.note)}</small>`:''}</span>
+          <b style="flex:0 0 auto;color:var(--ok)">${esc(baht(r.amount))}</b></div>`).join('')}
+        ${ahead.map(r=>`<div class="list-item"><span><b>${esc(ddmmyyyy(r.date))}</b> <small class="muted">(${esc(dayName(r.date))} · ${EN()?`in ${away(r.date)} day(s)`:`อีก ${away(r.date)} วัน`})</small>${r.note?`<br><small class="muted">${esc(r.note)}</small>`:''}</span>
+          <b style="flex:0 0 auto;color:var(--ok)">${esc(baht(r.amount))}</b></div>`).join('')}
+        <small class="muted">${EN()
+          ? 'You are expected in on these days even though the school is shut. The amount is a lump sum for the day — no lateness, and no hourly OT on top.'
+          : 'วันเหล่านี้คุณต้องมาทำงานแม้โรงเรียนหยุด · ยอดนี้เป็นเงินก้อนของทั้งวัน ไม่นับสายและไม่มี OT รายชั่วโมงเพิ่ม'}</small>
+        <button class="btn sm outline block" style="margin-top:6px" onclick="T_holidayOT()">🎉 ${EN()?'Details & the children for each day':'ดูรายละเอียดและนักเรียนของแต่ละวัน'}</button></div>`);
+    }).catch(()=>{});
     api('holidayAttendList',{}).then(h=>{
       /* Shown when there are children in — OR when this teacher is the one on OT วันหยุด and there
        * are none. That second case is the whole of 22/08: with an empty list the card vanished, and
@@ -3556,7 +3581,9 @@
             <option value="worked">${EN()?'Worked':'วันที่มาทำงาน'}</option>
             <option value="late">${EN()?'Late only':'เฉพาะวันที่สาย'}</option>
             <option value="leave">${EN()?'Leave':'วันลา'}</option>
-            <option value="absent">${EN()?'Absent':'ขาดงาน'}</option></select></div>
+            <option value="absent">${EN()?'Absent':'ขาดงาน'}</option>
+            <!-- "OT 14 ชม." was a total with nothing behind it. This is the days it is made of. -->
+            <option value="ot">${EN()?'OT — day by day':'OT รายวัน'}</option></select></div>
         <div id="mhBox"><small class="muted">${EN()?'Loading…':'กำลังโหลด…'}</small></div></details>
       <details class="card" id="myLvBox"><summary style="cursor:pointer;font-weight:700">📩 ${EN()?'My leave history':'ประวัติการลาของฉัน'}</summary>
         <div class="row" style="margin:8px 0"><select id="mlFilter" onchange="T_myLeaveFilter()">
@@ -3615,13 +3642,37 @@
       <span class="pill ${me.lateDays?'bad':'ok'}">${EN()?'late':'สาย'} ${me.lateDays||0} ${EN()?'days':'วัน'} (${me.lateMinutes||0} ${esc(t('lbl.min'))})</span>
       <span class="pill info">${EN()?'leave':'ลา'} ${me.leaveDays||0}</span>
       <span class="pill ${me.absent?'bad':'ok'}">${EN()?'absent':'ขาด'} ${me.absent||0}</span>
-      ${me.otHours?`<span class="pill wait">OT ${me.otHours} ${EN()?'hr':'ชม.'}</span>`:''}</div>`;
+      ${me.otHours?`<span class="pill wait">OT ${me.otHours} ${EN()?'hr':'ชม.'}</span>`:''}
+      ${me.holidayOTDays?`<span class="pill ok">🎉 OT ${EN()?'holiday':'วันหยุด'} ${me.holidayOTDays} ${EN()?'day(s)':'วัน'} · ${esc(baht(me.holidayOTAmount||0))}</span>`:''}</div>`;
+    /* WHERE THE OT TOTAL COMES FROM. A figure that cannot be traced to days is a figure that has to
+     * be trusted, and this one goes on a payslip. Every row the month counted is here, with the
+     * decision on it — including the rejected ones, which are shown struck out so "why is it 14 and
+     * not 16" has an answer on the screen rather than in the spreadsheet. */
+    if(f==='ot'){
+      const od=(me.otDays||[]);
+      setHTML('#mhBox', sum + (od.length?od.map(o=>{
+        const rej=o.status==='REJECTED';
+        return `<div class="list-item"><span>${esc(ddmmyyyy(o.date))} ${o.kind==='HOLIDAY'?`<span class="pill ok">🎉 ${EN()?'holiday':'วันหยุด'}</span>`:''}${o.note?`<br><small class="muted">${esc(o.note)}</small>`:''}</span>
+          <span style="font-size:13px;text-align:right${rej?';text-decoration:line-through;opacity:.6':''}">
+            ${o.kind==='HOLIDAY'?`<b>${esc(baht(o.amount||0))}</b> <small class="muted">(${EN()?'lump sum — no hours':'เงินก้อน · ไม่มีชั่วโมง'})</small>`
+              :`<b>${o.hours} ${EN()?'hr':'ชม.'}</b> · ${esc(baht(o.amount||0))}`}
+            <br><span class="pill ${rej?'bad':o.status==='APPROVED'?'ok':'wait'}">${esc(tStat(o.status))}</span></span></div>`;
+      }).join('')
+        : `<small class="muted">${EN()?'No OT this month':'เดือนนี้ไม่มี OT'}</small>`)
+        + `<small class="muted" style="display:block;margin-top:6px">${EN()
+          ? 'Rejected rows are struck out and are not in the total. Holiday OT is an agreed amount with no hours behind it, so it adds money but not hours.'
+          : 'รายการที่ถูกปฏิเสธจะขีดฆ่าและไม่รวมในยอด · OT วันหยุดเป็นเงินก้อนที่ตกลงกันไว้ ไม่มีชั่วโมง จึงเพิ่มเป็นเงินแต่ไม่เพิ่มชั่วโมง'}</small>`);
+      return;
+    }
     setHTML('#mhBox', sum + (rows.map(d=>{
       const late=Number(d.late)||0;
       const right = d.status==='IN'
         ? `${esc(t('lbl.checkIn'))} <b>${esc(d.in||'--:--')}</b> · ${esc(t('lbl.checkOut'))} <b>${esc(d.out||'--:--')}</b> ${late?`<span class="pill bad">${esc(t('lbl.late'))} ${late}</span>`:`<span class="pill ok">${esc(t('lbl.onTime'))}</span>`}`
         : `<span class="pill ${d.status==='ABSENT'?'bad':d.status==='LEAVE'?'info':'wait'}">${esc((MH_LABEL[d.status]||MH_LABEL.FUTURE)())}${d.leaveType?' · '+esc(d.leaveType):''}${d.holiday?' · '+esc(d.holiday):''}</span>`;
-      return `<div class="list-item"><span>${esc(ddmmyyyy(d.date))}${d.bigCleaning?' '+BC_ICON:''}${d.manual?' <small class="muted">✍️</small>':''}</span><span style="font-size:13px;text-align:right">${right}</span></div>`;
+      // a Saturday somebody was PAID to work is not a blank row (22/08/26) — the day says so whether
+      // or not there is a punch on it
+      const hot=d.holidayOT?`<br><span class="pill ok" style="font-size:11px">🎉 OT ${EN()?'holiday':'วันหยุด'} ${esc(baht(d.holidayOT))}</span>`:'';
+      return `<div class="list-item"><span>${esc(ddmmyyyy(d.date))}${d.bigCleaning?' '+BC_ICON:''}${d.manual?' <small class="muted">✍️</small>':''}${d.holidayOTNote?`<br><small class="muted">${esc(d.holidayOTNote)}</small>`:''}</span><span style="font-size:13px;text-align:right">${right}${hot}</span></div>`;
     }).join('') || `<small class="muted">${esc(t('c.noItems'))}</small>`));
   };
   window.T_myLeaveFilter=()=>{
@@ -4137,8 +4188,14 @@
         ABSENT:['var(--bad-bg)','var(--bad-line)'], HOLIDAY:['var(--warn-bg)','var(--warn-line)'],
         OFF:['var(--surface-2)','var(--line)'], BEFORE:['var(--surface-2)','var(--line)'],
         TODAY:['','var(--blue-line)'], FUTURE:['','var(--line)'] };
-      const [bg,bd]=map[r.status]||['',''];
-      const body =
+      let [bg,bd]=map[r.status]||['',''];
+      /* A DAY SOMEBODY WAS PAID TO WORK IS NOT AN EMPTY CELL. On 22/08/26 ครูจอย held an approved
+       * OT วันหยุด of ฿500 and this calendar printed a blank Saturday — the school-wide calendar knew
+       * (🎉 จอย) and her own page did not, so the one place you would go to check a person's month
+       * was the one place the day was missing. It rides on top of whatever the day already was. */
+      if(r.holidayOT){ bg='var(--ok-bg)'; bd='var(--ok-line)'; }
+      const holOtTag = r.holidayOT?`<span class="io" style="text-align:left;color:var(--ok);font-weight:600">🎉 ${esc(baht(r.holidayOT))}</span>`:'';
+      const body = holOtTag +
         r.status==='IN' ? `<span class="io" style="text-align:left;color:${r.late?'var(--warn)':'var(--ok)'};font-weight:600">${esc(r.in||'')}${r.out?`–${esc(r.out)}`:''}${r.late?`<br>${EN()?'late':'สาย'} ${r.late}′`:''}${r.otHours?`<br>OT ${r.otHours}`:''}${r.manual?'<br>✍️':''}</span>`
         : r.status==='LEAVE' ? `<span class="io" style="text-align:left;color:var(--blue);font-weight:600">${esc(r.leaveType||'ลา')}${r.leaveHalf?` (${r.leaveHalf==='AM'?(EN()?'AM':'เช้า'):(EN()?'PM':'บ่าย')})`:''}</span>`
         : r.status==='HOLIDAY' ? `<span class="io" style="text-align:left;color:var(--bad);font-weight:600">🏖️ ${esc(r.holiday)}</span>`
@@ -4159,7 +4216,14 @@
         ${smStat(s.absent, EN()?'absent':'ขาด', s.absent?'pink':'')}</div>
       ${s.lateMinutes?`<p class="muted" style="font-size:13px">${EN()?'Total minutes late':'รวมเวลามาสาย'} <b>${s.lateMinutes}</b> ${EN()?'min':'นาที'}${s.otHours?` · OT <b>${s.otHours}</b> ${EN()?'hr':'ชม.'}`:''}</p>`:''}
       <div class="cal">${cells}</div>
-      <small class="muted">${EN()?'green = worked · blue = leave · red = absent · orange = holiday · ✍️ = time entered by request. Today is not counted as absent until the day is over.':'เขียว = มาทำงาน · ฟ้า = ลา · แดง = ขาด · ส้ม = วันหยุด · ✍️ = ลงเวลาย้อนหลังจากคำขอ · วันนี้ยังไม่นับเป็นขาดจนกว่าจะหมดวัน'}</small>
+      <small class="muted">${EN()?'green = worked · blue = leave · red = absent · orange = holiday · 🎉 = holiday OT · ✍️ = time entered by request. Today is not counted as absent until the day is over.':'เขียว = มาทำงาน · ฟ้า = ลา · แดง = ขาด · ส้ม = วันหยุด · 🎉 = OT วันหยุด · ✍️ = ลงเวลาย้อนหลังจากคำขอ · วันนี้ยังไม่นับเป็นขาดจนกว่าจะหมดวัน'}</small>
+      ${/* the days behind "OT n ชม." — a payslip figure nobody could trace */''}
+      ${(s.otDays||[]).length?`<details style="margin-top:8px"><summary style="cursor:pointer;font-weight:700;font-size:14px">⏰ ${EN()?'OT day by day':'OT รายวัน'} (${(s.otDays||[]).length}) — ${EN()?'total':'รวม'} <b>${s.otHours||0}</b> ${EN()?'hr':'ชม.'}${s.holidayOTAmount?` · 🎉 ${esc(baht(s.holidayOTAmount))}`:''}</summary>
+        ${(s.otDays||[]).map(o=>{ const rej=o.status==='REJECTED';
+          return `<div class="list-item"><span>${esc(ddmmyyyy(o.date))} ${o.kind==='HOLIDAY'?`<span class="pill ok">🎉 ${EN()?'holiday':'วันหยุด'}</span>`:''}${o.note?`<br><small class="muted">${esc(o.note)}</small>`:''}</span>
+            <span style="font-size:13px;text-align:right${rej?';text-decoration:line-through;opacity:.6':''}">${o.kind==='HOLIDAY'?`<b>${esc(baht(o.amount||0))}</b>`:`<b>${o.hours} ${EN()?'hr':'ชม.'}</b> · ${esc(baht(o.amount||0))}`}
+              <br><span class="pill ${rej?'bad':o.status==='APPROVED'?'ok':'wait'}">${esc(tStat(o.status))}</span></span></div>`; }).join('')}
+        <small class="muted">${EN()?'Rejected rows are struck out and are not in the total. Holiday OT is an agreed amount with no hours behind it.':'รายการที่ปฏิเสธจะขีดฆ่าและไม่รวมในยอด · OT วันหยุดเป็นเงินก้อน ไม่มีชั่วโมง'}</small></details>`:''}
       <button class="btn outline block" style="margin-top:8px" onclick="this.closest('.modal').remove()">${esc(t('c.close'))}</button>`);
   };
   SCREENS.Admin.leaves = async () => {

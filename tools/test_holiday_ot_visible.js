@@ -156,5 +156,81 @@ console.log('\n5) diagDay can tell "never recorded" from "recorded and not shown
   ok_('...and when no child may be checked in', /นักเรียนจะลงเวลาในวันนี้ไม่ได้/.test(app));
 }
 
+/* ---------------------------------------------------------------------------------------------
+ * REPORTED 2026-08-24, after the first fix went out. The arrangement WAS recorded — ครูจอย, 22/08,
+ * ฿500, "ดูแลน้องโมน่าในวันหยุดทำการ", APPROVED — and the school-wide calendar showed 🎉 จอย on the
+ * 22nd. Three places still did not:
+ *   · her own month (the per-person calendar and the day list) printed a blank Saturday;
+ *   · nothing told her IN ADVANCE that she was due in on a day the school is shut;
+ *   · "OT 14 ชม." had nothing behind it — no way to see which days, how many hours, or whether the
+ *     school had said yes. A payslip figure that cannot be traced is a figure that must be trusted.
+ */
+console.log('\n6) a day somebody was PAID to work is not a blank day');
+{
+  const { H } = boot({ otRecords: HOLOT(), staffAttendanceHistory: [] });
+  const s = H.staffAttendanceMonth({ month: '2026-08', staffId: 'STF-1', onlySelf: true }).staff[0];
+  const d22 = s.days.find(x => x.date === DAY);
+  eq('the Saturday carries the agreed amount', d22.holidayOT, 800);
+  eq('...and the reason', d22.holidayOTNote, 'ดูแลน้องโมน่า');
+  eq('...while still being a day off, which it is', d22.status, 'OFF');
+  eq('the month counts it as a holiday-OT day', [s.holidayOTDays, s.holidayOTAmount], [1, 800]);
+  eq('...and adds no HOURS, because a lump sum has none', s.otHours, 0);
+  ok_('her own calendar draws it', /if\(r\.holidayOT\)\{ bg='var\(--ok-bg\)'/.test(app));
+  ok_('...and the legend says what the mark means', /🎉 = OT วันหยุด/.test(app));
+  ok_('the day list draws it too', /🎉 OT \$\{EN\(\)\?'holiday':'วันหยุด'\} \$\{esc\(baht\(d\.holidayOT\)\)\}/.test(app));
+}
+
+console.log('\n7) the OT total can be checked instead of trusted');
+{
+  const { H } = boot({ otRecords: [
+    { OTRecordID: 'O1', StaffID: 'STF-1', Date: '2026-08-05', Hours: 2, Amount: 200, Status: 'APPROVED' },
+    { OTRecordID: 'O2', StaffID: 'STF-1', Date: '2026-08-06', Hours: 3, Amount: 300, Status: 'REJECTED' },
+    { OTRecordID: 'O3', StaffID: 'STF-1', Date: '2026-08-07', Hours: 1, Amount: 100, Status: 'PENDING_ADMIN' }
+  ].concat(HOLOT()) });
+  const s = H.staffAttendanceMonth({ month: '2026-08', staffId: 'STF-1', onlySelf: true }).staff[0];
+  eq('the total is approved + pending, and nothing else', s.otHours, 3);
+  eq('every row is there to be looked at, rejected included', s.otDays.length, 4);
+  eq('...each saying whether it counted', s.otDays.map(o => o.counted), [true, false, true, false]);
+  eq('...and the sum of the counted ones IS the total',
+    s.otDays.filter(o => o.counted).reduce((a, o) => a + o.hours, 0), s.otHours);
+  ok_('a teacher can see the breakdown on her own history', /<option value="ot">/.test(app) && /if\(f==='ot'\)\{/.test(app));
+  ok_('...and an admin on the per-person month', /OT รายวัน/.test(app));
+  ok_('a rejected row is struck out rather than hidden', /text-decoration:line-through/.test(app));
+}
+{
+  // an OT the admin entered by hand for a day with no punch used to vanish from the month while
+  // still being on the payslip — the total is the OT, not "the OT on days that also have a punch"
+  const { H } = boot({ otRecords: [{ OTRecordID: 'O9', StaffID: 'STF-1', Date: '2026-08-11', Hours: 4, Amount: 400, Status: 'APPROVED' }] });
+  const s = H.staffAttendanceMonth({ month: '2026-08', staffId: 'STF-1', onlySelf: true }).staff[0];
+  eq('an OT on a day with no check-in still counts', s.otHours, 4);
+}
+
+console.log('\n8) nobody is surprised by a Saturday');
+{
+  const { H } = boot({ otRecords: HOLOT('2026-08-29') }, '2026-08-24');   // a week ahead
+  const n = H.myHolidayOTNext({ staffId: 'STF-1' });
+  eq('the day ahead is reported', [n.count, n.rows[0].date, n.rows[0].amount], [1, '2026-08-29', 800]);
+  eq('...with the reason, so it is not just a date', n.rows[0].note, 'ดูแลน้องโมน่า');
+  eq('...and today is named, because that is what changes the buttons', n.today, '2026-08-24');
+}
+{
+  const { H } = boot({ otRecords: HOLOT('2026-08-15') }, '2026-08-24');   // already been and gone
+  eq('a day that has passed is not a reminder', H.myHolidayOTNext({ staffId: 'STF-1' }).count, 0);
+}
+{
+  const { H } = boot({ otRecords: [{ OTRecordID: 'X', StaffID: 'STF-1', Date: '2026-08-29', Kind: 'HOLIDAY', Amount: 800, Status: 'REJECTED' }] }, '2026-08-24');
+  eq('...and neither is one that was refused', H.myHolidayOTNext({ staffId: 'STF-1' }).count, 0);
+}
+{
+  const { H } = boot({ otRecords: HOLOT('2026-08-29') }, '2026-08-24');
+  eq('somebody else\'s Saturday is not yours', H.myHolidayOTNext({ staffId: 'STF-2' }).count, 0);
+}
+{
+  ok_('the reminder is on the home screen, where a Friday is spent', /id="tholnext"/.test(app));
+  ok_('...saying how many days away it is', /อีก \$\{away\(r\.date\)\} วัน/.test(app));
+  ok_('...and that the day is not paid by the hour', /ไม่นับสายและไม่มี OT รายชั่วโมงเพิ่ม/.test(app));
+  ok_('it is a small payload, not a career of OT', /myHolidayOTNext/.test(eng) && /would answer this too, at the cost of sending a career's worth/.test(eng));
+}
+
 console.log('\n' + (fail ? 'FAILED ' : 'PASSED ') + pass + ' passed, ' + fail + ' failed\n');
 process.exit(fail ? 1 : 0);

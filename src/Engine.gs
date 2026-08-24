@@ -1889,11 +1889,28 @@ function createAtomAPI(M, GROWTH_STD) {
        * the month reads its hours from there: approved and pending count, rejected does not.
        * A HOLIDAY OT is a lump sum with no hours behind it (v257) and adds nothing here.
        */
-      const otOn={};
+      /* ...and the OT the month is made of, DAY BY DAY.
+       *
+       * "OT 14 ชม." was a total with nothing behind it: no way to see which days it came from, how
+       * many hours each was, or whether the school had said yes to them. A figure on a payslip that
+       * cannot be traced to days is a figure that has to be trusted. Every row is carried through
+       * (rejected ones too, marked as such) so the screen can show the whole story and the total can
+       * be checked against it.
+       *
+       * OT วันหยุด is a lump sum with no hours behind it (v257), so it adds nothing to the HOURS —
+       * but it is still work that was done and money that was agreed, and the day it falls on must
+       * say so. On 22/08/26 ครูจอย's per-person month printed a blank Saturday for a day she had
+       * been paid ฿500 to work: the combined calendar knew, and her own page did not.
+       */
+      const otOn={}, otRowsOn={}, holOtOn={};
       (M.otRecords||[]).forEach(r=>{ const d=ymd(r.Date); if(d.slice(0,7)!==month) return;
-        if(isHolidayOT_(r)) return;
-        if(String(r.Status||'').toUpperCase()==='REJECTED') return;
-        const k=r.StaffID+'|'+d; otOn[k]=(otOn[k]||0)+(Number(r.Hours)||0); });
+        const k=r.StaffID+'|'+d, st=String(r.Status||'').toUpperCase(), holi=isHolidayOT_(r);
+        (otRowsOn[k]=otRowsOn[k]||[]).push({otId:r.OTRecordID||'', date:d, kind:holi?'HOLIDAY':'DAILY',
+          hours:Number(r.Hours)||0, amount:Number(r.Amount)||0, status:st, note:String(r.Note||''),
+          counted: !holi && st!=='REJECTED'});
+        if(holi){ if(st!=='REJECTED') holOtOn[k]={amount:(holOtOn[k]?holOtOn[k].amount:0)+(Number(r.Amount)||0), note:String(r.Note||'')}; return; }
+        if(st==='REJECTED') return;
+        otOn[k]=(otOn[k]||0)+(Number(r.Hours)||0); });
 
       // onlySelf → just the caller, and someone who is exempt from clocking in still gets their own
       // (mostly empty) month rather than a screen that looks broken
@@ -1902,7 +1919,8 @@ function createAtomAPI(M, GROWTH_STD) {
         .filter(s=>!self || String(s.StaffID)===String(p.staffId))
         .filter(s=>!staffEnded_(s) && (self || s.RequireCheckin!==false))
         .map(s=>{
-          const rows=[], missingOut=[]; let present=0, lateDays=0, lateMin=0, leaveDays=0, absent=0, ot=0;
+          const rows=[], missingOut=[], otDays=[]; let present=0, lateDays=0, lateMin=0, leaveDays=0, absent=0, ot=0;
+          let holOtDays=0, holOtAmount=0;
           for(let dd=1; dd<=days; dd++){
             const ds = Y+'-'+String(Mo).padStart(2,'0')+'-'+String(dd).padStart(2,'0');
             const dow = new Date(ds).getDay();
@@ -1936,16 +1954,31 @@ function createAtomAPI(M, GROWTH_STD) {
              * simply someone still at work. */
             const openDay = (status==='IN') && !outT && ds < today;
             if(openDay) missingOut.push(ds);
-            if(status==='IN'){ present++; ot+=oth; if(lt>0){ lateDays++; lateMin+=lt; } }
+            /* The OT total is the sum of the APPROVED-OT days, full stop — not "the OT on days that
+             * also have a check-in row". An OT the admin entered by hand for a day with no punch
+             * (adminAddOT takes any date) was silently missing from the month while appearing on the
+             * payslip. Now the total and the day-by-day breakdown below it are the same arithmetic. */
+            ot += oth;
+            if(status==='IN'){ present++; if(lt>0){ lateDays++; lateMin+=lt; } }
             else if(status==='LEAVE') leaveDays += (lv&&lv.half) ? 0.5 : 1;
             else if(status==='ABSENT') absent++;
+            // the day's OT, in full — including a holiday lump sum, which has no hours and is still
+            // the reason somebody was at work on a Saturday
+            const _otRows = otRowsOn[s.StaffID+'|'+ds] || [];
+            _otRows.forEach(r=>otDays.push(r));
+            const _hot = holOtOn[s.StaffID+'|'+ds] || null;
+            if(_hot){ holOtDays++; holOtAmount += _hot.amount; }
             rows.push({date:ds, day:dd, status, in:inT, out:outT, late:lt, otHours:oth, manual, missingOut:openDay,
+              holidayOT:_hot?_hot.amount:0, holidayOTNote:_hot?_hot.note:'',
               holiday:hol[ds]||'', bigCleaning:!!bc[ds],
               leaveType:lv?lv.type:'', leaveHalf:lv?lv.half:'', leaveReason:lv?lv.reason:''});
           }
           return {staffId:s.StaffID, name:s.NameTH||s.Name||'', nameEN:s.NameEN||'', nick:s.Nickname||'', nickEN:s.NicknameEN||'',
             dept:s.Department||'', startDate:ymd(s.StartDate||''),
             present, lateDays, lateMinutes:lateMin, leaveDays, absent, otHours:Math.round(ot*100)/100,
+            // what the "OT n ชม." total is actually made of, so it can be checked rather than trusted
+            otDays:otDays.sort((a,b)=>a.date.localeCompare(b.date)),
+            holidayOTDays:holOtDays, holidayOTAmount:holOtAmount,
             missingOut:missingOut.length, missingOutDays:missingOut, days:rows};
         });
       return {month, daysInMonth:days, today,
@@ -2497,6 +2530,29 @@ function createAtomAPI(M, GROWTH_STD) {
                reason:day.reason||'', staffCount:otStaff.length,
                // the ids stay for anything asking "is this person on it"; the rows are what a screen prints
                staffIds:holidayOTStaff_(d), staff:otStaff, students:rows }; },
+    /**
+     * OT วันหยุด THAT HAS NOT HAPPENED YET — today and the days ahead, for the caller.
+     *
+     * The admin agrees a Saturday weeks in advance and the teacher is told once, in a notification
+     * that scrolls away. After that it lived in a payslip and in a screen you have to go looking
+     * for, so the person expected at work on a day the school is shut had no reminder that they
+     * were. This is the heads-up, and it belongs on the home screen because that is the screen
+     * somebody opens on a Friday.
+     *
+     * Small on purpose: the caller's own rows, a window of days, nothing else. `myOT` with no month
+     * would answer this too, at the cost of sending a career's worth of OT to a home screen.
+     */
+    myHolidayOTNext: p => { const from=todayLocal();
+      const win=Math.min(90, Math.max(1, Number((p&&p.days)||45)));
+      const to=ymd(new Date(new Date(from+'T00:00:00').getTime()+win*86400000));
+      const rows=(M.otRecords||[]).filter(r=>String(r.StaffID)===String(p&&p.staffId) && isHolidayOT_(r) &&
+          String(r.Status||'').toUpperCase()!=='REJECTED')
+        .map(r=>({date:ymd(r.Date), amount:Number(r.Amount)||0, note:String(r.Note||''), status:String(r.Status||'')}))
+        .filter(r=>r.date>=from && r.date<=to)
+        .sort((a,b)=>a.date.localeCompare(b.date));
+      // "today" is what changes the home screen's buttons; the rest is a reminder
+      return { today:from, count:rows.length, rows,
+               students:rows.length?holidayAttendIds_(rows[0].date).length:0 }; },
     /** Is a date eligible for OT วันหยุด? Asked by the form before it lets the admin save. */
     holidayDateCheck: p => { const d=ymd((p&&p.date)||todayLocal());
       const hol=(M.holidays||[]).find(h=>ymd(h.Date)===d);
