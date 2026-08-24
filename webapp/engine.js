@@ -2284,7 +2284,15 @@ function createAtomAPI(M, GROWTH_STD) {
         schedule: keep(M.workSchedule||[], w=>w.StaffID),
         leavesToday: keep((M.leaves||[]).filter(l=>l.Status==='APPROVED'), l=>l.StaffID),
         attendance: keep(M.staffAttendanceToday||[], a=>a.StaffID),
-        history: keep(M.staffAttendanceHistory||[], h=>h.StaffID),
+        /* TODAY IS MISSING FROM `history` BY CONSTRUCTION — hydration splits CHECKIN_STAFF into
+         * "today" and "everything else", so the calendar drew a blank square for the day somebody
+         * had just clocked in on. Fold today's rows back in, in the same shape, so the calendar is
+         * about the whole month rather than the month up to yesterday. */
+        history: keep((M.staffAttendanceHistory||[]).concat(
+          (M.staffAttendanceToday||[]).filter(a=>a.CheckIn||a.CheckOut).map(a=>({
+            Date:todayLocal(), StaffID:a.StaffID, In:a.CheckIn||'', Out:a.CheckOut||'',
+            InManual:a.InManual, OutManual:a.OutManual, Late:Number(a.Late)||0, OTHours:Number(a.OTHours)||0 }))
+        ), h=>h.StaffID),
         // a staffing ratio is a fact about other people; it belongs to whoever covers for them
         staffing: all ? H.staffingByNursery() : [],
         holidays: (M.holidays||[]).map(h=>({Date:h.Date, NameTH:h.NameTH, NameEN:h.NameEN})), bigCleaning: bigCleaningList_() }; },
