@@ -2315,7 +2315,9 @@ function createAtomAPI(M, GROWTH_STD) {
       // applied to autoChild below. เบี้ยขยัน is untouched here (its own "ไม่ลา" rule already covers leave).
       const ls=H.staffLeaveSummary({staffId:p.staffId,month:p.month}); const leaveExceeds=ls.exceeds;
       const dA=p.attendanceEligible!==false?attendAmt:0; const dF=p.facebookPosted?fbAmt:0; const dT=dA+dF;
-      const childMult=p.childMultiplier!=null?Number(p.childMultiplier):pc.ChildMultiplier;
+      // ...and the same rule for the child rate: a blank per-staff figure is not a rate of zero
+      const childMult=p.childMultiplier!=null?Number(p.childMultiplier)
+        :(perStaff(pc.ChildMultiplier)!=null?perStaff(pc.ChildMultiplier):cfg.ExtraChildRate);
       // child-rate count is AUTO from the DB unless overridden: children from #ChildThreshold onward
       const threshold=p.childThreshold!=null?Number(p.childThreshold):(pc.ChildThreshold||cfg.ExtraChildThreshold||31);
       // leave over the limit → child-rate auto-count drops to 0 (Admin can still type a count to override).
