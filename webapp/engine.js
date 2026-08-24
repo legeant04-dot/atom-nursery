@@ -1889,6 +1889,27 @@ function createAtomAPI(M, GROWTH_STD) {
       const today = todayLocal();
       const hol = {}; (M.holidays||[]).forEach(h=>{ const d=ymd(h.Date); if(inRange(d)) hol[d]=h.NameTH||h.NameEN||'วันหยุด'; });
       const bc = {}; bigCleaningList_().forEach(s=>{ const d=ymd(s); if(inRange(d)) bc[d]=1; });
+      /**
+       * DAYS THE SCHOOL EXPECTS PEOPLE IN — the target the whole summary is measured against.
+       *
+       * Asked for 2026-08-24: "สรุปเป็นโจทย์คือวันที่ต้องมาทำงาน เช่น เดือน 8 ต้องมาทำงาน 21 วัน
+       * ไม่นับเสาร์อาทิตย์และวันหยุดของโรงเรียน แต่นับวัน Meeting ให้เป็นวันทำงานด้วย".
+       *
+       * Weekday, minus the school's holidays, PLUS a Meeting day — which is a working day that
+       * happens to fall on a Saturday, and is the whole reason this cannot be counted by looking at
+       * the calendar. The school's decision: ONE target for everybody, with leave reported in its
+       * own column rather than quietly reducing what a person owed.
+       *
+       * `toDate` stops the month accusing anybody of being behind at 09:00 on the 12th: days that
+       * have not happened yet are in the target but not yet in what is owed.
+       */
+      const requiredDates = dayList.filter(ds=>{
+        if(hol[ds]) return false;                            // the school is shut
+        if(bc[ds]) return true;                              // ...unless it called everybody in
+        const g = new Date(ds+'T00:00:00').getDay();
+        return g!==0 && g!==6;
+      });
+      const requiredToDate = requiredDates.filter(ds=>ds<today).length;
       // approved leave, expanded across its date range so a 3-day leave marks all three days
       const leaveOn = {};
       (M.leaves||[]).filter(l=>String(l.Status||'').toUpperCase()==='APPROVED').forEach(l=>{
@@ -1994,6 +2015,14 @@ function createAtomAPI(M, GROWTH_STD) {
           }
           return {staffId:s.StaffID, name:s.NameTH||s.Name||'', nameEN:s.NameEN||'', nick:s.Nickname||'', nickEN:s.NicknameEN||'',
             dept:s.Department||'', startDate:ymd(s.StartDate||''),
+            /* The target, and this person's share of it. It is the SAME target for everybody (the
+             * school's decision) — except that somebody who had not started yet, or had already
+             * left, cannot owe the days either side of their employment. When those differ from the
+             * school's figure the screen says so rather than printing a shortfall nobody owes. */
+            requiredDays: requiredDates.length,
+            requiredToDate,
+            myRequiredDays: requiredDates.filter(ds=>staffStarted_(s,ds) && !staffEnded_(s,ds)).length,
+            myRequiredToDate: requiredDates.filter(ds=>ds<today && staffStarted_(s,ds) && !staffEnded_(s,ds)).length,
             present, lateDays, lateMinutes:lateMin, leaveDays, absent, otHours:Math.round(ot*100)/100,
             // what the "OT n ชม." total is actually made of, so it can be checked rather than trusted
             otDays:otDays.sort((a,b)=>a.date.localeCompare(b.date)),
@@ -2001,6 +2030,8 @@ function createAtomAPI(M, GROWTH_STD) {
             missingOut:missingOut.length, missingOutDays:missingOut, days:rows};
         });
       return {month, from, to, daysInMonth:days, today,
+        // the answer to "เดือน 8 ต้องมาทำงานกี่วัน", once, for the whole screen
+        requiredDays:requiredDates.length, requiredToDate, requiredDates,
         holidays:Object.keys(hol).map(d=>({date:d,name:hol[d]})), bigCleaning:Object.keys(bc),
         missingOut:people.filter(x=>x.missingOut>0).map(x=>({staffId:x.staffId,nick:x.nick,nickEN:x.nickEN,name:x.name,days:x.missingOutDays})),
         staff:people}; },

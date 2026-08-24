@@ -112,7 +112,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.263'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.264'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -4193,14 +4193,32 @@
    */
   let SM_MONTH=null;
   const smStat = (n,label,color) => `<div class="stat ${color||''}"><div class="n">${n}</div><div class="l">${esc(label)}</div></div>`;
+  /* THE PERIOD THIS SCREEN IS ABOUT. It was a month, take it or leave it — so "how did last week
+   * go" and "what did this quarter cost" could not be asked at all. staffAttendanceMonth takes
+   * from/to (v262) and periodRange decides which days those are (ONE definition of a week, shared
+   * with the teacher's own history), so this is a choice of period, not a second calendar. */
+  let SM_KIND='month', SM_ANCHOR='', SM_FROM='', SM_TO='';
+  window.A_smPeriod=(kind,anchor)=>{ if(kind!=null){SM_KIND=kind;SM_FROM='';SM_TO='';} if(anchor!=null)SM_ANCHOR=anchor;
+    const m=document.querySelector('.modal'); if(m)m.remove(); A_staffMonth(); };
+  window.A_smCustom=()=>{ const f=($('#smFrom')||{}).value, t2=($('#smTo')||{}).value;
+    if(!f||!t2){ toast(EN()?'Pick both dates':'เลือกทั้งวันเริ่มและวันสิ้นสุด'); return; }
+    if(f>t2){ toast(EN()?'The start date is after the end date':'วันเริ่มต้นอยู่หลังวันสิ้นสุด'); return; }
+    SM_FROM=f; SM_TO=t2; const m=document.querySelector('.modal'); if(m)m.remove(); A_staffMonth(); };
   window.A_staffMonth = async (month) => {
-    SM_MONTH = month || SM_MONTH || monthStr();
-    let d; try { d = await api('staffAttendanceMonth',{month:SM_MONTH,staffId:USER.staffId}); } catch(e){ err(e); return; }
+    if(month){ SM_MONTH=month; SM_KIND='month'; SM_ANCHOR=month; SM_FROM=''; SM_TO=''; }
+    const rng = (SM_FROM&&SM_TO)
+      ? {kind:'custom', from:SM_FROM, to:SM_TO, label:`${ddmmyyyy(SM_FROM)} – ${ddmmyyyy(SM_TO)}`}
+      : periodRange(SM_KIND, SM_ANCHOR||SM_MONTH||todayStr());
+    SM_MONTH = ym(rng.from);
+    let d; try { d = await api('staffAttendanceMonth',{month:SM_MONTH,from:rng.from,to:rng.to,staffId:USER.staffId}); } catch(e){ err(e); return; }
+    d._range = rng;
     window._SM = d;
     const rows = sortPeopleD(d.staff||[]).map(s=>`
       <div class="list-item" style="cursor:pointer" onclick="A_staffMonthOne('${esc(s.staffId)}')">
         <span><b>${esc(dnick(s))}</b>${dnSub(s)?` <small class="muted" style="font-weight:400">${esc(dnSub(s))}</small>`:''}
-          <br><small class="muted">${EN()?'present':'มาทำงาน'} ${s.present} · ${EN()?'late':'สาย'} ${s.lateDays}${s.lateMinutes?` (${s.lateMinutes} ${EN()?'min':'นาที'})`:''} · ${EN()?'leave':'ลา'} ${s.leaveDays} · ${EN()?'absent':'ขาด'} ${s.absent}${s.otHours?` · OT ${s.otHours} ${EN()?'hr':'ชม.'}`:''}</small></span>
+          ${/* against the target, not on its own — "16" means nothing until you know it is out of 21.
+               Somebody who started or left mid-period owes only their own share, and it says so. */''}
+          <br><small class="muted"><b>${EN()?'present':'มาทำงาน'} ${s.present}/${s.myRequiredDays!=null?s.myRequiredDays:s.requiredDays}</b>${(s.myRequiredDays!=null&&s.myRequiredDays!==s.requiredDays)?` <span title="${EN()?'started or left inside this period':'เริ่มงานหรือสิ้นสุดระหว่างช่วงนี้'}">*</span>`:''} · ${EN()?'late':'สาย'} ${s.lateDays}${s.lateMinutes?` (${s.lateMinutes} ${EN()?'min':'นาที'})`:''} · ${EN()?'leave':'ลา'} ${s.leaveDays} · ${EN()?'absent':'ขาด'} ${s.absent}${s.otHours?` · OT ${s.otHours} ${EN()?'hr':'ชม.'}`:''}</small></span>
         <span style="text-align:right">${
           // a day with an arrival and no departure is NOT "ครบ" — that is what let ก้อย read as
           // complete with two open days in the month
@@ -4208,8 +4226,28 @@
           :s.absent?`<span class="pill bad">${EN()?'absent':'ขาด'} ${s.absent}</span>`
           :(s.lateDays?`<span class="pill wait">${EN()?'late':'สาย'} ${s.lateDays}</span>`:`<span class="pill ok">${EN()?'full':'ครบ'}</span>`)} <span class="muted">›</span></span></div>`).join('');
     const tot = (d.staff||[]).reduce((a,s)=>({p:a.p+s.present,l:a.l+s.lateDays,v:a.v+s.leaveDays,ab:a.ab+s.absent,ot:a.ot+s.otHours,mo:a.mo+(s.missingOut||0)}),{p:0,l:0,v:0,ab:0,ot:0,mo:0});
-    modal(`<h3>🗓️ ${EN()?'Monthly work time':'เวลาเข้า-ออกรายเดือน'}</h3>
-      <label class="field"><span>${esc(t('c.month'))}</span><input type="month" value="${esc(d.month)}" onchange="A_staffMonth(this.value)"/></label>
+    modal(`<h3>🗓️ ${EN()?'Work time':'เวลาเข้า-ออก'} <small class="muted" style="font-weight:400">${esc(rng.label)}</small></h3>
+      <div class="row" style="gap:6px;flex-wrap:wrap;margin-bottom:6px">
+        <select onchange="A_smPeriod(this.value,null)" style="flex:0 0 auto" aria-label="${EN()?'Period':'ช่วงเวลา'}">
+          ${[['week',EN()?'This week':'รายสัปดาห์'],['month',EN()?'This month':'รายเดือน'],['quarter',EN()?'Quarter':'ราย 3 เดือน'],['year',EN()?'Year':'รายปี']]
+            .map(([k,l])=>`<option value="${k}"${(!SM_FROM&&SM_KIND===k)?' selected':''}>${esc(l)}</option>`).join('')}
+          ${SM_FROM?`<option value="custom" selected>${EN()?'Custom range':'กำหนดเอง'}</option>`:''}
+        </select>
+        <input type="date" value="${esc(SM_ANCHOR||rng.from)}" onchange="A_smPeriod(null,this.value)" style="flex:1;min-width:140px" aria-label="${EN()?'A day inside the period':'วันที่อยู่ในช่วงนั้น'}"/></div>
+      <details style="margin-bottom:8px"><summary style="cursor:pointer;font-size:13px;font-weight:700">📆 ${EN()?'Pick an exact range':'เลือกช่วงวันที่เอง'}</summary>
+        <div class="row" style="gap:6px;margin-top:6px;flex-wrap:wrap">
+          <input type="date" id="smFrom" value="${esc(rng.from)}" style="flex:1;min-width:130px"/>
+          <input type="date" id="smTo" value="${esc(rng.to)}" style="flex:1;min-width:130px"/>
+          <button class="btn sm" onclick="A_smCustom()">${EN()?'Show':'แสดง'}</button></div></details>
+      ${/* THE TARGET. "เดือน 8 ต้องมาทำงาน 21 วัน" — weekdays, minus the school's holidays, plus a
+           Meeting day, which is a working Saturday and the whole reason this cannot be counted off a
+           calendar. One target for everybody; leave has its own column and does not reduce it. */''}
+      <div class="card" style="padding:8px;background:var(--surface-2);margin-bottom:8px">
+        <div class="spread"><b>🎯 ${EN()?'Days the school expects people in':'วันที่ต้องมาทำงาน'}</b>
+          <b style="font-size:18px">${d.requiredDays||0} ${EN()?'day(s)':'วัน'}</b></div>
+        <small class="muted">${EN()
+          ? `Weekdays, minus school holidays, plus meeting days. ${d.requiredToDate||0} of them have already passed.`
+          : `จันทร์-ศุกร์ หักวันหยุดของโรงเรียน และนับวันประชุมเป็นวันทำงาน · ผ่านไปแล้ว ${d.requiredToDate||0} วัน · วันลาไม่ได้ลดเป้านี้ แต่แสดงแยกไว้`}</small></div>
       <div class="kpigrid" style="margin-bottom:8px">
         ${smStat(tot.p, EN()?'days present':'วันมาทำงาน','green')}
         ${smStat(tot.l, EN()?'late days':'วันมาสาย','amber')}
@@ -4220,7 +4258,7 @@
         ⏳ <b>${EN()?'Days with an arrival and no departure':'วันที่มีเวลาเข้า แต่ไม่มีเวลาออก'}</b>
         ${d.missingOut.map(x=>`<div style="margin-top:2px">• <b>${esc(EN()?(x.nickEN||x.name):(x.nick||x.name))}</b> — ${x.days.map(dd=>esc(ddmmyyyy(dd))).join(', ')}</div>`).join('')}
         <div class="muted" style="margin-top:4px">${EN()?'Ask them to file a time request so the day can be completed.':'แจ้งให้คุณครูส่งคำขอลงเวลา เพื่อให้วันนั้นสมบูรณ์'}</div></div>`:''}
-      <p class="muted" style="font-size:13px">${EN()?'Everyone who logs time, this month. Tap a person for their day-by-day record. Weekends, holidays and days before someone started are not counted as absent.':'ทุกคนที่ต้องลงเวลา ในเดือนนี้ · แตะที่ชื่อเพื่อดูรายวันทั้งเดือน · เสาร์-อาทิตย์ วันหยุด และวันก่อนเริ่มงาน ไม่นับเป็นขาด'}</p>
+      <p class="muted" style="font-size:13px">${EN()?'Everyone who logs time, over this period. Tap a person for their day-by-day record. Weekends, holidays and days before someone started are not counted as absent. * = started or left inside this period, so their target is their own.':'ทุกคนที่ต้องลงเวลา ในช่วงนี้ · แตะที่ชื่อเพื่อดูรายวัน · เสาร์-อาทิตย์ วันหยุด และวันก่อนเริ่มงาน ไม่นับเป็นขาด · * = เริ่มงาน/สิ้นสุดระหว่างช่วงนี้ เป้าจึงเป็นของตัวเอง'}</p>
       <div style="max-height:52vh;overflow:auto">${rows||`<div class="card muted">${esc(t('c.noItems'))}</div>`}</div>
       <div class="row" style="gap:8px;margin-top:8px">
         <button class="btn sm outline" style="flex:1" onclick="A_staffMonthExport('pdf')">📄 PDF</button>
@@ -4234,15 +4272,18 @@
     const d=window._SM||{}; const list=sortPeopleD(d.staff||[]);
     const tot=list.reduce((a,s)=>({p:a.p+s.present,l:a.l+s.lateDays,v:a.v+s.leaveDays,ab:a.ab+s.absent}),{p:0,l:0,v:0,ab:0});
     AtomReportCard.saveTable({
-      title:'สรุปเวลาทำงานของครู', subtitle:monthNameYear(d.month),
-      filename:'เวลาทำงานครู_'+String(d.month||''),
-      stats:[{n:list.length,label:'คุณครู'},{n:tot.p,label:'วันมาทำงาน'},{n:tot.l,label:'วันมาสาย'},
+      // the printed sheet says which PERIOD and what the target was, or the numbers on it cannot be
+      // checked by whoever is holding the paper a month later
+      title:'สรุปเวลาทำงานของครู', subtitle:((d._range&&d._range.label)||monthNameYear(d.month))+' · ต้องมาทำงาน '+(d.requiredDays||0)+' วัน',
+      filename:'เวลาทำงานครู_'+String((d.from||d.month||'')),
+      stats:[{n:list.length,label:'คุณครู'},{n:d.requiredDays||0,label:'วันที่ต้องมา'},{n:tot.p,label:'วันมาทำงาน'},{n:tot.l,label:'วันมาสาย'},
              {n:tot.v,label:'วันลา'},{n:tot.ab,label:'วันขาด'}],
-      note:'เสาร์-อาทิตย์ วันหยุด วันก่อนเริ่มงาน และวันนี้ ไม่นับเป็นวันขาด',
+      note:'วันที่ต้องมาทำงาน = จันทร์-ศุกร์ หักวันหยุดของโรงเรียน และนับวันประชุมเป็นวันทำงาน · วันลาไม่ได้ลดเป้านี้ · เสาร์-อาทิตย์ วันหยุด วันก่อนเริ่มงาน และวันนี้ ไม่นับเป็นวันขาด',
       columns:[{key:'name',label:'ชื่อ',width:3,bold:true},{key:'present',label:'มาทำงาน',width:1.2,align:'right'},
         {key:'late',label:'สาย (วัน/นาที)',width:1.6,align:'right'},{key:'leave',label:'ลา',width:1,align:'right'},
         {key:'absent',label:'ขาด',width:1,align:'right'},{key:'ot',label:'OT (ชม.)',width:1.2,align:'right'}],
-      rows:list.map(s=>({name:dnick(s)+(dnSub(s)?' ('+dnSub(s)+')':''), present:s.present,
+      rows:list.map(s=>({name:dnick(s)+(dnSub(s)?' ('+dnSub(s)+')':''),
+        present:s.present+'/'+(s.myRequiredDays!=null?s.myRequiredDays:(d.requiredDays||0)),
         late:s.lateDays+(s.lateMinutes?' / '+s.lateMinutes:''), leave:s.leaveDays, absent:s.absent,
         ot:s.otHours||'', _warn:s.absent>0})),
       footer:'ออกโดยระบบ Atom Nursery · '+todayStr()
