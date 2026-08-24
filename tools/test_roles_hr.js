@@ -196,7 +196,24 @@ console.log('\n5) The diligence bonus is per person');
   ok_('saved with the rest of that person’s pay settings, not a second copy',
     /setPayrollConfig[\s\S]{0,300}DiligenceAttendanceAmount/.test(app));
   ok_('payroll already reads from there', /DiligenceAttendanceAmount!=null\?pc\.DiligenceAttendanceAmount/.test(app));
-  ok_('blank means "use the school default"', /placeholder="\$\{esc\(String\(\(MOCK\.config&&MOCK\.config\.DiligenceAttendanceAmount\)\|\|500\)\)\}"/.test(app));
+  /* BLANK IS NOT AN OVERRIDE OF ZERO. Clearing the box writes '' into the config, and `'' != null` is
+   * true — so the old test took the override and Number('') is 0. Somebody who removed their
+   * per-person figure would have been paid no เบี้ยขยัน at all, and nothing would have said so. */
+  ok_('...and an empty override is not read as zero',
+    /const perStaff=\(v\)=> \(v!=null && v!=='' && isFinite\(Number\(v\)\)\) \? Number\(v\) : null;/.test(R('webapp/engine.js')));
+  /* PAYROLL_CONFIG is not in COLLECTION_MAP (it hydrates into a map, not a list), so
+   * ensureCollectionSheet_ never topped its header up — and writeRows_ drops a field with no column
+   * WITHOUT AN ERROR. A per-person เบี้ยขยัน could report success and store nothing. */
+  ok_('the sheet is given its columns before the write, or the figure vanishes silently',
+    /ensureColumns_\(sh, SCHEMA\[WB\.HR\]\.PAYROLL_CONFIG\)/.test(R('src/GasEngine.gs')));
+  /* v268: the placeholder is filled at RUNTIME, from the figure that was actually saved — the form
+   * used to draw it from the STAFF row, which has no such column, so an admin who set 1,000 reopened
+   * the record and saw the school's 500 again with no way to tell the 1,000 had been stored. */
+  ok_('the saved figure is read back from where it is SAVED', /api\('payrollConfig',\{staffId:id\}\)/.test(app));
+  ok_('blank means "use the school default"', /a\.placeholder=String\(dflt\.att\); b\.placeholder=String\(dflt\.fb\);/.test(app));
+  ok_('...and the note says which of the two is in force, since the boxes look the same',
+    /กำลังใช้ค่ากลางของโรงเรียน/.test(app) && /ตั้งไว้เฉพาะคนนี้/.test(app));
+  ok_('clearing the boxes is saved, so an override can be REMOVED', /if\(sid && att && fb\)\{/.test(app));
   // the amounts differ per person now, so a fixed number in the label is simply wrong
   const i18n = R('webapp/i18n.js');
   ok_('the "(+500)" is gone from the attendance bonus', !/มาครบ ไม่ลา ไม่สาย \(\+500\)/.test(i18n));

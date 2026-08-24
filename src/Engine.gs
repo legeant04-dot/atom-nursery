@@ -2307,9 +2307,14 @@ function createAtomAPI(M, GROWTH_STD) {
       // base = monthly salary, OR daily-rate × days worked (new/special teachers)
       const payType=p.payType||pc.PayType||'monthly'; const dailyRate=p.dailyRate!=null?Number(p.dailyRate):pc.DailyRate; const daysWorked=Number(p.daysWorked||0);
       const base= payType==='daily' ? dailyRate*daysWorked : (p.baseSalary!=null?Number(p.baseSalary):(st.BaseSalary||0));
-      // diligence amounts: per-staff override (payrollConfig) → else global config
-      const attendAmt=p.diligenceAttend!=null?Number(p.diligenceAttend):(pc.DiligenceAttendanceAmount!=null?pc.DiligenceAttendanceAmount:cfg.DiligenceAttendanceAmount);
-      const fbAmt=p.diligenceFb!=null?Number(p.diligenceFb):(pc.DiligenceFacebookAmount!=null?pc.DiligenceFacebookAmount:cfg.DiligenceFacebookAmount);
+      /* diligence amounts: per-staff override (payrollConfig) → else the school-wide figure.
+       * BLANK IS NOT AN OVERRIDE OF ZERO. Clearing the box to go back to the school default writes
+       * '' into the config, and `'' != null` is true — so the old test took the override, and
+       * Number('') is 0. Somebody who removed their per-person figure would have been paid no
+       * เบี้ยขยัน at all, silently. Asked in one place so no caller can get it wrong. */
+      const perStaff=(v)=> (v!=null && v!=='' && isFinite(Number(v))) ? Number(v) : null;
+      const attendAmt=p.diligenceAttend!=null?Number(p.diligenceAttend):(perStaff(pc.DiligenceAttendanceAmount)!=null?perStaff(pc.DiligenceAttendanceAmount):cfg.DiligenceAttendanceAmount);
+      const fbAmt=p.diligenceFb!=null?Number(p.diligenceFb):(perStaff(pc.DiligenceFacebookAmount)!=null?perStaff(pc.DiligenceFacebookAmount):cfg.DiligenceFacebookAmount);
       // any-type leave over the monthly limit (default 3) forfeits the CHILD-RATE income (เรทจำนวนเด็ก),
       // applied to autoChild below. เบี้ยขยัน is untouched here (its own "ไม่ลา" rule already covers leave).
       const ls=H.staffLeaveSummary({staffId:p.staffId,month:p.month}); const leaveExceeds=ls.exceeds;

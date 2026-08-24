@@ -384,6 +384,18 @@ function writeCheckinStaff_(rawAll, todayList) {
 }
 function writePayrollConfig_(obj) {
   var rows = Object.keys(obj || {}).map(function (id) { var o = {}; for (var k in obj[id]) o[k] = obj[id][k]; o.StaffID = id; return o; });
+  /**
+   * TOP THE HEADER UP FIRST. writeRows_ maps each row onto the sheet's EXISTING columns and drops a
+   * field that has no column WITHOUT AN ERROR — the same trap that lost HOLIDAYS.StartTime and
+   * INJURY_REPORTS.NotifyParent. Every OTHER collection is protected by ensureCollectionSheet_, but
+   * PAYROLL_CONFIG is not in COLLECTION_MAP (it is hydrated into a map, not a list), so nothing had
+   * ever checked its header. A per-person เบี้ยขยัน saved onto a sheet created before those columns
+   * existed would report success and store nothing — and this is somebody's pay.
+   */
+  try { var sh = wbOf_('HR').getSheetByName('PAYROLL_CONFIG');
+    if (sh && typeof SCHEMA !== 'undefined' && SCHEMA[WB.HR] && SCHEMA[WB.HR].PAYROLL_CONFIG) {
+      ensureColumns_(sh, SCHEMA[WB.HR].PAYROLL_CONFIG);
+    } } catch (e) {}
   writeRows_('HR', 'PAYROLL_CONFIG', rows, {});
 }
 function hydratePayrollConfig_() {
