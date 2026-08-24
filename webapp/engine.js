@@ -752,6 +752,14 @@ function createAtomAPI(M, GROWTH_STD) {
    */
   const adminLike_ = s => !!s && (s.PositionLevel==='Admin' || s.Role==='Admin' || s.Role==='Observer');
   /**
+   * A HEAD TEACHER — Department '*', i.e. over every nursery rather than one of them.
+   *
+   * The test was written out three times (the attendance correction, the attendance audit, and now
+   * the working-time screen) as `String(me.Department||'')==='*'`. Three copies of a permission rule
+   * is two chances for one of them to be relaxed on its own.
+   */
+  const headTeacher_ = s => String((s&&s.Department)||'')==='*';
+  /**
    * May this person edit the monthly food menu? An admin, or the teacher the admin ticked
    * "ให้ครูคนนี้จัดการเมนูอาหารรายเดือนได้" (CanFoodMenu) — the kitchen is usually run by one teacher.
    *
@@ -1108,7 +1116,7 @@ function createAtomAPI(M, GROWTH_STD) {
       const st=studentById(p.studentId); if(!st) fail('NOT_FOUND','ไม่พบนักเรียน');
       if(String(p.role||'')!=='Admin'){
         const me=staffById(p.staffId)||{};
-        const all=String(me.Department||'')==='*';
+        const all=headTeacher_(me);
         const cov=(coveredClasses_(me)||[]).map(c=>c.ClassName);
         if(!all && cov.indexOf(st.Class)<0) fail('NO_ACCESS','แก้ไขได้เฉพาะนักเรียนในชั้นที่ดูแล');
       }
@@ -1165,7 +1173,7 @@ function createAtomAPI(M, GROWTH_STD) {
       const day=schoolDayFor_(date);
       const isAdmin=String(p.role||'')==='Admin'||String(p.role||'')==='Observer';
       const me=staffById(p.staffId)||{};
-      const all=isAdmin || String(me.Department||'')==='*';
+      const all=isAdmin || headTeacher_(me);
       const cov=all?null:(coveredClasses_(me)||[]).map(c=>c.ClassName);
       const rows=activeStudents()
         .filter(s=>!studentPaused_(s,date))
@@ -2188,13 +2196,37 @@ function createAtomAPI(M, GROWTH_STD) {
       fail('ALREADY_RESOLVED','คำขอนี้ดำเนินการแล้ว'); },
     // `staff` is a sanitized directory of ALL staff (name/nickname) so screens never need client MOCK.staff.
     // `holidays` lets the schedule calendar mark school closures.
-    schedule: () => ({
-      staff: M.staff.map(s=>({StaffID:s.StaffID, NameTH:s.NameTH, NameEN:s.NameEN, Nickname:s.Nickname, NicknameEN:s.NicknameEN,
-        Role:s.Role, Department:s.Department, RequireCheckin:s.RequireCheckin!==false})),
-      schedule:M.workSchedule,
-      leavesToday: M.leaves.filter(l=>l.Status==='APPROVED'), attendance:M.staffAttendanceToday,
-      history:M.staffAttendanceHistory, staffing:H.staffingByNursery(),
-      holidays: (M.holidays||[]).map(h=>({Date:h.Date, NameTH:h.NameTH, NameEN:h.NameEN})), bigCleaning: bigCleaningList_() }),
+    /**
+     * 📅 ตาราง — WHOSE working time is this screen about?
+     *
+     * It used to be everybody's, for everybody: this handler took no payload at all, so any teacher
+     * who opened the screen was sent the whole staff's arrivals, departures and approved leave. The
+     * school's answer (2026-08-24) is that a person's working time is between them, the head teacher
+     * and the admin: a plain teacher sees THEIR OWN times and nobody else's leave.
+     *
+     * Scoped HERE, not on the screen. Hiding a card still ships the data to the device it was hidden
+     * on — the network tab is not a permission model.
+     *
+     * "Head teacher" is Department='*' (headTeacher_), the same rule the injury and journal scopes
+     * already use.
+     */
+    schedule: p => { const me=staffById(p&&p.staffId)||{};
+      const all = adminLike_(me) || me.PositionLevel==='Leader' || headTeacher_(me);
+      const mine = id => String(id)===String((p&&p.staffId)||'');
+      const view = s=>({StaffID:s.StaffID, NameTH:s.NameTH, NameEN:s.NameEN, Nickname:s.Nickname, NicknameEN:s.NicknameEN,
+        Role:s.Role, Department:s.Department, RequireCheckin:s.RequireCheckin!==false});
+      const keep = (list, idOf) => all ? list : list.filter(x=>mine(idOf(x)));
+      return {
+        // the screen needs to know which of the two it is looking at — it must not re-derive it
+        canSeeAll: all, staffId: (p&&p.staffId)||'',
+        staff: keep(M.staff, s=>s.StaffID).map(view),
+        schedule: keep(M.workSchedule||[], w=>w.StaffID),
+        leavesToday: keep((M.leaves||[]).filter(l=>l.Status==='APPROVED'), l=>l.StaffID),
+        attendance: keep(M.staffAttendanceToday||[], a=>a.StaffID),
+        history: keep(M.staffAttendanceHistory||[], h=>h.StaffID),
+        // a staffing ratio is a fact about other people; it belongs to whoever covers for them
+        staffing: all ? H.staffingByNursery() : [],
+        holidays: (M.holidays||[]).map(h=>({Date:h.Date, NameTH:h.NameTH, NameEN:h.NameEN})), bigCleaning: bigCleaningList_() }; },
     // present-staff / total-staff per Nursery for the daily summary (e.g. "Nursery 1 2/2")
     // a staff's Department may be a comma list of the department(s) they cover (or '*' = all) → count in each
     staffingByNursery: () => { const deps=(Array.isArray(cfg.Departments)?cfg.Departments:String(cfg.Departments||'').split(',')).map(d=>String(d).trim()).filter(Boolean);

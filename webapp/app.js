@@ -112,7 +112,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.262'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.263'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -860,7 +860,9 @@
         ? [['parentChildren',parentScope()],['announcements'],['calendar'],['notifications',notifParams()]]
       : USER.role==='Admin'
         ? [['dashboard'],['pendingLeaves',{staffId:USER.staffId}],['pendingPayments'],['listStudents'],['listStaff'],['listParents']]
-        : [['classList',{staffId:USER.staffId}],['schedule'],['myLeaves',{staffId:USER.staffId}]];
+        // `schedule` is scoped to the caller now (a plain teacher gets only their own times), so it
+        // has to be told who is asking — warming it without an id would cache the wrong answer
+        : [['classList',{staffId:USER.staffId}],['schedule',{staffId:USER.staffId}],['myLeaves',{staffId:USER.staffId}]];
     // quiet: this runs in the background right after login — it must never raise the overlay
     setTimeout(()=>{ jobs.forEach(j=>{ try{ api(j[0], j[1]||{}, {quiet:true}); }catch(e){} }); }, 500);
   };
@@ -3585,10 +3587,15 @@
           +(hol?`<span class="io" style="color:var(--bad);text-align:left;font-weight:600">🏖️ ${esc(hol)}</span>`:'')
           +(bc&&!hol?`<span class="io" style="color:var(--teal);text-align:left;font-weight:600">${BC_ICON} ${BC_SHORT()}</span>`:'')
           +(ppl?`<span class="io" style="color:var(--ok);text-align:left">${esc(ppl.join('\n'))}</span>`:'')+`</div>`; }
-      return `${calNavHeader(y,mo)}<div class="cal">${cells}</div><small class="muted">${EN()?`↓in ↑out · 🏖️ holiday · ${BC_ICON} meeting · 🏠 on leave (all staff)`:`↓เข้า ↑ออก · 🏖️ วันหยุด · ${BC_ICON} ประชุม · 🏠 ลา (พนักงานทุกคน)`}</small>`; };
+      // ...and say WHOSE times these are. A plain teacher's calendar is their own (the server sends
+      // nobody else's), so a legend promising "all staff" was describing a screen they cannot see.
+      const _who = opts.canSeeAll
+        ? (EN()?'🏠 on leave (all staff)':'🏠 ลา (พนักงานทุกคน)')
+        : (EN()?'your own times only':'เฉพาะเวลาของคุณเอง');
+      return `${calNavHeader(y,mo)}<div class="cal">${cells}</div><small class="muted">${EN()?`↓in ↑out · 🏖️ holiday · ${BC_ICON} meeting · ${_who}`:`↓เข้า ↑ออก · 🏖️ วันหยุด · ${BC_ICON} ประชุม · ${_who}`}</small>`; };
     window._CALRENDER=render;
     return `<div class="card"><div id="calWrap">${render()}</div></div>`; }
-  SCREENS.Teacher.schedule = async () => { const d=await api('schedule');
+  SCREENS.Teacher.schedule = async () => { const d=await api('schedule',{staffId:USER.staffId});
     const staffing=d.staffing||[];
     // staff directory comes from the API (MOCK.staff is empty in gas mode)
     const dir={}; (d.staff||[]).forEach(s=>{ dir[s.StaffID]=s; });
@@ -3598,15 +3605,30 @@
       <div class="row">${staffing.map(x=>`<span class="pill ${x.present>=x.total?'ok':x.present>0?'wait':'bad'}" style="font-size:13px">${esc(x.dept)} ${x.present}/${x.total}</span>`).join('')}</div></div>`:'';
     app.innerHTML=`<h2 class="page">${esc(t('title.schedule'))}</h2>
       ${ratioHtml}
-      ${staffSchedCalendar(d.history,{shortName,holidays:d.holidays,bigCleaning:d.bigCleaning,leaves:d.leavesToday})}
-      <div class="card"><h3>📋 ${esc(t('lbl.dailySummary'))} (${esc(todayStr())})</h3>${d.attendance.map(a=>{const cls=a.Status==='IN'?'dot-in':a.Status==='OUT'?'dot-out':a.Status==='LEAVE'?'dot-leave':'dot-absent';return `<div class="att"><span class="dot-s ${cls}"></span> ${esc(fullName(a.StaffID))} — ${a.Status==='LEAVE'?(EN()?'Leave':'ลา')+' ('+esc(a.Reason||'')+')':a.Status+(a.CheckIn?' '+a.CheckIn:'')}</span></div>`;}).join('')||`<small class="muted">${esc(t('c.noItems'))}</small>`}
+      ${staffSchedCalendar(d.history,{shortName,holidays:d.holidays,bigCleaning:d.bigCleaning,leaves:d.leavesToday,canSeeAll:d.canSeeAll})}
+      ${/* 📋 สรุปรายวัน — the whole staff's day. A PLAIN TEACHER DOES NOT SEE IT AT ALL (the school's
+           decision, 2026-08-24): other people's working time is between them, the head teacher and
+           the admin. The server already refuses to send it (schedule/canSeeAll); this is the card. */''}
+      ${d.canSeeAll?`<div class="card"><h3>📋 ${esc(t('lbl.dailySummary'))} (${esc(todayStr())})</h3>${d.attendance.map(a=>{const cls=a.Status==='IN'?'dot-in':a.Status==='OUT'?'dot-out':a.Status==='LEAVE'?'dot-leave':'dot-absent';
+        /* IT PRINTED THE STATUS AND THE CHECK-IN TIME: "OUT 06:47" — the word said they had gone
+         * home and the time was the moment they arrived. Same shape as the Admin dashboard now:
+         * 06:47–19:08, and "–" with nothing after it means still at work. */
+        const _i=String(a.CheckIn||'').slice(0,5), _o=String(a.CheckOut||'').slice(0,5);
+        const when=a.Status==='LEAVE' ? (EN()?'Leave':'ลา')+' ('+(a.Reason||'')+')'
+          : _i ? (_i+'–'+_o) : (EN()?'not clocked in':'ยังไม่ลงเวลา');
+        return `<div class="att"><span class="dot-s ${cls}"></span> ${esc(fullName(a.StaffID))} — ${esc(when)}${a.Late?` <span class="pill bad" style="font-size:11px">${esc(t('lbl.late'))} ${a.Late}</span>`:''}</span></div>`;}).join('')||`<small class="muted">${esc(t('c.noItems'))}</small>`}
         <!-- Approved leave was printed in full underneath the summary every time. It is a "who do I
              need to cover for" reference, not something to read daily — folded shut, with the count
              on the summary line so you can see whether it is worth opening. -->
         <details style="margin-top:8px"><summary style="cursor:pointer;font-weight:700;font-size:13px">${EN()?'Approved leave (for coverage)':'การลาที่อนุมัติแล้ว (วางแผนสับเปลี่ยน)'} <span class="pill ${d.leavesToday.length?'wait':'ok'}" style="font-size:11px">${d.leavesToday.length}</span></summary>
-          <div style="margin-top:6px">${d.leavesToday.map(l=>`<div class="list-item"><span>${esc(fullName(l.StaffID))} · ${esc(tLeaveType(l.Type))}</span><span class="muted">${esc(l.StartDate)}→${esc(l.EndDate)}</span></div>`).join('')||`<small class="muted">${esc(t('c.noItems'))}</small>`}</div></details>
-        <!-- my own OT วันหยุด, in the place a teacher already comes to check their own days -->
-        <div id="myHolOT"></div></div>
+          <div style="margin-top:6px">${d.leavesToday.map(l=>`<div class="list-item"><span>${esc(fullName(l.StaffID))} · ${esc(tLeaveType(l.Type))}</span><span class="muted">${esc(l.StartDate)}→${esc(l.EndDate)}</span></div>`).join('')||`<small class="muted">${esc(t('c.noItems'))}</small>`}</div></details></div>`
+        :`<div class="card"><h3>⏱️ ${EN()?'My time today':'เวลาของฉันวันนี้'} (${esc(todayStr())})</h3>
+          ${(d.attendance||[]).length?(d.attendance||[]).map(a=>{ const _i=String(a.CheckIn||'').slice(0,5), _o=String(a.CheckOut||'').slice(0,5);
+            return `<div class="spread" style="font-size:15px"><span>${esc(t('lbl.checkIn'))} <b>${esc(_i||'--:--')}</b></span><span>${esc(t('lbl.checkOut'))} <b>${esc(_o||'--:--')}</b></span><span>${esc(t('lbl.late'))} <b style="color:${a.Late?'var(--bad)':'var(--ok)'}">${a.Late||0}</b> ${esc(t('lbl.min'))}</span></div>`; }).join('')
+            :`<small class="muted">${EN()?'No clock-in recorded today.':'วันนี้ยังไม่มีการลงเวลา'}</small>`}</div>`}
+      <!-- my own OT วันหยุด, in the place a teacher already comes to check their own days. It used
+           to sit INSIDE the daily-summary card, which a plain teacher no longer has. -->
+      <div id="myHolOT"></div>
       <!-- MY OWN records. They used to sit on the home screen, where a month of history had nowhere
            to go and every day of it was in the way of this morning's job. Folded shut by default:
            open one when you want it. -->
@@ -3642,7 +3664,9 @@
       const hol=(rows||[]).filter(isLiveHolOT);
       if(!hol.length) return;                       // nothing to say → no empty card in the way
       const total=hol.reduce((a,o)=>a+(Number(o.Amount)||0),0);
-      setHTML('#myHolOT', `<details style="margin-top:8px"><summary style="cursor:pointer;font-weight:700;font-size:13px">🎉 ${EN()?'My holiday OT':'OT วันหยุดของฉัน'} <span class="pill ok" style="font-size:11px">${hol.length}</span> <span class="muted" style="font-weight:400">${esc(baht(total))}</span></summary>
+      // its own card now: it used to sit inside the daily-summary card, which a plain teacher no
+      // longer has (their own OT วันหยุด is theirs, and must not disappear with somebody else's day)
+      setHTML('#myHolOT', `<details class="card"><summary style="cursor:pointer;font-weight:700;font-size:13px">🎉 ${EN()?'My holiday OT':'OT วันหยุดของฉัน'} <span class="pill ok" style="font-size:11px">${hol.length}</span> <span class="muted" style="font-weight:400">${esc(baht(total))}</span></summary>
         <div style="margin-top:6px">${hol.map(o=>`<div class="list-item" style="align-items:flex-start"><span style="flex:1;min-width:0"><b>${esc(ddmmyyyy(o.Date))}</b>${o.Note?`<br><small class="muted">${esc(o.Note)}</small>`:''}</span><b style="color:var(--ok);white-space:nowrap">${esc(baht(o.Amount))}</b></div>`).join('')}
         <small class="muted">${EN()?'Paid on its own line of your payslip.':'จ่ายเป็นบรรทัดแยกในสลิปเงินเดือน'}</small></div></details>`);
     }).catch(()=>{});
