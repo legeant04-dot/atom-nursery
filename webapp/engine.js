@@ -2273,6 +2273,11 @@ function createAtomAPI(M, GROWTH_STD) {
      */
     schedule: p => { const me=staffById(p&&p.staffId)||{};
       const all = adminLike_(me) || me.PositionLevel==='Leader' || headTeacher_(me);
+      /* ...and somebody the system does not recognise is a STRANGER, not a colleague. The leave
+       * roster and the staff directory go to the STAFF; an id that matches nobody gets an empty
+       * screen rather than the school's week. staffById returns {} for an unknown id, never null,
+       * so the test has to be on the ID itself. */
+      const isStaff = !!me.StaffID || all;
       const mine = id => String(id)===String((p&&p.staffId)||'');
       const view = s=>({StaffID:s.StaffID, NameTH:s.NameTH, NameEN:s.NameEN, Nickname:s.Nickname, NicknameEN:s.NicknameEN,
         Role:s.Role, Department:s.Department, RequireCheckin:s.RequireCheckin!==false});
@@ -2280,9 +2285,22 @@ function createAtomAPI(M, GROWTH_STD) {
       return {
         // the screen needs to know which of the two it is looking at — it must not re-derive it
         canSeeAll: all, staffId: (p&&p.staffId)||'',
-        staff: keep(M.staff, s=>s.StaffID).map(view),
+        /* A NAME IS NOT A SECRET; A CLOCK IS.
+         * Phase C scoped this whole handler to the caller, and took "who is off on Thursday" away
+         * from the teachers along with everybody's arrival times. The school corrected that on
+         * 2026-08-24: cover is a question the staff answer between them, so the LEAVE goes to
+         * everyone — the name and the KIND, never the reason — while the TIMES stay private.
+         * A plain teacher therefore gets a name-only directory: enough to print "ก้อย (ลาป่วย)",
+         * and not the department, role or clock-in requirement of every colleague. */
+        staff: all ? M.staff.map(view)
+          : !isStaff ? []
+          : M.staff.map(s=>({StaffID:s.StaffID, NameTH:s.NameTH, NameEN:s.NameEN,
+              Nickname:s.Nickname, NicknameEN:s.NicknameEN})),
         schedule: keep(M.workSchedule||[], w=>w.StaffID),
-        leavesToday: keep((M.leaves||[]).filter(l=>l.Status==='APPROVED'), l=>l.StaffID),
+        leavesToday: (!isStaff?[]:(M.leaves||[]).filter(l=>l.Status==='APPROVED')).map(l=> all ? l : ({
+          // the reason can be a medical detail — it is the approver's business, not the roster's
+          LeaveID:l.LeaveID, StaffID:l.StaffID, Type:l.Type, Status:l.Status,
+          StartDate:l.StartDate, EndDate:l.EndDate, HalfDay:l.HalfDay })),
         attendance: keep(M.staffAttendanceToday||[], a=>a.StaffID),
         /* TODAY IS MISSING FROM `history` BY CONSTRUCTION — hydration splits CHECKIN_STAFF into
          * "today" and "everything else", so the calendar drew a blank square for the day somebody

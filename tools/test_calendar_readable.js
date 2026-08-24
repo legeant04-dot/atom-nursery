@@ -45,7 +45,8 @@ function boot() {
       { StaffID: 'HEAD', NameTH: 'หัวหน้า', Nickname: 'หัวหน้า', Role: 'Teacher', Department: '*', Status: 'ACTIVE' }
     ],
     staffAttendanceToday: [{ StaffID: 'T1', CheckIn: '06:42', CheckOut: '', Status: 'IN', Late: 0 }],
-    staffAttendanceHistory: [{ Date: '2026-08-21', StaffID: 'T1', In: '06:58', Out: '19:08', Late: 0 }],
+    // a day with an hour of OT on it — the case the blue "↑18:37 (1)" exists for
+    staffAttendanceHistory: [{ Date: '2026-08-21', StaffID: 'T1', In: '06:58', Out: '19:08', Late: 0, OTHours: 1 }],
     leaves: [
       { LeaveID: 'L1', StaffID: 'T1', Status: 'APPROVED', Type: 'ลากิจ', StartDate: '2026-08-27', EndDate: '2026-08-27' },
       { LeaveID: 'L2', StaffID: 'T2', Status: 'APPROVED', Type: 'ลาพักร้อน', StartDate: '2026-08-27', EndDate: '2026-08-27' }
@@ -89,11 +90,12 @@ console.log('\n1) the day you clocked in on is ON your calendar');
 console.log('\n2) your own leave, with the kind written on it');
 {
   const d = H.schedule({ staffId: 'T1' });
-  eq('a teacher gets her own leave', d.leavesToday.map(l => l.LeaveID), ['L1']);
-  eq('...with its type, which is what the cell prints', d.leavesToday[0].Type, 'ลากิจ');
-  ok_('the calendar prints the type', /\('\+tLeaveType\(l\.Type\)\+'\)/.test(app));
-  ok_('...and no name on your own calendar, where it would be yours on every cell',
-    /const who=seeAll\?shortName\(l\.StaffID\)\+' ':'';/.test(app));
+  /* v271: leave goes to EVERY calendar, a teacher's included — "who is off on Thursday" is how cover
+   * happens, and a name is not a secret. The clock is: the times above are still only ever your own. */
+  eq('a teacher is told who is on leave', d.leavesToday.map(l => l.LeaveID).sort(), ['L1', 'L2']);
+  eq('...with the type, which is what the cell prints', d.leavesToday[0].Type, 'ลากิจ');
+  eq('...and never the reason', d.leavesToday[0].Reason, undefined);
+  ok_('the calendar prints name and type together', /shortName\(l\.StaffID\)\+' \('\+tLeaveType\(l\.Type\)\+'\)'/.test(app));
 }
 {
   const d = H.schedule({ staffId: 'HEAD' });
@@ -122,7 +124,33 @@ console.log('\n4) nothing overflows its own square');
   ok_('the reason is written beside the rule', /ran past the square and printed over its neighbours/.test(css));
 }
 
-console.log('\n5) the payslip shows its working for ประกันสังคม');
+console.log('\n5) three zones in a day, so nothing lands on anything else');
+{
+  // asked 2026-08-24: times top-right, one under the other; who is away bottom-right; and a long
+  // holiday name cut to three lines instead of filling the cell it is in
+  ok_('the date sits top-left', /\.cal \.d \.caldd\{position:absolute;top:2px;left:4px/.test(css));
+  ok_('your clock sits top-right, stacked', /\.cal \.d \.calio\{position:absolute;top:2px;right:4px;display:flex;flex-direction:column/.test(css));
+  ok_('who is away sits bottom-right', /\.cal \.d \.callv\{position:absolute;bottom:2px;right:3px/.test(css));
+  ok_('a long holiday name stops at three lines', /-webkit-line-clamp:3/.test(css));
+  ok_('...with the whole name on hover', /class="calhol" title="\$\{esc\(hol\)\}"/.test(app));
+  // the colours ARE the message
+  ok_('arrival is green, red when late', /↓\$\{esc\(io\.in\)\}/.test(app) && /io\.late\?'var\(--bad\)':'var\(--ok\)'/.test(app));
+  ok_('leaving is green, blue when the day made OT', /io\.ot\?'var\(--blue\)':'var\(--ok\)'/.test(app));
+  ok_('...with the hours in brackets', /io\.ot\?' \('\+esc\(String\(io\.ot\)\)\+'\)':''/.test(app));
+  ok_('the legend explains the colours rather than leaving them to be guessed',
+    /แดง = สาย/.test(app) && /น้ำเงิน = มี OT · วงเล็บ = ชั่วโมง/.test(app));
+}
+{
+  // the times must carry the two facts the colours depend on, all the way from the sheet
+  const d = H.schedule({ staffId: 'T1' });
+  const y = d.history.find(h => String(h.Date).slice(0, 10) === '2026-08-21');
+  eq('lateness travels with the day', y.Late, 0);
+  eq('...and so do the OT hours, which decide the colour and the bracket', y.OTHours, 1);
+  const t = d.history.find(h => String(h.Date).slice(0, 10) === TODAY);
+  eq('...today included, which is folded in separately', [t.Late, t.OTHours], [0, 0]);
+}
+
+console.log('\n6) the payslip shows its working for ประกันสังคม');
 {
   ok_('there is a working', /function ssWorking\(r\)\{/.test(app));
   ok_('...printed on the deduction line', /หัก ประกันสังคม\$\{Number\(r\.SocialSecurity\|\|0\)\?/.test(app));
