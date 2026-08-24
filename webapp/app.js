@@ -112,7 +112,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.269'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.270'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -3710,9 +3710,29 @@
       const first=new Date(y,mo,1).getDay(),days=new Date(y,mo+1,0).getDate(); const byDay={};
       const holByDay={}; (opts.holidays||[]).forEach(h=>{ const d=new Date(h.Date); if(d.getFullYear()===y&&d.getMonth()===mo) holByDay[d.getDate()]=holLabel(h); });
       const bcByDay={}; (opts.bigCleaning||[]).forEach(s=>{ const d=new Date(s); if(d.getFullYear()===y&&d.getMonth()===mo) bcByDay[d.getDate()]=1; });
-      (history||[]).forEach(h=>{ const d=new Date(h.Date); if(d.getFullYear()===y&&d.getMonth()===mo){ const io=(h.In?'↓'+h.In:'')+(h.Out?' ↑'+h.Out:''); (byDay[d.getDate()]=byDay[d.getDate()]||[]).push(shortName(h.StaffID)+(io?' '+io:'')); } });
-      // approved leaves of ALL staff overlapping each day → "Nickname (LeaveType)"
-      (opts.leaves||[]).filter(l=>l.Status==='APPROVED').forEach(l=>{ const st=new Date(l.StartDate),en=new Date(l.EndDate); for(let dt=new Date(st); dt<=en; dt.setDate(dt.getDate()+1)){ if(dt.getFullYear()===y&&dt.getMonth()===mo){ (byDay[dt.getDate()]=byDay[dt.getDate()]||[]).push('🏠 '+shortName(l.StaffID)+' ('+tLeaveType(l.Type)+')'); } } });
+      /* WHOSE CALENDAR IS THIS, AND WHAT IS IT FOR?
+       *
+       *  · A PLAIN TEACHER'S is about her own days: the times she clocked in and out, and her own
+       *    leave with the type written on it. She only ever receives her own rows (schedule is
+       *    scoped server-side), so there is no name to print — the name would be hers on every cell.
+       *
+       *  · A HEAD TEACHER'S / ADMIN'S is about COVER: who is away, and on which day. The in-and-out
+       *    times are already on the daily summary right above it, and printing them here put five
+       *    lines of "ก้อย ↓06:58 ↑18:14" into a cell the size of a stamp — the text ran over its own
+       *    neighbours and none of it could be read (reported 2026-08-24, with a screenshot). The
+       *    school's decision: leave only, so the one thing this calendar is for is legible.
+       */
+      const seeAll=!!opts.canSeeAll;
+      if(!seeAll){
+        (history||[]).forEach(h=>{ const d=new Date(h.Date); if(d.getFullYear()===y&&d.getMonth()===mo){
+          const io=(h.In?'↓'+h.In:'')+(h.Out?' ↑'+h.Out:'');
+          if(io) (byDay[d.getDate()]=byDay[d.getDate()]||[]).push({t:io,kind:'io'}); } });
+      }
+      // approved leave → "🏠 Nickname (ลาป่วย)" for a head teacher, "🏠 ลาป่วย" on your own calendar
+      (opts.leaves||[]).filter(l=>l.Status==='APPROVED').forEach(l=>{ const st=new Date(l.StartDate),en=new Date(l.EndDate);
+        for(let dt=new Date(st); dt<=en; dt.setDate(dt.getDate()+1)){ if(dt.getFullYear()===y&&dt.getMonth()===mo){
+          const who=seeAll?shortName(l.StaffID)+' ':'';
+          (byDay[dt.getDate()]=byDay[dt.getDate()]||[]).push({t:'🏠 '+who+'('+tLeaveType(l.Type)+')',kind:'lv'}); } } });
       let cells=['อา','จ','อ','พ','พฤ','ศ','ส'].map(w=>`<div style="text-align:center;font-size:13px;color:var(--ink-3)">${EN()?({'อา':'Su','จ':'Mo','อ':'Tu','พ':'We','พฤ':'Th','ศ':'Fr','ส':'Sa'}[w]):w}</div>`).join('');
       for(let i=0;i<first;i++) cells+='<div class="d dim"></div>';
       for(let dd=1;dd<=days;dd++){ const ppl=byDay[dd]; const hol=holByDay[dd]; const bc=bcByDay[dd]; const today=(isCur&&dd===now.getDate())?'today':'';
@@ -3720,13 +3740,21 @@
         cells+=`<div class="d ${ppl?'ev':''} ${today}" style="min-height:64px;${holStyle}">${dd}`
           +(hol?`<span class="io" style="color:var(--bad);text-align:left;font-weight:600">🏖️ ${esc(hol)}</span>`:'')
           +(bc&&!hol?`<span class="io" style="color:var(--teal);text-align:left;font-weight:600">${BC_ICON} ${BC_SHORT()}</span>`:'')
-          +(ppl?`<span class="io" style="color:var(--ok);text-align:left">${esc(ppl.join('\n'))}</span>`:'')+`</div>`; }
+          /* One line per entry, each clipped to its own cell. They used to be joined with "\n" into a
+           * single span, so a busy day's text simply ran past the square and over the days beside
+           * it. `.calent` clips instead; a cell with more than three shows "+n" rather than growing. */
+          +(ppl?`<span class="io" style="text-align:left">${
+              ppl.slice(0,3).map(e=>`<span class="calent${e.kind==='lv'?' lv':''}">${esc(e.t)}</span>`).join('')
+            }${ppl.length>3?`<span class="calent more">+${ppl.length-3}</span>`:''}</span>`:'')+`</div>`; }
       // ...and say WHOSE times these are. A plain teacher's calendar is their own (the server sends
       // nobody else's), so a legend promising "all staff" was describing a screen they cannot see.
-      const _who = opts.canSeeAll
-        ? (EN()?'🏠 on leave (all staff)':'🏠 ลา (พนักงานทุกคน)')
-        : (EN()?'your own times only':'เฉพาะเวลาของคุณเอง');
-      return `${calNavHeader(y,mo)}<div class="cal">${cells}</div><small class="muted">${EN()?`↓in ↑out · 🏖️ holiday · ${BC_ICON} meeting · ${_who}`:`↓เข้า ↑ออก · 🏖️ วันหยุด · ${BC_ICON} ประชุม · ${_who}`}</small>`; };
+      // the legend describes the calendar the reader is actually looking at, which is not the same one
+      const _leg = seeAll
+        ? (EN()?`🏠 who is on leave, and what kind · 🏖️ holiday · ${BC_ICON} meeting · clock-in times are on the daily summary above`
+               :`🏠 ใครลาวันไหน และลาประเภทอะไร · 🏖️ วันหยุด · ${BC_ICON} ประชุม · เวลาเข้า-ออกดูได้ที่สรุปรายวันด้านบน`)
+        : (EN()?`↓in ↑out (yours) · 🏠 your leave · 🏖️ holiday · ${BC_ICON} meeting`
+               :`↓เข้า ↑ออก (ของคุณ) · 🏠 วันลาของคุณ · 🏖️ วันหยุด · ${BC_ICON} ประชุม`);
+      return `${calNavHeader(y,mo)}<div class="cal">${cells}</div><small class="muted">${_leg}</small>`; };
     window._CALRENDER=render;
     return `<div class="card"><div id="calWrap">${render()}</div></div>`; }
   SCREENS.Teacher.schedule = async () => { const d=await api('schedule',{staffId:USER.staffId});
@@ -4046,6 +4074,24 @@
   const adjRows = r => { const a=r&&r.Adjustments; if(Array.isArray(a)) return a;
     if(typeof a==='string' && a.trim()){ try{ const v=JSON.parse(a); return Array.isArray(v)?v:[]; }catch(e){} } return []; };
   // which earlier months the "ค้างจ่าย OT" line is made of — OTCarryDetail is JSON on the sheet row
+  /**
+   * "ทำไมประกันสังคมหัก 550 เอาเลขนี้มาจากไหน?" — asked 2026-08-24, and that it had to be asked is
+   * the defect. A deduction from somebody's pay that they cannot check is one they have to trust.
+   *
+   * 5% of the BASE salary, capped: 11,000 × 5% = 550. The cap (750) bites from 15,000 up. Both the
+   * rate and the cap are the school's own settings, so the working is printed from the numbers the
+   * calculation actually used rather than from constants written here.
+   */
+  function ssWorking(r){
+    const base=Number(r.BaseSalary||0), ss=Number(r.SocialSecurity||0);
+    const rate=Number((MOCK.config&&MOCK.config.SocialSecurityRate)||0.05);
+    const cap=Number((MOCK.config&&MOCK.config.SocialSecurityMax)||750);
+    const pct=Math.round(rate*10000)/100;
+    // when the cap is what produced the figure, say so — otherwise the percentage would not add up
+    if(ss>0 && base>0 && Math.abs(ss-cap)<0.5 && base*rate>cap+0.5)
+      return `${EN()?'capped at':'เพดานสูงสุด'} ${baht(cap)} · ${pct}% ${EN()?'of':'ของ'} ${baht(base)} = ${baht(Math.round(base*rate))}`;
+    return `${pct}% ${EN()?'of':'ของ'} ${baht(base)}${cap?` · ${EN()?'max':'ไม่เกิน'} ${baht(cap)}`:''}`;
+  }
   function carryMonths(r){ let d=r.OTCarryDetail;
     if(typeof d==='string'&&d){ try{ d=JSON.parse(d); }catch(e){ d=null; } }
     return (Array.isArray(d)?d:[]).map(x=>monthNameYear(x.month)).join(', ')||'-'; }
@@ -4067,7 +4113,11 @@
     ${Number(r.OTHoliday||0)?`<tr><td>🎉 OT วันหยุด</td><td style="text-align:right">${baht(r.OTHoliday)}</td></tr>`:''}
     <tr><td>เงินพิเศษวันพักผ่อน</td><td style="text-align:right">${baht(r.HolidayBonus)}</td></tr>
     <tr style="border-top:1px solid var(--line)"><td><b>รวมรายได้</b></td><td style="text-align:right"><b>${baht(r.GrossIncome)}</b></td></tr>
-    <tr><td>หัก ประกันสังคม</td><td style="text-align:right">-${baht(r.SocialSecurity)}</td></tr>
+    ${/* SHOW THE WORKING. A deduction on somebody's pay that they have to ask about is a deduction
+         they cannot check. It is 5% of the base salary, capped — 11,000 × 5% = 550; a salary of
+         15,000 or more is capped at 750. The rate and the cap are the school's settings
+         (SocialSecurityRate / SocialSecurityMax), so the line prints the ones actually used. */''}
+    <tr><td>หัก ประกันสังคม${Number(r.SocialSecurity||0)?` <small class="muted">(${esc(ssWorking(r))})</small>`:''}</td><td style="text-align:right">-${baht(r.SocialSecurity)}</td></tr>
     <tr><td>หัก เงินสมทบ (พนักงาน)</td><td style="text-align:right">-${baht(r.Contribution||0)}</td></tr>
     ${Number(r.OtherDeductions||0)?`<tr><td>หัก อื่นๆ</td><td style="text-align:right">-${baht(r.OtherDeductions)}</td></tr>`:''}
     <tr><td><b>รวมหัก</b></td><td style="text-align:right"><b>-${baht(r.TotalDeductions)}</b></td></tr>
@@ -4301,7 +4351,11 @@
       for(let dd=1;dd<=days;dd++){ const ppl=byDay[dd]; const today=(isCur&&dd===now.getDate())?'today':''; const clash=ppl&&ppl.length>=2;
         const bg=clash?'background:var(--bad-bg);border-color:var(--bad-line);':calOffBg(y,mo,dd,holByDay[dd],bcByDay[dd]);
         const ot=otByDay[dd];
-        cells+=`<div class="d ${ppl||ot?'ev':''} ${today}" style="min-height:52px;${bg}">${dd}${holByDay[dd]?`<span class="io" style="text-align:left;color:var(--bad);font-weight:600">🏖️ ${esc(holByDay[dd])}</span>`:''}${bcByDay[dd]&&!holByDay[dd]?`<span class="io" style="text-align:left;color:var(--teal);font-weight:600">${BC_ICON}</span>`:''}${ot?`<span class="io" style="text-align:left;color:var(--warn);font-weight:700" title="${esc(EN()?'Holiday OT':'OT วันหยุด')}: ${esc(ot.join(', '))}">🎉 ${esc(ot.length===1?ot[0]:ot.length)}</span>`:''}${ppl?`<span class="io" style="text-align:left;color:${clash?'var(--bad)':'var(--ok)'};font-weight:600">${esc(ppl.join('\n'))}</span>`:''}</div>`; }
+        cells+=`<div class="d ${ppl||ot?'ev':''} ${today}" style="min-height:52px;${bg}">${dd}${holByDay[dd]?`<span class="io" style="text-align:left;color:var(--bad);font-weight:600">🏖️ ${esc(holByDay[dd])}</span>`:''}${bcByDay[dd]&&!holByDay[dd]?`<span class="io" style="text-align:left;color:var(--teal);font-weight:600">${BC_ICON}</span>`:''}${ot?`<span class="io" style="text-align:left;color:var(--warn);font-weight:700" title="${esc(EN()?'Holiday OT':'OT วันหยุด')}: ${esc(ot.join(', '))}">🎉 ${esc(ot.length===1?ot[0]:ot.length)}</span>`:''}${ppl?`<span class="io" style="text-align:left;color:${clash?'var(--bad)':'var(--ok)'};font-weight:600" title="${esc(ppl.join(', '))}">${
+            // same rule as the staff calendar: one clipped line per name, and a count for the rest,
+            // rather than a "\n"-joined span that runs over the days beside it
+            ppl.slice(0,3).map(nm2=>`<span class="calent">${esc(nm2)}</span>`).join('')
+          }${ppl.length>3?`<span class="calent more">+${ppl.length-3}</span>`:''}</span>`:''}</div>`; }
       return `${calNavHeader(y,mo)}<div class="cal">${cells}</div><small class="muted">${EN()?`Red = 2+ staff on leave · weekend/holiday · ${BC_ICON} meeting · 🎉 holiday OT`:`สีแดง = ลาซ้ำ ≥2 คน · เสาร์-อาทิตย์/วันหยุด · ${BC_ICON} ประชุม · 🎉 OT วันหยุด`}</small>`; };
     window._CALRENDER=render;
     return `<div class="card"><div id="calWrap">${render()}</div></div>`; }

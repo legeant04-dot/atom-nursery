@@ -74,7 +74,11 @@ console.log('\n1) a plain teacher is sent their own time, and nothing else');
   const d = H.schedule({ staffId: 'T1' });
   eq('the answer says which kind it is', d.canSeeAll, false);
   eq('today\'s attendance is hers alone', ids(d.attendance), ['T1']);
-  eq('...so is the history behind the calendar', ids(d.history), ['T1']);
+  // v270: today's own punch is folded into `history` too — hydration keeps "today" in a separate
+  // collection, so the calendar used to draw a blank square for the day somebody had just clocked in
+  eq('...so is the history behind the calendar', [...new Set(ids(d.history))], ['T1']);
+  eq('...and today is IN it, not missing from it',
+    d.history.some(h => String(h.Date).slice(0, 10) === new Date().toISOString().slice(0, 10) && h.In === '06:47'), true);
   eq('...and the approved leave is hers, not the staff\'s', ids(d.leavesToday), ['T1']);
   eq('...the directory does not name her colleagues either', ids(d.staff), ['T1']);
   eq('...nor does her own roster leak anyone else\'s', ids(d.schedule), ['T1']);
@@ -110,7 +114,13 @@ console.log('\n3) "OUT 06:47" is gone');
   ok_('the screen tells the server who is asking', /api\('schedule',\{staffId:USER\.staffId\}\)/.test(app));
   ok_('...and so does the login warm-up, or it would cache the wrong answer',
     /\['schedule',\{staffId:USER\.staffId\}\]/.test(app));
-  ok_('the calendar legend stops promising other people\'s leave', /เฉพาะเวลาของคุณเอง/.test(app));
+  /* v270: the legend describes the calendar the reader is actually looking at. A plain teacher's is
+   * her own times and her own leave; a head teacher's is COVER — who is away and what kind of leave
+   * — with the clock-in times left to the daily summary, because printing both put five lines into
+   * a cell the size of a stamp and none of it could be read. */
+  ok_('a teacher\'s legend promises only her own', /↓เข้า ↑ออก \(ของคุณ\) · 🏠 วันลาของคุณ/.test(app));
+  ok_('...and a head teacher\'s says what it is for', /ใครลาวันไหน และลาประเภทอะไร/.test(app));
+  ok_('...and where the times went', /เวลาเข้า-ออกดูได้ที่สรุปรายวันด้านบน/.test(app));
 }
 
 console.log('\n4) "head teacher" is one rule, in one place');

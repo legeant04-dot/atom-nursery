@@ -260,6 +260,15 @@ textarea{min-height:70px;resize:vertical;}
 .backbtn{margin-bottom:10px;}
 .cal .d .io{position:absolute;bottom:2px;left:2px;right:1px;font-size:10px;font-weight:600;line-height:1.25;color:var(--blue);text-align:center;white-space:pre-line;overflow:hidden;}
 .cal .d{min-height:54px;}
+/* A DAY'S ENTRIES STAY INSIDE THEIR OWN DAY.
+   The staff calendar joined a cell's lines with "\n" into one pre-line span, so a day with five
+   people on it simply ran past the square and printed over its neighbours — the month became
+   unreadable exactly on the busy days somebody opened it to look at (reported 2026-08-24).
+   Each entry is its own block, clipped with an ellipsis; the count of what did not fit is shown
+   rather than the text overflowing. */
+.cal .d .calent{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%;}
+.cal .d .calent.lv{color:var(--warn-ink,var(--warn));}
+.cal .d .calent.more{color:var(--ink-3);font-weight:400;}
 
 /* toggle switch */
 .switch{position:relative;display:inline-block;width:44px;height:24px;}
