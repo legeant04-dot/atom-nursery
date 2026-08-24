@@ -232,5 +232,42 @@ console.log('\n8) nobody is surprised by a Saturday');
   ok_('it is a small payload, not a career of OT', /myHolidayOTNext/.test(eng) && /would answer this too, at the cost of sending a career's worth/.test(eng));
 }
 
+console.log('\n9) a month is just a range');
+{
+  /* staffAttendanceMonth counted 1..daysInMonth and filtered every lookup on .slice(0,7), so "this
+   * week" and "this year" could not be asked at all — and each screen that wanted them was going to
+   * invent its own arithmetic, which is how a teacher's hours and an admin's hours start to differ
+   * for the same question. It takes from/to now; a month still behaves exactly as it did. */
+  const { H } = boot({ otRecords: [
+    { OTRecordID: 'A', StaffID: 'STF-1', Date: '2026-08-03', Hours: 2, Amount: 200, Status: 'APPROVED' },
+    { OTRecordID: 'B', StaffID: 'STF-1', Date: '2026-08-20', Hours: 5, Amount: 500, Status: 'APPROVED' }
+  ] });
+  const month = H.staffAttendanceMonth({ month: '2026-08', staffId: 'STF-1', onlySelf: true });
+  eq('a month is still a month', [month.daysInMonth, month.from, month.to], [31, '2026-08-01', '2026-08-31']);
+  eq('...with all of its OT', month.staff[0].otHours, 7);
+  const week = H.staffAttendanceMonth({ staffId: 'STF-1', onlySelf: true, from: '2026-08-02', to: '2026-08-08' });
+  eq('a week is seven days', week.daysInMonth, 7);
+  eq('...and carries only its own OT', week.staff[0].otHours, 2);
+  eq('...with the day numbers the calendar lays cells out by', week.staff[0].days.map(d => d.day), [2, 3, 4, 5, 6, 7, 8]);
+  const yr = H.staffAttendanceMonth({ staffId: 'STF-1', onlySelf: true, from: '2026-01-01', to: '2026-12-31' });
+  eq('a year is a year', [yr.daysInMonth, yr.staff[0].otHours], [365, 7]);
+  ok_('one helper decides which days a period covers', /function periodRange\(kind, anchor\)\{/.test(app));
+  ok_('...and weeks run Sunday→Saturday, like every calendar the app draws', /back to Sunday/.test(app));
+}
+
+console.log('\n10) the OT list says what it comes to, and what was carried in');
+{
+  ok_('the teacher\'s OT list has a period picker', /\$\{periodPicker\('myot'\)\}/.test(app));
+  ok_('...and totals the money and the hours', /T_myOTRender/.test(app) && /OT ตอนเย็น/.test(app));
+  ok_('...separating the holiday lump sums, which have no hours', /🎉 \$\{EN\(\)\?'holiday OT':'OT วันหยุด'\}/.test(app));
+  ok_('the OT-by-day view totals the money too', /OT ในช่วงนี้/.test(app));
+  ok_('carried-over OT is named, with its months', /OT ยกมาจากเดือนก่อน/.test(app));
+  ok_('...and says so plainly when there is none', /ไม่มี OT ยกมาจากเดือนก่อน/.test(app));
+  // the carry is an AMOUNT; the hours behind it were never reported, so it could not be checked
+  ok_('the carry-over now carries hours as well as baht (engine)', /detail\.push\(\{month:m,amount:unpaid,hours:h\}\)/.test(eng));
+  ok_('...and Apps Script agrees', /detail\.push\(\{ month: m, amount: unpaid, hours: round2_\(\(approvedHrs\[m\] \|\| 0\) \* share\) \}\)/.test(R('src/Payroll.gs')));
+  ok_('a payslip heading is a month, not an ISO timestamp', /สลิป \$\{esc\(staffName\(r\.StaffID\)\)\} · \$\{esc\(monthNameYear\(r\.Month\)\)\}/.test(app));
+}
+
 console.log('\n' + (fail ? 'FAILED ' : 'PASSED ') + pass + ' passed, ' + fail + ' failed\n');
 process.exit(fail ? 1 : 0);

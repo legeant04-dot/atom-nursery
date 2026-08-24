@@ -101,7 +101,12 @@ console.log('\n5) the teacher\'s own payslip screen cannot end up blank');
 
 console.log('\n6) the card says so instead of crashing on a null row');
 {
-  const card = app.slice(app.indexOf('function payslipCard(r,month){'), app.indexOf('function payslipCard(r,month){') + 700);
+  /* A FIXED 700-CHAR WINDOW was the wrong tool: adding a comment inside the function pushed the
+   * `r.StaffID` this check looks for out of the slice, indexOf returned -1, and the check failed
+   * for a reason that had nothing to do with the guard. Take the function up to its first template,
+   * which is where the guard has to be if it is to be first. */
+  const _i = app.indexOf('function payslipCard(r,month){');
+  const card = app.slice(_i, app.indexOf('staffName(r.StaffID)', _i) + 40);
   ok_('the null guard is the first thing it does', /function payslipCard\(r,month\)\{\s*\n\s*\/\/[^\n]*\n\s*if\(!r\) return/.test(card));
   // strip comments first — the comment above the guard mentions r.StaffID itself
   const codeOnly = card.replace(/^\s*\/\/.*$/gm, '');
