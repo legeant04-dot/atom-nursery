@@ -96,7 +96,9 @@ console.log('\n3) the screens stop offering a button that would fail');
 {
   ok_('the parent card shows the holiday instead of the buttons', /window\._SCHOOLDAY&&window\._SCHOOLDAY\.closed/.test(app));
   ok_('...naming it', /window\._SCHOOLDAY\.reason/.test(app));
-  ok_('the teacher card does the same', /:\(day0&&day0\.closed\)\?/.test(app));
+  // v259: ...with ONE exception, and only one — a teacher holding OT วันหยุด for that day, whose
+  // punch the server accepts. Hiding her buttons was why she had to file a คำขอลงเวลา on 22/08/26.
+  ok_('the teacher card does the same', /:\(day0&&day0\.closed&&!\(att&&att\.holidayOT\)\)\?/.test(app));
   // v232: the recent-days list moved to 📅 ตาราง, where it can be filtered by month. The closed-day
   // card now points there instead of printing four rows nobody asked for.
   ok_('...and points at the history rather than printing it', /onclick="GO\('schedule'\)">📅/.test(app));

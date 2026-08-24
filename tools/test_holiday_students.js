@@ -150,7 +150,11 @@ console.log('\n4) the list itself');
   const l = H.holidayAttendList({ date: DAY });
   eq('...and reads back with nicknames and classes',
     l.students.map(s => [s.nick, s.class]), [['ไบร์ท', 'Nursery 1'], ['มายด์', 'Nursery 2']]);
-  eq('...knowing the day is closed, and who is working it', [l.closed, l.staff], [true, ['STF-1']]);
+  // v259: `staff` became rows a screen can print (nickname, the agreed sum, whether they have
+  // arrived) because the dashboard had to name them; the bare ids moved to `staffIds`, which is
+  // what "is this person working today" still asks. See test_holiday_ot_visible.js.
+  eq('...knowing the day is closed, and who is working it', [l.closed, l.staffIds], [true, ['STF-1']]);
+  eq('...by name, for a screen to print', l.staff.map(s => s.nick), ['เอ']);
   H.holidayAttendSet({ staffId: 'STF-1', date: DAY, studentIds: ['S2'] });
   eq('saving again REPLACES the day rather than adding to it', M.holidayAttend.map(r => r.StudentID), ['S2']);
   H.holidayAttendSet({ staffId: 'STF-1', date: DAY, studentIds: [] });

@@ -112,7 +112,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.259'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.260'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -2418,6 +2418,16 @@
           <br><span class="muted">${EN()
             ? `You are not late before ${hrs0.checkIn}, and you can clock in from ${hrs0.openFrom}. OT still runs from ${hrs0.checkOut}.`
             : `ไม่นับสายก่อน ${esc(hrs0.checkIn)} · ลงเวลาได้ตั้งแต่ ${esc(hrs0.openFrom)} · OT ยังคิดจาก ${esc(hrs0.checkOut)} ตามเดิม`}</span></div>`
+      /* OT วันหยุด: the school is shut and this teacher is in, by arrangement, for an agreed sum.
+       * The card used to print the holiday notice and no buttons at all — so on 22/08 she clocked in
+       * by filing a time request. The day is hers to punch; it just is not priced by the hour. */
+      : (att && att.holidayOT)
+      ? `<div style="background:var(--ok-bg,var(--blue-bg));border:1px solid var(--ok-line,var(--blue-line));border-radius:8px;padding:8px;margin-bottom:8px;font-size:13px">
+          🎉 <b>${EN()?'Holiday OT today':'วันนี้คุณมี OT วันหยุด'}</b>${att.holidayOTAmount?` — <b>${esc(baht(att.holidayOTAmount))}</b>`:''}
+          ${att.holidayOTNote?`<br><span>${esc(att.holidayOTNote)}</span>`:''}
+          <br><span class="muted">${EN()
+            ? 'Clock in and out as usual. The day is paid as the agreed amount, so nothing counts as late and there is no hourly OT on top.'
+            : 'ลงเวลาเข้า-ออกได้ตามปกติ · วันนี้จ่ายเป็นเงินก้อนตามที่ตกลง จึงไม่นับสายและไม่มี OT รายชั่วโมงเพิ่ม'}</span></div>`
       : (hrs0 && hrs0.dayOff)
       ? `<div style="background:var(--warn-bg);border:1px solid var(--warn-line);border-radius:8px;padding:8px;margin-bottom:8px;font-size:13px">
           🎉 <b>${EN()?'A day off — no need to clock in':'วันนี้เป็นวันหยุด — ไม่ต้องลงเวลา'}</b>
@@ -2429,7 +2439,9 @@
         // School shut today: the server refuses the punch anyway (assertSchoolOpen_), so live buttons
         // could only produce an error. Name the holiday — the recent-days list stays, because that is
         // still what a teacher wants to check on a day off.
-        :(day0&&day0.closed)?`<div style="background:var(--surface-3);border:1px solid var(--line-strong);border-radius:8px;padding:12px;text-align:center">
+        // ...unless this teacher was given OT วันหยุด, in which case the server WILL take the punch
+        // (staffCheckin) and hiding the buttons is the only thing stopping her. See holidayOTStaffInfo_.
+        :(day0&&day0.closed&&!(att&&att.holidayOT))?`<div style="background:var(--surface-3);border:1px solid var(--line-strong);border-radius:8px;padding:12px;text-align:center">
           <b>🏖️ ${day0.partial?(EN()?'School closed just now':'ขณะนี้โรงเรียนหยุด'):(EN()?'School closed today':'วันนี้โรงเรียนหยุด')}</b>
           <br><span style="font-size:15px">${esc(EN()?(day0.reasonEN||'Holiday'):(day0.reason||'วันหยุด'))}${day0.partial?' '+esc((day0.holStart||'00:00')+'-'+(day0.holEnd||'23:59')):''}</span>
           <br><small class="muted">${day0.partial?(EN()?'Clocking in works again after that time.':'หลังเวลานี้ลงเวลาได้ตามปกติ'):(EN()?'No clocking in today. Nothing counts as late or absent.':'วันนี้ไม่ต้องลงเวลา · ระบบไม่นับสาย/ขาดงาน')}</small></div>`
@@ -2480,7 +2492,12 @@
      * on the list, adding them is one tap: refusing a child at the door with no way to say yes is
      * not a safety rule, it is an obstacle. */
     api('holidayAttendList',{}).then(h=>{
-      if(!h||!h.closed||!h.count){ setHTML('#tholday',''); return; }
+      /* Shown when there are children in — OR when this teacher is the one on OT วันหยุด and there
+       * are none. That second case is the whole of 22/08: with an empty list the card vanished, and
+       * the ➕ "a child turned up" button lives INSIDE it, so the one situation the button exists for
+       * was the one situation it could not be reached in. */
+      const _mine=(h&&h.staffIds||[]).indexOf(String(USER.staffId))>=0;
+      if(!h||!h.closed||(!h.count&&!_mine)){ setHTML('#tholday',''); return; }
       const dn=x=>EN()?(x.nickEN||x.nameEN||x.nick||x.name):(x.nick||x.name);
       setHTML('#tholday', `<div class="card" style="background:var(--blue-bg);border-color:var(--blue-line)">
         <div class="spread"><b>🎉 ${EN()?'Children in today (holiday)':'นักเรียนที่มาวันนี้ (วันหยุด)'}</b>
@@ -2488,6 +2505,7 @@
         <small class="muted" style="display:block;margin:2px 0 6px">${EN()
           ? 'The day works as usual for these children: check-in, the journal, the history and the late-pickup charge.'
           : 'สำหรับนักเรียนกลุ่มนี้ วันนี้ทำงานเหมือนวันปกติ — ลงเวลา สมุดรายวัน ประวัติ และ OT รับช้า'}</small>
+        ${h.count?'':`<div style="text-align:center;color:var(--ink-3);padding:6px 0"><b>${EN()?'No child is on today’s list':'ยังไม่มีนักเรียนในรายชื่อวันนี้'}</b><br><small>${EN()?'Add a name below if a family turns up.':'หากมีนักเรียนมา ให้เพิ่มชื่อด้านล่างก่อนจึงจะลงเวลาได้'}</small></div>`}
         ${(h.students||[]).map(s=>`<div class="list-item"><span><b>${esc(dn(s))}</b> <small class="muted">${esc(s.class||'')}</small>
             <br><small class="muted">🟢 ${esc(s.inTime||'—')} → 🔴 ${esc(s.outTime||'—')}${s.otAmount>0?` · <span style="color:var(--warn)">OT ${esc(baht(s.otAmount))}</span>`:''}</small></span>
           <button class="btn sm outline" onclick="T_studentCheckin('${esc(s.studentId)}','${esc(dn(s))}','${s.inTime&&!s.outTime?'OUT':'IN'}')">🕑 ${EN()?'Record':'ลงเวลา'}</button></div>`).join('')}
@@ -3806,7 +3824,7 @@
       <button class="kpi pink" onclick="GO('leaves')"><span class="kic">📩</span><b class="kn" style="color:${_pl?'var(--warn)':'var(--ok)'}">${_pl}</b><span class="kl">${EN()?'Leaves to approve':'รออนุมัติลา'}</span></button></div>`;
     const quick=`<div class="qbar"><button class="btn sm" onclick="GO('daily')">📋 ${esc(t('daily.title'))}</button><button class="btn sm outline" onclick="GO('absence')">🔎 ${esc(t('abs.title'))}</button><button class="btn sm outline" onclick="A_addAnn()">➕ ${esc(t('lbl.addAnn'))}</button><button class="btn sm outline" onclick="A_linkParent()">🔗 ${EN()?'Link parent':'เชื่อมผู้ปกครอง'}</button><button class="btn sm outline" onclick="A_viewAs()">👁️ ${EN()?'View as':'ดูมุมมอง'}</button><button class="btn sm outline" onclick="GO('manage')">🗂️ ${esc(t('title.manage'))}</button></div>`;
     app.innerHTML=`<div class="dash-h"><h2 class="page">${esc(t('title.dashboard'))}</h2><span class="dash-date">${esc(todayStr())}</span></div>
-      ${closedBanner}${remHtml}${leaveRemHtml}
+      ${closedBanner}<div id="aholot"></div>${remHtml}${leaveRemHtml}
       ${kpi}${quick}
       ${payHtml}
       <div class="card"><div class="spread"><h3>👶 ${EN()?'Attendance by class':'การมาเรียนแต่ละชั้น'}</h3>${_closed?`<span class="pill" style="background:var(--surface-3);color:var(--ink-3)">🏖️ ${EN()?'Holiday':'วันหยุด'}</span>`:''}</div>
@@ -3846,6 +3864,36 @@
       <div class="card"><div class="spread"><h3>🚑 ${EN()?'Injury reports':'รายงานอุบัติเหตุ'}</h3><button class="btn sm outline" onclick="A_injuries()">${EN()?'Open':'ดูรายงาน'}</button></div>
         <small class="muted">${EN()?'Read what a teacher reported and see the month at a glance.':'อ่านรายงานที่คุณครูแจ้งมา และดูสรุปรายเดือน'}</small></div>
       <div class="card"><div class="spread"><h3>📢 ${EN()?"Announcements":"ประกาศ"}</h3><div id="annTabs"></div></div><div id="anns"></div></div>`;
+    /* WHO IS AT SCHOOL ON A DAY THE SCHOOL IS SHUT.
+     *
+     * On Saturday 22/08/26 ครูจอย was given OT วันหยุด to look after น้องโมน่า, and the dashboard —
+     * the one screen whose whole job is "what is happening today" — said only "โรงเรียนหยุด". The
+     * arrangement existed in OT_RECORDS and HOLIDAY_ATTEND and nowhere a person could see it, so
+     * nobody could tell whether it had been recorded at all. Names, money, and whether each of them
+     * has actually arrived. It draws nothing on an ordinary open day.
+     */
+    api('holidayAttendList',{}).then(h=>{
+      const el=document.getElementById('aholot'); if(!el) return;
+      if(!h||!h.closed||(!h.count&&!(h.staff||[]).length)){ el.innerHTML=''; return; }
+      const dn=x=>EN()?(x.nickEN||x.nameEN||x.nick||x.name):(x.nick||x.name);
+      const arr=x=>x.checkIn?`🟢 ${esc(String(x.checkIn).slice(0,5))}${x.checkOut?` → 🔴 ${esc(String(x.checkOut).slice(0,5))}`:''}`
+        :`<span style="color:var(--warn)">${EN()?'not clocked in yet':'ยังไม่ได้ลงเวลา'}</span>`;
+      el.innerHTML=`<div class="card" style="background:var(--blue-bg);border-color:var(--blue-line)">
+        <div class="spread"><h3 style="margin:0">🎉 ${EN()?'Working today (holiday)':'ทำงานวันนี้ (วันหยุด)'}</h3>
+          <span class="muted">${esc(ddmmyyyy(h.date))}${h.reason?' · '+esc(h.reason):''}</span></div>
+        ${(h.staff||[]).length?`<div style="margin-top:6px"><b>👩‍🏫 ${EN()?'Staff on holiday OT':'คุณครูที่ทำ OT วันหยุด'} (${(h.staff||[]).length})</b>
+          ${(h.staff||[]).map(s=>`<div class="list-item"><span><b>${esc(dn(s))}</b> <small class="muted">${esc(s.dept||'')}</small>
+            <br><small class="muted">${arr(s)}${s.note?' · '+esc(s.note):''}</small></span>
+            <b style="flex:0 0 auto;color:var(--ok)">${esc(baht(s.amount||0))}</b></div>`).join('')}</div>`
+          :`<small class="muted">${EN()?'No staff has been given holiday OT for today.':'ยังไม่มีคุณครูที่ได้รับ OT วันหยุดของวันนี้'}</small>`}
+        <div style="margin-top:8px"><b>👶 ${EN()?'Children expected':'นักเรียนที่มาวันนี้'} (${h.count||0})</b>
+          ${(h.students||[]).length?(h.students||[]).map(s=>`<div class="list-item"><span><b>${esc(dn(s))}</b> <small class="muted">${esc(s.class||'')}</small>
+            <br><small class="muted">🟢 ${esc(s.inTime||'—')} → 🔴 ${esc(s.outTime||'—')}${s.otAmount>0?` · <span style="color:var(--warn)">OT ${esc(baht(s.otAmount))}</span>`:''}</small></span></div>`).join('')
+            :`<br><small class="muted">${EN()?'Nobody is on today’s list — only the staff above are in.':'ไม่มีนักเรียนในรายชื่อวันนี้ — มีเฉพาะคุณครูข้างต้นเข้างาน'}</small>`}</div>
+        <small class="muted" style="display:block;margin-top:6px">${EN()
+          ? 'For these people today is a working day: they clock in and out, and the children are checked in, journalled and charged as usual.'
+          : 'สำหรับคนกลุ่มนี้ วันนี้คือวันทำงาน — ลงเวลาเข้า-ออกได้ และนักเรียนลงเวลา/บันทึก/คิดค่าใช้จ่ายได้ตามปกติ'}</small></div>`;
+    }).catch(()=>{});
     const _anns=await api('announcements'); A_CACHE.announcements=_anns;
     const _annEl=$('#anns'); if(!_annEl) return; // user navigated away before this resolved
     A_annRender();
@@ -6327,10 +6375,20 @@
           ${row(EN()?'Stored as':'เก็บเป็น', (d.holidayRaw.startIsDate?'Date':'text')+' / '+(d.holidayRaw.endIsDate?'Date':'text'))}
           ${row(EN()?'Read as':'อ่านได้เป็น', d.holidayDecoded?((d.holidayDecoded.StartTime||'—')+' – '+(d.holidayDecoded.EndTime||'—')):'—')}`
         :`<small class="muted">${EN()?'no holiday on this day':'วันนี้ไม่มีวันหยุด'}</small>`}</div>
+      ${d.closed?`<div class="card" style="padding:8px"><b style="font-size:13px">🎉 ${EN()?'Who this closed day is open for':'วันหยุดนี้เปิดให้ใคร'}</b>
+        <div style="margin-top:4px"><small class="muted">${EN()?'Holiday OT rows in OT_RECORDS':'แถว OT วันหยุดใน OT_RECORDS'}</small>
+        ${(d.holidayOT||[]).length?(d.holidayOT||[]).map(o=>`<div class="list-item"><span><b>${esc(o.nick||o.staffId)}</b>
+            <small class="muted">Kind=${esc(o.kind||'(ว่าง)')} · ${esc(o.status||'')}${o.note?' · '+esc(o.note):''}</small></span>
+          <span style="flex:0 0 auto">${o.opensDay?`<span class="pill ok">${EN()?'opens the day':'เปิดวันให้'}</span>`
+            :`<span class="pill bad">${EN()?'does NOT open the day':'ไม่เปิดวันให้'}</span>`} <b>${esc(baht(o.amount||0))}</b></span></div>`).join('')
+          :`<br><small style="color:var(--warn)">${EN()?'No OT row at all on this date — nothing was recorded.':'ไม่มีแถว OT ของวันนี้เลย — ยังไม่ได้บันทึก'}</small>`}</div>
+        <div style="margin-top:6px"><small class="muted">${EN()?'Named children in HOLIDAY_ATTEND':'รายชื่อนักเรียนใน HOLIDAY_ATTEND'}</small>
+        ${(d.holidayStudents||[]).length?`<br>${(d.holidayStudents||[]).map(k=>`<b>${esc(k.nick)}</b> <small class="muted">${esc(k.class||'')}</small>`).join(' · ')}`
+          :`<br><small style="color:var(--warn)">${EN()?'Nobody — no child may be checked in on this day.':'ไม่มี — นักเรียนจะลงเวลาในวันนี้ไม่ได้'}</small>`}</div></div>`:''}
       <div class="card" style="padding:8px"><b style="font-size:13px">👩‍🏫 ${EN()?'Hours resolved per person':'เวลาทำงานที่ระบบคิดให้แต่ละคน'}</b>
         ${(d.staff||[]).map(s=>`<div class="list-item"><span><b>${esc(s.nick||s.staffId)}</b>
           <small class="muted">${EN()?'shift':'กะ'} ${esc(s.shift)}</small></span>
-          <span style="font-size:13px">${s.dayOff?`<span class="pill info">${EN()?'day off':'หยุด'}</span>`
+          <span style="font-size:13px">${s.holidayOT?`<span class="pill ok">🎉 OT ${EN()?'holiday':'วันหยุด'}</span> `:''}${s.dayOff&&!s.holidayOT?`<span class="pill info">${EN()?'day off':'หยุด'}</span>`
             :`<b>${esc(s.start)}–${esc(s.end)}</b>${s.reopened?` <span class="pill wait">${EN()?'from':'ลงเวลา'} ${esc(s.openFrom)}</span>`:''}`}</span></div>`).join('')}</div>
       <button class="btn outline block" style="margin-top:8px" onclick="this.closest('.modal').remove()">${esc(t('c.close'))}</button>`);
   };
