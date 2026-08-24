@@ -121,7 +121,10 @@ console.log('\n4) "head teacher" is one rule, in one place');
   const code = eng.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
   ok_('...and the copies it replaced are gone',
     (code.match(/String\(me\.Department\|\|''\)==='\*'/g) || []).length === 0);
-  eq('three call sites, one definition', (code.match(/headTeacher_\(/g) || []).length, 3);
+  /* A FLOOR, not an exact count. This was pinned at 3 and failed the moment the rule was reused a
+   * fourth time (the student record, v266) — which is the behaviour the helper exists to encourage.
+   * What must never grow is the number of INLINE copies, and that is the check above. */
+  ok_('every call site goes through it', (code.match(/headTeacher_\(/g) || []).length >= 3);
 }
 
 console.log('\n' + (fail ? 'FAILED ' : 'PASSED ') + pass + ' passed, ' + fail + ' failed\n');

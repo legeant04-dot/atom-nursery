@@ -112,7 +112,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.265'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.266'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -1699,6 +1699,11 @@
     const kids=window._CI_KIDS||[]; const kid=kids.find(k=>k.StudentID===sid)||kids[0]||{};
     app.innerHTML = `<h2 class="page">${esc(t('title.checkin'))}</h2>
       <div class="card" style="background:var(--blue-bg);border-color:var(--blue-line)"><div class="spread"><small class="muted" style="font-size:13px">${EN()?'Drop-off / pick-up buttons are on the Home page (on each child’s card).':'ปุ่มส่งเข้าเรียน / รับกลับ อยู่ที่หน้าหลัก (บนการ์ดของบุตรหลานแต่ละคน)'}</small><button class="btn sm" onclick="GO('home')">🏠 ${EN()?'Home':'ไปหน้าหลัก'}</button></div></div>
+      <!-- Pick-up is fenced (drop-off is not), so a parent at the gate whose phone reports a
+           neighbourhood instead of a place is stuck — with even less idea why than a teacher. -->
+      <div class="card"><div class="spread"><span><b>📍 ${EN()?'Pick-up not working at the gate?':'อยู่หน้าโรงเรียนแล้วกดรับกลับไม่ได้?'}</b>
+        <br><small class="muted">${EN()?'Check what your phone thinks its location is.':'ตรวจสอบว่าโทรศัพท์คิดว่าคุณอยู่ตรงไหน'}</small></span>
+        <button class="btn sm outline" style="flex:0 0 auto" onclick="GEO_check(this)">${EN()?'Check':'ตรวจสอบ'}</button></div></div>
       ${childSwitcher(kids, sid, 'P_ciHist')}
       <div class="card"><div class="spread"><h3>🗓️ ${EN()?'Drop-off / pick-up history':'ประวัติการรับ-ส่ง'}</h3>
         <span><b>${esc(dispNick(kid))}</b> <small class="muted">${esc(kid.Class||'')}</small></span></div>
@@ -1786,7 +1791,12 @@
       if(btn){ btn.disabled=true; btn.style.opacity='.45'; btn.style.cursor='not-allowed';
         btn.textContent=(type==='IN'?'🟢 '+(EN()?'Dropped off ':'ส่งแล้ว '):'🔴 '+(EN()?'Picked up ':'รับแล้ว '))+r.time; }
       if(r.ot){ P_otQR(r.ot); } // late pickup → OT charge: pop the KTB QR
-    }catch(e){ err(e); done(); } };
+    }catch(e){ err(e); done();
+      /* Pick-up is fenced (drop-off is not), so a parent at the gate with a phone reporting a
+       * neighbourhood instead of a place is stuck in exactly the way a teacher was on 2026-08-24 —
+       * and has even less idea why. Same check, same settings, opened for them too. */
+      if(((e&&e.code)||'')==='OUT_OF_RANGE') setTimeout(()=>GEO_check(), 900);
+    } };
   // OT charge popup after late pickup
   window.P_otQR=(ot)=>{ qrModalHTML({ title:'⏰ '+t('ot.title'),
       note:`${t('ot.late')} ${ot.lateMinutes} ${t('lbl.min')} · ${ot.hours} ${EN()?'hr':'ชม.'} × ${baht(MOCK.config.OTRatePerHour)} = `,
@@ -2826,10 +2836,71 @@
    * (T_STU) so it needs no extra round trip and shows the same name the row does.
    */
   let T_STU={};
+  /**
+   * 👶 ประวัตินักเรียน — everything the family wrote down at registration.
+   *
+   * A blood type, an allergy, a medical history and an emergency contact are collected on the day a
+   * child joins, and until now the only thing anyone could see afterwards was the age and the
+   * allergy on a class card. Information collected and never shown again is information the school
+   * does not really have: at the moment it is needed, nobody knows where to look.
+   *
+   * WHAT IS IN IT IS THE SERVER'S DECISION (studentProfile), not this screen's. A teacher gets care
+   * information — everything needed to look after the child and to act in an emergency — and an
+   * admin gets the whole record. Hiding fields here would still have put a national ID on a phone in
+   * a classroom.
+   */
+  window.STU_profile=async(sid)=>{
+    let d; try{ d=await api('studentProfile',{studentId:sid,staffId:USER.staffId,role:USER.role}); }catch(e){ err(e); return; }
+    const row=(l,v,warn)=>`<div class="spread" style="font-size:14px;padding:3px 0;gap:10px;align-items:flex-start"><span class="muted" style="flex:0 0 auto">${esc(l)}</span><b style="text-align:right;${warn?'color:var(--bad)':''}">${_notr(v==null||v===''?'—':v)}</b></div>`;
+    const sec=(icon,title,body)=>body?`<div class="card" style="padding:10px"><b style="font-size:14px">${icon} ${esc(title)}</b><div style="margin-top:4px">${body}</div></div>`:'';
+    const yn=v=>v?(EN()?'Yes':'มี'):(EN()?'No':'ไม่มี');
+    const nameLine=EN()?(d.nameEN||d.name):(d.name||d.nameEN);
+    /* Allergy and medical history are the two lines somebody reads in a hurry, so they are FIRST and
+     * they are red when there is something in them — a page where the urgent fact sits ninth is a
+     * page that gets skimmed past. */
+    const urgent=(d.allergy||d.medicalHistory)?`<div class="card" style="background:var(--bad-bg);border-color:var(--bad-line);padding:10px">
+      <b style="color:var(--bad);font-size:14px">⚠️ ${EN()?'Read this first':'ข้อควรระวัง'}</b>
+      ${d.allergy?row(EN()?'Allergies':'ประวัติแพ้',d.allergy,true):''}
+      ${d.medicalHistory?row(EN()?'Medical history':'โรคประจำตัว/ประวัติสุขภาพ',d.medicalHistory,true):''}</div>`
+      :`<div class="card" style="padding:8px"><small class="muted">✅ ${EN()?'No allergies or medical conditions recorded.':'ไม่มีประวัติแพ้หรือโรคประจำตัวที่บันทึกไว้'}</small></div>`;
+    modal(`<h3>👶 ${esc(dispNick(d)||sid)} <small class="muted" style="font-weight:400;font-size:13px">${esc(nameLine||'')}</small></h3>
+      <div class="spread" style="margin-bottom:6px"><span class="pill info">${esc(d.class||(EN()?'no class':'ยังไม่จัดชั้น'))}</span>
+        <span class="muted" style="font-size:13px">${d.scope==='care'?(EN()?'care information':'ข้อมูลสำหรับการดูแล'):(EN()?'full record':'ข้อมูลทั้งหมด')}</span></div>
+      ${urgent}
+      ${sec('🧒',EN()?'The child':'ข้อมูลนักเรียน',
+        row(EN()?'Nickname':'ชื่อเล่น',(d.nick||'')+(d.nickEN?' / '+d.nickEN:''))+
+        row(EN()?'Full name (TH)':'ชื่อ-สกุล (ไทย)',d.name)+
+        row(EN()?'Full name (EN)':'ชื่อ-สกุล (อังกฤษ)',d.nameEN)+
+        row(EN()?'Date of birth':'วันเกิด',d.dob?`${ddmmyyyy(d.dob)} (${ageYM(d.dob)})`:'')+
+        row(EN()?'Gender':'เพศ',d.gender)+
+        row(EN()?'Blood type':'กรุ๊ปเลือด',(d.bloodType||'')+(d.rh?' '+d.rh:''))+
+        row(EN()?'Weight / height':'น้ำหนัก / ส่วนสูง',(d.weight?d.weight+' kg':'—')+' · '+(d.height?d.height+' cm':'—')+(d.measuredAt?` (${ddmmyyyy(d.measuredAt)})`:''))+
+        (d.scope==='full'?row(EN()?'National ID':'เลขบัตรประชาชน',d.nationalId):'')+
+        (d.scope==='full'?row(EN()?'Race / nationality / religion':'เชื้อชาติ / สัญชาติ / ศาสนา',[d.race,d.nationality,d.religion].filter(Boolean).join(' · ')):'')+
+        row(EN()?'Enrolled':'วันเข้าเรียน',d.enrollDate?ddmmyyyy(d.enrollDate):''))}
+      ${sec('🚑',EN()?'In an emergency':'กรณีฉุกเฉิน',
+        row(EN()?'Emergency contact':'ติดต่อฉุกเฉิน',d.emergencyContact)+
+        row(EN()?'Accident insurance':'ประกันอุบัติเหตุ',yn(d.insuranceHas))+
+        (d.scope==='full'&&d.insuranceHas?row(EN()?'Policy':'กรมธรรม์',[d.insuranceCompany,d.insurancePolicyNo].filter(Boolean).join(' · ')):'')+
+        (d.scope==='full'&&d.insuranceExpiry?row(EN()?'Expires':'หมดอายุ',ddmmyyyy(d.insuranceExpiry)):'')+
+        row(EN()?'Vaccine notes':'บันทึกวัคซีน',d.vaccine))}
+      ${d.scope==='full'?sec('🏠',EN()?'Home & family':'ที่อยู่ & ครอบครัว',
+        row(EN()?'Address':'ที่อยู่',d.address)+
+        row(EN()?'Package':'แพ็กเกจ',d.plan)+
+        ((d.parents||[]).map(x=>`<div class="list-item" style="align-items:flex-start"><span style="flex:1;min-width:0"><b>${_notr(x.name||x.nick||x.parentId)}</b>${x.relationship?` <small class="muted">${_notr(x.relationship)}</small>`:''}
+            ${x.phone?`<br><a href="tel:${esc(String(x.phone).replace(/[^0-9+]/g,''))}">📞 ${esc(phoneFmt(x.phone))}</a>`:''}
+            ${x.occupation||x.workplace?`<br><small class="muted">${_notr([x.occupation,x.workplace].filter(Boolean).join(' · '))}</small>`:''}</span></div>`).join('')||`<small class="muted">${EN()?'no parent linked':'ยังไม่ได้เชื่อมผู้ปกครอง'}</small>`)):''}
+      ${d.scope==='care'?`<small class="muted" style="display:block;margin-top:6px">${EN()
+        ? 'This is what a teacher needs to look after the child. The family’s ID, address and payment details are the admin’s to see.'
+        : 'นี่คือข้อมูลที่คุณครูต้องใช้ในการดูแลนักเรียน · เลขบัตรประชาชน ที่อยู่ และข้อมูลการชำระเงินของครอบครัว อยู่ในสิทธิ์ของแอดมิน'}</small>`:''}
+      ${d.scope==='full'?`<button class="btn sm outline block" style="margin-top:8px" onclick="this.closest('.modal').remove();A_studentForm('${esc(sid)}')">✏️ ${EN()?'Edit this record':'แก้ไขข้อมูลนักเรียน'}</button>`:''}
+      <button class="btn outline block" style="margin-top:8px" onclick="this.closest('.modal').remove()">${esc(t('c.close'))}</button>`);
+  };
   window.T_stuMore=(sid)=>{ const s=T_STU[sid]||{StudentID:sid};
     const close="this.closest('.modal').remove();";
     modal(`<h3>👶 ${esc(dispNick(s)||sid)} ${nmSub(s)?`<small class="muted" style="font-size:13px">${esc(nmSub(s))}</small>`:''}</h3>
-      <button class="btn block outline" onclick="${close}T_studentLeave('${esc(sid)}','${esc(dispNick(s)||sid)}')">🏖️ ${EN()?'File leave for this student':'แจ้งลาให้นักเรียน'}</button>
+      <button class="btn block" onclick="${close}STU_profile('${esc(sid)}')">📋 ${EN()?'Student record':'ประวัตินักเรียน'}</button>
+      <button class="btn block outline" style="margin-top:8px" onclick="${close}T_studentLeave('${esc(sid)}','${esc(dispNick(s)||sid)}')">🏖️ ${EN()?'File leave for this student':'แจ้งลาให้นักเรียน'}</button>
       <button class="btn block outline" style="margin-top:8px" onclick="${close}EDIT_ATT('${esc(sid)}')">🕑 ${EN()?'Correct check-in / pick-up':'แก้ไขเวลารับ-ส่ง'}</button>
       <button class="btn block outline" style="margin-top:8px" onclick="${close}T_journalHistory('${esc(sid)}')">📅 ${EN()?'Past daily reports':'ดูบันทึกย้อนหลัง'}</button>
       <button class="btn block outline" style="margin-top:12px" onclick="${close}">${esc(t('c.close'))}</button>`); };
@@ -5072,7 +5143,8 @@
   window.A_stuMore = (sid)=>{ const s=findStudent(sid);
     const close="this.closest('.modal').remove();";
     modal(`<h3>👶 ${esc(dispNick(s)||sid)} ${nmSub(s)?`<small class="muted" style="font-size:13px">${esc(nmSub(s))}</small>`:''}</h3>
-      <button class="btn block outline" onclick="${close}A_vaccines('${esc(sid)}')">💉 ${EN()?'Vaccination record':'บันทึกวัคซีน'}</button>
+      <button class="btn block" onclick="${close}STU_profile('${esc(sid)}')">📋 ${EN()?'Student record':'ประวัตินักเรียน'}</button>
+      <button class="btn block outline" style="margin-top:8px" onclick="${close}A_vaccines('${esc(sid)}')">💉 ${EN()?'Vaccination record':'บันทึกวัคซีน'}</button>
       <!-- correcting a time moved to ดำเนินการ → นักเรียน (A_editAttPick): it is a daily attendance job,
            not something you go looking for inside one child's record -->
       <button class="btn block gray" style="margin-top:8px" onclick="${close}A_exportStudent('${esc(sid)}')">📤 ${EN()?'Export data':'ส่งออกข้อมูล'}</button>
