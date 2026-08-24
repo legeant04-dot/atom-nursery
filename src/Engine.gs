@@ -858,6 +858,28 @@ function createAtomAPI(M, GROWTH_STD) {
       String(r.Status||'').toUpperCase()!=='REJECTED').map(r=>String(r.StaffID)); };
   const hasHolidayOT_ = (staffId, date) => holidayOTStaff_(date).indexOf(String(staffId))>=0;
   /**
+   * ...and WHO they are, with the money and the reason — plus whether they have clocked in yet.
+   *
+   * 2026-08-22 (a Saturday): ครูจอย was given OT วันหยุด to look after น้องโมน่า. The server had been
+   * taught to open that day for exactly those two — and every SCREEN still asked the day-level
+   * question (`closed`) and hid the buttons. The teacher's work-time card printed "วันนี้โรงเรียนหยุด"
+   * instead of clock-in, so she filed a คำขอลงเวลา; the children's card printed the same, so the
+   * child had to be timed by hand; and no dashboard named either of them, so from the outside the
+   * arrangement did not exist. The rule was right and invisible, which is the same as absent.
+   */
+  const holidayOTStaffInfo_ = date => { const d=ymd(date||todayLocal());
+    const today=(d===todayLocal());
+    return (M.otRecords||[]).filter(r=>isHolidayOT_(r) && ymd(r.Date)===d &&
+        String(r.Status||'').toUpperCase()!=='REJECTED')
+      .map(r=>{ const s=staffById(r.StaffID)||{};
+        const a=today ? (M.staffAttendanceToday||[]).find(x=>String(x.StaffID)===String(r.StaffID))
+                      : (M.staffAttendanceHistory||[]).find(x=>String(x.StaffID)===String(r.StaffID)&&ymd(x.Date)===d);
+        return { staffId:String(r.StaffID), nick:s.Nickname||s.NameTH||s.Name||String(r.StaffID),
+          nickEN:s.NicknameEN||s.NameEN||'', name:s.NameTH||s.Name||'', dept:s.Department||'',
+          amount:Number(r.Amount)||0, note:String(r.Note||''), status:String(r.Status||''),
+          checkIn:a?String(a.CheckIn||a.In||''):'', checkOut:a?String(a.CheckOut||a.Out||''):'' }; })
+      .sort((x,y)=>String(x.nick).localeCompare(String(y.nick))); };
+  /**
    * May this CHILD be checked in or out on this date? The one place that answers it, for the parent's
    * button, the teacher's on-behalf button and the correction form alike.
    */
@@ -1733,7 +1755,18 @@ function createAtomAPI(M, GROWTH_STD) {
       // noon the teacher's card must say 12:00, or they will read 08:00 and think they are hours late
       const h=staffHoursOn_(p.staffId, todayLocal());
       const sch={CheckInTime:h.checkIn, CheckOutTime:h.checkOut};
+      /* OT วันหยุด makes a closed day a working day FOR THIS PERSON. staffCheckin has known that
+       * since 2026-08-21; the card that draws the button did not, so it kept printing
+       * "วันนี้โรงเรียนหยุด" and there was no button to press (see holidayOTStaffInfo_). The card
+       * cannot work this out from `schoolDay` — that answers for the school, not for one teacher —
+       * so the answer travels with the person's own attendance. */
+      /* Only asked on a day that IS shut to staff — OT วันหยุด cannot exist on any other
+       * (assertHolidayDate_), and reading OT_RECORDS on every ordinary morning would put a whole
+       * sheet on the teacher home screen's critical path for an answer that is always false. */
+      const _hot=(h.dayOff||schoolDayFor_(todayLocal()).closed)
+        ? (holidayOTStaffInfo_(todayLocal()).find(x=>String(x.staffId)===String(p.staffId))||null) : null;
       return {date:todayLocal(), schedule:sch, hours:h, checkIn:r?r.CheckIn:'', checkOut:r?r.CheckOut:'', late:r?r.Late||0:0, status:r?r.Status:'NONE',
+        holidayOT:!!_hot, holidayOTAmount:_hot?_hot.amount:0, holidayOTNote:_hot?_hot.note:'',
         // before the first working day the buttons are locked and the date is shown instead
         notStarted:!staffStarted_(me), startDate:ymd(me.StartDate||''),
         manualIn:!!(r&&r.InManual&&String(r.InManual).toUpperCase()==='YES'), manualOut:!!(r&&r.OutManual&&String(r.OutManual).toUpperCase()==='YES')}; },
@@ -2459,8 +2492,11 @@ function createAtomAPI(M, GROWTH_STD) {
           planEnd:otThreshold(s), otAmount:ot?Number(ot.Amount||0):0, otStatus:ot?String(ot.Status||''):'' };
       }).sort((a,b)=>String(a.class).localeCompare(String(b.class)));
       const day=schoolDayFor_(d);
-      return { date:d, closed:!!day.closedForStudents, count:rows.length,
-               staff:holidayOTStaff_(d), students:rows }; },
+      const otStaff=holidayOTStaffInfo_(d);
+      return { date:d, closed:!!day.closedForStudents, closedForStaff:!!day.closed, count:rows.length,
+               reason:day.reason||'', staffCount:otStaff.length,
+               // the ids stay for anything asking "is this person on it"; the rows are what a screen prints
+               staffIds:holidayOTStaff_(d), staff:otStaff, students:rows }; },
     /** Is a date eligible for OT วันหยุด? Asked by the form before it lets the admin save. */
     holidayDateCheck: p => { const d=ymd((p&&p.date)||todayLocal());
       const hol=(M.holidays||[]).find(h=>ymd(h.Date)===d);

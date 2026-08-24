@@ -230,12 +230,40 @@ function handleDiagDay(p) {
       staff.push({ staffId: s.StaffID, nick: s.Nickname || s.NameTH || s.Name || '',
         shift: sc.checkIn + '-' + sc.checkOut,
         start: hh.checkIn, end: hh.checkOut, grace: hh.grace,
-        openFrom: hh.openFrom, reopened: !!hh.reopened, dayOff: !!hh.dayOff });
+        openFrom: hh.openFrom, reopened: !!hh.reopened, dayOff: !!hh.dayOff,
+        // the answer handleStaffCheckin itself uses — if this is false the buttons stay shut
+        holidayOT: staffHasHolidayOT_(s.StaffID, ds) });
     });
   } catch (e) { staff.push({ error: String((e && e.message) || e) }); }
 
+  /* WHO WAS THIS CLOSED DAY OPENED FOR — read from the two sheets that decide it, not from anything
+   * a screen believes. On 22/08/2026 an OT วันหยุด and a named child both existed as far as the
+   * school knew, and neither could be seen anywhere in the app; there was no way to tell "it was
+   * never recorded" from "it was recorded and not displayed". Now the server says which. */
+  var holOT = [], holKids = [];
+  try {
+    readObjects_(sheet_(getHrSpreadsheet_(), 'OT_RECORDS')).forEach(function (r) {
+      if (dateStr_(new Date(r.Date)) !== ds) return;
+      var st = otStaffById_(r.StaffID);
+      holOT.push({ otId: r.OTRecordID, staffId: r.StaffID, nick: st.Nickname || st.NameTH || st.Name || '',
+        kind: String(r.Kind || ''), isHoliday: otIsHoliday_(r), status: String(r.Status || ''),
+        amount: Number(r.Amount) || 0, hours: Number(r.Hours) || 0, note: String(r.Note || ''),
+        // the day only opens for a HOLIDAY-kind row that is not rejected — say so, per row
+        opensDay: otIsHoliday_(r) && String(r.Status || '').toUpperCase() !== 'REJECTED' });
+    });
+  } catch (e) { holOT.push({ error: String((e && e.message) || e) }); }
+  try {
+    var kidIds = holidayAttendIds_(ds);
+    holKids = kidIds.map(function (id) {
+      var s = findObject_(sheet_(getMainSpreadsheet_(), 'STUDENTS'), function (x) { return String(x.StudentID) === String(id); }) || {};
+      return { studentId: id, nick: s.Nickname || s.NameTH || s.Name || '(ไม่พบในทะเบียน)', class: s.Class || '' };
+    });
+  } catch (e) { holKids = [{ error: String((e && e.message) || e) }]; }
+
   return {
     date: ds, now: timeStr_(new Date()),
+    closed: isSchoolClosed_(d), isHoliday: isHolidayDate_(ds),
+    holidayOT: holOT, holidayStudents: holKids,
     // if these two differ, every time-only cell has two readings — see holidayOn_
     ssTimezone: (typeof ssTz_ === 'function') ? ssTz_() : '?', configTimezone: tz_(),
     holidayRaw: raw, holidayDecoded: dec,
