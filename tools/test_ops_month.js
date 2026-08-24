@@ -191,7 +191,10 @@ console.log('\n6) The ⏰ tools moved to ดำเนินการ, split teac
 console.log('\n7) The screen shows the overview AND the detail behind it');
 {
   ok_('an overview row per teacher', /window\.A_staffMonth = async/.test(app));
-  ok_('with the month selectable', /A_staffMonth\(this\.value\)/.test(app));
+  // v264: a month is one of the periods you can pick, not the only one — week, quarter, year and an
+  // exact from/to range as well. The month input became a period chooser (A_smPeriod / A_smCustom).
+  ok_('with the period selectable', /A_smPeriod\(this\.value,null\)/.test(app) && /A_smPeriod\(null,this\.value\)/.test(app));
+  ok_('...including an exact range', /A_smCustom\(\)/.test(app));
   ok_('totals across the school', /วันมาทำงาน[\s\S]{0,200}วันขาด/.test(app));
   ok_('tapping a teacher opens their day-by-day month', /A_staffMonthOne\(/.test(app));
   { const j=app.indexOf('window.A_staffMonthOne = (sid)');
