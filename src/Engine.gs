@@ -2661,6 +2661,70 @@ function createAtomAPI(M, GROWTH_STD) {
       // "today" is what changes the home screen's buttons; the rest is a reminder
       return { today:from, count:rows.length, rows,
                students:rows.length?holidayAttendIds_(rows[0].date).length:0 }; },
+    /**
+     * ประวัตินักเรียน — EVERYTHING THE FAMILY WROTE DOWN, back where somebody can read it.
+     *
+     * Asked 2026-08-24: "ประวัตินักเรียน ต้องมีข้อมูลแสดงเหมือนกับตอนที่ผู้ปกครองลงทะเบียนมา
+     * วันเกิด/กรุ๊ปเลือด/ข้อมูลทั้งหมดที่ลงทะเบียนของนักเรียนต้องแสดงในประวัตินักเรียนทั้งหมด".
+     *
+     * A family fills in a blood type, an allergy, a medical history and an emergency contact at
+     * registration — and then the only thing anybody could see afterwards was the age and the
+     * allergy on a class card. Information collected and never shown again is information the school
+     * does not really have: the moment it is needed, nobody knows where to look.
+     *
+     * TWO AUDIENCES, ONE RECORD (the school's decision when asked):
+     *   · Admin / Leader / head teacher — the whole record, including the things that identify a
+     *     family: national ID, address, insurance, the plan they pay for.
+     *   · A teacher — CARE INFORMATION ONLY. Everything needed to look after the child and to act in
+     *     an emergency, and nothing that is simply the family's business. A teacher covering the
+     *     class, at that.
+     * Decided HERE. A profile screen that fetched the row and hid half of it would still have put a
+     * national ID on a phone in a classroom.
+     */
+    studentProfile: p => {
+      const s = studentById(p&&p.studentId); if(!s) fail('NOT_FOUND','ไม่พบนักเรียนรายนี้');
+      const isAdmin = String((p&&p.role)||'')==='Admin' || String((p&&p.role)||'')==='Observer';
+      const me = staffById(p&&p.staffId)||{};
+      const full = isAdmin || adminLike_(me) || me.PositionLevel==='Leader' || headTeacher_(me);
+      if(!full){
+        // a teacher may read the children they actually cover — the same scope as everything else
+        if(!me.StaffID) fail('NO_PERMISSION','เฉพาะคุณครูหรือแอดมิน');
+        const cov=(coveredClasses_(me)||[]).map(c=>c.ClassName);
+        if(cov.indexOf(s.Class)<0) fail('NO_ACCESS','ดูได้เฉพาะนักเรียนในชั้นที่ดูแล');
+      }
+      const g=(pl,st)=>(M.growthRecords||[]).filter(r=>String(r.StudentID)===String(s.StudentID));
+      const latestGrowth=(M.growthRecords||[]).filter(r=>String(r.StudentID)===String(s.StudentID))
+        .sort((a,b)=>String(b.Date).localeCompare(String(a.Date)))[0]||null;
+      const care = {
+        studentId:s.StudentID, nick:s.Nickname||'', nickEN:s.NicknameEN||'', name:s.NameTH||s.Name||'', nameEN:s.NameEN||'',
+        class:s.Class||'', status:s.Status||'', photo:s.Photo||'',
+        gender:s.Gender||'', dob:ymd(s.DOB||''), ageMonths:s.DOB?ageMonths(s.DOB):null,
+        bloodType:s.BloodType||'', rh:s.RH||'',
+        allergy:s.Allergy||'', medicalHistory:s.MedicalHistory||'', vaccine:s.Vaccine||'',
+        emergencyContact:s.EmergencyContact||'',
+        weight:s.Weight||'', height:s.Height||'',
+        measuredAt: latestGrowth?ymd(latestGrowth.Date):'',
+        enrollDate:ymd(s.EnrollDate||''),
+        // a teacher is told THAT there is cover, never the policy number — it is what they would need
+        // to say at a hospital door, and nothing more
+        insuranceHas: !!s.InsuranceHas
+      };
+      if(!full) return Object.assign({scope:'care'}, care);
+      const parents=(M.parents||[]).filter(x=>String(x.ParentID)===String(s.ParentID) ||
+          (M.userLinks||[]).some(l=>String(l.StudentID)===String(s.StudentID)&&String(l.ParentID)===String(x.ParentID)))
+        .map(x=>({parentId:x.ParentID, name:x.NameTH||x.Name||'', nameEN:x.NameEN||'', nick:x.Nickname||'',
+          relationship:x.Relationship||'', phone:x.Phone||'', officePhone:x.OfficePhone||'',
+          occupation:x.Occupation||'', workplace:x.Workplace||'', address:x.Address||'', nationalId:x.NationalID||''}));
+      return Object.assign({scope:'full'}, care, {
+        nationalId:s.NationalID||'', address:s.Address||'',
+        race:s.Race||'', nationality:s.Nationality||'', religion:s.Religion||'',
+        plan:s.Plan||'', otRate:s.OTRate||'',
+        parentId:s.ParentID||'', parents,
+        insurancePolicyNo:s.InsurancePolicyNo||'', insuranceCompany:s.InsuranceCompany||'',
+        insuranceExpiry:ymd(s.InsuranceExpiry||''), insuranceCardImage:s.InsuranceCardImage||'',
+        driveFolderUrl:s.DriveFolderUrl||'', createdDate:ymd(s.CreatedDate||''),
+        withdrawReason:s.WithdrawReason||'', withdrawDate:ymd(s.WithdrawDate||'') });
+    },
     /** "ทำไมลงเวลาไม่ได้ ทั้งที่ยืนอยู่ในโรงเรียน" — answered without punching anything. See geoCheck_. */
     geoCheck: p => geoCheck_(p&&p.lat, p&&p.lng, p&&p.acc),
     /** Is a date eligible for OT วันหยุด? Asked by the form before it lets the admin save. */
