@@ -112,7 +112,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.267'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.268'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -5365,10 +5365,19 @@
       <div class="grid2">${f('Phone',t('reg.phone'),phoneFmt(s.Phone))}${f('NationalID',t('reg.nationalId'),s.NationalID)}</div>
       <div class="grid2">${f('StartDate',t('staff.startDate'),s.StartDate,'date')}${f('BaseSalary',t('pay.baseSalary'),s.BaseSalary,'number')}</div>
       <p class="muted" style="font-size:13px;margin:-4px 2px 8px">${EN()?'Before the first working day this person cannot log time, and nothing counts them present or absent.':'ก่อนถึงวันเข้าทำงานวันแรก จะลงเวลาไม่ได้ และระบบจะไม่นับมา/ขาด/สายให้'}</p>
+      ${/* THE SAVE AND THE READ WERE LOOKING AT DIFFERENT SHEETS.
+           Saving wrote to PAYROLL_CONFIG (correctly — it is where the payroll screen reads them, and
+           where they belong). Drawing the form read `s.DiligenceAttendanceAmount` off the STAFF row,
+           which has no such column and never had one. So the box came up EMPTY, showed the
+           school-wide 500 as its placeholder, and an admin who set 1,000 saw "บันทึกแล้ว" and then
+           500 again — with no way to tell that the 1,000 had in fact been stored and would be paid.
+           Reported 2026-08-24. The value is fetched below, after the modal is on screen, so opening
+           a staff record does not wait on a second round trip. */''}
       <div class="card" style="background:var(--surface-2);padding:8px"><b style="font-size:13px">⭐ ${EN()?'Diligence bonus for this person':'เบี้ยขยันของพนักงานคนนี้'}</b>
-        <p class="muted" style="font-size:13px;margin:2px 0 6px">${EN()?'Set per person — the payroll screen starts from these figures instead of the school-wide default.':'ตั้งได้รายบุคคล ไม่จำเป็นต้องเท่ากันทุกคน · หน้าคำนวณเงินเดือนจะดึงค่านี้ไปใช้แทนค่ากลางของโรงเรียน'}</p>
-        <div class="grid2"><label class="field" style="margin:0"><span>${esc(t('set.attendAmt'))} (฿)</span><input id="sf_DiligenceAttendanceAmount" type="number" min="0" value="${esc(s.DiligenceAttendanceAmount!=null&&s.DiligenceAttendanceAmount!==''?s.DiligenceAttendanceAmount:'')}" placeholder="${esc(String((MOCK.config&&MOCK.config.DiligenceAttendanceAmount)||500))}"/></label>
-          <label class="field" style="margin:0"><span>${esc(t('set.fbAmt'))} (฿)</span><input id="sf_DiligenceFacebookAmount" type="number" min="0" value="${esc(s.DiligenceFacebookAmount!=null&&s.DiligenceFacebookAmount!==''?s.DiligenceFacebookAmount:'')}" placeholder="${esc(String((MOCK.config&&MOCK.config.DiligenceFacebookAmount)||500))}"/></label></div></div>
+        <p class="muted" style="font-size:13px;margin:2px 0 6px">${EN()?'Set per person — the payroll screen starts from these figures instead of the school-wide default. Leave blank to use the school default.':'ตั้งได้รายบุคคล ไม่จำเป็นต้องเท่ากันทุกคน · หน้าคำนวณเงินเดือนจะดึงค่านี้ไปใช้แทนค่ากลางของโรงเรียน · เว้นว่าง = ใช้ค่ากลาง'}</p>
+        <div class="grid2"><label class="field" style="margin:0"><span>${esc(t('set.attendAmt'))} (฿)</span><input id="sf_DiligenceAttendanceAmount" type="number" min="0" value="" placeholder="…"/></label>
+          <label class="field" style="margin:0"><span>${esc(t('set.fbAmt'))} (฿)</span><input id="sf_DiligenceFacebookAmount" type="number" min="0" value="" placeholder="…"/></label></div>
+        <small class="muted" id="sfDilNote" style="display:block;margin-top:4px">${EN()?'Loading the saved figures…':'กำลังอ่านค่าที่บันทึกไว้…'}</small></div>
       ${id?(String(s.Status||'ACTIVE').toUpperCase()==='INACTIVE'
         ? `<div class="card" style="background:var(--warn-bg);border-color:var(--warn-line);padding:8px">
              <b style="font-size:13px;color:var(--warn)">🚪 ${EN()?'No longer working here':'สิ้นสุดการทำงานแล้ว'}</b>
@@ -5400,6 +5409,32 @@
         <div class="row" style="margin-top:6px"><button type="button" class="btn sm outline" onclick="A_viewPw('${id}')">👁️ ${EN()?'View':'ดูรหัสผ่าน'}</button><button type="button" class="btn sm pink" onclick="A_resetPw('${id}')">♻️ ${EN()?'Reset':'รีเซ็ต'}</button></div>
         <div id="pwView_${id}" class="muted" style="font-size:13px;margin-top:6px"></div></div>`:''}
       <button class="btn block" onclick="A_saveStaff(this,'${id||''}')">${esc(t('c.save'))}</button>`);
+    /* Read the per-person เบี้ยขยัน back from where it is SAVED (PAYROLL_CONFIG), not from the STAFF
+     * row, which never held it. Loaded after the modal is up so opening a staff record does not wait
+     * on a round trip; the note underneath says whether the figure in the box is this person's own
+     * or the school's, because an empty box and a box holding the default look identical. */
+    A_staffDiligence(id);
+  };
+  window.A_staffDiligence=async(id)=>{
+    const dflt={att:Number((MOCK.config&&MOCK.config.DiligenceAttendanceAmount)||500),
+                fb:Number((MOCK.config&&MOCK.config.DiligenceFacebookAmount)||500)};
+    const paint=(pc)=>{
+      const a=document.getElementById('sf_DiligenceAttendanceAmount'), b=document.getElementById('sf_DiligenceFacebookAmount'),
+            n=document.getElementById('sfDilNote');
+      if(!a||!b) return;
+      const own=k=>pc&&pc[k]!=null&&pc[k]!=='';
+      a.value = own('DiligenceAttendanceAmount')?pc.DiligenceAttendanceAmount:'';
+      b.value = own('DiligenceFacebookAmount')?pc.DiligenceFacebookAmount:'';
+      a.placeholder=String(dflt.att); b.placeholder=String(dflt.fb);
+      const anyOwn = own('DiligenceAttendanceAmount')||own('DiligenceFacebookAmount');
+      if(n) n.innerHTML = anyOwn
+        ? `⭐ ${EN()?'Set for this person':'ตั้งไว้เฉพาะคนนี้'} — ${EN()?'the school default is':'ค่ากลางของโรงเรียนคือ'} ${esc(baht(dflt.att))} / ${esc(baht(dflt.fb))}`
+        : `${EN()?'Using the school default':'กำลังใช้ค่ากลางของโรงเรียน'} (${esc(baht(dflt.att))} / ${esc(baht(dflt.fb))}) — ${EN()?'type a number to set this person’s own.':'พิมพ์ตัวเลขเพื่อตั้งเฉพาะคนนี้'}`;
+    };
+    if(!id){ paint(null); return; }                       // a brand-new staff has no config yet
+    try{ paint(await api('payrollConfig',{staffId:id})); }
+    catch(e){ const n=document.getElementById('sfDilNote');
+      if(n) n.textContent=EN()?'Could not read the saved figures.':'อ่านค่าที่บันทึกไว้ไม่สำเร็จ'; }
   };
   window.A_saveStaff=async(btn,id)=>{ const m=btn.closest('.modal'); const v=k=>{ const e=m.querySelector('#sf_'+k); return e?e.value.trim():''; };
     // Department = the department(s) the staff is responsible for (multi). '*' = all (head teacher).
@@ -5415,11 +5450,15 @@
       // is where the payroll screen already reads them from — one place, not two that can disagree.
       const sid=id||(r&&r.staffId);
       const att=m.querySelector('#sf_DiligenceAttendanceAmount'), fb=m.querySelector('#sf_DiligenceFacebookAmount');
-      if(sid && att && fb && (att.value!==''||fb.value!=='')){
+      /* ALWAYS sent, including when the boxes are empty. The old guard skipped the write unless at
+       * least one had a value, so CLEARING both — the way you go back to the school-wide figure —
+       * did nothing at all and the override stayed for ever. Blank is written as '' and read as
+       * "no override" (see computePayroll), rather than as zero. */
+      if(sid && att && fb){
         const cur=await api('payrollConfig',{staffId:sid}).catch(()=>({}));
         await api('setPayrollConfig',{staffId:sid,config:Object.assign({},cur,{
-          DiligenceAttendanceAmount: att.value===''?undefined:+att.value,
-          DiligenceFacebookAmount:  fb.value===''?undefined:+fb.value })});
+          DiligenceAttendanceAmount: att.value===''?'':+att.value,
+          DiligenceFacebookAmount:  fb.value===''?'':+fb.value })});
       }
       m.remove(); confirmSaved(t('c.saved')); GO('manage'); }catch(e){err(e);} };
   // Leaving is not deleting: the row stays so payroll and attendance history keep their meaning.
