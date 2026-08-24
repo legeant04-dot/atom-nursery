@@ -35,6 +35,49 @@ function monthOf_(dateVal) { try { return dateStr_(new Date(dateVal)).slice(0, 7
  *   generatedBy?
  * }
  */
+/**
+ * THIS PERSON'S OWN PAY SETTINGS (PAYROLL_CONFIG), or {} — the middle step between what the payroll
+ * screen sends and the school-wide defaults.
+ *
+ * It was missing entirely. computePayroll went straight from `payload.x` to `getConfig_('X')`, so a
+ * เบี้ยขยัน of 1,000 set for one teacher was used ONLY if the screen happened to send it in that
+ * request — and was silently replaced by the school's 500 in every other path. The admin had set a
+ * figure, the app had stored it, and the payslip ignored it. Same for the child rate, the pay type,
+ * the daily rate, the social-security tick and the contribution.
+ *
+ * Reported 2026-08-24: "ใส่ค่าสำหรับครูฟาง 1000 ตอนทำเงินเดือนค่านี้ก็ต้องถูกดึงมาถูกต้อง".
+ */
+function payrollCfgFor_(staffId) {
+  try {
+    var sh = getHrSpreadsheet_().getSheetByName('PAYROLL_CONFIG');
+    if (!sh) return {};
+    var r = findObject_(sh, function (x) { return String(x.StaffID) === String(staffId); });
+    return r || {};
+  } catch (e) { return {}; }
+}
+/**
+ * A per-staff setting, or null when there isn't one.
+ *
+ * BLANK IS NOT A SETTING OF ZERO. Clearing the box on the staff form writes '' into the sheet — the
+ * way an admin says "go back to the school figure" — and `'' != null` is true, so a plain null-check
+ * would take the override and num_('') is 0. Anybody who removed their per-person เบี้ยขยัน would
+ * have been paid none at all. Asked in ONE place so no caller can get it wrong.
+ */
+function pcNum_(v) {
+  if (v === null || v === undefined || String(v).trim() === '') return null;
+  var n = parseFloat(v);
+  return isNaN(n) ? null : n;
+}
+/** A per-staff YES/NO setting ('' / undefined → null, i.e. "not set"). */
+function pcBool_(v) {
+  if (v === null || v === undefined || String(v).trim() === '') return null;
+  if (typeof v === 'boolean') return v;
+  var s = String(v).trim().toUpperCase();
+  if (s === 'TRUE' || s === 'YES' || s === '1') return true;
+  if (s === 'FALSE' || s === 'NO' || s === '0') return false;
+  return null;
+}
+
 function computePayroll(payload) {
   payload = payload || {};
   if (!payload.month) throw apiError_('BAD_INPUT', 'ต้องระบุ month (YYYY-MM)');
@@ -47,17 +90,23 @@ function computePayroll(payload) {
   // used to ignore most of the payload — the per-staff diligence amounts, the child-rate settings, the
   // social-security tick and the signed adjustment lines all did nothing on live, so the slip silently
   // disagreed with what the admin had entered.
-  var payType = payload.payType || 'monthly';
+  // ...and what the ADMIN set for this person, which sits between the two (see payrollCfgFor_)
+  var pc = payrollCfgFor_(payload.staffId);
+  var pcDaily = pcNum_(pc.DailyRate);
+
+  var payType = payload.payType || (String(pc.PayType || '').trim() || 'monthly');
   var base = payType === 'daily'
-    ? num_(payload.dailyRate) * num_(payload.daysWorked)
+    ? (payload.dailyRate != null ? num_(payload.dailyRate) : (pcDaily != null ? pcDaily : 0)) * num_(payload.daysWorked)
     : (payload.baseSalary != null ? num_(payload.baseSalary) : num_(staff.BaseSalary));
 
   // --- เบี้ยขยัน --- (unchanged: its own "no leave / no late" rule)
   var attEligible = (payload.attendanceEligible != null) ? !!payload.attendanceEligible
     : (payload.attendanceOverride != null) ? !!payload.attendanceOverride
     : attendanceEligible_(staff.StaffID, month);
+  // payload → THIS PERSON'S setting → the school's figure. The middle step was missing.
+  var pcAtt = pcNum_(pc.DiligenceAttendanceAmount);
   var attendAmt = (payload.diligenceAttend != null) ? num_(payload.diligenceAttend)
-    : num_(getConfig_('DiligenceAttendanceAmount', '500'));
+    : (pcAtt != null ? pcAtt : num_(getConfig_('DiligenceAttendanceAmount', '500')));
   var diligenceAttendance = attEligible ? attendAmt : 0;
 
   // --- กฎการลา: ลาทุกชนิดเกิน limit วัน/เดือน → ไม่คำนวณเรทจำนวนเด็ก ---
@@ -65,8 +114,10 @@ function computePayroll(payload) {
   var leaveDays = allLeaveDays_(staff.StaffID, month);
   var leaveLimit = parseInt(getConfig_('DiligenceLeaveMaxDays', '3'), 10) || 3;
   var leaveExceeds = leaveDays > leaveLimit;
+  var pcFb = pcNum_(pc.DiligenceFacebookAmount);
   var fbAmt = (payload.diligenceFb != null) ? num_(payload.diligenceFb)
-    : num_(payload.facebookAmount, num_(getConfig_('DiligenceFacebookAmount', '500')));
+    : (payload.facebookAmount != null && String(payload.facebookAmount) !== '') ? num_(payload.facebookAmount)
+    : (pcFb != null ? pcFb : num_(getConfig_('DiligenceFacebookAmount', '500')));
   var diligenceFacebook = payload.facebookPosted ? fbAmt : 0;
   // Big Cleaning Day: attendance on an admin-set cleaning day earns a diligence bonus (เบี้ยขยัน)
   var diligenceBigClean = bigCleaningBonus_(staff.StaffID, month, payload);
@@ -78,8 +129,9 @@ function computePayroll(payload) {
   var extraChildCount = (payload.extraChildCount != null)
     ? Math.max(0, parseInt(payload.extraChildCount, 10) || 0)
     : (leaveExceeds ? 0 : 0);
+  var pcChild = pcNum_(pc.ChildMultiplier);
   var childMultiplier = (payload.childMultiplier != null) ? num_(payload.childMultiplier)
-    : num_(getConfig_('ExtraChildRate', '300'));
+    : (pcChild != null ? pcChild : num_(getConfig_('ExtraChildRate', '300')));
   var extraChildAmount = extraChildCount * childMultiplier;
   var certCap = parseInt(getConfig_('TrainingCertMaxPerMonth', '2'), 10);
   var trainingCertCount = Math.min(certCap, Math.max(0, parseInt(payload.trainingCertCount, 10) || 0));
@@ -112,13 +164,17 @@ function computePayroll(payload) {
   // --- รายการหัก ---
   // the client sends socialSecurityDeduct (the checkbox). Only an explicit socialSecurity NUMBER
   // overrides the calculation; unticking must zero it, which is what was being ignored.
-  var ssDeduct = (payload.socialSecurityDeduct != null) ? !!payload.socialSecurityDeduct : true;
+  var pcSS = pcBool_(pc.SocialSecurityDeduct);
+  var ssDeduct = (payload.socialSecurityDeduct != null) ? !!payload.socialSecurityDeduct
+    : (pcSS != null ? pcSS : true);
   var ss = (payload.socialSecurity != null) ? num_(payload.socialSecurity)
     : (ssDeduct ? Math.min(round2_(base * num_(getConfig_('SocialSecurityRate', '0.05'))), num_(getConfig_('SocialSecurityMax', '750'))) : 0);
   // เงินสมทบ is a SAVINGS fund, not a cost to the teacher: the amount entered here is deducted from
   // their pay AND the school puts in the same again. Only the teacher's half is a deduction; the fund
   // grows by both halves. Entering 200 therefore deducts 200 and adds 400 to the accumulated total.
-  var contribution = num_(payload.contribution);
+  var pcContrib = pcNum_(pc.Contribution);
+  var contribution = (payload.contribution != null && String(payload.contribution) !== '')
+    ? num_(payload.contribution) : (pcContrib != null ? pcContrib : 0);
   var matchRate = num_(getConfig_('ContributionMatchRate', '1'), 1);
   var contributionEmployer = round2_(contribution * matchRate);
   var otherDeductions = round2_(num_(payload.otherDeductions) + adjMinus);
