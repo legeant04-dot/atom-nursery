@@ -112,7 +112,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.270'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.271'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -3723,37 +3723,54 @@
        *    school's decision: leave only, so the one thing this calendar is for is legible.
        */
       const seeAll=!!opts.canSeeAll;
+      /* MY OWN TIMES, TOP RIGHT, ONE UNDER THE OTHER — and the colour is the message:
+       *   ↓ arrival  green, RED when it was late
+       *   ↑ leaving  green, BLUE when the day raised OT, with the hours in brackets — "(1)"
+       * A head teacher's calendar shows no times at all: they are on the daily summary directly
+       * above it, and printing everybody's here is what made the month unreadable (2026-08-24).
+       */
+      const ioByDay={};
       if(!seeAll){
         (history||[]).forEach(h=>{ const d=new Date(h.Date); if(d.getFullYear()===y&&d.getMonth()===mo){
-          const io=(h.In?'↓'+h.In:'')+(h.Out?' ↑'+h.Out:'');
-          if(io) (byDay[d.getDate()]=byDay[d.getDate()]||[]).push({t:io,kind:'io'}); } });
+          if(h.In||h.Out) ioByDay[d.getDate()]={in:String(h.In||'').slice(0,5), out:String(h.Out||'').slice(0,5),
+            late:Number(h.Late)||0, ot:Number(h.OTHours)||0}; } });
       }
-      // approved leave → "🏠 Nickname (ลาป่วย)" for a head teacher, "🏠 ลาป่วย" on your own calendar
+      /* WHO IS AWAY, BOTTOM RIGHT — on EVERY calendar, a teacher's included.
+       * "Who is off on Thursday" is a question the whole staff has to answer between them; it is
+       * what makes cover possible. The private half is the CLOCK, not the absence — which is why
+       * the times above are still only ever your own, and why the leave carries a name and a type
+       * and no reason. (The school asked for this on 2026-08-24, after Phase C had taken other
+       * people's leave off the teacher's calendar along with their times.)
+       */
       (opts.leaves||[]).filter(l=>l.Status==='APPROVED').forEach(l=>{ const st=new Date(l.StartDate),en=new Date(l.EndDate);
         for(let dt=new Date(st); dt<=en; dt.setDate(dt.getDate()+1)){ if(dt.getFullYear()===y&&dt.getMonth()===mo){
-          const who=seeAll?shortName(l.StaffID)+' ':'';
-          (byDay[dt.getDate()]=byDay[dt.getDate()]||[]).push({t:'🏠 '+who+'('+tLeaveType(l.Type)+')',kind:'lv'}); } } });
+          (byDay[dt.getDate()]=byDay[dt.getDate()]||[]).push(shortName(l.StaffID)+' ('+tLeaveType(l.Type)+')'); } } });
       let cells=['อา','จ','อ','พ','พฤ','ศ','ส'].map(w=>`<div style="text-align:center;font-size:13px;color:var(--ink-3)">${EN()?({'อา':'Su','จ':'Mo','อ':'Tu','พ':'We','พฤ':'Th','ศ':'Fr','ส':'Sa'}[w]):w}</div>`).join('');
       for(let i=0;i<first;i++) cells+='<div class="d dim"></div>';
       for(let dd=1;dd<=days;dd++){ const ppl=byDay[dd]; const hol=holByDay[dd]; const bc=bcByDay[dd]; const today=(isCur&&dd===now.getDate())?'today':'';
         const holStyle=calOffBg(y,mo,dd,hol,bc);   // holiday red · Big-Cleaning cyan · weekend light-red
-        cells+=`<div class="d ${ppl?'ev':''} ${today}" style="min-height:64px;${holStyle}">${dd}`
-          +(hol?`<span class="io" style="color:var(--bad);text-align:left;font-weight:600">🏖️ ${esc(hol)}</span>`:'')
-          +(bc&&!hol?`<span class="io" style="color:var(--teal);text-align:left;font-weight:600">${BC_ICON} ${BC_SHORT()}</span>`:'')
-          /* One line per entry, each clipped to its own cell. They used to be joined with "\n" into a
+        const io=ioByDay[dd];
+        const ioHtml = io ? `<span class="calio">${
+            io.in?`<b style="color:${io.late?'var(--bad)':'var(--ok)'}">↓${esc(io.in)}</b>`:''}${
+            io.out?`<b style="color:${io.ot?'var(--blue)':'var(--ok)'}">↑${esc(io.out)}${io.ot?' ('+esc(String(io.ot))+')':''}</b>`:''}</span>` : '';
+        cells+=`<div class="d ${ppl?'ev':''} ${today}" style="min-height:64px;${holStyle}"><span class="caldd">${dd}</span>${ioHtml}`
+          /* A HOLIDAY NAME CAN BE LONGER THAN THE MONTH IT SITS IN. "วันเฉลิมพระชนมพรรษาสมเด็จ
+           * พระนางเจ้าสิริกิติ์ฯ และวันแม่แห่งชาติ" filled its cell and ran over the ones beside it.
+           * Three lines, then an ellipsis; the whole name is on hover and on the holidays screen. */
+          +(hol?`<span class="calhol" title="${esc(hol)}">🏖️ ${esc(hol)}</span>`:'')
+          +(bc&&!hol?`<span class="calhol" style="color:var(--teal)">${BC_ICON} ${BC_SHORT()}</span>`:'')
+          /* One line per name, each clipped to its own cell. They used to be joined with "\n" into a
            * single span, so a busy day's text simply ran past the square and over the days beside
            * it. `.calent` clips instead; a cell with more than three shows "+n" rather than growing. */
-          +(ppl?`<span class="io" style="text-align:left">${
-              ppl.slice(0,3).map(e=>`<span class="calent${e.kind==='lv'?' lv':''}">${esc(e.t)}</span>`).join('')
+          +(ppl?`<span class="callv" title="${esc(ppl.join(', '))}">${
+              ppl.slice(0,3).map(nm2=>`<span class="calent lv">🏠 ${esc(nm2)}</span>`).join('')
             }${ppl.length>3?`<span class="calent more">+${ppl.length-3}</span>`:''}</span>`:'')+`</div>`; }
-      // ...and say WHOSE times these are. A plain teacher's calendar is their own (the server sends
-      // nobody else's), so a legend promising "all staff" was describing a screen they cannot see.
       // the legend describes the calendar the reader is actually looking at, which is not the same one
       const _leg = seeAll
         ? (EN()?`🏠 who is on leave, and what kind · 🏖️ holiday · ${BC_ICON} meeting · clock-in times are on the daily summary above`
                :`🏠 ใครลาวันไหน และลาประเภทอะไร · 🏖️ วันหยุด · ${BC_ICON} ประชุม · เวลาเข้า-ออกดูได้ที่สรุปรายวันด้านบน`)
-        : (EN()?`↓in ↑out (yours) · 🏠 your leave · 🏖️ holiday · ${BC_ICON} meeting`
-               :`↓เข้า ↑ออก (ของคุณ) · 🏠 วันลาของคุณ · 🏖️ วันหยุด · ${BC_ICON} ประชุม`);
+        : (EN()?`↓in (red = late) ↑out (blue = OT, hours in brackets) — yours · 🏠 who is on leave · 🏖️ holiday · ${BC_ICON} meeting`
+               :`↓เข้า (แดง = สาย) ↑ออก (น้ำเงิน = มี OT · วงเล็บ = ชั่วโมง) — ของคุณ · 🏠 ใครลา · 🏖️ วันหยุด · ${BC_ICON} ประชุม`);
       return `${calNavHeader(y,mo)}<div class="cal">${cells}</div><small class="muted">${_leg}</small>`; };
     window._CALRENDER=render;
     return `<div class="card"><div id="calWrap">${render()}</div></div>`; }

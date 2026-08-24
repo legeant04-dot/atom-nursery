@@ -79,8 +79,17 @@ console.log('\n1) a plain teacher is sent their own time, and nothing else');
   eq('...so is the history behind the calendar', [...new Set(ids(d.history))], ['T1']);
   eq('...and today is IN it, not missing from it',
     d.history.some(h => String(h.Date).slice(0, 10) === new Date().toISOString().slice(0, 10) && h.In === '06:47'), true);
-  eq('...and the approved leave is hers, not the staff\'s', ids(d.leavesToday), ['T1']);
-  eq('...the directory does not name her colleagues either', ids(d.staff), ['T1']);
+  /* v271 — THE SCHOOL CORRECTED PART OF THIS. Phase C took "who is off on Thursday" away from the
+   * teachers along with everybody's arrival times, and cover is a question the staff answer between
+   * them. A NAME IS NOT A SECRET; A CLOCK IS. So the leave goes to everyone — the name and the KIND
+   * — while the times stay private, and the REASON, which can be a medical detail, stays with the
+   * approver. The directory a teacher gets is names only, enough to print "ก้อย (ลาป่วย)". */
+  eq('she is told who is on leave, because that is how cover happens', ids(d.leavesToday), ['T1', 'T2']);
+  eq('...but never why', [d.leavesToday[0].Reason, d.leavesToday[1].Reason], [undefined, undefined]);
+  eq('...and the kind is there, which is what the cell prints', d.leavesToday.map(l => l.Type).sort(), ['ลากิจ', 'ลาป่วย']);
+  eq('the directory is names only — enough to print a name and nothing more',
+    Object.keys(d.staff[0]).sort(), ['NameEN', 'NameTH', 'Nickname', 'NicknameEN', 'StaffID']);
+  eq('...for everyone, since anybody may be the one on leave', ids(d.staff), ['ADM', 'HEAD', 'T1', 'T2']);
   eq('...nor does her own roster leak anyone else\'s', ids(d.schedule), ['T1']);
   eq('a staffing ratio is a fact about other people', d.staffing, []);
 }
@@ -97,9 +106,11 @@ console.log('\n2) the head teacher and the admin see the school');
   // ...and an unknown caller is treated as a stranger, not as an admin. staffById returns {} for an
   // id it does not know, so a truthiness test here would have opened the whole staff's day.
   const x = H.schedule({ staffId: 'NOPE' });
-  eq('an unknown id sees nothing', [x.canSeeAll, x.attendance.length, x.leavesToday.length], [false, 0, 0]);
+  // the roster went to the STAFF, so an id that matches nobody must get an empty screen and not the
+  // school's week — staffById returns {} for an unknown id, never null, so the test is on the ID
+  eq('an unknown id sees nothing', [x.canSeeAll, x.attendance.length, x.leavesToday.length, x.staff.length], [false, 0, 0, 0]);
   const y = H.schedule({});
-  eq('...and so does a call with no id at all', [y.canSeeAll, y.attendance.length], [false, 0]);
+  eq('...and so does a call with no id at all', [y.canSeeAll, y.attendance.length, y.leavesToday.length], [false, 0, 0]);
 }
 
 console.log('\n3) "OUT 06:47" is gone');
@@ -118,7 +129,7 @@ console.log('\n3) "OUT 06:47" is gone');
    * her own times and her own leave; a head teacher's is COVER — who is away and what kind of leave
    * — with the clock-in times left to the daily summary, because printing both put five lines into
    * a cell the size of a stamp and none of it could be read. */
-  ok_('a teacher\'s legend promises only her own', /↓เข้า ↑ออก \(ของคุณ\) · 🏠 วันลาของคุณ/.test(app));
+  ok_('a teacher\'s legend promises the times are hers', /↑ออก \(น้ำเงิน = มี OT · วงเล็บ = ชั่วโมง\) — ของคุณ/.test(app));
   ok_('...and a head teacher\'s says what it is for', /ใครลาวันไหน และลาประเภทอะไร/.test(app));
   ok_('...and where the times went', /เวลาเข้า-ออกดูได้ที่สรุปรายวันด้านบน/.test(app));
 }
