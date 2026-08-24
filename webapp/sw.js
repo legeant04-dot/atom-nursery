@@ -14,7 +14,7 @@
  * IMPORTANT: bump CACHE on every release, together with APP_VERSION in app.js and the ?v=NN in
  * index.html. Forgetting it means clients keep serving the previous release's js/css from cache.
  */
-const CACHE = 'atom-v262';
+const CACHE = 'atom-v263';
 
 // Shell only. Everything else lands in the cache the first time it is actually requested, under the
 // ?v=NN the page asked for. (The old list precached UNVERSIONED copies of every js/css file, so each

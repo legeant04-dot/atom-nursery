@@ -41,7 +41,12 @@ console.log('\n1) my OT วันหยุด, under the daily summary in 📅 �
   ok_('...and keeps only the holiday ones that were not rejected', /\.filter\(isLiveHolOT\)/.test(sched));
   // the helper itself lives at the top of app.js, outside this screen's slice — which is the point
   ok_('...which is what isLiveHolOT means', /const isLiveHolOT = o => isHolOT\(o\) && String\(\(o && o\.Status\) \|\| ''\)\.toUpperCase\(\) !== 'REJECTED';/.test(app));
-  ok_('it sits under the daily summary, not in a card of its own', /<div id="myHolOT"><\/div><\/div>/.test(sched));
+  /* v262: it MOVED OUT of the daily-summary card, and had to. A plain teacher does not get that card
+   * any more (other people's working time is between them, the head teacher and the admin) — and
+   * their own OT วันหยุด is theirs, so it must not disappear along with somebody else's day. */
+  ok_('it is its own card, so it survives without the daily summary',
+    /<div id="myHolOT"><\/div>/.test(sched) && !/<div id="myHolOT"><\/div><\/div>/.test(sched));
+  ok_('...and is drawn as one', /setHTML\('#myHolOT', `<details class="card">/.test(app));
   ok_('...inside the same card as the summary', sched.indexOf('lbl.dailySummary') < sched.indexOf('id="myHolOT"'));
   ok_('each row shows the day, the reason and the amount', /<b>\$\{esc\(ddmmyyyy\(o\.Date\)\)\}<\/b>\$\{o\.Note\?/.test(sched) && /\$\{esc\(baht\(o\.Amount\)\)\}<\/b>/.test(sched));
   ok_('the summary line carries the count and the total', /🎉 \$\{EN\(\)\?'My holiday OT':'OT วันหยุดของฉัน'\} <span class="pill ok"[^>]*>\$\{hol\.length\}<\/span> <span class="muted"[^>]*>\$\{esc\(baht\(total\)\)\}/.test(sched));
