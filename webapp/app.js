@@ -112,7 +112,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.264'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.265'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -1717,6 +1717,61 @@
       pos=>resolve({lat:pos.coords.latitude,lng:pos.coords.longitude,acc:Math.round(pos.coords.accuracy)||0}),
       e=>reject(new Error(EN()?'Cannot get your location — please allow location access and try again':'ระบุตำแหน่งไม่ได้ — กรุณาอนุญาตการเข้าถึงตำแหน่ง แล้วลองใหม่')),
       {enableHighAccuracy:true,timeout:10000,maximumAge:0}); }); }
+  /**
+   * 📍 ตรวจสอบตำแหน่ง — "why can't I clock in? I am standing in the school."
+   *
+   * A teacher inside the nursery was told she was 620 m outside it (2026-08-24). The only way to ask
+   * the question was to attempt a check-in and read the refusal, which could not tell her whether
+   * the fence was wrong, the phone was wrong, or she really was down the road.
+   *
+   * The number that separates them is the phone's OWN margin of error. A ±1,500 m fix is not a
+   * location, it is a postcode — Android's "approximate location" permission and a Wi-Fi/cell-tower
+   * fallback both land there, and both are settings on the phone, not facts about where somebody is
+   * standing. So this reads the position, asks the server how far that is, and says which it is.
+   * It punches nothing and records nothing.
+   */
+  window.GEO_check=async(btn)=>{
+    if(btn){ btn.disabled=true; btn.textContent='📍 '+(EN()?'Reading…':'กำลังอ่านตำแหน่ง…'); }
+    let pos=null, e0=null;
+    try{ pos=await getPosition(); }catch(e){ e0=e; }
+    if(btn){ btn.disabled=false; btn.textContent='📍 '+(EN()?'Check my location':'ตรวจสอบตำแหน่ง'); }
+    if(!pos){ modal(`<h3>📍 ${EN()?'Check my location':'ตรวจสอบตำแหน่ง'}</h3>
+      <div class="card" style="background:var(--bad-bg);border-color:var(--bad-line)"><b style="color:var(--bad)">${EN()?'The phone would not give a location at all.':'เครื่องไม่ยอมให้ตำแหน่งเลย'}</b>
+        <br><small>${esc((e0&&e0.message)||'')}</small></div>${GEO_HELP()}
+      <button class="btn outline block" onclick="this.closest('.modal').remove()">${esc(t('c.close'))}</button>`); return; }
+    let r=null; try{ r=await api('geoCheck',{lat:pos.lat,lng:pos.lng,acc:pos.acc}); }catch(e){ err(e); return; }
+    const verdict = r.ok
+      ? `<div class="card" style="background:var(--ok-bg,var(--blue-bg));border-color:var(--ok-line,var(--blue-line))"><b style="color:var(--ok)">✅ ${EN()?'You are inside the school — clocking in will work.':'อยู่ในบริเวณโรงเรียน — ลงเวลาได้'}</b></div>`
+      : r.vague
+      ? `<div class="card" style="background:var(--warn-bg);border-color:var(--warn-line)"><b style="color:var(--warn)">⚠️ ${EN()?'The phone does not really know where it is.':'โทรศัพท์ยังไม่รู้ตำแหน่งที่แน่นอน'}</b>
+          <br><small>${EN()?`It reported ±${r.accuracy} m — that is a neighbourhood, not a place. The settings below are what fix it; the school's fence is not the problem.`:`เครื่องแจ้งความคลาดเคลื่อน ±${r.accuracy} ม. ซึ่งกว้างเกินกว่าจะบอกได้ว่ายืนอยู่ตรงไหน · ปัญหาอยู่ที่การตั้งค่าด้านล่าง ไม่ใช่รัศมีของโรงเรียน`}</small></div>`
+      : `<div class="card" style="background:var(--bad-bg);border-color:var(--bad-line)"><b style="color:var(--bad)">❌ ${EN()?'You are outside the school.':'อยู่นอกบริเวณโรงเรียน'}</b>
+          <br><small>${EN()?`Still ${r.over} m over after every allowance. The fix looks trustworthy (±${r.accuracy||'?'} m).`:`เกินอยู่อีก ${r.over} ม. หลังหักส่วนเผื่อทั้งหมดแล้ว · และตำแหน่งที่เครื่องแจ้งดูน่าเชื่อถือ (±${r.accuracy||'?'} ม.)`}</small></div>`;
+    const row=(l,v)=>`<div class="spread" style="font-size:13px;padding:2px 0"><span class="muted">${esc(l)}</span><b>${esc(String(v))}</b></div>`;
+    modal(`<h3>📍 ${EN()?'Check my location':'ตรวจสอบตำแหน่ง'}</h3>
+      ${verdict}
+      <div class="card" style="padding:8px">
+        ${row(EN()?'Distance to school':'ระยะถึงโรงเรียน', r.distance+' '+(EN()?'m':'ม.'))}
+        ${row(EN()?'School radius':'รัศมีที่กำหนด', r.radius+' '+(EN()?'m':'ม.'))}
+        ${row(EN()?'Phone’s own accuracy':'ความแม่นยำที่เครื่องแจ้ง', r.accuracy!=null?('±'+r.accuracy+' '+(EN()?'m':'ม.')):(EN()?'not reported':'ไม่แจ้ง'))}
+        ${row(EN()?'Allowance given':'ส่วนเผื่อที่ระบบให้', r.slack+' '+(EN()?'m':'ม.'))}</div>
+      ${r.ok?'':GEO_HELP()}
+      <button class="btn outline block" style="margin-top:8px" onclick="this.closest('.modal').remove()">${esc(t('c.close'))}</button>`);
+  };
+  /* The settings, in the order they actually fix this. "Precise location" is first because it is the
+   * one that produces a several-hundred-metre error while everything else looks fine. */
+  const GEO_HELP=()=>`<div class="card" style="padding:10px">
+    <b style="font-size:14px">🛠️ ${EN()?'What to change on the phone':'ต้องตั้งค่าอะไรที่เครื่อง'}</b>
+    <ol style="margin:6px 0 0 18px;padding:0;font-size:13px;line-height:1.7">
+      <li>${EN()?'<b>Precise location</b> — Settings → Apps → (this browser / LINE) → Permissions → Location → <b>Allow</b> and turn <b>Use precise location</b> ON. Approximate location is deliberately vague by about a kilometre.':'<b>ตำแหน่งที่แม่นยำ</b> — ตั้งค่า → แอป → (เบราว์เซอร์ที่ใช้ / LINE) → สิทธิ์ → ตำแหน่ง → <b>อนุญาต</b> และเปิด <b>ใช้ตำแหน่งที่แม่นยำ</b> · โหมดคร่าวๆ จะคลาดเคลื่อนราว 1 กม. โดยตั้งใจ'}</li>
+      <li>${EN()?'<b>Location accuracy</b> — Settings → Location → Location services → <b>Google Location Accuracy</b> ON, and <b>Wi-Fi scanning</b> ON.':'<b>ความแม่นยำของตำแหน่ง</b> — ตั้งค่า → ตำแหน่ง → บริการตำแหน่ง → เปิด <b>ความแม่นยำของตำแหน่ง Google</b> และเปิด <b>การสแกน Wi-Fi</b>'}</li>
+      <li>${EN()?'<b>Battery saver</b> — turn it off. It throttles GPS to a network fix.':'<b>โหมดประหยัดแบตเตอรี่</b> — ปิด · โหมดนี้จะลดการใช้ GPS แล้วไปใช้ตำแหน่งจากเครือข่ายแทน'}</li>
+      <li>${EN()?'Open the app in <b>Chrome/Safari</b> rather than inside another app’s browser, then allow location when asked.':'เปิดแอปใน <b>Chrome/Safari</b> แทนเบราว์เซอร์ในแอปอื่น แล้วกดอนุญาตตำแหน่งเมื่อระบบถาม'}</li>
+      <li>${EN()?'Stand where the sky is visible for a moment, then tap check again — the first fix indoors is often the network one.':'ออกมาที่ที่เห็นท้องฟ้าสักครู่ แล้วกดตรวจสอบใหม่ · ครั้งแรกในอาคารมักได้ตำแหน่งจากเครือข่าย'}</li>
+    </ol>
+    <small class="muted" style="display:block;margin-top:6px">${EN()
+      ? 'If it still fails after this, use “ขอลงเวลา” — the day is not lost, and the head teacher can approve the real time.'
+      : 'หากยังไม่ได้ ให้ใช้ “ขอลงเวลา” ไปก่อน · วันนั้นไม่หาย หัวหน้าครูอนุมัติเวลาจริงให้ได้'}</small></div>`;
   window.P_do=async(btn)=>{ const studentId=$('#kid').value; P_TYPE=P_TYPE; return P_punch(studentId,P_TYPE,btn); };
   // one-tap check-in/out from the home kid card (or checkin screen): read GPS → parentCheckin directly
   window.P_punch=async(studentId,type,btn)=>{ if(btn)btn.disabled=true; const done=()=>{ if(btn)btn.disabled=false; };
@@ -2494,7 +2549,10 @@
         <!-- The recent-days list and the leave history used to sit here. They are RECORDS, not
              today's job: they moved to 📅 ตาราง, where they can be filtered by month and folded
              away. The home screen is what you do this morning. -->
-        <button class="btn sm outline block" style="margin-top:10px" onclick="GO('schedule')">📅 ${EN()?'Work history & leave history':'เวลาทำงานย้อนหลัง · ประวัติการลา'} →</button></div>
+        <div class="row" style="gap:6px;margin-top:10px">
+          <button class="btn sm outline" style="flex:1" onclick="GO('schedule')">📅 ${EN()?'Work history & leave history':'เวลาทำงานย้อนหลัง · ประวัติการลา'} →</button>
+          <!-- "I am standing in the school and it says I am 620 m away" — ask before it matters -->
+          <button class="btn sm outline" style="flex:0 0 auto" onclick="GEO_check(this)">📍 ${EN()?'Check my location':'ตรวจสอบตำแหน่ง'}</button></div></div>
       ${isLeader?`<div id="tapprove"><div class="card muted">${EN()?'Loading approvals…':'กำลังโหลดรายการรออนุมัติ…'}</div></div>`:''}
       <div id="tcatt"></div>
       <!-- The remaining-days grid used to sit here. It is a reference figure, not a morning job, and
@@ -2691,7 +2749,12 @@
         toast('✅ '+((e&&e.message)||(EN()?'Already recorded':'บันทึกไว้แล้ว')));
         GO('home'); return;                                   // re-reads the real times from the server
       }
-      err(e); if(btn){ btn.disabled=false; btn.style.opacity=''; btn.style.cursor=''; } } };  // re-enable on error (GO('home') re-renders disabled on success)
+      err(e); if(btn){ btn.disabled=false; btn.style.opacity=''; btn.style.cursor=''; }
+      /* Refused for being outside the school? Open the check straight away. A teacher standing IN the
+       * nursery was told she was 620 m away (2026-08-24) and had no way to find out why — a toast
+       * that names a distance and then disappears is not something anyone can act on. */
+      if(code==='OUT_OF_RANGE') setTimeout(()=>GEO_check(), 900);
+    } };  // re-enable on error (GO('home') re-renders disabled on success)
 
   // daily-report badge — journalStatus returns every student with an entry for `date` + its DRAFT/SUBMITTED state
   function journalDoneMap(st){ const m={}; ((st&&st.done)||[]).forEach(d=>{ m[d.studentId]=d; }); return m; }

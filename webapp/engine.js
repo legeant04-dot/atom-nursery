@@ -112,8 +112,38 @@ function createAtomAPI(M, GROWTH_STD) {
     const a=Number(acc); if(!isFinite(a)||a<=0) return 0;
     return Math.min(Math.round(a), (isFinite(cap)&&cap>=0)?cap:50); }
   function geo(lat,lng,acc){ const dist=haversine(cfg.GPS_Lat,cfg.GPS_Lng,lat,lng); const slack=gpsSlack(acc);
-    if(dist-slack>cfg.Radius) fail('OUT_OF_RANGE',`อยู่นอกรัศมีโรงเรียน (${dist} ม. เกิน ${cfg.Radius} ม.${slack?` · เผื่อความคลาดเคลื่อน GPS ${slack} ม.`:''})`);
+    // the phone's OWN accuracy belongs in the message — `slack` is that figure already capped, so a
+    // phone guessing to the nearest 2 km printed the same "50 ม." as one with a perfect fix. See
+    // assertWithinGeofence_ in Checkin.gs (2026-08-24: a teacher inside the school, 620 m out).
+    const a=Number(acc);
+    const accTxt=(isFinite(a)&&a>0)
+      ? ` · ความแม่นยำที่เครื่องแจ้ง ±${Math.round(a)} ม.${a>cfg.Radius*3?' (ต่ำมาก — โทรศัพท์อาจส่งตำแหน่งแบบคร่าวๆ)':''}`
+      : ' · เครื่องไม่แจ้งความแม่นยำ';
+    if(dist-slack>cfg.Radius) fail('OUT_OF_RANGE',`อยู่นอกรัศมีโรงเรียน (${dist} ม. เกิน ${cfg.Radius} ม.${slack?` · เผื่อความคลาดเคลื่อน GPS ${slack} ม.`:''}${accTxt})`);
     return dist; }
+  /**
+   * WHERE DOES THIS PHONE THINK IT IS — asked without punching anything.
+   *
+   * A teacher standing inside the school was told she was 620 m outside it (2026-08-24). Nobody
+   * could tell whether the fence was wrong, the phone was wrong, or she really was down the road,
+   * because the only way to ask was to attempt a check-in and read the refusal. This answers the
+   * question on its own: the distance, the phone's own margin of error, and which of the two is the
+   * problem. It changes nothing and records nothing.
+   */
+  function geoCheck_(lat,lng,acc){
+    const la=Number(lat), ln=Number(lng), a=Number(acc);
+    if(!isFinite(la)||!isFinite(ln)) return {ok:false, reason:'NO_FIX'};
+    const dist=haversine(cfg.GPS_Lat,cfg.GPS_Lng,la,ln), slack=gpsSlack(a), radius=Number(cfg.Radius)||0;
+    const inside=(dist-slack)<=radius;
+    /* WHY it failed, which is the whole point. A fix this vague is not a location, it is a postcode:
+     * Android's "approximate location" permission and a Wi-Fi/cell-tower fallback both land here,
+     * and both are settings on the phone rather than anything about where the person is standing. */
+    const vague = isFinite(a) && a > Math.max(150, radius*3);
+    return {ok:inside, distance:dist, radius, slack, accuracy:isFinite(a)&&a>0?Math.round(a):null,
+      vague, reason: inside?'OK':(vague?'VAGUE_FIX':'TOO_FAR'),
+      // how far they would still be over even after every allowance
+      over: Math.max(0, dist - slack - radius) };
+  }
   // distance without enforcing the fence — used for parent CHECK-IN (allowed from anywhere; check-out still fenced)
   function geoSafe(lat,lng){ return haversine(cfg.GPS_Lat,cfg.GPS_Lng,lat,lng); }
   const studentById = id => M.students.find(s=>s.StudentID===id);
@@ -2627,6 +2657,8 @@ function createAtomAPI(M, GROWTH_STD) {
       // "today" is what changes the home screen's buttons; the rest is a reminder
       return { today:from, count:rows.length, rows,
                students:rows.length?holidayAttendIds_(rows[0].date).length:0 }; },
+    /** "ทำไมลงเวลาไม่ได้ ทั้งที่ยืนอยู่ในโรงเรียน" — answered without punching anything. See geoCheck_. */
+    geoCheck: p => geoCheck_(p&&p.lat, p&&p.lng, p&&p.acc),
     /** Is a date eligible for OT วันหยุด? Asked by the form before it lets the admin save. */
     holidayDateCheck: p => { const d=ymd((p&&p.date)||todayLocal());
       const hol=(M.holidays||[]).find(h=>ymd(h.Date)===d);

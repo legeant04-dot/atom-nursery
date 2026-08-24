@@ -45,10 +45,21 @@ function assertWithinGeofence_(lat, lng, accuracy) {
   var dist = haversineMeters_(sLat, sLng, lat, lng);
   var slack = gpsSlack_(accuracy);
   if (dist - slack > radius) {
-    // the numbers are the message: "too far" alone tells nobody whether to walk 20 steps or
-    // whether the fence is set wrong
+    /* The numbers are the message: "too far" alone tells nobody whether to walk 20 steps or whether
+     * the fence is set wrong.
+     *
+     * And the PHONE'S OWN accuracy has to be one of them. The message showed `slack`, which is that
+     * figure already capped at 50 m — so a phone that was guessing to the nearest 2 km and a phone
+     * with a perfect fix printed the same "· เผื่อความคลาดเคลื่อน GPS 50 ม.", and there was no way
+     * to tell "you really are 620 m away" from "your phone does not know where it is". A teacher
+     * standing inside the school on 2026-08-24 got 620 m; that number IS the diagnosis, once you can
+     * see how sure the phone was when it said it.
+     */
+    var acc = Number(accuracy);
+    var accTxt = (isFinite(acc) && acc > 0) ? (' · ความแม่นยำที่เครื่องแจ้ง ±' + Math.round(acc) + ' ม.' +
+      (acc > radius * 3 ? ' (ต่ำมาก — โทรศัพท์อาจส่งตำแหน่งแบบคร่าวๆ)' : '')) : ' · เครื่องไม่แจ้งความแม่นยำ';
     throw apiError_('OUT_OF_RANGE', 'อยู่นอกรัศมีโรงเรียน (' + dist + ' ม. เกินกำหนด ' + radius + ' ม.' +
-      (slack ? ' · เผื่อความคลาดเคลื่อน GPS ' + slack + ' ม.' : '') + ')');
+      (slack ? ' · เผื่อความคลาดเคลื่อน GPS ' + slack + ' ม.' : '') + accTxt + ')');
   }
   return dist;
 }
