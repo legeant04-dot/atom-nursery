@@ -145,7 +145,28 @@ console.log('\n5) The figures come from what was recorded, not recomputed');
   ok_('the engine reads the lateness rather than recalculating it', /lt=Number\(h\.Late\|\|0\);/.test(R('webapp/engine.js')));
   // ...and takes the OT from where the DECISION lives, so a rejected one stops counting
   ok_('OT comes from the approved record, not the clock-out', /oth = otOn\[s\.StaffID\+'\|'\+ds\] \|\| 0;/.test(R('webapp/engine.js')));
-  ok_('...and a rejected one is dropped', /if\(String\(r\.Status\|\|''\)\.toUpperCase\(\)==='REJECTED'\) return;/.test(R('webapp/engine.js')));
+  /* This was a regex against the engine's source and broke the moment the same rule was written a
+   * different way (v260, adding the day-by-day breakdown). Ask the ENGINE instead: a rejected OT and
+   * a holiday lump sum must both leave the HOURS alone, and the breakdown must still show them —
+   * "why is it 1.5 and not 4.5" is a question the screen has to be able to answer. */
+  const HR = boot({
+    staff: [ADMIN, teacher('ครูเอ', { StartDate: '2026-01-01' })],
+    staffAttendanceHistory: [{ Date: '2026-08-05', StaffID: 'ครูเอ', In: '07:50', Out: '18:30', Late: 0, OTHours: 1.5 }],
+    otRecords: [
+      { OTRecordID: 'OTR-1', StaffID: 'ครูเอ', Date: '2026-08-05', Hours: 1.5, Amount: 150, Status: 'APPROVED' },
+      { OTRecordID: 'OTR-2', StaffID: 'ครูเอ', Date: '2026-08-06', Hours: 3, Amount: 300, Status: 'REJECTED' },
+      { OTRecordID: 'OTR-3', StaffID: 'ครูเอ', Date: '2026-08-22', Hours: 0, Amount: 500, Status: 'APPROVED', Kind: 'HOLIDAY', Note: 'ดูแลน้องโมน่า' }
+    ]
+  });
+  const sr = HR.staffAttendanceMonth({ month: '2026-08', staffId: 'ADM' }).staff[0];
+  eq('...and a rejected one is dropped', sr.otHours, 1.5);
+  eq('...a holiday lump sum adds money, not hours', [sr.holidayOTDays, sr.holidayOTAmount], [1, 500]);
+  eq('...and all three are still traceable, day by day', sr.otDays.map(o => [o.date, o.status, o.counted]),
+    [['2026-08-05', 'APPROVED', true], ['2026-08-06', 'REJECTED', false], ['2026-08-22', 'APPROVED', false]]);
+  eq('...so the Saturday somebody was paid to work is not a blank day',
+    dayOf(sr, '2026-08-22').holidayOT, 500);
+  eq('...the total is exactly the sum of the days that counted',
+    sr.otDays.filter(o => o.counted).reduce((a, o) => a + o.hours, 0), sr.otHours);
   ok_('the built Engine.gs carries the new handler', /staffAttendanceMonth/.test(R('src/Engine.gs')));
 }
 
