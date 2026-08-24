@@ -1844,6 +1844,19 @@ function createAtomAPI(M, GROWTH_STD) {
       });
       const hist={}; (M.staffAttendanceHistory||[]).forEach(h=>{ const d=ymd(h.Date); if(d.slice(0,7)===month) hist[h.StaffID+'|'+d]=h; });
       const yes=v=>!!(v&&String(v).toUpperCase()==='YES');
+      /* OT HOURS THAT SURVIVED APPROVAL.
+       *
+       * The hours on a CHECKIN_STAFF row are what the clock-out computed, before anybody decided
+       * anything about them. An OT the leader or the admin REJECTED still sat in the month's total —
+       * "OT 15 ชม." for a teacher who was told no. The OT_RECORDS row is where the decision lives, so
+       * the month reads its hours from there: approved and pending count, rejected does not.
+       * A HOLIDAY OT is a lump sum with no hours behind it (v257) and adds nothing here.
+       */
+      const otOn={};
+      (M.otRecords||[]).forEach(r=>{ const d=ymd(r.Date); if(d.slice(0,7)!==month) return;
+        if(isHolidayOT_(r)) return;
+        if(String(r.Status||'').toUpperCase()==='REJECTED') return;
+        const k=r.StaffID+'|'+d; otOn[k]=(otOn[k]||0)+(Number(r.Hours)||0); });
 
       // onlySelf → just the caller, and someone who is exempt from clocking in still gets their own
       // (mostly empty) month rather than a screen that looks broken
@@ -1862,9 +1875,11 @@ function createAtomAPI(M, GROWTH_STD) {
             const lv = leaveOn[s.StaffID+'|'+ds] || null;
             let inT='', outT='', lt=0, oth=0, manual=false;
             if(ds===today){ const a=(M.staffAttendanceToday||[]).find(x=>x.StaffID===s.StaffID);
-              if(a){ inT=a.CheckIn||''; outT=a.CheckOut||''; lt=Number(a.Late||0); oth=Number(a.OTHours||0); manual=yes(a.InManual)||yes(a.OutManual); } }
+              if(a){ inT=a.CheckIn||''; outT=a.CheckOut||''; lt=Number(a.Late||0); manual=yes(a.InManual)||yes(a.OutManual); } }
             else { const h=hist[s.StaffID+'|'+ds];
-              if(h){ inT=h.In||''; outT=h.Out||''; lt=Number(h.Late||0); oth=Number(h.OTHours||0); manual=yes(h.InManual)||yes(h.OutManual); } }
+              if(h){ inT=h.In||''; outT=h.Out||''; lt=Number(h.Late||0); manual=yes(h.InManual)||yes(h.OutManual); } }
+            // ...and the OT hours come from the DECISION, not from what the clock-out worked out
+            oth = otOn[s.StaffID+'|'+ds] || 0;
             let status;
             if(beforeStart) status='BEFORE';
             else if(inT) status='IN';
@@ -2258,7 +2273,9 @@ function createAtomAPI(M, GROWTH_STD) {
         const otCollected=otRows.reduce((a,o)=>a+(o.Status==='PAID'?Number(o.Amount||0):sum('ot',o.OTID,['CONFIRMED'])),0);
         // extra charges (now separate payables): open = still owed, collected = confirmed slips
         const chs=chBy[String(s.StudentID)]||[];
-        const chOpen=chs.reduce((a,c)=>a+Math.max(0,Number(c.Amount||0)-sum('charge',c.ChargeID,['CONFIRMED'])),0);
+        // chargeOpen_ — a charge that is PAID or CANCELLED is settled. Without it a waived fee stayed
+        // on the family's balance for ever, which is the same class of mistake as the cash one below.
+        const chOpen=chs.filter(chargeOpen_).reduce((a,c)=>a+Math.max(0,Number(c.Amount||0)-sum('charge',c.ChargeID,['CONFIRMED'])),0);
         const chCollected=chs.reduce((a,c)=>a+sum('charge',c.ChargeID,['CONFIRMED']),0);
         // Money the parent HAS sent that is only waiting for the school to check the slip. It is not
         // collected yet, but calling it "ค้างชำระ" blames the family for the school's own queue.
@@ -2272,8 +2289,17 @@ function createAtomAPI(M, GROWTH_STD) {
         const prepaidTuition = (prepay && b) ? billTuition_(b) : 0;
         const billConfirmed = b ? sum('bill', b.BillingID, ['CONFIRMED']) : 0;
         const billPending = b ? sum('bill', b.BillingID, ['SUBMITTED', 'PENDING_VERIFY']) : 0;
-        // tuition still owed, after the advance-payment credit and any confirmed slips
-        const tuitionOpen = Math.max(0, amount - prepaidTuition - billConfirmed);
+        /* Tuition still owed, after the advance-payment credit and any confirmed slips — and after
+         * the bill's own Status.
+         *
+         * CASH. A bill settled in cash is stamped PAID and has no slip, so `amount − prepaid −
+         * confirmedSlips` still came to the whole bill: the same money was counted as COLLECTED (the
+         * line below reads Status==='PAID') and as OUTSTANDING, at the same time, and `paid` read
+         * false so the family was in neither the paid count nor honestly in the unpaid one. A school
+         * that takes cash saw its own takings as a debt. Reported 2026-08-24.
+         */
+        const billPaid = !!b && String(b.Status||'').toUpperCase()==='PAID';
+        const tuitionOpen = billPaid ? 0 : Math.max(0, amount - prepaidTuition - billConfirmed);
         const otherOpen = otOpen + chOpen;                 // OT + extra charges — NOT tuition
         // of what is still open, how much is already sitting in the admin's slip queue
         const tuitionPending = Math.min(tuitionOpen, billPending);
@@ -2285,8 +2311,12 @@ function createAtomAPI(M, GROWTH_STD) {
         // Status alone said UNPAID for a prepaid month, so the finance list showed a debt that was
         // already paid months ago.
         const paid = tuitionOpen<=0 && (!!b || !!prepay);
+        // the PARTS of `collected`, named. `collected` itself is every baht received from this family
+        // this month — tuition, extra charges and OT together — which is not what a line labelled
+        // "ค่าเทอม" may show. Splitting it is what lets each be reported as itself.
+        const tuitionIn = (b ? (b.Status==='PAID'?amount:billConfirmed) : 0) + prepaidTuition;
         return {studentId:s.StudentID,name:s.NameTH,nameEN:s.NameEN,nick:s.Nickname,nickEN:s.NicknameEN,plan:s.Plan,
-          amount,collected,otOpen,chOpen,tuitionOpen,otherOpen,due,paid,
+          amount,collected,tuitionIn,chCollected,otCollected,otOpen,chOpen,tuitionOpen,otherOpen,due,paid,
           tuitionPending,otherPending,pendingVerify:tuitionPending+otherPending,
           prepaid:!!prepay,prepay:prepay||null,prepaidTuition,
           partial:!b?false:(tuitionOpen>0 && (billConfirmed>0||prepaidTuition>0)),
@@ -2296,15 +2326,34 @@ function createAtomAPI(M, GROWTH_STD) {
         .sort((a,b2)=>(a.paused?1:0)-(b2.paused?1:0));
       const staff=M.staff.filter(s=>s.Role==='Teacher').map(s=>{ const pr=M.payroll.find(x=>x.StaffID===s.StaffID&&ym(x.Month)===month);
         return {staffId:s.StaffID,name:s.NameTH,nameEN:s.NameEN,nick:s.Nickname,nickEN:s.NicknameEN,net:pr?pr.NetPay:0,paid:!!pr&&pr.SlipSent==='YES',computed:!!pr}; });
-      const tuitionCollected=students.reduce((a,s)=>a+(s.collected||0),0);
-      const otCollected=M.otDaily.filter(o=>ym(o.Date)===month&&o.Status==='PAID').reduce((a,o)=>a+o.Amount,0);
+      /* THREE KINDS OF MONEY, KEPT APART.
+       *
+       * `tuitionCollected` has never been tuition: it is Σ collected — tuition, extra charges and OT
+       * added together. The dashboard printed it under "ค่าเทอมรายเดือน · เก็บได้", and then added
+       * otCollected to it for the month's total, counting OT twice. Reported 2026-08-24 as "ระบบแสดง
+       * ยอดเงินไม่ถูกต้อง": a ฿2,000 entry fee was nowhere on the screen while the totals were quietly
+       * over by the OT.
+       *
+       * The name is kept (older callers) but every screen now uses the precise ones below.
+       */
+      const collectedTuition=students.reduce((a,s)=>a+Number(s.tuitionIn||0),0);
+      const collectedCharges=students.reduce((a,s)=>a+Number(s.chCollected||0),0);
+      const collectedOT=students.reduce((a,s)=>a+Number(s.otCollected||0),0);
+      const collectedAll=collectedTuition+collectedCharges+collectedOT;
+      const tuitionCollected=collectedAll;                 // legacy name — it always meant "everything"
+      const otCollected=collectedOT;
       // TUITION outstanding means tuition — it used to be (due − collected), which folded OT and extra
       // charges into a tile labelled "ค้างค่าเทอม". They are reported separately as otherOutstanding.
       const tuitionOutstanding=students.reduce((a,s)=>a+Number(s.tuitionOpen||0),0);
       const otherOutstanding=students.reduce((a,s)=>a+Number(s.otherOpen||0),0);
+      // otherOutstanding is OT + extra charges TOGETHER, which is why an entry fee could hide inside
+      // it without ever appearing on a screen. Each is now also reported on its own.
+      const chargesOutstanding=students.reduce((a,s)=>a+Number(s.chOpen||0),0);
+      const otOutstanding=students.reduce((a,s)=>a+Number(s.otOpen||0),0);
       const salaryExpense=staff.reduce((a,s)=>a+s.net,0);
-      const income=tuitionCollected+otCollected;
+      const income=collectedAll;                           // was collectedAll + OT again
       return {month, students, staff, income, tuitionCollected, otCollected, tuitionOutstanding, otherOutstanding,
+        collectedTuition, collectedCharges, collectedOT, collectedAll, chargesOutstanding, otOutstanding,
         expense:salaryExpense, net:income-salaryExpense,
         prepaidStudents:students.filter(s=>s.prepaid).length,
         studentsPaid:students.filter(s=>s.paid).length, studentsTotal:students.length,

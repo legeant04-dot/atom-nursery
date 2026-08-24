@@ -156,8 +156,13 @@ console.log('\n7) the payment card finally adds up');
 {
   const home = app.slice(app.indexOf('const payHtml='), app.indexOf('const remHtml ='));
   ok_('a grand total is shown', /ยอดทั้งหมดเดือนนี้/.test(home));
-  ok_('it is tuition + student OT', /_allTotal=_allIn\+_allOut/.test(app) &&
-    /_allIn=Number\(fin\.tuitionCollected\|\|0\)\+_otCol/.test(app) && /_allOut=tuiOut\+_otOut/.test(app));
+  /* v259: THREE kinds of money, not two. A ฿2,000 entry fee was billed and shown nowhere, and the
+   * total added the OT twice — `fin.tuitionCollected` has never been tuition, it is Σ collected
+   * (tuition + charges + OT), so adding otCollected to it counted the OT a second time. */
+  ok_('it is tuition + extra charges + student OT', /_allTotal=_allIn\+_allOut/.test(app) &&
+    /_allIn=Number\(fin\.collectedAll\|\|0\)/.test(app) && /_allOut=tuiOut\+_chOut\+_otOut/.test(app));
+  ok_('...and each kind is counted once', /const collectedAll=collectedTuition\+collectedCharges\+collectedOT;/.test(eng));
+  ok_('extra charges have a line of their own', /ค่าใช้จ่ายเพิ่มเติม/.test(home));
   ok_('with the split kept underneath it', /\$\{baht\(_allIn\)\}[\s\S]{0,120}\$\{baht\(_allOut\)\}/.test(home));
   ok_('it sits at the top of the card, before the tuition row', home.indexOf('ยอดทั้งหมดเดือนนี้') < home.indexOf('ค่าเทอมรายเดือน'));
 }

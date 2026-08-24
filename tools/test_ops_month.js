@@ -54,7 +54,12 @@ console.log('\n1) A month of working time, day by day');
       { Date: '2026-08-03', StaffID: 'ครูเอ', In: '07:55', Out: '17:05', Late: 0, OTHours: 0 },
       { Date: '2026-08-04', StaffID: 'ครูเอ', In: '08:20', Out: '17:00', Late: 20, OTHours: 0 },
       { Date: '2026-08-05', StaffID: 'ครูเอ', In: '07:50', Out: '18:30', Late: 0, OTHours: 1.5 }
-    ]
+    ],
+    /* v259: the month's OT hours come from the DECISION (OT_RECORDS), not from what the clock-out
+     * worked out — a REJECTED OT used to stay in the total, so a teacher who was told no still read
+     * "OT 15 ชม.". A check-out always writes this row alongside the attendance one, so a fixture with
+     * OT hours and no record was a state that cannot occur. */
+    otRecords: [{ OTRecordID: 'OTR-1', StaffID: 'ครูเอ', Date: '2026-08-05', Hours: 1.5, Status: 'APPROVED' }]
   });
   const r = H.staffAttendanceMonth({ month: '2026-08', staffId: 'ADM' });
   eq('the month asked for', r.month, '2026-08');
@@ -137,7 +142,10 @@ console.log('\n5) The figures come from what was recorded, not recomputed');
   // CHECKIN_STAFF stores LateMinutes/OTHours against THAT day's schedule (a Big Cleaning day has its
   // own hours). The projection used to drop them, forcing any report to guess the schedule backwards.
   ok_('the daily late/OT figures survive hydration', /Late: Number\(r\.LateMinutes\) \|\| 0, OTHours: Number\(r\.OTHours\) \|\| 0/.test(ge));
-  ok_('the engine reads them rather than recalculating', /lt=Number\(h\.Late\|\|0\); oth=Number\(h\.OTHours\|\|0\)/.test(R('webapp/engine.js')));
+  ok_('the engine reads the lateness rather than recalculating it', /lt=Number\(h\.Late\|\|0\);/.test(R('webapp/engine.js')));
+  // ...and takes the OT from where the DECISION lives, so a rejected one stops counting
+  ok_('OT comes from the approved record, not the clock-out', /oth = otOn\[s\.StaffID\+'\|'\+ds\] \|\| 0;/.test(R('webapp/engine.js')));
+  ok_('...and a rejected one is dropped', /if\(String\(r\.Status\|\|''\)\.toUpperCase\(\)==='REJECTED'\) return;/.test(R('webapp/engine.js')));
   ok_('the built Engine.gs carries the new handler', /staffAttendanceMonth/.test(R('src/Engine.gs')));
 }
 

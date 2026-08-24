@@ -112,7 +112,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.258'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.259'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -3749,29 +3749,38 @@
   SCREENS.Admin.home = async () => { const [d,rem,lrem,pend,fin]=await Promise.all([api('dashboard'),api('payrollReminderDue'),api('leaveResetReminder'),api('pendingPayments'),api('financeSummary',{})]);
     const pendN=pend.length;
     // ---- payment tracking (this month): monthly tuition + student OT collection ----
-    const otDue=(fin.students||[]).reduce((a,s)=>a+Number(s.otOpen||0),0)+Number(fin.otCollected||0);
+    /* THREE KINDS OF MONEY, EACH REPORTED AS ITSELF.
+     * A ฿2,000 entry fee was billed and appeared on no screen at all: the card only ever showed
+     * tuition and OT, and the month's total added the OT twice on top (the server's
+     * `tuitionCollected` has never been tuition — it is everything). Reported 2026-08-24.
+     */
     const tuiPct = fin.studentsTotal?Math.round(fin.studentsPaid/fin.studentsTotal*100):100;
     const tuiOut = Number(fin.tuitionOutstanding||0);
-    // outstanding OT was only inside the tracking card; the tile now carries it as a second, smaller
-    // line so the two numbers are never read as one
-    const _otOut = Math.max(0, otDue-Number(fin.otCollected||0));
+    const _chOut = Number(fin.chargesOutstanding||0);
+    const _otOut = Number(fin.otOutstanding||0);
+    const _tuiCol = Number(fin.collectedTuition||0);
+    const _chCol = Number(fin.collectedCharges||0);
     // The card showed what came in and what is still owed, but never the two added up — so "how much
     // is this month worth in total?" could not be read off it, only worked out on paper.
-    const _otCol=Number(fin.otCollected||0);
-    const _allIn=Number(fin.tuitionCollected||0)+_otCol;      // money actually received
-    const _allOut=tuiOut+_otOut;                              // still owed
+    const _otCol=Number(fin.collectedOT||0);
+    const _allIn=Number(fin.collectedAll||0);                 // money actually received (each kind once)
+    const _allOut=tuiOut+_chOut+_otOut;                       // still owed
     const _allTotal=_allIn+_allOut;                           // everything billed this month
+    const _line=(icon,label,col,out,warn)=>`
+      <div class="spread" style="font-size:14px"><span>${icon} ${esc(label)}</span><span class="muted">${EN()?'this month':'เดือนนี้'}</span></div>
+      <div class="spread" style="font-size:13px"><span class="muted">${EN()?'Collected':'เก็บได้'} <b style="color:var(--ok)">${baht(col)}</b></span><span class="muted">${EN()?'Outstanding':'ค้างชำระ'} <b style="color:${out>0?(warn?'var(--warn)':'var(--bad)'):'var(--ok)'}">${baht(out)}</b></span></div>`;
     const payHtml=`<div class="card"><div class="spread"><h3>💰 ${EN()?'Payment tracking':'ติดตามการชำระเงิน'} <small class="muted">(${esc(fin.month||monthStr())})</small></h3><button class="btn sm outline" onclick="GO('finance')">${EN()?'Details':'รายละเอียด'}</button></div>
       <div style="text-align:center;margin:6px 0 8px;padding:8px;background:var(--surface-2);border-radius:10px">
-        <small class="muted">${EN()?'Total billed this month (tuition + student OT)':'ยอดทั้งหมดเดือนนี้ (ค่าเทอม + OT นักเรียน)'}</small>
+        <small class="muted">${EN()?'Total billed this month (tuition + extras + student OT)':'ยอดทั้งหมดเดือนนี้ (ค่าเทอม + ค่าใช้จ่ายเพิ่มเติม + OT นักเรียน)'}</small>
         <div style="font-size:24px;font-weight:800;line-height:1.2">${baht(_allTotal)}</div>
         <small class="muted">${EN()?'Collected':'เก็บได้'} <b style="color:var(--ok)">${baht(_allIn)}</b> · ${EN()?'Outstanding':'ค้างชำระ'} <b style="color:${_allOut>0?'var(--bad)':'var(--ok)'}">${baht(_allOut)}</b></small></div>
       <div class="spread" style="font-size:14px;margin-top:4px"><span>🏫 ${EN()?'Monthly tuition':'ค่าเทอมรายเดือน'}</span><b style="color:${pctColor(tuiPct)}">${fin.studentsPaid}/${fin.studentsTotal} <small class="muted" style="font-weight:400">(${tuiPct}%)</small></b></div>
       <div style="height:6px;background:var(--line);border-radius:4px;overflow:hidden;margin:4px 0"><div style="height:100%;width:${tuiPct}%;background:${pctColor(tuiPct)}"></div></div>
-      <div class="spread" style="font-size:13px"><span class="muted">${EN()?'Collected':'เก็บได้'} <b style="color:var(--ok)">${baht(fin.tuitionCollected||0)}</b></span><span class="muted">${EN()?'Outstanding':'ค้างชำระ'} <b style="color:${tuiOut>0?'var(--bad)':'var(--ok)'}">${baht(tuiOut)}</b></span></div>
+      <div class="spread" style="font-size:13px"><span class="muted">${EN()?'Collected':'เก็บได้'} <b style="color:var(--ok)">${baht(_tuiCol)}</b></span><span class="muted">${EN()?'Outstanding':'ค้างชำระ'} <b style="color:${tuiOut>0?'var(--bad)':'var(--ok)'}">${baht(tuiOut)}</b></span></div>
+      ${(_chCol||_chOut)?`<hr style="border:none;border-top:1px solid var(--surface-3);margin:8px 0">
+      ${_line('➕', EN()?'Extra charges':'ค่าใช้จ่ายเพิ่มเติม', _chCol, _chOut)}`:''}
       <hr style="border:none;border-top:1px solid var(--surface-3);margin:8px 0">
-      <div class="spread" style="font-size:14px"><span>⏰ ${EN()?'Student OT':'OT นักเรียน'}</span><span class="muted">${EN()?'this month':'เดือนนี้'}</span></div>
-      <div class="spread" style="font-size:13px"><span class="muted">${EN()?'Collected':'เก็บได้'} <b style="color:var(--ok)">${baht(fin.otCollected||0)}</b></span><span class="muted">${EN()?'Outstanding':'ค้างชำระ'} <b style="color:${(otDue-Number(fin.otCollected||0))>0?'var(--warn)':'var(--ok)'}">${baht(Math.max(0,otDue-Number(fin.otCollected||0)))}</b></span></div></div>`;
+      ${_line('⏰', EN()?'Student OT':'OT นักเรียน', _otCol, _otOut, true)}</div>`;
     const remHtml = rem.due?`<div class="card" style="background:var(--warn-bg);border-color:var(--warn-line);color:var(--warn)"><div class="spread"><b>🔔 ${esc(t('admin.payrollReminder'))}</b><button class="btn sm" onclick="GO('payroll')">${esc(t('admin.goPayroll'))}</button></div><small>${esc(t('admin.payrollReminderSub').replace('{d}',rem.lastDay-1).replace('{last}',rem.lastDay))}</small></div>`:'';
     const leaveRemHtml = lrem.due?`<div class="card" style="background:var(--ok-bg);border-color:var(--ok-line);color:var(--ok)"><div class="spread"><b>🗓️ ${esc(t('admin.leaveReset'))}</b><button class="btn sm" onclick="A_settings()">${esc(t('manage.settings'))}</button></div><small>${esc(t('admin.leaveResetSub'))}</small></div>`:'';
     /* Open — but open TO WHOM. The dashboard used to work this out for itself and treated a Big
@@ -3792,7 +3801,7 @@
     const kpi=`<div class="kpigrid">
       <button class="kpi blue" onclick="GO('daily')"><span class="kic">👶</span><b class="kn" style="color:${_closed?'var(--ink-3)':pctColor(_attPct)}">${_closed?(EN()?'Holiday':'หยุด'):_attPct+'%'}</b><span class="kl">${EN()?'Attendance today':'มาเรียนวันนี้'}</span></button>
       <button class="kpi amber" onclick="A_finTab('in')"><span class="kic">💰</span><b class="kn" style="color:${tuiOut>0?'var(--bad)':'var(--ok)'}">${baht(tuiOut)}</b><span class="kl">${EN()?'Tuition outstanding':'ค้างค่าเทอม'}</span>
-        <span class="kl" style="margin-top:2px">⏰ ${EN()?'OT':'OT'} <b style="color:${_otOut>0?'var(--warn)':'var(--ok)'}">${baht(_otOut)}</b></span></button>
+        <span class="kl" style="margin-top:2px">⏰ ${EN()?'OT':'OT'} <b style="color:${_otOut>0?'var(--warn)':'var(--ok)'}">${baht(_otOut)}</b>${_chOut?` · ➕ <b style="color:var(--warn)">${baht(_chOut)}</b>`:''}</span></button>
       <button class="kpi green" onclick="A_finTab('wait')"><span class="kic">✅</span><b class="kn" style="color:${pendN?'var(--warn)':'var(--ok)'}">${pendN}</b><span class="kl">${EN()?'Slips to verify':'รอตรวจสลิป'}</span></button>
       <button class="kpi pink" onclick="GO('leaves')"><span class="kic">📩</span><b class="kn" style="color:${_pl?'var(--warn)':'var(--ok)'}">${_pl}</b><span class="kl">${EN()?'Leaves to approve':'รออนุมัติลา'}</span></button></div>`;
     const quick=`<div class="qbar"><button class="btn sm" onclick="GO('daily')">📋 ${esc(t('daily.title'))}</button><button class="btn sm outline" onclick="GO('absence')">🔎 ${esc(t('abs.title'))}</button><button class="btn sm outline" onclick="A_addAnn()">➕ ${esc(t('lbl.addAnn'))}</button><button class="btn sm outline" onclick="A_linkParent()">🔗 ${EN()?'Link parent':'เชื่อมผู้ปกครอง'}</button><button class="btn sm outline" onclick="A_viewAs()">👁️ ${EN()?'View as':'ดูมุมมอง'}</button><button class="btn sm outline" onclick="GO('manage')">🗂️ ${esc(t('title.manage'))}</button></div>`;
@@ -6889,7 +6898,8 @@
     // income tab: tuition/OT/charges collection per student
     const inTab=`<div class="card"><div class="spread"><h3>👶 ${esc(t('fin.tuition'))}</h3><span class="pill ${f.studentsPaid>=f.studentsTotal?'ok':'wait'}">${f.studentsPaid}/${f.studentsTotal} ${esc(t('fin.paid'))}</span></div>
         ${sortBy(f.students,dnick).sort((a,b)=>(a.paused?1:0)-(b.paused?1:0)).map(s=>finStudentRow(s)).join('')}
-        <div class="spread" style="margin-top:8px"><b>${esc(t('fin.collected'))}</b><b style="color:var(--ok)">${baht(f.tuitionCollected+f.otCollected)}</b></div>
+        <!-- collectedAll counts each kind once; tuitionCollected+otCollected counted the OT twice -->
+        <div class="spread" style="margin-top:8px"><b>${esc(t('fin.collected'))}</b><b style="color:var(--ok)">${baht(f.collectedAll!=null?f.collectedAll:(f.tuitionCollected+f.otCollected))}</b></div>
         <button class="btn sm outline block" style="margin-top:10px" onclick="A_prepayAudit()">🔍 ${EN()?'Prepay check (retro)':'ตรวจ prepay ย้อนหลัง'}</button></div>`;
     // payroll tab: per-staff salary + full payroll form
     const payTab=`<div class="card"><div class="spread"><h3>👩‍🏫 ${esc(t('fin.salary'))}</h3><span class="pill ${f.staffPaid>=f.staffTotal?'ok':'wait'}">${f.staffPaid}/${f.staffTotal} ${esc(t('fin.computed'))}</span></div>
