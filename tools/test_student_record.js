@@ -170,5 +170,39 @@ console.log('\n4) the screen');
   ok_('stored values are shielded from the EN dictionary', /_notr\(v==null\|\|v===''\?'—':v\)/.test(app));
 }
 
+console.log('\n5) the admin can EDIT them, not just read them');
+{
+  /* The read-only record was only half the answer. The form an admin actually opens to change a
+   * child — A_studentForm — had no date of birth, no gender, no blood type, no Rh, no address, no
+   * emergency contact, no race/nationality/religion, no weight or height and no vaccine note. All of
+   * them are collected at registration and land in the sheet; none of them could be seen or
+   * corrected afterwards. A blood type nobody can open is a blood type the school does not have, and
+   * a date of birth nobody can correct stays wrong for as long as the child is enrolled. */
+  const form = app.slice(app.indexOf('window.A_studentForm=(id)=>{'), app.indexOf('window.A_studentLinks='));
+  // a field is either written out (id="stf_X") or built by the f('X', …) helper, which supplies it
+  const has = (label, id) => ok_(label,
+    new RegExp('stf_' + id + '\\b').test(form) || new RegExp("\\bf\\('" + id + "'").test(form));
+  has('date of birth is on the form', 'DOB');
+  has('...gender', 'Gender');
+  has('...blood type', 'BloodType');
+  has('...Rh', 'RH');
+  has('...weight', 'Weight');
+  has('...height', 'Height');
+  has('...emergency contact', 'EmergencyContact');
+  has('...home address', 'Address');
+  has('...race', 'Race');
+  has('...nationality', 'Nationality');
+  has('...religion', 'Religion');
+  has('...vaccine notes', 'Vaccine');
+  ok_('blood type is a list, not a free-text box that collects typos', /id="stf_BloodType"><select|<select id="stf_BloodType">/.test(form));
+
+  const save = app.slice(app.indexOf('window.A_saveStudent=async(btn,id)=>{'), app.indexOf('window.A_saveStudent=async(btn,id)=>{') + 2000);
+  ['DOB', 'Gender', 'BloodType', 'RH', 'EmergencyContact', 'Address', 'Race', 'Nationality', 'Religion', 'Vaccine']
+    .forEach(k => ok_('save sends ' + k, new RegExp(k + ":v\\('" + k + "'\\)").test(save)));
+  // a number column must keep '' as '' — 0 kg is a real weight and an unmeasured child is not it
+  ok_('an unmeasured child is not saved as weighing nothing',
+    /Weight:v\('Weight'\)===''\?'':\(Number/.test(save) && /Height:v\('Height'\)===''\?'':\(Number/.test(save));
+}
+
 console.log('\n' + (fail ? 'FAILED ' : 'PASSED ') + pass + ' passed, ' + fail + ' failed\n');
 process.exit(fail ? 1 : 0);

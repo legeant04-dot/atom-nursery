@@ -112,7 +112,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.266'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.267'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -5697,7 +5697,29 @@
         <label class="field"><span>${esc(t('manage.class'))}</span><select id="stf_Class">${A_classOptions(s.Class).map(c=>`<option ${s.Class===c?'selected':''}>${esc(c)}</option>`).join('')}</select></label></div>
       <div class="grid2"><label class="field"><span>${esc(t('reg.plan'))}</span><select id="stf_Plan" onchange="A_planFill(this)"><option value="">${esc(t('manage.noPlan'))}</option>${A_plans().map(p=>`<option value="${p.id}" ${s.Plan===p.id?'selected':''}>${esc(EN()?p.labelEN:p.labelTH)} · ${baht(p.price)}</option>`).join('')}</select></label>
         ${photoField('stf_Photo',t('growth.photo'),s.Photo,true)}</div>
+      ${/* WHAT THE FAMILY WROTE DOWN AT REGISTRATION, and what the admin could not see or change.
+           Date of birth, gender, blood type, Rh, address, emergency contact, race/nationality/
+           religion, weight and height are all collected on the day a child joins — and this form,
+           the one place an admin edits a child, had none of them. A blood type nobody can open is a
+           blood type the school does not have; a date of birth nobody can correct stays wrong.
+           Reported 2026-08-24: "ข้อมูลทั้งหมดที่ลงทะเบียนของนักเรียนต้องแสดงในประวัตินักเรียนทั้งหมด". */''}
+      <div class="grid2">${f('DOB',EN()?'Date of birth':'วันเกิด',String(s.DOB||'').slice(0,10),'date')}
+        <label class="field"><span>${EN()?'Gender':'เพศ'}</span><select id="stf_Gender">
+          ${['','Male','Female'].map(x=>`<option value="${x}" ${String(s.Gender||'')===x?'selected':''}>${esc({'':'-','Male':EN()?'Male':'ชาย','Female':EN()?'Female':'หญิง'}[x])}</option>`).join('')}
+        </select></label></div>
+      <div class="grid2">
+        <label class="field"><span>🩸 ${EN()?'Blood type':'กรุ๊ปเลือด'}</span><select id="stf_BloodType">
+          ${['','A','B','AB','O'].map(x=>`<option value="${x}" ${String(s.BloodType||'')===x?'selected':''}>${esc(x||'-')}</option>`).join('')}
+        </select></label>
+        <label class="field"><span>Rh</span><select id="stf_RH">
+          ${['','Rh+','Rh-'].map(x=>`<option value="${x}" ${String(s.RH||'')===x?'selected':''}>${esc(x||'-')}</option>`).join('')}
+        </select></label></div>
       <div class="grid2">${f('Allergy',t('reg.allergy'),s.Allergy)}${f('MedicalHistory',t('reg.chronic'),s.MedicalHistory)}</div>
+      <div class="grid2">${f('Weight',EN()?'Weight (kg)':'น้ำหนัก (กก.)',s.Weight,'number')}${f('Height',EN()?'Height (cm)':'ส่วนสูง (ซม.)',s.Height,'number')}</div>
+      ${f('EmergencyContact',EN()?'Emergency contact':'ผู้ติดต่อฉุกเฉิน',s.EmergencyContact)}
+      <label class="field"><span>${EN()?'Home address':'ที่อยู่'}</span><textarea id="stf_Address">${esc(s.Address||'')}</textarea></label>
+      <div class="grid2">${f('Race',EN()?'Race':'เชื้อชาติ',s.Race)}${f('Nationality',EN()?'Nationality':'สัญชาติ',s.Nationality)}</div>
+      <div class="grid2">${f('Religion',EN()?'Religion':'ศาสนา',s.Religion)}${f('Vaccine',EN()?'Vaccine notes':'บันทึกวัคซีน',s.Vaccine)}</div>
       <div class="grid2">
         <label class="field"><span>🕗 ${EN()?'Arrive time':'เวลาเข้าเรียน'}</span><input id="stf_StartTime" type="time" value="${esc(String(s.StartTime||'').slice(0,5))}" placeholder="08:00"/></label>
         <label class="field"><span>🕔 ${EN()?'Leave time (OT after this)':'เวลาเลิกเรียน (คิด OT หลังเวลานี้)'}</span><input id="stf_EndTime" type="time" value="${esc(String(s.EndTime||'').slice(0,5))}" placeholder="17:00"/></label></div>
@@ -5867,6 +5889,13 @@
 
   window.A_saveStudent=async(btn,id)=>{ const m=btn.closest('.modal'); const v=k=>{ const e=m.querySelector('#stf_'+k); return e?e.value.trim():''; };
     const data={NameTH:v('NameTH'),NameEN:v('NameEN'),Nickname:v('Nickname'),NicknameEN:v('NicknameEN'),NationalID:v('NationalID'),Class:v('Class'),Plan:v('Plan'),Allergy:v('Allergy'),MedicalHistory:v('MedicalHistory'),
+      // the registration fields the form could not reach until v267 — see A_studentForm.
+      // Weight/Height are numbers on the sheet: '' must stay '' rather than becoming 0, or an
+      // unmeasured child reads as weighing nothing and the growth chart plots it.
+      DOB:v('DOB'),Gender:v('Gender'),BloodType:v('BloodType'),RH:v('RH'),
+      Weight:v('Weight')===''?'':(Number(v('Weight'))||0),Height:v('Height')===''?'':(Number(v('Height'))||0),
+      EmergencyContact:v('EmergencyContact'),Address:v('Address'),
+      Race:v('Race'),Nationality:v('Nationality'),Religion:v('Religion'),Vaccine:v('Vaccine'),
       InsuranceHas:m.querySelector('#stf_Ins').checked,InsurancePolicyNo:v('InsurancePolicyNo'),InsuranceCompany:v('InsuranceCompany'),InsuranceExpiry:v('InsuranceExpiry'),
       StartTime:v('StartTime'),EndTime:v('EndTime'),   // per-student individual schedule (EndTime drives OT)
       OTGraceUntil:v('OTGraceUntil'),RateNote:v('RateNote'),  // OT-free cutoff decoupled from EndTime + parent-facing note
