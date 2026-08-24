@@ -109,7 +109,11 @@ console.log('   …admin approves it in August');
 DB.OT_RECORDS[0].Status = 'APPROVED';
 const c = otCarryOver_('STF-006', '2026-08');
 eq('August owes it', c.total, 200);
-eq('and says which month', c.detail, [{ month: '2026-07', amount: 200 }]);
+// v261: ...and HOW MANY HOURS. The carry is paid as an amount, so the slip only ever said baht and
+// a teacher could not check it against the evenings she remembers working. The hours are that
+// amount's share of the month it came from — here, the whole of July's 2 hours.
+eq('and says which month', c.detail, [{ month: '2026-07', amount: 200, hours: 2 }]);
+eq('...and the total carries the hours too', c.hours != null ? c.hours : handleOtCarryOver({ staffId: 'STF-006', month: '2026-08' }).hours, 2);
 
 r = computePayroll(basePay({ month: '2026-08', otEvening: 0, baseSalary: 14300 }));
 eq('carry is on the August slip', r.OTCarry, 200);

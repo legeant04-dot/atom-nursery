@@ -1860,22 +1860,37 @@ function createAtomAPI(M, GROWTH_STD) {
       // EVERYONE's working time is not a teacher's business — admin (or a read-only Observer) only.
       // Your own is a different question, and the answer is yes: onlySelf narrows this to the caller.
       { const me=staffById(p&&p.staffId); if(!adminLike_(me) && !(p&&p.onlySelf)) fail('NO_PERMISSION','เฉพาะแอดมิน'); }
+      /* A MONTH IS JUST A RANGE. It was hard-coded as one — the loop counted 1..daysInMonth and every
+       * lookup filtered on .slice(0,7) — so "this week" and "this year" could not be asked at all,
+       * and each screen that wanted them was going to invent its own arithmetic. Pass `from`/`to`
+       * for any span; pass `month` (or nothing) and it behaves exactly as it always did.
+       * `day` stays the day OF THE MONTH, because the calendar lays its cells out by it. */
       const month = ym((p&&p.month)||todayLocal().slice(0,7));
       const [Y,Mo] = month.split('-').map(Number);
-      const days = new Date(Y, Mo, 0).getDate();
+      const mFrom = Y+'-'+String(Mo).padStart(2,'0')+'-01';
+      const mTo = Y+'-'+String(Mo).padStart(2,'0')+'-'+String(new Date(Y,Mo,0).getDate()).padStart(2,'0');
+      const from = (p&&p.from) ? ymd(p.from) : mFrom;
+      const to   = (p&&p.to)   ? ymd(p.to)   : mTo;
+      const inRange = d => !!d && d>=from && d<=to;
+      const dayList = []; {
+        const stop=new Date(to+'T00:00:00');
+        for(let d=new Date(from+'T00:00:00'); d<=stop; d.setDate(d.getDate()+1))
+          dayList.push(d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'));
+      }
+      const days = dayList.length;
       const today = todayLocal();
-      const hol = {}; (M.holidays||[]).forEach(h=>{ const d=ymd(h.Date); if(d.slice(0,7)===month) hol[d]=h.NameTH||h.NameEN||'วันหยุด'; });
-      const bc = {}; bigCleaningList_().forEach(s=>{ const d=ymd(s); if(d.slice(0,7)===month) bc[d]=1; });
+      const hol = {}; (M.holidays||[]).forEach(h=>{ const d=ymd(h.Date); if(inRange(d)) hol[d]=h.NameTH||h.NameEN||'วันหยุด'; });
+      const bc = {}; bigCleaningList_().forEach(s=>{ const d=ymd(s); if(inRange(d)) bc[d]=1; });
       // approved leave, expanded across its date range so a 3-day leave marks all three days
       const leaveOn = {};
       (M.leaves||[]).filter(l=>String(l.Status||'').toUpperCase()==='APPROVED').forEach(l=>{
         const s=ymd(l.StartDate), e=ymd(l.EndDate||l.StartDate); if(!s) return;
         for(let d=new Date(s); ymd(d.toISOString?d.toISOString():d)<=e; d.setDate(d.getDate()+1)){
-          const ds=ymd(d.toISOString?d.toISOString():d); if(ds.slice(0,7)!==month) continue;
+          const ds=ymd(d.toISOString?d.toISOString():d); if(!inRange(ds)) continue;
           leaveOn[l.StaffID+'|'+ds]={type:l.Type||'ลา', half:halfDay_(l.HalfDay), reason:l.Reason||''};
         }
       });
-      const hist={}; (M.staffAttendanceHistory||[]).forEach(h=>{ const d=ymd(h.Date); if(d.slice(0,7)===month) hist[h.StaffID+'|'+d]=h; });
+      const hist={}; (M.staffAttendanceHistory||[]).forEach(h=>{ const d=ymd(h.Date); if(inRange(d)) hist[h.StaffID+'|'+d]=h; });
       const yes=v=>!!(v&&String(v).toUpperCase()==='YES');
       /* OT HOURS THAT SURVIVED APPROVAL.
        *
@@ -1899,7 +1914,7 @@ function createAtomAPI(M, GROWTH_STD) {
        * been paid ฿500 to work: the combined calendar knew, and her own page did not.
        */
       const otOn={}, otRowsOn={}, holOtOn={};
-      (M.otRecords||[]).forEach(r=>{ const d=ymd(r.Date); if(d.slice(0,7)!==month) return;
+      (M.otRecords||[]).forEach(r=>{ const d=ymd(r.Date); if(!inRange(d)) return;
         const k=r.StaffID+'|'+d, st=String(r.Status||'').toUpperCase(), holi=isHolidayOT_(r);
         (otRowsOn[k]=otRowsOn[k]||[]).push({otId:r.OTRecordID||'', date:d, kind:holi?'HOLIDAY':'DAILY',
           hours:Number(r.Hours)||0, amount:Number(r.Amount)||0, status:st, note:String(r.Note||''),
@@ -1917,8 +1932,8 @@ function createAtomAPI(M, GROWTH_STD) {
         .map(s=>{
           const rows=[], missingOut=[], otDays=[]; let present=0, lateDays=0, lateMin=0, leaveDays=0, absent=0, ot=0;
           let holOtDays=0, holOtAmount=0;
-          for(let dd=1; dd<=days; dd++){
-            const ds = Y+'-'+String(Mo).padStart(2,'0')+'-'+String(dd).padStart(2,'0');
+          for(let di=0; di<dayList.length; di++){
+            const ds = dayList[di], dd = Number(ds.slice(8,10));
             const dow = new Date(ds).getDay();
             const weekend = (dow===0||dow===6) && !bc[ds];
             // someone who had not started yet is simply not part of this month
@@ -1977,7 +1992,7 @@ function createAtomAPI(M, GROWTH_STD) {
             holidayOTDays:holOtDays, holidayOTAmount:holOtAmount,
             missingOut:missingOut.length, missingOutDays:missingOut, days:rows};
         });
-      return {month, daysInMonth:days, today,
+      return {month, from, to, daysInMonth:days, today,
         holidays:Object.keys(hol).map(d=>({date:d,name:hol[d]})), bigCleaning:Object.keys(bc),
         missingOut:people.filter(x=>x.missingOut>0).map(x=>({staffId:x.staffId,nick:x.nick,nickEN:x.nickEN,name:x.name,days:x.missingOutDays})),
         staff:people}; },
@@ -3404,24 +3419,31 @@ function createAtomAPI(M, GROWTH_STD) {
     //   approved(m) − what that month's saved payslip paid − what later payslips already carried
     // so nothing is paid twice and nothing is dropped. A month with NO saved payslip is not carried:
     // its own payroll run pays it normally. Mirrors otCarryOver_ in src/Payroll.gs.
-    otCarryOver: p => { const mm=ym(p.month); const approved={};
+    otCarryOver: p => { const mm=ym(p.month); const approved={}, approvedHrs={};
       (M.otRecords||[]).forEach(r=>{ if(r.StaffID!==p.staffId)return;
         const st=String(r.Status||'').toUpperCase(); if(st&&st!=='APPROVED')return;
         // holiday OT is paid on its OWN payslip line, so it must not be counted here against what
         // OTEvening paid — every month would look short-paid and carry the same amount for ever
         if(isHolidayOT_(r))return;
-        const m=ym(r.Month||r.Date); if(!m)return; approved[m]=(approved[m]||0)+(Number(r.Amount)||0); });
+        const m=ym(r.Month||r.Date); if(!m)return; approved[m]=(approved[m]||0)+(Number(r.Amount)||0);
+        approvedHrs[m]=(approvedHrs[m]||0)+(Number(r.Hours)||0); });
       const paidFor={}, carriedFor={};
       (M.payroll||[]).forEach(r=>{ if(r.StaffID!==p.staffId)return; const m=ym(r.Month);
         if(!m||m>=mm)return;                       // this month's own row (and any later one) must not count
         paidFor[m]=(paidFor[m]||0)+(Number(r.OTEvening)||0);
         let d=r.OTCarryDetail; if(typeof d==='string'&&d){ try{d=JSON.parse(d);}catch(e){d=null;} }
         (Array.isArray(d)?d:[]).forEach(c=>{ const cm=ym(c&&c.month); if(cm) carriedFor[cm]=(carriedFor[cm]||0)+(Number(c&&c.amount)||0); }); });
-      const detail=[]; let total=0;
+      /* HOW MANY HOURS is the carry-over? The carry is an AMOUNT — that is how it is paid — and the
+       * slip only ever said baht, so a teacher could not check it against the evenings they
+       * remember working. The hours behind it are that amount's share of the month it came from. */
+      const detail=[]; let total=0, hrs=0;
       Object.keys(paidFor).forEach(m=>{ const unpaid=Math.round(((approved[m]||0)-paidFor[m]-(carriedFor[m]||0))*100)/100;
-        if(unpaid>0.5){ detail.push({month:m,amount:unpaid}); total+=unpaid; } });
+        if(unpaid>0.5){ const share=(approved[m]>0)?(unpaid/approved[m]):0;
+          const h=Math.round((approvedHrs[m]||0)*share*100)/100;
+          detail.push({month:m,amount:unpaid,hours:h}); total+=unpaid; hrs+=h; } });
       detail.sort((a,b)=>a.month<b.month?-1:(a.month>b.month?1:0));
-      return {staffId:p.staffId,month:p.month,total:Math.round(total*100)/100,detail}; },
+      return {staffId:p.staffId,month:p.month,total:Math.round(total*100)/100,
+              hours:Math.round(hrs*100)/100,detail}; },
 
     // ===== staff OT approval workflow (teacher → Leader → Admin) — OT_RECORDS is the source of truth =====
     // full-hour amount helper (rounded), used everywhere an OT amount is (re)computed

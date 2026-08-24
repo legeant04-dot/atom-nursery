@@ -94,7 +94,13 @@ ok_('work history is a fold-out section', /<details class="card" id="myAttBox">/
 ok_('leave history is a fold-out section', /<details class="card" id="myLvBox">/.test(app));
 ok_('…both shut by default (no `open`)',
   !/id="myAttBox" open/.test(app) && !/id="myLvBox" open/.test(app));
-ok_('the work history is filtered by month', /id="mhMonth"[^>]*onchange="T_myHistory\(this\.value\)"/.test(app));
+// v261: the month box became a PERIOD picker — week / month / quarter / year — because a teacher
+// checking her own time wants the week she remembers or the year the job actually paid, and
+// staffAttendanceMonth learned to take from/to instead of only a month.
+ok_('the work history is filtered by period', /\$\{periodPicker\('mh'\)\}/.test(app) &&
+  /window\.T_period=\(id,kind,anchor\)=>/.test(app) && /window\.T_myHistoryPeriod=/.test(app));
+ok_('…and every screen asks ONE helper which days a period covers', /function periodRange\(kind, anchor\)\{/.test(app) &&
+  /const PERIOD_KINDS = \['week','month','quarter','year'\]/.test(app));
 ['worked', 'late', 'leave', 'absent'].forEach(f =>
   ok_('…and by "' + f + '"', new RegExp('<option value="' + f + '">').test(app)));
 ['pending', 'approved', 'rejected'].forEach(f =>

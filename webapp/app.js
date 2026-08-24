@@ -112,7 +112,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.261'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.262'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -139,6 +139,42 @@
   const ymd = v => String(v==null?'':v).slice(0,10);   // date part 'YYYY-MM-DD' (dates arrive as strings from the engine)
   const ym = v => String(v==null?'':v).slice(0,7);      // month part 'YYYY-MM'
   const nowTime = () => { const d=new Date(); return p2(d.getHours())+':'+p2(d.getMinutes()); };
+  /**
+   * A PERIOD, in ONE place: "this week", "this month", "this quarter", "this year", or a month.
+   *
+   * Every screen that summarises time was inventing its own answer to "which days count" — and the
+   * moment two of them disagree, a teacher reading her own hours and an admin reading the same
+   * hours see different numbers for the same question. Weeks run SUNDAY→SATURDAY, matching every
+   * calendar the app draws.
+   *
+   * `anchor` is any date inside the period ('YYYY-MM-DD'), or a month ('YYYY-MM') for kind 'month'.
+   * Returns { from, to } inclusive, plus a label to print, so a screen never formats one itself.
+   */
+  const PERIOD_KINDS = ['week','month','quarter','year'];
+  function periodRange(kind, anchor){
+    const a = String(anchor||todayStr());
+    const base = a.length===7 ? (a+'-01') : ymd(a);
+    const d = new Date(base+'T00:00:00');
+    const iso = x => x.getFullYear()+'-'+p2(x.getMonth()+1)+'-'+p2(x.getDate());
+    if(kind==='week'){
+      const s=new Date(d); s.setDate(s.getDate()-s.getDay());          // back to Sunday
+      const e=new Date(s); e.setDate(e.getDate()+6);
+      return {kind, from:iso(s), to:iso(e),
+        label:`${ddmmyyyy(iso(s))} – ${ddmmyyyy(iso(e))}`, labelEN:`${iso(s)} – ${iso(e)}`};
+    }
+    if(kind==='quarter'){
+      const q=Math.floor(d.getMonth()/3), s=new Date(d.getFullYear(),q*3,1), e=new Date(d.getFullYear(),q*3+3,0);
+      return {kind, from:iso(s), to:iso(e),
+        label:`${EN()?'Q':'ไตรมาส '}${q+1} ${d.getFullYear()+(EN()?0:543)}`, labelEN:`Q${q+1} ${d.getFullYear()}`};
+    }
+    if(kind==='year'){
+      return {kind, from:d.getFullYear()+'-01-01', to:d.getFullYear()+'-12-31',
+        label:`${EN()?'Year ':'ปี '}${d.getFullYear()+(EN()?0:543)}`, labelEN:'Year '+d.getFullYear()};
+    }
+    const s=new Date(d.getFullYear(),d.getMonth(),1), e=new Date(d.getFullYear(),d.getMonth()+1,0);
+    return {kind:'month', from:iso(s), to:iso(e), label:monthNameYear(iso(s).slice(0,7)), labelEN:iso(s).slice(0,7)};
+  }
+  const inPeriod = (dateStr, r) => { const d=ymd(dateStr); return !!d && d>=r.from && d<=r.to; };
   // "printed at" for an exported document. LOCAL, never toISOString() — that is UTC, and a sheet
   // printed at 14:08 in Bangkok came out stamped 07:08.
   const nowStamp = () => todayStr()+' '+nowTime();
@@ -3575,7 +3611,8 @@
            to go and every day of it was in the way of this morning's job. Folded shut by default:
            open one when you want it. -->
       <details class="card" id="myAttBox"><summary style="cursor:pointer;font-weight:700">🕘 ${EN()?'My work history':'เวลาทำงานย้อนหลังของฉัน'}</summary>
-        <div class="row" style="margin:8px 0"><input type="month" id="mhMonth" value="${monthStr()}" onchange="T_myHistory(this.value)"/>
+        ${periodPicker('mh')}
+        <div class="row" style="margin:8px 0">
           <select id="mhFilter" onchange="T_myHistoryFilter()">
             <option value="all">${EN()?'All days':'ทุกวัน'}</option>
             <option value="worked">${EN()?'Worked':'วันที่มาทำงาน'}</option>
@@ -3618,9 +3655,16 @@
   const MH_LABEL = { IN:()=>EN()?'Worked':'มาทำงาน', LEAVE:()=>EN()?'Leave':'ลา', HOLIDAY:()=>EN()?'Holiday':'วันหยุด',
     OFF:()=>EN()?'Weekend':'เสาร์-อาทิตย์', ABSENT:()=>EN()?'Absent':'ขาดงาน', TODAY:()=>EN()?'Today':'วันนี้',
     FUTURE:()=>'-', BEFORE:()=>EN()?'Before start':'ก่อนเริ่มงาน' };
-  window.T_myHistory=async(month)=>{
+  /* A month was the only period you could ask for, because staffAttendanceMonth only knew months.
+   * It takes from/to now (v261), so "this week" and "this year" are the same call — and the summary
+   * above the rows is the summary OF THE PERIOD, not of a month somebody has to translate. */
+  let MH_KIND='month', MH_ANCHOR='';
+  window.T_myHistoryPeriod=()=>{ const r=periodRange(MH_KIND, MH_ANCHOR||todayStr()); return T_myHistory(null, r); };
+  window.T_myHistory=async(month, range)=>{
     setHTML('#mhBox', `<small class="muted">${EN()?'Loading…':'กำลังโหลด…'}</small>`);
-    try{ const r=await api('myAttendanceMonth',{staffId:USER.staffId,month});
+    const r0 = range || periodRange(MH_KIND, MH_ANCHOR||month||todayStr());
+    window._MH_RANGE=r0;
+    try{ const r=await api('myAttendanceMonth',{staffId:USER.staffId,month:ym(r0.from),from:r0.from,to:r0.to});
       MY_DAYS=((r.staff||[])[0]||{}).days||[];
       const me=(r.staff||[])[0]||{};
       setHTML('#mhSum', '');
@@ -3637,7 +3681,9 @@
       : /* absent */   d.status==='ABSENT';
     const rows=MY_DAYS.filter(keep);
     const me=window._MH_SUM||{};
-    const sum=`<div class="row" style="gap:6px;margin-bottom:6px;flex-wrap:wrap">
+    const _r=window._MH_RANGE||periodRange('month',todayStr());
+    const sum=`<div class="spread" style="margin-bottom:4px"><b>${esc(_r.label)}</b><small class="muted">${esc(ddmmyyyy(_r.from))} – ${esc(ddmmyyyy(_r.to))}</small></div>
+      <div class="row" style="gap:6px;margin-bottom:6px;flex-wrap:wrap">
       <span class="pill ok">${EN()?'worked':'มาทำงาน'} ${me.present||0}</span>
       <span class="pill ${me.lateDays?'bad':'ok'}">${EN()?'late':'สาย'} ${me.lateDays||0} ${EN()?'days':'วัน'} (${me.lateMinutes||0} ${esc(t('lbl.min'))})</span>
       <span class="pill info">${EN()?'leave':'ลา'} ${me.leaveDays||0}</span>
@@ -3650,7 +3696,21 @@
      * not 16" has an answer on the screen rather than in the spreadsheet. */
     if(f==='ot'){
       const od=(me.otDays||[]);
-      setHTML('#mhBox', sum + (od.length?od.map(o=>{
+      // the money, not just the hours — an OT list a teacher reads is a list of what they are owed
+      const paidRows=od.filter(o=>o.status!=='REJECTED');
+      const otMoney=paidRows.reduce((a,o)=>a+(Number(o.amount)||0),0);
+      const c=MY_OT_CARRY;
+      const otSum=`<div class="card" style="padding:8px;background:var(--surface-2)">
+        <div class="spread"><b>${EN()?'OT this period':'OT ในช่วงนี้'}</b><b style="color:var(--ok)">${esc(baht(otMoney))}</b></div>
+        <div class="row" style="gap:6px;margin-top:4px;flex-wrap:wrap">
+          <span class="pill wait">⏰ ${me.otHours||0} ${EN()?'hr':'ชม.'}</span>
+          ${me.holidayOTDays?`<span class="pill ok">🎉 ${me.holidayOTDays} ${EN()?'day(s)':'วัน'} · ${esc(baht(me.holidayOTAmount||0))}</span>`:''}
+          <span class="pill info">${od.length} ${EN()?'record(s)':'รายการ'}</span></div>
+        ${(c&&c.total>0)?`<div style="margin-top:6px;font-size:13px;color:var(--blue)">↩️ <b>${EN()?'Carried from earlier months':'OT ยกมาจากเดือนก่อน'}</b> ${esc(baht(c.total))}${c.hours?` · ${c.hours} ${EN()?'hr':'ชม.'}`:''}
+          <br><small class="muted">${(c.detail||[]).map(d=>`${esc(monthNameYear(d.month))} ${esc(baht(d.amount))}${d.hours?` (${d.hours} ${EN()?'hr':'ชม.'})`:''}`).join(' · ')}</small></div>`
+          :`<div style="margin-top:6px;font-size:13px" class="muted">↩️ ${EN()?'Nothing carried over from earlier months.':'ไม่มี OT ยกมาจากเดือนก่อน'}</div>`}</div>`;
+      if(!MY_OT_CARRY) api('otCarryOver',{staffId:USER.staffId,month:ym(_r.from)}).then(cc=>{ MY_OT_CARRY=cc||null; if((($('#mhFilter')||{}).value)==='ot') T_myHistoryFilter(); }).catch(()=>{});
+      setHTML('#mhBox', sum + otSum + (od.length?od.map(o=>{
         const rej=o.status==='REJECTED';
         return `<div class="list-item"><span>${esc(ddmmyyyy(o.date))} ${o.kind==='HOLIDAY'?`<span class="pill ok">🎉 ${EN()?'holiday':'วันหยุด'}</span>`:''}${o.note?`<br><small class="muted">${esc(o.note)}</small>`:''}</span>
           <span style="font-size:13px;text-align:right${rej?';text-decoration:line-through;opacity:.6':''}">
@@ -3710,8 +3770,53 @@
       <div id="slipBox">${payslipCard(pay,month)}</div>
       <button class="btn outline block" onclick="T_slipDownload()">⬇️ ${esc(t('lbl.downloadSlip'))}</button>
       <details class="card" style="margin-top:10px" open><summary style="cursor:pointer;font-weight:700">${esc(t('ot.myOT'))}</summary>
+        ${periodPicker('myot')}
         <div id="myot" style="margin-top:8px"><small class="muted">${EN()?'Loading…':'กำลังโหลด…'}</small></div></details>`;
-    const myot=await p_ot; setHTML('#myot', myot.map(otRow).join('')||`<small class="muted">${esc(t('ot.none'))}</small>`);
+    MY_OT = await p_ot;
+    /* What was approved but never paid, from BEFORE this period. It is on the payslip as a line the
+     * teacher did not put there ("ค้างจ่าย OT เดือนก่อน"), and until now the only number attached to
+     * it was baht — so "OT ยกมา 300" could not be checked against the evenings anybody remembers.
+     * Fetched separately: it is a different question from "what did I do this month". */
+    api('otCarryOver',{staffId:USER.staffId,month:month}).then(c=>{ MY_OT_CARRY=c||null; T_myOTRender(); }).catch(()=>{});
+    T_myOTRender();
+  };
+  /* ---- my OT, over a period I choose --------------------------------------------------------
+   * It was "this month, take it or leave it". A teacher checking their pay wants a week (the days
+   * they remember) or a year (what the job actually paid), and wants the total in front of them
+   * rather than added up by eye down a list of twenty rows.
+   */
+  let MY_OT=[], MY_OT_CARRY=null, MY_OT_KIND='month', MY_OT_ANCHOR='';
+  const periodPicker = (id) => `<div class="row" style="gap:6px;margin-top:8px;flex-wrap:wrap">
+    <select id="${id}Kind" onchange="T_period('${id}',this.value,null)" style="flex:0 0 auto">
+      ${PERIOD_KINDS.map(k=>`<option value="${k}"${k==='month'?' selected':''}>${esc({week:EN()?'This week':'รายสัปดาห์',month:EN()?'This month':'รายเดือน',quarter:EN()?'Quarter':'ราย 3 เดือน',year:EN()?'Year':'รายปี'}[k])}</option>`).join('')}
+    </select>
+    <input type="date" id="${id}Anchor" value="${todayStr()}" onchange="T_period('${id}',null,this.value)" style="flex:1;min-width:140px"/></div>`;
+  window.T_period=(id,kind,anchor)=>{
+    if(id==='myot'){ if(kind!=null) MY_OT_KIND=kind; if(anchor!=null) MY_OT_ANCHOR=anchor; T_myOTRender(); }
+    else { if(kind!=null) MH_KIND=kind; if(anchor!=null) MH_ANCHOR=anchor; T_myHistoryPeriod(); }
+  };
+  window.T_myOTRender=()=>{
+    const el=document.getElementById('myot'); if(!el) return;
+    const r=periodRange(MY_OT_KIND, MY_OT_ANCHOR||todayStr());
+    const rows=(MY_OT||[]).filter(o=>inPeriod(o.Date,r));
+    const live=rows.filter(o=>String(o.Status||'').toUpperCase()!=='REJECTED');
+    const hol=live.filter(isLiveHolOT);
+    const hours=live.filter(o=>!isHolOT(o)).reduce((a,o)=>a+(Number(o.Hours)||0),0);
+    const daily=live.filter(o=>!isHolOT(o)).reduce((a,o)=>a+(Number(o.Amount)||0),0);
+    const holAmt=hol.reduce((a,o)=>a+(Number(o.Amount)||0),0);
+    const c=MY_OT_CARRY;
+    el.innerHTML=`<div class="card" style="padding:8px;background:var(--surface-2)">
+        <div class="spread"><b>${esc(r.label)}</b><b style="color:var(--ok)">${esc(baht(daily+holAmt))}</b></div>
+        <div class="row" style="gap:6px;margin-top:4px;flex-wrap:wrap">
+          <span class="pill wait">⏰ ${EN()?'evening OT':'OT ตอนเย็น'} ${Math.round(hours*100)/100} ${EN()?'hr':'ชม.'} · ${esc(baht(daily))}</span>
+          ${hol.length?`<span class="pill ok">🎉 ${EN()?'holiday OT':'OT วันหยุด'} ${hol.length} ${EN()?'day(s)':'วัน'} · ${esc(baht(holAmt))}</span>`:''}
+          <span class="pill info">${rows.length} ${EN()?'record(s)':'รายการ'}</span></div>
+        ${(c&&c.total>0)?`<div style="margin-top:6px;font-size:13px;color:var(--blue)">
+          ↩️ <b>${EN()?'Carried from earlier months':'OT ยกมาจากเดือนก่อน'}</b> ${esc(baht(c.total))}${c.hours?` · ${c.hours} ${EN()?'hr':'ชม.'}`:''}
+          <br><small class="muted">${(c.detail||[]).map(d=>`${esc(monthNameYear(d.month))} ${esc(baht(d.amount))}${d.hours?` (${d.hours} ${EN()?'hr':'ชม.'})`:''}`).join(' · ')}
+          — ${EN()?'approved after that month’s payslip was saved, so it is paid on a line of its own.':'อนุมัติหลังจากสลิปเดือนนั้นออกไปแล้ว จึงจ่ายเป็นบรรทัดแยก'}</small></div>`
+          :`<div style="margin-top:6px;font-size:13px" class="muted">↩️ ${EN()?'Nothing carried over from earlier months.':'ไม่มี OT ยกมาจากเดือนก่อน'}</div>`}</div>
+      ${rows.map(otRow).join('')||`<small class="muted">${esc(t('ot.none'))}</small>`}`;
   };
   // staff/admin own profile (opened by tapping the header name/avatar)
   window.T_profile = async () => { setNav('home');
@@ -3790,7 +3895,10 @@
     // no slip AND no preview: say so, rather than dying on r.StaffID and leaving the screen empty
     if(!r) return `<div class="card"><b>${EN()?'No payslip for this month yet':'ยังไม่มีสลิปเงินเดือนของเดือนนี้'}${month?` · ${esc(month)}`:''}</b>
       <br><small class="muted">${EN()?'It appears once the school has run payroll for this month.':'สลิปจะขึ้นเมื่อโรงเรียนคำนวณเงินเดือนของเดือนนี้แล้ว'}</small></div>`;
-    return `<div class="card"><h3>สลิป ${esc(staffName(r.StaffID))} · ${esc(r.Month)}</h3>
+    /* PAYROLL.Month is written as 'YYYY-MM' and comes back from Sheets as a DATE, so printing it raw
+     * put "2026-08-01T04:00:00.000Z" at the top of a payslip. monthNameYear takes either shape and
+     * says สิงหาคม 2569 — this is the heading of a document about somebody's pay. */
+    return `<div class="card"><h3>สลิป ${esc(staffName(r.StaffID))} · ${esc(monthNameYear(r.Month))}</h3>
     ${r.LeaveExceeds?`<div style="background:var(--warn-bg);border:1px solid var(--warn-line);border-radius:8px;padding:6px 9px;margin-bottom:6px;color:var(--warn);font-size:13px">⚠️ ลาเกิน ${r.LeaveLimit||3} วัน (ลารวม ${r.LeaveDays} วัน) — ไม่คำนวณเรทจำนวนเด็ก</div>`:''}
     <table style="width:100%;font-size:14px;border-collapse:collapse">
     <tr><td>เงินเดือน</td><td style="text-align:right">${baht(r.BaseSalary)}</td></tr>

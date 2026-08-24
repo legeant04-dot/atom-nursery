@@ -297,20 +297,47 @@ function otCarryOver_(staffId, month) {
       if (cm) carriedFor[cm] = round2_((carriedFor[cm] || 0) + num_(c && c.amount));
     });
   });
+  /* HOW MANY HOURS IS THE CARRY-OVER? The teacher's question, and the slip only ever said baht.
+   * The carry is an AMOUNT (that is how it is paid), so the hours behind it are that amount's share
+   * of the month it came from: fully unpaid month → all of its hours; half of it → half. Reported
+   * so a teacher can check "OT ยกมา 300 บาท" against the three evenings they remember working. */
+  var approvedHrs = otApprovedHoursByMonth_(staffId);
   var detail = [], total = 0;
   Object.keys(paidFor).forEach(function (m) {
     var unpaid = round2_((approved[m] || 0) - paidFor[m] - (carriedFor[m] || 0));
-    if (unpaid > 0.5) { detail.push({ month: m, amount: unpaid }); total = round2_(total + unpaid); }
+    if (unpaid > 0.5) {
+      var share = (approved[m] > 0) ? (unpaid / approved[m]) : 0;
+      detail.push({ month: m, amount: unpaid, hours: round2_((approvedHrs[m] || 0) * share) });
+      total = round2_(total + unpaid);
+    }
   });
   detail.sort(function (a, b) { return a.month < b.month ? -1 : (a.month > b.month ? 1 : 0); });
   return { total: total, detail: detail };
+}
+
+/** APPROVED daily-OT HOURS per month — the hours behind otApprovedByMonth_'s amounts. Holiday OT is
+ *  a lump sum with no hours and is excluded there, so it is excluded here too. */
+function otApprovedHoursByMonth_(staffId) {
+  var out = {};
+  readObjects_(sheet_(getHrSpreadsheet_(), 'OT_RECORDS')).forEach(function (r) {
+    if (String(r.StaffID) !== String(staffId)) return;
+    var st = String(r.Status || '').toUpperCase();
+    if (st && st !== 'APPROVED') return;
+    if (otIsHoliday_(r)) return;
+    var m = ym7_(r.Month) || monthOf_(r.Date);
+    if (!m) return;
+    out[m] = round2_((out[m] || 0) + num_(r.Hours));
+  });
+  return out;
 }
 
 /** Route: { staffId, month } -> unpaid OT carried from earlier months (shown on the payroll screen). */
 function handleOtCarryOver(p) {
   p = p || {};
   var c = otCarryOver_(p.staffId, p.month || dateStr_(new Date()).slice(0, 7));
-  return { staffId: p.staffId, month: p.month, total: c.total, detail: c.detail };
+  var hrs = 0;
+  (c.detail || []).forEach(function (d) { hrs = round2_(hrs + num_(d.hours)); });
+  return { staffId: p.staffId, month: p.month, total: c.total, hours: hrs, detail: c.detail };
 }
 
 /** Route: { staffId, month } -> stored payroll (for slip view). */
