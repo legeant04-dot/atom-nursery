@@ -69,7 +69,10 @@ SCHEMA[WB.MAIN] = {
   // PaymentMethod = transfer | cash; TransactionDate = when the parent notified payment; PaidDate set on Admin confirm.
   OT_DAILY:          ['OTID', 'Date', 'StudentID', 'PickupTime', 'PlanEnd', 'LateMinutes', 'Hours', 'Amount', 'Status', 'SlipRef', 'SlipAmount', 'PaymentMethod', 'TransactionDate', 'PaidDate'],
   // Growth measurement history feeding the development line charts
-  GROWTH_RECORDS:    ['Date', 'StudentID', 'AgeMonth', 'Weight', 'Height'],
+  // RecordedBy/RecordedAt appended at END: who put this measurement in, so the teacher who took it
+  // can correct their own without being able to touch anybody else's. Rows written before this
+  // exists have neither — see growthCanEdit_ for what that means (only a head teacher or an admin).
+  GROWTH_RECORDS:    ['Date', 'StudentID', 'AgeMonth', 'Weight', 'Height', 'RecordedBy', 'RecordedAt'],
   // Holiday database (editable per year) merged into the shared calendar
   // StartTime/EndTime appended at END: a holiday can be HALF a day ("19/08 08:00–12:30"). Both blank
   // = the whole day, which is how every holiday entered before these existed behaved.

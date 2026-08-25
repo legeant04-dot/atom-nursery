@@ -127,9 +127,16 @@ console.log('\n5) Orderings that had a reason are not lost to alphabetical');
 
 console.log('\n6) Nothing time-ordered was alphabetised by mistake');
 {
-  // a log read alphabetically instead of newest-first would be worse than useless
-  ['payment history', 'activity log', 'growth records'].forEach(() => {});
-  ok_('the payment history is still newest-first', /sort\(\(a,b\)=>b\.Date\.localeCompare\(a\.Date\)\)/.test(app));
+  /* A log read alphabetically instead of newest-first would be worse than useless.
+   *
+   * This check was labelled "the payment history" and matched `b.Date.localeCompare(a.Date)`
+   * ANYWHERE in app.js — there is no payment-history sort of that shape, so it had been passing on
+   * whichever other list happened to use the same expression, and went red the moment the GROWTH
+   * list was rewritten (v279). A check that can be satisfied by a line it was not written about is
+   * not guarding anything. Named lists now, each asserted where it actually lives. */
+  ok_('the growth history reads newest-first',
+    /\.sort\(\(a,b\)=>String\(b\.Date\)\.localeCompare\(String\(a\.Date\)\)\)\s*\n\s*\.map\(r=>`<div class="list-item"><span>\$\{esc\(ddmmyyyy\(r\.Date\)\)\}/.test(app));
+  ok_('my holiday OT reads newest-first', /rows\.filter\(isLiveHolOT\)\.sort\(\(a,b\)=>String\(b\.Date\)\.localeCompare\(String\(a\.Date\)\)\)/.test(app));
   ok_('announcements still respect priority then date', /Number\(b\.Priority\|\|0\)-Number\(a\.Priority\|\|0\)/.test(app));
   ok_('student leave rows still read newest-first', /s\.leaves\.sort\(\(a,b\)=>String\(b\.Date\)\.localeCompare\(String\(a\.Date\)\)\)/.test(app));
 }

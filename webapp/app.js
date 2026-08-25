@@ -112,7 +112,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.278'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.279'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -5092,13 +5092,52 @@
         ${growthChartSVG(t('growth.weight'),g.records.map(r=>({x:r.AgeMonth,y:r.Weight})),gBand(g.weightBand,g.gender,g.records,'weight'),'kg')}
         ${growthChartSVG(t('growth.height'),g.records.map(r=>({x:r.AgeMonth,y:r.Height})),gBand(g.heightBand,g.gender,g.records,'height'),'cm')}
         <div class="row" style="font-size:13px;justify-content:center;margin-top:6px"><span>🟦 ${esc(t('growth.actual'))}</span><span>🟩 ${esc(t('growth.normalBand'))}</span></div>
-        ${growthRecordsList(g.records)}</div>
+        ${growthRecordsList(g.records, sid)}</div>
       ${d.bands.map(b=>`<div class="card"><h3>${esc(ageBandLabel(b.label))}</h3>${b.items.map(i=>`<div class="list-item"><span><b>ข้อ ${i.itemNo}</b> <span class="pill info">${i.skill}</span> <small>${esc(EN()&&i.descriptionEN?i.descriptionEN:i.description)}</small></span>${pill(i.result)}</div>`).join('')}</div>`).join('')}
       <button class="btn outline" onclick="GO('dspm')">← กลับหน้าวิเคราะห์</button>`; window.scrollTo(0,0); };
-  // measurement history list (date · age-at-measurement · weight/height)
-  function growthRecordsList(records, dob){ if(!records||!records.length) return '';
-    const rows=records.slice().sort((a,b)=>b.Date.localeCompare(a.Date)).map(r=>`<div class="list-item"><span>${esc(r.Date)} <small class="muted">(${esc(ageYMfromMonths(r.AgeMonth))})</small></span><span>${r.Weight?baht(r.Weight).replace('.00','')+' kg':''} ${r.Height?'· '+(baht(r.Height).replace('.00',''))+' cm':''}</span></div>`).join('');
-    return `<div style="margin-top:8px"><b style="font-size:13px">📋 ${esc(t('growth.records'))}</b>${rows}</div>`; }
+  /**
+   * measurement history list (date · age-at-measurement · weight/height)
+   *
+   * @param {string} sid  pass it to get ✏️/🗑️ on each row. น้องเบรฟ had the same 10 kg · 76 cm
+   *   recorded three times on one day and there was no way to remove two of them: growth rows were
+   *   only ever appended, and the chart a nurse reads was stuck with whatever had been typed.
+   *   The server decides WHO may (growthCanEdit_); this only offers the buttons.
+   */
+  function growthRecordsList(records, sid){ if(!records||!records.length) return '';
+    const canEdit=!!sid;
+    const num=v=>String(v).replace(/\.00$/,'');
+    // newest first to read, but the row's `idx` is the server's handle and must travel unchanged
+    const rows=records.map((r,i)=>Object.assign({idx:(r.idx!=null?r.idx:i)},r))
+      .sort((a,b)=>String(b.Date).localeCompare(String(a.Date)))
+      .map(r=>`<div class="list-item"><span>${esc(ddmmyyyy(r.Date))} <small class="muted">(${esc(ageYMfromMonths(r.AgeMonth))})</small>
+        ${r.RecordedBy?`<br><small class="muted">${EN()?'recorded by':'บันทึกโดย'} ${_notr(staffNick(r.RecordedBy))}</small>`:''}</span>
+      <span style="text-align:right">${r.Weight?num(baht(r.Weight))+' kg':''}${r.Height?' · '+num(baht(r.Height))+' cm':''}
+        ${canEdit?`<br><button class="btn sm outline" style="margin-top:4px" onclick="G_edit('${esc(sid)}',${r.idx},'${esc(ymd(r.Date))}',${Number(r.Weight)||0},${Number(r.Height)||0})" aria-label="${EN()?'Edit':'แก้ไข'}" title="${EN()?'Edit':'แก้ไข'}">✏️</button>
+          <button class="btn sm pink" style="margin-top:4px" onclick="G_del('${esc(sid)}',${r.idx},'${esc(ymd(r.Date))}',${Number(r.Weight)||0},${Number(r.Height)||0})" aria-label="${EN()?'Delete':'ลบ'}" title="${EN()?'Delete':'ลบ'}">🗑️</button>`:''}</span></div>`).join('');
+    return `<div style="margin-top:8px"><b style="font-size:13px">📋 ${esc(t('growth.records'))}</b>${rows}
+      ${canEdit?`<small class="muted" style="display:block;margin-top:4px">${EN()
+        ? 'A teacher can correct a measurement they recorded; a head teacher or an admin can correct any of them.'
+        : 'คุณครูแก้ไขได้เฉพาะรายการที่ตนเองบันทึก · หัวหน้าครูและแอดมินแก้ไขได้ทุกรายการ'}</small>`:''}</div>`; }
+  /* The correction itself. The values the row was SHOWING travel with it: the rows have no id and
+   * Date+Student is not unique, so the server checks them before it writes and refuses if the list
+   * moved underneath (see growthFind_). Rewriting a different measurement is not an acceptable way
+   * to fail on a chart a nurse reads. */
+  window.G_edit=(sid,idx,date,w,h)=>{
+    modal(`<h3>✏️ ${EN()?'Correct this measurement':'แก้ไขบันทึกการเจริญเติบโต'}</h3>
+      <label class="field"><span>${EN()?'Date measured':'วันที่ชั่ง/วัด'}</span><input type="date" id="ge_d" value="${esc(date)}" max="${esc(todayStr())}"/></label>
+      <div class="grid2"><label class="field"><span>${EN()?'Weight (kg)':'น้ำหนัก (กก.)'}</span><input type="number" step="0.1" min="0" id="ge_w" value="${esc(String(w||''))}"/></label>
+        <label class="field"><span>${EN()?'Height (cm)':'ส่วนสูง (ซม.)'}</span><input type="number" step="0.1" min="0" id="ge_h" value="${esc(String(h||''))}"/></label></div>
+      <button class="btn block" onclick="G_editDo('${esc(sid)}',${idx},'${esc(date)}',${w},${h},this)">${esc(t('c.save'))}</button>`); };
+  window.G_editDo=async(sid,idx,wasD,wasW,wasH,btn)=>{ const m=btn.closest('.modal'); const v=x=>{const e=m.querySelector(x);return e?e.value.trim():'';};
+    btn.disabled=true;
+    try{ await api('editGrowth',{studentId:sid,idx,wasDate:wasD,wasWeight:wasW,wasHeight:wasH,
+        date:v('#ge_d'),weight:v('#ge_w'),height:v('#ge_h'),staffId:USER.staffId,role:USER.role});
+      m.remove(); confirmSaved(t('c.saved')); GO(CURRENT); }catch(e){ err(e); btn.disabled=false; } };
+  window.G_del=async(sid,idx,wasD,wasW,wasH)=>{
+    if(!confirm(EN()?`Delete the measurement of ${ddmmyyyy(wasD)} (${wasW} kg · ${wasH} cm)? The growth chart will be redrawn without it.`
+      :`ลบบันทึกวันที่ ${ddmmyyyy(wasD)} (${wasW} กก. · ${wasH} ซม.) ใช่หรือไม่? กราฟการเจริญเติบโตจะถูกวาดใหม่โดยไม่มีรายการนี้`)) return;
+    try{ await api('deleteGrowth',{studentId:sid,idx,wasDate:wasD,wasWeight:wasW,wasHeight:wasH,staffId:USER.staffId,role:USER.role});
+      confirmSaved(EN()?'Deleted':'ลบแล้ว'); GO(CURRENT); }catch(e){ err(e); } };
   // vaccine record card. Each vaccine topic supports MULTIPLE dose dates (some vaccines need several shots).
   // recs come from studentVaccines → each has {Key, VaccineName, Dates:[...]}.
   // editable=true → parent/Admin add/remove dose dates per topic, then one Save button (→ saveVaccines).
