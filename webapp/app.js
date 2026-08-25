@@ -112,7 +112,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.275'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.276'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -1505,7 +1505,15 @@
              <b style="color:var(--warn)">⏳ ${EN()?'Not due to attend yet':'ยังไม่ถึงกำหนดเข้าเรียน'}</b>
              ${k.pauseFrom?`<br><small class="muted">${EN()?'from':'ตั้งแต่'} ${esc(k.pauseFrom)}${k.pauseTo?` ${EN()?'to':'ถึง'} ${esc(k.pauseTo)}`:''}</small>`:''}
              ${k.pauseReason?`<br><small class="muted">${esc(k.pauseReason)}</small>`:''}</div>`
-        : `<div class="row" style="margin-top:12px;gap:10px"><button class="btn green" ${doneBtn(din)} onclick="P_punch('${k.StudentID}','IN',this)">🟢 ${din?(EN()?'Dropped off ':'ส่งแล้ว ')+esc(din):(EN()?'Drop off':'ส่งเข้าเรียน')}</button><button class="btn pink" ${doneBtn(dout)} onclick="P_punch('${k.StudentID}','OUT',this)">🔴 ${dout?(EN()?'Picked up ':'รับแล้ว ')+esc(dout):(EN()?'Pick up':'รับกลับ')}</button></div>`}</div>`; }).join('');
+        : `<div class="row" style="margin-top:12px;gap:10px"><button class="btn green" ${doneBtn(din)} onclick="P_punch('${k.StudentID}','IN',this)">🟢 ${din?(EN()?'Dropped off ':'ส่งแล้ว ')+esc(din):(EN()?'Drop off':'ส่งเข้าเรียน')}</button><button class="btn pink" ${doneBtn(dout)} onclick="P_punch('${k.StudentID}','OUT',this)">🔴 ${dout?(EN()?'Picked up ':'รับแล้ว ')+esc(dout):(EN()?'Pick up':'รับกลับ')}</button></div>
+             ${/* WHERE THE TWO BUTTONS WORK FROM, said once, where the thumb already is. Drop-off is
+                  allowed from anywhere — a parent who forgot at the gate can tap it from the car, and
+                  many did not know that. Pick-up is fenced, because it is a safety record and it
+                  starts the late-pickup charge. Both halves in one line, or the half people remember
+                  is the wrong one. Asked 2026-08-25. */''}
+             <div style="margin-top:6px;font-size:12.5px;line-height:1.5;color:var(--ink-3)">
+               🟢 <b style="color:var(--ok)">${EN()?'Drop off':'ส่งเข้าเรียน'}</b> ${EN()?'— tap from anywhere, any time.':'— กดได้จากทุกที่ ทุกเวลา ไม่ต้องอยู่ที่โรงเรียน'}
+               <br>🔴 <b style="color:var(--bad)">${EN()?'Pick up':'รับกลับ'}</b> ${EN()?'— tap when you are at the school.':'— กดตอนที่มาถึงโรงเรียนแล้ว'}</div>`}</div>`; }).join('');
     /**
    * What the family still owes, right under the drop-off / pick-up card — the place they already
    * look every morning. Tapping it goes to the payment screen; it is the whole card, not a small
@@ -2346,7 +2354,30 @@
       api('journalHistory',{studentId:sid}),api('journalInjuries',{studentId:sid}).catch(()=>[])]);
     const kid=(kids||[]).find(k=>k.StudentID===sid)||{};
     app.innerHTML=`<h2 class="page">${esc(t('title.journal'))}${kids.length===1?` · <span style="color:var(--blue)">${esc(dispNick(kid)||sid)}</span>`:''}</h2>${childSwitcher(kids,sid,'P_journal')}${injJournalHTML(inj)}${j?journalChecklist(j,{parentEditable:true}):journalEmptyCard(kid)}
-      <h3 class="page" style="font-size:16px">ย้อนหลัง</h3>${hist.map(h=>`<div class="list-item"><span>${esc(h.Date)} · ${esc(MOODS[h.Mood]||'')} ${esc(h.Mood||'')}</span><button class="btn sm outline" onclick="P_showJ('${h.StudentID}','${h.Date}')">ดู</button></div>`).join('')||'<small class="muted">ไม่มี</small>'}`;
+      ${/* A MONTH AT A TIME. The history was every journal the child has ever had, oldest to newest,
+           in one list — a family a year in scrolls past three hundred rows to find last Tuesday.
+           Default is THIS month, which is what somebody opening the screen is looking for; the
+           dropdown holds only the months that actually have entries, so it never offers an empty one.
+           Asked 2026-08-25. */''}
+      <div class="spread" style="margin:10px 2px 4px"><h3 class="page" style="font-size:16px;margin:0">${EN()?'History':'ย้อนหลัง'}</h3>
+        <select id="pjMonth" onchange="P_jHistFilter()" style="width:auto">${
+          [...new Set((hist||[]).map(h=>ym(h.Date)))].sort().reverse()
+            .map(m=>`<option value="${esc(m)}"${m===monthStr()?' selected':''}>${esc(monthNameYear(m))}</option>`).join('')
+            || `<option value="">${EN()?'no entries':'ยังไม่มี'}</option>`}</select></div>
+      <div id="pjHist"></div>`;
+    window._PJ_HIST=hist||[];
+    P_jHistFilter();
+  };
+  window.P_jHistFilter=()=>{
+    const el=document.getElementById('pjHist'); if(!el) return;
+    const sel=document.getElementById('pjMonth');
+    // a child whose entries are all in past months would otherwise open on an empty screen
+    let m=(sel&&sel.value)||'';
+    const all=window._PJ_HIST||[];
+    if(m && !all.some(h=>ym(h.Date)===m)){ m=[...new Set(all.map(h=>ym(h.Date)))].sort().pop()||''; if(sel&&m) sel.value=m; }
+    const rows=all.filter(h=>!m||ym(h.Date)===m);
+    el.innerHTML = rows.map(h=>`<div class="list-item"><span>${esc(ddmmyyyy(h.Date))} · ${esc(MOODS[h.Mood]||'')} ${esc(h.Mood||'')}</span><button class="btn sm outline" onclick="P_showJ('${h.StudentID}','${h.Date}')">${EN()?'View':'ดู'}</button></div>`).join('')
+      || `<small class="muted">${EN()?'No entries in this month':'เดือนนี้ยังไม่มีบันทึก'}</small>`;
   };
   window.P_showJ=async(sid,date)=>{ const [j,inj]=await Promise.all([api('getJournal',{studentId:sid,date}),api('journalInjuries',{studentId:sid,date}).catch(()=>[])]);
     app.innerHTML=`<h2 class="page">📒 ${esc(date)}</h2>${injJournalHTML(inj)}${journalChecklist(j,{parentEditable:true})}<button class="btn outline" onclick="GO('journal')">← กลับ</button>`; window.scrollTo(0,0); };
@@ -2456,7 +2487,13 @@
           <p class="muted" style="font-size:13px">ℹ️ ยังไม่มีเกณฑ์ประเมินพัฒนาการสำหรับช่วงวัยนี้ (อายุ ${ageMo} เดือน) — เมื่อโรงเรียนเพิ่มเกณฑ์ตามคู่มือ DSPM ของช่วงวัยนี้แล้ว รายการประเมินจะแสดงที่นี่</p></div>`;
     app.innerHTML=`<h2 class="page">📋 ${esc(t('title.dspm'))}${(kidsD&&kidsD.length>1)?'':` · <span style="color:var(--blue)">${esc(dispNick(st)||sid)}</span>`}</h2>${childSwitcher(kidsD,sid,'P_dspm')}
       ${assessCard}
-      ${past.length?`<h3 class="page" style="font-size:16px">📜 ${EN()?'Earlier results (previous age bands)':'ผลย้อนหลัง (ช่วงวัยก่อนหน้า)'}</h3>`+past.reverse().map(b=>`<div class="card"><h3 style="font-size:14px">${esc(ageBandLabel(b.label))}</h3>${b.items.map(i=>`<div class="list-item"><span><b>${EN()?'Item':'ข้อ'} ${i.itemNo}</b> <span class="pill info">${i.skill}</span> <small>${esc(EN()&&i.descriptionEN?i.descriptionEN:i.description)}</small></span>${DSPM_PILL(i.result)}</div>`).join('')}</div>`).join(''):''}`;
+      ${/* FOLDED SHUT. Every band a child has ever been assessed in, opened at full height under the
+           band that is actually current — the older the child, the more of the screen is history.
+           It is a record to look back at, not the answer to "how is my child doing now".
+           Asked 2026-08-25, same reason as the vaccine card. */''}
+      ${past.length?`<details class="card"><summary style="cursor:pointer;font-weight:700">📜 ${EN()?'Earlier results (previous age bands)':'ผลย้อนหลัง (ช่วงวัยก่อนหน้า)'}
+          <span class="pill info" style="font-size:11px">${past.length} ${EN()?'band(s)':'ช่วงวัย'}</span></summary>
+        <div style="margin-top:8px">`+past.reverse().map(b=>`<div class="card" style="padding:8px"><h3 style="font-size:14px">${esc(ageBandLabel(b.label))}</h3>${b.items.map(i=>`<div class="list-item"><span><b>${EN()?'Item':'ข้อ'} ${i.itemNo}</b> <span class="pill info">${i.skill}</span> <small>${esc(EN()&&i.descriptionEN?i.descriptionEN:i.description)}</small></span>${DSPM_PILL(i.result)}</div>`).join('')}</div>`).join('')+`</div></details>`:''}`;
   };
 
   SCREENS.Parent.chat = async () => { const line=MOCK.config.Links.line||'#';
@@ -5053,6 +5090,20 @@
             <button class="btn sm outline" type="button" onclick="VAC_addDate('${esc(it.key)}')" style="margin-top:4px">➕ ${EN()?'Add dose date':'เพิ่มวันที่ฉีด'}</button></div>`; }
         return `<div class="list-item"><span style="font-size:13px">${esc(EN()?it.en:it.th)}</span>`
           +(dates.length?`<span>${dates.map(d=>`<span class="pill ok">✓ ${esc(d)}</span>`).join(' ')}</span>`:`<span class="pill wait">${esc(t('vac.notYet'))}</span>`)+`</div>`; }).join('')}</div>`).join('');
+    /* FOLDED SHUT for the parent. The full schedule is about thirty rows across six age bands, and
+     * it opened at full height under the growth chart — a parent looking for their child's weight
+     * had to scroll past every vaccine they have ever had. It is a REFERENCE, consulted a few times
+     * a year, not something to read on the way past. The count of doses recorded rides on the
+     * summary line so it is worth opening or it is not. Editing (admin/teacher) stays open: the
+     * whole point of that screen is the form.
+     * Asked 2026-08-25: "ให้ทำเป็น Filter ซ่อนไว้ เนื่องจากเปิดมาแล้วกินพื้นที่ของหน้าจอ" */
+    if(!editable){
+      const done=sched.reduce((a,g)=>a+g.items.filter(it=>vacDatesOf(recs,it.key).length).length,0);
+      const all=sched.reduce((a,g)=>a+g.items.length,0);
+      return `<details class="card" id="vaccard" data-sid="${esc(sid)}"><summary style="cursor:pointer;font-weight:700">💉 ${esc(t('vac.title'))}
+        <span class="pill ${done?'ok':'wait'}" style="font-size:11px">${done}/${all}</span></summary>
+        <div style="margin-top:8px">${body}</div></details>`;
+    }
     return `<div class="card" id="vaccard" data-sid="${esc(sid)}"><h3>💉 ${esc(t('vac.title'))}</h3>
       ${editable?`<p class="muted" style="font-size:13px">${esc(t('vac.note'))}</p>`:''}
       ${body}
