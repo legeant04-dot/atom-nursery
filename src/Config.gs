@@ -44,7 +44,12 @@ SCHEMA[WB.MAIN] = {
                       'InsuranceHas', 'InsurancePolicyNo', 'InsuranceCompany', 'InsuranceExpiry', 'InsuranceCardImage',
                       'DriveFolderUrl', 'WithdrawReason', 'WithdrawDetail', 'WithdrawDate', 'WithdrawBy',
                       'Status', 'CreatedDate',
-                      'OTRate'],   // per-student late-pickup OT rate/hour; blank = SCHOOL_CONFIG OTRatePerHour
+                      'OTRate',    // per-student late-pickup OT rate/hour; blank = SCHOOL_CONFIG OTRatePerHour
+                      // WHICH DAY OF THE MONTH THIS FAMILY PAYS ON. Families do not all get paid on
+                      // the same day, so the school agrees a date per child ("ทุกวันที่ 15"). It is
+                      // the bill's DueDate — which was hard-coded to the 5th for everybody, so every
+                      // other family was overdue on paper from the 6th. Blank = BillingDueDay.
+                      'BillingDay'],
   CLASSES:           ['ClassID', 'ClassName', 'TeacherID', 'AgeRange', 'Capacity'],
   // Photo / RegisterPhotoUrl = the MANDATORY live-capture photo taken at registration ("New Register Photo"
   // Drive folder), used as an identity/security check when signing in.

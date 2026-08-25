@@ -135,7 +135,9 @@ function handleSaveStudent(p) {
   // per-student OT rate + schedule + OT-free cutoff + parent note + monthly discount, and how the
   // FIRST month is charged when the child starts mid-month (ProrateMode/ProrateAmount)
   try { ensureColumns_(sh, ['OTRate', 'StartTime', 'EndTime', 'OTGraceUntil', 'RateNote', 'DiscountAmount', 'DiscountUnit',
-    'ProrateMode', 'ProrateAmount', 'PauseFrom', 'PauseTo', 'PauseReason']); } catch (e) {}
+    'ProrateMode', 'ProrateAmount', 'PauseFrom', 'PauseTo', 'PauseReason',
+    // the day of the month this family pays on — writeRows_ drops a field with no column, silently
+    'BillingDay']); } catch (e) {}
   var row = mapName_(p.data || {});
   var st = findObject_(sh, function (s) { return String(s.StudentID) === String(p.studentId); });
   if (!st) throw apiError_('NOT_FOUND', 'ไม่พบนักเรียน ' + p.studentId);
