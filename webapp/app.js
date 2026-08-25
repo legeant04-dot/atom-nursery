@@ -112,7 +112,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.280'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.281'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -2432,8 +2432,21 @@
    * a raw id on the parent's, because that cache is only ever filled for an admin.
    * Nothing is printed for an item nobody has assessed yet — there is no name to give.
    */
+  /**
+   * A NAME, AND WHETHER YOU CAN STILL GO AND ASK THEM.
+   *
+   * A record keeps the name of whoever wrote it for as long as the record exists, which is longer
+   * than some people stay. Dropping the name when they leave would erase who did the work; printing
+   * it unmarked suggests somebody who is not here. So it is marked "(ออกแล้ว)", in red — the school's
+   * decision, 2026-08-25. Correcting the record hands it to whoever corrected it (editGrowth), so a
+   * figure a head teacher fixed last week stops reading as the work of a teacher who left in May.
+   */
+  const SIGNED_BY=(nick,left)=>{ if(!nick) return '';
+    return left
+      ? `<span style="color:var(--bad)">${_notr(nick)} (${EN()?'left':'ออกแล้ว'})</span>`
+      : _notr(nick); };
   const DSPM_BY=i=>{ const n=i&&i.byNick; if(!n) return '';
-    return `<br><small class="muted">${EN()?'assessed by':'ประเมินโดย'} ${_notr(n)}${i.date?` · ${esc(ddmmyyyy(i.date))}`:''}</small>`; };
+    return `<br><small class="muted">${EN()?'assessed by':'ประเมินโดย'} ${SIGNED_BY(n,i.byLeft)}${i.date?` · ${esc(ddmmyyyy(i.date))}`:''}</small>`; };
   const DT_KEY={GM:'dom.GM',FM:'dom.FM',RL:'dom.RL',EL:'dom.EL',PS:'dom.PS'};
   const DT=new Proxy({},{get:(_,k)=>t(DT_KEY[k]||k)});
   // ---- MODULE 1: การเจริญเติบโต (weight/height chart + vaccine) — separate page ----
@@ -3729,14 +3742,14 @@
   window.T_growthSave = async (sid, gate)=>{ const w=+$('#guW').value||null, h=+$('#guH').value||null;
     if(!w||!h){toast(EN()?'Enter weight & height':'กรอกน้ำหนักและส่วนสูง');return;}
     const photo=photoVal(document,'guPhoto');
-    try{ await api('updateGrowth',{studentId:sid,weight:w,height:h,photo,date:growthDateVal()}); confirmSaved(t('growth.saved'));
+    try{ await api('updateGrowth',{studentId:sid,weight:w,height:h,photo,date:growthDateVal(),staffId:USER.staffId}); confirmSaved(t('growth.saved'));
       if(gate) T_assess(sid); else GO('class'); }catch(e){err(e);} };
   window.T_saveAssess=async(sid)=>{ const results=Object.keys(ASEL).map(k=>({itemNo:Number(k),result:ASEL[k]}));
     // also persist the growth fields shown below the assessment (weight/height/photo)
     const w=+$('#guW').value||null, h=+$('#guH').value||null; const photo=photoVal(document,'guPhoto');
     if(!results.length && !(w&&h)){toast(EN()?'Assess at least 1 item or enter weight/height':'เลือกผลอย่างน้อย 1 ข้อ หรือกรอกน้ำหนัก/ส่วนสูง');return;}
     try{ if(results.length) await api('submitAssessment',{studentId:sid,staffId:USER.staffId,results});
-      if(w&&h) await api('updateGrowth',{studentId:sid,weight:w,height:h,photo,date:growthDateVal()});
+      if(w&&h) await api('updateGrowth',{studentId:sid,weight:w,height:h,photo,date:growthDateVal(),staffId:USER.staffId});
       // stay in the assessment (re-render) so the teacher keeps working; history is always kept
       confirmSaved(EN()?'Saved — parent notified':'บันทึกแล้ว — แจ้งผู้ปกครอง'); T_assess(sid); }catch(e){err(e);} };
 
@@ -5124,7 +5137,7 @@
         ${/* the nickname comes from the SERVER (growthHistory.byNick). Looked up in the client's
              staff directory it would be a name on the admin's screen and a raw id on everyone
              else's — that cache is only ever filled for an admin. */''}
-        ${r.byNick?`<br><small class="muted">${EN()?'recorded by':'บันทึกโดย'} ${_notr(r.byNick)}</small>`:''}</span>
+        ${r.byNick?`<br><small class="muted">${EN()?'recorded by':'บันทึกโดย'} ${SIGNED_BY(r.byNick,r.byLeft)}</small>`:''}</span>
       <span style="text-align:right">${r.Weight?num(baht(r.Weight))+' kg':''}${r.Height?' · '+num(baht(r.Height))+' cm':''}
         ${canEdit?`<br><button class="btn sm outline" style="margin-top:4px" onclick="G_edit('${esc(sid)}',${r.idx},'${esc(ymd(r.Date))}',${Number(r.Weight)||0},${Number(r.Height)||0})" aria-label="${EN()?'Edit':'แก้ไข'}" title="${EN()?'Edit':'แก้ไข'}">✏️</button>
           <button class="btn sm pink" style="margin-top:4px" onclick="G_del('${esc(sid)}',${r.idx},'${esc(ymd(r.Date))}',${Number(r.Weight)||0},${Number(r.Height)||0})" aria-label="${EN()?'Delete':'ลบ'}" title="${EN()?'Delete':'ลบ'}">🗑️</button>`:''}</span></div>`).join('');
