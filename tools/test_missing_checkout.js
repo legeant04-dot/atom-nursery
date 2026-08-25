@@ -117,7 +117,10 @@ console.log('\n4) a parent with two children can tell whose history they are rea
 {
   ok_('the pick-up screen has nickname tabs', /\$\{childSwitcher\(kids, sid, 'P_ciHist'\)\}/.test(app));
   ok_('...and each tab loads that child', /window\.P_ciHist = async \(sid\) =>/.test(app));
-  ok_('the card repeats the name, so a screenshot is unambiguous', /<b>\$\{esc\(dispNick\(kid\)\)\}<\/b> <small class="muted">\$\{esc\(kid\.Class\|\|''\)\}/.test(app));
+  // v278: the history folded into a <details>, so the name moved onto the summary line — still on
+  // the card, still the first thing in a screenshot, just no longer inside a header that is now shut
+  ok_('the card repeats the name, so a screenshot is unambiguous',
+    /· \$\{esc\(dispNick\(kid\)\)\}\$\{kid\.Class\?' '\+esc\(kid\.Class\):''\}/.test(app));
   ok_('...and it no longer silently shows kids[0]', !/const hist=await api\('studentCheckinHistory',\{studentId:kids\[0\]\.StudentID\}\);/.test(app));
   ok_('the reason is written down', /Two children's mornings look\s*\n\s*\* much alike/.test(app));
 }

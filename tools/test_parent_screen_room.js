@@ -28,15 +28,21 @@ const app = R('webapp/app.js'), par = R('src/Parent.gs');
 console.log('\n1) the journal history is a month at a time');
 {
   ok_('there is a month dropdown', /<select id="pjMonth" onchange="P_jHistFilter\(\)"/.test(app));
-  ok_('...defaulting to this month', /m===monthStr\(\)\?' selected':''/.test(app));
-  ok_('...offering only months that have entries', /\[\.\.\.new Set\(\(hist\|\|\[\]\)\.map\(h=>ym\(h\.Date\)\)\)\]/.test(app));
-  ok_('...newest first, because that is what is being looked for', /\.sort\(\)\.reverse\(\)/.test(app));
+  /* v278: the three decisions behind one of these — offer only months that HAVE something, open on
+   * the current one, fall back to the newest — moved into monthOptions, because the drop-off/pick-up
+   * history grew the same dropdown and a second copy is the one that forgets the fallback. */
+  ok_('...built by the one helper', /<select id="pjMonth"[^>]*>\$\{monthOptions\(hist\)\}/.test(app));
+  ok_('...defaulting to this month', /const cur = ms\.indexOf\(monthStr\(\)\)>=0 \? monthStr\(\) : ms\[0\];/.test(app));
+  ok_('...offering only months that have entries',
+    /const monthsIn = list => \[\.\.\.new Set\(\(list\|\|\[\]\)\.map\(x=>ym\(x\.Date\)\)\.filter\(Boolean\)\)\]/.test(app));
+  ok_('...newest first, because that is what is being looked for', /\.sort\(\)\.reverse\(\);/.test(app));
   ok_('the list is filtered, not re-fetched', /window\._PJ_HIST=hist\|\|\[\];/.test(app));
   /* A CHILD WHOSE ENTRIES ARE ALL IN PAST MONTHS would otherwise land on an empty screen and look
-   * broken — a family who joined in July, opening this in September. Fall back to the newest month
-   * that HAS something rather than showing nothing. */
+   * broken — a family who joined in July, opening this in September. */
   ok_('a child with nothing this month falls back to their newest month',
-    /if\(m && !all\.some\(h=>ym\(h\.Date\)===m\)\)\{ m=\[\.\.\.new Set\(all\.map\(h=>ym\(h\.Date\)\)\)\]\.sort\(\)\.pop\(\)\|\|''/.test(app));
+    /ms\.indexOf\(monthStr\(\)\)>=0 \? monthStr\(\) : ms\[0\]/.test(app));
+  ok_('...and the filtering is the one helper too, not a second opinion',
+    /const rowsInMonth = \(list, m\) => \(list\|\|\[\]\)\.filter\(x=>!m\|\|ym\(x\.Date\)===m\);/.test(app));
   ok_('...and an empty month says so rather than going blank', /เดือนนี้ยังไม่มีบันทึก/.test(app));
   ok_('dates are printed the way the rest of the app prints them', /esc\(ddmmyyyy\(h\.Date\)\)/.test(app));
 }
@@ -61,6 +67,19 @@ console.log('\n2) the two reference lists are folded away');
   ok_('earlier DSPM bands are folded too', /<details class="card"><summary style="cursor:pointer;font-weight:700">📜/.test(app));
   ok_('...with the number of bands on the line', /\$\{past\.length\} \$\{EN\(\)\?'band\(s\)':'ช่วงวัย'\}/.test(app));
   ok_('nothing is folded when there is nothing to fold', /\$\{past\.length\?`<details/.test(app));
+}
+
+console.log('\n2b) the drop-off / pick-up history, same treatment');
+{
+  ok_('it folds', /<details class="card" id="ciBox">/.test(app));
+  ok_('...with the child’s name on the summary line, so a screenshot is unambiguous',
+    /· \$\{esc\(dispNick\(kid\)\)\}\$\{kid\.Class\?' '\+esc\(kid\.Class\):''\}/.test(app));
+  ok_('...and a month dropdown built by the same helper', /sel\.innerHTML=monthOptions\(hist\)/.test(app));
+  ok_('...filtered by the same helper', /rowsInMonth\(window\._CI_HIST\|\|\[\], \(sel&&sel\.value\)\|\|''\)/.test(app));
+  ok_('...saying so when a month is empty', /เดือนนี้ยังไม่มีประวัติ/.test(app));
+  // the dropdown is filled AFTER the fetch — the months are not known until the rows are
+  ok_('the dropdown waits for the data rather than guessing at it',
+    app.indexOf("<option value=\"\">${EN()?'Loading…':'กำลังโหลด…'}</option></select>") > 0);
 }
 
 console.log('\n3) the buttons say where they work from — and it matches the server');
