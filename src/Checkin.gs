@@ -348,6 +348,18 @@ function isHolidayAttendee_(studentId, ds) { return holidayAttendIds_(ds).indexO
 function assertStudentDayOpen_(studentId, d) {
   d = d || new Date();
   var ds = dateStr_(d);
+  /* NOT STARTED YET. A family is entered days or weeks before the first day so the deposit and the
+   * first month can be billed — but the child does not come here until EnrollDate, so the button is
+   * closed and the refusal names the DAY rather than just saying no. Checked BEFORE the calendar:
+   * "the school is shut today" would be the wrong reason and the wrong date to hand somebody. */
+  try {
+    var st = findObject_(sheet_(getMainSpreadsheet_(), 'STUDENTS'),
+      function (x) { return String(x.StudentID) === String(studentId); });
+    var ed = st ? String(decodeCell_(st.EnrollDate) || '').slice(0, 10) : '';
+    if (/^\d{4}-\d{2}-\d{2}$/.test(ed) && ds < ed) {
+      throw apiError_('NOT_STARTED', 'วันแรกของการมาเรียนคือ ' + ed + ' — ยังลงเวลาไม่ได้จนกว่าจะถึงวันนั้น');
+    }
+  } catch (e) { if (e && e.apiCode === 'NOT_STARTED') throw e; }
   if (!isSchoolClosed_(d)) return;                                  // an ordinary open day
   if (isHolidayAttendee_(studentId, ds)) return;                    // expected today, by name
   var why = '';

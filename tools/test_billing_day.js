@@ -120,7 +120,8 @@ console.log('\n3) "ค้างชำระ" on the finance screen means every k
 {
   ok_('the tile totals the three kinds', /const _all=_t\+_c\+_o;/.test(app));
   ok_('...and breaks them out underneath', /🏫 \$\{baht\(_t\)\} · ⏰ \$\{baht\(_o\)\}/.test(app));
-  ok_('...and turns pink when anything is owed', /stat\(_all>0\?'pink':'amber'/.test(app));
+  // amber, as it always was — the school reads this tile daily and asked for its colour back
+  ok_('...and keeps the colour the school is used to', /return stat\('amber', baht\(_all\), t\('fin\.outstanding'\)/.test(app));
   ok_('...rather than printing the tuition figure under a label that promises the lot',
     !/stat\('amber',baht\(f\.tuitionOutstanding\),t\('fin\.outstanding'\)\)/.test(app));
   ok_('the stat tile can carry a sub-line at all', /const stat=\(cls,n,l,sub\)=>/.test(app));
