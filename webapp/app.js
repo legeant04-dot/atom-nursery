@@ -112,7 +112,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.277'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.278'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -175,6 +175,23 @@
     return {kind:'month', from:iso(s), to:iso(e), label:monthNameYear(iso(s).slice(0,7)), labelEN:iso(s).slice(0,7)};
   }
   const inPeriod = (dateStr, r) => { const d=ymd(dateStr); return !!d && d>=r.from && d<=r.to; };
+  /**
+   * A MONTH DROPDOWN OVER A LIST THAT ALREADY EXISTS — the months it actually has, newest first,
+   * this month selected.
+   *
+   * Two of the parent's screens grew one of these (the journal history, the drop-off/pick-up
+   * history) and both are the same three decisions: offer only months that HAVE something, open on
+   * the current one, and fall back to the newest month that has entries rather than opening blank
+   * for a family whose last record was in July. Written twice, the second copy is the one that
+   * forgets the fallback.
+   */
+  const monthsIn = list => [...new Set((list||[]).map(x=>ym(x.Date)).filter(Boolean))].sort().reverse();
+  function monthOptions(list){ const ms=monthsIn(list);
+    if(!ms.length) return `<option value="">${EN()?'no entries':'ยังไม่มี'}</option>`;
+    // a family whose records are all in past months must not land on an empty screen and think it broke
+    const cur = ms.indexOf(monthStr())>=0 ? monthStr() : ms[0];
+    return ms.map(m=>`<option value="${esc(m)}"${m===cur?' selected':''}>${esc(monthNameYear(m))}</option>`).join(''); }
+  const rowsInMonth = (list, m) => (list||[]).filter(x=>!m||ym(x.Date)===m);
   // "printed at" for an exported document. LOCAL, never toISOString() — that is UTC, and a sheet
   // printed at 14:08 in Bangkok came out stamped 07:08.
   const nowStamp = () => todayStr()+' '+nowTime();
@@ -1746,11 +1763,26 @@
         <br><small class="muted">${EN()?'Check what your phone thinks its location is.':'ตรวจสอบว่าโทรศัพท์คิดว่าคุณอยู่ตรงไหน'}</small></span>
         <button class="btn sm outline" style="flex:0 0 auto" onclick="GEO_check(this)">${EN()?'Check':'ตรวจสอบ'}</button></div></div>
       ${childSwitcher(kids, sid, 'P_ciHist')}
-      <div class="card"><div class="spread"><h3>🗓️ ${EN()?'Drop-off / pick-up history':'ประวัติการรับ-ส่ง'}</h3>
-        <span><b>${esc(dispNick(kid))}</b> <small class="muted">${esc(kid.Class||'')}</small></span></div>
-        <div id="ciHist"><div class="card muted">${EN()?'Loading…':'กำลังโหลด…'}</div></div></div>`;
+      ${/* FOLDED, AND A MONTH AT A TIME. Every drop-off and pick-up the child has ever had, in one
+           list — the same shape of problem as the journal history, and the same answer. Folded shut
+           because a parent opens this screen to check TODAY far more often than to read back through
+           the year. Asked 2026-08-25. */''}
+      <details class="card" id="ciBox"><summary style="cursor:pointer;font-weight:700">🗓️ ${EN()?'Drop-off / pick-up history':'ประวัติการรับ-ส่ง'}
+          <span class="muted" style="font-weight:400">· ${esc(dispNick(kid))}${kid.Class?' '+esc(kid.Class):''}</span></summary>
+        <div class="spread" style="margin:8px 0 4px"><small class="muted">${EN()?'Showing one month at a time':'แสดงทีละเดือน'}</small>
+          <select id="ciMonth" onchange="P_ciFilter()" style="width:auto"><option value="">${EN()?'Loading…':'กำลังโหลด…'}</option></select></div>
+        <div id="ciHist"><div class="card muted">${EN()?'Loading…':'กำลังโหลด…'}</div></div></details>`;
     let hist=[]; try{ hist=await api('studentCheckinHistory',{studentId:sid})||[]; }catch(e){ err(e); return; }
-    setHTML('#ciHist', hist.map(h=>`<div class="list-item"><span>${esc(ddmmyyyy(h.Date))}</span><span><span class="pill ok">↓ ${esc(h.InTime||'--:--')}</span> <span class="pill info">↑ ${esc(h.OutTime||'--:--')}</span></span></div>`).join('')||`<small class="muted">${EN()?'no history yet':'ยังไม่มีประวัติ'}</small>`);
+    window._CI_HIST=hist;
+    const sel=document.getElementById('ciMonth'); if(sel) sel.innerHTML=monthOptions(hist);
+    P_ciFilter();
+  };
+  window.P_ciFilter=()=>{
+    const el=document.getElementById('ciHist'); if(!el) return;
+    const sel=document.getElementById('ciMonth');
+    const rows=rowsInMonth(window._CI_HIST||[], (sel&&sel.value)||'');
+    el.innerHTML = rows.map(h=>`<div class="list-item"><span>${esc(ddmmyyyy(h.Date))}</span><span><span class="pill ok">↓ ${esc(h.InTime||'--:--')}</span> <span class="pill info">↑ ${esc(h.OutTime||'--:--')}</span></span></div>`).join('')
+      || `<small class="muted">${EN()?'No records in this month':'เดือนนี้ยังไม่มีประวัติ'}</small>`;
   };
   let P_TYPE='IN'; window.P_type=t=>{P_TYPE=t;$('#tIN').classList.toggle('active',t==='IN');$('#tOUT').classList.toggle('active',t==='OUT');};
   // real device geolocation → {lat,lng}. Backend enforces the school geofence (OUT_OF_RANGE).
@@ -2360,10 +2392,7 @@
            dropdown holds only the months that actually have entries, so it never offers an empty one.
            Asked 2026-08-25. */''}
       <div class="spread" style="margin:10px 2px 4px"><h3 class="page" style="font-size:16px;margin:0">${EN()?'History':'ย้อนหลัง'}</h3>
-        <select id="pjMonth" onchange="P_jHistFilter()" style="width:auto">${
-          [...new Set((hist||[]).map(h=>ym(h.Date)))].sort().reverse()
-            .map(m=>`<option value="${esc(m)}"${m===monthStr()?' selected':''}>${esc(monthNameYear(m))}</option>`).join('')
-            || `<option value="">${EN()?'no entries':'ยังไม่มี'}</option>`}</select></div>
+        <select id="pjMonth" onchange="P_jHistFilter()" style="width:auto">${monthOptions(hist)}</select></div>
       <div id="pjHist"></div>`;
     window._PJ_HIST=hist||[];
     P_jHistFilter();
@@ -2371,11 +2400,9 @@
   window.P_jHistFilter=()=>{
     const el=document.getElementById('pjHist'); if(!el) return;
     const sel=document.getElementById('pjMonth');
-    // a child whose entries are all in past months would otherwise open on an empty screen
-    let m=(sel&&sel.value)||'';
-    const all=window._PJ_HIST||[];
-    if(m && !all.some(h=>ym(h.Date)===m)){ m=[...new Set(all.map(h=>ym(h.Date)))].sort().pop()||''; if(sel&&m) sel.value=m; }
-    const rows=all.filter(h=>!m||ym(h.Date)===m);
+    // the "which month" decisions live in monthOptions — a child whose entries are all in past
+    // months is opened on their newest one there, rather than twice, differently, here
+    const rows=rowsInMonth(window._PJ_HIST||[], (sel&&sel.value)||'');
     el.innerHTML = rows.map(h=>`<div class="list-item"><span>${esc(ddmmyyyy(h.Date))} · ${esc(MOODS[h.Mood]||'')} ${esc(h.Mood||'')}</span><button class="btn sm outline" onclick="P_showJ('${h.StudentID}','${h.Date}')">${EN()?'View':'ดู'}</button></div>`).join('')
       || `<small class="muted">${EN()?'No entries in this month':'เดือนนี้ยังไม่มีบันทึก'}</small>`;
   };
