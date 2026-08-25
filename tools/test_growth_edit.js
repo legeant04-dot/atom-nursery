@@ -218,5 +218,71 @@ console.log('\n7) whose handwriting is this — by NICKNAME, from the server');
   eq('an id that is no longer on the staff falls back to the name on the row', item.byNick, 'ครูที่ลาออกไปแล้ว');
 }
 
+console.log('\n8) a new measurement is signed, and the last person to touch it owns it');
+{
+  /* WHY THE NAME WAS STILL MISSING after v280: updateGrowth recorded `p.staffId`, and the two places
+   * that call it never sent one. So RecordedBy was blank on EVERY new row, not just the legacy ones
+   * — the column existed and nothing ever filled it. */
+  ok_('the save sends who is saving', (app.match(/api\('updateGrowth',\{studentId:sid,weight:w,height:h,photo,date:growthDateVal\(\),staffId:USER\.staffId\}\)/g) || []).length === 2);
+  const { H, M } = boot();
+  H.updateGrowth({ studentId: 'BRAVE', weight: 11, height: 78, staffId: 'T1' });
+  const fresh = H.growthHistory({ studentId: 'BRAVE' }).records.find(r => r.Weight === 11);
+  eq('a new measurement carries the nickname straight away', fresh.byNick, 'หนึ่ง');
+}
+{
+  // "หากมีการแก้ไขหรือกดบันทึกข้อมูลดังกล่าว ให้นำชื่อผู้บันทึกล่าสุดมาแสดงแทน"
+  const { H, M } = boot();
+  H.editGrowth({ studentId: 'BRAVE', idx: 1, wasDate: DAY, wasWeight: 10, wasHeight: 76,
+    weight: 10.5, staffId: 'HEAD', role: 'Teacher' });
+  const r = H.growthHistory({ studentId: 'BRAVE' }).records[1];
+  eq('correcting it hands the record to whoever corrected it', r.byNick, 'หัวหน้าครู');
+  eq('...so nobody is left asking the wrong person about it', r.RecordedBy, 'HEAD');
+}
+{
+  // ...including a legacy row that belonged to nobody: the first correction gives it an owner
+  const { H } = boot();
+  H.editGrowth({ studentId: 'BRAVE', idx: 3, wasDate: DAY, wasWeight: 10, wasHeight: 76,
+    weight: 10.1, staffId: 'ADM', role: 'Admin' });
+  eq('an ownerless row gets an owner the first time it is corrected',
+    H.growthHistory({ studentId: 'BRAVE' }).records[3].RecordedBy, 'ADM');
+}
+
+console.log('\n9) somebody who has left keeps their name, marked');
+{
+  /* A record keeps the name of whoever wrote it for as long as the record exists, which is longer
+   * than some people stay. Dropping it would erase who did the work; printing it unmarked suggests
+   * somebody you could go and ask. */
+  const { H, M } = boot();
+  M.staff.find(s => s.StaffID === 'T1').Status = 'INACTIVE';
+  const r = H.growthHistory({ studentId: 'BRAVE' }).records[1];
+  eq('the name stays', r.byNick, 'หนึ่ง');
+  eq('...and is marked as gone', r.byLeft, true);
+}
+{
+  const { H, M } = boot();
+  // an EndDate that has passed is the same thing, recorded in advance
+  M.staff.find(s => s.StaffID === 'T1').EndDate = '2026-08-20';
+  eq('a last working day that has gone by counts too', H.growthHistory({ studentId: 'BRAVE' }).records[1].byLeft, true);
+  const { H: H2, M: M2 } = boot();
+  M2.staff.find(s => s.StaffID === 'T1').EndDate = '2026-12-31';
+  eq('...but one still in the future does not — they are here until then', H2.growthHistory({ studentId: 'BRAVE' }).records[1].byLeft, false);
+}
+{
+  const { H, M } = boot();
+  M.assessments.push({ AssessmentID: 'A3', StudentID: 'BRAVE', AgeMonth: 7, ItemNo: 3, Skill: 'PS',
+    Result: 'ผ่าน', Date: '2026-08-20', TeacherID: 'GONE', TeacherName: 'ครูเก่า' });
+  M.dspmCriteria.push({ ItemNo: 3, Skill: 'PS', AgeFrom: 6, AgeTo: 9, AgeLabelTH: '6-9 เดือน', Description: 'เล่นจ๊ะเอ๋' });
+  const i = H.studentAllBands({ studentId: 'BRAVE' }).bands[0].items.find(x => x.itemNo === 3);
+  eq('an assessor who is not on the staff at all is marked gone', [i.byNick, i.byLeft], ['ครูเก่า', true]);
+  const cur = H.dspmStatus({ studentId: 'BRAVE' }).items.find(x => x.itemNo === 3);
+  eq('...on the parent’s screen as well', [cur.byNick, cur.byLeft], ['ครูเก่า', true]);
+}
+{
+  ok_('it is drawn in red, with the word', /\(\$\{EN\(\)\?'left':'ออกแล้ว'\}\)/.test(app) && /<span style="color:var\(--bad\)">\$\{_notr\(nick\)\}/.test(app));
+  ok_('...by one helper, used by both lists', /const SIGNED_BY=\(nick,left\)=>/.test(app)
+    && /SIGNED_BY\(n,i\.byLeft\)/.test(app) && /SIGNED_BY\(r\.byNick,r\.byLeft\)/.test(app));
+  ok_('a name with nobody gone attached is printed plainly', /: _notr\(nick\);/.test(app));
+}
+
 console.log('\n' + (fail ? 'FAILED ' : 'PASSED ') + pass + ' passed, ' + fail + ' failed\n');
 process.exit(fail ? 1 : 0);

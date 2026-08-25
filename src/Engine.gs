@@ -1015,8 +1015,25 @@ function createAtomAPI(M, GROWTH_STD) {
    * `fallback` is the full name stored on the row itself (DSPM keeps TeacherName). Rows written
    * before ids were recorded have only that, and a full name is a better answer than "STF-011".
    */
-  const staffNickOf_ = (id, fallback) => { const s=id?staffById(id):null;
-    return (s&&(s.Nickname||s.NameTH||s.Name)) || String(fallback||'') || String(id||''); };
+  const staffNickOf_ = (id, fallback) => signedBy_(id, fallback).nick;
+  /**
+   * ...and whether they still work here.
+   *
+   * A record keeps the name of whoever wrote it for as long as the record exists, which is longer
+   * than some people stay. The school asked (2026-08-25) for a teacher who has left to be marked
+   * "(ออกแล้ว)" in red rather than quietly dropped: the assessment was still theirs, and somebody
+   * reading it needs to know they cannot go and ask them about it.
+   *
+   * `left` is true when the staff record says so (INACTIVE, or an EndDate that has passed) AND when
+   * the id matches nobody at all — a record whose author is not on the staff list is not somebody
+   * you can walk down the corridor to.
+   */
+  function signedBy_(id, fallback){
+    if(!id) return {nick:String(fallback||''), left:false, unknown:!fallback};
+    const s=staffById(id);
+    if(!s || !s.StaffID) return {nick:String(fallback||id), left:true, unknown:true};
+    return {nick:(s.Nickname||s.NameTH||s.Name||String(id)), left:staffEnded_(s), unknown:false};
+  }
 
   // ---- growth records: correcting a measurement -------------------------------------------------
   /** One child's measurements, oldest first — the ORDER growthHistory hands out `idx` against. */
@@ -1827,7 +1844,7 @@ function createAtomAPI(M, GROWTH_STD) {
           return {itemNo:c.ItemNo,skill:c.Skill,description:c.Description,descriptionEN:(M.dspmEN&&M.dspmEN[c.ItemNo])||'',
             result:r?r.Result:'ยังไม่ได้รับการทดสอบ', date:r?r.Date:'',
             // the nickname is how the school names its teachers; the full name stays for a report
-            by:r?(r.TeacherName||''):'', byNick:r?staffNickOf_(r.TeacherID,r.TeacherName):'', at:r?(r.Timestamp||''):'',
+            by:r?(r.TeacherName||''):'', byNick:r?signedBy_(r.TeacherID,r.TeacherName).nick:'', byLeft:!!(r&&signedBy_(r.TeacherID,r.TeacherName).left), at:r?(r.Timestamp||''):'',
             comment:r?(r.AdminComment||''):'', commentBy:r?(r.CommentBy||''):'', commentAt:r?(r.CommentAt||''):''}; })}; },
 
     /**
@@ -2333,7 +2350,7 @@ function createAtomAPI(M, GROWTH_STD) {
        * tested it. By NICKNAME, which is how this school refers to its teachers everywhere else. */
       const bands={}; M.dspmCriteria.filter(c=>c.AgeFrom<=age).forEach(c=>{ const r=latest[c.ItemNo];
         (bands[c.AgeLabelTH]=bands[c.AgeLabelTH]||{label:c.AgeLabelTH,from:c.AgeFrom,items:[]}).items.push({itemNo:c.ItemNo,skill:c.Skill,description:c.Description,descriptionEN:(M.dspmEN&&M.dspmEN[c.ItemNo])||'',result:r?r.Result:'ยังไม่ได้รับการทดสอบ',
-          by:r?(r.TeacherName||''):'', byNick:r?staffNickOf_(r.TeacherID,r.TeacherName):'', date:r?ymd(r.Date||''):''}); });
+          by:r?(r.TeacherName||''):'', byNick:r?signedBy_(r.TeacherID,r.TeacherName).nick:'', byLeft:!!(r&&signedBy_(r.TeacherID,r.TeacherName).left), date:r?ymd(r.Date||''):''}); });
       return {studentId:p.studentId,name:s.NameTH,nameEN:s.NameEN,nick:s.Nickname,nickEN:s.NicknameEN,ageMonth:age,enrollDate:s.EnrollDate,
         bands:Object.values(bands).sort((a,b)=>a.from-b.from)}; },
 
@@ -3186,7 +3203,8 @@ function createAtomAPI(M, GROWTH_STD) {
         // `idx` is the handle a correction comes back with (see growthFind_) — the rows themselves
         // have no id, and Date+Student is not unique: น้องเบรฟ has three identical 2026-08-14 rows.
         // ...and WHO took each measurement, by nickname, resolved here (see staffNickOf_)
-        records:recs.map((r,i)=>Object.assign({idx:i, byNick:r.RecordedBy?staffNickOf_(r.RecordedBy):''},r)),
+        records:recs.map((r,i)=>{ const by=r.RecordedBy?signedBy_(r.RecordedBy):null;
+          return Object.assign({idx:i, byNick:by?by.nick:'', byLeft:!!(by&&by.left)},r); }),
         weightBand:band('weight'), heightBand:band('height')}; },
 
     /**
@@ -3212,6 +3230,12 @@ function createAtomAPI(M, GROWTH_STD) {
         f.row.Date=on; f.row.AgeMonth=ageMonths(s.DOB,on); }
       if(p.weight!=null){ const w=Number(p.weight); if(!isFinite(w)||w<=0) fail('BAD_INPUT','น้ำหนักต้องมากกว่า 0'); f.row.Weight=w; }
       if(p.height!=null){ const h=Number(p.height); if(!isFinite(h)||h<=0) fail('BAD_INPUT','ส่วนสูงต้องมากกว่า 0'); f.row.Height=h; }
+      /* WHOEVER TOUCHED IT LAST OWNS IT. The school's rule (2026-08-25): a record keeps the name of
+       * the person who left it until somebody corrects it, and then it carries theirs. Otherwise a
+       * figure a head teacher fixed last week still reads as the work of a teacher who left in May,
+       * and the person to ask about it is the wrong one. It also gives an ownerless legacy row an
+       * owner the first time anybody corrects it. */
+      if(p.staffId){ f.row.RecordedBy=String(p.staffId); f.row.RecordedAt=stampLocal(); }
       growthSyncLatest_(s);
       logAct('editGrowth',f.row.StudentID,ymd(f.row.Date)+' '+f.row.Weight+'kg '+f.row.Height+'cm',actorOf(p));
       return {ok:true, record:f.row}; },
