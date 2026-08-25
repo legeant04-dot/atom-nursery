@@ -941,6 +941,13 @@ function createAtomAPI(M, GROWTH_STD) {
    * button, the teacher's on-behalf button and the correction form alike.
    */
   function assertStudentDayOpen_(studentId, date){ const d=ymd(date||todayLocal());
+    /* NOT STARTED YET. The record exists so the deposit and the first month can be billed, but the
+     * child does not come here until EnrollDate — so the button is closed and the refusal names the
+     * DAY rather than saying no. Checked before the calendar: "the school is shut today" would be
+     * the wrong reason and the wrong date to give somebody. */
+    { const s=studentById(studentId);
+      if(s && studentNotStarted_(s, d)) fail('NOT_STARTED',
+        'วันแรกของการมาเรียนคือ '+ymd(s.EnrollDate)+' — ยังลงเวลาไม่ได้จนกว่าจะถึงวันนั้น'); }
     const why=schoolClosedFor_(d, true);
     if(!why) return;                                     // an ordinary open day
     if(isHolidayAttendee_(studentId, d)) return;          // expected today, by name
@@ -980,7 +987,23 @@ function createAtomAPI(M, GROWTH_STD) {
     if(p.treatmentPlaceOther!==undefined) o.TreatmentPlaceOther=String(p.treatmentPlaceOther||'');
     if(p.treatmentBy!==undefined) o.TreatmentBy=String(p.treatmentBy||'');
     return o; };
-  const activeStudents = () => M.students.filter(s=>!INACTIVE[s.Status] && !studentPaused_(s));
+  /**
+   * A CHILD WHO HAS NOT STARTED YET IS NOT ABSENT — they are not here.
+   *
+   * A family is entered days or weeks before the first day (EnrollDate) so the deposit and the first
+   * month can be billed; that part already worked. But the child was on the class list from the
+   * moment the record was typed in — counted against the class's attendance percentage, marked ขาด
+   * every morning, and their parent had a live check-in button for a nursery the child does not go
+   * to yet. The same treatment as a temporary leave, and for the same reason: they stay on the
+   * BILLING lists, and off every list about who is here.
+   *
+   * Asked 2026-08-24: "หากยังไม่ถึงวันเริ่มเรียนยังไม่เอารายชื่อเข้ามาในระบบ ... มาวันที่ 01/10/26
+   * ก็เปิดระบบการใช้งานของผู้ปกครองวันที่ 01/10/26" — so the test is `<`, and the first day itself
+   * is a school day.
+   */
+  const studentNotStarted_ = (s, onDate) => { const d=ymd((s&&s.EnrollDate)||'');
+    return !!d && ymd(onDate||todayLocal()) < d; };
+  const activeStudents = () => M.students.filter(s=>!INACTIVE[s.Status] && !studentPaused_(s) && !studentNotStarted_(s));
 
   // ---- payment-slip helpers (multiple slips per bill/OT/prepay + partial payments) ----
   const paySlips_ = () => (M.paymentSlips = M.paymentSlips || []);
@@ -1071,7 +1094,10 @@ function createAtomAPI(M, GROWTH_STD) {
      * instead of offering a button that cannot work — the same rule the teacher's class list uses.
      */
     parentChildren: p => visibleStudents(p).map(s=>Object.assign({ageMonth:ageMonths(s.DOB),
-      paused:studentPaused_(s), pauseFrom:ymd(s.PauseFrom||''), pauseTo:ymd(s.PauseTo||''), pauseReason:s.PauseReason||''},
+      paused:studentPaused_(s), pauseFrom:ymd(s.PauseFrom||''), pauseTo:ymd(s.PauseTo||''), pauseReason:s.PauseReason||'',
+      // ...and a child whose first day has not come yet: the card says the DATE instead of offering a
+      // drop-off button the server would refuse (see assertStudentDayOpen_)
+      notStarted:studentNotStarted_(s), startDate:ymd(s.EnrollDate||'')},
       studentLeaveToday_(s.StudentID), s)),
     /**
      * What this family still owes, in ONE call — so the home screen can say it without fanning out
@@ -2610,6 +2636,10 @@ function createAtomAPI(M, GROWTH_STD) {
         // invisible on the one screen the admin looks at every morning: away for a month with nothing
         // to say so, and back with nothing to say that either.
         paused:H.pausedStudents(),
+        /* ...and the children who START soon. They are off every list about who is here (they are
+         * not here), which is right — and would leave an admin with no sign that three families
+         * join on Monday. Named on the one screen they open every morning, in date order. */
+        starting:H.startingStudents(),
         holidays:(M.holidays||[]).map(h=>({Date:h.Date,NameTH:h.NameTH,NameEN:h.NameEN})), bigCleaning:bigCleaningList_(),
         // whether today is open, and TO WHOM — travels with the dashboard so the screen never has to
         // work it out from holidays/bigCleaning and get the Big Cleaning case wrong again
@@ -2664,6 +2694,13 @@ function createAtomAPI(M, GROWTH_STD) {
       logAct('setStudentPause',p.studentId,'ลาชั่วคราว '+s.PauseFrom+(s.PauseTo?(' – '+s.PauseTo):' เป็นต้นไป')+(s.PauseReason?(' · '+s.PauseReason):''),actorOf(p));
       return {ok:true,studentId:p.studentId,status:PAUSED_STATUS,paused:studentPaused_(s),from:s.PauseFrom,to:s.PauseTo,reason:s.PauseReason}; },
     // children currently away, so the Admin can see them in one place and bring them back
+    /** Children whose first day has not come yet — enrolled, billable, and not here (studentNotStarted_). */
+    startingStudents: () => M.students.filter(s=>!INACTIVE[s.Status] && studentNotStarted_(s))
+      .map(s=>({studentId:s.StudentID, nick:s.Nickname, nickEN:s.NicknameEN, name:s.NameTH, nameEN:s.NameEN,
+        className:s.Class||'', startDate:ymd(s.EnrollDate||''),
+        // "in 5 days" is the thing an admin acts on; the date alone makes them count on their fingers
+        days:Math.round((new Date(ymd(s.EnrollDate)+'T00:00:00')-new Date(todayLocal()+'T00:00:00'))/86400000)}))
+      .sort((a,b)=>String(a.startDate).localeCompare(String(b.startDate))),
     pausedStudents: () => M.students.filter(s=>String(s.Status)===PAUSED_STATUS)
       .map(s=>({studentId:s.StudentID,name:s.NameTH||s.Name,nameEN:s.NameEN,nick:s.Nickname,nickEN:s.NicknameEN,className:s.Class,
         from:ymd(s.PauseFrom||''), to:ymd(s.PauseTo||''), reason:s.PauseReason||'',

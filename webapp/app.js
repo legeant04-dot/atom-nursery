@@ -112,7 +112,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.273'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.274'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -1469,10 +1469,19 @@
              <b style="color:var(--warn)">🏖️ ${EN()?'On leave today':'ลาวันนี้'}</b>
              <br><small class="muted">${esc(k.leaveType||(EN()?'leave':'ลา'))}${k.leaveReason?' · '+esc(k.leaveReason):''}</small>
              <br><small class="muted">${EN()?'Nothing to record today. Cancel the leave first if they do come in.':'วันนี้ไม่ต้องบันทึกส่ง-รับ · หากมาจริงกรุณายกเลิกใบลาก่อน'}</small></div>`
+        : k.notStarted
+        /* THE FIRST DAY HAS NOT COME YET. The record is created weeks ahead so the deposit and the
+         * first month can be billed — and the family was shown a live drop-off button for a nursery
+         * their child does not go to yet. Say the DATE. The buttons come back on their own that
+         * morning; nobody has to be told to switch anything on. */
+        ? `<div class="card" style="background:var(--blue-bg);border-color:var(--blue-line);margin-top:12px;padding:10px;text-align:center">
+             <b style="color:var(--blue)">📅 ${EN()?'First day at school':'วันแรกของการมาเรียน'}</b>
+             <br><span style="font-size:17px;font-weight:700">${esc(ddmmyyyy(k.startDate))}</span>
+             <br><small class="muted">${EN()?'Drop-off and pick-up open on that morning. Everything else — bills, your details — works now.':'ปุ่มส่ง-รับจะเปิดให้ใช้เช้าวันนั้นเอง · ส่วนอื่น เช่น บิลและข้อมูลของท่าน ใช้ได้ตามปกติแล้ว'}</small></div>`
         : k.paused
-        // On temporary leave (or not started yet): there is nothing to record, so the buttons go
-        // rather than sitting there doing nothing. Everything else about the child stays visible —
-        // the family still needs the bills and their own details.
+        // On temporary leave: there is nothing to record, so the buttons go rather than sitting there
+        // doing nothing. Everything else about the child stays visible — the family still needs the
+        // bills and their own details.
         ? `<div class="card" style="background:var(--warn-bg);border-color:var(--warn-line);margin-top:12px;padding:10px;text-align:center">
              <b style="color:var(--warn)">⏳ ${EN()?'Not due to attend yet':'ยังไม่ถึงกำหนดเข้าเรียน'}</b>
              ${k.pauseFrom?`<br><small class="muted">${EN()?'from':'ตั้งแต่'} ${esc(k.pauseFrom)}${k.pauseTo?` ${EN()?'to':'ถึง'} ${esc(k.pauseTo)}`:''}</small>`:''}
@@ -4240,7 +4249,7 @@
                   // "ขาด" is the only word anyone sees for a child everybody knew was away
                   const due=(c.students||[]).filter(s=>s.pauseDue);
                   return due.length?`<div style="margin-top:2px"><span class="pill info">🔄 ${EN()?'due back from leave':'ลาชั่วคราว · ครบกำหนดแล้ว'} (${due.length})</span> <small class="muted">${due.map(s=>esc(dnick(s))).join(', ')}</small></div>`:''; })()}`; })()}</div>`;}).join('')}`}</div>
-      ${A_pausedCard(d.paused)}
+      ${A_pausedCard(d.paused)}${A_startingCard(d.starting)}
       <div class="card"><div class="spread"><h3>👩‍🏫 ${EN()?'Staff today':'พนักงานวันนี้'}</h3>${_closedStaff?`<span class="pill" style="background:var(--surface-3);color:var(--ink-3)">🏖️ ${EN()?'Holiday':'วันหยุด'}</span>`:(_day.bigCleaning?`<span class="pill wait">${BC_ICON} ${BC_SHORT()}</span>`:'')}</div>
         ${_closedStaff?`<div style="text-align:center;color:var(--ink-3);padding:10px 0"><b>${EN()?'School closed — nobody is expected in today':'โรงเรียนหยุด — ไม่มีใครต้องเข้างานวันนี้'}</b></div>`:
         (()=>{ const present=d.staff.filter(s=>s.status==='IN'||s.status==='OUT').length; const t=d.staff.length; const pct=t?Math.round(present/t*100):100;
@@ -5977,6 +5986,25 @@
    * confirming the return is one tap from the same screen (early returns included, which is what
    * the "มาก่อนกำหนด" case needs).
    */
+  /**
+   * Children who START SOON. They are off every list about who is here — because they are not here —
+   * and that is right; it also left an admin with nothing to tell them three families join on Monday.
+   * The names, the class, the date, and how many days away, on the screen they open every morning.
+   * No button: the day arrives and the child is simply on the roster, with the parent's drop-off
+   * button live. Nothing to remember to switch on.
+   */
+  window.A_startingCard=(list)=>{ list=list||[]; if(!list.length) return '';
+    const dn=x=>EN()?(x.nickEN||x.nameEN||x.nick||x.name):(x.nick||x.name);
+    const soon=list.filter(x=>Number(x.days)<=7);
+    return `<div class="card"><div class="spread"><h3>📅 ${EN()?'Starting soon':'นักเรียนที่กำลังจะเริ่มเรียน'}</h3>
+        <span class="muted">${list.length} ${EN()?'children':'คน'}</span></div>
+      ${soon.length?`<small class="muted" style="display:block;margin-bottom:4px">${EN()
+        ? `${soon.length} within the week — their check-in opens by itself on the morning.`
+        : `อีก ${soon.length} คนภายในสัปดาห์นี้ · ระบบจะเปิดให้ลงเวลาเองในเช้าวันนั้น`}</small>`:''}
+      ${list.map(x=>`<div class="list-item"><span><b>${esc(dn(x))}</b> <small class="muted">${esc(x.className||(EN()?'no class':'ยังไม่จัดชั้น'))}</small>
+          <br><small class="muted">${EN()?'first day':'วันแรก'} <b>${esc(ddmmyyyy(x.startDate))}</b></small></span>
+        <span class="pill ${Number(x.days)<=7?'wait':'info'}" style="flex:0 0 auto">${Number(x.days)<=0?(EN()?'today':'วันนี้'):(EN()?`in ${x.days} day(s)`:`อีก ${x.days} วัน`)}</span></div>`).join('')}
+      <small class="muted">${EN()?'Not counted as absent, not on class lists, and their parent cannot check in yet — but bills can already be issued.':'ยังไม่นับขาด ไม่ขึ้นชื่อในชั้นเรียน และผู้ปกครองยังลงเวลาไม่ได้ · แต่ออกบิลล่วงหน้าได้แล้ว'}</small></div>`; };
   window.A_pausedCard=(list)=>{ list=list||[]; if(!list.length) return '';
     const dn=x=>EN()?(x.nickEN||x.nameEN||x.nick||x.name):(x.nick||x.name);
     const due=list.filter(x=>x.due), away=list.filter(x=>!x.due);
@@ -7515,7 +7543,9 @@
           <div class="grid2" style="grid-template-columns:1fr 1fr;gap:8px">${stat(f.net>=0?'':'amber',baht(f.net),t('fin.net'))}${
             (()=>{ const _t=Number(f.tuitionOutstanding||0), _c=Number(f.chargesOutstanding||0), _o=Number(f.otOutstanding||0);
               const _all=_t+_c+_o;
-              return stat(_all>0?'pink':'amber', baht(_all), t('fin.outstanding'),
+              // amber, as it always was — the school reads this tile every day and a card that
+              // changes colour on them is a change they did not ask for
+              return stat('amber', baht(_all), t('fin.outstanding'),
                 _all>0?`🏫 ${baht(_t)} · ⏰ ${baht(_o)}${_c?` · ➕ ${baht(_c)}`:''}`:''); })()
           }</div></div></div>
       <div class="seg">${tab('in','💵',EN()?'Income':'รับเงิน')}${tab('pay','💸',EN()?'Payroll':'จ่ายเงิน')}${tab('wait','✅',EN()?'To approve':'รออนุมัติ',pendN)}</div>
