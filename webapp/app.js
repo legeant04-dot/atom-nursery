@@ -112,7 +112,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.282'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.283'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -3938,7 +3938,15 @@
       return `${calNavHeader(y,mo)}<div class="cal">${cells}</div><small class="muted">${_leg}</small>`; };
     window._CALRENDER=render;
     return `<div class="card"><div id="calWrap">${render()}</div></div>`; }
-  SCREENS.Teacher.schedule = async () => { const d=await api('schedule',{staffId:USER.staffId});
+  SCREENS.Teacher.schedule = async () => {
+    /* The three below used to be fired after `schedule` had come back and the page was drawn — a
+     * second round trip for data that does not depend on the first. None of them needs anything
+     * from `d`, so they go in the SAME tick and api.js makes the whole screen one request.
+     * (📅 ตาราง was 36 calls a visit in the 2026-08-25 report.) */
+    const p_hist   = api('myAttendanceMonth',{staffId:USER.staffId,month:monthStr()}).catch(()=>null);
+    const p_leaves = api('myLeaves',{staffId:USER.staffId}).catch(()=>null);
+    const p_myot   = api('myOT',{staffId:USER.staffId}).catch(()=>null);
+    const d=await api('schedule',{staffId:USER.staffId});
     const staffing=d.staffing||[];
     // staff directory comes from the API (MOCK.staff is empty in gas mode)
     const dir={}; (d.staff||[]).forEach(s=>{ dir[s.StaffID]=s; });
@@ -3996,14 +4004,13 @@
         <div id="mlBox"><small class="muted">${EN()?'Loading…':'กำลังโหลด…'}</small></div></details>`;
     // both lists load AFTER the screen is on the page, and only once — opening a <details> costs
     // nothing, so a teacher who never opens them still pays for the fetch, but only two of them
-    T_myHistory(monthStr());
-    api('myLeaves',{staffId:USER.staffId}).then(l=>{ MY_LEAVES=l||[]; T_myLeaveFilter(); })
-      .catch(()=>setHTML('#mlBox', `<small class="muted">${esc(t('c.noItems'))}</small>`));
+    T_myHistory(monthStr(), null, p_hist);
+    p_leaves.then(l=>{ if(l){ MY_LEAVES=l; T_myLeaveFilter(); } else setHTML('#mlBox', `<small class="muted">${esc(t('c.noItems'))}</small>`); });
     /* My own OT วันหยุด. The Admin agrees it and the teacher is told once, in a notification that
      * scrolls away; after that the only record was inside a payslip they may not open for weeks.
      * This is the screen they already use to check their own days, so it belongs here. Loaded after
      * the screen is drawn — it must never hold up the summary above it. */
-    api('myOT',{staffId:USER.staffId}).then(rows=>{
+    p_myot.then(rows=>{
       const hol=(rows||[]).filter(isLiveHolOT);
       if(!hol.length) return;                       // nothing to say → no empty card in the way
       const total=hol.reduce((a,o)=>a+(Number(o.Amount)||0),0);
@@ -4027,11 +4034,17 @@
    * above the rows is the summary OF THE PERIOD, not of a month somebody has to translate. */
   let MH_KIND='month', MH_ANCHOR='';
   window.T_myHistoryPeriod=()=>{ const r=periodRange(MH_KIND, MH_ANCHOR||todayStr()); return T_myHistory(null, r); };
-  window.T_myHistory=async(month, range)=>{
+  /**
+   * @param {Promise} pre  a fetch ALREADY IN FLIGHT for this month, started in the screen's opening
+   *   tick so it travels in the same request as everything else. Only valid for the default month —
+   *   any other period has to be asked for when it is chosen.
+   */
+  window.T_myHistory=async(month, range, pre)=>{
     setHTML('#mhBox', `<small class="muted">${EN()?'Loading…':'กำลังโหลด…'}</small>`);
     const r0 = range || periodRange(MH_KIND, MH_ANCHOR||month||todayStr());
     window._MH_RANGE=r0;
-    try{ const r=await api('myAttendanceMonth',{staffId:USER.staffId,month:ym(r0.from),from:r0.from,to:r0.to});
+    try{ const r=await (pre || api('myAttendanceMonth',{staffId:USER.staffId,month:ym(r0.from),from:r0.from,to:r0.to}));
+      if(!r) throw new Error('no data');
       MY_DAYS=((r.staff||[])[0]||{}).days||[];
       const me=(r.staff||[])[0]||{};
       setHTML('#mhSum', '');
@@ -4963,7 +4976,20 @@
   let _payReq=0;
   window.A_payStaff = async ()=>{ const sid=$('#pStaff').value; const my=++_payReq;
     const stale=()=>my!==_payReq||$('#pStaff')&&$('#pStaff').value!==sid;
-    const pc=await api('payrollConfig',{staffId:sid}); if(stale())return;
+    /* FOUR ROUND TRIPS, ONE AFTER THE OTHER — this is where "payroll 62.5 calls/visit" came from.
+     * payrollConfig, staffMonthlyOT, otCarryOver and getPayslip were each awaited in turn, so every
+     * time the admin picked a staff member or changed the month the screen sat through four separate
+     * ~5s waits. None of them depends on any other: they all take (staffId, month) and go to
+     * different sheets. Started together, they are ONE request — and running payroll for ten people
+     * stops costing forty trips.
+     * The ORDER THE FIELDS ARE FILLED IN still matters (the saved payslip overwrites the defaults),
+     * and that order is preserved below, where it belongs. */
+    const mth=$('#pMonth').value;
+    const p_pc   = api('payrollConfig',{staffId:sid});
+    const p_ot   = api('staffMonthlyOT',{staffId:sid,month:mth}).catch(()=>null);
+    const p_cy   = api('otCarryOver',{staffId:sid,month:mth}).catch(()=>null);
+    const p_slip = api('getPayslip',{staffId:sid,month:mth}).catch(()=>null);
+    const pc=await p_pc; if(stale())return;
     // this used to read MOCK.staff, which holds SEED rows (and is empty since the mockdata split), so
     // the saved salary never came back — the field showed 0 every time the screen was opened
     const s=(A_CACHE.staff||[]).find(x=>x.StaffID===sid)||{};
@@ -4976,7 +5002,7 @@
     A_payTypeToggle(); A_recalcChild(); A_contribNote();
     // auto-pull this staff's APPROVED OT for the selected month into the OT field
     let otAuto=null;
-    try{ const ot=await api('staffMonthlyOT',{staffId:sid,month:$('#pMonth').value}); if(stale())return; otAuto=ot;
+    try{ const ot=await p_ot; if(stale())return; if(!ot) throw new Error('no ot'); otAuto=ot;
       // the EVENING field gets only the evening OT; the holiday OT has its own field and its own
       // line on the slip, so the two are never added together behind the admin's back
       $('#pOt').value=(ot.daily!=null?ot.daily:ot.amount);
@@ -4987,7 +5013,7 @@
       const n=$('#otNote'); if(n) n.innerHTML=`(${EN()?'auto':'อัตโนมัติ'} ${ot.hours} ${EN()?'hr':'ชม.'} × ${baht(ot.rate)})`; }catch(e){}
     // OT approved after an EARLIER month's payroll was saved was never paid — it is owed now, as its
     // own line, so the earlier slip stays exactly as it was signed off (see otCarryOver_ in Payroll.gs)
-    try{ const cy=await api('otCarryOver',{staffId:sid,month:$('#pMonth').value}); if(stale())return;
+    try{ const cy=await p_cy; if(stale())return;
       const box=$('#otCarryBox'); if(!box) return;
       if(cy && Number(cy.total)>0){
         const list=(cy.detail||[]).map(d=>`${esc(monthNameYear(d.month))} ${baht(d.amount)}`).join(' · ');
@@ -5000,7 +5026,7 @@
     // A saved payslip is the record of what was actually paid, so reopening the month must show THAT,
     // not a fresh form with defaults — otherwise there is no way to check a previous month or to see
     // what a figure was made of. Load it back into every field and show the slip as saved.
-    try{ const saved=await api('getPayslip',{staffId:sid,month:$('#pMonth').value}); if(stale())return;
+    try{ const saved=await p_slip; if(stale())return;
       if(saved){
         const set=(id,v)=>{ const e=$(id); if(e&&v!=null) e.value=v; };
         set('#pBase',saved.BaseSalary); set('#pType',saved.PayType||'monthly'); set('#pDaily',saved.DailyRate||0); set('#pDays',saved.DaysWorked||0);
