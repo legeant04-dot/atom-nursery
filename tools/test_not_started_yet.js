@@ -140,7 +140,23 @@ console.log('\n4) the admin can see who is coming');
   eq('nobody is "starting" once they have started', boot(DAY1).H.startingStudents().length, 0);
 }
 
-console.log('\n5) both halves of the app refuse it');
+console.log('\n5) the parent is not told to wait for something that is not coming');
+{
+  /* The home screen printed "⏳ รอคุณครูส่งข้อมูลของวันที่ 25-08-2026" under a card that had just
+   * said the first day is 01/10. There is no teacher waiting to send anything — and telling a family
+   * to wait for something that is not coming is worse than telling them nothing. */
+  ok_('there is one card that explains an empty journal', /function journalEmptyCard\(kid, date\)\{/.test(app));
+  ok_('...used by the home screen', /journalChecklist\(j,\{parentEditable:true,student:k0\}\) : journalEmptyCard\(k0\)/.test(app));
+  ok_('...and by the journal screen, so the two cannot drift apart',
+    /journalChecklist\(j,\{parentEditable:true\}\):journalEmptyCard\(kid\)/.test(app));
+  ok_('a child who has not started is told the date the journal begins',
+    /สมุดบันทึกประจำวันจะเริ่มในวันที่ \$\{esc\(ddmmyyyy\(kid\.startDate\)\)\}/.test(app));
+  ok_('...a child on leave is told the leave is the record', /วันที่ไม่ได้มาเรียนจะไม่มีสมุดบันทึก/.test(app));
+  ok_('...and everybody else still just waits for the teacher', /return waitCard\(date\); \}/.test(app));
+  ok_('the journal screen has the child to ask about', /const kid=\(kids\|\|\[\]\)\.find\(k=>k\.StudentID===sid\)\|\|\{\};/.test(app));
+}
+
+console.log('\n6) both halves of the app refuse it');
 {
   ok_('the engine', /const studentNotStarted_ = \(s, onDate\) =>/.test(eng));
   ok_('...checks it BEFORE the calendar, or the refusal names the wrong reason',
