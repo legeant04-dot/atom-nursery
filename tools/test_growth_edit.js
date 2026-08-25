@@ -176,5 +176,47 @@ console.log('\n6) the screen, and the record of who did what');
   ok_('the list says who may correct what', /คุณครูแก้ไขได้เฉพาะรายการที่ตนเองบันทึก/.test(app));
 }
 
+console.log('\n7) whose handwriting is this — by NICKNAME, from the server');
+{
+  /* Asked 2026-08-25: show who recorded the measurement and who assessed the DSPM item, "ให้แสดง
+   * ชื่อเล่นของคุณครูที่ประเมิน". A name has to come from somewhere, and the client's staff directory
+   * is an ADMIN cache — empty on a teacher's screen and on a parent's. A nickname looked up there is
+   * a nickname for one role and a raw id for everyone else. */
+  const { H, M } = boot();
+  const recs = H.growthHistory({ studentId: 'BRAVE' }).records;
+  eq('the measurement says who took it, by nickname', recs[1].byNick, 'หนึ่ง');
+  eq('...and a row nobody signed says nothing rather than guessing', recs[3].byNick, '');
+  ok_('the screen prints what the server sent, not a client lookup',
+    /\$\{r\.byNick\?`<br><small class="muted">\$\{EN\(\)\?'recorded by':'บันทึกโดย'\}/.test(app)
+    && !/staffNick\(r\.RecordedBy\)/.test(app));
+
+  // DSPM: the assessor, by nickname, on every screen that lists a result
+  M.assessments.push({ AssessmentID: 'A1', StudentID: 'BRAVE', AgeMonth: 7, ItemNo: 1, Skill: 'GM',
+    Result: 'ผ่าน', Date: '2026-08-20', TeacherID: 'T2', TeacherName: 'ครูสอง' });
+  M.dspmCriteria.push({ ItemNo: 1, Skill: 'GM', AgeFrom: 6, AgeTo: 9, AgeLabelTH: '6-9 เดือน', Description: 'ชันคอ' });
+  const bands = H.studentAllBands({ studentId: 'BRAVE' }).bands;
+  const item = bands[0].items.find(i => i.itemNo === 1);
+  eq('the assessed item names the teacher by nickname', item.byNick, 'สอง');
+  eq('...and keeps the full name for a printed report', item.by, 'ครูสอง');
+  eq('...and says when', item.date, '2026-08-20');
+  const st = H.dspmStatus({ studentId: 'BRAVE' });
+  eq('the parent’s current-band view says it too', st.items.find(i => i.itemNo === 1).byNick, 'สอง');
+  const unassessed = bands[0].items.find(i => i.result === 'ยังไม่ได้รับการทดสอบ');
+  if (unassessed) eq('...and an item nobody has tested names nobody', unassessed.byNick, '');
+  ok_('one helper draws it, on all three lists', /const DSPM_BY=i=>\{ const n=i&&i\.byNick; if\(!n\) return '';/.test(app));
+  ok_('...the parent’s current band', /<\/small>\$\{DSPM_BY\(i\)\}<\/span>\$\{DSPM_PILL\(i\.result\)\}<\/div>`;/.test(app));
+  ok_('...the parent’s earlier bands', /<\/small>\$\{DSPM_BY\(i\)\}<\/span>\$\{DSPM_PILL\(i\.result\)\}<\/div>`\)\.join\(''\)\}<\/div>`\)\.join\(''\)\+/.test(app));
+  ok_('...and the staff analysis screen', /<\/small>\$\{DSPM_BY\(i\)\}<\/span>\$\{pill\(i\.result\)\}<\/div>`\)\.join\(''\)\}/.test(app));
+}
+{
+  // a teacher who has since left is still the person who assessed it — fall back to the stored name
+  const { H, M } = boot();
+  M.assessments.push({ AssessmentID: 'A2', StudentID: 'BRAVE', AgeMonth: 7, ItemNo: 2, Skill: 'FM',
+    Result: 'ผ่าน', Date: '2026-08-20', TeacherID: 'GONE', TeacherName: 'ครูที่ลาออกไปแล้ว' });
+  M.dspmCriteria.push({ ItemNo: 2, Skill: 'FM', AgeFrom: 6, AgeTo: 9, AgeLabelTH: '6-9 เดือน', Description: 'หยิบของ' });
+  const item = H.studentAllBands({ studentId: 'BRAVE' }).bands[0].items.find(i => i.itemNo === 2);
+  eq('an id that is no longer on the staff falls back to the name on the row', item.byNick, 'ครูที่ลาออกไปแล้ว');
+}
+
 console.log('\n' + (fail ? 'FAILED ' : 'PASSED ') + pass + ' passed, ' + fail + ' failed\n');
 process.exit(fail ? 1 : 0);

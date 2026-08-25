@@ -112,7 +112,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.279'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.280'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -2423,6 +2423,17 @@
       <p class="muted" style="font-size:12px;margin:8px 2px 0">${EN()?'Please contact the school if you have any questions.':'หากมีข้อสงสัย กรุณาติดต่อโรงเรียนค่ะ'}</p></div>`).join(''); }
 
   const DSPM_PILL=r=>{const c=r==='ผ่าน'?'ok':r==='ไม่ผ่าน'?'bad':r==='ยังไม่เข้าโรงเรียน'?'info':'wait';return `<span class="pill ${c}">${esc(tStat(r))}</span>`;};
+  /**
+   * WHO ASSESSED THIS ITEM, by nickname — asked for 2026-08-25.
+   *
+   * A result with no assessor is a judgement about a child that nobody put their name to, and when a
+   * parent asks about one, the first question is who tested it. The nickname comes from the SERVER
+   * (byNick): looked up in the client's staff directory it would be a name on the admin's screen and
+   * a raw id on the parent's, because that cache is only ever filled for an admin.
+   * Nothing is printed for an item nobody has assessed yet — there is no name to give.
+   */
+  const DSPM_BY=i=>{ const n=i&&i.byNick; if(!n) return '';
+    return `<br><small class="muted">${EN()?'assessed by':'ประเมินโดย'} ${_notr(n)}${i.date?` · ${esc(ddmmyyyy(i.date))}`:''}</small>`; };
   const DT_KEY={GM:'dom.GM',FM:'dom.FM',RL:'dom.RL',EL:'dom.EL',PS:'dom.PS'};
   const DT=new Proxy({},{get:(_,k)=>t(DT_KEY[k]||k)});
   // ---- MODULE 1: การเจริญเติบโต (weight/height chart + vaccine) — separate page ----
@@ -2504,7 +2515,7 @@
     const all=rall.status==='fulfilled'?rall.value:{bands:[]};
     const ageMo = (window.AGEMONTHS&&st.DOB)?window.AGEMONTHS(st.DOB):(s?s.ageMonth:'');
     const past=(all.bands||[]).filter(b=>!s||b.label!==s.ageLabel);
-    const itemRow=i=>`<div class="list-item"><span><b>ข้อ ${i.itemNo}</b> <span class="pill info">${i.skill}</span> · ${DT[i.skill]||''}<br><small>${esc(EN()&&i.descriptionEN?i.descriptionEN:i.description)}</small></span>${DSPM_PILL(i.result)}</div>`;
+    const itemRow=i=>`<div class="list-item"><span><b>ข้อ ${i.itemNo}</b> <span class="pill info">${i.skill}</span> · ${DT[i.skill]||''}<br><small>${esc(EN()&&i.descriptionEN?i.descriptionEN:i.description)}</small>${DSPM_BY(i)}</span>${DSPM_PILL(i.result)}</div>`;
     const assessCard = s
       ? `<div class="card"><div class="spread"><b>${esc(dispNick(st)||sid)}</b><span class="muted">${esc(ageYMfromMonths(s.ageMonth))} (${s.ageMonth} ${EN()?'mo':'เดือน'})</span></div>
           <div class="spread"><b style="color:var(--blue)">⭐ ${EN()?'Current age band':'ช่วงวัยปัจจุบัน'}: ${esc(ageBandLabel(s.ageLabel))}</b></div>
@@ -2521,7 +2532,7 @@
            Asked 2026-08-25, same reason as the vaccine card. */''}
       ${past.length?`<details class="card"><summary style="cursor:pointer;font-weight:700">📜 ${EN()?'Earlier results (previous age bands)':'ผลย้อนหลัง (ช่วงวัยก่อนหน้า)'}
           <span class="pill info" style="font-size:11px">${past.length} ${EN()?'band(s)':'ช่วงวัย'}</span></summary>
-        <div style="margin-top:8px">`+past.reverse().map(b=>`<div class="card" style="padding:8px"><h3 style="font-size:14px">${esc(ageBandLabel(b.label))}</h3>${b.items.map(i=>`<div class="list-item"><span><b>${EN()?'Item':'ข้อ'} ${i.itemNo}</b> <span class="pill info">${i.skill}</span> <small>${esc(EN()&&i.descriptionEN?i.descriptionEN:i.description)}</small></span>${DSPM_PILL(i.result)}</div>`).join('')}</div>`).join('')+`</div></details>`:''}`;
+        <div style="margin-top:8px">`+past.reverse().map(b=>`<div class="card" style="padding:8px"><h3 style="font-size:14px">${esc(ageBandLabel(b.label))}</h3>${b.items.map(i=>`<div class="list-item"><span><b>${EN()?'Item':'ข้อ'} ${i.itemNo}</b> <span class="pill info">${i.skill}</span> <small>${esc(EN()&&i.descriptionEN?i.descriptionEN:i.description)}</small>${DSPM_BY(i)}</span>${DSPM_PILL(i.result)}</div>`).join('')}</div>`).join('')+`</div></details>`:''}`;
   };
 
   SCREENS.Parent.chat = async () => { const line=MOCK.config.Links.line||'#';
@@ -5093,7 +5104,7 @@
         ${growthChartSVG(t('growth.height'),g.records.map(r=>({x:r.AgeMonth,y:r.Height})),gBand(g.heightBand,g.gender,g.records,'height'),'cm')}
         <div class="row" style="font-size:13px;justify-content:center;margin-top:6px"><span>🟦 ${esc(t('growth.actual'))}</span><span>🟩 ${esc(t('growth.normalBand'))}</span></div>
         ${growthRecordsList(g.records, sid)}</div>
-      ${d.bands.map(b=>`<div class="card"><h3>${esc(ageBandLabel(b.label))}</h3>${b.items.map(i=>`<div class="list-item"><span><b>ข้อ ${i.itemNo}</b> <span class="pill info">${i.skill}</span> <small>${esc(EN()&&i.descriptionEN?i.descriptionEN:i.description)}</small></span>${pill(i.result)}</div>`).join('')}</div>`).join('')}
+      ${d.bands.map(b=>`<div class="card"><h3>${esc(ageBandLabel(b.label))}</h3>${b.items.map(i=>`<div class="list-item"><span><b>ข้อ ${i.itemNo}</b> <span class="pill info">${i.skill}</span> <small>${esc(EN()&&i.descriptionEN?i.descriptionEN:i.description)}</small>${DSPM_BY(i)}</span>${pill(i.result)}</div>`).join('')}</div>`).join('')}
       <button class="btn outline" onclick="GO('dspm')">← กลับหน้าวิเคราะห์</button>`; window.scrollTo(0,0); };
   /**
    * measurement history list (date · age-at-measurement · weight/height)
@@ -5110,7 +5121,10 @@
     const rows=records.map((r,i)=>Object.assign({idx:(r.idx!=null?r.idx:i)},r))
       .sort((a,b)=>String(b.Date).localeCompare(String(a.Date)))
       .map(r=>`<div class="list-item"><span>${esc(ddmmyyyy(r.Date))} <small class="muted">(${esc(ageYMfromMonths(r.AgeMonth))})</small>
-        ${r.RecordedBy?`<br><small class="muted">${EN()?'recorded by':'บันทึกโดย'} ${_notr(staffNick(r.RecordedBy))}</small>`:''}</span>
+        ${/* the nickname comes from the SERVER (growthHistory.byNick). Looked up in the client's
+             staff directory it would be a name on the admin's screen and a raw id on everyone
+             else's — that cache is only ever filled for an admin. */''}
+        ${r.byNick?`<br><small class="muted">${EN()?'recorded by':'บันทึกโดย'} ${_notr(r.byNick)}</small>`:''}</span>
       <span style="text-align:right">${r.Weight?num(baht(r.Weight))+' kg':''}${r.Height?' · '+num(baht(r.Height))+' cm':''}
         ${canEdit?`<br><button class="btn sm outline" style="margin-top:4px" onclick="G_edit('${esc(sid)}',${r.idx},'${esc(ymd(r.Date))}',${Number(r.Weight)||0},${Number(r.Height)||0})" aria-label="${EN()?'Edit':'แก้ไข'}" title="${EN()?'Edit':'แก้ไข'}">✏️</button>
           <button class="btn sm pink" style="margin-top:4px" onclick="G_del('${esc(sid)}',${r.idx},'${esc(ymd(r.Date))}',${Number(r.Weight)||0},${Number(r.Height)||0})" aria-label="${EN()?'Delete':'ลบ'}" title="${EN()?'Delete':'ลบ'}">🗑️</button>`:''}</span></div>`).join('');

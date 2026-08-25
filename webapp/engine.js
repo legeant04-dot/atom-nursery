@@ -1000,6 +1000,20 @@ function createAtomAPI(M, GROWTH_STD) {
   const studentNotStarted_ = (s, onDate) => { const d=ymd((s&&s.EnrollDate)||'');
     return !!d && ymd(onDate||todayLocal()) < d; };
 
+  /**
+   * WHOSE HANDWRITING IS THIS — a staff member's NICKNAME, resolved on the server.
+   *
+   * "แสดงชื่อเล่นของคุณครูที่ประเมิน" (2026-08-25). A name has to come from somewhere: the client's
+   * staff directory is an ADMIN cache, empty on a teacher's screen and on a parent's, so a nickname
+   * looked up there is a nickname that appears for one role and shows a raw id to everyone else.
+   * Resolved here, once, next to the record it belongs to.
+   *
+   * `fallback` is the full name stored on the row itself (DSPM keeps TeacherName). Rows written
+   * before ids were recorded have only that, and a full name is a better answer than "STF-011".
+   */
+  const staffNickOf_ = (id, fallback) => { const s=id?staffById(id):null;
+    return (s&&(s.Nickname||s.NameTH||s.Name)) || String(fallback||'') || String(id||''); };
+
   // ---- growth records: correcting a measurement -------------------------------------------------
   /** One child's measurements, oldest first — the ORDER growthHistory hands out `idx` against. */
   const growthRowsOf_ = sid => (M.growthRecords||[]).filter(r=>String(r.StudentID)===String(sid))
@@ -1808,7 +1822,8 @@ function createAtomAPI(M, GROWTH_STD) {
         items:band.map(c=>{ const r=latest[c.ItemNo]||null;
           return {itemNo:c.ItemNo,skill:c.Skill,description:c.Description,descriptionEN:(M.dspmEN&&M.dspmEN[c.ItemNo])||'',
             result:r?r.Result:'ยังไม่ได้รับการทดสอบ', date:r?r.Date:'',
-            by:r?(r.TeacherName||''):'', at:r?(r.Timestamp||''):'',
+            // the nickname is how the school names its teachers; the full name stays for a report
+            by:r?(r.TeacherName||''):'', byNick:r?staffNickOf_(r.TeacherID,r.TeacherName):'', at:r?(r.Timestamp||''):'',
             comment:r?(r.AdminComment||''):'', commentBy:r?(r.CommentBy||''):'', commentAt:r?(r.CommentAt||''):''}; })}; },
 
     /**
@@ -2309,7 +2324,12 @@ function createAtomAPI(M, GROWTH_STD) {
     studentAssessment: p => { const sum=summarize(p.studentId); sum.items=Object.values(latestByItem(p.studentId)).map(r=>({itemNo:r.ItemNo,skill:r.Skill,result:r.Result,date:r.Date})).sort((a,b)=>a.itemNo-b.itemNo); return sum; },
     // all bands the child has reached (enroll age -> now), each band with items + status
     studentAllBands: p => { const s=studentById(p.studentId); if(!s)fail('NOT_FOUND','ไม่พบนักเรียนรายนี้'); const age=ageMonths(s.DOB); const latest=latestByItem(p.studentId);
-      const bands={}; M.dspmCriteria.filter(c=>c.AgeFrom<=age).forEach(c=>{ (bands[c.AgeLabelTH]=bands[c.AgeLabelTH]||{label:c.AgeLabelTH,from:c.AgeFrom,items:[]}).items.push({itemNo:c.ItemNo,skill:c.Skill,description:c.Description,descriptionEN:(M.dspmEN&&M.dspmEN[c.ItemNo])||'',result:latest[c.ItemNo]?latest[c.ItemNo].Result:'ยังไม่ได้รับการทดสอบ'}); });
+      /* WHO ASSESSED IT, and when. A result with no assessor is a judgement about a child that
+       * nobody put their name to — and when a parent asks about one, the first question is who
+       * tested it. By NICKNAME, which is how this school refers to its teachers everywhere else. */
+      const bands={}; M.dspmCriteria.filter(c=>c.AgeFrom<=age).forEach(c=>{ const r=latest[c.ItemNo];
+        (bands[c.AgeLabelTH]=bands[c.AgeLabelTH]||{label:c.AgeLabelTH,from:c.AgeFrom,items:[]}).items.push({itemNo:c.ItemNo,skill:c.Skill,description:c.Description,descriptionEN:(M.dspmEN&&M.dspmEN[c.ItemNo])||'',result:r?r.Result:'ยังไม่ได้รับการทดสอบ',
+          by:r?(r.TeacherName||''):'', byNick:r?staffNickOf_(r.TeacherID,r.TeacherName):'', date:r?ymd(r.Date||''):''}); });
       return {studentId:p.studentId,name:s.NameTH,nameEN:s.NameEN,nick:s.Nickname,nickEN:s.NicknameEN,ageMonth:age,enrollDate:s.EnrollDate,
         bands:Object.values(bands).sort((a,b)=>a.from-b.from)}; },
 
@@ -3161,7 +3181,8 @@ function createAtomAPI(M, GROWTH_STD) {
       return {studentId:p.studentId,name:s.NameTH,nameEN:s.NameEN,gender:s.Gender,ageMonth:ageMonths(s.DOB),
         // `idx` is the handle a correction comes back with (see growthFind_) — the rows themselves
         // have no id, and Date+Student is not unique: น้องเบรฟ has three identical 2026-08-14 rows.
-        records:recs.map((r,i)=>Object.assign({idx:i},r)),
+        // ...and WHO took each measurement, by nickname, resolved here (see staffNickOf_)
+        records:recs.map((r,i)=>Object.assign({idx:i, byNick:r.RecordedBy?staffNickOf_(r.RecordedBy):''},r)),
         weightBand:band('weight'), heightBand:band('height')}; },
 
     /**
