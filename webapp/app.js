@@ -112,7 +112,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.276'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.277'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -2462,7 +2462,8 @@
         <div class="row" style="font-size:13px;justify-content:center;margin-top:6px"><span>🟦 ${esc(t('growth.actual'))}</span><span>🟩 ${esc(t('growth.normalBand'))}</span></div>
         ${growthRecordsList(g.records)}</div>
       ${reportButtons(sid)}
-      ${vaccineCard(vsched,vrecs,sid,true)}`;
+      ${/* editable AND folded: the family keeps their own dates, but not in front of the chart */''}
+      ${vaccineCard(vsched,vrecs,sid,true,true)}`;
   };
   // ---- MODULE 2: DSPM assessment only — separate page ----
   SCREENS.Parent.dspm = async () => { const kids=await api('parentChildren',parentScope()); if(!kids.length){GO('home');return;} P_dspm(kids[0].StudentID); };
@@ -5079,7 +5080,17 @@
   function vacDateInput(key,val){ return `<div class="row vacdrow" style="gap:5px;align-items:center;margin-top:4px">`
     +`<input type="date" class="vacdate" data-key="${esc(key)}" value="${esc(val||'')}" style="width:150px"/>`
     +`<button class="btn sm gray" type="button" onclick="this.closest('.vacdrow').remove()" title="${EN()?'Remove':'ลบ'}" aria-label="${EN()?"Delete":"ลบ"}" title="${EN()?"Delete":"ลบ"}">✕</button></div>`; }
-  function vaccineCard(sched, recs, sid, editable){
+  /**
+   * @param {boolean} editable  can the dates be typed in
+   * @param {boolean} collapsed start folded shut
+   *
+   * THESE TWO ARE NOT THE SAME QUESTION, and treating them as one is why the fold did not appear.
+   * The parent's card is EDITABLE — families keep their own vaccine dates — so keying the fold off
+   * `!editable` folded it for precisely nobody: both call sites pass editable:true. What the parent
+   * needs is the form, folded; what the admin's modal needs is the form, open, because the modal
+   * exists for nothing else.
+   */
+  function vaccineCard(sched, recs, sid, editable, collapsed){
     if(editable){ window.__VAC_SCHED=sched; }  // stash for VAC_save (key→name lookup)
     const body = sched.map(grp=>`<div style="margin-bottom:8px"><b style="font-size:13px">${esc(EN()?grp.ageEN:grp.ageTH)}</b>
       ${grp.items.map(it=>{ const dates=vacDatesOf(recs,it.key);
@@ -5097,17 +5108,20 @@
      * summary line so it is worth opening or it is not. Editing (admin/teacher) stays open: the
      * whole point of that screen is the form.
      * Asked 2026-08-25: "ให้ทำเป็น Filter ซ่อนไว้ เนื่องจากเปิดมาแล้วกินพื้นที่ของหน้าจอ" */
-    if(!editable){
+    const inner = `${editable?`<p class="muted" style="font-size:13px">${esc(t('vac.note'))}</p>`:''}
+      ${body}
+      ${editable?`<button class="btn block green" type="button" onclick="VAC_save('${esc(sid)}')" style="margin-top:10px">💾 ${EN()?'Save vaccine records':'บันทึกวัคซีน'}</button>`:''}`;
+    if(collapsed){
+      /* Thirty rows of dose dates, opened at full height between a parent and the growth chart they
+       * came to see. It is a REFERENCE, filled in a few times a year. How many are recorded rides on
+       * the summary line, so it is worth opening or it is not. */
       const done=sched.reduce((a,g)=>a+g.items.filter(it=>vacDatesOf(recs,it.key).length).length,0);
       const all=sched.reduce((a,g)=>a+g.items.length,0);
       return `<details class="card" id="vaccard" data-sid="${esc(sid)}"><summary style="cursor:pointer;font-weight:700">💉 ${esc(t('vac.title'))}
         <span class="pill ${done?'ok':'wait'}" style="font-size:11px">${done}/${all}</span></summary>
-        <div style="margin-top:8px">${body}</div></details>`;
+        <div style="margin-top:8px">${inner}</div></details>`;
     }
-    return `<div class="card" id="vaccard" data-sid="${esc(sid)}"><h3>💉 ${esc(t('vac.title'))}</h3>
-      ${editable?`<p class="muted" style="font-size:13px">${esc(t('vac.note'))}</p>`:''}
-      ${body}
-      ${editable?`<button class="btn block green" type="button" onclick="VAC_save('${esc(sid)}')" style="margin-top:10px">💾 ${EN()?'Save vaccine records':'บันทึกวัคซีน'}</button>`:''}</div>`; }
+    return `<div class="card" id="vaccard" data-sid="${esc(sid)}"><h3>💉 ${esc(t('vac.title'))}</h3>${inner}</div>`; }
   // inline SVG line chart: child's measurements (line) vs the standard normal band (shaded)
   // The GAS engine runs with GROWTH_STD=null (no server-side band), so the green normal-range
   // band comes back empty in gas mode. The browser HAS window.GROWTH_STD → rebuild it locally.

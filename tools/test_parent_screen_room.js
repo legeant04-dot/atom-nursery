@@ -43,12 +43,21 @@ console.log('\n1) the journal history is a month at a time');
 
 console.log('\n2) the two reference lists are folded away');
 {
-  const vac = app.slice(app.indexOf('function vaccineCard(sched, recs, sid, editable){'),
+  const vac = app.slice(app.indexOf('function vaccineCard(sched, recs, sid, editable'),
     app.indexOf('// inline SVG line chart'));
-  ok_('the vaccine card is a <details> for a parent', /<details class="card" id="vaccard"/.test(vac));
+  ok_('the vaccine card can be a <details>', /<details class="card" id="vaccard"/.test(vac));
   ok_('...with how many doses are recorded on the line', /<span class="pill \$\{done\?'ok':'wait'\}"[^>]*>\$\{done\}\/\$\{all\}/.test(vac));
-  ok_('...while the ADMIN form stays open, because filling it in is the whole point of that screen',
-    /if\(!editable\)\{/.test(vac) && /<div class="card" id="vaccard"/.test(vac));
+  /* EDITABLE AND FOLDED ARE NOT THE SAME QUESTION. The parent's card IS editable — families keep
+   * their own dates — so a fold keyed off `!editable` folded it for precisely nobody: both call
+   * sites pass editable:true. That is exactly what shipped in v276 and did nothing. */
+  ok_('...folding is its own argument, not a side-effect of being read-only',
+    /function vaccineCard\(sched, recs, sid, editable, collapsed\)\{/.test(vac) && /if\(collapsed\)\{/.test(vac));
+  ok_('the parent gets the form, folded', /vaccineCard\(vsched,vrecs,sid,true,true\)/.test(app));
+  // the admin's call passes no `collapsed` at all — the modal exists for nothing but this form
+  ok_('...and the admin modal gets it open, because the modal exists for nothing else',
+    app.indexOf('vaccineCard(sched,recs,sid,true)') > 0);
+  ok_('...with the save button inside either way, or a folded card could not be filled in',
+    /const inner = `\$\{editable\?/.test(vac) && /VAC_save/.test(vac));
   ok_('earlier DSPM bands are folded too', /<details class="card"><summary style="cursor:pointer;font-weight:700">📜/.test(app));
   ok_('...with the number of bands on the line', /\$\{past\.length\} \$\{EN\(\)\?'band\(s\)':'ช่วงวัย'\}/.test(app));
   ok_('nothing is folded when there is nothing to fold', /\$\{past\.length\?`<details/.test(app));
