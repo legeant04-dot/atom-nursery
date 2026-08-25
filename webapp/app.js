@@ -112,7 +112,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.274'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.275'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -1308,6 +1308,25 @@
   // student leave label: "ประเภท — เหตุผล" (type first, reason appended when present)
   const stdLeaveDesc = l => { const ty=(l&&l.Type||'').trim(), rs=(l&&l.Reason||'').trim(); return ty&&rs ? ty+' — '+rs : (ty||rs||'-'); };
   function waitCard(date){ return `<div class="card" style="text-align:center;color:var(--warn-ink);background:var(--warn-bg);border-color:var(--warn-line)">⏳ รอคุณครูส่งข้อมูลของวันที่ ${ddmmyyyy(date)}</div>`; }
+  /**
+   * NO JOURNAL TODAY — and WHY not, which is the part that was missing.
+   *
+   * "⏳ รอคุณครูส่งข้อมูลของวันที่ 25-08-2026" was printed for a child whose first day is in October.
+   * There is no teacher waiting to send anything, and telling a family to wait for something that is
+   * not coming is worse than telling them nothing. A day the child was on leave is the same: the
+   * leave IS the record of that day.
+   *
+   * One helper, because the home screen and the journal screen both ask it and two copies of an
+   * explanation drift apart.
+   */
+  function journalEmptyCard(kid, date){ kid=kid||{};
+    if(kid.notStarted) return `<div class="card" style="text-align:center;background:var(--blue-bg);border-color:var(--blue-line)">
+      <b style="color:var(--blue)">📅 ${EN()?'Not due to attend yet':'ยังไม่ถึงกำหนดเข้าเรียน'}</b>
+      <br><small class="muted">${EN()?`The daily journal starts on ${ddmmyyyy(kid.startDate)}, the first day at school.`:`สมุดบันทึกประจำวันจะเริ่มในวันที่ ${esc(ddmmyyyy(kid.startDate))} ซึ่งเป็นวันแรกของการมาเรียน`}</small></div>`;
+    if(kid.onLeave) return `<div class="card" style="text-align:center;background:var(--warn-bg);border-color:var(--warn-line)">
+      <b style="color:var(--warn)">🏖️ ${EN()?'On leave today':'ลาวันนี้'}</b>
+      <br><small class="muted">${esc(kid.leaveType||'')}${kid.leaveReason?' · '+esc(kid.leaveReason):''}${kid.leaveType||kid.leaveReason?'<br>':''}${EN()?'No journal for a day the child was not in.':'วันที่ไม่ได้มาเรียนจะไม่มีสมุดบันทึก'}</small></div>`;
+    return waitCard(date); }
   function annRow(a){ const ti=EN()?(a.TitleEN||a.Title):(a.Title||a.TitleEN); const co=EN()?(a.ContentEN||a.Content):(a.Content||a.ContentEN);
     return `<div class="list-item"><div><b>${esc(ti)}</b><br><small class="muted">${esc(co)}</small>${a.Image?`<br><img class="ann-thumb" src="${esc(a.Image)}" alt=""/>`:''}</div><small class="muted">${esc(a.Date)}</small></div>`; }
   const SCHOOL_MAP_URL = 'https://maps.app.goo.gl/jQhGb3KQj59RV2wXA';
@@ -1513,7 +1532,12 @@
     app.innerHTML = `<div class="spread"><h2 class="page">${esc(t('p.greeting'))}${esc(greetName)} 👋</h2><div class="row">${profileBtn}${addBtn}</div></div>
       ${kidsHtml}
       <div id="pDue"></div>
-      <h3 style="margin:6px 2px">📒 ${EN()?'Journal of':'บันทึกของ'} ${esc(dispNick(k0))} ${EN()?'today':'วันนี้'}</h3>${j?journalChecklist(j,{parentEditable:true,student:k0}):waitCard()}
+      ${/* "⏳ รอคุณครูส่งข้อมูลของวันที่ 25-08-2026" for a child whose first day is in October: there
+           is no teacher waiting to send anything, and telling a family to wait for something that is
+           not coming is worse than telling them nothing. Same answer as the card above — the DATE.
+           A child on leave today gets the same treatment for the same reason. */''}
+      <h3 style="margin:6px 2px">📒 ${EN()?'Journal of':'บันทึกของ'} ${esc(dispNick(k0))} ${EN()?'today':'วันนี้'}</h3>${
+        j ? journalChecklist(j,{parentEditable:true,student:k0}) : journalEmptyCard(k0)}
       <div class="card"><div class="spread"><h3>🏠 แจ้งลาบุตรหลาน</h3><button class="btn sm outline" onclick="P_absence()">+ แจ้งลา</button></div>${slHtml}</div>
       <div id="svCard"></div>
 <!-- the food-menu card was here. Removed on the owner's call: the day's meals are already on the
@@ -2321,7 +2345,7 @@
     const [kids,j,hist,inj]=await Promise.all([api('parentChildren',parentScope()),api('getJournal',{studentId:sid}),
       api('journalHistory',{studentId:sid}),api('journalInjuries',{studentId:sid}).catch(()=>[])]);
     const kid=(kids||[]).find(k=>k.StudentID===sid)||{};
-    app.innerHTML=`<h2 class="page">${esc(t('title.journal'))}${kids.length===1?` · <span style="color:var(--blue)">${esc(dispNick(kid)||sid)}</span>`:''}</h2>${childSwitcher(kids,sid,'P_journal')}${injJournalHTML(inj)}${j?journalChecklist(j,{parentEditable:true}):waitCard()}
+    app.innerHTML=`<h2 class="page">${esc(t('title.journal'))}${kids.length===1?` · <span style="color:var(--blue)">${esc(dispNick(kid)||sid)}</span>`:''}</h2>${childSwitcher(kids,sid,'P_journal')}${injJournalHTML(inj)}${j?journalChecklist(j,{parentEditable:true}):journalEmptyCard(kid)}
       <h3 class="page" style="font-size:16px">ย้อนหลัง</h3>${hist.map(h=>`<div class="list-item"><span>${esc(h.Date)} · ${esc(MOODS[h.Mood]||'')} ${esc(h.Mood||'')}</span><button class="btn sm outline" onclick="P_showJ('${h.StudentID}','${h.Date}')">ดู</button></div>`).join('')||'<small class="muted">ไม่มี</small>'}`;
   };
   window.P_showJ=async(sid,date)=>{ const [j,inj]=await Promise.all([api('getJournal',{studentId:sid,date}),api('journalInjuries',{studentId:sid,date}).catch(()=>[])]);
