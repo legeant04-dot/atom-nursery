@@ -35,7 +35,7 @@ const leaveScr = app.slice(app.indexOf("SCREENS.Teacher.leave"), app.indexOf("SC
 
 console.log('\n1) my OT วันหยุด, under the daily summary in 📅 ตาราง');
 {
-  ok_('the schedule screen asks for my OT', /api\('myOT',\{staffId:USER\.staffId\}\)\.then\(rows=>\{/.test(sched));
+  ok_('the schedule screen asks for my OT', /const p_myot\s*=\s*api\('myOT',\{staffId:USER\.staffId\}\)/.test(sched));
   // v256: "a holiday OT that still counts" is one helper (isLiveHolOT) instead of the same pair of
   // string tests written out at four call sites
   ok_('...and keeps only the holiday ones that were not rejected', /\.filter\(isLiveHolOT\)/.test(sched));
@@ -53,8 +53,13 @@ console.log('\n1) my OT วันหยุด, under the daily summary in 📅 �
   ok_('...and it says where the money turns up', /จ่ายเป็นบรรทัดแยกในสลิปเงินเดือน/.test(sched));
   // a teacher with none must not get an empty box in the way of the summary
   ok_('nothing is drawn at all when there is none', /if\(!hol\.length\) return;/.test(sched));
-  // and it must never delay the screen
-  ok_('it loads after the screen is drawn, not before', sched.indexOf('app.innerHTML=') < sched.indexOf("api('myOT'"));
+  /* AND IT MUST NEVER DELAY THE SCREEN. It used to be FETCHED after the render, which met that bar
+   * and cost a whole extra round trip (v283) — Apps Script runs one execution at a time per user, so
+   * a second request is another ~5s queued behind the first. It is fetched with everything else now
+   * and RENDERED when it lands, which meets the same bar for free. */
+  ok_('it is fetched with the rest of the screen', sched.indexOf("const p_myot") < sched.indexOf('app.innerHTML='));
+  ok_('...and drawn only when it arrives, so it still cannot hold the page up',
+    sched.indexOf('app.innerHTML=') < sched.indexOf('p_myot.then('));
   ok_('...and a failure to load it leaves the rest alone', /\}\)\.catch\(\(\)=>\{\}\);/.test(sched));
 }
 

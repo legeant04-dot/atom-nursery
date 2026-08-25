@@ -87,7 +87,40 @@ console.log('\n4) parent home: nothing is asked for twice');
     home.indexOf("await api('parentChildren'") < home.indexOf('const _res = await Promise.all(['));
 }
 
-console.log('\n5) the bell stops costing a round trip per navigation');
+console.log('\n5) payroll: four sequential waits became one');
+{
+  /* THIS is where "payroll 62.5 calls/visit" came from. payrollConfig → staffMonthlyOT →
+   * otCarryOver → getPayslip were awaited one after another, so every time the admin picked a staff
+   * member or changed the month the screen sat through four separate ~5s waits. Running payroll for
+   * ten people cost forty round trips. None of them depends on another — same (staffId, month),
+   * different sheets. */
+  const fn = between('window.A_payStaff = async ()=>{', 'window.A_payTypeToggle');
+  ['payrollConfig', 'staffMonthlyOT', 'otCarryOver', 'getPayslip'].forEach(a =>
+    ok_(`${a} is started before the first await`, fn.indexOf(`api('${a}'`) < fn.indexOf('await p_pc')));
+  ok_('...and each is awaited from its promise, not re-fetched',
+    /await p_pc;/.test(fn) && /await p_ot;/.test(fn) && /await p_cy;/.test(fn) && /await p_slip;/.test(fn));
+  ok_('the month is read ONCE, so all four ask about the same one',
+    /const mth=\$\('#pMonth'\)\.value;/.test(fn));
+  /* The ORDER the fields are filled in still matters — a saved payslip overwrites the defaults, or
+   * reopening a month would show a fresh form instead of what was actually paid. Fetching in
+   * parallel must not become applying in parallel. */
+  ok_('...but the saved slip is still applied last, over the defaults',
+    fn.indexOf('await p_pc') < fn.indexOf('await p_slip'));
+  ok_('a stale reply is still dropped when the admin has moved on', (fn.match(/if\(stale\(\)\)return;/g) || []).length >= 4);
+}
+
+console.log('\n6) 📅 ตาราง: one request, not two');
+{
+  const scr = between('SCREENS.Teacher.schedule = async () => {', 'let MY_DAYS=[]');
+  ['myAttendanceMonth', 'myLeaves', 'myOT'].forEach(a =>
+    ok_(`${a} is started before the schedule await`, scr.indexOf(`api('${a}'`) < scr.indexOf("const d=await api('schedule'")));
+  ok_('...and the history reuses that in-flight fetch rather than making its own',
+    /T_myHistory\(monthStr\(\), null, p_hist\)/.test(app) && /await \(pre \|\| api\('myAttendanceMonth'/.test(app));
+  ok_('...while any OTHER period still asks when it is chosen', /window\.T_myHistory=async\(month, range, pre\)=>/.test(app));
+  ok_('a fetch that failed does not render as an empty month', /if\(!r\) throw new Error\('no data'\);/.test(app));
+}
+
+console.log('\n7) the bell stops costing a round trip per navigation');
 {
   ok_('the count is cached', /if\(!force && Date\.now\(\)-_bellAt < 60000\)/.test(app));
   ok_('...for a minute, which is fresh enough for a badge', /_bellAt < 60000/.test(app));
