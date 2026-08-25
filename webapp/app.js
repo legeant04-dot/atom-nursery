@@ -112,7 +112,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.271'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.272'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -4202,8 +4202,14 @@
     const _pl=Number(d.pendingLeaves||0);
     const kpi=`<div class="kpigrid">
       <button class="kpi blue" onclick="GO('daily')"><span class="kic">👶</span><b class="kn" style="color:${_closed?'var(--ink-3)':pctColor(_attPct)}">${_closed?(EN()?'Holiday':'หยุด'):_attPct+'%'}</b><span class="kl">${EN()?'Attendance today':'มาเรียนวันนี้'}</span></button>
-      <button class="kpi amber" onclick="A_finTab('in')"><span class="kic">💰</span><b class="kn" style="color:${tuiOut>0?'var(--bad)':'var(--ok)'}">${baht(tuiOut)}</b><span class="kl">${EN()?'Tuition outstanding':'ค้างค่าเทอม'}</span>
-        <span class="kl" style="margin-top:2px">⏰ ${EN()?'OT':'OT'} <b style="color:${_otOut>0?'var(--warn)':'var(--ok)'}">${baht(_otOut)}</b>${_chOut?` · ➕ <b style="color:var(--warn)">${baht(_chOut)}</b>`:''}</span></button>
+      ${/* THE HEADLINE HAS TO BE THE WHOLE ANSWER.
+           It printed the TUITION figure — a green 0.00 — while the school was owed 200 in student
+           OT, which sat underneath in small grey type. The card directly below said "ค้างชำระ 200".
+           Two numbers, one screen, disagreeing about whether anybody owes anything (reported
+           2026-08-24). The tile is the first thing read and it must not say "no" when the answer is
+           "200": it is the TOTAL now, with the three kinds broken out beneath it. */''}
+      <button class="kpi amber" onclick="A_finTab('in')"><span class="kic">💰</span><b class="kn" style="color:${_allOut>0?'var(--bad)':'var(--ok)'}">${baht(_allOut)}</b><span class="kl">${EN()?'Outstanding (all)':'ค้างชำระทั้งหมด'}</span>
+        <span class="kl" style="margin-top:2px">🏫 <b style="color:${tuiOut>0?'var(--bad)':'var(--ok)'}">${baht(tuiOut)}</b> · ⏰ <b style="color:${_otOut>0?'var(--warn)':'var(--ok)'}">${baht(_otOut)}</b>${_chOut?` · ➕ <b style="color:var(--warn)">${baht(_chOut)}</b>`:''}</span></button>
       <button class="kpi green" onclick="A_finTab('wait')"><span class="kic">✅</span><b class="kn" style="color:${pendN?'var(--warn)':'var(--ok)'}">${pendN}</b><span class="kl">${EN()?'Slips to verify':'รอตรวจสลิป'}</span></button>
       <button class="kpi pink" onclick="GO('leaves')"><span class="kic">📩</span><b class="kn" style="color:${_pl?'var(--warn)':'var(--ok)'}">${_pl}</b><span class="kl">${EN()?'Leaves to approve':'รออนุมัติลา'}</span></button></div>`;
     const quick=`<div class="qbar"><button class="btn sm" onclick="GO('daily')">📋 ${esc(t('daily.title'))}</button><button class="btn sm outline" onclick="GO('absence')">🔎 ${esc(t('abs.title'))}</button><button class="btn sm outline" onclick="A_addAnn()">➕ ${esc(t('lbl.addAnn'))}</button><button class="btn sm outline" onclick="A_linkParent()">🔗 ${EN()?'Link parent':'เชื่อมผู้ปกครอง'}</button><button class="btn sm outline" onclick="A_viewAs()">👁️ ${EN()?'View as':'ดูมุมมอง'}</button><button class="btn sm outline" onclick="GO('manage')">🗂️ ${esc(t('title.manage'))}</button></div>`;
@@ -7432,15 +7438,24 @@
    */
   function finStudentRow(s){
     const tuiOpen=Number(s.tuitionOpen||0), othOpen=Number(s.otherOpen||0);
-    const pill = s.prepaid && tuiOpen<=0
-        ? `<span class="pill ok">💰 ${EN()?'paid in advance':'ชำระล่วงหน้าแล้ว'}</span>`
-      : s.paid ? `<span class="pill ok">${esc(t('s.paid'))}</span>`
-      : s.partial ? `<span class="pill wait">${EN()?'partial':'บางส่วน'} ${baht(s.collected)}</span>`
-      : s.status==='NO_BILL' ? `<span class="pill info">${esc(t('fin.noBill'))}</span>`
-      : `<span class="pill bad">${esc(t('s.unpaid'))}</span>`;
     // A slip the parent already sent is NOT the family owing money — it is the school owing them a
     // check. Showing "ค้างชำระ" for it made admins chase people who had already transferred.
     const othPend=Number(s.otherPending||0), othReal=Math.max(0,othOpen-othPend);
+    /* "ชำระแล้ว" MEANS THIS FAMILY OWES NOTHING. `s.paid` only ever meant "the TUITION bill is
+     * settled", so a row could print ฿100, a green ชำระแล้ว and an orange "ค้างชำระอื่นๆ 100" all at
+     * once — three answers to one question (reported 2026-08-24). The green tick is now held back
+     * until nothing at all is outstanding; the OT or the extra charge keeps it amber until it is
+     * paid. A slip already sent is not owing, so it does not hold the tick back either. */
+    const stillOwed = tuiOpen + othReal;
+    const pill = s.prepaid && tuiOpen<=0 && stillOwed<=0
+        ? `<span class="pill ok">💰 ${EN()?'paid in advance':'ชำระล่วงหน้าแล้ว'}</span>`
+      : (s.paid || s.prepaid) && stillOwed>0
+        ? `<span class="pill wait">${EN()?'tuition paid · other charges due':'ค่าเทอมครบ · ยังค้างอื่นๆ'}</span>`
+      : s.paid ? `<span class="pill ok">${esc(t('s.paid'))}</span>`
+      : s.partial ? `<span class="pill wait">${EN()?'partial':'บางส่วน'} ${baht(s.collected)}</span>`
+      : s.status==='NO_BILL' && stillOwed>0 ? `<span class="pill bad">${esc(t('s.unpaid'))}</span>`
+      : s.status==='NO_BILL' ? `<span class="pill info">${esc(t('fin.noBill'))}</span>`
+      : `<span class="pill bad">${esc(t('s.unpaid'))}</span>`;
     const otherPill = (tuiOpen<=0 && othOpen>0)
       ? (othReal>0
           ? `<br><span class="pill wait" style="font-size:11px">⚠️ ${EN()?`other charges due ${baht(othReal)}`:`ค้างชำระอื่นๆ (ไม่ใช่ค่าเทอม) ${baht(othReal)}`}</span>`
