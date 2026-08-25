@@ -130,5 +130,32 @@ console.log('\n5) the screens show all three');
   ok_('...and the cash one too', /A school\s*\n\s*\* that takes cash saw its own takings as a debt/.test(eng));
 }
 
+console.log('\n6) one screen, one answer to "does anybody owe us money?"');
+{
+  /* REPORTED 2026-08-24, with a screenshot: the dashboard's headline tile read a green 0.00 while
+   * the card directly beneath it read "ค้างชำระ 200". Both were drawn from the same reply. The tile
+   * printed the TUITION figure and left the student OT in small grey type underneath — so the first
+   * number anybody reads said "no" when the answer was 200. */
+  const f = fin({ payments: bill(9500, 'PAID'), otDaily: ot(200) });
+  eq('tuition is settled', f.tuitionOutstanding, 0);
+  eq('...but the OT is not', f.otOutstanding, 200);
+  const total = f.tuitionOutstanding + f.chargesOutstanding + f.otOutstanding;
+  eq('the total the school is owed', total, 200);
+  ok_('the headline tile is that total, not one third of it',
+    /<b class="kn" style="color:\$\{_allOut>0\?'var\(--bad\)':'var\(--ok\)'\}">\$\{baht\(_allOut\)\}<\/b><span class="kl">\$\{EN\(\)\?'Outstanding \(all\)':'ค้างชำระทั้งหมด'\}/.test(app));
+  ok_('...with the three kinds broken out beneath it, so it is still answerable',
+    /🏫 <b style="color:\$\{tuiOut>0/.test(app) && /⏰ <b style="color:\$\{_otOut>0/.test(app));
+  ok_('...and it is the same figure the card below prints', /_allOut=tuiOut\+_chOut\+_otOut/.test(app));
+}
+{
+  // ...and the same contradiction one row at a time: ฿100 owed, and a green "ชำระแล้ว" beside it
+  ok_('"paid" is held back until NOTHING is outstanding', /const stillOwed = tuiOpen \+ othReal;/.test(app));
+  ok_('...a family whose tuition is clear but who owe an OT are named as such',
+    /ค่าเทอมครบ · ยังค้างอื่นๆ/.test(app));
+  ok_('...and a slip already sent does not hold the tick back', /othReal=Math\.max\(0,othOpen-othPend\)/.test(app));
+  ok_('...the amount and the pill can no longer disagree',
+    app.indexOf('const stillOwed = tuiOpen + othReal;') < app.indexOf('const pill = s.prepaid'));
+}
+
 console.log('\n' + (fail ? 'FAILED ' : 'PASSED ') + pass + ' passed, ' + fail + ' failed\n');
 process.exit(fail ? 1 : 0);
