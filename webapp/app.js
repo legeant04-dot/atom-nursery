@@ -112,7 +112,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.272'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.273'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -2877,7 +2877,10 @@
         row(EN()?'Weight / height':'น้ำหนัก / ส่วนสูง',(d.weight?d.weight+' kg':'—')+' · '+(d.height?d.height+' cm':'—')+(d.measuredAt?` (${ddmmyyyy(d.measuredAt)})`:''))+
         (d.scope==='full'?row(EN()?'National ID':'เลขบัตรประชาชน',d.nationalId):'')+
         (d.scope==='full'?row(EN()?'Race / nationality / religion':'เชื้อชาติ / สัญชาติ / ศาสนา',[d.race,d.nationality,d.religion].filter(Boolean).join(' · ')):'')+
-        row(EN()?'Enrolled':'วันเข้าเรียน',d.enrollDate?ddmmyyyy(d.enrollDate):''))}
+        row(EN()?'Enrolled':'วันเข้าเรียน',d.enrollDate?ddmmyyyy(d.enrollDate):'')+
+        row(EN()?'Bills due on':'วันที่ตัดรอบบิล',
+          (EN()?`day ${d.billingDay} of each month`:`ทุกวันที่ ${d.billingDay} ของเดือน`)+
+          (d.billingDayOwn?'':(EN()?' (school default)':' (ค่าของโรงเรียน)'))))}
       ${sec('🚑',EN()?'In an emergency':'กรณีฉุกเฉิน',
         row(EN()?'Emergency contact':'ติดต่อฉุกเฉิน',d.emergencyContact)+
         row(EN()?'Accident insurance':'ประกันอุบัติเหตุ',yn(d.insuranceHas))+
@@ -5840,6 +5843,13 @@
         <label class="field"><span>🕗 ${EN()?'Arrive time':'เวลาเข้าเรียน'}</span><input id="stf_StartTime" type="time" value="${esc(String(s.StartTime||'').slice(0,5))}" placeholder="08:00"/></label>
         <label class="field"><span>🕔 ${EN()?'Leave time (OT after this)':'เวลาเลิกเรียน (คิด OT หลังเวลานี้)'}</span><input id="stf_EndTime" type="time" value="${esc(String(s.EndTime||'').slice(0,5))}" placeholder="17:00"/></label></div>
       <small class="muted" style="display:block;margin:-2px 0 6px">${EN()?'Blank = use the plan default. Set individually, e.g. 07:00–17:00 vs 08:00–18:00.':'เว้นว่าง = ใช้ค่าตามแพ็กเกจ · ตั้งรายบุคคลได้ เช่น 07:00–17:00 หรือ 08:00–18:00'}</small>
+      ${/* WHICH DAY OF THE MONTH THIS FAMILY PAYS ON. Every bill was stamped due on the 5th, for
+           everybody, so every family who had agreed a different date was overdue on paper from the
+           6th of every month. Asked for 2026-08-24: "นักเรียน A โรงเรียนต้องการให้ชำระบิลค่าเทอม
+           ทุกๆวันที่ 15". Blank = the school's own default (BillingDueDay). */''}
+      <label class="field"><span>📅 ${EN()?'Bills due on day … of each month (blank = school default)':'วันที่ตัดรอบบิล — ชำระทุกวันที่ … ของเดือน (เว้นว่าง = ใช้ค่าของโรงเรียน)'}</span>
+        <input id="stf_BillingDay" type="number" min="1" max="31" step="1" value="${esc(s.BillingDay!=null&&s.BillingDay!==''?s.BillingDay:'')}" placeholder="${esc(String((MOCK.config&&MOCK.config.BillingDueDay)||5))}"/></label>
+      <small class="muted" style="display:block;margin:-2px 0 6px">${EN()?'In a month that is shorter than the chosen day, the bill falls due on the last day of that month.':'หากเดือนนั้นมีวันน้อยกว่าวันที่เลือกไว้ บิลจะครบกำหนดในวันสุดท้ายของเดือนนั้น'}</small>
       <label class="field"><span>⏰ ${EN()?'OT rate / hour (blank = school default)':'ค่า OT ต่อชั่วโมง (เว้นว่าง = ใช้ค่าเริ่มต้นของโรงเรียน)'}</span>
         <input id="stf_OTRate" type="number" min="0" value="${esc(s.OTRate!=null&&s.OTRate!==''?s.OTRate:'')}" placeholder="${esc(MOCK.config.OTRatePerHour||100)}"/></label>
       <label class="field"><span>🕕 ${EN()?'OT-free until (grace cutoff — blank = leave time)':'รับได้ถึง (ไม่คิด OT ก่อนเวลานี้ — เว้นว่าง = เวลาเลิกเรียน)'}</span>
@@ -6012,6 +6022,8 @@
       Weight:v('Weight')===''?'':(Number(v('Weight'))||0),Height:v('Height')===''?'':(Number(v('Height'))||0),
       EmergencyContact:v('EmergencyContact'),Address:v('Address'),
       Race:v('Race'),Nationality:v('Nationality'),Religion:v('Religion'),Vaccine:v('Vaccine'),
+      // blank stays blank — it means "use the school's day", not "the 0th of the month"
+      BillingDay:v('BillingDay')===''?'':Math.min(31,Math.max(1,Number(v('BillingDay'))||1)),
       InsuranceHas:m.querySelector('#stf_Ins').checked,InsurancePolicyNo:v('InsurancePolicyNo'),InsuranceCompany:v('InsuranceCompany'),InsuranceExpiry:v('InsuranceExpiry'),
       StartTime:v('StartTime'),EndTime:v('EndTime'),   // per-student individual schedule (EndTime drives OT)
       OTGraceUntil:v('OTGraceUntil'),RateNote:v('RateNote'),  // OT-free cutoff decoupled from EndTime + parent-facing note
@@ -7478,7 +7490,7 @@
     const [f,pend,plans]=await Promise.all([api('financeSummary',{month}), api('pendingPayments'), api('getPlans').catch(()=>[])]);
     if(plans&&plans.length) A_CACHE.plans=plans;
     const pendN=(pend||[]).length;
-    const stat=(cls,n,l)=>`<div class="stat ${cls}"><div class="n">${n}</div><div class="l">${esc(l)}</div></div>`;
+    const stat=(cls,n,l,sub)=>`<div class="stat ${cls}"><div class="n">${n}</div><div class="l">${esc(l)}${sub?`<br><span style="opacity:.85;font-size:11px">${sub}</span>`:''}</div></div>`;
     // income tab: tuition/OT/charges collection per student
     const inTab=`<div class="card"><div class="spread"><h3>👶 ${esc(t('fin.tuition'))}</h3><span class="pill ${f.studentsPaid>=f.studentsTotal?'ok':'wait'}">${f.studentsPaid}/${f.studentsTotal} ${esc(t('fin.paid'))}</span></div>
         ${sortBy(f.students,dnick).sort((a,b)=>(a.paused?1:0)-(b.paused?1:0)).map(s=>finStudentRow(s)).join('')}
@@ -7496,7 +7508,16 @@
     app.innerHTML=`<h2 class="page">💰 ${EN()?'Finance':'การเงิน'}</h2>
       <div class="card"><label class="field" style="margin:0"><span>${esc(t('c.month'))}</span><input type="month" value="${month}" onchange="FIN_set(this.value)"/></label>
         <div class="grid2" style="margin-top:10px"><div class="grid2" style="grid-template-columns:1fr 1fr;gap:8px">${stat('green',baht(f.income),t('fin.income'))}${stat('pink',baht(f.expense),t('fin.expense'))}</div>
-          <div class="grid2" style="grid-template-columns:1fr 1fr;gap:8px">${stat(f.net>=0?'':'amber',baht(f.net),t('fin.net'))}${stat('amber',baht(f.tuitionOutstanding),t('fin.outstanding'))}</div></div></div>
+          ${/* "ค้างชำระ" HAS TO MEAN EVERY KIND OF IT. This tile printed the TUITION figure under a
+               label that promises the lot, so it read a calm 0.00 on a month with ฿200 of student OT
+               still owed — the same fault as the dashboard tile, on the screen whose entire job is
+               the money (reported 2026-08-24). It is the total now, with the three kinds under it. */''}
+          <div class="grid2" style="grid-template-columns:1fr 1fr;gap:8px">${stat(f.net>=0?'':'amber',baht(f.net),t('fin.net'))}${
+            (()=>{ const _t=Number(f.tuitionOutstanding||0), _c=Number(f.chargesOutstanding||0), _o=Number(f.otOutstanding||0);
+              const _all=_t+_c+_o;
+              return stat(_all>0?'pink':'amber', baht(_all), t('fin.outstanding'),
+                _all>0?`🏫 ${baht(_t)} · ⏰ ${baht(_o)}${_c?` · ➕ ${baht(_c)}`:''}`:''); })()
+          }</div></div></div>
       <div class="seg">${tab('in','💵',EN()?'Income':'รับเงิน')}${tab('pay','💸',EN()?'Payroll':'จ่ายเงิน')}${tab('wait','✅',EN()?'To approve':'รออนุมัติ',pendN)}</div>
       ${FIN_TAB==='pay'?payTab:FIN_TAB==='wait'?waitTab:inTab}`;
   };

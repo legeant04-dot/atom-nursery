@@ -228,6 +228,25 @@ function createAtomAPI(M, GROWTH_STD) {
   // picked up until 18:00 with NO OT), otherwise the nominal end time. Decoupled from EndTime so the
   // plan price/schedule stays put while the OT-free cutoff moves per student.
   const otThreshold = s => { const g=String((s&&s.OTGraceUntil)||'').trim(); return /^\d{1,2}:\d{2}/.test(g) ? g.slice(0,5) : studentEndTime(s); };
+  /**
+   * WHICH DAY OF THE MONTH THIS FAMILY PAYS ON, and the date that makes for a given month.
+   *
+   * Every bill was stamped DueDate = the 5th, for everybody, because that is what the code said. But
+   * families are not all paid on the same day, and the school agrees a date with each of them — "ทุก
+   * วันที่ 15". Everyone whose day was not the 5th was overdue on paper from the 6th of every month.
+   *
+   * Blank falls back to the school-wide BillingDueDay (5). A day later than the month is short —
+   * the 31st in November — becomes the LAST day of that month rather than rolling into the next one,
+   * which would move the due date past the month the bill is for.
+   */
+  const billingDayOf = s => { const d=parseInt(String((s&&s.BillingDay)||'').trim(),10);
+    if(d>=1&&d<=31) return d;
+    const c=parseInt(String(cfg.BillingDueDay!=null?cfg.BillingDueDay:5),10);
+    return (c>=1&&c<=31)?c:5; };
+  const billDueDate = (s, month) => { const m=ym(month||todayLocal().slice(0,7));
+    const [Y,Mo]=m.split('-').map(Number);
+    const last=new Date(Y,Mo,0).getDate();
+    return m+'-'+String(Math.min(billingDayOf(s), last)).padStart(2,'0'); };
   // per-student monthly discount (MASTER on the student) applied to the tuition base. Unit '%' or 'บาท'.
   // Deducted silently at bill generation → the parent just sees a lower tuition, never a discount line.
   const studentDiscount_ = (s, base) => { const amt=Number(s&&s.DiscountAmount||0); if(!(amt>0))return 0;
@@ -1346,7 +1365,7 @@ function createAtomAPI(M, GROWTH_STD) {
       let b=M.payments.find(x=>x.StudentID===p.studentId&&ym(x.Month)===month);
       const fields={Items:items,Amount:amount,Status:paid?'PAID':'UNPAID',SlipAmount:paid?amount:0,VerifiedStatus:paid?'CONFIRMED':'',PaidDate:paid?paidDate:'',PaymentMethod:method,Note:p.note||''};
       if(b){ Object.assign(b,fields); }
-      else { b=Object.assign({BillingID:'BL-'+month+'-'+p.studentId,StudentID:p.studentId,Month:month,OTRollover:0,DueDate:month+'-05',SlipUrl:'',TransactionDate:paid?stampLocal():''},fields); M.payments.push(b); }
+      else { b=Object.assign({BillingID:'BL-'+month+'-'+p.studentId,StudentID:p.studentId,Month:month,OTRollover:0,DueDate:billDueDate(studentById(p.studentId),month),SlipUrl:'',TransactionDate:paid?stampLocal():''},fields); M.payments.push(b); }
       logAct('issueBill',b.BillingID,month+' '+amount+(paid?' (ชำระล่วงหน้า)':''),actorOf(p));
       return b; },
     // Admin: issue this month's bill for SEVERAL selected students at once (each = tuition − discount).
@@ -1380,7 +1399,7 @@ function createAtomAPI(M, GROWTH_STD) {
         const pr=tuitionForMonth_(s, month, net0);                  // mid-month rule for their starting month
         const note=pr.prorated?` (เริ่มเรียน ${enrolDate_(s)} · ${prorateLabel_(pr)})`:'';
         if(pr.prorated) prorated.push({studentId:s.StudentID, nick:s.Nickname||'', name:s.NameTH||s.Name||'', mode:pr.mode, full:net0, amount:pr.amount});
-        M.payments.push({BillingID:'BL-'+month+'-'+s.StudentID,StudentID:s.StudentID,Month:month,Items:[['ค่าเทอม '+((plan&&plan.labelTH)||'')+note,pr.amount]],Amount:pr.amount,OTRollover:0,DueDate:month+'-05',PaidDate:'',Status:'UNPAID',SlipUrl:'',SlipAmount:0,VerifiedStatus:'',Auto:true}); created++; });
+        M.payments.push({BillingID:'BL-'+month+'-'+s.StudentID,StudentID:s.StudentID,Month:month,Items:[['ค่าเทอม '+((plan&&plan.labelTH)||'')+note,pr.amount]],Amount:pr.amount,OTRollover:0,DueDate:billDueDate(s,month),PaidDate:'',Status:'UNPAID',SlipUrl:'',SlipAmount:0,VerifiedStatus:'',Auto:true}); created++; });
       return {month,created,noPlan,notYet,prorated,paused}; },
     // attach a monthly slip → records a PAYMENT_SLIPS row (multiple allowed), bill → PENDING_VERIFY.
     uploadSlip: p => recordSlip_('bill', p.billingId, p),
@@ -2738,6 +2757,8 @@ function createAtomAPI(M, GROWTH_STD) {
         weight:s.Weight||'', height:s.Height||'',
         measuredAt: latestGrowth?ymd(latestGrowth.Date):'',
         enrollDate:ymd(s.EnrollDate||''),
+        // the day of the month this family pays on, and whether it is theirs or the school's
+        billingDay:billingDayOf(s), billingDayOwn:!!String(s.BillingDay||'').trim(),
         // a teacher is told THAT there is cover, never the policy number — it is what they would need
         // to say at a hospital door, and nothing more
         insuranceHas: !!s.InsuranceHas
