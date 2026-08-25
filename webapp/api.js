@@ -409,7 +409,36 @@ window.CONFIG = { MODE: 'gas', GAS_URL: 'https://script.google.com/macros/s/AKfy
     // the announcements board
     announcements:   /^(add|edit|delete)Announcement|^reindexAnnouncements/i,
     // who I am — only my own record changes it
-    staffSelf:       /^saveStaff|^saveProfile|^setStaffEnd|^adminResetPassword|^changePassword|^setRequireCheckin/i
+    staffSelf:       /^saveStaff|^saveProfile|^setStaffEnd|^adminResetPassword|^changePassword|^setRequireCheckin/i,
+
+    /* ---- THE LIVE READS -------------------------------------------------------------------------
+     *
+     * The ten busiest reads in the app were all missing from this table, so EVERY write threw all of
+     * them away: a parent dropping their child off wiped that family's journal, their bill and their
+     * leave history, none of which a check-in touches. On a morning of thirty check-ins the client
+     * cache was being emptied thirty times, and the 2026-08-25 report's "cache=60%" is mostly that.
+     *
+     * These entries are safer to get wrong than the ones above, and it is worth being clear why:
+     * everything here sits in the DEFAULT tier (RC_TTL, 30 seconds) with stale-while-revalidate. A
+     * mistake costs at most half a minute of stale data that then corrects itself — not the four
+     * hours a mistake in the static tier would cost. Each is written against the handler it names.
+     */
+    // reads M.studentCheckins (CHECKIN_STUDENT) for one child, and nothing else
+    studentCheckinHistory: /^(parent|staffStudent)Checkin$|^editStudentAttendance/i,
+    // reads M.studentLeaves (LEAVE_REQUEST_STD) for one child
+    studentLeaves:   /^studentAbsence|^teacherStudentLeave|^(edit|delete)StudentLeaves?$/i,
+    // both read M.journals (DAILY_JOURNAL). An injury shared into the journal is a different
+    // collection behind a different action (journalInjuries), so it does not belong here.
+    getJournal:      /^(submit|unlock)Journal/i,
+    journalStatus:   /^(submit|unlock)Journal/i,
+    /* my own clock for today. Wider than it looks: besides my punches it depends on the day's HOURS
+     * (holidays, meeting days, my group's shift, my start date) and on whether I hold an OT วันหยุด
+     * — see myAttendanceToday → staffHoursOn_ + holidayOTStaffInfo_. All of them are named. */
+    myAttendanceToday: /^staffCheck(in|out)$|^confirmTimeRequest|^adminAdd(Holiday)?OT|^adminEditOT|^adminDeleteOT|^(add|remove|edit)Holiday|^(add|remove)BigCleaning|^setSchoolConfig|^saveStaff|^saveStaffGroup|^setStaffEnd/i,
+    /* what the family owes. Every money write, AND parentCheckin — collecting a child late RAISES an
+     * OT charge (otUpsertForPickup_), so a pick-up really can change this number. That one is easy
+     * to miss and is the reason this whole table is written next to its handlers. */
+    parentDue:       /^(upload|confirm|reject|delete)Slip|^pay(Combined|CombinedCash|Charge|Prepay|OT)$|^prepay$|^cancelPrepay|^recordCashPayment|^notifyCash|^issueBill|^deleteBill|^(add|remove)StudentCharge|^admin(Update|Cancel|Restore)OT|^parentCheckin$|^editStudentAttendance/i
   };
   /* The other half of the safety property, and the one that is easy to get wrong: the table above
    * says which writes DO change a read — so an unknown write, one nobody has thought about yet,
@@ -433,6 +462,9 @@ window.CONFIG = { MODE: 'gas', GAS_URL: 'https://script.google.com/macros/s/AKfy
     // money — bills and slips are live data; only the SETTINGS are cached long
     'uploadSlip', 'payCombined', 'payCombinedCash', 'payCharge', 'payPrepay', 'prepay', 'cancelPrepay',
     'confirmSlip', 'rejectSlip', 'deleteSlip', 'recordCashPayment', 'notifyCash', 'issueBillsFor',
+    // a bill or an extra charge, one child at a time — and a corrected pick-up time, which can raise
+    // or remove a late-pickup OT (otReconcile_) and is therefore a MONEY write as well as a time one
+    'issueBill', 'deleteBill', 'addStudentCharge', 'removeStudentCharge', 'editStudentAttendance',
     'notifyBills', 'markSalaryPaid', 'computePayroll', 'setPayrollConfig', 'recomputeContributions',
     // the settings screens themselves — each owns something in the table above
     'addHoliday', 'removeHoliday', 'editHoliday', 'addBigCleaning', 'removeBigCleaning', 'setSchoolConfig',
