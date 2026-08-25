@@ -1003,6 +1003,62 @@ function createAtomAPI(M, GROWTH_STD) {
    */
   const studentNotStarted_ = (s, onDate) => { const d=ymd((s&&s.EnrollDate)||'');
     return !!d && ymd(onDate||todayLocal()) < d; };
+
+  // ---- growth records: correcting a measurement -------------------------------------------------
+  /** One child's measurements, oldest first — the ORDER growthHistory hands out `idx` against. */
+  const growthRowsOf_ = sid => (M.growthRecords||[]).filter(r=>String(r.StudentID)===String(sid))
+    .sort((a,b)=>(Number(a.AgeMonth)||0)-(Number(b.AgeMonth)||0));
+  /**
+   * The row the caller means — by POSITION, checked against what they saw.
+   *
+   * These rows have no id and Date+StudentID is not unique (น้องเบรฟ has three identical 2026-08-14
+   * rows, which is the whole reason this exists). So the position is the handle, and the values the
+   * caller was looking at are the proof that the list has not moved under them. If somebody else
+   * edited it first, the correction is REFUSED rather than landing on whatever is in that slot now —
+   * silently rewriting a different measurement is not an acceptable way to fail on a chart a nurse
+   * reads.
+   */
+  function growthFind_(p){
+    const rows=growthRowsOf_(p&&p.studentId);
+    const i=Number(p&&p.idx);
+    if(!isFinite(i)||i<0||i>=rows.length) fail('NOT_FOUND','ไม่พบบันทึกการเจริญเติบโตรายการนี้');
+    const row=rows[i];
+    const same=(a,b)=>String(a==null?'':a)===String(b==null?'':b);
+    if(p.wasDate!=null && !same(ymd(row.Date),ymd(p.wasDate))) fail('CONFLICT','ข้อมูลถูกแก้ไขไปแล้ว — กรุณาเปิดหน้านี้ใหม่แล้วลองอีกครั้ง');
+    if(p.wasWeight!=null && Number(row.Weight||0)!==Number(p.wasWeight)) fail('CONFLICT','ข้อมูลถูกแก้ไขไปแล้ว — กรุณาเปิดหน้านี้ใหม่แล้วลองอีกครั้ง');
+    if(p.wasHeight!=null && Number(row.Height||0)!==Number(p.wasHeight)) fail('CONFLICT','ข้อมูลถูกแก้ไขไปแล้ว — กรุณาเปิดหน้านี้ใหม่แล้วลองอีกครั้ง');
+    return {row, idx:i, rows};
+  }
+  /** The teacher who recorded it, a head teacher, or an admin — and nobody else. */
+  function growthCanEdit_(p, row){
+    const role=String((p&&p.role)||'');
+    if(role==='Admin') return;
+    if(role==='Observer') fail('READ_ONLY','บัญชีนี้ดูได้อย่างเดียว');
+    const me=staffById(p&&p.staffId)||{};
+    if(!me.StaffID) fail('NO_PERMISSION','เฉพาะคุณครูหรือแอดมิน');
+    if(adminLike_(me) || me.PositionLevel==='Leader' || headTeacher_(me)) return;
+    /* A row written before RecordedBy existed belongs to NOBODY. A teacher must not be able to claim
+     * an old measurement simply by being the one who opened the screen, so those are for a head
+     * teacher or an admin to sort out. */
+    const owner=String(row&&row.RecordedBy||'');
+    if(!owner) fail('NO_PERMISSION','บันทึกนี้ไม่มีชื่อผู้บันทึก — ให้หัวหน้าครูหรือแอดมินเป็นผู้แก้ไข');
+    if(owner!==String(me.StaffID)) fail('NO_PERMISSION','แก้ไขได้เฉพาะบันทึกที่ตนเองเป็นผู้บันทึก');
+  }
+  /**
+   * The child's CURRENT weight/height follow their newest measurement.
+   *
+   * STUDENTS.Weight/Height are a copy of the last row, and deleting or re-dating a measurement can
+   * change which row that is — leaving the profile quoting a figure that is no longer in the history
+   * behind it. Recomputed from what is actually there, so the two can never disagree. With no rows
+   * left the fields are cleared rather than frozen at a number nothing supports.
+   */
+  function growthSyncLatest_(s){ if(!s||!s.StudentID) return;
+    const rows=(M.growthRecords||[]).filter(r=>String(r.StudentID)===String(s.StudentID))
+      .sort((a,b)=>String(ymd(a.Date)).localeCompare(String(ymd(b.Date))));
+    const last=rows[rows.length-1];
+    if(!last){ s.Weight=''; s.Height=''; s.LastGrowthUpdate=''; return; }
+    s.Weight=last.Weight; s.Height=last.Height; s.LastGrowthUpdate=ymd(last.Date);
+  }
   const activeStudents = () => M.students.filter(s=>!INACTIVE[s.Status] && !studentPaused_(s) && !studentNotStarted_(s));
 
   // ---- payment-slip helpers (multiple slips per bill/OT/prepay + partial payments) ----
@@ -3096,15 +3152,54 @@ function createAtomAPI(M, GROWTH_STD) {
       if(p.weight!=null) s.Weight=+p.weight; if(p.height!=null) s.Height=+p.height; if(p.photo) s.Photo=p.photo;
       s.LastGrowthUpdate=on;
       // age at the time of MEASUREMENT, not at the time of typing — the chart is plotted against it
-      M.growthRecords.push({Date:on,StudentID:s.StudentID,AgeMonth:ageMonths(s.DOB,on),Weight:s.Weight||0,Height:s.Height||0});
+      M.growthRecords.push({Date:on,StudentID:s.StudentID,AgeMonth:ageMonths(s.DOB,on),Weight:s.Weight||0,Height:s.Height||0,
+        // WHO took this measurement. Without it, "the teacher who recorded it may fix it" cannot be
+        // asked, and the only options are "anybody" or "nobody".
+        RecordedBy:String((p&&p.staffId)||''), RecordedAt:stampLocal()});
       return {ok:true,lastUpdate:s.LastGrowthUpdate,date:on}; },
 
     // ========== Group E: growth history vs standard band ==========
-    growthHistory: p => { const s=studentById(p.studentId)||{}; const recs=M.growthRecords.filter(r=>r.StudentID===p.studentId).sort((a,b)=>a.AgeMonth-b.AgeMonth);
+    growthHistory: p => { const s=studentById(p.studentId)||{}; const recs=growthRowsOf_(p.studentId);
       const std=GROWTH_STD; const ages=recs.map(r=>r.AgeMonth);
       const band=k=> ages.map(a=>{ const at=std?std.at(s.Gender,a,k):null; return {ageMonth:a,min:at?at.min:null,max:at?at.max:null}; });
       return {studentId:p.studentId,name:s.NameTH,nameEN:s.NameEN,gender:s.Gender,ageMonth:ageMonths(s.DOB),
-        records:recs, weightBand:band('weight'), heightBand:band('height')}; },
+        // `idx` is the handle a correction comes back with (see growthFind_) — the rows themselves
+        // have no id, and Date+Student is not unique: น้องเบรฟ has three identical 2026-08-14 rows.
+        records:recs.map((r,i)=>Object.assign({idx:i},r)),
+        weightBand:band('weight'), heightBand:band('height')}; },
+
+    /**
+     * CORRECTING A MEASUREMENT — เพิ่ม / แก้ไข / ลบ.
+     *
+     * น้องเบรฟ has the same 10 kg · 76 cm recorded three times on 2026-08-14, and until now there was
+     * no way to remove two of them: growth rows are only ever appended, and a chart a nurse reads was
+     * stuck with whatever had been typed. Reported 2026-08-25.
+     *
+     * WHO. The teacher who recorded it (their own), a head teacher, or an admin. A row written before
+     * RecordedBy existed belongs to nobody, so only a head teacher or an admin may touch it — a
+     * teacher cannot claim an old measurement by being the one who opened the screen.
+     *
+     * WHICH ROW. There is no id on these rows and Date+StudentID is not unique, so the caller sends
+     * the POSITION in the list growthHistory gave them, together with what they saw in it. If those
+     * do not match any more — somebody else edited it first — the correction is refused instead of
+     * landing on whatever is now in that slot. The wrong child's weight is not an acceptable failure.
+     */
+    editGrowth: p => { const f=growthFind_(p); growthCanEdit_(p, f.row);
+      const s=studentById(f.row.StudentID)||{};
+      if(p.date!=null){ const on=ymd(p.date); if(!on) fail('BAD_INPUT','วันที่ไม่ถูกต้อง');
+        if(on>todayLocal()) fail('BAD_INPUT','วันที่ชั่ง/วัด ต้องไม่เป็นวันในอนาคต');
+        f.row.Date=on; f.row.AgeMonth=ageMonths(s.DOB,on); }
+      if(p.weight!=null){ const w=Number(p.weight); if(!isFinite(w)||w<=0) fail('BAD_INPUT','น้ำหนักต้องมากกว่า 0'); f.row.Weight=w; }
+      if(p.height!=null){ const h=Number(p.height); if(!isFinite(h)||h<=0) fail('BAD_INPUT','ส่วนสูงต้องมากกว่า 0'); f.row.Height=h; }
+      growthSyncLatest_(s);
+      logAct('editGrowth',f.row.StudentID,ymd(f.row.Date)+' '+f.row.Weight+'kg '+f.row.Height+'cm',actorOf(p));
+      return {ok:true, record:f.row}; },
+    deleteGrowth: p => { const f=growthFind_(p); growthCanEdit_(p, f.row);
+      const s=studentById(f.row.StudentID)||{};
+      M.growthRecords.splice(M.growthRecords.indexOf(f.row),1);
+      growthSyncLatest_(s);
+      logAct('deleteGrowth',f.row.StudentID,'ลบบันทึก '+ymd(f.row.Date)+' '+f.row.Weight+'kg '+f.row.Height+'cm',actorOf(p));
+      return {ok:true}; },
 
     /**
      * Everything one child's printable report card needs, in ONE round trip.
