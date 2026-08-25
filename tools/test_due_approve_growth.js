@@ -101,7 +101,10 @@ ok_('the card is only drawn when something IS owed', /if\(!due \|\| !\(Number\(d
 ok_('…and it goes to the payment screen when tapped', /function parentDueCard\(due\)/.test(app) && /onclick="GO\('payment'\)"/.test(app));
 ok_('it sits directly under the drop-off / pick-up cards', /\$\{kidsHtml\}\n\s*<div id="pDue"><\/div>/.test(app));
 ok_('it rides in the batch that was already going', /api\('parentDue',parentScope\(\)\)\.catch/.test(app));
-ok_('the batch offsets moved with it — in ONE place', /const FIXED = 8;/.test(app) &&
+// v282: the duplicated studentLeaves for the first child was removed from the batch (it was
+// already there in the per-child list), so the fixed block is 7 — the count still lives in ONE
+// place, which is the property this check is actually about
+ok_('the batch offsets moved with it — in ONE place', /const FIXED = 7;/.test(app) &&
   /_res\.slice\(FIXED, FIXED\+kids\.length\)/.test(app) && /_res\.slice\(FIXED\+kids\.length\)/.test(app));
 
 console.log('\n=== 3. one approvals card for the head teacher ===');

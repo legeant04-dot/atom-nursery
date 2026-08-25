@@ -122,7 +122,18 @@ const fresh = { fresh: true };   // every section is live data; the cache is not
     const home = app.slice(app.indexOf('SCREENS.Teacher.home = async () => {'), app.indexOf('window.T_growthReminder ='));
     // v232: myLeaves/myOT/recentAttendance left with the lists they fed (📅 ตาราง and 💵 การเงิน)
     // v243: leaveQuota left the batch with the remaining-days grid it fed
-    ok_('the remaining section starts before the first await', /const p_tca = api\('teacherClassAttendance'[\s\S]{0,900}const \[att,cl,me0raw,jstat,al\] = await Promise\.all\(/.test(home));
+    ok_('the remaining section starts before the first await', /const p_tca = api\('teacherClassAttendance'[\s\S]{0,2200}const \[att,cl,me0raw,jstat,al\] = await Promise\.all\(/.test(home));
+    /* v282, and the point of this whole section: three MORE calls moved up here. They were fired
+     * after the screen was drawn — each in its own tick, so each its own round trip, each ~5s
+     * queued in front of something the user was waiting for. holidayAttendList alone was 513 calls
+     * in four days, on a school where the answer is "nothing, it is a Tuesday" almost every time. */
+    ['p_holNext', 'p_holDay', 'p_missOut'].forEach(v =>
+      ok_(v + ' is started in the same tick, not after the render',
+        new RegExp('const ' + v + '\\s*=\\s*api\\(').test(home) && new RegExp('\\b' + v + '\\.then\\(').test(home)));
+    ok_('...and none of them is still fired on its own after the batch',
+      !/\n\s*api\('holidayAttendList',\{\}\)\.then\(/.test(home)
+      && !/\n\s*api\('myHolidayOTNext'[^\n]*\)\.then\(/.test(home)
+      && !/\n\s*api\('staffMissingCheckout'[^\n]*\)\.then\(/.test(home));
     ok_('...and are only AWAITED at render time', /const tca=await p_tca; setHTML\('#tcatt'/.test(home));
     ok_('no sequential fetch is left', !/const (tca|ml|myot)=await api\(/.test(home));
     ok_('each carries its own fallback', (home.match(/\.catch\(\(\)=>(\[\]|null)\)/g) || []).length >= 6);

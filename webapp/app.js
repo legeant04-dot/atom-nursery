@@ -112,7 +112,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.281'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.282'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -565,7 +565,28 @@
   }
   // staffId matters now: teachers have their own inbox rows (a parent's journal comment lands there)
   function notifParams(){ return {role:USER.role, parentId:USER.parentId, staffId:USER.staffId}; }
-  async function refreshBell(){ try{ const ns=await api('notifications',notifParams()); const n=ns.filter(x=>!x.read).length; const b=$('#bellBadge'); b.hidden=!n; b.textContent=n; }catch(e){} }
+  /**
+   * The bell's unread count — the most-called action in the whole app, and it paints a number.
+   *
+   * setHeader() runs on EVERY screen render, so this fired a round trip on every navigation: 954
+   * calls in four days at ~5.2s each, all of them queueing behind the screen the person was actually
+   * waiting for (Apps Script runs one execution at a time per user, so a spare call is not free —
+   * it is in front of something).
+   *
+   * A badge that is up to a minute old is fine; a screen that takes five seconds longer is not. So
+   * the count is cached for a minute and reused, and anything that CHANGES it (opening the tray,
+   * marking read) refreshes it immediately by passing force.
+   */
+  let _bellAt=0, _bellN=0;
+  async function refreshBell(force){
+    const b=$('#bellBadge');
+    if(!force && Date.now()-_bellAt < 60000){ if(b){ b.hidden=!_bellN; b.textContent=_bellN; } return; }
+    try{ const ns=await api('notifications',notifParams());
+      _bellN=ns.filter(x=>!x.read).length; _bellAt=Date.now();
+      const el=$('#bellBadge'); if(el){ el.hidden=!_bellN; el.textContent=_bellN; }
+    }catch(e){} }
+  // a fresh sign-in is a different person's bell — never show them the last one's count
+  window.__atomBellReset = () => { _bellAt=0; _bellN=0; };
   // Notifications drop down FROM the bell (like Google's app grid) instead of taking over the screen
   // with a modal. Same behaviour otherwise: tap an item to go to it, and one button to mark all read.
   window.NOTIF_CLOSE = () => { const d=document.getElementById('notifMenu'); if(d) d.remove();
@@ -576,7 +597,11 @@
     NOTIF_CLOSE(); }
   window.BELL = async () => {
     if(document.getElementById('notifMenu')){ NOTIF_CLOSE(); return; }                 // tapping again closes
+    // opening the tray IS a fresh read — reuse it for the badge rather than fetching the same
+    // list twice, and let it reset the cache clock
     const ns=await api('notifications',notifParams()); window._NOTIFS=ns;
+    try{ _bellN=ns.filter(x=>!x.read).length; _bellAt=Date.now();
+      const _b=$('#bellBadge'); if(_b){ _b.hidden=!_bellN; _b.textContent=_bellN; } }catch(e){}
     const d=document.createElement('div'); d.id='notifMenu'; d.setAttribute('role','menu');
     d.innerHTML=`<div class="nm-head"><b>🔔 ${esc(t('c.notifications'))}</b><button class="btn-ghost" onclick="NOTIF_CLOSE()" aria-label="${EN()?'Close':'ปิด'}">✕</button></div>
       <div class="nm-list">${ns.map((n,i)=>{ const go=notifTarget(n);
@@ -624,7 +649,7 @@
     NOTIF_CLOSE(); const m=document.querySelector('.modal'); if(m)m.remove();
     if(go){ try{ go(); }catch(e){} } };
   window.MARKREAD = async (btn)=>{ await api('markNotifsRead',notifParams());
-    NOTIF_CLOSE(); const m=btn.closest('.modal'); if(m)m.remove(); refreshBell(); };
+    NOTIF_CLOSE(); const m=btn.closest('.modal'); if(m)m.remove(); refreshBell(true); };
   // remembers which pre-login screen we're on, so the language toggle re-renders THAT screen
   let AUTH_RENDER = null;
   window.TOGGLE_LANG = () => { setLang(LANG()==='en'?'th':'en');
@@ -1458,7 +1483,10 @@
     // one batched round-trip. Check-ins AND leaves are fetched for every child, not just the first,
     // so the calendar at the bottom can be switched per child (it only ever showed child #1 before).
     const _res = await Promise.all([
-      api('getJournal',{studentId:k0.StudentID}), api('studentLeaves',{studentId:k0.StudentID}),
+      // studentLeaves for k0 used to be fetched HERE as well as in the per-child list below — the
+      // same call twice in one batch, so Apps Script ran the same handler over the same sheet twice
+      // on every parent home load. k0 is kids[0], so slAll[0] IS this one.
+      api('getJournal',{studentId:k0.StudentID}),
       api('announcements'), api('calendar'), api('familyProfile',parentScope()).catch(()=>({parents:[]})),
       api('getPlans').catch(()=>[]),
       api('schoolDay',{}).then(d=>{ window._SCHOOLDAY=d; return d; }).catch(()=>null),
@@ -1467,13 +1495,14 @@
       ...kids.map(k=>api('studentCheckinHistory',{studentId:k.StudentID})),
       ...kids.map(k=>api('studentLeaves',{studentId:k.StudentID}).catch(()=>[]))
     ]);
-    // 8 fixed entries now (parentDue was added), then one check-in history per child, then one
-    // leave list per child — the offsets below MUST move with that count or every child's calendar
-    // is handed another child's data. FIXED is the count, in one place, so adding the ninth cannot
-    // silently shift them again.
-    const FIXED = 8;
-    const [j, sl, anns, cal, fam, plans] = _res; const due = _res[7];
+    // 7 fixed entries (the duplicated studentLeaves was removed), then one check-in history per
+    // child, then one leave list per child — the offsets below MUST move with that count or every
+    // child's calendar is handed another child's data. FIXED is the count, in one place, so adding
+    // or removing one cannot silently shift them again.
+    const FIXED = 7;
+    const [j, anns, cal, fam, plans] = _res; const due = _res[6];
     const ciAll=_res.slice(FIXED, FIXED+kids.length); const slAll=_res.slice(FIXED+kids.length); const ci=ciAll[0]||[];
+    const sl = slAll[0]||[];        // the first child's leave list — fetched once, read twice
     if(plans&&plans.length) A_CACHE.plans=plans;   // so planLabel() names the package, not "pkg_e32dd4"
     // everything the per-child calendar needs, kept for P_calSel()
     window._CALDATA={ kids, cal, ciAll, slAll, plans:plans||[] };
@@ -2606,6 +2635,16 @@
      */
     const p_day = api('schoolDay',{}).catch(()=>null);
     const p_tca = api('teacherClassAttendance',{staffId:USER.staffId}).catch(()=>null);
+    /* THESE THREE USED TO BE FIRED AFTER THE SCREEN WAS DRAWN, each in its own tick and therefore
+     * each its own round trip — three more ~5s waits queued behind everything else, because Apps
+     * Script runs ONE execution at a time per user and a spare call is not free, it is in front of
+     * something. holidayAttendList alone was 513 calls in four days, on a school where the answer is
+     * "nothing, it is a Tuesday" almost every time. Started HERE, in the same tick as the batch
+     * below, so api.js folds them into that one request; they are still rendered where they were,
+     * whenever they land. */
+    const p_holNext = api('myHolidayOTNext',{staffId:USER.staffId}).catch(()=>null);
+    const p_holDay  = api('holidayAttendList',{}).catch(()=>null);
+    const p_missOut = api('staffMissingCheckout',{staffId:USER.staffId}).catch(()=>null);
     // myLeaves / myOT / recentAttendance were fetched here for lists that have MOVED — the leave
     // history and the work-time history to 📅 ตาราง, the OT history to 💵 การเงิน. Fetching them
     // for a screen that no longer shows them would be three requests spent on nothing.
@@ -2726,7 +2765,7 @@
      * notification that scrolls away. Then the day arrives and the only place it was written down is
      * a payslip. This is the standing reminder, on the screen somebody actually opens on a Friday —
      * and on the day itself it says so in the present tense, next to the clock-in button. */
-    api('myHolidayOTNext',{staffId:USER.staffId}).then(n=>{
+    p_holNext.then(n=>{
       if(!n||!n.count){ setHTML('#tholnext',''); return; }
       const today=(n.rows||[]).filter(r=>r.date===n.today);
       const ahead=(n.rows||[]).filter(r=>r.date>n.today);
@@ -2744,7 +2783,7 @@
           : 'วันเหล่านี้คุณต้องมาทำงานแม้โรงเรียนหยุด · ยอดนี้เป็นเงินก้อนของทั้งวัน ไม่นับสายและไม่มี OT รายชั่วโมงเพิ่ม'}</small>
         <button class="btn sm outline block" style="margin-top:6px" onclick="T_holidayOT()">🎉 ${EN()?'Details & the children for each day':'ดูรายละเอียดและนักเรียนของแต่ละวัน'}</button></div>`);
     }).catch(()=>{});
-    api('holidayAttendList',{}).then(h=>{
+    p_holDay.then(h=>{
       /* Shown when there are children in — OR when this teacher is the one on OT วันหยุด and there
        * are none. That second case is the whole of 22/08: with an empty list the card vanished, and
        * the ➕ "a child turned up" button lives INSIDE it, so the one situation the button exists for
@@ -2767,7 +2806,7 @@
     /* A day you clocked into and never out of is nobody's fault and everybody's problem: it has no
      * hours, no OT, and the month reads "ครบ" while two days sit half-written. Only the person who
      * was there knows what time they left, so they are told first — with the way to fix it. */
-    api('staffMissingCheckout',{staffId:USER.staffId}).then(mo=>{
+    p_missOut.then(mo=>{
       if(!mo||!mo.count){ setHTML('#tmissout',''); return; }
       const days=((mo.staff||[])[0]||{}).days||[];
       setHTML('#tmissout', `<div class="card" style="background:var(--warn-bg);border-color:var(--warn-line)">
@@ -4273,7 +4312,11 @@
 
   // ================= ADMIN =================
   const pctColor = p => p>=100?'var(--ok)':p>=90?'var(--warn-2)':'var(--bad-2)'; // green / amber / red attendance
-  SCREENS.Admin.home = async () => { const [d,rem,lrem,pend,fin]=await Promise.all([api('dashboard'),api('payrollReminderDue'),api('leaveResetReminder'),api('pendingPayments'),api('financeSummary',{})]);
+  SCREENS.Admin.home = async () => {
+    // ...and the holiday-OT card rides in the SAME batch instead of taking a round trip of its own
+    // after the screen is drawn. On an ordinary day it answers "nothing"; that answer is now free.
+    const p_holDay = api('holidayAttendList',{}).catch(()=>null);
+    const [d,rem,lrem,pend,fin]=await Promise.all([api('dashboard'),api('payrollReminderDue'),api('leaveResetReminder'),api('pendingPayments'),api('financeSummary',{})]);
     const pendN=pend.length;
     // ---- payment tracking (this month): monthly tuition + student OT collection ----
     /* THREE KINDS OF MONEY, EACH REPORTED AS ITSELF.
@@ -4387,7 +4430,7 @@
      * nobody could tell whether it had been recorded at all. Names, money, and whether each of them
      * has actually arrived. It draws nothing on an ordinary open day.
      */
-    api('holidayAttendList',{}).then(h=>{
+    p_holDay.then(h=>{
       const el=document.getElementById('aholot'); if(!el) return;
       if(!h||!h.closed||(!h.count&&!(h.staff||[]).length)){ el.innerHTML=''; return; }
       const dn=x=>EN()?(x.nickEN||x.nameEN||x.nick||x.name):(x.nick||x.name);
