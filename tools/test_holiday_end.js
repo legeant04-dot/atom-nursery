@@ -107,7 +107,9 @@ console.log('\n3) the screens stop offering a button that would fail');
   // the holiday list — that third copy of the rule is what put every child down as ขาด on a holiday
   eq('...once on each screen that reports on a day', (app.match(/api\('schoolDay'/g) || []).length, 4);
   // the teacher's copy must travel with the batch, not cost another round trip
-  ok_('the teacher fetches it with the rest of the screen', /const p_day = api\('schoolDay'[\s\S]{0,700}await Promise\.all\(/.test(app));
+  // v282: three more prefetches now sit between p_day and the await (they used to be round trips of
+  // their own, fired after the screen was drawn) — the property is "same tick", not "same 700 chars"
+  ok_('the teacher fetches it with the rest of the screen', /const p_day = api\('schoolDay'[\s\S]{0,2200}await Promise\.all\(/.test(app));
 }
 
 console.log('\n4) the parent home screen still pairs each child with their OWN rows');
@@ -118,10 +120,12 @@ console.log('\n4) the parent home screen still pairs each child with their OWN r
   const home = app.slice(start, app.indexOf('setTopActions(', start));
   const head = home.slice(home.indexOf('const _res = await Promise.all(['), home.indexOf('...kids.map('));
   const fixed = (head.match(/api\('/g) || []).length;
-  // v231: parentDue joined the batch — the count lives in FIXED so it moves in one place
-  eq('eight fixed calls before the per-child ones', fixed, 8);
-  ok_('and the slice starts after all eight, from ONE named constant',
-    /const FIXED = 8;/.test(home) && /_res\.slice\(FIXED, FIXED\+kids\.length\)/.test(home) && /_res\.slice\(FIXED\+kids\.length\)/.test(home));
+  /* v231: parentDue joined the batch. v282: the first child's studentLeaves LEFT it — the same call
+   * was in the per-child list below, so Apps Script ran that handler over the same sheet twice on
+   * every parent home load. The count lives in FIXED so it moves in one place. */
+  eq('seven fixed calls before the per-child ones', fixed, 7);
+  ok_('and the slice starts after all of them, from ONE named constant',
+    /const FIXED = 7;/.test(home) && /_res\.slice\(FIXED, FIXED\+kids\.length\)/.test(home) && /_res\.slice\(FIXED\+kids\.length\)/.test(home));
 }
 
 console.log('\n5) a leaving date is a DATE, not a delete button');
