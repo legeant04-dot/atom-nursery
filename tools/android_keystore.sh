@@ -160,12 +160,18 @@ if gh repo view "$SITE_REPO" >/dev/null 2>&1; then
   git clone -q "https://github.com/$SITE_REPO.git" "$TMP/site"
   mkdir -p "$TMP/site/.well-known"
   printf '%s\n' "$ASSET_JSON" > "$TMP/site/.well-known/assetlinks.json"
+  # An identity is passed explicitly because this machine has none configured — git guesses one from
+  # the OS account, and a guess is refused outright on some setups. Failing HERE would be the worst
+  # possible place to stop: the key already exists and the secrets are already uploaded.
+  GIT_NAME="$(git config user.name  || true)"; [ -n "$GIT_NAME" ] || GIT_NAME="Atom Nursery"
+  GIT_MAIL="$(git config user.email || true)"; [ -n "$GIT_MAIL" ] || GIT_MAIL="noreply@atomnursery.local"
   ( cd "$TMP/site"
     git add .well-known/assetlinks.json
     if git diff --cached --quiet; then
       echo "   (already up to date)"
     else
-      git commit -q -m "assetlinks: Atom Nursery Android app fingerprint"
+      git -c user.name="$GIT_NAME" -c user.email="$GIT_MAIL" \
+        commit -q -m "assetlinks: Atom Nursery Android app fingerprint"
       git push -q
       echo "   pushed"
     fi )
