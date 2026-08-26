@@ -102,6 +102,17 @@ The site half must be at the **origin root**, which is why
 [`legeant04-dot/legeant04-dot.github.io`](https://github.com/legeant04-dot/legeant04-dot.github.io)
 exists — this repository is served under `/atom-nursery/` and cannot host it.
 
+> **`.nojekyll` in that repository is load-bearing.** GitHub Pages runs Jekyll by default, and Jekyll
+> publishes nothing whose name begins with a dot. On the first real run `assetlinks.json` was
+> committed, pushed, reported as "pushed" — and served as a 404. Delete `.nojekyll` and the app
+> silently goes back to having an address bar.
+
+**Verify after any key change:**
+
+```bash
+curl -s https://legeant04-dot.github.io/.well-known/assetlinks.json
+```
+
 ---
 
 ## What parents will see
