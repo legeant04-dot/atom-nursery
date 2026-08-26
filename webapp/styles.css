@@ -80,6 +80,17 @@ main{max-width:880px;margin:0 auto;padding:14px;}
 h2.page{font-size:20px;margin:6px 2px 14px;color:var(--blue-d);}
 .muted{color:var(--muted);}
 .row{display:flex;gap:10px;flex-wrap:wrap;}
+/* Admin section header (👩‍🏫 พนักงาน / 👪 ผู้ปกครอง / 👶 นักเรียน). See secHead in app.js for why the
+   caret sits outside the action group. Wide: title · actions · caret, exactly as before. Narrow:
+   title + caret on the first line, the buttons sharing the whole second line. */
+.sechd{flex-wrap:wrap;}
+.sechd h3{flex:1 1 auto;min-width:0;}
+.sechd .secacts{order:2;}
+.sechd .sectog{order:3;flex:0 0 auto;}
+@media(max-width:560px){
+  .sechd .secacts{order:4;flex:1 1 100%;margin-top:8px;}
+  .sechd .secacts .btn{flex:1 1 0;min-width:0;}
+}
 .spread{display:flex;justify-content:space-between;align-items:center;gap:8px;}
 .card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:14px;margin-bottom:12px;box-shadow:0 1px 3px rgba(0,0,0,.03);}
 .card h3{margin:0 0 10px;font-size:16px;}
@@ -122,6 +133,12 @@ textarea{min-height:70px;resize:vertical;}
   font-weight:600;cursor:pointer;font-family:inherit;}
 .btn:active{transform:translateY(1px);}
 .btn.block{width:100%;}
+/* A LINK WEARING .btn IS NOT A BUTTON. An <a> is inline, so `width:100%` does nothing to it — the
+   APK download link came out shrunk to its text and sitting against the left edge, next to a
+   full-width Close button (reported on a real phone, 2026-08-26). A <button> is inline-block with
+   centred text by default and an <a> is neither, so both have to be said out loud. */
+a.btn{display:inline-block;text-align:center;text-decoration:none;box-sizing:border-box;}
+a.btn.block{display:block;}
 .btn.green{background:var(--green);} .btn.pink{background:var(--pink);} .btn.gray{background:var(--ink-3);}
 .btn.sm{padding:7px 12px;font-size:13px;}
 .btn.outline{background:var(--surface);color:var(--blue);border:1px solid var(--blue);}
@@ -176,8 +193,22 @@ textarea{min-height:70px;resize:vertical;}
 .opbtn{position:relative;overflow:visible;padding-right:26px;}
 .opbtn .opbadge{position:absolute;top:-6px;right:-6px;background:var(--bad-2);color:var(--on-accent);border-radius:999px;font-size:11px;font-weight:700;min-width:18px;height:18px;line-height:18px;text-align:center;padding:0 4px;box-shadow:0 0 0 2px var(--surface);}
 .opbtn .opbadge[hidden]{display:none;}
-.bottomnav{overflow-x:auto;}
-.bottomnav button{min-width:62px;}
+/* THE BOTTOM BAR MUST FIT THE PHONE. A parent has SEVEN destinations (หน้าหลัก · รับ-ส่ง · ชำระเงิน ·
+   บันทึก · เติบโต · DSPM · แชท) and `min-width:62px` made that 434px of content on a 360px screen —
+   so the bar scrolled sideways and the last item or two were simply not there unless you knew to
+   swipe a navigation bar, which nobody does. Reported on a real phone 2026-08-26.
+   Now every item shares the width equally and the label shrinks instead of the bar growing. */
+.bottomnav{overflow-x:hidden;}
+.bottomnav button{min-width:0;flex:1 1 0;padding:8px 2px;}
+.bottomnav button .lb{display:block;max-width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+/* THE SPACE COMES FROM PADDING, NOT FROM THE TYPE SIZE.
+   The obvious fix — shrink the label on a narrow phone — is both wrong and ineffective here. There
+   is a deliberate readability floor further down this file (`.bottomnav button{font-size:12px}`,
+   under "Data people actually need to read"), it comes later, and it wins; any font-size set here is
+   simply ignored. It is also a decision somebody made on purpose and not one to undo by side effect.
+   So the room is taken from the horizontal padding instead. Measured on a 320px viewport: "หน้าหลัก"
+   needs 44px and each of the seven buttons gets 45.7px, which fits only once the padding is zero. */
+@media(max-width:400px){ .bottomnav button{padding:8px 0;} }
 
 /* social footer */
 .social{display:flex;justify-content:center;gap:18px;padding:14px;margin-top:6px;}
