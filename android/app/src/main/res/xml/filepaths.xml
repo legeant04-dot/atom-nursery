@@ -1,6 +1,19 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Required by androidbrowserhelper's splash-screen handoff: it writes the splash image to cache
-     and hands Chrome a content:// URI for it. Nothing of the school's data passes through here. -->
+<!--
+  THE PATH HERE IS NOT A CHOICE. It has to match, exactly, where androidbrowserhelper writes the
+  splash image — otherwise FileProvider.getUriForFile() throws
+
+      IllegalArgumentException: Failed to find configured root that contains
+      /data/user/0/th.ac.atomnursery.app/files/twa_splash/splash_image.png
+
+  …and the app dies the instant the splash has painted. That is the crash reported from a real
+  phone on 2026-08-26: the window appeared, showed the logo, and folded away again.
+
+  Read out of the library rather than guessed (SplashImageTransferTask, v2.5.0):
+    getFilesDir()  →  FOLDER_NAME = "twa_splash"  →  FILE_NAME = "splash_image.png"
+
+  So: files-path, not cache-path, and "twa_splash", not "twa".
+-->
 <paths>
-  <cache-path name="twa-splash" path="twa/" />
+  <files-path name="twa_splash" path="twa_splash/" />
 </paths>
