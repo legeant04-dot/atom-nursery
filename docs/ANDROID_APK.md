@@ -130,6 +130,17 @@ does the opposite. Do not remove those steps to make the screen shorter.
 
 ## Things that will bite
 
+- **Compiling is not working.** v286 was signed, verified, fingerprint-matched — and died the instant
+  it opened, on every phone. Every check was green because not one of them ran the app. The emulator
+  smoke test (`tools/android_smoke.sh`) now installs the APK and *opens* it, and nothing is published
+  unless it is still alive twelve seconds later.
+- **The splash FileProvider path is dictated by the library, not chosen.**
+  `SplashImageTransferTask` writes to `getFilesDir()/twa_splash/splash_image.png`, so `filepaths.xml`
+  must declare exactly that — a `files-path` named `twa_splash`. Anything else and
+  `FileProvider.getUriForFile` throws the moment the splash is handed to Chrome, i.e. at launch.
+- **`reactivecircus/android-emulator-runner` runs `script:` one line at a time.** Any `if … fi` has
+  to live in a file, or it is split across `sh` invocations and fails with a syntax error.
+
 - **The signing key is the whole ballgame.** Lost key = every parent uninstalls and reinstalls.
 - **This repository is PUBLIC.** Workflow artifacts and logs are world-readable, which is why the
   key is never uploaded as an artifact, never echoed, and written outside the workspace at build time.
