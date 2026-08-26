@@ -160,13 +160,20 @@ if gh repo view "$SITE_REPO" >/dev/null 2>&1; then
   git clone -q "https://github.com/$SITE_REPO.git" "$TMP/site"
   mkdir -p "$TMP/site/.well-known"
   printf '%s\n' "$ASSET_JSON" > "$TMP/site/.well-known/assetlinks.json"
+  # JEKYLL HIDES ANYTHING BEGINNING WITH A DOT.
+  #
+  # GitHub Pages runs Jekyll by default, and it will not publish `.well-known/` at all — the file is
+  # committed, pushed, reported as "pushed", and then served as a 404. Nothing fails and nothing
+  # warns; the app just quietly keeps its address bar. `.nojekyll` turns Jekyll off so the directory
+  # is served as-is. Cost one real run to find (2026-08-26).
+  : > "$TMP/site/.nojekyll"
   # An identity is passed explicitly because this machine has none configured — git guesses one from
   # the OS account, and a guess is refused outright on some setups. Failing HERE would be the worst
   # possible place to stop: the key already exists and the secrets are already uploaded.
   GIT_NAME="$(git config user.name  || true)"; [ -n "$GIT_NAME" ] || GIT_NAME="Atom Nursery"
   GIT_MAIL="$(git config user.email || true)"; [ -n "$GIT_MAIL" ] || GIT_MAIL="noreply@atomnursery.local"
   ( cd "$TMP/site"
-    git add .well-known/assetlinks.json
+    git add .well-known/assetlinks.json .nojekyll
     if git diff --cached --quiet; then
       echo "   (already up to date)"
     else
@@ -177,7 +184,8 @@ if gh repo view "$SITE_REPO" >/dev/null 2>&1; then
     fi )
   rm -rf "$TMP"
   say ""
-  say "✅ Done. GitHub Pages takes a minute or two, then check:"
+  say "✅ Done. GitHub Pages takes a minute or two. VERIFY IT — a 404 here means"
+  say "   the app will open with an address bar, and nothing else will say so:"
   say "   https://legeant04-dot.github.io/.well-known/assetlinks.json"
 else
   printf '%s\n' "$ASSET_JSON" > "$TMP/assetlinks.json"

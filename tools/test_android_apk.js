@@ -121,6 +121,13 @@ console.log('\n3) the handshake — both halves, naming the same things');
   eq('...and the package the gradle file builds', (/applicationId '([^']+)'/.exec(gradle) || [, ''])[1], PKG);
   ok_('...published at the origin root, which is the only place Chrome looks',
     /\.well-known\/assetlinks\.json/.test(ks));
+  /* AND .nojekyll BESIDE IT. GitHub Pages runs Jekyll by default and Jekyll publishes NOTHING whose
+   * name begins with a dot — so assetlinks.json was committed, pushed, reported as "pushed", and
+   * served as a 404. Nothing failed and nothing warned; the app simply kept its address bar.
+   * Cost a real run to find (2026-08-26). */
+  ok_('...with .nojekyll, or Pages will not serve a dot-directory at all', /\.nojekyll/.test(ks));
+  ok_('...and it is committed, not just written', /git add \.well-known\/assetlinks\.json \.nojekyll/.test(ks));
+  ok_('...and the operator is told to verify, because a 404 is silent', /a 404 here means/.test(ks));
   /* A MISMATCH IS SILENT — the app runs, with a URL bar, and nothing says why. CI compares the two
    * and warns, because this log is the only place that would ever mention it. */
   ok_('CI compares the APK\u2019s fingerprint with the published one', /Compare with the fingerprint/.test(wf));
