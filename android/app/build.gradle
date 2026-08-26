@@ -77,4 +77,15 @@ dependencies {
    *   AAPT: error: resource style/Theme.AppCompat.NoActionBar not found
    * Caught by the compile-only dry run, which is what that run exists for. */
   implementation 'androidx.appcompat:appcompat:1.7.0'
+  /* AND THE TWO OF THEM DISAGREE ABOUT KOTLIN.
+   *
+   * appcompat 1.7 brings kotlin-stdlib 1.8.22; androidbrowserhelper's chain still asks for the old
+   * kotlin-stdlib-jdk7/jdk8 1.6.21 artifacts. Kotlin 1.8 folded those two into kotlin-stdlib itself,
+   * so both jars now carry the same classes and the build stops with several hundred lines of
+   * "Duplicate class kotlin.…".
+   *
+   * The BOM lines every Kotlin module up on one version, where jdk7/jdk8 are empty shims that just
+   * point at kotlin-stdlib. Nothing here is written in Kotlin — this exists purely to stop two
+   * dependencies arguing. */
+  implementation platform('org.jetbrains.kotlin:kotlin-bom:1.8.22')
 }
