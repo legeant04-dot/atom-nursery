@@ -505,6 +505,11 @@ window.CONFIG = { MODE: 'gas', GAS_URL: 'https://script.google.com/macros/s/AKfy
   const READ_ONLY = {
     absenceReport: 1, paymentLog: 1, paymentSlips: 1, payments: 1, payrollConfig: 1,
     payrollReminderDue: 1, prepayTiers: 1, prepayments: 1, staffCheckinLog: 1, studentCheckinHistory: 1,
+    // starts with "prepay", so the verb test calls it a write. It only asks WHICH children have
+    // already paid for a month (so the bill picker can grey them out) and touches nothing. Left
+    // unlisted it would take the write lock, refuse an Observer, and — because ONE flagged call
+    // refuses the whole batch — take the bill screen down with it.
+    prepaidStudents: 1,
     // contains "Checkout", so the verb test calls it a write; it only reads (see Code.gs)
     staffMissingCheckout: 1
   };

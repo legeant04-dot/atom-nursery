@@ -169,6 +169,13 @@ textarea{min-height:70px;resize:vertical;}
 /* ---- additions (revamp) ---- */
 .bell{position:relative;background:none;border:none;font-size:20px;cursor:pointer;padding:2px 4px;}
 .bell .badge{position:absolute;top:-2px;right:-2px;background:var(--bad-2);color:var(--on-accent);border-radius:999px;font-size:10px;min-width:16px;height:16px;line-height:16px;text-align:center;padding:0 3px;}
+/* THE SAME RED CIRCLE, ON A TOOL BUTTON. Deliberately the bell's shape and colour: an admin already
+   knows what that means, and a second visual language for "somebody is waiting for you" would have
+   to be learned. It sits ON the corner (overflow is visible) so a long Thai label never pushes it
+   off, and it is padded away from the text so the two never touch on a narrow phone. */
+.opbtn{position:relative;overflow:visible;padding-right:26px;}
+.opbtn .opbadge{position:absolute;top:-6px;right:-6px;background:var(--bad-2);color:var(--on-accent);border-radius:999px;font-size:11px;font-weight:700;min-width:18px;height:18px;line-height:18px;text-align:center;padding:0 4px;box-shadow:0 0 0 2px var(--surface);}
+.opbtn .opbadge[hidden]{display:none;}
 .bottomnav{overflow-x:auto;}
 .bottomnav button{min-width:62px;}
 

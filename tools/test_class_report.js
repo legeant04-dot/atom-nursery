@@ -18,7 +18,12 @@ function ok_(label, cond) { console.log((cond ? '  ok   ' : '  FAIL ') + label);
 const R = f => fs.readFileSync(path.join(__dirname, '..', f), 'utf8');
 const app = R('webapp/app.js'), rc = R('webapp/report_card.js'), code = R('src/Code.gs');
 
-const TODAY = '2026-08-31';   // month finished, so every school day counts
+/* The 1st of September, not the 31st of August. The intent has always been "the month is finished,
+ * so every school day counts" — and the 31st was itself a Monday, i.e. TODAY. Since v285 a child who
+ * has not been dropped off yet today is not an absence (the day is not over; the staff report has
+ * always worked this way), so asking about August from inside August would leave one day undecided
+ * and every total here one short. Standing outside the month is what the comment always meant. */
+const TODAY = '2026-09-01';
 function boot(over) {
   const M = {
     config: { Plans: [], LeaveQuota: {}, Departments: 'Nursery 1' },
@@ -109,12 +114,13 @@ console.log('\n3) Consecutive absence — the number the school acts on');
   eq('...and the class says how many', r.classes[0].watch, 2);
 }
 {
-  // a child on temporary leave is not expected in — that is not an absence
-  // PauseTo is the day they COME BACK (v254), so a child away for the whole of August returns on
-  // 1 September. Written as 08-31 this used to mean "away through the 31st"; it now means the 31st
-  // is their first day back, and being absent on it is a real absence.
+  /* a child on temporary leave is not expected in — that is not an absence
+   * PauseTo is the day they COME BACK (v254), so it is the first day an absence can count again.
+   * They return on the 2nd of September rather than the 1st for one reason: the `paused` flag on
+   * the row means "away RIGHT NOW", and TODAY is the 1st — a child whose leave ends this morning is
+   * back, so the flag would (correctly) be false and the row would stop being about this case. */
   const H = boot({ staff: [ADMIN],
-    students: [kid('เอ','Nursery 1', { Status:'PAUSED', PauseFrom:'2026-08-01', PauseTo:'2026-09-01' })] });
+    students: [kid('เอ','Nursery 1', { Status:'PAUSED', PauseFrom:'2026-08-01', PauseTo:'2026-09-02' })] });
   const s = find(H.studentMonthReport({ month: '2026-08', staffId: 'ADM' }), 'เอ');
   eq('temporary leave is not absence', s.absent, 0);
   eq('...nor a run to follow up', s.maxConsecutive, 0);

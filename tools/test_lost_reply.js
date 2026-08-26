@@ -66,11 +66,13 @@ console.log('\n3) the client and the server answer "does this write?" identicall
   const names = s => (s.match(/[A-Za-z_][A-Za-z0-9_]*(?=\s*:)/g) || []).sort();
   ok_('both lists exist', !!clientList && !!serverList);
   eq('and hold exactly the same actions', names(serverList), names(clientList));
-  // eleven since v253: staffMissingCheckout contains "Checkout" and the verb test calls it a write.
-  // The COUNT is pinned on purpose — this list is the fix for a bug that took an Observer's home
-  // screen down, so growing it should be a deliberate act, not something that drifts.
-  eq('eleven of them', names(serverList).length, 11);
-  ok_('...including the one whose NAME is the trap', names(serverList).indexOf('staffMissingCheckout') >= 0);
+  // twelve since v285: staffMissingCheckout contains "Checkout" and prepaidStudents starts with
+  // "prepay", so the verb test calls both writes. The COUNT is pinned on purpose — this list is the
+  // fix for a bug that took an Observer's home screen down, so growing it should be a deliberate
+  // act, not something that drifts.
+  eq('twelve of them', names(serverList).length, 12);
+  ok_('...including the ones whose NAMES are the trap',
+    ['staffMissingCheckout', 'prepaidStudents'].every(n => names(serverList).indexOf(n) >= 0));
   const clientW = (api.match(/const WRITES = \{([\s\S]*?)\};/) || [, ''])[1];
   const serverW = (code.match(/var WRITES_ACTIONS_ = \{([\s\S]*?)\};/) || [, ''])[1];
   ok_('both write-lists exist', !!clientW && !!serverW);

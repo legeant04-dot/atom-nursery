@@ -1468,6 +1468,23 @@ function createAtomAPI(M, GROWTH_STD) {
       // a child on temporary leave for the whole month is not charged for it
       if(p.amount==null && !p.items && pausedWholeMonth_(s, month))
         fail('STUDENT_PAUSED','นักเรียนคนนี้ลาชั่วคราวตลอดเดือนนี้ — ไม่เรียกเก็บค่าเทอม');
+      /* ALREADY PAID FOR, MONTHS AGO.
+       *
+       * A family who pays 6 months up front has bought this month's TUITION, and this handler issues
+       * exactly that. The bill netted to zero (payments credits it back), so nobody was overcharged
+       * — but it was still a bill, it still went out with notifyBills, and being asked to pay for
+       * something you paid for in advance is the kind of thing that costs a school its credibility
+       * even when the arithmetic is right.
+       *
+       * Food, activity and special-class charges are NOT covered by a prepay and are NOT part of
+       * this bill — they are studentCharges rows, issued and paid separately, so refusing here takes
+       * nothing away from the school. `amount`/`items` (an admin writing a bill by hand) still go
+       * through: the rule is "do not re-bill the tuition automatically", not "never bill".
+       */
+      if(p.amount==null && !p.items && monthTuitionPrepaid_(p.studentId, month)){
+        const _pi=prepayInfo_(p.studentId, month)||{};
+        fail('PREPAID_MONTH','นักเรียนคนนี้ชำระค่าเทอมล่วงหน้าแล้ว'+(_pi.months?' '+_pi.months+' เดือน':'')+
+          (_pi.index?' (เดือนที่ '+_pi.index+'/'+(_pi.months||_pi.covered.length)+')':'')+' — ไม่ต้องออกบิลซ้ำ'); }
       // custom amount → respect as-is; default → (plan price − the student's monthly discount),
       // then the mid-month rule for the month they actually start (see tuitionForMonth_)
       const pr=tuitionForMonth_(s, month, Math.max(0, planPrice-disc));
@@ -1490,17 +1507,26 @@ function createAtomAPI(M, GROWTH_STD) {
       ids.forEach(sid=>{ const s=studentById(sid)||{};
         try{ const b=H.issueBill({studentId:sid,month});
           out.push({studentId:sid,nick:s.Nickname,name:s.NameTH,amount:b.Amount}); }
-        catch(e){ skipped.push({studentId:sid,nick:s.Nickname,name:s.NameTH,reason:(e&&e.message)||String(e)}); } });
+        // the CODE, not just the sentence — a screen that wants to group "already prepaid" apart
+        // from "no package yet" should not have to read Thai prose to tell them apart
+        catch(e){ skipped.push({studentId:sid,nick:s.Nickname,name:s.NameTH,code:(e&&e.code)||'',
+          prepay:prepayInfo_(sid, month), reason:(e&&e.message)||String(e)}); } });
       logAct('issueBillsFor','', out.length+' คน เดือน '+month+(skipped.length?' (ข้าม '+skipped.length+')':''), actorOf(p));
       return {ok:true, month, created:out.length, students:out, skipped}; },
     // Admin deletes a bill (ยอดเรียกเก็บ). Removes the BILLING row; leaves any slip history in PAYMENT_SLIPS.
     deleteBill: p => { const i=M.payments.findIndex(x=>x.BillingID===p.billingId); if(i<0)fail('NOT_FOUND','ไม่พบบิล'); const b=M.payments[i]; M.payments.splice(i,1); logAct('deleteBill',p.billingId,'ลบบิล '+ym(b&&b.Month),actorOf(p)); return {ok:true}; },
     // auto-generate the month's bill for all active students from Plan price (skip if already billed)
-    generateMonthlyBills: p => { const month=p.month||todayLocal().slice(0,7); let created=0; const noPlan=[], notYet=[], prorated=[], paused=[];
+    generateMonthlyBills: p => { const month=p.month||todayLocal().slice(0,7); let created=0; const noPlan=[], notYet=[], prorated=[], paused=[], prepaid=[];
       // enrolledStudents, not activeStudents: a child paused only PART of this month is still billed,
       // and the paused-all-month check below is what actually excludes them (with a reason).
       enrolledStudents().forEach(s=>{ if(M.payments.find(x=>x.StudentID===s.StudentID&&ym(x.Month)===month))return;
         if(pausedWholeMonth_(s, month)){ paused.push({studentId:s.StudentID, name:s.NameTH||s.Name||'', nick:s.Nickname||'', from:ymd(s.PauseFrom||''), to:ymd(s.PauseTo||'')}); return; }
+        /* Bought and paid for in advance — see issueBill for why this is not just harmless noise.
+         * Reported back BY NAME AND BY POSITION ("เดือนที่ 1/6"), because "ข้าม 3 คน" tells the
+         * admin a number and not whether it was the right three. */
+        { const pi=prepayInfo_(s.StudentID, month);
+          if(pi){ prepaid.push({studentId:s.StudentID, name:s.NameTH||s.Name||'', nick:s.Nickname||'',
+            months:pi.months, index:pi.index, left:pi.left, from:pi.from, to:pi.to}); return; } }
         const plan=studentPlan(s);
         const price=plan.price||0;
         // a child with no package gets NO bill rather than a phantom 0-baht one — reported back so the
@@ -1513,7 +1539,7 @@ function createAtomAPI(M, GROWTH_STD) {
         const note=pr.prorated?` (เริ่มเรียน ${enrolDate_(s)} · ${prorateLabel_(pr)})`:'';
         if(pr.prorated) prorated.push({studentId:s.StudentID, nick:s.Nickname||'', name:s.NameTH||s.Name||'', mode:pr.mode, full:net0, amount:pr.amount});
         M.payments.push({BillingID:'BL-'+month+'-'+s.StudentID,StudentID:s.StudentID,Month:month,Items:[['ค่าเทอม '+((plan&&plan.labelTH)||'')+note,pr.amount]],Amount:pr.amount,OTRollover:0,DueDate:billDueDate(s,month),PaidDate:'',Status:'UNPAID',SlipUrl:'',SlipAmount:0,VerifiedStatus:'',Auto:true}); created++; });
-      return {month,created,noPlan,notYet,prorated,paused}; },
+      return {month,created,noPlan,notYet,prorated,paused,prepaid}; },
     // attach a monthly slip → records a PAYMENT_SLIPS row (multiple allowed), bill → PENDING_VERIFY.
     uploadSlip: p => recordSlip_('bill', p.billingId, p),
     // ONE transfer slip paying several siblings' bills. The ticked bills are summed; the slip amount MUST
@@ -1988,9 +2014,34 @@ function createAtomAPI(M, GROWTH_STD) {
 
       const rows = enrolledStudents().map(s=>{
         let present=0, absent=0, sick=0, personal=0, run=0, worstRun=0, lastAbsent='';
+        // days this child could actually have attended — the report says how many, because
+        // "ขาด 0" for a child who joined on the 22nd means something different from "ขาด 0"
+        // for one who has been here all month
+        let owed=0;
         schoolDays.forEach(ds=>{
+          /* THE FIRST DAY HAS NOT COME YET.
+           *
+           * Reported 2026-08-26: น้องเอ็นเจ, whose first day was the 22nd, was listed as
+           * "ขาด 16 · ขาดต่อเนื่อง 16 · ต้องติดตาม" — 16 being exactly the school days BEFORE they
+           * started. The child had not missed anything; they had not arrived.
+           *
+           * studentNotStarted_ is the rule the check-in guard, the class roster and the billing all
+           * already use. This screen was the one place still counting from the first of the month,
+           * and it is the screen that decides whose parents get chased.
+           */
+          if(studentNotStarted_(s, ds)) { run=0; return; }
           // a child on temporary leave for that day is not expected in, so it is not an absence
           if(studentPaused_(s, ds)) { run=0; return; }
+          /* TODAY IS NOT OVER. A child who has not been dropped off by the time an admin opens this
+           * at 09:00 is not absent — they are on their way. The staff version of this screen has
+           * always refused to call today an absence (status TODAY); the children's did not, so a
+           * class report read one absence heavier every morning, and a child two days behind was
+           * shown as three and crossed the "ต้องติดตาม" line on nothing at all.
+           *
+           * The run is NOT reset, only left alone: a real five-day run that is still going must not
+           * read as four because today has not finished. Arriving today still counts as present. */
+          owed++;   // counted BEFORE the today rule: they were due in today, we just do not know yet
+          if(ds===today && !inOn[s.StudentID+'|'+ds] && !leaveOn[s.StudentID+'|'+ds]) return;
           if(inOn[s.StudentID+'|'+ds]) { present++; run=0; return; }
           const lv=leaveOn[s.StudentID+'|'+ds];
           if(lv){ if(isSick(lv.type)) sick++; else personal++; run=0; return; }
@@ -2008,6 +2059,8 @@ function createAtomAPI(M, GROWTH_STD) {
           done++; if(/ผ่าน|pass/i.test(String(r.Result)) && !/ไม่ผ่าน|not/i.test(String(r.Result))) pass++; });
         return {studentId:s.StudentID, name:s.NameTH||s.Name||'', nameEN:s.NameEN||'', nick:s.Nickname||'', nickEN:s.NicknameEN||'',
           class:s.Class||'', ageMonth:age, paused:studentPaused_(s),
+          // ...and say so on the row, so a short month reads as a late start rather than a mystery
+          notStarted:studentNotStarted_(s), startDate:ymd(s.EnrollDate||''), schoolDays:owed,
           present, absent, sick, personal, maxConsecutive:worstRun, lastAbsent,
           weight:last?Number(last.Weight)||0:0, height:last?Number(last.Height)||0:0, measuredAt:last?ymd(last.Date):'',
           dspmTotal:band.length, dspmDone:done, dspmPass:pass};
@@ -2054,7 +2107,25 @@ function createAtomAPI(M, GROWTH_STD) {
       }
       const days = dayList.length;
       const today = todayLocal();
-      const hol = {}; (M.holidays||[]).forEach(h=>{ const d=ymd(h.Date); if(inRange(d)) hol[d]=h.NameTH||h.NameEN||'วันหยุด'; });
+      /* A HALF-DAY HOLIDAY IS STILL A WORKING DAY.
+       *
+       * Reported 2026-08-26: August read "ต้องมาทำงาน 20 วัน" where the school counts 21. The
+       * meeting day was in it all along — what was missing was 19/08, a holiday that only ran
+       * 07:00–12:00 (the power cut). Everybody was in that afternoon, and the target said they owed
+       * the school nothing that day.
+       *
+       * `hol` is what a cell PRINTS; `holAll` is whether the school was shut. They were the same
+       * object, so every question ("is this a working day", "is this person absent") got the
+       * whole-day answer for a day that was only half off — the exact distinction schoolDayFor_
+       * already draws with `closedAllDay`, which this had not been taught.
+       */
+      const hol = {}, holAll = {};
+      (M.holidays||[]).forEach(h=>{ const d=ymd(h.Date); if(!inRange(d)) return;
+        hol[d]=h.NameTH||h.NameEN||'วันหยุด';
+        const hs=cfgTime_(h.StartTime,''), he=cfgTime_(h.EndTime,'');
+        if(!(hs||he)) holAll[d]=1;                         // blank times = the whole day, as always
+        else hol[d] += ' ('+(hs||'00:00')+'-'+(he||'23:59')+')';
+      });
       const bc = {}; bigCleaningList_().forEach(s=>{ const d=ymd(s); if(inRange(d)) bc[d]=1; });
       /**
        * DAYS THE SCHOOL EXPECTS PEOPLE IN — the target the whole summary is measured against.
@@ -2071,7 +2142,12 @@ function createAtomAPI(M, GROWTH_STD) {
        * have not happened yet are in the target but not yet in what is owed.
        */
       const requiredDates = dayList.filter(ds=>{
-        if(hol[ds]) return false;                            // the school is shut
+        /* ORDER IS THE SCHOOL'S DECISION, and it is the other way round from schoolDayFor_ on
+         * purpose: a holiday declared over a meeting day CANCELS it (test_required_days pins this),
+         * so nobody owes a day the school has since closed. Do not "fix" this to match
+         * schoolDayFor_ — that helper answers "is the door open right now", which is a different
+         * question from "did this person owe us this day". */
+        if(holAll[ds]) return false;                         // the school is shut ALL day
         if(bc[ds]) return true;                              // ...unless it called everybody in
         const g = new Date(ds+'T00:00:00').getDay();
         return g!==0 && g!==6;
@@ -2146,7 +2222,10 @@ function createAtomAPI(M, GROWTH_STD) {
             if(beforeStart) status='BEFORE';
             else if(inT) status='IN';
             else if(lv) status='LEAVE';
-            else if(hol[ds]) status='HOLIDAY';
+            // ...and the same distinction here: a day the school was shut for a MORNING is a day
+            // somebody was expected in, so not turning up is an absence like any other. The cell
+            // still prints the holiday's name (below) — it just no longer excuses the day.
+            else if(holAll[ds]) status='HOLIDAY';
             else if(weekend) status='OFF';
             else if(ds>today) status='FUTURE';
             // Today is not over. Someone who has not checked in by the time an admin opens this is
@@ -2635,7 +2714,20 @@ function createAtomAPI(M, GROWTH_STD) {
         // tracked separately and are still owed). Capping this at the current plan price left the
         // difference showing as an unpaid balance the moment a package price changed.
         const prepay = prepayInfo_(s.StudentID, month);
-        const prepaidTuition = (prepay && b) ? billTuition_(b) : 0;
+        /* A PREPAID MONTH NO LONGER HAS A BILL AT ALL (v285) — and the money is still the school's.
+         *
+         * This read the credit off the bill, so the day issueBill started refusing to re-bill a
+         * month that was already paid for, every covered month would have quietly dropped out of
+         * "รายได้รวม". The school would have seen its own takings shrink by one month's tuition per
+         * prepaid child, for a change that was supposed to be about not sending a duplicate.
+         *
+         * With a bill, the figure is unchanged (billTuition_, so a bill issued at an old price still
+         * settles in full). Without one, it is the tuition that month WOULD have been — the same
+         * arithmetic issueBill would have used, proration and monthly discount included.
+         */
+        const prepaidTuition = !prepay ? 0 : (b ? billTuition_(b)
+          : (()=>{ const pl=studentPlan(s), pp=pl.price||0;
+              return tuitionForMonth_(s, month, Math.max(0, pp-studentDiscount_(s,pp))).amount; })());
         const billConfirmed = b ? sum('bill', b.BillingID, ['CONFIRMED']) : 0;
         const billPending = b ? sum('bill', b.BillingID, ['SUBMITTED', 'PENDING_VERIFY']) : 0;
         /* Tuition still owed, after the advance-payment credit and any confirmed slips — and after
@@ -2794,6 +2886,17 @@ function createAtomAPI(M, GROWTH_STD) {
         // "in 5 days" is the thing an admin acts on; the date alone makes them count on their fingers
         days:Math.round((new Date(ymd(s.EnrollDate)+'T00:00:00')-new Date(todayLocal()+'T00:00:00'))/86400000)}))
       .sort((a,b)=>String(a.startDate).localeCompare(String(b.startDate))),
+    /**
+     * Who has ALREADY PAID this month's tuition in advance — asked for 2026-08-26, so the "ออกบิล
+     * (เลือก)" list can grey those children out instead of letting an admin tick a bill that the
+     * server is only going to refuse.
+     *
+     * Keyed by month, because the answer changes with the month in the picker: the same child is
+     * prepaid in September and not in March. Returned as a map so a checkbox can look itself up.
+     */
+    prepaidStudents: p => { const month=ym((p&&p.month)||todayLocal().slice(0,7)); const by={};
+      enrolledStudents().forEach(s=>{ const pi=prepayInfo_(s.StudentID, month); if(pi) by[s.StudentID]=pi; });
+      return {month, count:Object.keys(by).length, byStudent:by}; },
     pausedStudents: () => M.students.filter(s=>String(s.Status)===PAUSED_STATUS)
       .map(s=>({studentId:s.StudentID,name:s.NameTH||s.Name,nameEN:s.NameEN,nick:s.Nickname,nickEN:s.NicknameEN,className:s.Class,
         from:ymd(s.PauseFrom||''), to:ymd(s.PauseTo||''), reason:s.PauseReason||'',
@@ -3916,6 +4019,34 @@ function createAtomAPI(M, GROWTH_STD) {
       if(isAdmin){ changes.forEach(c=>{ const s=staffById_(c.staffId)||{}; if(s.StaffID){ s.Department=c.after; s.Classes=c.after; } }); logAct('classChange',id,changes.map(c=>c.name+':'+c.before+'→'+c.after).join(', '),actorOf(p)); }
       return {reqId:id,status:isAdmin?'APPROVED':'PENDING_ADMIN'}; },
     myClassChanges: p => (M.classChangeReq||[]).filter(r=>r.RequestBy===p.staffId).sort((a,b)=>String(b.CreatedDate).localeCompare(String(a.CreatedDate))),
+    /**
+     * HOW MANY THINGS ARE WAITING FOR THE ADMIN, per tool on the ดำเนินการ screen.
+     *
+     * Asked for 2026-08-26: "หัวข้อหลักไม่มีสถานะบอกว่ามีคำร้องหรือรอการอนุมัติ". Every one of those
+     * tools already knew its own count — but only once you had opened it, which is precisely the
+     * wrong way round. Two time requests sat unanswered because nothing on the screen said they
+     * were there.
+     *
+     * ONE handler and ONE round trip for all of them: six separate counts would be six queued
+     * executions on the busiest admin screen (Apps Script runs one at a time per user).
+     *
+     * The rule for what counts: things waiting for THE ADMIN TO DECIDE. A student OT that is simply
+     * unpaid is waiting for a PARENT, so it is not a badge — putting a permanent red number on a
+     * screen is how people learn to stop seeing red numbers. A submitted slip IS the admin's move.
+     */
+    opsPending: p => { const ap=staffById(p&&p.staffId); if(!adminLike_(ap))fail('NO_PERMISSION','เฉพาะแอดมิน');
+      const pend=s=>{ const u=String(s||'').toUpperCase(); return u==='PENDING'||u.indexOf('PENDING_')===0; };
+      const ot=(M.otRecords||[]).filter(r=>String(r.Status||'').toUpperCase()==='PENDING');
+      const o={
+        // a teacher's OT and a holiday OT are approved on two different screens, so they are two counts
+        staffOT:      ot.filter(r=>!isHolidayOT_(r)).length,
+        holidayOT:    ot.filter(r=>isHolidayOT_(r)).length,
+        timeRequests: (M.attendanceReq||[]).filter(r=>pend(r.Status)).length,
+        classChanges: (M.classChangeReq||[]).filter(r=>String(r.Status||'').toUpperCase()==='PENDING_ADMIN').length,
+        studentOT:    (M.otDaily||[]).filter(r=>String(r.Status||'').toUpperCase()==='PENDING_VERIFY').length,
+        leaves:       (M.leaves||[]).filter(l=>pend(l.Status)).length };
+      o.total=Object.keys(o).reduce((a,k)=>a+o[k],0);
+      return o; },
     pendingClassChanges: p => { const ap=staffById(p.staffId); if(!adminLike_(ap))fail('NO_PERMISSION','เฉพาะแอดมิน');
       return (M.classChangeReq||[]).filter(r=>String(r.Status).toUpperCase()==='PENDING_ADMIN').sort((a,b)=>String(a.CreatedDate).localeCompare(String(b.CreatedDate))); },
     decideClassChange: p => { const ap=staffById(p.staffId); if(!adminLike_(ap))fail('NO_PERMISSION','เฉพาะแอดมิน');
