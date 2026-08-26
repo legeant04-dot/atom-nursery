@@ -68,6 +68,29 @@ console.log('\n1) the project exists and is a shell, not a second copy of the ap
   ok_('which is the library it comes from',
     /com\.google\.androidbrowserhelper:androidbrowserhelper:/.test(gradle) &&
     /com\.google\.androidbrowserhelper\.trusted\.LauncherActivity/.test(amanifest));
+  /* THE TWO DEPENDENCIES THAT LOOK REDUNDANT AND ARE NOT. Both were found by an actual build, not
+   * by reading, and both fail at BUILD time rather than producing anything subtle — but a future
+   * tidy-up would remove them on sight, so the reason is pinned here as well as in the file.
+   *   · appcompat: the splash theme inherits Theme.AppCompat.NoActionBar, which androidbrowserhelper
+   *     does not provide → "AAPT: error: resource style/Theme.AppCompat.NoActionBar not found".
+   *   · kotlin-bom: appcompat 1.7 wants kotlin-stdlib 1.8.22 while the TWA chain still asks for
+   *     kotlin-stdlib-jdk7/jdk8 1.6.21, whose classes 1.8 absorbed → "Duplicate class kotlin.…". */
+  ok_('appcompat is present, because the splash theme needs it',
+    /androidx\.appcompat:appcompat:/.test(gradle));
+  ok_('...and the Kotlin BOM, because those two disagree about Kotlin',
+    /platform\('org\.jetbrains\.kotlin:kotlin-bom:/.test(gradle));
+  ok_('...each with the build error it prevents written next to it',
+    /Theme\.AppCompat\.NoActionBar not found/.test(gradle) && /Duplicate class kotlin/.test(gradle));
+}
+{
+  /* A COMPILE-ONLY RUN. The signing key can only be created once, by a person, and cannot be redone
+   * quietly — so the project must be provable BEFORE that ceremony, not after. It builds the debug
+   * variant, which is never published. */
+  ok_('there is a dry run that needs no key', /dry_run:/.test(wf) && /assembleDebug/.test(wf));
+  ok_('...and it publishes nothing', /if: \$\{\{ !inputs\.dry_run \}\}/.test(wf));
+  const gated = wf.split('\n').filter(l => /^      - name: /.test(l)).length;
+  const guards = (wf.match(/if: \$\{\{ !inputs\.dry_run \}\}/g) || []).length;
+  eq('every release step is gated, so a dry run cannot sign or publish', guards, gated - 2); // version read + dry run itself
 }
 
 console.log('\n2) it opens the live site — so the web release IS the android release');

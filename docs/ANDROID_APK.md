@@ -42,6 +42,17 @@ The in-app guidance added in v285 (`GEO_blocked`) is still the answer for the re
 
 ## Setting it up — once, ever
 
+### 0. Check it still builds (no key needed)
+
+```bash
+gh workflow run android.yml --repo legeant04-dot/atom-nursery -f dry_run=true
+```
+
+Compiles the debug variant and publishes nothing. Run this after any change under `android/`, and
+before step 1 the first time — the signing key is the one step that cannot be redone quietly, and
+discovering a Gradle problem afterwards is the wrong order. It has already earned its keep twice:
+the missing `appcompat` and the Kotlin stdlib collision were both found this way.
+
 ### 1. Create the signing key
 
 ```bash
