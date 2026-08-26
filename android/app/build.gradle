@@ -70,4 +70,11 @@ dependencies {
   // Google's own TWA support library: it provides the launcher activity, the splash screen and the
   // Digital Asset Links plumbing. There is no application code in this project at all.
   implementation 'com.google.androidbrowserhelper:androidbrowserhelper:2.5.0'
+  /* AppCompat is NOT redundant, however much it looks it.
+   *
+   * androidbrowserhelper does not bring it in, and the splash theme inherits from
+   * Theme.AppCompat.NoActionBar — without this the resource link fails outright:
+   *   AAPT: error: resource style/Theme.AppCompat.NoActionBar not found
+   * Caught by the compile-only dry run, which is what that run exists for. */
+  implementation 'androidx.appcompat:appcompat:1.7.0'
 }
