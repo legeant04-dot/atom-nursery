@@ -1183,6 +1183,53 @@ function createAtomAPI(M, GROWTH_STD) {
       notStarted:studentNotStarted_(s), startDate:ymd(s.EnrollDate||'')},
       studentLeaveToday_(s.StudentID), s)),
     /**
+     * THE WHOLE PARENT HOME SCREEN, IN ONE REQUEST.
+     *
+     * Asked for 2026-08-26 after a parent — who evidently writes software — told the school we were
+     * making far too many calls for what they were being shown. They were right.
+     *
+     * Apps Script runs ONE execution at a time per user, so requests do not overlap, they QUEUE: the
+     * count of round trips IS the wait. The home screen cost five of them, and it could not be fixed
+     * on the client, because each batch depended on the answer to the one before:
+     *
+     *   1. parentChildren                      ← everything else needs the child ids
+     *   2. journal · announcements · calendar · familyProfile · plans · schoolDay · parentDue
+     *      · per-child check-in history · per-child leaves
+     *   3. per-child insuranceStatus           ← needed the ids, so it could not join #2
+     *   4. openSurveys                         ← issued after #3's await, so its own tick
+     *   5. PREFETCH re-asking for several of the same things
+     *
+     * All of it is one pass over data this server has already hydrated. The client asks once.
+     *
+     * Every field is produced by the SAME handler the screen used before — this composes them, it
+     * does not reimplement them, so the home screen and the screens it links to cannot drift apart.
+     * A section that throws must not take the whole home down with it: each is guarded, and anything
+     * that fails comes back null exactly as the client's own .catch() used to make it.
+     */
+    parentHome: p => {
+      const soft = (fn, dflt) => { try { return fn(); } catch (e) { return dflt; } };
+      const kids = H.parentChildren(p);
+      // No children linked yet — the screen shows a card and nothing else, so fetch nothing else.
+      if (!kids.length) return { children: [], familyProfile: soft(()=>H.familyProfile(p), {parents:[]}) };
+      const ids = kids.map(k => k.StudentID);
+      return {
+        children: kids,
+        // the caller's payload is carried through, not replaced: getJournal decides whether a DRAFT
+        // is visible from the ROLE on it, and a parent must never be handed one
+        journal:        soft(()=>H.getJournal(Object.assign({}, p, {studentId: ids[0]})), null),
+        announcements:  soft(()=>H.announcements(p), []),
+        calendar:       soft(()=>H.calendar(p), []),
+        familyProfile:  soft(()=>H.familyProfile(p), {parents:[]}),
+        plans:          soft(()=>H.getPlans(p), []),
+        schoolDay:      soft(()=>H.schoolDay({}), null),
+        due:            soft(()=>H.parentDue(p), null),
+        // per child, IN THE SAME ORDER as `children` — the screen reads them by index
+        checkins:  ids.map(id => soft(()=>H.studentCheckinHistory(Object.assign({}, p, {studentId:id})), [])),
+        leaves:    ids.map(id => soft(()=>H.studentLeaves(Object.assign({}, p, {studentId:id})), [])),
+        insurance: ids.map(id => soft(()=>H.insuranceStatus(Object.assign({}, p, {studentId:id})), {filled:false})),
+        surveys:        soft(()=>H.openSurveys(p), [])
+      }; },
+    /**
      * What this family still owes, in ONE call — so the home screen can say it without fanning out
      * three requests per child. A parent should not have to open the payment screen to find out
      * whether they owe anything; the answer belongs where they already are.

@@ -112,7 +112,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.287'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.288'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -946,8 +946,19 @@
   // (the home screen loads first; these fire ~0.5s later and micro-batch into one request).
   window.PREFETCH = () => {
     if (CONFIG.MODE!=='gas' || !USER) return;
+    /* A PARENT NEEDS NO PREFETCH AT ALL ANY MORE.
+     *
+     * This warmed parentChildren / announcements / calendar — every one of which the home screen is
+     * fetching at that very moment, inside `parentHome`. Firing 500ms later meant they were often
+     * not cached yet, so it was a SECOND queued execution asking for what was already on its way.
+     * On a platform that runs one execution at a time, a wasted request is not free; it is in front
+     * of something the parent is waiting for.
+     *
+     * `notifications` is left, and only that: the bell asks for it from setHeader() regardless, so
+     * warming it costs nothing extra and takes it off the first screen's critical path.
+     */
     const jobs = USER.role==='Parent'
-        ? [['parentChildren',parentScope()],['announcements'],['calendar'],['notifications',notifParams()]]
+        ? [['notifications',notifParams()]]
       : USER.role==='Admin'
         ? [['dashboard'],['pendingLeaves',{staffId:USER.staffId}],['pendingPayments'],['listStudents'],['listStaff'],['listParents']]
         // `schedule` is scoped to the caller now (a plain teacher gets only their own times), so it
@@ -1586,37 +1597,33 @@
   }
 
   // ================= PARENT =================
+  /* ONE REQUEST FOR THE WHOLE SCREEN.
+   *
+   * This used to be FIVE, and on Apps Script — which runs one execution at a time per user — five
+   * round trips is five waits end to end, not five things happening at once. It could not be fixed
+   * from here: each batch needed the answer to the one before it (nothing can be asked per-child
+   * until parentChildren has said which children), so the fan-out had to move to the server.
+   * `parentHome` composes the very same handlers; see the note above it in engine.js.
+   *
+   * The destructuring below is deliberately explicit rather than positional. The old version read
+   * this batch by INDEX with a `FIXED = 7` offset, and every time an entry was added or removed the
+   * per-child slices silently handed one child another child's calendar.
+   */
   SCREENS.Parent.home = async () => {
     showAnnPopups();
-    const kids = await api('parentChildren',parentScope());
+    const HOME = await api('parentHome', parentScope());
+    const kids = HOME.children || [];
     const addBtn = `<button class="btn sm outline" onclick="P_addChild()">+ ${esc(t('p.addChild'))}</button>`;
     const profileBtn = `<button class="btn sm outline" onclick="P_profile()">👤 ${EN()?'My info':'ข้อมูลของฉัน'}</button>`;
     if(!kids.length){ app.innerHTML=`<h2 class="page">${esc(t('p.greeting'))}${esc(EN()?USER.nameEN:'คุณ'+USER.nameTH)} 👋</h2>
       <div class="card" style="text-align:center"><p>${esc(t('p.noChild'))}</p><div class="row" style="justify-content:center">${addBtn}${profileBtn}</div></div>${socialFooter()}`; return; }
     const k0 = kids[0];
-    // one batched round-trip: journal/leaves/announcements/calendar + each kid's check-in history (for today's status)
-    // one batched round-trip. Check-ins AND leaves are fetched for every child, not just the first,
-    // so the calendar at the bottom can be switched per child (it only ever showed child #1 before).
-    const _res = await Promise.all([
-      // studentLeaves for k0 used to be fetched HERE as well as in the per-child list below — the
-      // same call twice in one batch, so Apps Script ran the same handler over the same sheet twice
-      // on every parent home load. k0 is kids[0], so slAll[0] IS this one.
-      api('getJournal',{studentId:k0.StudentID}),
-      api('announcements'), api('calendar'), api('familyProfile',parentScope()).catch(()=>({parents:[]})),
-      api('getPlans').catch(()=>[]),
-      api('schoolDay',{}).then(d=>{ window._SCHOOLDAY=d; return d; }).catch(()=>null),
-      // what the family still owes — rides in the SAME batch, so telling them costs no extra trip
-      api('parentDue',parentScope()).catch(()=>null),
-      ...kids.map(k=>api('studentCheckinHistory',{studentId:k.StudentID})),
-      ...kids.map(k=>api('studentLeaves',{studentId:k.StudentID}).catch(()=>[]))
-    ]);
-    // 7 fixed entries (the duplicated studentLeaves was removed), then one check-in history per
-    // child, then one leave list per child — the offsets below MUST move with that count or every
-    // child's calendar is handed another child's data. FIXED is the count, in one place, so adding
-    // or removing one cannot silently shift them again.
-    const FIXED = 7;
-    const [j, anns, cal, fam, plans] = _res; const due = _res[6];
-    const ciAll=_res.slice(FIXED, FIXED+kids.length); const slAll=_res.slice(FIXED+kids.length); const ci=ciAll[0]||[];
+    const j = HOME.journal, anns = HOME.announcements||[], cal = HOME.calendar||[], fam = HOME.familyProfile||{parents:[]};
+    const plans = HOME.plans||[], due = HOME.due;
+    window._SCHOOLDAY = HOME.schoolDay;
+    // per child, in the same order as `children` — named, not sliced at an offset
+    const ciAll = HOME.checkins||[], slAll = HOME.leaves||[];
+    const ci = ciAll[0]||[];
     const sl = slAll[0]||[];        // the first child's leave list — fetched once, read twice
     if(plans&&plans.length) A_CACHE.plans=plans;   // so planLabel() names the package, not "pkg_e32dd4"
     // everything the per-child calendar needs, kept for P_calSel()
@@ -1730,21 +1737,22 @@
       ${socialFooter()}`;
     setHTML('#pDue', parentDueCard(due));
     GEO_gateFill();   // client-side only: no api() call, so the busiest screen pays nothing for it
+    /* These two came back in the SAME request as everything above (they used to be two more round
+     * trips of their own: insuranceStatus needed the child ids, and openSurveys was issued after
+     * its await, so each got its own ~5s in the queue). Nothing is fetched here any more — this is
+     * only drawing. */
+    // an open survey is offered, never forced: a dismissible card, and answering is one tap
+    { const open=(HOME.surveys||[]).filter(s=>!s.answered);
+      if(open.length) setHTML('#svCard', open.slice(0,2).map(s=>`<div class="card" style="border-color:var(--brand-line);background:var(--brand-soft)">
+        <div class="spread"><b>💬 ${esc(s.title)}</b>${s.anonymous?`<span class="pill info" style="font-size:11px">${EN()?'anonymous':'ไม่ระบุชื่อ'}</span>`:''}</div>
+        ${s.description?`<small class="muted">${esc(s.description)}</small>`:''}
+        <button class="btn sm block" style="margin-top:8px" onclick="P_survey('${esc(s.surveyId)}')">${EN()?'Answer — it takes a moment':'ร่วมตอบแบบสอบถาม ใช้เวลาไม่ถึงนาที'}</button></div>`).join('')); }
     // insurance status per child (parent fills once; shows "กรอกแล้ว" if done)
-    try{ const sts=await Promise.all(kids.map(k=>api('insuranceStatus',{studentId:k.StudentID})));
-      // an open survey is offered, never forced: a dismissible card, and answering is one tap
-      api('openSurveys',parentScope()).then(list=>{
-        const open=(list||[]).filter(s=>!s.answered);
-        if(!open.length) return;
-        setHTML('#svCard', open.slice(0,2).map(s=>`<div class="card" style="border-color:var(--brand-line);background:var(--brand-soft)">
-          <div class="spread"><b>💬 ${esc(s.title)}</b>${s.anonymous?`<span class="pill info" style="font-size:11px">${EN()?'anonymous':'ไม่ระบุชื่อ'}</span>`:''}</div>
-          ${s.description?`<small class="muted">${esc(s.description)}</small>`:''}
-          <button class="btn sm block" style="margin-top:8px" onclick="P_survey('${esc(s.surveyId)}')">${EN()?'Answer — it takes a moment':'ร่วมตอบแบบสอบถาม ใช้เวลาไม่ถึงนาที'}</button></div>`).join(''));
-      }).catch(()=>{});
-      setHTML('#insCard', `<h3>🛡️ ${esc(t('ins2.manage'))}</h3>`+kids.map((k,i)=>{ const f=sts[i].filled;
+    { const sts=HOME.insurance||[];
+      if(sts.length) setHTML('#insCard', `<h3>🛡️ ${esc(t('ins2.manage'))}</h3>`+kids.map((k,i)=>{ const f=(sts[i]||{}).filled;
         return `<div class="list-item"><span><b>${esc(dispNick(k))}</b> <span class="pill ${f?'ok':'wait'}">${f?'✓ '+esc(t('ins2.filled')):esc(t('ins2.notFilled'))}</span></span>
           <button class="btn sm ${f?'outline':''}" onclick="P_insurance('${k.StudentID}')">${f?esc(t('lbl.view')):esc(t('ins2.btn'))}</button></div>`; }).join(''));
-    }catch(e){ const c=$('#insCard'); if(c)c.remove(); }
+      else { const c=$('#insCard'); if(c)c.remove(); } }
   };
   // add another child: always ask "new student" vs "existing (verify by NationalID)"
   window.P_addChild = ()=>{ modal(`<h3>👶 ${esc(t('p.addChild'))}</h3>
@@ -1965,12 +1973,26 @@
       ? (EN()?'This device does not support GPS':'อุปกรณ์นี้ไม่รองรับ GPS')
       : (EN()?'The phone’s location service is not available right now.':'บริการตำแหน่งของเครื่องยังใช้งานไม่ได้ในขณะนี้');
   const geoErr_ = why => { const e=new Error(GEO_MSG(why)); e.geo=why; return e; };
-  function getPosition(){ return new Promise((resolve,reject)=>{
+  /* `opts` exists for ONE case: a drop-off.
+   *
+   * Drop-off is not fenced — a parent may tap it from anywhere — so the position is a nice-to-have
+   * for the record and nothing depends on it. It was still asked for with enableHighAccuracy and a
+   * ten-second timeout, which is a satellite fix: indoors, or on a phone that has just woken up,
+   * that is up to ten seconds of spinner before a button that was never going to check the answer.
+   * That is a large part of "กดแล้วหมุนนาน" for the tap parents make most often.
+   *
+   * So a drop-off takes whatever is already known — a cached fix up to two minutes old is fine for
+   * a log line — and gives up after three seconds. PICK-UP is unchanged: it is fenced, the school's
+   * radius depends on it, and it must have the best fix the phone can give.
+   */
+  function getPosition(opts){ return new Promise((resolve,reject)=>{
     if(!navigator.geolocation){ reject(geoErr_('UNSUPPORTED')); return; }
     navigator.geolocation.getCurrentPosition(
       pos=>resolve({lat:pos.coords.latitude,lng:pos.coords.longitude,acc:Math.round(pos.coords.accuracy)||0}),
       e=>reject(geoErr_(e&&e.code===1?'DENIED':e&&e.code===3?'TIMEOUT':'UNAVAILABLE')),
-      {enableHighAccuracy:true,timeout:10000,maximumAge:0}); }); }
+      Object.assign({enableHighAccuracy:true,timeout:10000,maximumAge:0}, opts||{})); }); }
+  // what a drop-off asks for: fast, and happy with a fix the phone already had
+  const GEO_QUICK = {enableHighAccuracy:false, timeout:3000, maximumAge:120000};
   /**
    * Whether this browser will ASK, has already said yes, or has already said no — WITHOUT punching
    * anything and without making the phone hunt for a satellite.
@@ -2137,7 +2159,8 @@
     try{ let lat=null,lng=null,acc=0;
       // Check-in works from ANYWHERE — GPS is optional (tolerate denial). Check-out still needs a location (school enforces the radius).
       if(type==='OUT'){ ({lat,lng,acc}=await getPosition()); }
-      else { try{ ({lat,lng,acc}=await getPosition()); }catch(e){ lat=null; lng=null; acc=0; } }
+      // drop-off: whatever the phone already knows, and never more than 3s of waiting for it
+      else { try{ ({lat,lng,acc}=await getPosition(GEO_QUICK)); }catch(e){ lat=null; lng=null; acc=0; } }
       const r=await api('parentCheckin',{parentId:USER.parentId,uid:USER.uid,studentId,type,lat,lng,acc});
       const distTxt=(r.distance!=null)?` (${EN()?'distance':'ระยะ'} ${r.distance} ${EN()?'m':'ม.'})`:'';
       toast(`✅ ${type==='IN'?(EN()?'Drop off':'ส่งเข้าเรียน'):(EN()?'Pick up':'รับกลับ')} ${r.time}${distTxt} — ${EN()?'teacher notified':'แจ้งครูแล้ว'}`);
