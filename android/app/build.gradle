@@ -1,0 +1,73 @@
+plugins { id 'com.android.application' }
+
+/* THE VERSION COMES FROM THE WEB APP, NOT FROM HERE.
+ *
+ * webapp/app.js APP_VERSION is the one number this project has ever had, and the release script
+ * already keeps index.html and sw.js in step with it. Giving the Android shell a second, unrelated
+ * version number would be a third place to forget — so CI passes -PappVersion=<APP_VERSION> and the
+ * APK simply reports the same build the website is on.
+ *
+ * versionCode must be an integer that only ever increases, or Android refuses the update; the web
+ * version is already exactly that.
+ */
+def appVersion = (project.findProperty('appVersion') ?: '0').toString().replaceAll('[^0-9]', '')
+def vCode = (appVersion.isEmpty() ? '1' : appVersion) as int
+
+android {
+  namespace 'th.ac.atomnursery.app'
+  compileSdk 34
+
+  defaultConfig {
+    applicationId 'th.ac.atomnursery.app'
+    // 21 covers every phone that still receives a working Chrome. Going lower buys nothing: a TWA
+    // needs a Chrome that supports them, and those devices do not have one.
+    minSdk 21
+    targetSdk 34
+    versionCode vCode
+    versionName '1.' + (appVersion.isEmpty() ? '0' : appVersion)
+  }
+
+  /* SIGNING.
+   *
+   * Read from the environment, never from a file in the repository — this repository is PUBLIC. A
+   * committed keystore would let anyone build an APK that Android accepts as an update to the one
+   * the school handed out.
+   *
+   * If the variables are absent the block is simply not configured and Gradle produces an unsigned
+   * release, which install refuses. That is the intended failure: a silently debug-signed APK would
+   * install fine on the first phone and then be unable to update, months later, with no clue why.
+   */
+  def ksPath = System.getenv('ATOM_KEYSTORE_PATH')
+  def ksPass = System.getenv('ATOM_KEYSTORE_PASSWORD')
+  signingConfigs {
+    release {
+      if (ksPath && ksPass) {
+        storeFile file(ksPath)
+        storePassword ksPass
+        keyAlias System.getenv('ATOM_KEY_ALIAS') ?: 'atom'
+        keyPassword System.getenv('ATOM_KEY_PASSWORD') ?: ksPass
+        storeType 'PKCS12'
+      }
+    }
+  }
+
+  buildTypes {
+    release {
+      if (ksPath && ksPass) signingConfig signingConfigs.release
+      // Nothing here to shrink — the module is a manifest and a handful of resources. R8 would only
+      // add a way for the build to fail.
+      minifyEnabled false
+    }
+  }
+
+  compileOptions {
+    sourceCompatibility JavaVersion.VERSION_17
+    targetCompatibility JavaVersion.VERSION_17
+  }
+}
+
+dependencies {
+  // Google's own TWA support library: it provides the launcher activity, the splash screen and the
+  // Digital Asset Links plumbing. There is no application code in this project at all.
+  implementation 'com.google.androidbrowserhelper:androidbrowserhelper:2.5.0'
+}

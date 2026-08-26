@@ -1,0 +1,12 @@
+/* Kept deliberately tiny: this project has exactly one module, and its only job is to point Chrome
+ * at the web app. Anything that grows in here is almost certainly a second copy of something that
+ * already exists in webapp/. */
+pluginManagement {
+  repositories { google(); mavenCentral(); gradlePluginPortal() }
+}
+dependencyResolutionManagement {
+  repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+  repositories { google(); mavenCentral() }
+}
+rootProject.name = "AtomNursery"
+include ':app'

@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Required by androidbrowserhelper's splash-screen handoff: it writes the splash image to cache
+     and hands Chrome a content:// URI for it. Nothing of the school's data passes through here. -->
+<paths>
+  <cache-path name="twa-splash" path="twa/" />
+</paths>

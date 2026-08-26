@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+  <!-- The window shown for the fraction of a second before Chrome has painted. Without it the app
+       opens on a white rectangle, which on a slow connection reads as "it did not start". -->
+  <style name="Theme.Atom.Splash" parent="Theme.AppCompat.NoActionBar">
+    <item name="android:windowBackground">@color/backgroundColor</item>
+    <item name="android:statusBarColor">@color/colorPrimary</item>
+    <item name="android:windowNoTitle">true</item>
+  </style>
+</resources>

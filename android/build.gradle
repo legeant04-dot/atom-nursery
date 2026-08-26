@@ -1,0 +1,6 @@
+plugins {
+  // Pinned, not ranged. This is built by CI on a machine nobody looks at; a plugin that silently
+  // moves is a build that breaks on a day when somebody needs a release, for a reason unrelated to
+  // anything that changed here.
+  id 'com.android.application' version '8.5.2' apply false
+}

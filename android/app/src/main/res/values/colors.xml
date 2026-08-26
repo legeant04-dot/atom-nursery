@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+  <!-- The same two values as webapp/manifest.json. If the web app's theme ever changes, these are
+       the second place — there is no way for an APK to read the site's manifest at build time. -->
+  <color name="colorPrimary">#1565C0</color>
+  <color name="backgroundColor">#F4F7FB</color>
+</resources>
