@@ -1,0 +1,120 @@
+name: Build Android APK
+
+# Deliberately manual. The Android shell wraps the LIVE website, so publishing the web app already
+# reaches every phone — rebuilding the APK changes nothing for parents unless something inside
+# android/ changed. Building it on every push would produce a stream of releases that all behave
+# identically and would train everyone to ignore them.
+on:
+  workflow_dispatch:
+    inputs:
+      release_notes:
+        description: 'What changed in the app shell (shown on the download page)'
+        required: false
+        default: 'อัปเดตแอป Atom Nursery สำหรับ Android'
+
+permissions:
+  contents: write        # needed to create the Release the APK is downloaded from
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # THE APK REPORTS THE WEB APP'S VERSION, not one of its own. APP_VERSION in webapp/app.js is
+      # the only version number this project has; a second one in build.gradle would be a third
+      # place to forget on release day.
+      - name: Read APP_VERSION from the web app
+        id: ver
+        run: |
+          # The SAME regex tools/release.js uses, so the two can never read the line differently.
+          V=$(node -e "const m=/APP_VERSION\s*=\s*'Version\s+(\d+)\.(\d+)'/.exec(require('fs').readFileSync('webapp/app.js','utf8')); if(!m){process.exit(1)} console.log(m[2])")
+          if [ -z "$V" ]; then echo "::error::APP_VERSION not found in webapp/app.js"; exit 1; fi
+          echo "version=$V" >> "$GITHUB_OUTPUT"
+          echo "Building shell for web app version 1.$V"
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: android-actions/setup-android@v3
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      # The signing key exists ONLY as a secret. It is written to a path outside the workspace so it
+      # cannot be picked up by anything that archives the build directory — this repository is
+      # public and its artifacts are world-readable.
+      - name: Restore the signing key
+        env:
+          KS_B64: ${{ secrets.ATOM_KEYSTORE_BASE64 }}
+        run: |
+          if [ -z "$KS_B64" ]; then
+            echo "::error::ATOM_KEYSTORE_BASE64 is not set. Run tools/android_keystore.sh once, on a machine you trust."
+            exit 1
+          fi
+          mkdir -p "$HOME/.atomkeys"
+          printf '%s' "$KS_B64" | base64 -d > "$HOME/.atomkeys/atom-release.p12"
+          test -s "$HOME/.atomkeys/atom-release.p12"
+
+      - name: Build the release APK
+        working-directory: android
+        env:
+          ATOM_KEYSTORE_PATH: ${{ github.workspace }}/../.atomkeys/atom-release.p12
+          ATOM_KEYSTORE_PASSWORD: ${{ secrets.ATOM_KEYSTORE_PASSWORD }}
+          ATOM_KEY_ALIAS: atom
+        run: |
+          # absolute path: build.gradle resolves storeFile relative to the app module otherwise
+          export ATOM_KEYSTORE_PATH="$HOME/.atomkeys/atom-release.p12"
+          gradle --no-daemon -PappVersion=${{ steps.ver.outputs.version }} assembleRelease
+
+      # A release APK that is not signed installs on nobody's phone. Checking here turns that into a
+      # failed build with a clear reason, instead of a download link that quietly does not work.
+      - name: Verify it is signed
+        run: |
+          APK=$(find android/app/build/outputs/apk/release -name '*.apk' | head -1)
+          echo "APK: $APK"
+          BT=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
+          "$BT/apksigner" verify --print-certs "$APK"
+          cp "$APK" atom-nursery.apk
+          ls -l atom-nursery.apk
+
+      # The fingerprint the APK was actually signed with, next to the one the website publishes.
+      # If these ever disagree the app still runs — it just shows an address bar, silently, and this
+      # log is the only place that would have said why.
+      - name: Compare with the fingerprint the website publishes
+        run: |
+          BT=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
+          APK_FP=$("$BT/apksigner" verify --print-certs atom-nursery.apk \
+            | grep -i 'SHA-256 digest' | head -1 | sed 's/.*: *//' \
+            | tr -d ' ' | tr 'a-f' 'A-F' | sed 's/../&:/g;s/:$//')
+          SITE_FP=$(curl -fsSL https://legeant04-dot.github.io/.well-known/assetlinks.json 2>/dev/null \
+            | tr -d ' "' | grep -oE '[0-9A-Fa-f:]{95}' | head -1 | tr 'a-f' 'A-F' || true)
+          echo "APK  : $APK_FP"
+          echo "site : ${SITE_FP:-<assetlinks.json not published>}"
+          if [ -z "$SITE_FP" ]; then
+            echo "::warning::assetlinks.json is not published — the app will work but will show an address bar."
+          elif [ "$APK_FP" != "$SITE_FP" ]; then
+            echo "::warning::Fingerprint mismatch — the app will show an address bar. Re-run tools/android_keystore.sh to republish assetlinks.json."
+          else
+            echo "Handshake matches: the app will open full screen."
+          fi
+
+      # ONE STABLE LINK, FOREVER. Parents are given
+      #   https://github.com/legeant04-dot/atom-nursery/releases/latest/download/atom-nursery.apk
+      # which always redirects to the newest asset with this name, so the QR code and the download
+      # page never have to be reprinted.
+      - name: Publish the download
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="android-v1.${{ steps.ver.outputs.version }}"
+          gh release delete "$TAG" --yes --cleanup-tag 2>/dev/null || true
+          gh release create "$TAG" atom-nursery.apk \
+            --title "Atom Nursery สำหรับ Android — v1.${{ steps.ver.outputs.version }}" \
+            --notes "${{ github.event.inputs.release_notes }}
+
+ติดตั้ง: https://legeant04-dot.github.io/atom-nursery/ → 🤖 เครื่อง Android
+ลิงก์ตรง: https://github.com/${{ github.repository }}/releases/latest/download/atom-nursery.apk"
+          echo "### 📱 APK published" >> "$GITHUB_STEP_SUMMARY"
+          echo "https://github.com/${{ github.repository }}/releases/latest/download/atom-nursery.apk" >> "$GITHUB_STEP_SUMMARY"

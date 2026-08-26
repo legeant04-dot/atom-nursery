@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+  <!-- Shown under the icon on the home screen. Kept short on purpose: Android truncates a long
+       label to about a dozen characters and "Atom Nursery" already fits. -->
+  <string name="app_name">Atom Nursery</string>
+
+  <!-- The page the app opens. It is the live site, not a copy: publishing the web app publishes to
+       Android too, and this shell only needs rebuilding when something in android/ changes. -->
+  <string name="launch_url" translatable="false">https://legeant04-dot.github.io/atom-nursery/</string>
+
+  <!-- THE APP'S HALF OF THE HANDSHAKE.
+       Chrome hides the address bar only when this points at an origin whose
+       /.well-known/assetlinks.json names this package AND the SHA-256 of the key it was signed with.
+       Escaped because it is a JSON document living inside an XML string. -->
+  <string name="asset_statements" translatable="false">
+    [{
+      \"relation\": [\"delegate_permission/common.handle_all_urls\"],
+      \"target\": {
+        \"namespace\": \"web\",
+        \"site\": \"https://legeant04-dot.github.io\"
+      }
+    }]
+  </string>
+</resources>

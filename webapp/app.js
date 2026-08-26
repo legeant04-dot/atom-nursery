@@ -112,7 +112,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.285'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.286'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -971,6 +971,14 @@
   }
   // "ติดตั้ง Android" read like it was about to install Android itself — parents could not tell what
   // this did. Say the action once, in a heading, and label the buttons with the DEVICE instead.
+  /* WHERE THE .apk LIVES.
+   *
+   * `releases/latest/download/<name>` always redirects to the newest asset with that name, so the
+   * link on this screen — and any QR code printed from it — never has to change when the app is
+   * rebuilt. Tapping it starts the download directly; no GitHub page is shown to the parent.
+   */
+  const APK_URL = 'https://github.com/legeant04-dot/atom-nursery/releases/latest/download/atom-nursery.apk';
+  const isAndroid = () => /Android/i.test(navigator.userAgent||'');
   function installButtonsHTML(){ return `<div class="card instbox">
       <b>📲 ${EN()?'Add the app to your phone':'เพิ่มแอปลงหน้าจอมือถือ'}</b>
       <small class="muted">${EN()?'Puts an "Atom Nursery" icon on your home screen so you can open it straight away, without going through LINE every time.':'จะมีไอคอน "Atom Nursery" อยู่ที่หน้าจอมือถือ กดเปิดได้ทันที ไม่ต้องเข้าผ่าน LINE ทุกครั้ง'}</small>
@@ -978,6 +986,23 @@
         <button class="btn outline" style="flex:1" onclick="DO_INSTALL('android')">🤖 ${EN()?'Android phone':'เครื่อง Android'}</button>
         <button class="btn outline" style="flex:1" onclick="DO_INSTALL('ios')">🍎 ${EN()?'iPhone / iPad':'iPhone / iPad'}</button>
       </div></div>`; }
+  /* THE ANDROID INSTALLER, OFFERED WHERE IT HELPS AND NOWHERE ELSE.
+   *
+   * Asked for 2026-08-26: parents are on every brand, model and browser imaginable, and the browser
+   * is where the trouble comes from. A real app removes the variable — one engine, one icon, no
+   * address bar, and no LINE in-app browser.
+   *
+   * It is a DOWNLOAD, so it only appears on Android. An iPhone cannot install it, and offering a
+   * button that cannot work to half the parents is worse than not offering one at all.
+   */
+  function apkCardHTML(){ if(!isAndroid()) return '';
+    return `<div class="card" style="background:var(--ok-bg,var(--blue-bg));border-color:var(--ok-line,var(--blue-line))">
+      <b>📱 ${EN()?'Install the Atom Nursery app':'ติดตั้งแอป Atom Nursery'}</b>
+      <small class="muted" style="display:block;margin:2px 0 8px">${EN()
+        ? 'A real app instead of a browser tab: opens full screen, no address bar, and location works the same on every phone.'
+        : 'เป็นแอปจริง ไม่ใช่หน้าเว็บในเบราว์เซอร์ · เปิดเต็มจอ ไม่มีแถบที่อยู่เว็บ และใช้งานเหมือนกันทุกเครื่อง'}</small>
+      <button class="btn block" onclick="APK_GET()">⬇️ ${EN()?'Download for Android':'ดาวน์โหลดสำหรับ Android'}</button>
+    </div>`; }
   let deferredInstall=null;
   window.addEventListener('beforeinstallprompt', e=>{ e.preventDefault(); deferredInstall=e; });
   window.addEventListener('appinstalled', ()=>{ deferredInstall=null; toast(EN()?'App installed ✓':'ติดตั้งแอปแล้ว ✓'); });
@@ -992,6 +1017,41 @@
   window.DO_INSTALL = async (platform)=>{
     if(platform==='android' && deferredInstall){ deferredInstall.prompt(); try{ await deferredInstall.userChoice; }catch(e){} deferredInstall=null; return; }
     _installHelp(platform==='ios'); };
+  /**
+   * ⬇️ THE .apk — WITH THE TWO WARNINGS SAID OUT LOUD FIRST.
+   *
+   * An app installed from a link, rather than from Google Play, makes Android show two frightening
+   * screens: "For your security, your phone is not allowed to install unknown apps from this
+   * source", and then Play Protect's "Unsafe app blocked / ไม่รู้จักแอปนี้". Both are normal and
+   * both are unavoidable for any app not published on Play.
+   *
+   * A parent who meets those unprepared stops, and reasonably so — it looks exactly like the thing
+   * they have been told to be careful of. So they are described BEFORE the download starts, in the
+   * words Android actually uses, with the reason. Being surprised by a security warning is what
+   * makes people distrust an app; being told to expect one does the opposite.
+   */
+  window.APK_GET = () => modal(`<div>
+    <h3 style="text-align:center">📱 ${EN()?'Install the Atom Nursery app':'ติดตั้งแอป Atom Nursery'}</h3>
+    <div class="card" style="padding:10px;background:var(--warn-bg);border-color:var(--warn-line)">
+      <b style="font-size:14px">⚠️ ${EN()?'Android will warn you twice. Both are normal.':'ระหว่างติดตั้ง Android จะเตือน 2 ครั้ง ทั้งสองครั้งเป็นเรื่องปกติ'}</b>
+      <small class="muted" style="display:block;margin-top:4px">${EN()
+        ? 'This app is given out by the school directly, not through the Play Store, so Android does not recognise who made it. It cannot check an app it has never seen.'
+        : 'แอปนี้ทางโรงเรียนแจกให้โดยตรง ไม่ได้ผ่าน Play Store · Android จึงยังไม่รู้จักผู้พัฒนา และขึ้นคำเตือนไว้ก่อนเสมอ'}</small>
+    </div>
+    <ol style="text-align:left;font-size:14px;line-height:1.75;padding-left:22px;margin:10px 0">
+      <li>${EN()?'Tap <b>Download</b> below. The file <b>atom-nursery.apk</b> is saved to Downloads.':'กด <b>ดาวน์โหลด</b> ด้านล่าง · ไฟล์ชื่อ <b>atom-nursery.apk</b> จะถูกเก็บไว้ในโฟลเดอร์ดาวน์โหลด'}</li>
+      <li>${EN()?'Open the file. If Android says <b>"not allowed to install unknown apps"</b>, tap <b>Settings</b> → turn on <b>Allow from this source</b> → press Back.':'เปิดไฟล์ · ถ้า Android แจ้งว่า <b>"ไม่ได้รับอนุญาตให้ติดตั้งแอปที่ไม่รู้จัก"</b> ให้กด <b>การตั้งค่า</b> → เปิด <b>อนุญาตจากแหล่งนี้</b> → กดย้อนกลับ'}</li>
+      <li>${EN()?'Tap <b>Install</b>. If Play Protect says <b>"Unsafe app blocked"</b>, choose <b>Install anyway</b> / <b>More details</b> → <b>Install anyway</b>.':'กด <b>ติดตั้ง</b> · ถ้า Play Protect ขึ้นว่า <b>"ไม่รู้จักแอปนี้"</b> ให้เลือก <b>ติดตั้งต่อไป</b> หรือ <b>รายละเอียดเพิ่มเติม</b> → <b>ติดตั้งต่อไป</b>'}</li>
+      <li>${EN()?'Open <b>Atom Nursery</b> from your home screen and sign in with LINE as usual.':'เปิด <b>Atom Nursery</b> จากหน้าจอโฮม แล้วเข้าสู่ระบบด้วย LINE ตามปกติ'}</li>
+    </ol>
+    <small class="muted" style="display:block;margin-bottom:8px">${EN()
+      ? 'You will not have to do this again — the app updates itself from the school’s website every time you open it.'
+      : 'ทำครั้งเดียวจบ · เนื้อหาในแอปจะอัปเดตจากเว็บของโรงเรียนเองทุกครั้งที่เปิด ไม่ต้องโหลดใหม่'}</small>
+    ${/* A plain link, not a fetch: the browser's own download manager is what parents recognise, and
+         it survives the page being closed. `download` is ignored cross-origin but is harmless. */''}
+    <a class="btn block" href="${APK_URL}" rel="noopener" download="atom-nursery.apk">⬇️ ${EN()?'Download the app':'ดาวน์โหลดแอป'}</a>
+    <button class="btn outline block" style="margin-top:8px" onclick="this.closest('.modal').remove()">${esc(t('c.close'))}</button>
+  </div>`);
   const DEMO_USERS = {
     Parent:{role:'Parent',nameTH:'กานต์ ดีงาม',nameEN:'Ms.Karn',parentId:'PAR-1',uid:'U_p1'},
     Teacher:{role:'Teacher',nameTH:'เอ มานะ',nameEN:'A Mana',staffId:'STF-T1'},
@@ -1051,6 +1111,9 @@
       <p class="muted">${esc(t('login.lineOnly'))}</p>
       <button class="role-card" onclick="LIFF_LOGIN()"><span class="ic" style="background:#06C755;color:#fff;font-weight:800">L</span><span><b>${esc(t('login.lineBtn'))}</b><br><small>${esc(t('login.lineSub'))}</small></span></button>
       <label style="display:flex;align-items:center;gap:8px;justify-content:center;margin-top:10px;font-size:13px"><input type="checkbox" id="rememberMe" checked style="width:auto"/> ${esc(t('login.remember'))}</label>
+      ${/* Android only, and ABOVE the add-to-home-screen box: for a phone that can take the real
+           app, the shortcut is the second-best answer. iPhones see neither this nor a dead button. */''}
+      ${apkCardHTML()}
       ${installButtonsHTML()}</div>`;
   }
   // In gas+LIFF mode: trigger real LINE login; otherwise fall through to demo chooser
