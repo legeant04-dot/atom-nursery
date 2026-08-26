@@ -215,6 +215,24 @@ console.log('\n7) what the parent is shown');
   ok_('...offered only on Android', /if\(!isAndroid\(\)\) return '';/.test(app));
   ok_('...on the login screen, above the add-to-home-screen box',
     app.indexOf('${apkCardHTML()}') > 0 && app.indexOf('${apkCardHTML()}') < app.indexOf('${installButtonsHTML()}', app.indexOf('${apkCardHTML()}')));
+  /* AND IT HAS TO BE THERE ON THE FIRST VISIT.
+   *
+   * loginScreen() deliberately does NOT redraw while index.html's static shell is on screen —
+   * redrawing an identical card restarted LCP. So a card that lived only in loginScreen() was
+   * invisible until something else replaced the shell: a parent reported first seeing it after
+   * signing in and out again (2026-08-26). It is in the shell now, and REMOVED for anything that is
+   * not Android, so the audience it is for gets it at first paint with no layout shift.
+   */
+  const idx = R('webapp/index.html');
+  ok_('the shell carries the card too, or a first visit never sees it', /id="apkCard"/.test(idx));
+  ok_('...above the add-to-home-screen box, same order as loginScreen',
+    idx.indexOf('id="apkCard"') < idx.indexOf('class="card instbox"'));
+  ok_('...and it opens the same walkthrough', /onclick="window\.APK_GET&&APK_GET\(\)"/.test(idx));
+  ok_('...and is taken away on anything that is not Android',
+    /if\(!isAndroid\(\)\)\{ const _c=document\.getElementById\('apkCard'\); if\(_c\) _c\.remove\(\); \}/.test(app));
+  // the two copies must say the same thing, or the shell and the render disagree on screen
+  ['ติดตั้งแอป Atom Nursery', 'ดาวน์โหลดสำหรับ Android', 'เปิดเต็มจอ ไม่มีแถบที่อยู่เว็บ']
+    .forEach(s => ok_(`"${s.slice(0, 24)}…" is in both copies`, idx.indexOf(s) >= 0 && app.indexOf(s) >= 0));
   ok_('the link is the "latest" redirect, so it never has to be reprinted',
     /releases\/latest\/download\/atom-nursery\.apk/.test(app));
   eq('...and CI publishes under exactly that name',

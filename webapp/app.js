@@ -112,7 +112,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.286'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.287'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -773,7 +773,9 @@
   };
   function setNav(active){ if(!USER){nav.hidden=true;return;} nav.hidden=false;
     // aria-current marks the open tab for screen readers; the emoji is decorative next to the label
-    nav.innerHTML = NAVS[USER.role].map(([k,ic,l])=>`<button class="${k===active?'active':''}"${k===active?' aria-current="page"':''} onclick="GO('${k}')"><span class="ic">${svgIcon(ic)}</span>${esc(t(l))}</button>`).join(''); }
+    // the label is wrapped so it can be ellipsised rather than widening the bar — a parent has seven
+    // destinations and the bar has to fit a 360px phone without scrolling sideways
+    nav.innerHTML = NAVS[USER.role].map(([k,ic,l])=>`<button class="${k===active?'active':''}"${k===active?' aria-current="page"':''} onclick="GO('${k}')"><span class="ic">${svgIcon(ic)}</span><span class="lb">${esc(t(l))}</span></button>`).join(''); }
 
   // header quick-actions slot (before the language toggle); each screen fills it or it clears on nav
   window.setTopActions = html => { const el=document.getElementById('topActions'); if(el) el.innerHTML=html||''; };
@@ -979,6 +981,10 @@
    */
   const APK_URL = 'https://github.com/legeant04-dot/atom-nursery/releases/latest/download/atom-nursery.apk';
   const isAndroid = () => /Android/i.test(navigator.userAgent||'');
+  /* index.html paints the download card for EVERYONE so that Android — the only audience that can
+   * use it — gets it at first paint with no layout shift. Anything else has it taken away here,
+   * immediately, before a parent could read it. An iPhone must never be offered an APK. */
+  if(!isAndroid()){ const _c=document.getElementById('apkCard'); if(_c) _c.remove(); }
   function installButtonsHTML(){ return `<div class="card instbox">
       <b>📲 ${EN()?'Add the app to your phone':'เพิ่มแอปลงหน้าจอมือถือ'}</b>
       <small class="muted">${EN()?'Puts an "Atom Nursery" icon on your home screen so you can open it straight away, without going through LINE every time.':'จะมีไอคอน "Atom Nursery" อยู่ที่หน้าจอมือถือ กดเปิดได้ทันที ไม่ต้องเข้าผ่าน LINE ทุกครั้ง'}</small>
@@ -5869,7 +5875,21 @@
     const out=document.getElementById('mgSearchCount');
     if(out) out.textContent = q ? (EN()?`${total} result${total===1?'':'s'}`:`พบ ${total} รายการ`) : '';
   };
-  const secHead = (icon,title,count,addBtn)=>`<div class="spread" style="cursor:pointer" onclick="A_toggleSec(this.querySelector('.sectog'))"><h3 style="margin:0">${icon} ${esc(title)} <span class="pill info">${count}</span></h3><span class="row" onclick="event.stopPropagation()">${addBtn||''}<button class="btn sm outline sectog" onclick="A_toggleSec(this)" aria-expanded="false" aria-label="${EN()?'Expand or collapse this section':'ย่อ/ขยายหมวดนี้'}"><span class="caret" aria-hidden="true">▼</span></button></span></div>`;
+  /* THE TITLE AND ITS BUTTONS ON ONE LINE ONLY WHILE THEY FIT.
+   *
+   * นักเรียน carries two full-width Thai buttons (ออกบิล (เลือก) · ออกบิลรายเดือน) plus the collapse
+   * caret. On a phone they wrapped INSIDE the flex row, which pushed "👶 นักเรียน 36" into a narrow
+   * column on the left with its count dropping onto a second line and the buttons scattered around
+   * it — reported from a real phone, 2026-08-26.
+   *
+   * The caret is now a sibling of the actions rather than sitting inside them, so a narrow screen
+   * can keep title+caret together on the first line and give the actions the whole second line.
+   * `order` keeps the wide layout looking exactly as it did (title · actions · caret).
+   *
+   * Its own stopPropagation is now required: it used to inherit one from the wrapper it was inside,
+   * and without it the container's toggle would fire too — toggling twice, i.e. doing nothing.
+   */
+  const secHead = (icon,title,count,addBtn)=>`<div class="spread sechd" style="cursor:pointer" onclick="A_toggleSec(this.querySelector('.sectog'))"><h3 style="margin:0">${icon} ${esc(title)} <span class="pill info">${count}</span></h3><button class="btn sm outline sectog" onclick="event.stopPropagation();A_toggleSec(this)" aria-expanded="false" aria-label="${EN()?'Expand or collapse this section':'ย่อ/ขยายหมวดนี้'}"><span class="caret" aria-hidden="true">▼</span></button>${addBtn?`<span class="row secacts" onclick="event.stopPropagation()">${addBtn}</span>`:''}</div>`;
   const searchBox = ()=>`<div class="card" style="padding:10px 12px">
     <input id="mgSearch" class="asearch" type="search" oninput="A_search(this)"
       aria-label="${EN()?'Search staff, parents and students':'ค้นหาพนักงาน ผู้ปกครอง และนักเรียน'}"
