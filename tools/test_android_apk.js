@@ -87,10 +87,32 @@ console.log('\n1) the project exists and is a shell, not a second copy of the ap
    * quietly — so the project must be provable BEFORE that ceremony, not after. It builds the debug
    * variant, which is never published. */
   ok_('there is a dry run that needs no key', /dry_run:/.test(wf) && /assembleDebug/.test(wf));
+  /* AND THE APP IS ACTUALLY STARTED BEFORE ANYONE IS ASKED TO INSTALL IT.
+   *
+   * v286 shipped an APK that compiled, signed, verified and matched its fingerprint — and died the
+   * moment it opened, on every phone. Every check was green because none of them ran it. The splash
+   * image path did not match where the TWA library writes it, so FileProvider threw at launch. */
+  ok_('the APK is installed and opened on an emulator', /android-emulator-runner/.test(wf));
+  ok_('...and a crash fails the build', /FATAL EXCEPTION/.test(wf));
+  ok_('...as does an activity that gets force-finished', /Force finishing activity/.test(wf));
+  ok_('...as does a process that is simply gone afterwards', /pidof th\.ac\.atomnursery\.app/.test(wf));
+  ok_('...and it runs BEFORE anything is published',
+    wf.indexOf('Smoke test') < wf.indexOf('Publish the download'));
+  ok_('...on the dry run too, which is where a shell change is caught',
+    /cp app\/build\/outputs\/apk\/debug\/\*\.apk "\$GITHUB_WORKSPACE\/atom-nursery\.apk"/.test(wf));
   ok_('...and it publishes nothing', /if: \$\{\{ !inputs\.dry_run \}\}/.test(wf));
-  const gated = wf.split('\n').filter(l => /^      - name: /.test(l)).length;
-  const guards = (wf.match(/if: \$\{\{ !inputs\.dry_run \}\}/g) || []).length;
-  eq('every release step is gated, so a dry run cannot sign or publish', guards, gated - 2); // version read + dry run itself
+  /* Named rather than counted: a count breaks the moment a step is added for an unrelated reason
+   * (adding the emulator smoke test broke exactly that), and it never said WHICH step mattered.
+   * These four are the ones that must not run without a key, and the smoke test is deliberately not
+   * among them — it has to run on a dry run too, which is where a shell change is caught. */
+  ['Restore the signing key', 'Build the release APK', 'Verify it is signed', 'Publish the download']
+    .forEach(step => {
+      const after = wf.slice(wf.indexOf('- name: ' + step));
+      const guarded = after.slice(0, after.indexOf('\n      - ', 10) + 1 || after.length);
+      ok_(`"${step}" cannot run during a dry run`, /if: \$\{\{ !inputs\.dry_run \}\}/.test(guarded));
+    });
+  ok_('...while the smoke test runs on BOTH, because that is the point of it',
+    !/- name: Smoke test[^\n]*\n\s*if: \$\{\{ !inputs\.dry_run \}\}/.test(wf));
 }
 
 console.log('\n2) it opens the live site — so the web release IS the android release');
@@ -258,6 +280,19 @@ console.log('\n8) the shell matches the web app it wraps');
     [manifest.theme_color.toUpperCase(), manifest.background_color.toUpperCase()]);
   eq('the web app is still installable as a PWA, which a TWA requires',
     [manifest.display, !!manifest.icons.find(i => i.sizes === '512x512')], ['standalone', true]);
+  /* THE SPLASH PATH IS NOT A CHOICE — it is dictated by the library, and getting it wrong is a
+   * guaranteed crash on launch. v286 shipped exactly that: the window opened, painted the logo and
+   * folded away, because FileProvider could not find a configured root for the file the library had
+   * just written. Read out of SplashImageTransferTask 2.5.0, not guessed:
+   *   getFilesDir() → FOLDER_NAME "twa_splash" → FILE_NAME "splash_image.png". */
+  {
+    const fp = R('android/app/src/main/res/xml/filepaths.xml');
+    ok_('the splash path is a files-path, not a cache-path', /<files-path/.test(fp) && !/<cache-path/.test(fp));
+    ok_('...pointing at twa_splash, where the library actually writes', /path="twa_splash\/?"/.test(fp));
+    ok_('...with the reason recorded, because the value looks arbitrary', /SplashImageTransferTask/.test(fp));
+    ok_('the manifest names a FileProvider authority for it', /FILE_PROVIDER_AUTHORITY/.test(amanifest));
+    ok_('...and declares that provider', /androidx\.core\.content\.FileProvider/.test(amanifest));
+  }
   /* NO LOCATION PERMISSION IS DECLARED, on purpose: the site asks Chrome, exactly as in the browser.
    * Declaring it would add a second prompt at install time and grant the shell nothing it can use.
    * Read off the actual <uses-permission> declarations — the comment above them in the manifest

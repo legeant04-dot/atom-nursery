@@ -56,9 +56,8 @@ jobs:
         working-directory: android
         run: |
           gradle --no-daemon -PappVersion=${{ steps.ver.outputs.version }} assembleDebug
-          ls -l app/build/outputs/apk/debug/
-          echo "### ✅ The Android project compiles" >> "$GITHUB_STEP_SUMMARY"
-          echo "Nothing was signed or published. Create the signing key (\`tools/android_keystore.sh\`), then run this workflow again with dry run off." >> "$GITHUB_STEP_SUMMARY"
+          cp app/build/outputs/apk/debug/*.apk "$GITHUB_WORKSPACE/atom-nursery.apk"
+          ls -l "$GITHUB_WORKSPACE/atom-nursery.apk"
 
       # The signing key exists ONLY as a secret. It is written to a path outside the workspace so it
       # cannot be picked up by anything that archives the build directory — this repository is
@@ -121,6 +120,61 @@ jobs:
           else
             echo "Handshake matches: the app will open full screen."
           fi
+
+      # ---------------------------------------------------------------------------------------
+      # ACTUALLY START THE APP BEFORE ANYONE IS ASKED TO INSTALL IT.
+      #
+      # v286 shipped an APK that compiled, signed, verified, matched its fingerprint — and died the
+      # instant it opened, every time, on every phone. The splash painted and the window folded away
+      # (FileProvider path did not match where the TWA library writes the splash image). Every check
+      # this workflow had was green, because none of them ran the thing.
+      #
+      # So it is run. If it cannot survive being opened, nothing is published, and the parents never
+      # see it. Chrome is absent from the emulator image, so the TWA falls back to its own browser
+      # path — that is fine: what is being tested here is that the app SURVIVES STARTING, which is
+      # exactly what was broken.
+      # ---------------------------------------------------------------------------------------
+      - name: Enable KVM for the emulator
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Smoke test — install it and open it
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 30
+          target: google_apis
+          arch: x86_64
+          disable-animations: true
+          script: |
+            set -e
+            adb install -r atom-nursery.apk
+            adb logcat -c
+            adb shell am start -n th.ac.atomnursery.app/com.google.androidbrowserhelper.trusted.LauncherActivity
+            sleep 12
+            adb logcat -d > logcat.txt
+
+            echo "----- crashes attributable to this app -----"
+            if grep -qE "FATAL EXCEPTION" logcat.txt && grep -q "th.ac.atomnursery.app" logcat.txt; then
+              echo "::error::The app crashed on launch."
+              sed -n '/FATAL EXCEPTION/,/^$/p' logcat.txt | head -60
+              exit 1
+            fi
+            # A crash can also land as "Force finishing activity" / process death without a FATAL line
+            if grep -q "Force finishing activity th.ac.atomnursery.app" logcat.txt; then
+              echo "::error::The launcher activity was force-finished — the app did not survive opening."
+              grep -B 30 "Force finishing activity th.ac.atomnursery.app" logcat.txt | tail -40
+              exit 1
+            fi
+            echo "----- is it still running? -----"
+            PID=$(adb shell pidof th.ac.atomnursery.app || true)
+            if [ -z "$PID" ]; then
+              echo "::error::The app is not running 12s after launch — it opened and closed."
+              grep -iE "atomnursery|AndroidRuntime|ActivityManager.*Died" logcat.txt | tail -40
+              exit 1
+            fi
+            echo "✅ still alive (pid $PID) — the app opened and stayed open"
 
       # ONE STABLE LINK, FOREVER. Parents are given
       #   https://github.com/legeant04-dot/atom-nursery/releases/latest/download/atom-nursery.apk
