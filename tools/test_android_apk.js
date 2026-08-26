@@ -92,10 +92,15 @@ console.log('\n1) the project exists and is a shell, not a second copy of the ap
    * v286 shipped an APK that compiled, signed, verified and matched its fingerprint — and died the
    * moment it opened, on every phone. Every check was green because none of them ran it. The splash
    * image path did not match where the TWA library writes it, so FileProvider threw at launch. */
+  const smoke = R('tools/android_smoke.sh');
   ok_('the APK is installed and opened on an emulator', /android-emulator-runner/.test(wf));
-  ok_('...and a crash fails the build', /FATAL EXCEPTION/.test(wf));
-  ok_('...as does an activity that gets force-finished', /Force finishing activity/.test(wf));
-  ok_('...as does a process that is simply gone afterwards', /pidof th\.ac\.atomnursery\.app/.test(wf));
+  ok_('...by a script FILE, because the runner splits `script:` line by line',
+    /script: bash tools\/android_smoke\.sh/.test(wf));
+  ok_('...and the app is really launched, not just installed', /adb shell am start -n "\$ACT"/.test(smoke));
+  /* Three shapes, because a launch crash does not always announce itself the same way. */
+  ok_('a crash fails the build', /FATAL EXCEPTION/.test(smoke));
+  ok_('...as does an activity that gets force-finished', /Force finishing activity/.test(smoke));
+  ok_('...as does a process that is simply gone afterwards', /adb shell pidof/.test(smoke));
   ok_('...and it runs BEFORE anything is published',
     wf.indexOf('Smoke test') < wf.indexOf('Publish the download'));
   ok_('...on the dry run too, which is where a shell change is caught',

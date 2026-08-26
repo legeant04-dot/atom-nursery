@@ -147,34 +147,10 @@ jobs:
           target: google_apis
           arch: x86_64
           disable-animations: true
-          script: |
-            set -e
-            adb install -r atom-nursery.apk
-            adb logcat -c
-            adb shell am start -n th.ac.atomnursery.app/com.google.androidbrowserhelper.trusted.LauncherActivity
-            sleep 12
-            adb logcat -d > logcat.txt
-
-            echo "----- crashes attributable to this app -----"
-            if grep -qE "FATAL EXCEPTION" logcat.txt && grep -q "th.ac.atomnursery.app" logcat.txt; then
-              echo "::error::The app crashed on launch."
-              sed -n '/FATAL EXCEPTION/,/^$/p' logcat.txt | head -60
-              exit 1
-            fi
-            # A crash can also land as "Force finishing activity" / process death without a FATAL line
-            if grep -q "Force finishing activity th.ac.atomnursery.app" logcat.txt; then
-              echo "::error::The launcher activity was force-finished — the app did not survive opening."
-              grep -B 30 "Force finishing activity th.ac.atomnursery.app" logcat.txt | tail -40
-              exit 1
-            fi
-            echo "----- is it still running? -----"
-            PID=$(adb shell pidof th.ac.atomnursery.app || true)
-            if [ -z "$PID" ]; then
-              echo "::error::The app is not running 12s after launch — it opened and closed."
-              grep -iE "atomnursery|AndroidRuntime|ActivityManager.*Died" logcat.txt | tail -40
-              exit 1
-            fi
-            echo "✅ still alive (pid $PID) — the app opened and stayed open"
+          # ONE LINE. This runner feeds `script:` to sh a line at a time, so anything containing an
+          # `if … fi` is split across invocations and dies with "Syntax error: end of file
+          # unexpected". The checks live in the script file instead.
+          script: bash tools/android_smoke.sh atom-nursery.apk
 
       # ONE STABLE LINK, FOREVER. Parents are given
       #   https://github.com/legeant04-dot/atom-nursery/releases/latest/download/atom-nursery.apk
