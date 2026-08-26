@@ -103,9 +103,14 @@ console.log('\n3) the screens stop offering a button that would fail');
   // card now points there instead of printing four rows nobody asked for.
   ok_('...and points at the history rather than printing it', /onclick="GO\('schedule'\)">📅/.test(app));
   ok_('both ask the server, rather than working it out twice', /api\('schoolDay'/.test(app));
-  // four since v236: the Admin daily report asks as well, instead of re-deriving the calendar from
-  // the holiday list — that third copy of the rule is what put every child down as ขาด on a holiday
-  eq('...once on each screen that reports on a day', (app.match(/api\('schoolDay'/g) || []).length, 4);
+  /* THREE on the client since v288: the parent's home no longer asks for it directly — it arrives as
+   * a field on `parentHome`, which calls the very same handler server-side. The property this line
+   * is about is that nobody re-derives "is the school open" from the holiday list (that third copy
+   * of the rule is what once put every child down as ขาด on a holiday), and it still holds. */
+  eq('...once on each client screen that reports on a day', (app.match(/api\('schoolDay'/g) || []).length, 3);
+  ok_('...and the parent gets it from the same handler, inside the composite',
+    /schoolDay:\s*soft\(\(\)=>H\.schoolDay\(\{\}\), null\)/.test(eng));
+  ok_('...which the screen reads rather than re-deriving', /window\._SCHOOLDAY = HOME\.schoolDay;/.test(app));
   // the teacher's copy must travel with the batch, not cost another round trip
   // v282: three more prefetches now sit between p_day and the await (they used to be round trips of
   // their own, fired after the screen was drawn) — the property is "same tick", not "same 700 chars"
@@ -118,14 +123,14 @@ console.log('\n4) the parent home screen still pairs each child with their OWN r
   // had to move with it, or every family's calendar shows another child's data
   const start = app.indexOf('SCREENS.Parent.home = async () => {');
   const home = app.slice(start, app.indexOf('setTopActions(', start));
-  const head = home.slice(home.indexOf('const _res = await Promise.all(['), home.indexOf('...kids.map('));
-  const fixed = (head.match(/api\('/g) || []).length;
-  /* v231: parentDue joined the batch. v282: the first child's studentLeaves LEFT it — the same call
-   * was in the per-child list below, so Apps Script ran that handler over the same sheet twice on
-   * every parent home load. The count lives in FIXED so it moves in one place. */
-  eq('seven fixed calls before the per-child ones', fixed, 7);
-  ok_('and the slice starts after all of them, from ONE named constant',
-    /const FIXED = 7;/.test(home) && /_res\.slice\(FIXED, FIXED\+kids\.length\)/.test(home) && /_res\.slice\(FIXED\+kids\.length\)/.test(home));
+  /* v288: there is no batch to slice any more. The per-child rows come back as their own arrays, in
+   * the children's order, so the pairing this block guards can no longer be broken by adding or
+   * removing a field — which is exactly how it used to break. */
+  ok_('each child’s rows arrive as their own list, named',
+    /const ciAll = HOME\.checkins\|\|\[\], slAll = HOME\.leaves\|\|\[\];/.test(home));
+  ok_('...and there is no offset left to get wrong', !/FIXED/.test(home));
+  ok_('the server builds them in the children’s own order',
+    /checkins:\s*ids\.map\(id => soft/.test(eng) && /leaves:\s*ids\.map\(id => soft/.test(eng));
 }
 
 console.log('\n5) a leaving date is a DATE, not a delete button');

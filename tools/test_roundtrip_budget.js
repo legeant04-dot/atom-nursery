@@ -71,20 +71,27 @@ console.log('\n3) admin home: the holiday card rides along');
   ok_('...and rendered from the promise, not re-fetched', /p_holDay\.then\(h=>\{/.test(home));
 }
 
-console.log('\n4) parent home: nothing is asked for twice');
+console.log('\n4) parent home: ONE request for the whole screen');
 {
+  /* This block used to assert the shape of a two-trip batch with a `FIXED = 7` offset, and called
+   * two round trips "the floor for this screen, not a defect". It was the floor only for a client
+   * doing the fan-out: nothing can be asked per-child until parentChildren has answered. Moving the
+   * fan-out to the server removed the floor. A parent told the school we were making too many calls
+   * (2026-08-26) and they were right — it was five, counting insuranceStatus, openSurveys and a
+   * PREFETCH that re-asked for what the screen was already fetching.
+   * The equivalence of the composite is checked in tools/test_parent_one_request.js. */
   const home = between('SCREENS.Parent.home = async () => {', 'function parentDueCard(due)');
-  const batch = home.slice(home.indexOf('const _res = await Promise.all(['), home.indexOf(']);'));
-  // the per-child tail covers kids[0], who IS k0 — the fixed copy was a duplicate handler run
-  eq('studentLeaves appears once, in the per-child list', (batch.match(/api\('studentLeaves'/g) || []).length, 1);
-  ok_('...and the first child is read out of that list', /const sl = slAll\[0\]\|\|\[\];/.test(home));
-  const fixed = (batch.slice(0, batch.indexOf('...kids.map(')).match(/api\('/g) || []).length;
-  eq('the fixed block is what FIXED says it is', fixed, 7);
-  ok_('...and FIXED says so in one place', /const FIXED = 7;/.test(home));
-  /* parentChildren is awaited ALONE before all of this, and has to be: the list of children decides
-   * what the rest of the batch asks for. Two round trips is the floor for this screen, not a defect. */
-  ok_('the one unavoidable extra trip is the child list, and it is first',
-    home.indexOf("await api('parentChildren'") < home.indexOf('const _res = await Promise.all(['));
+  eq('one api() call on the busiest screen in the app', (home.match(/api\('/g) || []).length, 1);
+  ok_('...and it is the composite', /await api\('parentHome', parentScope\(\)\)/.test(home));
+  ok_('the per-child lists are read by NAME now, not at an offset',
+    /const ciAll = HOME\.checkins\|\|\[\], slAll = HOME\.leaves\|\|\[\];/.test(home));
+  ok_('...so the FIXED-offset slicing that mixed up children is gone', !/FIXED/.test(home));
+  ok_('the first child is still read out of the per-child list', /const sl = slAll\[0\]\|\|\[\];/.test(home));
+  /* AND THE PREFETCH STOPPED COMPETING WITH IT. Warming parentChildren/announcements/calendar 500ms
+   * after the screen asked for them was a second queued execution for work already in flight. */
+  const pf = between('window.PREFETCH = () => {', 'function confirmSaved');
+  const parentJobs = /USER\.role==='Parent'\s*\?\s*\[([\s\S]*?)\]\s*\n/.exec(pf)[1];
+  eq('a parent warms only the bell', (parentJobs.match(/\['([a-zA-Z]+)'/g) || []).map(x => x.slice(2, -1)), ['notifications']);
 }
 
 console.log('\n5) payroll: four sequential waits became one');

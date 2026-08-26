@@ -100,12 +100,17 @@ console.log('\n=== 2. what the family owes, on the home screen ===');
 ok_('the card is only drawn when something IS owed', /if\(!due \|\| !\(Number\(due\.total\)>0\)\) return '';/.test(app));
 ok_('…and it goes to the payment screen when tapped', /function parentDueCard\(due\)/.test(app) && /onclick="GO\('payment'\)"/.test(app));
 ok_('it sits directly under the drop-off / pick-up cards', /\$\{kidsHtml\}\n\s*<div id="pDue"><\/div>/.test(app));
-ok_('it rides in the batch that was already going', /api\('parentDue',parentScope\(\)\)\.catch/.test(app));
-// v282: the duplicated studentLeaves for the first child was removed from the batch (it was
-// already there in the per-child list), so the fixed block is 7 — the count still lives in ONE
-// place, which is the property this check is actually about
-ok_('the batch offsets moved with it — in ONE place', /const FIXED = 7;/.test(app) &&
-  /_res\.slice\(FIXED, FIXED\+kids\.length\)/.test(app) && /_res\.slice\(FIXED\+kids\.length\)/.test(app));
+/* v288: the whole screen is ONE request now (see tools/test_parent_one_request.js), so "it rides in
+ * the batch that was already going" has become "it is a field on the one reply". The property this
+ * check was always about — telling a family what they owe must not cost an extra round trip — is
+ * unchanged and is now true by construction. */
+ok_('the amount owed costs no request of its own', /due:\s*soft\(\(\)=>H\.parentDue\(p\), null\)/.test(eng));
+ok_('...and the screen reads it off that reply', /const plans = HOME\.plans\|\|\[\], due = HOME\.due;/.test(app));
+/* The per-child lists are read BY NAME now. They used to be sliced out of one flat array at a
+ * `FIXED` offset, and every time an entry was added or removed the slices shifted and handed a
+ * child another child's calendar — which is the failure this line was guarding against. */
+ok_('the per-child lists cannot be shifted by adding a field',
+  /const ciAll = HOME\.checkins\|\|\[\], slAll = HOME\.leaves\|\|\[\];/.test(app) && !/const FIXED = 7;/.test(app));
 
 console.log('\n=== 3. one approvals card for the head teacher ===');
 ok_('there is one builder for all of it', /function leaderApprovalsHTML\(q\)/.test(app));

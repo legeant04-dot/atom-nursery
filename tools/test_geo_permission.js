@@ -137,7 +137,15 @@ console.log('\n5) the pick-up itself branches on it');
   ok_('and a real out-of-range still opens the location check', /if\(\(\(e&&e\.code\)\|\|''\)==='OUT_OF_RANGE'\) setTimeout\(\(\)=>GEO_check\(\), 900\);/.test(punch));
   // drop-off is NOT fenced and must stay that way — a parent who forgot can tap it from the car
   ok_('drop-off still tolerates having no location at all',
-    /else \{ try\{ \(\{lat,lng,acc\}=await getPosition\(\)\); \}catch\(e\)\{ lat=null; lng=null; acc=0; \} \}/.test(punch));
+    /else \{ try\{ \(\{lat,lng,acc\}=await getPosition\(GEO_QUICK\)\); \}catch\(e\)\{ lat=null; lng=null; acc=0; \} \}/.test(punch));
+  /* v288: and it no longer WAITS for one. Nothing checks a drop-off's position, but it was asked for
+   * with enableHighAccuracy and a 10s timeout — up to ten seconds of spinner, indoors, on the tap
+   * parents make most often. Pick-up is fenced and is deliberately untouched. */
+  ok_('...and does not wait ten seconds for a fix nobody reads',
+    /const GEO_QUICK = \{enableHighAccuracy:false, timeout:3000, maximumAge:120000\};/.test(app));
+  ok_('pick-up still demands the best fix the phone can give',
+    /if\(type==='OUT'\)\{ \(\{lat,lng,acc\}=await getPosition\(\)\); \}/.test(punch) &&
+    /Object\.assign\(\{enableHighAccuracy:true,timeout:10000,maximumAge:0\}, opts\|\|\{\}\)/.test(app));
 }
 
 console.log('\n6) 📍 ตรวจสอบตำแหน่ง says which problem it found');

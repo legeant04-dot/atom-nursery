@@ -93,6 +93,37 @@ const fresh = { fresh: true };   // every section is live data; the cache is not
     eq('9 together, then 3 together', shape(c), [9, 3]);
   }
 
+  console.log('\n3b) the PARENT: login to a drawn home screen in two requests');
+  {
+    /* Reported 2026-08-26 by a parent who writes software: too many calls for what they were shown.
+     * It was five for the home screen alone, because each batch needed the answer to the one before
+     * — nothing can be asked per-child until parentChildren has said which children. The fan-out
+     * moved to the server (`parentHome`), and what is left all leaves in the SAME TICK:
+     *     setHeader()          -> refreshBell        -> notifications
+     *     SCREENS.Parent.home  -> showAnnPopups      -> activeAnnouncements
+     *                          -> parentHome
+     * LOGIN_REAL runs setHeader() and GO() with nothing between them, and an async function runs
+     * synchronously up to its first await — so all three share one request. */
+    const c = boot();
+    await c.api('auth', { accessToken: 'x' }, fresh);            // request 1: who is this
+    const bell = c.api('notifications', {}, fresh);              // setHeader()
+    const anns = c.api('activeAnnouncements', {}, fresh);        // showAnnPopups(), before its await
+    const home = c.api('parentHome', {}, fresh);                 // the screen itself
+    await Promise.all([bell, anns, home]);
+    eq('auth, then ONE request carrying the whole screen', shape(c), [1, 3]);
+  }
+  {
+    // …and what it replaced, on the same harness, so the difference is measured rather than claimed
+    const c = boot();
+    await c.api('auth', { accessToken: 'x' }, fresh);
+    await c.api('parentChildren', {}, fresh);                    // everything else needs this first
+    await Promise.all(['getJournal', 'announcements', 'calendar', 'familyProfile', 'getPlans',
+      'schoolDay', 'parentDue', 'studentCheckinHistory', 'studentLeaves'].map(a => c.api(a, {}, fresh)));
+    await c.api('insuranceStatus', {}, fresh);                   // needed the child ids
+    await c.api('openSurveys', {}, fresh);                       // issued after that await
+    eq('the shape it replaced really was five requests', shape(c).length, 5);
+  }
+
   console.log('\n4) one broken section must not blank the rest of the screen');
   {
     // this is what the sequential version really cost: the FIRST failure aborted everything after it,
