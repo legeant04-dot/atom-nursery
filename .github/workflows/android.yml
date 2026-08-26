@@ -130,14 +130,25 @@ jobs:
         if: ${{ !inputs.dry_run }}
         env:
           GH_TOKEN: ${{ github.token }}
+          # Through the ENVIRONMENT, not spliced into the script with ${{ }}. This value is typed by
+          # whoever starts the run, and a ${{ }} substitution is textual — a quote or a backtick in
+          # the box would end up being executed as shell. It is also why the notes are built with
+          # printf rather than a multi-line string: raw newlines at column 1 inside a `run: |` block
+          # leave the block, which GitHub rejects while a plain YAML linter accepts it.
+          NOTES_IN: ${{ inputs.release_notes }}
+          VER: ${{ steps.ver.outputs.version }}
+          REPO: ${{ github.repository }}
         run: |
-          TAG="android-v1.${{ steps.ver.outputs.version }}"
+          TAG="android-v1.$VER"
+          APK_LINK="https://github.com/$REPO/releases/latest/download/atom-nursery.apk"
+          printf '%s\n\n%s\n%s\n' "$NOTES_IN" \
+            "ติดตั้ง: https://legeant04-dot.github.io/atom-nursery/ → 🤖 เครื่อง Android" \
+            "ลิงก์ตรง: $APK_LINK" > release-notes.md
           gh release delete "$TAG" --yes --cleanup-tag 2>/dev/null || true
           gh release create "$TAG" atom-nursery.apk \
-            --title "Atom Nursery สำหรับ Android — v1.${{ steps.ver.outputs.version }}" \
-            --notes "${{ github.event.inputs.release_notes }}
-
-ติดตั้ง: https://legeant04-dot.github.io/atom-nursery/ → 🤖 เครื่อง Android
-ลิงก์ตรง: https://github.com/${{ github.repository }}/releases/latest/download/atom-nursery.apk"
-          echo "### 📱 APK published" >> "$GITHUB_STEP_SUMMARY"
-          echo "https://github.com/${{ github.repository }}/releases/latest/download/atom-nursery.apk" >> "$GITHUB_STEP_SUMMARY"
+            --title "Atom Nursery สำหรับ Android — v1.$VER" \
+            --notes-file release-notes.md
+          {
+            echo "### 📱 APK published"
+            echo "$APK_LINK"
+          } >> "$GITHUB_STEP_SUMMARY"
