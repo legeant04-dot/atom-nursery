@@ -166,9 +166,13 @@ console.log('\n7) The same works on an advance payment — the อาโป case
   const ch = H.addStudentCharge({ studentId: 'STD-1', month: THIS_MONTH, label: 'ค่าธรรมเนียมแรกเข้า', amount: 2000 });
   H.recordCashPayment({ staffId: 'STF-A', kind: 'charge', refId: ch.ChargeID, amount: 2000, note: 'รับเงินสดหน้าเคาน์เตอร์' });
 
-  H.generateMonthlyBills({ month: THIS_MONTH });
-  const bill = H.payments({ studentId: 'STD-1' })[0];
-  eq('tuition covered by the advance payment', bill.TotalDue, 0);
+  /* v285: a month bought in advance is NOT re-billed at all — it used to get a bill that credited
+   * itself back to zero, which was harmless arithmetic and a duplicate demand for money the family
+   * had already handed over. So there is no bill row, and the test asks the question that still
+   * matters: does this family owe anything? */
+  const gen = H.generateMonthlyBills({ month: THIS_MONTH });
+  eq('the advance payment is reported, not re-billed', gen.prepaid.map(x => x.studentId), ['STD-1']);
+  eq('...and no bill was created for it', H.payments({ studentId: 'STD-1' }).length, 0);
   eq('the fee is settled too', H.studentCharges({ studentId: 'STD-1', month: THIS_MONTH })[0].Outstanding, 0);
 
   const fin = H.financeSummary({ month: THIS_MONTH }).students.find(s => s.studentId === 'STD-1');

@@ -152,17 +152,33 @@ console.log('\n7) Admin one-off rate, and re-pricing an unpaid advance payment')
     () => H.editPrepay({ staffId: 'STF-A', prepayId: pp.PrepayID, months: 12 }), /ALREADY_PAID/);
 }
 
-console.log('\n8) A prepaid month bills 0 and says so');
+console.log('\n8) A prepaid month is not billed again — and the money still counts as the school’s');
 {
+  /* v285, asked 2026-08-26: "นักเรียนที่ชำระล่วงหน้าจะต้องไม่ออกบิลซ้ำ".
+   *
+   * It used to issue the bill and credit it back to zero. The arithmetic was right and the family
+   * still received a demand for a month they had paid for months earlier, which is the kind of thing
+   * that costs a school its credibility even when nobody is overcharged.
+   *
+   * THE TRAP UNDERNEATH, and the reason the finance check is in this block: financeSummary read the
+   * prepaid credit OFF THE BILL. Take the bill away and every covered month would have silently
+   * dropped out of "รายได้รวม" — a change about not sending a duplicate would have made the
+   * school's own takings appear to shrink by a month's tuition per prepaid child.
+   */
   const { M, H } = fresh([kid({})]);
   const pp = H.prepay({ studentId: 'STD-1', months: 6, startMonth: '2026-09' });
   pp.Status = 'PAID';
-  H.generateMonthlyBills({ month: '2026-09' });
-  const bill = H.payments({ studentId: 'STD-1' })[0];
-  eq('nothing left to pay', bill.TotalDue, 0);
-  eq('the full tuition is still shown', bill.GrossDue, 5900);
-  eq('credited as a visible line', bill.PrepaidTuition, 5900);
-  eq('marked paid', bill.Status, 'PAID');
+  const gen = H.generateMonthlyBills({ month: '2026-09' });
+  eq('no bill was created', H.payments({ studentId: 'STD-1' }).length, 0);
+  eq('...and it is reported by name, not merely skipped', gen.prepaid.map(x => x.studentId), ['STD-1']);
+  eq('...with where in the prepayment this month falls', [gen.prepaid[0].index, gen.prepaid[0].months], [1, 6]);
+  const fin = H.financeSummary({ month: '2026-09' }).students.find(s => s.studentId === 'STD-1');
+  eq('the tuition still counts as collected', fin.tuitionIn, 5900);
+  eq('...and nothing reads as outstanding', [fin.tuitionOpen, fin.due], [0, 0]);
+  eq('...and the family reads as paid, in advance', [fin.paid, fin.prepaid], [true, true]);
+
+  console.log('   …and issuing one BY HAND is refused, with the reason');
+  throws('the admin is told why', () => H.issueBill({ studentId: 'STD-1', month: '2026-09' }), /PREPAID_MONTH/);
 
   console.log('   …but food/activity charges that month are still billed');
   H.addStudentCharge({ studentId: 'STD-1', month: '2026-09', label: 'ค่าอาหาร', amount: 800 });
@@ -244,13 +260,21 @@ console.log('\n11) The months an advance payment covers — the น้องข�
   const pp = H.prepay({ studentId: 'STD-1', months: 6, startMonth: '2026-08' });
   eq('covers Aug 2026 → Jan 2027', pp.Covered, ['2026-08', '2026-09', '2026-10', '2026-11', '2026-12', '2027-01']);
   pp.Status = 'PAID';
-  H.generateMonthlyBills({ month: '2026-08' });
-  H.generateMonthlyBills({ month: '2027-01' });
-  H.generateMonthlyBills({ month: '2027-02' });
+  // v285: a covered month issues NO bill; the first month outside the cover bills as it always did.
+  // The boundary is the thing worth pinning — one month either side of it, both ways.
+  const aug = H.generateMonthlyBills({ month: '2026-08' });
+  const jan = H.generateMonthlyBills({ month: '2027-01' });
+  const feb = H.generateMonthlyBills({ month: '2027-02' });
+  eq('August is covered, so nothing is issued', [aug.created, aug.prepaid.length], [0, 1]);
+  eq('January is the last covered month', [jan.created, jan.prepaid.length], [0, 1]);
+  eq('February is billed normally again', [feb.created, feb.prepaid.length], [1, 0]);
   const bills = H.payments({ studentId: 'STD-1' });
-  eq('August is covered', bills.find(b => b.Month === '2026-08').TotalDue, 0);
-  eq('January is the last covered month', bills.find(b => b.Month === '2027-01').TotalDue, 0);
-  eq('February is billed normally again', bills.find(b => b.Month === '2027-02').TotalDue, 5900);
+  eq('...and February is the only bill on the record', bills.map(b => b.Month), ['2027-02']);
+  eq('for the full amount', bills[0].TotalDue, 5900);
+  // the covered months are still money the school HAS — see block 8 for why this is checked here
+  eq('Aug and Jan both count as tuition collected',
+    ['2026-08', '2027-01'].map(m => H.financeSummary({ month: m }).students
+      .find(s => s.studentId === 'STD-1').tuitionIn), [5900, 5900]);
 }
 
 console.log('\n12) Admin fixes a cover that was entered a month early');

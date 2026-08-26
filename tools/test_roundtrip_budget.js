@@ -126,7 +126,16 @@ console.log('\n7) the bell stops costing a round trip per navigation');
   ok_('...for a minute, which is fresh enough for a badge', /_bellAt < 60000/.test(app));
   ok_('marking read refreshes it immediately, because that is what changes it', /refreshBell\(true\)/.test(app));
   ok_('opening the tray reuses its own read rather than fetching the list twice',
-    /_bellN=ns\.filter\(x=>!x\.read\)\.length; _bellAt=Date\.now\(\);[\s\S]{0,200}bellBadge/.test(app));
+    (app.match(/api\('notifications',notifParams\(\)\)/g) || []).length === 2 &&   // refreshBell + BELL, once each
+    /const ns=await api\('notifications',notifParams\(\)\); window\._NOTIFS=ns;[\s\S]{0,320}bellBadge/.test(app));
+  /* v285: the admin's "waiting for you" counts ride in the SAME TICK as the notifications call, so
+   * the bell still costs ONE round trip — and refreshBell runs from setHeader() on every render, so
+   * a second request here would have been ~5s in front of every screen an admin opens. */
+  ok_('the pending counts share the notifications request rather than making their own',
+    (app.match(/const p_ops = opsWanted_\(\) \? api\('opsPending'[\s\S]{0,120}const ns=await api\('notifications'/g) || []).length === 2);
+  ok_('...and only for an admin, who is the only person they mean anything to',
+    /const opsWanted_ = \(\) => !!\(USER && USER\.role==='Admin' && USER\.staffId\);/.test(app));
+  ok_('...and a fresh sign-in does not inherit them either', /_bellAt=0; _bellN=0; _bellOps=null;/.test(app));
   ok_('a fresh sign-in does not inherit the last person’s count', /window\.__atomBellReset/.test(app));
   ok_('it is still called from the header, so the badge still appears', /if\(USER\) refreshBell\(\);/.test(app));
 }

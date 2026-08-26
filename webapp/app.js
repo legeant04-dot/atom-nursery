@@ -112,7 +112,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.284'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.285'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -577,16 +577,59 @@
    * the count is cached for a minute and reused, and anything that CHANGES it (opening the tray,
    * marking read) refreshes it immediately by passing force.
    */
-  let _bellAt=0, _bellN=0;
+  let _bellAt=0, _bellN=0, _bellOps=null;
+  /* WHAT IS WAITING FOR THE ADMIN BELONGS IN THE BELL TOO (asked 2026-08-26).
+   *
+   * A time request is not a "notification" — nothing new happened, something is simply still
+   * undone — but the bell is where this school looks to find out whether anything needs them, and a
+   * red circle on a screen they were not on is no use.
+   *
+   * It rides in the SAME TICK as the notifications call, so it is the same round trip. This runs
+   * from setHeader() on every render, and paying an extra ~5s for a badge is the trade the perf
+   * work spent a week undoing. */
+  const opsWanted_ = () => !!(USER && USER.role==='Admin' && USER.staffId);
+  const OPS_LABEL = { staffOT:['OT คุณครูรออนุมัติ','Teacher OT awaiting approval'],
+    holidayOT:['OT วันหยุดรออนุมัติ','Holiday OT awaiting approval'],
+    timeRequests:['คำขอลงเวลารออนุมัติ','Time requests awaiting approval'],
+    classChanges:['คำขอย้าย/จัดชั้นเรียน','Class-change requests'],
+    studentOT:['OT รับช้า รอตรวจสลิป','Late-pickup OT slips to verify'],
+    leaves:['ใบลารออนุมัติ','Leave requests awaiting approval'] };
+  // where each one is dealt with — the tab matters, or the tap lands on the wrong half of the screen
+  const OPS_GO = { staffOT:['staff','A_staffOT'], holidayOT:['staff','A_holidayOT'],
+    timeRequests:['staff','A_timeRequests'], classChanges:['staff','A_classChanges'],
+    leaves:['staff',''], studentOT:['student','A_studentOT'] };
   async function refreshBell(force){
     const b=$('#bellBadge');
     if(!force && Date.now()-_bellAt < 60000){ if(b){ b.hidden=!_bellN; b.textContent=_bellN; } return; }
-    try{ const ns=await api('notifications',notifParams());
-      _bellN=ns.filter(x=>!x.read).length; _bellAt=Date.now();
+    try{ const p_ops = opsWanted_() ? api('opsPending',{staffId:USER.staffId}).catch(()=>null) : null;
+      const ns=await api('notifications',notifParams());
+      _bellOps = p_ops ? await p_ops : null;
+      _bellN=ns.filter(x=>!x.read).length + ((_bellOps&&_bellOps.total)||0); _bellAt=Date.now();
       const el=$('#bellBadge'); if(el){ el.hidden=!_bellN; el.textContent=_bellN; }
     }catch(e){} }
   // a fresh sign-in is a different person's bell — never show them the last one's count
-  window.__atomBellReset = () => { _bellAt=0; _bellN=0; };
+  window.__atomBellReset = () => { _bellAt=0; _bellN=0; _bellOps=null; };
+  /* THE PENDING SECTION AT THE TOP OF THE TRAY.
+   *
+   * Deliberately NOT synthesised as notification rows: a notification can be marked read, and
+   * "รอดำเนินการ" cannot — it stops being true when the work is done, not when somebody dismisses
+   * it. Keeping it a separate section is what stops "mark all read" from hiding two unanswered time
+   * requests. */
+  function opsTrayHTML(){
+    const o=_bellOps; if(!o || !o.total) return '';
+    return `<div class="nm-item" style="display:block;background:var(--warn-bg)"><b style="font-size:13px">⏳ ${EN()?'Waiting for you':'รอคุณดำเนินการ'} (${o.total})</b></div>`
+      + Object.keys(OPS_LABEL).filter(k=>Number(o[k])>0).map(k=>
+        `<div class="nm-item unread" role="menuitem" tabindex="0" onclick="OPS_TAP('${k}')">
+          <span>🔵 ${esc(EN()?OPS_LABEL[k][1]:OPS_LABEL[k][0])}</span>
+          <small class="muted"><b style="color:var(--bad)">${o[k]}</b> ›</small></div>`).join('');
+  }
+  window.OPS_TAP = (k) => { const g=OPS_GO[k]; NOTIF_CLOSE();
+    const m=document.querySelector('.modal'); if(m)m.remove();
+    if(!g) { GO('leaves'); return; }
+    LV_MAIN=g[0]; CAL_OFF=0; GO('leaves');
+    // the tool itself opens once its screen is on — the screen is what the badge lives on, so it is
+    // rendered either way and the tap is never a dead end
+    if(g[1]) setTimeout(()=>{ try{ window[g[1]] && window[g[1]](); }catch(e){} }, 500); };
   // Notifications drop down FROM the bell (like Google's app grid) instead of taking over the screen
   // with a modal. Same behaviour otherwise: tap an item to go to it, and one button to mark all read.
   window.NOTIF_CLOSE = () => { const d=document.getElementById('notifMenu'); if(d) d.remove();
@@ -599,16 +642,19 @@
     if(document.getElementById('notifMenu')){ NOTIF_CLOSE(); return; }                 // tapping again closes
     // opening the tray IS a fresh read — reuse it for the badge rather than fetching the same
     // list twice, and let it reset the cache clock
+    const p_ops = opsWanted_() ? api('opsPending',{staffId:USER.staffId}).catch(()=>null) : null;
     const ns=await api('notifications',notifParams()); window._NOTIFS=ns;
-    try{ _bellN=ns.filter(x=>!x.read).length; _bellAt=Date.now();
+    if(p_ops) _bellOps = await p_ops;
+    try{ _bellN=ns.filter(x=>!x.read).length + ((_bellOps&&_bellOps.total)||0); _bellAt=Date.now();
       const _b=$('#bellBadge'); if(_b){ _b.hidden=!_bellN; _b.textContent=_bellN; } }catch(e){}
     const d=document.createElement('div'); d.id='notifMenu'; d.setAttribute('role','menu');
     d.innerHTML=`<div class="nm-head"><b>🔔 ${esc(t('c.notifications'))}</b><button class="btn-ghost" onclick="NOTIF_CLOSE()" aria-label="${EN()?'Close':'ปิด'}">✕</button></div>
-      <div class="nm-list">${ns.map((n,i)=>{ const go=notifTarget(n);
+      <div class="nm-list">${opsTrayHTML()}${ns.map((n,i)=>{ const go=notifTarget(n);
         return `<div class="nm-item${n.read?'':' unread'}" ${go?`role="menuitem" tabindex="0" onclick="NOTIF_TAP(${i})"`:''}>
           <span>${n.read?'':'🔵 '}${esc(EN()&&n.textEN?n.textEN:n.text)}</span>
           <small class="muted">${esc(n.time)}${go?' ›':''}</small></div>`; }).join('')
-        ||`<div class="nm-item"><span class="muted">${EN()?'Nothing new':'ไม่มีรายการใหม่'}</span></div>`}</div>
+        // "ไม่มีรายการใหม่" under two unanswered time requests would be a flat contradiction
+        ||(opsTrayHTML()?'':`<div class="nm-item"><span class="muted">${EN()?'Nothing new':'ไม่มีรายการใหม่'}</span></div>`)}</div>
       <button class="btn sm outline block" style="margin:8px" onclick="MARKREAD(this)">${esc(t('c.markread'))}</button>`;
     document.body.appendChild(d);
     // sit under the bell, clamped inside the viewport on a narrow phone
@@ -1586,6 +1632,12 @@
     app.innerHTML = `<div class="spread"><h2 class="page">${esc(t('p.greeting'))}${esc(greetName)} 👋</h2><div class="row">${profileBtn}${addBtn}</div></div>
       ${kidsHtml}
       <div id="pDue"></div>
+      ${/* Near the pick-up button, and only while the permission is missing. This is the screen the
+           family opens every morning, so it is the one place the ask can be made calmly — the
+           alternative is what happened on 2026-08-25, which is discovering it at the gate.
+           It goes UNDER the outstanding card, which was deliberately put directly beneath the kid
+           cards; a nudge that is empty for most families must not push the money down the screen. */''}
+      ${GEO_gate()}
       ${/* "⏳ รอคุณครูส่งข้อมูลของวันที่ 25-08-2026" for a child whose first day is in October: there
            is no teacher waiting to send anything, and telling a family to wait for something that is
            not coming is worse than telling them nothing. Same answer as the card above — the DATE.
@@ -1608,6 +1660,7 @@
       <div id="calBox">${calendarWidget(cal, ci, planEndOf(k0), sl)}</div>
       ${socialFooter()}`;
     setHTML('#pDue', parentDueCard(due));
+    GEO_gateFill();   // client-side only: no api() call, so the busiest screen pays nothing for it
     // insurance status per child (parent fills once; shows "กรอกแล้ว" if done)
     try{ const sts=await Promise.all(kids.map(k=>api('insuranceStatus',{studentId:k.StudentID})));
       // an open survey is offered, never forced: a dismissible card, and answering is one tap
@@ -1788,6 +1841,9 @@
       <div class="card" style="background:var(--blue-bg);border-color:var(--blue-line)"><div class="spread"><small class="muted" style="font-size:13px">${EN()?'Drop-off / pick-up buttons are on the Home page (on each child’s card).':'ปุ่มส่งเข้าเรียน / รับกลับ อยู่ที่หน้าหลัก (บนการ์ดของบุตรหลานแต่ละคน)'}</small><button class="btn sm" onclick="GO('home')">🏠 ${EN()?'Home':'ไปหน้าหลัก'}</button></div></div>
       <!-- Pick-up is fenced (drop-off is not), so a parent at the gate whose phone reports a
            neighbourhood instead of a place is stuck — with even less idea why than a teacher. -->
+      ${/* Offered BEFORE it is needed. The check below answers "why did it fail"; this one stops it
+           failing — while the browser is still willing to ask, one tap settles it for good. */''}
+      ${GEO_gate()}
       <div class="card"><div class="spread"><span><b>📍 ${EN()?'Pick-up not working at the gate?':'อยู่หน้าโรงเรียนแล้วกดรับกลับไม่ได้?'}</b>
         <br><small class="muted">${EN()?'Check what your phone thinks its location is.':'ตรวจสอบว่าโทรศัพท์คิดว่าคุณอยู่ตรงไหน'}</small></span>
         <button class="btn sm outline" style="flex:0 0 auto" onclick="GEO_check(this)">${EN()?'Check':'ตรวจสอบ'}</button></div></div>
@@ -1801,6 +1857,7 @@
         <div class="spread" style="margin:8px 0 4px"><small class="muted">${EN()?'Showing one month at a time':'แสดงทีละเดือน'}</small>
           <select id="ciMonth" onchange="P_ciFilter()" style="width:auto"><option value="">${EN()?'Loading…':'กำลังโหลด…'}</option></select></div>
         <div id="ciHist"><div class="card muted">${EN()?'Loading…':'กำลังโหลด…'}</div></div></details>`;
+    GEO_gateFill();
     let hist=[]; try{ hist=await api('studentCheckinHistory',{studentId:sid})||[]; }catch(e){ err(e); return; }
     window._CI_HIST=hist;
     const sel=document.getElementById('ciMonth'); if(sel) sel.innerHTML=monthOptions(hist);
@@ -1818,12 +1875,113 @@
   // `acc` is the phone's OWN margin of error in metres, and the server needs it: a ±60 m fix at the
   // school gate is not evidence that anyone is outside a 30 m fence. Sending it is what lets the
   // server ask "could they be inside?" instead of trusting the dot.
+  /* WHY THE PHONE SAID NO. All three refusals used to collapse into one sentence — "กรุณาอนุญาต
+   * การเข้าถึงตำแหน่ง แล้วลองใหม่" — and for the one that matters most that advice is simply wrong.
+   *
+   * A parent at the gate on 2026-08-25 could not pick their child up because THE SITE WAS BLOCKED in
+   * their browser. Once a browser has recorded "block" for an origin it never asks again: no dialog
+   * appears, getCurrentPosition fails instantly, and "please allow it" describes a button that is
+   * not there. The only way back is the browser's own site settings, and that is a different set of
+   * instructions from the ±2,000 m "approximate location" problem the teachers had.
+   *
+   *   DENIED      the site is blocked — un-block it (nothing the app can do; see GEO_HELP)
+   *   TIMEOUT     allowed, but no fix in 10 s — indoors, usually works on the second try
+   *   UNAVAILABLE allowed, but the phone's location service is off altogether
+   */
+  const GEO_MSG = why => why==='DENIED'
+      ? (EN()?'This browser is blocking location for this site.':'เบราว์เซอร์บล็อกการเข้าถึงตำแหน่งของเว็บนี้อยู่')
+    : why==='TIMEOUT'
+      ? (EN()?'The phone took too long to find a location.':'เครื่องหาตำแหน่งไม่ทันภายในเวลาที่กำหนด')
+    : why==='UNSUPPORTED'
+      ? (EN()?'This device does not support GPS':'อุปกรณ์นี้ไม่รองรับ GPS')
+      : (EN()?'The phone’s location service is not available right now.':'บริการตำแหน่งของเครื่องยังใช้งานไม่ได้ในขณะนี้');
+  const geoErr_ = why => { const e=new Error(GEO_MSG(why)); e.geo=why; return e; };
   function getPosition(){ return new Promise((resolve,reject)=>{
-    if(!navigator.geolocation){ reject(new Error(EN()?'This device does not support GPS':'อุปกรณ์นี้ไม่รองรับ GPS')); return; }
+    if(!navigator.geolocation){ reject(geoErr_('UNSUPPORTED')); return; }
     navigator.geolocation.getCurrentPosition(
       pos=>resolve({lat:pos.coords.latitude,lng:pos.coords.longitude,acc:Math.round(pos.coords.accuracy)||0}),
-      e=>reject(new Error(EN()?'Cannot get your location — please allow location access and try again':'ระบุตำแหน่งไม่ได้ — กรุณาอนุญาตการเข้าถึงตำแหน่ง แล้วลองใหม่')),
+      e=>reject(geoErr_(e&&e.code===1?'DENIED':e&&e.code===3?'TIMEOUT':'UNAVAILABLE')),
       {enableHighAccuracy:true,timeout:10000,maximumAge:0}); }); }
+  /**
+   * Whether this browser will ASK, has already said yes, or has already said no — WITHOUT punching
+   * anything and without making the phone hunt for a satellite.
+   *
+   * This is the difference between advice that works and advice that does not. While the state is
+   * `prompt` one tap produces the browser's own dialog and the problem never happens; once it is
+   * `denied` no dialog will ever appear again and the only fix is in the browser's settings.
+   *
+   * iOS Safari has no Permissions API for geolocation, so it answers `unknown` — which is treated as
+   * "worth offering", because on iOS the ask is cheap and asking is the whole point.
+   */
+  const GEO_STATE = async () => { try{
+    if(!navigator.permissions || !navigator.permissions.query) return 'unknown';
+    const s = await navigator.permissions.query({name:'geolocation'});
+    return String((s&&s.state)||'unknown');
+  }catch(e){ return 'unknown'; } };
+  // LINE / Facebook open links in their OWN browser, which keeps its own permission list and on some
+  // versions refuses location outright. It is a common enough cause to name it rather than let
+  // somebody work through five Android settings that were never the problem.
+  const IN_APP_BROWSER = () => /\bLine\/|FBAN|FBAV|Instagram/i.test(navigator.userAgent||'');
+  /**
+   * 📍 THE ONE TAP THAT PUTS US ON THE ALLOWED LIST — asked for 2026-08-26.
+   *
+   * There is no API that adds an origin to a browser's allowed list; the browser only ever grants
+   * permission in response to a real request made from a real user gesture. So that is what this is:
+   * a button that makes the request ONCE, at a calm moment, instead of leaving it to happen for the
+   * first time at the gate with a child waiting.
+   *
+   * Granting it is permanent for the origin, which is exactly the "allowed list" that was missing.
+   */
+  window.GEO_ASK = async (btn) => {
+    const st = await GEO_STATE();
+    if(st==='denied'){ GEO_blocked(); return; }
+    if(btn){ btn.disabled=true; btn.textContent='📍 '+(EN()?'Asking…':'กำลังขออนุญาต…'); }
+    let ok=false, why='';
+    try{ await getPosition(); ok=true; }catch(e){ why=(e&&e.geo)||''; }
+    if(btn){ btn.disabled=false; btn.textContent='📍 '+(EN()?'Allow location':'เปิดสิทธิ์ตำแหน่ง'); }
+    if(ok){ toast('✅ '+(EN()?'Location allowed — pick-up will work now':'เปิดสิทธิ์ตำแหน่งแล้ว — กดรับกลับได้เลย'));
+      GEO_gateFill(); return; }
+    if(why==='DENIED'){ GEO_blocked(); return; }
+    // allowed, but the phone could not produce a fix — that is the OTHER problem, and GEO_check
+    // is the screen that tells them which
+    GEO_check();
+  };
+  /** The site is blocked. Nothing here can undo that — these are the taps that can.
+   *  On `window` because the nudge calls it from an inline onclick, which runs in global scope: as a
+   *  module-scope const it was a ReferenceError, i.e. the one button a blocked parent can press did
+   *  nothing at all. Caught in the browser, not by a test — every other call site is module-scope. */
+  window.GEO_blocked = () => modal(`<h3>📍 ${EN()?'Location is blocked for this site':'เว็บนี้ถูกบล็อกการเข้าถึงตำแหน่ง'}</h3>
+    <div class="card" style="background:var(--bad-bg);border-color:var(--bad-line)"><small>${EN()
+      ? 'Your browser has already recorded “block” for this site, so it will not ask again. The app cannot undo that — it has to be turned back on in the browser, and it only takes a moment.'
+      : 'เบราว์เซอร์จำไว้แล้วว่า “ไม่อนุญาต” เว็บนี้ จึงจะไม่ถามอีก · แอปแก้ให้เองไม่ได้ ต้องเปิดคืนที่เบราว์เซอร์ ซึ่งใช้เวลาไม่กี่วินาที'}</small></div>
+    ${GEO_HELP('DENIED')}
+    <button class="btn block" style="margin-top:8px" onclick="this.closest('.modal').remove();GEO_ASK()">🔄 ${EN()?'I have allowed it — try again':'เปิดให้แล้ว — ลองใหม่'}</button>
+    <button class="btn outline block" style="margin-top:6px" onclick="this.closest('.modal').remove()">${esc(t('c.close'))}</button>`);
+  /**
+   * The nudge itself: a card that appears only while the permission is still missing, and removes
+   * itself the moment it is granted. Rendered as an empty slot so it can never delay a screen — it
+   * makes no api() call at all, which is why it can sit on the busiest screens in the app.
+   */
+  const GEO_gate = () => `<div id="geoGate"></div>`;
+  window.GEO_gateFill = async () => {
+    const el=$('#geoGate'); if(!el) return;
+    const st=await GEO_STATE();
+    if(st==='granted'){ el.innerHTML=''; return; }
+    const blocked = st==='denied';
+    el.innerHTML = `<div class="card" style="background:${blocked?'var(--bad-bg);border-color:var(--bad-line)':'var(--warn-bg);border-color:var(--warn-line)'}">
+      <div class="spread"><span><b style="font-size:14px">📍 ${blocked
+          ? (EN()?'Location is blocked — pick-up will fail':'ตำแหน่งถูกบล็อก — จะกดรับกลับไม่ได้')
+          : (EN()?'Allow location once, now':'เปิดสิทธิ์ตำแหน่งไว้ก่อน')}</b>
+        <br><small class="muted">${blocked
+          ? (EN()?'Turn it back on in the browser — it takes a moment.':'เปิดคืนที่เบราว์เซอร์ · ใช้เวลาไม่กี่วินาที')
+          : (EN()?'So it is not asked for the first time at the gate.':'จะได้ไม่ต้องมาตั้งค่าตอนยืนอยู่หน้าโรงเรียน')}</small></span>
+        <button class="btn sm${blocked?'':' outline'}" style="flex:0 0 auto" onclick="${blocked?'GEO_blocked()':'GEO_ASK(this)'}">${blocked
+          ? (EN()?'How':'วิธีแก้')
+          : '📍 '+(EN()?'Allow':'เปิดสิทธิ์')}</button></div>
+      ${IN_APP_BROWSER()?`<small class="muted" style="display:block;margin-top:6px">${EN()
+        ? '⚠️ You are in an in-app browser (LINE/Facebook). Tap ⋯ → “Open in browser” first — location is more reliable there.'
+        : '⚠️ ตอนนี้เปิดอยู่ในเบราว์เซอร์ของแอปอื่น (LINE/Facebook) · แนะนำกด ⋯ แล้วเลือก “เปิดในเบราว์เซอร์” ก่อน จะอ่านตำแหน่งได้แม่นกว่า'}</small>`:''}</div>`;
+  };
   /**
    * 📍 ตรวจสอบตำแหน่ง — "why can't I clock in? I am standing in the school."
    *
@@ -1842,10 +2000,17 @@
     let pos=null, e0=null;
     try{ pos=await getPosition(); }catch(e){ e0=e; }
     if(btn){ btn.disabled=false; btn.textContent='📍 '+(EN()?'Check my location':'ตรวจสอบตำแหน่ง'); }
-    if(!pos){ modal(`<h3>📍 ${EN()?'Check my location':'ตรวจสอบตำแหน่ง'}</h3>
-      <div class="card" style="background:var(--bad-bg);border-color:var(--bad-line)"><b style="color:var(--bad)">${EN()?'The phone would not give a location at all.':'เครื่องไม่ยอมให้ตำแหน่งเลย'}</b>
-        <br><small>${esc((e0&&e0.message)||'')}</small></div>${GEO_HELP()}
-      <button class="btn outline block" onclick="this.closest('.modal').remove()">${esc(t('c.close'))}</button>`); return; }
+    /* WHICH refusal it was decides what to say. A blocked site is not a GPS problem, and telling a
+     * parent to turn on Wi-Fi scanning when the page was never allowed to ask is how somebody ends
+     * up standing at the gate working through settings that were never involved. */
+    if(!pos){ const why=(e0&&e0.geo)||'';
+      modal(`<h3>📍 ${EN()?'Check my location':'ตรวจสอบตำแหน่ง'}</h3>
+      <div class="card" style="background:var(--bad-bg);border-color:var(--bad-line)"><b style="color:var(--bad)">${why==='DENIED'
+          ? (EN()?'This browser is blocking location for this site.':'เบราว์เซอร์บล็อกการเข้าถึงตำแหน่งของเว็บนี้อยู่')
+          : (EN()?'The phone would not give a location at all.':'เครื่องไม่ยอมให้ตำแหน่งเลย')}</b>
+        <br><small>${esc((e0&&e0.message)||'')}</small></div>${GEO_HELP(why)}
+      ${why==='DENIED'?`<button class="btn block" style="margin-top:8px" onclick="this.closest('.modal').remove();GEO_ASK()">🔄 ${EN()?'I have allowed it — try again':'เปิดให้แล้ว — ลองใหม่'}</button>`:''}
+      <button class="btn outline block" style="margin-top:6px" onclick="this.closest('.modal').remove()">${esc(t('c.close'))}</button>`); return; }
     let r=null; try{ r=await api('geoCheck',{lat:pos.lat,lng:pos.lng,acc:pos.acc}); }catch(e){ err(e); return; }
     const verdict = r.ok
       ? `<div class="card" style="background:var(--ok-bg,var(--blue-bg));border-color:var(--ok-line,var(--blue-line))"><b style="color:var(--ok)">✅ ${EN()?'You are inside the school — clocking in will work.':'อยู่ในบริเวณโรงเรียน — ลงเวลาได้'}</b></div>`
@@ -1865,9 +2030,27 @@
       ${r.ok?'':GEO_HELP()}
       <button class="btn outline block" style="margin-top:8px" onclick="this.closest('.modal').remove()">${esc(t('c.close'))}</button>`);
   };
-  /* The settings, in the order they actually fix this. "Precise location" is first because it is the
-   * one that produces a several-hundred-metre error while everything else looks fine. */
-  const GEO_HELP=()=>`<div class="card" style="padding:10px">
+  /* The settings, in the order they actually fix this.
+   *
+   * TWO DIFFERENT PROBLEMS WEAR THE SAME ERROR. When the browser is BLOCKING the site, every step
+   * below is a waste of the parent's time — the page never even gets to ask, so precise location,
+   * Wi-Fi scanning and battery saver make no difference at all. Un-blocking the site goes first and
+   * on its own; the accuracy list stays for when permission was granted and the fix was still vague.
+   */
+  const GEO_UNBLOCK=()=>`<div class="card" style="padding:10px">
+    <b style="font-size:14px">🔓 ${EN()?'Turn this site back on':'เปิดสิทธิ์ให้เว็บนี้อีกครั้ง'}</b>
+    <ol style="margin:6px 0 0 18px;padding:0;font-size:13px;line-height:1.7">
+      <li>${EN()?'<b>Android / Chrome</b> — tap the <b>🔒 (or ⓘ)</b> icon next to the address at the top → <b>Permissions</b> → <b>Location</b> → <b>Allow</b>, then reload this page.':'<b>Android / Chrome</b> — แตะไอคอน <b>🔒 (หรือ ⓘ)</b> หน้าช่องที่อยู่เว็บด้านบน → <b>สิทธิ์</b> → <b>ตำแหน่ง</b> → เลือก <b>อนุญาต</b> แล้วโหลดหน้านี้ใหม่'}</li>
+      <li>${EN()?'<b>iPhone / Safari</b> — tap <b>ᴀA</b> at the left of the address bar → <b>Website Settings</b> → <b>Location</b> → <b>Allow</b>. Also check Settings → Privacy → Location Services → Safari is not “Never”.':'<b>iPhone / Safari</b> — แตะ <b>ᴀA</b> ด้านซ้ายของช่องที่อยู่เว็บ → <b>การตั้งค่าเว็บไซต์</b> → <b>ตำแหน่ง</b> → <b>อนุญาต</b> · และดูที่ ตั้งค่า → ความเป็นส่วนตัว → บริการหาตำแหน่ง → Safari ว่าไม่ได้ตั้งเป็น “ไม่เลย”'}</li>
+      <li>${EN()?'Then tap <b>Allow location</b> again — the browser will ask, and once you say yes it will not ask again.':'จากนั้นกด <b>เปิดสิทธิ์ตำแหน่ง</b> อีกครั้ง · เบราว์เซอร์จะถาม พอกดอนุญาตแล้วจะไม่ถามอีก'}</li>
+    </ol>
+    ${IN_APP_BROWSER()?`<small class="muted" style="display:block;margin-top:6px">${EN()
+      ? '⚠️ You opened this from inside LINE/Facebook. Their browser keeps its own permission list — tap ⋯ → “Open in browser” (Chrome/Safari) and allow it there instead.'
+      : '⚠️ ตอนนี้เปิดจากในแอป LINE/Facebook · เบราว์เซอร์ของแอปเหล่านี้เก็บสิทธิ์แยกของตัวเอง แนะนำกด ⋯ → “เปิดในเบราว์เซอร์” (Chrome/Safari) แล้วอนุญาตที่นั่นแทน'}</small>`:''}
+    <small class="muted" style="display:block;margin-top:6px">${EN()
+      ? 'Tip: add this app to your Home screen — an installed app keeps its own permission and only has to be allowed once.'
+      : 'เคล็ดลับ: เพิ่มแอปนี้ไว้ที่หน้าจอโฮม · แอปที่ติดตั้งแล้วจะเก็บสิทธิ์ของตัวเอง อนุญาตครั้งเดียวจบ'}</small></div>`;
+  const GEO_HELP=(why)=>(why==='DENIED'?GEO_UNBLOCK():'')+`<div class="card" style="padding:10px">
     <b style="font-size:14px">🛠️ ${EN()?'What to change on the phone':'ต้องตั้งค่าอะไรที่เครื่อง'}</b>
     <ol style="margin:6px 0 0 18px;padding:0;font-size:13px;line-height:1.7">
       <li>${EN()?'<b>Precise location</b> — Settings → Apps → (this browser / LINE) → Permissions → Location → <b>Allow</b> and turn <b>Use precise location</b> ON. Approximate location is deliberately vague by about a kilometre.':'<b>ตำแหน่งที่แม่นยำ</b> — ตั้งค่า → แอป → (เบราว์เซอร์ที่ใช้ / LINE) → สิทธิ์ → ตำแหน่ง → <b>อนุญาต</b> และเปิด <b>ใช้ตำแหน่งที่แม่นยำ</b> · โหมดคร่าวๆ จะคลาดเคลื่อนราว 1 กม. โดยตั้งใจ'}</li>
@@ -1894,6 +2077,10 @@
         btn.textContent=(type==='IN'?'🟢 '+(EN()?'Dropped off ':'ส่งแล้ว '):'🔴 '+(EN()?'Picked up ':'รับแล้ว '))+r.time; }
       if(r.ot){ P_otQR(r.ot); } // late pickup → OT charge: pop the KTB QR
     }catch(e){ err(e); done();
+      /* A BLOCKED SITE NEVER REACHES THE SERVER, so it is not OUT_OF_RANGE and the location check
+       * below would only repeat the refusal. It is its own failure with its own fix (2026-08-25:
+       * a parent at the gate, blocked, told to "allow location" by a dialog that never appeared). */
+      if(((e&&e.geo)||'')==='DENIED'){ setTimeout(()=>GEO_blocked(), 600); return; }
       /* Pick-up is fenced (drop-off is not), so a parent at the gate with a phone reporting a
        * neighbourhood instead of a place is stuck in exactly the way a teacher was on 2026-08-24 —
        * and has even less idea why. Same check, same settings, opened for them too. */
@@ -2724,6 +2911,9 @@
           <button class="btn sm outline" style="flex:1" onclick="GO('schedule')">📅 ${EN()?'Work history & leave history':'เวลาทำงานย้อนหลัง · ประวัติการลา'} →</button>
           <!-- "I am standing in the school and it says I am 620 m away" — ask before it matters -->
           <button class="btn sm outline" style="flex:0 0 auto" onclick="GEO_check(this)">📍 ${EN()?'Check my location':'ตรวจสอบตำแหน่ง'}</button></div></div>
+      ${/* Both punches are fenced for staff, so a blocked site costs a teacher the whole day rather
+           than one pick-up. Same offer, same one tap, before it matters. */''}
+      ${GEO_gate()}
       ${isLeader?`<div id="tapprove"><div class="card muted">${EN()?'Loading approvals…':'กำลังโหลดรายการรออนุมัติ…'}</div></div>`:''}
       <div id="tcatt"></div>
       <!-- The remaining-days grid used to sit here. It is a reference figure, not a morning job, and
@@ -2765,6 +2955,7 @@
      * notification that scrolls away. Then the day arrives and the only place it was written down is
      * a payslip. This is the standing reminder, on the screen somebody actually opens on a Friday —
      * and on the day itself it says so in the present tense, next to the clock-in button. */
+    GEO_gateFill();
     p_holNext.then(n=>{
       if(!n||!n.count){ setHTML('#tholnext',''); return; }
       const today=(n.rows||[]).filter(r=>r.date===n.today);
@@ -4570,10 +4761,29 @@
   // to. They sit here now, split the same way the tabs are: teacher tools on the teacher tab,
   // the student one on the student tab.
   // some labels already carry their own icon (t('ot.adminOT') is "⏰ OT คุณครู") — don't print it twice
+  /* THE TOOLS, WITH WHAT IS WAITING INSIDE THEM.
+   *
+   * Asked 2026-08-26: two time requests sat unanswered because the only way to learn they existed
+   * was to open the tool. The count is a 4th item on the row, and it is rendered as a corner badge
+   * rather than as "(2)" in the label so it reads the same way as the bell — a red circle means
+   * somebody is waiting for you.
+   *
+   * ZERO PRINTS NOTHING. A badge that is always there stops being a signal, and a grey "0" in the
+   * corner of every button is just noise on a screen that already has plenty.
+   */
   const opTools = items => `<div class="card" style="padding:8px"><div class="grid2" style="gap:8px">${
-    items.map(([ic,label,fn])=>{ const L=String(label); const dup=L.slice(0,3).indexOf(ic)>=0;
-      return `<button class="btn sm outline" style="text-align:left" onclick="${fn}">${dup?'':ic+' '}${esc(L)}</button>`;
+    items.map(([ic,label,fn,n])=>{ const L=String(label); const dup=L.slice(0,3).indexOf(ic)>=0;
+      const id=(fn.match(/[A-Za-z_]+/)||[''])[0];
+      return `<button class="btn sm outline opbtn" style="text-align:left" onclick="${fn}">${dup?'':ic+' '}${esc(L)}<span class="opbadge" id="ob_${esc(id)}"${(n>0)?'':' hidden'}>${n>0?(n>99?'99+':n):''}</span></button>`;
     }).join('')}</div></div>`;
+  /** Fill the corner badges once the counts land — the tools render immediately, the numbers follow. */
+  window.OPS_badges = (o) => { if(!o) return;
+    Object.keys(o).forEach(k=>{ const el=document.getElementById('ob_'+OPS_BTN[k]); if(!el) return;
+      const n=Number(o[k])||0; el.hidden=!n; el.textContent=n>99?'99+':String(n); }); };
+  // which button each count belongs to — one place, so the handler's keys and the screen's buttons
+  // cannot drift apart silently
+  const OPS_BTN = { staffOT:'A_staffOT', holidayOT:'A_holidayOT', timeRequests:'A_timeRequests',
+    classChanges:'A_classChanges', studentOT:'A_studentOT' };
 
   /* ---- one month of working time, per teacher --------------------------------------------------
    * The school could see who was on leave and who was in today, but not how a teacher's MONTH went
@@ -4638,8 +4848,8 @@
         <div class="spread"><b>🎯 ${EN()?'Days the school expects people in':'วันที่ต้องมาทำงาน'}</b>
           <b style="font-size:18px">${d.requiredDays||0} ${EN()?'day(s)':'วัน'}</b></div>
         <small class="muted">${EN()
-          ? `Weekdays, minus school holidays, plus meeting days. ${d.requiredToDate||0} of them have already passed.`
-          : `จันทร์-ศุกร์ หักวันหยุดของโรงเรียน และนับวันประชุมเป็นวันทำงาน · ผ่านไปแล้ว ${d.requiredToDate||0} วัน · วันลาไม่ได้ลดเป้านี้ แต่แสดงแยกไว้`}</small></div>
+          ? `Weekdays, minus WHOLE-day school holidays, plus meeting days. A half-day holiday is still a working day. ${d.requiredToDate||0} of them have already passed.`
+          : `จันทร์-ศุกร์ หักวันหยุดของโรงเรียน (เฉพาะที่หยุดเต็มวัน — วันหยุดครึ่งวันยังนับเป็นวันทำงาน) และนับวันประชุมเป็นวันทำงาน · ผ่านไปแล้ว ${d.requiredToDate||0} วัน · วันลาไม่ได้ลดเป้านี้ แต่แสดงแยกไว้`}</small></div>
       <div class="kpigrid" style="margin-bottom:8px">
         ${smStat(tot.p, EN()?'days present':'วันมาทำงาน','green')}
         ${smStat(tot.l, EN()?'late days':'วันมาสาย','amber')}
@@ -4670,7 +4880,7 @@
       filename:'เวลาทำงานครู_'+String((d.from||d.month||'')),
       stats:[{n:list.length,label:'คุณครู'},{n:d.requiredDays||0,label:'วันที่ต้องมา'},{n:tot.p,label:'วันมาทำงาน'},{n:tot.l,label:'วันมาสาย'},
              {n:tot.v,label:'วันลา'},{n:tot.ab,label:'วันขาด'}],
-      note:'วันที่ต้องมาทำงาน = จันทร์-ศุกร์ หักวันหยุดของโรงเรียน และนับวันประชุมเป็นวันทำงาน · วันลาไม่ได้ลดเป้านี้ · เสาร์-อาทิตย์ วันหยุด วันก่อนเริ่มงาน และวันนี้ ไม่นับเป็นวันขาด',
+      note:'วันที่ต้องมาทำงาน = จันทร์-ศุกร์ หักวันหยุดเต็มวันของโรงเรียน (วันหยุดครึ่งวันยังนับเป็นวันทำงาน) และนับวันประชุมเป็นวันทำงาน · วันลาไม่ได้ลดเป้านี้ · เสาร์-อาทิตย์ วันหยุดเต็มวัน วันก่อนเริ่มงาน และวันนี้ ไม่นับเป็นวันขาด',
       columns:[{key:'name',label:'ชื่อ',width:3,bold:true},{key:'present',label:'มาทำงาน',width:1.2,align:'right'},
         {key:'late',label:'สาย (วัน/นาที)',width:1.6,align:'right'},{key:'leave',label:'ลา',width:1,align:'right'},
         {key:'absent',label:'ขาด',width:1,align:'right'},{key:'ot',label:'OT (ชม.)',width:1.2,align:'right'}],
@@ -4698,8 +4908,13 @@
         <div class="muted" style="font-size:13px;margin:2px 0 6px">${EN()?'present':'มาเรียน'} ${c.present} · ${EN()?'absent':'ขาด'} ${c.absent} · ${EN()?'sick':'ลาป่วย'} ${c.sick} · ${EN()?'personal':'ลากิจ'} ${c.personal}
           ${c.watch?` · <span style="color:var(--bad);font-weight:600">${EN()?'to follow up':'ต้องติดตาม'} ${c.watch}</span>`:''}</div>
         ${sortPeopleD(c.students).map(s=>`<div class="list-item" style="align-items:flex-start${s.paused?';opacity:.7':''}">
-          <span style="flex:1"><b>${esc(dnick(s))}</b>${s.paused?` <span class="pill info" style="font-size:11px">${EN()?'on leave':'ลาชั่วคราว'}</span>`:''}
-            <br><small class="muted">${EN()?'present':'มา'} ${s.present} · ${EN()?'absent':'ขาด'} ${s.absent} · ${EN()?'sick':'ป่วย'} ${s.sick} · ${EN()?'personal':'กิจ'} ${s.personal}</small>
+          <span style="flex:1"><b>${esc(dnick(s))}</b>${s.paused?` <span class="pill info" style="font-size:11px">${EN()?'on leave':'ลาชั่วคราว'}</span>`:''}${s.notStarted?` <span class="pill info" style="font-size:11px">${EN()?'starts':'เริ่ม'} ${esc(ddmmyyyy(s.startDate))}</span>`:''}
+            <br><small class="muted">${EN()?'present':'มา'} ${s.present} · ${EN()?'absent':'ขาด'} ${s.absent} · ${EN()?'sick':'ป่วย'} ${s.sick} · ${EN()?'personal':'กิจ'} ${s.personal}${
+              /* A SHORT MONTH MUST READ AS A LATE START, NOT AS A GOOD RECORD. Once the days before
+                 a child's first day stopped counting as absences, "มา 2 · ขาด 0" and "มา 18 · ขาด 0"
+                 look identical — so the row says how many days this child was actually due in. */
+              (s.schoolDays!=null && s.schoolDays<(d.schoolDays||0))
+                ? ` <span style="color:var(--blue)">(${EN()?'due in':'ต้องมา'} ${s.schoolDays}/${d.schoolDays} ${EN()?'days':'วัน'}${s.startDate?` · ${EN()?'from':'ตั้งแต่'} ${esc(ddmmyyyy(s.startDate))}`:''})</span>` : ''}</small>
             <br><small class="muted">⚖️ ${s.weight?esc(s.weight)+' kg':'—'} · 📏 ${s.height?esc(s.height)+' cm':'—'}${s.measuredAt?` <span style="color:var(--ink-3)">(${esc(s.measuredAt)})</span>`:` <span style="color:var(--warn)">${EN()?'never measured':'ยังไม่เคยชั่ง/วัด'}</span>`}</small>
             <br><small class="muted">📈 DSPM ${s.dspmTotal?`${s.dspmDone}/${s.dspmTotal}${s.dspmDone?` · ${EN()?'passed':'ผ่าน'} ${s.dspmPass}`:''}`:(EN()?'no criteria for this age':'ยังไม่มีเกณฑ์ตามอายุ')}</small></span>
           <span style="text-align:right">${s.maxConsecutive>=3
@@ -4713,7 +4928,7 @@
         <div class="kpi"><b style="color:var(--ok)">${T.present||0}</b><small>${EN()?'days present':'วันมาเรียน'}</small></div>
         <div class="kpi"><b style="color:var(--warn)">${(T.sick||0)+(T.personal||0)}</b><small>${EN()?'leave days':'วันลา'}</small></div>
         <div class="kpi"><b style="color:${T.watch?'var(--bad)':'var(--ink)'}">${T.watch||0}</b><small>${EN()?'to follow up':'ต้องติดตาม'}</small></div></div>
-      <p class="muted" style="font-size:13px">${EN()?`${d.schoolDays} school days this month. "To follow up" = absent 3 days or more in a row. Weekends, holidays and days a child was on temporary leave are not absences.`:`เดือนนี้มีวันเรียน ${d.schoolDays} วัน · "ต้องติดตาม" = ขาดติดต่อกัน 3 วันขึ้นไป · เสาร์-อาทิตย์ วันหยุด และวันที่ลาชั่วคราว ไม่นับเป็นขาด`}</p>
+      <p class="muted" style="font-size:13px">${EN()?`${d.schoolDays} school days this month. "To follow up" = absent 3 days or more in a row. Weekends, holidays, days before a child's first day, and days on temporary leave are not absences.`:`เดือนนี้มีวันเรียน ${d.schoolDays} วัน · "ต้องติดตาม" = ขาดติดต่อกัน 3 วันขึ้นไป · เสาร์-อาทิตย์ วันหยุด วันก่อนถึงวันเริ่มเรียน และวันที่ลาชั่วคราว ไม่นับเป็นขาด`}</p>
       <div style="max-height:50vh;overflow:auto">${cls||`<div class="card muted">${esc(t('c.noItems'))}</div>`}</div>
       <div class="row" style="gap:8px;margin-top:8px">
         <button class="btn sm outline" style="flex:1" onclick="A_studentReportExport('pdf')">📄 PDF</button>
@@ -4727,7 +4942,7 @@
       filename:'สรุปนักเรียน_'+String(d.month||''),
       stats:[{n:T.students||0,label:'นักเรียน'},{n:T.present||0,label:'วันมาเรียน'},{n:T.absent||0,label:'วันขาด'},
              {n:T.sick||0,label:'ลาป่วย'},{n:T.personal||0,label:'ลากิจ'},{n:T.watch||0,label:'ต้องติดตาม'}],
-      note:'"ต้องติดตาม" = ขาดติดต่อกัน 3 วันขึ้นไป · เสาร์-อาทิตย์ วันหยุด และวันที่ลาชั่วคราว ไม่นับเป็นขาด',
+      note:'"ต้องติดตาม" = ขาดติดต่อกัน 3 วันขึ้นไป · เสาร์-อาทิตย์ วันหยุด วันก่อนถึงวันเริ่มเรียน และวันที่ลาชั่วคราว ไม่นับเป็นขาด',
       columns:[{key:'name',label:'ชื่อ',width:2.6,bold:true},{key:'present',label:'มา',width:0.8,align:'right'},
         {key:'absent',label:'ขาด',width:0.8,align:'right'},{key:'sick',label:'ป่วย',width:0.8,align:'right'},
         {key:'personal',label:'กิจ',width:0.8,align:'right'},{key:'run',label:'ขาดต่อเนื่อง',width:1.2,align:'right'},
@@ -4792,6 +5007,10 @@
       <button class="btn outline block" style="margin-top:8px" onclick="this.closest('.modal').remove()">${esc(t('c.close'))}</button>`);
   };
   SCREENS.Admin.leaves = async () => {
+    /* Started HERE, before the first await, so it rides in the same batch as the holidays call and
+     * costs no round trip at all. A separate fetch for a badge would be another ~5s queued in front
+     * of the screen — the exact trade the perf work spent a week undoing. */
+    const p_ops = api('opsPending',{staffId:USER.staffId}).catch(()=>null);
     // school holidays + meeting days → light-red / teal cells on the approval calendars
     try{ window._LV_HOL=await api('holidays'); }catch(e){ window._LV_HOL=window._LV_HOL||[]; }
     try{ const bc=await api('bigCleaningDays'); window._LV_BC=(bc&&bc.days)||bc||[]; }catch(e){ window._LV_BC=window._LV_BC||[]; }
@@ -4817,6 +5036,7 @@
         <div class="card"><div id="calWrap">${studentLeaveCalRender()}</div></div>
         <div id="bdayCard">${birthdayCard(window._SALERTS)}</div>
         <div id="dspmDueCard">${dspmDueCard(window._SALERTS)}</div>`;
+      p_ops.then(OPS_badges);
       return;
     }
     const [all,staff]=await Promise.all([window._LV_ALL?Promise.resolve(window._LV_ALL):api('allLeaves'),(A_CACHE.staff&&A_CACHE.staff.length)?Promise.resolve(A_CACHE.staff):api('listStaff')]);
@@ -4838,6 +5058,7 @@
         </div>
         <div class="lvcol">${leaveCalendar(all)}</div>
       </div>`;
+    p_ops.then(OPS_badges);
   };
   window.A_lvMain=(m)=>{ LV_MAIN=m; CAL_OFF=0; SCREENS.Admin.leaves(); };
   window.A_lvTab=(tab)=>{ LV_TAB=tab; SCREENS.Admin.leaves(); };
@@ -6347,22 +6568,75 @@
   };
   // Admin: issue this month's bill for SEVERAL selected students at once + notify their parents.
   // The parent then sees each child's bill and can pay them combined (one slip) or per item.
-  window.A_issueCombined=async()=>{ const students=(A_CACHE.students&&A_CACHE.students.length)?A_CACHE.students:await api('listStudents');
-    A_CACHE.students=students;
-    const rows=students.map(s=>`<label class="field" style="display:flex;align-items:center;gap:8px;margin:2px 0"><input type="checkbox" class="icStu" value="${s.StudentID}" style="width:auto"/> <b>${esc(dispNick(s))}</b> <small class="muted">${esc(nm(s))} · ${esc(s.Class||'')}</small></label>`).join('');
+  /* A CHILD WHOSE YEAR IS ALREADY PAID FOR MUST NOT BE TICKABLE.
+   *
+   * Asked 2026-08-26. The server now refuses (PREPAID_MONTH), but a checkbox that can be ticked and
+   * then quietly ignored teaches the admin nothing — the row has to say WHY, and it has to say where
+   * in the prepayment this month falls, because "ชำระล่วงหน้าแล้ว" and "เดือนที่ 1/6 · เหลืออีก 5"
+   * are different pieces of news.
+   *
+   * It is keyed to the MONTH IN THE PICKER, so changing the month re-asks: the same child is prepaid
+   * in September and payable in March, and a list that did not follow the picker would be a
+   * confident lie half the time.
+   */
+  window.A_issueCombined=async()=>{ const month=monthStr();
+    const [students,pre]=await Promise.all([
+      (A_CACHE.students&&A_CACHE.students.length)?Promise.resolve(A_CACHE.students):api('listStudents'),
+      api('prepaidStudents',{month}).catch(()=>({byStudent:{}}))]);
+    A_CACHE.students=students; window._IC_STU=students;
     modal(`<h3>🧾 ${EN()?'Issue combined bills':'ออกบิลรวม (เลือกนักเรียน)'}</h3>
       <p class="muted" style="font-size:13px">${EN()?'Pick 2+ students; this issues each one\'s monthly tuition bill and notifies the parents. Parents can pay them combined (one slip) or separately.':'เลือกนักเรียนตั้งแต่ 2 คนขึ้นไป · ระบบจะออกบิลค่าเทอมรายเดือนของแต่ละคนและแจ้งผู้ปกครอง · ผู้ปกครองเลือกจ่ายรวมสลิปเดียวหรือแยกได้'}</p>
-      <label class="field"><span>${esc(t('c.month'))}</span><input id="icMonth" type="month" value="${monthStr()}"/></label>
+      <label class="field"><span>${esc(t('c.month'))}</span><input id="icMonth" type="month" value="${month}" onchange="A_icMonth(this.value)"/></label>
       <label style="display:flex;align-items:center;gap:8px;font-size:13px;margin:4px 0"><input type="checkbox" id="icNotify" checked style="width:auto"/> ${EN()?'Notify parents':'แจ้งเตือนผู้ปกครอง'}</label>
-      <div style="max-height:40vh;overflow:auto;border:1px solid var(--line);border-radius:8px;padding:6px;margin:6px 0"><label style="display:flex;align-items:center;gap:8px;font-size:13px;border-bottom:1px solid var(--line);padding-bottom:4px"><input type="checkbox" id="icAll" onchange="document.querySelectorAll('.icStu').forEach(c=>c.checked=this.checked)" style="width:auto"/> <b>${EN()?'Select all':'เลือกทั้งหมด'}</b></label>${rows}</div>
+      <div style="max-height:40vh;overflow:auto;border:1px solid var(--line);border-radius:8px;padding:6px;margin:6px 0"><label style="display:flex;align-items:center;gap:8px;font-size:13px;border-bottom:1px solid var(--line);padding-bottom:4px"><input type="checkbox" id="icAll" onchange="document.querySelectorAll('.icStu:not([disabled])').forEach(c=>c.checked=this.checked)" style="width:auto"/> <b>${EN()?'Select all':'เลือกทั้งหมด'}</b></label>
+        <div id="icRows">${icRows(students, (pre&&pre.byStudent)||{})}</div></div>
       <button class="btn block" onclick="A_issueCombinedDo(this)">🧾 ${EN()?'Issue bills':'ออกบิล'}</button>
       <button class="btn outline block" style="margin-top:8px" onclick="this.closest('.modal').remove()">${esc(t('c.close'))}</button>`); };
+  // "เลือกทั้งหมด" must not tick a child it cannot bill, which is why the disabled ones are excluded
+  // above rather than just styled — a ticked-then-skipped row is exactly the confusion this removes.
+  function icRows(students, by){
+    return students.map(s=>{ const pi=by[s.StudentID];
+      return `<label class="field" style="display:flex;align-items:center;gap:8px;margin:2px 0${pi?';opacity:.6':''}"><input type="checkbox" class="icStu" value="${s.StudentID}" style="width:auto"${pi?' disabled':''}/> <b>${esc(dispNick(s))}</b> <small class="muted">${esc(nm(s))} · ${esc(s.Class||'')}</small>${
+        pi?` <small style="color:var(--ok);font-weight:600;margin-left:auto;text-align:right">💰 ${EN()?'prepaid':'ชำระล่วงหน้า'} (${pi.index}/${pi.months})<br><span class="muted" style="font-weight:400">${EN()?'left':'เหลืออีก'} ${Math.max(0,(pi.left||1)-1)} ${EN()?'mo':'เดือน'}</span></small>`:''}</label>`;
+    }).join('');
+  }
+  window.A_icMonth=async(month)=>{ const el=$('#icRows'); if(!el) return;
+    const all=$('#icAll'); if(all) all.checked=false;
+    let by={}; try{ by=(await api('prepaidStudents',{month})).byStudent||{}; }catch(e){}
+    el.innerHTML=icRows(window._IC_STU||[], by); };
   window.A_issueCombinedDo=async(btn)=>{ const m=btn.closest('.modal'); const ids=[...m.querySelectorAll('.icStu:checked')].map(c=>c.value); const month=m.querySelector('#icMonth').value; const notify=m.querySelector('#icNotify').checked;
     if(!ids.length){ toast(EN()?'Select at least one student':'เลือกนักเรียนอย่างน้อย 1 คน'); return; }
     btn.disabled=true;
-    try{ const r=await api('issueBillsFor',{studentIds:ids,month}); if(notify){ try{ await api('notifyBills',{studentIds:ids,month}); }catch(e){} }
-      m.remove(); confirmSaved((EN()?'Issued ':'ออกบิลแล้ว ')+r.created+(EN()?' bills':' รายการ')+(notify?(EN()?' · parents notified':' · แจ้งผู้ปกครองแล้ว'):'')); }
+    try{ const r=await api('issueBillsFor',{studentIds:ids,month});
+      /* Tell the parents of the children who were actually BILLED — not of everyone who was ticked.
+       * A child skipped for any reason (no package, prepaid, not started) has no new bill, and
+       * "คุณมีบิลใหม่" for a bill that does not exist is worse than silence. */
+      const billed=(r.students||[]).map(x=>x.studentId);
+      if(notify && billed.length){ try{ await api('notifyBills',{studentIds:billed,month}); }catch(e){} }
+      m.remove(); confirmSaved((EN()?'Issued ':'ออกบิลแล้ว ')+r.created+(EN()?' bills':' รายการ')+(notify&&billed.length?(EN()?' · parents notified':' · แจ้งผู้ปกครองแล้ว'):''));
+      if((r.skipped||[]).length) setTimeout(()=>A_skippedModal(r.skipped, month), 600); }
     catch(e){ err(e); btn.disabled=false; } };
+  /** Everyone the batch did NOT bill, grouped by reason — see A_genBillsDo for why this is one list. */
+  window.A_skippedModal=(skipped, month)=>{
+    const pre=skipped.filter(x=>x.code==='PREPAID_MONTH'), rest=skipped.filter(x=>x.code!=='PREPAID_MONTH');
+    modal(`<h3>ℹ️ ${EN()?'Not billed':'ไม่ได้ออกบิล'} (${skipped.length}) <small class="muted" style="font-weight:400">${esc(month||'')}</small></h3>
+      ${pre.length?prepaidSkipCard(pre):''}
+      ${rest.length?`<div class="card" style="padding:8px"><b style="font-size:13px">⚠️ ${EN()?'Other reasons':'เหตุผลอื่น'} (${rest.length})</b>
+        ${rest.map(x=>`<div class="list-item"><span><b>${esc(x.nick||x.name||x.studentId)}</b><br><small class="muted">${esc(x.reason||'')}</small></span></div>`).join('')}</div>`:''}
+      <button class="btn outline block" style="margin-top:8px" onclick="this.closest('.modal').remove()">${esc(t('c.close'))}</button>`); };
+  /* THE SUMMARY THE SCHOOL ASKED FOR, IN ONE PLACE. Both ways of issuing bills end here, so the
+   * "who did we skip because they had already paid" list reads identically whichever button was
+   * pressed — one shape of answer, not two that drift apart. */
+  function prepaidSkipCard(list){
+    return `<div class="card" style="padding:8px;background:var(--ok-bg,var(--blue-bg));border-color:var(--ok-line,var(--blue-line))">
+      <b style="font-size:14px">💰 ${EN()?'Already paid in advance — not billed again':'ชำระล่วงหน้าแล้ว — ระบบไม่ออกบิลซ้ำ'} (${list.length})</b>
+      <small class="muted" style="display:block;margin:2px 0 6px">${EN()?'Their tuition for this month is covered. Food / activity / special-class charges are separate and are still billed.':'ค่าเทอมของเดือนนี้ถูกคุ้มครองแล้ว · ค่าอาหาร/กิจกรรม/เรียนพิเศษ เป็นรายการแยก ยังเรียกเก็บตามปกติ'}</small>
+      ${list.map(x=>{ const pi=x.prepay||x; const idx=pi.index||0, mo=pi.months||0;
+        return `<div class="list-item"><span><b>${esc(x.nick||x.name||x.studentId)}</b>${x.nick&&x.name?` <small class="muted">${esc(x.name)}</small>`:''}
+          ${pi.from?`<br><small class="muted">${esc(pi.from)} – ${esc(pi.to||'')}</small>`:''}</span>
+          <span style="text-align:right"><span class="pill ok">${idx&&mo?`${idx}/${mo}`:(EN()?'prepaid':'ชำระล่วงหน้า')}</span>
+          ${pi.left!=null?`<br><small class="muted">${EN()?'left':'เหลืออีก'} ${Math.max(0,pi.left-1)} ${EN()?'mo':'เดือน'}</small>`:''}</span></div>`; }).join('')}</div>`;
+  }
   window.A_delBill=async(billingId,month,btn)=>{ if(!confirm((EN()?'Delete the bill for ':'ลบบิลงวด ')+month+' ?'))return;
     if(btn)btn.disabled=true;
     try{ await api('deleteBill',{billingId}); toast(t('manage.deleted')); const m=btn&&btn.closest('.modal'); if(m)m.remove(); GO('manage'); }catch(e){err(e);} };
@@ -6376,11 +6650,25 @@
     <button class="btn block" onclick="A_genBillsDo(this)">${esc(t('bill.genBtn'))}</button>`); };
   window.A_genBillsDo=async(btn)=>{ const m=btn.closest('.modal'); const r=await api('generateMonthlyBills',{month:m.querySelector('#gbMonth').value});
     m.remove(); confirmSaved(t('bill.genDone').replace('{n}',r.created).replace('{m}',r.month));
-    // children with no package are skipped rather than billed 0 — name them, or nobody would notice
-    const np=r.noPlan||[];
-    if(np.length) setTimeout(()=>modal(`<h3>⚠️ ${EN()?'Skipped — no package yet':'ข้ามไป — ยังไม่ได้เลือกแพ็กเกจ'} (${np.length})</h3>
-      <p class="muted" style="font-size:13px">${EN()?'These children were NOT billed because no package is set. Set one in the student record, then generate again.':'นักเรียนต่อไปนี้ยังไม่ได้ออกบิล เพราะยังไม่ได้ตั้งแพ็กเกจ · ตั้งแพ็กเกจในข้อมูลนักเรียนแล้วกดออกบิลอีกครั้ง'}</p>
-      ${np.map(x=>`<div class="list-item"><span><b>${esc(x.nick||x.name||x.studentId)}</b>${x.nick&&x.name?` <small class="muted">${esc(x.name)}</small>`:''}</span><button class="btn sm outline" onclick="this.closest('.modal').remove();A_studentForm('${esc(x.studentId)}')">✏️ ${EN()?'Set package':'ตั้งแพ็กเกจ'}</button></div>`).join('')}
+    /* WHO WAS NOT BILLED, AND WHY — ALWAYS.
+     *
+     * "ออกบิลแล้ว 33 รายการ" out of 36 children says nothing about the other three. The no-package
+     * list was already shown because a child with no package is an admin mistake; children who paid
+     * IN ADVANCE are not a mistake, and the school asked (2026-08-26) to be told about them every
+     * time, by name and by position in their prepayment, so the run can be reconciled at a glance
+     * instead of being trusted.
+     */
+    const np=r.noPlan||[], pre=r.prepaid||[], notYet=r.notYet||[], paused=r.paused||[];
+    if(!(np.length||pre.length||notYet.length||paused.length)) return;
+    const plain=(title,list,extra)=>list.length?`<div class="card" style="padding:8px"><b style="font-size:13px">${title} (${list.length})</b>
+      ${list.map(x=>`<div class="list-item"><span><b>${esc(x.nick||x.name||x.studentId)}</b>${x.nick&&x.name?` <small class="muted">${esc(x.name)}</small>`:''}${extra?extra(x):''}</span></div>`).join('')}</div>`:'';
+    setTimeout(()=>modal(`<h3>ℹ️ ${EN()?'Not billed this run':'ไม่ได้ออกบิลในรอบนี้'} (${np.length+pre.length+notYet.length+paused.length}) <small class="muted" style="font-weight:400">${esc(r.month||'')}</small></h3>
+      ${pre.length?prepaidSkipCard(pre):''}
+      ${np.length?`<div class="card" style="padding:8px;background:var(--warn-bg);border-color:var(--warn-line)"><b style="font-size:13px">⚠️ ${EN()?'No package yet':'ยังไม่ได้เลือกแพ็กเกจ'} (${np.length})</b>
+        <small class="muted" style="display:block;margin:2px 0 6px">${EN()?'Set a package in the student record, then generate again.':'ตั้งแพ็กเกจในข้อมูลนักเรียน แล้วกดออกบิลอีกครั้ง'}</small>
+        ${np.map(x=>`<div class="list-item"><span><b>${esc(x.nick||x.name||x.studentId)}</b>${x.nick&&x.name?` <small class="muted">${esc(x.name)}</small>`:''}</span><button class="btn sm outline" onclick="this.closest('.modal').remove();A_studentForm('${esc(x.studentId)}')">✏️ ${EN()?'Set package':'ตั้งแพ็กเกจ'}</button></div>`).join('')}</div>`:''}
+      ${plain('📅 '+(EN()?'First day not reached':'ยังไม่ถึงวันเริ่มเรียน'), notYet, x=>x.enrolDate?`<br><small class="muted">${EN()?'starts':'เริ่ม'} ${esc(x.enrolDate)}</small>`:'')}
+      ${plain('⏳ '+(EN()?'On temporary leave all month':'ลาชั่วคราวตลอดเดือน'), paused, x=>x.from?`<br><small class="muted">${esc(x.from)}${x.to?' – '+esc(x.to):''}</small>`:'')}
       <button class="btn outline block" style="margin-top:8px" onclick="this.closest('.modal').remove()">${esc(t('c.close'))}</button>`), 600); };
 
   // ---- per-student extra charges (auto-merged into monthly bill) ----
