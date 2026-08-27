@@ -56,9 +56,46 @@ function handleInsuranceStatus(p) {
   var stu = findObject_(sheet_(getMainSpreadsheet_(), 'STUDENTS'), function (s) { return s.StudentID === p.studentId; }) || {};
   var rec = insuranceRecord_(p.studentId);
   return {
-    studentId: p.studentId, filled: !!rec, record: rec || null,
-    student: { name: stu.Name, nameEN: stu.NameEN, nationalId: stu.NationalID, gender: stu.Gender, dob: stu.DOB }
+    studentId: p.studentId, filled: !!rec, record: insReadable_(rec) || null,
+    student: { name: stu.Name, nameEN: stu.NameEN, nationalId: stu.NationalID, gender: stu.Gender, dob: insDate_(stu.DOB) }
   };
+}
+
+/* A DATE OBJECT IN A CELL COMES BACK AS AN ISO STRING WITH A Z ON IT.
+ *
+ * Reported 2026-08-27: the filled-in screen printed "2026-08-27T03:19:54.375Z" for กรอกโดย and
+ * "2023-12-02T05:00:00.000Z" for the child's date of birth. Both were Date objects written straight
+ * into the sheet, read back, and serialised to JSON — and both in UTC, so the timestamp was also
+ * seven hours out (03:19Z is 10:19 in Bangkok).
+ *
+ * The ENGINE version of this handler has always written todayLocal(). This route SHADOWS it, so the
+ * two disagreed and the route is what runs on the server — the documented trap in this project.
+ *
+ * These are function DECLARATIONS, not `var f = function`: they are called from above their own
+ * position in the file, and a var assignment would still be undefined at that point.
+ */
+function insDate_(v) {                               // -> 'yyyy-MM-dd', or '' / passthrough
+  if (v === null || v === undefined || v === '') return '';
+  if (Object.prototype.toString.call(v) === '[object Date]') return dateStr_(v);
+  var m = /^(\d{4}-\d{2}-\d{2})/.exec(String(v));    // already ISO-ish: keep the date part
+  return m ? m[1] : String(v);
+}
+/** 'yyyy-MM-dd HH:mm' for a stamp — also repairs a legacy ISO/Date already in the sheet. */
+function insStamp_(v) {
+  if (v === null || v === undefined || v === '') return '';
+  var d = (Object.prototype.toString.call(v) === '[object Date]') ? v
+        : (/^\d{4}-\d{2}-\d{2}T/.test(String(v)) ? new Date(String(v)) : null);
+  if (!d || isNaN(d.getTime())) return String(v);     // already a plain local string: leave it alone
+  return Utilities.formatDate(d, tz_(), 'yyyy-MM-dd HH:mm');
+}
+/** Every date-ish field of a stored record, made readable. Applied on the way OUT, so rows written
+ *  before this fix display correctly without anybody migrating the sheet. */
+function insReadable_(rec) {
+  if (!rec) return rec;
+  var out = {}; Object.keys(rec).forEach(function (k) { out[k] = rec[k]; });
+  ['DOB', 'EffectiveDate'].forEach(function (k) { if (out[k] !== undefined) out[k] = insDate_(out[k]); });
+  ['FilledDate', 'UpdatedDate'].forEach(function (k) { if (out[k] !== undefined) out[k] = insStamp_(out[k]); });
+  return out;
 }
 
 /**
@@ -73,6 +110,8 @@ function handleSubmitInsurance(p) {
   var existing = insuranceRecord_(p.studentId);
   if (existing && !p.adminEdit) throw apiError_('ALREADY_FILLED', 'ข้อมูลประกันของนักเรียนคนนี้ถูกกรอกแล้ว');
   var d = p.data || {};
+  if (d.EffectiveDate !== undefined) d.EffectiveDate = insDate_(d.EffectiveDate);
+  if (d.DOB !== undefined) d.DOB = insDate_(d.DOB);
   var by = p.actorName || (p.adminEdit ? 'Admin' : 'Parent');
   var base = {
     StudentID: p.studentId,
@@ -80,7 +119,7 @@ function handleSubmitInsurance(p) {
     InsuredLastName: d.InsuredLastName || '',
     Gender: d.Gender || (stu.Gender === 'M' ? 'Male' : stu.Gender === 'F' ? 'Female' : ''),
     NationalID: d.NationalID || stu.NationalID,
-    DOB: d.DOB || stu.DOB,
+    DOB: insDate_(d.DOB || stu.DOB),
     MemberStatus: d.MemberStatus || 'Child',
     CompanyName: getConfig_('InsuranceCompanyName', 'Atom Nursery'),
     PolicyNo: getConfig_('InsurancePolicyNo', '')
@@ -88,12 +127,12 @@ function handleSubmitInsurance(p) {
   if (existing) {
     var patch = {}; Object.keys(d).forEach(function (k) { patch[k] = d[k]; });
     Object.keys(base).forEach(function (k) { patch[k] = base[k]; });
-    patch.UpdatedBy = by; patch.UpdatedDate = new Date();
+    patch.UpdatedBy = by; patch.UpdatedDate = nowStr_();   // local 'yyyy-MM-dd HH:mm:ss', not a Date
     updateRow_(ins, existing._row, patch);
     logAudit_('updateInsurance', 'INSURANCE_PCHI', p.studentId);
     return { ok: true, updated: true };
   }
-  var rec = { InsuranceID: nextId_(ins, 'InsuranceID', 'INS', 3), FilledBy: by, FilledByRole: p.adminEdit ? 'Admin' : 'Parent', FilledDate: new Date() };
+  var rec = { InsuranceID: nextId_(ins, 'InsuranceID', 'INS', 3), FilledBy: by, FilledByRole: p.adminEdit ? 'Admin' : 'Parent', FilledDate: nowStr_() };
   Object.keys(d).forEach(function (k) { rec[k] = d[k]; });
   Object.keys(base).forEach(function (k) { rec[k] = base[k]; });
   appendObject_(ins, rec);
@@ -110,7 +149,7 @@ function handleInsuranceList() {
     .map(function (s) {
       var rec = null;
       for (var i = 0; i < ins.length; i++) { if (ins[i].StudentID === s.StudentID) { rec = ins[i]; break; } }
-      return { studentId: s.StudentID, name: s.Name, nameEN: s.NameEN, nationalId: s.NationalID, class: s.Class, filled: !!rec, record: rec };
+      return { studentId: s.StudentID, name: s.Name, nameEN: s.NameEN, nationalId: s.NationalID, class: s.Class, filled: !!rec, record: insReadable_(rec) };
     });
 }
 

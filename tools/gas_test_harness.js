@@ -91,13 +91,36 @@ module.exports = function (files, srcDir) {
     base64EncodeWebSafe: data => { const buf = Array.isArray(data) ? Buffer.from(data.map(b => b < 0 ? b + 256 : b)) : Buffer.from(String(data), 'utf8'); return buf.toString('base64url'); },
     base64DecodeWebSafe: str => Array.from(Buffer.from(String(str), 'base64url')).map(b => b > 127 ? b - 256 : b),
     newBlob: bytes => ({ getDataAsString: () => Buffer.from((Array.isArray(bytes) ? bytes : []).map(b => b < 0 ? b + 256 : b)).toString('utf8') }),
+    /* THE OLD VERSION KNEW FOUR FORMATS AND FELL BACK TO d.toISOString().
+     *
+     * That fallback is UTC and ISO — which is precisely the bug this project keeps having (a Date
+     * reaching a screen as "2026-08-27T03:19:54.375Z", seven hours out). So any test covering that
+     * class of fault got the WRONG ANSWER FROM THE HARNESS and could not fail for the right reason:
+     * 'yyyy-MM-dd HH:mm' quietly produced an ISO timestamp. Found while fixing exactly that on the
+     * insurance form, 2026-08-27.
+     *
+     * It honours the format tokens now, and the TIMEZONE — the timezone is the whole point, since
+     * the machine running the tests is not necessarily in Asia/Bangkok and the server never is. */
     formatDate: (d, tz, fmt) => {
       const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-      if (fmt === 'yyyy-MM-dd') return d.getFullYear() + '-' + p2(d.getMonth() + 1) + '-' + p2(d.getDate());
-      if (fmt === 'HH:mm') return p2(d.getHours()) + ':' + p2(d.getMinutes());
-      if (fmt === 'EEEE') return days[d.getDay()];
-      if (fmt === 'yyyy') return '' + d.getFullYear();
-      return d.toISOString();
+      let parts;
+      try {
+        const f = new Intl.DateTimeFormat('en-GB', { timeZone: tz || 'Asia/Bangkok', hour12: false,
+          year: 'numeric', month: '2-digit', day: '2-digit',
+          hour: '2-digit', minute: '2-digit', second: '2-digit', weekday: 'long' });
+        parts = {};
+        for (const p of f.formatToParts(d)) parts[p.type] = p.value;
+        if (parts.hour === '24') parts.hour = '00';          // en-GB h23/h24 edge at midnight
+      } catch (e) {                                          // unknown zone -> fall back to local
+        parts = { year: '' + d.getFullYear(), month: p2(d.getMonth() + 1), day: p2(d.getDate()),
+          hour: p2(d.getHours()), minute: p2(d.getMinutes()), second: p2(d.getSeconds()),
+          weekday: days[d.getDay()] };
+      }
+      // longest tokens first, or 'mm' would eat the 'm' of 'MM'
+      return String(fmt)
+        .replace(/yyyy/g, parts.year).replace(/EEEE/g, parts.weekday)
+        .replace(/MM/g, parts.month).replace(/dd/g, parts.day)
+        .replace(/HH/g, parts.hour).replace(/mm/g, parts.minute).replace(/ss/g, parts.second);
     }
   };
   g.ContentService = { MimeType: { JSON: 'json' }, createTextOutput: t => ({ _t: t, setMimeType() { return this; }, getContent() { return this._t; } }) };
