@@ -112,7 +112,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.288'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.289'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -1153,12 +1153,84 @@
       return !!(u && u.role && u.role !== 'guest');
     } catch (e) { return false; }
   };
+  /* ---- SIGNING IN WITH LINE, WITHOUT LOOKING LIKE IT FAILED -------------------------------------
+   *
+   * Reported 2026-08-27 on both iOS and Android: tapping "เข้าสู่ระบบด้วย LINE" spins, throws the
+   * parent back to the login screen, and has to be done at least twice before it works.
+   *
+   * Nothing was broken. What they were watching was this:
+   *
+   *   1. the shell paints the login card instantly (it is static HTML, for LCP)
+   *   2. the LIFF SDK is fetched, then liff.init() — two network waits
+   *   3. not signed in yet → fallback() → loginScreen() … the SAME CARD REDRAWN.
+   *      To a parent, the app just bounced them back to the start.
+   *   4. they tap → full-page redirect to LINE → back to our URL → the page reloads FROM SCRATCH,
+   *      so the login card paints AGAIN (2), the SDK is fetched AGAIN (3), and only then does
+   *      api('auth') run — one more Apps Script round trip with the login card still on screen.
+   *
+   * The redirect is how OAuth works and cannot be removed. What can be removed is ever showing the
+   * login card during any of it: the flow now says "กำลังเข้าสู่ระบบ" from the first paint, so a
+   * parent sees one continuous action instead of being returned to where they started, twice.
+   *
+   * TWO REAL BUGS underneath the perception, both of which cost a wasted tap:
+   *   · `if (window.liff) { liff.login(); return; }` — the SDK being PRESENT is not the same as
+   *     initialised. liff.login() before init throws, so the tap did nothing at all and the parent
+   *     tapped again. Everything now waits on one shared init promise.
+   *   · init was called in two places, so a tap during boot ran it a second time.
+   */
+  let _liffReady = null;
+  function liffReady() {
+    if (!_liffReady) _liffReady = loadLiff().then(() => liff.init({ liffId: CONFIG.LIFF_ID })).then(() => liff);
+    return _liffReady;
+  }
+  // survives the redirect to LINE and back (sessionStorage, so it dies with the tab)
+  const LIFF_PENDING = 'atom_liff_pending';
+  const liffPending = () => { try { return sessionStorage.getItem(LIFF_PENDING) === '1'; } catch (e) { return false; } };
+  const setLiffPending = v => { try { v ? sessionStorage.setItem(LIFF_PENDING, '1') : sessionStorage.removeItem(LIFF_PENDING); } catch (e) {} };
+  /** what the parent looks at for the whole of the LINE round trip, instead of the login card */
+  function signingInScreen(){ USER = null; AUTH_RENDER = signingInScreen; setHeader(); nav.hidden = true;
+    app.innerHTML = `<div class="rolewrap" style="padding-top:40px">
+      <img src="assets/logo.png" class="logo-lg" alt="logo"/>
+      <div class="authspin" aria-hidden="true"></div>
+      <h2 class="page" style="text-align:center;margin-top:14px">${EN()?'Signing in with LINE…':'กำลังเข้าสู่ระบบด้วย LINE…'}</h2>
+      <p class="muted">${EN()?'This takes a few seconds the first time.':'ครั้งแรกอาจใช้เวลาสักครู่ กรุณารอสักครู่'}</p></div>`;
+  }
+  /** profile → server session → the right screen. Shared by boot and by the button. */
+  function liffAuth(){
+    return liff.getProfile().then(profile => {
+      PENDING_LINE_UID = profile.userId;
+      // send the verifiable access token (NOT the raw userId): GAS verifies it server-side via
+      // LINE's profile endpoint and trusts the resulting userId — prevents UID spoofing.
+      return api('auth', { accessToken: liff.getAccessToken(), displayName: profile.displayName, pictureUrl: profile.pictureUrl })
+        .then(u => {
+          setLiffPending(false);
+          if (u.role === 'guest') { PENDING_PROVIDER = 'LINE'; accountStage(); applyLangNow(); return; }  // unregistered → onboarding
+          LOGIN_REAL(u.role, u.linkedId, u.displayName || profile.displayName, u.pictureUrl || profile.pictureUrl);
+          applyLangNow();
+        });
+    });
+  }
+  let _liffBusy = false;
   window.LIFF_LOGIN = () => {
-    if (CONFIG.MODE === 'gas' && CONFIG.LIFF_ID) {                 // SDK may still be in flight — wait for it
-      if (window.liff) { liff.login(); return; }
-      toast(EN()?'Connecting to LINE…':'กำลังเชื่อมต่อ LINE…', 4000);
-      loadLiff().then(() => liff.init({ liffId: CONFIG.LIFF_ID })).then(() => liff.login())
-        .catch(() => toast(EN()?'Could not reach LINE — check your connection':'เชื่อมต่อ LINE ไม่สำเร็จ — ตรวจสอบอินเทอร์เน็ต'));
+    if (CONFIG.MODE === 'gas' && CONFIG.LIFF_ID) {
+      if (_liffBusy) return;                       // a second tap while the first is still working
+      _liffBusy = true;
+      signingInScreen();                            // the tap is acknowledged instantly, before any network
+      setLiffPending(true);
+      /* The two failures are told apart on purpose. "เชื่อมต่อ LINE ไม่สำเร็จ" for a refusal that
+       * came from OUR server sends a parent to check their signal when the problem is at our end,
+       * and there is nothing they can do about it by trying again on better wifi. */
+      const bail = msg => { _liffBusy = false; setLiffPending(false); toast(msg); loginScreen(); applyLangNow(); };
+      liffReady()
+        .catch(() => { bail(EN() ? 'Could not reach LINE — check your connection' : 'เชื่อมต่อ LINE ไม่สำเร็จ — ตรวจสอบอินเทอร์เน็ต');
+          throw { _handled: 1 }; })
+        .then(() => {
+          // already signed in with LINE (they came back, or the session outlived the app): there is
+          // nothing to redirect for — go straight to the server
+          if (liff.isLoggedIn()) return liffAuth();
+          liff.login();                             // leaves the page; nothing after this runs
+        })
+        .catch(e => { if (e && e._handled) return; bail('⚠️ ' + ((e && e.message) || e)); });
       return;
     }
     if (!CONFIG.DEMO_MODE) { toast(EN()?'Please open via LINE to sign in':'กรุณาเปิดผ่าน LINE เพื่อเข้าสู่ระบบ'); return; }
@@ -1250,20 +1322,18 @@
     if (CONFIG.MODE === 'gas' && CONFIG.LIFF_ID) {
       // not logged in / init failed (e.g. opened outside LINE) → keep an existing demo session if any,
       // else show login. Stops a reload from wiping a testing session.
-      const fallback = () => { if(!restoreDemoOrLogin()){ loginScreen(); applyLangNow(); } };
-      loadLiff().then(() => liff.init({ liffId: CONFIG.LIFF_ID })).then(() => {
-        if (liff.isLoggedIn()) {
-          liff.getProfile().then(profile => {
-            PENDING_LINE_UID = profile.userId;
-            // send the verifiable access token (NOT the raw userId): GAS verifies it server-side
-            // via LINE's profile endpoint and trusts the resulting userId — prevents UID spoofing.
-            api('auth', { accessToken: liff.getAccessToken(), displayName: profile.displayName, pictureUrl: profile.pictureUrl }).then(u => {
-              if (u.role === 'guest') { PENDING_PROVIDER = 'LINE'; accountStage(); applyLangNow(); return; } // unregistered → onboarding
-              LOGIN_REAL(u.role, u.linkedId, u.displayName || profile.displayName, u.pictureUrl || profile.pictureUrl);
-              applyLangNow();
-            }).catch(e => { toast('⚠️ ' + (e.message || e)); fallback(); });
-          }).catch(fallback);
-        } else { fallback(); }
+      const fallback = () => { setLiffPending(false); if(!restoreDemoOrLogin()){ loginScreen(); applyLangNow(); } };
+      /* SHOW THE SIGN-IN IN PROGRESS, NOT THE LOGIN CARD.
+       *
+       * Two cases where we already know an attempt is under way and the card would read as "it threw
+       * me back to the start": coming back from the LINE redirect (the flag), and a device that has
+       * signed in here before (atom_last_uid), which is every returning parent. A first-time visitor
+       * with neither still sees the login card immediately, so nothing flashes for them. */
+      let _known = false; try { _known = !!localStorage.getItem('atom_last_uid'); } catch (e) {}
+      if (liffPending() || _known) signingInScreen();
+      liffReady().then(() => {
+        if (!liff.isLoggedIn()) { fallback(); return; }
+        return liffAuth().catch(e => { toast('⚠️ ' + (e.message || e)); fallback(); });
       }).catch(fallback);
       return;
     }
