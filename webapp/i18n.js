@@ -274,7 +274,7 @@
     'ins2.effective':['วันมีผลบังคับ','Effective date'], 'ins2.plan':['แผนประกัน','Plan'], 'ins2.mobile':['เบอร์มือถือ','Mobile'], 'ins2.email':['อีเมล','Email'],
     'ins2.bankName':['ชื่อบัญชีธนาคาร (เคลมสินไหม)','Bank account name (claims)'], 'ins2.bankNo':['เลขที่บัญชีธนาคาร','Bank account no.'],
     'ins2.beneName':['ชื่อผู้รับผลประโยชน์','Beneficiary name'], 'ins2.beneLast':['นามสกุลผู้รับผลประโยชน์','Beneficiary last name'], 'ins2.beneRel':['ความสัมพันธ์','Relationship'],
-    'ins2.remarks':['หมายเหตุ','Remarks'], 'ins2.save':['บันทึกข้อมูลประกัน','Save insurance'], 'ins2.required':['กรุณากรอกข้อมูลที่จำเป็น (คำนำหน้า, ชื่อ-นามสกุล, แผนประกัน, วันมีผลบังคับ)','Please fill required fields (title, name, plan, effective date)'],
+    'ins2.remarks':['หมายเหตุ','Remarks'], 'ins2.save':['บันทึกข้อมูลประกัน','Save insurance'], 'ins2.required':['กรุณากรอกข้อมูลที่จำเป็น (คำนำหน้า, ชื่อ-นามสกุล)','Please fill required fields (title, first and last name)'],
     // advance / prepaid billing
     'bill.markPaid':['บันทึกว่าชำระแล้ว (จ่ายล่วงหน้า)','Mark as already paid (advance)'], 'bill.paidDate':['วันที่ชำระเงิน','Payment date'],
     'bill.advanceHint':['เช่น เก็บล่วงหน้าของเดือนถัดไป — เดือนนั้นจะแสดงว่าชำระแล้ว','e.g. collect next month in advance — that month shows as paid'],

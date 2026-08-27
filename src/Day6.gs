@@ -19,6 +19,38 @@ function insuranceRecord_(studentId) {
   });
 }
 
+/**
+ * The whole INSURANCE_PCHI sheet, EXACTLY as the sheet has it. Asked for 2026-08-27: the school
+ * sends this to the insurer, who expects their own column layout.
+ *
+ * WHY IT READS THE SHEET AND NOT A LIST OF COLUMN NAMES IN CODE. "Exactly the same as the Google
+ * Sheet" cannot be promised by a second copy of the column order — the moment a column is added
+ * (and ensureColumns_ adds them on the fly) the export would silently disagree with the thing it
+ * claims to mirror. The header row IS the format, so it is read at export time.
+ *
+ * getDisplayValues(), not getValues(): a date cell comes back from getValues() as a Date and would
+ * be exported as an ISO timestamp — not what the sheet shows, and not what the insurer's template
+ * expects. Display values are literally the characters in the cell.
+ *
+ * There is deliberately no engine twin. An engine version would have to invent the column order,
+ * which is the exact thing this exists to avoid.
+ */
+function handleInsuranceExport() {
+  var sh = sheet_(getMainSpreadsheet_(), 'INSURANCE_PCHI');
+  var lastRow = sh.getLastRow(), lastCol = sh.getLastColumn();
+  if (!lastCol) return { headers: [], rows: [], count: 0, filename: 'INSURANCE_PCHI.xlsx' };
+  var headers = sh.getRange(1, 1, 1, lastCol).getDisplayValues()[0];
+  var rows = lastRow > 1 ? sh.getRange(2, 1, lastRow - 1, lastCol).getDisplayValues() : [];
+  // guarded the same way Checkin.gs does: file order is not guaranteed in Apps Script
+  var tz = (typeof ssTz_ === 'function') ? ssTz_() : 'Asia/Bangkok';
+  var stamp = Utilities.formatDate(new Date(), tz, 'yyyy-MM-dd');
+  return {
+    headers: headers, rows: rows, count: rows.length,
+    filename: 'INSURANCE_PCHI_' + stamp + '.xlsx',
+    sheetName: 'INSURANCE_PCHI'
+  };
+}
+
 /** Status: is the insurance form already filled for this student? */
 function handleInsuranceStatus(p) {
   var stu = findObject_(sheet_(getMainSpreadsheet_(), 'STUDENTS'), function (s) { return s.StudentID === p.studentId; }) || {};
