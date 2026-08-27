@@ -112,7 +112,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.289'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.290'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -944,6 +944,25 @@
   window.__atomHideRefreshBar = () => { const b=document.getElementById('refreshBar'); if(b) b.remove(); };
   // Warm the SWR cache for the other tabs right after login so navigating to them is instant
   // (the home screen loads first; these fire ~0.5s later and micro-batch into one request).
+  /**
+   * 🔄 Throw away the cached reads and draw this screen again.
+   *
+   * Deliberately NOT location.reload(): that would repeat the whole boot — the LIFF SDK, liff.init,
+   * auth — for data that is one request away. This clears the read cache and re-runs the current
+   * screen, so it costs exactly what the screen costs.
+   *
+   * The button is disabled while it works, because the honest failure mode of a refresh button is
+   * somebody tapping it four times and queueing four identical round trips on a platform that runs
+   * them one after another.
+   */
+  window.REFRESH_NOW = async (btn) => {
+    if (btn) { btn.disabled = true; btn.style.opacity = '.55'; }
+    try { window.__atomCacheClear && __atomCacheClear(); } catch (e) {}
+    try { if (typeof refreshBell === 'function') refreshBell(true); } catch (e) {}
+    try { await GO(CURRENT, { silent: true }); } catch (e) { err(e); }
+    if (btn) { btn.disabled = false; btn.style.opacity = ''; }
+    toast(EN() ? 'Updated' : 'อัปเดตข้อมูลล่าสุดแล้ว');
+  };
   window.PREFETCH = () => {
     if (CONFIG.MODE!=='gas' || !USER) return;
     /* A PARENT NEEDS NO PREFETCH AT ALL ANY MORE.
@@ -1197,7 +1216,15 @@
   }
   /** profile → server session → the right screen. Shared by boot and by the button. */
   function liffAuth(){
-    return liff.getProfile().then(profile => {
+    /* THE ID TOKEN IS ALREADY IN THE BROWSER; getProfile() is a round trip to LINE for the same
+     * three fields. It is only used to seed the display name and the id for registration — and the
+     * SERVER re-derives both from the access token anyway (handleAuth overwrites them), so the extra
+     * wait bought nothing. getDecodedIDToken() reads it locally.
+     * It needs the `openid` scope, so if it comes back empty we ask the old way rather than guess. */
+    const local = (() => { try { const t = liff.getDecodedIDToken();
+      return (t && t.sub) ? { userId: t.sub, displayName: t.name || '', pictureUrl: t.picture || '' } : null;
+    } catch (e) { return null; } })();
+    return (local ? Promise.resolve(local) : liff.getProfile()).then(profile => {
       PENDING_LINE_UID = profile.userId;
       // send the verifiable access token (NOT the raw userId): GAS verifies it server-side via
       // LINE's profile endpoint and trusts the resulting userId — prevents UID spoofing.
@@ -1205,6 +1232,9 @@
         .then(u => {
           setLiffPending(false);
           if (u.role === 'guest') { PENDING_PROVIDER = 'LINE'; accountStage(); applyLangNow(); return; }  // unregistered → onboarding
+          // the parent's whole home screen came back with the sign-in (see handleAuth) — hand it to
+          // the screen so it does not spend another Apps Script round trip asking for what we have
+          if (u.home && u.home.children) window._BOOT_HOME = u.home;
           LOGIN_REAL(u.role, u.linkedId, u.displayName || profile.displayName, u.pictureUrl || profile.pictureUrl);
           applyLangNow();
         });
@@ -1681,7 +1711,11 @@
    */
   SCREENS.Parent.home = async () => {
     showAnnPopups();
-    const HOME = await api('parentHome', parentScope());
+    /* Signing in already paid for this (handleAuth returns it), so the first render costs nothing.
+     * Consumed ONCE: every later visit to the home screen fetches normally, or a parent would be
+     * looking at their morning for the rest of the day. */
+    const HOME = window._BOOT_HOME || await api('parentHome', parentScope());
+    window._BOOT_HOME = null;
     const kids = HOME.children || [];
     const addBtn = `<button class="btn sm outline" onclick="P_addChild()">+ ${esc(t('p.addChild'))}</button>`;
     const profileBtn = `<button class="btn sm outline" onclick="P_profile()">👤 ${EN()?'My info':'ข้อมูลของฉัน'}</button>`;
@@ -4747,7 +4781,17 @@
       <button class="kpi green" onclick="A_finTab('wait')"><span class="kic">✅</span><b class="kn" style="color:${pendN?'var(--warn)':'var(--ok)'}">${pendN}</b><span class="kl">${EN()?'Slips to verify':'รอตรวจสลิป'}</span></button>
       <button class="kpi pink" onclick="GO('leaves')"><span class="kic">📩</span><b class="kn" style="color:${_pl?'var(--warn)':'var(--ok)'}">${_pl}</b><span class="kl">${EN()?'Leaves to approve':'รออนุมัติลา'}</span></button></div>`;
     const quick=`<div class="qbar"><button class="btn sm" onclick="GO('daily')">📋 ${esc(t('daily.title'))}</button><button class="btn sm outline" onclick="GO('absence')">🔎 ${esc(t('abs.title'))}</button><button class="btn sm outline" onclick="A_addAnn()">➕ ${esc(t('lbl.addAnn'))}</button><button class="btn sm outline" onclick="A_linkParent()">🔗 ${EN()?'Link parent':'เชื่อมผู้ปกครอง'}</button><button class="btn sm outline" onclick="A_viewAs()">👁️ ${EN()?'View as':'ดูมุมมอง'}</button><button class="btn sm outline" onclick="GO('manage')">🗂️ ${esc(t('title.manage'))}</button></div>`;
-    app.innerHTML=`<div class="dash-h"><h2 class="page">${esc(t('title.dashboard'))}</h2><span class="dash-date">${esc(todayStr())}</span></div>
+    /* MANUAL REFRESH, asked for 2026-08-27.
+     *
+     * Reads are cached for 30 seconds and revalidated in the background, which is right for a screen
+     * somebody is walking past — but an admin who has just been told something changed wants to see
+     * it NOW and has no way to say so. Reloading the page is the workaround they were using, and it
+     * costs the whole boot: the LIFF handshake, auth, the lot.
+     *
+     * This throws away the cached answers and re-runs the screen. Nothing else — no writes, no
+     * settings, so a mis-tap costs one round trip and nothing more. */
+    app.innerHTML=`<div class="dash-h"><h2 class="page">${esc(t('title.dashboard'))}</h2><span class="dash-date">${esc(todayStr())}</span>
+        <button class="btn sm outline dash-refresh" onclick="REFRESH_NOW(this)" title="${EN()?'Reload the latest data':'โหลดข้อมูลล่าสุด'}" aria-label="${EN()?'Reload the latest data':'โหลดข้อมูลล่าสุด'}">🔄 <span class="lbl">${EN()?'Refresh':'รีเฟรช'}</span></button></div>
       ${closedBanner}<div id="aholot"></div>${remHtml}${leaveRemHtml}
       ${kpi}${quick}
       ${payHtml}
