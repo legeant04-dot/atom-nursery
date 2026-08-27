@@ -112,7 +112,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.290'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.291'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -1975,8 +1975,17 @@
       <div class="grid2">${insInp('InsuredLastName',t('ins2.lname'),rec.InsuredLastName,'',1)}${insSel('Gender',t('ins2.gender'),o.Genders,rec.Gender||g,1)}</div>
       <div class="grid2">${insInp('NationalID',t('ins2.nid'),rec.NationalID||s.NationalID,'',1)}${insInp('Passport',t('ins2.passport'),rec.Passport)}</div>
       <div class="grid2">${insInp('DOB',t('ins2.dob'),rec.DOB||s.DOB,'date',1)}${insSel('MaritalStatus',t('ins2.marital'),o.MaritalStatuses,rec.MaritalStatus||'Single')}</div>
-      <div class="grid2">${insInp('Occupation',t('ins2.occupation'),rec.Occupation)}${insInp('EffectiveDate',t('ins2.effective'),rec.EffectiveDate,'date',1)}</div>
-      ${insSel('Plan',t('ins2.plan'),o.Plans,rec.Plan,1)}</div>
+      ${/* THE INSURER FILLS THESE IN, NOT THE FAMILY.
+             แผนประกัน and วันมีผลบังคับ are decided by the school and the insurer AFTER the form is
+             submitted — a parent has no way to know either of them. Marking them required meant the
+             form could not be saved at all until somebody invented an answer, which is worse than
+             leaving them blank: an invented plan is a wrong plan on a real policy.
+             The Admin fills them in later from ดำเนินการ → ข้อมูลประกัน. Asked 2026-08-27. */''}
+      <div class="grid2">${insInp('Occupation',t('ins2.occupation'),rec.Occupation)}${insInp('EffectiveDate',t('ins2.effective'),rec.EffectiveDate,'date')}</div>
+      ${insSel('Plan',t('ins2.plan'),o.Plans,rec.Plan)}
+      <small class="muted" style="display:block;margin-top:2px">${EN()
+        ? 'Plan and effective date are completed by the school — leave them blank.'
+        : 'แผนประกันและวันมีผลบังคับ ทางโรงเรียนจะเป็นผู้กรอกให้ ไม่ต้องกรอกเองค่ะ'}</small></div>
     <div class="card"><h3>📞 ${esc(t('ins2.mobile'))} / ${esc(t('ins2.bankName'))}</h3>
       <div class="grid2">${insInp('Mobile',t('ins2.mobile'),rec.Mobile)}${insInp('Email',t('ins2.email'),rec.Email)}</div>
       <div class="grid2">${insBankSel('BankAccountName',t('ins2.bankName'),o.Banks,rec.BankAccountName)}${insInp('BankAccountNumber',t('ins2.bankNo'),rec.BankAccountNumber)}</div></div>
@@ -1986,7 +1995,8 @@
       <label class="field"><span>${esc(t('ins2.remarks'))}</span><textarea id="ins_Remarks">${esc(rec.Remarks||'')}</textarea></label></div>`; }
   function readInsuranceForm(){ const keys=['Title','MemberStatus','InsuredName','InsuredMiddleName','InsuredLastName','Gender','NationalID','Passport','DOB','MaritalStatus','Occupation','EffectiveDate','Plan','Mobile','Email','BankAccountName','BankAccountNumber','BeneficiaryName','BeneficiaryLastName','BeneficiaryRelationship','Remarks'];
     const d={}; keys.forEach(k=>{ const e=document.getElementById('ins_'+k); if(e)d[k]=e.value.trim(); }); return d; }
-  function insValid(d){ return d.Title&&d.InsuredName&&d.InsuredLastName&&d.Plan&&d.EffectiveDate; }
+  // Plan / EffectiveDate deliberately absent: the school fills them in afterwards (see the form).
+  function insValid(d){ return d.Title&&d.InsuredName&&d.InsuredLastName; }
   // parent: fill once / view if already filled
   window.P_insurance = async (sid)=>{ const st=await api('insuranceStatus',{studentId:sid}); const o=await api('insuranceOptions'); const s=MOCK.students.find(x=>x.StudentID===sid)||{};
     if(st.filled){ const r=st.record;
@@ -6926,11 +6936,46 @@
 
   // ---- Admin: PCHI insurance review / edit ----
   window.A_insurance = async ()=>{ const list=await api('insuranceList');
-    app.innerHTML=`<button class="btn sm outline backbtn" onclick="GO('manage')">${t('c.back')}</button><h2 class="page">🛡️ ${esc(t('ins2.manage'))}</h2>
+    const _filled=list.filter(x=>x.filled).length;
+    app.innerHTML=`<button class="btn sm outline backbtn" onclick="GO('manage')">${t('c.back')}</button>
+      <div class="dash-h"><h2 class="page">🛡️ ${esc(t('ins2.manage'))}</h2>
+        <button class="btn sm outline dash-refresh" onclick="A_insuranceExport(this)"${_filled?'':' disabled style="opacity:.5"'}
+          title="${EN()?'Export the PCHI sheet':'นำออกข้อมูลประกัน (PCHI)'}">📤 <span class="lbl">${EN()?'Export':'นำออก'}</span></button></div>
       <div class="card"><p class="muted" style="font-size:13px">${esc(t('ins2.manageNote'))}</p>
       ${list.map(x=>`<div class="list-item"><span><b>${esc(EN()?(x.nameEN||x.name):x.name)}</b> <small class="muted">${esc(x.class||'')} · ${EN()?'ID':'บัตร'} ${esc(x.nationalId||'-')}</small> <span class="pill ${x.filled?'ok':'wait'}">${x.filled?'✓ '+esc(t('ins2.filled')):esc(t('ins2.notFilled'))}</span></span>
         <button class="btn sm ${x.filled?'outline':''}" onclick="A_insuranceEdit('${x.studentId}')">${x.filled?'✏️':esc(t('ins2.btn'))}</button></div>`).join('')}</div>`;
     window.scrollTo(0,0); };
+  /**
+   * 📤 The PCHI sheet, out to a file the insurer can open.
+   *
+   * The server hands back the sheet's OWN header row and its display values (see
+   * handleInsuranceExport) — this side must not reorder, rename or reformat any of it, or the
+   * promise of "exactly the Google Sheet" is broken by the last step.
+   *
+   * .xlsx first because it carries Thai without anyone choosing an encoding. CSV is the fallback for
+   * when the writer cannot be fetched (offline, blocked), and it is written with a BOM: Excel reads
+   * a BOM-less UTF-8 CSV as latin-1 and turns every Thai name into mojibake.
+   */
+  window.A_insuranceExport = async (btn)=>{
+    if(btn){ btn.disabled=true; btn.style.opacity='.5'; }
+    try{
+      const r = await api('insuranceExport');
+      if(!r || !r.headers || !r.headers.length){ toast(EN()?'Nothing to export yet':'ยังไม่มีข้อมูลให้นำออก'); return; }
+      const rows = [r.headers].concat(r.rows||[]);
+      try{ await needXLSX(); }catch(e){}
+      if(window.XLSXMin){ XLSXMin.download(r.filename||'INSURANCE_PCHI.xlsx', rows, r.sheetName||'INSURANCE_PCHI'); }
+      else {
+        const csv = rows.map(row=>row.map(c=>{ const v=String(c==null?'':c);
+          return /[",\n]/.test(v) ? '"'+v.replace(/"/g,'""')+'"' : v; }).join(',')).join('\r\n');
+        const blob = new Blob(['﻿'+csv], {type:'text/csv;charset=utf-8'});   // BOM, or Excel mangles Thai
+        const a=document.createElement('a'); a.href=URL.createObjectURL(blob);
+        a.download=(r.filename||'INSURANCE_PCHI.xlsx').replace(/\.xlsx$/,'.csv');
+        document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(a.href),2000);
+      }
+      confirmSaved((EN()?'Exported ':'นำออกแล้ว ')+(r.count||0)+(EN()?' rows':' รายการ'));
+    }catch(e){ err(e); }
+    finally{ if(btn){ btn.disabled=false; btn.style.opacity=''; } }
+  };
   window.A_insuranceEdit = async (sid)=>{ const st=await api('insuranceStatus',{studentId:sid}); const o=await api('insuranceOptions'); const s=MOCK.students.find(x=>x.StudentID===sid)||{};
     app.innerHTML=`<button class="btn sm outline backbtn" onclick="A_insurance()">${t('c.back')}</button><h2 class="page">🛡️ ${esc(t('ins2.adminEdit'))}</h2>
       <div class="card" style="background:var(--surface-2)"><b>${esc(nm(s))}</b> <span class="pill ${st.filled?'ok':'wait'}">${st.filled?esc(t('ins2.filled')):esc(t('ins2.notFilled'))}</span></div>

@@ -25,6 +25,24 @@ module.exports = function (files, srcDir) {
       }
       return o;
     }
+    /* What the cell SHOWS, as characters — the real API's getDisplayValues().
+     *
+     * The distinction matters to anything that exports: getValues() hands back a Date object for a
+     * date cell, which serialises as an ISO timestamp and is not what the sheet displays. Modelled
+     * the same way decodeCell_ describes Sheets behaving: a midnight Date is a date, anything else
+     * keeps its time, and everything comes back as a string. */
+    getDisplayValues() {
+      const fmt = v => {
+        if (v === null || v === undefined) return '';
+        if (Object.prototype.toString.call(v) === '[object Date]') {
+          const d = v.getFullYear() + '-' + p2(v.getMonth() + 1) + '-' + p2(v.getDate());
+          return (v.getHours() || v.getMinutes() || v.getSeconds())
+            ? d + ' ' + p2(v.getHours()) + ':' + p2(v.getMinutes()) + ':' + p2(v.getSeconds()) : d;
+        }
+        return String(v);
+      };
+      return this.getValues().map(row => row.map(fmt));
+    }
     setValues(v) {
       for (let i = 0; i < v.length; i++) {
         if (!this.s.data[this.r - 1 + i]) this.s.data[this.r - 1 + i] = [];

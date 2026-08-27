@@ -211,6 +211,9 @@ var ROUTES = {
   recomputeContributions: function (p) { return handleRecomputeContributions(p); },  // admin-only, preview-first
   // Day 6 — PCHI insurance (fill-once) + SlipOK slip verification
   insuranceStatus:    function (p) { return handleInsuranceStatus(p); },
+  // the whole PCHI sheet in its own column order, for the insurer — admin-only (it is every child's
+  // national id, date of birth and bank account in one file)
+  insuranceExport:    function ()  { return handleInsuranceExport(); },
   submitInsurance:    function (p) { return handleSubmitInsurance(p); },
   insuranceList:      function ()  { return handleInsuranceList(); },
   saveInsuranceAdmin: function (p) { return handleSaveInsuranceAdmin(p); },
@@ -313,7 +316,7 @@ function applyIdentity_(action, payload, sess) {
     // still correct it, and this list cannot see either of those rules. The engine checks them.
     unlockInjury: 1, deleteInjury: 1,
     editStudentLeave: 1, deleteStudentLeave: 1, deleteStudentLeaves: 1, dedupData: 1, lineDiag: 1,
-    adminInbox: 1, markInboxRead: 1, reinstallTriggers: 1, unlinkStudent: 1, linkParentAdmin: 1, setLeaveQuota: 1, setConfigVal: 1, markSalaryPaid: 1, notifyBills: 1, issueBillsFor: 1, savePlans: 1, saveQRCodes: 1, prepayAudit: 1, recomputeContributions: 1, savePrepayTiers: 1, editPrepay: 1, setStudentPause: 1, setStaffEnd: 1, staffAttendanceMonth: 1, studentMonthReport: 1, recordCashPayment: 1, pausedStudents: 1, deleteSlip: 1, slipDiag: 1, saveSlipOk: 1, cancelPrepay: 1, perfSummary: 1, deletePerfLog: 1, prepaidStudents: 1,
+    adminInbox: 1, markInboxRead: 1, reinstallTriggers: 1, unlinkStudent: 1, linkParentAdmin: 1, setLeaveQuota: 1, setConfigVal: 1, markSalaryPaid: 1, notifyBills: 1, issueBillsFor: 1, savePlans: 1, saveQRCodes: 1, prepayAudit: 1, recomputeContributions: 1, savePrepayTiers: 1, editPrepay: 1, setStudentPause: 1, setStaffEnd: 1, staffAttendanceMonth: 1, studentMonthReport: 1, recordCashPayment: 1, pausedStudents: 1, deleteSlip: 1, slipDiag: 1, saveSlipOk: 1, cancelPrepay: 1, perfSummary: 1, deletePerfLog: 1, prepaidStudents: 1, insuranceExport: 1,
     // Phase 7. The engine handlers already check the caller's role; listing them here as well means a
     // bug in one of those checks still cannot expose survey results or let anyone rewrite the menu.
     // saveFoodMenu is deliberately NOT here: it is the one action an admin can DELEGATE to a
