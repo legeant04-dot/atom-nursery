@@ -19,35 +19,77 @@ function insuranceRecord_(studentId) {
   });
 }
 
+/* THE INSURER'S OWN FORM, COLUMN FOR COLUMN.
+ *
+ * Target: "PCHI Members In-Out Form" -> sheet "Input Data", columns A-X. The school opens the real
+ * template and pastes the block in, so the order and the headings have to be theirs, not ours.
+ *
+ * WHY THESE ARE HARD-CODED, having argued the opposite for our own sheet: this describes SOMEBODY
+ * ELSE'S fixed document. Reading it from our sheet would produce our layout, which is the one thing
+ * it must not be. If Pacific Cross reissues the form, this is the deliberate place to change — and
+ * tools/test_insurance_export.js pins every heading so a silent drift is impossible.
+ *
+ * Verified against the workbook dated 23/02/2026 on 2026-08-27: all 23 data columns (B-X) map onto
+ * a column INSURANCE_PCHI already has, and every dropdown value we offer is one the form accepts.
+ */
+var PCHI_FORM_ = [
+  // [ their Thai heading, their English heading, our column | null = generated ]
+  ['ลำดับ (Auto)', 'No.', null],
+  ['ประเภท', 'Type', 'Type'],
+  ['คำนำหน้า*', 'Title*', 'Title'],
+  ['ชื่อผู้เอาประกันภัย*', 'Insured Name*', 'InsuredName'],
+  ['ชื่อกลางผู้เอาประกันภัย*', 'Insured Middle Name*', 'InsuredMiddleName'],
+  ['นามสกุลผู้เอาประกันภัย*', 'Insured Last Name*', 'InsuredLastName'],
+  ['เพศ*', 'Gender*', 'Gender'],
+  ['เลขที่บัตรประชาชน*', 'ID No.*', 'NationalID'],
+  ['เลขหนังสือเดินทาง*', 'Passport*', 'Passport'],
+  ['ว/ด/ป เกิด*', '/DOB D/M/Y*', 'DOB'],
+  ['สถาน*', 'Status*', 'MemberStatus'],
+  ['สถานภาพการสมรส*', 'Marital Status*', 'MaritalStatus'],
+  ['อาชีพ/ตำแหน่ง*', 'Occupation/Duties*', 'Occupation'],
+  ['วันมีผลบังคับ*', 'Effective date*', 'EffectiveDate'],
+  ['แผนประกัน*', 'Plan*', 'Plan'],
+  ['เบอร์โทรศัพท์มือถือ', 'Mobile no.', 'Mobile'],
+  ['อีเมล์', 'Email Address', 'Email'],
+  ['ชื่อบัญชีธนาคารกรณีเรียกร้องสินไหม', 'Bank Account Name', 'BankAccountName'],
+  ['เลขที่ธนาคารกรณีเรียกร้องสินไหม', 'Bank Account Number', 'BankAccountNumber'],
+  ['รหัสพนักงาน', 'Employee ID', 'EmployeeID'],
+  ['ชื่อผู้รับผลประโยชน์', 'Beneficiary', 'BeneficiaryName'],
+  ['นามสกุลผู้รับผลประโยชน์', 'Beneficiary', 'BeneficiaryLastName'],
+  ['ความสัมพันธ์', 'Relationship', 'BeneficiaryRelationship'],
+  ['หมายเหตุ', 'Remarks', 'Remarks']
+];
+
 /**
- * The whole INSURANCE_PCHI sheet, EXACTLY as the sheet has it. Asked for 2026-08-27: the school
- * sends this to the insurer, who expects their own column layout.
+ * Every filled-in insurance record, laid out as the insurer's form.
  *
- * WHY IT READS THE SHEET AND NOT A LIST OF COLUMN NAMES IN CODE. "Exactly the same as the Google
- * Sheet" cannot be promised by a second copy of the column order — the moment a column is added
- * (and ensureColumns_ adds them on the fly) the export would silently disagree with the thing it
- * claims to mirror. The header row IS the format, so it is read at export time.
+ * ONLY ROWS THE FAMILY HAS ACTUALLY FILLED IN (the school's decision): this is an In-Out form, sent
+ * in batches, not a register. A row of blanks for a child whose parents have not filled the form
+ * would be sent to the insurer as if it were a member.
  *
- * getDisplayValues(), not getValues(): a date cell comes back from getValues() as a Date and would
- * be exported as an ISO timestamp — not what the sheet shows, and not what the insurer's template
- * expects. Display values are literally the characters in the cell.
- *
- * There is deliberately no engine twin. An engine version would have to invent the column order,
- * which is the exact thing this exists to avoid.
+ * Column A is the running number the form calls "(Auto)", and column B is the movement type —
+ * "เข้า", because every row this produces is a member being added.
  */
 function handleInsuranceExport() {
-  var sh = sheet_(getMainSpreadsheet_(), 'INSURANCE_PCHI');
-  var lastRow = sh.getLastRow(), lastCol = sh.getLastColumn();
-  if (!lastCol) return { headers: [], rows: [], count: 0, filename: 'INSURANCE_PCHI.xlsx' };
-  var headers = sh.getRange(1, 1, 1, lastCol).getDisplayValues()[0];
-  var rows = lastRow > 1 ? sh.getRange(2, 1, lastRow - 1, lastCol).getDisplayValues() : [];
-  // guarded the same way Checkin.gs does: file order is not guaranteed in Apps Script
+  var recs = readObjects_(sheet_(getMainSpreadsheet_(), 'INSURANCE_PCHI'))
+    .filter(function (r) { return r && String(r.InsuredName || '').trim(); });
+  var thai = [], eng = [];
+  PCHI_FORM_.forEach(function (c) { thai.push(c[0]); eng.push(c[1]); });
+  var rows = recs.map(function (r, i) {
+    return PCHI_FORM_.map(function (c, ci) {
+      if (ci === 0) return i + 1;                       // ลำดับ (Auto)
+      if (c[2] === 'Type') return String(r.Type || '').trim() || 'เข้า';
+      var v = r[c[2]];
+      if (c[2] === 'DOB' || c[2] === 'EffectiveDate') return insDate_(v);
+      return (v === null || v === undefined) ? '' : String(v);
+    });
+  });
   var tz = (typeof ssTz_ === 'function') ? ssTz_() : 'Asia/Bangkok';
   var stamp = Utilities.formatDate(new Date(), tz, 'yyyy-MM-dd');
   return {
-    headers: headers, rows: rows, count: rows.length,
-    filename: 'INSURANCE_PCHI_' + stamp + '.xlsx',
-    sheetName: 'INSURANCE_PCHI'
+    headers: thai, headersEN: eng, rows: rows, count: rows.length,
+    filename: 'PCHI_Members_In-Out_' + stamp + '.xlsx',
+    sheetName: 'Input Data'
   };
 }
 

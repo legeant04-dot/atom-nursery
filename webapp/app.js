@@ -112,7 +112,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.292'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.293'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -1964,34 +1964,34 @@
   // Bank dropdown for the claim account (PCHI Setting!P "BANK CODE"). The stored value is
   // "<code>: <Thai name>" — the format the insurer's own form uses; the EN label is display-only.
   // A pre-existing value that isn't in the list is kept as an option so an edit never silently drops it.
-  const insBankSel=(id,label,banks,val)=>{ const list=(banks||[]).map(b=>({v:b.code+': '+b.th, l:b.code+': '+(EN()?b.en:b.th)}));
+  const insBankSel=(id,label,banks,val,req)=>{ const list=(banks||[]).map(b=>({v:b.code+': '+b.th, l:b.code+': '+(EN()?b.en:b.th)}));
     const cur=String(val||''); if(cur && !list.some(x=>x.v===cur)) list.unshift({v:cur,l:cur});
-    return `<label class="field"><span>${esc(label)}</span><select id="ins_${id}"><option value=""></option>${
+    return `<label class="field"><span>${esc(label)}${req?' *':''}</span><select id="ins_${id}"><option value=""></option>${
       list.map(x=>`<option value="${esc(x.v)}" ${cur===x.v?'selected':''}>${esc(x.l)}</option>`).join('')}</select></label>`; };
   function insuranceFormHTML(o,s,rec){ rec=rec||{}; const g=s.Gender==='M'?'Male':s.Gender==='F'?'Female':'';
     return `<div class="card"><h3>👶 ${esc(t('inj.child'))}</h3>
-      <div class="grid2">${insSel('Title',t('ins2.titlePre'),o.Titles,rec.Title,1)}${insSel('MemberStatus',t('ins2.memberStatus'),o.MemberStatuses,rec.MemberStatus||'Child')}</div>
+      <div class="grid2">${insSel('Title',t('ins2.titlePre'),o.Titles,rec.Title,1)}${insSel('MemberStatus',t('ins2.memberStatus'),o.MemberStatuses,rec.MemberStatus||'Child',1)}</div>
       <div class="grid2">${insInp('InsuredName',t('ins2.fname'),rec.InsuredName||s.NameEN||s.NameTH,'',1)}${insInp('InsuredMiddleName',t('ins2.mname'),rec.InsuredMiddleName)}</div>
       <div class="grid2">${insInp('InsuredLastName',t('ins2.lname'),rec.InsuredLastName,'',1)}${insSel('Gender',t('ins2.gender'),o.Genders,rec.Gender||g,1)}</div>
       <div class="grid2">${insInp('NationalID',t('ins2.nid'),rec.NationalID||s.NationalID,'',1)}${insInp('Passport',t('ins2.passport'),rec.Passport)}</div>
-      <div class="grid2">${insInp('DOB',t('ins2.dob'),rec.DOB||s.DOB,'date',1)}${insSel('MaritalStatus',t('ins2.marital'),o.MaritalStatuses,rec.MaritalStatus||'Single')}</div>
+      <div class="grid2">${insInp('DOB',t('ins2.dob'),rec.DOB||s.DOB,'date',1)}${insSel('MaritalStatus',t('ins2.marital'),o.MaritalStatuses,rec.MaritalStatus||'Single',1)}</div>
       ${/* THE INSURER FILLS THESE IN, NOT THE FAMILY.
              แผนประกัน and วันมีผลบังคับ are decided by the school and the insurer AFTER the form is
              submitted — a parent has no way to know either of them. Marking them required meant the
              form could not be saved at all until somebody invented an answer, which is worse than
              leaving them blank: an invented plan is a wrong plan on a real policy.
              The Admin fills them in later from ดำเนินการ → ข้อมูลประกัน. Asked 2026-08-27. */''}
-      <div class="grid2">${insInp('Occupation',t('ins2.occupation'),rec.Occupation)}${insInp('EffectiveDate',t('ins2.effective'),rec.EffectiveDate,'date')}</div>
+      <div class="grid2">${insInp('Occupation',t('ins2.occupation'),rec.Occupation||(EN()?'Student':'นักเรียน'),'',1)}${insInp('EffectiveDate',t('ins2.effective'),rec.EffectiveDate,'date')}</div>
       ${insSel('Plan',t('ins2.plan'),o.Plans,rec.Plan)}
       <small class="muted" style="display:block;margin-top:2px">${EN()
         ? 'Plan and effective date are completed by the school — leave them blank.'
         : 'แผนประกันและวันมีผลบังคับ ทางโรงเรียนจะเป็นผู้กรอกให้ ไม่ต้องกรอกเองค่ะ'}</small></div>
     <div class="card"><h3>📞 ${esc(t('ins2.mobile'))} / ${esc(t('ins2.bankName'))}</h3>
-      <div class="grid2">${insInp('Mobile',t('ins2.mobile'),rec.Mobile)}${insInp('Email',t('ins2.email'),rec.Email)}</div>
-      <div class="grid2">${insBankSel('BankAccountName',t('ins2.bankName'),o.Banks,rec.BankAccountName)}${insInp('BankAccountNumber',t('ins2.bankNo'),rec.BankAccountNumber)}</div></div>
+      <div class="grid2">${insInp('Mobile',t('ins2.mobile'),rec.Mobile,'',1)}${insInp('Email',t('ins2.email'),rec.Email,'',1)}</div>
+      <div class="grid2">${insBankSel('BankAccountName',t('ins2.bankName'),o.Banks,rec.BankAccountName,1)}${insInp('BankAccountNumber',t('ins2.bankNo'),rec.BankAccountNumber,'',1)}</div></div>
     <div class="card"><h3>🧑‍🤝‍🧑 ${esc(t('ins2.beneName'))}</h3>
-      <div class="grid2">${insInp('BeneficiaryName',t('ins2.beneName'),rec.BeneficiaryName)}${insInp('BeneficiaryLastName',t('ins2.beneLast'),rec.BeneficiaryLastName)}</div>
-      ${insSel('BeneficiaryRelationship',t('ins2.beneRel'),o.Relationships,rec.BeneficiaryRelationship)}
+      <div class="grid2">${insInp('BeneficiaryName',t('ins2.beneName'),rec.BeneficiaryName,'',1)}${insInp('BeneficiaryLastName',t('ins2.beneLast'),rec.BeneficiaryLastName,'',1)}</div>
+      ${insSel('BeneficiaryRelationship',t('ins2.beneRel'),o.Relationships,rec.BeneficiaryRelationship,1)}
       <label class="field"><span>${esc(t('ins2.remarks'))}</span><textarea id="ins_Remarks">${esc(rec.Remarks||'')}</textarea></label></div>`; }
   function readInsuranceForm(){ const keys=['Title','MemberStatus','InsuredName','InsuredMiddleName','InsuredLastName','Gender','NationalID','Passport','DOB','MaritalStatus','Occupation','EffectiveDate','Plan','Mobile','Email','BankAccountName','BankAccountNumber','BeneficiaryName','BeneficiaryLastName','BeneficiaryRelationship','Remarks'];
     const d={}; keys.forEach(k=>{ const e=document.getElementById('ins_'+k); if(e)d[k]=e.value.trim(); }); return d; }
@@ -2001,7 +2001,30 @@
    * not a guess worth leaving open. Blank stays blank rather than becoming today's date, which is
    * what ddmmyyyy() does with an empty string. */
   const insDay = v => { const t=String(v==null?'':v).trim(); return t ? ddmmyyyy(t.slice(0,10)) : ''; };
-  function insValid(d){ return d.Title&&d.InsuredName&&d.InsuredLastName; }
+  /* WHAT THE INSURER'S OWN FORM DEMANDS, in the school's reading of it.
+   *
+   * Taken from "PCHI Members In-Out Form" -> sheet "Input Data", columns C-M / P-S / U-W, as the
+   * school instructed on 2026-08-27. Two deliberate departures from that workbook's own colour
+   * coding, both the school's call:
+   *   - E (ชื่อกลาง) and I (เลขหนังสือเดินทาง) are coloured MANDATORY there and are not required
+   *     here: most Thai children have neither.
+   *   - N (วันมีผลบังคับ) and O (แผนประกัน) are coloured MANDATORY there and are not asked of the
+   *     family at all: the school and the insurer settle them after the form is handed in.
+   *
+   * A LIST, not a chain of &&, so the message can name what is missing. Sixteen required fields and
+   * a flat "please fill the required fields" is a puzzle, not an error message.
+   */
+  const INS_REQUIRED = [
+    ['Title','ins2.titlePre'], ['InsuredName','ins2.fname'], ['InsuredLastName','ins2.lname'],
+    ['Gender','ins2.gender'], ['NationalID','ins2.nid'], ['DOB','ins2.dob'],
+    ['MemberStatus','ins2.memberStatus'], ['MaritalStatus','ins2.marital'], ['Occupation','ins2.occupation'],
+    ['Mobile','ins2.mobile'], ['Email','ins2.email'],
+    ['BankAccountName','ins2.bankName'], ['BankAccountNumber','ins2.bankNo'],
+    ['BeneficiaryName','ins2.beneName'], ['BeneficiaryLastName','ins2.beneLast'],
+    ['BeneficiaryRelationship','ins2.beneRel']
+  ];
+  const insMissing = d => INS_REQUIRED.filter(x => !String((d&&d[x[0]])||'').trim()).map(x => t(x[1]));
+  function insValid(d){ return insMissing(d).length === 0; }
   // parent: fill once / view if already filled
   window.P_insurance = async (sid)=>{ const st=await api('insuranceStatus',{studentId:sid}); const o=await api('insuranceOptions'); const s=MOCK.students.find(x=>x.StudentID===sid)||{};
     if(st.filled){ const r=st.record;
@@ -2014,7 +2037,7 @@
       <div class="card" style="background:var(--surface-2)"><small class="muted">${esc(t('ins2.note'))}</small></div>
       ${insuranceFormHTML(o,s,null)}
       <div class="savedock"><button class="btn block" onclick="P_insuranceSave('${sid}')">${esc(t('ins2.save'))}</button></div>`; window.scrollTo(0,0); };
-  window.P_insuranceSave = async (sid)=>{ const d=readInsuranceForm(); if(!insValid(d)){toast(t('ins2.required'));return;}
+  window.P_insuranceSave = async (sid)=>{ const d=readInsuranceForm(); const _miss=insMissing(d); if(_miss.length){toast(t('ins2.required')+': '+_miss.slice(0,4).join(', ')+(_miss.length>4?' …(+'+(_miss.length-4)+')':''), 5000);return;}
     try{ await api('submitInsurance',{studentId:sid,parentId:USER.parentId,uid:USER.uid,data:d}); confirmSaved(t('ins2.saved')); GO('home'); }catch(e){err(e);} };
 
   /**
@@ -6966,7 +6989,10 @@
     try{
       const r = await api('insuranceExport');
       if(!r || !r.headers || !r.headers.length){ toast(EN()?'Nothing to export yet':'ยังไม่มีข้อมูลให้นำออก'); return; }
-      const rows = [r.headers].concat(r.rows||[]);
+      /* BOTH header rows, Thai then English, exactly as the insurer's sheet has them — so the block
+       * lines up when it is pasted into their real template and the school can see at a glance that
+       * column M really is อาชีพ/ตำแหน่ง and not something one place along. */
+      const rows = [r.headers].concat(r.headersEN ? [r.headersEN] : []).concat(r.rows||[]);
       try{ await needXLSX(); }catch(e){}
       if(window.XLSXMin){ XLSXMin.download(r.filename||'INSURANCE_PCHI.xlsx', rows, r.sheetName||'INSURANCE_PCHI'); }
       else {
@@ -6986,7 +7012,7 @@
       <div class="card" style="background:var(--surface-2)"><b>${esc(nm(s))}</b> <span class="pill ${st.filled?'ok':'wait'}">${st.filled?esc(t('ins2.filled')):esc(t('ins2.notFilled'))}</span></div>
       ${insuranceFormHTML(o,s,st.record)}
       <button class="btn block" onclick="A_insuranceSave('${sid}')">${esc(t('c.save'))}</button>`; window.scrollTo(0,0); };
-  window.A_insuranceSave = async (sid)=>{ const d=readInsuranceForm(); if(!insValid(d)){toast(t('ins2.required'));return;}
+  window.A_insuranceSave = async (sid)=>{ const d=readInsuranceForm(); const _miss=insMissing(d); if(_miss.length){toast(t('ins2.required')+': '+_miss.slice(0,4).join(', ')+(_miss.length>4?' …(+'+(_miss.length-4)+')':''), 5000);return;}
     try{ await api('saveInsuranceAdmin',{studentId:sid,adminId:USER.staffId,data:d}); confirmSaved(t('c.saved')); A_insurance(); }catch(e){err(e);} };
 
   // ---- Admin: activity log (who did what) ----
