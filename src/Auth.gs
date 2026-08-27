@@ -120,11 +120,32 @@ function handleAuth(payload) {
       } catch (e) {}
     }
     logAudit(uid, 'LOGIN', 'PARENTS', par.ParentID);
+    /* THE HOME SCREEN RIDES BACK WITH THE SIGN-IN.
+     *
+     * Signing in cost the parent TWO Apps Script executions, one after the other: auth, and then the
+     * home screen. Apps Script runs one at a time per user, so that is two full waits stacked, and
+     * it is most of what "ใช้เวลาสักพักกว่าจะเข้าถึงหน้าหลัก" actually was (2026-08-27).
+     *
+     * This execution has already hydrated the sheets and already knows who they are, so building the
+     * home payload here costs a little CPU and saves an entire round trip — the expensive part is
+     * the platform overhead, not the work.
+     *
+     * It is BEST-EFFORT on purpose: if anything in it throws, the parent must still be signed in.
+     * The client falls back to fetching the screen itself when `home` is absent, which is also what
+     * happens on every later visit to the home screen.
+     */
+    var _home = null;
+    try {
+      if (typeof engineDispatch_ === 'function') {
+        _home = engineDispatch_('parentHome', { uid: uid, parentId: par.ParentID, role: ROLES.PARENT });
+      }
+    } catch (e) { _home = null; }
     return {
       userId: par.ParentID, role: ROLES.PARENT, linkedId: par.ParentID, status: USER_STATUS.ACTIVE,
       mustChangePassword: false,
       displayName: displayName || par.NameEN || par.Name || '', pictureUrl: pictureUrl,
-      token: issueSession_(uid, ROLES.PARENT, par.ParentID)
+      token: issueSession_(uid, ROLES.PARENT, par.ParentID),
+      home: _home
     };
   }
 

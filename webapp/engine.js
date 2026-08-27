@@ -4079,7 +4079,18 @@ function createAtomAPI(M, GROWTH_STD) {
      */
     opsPending: p => { const ap=staffById(p&&p.staffId); if(!adminLike_(ap))fail('NO_PERMISSION','เฉพาะแอดมิน');
       const pend=s=>{ const u=String(s||'').toUpperCase(); return u==='PENDING'||u.indexOf('PENDING_')===0; };
-      const ot=(M.otRecords||[]).filter(r=>String(r.Status||'').toUpperCase()==='PENDING');
+      /* AN OT ROW IS NEVER JUST "PENDING".
+       *
+       * A late check-out creates it as PENDING_LEADER (or PENDING_ADMIN when the person IS the
+       * leader — Checkin.gs), and the leader's approval moves it to PENDING_ADMIN. This line asked
+       * for an exact 'PENDING', so both OT badges were permanently zero: a request arrived one
+       * morning, sat in the queue all day, and the screen said nothing at all (reported 2026-08-27).
+       *
+       * The `pend` helper directly above already knew this and was used for the OTHER three counts.
+       * Using it here too is the fix; the test that let this through had invented a status the
+       * system does not produce, which is why it passed.
+       */
+      const ot=(M.otRecords||[]).filter(r=>pend(r.Status));
       const o={
         // a teacher's OT and a holiday OT are approved on two different screens, so they are two counts
         staffOT:      ot.filter(r=>!isHolidayOT_(r)).length,

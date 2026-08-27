@@ -66,13 +66,25 @@ function boot(over) {
   ctx.window = ctx; vm.createContext(ctx); vm.runInContext(eng, ctx);
   return ctx.createAtomAPI(M, {}).H;
 }
+/* THE STATUSES THE SYSTEM ACTUALLY PRODUCES.
+ *
+ * An OT row is born PENDING_LEADER on a late check-out, or PENDING_ADMIN when the person IS the
+ * leader (src/Checkin.gs), and the leader's approval moves it to PENDING_ADMIN (src/OtStaff.gs).
+ * There is no plain 'PENDING' anywhere in that chain.
+ *
+ * The first version of this file used 'PENDING' — a status nothing writes — so the test passed
+ * against a handler that filtered for exactly that, and the live badge stayed at zero while a real
+ * request sat unanswered all morning. A fixture that invents its inputs proves nothing about the
+ * system; these are read off the code that writes the rows. */
 const OT = (id, st, hol) => ({ OTRecordID: id, StaffID: 'T1', Date: '2026-08-22', Status: st,
   Hours: hol ? 0 : 2, Amount: 500, Kind: hol ? 'HOLIDAY' : '', Note: hol ? 'มาทำงานวันหยุด' : '' });
 
 console.log('\n1) what is waiting, counted once');
 {
   const H = boot({
-    otRecords: [OT('OT1', 'PENDING'), OT('OT2', 'APPROVED'), OT('OT3', 'REJECTED'), OT('OT4', 'PENDING', true)],
+    // PENDING_LEADER = just created; PENDING_ADMIN = the leader has approved it. Both are waiting.
+    otRecords: [OT('OT1', 'PENDING_LEADER'), OT('OT2', 'APPROVED'), OT('OT3', 'REJECTED'),
+                OT('OT4', 'PENDING_ADMIN', true), OT('OT5', 'PENDING_ADMIN')],
     attendanceReq: [{ ReqID: 'R1', Status: 'PENDING_ADMIN' }, { ReqID: 'R2', Status: 'PENDING_LEADER' },
                     { ReqID: 'R3', Status: 'APPROVED' }],
     classChangeReq: [{ ReqID: 'C1', Status: 'PENDING_ADMIN' }, { ReqID: 'C2', Status: 'APPROVED' }],
@@ -84,14 +96,24 @@ console.log('\n1) what is waiting, counted once');
   const o = H.opsPending({ staffId: 'ADM' });
   // the example from the request: "คำขอลงเวลาคุณครู มี 2 รายการที่รอ Admin อนุมัติ"
   eq('time requests — both stages, because both are still unanswered', o.timeRequests, 2);
-  eq('teacher OT and holiday OT are counted apart', [o.staffOT, o.holidayOT], [1, 1]);
+  /* Both stages count: a row waiting on the leader and a row waiting on the admin are both work
+   * nobody has finished. OT5 is PENDING_ADMIN, OT1 is PENDING_LEADER — two teacher-OT rows. */
+  eq('teacher OT and holiday OT are counted apart', [o.staffOT, o.holidayOT], [2, 1]);
+  eq('...and BOTH pending stages are counted, not just one',
+    [['PENDING_LEADER', 'PENDING_ADMIN', 'PENDING'].map(st => {
+      const H2 = boot({ otRecords: [OT('X', st)] }); return H2.opsPending({ staffId: 'ADM' }).staffOT;
+    })], [[1, 1, 1]]);
+  eq('...while a decided one is not', [['APPROVED', 'REJECTED', ''].map(st => {
+    const H2 = boot({ otRecords: [OT('X', st)] }); return H2.opsPending({ staffId: 'ADM' }).staffOT;
+  })], [[0, 0, 0]]);
   eq('class-change requests', o.classChanges, 1);
   eq('leave requests', o.leaves, 1);
   /* A STUDENT OT THAT IS SIMPLY UNPAID IS WAITING FOR A PARENT, not for the admin. Counting it would
    * put a red number on this screen permanently, which is how people learn to stop seeing them. A
    * SUBMITTED SLIP is the admin's move, and it is the only one counted. */
   eq('only the slip waiting to be checked', o.studentOT, 1);
-  eq('and a total, so the bell can add one number', o.total, 1 + 1 + 2 + 1 + 1 + 1);
+  //                                              staffOT + holidayOT + time + class + studentOT + leave
+  eq('and a total, so the bell can add one number', o.total, 2 + 1 + 2 + 1 + 1 + 1);
 }
 {
   // a quiet morning must produce nothing at all, not a row of grey zeroes

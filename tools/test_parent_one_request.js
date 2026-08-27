@@ -151,7 +151,14 @@ console.log('\n5) the screen really does make one request');
   // counted on api('…') — a bare "api()" in prose is a comment, and matching it was this test
   // failing on the very sentence that says there is no second call
   eq('exactly one api() call on the whole screen', (home.match(/api\('/g) || []).length, 1);
-  ok_('...and it is parentHome', /const HOME = await api\('parentHome', parentScope\(\)\);/.test(home));
+  ok_('...and it is parentHome', /const HOME = window\._BOOT_HOME \|\| await api\('parentHome', parentScope\(\)\);/.test(home));
+  /* …and on the very first render there is no request at all: signing in already returned the whole
+   * screen (handleAuth), which removes the SECOND Apps Script execution from the login path. It is
+   * consumed once — a parent must not be looking at their morning for the rest of the day. */
+  ok_('the sign-in hands the screen over, so the first render is free', /window\._BOOT_HOME = null;/.test(home));
+  ok_('...and the server really sends it', /home: _home/.test(R('src/Auth.gs')));
+  ok_('...built from the same composite, not a second copy', /engineDispatch_\('parentHome'/.test(R('src/Auth.gs')));
+  ok_('...and a failure there still signs them in', /catch \(e\) \{ _home = null; \}/.test(R('src/Auth.gs')));
   // the things that used to be separate trips are now read out of that one answer
   ['HOME.insurance', 'HOME.surveys', 'HOME.checkins', 'HOME.leaves', 'HOME.due', 'HOME.schoolDay']
     .forEach(f => ok_(`${f} comes from the same reply`, home.indexOf(f) >= 0));
