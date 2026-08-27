@@ -27,3 +27,8 @@ dist_pages/
 *.p12
 *.jks
 *.keystore
+
+# Google account backup codes — a CREDENTIAL. Was committed to this PUBLIC repo on 2026-06-22
+# and removed 2026-08-27. Never put one here again; the file now lives outside the repo.
+Backup codes.pdf
+*ackup*code*

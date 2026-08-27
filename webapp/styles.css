@@ -414,6 +414,10 @@ html,body{max-width:100%;overflow-x:hidden;}
 #busyOverlay.ok .busy-spin{display:none;}
 #busyOverlay.ok .busy-check{display:block;animation:busyPop .25s ease-out;}
 #busyOverlay.ok .busy-txt{color:var(--ok);}
+/* the sign-in-with-LINE wait — reuses busySpin rather than adding a second spinner animation, so
+   the two never drift into looking like different things happening */
+.authspin{width:34px;height:34px;margin:6px auto 0;border:3px solid var(--line);border-top-color:#06C755;
+  border-radius:50%;animation:busySpin .8s linear infinite;}
 @keyframes busySpin{to{transform:rotate(360deg);}}
 @keyframes busyPop{0%{transform:scale(.4);opacity:0;}100%{transform:scale(1);opacity:1;}}
 
