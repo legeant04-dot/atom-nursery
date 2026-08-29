@@ -112,7 +112,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.298'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.299'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -7486,6 +7486,9 @@
         <label class="field"><span>${EN()?'School match (× staff share)':'โรงเรียนสมทบ (เท่าของยอดหักพนักงาน)'}</span><input id="setMatch" type="number" min="0" step="0.1" value="${esc(sc.ContributionMatchRate!=null?sc.ContributionMatchRate:1)}"/></label></div>
       <p class="muted" style="font-size:13px">${EN()?'Match 1 = deduct 200 from staff, school adds 200, fund grows 400.':'สมทบ 1 เท่า = หักพนักงาน 200 · โรงเรียนสมทบ 200 · เข้ากองทุน 400'}</p>
       <button class="btn sm outline block" onclick="A_contribRecalc(this)">🧮 ${EN()?'Review accumulated fund totals':'ตรวจยอดเงินสมทบสะสมของทุกคน'}</button>
+      ${/* Below the recompute, because it is the answer when recomputing is not: a total built from
+           wrong monthly figures is rebuilt wrong, and the only fix is to start again. */''}
+      <button class="btn sm outline block" style="margin-top:4px" onclick="A_contribReset(this)">♻️ ${EN()?'Reset one person’s fund to zero':'ล้างเงินสมทบของพนักงาน 1 คน'}</button>
       <h4 style="margin:6px 0">🔍 ${EN()?'Slip verification (SlipOK)':'การตรวจสลิป (SlipOK)'}</h4>
       <button class="btn sm outline block" onclick="A_slipDiag(this)">${EN()?'Check whether slip verification is working':'ตรวจว่าระบบตรวจสลิปทำงานอยู่ไหม'}</button>
       <h4 style="margin:6px 0">⚡ ${EN()?'System speed & errors':'ความเร็วและข้อผิดพลาดของระบบ'}</h4>
@@ -7531,6 +7534,80 @@
       const m=btn.closest('.modal'); if(m)m.remove();
       confirmSaved(EN()?`Updated ${r.written} staff`:`บันทึกแล้ว ${r.written} คน`);
     }catch(e){err(e);}finally{ if(btn)btn.disabled=false; } };
+
+  /* ---- start ONE person's provident fund again from zero ---------------------------------------
+   *
+   * A running total built from wrong monthly figures cannot be "corrected": every month compounds
+   * the last, and recomputeContributions above rebuilds the total FROM those same rows, so leaving
+   * them alone would put the wrong answer straight back. The only honest fix is zero and re-enter.
+   *
+   * THREE THINGS THIS SCREEN HAS TO DO, because it deletes real money figures:
+   *   · show the exact numbers BEFORE anything is written, month by month;
+   *   · say out loud that a slip already sent will stop matching the paper the teacher was handed —
+   *     เงินสมทบ is a DEDUCTION, so removing it RAISES that month's net pay;
+   *   · make the second press a different press, with the person's name typed into it.
+   * The server takes a full backup of both workbooks before its first write (handleContributionReset).
+   */
+  window.A_contribReset=async(btn)=>{
+    const staff=(A_CACHE.staff&&A_CACHE.staff.length)?A_CACHE.staff:(await api('listStaff'));
+    A_CACHE.staff=staff;
+    modal(`<h3>♻️ ${EN()?'Reset one person’s provident fund':'ล้างเงินสมทบของพนักงาน 1 คน'}</h3>
+      <p class="muted" style="font-size:13px">${EN()
+        ? 'Sets the opening balance and every stored monthly contribution back to zero, so the figures can be entered again from scratch. One person only. Nothing is written until you have seen the numbers.'
+        : 'ตั้งยอดยกมาและเงินสมทบของทุกเดือนที่บันทึกไว้กลับเป็น 0 เพื่อเริ่มใส่ข้อมูลใหม่ให้ถูกต้อง · ทำได้ทีละ 1 คน · ระบบจะยังไม่เขียนอะไรจนกว่าคุณจะเห็นตัวเลขก่อน'}</p>
+      <label class="field"><span>${EN()?'Staff':'พนักงาน'}</span><select id="crStaff">${
+        staff.map(s=>`<option value="${esc(s.StaffID)}">${esc(nmn(s))} — ${esc(s.StaffID)}</option>`).join('')}</select></label>
+      <button class="btn block" onclick="A_contribResetPreview(this)">🔍 ${EN()?'Show me the numbers first':'ดูตัวเลขก่อน'}</button>`);
+  };
+  window.A_contribResetPreview=async(btn)=>{ const m=btn.closest('.modal');
+    const sid=(m.querySelector('#crStaff')||{}).value; if(!sid) return;
+    if(btn)btn.disabled=true;
+    try{ const r=await api('contributionReset',{staffId:sid,adminId:USER.staffId});
+      const rows=(r.months||[]).map(x=>`<tr><td>${esc(monthNameYear(x.month))}${String(x.slipSent).toUpperCase()==='YES'?' <small class="muted">📤</small>':''}</td>
+        <td style="text-align:right">${baht(x.contribution)}<br><small class="muted">+${baht(x.contributionEmployer)}</small></td>
+        <td style="text-align:right">${baht(x.netPay)}</td>
+        <td style="text-align:right;color:var(--warn)"><b>${baht(x.newNetPay)}</b>${x.netPayChange?`<br><small>+${baht(x.netPayChange)}</small>`:''}</td></tr>`).join('');
+      m.innerHTML=`<div class="sheet" role="dialog" aria-modal="true" tabindex="-1">
+        <h3>♻️ ${esc(r.name)}</h3>
+        <div class="card" style="background:var(--surface-2);padding:10px">
+          <div class="spread"><span>${EN()?'Opening balance':'ยอดยกมา'}</span><b>${baht(r.before.opening)}</b></div>
+          <div class="spread"><span>${EN()?'Accumulated total':'ยอดสะสมรวม'}</span><b>${baht(r.before.accum)}</b></div>
+          <div class="spread"><span>${EN()?'Payslip months on file':'สลิปที่บันทึกไว้'}</span><b>${r.before.payrollRows}</b></div>
+          <div class="spread"><span>${EN()?'Deducted from staff / matched by school':'หักพนักงาน / โรงเรียนสมทบ'}</span><b>${baht(r.before.sumEmployee)} / ${baht(r.before.sumEmployer)}</b></div>
+          <div class="spread" style="border-top:1px solid var(--line);margin-top:6px;padding-top:6px"><span><b>${EN()?'After the reset':'หลังล้าง'}</b></span><b style="color:var(--ok)">0</b></div></div>
+        ${r.before.payrollRows?`<table style="width:100%;font-size:13px;border-collapse:collapse">
+          <thead><tr><th style="text-align:left">${EN()?'Month':'เดือน'}</th><th style="text-align:right">${EN()?'Fund':'เงินสมทบ'}</th><th style="text-align:right">${EN()?'Net now':'สุทธิเดิม'}</th><th style="text-align:right">${EN()?'Net after':'สุทธิใหม่'}</th></tr></thead>
+          <tbody>${rows}</tbody></table>`:''}
+        ${/* THE PART THAT MUST NOT BE BURIED. เงินสมทบ is a deduction, so removing it RAISES the net
+             pay on a slip that has already been printed and handed over. */''}
+        ${r.slipsAlreadySent?`<div class="card" style="background:var(--bad-bg);border-color:var(--bad-line);padding:10px;margin-top:8px">
+          <b style="color:var(--bad)">⚠️ ${EN()?'Slips already sent':'มีสลิปที่ส่งให้พนักงานไปแล้ว'}: ${r.slipsAlreadySent}</b>
+          <br><small>${EN()
+            ? 'เงินสมทบ is a deduction, so removing it RAISES the net pay on those months. The recalculated slip will no longer match the paper copy the teacher was given.'
+            : 'เงินสมทบเป็นรายการหัก · เมื่อล้างออก ยอดสุทธิของเดือนนั้นจะเพิ่มขึ้น และสลิปที่คำนวณใหม่จะไม่ตรงกับกระดาษที่ส่งให้คุณครูไปแล้ว'}</small></div>`:''}
+        <div class="card" style="background:var(--warn-bg);border-color:var(--warn-line);padding:10px">
+          <small>💾 ${EN()?'A full backup of both workbooks is taken before anything is written. If the backup fails, nothing changes.'
+            :'ระบบจะสำรองข้อมูลทั้ง 2 ไฟล์ก่อนเขียนทับ · หากสำรองไม่สำเร็จ จะไม่มีการแก้ไขใดๆ เลย'}</small></div>
+        ${/* The confirmation is the NAME, not the word "yes": a person typing "ครูจอย" cannot be
+             halfway through resetting somebody else by accident. */''}
+        <label class="field"><span>${EN()?'Type the name to confirm':'พิมพ์ชื่อเพื่อยืนยัน'}: <b>${esc(r.name)}</b></span><input id="crConfirm" autocomplete="off"/></label>
+        <button class="btn block pink" onclick="A_contribResetApply(this,'${esc(sid)}','${esc(r.name)}')">♻️ ${EN()?'Reset to zero':'ล้างเป็น 0'}</button>
+        <button class="btn outline block" style="margin-top:8px" onclick="this.closest('.modal').remove()">${esc(t('c.close'))}</button></div>`;
+    }catch(e){err(e); if(btn)btn.disabled=false;} };
+  window.A_contribResetApply=async(btn,sid,name)=>{ const m=btn.closest('.modal');
+    const typed=String((m.querySelector('#crConfirm')||{}).value||'').trim();
+    if(typed!==String(name).trim()){ toast(EN()?'Type the name exactly to confirm':'กรุณาพิมพ์ชื่อให้ตรงเพื่อยืนยัน'); return; }
+    if(btn){ btn.disabled=true; btn.textContent='⏳ '+(EN()?'Backing up…':'กำลังสำรองข้อมูล…'); }
+    try{ const r=await api('contributionReset',{staffId:sid,confirm:true,adminId:USER.staffId});
+      m.remove();
+      modal(`<h3>✅ ${esc(r.name)}</h3>
+        <div class="card" style="background:var(--ok-bg);border-color:var(--ok-line);padding:10px">
+          <div class="spread"><span>${EN()?'Opening balance':'ยอดยกมา'}</span><b>${baht(r.after.opening)}</b></div>
+          <div class="spread"><span>${EN()?'Accumulated total':'ยอดสะสมรวม'}</span><b>${baht(r.after.accum)}</b></div>
+          <div class="spread"><span>${EN()?'Monthly contributions cleared':'ล้างเงินสมทบรายเดือน'}</span><b>${r.before.payrollRows} ${EN()?'months':'เดือน'}</b></div></div>
+        <small class="muted">💾 ${EN()?'Backup taken before the change':'สำรองข้อมูลก่อนแก้ไขเรียบร้อย'} · ${esc(JSON.stringify(r.backup||{}))}</small>
+        <button class="btn outline block" style="margin-top:8px" onclick="this.closest('.modal').remove()">${esc(t('c.close'))}</button>`);
+    }catch(e){ err(e); if(btn){ btn.disabled=false; btn.textContent='♻️ '+(EN()?'Reset to zero':'ล้างเป็น 0'); } } };
 
   // ---- "is slip verification actually working?" ------------------------------------------------
   // A slip marked ⚠ is SlipOK's VERDICT, not a broken connection — it read the slip (that is where the
