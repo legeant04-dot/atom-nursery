@@ -666,3 +666,162 @@ function handleContributionReset(p) {
   };
   return out;
 }
+
+/**
+ * MORE THAN ONE PAYSLIP FOR ONE PERSON IN ONE MONTH — find them, and say which one to keep.
+ *
+ * Turned up on live data 2026-08-29: ครูจอย had FOUR rows for กรกฎาคม 2569. computePayroll upserts on
+ * StaffID+Month, so it cannot produce these on its own — they predate it, or arrived another way —
+ * but whatever made them, THE READERS DISAGREE about what to do with them, and that is the part that
+ * matters:
+ *
+ *   financeSummary   .find()   -> the month's salary expense is whichever row is FIRST in the sheet
+ *   getPayslip       .find()   -> the slip printed is that same arbitrary row
+ *   markSalaryPaid   .find()   -> so is the row the "paid" tick lands on
+ *   the slip list    .filter() -> prints FOUR slips for one teacher for one month
+ *   recomputeContributions     -> sums the fund from EVERY duplicate
+ *   otCarryOver_               -> sums OT paid across every duplicate, so carry-over is wrong
+ *
+ * So it is not simply "counted twice": some totals double-count and others are decided by row order.
+ * Both are worse than an error, because neither says anything.
+ *
+ * READ-ONLY. It suggests a keeper and explains why; it deletes nothing (see handleDeletePayrollRow).
+ */
+/* A date / stamp from a payroll cell, made readable. Local to this file on purpose: Payroll.gs had
+ * been reaching for insDate_ and insStamp_, which live in the INSURANCE module — it works on GAS
+ * (one shared scope) and breaks the moment anything loads Payroll.gs without Day6.gs, which is
+ * exactly what the test harness does. A payroll file should not depend on the insurance file to
+ * print a date. */
+function payDate_(v) {
+  if (v === null || v === undefined || v === '') return '';
+  if (Object.prototype.toString.call(v) === '[object Date]') return dateStr_(v);
+  var m = /^(d{4}-d{2}-d{2})/.exec(String(v));
+  return m ? m[1] : String(v);
+}
+function payStamp_(v) {
+  if (v === null || v === undefined || v === '') return '';
+  var d = (Object.prototype.toString.call(v) === '[object Date]') ? v
+        : (/^d{4}-d{2}-d{2}T/.test(String(v)) ? new Date(String(v)) : null);
+  if (!d || isNaN(d.getTime())) return String(v);
+  return Utilities.formatDate(d, tz_(), 'yyyy-MM-dd HH:mm');
+}
+function handlePayrollDuplicates(p) {
+  p = p || {};
+  var wantStaff = String(p.staffId || '').trim();
+  var wantMonth = p.month ? ym7_(p.month) : '';
+  var staffById = {};
+  readObjects_(sheet_(getHrSpreadsheet_(), 'STAFF')).forEach(function (s) { staffById[String(s.StaffID)] = s; });
+
+  var byKey = {};
+  readObjects_(sheet_(getHrSpreadsheet_(), 'PAYROLL')).forEach(function (r) {
+    var sid = String(r.StaffID || ''), m = ym7_(r.Month);
+    if (!sid || !m) return;
+    if (wantStaff && sid !== wantStaff) return;
+    if (wantMonth && m !== wantMonth) return;
+    var k = sid + '|' + m;
+    (byKey[k] = byKey[k] || []).push(r);
+  });
+
+  var groups = [];
+  Object.keys(byKey).forEach(function (k) {
+    var rows = byKey[k];
+    if (rows.length < 2) return;                       // one row per month is the normal case
+    var parts = k.split('|'), sid = parts[0], m = parts[1];
+    var st = staffById[sid] || {};
+    var mapped = rows.map(function (r) {
+      return {
+        payrollId: r.PayrollID, month: m,
+        baseSalary: num_(r.BaseSalary), gross: num_(r.GrossIncome),
+        diligence: num_(r.DiligenceTotal), extraChild: num_(r.ExtraChildAmount),
+        otEvening: num_(r.OTEvening), otHoliday: num_(r.OTHoliday),
+        otherIncome: num_(r.OtherIncome), adjustments: num_(r.AdjustmentsTotal),
+        socialSecurity: num_(r.SocialSecurity), contribution: num_(r.Contribution),
+        otherDeductions: num_(r.OtherDeductions), totalDeductions: num_(r.TotalDeductions),
+        netPay: num_(r.NetPay),
+        slipSent: String(r.SlipSent || '').toUpperCase() === 'YES',
+        paidDate: r.PaidDate ? String(payDate_(r.PaidDate)) : '',
+        paidBy: String(r.PaidBy || ''),
+        slipUrl: String(r.SlipUrl || ''),
+        generatedDate: r.GeneratedDate ? String(payStamp_(r.GeneratedDate)) : '',
+        generatedBy: String(r.GeneratedBy || ''),
+        // a row with no pay in it at all is the easiest kind to be sure about
+        empty: !num_(r.GrossIncome) && !num_(r.NetPay)
+      };
+    });
+    /* WHICH ONE TO KEEP, by rules written down rather than by a feeling. In order, first match wins.
+     * Money that has actually moved beats everything: a row somebody has been PAID against is the
+     * row the bank statement agrees with. Where the rules cannot separate them the answer is an
+     * explicit "a person has to look", never a guess dressed up as a recommendation. */
+    var reason = '', keep = null;
+    var paid = mapped.filter(function (x) { return !!x.paidDate; });
+    var sent = mapped.filter(function (x) { return x.slipSent; });
+    if (paid.length === 1) { keep = paid[0]; reason = 'PAID'; }
+    else if (paid.length > 1) { reason = 'MANY_PAID'; }          // two rows both marked paid — human
+    else if (sent.length === 1) { keep = sent[0]; reason = 'SLIP_SENT'; }
+    else if (sent.length > 1) { reason = 'MANY_SENT'; }
+    else {
+      var real = mapped.filter(function (x) { return !x.empty; });
+      if (real.length === 1) { keep = real[0]; reason = 'ONLY_REAL'; }
+      else if (real.length > 1) {
+        var top = real.slice().sort(function (a, b) {
+          return (b.gross - a.gross) || String(b.generatedDate).localeCompare(String(a.generatedDate)); })[0];
+        // only call it when the biggest is unambiguously biggest; equal pay is a human's decision
+        var tied = real.filter(function (x) { return Math.abs(x.gross - top.gross) < 0.005; });
+        if (tied.length === 1) { keep = top; reason = 'HIGHEST_GROSS'; }
+        else { reason = 'IDENTICAL'; }
+      } else { reason = 'ALL_EMPTY'; }
+    }
+    groups.push({
+      staffId: sid, name: st.Name || st.NameEN || sid, nick: st.Nickname || '',
+      month: m, count: rows.length, rows: mapped,
+      keepId: keep ? keep.payrollId : '', reason: reason,
+      // what the sheet-order readers (financeSummary, getPayslip) are using TODAY, which is not
+      // necessarily the row anybody would have chosen
+      currentlyUsedId: mapped[0].payrollId,
+      // ...and the two places that ADD every duplicate together instead of picking one
+      sumContribution: round2_(mapped.reduce(function (a, x) { return a + x.contribution; }, 0)),
+      sumOtEvening: round2_(mapped.reduce(function (a, x) { return a + x.otEvening; }, 0))
+    });
+  });
+  groups.sort(function (a, b) {
+    return String(a.name).localeCompare(String(b.name)) || String(a.month).localeCompare(String(b.month));
+  });
+  return { scope: wantStaff ? 'staff' : 'school', staffId: wantStaff, month: wantMonth,
+           groups: groups, count: groups.length };
+}
+
+/**
+ * Delete ONE payroll row, by its PayrollID.
+ *
+ * Separate from the finder on purpose, and never driven by it: the finder SUGGESTS a keeper, a person
+ * decides, and this removes exactly the id they named. Backed up first, like every destructive route
+ * here — and it REFUSES a row marked paid, because money moving against a row is the strongest
+ * evidence there is that it is the real one. `force` exists for the MANY_PAID case, where two rows
+ * both claim it and somebody has to be wrong.
+ */
+function handleDeletePayrollRow(p) {
+  p = p || {};
+  var id = String(p.payrollId || '').trim();
+  if (!id) throw apiError_('BAD_INPUT', 'ต้องระบุ PayrollID');
+  var sh = sheet_(getHrSpreadsheet_(), 'PAYROLL');
+  var r = findObject_(sh, function (x) { return String(x.PayrollID) === id; });
+  if (!r) throw apiError_('NOT_FOUND', 'ไม่พบสลิป ' + id);
+  var forced = (p.force === true || String(p.force) === 'true');
+  if (r.PaidDate && !forced) {
+    throw apiError_('ALREADY_PAID', 'สลิปนี้บันทึกว่าจ่ายเงินแล้ว (' + payDate_(r.PaidDate) + ') — ลบไม่ได้');
+  }
+  if (!(p.confirm === true || String(p.confirm) === 'true')) {
+    // the preview shape, so a caller can show exactly what it is about to remove
+    return { preview: true, payrollId: id, staffId: r.StaffID, month: ym7_(r.Month),
+             netPay: num_(r.NetPay), gross: num_(r.GrossIncome),
+             slipSent: String(r.SlipSent || ''), paidDate: r.PaidDate ? String(payDate_(r.PaidDate)) : '' };
+  }
+  var backup;
+  try { backup = dailyBackup(); }
+  catch (e) { throw apiError_('BACKUP_FAILED', 'สำรองข้อมูลไม่สำเร็จ จึงยังไม่ได้ลบอะไรเลย: ' + (e && e.message || e)); }
+  sh.deleteRow(r._row);
+  try { CacheService.getScriptCache().removeAll(['col:PAYROLL', 'rows:PAYROLL']); } catch (e) {}
+  try { logAuditHr(p.adminId || 'admin', 'PAYROLL_ROW_DELETE', 'PAYROLL',
+    id + ' ' + r.StaffID + ' ' + ym7_(r.Month) + ' net ' + num_(r.NetPay) + (forced ? ' FORCED' : '')); } catch (e) {}
+  return { ok: true, payrollId: id, staffId: r.StaffID, month: ym7_(r.Month), backup: backup };
+}
