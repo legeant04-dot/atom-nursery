@@ -112,7 +112,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.296'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.297'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -1543,8 +1543,12 @@
         + (j.Water?(milkQty?' · ':'')+esc(jt(j.Water)):'')); }
     // what the child ate, then how much of it — "ข้าวต้มไก่ · หมด" says far more than "หมด"
     { let mi={}; try{ mi=typeof j.MealItems==='string'?JSON.parse(j.MealItems||'{}'):(j.MealItems||{}); }catch(e){ mi={}; }
+      /* A PICTURE OF WHAT WAS ON THE PLATE, after the name. Asked 2026-08-29: "ผัดวุ้นเส้น · เกือบหมด"
+       * tells a parent how much was eaten and nothing about what it was — and their child is two and
+       * cannot tell them either. foodPic returns '' for a dish with no photo yet, so a row simply
+       * reads as it always did until the kitchen uploads one. */
       const ms=['Breakfast','Lunch','Dinner','Snack'].filter(m=>meals[m]||mi[m]).map(m=>
-        `${esc(jt(m))}: ${mi[m]?`<b>${esc(mi[m])}</b>${meals[m]?' ':''}`:''}${meals[m]?pill(jt(meals[m])):''}`);
+        `${esc(jt(m))}: ${mi[m]?`<b>${esc(mi[m])}</b>${foodPic(mi[m])}${meals[m]?' ':''}`:''}${meals[m]?pill(jt(meals[m])):''}`);
       row('🍽', jt('Meals & Snacks'), ms.length?ms.join('<br>'):''); }
     { const parts=sleep.map(x=>x.from+'–'+x.to); row('😴', jt('Sleep Record'), parts.length?parts.join(', ')+(j.SleepTotal?` <span class="muted">(${EN()?'total':'รวม'} ${esc(j.SleepTotal)})</span>`:''):''); }
     { const tp=[]; if(tl.Urination)tp.push(`${esc(jt('Urination'))}: ${pill(jt(tl.Urination))}`);
@@ -1722,7 +1726,10 @@
     /* Signing in already paid for this (handleAuth returns it), so the first render costs nothing.
      * Consumed ONCE: every later visit to the home screen fetches normally, or a parent would be
      * looking at their morning for the rest of the day. */
-    const HOME = window._BOOT_HOME || await api('parentHome', parentScope());
+    /* FOOD_PICS goes out in the SAME tick as parentHome, so api.js batches the two into one request
+     * rather than adding a round trip to a backend that runs one execution per user at a time. It is
+     * cached after the first call, so every later screen gets it for nothing. */
+    const [HOME] = await Promise.all([ window._BOOT_HOME || api('parentHome', parentScope()), FOOD_PICS() ]);
     window._BOOT_HOME = null;
     const kids = HOME.children || [];
     const addBtn = `<button class="btn sm outline" onclick="P_addChild()">+ ${esc(t('p.addChild'))}</button>`;
@@ -3049,7 +3056,8 @@
     // round trip to a backend that runs one execution per user at a time.
     const [kids,j,hist,inj,ci]=await Promise.all([api('parentChildren',parentScope()),api('getJournal',{studentId:sid}),
       api('journalHistory',{studentId:sid}),api('journalInjuries',{studentId:sid}).catch(()=>[]),
-      api('studentCheckinHistory',{studentId:sid}).catch(()=>[])]);
+      api('studentCheckinHistory',{studentId:sid}).catch(()=>[]),
+      FOOD_PICS()]);   // same tick, so it rides in the batch above rather than costing a round trip
     const kid=(kids||[]).find(k=>k.StudentID===sid)||{};
     app.innerHTML=`<h2 class="page">${esc(t('title.journal'))}${kids.length===1?` · <span style="color:var(--blue)">${esc(dispNick(kid)||sid)}</span>`:''}</h2>${childSwitcher(kids,sid,'P_journal')}${injJournalHTML(inj)}${j?journalChecklist(j,{parentEditable:true}):journalEmptyCard(kid)}
       ${/* A MONTH AT A TIME, AND FOLDED SHUT. The history was every journal the child has ever had,
@@ -3082,7 +3090,7 @@
     el.innerHTML = rows.map(h=>`<div class="list-item"><span>${esc(ddmmyyyy(h.Date))} · ${esc(MOODS[h.Mood]||'')} ${esc(h.Mood||'')}</span><button class="btn sm outline" onclick="P_showJ('${h.StudentID}','${h.Date}')">${EN()?'View':'ดู'}</button></div>`).join('')
       || `<small class="muted">${EN()?'No entries in this month':'เดือนนี้ยังไม่มีบันทึก'}</small>`;
   };
-  window.P_showJ=async(sid,date)=>{ const [j,inj]=await Promise.all([api('getJournal',{studentId:sid,date}),api('journalInjuries',{studentId:sid,date}).catch(()=>[])]);
+  window.P_showJ=async(sid,date)=>{ const [j,inj]=await Promise.all([api('getJournal',{studentId:sid,date}),api('journalInjuries',{studentId:sid,date}).catch(()=>[]),FOOD_PICS()]);
     app.innerHTML=`<h2 class="page">📒 ${esc(date)}</h2>${injJournalHTML(inj)}${journalChecklist(j,{parentEditable:true})}<button class="btn outline" onclick="GO('journal')">← กลับ</button>`; window.scrollTo(0,0); };
   /**
    * An injury the teacher chose to attach to the journal, in the parents' words rather than the
@@ -3309,6 +3317,9 @@
     const canOrg = !!me0.CanClassOrg || isLeader;   // may use the drag class-organize tool (admin-granted)
     // the teacher the admin put in charge of the kitchen menu gets the monthly menu screen too
     const canFood = ['YES','TRUE','1'].indexOf(String(me0.CanFoodMenu||'').toUpperCase())>=0 || me0.CanFoodMenu===true;
+    // A_foodItems is shared with the admin screen and cannot re-derive this — it has no `me0`.
+    // What it decides is only which BUTTONS are drawn; the server decides what may be saved.
+    window._CAN_FOOD = canFood;
     // a manually-requested time (ขอลงเวลา, approved) shows blue+bold to distinguish it from a normal GPS clock-in
     const mtime=(v,manual)=>manual?`<b style="color:var(--blue)" title="${EN()?'manual (requested)':'ขอลงเวลา'}">${v||'--:--'} •</b>`:`<b>${v||'--:--'}</b>`;
     // A meeting day IS a working day — often a Saturday — but it runs to its own hours. Say so
@@ -3389,7 +3400,13 @@
         <button class="btn sm outline" onclick="T_holidayOT()">🎉 ${EN()?'My holiday OT':'OT วันหยุดของฉัน'}</button>
         <button class="btn sm outline" onclick="A_attAudit()">🕵️ ${EN()?'Attendance check':'ตรวจสอบการลงเวลา'}</button>
         ${canOrg?`<button class="btn sm outline" onclick="T_organize()">🔁 ${EN()?'Organize classes':'จัดชั้นเรียน'}</button>`:''}
-        ${canFood?`<button class="btn sm outline" onclick="A_foodMenu()">🍚 ${EN()?'Monthly food menu':'เมนูอาหารรายเดือน'}</button>`:''}</div></div>
+        ${/* The kitchen teacher plans the month's menu — and now also puts the PICTURES on the
+             dishes, which is the same job and the same knowledge. Without a door of their own here
+             they would have had to ask an admin for every photo, which is how a feature ends up
+             with no photos in it. The master list opens read-only for them: names and categories
+             are still the admin's, and the server enforces that, not this button. */''}
+        ${canFood?`<button class="btn sm outline" onclick="A_foodMenu()">🍚 ${EN()?'Monthly food menu':'เมนูอาหารรายเดือน'}</button>
+        <button class="btn sm outline" onclick="A_foodItems()">📷 ${EN()?'Food photos':'รูปอาหาร'}</button>`:''}</div></div>
       <div class="card"><div class="spread"><h3>👶 ${esc(cl.class.ClassName)}</h3><span class="muted">${cl.students.length} ${EN()?'kids':'คน'}</span></div>${classSwitcher(cl)}
         ${cl.students.map(s=>{
           // same rule as the class screen and as the server: no journal until the child has arrived
@@ -3857,7 +3874,8 @@
   window.T_journal = async (sid) => { if(!J_isAdmin()) setNav('class'); JSEL={Mood:'',Health:'',Water:'',Meals:{},Toilet:{},Activity:new Set(),Skills:new Set()};
     // role lets the engine hand a DRAFT to staff (a parent gets null until it is submitted)
     const [cl,j,food]=await Promise.all([api('classList',tc()),api('getJournal',{studentId:sid,role:USER.role}),
-      api('foodItems',{}).catch(()=>[])]);
+      api('foodItems',{}).catch(()=>[]),
+      FOOD_PICS()]);   // the read-only view below renders journalChecklist, which draws the thumbnails
     JFOOD=food||[];
     const s=cl.students.find(x=>x.StudentID===sid)||(A_CACHE.students||[]).find(x=>x.StudentID===sid)||{NameTH:sid};
     // which meals this class records (the baby class records none; Nursery 1 also eats dinner here),
@@ -7326,7 +7344,7 @@
   // Read-only view of a submitted report — the same one Admin sees. Teachers use it too: opening a
   // notification about a past day, or browsing a child's history, must SHOW the report rather than
   // reopening the entry form (which only ever holds today).
-  window.A_viewJournal=async(sid,day)=>{ const j=await api('getJournal',{studentId:sid,date:day,role:USER.role});
+  window.A_viewJournal=async(sid,day)=>{ const [j]=await Promise.all([api('getJournal',{studentId:sid,date:day,role:USER.role}),FOOD_PICS()]);
     if(!j){ toast(t('jr.noneForDay')); return; }
     const canEdit=(day===todayStr()) && (USER.role==='Admin' || !!USER.staffId);
     modal(`<h3>📒 ${esc(day)}</h3>${journalChecklist(j)}
@@ -7676,23 +7694,85 @@
    * them and the A4 sheet is printed per class.
    */
   /* ---- master food list: what the daily journal picks from -------------------------------- */
+  /**
+   * A ROUND PICTURE OF THE DISH, the size of a profile icon.
+   *
+   * Asked 2026-08-29: a parent reading "ผัดวุ้นเส้น · เกือบหมด" in the daily journal wants to know
+   * what was actually on the plate — and for a family whose Thai is not first-language, or whose
+   * child is two and cannot tell them, the name alone is not much of an answer.
+   *
+   * A PLACEHOLDER when there is no picture yet, rather than nothing: a row that is sometimes a
+   * circle and sometimes a gap reads as broken, and the school cannot see at a glance which dishes
+   * still need a photo. `loading="lazy"` because the journal history can hold a month of meals.
+   */
+  const foodPic = (name, size)=>{ const u=(window._FOOD_PIC||{})[String(name||'').trim()]; const s=size||28;
+    if(!u) return '';
+    return `<img src="${esc(u)}" alt="${esc(name)}" loading="lazy" onclick="event.stopPropagation();IMG_zoom('${esc(u)}')"
+      style="width:${s}px;height:${s}px;border-radius:50%;object-fit:cover;vertical-align:middle;margin-left:6px;cursor:zoom-in;border:1px solid var(--line)"/>`; };
+  /* The lookup is fetched ONCE and kept — it is a handful of URLs, it changes when the kitchen
+   * uploads a picture, and it is needed by the journal on four different screens. Callers await it
+   * in the SAME tick as their own reads, so api.js batches it into their existing request and it
+   * costs no extra round trip. A failure is not an error: no map means no thumbnails. */
+  window.FOOD_PICS = async () => { if(window._FOOD_PIC) return window._FOOD_PIC;
+    try{ window._FOOD_PIC = await api('foodPhotos') || {}; }catch(e){ window._FOOD_PIC = {}; }
+    return window._FOOD_PIC; };
   window.A_foodItems=async()=>{
-    const items=await api('foodItems',{all:true},{fresh:true});
+    const [items] = await Promise.all([api('foodItems',{all:true},{fresh:true}), FOOD_PICS()]);
+    /* WHO MAY DO WHAT ON THIS SCREEN. Editing the master list is the admin's; attaching a PHOTO
+     * follows the food-menu right, because the person who knows what a dish looks like is the one in
+     * the kitchen and the admin already delegates the menu to them. The server enforces both. */
+    const admin = USER.role==='Admin';
+    const canPic = admin || !!window._CAN_FOOD;
     // dishes read alphabetically within their category, in whichever language is on screen
     const byCat=c=>sortBy(items.filter(i=>i.category===c), i=>(LANG()==='en'?(i.nameEN||i.nameTH):(i.nameTH||i.nameEN)));
+    const thumb=i=>i.photo
+      ? `<img src="${esc(i.photo)}" loading="lazy" onclick="IMG_zoom('${esc(i.photo)}')" style="width:40px;height:40px;border-radius:50%;object-fit:cover;flex:0 0 auto;cursor:zoom-in;border:1px solid var(--line)"/>`
+      : `<span style="width:40px;height:40px;border-radius:50%;flex:0 0 auto;display:inline-flex;align-items:center;justify-content:center;background:var(--surface-3);color:var(--ink-3);font-size:16px">🍽</span>`;
     const sec=(c)=>{ const its=byCat(c); return `<h4 style="margin:10px 0 4px">${esc(FOOD_CAT[c]())} <small class="muted">(${its.length})</small></h4>${
-      its.length?its.map(i=>`<div class="list-item"${i.active?'':' style="opacity:.5"'}>
-        <span><b>${esc(i.nameTH)}</b>${i.nameEN?`<br><small class="muted">${esc(i.nameEN)}</small>`:`<br><small style="color:var(--warn)">${EN()?'no English name yet':'ยังไม่มีชื่อภาษาอังกฤษ'}</small>`}</span>
-        <span><button class="btn sm outline" onclick="A_fiEdit('${esc(i.itemId)}')">✏️</button>${i.active?`<button class="btn sm pink" onclick="A_fiRetire('${esc(i.itemId)}')" title="${EN()?'Retire':'เลิกใช้'}">🚫</button>`:''}</span></div>`).join('')
+      its.length?its.map(i=>`<div class="list-item" style="gap:10px;align-items:center"${i.active?'':' style="opacity:.5"'}>
+        ${thumb(i)}
+        <span style="flex:1;min-width:0"><b>${esc(i.nameTH)}</b>${i.nameEN?`<br><small class="muted">${esc(i.nameEN)}</small>`:`<br><small style="color:var(--warn)">${EN()?'no English name yet':'ยังไม่มีชื่อภาษาอังกฤษ'}</small>`}</span>
+        <span style="flex:0 0 auto;display:flex;gap:6px">${canPic?`<button class="btn sm outline" onclick="A_fiPhoto('${esc(i.itemId)}')" title="${EN()?'Photo':'รูปอาหาร'}">📷</button>`:''}${
+          admin?`<button class="btn sm outline" onclick="A_fiEdit('${esc(i.itemId)}')">✏️</button>${i.active?`<button class="btn sm pink" onclick="A_fiRetire('${esc(i.itemId)}')" title="${EN()?'Retire':'เลิกใช้'}">🚫</button>`:''}`:''}</span></div>`).join('')
         :`<small class="muted">-</small>`}`; };
+    const noPic = items.filter(i=>i.active && !i.photo).length;
     modal(`<h3>🍚 ${EN()?'Food list (master)':'รายการอาหาร (ตัวหลัก)'}</h3>
       <p class="muted" style="font-size:13px">${EN()?'This is what teachers pick from in the daily journal. A dish a teacher types in is added here automatically.':'รายการนี้คือตัวเลือกที่คุณครูใช้ในสมุดบันทึกประจำวัน · เมนูที่คุณครูพิมพ์เพิ่มเองจะถูกบันทึกเข้ามาที่นี่อัตโนมัติ'}</p>
-      <div class="row" style="gap:8px;margin-bottom:6px">
+      ${/* A count, so "which dishes still need a picture" is a number rather than a scroll. */''}
+      ${canPic&&noPic?`<div class="card" style="background:var(--warn-bg);border-color:var(--warn-line);padding:9px 12px;margin-bottom:6px"><small>📷 ${EN()
+        ? `<b>${noPic}</b> dishes have no photo yet. A photo shows beside the meal in every child’s daily journal.`
+        : `ยังไม่มีรูป <b>${noPic}</b> เมนู · รูปจะแสดงข้างชื่ออาหารในบันทึกประจำวันของนักเรียนทุกคน`}</small></div>`:''}
+      ${admin?`<div class="row" style="gap:8px;margin-bottom:6px">
         <button class="btn sm" style="flex:1" onclick="A_fiEdit('')">+ ${EN()?'Add dish':'เพิ่มเมนู'}</button>
-        <button class="btn sm outline" style="flex:1" onclick="A_fiSeed(this)">🍚 ${EN()?'Load the school list':'เพิ่มรายการมาตรฐานของโรงเรียน'}</button></div>
+        <button class="btn sm outline" style="flex:1" onclick="A_fiSeed(this)">🍚 ${EN()?'Load the school list':'เพิ่มรายการมาตรฐานของโรงเรียน'}</button></div>`:''}
       <div style="max-height:60vh;overflow:auto">${['savoury','dessert','fruit','other'].map(sec).join('')}</div>
       <button class="btn outline block" style="margin-top:8px" onclick="this.closest('.modal').remove()">${esc(t('c.close'))}</button>`);
   };
+  /* PHOTO ONLY. A kitchen teacher may attach a picture without being able to rename the dish, so
+   * this dialog sends nothing but the photo — the name it posts is the one already stored, because
+   * saveFoodItem needs a name to validate and re-sending the existing one changes nothing. */
+  window.A_fiPhoto=async(id)=>{ const items=await api('foodItems',{all:true});
+    const i=items.find(x=>x.itemId===id); if(!i){ toast(EN()?'Dish not found':'ไม่พบเมนู'); return; }
+    modal(`<h3>📷 ${esc(i.nameTH)}</h3>
+      <p class="muted" style="font-size:13px">${EN()
+        ? 'Shown as a small round picture beside this dish in every child’s daily journal. Tapping it opens the full photo.'
+        : 'รูปนี้จะแสดงเป็นวงกลมเล็กๆ ข้างชื่ออาหารในบันทึกประจำวันของนักเรียนทุกคน · ผู้ปกครองกดที่รูปเพื่อดูภาพเต็มได้'}</p>
+      ${photoField('fiPic', EN()?'Photo of the dish':'รูปอาหาร', i.photo, true)}
+      <button class="btn block" onclick="A_fiPhotoSave('${esc(id)}',this)">${esc(t('c.save'))}</button>
+      ${i.photo?`<button class="btn outline block pink" style="margin-top:8px" onclick="A_fiPhotoSave('${esc(id)}',this,1)">🗑️ ${EN()?'Remove the photo':'ลบรูปออก'}</button>`:''}
+      <button class="btn outline block" style="margin-top:8px" onclick="this.closest('.modal').remove()">${esc(t('c.close'))}</button>`);
+  };
+  window.A_fiPhotoSave=async(id,btn,clear)=>{ const m=btn.closest('.modal');
+    const url=clear?'':photoVal(m,'fiPic');
+    if(!clear && !url){ toast(EN()?'Pick a photo first':'กรุณาเลือกรูปก่อน'); return; }
+    if(btn)btn.disabled=true;
+    try{ const items=await api('foodItems',{all:true});
+      const i=items.find(x=>x.itemId===id)||{};
+      await api('saveFoodItem',{staffId:USER.staffId,item:{itemId:id,nameTH:i.nameTH,nameEN:i.nameEN,category:i.category,photo:url}});
+      // the lookup the journal reads is now stale — drop it so the next screen re-fetches
+      window._FOOD_PIC=null;
+      m.remove(); confirmSaved(t('c.saved')); A_foodItems();
+    }catch(e){err(e); if(btn)btn.disabled=false;} };
   window.A_fiEdit=async(id)=>{ const items=await api('foodItems',{all:true});
     const i=items.find(x=>x.itemId===id)||{category:'savoury',active:true};
     modal(`<h3>${id?'✏️ '+(EN()?'Edit dish':'แก้ไขเมนู'):'➕ '+(EN()?'Add dish':'เพิ่มเมนู')}</h3>
@@ -7701,11 +7781,19 @@
       <p class="muted" style="font-size:12px">${EN()?'Parents reading the app in English see the English name.':'ผู้ปกครองที่ใช้แอปภาษาอังกฤษจะเห็นชื่อภาษาอังกฤษ'}</p>
       <label class="field"><span>${EN()?'Category':'หมวด'}</span><select id="fiCat" translate="no">${
         ['savoury','dessert','fruit','other'].map(c=>`<option value="${c}"${i.category===c?' selected':''}>${esc(FOOD_CAT[c]())}</option>`).join('')}</select></label>
+      ${photoField('fiPhoto', EN()?'Photo of the dish (optional)':'รูปอาหาร (ไม่บังคับ)', i.photo, true)}
+      <p class="muted" style="font-size:12px">${EN()?'Shown beside this dish in every child’s daily journal.':'รูปนี้จะแสดงข้างชื่ออาหารในบันทึกประจำวันของนักเรียน'}</p>
       <button class="btn block" onclick="A_fiSave('${esc(id||'')}',this)">${esc(t('c.save'))}</button>`);
   };
   window.A_fiSave=async(id,btn)=>{ const m=btn.closest('.modal'); const g=x=>(m.querySelector('#'+x)||{}).value||'';
     if(btn)btn.disabled=true;
-    try{ await api('saveFoodItem',{staffId:USER.staffId,item:{itemId:id||undefined,nameTH:g('fiTH'),nameEN:g('fiEN'),category:g('fiCat')}});
+    const item={itemId:id||undefined,nameTH:g('fiTH'),nameEN:g('fiEN'),category:g('fiCat')};
+    /* ONLY WHEN ONE WAS PICKED. photoVal returns '' when the file input was left alone, and sending
+     * that would clear the existing picture every time somebody corrected a spelling — the field is
+     * absent from the payload instead, and the server only writes Photo when it is present. */
+    const pic=photoVal(m,'fiPhoto'); if(pic) item.photo=pic;
+    try{ await api('saveFoodItem',{staffId:USER.staffId,item});
+      if(pic) window._FOOD_PIC=null;      // the journal's lookup is now stale
       m.remove(); confirmSaved(t('c.saved')); A_foodItems();
     }catch(e){err(e); if(btn)btn.disabled=false;} };
   window.A_fiRetire=async(id)=>{ if(!confirm(EN()?'Stop offering this dish? Journals already written keep it.':'เลิกใช้เมนูนี้? บันทึกที่เขียนไปแล้วยังคงแสดงตามเดิม'))return;

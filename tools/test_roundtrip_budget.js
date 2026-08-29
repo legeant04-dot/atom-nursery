@@ -82,7 +82,11 @@ console.log('\n4) parent home: ONE request for the whole screen');
    * The equivalence of the composite is checked in tools/test_parent_one_request.js. */
   const home = between('SCREENS.Parent.home = async () => {', 'function parentDueCard(due)');
   eq('one api() call on the busiest screen in the app', (home.match(/api\('/g) || []).length, 1);
-  ok_('...and it is the composite', /await api\('parentHome', parentScope\(\)\)/.test(home));
+  /* Still ONE round trip. The food-photo lookup was added beside it inside the same Promise.all —
+   * same tick, so api.js batches the two into one HTTP request, and it is TTL_STATIC-cached so
+   * later screens do not send it at all. A call after an `await` would have been a second trip. */
+  ok_('...and it is the composite', /api\('parentHome', parentScope\(\)\)/.test(home));
+  ok_('...with anything else it needs in the SAME tick', /Promise\.all\(\[ window\._BOOT_HOME \|\| api\('parentHome'/.test(home));
   ok_('the per-child lists are read by NAME now, not at an offset',
     /const ciAll = HOME\.checkins\|\|\[\], slAll = HOME\.leaves\|\|\[\];/.test(home));
   ok_('...so the FIXED-offset slicing that mixed up children is gone', !/FIXED/.test(home));
