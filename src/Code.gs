@@ -187,6 +187,10 @@ var ROUTES = {
   pendingLeaves:  function (p) { return handlePendingLeaves(p); },
   parentCheckin:  function (p) { return handleParentCheckin(p); },
   studentAbsence: function (p) { return handleStudentAbsence(p); },
+  // ...and the parent's own two, which are NOT the admin pair above: they refuse a past date and a
+  // leave the school filed, and applyIdentity_ has already refused a child that is not theirs.
+  parentEditLeave: function (p) { return handleParentEditLeave(p); },
+  parentCancelLeave: function (p) { return handleParentCancelLeave(p); },
   teacherStudentLeave: function (p) { return handleTeacherStudentLeave(p); },   // teacher files student leave → notifies parents
   // Day 5 — Daily Journal (submit keeps the GAS handler for LINE notify; reads defer to the engine,
   // which returns null/[] gracefully instead of throwing NOT_FOUND when there is no journal yet)
@@ -454,6 +458,10 @@ var READ_ONLY_ACTIONS_ = { absenceReport: 1, paymentLog: 1, paymentSlips: 1, pay
  */
 var WRITES_ACTIONS_ = { recordCashPayment: 1, teacherStudentLeave: 1, unlockJournal: 1, unlockInjury: 1,
   commentAssessment: 1,   // writes a note onto an assessment row; "comment" is not a mutating verb
+  // A parent correcting or withdrawing their own leave. Both start with "parent", so MUTATING_RE —
+  // which is anchored — treats them as reads. That means no write lock on the server and no cache
+  // clear on the client, so a family would delete a leave and go on being shown it.
+  parentEditLeave: 1, parentCancelLeave: 1,
 
   adminResetPassword: 1, adminUpdateOT: 1, adminCancelOT: 1, adminRestoreOT: 1,
   adminAddOT: 1, adminAddHolidayOT: 1, adminEditOT: 1, adminDeleteOT: 1, decideClassChange: 1, reinstallTriggers: 1,

@@ -522,6 +522,10 @@ window.CONFIG = { MODE: 'gas', GAS_URL: 'https://script.google.com/macros/s/AKfy
    */
   const WRITES = {
     recordCashPayment: 1, teacherStudentLeave: 1, unlockJournal: 1, unlockInjury: 1,
+    // A parent correcting or withdrawing their own leave. Both start with "parent", so the anchored
+    // verb test calls them reads — and a write the cache does not know about is a family deleting a
+    // leave and going on being shown it.
+    parentEditLeave: 1, parentCancelLeave: 1,
     adminResetPassword: 1, adminUpdateOT: 1, adminCancelOT: 1, adminRestoreOT: 1,
     adminAddOT: 1, adminAddHolidayOT: 1, adminEditOT: 1, adminDeleteOT: 1, decideClassChange: 1, reinstallTriggers: 1,
     commentAssessment: 1,  // writes a note onto an assessment row; "comment" is not a mutating verb

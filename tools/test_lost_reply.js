@@ -63,7 +63,11 @@ console.log('\n3) the client and the server answer "does this write?" identicall
   const mut = loadIsMutating();
   const clientList = (api.match(/const READ_ONLY = \{([\s\S]*?)\};/) || [, ''])[1];
   const serverList = (code.match(/var READ_ONLY_ACTIONS_ = \{([\s\S]*?)\};/) || [, ''])[1];
-  const names = s => (s.match(/[A-Za-z_][A-Za-z0-9_]*(?=\s*:)/g) || []).sort();
+  /* COMMENTS FIRST. Every entry in these lists is explained beside it, and English prose contains
+   * colons — one comment reading "…the verb test calls them reads: no write lock…" put a phantom
+   * action called `reads` into the server's list and the suite failed comparing prose to code. */
+  const decomment = s => String(s).replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
+  const names = s => (decomment(s).match(/[A-Za-z_][A-Za-z0-9_]*(?=\s*:)/g) || []).sort();
   ok_('both lists exist', !!clientList && !!serverList);
   eq('and hold exactly the same actions', names(serverList), names(clientList));
   // twelve since v285: staffMissingCheckout contains "Checkout" and prepaidStudents starts with

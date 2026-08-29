@@ -74,12 +74,17 @@ console.log('\n2b) the drop-off / pick-up history, same treatment');
   ok_('it folds', /<details class="card" id="ciBox">/.test(app));
   ok_('...with the child’s name on the summary line, so a screenshot is unambiguous',
     /· \$\{esc\(dispNick\(kid\)\)\}\$\{kid\.Class\?' '\+esc\(kid\.Class\):''\}/.test(app));
-  ok_('...and a month dropdown built by the same helper', /sel\.innerHTML=monthOptions\(hist\)/.test(app));
+  ok_('...and a month dropdown built by the same helper', /<select id="ciMonth" onchange="P_ciFilter\(\)" style="width:auto">\$\{monthOptions\(ci\|\|\[\]\)\}/.test(app));
   ok_('...filtered by the same helper', /rowsInMonth\(window\._CI_HIST\|\|\[\], \(sel&&sel\.value\)\|\|''\)/.test(app));
   ok_('...saying so when a month is empty', /เดือนนี้ยังไม่มีประวัติ/.test(app));
-  // the dropdown is filled AFTER the fetch — the months are not known until the rows are
-  ok_('the dropdown waits for the data rather than guessing at it',
-    app.indexOf("<option value=\"\">${EN()?'Loading…':'กำลังโหลด…'}</option></select>") > 0);
+  /* THE "Loading…" PLACEHOLDER IS GONE, and that is the improvement rather than a regression.
+   * The history used to be fetched by the pick-up screen on its own, so the dropdown was drawn empty
+   * and filled after the await. Folded into บันทึก (v295) it rides in the SAME Promise.all as the
+   * journal — one request, not two — so the months are known before anything is drawn. */
+  ok_('the rows arrive with the rest of the screen, in one request',
+    /Promise\.all\(\[api\('parentChildren'[\s\S]{0,400}api\('studentCheckinHistory',\{studentId:sid\}\)/.test(app));
+  ok_('...so nothing on this screen is ever drawn saying "Loading…" and then replaced',
+    !/id="ciMonth"[\s\S]{0,120}กำลังโหลด/.test(app));
 }
 
 console.log('\n3) the buttons say where they work from — and it matches the server');

@@ -1457,6 +1457,48 @@ function createAtomAPI(M, GROWTH_STD) {
     // idempotent: a re-submit for the same student+date returns the existing leave, no duplicate
     studentAbsence: p => { const dup=(M.studentLeaves||[]).find(l=>l.StudentID===p.studentId&&ymd(l.Date)===ymd(p.date)); if(dup) return {leaveId:dup.LeaveID,teacherNotified:false,duplicate:true};
       const id=nextSeqId_(M.studentLeaves,'LeaveID','LVS',4); M.studentLeaves.push({LeaveID:id,StudentID:p.studentId,Date:p.date,Reason:p.reason,Type:p.type||'',Status:'Notified'}); return {leaveId:id,teacherNotified:true}; },
+    /**
+     * A PARENT CORRECTS OR WITHDRAWS THEIR OWN NOTICE.
+     *
+     * Filing a leave was one-way: a family who wrote the wrong date, picked the wrong child, or
+     * whose plans changed had to ring the school and ask someone to go and fix a spreadsheet. Asked
+     * 2026-08-29.
+     *
+     * TWO LIMITS, and both of them matter more than the convenience does:
+     *
+     *  1. TODAY OR LATER, NEVER THE PAST. A leave for a day that has already happened is not a plan
+     *     any more, it is the ATTENDANCE RECORD of a day the school taught — the register, the
+     *     absence count, and the teacher's own account of who was there. Letting it be rewritten
+     *     afterwards would let a family quietly change history. A past date needs the school.
+     *
+     *  2. ONLY WHAT THE FAMILY THEMSELVES FILED. A leave a TEACHER entered (FiledBy) is the school
+     *     saying a child was not here; that is the school's record to correct, not the family's.
+     *
+     * Both refusals name the reason, because "ไม่สามารถแก้ไขได้" tells nobody what to do next.
+     */
+    parentEditLeave: p => { const l=(M.studentLeaves||[]).find(x=>String(x.LeaveID)===String(p.leaveId));
+      if(!l) fail('NOT_FOUND','ไม่พบใบลานี้');
+      if(String(l.StudentID)!==String(p.studentId)) fail('NO_ACCESS','ใบลานี้ไม่ใช่ของบุตรหลานท่าน');
+      if(String(l.FiledBy||'').trim()) fail('FILED_BY_SCHOOL','ใบลานี้คุณครูเป็นผู้บันทึก — กรุณาติดต่อโรงเรียนเพื่อแก้ไข');
+      if(ymd(l.Date) < todayLocal()) fail('LEAVE_PAST','ใบลาของวันที่ผ่านมาแล้วแก้ไขไม่ได้ — เป็นบันทึกการมาเรียนของวันนั้น · กรุณาติดต่อโรงเรียน');
+      // ...and it may not be MOVED into the past either, for the same reason
+      if(p.date!=null && ymd(p.date) < todayLocal()) fail('LEAVE_PAST','เลือกวันที่ย้อนหลังไม่ได้ — กรุณาเลือกวันนี้หรือวันถัดไป');
+      // moving it onto a day this child already has a leave for would make two rows for one day
+      if(p.date!=null && ymd(p.date)!==ymd(l.Date)){
+        const clash=(M.studentLeaves||[]).find(x=>String(x.StudentID)===String(l.StudentID)&&ymd(x.Date)===ymd(p.date)&&String(x.LeaveID)!==String(l.LeaveID));
+        if(clash) fail('DUPLICATE','วันที่นี้แจ้งลาไว้แล้ว'); }
+      if(p.date!=null) l.Date=ymd(p.date); if(p.reason!=null) l.Reason=p.reason; if(p.type!=null) l.Type=p.type;
+      logAct('parentEditLeave',l.LeaveID,ymd(l.Date),actorOf(p));
+      return {ok:true, leaveId:l.LeaveID}; },
+    parentCancelLeave: p => { const i=(M.studentLeaves||[]).findIndex(x=>String(x.LeaveID)===String(p.leaveId));
+      if(i<0) fail('NOT_FOUND','ไม่พบใบลานี้');
+      const l=M.studentLeaves[i];
+      if(String(l.StudentID)!==String(p.studentId)) fail('NO_ACCESS','ใบลานี้ไม่ใช่ของบุตรหลานท่าน');
+      if(String(l.FiledBy||'').trim()) fail('FILED_BY_SCHOOL','ใบลานี้คุณครูเป็นผู้บันทึก — กรุณาติดต่อโรงเรียนเพื่อยกเลิก');
+      if(ymd(l.Date) < todayLocal()) fail('LEAVE_PAST','ใบลาของวันที่ผ่านมาแล้วยกเลิกไม่ได้ — เป็นบันทึกการมาเรียนของวันนั้น · กรุณาติดต่อโรงเรียน');
+      M.studentLeaves.splice(i,1);
+      logAct('parentCancelLeave',l.LeaveID,ymd(l.Date),actorOf(p));
+      return {ok:true}; },
     // Teacher files a leave for a student (notifies the linked parents). Shows in that student's parent calendar only.
     teacherStudentLeave: p => { const dup=(M.studentLeaves||[]).find(l=>l.StudentID===p.studentId&&ymd(l.Date)===ymd(p.date)); if(dup) return {leaveId:dup.LeaveID,parentNotified:false,duplicate:true};
       const id=nextSeqId_(M.studentLeaves,'LeaveID','LVS',4);

@@ -235,6 +235,94 @@ function notifyStudentTeacher_(student, text, opts) {
   return sent || inboxed > 0;
 }
 
+/**
+ * A PARENT CORRECTS OR WITHDRAWS THEIR OWN NOTICE.
+ *
+ * Filing a leave was one-way: a family who wrote the wrong date, picked the wrong child, or whose
+ * plans changed had to ring the school and ask somebody to go and edit a spreadsheet. Asked
+ * 2026-08-29.
+ *
+ * THREE THINGS ARE CHECKED, in this order, and each refusal says which one it was — "แก้ไขไม่ได้"
+ * on its own tells a family nothing about what to do next.
+ *
+ *   1. IT IS THEIR CHILD. applyIdentity_ already refuses a studentId a parent is not linked to, so
+ *      this is the second lock rather than the first — but the leave is found by LeaveID, and an id
+ *      is a guess anybody can make, so the row's own StudentID is compared as well.
+ *
+ *   2. TODAY OR LATER, NEVER THE PAST. A leave for a day that has already happened is not a plan
+ *      any more, it is the ATTENDANCE RECORD of a day the school taught: the register, the absence
+ *      count, and the teacher's own account of who was there. Editing it afterwards would let a
+ *      family quietly rewrite history. The school can still do it (handleEditStudentLeave).
+ *
+ *   3. ONLY WHAT THE FAMILY THEMSELVES FILED. A leave a TEACHER entered (FiledBy) is the school
+ *      saying a child was not here — the school's record to correct, not the family's.
+ */
+function parentOwnLeave_(p) {
+  var sh = sheet_(getMainSpreadsheet_(), 'LEAVE_REQUEST_STD');
+  var l = findObject_(sh, function (r) { return String(r.LeaveID) === String(p.leaveId); });
+  if (!l) throw apiError_('NOT_FOUND', 'ไม่พบใบลานี้');
+  if (String(l.StudentID) !== String(p.studentId)) throw apiError_('NO_ACCESS', 'ใบลานี้ไม่ใช่ของบุตรหลานท่าน');
+  if (String(l.FiledBy || '').trim()) throw apiError_('FILED_BY_SCHOOL', 'ใบลานี้คุณครูเป็นผู้บันทึก — กรุณาติดต่อโรงเรียน');
+  var d = otNormDate_(l.Date), today = dateStr_(new Date());
+  if (d < today) throw apiError_('LEAVE_PAST',
+    'ใบลาของวันที่ผ่านมาแล้วแก้ไขไม่ได้ — เป็นบันทึกการมาเรียนของวันนั้น · กรุณาติดต่อโรงเรียน');
+  return { sh: sh, row: l, today: today };
+}
+/** Parent edits their own future/today leave. payload: { studentId, leaveId, date?, reason?, type? } */
+function handleParentEditLeave(p) {
+  p = p || {};
+  var parent = resolveParent_(p);
+  var f = parentOwnLeave_(p);
+  var patch = {};
+  if (p.date != null) {
+    var nd = otNormDate_(p.date);
+    if (nd < f.today) throw apiError_('LEAVE_PAST', 'เลือกวันที่ย้อนหลังไม่ได้ — กรุณาเลือกวันนี้หรือวันถัดไป');
+    // moving it onto a day this child already has a leave for would leave two rows for one day, and
+    // the register would then disagree with itself about that morning
+    if (nd !== otNormDate_(f.row.Date)) {
+      var clash = findObject_(f.sh, function (r) {
+        return String(r.StudentID) === String(p.studentId) && otNormDate_(r.Date) === nd &&
+               String(r.LeaveID) !== String(p.leaveId); });
+      if (clash) throw apiError_('DUPLICATE', 'วันที่นี้แจ้งลาไว้แล้ว');
+    }
+    patch.Date = nd;
+  }
+  if (p.reason != null) patch.Reason = p.reason;
+  if (p.type != null) patch.Type = p.type;
+  updateRow_(f.sh, f.row._row, patch);
+  if (typeof cacheDel_ === 'function') { cacheDel_('col:LEAVE_REQUEST_STD'); cacheDel_('rows:LEAVE_REQUEST_STD'); }
+  // the teacher was told about the original; a change to it is news to exactly the same person
+  try {
+    var stu = findObject_(sheet_(getMainSpreadsheet_(), 'STUDENTS'),
+      function (s) { return String(s.StudentID) === String(p.studentId); }) || {};
+    notifyStudentTeacher_(stu, '✏️ แก้ไขใบลา: ' + (stu.Name || p.studentId) + ' → วันที่ ' + (patch.Date || otNormDate_(f.row.Date)) +
+      '\n' + ((p.type || f.row.Type || '') + ((p.reason || f.row.Reason) ? ' — ' + (p.reason != null ? p.reason : f.row.Reason) : '') || '-') +
+      '\n(โดยผู้ปกครอง ' + parent.Name + ')');
+  } catch (e) {}
+  logAudit(parent.ParentID, 'PARENT_LEAVE_EDIT', 'LEAVE_REQUEST_STD', String(p.leaveId));
+  return { ok: true, leaveId: p.leaveId };
+}
+/** Parent cancels their own future/today leave. payload: { studentId, leaveId } */
+function handleParentCancelLeave(p) {
+  p = p || {};
+  var parent = resolveParent_(p);
+  var f = parentOwnLeave_(p);
+  var when = otNormDate_(f.row.Date);
+  f.sh.deleteRow(f.row._row);
+  if (typeof cacheDel_ === 'function') { cacheDel_('col:LEAVE_REQUEST_STD'); cacheDel_('rows:LEAVE_REQUEST_STD'); }
+  /* THE TEACHER HAS TO BE TOLD. They were told the child was away; if that is withdrawn and nobody
+   * says so, the class list still shows a child who is now expected — and on the day itself that is
+   * a child nobody is looking for. */
+  try {
+    var stu = findObject_(sheet_(getMainSpreadsheet_(), 'STUDENTS'),
+      function (s) { return String(s.StudentID) === String(p.studentId); }) || {};
+    notifyStudentTeacher_(stu, '↩️ ยกเลิกใบลา: ' + (stu.Name || p.studentId) + ' วันที่ ' + when +
+      '\n(โดยผู้ปกครอง ' + parent.Name + ' — นักเรียนจะมาเรียนตามปกติ)');
+  } catch (e) {}
+  logAudit(parent.ParentID, 'PARENT_LEAVE_CANCEL', 'LEAVE_REQUEST_STD', String(p.leaveId) + ' ' + when);
+  return { ok: true };
+}
+
 /** Admin edits a student leave in place. payload: { staffId, leaveId, date?, reason?, type? } */
 function handleEditStudentLeave(p) {
   p = p || {};
