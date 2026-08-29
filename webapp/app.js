@@ -112,7 +112,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.300'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.301'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -1599,10 +1599,34 @@
    * One helper, because the home screen and the journal screen both ask it and two copies of an
    * explanation drift apart.
    */
+  /**
+   * WHY THERE IS NO JOURNAL TODAY — and "waiting for the teacher" is only one of the answers.
+   *
+   * Reported 2026-08-29 with a screenshot: the child's card said "🏖️ วันนี้โรงเรียนหยุด · วันหยุด
+   * สุดสัปดาห์" and the journal directly underneath it said "⏳ รอคุณครูส่งข้อมูลของวันที่ 29-08-2026".
+   * Nobody is at school on a Saturday, so there is no teacher waiting to send anything — the same
+   * screen was telling a family two contradictory things, one of which was a promise it could not
+   * keep. It happens every weekend, to every family.
+   *
+   * The reasoning was already written down for the other two cases (a child who has not started, a
+   * child on leave) and the commonest one was simply missed. Three states now, in the order the kid
+   * card above already uses so the two cannot disagree.
+   *
+   * ONLY FOR THE DAY _SCHOOLDAY IS ABOUT. It holds ONE date's answer, so a journal opened for a past
+   * date must not be told that day was a holiday because today is: the dates are compared, and if
+   * they do not match the card falls through to waiting, exactly as before.
+   */
   function journalEmptyCard(kid, date){ kid=kid||{};
     if(kid.notStarted) return `<div class="card" style="text-align:center;background:var(--blue-bg);border-color:var(--blue-line)">
       <b style="color:var(--blue)">📅 ${EN()?'Not due to attend yet':'ยังไม่ถึงกำหนดเข้าเรียน'}</b>
       <br><small class="muted">${EN()?`The daily journal starts on ${ddmmyyyy(kid.startDate)}, the first day at school.`:`สมุดบันทึกประจำวันจะเริ่มในวันที่ ${esc(ddmmyyyy(kid.startDate))} ซึ่งเป็นวันแรกของการมาเรียน`}</small></div>`;
+    const sd=window._SCHOOLDAY;
+    if(sd && sd.closedForStudents && String(sd.date||'')===String(date||todayStr()))
+      return `<div class="card" style="text-align:center;background:var(--surface-3);border-color:var(--line-strong)">
+        <b>🏖️ ${EN()?'School closed today':'วันนี้โรงเรียนหยุด'}</b>
+        <br><small class="muted">${esc(EN()?(sd.reasonEN||'Holiday'):(sd.reason||'วันหยุด'))}${
+          sd.partial?` <b>${esc((sd.holStart||'00:00')+'-'+(sd.holEnd||'23:59'))}</b>`:''}
+        <br>${EN()?'There is no daily journal on a day the children are not in.':'วันที่ไม่มีการเรียนการสอน จะไม่มีสมุดบันทึกประจำวัน'}</small></div>`;
     if(kid.onLeave) return `<div class="card" style="text-align:center;background:var(--warn-bg);border-color:var(--warn-line)">
       <b style="color:var(--warn)">🏖️ ${EN()?'On leave today':'ลาวันนี้'}</b>
       <br><small class="muted">${esc(kid.leaveType||'')}${kid.leaveReason?' · '+esc(kid.leaveReason):''}${kid.leaveType||kid.leaveReason?'<br>':''}${EN()?'No journal for a day the child was not in.':'วันที่ไม่ได้มาเรียนจะไม่มีสมุดบันทึก'}</small></div>`;
@@ -3057,7 +3081,11 @@
     const [kids,j,hist,inj,ci]=await Promise.all([api('parentChildren',parentScope()),api('getJournal',{studentId:sid}),
       api('journalHistory',{studentId:sid}),api('journalInjuries',{studentId:sid}).catch(()=>[]),
       api('studentCheckinHistory',{studentId:sid}).catch(()=>[]),
-      FOOD_PICS()]);   // same tick, so it rides in the batch above rather than costing a round trip
+      FOOD_PICS(),   // same tick, so it rides in the batch above rather than costing a round trip
+      /* ...and so does the school day. journalEmptyCard needs it to say "the school is shut" instead
+       * of "waiting for the teacher", and a parent who opens this screen directly (a deep link, or
+       * the app restored on this tab) has never been through the home screen that used to set it. */
+      api('schoolDay',{}).then(d=>{ window._SCHOOLDAY=d; return d; }).catch(()=>null)]);
     const kid=(kids||[]).find(k=>k.StudentID===sid)||{};
     app.innerHTML=`<h2 class="page">${esc(t('title.journal'))}${kids.length===1?` · <span style="color:var(--blue)">${esc(dispNick(kid)||sid)}</span>`:''}</h2>${childSwitcher(kids,sid,'P_journal')}${injJournalHTML(inj)}${j?journalChecklist(j,{parentEditable:true}):journalEmptyCard(kid)}
       ${/* A MONTH AT A TIME, AND FOLDED SHUT. The history was every journal the child has ever had,

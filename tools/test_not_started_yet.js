@@ -154,6 +154,30 @@ console.log('\n5) the parent is not told to wait for something that is not comin
   ok_('...a child on leave is told the leave is the record', /วันที่ไม่ได้มาเรียนจะไม่มีสมุดบันทึก/.test(app));
   ok_('...and everybody else still just waits for the teacher', /return waitCard\(date\); \}/.test(app));
   ok_('the journal screen has the child to ask about', /const kid=\(kids\|\|\[\]\)\.find\(k=>k\.StudentID===sid\)\|\|\{\};/.test(app));
+
+  /* THE THIRD REASON, AND THE COMMONEST ONE. Reported 2026-08-29 with a screenshot: the child's card
+   * said "🏖️ วันนี้โรงเรียนหยุด · วันหยุดสุดสัปดาห์" and the journal directly beneath it said
+   * "⏳ รอคุณครูส่งข้อมูลของวันที่ 29-08-2026". Nobody is at school on a Saturday, so there is no
+   * teacher waiting to send anything — one screen telling a family two contradictory things, one of
+   * them a promise it could not keep. It happened every weekend, to every family.
+   *
+   * The reasoning had already been written down for the other two cases and this one was missed. */
+  ok_('a closed day says so, instead of promising a journal nobody will write',
+    /sd && sd\.closedForStudents && String\(sd\.date\|\|''\)===String\(date\|\|todayStr\(\)\)/.test(app));
+  ok_('...naming the holiday, the way the card above it does', /esc\(EN\(\)\?\(sd\.reasonEN\|\|'Holiday'\):\(sd\.reason\|\|'วันหยุด'\)\)/.test(app));
+  ok_('...and saying why there is no journal', /วันที่ไม่มีการเรียนการสอน จะไม่มีสมุดบันทึกประจำวัน/.test(app));
+  ok_('...with the window shown when the school is shut for only part of the day', /sd\.partial\?` <b>\$\{esc\(\(sd\.holStart\|\|'00:00'\)/.test(app));
+  /* _SCHOOLDAY HOLDS ONE DATE'S ANSWER. Without comparing dates, opening a journal for a Tuesday in
+   * June would have been told that day was a holiday because TODAY is — the new card would have
+   * been a second, quieter version of the same bug. */
+  ok_('a past date is never told it was a holiday because today is',
+    /It holds ONE date's answer/.test(app));
+  /* And the order matches the kid card directly above it (closed, then on leave), so the two halves
+   * of one screen cannot give a family different reasons for the same empty day. */
+  ok_('the reasons are checked in the same order the kid card uses',
+    app.indexOf('sd.closedForStudents && String(sd.date') < app.indexOf("if(kid.onLeave) return"));
+  ok_('the journal screen fetches the day it needs, rather than relying on home having run first',
+    /api\('schoolDay',\{\}\)\.then\(d=>\{ window\._SCHOOLDAY=d; return d; \}\)\.catch\(\(\)=>null\)\]\);/.test(app));
 }
 
 console.log('\n6) both halves of the app refuse it');
