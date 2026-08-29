@@ -56,6 +56,9 @@ const res = JSON.parse(run(function () {
   mk('PR-001', 'STF-JOY', '2026-06', 200, 200, 950, 14050, 'YES');
   mk('PR-002', 'STF-JOY', '2026-07', 200, 200, 950, 14050, 'YES');
   mk('PR-003', 'STF-JOY', '2026-08', 300, 300, 1050, 13950, 'NO');
+  /* A SECOND SLIP FOR JULY. Not invented for the test: the live preview showed FOUR rows for one
+   * month on a real teacher, which would count that month twice in the school's expenses. */
+  mk('PR-004', 'STF-JOY', '2026-07', 0, 0, 750, 500, 'NO');
   mk('PR-010', 'STF-KOI', '2026-08', 500, 500, 1250, 12750, 'YES');
 
   var o = {};
@@ -93,6 +96,18 @@ const res = JSON.parse(run(function () {
   catch (e) { o.missing = e && e.apiCode; }
   try { handleContributionReset({}); o.noId = 'ALLOWED'; }
   catch (e) { o.noId = e && e.apiCode; }
+  // ---- 3b. a SETTABLE opening, and the two things the live preview turned up ----
+  // ครูก้อย gets the same treatment, but starting from a figure the school types in
+  o.koiPreview = handleContributionReset({ staffId: 'STF-KOI', adminId: 'STF-ADM' });
+  o.koiSet = handleContributionReset({ staffId: 'STF-KOI', confirm: true, newOpening: 35800, adminId: 'STF-ADM' });
+  var koi2 = findObject_(stSh, function (x) { return x.StaffID === 'STF-KOI'; });
+  o.koiAfterSet = { opening: Number(koi2.ContributionOpening), accum: Number(koi2.ContributionAccum) };
+  o.koiRowAccum = Number(findObject_(paySh, function (r) { return r.PayrollID === 'PR-010'; }).ContributionAccum);
+  try { handleContributionReset({ staffId: 'STF-KOI', confirm: true, newOpening: -5 }); o.negative = 'ALLOWED'; }
+  catch (e) { o.negative = e && e.apiCode; }
+  try { handleContributionReset({ staffId: 'STF-KOI', confirm: true, newOpening: 'abc' }); o.notANumber = 'ALLOWED'; }
+  catch (e) { o.notANumber = e && e.apiCode; }
+
   // ---- 4. running it twice is harmless ----
   o.twice = handleContributionReset({ staffId: 'STF-JOY', confirm: true, adminId: 'STF-ADM' });
   var st3 = findObject_(stSh, function (x) { return x.StaffID === 'STF-JOY'; });
@@ -109,13 +124,13 @@ console.log('\n1) the preview reads and reports, and writes nothing at all');
   eq('it says so', p.preview, true);
   eq('the opening balance as it stands', p.before.opening, 4000);
   eq('...and the accumulated total', p.before.accum, 12800);
-  eq('...and how many months are on file', p.before.payrollRows, 3);
+  eq('...and how many months are on file', p.before.payrollRows, 4);
   eq('...and what was deducted and matched', [p.before.sumEmployee, p.before.sumEmployer], [700, 700]);
   /* THE PART THAT MUST NOT BE BURIED: two of those slips have already been handed over, and their
    * net pay is about to change. The screen shows this in red above the confirm button. */
   eq('...and how many slips have already gone out', p.slipsAlreadySent, 2);
   eq('nothing was written to the staff record', res.afterPreview.staff, { opening: 4000, accum: 12800 });
-  eq('...nor to any payslip', res.afterPreview.rows.map(r => r.c), [200, 200, 300]);
+  eq('...nor to any payslip', res.afterPreview.rows.map(r => r.c), [200, 200, 300, 0]);
 }
 
 console.log('\n2) the arithmetic — เงินสมทบ is a DEDUCTION');
@@ -126,21 +141,56 @@ console.log('\n2) the arithmetic — เงินสมทบ is a DEDUCTION');
   eq('June: 950 deductions become 750', [j[0].totalDeductions, j[0].newTotalDeductions], [950, 750]);
   eq('...so net pay RISES from 14,050 to 14,250', [j[0].netPay, j[0].newNetPay], [14050, 14250]);
   eq('...by exactly the contribution', j[0].netPayChange, 200);
-  eq('August, where the figure was 300', [j[2].netPay, j[2].newNetPay, j[2].netPayChange], [13950, 14250, 300]);
+  // rows come back sorted by month, so the second July (the duplicate, with no contribution) is [2]
+  eq('the duplicate July, which has no contribution, does not move', [j[2].netPay, j[2].newNetPay, j[2].netPayChange], [500, 500, 0]);
+  eq('August, where the figure was 300', [j[3].netPay, j[3].newNetPay, j[3].netPayChange], [13950, 14250, 300]);
   // and the write agrees with the preview, because both are computed from the same array
-  eq('the rows written match the preview', res.joyRows.map(r => r.net), [14250, 14250, 14250]);
-  eq('...with the deductions lowered to match', res.joyRows.map(r => r.ded), [750, 750, 750]);
+  eq('the rows written match the preview', res.joyRows.map(r => r.net), [14250, 14250, 500, 14250]);
+  eq('...with the deductions lowered to match', res.joyRows.map(r => r.ded), [750, 750, 750, 750]);
 }
 
 console.log('\n3) what it actually cleared');
 {
   eq('the opening balance is zero', res.after.opening, 0);
   eq('...and the accumulated total', res.after.accum, 0);
-  eq('every month’s own half is zero', res.joyRows.map(r => r.c), [0, 0, 0]);
-  eq('...and the school’s matching half too', res.joyRows.map(r => r.e), [0, 0, 0]);
+  eq('every month’s own half is zero', res.joyRows.map(r => r.c), [0, 0, 0, 0]);
+  eq('...and the school’s matching half too', res.joyRows.map(r => r.e), [0, 0, 0, 0]);
   eq('the reply reports the figures afterwards, read back rather than assumed',
     [res.applied.after.opening, res.applied.after.accum, res.applied.after.sumEmployee, res.applied.after.sumEmployer], [0, 0, 0, 0]);
   ok_('...and it is on the record', res.audit.length >= 1);
+}
+
+console.log('\n3b) zero is the DEFAULT, not the only answer');
+{
+  /* The live preview is what proved this was needed: 35,800 stored against 400 in the payslips is a
+   * real balance the school knows and the sheet cannot derive. Wiping it to nothing throws it away. */
+  eq('a figure typed in becomes the opening balance', res.koiAfterSet.opening, 35800);
+  eq('...and the running total starts there, not at zero', res.koiAfterSet.accum, 35800);
+  /* Every monthly row was just zeroed, so each month's running total IS the opening — leaving them
+   * at 0 would print a fund of nothing on an old slip for somebody carrying a real balance. */
+  eq('...and each month’s stored total says so too', res.koiRowAccum, 35800);
+  eq('a negative opening is refused', res.negative, 'BAD_INPUT');
+  eq('...and so is something that is not a number', res.notANumber, 'BAD_INPUT');
+  eq('blank still means zero — the default is unchanged', res.after.opening, 0);
+}
+
+console.log('\n3c) the two things the live data turned up, reported rather than left to be spotted');
+{
+  const b = res.preview.before;
+  /* accum should be opening + Σ(own + employer). On ครูจอย it was 35,800 against 400 of payslip
+   * contributions and an opening of 0 — a gap of 35,400 that exists nowhere the system can see, and
+   * the reason recomputeContributions would have QUIETLY LOST it (it would rebuild 800). */
+  eq('what the total would be if rebuilt from the rows', b.derivedAccum, 4000 + 700 + 700);
+  eq('...and the part that cannot be explained by them', b.unexplained, 12800 - 5400);
+  // ...and more than one payslip for the same month, which double-counts the month's expense
+  eq('a month with two payslips is named', res.preview.duplicateMonths, ['2026-07']);
+  eq('...and a person with none reports none', res.koiPreview.duplicateMonths, []);
+  ok_('the screen highlights those rows', /dups\.indexOf\(x\.month\)>=0\?' style="background:var\(--warn-bg\)"':''/.test(app));
+  ok_('...and says what it means for the payroll about to be run', /รายจ่ายของโรงเรียนจะถูกนับซ้ำ/.test(app));
+  /* NEVER MERGED AUTOMATICALLY. Deciding which of four July slips is the real one is not something
+   * to guess at, and deleting a payslip is not this tool's job. */
+  ok_('...without deleting anything', /เครื่องมือนี้ไม่ลบสลิปให้/.test(app));
+  ok_('the payroll id is shown, so the row can be found in the sheet', /esc\(x\.payrollId\|\|''\)/.test(app));
 }
 
 console.log('\n4) one person, and only that person');
@@ -169,14 +219,16 @@ console.log('\n6) running it again is harmless');
 {
   // an operation that is dangerous to repeat is one somebody will repeat
   eq('the second run finds nothing left to clear', res.afterTwice, { opening: 0, accum: 0 });
-  eq('...and does not move net pay a second time', res.joyNetTwice, [14250, 14250, 14250]);
+  eq('...and does not move net pay a second time', res.joyNetTwice, [14250, 14250, 14250, 500]);
 }
 
 console.log('\n7) the screen makes the second press a different press');
 {
   ok_('the route is admin-only', /recomputeContributions: 1, contributionReset: 1,/.test(codeGs));
   ok_('the preview is what opens', /api\('contributionReset',\{staffId:sid,adminId:USER\.staffId\}\)/.test(app));
-  ok_('...and applying is a separate call with confirm', /api\('contributionReset',\{staffId:sid,confirm:true,adminId:USER\.staffId\}\)/.test(app));
+  ok_('...and applying is a separate call with confirm', /api\('contributionReset',\{staffId:sid,confirm:true,newOpening:opening,adminId:USER\.staffId\}\)/.test(app));
+  ok_('...carrying the figure the school typed in', /const opening=String\(\(m\.querySelector\('#crOpening'\)\|\|\{\}\)\.value\|\|''\)\.trim\(\);/.test(app));
+  ok_('the button says which of the two it will do before it is pressed', /window\.CR_openHint=\(\)=>/.test(app));
   /* THE CONFIRMATION IS THE NAME, not the word "yes": somebody typing "ครูจอย" cannot be halfway
    * through resetting a different teacher by accident. */
   ok_('the name has to be typed', /if\(typed!==String\(name\)\.trim\(\)\)\{ toast/.test(app));

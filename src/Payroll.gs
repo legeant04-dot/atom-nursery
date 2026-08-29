@@ -545,6 +545,20 @@ function handleContributionReset(p) {
   var staffId = String(p.staffId || '').trim();
   if (!staffId) throw apiError_('BAD_INPUT', 'ต้องระบุ StaffID');
   var confirm = p.confirm === true || String(p.confirm) === 'true';
+  /* ZERO IS THE DEFAULT, NOT THE ONLY ANSWER.
+   *
+   * The first version could only wipe to nothing, and the live preview showed why that is not enough:
+   * ครูจอย's accumulated total was 35,800 while the payslips on file held 400 — so the real fund is a
+   * figure the school knows and the sheet cannot derive. Clearing to zero and leaving it there would
+   * throw away a balance somebody is owed.
+   *
+   * So the school types the carried-over figure in and the monthly rows start again from it. Blank
+   * still means zero (asked 2026-08-29: "ล้างเงินสมทบให้เป็น 0 หรือเลือกได้ และใส่เข้าไปเพื่อคำนวนใหม่").
+   */
+  var newOpening = (p.newOpening === undefined || p.newOpening === null || String(p.newOpening).trim() === '')
+    ? 0 : Number(p.newOpening);
+  if (!isFinite(newOpening) || newOpening < 0) throw apiError_('BAD_INPUT', 'ยอดยกมาต้องเป็นตัวเลขไม่ติดลบ');
+  newOpening = round2_(newOpening);
 
   var stSh = sheet_(getHrSpreadsheet_(), 'STAFF');
   try { ensureColumns_(stSh, ['ContributionOpening', 'ContributionAccum', 'ContributionLocked']); } catch (e) {}
@@ -565,6 +579,10 @@ function handleContributionReset(p) {
     months.push({
       payrollId: r.PayrollID, month: ym7_(r.Month), status: String(r.Status || ''),
       slipSent: String(r.SlipSent || ''),
+      // gross and base travel too: the live preview turned up several rows for ONE month with tiny
+      // net figures, and "which of these four is the real July" cannot be answered from the fund
+      // column alone. Reported, never auto-merged — deleting somebody's payslip is not this tool's job.
+      baseSalary: num_(r.BaseSalary), gross: num_(r.GrossIncome),
       contribution: own, contributionEmployer: emp,
       totalDeductions: ded, netPay: net,
       // เงินสมทบ is a DEDUCTION: removing it lowers the deductions and RAISES the net pay
@@ -574,6 +592,19 @@ function handleContributionReset(p) {
     });
   });
 
+  /* DOES THE STORED TOTAL AGREE WITH THE ROWS IT IS SUPPOSED TO BE MADE OF?
+   *
+   * accum should be opening + Σ(own + employer). On the live data it was 35,800 against 400 of
+   * payslip contributions and an opening of 0 — a difference of 35,400 that exists nowhere the
+   * system can see. That is the whole reason "just recompute it" is not an option (it would rebuild
+   * 800 and quietly lose the rest), and it is the number the school has to decide about, so it is
+   * reported rather than left for somebody to spot in a table. */
+  var derived = round2_(num_(st.ContributionOpening) + sumOwn + sumEmp);
+  // more than one payslip for the same month is a data problem in its own right — surfaced here
+  // because this screen is the one place somebody is already looking at every row for this person
+  var seen = {}, dupMonths = [];
+  months.forEach(function (m) { if (seen[m.month] && dupMonths.indexOf(m.month) < 0) dupMonths.push(m.month); seen[m.month] = 1; });
+
   var out = {
     staffId: staffId, name: st.Name || st.NameEN || staffId,
     before: {
@@ -581,8 +612,13 @@ function handleContributionReset(p) {
       accum: num_(st.ContributionAccum),
       locked: String(st.ContributionLocked || ''),
       payrollRows: months.length,
-      sumEmployee: round2_(sumOwn), sumEmployer: round2_(sumEmp)
+      sumEmployee: round2_(sumOwn), sumEmployer: round2_(sumEmp),
+      // what the stored total WOULD be if it were rebuilt from these rows, and the gap if it is not
+      derivedAccum: derived,
+      unexplained: round2_(num_(st.ContributionAccum) - derived)
     },
+    newOpening: newOpening,
+    duplicateMonths: dupMonths,
     months: months,
     // the slips that were already sent — the ones whose paper copy will stop matching
     slipsAlreadySent: months.filter(function (m) { return String(m.slipSent).toUpperCase() === 'YES'; }).length,
@@ -602,13 +638,22 @@ function handleContributionReset(p) {
     if (!r) return;
     updateRow_(paySh, r._row, {
       Contribution: 0, ContributionEmployer: 0,
-      TotalDeductions: m.newTotalDeductions, NetPay: m.newNetPay, ContributionAccum: 0
+      TotalDeductions: m.newTotalDeductions, NetPay: m.newNetPay,
+      // the running total AS AT that month. Every month's own half is now zero, so each of them
+      // stands at the opening balance — not at zero, or an old slip would print a fund of nothing
+      // for somebody who is carrying a real balance.
+      ContributionAccum: newOpening
     });
   });
-  updateRow_(stSh, st._row, { ContributionOpening: 0, ContributionAccum: 0 });
+  /* Opening AND accum are set to the SAME figure, because every monthly row was just zeroed: with
+   * nothing left to add, the running total IS the opening balance. Writing accum from newOpening
+   * rather than leaving it to the next payroll run means the number is right on the screen
+   * immediately, which matters when payroll is being done the same afternoon. */
+  updateRow_(stSh, st._row, { ContributionOpening: newOpening, ContributionAccum: newOpening });
   try { CacheService.getScriptCache().removeAll(['col:STAFF', 'rows:STAFF', 'col:PAYROLL', 'rows:PAYROLL']); } catch (e) {}
   try { logAuditHr(p.adminId || 'admin', 'CONTRIB_RESET', 'STAFF',
-    staffId + ' opening ' + out.before.opening + ' accum ' + out.before.accum + ' rows ' + months.length); } catch (e) {}
+    staffId + ' opening ' + out.before.opening + '→' + newOpening +
+    ' accum ' + out.before.accum + '→' + newOpening + ' rows ' + months.length); } catch (e) {}
 
   // read it back rather than assert it — the whole point of the call is the number afterwards
   var st2 = findObject_(stSh, function (x) { return String(x.StaffID) === String(staffId); }) || {};
