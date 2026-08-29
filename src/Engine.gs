@@ -623,7 +623,30 @@ function createAtomAPI(M, GROWTH_STD) {
     activeStudents().forEach(s=>add(s.Class));
     return names.map(n=>(M.classes||[]).find(c=>c.ClassName===n)||{ClassName:n}); }
   // classes a staff covers (see classList). Returns an array of class objects, never empty when classes exist.
-  function coveredClasses_(staff){ staff=staff||{}; const all=allClassObjs_();
+  /**
+   * COVERING A CLASS FOR A FEW DAYS IS NOT THE SAME AS BEING MOVED TO IT.
+   *
+   * "วันนี้คุณครูลา และมีครูไม่เพียงพอต่อชั้นเรียน … ครูก้อยดูแล Nursery 1 และ 2 เป็นปกติ ต้องการเพิ่ม
+   *  Nursery Baby สำหรับวันนี้ แต่พรุ่งนี้ก็กลับไปเป็นปกติ" (2026-08-29).
+   *
+   * Editing Classes on the staff record would have done it — and then somebody has to remember to
+   * edit it back. Nobody does, on the day somebody was off sick. So cover is a ROW WITH TWO DATES
+   * that stops applying on its own: the permanent assignment is never touched, and there is nothing
+   * to undo tomorrow.
+   *
+   * Reading it is what makes it expire — no trigger to schedule and none to forget, the same shape
+   * as EndDate on a staff record and PauseFrom/PauseTo on a student.
+   */
+  const classCover_ = () => (M.classCover = M.classCover || []);
+  function coverClassesOn_(staffId, date){ const d=ymd(date||todayLocal());
+    return classCover_().filter(r=>String(r.StaffID)===String(staffId) &&
+        ymd(r.From)<=d && (!String(r.To||'').trim() || ymd(r.To)>=d))
+      .map(r=>String(r.ClassName||'').trim()).filter(Boolean); }
+  /**
+   * `onDate` exists so a screen ABOUT a past day can ask who was covering THAT day. Left out it
+   * means today, which is what "whose class is this" means on every live screen.
+   */
+  function coveredClasses_(staff, onDate){ staff=staff||{}; const all=allClassObjs_();
     const lvl=String(staff.PositionLevel||''), role=String(staff.Role||'');
     // Admin/Leader (or Classes/Department = '*') → ALL classes students are in
     const dept=String(staff.Department||''), list=String(staff.Classes||'').split(',').map(x=>x.trim()).filter(Boolean);
@@ -633,6 +656,9 @@ function createAtomAPI(M, GROWTH_STD) {
     list.forEach(n=>names[n]=1);
     // Department may be a comma list of the department(s) this staff is responsible for
     dept.split(',').map(x=>x.trim()).filter(Boolean).forEach(n=>names[n]=1);
+    // ...plus anything they are covering today. ADDED to what they already have, never instead of
+    // it: a teacher asked to take Nursery Baby as well still has Nursery 1 and 2.
+    coverClassesOn_(staff.StaffID, onDate).forEach(n=>names[n]=1);
     const cls=all.filter(c=>names[c.ClassName]);
     return cls.length?cls:[all.find(c=>c.TeacherID===staff.StaffID)||all[0]].filter(Boolean); }
   // May this staff drag/move teachers & students between classes (the admin organize tool)? Admin/Leader
@@ -641,6 +667,16 @@ function createAtomAPI(M, GROWTH_STD) {
     const lvl=String(staff.PositionLevel||''), role=String(staff.Role||'');
     if(lvl==='Admin'||lvl==='Leader'||role==='Admin') return true;
     const v=staff.CanClassOrg; return v===true||v==='YES'||v===1||String(v).toUpperCase()==='TRUE'; }
+  /**
+   * ...and who may LEND a teacher to another class for a few days (classCoverAdd).
+   *
+   * canOrganize_ plus the HEAD TEACHER, who the school named directly: "ให้หัวหน้าครู ติ๊กเพิ่ม
+   * เหมือนแอดมิน" (2026-08-29). A head teacher already sees every class, every child and every
+   * journal (Department='*'), so this gives away nothing they could not already read — but it is a
+   * separate function rather than a widening of canOrganize_, because that one also opens the drag
+   * tool that MOVES people permanently, and nobody asked for that.
+   */
+  const canCover_ = staff => canOrganize_(staff) || headTeacher_(staff);
   // OT for a pickup time (HH:MM) vs the student's plan end + grace; 100/started hour
   // OT that is PAID or CANCELLED is settled — it must never roll into a bill or count as outstanding.
   const OT_CLOSED = { PAID:1, CANCELLED:1 };
@@ -3961,6 +3997,66 @@ function createAtomAPI(M, GROWTH_STD) {
       if(!canOrganize_(me)) fail('NO_PERMISSION','ไม่มีสิทธิ์จัดชั้นเรียน (ต้องได้รับสิทธิ์จากแอดมิน)');
       const s=studentById(p.targetId); if(!s)fail('NOT_FOUND','ไม่พบนักเรียน'); s.Class=p.toClass||'';
       logAct('moveStudent',p.targetId,'→ '+(p.toClass||'-'),actorOf(p)); return {ok:true}; },
+
+    /* ---- temporary class cover (หัวหน้าครูเพิ่มชั้นเรียนให้ครูรายคน) --------------------------
+     *
+     * Who may grant it: the same people who may reorganise classes at all (canOrganize_ — admin,
+     * leader, head teacher, or a teacher the admin flagged). Deliberately NOT a new permission:
+     * "you may move a teacher into a class permanently, but not lend them to one for a day" would
+     * be a strange line to draw, and a second flag is a second thing to get wrong.
+     */
+    classCoverList: p => { p=p||{}; const me=staffById(p.staffId)||{};
+      if(!canCover_(me)) fail('NO_PERMISSION','ไม่มีสิทธิ์จัดชั้นเรียน (เฉพาะแอดมิน / หัวหน้าครู)');
+      const today=todayLocal();
+      return classCover_().slice()
+        .sort((a,b)=>String(a.From).localeCompare(String(b.From))||String(a.StaffID).localeCompare(String(b.StaffID)))
+        .map(r=>{ const s=staffById(r.StaffID)||{};
+          const from=ymd(r.From), to=String(r.To||'').trim()?ymd(r.To):'';
+          return { coverId:r.CoverID, staffId:r.StaffID,
+            staffName:s.NameTH||s.Name||r.StaffID, staffNick:s.Nickname||'',
+            className:r.ClassName, from, to, reason:r.Reason||'',
+            // three states, so the screen never has to work out a date range itself
+            active: from<=today && (!to||to>=today), upcoming: from>today, ended: !!to && to<today }; }); },
+    classCoverAdd: p => { const me=staffById(p.staffId)||{};
+      if(!canCover_(me)) fail('NO_PERMISSION','ไม่มีสิทธิ์จัดชั้นเรียน (เฉพาะแอดมิน / หัวหน้าครู)');
+      const s=staffById(p.targetId); if(!s||!s.StaffID) fail('NOT_FOUND','ไม่พบคุณครู');
+      const cls=String(p.className||'').trim(); if(!cls) fail('BAD_INPUT','เลือกชั้นเรียน');
+      if(!allClassObjs_().some(c=>c.ClassName===cls)) fail('NOT_FOUND','ไม่พบชั้นเรียนนี้');
+      const from=ymd(p.from||todayLocal());
+      /* A BLANK END DATE MEANS "UNTIL SOMEBODY REMOVES IT" — which is exactly the state this feature
+       * exists to avoid, so it is refused. The school's own words were "ไม่ได้ทุกวัน": cover with no
+       * end is not cover, it is a permanent reassignment made by the back door. Same day = one day. */
+      const to=ymd(p.to||from);
+      if(!/^\d{4}-\d{2}-\d{2}$/.test(from)||!/^\d{4}-\d{2}-\d{2}$/.test(to)) fail('BAD_INPUT','วันที่ไม่ถูกต้อง');
+      if(to<from) fail('BAD_INPUT','วันสิ้นสุดต้องไม่ก่อนวันเริ่ม');
+      // ...and a class this teacher already has permanently is not cover; saying so is more use
+      // than a row that changes nothing
+      const perm=coveredClasses_(Object.assign({},s,{StaffID:s.StaffID}),'1900-01-01').map(c=>c.ClassName);
+      if(perm.indexOf(cls)>=0) fail('ALREADY','คุณครูดูแลชั้นเรียนนี้อยู่แล้วตามปกติ');
+      const dup=classCover_().find(r=>String(r.StaffID)===String(s.StaffID)&&String(r.ClassName)===cls
+        && ymd(r.From)<=to && (!String(r.To||'').trim()||ymd(r.To)>=from));
+      if(dup) fail('DUPLICATE','ช่วงวันที่นี้ทับกับรายการที่มีอยู่แล้ว');
+      const rec={ CoverID:nextSeqId_(classCover_(),'CoverID','CV',4), StaffID:s.StaffID, ClassName:cls,
+        From:from, To:to, Reason:String(p.reason||'').trim(), AddedBy:p.staffId||'', AddedAt:stampLocal() };
+      classCover_().push(rec);
+      logAct('classCoverAdd',s.StaffID,cls+' '+from+(to!==from?'–'+to:''),actorOf(p));
+      return { coverId:rec.CoverID, staffId:s.StaffID, className:cls, from, to }; },
+    classCoverRemove: p => { const me=staffById(p.staffId)||{};
+      if(!canCover_(me)) fail('NO_PERMISSION','ไม่มีสิทธิ์จัดชั้นเรียน (เฉพาะแอดมิน / หัวหน้าครู)');
+      const i=classCover_().findIndex(r=>String(r.CoverID)===String(p.coverId));
+      if(i<0) fail('NOT_FOUND','ไม่พบรายการ');
+      const r=classCover_()[i]; classCover_().splice(i,1);
+      logAct('classCoverRemove',r.StaffID,r.ClassName+' '+ymd(r.From),actorOf(p));
+      return {ok:true}; },
+    /** What a teacher is covering right now — shown on their own home screen, so it is never a surprise. */
+    myClassCover: p => { const me=staffById(p.staffId)||{}; if(!me.StaffID) return [];
+      const today=todayLocal();
+      return classCover_().filter(r=>String(r.StaffID)===String(me.StaffID))
+        .filter(r=>{ const to=String(r.To||'').trim(); return !to || ymd(to)>=today; })
+        .sort((a,b)=>String(a.From).localeCompare(String(b.From)))
+        .map(r=>({ coverId:r.CoverID, className:r.ClassName, from:ymd(r.From),
+          to:String(r.To||'').trim()?ymd(r.To):'', reason:r.Reason||'',
+          active: ymd(r.From)<=today })); },
 
     // ========== withdrawal / cancel enrolment (parent self-service + Admin direct) ==========
     // valid reason codes (config-driven): graduated | moved | transferred | other

@@ -112,7 +112,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.297'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.298'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -3300,6 +3300,10 @@
     const p_holNext = api('myHolidayOTNext',{staffId:USER.staffId}).catch(()=>null);
     const p_holDay  = api('holidayAttendList',{}).catch(()=>null);
     const p_missOut = api('staffMissingCheckout',{staffId:USER.staffId}).catch(()=>null);
+    /* A CLASS THAT APPEARS ON SOMEBODY'S SCREEN WITHOUT EXPLANATION IS ALARMING. Cover ADDS a class
+     * to this teacher's list; if nobody tells them why, the first they know of it is a roomful of
+     * children they were not expecting. Same tick as the batch below, so it costs no round trip. */
+    const p_cover   = api('myClassCover',{staffId:USER.staffId}).catch(()=>null);
     // myLeaves / myOT / recentAttendance were fetched here for lists that have MOVED — the leave
     // history and the work-time history to 📅 ตาราง, the OT history to 💵 การเงิน. Fetching them
     // for a screen that no longer shows them would be three requests spent on nothing.
@@ -3315,6 +3319,9 @@
     const isLeader = me0.PositionLevel==='Leader' || me0.Role==='Leader' || USER.role==='Leader';
     USER._isLeader = isLeader;   // remembered for screens that cannot re-read the staff record (isLeaderRole)
     const canOrg = !!me0.CanClassOrg || isLeader;   // may use the drag class-organize tool (admin-granted)
+    // ...and who may lend a teacher to a class for a few days — canOrg PLUS the head teacher, who
+    // the school named directly. Department='*' is what makes somebody a head teacher (headTeacher_).
+    const canCover = canOrg || String(me0.Department||'')==='*';
     // the teacher the admin put in charge of the kitchen menu gets the monthly menu screen too
     const canFood = ['YES','TRUE','1'].indexOf(String(me0.CanFoodMenu||'').toUpperCase())>=0 || me0.CanFoodMenu===true;
     // A_foodItems is shared with the admin screen and cannot re-derive this — it has no `me0`.
@@ -3391,6 +3398,7 @@
            it is on the leave screen itself where a teacher is actually deciding whether to file one.
            The home screen keeps the way IN. -->
       <div id="tholnext"></div>
+      <div id="tcover"></div>
       <div id="tholday"></div>
       <div id="tmissout"></div>
       <div class="card"><button class="btn sm outline block" onclick="GO('leave')">📩 ${EN()?'Leave — file or view':'ยื่น/ดูใบลา'}</button></div>
@@ -3400,6 +3408,10 @@
         <button class="btn sm outline" onclick="T_holidayOT()">🎉 ${EN()?'My holiday OT':'OT วันหยุดของฉัน'}</button>
         <button class="btn sm outline" onclick="A_attAudit()">🕵️ ${EN()?'Attendance check':'ตรวจสอบการลงเวลา'}</button>
         ${canOrg?`<button class="btn sm outline" onclick="T_organize()">🔁 ${EN()?'Organize classes':'จัดชั้นเรียน'}</button>`:''}
+        ${/* The head teacher gets COVER without getting the drag grid: lending somebody to a class
+             for a day and moving them into it permanently are different decisions, and only the
+             first one was asked for. Anyone who has the grid reaches cover through it instead. */''}
+        ${(!canOrg && canCover)?`<button class="btn sm outline" onclick="T_cover()">🤝 ${EN()?'Temporary cover':'ดูแลชั้นเรียนชั่วคราว'}</button>`:''}
         ${/* The kitchen teacher plans the month's menu — and now also puts the PICTURES on the
              dishes, which is the same job and the same knowledge. Without a door of their own here
              they would have had to ask an admin for every photo, which is how a feature ends up
@@ -3417,8 +3429,8 @@
           // min-width:0 lets the name column shrink; without it the two buttons were pushed onto
           // their own lines and every row ended up a different height
           const dueA=dspmDueOf(s.StudentID);
-          return `<div class="list-item"><span style="min-width:0;flex:1">${studentAvatar(s)} <b>${esc(dispNick(s))}</b> ${dueA?dspmDueBadge(dueA):''} ${journalPill(done)}</span><span class="acts2">${jBtn}<button class="btn sm outline" onclick="T_assess('${s.StudentID}')">${esc(t('lbl.assess'))}</button></span></div>`; }).join('')}</div>
-      ${birthdayCard(al)}`;
+          return `<div class="list-item"><span style="min-width:0;flex:1">${studentAvatar(s)} <b>${esc(dispNick(s))}</b>${bdayTag(s.DOB)} ${dueA?dspmDueBadge(dueA):''} ${journalPill(done)}</span><span class="acts2">${jBtn}<button class="btn sm outline" onclick="T_assess('${s.StudentID}')">${esc(t('lbl.assess'))}</button></span></div>`; }).join('')}</div>
+      <div id="tbday">${birthdayCard(al,{nav:true})}</div>`;
     // render, don't fetch: this was started before the batch above and travelled with it
     const tca=await p_tca; setHTML('#tcatt', tca?tcaHtml(tca,day0):'');
     /* A closed day with children in it. The teacher on OT วันหยุด needs the list in front of her —
@@ -3433,6 +3445,24 @@
      * a payslip. This is the standing reminder, on the screen somebody actually opens on a Friday —
      * and on the day itself it says so in the present tense, next to the clock-in button. */
     GEO_gateFill();
+    /* WHY THERE IS AN EXTRA CLASS ON YOUR SCREEN TODAY — said in the present tense on the day, and
+     * ahead of time before it. Cover that nobody explained is a roomful of children a teacher was
+     * not expecting. Cover already finished is not shown: the server only sends today's and later. */
+    p_cover.then(rows=>{
+      const list=(rows||[]).filter(r=>r.className);
+      if(!list.length){ setHTML('#tcover',''); return; }
+      const when=r=>r.from===r.to?ddmmyyyy(r.from):`${ddmmyyyy(r.from)} – ${r.to?ddmmyyyy(r.to):'…'}`;
+      const now=list.filter(r=>r.active), soon=list.filter(r=>!r.active);
+      setHTML('#tcover', `<div class="card" style="background:var(--blue-bg);border-color:var(--blue-line)">
+        <b>🤝 ${EN()?'Classes you are covering':'ชั้นเรียนที่คุณดูแลเพิ่มชั่วคราว'}</b>
+        ${now.map(r=>`<div style="margin-top:4px"><b style="color:var(--blue)">${esc(r.className)}</b>
+          <span class="pill ok">${EN()?'today':'วันนี้'}</span> <small class="muted">${esc(when(r))}${r.reason?' · '+esc(r.reason):''}</small></div>`).join('')}
+        ${soon.map(r=>`<div style="margin-top:4px"><b>${esc(r.className)}</b>
+          <span class="pill wait">${EN()?'upcoming':'ล่วงหน้า'}</span> <small class="muted">${esc(when(r))}${r.reason?' · '+esc(r.reason):''}</small></div>`).join('')}
+        <small class="muted" style="display:block;margin-top:6px">${EN()
+          ? 'These children are on your class list for these days only. Your own classes are unchanged.'
+          : 'นักเรียนกลุ่มนี้จะอยู่ในรายชื่อชั้นเรียนของคุณเฉพาะช่วงวันดังกล่าว · ชั้นเรียนประจำของคุณไม่เปลี่ยนแปลง'}</small></div>`);
+    });
     p_holNext.then(n=>{
       if(!n||!n.count){ setHTML('#tholnext',''); return; }
       const today=(n.rows||[]).filter(r=>r.date===n.today);
@@ -3748,14 +3778,14 @@
       api('schoolDay',{}).then(d=>{ window._SCHOOLDAY=d; return d; }).catch(()=>null)]);
     const jdone=journalDoneMap(jstat); setAlerts(al);
     T_STU={}; cl.students.forEach(s=>{ T_STU[s.StudentID]=s; });
-    app.innerHTML=`<h2 class="page">👶 ${esc(cl.class.ClassName)}</h2>${classSwitcher(cl)}${birthdayCard(al)}`+cl.students.map(s=>{
+    app.innerHTML=`<h2 class="page">👶 ${esc(cl.class.ClassName)}</h2>${classSwitcher(cl)}<div id="tbday">${birthdayCard(al,{nav:true})}</div>`+cl.students.map(s=>{
       const attTag = s.onLeave
         ? `<small class="pill warn" style="margin-left:4px">🏖️ ${esc(s.leaveType||(EN()?'on leave':'ลา'))}${s.leaveReason?' · '+esc(s.leaveReason):''}</small>`
         : (s.inToday?`<small class="pill ok" style="margin-left:4px">${EN()?'in':'มา'} ${esc(s.inTime||'')}</small>`:'');
       // the DSPM reminder rides after the name, where the teacher is already looking, and clears
       // itself once the band is finished
       const due=dspmDueOf(s.StudentID);
-      return `<div class="card"><div style="display:flex;gap:10px;align-items:center">${studentAvatar(s)}<div style="min-width:0"><b>${esc(dispNick(s))}</b> ${due?dspmDueBadge(due):''} ${nmSub(s)?`<small class="muted">${esc(nmSub(s))}</small>`:""}${attTag}<br><small class="muted">${esc(ageYM(s.DOB))} · ${EN()?'allergy':'แพ้'}: ${esc(s.Allergy||'-')}</small><br>${journalPill(jdone[s.StudentID])}</div></div>
+      return `<div class="card"><div style="display:flex;gap:10px;align-items:center">${studentAvatar(s)}<div style="min-width:0"><b>${esc(dispNick(s))}</b>${bdayTag(s.DOB)} ${due?dspmDueBadge(due):''} ${nmSub(s)?`<small class="muted">${esc(nmSub(s))}</small>`:""}${attTag}<br><small class="muted">${esc(ageYM(s.DOB))} · ${EN()?'allergy':'แพ้'}: ${esc(s.Allergy||'-')}</small><br>${journalPill(jdone[s.StudentID])}</div></div>
         ${studentRowButtons(s,jdone)}</div>`; }).join(''); };
   // Teacher files a leave for a student → notifies the linked parents; shows in that student's parent calendar
   window.T_studentLeave=(sid,name)=>{ modal(`<h3>🏖️ ${EN()?'File student leave':'แจ้งลานักเรียน'} — ${esc(name)}</h3>
@@ -5577,19 +5607,63 @@
    * arrives too late to do anything with.
    * Only rendered when the calendar is showing the month the birthdays belong to.
    */
-  function birthdayCard(al){
-    const list=(al&&al.birthdays)||[]; if(!list.length) return '';
-    const b=calBase(); const shown=b.getFullYear()+'-'+String(b.getMonth()+1).padStart(2,'0');
-    if(al.month && shown!==al.month) return '';
-    const today=new Date(); const isThisMonth = shown===todayStr().slice(0,7);
-    const dayNow=today.getDate();
-    return `<div class="card" style="border-color:var(--brand-line);background:var(--brand-soft)">
-      <div class="spread"><b>🎂 ${EN()?'Birthdays this month':'วันเกิดนักเรียนเดือนนี้'}</b><span class="pill info">${list.length}</span></div>
-      ${list.map(k=>{ const past = isThisMonth && k.day<dayNow, isToday = isThisMonth && k.day===dayNow;
+  function birthdayCard(al, opts){ opts=opts||{};
+    const list=(al&&al.birthdays)||[];
+    /* WITH ARROWS, the card must render even for an EMPTY month — otherwise pressing ▶ onto a month
+     * with no birthdays makes the whole thing vanish, arrows and all, and there is no way back. */
+    if(!list.length && !opts.nav) return '';
+    const shown = opts.nav ? (al&&al.month) || todayStr().slice(0,7)
+      : (b=>b.getFullYear()+'-'+String(b.getMonth()+1).padStart(2,'0'))(calBase());
+    if(!opts.nav && al.month && shown!==al.month) return '';
+    const isThisMonth = shown===todayStr().slice(0,7);
+    const dayNow=new Date().getDate();
+    /* The school wants to know BEFORE the day — and, having got that, asked to look further out and
+     * further back too ("เลือกดูเดือนก่อนหน้าหรือล่วงหน้าได้", 2026-08-29): a birthday needs planning,
+     * and a party that was last week is still worth having noticed. */
+    const head = opts.nav
+      ? `<div class="spread" style="gap:6px"><button class="btn sm outline" style="flex:0 0 auto" onclick="T_bdayNav(-1)" aria-label="${EN()?'Previous month':'เดือนก่อนหน้า'}" title="${EN()?'Previous month':'เดือนก่อนหน้า'}">◀</button>
+          <b style="flex:1;text-align:center;font-size:14px">🎂 ${esc(monthNameYear(shown))}</b>
+          <span class="row" style="flex:0 0 auto;gap:6px">${isThisMonth?'':`<button class="btn sm outline" onclick="T_bdayNav(0)">${EN()?'This month':'เดือนนี้'}</button>`}
+          <button class="btn sm outline" onclick="T_bdayNav(1)" aria-label="${EN()?'Next month':'เดือนถัดไป'}" title="${EN()?'Next month':'เดือนถัดไป'}">▶</button></span></div>`
+      : `<div class="spread"><b>🎂 ${EN()?'Birthdays this month':'วันเกิดนักเรียนเดือนนี้'}</b><span class="pill info">${list.length}</span></div>`;
+    return `<div class="card" id="tbdayCard" style="border-color:var(--brand-line);background:var(--brand-soft)">
+      ${head}
+      ${list.length ? list.map(k=>{ const past = isThisMonth && k.day<dayNow, isToday = isThisMonth && k.day===dayNow;
         return `<div class="list-item"${past?' style="opacity:.5"':''}>
           <span>${isToday?'🎉 ':''}<b>${esc(dnick(k))}</b> <small class="muted">${esc(k.class||'')}</small></span>
-          <span style="text-align:right"><b>${esc(ddmmyyyy(k.dob).slice(0,5))}</b>${k.turning?` <small class="muted">${EN()?'turns':'ครบ'} ${k.turning} ${EN()?'yrs':'ขวบ'}</small>`:''}</span></div>`; }).join('')}</div>`;
+          <span style="text-align:right"><b>${esc(ddmmyyyy(k.dob).slice(0,5))}</b>${k.turning?` <small class="muted">${EN()?'turns':'ครบ'} ${k.turning} ${EN()?'yrs':'ขวบ'}</small>`:''}</span></div>`; }).join('')
+        : `<small class="muted">${EN()?'No birthdays this month':'เดือนนี้ไม่มีนักเรียนเกิด'}</small>`}</div>`;
   }
+  /**
+   * The birthday strip's own month, independent of any calendar.
+   *
+   * A month OFFSET rather than a stored date: "this month" is then always exactly 0, and the button
+   * that returns to it cannot drift out of step with what the server calls today.
+   */
+  let T_BDAY_OFF = 0;
+  window.T_bdayNav = async (d)=>{
+    T_BDAY_OFF = d===0 ? 0 : T_BDAY_OFF + d;
+    const n=new Date(); n.setDate(1); n.setMonth(n.getMonth()+T_BDAY_OFF);
+    const month=n.getFullYear()+'-'+String(n.getMonth()+1).padStart(2,'0');
+    const card=document.getElementById('tbdayCard'); if(card) card.style.opacity='.5';
+    try{ const al=await api('studentAlerts',{staffId:USER.staffId,role:USER.role,month});
+      // only the birthday strip moves — the DSPM list beside it is about today, not about a month
+      setHTML('#tbday', birthdayCard(al,{nav:true}));
+    }catch(e){ err(e); if(card) card.style.opacity=''; }
+  };
+  /**
+   * THE CHILD'S BIRTHDAY, AFTER THEIR NAME — asked 2026-08-29.
+   *
+   * The teacher screens showed an AGE ("2 ปี 3 เดือน"), which answers a different question: a teacher
+   * planning a party, or working out who is about to move up a class, needs the DATE. Day and month
+   * only, because the year is already in the age beside it and a full date on every row is noise.
+   * The day itself is marked, since that is the one a teacher must not miss.
+   */
+  function bdayTag(dob){ const d=String(dob||'').slice(0,10); if(!/^\d{4}-\d{2}-\d{2}$/.test(d)) return '';
+    const today=todayStr();
+    const isToday = d.slice(5)===today.slice(5);
+    return `<small class="pill ${isToday?'ok':''}" style="font-size:11px;margin-left:4px" title="${esc(fullDate(d))}">${
+      isToday?'🎉':'🎂'} ${esc(ddmmyyyy(d).slice(0,5))}</small>`; }
   /**
    * Who is due a DSPM assessment. The reminder is the ONLY thing that makes a bi-monthly assessment
    * happen on time, and it clears itself: finish the band and the child drops off this list.
@@ -8536,8 +8610,9 @@
   window.A_delGroup=async(name)=>{ if(!confirm(t('manage.confirmDel')))return; try{ await api('deleteStaffGroup',{name}); toast(t('manage.deleted')); const m=document.querySelector('.modal'); if(m)m.remove(); A_groups(); }catch(e){err(e);} };
 
   // ---- Organize: move teachers/students between Nurseries (drag-drop + dropdown fallback) ----
-  ADMIN_SUB_organize = async (backGo)=>{ window.__orgBack = backGo || window.__orgBack || 'manage';
-    const [staff,students,depts]=await Promise.all([api('listStaff'),api('listStudents'),api('listDepartments')]);
+  ADMIN_SUB_organize = async (backGo)=>{ window.__orgBack = backGo || window.__orgBack || 'manage'; window.__cvStandalone = false;
+    const [staff,students,depts,cover]=await Promise.all([api('listStaff'),api('listStudents'),api('listDepartments'),
+      api('classCoverList',{staffId:USER.staffId},{fresh:true}).catch(()=>[])]);
     // classes = the department master the admin created (Nursery Baby/1/2/…) — NOT the seed config
     const deps=(depts||[]).filter(d=>d);
     const canClass = s => s.Role!=='Admin' && s.PositionLevel!=='Admin';   // teachers, leaders, assistants…
@@ -8557,8 +8632,82 @@
       <p class="muted" style="font-size:13px">${esc(t('org.note'))}</p>
       <div class="card" ondragover="event.preventDefault()" ondrop="A_drop(event,'')" style="background:var(--warn-bg);border-color:var(--warn-line)"><h3>🧑‍🏫 ${EN()?'Unassigned staff — drag into a class':'พนักงานที่ยังไม่ได้จัดชั้น — ลากไปใส่ชั้นเรียน'} <small class="muted">${unassigned.length}</small></h3>
         <div class="org-grid" style="grid-template-columns:1fr">${unassigned.length?unassigned.map(chip).join(''):`<small class="muted">${EN()?'none':'ไม่มี'}</small>`}</div></div>
+      ${orgCoverCard(teachers, deps, cover||[])}
       <div class="org-grid">${deps.map(col).join('')}</div>`;
   };
+  /**
+   * COVER, WHICH IS NOT THE SAME AS MOVING SOMEBODY.
+   *
+   * The grid above moves a teacher into a class and leaves them there. What the school actually asked
+   * for (2026-08-29) was the other thing: "ครูก้อยดูแล Nursery 1 และ 2 เป็นปกติ ต้องการเพิ่ม Nursery Baby
+   * สำหรับวันนี้ แต่พรุ่งนี้ก็กลับไปเป็นปกติ · ไม่ได้ทุกวัน". Done with the grid, that is two edits — and
+   * the second one has to be remembered tomorrow morning by whoever is covering for the person who is
+   * off sick. So it is a row with two dates that stops applying on its own.
+   *
+   * ADDED to the teacher's own classes, never instead of them, and the list says which rows are live
+   * today, which are still to come and which have finished — a date range on its own is a puzzle.
+   */
+  function orgCoverCard(teachers, deps, cover){
+    const today=todayStr();
+    const pill=r=>r.active?`<span class="pill ok">${EN()?'today':'วันนี้'}</span>`
+      :r.upcoming?`<span class="pill wait">${EN()?'upcoming':'ล่วงหน้า'}</span>`
+      :`<span class="pill">${EN()?'ended':'สิ้นสุดแล้ว'}</span>`;
+    const when=r=>r.from===r.to?ddmmyyyy(r.from):`${ddmmyyyy(r.from)} – ${r.to?ddmmyyyy(r.to):'…'}`;
+    const rows=(cover||[]).slice().sort((a,b)=>(b.active-a.active)||(b.upcoming-a.upcoming)||String(b.from).localeCompare(String(a.from)));
+    return `<div class="card" style="background:var(--blue-bg);border-color:var(--blue-line)">
+      <h3>🤝 ${EN()?'Temporary cover — extra classes for a few days':'ดูแลชั้นเรียนชั่วคราว — เพิ่มชั้นให้คุณครูเป็นช่วงวัน'}</h3>
+      <p class="muted" style="font-size:13px">${EN()
+        ? 'For a day a colleague is off. The class is ADDED to that teacher’s own; their permanent classes never change, and the cover stops on its end date by itself — nothing to undo tomorrow.'
+        : 'ใช้สำหรับวันที่คุณครูลาและครูไม่พอ · ชั้นเรียนจะถูก “เพิ่ม” ให้คุณครูคนนั้น โดยชั้นเรียนประจำไม่เปลี่ยน และจะหมดอายุเองเมื่อถึงวันสิ้นสุด ไม่ต้องมาแก้คืนพรุ่งนี้'}</p>
+      <div class="grid2">
+        <label class="field"><span>👩‍🏫 ${EN()?'Teacher':'คุณครู'}</span><select id="cvStaff">${
+          teachers.map(s=>`<option value="${esc(s.StaffID)}">${esc(nmn(s))}</option>`).join('')}</select></label>
+        <label class="field"><span>🏫 ${EN()?'Class to cover':'ชั้นเรียนที่ให้ดูแลเพิ่ม'}</span><select id="cvClass">${
+          deps.map(d=>`<option value="${esc(d)}">${esc(d)}</option>`).join('')}</select></label></div>
+      ${/* Both default to TODAY, because "today only" is the case this exists for — and one day is
+           then zero typing. min=today: cover for a day that has gone changes nothing that already
+           happened, and offering it would only produce a refusal. */''}
+      <div class="grid2">
+        <label class="field"><span>${EN()?'From':'ตั้งแต่วันที่'}</span><input type="date" id="cvFrom" min="${today}" value="${today}" onchange="CV_syncTo()"/></label>
+        <label class="field"><span>${EN()?'To (same day = one day only)':'ถึงวันที่ (วันเดียวกัน = แค่วันเดียว)'}</span><input type="date" id="cvTo" min="${today}" value="${today}"/></label></div>
+      <label class="field"><span>${EN()?'Reason (optional)':'เหตุผล (ถ้ามี)'}</span><input id="cvReason" placeholder="${EN()?'e.g. covering for Kru Joy (sick leave)':'เช่น แทนครูจอย (ลาป่วย)'}"/></label>
+      <button class="btn block" onclick="CV_add(this)">+ ${EN()?'Add cover':'เพิ่มการดูแลชั่วคราว'}</button>
+      <div style="margin-top:10px">${rows.length?rows.map(r=>`<div class="list-item"${r.ended?' style="opacity:.55"':''}>
+        <span style="flex:1;min-width:0"><b>${esc(r.staffNick||r.staffName)}</b> → <b style="color:var(--blue)">${esc(r.className)}</b> ${pill(r)}
+          <br><small class="muted">${esc(when(r))}${r.reason?' · '+esc(r.reason):''}</small></span>
+        <button class="btn sm pink" style="flex:0 0 auto" onclick="CV_remove('${esc(r.coverId)}',this)" aria-label="${EN()?'Remove':'ลบ'}" title="${EN()?'Remove':'ลบ'}">🗑️</button></div>`).join('')
+        :`<small class="muted">${EN()?'No temporary cover set':'ยังไม่มีการดูแลชั่วคราว'}</small>`}</div></div>`;
+  }
+  // "To" must never be before "From" — drag the end date along rather than let a refusal explain it
+  window.CV_syncTo=()=>{ const f=document.getElementById('cvFrom'), to=document.getElementById('cvTo');
+    if(!f||!to) return; to.min=f.value; if(to.value<f.value) to.value=f.value; };
+  window.CV_add=async(btn)=>{ const g=id=>(document.getElementById(id)||{}).value||'';
+    if(btn)btn.disabled=true;
+    try{ await api('classCoverAdd',{staffId:USER.staffId,targetId:g('cvStaff'),className:g('cvClass'),
+        from:g('cvFrom'),to:g('cvTo'),reason:g('cvReason').trim()});
+      confirmSaved(EN()?'Cover added':'เพิ่มการดูแลชั่วคราวแล้ว'); CV_reload();
+    }catch(e){ err(e); if(btn)btn.disabled=false; } };
+  window.CV_remove=async(id,btn)=>{ if(btn)btn.disabled=true;
+    try{ await api('classCoverRemove',{staffId:USER.staffId,coverId:id}); CV_reload(); }
+    catch(e){ err(e); if(btn)btn.disabled=false; } };
+  /* The card lives on TWO screens, so "redraw after a change" cannot just call one of them. */
+  const CV_reload = ()=> (window.__cvStandalone ? T_cover() : ADMIN_SUB_organize());
+  /**
+   * COVER ON ITS OWN, for a head teacher.
+   *
+   * The organize screen holds the drag grid that MOVES people permanently, and a head teacher does
+   * not have that right (canOrganize_) — only cover (canCover_). Showing them the grid anyway would
+   * be a screen full of controls that answer with a refusal, which is worse than not offering them.
+   * Same card, same handlers; only the page around it differs.
+   */
+  window.T_cover = async ()=>{ window.__cvStandalone = true;
+    const [staff,depts,cover]=await Promise.all([api('listStaff'),api('listDepartments'),
+      api('classCoverList',{staffId:USER.staffId},{fresh:true}).catch(()=>[])]);
+    const teachers=(staff||[]).filter(s=>s.Role!=='Admin' && s.PositionLevel!=='Admin');
+    app.innerHTML=`<button class="btn sm outline backbtn" onclick="GO('home')">${t('c.back')}</button>
+      <h2 class="page">🤝 ${EN()?'Temporary class cover':'ดูแลชั้นเรียนชั่วคราว'}</h2>
+      ${orgCoverCard(teachers, (depts||[]).filter(d=>d), cover||[])}`;
+    window.scrollTo(0,0); };
   window.A_drag=(e,type,id)=>{ e.dataTransfer.setData('text/plain',type+':'+id); };
   window.A_drop=async(e,dep)=>{ e.preventDefault(); const d=(e.dataTransfer.getData('text/plain')||'').split(':'); if(d.length<2)return; await A_moveSel(d[0],d[1],dep); };
   // Permission-aware move: caller = USER.staffId (server injects/validates), target = the dragged id.
