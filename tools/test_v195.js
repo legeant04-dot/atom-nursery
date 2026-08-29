@@ -41,7 +41,17 @@ function fresh() {
     otRecords: [], payroll: [], feed: [], injuryReports: [],
     checkinStudent: [], studentCheckins: [], studentAttendanceToday: [], staffAttendanceToday: [],
     activityLog: [], studentLeaves: [], comments: [], leaves: [], leaveUsed: {}, announcements: [],
-    withdrawals: [], attendanceReq: [], classChangeReq: [], absenceLog: [], workSchedule: [], holidays: []
+    withdrawals: [], attendanceReq: [], classChangeReq: [], absenceLog: [], workSchedule: [], holidays: [],
+    /* THIS SUITE IS ABOUT LEAVE, NOT ABOUT THE CALENDAR — but it checks children in and out on the
+     * REAL today, and the real today is a Saturday twice a week. On those two days every check-in
+     * here failed with SCHOOL_CLOSED before reaching the thing being tested, so the suite was red on
+     * a Saturday and green on a Monday with nobody having changed anything (seen 2026-08-29).
+     *
+     * Naming the child as expected today is the school's OWN mechanism for a child who comes in on a
+     * closed day (holidayAttendSet), so this opens the day the way the school would rather than
+     * weakening the guard. On a weekday it is inert: assertStudentDayOpen_ returns before it is read.
+     */
+    holidayAttend: [{ Date: TODAY, StudentID: 'STD-01' }]
   };
   return { M, H: createAtomAPI(M).H };
 }

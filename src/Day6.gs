@@ -150,8 +150,20 @@ function handleSubmitInsurance(p) {
   if (!stu) throw apiError_('NOT_FOUND', 'ไม่พบนักเรียน');
   var ins = sheet_(ss, 'INSURANCE_PCHI');
   var existing = insuranceRecord_(p.studentId);
-  if (existing && !p.adminEdit) throw apiError_('ALREADY_FILLED', 'ข้อมูลประกันของนักเรียนคนนี้ถูกกรอกแล้ว');
   var d = p.data || {};
+  /* FILL-ONCE WAS THE WRONG RULE.
+   *
+   * A family's facts change — a bank account, a mobile, a beneficiary — and a mistyped claim account
+   * number was permanent, on the one field where being wrong costs money. The parent may now come
+   * back and correct their own submission at any time (asked 2026-08-29).
+   *
+   * TWO FIELDS STAY THE SCHOOL'S. แผนประกัน and วันมีผลบังคับ are settled between the school and the
+   * insurer AFTER the form is handed in, so the parent's form does not render them at all — which
+   * means they arrive here ABSENT, not empty, and the patch below leaves them alone. Deleting them
+   * defensively as well, because "the client did not send it" is not a thing to stake a real policy
+   * number on: a stale cached build that still had the boxes would otherwise blank them.
+   */
+  if (existing && !p.adminEdit) { delete d.Plan; delete d.EffectiveDate; }
   if (d.EffectiveDate !== undefined) d.EffectiveDate = insDate_(d.EffectiveDate);
   if (d.DOB !== undefined) d.DOB = insDate_(d.DOB);
   var by = p.actorName || (p.adminEdit ? 'Admin' : 'Parent');
@@ -171,6 +183,8 @@ function handleSubmitInsurance(p) {
     Object.keys(base).forEach(function (k) { patch[k] = base[k]; });
     patch.UpdatedBy = by; patch.UpdatedDate = nowStr_();   // local 'yyyy-MM-dd HH:mm:ss', not a Date
     updateRow_(ins, existing._row, patch);
+    // The school may already have sent this row to the insurer, so a change to it is news, not noise.
+    if (!p.adminEdit) notifyAdmin_('🛡️ ผู้ปกครองแก้ไขข้อมูลประกัน: ' + (stu.Name || p.studentId));
     logAudit_('updateInsurance', 'INSURANCE_PCHI', p.studentId);
     return { ok: true, updated: true };
   }

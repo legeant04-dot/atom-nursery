@@ -112,7 +112,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.293'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.294'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -1959,7 +1959,31 @@
       m.remove(); confirmSaved(t('wd.submitted')); GO('home'); }catch(e){err(e);} };
 
   // ---- PCHI insurance form (shared by parent fill + admin edit) ----
-  const insSel=(id,label,opts,val,req)=>`<label class="field"><span>${esc(label)}${req?' *':''}</span><select id="ins_${id}">${['',...(opts||[])].map(o=>`<option ${String(val||'')===String(o)?'selected':''}>${esc(o)}</option>`).join('')}</select></label>`;
+  /**
+   * THE SCREEN SPEAKS THAI; THE FORM THAT LEAVES THE BUILDING DOES NOT.
+   *
+   * A parent picking a beneficiary was reading "Father / Mother / Spouse" (2026-08-29). But the
+   * insurer's own workbook has a Setting sheet listing the exact words it accepts, and every one of
+   * them is English — send "บิดา" and the row comes back rejected.
+   *
+   * So this is a DISPLAY map only: the <option> keeps the insurer's word as its value and shows the
+   * Thai one as its text. Nothing downstream changes — readInsuranceForm still reads `.value`, the
+   * sheet still stores `Father`, and the export still emits `Father`. Translating the stored value
+   * instead would have been a one-line change and would have broken the export silently, which is
+   * the whole reason this is written down.
+   *
+   * Anything not in the map falls through to itself, so a value the insurer adds later still shows.
+   */
+  const INS_TH = {
+    Male:'ชาย', Female:'หญิง',
+    Child:'บุตร', Employee:'พนักงาน', Spouse:'คู่สมรส',
+    Single:'โสด', Married:'สมรส', Divorced:'หย่า', 'Separated in fact':'แยกกันอยู่', 'Widow/Widower':'หม้าย',
+    Father:'บิดา', Mother:'มารดา', Brother:'พี่ชาย / น้องชาย', Sister:'พี่สาว / น้องสาว',
+    Relative:'ญาติ', Others:'อื่นๆ'
+  };
+  // 'Child' means บุตร as a member status and บุตร as a relationship — one entry serves both.
+  const insLbl = v => { const s=String(v==null?'':v); return (!EN() && INS_TH[s]) ? INS_TH[s] : s; };
+  const insSel=(id,label,opts,val,req)=>`<label class="field"><span>${esc(label)}${req?' *':''}</span><select id="ins_${id}">${['',...(opts||[])].map(o=>`<option value="${esc(o)}" ${String(val||'')===String(o)?'selected':''}>${esc(insLbl(o))}</option>`).join('')}</select></label>`;
   const insInp=(id,label,val,type,req)=>`<label class="field"><span>${esc(label)}${req?' *':''}</span><input id="ins_${id}" type="${type||'text'}" value="${esc(val!=null?val:'')}"/></label>`;
   // Bank dropdown for the claim account (PCHI Setting!P "BANK CODE"). The stored value is
   // "<code>: <Thai name>" — the format the insurer's own form uses; the EN label is display-only.
@@ -1968,11 +1992,51 @@
     const cur=String(val||''); if(cur && !list.some(x=>x.v===cur)) list.unshift({v:cur,l:cur});
     return `<label class="field"><span>${esc(label)}${req?' *':''}</span><select id="ins_${id}"><option value=""></option>${
       list.map(x=>`<option value="${esc(x.v)}" ${cur===x.v?'selected':''}>${esc(x.l)}</option>`).join('')}</select></label>`; };
-  function insuranceFormHTML(o,s,rec){ rec=rec||{}; const g=s.Gender==='M'?'Male':s.Gender==='F'?'Female':'';
-    return `<div class="card"><h3>👶 ${esc(t('inj.child'))}</h3>
-      <div class="grid2">${insSel('Title',t('ins2.titlePre'),o.Titles,rec.Title,1)}${insSel('MemberStatus',t('ins2.memberStatus'),o.MemberStatuses,rec.MemberStatus||'Child',1)}</div>
-      <div class="grid2">${insInp('InsuredName',t('ins2.fname'),rec.InsuredName||s.NameEN||s.NameTH,'',1)}${insInp('InsuredMiddleName',t('ins2.mname'),rec.InsuredMiddleName)}</div>
-      <div class="grid2">${insInp('InsuredLastName',t('ins2.lname'),rec.InsuredLastName,'',1)}${insSel('Gender',t('ins2.gender'),o.Genders,rec.Gender||g,1)}</div>
+  /**
+   * THE CHILD'S OWN RECORD, WHICH THE SCHOOL ALREADY HAS.
+   *
+   * The form used to pre-fill from `MOCK.students`, which on GAS is an EMPTY ARRAY on purpose (the
+   * live roster is never shipped to the browser — see mockconfig.js). So `s` was always `{}` and
+   * every parent retyped a name, a national ID and a date of birth the school had on file, into a
+   * form that goes to an insurer where a typo is a rejected claim.
+   *
+   * insuranceStatus already returns the student — it just came back in a different shape (lower
+   * case, gender as 'M'/'F', DOB already made readable). This is that shape turned into the one the
+   * form reads, so mock and GAS pre-fill identically.
+   */
+  function insStudent_(st, sid){
+    const p = (st && st.student) || {};
+    const local = (window.MOCK && MOCK.students || []).find(x => x.StudentID === sid) || {};
+    return {
+      StudentID: sid,
+      NameTH: p.name || local.NameTH || local.Name || '',
+      NameEN: p.nameEN || local.NameEN || '',
+      NationalID: p.nationalId || local.NationalID || '',
+      Gender: p.gender || local.Gender || '',
+      // insuranceStatus hands DOB back through insDate_ ('yyyy-MM-dd'); <input type=date> needs exactly that
+      DOB: String(p.dob || local.DOB || '').slice(0,10)
+    };
+  }
+  /**
+   * The roster keeps ONE name field — "ด.ญ. ปารมิตา เทียนชัย" — and the insurer wants three boxes.
+   * Split it: a leading token that is one of the insurer's own titles becomes the title, the first
+   * word after it the given name, whatever is left the surname. A single-word name has no surname,
+   * so the box stays empty rather than being filled with the given name twice.
+   * This only ever supplies a DEFAULT into an editable box; a name this does not split cleanly is
+   * one the parent corrects on the spot.
+   */
+  function insSplitName_(full, titles){
+    const parts = String(full||'').trim().split(/\s+/).filter(Boolean);
+    let title = '';
+    if (parts.length && (titles||[]).indexOf(parts[0]) >= 0) title = parts.shift();
+    return { title, first: parts.shift() || '', last: parts.join(' ') };
+  }
+  function insuranceFormHTML(o,s,rec,isAdmin){ rec=rec||{}; const g=s.Gender==='M'?'Male':s.Gender==='F'?'Female':'';
+    const n = insSplitName_(s.NameTH || s.NameEN, o.Titles);
+    return `<div class="card"><h3>👶 ${esc(t('ins2.subject'))}</h3>
+      <div class="grid2">${insSel('Title',t('ins2.titlePre'),o.Titles,rec.Title||n.title,1)}${insSel('MemberStatus',t('ins2.memberStatus'),o.MemberStatuses,rec.MemberStatus||'Child',1)}</div>
+      <div class="grid2">${insInp('InsuredName',t('ins2.fname'),rec.InsuredName||n.first,'',1)}${insInp('InsuredMiddleName',t('ins2.mname'),rec.InsuredMiddleName)}</div>
+      <div class="grid2">${insInp('InsuredLastName',t('ins2.lname'),rec.InsuredLastName||n.last,'',1)}${insSel('Gender',t('ins2.gender'),o.Genders,rec.Gender||g,1)}</div>
       <div class="grid2">${insInp('NationalID',t('ins2.nid'),rec.NationalID||s.NationalID,'',1)}${insInp('Passport',t('ins2.passport'),rec.Passport)}</div>
       <div class="grid2">${insInp('DOB',t('ins2.dob'),rec.DOB||s.DOB,'date',1)}${insSel('MaritalStatus',t('ins2.marital'),o.MaritalStatuses,rec.MaritalStatus||'Single',1)}</div>
       ${/* THE INSURER FILLS THESE IN, NOT THE FAMILY.
@@ -1980,9 +2044,18 @@
              submitted — a parent has no way to know either of them. Marking them required meant the
              form could not be saved at all until somebody invented an answer, which is worse than
              leaving them blank: an invented plan is a wrong plan on a real policy.
-             The Admin fills them in later from ดำเนินการ → ข้อมูลประกัน. Asked 2026-08-27. */''}
-      <div class="grid2">${insInp('Occupation',t('ins2.occupation'),rec.Occupation||(EN()?'Student':'นักเรียน'),'',1)}${insInp('EffectiveDate',t('ins2.effective'),rec.EffectiveDate,'date')}</div>
-      ${insSel('Plan',t('ins2.plan'),o.Plans,rec.Plan)}
+             The Admin fills them in later from ดำเนินการ → ข้อมูลประกัน. Asked 2026-08-27.
+             Now that a parent can come back and edit (2026-08-29), an editable-looking box the
+             server is going to ignore is worse than no box: it would read back as if the parent had
+             cleared the school's plan. A parent sees the two as plain text; only Admin gets fields. */''}
+      ${isAdmin
+        ? `<div class="grid2">${insInp('Occupation',t('ins2.occupation'),rec.Occupation||(EN()?'Student':'นักเรียน'),'',1)}${insInp('EffectiveDate',t('ins2.effective'),rec.EffectiveDate,'date')}</div>
+           ${insSel('Plan',t('ins2.plan'),o.Plans,rec.Plan)}`
+        : `${insInp('Occupation',t('ins2.occupation'),rec.Occupation||(EN()?'Student':'นักเรียน'),'',1)}
+           <div class="grid2">
+             <div class="field"><span>${esc(t('ins2.effective'))}</span><div class="insro">${esc(insDay(rec.EffectiveDate)||'–')}</div></div>
+             <div class="field"><span>${esc(t('ins2.plan'))}</span><div class="insro">${esc(rec.Plan||'–')}</div></div>
+           </div>`}
       <small class="muted" style="display:block;margin-top:2px">${EN()
         ? 'Plan and effective date are completed by the school — leave them blank.'
         : 'แผนประกันและวันมีผลบังคับ ทางโรงเรียนจะเป็นผู้กรอกให้ ไม่ต้องกรอกเองค่ะ'}</small></div>
@@ -2025,20 +2098,70 @@
   ];
   const insMissing = d => INS_REQUIRED.filter(x => !String((d&&d[x[0]])||'').trim()).map(x => t(x[1]));
   function insValid(d){ return insMissing(d).length === 0; }
-  // parent: fill once / view if already filled
-  window.P_insurance = async (sid)=>{ const st=await api('insuranceStatus',{studentId:sid}); const o=await api('insuranceOptions'); const s=MOCK.students.find(x=>x.StudentID===sid)||{};
-    if(st.filled){ const r=st.record;
-      app.innerHTML=`<button class="btn sm outline backbtn" onclick="GO('home')">${t('c.back')}</button><h2 class="page">🛡️ ${esc(t('ins2.title'))}</h2>
-        <div class="card" style="background:var(--ok-bg);border-color:var(--ok-line)"><b style="color:var(--ok)">✓ ${esc(t('ins2.filledMsg'))}</b><br><small class="muted">${esc(t('ins2.filledBy'))}: ${esc(r.FilledBy||'')} · ${esc(r.FilledDate||'')}</small></div>
-        <div class="card"><table style="width:100%;font-size:13px">
-          ${[['ins2.titlePre',r.Title],['ins2.fname',r.InsuredName],['ins2.lname',r.InsuredLastName],['ins2.nid',r.NationalID],['ins2.dob',insDay(r.DOB)],['ins2.plan',r.Plan],['ins2.effective',insDay(r.EffectiveDate)],['ins2.beneName',(r.BeneficiaryName||'')+' '+(r.BeneficiaryLastName||'')],['ins2.beneRel',r.BeneficiaryRelationship]].map(x=>`<tr><td class="muted">${esc(t(x[0]))}</td><td style="text-align:right"><b>${esc(x[1]||'-')}</b></td></tr>`).join('')}
-        </table></div>`; window.scrollTo(0,0); return; }
-    app.innerHTML=`<button class="btn sm outline backbtn" onclick="GO('home')">${t('c.back')}</button><h2 class="page">🛡️ ${esc(t('ins2.title'))}</h2>
+  /**
+   * EVERY FIELD THAT WAS SAVED, not a selection of nine of them.
+   *
+   * The read-back screen showed nine rows out of twenty-one. A parent asked to "check the details"
+   * could not check a bank account number, a mobile, an occupation or a middle name, because none of
+   * them were on the page — the only place they existed was a sheet the parent cannot open. A review
+   * screen that omits most of what it is reviewing is decoration.
+   *
+   * The coded values go through insLbl so the row reads บิดา rather than Father; the two dates go
+   * through insDay so they read day-first, the way their own labels promise.
+   */
+  function insReviewRows(r){ r=r||{};
+    return [
+      ['ins2.titlePre', insLbl(r.Title)], ['ins2.memberStatus', insLbl(r.MemberStatus)],
+      ['ins2.fname', r.InsuredName], ['ins2.mname', r.InsuredMiddleName], ['ins2.lname', r.InsuredLastName],
+      ['ins2.gender', insLbl(r.Gender)], ['ins2.nid', r.NationalID], ['ins2.passport', r.Passport],
+      ['ins2.dob', insDay(r.DOB)], ['ins2.marital', insLbl(r.MaritalStatus)], ['ins2.occupation', r.Occupation],
+      ['ins2.effective', insDay(r.EffectiveDate)], ['ins2.plan', r.Plan],
+      ['ins2.mobile', r.Mobile], ['ins2.email', r.Email],
+      ['ins2.bankName', r.BankAccountName], ['ins2.bankNo', r.BankAccountNumber],
+      ['ins2.beneName', r.BeneficiaryName], ['ins2.beneLast', r.BeneficiaryLastName],
+      ['ins2.beneRel', insLbl(r.BeneficiaryRelationship)], ['ins2.remarks', r.Remarks]
+    ];
+  }
+  const insReviewHTML = r => `<table style="width:100%;font-size:13px">${insReviewRows(r).map(x =>
+    `<tr><td class="muted" style="padding:3px 0">${esc(t(x[0]))}</td><td style="text-align:right;padding:3px 0"><b>${esc(x[1]||'–')}</b></td></tr>`).join('')}</table>`;
+  /**
+   * Parent: fill it, then read it back, then change it whenever the facts change.
+   *
+   * It used to be fill-once. A parent who mistyped a bank account number — the number a claim is
+   * paid into — had no way to fix it and no way to see it, and a family that moves bank or changes
+   * a beneficiary had no way to say so. Asked 2026-08-29. The one thing they still cannot touch is
+   * the plan and its effective date, which the school and the insurer decide (see insuranceFormHTML).
+   *
+   * `edit` is the mode, not a second screen: filled → review, filled+edit → form pre-filled,
+   * not filled → form empty. Children are tabs, the same childSwitcher every other multi-child
+   * screen uses, so "which child is this" is never a guess.
+   */
+  window.P_insurance = async (sid, edit)=>{
+    // one tick, so api.js batches all three into a single request rather than three queued round trips
+    const [kids,st,o] = await Promise.all([
+      api('parentChildren',parentScope()), api('insuranceStatus',{studentId:sid}), api('insuranceOptions')]);
+    const s = insStudent_(st, sid);
+    const kid = (kids||[]).find(k=>k.StudentID===sid) || {};
+    const head = `<button class="btn sm outline backbtn" onclick="GO('home')">${t('c.back')}</button>
+      <h2 class="page">🛡️ ${esc(t('ins2.title'))}${kids.length===1?` · <span style="color:var(--blue)">${esc(dispNick(kid)||'')}</span>`:''}</h2>
+      ${childSwitcher(kids, sid, 'P_insurance')}`;
+    if(st.filled && !edit){ const r=st.record||{};
+      app.innerHTML=`${head}
+        <div class="card" style="background:var(--ok-bg);border-color:var(--ok-line)"><b style="color:var(--ok)">✓ ${esc(t('ins2.filledMsg'))}</b>
+          <br><small class="muted">${esc(t('ins2.filledBy'))}: ${esc(r.FilledBy||'')} · ${esc(r.FilledDate||'')}${
+            r.UpdatedDate?`<br>${esc(t('ins2.updatedBy'))}: ${esc(r.UpdatedBy||'')} · ${esc(r.UpdatedDate)}`:''}</small></div>
+        <div class="card"><small class="muted" style="display:block;margin-bottom:6px">${esc(t('ins2.review'))}</small>${insReviewHTML(r)}</div>
+        <div class="savedock"><button class="btn block outline" onclick="P_insurance('${sid}',1)">${esc(t('ins2.edit'))}</button></div>`;
+      window.scrollTo(0,0); return; }
+    app.innerHTML=`${head}
       <div class="card" style="background:var(--surface-2)"><small class="muted">${esc(t('ins2.note'))}</small></div>
-      ${insuranceFormHTML(o,s,null)}
-      <div class="savedock"><button class="btn block" onclick="P_insuranceSave('${sid}')">${esc(t('ins2.save'))}</button></div>`; window.scrollTo(0,0); };
+      ${insuranceFormHTML(o,s,st.record)}
+      <div class="savedock"><button class="btn block" onclick="P_insuranceSave('${sid}')">${esc(t('ins2.save'))}</button></div>`;
+    window.scrollTo(0,0); };
   window.P_insuranceSave = async (sid)=>{ const d=readInsuranceForm(); const _miss=insMissing(d); if(_miss.length){toast(t('ins2.required')+': '+_miss.slice(0,4).join(', ')+(_miss.length>4?' …(+'+(_miss.length-4)+')':''), 5000);return;}
-    try{ await api('submitInsurance',{studentId:sid,parentId:USER.parentId,uid:USER.uid,data:d}); confirmSaved(t('ins2.saved')); GO('home'); }catch(e){err(e);} };
+    // back to the read-back screen, NOT to home: a save whose whole point is "check this" that then
+    // hides what was saved has answered a different question than the one the parent asked.
+    try{ await api('submitInsurance',{studentId:sid,parentId:USER.parentId,uid:USER.uid,data:d}); confirmSaved(t('ins2.saved')); P_insurance(sid); }catch(e){err(e);} };
 
   /**
    * The pick-up history. A parent with more than one child used to see ONE of them — kids[0] — with
@@ -7007,10 +7130,11 @@
     }catch(e){ err(e); }
     finally{ if(btn){ btn.disabled=false; btn.style.opacity=''; } }
   };
-  window.A_insuranceEdit = async (sid)=>{ const st=await api('insuranceStatus',{studentId:sid}); const o=await api('insuranceOptions'); const s=MOCK.students.find(x=>x.StudentID===sid)||{};
+  window.A_insuranceEdit = async (sid)=>{ const [st,o]=await Promise.all([api('insuranceStatus',{studentId:sid}),api('insuranceOptions')]);
+    const s=insStudent_(st,sid);
     app.innerHTML=`<button class="btn sm outline backbtn" onclick="A_insurance()">${t('c.back')}</button><h2 class="page">🛡️ ${esc(t('ins2.adminEdit'))}</h2>
       <div class="card" style="background:var(--surface-2)"><b>${esc(nm(s))}</b> <span class="pill ${st.filled?'ok':'wait'}">${st.filled?esc(t('ins2.filled')):esc(t('ins2.notFilled'))}</span></div>
-      ${insuranceFormHTML(o,s,st.record)}
+      ${insuranceFormHTML(o,s,st.record,1)}
       <button class="btn block" onclick="A_insuranceSave('${sid}')">${esc(t('c.save'))}</button>`; window.scrollTo(0,0); };
   window.A_insuranceSave = async (sid)=>{ const d=readInsuranceForm(); const _miss=insMissing(d); if(_miss.length){toast(t('ins2.required')+': '+_miss.slice(0,4).join(', ')+(_miss.length>4?' …(+'+(_miss.length-4)+')':''), 5000);return;}
     try{ await api('saveInsuranceAdmin',{studentId:sid,adminId:USER.staffId,data:d}); confirmSaved(t('c.saved')); A_insurance(); }catch(e){err(e);} };

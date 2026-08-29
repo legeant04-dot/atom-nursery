@@ -133,8 +133,10 @@ console.log('\n4) and the screen reads it the way its own label promises');
   const app = R('webapp/app.js');
   /* The row is labelled ว/ด/ป. A bare 2023-12-02 under that heading can be read as 2 December or as
    * the 12th, and on a form that goes to an insurer that ambiguity is not worth leaving open. */
-  ok_('date of birth is rendered day-first', /\['ins2\.dob',insDay\(r\.DOB\)\]/.test(app));
-  ok_('...and so is the effective date', /\['ins2\.effective',insDay\(r\.EffectiveDate\)\]/.test(app));
+  /* Anchored on insReviewRows, which is now the ONE place the read-back table is built (parent and
+   * admin both render from it), rather than on the inline array literal it replaced. */
+  ok_('date of birth is rendered day-first', /\['ins2\.dob',\s*insDay\(r\.DOB\)\]/.test(app));
+  ok_('...and so is the effective date', /\['ins2\.effective',\s*insDay\(r\.EffectiveDate\)\]/.test(app));
   ok_('the helper exists', /const insDay = v =>/.test(app));
   /* BLANK MUST STAY BLANK. ddmmyyyy('') is new Date(todayStr()) — it would print TODAY as a child's
    * date of birth, which is worse than printing nothing. */

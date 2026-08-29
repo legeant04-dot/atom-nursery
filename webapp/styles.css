@@ -105,8 +105,12 @@ h2.page{font-size:20px;margin:6px 2px 14px;color:var(--blue-d);}
 .stat.green{background:linear-gradient(135deg,var(--ok-2),var(--ok));}
 .stat.amber{background:linear-gradient(135deg,var(--warn-2),var(--warn-2));color:var(--warn-ink-d);}
 
-label.field{display:block;margin:8px 0;font-size:14px;}
-label.field span{display:block;margin-bottom:4px;color:var(--muted);font-size:12.5px;}
+label.field,div.field{display:block;margin:8px 0;font-size:14px;}
+label.field span,div.field>span{display:block;margin-bottom:4px;color:var(--muted);font-size:12.5px;}
+/* A value the reader may see but may not change (the insurance plan, which the school owns). It sits
+   where an input would, at the same height, so the two columns of a .grid2 still line up — but it is
+   flat and borderless, because a box that looks editable and is not is a worse answer than no box. */
+.insro{padding:9px 2px;font-weight:600;color:var(--ink);min-height:20px;}
 /* 16px is a hard floor on every focusable control: iOS Safari auto-zooms the whole page when a
    focused input is smaller than that, which shifted the layout on every form tap. */
 input,select,textarea{width:100%;padding:10px;border:1px solid var(--line);border-radius:10px;font-family:inherit;font-size:16px;background:var(--surface);}
