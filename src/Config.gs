@@ -49,7 +49,22 @@ SCHEMA[WB.MAIN] = {
                       // the same day, so the school agrees a date per child ("ทุกวันที่ 15"). It is
                       // the bill's DueDate — which was hard-coded to the 5th for everybody, so every
                       // other family was overdue on paper from the 6th. Blank = BillingDueDay.
-                      'BillingDay'],
+                      'BillingDay',
+                      /* THIS PHONE CANNOT TELL US WHERE IT IS, AND NOBODY CAN FIX IT.
+                       *
+                       * Pick-up is fenced because it is a safety record and it starts the OT clock.
+                       * That rule works — until a phone reports "±2000 m" (2026-08-29: a parent
+                       * standing at the gate was told they were 620 m away, by a handset whose own
+                       * stated margin of error was three kilometres wide). No setting on that phone
+                       * changes it; the school has confirmed the family in person.
+                       *
+                       * So this is a NAMED, PER-CHILD exception the admin grants, not a slackening
+                       * of the rule: 'YES' skips the check-out fence for that one child and nobody
+                       * else, exactly as check-in already works for everyone. Every child without
+                       * it is fenced as before. Granting and revoking are both written to the audit
+                       * log, because "who opened this up, and when" is the whole point of a rule
+                       * you are allowed to switch off. */
+                      'GeoExempt'],
   CLASSES:           ['ClassID', 'ClassName', 'TeacherID', 'AgeRange', 'Capacity'],
   // Photo / RegisterPhotoUrl = the MANDATORY live-capture photo taken at registration ("New Register Photo"
   // Drive folder), used as an identity/security check when signing in.

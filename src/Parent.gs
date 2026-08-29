@@ -32,8 +32,20 @@ function handleParentCheckin(payload) {
   // A REFUSED pickup is written to the audit log with the distance (metres only — never coordinates),
   // because "14% OUT_OF_RANGE" cannot be judged without knowing whether those parents were 40 m away
   // at the gate or 4 km away at home. One is a fence set too tight; the other is the rule working.
+  //
+  // ...unless this ONE CHILD has been named as an exception. A phone that reports its own accuracy
+  // as ±2000 m cannot be fenced by anything, and no setting on it changes that; the school confirms
+  // the family in person and the admin ticks the box (STUDENTS.GeoExempt). It is per-child and
+  // recorded, so it is a decision somebody made about somebody, not a rule quietly turned down.
   var dist;
-  if (type === 'OUT') {
+  if (type === 'OUT' && studentGeoExempt_(payload.studentId)) {
+    dist = geoDistanceSafe_(payload.lat, payload.lng);
+    // the distance is still MEASURED and logged — the exception is about refusing, not about knowing
+    try {
+      logAudit(parent.ParentID, 'STUDENT_CHECKOUT_GEO_EXEMPT', 'CHECKIN_STUDENT',
+        String(payload.studentId) + ' · ' + (dist == null ? 'no fix' : dist + 'm') + ' acc=' + (Number(payload.acc) || 0) + 'm');
+    } catch (logErr) {}
+  } else if (type === 'OUT') {
     try {
       dist = assertWithinGeofence_(payload.lat, payload.lng, payload.acc);
     } catch (geoErr) {

@@ -146,6 +146,16 @@ function createAtomAPI(M, GROWTH_STD) {
   }
   // distance without enforcing the fence — used for parent CHECK-IN (allowed from anywhere; check-out still fenced)
   function geoSafe(lat,lng){ return haversine(cfg.GPS_Lat,cfg.GPS_Lng,lat,lng); }
+  /**
+   * ...and for the ONE CHILD at a time whose pick-up is exempt from the fence too.
+   *
+   * A phone that states its own accuracy as ±2000 m cannot be fenced by anything, and nothing in its
+   * settings changes that — on 2026-08-29 one put a parent standing at the gate 620 m away. The
+   * school confirms the family in person and an admin ticks STUDENTS.GeoExempt for that child.
+   * Per child, recorded, and off by default: everybody else is fenced exactly as before.
+   */
+  const studentGeoExempt_ = sid => { const s=studentById(sid);
+    return !!(s && /^(yes|true|1|y)$/i.test(String(s.GeoExempt==null?'':s.GeoExempt).trim())); };
   const studentById = id => M.students.find(s=>s.StudentID===id);
   const staffById = id => M.staff.find(s=>s.StaffID===id)||{};
   // Sequential id = MAX existing number + 1.
@@ -1275,7 +1285,10 @@ function createAtomAPI(M, GROWTH_STD) {
       // a Big Cleaning day is a working day for STAFF, not for children — and a holiday is open to
       // the children who were named for it (assertStudentDayOpen_)
       assertStudentDayOpen_(p.studentId);
-      const d=(String(p.type||'IN').toUpperCase()==='OUT')?geo(p.lat,p.lng,p.acc):geoSafe(p.lat,p.lng); const t=timeLocal();
+      // OUT is fenced — unless this child is the named exception (studentGeoExempt_), in which case
+      // the distance is still measured and stored, just not used to refuse.
+      const _out=String(p.type||'IN').toUpperCase()==='OUT';
+      const d=(_out && !studentGeoExempt_(p.studentId)) ? geo(p.lat,p.lng,p.acc) : geoSafe(p.lat,p.lng); const t=timeLocal();
       // de-dup a rapid repeat (same student+type today within CheckinDedupMinutes) → keep only the latest time
       const win=Number(cfg.CheckinDedupMinutes||10); const nowMin=toMin(t);
       const recent=(M.checkinStudent||[]).find(r=>r.StudentID===p.studentId&&String(r.Type).toUpperCase()===String(p.type).toUpperCase()&&ymd(r.Date)===todayLocal()&&Math.abs(nowMin-toMin(r.Time))<=win);

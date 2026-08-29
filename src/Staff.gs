@@ -137,10 +137,30 @@ function handleSaveStudent(p) {
   try { ensureColumns_(sh, ['OTRate', 'StartTime', 'EndTime', 'OTGraceUntil', 'RateNote', 'DiscountAmount', 'DiscountUnit',
     'ProrateMode', 'ProrateAmount', 'PauseFrom', 'PauseTo', 'PauseReason',
     // the day of the month this family pays on — writeRows_ drops a field with no column, silently
-    'BillingDay']); } catch (e) {}
+    'BillingDay',
+    // ...and the same is true of this one: without the column, ticking the box would appear to save
+    // and change nothing at all, which on a safety rule is the worst of the three possible outcomes
+    'GeoExempt']); } catch (e) {}
   var row = mapName_(p.data || {});
   var st = findObject_(sh, function (s) { return String(s.StudentID) === String(p.studentId); });
   if (!st) throw apiError_('NOT_FOUND', 'ไม่พบนักเรียน ' + p.studentId);
+  /* THE REST OF THIS FORM IS OPEN TO A HEAD TEACHER; THIS ONE FIELD IS NOT.
+   * Turning the pick-up fence off is the admin's alone (asked 2026-08-29). applyIdentity_ stamps
+   * `role` onto every non-admin session and never onto an admin's, so a role that is present and is
+   * not Admin is conclusive. Dropped rather than refused: a head teacher editing a phone number
+   * should not have their save rejected over a field they never touched. */
+  if (row.GeoExempt !== undefined && p.role && p.role !== 'Admin') delete row.GeoExempt;
+  /* TURNING THE PICK-UP FENCE OFF FOR A CHILD IS A DECISION, so it goes in the log with a name on
+   * it — and so does turning it back on. Compared BEFORE the write, because afterwards there is
+   * nothing left to compare against. Only a real change is logged; re-saving the form is not news. */
+  if (row.GeoExempt !== undefined) {
+    var wasEx = /^(yes|true|1|y)$/i.test(String(st.GeoExempt || '').trim());
+    var nowEx = /^(yes|true|1|y)$/i.test(String(row.GeoExempt || '').trim());
+    if (wasEx !== nowEx) {
+      try { logAudit(p.adminId || 'admin', nowEx ? 'STUDENT_GEO_EXEMPT_ON' : 'STUDENT_GEO_EXEMPT_OFF',
+        'STUDENTS', String(p.studentId)); } catch (e) {}
+    }
+  }
   updateRow_(sh, st._row, row);
   recCacheBust_('STUDENTS');
   return { ok: true, studentId: p.studentId };
