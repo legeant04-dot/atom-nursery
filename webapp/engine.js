@@ -3555,26 +3555,72 @@ function createAtomAPI(M, GROWTH_STD) {
       const rows=(M.foodItems||[]).filter(i=>p.all?true:String(i.Active||'YES')!=='NO');
       const order={savoury:0,dessert:1,fruit:2,other:3};
       return rows.map(i=>({ itemId:i.ItemID, nameTH:i.NameTH||'', nameEN:i.NameEN||'',
-          category:i.Category||'other', active:String(i.Active||'YES')!=='NO' }))
+          category:i.Category||'other', active:String(i.Active||'YES')!=='NO', photo:i.Photo||'' }))
         .sort((a,b)=>(order[a.category]-order[b.category])||String(a.nameTH).localeCompare(String(b.nameTH),'th')); },
 
-    /** Add or edit one item. Teachers may ADD (that is the point); only admin may edit or retire. */
+    /**
+     * JUST THE PICTURES, keyed by the name the journal actually stores.
+     *
+     * A journal records what a child ate as free TEXT ("ข้าวต้มไก่"), not as an item id — deliberately,
+     * because a teacher may type a dish that is not in the master list yet. So the parent's screen
+     * cannot look a photo up by id; it has to match on the name, and this is that lookup.
+     *
+     * A SEPARATE, TINY ACTION rather than part of foodItems, because the audience is different: this
+     * is read by every parent on every journal, and foodItems carries categories, English names and
+     * retired dishes that a parent screen has no use for. Only items that HAVE a photo are returned,
+     * so a school that has uploaded none pays for an empty object.
+     *
+     * Both names are keys, so an English-language parent reading "Chicken rice porridge" gets the
+     * same picture as the Thai one.
+     */
+    foodPhotos: () => { const out={};
+      (M.foodItems||[]).forEach(i=>{ const u=String(i.Photo||'').trim(); if(!u) return;
+        const th=String(i.NameTH||'').trim(), en=String(i.NameEN||'').trim();
+        if(th) out[th]=u; if(en) out[en]=u; });
+      return out; },
+
+    /**
+     * Add or edit one item. Teachers may ADD (that is the point); only admin may edit or retire.
+     *
+     * ...EXCEPT THE PHOTO, which follows canFoodMenu_ — the same flag that decides who may plan the
+     * month's menu. The person who knows what a dish looks like is the one in the kitchen, and the
+     * admin already delegates the menu to them; making them ask for a picture to be uploaded would
+     * mean the pictures never get uploaded. Asked 2026-08-29.
+     *
+     * A photo is only WRITTEN when one was actually sent (`photo !== undefined`). Sending it always
+     * would mean the edit dialog — which does not have to include the picture — silently cleared it
+     * every time somebody fixed a spelling.
+     */
     saveFoodItem: p => { const me=staffById(p.staffId)||{};
       const isAdmin = me.PositionLevel==='Admin'||me.Role==='Admin';
       const nameTH=String((p.item||{}).nameTH||'').trim();
       if(!nameTH) fail('BAD_INPUT','ใส่ชื่อเมนู (ภาษาไทย)');
       const cat=['savoury','dessert','fruit','other'].indexOf(String((p.item||{}).category))>=0?String(p.item.category):'other';
+      const photo=(p.item||{}).photo;
+      if(photo!==undefined && !canFoodMenu_(me)) fail('NO_PERMISSION','ไม่มีสิทธิ์แนบรูปอาหาร');
       M.foodItems=M.foodItems||[];
-      if(p.item.itemId){ if(!isAdmin) fail('NO_PERMISSION','แก้ไขรายการหลักได้เฉพาะแอดมิน');
+      if(p.item.itemId){
         const it=M.foodItems.find(x=>x.ItemID===p.item.itemId); if(!it)fail('NOT_FOUND','ไม่พบเมนู');
+        /* A KITCHEN TEACHER MAY ATTACH A PICTURE WITHOUT BEING ABLE TO RENAME THE DISH. Editing the
+         * master list is still the admin's — but refusing the whole call would have meant a teacher
+         * with the menu flag could not add a photo to a dish that already exists, which is every
+         * dish. So the photo is applied, and the rest of the edit is ignored for them. */
+        if(!isAdmin){
+          if(photo===undefined) fail('NO_PERMISSION','แก้ไขรายการหลักได้เฉพาะแอดมิน');
+          it.Photo=String(photo||'');
+          logAct('foodItemPhoto',it.ItemID,nameTH,actorOf(p)); return {itemId:it.ItemID, photoOnly:true}; }
         it.NameTH=nameTH; it.NameEN=String(p.item.nameEN||'').trim(); it.Category=cat;
         it.Active=p.item.active===false?'NO':'YES';
+        if(photo!==undefined) it.Photo=String(photo||'');
         logAct('editFoodItem',it.ItemID,nameTH,actorOf(p)); return {itemId:it.ItemID}; }
       // adding the same dish twice is a data problem, not a new item — return the one that exists
       const dup=M.foodItems.find(x=>String(x.NameTH||'').trim()===nameTH);
-      if(dup){ if(String(dup.Active||'YES')==='NO'){ dup.Active='YES'; } return {itemId:dup.ItemID, existed:true}; }
+      if(dup){ if(String(dup.Active||'YES')==='NO'){ dup.Active='YES'; }
+        if(photo) dup.Photo=String(photo);   // a picture is new information even when the dish is not
+        return {itemId:dup.ItemID, existed:true}; }
       const it={ ItemID:nextSeqId_(M.foodItems,'ItemID','FI',4), NameTH:nameTH,
         NameEN:String(p.item.nameEN||'').trim(), Category:cat, Active:'YES',
+        Photo:String(photo||''),
         CreatedBy:p.staffId||'', CreatedAt:stampLocal() };
       M.foodItems.push(it); logAct('addFoodItem',it.ItemID,nameTH,actorOf(p));
       return {itemId:it.ItemID, existed:false}; },

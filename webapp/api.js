@@ -347,6 +347,9 @@ window.CONFIG = { MODE: 'gas', GAS_URL: 'https://script.google.com/macros/s/AKfy
     // once a day, or when an admin posts something — minutes of lag is not noticeable, hours is
     schoolDay: TTL_SLOW, announcements: TTL_SLOW, listStaff: TTL_SLOW, staffSelf: TTL_SLOW,
     students: TTL_SLOW, parentChildren: TTL_SLOW, getPlans: TTL_SLOW, foodMenu: TTL_SLOW,
+    // a handful of picture URLs, read by every parent on every journal and changed only when the
+    // kitchen uploads one — the screen that uploads clears its own copy, so nobody waits for this
+    foodPhotos: TTL_STATIC,
     insuranceStatus: TTL_SLOW, prepayTiers: TTL_SLOW, leaveQuota: TTL_SLOW
   };
   const ttlOf = a => TTL_BY_ACTION[a] || RC_TTL;

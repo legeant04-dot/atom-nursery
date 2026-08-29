@@ -268,7 +268,12 @@ var COLLECTION_HEADERS_ = {
   FOOD_MENU:        ['MenuID', 'Class', 'Date', 'Breakfast', 'SnackAM', 'Lunch', 'Dinner', 'SnackPM', 'Note', 'UpdatedBy', 'UpdatedAt'],
   // The master food list the teacher's daily journal picks from. A dish typed into the journal that
   // is not here yet gets added, so the list grows from real use instead of needing to be complete.
-  FOOD_ITEMS:       ['ItemID', 'NameTH', 'NameEN', 'Category', 'Active', 'CreatedBy', 'CreatedAt'],
+  /* Photo appended at the END, never inserted — ensureColumns_ tops an existing sheet up in place.
+   * The column is called `Photo` on purpose: IMAGE_COLS_ in Db.gs recognises that name, so a
+   * data:image URL posted here is written to Drive and only the short thumbnail link is stored.
+   * Under any other name the base64 would go straight into the cell, and a real photo is far past
+   * the 50,000-character limit — setValues throws and the save "does nothing". */
+  FOOD_ITEMS:       ['ItemID', 'NameTH', 'NameEN', 'Category', 'Active', 'CreatedBy', 'CreatedAt', 'Photo'],
   SURVEYS:          ['SurveyID', 'Title', 'Description', 'Type', 'Options', 'Questions', 'Scope', 'Target',
                      'StartDate', 'EndDate', 'Status', 'Anonymous', 'CreatedBy', 'CreatedAt'],
   SURVEY_RESPONSES: ['ResponseID', 'SurveyID', 'StudentID', 'ParentID', 'Rating', 'Choice', 'Comment', 'Answers', 'SubmittedAt']

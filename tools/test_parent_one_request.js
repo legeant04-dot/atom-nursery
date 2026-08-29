@@ -151,7 +151,14 @@ console.log('\n5) the screen really does make one request');
   // counted on api('…') — a bare "api()" in prose is a comment, and matching it was this test
   // failing on the very sentence that says there is no second call
   eq('exactly one api() call on the whole screen', (home.match(/api\('/g) || []).length, 1);
-  ok_('...and it is parentHome', /const HOME = window\._BOOT_HOME \|\| await api\('parentHome', parentScope\(\)\);/.test(home));
+  ok_('...and it is parentHome', /window\._BOOT_HOME \|\| api\('parentHome', parentScope\(\)\)/.test(home));
+  /* THE FOOD-PHOTO LOOKUP RIDES WITH IT, and this is the distinction the suite is really about.
+   * api.js batches every api() call made in the SAME TICK into one HTTP request, so a second action
+   * inside this Promise.all is not a second round trip — a call placed after an `await` would be.
+   * It is also TTL_STATIC-cached, so after the first screen it is not sent at all. */
+  ok_('...and the food-photo lookup goes out in the same tick, not after an await',
+    /await Promise\.all\(\[ window\._BOOT_HOME \|\| api\('parentHome', parentScope\(\)\), FOOD_PICS\(\) \]\)/.test(home));
+  ok_('...which is cached, so later screens do not ask again', /if\(window\._FOOD_PIC\) return window\._FOOD_PIC;/.test(app));
   /* …and on the very first render there is no request at all: signing in already returned the whole
    * screen (handleAuth), which removes the SECOND Apps Script execution from the login path. It is
    * consumed once — a parent must not be looking at their morning for the rest of the day. */
