@@ -115,14 +115,20 @@ console.log('\n3) everyone who needs to know, knows');
 
 console.log('\n4) a parent with two children can tell whose history they are reading');
 {
-  ok_('the pick-up screen has nickname tabs', /\$\{childSwitcher\(kids, sid, 'P_ciHist'\)\}/.test(app));
-  ok_('...and each tab loads that child', /window\.P_ciHist = async \(sid\) =>/.test(app));
+  /* v295: the pick-up history moved INTO บันทึก and P_ciHist stopped existing — the รับ-ส่ง tab was
+   * removed, its only other content having been a card pointing at Home for the actual buttons. The
+   * requirement is unchanged and so is the mechanism: the history is drawn beside the journal's, on
+   * a screen whose child is chosen by the same shared childSwitcher. */
+  ok_('the screen holding the pick-up history has nickname tabs', /\$\{childSwitcher\(kids,sid,'P_journal'\)\}/.test(app));
+  ok_('...and each tab loads that child', /window\.P_journal = async \(sid\) =>/.test(app));
+  ok_('...and the history it draws is that child’s, fetched with the rest of the screen',
+    /api\('studentCheckinHistory',\{studentId:sid\}\)\.catch\(\(\)=>\[\]\)/.test(app));
   // v278: the history folded into a <details>, so the name moved onto the summary line — still on
   // the card, still the first thing in a screenshot, just no longer inside a header that is now shut
   ok_('the card repeats the name, so a screenshot is unambiguous',
     /· \$\{esc\(dispNick\(kid\)\)\}\$\{kid\.Class\?' '\+esc\(kid\.Class\):''\}/.test(app));
   ok_('...and it no longer silently shows kids[0]', !/const hist=await api\('studentCheckinHistory',\{studentId:kids\[0\]\.StudentID\}\);/.test(app));
-  ok_('the reason is written down', /Two children's mornings look\s*\n\s*\* much alike/.test(app));
+  ok_('the reason is written down', /Same shape of question, same\s*\n\s*answer, and now on the same screen/.test(app));
 }
 
 console.log('\n' + (fail ? 'FAILED ' : 'PASSED ') + pass + ' passed, ' + fail + ' failed\n');

@@ -65,6 +65,13 @@ module.exports = function (files, srcDir) {
     appendRow(row) { this.data.push(row.slice()); return this; }
     setFrozenRows() { return this; }
     deleteColumns(c, n) { this.cols -= n; return this; }
+    /* THE REAL API DELETES ROWS, AND THIS ONE COULD NOT. Every handler that removes a record —
+     * handleDeleteStudentLeave, handleParentCancelLeave, handleUnlinkStudent — calls sh.deleteRow,
+     * so none of them could be exercised here at all: the suite died with "deleteRow is not a
+     * function" rather than telling anyone whether the row went. 1-based, and the rows below it move
+     * up, exactly as Sheets does — which is the behaviour the _row indices in those handlers assume. */
+    deleteRow(r) { if (r >= 1 && r <= this.data.length) this.data.splice(r - 1, 1); return this; }
+    deleteRows(r, n) { if (r >= 1) this.data.splice(r - 1, n || 1); return this; }
   }
   class Spreadsheet {
     constructor(n) { this.name = n; this.sheets = {}; this.insertSheet('Sheet1'); }

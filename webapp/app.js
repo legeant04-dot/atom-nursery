@@ -112,7 +112,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.295'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.296'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -764,7 +764,15 @@
     return `<svg class="i" width="${size||22}" height="${size||22}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">${paths}</svg>`; };
 
   const NAVS = {
-    Parent:[['home','home','nav.home'],['checkin','pin','nav.checkin'],['payment','card','nav.payment'],['journal','book','nav.journal'],['growth','chart','nav.growth'],['dspm','clipboard','nav.dspm'],['chat','chat','nav.chat']],
+    /* SEVEN TABS DID NOT FIT A PHONE, and one of them was a screen with nothing on it.
+     *
+     * "รับ-ส่ง" held three things: a card pointing at the Home page for the actual buttons, the
+     * location-permission nudge, and the pick-up history. So a parent tapped a tab to be told the
+     * thing they wanted was on the tab they came from. Its history now folds into บันทึก (which was
+     * already the "read back through the year" screen) and its location card moved to Home, under
+     * the buttons it is about — which is where somebody standing at the gate is looking.
+     * Six tabs also stops the bar scrolling sideways on a 360 px phone. Asked 2026-08-29. */
+    Parent:[['home','home','nav.home'],['payment','card','nav.payment'],['journal','book','nav.journal'],['growth','chart','nav.growth'],['dspm','clipboard','nav.dspm'],['chat','chat','nav.chat']],
     Teacher:[['home','home','nav.home'],['class','kids','nav.class'],['injury','aid','inj.nav'],['leave','inbox','nav.leave'],['schedule','calendar','nav.schedule'],['slip','cash','nav.slip']],
     Admin:[['home','chart','nav.home'],['leaves','check','nav.leaves'],['finance','money','nav.finance'],['dspm','clipboard','nav.analytics'],['manage','folders','nav.manage'],['chat','chat','nav.chat']],
     // Observer sees the four whole-school screens an Admin does. "จัดการ" is absent because every
@@ -1785,7 +1793,8 @@
                   is the wrong one. Asked 2026-08-25. */''}
              <div style="margin-top:6px;font-size:12.5px;line-height:1.5;color:var(--ink-3)">
                🟢 <b style="color:var(--ok)">${EN()?'Drop off':'ส่งเข้าเรียน'}</b> ${EN()?'— tap from anywhere, any time.':'— กดได้จากทุกที่ ทุกเวลา ไม่ต้องอยู่ที่โรงเรียน'}
-               <br>🔴 <b style="color:var(--bad)">${EN()?'Pick up':'รับกลับ'}</b> ${EN()?'— tap when you are at the school.':'— กดตอนที่มาถึงโรงเรียนแล้ว'}</div>`}</div>`; }).join('');
+               <br>🔴 <b style="color:var(--bad)">${EN()?'Pick up':'รับกลับ'}</b> ${EN()?'— tap when you are at the school.':'— กดตอนที่มาถึงโรงเรียนแล้ว'}</div>
+             ${geoHelpRow()}`}</div>`; }).join('');
     /**
    * What the family still owes, right under the drop-off / pick-up card — the place they already
    * look every morning. Tapping it goes to the payment screen; it is the whole card, not a small
@@ -1808,7 +1817,21 @@
   // header quick-actions: บันทึก / พัฒนาการ. (แจ้งลาออก removed — only Admin may withdraw a student.)
     setTopActions(`<button class="btn sm outline" onclick="P_journal('${k0.StudentID}')" title="${esc(t('nav.journal'))}">📒<span class="lbl"> ${esc(t('nav.journal'))}</span></button>
       <button class="btn sm outline" onclick="P_dspm('${k0.StudentID}')" title="${esc(t('nav.dspm'))}">📈<span class="lbl"> ${esc(t('nav.dspm'))}</span></button>`);
-    const slHtml = sl.map(l=>`<div class="list-item"><span>${esc(ddmmyyyy(l.Date))} · <b>${esc(stdLeaveDesc(l))}</b></span><span class="pill info">${esc(tStat(l.Status))}</span></div>`).join('')||'<small class="muted">ไม่มีรายการ</small>';
+    /* EVERY CHILD'S LEAVE, NOT JUST THE FIRST ONE'S.
+     * This read `slAll[0]` — the eldest's list — with nothing on screen to say so, so a family with
+     * two children saw one child's notices under a heading that names neither. It matters more now
+     * that the rows can be cancelled: a parent would have been given a list they could act on that
+     * silently omitted half of what they had filed. The child's nickname is shown only when there IS
+     * more than one, so a single-child family's screen is unchanged.
+     * Newest first, and future dates before past ones — a notice you can still change is the one
+     * worth putting at the top. */
+    const _multi = kids.length > 1;
+    const slRows = kids.flatMap((k,i)=>(slAll[i]||[]).map(l=>Object.assign({}, l, {_kid:k})))
+      .sort((a,b)=>String(b.Date).localeCompare(String(a.Date)));
+    const slHtml = slRows.map(l=>P_leaveRow(l, _multi)).join('')
+      ||`<small class="muted">${EN()?'No leave reported':'ไม่มีรายการ'}</small>`;
+    // the edit dialog needs the row it is editing, and an onclick can only carry an id
+    window._P_LEAVES = slRows;
     app.innerHTML = `<div class="spread"><h2 class="page">${esc(t('p.greeting'))}${esc(greetName)} 👋</h2><div class="row">${profileBtn}${addBtn}</div></div>
       ${kidsHtml}
       <div id="pDue"></div>
@@ -1824,7 +1847,17 @@
            A child on leave today gets the same treatment for the same reason. */''}
       <h3 style="margin:6px 2px">📒 ${EN()?'Journal of':'บันทึกของ'} ${esc(dispNick(k0))} ${EN()?'today':'วันนี้'}</h3>${
         j ? journalChecklist(j,{parentEditable:true,student:k0}) : journalEmptyCard(k0)}
-      <div class="card"><div class="spread"><h3>🏠 แจ้งลาบุตรหลาน</h3><button class="btn sm outline" onclick="P_absence()">+ แจ้งลา</button></div>${slHtml}</div>
+      ${/* FOLDED. A family a term in has a dozen sick days on this card, and every one of them is
+           between the journal they came to read and the announcements below it. Asked 2026-08-29.
+           The count is on the summary line so folding it does not also hide THAT there are any, and
+           the "+ แจ้งลา" button stays outside the fold — it is the reason most people look here. */''}
+      <div class="card"><div class="spread" style="gap:8px">
+          <h3 style="margin:0;flex:1;min-width:0">🏠 ${EN()?'Report your child absent':'แจ้งลาบุตรหลาน'}</h3>
+          <button class="btn sm outline" style="flex:0 0 auto" onclick="P_absence()">+ ${EN()?'Report':'แจ้งลา'}</button></div>
+        <details style="margin-top:8px"${slRows.length?'':' open'}>
+          <summary style="cursor:pointer;font-size:14px;color:var(--muted)">${EN()?'Leave already reported':'รายการที่แจ้งลาไว้'}${
+            slRows.length?` <b style="color:var(--ink)">${slRows.length}</b>`:''}</summary>
+          <div style="margin-top:4px">${slHtml}</div></details></div>
       <div id="svCard"></div>
 <!-- the food-menu card was here. Removed on the owner's call: the day's meals are already on the
            child's daily journal, where a parent reads what their child actually ATE rather than what
@@ -1939,6 +1972,68 @@
   window.P_absenceDo = async (btn) => { const m=btn.closest('.modal');
     await api('studentAbsence',{studentId:m.querySelector('#aKid').value,date:m.querySelector('#aDate').value,type:m.querySelector('#aType').value,reason:m.querySelector('#aReason').value});
     m.remove(); toast(EN()?'✅ Absence reported — the teacher has been notified':'✅ แจ้งลาแล้ว — ครูได้รับทราบ'); GO('home'); };
+
+  /* ------- a leave the family filed, and can still take back ---------------------------------
+   *
+   * Filing was one-way: a wrong date, the wrong child, or a change of plan meant ringing the school
+   * and asking somebody to edit a spreadsheet. Asked 2026-08-29.
+   *
+   * WHAT IS OFFERED AND WHAT IS NOT is decided here as well as on the server, and the two agree on
+   * purpose — the buttons appear only where the server would accept the call, so a parent is never
+   * shown a control that answers with a refusal. The server is still the one that decides; this only
+   * stops the app promising something it cannot do.
+   *
+   *   · a PAST date is the attendance record of a day the school taught, not a plan any more;
+   *   · a leave a TEACHER filed is the school saying the child was not here — theirs to correct.
+   *
+   * Both cases say WHY there is no button, because a row that is silently different from the row
+   * above it reads as a bug.
+   */
+  const leaveEditable = l => !String((l&&l.FiledBy)||'').trim() && String((l&&l.Date)||'').slice(0,10) >= todayStr();
+  function P_leaveRow(l, showKid){
+    const id=esc(l.LeaveID||''), sid=esc((l._kid&&l._kid.StudentID)||l.StudentID||'');
+    const byTeacher=!!String(l.FiledBy||'').trim();
+    const acts = leaveEditable(l)
+      ? `<button class="btn sm outline" onclick="P_leaveEdit('${id}','${sid}')" aria-label="${EN()?'Edit':'แก้ไข'}">✏️</button>
+         <button class="btn sm pink" onclick="P_leaveCancel('${id}','${sid}',this)" aria-label="${EN()?'Cancel':'ยกเลิก'}">✖</button>`
+      : `<small class="muted" style="font-size:12px">${byTeacher
+            ? (EN()?'filed by the school':'คุณครูบันทึก')
+            : (EN()?'past — contact the school':'ผ่านมาแล้ว')}</small>`;
+    return `<div class="list-item" style="align-items:center;gap:8px">
+      <span style="flex:1;min-width:0">${esc(ddmmyyyy(l.Date))} · <b>${esc(stdLeaveDesc(l))}</b>${
+        showKid&&l._kid?`<br><small class="muted">${esc(dispNick(l._kid))}</small>`:''}</span>
+      <span class="acts" style="flex:0 0 auto;display:flex;gap:6px;align-items:center">${acts}</span></div>`;
+  }
+  window.P_leaveEdit = async (leaveId, studentId)=>{
+    const l=(window._P_LEAVES||[]).find(x=>String(x.LeaveID)===String(leaveId)); if(!l){ GO('home'); return; }
+    const types=['ลาป่วย','ลากิจ','ลาพักร้อน','อื่นๆ'];
+    const cur=String(l.Type||'').trim();
+    modal(`<h3>✏️ ${EN()?'Edit leave':'แก้ไขการแจ้งลา'}</h3>
+      ${l._kid?`<p class="muted" style="font-size:13px;margin:0 2px 8px">${esc(dispNick(l._kid))}</p>`:''}
+      ${/* min=today, so the picker itself refuses the past rather than letting it be chosen and then
+           refused — the server checks it again either way (LEAVE_PAST). */''}
+      <label class="field"><span>${EN()?'Date':'วันที่ลา'}</span><input type="date" id="eDate" min="${todayStr()}" value="${esc(String(l.Date||'').slice(0,10))}"/></label>
+      <label class="field"><span>${EN()?'Leave type':'ประเภทการลา'}</span><select id="eType">${
+        types.concat(types.indexOf(cur)<0&&cur?[cur]:[]).map(x=>`<option value="${esc(x)}" ${cur===x?'selected':''}>${esc(x==='อื่นๆ'?(EN()?'Other':'อื่นๆ'):tLeaveType(x))}</option>`).join('')}</select></label>
+      <label class="field"><span>${EN()?'Reason (optional)':'สาเหตุ (ถ้ามี)'}</span><textarea id="eReason">${esc(l.Reason||'')}</textarea></label>
+      <button class="btn block" onclick="P_leaveEditDo(this,'${esc(leaveId)}','${esc(studentId)}')">${esc(t('c.save'))}</button>
+      <button class="btn outline block" style="margin-top:8px" onclick="this.closest('.modal').remove()">${esc(t('c.close'))}</button>`);
+  };
+  window.P_leaveEditDo = async (btn, leaveId, studentId)=>{ const m=btn.closest('.modal'); btn.disabled=true;
+    try{ await api('parentEditLeave',Object.assign({leaveId,studentId,
+        date:m.querySelector('#eDate').value, type:m.querySelector('#eType').value,
+        reason:m.querySelector('#eReason').value.trim()}, parentScope()));
+      m.remove(); confirmSaved(EN()?'Leave updated — the teacher has been told':'แก้ไขการแจ้งลาแล้ว — แจ้งคุณครูให้ทราบแล้ว'); GO('home');
+    }catch(e){ err(e); btn.disabled=false; } };
+  window.P_leaveCancel = async (leaveId, studentId, btn)=>{
+    /* A confirm, because it deletes. The wording names the CONSEQUENCE — the child is expected at
+     * school again — rather than asking "are you sure", which tells nobody what they are agreeing to. */
+    if(!confirm(EN()?'Cancel this leave? Your child will be expected at school as usual.'
+                   :'ยกเลิกการแจ้งลานี้? บุตรหลานจะมาเรียนตามปกติ และระบบจะแจ้งคุณครูให้ทราบ')) return;
+    if(btn)btn.disabled=true;
+    try{ await api('parentCancelLeave',Object.assign({leaveId,studentId},parentScope()));
+      confirmSaved(EN()?'Leave cancelled — the teacher has been told':'ยกเลิกการแจ้งลาแล้ว — แจ้งคุณครูให้ทราบแล้ว'); GO('home');
+    }catch(e){ err(e); if(btn)btn.disabled=false; } };
 
   // shared withdrawal reason picker (4 standard reasons; "other" reveals a long-text box)
   const WD_REASONS=['graduated','moved','transferred','other'];
@@ -2164,47 +2259,41 @@
     try{ await api('submitInsurance',{studentId:sid,parentId:USER.parentId,uid:USER.uid,data:d}); confirmSaved(t('ins2.saved')); P_insurance(sid); }catch(e){err(e);} };
 
   /**
-   * The pick-up history. A parent with more than one child used to see ONE of them — kids[0] — with
-   * nothing on the screen to say which, and no way to reach the others. Two children's mornings look
-   * much alike, so the wrong one is not obviously the wrong one.
+   * "อยู่หน้าโรงเรียนแล้วกดรับกลับไม่ได้?" — ON THE PAGE WITH THE BUTTON IT IS ABOUT.
    *
-   * Nickname tabs, the same way every other multi-child screen in the app does it (childSwitcher),
-   * and the name is repeated on the card so a screenshot of it is unambiguous.
+   * This card lived on the รับ-ส่ง tab, which is the one place a parent standing at the gate with a
+   * refused pick-up is NOT looking: they are on Home, staring at the button that just failed. Moved
+   * under the check-in/out row, where the question is being asked. Asked 2026-08-29.
    */
-  SCREENS.Parent.checkin = async () => {
-    showAnnPopups();
-    const kids=await api('parentChildren',parentScope()); if(!kids.length){GO('home');return;}
-    window._CI_KIDS=kids;
-    P_ciHist(kids[0].StudentID);
-  };
-  window.P_ciHist = async (sid) => { setNav('checkin');
-    const kids=window._CI_KIDS||[]; const kid=kids.find(k=>k.StudentID===sid)||kids[0]||{};
-    app.innerHTML = `<h2 class="page">${esc(t('title.checkin'))}</h2>
-      <div class="card" style="background:var(--blue-bg);border-color:var(--blue-line)"><div class="spread"><small class="muted" style="font-size:13px">${EN()?'Drop-off / pick-up buttons are on the Home page (on each child’s card).':'ปุ่มส่งเข้าเรียน / รับกลับ อยู่ที่หน้าหลัก (บนการ์ดของบุตรหลานแต่ละคน)'}</small><button class="btn sm" onclick="GO('home')">🏠 ${EN()?'Home':'ไปหน้าหลัก'}</button></div></div>
-      <!-- Pick-up is fenced (drop-off is not), so a parent at the gate whose phone reports a
-           neighbourhood instead of a place is stuck — with even less idea why than a teacher. -->
-      ${/* Offered BEFORE it is needed. The check below answers "why did it fail"; this one stops it
-           failing — while the browser is still willing to ask, one tap settles it for good. */''}
-      ${GEO_gate()}
-      <div class="card"><div class="spread"><span><b>📍 ${EN()?'Pick-up not working at the gate?':'อยู่หน้าโรงเรียนแล้วกดรับกลับไม่ได้?'}</b>
-        <br><small class="muted">${EN()?'Check what your phone thinks its location is.':'ตรวจสอบว่าโทรศัพท์คิดว่าคุณอยู่ตรงไหน'}</small></span>
-        <button class="btn sm outline" style="flex:0 0 auto" onclick="GEO_check(this)">${EN()?'Check':'ตรวจสอบ'}</button></div></div>
-      ${childSwitcher(kids, sid, 'P_ciHist')}
-      ${/* FOLDED, AND A MONTH AT A TIME. Every drop-off and pick-up the child has ever had, in one
-           list — the same shape of problem as the journal history, and the same answer. Folded shut
-           because a parent opens this screen to check TODAY far more often than to read back through
-           the year. Asked 2026-08-25. */''}
-      <details class="card" id="ciBox"><summary style="cursor:pointer;font-weight:700">🗓️ ${EN()?'Drop-off / pick-up history':'ประวัติการรับ-ส่ง'}
-          <span class="muted" style="font-weight:400">· ${esc(dispNick(kid))}${kid.Class?' '+esc(kid.Class):''}</span></summary>
-        <div class="spread" style="margin:8px 0 4px"><small class="muted">${EN()?'Showing one month at a time':'แสดงทีละเดือน'}</small>
-          <select id="ciMonth" onchange="P_ciFilter()" style="width:auto"><option value="">${EN()?'Loading…':'กำลังโหลด…'}</option></select></div>
-        <div id="ciHist"><div class="card muted">${EN()?'Loading…':'กำลังโหลด…'}</div></div></details>`;
-    GEO_gateFill();
-    let hist=[]; try{ hist=await api('studentCheckinHistory',{studentId:sid})||[]; }catch(e){ err(e); return; }
-    window._CI_HIST=hist;
-    const sel=document.getElementById('ciMonth'); if(sel) sel.innerHTML=monthOptions(hist);
-    P_ciFilter();
-  };
+  /* INSIDE the kid card, immediately under the two buttons — and NOT as a card of its own.
+   *
+   * A card here would sit between the child and the outstanding balance, which was deliberately put
+   * directly beneath the kid cards (see parentDueCard): a row shown to EVERY family, every day,
+   * would push the money below the fold on a phone for all of them. As a line inside the card it is
+   * where the thumb already is and costs nothing.
+   *
+   * It is also rendered only where the buttons are — a family whose child is on leave, or whose
+   * school is shut today, has no pick-up to be refused and does not need to be asked about GPS.
+   */
+  const geoHelpRow = () => `<div style="margin-top:8px;padding-top:8px;border-top:1px dashed var(--line);display:flex;align-items:center;gap:8px">
+      <span style="flex:1;min-width:0;font-size:12.5px;color:var(--ink-3)">📍 ${EN()?'Pick-up not working at the gate?':'อยู่หน้าโรงเรียนแล้วกดรับกลับไม่ได้?'}</span>
+      <button class="btn sm outline" style="flex:0 0 auto" onclick="GEO_check(this)">${EN()?'Check':'ตรวจสอบ'}</button></div>`;
+  /**
+   * The pick-up history, folded, inside บันทึก.
+   *
+   * It used to be a tab of its own — and that tab's other content was a card telling the parent the
+   * buttons were on Home. So one of six tabs existed to redirect people to another one. The history
+   * itself belongs with the journal: both answer "what happened on a day that has gone", both are
+   * read back a month at a time, and a parent who wants to check TODAY has never needed either.
+   *
+   * Kept as its own <details> rather than merged into the journal list, because a drop-off time and
+   * a day's journal are different questions about the same date and squashing them together would
+   * make both harder to read.
+   */
+  /* A parent who had the old tab open, or #checkin in their browser history, or the app restored
+   * from a back button, must not land on "หน้านี้กำลังพัฒนา" — GO() has no other answer for a screen
+   * that is gone. One line, and the back button keeps working through a release. */
+  SCREENS.Parent.checkin = () => GO('journal');
   window.P_ciFilter=()=>{
     const el=document.getElementById('ciHist'); if(!el) return;
     const sel=document.getElementById('ciMonth');
@@ -2955,20 +3044,34 @@
   window.P_journal = async (sid) => { setNav('journal');
     // journalInjuries rides in the SAME batch as the journal — an injury the teacher chose to share
     // must appear with the day it belongs to, and not at the cost of another round trip.
-    const [kids,j,hist,inj]=await Promise.all([api('parentChildren',parentScope()),api('getJournal',{studentId:sid}),
-      api('journalHistory',{studentId:sid}),api('journalInjuries',{studentId:sid}).catch(()=>[])]);
+    // studentCheckinHistory joined them when the pick-up tab was folded in here: it is a FIFTH read
+    // in the SAME tick, so api.js still batches the lot into one request rather than adding a
+    // round trip to a backend that runs one execution per user at a time.
+    const [kids,j,hist,inj,ci]=await Promise.all([api('parentChildren',parentScope()),api('getJournal',{studentId:sid}),
+      api('journalHistory',{studentId:sid}),api('journalInjuries',{studentId:sid}).catch(()=>[]),
+      api('studentCheckinHistory',{studentId:sid}).catch(()=>[])]);
     const kid=(kids||[]).find(k=>k.StudentID===sid)||{};
     app.innerHTML=`<h2 class="page">${esc(t('title.journal'))}${kids.length===1?` · <span style="color:var(--blue)">${esc(dispNick(kid)||sid)}</span>`:''}</h2>${childSwitcher(kids,sid,'P_journal')}${injJournalHTML(inj)}${j?journalChecklist(j,{parentEditable:true}):journalEmptyCard(kid)}
-      ${/* A MONTH AT A TIME. The history was every journal the child has ever had, oldest to newest,
-           in one list — a family a year in scrolls past three hundred rows to find last Tuesday.
-           Default is THIS month, which is what somebody opening the screen is looking for; the
-           dropdown holds only the months that actually have entries, so it never offers an empty one.
-           Asked 2026-08-25. */''}
-      <div class="spread" style="margin:10px 2px 4px"><h3 class="page" style="font-size:16px;margin:0">${EN()?'History':'ย้อนหลัง'}</h3>
-        <select id="pjMonth" onchange="P_jHistFilter()" style="width:auto">${monthOptions(hist)}</select></div>
-      <div id="pjHist"></div>`;
-    window._PJ_HIST=hist||[];
-    P_jHistFilter();
+      ${/* A MONTH AT A TIME, AND FOLDED SHUT. The history was every journal the child has ever had,
+           oldest to newest, in one list — a family a year in scrolls past three hundred rows to find
+           last Tuesday. Default is THIS month, which is what somebody opening the screen is looking
+           for; the dropdown holds only the months that actually have entries, so it never offers an
+           empty one. Asked 2026-08-25, and folded 2026-08-29 — the page opens on TODAY's journal,
+           which is what it is for, and the year underneath is one tap away instead of in the way. */''}
+      <details class="card" id="pjBox"><summary style="cursor:pointer;font-weight:700">📒 ${EN()?'Journal history':'บันทึกย้อนหลัง'}
+          <span class="muted" style="font-weight:400">· ${esc(dispNick(kid))}</span></summary>
+        <div class="spread" style="margin:8px 0 4px"><small class="muted">${EN()?'Showing one month at a time':'แสดงทีละเดือน'}</small>
+          <select id="pjMonth" onchange="P_jHistFilter()" style="width:auto">${monthOptions(hist)}</select></div>
+        <div id="pjHist"></div></details>
+      ${/* THE PICK-UP HISTORY, which used to be a tab of its own. Same shape of question, same
+           answer, and now on the same screen — see the note above P_ciFilter. */''}
+      <details class="card" id="ciBox"><summary style="cursor:pointer;font-weight:700">🗓️ ${EN()?'Drop-off / pick-up history':'ประวัติการรับ-ส่ง'}
+          <span class="muted" style="font-weight:400">· ${esc(dispNick(kid))}${kid.Class?' '+esc(kid.Class):''}</span></summary>
+        <div class="spread" style="margin:8px 0 4px"><small class="muted">${EN()?'Showing one month at a time':'แสดงทีละเดือน'}</small>
+          <select id="ciMonth" onchange="P_ciFilter()" style="width:auto">${monthOptions(ci||[])}</select></div>
+        <div id="ciHist"></div></details>`;
+    window._PJ_HIST=hist||[]; window._CI_HIST=ci||[];
+    P_jHistFilter(); P_ciFilter();
   };
   window.P_jHistFilter=()=>{
     const el=document.getElementById('pjHist'); if(!el) return;

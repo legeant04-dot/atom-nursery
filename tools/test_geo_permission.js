@@ -109,9 +109,12 @@ console.log('\n4) the nudge sits where the punching happens, and costs nothing')
   const fill = app.slice(app.indexOf('window.GEO_gateFill = async () => {'), app.indexOf('window.GEO_check=async(btn)=>{'));
   ok_('the slice really is GEO_gateFill', fill.length > 200 && fill.length < 3000);
   ok_('...and filling it makes no server call', fill.indexOf("api('") < 0);
-  eq('it is placed on all three screens that punch',
-    (app.match(/\$\{GEO_gate\(\)\}/g) || []).length, 3);
-  eq('...and filled on each of them', (app.match(/GEO_gateFill\(\)/g) || []).length >= 4, true);
+  /* TWO since 2026-08-29, not three. The third was the parent's รับ-ส่ง tab, and that tab is gone:
+   * its only other content was a card telling the parent the buttons were on Home. The nudge now
+   * sits on the two screens where somebody actually punches — the parent home and the teacher home. */
+  eq('it is placed on both screens that punch',
+    (app.match(/\$\{GEO_gate\(\)\}/g) || []).length, 2);
+  eq('...and filled on each of them', (app.match(/GEO_gateFill\(\)/g) || []).length >= 3, true);
   /* The outstanding-balance card was deliberately put DIRECTLY under the kid cards. A nudge that is
    * empty for most families must not push the money down the screen. */
   ok_('the parent’s outstanding card keeps its place', /\$\{kidsHtml\}\n\s*<div id="pDue"><\/div>/.test(app));
