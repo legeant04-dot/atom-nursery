@@ -90,6 +90,34 @@ module.exports = function (files, srcDir) {
   const props = {};
   g.PropertiesService = { getScriptProperties: () => ({ getProperty: k => props[k], setProperty: (k, v) => { props[k] = v; } }) };
   g.Logger = { log: () => {} };
+  /* DRIVE, IN MEMORY. Not having it at all meant every handler that touches a file was untestable:
+   * the daily backup, the photo offload (driveifyImage_), the student folders. A suite that exercised
+   * one died with "DriveApp is not defined" — which reads like a broken test rather than an untested
+   * code path, so those paths simply were not tested.
+   * Deliberately shallow: it records what was asked for (folders created, files made, copies taken)
+   * so a test can assert THAT a backup happened, without pretending to be Drive. */
+  const drive = { folders: {}, files: {}, seq: 0 };
+  const dFile = (name, parent) => { const id = 'file_' + (++drive.seq);
+    const f = { id, name, parent, trashed: false, created: new Date(),
+      getId: () => id, getName: () => name, getDateCreated: () => f.created,
+      setSharing: () => f, getBlob: () => ({ getBytes: () => [] }),
+      makeCopy: (n, folder) => { const c = dFile(n || (name + ' copy'), (folder && folder.name) || parent);
+        (drive.folders[c.parent] = drive.folders[c.parent] || { files: [] }).files.push(c); return c; } };
+    drive.files[id] = f; return f; };
+  const dFolder = name => { const fo = drive.folders[name] = drive.folders[name] || { name, files: [] };
+    return { getName: () => name, getId: () => 'folder_' + name,
+      createFile: blob => { const f = dFile((blob && blob.getName && blob.getName()) || 'file', name); fo.files.push(f); return f; },
+      getFiles: () => { let i = 0; return { hasNext: () => i < fo.files.length, next: () => fo.files[i++] }; },
+      removeFile: f => { fo.files = fo.files.filter(x => x !== f); } }; };
+  g.DriveApp = {
+    _state: drive,
+    Access: { ANYONE_WITH_LINK: 'anyone' }, Permission: { VIEW: 'view' },
+    createFolder: n => dFolder(n),
+    getFoldersByName: n => { const has = !!drive.folders[n]; let done = false;
+      return { hasNext: () => has && !done, next: () => { done = true; return dFolder(n); } }; },
+    getFileById: id => drive.files[id] || dFile('wb_' + id, null),
+    getRootFolder: () => dFolder('root')
+  };
   g.Utilities = {
     getUuid: () => crypto.randomUUID(),
     DigestAlgorithm: { SHA_256: 1 }, Charset: { UTF_8: 1 },

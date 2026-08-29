@@ -513,3 +513,111 @@ function handleRecomputeContributions(p) {
   }
   return { preview: preview, matchRate: matchRate, changed: out.length, written: written, rows: out };
 }
+
+/**
+ * WIPE ONE STAFF MEMBER'S PROVIDENT FUND AND START AGAIN.
+ *
+ * ครูจอย's เงินสมทบ was entered wrong and the school wants to key it in correctly from today
+ * (asked 2026-08-29). There is no way to "fix" a running total that was built from wrong monthly
+ * figures plus a wrong opening balance: every month compounds the last. So it is reset to zero and
+ * re-entered.
+ *
+ * THIS DELETES REAL MONEY FIGURES, so it is built as two separate calls:
+ *
+ *   preview (the default)  reads and reports, touches nothing;
+ *   apply   (confirm:true) takes a FULL BACKUP OF BOTH WORKBOOKS FIRST, then writes.
+ *
+ * The backup is not decoration. It is the only way back — dailyBackup() copies the whole of MAIN and
+ * HR into the backup folder, so a wrong staff member or a changed mind is a file away rather than
+ * gone. It runs before the first cell is touched, and a backup that throws ABORTS the whole thing.
+ *
+ * WHAT IT CHANGES, and the part that has to be said out loud: zeroing Contribution on a payslip
+ * already issued changes that slip's TotalDeductions and NetPay, because เงินสมทบ is a deduction.
+ * The recomputed slip will no longer match the paper the teacher was handed. The school chose this
+ * knowing it (the alternative — leaving the old slips alone — leaves the running total wrong for
+ * ever, since the total is rebuilt from those very rows by recomputeContributions).
+ *
+ * ONE PERSON AT A TIME, by StaffID, and never all of them: there is no version of this worth
+ * running across the whole school by accident.
+ */
+function handleContributionReset(p) {
+  p = p || {};
+  var staffId = String(p.staffId || '').trim();
+  if (!staffId) throw apiError_('BAD_INPUT', 'ต้องระบุ StaffID');
+  var confirm = p.confirm === true || String(p.confirm) === 'true';
+
+  var stSh = sheet_(getHrSpreadsheet_(), 'STAFF');
+  try { ensureColumns_(stSh, ['ContributionOpening', 'ContributionAccum', 'ContributionLocked']); } catch (e) {}
+  var st = findObject_(stSh, function (x) { return String(x.StaffID) === String(staffId); });
+  if (!st) throw apiError_('NOT_FOUND', 'ไม่พบพนักงาน ' + staffId);
+
+  var paySh = sheet_(getHrSpreadsheet_(), 'PAYROLL');
+  var rows = readObjects_(paySh).filter(function (r) { return String(r.StaffID) === String(staffId); })
+    .sort(function (a, b) { return String(ym7_(a.Month)).localeCompare(String(ym7_(b.Month))); });
+
+  // what each month looks like now, and what it would look like after — worked out for BOTH calls,
+  // so the preview and the write can never describe different arithmetic
+  var months = [], sumOwn = 0, sumEmp = 0;
+  rows.forEach(function (r) {
+    var own = num_(r.Contribution), emp = num_(r.ContributionEmployer);
+    var ded = num_(r.TotalDeductions), net = num_(r.NetPay);
+    sumOwn += own; sumEmp += emp;
+    months.push({
+      payrollId: r.PayrollID, month: ym7_(r.Month), status: String(r.Status || ''),
+      slipSent: String(r.SlipSent || ''),
+      contribution: own, contributionEmployer: emp,
+      totalDeductions: ded, netPay: net,
+      // เงินสมทบ is a DEDUCTION: removing it lowers the deductions and RAISES the net pay
+      newTotalDeductions: round2_(ded - own),
+      newNetPay: round2_(net + own),
+      netPayChange: round2_(own)
+    });
+  });
+
+  var out = {
+    staffId: staffId, name: st.Name || st.NameEN || staffId,
+    before: {
+      opening: num_(st.ContributionOpening),
+      accum: num_(st.ContributionAccum),
+      locked: String(st.ContributionLocked || ''),
+      payrollRows: months.length,
+      sumEmployee: round2_(sumOwn), sumEmployer: round2_(sumEmp)
+    },
+    months: months,
+    // the slips that were already sent — the ones whose paper copy will stop matching
+    slipsAlreadySent: months.filter(function (m) { return String(m.slipSent).toUpperCase() === 'YES'; }).length,
+    preview: !confirm
+  };
+  if (!confirm) { out.note = 'PREVIEW ONLY — nothing was written. Call again with confirm:true to apply.'; return out; }
+
+  /* BACK UP BOTH WORKBOOKS BEFORE THE FIRST CELL IS TOUCHED. If this throws, nothing is written:
+   * a destructive change with no way back is not one worth making faster. */
+  var backup;
+  try { backup = dailyBackup(); }
+  catch (e) { throw apiError_('BACKUP_FAILED', 'สำรองข้อมูลไม่สำเร็จ จึงยังไม่ได้แก้ไขอะไรเลย: ' + (e && e.message || e)); }
+  out.backup = backup;
+
+  months.forEach(function (m) {
+    var r = findObject_(paySh, function (x) { return String(x.PayrollID) === String(m.payrollId); });
+    if (!r) return;
+    updateRow_(paySh, r._row, {
+      Contribution: 0, ContributionEmployer: 0,
+      TotalDeductions: m.newTotalDeductions, NetPay: m.newNetPay, ContributionAccum: 0
+    });
+  });
+  updateRow_(stSh, st._row, { ContributionOpening: 0, ContributionAccum: 0 });
+  try { CacheService.getScriptCache().removeAll(['col:STAFF', 'rows:STAFF', 'col:PAYROLL', 'rows:PAYROLL']); } catch (e) {}
+  try { logAuditHr(p.adminId || 'admin', 'CONTRIB_RESET', 'STAFF',
+    staffId + ' opening ' + out.before.opening + ' accum ' + out.before.accum + ' rows ' + months.length); } catch (e) {}
+
+  // read it back rather than assert it — the whole point of the call is the number afterwards
+  var st2 = findObject_(stSh, function (x) { return String(x.StaffID) === String(staffId); }) || {};
+  var rows2 = readObjects_(paySh).filter(function (r) { return String(r.StaffID) === String(staffId); });
+  out.after = {
+    opening: num_(st2.ContributionOpening), accum: num_(st2.ContributionAccum),
+    payrollRows: rows2.length,
+    sumEmployee: round2_(rows2.reduce(function (a, r) { return a + num_(r.Contribution); }, 0)),
+    sumEmployer: round2_(rows2.reduce(function (a, r) { return a + num_(r.ContributionEmployer); }, 0))
+  };
+  return out;
+}
