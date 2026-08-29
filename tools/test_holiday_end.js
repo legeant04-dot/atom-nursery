@@ -107,7 +107,11 @@ console.log('\n3) the screens stop offering a button that would fail');
    * a field on `parentHome`, which calls the very same handler server-side. The property this line
    * is about is that nobody re-derives "is the school open" from the holiday list (that third copy
    * of the rule is what once put every child down as ขาด on a holiday), and it still holds. */
-  eq('...once on each client screen that reports on a day', (app.match(/api\('schoolDay'/g) || []).length, 3);
+  /* FOUR since v301: the parent's journal screen asks too. journalEmptyCard has to say "the school
+   * is shut" rather than "waiting for the teacher" (reported 2026-08-29 — the card said both at once
+   * on a Saturday), and a parent who opens that screen directly has never been through the home
+   * screen that used to set it. Still the same server handler, still nobody re-deriving the rule. */
+  eq('...once on each client screen that reports on a day', (app.match(/api\('schoolDay'/g) || []).length, 4);
   ok_('...and the parent gets it from the same handler, inside the composite',
     /schoolDay:\s*soft\(\(\)=>H\.schoolDay\(\{\}\), null\)/.test(eng));
   ok_('...which the screen reads rather than re-deriving', /window\._SCHOOLDAY = HOME\.schoolDay;/.test(app));
