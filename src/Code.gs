@@ -210,6 +210,9 @@ var ROUTES = {
   // Payroll
   computePayroll: function (p) { return handleComputePayroll(p); },
   getPayslip:     function (p) { return handleGetPayslip(p); },
+  // the months this teacher actually HAS a slip for — read-only, and applyIdentity_ pins staffId to
+  // the caller, so it can only ever list their own
+  myPayslipMonths: function (p) { return handleMyPayslipMonths(p); },
   markSalaryPaid: function (p) { return handleMarkSalaryPaid(p); },   // admin-only: salary transferred (+ slip)
   otCarryOver:    function (p) { return handleOtCarryOver(p); },      // OT approved after an earlier payroll was saved
   recomputeContributions: function (p) { return handleRecomputeContributions(p); },  // admin-only, preview-first

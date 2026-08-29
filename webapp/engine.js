@@ -2753,6 +2753,33 @@ function createAtomAPI(M, GROWTH_STD) {
      * employer half was never written down have it reconstructed at the current match rate: the
      * school did pay it, the app simply did not record it.
      */
+    /**
+     * The months this person actually HAS a payslip for — newest first.
+     *
+     * A teacher needs an old slip for a loan or a bank account, and the screen offered a bare month
+     * box: every month since the dawn of time, almost all empty, with no way to tell which existed
+     * without opening them one at a time. (Opening them was also what wrote the duplicate rows —
+     * see handleComputePayroll.) Asked 2026-08-29.
+     *
+     * ONE ENTRY PER MONTH even where the sheet has several: a teacher's own history is the last
+     * place a duplicate should surface, since they cannot act on it and it only makes them doubt the
+     * rest. The one shown is the one with the strongest evidence — paid, then sent, then the larger.
+     */
+    myPayslipMonths: p => { const sid=String((p&&p.staffId)||'');
+      if(!sid) fail('BAD_INPUT','ต้องระบุ StaffID');
+      const seen={};
+      (M.payroll||[]).forEach(r=>{ if(String(r.StaffID)!==sid) return;
+        const m=ym(r.Month); if(!m) return;
+        const cand={ month:m, netPay:Number(r.NetPay||0),
+          slipSent:String(r.SlipSent||'').toUpperCase()==='YES',
+          paidDate:r.PaidDate?ymd(r.PaidDate):'' };
+        const cur=seen[m]; if(!cur){ seen[m]=cand; return; }
+        const better=(!!cand.paidDate && !cur.paidDate) ||
+          (!!cand.paidDate===!!cur.paidDate && cand.slipSent && !cur.slipSent) ||
+          (!!cand.paidDate===!!cur.paidDate && cand.slipSent===cur.slipSent && cand.netPay>cur.netPay);
+        if(better) seen[m]=cand; });
+      const months=Object.keys(seen).sort().reverse().map(m=>seen[m]);
+      return { staffId:sid, count:months.length, months }; },
     getPayslip: p => { const r=M.payroll.find(x=>x.StaffID===p.staffId&&ym(x.Month)===ym(p.month)); if(!r) return null;
       const st=staffById(p.staffId)||{};
       const matchRate=Number(cfg.ContributionMatchRate!=null?cfg.ContributionMatchRate:1);
