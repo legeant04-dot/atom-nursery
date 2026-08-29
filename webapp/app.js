@@ -112,7 +112,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.294'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.295'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -6735,6 +6735,22 @@
         <input id="stf_ProrateAmount" type="number" min="0" value="${esc(s.ProrateAmount!=null&&s.ProrateAmount!==''?s.ProrateAmount:'')}" oninput="A_prorateHint()"/></label>
       <small class="muted" id="prorateHint" style="display:block;margin:-2px 0 6px"></small>
       <hr style="border:none;border-top:1px solid var(--line);margin:8px 0">
+      ${/* THE ONE PHONE THAT CANNOT BE FIXED.
+           Pick-up is fenced on purpose — it is a safety record and it starts the OT clock — and that
+           rule works. But a handset that states its OWN accuracy as ±2000 m cannot be fenced by
+           anything: on 2026-08-29 one put a parent standing at the school gate 620 m away, and no
+           setting on that phone changes it. The school confirms the family in person and ticks this.
+           Deliberately NOT a school-wide setting and not a wider radius: it is one child, named, and
+           written to the audit log both when it is used and when it is granted. Everybody else stays
+           fenced exactly as before. This form is also open to a HEAD TEACHER (scope==='full'), so the
+           box is drawn only for an admin — and the server drops the field from a non-admin's patch
+           rather than trusting that. */''}
+      ${USER.role==='Admin'?`<label class="chk-inline"><input type="checkbox" id="stf_GeoExempt" ${/^(yes|true|1|y)$/i.test(String(s.GeoExempt||''))?'checked':''}/>
+        <span>📍 ${EN()?'Allow pick-up from anywhere (skip the distance check for this child)':'อนุญาตให้กด “รับกลับ” ได้จากทุกที่ (ไม่ตรวจระยะสำหรับนักเรียนคนนี้)'}</span></label>
+      <small class="muted" style="display:block;margin:-2px 0 6px">${EN()
+        ? 'For a phone that cannot report a real location — it insists it is kilometres away while the parent is at the gate. Everyone else keeps the distance check. Every use is recorded.'
+        : 'ใช้เฉพาะกรณีมือถือของผู้ปกครองแจ้งตำแหน่งผิดพลาดจนแก้ไม่ได้ (ยืนอยู่หน้าโรงเรียนแต่ระบบแจ้งว่าอยู่ไกลเป็นกิโลเมตร) · นักเรียนคนอื่นยังตรวจระยะตามปกติ · ระบบบันทึกการใช้งานทุกครั้ง'}</small>
+      <hr style="border:none;border-top:1px solid var(--line);margin:8px 0">`:''}
       <label class="field" style="display:flex;align-items:center;gap:8px"><input type="checkbox" id="stf_Ins" ${s.InsuranceHas?'checked':''} style="width:auto" onchange="document.getElementById('insBox').hidden=!this.checked"/> 🛡️ ${esc(t('ins.has'))}</label>
       <div id="insBox" ${s.InsuranceHas?'':'hidden'}>
         <div class="grid2">${f('InsurancePolicyNo',t('ins.policy'),s.InsurancePolicyNo)}${f('InsuranceCompany',t('ins.company'),s.InsuranceCompany)}</div>
@@ -6913,9 +6929,17 @@
       ProrateMode:v('ProrateMode')||'FULL',                   // how the STARTING month is charged
       ProrateAmount:v('ProrateAmount')===''?'':(Number(v('ProrateAmount'))||0),
       OTRate:v('OTRate')===''?'':(Number(v('OTRate'))||0)};   // blank = fall back to the school-wide OT rate
+    /* SENT ONLY WHEN THE BOX WAS ON THE PAGE. A head teacher does not get it drawn, and an absent
+     * checkbox reads as unchecked — so sending it unconditionally would have a head teacher SILENTLY
+     * CLEARING the exemption every time they corrected a phone number. The server drops the field
+     * from a non-admin's patch too; this is the half that stops it being sent in the first place.
+     * 'YES' / '' rather than true/false: the sheet stores text, and the server reads it with a
+     * /^(yes|true|1|y)$/i test so a cell somebody types 'Y' into by hand still means what it says. */
+    const _ge=m.querySelector('#stf_GeoExempt'); if(_ge) data.GeoExempt=_ge.checked?'YES':'';
     const stp=photoVal(m,'stf_Photo'); if(stp) data.Photo=stp;
     const stc=photoVal(m,'stf_InsCard'); if(stc) data.InsuranceCardImage=stc;
-    try{ await api('saveStudent',{studentId:id,data}); m.remove(); confirmSaved(t('c.saved')); GO('manage'); }catch(e){err(e);} };
+    // adminId so the audit line for GeoExempt names a person rather than the word "admin"
+    try{ await api('saveStudent',{studentId:id,data,adminId:USER.staffId}); m.remove(); confirmSaved(t('c.saved')); GO('manage'); }catch(e){err(e);} };
 
   // ---- vaccine records (Admin/teacher) ----
   window.A_vaccines=async(sid)=>{ const s=findStudent(sid); const [sched,recs]=await Promise.all([api('vaccineSchedule'),api('studentVaccines',{studentId:sid})]);

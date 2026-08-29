@@ -102,7 +102,10 @@ console.log('\n1) the admin sees the record the family filled in');
   // NOTHING THE FORM COLLECTS MAY BE MISSING. The sheet's own column list is the reference, so a
   // field added to registration later cannot quietly fail to appear in the record.
   // the block between STUDENTS: and the next sheet — trailing comments sit inside it, so strip them
-  const block = cfg.slice(cfg.indexOf('STUDENTS:'), cfg.indexOf('CLASSES:')).replace(/\/\/.*$/gm, '');
+  // ...and BLOCK comments as well as line ones: a /* … */ note beside a column that quotes a value
+  // ('YES') was being read as a column name, so the guard failed on the comment rather than the code.
+  const block = cfg.slice(cfg.indexOf('STUDENTS:'), cfg.indexOf('CLASSES:'))
+    .replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
   const declared = (block.match(/'([^']+)'/g) || []).map(s => s.replace(/'/g, ''));
   ok_('the column list was actually found', declared.length > 20);
   const d = H.studentProfile({ studentId: 'S1', staffId: 'ADM', role: 'Admin' });
@@ -110,7 +113,9 @@ console.log('\n1) the admin sees the record the family filled in');
   const shown = Object.keys(d).map(lc);
   // columns that are bookkeeping rather than "what the family told us"
   const notAsked = ['name', 'photo', 'lastgrowthupdate', 'insurancecardimage', 'drivefolderurl',
-    'withdrawdetail', 'withdrawby', 'parentid', 'otrate'];
+    'withdrawdetail', 'withdrawby', 'parentid', 'otrate',
+    // an admin's decision about this child's phone, not something the family was asked at registration
+    'geoexempt'];
   const missing = declared.map(lc).filter(k => notAsked.indexOf(k) < 0 && shown.indexOf(k) < 0)
     // engine names that differ from the column name
     .filter(k => !{ studentid: 1, nameth: 1, nameen: 1, nickname: 1, nicknameen: 1, nationalid: 1, bloodtype: 1,

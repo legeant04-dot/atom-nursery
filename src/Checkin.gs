@@ -64,6 +64,24 @@ function assertWithinGeofence_(lat, lng, accuracy) {
   return dist;
 }
 
+/**
+ * Is this child's pick-up exempt from the fence?
+ *
+ * Granted per child by an admin (STUDENTS.GeoExempt = 'YES') for the case no setting can fix: a
+ * handset that reports its own margin of error as kilometres. One phone, on 2026-08-29, put a parent
+ * standing at the gate 620 m away. Everyone else stays fenced.
+ *
+ * Read defensively: the column is appended by ensureColumns_ on the first save, so on a sheet that
+ * has not been written since this shipped it is simply absent — which must mean "no", not an error.
+ */
+function studentGeoExempt_(studentId) {
+  try {
+    var s = findObject_(sheet_(getMainSpreadsheet_(), 'STUDENTS'),
+      function (x) { return String(x.StudentID) === String(studentId); });
+    return !!s && /^(yes|true|1|y)$/i.test(String(s.GeoExempt || '').trim());
+  } catch (e) { return false; }
+}
+
 // Distance to school WITHOUT enforcing the fence — for parent CHECK-IN (allowed anywhere). Returns
 // the distance for the record, or null if the GPS is missing/invalid (still allowed).
 function geoDistanceSafe_(lat, lng) {

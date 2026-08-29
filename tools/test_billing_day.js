@@ -110,8 +110,13 @@ console.log('\n2) it is on the record and on the form');
   ok_('...within 1–31', /min="1" max="31"/.test(app));
   ok_('...and it is saved', /BillingDay:v\('BillingDay'\)===''\?''/.test(app));
   ok_('...as blank when blank, which means "use the school’s day"', /\?''\:Math\.min\(31,Math\.max\(1,Number\(v\('BillingDay'\)\)\|\|1\)\)/.test(app));
-  ok_('the sheet is given the column, or the write is dropped in silence', /'BillingDay'\]\); \} catch \(e\) \{\}/.test(staffGs));
-  ok_('...and it is declared in the schema', /'BillingDay'\]/.test(cfgGs));
+  /* MEMBERSHIP, not position. These two used to pin 'BillingDay' as the LAST entry of the
+   * ensureColumns_ call and of the STUDENTS schema, so the next column anyone appended after it
+   * failed this suite — which says nothing about billing days. What matters is that the column is
+   * ensured and declared, wherever in the list it sits. */
+  ok_('the sheet is given the column, or the write is dropped in silence',
+    /ensureColumns_\(sh, \[[\s\S]*?'BillingDay'[\s\S]*?\]\); \} catch \(e\) \{\}/.test(staffGs));
+  ok_('...and it is declared in the schema', /STUDENTS:\s*\[[\s\S]*?'BillingDay'[\s\S]*?\],\n  CLASSES:/.test(cfgGs));
   ok_('a shorter month is explained rather than left to surprise somebody',
     /บิลจะครบกำหนดในวันสุดท้ายของเดือนนั้น/.test(app));
 }
