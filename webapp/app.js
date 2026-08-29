@@ -112,7 +112,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.301'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.302'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -7517,6 +7517,9 @@
       ${/* Below the recompute, because it is the answer when recomputing is not: a total built from
            wrong monthly figures is rebuilt wrong, and the only fix is to start again. */''}
       <button class="btn sm outline block" style="margin-top:4px" onclick="A_contribReset(this)">♻️ ${EN()?'Reset one person’s fund to zero':'ล้างเงินสมทบของพนักงาน 1 คน'}</button>
+      ${/* Above the fund tools in importance, because the fund is COMPUTED FROM these rows: clearing
+           a total while the duplicates are still there just rebuilds it wrong next month. */''}
+      <button class="btn sm outline block" style="margin-top:4px" onclick="A_payrollDups(this)">🔎 ${EN()?'Find duplicate payslips':'ตรวจหาสลิปเงินเดือนซ้ำ'}</button>
       <h4 style="margin:6px 0">🔍 ${EN()?'Slip verification (SlipOK)':'การตรวจสลิป (SlipOK)'}</h4>
       <button class="btn sm outline block" onclick="A_slipDiag(this)">${EN()?'Check whether slip verification is working':'ตรวจว่าระบบตรวจสลิปทำงานอยู่ไหม'}</button>
       <h4 style="margin:6px 0">⚡ ${EN()?'System speed & errors':'ความเร็วและข้อผิดพลาดของระบบ'}</h4>
@@ -7664,6 +7667,76 @@
         <small class="muted">💾 ${EN()?'Backup taken before the change':'สำรองข้อมูลก่อนแก้ไขเรียบร้อย'} · ${esc(JSON.stringify(r.backup||{}))}</small>
         <button class="btn outline block" style="margin-top:8px" onclick="this.closest('.modal').remove()">${esc(t('c.close'))}</button>`);
     }catch(e){ err(e); if(btn){ btn.disabled=false; btn.textContent='♻️ '+(EN()?'Clear and start from this figure':'ล้างและเริ่มนับใหม่'); } } };
+  /* ---- more than one payslip for one person in one month --------------------------------------
+   *
+   * Found on live data 2026-08-29 (ครูจอย, four rows for กรกฎาคม 2569). The cause is already written
+   * down at the top of src/Payroll.gs: 'YYYY-MM' written into a Sheets cell is coerced to a DATE, so
+   * the "is there already a row for this month?" lookup never matched and every press of บันทึก
+   * appended a new one. ym7_ fixed the lookup; the rows made before that fix were never cleaned up.
+   *
+   * They matter because the readers disagree — some pick whichever row is FIRST in the sheet
+   * (the month's salary expense, the slip that prints, the row the paid-tick lands on) and others
+   * ADD THEM ALL UP (the provident fund total, the OT carry-over). Neither says anything is wrong.
+   *
+   * The screen SUGGESTS a keeper by rules it shows, and deletes only what a person picks.
+   */
+  const DUP_WHY = {
+    PAID:         ()=>EN()?'money was paid against this row':'มีบันทึกว่าจ่ายเงินตามใบนี้แล้ว',
+    SLIP_SENT:    ()=>EN()?'this is the slip the teacher was given':'ใบนี้คือสลิปที่ส่งให้คุณครูไปแล้ว',
+    ONLY_REAL:    ()=>EN()?'the others have no pay in them at all':'ใบอื่นไม่มียอดเงินเลย',
+    HIGHEST_GROSS:()=>EN()?'the only one with a full month’s pay':'ใบเดียวที่มียอดรายรับเต็มเดือน',
+    MANY_PAID:    ()=>EN()?'⚠️ more than one row is marked paid — please check the bank record':'⚠️ มีมากกว่า 1 ใบที่บันทึกว่าจ่ายแล้ว — กรุณาตรวจกับรายการโอนจริง',
+    MANY_SENT:    ()=>EN()?'⚠️ more than one slip was sent — please check with the teacher':'⚠️ ส่งสลิปให้คุณครูไปมากกว่า 1 ใบ — กรุณาตรวจสอบกับคุณครู',
+    IDENTICAL:    ()=>EN()?'⚠️ the rows are identical — either will do, keep one':'⚠️ ใบเหมือนกันทุกอย่าง — เก็บใบไหนก็ได้ 1 ใบ',
+    ALL_EMPTY:    ()=>EN()?'⚠️ none of them has any pay in it':'⚠️ ทุกใบไม่มียอดเงินเลย'
+  };
+  window.A_payrollDups=async(btn)=>{ if(btn)btn.disabled=true;
+    try{ const r=await api('payrollDuplicates',{},{fresh:true});
+      if(!r||!r.count){ toast(EN()?'No duplicate payslips found':'ไม่พบสลิปซ้ำ'); return; }
+      modal(`<h3>🔎 ${EN()?'Duplicate payslips':'สลิปเงินเดือนซ้ำ'} <span class="pill bad">${r.count}</span></h3>
+        <p class="muted" style="font-size:13px">${EN()
+          ? 'One person, one month, more than one payslip. Some totals use whichever row is first in the sheet; others add them all together. Nothing is deleted until you choose.'
+          : 'พนักงาน 1 คน เดือนเดียวกัน มีสลิปมากกว่า 1 ใบ · บางยอดใช้ใบแรกที่เจอในชีต บางยอดบวกทุกใบรวมกัน · จะยังไม่ลบอะไรจนกว่าคุณจะเลือกเอง'}</p>
+        <div style="max-height:64vh;overflow:auto">${r.groups.map(g=>A_dupGroup(g)).join('')}</div>
+        <button class="btn outline block" style="margin-top:8px" onclick="this.closest('.modal').remove()">${esc(t('c.close'))}</button>`);
+    }catch(e){err(e);}finally{ if(btn)btn.disabled=false; } };
+  function A_dupGroup(g){
+    const why=(DUP_WHY[g.reason]||(()=>g.reason))();
+    const unsure=['MANY_PAID','MANY_SENT','IDENTICAL','ALL_EMPTY'].indexOf(g.reason)>=0;
+    return `<div class="card" style="padding:10px;margin-bottom:8px">
+      <div class="spread"><b>${esc(g.nick||g.name)}</b><span class="pill bad">${esc(monthNameYear(g.month))} · ${g.count} ${EN()?'slips':'ใบ'}</span></div>
+      ${/* WHICH ONE THE APP IS USING RIGHT NOW, which is simply whichever landed first in the sheet —
+           worth saying, because it is usually not the one anybody would have picked. */''}
+      <small class="muted" style="display:block;margin:4px 0">${EN()?'Currently used by the totals':'ยอดต่างๆ ตอนนี้ใช้ใบ'}: <b>${esc(g.currentlyUsedId)}</b>
+        · ${EN()?'fund adds all':'เงินสมทบบวกทุกใบ'}: <b>${baht(g.sumContribution)}</b></small>
+      ${g.rows.map(x=>{ const keep=x.payrollId===g.keepId;
+        return `<div class="list-item" style="align-items:flex-start;gap:8px;${keep?'background:var(--ok-bg);border-radius:8px':''}">
+          <span style="flex:1;min-width:0">
+            <b>${esc(x.payrollId)}</b> ${keep?`<span class="pill ok">${EN()?'keep':'เก็บใบนี้'}</span>`:''}
+            ${x.paidDate?`<span class="pill info">${EN()?'paid':'จ่ายแล้ว'} ${esc(x.paidDate)}</span>`:''}
+            ${x.slipSent?`<span class="pill wait">${EN()?'slip sent':'ส่งสลิปแล้ว'}</span>`:''}
+            ${x.empty?`<span class="pill">${EN()?'empty':'ไม่มียอด'}</span>`:''}
+            <br><small class="muted">${EN()?'base':'ฐาน'} ${baht(x.baseSalary)} · ${EN()?'gross':'รวมรับ'} ${baht(x.gross)} · ${EN()?'net':'สุทธิ'} <b>${baht(x.netPay)}</b>
+            ${x.otEvening||x.otHoliday?`<br>OT ${baht(x.otEvening)}${x.otHoliday?` · ${EN()?'holiday':'วันหยุด'} ${baht(x.otHoliday)}`:''}`:''}
+            ${x.diligence?`<br>${EN()?'diligence':'เบี้ยขยัน'} ${baht(x.diligence)}`:''}
+            ${x.contribution?`<br>${EN()?'fund':'เงินสมทบ'} ${baht(x.contribution)}`:''}
+            ${x.generatedDate?`<br>${EN()?'made':'สร้างเมื่อ'} ${esc(x.generatedDate)}${x.generatedBy?' · '+esc(x.generatedBy):''}`:''}</small></span>
+          ${keep?'':`<button class="btn sm pink" style="flex:0 0 auto" onclick="A_dupDelete('${esc(x.payrollId)}',this)">🗑️</button>`}</div>`; }).join('')}
+      <small class="muted" style="display:block;margin-top:4px;${unsure?'color:var(--bad)':''}">${esc(EN()?'Suggestion: ':'ข้อเสนอแนะ: ')}${esc(why)}</small>
+      ${unsure?`<small class="muted" style="display:block">${EN()
+        ? 'No row is marked to keep — the rules cannot tell them apart, so this one is yours to decide.'
+        : 'ระบบไม่เลือกใบให้ เพราะกฎแยกไม่ออก — กรณีนี้ต้องให้คนตัดสินใจ'}</small>`:''}</div>`;
+  }
+  window.A_dupDelete=async(id,btn)=>{
+    /* A confirm that names the ID and the consequence, then the server takes a full backup before it
+     * removes the row — and refuses outright if that row is marked paid. */
+    if(!confirm(EN()?`Delete payslip ${id}? A backup is taken first. This cannot be undone from the app.`
+                   :`ลบสลิป ${id} ใช่ไหม? ระบบจะสำรองข้อมูลก่อน · ลบแล้วย้อนกลับในแอปไม่ได้`)) return;
+    if(btn)btn.disabled=true;
+    try{ await api('deletePayrollRow',{payrollId:id,confirm:true,adminId:USER.staffId});
+      const m=document.querySelector('.modal'); if(m)m.remove();
+      confirmSaved(EN()?`Deleted ${id}`:`ลบ ${id} แล้ว`); A_payrollDups();
+    }catch(e){ err(e); if(btn)btn.disabled=false; } };
   // the button label has to say which of the two it is about to do, before it is pressed
   window.CR_openHint=()=>{ const v=Number((document.getElementById('crOpening')||{}).value||0);
     const b=[...document.querySelectorAll('.modal .btn.pink')].pop(); if(!b) return;
