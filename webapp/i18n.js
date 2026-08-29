@@ -261,7 +261,11 @@
 
     // ===== PCHI insurance member form =====
     'ins2.btn':['🛡️ ข้อมูลประกัน','🛡️ Insurance form'], 'ins2.title':['แบบฟอร์มข้อมูลประกัน (PCHI)','Insurance member form (PCHI)'],
-    'ins2.note':['กรอกข้อมูลประกันของนักเรียน — กรอกได้เพียงครั้งเดียวต่อนักเรียน 1 คน','Fill the student\'s insurance details — once per student only'],
+    'ins2.note':['กรอกข้อมูลประกันของนักเรียน · แก้ไขได้ตลอดเวลาหากข้อมูลเปลี่ยนแปลง','Fill the student\'s insurance details · you can edit them at any time'],
+    'ins2.subject':['ข้อมูลนักเรียนที่เอาประกัน','Insured student'],
+    'ins2.edit':['✏️ แก้ไขข้อมูล','✏️ Edit'], 'ins2.review':['ตรวจสอบข้อมูลที่บันทึกไว้ · หากมีจุดใดไม่ถูกต้อง กดแก้ไขได้เลย','Check what was saved · tap Edit if anything is wrong'],
+    'ins2.updatedBy':['แก้ไขล่าสุดโดย','Last edited by'],
+    'ins2.schoolFills':['โรงเรียนเป็นผู้กรอก','Completed by the school'],
     'ins2.filled':['กรอกแล้ว','Filled'], 'ins2.notFilled':['ยังไม่ได้กรอก','Not filled yet'],
     'ins2.filledMsg':['ข้อมูลประกันของนักเรียนคนนี้กรอกแล้ว','This student\'s insurance form is already filled'],
     'ins2.filledBy':['กรอกโดย','Filled by'], 'ins2.reminder':['โปรดกรอกข้อมูลประกันของบุตรหลาน (ครั้งเดียว)','Please fill your child\'s insurance form (once)'],

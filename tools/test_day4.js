@@ -79,6 +79,13 @@ const result = run(function () {
   appendObject_(sheet_(MAIN, 'CLASSES'), { ClassID: 'CL1', ClassName: 'Nursery 1', TeacherID: 'STF-O1', AgeRange: '2-3', Capacity: 20 });
   appendObject_(sheet_(MAIN, 'PARENTS'), { ParentID: 'PAR-001', Name: 'คุณแม่', Phone: '08x', LineUID: 'Uparent1', StudentID: 'STD-001', Address: '' });
   PUSH.length = 0;
+  /* THIS SUITE IS ABOUT CHECK-IN AND NOTIFICATION, NOT ABOUT THE CALENDAR — but it checks a child in
+   * on the REAL today, and two days in every seven that is a weekend, when the school is shut to the
+   * children and assertStudentDayOpen_ refuses before anything under test runs. Red on a Saturday,
+   * green on a Monday, with nobody having changed anything (seen 2026-08-29).
+   * Naming the child as expected today is the school's own mechanism for a child who does come in on
+   * a closed day, so the guard is not weakened; on a weekday this row is never read. */
+  appendObject_(sheet_(MAIN, 'HOLIDAY_ATTEND'), { Date: dateStr_(new Date()), StudentID: 'STD-001', AddedBy: 'TEST', AddedAt: '' });
   const pc = handleParentCheckin({ parentId: 'PAR-001', studentId: 'STD-001', type: 'IN', lat: 13.792472, lng: 100.646389 });
   ok(pc.type === 'IN' && pc.distance === 0, 'parent check-in IN ok');
   ok(PUSH.some(p => p.to === 'Uofficer1' && /มาถึง/.test(p.text)), 'class teacher notified of arrival');

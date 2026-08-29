@@ -4441,16 +4441,20 @@ function createAtomAPI(M, GROWTH_STD) {
       const rec=M.insurancePCHI.find(x=>x.StudentID===p.studentId || (s.NationalID&&String(x.NationalID)===String(s.NationalID)))||null;
       return {studentId:p.studentId, filled:!!rec, record:rec,
         student:{name:s.NameTH,nameEN:s.NameEN,nationalId:s.NationalID,gender:s.Gender,dob:s.DOB}}; },
-    // parent submits the insurance form ONCE per student (blocked if already filled, unless adminEdit).
+    // Parent submits the insurance form and may CORRECT it at any time afterwards (2026-08-29) — the
+    // facts change, and a mistyped claim account number used to be permanent. แผนประกัน and
+    // วันมีผลบังคับ stay the school's: they are stripped from a parent's patch, never from an admin's.
     // Insurance data is written ONLY here (INSURANCE_PCHI sheet).
     submitInsurance: p => { const s=studentById(p.studentId); if(!s)fail('NOT_FOUND','ไม่พบนักเรียน');
       const existing=M.insurancePCHI.find(x=>x.StudentID===p.studentId || (s.NationalID&&String(x.NationalID)===String(s.NationalID)));
-      if(existing && !p.adminEdit) fail('ALREADY_FILLED','ข้อมูลประกันของนักเรียนคนนี้ถูกกรอกแล้ว');
-      const by=actorOf(p); const d=p.data||{};
+      const by=actorOf(p); const d=Object.assign({}, p.data||{});
+      if(existing && !p.adminEdit){ delete d.Plan; delete d.EffectiveDate; }
       const base={ StudentID:p.studentId, InsuredName:d.InsuredName||s.NameEN||s.NameTH, InsuredLastName:d.InsuredLastName||'',
         Gender:d.Gender|| (s.Gender==='M'?'Male':s.Gender==='F'?'Female':''), NationalID:d.NationalID||s.NationalID, DOB:d.DOB||s.DOB,
         MemberStatus:d.MemberStatus||'Child', CompanyName:cfg.InsuranceCompanyName||(cfg.Insurance&&cfg.Insurance.CompanyName)||'', PolicyNo:cfg.InsurancePolicyNo||'' };
-      if(existing){ Object.assign(existing, d, base, {UpdatedBy:by.name||by.id, UpdatedDate:todayLocal()}); logAct('updateInsurance',p.studentId,(s.NameTH||p.studentId),by); return {ok:true, updated:true, record:existing}; }
+      if(existing){ Object.assign(existing, d, base, {UpdatedBy:by.name||by.id, UpdatedDate:todayLocal()});
+        if(!p.adminEdit) M.feed.unshift({id:'INS-U'+M.insurancePCHI.length,text:'🛡️ ผู้ปกครองแก้ไขข้อมูลประกัน: '+(s.NameTH||p.studentId),textEN:'🛡️ Insurance form edited: '+(s.NameEN||p.studentId),time:timeLocal(),roles:['Admin'],read:false,studentId:p.studentId});
+        logAct('updateInsurance',p.studentId,(s.NameTH||p.studentId),by); return {ok:true, updated:true, record:existing}; }
       const rec=Object.assign({InsuranceID:nextSeqId_(M.insurancePCHI,'InsuranceID','INS',3)}, d, base,
         {FilledBy:by.name||by.id, FilledByRole:by.role||'Parent', FilledDate:todayLocal()});
       M.insurancePCHI.push(rec);
