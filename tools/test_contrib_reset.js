@@ -266,6 +266,32 @@ console.log('\n7) the screen makes the second press a different press');
   ok_('...and the already-sent slips are called out in red', /มีสลิปที่ส่งให้พนักงานไปแล้ว/.test(app)
     && /สลิปที่คำนวณใหม่จะไม่ตรงกับกระดาษที่ส่งให้คุณครูไปแล้ว/.test(app));
   ok_('...and the backup is promised in writing', /หากสำรองไม่สำเร็จ จะไม่มีการแก้ไขใดๆ เลย/.test(app));
+
+  /* A RECEIPT, NOT A WIRE FORMAT. The success screen used to print the handler's reply through
+   * JSON.stringify — {"main":"1DvvGQKG-s7Fz…","hr":"1Jixqy…"} — at an admin who had just confirmed
+   * something irreversible. Asked 2026-08-29: "ภาษาต่อจากนั้นคืออะไร?". They are the Drive ids of
+   * the two backup copies: true, and useless, because nobody can do anything with an id.
+   * The same wire-format-on-a-screen mistake as the ISO timestamps on the insurance form. */
+  ok_('the backup line is not a JSON dump any more', !/JSON\.stringify\(r\.backup/.test(app));
+  ok_('...it is a sentence', /function backupLine\(b\)\{/.test(app)
+    && /สำรองข้อมูลทั้ง 2 ไฟล์ไว้แล้วก่อนแก้ไข/.test(app));
+  /* A BACKUP IS ONLY REASSURING IF YOU CAN OPEN IT, so the ids become links rather than text. */
+  ok_('...with the copies as links', /https:\/\/drive\.google\.com\/file\/d\/\$\{esc\(String\(id\)\)\}\/view/.test(app));
+  {
+    const src = /function backupLine\(b\)\{([\s\S]*?)\n  \}/.exec(app);
+    ok_('the helper parses', !!src);
+    const backupLine = new Function('b', 'esc', 'EN', src[1]);
+    const E = s => String(s), en = () => false;
+    const both = backupLine({ main: 'AAA', hr: 'BBB' }, E, en);
+    ok_('two copies give two links', (both.match(/drive\.google\.com/g) || []).length === 2
+      && both.indexOf('AAA') > 0 && both.indexOf('BBB') > 0);
+    /* A reply shape without ids (an older deploy, or a backup helper that returned nothing) must
+     * leave the sentence standing rather than printing an empty bracket after it. */
+    const none = backupLine({}, E, en);
+    ok_('no ids still reads as a sentence', /สำรองข้อมูลทั้ง 2 ไฟล์/.test(none) && none.indexOf('drive.google.com') < 0);
+    ok_('...and so does nothing at all', /สำรองข้อมูลทั้ง 2 ไฟล์/.test(backupLine(null, E, en)));
+    ok_('one id gives one link', (backupLine({ main: 'AAA' }, E, en).match(/drive\.google\.com/g) || []).length === 1);
+  }
 }
 
 console.log('\n' + (fail ? 'FAILED ' : 'PASSED ') + pass + ' passed, ' + fail + ' failed\n');
