@@ -231,7 +231,36 @@ console.log('\n7) the screen makes the second press a different press');
   ok_('the button says which of the two it will do before it is pressed', /window\.CR_openHint=\(\)=>/.test(app));
   /* THE CONFIRMATION IS THE NAME, not the word "yes": somebody typing "ครูจอย" cannot be halfway
    * through resetting a different teacher by accident. */
-  ok_('the name has to be typed', /if\(typed!==String\(name\)\.trim\(\)\)\{ toast/.test(app));
+  /* THE CONFIRMATION MUST NOT FAIL INVISIBLY.
+   *
+   * Reported 2026-08-29: "กดบันทึกไม่ได้", with a screenshot showing the name typed correctly and the
+   * button doing nothing. The stored name carried a DOUBLE SPACE — invisible on screen — and the
+   * first version compared the two strings exactly, so a correctly-typed name was rejected with only
+   * a toast that said "type it correctly". Reproduced in a browser before it was changed.
+   *
+   * Two names that LOOK the same now ARE the same, and the button says whether it is armed.
+   */
+  ok_('the name still has to be typed', /crNameKey\(inp\.value\)!==crNameKey\(inp\.dataset\.name\)/.test(app));
+  ok_('...but invisible whitespace cannot make it fail', /const crNameKey = s => String\(s==null\?'':s\)\.replace\(\/\\s\+\/g,' '\)\.trim\(\)\.toLowerCase\(\);/.test(app));
+  ok_('...and the button is visibly locked until it matches', /<button class="btn block pink" id="crGo" disabled/.test(app));
+  ok_('...saying which of the three states it is in', /✓ ชื่อตรงแล้ว/.test(app) && /✗ ชื่อยังไม่ตรง/.test(app)
+    && /พิมพ์ชื่อด้านบนให้ตรงเพื่อปลดล็อกปุ่ม/.test(app));
+  ok_('...checked as you type', /oninput="CR_checkName\(\)"/.test(app) && /window\.CR_checkName=\(\)=>/.test(app));
+  // behaviour, run rather than read: the comparison itself
+  {
+    const src = /const crNameKey = (s => [^;]+);/.exec(app);
+    const crNameKey = eval('(' + src[1] + ')');
+    const same = (a, b) => crNameKey(a) === crNameKey(b);
+    ok_('a double space in the stored name still matches', same('อารียา  จิตร์สุวรรณ', 'อารียา จิตร์สุวรรณ'));
+    ok_('...a tab too', same('อารียา\tจิตร์สุวรรณ', 'อารียา จิตร์สุวรรณ'));
+    ok_('...and leading or trailing space', same('  อารียา จิตร์สุวรรณ ', 'อารียา จิตร์สุวรรณ'));
+    ok_('...and a difference of case in a Latin name', same('Kru Joy', 'kru joy'));
+    /* AND IT STILL REFUSES A DIFFERENT PERSON, which is the whole point of asking. */
+    ok_('a different teacher does NOT match', !same('อารียา จิตร์สุวรรณ', 'ปริณดา สว่างจิต'));
+    ok_('...nor half the name', !same('อารียา จิตร์สุวรรณ', 'อารียา'));
+    ok_('...nor an empty box', !same('อารียา จิตร์สุวรรณ', ''));
+  }
+  ok_('the button is targeted by id, not by "the last pink one"', /const b=document\.getElementById\('crGo'\); if\(!b\) return;/.test(app));
   ok_('the reset does not reuse the broom, which already means a meeting day', !/♻️[sS]{0,4000}🧹/.test(app));
   ok_('the month-by-month table is shown before it', /EN\(\)\?'Net after':'สุทธิใหม่'/.test(app));
   ok_('...and the already-sent slips are called out in red', /มีสลิปที่ส่งให้พนักงานไปแล้ว/.test(app)
