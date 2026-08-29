@@ -44,6 +44,8 @@ var COLLECTION_MAP = {
   activityLog:     { wb: 'MAIN', sheet: 'ACTIVITY_LOG' },
   foodMenus:       { wb: 'MAIN', sheet: 'FOOD_MENU' },
   foodItems:       { wb: 'MAIN', sheet: 'FOOD_ITEMS' },
+  // a teacher lent to another class for a few days — read, never a permanent reassignment
+  classCover:      { wb: 'MAIN', sheet: 'CLASS_COVER' },
   surveys:         { wb: 'MAIN', sheet: 'SURVEYS' },
   surveyResponses: { wb: 'MAIN', sheet: 'SURVEY_RESPONSES' },
   staff:           { wb: 'HR',   sheet: 'STAFF' },
@@ -274,6 +276,10 @@ var COLLECTION_HEADERS_ = {
    * Under any other name the base64 would go straight into the cell, and a real photo is far past
    * the 50,000-character limit — setValues throws and the save "does nothing". */
   FOOD_ITEMS:       ['ItemID', 'NameTH', 'NameEN', 'Category', 'Active', 'CreatedBy', 'CreatedAt', 'Photo'],
+  /* Temporary class cover. From/To are the whole mechanism: reading them is what makes a row stop
+   * applying, so there is no trigger to schedule and nothing for anybody to remember to undo the
+   * next morning — see coveredClasses_ in the engine. */
+  CLASS_COVER:      ['CoverID', 'StaffID', 'ClassName', 'From', 'To', 'Reason', 'AddedBy', 'AddedAt'],
   SURVEYS:          ['SurveyID', 'Title', 'Description', 'Type', 'Options', 'Questions', 'Scope', 'Target',
                      'StartDate', 'EndDate', 'Status', 'Anonymous', 'CreatedBy', 'CreatedAt'],
   SURVEY_RESPONSES: ['ResponseID', 'SurveyID', 'StudentID', 'ParentID', 'Rating', 'Choice', 'Comment', 'Answers', 'SubmittedAt']

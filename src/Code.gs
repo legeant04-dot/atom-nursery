@@ -462,6 +462,10 @@ var WRITES_ACTIONS_ = { recordCashPayment: 1, teacherStudentLeave: 1, unlockJour
   // which is anchored — treats them as reads. That means no write lock on the server and no cache
   // clear on the client, so a family would delete a leave and go on being shown it.
   parentEditLeave: 1, parentCancelLeave: 1,
+  // Lending a teacher to another class for a few days. Neither name starts with a mutating verb —
+  // "class…" is not in MUTATING_RE — so both would run without the write lock and leave the caller
+  // looking at their own stale copy of the cover list.
+  classCoverAdd: 1, classCoverRemove: 1,
 
   adminResetPassword: 1, adminUpdateOT: 1, adminCancelOT: 1, adminRestoreOT: 1,
   adminAddOT: 1, adminAddHolidayOT: 1, adminEditOT: 1, adminDeleteOT: 1, decideClassChange: 1, reinstallTriggers: 1,

@@ -154,7 +154,7 @@ console.log('\n=== 4. the admin sees it where the school was told to put it ==='
 ok_('the alerts are fetched on ดำเนินการ → นักเรียน', /api\('studentAlerts',\{staffId:USER\.staffId,role:USER\.role\}\)/.test(app));
 ok_('🎂 is drawn ON the calendar day', /bdayByDay\[dd\]/.test(app) && /🎂 \$\{bd\.length===1/.test(app));
 ok_('…and the legend says what it means', /🎂 วันเกิด/.test(app));
-ok_('a birthday summary sits under the calendar', /<div id="bdayCard">/.test(app) && /function birthdayCard\(al\)/.test(app));
+ok_('a birthday summary sits under the calendar', /<div id="bdayCard">/.test(app) && /function birthdayCard\(al, opts\)/.test(app));
 ok_('…and the DSPM list under that', /<div id="dspmDueCard">/.test(app) && /function dspmDueCard\(al\)/.test(app));
 ok_('the birthdays follow the calendar arrows', /window\.CAL_birthdays=async\(\)=>/.test(app) && /if\(document\.getElementById\('bdayCard'\)\) CAL_birthdays\(\)/.test(app));
 ok_('…without refetching a month it already has', /if\(window\._SALERTS && window\._SALERTS\.month===month\)/.test(app));
@@ -165,15 +165,39 @@ ok_('a day that has passed is faded rather than removed', /past\?' style="opacit
 console.log('\n=== 5. the teacher sees it after the name ===');
 ok_('the class screen fetches the alerts', /api\('studentAlerts',\{staffId:USER\.staffId,role:USER\.role\}\)\.catch\(\(\)=>null\)/.test(app));
 ok_('…keyed by student for the row renderers', /function setAlerts\(al\)/.test(app) && /const dspmDueOf = sid => DSPM_DUE\[sid\]/.test(app));
+/* The child's BIRTHDAY now sits between the name and the DSPM badge (2026-08-29) — the teacher
+ * screens showed an age, which answers a different question from the one a teacher planning a party
+ * or working out who moves up a class is asking. */
 ok_('the badge sits right after the child’s name on the class screen',
-  /<b>\$\{esc\(dispNick\(s\)\)\}<\/b> \$\{due\?dspmDueBadge\(due\):''\}/.test(app));
-ok_('…and on the home list too', /<b>\$\{esc\(dispNick\(s\)\)\}<\/b> \$\{dueA\?dspmDueBadge\(dueA\):''\}/.test(app));
+  /<b>\$\{esc\(dispNick\(s\)\)\}<\/b>\$\{bdayTag\(s\.DOB\)\} \$\{due\?dspmDueBadge\(due\):''\}/.test(app));
+ok_('…and on the home list too', /<b>\$\{esc\(dispNick\(s\)\)\}<\/b>\$\{bdayTag\(s\.DOB\)\} \$\{dueA\?dspmDueBadge\(dueA\):''\}/.test(app));
+ok_('the birthday is a DATE, not the age that was already there', /function bdayTag\(dob\)/.test(app)
+  && /ddmmyyyy\(d\)\.slice\(0,5\)/.test(app));
+ok_('…and the day itself is marked', /isToday\?'🎉':'🎂'/.test(app));
 ok_('the badge names the band, not just "due"', /📝 \$\{esc\(k\.band\)\} \$\{EN\(\)\?'mo':'เดือน'\}/.test(app));
 ok_('…and shows progress once some items are answered', /\$\{k\.done\?` · \$\{k\.done\}\/\$\{k\.total\}`:''\}/.test(app));
-ok_('the teacher gets the birthday card too', (app.match(/\$\{birthdayCard\(al\)\}/g) || []).length === 2);
-ok_('an empty list draws nothing at all',
-  /const list=\(al&&al\.birthdays\)\|\|\[\]; if\(!list\.length\) return '';/.test(app) &&
+/* THE TEACHER'S TWO COPIES NOW CARRY ARROWS. Asked 2026-08-29: "แถบนักเรียนที่เกิดเดือนนี้ สามารถ
+ * เลือกดูเดือนก่อนหน้าหรือล่วงหน้าได้" — a birthday needs planning, and one that was last week is
+ * still worth having noticed. The ADMIN copy keeps following the calendar's own arrows instead, so
+ * there is one set of month controls on that screen rather than two that can disagree. */
+// twice at render (home + class screen) and once more inside T_bdayNav, which redraws the same slot
+eq('the teacher gets the birthday card, with its own month arrows',
+  (app.match(/\$\{birthdayCard\(al,\{nav:true\}\)\}/g) || []).length, 2);
+ok_('…in a slot it can redraw on its own', (app.match(/<div id="tbday">/g) || []).length === 2
+  && /setHTML\('#tbday', birthdayCard\(al,\{nav:true\}\)\)/.test(app));
+ok_('…moving by a month OFFSET, so "this month" cannot drift', /let T_BDAY_OFF = 0;/.test(app)
+  && /T_BDAY_OFF = d===0 \? 0 : T_BDAY_OFF \+ d;/.test(app));
+ok_('…and asking the server for that month, not filtering a stale one',
+  /api\('studentAlerts',\{staffId:USER\.staffId,role:USER\.role,month\}\)/.test(app));
+ok_('the admin copy still follows the calendar — no arrows of its own to disagree with it',
+  /<div id="bdayCard">\$\{birthdayCard\(window\._SALERTS\)\}<\/div>/.test(app)
+  && /setHTML\('#bdayCard', birthdayCard\(window\._SALERTS\)\)/.test(app));
+/* An empty month must still draw the CARD when it has arrows — otherwise pressing ▶ onto a quiet
+ * month makes the whole thing vanish, arrows included, with no way back. Without them, nothing. */
+ok_('an empty list draws nothing at all — unless that would hide the arrows',
+  /if\(!list\.length && !opts\.nav\) return '';/.test(app) &&
   /const list=\(al&&al\.dspmDue\)\|\|\[\]; if\(!list\.length\) return '';/.test(app));
+ok_('…and an empty month says so rather than looking broken', /เดือนนี้ไม่มีนักเรียนเกิด/.test(app));
 
 console.log('\n=== 6. nothing else moved ===');
 {
