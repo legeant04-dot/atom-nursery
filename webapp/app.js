@@ -112,7 +112,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.299'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.300'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -7563,7 +7563,10 @@
     const sid=(m.querySelector('#crStaff')||{}).value; if(!sid) return;
     if(btn)btn.disabled=true;
     try{ const r=await api('contributionReset',{staffId:sid,adminId:USER.staffId});
-      const rows=(r.months||[]).map(x=>`<tr><td>${esc(monthNameYear(x.month))}${String(x.slipSent).toUpperCase()==='YES'?' <small class="muted">📤</small>':''}</td>
+      const dups=r.duplicateMonths||[];
+      const rows=(r.months||[]).map(x=>`<tr${dups.indexOf(x.month)>=0?' style="background:var(--warn-bg)"':''}>
+        <td>${esc(monthNameYear(x.month))}${String(x.slipSent).toUpperCase()==='YES'?' <small class="muted">📤</small>':''}
+          <br><small class="muted">${esc(x.payrollId||'')}${x.gross?` · ${EN()?'gross':'รวมรับ'} ${baht(x.gross)}`:''}</small></td>
         <td style="text-align:right">${baht(x.contribution)}<br><small class="muted">+${baht(x.contributionEmployer)}</small></td>
         <td style="text-align:right">${baht(x.netPay)}</td>
         <td style="text-align:right;color:var(--warn)"><b>${baht(x.newNetPay)}</b>${x.netPayChange?`<br><small>+${baht(x.netPayChange)}</small>`:''}</td></tr>`).join('');
@@ -7574,7 +7577,15 @@
           <div class="spread"><span>${EN()?'Accumulated total':'ยอดสะสมรวม'}</span><b>${baht(r.before.accum)}</b></div>
           <div class="spread"><span>${EN()?'Payslip months on file':'สลิปที่บันทึกไว้'}</span><b>${r.before.payrollRows}</b></div>
           <div class="spread"><span>${EN()?'Deducted from staff / matched by school':'หักพนักงาน / โรงเรียนสมทบ'}</span><b>${baht(r.before.sumEmployee)} / ${baht(r.before.sumEmployer)}</b></div>
-          <div class="spread" style="border-top:1px solid var(--line);margin-top:6px;padding-top:6px"><span><b>${EN()?'After the reset':'หลังล้าง'}</b></span><b style="color:var(--ok)">0</b></div></div>
+          ${/* DOES THE STORED TOTAL AGREE WITH THE ROWS IT IS MADE OF? On the live data it did not:
+               35,800 stored against 400 in the payslips. That gap is a real balance somebody is owed
+               that the sheet cannot derive — and the reason "just recompute it" would lose it. */''}
+          ${Math.abs(r.before.unexplained||0)>0.5?`<div class="spread" style="border-top:1px solid var(--line);margin-top:6px;padding-top:6px">
+            <span style="color:var(--bad)">${EN()?'Cannot be derived from the payslips':'ยอดที่คำนวณจากสลิปไม่ได้'}</span>
+            <b style="color:var(--bad)">${baht(r.before.unexplained)}</b></div>
+            <small class="muted">${EN()
+              ? `Rebuilt from the rows above the total would be ${baht(r.before.derivedAccum)}. The difference was typed straight in and only the school knows what it should be — put it in the box below.`
+              : `ถ้าคำนวณจากสลิปด้านบนจะได้ ${baht(r.before.derivedAccum)} · ส่วนต่างนี้ถูกใส่ไว้โดยตรง มีแต่โรงเรียนที่รู้ว่ายอดจริงเท่าไร — กรอกในช่องด้านล่าง`}</small>`:''}</div>
         ${r.before.payrollRows?`<table style="width:100%;font-size:13px;border-collapse:collapse">
           <thead><tr><th style="text-align:left">${EN()?'Month':'เดือน'}</th><th style="text-align:right">${EN()?'Fund':'เงินสมทบ'}</th><th style="text-align:right">${EN()?'Net now':'สุทธิเดิม'}</th><th style="text-align:right">${EN()?'Net after':'สุทธิใหม่'}</th></tr></thead>
           <tbody>${rows}</tbody></table>`:''}
@@ -7585,20 +7596,37 @@
           <br><small>${EN()
             ? 'เงินสมทบ is a deduction, so removing it RAISES the net pay on those months. The recalculated slip will no longer match the paper copy the teacher was given.'
             : 'เงินสมทบเป็นรายการหัก · เมื่อล้างออก ยอดสุทธิของเดือนนั้นจะเพิ่มขึ้น และสลิปที่คำนวณใหม่จะไม่ตรงกับกระดาษที่ส่งให้คุณครูไปแล้ว'}</small></div>`:''}
+        ${/* MORE THAN ONE PAYSLIP FOR THE SAME MONTH is a data problem in its own right, and this is
+             the one screen where somebody is already looking at every row for this person. Reported,
+             never merged: deleting a payslip is not this tool's job and not a decision to automate. */''}
+        ${dups.length?`<div class="card" style="background:var(--warn-bg);border-color:var(--warn-line);padding:10px;margin-top:8px">
+          <b>⚠️ ${EN()?'More than one payslip for the same month':'มีสลิปซ้ำเดือนเดียวกัน'}: ${esc(dups.map(monthNameYear).join(', '))}</b>
+          <br><small>${EN()
+            ? 'Highlighted above. This tool does not delete payslips — check them in the payroll screen before running this month’s payroll, or the month is counted twice in the school’s expenses.'
+            : 'ไฮไลต์ไว้ในตารางด้านบน · เครื่องมือนี้ไม่ลบสลิปให้ · กรุณาตรวจในหน้าเงินเดือนก่อนทำเงินเดือนเดือนนี้ มิฉะนั้นรายจ่ายของโรงเรียนจะถูกนับซ้ำ'}</small></div>`:''}
         <div class="card" style="background:var(--warn-bg);border-color:var(--warn-line);padding:10px">
           <small>💾 ${EN()?'A full backup of both workbooks is taken before anything is written. If the backup fails, nothing changes.'
             :'ระบบจะสำรองข้อมูลทั้ง 2 ไฟล์ก่อนเขียนทับ · หากสำรองไม่สำเร็จ จะไม่มีการแก้ไขใดๆ เลย'}</small></div>
+        ${/* ZERO IS THE DEFAULT, NOT THE ONLY ANSWER. The live preview is what proved this was
+             needed: a stored total of 35,800 against 400 in the payslips is a real balance the
+             school knows and the sheet cannot derive, and wiping it to nothing would throw it away. */''}
+        <label class="field"><span>💰 ${EN()?'Carried-over balance to start from (blank = 0)':'ยอดเงินสมทบสะสมยกมา — เริ่มนับใหม่จากยอดนี้ (เว้นว่าง = 0)'}</span>
+          <input id="crOpening" type="number" min="0" step="0.01" placeholder="0" oninput="CR_openHint()"/></label>
+        <small class="muted" id="crOpenHint" style="display:block;margin:-2px 0 8px">${EN()
+          ? 'Every stored monthly contribution goes to zero either way. This is the figure the running total starts again from, ready for this month’s payroll.'
+          : 'เงินสมทบรายเดือนที่บันทึกไว้จะถูกล้างเป็น 0 ทุกกรณี · ช่องนี้คือยอดตั้งต้นที่จะเริ่มนับสะสมใหม่ พร้อมสำหรับทำเงินเดือนเดือนนี้'}</small>
         ${/* The confirmation is the NAME, not the word "yes": a person typing "ครูจอย" cannot be
              halfway through resetting somebody else by accident. */''}
         <label class="field"><span>${EN()?'Type the name to confirm':'พิมพ์ชื่อเพื่อยืนยัน'}: <b>${esc(r.name)}</b></span><input id="crConfirm" autocomplete="off"/></label>
-        <button class="btn block pink" onclick="A_contribResetApply(this,'${esc(sid)}','${esc(r.name)}')">♻️ ${EN()?'Reset to zero':'ล้างเป็น 0'}</button>
+        <button class="btn block pink" onclick="A_contribResetApply(this,'${esc(sid)}','${esc(r.name)}')">♻️ ${EN()?'Clear and start from this figure':'ล้างและเริ่มนับใหม่'}</button>
         <button class="btn outline block" style="margin-top:8px" onclick="this.closest('.modal').remove()">${esc(t('c.close'))}</button></div>`;
     }catch(e){err(e); if(btn)btn.disabled=false;} };
   window.A_contribResetApply=async(btn,sid,name)=>{ const m=btn.closest('.modal');
     const typed=String((m.querySelector('#crConfirm')||{}).value||'').trim();
     if(typed!==String(name).trim()){ toast(EN()?'Type the name exactly to confirm':'กรุณาพิมพ์ชื่อให้ตรงเพื่อยืนยัน'); return; }
+    const opening=String((m.querySelector('#crOpening')||{}).value||'').trim();
     if(btn){ btn.disabled=true; btn.textContent='⏳ '+(EN()?'Backing up…':'กำลังสำรองข้อมูล…'); }
-    try{ const r=await api('contributionReset',{staffId:sid,confirm:true,adminId:USER.staffId});
+    try{ const r=await api('contributionReset',{staffId:sid,confirm:true,newOpening:opening,adminId:USER.staffId});
       m.remove();
       modal(`<h3>✅ ${esc(r.name)}</h3>
         <div class="card" style="background:var(--ok-bg);border-color:var(--ok-line);padding:10px">
@@ -7607,7 +7635,12 @@
           <div class="spread"><span>${EN()?'Monthly contributions cleared':'ล้างเงินสมทบรายเดือน'}</span><b>${r.before.payrollRows} ${EN()?'months':'เดือน'}</b></div></div>
         <small class="muted">💾 ${EN()?'Backup taken before the change':'สำรองข้อมูลก่อนแก้ไขเรียบร้อย'} · ${esc(JSON.stringify(r.backup||{}))}</small>
         <button class="btn outline block" style="margin-top:8px" onclick="this.closest('.modal').remove()">${esc(t('c.close'))}</button>`);
-    }catch(e){ err(e); if(btn){ btn.disabled=false; btn.textContent='♻️ '+(EN()?'Reset to zero':'ล้างเป็น 0'); } } };
+    }catch(e){ err(e); if(btn){ btn.disabled=false; btn.textContent='♻️ '+(EN()?'Clear and start from this figure':'ล้างและเริ่มนับใหม่'); } } };
+  // the button label has to say which of the two it is about to do, before it is pressed
+  window.CR_openHint=()=>{ const v=Number((document.getElementById('crOpening')||{}).value||0);
+    const b=[...document.querySelectorAll('.modal .btn.pink')].pop(); if(!b) return;
+    b.textContent = (v>0 ? '♻️ '+(EN()?`Clear and start from ${baht(v)}`:`ล้างและเริ่มนับใหม่จาก ${baht(v)}`)
+                         : '♻️ '+(EN()?'Clear to zero':'ล้างเป็น 0')); };
 
   // ---- "is slip verification actually working?" ------------------------------------------------
   // A slip marked ⚠ is SlipOK's VERDICT, not a broken connection — it read the slip (that is where the
