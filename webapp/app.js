@@ -112,7 +112,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.304'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.305'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -7725,6 +7725,31 @@
    * there to stop the WRONG PERSON being reset, and none of those differences change who it is.
    */
   const crNameKey = s => String(s==null?'':s).replace(/\s+/g,' ').trim().toLowerCase();
+  /**
+   * "แต่ภาษาต่อจากนั้นคืออะไร?" — asked 2026-08-29, about this:
+   *
+   *   💾 สำรองข้อมูลก่อนแก้ไขเรียบร้อย · {"main":"1DvvGQKG-s7Fz…","hr":"1JixqyB1sl-J3VV…"}
+   *
+   * A raw JSON.stringify of the handler's reply, printed at an admin who had just been asked to
+   * confirm something irreversible. Those are the Drive file ids of the two backup copies — true,
+   * and useless: nobody can do anything with an id, and a wall of characters after "backup taken"
+   * reads like an error rather than a receipt. The same wire-format-on-a-screen mistake as the ISO
+   * timestamps on the insurance form.
+   *
+   * A backup is only reassuring if you can OPEN it, so the ids become links. If a copy has no id
+   * (an older reply shape), the sentence stands on its own rather than printing an empty bracket.
+   */
+  function backupLine(b){
+    b=b||{};
+    const link=(id,label)=> id
+      ? `<a href="https://drive.google.com/file/d/${esc(String(id))}/view" target="_blank" rel="noopener">${esc(label)}</a>`
+      : '';
+    const parts=[link(b.main, EN()?'main workbook':'ไฟล์หลัก'), link(b.hr, EN()?'HR workbook':'ไฟล์บุคลากร')].filter(Boolean);
+    return `<small class="muted" style="display:block;margin-top:6px">💾 ${EN()
+      ? 'A backup of both workbooks was taken before this change.'
+      : 'สำรองข้อมูลทั้ง 2 ไฟล์ไว้แล้วก่อนแก้ไข'}${
+      parts.length?` · ${EN()?'open':'เปิดดู'}: ${parts.join(' · ')}`:''}</small>`;
+  }
   window.CR_checkName=()=>{
     const inp=document.getElementById('crConfirm'), go=document.getElementById('crGo'), hint=document.getElementById('crNameHint');
     if(!inp||!go) return;
@@ -7752,7 +7777,7 @@
           <div class="spread"><span>${EN()?'Opening balance':'ยอดยกมา'}</span><b>${baht(r.after.opening)}</b></div>
           <div class="spread"><span>${EN()?'Accumulated total':'ยอดสะสมรวม'}</span><b>${baht(r.after.accum)}</b></div>
           <div class="spread"><span>${EN()?'Monthly contributions cleared':'ล้างเงินสมทบรายเดือน'}</span><b>${r.before.payrollRows} ${EN()?'months':'เดือน'}</b></div></div>
-        <small class="muted">💾 ${EN()?'Backup taken before the change':'สำรองข้อมูลก่อนแก้ไขเรียบร้อย'} · ${esc(JSON.stringify(r.backup||{}))}</small>
+        ${backupLine(r.backup)}
         <button class="btn outline block" style="margin-top:8px" onclick="this.closest('.modal').remove()">${esc(t('c.close'))}</button>`);
     }catch(e){ err(e); if(btn){ btn.disabled=false; btn.textContent='♻️ '+(EN()?'Clear and start from this figure':'ล้างและเริ่มนับใหม่'); } } };
   /* ---- more than one payslip for one person in one month --------------------------------------
