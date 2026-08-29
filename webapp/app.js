@@ -112,7 +112,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.303'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.304'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -7699,15 +7699,50 @@
         <small class="muted" id="crOpenHint" style="display:block;margin:-2px 0 8px">${EN()
           ? 'Every stored monthly contribution goes to zero either way. This is the figure the running total starts again from, ready for this month’s payroll.'
           : 'เงินสมทบรายเดือนที่บันทึกไว้จะถูกล้างเป็น 0 ทุกกรณี · ช่องนี้คือยอดตั้งต้นที่จะเริ่มนับสะสมใหม่ พร้อมสำหรับทำเงินเดือนเดือนนี้'}</small>
-        ${/* The confirmation is the NAME, not the word "yes": a person typing "ครูจอย" cannot be
-             halfway through resetting somebody else by accident. */''}
-        <label class="field"><span>${EN()?'Type the name to confirm':'พิมพ์ชื่อเพื่อยืนยัน'}: <b>${esc(r.name)}</b></span><input id="crConfirm" autocomplete="off"/></label>
-        <button class="btn block pink" onclick="A_contribResetApply(this,'${esc(sid)}','${esc(r.name)}')">♻️ ${EN()?'Clear and start from this figure':'ล้างและเริ่มนับใหม่'}</button>
+        ${/* The confirmation is the NAME, not the word "yes": a person typing "อารียา จิตร์สุวรรณ"
+             cannot be halfway through resetting somebody else by accident.
+             IT SAYS WHETHER IT MATCHES, AS YOU TYPE. The first version compared the two strings
+             exactly and did nothing but show a toast when they differed — and on live data the
+             stored name had a DOUBLE SPACE in it, which looks identical on screen. The admin typed
+             the name correctly, pressed the button, and nothing happened (reported 2026-08-29).
+             Two names that LOOK the same now ARE the same (crNameKey), and the button says out loud
+             whether it is armed, so "it will not press" can never be a mystery again. */''}
+        <label class="field"><span>${EN()?'Type the name to confirm':'พิมพ์ชื่อเพื่อยืนยัน'}: <b>${esc(r.name)}</b></span>
+          <input id="crConfirm" autocomplete="off" data-name="${esc(r.name)}" oninput="CR_checkName()"/></label>
+        <small id="crNameHint" class="muted" style="display:block;margin:-2px 0 8px">${EN()
+          ? 'Type the name above to unlock the button.'
+          : 'พิมพ์ชื่อด้านบนให้ตรงเพื่อปลดล็อกปุ่ม'}</small>
+        <button class="btn block pink" id="crGo" disabled style="opacity:.5" onclick="A_contribResetApply(this,'${esc(sid)}')">♻️ ${EN()?'Clear and start from this figure':'ล้างและเริ่มนับใหม่'}</button>
         <button class="btn outline block" style="margin-top:8px" onclick="this.closest('.modal').remove()">${esc(t('c.close'))}</button></div>`;
     }catch(e){err(e); if(btn)btn.disabled=false;} };
-  window.A_contribResetApply=async(btn,sid,name)=>{ const m=btn.closest('.modal');
-    const typed=String((m.querySelector('#crConfirm')||{}).value||'').trim();
-    if(typed!==String(name).trim()){ toast(EN()?'Type the name exactly to confirm':'กรุณาพิมพ์ชื่อให้ตรงเพื่อยืนยัน'); return; }
+  /**
+   * TWO NAMES THAT LOOK THE SAME ARE THE SAME.
+   *
+   * A name out of a spreadsheet can carry a double space, a tab, or a non-breaking space, and none
+   * of them are visible. Comparing raw strings made a correctly-typed name fail with no explanation
+   * (reported 2026-08-29: "กดบันทึกไม่ได้", with a screenshot of the name typed correctly).
+   * Runs of whitespace collapse to one, ends are trimmed, and case is ignored — a confirmation is
+   * there to stop the WRONG PERSON being reset, and none of those differences change who it is.
+   */
+  const crNameKey = s => String(s==null?'':s).replace(/\s+/g,' ').trim().toLowerCase();
+  window.CR_checkName=()=>{
+    const inp=document.getElementById('crConfirm'), go=document.getElementById('crGo'), hint=document.getElementById('crNameHint');
+    if(!inp||!go) return;
+    const want=crNameKey(inp.dataset.name), got=crNameKey(inp.value);
+    const ok=!!got && got===want;
+    go.disabled=!ok; go.style.opacity=ok?'':'.5';
+    if(hint){ hint.textContent = ok ? (EN()?'✓ Name matches — the button is ready.':'✓ ชื่อตรงแล้ว — กดปุ่มได้')
+      : got ? (EN()?'✗ Not the same name yet.':'✗ ชื่อยังไม่ตรง')
+      : (EN()?'Type the name above to unlock the button.':'พิมพ์ชื่อด้านบนให้ตรงเพื่อปลดล็อกปุ่ม');
+      hint.style.color = ok ? 'var(--ok)' : (got ? 'var(--bad)' : ''); }
+  };
+  window.A_contribResetApply=async(btn,sid)=>{ const m=btn.closest('.modal');
+    const inp=m.querySelector('#crConfirm');
+    // checked again here, not only by the disabled button — a disabled attribute is a UI state, and
+    // this is the last gate before somebody's pay history is rewritten
+    if(!inp || crNameKey(inp.value)!==crNameKey(inp.dataset.name)){
+      toast(EN()?'Type the name exactly to confirm':'กรุณาพิมพ์ชื่อให้ตรงเพื่อยืนยัน'); return; }
+    const name=String(inp.dataset.name||'');
     const opening=String((m.querySelector('#crOpening')||{}).value||'').trim();
     if(btn){ btn.disabled=true; btn.textContent='⏳ '+(EN()?'Backing up…':'กำลังสำรองข้อมูล…'); }
     try{ const r=await api('contributionReset',{staffId:sid,confirm:true,newOpening:opening,adminId:USER.staffId});
@@ -7792,7 +7827,8 @@
     }catch(e){ err(e); if(btn)btn.disabled=false; } };
   // the button label has to say which of the two it is about to do, before it is pressed
   window.CR_openHint=()=>{ const v=Number((document.getElementById('crOpening')||{}).value||0);
-    const b=[...document.querySelectorAll('.modal .btn.pink')].pop(); if(!b) return;
+    // by ID, not "the last pink button in the modal" — that was only true while there was exactly one
+    const b=document.getElementById('crGo'); if(!b) return;
     b.textContent = (v>0 ? '♻️ '+(EN()?`Clear and start from ${baht(v)}`:`ล้างและเริ่มนับใหม่จาก ${baht(v)}`)
                          : '♻️ '+(EN()?'Clear to zero':'ล้างเป็น 0')); };
 
