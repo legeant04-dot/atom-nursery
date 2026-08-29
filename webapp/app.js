@@ -112,7 +112,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.302'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.303'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -4870,10 +4870,17 @@
       <button class="btn-ghost block" style="margin-top:4px" onclick="T_forgotPw()">❓ ${EN()?'Forgot password':'ลืมรหัสผ่าน'}</button></div>`; return; }
     const month=monthStr();
     const p_ot=api('myOT',{staffId:USER.staffId}).catch(()=>[]);   // travels with the payslip fetch
+    /* WHICH MONTHS ACTUALLY HAVE A SLIP. Asked 2026-08-29: a teacher needs old slips for a loan or
+     * an account, and the screen offered a bare month picker — every month since the dawn of time,
+     * almost all of them empty, with no way to tell which existed without opening them one at a
+     * time. Same tick as the fetch above, so the list costs no round trip. */
+    const p_months=api('myPayslipMonths',{staffId:USER.staffId}).catch(()=>null);
     const pay=await T_slipFor(month);
+    const mo=await p_months;
     app.innerHTML=`<h2 class="page">${esc(t('title.slip'))}</h2>
       <div class="seg"><span class="muted" style="align-self:center">งวด:</span><input type="month" id="slipMonth" value="${month}" style="width:auto" onchange="T_slipMonth(this.value)"/>
       <button class="btn sm outline" onclick="SLIP_LOCK()">🔒 ล็อก</button></div>
+      ${T_slipMonthList(mo, month)}
       <div id="slipBox">${payslipCard(pay,month)}</div>
       <button class="btn outline block" onclick="T_slipDownload()">⬇️ ${esc(t('lbl.downloadSlip'))}</button>
       <details class="card" style="margin-top:10px" open><summary style="cursor:pointer;font-weight:700">${esc(t('ot.myOT'))}</summary>
@@ -4980,12 +4987,50 @@
    * their own salary must never be answered with a blank screen, and "no slip yet" is a normal state,
    * not an error (the server answers it with null).
    */
+  /**
+   * LOOKING AT A MONTH MUST NOT CREATE ONE.
+   *
+   * This asked computePayroll for the REAL thing when a month had no saved slip — and computePayroll
+   * PERSISTS. So a teacher flipping back through months to find a slip for the bank was writing a
+   * payroll row for herself on every empty month, and before the ym7_ month-lookup fix each visit
+   * APPENDED ANOTHER. That is where ครูจอย's four rows for กรกฎาคม came from.
+   *
+   * `preview:true` returns the same figures and writes nothing. The server forces it for a non-admin
+   * caller as well (handleComputePayroll), so this is the polite half of a rule that is enforced.
+   *
+   * The result carries `Preview` when it is not a saved slip — the card says so, because "your pay
+   * for June" that the school has not issued is an estimate, not a document to take to a bank.
+   */
   async function T_slipFor(m){
     let pay=null;
     try{ pay=await api('getPayslip',{staffId:USER.staffId,month:m}); }catch(e){}
-    if(!pay){ try{ pay=await api('computePayroll',{staffId:USER.staffId,month:m}); }catch(e){} }
+    if(!pay){ try{ pay=await api('computePayroll',{staffId:USER.staffId,month:m,preview:true}); }catch(e){} }
     return pay;
   }
+  /**
+   * The months the school has actually issued, as buttons — newest first.
+   *
+   * A teacher taking a slip to a bank needs to find last November, and a month picker gives no clue
+   * which months exist. The ones that were PAID or SENT are marked, because those are the ones that
+   * are a document rather than an estimate.
+   * The free month picker stays above it: this is a shortcut to the real ones, not a fence.
+   */
+  function T_slipMonthList(mo, current){
+    const list=(mo&&mo.months)||[];
+    if(!list.length) return '';
+    const show=list.slice(0,18);   // a year and a half of buttons is already more than anyone scrolls
+    return `<details class="card" style="padding:10px"${list.length<=6?' open':''}>
+      <summary style="cursor:pointer;font-weight:700">📄 ${EN()?'My payslips':'สลิปของฉัน'}
+        <span class="muted" style="font-weight:400">· ${list.length} ${EN()?'months':'เดือน'}</span></summary>
+      <div class="row" style="gap:6px;margin-top:8px">${show.map(x=>`
+        <button class="btn sm ${x.month===current?'':'outline'}" onclick="T_slipPick('${esc(x.month)}')" style="flex:0 0 auto">
+          ${esc(monthNameYear(x.month))}${x.paidDate?' ✅':(x.slipSent?' 📤':'')}</button>`).join('')}</div>
+      ${list.length>show.length?`<small class="muted" style="display:block;margin-top:6px">${EN()
+        ? `…and ${list.length-show.length} older — use the month box above.`
+        : `…และอีก ${list.length-show.length} เดือนก่อนหน้า · เลือกจากช่องเดือนด้านบนได้`}</small>`:''}
+      <small class="muted" style="display:block;margin-top:6px">✅ ${EN()?'paid':'จ่ายแล้ว'} · 📤 ${EN()?'slip sent':'ส่งสลิปแล้ว'}</small></details>`;
+  }
+  window.T_slipPick=async(m)=>{ const box=document.getElementById('slipMonth'); if(box) box.value=m; await T_slipMonth(m); };
   window.T_slipMonth=async(m)=>{ setHTML('#slipBox', payslipCard(await T_slipFor(m), m)); };
   window.T_slipDownload=async(m)=>{ m=m||($('#slipMonth')&&$('#slipMonth').value)||monthStr();
     const pay=await T_slipFor(m);
@@ -5024,6 +5069,14 @@
      * put "2026-08-01T04:00:00.000Z" at the top of a payslip. monthNameYear takes either shape and
      * says สิงหาคม 2569 — this is the heading of a document about somebody's pay. */
     return `<div class="card"><h3>สลิป ${esc(staffName(r.StaffID))} · ${esc(monthNameYear(r.Month))}</h3>
+    ${/* AN ESTIMATE IS NOT A DOCUMENT. When a month has no saved slip the screen falls back to a
+         PREVIEW computation (T_slipFor) — the same figures the school would get, but not ones the
+         school has issued. A teacher taking this to a bank or a loan office has to know which of the
+         two they are holding, and until now the two looked identical. */''}
+    ${r.Preview?`<div style="background:var(--warn-bg);border:1px solid var(--warn-line);border-radius:8px;padding:6px 9px;margin-bottom:6px;color:var(--warn-ink);font-size:13px">
+      ⚠️ <b>${EN()?'Estimate — not an issued payslip':'ตัวเลขประมาณการ — ยังไม่ใช่สลิปที่โรงเรียนออกให้'}</b>
+      <br><small>${EN()?'The school has not run payroll for this month yet. The figures can still change, and this should not be used for a bank or a loan.'
+        :'โรงเรียนยังไม่ได้คำนวณเงินเดือนเดือนนี้ · ตัวเลขอาจเปลี่ยนได้ และยังใช้ยื่นธนาคารหรือทำธุรกรรมไม่ได้'}</small></div>`:''}
     ${r.LeaveExceeds?`<div style="background:var(--warn-bg);border:1px solid var(--warn-line);border-radius:8px;padding:6px 9px;margin-bottom:6px;color:var(--warn);font-size:13px">⚠️ ลาเกิน ${r.LeaveLimit||3} วัน (ลารวม ${r.LeaveDays} วัน) — ไม่คำนวณเรทจำนวนเด็ก</div>`:''}
     <table style="width:100%;font-size:14px;border-collapse:collapse">
     <tr><td>เงินเดือน</td><td style="text-align:right">${baht(r.BaseSalary)}</td></tr>

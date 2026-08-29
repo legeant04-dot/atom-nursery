@@ -468,7 +468,64 @@ function handleGetPayslip(payload) {
 }
 
 /** Route: compute payroll then return it. */
-function handleComputePayroll(payload) { return computePayroll(payload); }
+/**
+ * SAVING A PAYROLL ROW IS THE ADMIN'S. LOOKING AT ONE IS NOT.
+ *
+ * Found 2026-08-29 while working out where ครูจอย's four July rows came from. The teacher's own
+ * payslip screen falls back to computePayroll when a month has no saved slip — and it asked for the
+ * REAL thing, not a preview. computePayroll PERSISTS. So a teacher flipping back through months to
+ * find a slip for the bank was writing a payroll row for herself on every month that did not have
+ * one, and before ym7_ fixed the month lookup each visit APPENDED ANOTHER.
+ *
+ * That is a permissions hole and a money bug at the same time: rows nobody approved, counted in the
+ * school's salary expense, computed from whatever defaults happened to apply.
+ *
+ * The client now asks for a preview, and this makes that unnecessary to trust: applyIdentity_ stamps
+ * `role` onto every non-admin session and never onto an admin's, so a role that is present and is
+ * not Admin is conclusive — those callers get a preview whatever they sent. Nothing is taken away
+ * from the teacher: preview returns exactly the same figures, it just does not write them down.
+ */
+function handleComputePayroll(payload) {
+  payload = payload || {};
+  if (payload.role && payload.role !== 'Admin') payload.preview = true;
+  return computePayroll(payload);
+}
+
+/**
+ * THE MONTHS THIS PERSON ACTUALLY HAS A PAYSLIP FOR.
+ *
+ * Asked 2026-08-29: a teacher needs old slips for a loan or an account, and the screen offered a
+ * bare month picker — every month since the dawn of time, most of them empty, with no way to know
+ * which ones exist without trying them one at a time. (And "trying" is what was writing the rows
+ * above.) A list of the real ones is both the answer and the thing that stops the guessing.
+ *
+ * Read-only, and scoped to the caller: applyIdentity_ forces staffId to the signed-in teacher, so
+ * this cannot be used to read somebody else's pay history.
+ */
+function handleMyPayslipMonths(p) {
+  p = p || {};
+  var staffId = String(p.staffId || '').trim();
+  if (!staffId) throw apiError_('BAD_INPUT', 'ต้องระบุ StaffID');
+  var seen = {};
+  readObjects_(sheet_(getHrSpreadsheet_(), 'PAYROLL')).forEach(function (r) {
+    if (String(r.StaffID) !== staffId) return;
+    var m = ym7_(r.Month); if (!m) return;
+    /* One entry per MONTH, not per row. A duplicate month (see handlePayrollDuplicates) must not
+     * appear twice in a teacher's own list — and the one worth showing them is the one that was
+     * paid or sent, which is the same order of evidence the duplicate finder uses. */
+    var cand = { month: m, netPay: num_(r.NetPay),
+      slipSent: String(r.SlipSent || '').toUpperCase() === 'YES',
+      paidDate: r.PaidDate ? payDate_(r.PaidDate) : '' };
+    var cur = seen[m];
+    if (!cur) { seen[m] = cand; return; }
+    var better = (!!cand.paidDate && !cur.paidDate) ||
+                 (!!cand.paidDate === !!cur.paidDate && cand.slipSent && !cur.slipSent) ||
+                 (!!cand.paidDate === !!cur.paidDate && cand.slipSent === cur.slipSent && cand.netPay > cur.netPay);
+    if (better) seen[m] = cand;
+  });
+  var months = Object.keys(seen).sort().reverse().map(function (m) { return seen[m]; });
+  return { staffId: staffId, count: months.length, months: months };
+}
 
 /**
  * Rebuild every staff member's accumulated เงินสมทบ from source:
