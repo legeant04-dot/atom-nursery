@@ -118,6 +118,21 @@ module.exports = function (files, srcDir) {
     getFileById: id => drive.files[id] || dFile('wb_' + id, null),
     getRootFolder: () => dFolder('root')
   };
+  /* Session was not stubbed at all, and that was quietly hiding a whole code path.
+   *
+   * ym7_ — the helper every month comparison in payroll goes through — starts with
+   *   if (v instanceof Date) { try { return Utilities.formatDate(v, Session.getScriptTimeZone(), 'yyyy-MM'); } catch (e) {} }
+   * A missing Session threw inside that try, the catch swallowed it, and every test that handed a
+   * Date to ym7_ was silently exercising the STRING fallback instead of the branch that exists for
+   * exactly that case. The tests passed and proved nothing about it.
+   *
+   * Asia/Bangkok because that is what the live script is set to; the timezone is the point.
+   */
+  g.Session = {
+    getScriptTimeZone: () => 'Asia/Bangkok',
+    getActiveUser: () => ({ getEmail: () => '' }),
+    getEffectiveUser: () => ({ getEmail: () => '' })
+  };
   g.Utilities = {
     getUuid: () => crypto.randomUUID(),
     DigestAlgorithm: { SHA_256: 1 }, Charset: { UTF_8: 1 },
