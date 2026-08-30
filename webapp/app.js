@@ -112,7 +112,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.308'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.309'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -7971,14 +7971,50 @@
     IDENTICAL:    ()=>EN()?'⚠️ the rows are identical — either will do, keep one':'⚠️ ใบเหมือนกันทุกอย่าง — เก็บใบไหนก็ได้ 1 ใบ',
     ALL_EMPTY:    ()=>EN()?'⚠️ none of them has any pay in it':'⚠️ ทุกใบไม่มียอดเงินเลย'
   };
+  /* A CLEAN RESULT IS STILL A RESULT, AND IT HAS TO LOOK LIKE ONE.
+   *
+   * Reported 2026-08-30: "กดตรวจหาสลิปเงินเดือนซ้ำ ไม่ขึ้น มีแค่ข้อความบอกว่าสำเร็จ แต่ไม่มีข้อมูลอะไร
+   * ขึ้นมาเลย". This used to fire a toast — "ไม่พบสลิปซ้ำ" — and open nothing, which is exactly what
+   * a tool that silently failed would also do. The admin had been told days earlier that ครูจอย had
+   * four rows for July, so "nothing found" was the one answer they had reason to distrust, and the
+   * screen gave them no way to check.
+   *
+   * It now always opens, and always shows what the server actually read: rows, people, month range,
+   * and anything it had to skip. "Read 96 rows for 10 people, July 2026 – August 2026, none
+   * duplicated" is an answer somebody can act on. A toast is not. */
   window.A_payrollDups=async(btn)=>{ if(btn)btn.disabled=true;
     try{ const r=await api('payrollDuplicates',{},{fresh:true});
-      if(!r||!r.count){ toast(EN()?'No duplicate payslips found':'ไม่พบสลิปซ้ำ'); return; }
+      const s=(r&&r.scanned)||{};
+      const skipped=Number(s.skippedNoStaff||0)+Number(s.skippedNoMonth||0);
+      const scanBox=`<div class="card" style="padding:8px;background:var(--surface-2)">
+        <b style="font-size:13px">🗂️ ${EN()?'What was checked':'ตรวจจากข้อมูลอะไรบ้าง'}</b>
+        <div class="spread" style="font-size:13px;margin-top:4px"><span class="muted">${EN()?'Payslip rows read':'จำนวนสลิปที่อ่าน'}</span><b>${Number(s.rows||0)}</b></div>
+        <div class="spread" style="font-size:13px"><span class="muted">${EN()?'Staff':'พนักงาน'}</span><b>${Number(s.staff||0)} ${EN()?'people':'คน'}</b></div>
+        <div class="spread" style="font-size:13px"><span class="muted">${EN()?'Months covered':'ช่วงเดือน'}</span><b>${s.from?`${esc(monthNameYear(s.from))} – ${esc(monthNameYear(s.to))}`:'-'}</b></div>
+        ${skipped?`<div class="spread" style="font-size:13px;color:var(--warn)"><span>⚠️ ${EN()?'Rows the finder could not place':'แถวที่ระบุไม่ได้'}</span><b>${skipped}</b></div>
+          <small class="muted">${EN()?'A row with no staff id or no month cannot be compared with anything — check those in the sheet.'
+            :'แถวที่ไม่มีรหัสพนักงานหรือไม่มีเดือน เทียบกับใบอื่นไม่ได้ · ตรวจในชีตโดยตรง'}</small>`:''}
+        ${(s.perStaff&&s.perStaff.length)?`<details style="margin-top:6px"><summary style="cursor:pointer;font-size:13px;color:var(--blue)">${EN()?'Per person':'ดูรายคน'}</summary>
+          <table style="width:100%;border-collapse:collapse;font-size:13px;margin-top:4px">
+          ${s.perStaff.map(x=>`<tr><td style="padding:2px 4px">${x.dupMonths.length?'⚠️ ':''}${esc(x.nick||x.name||x.staffId)}</td>
+            <td style="padding:2px 4px;text-align:right;white-space:nowrap">${x.rows} ${EN()?'slips':'ใบ'} · ${x.months} ${EN()?'months':'เดือน'}</td></tr>
+            ${x.dupMonths.length?`<tr><td colspan="2" style="padding:0 4px 4px;color:var(--warn);font-size:12px">${EN()?'more than one slip in':'มีมากกว่า 1 ใบในเดือน'} ${x.dupMonths.map(m=>esc(monthNameYear(m))).join(', ')}</td></tr>`:''}`).join('')}
+          </table></details>`:''}</div>`;
+      if(!r||!r.count){
+        toast(EN()?'No duplicate payslips found':'ไม่พบสลิปซ้ำ');
+        modal(`<h3>🔎 ${EN()?'Duplicate payslips':'สลิปเงินเดือนซ้ำ'} <span class="pill ok">${EN()?'none':'ไม่พบ'}</span></h3>
+          <p style="font-size:13px">✅ ${EN()?'Every staff member has at most one payslip per month.'
+            :'พนักงานทุกคนมีสลิปเดือนละไม่เกิน 1 ใบ — ไม่มีใบซ้ำ'}</p>
+          ${scanBox}
+          <p class="muted" style="font-size:12px">${EN()?'If you expected a duplicate here, check the numbers above — a row with no staff id or no month is not compared.'
+            :'ถ้าคิดว่าน่าจะมีใบซ้ำ ให้ดูตัวเลขด้านบนก่อน · แถวที่ไม่มีรหัสพนักงานหรือไม่มีเดือนจะไม่ถูกนำมาเทียบ'}</p>
+          <button class="btn outline block" style="margin-top:8px" onclick="this.closest('.modal').remove()">${esc(t('c.close'))}</button>`);
+        return; }
       modal(`<h3>🔎 ${EN()?'Duplicate payslips':'สลิปเงินเดือนซ้ำ'} <span class="pill bad">${r.count}</span></h3>
         <p class="muted" style="font-size:13px">${EN()
           ? 'One person, one month, more than one payslip. Some totals use whichever row is first in the sheet; others add them all together. Nothing is deleted until you choose.'
           : 'พนักงาน 1 คน เดือนเดียวกัน มีสลิปมากกว่า 1 ใบ · บางยอดใช้ใบแรกที่เจอในชีต บางยอดบวกทุกใบรวมกัน · จะยังไม่ลบอะไรจนกว่าคุณจะเลือกเอง'}</p>
-        <div style="max-height:64vh;overflow:auto">${r.groups.map(g=>A_dupGroup(g)).join('')}</div>
+        <div style="max-height:56vh;overflow:auto">${r.groups.map(g=>A_dupGroup(g)).join('')}${scanBox}</div>
         <button class="btn outline block" style="margin-top:8px" onclick="this.closest('.modal').remove()">${esc(t('c.close'))}</button>`);
     }catch(e){err(e);}finally{ if(btn)btn.disabled=false; } };
   function A_dupGroup(g){
