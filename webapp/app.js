@@ -112,7 +112,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.306'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.307'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -6035,11 +6035,23 @@
    * existing rule, and this screen reports it rather than quietly changing what people are paid. */
   window.A_childDetail=()=>{ const r=window._RATED||{}; const list=r.students||[];
     const th=+(($('#pThreshold')||{}).value)||31;
-    const row=s=>`<tr style="${s.rated?'':'background:var(--warn-bg)'}">
-      <td style="padding:4px 6px">${s.rated?'✅':'⛔'} <b>${esc(s.nick||s.name||s.studentId)}</b>${s.nick&&s.name?`<br><small class="muted">${esc(s.name)}</small>`:''}</td>
+    /* NUMBERED — asked for straight after the list appeared, and it is the point of the screen.
+     * The rule is "เด็กคนที่ ${th} เป็นต้นไป", so the only number that means anything is the child's
+     * position IN THE COUNTED SEQUENCE. Numbering all 34 rows 1–34 would look tidy and answer the
+     * wrong question the moment one child is excluded, because the row numbers and the counting
+     * would drift apart by one from there down.
+     *
+     * So: counted children are numbered 1, 2, 3 …; an excluded one takes no number (—) and does not
+     * advance the count. The ones at or past the threshold are marked 💰 — those are the children
+     * actually earning the teacher the rate, which is the figure in the field below. */
+    let seq=0;
+    const row=s=>{ const n=s.rated?++seq:0; const earns=n && n>=th;
+      return `<tr style="${s.rated?(earns?'background:var(--blue-bg)':''):'background:var(--warn-bg)'}">
+      <td style="padding:4px 6px;text-align:right;white-space:nowrap"${n?'':' class="muted"'}>${n?`<b>${n}.</b>`:'—'}</td>
+      <td style="padding:4px 6px">${s.rated?(earns?'💰':'✅'):'⛔'} <b>${esc(s.nick||s.name||s.studentId)}</b>${s.nick&&s.name?`<br><small class="muted">${esc(s.name)}</small>`:''}</td>
       <td style="padding:4px 6px;font-size:13px" class="muted">${esc(s.class||'-')}</td>
       <td style="padding:4px 6px;text-align:center">${s.absent||0}</td>
-      <td style="padding:4px 6px;text-align:center" class="muted">${s.leave||0}</td></tr>`;
+      <td style="padding:4px 6px;text-align:center" class="muted">${s.leave||0}</td></tr>`; };
     modal(`<h3>🧒 ${EN()?'Children counted for the child-rate':'เด็กที่ระบบนับสำหรับเรทจำนวนเด็ก'}</h3>
       <p class="muted" style="font-size:13px;margin-top:0">${esc(monthNameYear(r.month||monthStr()))} · ${EN()
         ?`A child absent ${r.excludeDays||6} days or more in this month is not counted.`
@@ -6053,13 +6065,15 @@
         :`คิดเรทตั้งแต่เด็กคนที่ ${th} เป็นต้นไป → <b>${Math.max(0,(r.rated||0)-(th-1))} คน</b> ที่ได้เรท`}</p>
       <div style="max-height:46vh;overflow:auto"><table style="width:100%;border-collapse:collapse;font-size:14px">
         <thead><tr style="position:sticky;top:0;background:var(--surface)">
+          <th style="text-align:right;padding:4px 6px">${EN()?'#':'ลำดับ'}</th>
           <th style="text-align:left;padding:4px 6px">${EN()?'Child':'ชื่อเล่น'}</th>
           <th style="text-align:left;padding:4px 6px">${EN()?'Class':'ห้อง'}</th>
           <th style="padding:4px 6px">${EN()?'Absent':'ขาด'}</th>
           <th style="padding:4px 6px">${EN()?'Leave':'ลา'}</th></tr></thead>
-        <tbody>${list.map(row).join('')||`<tr><td colspan="4" class="muted" style="padding:10px;text-align:center">${EN()?'No active children':'ยังไม่มีเด็กที่กำลังเรียนอยู่'}</td></tr>`}</tbody></table></div>
-      <p class="muted" style="font-size:12px">${EN()?'“Leave” is shown for information — only absences exclude a child.'
-        :'ช่อง “ลา” แสดงไว้เพื่อดูข้อมูลเท่านั้น · เกณฑ์ตัดออกใช้เฉพาะวัน “ขาด”'}</p>`); };
+        <tbody>${list.map(row).join('')||`<tr><td colspan="5" class="muted" style="padding:10px;text-align:center">${EN()?'No active children':'ยังไม่มีเด็กที่กำลังเรียนอยู่'}</td></tr>`}</tbody></table></div>
+      <p class="muted" style="font-size:12px">${EN()
+        ?`Numbered in counting order — an excluded child takes no number. 💰 marks a child from #${th} onward, the ones the rate is paid for. “Leave” is shown for information only; absences are what exclude a child.`
+        :`ลำดับนับเฉพาะเด็กที่นับเรทได้ · เด็กที่ไม่นับจะไม่กินลำดับ · 💰 คือเด็กตั้งแต่คนที่ ${th} เป็นต้นไป ซึ่งเป็นคนที่คิดเรทได้จริง<br>ช่อง “ลา” แสดงไว้เพื่อดูข้อมูลเท่านั้น · เกณฑ์ตัดออกใช้เฉพาะวัน “ขาด”`}</p>`); };
   /* ===== OT, evening by evening =================================================================
    * Asked 2026-08-30: "มีรายละเอียด OT ของคุณครูแต่ละคนว่ายกมาจากเดือนก่อนหน้าวันไหน และเดือนนี้ OT
    * วันไหนบ้าง". The screen said "อัตโนมัติ 5 ชม. × ฿100" and "ค้างจ่าย มิถุนายน 2569 ฿300", and to
