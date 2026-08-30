@@ -182,6 +182,15 @@ console.log('\n4) the screens that show all this');
   ok_('the child list has a button', /onclick="A_childDetail\(\)"/.test(app));
   ok_('...showing counted and not-counted', /ไม่นับ/.test(app) && /นับเรทได้/.test(app));
   ok_('...with ขาด and ลา in their own columns', />ขาด</.test(app) && /<th[^>]*>\$\{EN\(\)\?'Leave':'ลา'\}/.test(app));
+  /* NUMBERED IN COUNTING ORDER. The rule is "เด็กคนที่ N เป็นต้นไป", so the only number that means
+   * anything is a child's position among the COUNTED ones. Numbering every row 1..34 would look
+   * tidier and answer the wrong question: one excluded child and the row numbers stop agreeing with
+   * the count from there down. An excluded child therefore takes no number and does not advance it. */
+  ok_('the list is numbered', /const n=s\.rated\?\+\+seq:0;/.test(app));
+  ok_('...only the counted children take a number', /\$\{n\?`<b>\$\{n\}\.<\/b>`:'—'\}/.test(app));
+  ok_('...and the ones actually earning the rate are marked', /const earns=n && n>=th;/.test(app) && /earns\?'💰':'✅'/.test(app));
+  ok_('...with the numbering explained under the table', /ลำดับนับเฉพาะเด็กที่นับเรทได้ · เด็กที่ไม่นับจะไม่กินลำดับ/.test(app));
+  ok_('the empty-list row still spans every column', /colspan="5"[^>]*>\$\{EN\(\)\?'No active children'/.test(app));
   ok_('...and says plainly that only ขาด excludes', /เกณฑ์ตัดออกใช้เฉพาะวัน “ขาด”/.test(app));
   ok_('the rate is re-fetched when the month changes',
     /const p_rate = api\('ratedChildCount',\{month:mth\}\)/.test(app));
