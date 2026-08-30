@@ -833,13 +833,16 @@ function handleContributionReset(p) {
 function payDate_(v) {
   if (v === null || v === undefined || v === '') return '';
   if (Object.prototype.toString.call(v) === '[object Date]') return dateStr_(v);
-  var m = /^(d{4}-d{2}-d{2})/.exec(String(v));
+  // \d, not d. These two regexes shipped with their backslashes lost, so they matched the LITERAL
+  // letter d and never a date: payDate_ fell through to String(v) and put a raw
+  // "Sat Aug 01 2026 00:00:00 GMT+0700 (Indochina Time)" on the duplicate-payslip screen.
+  var m = /^(\d{4}-\d{2}-\d{2})/.exec(String(v));
   return m ? m[1] : String(v);
 }
 function payStamp_(v) {
   if (v === null || v === undefined || v === '') return '';
   var d = (Object.prototype.toString.call(v) === '[object Date]') ? v
-        : (/^d{4}-d{2}-d{2}T/.test(String(v)) ? new Date(String(v)) : null);
+        : (/^\d{4}-\d{2}-\d{2}T/.test(String(v)) ? new Date(String(v)) : null);
   if (!d || isNaN(d.getTime())) return String(v);
   return Utilities.formatDate(d, tz_(), 'yyyy-MM-dd HH:mm');
 }
@@ -850,10 +853,30 @@ function handlePayrollDuplicates(p) {
   var staffById = {};
   readObjects_(sheet_(getHrSpreadsheet_(), 'STAFF')).forEach(function (s) { staffById[String(s.StaffID)] = s; });
 
+  /* IT HAS TO SHOW ITS WORKING EVEN WHEN IT FINDS NOTHING.
+   *
+   * Reported 2026-08-30: "กดตรวจหาสลิปเงินเดือนซ้ำ ไม่ขึ้น มีแค่ข้อความบอกว่าสำเร็จ แต่ไม่มีข้อมูล
+   * อะไรขึ้นมาเลย". The tool answered "ไม่พบสลิปซ้ำ" and stopped, which is indistinguishable from
+   * the tool not having run — and the admin had every reason to doubt it, because they had been
+   * told days earlier that ครูจอย had four rows for July.
+   *
+   * A diagnostic that reports a clean result without saying WHAT IT LOOKED AT is not evidence. So
+   * `scanned` comes back either way: how many rows it read, how many it had to skip and why, the
+   * months it covers, and a row count per staff member. If the count is zero and the scan says it
+   * read 96 rows across 10 people, that is an answer. If it says it read 0, that is a different
+   * answer entirely — and the screen can now tell them apart.
+   */
+  var scanRows = 0, skippedNoStaff = 0, skippedNoMonth = 0, perStaff = {}, allMonths = {};
   var byKey = {};
   readObjects_(sheet_(getHrSpreadsheet_(), 'PAYROLL')).forEach(function (r) {
+    scanRows++;
     var sid = String(r.StaffID || ''), m = ym7_(r.Month);
-    if (!sid || !m) return;
+    // counted, not silently dropped: a row the finder cannot place is a row it cannot vouch for
+    if (!sid) { skippedNoStaff++; return; }
+    if (!m) { skippedNoMonth++; return; }
+    allMonths[m] = 1;
+    var ps = perStaff[sid] || (perStaff[sid] = { staffId: sid, rows: 0, months: {} });
+    ps.rows++; ps.months[m] = (ps.months[m] || 0) + 1;
     if (wantStaff && sid !== wantStaff) return;
     if (wantMonth && m !== wantMonth) return;
     var k = sid + '|' + m;
@@ -924,8 +947,23 @@ function handlePayrollDuplicates(p) {
   groups.sort(function (a, b) {
     return String(a.name).localeCompare(String(b.name)) || String(a.month).localeCompare(String(b.month));
   });
+  var months = Object.keys(allMonths).sort();
+  var staffScan = Object.keys(perStaff).map(function (sid) {
+    var ps = perStaff[sid], st = staffById[sid] || {};
+    var ms = Object.keys(ps.months).sort();
+    return { staffId: sid, name: st.Name || st.NameEN || sid, nick: st.Nickname || '',
+      rows: ps.rows, months: ms.length,
+      // a month this person has more than one row for — the same thing `groups` reports, but present
+      // even when a filter narrowed the search, so the summary never contradicts the finding
+      dupMonths: ms.filter(function (m) { return ps.months[m] > 1; }) };
+  }).sort(function (a, b) { return (b.dupMonths.length - a.dupMonths.length) || String(a.name).localeCompare(String(b.name)); });
+
   return { scope: wantStaff ? 'staff' : 'school', staffId: wantStaff, month: wantMonth,
-           groups: groups, count: groups.length };
+           groups: groups, count: groups.length,
+           scanned: { rows: scanRows, staff: staffScan.length, months: months.length,
+                      from: months[0] || '', to: months[months.length - 1] || '',
+                      skippedNoStaff: skippedNoStaff, skippedNoMonth: skippedNoMonth,
+                      perStaff: staffScan } };
 }
 
 /**

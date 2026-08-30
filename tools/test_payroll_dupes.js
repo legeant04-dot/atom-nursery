@@ -72,11 +72,22 @@ const res = JSON.parse(run(function () {
   // ครูBEE — one row only, for the month AND another month. Never reported.
   add({ PayrollID: 'PR-B1', StaffID: 'STF-BEE', GrossIncome: 10000, NetPay: 9500 });
   add({ PayrollID: 'PR-B2', StaffID: 'STF-BEE', Month: '2026-08', GrossIncome: 10000, NetPay: 9500 });
+  // a row the finder CANNOT place. It must be counted and reported, never silently dropped — a row
+  // it skipped is a row it cannot vouch for, and the admin needs to know the scan had a hole in it.
+  add({ PayrollID: 'PR-X1', StaffID: '', GrossIncome: 9000, NetPay: 8500 });
+  add({ PayrollID: 'PR-X2', StaffID: 'STF-GHOST', Month: '', GrossIncome: 9000, NetPay: 8500 });
 
   var o = {};
   o.all = handlePayrollDuplicates({});
   o.oneStaff = handlePayrollDuplicates({ staffId: 'STF-JOY' });
   o.oneMonth = handlePayrollDuplicates({ month: '2026-08' });
+  // NOBODY duplicated: the clean answer, which is the one the screen used to render as a toast
+  o.clean = handlePayrollDuplicates({ staffId: 'STF-BEE' });
+  // the two date helpers, which shipped with the backslashes missing from their regexes
+  o.payDateStr = payDate_('2026-08-05');
+  o.payDateIso = payDate_('2026-08-05T00:00:00.000Z');
+  o.payDateObj = payDate_(new Date(2026, 7, 5));
+  o.payStampIso = payStamp_('2026-08-05T09:30:00.000Z');
   o.rowsBefore = readObjects_(paySh).length;
 
   // deleting: preview, refusal, and the real thing
@@ -168,7 +179,54 @@ console.log('\n5) deleting is a separate, careful step');
   ok_('...and the forced one is marked as such', payGs.indexOf("(forced ? ' FORCED' : '')") > 0);
 }
 
-console.log('\n6) the wiring, and where a person finds it');
+console.log('\n6) a clean result is still a result');
+{
+  /* Reported 2026-08-30: "กดตรวจหาสลิปเงินเดือนซ้ำ ไม่ขึ้น มีแค่ข้อความบอกว่าสำเร็จ แต่ไม่มีข้อมูล
+   * อะไรขึ้นมาเลย". The finder answered with a toast and opened nothing, which looks exactly like a
+   * tool that failed — and the admin had reason to doubt it, having been told days earlier that
+   * ครูจอย had four rows for July. A diagnostic that reports "nothing wrong" without saying WHAT IT
+   * LOOKED AT is not evidence of anything. */
+  eq('nobody duplicated → no groups', res.clean.count, 0);
+  ok_('...but it still says how many rows it read', Number(res.all.scanned.rows) >= 13);
+  // the five teachers. STF-GHOST's only row has no month, so it is skipped before it can be placed
+  // — it shows up in skippedNoMonth below rather than as a sixth person with nothing under them.
+  eq('...how many people', res.all.scanned.staff, 5);
+  eq('...and the months it covers', [res.all.scanned.from, res.all.scanned.to], ['2026-07', '2026-08']);
+  // the scan is reported even when the SEARCH was narrowed, or the summary would contradict itself
+  ok_('a filtered search still reports the whole scan', res.clean.scanned.rows === res.all.scanned.rows);
+  ok_('...and still names the person who does have duplicates',
+    res.clean.scanned.perStaff.some(x => x.nick === 'JOY' && x.dupMonths.indexOf('2026-07') >= 0));
+  eq('a person with one slip a month has no duplicate months',
+    res.all.scanned.perStaff.find(x => x.nick === 'BEE').dupMonths, []);
+  eq('...and their row count is still shown', res.all.scanned.perStaff.find(x => x.nick === 'BEE').rows, 2);
+  /* A ROW IT CANNOT PLACE IS A HOLE IN THE SCAN, not something to drop quietly. */
+  eq('a row with no staff id is counted as skipped', res.all.scanned.skippedNoStaff, 1);
+  eq('...and one with no month too', res.all.scanned.skippedNoMonth, 1);
+  ok_('the screen opens on a clean result instead of firing a toast and nothing else',
+    /🗂️ \$\{EN\(\)\?'What was checked':'ตรวจจากข้อมูลอะไรบ้าง'\}/.test(app)
+    && /พนักงานทุกคนมีสลิปเดือนละไม่เกิน 1 ใบ/.test(app));
+  ok_('...and warns when rows could not be placed', /แถวที่ระบุไม่ได้/.test(app));
+  ok_('the reason is written where the code is', /A CLEAN RESULT IS STILL A RESULT/.test(app));
+}
+
+console.log('\n7) the two date helpers — \\d, not d');
+{
+  /* These shipped with the backslashes lost from BOTH regexes, so they matched the literal letter d
+   * and never a date. payDate_ fell through to String(v), which put a raw
+   * "Sat Aug 01 2026 00:00:00 GMT+0700 (Indochina Time)" on the duplicate screen next to a figure
+   * somebody was paid. Nothing failed loudly; it just printed a machine string at a person. */
+  eq('a plain date passes through', res.payDateStr, '2026-08-05');
+  eq('an ISO stamp is cut to the date', res.payDateIso, '2026-08-05');
+  eq('a real Date object too', res.payDateObj, '2026-08-05');
+  ok_('...none of them leak a raw JS date string', !/GMT|\(.*Time\)/.test(String(res.payDateIso) + res.payDateObj));
+  ok_('a timestamp keeps the time, and is not an ISO string', /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/.test(res.payStampIso));
+  // the source itself, so a future edit through a shell cannot eat them again unnoticed
+  ok_('the regexes have their backslashes', /\/\^\(\\d\{4\}-\\d\{2\}-\\d\{2\}\)\//.test(payGs)
+    && /\/\^\\d\{4\}-\\d\{2\}-\\d\{2\}T\//.test(payGs));
+  ok_('...with a note saying why that matters', /\\d, not d\./.test(payGs));
+}
+
+console.log('\n8) the wiring, and where a person finds it');
 {
   ok_('both routes exist', /payrollDuplicates: function \(p\)/.test(codeGs) && /deletePayrollRow:  function \(p\)/.test(codeGs));
   ok_('...and are admin-only', /payrollDuplicates: 1, deletePayrollRow: 1,/.test(codeGs));
