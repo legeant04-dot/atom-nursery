@@ -51,6 +51,12 @@ const res = JSON.parse(run(function () {
   abs('STU-A', '2026-08-04');                                       // one day — still counted
   appendObject_(lvSh, { LeaveID: 'LVS-1', StudentID: 'STU-A', Date: '2026-08-11', Reason: 'ไปต่างจังหวัด', Status: 'Notified' });
   appendObject_(lvSh, { LeaveID: 'LVS-2', StudentID: 'STU-A', Date: '2026-08-12', Reason: 'ไปต่างจังหวัด', Status: 'Notified' });
+  // ...and a FOURTH child who was away six whole days on ลา alone and never once on ขาด — the live
+  // shape, since nothing in the app writes to ABSENCE_LOG. Before 2026-08-30 this child counted.
+  appendObject_(stuSh, { StudentID: 'STU-D', Name: 'ด.ช. ง ดี', Nickname: 'คินน์', Class: 'Nursery 2',
+    Status: 'ACTIVE', StartDate: '2025-05-01', Plan: 'FULL' });
+  for (var k = 3; k <= 8; k++) appendObject_(lvSh, { LeaveID: 'LVS-D' + k, StudentID: 'STU-D',
+    Date: '2026-08-0' + k, Reason: 'ไปต่างจังหวัด', Status: 'Notified' });
 
   appendObject_(stSh, { StaffID: 'STF-JOY', Name: 'ครูจอย', Nickname: 'จอย', Role: 'Teacher',
     PositionLevel: 'Staff', Status: 'ACTIVE', BaseSalary: 13000, BankAccount: '4271602532' });
@@ -103,22 +109,34 @@ console.log('\n1) the child-rate count — FOR THE MONTH BEING PAID');
    * six days in March excluded her from August — and from every month for the rest of her time at
    * the school. The rate could only ever go down, and nobody could see why. */
   eq('August counts the child who missed March', res.aug.rated, 2);
-  eq('...and excludes only the one who missed THIS month', res.aug.excluded, 1);
-  eq('...by name', res.aug.students.filter(s => !s.rated).map(s => s.nick), ['ต้นกล้า']);
+  eq('...and excludes the two who were away THIS month', res.aug.excluded, 2);
+  eq('...by name', res.aug.students.filter(s => !s.rated).map(s => s.nick).sort(), ['คินน์', 'ต้นกล้า']);
   eq('March, asked about itself, excludes พลอย instead', res.mar.students.filter(s => !s.rated).map(s => s.nick), ['พลอย']);
-  eq('a month with no absences at all counts everyone', [res.sep.rated, res.sep.excluded], [3, 0]);
+  eq('a month with no absences at all counts everyone', [res.sep.rated, res.sep.excluded], [4, 0]);
+
+  /* THE SECOND BUG, which the list is what revealed. The rule only ever looked at ABSENCE_LOG, and
+   * NOTHING in the app writes to ABSENCE_LOG — every day a child is away is filed as ลา. So the
+   * exclusion had never fired once on live data: 34 children, ขาด 0 straight down the column, and
+   * one child with ลา 8 still counted. The school's rule is "เด็กที่มาอยู่เต็มเดือน", so it is
+   * ขาด + ลา that decides (confirmed 2026-08-30). */
+  console.log('   — ...and a day away is a day away, however it was filed');
+  const kin = res.aug.students.find(s => s.nick === 'คินน์');
+  eq('six days of ลา and no ขาด at all — the live shape', [kin.absent, kin.leave], [0, 6]);
+  eq('...adds up to six days away', kin.away, 6);
+  ok_('...which is enough to leave the child out', kin.rated === false);
 
   console.log('   — and the list an admin can check it against');
-  eq('every active child is listed', res.aug.total, 3);
-  eq('the ones NOT counted come first', res.aug.students[0].nick, 'ต้นกล้า');
+  eq('every active child is listed', res.aug.total, 4);
+  ok_('the ones NOT counted come first', !res.aug.students[0].rated && !res.aug.students[1].rated);
   ok_('each row carries the nickname AND the full name', res.aug.students.every(s => s.nick && s.name));
   eq('absences are counted for the month', res.aug.students.find(s => s.nick === 'ต้นกล้า').absent, 6);
   eq('...and an old one no longer follows the child around', res.aug.students.find(s => s.nick === 'พลอย').absent, 0);
-  /* ขาด and ลา are reported SEPARATELY and only ขาด excludes. That is the rule the school already
-   * pays by — showing both is not the same as changing what people are paid. */
-  eq('leave is reported next to it, not added into it',
-    [res.aug.students.find(s => s.nick === 'ใบเตย').absent, res.aug.students.find(s => s.nick === 'ใบเตย').leave], [1, 2]);
-  ok_('...and does not exclude on its own', res.aug.students.find(s => s.nick === 'ใบเตย').rated === true);
+  // the two are still reported separately: a planned trip and a no-show are different things to a
+  // teacher, even when they cost the same
+  const bt = res.aug.students.find(s => s.nick === 'ใบเตย');
+  eq('ขาด and ลา are still shown apart', [bt.absent, bt.leave], [1, 2]);
+  eq('...with the total the rule is applied to alongside them', bt.away, 3);
+  ok_('...and three days away is under the limit, so the child counts', bt.rated === true);
   eq('the month it answered about is stated', res.aug.month, '2026-08');
 }
 
@@ -181,7 +199,12 @@ console.log('\n4) the screens that show all this');
 {
   ok_('the child list has a button', /onclick="A_childDetail\(\)"/.test(app));
   ok_('...showing counted and not-counted', /ไม่นับ/.test(app) && /นับเรทได้/.test(app));
-  ok_('...with ขาด and ลา in their own columns', />ขาด</.test(app) && /<th[^>]*>\$\{EN\(\)\?'Leave':'ลา'\}/.test(app));
+  /* THE NUMBER THE RULE IS APPLIED TO GETS THE COLUMN. ขาด and ลา each had one of their own, which
+   * left the figure that actually decides nowhere on screen — the reader had to add up. */
+  ok_('the deciding total is the column', /<th[^>]*>\$\{EN\(\)\?'Away':'หยุดรวม'\}/.test(app));
+  ok_('...with its two parts underneath it', /\$\{EN\(\)\?'abs':'ขาด'\} \$\{s\.absent\|\|0\} · \$\{EN\(\)\?'lv':'ลา'\} \$\{s\.leave\|\|0\}/.test(app));
+  ok_('...and the heading says what the rule adds up', /หยุดรวม \(ขาด \+ ลา\)/.test(app));
+  ok_('the payroll screen’s own one-line note agrees', /ยกเว้นเด็กที่หยุดรวม \(ขาด\+ลา\) ≥\{n\} วัน/.test(R('webapp/i18n.js')));
   /* NUMBERED IN COUNTING ORDER. The rule is "เด็กคนที่ N เป็นต้นไป", so the only number that means
    * anything is a child's position among the COUNTED ones. Numbering every row 1..34 would look
    * tidier and answer the wrong question: one excluded child and the row numbers stop agreeing with
@@ -190,8 +213,8 @@ console.log('\n4) the screens that show all this');
   ok_('...only the counted children take a number', /\$\{n\?`<b>\$\{n\}\.<\/b>`:'—'\}/.test(app));
   ok_('...and the ones actually earning the rate are marked', /const earns=n && n>=th;/.test(app) && /earns\?'💰':'✅'/.test(app));
   ok_('...with the numbering explained under the table', /ลำดับนับเฉพาะเด็กที่นับเรทได้ · เด็กที่ไม่นับจะไม่กินลำดับ/.test(app));
-  ok_('the empty-list row still spans every column', /colspan="5"[^>]*>\$\{EN\(\)\?'No active children'/.test(app));
-  ok_('...and says plainly that only ขาด excludes', /เกณฑ์ตัดออกใช้เฉพาะวัน “ขาด”/.test(app));
+  ok_('the empty-list row still spans every column', /colspan="4"[^>]*>\$\{EN\(\)\?'No active children'/.test(app));
+  ok_('...and says plainly which number the rule uses', /“หยุดรวม” = ขาด \+ ลา รวมกัน ซึ่งเป็นตัวเลขที่ใช้ตัดสิน/.test(app));
   ok_('the rate is re-fetched when the month changes',
     /const p_rate = api\('ratedChildCount',\{month:mth\}\)/.test(app));
   ok_('...in the SAME tick as the other four, so it is still one request',

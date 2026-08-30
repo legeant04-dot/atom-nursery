@@ -4015,8 +4015,15 @@ function createAtomAPI(M, GROWTH_STD) {
      * nobody can check is a count the school has to take on trust. ~30 children is a few hundred
      * bytes, and sending it with the count costs no extra round trip (which on GAS is ~5s).
      *
-     * ขาด (absence) and ลา (notified leave) are counted SEPARATELY and only ขาด excludes, because
-     * that is the rule the school already pays by. Showing both is not the same as changing it.
+     * WHAT COUNTS AS A DAY AWAY. Until 2026-08-30 only ABSENCE_LOG did. Nothing in the app has ever
+     * WRITTEN to ABSENCE_LOG — every day a child is away is filed as ลา, through studentAbsence or
+     * the parent leave form — so the exclusion had never fired once on live data and every child was
+     * counted every month however little they attended. The list this now returns is what made that
+     * visible: 34 children, ขาด 0 straight down the column, and one child with ลา 8.
+     *
+     * The school's rule is "เด็กที่มาอยู่เต็มเดือน", so ขาด + ลา is the number that decides
+     * (confirmed 2026-08-30). Both are still reported separately: a planned trip and a no-show are
+     * different things to a teacher even when they cost the same.
      */
     ratedChildCount: p => { p=p||{}; const excl=Number(cfg.AbsenceRateExcludeDays||6);
       const mm=String(p.month||todayLocal()).slice(0,7);
@@ -4024,11 +4031,11 @@ function createAtomAPI(M, GROWTH_STD) {
       const abs={}, lv={};
       (M.absenceLog||[]).forEach(a=>{ if(inM(a.Date)) abs[a.StudentID]=(abs[a.StudentID]||0)+1; });
       (M.studentLeaves||[]).forEach(l=>{ if(inM(l.Date)) lv[l.StudentID]=(lv[l.StudentID]||0)+1; });
-      const students=activeStudents().map(s=>{ const a=abs[s.StudentID]||0;
+      const students=activeStudents().map(s=>{ const a=abs[s.StudentID]||0, l=lv[s.StudentID]||0;
         return {studentId:s.StudentID, name:s.NameTH||s.NameEN||'', nick:s.Nickname||s.NicknameEN||'',
-          class:s.Class||'', absent:a, leave:lv[s.StudentID]||0, rated:a<excl}; })
-        // the ones NOT counted first, most days missed first — that is the list an admin came to check
-        .sort((x,y)=> (x.rated!==y.rated) ? (x.rated?1:-1) : (y.absent-x.absent));
+          class:s.Class||'', absent:a, leave:l, away:a+l, rated:(a+l)<excl}; })
+        // the ones NOT counted first, most days away first — that is the list an admin came to check
+        .sort((x,y)=> (x.rated!==y.rated) ? (x.rated?1:-1) : (y.away-x.away));
       const excluded=students.filter(x=>!x.rated).length;
       return {month:mm, total:students.length, excluded, rated:students.length-excluded, excludeDays:excl, students}; },
 

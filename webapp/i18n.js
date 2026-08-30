@@ -149,7 +149,8 @@
     'charge.title':['ค่าใช้จ่ายเพิ่มเติม','Extra charges'], 'charge.note':['รายการนี้จะถูกรวมในบิลรายเดือนของผู้ปกครองอัตโนมัติ','These are auto-merged into the parent monthly bill'], 'charge.label':['รายการ','Item'], 'charge.amount':['จำนวนเงิน','Amount'], 'charge.add':['เพิ่มรายการ','Add item'],
     // absence tracking
     'abs.title':['ติดตามการขาดเรียน','Absence tracking'], 'abs.days':['{n} วัน','{n} days'], 'abs.note':['บันทึกการติดตาม','Follow-up note'],
-    'abs.rated':['เด็กที่นับเรท','Rated children'], 'abs.rateNote':['ยกเว้นเด็กที่ขาด ≥{n} วัน ({x} คน)','excludes children absent ≥{n} days ({x})'],
+    'abs.rated':['เด็กที่นับเรท','Rated children'], // "ขาด" alone was never what excluded a child — see ratedChildCount in engine.js. It is ขาด + ลา.
+    'abs.rateNote':['ยกเว้นเด็กที่หยุดรวม (ขาด+ลา) ≥{n} วัน ({x} คน)','excludes children away (absent+leave) ≥{n} days ({x})'],
     'abs.ge2':['เด็กลา/ขาด ตั้งแต่ 2 วัน','Children absent ≥ 2 days'], 'abs.ge5':['เด็กลา/ขาด ตั้งแต่ 5 วัน (ติดตามใกล้ชิด)','Children absent ≥ 5 days (close follow-up)'],
     'pay.useRated':['ใช้จำนวนที่นับได้','Use rated count'],
     'pay.perStaff':['ตั้งค่าได้รายคน','per-staff'], 'pay.childRate':['เรทจำนวนเด็ก','Child rate'], 'pay.childThreshold':['เริ่มคิดตั้งแต่เด็กคนที่','Counts from child #'],

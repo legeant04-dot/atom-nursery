@@ -112,7 +112,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.307'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.308'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -6050,12 +6050,16 @@
       <td style="padding:4px 6px;text-align:right;white-space:nowrap"${n?'':' class="muted"'}>${n?`<b>${n}.</b>`:'—'}</td>
       <td style="padding:4px 6px">${s.rated?(earns?'💰':'✅'):'⛔'} <b>${esc(s.nick||s.name||s.studentId)}</b>${s.nick&&s.name?`<br><small class="muted">${esc(s.name)}</small>`:''}</td>
       <td style="padding:4px 6px;font-size:13px" class="muted">${esc(s.class||'-')}</td>
-      <td style="padding:4px 6px;text-align:center">${s.absent||0}</td>
-      <td style="padding:4px 6px;text-align:center" class="muted">${s.leave||0}</td></tr>`; };
+      ${/* ONE COLUMN FOR THE NUMBER THAT DECIDES. ขาด and ลา each had a column of their own, which
+           put the figure the rule is applied to nowhere on the screen — the reader had to add up.
+           The total is the column; the two parts sit under it, because a planned trip and a no-show
+           are different things to a teacher even when they cost the same. */''}
+      <td style="padding:4px 6px;text-align:center"><b>${s.away!=null?s.away:(Number(s.absent||0)+Number(s.leave||0))}</b>
+        <br><small class="muted" style="white-space:nowrap">${EN()?'abs':'ขาด'} ${s.absent||0} · ${EN()?'lv':'ลา'} ${s.leave||0}</small></td></tr>`; };
     modal(`<h3>🧒 ${EN()?'Children counted for the child-rate':'เด็กที่ระบบนับสำหรับเรทจำนวนเด็ก'}</h3>
       <p class="muted" style="font-size:13px;margin-top:0">${esc(monthNameYear(r.month||monthStr()))} · ${EN()
-        ?`A child absent ${r.excludeDays||6} days or more in this month is not counted.`
-        :`เด็กที่ <b>ขาด</b> ตั้งแต่ ${r.excludeDays||6} วันขึ้นไปในเดือนนี้ จะไม่ถูกนับ`}</p>
+        ?`A child away (absent + leave) ${r.excludeDays||6} days or more in this month is not counted.`
+        :`เด็กที่ <b>หยุดรวม (ขาด + ลา)</b> ตั้งแต่ ${r.excludeDays||6} วันขึ้นไปในเดือนนี้ จะไม่ถูกนับ`}</p>
       <div class="grid3" style="text-align:center;margin-bottom:8px">
         <div class="card" style="padding:6px;margin:0"><b style="font-size:19px">${r.total||0}</b><br><small class="muted">${EN()?'active':'เด็กทั้งหมด'}</small></div>
         <div class="card" style="padding:6px;margin:0;background:var(--blue-bg)"><b style="font-size:19px;color:var(--blue)">${r.rated||0}</b><br><small class="muted">${EN()?'counted':'นับเรทได้'}</small></div>
@@ -6068,12 +6072,11 @@
           <th style="text-align:right;padding:4px 6px">${EN()?'#':'ลำดับ'}</th>
           <th style="text-align:left;padding:4px 6px">${EN()?'Child':'ชื่อเล่น'}</th>
           <th style="text-align:left;padding:4px 6px">${EN()?'Class':'ห้อง'}</th>
-          <th style="padding:4px 6px">${EN()?'Absent':'ขาด'}</th>
-          <th style="padding:4px 6px">${EN()?'Leave':'ลา'}</th></tr></thead>
-        <tbody>${list.map(row).join('')||`<tr><td colspan="5" class="muted" style="padding:10px;text-align:center">${EN()?'No active children':'ยังไม่มีเด็กที่กำลังเรียนอยู่'}</td></tr>`}</tbody></table></div>
+          <th style="padding:4px 6px">${EN()?'Away':'หยุดรวม'}</th></tr></thead>
+        <tbody>${list.map(row).join('')||`<tr><td colspan="4" class="muted" style="padding:10px;text-align:center">${EN()?'No active children':'ยังไม่มีเด็กที่กำลังเรียนอยู่'}</td></tr>`}</tbody></table></div>
       <p class="muted" style="font-size:12px">${EN()
-        ?`Numbered in counting order — an excluded child takes no number. 💰 marks a child from #${th} onward, the ones the rate is paid for. “Leave” is shown for information only; absences are what exclude a child.`
-        :`ลำดับนับเฉพาะเด็กที่นับเรทได้ · เด็กที่ไม่นับจะไม่กินลำดับ · 💰 คือเด็กตั้งแต่คนที่ ${th} เป็นต้นไป ซึ่งเป็นคนที่คิดเรทได้จริง<br>ช่อง “ลา” แสดงไว้เพื่อดูข้อมูลเท่านั้น · เกณฑ์ตัดออกใช้เฉพาะวัน “ขาด”`}</p>`); };
+        ?`Numbered in counting order — an excluded child takes no number. 💰 marks a child from #${th} onward, the ones the rate is paid for. “Away” is absence + notified leave together, which is what the ${r.excludeDays||6}-day rule is applied to.`
+        :`ลำดับนับเฉพาะเด็กที่นับเรทได้ · เด็กที่ไม่นับจะไม่กินลำดับ · 💰 คือเด็กตั้งแต่คนที่ ${th} เป็นต้นไป ซึ่งเป็นคนที่คิดเรทได้จริง<br>“หยุดรวม” = ขาด + ลา รวมกัน ซึ่งเป็นตัวเลขที่ใช้ตัดสินตามเกณฑ์ ${r.excludeDays||6} วัน`}</p>`); };
   /* ===== OT, evening by evening =================================================================
    * Asked 2026-08-30: "มีรายละเอียด OT ของคุณครูแต่ละคนว่ายกมาจากเดือนก่อนหน้าวันไหน และเดือนนี้ OT
    * วันไหนบ้าง". The screen said "อัตโนมัติ 5 ชม. × ฿100" and "ค้างจ่าย มิถุนายน 2569 ฿300", and to
