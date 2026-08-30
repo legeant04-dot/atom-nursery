@@ -2706,7 +2706,9 @@ function createAtomAPI(M, GROWTH_STD) {
       // child-rate count is AUTO from the DB unless overridden: children from #ChildThreshold onward
       const threshold=p.childThreshold!=null?Number(p.childThreshold):(pc.ChildThreshold||cfg.ExtraChildThreshold||31);
       // leave over the limit → child-rate auto-count drops to 0 (Admin can still type a count to override).
-      const ratedTotal=H.ratedChildCount().rated; const autoChild=leaveExceeds?0:Math.max(0, ratedTotal-(threshold-1));
+      // FOR THE MONTH BEING PAID. ratedChildCount used to ignore the month entirely and count every
+      // absence ever recorded, so an old absence kept a child out of the rate for good.
+      const ratedTotal=H.ratedChildCount({month:p.month}).rated; const autoChild=leaveExceeds?0:Math.max(0, ratedTotal-(threshold-1));
       const childCount=p.extraChildCount!=null?Math.max(0,p.extraChildCount):autoChild;
       const ec=childCount*childMult; const tc=Math.min(cfg.TrainingCertMaxPerMonth,Math.max(0,p.trainingCertCount||0))*cfg.TrainingCertRate;
       // signed adjustment lines (e.g. {label:'มาสาย',amount:-200}). A positive line is income and a
@@ -4004,11 +4006,35 @@ function createAtomAPI(M, GROWTH_STD) {
         .filter(x=>x.count>=min).sort((a,b)=>b.count-a.count); },
     setAbsenceFollowup: p => { let f=M.absenceFollowups.find(x=>x.StudentID===p.studentId);
       if(!f){f={StudentID:p.studentId};M.absenceFollowups.push(f);} f.Note=p.note; f.Status=p.status; f.Date=todayLocal(); return f; },
-    // children counted for the teacher child-rate = active students minus those absent >= AbsenceRateExcludeDays
-    ratedChildCount: () => { const excl=Number(cfg.AbsenceRateExcludeDays||6); const byStu={};
-      M.absenceLog.forEach(a=>{ byStu[a.StudentID]=(byStu[a.StudentID]||0)+1; });
-      const total=activeStudents().length; const excluded=activeStudents().filter(s=>(byStu[s.StudentID]||0)>=excl).length;
-      return {total, excluded, rated:total-excluded, excludeDays:excl}; },
+    /* CHILDREN COUNTED FOR THE TEACHER CHILD-RATE = active students, minus those absent
+     * AbsenceRateExcludeDays or more — i.e. the ones who were not really here for the month.
+     *
+     * IT NEVER LOOKED AT THE MONTH. The old body was `M.absenceLog.forEach(...)` with no filter, so
+     * every absence ever recorded counted for ever: a child who missed six days in March was still
+     * excluded from August's rate, and from every month after that, permanently. The rate could
+     * only go DOWN. Payroll asks about one month at a time, so this now answers about one month.
+     *
+     * It also hands back the LIST, not only the totals — asked 2026-08-30: "จำนวนที่ระบบคิดมาว่าคิด
+     * เรทได้ 4 คน และเด็กที่ยังไม่นับเรทคือใคร". A count that decides part of somebody's pay and that
+     * nobody can check is a count the school has to take on trust. ~30 children is a few hundred
+     * bytes, and sending it with the count costs no extra round trip (which on GAS is ~5s).
+     *
+     * ขาด (absence) and ลา (notified leave) are counted SEPARATELY and only ขาด excludes, because
+     * that is the rule the school already pays by. Showing both is not the same as changing it.
+     */
+    ratedChildCount: p => { p=p||{}; const excl=Number(cfg.AbsenceRateExcludeDays||6);
+      const mm=String(p.month||todayLocal()).slice(0,7);
+      const inM=d=>String(ymd(d)||'').slice(0,7)===mm;
+      const abs={}, lv={};
+      (M.absenceLog||[]).forEach(a=>{ if(inM(a.Date)) abs[a.StudentID]=(abs[a.StudentID]||0)+1; });
+      (M.studentLeaves||[]).forEach(l=>{ if(inM(l.Date)) lv[l.StudentID]=(lv[l.StudentID]||0)+1; });
+      const students=activeStudents().map(s=>{ const a=abs[s.StudentID]||0;
+        return {studentId:s.StudentID, name:s.NameTH||s.NameEN||'', nick:s.Nickname||s.NicknameEN||'',
+          class:s.Class||'', absent:a, leave:lv[s.StudentID]||0, rated:a<excl}; })
+        // the ones NOT counted first, most days missed first — that is the list an admin came to check
+        .sort((x,y)=> (x.rated!==y.rated) ? (x.rated?1:-1) : (y.absent-x.absent));
+      const excluded=students.filter(x=>!x.rated).length;
+      return {month:mm, total:students.length, excluded, rated:students.length-excluded, excludeDays:excl, students}; },
 
     // move a student to another Nursery (class) / a teacher to another department
     moveStudent: p => { const s=studentById(p.studentId); if(!s)fail('NOT_FOUND','ไม่พบนักเรียน'); s.Class=p.toClass; return s; },
@@ -4180,21 +4206,33 @@ function createAtomAPI(M, GROWTH_STD) {
       const hours=recs.reduce((a,r)=>a+(isHol(r)?0:(Number(r.Hours)||0)),0); const amount=recs.reduce((a,r)=>a+(Number(r.Amount)||0),0);
       const holRecs=recs.filter(isHol); const holiday=holRecs.reduce((a,r)=>a+(Number(r.Amount)||0),0);
       const rate=staffOtRate(staffById_(p.staffId));
+      /* WHICH EVENINGS. Asked 2026-08-30: "เดือนนี้ OT วันไหนบ้าง". The payroll screen could say
+       * "อัตโนมัติ 5 ชม. × ฿100" and no more, so an admin checking a teacher's OT against what she
+       * remembered working had to open the sheet. `days` is the count (kept — callers use it);
+       * `entries` is the list. Both ride in the request the screen already makes. */
+      const entries=recs.map(r=>({date:String(r.Date||'').slice(0,10), hours:Number(r.Hours)||0,
+        amount:Math.round(Number(r.Amount)||0), kind:isHol(r)?'HOLIDAY':'DAILY', note:String(r.Note||'')}))
+        .sort((a,b)=>a.date<b.date?-1:(a.date>b.date?1:0));
       return {staffId:p.staffId,month:p.month,hours,rate,amount:Math.round(amount),days:recs.length,
-        holiday:Math.round(holiday),holidayDays:holRecs.length,daily:Math.round(amount-holiday)}; },
+        holiday:Math.round(holiday),holidayDays:holRecs.length,daily:Math.round(amount-holiday),entries}; },
     // OT approved AFTER an earlier month's payroll was already saved, and therefore never paid — e.g. a
     // 31/07 late check-out approved in August once July's salary had gone out. Each earlier month owes
     //   approved(m) − what that month's saved payslip paid − what later payslips already carried
     // so nothing is paid twice and nothing is dropped. A month with NO saved payslip is not carried:
     // its own payroll run pays it normally. Mirrors otCarryOver_ in src/Payroll.gs.
-    otCarryOver: p => { const mm=ym(p.month); const approved={}, approvedHrs={};
+    otCarryOver: p => { const mm=ym(p.month); const approved={}, approvedHrs={}, approvedDays={};
       (M.otRecords||[]).forEach(r=>{ if(r.StaffID!==p.staffId)return;
         const st=String(r.Status||'').toUpperCase(); if(st&&st!=='APPROVED')return;
         // holiday OT is paid on its OWN payslip line, so it must not be counted here against what
         // OTEvening paid — every month would look short-paid and carry the same amount for ever
         if(isHolidayOT_(r))return;
         const m=ym(r.Month||r.Date); if(!m)return; approved[m]=(approved[m]||0)+(Number(r.Amount)||0);
-        approvedHrs[m]=(approvedHrs[m]||0)+(Number(r.Hours)||0); });
+        approvedHrs[m]=(approvedHrs[m]||0)+(Number(r.Hours)||0);
+        // which evenings that month was made of — see otApprovedDaysByMonth_ in src/Payroll.gs for
+        // why these are ALL the month's approved evenings and not "the unpaid ones"
+        (approvedDays[m]=approvedDays[m]||[]).push({date:String(r.Date||'').slice(0,10),
+          hours:Number(r.Hours)||0, amount:Math.round(Number(r.Amount)||0), note:String(r.Note||'')}); });
+      Object.keys(approvedDays).forEach(m=>approvedDays[m].sort((a,b)=>a.date<b.date?-1:(a.date>b.date?1:0)));
       const paidFor={}, carriedFor={};
       (M.payroll||[]).forEach(r=>{ if(r.StaffID!==p.staffId)return; const m=ym(r.Month);
         if(!m||m>=mm)return;                       // this month's own row (and any later one) must not count
@@ -4208,7 +4246,7 @@ function createAtomAPI(M, GROWTH_STD) {
       Object.keys(paidFor).forEach(m=>{ const unpaid=Math.round(((approved[m]||0)-paidFor[m]-(carriedFor[m]||0))*100)/100;
         if(unpaid>0.5){ const share=(approved[m]>0)?(unpaid/approved[m]):0;
           const h=Math.round((approvedHrs[m]||0)*share*100)/100;
-          detail.push({month:m,amount:unpaid,hours:h}); total+=unpaid; hrs+=h; } });
+          detail.push({month:m,amount:unpaid,hours:h,approved:Math.round((approved[m]||0)*100)/100,paid:Math.round((paidFor[m]||0)*100)/100,days:approvedDays[m]||[]}); total+=unpaid; hrs+=h; } });
       detail.sort((a,b)=>a.month<b.month?-1:(a.month>b.month?1:0));
       return {staffId:p.staffId,month:p.month,total:Math.round(total*100)/100,
               hours:Math.round(hrs*100)/100,detail}; },

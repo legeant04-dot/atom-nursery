@@ -112,7 +112,12 @@ eq('August owes it', c.total, 200);
 // v261: ...and HOW MANY HOURS. The carry is paid as an amount, so the slip only ever said baht and
 // a teacher could not check it against the evenings she remembers working. The hours are that
 // amount's share of the month it came from — here, the whole of July's 2 hours.
-eq('and says which month', c.detail, [{ month: '2026-07', amount: 200, hours: 2 }]);
+// 2026-08-30: the entry also carries the month's approved/paid totals and its individual evenings,
+// so the admin can see what the carry is made of. Assert the three fields this test is about rather
+// than the whole object — a deep-equal here fails on anything ADDED, which is not a regression.
+eq('and says which month', c.detail.map(d => ({ month: d.month, amount: d.amount, hours: d.hours })),
+  [{ month: '2026-07', amount: 200, hours: 2 }]);
+eq('...and which evening it was', c.detail[0].days.map(d => d.date), ['2026-07-31']);
 eq('...and the total carries the hours too', c.hours != null ? c.hours : handleOtCarryOver({ staffId: 'STF-006', month: '2026-08' }).hours, 2);
 
 r = computePayroll(basePay({ month: '2026-08', otEvening: 0, baseSalary: 14300 }));

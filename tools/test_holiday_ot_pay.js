@@ -157,9 +157,22 @@ console.log('\n5) it shows on the calendar the Admin actually looks at');
 
 console.log('\n6) the slip itself says "OT วันหยุด"');
 {
-  ok_('on the teacher\'s payslip card', /<tr><td>🎉 OT วันหยุด<\/td>/.test(app));
-  ok_('...only when there is some, so an ordinary slip is unchanged', /\$\{Number\(r\.OTHoliday\|\|0\)\?`<tr><td>🎉 OT วันหยุด/.test(app));
-  ok_('and on the printed A4 slip', /\$\{Number\(p\.OTHoliday\|\|0\)\?'OT วันหยุด':'เงินพิเศษวันพักผ่อน'\}/.test(app));
+  /* These three used to pin the exact markup of the old payslip table — `<tr><td>🎉 OT วันหยุด</td>`
+   * and a ternary that printed EITHER holiday OT or เงินพิเศษวันพักผ่อน in one shared cell. The slip
+   * was itemised on 2026-08-30 and both renderers now read one description (slipBreakdown), so the
+   * markup moved and these failed while the rule they protect had not changed at all.
+   *
+   * The rule: OT วันหยุด is its OWN line, on the screen and on the paper, and only when there is
+   * some. That is asserted here against the source of the line, and executed for real in
+   * tools/test_slip_layout.js — which builds the document and checks the columns add up. */
+  ok_('OT วันหยุด is a line of its own on the slip',
+    /if\(_n\(r\.OTHoliday\)\) income\.push\(\{ label:'OT วันหยุด \(มาทำงานในวันหยุด\)'/.test(app));
+  ok_('...only when there is some, so an ordinary slip is unchanged',
+    /if\(_n\(r\.OTHoliday\)\) income\.push/.test(app));
+  ok_('...and never sharing a cell with เงินพิเศษวันพักผ่อน, which is a different thing',
+    /if\(_n\(r\.HolidayBonus\)\) income\.push\(\{ label:'เงินพิเศษวันพักผ่อน'/.test(app));
+  ok_('the screen and the printed A4 slip both read that one description',
+    /const b=slipBreakdown\(r\);/.test(app) && /const card=p=>\{ const b=slipBreakdown\(p\);/.test(app));
 }
 
 console.log('\n' + (fail ? 'FAILED ' : 'PASSED ') + pass + ' passed, ' + fail + ' failed\n');

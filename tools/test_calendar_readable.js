@@ -153,7 +153,10 @@ console.log('\n5) three zones in a day, so nothing lands on anything else');
 console.log('\n6) the payslip shows its working for ประกันสังคม');
 {
   ok_('there is a working', /function ssWorking\(r\)\{/.test(app));
-  ok_('...printed on the deduction line', /หัก ประกันสังคม\$\{Number\(r\.SocialSecurity\|\|0\)\?/.test(app));
+  // the slip was itemised on 2026-08-30 and both renderers now read one description (slipBreakdown),
+  // so the working moved from the markup into the line's `note`. Same rule, one place.
+  ok_('...attached to the ประกันสังคม line, on the screen and on the paper',
+    /deduct\.push\(\{ label:'ประกันสังคม'[\s\S]{0,120}note:_n\(r\.SocialSecurity\)\?ssWorking\(r\)/.test(app));
   ok_('...from the school’s own rate and cap, not numbers written here',
     /MOCK\.config&&MOCK\.config\.SocialSecurityRate/.test(app) && /MOCK\.config&&MOCK\.config\.SocialSecurityMax/.test(app));
   ok_('...and it says when the CAP is what produced the figure, not the percentage',

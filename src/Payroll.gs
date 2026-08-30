@@ -216,7 +216,13 @@ function computePayroll(payload) {
     DiligenceAttendance: diligenceAttendance, DiligenceFacebook: diligenceFacebook, DiligenceTotal: diligenceTotal,
     ExtraChildCount: extraChildCount, ExtraChildAmount: extraChildAmount,
     TrainingCertCount: trainingCertCount, TrainingCertAmount: trainingCertAmount,
-    OTEvening: otEvening, OTCarry: otCarry, OTCarryDetail: JSON.stringify(otCarryDetail),
+    // the per-evening `days` list is for the SCREEN to show; the row keeps only what the carry-over
+    // arithmetic reads back (month + amount + hours), so this cell cannot grow toward the 50,000-char
+    // limit on a staff member with years of history behind them
+    OTEvening: otEvening, OTCarry: otCarry,
+    OTCarryDetail: JSON.stringify((otCarryDetail || []).map(function (d) {
+      return { month: d.month, amount: d.amount, hours: d.hours };
+    })),
     OTHoliday: otHoliday,
     HolidayBonus: holidayBonus, OtherIncome: otherIncome, GrossIncome: gross,
     SocialSecurity: ss, Contribution: contribution, ContributionEmployer: contributionEmployer,
@@ -358,17 +364,57 @@ function otCarryOver_(staffId, month) {
    * of the month it came from: fully unpaid month → all of its hours; half of it → half. Reported
    * so a teacher can check "OT ยกมา 300 บาท" against the three evenings they remember working. */
   var approvedHrs = otApprovedHoursByMonth_(staffId);
+  var approvedDays = otApprovedDaysByMonth_(staffId);
   var detail = [], total = 0;
   Object.keys(paidFor).forEach(function (m) {
     var unpaid = round2_((approved[m] || 0) - paidFor[m] - (carriedFor[m] || 0));
     if (unpaid > 0.5) {
       var share = (approved[m] > 0) ? (unpaid / approved[m]) : 0;
-      detail.push({ month: m, amount: unpaid, hours: round2_((approvedHrs[m] || 0) * share) });
+      // `days` is EVERY approved evening of that month, not "the unpaid ones" — nothing in the data
+      // says which evenings the shortfall belongs to (see otApprovedDaysByMonth_). `approved` is the
+      // month's full approved total, so the screen can show the shortfall against it honestly.
+      detail.push({ month: m, amount: unpaid, hours: round2_((approvedHrs[m] || 0) * share),
+        approved: round2_(approved[m] || 0), paid: round2_(paidFor[m] || 0), days: approvedDays[m] || [] });
       total = round2_(total + unpaid);
     }
   });
   detail.sort(function (a, b) { return a.month < b.month ? -1 : (a.month > b.month ? 1 : 0); });
   return { total: total, detail: detail };
+}
+
+/**
+ * The individual APPROVED daily-OT ENTRIES per month → { 'YYYY-MM': [{date, hours, amount, note}] }.
+ *
+ * Asked 2026-08-30: "มีรายละเอียด OT ของคุณครูแต่ละคนว่ายกมาจากเดือนก่อนหน้าวันไหน และเดือนนี้ OT
+ * วันไหนบ้าง". The carry-over line said "มิถุนายน 2569 ฿300" and nothing else, so the only way to
+ * check it was to open the sheet.
+ *
+ * A WORD ON WHAT THIS CAN HONESTLY SAY. The carry is an AMOUNT — approved(month) minus what that
+ * month's payslip actually paid — and there is nothing in the data that attributes the shortfall to
+ * particular evenings. So these are every approved evening OF THAT MONTH, presented as what the
+ * month was made of, and the screen says so. Guessing which three evenings went unpaid would look
+ * more precise and be less true.
+ */
+function otApprovedDaysByMonth_(staffId) {
+  var rate = num_(getConfig_('OTEveningRate', '0'));
+  var out = {};
+  readObjects_(sheet_(getHrSpreadsheet_(), 'OT_RECORDS')).forEach(function (r) {
+    if (String(r.StaffID) !== String(staffId)) return;
+    var st = String(r.Status || '').toUpperCase();
+    if (st && st !== 'APPROVED') return;
+    if (otIsHoliday_(r)) return;
+    var m = ym7_(r.Month) || monthOf_(r.Date);
+    if (!m) return;
+    (out[m] = out[m] || []).push({
+      date: dateStr_(new Date(r.Date)), hours: num_(r.Hours),
+      amount: (r.Amount !== '' && r.Amount != null) ? num_(r.Amount) : round2_(num_(r.Hours) * rate),
+      note: String(r.Note || '')
+    });
+  });
+  Object.keys(out).forEach(function (m) {
+    out[m].sort(function (a, b) { return a.date < b.date ? -1 : (a.date > b.date ? 1 : 0); });
+  });
+  return out;
 }
 
 /** APPROVED daily-OT HOURS per month — the hours behind otApprovedByMonth_'s amounts. Holiday OT is
@@ -385,6 +431,22 @@ function otApprovedHoursByMonth_(staffId) {
     out[m] = round2_((out[m] || 0) + num_(r.Hours));
   });
   return out;
+}
+
+/**
+ * 'สิงหาคม 2569' from a month cell. The notification below goes to a person, not to a log, and
+ * "2026-08-01T00:00:00.000Z" is what a Month cell reads back as once Sheets has coerced it — the
+ * same trap ym7_ exists for. Falls back to the raw month if it cannot be parsed, never to nothing.
+ */
+var TH_MONTH_NAMES_ = ['มกราคม', 'กุมภาพันธ์', 'มีนาคม', 'เมษายน', 'พฤษภาคม', 'มิถุนายน',
+                       'กรกฎาคม', 'สิงหาคม', 'กันยายน', 'ตุลาคม', 'พฤศจิกายน', 'ธันวาคม'];
+function thMonthLabel_(v) {
+  var m7 = ym7_(v);
+  var mm = /^(\d{4})-(\d{2})$/.exec(m7);
+  if (!mm) return String(v == null ? '' : v);
+  var i = parseInt(mm[2], 10) - 1;
+  if (i < 0 || i > 11) return m7;
+  return TH_MONTH_NAMES_[i] + ' ' + (parseInt(mm[1], 10) + 543);
 }
 
 /** Route: { staffId, month } -> unpaid OT carried from earlier months (shown on the payroll screen). */
@@ -413,6 +475,25 @@ function handleMarkSalaryPaid(p) {
   if (!paid) patch.SlipUrl = '';
   updateRow_(sh, row._row, patch);
   try { logAuditHr(p.adminId || 'admin', paid ? 'SALARY_PAID' : 'SALARY_UNPAID', 'PAYROLL', row.PayrollID); } catch (e) {}
+  /* TELL THE PERSON WHOSE PAY IT IS.
+   * Asked 2026-08-30: "Role คุณครูและหัวหน้าครู มีการแจ้งเตือนว่า Admin ได้ทำการส่งสลิปให้แล้ว".
+   * Until now the slip simply appeared and the only way to find out was to go and look, so teachers
+   * checked repeatedly around payday — which is also what was quietly creating payroll rows before
+   * v303. The 🔔 bell already serves staff (handleStaffInbox); this addresses a row to them.
+   *
+   * IN-APP ONLY, deliberately: the school's free LINE quota is exhausted, and a monthly push per
+   * staff member is exactly the kind of traffic that exhausted it. Emergencies still go to LINE.
+   *
+   * Best-effort — a notification that fails must never undo a payment that succeeded. */
+  if (paid) {
+    try {
+      inboxAdd_('payslip',
+        '📄 สลิปเงินเดือน ' + thMonthLabel_(row.Month) + ' ออกให้แล้ว · โอนสุทธิ ' +
+        Number(row.NetPay || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) +
+        ' บาท — เปิดดูได้ที่เมนูสลิปเงินเดือน',
+        row.PayrollID, p.staffId);
+    } catch (e) { try { Logger.log('payslip notify ' + e.message); } catch (x) {} }
+  }
   return { ok: true, staffId: p.staffId, month: p.month, paid: paid };
 }
 

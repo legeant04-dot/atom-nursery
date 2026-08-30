@@ -112,7 +112,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.305'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.306'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -678,7 +678,9 @@
       // rather than dropping the admin on the dashboard with nothing to read
       if(rk==='injury'&&sid) return ()=>{ if(window.A_viewInjury) A_viewInjury(sid); else GO('home'); }; }
     const has=re=>re.test(s);
-    let key = cat==='comment'?'journal':cat==='leave'?'leave':cat==='ot'?'ot':cat==='registration'?'register':cat==='emergency'?'injury':cat==='payment'?'verify':cat==='digest'?'home':'';
+    // 'payslip' must come BEFORE the keyword fallback: "สลิป" in the text matches /สลิป|slip/ below
+    // and would send a teacher to 'verify', which is an Admin screen — i.e. nowhere for her.
+    let key = cat==='comment'?'journal':cat==='leave'?'leave':cat==='ot'?'ot':cat==='registration'?'register':cat==='emergency'?'injury':cat==='payslip'?'payslip':cat==='payment'?'verify':cat==='digest'?'home':'';
     if(!key){ if(has(/ความคิดเห็น|คอมเมนต์|comment|ตอบกลับ|reply|บันทึกของ|รายงาน/i))key='journal';
       else if(has(/แจ้งลา|ลาป่วย|ลากิจ|พักร้อน|\bลา\b|leave/i))key='leave';
       else if(has(/OT|โอที|รับช้า|ล่วงเวลา/i))key='ot';
@@ -687,9 +689,9 @@
       else if(has(/สรุปประจำวัน|digest/i))key='home'; }
     if(!key) return null;
     // map the logical key to the actual screen for this role
-    const M={ Admin:{journal:()=>A_journals&&A_journals(), leave:()=>GO('leaves'), ot:()=>GO('manage'), register:()=>GO('manage'), verify:()=>GO('verify'), injury:()=>GO('injuries'), home:()=>GO('home')},
-      Teacher:{journal:()=>GO('class'), leave:()=>GO('leave'), ot:()=>GO('slip'), register:null, verify:null, injury:()=>GO('injury'), home:()=>GO('home')},
-      Parent:{journal:()=>GO('journal'), leave:()=>GO('home'), ot:()=>GO('payment'), register:null, verify:()=>GO('payment'), injury:()=>GO('home'), home:()=>GO('home')} };
+    const M={ Admin:{journal:()=>A_journals&&A_journals(), leave:()=>GO('leaves'), ot:()=>GO('manage'), register:()=>GO('manage'), verify:()=>GO('verify'), injury:()=>GO('injuries'), home:()=>GO('home'), payslip:()=>GO('payroll')},
+      Teacher:{journal:()=>GO('class'), leave:()=>GO('leave'), ot:()=>GO('slip'), register:null, verify:null, injury:()=>GO('injury'), home:()=>GO('home'), payslip:()=>GO('slip')},
+      Parent:{journal:()=>GO('journal'), leave:()=>GO('home'), ot:()=>GO('payment'), register:null, verify:()=>GO('payment'), injury:()=>GO('home'), home:()=>GO('home'), payslip:null} };
     const fn=(M[role]||{})[key]; return fn||null; }
   window.NOTIF_TAP = (i)=>{ const n=(window._NOTIFS||[])[i]; if(!n)return; const go=notifTarget(n);
     NOTIF_CLOSE(); const m=document.querySelector('.modal'); if(m)m.remove();
@@ -5061,6 +5063,76 @@
   function carryMonths(r){ let d=r.OTCarryDetail;
     if(typeof d==='string'&&d){ try{ d=JSON.parse(d); }catch(e){ d=null; } }
     return (Array.isArray(d)?d:[]).map(x=>monthNameYear(x.month)).join(', ')||'-'; }
+
+  /* ===== WHAT A PAYSLIP IS MADE OF — written down ONCE ==========================================
+   * The on-screen card and the printed document each used to spell the lines out for themselves,
+   * and they had already drifted: the card asked for `r.ChildCount`, a field the payroll record has
+   * never had, so "เด็ก N คน × ฿300" never appeared for anybody. A slip that shows its working in
+   * one place and not the other is worse than one that shows it nowhere — it makes the working look
+   * optional. Both renderers now read this.
+   *
+   * `always` lines print even at 0.00, the way a printed pay statement should: the columns line up
+   * month to month, and a reader can see a category was considered and came to nothing. The rest
+   * appear only when there is something to say, so a normal month stays short.
+   *
+   * DEDUCTION AMOUNTS ARE POSITIVE MAGNITUDES. The minus sign belongs to whoever is drawing the
+   * document, not to the data — so the two columns can be summed the same way and checked against
+   * their own totals.
+   *
+   * `note` is the WORKING — where the figure came from. That is the whole point of the redesign:
+   * ม.70 พ.ร.บ.คุ้มครองแรงงาน asks for the items to be itemised, and a teacher asking "หัก 550
+   * มาจากไหน" is the defect this answers. */
+  const _n=v=>Number(v||0), _r2=v=>Math.round(_n(v)*100)/100;
+  function slipBreakdown(r){
+    r=r||{}; const cfg=(window.MOCK&&MOCK.config)||{};
+    const adj=adjRows(r);
+    const adjPlus=adj.filter(a=>_n(a.amount)>0), adjMinus=adj.filter(a=>_n(a.amount)<0);
+    const adjPlusSum=adjPlus.reduce((s,a)=>s+_n(a.amount),0);
+    const adjMinusSum=adjMinus.reduce((s,a)=>s-_n(a.amount),0);
+    const childCount=_n(r.ExtraChildCount!=null?r.ExtraChildCount:r.ChildCount);
+    const childRate=_n(r.ChildMultiplier!=null&&r.ChildMultiplier!==''?r.ChildMultiplier:(cfg.ExtraChildRate||300));
+    const certRate=_n(cfg.TrainingCertRate||100);
+    // เบี้ยขยัน has three parts but only two are stored separately; Big Cleaning is the remainder
+    const bigClean=_r2(_n(r.DiligenceTotal)-_n(r.DiligenceAttendance)-_n(r.DiligenceFacebook));
+    // whatever the admin typed into "รายได้อื่นๆ" by hand, once the parts we can name are removed
+    const otherManual=_r2(_n(r.OtherIncome)-_n(r.ExtraChildAmount)-_n(r.TrainingCertAmount)-adjPlusSum);
+    const otherDedManual=_r2(_n(r.OtherDeductions)-adjMinusSum);
+    const daily=String(r.PayType||'')==='daily';
+
+    const income=[];
+    income.push({ label: daily?'ค่าจ้างรายวัน':'เงินเดือน', amount:_n(r.BaseSalary), always:true,
+      note: daily?`${_n(r.DaysWorked)} วัน × ${baht(r.DailyRate)}`:'' });
+    income.push({ label:'เบี้ยขยัน — มาทำงานครบ ไม่ลา ไม่สาย', amount:_n(r.DiligenceAttendance), always:true });
+    income.push({ label:'เบี้ยขยัน — โพสต์รูป Facebook', amount:_n(r.DiligenceFacebook), always:true });
+    // BC_NAME(), never the words themselves — the day was renamed once and must stay renamed here too
+    if(bigClean>0.005) income.push({ label:`${EN()?'Diligence — ':'เบี้ยขยัน — '}${BC_NAME()}`, amount:bigClean });
+    income.push({ label:'รายได้ตามจำนวนเด็ก', amount:_n(r.ExtraChildAmount), always:true,
+      note: childCount?`${childCount} คน × ${baht(childRate)}`
+        : (r.LeaveExceeds?`ลาเกิน ${_n(r.LeaveLimit)||3} วัน — ไม่คำนวณเรท`:'ไม่มีเด็กเกินเกณฑ์') });
+    if(_n(r.TrainingCertAmount)) income.push({ label:'ใบประกาศอบรม', amount:_n(r.TrainingCertAmount),
+      note:`${_n(r.TrainingCertCount)} ใบ × ${baht(certRate)}` });
+    income.push({ label:'ค่าล่วงเวลาตอนเย็น (OT)', amount:_n(r.OTEvening), always:true });
+    if(_n(r.OTCarry)) income.push({ label:'OT ค้างจ่ายจากเดือนก่อน', amount:_n(r.OTCarry), note:carryMonths(r) });
+    if(_n(r.OTHoliday)) income.push({ label:'OT วันหยุด (มาทำงานในวันหยุด)', amount:_n(r.OTHoliday) });
+    if(_n(r.HolidayBonus)) income.push({ label:'เงินพิเศษวันพักผ่อน', amount:_n(r.HolidayBonus) });
+    if(otherManual>0.005||otherManual<-0.005) income.push({ label:'รายได้อื่น ๆ', amount:otherManual });
+    adjPlus.forEach(a=>income.push({ label:String(a.label||'รายการเพิ่มพิเศษ'), amount:_n(a.amount), adj:true }));
+
+    const deduct=[];
+    deduct.push({ label:'ประกันสังคม', amount:_n(r.SocialSecurity), always:true,
+      note:_n(r.SocialSecurity)?ssWorking(r):'ไม่ได้หักเดือนนี้' });
+    deduct.push({ label:'เงินสมทบกองทุน (ส่วนพนักงาน)', amount:_n(r.Contribution), always:true,
+      note:_n(r.Contribution)?`โรงเรียนสมทบอีก ${baht(r.ContributionEmployer!=null?r.ContributionEmployer:r.Contribution)}`:'' });
+    if(otherDedManual>0.005||otherDedManual<-0.005) deduct.push({ label:'รายการหักอื่น ๆ', amount:otherDedManual });
+    adjMinus.forEach(a=>deduct.push({ label:String(a.label||'รายการหักพิเศษ'), amount:-_n(a.amount), adj:true }));
+
+    return { income, deduct, childCount, childRate,
+      gross:_n(r.GrossIncome), totalDeduct:_n(r.TotalDeductions), net:_n(r.NetPay),
+      contribOwn:_n(r.Contribution),
+      contribEmployer:_n(r.ContributionEmployer!=null?r.ContributionEmployer:r.Contribution),
+      contribAccum:_n(r.ContributionAccum) };
+  }
+
   function payslipCard(r,month){
     // no slip AND no preview: say so, rather than dying on r.StaffID and leaving the screen empty
     if(!r) return `<div class="card"><b>${EN()?'No payslip for this month yet':'ยังไม่มีสลิปเงินเดือนของเดือนนี้'}${month?` · ${esc(month)}`:''}</b>
@@ -5078,26 +5150,21 @@
       <br><small>${EN()?'The school has not run payroll for this month yet. The figures can still change, and this should not be used for a bank or a loan.'
         :'โรงเรียนยังไม่ได้คำนวณเงินเดือนเดือนนี้ · ตัวเลขอาจเปลี่ยนได้ และยังใช้ยื่นธนาคารหรือทำธุรกรรมไม่ได้'}</small></div>`:''}
     ${r.LeaveExceeds?`<div style="background:var(--warn-bg);border:1px solid var(--warn-line);border-radius:8px;padding:6px 9px;margin-bottom:6px;color:var(--warn);font-size:13px">⚠️ ลาเกิน ${r.LeaveLimit||3} วัน (ลารวม ${r.LeaveDays} วัน) — ไม่คำนวณเรทจำนวนเด็ก</div>`:''}
-    <table style="width:100%;font-size:14px;border-collapse:collapse">
-    <tr><td>เงินเดือน</td><td style="text-align:right">${baht(r.BaseSalary)}</td></tr>
-    <tr><td>เบี้ยขยัน (มาครบ ${baht(r.DiligenceAttendance)} + FB ${baht(r.DiligenceFacebook)})</td><td style="text-align:right">${baht(r.DiligenceTotal)}</td></tr>
-    <tr><td>รายได้อื่นๆ${r.ChildCount?` <small class="muted">(เด็ก ${r.ChildCount} คน × ${baht(r.ChildMultiplier)})</small>`:''}</td><td style="text-align:right">${baht(r.OtherIncome)}</td></tr>
-    <tr><td>ค่าสวงเวลาตอนเย็น</td><td style="text-align:right">${baht(r.OTEvening)}</td></tr>
-    ${Number(r.OTCarry||0)?`<tr><td>ค้างจ่าย OT เดือนก่อน <small class="muted">(${esc(carryMonths(r))})</small></td><td style="text-align:right">${baht(r.OTCarry)}</td></tr>`:''}
-    ${Number(r.OTHoliday||0)?`<tr><td>🎉 OT วันหยุด</td><td style="text-align:right">${baht(r.OTHoliday)}</td></tr>`:''}
-    <tr><td>เงินพิเศษวันพักผ่อน</td><td style="text-align:right">${baht(r.HolidayBonus)}</td></tr>
-    <tr style="border-top:1px solid var(--line)"><td><b>รวมรายได้</b></td><td style="text-align:right"><b>${baht(r.GrossIncome)}</b></td></tr>
-    ${/* SHOW THE WORKING. A deduction on somebody's pay that they have to ask about is a deduction
-         they cannot check. It is 5% of the base salary, capped — 11,000 × 5% = 550; a salary of
-         15,000 or more is capped at 750. The rate and the cap are the school's settings
-         (SocialSecurityRate / SocialSecurityMax), so the line prints the ones actually used. */''}
-    <tr><td>หัก ประกันสังคม${Number(r.SocialSecurity||0)?` <small class="muted">(${esc(ssWorking(r))})</small>`:''}</td><td style="text-align:right">-${baht(r.SocialSecurity)}</td></tr>
-    <tr><td>หัก เงินสมทบ (พนักงาน)</td><td style="text-align:right">-${baht(r.Contribution||0)}</td></tr>
-    ${Number(r.OtherDeductions||0)?`<tr><td>หัก อื่นๆ</td><td style="text-align:right">-${baht(r.OtherDeductions)}</td></tr>`:''}
-    <tr><td><b>รวมหัก</b></td><td style="text-align:right"><b>-${baht(r.TotalDeductions)}</b></td></tr>
-    ${adjRows(r).length?`<tr><td colspan="2"><small class="muted">${adjRows(r).map(a=>esc(a.label||'-')+' '+(Number(a.amount)<0?'−':'+')+baht(Math.abs(a.amount))).join(' · ')}</small></td></tr>`:''}
-    <tr style="border-top:2px solid var(--blue)"><td><b>โอนเข้า ${esc(r.BankAccount)} (สุทธิ)</b></td><td style="text-align:right;color:var(--blue);font-size:18px"><b>${baht(r.NetPay)}</b></td></tr>
-    </table>
+    ${/* Itemised from slipBreakdown, the SAME description the printed slip uses — including the
+         working under each figure ("5% ของ 13,500 · ไม่เกิน 750", "4 คน × ฿300"), because a line on
+         somebody's pay that they have to ask about is a line they cannot check. */''}
+    ${(()=>{ const b=slipBreakdown(r);
+      const row=(x,sign)=>`<tr><td style="padding:3px 0">${esc(x.label)}${x.note?`<br><small class="muted">${esc(x.note)}</small>`:''}</td>
+        <td style="text-align:right;vertical-align:top;padding:3px 0;white-space:nowrap">${sign<0?'−':''}${baht(Math.abs(x.amount))}</td></tr>`;
+      return `<table style="width:100%;font-size:14px;border-collapse:collapse">
+      <tr><td colspan="2" style="padding-top:2px"><b style="color:var(--blue)">รายได้</b></td></tr>
+      ${b.income.map(x=>row(x,1)).join('')}
+      <tr style="border-top:1px solid var(--line)"><td><b>รวมรายได้</b></td><td style="text-align:right"><b>${baht(b.gross)}</b></td></tr>
+      <tr><td colspan="2" style="padding-top:8px"><b style="color:var(--bad-2)">รายการหัก</b></td></tr>
+      ${b.deduct.map(x=>row(x,-1)).join('')}
+      <tr style="border-top:1px solid var(--line)"><td><b>รวมรายการหัก</b></td><td style="text-align:right"><b>−${baht(b.totalDeduct)}</b></td></tr>
+      <tr style="border-top:2px solid var(--blue)"><td><b>โอนเข้า ${esc(r.BankAccount||'-')} (สุทธิ)</b></td><td style="text-align:right;color:var(--blue);font-size:18px"><b>${baht(b.net)}</b></td></tr>
+      </table>`; })()}
     ${Number(r.Contribution||0)||Number(r.ContributionAccum||0)?`<div style="margin-top:8px;padding-top:6px;border-top:1px dashed var(--line);font-size:13px" class="muted">
       💰 เงินสมทบเดือนนี้: หักพนักงาน ${baht(r.Contribution||0)} + โรงเรียนสมทบ ${baht(r.ContributionEmployer!=null?r.ContributionEmployer:r.Contribution||0)}
       · <b style="color:var(--ink)">เงินสมทบสะสมรวม ${baht(r.ContributionAccum||0)}</b></div>`:''}
@@ -5801,7 +5868,9 @@
   window.A_leave=async(id,dec)=>{ try{ const r=await api('approveLeave',{staffId:USER.staffId,leaveId:id,decision:dec}); toast(`✅ ${dec==='approve'?'อนุมัติ':'ปฏิเสธ'}แล้ว (${r.status})`); GO('leaves'); }catch(e){err(e);} };
 
   let PAY_ADJ=[];
-  SCREENS.Admin.payroll = async () => { const [staff,rate]=await Promise.all([api('listStaff'),api('ratedChildCount')]); PAY_ADJ=[]; window._RATED=rate;
+  // the rate depends on the MONTH being paid, so it is re-fetched in A_payStaff whenever the month
+  // (or the staff member) changes — see there. This first call just seeds the screen.
+  SCREENS.Admin.payroll = async () => { const [staff,rate]=await Promise.all([api('listStaff'),api('ratedChildCount',{month:monthStr()})]); PAY_ADJ=[]; window._RATED=rate;
     A_CACHE.staff=staff||[];   // the base salary is read from HERE — MOCK.staff is empty in gas mode
     app.innerHTML=`<button class="btn sm outline backbtn" onclick="A_finTab('pay')">${t('c.back')} · ${EN()?'Finance':'การเงิน'}</button><h2 class="page">${esc(t('title.payroll'))}</h2><div class="card">
       <div class="grid2"><label class="field"><span>${esc(t('c.staff'))}</span><select id="pStaff" onchange="A_payStaff()">${staff.map(s=>`<option value="${s.StaffID}">${esc(nmn(s))}</option>`).join('')}</select></label>
@@ -5822,6 +5891,7 @@
         <label class="field" style="margin:6px 0 0"><span>${esc(t('pay.childCount'))} <small class="muted">(${esc(t('pay.autoEditable'))})</small></span><input id="pChild" type="number" value="0"/></label></div>
       <div class="grid2"><label class="field"><span>${esc(t('pay.cert'))}</span><input id="pCert" type="number" value="0"/></label>
         <label class="field"><span>${esc(t('pay.otEvening'))} <small id="otNote" class="muted"></small></span><input id="pOt" type="number" value="0"/></label></div>
+      <div id="otDays" style="margin:-4px 2px 8px"></div>
       <div id="otCarryBox"></div>
       <div class="grid2"><label class="field"><span>🎉 ${esc(t('pay.otHoliday'))} <small id="otHolNote" class="muted"></small></span><input id="pOtHol" type="number" value="0"/></label>
         <label class="field"><span>${esc(t('pay.holidayBonus'))}</span><input id="pHb" type="number" value="0"/></label></div>
@@ -5853,7 +5923,12 @@
     const p_ot   = api('staffMonthlyOT',{staffId:sid,month:mth}).catch(()=>null);
     const p_cy   = api('otCarryOver',{staffId:sid,month:mth}).catch(()=>null);
     const p_slip = api('getPayslip',{staffId:sid,month:mth}).catch(()=>null);
+    // ...and the child rate FOR THIS MONTH. It used to be fetched once when the screen opened and
+    // then reused for every month the admin flicked through, which was harmless only because the
+    // server was ignoring the month too. Same tick as the four above → still one request.
+    const p_rate = api('ratedChildCount',{month:mth}).catch(()=>null);
     const pc=await p_pc; if(stale())return;
+    try{ const rt=await p_rate; if(stale())return; if(rt) window._RATED=rt; }catch(e){}
     // this used to read MOCK.staff, which holds SEED rows (and is empty since the mockdata split), so
     // the saved salary never came back — the field showed 0 every time the screen was opened
     const s=(A_CACHE.staff||[]).find(x=>x.StaffID===sid)||{};
@@ -5865,7 +5940,8 @@
     { const c=$('#pContrib'); if(c) c.value=pc.Contribution||0; }
     A_payTypeToggle(); A_recalcChild(); A_contribNote();
     // auto-pull this staff's APPROVED OT for the selected month into the OT field
-    let otAuto=null;
+    // cleared FIRST: if the fetch fails, an empty list is honest and last month's evenings are not
+    let otAuto=null; window._OT_ENTRIES=[]; window._OT_CARRY=null; A_otDaysRender();
     try{ const ot=await p_ot; if(stale())return; if(!ot) throw new Error('no ot'); otAuto=ot;
       // the EVENING field gets only the evening OT; the holiday OT has its own field and its own
       // line on the slip, so the two are never added together behind the admin's back
@@ -5874,18 +5950,22 @@
       const hn=$('#otHolNote'); if(hn) hn.innerHTML=Number(ot.holiday||0)>0
         ? `(${EN()?'auto':'อัตโนมัติ'} ${ot.holidayDays||0} ${EN()?'day(s)':'วัน'})`
         : `(${EN()?'none this month':'เดือนนี้ไม่มี'})`;
-      const n=$('#otNote'); if(n) n.innerHTML=`(${EN()?'auto':'อัตโนมัติ'} ${ot.hours} ${EN()?'hr':'ชม.'} × ${baht(ot.rate)})`; }catch(e){}
+      const n=$('#otNote'); if(n) n.innerHTML=`(${EN()?'auto':'อัตโนมัติ'} ${ot.hours} ${EN()?'hr':'ชม.'} × ${baht(ot.rate)})`;
+      // ...and WHICH EVENINGS, asked 2026-08-30. Already in this reply, so it costs no round trip.
+      window._OT_ENTRIES=ot.entries||[]; A_otDaysRender(); }catch(e){}
     // OT approved after an EARLIER month's payroll was saved was never paid — it is owed now, as its
     // own line, so the earlier slip stays exactly as it was signed off (see otCarryOver_ in Payroll.gs)
     try{ const cy=await p_cy; if(stale())return;
       const box=$('#otCarryBox'); if(!box) return;
       if(cy && Number(cy.total)>0){
         const list=(cy.detail||[]).map(d=>`${esc(monthNameYear(d.month))} ${baht(d.amount)}`).join(' · ');
+        window._OT_CARRY=cy;
         box.innerHTML=`<div class="card" style="background:var(--warn-bg);border-color:var(--warn-line);padding:8px">
           <label class="field" style="margin:0"><span style="color:var(--warn)">⏰ ${EN()?'Unpaid OT carried from earlier months':'ค้างจ่าย OT เดือนก่อนหน้า'}</span>
           <input id="pOtCarry" type="number" value="${Number(cy.total)}"/></label>
-          <small class="muted">${EN()?'Approved after that month’s salary had already been paid':'อนุมัติหลังจากจ่ายเงินเดือนของเดือนนั้นไปแล้ว'} — ${list}</small></div>`;
-      } else box.innerHTML='';
+          <small class="muted">${EN()?'Approved after that month’s salary had already been paid':'อนุมัติหลังจากจ่ายเงินเดือนของเดือนนั้นไปแล้ว'} — ${list}</small>
+          ${(cy.detail||[]).some(d=>(d.days||[]).length)?`<button class="btn sm outline block" style="margin-top:6px" onclick="A_otCarryDetail()">📅 ${EN()?'Which evenings is this made of?':'ยกมาจากวันไหนบ้าง'}</button>`:''}</div>`;
+      } else { box.innerHTML=''; window._OT_CARRY=null; }
     }catch(e){}
     // A saved payslip is the record of what was actually paid, so reopening the month must show THAT,
     // not a fresh form with defaults — otherwise there is no way to check a previous month or to see
@@ -5942,7 +6022,78 @@
       : `หักจากพนักงาน ${baht(v)} + โรงเรียนสมทบ ${baht(emp)} → เข้ากองทุนเดือนนี้ <b>${baht(v+emp)}</b>`; };
   // auto child-rate count from DB: children from #threshold onward = rated − (threshold−1)
   window.A_recalcChild=()=>{ const r=window._RATED||{}; const th=+$('#pThreshold').value||31; const cnt=Math.max(0,(r.rated||0)-(th-1)); $('#pChild').value=cnt;
-    setHTML('#childCalc', `${esc(t('abs.rated'))} <b>${r.rated||0}</b> <span class="muted">(${esc(t('abs.rateNote').replace('{n}',r.excludeDays||6).replace('{x}',r.excluded||0))})</span> − ${esc(t('pay.fromChild'))} #${th} → <b style="color:var(--blue)">${cnt} ${EN()?'children':'คน'}</b>`); };
+    setHTML('#childCalc', `${esc(t('abs.rated'))} <b>${r.rated||0}</b> <span class="muted">(${esc(t('abs.rateNote').replace('{n}',r.excludeDays||6).replace('{x}',r.excluded||0))})</span> − ${esc(t('pay.fromChild'))} #${th} → <b style="color:var(--blue)">${cnt} ${EN()?'children':'คน'}</b>`
+      + ((r.students&&r.students.length)?`<button class="btn sm outline block" style="margin-top:6px" onclick="A_childDetail()">🧒 ${EN()?'Show the children behind this number':'ดูรายชื่อเด็กที่ระบบนับ'}</button>`:'')); };
+  /* WHO THE NUMBER IS MADE OF.
+   * Asked 2026-08-30: "แสดงชื่อเล่นเด็กและจำนวนที่ระบบนับเพื่อเป็นข้อมูลตรวจสอบว่าจำนวนที่ระบบคิดมาว่าคิดเรทได้
+   * 4 คน และเด็กที่ยังไม่นับเรทคือใคร เด็กแต่ละคนลารวมเท่าไหร่".
+   *
+   * The list already arrived with the count (same request), so this opens instantly and costs
+   * nothing. Excluded children are listed FIRST — they are the reason somebody opened it.
+   *
+   * ขาด and ลา are shown in separate columns because only ขาด excludes. That is the school's
+   * existing rule, and this screen reports it rather than quietly changing what people are paid. */
+  window.A_childDetail=()=>{ const r=window._RATED||{}; const list=r.students||[];
+    const th=+(($('#pThreshold')||{}).value)||31;
+    const row=s=>`<tr style="${s.rated?'':'background:var(--warn-bg)'}">
+      <td style="padding:4px 6px">${s.rated?'✅':'⛔'} <b>${esc(s.nick||s.name||s.studentId)}</b>${s.nick&&s.name?`<br><small class="muted">${esc(s.name)}</small>`:''}</td>
+      <td style="padding:4px 6px;font-size:13px" class="muted">${esc(s.class||'-')}</td>
+      <td style="padding:4px 6px;text-align:center">${s.absent||0}</td>
+      <td style="padding:4px 6px;text-align:center" class="muted">${s.leave||0}</td></tr>`;
+    modal(`<h3>🧒 ${EN()?'Children counted for the child-rate':'เด็กที่ระบบนับสำหรับเรทจำนวนเด็ก'}</h3>
+      <p class="muted" style="font-size:13px;margin-top:0">${esc(monthNameYear(r.month||monthStr()))} · ${EN()
+        ?`A child absent ${r.excludeDays||6} days or more in this month is not counted.`
+        :`เด็กที่ <b>ขาด</b> ตั้งแต่ ${r.excludeDays||6} วันขึ้นไปในเดือนนี้ จะไม่ถูกนับ`}</p>
+      <div class="grid3" style="text-align:center;margin-bottom:8px">
+        <div class="card" style="padding:6px;margin:0"><b style="font-size:19px">${r.total||0}</b><br><small class="muted">${EN()?'active':'เด็กทั้งหมด'}</small></div>
+        <div class="card" style="padding:6px;margin:0;background:var(--blue-bg)"><b style="font-size:19px;color:var(--blue)">${r.rated||0}</b><br><small class="muted">${EN()?'counted':'นับเรทได้'}</small></div>
+        <div class="card" style="padding:6px;margin:0;background:var(--warn-bg)"><b style="font-size:19px;color:var(--warn)">${r.excluded||0}</b><br><small class="muted">${EN()?'not counted':'ไม่นับ'}</small></div></div>
+      <p style="font-size:13px;background:var(--blue-bg);border-radius:8px;padding:7px 9px">${EN()
+        ?`Paid from child #${th} onward: <b>${Math.max(0,(r.rated||0)-(th-1))}</b> children × the child rate.`
+        :`คิดเรทตั้งแต่เด็กคนที่ ${th} เป็นต้นไป → <b>${Math.max(0,(r.rated||0)-(th-1))} คน</b> ที่ได้เรท`}</p>
+      <div style="max-height:46vh;overflow:auto"><table style="width:100%;border-collapse:collapse;font-size:14px">
+        <thead><tr style="position:sticky;top:0;background:var(--surface)">
+          <th style="text-align:left;padding:4px 6px">${EN()?'Child':'ชื่อเล่น'}</th>
+          <th style="text-align:left;padding:4px 6px">${EN()?'Class':'ห้อง'}</th>
+          <th style="padding:4px 6px">${EN()?'Absent':'ขาด'}</th>
+          <th style="padding:4px 6px">${EN()?'Leave':'ลา'}</th></tr></thead>
+        <tbody>${list.map(row).join('')||`<tr><td colspan="4" class="muted" style="padding:10px;text-align:center">${EN()?'No active children':'ยังไม่มีเด็กที่กำลังเรียนอยู่'}</td></tr>`}</tbody></table></div>
+      <p class="muted" style="font-size:12px">${EN()?'“Leave” is shown for information — only absences exclude a child.'
+        :'ช่อง “ลา” แสดงไว้เพื่อดูข้อมูลเท่านั้น · เกณฑ์ตัดออกใช้เฉพาะวัน “ขาด”'}</p>`); };
+  /* ===== OT, evening by evening =================================================================
+   * Asked 2026-08-30: "มีรายละเอียด OT ของคุณครูแต่ละคนว่ายกมาจากเดือนก่อนหน้าวันไหน และเดือนนี้ OT
+   * วันไหนบ้าง". The screen said "อัตโนมัติ 5 ชม. × ฿100" and "ค้างจ่าย มิถุนายน 2569 ฿300", and to
+   * check either against what a teacher remembered working you had to open the spreadsheet.
+   *
+   * Both lists arrive inside replies the screen already asks for (staffMonthlyOT / otCarryOver), so
+   * this adds no round trip — which on Apps Script, one execution at a time, is the difference
+   * between instant and another five seconds. */
+  const otDayRow=d=>`<tr><td style="padding:3px 6px">${esc(fullDate(d.date))}${d.note?`<br><small class="muted">${esc(d.note)}</small>`:''}</td>
+    <td style="padding:3px 6px;text-align:center;white-space:nowrap">${d.kind==='HOLIDAY'?`<span class="pill">🎉 ${EN()?'holiday':'วันหยุด'}</span>`:`${Number(d.hours||0)} ${EN()?'hr':'ชม.'}`}</td>
+    <td style="padding:3px 6px;text-align:right;white-space:nowrap"><b>${baht(d.amount)}</b></td></tr>`;
+  const otDayTable=list=>`<table style="width:100%;border-collapse:collapse;font-size:14px">
+    <thead><tr class="muted" style="font-size:13px"><th style="text-align:left;padding:3px 6px">${EN()?'Date':'วันที่'}</th>
+      <th style="padding:3px 6px">${EN()?'Hours':'ชั่วโมง'}</th><th style="text-align:right;padding:3px 6px">${EN()?'Amount':'จำนวนเงิน'}</th></tr></thead>
+    <tbody>${list.map(otDayRow).join('')}</tbody></table>`;
+  window.A_otDaysRender=()=>{ const box=$('#otDays'); if(!box) return;
+    const list=window._OT_ENTRIES||[];
+    if(!list.length){ box.innerHTML=`<small class="muted">${EN()?'No approved OT this month.':'เดือนนี้ยังไม่มี OT ที่อนุมัติแล้ว'}</small>`; return; }
+    box.innerHTML=`<details><summary style="cursor:pointer;font-size:13px;color:var(--blue)">📅 ${EN()
+      ?`Which evenings — ${list.length} approved`:`OT เดือนนี้วันไหนบ้าง (${list.length} รายการ)`}</summary>
+      <div style="margin-top:6px">${otDayTable(list)}</div></details>`; };
+  window.A_otCarryDetail=()=>{ const cy=window._OT_CARRY||{};
+    modal(`<h3>⏰ ${EN()?'Unpaid OT carried forward':'OT ค้างจ่ายที่ยกมา'}</h3>
+      <p class="muted" style="font-size:13px;margin-top:0">${EN()
+        ?'OT approved after that month’s salary had already gone out, so it is paid on this month’s slip as its own line.'
+        :'OT ที่อนุมัติหลังจากจ่ายเงินเดือนของเดือนนั้นไปแล้ว จึงมาจ่ายในสลิปเดือนนี้เป็นรายการแยก'}</p>
+      ${(cy.detail||[]).map(d=>`<div class="card" style="padding:8px">
+        <div class="spread"><b>${esc(monthNameYear(d.month))}</b><b style="color:var(--warn)">${EN()?'owed':'ค้างจ่าย'} ${baht(d.amount)}</b></div>
+        <small class="muted">${EN()?'approved':'อนุมัติทั้งเดือน'} ${baht(d.approved||0)} · ${EN()?'already paid on that month’s slip':'จ่ายไปแล้วในสลิปเดือนนั้น'} ${baht(d.paid||0)}</small>
+        ${(d.days||[]).length?`<div style="margin-top:6px">${otDayTable(d.days)}</div>
+          <small class="muted">${EN()?'These are every approved evening of that month — the record does not say which of them went unpaid.'
+            :'นี่คือ OT ที่อนุมัติทั้งหมดของเดือนนั้น · ระบบไม่ได้บันทึกว่าเป็นวันไหนที่ยังไม่ได้จ่าย จึงแสดงทั้งเดือนให้ตรวจสอบ'}</small>`:''}
+        </div>`).join('')||`<p class="muted">${EN()?'Nothing carried forward.':'ไม่มีรายการค้างจ่าย'}</p>`}`); };
+
   window.A_addAdj=()=>{ PAY_ADJ.push({label:'',amount:0}); A_renderAdj(); };
   window.A_delAdj=(i)=>{ PAY_ADJ.splice(i,1); A_renderAdj(); };
   function A_renderAdj(){ const box=$('#adjList'); if(!box)return;
@@ -9391,7 +9542,8 @@
       if(f){ try{ slipUrl=inp.dataset.url||await compressImage(f); }catch(e){} } }
     if(!paid && !confirm(EN()?'Undo the paid status for this month?':'ยกเลิกสถานะ "จ่ายแล้ว" ของเดือนนี้?')) return;
     try{ await api('markSalaryPaid',{staffId:sid,month,paid,slipUrl:slipUrl||undefined,adminId:USER.staffId});
-      if(m)m.remove(); confirmSaved(paid?(EN()?'Marked as paid':'บันทึกว่าจ่ายแล้ว'):(EN()?'Paid status removed':'ยกเลิกสถานะจ่ายแล้ว'));
+      // say that the teacher was told, so the admin does not have to send a message as well
+      if(m)m.remove(); confirmSaved(paid?(EN()?'Marked as paid — the staff member has been notified in the app':'บันทึกว่าจ่ายแล้ว · แจ้งเตือนในแอปให้คุณครูแล้ว'):(EN()?'Paid status removed':'ยกเลิกสถานะจ่ายแล้ว'));
       A_finStaff(sid); }catch(e){ err(e); } };
   /**
    * Pick the child whose time needs correcting. Admin reaches this from ดำเนินการ → นักเรียน,
@@ -9712,8 +9864,10 @@
     const rows=(b.Items||[]).map(it=>`<tr><td>${esc(trItem(it[0]))}</td><td style="text-align:right">${baht(it[1])}</td></tr>`).join('')+(b.OTRollover?`<tr><td>OT</td><td style="text-align:right">${baht(b.OTRollover)}</td></tr>`:'');
     // student headline: full name-surname (nickname)
     const snick=(s.Nickname||s.NicknameEN||''); const sname=(s.NameTH||s.NameEN||'')+(snick?` (${snick})`:'');
-    return `<!doctype html><html><head><meta charset="utf-8"><title>Receipt ${esc(b.BillingID)}</title><link href="https://fonts.googleapis.com/css2?family=Sarabun&display=swap" rel="stylesheet">
-      <style>@page{size:A5}body{font-family:Sarabun,sans-serif;margin:0;padding:18px;color:#222}.hd{display:flex;justify-content:center;align-items:center;gap:12px;border-bottom:2px solid #1565C0;padding-bottom:8px}
+    // color-scheme:light for the same reason as the payslip below: a parent on a dark-mode phone was
+    // handed #222 ink on a black page. A receipt is paper — it is white wherever it is opened.
+    return `<!doctype html><html><head><meta charset="utf-8"><title>Receipt ${esc(b.BillingID)}</title><meta name="color-scheme" content="light"><link href="https://fonts.googleapis.com/css2?family=Sarabun&display=swap" rel="stylesheet">
+      <style>@page{size:A5}html{color-scheme:light}body{font-family:Sarabun,sans-serif;margin:0;padding:18px;color:#222;background:#fff}.hd{display:flex;justify-content:center;align-items:center;gap:12px;border-bottom:2px solid #1565C0;padding-bottom:8px}
       .hd img{height:46px} h1{font-size:20px;color:#1565C0;margin:0} .meta{font-size:13px;margin:10px 0;line-height:1.7} table{width:100%;border-collapse:collapse;font-size:14px;margin-top:8px}td{padding:5px 6px;border-bottom:1px solid #eee}
       .tot{font-size:18px;font-weight:bold;color:#1565C0} .paid{margin-top:10px;color:#2e7d32;font-weight:bold} .bar{padding:8px;text-align:center}@media print{.bar{display:none}}</style></head>
       <body><div class="bar"><button onclick="window.print()">🖨️ ${esc(t('c.print'))}</button></div>
@@ -9724,59 +9878,107 @@
       <table>${rows}<tr><td class="tot">${esc(t('c.total'))}</td><td class="tot" style="text-align:right">${baht(due)}</td></tr></table>
       <div class="paid">✅ ${esc(t('s.paid'))}${b.VerifiedStatus==='PREPAID'?' ('+esc(t('prepay.paidAhead'))+')':''}</div></body></html>`; }
 
-  // Printable payslip, laid out like the school's own document: CONFIDENTIAL mark, letterhead, the
-  // income / deduction / transfer three-column grid, and the footnotes explaining how เบี้ยขยัน and
-  // รายได้อื่นๆ are worked out. Three to an A4 landscape sheet with cut lines, as before.
-  const _beYear = m => { const y=parseInt(String(m).slice(0,4),10); return isNaN(y)?'':(y+543); };
+  /* ===== The printed payslip ====================================================================
+   * Asked 2026-08-30: "ที่เราออกแบบมาดูยากไปหน่อย ให้มีข้อมูลสำคัญครบถ้วน … แจงรายละเอียดแยกส่วนให้ชัดเจน",
+   * with FlowAccount's slip as the reference.
+   *
+   * The old layout crammed everything into a 7-column table two rows deep: เบี้ยขยัน was one number
+   * with its two halves relegated to a footnote, ค่าล่วงเวลา and ค้างจ่าย OT were ADDED TOGETHER in a
+   * single cell with an asterisk, and "อื่น ๆ" stood for the child rate, the training certificates
+   * and any manual figure at once. Every one of those is a separate thing somebody is being paid
+   * for, and a pay statement that will not say which is which cannot be checked.
+   *
+   * So: one line per item, top to bottom, with the working underneath — the shape of a real pay
+   * statement and what ม.70 พ.ร.บ.คุ้มครองแรงงาน asks an employer to hand over. That needs room, so
+   * TWO to an A4 landscape sheet instead of three (the school's choice). The cut line, the
+   * CONFIDENTIAL mark and the letterhead stay; a place to sign is new, because the school hands
+   * these out on paper.
+   *
+   * The line items come from slipBreakdown — the SAME description the on-screen card renders, so
+   * the paper and the phone can no longer disagree. */
   const _periodTH = m => { const y=parseInt(String(m).slice(0,4),10), mo=parseInt(String(m).slice(5,7),10);
     if(isNaN(y)||isNaN(mo)) return esc(m);
     const last=new Date(y,mo,0).getDate(); return `01/${mo}/${y+543} ถึง ${last}/${mo}/${y+543}`; };
+  const PER_SHEET = 2;   // 2 slips per A4 landscape — itemised lines need the height
   function buildSlipsHTML(rows,month){ const logo=window._LOGO||(location.origin+'/assets/logo.png');
-    const card=p=>{ const adj=adjRows(p); const bank=[p.BankName||'',p.BankAccount||''].filter(Boolean).join(' ');
-      const plus=adj.filter(a=>Number(a.amount)>0), minus=adj.filter(a=>Number(a.amount)<0);
-      const note=a=>a.label?` <span class="sub">(${esc(a.label)})</span>`:'';
+    const card=p=>{ const b=slipBreakdown(p);
+      const bank=[p.BankName||'',p.BankAccount||''].filter(Boolean).join(' ');
+      const line=(x,neg)=>`<tr><td class="d">${esc(x.label)}${x.note?`<div class="wk">${esc(x.note)}</div>`:''}</td>
+        <td class="n ${neg?'de':'in'}">${neg&&Math.abs(x.amount)>0.005?'−':''}${baht(Math.abs(x.amount))}</td></tr>`;
+      // pad the shorter column so the two totals sit on the same baseline
+      const pad=n=>Array(Math.max(0,n)).fill('<tr><td class="d">&nbsp;</td><td class="n"></td></tr>').join('');
+      const gap=b.income.length-b.deduct.length;
       return `<div class="slip">
-      <div class="hd"><span class="conf">CONFIDENTIAL</span><span class="cf">confidential เอกสารปกปิด เป็นความลับ ห้ามเปิดเผย</span><img src="${logo}" style="height:30px"/></div>
-      <div class="ttl">อะตอม เนอสเซอรี่</div>
-      <div class="meta"><span>พิมพ์วันที่ <b>${todayStr()}</b></span><span>ชื่อพนักงาน <b>${esc(p.StaffName||staffName(p.StaffID))}</b></span>
-        <span>รหัสพนักงาน <b>${esc(p.StaffID)}</b></span><span>ตำแหน่ง <b>${esc(p.Position||'-')}</b></span><span>งวดวันที่ <b>${_periodTH(p.Month)}</b></span></div>
-      <table class="grid"><thead>
-        <tr><th colspan="3">รายได้</th><th colspan="3">รายการหัก</th><th rowspan="2">จำนวนเงินโอนเข้าบัญชี<br><span class="sub">${esc(bank||'-')}</span></th></tr>
-        <tr><th>เงินเดือน</th><th>เบี้ยขยัน<sup>1</sup></th><th>อื่น ๆ<sup>2</sup></th><th>ประกันสังคม</th><th>เงินสมทบ</th><th>อื่น ๆ</th></tr></thead><tbody>
-        <tr><td class="n in">${baht(p.BaseSalary)}</td><td class="n in">${baht(p.DiligenceTotal)}</td><td class="n in">${baht(p.OtherIncome)}</td>
-            <td class="n de">${Number(p.SocialSecurity||0)?baht(p.SocialSecurity):'-'}</td><td class="n de">${baht(p.Contribution||0)}</td>
-            <td class="n de">${baht(p.OtherDeductions)}</td>
-            <td class="n net" rowspan="3">${baht(p.NetPay)}</td></tr>
-        <tr><td class="lbl">ค่าล่วงเวลาตอนเย็น${Number(p.OTCarry||0)?' + ค้างจ่าย*':''}</td><td class="n in">${baht(Number(p.OTEvening||0)+Number(p.OTCarry||0))}</td>
-            <td class="lbl">${Number(p.OTHoliday||0)?'OT วันหยุด':'เงินพิเศษวันพักผ่อน'}</td><td class="n in">${baht(Number(p.OTHoliday||0)?p.OTHoliday:p.HolidayBonus)}</td>
-            <td class="lbl">รวมหัก</td><td class="n">${baht(p.TotalDeductions)}</td></tr>
-        <tr><td colspan="4" class="sub lft">${minus.map(a=>esc(a.label||'')).filter(Boolean).join(' · ')||'&nbsp;'}</td>
-            <td class="lbl">รวมรายได้</td><td class="n">${baht(p.GrossIncome)}</td></tr>
-      </tbody></table>
-      <div class="acc">${Number(p.OTCarry||0)?`<span style="color:#1565C0">*รวมค้างจ่าย OT ${esc(carryMonths(p))} ${baht(p.OTCarry)}</span> &nbsp;·&nbsp; `:''}เงินสมทบเดือนนี้ หักพนักงาน ${baht(p.Contribution||0)} + โรงเรียนสมทบ ${baht(p.ContributionEmployer!=null?p.ContributionEmployer:p.Contribution||0)} · <b>${baht(p.ContributionAccum||p.Contribution||0)}</b> เงินสมทบสะสม</div>
-      <div class="fn"><b>เบี้ยขยัน<sup>1</sup></b> คำนวณจากการมาทำงานทุกวันของแต่ละเดือน โดยไม่ลา ไม่มาสาย (${baht(p.DiligenceAttendance)})+Post รูป Facebook (${baht(p.DiligenceFacebook)})<br>
-        <b>รายได้อื่น ๆ<sup>2</sup></b> คำนวณจากจำนวนเด็กตั้งแต่คนที่ ${esc(p.ChildThreshold||31)} (ที่มาอยู่เต็มเดือน ${baht(p.ChildMultiplier||300)}/คน)* &nbsp; **ใบประกาศอบรม 100/ใบ สูงสุด 2 ใบ/เดือน</div></div>`; };
-    let pages=''; for(let i=0;i<rows.length;i+=3) pages+=`<div class="sheet">${rows.slice(i,i+3).map(card).join('<div class="cut"></div>')}</div>`;
-    return `<!doctype html><html><head><meta charset="utf-8"><title>Slips ${month}</title><link href="https://fonts.googleapis.com/css2?family=Sarabun&display=swap" rel="stylesheet"><style>
-      @page{size:A4 landscape;margin:6mm}*{box-sizing:border-box}body{font-family:Sarabun,sans-serif;margin:0;color:#222}.bar{padding:8px;text-align:center;background:#eee}
-      .sheet{width:285mm;height:198mm;display:flex;flex-direction:column;justify-content:space-between;page-break-after:always;padding:2mm}
-      .slip{border:1px solid #1565C0;border-radius:4px;padding:3mm 4mm;height:62mm}.cut{border-top:1px dashed #999;margin:1mm 0}
-      .hd{display:flex;justify-content:space-between;align-items:center;gap:8px}
-      .conf{color:#c00;border:2px solid #c00;padding:0 5px;font-size:14px;font-weight:bold;letter-spacing:.5px}
-      .cf{font-size:11px;color:#555;flex:1;text-align:center}
-      .ttl{text-align:center;font-size:17px;font-weight:bold;margin:1mm 0 2mm}
-      .meta{display:flex;justify-content:space-between;font-size:10.5px;margin-bottom:1.5mm;gap:4px;flex-wrap:wrap}
-      .grid{width:100%;border-collapse:collapse;font-size:10.5px;table-layout:fixed}
-      .grid th,.grid td{border:1px solid #333;padding:1px 3px;text-align:center;overflow-wrap:anywhere;line-height:1.25}
-      .grid th{background:#fff;font-weight:bold}.grid td.n{text-align:right;font-weight:bold}
-      .grid td.lft{text-align:left}
-      .grid td.in{color:#1565C0}.grid td.de{color:#c00}
-      .grid td.net{color:#1565C0;font-size:15px;text-align:center;vertical-align:middle;font-weight:bold}
-      .grid td.lbl{text-align:right;font-weight:normal}.sub{font-size:10.5px;color:#555;font-weight:normal}
-      .acc{text-align:right;font-size:11px;margin:1mm 0}
-      .fn{font-size:9px;color:#1565C0;line-height:1.35}.fn b{color:#222}
+      <div class="hd">
+        <span class="conf">CONFIDENTIAL</span>
+        <span class="brand"><img src="${logo}"/><b>อะตอม เนอสเซอรี่</b></span>
+        <span class="doc">สลิปเงินเดือน<br><span class="sub">Pay Slip</span></span></div>
+      <div class="meta">
+        <span>ชื่อพนักงาน <b>${esc(p.StaffName||staffName(p.StaffID))}</b> <span class="sub">(${esc(p.StaffID)})</span></span>
+        <span>ตำแหน่ง <b>${esc(p.Position||'-')}</b></span>
+        <span>งวดเงินเดือน <b>${_periodTH(p.Month)}</b></span>
+        <span>วันที่จ่าย <b>${p.PaidDate?esc(fullDate(p.PaidDate)):'—'}</b></span>
+        <span>เลขที่บัญชี <b>${esc(bank||'-')}</b></span></div>
+      <div class="cols">
+        <table class="col"><thead><tr><th>รายได้ <span class="sub">Earnings</span></th><th class="n">บาท</th></tr></thead>
+          <tbody>${b.income.map(x=>line(x,false)).join('')}${pad(-gap)}</tbody>
+          <tfoot><tr><td class="d">รวมรายได้</td><td class="n">${baht(b.gross)}</td></tr></tfoot></table>
+        <table class="col"><thead><tr><th>รายการหัก <span class="sub">Deductions</span></th><th class="n">บาท</th></tr></thead>
+          <tbody>${b.deduct.map(x=>line(x,true)).join('')}${pad(gap)}</tbody>
+          <tfoot><tr><td class="d">รวมรายการหัก</td><td class="n">−${baht(b.totalDeduct)}</td></tr></tfoot></table>
+        <div class="sum">
+          <div class="sr"><span>รวมรายได้</span><b>${baht(b.gross)}</b></div>
+          <div class="sr"><span>รวมรายการหัก</span><b class="de">−${baht(b.totalDeduct)}</b></div>
+          <div class="netbox"><span>เงินสุทธิที่โอนเข้าบัญชี</span><b>${baht(b.net)}</b><span class="sub">${esc(bank||'-')}</span></div>
+          <div class="fund">กองทุนเงินสมทบ · เดือนนี้ พนักงาน ${baht(b.contribOwn)} + โรงเรียน ${baht(b.contribEmployer)}<br>
+            <b>สะสมรวม ${baht(b.contribAccum)}</b></div>
+        </div></div>
+      <div class="ft">
+        <div class="fn"><b>หมายเหตุ</b> เบี้ยขยันคำนวณจากการมาทำงานครบทุกวัน ไม่ลา ไม่มาสาย + โพสต์รูปกิจกรรมลง Facebook ·
+          รายได้ตามจำนวนเด็กคิดจากเด็กคนที่ ${esc(p.ChildThreshold||31)} เป็นต้นไป (ที่มาเรียนเต็มเดือน) ${baht(p.ChildMultiplier||300)}/คน ·
+          ใบประกาศอบรม ${baht((MOCK.config&&MOCK.config.TrainingCertRate)||100)}/ใบ สูงสุด 2 ใบ/เดือน ·
+          เงินสมทบเป็นเงินออม โรงเรียนสมทบให้เท่ากัน${p.LeaveExceeds?` · <span class="de">เดือนนี้ลารวม ${esc(p.LeaveDays)} วัน (เกิน ${esc(p.LeaveLimit||3)}) จึงไม่คำนวณรายได้ตามจำนวนเด็ก</span>`:''}
+          <br>เอกสารนี้เป็นความลับเฉพาะบุคคล ห้ามเปิดเผย · พิมพ์เมื่อ ${esc(fullDate(todayStr()))} · หากตัวเลขไม่ตรง กรุณาแจ้งฝ่ายบุคคลภายใน 7 วัน</div>
+        <div class="sig"><div class="ln"></div>ลงชื่อผู้รับเงิน</div></div></div>`; };
+    let pages=''; for(let i=0;i<rows.length;i+=PER_SHEET)
+      pages+=`<div class="sheet">${rows.slice(i,i+PER_SHEET).map(card).join('<div class="cut"></div>')}</div>`;
+    /* color-scheme:light is not decoration. This document is opened in a browser tab before it is
+     * printed, and on a phone or a laptop set to dark mode the ink stayed #222 while the page went
+     * black — a payslip nobody could read until they hit print. It is paper: it is always white. */
+    return `<!doctype html><html><head><meta charset="utf-8"><title>Slips ${month}</title><meta name="color-scheme" content="light"><link href="https://fonts.googleapis.com/css2?family=Sarabun&display=swap" rel="stylesheet"><style>
+      @page{size:A4 landscape;margin:6mm}*{box-sizing:border-box}html{color-scheme:light}body{font-family:Sarabun,sans-serif;margin:0;color:#222;background:#fff}.bar{padding:8px;text-align:center;background:#eee}
+      .sheet{width:285mm;height:198mm;display:flex;flex-direction:column;justify-content:space-between;page-break-after:always;padding:1mm}
+      .slip{border:1px solid #1565C0;border-radius:5px;padding:3mm 4mm;height:96mm;display:flex;flex-direction:column}
+      .cut{border-top:1px dashed #999;margin:0.5mm 0;position:relative}
+      .cut::before{content:"\\2702";position:absolute;left:4mm;top:-8px;color:#999;font-size:11px}
+      .hd{display:flex;justify-content:space-between;align-items:center;gap:8px;border-bottom:2px solid #1565C0;padding-bottom:1mm}
+      .conf{color:#c00;border:2px solid #c00;padding:0 5px;font-size:13px;font-weight:bold;letter-spacing:.5px}
+      .brand{display:flex;align-items:center;gap:6px;font-size:17px}.brand img{height:26px}
+      .doc{text-align:right;font-size:14px;font-weight:bold;color:#1565C0;line-height:1.15}
+      .meta{display:flex;justify-content:space-between;flex-wrap:wrap;gap:2px 10px;font-size:10.5px;margin:1.5mm 0}
+      .cols{display:flex;gap:3mm;flex:1;min-height:0}
+      .col{flex:1;border-collapse:collapse;font-size:10px;align-self:flex-start;width:100%}
+      .col th{background:#1565C0;color:#fff;text-align:left;padding:1px 4px;font-size:10.5px}
+      .col th .sub{color:#cfe0f5}
+      .col td.d{word-break:break-word}
+      .col th.n,.col td.n{text-align:right;white-space:nowrap}
+      .col td{border-bottom:1px solid #e3e3e3;padding:1px 4px;vertical-align:top}
+      .col td.n{font-weight:bold}.col td.in{color:#1565C0}.col td.de{color:#c00}
+      .col .wk{font-size:8.5px;color:#666;line-height:1.2}
+      .col tfoot td{border-top:1.5px solid #1565C0;border-bottom:none;font-weight:bold;background:#f3f6fb;font-size:10.5px}
+      .sum{width:56mm;display:flex;flex-direction:column;gap:1mm;font-size:10.5px}
+      .sr{display:flex;justify-content:space-between;border-bottom:1px solid #e3e3e3;padding:1px 0}
+      .sr .de{color:#c00}
+      .netbox{border:2px solid #1565C0;border-radius:4px;padding:1.5mm;text-align:center;background:#f3f6fb}
+      .netbox b{display:block;font-size:19px;color:#1565C0;line-height:1.2}
+      .fund{font-size:9px;color:#555;line-height:1.35;border-top:1px dashed #bbb;padding-top:1mm}
+      .ft{display:flex;gap:4mm;align-items:flex-end;margin-top:1mm}
+      .fn{font-size:8.5px;color:#555;line-height:1.35;flex:1}.fn b{color:#222}.fn .de{color:#c00}
+      .sig{width:46mm;text-align:center;font-size:9px;color:#555}
+      .sig .ln{border-bottom:1px dotted #666;height:7mm}
+      .sub{font-size:9px;color:#666;font-weight:normal}
       @media print{.bar{display:none}}</style></head>
-      <body><div class="bar"><button onclick="window.print()">🖨️ พิมพ์ (3 สลิป/แผ่น A4 แนวนอน)</button></div>${pages}</body></html>`; }
+      <body><div class="bar"><button onclick="window.print()">🖨️ พิมพ์ (${PER_SHEET} สลิป/แผ่น A4 แนวนอน)</button></div>${pages}</body></html>`; }
 
   // ---- Back-button support for full-screen SUB-VIEWS -------------------------------------------
   // These replace #app directly instead of going through GO(), so Back used to walk past them and

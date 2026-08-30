@@ -264,8 +264,12 @@ console.log('\n10) the OT list says what it comes to, and what was carried in');
   ok_('carried-over OT is named, with its months', /OT ยกมาจากเดือนก่อน/.test(app));
   ok_('...and says so plainly when there is none', /ไม่มี OT ยกมาจากเดือนก่อน/.test(app));
   // the carry is an AMOUNT; the hours behind it were never reported, so it could not be checked
-  ok_('the carry-over now carries hours as well as baht (engine)', /detail\.push\(\{month:m,amount:unpaid,hours:h\}\)/.test(eng));
-  ok_('...and Apps Script agrees', /detail\.push\(\{ month: m, amount: unpaid, hours: round2_\(\(approvedHrs\[m\] \|\| 0\) \* share\) \}\)/.test(R('src/Payroll.gs')));
+  // v261 added the hours; 2026-08-30 added the evenings themselves and what the month approved vs
+  // paid, so the shape grew. Assert the FIELDS, not the whole literal — pinning the literal is what
+  // made these two fail on a change that only added to them.
+  ok_('the carry-over carries hours as well as baht (engine)', /detail\.push\(\{month:m,amount:unpaid,hours:h,/.test(eng));
+  ok_('...and Apps Script agrees',
+    /detail\.push\(\{ month: m, amount: unpaid, hours: round2_\(\(approvedHrs\[m\] \|\| 0\) \* share\),/.test(R('src/Payroll.gs')));
   ok_('a payslip heading is a month, not an ISO timestamp', /สลิป \$\{esc\(staffName\(r\.StaffID\)\)\} · \$\{esc\(monthNameYear\(r\.Month\)\)\}/.test(app));
 }
 
