@@ -140,7 +140,17 @@ module.exports = function (files, srcDir) {
     computeHmacSha256Signature: (msg, key) => { const h = crypto.createHmac('sha256', key).update(String(msg), 'utf8').digest(); return Array.from(h).map(b => b > 127 ? b - 256 : b); },
     base64EncodeWebSafe: data => { const buf = Array.isArray(data) ? Buffer.from(data.map(b => b < 0 ? b + 256 : b)) : Buffer.from(String(data), 'utf8'); return buf.toString('base64url'); },
     base64DecodeWebSafe: str => Array.from(Buffer.from(String(str), 'base64url')).map(b => b > 127 ? b - 256 : b),
-    newBlob: bytes => ({ getDataAsString: () => Buffer.from((Array.isArray(bytes) ? bytes : []).map(b => b < 0 ? b + 256 : b)).toString('utf8') }),
+    /* base64Decode was missing, and driveifyImage_ swallows its own failures by design ("Drive
+     * failed → keep the base64, setValues may throw loudly, never silent"). So every test that put
+     * an image through a sheet write hit the catch and got the raw data URL back — the offload path
+     * that exists to keep photos under the 50,000-char cell limit had never once run in a test.
+     * Found 2026-08-30 while reproducing a registration failure. */
+    base64Decode: str => Array.from(Buffer.from(String(str), 'base64')).map(b => b > 127 ? b - 256 : b),
+    base64Encode: data => (Array.isArray(data) ? Buffer.from(data.map(b => b < 0 ? b + 256 : b)) : Buffer.from(String(data), 'utf8')).toString('base64'),
+    newBlob: (bytes, type, name) => ({
+      getDataAsString: () => Buffer.from((Array.isArray(bytes) ? bytes : []).map(b => b < 0 ? b + 256 : b)).toString('utf8'),
+      getName: () => name || '', getContentType: () => type || '',
+      getBytes: () => (Array.isArray(bytes) ? bytes : []) }),
     /* THE OLD VERSION KNEW FOUR FORMATS AND FELL BACK TO d.toISOString().
      *
      * That fallback is UTC and ISO — which is precisely the bug this project keeps having (a Date

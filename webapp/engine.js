@@ -79,7 +79,22 @@ function createAtomAPI(M, GROWTH_STD) {
   const todayLocal = () => { const d=new Date(); return d.getFullYear()+'-'+p2(d.getMonth()+1)+'-'+p2(d.getDate()); };
   const timeLocal = () => { const d=new Date(); return p2(d.getHours())+':'+p2(d.getMinutes()); };
   const stampLocal = () => todayLocal()+' '+timeLocal();
-  const fail = (code,msg)=>{ const e=new Error(msg); e.code=code; throw e; };
+  /* EVERY BUSINESS RULE THE ENGINE ENFORCES WAS BEING REPORTED AS A CRASH.
+   *
+   * This set `e.code`. src/Code.gs's dispatch_ reads `err.apiCode` — the property apiError_ sets in
+   * the .gs handlers — and falls back to 'INTERNAL' when it is missing. So an engine refusal left
+   * here with the right Thai message and the code 'INTERNAL' attached to it.
+   *
+   * The parent still read the right sentence, so nothing looked broken from the outside. What broke
+   * was the one report the school makes decisions from: "registerParent 82% INTERNALx9" in the
+   * health report of 2026-08-30 was nine parents being told they were ALREADY REGISTERED — the
+   * idempotency guard doing exactly its job — filed as nine server crashes. It is what sent this
+   * session looking for an outage that was never there.
+   *
+   * Both names are set. `code` is what the engine and the mock browser path have always used;
+   * `apiCode` is what GAS reads. Reproduced end to end through doPost before changing anything.
+   */
+  const fail = (code,msg)=>{ const e=new Error(msg); e.code=code; e.apiCode=code; throw e; };
   // month normalizer: Sheets coerces a 'YYYY-MM' cell to the date 'YYYY-MM-01', so ALWAYS compare
   // months via ym() (first 7 chars) — never raw ===, or bills/finance/OT-rollover silently mismatch.
   const ym = v => String(v==null?'':v).slice(0,7);
