@@ -172,7 +172,18 @@ var PERF_EXPECTED_ = {
   ON_LEAVE: 1,              // the family told us the child is away today
   SCHOOL_CLOSED: 1, NOT_STARTED: 1, STUDENT_PAUSED: 1,
   NO_PERMISSION: 1, READ_ONLY: 1,                  // asking for something this role may not have
-  ALREADY_PAID: 1, DUPLICATE: 1, NOT_FOUND: 1
+  ALREADY_PAID: 1, DUPLICATE: 1, NOT_FOUND: 1,
+  /* The onboarding guards. These became visible only once the engine's fail() started passing its
+   * code through (it was setting `code` where dispatch_ reads `apiCode`, so every one of them
+   * arrived as INTERNAL). They are rules working, not the app failing:
+   *   ALREADY_REGISTERED — the school already has this parent or child on file, so nothing is
+   *     created twice. This is the guard added after the registration form made 84 duplicate
+   *     parents; a parent re-tapping the button SHOULD hit it.
+   *   VERIFY_FAILED — the national id typed does not match the record being claimed. That is the
+   *     identity check refusing, and it is the only thing standing between a stranger and somebody
+   *     else's child.
+   *   AMOUNT_MISMATCH — the slip's total does not match what is owed. */
+  ALREADY_REGISTERED: 1, VERIFY_FAILED: 1, AMOUNT_MISMATCH: 1
 };
 
 /**
