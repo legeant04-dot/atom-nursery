@@ -112,7 +112,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.310'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.311'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -2855,6 +2855,12 @@
              : await api('uploadSlip',Object.assign({billingId:id},args));
       m.remove();
       const out=Number(r&&r.outstanding||0);
+      /* THE SLIP WAS ALREADY IN. A parent whose first attempt lost its reply presses the button
+         again — the commonest thing to do, and until now it produced "สลิปถูกใช้ไปแล้ว" and left
+         them stuck. The server recognises its own record and says so; thank them, do not scold
+         them, and do not count it twice. */
+      if(r&&r.alreadySubmitted) toast(EN()?'This slip was already received — nothing was sent twice'
+        :'สลิปใบนี้ระบบได้รับไว้แล้ว · ไม่ได้ส่งซ้ำแต่อย่างใด');
       if(kind==='teacherOt'){ confirmSaved(t('slip.submittedReview')); if(window.T_studentOT) T_studentOT(); }
       else { P_thanks(amt, out); GO('payment'); }
     }catch(e){err(e);} finally{ if(btn)btn.disabled=false; } };
@@ -3068,7 +3074,10 @@
     if(btn)btn.disabled=true;
     const sd=(m.querySelector('#slipDate')||{}).value||'', st=(m.querySelector('#slipTime')||{}).value||'';
     try{ const r=await api('payCombined',{items:_COMB.items, slipAmount:amt, fromQR, slipName:f.name, slipData:dataUrl, statedDate:sd, statedTime:st});
-      m.remove(); toast(EN()?`Slip submitted — ${r.count} items`:`ส่งสลิปแล้ว ${r.count} รายการ`); P_thanks(r.total,0); GO('payment'); }
+      m.remove(); toast(r.alreadySubmitted
+        ? (EN()?'This slip was already received — nothing was sent twice':'สลิปใบนี้ระบบได้รับไว้แล้ว · ไม่ได้ส่งซ้ำแต่อย่างใด')
+        : (EN()?`Slip submitted — ${r.count} items`:`ส่งสลิปแล้ว ${r.count} รายการ`));
+      P_thanks(r.total,0); GO('payment'); }
     catch(e){ err(e); if(btn)btn.disabled=false; } };
 
   // tabs to switch between linked children on a parent screen (calls fn(otherStudentId))
@@ -8088,6 +8097,12 @@
   window.A_slipDiagShow=(d)=>{ const c=d.counts||{};
       const why={'1011':EN()?'no such transaction at the bank':'ธนาคารไม่พบรายการโอน',
         '1012':EN()?'slip already used (sent twice)':'สลิปถูกใช้ไปแล้ว (ส่งซ้ำ)',
+        // SlipOK remembered this slip; THIS SCHOOL had never taken money against it. Almost always
+        // our own earlier attempt whose reply was lost — see paySlipDupCheck_ in src/PaySlips.gs.
+        // Accepted rather than refused, and flagged so an admin looks at it rather than the family
+        // being locked out of paying because of a write that failed on our side.
+        '1012_NEW':EN()?'SlipOK had seen this slip; the school had not — accepted, please eyeball it'
+          :'SlipOK เคยเห็นสลิปนี้ แต่โรงเรียนยังไม่เคยรับ — รับไว้แล้ว รบกวนตรวจด้วยตา',
         '1013':EN()?'amount differs from the bill':'ยอดในสลิปไม่ตรงกับยอดที่แจ้ง',
         '1014':EN()?'paid into a different account':'โอนเข้าบัญชีอื่น',
         // not a verdict on the slip at all — SlipOK refused to look. These are the ones that mean
@@ -8134,8 +8149,33 @@
               : v.slice(0,2)==='NO' ? `<b style="color:var(--warn)">⚠ ${esc(why[v.slice(3)]||v.slice(3))}</b>`
               : r.method==='cash' ? `<span class="muted">💵 ${EN()?'cash — nothing to check':'เงินสด — ไม่มีสลิปให้ตรวจ'}</span>`
               : `<b style="color:var(--bad)">— ${EN()?'NOT checked':'ไม่ได้ตรวจ'}</b>`;
-            return `<div class="list-item"><span><small class="muted">${esc(r.date||'-')}</small> · ${esc(baht(r.amount))}</span>${tag}</div>`; }).join('')}
+            // the bank's reference for the transfer — the only thing that says whether two slips are
+            // the SAME slip. Stored since the beginning; shown here for the first time.
+            const rf = r.ref?`<br><small class="muted" style="font-family:monospace">${EN()?'ref':'อ้างอิง'} ${esc(r.ref)}</small>`:'';
+            return `<div class="list-item"><span><small class="muted">${esc(r.date||'-')}</small> · ${esc(baht(r.amount))}${rf}</span>${tag}</div>`; }).join('')}
           <p class="muted" style="font-size:13px;margin:6px 0 0">${EN()?'A transfer slip that says NOT checked means verification did not run on it — that is the case to report. Cash rows never have a verdict.':'ถ้าสลิป<b>โอนเงิน</b>ขึ้นว่า “ไม่ได้ตรวจ” แปลว่าตอนนั้นระบบไม่ได้ตรวจจริงๆ — กรณีนี้ให้แจ้ง · ส่วนรายการเงินสดไม่มีผลตรวจอยู่แล้ว'}</p></div>`:''}
+        ${/* IS IT US, OR IS IT SLIPOK? Asked 2026-08-30 — "ทำไมระบบถึงแจ้งกลับมาว่าสลิปถูกใช้ไปแล้ว
+             ตลอดเวลา เพราะสลิปที่ผู้ปกครองแนบมาเป็นสลิปใหม่เสมอ". Two very different situations
+             produce the same "ส่งซ้ำ" count, and no screen could tell them apart. The bank reference
+             separates them, and it was in the sheet all along. */''}
+        ${(()=>{ const rf=d.refs; if(!rf||!(rf.withRef||rf.noRef)) return '';
+          const bad=rf.repeated>0;
+          return `<div class="card" style="padding:8px;background:${bad?'var(--warn-bg)':'var(--surface-2)'};${bad?'border-color:var(--warn-line)':''}">
+          <b style="font-size:13px">🧾 ${EN()?'Is “sent twice” real?':'“ส่งซ้ำ” จริงหรือเปล่า'}</b>
+          <p class="muted" style="font-size:13px;margin:4px 0">${EN()
+            ?'Every transfer has its own bank reference. If each objected slip carries a different one, they are different transfers and the objection is not ours to fix.'
+            :'การโอนแต่ละครั้งมี <b>เลขอ้างอิง</b> ของตัวเอง · ถ้าสลิปที่ถูกทักท้วงมีเลขอ้างอิงต่างกันหมด แปลว่าเป็นคนละรายการโอนจริง'}</p>
+          <div class="list-item"><span>${EN()?'Different transfers on file':'รายการโอนที่ต่างกัน'}</span><b>${rf.distinct||0}</b></div>
+          <div class="list-item"><span>${EN()?'Slips SlipOK could not read a reference from':'สลิปที่อ่านเลขอ้างอิงไม่ได้'}</span><b>${rf.noRef||0}</b></div>
+          <div class="list-item"><span>${bad?'⚠️ ':''}${EN()?'The SAME transfer submitted more than once':'รายการโอนเดียวกันถูกส่งซ้ำ'}</span><b style="color:${bad?'var(--warn)':'var(--ok)'}">${rf.repeated||0}</b></div>
+          ${bad?`<div style="font-size:13px;margin-top:6px">${EN()?'Check these against the bank app':'เอาเลขนี้ไปเทียบกับแอปธนาคารได้'}:<br>${
+              (rf.examples||[]).map(x=>`<span style="font-family:monospace">${esc(x.ref)}</span> <span class="muted">× ${x.times}</span>`).join('<br>')}</div>`
+            :`<p style="font-size:13px;margin:6px 0 0;color:var(--ok)">✅ ${EN()
+              ?'No transfer was submitted twice. Every “sent twice” objection came from SlipOK about a slip this school had not seen before — that is SlipOK’s own record, not a repeat here.'
+              :'ไม่มีรายการโอนไหนถูกส่งซ้ำเลย · ที่ SlipOK แจ้ง “ส่งซ้ำ” เป็นความจำฝั่ง SlipOK เอง ไม่ใช่การส่งซ้ำในระบบเรา'}</p>`}
+          <p class="muted" style="font-size:12px;margin:6px 0 0">${EN()
+            ?'A parent paying several bills with one transfer is one reference on several rows — that is not counted here.'
+            :'ผู้ปกครองที่จ่ายหลายรายการด้วยการโอนครั้งเดียว จะมีเลขอ้างอิงเดียวหลายแถว — ไม่ถูกนับว่าซ้ำ'}</p></div>`; })()}
         ${(d.byCode||[]).length?`<div class="card" style="padding:8px"><b style="font-size:13px">${EN()?'Why they were objected to':'เหตุผลที่ทักท้วง'}</b>
           ${d.byCode.map(x=>`<div class="list-item"><span>${esc(why[x.code]||x.code)} <small class="muted">(${esc(x.code)})</small></span><b>${x.count}</b></div>`).join('')}
           <p class="muted" style="font-size:13px;margin:6px 0 0">${EN()?'An objection is not proof of fraud — a re-sent slip or an amount typed differently both trigger one. Open the slip and judge it yourself.':'การทักท้วงไม่ได้แปลว่าสลิปปลอม — ส่งสลิปซ้ำ หรือกรอกยอดไม่ตรง ก็ขึ้นได้ · เปิดดูสลิปแล้วตัดสินเองได้เลย'}</p></div>`:''}

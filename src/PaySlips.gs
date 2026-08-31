@@ -84,6 +84,57 @@ function paySlipSum_(kind, refId, statuses) {
   return sum;
 }
 
+/**
+ * THE SLIP'S OWN IDENTITY, AND WHO OWNS IT HERE.
+ *
+ * `transRef` is the bank's reference for one transfer. It is unique per transaction, SlipOK reads it
+ * off the slip, and PAYMENT_SLIPS has stored it in TransRef since the beginning — it was simply
+ * never read back. That is the field that answers "is this a new slip?", and this is where it is
+ * asked.
+ *
+ * Reported 2026-08-30: SlipOK was answering "สลิปถูกใช้ไปแล้ว (ส่งซ้ำ)" — code 1012 — on slips
+ * parents had only just transferred. 70 of 72 rows carried a rejection.
+ *
+ * WHY WE CANNOT SIMPLY BELIEVE 1012. SlipOK's memory is its own: it spans this school's whole
+ * history with the service, and it is written the moment we ask it to check a slip — BEFORE the row
+ * reaches our sheet. The upload does Drive → SlipOK → write row, and the health report of the same
+ * day shows p95 at 17.5s with replies genuinely going missing (LOST_REQUEST / lostReply). A reply
+ * lost after SlipOK had already recorded the slip leaves the parent with an error, no row in our
+ * sheet, and a slip SlipOK will call a duplicate for ever. Pressing the button again cannot work,
+ * and it is the most obvious thing to do.
+ *
+ * So OUR SHEET is the authority on what this school has accepted. If we hold that ref we know what
+ * it was for; if we do not, then whatever SlipOK remembers, we have never taken money against it.
+ */
+function paySlipByRef_(ref) {
+  var r = String(ref || '').trim();
+  if (!r) return null;
+  return findObject_(paySlipsSheet_(), function (s) {
+    return String(s.TransRef || '').trim() === r && String(s.Status || '') !== 'REJECTED';
+  });
+}
+/** Human label for a payable, so a refusal can say WHAT the slip was already used for. */
+function paySlipRefLabel_(kind, refId) {
+  var k = { bill: 'บิลรายเดือน', ot: 'ค่ารับช้า (OT)', charge: 'ค่าใช้จ่ายเพิ่มเติม', prepay: 'ชำระล่วงหน้า' }[kind] || kind;
+  return k + ' ' + refId;
+}
+/**
+ * What to do about a slip SlipOK says it has seen before. Returns null when there is nothing to do.
+ *   { reuse: row }  — WE already took this slip for a DIFFERENT payable. Genuine reuse; refuse.
+ *   { same:  row }  — WE already took it for THIS payable. A re-submit; hand back what we recorded.
+ *   { orphan:true } — SlipOK remembers it, we have no record. Almost certainly our own registration
+ *                     from an attempt whose reply was lost. ACCEPT it and flag it for the admin:
+ *                     blocking the family out of a payment because our own write failed is the worst
+ *                     outcome available, and an admin still confirms every slip by hand.
+ */
+function paySlipDupCheck_(vr, kind, refId) {
+  if (!vr || String(vr.verified || '').indexOf('NO:1012') !== 0) return null;
+  var prev = paySlipByRef_(vr.ref);
+  if (!prev) return { orphan: true };
+  if (String(prev.RefKind) === String(kind) && String(prev.RefID) === String(refId)) return { same: prev };
+  return { reuse: prev };
+}
+
 function paySlipRecord_(kind, refId, p) {
   var tgt = paySlipTarget_(kind, refId);
   if (!tgt) throw apiError_('NOT_FOUND', 'ไม่พบรายการ');
@@ -91,6 +142,24 @@ function paySlipRecord_(kind, refId, p) {
   var drive = { url: '', fileId: '' };
   if (p.slipData) { var b64 = String(p.slipData).indexOf(',') >= 0 ? String(p.slipData).split(',')[1] : String(p.slipData); if (b64) drive = paySlipToDrive_(b64, p.slipName || ('slip-' + refId + '.jpg')); }
   var vr = paySlipVerify_(p, tgt.due);
+  /* "ส่งซ้ำ" decided against OUR records, not SlipOK's memory — see paySlipDupCheck_. */
+  var dup = paySlipDupCheck_(vr, kind, refId);
+  if (dup && dup.reuse) throw apiError_('SLIP_ALREADY_USED',
+    'สลิปใบนี้เคยใช้ชำระ ' + paySlipRefLabel_(dup.reuse.RefKind, dup.reuse.RefID) + ' ไปแล้ว (เลขอ้างอิง ' +
+    String(vr.ref || '-') + ') — กรุณาแนบสลิปของการโอนครั้งนี้');
+  if (dup && dup.same) {
+    // the same slip, for the same thing, again: the first one worked. Say so instead of failing —
+    // the parent is almost always pressing again because the first reply never came back.
+    var subm0 = paySlipSum_(kind, refId, ['SUBMITTED', 'CONFIRMED']);
+    var conf0 = paySlipSum_(kind, refId, ['CONFIRMED']);
+    return { ok: true, slipId: dup.same.SlipID, due: tgt.due, paidSoFar: subm0,
+      outstanding: Math.max(0, tgt.due - conf0), amountMatch: subm0 >= tgt.due,
+      verified: String(dup.same.Verified || ''), alreadySubmitted: true };
+  }
+  if (dup && dup.orphan) {
+    // SlipOK has it, we do not. Take it, and leave the admin a reason rather than a bare code.
+    vr.verified = 'NO:1012_NEW';
+  }
   var slipId = 'SL-' + Date.now();
   var sh0 = paySlipsSheet_();
   ensureColumns_(sh0, ['TransDate', 'TransTime', 'Sender', 'Method', 'StatedDate', 'StatedTime']);
@@ -172,6 +241,20 @@ function handlePayCombined(p) {
   var drive = { url: '', fileId: '' };
   if (p.slipData) { var b64 = String(p.slipData).indexOf(',') >= 0 ? String(p.slipData).split(',')[1] : String(p.slipData); if (b64) drive = paySlipToDrive_(b64, p.slipName || ('slip-combined.jpg')); }
   var vr = paySlipVerify_(p, total);
+  /* THE SAME RULE AS THE SINGLE-ITEM PATH, and it has to be here too or one slip would be refused on
+   * one screen and accepted on the other. A combined payment writes one row PER ITEM, all sharing
+   * this slip's ref — so "we already hold this ref" is checked against the FIRST of them, and a
+   * re-submit is answered with the group that was already recorded rather than a second set of rows. */
+  var prev = (String(vr.verified || '').indexOf('NO:1012') === 0) ? paySlipByRef_(vr.ref) : null;
+  if (prev) {
+    var mine = items.some(function (x) {
+      return String(prev.RefKind) === String(x.kind) && String(prev.RefID) === String(x.id); });
+    if (!mine) throw apiError_('SLIP_ALREADY_USED',
+      'สลิปใบนี้เคยใช้ชำระ ' + paySlipRefLabel_(prev.RefKind, prev.RefID) + ' ไปแล้ว (เลขอ้างอิง ' +
+      String(vr.ref || '-') + ') — กรุณาแนบสลิปของการโอนครั้งนี้');
+    return { ok: true, groupId: String(prev.SlipGroup || ''), total: total, count: items.length, alreadySubmitted: true };
+  }
+  if (String(vr.verified || '').indexOf('NO:1012') === 0) vr.verified = 'NO:1012_NEW';
   var groupId = 'SG-' + Date.now();
   var sh = paySlipsSheet_();
   ensureColumns_(sh, ['SlipGroup', 'TransDate', 'TransTime', 'StatedDate', 'StatedTime']);
@@ -439,13 +522,47 @@ function handleSlipDiag(p) {
     return { date: String(s.SubmittedDate || '').slice(0, 16), kind: String(s.RefKind || ''),
       amount: Number(s.Amount || 0), method: String(s.Method || 'transfer'),
       verdict: v.slice(0, 3) === 'YES' ? 'YES' : (v === 'MANUAL' ? 'MANUAL' : (v.slice(0, 2) === 'NO' ? v : '')),
-      hasImage: !!s.Url };
+      // the bank's own reference for the transfer. It is the ONLY thing that says whether two slips
+      // are the same slip, and it has been stored since the beginning without ever being shown.
+      ref: String(s.TransRef || ''), hasImage: !!s.Url };
   });
+
+  /* IS "ส่งซ้ำ" OUR PROBLEM OR SLIPOK'S? Asked 2026-08-30, and until now unanswerable from any
+   * screen — the report said 70 slips rejected and gave no way to tell WHICH of two very different
+   * situations it was:
+   *
+   *   every rejected slip carries a DIFFERENT ref  → each is a genuinely different transfer that
+   *       SlipOK is nevertheless calling a duplicate. That is the service or its configuration, not
+   *       this app, and no amount of changing our code would fix it.
+   *   the same ref appears again and again          → we are sending one slip to SlipOK more than
+   *       once, and the fault is ours.
+   *
+   * A combined payment legitimately writes one row per item sharing one ref, so those are counted
+   * separately — otherwise every family paying two bills at once would look like a duplicate.
+   */
+  var byRef = {}, noRef = 0, groupOf = {};
+  rows.forEach(function (s) {
+    var r = String(s.TransRef || '').trim();
+    if (!r) { noRef++; return; }
+    byRef[r] = (byRef[r] || 0) + 1;
+    var g = String(s.SlipGroup || '');
+    (groupOf[r] = groupOf[r] || {})[g] = 1;
+  });
+  var refKeys = Object.keys(byRef);
+  // a ref used more than once ACROSS DIFFERENT submissions — one combined payment is not a repeat
+  var repeats = refKeys.filter(function (r) { return byRef[r] > 1 && Object.keys(groupOf[r]).length > 1; });
+  var refs = {
+    withRef: refKeys.length, noRef: noRef,
+    distinct: refKeys.length, repeated: repeats.length,
+    // enough to check two of them against the bank app, and no more than that
+    examples: repeats.slice(0, 3).map(function (r) { return { ref: r, times: byRef[r] }; })
+  };
   return {
     configured: !!(url && key),
     working: !!live.alive,
     live: live,
     recent: recent,
+    refs: refs,
     // Whether an undo is available at all. The key itself is never returned — only that one exists.
     hasPrevKey: !!getConfig_('SlipOK_ApiKeyPrev', ''),
     url: url ? String(url).replace(/\/[^/]*$/, '/…') : '',
