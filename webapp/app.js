@@ -112,7 +112,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.313'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.314'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -1587,6 +1587,23 @@
   function monthNameYear(v){ const s=String(v||''); const m=/^(\d{4})-(\d{1,2})/.exec(s); let y,mo; if(m){y=+m[1];mo=+m[2]-1;} else {const d=new Date(s);y=d.getFullYear();mo=d.getMonth();} if(mo<0||mo>11)return s; return EN()?`${EN_MONTHS[mo]} ${y}`:`${TH_MONTHS[mo]} ${y+543}`; }
   // date → "25 กรกฎาคม 2569" / "25 July 2026"
   function fullDate(v){ const d=new Date(v||todayStr()); if(isNaN(d))return String(v||''); const dd=d.getDate(),mo=d.getMonth(),y=d.getFullYear(); return EN()?`${dd} ${EN_MONTHS[mo]} ${y}`:`${dd} ${TH_MONTHS[mo]} ${y+543}`; }
+  /* A DATE OF BIRTH, WRITTEN OUT — "12 ธ.ค. 2566" / "12 Dec 2023".
+   *
+   * Asked 2026-08-31 for both the teacher's class screen and the admin's student list, which showed
+   * "11-07" and nothing at all. "11-07" is a date only if you already know which half is the month,
+   * and a birthday that has to be decoded is one nobody checks.
+   *
+   * The MONTH IS A WORD, so it cannot be read the wrong way round; the year follows the rest of the
+   * app (Buddhist in Thai, as monthNameYear and fullDate already do). Short month names because this
+   * sits inline beside a child's name on a phone — the long form pushed the name off the row. The
+   * FULL form is still there on hover/long-press, and on the roomier screens fullDate is unchanged.
+   */
+  const TH_MON_SHORT=['ม.ค.','ก.พ.','มี.ค.','เม.ย.','พ.ค.','มิ.ย.','ก.ค.','ส.ค.','ก.ย.','ต.ค.','พ.ย.','ธ.ค.'];
+  const EN_MON_SHORT=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  function dobDate(v){ const s=String(v||'').slice(0,10); if(!/^\d{4}-\d{2}-\d{2}$/.test(s)) return '';
+    const d=new Date(s+'T00:00:00'); if(isNaN(d)) return '';
+    const dd=d.getDate(), mo=d.getMonth(), y=d.getFullYear();
+    return EN()?`${dd} ${EN_MON_SHORT[mo]} ${y}`:`${dd} ${TH_MON_SHORT[mo]} ${y+543}`; }
   // student leave label: "ประเภท — เหตุผล" (type first, reason appended when present)
   const stdLeaveDesc = l => { const ty=(l&&l.Type||'').trim(), rs=(l&&l.Reason||'').trim(); return ty&&rs ? ty+' — '+rs : (ty||rs||'-'); };
   function waitCard(date){ return `<div class="card" style="text-align:center;color:var(--warn-ink);background:var(--warn-bg);border-color:var(--warn-line)">⏳ รอคุณครูส่งข้อมูลของวันที่ ${ddmmyyyy(date)}</div>`; }
@@ -3786,7 +3803,9 @@
         row(EN()?'Nickname':'ชื่อเล่น',(d.nick||'')+(d.nickEN?' / '+d.nickEN:''))+
         row(EN()?'Full name (TH)':'ชื่อ-สกุล (ไทย)',d.name)+
         row(EN()?'Full name (EN)':'ชื่อ-สกุล (อังกฤษ)',d.nameEN)+
-        row(EN()?'Date of birth':'วันเกิด',d.dob?`${ddmmyyyy(d.dob)} (${ageYM(d.dob)})`:'')+
+        // same format as every other place a date of birth is shown — "12-12-2023" and
+        // "12 ธ.ค. 2566" on two screens about the same child is how a school mistrusts its own data
+        row(EN()?'Date of birth':'วันเกิด',d.dob?`${dobDate(d.dob)} (${ageYM(d.dob)})`:'')+
         row(EN()?'Gender':'เพศ',d.gender)+
         row(EN()?'Blood type':'กรุ๊ปเลือด',(d.bloodType||'')+(d.rh?' '+d.rh:''))+
         row(EN()?'Weight / height':'น้ำหนัก / ส่วนสูง',(d.weight?d.weight+' kg':'—')+' · '+(d.height?d.height+' cm':'—')+(d.measuredAt?` (${ddmmyyyy(d.measuredAt)})`:''))+
@@ -5815,7 +5834,7 @@
       ${list.length ? list.map(k=>{ const past = isThisMonth && k.day<dayNow, isToday = isThisMonth && k.day===dayNow;
         return `<div class="list-item"${past?' style="opacity:.5"':''}>
           <span>${isToday?'🎉 ':''}<b>${esc(dnick(k))}</b> <small class="muted">${esc(k.class||'')}</small></span>
-          <span style="text-align:right"><b>${esc(ddmmyyyy(k.dob).slice(0,5))}</b>${k.turning?` <small class="muted">${EN()?'turns':'ครบ'} ${k.turning} ${EN()?'yrs':'ขวบ'}</small>`:''}</span></div>`; }).join('')
+          <span style="text-align:right"><b>${esc(dobDate(k.dob))}</b>${k.turning?`<br><small class="muted">${EN()?'turns':'ครบ'} ${k.turning} ${EN()?'yrs':'ขวบ'}</small>`:''}</span></div>`; }).join('')
         : `<small class="muted">${EN()?'No birthdays this month':'เดือนนี้ไม่มีนักเรียนเกิด'}</small>`}</div>`;
   }
   /**
@@ -5839,15 +5858,21 @@
    * THE CHILD'S BIRTHDAY, AFTER THEIR NAME — asked 2026-08-29.
    *
    * The teacher screens showed an AGE ("2 ปี 3 เดือน"), which answers a different question: a teacher
-   * planning a party, or working out who is about to move up a class, needs the DATE. Day and month
-   * only, because the year is already in the age beside it and a full date on every row is noise.
-   * The day itself is marked, since that is the one a teacher must not miss.
+   * planning a party, or working out who is about to move up a class, needs the DATE. The day itself
+   * is marked, since that is the one a teacher must not miss.
+   *
+   * It was day-and-month only ("11-07") on the grounds that the year was already in the age beside
+   * it. Asked to change 2026-08-31, and rightly: "11-07" is a date only to somebody who already
+   * knows which half is the month, and the age is not always on the same row. The month is a word
+   * now, and the year is there (see dobDate).
    */
   function bdayTag(dob){ const d=String(dob||'').slice(0,10); if(!/^\d{4}-\d{2}-\d{2}$/.test(d)) return '';
     const today=todayStr();
     const isToday = d.slice(5)===today.slice(5);
+    // the whole date, month as a word — "11-07" was a date only to somebody who already knew which
+    // half was the month (asked 2026-08-31). The long form stays on hover.
     return `<small class="pill ${isToday?'ok':''}" style="font-size:11px;margin-left:4px" title="${esc(fullDate(d))}">${
-      isToday?'🎉':'🎂'} ${esc(ddmmyyyy(d).slice(0,5))}</small>`; }
+      isToday?'🎉':'🎂'} ${esc(dobDate(d))}</small>`; }
   /**
    * Who is due a DSPM assessment. The reminder is the ONLY thing that makes a bi-monthly assessment
    * happen on time, and it clears itself: finish the band and the child drops off this list.
@@ -6768,7 +6793,7 @@
           return `<div class="list-item stack" data-k="${esc((p.NameTH+' '+(p.NameEN||'')+' '+(p.Nickname||'')+' '+(p.NicknameEN||'')+' '+(p.Phone||'')+' '+String(p.Relationship||'').replace(/<[^>]*>/g,'')).toLowerCase())}"><span style="display:flex;gap:8px;align-items:center">${personAvatar(p)}<span><b>${esc(parentDisp(p))}</b> ${lcBadge} <small class="muted">${[p.NameTH||p.NameEN?esc(titledName(p)):'',relLabel(p.Relationship),p.Phone?phoneLink(p.Phone):(EN()?'no phone':'ไม่มีเบอร์โทร')].filter(Boolean).join(' · ')}</small></span></span><span class="acts"><button class="btn sm outline" onclick="A_parentLinks('${p.ParentID}')">🔗 ${EN()?'Children':'บุตรที่ผูก'}</button><button class="btn sm outline" onclick="A_parentForm('${p.ParentID}')">✏️ ${EN()?'Edit':'แก้ไข'}</button><button class="btn sm pink" onclick="A_delParent('${p.ParentID}',this)">🗑️ ${EN()?'Delete':'ลบ'}</button></span></div>`; }).join('')}</div></div>
       <div class="card secw" id="sec-students">${secHead('👶',EN()?'Students':'นักเรียน',students.length,`<span class="row"><button class="btn sm outline" onclick="event.stopPropagation();A_issueCombined()">🧾 ${EN()?'Issue (select)':'ออกบิล (เลือก)'}</button><button class="btn sm" onclick="event.stopPropagation();A_genBills()">📅 ${esc(t('bill.genTitle'))}</button></span>`)}
         <div class="secbody" hidden>
-        ${students.map(s=>`<div class="list-item stack" data-k="${esc((s.NameTH+' '+(s.NameEN||'')+' '+(s.Nickname||'')+' '+(s.NicknameEN||'')+' '+(s.Class||'')+' '+(s.NationalID||'')).toLowerCase())}"><span>${studentAvatar(s)} <b>${esc(dispNick(s))}</b> ${isPaused(s)?`<span class="pill wait" style="font-size:11px">⏸️ ${EN()?'on leave':'ลาชั่วคราว'}</span>`:''} <small class="muted">${nmSub(s)?esc(nmSub(s))+" · ":""}${esc(s.Class)} · ${esc(ageYM(s.DOB))}${s.InsuranceHas?' · 🛡️':''}</small><br><small class="muted">${EN()?'ID':'บัตร'}: ${esc(s.NationalID||'-')}</small>${isPaused(s)?`<br><small style="color:var(--warn)">⏸️ ${esc(pauseSpan(s))}</small>`:''}</span><span class="acts"><button class="btn sm outline" onclick="A_studentForm('${s.StudentID}')">✏️ ${EN()?'Edit':'แก้ไข'}</button><button class="btn sm" onclick="A_issueBill('${s.StudentID}')">🧾 ${EN()?'Bill':'ออกบิล'}</button><button class="btn sm" onclick="A_charges('${s.StudentID}')">💵 ${EN()?'Charges':'เรียกเก็บ'}</button><button class="btn sm outline" onclick="A_stuMore('${s.StudentID}')" aria-label="${EN()?'More actions':'การทำงานเพิ่มเติม'}" title="${EN()?'More actions':'การทำงานเพิ่มเติม'}">⋯</button></span></div>`).join('')}</div></div>`;
+        ${students.map(s=>`<div class="list-item stack" data-k="${esc((s.NameTH+' '+(s.NameEN||'')+' '+(s.Nickname||'')+' '+(s.NicknameEN||'')+' '+(s.Class||'')+' '+(s.NationalID||'')).toLowerCase())}"><span>${studentAvatar(s)} <b>${esc(dispNick(s))}</b> ${isPaused(s)?`<span class="pill wait" style="font-size:11px">⏸️ ${EN()?'on leave':'ลาชั่วคราว'}</span>`:''} <small class="muted">${nmSub(s)?esc(nmSub(s))+" · ":""}${esc(s.Class)} · ${esc(ageYM(s.DOB))}${s.InsuranceHas?' · 🛡️':''}</small><br><small class="muted">${s.DOB?`🎂 ${esc(dobDate(s.DOB))} · `:''}${EN()?'ID':'บัตร'}: ${esc(s.NationalID||'-')}</small>${isPaused(s)?`<br><small style="color:var(--warn)">⏸️ ${esc(pauseSpan(s))}</small>`:''}</span><span class="acts"><button class="btn sm outline" onclick="A_studentForm('${s.StudentID}')">✏️ ${EN()?'Edit':'แก้ไข'}</button><button class="btn sm" onclick="A_issueBill('${s.StudentID}')">🧾 ${EN()?'Bill':'ออกบิล'}</button><button class="btn sm" onclick="A_charges('${s.StudentID}')">💵 ${EN()?'Charges':'เรียกเก็บ'}</button><button class="btn sm outline" onclick="A_stuMore('${s.StudentID}')" aria-label="${EN()?'More actions':'การทำงานเพิ่มเติม'}" title="${EN()?'More actions':'การทำงานเพิ่มเติม'}">⋯</button></span></div>`).join('')}</div></div>`;
   };
   // navigate to an admin sub-screen (kept off the bottom nav)
   var ADMIN_SUB_organize, ADMIN_SUB_holidays, ADMIN_SUB_importExport;
