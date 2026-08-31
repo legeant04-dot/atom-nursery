@@ -183,7 +183,10 @@ var PERF_EXPECTED_ = {
    *     identity check refusing, and it is the only thing standing between a stranger and somebody
    *     else's child.
    *   AMOUNT_MISMATCH — the slip's total does not match what is owed. */
-  ALREADY_REGISTERED: 1, VERIFY_FAILED: 1, AMOUNT_MISMATCH: 1
+  ALREADY_REGISTERED: 1, VERIFY_FAILED: 1, AMOUNT_MISMATCH: 1,
+  // a slip this school has already taken money against, offered for something else — the reuse
+  // check refusing, which is the point of storing the bank reference at all
+  SLIP_ALREADY_USED: 1
 };
 
 /**
