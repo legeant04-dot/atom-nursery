@@ -171,6 +171,7 @@ var PERF_EXPECTED_ = {
   JOURNAL_LOCKED: 1,        // already sent to the parent
   ON_LEAVE: 1,              // the family told us the child is away today
   SCHOOL_CLOSED: 1, NOT_STARTED: 1, STUDENT_PAUSED: 1,
+  STUDENT_DAY_OFF: 1,       // this child's agreed weekly day off — the arrangement, not a fault
   NO_PERMISSION: 1, READ_ONLY: 1,                  // asking for something this role may not have
   ALREADY_PAID: 1, DUPLICATE: 1, NOT_FOUND: 1,
   /* The onboarding guards. These became visible only once the engine's fail() started passing its

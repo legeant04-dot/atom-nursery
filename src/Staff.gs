@@ -140,8 +140,25 @@ function handleSaveStudent(p) {
     'BillingDay',
     // ...and the same is true of this one: without the column, ticking the box would appear to save
     // and change nothing at all, which on a safety rule is the worst of the three possible outcomes
-    'GeoExempt']); } catch (e) {}
+    'GeoExempt',
+    // ...and this one too, for the same reason: without the column the day-off would appear to save
+    // and the child would keep being marked absent every Wednesday
+    'OffDays']); } catch (e) {}
   var row = mapName_(p.data || {});
+  /* ONLY 1–5, AND ONLY EVER A CLEAN LIST. This decides whether a child is expected at school, so
+   * whatever the form sends is normalised here rather than trusted: numbers outside Monday–Friday
+   * are dropped (the weekend is already closed for everyone), duplicates collapse, and the order is
+   * fixed so two identical settings cannot look different in the sheet. An empty result writes an
+   * empty cell, which is how "comes every day" is stored. */
+  if (row.OffDays !== undefined) {
+    var seenD = {}, keepD = [];
+    String(row.OffDays == null ? '' : row.OffDays).split(/[,\s]+/).forEach(function (x) {
+      var n = parseInt(x, 10);
+      if (n >= 1 && n <= 5 && !seenD[n]) { seenD[n] = 1; keepD.push(n); }
+    });
+    keepD.sort();
+    row.OffDays = keepD.join(',');
+  }
   var st = findObject_(sh, function (s) { return String(s.StudentID) === String(p.studentId); });
   if (!st) throw apiError_('NOT_FOUND', 'ไม่พบนักเรียน ' + p.studentId);
   /* THE REST OF THIS FORM IS OPEN TO A HEAD TEACHER; THIS ONE FIELD IS NOT.
@@ -160,6 +177,14 @@ function handleSaveStudent(p) {
       try { logAudit(p.adminId || 'admin', nowEx ? 'STUDENT_GEO_EXEMPT_ON' : 'STUDENT_GEO_EXEMPT_OFF',
         'STUDENTS', String(p.studentId)); } catch (e) {}
     }
+  }
+  /* CHANGING WHICH DAYS A CHILD COMES IS A DECISION TOO. It takes them off a class list, stops a
+   * teacher being asked for a report about them, and stops the day counting as an absence — so
+   * "who changed this, and when" belongs in the log beside the geofence exemption, for the same
+   * reason: a rule you are allowed to switch off needs a name against the switching. */
+  if (row.OffDays !== undefined && String(st.OffDays || '') !== String(row.OffDays || '')) {
+    try { logAudit(p.adminId || 'admin', 'STUDENT_OFFDAYS', 'STUDENTS',
+      String(p.studentId) + ' ' + (String(st.OffDays || '') || '-') + '→' + (String(row.OffDays || '') || '-')); } catch (e) {}
   }
   updateRow_(sh, st._row, row);
   recCacheBust_('STUDENTS');

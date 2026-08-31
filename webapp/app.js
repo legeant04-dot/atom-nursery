@@ -112,7 +112,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.311'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.312'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -1629,6 +1629,14 @@
         <br><small class="muted">${esc(EN()?(sd.reasonEN||'Holiday'):(sd.reason||'วันหยุด'))}${
           sd.partial?` <b>${esc((sd.holStart||'00:00')+'-'+(sd.holEnd||'23:59'))}</b>`:''}
         <br>${EN()?'There is no daily journal on a day the children are not in.':'วันที่ไม่มีการเรียนการสอน จะไม่มีสมุดบันทึกประจำวัน'}</small></div>`;
+    /* THE CHILD'S OWN REGULAR DAY OFF. After the school-holiday card and before the one-off leave:
+       the school's holiday applies to everybody and is the more useful thing to be told, and this
+       is a standing arrangement rather than something the family filed today. Same reason the other
+       three cards exist — "รอคุณครูส่งข้อมูล" on a day nobody was expected is a false alarm. */
+    if(kid.dayOff) return `<div class="card" style="text-align:center;background:var(--blue-bg);border-color:var(--blue-line)">
+      <b style="color:var(--blue)">📅 ${EN()?'A regular day off':'วันหยุดประจำของน้อง'}</b>
+      <br><small class="muted">${EN()?`${kid.offDaysEN||''} — no school for this child.`:`ไม่มาเรียนทุก${esc(kid.offDays||'')}`}
+      <br>${EN()?'No journal on a day the child is not due in, and it is not counted as an absence.':'วันที่ไม่ได้มาเรียนตามที่ตกลงไว้ จะไม่มีสมุดบันทึก และไม่นับเป็นวันขาด'}</small></div>`;
     if(kid.onLeave) return `<div class="card" style="text-align:center;background:var(--warn-bg);border-color:var(--warn-line)">
       <b style="color:var(--warn)">🏖️ ${EN()?'On leave today':'ลาวันนี้'}</b>
       <br><small class="muted">${esc(kid.leaveType||'')}${kid.leaveReason?' · '+esc(kid.leaveReason):''}${kid.leaveType||kid.leaveReason?'<br>':''}${EN()?'No journal for a day the child was not in.':'วันที่ไม่ได้มาเรียนจะไม่มีสมุดบันทึก'}</small></div>`;
@@ -1793,6 +1801,15 @@
         ? `<div class="card" style="background:var(--surface-3);border-color:var(--line-strong);margin-top:12px;padding:10px;text-align:center">
              <b>🏖️ ${window._SCHOOLDAY.partial?(EN()?'School closed just now':'ขณะนี้โรงเรียนหยุด'):(EN()?'School closed today':'วันนี้โรงเรียนหยุด')}</b>
              <br><small class="muted">${esc(EN()?(window._SCHOOLDAY.reasonEN||'Holiday'):(window._SCHOOLDAY.reason||'วันหยุด'))}${window._SCHOOLDAY.partial?` <b>${esc((window._SCHOOLDAY.holStart||'00:00')+'-'+(window._SCHOOLDAY.holEnd||'23:59'))}</b>`:''} · ${window._SCHOOLDAY.partial?(EN()?'the buttons return after that time':'หลังเวลานี้จะกลับมาใช้ปุ่มได้ตามปกติ'):(EN()?'no drop-off or pick-up to record':'ไม่ต้องบันทึกส่ง-รับ')}</small></div>`
+        : k.dayOff
+        /* THIS CHILD'S OWN REGULAR DAY OFF — four days a week, away every Wednesday (2026-08-30).
+         * After the school holiday, which applies to everyone, and before a one-off leave, which the
+         * family filed today. Per child, like the others: a sibling who does come on Wednesdays keeps
+         * their buttons on the very same screen. */
+        ? `<div class="card" style="background:var(--blue-bg);border-color:var(--blue-line);margin-top:12px;padding:10px;text-align:center">
+             <b style="color:var(--blue)">📅 ${EN()?'A regular day off':'วันหยุดประจำของน้อง'}</b>
+             <br><small class="muted">${EN()?esc(k.offDaysEN||''):`ไม่มาเรียนทุก${esc(k.offDays||'')}`}</small>
+             <br><small class="muted">${EN()?'Nothing to record today, and it is not counted as an absence.':'วันนี้ไม่ต้องบันทึกส่ง-รับ · และไม่นับเป็นวันขาด'}</small></div>`
         : k.onLeave
         // Away today. The family told us themselves, so the leave IS the record of this child's day
         // — offering drop-off / pick-up would only produce a refusal (ON_LEAVE). This is PER CHILD:
@@ -3817,7 +3834,17 @@
       api('schoolDay',{}).then(d=>{ window._SCHOOLDAY=d; return d; }).catch(()=>null)]);
     const jdone=journalDoneMap(jstat); setAlerts(al);
     T_STU={}; cl.students.forEach(s=>{ T_STU[s.StudentID]=s; });
-    app.innerHTML=`<h2 class="page">👶 ${esc(cl.class.ClassName)}</h2>${classSwitcher(cl)}<div id="tbday">${birthdayCard(al,{nav:true})}</div>`+cl.students.map(s=>{
+    /* WHO IS MISSING FROM THIS LIST, AND WHY. A child on their regular day off is off the class list
+       entirely — no name in front of a teacher who has nothing to do about it, and nothing counted
+       against "is everyone recorded?". But a class that is quietly one child short is its own kind
+       of wrong, so the arrangement is stated once, at the top, instead. */
+    const offCard = (cl.offToday&&cl.offToday.length)
+      ? `<div class="card" style="background:var(--surface-2);padding:8px">
+           <b style="font-size:13px">📅 ${EN()?'Not in today, by arrangement':'วันนี้ไม่มาเรียนตามที่ตกลงไว้'}</b>
+           ${cl.offToday.map(o=>`<div class="list-item" style="padding:3px 0"><span>${esc(o.nick||o.name)}</span><small class="muted">${EN()?'off':'หยุดทุก'} ${esc(o.days)}</small></div>`).join('')}
+           <small class="muted">${EN()?'No check-in and no daily journal for them today, and it is not an absence.':'ไม่ต้องเช็คอินและไม่ต้องบันทึกประจำวัน · ไม่นับเป็นวันขาด'}</small></div>`
+      : '';
+    app.innerHTML=`<h2 class="page">👶 ${esc(cl.class.ClassName)}</h2>${classSwitcher(cl)}<div id="tbday">${birthdayCard(al,{nav:true})}</div>${offCard}`+cl.students.map(s=>{
       const attTag = s.onLeave
         ? `<small class="pill warn" style="margin-left:4px">🏖️ ${esc(s.leaveType||(EN()?'on leave':'ลา'))}${s.leaveReason?' · '+esc(s.leaveReason):''}</small>`
         : (s.inToday?`<small class="pill ok" style="margin-left:4px">${EN()?'in':'มา'} ${esc(s.inTime||'')}</small>`:'');
@@ -7204,6 +7231,20 @@
         ? 'For a phone that cannot report a real location — it insists it is kilometres away while the parent is at the gate. Everyone else keeps the distance check. Every use is recorded.'
         : 'ใช้เฉพาะกรณีมือถือของผู้ปกครองแจ้งตำแหน่งผิดพลาดจนแก้ไม่ได้ (ยืนอยู่หน้าโรงเรียนแต่ระบบแจ้งว่าอยู่ไกลเป็นกิโลเมตร) · นักเรียนคนอื่นยังตรวจระยะตามปกติ · ระบบบันทึกการใช้งานทุกครั้ง'}</small>
       <hr style="border:none;border-top:1px solid var(--line);margin:8px 0">`:''}
+      ${/* WHICH DAYS THIS CHILD COMES. Asked 2026-08-30 for a family who agreed four days a week,
+           away every Wednesday. Recorded as the days they DO NOT come, so an untouched record means
+           "here every day" and none of the 34 existing children had to be filled in first.
+           Monday–Friday only: the weekend is already closed for everyone, and a box that cannot
+           change anything is worse than no box. */''}
+      <div class="card" style="background:var(--surface-2);padding:8px">
+        <b style="font-size:13px">📅 ${EN()?'Regular days off':'วันหยุดประจำของนักเรียน'}</b>
+        <p class="muted" style="font-size:13px;margin:2px 0 6px">${EN()
+          ? 'Tick the days this child regularly does NOT come. Leave all unticked if they come every day. On a ticked day they are not on the class list, no one checks them in, no daily report is expected, and it does not count as an absence. School holidays still apply as usual, and the monthly fee is unchanged.'
+          : 'ติ๊กวันที่นักเรียน<b>ไม่มาเรียนเป็นประจำ</b> · ไม่ติ๊กเลย = มาทุกวัน<br>วันที่ติ๊กไว้: ไม่มีชื่อในรายชื่อห้อง · ไม่ต้องเช็คอิน · คุณครูไม่ต้องบันทึกประจำวัน · <b>ไม่นับเป็นวันขาด</b><br>วันหยุดของโรงเรียนยังใช้ตามปกติ · <b>ค่าเทอมคิดเต็มเหมือนเดิม</b>'}</p>
+        <div class="row" style="gap:6px;flex-wrap:wrap">${[1,2,3,4,5].map(n=>{
+          const on=String(s.OffDays==null?'':s.OffDays).split(/[,\s]+/).indexOf(String(n))>=0;
+          return `<label class="chk-inline" style="margin:0"><input type="checkbox" class="stf_off" value="${n}" ${on?'checked':''}/>
+            <span>${EN()?['','Mon','Tue','Wed','Thu','Fri'][n]:['','จันทร์','อังคาร','พุธ','พฤหัสบดี','ศุกร์'][n]}</span></label>`; }).join('')}</div></div>
       <label class="field" style="display:flex;align-items:center;gap:8px"><input type="checkbox" id="stf_Ins" ${s.InsuranceHas?'checked':''} style="width:auto" onchange="document.getElementById('insBox').hidden=!this.checked"/> 🛡️ ${esc(t('ins.has'))}</label>
       <div id="insBox" ${s.InsuranceHas?'':'hidden'}>
         <div class="grid2">${f('InsurancePolicyNo',t('ins.policy'),s.InsurancePolicyNo)}${f('InsuranceCompany',t('ins.company'),s.InsuranceCompany)}</div>
@@ -7389,6 +7430,9 @@
      * 'YES' / '' rather than true/false: the sheet stores text, and the server reads it with a
      * /^(yes|true|1|y)$/i test so a cell somebody types 'Y' into by hand still means what it says. */
     const _ge=m.querySelector('#stf_GeoExempt'); if(_ge) data.GeoExempt=_ge.checked?'YES':'';
+    // sent even when nothing is ticked — an empty string is how "comes every day" is stored, and
+    // omitting the field would make un-ticking the last box do nothing at all
+    { const _od=[...m.querySelectorAll('.stf_off')]; if(_od.length) data.OffDays=_od.filter(x=>x.checked).map(x=>x.value).join(','); }
     const stp=photoVal(m,'stf_Photo'); if(stp) data.Photo=stp;
     const stc=photoVal(m,'stf_InsCard'); if(stc) data.InsuranceCardImage=stc;
     // adminId so the audit line for GeoExempt names a person rather than the word "admin"
