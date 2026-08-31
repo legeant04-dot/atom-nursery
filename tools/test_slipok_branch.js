@@ -186,10 +186,18 @@ console.log('\n10) The speed report can leave the phone');
   // v255: two lines that stop the report lying to us
   ok_('it says when the window is shorter than it claims', /A_perfCopy[\s\S]{0,1200}'WINDOW: capped at '/.test(app));
   ok_('...and separates refusals from failures', /A_perfCopy[\s\S]{0,1600}'REFUSED \(working as intended\): '/.test(app));
-  // the window grows as the report learns to say more (v255 WINDOW/REFUSED, v256 calls-per-visit);
-  // what is pinned is that every heading is still built inside A_perfCopy
+  /* THE FUNCTION, not a character count. This was `A_perfCopy[\s\S]{0,3000}` and the report keeps
+   * learning to say more — v255 added WINDOW and REFUSED, v256 calls-per-visit, v313 the requests /
+   * actions split — so every time it grew, the last heading fell out of the window and this went red
+   * over a comment. The claim is "every heading is still built inside A_perfCopy"; measure that. */
+  const copyFn = (function () {
+    const i = app.indexOf('window.A_perfCopy');
+    const j = app.indexOf('\n  window.', i + 10);
+    return i < 0 ? '' : app.slice(i, j < 0 ? app.length : j);
+  })();
+  ok_('A_perfCopy was found', copyFn.length > 500);
   ['SLOWEST', 'SCREENS', 'PROBLEMS', 'FAILING', 'DEVICES', 'BOOT'].forEach(k =>
-    ok_('the text includes ' + k, new RegExp("A_perfCopy[\\s\\S]{0,3000}'" + k).test(app)));
+    ok_('the text includes ' + k, copyFn.indexOf("'" + k) >= 0));
 }
 
 console.log('\n' + (fail ? 'FAILED ' + fail + ' / ' : 'ALL PASS ') + (pass + fail) + ' checks');
