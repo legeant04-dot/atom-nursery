@@ -64,7 +64,24 @@ SCHEMA[WB.MAIN] = {
                        * it is fenced as before. Granting and revoking are both written to the audit
                        * log, because "who opened this up, and when" is the whole point of a rule
                        * you are allowed to switch off. */
-                      'GeoExempt'],
+                      'GeoExempt',
+                      /* THE DAYS OF THE WEEK THIS CHILD REGULARLY DOES NOT COME.
+                       *
+                       * A family agreed four days a week, away every Wednesday (2026-08-30). On that
+                       * day the child is not absent, is not on the class list, is not checked in by
+                       * anyone, and no teacher owes a report for them.
+                       *
+                       * Comma-separated weekday NUMBERS, Monday=1 … Friday=5 — the same numbering
+                       * JavaScript's getDay() uses, so no table sits between the sheet and the
+                       * comparison. Blank means the child comes every day, which is what all 34
+                       * existing records mean without being touched: storing the days they DO come
+                       * would have needed every record filled in first, and any one that was missed
+                       * would have turned a child into someone who never comes.
+                       *
+                       * Only 1–5 are honoured. The weekend is already closed for everyone, and a
+                       * setting that looks like it does something and cannot is worse than none.
+                       * Tuition is unaffected — the school charges the full monthly rate. */
+                      'OffDays'],
   CLASSES:           ['ClassID', 'ClassName', 'TeacherID', 'AgeRange', 'Capacity'],
   // Photo / RegisterPhotoUrl = the MANDATORY live-capture photo taken at registration ("New Register Photo"
   // Drive folder), used as an identity/security check when signing in.

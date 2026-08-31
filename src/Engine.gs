@@ -840,6 +840,52 @@ function createAtomAPI(M, GROWTH_STD) {
     if(from && d<from) return false;
     if(to && d>=to) return false;                // the return date IS a school day → back on the roster
     return true; }
+  /* ===== A REGULAR DAY OFF IN THE WEEK ==========================================================
+   * Asked 2026-08-30: a new child comes four days a week and is away every Wednesday. They are not
+   * absent, nobody checks them in, no teacher owes a daily report for them, and they do not appear
+   * on Wednesday's lists at all.
+   *
+   * STORED AS THE DAYS THEY DO NOT COME, not the days they do. The school's own answer, and the
+   * safer one: 34 children already come Monday to Friday, so blank means "here every day" and no
+   * existing record has to be touched or migrated. Recording attendance days instead would mean
+   * filling in Mon–Fri for all 34 first, and any record that was missed would silently turn a child
+   * into someone who never comes.
+   *
+   * Monday–Friday only (1–5). The weekend is already closed for everyone by schoolDayFor_, and
+   * letting anyone tick Saturday would create a rule that can never fire — a setting that looks like
+   * it does something and does not is worse than no setting.
+   *
+   * THE SCHOOL'S HOLIDAY WINS. Both mean "not expected today", so they cannot contradict each other
+   * on whether the child attends; what differs is the REASON shown, and a school holiday is the one
+   * that applies to everybody. Callers ask schoolDayFor_ first — see journalStatus / classList.
+   *
+   * The field is a list so that "Wednesday and Friday" needs no new code, and so the next family
+   * with a different pattern is a data change rather than a release.
+   */
+  const OFF_DAY_NAMES_TH = ['อาทิตย์','จันทร์','อังคาร','พุธ','พฤหัสบดี','ศุกร์','เสาร์'];
+  const OFF_DAY_NAMES_EN = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+  /** The weekday numbers a child is regularly away, cleaned: 1–5 only, unique, sorted. */
+  function offDays_(s){
+    const raw=(s&&(s.OffDays!=null?s.OffDays:s.offDays));
+    if(raw==null||raw==='') return [];
+    const out=[];
+    String(raw).split(/[,\s]+/).forEach(x=>{ const n=parseInt(x,10);
+      // 1..5 only, and never twice — a stray 0/6/7 in the sheet is ignored rather than obeyed
+      if(n>=1&&n<=5&&out.indexOf(n)<0) out.push(n); });
+    return out.sort();
+  }
+  /** Is this child regularly away on this date? (Says nothing about school holidays.) */
+  function studentOffDay_(s, onDate){
+    const days=offDays_(s); if(!days.length) return false;
+    const d=new Date(ymd(onDate||todayLocal())+'T00:00:00');
+    if(isNaN(d)) return false;
+    return days.indexOf(d.getDay())>=0;
+  }
+  /** 'วันพุธ' / 'วันพุธ, วันศุกร์' — for a screen, never for storage. */
+  const offDaysLabel_ = (s,en) => offDays_(s).map(n=>(en?OFF_DAY_NAMES_EN[n]:'วัน'+OFF_DAY_NAMES_TH[n])).join(en?', ':', ');
+  /** Not expected at school on this date, for ANY standing reason (paused, or a regular day off). */
+  const studentAway_ = (s, onDate) => studentPaused_(s, onDate) || studentOffDay_(s, onDate);
+
   // Still flagged PAUSED, but the return date has come: back in every list, and the admin is asked to
   // confirm the child really did come back (which clears the pause for good).
   const pauseDue_ = (s, onDate) => !!(s && String(s.Status)===PAUSED_STATUS && ymd(s.PauseTo||'') &&
@@ -1010,10 +1056,23 @@ function createAtomAPI(M, GROWTH_STD) {
       if(s && studentNotStarted_(s, d)) fail('NOT_STARTED',
         'วันแรกของการมาเรียนคือ '+ymd(s.EnrollDate)+' — ยังลงเวลาไม่ได้จนกว่าจะถึงวันนั้น'); }
     const why=schoolClosedFor_(d, true);
-    if(!why) return;                                     // an ordinary open day
-    if(isHolidayAttendee_(studentId, d)) return;          // expected today, by name
-    fail('SCHOOL_CLOSED', 'วันนี้โรงเรียนหยุด ('+why+') — '+
-      'นักเรียนคนนี้ไม่ได้อยู่ในรายชื่อที่มาโรงเรียนวันนี้ · หากมาจริง ให้คุณครูเพิ่มชื่อก่อนจึงจะลงเวลาได้'); }
+    if(why){
+      if(isHolidayAttendee_(studentId, d)) return;        // expected today, by name
+      /* THE SCHOOL'S HOLIDAY IS REPORTED FIRST, as the school asked (2026-08-30): it applies to
+       * everybody, and "the school is shut" is the more useful thing to be told. A child's own
+       * standing day off is only reached on a day the school is actually open. */
+      fail('SCHOOL_CLOSED', 'วันนี้โรงเรียนหยุด ('+why+') — '+
+        'นักเรียนคนนี้ไม่ได้อยู่ในรายชื่อที่มาโรงเรียนวันนี้ · หากมาจริง ให้คุณครูเพิ่มชื่อก่อนจึงจะลงเวลาได้');
+    }
+    /* ...AND THIS CHILD'S OWN REGULAR DAY OFF. The buttons are hidden on that day, so reaching here
+     * means a stale screen, a second device, or the teacher's on-behalf button — the same door, so
+     * the same answer. A named holiday attendee above still gets through: putting a child on the
+     * list for one particular date is a decision about that date, and it beats a standing weekly
+     * pattern. */
+    { const s2=studentById(studentId);
+      if(s2 && studentOffDay_(s2, d)) fail('STUDENT_DAY_OFF',
+        'วันนี้เป็นวันหยุดประจำของ '+(s2.Nickname||s2.NameTH||s2.Name||'นักเรียนคนนี้')+
+        ' ('+offDaysLabel_(s2)+') — ไม่ต้องลงเวลา และไม่นับเป็นวันขาด'); } }
   /**
    * Has this person's employment ENDED yet?
    *
@@ -1245,7 +1304,11 @@ function createAtomAPI(M, GROWTH_STD) {
       paused:studentPaused_(s), pauseFrom:ymd(s.PauseFrom||''), pauseTo:ymd(s.PauseTo||''), pauseReason:s.PauseReason||'',
       // ...and a child whose first day has not come yet: the card says the DATE instead of offering a
       // drop-off button the server would refuse (see assertStudentDayOpen_)
-      notStarted:studentNotStarted_(s), startDate:ymd(s.EnrollDate||'')},
+      notStarted:studentNotStarted_(s), startDate:ymd(s.EnrollDate||''),
+      // ...and a child whose standing arrangement is to be away today. Same reason as the two above:
+      // the card says so rather than offering a button the server would only refuse.
+      dayOff:studentOffDay_(s), offDays:offDaysLabel_(s), offDaysEN:offDaysLabel_(s,true),
+      offDaysRaw:offDays_(s).join(',')},
       studentLeaveToday_(s.StudentID), s)),
     /**
      * THE WHOLE PARENT HOME SCREEN, IN ONE REQUEST.
@@ -1333,6 +1396,8 @@ function createAtomAPI(M, GROWTH_STD) {
       // makes sure a stale screen (or a second device) cannot slip one through anyway.
       { const _s=studentById(p.studentId); if(_s && studentPaused_(_s))
           fail('STUDENT_PAUSED','นักเรียนอยู่ระหว่างลาชั่วคราว — ยังไม่ถึงกำหนดเข้าเรียน'); }
+      // a regular day off is checked in assertStudentDayOpen_ below — the ONE gate both the parent's
+      // button and the teacher's on-behalf button go through, so neither can drift from the other
       // told us they are away today → the leave IS the record. The GAS route has refused this for a
       // while (ON_LEAVE); the engine did not, so mock and live disagreed about the same tap.
       { const _lv=studentLeaveToday_(p.studentId);
@@ -1453,7 +1518,9 @@ function createAtomAPI(M, GROWTH_STD) {
       const all=isAdmin || headTeacher_(me);
       const cov=all?null:(coveredClasses_(me)||[]).map(c=>c.ClassName);
       const rows=activeStudents()
-        .filter(s=>!studentPaused_(s,date))
+        // studentAway_ = paused OR a regular day off. This screen chases missing check-outs, and a
+        // child who was never expected today cannot have one.
+        .filter(s=>!studentAway_(s,date))
         .filter(s=>all || cov.indexOf(s.Class)>=0)
         .filter(s=>!p.className || s.Class===p.className)
         .map(s=>{
@@ -2084,7 +2151,11 @@ function createAtomAPI(M, GROWTH_STD) {
       if(!cls) cls = covered[0] || M.classes[0];
       // today's attendance per student — the journal can only be filled once a child is checked IN,
       // and the on-behalf check-in button fades once IN/OUT is already recorded for the day.
-      const today=todayLocal();
+      /* `date` is accepted so this can be ASKED ABOUT A DAY, rather than only ever answering for the
+       * moment it happens to run. Every caller in the app omits it and gets today, exactly as before;
+       * what it buys is a test of "who is on the list on a Wednesday" that does not depend on the
+       * day the test is run — the trap that made two suites go red on a Saturday. */
+      const today=ymd(p.date||todayLocal());
       const attOf=sid=>{ const a=M.studentAttendanceToday.find(x=>x.StudentID===sid);
         const h=M.studentCheckins.find(c=>c.StudentID===sid&&ymd(c.Date)===today)||{};
         // A child whose parent told us they are away today must not be checked in by mistake — the
@@ -2092,10 +2163,18 @@ function createAtomAPI(M, GROWTH_STD) {
         const lv=studentLeaveToday_(sid);
         return Object.assign({status: lv.onLeave?'LEAVE':(a?a.Status:'NONE'),
           inTime:h.InTime||(a&&a.Status==='IN'?a.Time:'')||'', outTime:h.OutTime||(a&&a.Status==='OUT'?a.Time:'')||''}, lv); };
+      /* A CHILD IS NOT ON THE LIST ON THEIR OWN DAY OFF. Asked 2026-08-30: "รายชื่อนักเรียนคนนี้
+       * ไม่ถูกนับวันพุธ คุณครูไม่ต้องบันทึก". Leaving them on the list greyed out would still put a
+       * name in front of a teacher who has nothing to do about it, and would still count against the
+       * class's "everyone recorded?" total — so they come off it. */
       return {class:cls, classes:covered.map(c=>({className:c.ClassName,classNameEN:c.ClassNameEN||c.ClassName})),
-        students:activeStudents().filter(s2=>s2.Class===cls.ClassName).map(s2=>{ const at=attOf(s2.StudentID);
+        students:activeStudents().filter(s2=>s2.Class===cls.ClassName && !studentOffDay_(s2, today)).map(s2=>{ const at=attOf(s2.StudentID);
           return Object.assign({ageMonth:ageMonths(s2.DOB), attStatus:at.status, inToday:!!at.inTime, outToday:!!at.outTime,
-            inTime:at.inTime, outTime:at.outTime, onLeave:at.onLeave, leaveType:at.leaveType, leaveReason:at.leaveReason}, s2); })}; },
+            inTime:at.inTime, outTime:at.outTime, onLeave:at.onLeave, leaveType:at.leaveType, leaveReason:at.leaveReason}, s2); }),
+        // who is away today by standing arrangement, so the screen can say so instead of the class
+        // silently being one child short
+        offToday:activeStudents().filter(s2=>s2.Class===cls.ClassName && studentOffDay_(s2, today))
+          .map(s2=>({studentId:s2.StudentID, nick:s2.Nickname||'', name:s2.NameTH||s2.Name||'', days:offDaysLabel_(s2)}))}; },
     // the class names this staff can pick between (used to show/hide a class switcher)
     myClasses: p => { const s=staffById(p.staffId); const covered=coveredClasses_(s);
       return {classes:covered.map(c=>({className:c.ClassName,classNameEN:c.ClassNameEN||c.ClassName})), all:covered.length===M.classes.length}; },
@@ -2185,6 +2264,11 @@ function createAtomAPI(M, GROWTH_STD) {
           if(studentNotStarted_(s, ds)) { run=0; return; }
           // a child on temporary leave for that day is not expected in, so it is not an absence
           if(studentPaused_(s, ds)) { run=0; return; }
+          /* ...NOR ON THEIR OWN REGULAR DAY OFF. A child who comes four days a week must not read as
+           * "ขาด 4 · ขาดต่อเนื่อง 4 · ต้องติดตาม" by the end of a month for coming exactly as agreed.
+           * `owed` is below this line on purpose: a day they never owed cannot be a day they missed,
+           * and the denominator has to agree with the numerator or the percentage is a fiction. */
+          if(studentOffDay_(s, ds)) { run=0; return; }
           /* TODAY IS NOT OVER. A child who has not been dropped off by the time an admin opens this
            * at 09:00 is not absent — they are on their way. The staff version of this screen has
            * always refused to call today an absence (status TODAY); the children's did not, so a
@@ -3174,6 +3258,9 @@ function createAtomAPI(M, GROWTH_STD) {
         enrollDate:ymd(s.EnrollDate||''),
         // the day of the month this family pays on, and whether it is theirs or the school's
         billingDay:billingDayOf(s), billingDayOwn:!!String(s.BillingDay||'').trim(),
+        // WHICH DAYS THIS CHILD COMES. In the `care` half on purpose: it is not a private detail and
+        // it is exactly what a teacher needs to know before wondering where a child is on a Wednesday.
+        offDays:offDays_(s).join(','), offDaysLabel:offDaysLabel_(s), offDaysLabelEN:offDaysLabel_(s,true),
         // a teacher is told THAT there is cover, never the policy number — it is what they would need
         // to say at a hospital door, and nothing more
         insuranceHas: !!s.InsuranceHas
