@@ -112,7 +112,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.312'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.313'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -5963,6 +5963,10 @@
     // then reused for every month the admin flicked through, which was harmless only because the
     // server was ignoring the month too. Same tick as the four above → still one request.
     const p_rate = api('ratedChildCount',{month:mth}).catch(()=>null);
+    // ...and the leave summary, which used to be asked for at the very BOTTOM of this function after
+    // four awaits — a tick of its own, and therefore a whole extra round trip. It depends on nothing
+    // above it. Six calls, one request.
+    const p_leave = api('staffLeaveSummary',{staffId:sid,month:mth}).catch(()=>null);
     const pc=await p_pc; if(stale())return;
     try{ const rt=await p_rate; if(stale())return; if(rt) window._RATED=rt; }catch(e){}
     // this used to read MOCK.staff, which holds SEED rows (and is empty since the mockdata split), so
@@ -6042,7 +6046,10 @@
       } else { const box=$('#slipResult'); if(box) box.innerHTML=`<p class="muted" style="font-size:13px;text-align:center;margin-top:8px">${EN()?'Nothing saved for this month yet.':'ยังไม่มีรายการที่บันทึกไว้ของเดือนนี้'}</p>`; }
     }catch(e){}
     // leave (any type) over the limit → warn + auto-zero the child-rate count (field NOT locked; Admin can re-enter)
-    try{ const ls=await api('staffLeaveSummary',{staffId:sid,month:$('#pMonth').value}); const w=$('#pLeaveWarn'), ch=$('#pChild');
+    // p_leave was STARTED at the top with the other five — asking for it here, after four awaits, put
+    // it in a tick of its own and cost the screen a whole extra round trip (~5s) every time the admin
+    // picked a staff member or changed the month. Nothing above it depends on the answer.
+    try{ const ls=await p_leave; if(stale())return; if(!ls) throw new Error('no leave'); const w=$('#pLeaveWarn'), ch=$('#pChild');
       if(ls.exceeds){ if(ch) ch.value=0;
         if(w) w.innerHTML=`<div style="background:var(--warn-bg);border:1px solid var(--warn-line);border-radius:8px;padding:7px 9px;margin-bottom:6px;color:var(--warn);font-size:13px">⚠️ ${EN()?`Leave ${ls.days} days (> ${ls.limit}) this month — child-rate income not calculated. You can still enter a count manually.`:`ลาเกิน ${ls.limit} วัน (ลารวม ${ls.days} วัน) เดือนนี้ — ไม่คำนวณเรทจำนวนเด็กให้ · กรอกจำนวนเองได้หากต้องการ`}</div>`;
       } else if(w){ w.innerHTML=''; } }catch(e){} };
@@ -6156,12 +6163,22 @@
     // Only override the carry-over when the field is actually on screen. Sending 0 unconditionally
     // would wipe a genuine carry whenever its fetch was still in flight.
     { const c=$('#pOtCarry'); if(c) p.otCarry=+c.value||0; }
-    // the per-staff SETTINGS are remembered either way; only the payslip itself waits for "บันทึก"
-    await api('setPayrollConfig',{staffId:p.staffId,config:{PayType:payType,DailyRate:p.dailyRate,ChildMultiplier:p.childMultiplier,ChildThreshold:p.childThreshold,DiligenceAttendanceAmount:p.diligenceAttend,DiligenceFacebookAmount:p.diligenceFb,SocialSecurityDeduct:p.socialSecurityDeduct,Contribution:p.contribution}});
+    /* THREE REQUESTS, ONE AFTER THE OTHER, ON EVERY PRESS OF คำนวณ. The first two are independent of
+     * each other — the per-staff settings and the base salary go to different sheets and neither
+     * reads the other — so they are started TOGETHER and cost one round trip instead of two. That is
+     * five seconds off every calculation on a backend that runs one execution at a time.
+     *
+     * computePayroll still WAITS for both, and must: it reads the config and the salary that were
+     * just written, and racing it against them would make the slip depend on which write finished
+     * first. Saving the settings even on a preview is deliberate and unchanged — the admin's figures
+     * are remembered either way; only the payslip waits for "บันทึก". */
+    const p_cfg = api('setPayrollConfig',{staffId:p.staffId,config:{PayType:payType,DailyRate:p.dailyRate,ChildMultiplier:p.childMultiplier,ChildThreshold:p.childThreshold,DiligenceAttendanceAmount:p.diligenceAttend,DiligenceFacebookAmount:p.diligenceFb,SocialSecurityDeduct:p.socialSecurityDeduct,Contribution:p.contribution}});
     // the base salary belongs to the STAFF record, and setPayrollConfig never carried it — so the
     // number the admin typed was used for THIS calculation and then thrown away
-    try{ await api('saveStaff',{staffId:p.staffId,data:{BaseSalary:p.baseSalary}});
-      const cached=(A_CACHE.staff||[]).find(x=>x.StaffID===p.staffId); if(cached) cached.BaseSalary=p.baseSalary; }catch(e){}
+    const p_base = api('saveStaff',{staffId:p.staffId,data:{BaseSalary:p.baseSalary}}).then(()=>{
+      const cached=(A_CACHE.staff||[]).find(x=>x.StaffID===p.staffId); if(cached) cached.BaseSalary=p.baseSalary;
+    }).catch(()=>{});
+    await p_cfg; await p_base;
     const r=await api('computePayroll',Object.assign({},p,{preview:!commit}));
     const savedBadge = commit
       ? `<span class="pill ok">💾 ${EN()?'saved':'บันทึกแล้ว'}</span>`
@@ -8345,9 +8362,14 @@
     L.push('SLOWEST (by total wait):');
     (d.slowest||[]).slice(0,10).forEach(x=>L.push('  '+x.action+' x'+x.n+' p50='+ms(x.p50)+' p95='+ms(x.p95)+(x.fail?' fail='+x.fail:'')));
     L.push('SCREENS:');
-    // calls/visit is what a screen's wait is really made of — every request queues behind the last
+    /* REQUESTS per visit — what a screen's wait is really made of, because every request queues
+       behind the last. It used to be labelled "calls/visit" and count ACTIONS, which is a different
+       number: api.js batches everything asked for in the same tick into one request, so a screen
+       fetching nine things in one go was reported as nine and flagged over a budget of four. Both
+       are shown now, and the gap between them is the batching working. */
     (d.slowScreens||[]).filter(x=>x.n).slice(0,10).forEach(x=>L.push('  '+x.screen+' x'+x.n+' p50='+ms(x.p50)+' p95='+ms(x.p95)
-      +(x.perVisit!=null?' calls/visit='+x.perVisit+(x.over?' ⚠️OVER budget '+x.budget:''):'')));
+      +(x.perVisit!=null?' requests/visit='+x.perVisit+(x.over?' ⚠️OVER budget '+x.budget:''):'')
+      +(x.actionsPerVisit!=null?' (actions '+x.actionsPerVisit+')':'')));
     const over=(d.slowScreens||[]).filter(x=>x.over);
     if(over.length) L.push('OVER BUDGET: '+over.map(x=>x.screen+' '+x.perVisit+'>'+x.budget).join(' · '));
     L.push('PROBLEMS:');

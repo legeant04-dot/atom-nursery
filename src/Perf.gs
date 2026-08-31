@@ -317,6 +317,19 @@ function handlePerfSummary(p) {
     if (screen) {
       var sc = screens[screen] || (screens[screen] = { screen: screen, n: 0, ms: [] });
       sc.apiN = (sc.apiN || 0) + 1; sc.apiMs = (sc.apiMs || 0) + ms;
+      /* ROUND TRIPS, WHICH IS WHAT THE BUDGET IS ABOUT — and what this was NOT counting.
+       *
+       * api.js micro-batches every call made in the same tick into ONE request, and records the
+       * batch size on each row. This counted the ROWS, so a screen that fetches nine things in one
+       * request was reported as nine and flagged over a budget of four — while a screen making four
+       * separate requests, which is genuinely four times slower, looked fine. The comment on
+       * perVisit has always described round trips ("a screen that grew from 4 requests to 9"); the
+       * arithmetic underneath it counted actions.
+       *
+       * Each row is 1/batch of a request, so the batch's rows sum back to exactly 1. A row from
+       * before the Batch column existed reads 0 and is treated as its own request, which is what it
+       * was. Nothing new is collected — the column has been filled in all along. */
+      sc.trips = (sc.trips || 0) + (1 / (batch > 0 ? batch : 1));
     }
   }
 
@@ -346,11 +359,16 @@ function handlePerfSummary(p) {
    */
   var slowScreens = Object.keys(screens).map(function (k) {
     var s = screens[k], st = statify({ ms: s.ms || [] });
-    var per = s.n ? Math.round((s.apiN || 0) / s.n * 10) / 10 : 0;
+    // REQUESTS per visit, not actions per visit — see sc.trips above for why those are not the same
+    var per = s.n ? Math.round((s.trips || 0) / s.n * 10) / 10 : 0;
+    // ...and the action count kept alongside it, because the gap between the two IS the batching
+    // working. A screen at 20 actions and 2 requests is doing the right thing; the old number
+    // would have condemned it.
+    var perAct = s.n ? Math.round((s.apiN || 0) / s.n * 10) / 10 : 0;
     var budget = SCREEN_BUDGET_[s.screen] != null ? SCREEN_BUDGET_[s.screen] : SCREEN_BUDGET_DEFAULT_;
     return { screen: s.screen, n: s.n, p50: st.p50, p95: st.p95, max: st.max,
              apiCalls: s.apiN || 0, apiMs: s.apiMs || 0,
-             perVisit: per, budget: budget, over: per > budget };
+             perVisit: per, actionsPerVisit: perAct, budget: budget, over: per > budget };
   }).filter(function (s) { return s.n > 0; }).sort(function (x, y) { return y.p95 - x.p95; }).slice(0, 20);
 
   var problems = Object.keys(errs).map(function (k) {
