@@ -171,8 +171,15 @@ ok_('…keyed by student for the row renderers', /function setAlerts\(al\)/.test
 ok_('the badge sits right after the child’s name on the class screen',
   /<b>\$\{esc\(dispNick\(s\)\)\}<\/b>\$\{bdayTag\(s\.DOB\)\} \$\{due\?dspmDueBadge\(due\):''\}/.test(app));
 ok_('…and on the home list too', /<b>\$\{esc\(dispNick\(s\)\)\}<\/b>\$\{bdayTag\(s\.DOB\)\} \$\{dueA\?dspmDueBadge\(dueA\):''\}/.test(app));
+/* It was day-and-month ("11-07"), on the grounds that the year was already in the age beside it.
+ * Changed 2026-08-31 to the whole date with the MONTH AS A WORD: "11-07" is a date only to somebody
+ * who already knows which half is the month, and the age is not always on the same row. */
 ok_('the birthday is a DATE, not the age that was already there', /function bdayTag\(dob\)/.test(app)
-  && /ddmmyyyy\(d\)\.slice\(0,5\)/.test(app));
+  && /\$\{esc\(dobDate\(d\)\)\}/.test(app));
+ok_('…with the month spelled, so it cannot be read the wrong way round',
+  /const TH_MON_SHORT=\['ม\.ค\.'/.test(app) && /EN\(\)\?`\$\{dd\} \$\{EN_MON_SHORT\[mo\]\} \$\{y\}`:`\$\{dd\} \$\{TH_MON_SHORT\[mo\]\} \$\{y\+543\}`/.test(app));
+ok_('…and the same format on the birthday strip and the admin list',
+  /<b>\$\{esc\(dobDate\(k\.dob\)\)\}<\/b>/.test(app) && /🎂 \$\{esc\(dobDate\(s\.DOB\)\)\}/.test(app));
 ok_('…and the day itself is marked', /isToday\?'🎉':'🎂'/.test(app));
 ok_('the badge names the band, not just "due"', /📝 \$\{esc\(k\.band\)\} \$\{EN\(\)\?'mo':'เดือน'\}/.test(app));
 ok_('…and shows progress once some items are answered', /\$\{k\.done\?` · \$\{k\.done\}\/\$\{k\.total\}`:''\}/.test(app));
