@@ -112,7 +112,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.322'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.323'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -3909,7 +3909,11 @@
     app.innerHTML=`<h2 class="page">👶 ${esc(cl.class.ClassName)}</h2>${classSwitcher(cl)}<div id="tbday">${birthdayCard(al,{nav:true})}</div>${offCard}`+cl.students.map(s=>{
       const attTag = s.onLeave
         ? `<small class="pill warn" style="margin-left:4px">🏖️ ${esc(s.leaveType||(EN()?'on leave':'ลา'))}${s.leaveReason?' · '+esc(s.leaveReason):''}</small>`
-        : (s.inToday?`<small class="pill ok" style="margin-left:4px">${EN()?'in':'มา'} ${esc(s.inTime||'')}</small>`:'');
+        /* A CHECK-IN WITH NO TIME IS STILL A CHECK-IN. This used to print nothing at all unless
+           inTime had a value, which is how อิงใจ came to look like a child nobody had checked in
+           (2026-09-01) — she was on the dashboard as อยู่ที่โรงเรียน the whole time. Say so, and say
+           the time is the part we are missing. */
+        : (s.inToday?`<small class="pill ok" style="margin-left:4px">${EN()?'in':'มา'} ${esc(s.inTime||(EN()?'(no time)':'(ไม่มีเวลา)'))}</small>`:'');
       // the DSPM reminder rides after the name, where the teacher is already looking, and clears
       // itself once the band is finished
       const due=dspmDueOf(s.StudentID);
@@ -9595,7 +9599,12 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
     const canClass = s => s.Role!=='Admin' && s.PositionLevel!=='Admin';   // teachers, leaders, assistants…
     const depOf = s => String(s.Department||'').trim();
     const inDep = (s,dep)=>{ const d=depOf(s); if(d===''||d==='*')return false; return d.split(',').map(x=>x.trim()).indexOf(dep)>=0; };
-    const teachers = staff.filter(canClass);
+    /* ...AND NOT SOMEBODY WHOSE LAST DAY HAS PASSED. Reported 2026-09-01: ครูฉำฉา and ครูลิน were
+     * both sitting in "พนักงานที่ยังไม่ได้จัดชั้น", which reads as five people waiting to be given a
+     * class when two of them no longer work here — and dropping one into a Nursery would have put a
+     * leaver back on a class list. They cannot sign in, they are off the attendance board and off the
+     * class lists; this is the last screen that still had them. */
+    const teachers = staff.filter(s=>canClass(s) && !s.ended);
     // a staff is "unassigned" if their Department is blank, '*' (all classes), or not one of the current classes
     const unassigned = teachers.filter(s=>{ const d=depOf(s); return d===''||d==='*'|| !deps.some(dep=>inDep(s,dep)); });
     const opts=cur=>`<option value="">—</option>`+deps.map(d=>`<option value="${esc(d)}" ${cur===d?'selected':''}>${esc(d)}</option>`).join('');

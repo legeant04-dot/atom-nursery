@@ -2157,7 +2157,22 @@ function createAtomAPI(M, GROWTH_STD) {
         // A child whose parent told us they are away today must not be checked in by mistake — the
         // leave itself is the record. Carry the type and reason so the class list can say why.
         const lv=studentLeaveToday_(sid);
+        /* THE FACT AND THE TIME ARE TWO DIFFERENT QUESTIONS, and only the fact may decide whether a
+         * teacher can work. Reported 2026-09-01: อิงใจ was 'อยู่ที่โรงเรียน' on the dashboard, but her
+         * บันทึก button was dead on the class list and refreshing did nothing.
+         *
+         * Everything else in the app asks "is there a check-in event today?" — the dashboard
+         * (`a?a.Status:'ABSENT'`) and the journal's own server-side guard (`a.Status==='IN'||'OUT'`).
+         * This one line asked "...and do we also have a time string for it", so a row whose Time cell
+         * came back blank read as NOT CHECKED IN. The server would have accepted the journal; only
+         * the button refused it. Two definitions of the same fact in one engine, and the stricter one
+         * was on the button.
+         *
+         * `checkedIn` is the fact. inTime/outTime stay exactly what they were — a time to print, or
+         * '' when we do not have one — and a missing time now costs a label, not the teacher's day. */
+        const seen = !lv.onLeave && a && (a.Status==='IN' || a.Status==='OUT');
         return Object.assign({status: lv.onLeave?'LEAVE':(a?a.Status:'NONE'),
+          checkedIn: !!seen, pickedUp: !!(!lv.onLeave && a && a.Status==='OUT'),
           inTime:h.InTime||(a&&a.Status==='IN'?a.Time:'')||'', outTime:h.OutTime||(a&&a.Status==='OUT'?a.Time:'')||''}, lv); };
       /* A CHILD IS NOT ON THE LIST ON THEIR OWN DAY OFF. Asked 2026-08-30: "รายชื่อนักเรียนคนนี้
        * ไม่ถูกนับวันพุธ คุณครูไม่ต้องบันทึก". Leaving them on the list greyed out would still put a
@@ -2165,7 +2180,8 @@ function createAtomAPI(M, GROWTH_STD) {
        * class's "everyone recorded?" total — so they come off it. */
       return {class:cls, classes:covered.map(c=>({className:c.ClassName,classNameEN:c.ClassNameEN||c.ClassName})),
         students:activeStudents().filter(s2=>s2.Class===cls.ClassName && !studentOffDay_(s2, today)).map(s2=>{ const at=attOf(s2.StudentID);
-          return Object.assign({ageMonth:ageMonths(s2.DOB), attStatus:at.status, inToday:!!at.inTime, outToday:!!at.outTime,
+          return Object.assign({ageMonth:ageMonths(s2.DOB), attStatus:at.status,
+            inToday:at.checkedIn||!!at.inTime, outToday:at.pickedUp||!!at.outTime,
             inTime:at.inTime, outTime:at.outTime, onLeave:at.onLeave, leaveType:at.leaveType, leaveReason:at.leaveReason}, s2); }),
         // who is away today by standing arrangement, so the screen can say so instead of the class
         // silently being one child short
@@ -3069,7 +3085,9 @@ function createAtomAPI(M, GROWTH_STD) {
         const names=[]; const add=n=>{ if(n&&names.indexOf(n)<0)names.push(n); };
         (M.classes||[]).forEach(c=>add(c.ClassName)); (Array.isArray(cfg.Departments)?cfg.Departments:String(cfg.Departments||'').split(',')).forEach(d=>add(String(d).trim())); std.forEach(s=>add(s.Class));
         const cls=names.map(name=>{ const studs=std.filter(s=>s.Class===name);
-        const stat=studs.map(s=>{ const a=M.studentAttendanceToday.find(x=>x.StudentID===s.StudentID); return {studentId:s.StudentID,name:s.NameTH,nameEN:s.NameEN,nick:s.Nickname,nickEN:s.NicknameEN, status:a?a.Status:'ABSENT', in:a?a.CheckIn||'':'', out:a?a.CheckOut||'':'', reason:a?a.Reason:'',
+        const stat=studs.map(s=>{ const a=M.studentAttendanceToday.find(x=>x.StudentID===s.StudentID); return {studentId:s.StudentID,name:s.NameTH,nameEN:s.NameEN,nick:s.Nickname,nickEN:s.NicknameEN,           // ...||a.Time: on GAS deriveStudentToday_ only ever sets Status and Time, so CheckIn alone
+          // was always blank here — the same fallback teacherClassAttendance has always had.
+          status:a?a.Status:'ABSENT', in:a?(a.CheckIn||(a.Status==='IN'?a.Time:'')||''):'', out:a?(a.CheckOut||(a.Status==='OUT'?a.Time:'')||''):'', reason:a?a.Reason:'',
           // back on the list because the return date has come — still marked, until someone confirms
           pauseDue:pauseDue_(s), pauseTo:ymd(s.PauseTo||'')}; });
         return {className:name,total:studs.length,in:stat.filter(s=>s.status==='IN').length,out:stat.filter(s=>s.status==='OUT').length,leave:stat.filter(s=>s.status==='LEAVE').length,absent:stat.filter(s=>s.status==='ABSENT').length,students:stat}; })
@@ -4183,7 +4201,11 @@ function createAtomAPI(M, GROWTH_STD) {
     // qualify; a plain teacher needs CanClassOrg=true set by the admin on their staff record.
     orgMoveTeacher: p => { const me=staffById(p.staffId)||{};
       if(!canOrganize_(me)) fail('NO_PERMISSION','ไม่มีสิทธิ์จัดชั้นเรียน (ต้องได้รับสิทธิ์จากแอดมิน)');
-      const s=staffById(p.targetId); if(!s.StaffID)fail('NOT_FOUND','ไม่พบพนักงาน'); s.Department=p.toDept||'';
+      const s=staffById(p.targetId); if(!s.StaffID)fail('NOT_FOUND','ไม่พบพนักงาน');
+      // dropping a leaver into a Nursery would put them back on a class list — the screen no longer
+      // offers them, and this is what makes that true rather than merely tidy
+      if(staffEnded_(s)) fail('ENDED','สิ้นสุดการทำงานแล้ว — จัดเข้าชั้นเรียนไม่ได้');
+      s.Department=p.toDept||'';
       logAct('moveTeacher',p.targetId,'→ '+(p.toDept||'-'),actorOf(p)); return {ok:true}; },
     orgMoveStudent: p => { const me=staffById(p.staffId)||{};
       if(!canOrganize_(me)) fail('NO_PERMISSION','ไม่มีสิทธิ์จัดชั้นเรียน (ต้องได้รับสิทธิ์จากแอดมิน)');
