@@ -192,6 +192,46 @@ console.log('\n3) SOMEBODY WHOSE LAST DAY HAS PASSED IS NOT STAFF');
   ok_('the app signs her out once instead of showing a wall of errors',
     /window\.__atomEnded = \(msg\)/.test(app) && /e\.code === 'ENDED'/.test(R('webapp/api.js')));
   ok_('...and the clock-in card is replaced rather than left live', /:me0\.ended\?/.test(app));
+
+  console.log('   — and the REST of the teacher side, which v316 left open');
+  /* v316 closed the server and the clock-in card and stopped there, so the other eight screens still
+   * had every button to press: "บันทึกได้ กดเข้าไปแก้ไขได้ ลงบันทึกได้ รับส่งแทนได้ แจ้งอุบัติเหตุได้".
+   * One gate around SCREENS.Teacher rather than nine separate patches — the same reasoning as
+   * assertStudentDayOpen_, and it covers a screen added later without anyone remembering. */
+  ok_('every teacher screen goes through one gate',
+    /Object\.keys\(SCREENS\.Teacher\)\.forEach\(k => \{[\s\S]{0,220}ENDED_SELF \? endedScreen\(\) : orig\(\.\.\.a\)/.test(app));
+  ok_('...naming what is closed, not just refusing', /การลงเวลา บันทึกประจำวัน ประเมินพัฒนาการ แจ้งอุบัติเหตุ/.test(app));
+  ok_('...and saying nothing was deleted', /ข้อมูลไม่ได้ถูกลบ/.test(app));
+  ok_('it is decided BEFORE the first screen is drawn, so a deep link cannot slip past',
+    /if \(role !== 'Parent'\) api\('staffSelf', \{ staffId: linkedId \}\)/.test(app));
+  ok_('...and a failed lookup leaves it open rather than locking somebody out',
+    /a lookup that did not answer must never lock somebody out/.test(app));
+  /* VIEW-AS runs on the ADMIN's session and must — or nobody could close the record — so the server
+   * never refuses it, and the admin saw a working app and concluded nothing had been fixed. */
+  ok_('viewing as an ended teacher shows what THEY would see', /if\(window\.__atomSetEnded\) __atomSetEnded\(!!s\.ended\);/.test(app));
+  ok_('...and leaving view-as clears it again', /window\.A_exitViewAs=\(\)=>\{ if\(window\.__atomSetEnded\) __atomSetEnded\(false\);/.test(app));
+
+  console.log('   — and they are moved out of the working roster');
+  ok_('the admin roster splits on ended, not just on status',
+    /const _left=s=>String\(\(s&&s\.Status\)\|\|'ACTIVE'\)\.toUpperCase\(\)==='INACTIVE' \|\| !!\(s&&s\.ended\)/.test(app));
+  ok_('...into the section that already existed', /_stGone\.length\?/.test(app));
+  ok_('listStaff is what tells it', /ended: staffEnded_\(s\)/.test(engine));
+}
+
+console.log('\n3b) A DEPARTMENT CANNOT BE SAVED TWICE');
+{
+  /* ครูลิน's record read "Nursery 1,Nursery 2,Nursery Premium,Nursery 3,Nursery 1,Nursery 2,
+   * Nursery Premium,Nursery 3" (2026-09-01). A_classOptions(cur) tested `out.indexOf(cur)` — but for
+   * staff, `cur` is the whole comma-joined LIST, which can never match a single name, so the entire
+   * list was unshifted as ONE option: a checkbox reading "Nursery 1,Nursery 2,…". Ticking it saved
+   * every department a second time. */
+  ok_('the current value is split before being offered as options',
+    /String\(cur==null\?'':cur\)\.split\(','\)\.map\(x=>x\.trim\(\)\)\.filter\(Boolean\)\.reverse\(\)/.test(app));
+  ok_('...and a name already in the master is not added again', /if\(n!=='\*' && out\.indexOf\(n\)<0\) out\.unshift\(n\);/.test(app));
+  ok_('...and "*" never becomes an option of its own', /n!=='\*'/.test(app));
+  // the save is flattened too, so a record that already holds duplicates is repaired next time
+  ok_('the save flattens and de-duplicates', /String\(x\.value\|\|''\)\.split\(','\)\.map\(v=>v\.trim\(\)\)\.filter\(Boolean\)\.forEach/.test(app));
+  ok_('...with the reason written down', /this is what repairs ครูลิน on her next save/.test(app));
 }
 
 console.log('\n4) THE ADMIN IS TOLD, rather than the record quietly vanishing');
