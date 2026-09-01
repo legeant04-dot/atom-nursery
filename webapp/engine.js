@@ -4205,6 +4205,8 @@ function createAtomAPI(M, GROWTH_STD) {
       // dropping a leaver into a Nursery would put them back on a class list — the screen no longer
       // offers them, and this is what makes that true rather than merely tidy
       if(staffEnded_(s)) fail('ENDED','สิ้นสุดการทำงานแล้ว — จัดเข้าชั้นเรียนไม่ได้');
+      // an Observer is a read-only auditor, not somebody a room can be given to
+      if(String(s.Role||'')==='Observer') fail('NO_PERMISSION','ผู้ตรวจสอบ (Observer) ไม่ต้องจัดเข้าชั้นเรียน');
       s.Department=p.toDept||'';
       logAct('moveTeacher',p.targetId,'→ '+(p.toDept||'-'),actorOf(p)); return {ok:true}; },
     orgMoveStudent: p => { const me=staffById(p.staffId)||{};

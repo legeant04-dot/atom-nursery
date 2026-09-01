@@ -142,6 +142,13 @@ console.log('\n5) A LEAVER IS NOT SOMEBODY TO PUT IN A CLASS');
    * a Nursery would have put a leaver back on a class list. */
   ok_('the organiser drops them from every column and the unassigned tray',
     /const teachers = staff\.filter\(s=>canClass\(s\) && !s\.ended\);/.test(app));
+  /* ...and neither is an Observer, asked for the next day. A read-only auditor already sees every
+   * child; sitting in a Nursery column says to whoever is organising that this is a person who
+   * could take that room. */
+  ok_('nor is an Observer offered a class', /s\.Role!=='Admin' && s\.PositionLevel!=='Admin' && s\.Role!=='Observer'/.test(app));
+  ok_('...and the server refuses that move too',
+    /if\(String\(s\.Role\|\|''\)==='Observer'\) fail\('NO_PERMISSION'/.test(engine) &&
+    /if\(String\(s\.Role\|\|''\)==='Observer'\) fail\('NO_PERMISSION'/.test(gasEngine));
   ok_('...and the reason is written there', /leaver back on a class list/.test(app));
   // the screen is a list; the rule has to live on the server or it is only tidiness
   ok_('the server refuses the move as well', /if\(staffEnded_\(s\)\) fail\('ENDED','สิ้นสุดการทำงานแล้ว/.test(engine));
