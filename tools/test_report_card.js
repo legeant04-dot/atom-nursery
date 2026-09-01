@@ -26,6 +26,17 @@ function throws_(label, fn, code) {
 const TODAY = (() => { const d = new Date(), p = n => String(n).padStart(2, '0'); return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()); })();  // LOCAL date, like the engine's todayLocal(). A UTC date here silently disagrees with the
 // engine for the 7 hours after 17:00 Bangkok time, and the suite fails for reasons nobody changed.
 const YR = Number(TODAY.slice(0, 4));
+/* A DATE OF BIRTH THAT STAYS INSIDE THE AGE BAND, whatever day this is run.
+ *
+ * The children were born "(YR-3)-02-01", which is 30–42 months old only for part of the year. On
+ * 2026-09-01 it became 43 months, the DSPM band (30–42) matched nothing, and six assertions failed
+ * on a fixture nobody had touched — the same trap that made two other suites go red on a Saturday.
+ * Anchored to 36 months before today instead: the middle of the band, all year round. */
+const DOB_IN_BAND = (() => {
+  const d = new Date(TODAY + 'T00:00:00'), p = n => String(n).padStart(2, '0');
+  d.setMonth(d.getMonth() - 36);
+  return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate());
+})();
 
 function fresh() {
   const M = {
@@ -33,9 +44,9 @@ function fresh() {
       SchoolName: 'Atom Nursery', LeaveQuota: {} },
     students: [
       { StudentID: 'STD-01', NameTH: 'เด็กหญิงหนึ่ง สองสาม', Nickname: 'หนึ่ง', Class: 'Nursery 1',
-        Plan: 'p1', Status: 'ACTIVE', DOB: (YR - 3) + '-02-01', Gender: 'F', Allergy: 'นมวัว', ParentID: 'PAR-01' },
+        Plan: 'p1', Status: 'ACTIVE', DOB: DOB_IN_BAND, Gender: 'F', Allergy: 'นมวัว', ParentID: 'PAR-01' },
       { StudentID: 'STD-02', NameTH: 'เด็กชายสอง', Nickname: 'สอง', Class: 'Nursery 2',
-        Plan: 'p1', Status: 'ACTIVE', DOB: (YR - 3) + '-02-01', Gender: 'M', ParentID: 'PAR-02' }],
+        Plan: 'p1', Status: 'ACTIVE', DOB: DOB_IN_BAND, Gender: 'M', ParentID: 'PAR-02' }],
     staff: [
       { StaffID: 'STF-A', NameTH: 'แอดมิน', Role: 'Admin', PositionLevel: 'Admin', Department: 'Nursery 1' },
       { StaffID: 'STF-T', NameTH: 'ครูหนึ่ง', Role: 'Teacher', PositionLevel: 'Staff', Department: 'Nursery 1' }],

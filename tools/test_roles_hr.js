@@ -167,7 +167,13 @@ console.log('\n3) Someone who has not started yet is not part of attendance');
   ok_('the engine agrees', /const staffStarted_ =/.test(eng));
   ok_('the screen can show it', /notStarted:!staffStarted_\(me\), startDate:/.test(eng));
   // the point of the request: no phantom absences before the first day
-  ok_('they are not counted on the daily attendance board', /staffStat=M\.staff\.filter\([^)]*staffStarted_\(s\)\)/.test(eng));
+  ok_('they are not counted on the daily attendance board', /staffStat=M\.staff\.filter\([^)]*staffStarted_\(s\)/.test(eng));
+  /* ...and NEITHER END of the same question is left out. Reported 2026-09-01: a teacher whose last
+   * day was 31/08 was still on that card on 01/09, counted as ขาด, dragging the school to 83% (5/6).
+   * The board asked staffStarted_ and never staffEnded_, while the monthly report had asked both all
+   * along — the two screens disagreed about who works here. */
+  ok_('...nor is anyone whose last working day has passed',
+    /staffStat=M\.staff\.filter\(s=>[\s\S]{0,160}&&!staffEnded_\(s\)\)/.test(eng));
   ok_('nor in the per-department present/total', /const team=M\.staff\.filter\(s=>covers[^;]*staffStarted_\(s\)\)/.test(eng));
 
   // run the real rule
