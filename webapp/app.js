@@ -112,7 +112,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.318'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.319'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -8268,12 +8268,30 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
     payment:'การชำระเงิน / สลิป',registration:'ลงทะเบียนใหม่',comment:'ความคิดเห็นในบันทึก',
     injury:'อุบัติเหตุ (ส่งเสมอ)',digest:'สรุปประจำวัน',payslip:'สลิปเงินเดือน'};
   let LINE_WHO=[];
+  /* PICK A NAME, NOT A 33-CHARACTER STRING. Asked 2026-09-01: "ให้ดึงข้อมูลพนักงานเป็น Dropdown
+   * Lists และหากเลือกคนไหนให้เอา Uid ของคนนั้นมา". Typing a LINE User ID by hand is the sort of
+   * thing that goes wrong silently — one character out and the alerts simply never arrive, with
+   * nothing on screen to say so. The roster already holds every id.
+   *
+   * The staff list rides in the SAME TICK as the recipients, so it costs no extra round trip. */
+  let LINE_STAFF=[];
   window.A_lineWho=async(btn)=>{ if(btn)btn.disabled=true;
-    try{ const r=await api('lineRecipients',{},{fresh:true});
+    try{ const p_r=api('lineRecipients',{},{fresh:true}), p_s=api('listStaff').catch(()=>[]);
+      const r=await p_r; LINE_STAFF=(await p_s)||[];
       LINE_WHO=(r.rows||[]).map(x=>Object.assign({},x));
       A_lineWhoDraw(r.topics||Object.keys(LINE_TOPIC_TH));
     }catch(e){err(e);}finally{ if(btn)btn.disabled=false; } };
   window.A_lineWhoAdd=()=>{ LINE_WHO.push({name:'',uid:'',topics:'*',active:true,note:''}); A_lineWhoDraw(); };
+  /* Choosing somebody fills BOTH fields from their record. '' = leave it alone (a UID typed by hand
+   * for somebody who is not staff — the owner's personal LINE, say — must still be possible). */
+  window.A_lineWhoPick=(i,staffId)=>{ const r=LINE_WHO[i]; if(!r) return;
+    if(!staffId){ A_lineWhoDraw(); return; }
+    const s=LINE_STAFF.find(x=>String(x.StaffID)===String(staffId)); if(!s) return;
+    r.staffId=String(staffId);
+    r.name=dispNick(s)||s.NameTH||s.Name||staffId;
+    r.uid=String(s.LineUID||'');
+    A_lineWhoDraw();
+  };
   window.A_lineWhoDel=(i)=>{ LINE_WHO.splice(i,1); A_lineWhoDraw(); };
   window.A_lineWhoSet=(i,k,v)=>{ if(LINE_WHO[i]) LINE_WHO[i][k]=v; };
   window.A_lineWhoTopic=(i,t,on)=>{ const r=LINE_WHO[i]; if(!r) return;
@@ -8283,9 +8301,31 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
     r.topics = (cur.length===Object.keys(LINE_TOPIC_TH).length) ? '*' : (cur.join(',')||'');
   };
   function A_lineWhoDraw(topics){
+    /* modal() APPENDS. Adding a person, removing one, or picking from the dropdown all redraw, so
+       without this the dialogs stacked up — five deep after a few clicks, with the stale ones still
+       underneath and still clickable. Closed here rather than at each caller, so the next one to be
+       written cannot forget. */
+    document.querySelectorAll('.modal').forEach(m=>m.remove());
     const TOP = topics || Object.keys(LINE_TOPIC_TH);
     const has=(r,t)=> r.topics==='*' || String(r.topics||'').split(',').map(x=>x.trim()).indexOf(t)>=0;
+    /* WHO IS PICKABLE. Somebody with no LineUID has never signed in through LINE, so there is
+       nothing to message — they are listed but disabled and SAY why, because "missing from the
+       dropdown" is a question an admin would otherwise have to ask us. Somebody already on the list
+       is disabled too, since a second row for the same person is a second message every time. */
+    const taken = LINE_WHO.map(x=>String(x.uid||'')).filter(Boolean);
+    const staffOpts=(i,cur)=>LINE_STAFF.slice()
+      .sort((a,b)=>(a.ended?1:0)-(b.ended?1:0))
+      .map(s=>{ const uid=String(s.LineUID||''), mine=uid && uid===String(cur||'');
+        const dup = uid && !mine && taken.indexOf(uid)>=0;
+        const off = !uid || dup;
+        return `<option value="${esc(s.StaffID)}" ${mine?'selected':''} ${off?'disabled':''}>${esc(dispNick(s)||s.NameTH||s.StaffID)}${
+          s.ended?(EN()?' — ended':' (สิ้นสุดการทำงาน)'):''}${
+          !uid?(EN()?' — no LINE yet':' — ยังไม่ได้เชื่อม LINE'):(dup?(EN()?' — already on the list':' — อยู่ในรายการแล้ว'):'')}</option>`; }).join('');
     const rows=LINE_WHO.map((r,i)=>`<div class="card" style="padding:8px;background:var(--surface-2)">
+      <label class="field" style="margin:0 0 6px"><span>👩‍🏫 ${EN()?'Pick a staff member':'เลือกจากรายชื่อพนักงาน'}</span>
+        <select onchange="A_lineWhoPick(${i},this.value)">
+          <option value="">${EN()?'— type an id by hand —':'— กรอกเอง (ไม่ใช่พนักงาน) —'}</option>
+          ${staffOpts(i,r.uid)}</select></label>
       <div class="grid2" style="gap:6px"><label class="field" style="margin:0"><span>${EN()?'Name':'ชื่อที่เรียก'}</span>
         <input value="${esc(r.name||'')}" oninput="A_lineWhoSet(${i},'name',this.value)" placeholder="${EN()?'e.g. ครูต้อม':'เช่น ครูต้อม'}"/></label>
         <label class="field" style="margin:0"><span>LINE User ID</span>
