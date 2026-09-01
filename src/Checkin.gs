@@ -720,19 +720,36 @@ function handleStaffCheckout(payload) {
 function notifyAdmins_(text, category, ref) {
   // Always land in the in-app Admin inbox (the 🔔 bell) — this is what the admin actually reads now.
   // category/ref (optional) let the bell deep-link straight to the item (e.g. a journal report).
-  if (typeof inboxAdd_ === 'function') inboxAdd_((category && typeof category === 'string') ? category : 'approval', text, ref);
-  // LINE push to admins is OFF by default to protect the monthly push quota. Turn it on by setting
-  // SCHOOL_CONFIG AdminLineNotify='true'. Emergencies use notifyAdminsUrgent_ and ignore this gate.
+  var cat = (category && typeof category === 'string') ? category : 'approval';
+  if (typeof inboxAdd_ === 'function') inboxAdd_(cat, text, ref);
+  var seen = {}, sent = 0;
+  /* NAMED PEOPLE, CHOSEN TOPICS — the list in LINE_RECIPIENTS (see lineRecipientsFor_). This is the
+   * setting the school asked for: "แจ้งเตือนไปที่ Admin หรือคนที่ระบบกำหนด … เฉพาะเรื่องไหน". Nobody
+   * on the list about this topic, nobody pushed; there is no separate on/off to get out of step
+   * with it. Runs BEFORE the legacy path so a person on the list is never messaged twice. */
+  try {
+    (typeof lineRecipientsFor_ === 'function' ? lineRecipientsFor_(cat) : []).forEach(function (r) {
+      var uid = String(r.LineUID || '').trim();
+      if (!uid || seen[uid]) return;
+      seen[uid] = 1;
+      if (linePushText_(uid, text)) sent++;
+    });
+  } catch (e) {}
+  /* LEGACY: every Admin-role user, about everything. Kept because it is what the school had before
+   * the list existed, and it is off. The list above is the one to use — this cannot express "only
+   * these topics" and is exactly why the school turned notifications off altogether. */
   if (String(getConfig_('AdminLineNotify', 'false')) !== 'true') return;
   var users = readObjects_(sheet_(getMainSpreadsheet_(), 'USERS'));
-  var sent = 0;
+  var legacy = 0;
   users.forEach(function (u) {
-    if (String(u.Role) === ROLES.ADMIN && u.LineUID) { if (linePushText_(u.LineUID, text)) sent++; }
+    var uid = String(u.LineUID || '').trim();
+    if (String(u.Role) === ROLES.ADMIN && uid && !seen[uid]) { seen[uid] = 1; if (linePushText_(uid, text)) legacy++; }
   });
-  // Fallback to the single AdminLineUID config if no Admin users have UIDs yet.
-  if (sent === 0) {
+  // Fallback to the single AdminLineUID config if no Admin users have UIDs yet — and only if nothing
+  // else has already reached somebody, or a school with a recipient list would get a second copy.
+  if (sent === 0 && legacy === 0) {
     var fallback = getConfig_('AdminLineUID', '');
-    if (fallback && String(fallback).indexOf('<FILL') !== 0) linePushText_(fallback, text);
+    if (fallback && String(fallback).indexOf('<FILL') !== 0 && !seen[fallback]) linePushText_(fallback, text);
   }
 }
 

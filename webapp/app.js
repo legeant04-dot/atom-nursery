@@ -112,7 +112,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.317'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.318'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -7084,7 +7084,10 @@
     const paList=sortBy(A_CACHE.parents||[], p=>vaLabel(p,EN())).sort((a,b)=>((cnt[b.ParentID]||0)>0?1:0)-((cnt[a.ParentID]||0)>0?1:0));
     modal(`<h3>👁️ ${EN()?'View as role':'ดูในมุมมอง (สลับ Role)'}</h3>
     <p class="muted" style="font-size:13px">${EN()?'Preview the app exactly as this person sees it. You stay logged in as admin — tap "Back to Admin" to return.':'ดูแอปแบบที่คน ๆ นั้นเห็นจริง (ยังเป็นแอดมินอยู่) — กด "กลับเป็น Admin" เพื่อกลับ'}</p>
-    <label class="field"><span>👩‍🏫 ${EN()?'As teacher / leader':'มุมมองครู / หัวหน้า'}</span><select id="va_staff"><option value="">—</option>${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').map(s=>`<option value="${s.StaffID}">${esc(nmn(s))} · ${esc(String(s.Role||'')==='Observer'?(EN()?'Observer — view only':'ผู้ตรวจสอบ (ดูอย่างเดียว)'):(s.PositionLevel||''))}</option>`).join('')}</select></label>
+    <label class="field"><span>👩‍🏫 ${EN()?'As teacher / leader':'มุมมองครู / หัวหน้า'}</span><select id="va_staff"><option value="">—</option>${/* somebody who has left is still listed — an admin needs to be able to look at their screens to
+     close the record — but the list has to SAY so, or the admin picks a name and cannot tell why
+     every screen is shut (asked 2026-09-01). Sorted so the ones still working come first. */''}
+${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1:0)-(b.ended?1:0)).map(s=>`<option value="${s.StaffID}">${esc(nmn(s))} · ${esc(String(s.Role||'')==='Observer'?(EN()?'Observer — view only':'ผู้ตรวจสอบ (ดูอย่างเดียว)'):(s.PositionLevel||''))}${s.ended?(EN()?' — ENDED':' (สิ้นสุดการทำงาน)'):''}</option>`).join('')}</select></label>
     <button class="btn block" onclick="A_viewAsStaff(this)">${EN()?'View as this staff':'ดูมุมมองครูคนนี้'}</button>
     <div style="height:12px"></div>
     <label class="field"><span>👪 ${EN()?'As parent (all their children)':'มุมมองผู้ปกครอง (เห็นลูกทุกคนที่ผูก)'}</span><select id="va_parent"><option value="">—</option>${paList.map(p=>`<option value="${esc(p.ParentID)}">${esc(vaLabel(p,EN()))}${p.Phone?' · '+esc(phoneFmt(p.Phone)):''} · 👶 ${cnt[p.ParentID]||0}</option>`).join('')}</select></label>
@@ -7943,6 +7946,8 @@
         :'ปิดไว้: คุณครูยังได้รับครบทุกเรื่องที่กระดิ่ง 🔔 ในแอป ซึ่งไม่เสียโควตา · เหตุฉุกเฉินส่ง LINE เสมอไม่ว่าตั้งค่าอย่างไร'}</p>
       <label class="field" style="display:flex;align-items:center;gap:8px"><input type="checkbox" id="setDigM" style="width:auto" ${cfgOn('DigestMorning',true)?'checked':''}/> 🌅 ${EN()?`Morning digest 10:00 (${BC_NAME()} + pending)`:`สรุปเช้า 10:00 (${BC_NAME()} + รายการค้าง)`}</label>
       <label class="field" style="display:flex;align-items:center;gap:8px"><input type="checkbox" id="setDigE" style="width:auto" ${cfgOn('DigestEvening',true)?'checked':''}/> 🌆 ${EN()?'Evening digest 20:00 (daily report)':'สรุปเย็น 20:00 (รายงานประจำวัน)'}</label>
+      <button class="btn sm outline block" style="margin-top:4px" onclick="A_lineWho(this)">📇 ${EN()?'Who gets a LINE alert, and about what':'กำหนดว่าใครได้รับ LINE และเรื่องอะไรบ้าง'}</button>
+      <button class="btn sm outline block" style="margin-top:4px" onclick="A_lineCost(this)">📊 ${EN()?'What would LINE alerts cost per day / month?':'ประเมินโควตา LINE ที่จะใช้ต่อวัน / ต่อเดือน'}</button>
       <button class="btn sm outline block" style="margin-top:4px" onclick="A_reinstallTriggers(this)">🔄 ${EN()?'Apply digest schedule (10:00 / 20:00)':'อัปเดตตารางส่งสรุป (10:00 / 20:00)'}</button>
       <p class="muted" style="font-size:13px">${EN()?'Digests skip weekends & holidays. Run "Apply" once after enabling.':'สรุปจะข้ามวันหยุด/เสาร์-อาทิตย์ · กด "อัปเดตตาราง" 1 ครั้งหลังเปิดใช้'}</p>
       <h4 style="margin:10px 0 4px">🕑 ${EN()?'Today’s working hours':'เวลาทำงานของวันนี้'}</h4>
@@ -8253,6 +8258,113 @@
   // ---- "is slip verification actually working?" ------------------------------------------------
   // A slip marked ⚠ is SlipOK's VERDICT, not a broken connection — it read the slip (that is where the
   // reference and the transfer time come from) and then objected. This says which, and how often.
+  /* ===== WHO GETS A LINE ALERT, AND ABOUT WHAT ==================================================
+   * Asked 2026-09-01. The only control before was "every admin, about everything, or nobody" — on a
+   * plan capped at 300 messages a month that is not a setting anybody can use, so the school turned
+   * it off and lost the alerts they wanted along with the ones they did not.
+   * A row per person, with the topics they asked for. The list IS the switch: nobody listed for a
+   * topic, nobody messaged about it. */
+  const LINE_TOPIC_TH={approval:'คำขออนุมัติ',leave:'ผู้ปกครองแจ้งลานักเรียน',ot:'OT พนักงาน',
+    payment:'การชำระเงิน / สลิป',registration:'ลงทะเบียนใหม่',comment:'ความคิดเห็นในบันทึก',
+    injury:'อุบัติเหตุ (ส่งเสมอ)',digest:'สรุปประจำวัน',payslip:'สลิปเงินเดือน'};
+  let LINE_WHO=[];
+  window.A_lineWho=async(btn)=>{ if(btn)btn.disabled=true;
+    try{ const r=await api('lineRecipients',{},{fresh:true});
+      LINE_WHO=(r.rows||[]).map(x=>Object.assign({},x));
+      A_lineWhoDraw(r.topics||Object.keys(LINE_TOPIC_TH));
+    }catch(e){err(e);}finally{ if(btn)btn.disabled=false; } };
+  window.A_lineWhoAdd=()=>{ LINE_WHO.push({name:'',uid:'',topics:'*',active:true,note:''}); A_lineWhoDraw(); };
+  window.A_lineWhoDel=(i)=>{ LINE_WHO.splice(i,1); A_lineWhoDraw(); };
+  window.A_lineWhoSet=(i,k,v)=>{ if(LINE_WHO[i]) LINE_WHO[i][k]=v; };
+  window.A_lineWhoTopic=(i,t,on)=>{ const r=LINE_WHO[i]; if(!r) return;
+    let cur = r.topics==='*' ? Object.keys(LINE_TOPIC_TH).slice() : String(r.topics||'').split(',').map(x=>x.trim()).filter(Boolean);
+    if(on){ if(cur.indexOf(t)<0) cur.push(t); } else cur=cur.filter(x=>x!==t);
+    // every topic ticked is stored as '*', so adding a topic later reaches them without an edit
+    r.topics = (cur.length===Object.keys(LINE_TOPIC_TH).length) ? '*' : (cur.join(',')||'');
+  };
+  function A_lineWhoDraw(topics){
+    const TOP = topics || Object.keys(LINE_TOPIC_TH);
+    const has=(r,t)=> r.topics==='*' || String(r.topics||'').split(',').map(x=>x.trim()).indexOf(t)>=0;
+    const rows=LINE_WHO.map((r,i)=>`<div class="card" style="padding:8px;background:var(--surface-2)">
+      <div class="grid2" style="gap:6px"><label class="field" style="margin:0"><span>${EN()?'Name':'ชื่อที่เรียก'}</span>
+        <input value="${esc(r.name||'')}" oninput="A_lineWhoSet(${i},'name',this.value)" placeholder="${EN()?'e.g. ครูต้อม':'เช่น ครูต้อม'}"/></label>
+        <label class="field" style="margin:0"><span>LINE User ID</span>
+        <input value="${esc(r.uid||'')}" oninput="A_lineWhoSet(${i},'uid',this.value)" placeholder="U97c61e…" style="font-family:monospace"/></label></div>
+      <div class="row" style="gap:6px;flex-wrap:wrap;margin-top:4px">${TOP.map(t=>`<label class="chk-inline" style="margin:0">
+        <input type="checkbox" ${has(r,t)?'checked':''} onchange="A_lineWhoTopic(${i},'${esc(t)}',this.checked)"/>
+        <span style="font-size:13px">${esc(LINE_TOPIC_TH[t]||t)}</span></label>`).join('')}</div>
+      <div class="row" style="gap:8px;margin-top:6px;align-items:center">
+        <label class="chk-inline" style="margin:0"><input type="checkbox" ${r.active!==false?'checked':''} onchange="A_lineWhoSet(${i},'active',this.checked)"/><span>${EN()?'Active':'เปิดใช้งาน'}</span></label>
+        <button class="btn sm pink" style="margin-left:auto" onclick="A_lineWhoDel(${i})">🗑️ ${EN()?'Remove':'ลบ'}</button></div></div>`).join('');
+    modal(`<h3>📇 ${EN()?'Who gets a LINE alert':'ใครได้รับแจ้งเตือนทาง LINE'}</h3>
+      <p class="muted" style="font-size:13px;margin-top:0">${EN()
+        ? 'One row per person, and only the topics they tick. Nobody listed for a topic, nobody messaged about it — the list is the switch. Everything still reaches the 🔔 bell in the app either way, which costs nothing.'
+        : 'หนึ่งแถวต่อหนึ่งคน · ติ๊กเฉพาะเรื่องที่ต้องการให้ส่ง · ไม่มีใครในรายการเรื่องไหน = ไม่ส่งเรื่องนั้น<br>ทุกเรื่องยังเข้ากระดิ่ง 🔔 ในแอปเหมือนเดิม ซึ่ง<b>ไม่เสียโควตา</b>'}</p>
+      <p class="muted" style="font-size:12px">⚠️ ${EN()?'Accidents are always sent to everyone active on this list, whatever they ticked.'
+        :'<b>อุบัติเหตุ</b>ส่งหาทุกคนที่เปิดใช้งานในรายการนี้เสมอ ไม่ว่าจะติ๊กเรื่องไว้อย่างไร — เพราะเป็นเรื่องความปลอดภัยของเด็ก'}</p>
+      <div id="lineWhoRows">${rows||`<p class="muted" style="text-align:center;font-size:13px">${EN()?'Nobody is on the list — no LINE alerts are being sent.':'ยังไม่มีใครในรายการ — ตอนนี้ไม่ได้ส่ง LINE หาใครเลย'}</p>`}</div>
+      <button class="btn sm outline block" style="margin-top:6px" onclick="A_lineWhoAdd()">+ ${EN()?'Add a person':'เพิ่มคน'}</button>
+      <button class="btn block" style="margin-top:8px" onclick="A_lineWhoSave(this)">💾 ${esc(t('c.save'))}</button>
+      <p class="muted" style="font-size:12px;margin-top:6px">${EN()?'A LINE User ID starts with U and is 33 characters. Find it in the LINE Official Account Manager, or send a test from the slip-check screen.'
+        :'LINE User ID ขึ้นต้นด้วย U ยาว 33 ตัวอักษร · ดูได้จาก LINE Official Account Manager'}</p>`);
+  }
+  window.A_lineWhoSave=async(btn)=>{ btn.disabled=true;
+    const bad=LINE_WHO.filter(r=>String(r.uid||'').trim() && !/^U[0-9a-f]{32}$/i.test(String(r.uid).trim()));
+    if(bad.length && !confirm(EN()?`${bad.length} id(s) do not look like a LINE User ID. Save anyway?`
+      :`มี ${bad.length} รายการที่รูปแบบ LINE User ID ดูไม่ถูกต้อง · บันทึกต่อไหม?`)){ btn.disabled=false; return; }
+    try{ const r=await api('saveLineRecipients',{rows:LINE_WHO,adminId:USER.staffId});
+      const m=btn.closest('.modal'); if(m)m.remove();
+      confirmSaved(EN()?`Saved — ${r.count} recipient(s)`:`บันทึกแล้ว · ${r.count} คน`);
+    }catch(e){err(e); btn.disabled=false;} };
+
+  /* ===== WHAT WOULD IT COST? ====================================================================
+   * Asked in the same message. A guess would be worse than useless — this number decides what the
+   * school pays every month — so the server COUNTS the school's own rows over a real window and
+   * multiplies by the people each message actually goes to under the current settings, and the plan
+   * and the usage-so-far come from LINE itself. See handleLineUsage. */
+  window.A_lineCost=async(btn)=>{ if(btn)btn.disabled=true;
+    try{ const d=await api('lineUsage',{days:14},{fresh:true}); A_lineCostShow(d); }
+    catch(e){err(e);}finally{ if(btn)btn.disabled=false; } };
+  window.A_lineCostShow=(d)=>{ const pl=d.plan||{};
+    const n=x=>Number(x||0).toLocaleString('en-US');
+    const rows=(d.items||[]).filter(x=>x.events||x.messages).map(x=>`<tr>
+      <td style="padding:3px 6px">${esc(x.label)}${x.note?`<br><small class="muted">${esc(x.note)}</small>`:''}</td>
+      <td style="padding:3px 6px;text-align:right;white-space:nowrap">${n(x.events)}<br><small class="muted">× ${n(x.perEvent)}</small></td>
+      <td style="padding:3px 6px;text-align:right"><b>${n(x.messages)}</b></td></tr>`).join('');
+    const overFree = d.perMonth>300;
+    modal(`<h3>📊 ${EN()?'LINE quota — what it would cost':'ประเมินโควตา LINE ที่จะใช้'}</h3>
+      <p class="muted" style="font-size:13px;margin-top:0">${EN()
+        ? `Counted from this school's own rows over the last ${d.days} days (${d.schoolDays} school days), with the settings exactly as they are now. One push to one person = one message.`
+        : `นับจากข้อมูลจริงของโรงเรียนย้อนหลัง ${d.days} วัน (เป็นวันทำการ ${d.schoolDays} วัน) ตามการตั้งค่าปัจจุบัน<br><b>ส่ง 1 ข้อความถึง 1 คน = 1 เครดิต</b>`}</p>
+      <div class="grid2" style="text-align:center;margin-bottom:8px">
+        <div class="card" style="padding:8px;margin:0;background:var(--blue-bg)"><b style="font-size:22px;color:var(--blue)">${n(d.perDay)}</b><br><small class="muted">${EN()?'per school day':'ต่อวันทำการ'}</small></div>
+        <div class="card" style="padding:8px;margin:0;background:${overFree?'var(--warn-bg)':'var(--ok-bg)'}"><b style="font-size:22px;color:${overFree?'var(--warn)':'var(--ok)'}">${n(d.perMonth)}</b><br><small class="muted">${EN()?'per month (21 school days)':'ต่อเดือน (21 วันทำการ)'}</small></div></div>
+      ${pl.checked&&pl.quota!=null?`<div class="card" style="padding:8px"><b style="font-size:13px">${EN()?'What LINE says about this account':'ข้อมูลจริงจาก LINE'}</b>
+        <div class="list-item"><span>${EN()?'Monthly limit':'โควตาต่อเดือน'}</span><b>${pl.quotaType==='limited'?n(pl.quota):(EN()?'unlimited':'ไม่จำกัด')}</b></div>
+        <div class="list-item"><span>${EN()?'Used this month':'ใช้ไปแล้วเดือนนี้'}</span><b>${n(pl.used)}</b></div>
+        ${pl.remaining!=null?`<div class="list-item"><span>${EN()?'Remaining':'คงเหลือ'}</span><b style="color:${pl.overLimit?'var(--bad)':'var(--ok)'}">${n(pl.remaining)}</b></div>`:''}</div>`:''}
+      <div class="card" style="padding:8px"><b style="font-size:13px">${EN()?'Where it goes':'ใช้ไปกับอะไรบ้าง'}</b>
+        <table style="width:100%;border-collapse:collapse;font-size:13px;margin-top:4px">
+        <thead><tr class="muted"><th style="text-align:left;padding:3px 6px">${EN()?'Kind':'ประเภท'}</th>
+          <th style="text-align:right;padding:3px 6px">${EN()?'events × people':'ครั้ง × คน'}</th>
+          <th style="text-align:right;padding:3px 6px">${EN()?'messages':'ข้อความ'}</th></tr></thead>
+        <tbody>${rows||`<tr><td colspan="3" class="muted" style="padding:8px;text-align:center">${EN()?'Nothing in this window':'ช่วงนี้ไม่มีข้อมูล'}</td></tr>`}</tbody></table>
+        <small class="muted">${EN()?'“events × people” is how many times it happened and how many people each one messages. Halve either one and the cost halves.'
+          :'“ครั้ง × คน” คือจำนวนครั้งที่เกิดขึ้น คูณจำนวนคนที่ได้รับต่อครั้ง · ลดฝั่งไหนก็ลดค่าใช้จ่ายได้เท่ากัน'}</small></div>
+      <div class="card" style="padding:8px;background:${overFree?'var(--warn-bg)':'var(--ok-bg)'};border-color:${overFree?'var(--warn-line)':'var(--ok-line)'}">
+        <b style="font-size:13px">${overFree?'⚠️ ':'✅ '}${EN()?'Which plan':'ควรใช้แพ็กเกจไหน'}</b>
+        <p style="font-size:13px;margin:4px 0">${EN()
+          ? (overFree ? `About ${n(d.perMonth)} messages a month does not fit the free plan (300).`
+                      : `About ${n(d.perMonth)} messages a month fits inside the free plan (300).`)
+          : (overFree ? `ประมาณ <b>${n(d.perMonth)} ข้อความ/เดือน</b> — <b>เกินแพ็กเกจฟรี (300)</b> อยู่มาก`
+                      : `ประมาณ <b>${n(d.perMonth)} ข้อความ/เดือน</b> — <b>ยังอยู่ในแพ็กเกจฟรี (300)</b>`)}</p>
+        <p class="muted" style="font-size:12px;margin:0">${EN()
+          ? 'LINE changes its Thai pricing from time to time, so check the current tiers and price in the LINE Official Account Manager before deciding — the number above is what to compare them against.'
+          : 'ราคาและโควตาของแต่ละแพ็กเกจ LINE มีการเปลี่ยนแปลงเป็นระยะ — <b>กรุณาเช็กราคาปัจจุบันใน LINE Official Account Manager</b> แล้วเทียบกับตัวเลขด้านบน · ผมไม่อยากให้ตัดสินใจจากราคาที่ผมจำมา'}</p></div>
+      ${!d.staffLineOn||!d.adminLineOn?`<p class="muted" style="font-size:12px">${EN()?'Note: some LINE channels are currently OFF, so the figures above are for the settings as they stand. Turning one on multiplies its line.'
+        :'หมายเหตุ: ตอนนี้บางช่องทางปิดอยู่ ตัวเลขข้างบนจึงเป็นค่าตามการตั้งค่าปัจจุบัน · ถ้าเปิดเพิ่ม ตัวเลขบรรทัดนั้นจะเพิ่มตามจำนวนคนที่รับ'}</p>`:''}
+      <button class="btn outline block" style="margin-top:8px" onclick="this.closest('.modal').remove()">${esc(t('c.close'))}</button>`); };
+
   window.A_slipDiag=async(btn)=>{ if(btn)btn.disabled=true;
     try{ A_slipDiagShow(await api('slipDiag',{staffId:USER.staffId}));
     }catch(e){err(e);}finally{ if(btn)btn.disabled=false; } };
