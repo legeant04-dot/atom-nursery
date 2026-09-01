@@ -27,7 +27,8 @@ function eq(label, got, want) {
 }
 function ok_(label, cond) { console.log((cond ? '  ok   ' : '  FAIL ') + label); cond ? pass++ : fail++; }
 const R = f => fs.readFileSync(path.join(__dirname, '..', f), 'utf8').replace(/\r\n/g, '\n');
-const app = R('webapp/app.js'), notifyGs = R('src/Notify.gs'), lineGs = R('src/Line.gs'), codeGs = R('src/Code.gs');
+const app = R('webapp/app.js'), notifyGs = R('src/Notify.gs'), lineGs = R('src/Line.gs'), codeGs = R('src/Code.gs'),
+      staffGs = R('src/Staff.gs'), cfgGs = R('src/Config.gs');
 
 const { run } = H_(['Config', 'Db', 'Audit', 'Line', 'Auth', 'Code', 'Setup', 'Dspm_Seed', 'Checkin',
                     'Triggers', 'Leave', 'Notify', 'Parent', 'Staff', 'OT', 'Payroll', 'Backup',
@@ -191,6 +192,31 @@ console.log('\n3) THE MONEY — counted, not guessed');
    * "this does not exist", which is the state the school reported being unable to plan from. */
   ok_('...and no row is hidden for reading zero', !/\.filter\(x=>x\.events\|\|x\.messages\)/.test(app));
   ok_('...a row with nothing in the window says so in words', /ช่วงนี้ไม่มีรายการ/.test(app));
+
+  console.log('   — the messages to FAMILIES, which the recipient list does not govern');
+  /* Reported 2026-09-02: the school emptied the recipient list, pressed estimate, and still saw 203
+   * against "แจ้งผู้ปกครองเมื่อคุณครูบันทึกรับ-ส่ง". They were right to ask. That list governs alerts
+   * to STAFF; these go to PARENTS, they are the largest consumer of the quota by a distance, and
+   * they had no switch of any kind. */
+  eq('a parent line is marked as one', item('checkinParent').parent, true);
+  ok_('...and so are the two that were never counted at all',
+    item('journalParent').parent === true && item('dspmParent').parent === true);
+  ok_('the daily journal is counted — one per child per school day, the biggest line there is',
+    (u.items || []).some(x => x.key === 'journalParent'));
+  ok_('...and only the ones the teacher actually SENT, not drafts',
+    /String\(r\.Status \|\| ''\)\.toUpperCase\(\) !== 'DRAFT'/.test(lineGs));
+  ok_('they are still counted while the switch is on', item('checkinParent').perEvent === 1);
+  ok_('the screen separates them from the staff half', /ส่งถึงผู้ปกครอง — ไม่เกี่ยวกับรายชื่อผู้รับ/.test(app));
+  /* THE SWITCH. ON by default, because it is the school's promise to families and has always worked
+   * this way — turning it off is theirs to decide, not a default to change underneath them. */
+  ok_('there is a switch for it', /id="setParentLine"/.test(app) && /gv\.ParentLineNotify=ck\('#setParentLine'\)/.test(app));
+  ok_('...declared, or saving it would do nothing', /ParentLineNotify: 1/.test(staffGs));
+  ok_('...and seeded ON, unlike the other two', /\['ParentLineNotify',\s*'true'\]/.test(cfgGs));
+  ok_('...gating all three routine channels and nothing else',
+    /parentLineOn_\(\)/.test(R('src/Checkin.gs')) && /parentLineOn_\(\)/.test(R('src/Journal.gs')) && /parentLineOn_\(\)/.test(R('src/Dspm.gs')));
+  /* Money owed and a child hurt are NOT routine. They push regardless, as they always have. */
+  ok_('a late-pickup charge is not behind it', !/parentLineOn_\(\)/.test(R('src/Parent.gs')));
+  ok_('...and the reason is written down', /money the family owes and\s*\n \* an injury is their child being hurt/.test(lineGs));
 
   console.log('   — the digest is filed under its own topic');
   /* It passed NO category, so it defaulted to 'approval': ticking "สรุปประจำวัน" did nothing, and

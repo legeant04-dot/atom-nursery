@@ -87,7 +87,8 @@ function handleSubmitJournal(payload) {
   if (submit && student.ParentID) {
     var parent = findObject_(sheet_(getMainSpreadsheet_(), 'PARENTS'),
       function (p) { return String(p.ParentID) === String(student.ParentID); });
-    if (parent && parent.LineUID) {
+    // one per child per school day — behind ParentLineNotify (see parentLineOn_ in Line.gs)
+    if (parent && parent.LineUID && parentLineOn_()) {
       var liff = getConfig_('LiffID', '');
       var link = (liff && String(liff).indexOf('<FILL') !== 0)
         ? '\nดูรายละเอียด: https://liff.line.me/' + liff + '?view=journal&student=' + student.StudentID + '&date=' + date : '';

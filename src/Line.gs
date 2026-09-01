@@ -72,6 +72,25 @@ function linePush_(toUid, messages) {
  * an admin fire a real test push to their own UID. payload: { testUid? }
  */
 /**
+ * A ROUTINE MESSAGE TO A PARENT — the only channel that had no switch at all.
+ *
+ * Reported 2026-09-02: the school emptied the recipient list, pressed estimate, and still saw 203
+ * messages against "แจ้งผู้ปกครองเมื่อคุณครูบันทึกรับ-ส่ง". They were right to ask. That list governs
+ * alerts to STAFF; the pushes to families were never part of it and were never gated by anything —
+ * and they are by far the largest consumer of the quota.
+ *
+ * DEFAULT ON, because it is the school's promise to families and turning it off silently would be a
+ * product decision I do not get to make. It is a switch so the school can make it.
+ *
+ * NOT everything to a parent goes through here. A late-pickup OT charge is money the family owes and
+ * an injury is their child being hurt: both push regardless, as they always have. This covers the
+ * routine three — arrival/pick-up, the daily journal, and a DSPM result.
+ */
+function parentLineOn_() {
+  return String(getConfig_('ParentLineNotify', 'true')) !== 'false';
+}
+
+/**
  * WHAT WOULD A MONTH OF NOTIFICATIONS ACTUALLY COST?
  *
  * Asked 2026-09-01: "ถ้าอยากแจ้งใน 1 วันจะใช้ Credit เท่าไหร่ และเดือนนึงจะใช้เท่าไหร่ … ต้องอัพเป็น
@@ -163,8 +182,29 @@ function handleLineUsage(p) {
   };
   // a teacher recording a child in or out messages that child's parent — the school's core promise,
   // and by a distance the biggest number here
+  /* THE MESSAGES TO FAMILIES. Reported 2026-09-02: the school emptied the recipient list, pressed
+   * estimate, and still saw 203 against this line. They were right to ask — the list governs alerts
+   * to STAFF, and these go to PARENTS. They are the largest consumer of the quota by a distance, and
+   * had no switch of any kind until ParentLineNotify. Marked `parent:true` so the screen can group
+   * them apart instead of leaving the school to work out why emptying the list changed nothing. */
+  var parentOn = parentLineOn_() ? 1 : 0;
   var byStaff = count('MAIN', 'CHECKIN_STUDENT', 'Date', function (r) { return String(r.ByStaffID || ''); });
-  push('checkinParent', 'แจ้งผู้ปกครองเมื่อคุณครูบันทึกรับ-ส่ง', byStaff, 1, 'ส่งหาผู้ปกครองของเด็กคนนั้น 1 คน', 1);
+  push('checkinParent', 'แจ้งผู้ปกครองเมื่อคุณครูบันทึกรับ-ส่ง', byStaff, parentOn,
+    parentOn ? 'ส่งหาผู้ปกครองของเด็กคนนั้น 1 คน' : 'ปิดอยู่ — ไม่เสียโควตา', 1);
+  items[items.length - 1].parent = true;
+  /* NEVER COUNTED AT ALL until now, and one of them is a message per child per school day — bigger
+   * than everything the recipient list controls put together. An estimate that silently omits the
+   * biggest line is worse than no estimate. */
+  push('journalParent', 'แจ้งผู้ปกครองเมื่อคุณครูส่งบันทึกประจำวัน',
+    count('MAIN', 'JOURNAL', 'Date', function (r) { return String(r.Status || '').toUpperCase() !== 'DRAFT'; }),
+    parentOn, parentOn ? 'ส่งหาผู้ปกครอง 1 คน ต่อเด็ก 1 คน ต่อวัน' : 'ปิดอยู่ — ไม่เสียโควตา', 1);
+  items[items.length - 1].parent = true;
+  push('dspmParent', 'แจ้งผู้ปกครองเมื่อบันทึกผลประเมิน DSPM',
+    count('MAIN', 'ASSESSMENTS', 'Date'), parentOn, parentOn ? '' : 'ปิดอยู่ — ไม่เสียโควตา', 1);
+  items[items.length - 1].parent = true;
+  push('otParent', 'แจ้งผู้ปกครองเรื่องค่ารับช้า (OT)', count('MAIN', 'OT_DAILY', 'Date'), 1,
+    'เรื่องเงินที่ครอบครัวต้องชำระ — ส่งเสมอ', 1);
+  items[items.length - 1].parent = true;
   // ...and the covering teachers, when StaffLineNotify is on
   var allCheck = count('MAIN', 'CHECKIN_STUDENT', 'Date');
   push('checkinTeacher', 'แจ้งคุณครูเมื่อเด็กมาถึง / กลับ', allCheck, teacherReach,
@@ -212,7 +252,7 @@ function handleLineUsage(p) {
   } catch (e) { plan = { checked: false, error: String(e) }; }
 
   return { from: from, to: today, days: days, schoolDays: schoolDaysIn,
-    staffLineOn: staffLineOn, adminLineOn: adminLineOn, teachersPerClass: perClass,
+    staffLineOn: staffLineOn, adminLineOn: adminLineOn, parentLineOn: parentLineOn_(), teachersPerClass: perClass,
     recipients: recip, adminUsers: adminUsers,
     items: items, perDay: perDay, perMonth: perMonth, totalInWindow: totalMsgs,
     // "everything on, one person receiving it" — the question a school choosing a plan is asking
