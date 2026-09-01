@@ -112,7 +112,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.316'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.317'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -1126,6 +1126,13 @@
     else USER.staffId = linkedId;
     if (pictureUrl) USER.pictureUrl = pictureUrl;
     PENDING_LINE_UID = null;
+    /* Ask ONCE whether this person still works here, before the first screen is drawn — otherwise a
+     * deep link (#class) would open a working screen and only the home screen would be closed. It
+     * rides in the same tick as the first screen's own calls, so it costs no extra round trip, and a
+     * failure leaves it false: a lookup that did not answer must never lock somebody out. */
+    if (role !== 'Parent') api('staffSelf', { staffId: linkedId })
+      .then(me => { if (window.__atomSetEnded) __atomSetEnded(me && me.ended); if (me && me.ended) GO(CURRENT || 'home'); })
+      .catch(() => {});
     setHeader(); GO(initialScreen()); PREFETCH();
   };
   /* EMPLOYMENT ENDED WHILE SIGNED IN.
@@ -6636,10 +6643,17 @@
   // the departments master (Nursery Baby/1/2/Premium…) is the real list of nurseries; CLASSES only has
   // the rows that happen to have a homeroom teacher. Offer every department, plus whatever `cur` already is.
   const A_deptNames = () => ((A_CACHE.depts&&A_CACHE.depts.length)?A_CACHE.depts:(MOCK.config.Departments||[])).slice();
+  /* `cur` is what this record already has — and for staff that is a LIST ("Nursery 1,Nursery 2,…"),
+   * not one name. It used to be tested with out.indexOf(cur), which can never match a joined string,
+   * so the WHOLE comma-separated list was unshifted as a single bogus option: a checkbox reading
+   * "Nursery 1,Nursery 2,Nursery Premium,Nursery 3". Tick it and every department is saved a second
+   * time — which is how ครูลิน's record ended up holding all four departments twice (2026-09-01).
+   * Split it, add only the names genuinely missing from the master, and never add one twice. */
   function A_classOptions(cur){
     const out=A_deptNames();
     A_classes().forEach(c=>{ if(c.ClassName && out.indexOf(c.ClassName)<0) out.push(c.ClassName); });
-    if(cur && out.indexOf(cur)<0) out.unshift(cur);
+    String(cur==null?'':cur).split(',').map(x=>x.trim()).filter(Boolean).reverse()
+      .forEach(n=>{ if(n!=='*' && out.indexOf(n)<0) out.unshift(n); });
     return out;
   }
   const A_plans     = () => (A_CACHE.plans&&A_CACHE.plans.length)?A_CACHE.plans:((MOCK.config&&MOCK.config.Plans)||[]);
@@ -6754,9 +6768,17 @@
     A_CACHE.staff=staff; A_CACHE.students=students; A_CACHE.parents=parents; A_CACHE.classes=classes||[]; A_CACHE.plans=plans||[]; A_CACHE.groups=groups||[]; A_CACHE.depts=depts||[];
     // Someone who has left keeps their record — payroll and attendance history still point at it —
     // but they do not belong in the working list. They get their own collapsed section below.
-    const _left=v=>String(v||'ACTIVE').toUpperCase()==='INACTIVE';
-    const _stAct=(staff||[]).filter(s=>!_left(s.Status));
-    const _stGone=(staff||[]).filter(s=>_left(s.Status));
+    /* WHO IS STILL ON THE STAFF. Asked 2026-09-01: "ย้ายพนักงานที่สิ้นสุดการทำงานไปไว้ในนั้นแทน และ
+     * เมื่อมีการล้างวันสิ้นสุดจึงกลับมาใน Lists รายชื่อพนักงานหลัก".
+     *
+     * This section already existed, but it partitioned on Status==='INACTIVE' alone — so somebody
+     * with a last working day that had PASSED, and a status still reading ACTIVE, stayed in the
+     * working list. That is the ordinary case: the admin records a leaving date and nothing sets a
+     * status. `ended` comes from listStaff (staffEnded_ — INACTIVE **or** a last day gone), so
+     * clearing the end date puts them straight back in the main list with no extra step. */
+    const _left=s=>String((s&&s.Status)||'ACTIVE').toUpperCase()==='INACTIVE' || !!(s&&s.ended);
+    const _stAct=(staff||[]).filter(s=>!_left(s));
+    const _stGone=(staff||[]).filter(s=>_left(s));
     const CAPS=[['students','perm.students'],['staff','perm.staff'],['payroll','perm.payroll'],['parentPII','perm.parentPII'],['edit','perm.edit'],['approve','perm.approve']];
     const ROLES=['Admin','Leader','Teacher','Parent'];
     window._PERM=pm; window._PERM_STAFF=staff;
@@ -6933,7 +6955,14 @@
   window.A_saveStaff=async(btn,id)=>{ const m=btn.closest('.modal'); const v=k=>{ const e=m.querySelector('#sf_'+k); return e?e.value.trim():''; };
     // Department = the department(s) the staff is responsible for (multi). '*' = all (head teacher).
     const allDept=m.querySelector('#sf_AllDept')&&m.querySelector('#sf_AllDept').checked;
-    const dept = allDept ? '*' : [...m.querySelectorAll('.sfDept:checked')].map(x=>x.value).join(',');
+    /* Flattened and de-duplicated on the way out too. The checkbox VALUES are clean again now that
+     * A_classOptions no longer invents a joined one, but a record already holding duplicates would
+     * otherwise keep them for ever — this is what repairs ครูลิน on her next save. */
+    const dept = allDept ? '*' : (function(){ const seen={}, keep=[];
+      [...m.querySelectorAll('.sfDept:checked')].forEach(x=>{
+        String(x.value||'').split(',').map(v=>v.trim()).filter(Boolean).forEach(n=>{
+          if(!seen[n]){ seen[n]=1; keep.push(n); } }); });
+      return keep.join(','); })();
     const canOrg=m.querySelector('#sf_CanClassOrg')&&m.querySelector('#sf_CanClassOrg').checked;
     const canFood=m.querySelector('#sf_CanFoodMenu')&&m.querySelector('#sf_CanFoodMenu').checked;
     const data={NameTH:v('NameTH'),NameEN:v('NameEN'),Nickname:v('Nickname'),NicknameEN:v('NicknameEN'),DOB:v('DOB'),Position:v('Position'),Department:dept,StaffGroup:v('StaffGroup'),PositionLevel:v('PositionLevel'),Phone:v('Phone'),NationalID:v('NationalID'),LineUID:v('LineUID'),StartDate:v('StartDate'),BaseSalary:+v('BaseSalary')||0,BankName:v('BankName'),BankAccount:v('BankAccount'),ContributionOpening:+v('ContributionOpening')||0,ContributionLocked:(m.querySelector('#sf_ContributionLocked')&&m.querySelector('#sf_ContributionLocked').checked)?'YES':'',Classes:dept,CanClassOrg:canOrg?'YES':'',CanFoodMenu:canFood?'YES':''};
@@ -7065,6 +7094,11 @@
     // showed the teacher screens — the very thing the preview exists to check. Their real role is on
     // their staff record; anything that is not an Observer previews as a teacher exactly as before.
     const role = String(s.Role||'')==='Observer' ? 'Observer' : 'Teacher';
+    /* VIEW-AS MUST SHOW WHAT THEY WOULD SEE. It runs on the ADMIN's own session — and has to, or
+       nobody could open and close the record of somebody who has left — so the server never refuses
+       it, and an admin checking on an ended teacher saw a fully working app and concluded, quite
+       reasonably, that nothing had been fixed (2026-09-01). The roster already knows `ended`. */
+    if(window.__atomSetEnded) __atomSetEnded(!!s.ended);
     _enterViewAs({role, _roleKey:(role==='Observer'?'Observer':(s.PositionLevel==='Leader'?'Leader':'Teacher')),
       staffId:sid,nameEN:s.NameEN||s.NameTH||sid,nameTH:s.NameTH||sid}); };
   window.A_viewAsParent=(btn)=>{ const m=btn.closest('.modal'); const pid=m.querySelector('#va_parent').value; if(!pid){toast(EN()?'Pick a parent':'เลือกผู้ปกครองก่อน');return;}
@@ -7072,7 +7106,9 @@
     // uid = their LINE UID so visibleStudents returns EVERY linked child (multi-child view); parentId for legacy links
     _enterViewAs({role:'Parent',_roleKey:'Parent',parentId:pid,uid:p.LineUID||pid,nameEN:vaLabel(p,true),nameTH:vaLabel(p,false)}); };
   function _enterViewAs(ctx){ if(!VIEW_AS_BACKUP) VIEW_AS_BACKUP=USER; USER=Object.assign({_viewAs:true},ctx); setHeader(); GO('home'); _viewAsBar(); }
-  window.A_exitViewAs=()=>{ if(VIEW_AS_BACKUP){ USER=VIEW_AS_BACKUP; VIEW_AS_BACKUP=null; } const b=document.getElementById('viewAsBar'); if(b)b.remove(); document.body.classList.remove('viewas'); setHeader(); GO('home'); };
+  // ...and cleared on the way out, or the admin's own screens would stay closed behind them
+  window.A_exitViewAs=()=>{ if(window.__atomSetEnded) __atomSetEnded(false);
+    if(VIEW_AS_BACKUP){ USER=VIEW_AS_BACKUP; VIEW_AS_BACKUP=null; } const b=document.getElementById('viewAsBar'); if(b)b.remove(); document.body.classList.remove('viewas'); setHeader(); GO('home'); };
   // Sits directly under the header, not above the bottom nav. Anchored to the bottom it covered
   // whatever the screen put there — the nav, and now the sticky save bar on the long forms.
   function _viewAsBar(){ let b=document.getElementById('viewAsBar'); if(!b){ b=document.createElement('div'); b.id='viewAsBar'; document.body.appendChild(b); }
@@ -10062,6 +10098,41 @@
    * role). The guard below is there so nothing is half-done on screen and the person gets a plain
    * explanation instead of a failure, and the banner is there so they know why.
    */
+  /* ===== EMPLOYMENT ENDED — THE WHOLE TEACHER SIDE IS CLOSED ====================================
+   * Asked 2026-09-01: "ทั้งระบบยังบันทึกได้ กดเข้าไปแก้ไขได้ ลงบันทึกได้ รับส่งแทนได้ แจ้งอุบัติเหตุได้ …
+   * ก็ควรจะปิดทั้งระบบในส่วนของคุณครู".
+   *
+   * v316 closed the SERVER for a teacher whose last day has passed, and replaced the clock-in card.
+   * It did not close the other eight screens, so the buttons were all still there to press — and an
+   * admin using "view as" (which runs on the ADMIN's own session, and must, or nobody could close
+   * the record) saw a fully working app and reasonably concluded nothing had been fixed.
+   *
+   * One gate for every Teacher screen rather than nine separate patches: the same reasoning as
+   * assertStudentDayOpen_. It wraps whatever is in SCREENS.Teacher at this point, so a screen added
+   * later is covered without anybody remembering.
+   *
+   * `ENDED_SELF` is set from staffSelf (the FACT, never the date — see the whitelist in the engine).
+   */
+  let ENDED_SELF = false;
+  window.__atomSetEnded = v => { ENDED_SELF = !!v; };
+  function endedScreen(){
+    setNav(CURRENT);
+    app.innerHTML = `<div class="card" style="text-align:center;background:var(--warn-bg);border-color:var(--warn-line);margin-top:12px;padding:18px">
+      <div style="font-size:44px;line-height:1.1">🚪</div>
+      <h3 style="color:var(--warn);margin:6px 0 2px">${EN()?'Employment has ended':'สิ้นสุดการทำงานแล้ว'}</h3>
+      <p style="font-size:14px;line-height:1.8;margin:8px 10px">${EN()
+        ? 'Recording attendance, daily reports, assessments, accident reports and check-ins on behalf of a child are all closed.'
+        : 'การลงเวลา บันทึกประจำวัน ประเมินพัฒนาการ แจ้งอุบัติเหตุ และเช็คอิน-เอาท์แทนนักเรียน <b>ปิดทั้งหมดแล้ว</b>'}</p>
+      <p class="muted" style="font-size:13px;margin:0 10px">${EN()
+        ? 'Nothing has been deleted — your payroll and attendance history are kept in full. If you have come back to work, the admin can reopen your account straight away.'
+        : 'ข้อมูลไม่ได้ถูกลบ · ประวัติเงินเดือนและการมาทำงานยังอยู่ครบ · หากกลับเข้าทำงาน แอดมินเปิดให้ใช้งานได้ทันที'}</p></div>`;
+  }
+  Object.keys(SCREENS.Teacher).forEach(k => {
+    const orig = SCREENS.Teacher[k];
+    if (typeof orig !== 'function') return;
+    SCREENS.Teacher[k] = (...a) => ENDED_SELF ? endedScreen() : orig(...a);
+  });
+
   ['home','leaves','finance','dspm'].forEach(k => { SCREENS.Observer[k] = (...a) => SCREENS.Admin[k](...a); });
   const isObserver = () => !!(USER && USER.role === 'Observer');
   {

@@ -150,8 +150,14 @@ console.log('\n2) A staff member leaves — and the record stays');
   ok_('it counts as a write (takes the lock, busts the cache)', /^(submit|save|add|remove|delete|set)/i.test('setStaffEnd'));
   ok_('the columns exist in the schema', /'EndDate', 'EndReason', 'EndRemark'/.test(cfg));
   ok_('...and are created on an older sheet that lacks them', /ensureColumns_\(sh, \['EndDate', 'EndReason', 'EndRemark'\]\)/.test(staffGs));
-  ok_('the working list hides them', /_stAct=\(staff\|\|\[\]\)\.filter\(s=>!_left\(s\.Status\)\)/.test(app));
+  ok_('the working list hides them', /_stAct=\(staff\|\|\[\]\)\.filter\(s=>!_left\(s\)\)/.test(app));
   ok_('but they are still reachable, with a way back', /_stGone\.length\?/.test(app) && /A_staffReturn/.test(app));
+  /* IT USED TO SPLIT ON Status ALONE, so somebody with a last working day that had PASSED and a
+   * status still reading ACTIVE stayed in the working list — which is the ORDINARY case, because
+   * recording a leaving date does not set a status. Reported 2026-09-01. `ended` comes from
+   * listStaff (staffEnded_), so clearing the date puts them back with no extra step. */
+  ok_('...whether that is an INACTIVE status OR a last working day that has passed',
+    /const _left=s=>String\(\(s&&s\.Status\)\|\|'ACTIVE'\)\.toUpperCase\(\)==='INACTIVE' \|\| !!\(s&&s\.ended\)/.test(app));
 }
 
 console.log('\n3) Someone who has not started yet is not part of attendance');
