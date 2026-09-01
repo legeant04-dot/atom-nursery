@@ -70,10 +70,14 @@ const res = JSON.parse(run(function () {
   appendObject_(sheet_(MAIN, 'CLASSES'), { ClassID: 'C1', ClassName: 'Nursery 1', TeacherID: 'STF-T' });
   appendObject_(sheet_(getHrSpreadsheet_(), 'STAFF'), { StaffID: 'STF-T', Name: 'ครูเอ', Nickname: 'เอ',
     Role: 'Teacher', PositionLevel: 'Staff', Status: 'ACTIVE', Department: 'Nursery 1', LineUID: 'Uteacher', StartDate: '2025-01-01' });
-  // 20 teacher-recorded check-ins today: each messages ONE parent
+  /* 20 teacher-recorded check-ins today: each messages ONE parent.
+   * HALF ARE WRITTEN AS Date OBJECTS, which is what Sheets actually hands back for a date cell. The
+   * counter used String(v).slice(0,10) — "Tue Sep 01" — so on live EVERY counted line read zero and
+   * the school saw only the computed digest row. They would have concluded the free plan was ample.
+   * The same coercion trap ym7_ exists for; the fixture now contains both shapes deliberately. */
   for (var i = 0; i < 20; i++) {
-    appendObject_(ck, { Date: dateStr_(new Date()), Time: '08:0' + (i % 10), StudentID: 'STD-1',
-      ParentID: 'PAR-1', Type: 'IN', Status: 'OK', ByStaffID: 'STF-T' });
+    appendObject_(ck, { Date: (i % 2 ? new Date() : dateStr_(new Date())), Time: '08:0' + (i % 10),
+      StudentID: 'STD-1', ParentID: 'PAR-1', Type: 'IN', Status: 'OK', ByStaffID: 'STF-T' });
   }
   o.usage = handleLineUsage({ days: 14 });
   return JSON.stringify(o);
@@ -148,7 +152,9 @@ console.log('\n3) THE MONEY — counted, not guessed');
   const item = k => (u.items || []).find(x => x.key === k) || {};
   /* One push to one person is one message. Twenty check-ins recorded by a teacher message twenty
    * parents — the biggest single line, and the one the school's promise to families rests on. */
-  eq('twenty teacher-recorded check-ins', item('checkinParent').events, 20);
+  /* ALL TWENTY, including the ten stored as Date objects. This is the assertion that would have
+   * caught the live fault: with String(v).slice(0,10) it read 10 here and 0 on the real sheet. */
+  eq('twenty teacher-recorded check-ins, however the date cell is stored', item('checkinParent').events, 20);
   eq('...cost one message each', item('checkinParent').perEvent, 1);
   eq('...so twenty messages', item('checkinParent').messages, 20);
   /* ...and the teacher half is OFF, so it costs nothing. A setting that is off must show as zero, or the
@@ -167,6 +173,30 @@ console.log('\n3) THE MONEY — counted, not guessed');
   ok_('the plan is asked for, not assumed', u.plan && u.plan.checked === true);
   ok_('the settings it measured are reported alongside',
     u.staffLineOn === false && typeof u.teachersPerClass === 'number');
+
+  console.log('   — and "what if I turned everything on?"');
+  /* Asked 2026-09-01: "ลองตั้งค่าคนเดียวให้ส่งทุกอย่างแต่ประเมินไม่ได้คำนวนให้ว่า ถ้าส่งทุกอย่างให้
+   * 1 คน จะเป็นกี่ Credits". A table of zeros, because a topic is currently off, cannot answer it —
+   * and it is exactly the number somebody choosing a plan needs. */
+  ok_('every line carries a second figure priced as though everything were on',
+    (u.items || []).every(x => typeof x.messagesIfAll === 'number'));
+  ok_('...which is never smaller than what it costs today',
+    (u.items || []).every(x => x.messagesIfAll >= x.messages));
+  ok_('...and the totals say so too', u.perMonthIfAll >= u.perMonth && u.perDayIfAll >= u.perDay);
+  // the teacher half is OFF right now, so turning it on is precisely the difference on that line
+  ok_('a channel that is off shows what turning it on would cost',
+    item('checkinTeacher').messages === 0 && item('checkinTeacher').messagesIfAll > 0);
+  ok_('the screen shows both columns', /\$\{EN\(\)\?'now':'ตอนนี้'\}/.test(app) && /\$\{EN\(\)\?'if all on':'ถ้าเปิดหมด'\}/.test(app));
+  /* Rows at zero are SHOWN, not filtered out: hiding them made "this topic is off" look identical to
+   * "this does not exist", which is the state the school reported being unable to plan from. */
+  ok_('...and no row is hidden for reading zero', !/\.filter\(x=>x\.events\|\|x\.messages\)/.test(app));
+  ok_('...a row with nothing in the window says so in words', /ช่วงนี้ไม่มีรายการ/.test(app));
+
+  console.log('   — the digest is filed under its own topic');
+  /* It passed NO category, so it defaulted to 'approval': ticking "สรุปประจำวัน" did nothing, and
+   * ticking "คำขออนุมัติ" quietly signed you up for two messages every school day. */
+  eq('both digests are sent as digest', (R('src/Notify.gs').match(/notifyAdmins_\(lines\.join\('\\n'\), 'digest'\)/g) || []).length, 2);
+  ok_('...with the reason written down', /ticking the digest box did/.test(R('src/Notify.gs')));
 }
 
 console.log('\n4) the screens');

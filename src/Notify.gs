@@ -287,7 +287,10 @@ function digestEvening_() {
       });
     }
   } catch (e) {}
-  notifyAdmins_(lines.join('\n'));
+  // filed under its OWN topic, so the "สรุปประจำวัน" tick on the recipient list is what decides it.
+  // It used to pass no category at all, which defaulted to 'approval' — so ticking the digest box did
+  // nothing and ticking the approvals box quietly signed you up for two messages a day.
+  notifyAdmins_(lines.join('\n'), 'digest');
 }
 function digestMorning_() {
   if (isSchoolClosed_(new Date())) return;
@@ -304,7 +307,7 @@ function digestMorning_() {
     if (sl.length) lines.push('💳 สลิปรอตรวจสอบ: ' + sl.length);
   } catch (e) {}
   if (lines.length === 1) lines.push('ไม่มีรายการค้างอนุมัติ');
-  notifyAdmins_(lines.join('\n'));
+  notifyAdmins_(lines.join('\n'), 'digest');   // its own topic — see digestEvening_
 }
 
 /** Admin: re-install time triggers so schedule edits (incl. the 10:00/20:00 digests) take effect. */
