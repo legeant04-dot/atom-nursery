@@ -431,7 +431,10 @@ function handleRenameDepartment(p) {
 function handleSetSchoolConfig(p) {
   p = p || {};
   var WHITE = { GPS_Lat: 1, GPS_Lng: 1, Radius: 1, GpsAccuracySlack: 1, LateGraceMinutes: 1, OTRatePerHour: 1, OTGraceMinutes: 1, StaffOTHourlyRate: 1, OTRoundUpMinutes: 1, DefaultCheckInTime: 1, DefaultCheckOutTime: 1, BigCleaningAmount: 1, BigCleaningIn: 1, BigCleaningOut: 1,
-    AdminLineNotify: 1, DigestMorning: 1, DigestEvening: 1,     // notification prefs (in-app inbox vs LINE + daily digests)
+    // notification prefs (in-app inbox vs LINE + daily digests). StaffLineNotify gates the LINE half
+    // of notifyStudentTeacher_ — leaves, comments and arrivals, which is the heaviest traffic there
+    // is; without it in this list the switch would save and change nothing (writeRows_ drops it).
+    AdminLineNotify: 1, StaffLineNotify: 1, DigestMorning: 1, DigestEvening: 1,
     ContributionMatchRate: 1 };                                 // เงินสมทบ: school's share ÷ teacher's share
   var vals = p.values || {};
   var cfg = sheet_(getMainSpreadsheet_(), 'SCHOOL_CONFIG'), wrote = {};

@@ -320,6 +320,13 @@ var SCHOOL_CONFIG_DEFAULTS = [
   ['LineChannelSecret',     '<FILL Messaging API channel secret>'],
   ['LiffID',                '<FILL LIFF ID>'],
   ['AdminLineUID',          '<FILL Admin LINE userId for notifications>'],
+  /* WHO GETS A LINE PUSH, as opposed to the in-app 🔔 bell. The free plan caps messages at ~300 a
+   * month and the school's quota is exhausted, so both default to OFF and everything still arrives
+   * on the bell, which costs nothing. Emergencies (injury) ignore both and always push.
+   * StaffLineNotify covers leaves, journal comments and children arriving — by far the heaviest
+   * traffic in the app, and until 2026-09-01 it had no switch at all while the admin one did. */
+  ['AdminLineNotify',       'false'],
+  ['StaffLineNotify',       'false'],
 
   // --- HR / Payroll defaults (used by Phase 2) ---
   ['OTRate',                '0'],            // baht per OT hour, or multiplier per HR policy

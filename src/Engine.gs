@@ -3078,8 +3078,15 @@ function createAtomAPI(M, GROWTH_STD) {
           pauseDue:pauseDue_(s), pauseTo:ymd(s.PauseTo||'')}; });
         return {className:name,total:studs.length,in:stat.filter(s=>s.status==='IN').length,out:stat.filter(s=>s.status==='OUT').length,leave:stat.filter(s=>s.status==='LEAVE').length,absent:stat.filter(s=>s.status==='ABSENT').length,students:stat}; })
         .filter(c=>c.total>0 || (M.classes||[]).some(mc=>mc.ClassName===c.className)); // hide empty extra depts, keep real classes
-      // staff with check-in turned OFF never clock in — exclude them entirely (not counted, not "absent")
-      const staffStat=M.staff.filter(s=>s.Role==='Teacher'&&s.RequireCheckin!==false&&staffStarted_(s)).map(s=>{ const a=M.staffAttendanceToday.find(x=>x.StaffID===s.StaffID)||{};
+      /* staff with check-in turned OFF never clock in — exclude them entirely (not counted, not
+       * "absent") — and NOR DOES ANYONE WHOSE LAST DAY HAS PASSED.
+       *
+       * Reported 2026-09-01: a teacher whose EndDate was 31/08 was still on this card the next
+       * morning, counted as ขาด/ลา, dragging the school's attendance to 83% (5/6). The check-in
+       * itself has always refused her (assertStaffStarted_ throws ENDED), and the monthly report has
+       * always filtered her out — this one screen, the one an admin opens every morning, did not.
+       * It asked staffStarted_ and never the other end of the same question. */
+      const staffStat=M.staff.filter(s=>s.Role==='Teacher'&&s.RequireCheckin!==false&&staffStarted_(s)&&!staffEnded_(s)).map(s=>{ const a=M.staffAttendanceToday.find(x=>x.StaffID===s.StaffID)||{};
         const onLeave=a.Status==='LEAVE'; return {staffId:s.StaffID,name:s.NameTH,nameEN:s.NameEN,nick:s.Nickname,nickEN:s.NicknameEN,dept:s.Department, status:a.Status||'ABSENT',
           checkIn:onLeave?'':(a.CheckIn||''), checkOut:onLeave?'':(a.CheckOut||''), late:onLeave?0:(a.Late||0), remark:onLeave?(a.Reason||'ลา'):''}; });
       return {classes:cls, staff:staffStat, pendingLeaves:M.leaves.filter(l=>l.Status.startsWith('PENDING')).length,
@@ -3091,6 +3098,13 @@ function createAtomAPI(M, GROWTH_STD) {
          * not here), which is right — and would leave an admin with no sign that three families
          * join on Monday. Named on the one screen they open every morning, in date order. */
         starting:H.startingStudents(),
+        /* ...and the STAFF whose last day has gone. Asked 2026-09-01: "ควรขึ้นแจ้งเตือน Admin ว่าให้
+         * นำชื่อออกจากระบบ". Taking them off the attendance card above is right, but a record that
+         * quietly stops appearing is a record nobody ever tidies up — and they still hold a login.
+         * Named here, on the screen the admin opens every morning, until somebody deals with them.
+         * NOT deleted automatically: the school's own reason is that people come back, and the
+         * record carries their whole payroll and attendance history. */
+        endedStaff:H.endedStaff(),
         holidays:(M.holidays||[]).map(h=>({Date:h.Date,NameTH:h.NameTH,NameEN:h.NameEN})), bigCleaning:bigCleaningList_(),
         // whether today is open, and TO WHOM — travels with the dashboard so the screen never has to
         // work it out from holidays/bigCleaning and get the Big Cleaning case wrong again
@@ -3112,6 +3126,17 @@ function createAtomAPI(M, GROWTH_STD) {
     // `endScheduled` = a leaving date is on record but has not arrived, so they are still staff.
     listStaff: () => M.staff.map(s=>Object.assign({RequireCheckin: s.RequireCheckin!==false,
       ended: staffEnded_(s), endScheduled: !staffEnded_(s) && !!ymd(s.EndDate||'')}, s)),
+    /** Staff whose last working day has passed and who are still on the roster — the admin's list of
+     *  records to close out. Kept, never auto-deleted: people come back, and the row carries their
+     *  payroll and attendance history. Sorted by who left longest ago. */
+    endedStaff: () => M.staff.filter(s=>staffEnded_(s))
+      .map(s=>({staffId:s.StaffID, nick:s.Nickname||s.NameTH||s.Name||s.StaffID,
+        name:s.NameTH||s.Name||'', role:s.Role||'', dept:s.Department||'',
+        endDate:ymd(s.EndDate||''), reason:s.EndReason||'',
+        // still holding a login is the part that needs acting on, not the tidiness
+        hasLogin: !!(s.LineUID||s.PasswordHash),
+        status:String(s.Status||'')}))
+      .sort((a,b)=>String(a.endDate).localeCompare(String(b.endDate))),
     // the caller's own staff record (sanitized — no PasswordHash) so screens don't rely on client MOCK.staff.
     staffSelf: p => { const s=staffById(p.staffId); if(!s.StaffID)return null;
       const grp=(M.staffGroups||[]).find(g=>g.GroupName===s.StaffGroup)||null;

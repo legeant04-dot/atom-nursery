@@ -203,18 +203,56 @@ function staffCoversClass_(s, className) {
  * homeroom teacher AND any staff whose Department/Classes includes the student's class (so e.g. ครูจอย
  * who looks after Nursery Baby is notified even without a CLASSES row). Dedupes by LineUID.
  */
+/**
+ * IS THIS PERSON ON DUTY TODAY? Asked before anyone is notified about anything.
+ *
+ * Reported 2026-09-01: an OBSERVER was receiving a LINE push for every leave, every comment and
+ * every child arriving all morning. An Observer is a read-only auditor — the role exists to look at
+ * the school without touching it — so there is no action for them to take about a child arriving at
+ * 07:20, and being sent every one of them is neither useful to them nor affordable: the school's
+ * free LINE quota is exhausted and the switch was believed to be off.
+ *
+ * The filter below excluded Role 'Admin' and nothing else. Observer is not Admin, so it fell
+ * straight through. It also never looked at EndDate, so a teacher whose last day was the 31st was
+ * still being notified on the 1st — reported in the same message.
+ *
+ * ENDED IS COMPARED HERE, not read from the engine: this is a .gs handler and the engine's
+ * staffEnded_ is not in scope. Same rule, deliberately duplicated in the smallest possible form.
+ */
+function staffOnDuty_(s) {
+  if (!s || !s.StaffID) return false;
+  var role = String(s.Role || '');
+  // Admin has the 🔔 inbox and the whole dashboard; Observer may not act on anything at all.
+  if (role === 'Admin' || role === 'Observer') return false;
+  if (String(s.Status || 'ACTIVE').toUpperCase() !== 'ACTIVE') return false;
+  // EndDate is a LAST WORKING DAY, so it stops mattering only once it has PASSED
+  var end = String(s.EndDate || '').slice(0, 10);
+  if (/^\d{4}-\d{2}-\d{2}$/.test(end) && dateStr_(new Date()) > end) return false;
+  return true;
+}
+
 function notifyStudentTeacher_(student, text, opts) {
   opts = opts || {};
   var seenStaff = {}, seenUid = {}, sent = false, inboxed = 0;
   // Every targeted teacher gets an IN-APP inbox row, and a LINE push only if they have a UID. This
   // used to be LINE-only, so with the school's free quota exhausted a parent's comment reached
   // nobody at all — the teacher's bell was simply empty.
+  /* THE LINE HALF IS BEHIND THE SAME KIND OF SWITCH THE ADMIN PUSHES ARE. The school's free plan
+   * caps messages at ~300/month and the quota is exhausted; notifyAdmins_ has been inbox-only since
+   * that happened, but this path kept pushing LINE for every leave, comment and arrival, which is by
+   * far the highest-volume traffic in the app. The school believed it was off (2026-09-01).
+   *
+   * The IN-APP INBOX IS ALWAYS WRITTEN either way — that is the teacher's 🔔 bell, it costs nothing,
+   * and it is what makes turning LINE off safe. Emergencies do not come through here at all
+   * (notifyAdminsUrgent_ pushes LINE regardless, by design). Default off, like the admin switch. */
+  var lineOn = String(getConfig_('StaffLineNotify', 'false')) === 'true';
   var reach = function (staff) {
     if (!staff || !staff.StaffID || seenStaff[staff.StaffID]) return;
+    if (!staffOnDuty_(staff)) return;              // observers, admins, and anyone who has left
     seenStaff[staff.StaffID] = 1;
     inboxAdd_(opts.category, text, opts.ref, staff.StaffID); inboxed++;
     var uid = staff.LineUID;
-    if (uid && !seenUid[uid]) { seenUid[uid] = 1; if (linePushText_(uid, text)) sent = true; }
+    if (lineOn && uid && !seenUid[uid]) { seenUid[uid] = 1; if (linePushText_(uid, text)) sent = true; }
   };
   var staffRows = readObjects_(sheet_(getHrSpreadsheet_(), 'STAFF'));
   // 1) homeroom teacher from CLASSES
@@ -225,10 +263,9 @@ function notifyStudentTeacher_(student, text, opts) {
     staffRows.forEach(function (s) { if (String(s.StaffID) === String(cls.TeacherID)) t = s; });
     reach(t);
   }
-  // 2) any active staff whose Department/Classes covers this class
-  staffRows.forEach(function (s) {
-    if (String(s.Role) !== 'Admin' && String(s.Status || 'ACTIVE') === 'ACTIVE' && staffCoversClass_(s, student.Class)) reach(s);
-  });
+  // 2) any staff ON DUTY whose Department/Classes covers this class. staffOnDuty_ (checked inside
+  //    reach) is what decides; the role/status test that used to live here let an Observer through.
+  staffRows.forEach(function (s) { if (staffCoversClass_(s, student.Class)) reach(s); });
   // Fallback to the Admin in-app inbox only when nobody at all was reached. Routine check-in/out pass
   // adminFallback:false so they don't flood the inbox; leaves keep it so they're never lost.
   if (!inboxed && !sent && opts.adminFallback !== false) notifyAdmins_(text, opts.category, opts.ref);

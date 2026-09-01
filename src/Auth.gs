@@ -157,6 +157,22 @@ function handleAuth(payload) {
       logAudit(st.StaffID, 'LOGIN_DENIED_DISABLED', 'STAFF', st.StaffID);
       throw apiError_('DISABLED', 'บัญชีนี้ถูกระงับการใช้งาน');
     }
+    /* THE LAST WORKING DAY HAS PASSED. Asked 2026-09-01: "คุณครูที่หมดหน้าที่การทำงานหลังจากวันที่
+     * กำหนด ไม่ควรเข้ามาในระบบเพื่อทำกิจกรรมใดๆได้อีก".
+     *
+     * The check-in handler already refused them (assertStaffStarted_ throws ENDED) and the dashboard
+     * no longer counts them, but they still held a working login — able to open class lists, read
+     * children's records and file journals. Closing it AT THE DOOR is the only version that covers
+     * every screen at once, including the ones written next.
+     *
+     * EndDate is a LAST working day, so this bites only once it has passed — somebody leaving on the
+     * 30th still signs in on the 30th. Nothing is deleted: the record keeps their payroll and
+     * attendance history, and clearing EndDate lets them straight back in if they return. */
+    var _end = String(st.EndDate || '').slice(0, 10);
+    if (/^\d{4}-\d{2}-\d{2}$/.test(_end) && dateStr_(new Date()) > _end) {
+      logAudit(st.StaffID, 'LOGIN_DENIED_ENDED', 'STAFF', st.StaffID + ' end=' + _end);
+      throw apiError_('ENDED', 'สิ้นสุดการทำงานเมื่อ ' + _end + ' — เข้าใช้งานระบบไม่ได้แล้ว · หากกลับเข้าทำงาน กรุณาแจ้งแอดมิน');
+    }
     logAudit(st.StaffID, 'LOGIN', 'STAFF', st.StaffID);
     return {
       userId: st.StaffID, role: st.Role, linkedId: st.StaffID, status: USER_STATUS.ACTIVE,

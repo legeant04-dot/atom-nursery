@@ -112,7 +112,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.314'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.315'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -5330,7 +5330,7 @@
                   // "ขาด" is the only word anyone sees for a child everybody knew was away
                   const due=(c.students||[]).filter(s=>s.pauseDue);
                   return due.length?`<div style="margin-top:2px"><span class="pill info">🔄 ${EN()?'due back from leave':'ลาชั่วคราว · ครบกำหนดแล้ว'} (${due.length})</span> <small class="muted">${due.map(s=>esc(dnick(s))).join(', ')}</small></div>`:''; })()}`; })()}</div>`;}).join('')}`}</div>
-      ${A_pausedCard(d.paused)}${A_startingCard(d.starting)}
+      ${A_pausedCard(d.paused)}${A_startingCard(d.starting)}${A_endedStaffCard(d.endedStaff)}
       <div class="card"><div class="spread"><h3>👩‍🏫 ${EN()?'Staff today':'พนักงานวันนี้'}</h3>${_closedStaff?`<span class="pill" style="background:var(--surface-3);color:var(--ink-3)">🏖️ ${EN()?'Holiday':'วันหยุด'}</span>`:(_day.bigCleaning?`<span class="pill wait">${BC_ICON} ${BC_SHORT()}</span>`:'')}</div>
         ${_closedStaff?`<div style="text-align:center;color:var(--ink-3);padding:10px 0"><b>${EN()?'School closed — nobody is expected in today':'โรงเรียนหยุด — ไม่มีใครต้องเข้างานวันนี้'}</b></div>`:
         (()=>{ const present=d.staff.filter(s=>s.status==='IN'||s.status==='OUT').length; const t=d.staff.length; const pct=t?Math.round(present/t*100):100;
@@ -7398,6 +7398,28 @@
    * No button: the day arrives and the child is simply on the roster, with the parent's drop-off
    * button live. Nothing to remember to switch on.
    */
+  /* STAFF WHOSE LAST DAY HAS GONE, still on the roster.
+   *
+   * Asked 2026-09-01, after a teacher who finished on 31/08 was still counted as ขาด on 01/09:
+   * "ควรขึ้นแจ้งเตือน Admin ว่าให้นำชื่อออกจากระบบ เพราะเราสามารถนำข้อมูลกลับมาได้อยู่แล้ว".
+   *
+   * Taking them off the attendance card was the fix; this is what stops that becoming a record
+   * nobody ever tidies. NOT auto-deleted — the school's own reason is that people come back, and the
+   * row carries their payroll and attendance history. The card just refuses to let it be forgotten.
+   */
+  window.A_endedStaffCard=(list)=>{ list=list||[]; if(!list.length) return '';
+    const dn=x=>EN()?(x.nickEN||x.nameEN||x.nick||x.name):(x.nick||x.name);
+    return `<div class="card" style="border-color:var(--warn-line);background:var(--warn-bg)">
+      <div class="spread"><h3 style="color:var(--warn)">🚪 ${EN()?'Staff who have left':'พนักงานที่สิ้นสุดการทำงานแล้ว'}</h3>
+        <span class="pill warn">${list.length}</span></div>
+      <small class="muted" style="display:block;margin-bottom:4px">${EN()
+        ? 'Their last working day has passed. They are already off the attendance card and cannot sign in — this is a reminder to close the record.'
+        : 'เลยวันสิ้นสุดการทำงานแล้ว · ระบบเอาออกจากสรุปการมาทำงานและปิดการเข้าใช้งานให้แล้ว — เหลือแค่จัดการข้อมูลให้เรียบร้อย'}</small>
+      ${list.map(x=>`<div class="list-item"><span><b>${esc(dn(x))}</b> <small class="muted">${esc(x.role||'')}${x.dept?' · '+esc(x.dept):''}</small>
+          <br><small class="muted">${EN()?'last day':'วันสุดท้าย'} <b>${esc(ddmmyyyy(x.endDate))}</b>${x.reason?' · '+esc(x.reason):''}</small></span>
+        <button class="btn sm outline" style="flex:0 0 auto" onclick="A_staffForm('${esc(x.staffId)}')">✏️ ${EN()?'Open':'เปิดดู'}</button></div>`).join('')}
+      <small class="muted">${EN()?'Deleting is not required — keeping the record preserves their payroll and attendance history, and clearing the end date lets them straight back in if they return.'
+        :'ไม่จำเป็นต้องลบ · เก็บไว้จะรักษาประวัติเงินเดือนและการมาทำงานไว้ครบ · หากกลับเข้าทำงาน แค่ล้างวันสิ้นสุดก็ใช้งานได้ทันที'}</small></div>`; };
   window.A_startingCard=(list)=>{ list=list||[]; if(!list.length) return '';
     const dn=x=>EN()?(x.nickEN||x.nameEN||x.nick||x.name):(x.nick||x.name);
     const soon=list.filter(x=>Number(x.days)<=7);
@@ -7847,6 +7869,12 @@
       <h4 style="margin:10px 0 4px">🔔 ${EN()?'Notifications':'การแจ้งเตือน'}</h4>
       <p class="muted" style="font-size:13px">${EN()?'To protect the LINE monthly quota, approval alerts go to the in-app bell 🔔. Turn options on to also use LINE. Emergencies (accidents) always LINE.':'เพื่อประหยัดโควตา LINE รายเดือน คำขออนุมัติจะเข้ากล่องแจ้งเตือนในแอป 🔔 · เปิดตัวเลือกเพื่อส่ง LINE เพิ่ม · เหตุฉุกเฉิน (อุบัติเหตุ) ส่ง LINE ทุกครั้ง'}</p>
       <label class="field" style="display:flex;align-items:center;gap:8px"><input type="checkbox" id="setAdminLine" style="width:auto" ${cfgOn('AdminLineNotify',false)?'checked':''}/> 📲 ${EN()?'Also LINE-push admins for approvals (uses quota)':'ส่ง LINE ถึงแอดมินเมื่อมีคำขออนุมัติ (ใช้โควตา)'}</label>
+      ${/* The highest-volume traffic in the app by far — a leave, a comment or a child arriving is a
+           push per covering teacher, all day. It had no switch at all while the admin one did, which
+           is how the quota went on being spent after it was believed to be off (2026-09-01). */''}
+      <label class="field" style="display:flex;align-items:center;gap:8px"><input type="checkbox" id="setStaffLine" style="width:auto" ${cfgOn('StaffLineNotify',false)?'checked':''}/> 📲 ${EN()?'Also LINE-push teachers about leaves, comments and arrivals (heaviest use of the quota)':'ส่ง LINE ถึงคุณครูเรื่องแจ้งลา ความคิดเห็น และเด็กมาถึง (ใช้โควตามากที่สุด)'}</label>
+      <p class="muted" style="font-size:13px">${EN()?'Off: teachers still get everything on the 🔔 bell in the app, which costs nothing. Emergencies always go to LINE either way.'
+        :'ปิดไว้: คุณครูยังได้รับครบทุกเรื่องที่กระดิ่ง 🔔 ในแอป ซึ่งไม่เสียโควตา · เหตุฉุกเฉินส่ง LINE เสมอไม่ว่าตั้งค่าอย่างไร'}</p>
       <label class="field" style="display:flex;align-items:center;gap:8px"><input type="checkbox" id="setDigM" style="width:auto" ${cfgOn('DigestMorning',true)?'checked':''}/> 🌅 ${EN()?`Morning digest 10:00 (${BC_NAME()} + pending)`:`สรุปเช้า 10:00 (${BC_NAME()} + รายการค้าง)`}</label>
       <label class="field" style="display:flex;align-items:center;gap:8px"><input type="checkbox" id="setDigE" style="width:auto" ${cfgOn('DigestEvening',true)?'checked':''}/> 🌆 ${EN()?'Evening digest 20:00 (daily report)':'สรุปเย็น 20:00 (รายงานประจำวัน)'}</label>
       <button class="btn sm outline block" style="margin-top:4px" onclick="A_reinstallTriggers(this)">🔄 ${EN()?'Apply digest schedule (10:00 / 20:00)':'อัปเดตตารางส่งสรุป (10:00 / 20:00)'}</button>
@@ -8867,6 +8895,7 @@
     // notification prefs (checkboxes) — stored in SCHOOL_CONFIG so the digests/triggers read them
     const ck=id=>{ const e=m.querySelector(id); return e?(e.checked?'true':'false'):undefined; };
     if(ck('#setAdminLine')!==undefined) gv.AdminLineNotify=ck('#setAdminLine');
+    if(ck('#setStaffLine')!==undefined) gv.StaffLineNotify=ck('#setStaffLine');
     if(ck('#setDigM')!==undefined) gv.DigestMorning=ck('#setDigM');
     if(ck('#setDigE')!==undefined) gv.DigestEvening=ck('#setDigE');
     if(Object.keys(gv).length) await api('setSchoolConfig',{values:gv});

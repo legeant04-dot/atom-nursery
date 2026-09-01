@@ -88,7 +88,29 @@ const result = run(function () {
   appendObject_(sheet_(MAIN, 'HOLIDAY_ATTEND'), { Date: dateStr_(new Date()), StudentID: 'STD-001', AddedBy: 'TEST', AddedAt: '' });
   const pc = handleParentCheckin({ parentId: 'PAR-001', studentId: 'STD-001', type: 'IN', lat: 13.792472, lng: 100.646389 });
   ok(pc.type === 'IN' && pc.distance === 0, 'parent check-in IN ok');
-  ok(PUSH.some(p => p.to === 'Uofficer1' && /มาถึง/.test(p.text)), 'class teacher notified of arrival');
+  /* The teacher IS told — but a child arriving is the highest-volume message in the app (one per
+   * covering teacher, all morning), and since 2026-09-01 the LINE half of it is behind
+   * SCHOOL_CONFIG StaffLineNotify, off by default, exactly like the admin one above. The in-app
+   * 🔔 bell always gets the row. This used to demand the push, so it failed on a change made on
+   * purpose — and asserting "either channel" would let the switch break in silence, so both
+   * branches are exercised instead. */
+  ok(readObjects_(inboxSheet_()).some(r => String(r.StaffID) === 'STF-O1' && /มาถึง/.test(String(r.Text || ''))),
+    'class teacher notified of arrival — in-app bell, which costs no quota');
+  ok(!PUSH.some(p => p.to === 'Uofficer1' && /มาถึง/.test(p.text)),
+    '...and NO LINE push while StaffLineNotify is off');
+  { // ...and the switch really is what decides
+    updateRow_(cfg, findObject_(cfg, r => r.Key === 'StaffLineNotify')._row, { Value: 'true' });
+    _configCache = null;
+    PUSH.length = 0;
+    // notifyStudentTeacher_ directly: the check-OUT path would drag in otUpsertForPickup_, which
+    // belongs to a module this suite does not load — and the switch is what is under test, not OT.
+    notifyStudentTeacher_(findObject_(sheet_(MAIN, 'STUDENTS'), s => s.StudentID === 'STD-001'),
+      '👶 ทดสอบ มาถึงโรงเรียนแล้ว (08:00)', { adminFallback: false });
+    ok(PUSH.some(p => p.to === 'Uofficer1' && /มาถึง/.test(p.text)),
+      '...and a LINE push once the school turns it on');
+    updateRow_(cfg, findObject_(cfg, r => r.Key === 'StaffLineNotify')._row, { Value: 'false' });
+    _configCache = null;
+  }
   ok(sheet_(MAIN, 'CHECKIN_STUDENT').getLastRow() === 2, 'CHECKIN_STUDENT row written');
   const ab = handleStudentAbsence({ parentId: 'PAR-001', studentId: 'STD-001', date: '2026-06-15', reason: 'พาไปหาหมอ' });
   ok(ab.teacherNotified === true && /^LVS-\d{4}$/.test(ab.leaveId), 'student absence recorded + teacher notified ' + ab.leaveId);
