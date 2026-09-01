@@ -163,6 +163,36 @@ console.log('\n4) TWO TABS, BECAUSE THEY ARE TWO DIFFERENT PROBLEMS');
   /* Nothing is written on the tick: a move changes whose journal this child is on and which food
    * menu the family sees, and a stray tap on a phone is easy. */
   ok_('ticking selects; a named button commits', /window\.ORG_sPick=\(id\)=>/.test(app) && /window\.ORG_sSave=async\(id,btn\)=>/.test(app));
+  console.log('   — and how you know it saved');
+  /* Both halves used to end the same way: call the server, toast, redraw. The redraw threw away the
+   * "✅ บันทึกแล้ว" the teacher card had just written, jumped the page to the top, and left a card
+   * that looked exactly as before — so the only way to be sure was to go and open the child's
+   * record. "แก้ไขเสร็จจะรู้ได้ยังไงว่าบันทึก ... ต้อง Re-Check ไปตรวจประวัตินักเรียนด้วยไหม" */
+  ok_('the confirmation survives the redraw instead of being wiped by it',
+    /let ORG_LAST=null;/.test(app) && /window\.ORG_paintSaved=\(\)=>/.test(app) && /\$\{deps\.map\(sGroup\)\.join\(''\)\}`\}`;\n\s*ORG_paintSaved\(\);/.test(app));
+  ok_('...names WHAT was saved, not just that something was', /บันทึกแล้ว — ตอนนี้อยู่ \$\{ORG_LAST\.to\}/.test(app));
+  ok_('...and says the personal record already agrees', /ข้อมูลในประวัติเปลี่ยนตามแล้ว/.test(app));
+  ok_('...and brings the card back into view rather than jumping to the top',
+    /card\.scrollIntoView\(\{behavior:'smooth',block:'center'\}\)/.test(app));
+  /* The pills ARE the answer to "did it save?", so they must be the server's answer and not a
+   * stale-while-revalidate copy that would show the old class for a second. */
+  ok_('the redraw re-reads from the server rather than the cache',
+    /api\('listStaff',\{\},\{fresh:true\}\),api\('listStudents',\{\},\{fresh:true\}\)/.test(app));
+  ok_('...with the reason written down', /READ BACK FROM THE SERVER, not from the cache/.test(app));
+  /* THE RE-CHECK THE SCHOOL SAID THEY WOULD HAVE TO DO BY HAND WOULD HAVE FAILED. A_CACHE is what
+   * findStudent/findStaff read and what the personal-record form is drawn from; this screen kept its
+   * fetch to itself, so opening the child's record straight after a move showed the OLD class. The
+   * sheet was right — the other screen was reading a copy taken before the move. */
+  ok_('the fresh lists are put where the personal-record form reads them',
+    /A_CACHE\.staff=staff; A_CACHE\.students=students;/.test(app));
+  ok_('...and the trap is written down next to it',
+    /it would\n\s*\* have failed\. The sheet was right; the other screen was reading a copy taken before the move\./.test(app));
+  // one element per card wearing that class, or the confirmation lands on the wrong node
+  ok_('there is no empty placeholder competing with the confirmation',
+    /no empty "saved" slot here/.test(app) && (app.match(/class="orgSaved"|className='orgSaved'/g)||[]).length === 1);
+  // one round trip per card, owned by that card — the shared helper is what made this unanswerable
+  ok_('the shared mover that swallowed its own errors is gone',
+    !/window\.A_moveSel=/.test(app) && /A_moveSel is gone with the last thing that called it/.test(app));
   ok_('...and the button says where the child is going', /ยืนยันย้ายไป \$\{to\}/.test(app));
   ok_('...and stays hidden until something actually changed', /if\(!to \|\| to===card\.dataset\.cur\)\{ box\.hidden=true; return; \}/.test(app));
   /* The teacher chips are gone from the columns — the same thing editable in two places is what made

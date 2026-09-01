@@ -112,7 +112,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.326'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.327'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -9600,8 +9600,20 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
 
   // ---- Organize: move teachers/students between Nurseries (drag-drop + dropdown fallback) ----
   ADMIN_SUB_organize = async (backGo)=>{ window.__orgBack = backGo || window.__orgBack || 'manage'; window.__cvStandalone = false;
-    const [staff,students,depts,cover]=await Promise.all([api('listStaff'),api('listStudents'),api('listDepartments'),
+    /* READ BACK FROM THE SERVER, not from the cache. The pills this screen draws ARE the answer to
+     * "did it save?" — so they have to be what the server holds, not a stale-while-revalidate copy
+     * that would show the old class for a second and look like a failed write. Asked 2026-09-02:
+     * "แก้ไขเสร็จจะรู้ได้ยังไงว่าบันทึก ... ต้อง Re-Check ไปตรวจประวัตินักเรียนด้วยไหม". */
+    const [staff,students,depts,cover]=await Promise.all([api('listStaff',{},{fresh:true}),api('listStudents',{},{fresh:true}),api('listDepartments'),
       api('classCoverList',{staffId:USER.staffId},{fresh:true}).catch(()=>[])]);
+    /* ...AND PUT THEM WHERE THE REST OF THE ADMIN SCREENS LOOK.
+     *
+     * A_CACHE is what findStudent/findStaff read, and it is what the personal-record form is drawn
+     * from. This screen used to fetch its own copy and keep it to itself, so a child moved here still
+     * showed the OLD class when their record was opened — the very check the school said they would
+     * have to do by hand ("ต้อง Re-Check ไปตรวจประวัตินักเรียนด้วยว่าเปลี่ยนตามด้วยไหม"), and it would
+     * have failed. The sheet was right; the other screen was reading a copy taken before the move. */
+    A_CACHE.staff=staff; A_CACHE.students=students;
     // classes = the department master the admin created (Nursery Baby/1/2/…) — NOT the seed config
     const deps=(depts||[]).filter(d=>d);
     /* teachers, leaders, assistants… — and NOT an Observer. A read-only auditor has no class to be
@@ -9648,7 +9660,9 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
         ${/* a head teacher is stored as '*', NOT as "every box ticked" — the day a sixth Nursery
              opens, '*' covers it and five ticks would silently leave them out of the new room */''}
         <div class="orgDeps" ${all?'style="opacity:.4;pointer-events:none"':''}>${deps.map(dep=>tick('', dep, mine.indexOf(dep)>=0, all)).join('')||`<small class="muted">${EN()?'no classes yet':'ยังไม่มีชั้นเรียน'}</small>`}</div>
-        <div class="row" style="margin-top:6px;justify-content:flex-end"><small class="muted orgSaved" style="margin-right:auto"></small>
+        ${/* no empty "saved" slot here: the confirmation is appended by ORG_paintSaved AFTER the
+             redraw, and a second element wearing the same class is how it went missing once */''}
+        <div class="row" style="margin-top:6px;justify-content:flex-end">
           <button class="btn sm" onclick="ORG_tSave('${esc(s.StaffID)}',this)">💾 ${EN()?'Save':'บันทึก'}</button></div></div>`; };
 
     /* ---- 👶 THE CHILD TAB — one room each, and the browser enforces it -----------------------
@@ -9697,8 +9711,32 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
         ${loose.length?`<div class="card" style="background:var(--warn-bg);border-color:var(--warn-line);padding:8px"><b style="font-size:13px;color:var(--warn)">👶 ${EN()?'Not in any class yet':'ยังไม่ได้จัดชั้น'} — ${loose.length}</b></div>
           ${loose.map(sCard).join('')}`:''}
         ${deps.map(sGroup).join('')}`}`;
+    ORG_paintSaved();
   };
-  window.ORG_tab=(k)=>{ window.__orgTab=k; ADMIN_SUB_organize(); };
+  window.ORG_tab=(k)=>{ window.__orgTab=k; ORG_LAST=null; ADMIN_SUB_organize(); };
+  /* HOW YOU KNOW IT SAVED.
+   *
+   * Both halves used to end the same way: call the server, show a toast, redraw the whole screen.
+   * The redraw threw away the "✅ บันทึกแล้ว" the teacher card had just written, jumped the page back
+   * to the top, and left a card that looked exactly as it had before — so the only way to be sure was
+   * to go and open the child's record. Asked 2026-09-02: "แก้ไขเสร็จจะรู้ได้ยังไงว่าบันทึก ... ต้อง
+   * Re-Check ไปตรวจประวัตินักเรียนด้วยว่าเปลี่ยนแล้วไหม".
+   *
+   * So the confirmation is remembered ACROSS the redraw and painted onto the card afterwards — and it
+   * names what was saved, because "saved" on its own does not tell you WHAT was saved. The pills
+   * underneath it were read back from the server (fresh:true above), which is the actual proof: this
+   * is the same Class/Department field the personal record shows, not a second copy of it. */
+  let ORG_LAST=null;
+  window.ORG_paintSaved=()=>{ if(!ORG_LAST) return; const card=document.getElementById((ORG_LAST.kind==='student'?'orgS_':'orgT_')+ORG_LAST.id);
+    if(!card) { ORG_LAST=null; return; }
+    card.style.borderColor='var(--ok, #16a34a)';
+    const n=document.createElement('div'); n.className='orgSaved'; n.style.cssText='margin-top:6px;font-size:13px;color:var(--ok,#16a34a)';
+    n.textContent='✅ '+(EN()?`Saved — now ${ORG_LAST.to} (${ORG_LAST.at}). The personal record shows the same thing.`
+                             :`บันทึกแล้ว — ตอนนี้อยู่ ${ORG_LAST.to} (${ORG_LAST.at}) · ข้อมูลในประวัติเปลี่ยนตามแล้ว`);
+    card.appendChild(n); card.scrollIntoView({behavior:'smooth',block:'center'}); };
+  const ORG_saved=(kind,id,to)=>{ const d=new Date();
+    ORG_LAST={kind,id,to: to || (EN()?'no class':'ยังไม่ได้จัดชั้น'),
+      at: String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0')}; };
   // "ทุกชั้น" and the individual ticks are the same answer said two ways — never both at once
   window.ORG_tAll=(el)=>{ const card=el.closest('.card'), box=card.querySelector('.orgDeps');
     if(!box) return; box.style.opacity=el.checked?'.4':''; box.style.pointerEvents=el.checked?'none':'';
@@ -9713,17 +9751,18 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
     box.querySelector('button').textContent='✅ '+(EN()?`Move to ${to}`:`ยืนยันย้ายไป ${to}`); box.hidden=false; };
   window.ORG_sSave=async(id,btn)=>{ const card=document.getElementById('orgS_'+id); if(!card) return;
     const sel=card.querySelector('.orgdep:checked'); if(!sel) return;
-    // A_moveSel swallows its own error (it has to — it is shared), so re-enable either way rather
-    // than leaving a dead button on a card that is still on screen
-    btn.disabled=true; try{ await A_moveSel('student',id,sel.value); } finally { btn.disabled=false; } };
+    btn.disabled=true;
+    try{ await api('orgMoveStudent',{staffId:USER.staffId,targetId:id,toClass:sel.value});
+      ORG_saved('student',id,sel.value); toast(t('org.moved')); await ADMIN_SUB_organize();
+    }catch(e){ err(e); btn.disabled=false; } };
   window.ORG_tSave=async(id,btn)=>{ const card=document.getElementById('orgT_'+id); if(!card) return;
     const all=card.querySelector('.orgAll').checked;
     const picked=[...card.querySelectorAll('.orgDeps .orgdep')].map((c,i)=>c.checked?String(c.closest('label').textContent||'').trim():'').filter(Boolean);
     const toDept = all ? '*' : picked.join(',');
     btn.disabled=true;
     try{ await api('orgMoveTeacher',{staffId:USER.staffId,targetId:id,toDept});
-      const n=card.querySelector('.orgSaved'); if(n) n.textContent='✅ '+(EN()?'saved':'บันทึกแล้ว');
-      ADMIN_SUB_organize();
+      ORG_saved('teacher',id, all?(EN()?'all classes':'ทุกชั้น'):picked.join(', ')); toast(t('c.saved'));
+      await ADMIN_SUB_organize();
     }catch(e){ err(e); btn.disabled=false; } };
   /**
    * COVER, WHICH IS NOT THE SAME AS MOVING SOMEBODY.
@@ -9805,7 +9844,9 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
    * that was being complained about. */
   // Permission-aware move: caller = USER.staffId (server injects/validates), target = the dragged id.
   // Works for Admin and any teacher the admin granted CanClassOrg. Refresh in place (role-agnostic).
-  window.A_moveSel=async(type,id,dep)=>{ try{ if(type==='teacher')await api('orgMoveTeacher',{staffId:USER.staffId,targetId:id,toDept:dep}); else await api('orgMoveStudent',{staffId:USER.staffId,targetId:id,toClass:dep}); toast(t('org.moved')); ADMIN_SUB_organize(); }catch(e){err(e);} };
+  /* A_moveSel is gone with the last thing that called it. It swallowed its own error and redrew the
+   * screen from inside, which is precisely what made "did it save?" unanswerable — ORG_sSave and
+   * ORG_tSave each own their own round trip now, so each can say what it saved. */
   window.T_organize=()=>{ window.__orgBack='home'; ADMIN_SUB_organize('home'); };
   // head teacher: the same screen, opened on the half they have — the teacher tab is not drawn for them
   window.T_moveStudents=()=>{ window.__orgBack='home'; window.__orgTab='student'; ADMIN_SUB_organize('home'); };
