@@ -327,6 +327,11 @@ var SCHOOL_CONFIG_DEFAULTS = [
    * traffic in the app, and until 2026-09-01 it had no switch at all while the admin one did. */
   ['AdminLineNotify',       'false'],
   ['StaffLineNotify',       'false'],
+  /* Routine messages to FAMILIES — arrival/pick-up, the daily journal, a DSPM result. ON by default,
+   * unlike the two above: it is the school's promise to families and has always worked this way, so
+   * turning it off is the school's decision to make and not a default to change underneath them.
+   * A late-pickup charge and an injury are NOT here — money owed and a child hurt always send. */
+  ['ParentLineNotify',      'true'],
 
   // --- HR / Payroll defaults (used by Phase 2) ---
   ['OTRate',                '0'],            // baht per OT hour, or multiplier per HR policy

@@ -645,7 +645,10 @@ function handleStaffStudentCheckin(p) {
   try {
     var parent = student.ParentID ? findObject_(sheet_(getMainSpreadsheet_(), 'PARENTS'),
       function (pr) { return String(pr.ParentID) === String(student.ParentID); }) : null;
-    if (parent && parent.LineUID) linePushText_(parent.LineUID, msg); // routine check-in: no Admin-inbox fallback (avoids flooding)
+    // routine check-in: no Admin-inbox fallback (avoids flooding), and behind ParentLineNotify —
+    // the single biggest consumer of the LINE quota, and until 2026-09-02 the only channel with no
+    // switch of any kind. See parentLineOn_ in Line.gs.
+    if (parent && parent.LineUID && parentLineOn_()) linePushText_(parent.LineUID, msg);
   } catch (e) {}
   // the time RECORDED, not the moment the button was pressed — the two differ whenever a teacher
   // enters the real time, and the confirmation must show what was actually written down

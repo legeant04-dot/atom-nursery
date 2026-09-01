@@ -112,7 +112,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.320'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.321'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -7944,6 +7944,12 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
       <label class="field" style="display:flex;align-items:center;gap:8px"><input type="checkbox" id="setStaffLine" style="width:auto" ${cfgOn('StaffLineNotify',false)?'checked':''}/> 📲 ${EN()?'Also LINE-push teachers about leaves, comments and arrivals (heaviest use of the quota)':'ส่ง LINE ถึงคุณครูเรื่องแจ้งลา ความคิดเห็น และเด็กมาถึง (ใช้โควตามากที่สุด)'}</label>
       <p class="muted" style="font-size:13px">${EN()?'Off: teachers still get everything on the 🔔 bell in the app, which costs nothing. Emergencies always go to LINE either way.'
         :'ปิดไว้: คุณครูยังได้รับครบทุกเรื่องที่กระดิ่ง 🔔 ในแอป ซึ่งไม่เสียโควตา · เหตุฉุกเฉินส่ง LINE เสมอไม่ว่าตั้งค่าอย่างไร'}</p>
+      ${/* THE BIGGEST CONSUMER, and until 2026-09-02 the only channel with no switch at all — which
+           is why emptying the recipient list changed nothing on the estimate. ON by default: it is
+           the school's promise to families and has always worked this way. */''}
+      <label class="field" style="display:flex;align-items:center;gap:8px"><input type="checkbox" id="setParentLine" style="width:auto" ${cfgOn('ParentLineNotify',true)?'checked':''}/> 👨‍👩‍👧 ${EN()?'LINE parents on arrival / pick-up, the daily journal and DSPM results':'ส่ง LINE ถึงผู้ปกครอง: รับ-ส่ง · บันทึกประจำวัน · ผลประเมิน DSPM'}</label>
+      <p class="muted" style="font-size:13px">${EN()?'This is the school\'s promise to families and by far the largest use of the quota — it is not part of the recipient list above, which is for staff. A late-pickup charge and an accident always go out regardless.'
+        :'<b>ใช้โควตามากที่สุด</b> และ<b>ไม่เกี่ยวกับรายชื่อผู้รับด้านบน</b> (รายการนั้นสำหรับพนักงาน) · ค่ารับช้าและอุบัติเหตุยังส่งเสมอไม่ว่าตั้งค่าอย่างไร'}</p>
       <label class="field" style="display:flex;align-items:center;gap:8px"><input type="checkbox" id="setDigM" style="width:auto" ${cfgOn('DigestMorning',true)?'checked':''}/> 🌅 ${EN()?`Morning digest 10:00 (${BC_NAME()} + pending)`:`สรุปเช้า 10:00 (${BC_NAME()} + รายการค้าง)`}</label>
       <label class="field" style="display:flex;align-items:center;gap:8px"><input type="checkbox" id="setDigE" style="width:auto" ${cfgOn('DigestEvening',true)?'checked':''}/> 🌆 ${EN()?'Evening digest 20:00 (daily report)':'สรุปเย็น 20:00 (รายงานประจำวัน)'}</label>
       <button class="btn sm outline block" style="margin-top:4px" onclick="A_lineWho(this)">📇 ${EN()?'Who gets a LINE alert, and about what':'กำหนดว่าใครได้รับ LINE และเรื่องอะไรบ้าง'}</button>
@@ -8371,12 +8377,19 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
        identical to "this does not exist", and the school could not see what turning something on
        would cost — which is the whole question when choosing a plan. A row with no events in the
        window says so in words. */
-    const rows=(d.items||[]).map(x=>`<tr${x.messages?'':' style="opacity:.65"'}>
+    /* GROUPED BY WHO RECEIVES IT. The school emptied the recipient list, pressed estimate, and still
+       saw 203 against the first line — because that one goes to PARENTS and the list is for staff.
+       A flat table gave them no way to see that, so the two halves are now labelled. */
+    const row=x=>`<tr${x.messages?'':' style="opacity:.65"'}>
       <td style="padding:3px 6px">${esc(x.label)}${x.note?`<br><small class="muted">${esc(x.note)}</small>`
         :(!x.events?`<br><small class="muted">${EN()?'none in this window':'ช่วงนี้ไม่มีรายการ'}</small>`:'')}</td>
       <td style="padding:3px 6px;text-align:right;white-space:nowrap">${n(x.events)}<br><small class="muted">× ${n(x.perEvent)}</small></td>
       <td style="padding:3px 6px;text-align:right"><b>${n(x.messages)}</b></td>
-      <td style="padding:3px 6px;text-align:right" class="muted">${n(x.messagesIfAll)}</td></tr>`).join('');
+      <td style="padding:3px 6px;text-align:right" class="muted">${n(x.messagesIfAll)}</td></tr>`;
+    const head=(txt)=>`<tr><td colspan="4" style="padding:6px 6px 2px"><b style="font-size:13px">${txt}</b></td></tr>`;
+    const toParents=(d.items||[]).filter(x=>x.parent), toStaff=(d.items||[]).filter(x=>!x.parent);
+    const rows=(toParents.length?head(`👨‍👩‍👧 ${EN()?'To parents — not governed by the recipient list':'ส่งถึงผู้ปกครอง — ไม่เกี่ยวกับรายชื่อผู้รับ'}`)+toParents.map(row).join(''):'')
+      +(toStaff.length?head(`🏫 ${EN()?'To staff — governed by the recipient list':'ส่งถึงพนักงาน — ตามรายชื่อผู้รับที่ตั้งไว้'}`)+toStaff.map(row).join(''):'');
     const overFree = d.perMonth>300, overFreeAll = d.perMonthIfAll>300;
     modal(`<h3>📊 ${EN()?'LINE quota — what it would cost':'ประเมินโควตา LINE ที่จะใช้'}</h3>
       <p class="muted" style="font-size:13px;margin-top:0">${EN()
@@ -9132,6 +9145,7 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
     const ck=id=>{ const e=m.querySelector(id); return e?(e.checked?'true':'false'):undefined; };
     if(ck('#setAdminLine')!==undefined) gv.AdminLineNotify=ck('#setAdminLine');
     if(ck('#setStaffLine')!==undefined) gv.StaffLineNotify=ck('#setStaffLine');
+    if(ck('#setParentLine')!==undefined) gv.ParentLineNotify=ck('#setParentLine');
     if(ck('#setDigM')!==undefined) gv.DigestMorning=ck('#setDigM');
     if(ck('#setDigE')!==undefined) gv.DigestEvening=ck('#setDigE');
     if(Object.keys(gv).length) await api('setSchoolConfig',{values:gv});
