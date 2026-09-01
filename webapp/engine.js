@@ -4207,7 +4207,16 @@ function createAtomAPI(M, GROWTH_STD) {
       if(staffEnded_(s)) fail('ENDED','สิ้นสุดการทำงานแล้ว — จัดเข้าชั้นเรียนไม่ได้');
       // an Observer is a read-only auditor, not somebody a room can be given to
       if(String(s.Role||'')==='Observer') fail('NO_PERMISSION','ผู้ตรวจสอบ (Observer) ไม่ต้องจัดเข้าชั้นเรียน');
-      s.Department=p.toDept||'';
+      /* CLASSES TOO, OR TAKING A ROOM AWAY DOES NOTHING.
+       *
+       * coveredClasses_ is the UNION of Department, Classes and today's cover — and the staff form
+       * has always written the same value to BOTH columns. This handler only ever wrote Department,
+       * so moving a teacher out of Nursery 2 left 'Nursery 2' sitting in Classes and she still
+       * covered it: the screen said she had moved, the class lists said she had not. It could only
+       * ever ADD a room, never remove one, which is exactly the half of the job the tick boxes are
+       * for. Found while building the teacher tab (2026-09-02); it would have made every un-tick
+       * look like it had not saved. */
+      s.Department=p.toDept||''; s.Classes=p.toDept||'';
       logAct('moveTeacher',p.targetId,'→ '+(p.toDept||'-'),actorOf(p)); return {ok:true}; },
     orgMoveStudent: p => { const me=staffById(p.staffId)||{};
       if(!canOrganize_(me)) fail('NO_PERMISSION','ไม่มีสิทธิ์จัดชั้นเรียน (ต้องได้รับสิทธิ์จากแอดมิน)');
