@@ -94,7 +94,19 @@ function handleLineUsage(p) {
   var MAIN = getMainSpreadsheet_(), HR = getHrSpreadsheet_();
   var today = dateStr_(new Date());
   var from = (function () { var d = new Date(); d.setDate(d.getDate() - days); return dateStr_(d); })();
-  var inWin = function (v) { var s = String(v == null ? '' : v).slice(0, 10); return s >= from && s <= today; };
+  /* A DATE CELL COMES BACK AS A Date OBJECT, and String(date).slice(0,10) is "Tue Sep 01" — which
+   * matched no window, so EVERY counted line read zero and only the computed digest line showed a
+   * number. The school would have concluded the free plan was ample. The same coercion trap ym7_
+   * exists for; normalised here before anything is compared. */
+  var luDate_ = function (v) {
+    if (v == null || v === '') return '';
+    if (Object.prototype.toString.call(v) === '[object Date]') return dateStr_(v);
+    var s = String(v);
+    return /^\d{4}-\d{2}-\d{2}/.test(s) ? s.slice(0, 10) : (function () {
+      var d = new Date(s); return isNaN(d) ? '' : dateStr_(d);
+    })();
+  };
+  var inWin = function (v) { var s = luDate_(v); return !!s && s >= from && s <= today; };
 
   // --- who a message of each kind reaches, under the settings as they stand right now ---
   var staffLineOn = String(getConfig_('StaffLineNotify', 'false')) === 'true';
@@ -126,7 +138,7 @@ function handleLineUsage(p) {
       var rows = readObjects_(sheet_(wb === 'HR' ? HR : MAIN, sheet));
       var n = 0, byDay = {};
       rows.forEach(function (r) {
-        var d = String(r[dateField] == null ? '' : r[dateField]).slice(0, 10);
+        var d = luDate_(r[dateField]);
         if (!inWin(d)) return;
         if (filter && !filter(r)) return;
         n++; byDay[d] = 1;
@@ -138,27 +150,34 @@ function handleLineUsage(p) {
   /* Each line: how many EVENTS, and how many messages ONE event sends today. The two are reported
    * separately so the school can see which half to change — fewer events is a different decision
    * from fewer recipients. */
+  /* TWO NUMBERS PER LINE, and the second is the one that was asked for: "ถ้าส่งทุกอย่างให้ 1 คน จะ
+   * เป็นกี่ Credits". A table of zeros, because a topic is currently switched off, cannot answer
+   * "what would it cost if I turned it on" — and that is the question somebody choosing a plan is
+   * actually asking. `ifAll` prices every line as though every channel were on and one person
+   * received everything, so the two columns bracket the real answer. */
+  var oneAll = Math.max(1, Object.keys(recip).reduce(function (m, k) { return Math.max(m, recip[k]); }, 0));
   var items = [];
-  var push = function (key, label, ev, per, note) {
+  var push = function (key, label, ev, per, note, perAll) {
     items.push({ key: key, label: label, events: ev.n, activeDays: ev.days, perEvent: per,
-      messages: ev.n * per, note: note || '' });
+      messages: ev.n * per, perEventIfAll: perAll, messagesIfAll: ev.n * perAll, note: note || '' });
   };
   // a teacher recording a child in or out messages that child's parent — the school's core promise,
   // and by a distance the biggest number here
   var byStaff = count('MAIN', 'CHECKIN_STUDENT', 'Date', function (r) { return String(r.ByStaffID || ''); });
-  push('checkinParent', 'แจ้งผู้ปกครองเมื่อคุณครูบันทึกรับ-ส่ง', byStaff, 1, 'ส่งหาผู้ปกครองของเด็กคนนั้น 1 คน');
+  push('checkinParent', 'แจ้งผู้ปกครองเมื่อคุณครูบันทึกรับ-ส่ง', byStaff, 1, 'ส่งหาผู้ปกครองของเด็กคนนั้น 1 คน', 1);
   // ...and the covering teachers, when StaffLineNotify is on
   var allCheck = count('MAIN', 'CHECKIN_STUDENT', 'Date');
   push('checkinTeacher', 'แจ้งคุณครูเมื่อเด็กมาถึง / กลับ', allCheck, teacherReach,
-    staffLineOn ? ('ส่งหาคุณครูที่ดูแลห้องนั้น ~' + perClass + ' คน') : 'ปิดอยู่ — ไม่เสียโควตา');
+    staffLineOn ? ('ส่งหาคุณครูที่ดูแลห้องนั้น ~' + perClass + ' คน') : 'ปิดอยู่ — ไม่เสียโควตา', perClass);
   push('leave', 'ผู้ปกครองแจ้งลานักเรียน', count('MAIN', 'LEAVE_REQUEST_STD', 'Date'), teacherReach + adminReach('leave'),
-    staffLineOn ? '' : 'ส่วนของคุณครูปิดอยู่');
-  push('comment', 'ผู้ปกครองแสดงความคิดเห็นในบันทึก', count('MAIN', 'COMMENTS', 'Date'), teacherReach + adminReach('comment'));
-  push('staffLeave', 'พนักงานยื่นใบลา (รออนุมัติ)', count('HR', 'LEAVE_REQUEST', 'StartDate'), adminReach('approval'));
-  push('ot', 'OT พนักงาน (รออนุมัติ)', count('HR', 'OT_RECORDS', 'Date'), adminReach('ot'));
-  push('payment', 'ผู้ปกครองส่งสลิป', count('MAIN', 'PAYMENT_SLIPS', 'SubmittedDate'), adminReach('payment'));
+    staffLineOn ? '' : 'ส่วนของคุณครูปิดอยู่', perClass + oneAll);
+  push('comment', 'ผู้ปกครองแสดงความคิดเห็นในบันทึก', count('MAIN', 'COMMENTS', 'Date'), teacherReach + adminReach('comment'), '', perClass + oneAll);
+  push('staffLeave', 'พนักงานยื่นใบลา (รออนุมัติ)', count('HR', 'LEAVE_REQUEST', 'StartDate'), adminReach('approval'), '', oneAll);
+  push('ot', 'OT พนักงาน (รออนุมัติ)', count('HR', 'OT_RECORDS', 'Date'), adminReach('ot'), '', oneAll);
+  push('payment', 'ผู้ปกครองส่งสลิป', count('MAIN', 'PAYMENT_SLIPS', 'SubmittedDate'), adminReach('payment'), '', oneAll);
+  push('registration', 'ลงทะเบียนนักเรียน / ผู้ปกครองใหม่', count('MAIN', 'STUDENTS', 'CreatedDate'), adminReach('registration'), '', oneAll);
   push('injury', 'แจ้งอุบัติเหตุ (ส่งเสมอ)', count('MAIN', 'INJURY_REPORTS', 'Date'),
-    Math.max(1, recip.injury + adminUsers), 'เหตุฉุกเฉินส่ง LINE ทุกครั้ง ไม่ว่าตั้งค่าอย่างไร');
+    Math.max(1, recip.injury + adminUsers), 'เหตุฉุกเฉินส่ง LINE ทุกครั้ง ไม่ว่าตั้งค่าอย่างไร', Math.max(1, oneAll));
 
   // digests are two a day, to whoever subscribes to them, on school days only
   var digestOn = (String(getConfig_('DigestMorning', 'true')) !== 'false' ? 1 : 0) +
@@ -168,16 +187,21 @@ function handleLineUsage(p) {
     var d = new Date(); d.setDate(d.getDate() - i);
     if (!isSchoolClosed_(d)) schoolDaysIn++;
   }
-  items.push({ key: 'digest', label: 'สรุปประจำวัน (เช้า/เย็น)', events: digestOn * schoolDaysIn,
-    activeDays: schoolDaysIn, perEvent: adminReach('digest'), messages: digestOn * schoolDaysIn * adminReach('digest'),
+  var digestEv = digestOn * schoolDaysIn;
+  items.push({ key: 'digest', label: 'สรุปประจำวัน (เช้า/เย็น)', events: digestEv,
+    activeDays: schoolDaysIn, perEvent: adminReach('digest'), messages: digestEv * adminReach('digest'),
+    perEventIfAll: oneAll, messagesIfAll: digestEv * oneAll,
     note: digestOn ? (digestOn + ' ครั้ง/วันทำการ') : 'ปิดอยู่' });
 
   var totalMsgs = items.reduce(function (a, x) { return a + x.messages; }, 0);
+  var totalIfAll = items.reduce(function (a, x) { return a + (x.messagesIfAll || 0); }, 0);
   // per SCHOOL DAY, not per calendar day — the number the school can act on
   var perDay = schoolDaysIn ? Math.round(totalMsgs / schoolDaysIn) : 0;
+  var perDayIfAll = schoolDaysIn ? Math.round(totalIfAll / schoolDaysIn) : 0;
   // ~21 school days in a typical month
   var SCHOOL_DAYS_PER_MONTH = 21;
   var perMonth = perDay * SCHOOL_DAYS_PER_MONTH;
+  var perMonthIfAll = perDayIfAll * SCHOOL_DAYS_PER_MONTH;
 
   // what LINE itself says the plan is, and what has been spent — never assumed
   var plan = { checked: false };
@@ -190,7 +214,9 @@ function handleLineUsage(p) {
   return { from: from, to: today, days: days, schoolDays: schoolDaysIn,
     staffLineOn: staffLineOn, adminLineOn: adminLineOn, teachersPerClass: perClass,
     recipients: recip, adminUsers: adminUsers,
-    items: items, perDay: perDay, perMonth: perMonth, totalInWindow: totalMsgs, plan: plan };
+    items: items, perDay: perDay, perMonth: perMonth, totalInWindow: totalMsgs,
+    // "everything on, one person receiving it" — the question a school choosing a plan is asking
+    perDayIfAll: perDayIfAll, perMonthIfAll: perMonthIfAll, oneAll: oneAll, plan: plan };
 }
 
 function handleLineDiag(p) {

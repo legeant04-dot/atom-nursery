@@ -112,7 +112,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.319'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.320'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -8367,18 +8367,33 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
     catch(e){err(e);}finally{ if(btn)btn.disabled=false; } };
   window.A_lineCostShow=(d)=>{ const pl=d.plan||{};
     const n=x=>Number(x||0).toLocaleString('en-US');
-    const rows=(d.items||[]).filter(x=>x.events||x.messages).map(x=>`<tr>
-      <td style="padding:3px 6px">${esc(x.label)}${x.note?`<br><small class="muted">${esc(x.note)}</small>`:''}</td>
+    /* EVERY ROW, including the ones at zero. Hiding them made "this topic is switched off" look
+       identical to "this does not exist", and the school could not see what turning something on
+       would cost — which is the whole question when choosing a plan. A row with no events in the
+       window says so in words. */
+    const rows=(d.items||[]).map(x=>`<tr${x.messages?'':' style="opacity:.65"'}>
+      <td style="padding:3px 6px">${esc(x.label)}${x.note?`<br><small class="muted">${esc(x.note)}</small>`
+        :(!x.events?`<br><small class="muted">${EN()?'none in this window':'ช่วงนี้ไม่มีรายการ'}</small>`:'')}</td>
       <td style="padding:3px 6px;text-align:right;white-space:nowrap">${n(x.events)}<br><small class="muted">× ${n(x.perEvent)}</small></td>
-      <td style="padding:3px 6px;text-align:right"><b>${n(x.messages)}</b></td></tr>`).join('');
-    const overFree = d.perMonth>300;
+      <td style="padding:3px 6px;text-align:right"><b>${n(x.messages)}</b></td>
+      <td style="padding:3px 6px;text-align:right" class="muted">${n(x.messagesIfAll)}</td></tr>`).join('');
+    const overFree = d.perMonth>300, overFreeAll = d.perMonthIfAll>300;
     modal(`<h3>📊 ${EN()?'LINE quota — what it would cost':'ประเมินโควตา LINE ที่จะใช้'}</h3>
       <p class="muted" style="font-size:13px;margin-top:0">${EN()
         ? `Counted from this school's own rows over the last ${d.days} days (${d.schoolDays} school days), with the settings exactly as they are now. One push to one person = one message.`
         : `นับจากข้อมูลจริงของโรงเรียนย้อนหลัง ${d.days} วัน (เป็นวันทำการ ${d.schoolDays} วัน) ตามการตั้งค่าปัจจุบัน<br><b>ส่ง 1 ข้อความถึง 1 คน = 1 เครดิต</b>`}</p>
-      <div class="grid2" style="text-align:center;margin-bottom:8px">
-        <div class="card" style="padding:8px;margin:0;background:var(--blue-bg)"><b style="font-size:22px;color:var(--blue)">${n(d.perDay)}</b><br><small class="muted">${EN()?'per school day':'ต่อวันทำการ'}</small></div>
+      <div class="grid2" style="text-align:center;margin-bottom:6px">
+        <div class="card" style="padding:8px;margin:0;background:var(--blue-bg)"><b style="font-size:22px;color:var(--blue)">${n(d.perDay)}</b><br><small class="muted">${EN()?'per school day — now':'ต่อวันทำการ · ตามที่ตั้งไว้ตอนนี้'}</small></div>
         <div class="card" style="padding:8px;margin:0;background:${overFree?'var(--warn-bg)':'var(--ok-bg)'}"><b style="font-size:22px;color:${overFree?'var(--warn)':'var(--ok)'}">${n(d.perMonth)}</b><br><small class="muted">${EN()?'per month (21 school days)':'ต่อเดือน (21 วันทำการ)'}</small></div></div>
+      ${/* THE QUESTION THAT WAS ASKED: "ถ้าส่งทุกอย่างให้ 1 คน จะเป็นกี่ Credits". A table showing
+           zeros because a topic is off cannot answer it, and it is the number somebody choosing a
+           plan actually needs. */''}
+      <div class="grid2" style="text-align:center;margin-bottom:8px">
+        <div class="card" style="padding:8px;margin:0;background:var(--surface-2)"><b style="font-size:22px">${n(d.perDayIfAll)}</b><br><small class="muted">${EN()?'per school day — everything on':'ต่อวันทำการ · ถ้าเปิดทุกอย่าง'}</small></div>
+        <div class="card" style="padding:8px;margin:0;background:${overFreeAll?'var(--warn-bg)':'var(--ok-bg)'}"><b style="font-size:22px;color:${overFreeAll?'var(--warn)':'var(--ok)'}">${n(d.perMonthIfAll)}</b><br><small class="muted">${EN()?'per month — everything on':'ต่อเดือน · ถ้าเปิดทุกอย่าง'}</small></div></div>
+      <p class="muted" style="font-size:12px;margin:-2px 0 8px">${EN()
+        ? `“Everything on” means every channel switched on and one person receiving every topic${d.teachersPerClass?`, plus ~${d.teachersPerClass} covering teachers per class notice`:''}. The two rows bracket the real answer.`
+        : `<b>“ถ้าเปิดทุกอย่าง”</b> = เปิดทุกช่องทาง และมี 1 คนรับทุกเรื่อง${d.teachersPerClass?` (บวกคุณครูที่ดูแลห้องนั้นอีก ~${d.teachersPerClass} คนต่อครั้ง สำหรับเรื่องที่ส่งถึงครู)`:''} · ตัวเลขจริงจะอยู่ระหว่างสองแถวนี้`}</p>
       ${pl.checked&&pl.quota!=null?`<div class="card" style="padding:8px"><b style="font-size:13px">${EN()?'What LINE says about this account':'ข้อมูลจริงจาก LINE'}</b>
         <div class="list-item"><span>${EN()?'Monthly limit':'โควตาต่อเดือน'}</span><b>${pl.quotaType==='limited'?n(pl.quota):(EN()?'unlimited':'ไม่จำกัด')}</b></div>
         <div class="list-item"><span>${EN()?'Used this month':'ใช้ไปแล้วเดือนนี้'}</span><b>${n(pl.used)}</b></div>
@@ -8387,8 +8402,9 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
         <table style="width:100%;border-collapse:collapse;font-size:13px;margin-top:4px">
         <thead><tr class="muted"><th style="text-align:left;padding:3px 6px">${EN()?'Kind':'ประเภท'}</th>
           <th style="text-align:right;padding:3px 6px">${EN()?'events × people':'ครั้ง × คน'}</th>
-          <th style="text-align:right;padding:3px 6px">${EN()?'messages':'ข้อความ'}</th></tr></thead>
-        <tbody>${rows||`<tr><td colspan="3" class="muted" style="padding:8px;text-align:center">${EN()?'Nothing in this window':'ช่วงนี้ไม่มีข้อมูล'}</td></tr>`}</tbody></table>
+          <th style="text-align:right;padding:3px 6px">${EN()?'now':'ตอนนี้'}</th>
+          <th style="text-align:right;padding:3px 6px">${EN()?'if all on':'ถ้าเปิดหมด'}</th></tr></thead>
+        <tbody>${rows||`<tr><td colspan="4" class="muted" style="padding:8px;text-align:center">${EN()?'Nothing in this window':'ช่วงนี้ไม่มีข้อมูล'}</td></tr>`}</tbody></table>
         <small class="muted">${EN()?'“events × people” is how many times it happened and how many people each one messages. Halve either one and the cost halves.'
           :'“ครั้ง × คน” คือจำนวนครั้งที่เกิดขึ้น คูณจำนวนคนที่ได้รับต่อครั้ง · ลดฝั่งไหนก็ลดค่าใช้จ่ายได้เท่ากัน'}</small></div>
       <div class="card" style="padding:8px;background:${overFree?'var(--warn-bg)':'var(--ok-bg)'};border-color:${overFree?'var(--warn-line)':'var(--ok-line)'}">
@@ -8396,8 +8412,10 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
         <p style="font-size:13px;margin:4px 0">${EN()
           ? (overFree ? `About ${n(d.perMonth)} messages a month does not fit the free plan (300).`
                       : `About ${n(d.perMonth)} messages a month fits inside the free plan (300).`)
-          : (overFree ? `ประมาณ <b>${n(d.perMonth)} ข้อความ/เดือน</b> — <b>เกินแพ็กเกจฟรี (300)</b> อยู่มาก`
-                      : `ประมาณ <b>${n(d.perMonth)} ข้อความ/เดือน</b> — <b>ยังอยู่ในแพ็กเกจฟรี (300)</b>`)}</p>
+          : (overFree ? `ตามที่ตั้งไว้ตอนนี้ ประมาณ <b>${n(d.perMonth)} ข้อความ/เดือน</b> — <b>เกินแพ็กเกจฟรี (300)</b>`
+                      : `ตามที่ตั้งไว้ตอนนี้ ประมาณ <b>${n(d.perMonth)} ข้อความ/เดือน</b> — <b>ยังอยู่ในแพ็กเกจฟรี (300)</b>`)}
+          <br>${EN()?`With everything on: about ${n(d.perMonthIfAll)} a month — ${overFreeAll?'over the free 300.':'still inside the free 300.'}`
+            :`ถ้าเปิดทุกอย่าง: ประมาณ <b>${n(d.perMonthIfAll)} ข้อความ/เดือน</b> — ${overFreeAll?'<b>เกินแพ็กเกจฟรี</b>':'ยังอยู่ในแพ็กเกจฟรี'}`}</p>
         <p class="muted" style="font-size:12px;margin:0">${EN()
           ? 'LINE changes its Thai pricing from time to time, so check the current tiers and price in the LINE Official Account Manager before deciding — the number above is what to compare them against.'
           : 'ราคาและโควตาของแต่ละแพ็กเกจ LINE มีการเปลี่ยนแปลงเป็นระยะ — <b>กรุณาเช็กราคาปัจจุบันใน LINE Official Account Manager</b> แล้วเทียบกับตัวเลขด้านบน · ผมไม่อยากให้ตัดสินใจจากราคาที่ผมจำมา'}</p></div>
