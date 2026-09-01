@@ -44,7 +44,10 @@ const res = JSON.parse(run(function () {
     { name: 'ธุรการ', uid: 'U11111111111111111111111111111111', topics: 'payment,approval', active: true },
     { name: 'คนที่ปิดไว้', uid: 'U22222222222222222222222222222222', topics: '*', active: false },
     { name: 'ไม่มี uid', uid: '', topics: '*', active: true },
-    { name: 'ติ๊กเรื่องที่ไม่มีจริง', uid: 'U33333333333333333333333333333333', topics: 'nonsense', active: true }
+    { name: 'ติ๊กเรื่องที่ไม่มีจริง', uid: 'U33333333333333333333333333333333', topics: 'nonsense', active: true },
+    // the same person twice — easy to do, since they can be reached by picking them from the roster
+    // OR by pasting their id, and it would be two messages every time on a per-message channel
+    { name: 'ครูต้อม อีกแถว', uid: 'U97c61e9212132a211a0c88f8164db74c', topics: 'ot', active: true }
   ], adminId: 'ADM' });
 
   var o = {};
@@ -91,6 +94,33 @@ console.log('\n1) the list is the switch');
    * per message. It fails closed. */
   ok_('...and "no topics" is a real answer, not a synonym for "all topics"',
     /if \(t === '\*'\) return true;\s*\n\s*if \(!t\) return false;/.test(notifyGs));
+  /* THE SAME PERSON TWICE IS TWO MESSAGES, every time, on a channel billed per message. The screen
+   * disables an id already on the list; this is the half a hand-edited sheet cannot get round. */
+  eq('one row per person, whatever was sent', res.saved.filter(r => r[0].indexOf('ครูต้อม') === 0).length, 1);
+  eq('...and it is the first, so the row the admin was looking at wins',
+    res.saved.find(r => r[0].indexOf('ครูต้อม') === 0)[1], '*');
+}
+
+console.log('\n1b) picked from the roster, not typed');
+{
+  /* Asked 2026-09-01: "ให้ดึงข้อมูลพนักงานเป็น Dropdown Lists และหากเลือกคนไหนให้เอา Uid ของคนนั้นมา".
+   * A 33-character id typed by hand goes wrong silently — one character out and the alerts simply
+   * never arrive, with nothing on screen to say so. */
+  ok_('there is a staff dropdown', /A_lineWhoPick\(\$\{i\},this\.value\)/.test(app));
+  ok_('...that fills the name AND the id from the record',
+    /r\.name=dispNick\(s\)\|\|s\.NameTH\|\|s\.Name\|\|staffId;\s*\n\s*r\.uid=String\(s\.LineUID\|\|''\);/.test(app));
+  ok_('...and rides in the same tick, so it costs no extra round trip',
+    /const p_r=api\('lineRecipients',\{\},\{fresh:true\}\), p_s=api\('listStaff'\)/.test(app));
+  /* Somebody with no LineUID has never signed in through LINE — there is nothing to message. Listed
+   * but disabled and SAYING why, because "missing from the dropdown" is a question the admin would
+   * otherwise have to ask us. */
+  ok_('staff with no LINE link are shown, disabled, with the reason',
+    /ยังไม่ได้เชื่อม LINE/.test(app) && /const off = !uid \|\| dup;/.test(app));
+  ok_('...as is somebody already on the list', /อยู่ในรายการแล้ว/.test(app));
+  ok_('...and somebody who has left is marked and sorted last',
+    /s\.ended\?\(EN\(\)\?' — ended':' \(สิ้นสุดการทำงาน\)'\):''/.test(app));
+  // a UID for somebody who is NOT staff (the owner's personal LINE) must still be possible
+  ok_('typing an id by hand is still offered', /กรอกเอง \(ไม่ใช่พนักงาน\)/.test(app));
 }
 
 console.log('\n2) only the people who asked for THAT topic');

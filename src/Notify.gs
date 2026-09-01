@@ -78,6 +78,16 @@ function handleSaveLineRecipients(p) {
     return { Name: String((r && r.name) || '').slice(0, 60), LineUID: String((r && r.uid) || '').trim(),
       Topics: t, Active: (r && r.active === false) ? 'NO' : 'YES', Note: String((r && r.note) || '').slice(0, 120) };
   }).filter(function (r) { return r.LineUID; });
+  /* ONE ROW PER PERSON. Two rows with the same id is two messages every time, on a channel billed
+   * per message — and it is an easy mistake to make, since the same person can be reached by picking
+   * them from the roster or by pasting their id. The screen disables an id already in the list; this
+   * is the half that a hand-edited sheet cannot get round. First row wins, so the topics the admin
+   * set most recently on the row they were looking at are the ones kept. */
+  var seenUid = {};
+  clean = clean.filter(function (r) {
+    if (seenUid[r.LineUID]) return false;
+    seenUid[r.LineUID] = 1; return true;
+  });
   var sh = lineRecipientsSheet_();
   writeRows_('MAIN', 'LINE_RECIPIENTS', clean, {});
   try { CacheService.getScriptCache().removeAll(['rows:LINE_RECIPIENTS', 'col:LINE_RECIPIENTS']); } catch (e) {}
