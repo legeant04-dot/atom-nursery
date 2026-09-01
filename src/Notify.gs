@@ -9,6 +9,82 @@
  * ------------------------------------------------------------------
  */
 
+/* ===== WHO GETS A LINE PUSH, BY NAME AND BY TOPIC =================================================
+ * Asked 2026-09-01: "ต้องการให้ Line OA แจ้งเตือนไปที่ Admin หรือคนที่ระบบกำหนด … หรือสามารถกำหนดได้ว่า
+ * จะแจ้งเตือนไปที่ใครบ้าง ไม่แจ้งใครบ้าง เฉพาะเรื่องไหนที่ระบบจะแจ้งไป".
+ *
+ * Until now the only control was AdminLineNotify: every Admin-role user, about everything, or
+ * nobody. On a plan capped at 300 messages a month that is not a setting anybody can use — the
+ * school turned it off and lost the notifications they DID want along with the ones they did not.
+ *
+ * A row per person, with the topics they asked for. `Topics` is a comma-separated list of the same
+ * category names inboxAdd_ files by, or '*' for everything. Nobody on the list, nobody pushed — the
+ * list IS the switch, so there is no way to have a recipient configured and silently not reach them.
+ *
+ * EMERGENCIES IGNORE THE TOPIC FILTER. A child has been hurt; that is not a subscription. Everyone
+ * active on the list gets it, whatever they ticked. Removing yourself from the list entirely is the
+ * only way out, which is a decision somebody has to make deliberately.
+ */
+var LINE_TOPICS_ = ['approval', 'leave', 'ot', 'payment', 'registration', 'comment', 'injury', 'digest', 'payslip'];
+function lineRecipientsSheet_() {
+  var ss = getMainSpreadsheet_();
+  var sh = ss.getSheetByName('LINE_RECIPIENTS');
+  if (!sh) { sh = ss.insertSheet('LINE_RECIPIENTS'); sh.appendRow(['Name', 'LineUID', 'Topics', 'Active', 'Note']); }
+  return sh;
+}
+/** Everyone who should get a LINE push about `category`. Emergencies reach every active row. */
+function lineRecipientsFor_(category) {
+  var cat = String(category || '').trim() || 'approval';
+  var urgent = (cat === 'emergency' || cat === 'injury');
+  try {
+    return readObjects_(lineRecipientsSheet_()).filter(function (r) {
+      if (!String(r.LineUID || '').trim()) return false;
+      if (!/^(yes|true|1|y)$/i.test(String(r.Active == null ? 'YES' : r.Active).trim())) return false;
+      if (urgent) return true;                       // see the note above — not a subscription
+      /* '*' means every topic; EMPTY MEANS NONE. Those have to be different, or unticking every box
+       * would quietly subscribe somebody to everything — the opposite of what the person doing the
+       * unticking asked for, on a channel that costs money per message. Fails closed. */
+      var t = String(r.Topics == null ? '' : r.Topics).trim();
+      if (t === '*') return true;
+      if (!t) return false;
+      return t.split(/[,\s]+/).map(function (x) { return x.trim(); }).indexOf(cat) >= 0;
+    });
+  } catch (e) { return []; }
+}
+/** Route: read the list (admin-only). */
+function handleLineRecipients() {
+  return { topics: LINE_TOPICS_, rows: readObjects_(lineRecipientsSheet_()).map(function (r) {
+    // `|| '*'` here would turn "no topics" back into "all topics" on the way to the screen — the
+    // same conflation lineRecipientsFor_ refuses. Report the cell as it is.
+    return { name: String(r.Name || ''), uid: String(r.LineUID || ''), topics: String(r.Topics == null ? '' : r.Topics),
+      active: !/^(no|false|0|n)$/i.test(String(r.Active == null ? 'YES' : r.Active).trim()),
+      note: String(r.Note || '') };
+  }) };
+}
+/** Route: replace the list wholesale (the screen sends all rows). Admin-only. */
+function handleSaveLineRecipients(p) {
+  p = p || {};
+  var rows = Array.isArray(p.rows) ? p.rows : [];
+  var clean = rows.map(function (r) {
+    // only the topics this app actually files by — a typo here would silently never match anything
+    /* Unknown topic names are DROPPED, and an empty result stays empty — it means "none", not
+     * "everything". A name this app does not file by would match nothing anyway; keeping it would
+     * leave a row that looks configured on screen and never fires. */
+    var t = String((r && r.topics) == null ? '' : r.topics).trim();
+    if (t !== '*') {
+      t = t.split(/[,\s]+/).map(function (x) { return x.trim(); })
+           .filter(function (x) { return LINE_TOPICS_.indexOf(x) >= 0; }).join(',');
+    }
+    return { Name: String((r && r.name) || '').slice(0, 60), LineUID: String((r && r.uid) || '').trim(),
+      Topics: t, Active: (r && r.active === false) ? 'NO' : 'YES', Note: String((r && r.note) || '').slice(0, 120) };
+  }).filter(function (r) { return r.LineUID; });
+  var sh = lineRecipientsSheet_();
+  writeRows_('MAIN', 'LINE_RECIPIENTS', clean, {});
+  try { CacheService.getScriptCache().removeAll(['rows:LINE_RECIPIENTS', 'col:LINE_RECIPIENTS']); } catch (e) {}
+  try { logAudit(p.adminId || 'admin', 'LINE_RECIPIENTS_SAVE', 'LINE_RECIPIENTS', String(clean.length)); } catch (e) {}
+  return { ok: true, count: clean.length };
+}
+
 // ---- in-app Admin inbox ---------------------------------------------------------------------------
 function inboxSheet_() {
   var ss = getMainSpreadsheet_();
@@ -116,9 +192,18 @@ function handleMarkNotifsRead(p) {
 // ---- emergency push (always LINE; bypasses the quota gate) ----------------------------------------
 function notifyAdminsUrgent_(text, ref) {
   inboxAdd_('emergency', text, ref);
+  var seen = {}, sent = 0;
+  // everyone on the recipient list, whatever topics they picked — a child has been hurt, and that is
+  // not a subscription (see lineRecipientsFor_). Admin-role users are added on top, as before.
+  try {
+    lineRecipientsFor_('emergency').forEach(function (r) {
+      var uid = String(r.LineUID || '').trim();
+      if (uid && !seen[uid]) { seen[uid] = 1; if (linePushText_(uid, text)) sent++; }
+    });
+  } catch (e) {}
   var users = readObjects_(sheet_(getMainSpreadsheet_(), 'USERS'));
-  var sent = 0;
-  users.forEach(function (u) { if (String(u.Role) === ROLES.ADMIN && u.LineUID) { if (linePushText_(u.LineUID, text)) sent++; } });
+  users.forEach(function (u) { var uid = String(u.LineUID || '').trim();
+    if (String(u.Role) === ROLES.ADMIN && uid && !seen[uid]) { seen[uid] = 1; if (linePushText_(uid, text)) sent++; } });
   if (sent === 0) { var fb = getConfig_('AdminLineUID', ''); if (fb && String(fb).indexOf('<FILL') !== 0) linePushText_(fb, text); }
 }
 
