@@ -8,6 +8,27 @@
  * is Name — map it here.
  * ------------------------------------------------------------------
  */
+/**
+ * "Nursery 1,Nursery 2,Nursery Premium,Nursery 3,Nursery 1,Nursery 2,…" — ครูลิน's real row.
+ *
+ * An older A_classOptions handed the checkbox a COMMA-JOINED value, so one tick wrote the whole
+ * list and a second save doubled it. The client dedupes on the way out now, but a row that is
+ * already doubled stays doubled until somebody happens to re-save it, and nothing stopped a future
+ * client from doing it again. Normalising HERE — the one place every staff write passes through —
+ * repairs the row on the next save and closes the door behind it. '*' (all departments) is a
+ * sentinel, not a list, so it is left alone.
+ */
+function deptNorm_(v) {
+  var s = String(v == null ? '' : v).trim();
+  if (s === '*' || !s) return s;
+  var seen = {}, keep = [];
+  s.split(',').forEach(function (x) {
+    var n = String(x).trim();
+    if (n && !seen[n]) { seen[n] = 1; keep.push(n); }
+  });
+  return keep.join(',');
+}
+
 function handleSaveStaff(p) {
   p = p || {};
   var sh = sheet_(getHrSpreadsheet_(), 'STAFF');
@@ -18,6 +39,8 @@ function handleSaveStaff(p) {
   for (var k in d) { if (d.hasOwnProperty(k)) row[k] = d[k]; }
   if (d.NameTH !== undefined) row.Name = d.NameTH;         // sheet column is Name (engine alias Name->NameTH)
   delete row.NameTH;
+  if (row.Department !== undefined) row.Department = deptNorm_(row.Department);
+  if (row.Classes !== undefined) row.Classes = deptNorm_(row.Classes);
 
   if (p.staffId) {                                          // edit existing — patch one row only
     var st = findObject_(sh, function (s) { return String(s.StaffID) === String(p.staffId); });

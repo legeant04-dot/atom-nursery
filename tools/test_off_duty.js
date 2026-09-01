@@ -42,10 +42,11 @@ const res = JSON.parse(run(function () {
   _configCache = null;
 
   var stSh = sheet_(HR, 'STAFF');
-  var add = function (id, nick, role, dept, uid, endDate) {
+  var add = function (id, nick, role, dept, uid, endDate, reason) {
     appendObject_(stSh, { StaffID: id, Name: 'คุณ' + nick, Nickname: nick, Role: role,
       PositionLevel: role === 'Admin' ? 'Admin' : 'Staff', Status: 'ACTIVE', Department: dept,
-      LineUID: uid || '', EndDate: endDate || '', RequireCheckin: true, StartDate: '2025-01-01' });
+      LineUID: uid || '', EndDate: endDate || '', EndReason: reason || '',
+      RequireCheckin: true, StartDate: '2025-01-01' });
   };
   var yesterday = (function () { var d = new Date(); d.setDate(d.getDate() - 1); return dateStr_(d); })();
   var tomorrow  = (function () { var d = new Date(); d.setDate(d.getDate() + 1); return dateStr_(d); })();
@@ -53,7 +54,10 @@ const res = JSON.parse(run(function () {
   add('STF-T', 'ครูเอ', 'Teacher', 'Nursery 1', 'Uteacher');
   add('STF-OBS', 'พี่กุ้ง', 'Observer', '*', 'Uobserver');          // sees everything — must be TOLD nothing
   add('STF-ADM', 'แอดมิน', 'Admin', '*', 'Uadmin');
-  add('STF-GONE', 'ฉำฉา', 'Teacher', 'Nursery 1', 'Ugone', yesterday);   // last day was yesterday
+  /* ครูลิน's real shape: every department stored TWICE by the old joined-value checkbox, and a
+   * reason on record. Both were mis-displayed on 01/09 — the departments printed doubled on the
+   * dashboard, and her own record showed the reason as "—". */
+  add('STF-GONE', 'ฉำฉา', 'Teacher', 'Nursery 1,Nursery 2,Nursery 1,Nursery 2', 'Ugone', yesterday, 'ไม่ผ่านการทดลองงาน');
   add('STF-LEAVING', 'ครูบี', 'Teacher', 'Nursery 1', 'Uleaving', tomorrow); // leaving, but not yet
 
   appendObject_(sheet_(MAIN, 'CLASSES'), { ClassID: 'C1', ClassName: 'Nursery 1', TeacherID: 'STF-T' });
@@ -85,6 +89,17 @@ const res = JSON.parse(run(function () {
   // ---- the daily board ----
   o.board = engineDispatch_('dashboard', {}).staff.map(function (s) { return s.nick; }).sort();
   o.ended = engineDispatch_('dashboard', {}).endedStaff.map(function (s) { return [s.nick, s.endDate]; });
+  o.endedDept = engineDispatch_('dashboard', {}).endedStaff.map(function (s) { return s.dept; });
+  o.endedReason = engineDispatch_('dashboard', {}).endedStaff.map(function (s) { return s.reason; });
+
+  // saving her again must REPAIR the stored value, not preserve the doubling
+  handleSaveStaff({ staffId: 'STF-GONE', data: { Department: 'Nursery 1,Nursery 2,Nursery 1,Nursery 2',
+                                                 Classes: 'Nursery 1,Nursery 1' } });
+  var _fixed = findObject_(stSh, function (s) { return s.StaffID === 'STF-GONE'; });
+  o.savedDept = String(_fixed.Department || '');
+  o.savedClasses = String(_fixed.Classes || '');
+  handleSaveStaff({ staffId: 'STF-ADM', data: { Department: '*' } });
+  o.savedAll = String(findObject_(stSh, function (s) { return s.StaffID === 'STF-ADM'; }).Department || '');
 
   // ---- the door ----
   var login = function (uid) {
@@ -232,6 +247,44 @@ console.log('\n3b) A DEPARTMENT CANNOT BE SAVED TWICE');
   // the save is flattened too, so a record that already holds duplicates is repaired next time
   ok_('the save flattens and de-duplicates', /String\(x\.value\|\|''\)\.split\(','\)\.map\(v=>v\.trim\(\)\)\.filter\(Boolean\)\.forEach/.test(app));
   ok_('...with the reason written down', /this is what repairs ครูลิน on her next save/.test(app));
+
+  /* AND IT WAS STILL ON SCREEN A DAY LATER (reported 2026-09-01, "แผนกซ้ำของครูลินยังแสดงอยู่").
+   * Fixing the client that WRITES the value cannot fix a row that is already doubled — that row is
+   * only repaired if somebody happens to open and re-save her. So: normalise on the one server path
+   * every staff write goes through, and de-duplicate on the way out too, so the screen is honest
+   * today rather than on whatever day the next save happens. */
+  eq('the server repairs the stored value on the next save', res.savedDept, 'Nursery 1,Nursery 2');
+  eq('...including Classes, which is written from the same checkboxes', res.savedClasses, 'Nursery 1');
+  eq('"*" is a sentinel, not a list, and survives untouched', res.savedAll, '*');
+  ok_('the rule is on the server, where every write passes', /function deptNorm_\(v\)/.test(staffGs));
+  ok_('...and applied to both columns',
+    /row\.Department = deptNorm_\(row\.Department\)/.test(staffGs) && /row\.Classes = deptNorm_\(row\.Classes\)/.test(staffGs));
+  eq('a doubled row READS de-duplicated before anyone re-saves it', res.endedDept, ['Nursery 1,Nursery 2']);
+  ok_('...and every screen that prints departments goes through one helper',
+    /const deptList = v =>/.test(app) && /return deptList\(d\)\.join\(' · '\)/.test(app));
+  ok_('the built engine carries the de-duplication too', /de-duplicated: rows written by the old joined-value checkbox/.test(gasEngine));
+}
+
+console.log('\n3c) THE END-OF-EMPLOYMENT BOX SHOWS WHAT IS ON RECORD');
+{
+  /* "ทำไมเหตุผลของครูลินในข้อมูลส่วนตัวไม่แสดงเหมือนที่หน้าหลักแสดง" (2026-09-01). The date box was
+   * filled from s.EndDate; the <select> carried no `selected` and the textarea no value. So her
+   * record read "31/08/2026 · —" while the manage screen and the dashboard both said
+   * "ไม่ผ่านการทดลองงาน".
+   *
+   * Not cosmetic: A_staffEnd re-sends whatever the select holds, so correcting the DATE here would
+   * have blanked the reason — the server's empty-reason check is the only thing that stopped it. */
+  ok_('the reason on record is pre-selected', /_reasons\.map\(\(\[v,l\]\)=>`<option value="\$\{esc\(v\)\}" \$\{_cur===v\?'selected':''\}/.test(app));
+  ok_('the note on record is filled in too', /<textarea id="sf_EndRemark"[^>]*>\$\{esc\(s\.EndRemark\|\|''\)\}<\/textarea>/.test(app));
+  /* A reason that is no longer one of the three offered must not be silently dropped and rewritten
+   * on the next save — history is history. */
+  ok_('a reason no longer on the list is kept as its own option',
+    /if\(_cur && !_reasons\.some\(r=>r\[0\]===_cur\)\) _reasons\.push\(\[_cur,_cur\]\)/.test(app));
+  ok_('a record that already has a leaving date opens expanded rather than hidden in a fold',
+    /const _sched=!!s\.EndDate;/.test(app) && /\$\{_sched\?' open':''\}/.test(app));
+  ok_('...and the button says update, not "save and remove", for somebody already removed',
+    /_sched\?\(EN\(\)\?'Update':'อัปเดตข้อมูลการสิ้นสุดการทำงาน'\)/.test(app));
+  eq('the dashboard was reading the reason correctly all along', res.endedReason, ['ไม่ผ่านการทดลองงาน']);
 }
 
 console.log('\n4) THE ADMIN IS TOLD, rather than the record quietly vanishing');
@@ -243,8 +296,22 @@ console.log('\n4) THE ADMIN IS TOLD, rather than the record quietly vanishing');
   ok_('...with the date they left', /^\d{4}-\d{2}-\d{2}$/.test(res.ended[0][1]));
   ok_('the card exists', /window\.A_endedStaffCard=/.test(app));
   ok_('...and is on the dashboard', /\$\{A_endedStaffCard\(d\.endedStaff\)\}/.test(app));
-  ok_('...saying it is a reminder, not a demand to delete', /ไม่จำเป็นต้องลบ/.test(app));
-  ok_('...and that coming back just means clearing the date', /แค่ล้างวันสิ้นสุดก็ใช้งานได้ทันที/.test(app));
+
+  /* ...AS ONE LINE, NOT AS THE WHOLE LIST. Asked 2026-09-01: "จะแสดงอยู่นานแค่ไหน? หรือนำไปแสดง
+   * ในส่วนของจัดการสิ้นสุดการทำงานแทนเพื่อไม่ให้หน้าหลักโหลดเยอะเกินไป" — the list only ever grows,
+   * one row per person who ever left, on the screen that opens first. */
+  ok_('the dashboard names them in a sentence instead of listing every row',
+    /const names=list\.slice\(0,4\)\.map\(dn\)\.filter\(Boolean\);/.test(app) && /const more=list\.length-names\.length;/.test(app));
+  ok_('...and hands off to the section that already holds the detail and the buttons',
+    /onclick="A_gotoEnded\(\)"/.test(app) && /window\.A_gotoEnded=\(\)=>\{ GO\('manage'\);/.test(app));
+  ok_('...which it opens and scrolls to rather than leaving the admin to hunt for it',
+    /A_jumpSec\('sec-staff-gone'\)/.test(app));
+  /* The old copy said "เหลือแค่จัดการข้อมูลให้เรียบร้อย" without ever saying what เรียบร้อย was, so
+   * there was nothing to finish and no way to make the card go away. */
+  ok_('it says plainly that nothing is pending', /ไม่มีอะไรค้างต้องทำ/.test(app));
+  ok_('...and the manage section spells out the three options, with "do nothing" recommended',
+    /ปล่อยไว้แบบนี้<\/b> \(แนะนำ/.test(app) && /นำกลับเข้าทำงาน<\/b>/.test(app) && /<b>ลบ<\/b>/.test(app));
+  ok_('...and answers how long the name stays there', /ชื่อจะอยู่ในรายการนี้จนกว่าจะทำ 2 อย่างหลัง/.test(app));
   ok_('the built engine has the list', /endedStaff: \(\) => M\.staff\.filter\(s=>staffEnded_\(s\)\)/.test(gasEngine));
   ok_('the board asks BOTH ends of the question now',
     /staffStat=M\.staff\.filter\(s=>[\s\S]{0,160}&&!staffEnded_\(s\)\)/.test(engine));

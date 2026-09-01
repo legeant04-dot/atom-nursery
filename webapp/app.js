@@ -112,7 +112,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.321'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.322'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -271,7 +271,13 @@
   // ...and a holiday OT that is still countable: rejected ones are not on anybody's calendar or pay
   const isLiveHolOT = o => isHolOT(o) && String((o && o.Status) || '').toUpperCase() !== 'REJECTED';
   // a staff's department(s) for display — '*' = all, comma-list joined with ·
-  const deptLabel = s => { const d=String((s&&s.Department)||''); if(d==='*')return EN()?'All depts':'ทุกแผนก'; return d.split(',').map(x=>x.trim()).filter(Boolean).join(' · ')||'-'; };
+  /* De-duplicated on the way OUT as well as on the way in. Rows written by the old checkbox (which
+   * carried a comma-joined value) already hold "Nursery 1,Nursery 2,…,Nursery 1,Nursery 2,…", and
+   * they must read correctly TODAY — not on whatever day somebody next happens to open and re-save
+   * that person. deptNorm_ in Staff.gs repairs the stored value; this makes the screen honest until
+   * it does. Reported 2026-09-01: ครูลิน's departments printed twice. */
+  const deptList = v => { const seen={}, keep=[]; String(v||'').split(',').forEach(x=>{ const n=x.trim(); if(n&&!seen[n]){seen[n]=1;keep.push(n);} }); return keep; };
+  const deptLabel = s => { const d=String((s&&s.Department)||''); if(d==='*')return EN()?'All depts':'ทุกแผนก'; return deptList(d).join(' · ')||'-'; };
   // look up a student we already fetched (admin caches; parent scope has kids on the page)
   const findKid = id => (window.A_CACHE&&(A_CACHE.students||[]).find(s=>s.StudentID===id)) || (window._KIDS&&_KIDS.find(s=>s.StudentID===id)) || null;
   // Parent display is ALWAYS "คุณพ่อ/คุณแม่น้อง<ชื่อเล่นลูก>". The parent's own nickname is kept on
@@ -6837,7 +6843,12 @@
         ${_stAct.map(s=>`<div class="list-item stack" data-k="${esc((s.NameTH+' '+(s.NameEN||'')+' '+(s.Nickname||'')+' '+(s.Position||'')+' '+(s.Department||'')).toLowerCase())}"><span style="display:flex;gap:8px;align-items:center">${personAvatar(s)}<span><b>${esc(dispNick(s))}</b> ${nmSub(s)?`<small class="muted">${esc(nmSub(s))}</small>`:""}<br><small class="muted">${_notr(s.Position||"")} · ${esc(deptLabel(s))} · 🕑 ${_notr(groupLabel(s.StaffGroup))}${groupHours(s.StaffGroup)?' ('+esc(groupHours(s.StaffGroup))+')':''}</small><br><small class="muted">${esc(t('staff.start'))} ${esc(s.StartDate||'-')} · ${esc(t('staff.tenure'))} ${esc(tenure(s.StartDate))}</small>${endNote(s)}</span></span><span class="acts"><button class="btn sm outline" onclick="A_staffForm('${s.StaffID}')">✏️ ${EN()?'Edit':'แก้ไข'}</button><button class="btn sm pink" onclick="A_delStaff('${s.StaffID}',this)">🗑️ ${EN()?'Delete':'ลบ'}</button></span></div>`).join('')}</div></div>
       ${_stGone.length?`<div class="card secw" id="sec-staff-gone">${secHead('🚪',EN()?'No longer working here':'สิ้นสุดการทำงานแล้ว',_stGone.length,'')}
         <div class="secbody" hidden>
-        <p class="muted" style="font-size:13px;margin:2px 2px 8px">${EN()?'Kept on purpose — payroll and attendance history still refer to these records. Open one to bring the person back.':'เก็บไว้โดยตั้งใจ — ประวัติเงินเดือนและการลงเวลายังอ้างอิงถึงข้อมูลเหล่านี้ · เปิดดูเพื่อนำกลับเข้าทำงานได้'}</p>
+        ${/* What "closing the record" actually means — spelled out, because the dashboard used to say
+             "เหลือแค่จัดการข้อมูลให้เรียบร้อย" without ever saying what that was. There are three
+             options and doing nothing is the recommended one. */''}
+        <p class="muted" style="font-size:13px;margin:2px 2px 8px">${EN()
+          ? 'The app has already done its part: they are off the attendance summary, off the class lists and cannot sign in. From here you may <b>leave it as it is</b> (recommended — payroll and attendance history still refer to these records), <b>bring the person back</b> if they return, or <b>delete</b> the record if it was created by mistake. Names stay in this list until one of the last two is done.'
+          : 'ระบบจัดการให้เรียบร้อยแล้ว — เอาออกจากสรุปการมาทำงาน ออกจากรายชื่อชั้นเรียน และปิดการเข้าใช้งานทั้งหมด · จากตรงนี้เลือกได้ 3 อย่าง: <b>ปล่อยไว้แบบนี้</b> (แนะนำ — ประวัติเงินเดือนและการลงเวลายังอ้างอิงถึงข้อมูลนี้อยู่), <b>นำกลับเข้าทำงาน</b> หากกลับมา, หรือ <b>ลบ</b> หากสร้างผิด · ชื่อจะอยู่ในรายการนี้จนกว่าจะทำ 2 อย่างหลัง'}</p>
         ${_stGone.map(s=>`<div class="list-item stack"><span style="display:flex;gap:8px;align-items:center">${personAvatar(s)}<span><b>${esc(dispNick(s))}</b> ${nmSub(s)?`<small class="muted">${esc(nmSub(s))}</small>`:""}<br><small class="muted">${esc(t('staff.start'))} ${esc(s.StartDate||'-')} → ${esc(s.EndDate||'-')}</small>${s.EndReason?`<br><small style="color:var(--warn)">${esc(s.EndReason)}</small>`:''}${s.EndRemark?`<br><small class="muted" style="white-space:pre-wrap">${esc(s.EndRemark)}</small>`:''}</span></span><span class="acts"><button class="btn sm outline" onclick="A_staffForm('${s.StaffID}')">👁️ ${EN()?'Open':'เปิดดู'}</button><button class="btn sm" onclick="A_staffReturn('${s.StaffID}',this)">↩️ ${EN()?'Bring back':'นำกลับ'}</button></span></div>`).join('')}</div></div>`:''}
       <div class="card secw" id="sec-parents">${secHead('👪',t('manage.parents'),parents.length,`<button class="btn sm" onclick="event.stopPropagation();A_parentForm()">+ ${esc(t('manage.add'))}</button>`)}
         <div class="secbody" hidden>
@@ -6901,16 +6912,29 @@
              ${s.EndRemark?`<div class="muted" style="font-size:13px;white-space:pre-wrap">${esc(s.EndRemark)}</div>`:''}
              <p class="muted" style="font-size:13px;margin:6px 0 0">${EN()?'The record was kept — payroll and attendance history still refer to it.':'ระบบเก็บข้อมูลไว้ครบ — ประวัติเงินเดือนและการลงเวลายังอ้างอิงถึงคนนี้อยู่'}</p>
              <button type="button" class="btn sm block" style="margin-top:6px" onclick="A_staffReturn('${id}',this)">↩️ ${EN()?'Bring this person back':'นำกลับเข้าทำงาน'}</button></div>`
-        : `<details class="card" style="background:var(--surface-2);padding:8px"><summary style="font-size:13px;cursor:pointer"><b>🚪 ${EN()?'End employment':'สิ้นสุดการทำงาน'}</b></summary>
+        : (function(){
+             /* THE FORM SHOWED A BLANK REASON FOR SOMEBODY WHO HAD ONE.
+              * The date box was filled from s.EndDate, but the <select> carried no `selected` and the
+              * textarea no value — so ครูลิน's record read "31/08/2026 · —" here while the manage
+              * screen and the dashboard both printed "ไม่ผ่านการทดลองงาน". Reported 2026-09-01.
+              * That is worse than cosmetic: A_staffEnd re-sends whatever this select holds, so
+              * correcting the DATE on this screen would have silently blanked the reason — and the
+              * server rejects an empty reason, which is the only thing that stopped it.
+              * A reason that is no longer one of the three offered is kept as its own option rather
+              * than dropped, so re-saving cannot rewrite history. */
+             const _reasons=[['ไม่ผ่านการทดลองงาน',EN()?'Did not pass probation':'ไม่ผ่านการทดลองงาน'],
+                             ['ลาออก',EN()?'Resigned':'ลาออก'],['ให้ออก',EN()?'Dismissed':'ให้ออก']];
+             const _cur=String(s.EndReason||'');
+             if(_cur && !_reasons.some(r=>r[0]===_cur)) _reasons.push([_cur,_cur]);
+             const _sched=!!s.EndDate;
+             return `<details class="card" style="background:var(--surface-2);padding:8px"${_sched?' open':''}><summary style="font-size:13px;cursor:pointer"><b>🚪 ${EN()?'End employment':'สิ้นสุดการทำงาน'}</b>${_sched?` <span class="pill warn" style="font-size:11px">${EN()?'recorded':'บันทึกไว้แล้ว'}</span>`:''}</summary>
              <p class="muted" style="font-size:13px;margin:6px 0">${EN()?'Removes them from the active lists. Nothing is deleted — payroll and attendance history are kept, and they can be brought back later.':'จะนำชื่อออกจากรายชื่อที่ใช้งานอยู่ · ไม่มีการลบข้อมูล ประวัติเงินเดือนและการลงเวลายังอยู่ครบ และนำกลับเข้ามาใหม่ได้'}</p>
              <div class="grid2"><label class="field" style="margin:0"><span>${EN()?'Last working day':'วันสิ้นสุดการทำงาน'}</span><input id="sf_EndDate" type="date" value="${esc(s.EndDate||'')}"/></label>
                <label class="field" style="margin:0"><span>${EN()?'Reason':'เหตุผล'}</span><select id="sf_EndReason" translate="no">
                  <option value="">—</option>
-                 <option value="ไม่ผ่านการทดลองงาน">${EN()?'Did not pass probation':'ไม่ผ่านการทดลองงาน'}</option>
-                 <option value="ลาออก">${EN()?'Resigned':'ลาออก'}</option>
-                 <option value="ให้ออก">${EN()?'Dismissed':'ให้ออก'}</option></select></label></div>
-             <label class="field"><span>${EN()?'Notes':'รายละเอียดเพิ่มเติม'}</span><textarea id="sf_EndRemark" rows="3" style="width:100%"></textarea></label>
-             <button type="button" class="btn sm pink block" onclick="A_staffEnd('${id}',this)">${EN()?'Save and remove from lists':'บันทึกและนำออกจากรายชื่อ'}</button></details>`):''}
+                 ${_reasons.map(([v,l])=>`<option value="${esc(v)}" ${_cur===v?'selected':''}>${esc(l)}</option>`).join('')}</select></label></div>
+             <label class="field"><span>${EN()?'Notes':'รายละเอียดเพิ่มเติม'}</span><textarea id="sf_EndRemark" rows="3" style="width:100%">${esc(s.EndRemark||'')}</textarea></label>
+             <button type="button" class="btn sm pink block" onclick="A_staffEnd('${id}',this)">${_sched?(EN()?'Update':'อัปเดตข้อมูลการสิ้นสุดการทำงาน'):(EN()?'Save and remove from lists':'บันทึกและนำออกจากรายชื่อ')}</button></details>`; })()):''}
       <div class="grid2"><label class="field"><span>🏦 ${EN()?'Bank':'ธนาคาร'}</span><select id="sf_BankName">${['','SCB','KBANK','KTB','BBL','TTB','BAY','GSB','KKP','TISCO','UOB','CIMB','BAAC','LHBANK'].map(b=>`<option value="${b}" ${String(s.BankName||'')===b?'selected':''}>${b||(EN()?'—':'—')}</option>`).join('')}</select></label>
         ${f('BankAccount',(EN()?'Account number':'เลขที่บัญชี'),s.BankAccount)}</div>
       <div class="card" style="padding:8px;background:var(--surface-2)">
@@ -7476,19 +7500,33 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
    * nobody ever tidies. NOT auto-deleted — the school's own reason is that people come back, and the
    * row carries their payroll and attendance history. The card just refuses to let it be forgotten.
    */
+  /* ONE LINE ON THE DASHBOARD, THE FULL RECORD IN จัดการข้อมูล.
+   *
+   * It used to print every leaver in full here. Asked 2026-09-01 — "จะแสดงอยู่นานแค่ไหน? หรือนำไป
+   * แสดงในส่วนของจัดการสิ้นสุดการทำงานแทนเพื่อไม่ให้หน้าหลักโหลดเยอะเกินไป" — and the question is
+   * right: this list only ever grows, one row per person who ever left, on the screen that opens
+   * first. The dashboard now says WHO and HOW MANY in a sentence and hands off to the 🚪 section on
+   * the manage screen, which already holds the detail and the two buttons that act on it.
+   *
+   * The old copy ("เหลือแค่จัดการข้อมูลให้เรียบร้อย") never said what "เรียบร้อย" was, so there was
+   * nothing to finish and nothing to make the card go away. It is not a task — it is a fact about the
+   * roster, and it stays visible for exactly as long as the fact is true. */
   window.A_endedStaffCard=(list)=>{ list=list||[]; if(!list.length) return '';
     const dn=x=>EN()?(x.nickEN||x.nameEN||x.nick||x.name):(x.nick||x.name);
+    const names=list.slice(0,4).map(dn).filter(Boolean);
+    const more=list.length-names.length;
     return `<div class="card" style="border-color:var(--warn-line);background:var(--warn-bg)">
       <div class="spread"><h3 style="color:var(--warn)">🚪 ${EN()?'Staff who have left':'พนักงานที่สิ้นสุดการทำงานแล้ว'}</h3>
         <span class="pill warn">${list.length}</span></div>
-      <small class="muted" style="display:block;margin-bottom:4px">${EN()
-        ? 'Their last working day has passed. They are already off the attendance card and cannot sign in — this is a reminder to close the record.'
-        : 'เลยวันสิ้นสุดการทำงานแล้ว · ระบบเอาออกจากสรุปการมาทำงานและปิดการเข้าใช้งานให้แล้ว — เหลือแค่จัดการข้อมูลให้เรียบร้อย'}</small>
-      ${list.map(x=>`<div class="list-item"><span><b>${esc(dn(x))}</b> <small class="muted">${esc(x.role||'')}${x.dept?' · '+esc(x.dept):''}</small>
-          <br><small class="muted">${EN()?'last day':'วันสุดท้าย'} <b>${esc(ddmmyyyy(x.endDate))}</b>${x.reason?' · '+esc(x.reason):''}</small></span>
-        <button class="btn sm outline" style="flex:0 0 auto" onclick="A_staffForm('${esc(x.staffId)}')">✏️ ${EN()?'Open':'เปิดดู'}</button></div>`).join('')}
-      <small class="muted">${EN()?'Deleting is not required — keeping the record preserves their payroll and attendance history, and clearing the end date lets them straight back in if they return.'
-        :'ไม่จำเป็นต้องลบ · เก็บไว้จะรักษาประวัติเงินเดือนและการมาทำงานไว้ครบ · หากกลับเข้าทำงาน แค่ล้างวันสิ้นสุดก็ใช้งานได้ทันที'}</small></div>`; };
+      <div style="font-size:14px">${esc(names.join(' · '))}${more>0?` <span class="muted">${EN()?`+${more} more`:`และอีก ${more} คน`}</span>`:''}</div>
+      <small class="muted" style="display:block;margin:4px 0 8px">${EN()
+        ? 'Already off the attendance summary and locked out of the app — nothing is pending. Kept on purpose so payroll and attendance history still make sense.'
+        : 'ระบบเอาออกจากสรุปการมาทำงานและปิดการเข้าใช้งานให้เรียบร้อยแล้ว — ไม่มีอะไรค้างต้องทำ · ที่ยังเก็บชื่อไว้เพราะประวัติเงินเดือนและการลงเวลาอ้างอิงถึงข้อมูลนี้'}</small>
+      <button class="btn sm outline block" onclick="A_gotoEnded()">🗂️ ${EN()?'Open in Manage data':'ดูและจัดการในเมนูจัดการข้อมูล'}</button></div>`; };
+  // The 🚪 section lives on the manage screen, so get there first, then open and scroll to it.
+  window.A_gotoEnded=()=>{ GO('manage');
+    let n=0; const tick=()=>{ if(document.getElementById('sec-staff-gone')) return A_jumpSec('sec-staff-gone');
+      if(++n<40) setTimeout(tick,100); }; setTimeout(tick,100); };
   window.A_startingCard=(list)=>{ list=list||[]; if(!list.length) return '';
     const dn=x=>EN()?(x.nickEN||x.nameEN||x.nick||x.name):(x.nick||x.name);
     const soon=list.filter(x=>Number(x.days)<=7);
