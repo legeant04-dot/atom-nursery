@@ -3127,7 +3127,10 @@ function createAtomAPI(M, GROWTH_STD) {
      *  payroll and attendance history. Sorted by who left longest ago. */
     endedStaff: () => M.staff.filter(s=>staffEnded_(s))
       .map(s=>({staffId:s.StaffID, nick:s.Nickname||s.NameTH||s.Name||s.StaffID,
-        name:s.NameTH||s.Name||'', role:s.Role||'', dept:s.Department||'',
+        name:s.NameTH||s.Name||'', role:s.Role||'',
+        // de-duplicated: rows written by the old joined-value checkbox hold each department twice
+        dept:String(s.Department||'')==='*'?'*':(function(){ const seen={},k=[];
+          String(s.Department||'').split(',').forEach(x=>{ const n=x.trim(); if(n&&!seen[n]){seen[n]=1;k.push(n);} }); return k.join(','); })(),
         endDate:ymd(s.EndDate||''), reason:s.EndReason||'',
         // still holding a login is the part that needs acting on, not the tidiness
         hasLogin: !!(s.LineUID||s.PasswordHash),
