@@ -112,7 +112,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.323'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.324'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -9596,7 +9596,12 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
       api('classCoverList',{staffId:USER.staffId},{fresh:true}).catch(()=>[])]);
     // classes = the department master the admin created (Nursery Baby/1/2/…) — NOT the seed config
     const deps=(depts||[]).filter(d=>d);
-    const canClass = s => s.Role!=='Admin' && s.PositionLevel!=='Admin';   // teachers, leaders, assistants…
+    /* teachers, leaders, assistants… — and NOT an Observer. A read-only auditor has no class to be
+     * given: they can already see every child, and putting them in a Nursery column says to whoever
+     * is organising that this is a person who could take that room. Same reasoning that took the
+     * Observer off the LINE recipient list (2026-09-01) — being able to SEE everything is not a
+     * reason to be assigned anything. */
+    const canClass = s => s.Role!=='Admin' && s.PositionLevel!=='Admin' && s.Role!=='Observer';
     const depOf = s => String(s.Department||'').trim();
     const inDep = (s,dep)=>{ const d=depOf(s); if(d===''||d==='*')return false; return d.split(',').map(x=>x.trim()).indexOf(dep)>=0; };
     /* ...AND NOT SOMEBODY WHOSE LAST DAY HAS PASSED. Reported 2026-09-01: ครูฉำฉา and ครูลิน were
