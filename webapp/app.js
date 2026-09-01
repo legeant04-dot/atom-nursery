@@ -112,7 +112,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.324'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.325'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -9613,19 +9613,71 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
     // a staff is "unassigned" if their Department is blank, '*' (all classes), or not one of the current classes
     const unassigned = teachers.filter(s=>{ const d=depOf(s); return d===''||d==='*'|| !deps.some(dep=>inDep(s,dep)); });
     const opts=cur=>`<option value="">—</option>`+deps.map(d=>`<option value="${esc(d)}" ${cur===d?'selected':''}>${esc(d)}</option>`).join('');
-    const chip=s=>`<div class="org-chip" draggable="true" ondragstart="A_drag(event,'teacher','${s.StaffID}')"><span>👩‍🏫 ${esc(nmn(s))}${depOf(s)==='*'?` <small class="muted">(${EN()?'all':'ทุกชั้น'})</small>`:''}</span><select onchange="A_moveSel('teacher','${s.StaffID}',this.value)">${opts(depOf(s)==='*'?'':depOf(s))}</select></div>`;
     const col=dep=>{ const ts=teachers.filter(s=>inDep(s,dep)); const ss=students.filter(s=>s.Class===dep);
-      return `<div class="card org-col" ondragover="event.preventDefault()" ondrop="A_drop(event,'${esc(dep)}')"><h3>${esc(dep)} <small class="muted">${ts.length}👩‍🏫 · ${ss.length}👶</small></h3>
-        ${ts.map(chip).join('')}
+      return `<div class="card org-col" ondragover="event.preventDefault()" ondrop="A_drop(event,'${esc(dep)}')"><h3>${esc(dep)} <small class="muted">${ss.length}👶</small></h3>
+        ${/* the teachers are named here but not edited here — that is the คุณครู tab's job now, and
+             two places to change the same thing is how the old screen came to feel duplicated */''}
+        <small class="muted" style="display:block;margin:-4px 0 6px">👩‍🏫 ${ts.length?esc(ts.map(x=>dispNick(x)).join(', ')):(EN()?'no teacher yet':'ยังไม่มีครูประจำ')}</small>
         ${ss.map(s=>`<div class="org-chip" draggable="true" ondragstart="A_drag(event,'student','${s.StudentID}')"><span>${studentAvatar(s)} ${esc(nmn(s))}</span><select onchange="A_moveSel('student','${s.StudentID}',this.value)">${opts(s.Class)}</select></div>`).join('')}</div>`; };
+
+    /* ---- 👩‍🏫 THE TEACHER TAB — tick the rooms, one card per person ---------------------------
+     *
+     * Asked 2026-09-02 after seeing the grid on a phone: "ชอบฟังก์ชันการลากวางได้ แต่ดูยากและข้อมูล
+     * เยอะไป ... จะทำยังไงให้มีฟังก์ชันที่หัวหน้าครูจัดการได้ง่ายในมือถือ".
+     *
+     * A teacher belongs to MANY rooms (ครูก้อย appears in Baby, 1 and 2; ครูฟิล์ม in four) — so a
+     * tick box is the right control and a column grid is not: the same person had to be found in
+     * four columns, and the drop-down under each chip could only ever hold ONE room, so the fallback
+     * silently narrowed whoever used it. Here the whole of one person's answer is on one card.
+     *
+     * A CHILD belongs to exactly one room, so the student side does NOT become tick boxes — that
+     * would invite two ticks for something the system cannot store. It stays a choice.
+     */
+    const tab = (window.__orgTab==='student') ? 'student' : 'teacher';
+    const tick=(id,label,checked,dis)=>`<label class="orgtick${checked?' on':''}" style="display:inline-flex;align-items:center;gap:6px;border:1px solid ${checked?'var(--blue)':'var(--line)'};background:${checked?'var(--blue-bg,rgba(59,130,246,.12))':'transparent'};border-radius:999px;padding:6px 12px;margin:3px 4px 3px 0;font-size:14px;${dis?'opacity:.4;pointer-events:none':'cursor:pointer'}">
+      <input type="checkbox" ${id?`id="${esc(id)}"`:''} class="orgdep" style="width:auto;margin:0" ${checked?'checked':''} ${dis?'disabled':''}/> ${esc(label)}</label>`;
+    const tCard=s=>{ const d=depOf(s), all=d==='*', mine=all?[]:d.split(',').map(x=>x.trim()).filter(Boolean);
+      const none=!all && !deps.some(dep=>mine.indexOf(dep)>=0);
+      return `<div class="card" id="orgT_${esc(s.StaffID)}" data-sid="${esc(s.StaffID)}" style="padding:10px${none?';border-color:var(--warn-line);background:var(--warn-bg)':''}">
+        <div style="display:flex;gap:8px;align-items:center">${personAvatar(s)}<div style="min-width:0">
+          <b>${esc(dispNick(s))}</b> ${nmSub(s)?`<small class="muted">${esc(nmSub(s))}</small>`:''}
+          ${none?`<span class="pill warn" style="font-size:11px">${EN()?'no class':'ยังไม่ได้จัดชั้น'}</span>`:''}
+          <br><small class="muted">${_notr(s.Position||'')}</small></div></div>
+        <label style="display:flex;align-items:center;gap:8px;margin:8px 0 4px;font-size:14px"><input type="checkbox" class="orgAll" style="width:auto" ${all?'checked':''} onchange="ORG_tAll(this)"/> <b>${EN()?'All classes (head teacher)':'ทุกชั้น (หัวหน้าครู)'}</b></label>
+        ${/* a head teacher is stored as '*', NOT as "every box ticked" — the day a sixth Nursery
+             opens, '*' covers it and five ticks would silently leave them out of the new room */''}
+        <div class="orgDeps" ${all?'style="opacity:.4;pointer-events:none"':''}>${deps.map(dep=>tick('', dep, mine.indexOf(dep)>=0, all)).join('')||`<small class="muted">${EN()?'no classes yet':'ยังไม่มีชั้นเรียน'}</small>`}</div>
+        <div class="row" style="margin-top:6px;justify-content:flex-end"><small class="muted orgSaved" style="margin-right:auto"></small>
+          <button class="btn sm" onclick="ORG_tSave('${esc(s.StaffID)}',this)">💾 ${EN()?'Save':'บันทึก'}</button></div></div>`; };
+
+    const segBtn=(k,label)=>`<button class="${tab===k?'active':''}" onclick="ORG_tab('${k}')">${label}</button>`;
     app.innerHTML=`<button class="btn sm outline backbtn" onclick="GO('${esc(window.__orgBack)}')">${t('c.back')}</button>
       <h2 class="page">🔁 ${esc(t('manage.organize'))}</h2>
-      <p class="muted" style="font-size:13px">${esc(t('org.note'))}</p>
-      <div class="card" ondragover="event.preventDefault()" ondrop="A_drop(event,'')" style="background:var(--warn-bg);border-color:var(--warn-line)"><h3>🧑‍🏫 ${EN()?'Unassigned staff — drag into a class':'พนักงานที่ยังไม่ได้จัดชั้น — ลากไปใส่ชั้นเรียน'} <small class="muted">${unassigned.length}</small></h3>
-        <div class="org-grid" style="grid-template-columns:1fr">${unassigned.length?unassigned.map(chip).join(''):`<small class="muted">${EN()?'none':'ไม่มี'}</small>`}</div></div>
-      ${orgCoverCard(teachers, deps, cover||[])}
-      <div class="org-grid">${deps.map(col).join('')}</div>`;
+      <div class="seg">${segBtn('teacher','👩‍🏫 '+(EN()?'Teachers':'คุณครู')+' ('+teachers.length+')')}${segBtn('student','👶 '+(EN()?'Children':'นักเรียน')+' ('+students.length+')')}</div>
+      ${tab==='teacher' ? `
+        <p class="muted" style="font-size:13px">${EN()?'Tick every class this teacher is responsible for, then Save. A teacher may have several.':'ติ๊กทุกชั้นที่ครูคนนี้รับผิดชอบ แล้วกดบันทึก · ครูหนึ่งคนมีได้หลายชั้น'}</p>
+        ${unassigned.length?`<div class="card" style="background:var(--warn-bg);border-color:var(--warn-line);padding:8px"><b style="font-size:13px;color:var(--warn)">🧑‍🏫 ${EN()?'Not in any class yet':'ยังไม่ได้จัดชั้น'} — ${unassigned.length}</b>
+          <div style="font-size:13px;margin-top:2px">${esc(unassigned.map(x=>dispNick(x)).join(' · '))}</div></div>`:''}
+        ${teachers.map(tCard).join('')}
+        ${orgCoverCard(teachers, deps, cover||[])}`
+      : `
+        <p class="muted" style="font-size:13px">${esc(t('org.note'))}</p>
+        <div class="org-grid">${deps.map(col).join('')}</div>`}`;
   };
+  window.ORG_tab=(k)=>{ window.__orgTab=k; ADMIN_SUB_organize(); };
+  // "ทุกชั้น" and the individual ticks are the same answer said two ways — never both at once
+  window.ORG_tAll=(el)=>{ const card=el.closest('.card'), box=card.querySelector('.orgDeps');
+    if(!box) return; box.style.opacity=el.checked?'.4':''; box.style.pointerEvents=el.checked?'none':'';
+    box.querySelectorAll('.orgdep').forEach(c=>{ c.disabled=!!el.checked; }); };
+  window.ORG_tSave=async(id,btn)=>{ const card=document.getElementById('orgT_'+id); if(!card) return;
+    const all=card.querySelector('.orgAll').checked;
+    const picked=[...card.querySelectorAll('.orgDeps .orgdep')].map((c,i)=>c.checked?String(c.closest('label').textContent||'').trim():'').filter(Boolean);
+    const toDept = all ? '*' : picked.join(',');
+    btn.disabled=true;
+    try{ await api('orgMoveTeacher',{staffId:USER.staffId,targetId:id,toDept});
+      const n=card.querySelector('.orgSaved'); if(n) n.textContent='✅ '+(EN()?'saved':'บันทึกแล้ว');
+      ADMIN_SUB_organize();
+    }catch(e){ err(e); btn.disabled=false; } };
   /**
    * COVER, WHICH IS NOT THE SAME AS MOVING SOMEBODY.
    *
