@@ -633,7 +633,17 @@ window.CONFIG = { MODE: 'gas', GAS_URL: 'https://script.google.com/macros/s/AKfy
     return () => Math.max(0, (Date.now() - t0) - (hidNow() - h0)); }
   window.__atomAwakeTimer = awakeTimer;   // app.js times a screen with the same clock
 
-  const dropDeadSession = e => { if (isDeadSession(e)) window.__atomClearSession(); };
+  /* ENDED is not a dead session — it is a live session belonging to somebody who no longer works
+   * here. The server refuses EVERY request from them (applyIdentity_), so without this the app would
+   * fill with red errors and look broken instead of closed. Handed to the app once, which signs them
+   * out and says what happened; the token is dropped here so nothing keeps retrying with it. */
+  const dropDeadSession = e => {
+    if (isDeadSession(e)) window.__atomClearSession();
+    else if (e && e.code === 'ENDED') {
+      window.__atomClearSession();
+      try { if (window.__atomEnded) window.__atomEnded(e.message); } catch (x) {}
+    }
+  };
   function flush() {
     const q = _q; _q = []; _scheduled = false;
     // Phase 0: time every round trip. t0 is taken here, so what we measure is exactly what the

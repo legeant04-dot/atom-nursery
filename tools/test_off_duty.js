@@ -95,6 +95,33 @@ const res = JSON.parse(run(function () {
   o.loginLeaving = login('Uleaving');
   o.loginTeacher = login('Uteacher');
   o.audit = readObjects_(sheet_(MAIN, 'AUDIT_LOG')).filter(function (r) { return String(r.Action) === 'LOGIN_DENIED_ENDED'; }).length;
+
+  /* THE HOLE v315 LEFT. Refusing at handleAuth was the wrong door: a token lasts 12 hours and renews
+   * itself on use, so somebody already signed in never passes through login again. Reported the same
+   * day — she was still on her home screen with the clock-in buttons live.
+   *
+   * So these go over the wire WITH A TOKEN issued while she still worked here, which is exactly the
+   * state the reported phone was in. */
+  /* applyIdentity_ is dormant unless SCHOOL_CONFIG RequireSessionToken='true' — which live has had
+   * since go-live, and without which nothing in the app trusts its own identity checks anyway. Set
+   * here so this exercises the live configuration rather than the dormant one. */
+  var _rq = findObject_(cfg, function (r) { return r.Key === 'RequireSessionToken'; });
+  if (_rq) updateRow_(cfg, _rq._row, { Value: 'true' }); else appendObject_(cfg, { Key: 'RequireSessionToken', Value: 'true' });
+  _configCache = null;
+  var post = function (token, action, payload) {
+    var r = doPost({ postData: { contents: JSON.stringify({ action: action, payload: payload || {}, token: token }) } });
+    return JSON.parse(r.getContent ? r.getContent() : r);
+  };
+  var tokGone = issueSession_('Ugone', 'Teacher', 'STF-GONE');
+  var tokOk = issueSession_('Uteacher', 'Teacher', 'STF-T');
+  var tokLeaving = issueSession_('Uleaving', 'Teacher', 'STF-LEAVING');
+  var tokAdmin = issueSession_('Uadmin', 'Admin', 'STF-ADM');
+  o.oldTokenRead = post(tokGone, 'staffSelf', {});
+  o.oldTokenPunch = post(tokGone, 'staffCheckin', { lat: 13.792472, lng: 100.646389 });
+  o.okTokenRead = post(tokOk, 'staffSelf', {});
+  o.leavingTokenRead = post(tokLeaving, 'staffSelf', {});
+  // an admin "viewing as" her must still work — that is how the record gets closed
+  o.adminViewsHer = post(tokAdmin, 'staffSelf', { staffId: 'STF-GONE' });
   return JSON.stringify(o);
 }));
 
@@ -142,6 +169,29 @@ console.log('\n3) SOMEBODY WHOSE LAST DAY HAS PASSED IS NOT STAFF');
   ok_('the teacher leaving tomorrow still signs in', res.loginLeaving.ok === true);
   ok_('...and so does everybody else', res.loginTeacher.ok === true && res.loginTeacher.role === 'Teacher');
   ok_('the reason is written at the door', /THE LAST WORKING DAY HAS PASSED/.test(authGs));
+
+  console.log('   — AND THE SESSION SHE ALREADY HAD, which is what v315 missed');
+  /* Blocking login does nothing to a token issued yesterday: it lasts 12 hours and renews itself on
+   * use, so she never passes through login again. This is the state the reported phone was in. */
+  eq('an old token cannot even read her own record', [res.oldTokenRead.ok, res.oldTokenRead.error.code], [false, 'ENDED']);
+  eq('...and certainly cannot clock in', [res.oldTokenPunch.ok, res.oldTokenPunch.error.code], [false, 'ENDED']);
+  ok_('...with the same sentence, so it reads the same wherever it appears',
+    /สิ้นสุดการทำงานเมื่อ/.test(res.oldTokenRead.error.message));
+  ok_('a working teacher’s token is untouched', res.okTokenRead.ok === true);
+  ok_('...and so is the one whose last day is tomorrow', res.leavingTokenRead.ok === true);
+  /* AN ADMIN MUST STILL REACH HER. Closing the record is the admin's job, and "view as" is how they
+   * check it — an Admin session returns from applyIdentity_ before this check ever runs. */
+  ok_('an admin can still open her record', res.adminViewsHer.ok === true && res.adminViewsHer.data.ended === true);
+  /* ...and it carries the FACT, never the date. A leaving date is the admin's to give — nobody
+   * learns their last day from an app — so staffSelf has never carried EndDate and still does not,
+   * even now that the screen needs to know not to draw the clock-in buttons. */
+  ok_('...as a fact, without handing out the date itself',
+    res.adminViewsHer.data.EndDate === undefined && res.adminViewsHer.data.endScheduled === undefined);
+  ok_('the check is on every request, not just the door', /var _me = staffRowById_\(sess\.linkedId\);/.test(R('src/Code.gs')));
+  ok_('...and says why the door alone was not enough', /that was the WRONG DOOR/.test(R('src/Code.gs')));
+  ok_('the app signs her out once instead of showing a wall of errors',
+    /window\.__atomEnded = \(msg\)/.test(app) && /e\.code === 'ENDED'/.test(R('webapp/api.js')));
+  ok_('...and the clock-in card is replaced rather than left live', /:me0\.ended\?/.test(app));
 }
 
 console.log('\n4) THE ADMIN IS TOLD, rather than the record quietly vanishing');

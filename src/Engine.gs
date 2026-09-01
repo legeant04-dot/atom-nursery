@@ -3145,6 +3145,12 @@ function createAtomAPI(M, GROWTH_STD) {
         StaffGroup:s.StaffGroup, Phone:s.Phone, DOB:s.DOB, StartDate:s.StartDate, NationalID:s.NationalID,
         RequireCheckin: s.RequireCheckin!==false, MustChangePassword: !!s.MustChangePassword,
         CanClassOrg: canOrganize_(s), CanFoodMenu: canFoodMenu_(s),
+        /* THE FACT, NEVER THE DATE. The screen needs to know not to draw two clock-in buttons the
+         * server will refuse — but a leaving date is the admin's to give, and nobody learns their
+         * last day from an app (the rule this whitelist exists for). `ended` is only ever true once
+         * the day has PASSED, which they discover anyway the moment they are signed out; a date set
+         * in advance and not yet arrived stays invisible here, as it always has. */
+        ended: staffEnded_(s),
         GroupIn: grp&&grp.CheckInTime||'', GroupOut: grp&&grp.CheckOutTime||'' }; },
     setRequireCheckin: p => { const s=M.staff.find(x=>x.StaffID===p.staffId); if(s) s.RequireCheckin=!!p.value; return {staffId:p.staffId, value:!!p.value}; },
     // staff edits their OWN record, whitelisted fields only (staffId injected server-side)

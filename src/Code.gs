@@ -355,8 +355,36 @@ function applyIdentity_(action, payload, sess) {
     if (payload.studentId && !parentOwnsStudent_(sess.uid, payload.studentId)) throw apiError_('NO_ACCESS', 'ไม่มีสิทธิ์เข้าถึงข้อมูลนักเรียนนี้');
   } else {
     payload.staffId = sess.linkedId;                                      // teacher/leader act only as themselves
+    /* THE LAST WORKING DAY HAS PASSED — CHECKED ON EVERY REQUEST, not just at the door.
+     *
+     * v315 refused them in handleAuth and that was the WRONG DOOR: a session token lasts 12 hours
+     * and renews itself on use, so somebody already signed in never passes through login again.
+     * Reported the same day — a teacher whose last day was yesterday was still on her home screen
+     * with the clock-in buttons live.
+     *
+     * Here instead, which is the one place every non-admin request goes through and where the
+     * caller's real identity is already established. It covers check-in, journals, class lists and
+     * anything written next, without each of them having to remember.
+     *
+     * EndDate is a LAST WORKING DAY, so this bites only once it has passed. An ADMIN session never
+     * reaches this line (it returned above), so "view as" still works and an admin can still open,
+     * correct and close the record of somebody who has left.
+     */
+    var _me = staffRowById_(sess.linkedId);
+    var _end = _me ? String(_me.EndDate || '').slice(0, 10) : '';
+    if (/^\d{4}-\d{2}-\d{2}$/.test(_end) && dateStr_(new Date()) > _end) {
+      throw apiError_('ENDED', 'สิ้นสุดการทำงานเมื่อ ' + _end + ' — เข้าใช้งานระบบไม่ได้แล้ว · หากกลับเข้าทำงาน กรุณาแจ้งแอดมิน');
+    }
   }
   return payload;
+}
+/** One staff row by id, for the identity checks above. Reads go through the cached row store. */
+function staffRowById_(staffId) {
+  if (!staffId) return null;
+  try {
+    return findObject_(sheet_(getHrSpreadsheet_(), 'STAFF'),
+      function (s) { return String(s.StaffID) === String(staffId); });
+  } catch (e) { return null; }    // never let a lookup failure lock the whole school out
 }
 function parentOwnsStudent_(uid, sid) {
   var links = sheet_(getMainSpreadsheet_(), 'USER_LINKS');

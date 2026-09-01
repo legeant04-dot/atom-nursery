@@ -112,7 +112,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.315'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.316'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -1127,6 +1127,26 @@
     if (pictureUrl) USER.pictureUrl = pictureUrl;
     PENDING_LINE_UID = null;
     setHeader(); GO(initialScreen()); PREFETCH();
+  };
+  /* EMPLOYMENT ENDED WHILE SIGNED IN.
+   *
+   * The server refuses every request from a staff member whose last working day has passed
+   * (applyIdentity_ → ENDED). Left alone that would fill the screen with red errors — the app would
+   * look broken rather than closed, and the person would have no idea what happened or what to do.
+   * Signed out once, with the reason and who to ask. Shown once per session so it cannot loop.
+   */
+  let _endedShown = false;
+  window.__atomEnded = (msg) => {
+    if (_endedShown) return; _endedShown = true;
+    try { logout(); } catch (e) {}
+    setTimeout(() => modal(`<div style="text-align:center;padding:6px 2px">
+      <div style="font-size:44px;line-height:1.1">🚪</div>
+      <h3 style="margin:6px 0 2px">${EN()?'Your access has ended':'สิ้นสุดการเข้าใช้งานระบบ'}</h3>
+      <p style="font-size:14px;line-height:1.7;margin:6px 8px">${esc(msg||(EN()?'Your employment has ended.':'สิ้นสุดการทำงานแล้ว'))}</p>
+      <p class="muted" style="font-size:13px;margin:0 8px">${EN()
+        ? 'Your records are kept. If you have returned to work, the admin can reopen your account straight away.'
+        : 'ข้อมูลของท่านยังถูกเก็บไว้ครบถ้วน · หากกลับเข้าทำงาน แอดมินเปิดให้ใช้งานได้ทันที'}</p>
+      <button class="btn block" style="margin-top:10px" onclick="this.closest('.modal').remove()">${EN()?'Close':'ปิด'}</button></div>`), 60);
   };
   function logout(){
     try{ localStorage.removeItem('atom_session'); }catch(e){}
@@ -3449,6 +3469,16 @@
           <br><small class="muted">${day0.partial?(EN()?'Clocking in works again after that time.':'หลังเวลานี้ลงเวลาได้ตามปกติ'):(EN()?'No clocking in today. Nothing counts as late or absent.':'วันนี้ไม่ต้องลงเวลา · ระบบไม่นับสาย/ขาดงาน')}</small></div>`
         // Hired but not started yet: the server already refuses the check-in, so leaving live buttons
         // here only produced an error. Say when the first day is instead.
+        /* EMPLOYMENT IS OVER. The same shape as "not started yet" below, and for the same reason:
+           the server refuses the punch (ENDED), so live buttons could only produce an error. Checked
+           BEFORE the start-date card because someone rehired and ended again should read as ended.
+           Reported 2026-09-01 — a teacher whose last day was the 31st still had both buttons. */
+        :me0.ended?`<div style="background:var(--bad-bg,var(--warn-bg));border:1px solid var(--bad-line,var(--warn-line));border-radius:8px;padding:12px;text-align:center">
+          ${/* the FACT, not the date — a leaving date is the admin's to give, and staffSelf
+                deliberately does not carry it (see the whitelist in the engine). */''}
+          <b style="color:var(--bad,var(--warn))">🚪 ${EN()?'Employment has ended':'สิ้นสุดการทำงานแล้ว'}</b>
+          <br><small class="muted">${EN()?'Clocking in is closed and nothing counts as late or absent. If you have come back to work, please ask the admin to reopen your record.'
+            :'ลงเวลาไม่ได้แล้ว และระบบไม่นับสาย/ขาดงาน · หากกลับเข้าทำงาน กรุณาแจ้งแอดมินให้เปิดข้อมูลอีกครั้ง'}</small></div>`
         :att.notStarted?`<div style="background:var(--warn-bg);border:1px solid var(--warn-line);border-radius:8px;padding:12px;text-align:center">
           <b style="color:var(--warn)">⏳ ${EN()?'Not started yet':'ยังไม่ถึงวันเริ่มงาน'}</b>
           <br><span style="font-size:15px">${EN()?'First working day':'วันแรกของการทำงาน'}: <b>${esc(att.startDate||'-')}</b></span>
