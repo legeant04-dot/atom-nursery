@@ -85,6 +85,25 @@ const res = JSON.parse(run(function () {
   // clearing every tick is a legitimate answer: "not in any class yet"
   mv('STF-KOI', '');
   o.koiNone = row('STF-KOI');
+
+  // ---- who may move whom ----
+  add('STF-PLAIN', 'ปุ๊ก', 'Teacher', 'Nursery 1');
+  var grant = readObjects_(stSh).filter(function (r) { return r.StaffID === 'STF-KOI'; })[0];
+  updateRow_(stSh, grant._row, { CanClassOrg: 'YES' });
+  appendObject_(sheet_(MAIN, 'STUDENTS'), { StudentID: 'STD-1', Name: 'ด.ญ. ทดสอบ', Nickname: 'ใบเตย',
+    Class: 'Nursery 1', Status: 'ACTIVE', EnrollDate: '2025-05-01', Plan: 'FULL' });
+  var tryMove = function (actor, action, payload) {
+    try { engineDispatch_(action, Object.assign({ staffId: actor }, payload)); return 'ok'; }
+    catch (e) { return (e && (e.apiCode || e.code)) || String(e && e.message); }
+  };
+  o.perm = {
+    headMoveStudent:  tryMove('STF-HEAD',  'orgMoveStudent', { targetId: 'STD-1', toClass: 'Nursery 2' }),
+    headMoveTeacher:  tryMove('STF-HEAD',  'orgMoveTeacher', { targetId: 'STF-PLAIN', toDept: 'Nursery 2' }),
+    plainMoveStudent: tryMove('STF-PLAIN', 'orgMoveStudent', { targetId: 'STD-1', toClass: 'Nursery 3' }),
+    plainMoveTeacher: tryMove('STF-PLAIN', 'orgMoveTeacher', { targetId: 'STF-HEAD', toDept: 'Nursery 3' }),
+    grantedStudent:   tryMove('STF-KOI',   'orgMoveStudent', { targetId: 'STD-1', toClass: 'Nursery 3' }),
+    grantedTeacher:   tryMove('STF-KOI',   'orgMoveTeacher', { targetId: 'STF-PLAIN', toDept: 'Nursery 3' })
+  };
   return JSON.stringify(o);
 }));
 
@@ -134,14 +153,53 @@ console.log('\n4) TWO TABS, BECAUSE THEY ARE TWO DIFFERENT PROBLEMS');
    * two ticks for something the system cannot store. */
   ok_('...and the child side stays a choice, with the reason recorded',
     /A CHILD belongs to exactly one room, so the student side does NOT become tick boxes/.test(app));
-  ok_('a child is still moved by picking one class', /A_moveSel\('student','\$\{s\.StudentID\}',this\.value\)/.test(app));
+  /* RADIO, NOT CHECK BOX — "ให้เลือกได้ 1:1 ไม่สามารถติ๊กหลายช่องได้". A control that can physically
+   * hold two answers is a control that can produce a state the system cannot store, so the browser
+   * enforces the rule rather than a script tidying up afterwards. */
+  ok_('a child picks exactly one class, enforced by the control itself',
+    /<input type="radio" name="orgSr_\$\{esc\(s\.StudentID\)\}"/.test(app));
+  ok_('...and the reason that it is not a check box is recorded',
+    /Class is a single value, so a control that can physically hold two answers/.test(app));
+  /* Nothing is written on the tick: a move changes whose journal this child is on and which food
+   * menu the family sees, and a stray tap on a phone is easy. */
+  ok_('ticking selects; a named button commits', /window\.ORG_sPick=\(id\)=>/.test(app) && /window\.ORG_sSave=async\(id,btn\)=>/.test(app));
+  ok_('...and the button says where the child is going', /ยืนยันย้ายไป \$\{to\}/.test(app));
+  ok_('...and stays hidden until something actually changed', /if\(!to \|\| to===card\.dataset\.cur\)\{ box\.hidden=true; return; \}/.test(app));
   /* The teacher chips are gone from the columns — the same thing editable in two places is what made
    * the screen feel duplicated — but the column still NAMES who runs the room. */
-  ok_('teachers are named in each column but no longer edited there',
-    /the teachers are named here but not edited here/.test(app) &&
-    /ts\.map\(x=>dispNick\(x\)\)\.join\(', '\)/.test(app));
+  // each class heading still SAYS who runs the room — it just is not where you change it any more
+  ok_('teachers are named above each class but no longer edited there',
+    /const sGroup=dep=>\{[\s\S]{0,400}ts\.map\(x=>dispNick\(x\)\)\.join\(', '\)/.test(app));
   ok_('...so there is exactly one drop-down per child and none per teacher',
     app.indexOf("A_moveSel('teacher'") < 0);
+  /* The drag handlers go with the grid they served. On a phone, dragging a name across a five-column
+   * grid was never really available, and every chip already carried a control that did the same
+   * job — keeping a second, worse way to do it is the duplication being complained about. */
+  ok_('nothing is draggable any more', !/draggable="true"/.test(app) && !/window\.A_drag=/.test(app));
+  ok_('...and that is written down rather than just deleted', /THE DRAG HANDLERS ARE GONE WITH THE GRID THEY SERVED/.test(app));
+}
+
+console.log('\n5) WHO MAY MOVE A CHILD — "หัวหน้าครูและ Admin เท่านั้น"');
+{
+  /* Two different decisions, deliberately not the same right. Moving a CHILD is the daily business
+   * of running a nursery and the head teacher does it; deciding which STAFF MEMBER is responsible
+   * for a room is not, and stays with the admin. */
+  eq('a head teacher may move a child', res.perm.headMoveStudent, 'ok');
+  eq('...but still may not move a teacher', res.perm.headMoveTeacher, 'NO_PERMISSION');
+  eq('a plain teacher may do neither', [res.perm.plainMoveStudent, res.perm.plainMoveTeacher], ['NO_PERMISSION', 'NO_PERMISSION']);
+  /* The teacher the admin explicitly ticked CanClassOrg for keeps it — that tick is itself an admin
+   * decision ("ย้ายครู/นักเรียน เหมือนแอดมิน"), and silently revoking a granted permission is not
+   * something a screen change should do. Confirmed with the school before writing it. */
+  eq('a teacher the admin granted CanClassOrg keeps both', [res.perm.grantedStudent, res.perm.grantedTeacher], ['ok', 'ok']);
+  ok_('the rule has a name and a reason', /const canMoveStudent_ = staff => canCover_\(staff\);/.test(engine) &&
+    /หัวหน้าครูและ Admin เท่านั้น/.test(engine));
+  ok_('...and the refusal says who may, instead of "ask the admin"',
+    /ย้ายชั้นเรียนนักเรียนได้เฉพาะแอดมินและหัวหน้าครู/.test(engine) && /ย้ายชั้นเรียนนักเรียนได้เฉพาะแอดมินและหัวหน้าครู/.test(gasEngine));
+  /* A tab that only ever answers "ไม่มีสิทธิ์" is worse than no tab. */
+  ok_('the screen draws only the half you have', /const tabs = \[mayTeacher&&'teacher', mayStudent&&'student'\]\.filter\(Boolean\);/.test(app));
+  ok_('...and the head teacher gets a door to it', /window\.T_moveStudents=\(\)=>/.test(app) && /onclick="T_moveStudents\(\)"/.test(app));
+  ok_('...told apart from temporary cover, which is a different decision',
+    /onclick="T_cover\(\)"/.test(app));
 }
 
 console.log('\n' + (fail ? 'FAILED ' : 'PASSED ') + pass + ' passed, ' + fail + ' failed\n');

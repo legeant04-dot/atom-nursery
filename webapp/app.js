@@ -112,7 +112,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.325'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.326'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -3428,6 +3428,10 @@
     // ...and who may lend a teacher to a class for a few days — canOrg PLUS the head teacher, who
     // the school named directly. Department='*' is what makes somebody a head teacher (headTeacher_).
     const canCover = canOrg || String(me0.Department||'')==='*';
+    /* ...and who may move a CHILD between rooms. Named by the school 2026-09-02: "หัวหน้าครูและ
+     * Admin เท่านั้น" — so the head teacher is in, which canOrg alone never gave them. Remembered on
+     * USER because the organize screen decides which tabs to draw and cannot re-read the record. */
+    USER._canOrg = canOrg; USER._headTeacher = String(me0.Department||'')==='*';
     // the teacher the admin put in charge of the kitchen menu gets the monthly menu screen too
     const canFood = ['YES','TRUE','1'].indexOf(String(me0.CanFoodMenu||'').toUpperCase())>=0 || me0.CanFoodMenu===true;
     // A_foodItems is shared with the admin screen and cannot re-derive this — it has no `me0`.
@@ -3528,6 +3532,10 @@
              for a day and moving them into it permanently are different decisions, and only the
              first one was asked for. Anyone who has the grid reaches cover through it instead. */''}
         ${(!canOrg && canCover)?`<button class="btn sm outline" onclick="T_cover()">🤝 ${EN()?'Temporary cover':'ดูแลชั้นเรียนชั่วคราว'}</button>`:''}
+        ${/* ...and moving a CHILD to another room, which the school gave the head teacher on
+             2026-09-02. Still not the teacher half: which staff member is responsible for a room
+             stays with the admin, so this opens the child tab on its own. */''}
+        ${(!canOrg && String(me0.Department||'')==='*')?`<button class="btn sm outline" onclick="T_moveStudents()">👶 ${EN()?'Move a child':'ย้ายชั้นเรียนนักเรียน'}</button>`:''}
         ${/* The kitchen teacher plans the month's menu — and now also puts the PICTURES on the
              dishes, which is the same job and the same knowledge. Without a door of their own here
              they would have had to ask an admin for every photo, which is how a feature ends up
@@ -9612,13 +9620,6 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
     const teachers = staff.filter(s=>canClass(s) && !s.ended);
     // a staff is "unassigned" if their Department is blank, '*' (all classes), or not one of the current classes
     const unassigned = teachers.filter(s=>{ const d=depOf(s); return d===''||d==='*'|| !deps.some(dep=>inDep(s,dep)); });
-    const opts=cur=>`<option value="">—</option>`+deps.map(d=>`<option value="${esc(d)}" ${cur===d?'selected':''}>${esc(d)}</option>`).join('');
-    const col=dep=>{ const ts=teachers.filter(s=>inDep(s,dep)); const ss=students.filter(s=>s.Class===dep);
-      return `<div class="card org-col" ondragover="event.preventDefault()" ondrop="A_drop(event,'${esc(dep)}')"><h3>${esc(dep)} <small class="muted">${ss.length}👶</small></h3>
-        ${/* the teachers are named here but not edited here — that is the คุณครู tab's job now, and
-             two places to change the same thing is how the old screen came to feel duplicated */''}
-        <small class="muted" style="display:block;margin:-4px 0 6px">👩‍🏫 ${ts.length?esc(ts.map(x=>dispNick(x)).join(', ')):(EN()?'no teacher yet':'ยังไม่มีครูประจำ')}</small>
-        ${ss.map(s=>`<div class="org-chip" draggable="true" ondragstart="A_drag(event,'student','${s.StudentID}')"><span>${studentAvatar(s)} ${esc(nmn(s))}</span><select onchange="A_moveSel('student','${s.StudentID}',this.value)">${opts(s.Class)}</select></div>`).join('')}</div>`; };
 
     /* ---- 👩‍🏫 THE TEACHER TAB — tick the rooms, one card per person ---------------------------
      *
@@ -9650,25 +9651,71 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
         <div class="row" style="margin-top:6px;justify-content:flex-end"><small class="muted orgSaved" style="margin-right:auto"></small>
           <button class="btn sm" onclick="ORG_tSave('${esc(s.StaffID)}',this)">💾 ${EN()?'Save':'บันทึก'}</button></div></div>`; };
 
-    const segBtn=(k,label)=>`<button class="${tab===k?'active':''}" onclick="ORG_tab('${k}')">${label}</button>`;
+    /* ---- 👶 THE CHILD TAB — one room each, and the browser enforces it -----------------------
+     *
+     * "ให้เลือกได้ 1:1 ไม่สามารถติ๊กหลายช่องได้" (2026-09-02). RADIO buttons, not check boxes:
+     * Class is a single value, so a control that can physically hold two answers is a control that
+     * can produce a state the system cannot store. Same round pills as the teacher tab so the two
+     * read as one screen — the shape is the only thing that differs, and it differs on purpose.
+     *
+     * Nothing is written on the tick. A move changes which teacher must write this child's journal
+     * and which food menu their family sees, and a stray tap on a phone is easy; so the pill selects
+     * and a named button commits, and the button says where the child is going.
+     */
+    const sCard=s=>{ const cur=String(s.Class||'');
+      return `<div class="card" id="orgS_${esc(s.StudentID)}" data-cur="${esc(cur)}" style="padding:10px">
+        <div style="display:flex;gap:8px;align-items:center">${studentAvatar(s)}<div style="min-width:0">
+          <b>${esc(dispNick(s))}</b> ${nmSub(s)?`<small class="muted">${esc(nmSub(s))}</small>`:''}
+          ${!cur?`<span class="pill warn" style="font-size:11px">${EN()?'no class':'ยังไม่ได้จัดชั้น'}</span>`:''}</div></div>
+        <div class="orgDeps" style="margin-top:6px">${deps.map(dep=>`<label class="orgtick" style="display:inline-flex;align-items:center;gap:6px;border:1px solid ${cur===dep?'var(--blue)':'var(--line)'};background:${cur===dep?'var(--blue-bg,rgba(59,130,246,.12))':'transparent'};border-radius:999px;padding:6px 12px;margin:3px 4px 3px 0;font-size:14px;cursor:pointer">
+          <input type="radio" name="orgSr_${esc(s.StudentID)}" value="${esc(dep)}" class="orgdep" style="width:auto;margin:0" ${cur===dep?'checked':''} onchange="ORG_sPick('${esc(s.StudentID)}')"/> ${esc(dep)}</label>`).join('')||`<small class="muted">${EN()?'no classes yet':'ยังไม่มีชั้นเรียน'}</small>`}</div>
+        <div class="orgGo" hidden style="margin-top:6px"><button class="btn sm block" onclick="ORG_sSave('${esc(s.StudentID)}',this)"></button></div></div>`; };
+    const sGroup=dep=>{ const ss=students.filter(s=>String(s.Class||'')===dep); const ts=teachers.filter(s=>inDep(s,dep));
+      return `<div class="sec-divider">${esc(dep)} — ${ss.length} ${EN()?'children':'คน'} <small class="muted" style="font-weight:400">· 👩‍🏫 ${ts.length?esc(ts.map(x=>dispNick(x)).join(', ')):(EN()?'no teacher yet':'ยังไม่มีครูประจำ')}</small></div>
+        ${ss.map(sCard).join('')||`<small class="muted" style="display:block;margin:0 2px 8px">${EN()?'nobody in this class':'ยังไม่มีนักเรียนในชั้นนี้'}</small>`}`; };
+    const loose = students.filter(s=>{ const c=String(s.Class||''); return !c || deps.indexOf(c)<0; });
+
+    /* WHO MAY DO WHICH HALF. Moving a CHILD is the daily business of running a nursery and the head
+     * teacher does it; deciding which STAFF MEMBER is responsible for a room is not, and stays with
+     * the admin (canOrganize_). A tab that only ever answers "ไม่มีสิทธิ์" is worse than no tab. */
+    const mayTeacher = USER.role==='Admin' || !!USER._canOrg;
+    const mayStudent = mayTeacher || !!USER._headTeacher;
+    const tabs = [mayTeacher&&'teacher', mayStudent&&'student'].filter(Boolean);
+    const cur = tabs.indexOf(tab)>=0 ? tab : tabs[0];
+    const segBtn=(k,label)=>`<button class="${cur===k?'active':''}" onclick="ORG_tab('${k}')">${label}</button>`;
     app.innerHTML=`<button class="btn sm outline backbtn" onclick="GO('${esc(window.__orgBack)}')">${t('c.back')}</button>
       <h2 class="page">🔁 ${esc(t('manage.organize'))}</h2>
-      <div class="seg">${segBtn('teacher','👩‍🏫 '+(EN()?'Teachers':'คุณครู')+' ('+teachers.length+')')}${segBtn('student','👶 '+(EN()?'Children':'นักเรียน')+' ('+students.length+')')}</div>
-      ${tab==='teacher' ? `
+      ${tabs.length>1?`<div class="seg">${segBtn('teacher','👩‍🏫 '+(EN()?'Teachers':'คุณครู')+' ('+teachers.length+')')}${segBtn('student','👶 '+(EN()?'Children':'นักเรียน')+' ('+students.length+')')}</div>`:''}
+      ${cur==='teacher' ? `
         <p class="muted" style="font-size:13px">${EN()?'Tick every class this teacher is responsible for, then Save. A teacher may have several.':'ติ๊กทุกชั้นที่ครูคนนี้รับผิดชอบ แล้วกดบันทึก · ครูหนึ่งคนมีได้หลายชั้น'}</p>
         ${unassigned.length?`<div class="card" style="background:var(--warn-bg);border-color:var(--warn-line);padding:8px"><b style="font-size:13px;color:var(--warn)">🧑‍🏫 ${EN()?'Not in any class yet':'ยังไม่ได้จัดชั้น'} — ${unassigned.length}</b>
           <div style="font-size:13px;margin-top:2px">${esc(unassigned.map(x=>dispNick(x)).join(' · '))}</div></div>`:''}
         ${teachers.map(tCard).join('')}
         ${orgCoverCard(teachers, deps, cover||[])}`
       : `
-        <p class="muted" style="font-size:13px">${esc(t('org.note'))}</p>
-        <div class="org-grid">${deps.map(col).join('')}</div>`}`;
+        <p class="muted" style="font-size:13px">${EN()?'Pick the class this child belongs to — one each — then confirm. The move takes effect at once: class lists, journals and the food menu all follow it.':'เลือกชั้นเรียนของเด็กแต่ละคน — คนละหนึ่งชั้นเท่านั้น — แล้วกดยืนยัน · มีผลทันที ทั้งรายชื่อชั้นเรียน สมุดบันทึก และเมนูอาหาร'}</p>
+        ${loose.length?`<div class="card" style="background:var(--warn-bg);border-color:var(--warn-line);padding:8px"><b style="font-size:13px;color:var(--warn)">👶 ${EN()?'Not in any class yet':'ยังไม่ได้จัดชั้น'} — ${loose.length}</b></div>
+          ${loose.map(sCard).join('')}`:''}
+        ${deps.map(sGroup).join('')}`}`;
   };
   window.ORG_tab=(k)=>{ window.__orgTab=k; ADMIN_SUB_organize(); };
   // "ทุกชั้น" and the individual ticks are the same answer said two ways — never both at once
   window.ORG_tAll=(el)=>{ const card=el.closest('.card'), box=card.querySelector('.orgDeps');
     if(!box) return; box.style.opacity=el.checked?'.4':''; box.style.pointerEvents=el.checked?'none':'';
     box.querySelectorAll('.orgdep').forEach(c=>{ c.disabled=!!el.checked; }); };
+  // a pill only SELECTS; the button that appears says where the child is going, and commits
+  window.ORG_sPick=(id)=>{ const card=document.getElementById('orgS_'+id); if(!card) return;
+    const sel=card.querySelector('.orgdep:checked'), to=sel?sel.value:'', box=card.querySelector('.orgGo');
+    card.querySelectorAll('.orgtick').forEach(l=>{ const on=l.querySelector('.orgdep').checked;
+      l.style.borderColor=on?'var(--blue)':'var(--line)'; l.style.background=on?'var(--blue-bg,rgba(59,130,246,.12))':'transparent'; });
+    if(!box) return;
+    if(!to || to===card.dataset.cur){ box.hidden=true; return; }
+    box.querySelector('button').textContent='✅ '+(EN()?`Move to ${to}`:`ยืนยันย้ายไป ${to}`); box.hidden=false; };
+  window.ORG_sSave=async(id,btn)=>{ const card=document.getElementById('orgS_'+id); if(!card) return;
+    const sel=card.querySelector('.orgdep:checked'); if(!sel) return;
+    // A_moveSel swallows its own error (it has to — it is shared), so re-enable either way rather
+    // than leaving a dead button on a card that is still on screen
+    btn.disabled=true; try{ await A_moveSel('student',id,sel.value); } finally { btn.disabled=false; } };
   window.ORG_tSave=async(id,btn)=>{ const card=document.getElementById('orgT_'+id); if(!card) return;
     const all=card.querySelector('.orgAll').checked;
     const picked=[...card.querySelectorAll('.orgDeps .orgdep')].map((c,i)=>c.checked?String(c.closest('label').textContent||'').trim():'').filter(Boolean);
@@ -9751,12 +9798,17 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
       <h2 class="page">🤝 ${EN()?'Temporary class cover':'ดูแลชั้นเรียนชั่วคราว'}</h2>
       ${orgCoverCard(teachers, (depts||[]).filter(d=>d), cover||[])}`;
     window.scrollTo(0,0); };
-  window.A_drag=(e,type,id)=>{ e.dataTransfer.setData('text/plain',type+':'+id); };
-  window.A_drop=async(e,dep)=>{ e.preventDefault(); const d=(e.dataTransfer.getData('text/plain')||'').split(':'); if(d.length<2)return; await A_moveSel(d[0],d[1],dep); };
+  /* THE DRAG HANDLERS ARE GONE WITH THE GRID THEY SERVED. Nothing on the organise screen is
+   * draggable any more: "ชอบฟังก์ชันการลากวางได้ แต่ดูยากและข้อมูลเยอะไป" — on a phone, dragging a
+   * name across a five-column grid was never really available, and every chip already carried a
+   * control that did the same job. Keeping a second, worse way to do it would be the duplication
+   * that was being complained about. */
   // Permission-aware move: caller = USER.staffId (server injects/validates), target = the dragged id.
   // Works for Admin and any teacher the admin granted CanClassOrg. Refresh in place (role-agnostic).
   window.A_moveSel=async(type,id,dep)=>{ try{ if(type==='teacher')await api('orgMoveTeacher',{staffId:USER.staffId,targetId:id,toDept:dep}); else await api('orgMoveStudent',{staffId:USER.staffId,targetId:id,toClass:dep}); toast(t('org.moved')); ADMIN_SUB_organize(); }catch(e){err(e);} };
   window.T_organize=()=>{ window.__orgBack='home'; ADMIN_SUB_organize('home'); };
+  // head teacher: the same screen, opened on the half they have — the teacher tab is not drawn for them
+  window.T_moveStudents=()=>{ window.__orgBack='home'; window.__orgTab='student'; ADMIN_SUB_organize('home'); };
 
   // ---- Holiday DB ----
   ADMIN_SUB_holidays = async ()=>{ const [hs,bc]=await Promise.all([api('holidays'),api('bigCleaningDays')]);

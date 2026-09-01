@@ -688,6 +688,20 @@ function createAtomAPI(M, GROWTH_STD) {
    * tool that MOVES people permanently, and nobody asked for that.
    */
   const canCover_ = staff => canOrganize_(staff) || headTeacher_(staff);
+  /**
+   * ...and who may move a CHILD from one room to another permanently.
+   *
+   * Named by the school on 2026-09-02: "ผู้ที่ดำเนินการได้คือ หัวหน้าครูและ Admin เท่านั้น" — so the
+   * head teacher is IN, which canOrganize_ alone did not give them, and a plain teacher is out. The
+   * teacher the admin explicitly ticked CanClassOrg for stays in: that tick is itself an admin
+   * decision ("ย้ายครู/นักเรียน เหมือนแอดมิน"), and silently revoking a granted permission is not
+   * something a screen change should do.
+   *
+   * Deliberately NOT the same right as moving a TEACHER, which stays canOrganize_. A head teacher
+   * arranging which room a child sits in is the daily business of running a nursery; deciding which
+   * staff member is responsible for a room is not.
+   */
+  const canMoveStudent_ = staff => canCover_(staff);
   // OT for a pickup time (HH:MM) vs the student's plan end + grace; 100/started hour
   // OT that is PAID or CANCELLED is settled — it must never roll into a bill or count as outstanding.
   const OT_CLOSED = { PAID:1, CANCELLED:1 };
@@ -4219,7 +4233,7 @@ function createAtomAPI(M, GROWTH_STD) {
       s.Department=p.toDept||''; s.Classes=p.toDept||'';
       logAct('moveTeacher',p.targetId,'→ '+(p.toDept||'-'),actorOf(p)); return {ok:true}; },
     orgMoveStudent: p => { const me=staffById(p.staffId)||{};
-      if(!canOrganize_(me)) fail('NO_PERMISSION','ไม่มีสิทธิ์จัดชั้นเรียน (ต้องได้รับสิทธิ์จากแอดมิน)');
+      if(!canMoveStudent_(me)) fail('NO_PERMISSION','ย้ายชั้นเรียนนักเรียนได้เฉพาะแอดมินและหัวหน้าครู');
       const s=studentById(p.targetId); if(!s)fail('NOT_FOUND','ไม่พบนักเรียน'); s.Class=p.toClass||'';
       logAct('moveStudent',p.targetId,'→ '+(p.toClass||'-'),actorOf(p)); return {ok:true}; },
 
