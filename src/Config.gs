@@ -200,7 +200,11 @@ SCHEMA[WB.HR] = {
                   // Leaving: the record is KEPT (payroll history, past attendance and leave all refer
                   // to it) — Status goes INACTIVE and these say when and why, so the person can be
                   // brought back later without re-entering anything.
-                  'EndDate', 'EndReason', 'EndRemark'],
+                  'EndDate', 'EndReason', 'EndRemark',
+                  // Temporary leave (ลาชั่วคราว) — employed, still on the roster, not here. Kept in
+                  // its own columns rather than in Status, which already means 'no longer employed'.
+                  // PauseSalaryMode: ''=paid as normal | NONE | HALF | CUSTOM (with PauseSalaryAmount).
+                  'PauseFrom', 'PauseTo', 'PauseReason', 'PauseRemark', 'PauseSalaryMode', 'PauseSalaryAmount'],
   // Staff groups with their own (editable) work hours — Admin-managed
   STAFF_GROUPS:  ['GroupName', 'GroupNameEN', 'CheckInTime', 'CheckOutTime'],
   // Per-staff payroll config (Admin-editable). Widened to carry every field the engine's computePayroll uses
@@ -237,7 +241,11 @@ SCHEMA[WB.HR] = {
                   'NetPay', 'BankAccount', 'SlipSent', 'GeneratedDate', 'GeneratedBy',
                   // added later — these were being written and silently dropped for want of a column
                   'PayType', 'DailyRate', 'DaysWorked', 'ChildMultiplier', 'Adjustments', 'AdjustmentsTotal',
-                  'BankName', 'LeaveDays', 'LeaveLimit', 'LeaveExceeds', 'ContributionAccum', 'Position', 'StaffName', 'SlipUrl', 'PaidDate', 'PaidBy'],
+                  'BankName', 'LeaveDays', 'LeaveLimit', 'LeaveExceeds', 'ContributionAccum', 'Position', 'StaffName', 'SlipUrl', 'PaidDate', 'PaidBy',
+                  // why THIS month's salary is not the usual figure — a half salary with no reason on
+                  // the slip is indistinguishable from a mistake (writeRows_ silently DROPS a field
+                  // with no column, so these must be declared or the explanation never reaches the slip)
+                  'PauseSalaryMode', 'PauseFrom', 'PauseTo', 'PauseReason'],
   TRAINING:      ['TrainingID', 'StaffID', 'CourseName', 'Date', 'Provider', 'Certificate', 'ExpireDate'],
   WORK_SCHEDULE: ['StaffID', 'DayOfWeek', 'CheckInTime', 'CheckOutTime', 'EffectiveDate'],
   // Manual attendance-time request (ขอลงเวลา): staff asks to record a check-in/out at a chosen time.

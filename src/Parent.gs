@@ -228,6 +228,10 @@ function staffOnDuty_(s) {
   // EndDate is a LAST WORKING DAY, so it stops mattering only once it has PASSED
   var end = String(s.EndDate || '').slice(0, 10);
   if (/^\d{4}-\d{2}-\d{2}$/.test(end) && dateStr_(new Date()) > end) return false;
+  // ...nor anyone on temporary leave: they are not at the nursery, so there is nothing they can do
+  // about a child arriving, and a notification they cannot act on is only a message they have to read
+  var pf = String(s.PauseFrom || '').slice(0, 10), pt = String(s.PauseTo || '').slice(0, 10), td = dateStr_(new Date());
+  if (/^\d{4}-\d{2}-\d{2}$/.test(pf) && td >= pf && !(/^\d{4}-\d{2}-\d{2}$/.test(pt) && td >= pt)) return false;
   return true;
 }
 

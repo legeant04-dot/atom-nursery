@@ -419,6 +419,17 @@ function assertStaffStarted_(rec) {
   if (/^\d{4}-\d{2}-\d{2}$/.test(end) && today > end) {
     throw apiError_('ENDED', 'สิ้นสุดการทำงานเมื่อ ' + end + ' — ลงเวลาไม่ได้แล้ว');
   }
+  /* ...and nobody on TEMPORARY leave clocks in either (2026-09-02). Same shape as the two rules
+   * above and deliberately duplicated in the smallest form: this is a .gs handler and the engine's
+   * staffPaused_ is not in scope. PauseTo is the day they COME BACK, so it stops applying ON that
+   * date, exactly as it does for a child. */
+  var pFrom = String((rec && rec.PauseFrom) || '').slice(0, 10);
+  var pTo = String((rec && rec.PauseTo) || '').slice(0, 10);
+  if (/^\d{4}-\d{2}-\d{2}$/.test(pFrom) && today >= pFrom &&
+      !(/^\d{4}-\d{2}-\d{2}$/.test(pTo) && today >= pTo)) {
+    throw apiError_('STAFF_PAUSED', 'อยู่ระหว่างลาชั่วคราว' +
+      (/^\d{4}-\d{2}-\d{2}$/.test(pTo) ? ' ถึง ' + pTo : '') + ' — ยังลงเวลาไม่ได้');
+  }
 }
 
 /**

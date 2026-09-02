@@ -99,6 +99,21 @@ function computePayroll(payload) {
     ? (payload.dailyRate != null ? num_(payload.dailyRate) : (pcDaily != null ? pcDaily : 0)) * num_(payload.daysWorked)
     : (payload.baseSalary != null ? num_(payload.baseSalary) : num_(staff.BaseSalary));
 
+  /* ON TEMPORARY LEAVE THIS MONTH — what they are paid is the ADMIN'S decision, recorded on the
+   * staff record when the leave was entered, not something this function works out.
+   *
+   * Applied AFTER the payload, on purpose: the payroll screen writes #pBase straight back to
+   * STAFF.BaseSalary when it saves, so reducing the base through the payload would permanently
+   * overwrite the person's real salary with half of it. The stored figure stays untouched and only
+   * THIS month's slip changes — and the slip says why (pauseSalary below).
+   *
+   * A blank mode means the school has not decided, and an undecided rule pays in FULL rather than
+   * quietly paying nothing: a wrong zero on a payslip is the kind of mistake that costs a school
+   * its staff.
+   */
+  var pauseSalary = staffPauseSalaryFor_(staff, month, base);
+  if (pauseSalary) base = pauseSalary.amount;
+
   // --- เบี้ยขยัน --- (unchanged: its own "no leave / no late" rule)
   var attEligible = (payload.attendanceEligible != null) ? !!payload.attendanceEligible
     : (payload.attendanceOverride != null) ? !!payload.attendanceOverride
@@ -235,6 +250,12 @@ function computePayroll(payload) {
     StaffName: staff.Name || staff.NameEN || '',
     BankAccount: staff.BankAccount || '', SlipSent: existing ? existing.SlipSent : 'NO',
     LeaveDays: leaveDays, LeaveLimit: leaveLimit, LeaveExceeds: leaveExceeds,
+    // ...and if this month's salary was set by a temporary-leave rule, the slip has to SAY so —
+    // an unexplained half salary is indistinguishable from a mistake
+    PauseSalaryMode: pauseSalary ? pauseSalary.mode : '',
+    PauseFrom: pauseSalary ? String(staff.PauseFrom || '').slice(0, 10) : '',
+    PauseTo: pauseSalary ? String(staff.PauseTo || '').slice(0, 10) : '',
+    PauseReason: pauseSalary ? String(staff.PauseReason || '') : '',
     GeneratedDate: new Date(), GeneratedBy: payload.generatedBy || 'system'
   };
   if (previewOnly) { rec.PayrollID = existing ? existing.PayrollID : ''; rec.Preview = true; rec.Saved = !!existing; return rec; }
@@ -254,6 +275,35 @@ function computePayroll(payload) {
   logAuditHr(payload.generatedBy || 'system', existing ? 'PAYROLL_UPDATE' : 'PAYROLL_CREATE', 'PAYROLL', rec.PayrollID);
 
   return rec;
+}
+
+/**
+ * What a staff member is paid for a month they were on TEMPORARY LEAVE for any part of.
+ *
+ * The rule is the admin's, recorded once when the leave was entered:
+ *   NONE   → no salary for that month
+ *   HALF   → half of the base
+ *   CUSTOM → the figure the admin typed, used INSTEAD of the base salary
+ *   ''     → not decided → paid as normal (returns null, so nothing is changed)
+ *
+ * Duplicated from the engine's staffPauseSalary_ in the smallest possible form, the same way
+ * assertStaffStarted_ duplicates staffEnded_: this is a .gs route that SHADOWS the engine, and a
+ * rule that lives in the engine alone would never run on live.
+ */
+function staffPauseSalaryFor_(staff, month, fullBase) {
+  var from = String((staff && staff.PauseFrom) || '').slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(from)) return null;
+  var mm = ym7_(month); if (!mm) return null;
+  var first = mm + '-01';
+  var last = mm + '-' + ('0' + new Date(Number(mm.slice(0, 4)), Number(mm.slice(5, 7)), 0).getDate()).slice(-2);
+  var to = String((staff && staff.PauseTo) || '').slice(0, 10);
+  if (from > last) return null;                       // the leave starts after this month
+  if (/^\d{4}-\d{2}-\d{2}$/.test(to) && to <= first) return null;   // ...or ended before it
+  var mode = String((staff && staff.PauseSalaryMode) || '').toUpperCase();
+  if (mode === 'NONE') return { mode: 'NONE', amount: 0 };
+  if (mode === 'HALF') return { mode: 'HALF', amount: round2_(num_(fullBase) / 2) };
+  if (mode === 'CUSTOM') return { mode: 'CUSTOM', amount: Math.max(0, num_(staff.PauseSalaryAmount)) };
+  return null;
 }
 
 /** Approved leave DAYS of EVERY type (sick + personal + vacation …) taken by a staff member in a month. */

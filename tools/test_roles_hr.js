@@ -179,7 +179,7 @@ console.log('\n3) Someone who has not started yet is not part of attendance');
    * The board asked staffStarted_ and never staffEnded_, while the monthly report had asked both all
    * along — the two screens disagreed about who works here. */
   ok_('...nor is anyone whose last working day has passed',
-    /staffStat=M\.staff\.filter\(s=>[\s\S]{0,160}&&!staffEnded_\(s\)\)/.test(eng));
+    /staffStat=M\.staff\.filter\(s=>[\s\S]{0,200}&&!staffEnded_\(s\)/.test(eng));
   ok_('nor in the per-department present/total', /const team=M\.staff\.filter\(s=>covers[^;]*staffStarted_\(s\)\)/.test(eng));
 
   // run the real rule

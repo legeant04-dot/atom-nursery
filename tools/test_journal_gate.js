@@ -141,7 +141,7 @@ console.log('\n5) A LEAVER IS NOT SOMEBODY TO PUT IN A CLASS');
    * as five people waiting for a class when two of them no longer work here — and dropping one into
    * a Nursery would have put a leaver back on a class list. */
   ok_('the organiser drops them from every column and the unassigned tray',
-    /const teachers = staff\.filter\(s=>canClass\(s\) && !s\.ended\);/.test(app));
+    /const teachers = staff\.filter\(s=>canClass\(s\) && !s\.ended/.test(app));
   /* ...and neither is an Observer, asked for the next day. A read-only auditor already sees every
    * child; sitting in a Nursery column says to whoever is organising that this is a person who
    * could take that room. */
