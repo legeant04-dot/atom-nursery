@@ -270,7 +270,8 @@ console.log('\n10) the OT list says what it comes to, and what was carried in');
   ok_('the carry-over carries hours as well as baht (engine)', /detail\.push\(\{month:m,amount:unpaid,hours:h,/.test(eng));
   ok_('...and Apps Script agrees',
     /detail\.push\(\{ month: m, amount: unpaid, hours: round2_\(\(approvedHrs\[m\] \|\| 0\) \* share\),/.test(R('src/Payroll.gs')));
-  ok_('a payslip heading is a month, not an ISO timestamp', /สลิป \$\{esc\(staffName\(r\.StaffID\)\)\} · \$\{esc\(monthNameYear\(r\.Month\)\)\}/.test(app));
+  // ...whatever the heading word is in the reader's language — the point is monthNameYear, not 'สลิป'
+  ok_('a payslip heading is a month, not an ISO timestamp', /\$\{esc\(staffName\(r\.StaffID\)\)\} · \$\{esc\(monthNameYear\(r\.Month\)\)\}/.test(app));
 }
 
 console.log('\n' + (fail ? 'FAILED ' : 'PASSED ') + pass + ' passed, ' + fail + ' failed\n');

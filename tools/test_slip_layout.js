@@ -53,7 +53,10 @@ const MOCK = { config: { SocialSecurityRate: 0.05, SocialSecurityMax: 750, Extra
 const baht = n => (Math.round(Number(n || 0) * 100) / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const esc = s => String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
-const build = new Function('MOCK', 'baht', 'esc', 'adjRows', 'ssWorking', 'carryMonths', 'staffName', 'fullDate', 'todayStr', 'EN', 'BC_NAME', 'window', 'location', `
+// E(en, th) is how the slip states both languages at source (see PICK THE LANGUAGE AT THE SOURCE
+// in app.js). It is defined next to EN(), outside every function this suite lifts out, so it has
+// to be supplied here — the alternative is a suite that can only run in Thai.
+const build = new Function('MOCK', 'baht', 'esc', 'adjRows', 'ssWorking', 'carryMonths', 'staffName', 'fullDate', 'todayStr', 'EN', 'E', 'BC_NAME', 'window', 'location', `
   ${lineSrc(/^  const _n=v=>Number\(v\|\|0\), _r2=.*$/m)}
   ${lineSrc(/^  const _periodTH = m =>[\s\S]*?return `01\/.*$/m)}
   ${lineSrc(/^  const PER_SHEET = \d+;.*$/m)}
@@ -71,7 +74,7 @@ const { slipBreakdown, buildSlipsHTML, PER_SHEET } = build(
   v => '5 กันยายน 2569',
   () => '2026-08-30',
   // Thai, and the renamed Big Cleaning Day — the slip must not spell that name out for itself
-  () => false, () => 'วันประชุม',
+  () => false, (en, th) => th, () => 'วันประชุม',
   { _LOGO: 'data:,', MOCK }, { origin: 'http://x' }
 );
 

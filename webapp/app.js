@@ -112,7 +112,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.328'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.329'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -295,6 +295,17 @@
     return titledName(p);   // no child resolvable → formal name, never their nickname
   }
   const EN = () => LANG()==='en';
+  /* PICK THE LANGUAGE AT THE SOURCE, so nothing has to guess afterwards.
+   *
+   * i18n_tr.js translates any Thai LEFT IN THE DOM by substring substitution. That is fine for
+   * ordinary copy and it mangles anything it half-recognises: 'สลิปเงินเดือน' came out "สลิปBase
+   * salary", 'รวมรายการหัก' as "รวมDeductions", 'เงินสุทธิที่โอนเข้าบัญชี' as "เงินnetที่Transfer
+   * บัญชี". Reported 2026-09-02 by a school with foreign staff who cannot read Thai — on the one
+   * document where half a translation is worse than none, because it is about their pay.
+   *
+   * E(en, th) states both at the point the sentence is written. Used with translate="no" on the
+   * payslip, which stops the substring pass touching it at all. */
+  const E = (en, th) => EN() ? en : th;
   /* What the staff's extra scheduled workday is CALLED.
    *
    * It was "Big Cleaning Day" (🧹) and the school asked for it to read as a meeting instead — a
@@ -5156,7 +5167,7 @@
   window.T_slipDownload=async(m)=>{ m=m||($('#slipMonth')&&$('#slipMonth').value)||monthStr();
     const pay=await T_slipFor(m);
     if(!pay){ toast(EN()?'No payslip for this month yet':'ยังไม่มีสลิปของเดือนนี้'); return; }
-    await ensureLogos(); openOrDownload(buildSlipsHTML([pay],m), 'payslip-'+USER.staffId+'-'+m+'.html'); };
+    await ensureLogos(); openOrDownload(buildSlipsHTML([pay],m), 'payslip-'+USER.staffId+'-'+m+'.html', true); };
   // the sheet stores Adjustments as JSON text; the in-browser engine returns a real array
   const adjRows = r => { const a=r&&r.Adjustments; if(Array.isArray(a)) return a;
     if(typeof a==='string' && a.trim()){ try{ const v=JSON.parse(a); return Array.isArray(v)?v:[]; }catch(e){} } return []; };
@@ -5219,31 +5230,39 @@
     const daily=String(r.PayType||'')==='daily';
 
     const income=[];
-    income.push({ label: daily?'ค่าจ้างรายวัน':'เงินเดือน', amount:_n(r.BaseSalary), always:true,
-      note: daily?`${_n(r.DaysWorked)} วัน × ${baht(r.DailyRate)}`:'' });
-    income.push({ label:'เบี้ยขยัน — มาทำงานครบ ไม่ลา ไม่สาย', amount:_n(r.DiligenceAttendance), always:true });
-    income.push({ label:'เบี้ยขยัน — โพสต์รูป Facebook', amount:_n(r.DiligenceFacebook), always:true });
+    income.push({ label: daily?E('Daily wage','ค่าจ้างรายวัน'):E('Base salary','เงินเดือน'), amount:_n(r.BaseSalary), always:true,
+      note: daily?`${_n(r.DaysWorked)} ${E('days','วัน')} × ${baht(r.DailyRate)}`:'' });
+    income.push({ label:E('Diligence bonus — full attendance, no leave, no lateness','เบี้ยขยัน — มาทำงานครบ ไม่ลา ไม่สาย'), amount:_n(r.DiligenceAttendance), always:true });
+    income.push({ label:E('Diligence bonus — Facebook post','เบี้ยขยัน — โพสต์รูป Facebook'), amount:_n(r.DiligenceFacebook), always:true });
     // BC_NAME(), never the words themselves — the day was renamed once and must stay renamed here too
-    if(bigClean>0.005) income.push({ label:`${EN()?'Diligence — ':'เบี้ยขยัน — '}${BC_NAME()}`, amount:bigClean });
-    income.push({ label:'รายได้ตามจำนวนเด็ก', amount:_n(r.ExtraChildAmount), always:true,
-      note: childCount?`${childCount} คน × ${baht(childRate)}`
-        : (r.LeaveExceeds?`ลาเกิน ${_n(r.LeaveLimit)||3} วัน — ไม่คำนวณเรท`:'ไม่มีเด็กเกินเกณฑ์') });
-    if(_n(r.TrainingCertAmount)) income.push({ label:'ใบประกาศอบรม', amount:_n(r.TrainingCertAmount),
-      note:`${_n(r.TrainingCertCount)} ใบ × ${baht(certRate)}` });
-    income.push({ label:'ค่าล่วงเวลาตอนเย็น (OT)', amount:_n(r.OTEvening), always:true });
-    if(_n(r.OTCarry)) income.push({ label:'OT ค้างจ่ายจากเดือนก่อน', amount:_n(r.OTCarry), note:carryMonths(r) });
-    if(_n(r.OTHoliday)) income.push({ label:'OT วันหยุด (มาทำงานในวันหยุด)', amount:_n(r.OTHoliday) });
-    if(_n(r.HolidayBonus)) income.push({ label:'เงินพิเศษวันพักผ่อน', amount:_n(r.HolidayBonus) });
-    if(otherManual>0.005||otherManual<-0.005) income.push({ label:'รายได้อื่น ๆ', amount:otherManual });
-    adjPlus.forEach(a=>income.push({ label:String(a.label||'รายการเพิ่มพิเศษ'), amount:_n(a.amount), adj:true }));
+    if(bigClean>0.005) income.push({ label:`${E('Diligence bonus — ','เบี้ยขยัน — ')}${BC_NAME()}`, amount:bigClean });
+    income.push({ label:E('Child-count allowance','รายได้ตามจำนวนเด็ก'), amount:_n(r.ExtraChildAmount), always:true,
+      note: childCount?`${childCount} ${E('children','คน')} × ${baht(childRate)}`
+        : (r.LeaveExceeds?E(`leave over ${_n(r.LeaveLimit)||3} days — allowance not calculated`,`ลาเกิน ${_n(r.LeaveLimit)||3} วัน — ไม่คำนวณเรท`)
+                         :E('no children above the threshold','ไม่มีเด็กเกินเกณฑ์')) });
+    if(_n(r.TrainingCertAmount)) income.push({ label:E('Training certificates','ใบประกาศอบรม'), amount:_n(r.TrainingCertAmount),
+      note:`${_n(r.TrainingCertCount)} ${E('certificates','ใบ')} × ${baht(certRate)}` });
+    income.push({ label:E('Evening overtime (OT)','ค่าล่วงเวลาตอนเย็น (OT)'), amount:_n(r.OTEvening), always:true });
+    if(_n(r.OTCarry)) income.push({ label:E('Overtime owed from earlier months','OT ค้างจ่ายจากเดือนก่อน'), amount:_n(r.OTCarry), note:carryMonths(r) });
+    if(_n(r.OTHoliday)) income.push({ label:E('Holiday overtime (worked on a day off)','OT วันหยุด (มาทำงานในวันหยุด)'), amount:_n(r.OTHoliday) });
+    if(_n(r.HolidayBonus)) income.push({ label:E('Holiday bonus','เงินพิเศษวันพักผ่อน'), amount:_n(r.HolidayBonus) });
+    if(otherManual>0.005||otherManual<-0.005) income.push({ label:E('Other income','รายได้อื่น ๆ'), amount:otherManual });
+    adjPlus.forEach(a=>income.push({ label:String(a.label||E('Additional payment','รายการเพิ่มพิเศษ')), amount:_n(a.amount), adj:true }));
 
     const deduct=[];
-    deduct.push({ label:'ประกันสังคม', amount:_n(r.SocialSecurity), always:true,
-      note:_n(r.SocialSecurity)?ssWorking(r):'ไม่ได้หักเดือนนี้' });
-    deduct.push({ label:'เงินสมทบกองทุน (ส่วนพนักงาน)', amount:_n(r.Contribution), always:true,
-      note:_n(r.Contribution)?`โรงเรียนสมทบอีก ${baht(r.ContributionEmployer!=null?r.ContributionEmployer:r.Contribution)}`:'' });
-    if(otherDedManual>0.005||otherDedManual<-0.005) deduct.push({ label:'รายการหักอื่น ๆ', amount:otherDedManual });
-    adjMinus.forEach(a=>deduct.push({ label:String(a.label||'รายการหักพิเศษ'), amount:-_n(a.amount), adj:true }));
+    deduct.push({ label:E('Social security','ประกันสังคม'), amount:_n(r.SocialSecurity), always:true,
+      note:_n(r.SocialSecurity)?ssWorking(r):E('not deducted this month','ไม่ได้หักเดือนนี้') });
+    deduct.push({ label:E('Provident fund (employee share)','เงินสมทบกองทุน (ส่วนพนักงาน)'), amount:_n(r.Contribution), always:true,
+      note:_n(r.Contribution)?E(`the school contributes a further ${baht(r.ContributionEmployer!=null?r.ContributionEmployer:r.Contribution)}`,`โรงเรียนสมทบอีก ${baht(r.ContributionEmployer!=null?r.ContributionEmployer:r.Contribution)}`):'' });
+    if(otherDedManual>0.005||otherDedManual<-0.005) deduct.push({ label:E('Other deductions','รายการหักอื่น ๆ'), amount:otherDedManual });
+    adjMinus.forEach(a=>deduct.push({ label:String(a.label||E('Additional deduction','รายการหักพิเศษ')), amount:-_n(a.amount), adj:true }));
+    /* WHY THIS MONTH'S SALARY IS NOT THE USUAL FIGURE. A half salary with nothing beside it is
+       indistinguishable from a mistake — see PauseSalaryMode in Payroll.gs. */
+    const _pm=String(r.PauseSalaryMode||'').toUpperCase();
+    if(_pm) income[0].note=[income[0].note,
+      E('temporary leave','ลาชั่วคราว')+(r.PauseReason?' · '+r.PauseReason:'')+' · '+
+      (_pm==='NONE'?E('no salary for this month','ไม่จ่ายเงินเดือนเดือนนี้')
+       :_pm==='HALF'?E('half salary','จ่ายครึ่งเดือน'):E('amount set by the school','โรงเรียนกำหนดจำนวนเอง'))].filter(Boolean).join(' · ');
 
     return { income, deduct, childCount, childRate,
       gross:_n(r.GrossIncome), totalDeduct:_n(r.TotalDeductions), net:_n(r.NetPay),
@@ -5259,7 +5278,7 @@
     /* PAYROLL.Month is written as 'YYYY-MM' and comes back from Sheets as a DATE, so printing it raw
      * put "2026-08-01T04:00:00.000Z" at the top of a payslip. monthNameYear takes either shape and
      * says สิงหาคม 2569 — this is the heading of a document about somebody's pay. */
-    return `<div class="card"><h3>สลิป ${esc(staffName(r.StaffID))} · ${esc(monthNameYear(r.Month))}</h3>
+    return `<div class="card" translate="no"><h3>${E('Payslip','สลิป')} ${esc(staffName(r.StaffID))} · ${esc(monthNameYear(r.Month))}</h3>
     ${/* AN ESTIMATE IS NOT A DOCUMENT. When a month has no saved slip the screen falls back to a
          PREVIEW computation (T_slipFor) — the same figures the school would get, but not ones the
          school has issued. A teacher taking this to a bank or a loan office has to know which of the
@@ -5268,7 +5287,7 @@
       ⚠️ <b>${EN()?'Estimate — not an issued payslip':'ตัวเลขประมาณการ — ยังไม่ใช่สลิปที่โรงเรียนออกให้'}</b>
       <br><small>${EN()?'The school has not run payroll for this month yet. The figures can still change, and this should not be used for a bank or a loan.'
         :'โรงเรียนยังไม่ได้คำนวณเงินเดือนเดือนนี้ · ตัวเลขอาจเปลี่ยนได้ และยังใช้ยื่นธนาคารหรือทำธุรกรรมไม่ได้'}</small></div>`:''}
-    ${r.LeaveExceeds?`<div style="background:var(--warn-bg);border:1px solid var(--warn-line);border-radius:8px;padding:6px 9px;margin-bottom:6px;color:var(--warn);font-size:13px">⚠️ ลาเกิน ${r.LeaveLimit||3} วัน (ลารวม ${r.LeaveDays} วัน) — ไม่คำนวณเรทจำนวนเด็ก</div>`:''}
+    ${r.LeaveExceeds?`<div style="background:var(--warn-bg);border:1px solid var(--warn-line);border-radius:8px;padding:6px 9px;margin-bottom:6px;color:var(--warn);font-size:13px">⚠️ ${E(`Leave over ${r.LeaveLimit||3} days (${r.LeaveDays} in total) — the child-count allowance is not calculated`,`ลาเกิน ${r.LeaveLimit||3} วัน (ลารวม ${r.LeaveDays} วัน) — ไม่คำนวณเรทจำนวนเด็ก`)}</div>`:''}
     ${/* Itemised from slipBreakdown, the SAME description the printed slip uses — including the
          working under each figure ("5% ของ 13,500 · ไม่เกิน 750", "4 คน × ฿300"), because a line on
          somebody's pay that they have to ask about is a line they cannot check. */''}
@@ -5276,17 +5295,17 @@
       const row=(x,sign)=>`<tr><td style="padding:3px 0">${esc(x.label)}${x.note?`<br><small class="muted">${esc(x.note)}</small>`:''}</td>
         <td style="text-align:right;vertical-align:top;padding:3px 0;white-space:nowrap">${sign<0?'−':''}${baht(Math.abs(x.amount))}</td></tr>`;
       return `<table style="width:100%;font-size:14px;border-collapse:collapse">
-      <tr><td colspan="2" style="padding-top:2px"><b style="color:var(--blue)">รายได้</b></td></tr>
+      <tr><td colspan="2" style="padding-top:2px"><b style="color:var(--blue)">${E('Income','รายได้')}</b></td></tr>
       ${b.income.map(x=>row(x,1)).join('')}
-      <tr style="border-top:1px solid var(--line)"><td><b>รวมรายได้</b></td><td style="text-align:right"><b>${baht(b.gross)}</b></td></tr>
-      <tr><td colspan="2" style="padding-top:8px"><b style="color:var(--bad-2)">รายการหัก</b></td></tr>
+      <tr style="border-top:1px solid var(--line)"><td><b>${E('Gross income','รวมรายได้')}</b></td><td style="text-align:right"><b>${baht(b.gross)}</b></td></tr>
+      <tr><td colspan="2" style="padding-top:8px"><b style="color:var(--bad-2)">${E('Deductions','รายการหัก')}</b></td></tr>
       ${b.deduct.map(x=>row(x,-1)).join('')}
-      <tr style="border-top:1px solid var(--line)"><td><b>รวมรายการหัก</b></td><td style="text-align:right"><b>−${baht(b.totalDeduct)}</b></td></tr>
-      <tr style="border-top:2px solid var(--blue)"><td><b>โอนเข้า ${esc(r.BankAccount||'-')} (สุทธิ)</b></td><td style="text-align:right;color:var(--blue);font-size:18px"><b>${baht(b.net)}</b></td></tr>
+      <tr style="border-top:1px solid var(--line)"><td><b>${E('Total deductions','รวมรายการหัก')}</b></td><td style="text-align:right"><b>−${baht(b.totalDeduct)}</b></td></tr>
+      <tr style="border-top:2px solid var(--blue)"><td><b>${E('Net pay transferred to','เงินสุทธิ โอนเข้า')} ${esc(r.BankAccount||'-')}</b></td><td style="text-align:right;color:var(--blue);font-size:18px"><b>${baht(b.net)}</b></td></tr>
       </table>`; })()}
     ${Number(r.Contribution||0)||Number(r.ContributionAccum||0)?`<div style="margin-top:8px;padding-top:6px;border-top:1px dashed var(--line);font-size:13px" class="muted">
-      💰 เงินสมทบเดือนนี้: หักพนักงาน ${baht(r.Contribution||0)} + โรงเรียนสมทบ ${baht(r.ContributionEmployer!=null?r.ContributionEmployer:r.Contribution||0)}
-      · <b style="color:var(--ink)">เงินสมทบสะสมรวม ${baht(r.ContributionAccum||0)}</b></div>`:''}
+      💰 ${E('Provident fund this month','เงินสมทบเดือนนี้')}: ${E('employee','หักพนักงาน')} ${baht(r.Contribution||0)} + ${E('school','โรงเรียนสมทบ')} ${baht(r.ContributionEmployer!=null?r.ContributionEmployer:r.Contribution||0)}
+      · <b style="color:var(--ink)">${E('accumulated total','เงินสมทบสะสมรวม')} ${baht(r.ContributionAccum||0)}</b></div>`:''}
     </div>`; }
 
   // ================= ADMIN =================
@@ -6282,7 +6301,7 @@
   // live always said "ยังไม่มีสลิป". Ask the server for the saved rows instead.
   window.A_dlSlip=async(staffId,month)=>{ let r=null; try{ r=await api('getPayslip',{staffId,month}); }catch(e){}
     if(!r){ toast(EN()?'No payslip for this month yet — press Calculate first':'ยังไม่มีสลิปของเดือนนี้ — กดคำนวณก่อน'); return; }
-    await ensureLogos(); openOrDownload(buildSlipsHTML([r],month),'payslip-'+staffId+'-'+month+'.html'); };
+    await ensureLogos(); openOrDownload(buildSlipsHTML([r],month),'payslip-'+staffId+'-'+month+'.html', true); };
   window.A_print=async(month)=>{ const list=(A_CACHE.staff&&A_CACHE.staff.length)?A_CACHE.staff:await api('listStaff').catch(()=>[]);
     const rows=(await Promise.all((list||[]).map(x=>api('getPayslip',{staffId:x.StaffID,month}).catch(()=>null)))).filter(Boolean);
     if(!rows.length){ toast(EN()?'No payslips for this month yet':'ยังไม่มีสลิปของเดือนนี้'); return; }
@@ -10640,8 +10659,15 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
   function staffName(id){ const s=staffRec(id); return s?nm(s):id; }
   function staffNick(id){ const s=staffRec(id); return s?dispNick(s):id; }
   // open in a new tab to print; if popups blocked, download as .html so there is always a file
-  function openOrDownload(html, filename){
-    if(window.trPhrase) html=trPhrase(html);
+  /* `raw` = this document already knows both languages; do not run the substring translator over it.
+   *
+   * trPhrase over a whole HTML STRING is what produced "สลิปBase salary", "ชื่อStaff", "งวดBase
+   * salary" and "DiligenceCalculateจากการมาทำงาน..." on the printed payslip (2026-09-02). It
+   * substitutes any Thai fragment it half-recognises, which on ordinary UI copy is a rough
+   * translation and on a pay document is nonsense in two languages at once. The slip now writes both
+   * languages at source (see E()), so the substitution pass has nothing to add and much to break. */
+  function openOrDownload(html, filename, raw){
+    if(window.trPhrase && !raw) html=trPhrase(html);
     let w=null; try{ w=window.open('','_blank'); }catch(e){}
     if(w){ w.document.write(html); w.document.close(); return; }
     const blob=new Blob([html],{type:'text/html'}); const url=URL.createObjectURL(blob);
@@ -10687,9 +10713,15 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
    *
    * The line items come from slipBreakdown — the SAME description the on-screen card renders, so
    * the paper and the phone can no longer disagree. */
+  /* The pay period, in the reader's own calendar. Thai prints the Buddhist year, which is what a
+     Thai bank expects; English prints the Gregorian one, because 2569 on a payslip means nothing to
+     somebody who cannot read the rest of the document either. Same range, two calendars. */
   const _periodTH = m => { const y=parseInt(String(m).slice(0,4),10), mo=parseInt(String(m).slice(5,7),10);
     if(isNaN(y)||isNaN(mo)) return esc(m);
-    const last=new Date(y,mo,0).getDate(); return `01/${mo}/${y+543} ถึง ${last}/${mo}/${y+543}`; };
+    const last=new Date(y,mo,0).getDate();
+    if(EN()){ const nm=['January','February','March','April','May','June','July','August','September','October','November','December'][mo-1]||mo;
+      return `1–${last} ${nm} ${y}`; }
+    return `01/${mo}/${y+543} ถึง ${last}/${mo}/${y+543}`; };
   const PER_SHEET = 2;   // 2 slips per A4 landscape — itemised lines need the height
   function buildSlipsHTML(rows,month){ const logo=window._LOGO||(location.origin+'/assets/logo.png');
     const card=p=>{ const b=slipBreakdown(p);
@@ -10703,34 +10735,33 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
       <div class="hd">
         <span class="conf">CONFIDENTIAL</span>
         <span class="brand"><img src="${logo}"/><b>อะตอม เนอสเซอรี่</b></span>
-        <span class="doc">สลิปเงินเดือน<br><span class="sub">Pay Slip</span></span></div>
+        <span class="doc">${E('Pay Slip','สลิปเงินเดือน')}<br><span class="sub">${E('สลิปเงินเดือน','Pay Slip')}</span></span></div>
       <div class="meta">
-        <span>ชื่อพนักงาน <b>${esc(p.StaffName||staffName(p.StaffID))}</b> <span class="sub">(${esc(p.StaffID)})</span></span>
-        <span>ตำแหน่ง <b>${esc(p.Position||'-')}</b></span>
-        <span>งวดเงินเดือน <b>${_periodTH(p.Month)}</b></span>
-        <span>วันที่จ่าย <b>${p.PaidDate?esc(fullDate(p.PaidDate)):'—'}</b></span>
-        <span>เลขที่บัญชี <b>${esc(bank||'-')}</b></span></div>
+        <span>${E('Employee','ชื่อพนักงาน')} <b>${esc(p.StaffName||staffName(p.StaffID))}</b> <span class="sub">(${esc(p.StaffID)})</span></span>
+        <span>${E('Position','ตำแหน่ง')} <b>${esc(p.Position||'-')}</b></span>
+        <span>${E('Pay period','งวดเงินเดือน')} <b>${_periodTH(p.Month)}</b></span>
+        <span>${E('Payment date','วันที่จ่าย')} <b>${p.PaidDate?esc(fullDate(p.PaidDate)):'—'}</b></span>
+        <span>${E('Bank account','เลขที่บัญชี')} <b>${esc(bank||'-')}</b></span></div>
       <div class="cols">
-        <table class="col"><thead><tr><th>รายได้ <span class="sub">Earnings</span></th><th class="n">บาท</th></tr></thead>
+        <table class="col"><thead><tr><th>${E('Earnings','รายได้')} <span class="sub">${E('รายได้','Earnings')}</span></th><th class="n">${E('THB','บาท')}</th></tr></thead>
           <tbody>${b.income.map(x=>line(x,false)).join('')}${pad(-gap)}</tbody>
-          <tfoot><tr><td class="d">รวมรายได้</td><td class="n">${baht(b.gross)}</td></tr></tfoot></table>
-        <table class="col"><thead><tr><th>รายการหัก <span class="sub">Deductions</span></th><th class="n">บาท</th></tr></thead>
+          <tfoot><tr><td class="d">${E('Gross income','รวมรายได้')}</td><td class="n">${baht(b.gross)}</td></tr></tfoot></table>
+        <table class="col"><thead><tr><th>${E('Deductions','รายการหัก')} <span class="sub">${E('รายการหัก','Deductions')}</span></th><th class="n">${E('THB','บาท')}</th></tr></thead>
           <tbody>${b.deduct.map(x=>line(x,true)).join('')}${pad(gap)}</tbody>
-          <tfoot><tr><td class="d">รวมรายการหัก</td><td class="n">−${baht(b.totalDeduct)}</td></tr></tfoot></table>
+          <tfoot><tr><td class="d">${E('Total deductions','รวมรายการหัก')}</td><td class="n">−${baht(b.totalDeduct)}</td></tr></tfoot></table>
         <div class="sum">
-          <div class="sr"><span>รวมรายได้</span><b>${baht(b.gross)}</b></div>
-          <div class="sr"><span>รวมรายการหัก</span><b class="de">−${baht(b.totalDeduct)}</b></div>
-          <div class="netbox"><span>เงินสุทธิที่โอนเข้าบัญชี</span><b>${baht(b.net)}</b><span class="sub">${esc(bank||'-')}</span></div>
-          <div class="fund">กองทุนเงินสมทบ · เดือนนี้ พนักงาน ${baht(b.contribOwn)} + โรงเรียน ${baht(b.contribEmployer)}<br>
-            <b>สะสมรวม ${baht(b.contribAccum)}</b></div>
+          <div class="sr"><span>${E('Gross income','รวมรายได้')}</span><b>${baht(b.gross)}</b></div>
+          <div class="sr"><span>${E('Total deductions','รวมรายการหัก')}</span><b class="de">−${baht(b.totalDeduct)}</b></div>
+          <div class="netbox"><span>${E('Net pay transferred','เงินสุทธิที่โอนเข้าบัญชี')}</span><b>${baht(b.net)}</b><span class="sub">${esc(bank||'-')}</span></div>
+          <div class="fund">${E('Provident fund','กองทุนเงินสมทบ')} · ${E('this month','เดือนนี้')} ${E('employee','พนักงาน')} ${baht(b.contribOwn)} + ${E('school','โรงเรียน')} ${baht(b.contribEmployer)}<br>
+            <b>${E('accumulated total','สะสมรวม')} ${baht(b.contribAccum)}</b></div>
         </div></div>
       <div class="ft">
-        <div class="fn"><b>หมายเหตุ</b> เบี้ยขยันคำนวณจากการมาทำงานครบทุกวัน ไม่ลา ไม่มาสาย + โพสต์รูปกิจกรรมลง Facebook ·
-          รายได้ตามจำนวนเด็กคิดจากเด็กคนที่ ${esc(p.ChildThreshold||31)} เป็นต้นไป (ที่มาเรียนเต็มเดือน) ${baht(p.ChildMultiplier||300)}/คน ·
-          ใบประกาศอบรม ${baht((MOCK.config&&MOCK.config.TrainingCertRate)||100)}/ใบ สูงสุด 2 ใบ/เดือน ·
-          เงินสมทบเป็นเงินออม โรงเรียนสมทบให้เท่ากัน${p.LeaveExceeds?` · <span class="de">เดือนนี้ลารวม ${esc(p.LeaveDays)} วัน (เกิน ${esc(p.LeaveLimit||3)}) จึงไม่คำนวณรายได้ตามจำนวนเด็ก</span>`:''}
-          <br>เอกสารนี้เป็นความลับเฉพาะบุคคล ห้ามเปิดเผย · พิมพ์เมื่อ ${esc(fullDate(todayStr()))} · หากตัวเลขไม่ตรง กรุณาแจ้งฝ่ายบุคคลภายใน 7 วัน</div>
-        <div class="sig"><div class="ln"></div>ลงชื่อผู้รับเงิน</div></div></div>`; };
+        <div class="fn"><b>${E('Notes','หมายเหตุ')}</b> ${E(
+            `The diligence bonus is earned by full attendance with no leave and no lateness, plus posting activity photos on Facebook · The child-count allowance is paid from child number ${esc(p.ChildThreshold||31)} onwards (children attending the whole month) at ${baht(p.ChildMultiplier||300)} each · Training certificates ${baht((MOCK.config&&MOCK.config.TrainingCertRate)||100)} each, up to 2 per month · The provident fund is savings; the school contributes the same amount`,
+            `เบี้ยขยันคำนวณจากการมาทำงานครบทุกวัน ไม่ลา ไม่มาสาย + โพสต์รูปกิจกรรมลง Facebook · รายได้ตามจำนวนเด็กคิดจากเด็กคนที่ ${esc(p.ChildThreshold||31)} เป็นต้นไป (ที่มาเรียนเต็มเดือน) ${baht(p.ChildMultiplier||300)}/คน · ใบประกาศอบรม ${baht((MOCK.config&&MOCK.config.TrainingCertRate)||100)}/ใบ สูงสุด 2 ใบ/เดือน · เงินสมทบเป็นเงินออม โรงเรียนสมทบให้เท่ากัน`)}${p.LeaveExceeds?` · <span class="de">${E(`Leave this month totals ${esc(p.LeaveDays)} days (over ${esc(p.LeaveLimit||3)}), so the child-count allowance is not calculated`,`เดือนนี้ลารวม ${esc(p.LeaveDays)} วัน (เกิน ${esc(p.LeaveLimit||3)}) จึงไม่คำนวณรายได้ตามจำนวนเด็ก`)}</span>`:''}
+          <br>${E(`This document is personal and confidential — do not disclose · Printed ${esc(fullDate(todayStr()))} · If any figure is wrong, please tell HR within 7 days`,`เอกสารนี้เป็นความลับเฉพาะบุคคล ห้ามเปิดเผย · พิมพ์เมื่อ ${esc(fullDate(todayStr()))} · หากตัวเลขไม่ตรง กรุณาแจ้งฝ่ายบุคคลภายใน 7 วัน`)}</div>
+        <div class="sig"><div class="ln"></div>${E('Employee signature','ลงชื่อผู้รับเงิน')}</div></div></div>`; };
     let pages=''; for(let i=0;i<rows.length;i+=PER_SHEET)
       pages+=`<div class="sheet">${rows.slice(i,i+PER_SHEET).map(card).join('<div class="cut"></div>')}</div>`;
     /* color-scheme:light is not decoration. This document is opened in a browser tab before it is
@@ -10769,7 +10800,7 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
       .sig .ln{border-bottom:1px dotted #666;height:7mm}
       .sub{font-size:9px;color:#666;font-weight:normal}
       @media print{.bar{display:none}}</style></head>
-      <body><div class="bar"><button onclick="window.print()">🖨️ พิมพ์ (${PER_SHEET} สลิป/แผ่น A4 แนวนอน)</button></div>${pages}</body></html>`; }
+      <body><div class="bar"><button onclick="window.print()">🖨️ ${E(`Print (${PER_SHEET} slips per A4, landscape)`,`พิมพ์ (${PER_SHEET} สลิป/แผ่น A4 แนวนอน)`)}</button></div>${pages}</body></html>`; }
 
   // ---- Back-button support for full-screen SUB-VIEWS -------------------------------------------
   // These replace #app directly instead of going through GO(), so Back used to walk past them and
