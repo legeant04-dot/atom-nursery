@@ -3104,7 +3104,13 @@ function createAtomAPI(M, GROWTH_STD) {
           tuitionPending,otherPending,pendingVerify:tuitionPending+otherPending,
           prepaid:!!prepay,prepay:prepay||null,prepaidTuition,
           partial:!b?false:(tuitionOpen>0 && (billConfirmed>0||prepaidTuition>0)),
+          /* `paused` = away RIGHT NOW. `pauseScheduled` = a leave is on record and has not started,
+           * which is the same distinction staff already have (endScheduled). A child whose leave
+           * begins on the 4th is at school on the 2nd: still billed, still on the class list, still
+           * expected — and the finance screen showed NOTHING about her at all while the dashboard
+           * card listed her under "นักเรียนลาชั่วคราว". Two screens, two answers (2026-09-02). */
           paused:studentPaused_(s), pauseFrom:ymd(s.PauseFrom||''), pauseTo:ymd(s.PauseTo||''),
+          pauseScheduled: !studentPaused_(s) && !!ymd(s.PauseFrom||'') && todayLocal() < ymd(s.PauseFrom),
           status:b?b.Status:'NO_BILL',slipAmount:b?b.SlipAmount||0:0}; })
         // children currently attending first, those on temporary leave at the bottom
         .sort((a,b2)=>(a.paused?1:0)-(b2.paused?1:0));
@@ -3310,7 +3316,10 @@ function createAtomAPI(M, GROWTH_STD) {
         from:ymd(s.PauseFrom||''), to:ymd(s.PauseTo||''), reason:s.PauseReason||'',
         // `active` = away right now. `due` = the return date has come (or passed) and nobody has
         // confirmed the child is back — they are already on every list, waiting to be tidied up.
-        active:studentPaused_(s), due:pauseDue_(s), dueToday:!!(s.PauseTo && ymd(s.PauseTo)===todayLocal())}))
+        // ...and `scheduled` = recorded but not started, so the card can stop telling the admin that a
+        // child who is at school today is not being billed and not on any list.
+        active:studentPaused_(s), due:pauseDue_(s), dueToday:!!(s.PauseTo && ymd(s.PauseTo)===todayLocal()),
+        scheduled: !!ymd(s.PauseFrom||'') && todayLocal() < ymd(s.PauseFrom)}))
       .sort((a,b)=>String(a.from).localeCompare(String(b.from))),
     /* ---- children expected on a closed day (OT วันหยุด) -----------------------------------------
      * Who is coming, by name, on a day the school is otherwise shut. See assertStudentDayOpen_ for
