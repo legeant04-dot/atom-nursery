@@ -47,7 +47,8 @@ var ROUTES = {
   // in-place staff CRUD (override the engine's full-collection rewrite, which could wipe other rows)
   saveStaff:      function (p) { return handleSaveStaff(p); },
   saveStaffSelf:  function (p) { return handleSaveStaffSelf(p); },
-  setStaffEnd:    function (p) { return handleSetStaffEnd(p); },   // admin-only: end (or resume) employment; the record is kept
+  setStaffEnd:    function (p) { return handleSetStaffEnd(p); },
+  setStaffPause:  function (p) { return handleSetStaffPause(p); }, // admin-only: temporary leave (ลาชั่วคราว) — employed, not here   // admin-only: end (or resume) employment; the record is kept
   setRequireCheckin: function (p) { return handleSetRequireCheckin(p); },
   deleteStaff:    function (p) { return handleDeleteStaff(p); },
   saveStudent:    function (p) { return handleSaveStudent(p); },
@@ -335,7 +336,7 @@ function applyIdentity_(action, payload, sess) {
     editStudentLeave: 1, deleteStudentLeave: 1, deleteStudentLeaves: 1, dedupData: 1, lineDiag: 1,
     // who the school messages, and what it costs — both admin-only: the list carries LINE user ids
     lineUsage: 1, lineRecipients: 1, saveLineRecipients: 1,
-    adminInbox: 1, markInboxRead: 1, reinstallTriggers: 1, unlinkStudent: 1, linkParentAdmin: 1, setLeaveQuota: 1, setConfigVal: 1, markSalaryPaid: 1, notifyBills: 1, issueBillsFor: 1, savePlans: 1, saveQRCodes: 1, prepayAudit: 1, recomputeContributions: 1, contributionReset: 1, payrollDuplicates: 1, deletePayrollRow: 1, savePrepayTiers: 1, editPrepay: 1, setStudentPause: 1, setStaffEnd: 1, staffAttendanceMonth: 1, studentMonthReport: 1, recordCashPayment: 1, pausedStudents: 1, deleteSlip: 1, slipDiag: 1, saveSlipOk: 1, cancelPrepay: 1, perfSummary: 1, deletePerfLog: 1, prepaidStudents: 1, insuranceExport: 1,
+    adminInbox: 1, markInboxRead: 1, reinstallTriggers: 1, unlinkStudent: 1, linkParentAdmin: 1, setLeaveQuota: 1, setConfigVal: 1, markSalaryPaid: 1, notifyBills: 1, issueBillsFor: 1, savePlans: 1, saveQRCodes: 1, prepayAudit: 1, recomputeContributions: 1, contributionReset: 1, payrollDuplicates: 1, deletePayrollRow: 1, savePrepayTiers: 1, editPrepay: 1, setStudentPause: 1, setStaffEnd: 1, setStaffPause: 1, staffAttendanceMonth: 1, studentMonthReport: 1, recordCashPayment: 1, pausedStudents: 1, deleteSlip: 1, slipDiag: 1, saveSlipOk: 1, cancelPrepay: 1, perfSummary: 1, deletePerfLog: 1, prepaidStudents: 1, insuranceExport: 1,
     // Phase 7. The engine handlers already check the caller's role; listing them here as well means a
     // bug in one of those checks still cannot expose survey results or let anyone rewrite the menu.
     // saveFoodMenu is deliberately NOT here: it is the one action an admin can DELEGATE to a

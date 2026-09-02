@@ -1097,6 +1097,50 @@ function createAtomAPI(M, GROWTH_STD) {
     // what the check-in guard says (assertStaffStarted_ refuses only when today > end)
     const d=ymd(s.EndDate||''); return !!d && d < ymd(onDate||todayLocal()); };
 
+  /* ===== STAFF ON TEMPORARY LEAVE (ลาชั่วคราว) ==================================================
+   * Asked 2026-09-02: the same thing a child already has, for staff — "ไม่นับเป็นขาด/ลา/มาสาย ...
+   * ไม่ต้องนำมาแสดงในข้อมูล Check-in/out โรงเรียน ไม่เอาชื่ออยู่ในการจัดชั้นเรียน".
+   *
+   * NOT stored as Status like the student version. A student's PAUSED status is read by code that
+   * only ever asks "is this child attending"; Status on a staff row is read by staffEnded_, by the
+   * login gate, by payroll and by half the reports, and INACTIVE there means "no longer employed".
+   * A person on maternity leave is still employed, so the fact lives in its own columns and nothing
+   * that already works has to learn a new status value.
+   *
+   * PauseTo is the day they COME BACK, matching the student rule exactly — the school should not
+   * have to remember which end of the range each screen means.
+   */
+  function staffPaused_(s, onDate){ if(!s) return false;
+    const from=ymd(s.PauseFrom||''); if(!from) return false;
+    const d=ymd(onDate||todayLocal()), to=ymd(s.PauseTo||'');
+    if(d<from) return false;
+    if(to && d>=to) return false;              // the return date is a working day again
+    return true; }
+  // ...still on temporary leave TODAY, and the return date has come — the admin is asked to confirm
+  const staffPauseDue_ = (s, onDate) => !!(s && ymd(s.PauseFrom||'') && ymd(s.PauseTo||'') &&
+    ymd(onDate||todayLocal()) >= ymd(s.PauseTo));
+  /** Was this person on temporary leave for any day of this month? — what the salary rule keys on. */
+  function staffPausedInMonth_(s, month){ if(!s || !ymd(s.PauseFrom||'')) return false;
+    const mm=ym(month), first=mm+'-01';
+    const last=mm+'-'+String(new Date(Number(mm.slice(0,4)), Number(mm.slice(5,7)), 0).getDate()).padStart(2,'0');
+    const from=ymd(s.PauseFrom||''), to=ymd(s.PauseTo||'');
+    if(from>last) return false;
+    if(to && to<=first) return false;
+    return true; }
+  /* WHAT THEY ARE PAID WHILE AWAY — the admin's decision, never the system's.
+   * 'NONE' | 'HALF' | 'CUSTOM' (with PauseSalaryAmount). Anything else, including a blank, means the
+   * school has not decided, and an undecided rule must pay the FULL salary rather than quietly
+   * paying nothing: a wrong zero on a payslip is the kind of mistake that costs a school its staff.
+   */
+  function staffPauseSalary_(s, month, fullBase){
+    if(!staffPausedInMonth_(s, month)) return null;
+    const mode=String(s.PauseSalaryMode||'').toUpperCase();
+    if(mode==='NONE')   return {mode:'NONE',   amount:0};
+    if(mode==='HALF')   return {mode:'HALF',   amount:Math.round(Number(fullBase||0)/2*100)/100};
+    if(mode==='CUSTOM') return {mode:'CUSTOM', amount:Math.max(0, Number(s.PauseSalaryAmount||0))};
+    return null;                                // not decided → paid as normal
+  }
+
   /* The parts of an injury report that are not plain scalars, normalised in ONE place so filing
    * (submitInjury) and correcting (editInjury) can never disagree about how they are stored.
    *  · photos → Photo1..3. Sent as data URLs; on GAS Db.gs writes them to Drive and keeps only the
@@ -2483,6 +2527,8 @@ function createAtomAPI(M, GROWTH_STD) {
             oth = otOn[s.StaffID+'|'+ds] || 0;
             let status;
             if(beforeStart) status='BEFORE';
+            // on temporary leave: not here, and not counted as anything — see staffPaused_
+            else if(staffPaused_(s, ds)) status='PAUSED';
             else if(inT) status='IN';
             else if(lv) status='LEAVE';
             // ...and the same distinction here: a day the school was shut for a MORNING is a day
@@ -2530,8 +2576,8 @@ function createAtomAPI(M, GROWTH_STD) {
              * school's figure the screen says so rather than printing a shortfall nobody owes. */
             requiredDays: requiredDates.length,
             requiredToDate,
-            myRequiredDays: requiredDates.filter(ds=>staffStarted_(s,ds) && !staffEnded_(s,ds)).length,
-            myRequiredToDate: requiredDates.filter(ds=>ds<today && staffStarted_(s,ds) && !staffEnded_(s,ds)).length,
+            myRequiredDays: requiredDates.filter(ds=>staffStarted_(s,ds) && !staffEnded_(s,ds) && !staffPaused_(s,ds)).length,
+            myRequiredToDate: requiredDates.filter(ds=>ds<today && staffStarted_(s,ds) && !staffEnded_(s,ds) && !staffPaused_(s,ds)).length,
             present, lateDays, lateMinutes:lateMin, leaveDays, absent, otHours:Math.round(ot*100)/100,
             // what the "OT n ชม." total is actually made of, so it can be checked rather than trusted
             otDays:otDays.sort((a,b)=>a.date.localeCompare(b.date)),
@@ -2812,7 +2858,12 @@ function createAtomAPI(M, GROWTH_STD) {
     computePayroll: p => { const st=staffById(p.staffId); const pc=Object.assign({PayType:'monthly',DailyRate:0,SocialSecurityDeduct:true,ChildMultiplier:cfg.ExtraChildRate,TaxDeduct:false}, M.payrollConfig[p.staffId]||{});
       // base = monthly salary, OR daily-rate × days worked (new/special teachers)
       const payType=p.payType||pc.PayType||'monthly'; const dailyRate=p.dailyRate!=null?Number(p.dailyRate):pc.DailyRate; const daysWorked=Number(p.daysWorked||0);
-      const base= payType==='daily' ? dailyRate*daysWorked : (p.baseSalary!=null?Number(p.baseSalary):(st.BaseSalary||0));
+      let base= payType==='daily' ? dailyRate*daysWorked : (p.baseSalary!=null?Number(p.baseSalary):(st.BaseSalary||0));
+      /* On temporary leave this month → the admin's rule replaces the salary. AFTER the payload,
+       * because the payroll screen writes its base-salary box straight back to STAFF.BaseSalary:
+       * reducing it through the payload would overwrite the person's real salary with half of it. */
+      const pauseSalary = staffPauseSalary_(st, p.month, base);
+      if(pauseSalary) base = pauseSalary.amount;
       /* diligence amounts: per-staff override (payrollConfig) → else the school-wide figure.
        * BLANK IS NOT AN OVERRIDE OF ZERO. Clearing the box to go back to the school default writes
        * '' into the config, and `'' != null` is true — so the old test took the override, and
@@ -2864,7 +2915,7 @@ function createAtomAPI(M, GROWTH_STD) {
         accum+=own+emp; });
       accum=Math.round(accum*100)/100;
       const od=(p.otherDeductions||0)+adjMinus; const dd=contrib+od; const total=ss+dd; const net=gross-total;
-      const rec={PayrollID:nextSeqId_(M.payroll,'PayrollID','PR',4),StaffID:p.staffId,Month:p.month,PayType:payType,DailyRate:dailyRate,DaysWorked:daysWorked,BaseSalary:base,DiligenceAttendance:dA,DiligenceFacebook:dF,DiligenceTotal:dT,ExtraChildAmount:ec,ChildCount:childCount,ChildThreshold:threshold,RatedTotal:ratedTotal,ChildMultiplier:childMult,TrainingCertAmount:tc,OTEvening:ot,OTCarry:otCarry,OTCarryDetail:JSON.stringify(carry.detail||[]),OTHoliday:otHol,HolidayBonus:hb,OtherIncome:oi,GrossIncome:gross,SocialSecurity:ss,Contribution:contrib,ContributionEmployer:contribEmp,ContributionAccum:accum,OtherDeductions:od,TotalDeductions:total,Adjustments:adj,AdjustmentsTotal:adjSum,NetPay:net,BankAccount:cfg.BankName,LeaveDays:ls.days,LeaveLimit:ls.limit,LeaveExceeds:leaveExceeds};
+      const rec={PayrollID:nextSeqId_(M.payroll,'PayrollID','PR',4),StaffID:p.staffId,Month:p.month,PayType:payType,DailyRate:dailyRate,DaysWorked:daysWorked,BaseSalary:base,DiligenceAttendance:dA,DiligenceFacebook:dF,DiligenceTotal:dT,ExtraChildAmount:ec,ChildCount:childCount,ChildThreshold:threshold,RatedTotal:ratedTotal,ChildMultiplier:childMult,TrainingCertAmount:tc,OTEvening:ot,OTCarry:otCarry,OTCarryDetail:JSON.stringify(carry.detail||[]),OTHoliday:otHol,HolidayBonus:hb,OtherIncome:oi,GrossIncome:gross,SocialSecurity:ss,Contribution:contrib,ContributionEmployer:contribEmp,ContributionAccum:accum,OtherDeductions:od,TotalDeductions:total,Adjustments:adj,AdjustmentsTotal:adjSum,NetPay:net,BankAccount:cfg.BankName,LeaveDays:ls.days,LeaveLimit:ls.limit,LeaveExceeds:leaveExceeds,PauseSalaryMode:pauseSalary?pauseSalary.mode:'',PauseFrom:pauseSalary?ymd(st.PauseFrom||''):'',PauseTo:pauseSalary?ymd(st.PauseTo||''):'',PauseReason:pauseSalary?(st.PauseReason||''):''};
       const i=M.payroll.findIndex(x=>x.StaffID===p.staffId&&ym(x.Month)===ym(p.month));
       // preview → return the numbers without persisting (see the GAS route)
       if(p.preview){ rec.PayrollID=i>=0?M.payroll[i].PayrollID:''; rec.Preview=true; rec.Saved=i>=0; return rec; }
@@ -3114,7 +3165,7 @@ function createAtomAPI(M, GROWTH_STD) {
        * itself has always refused her (assertStaffStarted_ throws ENDED), and the monthly report has
        * always filtered her out — this one screen, the one an admin opens every morning, did not.
        * It asked staffStarted_ and never the other end of the same question. */
-      const staffStat=M.staff.filter(s=>s.Role==='Teacher'&&s.RequireCheckin!==false&&staffStarted_(s)&&!staffEnded_(s)).map(s=>{ const a=M.staffAttendanceToday.find(x=>x.StaffID===s.StaffID)||{};
+      const staffStat=M.staff.filter(s=>s.Role==='Teacher'&&s.RequireCheckin!==false&&staffStarted_(s)&&!staffEnded_(s)&&!staffPaused_(s)).map(s=>{ const a=M.staffAttendanceToday.find(x=>x.StaffID===s.StaffID)||{};
         const onLeave=a.Status==='LEAVE'; return {staffId:s.StaffID,name:s.NameTH,nameEN:s.NameEN,nick:s.Nickname,nickEN:s.NicknameEN,dept:s.Department, status:a.Status||'ABSENT',
           checkIn:onLeave?'':(a.CheckIn||''), checkOut:onLeave?'':(a.CheckOut||''), late:onLeave?0:(a.Late||0), remark:onLeave?(a.Reason||'ลา'):''}; });
       return {classes:cls, staff:staffStat, pendingLeaves:M.leaves.filter(l=>l.Status.startsWith('PENDING')).length,
@@ -3153,7 +3204,11 @@ function createAtomAPI(M, GROWTH_STD) {
     // `ended` = employment is over TODAY (status INACTIVE, or a last working day that has passed);
     // `endScheduled` = a leaving date is on record but has not arrived, so they are still staff.
     listStaff: () => M.staff.map(s=>Object.assign({RequireCheckin: s.RequireCheckin!==false,
-      ended: staffEnded_(s), endScheduled: !staffEnded_(s) && !!ymd(s.EndDate||'')}, s)),
+      ended: staffEnded_(s), endScheduled: !staffEnded_(s) && !!ymd(s.EndDate||''),
+      paused: staffPaused_(s), pauseFrom: ymd(s.PauseFrom||''), pauseTo: ymd(s.PauseTo||''),
+      pauseReason: s.PauseReason||'', pauseRemark: s.PauseRemark||'',
+      pauseSalaryMode: String(s.PauseSalaryMode||''), pauseSalaryAmount: Number(s.PauseSalaryAmount||0),
+      pauseDue: staffPauseDue_(s)}, s)),
     /** Staff whose last working day has passed and who are still on the roster — the admin's list of
      *  records to close out. Kept, never auto-deleted: people come back, and the row carries their
      *  payroll and attendance history. Sorted by who left longest ago. */
@@ -3195,6 +3250,31 @@ function createAtomAPI(M, GROWTH_STD) {
      * Admin puts a child on temporary leave, or brings them back. Admin only.
      * { studentId, paused:true, from?, to?, reason? } | { studentId, paused:false }
      */
+    /* Staff temporary leave. On GAS this is SHADOWED by the setStaffPause route (src/Staff.gs), which
+     * writes one row in place — the engine persists whole collections and must not be the live path
+     * for a STAFF write. This version is what the local/mock build and the client tests run on, and
+     * it is the shared statement of the rule. Admin only.
+     * { staffId (the admin), targetId, from, to?, reason, remark?, salaryMode?, salaryAmount? }
+     * | { targetId, paused:false } */
+    setStaffPause: p => { const ap=staffById(p.staffId); if(!adminLike_(ap))fail('NO_PERMISSION','เฉพาะแอดมิน');
+      const s=staffById(p.targetId||p.staffId); if(!s||!s.StaffID)fail('NOT_FOUND','ไม่พบพนักงาน');
+      if(p.paused===false){ s.PauseFrom=''; s.PauseTo=''; s.PauseReason=''; s.PauseRemark='';
+        s.PauseSalaryMode=''; s.PauseSalaryAmount='';
+        logAct('setStaffPause',s.StaffID,'กลับมาทำงานตามปกติ',actorOf(p));
+        return {ok:true,staffId:s.StaffID,paused:false}; }
+      const from=ymd(p.from||''); if(!from)fail('BAD_INPUT','กรุณาระบุวันที่เริ่มลาชั่วคราว');
+      const to=p.to?ymd(p.to):''; if(to && to<from)fail('BAD_INPUT','วันที่กลับมาทำงานต้องไม่ก่อนวันที่เริ่มลา');
+      // the reason is the admin's own words and is REQUIRED — a pause with no reason is a mystery
+      // six months later when somebody asks why this person was not paid
+      const reason=String(p.reason||'').trim(); if(!reason)fail('BAD_INPUT','กรุณาระบุเหตุผลการลาชั่วคราว');
+      const mode=String(p.salaryMode||'').toUpperCase();
+      if(['','NONE','HALF','CUSTOM'].indexOf(mode)<0)fail('BAD_INPUT','รูปแบบการจ่ายเงินเดือนไม่ถูกต้อง');
+      if(mode==='CUSTOM' && String(p.salaryAmount==null?'':p.salaryAmount).trim()==='')
+        fail('BAD_INPUT','กรุณากรอกจำนวนเงินเดือนที่จะจ่ายระหว่างลาชั่วคราว');
+      s.PauseFrom=from; s.PauseTo=to; s.PauseReason=reason; s.PauseRemark=String(p.remark||'');
+      s.PauseSalaryMode=mode; s.PauseSalaryAmount=mode==='CUSTOM'?Math.max(0,Number(p.salaryAmount)||0):'';
+      logAct('setStaffPause',s.StaffID,'ลาชั่วคราว '+from+(to?(' – '+to):' เป็นต้นไป')+' · '+reason+' · '+(mode||'จ่ายตามปกติ'),actorOf(p));
+      return {ok:true,staffId:s.StaffID,paused:staffPaused_(s),from,to,reason,salaryMode:mode}; },
     setStudentPause: p => { const ap=staffById(p.staffId); if(!adminLike_(ap))fail('NO_PERMISSION','เฉพาะแอดมิน');
       const s=studentById(p.studentId); if(!s)fail('NOT_FOUND','ไม่พบนักเรียน');
       if(INACTIVE[s.Status])fail('BAD_STATE','นักเรียนคนนี้ออกจากโรงเรียนแล้ว — ใช้เมนูรับกลับเข้าเรียนแทน');

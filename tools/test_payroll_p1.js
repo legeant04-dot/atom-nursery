@@ -63,7 +63,9 @@ const basePay = extra => Object.assign({ staffId: 'STF-006', month: '2026-08', a
 console.log('\n1) OT rate is the flat StaffOTHourlyRate, not 1.5 × salary/30/8');
 reset();
 // otRateForStaff_ lives in Checkin.gs — load just that function
-(0, eval)(fs.readFileSync(path.join(ROOT, 'src', 'Checkin.gs'), 'utf8')
+// ...with line endings normalised first: a checkout with CRLF made `\n}\n` never match, and the
+// suite died on `[0] of null` — a source file's line endings must not decide whether tests run.
+(0, eval)(fs.readFileSync(path.join(ROOT, 'src', 'Checkin.gs'), 'utf8').replace(/\r\n/g, '\n')
   .match(/function otRateForStaff_[\s\S]*?\n}\n/)[0]);
 eq('flat 100 even with a salary on file', otRateForStaff_(DB.STAFF[0]), 100);
 CONFIG.StaffOTHourlyRate = '120';

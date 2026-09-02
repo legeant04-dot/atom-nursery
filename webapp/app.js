@@ -112,7 +112,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.327'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.328'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -391,6 +391,15 @@
     const d=String((s&&s.EndDate)||'').slice(0,10); if(!d) return '';
     const why=[s.EndReason, s.EndRemark].filter(Boolean).join(' · ');
     return `<br><small style="color:var(--warn)">🚪 ${EN()?'Last working day':'วันสิ้นสุดการทำงาน'} ${esc(d)}${why?' · '+esc(why):''}</small>`;
+  }
+  /* ...and the other reason somebody is not here, which is NOT a leaving date. A person on temporary
+   * leave stays in the working roster — the admin still manages them, still pays them (perhaps) and
+   * still expects them back — so the list must say so on the row rather than move them elsewhere. */
+  function pauseNote(s){
+    const f=String((s&&s.PauseFrom)||'').slice(0,10); if(!f) return '';
+    const to=String((s&&s.PauseTo)||'').slice(0,10), td=todayStr();
+    if(!(td>=f && !(to && td>=to))) return '';       // scheduled or finished — not away right now
+    return `<br><small style="color:var(--warn)">⏸️ ${EN()?'On temporary leave':'ลาชั่วคราว'} ${esc(f)}${to?' – '+esc(to):(EN()?' onwards':' เป็นต้นไป')}${s.PauseReason?' · '+esc(s.PauseReason):''}</small>`;
   }
   // MOCK.config.Plans holds only SEED plans in gas mode, so a live id like "p_6900" isn't found →
   // format it as "Plan 6900" instead of showing the raw id.
@@ -6852,7 +6861,7 @@
       ${searchBox()}
       <div class="card secw" id="sec-staff">${secHead('👩‍🏫',t('c.staff'),_stAct.length,`<button class="btn sm" onclick="event.stopPropagation();A_staffForm()">+ ${esc(t('manage.add'))}</button>`)}
         <div class="secbody" hidden>
-        ${_stAct.map(s=>`<div class="list-item stack" data-k="${esc((s.NameTH+' '+(s.NameEN||'')+' '+(s.Nickname||'')+' '+(s.Position||'')+' '+(s.Department||'')).toLowerCase())}"><span style="display:flex;gap:8px;align-items:center">${personAvatar(s)}<span><b>${esc(dispNick(s))}</b> ${nmSub(s)?`<small class="muted">${esc(nmSub(s))}</small>`:""}<br><small class="muted">${_notr(s.Position||"")} · ${esc(deptLabel(s))} · 🕑 ${_notr(groupLabel(s.StaffGroup))}${groupHours(s.StaffGroup)?' ('+esc(groupHours(s.StaffGroup))+')':''}</small><br><small class="muted">${esc(t('staff.start'))} ${esc(s.StartDate||'-')} · ${esc(t('staff.tenure'))} ${esc(tenure(s.StartDate))}</small>${endNote(s)}</span></span><span class="acts"><button class="btn sm outline" onclick="A_staffForm('${s.StaffID}')">✏️ ${EN()?'Edit':'แก้ไข'}</button><button class="btn sm pink" onclick="A_delStaff('${s.StaffID}',this)">🗑️ ${EN()?'Delete':'ลบ'}</button></span></div>`).join('')}</div></div>
+        ${_stAct.map(s=>`<div class="list-item stack" data-k="${esc((s.NameTH+' '+(s.NameEN||'')+' '+(s.Nickname||'')+' '+(s.Position||'')+' '+(s.Department||'')).toLowerCase())}"><span style="display:flex;gap:8px;align-items:center">${personAvatar(s)}<span><b>${esc(dispNick(s))}</b> ${nmSub(s)?`<small class="muted">${esc(nmSub(s))}</small>`:""}<br><small class="muted">${_notr(s.Position||"")} · ${esc(deptLabel(s))} · 🕑 ${_notr(groupLabel(s.StaffGroup))}${groupHours(s.StaffGroup)?' ('+esc(groupHours(s.StaffGroup))+')':''}</small><br><small class="muted">${esc(t('staff.start'))} ${esc(s.StartDate||'-')} · ${esc(t('staff.tenure'))} ${esc(tenure(s.StartDate))}</small>${endNote(s)}${pauseNote(s)}</span></span><span class="acts"><button class="btn sm outline" onclick="A_staffForm('${s.StaffID}')">✏️ ${EN()?'Edit':'แก้ไข'}</button><button class="btn sm pink" onclick="A_delStaff('${s.StaffID}',this)">🗑️ ${EN()?'Delete':'ลบ'}</button></span></div>`).join('')}</div></div>
       ${_stGone.length?`<div class="card secw" id="sec-staff-gone">${secHead('🚪',EN()?'No longer working here':'สิ้นสุดการทำงานแล้ว',_stGone.length,'')}
         <div class="secbody" hidden>
         ${/* What "closing the record" actually means — spelled out, because the dashboard used to say
@@ -6917,6 +6926,9 @@
         <div class="grid2"><label class="field" style="margin:0"><span>${esc(t('set.attendAmt'))} (฿)</span><input id="sf_DiligenceAttendanceAmount" type="number" min="0" value="" placeholder="…"/></label>
           <label class="field" style="margin:0"><span>${esc(t('set.fbAmt'))} (฿)</span><input id="sf_DiligenceFacebookAmount" type="number" min="0" value="" placeholder="…"/></label></div>
         <small class="muted" id="sfDilNote" style="display:block;margin-top:4px">${EN()?'Loading the saved figures…':'กำลังอ่านค่าที่บันทึกไว้…'}</small></div>
+      ${/* Temporary leave sits ABOVE the end-of-employment box on purpose: they are the two ways a
+           person stops being at the nursery, and the reversible one should be the one you meet first. */''}
+      ${id?A_staffPauseBox(s):''}
       ${id?(String(s.Status||'ACTIVE').toUpperCase()==='INACTIVE'
         ? `<div class="card" style="background:var(--warn-bg);border-color:var(--warn-line);padding:8px">
              <b style="font-size:13px;color:var(--warn)">🚪 ${EN()?'No longer working here':'สิ้นสุดการทำงานแล้ว'}</b>
@@ -7469,6 +7481,87 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
     }
     return `<button class="btn block outline" onclick="A_pauseForm('${esc(sid)}')">⏸️ ${EN()?'Temporary leave (keeps the record)':'ลาชั่วคราว (เก็บข้อมูลไว้)'}</button>`;
   }
+  /* ===== THE SAME THING FOR A STAFF MEMBER ======================================================
+   * Asked 2026-09-02: "ลาชั่วคราวเหมือนของนักเรียนโดยไม่นับเป็นขาด/ลา/มาสาย ... ในส่วนของเงินเดือน
+   * ให้ Admin กำหนดเอง". Deliberately the same words and the same shape as the child version above —
+   * an admin who has used one should not have to learn the other.
+   *
+   * The two differences are real ones: the reason is FREE TEXT and required (the school knows why
+   * somebody is away, and a dropdown would force the real reason into the wrong box), and there is a
+   * salary rule, because a child on leave simply is not billed while a person on leave may still be
+   * paid — and only the school can say how much.
+   */
+  const staffPausedC = s => { const f=String(s&&s.PauseFrom||'').slice(0,10); if(!f) return false;
+    const to=String(s&&s.PauseTo||'').slice(0,10), td=todayStr();
+    return td>=f && !(to && td>=to); };
+  const staffPauseSpan = s => { const f=String(s.PauseFrom||'').slice(0,10), tt=String(s.PauseTo||'').slice(0,10);
+    if(!f) return '';
+    return tt ? `${fullDate(f)} – ${fullDate(tt)}` : (EN()?`from ${fullDate(f)} (open-ended)`:`ตั้งแต่ ${fullDate(f)} เป็นต้นไป (ยังไม่ระบุวันกลับ)`); };
+  const staffPaySalaryLabel = s => { const m=String(s.PauseSalaryMode||'').toUpperCase();
+    if(m==='NONE')   return EN()?'No salary while away':'ไม่จ่ายเงินเดือนระหว่างลา';
+    if(m==='HALF')   return EN()?'Half salary while away':'จ่ายครึ่งเดือนระหว่างลา';
+    if(m==='CUSTOM') return (EN()?'Salary set by admin: ':'แอดมินกำหนดเอง: ')+baht(s.PauseSalaryAmount||0);
+    return EN()?'Paid as normal':'จ่ายเงินเดือนตามปกติ'; };
+  window.A_staffPauseBox=(s)=>{ const id=s.StaffID;
+    if(staffPausedC(s)){
+      const back=String(s.PauseTo||'').slice(0,10);
+      return `<div class="card" style="background:var(--warn-bg);border-color:var(--warn-line);padding:8px">
+        <b style="font-size:13px;color:var(--warn)">⏸️ ${EN()?'On temporary leave':'ลาชั่วคราว'}</b>
+        <div style="font-size:13px;margin-top:2px">${esc(staffPauseSpan(s))}</div>
+        <div style="font-size:13px">${esc(s.PauseReason||'')}</div>
+        ${s.PauseRemark?`<div class="muted" style="font-size:13px;white-space:pre-wrap">${esc(s.PauseRemark)}</div>`:''}
+        <div style="font-size:13px;margin-top:4px">💰 ${esc(staffPaySalaryLabel(s))}</div>
+        <p class="muted" style="font-size:13px;margin:6px 0 4px">${EN()
+          ? 'While away: cannot clock in, not counted absent/leave/late, off the daily staff summary and off the class-organising screen. Employment, payroll history and the login all stay.'
+          : 'ระหว่างลา: ลงเวลาไม่ได้ · ไม่นับขาด/ลา/มาสาย · ไม่ขึ้นในสรุปการมาทำงานประจำวัน · ไม่อยู่ในหน้าจัดชั้นเรียน · ยังเป็นพนักงาน ประวัติเงินเดือนและการเข้าใช้งานอยู่ครบ'}</p>
+        <button type="button" class="btn sm block" onclick="A_staffResume('${esc(id)}',this)">▶️ ${EN()?'Back to work':'กลับมาทำงานตามปกติ'}</button>
+        <button type="button" class="btn sm outline block" style="margin-top:6px" onclick="A_staffPauseForm('${esc(id)}')">✏️ ${EN()?'Edit the leave':'แก้ไขข้อมูลการลา'}</button></div>`;
+    }
+    return `<button type="button" class="btn block outline" onclick="A_staffPauseForm('${esc(id)}')">⏸️ ${EN()?'Temporary leave (keeps the record)':'ลาชั่วคราว (เก็บข้อมูลไว้)'}</button>`;
+  };
+  window.A_staffPauseForm=(id)=>{ const s=findStaff(id)||{};
+    const mode=String(s.PauseSalaryMode||'').toUpperCase();
+    modal(`<h3>⏸️ ${EN()?'Temporary leave':'ลาชั่วคราว'} — ${esc(dispNick(s)||id)}</h3>
+      <p class="muted" style="font-size:13px">${EN()
+        ? 'For someone away for a while who is coming back — maternity, long illness, study leave. They stay employed; while away they cannot clock in and are not counted absent, late or on leave. To end employment, use the box below instead.'
+        : 'สำหรับพนักงานที่หยุดพักช่วงหนึ่งแล้วจะกลับมาทำงาน เช่น ลาคลอด ลาป่วยระยะยาว ลาศึกษาต่อ · ยังเป็นพนักงานอยู่ ระหว่างลาจะลงเวลาไม่ได้ และไม่ถูกนับเป็นขาด/ลา/มาสาย · หากจะสิ้นสุดการทำงาน ให้ใช้หัวข้อสิ้นสุดการทำงานแทน'}</p>
+      <div class="grid2"><label class="field"><span>${EN()?'Away from':'เริ่มลาวันที่'}</span><input type="date" id="sp_from" value="${esc(String(s.PauseFrom||'').slice(0,10)||todayStr())}"/></label>
+        <label class="field"><span>${EN()?'Back at work on (optional)':'กลับมาทำงานวันที่ (ไม่ระบุก็ได้)'}</span><input type="date" id="sp_to" value="${esc(String(s.PauseTo||'').slice(0,10))}"/></label></div>
+      <label class="field"><span>${EN()?'Reason (required — your own words)':'เหตุผล (บังคับ · พิมพ์เองได้)'}</span><input id="sp_why" value="${esc(s.PauseReason||'')}" placeholder="${EN()?'e.g. maternity leave':'เช่น ลาคลอด'}"/></label>
+      <label class="field"><span>${EN()?'Notes (optional)':'หมายเหตุเพิ่มเติม (ไม่บังคับ)'}</span><textarea id="sp_note" rows="2" style="width:100%">${esc(s.PauseRemark||'')}</textarea></label>
+      ${/* THE SALARY IS THE SCHOOL'S DECISION, NOT A DEFAULT. A blank choice pays in full: an
+           undecided rule must never quietly pay nothing. */''}
+      <div class="card" style="background:var(--surface-2);padding:8px">
+        <b style="font-size:13px">💰 ${EN()?'Salary while away':'เงินเดือนระหว่างลาชั่วคราว'}</b>
+        <label class="field" style="margin:6px 0 0"><select id="sp_mode" onchange="A_spMode(this)">
+          <option value="" ${!mode?'selected':''}>${EN()?'Paid as normal':'จ่ายเงินเดือนตามปกติ'}</option>
+          <option value="NONE" ${mode==='NONE'?'selected':''}>${EN()?'No salary':'ไม่จ่ายเงินเดือน'}</option>
+          <option value="HALF" ${mode==='HALF'?'selected':''}>${EN()?'Half salary':'จ่ายครึ่งเดือน'}</option>
+          <option value="CUSTOM" ${mode==='CUSTOM'?'selected':''}>${EN()?'Set the amount myself':'กำหนดเอง (กรอกจำนวนเงิน)'}</option>
+        </select></label>
+        <label class="field" id="sp_amtBox" ${mode==='CUSTOM'?'':'hidden'} style="margin:6px 0 0"><span>${EN()?'Salary per month while away (฿)':'เงินเดือนต่อเดือนระหว่างลา (฿)'}</span>
+          <input type="number" min="0" id="sp_amt" value="${esc(s.PauseSalaryAmount!=null&&s.PauseSalaryAmount!==''?s.PauseSalaryAmount:'')}"/></label>
+        <small class="muted" style="display:block;margin-top:4px">${EN()
+          ? 'Applies to every month the leave touches. The person’s real base salary is NOT changed — only these months’ payslips, and each one says why.'
+          : 'ใช้กับทุกเดือนที่มีวันลาอยู่ · เงินเดือนจริงของพนักงานไม่ถูกแก้ — เปลี่ยนเฉพาะสลิปของเดือนนั้น และสลิปจะระบุเหตุผลไว้ด้วย'}</small></div>
+      <button class="btn block" onclick="A_staffPauseDo('${esc(id)}',this)">${esc(t('c.save'))}</button>`); };
+  window.A_spMode=(el)=>{ const box=el.closest('.card').querySelector('#sp_amtBox'); if(box) box.hidden = el.value!=='CUSTOM'; };
+  window.A_staffPauseDo=async(id,btn)=>{ const m=btn.closest('.modal'); const v=x=>{const e=m.querySelector(x);return e?e.value.trim():'';};
+    const from=v('#sp_from'); if(!from){ toast(EN()?'Pick the start date':'เลือกวันที่เริ่มลา'); return; }
+    const to=v('#sp_to'); if(to && to<from){ toast(EN()?'The return date cannot be before the start':'วันที่กลับต้องไม่ก่อนวันที่เริ่มลา'); return; }
+    const reason=v('#sp_why'); if(!reason){ toast(EN()?'Type a reason':'กรุณาระบุเหตุผล'); return; }
+    const mode=v('#sp_mode'), amt=v('#sp_amt');
+    if(mode==='CUSTOM' && amt===''){ toast(EN()?'Type the salary amount':'กรุณากรอกจำนวนเงินเดือน'); return; }
+    btn.disabled=true;
+    try{ await api('setStaffPause',{staffId:USER.staffId,targetId:id,from,to,reason,remark:v('#sp_note'),salaryMode:mode,salaryAmount:amt});
+      m.remove(); const m2=document.querySelector('.modal'); if(m2)m2.remove();
+      confirmSaved(EN()?'Recorded as temporary leave':'บันทึกเป็นลาชั่วคราวแล้ว'); GO('manage'); }catch(e){ err(e); btn.disabled=false; } };
+  window.A_staffResume=async(id,btn)=>{ if(!confirm(EN()?'Bring this person back to work? Clock-in and the daily summary resume, and salary returns to normal.':'ให้พนักงานคนนี้กลับมาทำงานตามปกติ? ระบบจะเปิดการลงเวลา นับในสรุปประจำวัน และจ่ายเงินเดือนตามปกติอีกครั้ง'))return;
+    btn.disabled=true;
+    try{ await api('setStaffPause',{staffId:USER.staffId,targetId:id,paused:false});
+      const m=document.querySelector('.modal'); if(m)m.remove();
+      confirmSaved(EN()?'Back at work':'กลับมาทำงานตามปกติแล้ว'); GO('manage'); }catch(e){ err(e); btn.disabled=false; } };
+
   window.A_pauseForm=(sid)=>{ const s=findStudent(sid)||{};
     modal(`<h3>⏸️ ${EN()?'Temporary leave':'ลาชั่วคราว'} — ${esc(dispNick(s)||sid)}</h3>
       <p class="muted" style="font-size:13px">${EN()?'For a child who is away for a while and coming back. They stay in the system; while away they are not billed, not marked absent, and not on class or activity lists. To end the enrolment, use withdraw instead.':'สำหรับเด็กที่หยุดพักช่วงหนึ่งแล้วจะกลับมาเรียน · ข้อมูลยังอยู่ในระบบ ระหว่างลาจะไม่ออกบิล ไม่นับขาด/ลา และไม่ขึ้นชื่อในชั้นเรียน/กิจกรรม · หากจะออกจากโรงเรียนถาวร ให้ใช้เมนูลาออกแทน'}</p>
@@ -9629,7 +9722,10 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
      * class when two of them no longer work here — and dropping one into a Nursery would have put a
      * leaver back on a class list. They cannot sign in, they are off the attendance board and off the
      * class lists; this is the last screen that still had them. */
-    const teachers = staff.filter(s=>canClass(s) && !s.ended);
+    // ...and neither is somebody on temporary leave (2026-09-02): "ไม่เอาชื่ออยู่ในการจัดชั้นเรียน".
+    // They are still employed, so this is not the leavers rule — it is the same question the daily
+    // board asks: is this person at the nursery to be given a room?
+    const teachers = staff.filter(s=>canClass(s) && !s.ended && !s.paused);
     // a staff is "unassigned" if their Department is blank, '*' (all classes), or not one of the current classes
     const unassigned = teachers.filter(s=>{ const d=depOf(s); return d===''||d==='*'|| !deps.some(dep=>inDep(s,dep)); });
 

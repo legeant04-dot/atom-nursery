@@ -314,7 +314,7 @@ console.log('\n4) THE ADMIN IS TOLD, rather than the record quietly vanishing');
   ok_('...and answers how long the name stays there', /ชื่อจะอยู่ในรายการนี้จนกว่าจะทำ 2 อย่างหลัง/.test(app));
   ok_('the built engine has the list', /endedStaff: \(\) => M\.staff\.filter\(s=>staffEnded_\(s\)\)/.test(gasEngine));
   ok_('the board asks BOTH ends of the question now',
-    /staffStat=M\.staff\.filter\(s=>[\s\S]{0,160}&&!staffEnded_\(s\)\)/.test(engine));
+    /staffStat=M\.staff\.filter\(s=>[\s\S]{0,200}&&!staffEnded_\(s\)/.test(engine));
 }
 
 console.log('\n' + (fail ? 'FAILED ' : 'PASSED ') + pass + ' passed, ' + fail + ' failed\n');

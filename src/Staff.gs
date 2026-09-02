@@ -676,3 +676,70 @@ function handleRemoveStudent(p) {
   recCacheBust_('STUDENTS');
   return { ok: true };
 }
+
+/**
+ * TEMPORARY LEAVE FOR A STAFF MEMBER — the same arrangement a child already has.
+ * Asked 2026-09-02: "ลาชั่วคราวเหมือนของนักเรียนโดยไม่นับเป็นขาด/ลา/มาสาย ... ในส่วนของเงินเดือน ให้
+ * Admin กำหนดเองเช่น ไม่จ่ายเงินเดือน/จ่ายครึ่งเดือน/กำหนดเอง".
+ *
+ * IN PLACE, like every other write in this file: the engine would rewrite the whole STAFF collection
+ * and a short read there takes everyone else with it (see the header of this file).
+ *
+ * Status is NOT touched. INACTIVE on a staff row means "no longer employed" and is read by the login
+ * gate, by payroll and by half the reports; somebody on maternity leave is still employed. The fact
+ * lives in its own columns so nothing that already works has to learn a new status value.
+ *
+ * PauseTo is the day they COME BACK, matching the student rule exactly — the school should not have
+ * to remember which end of the range each screen means.
+ *
+ * p: { staffId, from, to?, reason, remark?, salaryMode?, salaryAmount?, adminId }
+ *  | { staffId, paused:false, adminId }
+ */
+var STAFF_PAUSE_MODES_ = ['', 'NONE', 'HALF', 'CUSTOM'];
+function handleSetStaffPause(p) {
+  p = p || {};
+  /* targetId, not staffId — the same reason orgMoveTeacher takes one: applyIdentity_ stamps the
+   * CALLER onto p.staffId, so a route that used staffId as its subject could only ever act on the
+   * person making the request. staffId here is the admin doing it, and that is what the audit wants. */
+  var adminId = String(p.adminId || p.staffId || 'admin');
+  p = { targetId: String(p.targetId || p.staffId || ''), paused: p.paused, from: p.from, to: p.to,
+        reason: p.reason, remark: p.remark, salaryMode: p.salaryMode, salaryAmount: p.salaryAmount,
+        adminId: adminId, staffId: String(p.targetId || p.staffId || '') };
+  var sh = sheet_(getHrSpreadsheet_(), 'STAFF');
+  try { ensureColumns_(sh, ['PauseFrom', 'PauseTo', 'PauseReason', 'PauseRemark', 'PauseSalaryMode', 'PauseSalaryAmount']); } catch (e) {}
+  var st = findObject_(sh, function (s) { return String(s.StaffID) === String(p.staffId); });
+  if (!st) throw apiError_('NOT_FOUND', 'ไม่พบพนักงาน ' + p.staffId);
+
+  if (p.paused === false) {
+    updateRow_(sh, st._row, { PauseFrom: '', PauseTo: '', PauseReason: '', PauseRemark: '',
+                              PauseSalaryMode: '', PauseSalaryAmount: '' });
+    staffCacheBust_();
+    try { logAuditHr(p.adminId || 'admin', 'STAFF_PAUSE_END', 'STAFF', String(p.staffId)); } catch (e) {}
+    return { ok: true, staffId: p.staffId, paused: false };
+  }
+  var from = String(p.from || '').slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(from)) throw apiError_('BAD_INPUT', 'กรุณาระบุวันที่เริ่มลาชั่วคราว');
+  var to = String(p.to || '').slice(0, 10);
+  if (to && !/^\d{4}-\d{2}-\d{2}$/.test(to)) throw apiError_('BAD_INPUT', 'วันที่กลับมาทำงานไม่ถูกต้อง');
+  if (to && to < from) throw apiError_('BAD_INPUT', 'วันที่กลับมาทำงานต้องไม่ก่อนวันที่เริ่มลา');
+  // The reason is the ADMIN'S OWN WORDS, not a dropdown — asked for that way ("ใส่เหตุผล [ให้ Admin
+  // เขียนเอง]"), because the school knows why somebody is away and a fixed list would force the real
+  // reason into the wrong box. Required, so a pause is never a mystery six months later.
+  var reason = String(p.reason || '').trim();
+  if (!reason) throw apiError_('BAD_INPUT', 'กรุณาระบุเหตุผลการลาชั่วคราว');
+  var mode = String(p.salaryMode || '').toUpperCase();
+  if (STAFF_PAUSE_MODES_.indexOf(mode) < 0) throw apiError_('BAD_INPUT', 'รูปแบบการจ่ายเงินเดือนไม่ถูกต้อง');
+  /* A CUSTOM amount with nothing in it would pay zero and look deliberate. Refuse instead: the whole
+   * point of CUSTOM is that the admin typed a figure. */
+  var amount = (mode === 'CUSTOM') ? Number(p.salaryAmount) : 0;
+  if (mode === 'CUSTOM' && !(amount >= 0 && String(p.salaryAmount || '').trim() !== ''))
+    throw apiError_('BAD_INPUT', 'กรุณากรอกจำนวนเงินเดือนที่จะจ่ายระหว่างลาชั่วคราว');
+
+  updateRow_(sh, st._row, { PauseFrom: from, PauseTo: to, PauseReason: reason,
+    PauseRemark: String(p.remark || ''), PauseSalaryMode: mode,
+    PauseSalaryAmount: mode === 'CUSTOM' ? amount : '' });
+  staffCacheBust_();
+  try { logAuditHr(p.adminId || 'admin', 'STAFF_PAUSE', 'STAFF',
+    String(p.staffId) + ' ' + from + (to ? (' – ' + to) : ' เป็นต้นไป') + ' · ' + reason + ' · ' + (mode || 'จ่ายตามปกติ')); } catch (e) {}
+  return { ok: true, staffId: p.staffId, paused: true, from: from, to: to, reason: reason, salaryMode: mode, salaryAmount: amount };
+}
