@@ -112,7 +112,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.330'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.331'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -10055,13 +10055,26 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
     // A slip the parent already sent is NOT the family owing money — it is the school owing them a
     // check. Showing "ค้างชำระ" for it made admins chase people who had already transferred.
     const othPend=Number(s.otherPending||0), othReal=Math.max(0,othOpen-othPend);
+    /* ...AND THE SAME IS TRUE OF A TUITION SLIP. tuitionPending has always come back from the server
+     * beside otherPending, and this row read only the second one — so an OT slip sitting in the
+     * queue printed a green ชำระแล้ว while the identical tuition slip printed a red ค้างชำระ. Two
+     * families, the same act, opposite answers (reported 2026-09-02). */
+    const tuiPend=Number(s.tuitionPending||0), tuiReal=Math.max(0,tuiOpen-tuiPend);
+    const pending = tuiPend + othPend;
     /* "ชำระแล้ว" MEANS THIS FAMILY OWES NOTHING. `s.paid` only ever meant "the TUITION bill is
      * settled", so a row could print ฿100, a green ชำระแล้ว and an orange "ค้างชำระอื่นๆ 100" all at
      * once — three answers to one question (reported 2026-08-24). The green tick is now held back
      * until nothing at all is outstanding; the OT or the extra charge keeps it amber until it is
      * paid. A slip already sent is not owing, so it does not hold the tick back either. */
-    const stillOwed = tuiOpen + othReal;
-    const pill = s.prepaid && tuiOpen<=0 && stillOwed<=0
+    const stillOwed = tuiReal + othReal;
+    /* WAITING IS A STATE OF ITS OWN — not "paid" and not "owing".
+     *
+     * It is also the only one of the three the ADMIN can act on: a slip in the queue is work on this
+     * screen, where ค้างชำระ is a phone call to a parent and ชำระแล้ว is nothing at all. So it takes
+     * the pill, and anything genuinely still owed is stated underneath rather than merged into it. */
+    const pill = pending>0
+        ? `<span class="pill wait">🕐 ${EN()?`awaiting your check ${baht(pending)}`:`รอตรวจสอบ ${baht(pending)}`}</span>`
+      : s.prepaid && tuiOpen<=0 && stillOwed<=0
         ? `<span class="pill ok">💰 ${EN()?'paid in advance':'ชำระล่วงหน้าแล้ว'}</span>`
       : (s.paid || s.prepaid) && stillOwed>0
         ? `<span class="pill wait">${EN()?'tuition paid · other charges due':'ค่าเทอมครบ · ยังค้างอื่นๆ'}</span>`
@@ -10070,12 +10083,16 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
       : s.status==='NO_BILL' && stillOwed>0 ? `<span class="pill bad">${esc(t('s.unpaid'))}</span>`
       : s.status==='NO_BILL' ? `<span class="pill info">${esc(t('fin.noBill'))}</span>`
       : `<span class="pill bad">${esc(t('s.unpaid'))}</span>`;
-    const otherPill = (tuiOpen<=0 && othOpen>0)
-      ? (othReal>0
+    // what the waiting is FOR, and what is still genuinely owed on top of it — one line each, so
+    // "รอตรวจสอบ 100" never has to stand for both
+    const otherPill =
+        (pending>0 ? `<br><span class="pill info" style="font-size:11px">📎 ${EN()
+            ? `slip sent${tuiPend>0?` · tuition ${baht(tuiPend)}`:''}${othPend>0?` · other ${baht(othPend)}`:''}`
+            : `แนบสลิปแล้ว${tuiPend>0?` · ค่าเทอม ${baht(tuiPend)}`:''}${othPend>0?` · อื่นๆ ${baht(othPend)}`:''}`}</span>` : '')
+      + (stillOwed>0 && pending>0 ? `<br><span class="pill bad" style="font-size:11px">⚠️ ${EN()?`still due ${baht(stillOwed)}`:`ยังค้างชำระ ${baht(stillOwed)}`}</span>` : '')
+      + ((pending<=0 && tuiOpen<=0 && othReal>0)
           ? `<br><span class="pill wait" style="font-size:11px">⚠️ ${EN()?`other charges due ${baht(othReal)}`:`ค้างชำระอื่นๆ (ไม่ใช่ค่าเทอม) ${baht(othReal)}`}</span>`
-          : '')
-        + (othPend>0 ? `<br><span class="pill info" style="font-size:11px">🕐 ${EN()?`slip sent — awaiting your check ${baht(othPend)}`:`แนบสลิปแล้ว รอตรวจสอบ ${baht(othPend)}`}</span>` : '')
-      : '';
+          : '');
     const amount = (tuiOpen+othOpen)>0 ? baht(tuiOpen+othOpen) : `<span class="muted">${baht(0)}</span>`;
     const sub = s.prepaid ? `<br><small style="color:var(--ok);font-weight:400">💰 ${esc(prepaySpan(s.prepay))}</small>` : '';
     // Children on temporary leave are still billable — this is how a deposit or a first month is
@@ -10139,6 +10156,15 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
     const bill=(bills||[]).find(b=>ym(b.Month)===ym(month));
     const otM=(ot||[]).filter(o=>ym(o.Date)===ym(month));
     const stPill=st=>({UNPAID:'bad',PENDING_VERIFY:'wait',PARTIAL:'wait',PAID:'ok',CANCELLED:'info'}[st]||'info');
+    /* ONE WAY OF SAYING "A SLIP IS WAITING", for the bill, the extra charges and the OT alike.
+     * Asked 2026-09-02 after an OT with a slip in the queue read ชำระแล้ว and a tuition bill with the
+     * identical slip read ค้างชำระ. It is neither: it is work waiting on the admin's own screen, and
+     * it is the only one of the three states they can act on from here. */
+    const pendAmt = sl => (sl||[]).filter(x=>['SUBMITTED','PENDING_VERIFY'].indexOf(String(x.Status||'').toUpperCase())>=0)
+      .reduce((a,x)=>a+Number(x.Amount||0),0);
+    const statePill = (sl, status) => { const p=pendAmt(sl);
+      return p>0 ? `<span class="pill wait" style="font-size:11px">🕐 ${EN()?`awaiting check ${baht(p)}`:`รอตรวจสอบ ${baht(p)}`}</span>`
+                 : `<span class="pill ${stPill(status)}" style="font-size:11px">${esc(tStat(status)||status||'')}</span>`; };
     // The bill stores tuition already NET of the child's standing discount, because that is what the
     // parent must see. The admin needs the working: full package price, the discount taken off, then the
     // net — otherwise the number looks arbitrary and cannot be checked against the package.
@@ -10156,7 +10182,15 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
           <tr style="border-top:1px solid var(--line)"><td><b>${EN()?'Total due':'ยอดรวม'}</b></td><td style="text-align:right"><b>${baht(bill.TotalDue!=null?bill.TotalDue:bill.Amount)}</b></td></tr>
           ${Number(bill.PaidConfirmed||0)>0?`<tr><td>${EN()?'Paid':'ชำระแล้ว'}</td><td style="text-align:right;color:var(--ok)">−${baht(bill.PaidConfirmed)}</td></tr>`:''}
           <tr><td><b>${EN()?'Outstanding':'คงค้าง'}</b></td><td style="text-align:right"><b style="color:${Number(bill.Outstanding||0)>0?'var(--bad)':'var(--ok)'}">${baht(bill.Outstanding||0)}</b></td></tr></table>
-        <div class="spread" style="margin:2px 0 4px"><span class="pill ${Number(bill.Outstanding||0)<=0?'ok':'bad'}">${Number(bill.Outstanding||0)<=0?(Number(bill.PrepaidTuition||0)>0?('💰 '+(EN()?'paid in advance':'ชำระล่วงหน้าแล้ว')):('✅ '+(EN()?'paid in full':'ชำระครบแล้ว'))):('⏳ '+(EN()?'outstanding':'ค้างชำระ')+' '+baht(bill.Outstanding))}</span><small class="muted">${esc(bill.Status||'')}</small></div>
+        ${/* ...and the same three states as the list it was opened from. A slip already in the queue
+             is not this family owing money — it is work waiting on THIS screen. */''}
+        ${(()=>{ const _p=pendAmt(slipsOf('bill',bill.BillingID));
+          const _out=Number(bill.Outstanding||0);
+          const _cls=_p>0?'wait':(_out<=0?'ok':'bad');
+          const _txt=_p>0 ? '🕐 '+(EN()?`awaiting your check ${baht(_p)}`:`รอตรวจสอบ ${baht(_p)}`)
+            : _out<=0 ? (Number(bill.PrepaidTuition||0)>0?('💰 '+(EN()?'paid in advance':'ชำระล่วงหน้าแล้ว')):('✅ '+(EN()?'paid in full':'ชำระครบแล้ว')))
+            : '⏳ '+(EN()?'outstanding':'ค้างชำระ')+' '+baht(_out);
+          return `<div class="spread" style="margin:2px 0 4px"><span class="pill ${_cls}">${_txt}</span><small class="muted">${esc(bill.Status||'')}</small></div>`; })()}
         ${bill.Prepay?`<div class="card" style="background:var(--ok-bg);border-color:var(--ok-line);padding:6px 8px;margin:2px 0"><small style="color:var(--ok)">💰 ${esc(prepaySpan(bill.Prepay))}</small></div>`:''}
         ${slipHistoryHTML(slipsOf('bill',bill.BillingID),true)}
         ${Number(bill.Outstanding||0)>0?cashBox('bill',bill.BillingID,sid,Number(bill.Outstanding||0)):''}
@@ -10169,7 +10203,7 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
     const _disc=Number(s.DiscountAmount||0);
     const discBox=_disc>0?`<div class="list-item" style="background:var(--ok-bg);border-radius:8px;padding:6px 8px;margin-top:4px"><span>🏷️ ${EN()?'Standing discount':'ส่วนลดประจำของนักเรียน'} <small class="muted">${EN()?'always applied to tuition':'หักจากค่าเทอมทุกบิล'}</small></span><b style="color:var(--ok)">−${/%|percent/i.test(String(s.DiscountUnit||''))?_disc+'%':baht(_disc)}</b></div>`:'';
     const chargeBox = `${(charges||[]).length?(charges).map(c=>{ const cOut=Number(c.Outstanding!=null?c.Outstanding:c.Amount);
-      return `<div style="border-bottom:1px solid var(--surface-3);padding:4px 0"><div class="list-item"><span>${Number(c.Amount)<0?'🏷️ ':''}${esc(c.Label)} <b style="color:${Number(c.Amount)<0?'var(--ok)':'inherit'}">${Number(c.Amount)<0?'−'+baht(Math.abs(c.Amount)):baht(c.Amount)}</b> <span class="pill ${stPill(c.Status)}" style="font-size:11px">${esc(c.Status||'UNPAID')}</span></span><button class="btn sm pink" onclick="A_finDelCharge('${esc(c.ChargeID)}','${sid}',this)" aria-label="${EN()?"Delete":"ลบ"}" title="${EN()?"Delete":"ลบ"}">🗑️</button></div>${slipHistoryHTML(slipsOf('charge',c.ChargeID),true)}${cOut>0?cashBox('charge',c.ChargeID,sid,cOut):''}</div>`;
+      return `<div style="border-bottom:1px solid var(--surface-3);padding:4px 0"><div class="list-item"><span>${Number(c.Amount)<0?'🏷️ ':''}${esc(c.Label)} <b style="color:${Number(c.Amount)<0?'var(--ok)':'inherit'}">${Number(c.Amount)<0?'−'+baht(Math.abs(c.Amount)):baht(c.Amount)}</b> ${statePill(slipsOf('charge',c.ChargeID), c.Status||'UNPAID')}</span><button class="btn sm pink" onclick="A_finDelCharge('${esc(c.ChargeID)}','${sid}',this)" aria-label="${EN()?"Delete":"ลบ"}" title="${EN()?"Delete":"ลบ"}">🗑️</button></div>${slipHistoryHTML(slipsOf('charge',c.ChargeID),true)}${cOut>0?cashBox('charge',c.ChargeID,sid,cOut):''}</div>`;
       }).join(''):`<small class="muted">${EN()?'No extra charges':'ไม่มีรายการเพิ่มเติม'}</small>`}
       <div class="grid2" style="margin-top:6px"><input id="fcLabel" placeholder="${EN()?'e.g. Special class':'เช่น ค่าเรียนพิเศษ'}"/>
         <div class="row" style="gap:6px"><select id="fcSign" style="max-width:104px"><option value="1">+ ${EN()?'charge':'เรียกเก็บ'}</option><option value="-1">− ${EN()?'discount':'ส่วนลด'}</option></select><input id="fcAmt" type="number" min="0" placeholder="${EN()?'amount':'จำนวนเงิน'}" style="flex:1"/></div></div>
@@ -10192,7 +10226,7 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
         </div>${slipHistoryHTML(sl,true)}${out>0&&String(pp.Status)!=='PAID'?cashBox('prepay',pp.PrepayID,sid,out):''}</div>`; }).join('')
       :`<small class="muted">${EN()?'No advance payments':'ไม่มีรายการชำระล่วงหน้า'}</small>`}`;
     const otBox = `${otM.length?otM.map(o=>{ const sl=slipsOf('ot',o.OTID);
-      return `<div style="border-bottom:1px solid var(--surface-3);padding:4px 0"><div class="list-item"><span>${esc(ymd(o.Date))} · ${esc(String(o.PickupTime||'').slice(0,5))} <b>${baht(o.Amount)}</b> <span class="pill ${stPill(o.Status)}" style="font-size:11px">${esc(o.Status)}</span></span>
+      return `<div style="border-bottom:1px solid var(--surface-3);padding:4px 0"><div class="list-item"><span>${esc(ymd(o.Date))} · ${esc(String(o.PickupTime||'').slice(0,5))} <b>${baht(o.Amount)}</b> ${statePill(sl, o.Status)}</span>
         ${o.Status==='PAID'?'':`<span class="row">${o.Status==='CANCELLED'?`<button class="btn sm outline" onclick="A_finOt('${esc(o.OTID)}','restore','${sid}')" aria-label="${EN()?"Restore":"กู้คืน"}" title="${EN()?"Restore":"กู้คืน"}">♻️</button>`:`<button class="btn sm pink" onclick="A_finOt('${esc(o.OTID)}','cancel','${sid}')" aria-label="${EN()?"Cancel":"ยกเลิก"}" title="${EN()?"Cancel":"ยกเลิก"}">🚫</button>`}</span>`}</div>${slipHistoryHTML(sl)}</div>`; }).join(''):`<small class="muted">${EN()?'No OT this month':'ไม่มี OT เดือนนี้'}</small>`}`;
     modal(`<h3>💰 ${esc(dispNick(s)||sid)} <small class="muted" style="font-size:13px">${nmSub(s)?esc(nmSub(s))+' · ':''}${esc(planLabel(s.Plan))}${s.Class?' · '+esc(s.Class):''}</small></h3>
       <p class="muted" style="font-size:13px">${EN()?'Month':'เดือน'} <b>${esc(month)}</b> — ${EN()?'change the month at the finance page':'เปลี่ยนเดือนได้ที่หน้าการเงิน'}</p>

@@ -149,12 +149,14 @@ console.log('\n6) one screen, one answer to "does anybody owe us money?"');
 }
 {
   // ...and the same contradiction one row at a time: ฿100 owed, and a green "ชำระแล้ว" beside it
-  ok_('"paid" is held back until NOTHING is outstanding', /const stillOwed = tuiOpen \+ othReal;/.test(app));
+  // tuiOpen became tuiReal on 2026-09-02, when a tuition slip already in the queue stopped counting
+  // as owed — the same allowance othReal has always had. Same rule: only what is genuinely still due.
+  ok_('"paid" is held back until NOTHING is outstanding', /const stillOwed = tuiReal \+ othReal;/.test(app));
   ok_('...a family whose tuition is clear but who owe an OT are named as such',
     /ค่าเทอมครบ · ยังค้างอื่นๆ/.test(app));
   ok_('...and a slip already sent does not hold the tick back', /othReal=Math\.max\(0,othOpen-othPend\)/.test(app));
   ok_('...the amount and the pill can no longer disagree',
-    app.indexOf('const stillOwed = tuiOpen + othReal;') < app.indexOf('const pill = s.prepaid'));
+    app.indexOf('const stillOwed = tuiReal + othReal;') < app.indexOf('const pill = pending>0'));
 }
 
 console.log('\n' + (fail ? 'FAILED ' : 'PASSED ') + pass + ' passed, ' + fail + ' failed\n');
