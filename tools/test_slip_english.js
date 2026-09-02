@@ -81,13 +81,18 @@ console.log('\n2) EVERY THAI LINE HAS AN ENGLISH ONE BESIDE IT');
   eq('no bare Thai left in slipBreakdown', bareThai(breakdown), []);
   eq('no bare Thai left in the payslip card', bareThai(card), []);
   /* The printed document is ONE long template literal, so "which literal contains Thai" says nothing
-   * useful about it — read the Thai RUNS out of what is left after the pairs are removed instead.
-   * Exactly one survives on purpose: the school's own name is a proper noun and is not translated,
-   * the same rule staff names and group names already follow (translate="no" in i18n_tr.js). */
+   * useful about it — read the Thai RUNS out of what is left after the pairs are removed instead. */
   const thaiRuns = src => [...new Set((stripPairs(src).match(/[฀-๿][฀-๿ ]*/g) || [])
     .map(x => x.trim()).filter(Boolean))];
-  eq('the printed document keeps only the school’s own name', thaiRuns(doc), ['อะตอม เนอสเซอรี่']);
-  eq('...and the two on-screen pieces keep none at all', [thaiRuns(breakdown), thaiRuns(card)], [[], []]);
+  eq('nothing Thai survives unpaired anywhere on the slip',
+    [thaiRuns(doc), thaiRuns(breakdown), thaiRuns(card)], [[], [], []]);
+  /* INCLUDING THE SCHOOL'S OWN NAME. I had left that hard-coded in Thai on the reasoning that a name
+   * is a proper noun; the school's answer (2026-09-02) is that they HAVE an English name and it is
+   * the one a foreign employee — or their bank — should be reading. */
+  ok_('the heading uses the school name, not a literal', /<b>\$\{esc\(_schoolName\(\)\)\}<\/b>/.test(doc));
+  ok_('...taken from the school’s own configuration', /const n=String\(\(\(window\.MOCK&&MOCK\.config\)\|\|\{\}\)\.SchoolName\|\|''\)\.trim\(\);/.test(app));
+  ok_('...and never Thai on the English document, whatever is configured',
+    /return \(n && !\/\[\u0E00-\u0E7F\]\/\.test\(n\)\) \? n : 'Atom Nursery';/.test(app));
 }
 
 console.log('\n3) THE SUBSTITUTION PASS IS KEPT OFF IT');

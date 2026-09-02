@@ -112,7 +112,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.329'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.330'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -10716,6 +10716,21 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
   /* The pay period, in the reader's own calendar. Thai prints the Buddhist year, which is what a
      Thai bank expects; English prints the Gregorian one, because 2569 on a payslip means nothing to
      somebody who cannot read the rest of the document either. Same range, two calendars. */
+  /* THE SCHOOL'S NAME IN THE READER'S LANGUAGE.
+   *
+   * It was hard-coded Thai, so the English payslip was headed อะตอม เนอสเซอรี่ — asked to be
+   * "Atom Nursery" (2026-09-02). I had left it deliberately, on the reasoning that a name is a
+   * proper noun; the school's own answer is that they HAVE an English name and it is the one a
+   * foreign employee (or their bank) should see.
+   *
+   * SCHOOL_CONFIG.SchoolName is seeded 'Atom Nursery', so an English reader normally gets exactly
+   * what the school configured. If the school has since renamed it in Thai, that value cannot be
+   * shown to somebody who came here for the English version — fall back rather than print Thai in a
+   * document that is otherwise entirely English.
+   */
+  const _schoolName = () => { const n=String(((window.MOCK&&MOCK.config)||{}).SchoolName||'').trim();
+    if(!EN()) return n||'อะตอม เนอสเซอรี่';
+    return (n && !/[฀-๿]/.test(n)) ? n : 'Atom Nursery'; };
   const _periodTH = m => { const y=parseInt(String(m).slice(0,4),10), mo=parseInt(String(m).slice(5,7),10);
     if(isNaN(y)||isNaN(mo)) return esc(m);
     const last=new Date(y,mo,0).getDate();
@@ -10734,7 +10749,7 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
       return `<div class="slip">
       <div class="hd">
         <span class="conf">CONFIDENTIAL</span>
-        <span class="brand"><img src="${logo}"/><b>อะตอม เนอสเซอรี่</b></span>
+        <span class="brand"><img src="${logo}"/><b>${esc(_schoolName())}</b></span>
         <span class="doc">${E('Pay Slip','สลิปเงินเดือน')}<br><span class="sub">${E('สลิปเงินเดือน','Pay Slip')}</span></span></div>
       <div class="meta">
         <span>${E('Employee','ชื่อพนักงาน')} <b>${esc(p.StaffName||staffName(p.StaffID))}</b> <span class="sub">(${esc(p.StaffID)})</span></span>

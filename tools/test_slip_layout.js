@@ -60,6 +60,9 @@ const build = new Function('MOCK', 'baht', 'esc', 'adjRows', 'ssWorking', 'carry
   ${lineSrc(/^  const _n=v=>Number\(v\|\|0\), _r2=.*$/m)}
   ${lineSrc(/^  const _periodTH = m =>[\s\S]*?return `01\/.*$/m)}
   ${lineSrc(/^  const PER_SHEET = \d+;.*$/m)}
+  ${/* the school's name comes from SCHOOL_CONFIG and is chosen by language — lifted in with the
+       rest, so this suite exercises the same heading the printed document shows */''}
+  ${lineSrc(/^  const _schoolName = \(\) =>[\s\S]*?'Atom Nursery'; \};$/m)}
   ${fnSrc('slipBreakdown')}
   ${fnSrc('buildSlipsHTML')}
   return { slipBreakdown, buildSlipsHTML, PER_SHEET };`);
