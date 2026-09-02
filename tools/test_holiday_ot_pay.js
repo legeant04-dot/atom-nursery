@@ -166,11 +166,11 @@ console.log('\n6) the slip itself says "OT วันหยุด"');
    * some. That is asserted here against the source of the line, and executed for real in
    * tools/test_slip_layout.js — which builds the document and checks the columns add up. */
   ok_('OT วันหยุด is a line of its own on the slip',
-    /if\(_n\(r\.OTHoliday\)\) income\.push\(\{ label:'OT วันหยุด \(มาทำงานในวันหยุด\)'/.test(app));
+    /if\(_n\(r\.OTHoliday\)\) income\.push\(\{ label:E\('Holiday overtime \(worked on a day off\)','OT วันหยุด \(มาทำงานในวันหยุด\)'\)/.test(app));
   ok_('...only when there is some, so an ordinary slip is unchanged',
     /if\(_n\(r\.OTHoliday\)\) income\.push/.test(app));
   ok_('...and never sharing a cell with เงินพิเศษวันพักผ่อน, which is a different thing',
-    /if\(_n\(r\.HolidayBonus\)\) income\.push\(\{ label:'เงินพิเศษวันพักผ่อน'/.test(app));
+    /if\(_n\(r\.HolidayBonus\)\) income\.push\(\{ label:E\('Holiday bonus','เงินพิเศษวันพักผ่อน'\)/.test(app));
   ok_('the screen and the printed A4 slip both read that one description',
     /const b=slipBreakdown\(r\);/.test(app) && /const card=p=>\{ const b=slipBreakdown\(p\);/.test(app));
 }
