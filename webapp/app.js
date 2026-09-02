@@ -112,7 +112,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.331'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.332'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -6896,7 +6896,7 @@
           return `<div class="list-item stack" data-k="${esc((p.NameTH+' '+(p.NameEN||'')+' '+(p.Nickname||'')+' '+(p.NicknameEN||'')+' '+(p.Phone||'')+' '+String(p.Relationship||'').replace(/<[^>]*>/g,'')).toLowerCase())}"><span style="display:flex;gap:8px;align-items:center">${personAvatar(p)}<span><b>${esc(parentDisp(p))}</b> ${lcBadge} <small class="muted">${[p.NameTH||p.NameEN?esc(titledName(p)):'',relLabel(p.Relationship),p.Phone?phoneLink(p.Phone):(EN()?'no phone':'ไม่มีเบอร์โทร')].filter(Boolean).join(' · ')}</small></span></span><span class="acts"><button class="btn sm outline" onclick="A_parentLinks('${p.ParentID}')">🔗 ${EN()?'Children':'บุตรที่ผูก'}</button><button class="btn sm outline" onclick="A_parentForm('${p.ParentID}')">✏️ ${EN()?'Edit':'แก้ไข'}</button><button class="btn sm pink" onclick="A_delParent('${p.ParentID}',this)">🗑️ ${EN()?'Delete':'ลบ'}</button></span></div>`; }).join('')}</div></div>
       <div class="card secw" id="sec-students">${secHead('👶',EN()?'Students':'นักเรียน',students.length,`<span class="row"><button class="btn sm outline" onclick="event.stopPropagation();A_issueCombined()">🧾 ${EN()?'Issue (select)':'ออกบิล (เลือก)'}</button><button class="btn sm" onclick="event.stopPropagation();A_genBills()">📅 ${esc(t('bill.genTitle'))}</button></span>`)}
         <div class="secbody" hidden>
-        ${students.map(s=>`<div class="list-item stack" data-k="${esc((s.NameTH+' '+(s.NameEN||'')+' '+(s.Nickname||'')+' '+(s.NicknameEN||'')+' '+(s.Class||'')+' '+(s.NationalID||'')).toLowerCase())}"><span>${studentAvatar(s)} <b>${esc(dispNick(s))}</b> ${isPaused(s)?`<span class="pill wait" style="font-size:11px">⏸️ ${EN()?'on leave':'ลาชั่วคราว'}</span>`:''} <small class="muted">${nmSub(s)?esc(nmSub(s))+" · ":""}${esc(s.Class)} · ${esc(ageYM(s.DOB))}${s.InsuranceHas?' · 🛡️':''}</small><br><small class="muted">${s.DOB?`🎂 ${esc(dobDate(s.DOB))} · `:''}${EN()?'ID':'บัตร'}: ${esc(s.NationalID||'-')}</small>${isPaused(s)?`<br><small style="color:var(--warn)">⏸️ ${esc(pauseSpan(s))}</small>`:''}</span><span class="acts"><button class="btn sm outline" onclick="A_studentForm('${s.StudentID}')">✏️ ${EN()?'Edit':'แก้ไข'}</button><button class="btn sm" onclick="A_issueBill('${s.StudentID}')">🧾 ${EN()?'Bill':'ออกบิล'}</button><button class="btn sm" onclick="A_charges('${s.StudentID}')">💵 ${EN()?'Charges':'เรียกเก็บ'}</button><button class="btn sm outline" onclick="A_stuMore('${s.StudentID}')" aria-label="${EN()?'More actions':'การทำงานเพิ่มเติม'}" title="${EN()?'More actions':'การทำงานเพิ่มเติม'}">⋯</button></span></div>`).join('')}</div></div>`;
+        ${students.map(s=>`<div class="list-item stack" data-k="${esc((s.NameTH+' '+(s.NameEN||'')+' '+(s.Nickname||'')+' '+(s.NicknameEN||'')+' '+(s.Class||'')+' '+(s.NationalID||'')).toLowerCase())}"><span>${studentAvatar(s)} <b>${esc(dispNick(s))}</b> ${pauseSoon(s)?`<span class="pill info" style="font-size:11px">📅 ${EN()?'leave booked':'จะลาชั่วคราว'}</span>`:isPaused(s)?`<span class="pill wait" style="font-size:11px">⏸️ ${EN()?'on leave':'ลาชั่วคราว'}</span>`:''} <small class="muted">${nmSub(s)?esc(nmSub(s))+" · ":""}${esc(s.Class)} · ${esc(ageYM(s.DOB))}${s.InsuranceHas?' · 🛡️':''}</small><br><small class="muted">${s.DOB?`🎂 ${esc(dobDate(s.DOB))} · `:''}${EN()?'ID':'บัตร'}: ${esc(s.NationalID||'-')}</small>${isPaused(s)?`<br><small style="color:var(--warn)">⏸️ ${esc(pauseSpan(s))}</small>`:''}</span><span class="acts"><button class="btn sm outline" onclick="A_studentForm('${s.StudentID}')">✏️ ${EN()?'Edit':'แก้ไข'}</button><button class="btn sm" onclick="A_issueBill('${s.StudentID}')">🧾 ${EN()?'Bill':'ออกบิล'}</button><button class="btn sm" onclick="A_charges('${s.StudentID}')">💵 ${EN()?'Charges':'เรียกเก็บ'}</button><button class="btn sm outline" onclick="A_stuMore('${s.StudentID}')" aria-label="${EN()?'More actions':'การทำงานเพิ่มเติม'}" title="${EN()?'More actions':'การทำงานเพิ่มเติม'}">⋯</button></span></div>`).join('')}</div></div>`;
   };
   // navigate to an admin sub-screen (kept off the bottom nav)
   var ADMIN_SUB_organize, ADMIN_SUB_holidays, ADMIN_SUB_importExport;
@@ -7484,6 +7484,12 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
   // stay, but while they are away they are not billed, not marked absent, and not on any class list.
   // Distinct from withdrawing, which ends the enrolment.
   const isPaused = s => String(s&&s.Status||'')==='PAUSED';
+  /* RECORDED, BUT NOT STARTED. isPaused reads Status, which flips the moment the admin saves — so a
+   * leave beginning on the 4th made every screen say "ลาชั่วคราว" on the 2nd, about a child who was
+   * sitting in Nursery Baby that morning and being billed for it. The dates are what decide whether
+   * she is away; Status only decides whether a leave exists at all. Reported 2026-09-02. */
+  const pauseSoon = s => isPaused(s) && /^\d{4}-\d{2}-\d{2}$/.test(String(s&&s.PauseFrom||'').slice(0,10))
+    && todayStr() < String(s.PauseFrom).slice(0,10);
   function pauseSpan(s){ const f=String(s.PauseFrom||'').slice(0,10), tt=String(s.PauseTo||'').slice(0,10);
     if(!f) return '';
     return tt ? `${fullDate(f)} – ${fullDate(tt)}` : (EN()?`from ${fullDate(f)} (open-ended)`:`ตั้งแต่ ${fullDate(f)} เป็นต้นไป (ยังไม่ระบุวันกลับ)`); }
@@ -7491,11 +7497,16 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
     if(isPaused(s)){
       const back=String(s.PauseTo||'').slice(0,10);
       const due = back && back < todayStr();     // the return date has passed — they are back already
-      return `<div class="card" style="background:${due?'var(--ok-bg)':'var(--warn-bg)'};border-color:${due?'var(--ok-line)':'var(--warn-line)'};padding:8px">
-        <b style="font-size:13px;color:${due?'var(--ok)':'var(--warn)'}">${due?'✅ '+(EN()?'Return date has passed':'ถึงกำหนดกลับมาเรียนแล้ว'):'⏸️ '+(EN()?'On temporary leave':'ลาชั่วคราว')}</b>
+      const soon = pauseSoon(s);                 // ...and the other end: it has not begun yet
+      return `<div class="card" style="background:${due?'var(--ok-bg)':(soon?'var(--surface-2)':'var(--warn-bg)')};border-color:${due?'var(--ok-line)':(soon?'var(--line)':'var(--warn-line)')};padding:8px">
+        <b style="font-size:13px;color:${due?'var(--ok)':(soon?'var(--ink)':'var(--warn)')}">${due?'✅ '+(EN()?'Return date has passed':'ถึงกำหนดกลับมาเรียนแล้ว'):soon?'📅 '+(EN()?'Leave booked — still at school until then':'บันทึกการลาไว้ล่วงหน้า — ยังมาเรียนตามปกติ'):'⏸️ '+(EN()?'On temporary leave':'ลาชั่วคราว')}</b>
         <div style="font-size:13px;margin-top:2px">${esc(pauseSpan(s))}</div>
         ${s.PauseReason?`<div class="muted" style="font-size:13px">${esc(s.PauseReason)}</div>`:''}
-        <p class="muted" style="font-size:13px;margin:6px 0 4px">${EN()?'While away: no monthly bill, not counted absent, not on class or activity lists. The record and the parent link stay.':'ระหว่างลา: ไม่ออกบิลรายเดือน · ไม่นับขาด/ลา · ไม่ขึ้นชื่อในชั้นเรียนและกิจกรรม · ข้อมูลและการผูกผู้ปกครองยังอยู่ครบ'}</p>
+        <p class="muted" style="font-size:13px;margin:6px 0 4px">${soon
+          ? (EN()?'None of that applies yet — until the start date this child is billed, expected, and on every class list as usual.'
+                 :'ยังไม่มีผลตอนนี้ — จนถึงวันเริ่มลา ยังออกบิล ยังนับการมาเรียน และยังอยู่ในรายชื่อชั้นเรียนตามปกติ')
+          : (EN()?'While away: no monthly bill, not counted absent, not on class or activity lists. The record and the parent link stay.'
+                 :'ระหว่างลา: ไม่ออกบิลรายเดือน · ไม่นับขาด/ลา · ไม่ขึ้นชื่อในชั้นเรียนและกิจกรรม · ข้อมูลและการผูกผู้ปกครองยังอยู่ครบ')}</p>
         <button class="btn sm block" onclick="A_resumeStudent('${esc(sid)}')">▶️ ${EN()?'Bring back to school':'กลับมาเรียนตามปกติ'}</button></div>`;
     }
     return `<button class="btn block outline" onclick="A_pauseForm('${esc(sid)}')">⏸️ ${EN()?'Temporary leave (keeps the record)':'ลาชั่วคราว (เก็บข้อมูลไว้)'}</button>`;
@@ -7665,7 +7676,9 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
       <small class="muted">${EN()?'Not counted as absent, not on class lists, and their parent cannot check in yet — but bills can already be issued.':'ยังไม่นับขาด ไม่ขึ้นชื่อในชั้นเรียน และผู้ปกครองยังลงเวลาไม่ได้ · แต่ออกบิลล่วงหน้าได้แล้ว'}</small></div>`; };
   window.A_pausedCard=(list)=>{ list=list||[]; if(!list.length) return '';
     const dn=x=>EN()?(x.nickEN||x.nameEN||x.nick||x.name):(x.nick||x.name);
-    const due=list.filter(x=>x.due), away=list.filter(x=>!x.due);
+    // ...and the third group, which the card used to fold into "away" and then tell the admin that a
+    // child sitting in Nursery Baby that morning was not being billed and not on any list
+    const due=list.filter(x=>x.due), soon=list.filter(x=>!x.due&&x.scheduled), away=list.filter(x=>!x.due&&!x.scheduled);
     const row=(x,isDue)=>`<div class="list-item"><span><b>${esc(dn(x))}</b> <small class="muted">${esc(x.className||'')}</small>
         <br><small class="muted">${esc(ddmmyyyy(x.from))} → ${x.to?esc(ddmmyyyy(x.to)):(EN()?'not decided':'ยังไม่กำหนด')}${x.reason?' · '+esc(x.reason):''}</small>
         ${isDue?`<br><small style="color:var(--warn)">${x.dueToday?(EN()?'⏰ due back TODAY':'⏰ ครบกำหนดวันนี้'):(EN()?'⏰ the return date has passed':'⏰ เลยกำหนดกลับมาแล้ว')}</small>`:''}</span>
@@ -7677,7 +7690,11 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
         <small class="muted" style="display:block;margin-top:2px">${EN()?'They are already back on the class lists and can be checked in. Confirming clears the leave.':'ระบบนำชื่อกลับเข้าชั้นเรียนและเปิดให้เช็คอินแล้ว · กดยืนยันเพื่อล้างสถานะลาชั่วคราว'}</small>
         ${due.map(x=>row(x,true)).join('')}</div>`:''}
       ${away.map(x=>row(x,false)).join('')}
-      <small class="muted">${EN()?'While away a child is not billed, not marked absent, and not on class lists.':'ระหว่างลาชั่วคราว จะไม่ออกบิล ไม่นับขาด และไม่ขึ้นชื่อในชั้นเรียน'}</small></div>`; };
+      ${soon.length?`<div class="card" style="background:var(--surface-2);padding:8px;margin:4px 0">
+        <b style="font-size:13px">📅 ${EN()?'Starting later — still at school until then':'ยังไม่เริ่มลา — ยังมาเรียนตามปกติ'} (${soon.length})</b>
+        <small class="muted" style="display:block;margin-top:2px">${EN()?'Recorded in advance. Until the start date they are billed, expected, and on every class list as usual.':'บันทึกไว้ล่วงหน้า · จนถึงวันเริ่มลา ยังออกบิล ยังนับการมาเรียน และยังอยู่ในรายชื่อชั้นเรียนตามปกติ'}</small>
+        ${soon.map(x=>row(x,false)).join('')}</div>`:''}
+      <small class="muted">${EN()?'While away a child is not billed, not marked absent, and not on class lists — from the start date onwards.':'ระหว่างลาชั่วคราว จะไม่ออกบิล ไม่นับขาด และไม่ขึ้นชื่อในชั้นเรียน — นับจากวันเริ่มลาเป็นต้นไป'}</small></div>`; };
 
   // Live preview of the FIRST month's tuition under the chosen rule, so the admin sees the number
   // before it becomes a bill. Mirrors tuitionForMonth_ in engine.js — keep the two in step.
@@ -10097,8 +10114,15 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
     const sub = s.prepaid ? `<br><small style="color:var(--ok);font-weight:400">💰 ${esc(prepaySpan(s.prepay))}</small>` : '';
     // Children on temporary leave are still billable — this is how a deposit or a first month is
     // collected BEFORE a child starts — so they stay on the list, marked, at the bottom.
+    /* AWAY NOW, OR AWAY LATER — two different facts, and only one of them was ever printed here.
+     * โมน่า's leave began on the 4th and this row was opened on the 2nd: studentPaused_ said false,
+     * so the finance list showed nothing at all while the dashboard card listed her under
+     * "นักเรียนลาชั่วคราว" (reported 2026-09-02). She IS still at school and still billed for those
+     * two days — the row was not wrong to bill her, it was wrong to say nothing. */
     const pausedTag = s.paused
       ? `<br><small style="color:var(--warn);font-weight:400">⏳ ${EN()?'on temporary leave':'ลาชั่วคราว'}${s.pauseFrom?` · ${esc(s.pauseFrom)}${s.pauseTo?`–${esc(s.pauseTo)}`:''}`:''}</small>`
+      : s.pauseScheduled
+      ? `<br><small style="color:var(--warn);font-weight:400">📅 ${EN()?`temporary leave from ${esc(s.pauseFrom)}${s.pauseTo?` to ${esc(s.pauseTo)}`:''} — still here until then`:`จะลาชั่วคราว ${esc(s.pauseFrom)}${s.pauseTo?`–${esc(s.pauseTo)}`:''} · ยังมาเรียนอยู่`}</small>`
       : '';
     return `<div class="list-item" style="cursor:pointer${s.paused?';opacity:.75':''}" onclick="A_finStudent('${s.studentId}')">
       <span><b>${esc(dnick(s))}</b><br><small class="muted" style="font-weight:400">${dnSub(s)?esc(dnSub(s))+" · ":""}${esc(planLabel(s.plan))}</small>${sub}${pausedTag}</span>

@@ -27,26 +27,22 @@ function ok_(label, cond) { console.log((cond ? '  ok   ' : '  FAIL ') + label);
 const R = f => fs.readFileSync(path.join(__dirname, '..', f), 'utf8').replace(/\r\n/g, '\n');
 const app = R('webapp/app.js'), engine = R('webapp/engine.js');
 
-// ---- lift finStudentRow out and run it for real ----
-function fnSrc(name) {
-  const start = app.indexOf('function ' + name + '(');
-  if (start < 0) throw new Error('not found: ' + name);
-  let depth = 0, inStr = '', esc0 = false;
-  for (let j = app.indexOf('{', start); j < app.length; j++) {
-    const c = app[j];
-    if (esc0) { esc0 = false; continue; }
-    if (c === '\\') { esc0 = true; continue; }
-    if (inStr) { if (c === inStr) inStr = ''; continue; }
-    if (c === '"' || c === "'" || c === '`') { inStr = c; continue; }
-    if (c === '{') depth++;
-    else if (c === '}') { depth--; if (!depth) return app.slice(start, j + 1); }
-  }
-  throw new Error('unbalanced: ' + name);
+/* Lift finStudentRow out and run it for real.
+ *
+ * Cut to the next top-level declaration rather than counting braces: the row is built from nested
+ * template literals, and a brace walker that treats ` as a plain string runs straight past the end
+ * of the function the moment one of them gains another `${...}` level — which is what happened the
+ * first time this row changed. The boundary is a fact about the file, not something to infer. */
+function fnSrc(name, until) {
+  const a = app.indexOf('function ' + name + '(');
+  const b = app.indexOf(until, a);
+  if (a < 0 || b < 0) throw new Error('not found: ' + name);
+  return app.slice(a, b);
 }
 const baht = n => (Math.round(Number(n || 0) * 100) / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const esc = s => String(s == null ? '' : s);
 const row = new Function('EN', 'baht', 'esc', 't', 'dnick', 'dnSub', 'planLabel', 'prepaySpan', 'monthNameYear', `
-  ${fnSrc('finStudentRow')}
+  ${fnSrc('finStudentRow', '\n  SCREENS.Admin.finance')}
   return finStudentRow;`)(
   () => false, baht, esc,
   k => ({ 's.paid': 'ชำระแล้ว', 's.unpaid': 'ค้างชำระ', 'fin.noBill': 'ยังไม่ออกบิล' }[k] || k),
@@ -101,6 +97,41 @@ console.log('\n3) WHAT MUST NOT HAVE CHANGED');
   ok_('...and the amount is stated', /ค้างชำระอื่นๆ \(ไม่ใช่ค่าเทอม\) 100\.00/.test(otherDue));
   const pre = html({ tuitionOpen: 0, otherOpen: 0, otherPending: 0, tuitionPending: 0, prepaid: true, paid: true, prepay: {} });
   ok_('a prepaid family still reads ชำระล่วงหน้าแล้ว', /ชำระล่วงหน้าแล้ว/.test(pre));
+}
+
+console.log('\n3b) BOOKED FOR LATER IS NOT AWAY NOW');
+{
+  /* โมน่า's temporary leave began on the 4th and the finance list was opened on the 2nd. The
+   * dashboard card listed her under "นักเรียนลาชั่วคราว"; this row said NOTHING about her at all,
+   * because studentPaused_ is a question about TODAY while Status only says whether a leave exists.
+   * Two screens, two answers, and the admin had to work out which to believe (2026-09-02).
+   *
+   * She is not away: she was at school that morning and is billed for those two days. The row was
+   * not wrong to bill her — it was wrong to say nothing. */
+  const soon = html({ tuitionOpen: 6900, otherOpen: 0, otherPending: 0, tuitionPending: 0,
+                      paid: false, paused: false, pauseScheduled: true, pauseFrom: '2026-09-04' });
+  ok_('a booked leave is stated on the row', /จะลาชั่วคราว 2026-09-04/.test(soon));
+  ok_('...saying she is still here until then', /ยังมาเรียนอยู่/.test(soon));
+  ok_('...and she is still billed like anyone else', /pill bad">ค้างชำระ/.test(soon));
+  const away = html({ tuitionOpen: 0, otherOpen: 0, otherPending: 0, tuitionPending: 0,
+                      paid: true, paused: true, pauseFrom: '2026-08-01', pauseTo: '2026-10-31' });
+  ok_('a child actually away still reads ลาชั่วคราว', /⏳ ลาชั่วคราว · 2026-08-01–2026-10-31/.test(away));
+  ok_('...and the two cannot be confused', away.indexOf('จะลาชั่วคราว') < 0 && soon.indexOf('⏳ ลาชั่วคราว') < 0);
+  // the server decides which it is, so every screen gets the same answer
+  ok_('the server marks the difference',
+    /pauseScheduled: !studentPaused_\(s\) && !!ymd\(s\.PauseFrom\|\|''\) && todayLocal\(\) < ymd\(s\.PauseFrom\)/.test(engine));
+  ok_('...and says why it is not the same question as Status', /`paused` = away RIGHT NOW/.test(engine));
+  /* THE DASHBOARD CARD TOLD THE ADMIN SOMETHING FALSE. Its footnote — "ระหว่างลาชั่วคราว จะไม่ออกบิล
+   * ไม่นับขาด และไม่ขึ้นชื่อในชั้นเรียน" — was printed under a child who was on the class list that
+   * morning and would be billed for the month. */
+  ok_('the card gives them their own group',
+    /const due=list\.filter\(x=>x\.due\), soon=list\.filter\(x=>!x\.due&&x\.scheduled\), away=/.test(app));
+  ok_('...and says plainly that nothing applies yet', /จนถึงวันเริ่มลา ยังออกบิล ยังนับการมาเรียน/.test(app));
+  ok_('...and the footnote no longer speaks for them', /— นับจากวันเริ่มลาเป็นต้นไป/.test(app));
+  // the roster and the child's own record are the third and fourth screens that said it
+  ok_('the roster pill distinguishes them', /pauseSoon\(s\)\?`<span class="pill info" style="font-size:11px">📅 /.test(app));
+  ok_('...on the dates, not on Status', /const pauseSoon = s => isPaused\(s\) &&/.test(app));
+  ok_('the leave box in the record says it has not begun', /Leave booked — still at school until then/.test(app));
 }
 
 console.log('\n4) THE SERVER ALREADY KNEW');
