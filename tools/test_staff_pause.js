@@ -67,8 +67,12 @@ const res = JSON.parse(run(function () {
   o.customBlank = call({ staffId: 'STF-ADM', targetId: 'STF-MOM', from: today, reason: 'ลาคลอด', salaryMode: 'CUSTOM', salaryAmount: '' });
   o.badMode = call({ staffId: 'STF-ADM', targetId: 'STF-MOM', from: today, reason: 'ลาคลอด', salaryMode: 'MAYBE' });
 
-  // ---- the real thing: away from yesterday, back in 60 days, half salary ----
-  o.set = call({ staffId: 'STF-ADM', targetId: 'STF-MOM', from: shift(-1), to: shift(60),
+  /* ---- the real thing: away since the FIRST of this month, back in 60 days, half salary ----
+   * From the 1st, not from yesterday: with `yesterday` the month held one working day BEFORE the
+   * leave began, so "not counted absent" read absent=1 on any day of the month except the 1st and
+   * 2nd — a suite that passes today and fails tomorrow. The rule under test is about days INSIDE the
+   * leave, so the fixture covers the whole month. */
+  o.set = call({ staffId: 'STF-ADM', targetId: 'STF-MOM', from: month + '-01', to: shift(60),
                  reason: 'ลาคลอด', remark: 'ครบกำหนดคลอด 20/09', salaryMode: 'HALF' });
   var row = function (id) { var r = readObjects_(stSh).filter(function (x) { return x.StaffID === id; })[0] || {};
     return { status: String(r.Status || ''), from: String(r.PauseFrom || '').slice(0, 10),
@@ -112,7 +116,7 @@ const res = JSON.parse(run(function () {
   o.baseAfterPay = row('STF-MOM').base;
 
   var mode = function (m, amt) {
-    call({ staffId: 'STF-ADM', targetId: 'STF-MOM', from: shift(-1), to: shift(60), reason: 'ลาคลอด',
+    call({ staffId: 'STF-ADM', targetId: 'STF-MOM', from: month + '-01', to: shift(60), reason: 'ลาคลอด',
            salaryMode: m, salaryAmount: amt });
     return pay('STF-MOM').BaseSalary;
   };

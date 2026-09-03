@@ -125,8 +125,14 @@ console.log('\n3) the rest of that person’s pay settings are read too');
 {
   reset({ SocialSecurityDeduct: 'FALSE' });
   eq('a person marked exempt from social security is not charged it', run().SocialSecurity, 0);
+  /* NOT SET now means NOT DEDUCTED (2026-09-02, at the school's request). The old default took ฿750
+   * off anybody the admin had never configured — money removed from a teacher's pay because nobody
+   * had said not to. Off is the safer of the two wrong answers: a payslip that is too high gets
+   * reported, one that is too low may not be. A per-staff setting still wins either way. */
   reset(null);
-  ok_('...while everybody else still is', run().SocialSecurity > 0);
+  eq('...and somebody with no setting at all is not charged either', run().SocialSecurity, 0);
+  reset({ SocialSecurityDeduct: 'TRUE' });
+  ok_('...while a person the admin HAS ticked still is', run().SocialSecurity > 0);
 }
 {
   reset({ PayType: 'daily', DailyRate: 450 });

@@ -159,5 +159,39 @@ console.log('\n5) THE SAME THREE STATES INSIDE THE STUDENT’S OWN SCREEN');
   ok_('a status now prints as words rather than a code', /esc\(tStat\(status\)\|\|status\|\|''\)/.test(app));
 }
 
+console.log('\n6) THE THREE SWITCHES ASKED FOR ON 2026-09-02');
+{
+  /* (a) ONE DATE FORMAT. "หน้าหลักของ Admin ให้ใช้ Format วันเดือนปี [DD/MM/YYYY] เหมือนของคุณครู
+   * ทั้งหมดทุกหัวข้อ" — changed in ddmmyyyy itself rather than on the admin screens, because both
+   * roles already call that one function. A second formatter for one screen would have created the
+   * very inconsistency the request is about. */
+  ok_('dates are DD/MM/YYYY, in the one place that decides',
+    /return p2\(d\.getDate\(\)\)\+'\/'\+p2\(d\.getMonth\(\)\+1\)\+'\/'\+d\.getFullYear\(\);/.test(app));
+  ok_('...and the reason it was not done screen by screen is written down',
+    /ONE DATE FORMAT, EVERYWHERE: DD\/MM\/YYYY/.test(app));
+
+  /* (b) THE PREPAY SWITCH, shaped like the check-in one, default ON. */
+  ok_('the setting exists and is seeded ON', /\['ParentPrepayEnabled',   'true'\]/.test(R('src/Config.gs')));
+  ok_('...and is savable, or the toggle would do nothing',
+    /ParentPrepayEnabled: 1,/.test(R('src/Staff.gs')) && /gv\.ParentPrepayEnabled=ck\('#setPrepayOn'\)/.test(app));
+  ok_('the admin has a toggle for it', /id="setPrepayOn"[\s\S]{0,80}cfgOn\('ParentPrepayEnabled',true\)/.test(app));
+  ok_('the parent card disappears when it is off', /const preHtml=\(!preOn && !preShow\.length\) \? '' :/.test(app));
+  /* ...but only the OFFER. A family who paid six months ahead must still be able to see what they
+   * bought; hiding it would look like the money had gone. */
+  ok_('...while advance payments already made stay visible', /Rows ALREADY[\s\S]{0,40}paid stay visible/.test(app));
+  /* A hidden button is a suggestion, not a rule: the payable this creates commits the school to a
+   * discount for up to a year, so the server refuses it too. */
+  ok_('the server refuses a new one, not just the screen',
+    /fail\('PREPAY_OFF','ขณะนี้โรงเรียนปิดการชำระล่วงหน้าไว้/.test(engine));
+  ok_('...in the built engine as well', /fail\('PREPAY_OFF'/.test(R('src/Engine.gs')));
+
+  /* (c) SOCIAL SECURITY OFF BY DEFAULT. */
+  ok_('unset means not deducted, on the live route', /: \(pcSS != null \? pcSS : false\);/.test(R('src/Payroll.gs')));
+  ok_('...and in the engine', /pc\.SocialSecurityDeduct\)===true;/.test(engine));
+  ok_('...and the tick box agrees with both', /\$\('#pSS'\)\.checked=pc\.SocialSecurityDeduct===true;/.test(app));
+  ok_('...with the reason it is the safer default written down',
+    /a payslip that is too HIGH and is told about it/.test(R('src/Payroll.gs')));
+}
+
 console.log('\n' + (fail ? 'FAILED ' : 'PASSED ') + pass + ' passed, ' + fail + ' failed\n');
 process.exit(fail ? 1 : 0);

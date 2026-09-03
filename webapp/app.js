@@ -112,7 +112,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.332'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.333'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -1632,7 +1632,15 @@
     if(btn)btn.disabled=true; try{ await api('saveTeacherReply',{staffId:USER.staffId,studentId:sid,date:date||undefined,reply}); confirmSaved(EN()?'Reply sent':'ส่งคำตอบแล้ว'); }catch(e){err(e);}finally{ if(btn)btn.disabled=false; } };
   window.P_saveComment=async(sid,date,btn)=>{ const el=document.getElementById('jPC'); const comment=el?el.value:'';
     if(btn)btn.disabled=true; try{ await api('saveParentComment',{parentId:USER.parentId,uid:USER.uid,studentId:sid,date:date||undefined,comment}); confirmSaved(EN()?'Comment saved':'บันทึกความคิดเห็นแล้ว'); }catch(e){err(e);}finally{ if(btn)btn.disabled=false; } };
-  function ddmmyyyy(s){ const d=new Date(s||todayStr()); return p2(d.getDate())+'-'+p2(d.getMonth()+1)+'-'+d.getFullYear(); }
+  /* ONE DATE FORMAT, EVERYWHERE: DD/MM/YYYY.
+   *
+   * Asked 2026-09-02 for the admin home — "ให้ใช้ Format วันเดือนปี [DD/MM/YYYY] เหมือนของคุณครู
+   * ทั้งหมดทุกหัวข้อ". Changed HERE rather than on the admin screens, because the admin screens and
+   * the teacher screens already call this one function: adding a second formatter for one screen
+   * would have created the very inconsistency the request is about, and left the next date somebody
+   * adds to be a coin toss. Slashes, not dashes — 01/08/2026 is how the school writes a date, and
+   * 01-08-2026 reads like a range. Display only; nothing parses this back. */
+  function ddmmyyyy(s){ const d=new Date(s||todayStr()); return p2(d.getDate())+'/'+p2(d.getMonth()+1)+'/'+d.getFullYear(); }
   // full Thai/English date + month names for the receipt (Buddhist year in Thai)
   const TH_MONTHS=['มกราคม','กุมภาพันธ์','มีนาคม','เมษายน','พฤษภาคม','มิถุนายน','กรกฎาคม','สิงหาคม','กันยายน','ตุลาคม','พฤศจิกายน','ธันวาคม'];
   const EN_MONTHS=['January','February','March','April','May','June','July','August','September','October','November','December'];
@@ -2762,8 +2770,12 @@
     const per=EN()?'Period ':'งวด ';
     const verifyPill=`<span class="pill wait">${esc(t('pay.pendingVerify'))}</span>`;
     const preShow=pre.filter(p=>p.Status!=='UNPAID'); // in-progress / paid only; the discount options live behind the button
-    const preHtml=`<div class="card"><div class="spread"><h3>💰 ${esc(t('prepay.title'))}</h3><button class="btn sm" onclick="P_prepay('${sid}')">💰 ${esc(t('prepay.pay'))}</button></div>
-      <p class="muted" style="font-size:13px">${EN()?'Pay several months ahead for a discount — tap the button to see the options.':'จ่ายล่วงหน้าหลายเดือนรับส่วนลด — กดปุ่มเพื่อดูตัวเลือก'}</p>
+    /* ...and the whole card goes when the school has closed prepayment (2026-09-02). Rows ALREADY
+     * paid stay visible: a family who paid six months up front must still be able to see what they
+     * bought, and hiding it would look like the money had vanished. Only the offer goes. */
+    const preOn = String(((MOCK.config||{}).ParentPrepayEnabled)==null?'true':(MOCK.config||{}).ParentPrepayEnabled).toLowerCase()!=='false';
+    const preHtml=(!preOn && !preShow.length) ? '' : `<div class="card"><div class="spread"><h3>💰 ${esc(t('prepay.title'))}</h3>${preOn?`<button class="btn sm" onclick="P_prepay('${sid}')">💰 ${esc(t('prepay.pay'))}</button>`:''}</div>
+      ${preOn?`<p class="muted" style="font-size:13px">${EN()?'Pay several months ahead for a discount — tap the button to see the options.':'จ่ายล่วงหน้าหลายเดือนรับส่วนลด — กดปุ่มเพื่อดูตัวเลือก'}</p>`:''}
       ${preShow.length?preShow.map(p=>{ const paid=p.Status==='PAID',partial=p.Status==='PARTIAL'; const sl=slipsOf('prepay',p.PrepayID); const pend=sl.some(s=>s.Status==='SUBMITTED');
         return `<div style="border-bottom:1px solid var(--surface-3);padding:4px 0"><div class="list-item"><span>${esc(t('prepay.months').replace('{n}',p.Months))} <span class="pill ok">-${p.Discount}%</span> <small class="muted">${esc(p.Covered[0])}→${esc(p.Covered[p.Covered.length-1])}</small></span>
         <span><b>${baht(p.Amount)}</b> ${paid?`<span class="pill ok">${esc(t('prepay.paidAhead'))}</span>`:partial?`<span class="pill wait">${EN()?'partial':'บางส่วน'}</span>`:pend?verifyPill:''} ${paid?'':`<button class="btn sm" onclick="P_pay('prepay','${p.PrepayID}',${p.Amount})">${pend||partial?'📎':'💳'} ${esc(t('lbl.pay'))}</button>`}</span></div>${slipHistoryHTML(sl)}</div>`; }).join(''):''}</div>`;
@@ -6080,7 +6092,7 @@
     // this used to read MOCK.staff, which holds SEED rows (and is empty since the mockdata split), so
     // the saved salary never came back — the field showed 0 every time the screen was opened
     const s=(A_CACHE.staff||[]).find(x=>x.StaffID===sid)||{};
-    $('#pBase').value=s.BaseSalary||0; $('#pChildMul2').value=pc.ChildMultiplier; $('#pSS').checked=pc.SocialSecurityDeduct!==false;
+    $('#pBase').value=s.BaseSalary||0; $('#pChildMul2').value=pc.ChildMultiplier; $('#pSS').checked=pc.SocialSecurityDeduct===true;   // unset = off (see computePayroll in Payroll.gs)
     $('#pType').value=pc.PayType||'monthly'; $('#pDaily').value=pc.DailyRate||0;
     $('#pAttendAmt').value=pc.DiligenceAttendanceAmount!=null?pc.DiligenceAttendanceAmount:MOCK.config.DiligenceAttendanceAmount;
     $('#pFbAmt').value=pc.DiligenceFacebookAmount!=null?pc.DiligenceFacebookAmount:MOCK.config.DiligenceFacebookAmount;
@@ -8126,6 +8138,13 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
       ${/* THE BIGGEST CONSUMER, and until 2026-09-02 the only channel with no switch at all — which
            is why emptying the recipient list changed nothing on the estimate. ON by default: it is
            the school's promise to families and has always worked this way. */''}
+      ${/* A PAYING CHANNEL THE SCHOOL CAN CLOSE. Asked 2026-09-02 for a switch shaped like the
+           check-in one: off hides the offer from every parent's finance screen and the server
+           refuses the route, so it is a rule rather than a hidden button. Rows already paid stay
+           visible — a family who paid six months ahead must still see what they bought. */''}
+      <label class="field" style="display:flex;align-items:center;gap:8px"><input type="checkbox" id="setPrepayOn" style="width:auto" ${cfgOn('ParentPrepayEnabled',true)?'checked':''}/> 💰 ${EN()?'Let parents pay several months in advance (with the discount)':'ให้ผู้ปกครองชำระล่วงหน้าหลายเดือนได้ (พร้อมส่วนลด)'}</label>
+      <p class="muted" style="font-size:13px">${EN()?'Off: the ชำระล่วงหน้า card disappears from the parents’ finance screen and any new advance payment is refused. Advance payments already made stay visible and keep working.'
+        :'ปิด: การ์ด "ชำระล่วงหน้า" จะหายไปจากหน้าการเงินของผู้ปกครอง และระบบจะไม่รับรายการใหม่ · รายการที่ชำระไปแล้วยังแสดงและใช้งานได้ตามปกติ'}</p>
       <label class="field" style="display:flex;align-items:center;gap:8px"><input type="checkbox" id="setParentLine" style="width:auto" ${cfgOn('ParentLineNotify',true)?'checked':''}/> 👨‍👩‍👧 ${EN()?'LINE parents on arrival / pick-up, the daily journal and DSPM results':'ส่ง LINE ถึงผู้ปกครอง: รับ-ส่ง · บันทึกประจำวัน · ผลประเมิน DSPM'}</label>
       <p class="muted" style="font-size:13px">${EN()?'This is the school\'s promise to families and by far the largest use of the quota — it is not part of the recipient list above, which is for staff. A late-pickup charge and an accident always go out regardless.'
         :'<b>ใช้โควตามากที่สุด</b> และ<b>ไม่เกี่ยวกับรายชื่อผู้รับด้านบน</b> (รายการนั้นสำหรับพนักงาน) · ค่ารับช้าและอุบัติเหตุยังส่งเสมอไม่ว่าตั้งค่าอย่างไร'}</p>
@@ -9325,6 +9344,7 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
     if(ck('#setAdminLine')!==undefined) gv.AdminLineNotify=ck('#setAdminLine');
     if(ck('#setStaffLine')!==undefined) gv.StaffLineNotify=ck('#setStaffLine');
     if(ck('#setParentLine')!==undefined) gv.ParentLineNotify=ck('#setParentLine');
+    if(ck('#setPrepayOn')!==undefined) gv.ParentPrepayEnabled=ck('#setPrepayOn');
     if(ck('#setDigM')!==undefined) gv.DigestMorning=ck('#setDigM');
     if(ck('#setDigE')!==undefined) gv.DigestEvening=ck('#setDigE');
     if(Object.keys(gv).length) await api('setSchoolConfig',{values:gv});

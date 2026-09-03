@@ -112,8 +112,10 @@ const result = run(function () {
   // ---- payroll ----
   // attendance: one on-time check-in this month, no leave -> eligible
   appendObject_(sheet_(HR, 'CHECKIN_STAFF'), { Date: '2026-06-02', StaffID: 'STF-T1', CheckIn: '07:55', CheckOut: '17:05', LateMinutes: 0, OTHours: 0, Status: 'OUT' });
+  // socialSecurityDeduct is now sent EXPLICITLY: the default became "off" on 2026-09-02 (the school
+  // asked for it), and this block is testing the CAP, not what happens when nobody has decided.
   const pr = computePayroll({ staffId: 'STF-T1', month: '2026-06', facebookPosted: true,
-    extraChildCount: 5, trainingCertCount: 3 /*capped to 2*/, generatedBy: 'STF-ADM' });
+    socialSecurityDeduct: true, extraChildCount: 5, trainingCertCount: 3 /*capped to 2*/, generatedBy: 'STF-ADM' });
   ok(pr.DiligenceTotal === 1000, 'diligence = 1000 (attendance500 + fb500)');
   ok(pr.ExtraChildAmount === 1500, 'extra children 5*300 = 1500');
   ok(pr.TrainingCertAmount === 200, 'training certs capped at 2 -> 200');
@@ -124,7 +126,7 @@ const result = run(function () {
   ok(/^PR-\d{4}$/.test(pr.PayrollID), 'payrollId format ' + pr.PayrollID);
   // late staff -> not eligible
   appendObject_(sheet_(HR, 'CHECKIN_STAFF'), { Date: '2026-06-03', StaffID: 'STF-T1', CheckIn: '08:20', CheckOut: '17:00', LateMinutes: 20, OTHours: 0, Status: 'OUT' });
-  const pr2 = computePayroll({ staffId: 'STF-T1', month: '2026-06', generatedBy: 'x' });
+  const pr2 = computePayroll({ staffId: 'STF-T1', month: '2026-06', socialSecurityDeduct: true, generatedBy: 'x' });
   ok(pr2.DiligenceAttendance === 0, 'late month -> no attendance bonus');
   ok(getPayrollForMonth_ ? true : true, 'payroll persisted (one row/month)');
   ok(sheet_(HR, 'PAYROLL').getLastRow() - 1 === 1, 'payroll upserts (still 1 row)');

@@ -179,9 +179,19 @@ function computePayroll(payload) {
   // --- รายการหัก ---
   // the client sends socialSecurityDeduct (the checkbox). Only an explicit socialSecurity NUMBER
   // overrides the calculation; unticking must zero it, which is what was being ignored.
+  /* SOCIAL SECURITY IS OFF UNLESS THE SCHOOL TICKS IT.
+   *
+   * Asked 2026-09-02: "ตั้งค่าติ๊กออกสำหรับประกันสังคมเป็น Default". The old default deducted ฿750
+   * from anybody the admin had not configured — a figure taken off a teacher's pay because nobody
+   * had said not to. Off is the safer wrong answer of the two: an admin who forgets to tick it sees
+   * a payslip that is too HIGH and is told about it, where the other way round the teacher is short
+   * and may not say anything.
+   *
+   * A per-staff setting still wins in both directions — this only changes what "not set" means, and
+   * nothing already computed or saved is touched. */
   var pcSS = pcBool_(pc.SocialSecurityDeduct);
   var ssDeduct = (payload.socialSecurityDeduct != null) ? !!payload.socialSecurityDeduct
-    : (pcSS != null ? pcSS : true);
+    : (pcSS != null ? pcSS : false);
   var ss = (payload.socialSecurity != null) ? num_(payload.socialSecurity)
     : (ssDeduct ? Math.min(round2_(base * num_(getConfig_('SocialSecurityRate', '0.05'))), num_(getConfig_('SocialSecurityMax', '750'))) : 0);
   // เงินสมทบ is a SAVINGS fund, not a cost to the teacher: the amount entered here is deducted from
