@@ -168,6 +168,7 @@ var PERF_EXPECTED_ = {
   OUT_OF_RANGE: 1,          // standing away from the school — the geofence doing its job
   ALREADY_CHECKED_IN: 1, ALREADY_CHECKED_OUT: 1,   // the server refusing a duplicate punch
   MISSING_FIELDS: 1, BAD_INPUT: 1,                 // a form submitted incomplete
+  FUTURE_TIME: 1,           // an injury timed later than now — the form catching a typing slip
   JOURNAL_LOCKED: 1,        // already sent to the parent
   ON_LEAVE: 1,              // the family told us the child is away today
   SCHOOL_CLOSED: 1, NOT_STARTED: 1, STUDENT_PAUSED: 1,

@@ -34,8 +34,10 @@ console.log('\n1) the column is declared');
   ok_('...and the rest of the form is still there', ['InjuryID', 'StudentID', 'InjuryTypes', 'TeacherID'].every(c => cols.indexOf(c) >= 0));
   // 24 form fields + the 8 approval columns added in v224 (Status, LeaderBy/At, AdminBy/At,
   // RejectReason, UpdatedBy/At) + the 9 added in v225 (ShareJournal, Photo1-3, Wounds and the
-  // four Treatment* fields of page 2)
-  eq('nothing was dropped while adding it', cols.length, 41);
+  // four Treatment* fields of page 2) + CreatedAt, added 2026-09-03 so "when it was FILED" can be
+  // told apart from "when it HAPPENED"
+  eq('nothing was dropped while adding it', cols.length, 42);
+  ok_('...and the filing stamp is one of them', cols.indexOf('CreatedAt') >= 0);
   ok_('...and the approval trail is stored, not just displayed',
     ['Status', 'LeaderBy', 'AdminBy', 'RejectReason'].every(c => cols.indexOf(c) >= 0));
 }
@@ -137,6 +139,35 @@ console.log('\n5) the same trap, closed for the other collections too');
   const body = whole.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
   ok_('and the top-up is generic, not injury-specific', !/INJURY/.test(body));
   ok_('...though the comment keeps the example that exposed it', /INJURY_REPORTS\.NotifyParent/.test(whole));
+}
+
+console.log('\n6) WHEN IT HAPPENED vs WHEN IT WAS FILED');
+{
+  /* Reported 2026-09-03: two injury reports arrived on LINE at 13:10 and 13:13 and read "เวลา 10:25"
+   * and "เวลา 16:10" — and 16:10 had not come round yet that day. Both were dated the PREVIOUS day.
+   *
+   * Date/Time on the form are the INCIDENT, typed by the teacher, and a teacher catching up on
+   * yesterday is normal. What the app could not answer was the admin's actual question — when did
+   * this report reach us? — because CreatedDate stored the filing DATE and nothing stored the time.
+   * Two different facts had one field between them. */
+  ok_('the filing moment is stamped to the minute', /CreatedAt:stampLocal\(\),/.test(eng));
+  ok_('...and the list shows it when it is not the same day as the incident',
+    /if\(d===String\(r\.Date\|\|''\)\.slice\(0,10\)\) return '';/.test(app) &&
+    /📝 \$\{EN\(\)\?'filed':'บันทึกเมื่อ'\}/.test(app));
+  ok_('...and says why the two are not the same question',
+    /WHEN IT HAPPENED, AND WHEN IT WAS FILED — two different facts/.test(app));
+  /* An accident cannot be reported before it happens, so a future time is a typing slip every time —
+   * refused rather than stored on a document a parent or an insurer may read. */
+  ok_('an incident timed in the future is refused by the server',
+    /fail\('FUTURE_TIME','เวลาที่เกิดเหตุยังมาไม่ถึง/.test(eng));
+  ok_('...in the built engine too', /fail\('FUTURE_TIME'/.test(R('src/Engine.gs')));
+  ok_('...and the teacher is told before the form is sent', /if\(injFuture\(f\)\)\{ toast\(/.test(app));
+  ok_('...by the same test on both sides', /d>now \|\| \(d===now &&/.test(app));
+  /* A PAST time is still fine — that is the normal case, and the filing stamp is what makes it
+   * readable rather than suspicious. */
+  ok_('yesterday is still allowed, which is the whole point of the stamp',
+    /Past dates are fine: a[\s\S]{0,40}teacher catching up on yesterday is normal/.test(eng));
+  ok_('the refusal is known to be a rule working, not a crash', /FUTURE_TIME: 1,/.test(R('src/Perf.gs')));
 }
 
 console.log('\n' + (fail ? 'FAILED ' : 'PASSED ') + pass + ' passed, ' + fail + ' failed\n');
