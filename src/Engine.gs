@@ -4469,9 +4469,33 @@ function createAtomAPI(M, GROWTH_STD) {
     setLeaveQuota: p => { cfg.LeaveQuota=cfg.LeaveQuota||{}; cfg.LeaveQuota[p.type]=Number(p.days||0); return cfg.LeaveQuota; },
     getLeaveQuota: () => cfg.LeaveQuota,
     // admin edits whitelisted config (geofence etc.) — GAS route persists to SCHOOL_CONFIG; here = mock
-    schoolConfig: () => ({ GPS_Lat:cfg.GPS_Lat, GPS_Lng:cfg.GPS_Lng, Radius:cfg.Radius, LateGraceMinutes:cfg.LateGraceMinutes, OTRatePerHour:cfg.OTRatePerHour, StaffOTHourlyRate:cfg.StaffOTHourlyRate, ContributionMatchRate:cfg.ContributionMatchRate }),
-    setSchoolConfig: p => { const W={GPS_Lat:1,GPS_Lng:1,Radius:1,LateGraceMinutes:1,OTRatePerHour:1,OTGraceMinutes:1,StaffOTHourlyRate:1,OTRoundUpMinutes:1,DefaultCheckInTime:1,DefaultCheckOutTime:1,BigCleaningAmount:1,BigCleaningIn:1,BigCleaningOut:1,ContributionMatchRate:1}; const v=p.values||{};
-      Object.keys(v).forEach(k=>{ if(W[k]) cfg[k]=isNaN(Number(v[k]))?v[k]:Number(v[k]); }); return {ok:true, wrote:v}; },
+    /* THE SETTINGS SCREEN WAS READING ITS OWN DEFAULTS BACK.
+     *
+     * Every switch in the settings modal falls back to MOCK.config when this route does not carry the
+     * key — and MOCK.config is the seed baked into the client, never the school's saved values (in
+     * gas mode nothing ever assigns to it). So a tick saved correctly, the sheet held it, and the box
+     * came up ticked again next time because the client was reading its own factory default.
+     * Reported 2026-09-03 for ParentPrepayEnabled; the LINE switches had it too and it was silent
+     * there because their seed happens to match what most schools want.
+     *
+     * The parent app reads ParentPrepayEnabled from here as well, so it must be readable by a
+     * parent — these are school-wide settings, not staff data, which is why this route is not
+     * admin-only. */
+    schoolConfig: () => ({ GPS_Lat:cfg.GPS_Lat, GPS_Lng:cfg.GPS_Lng, Radius:cfg.Radius, LateGraceMinutes:cfg.LateGraceMinutes, OTRatePerHour:cfg.OTRatePerHour, StaffOTHourlyRate:cfg.StaffOTHourlyRate, ContributionMatchRate:cfg.ContributionMatchRate,
+      AdminLineNotify:cfg.AdminLineNotify, StaffLineNotify:cfg.StaffLineNotify, ParentLineNotify:cfg.ParentLineNotify,
+      DigestMorning:cfg.DigestMorning, DigestEvening:cfg.DigestEvening,
+      ParentPrepayEnabled:cfg.ParentPrepayEnabled }),
+    /* THE WHITELIST HERE HAD DRIFTED FROM THE ONE ON THE LIVE ROUTE.
+     *
+     * handleSetSchoolConfig in src/Staff.gs shadows this on GAS and has carried the notification
+     * switches for months; this copy silently dropped them, so every one of them saved on live and
+     * did nothing in the local build — and any test written against the engine was testing a
+     * different rule from the one the school runs. Kept in step deliberately: two lists that decide
+     * what may be written are one list that is sometimes wrong. */
+    setSchoolConfig: p => { const W={GPS_Lat:1,GPS_Lng:1,Radius:1,GpsAccuracySlack:1,LateGraceMinutes:1,OTRatePerHour:1,OTGraceMinutes:1,StaffOTHourlyRate:1,OTRoundUpMinutes:1,DefaultCheckInTime:1,DefaultCheckOutTime:1,BigCleaningAmount:1,BigCleaningIn:1,BigCleaningOut:1,ContributionMatchRate:1,
+      AdminLineNotify:1,StaffLineNotify:1,ParentLineNotify:1,ParentPrepayEnabled:1,DigestMorning:1,DigestEvening:1}; const v=p.values||{};
+      // 'true'/'false' are not numbers, so they pass through as the strings the rest of the app reads
+      Object.keys(v).forEach(k=>{ if(W[k]) cfg[k]=(v[k]===''||isNaN(Number(v[k])))?v[k]:Number(v[k]); }); return {ok:true, wrote:v}; },
     leaveResetReminder: () => { const n=new Date(); return {due:n.getMonth()===0, month:n.getMonth()+1, year:n.getFullYear()}; }, // every January
     // verify the teacher OT computation across the attendance history (schedule out vs actual out)
     otVerification: p => { const rows=M.staffAttendanceHistory.filter(h=>!p.staffId||h.StaffID===p.staffId).filter(h=>h.Out);

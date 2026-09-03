@@ -112,7 +112,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.335'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.336'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -2770,7 +2770,11 @@
     const seg=document.getElementById('paySeg'); if(seg)[...seg.children].forEach((b,j)=>b.classList.toggle('active',j===i));
     setHTML('#payBody', await P_payChildHTML(k)); window.scrollTo(0,0); };
   async function P_payChildHTML(kid){ const sid=kid.StudentID;
-    const [ps, ot, pre, allSlips, charges, plans, qr] = await Promise.all([api('payments',{studentId:sid}), api('otDaily',{studentId:sid}), api('prepayments',{studentId:sid}), api('paymentSlips',{studentId:sid}), api('studentCharges',{studentId:sid}), api('getPlans').catch(()=>[]), api('getQRCodes').catch(()=>({qrs:[],otQrId:''}))]);
+    /* ...and the school's own switches, from the SERVER. MOCK.config is the seed baked into this
+       file and nothing ever replaces it in gas mode, so reading ParentPrepayEnabled from there meant
+       the parent app could never see the school turn prepayment off (reported 2026-09-03). It rides
+       in the batch this screen already sends, so it costs no extra round trip. */
+    const [ps, ot, pre, allSlips, charges, plans, qr, sc] = await Promise.all([api('payments',{studentId:sid}), api('otDaily',{studentId:sid}), api('prepayments',{studentId:sid}), api('paymentSlips',{studentId:sid}), api('studentCharges',{studentId:sid}), api('getPlans').catch(()=>[]), api('getQRCodes').catch(()=>({qrs:[],otQrId:''})), api('schoolConfig').catch(()=>({}))]);
     // resolve the bank QR bound to THIS child's package (tuition) and to OT — so money goes to the right account
     const _qrs=(qr&&qr.qrs)||[]; const _plan=(plans||[]).find(p=>p.id===kid.Plan)||{}; const _img=id=>{ const q=_qrs.find(x=>x.id===id); return q?q.image:''; };
     window._PAYQR={ bill:_img(_plan.qrId)||MOCK.config.QRCode_Monthly||MOCK.config.QRCode, ot:_img(qr&&qr.otQrId)||MOCK.config.QRCode_OT };
@@ -2781,7 +2785,7 @@
     /* ...and the whole card goes when the school has closed prepayment (2026-09-02). Rows ALREADY
      * paid stay visible: a family who paid six months up front must still be able to see what they
      * bought, and hiding it would look like the money had vanished. Only the offer goes. */
-    const preOn = String(((MOCK.config||{}).ParentPrepayEnabled)==null?'true':(MOCK.config||{}).ParentPrepayEnabled).toLowerCase()!=='false';
+    const preOn = String((sc||{}).ParentPrepayEnabled==null?'true':sc.ParentPrepayEnabled).toLowerCase()!=='false';
     const preHtml=(!preOn && !preShow.length) ? '' : `<div class="card"><div class="spread"><h3>💰 ${esc(t('prepay.title'))}</h3>${preOn?`<button class="btn sm" onclick="P_prepay('${sid}')">💰 ${esc(t('prepay.pay'))}</button>`:''}</div>
       ${preOn?`<p class="muted" style="font-size:13px">${EN()?'Pay several months ahead for a discount — tap the button to see the options.':'จ่ายล่วงหน้าหลายเดือนรับส่วนลด — กดปุ่มเพื่อดูตัวเลือก'}</p>`:''}
       ${preShow.length?preShow.map(p=>{ const paid=p.Status==='PAID',partial=p.Status==='PARTIAL'; const sl=slipsOf('prepay',p.PrepayID); const pend=sl.some(s=>s.Status==='SUBMITTED');
@@ -7303,7 +7307,18 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
     if(!PP_TIERS.length) PP_TIERS=[{months:3,discount:5},{months:6,discount:10},{months:12,discount:15}];
     const prices=(A_CACHE.plans||[]).map(p=>Number(p.price)||0).filter(Boolean);
     window._PP_PREVIEW=prices.length?Math.max.apply(null,prices):0;
+    /* THE ON/OFF SWITCH LIVES WITH THE THING IT GOVERNS. It was in ⚙️ ตั้งค่า, three screens away
+       from the discount tiers it turns off — "ย้ายปุ่มนี้ไปอยู่ในส่วนที่ถูกต้อง ... เวลาดำเนินการได้
+       อยู่ในหมวดเดียวกัน" (2026-09-03). Same slider as the check-in list, and it saves on the spot
+       rather than waiting for the Save button below, which is for the tiers. */
+    const _sc = await api('schoolConfig').catch(()=>({}));
+    const _preOn = String(_sc.ParentPrepayEnabled==null?'true':_sc.ParentPrepayEnabled).toLowerCase()!=='false';
     modal(`<div class="spread"><h3>💰 ${EN()?'Advance-payment discounts':'ส่วนลดชำระล่วงหน้า'}</h3><button class="btn sm" onclick="A_ppAdd()">+ ${esc(t('manage.add'))}</button></div>
+      <div class="list-item" style="background:var(--surface-2);border-radius:10px;padding:8px 10px;margin-bottom:8px">
+        <span><b>${EN()?'Let parents pay in advance':'เปิดให้ผู้ปกครองชำระล่วงหน้า'}</b>
+          <br><small class="muted" id="ppOnNote">${_preOn?(EN()?'On — parents see the ชำระล่วงหน้า card and these discounts.':'เปิดอยู่ — ผู้ปกครองเห็นการ์ด "ชำระล่วงหน้า" และส่วนลดด้านล่างนี้')
+            :(EN()?'Off — the card is hidden and new advance payments are refused. Payments already made keep working.':'ปิดอยู่ — การ์ดถูกซ่อน และระบบไม่รับรายการใหม่ · รายการที่ชำระไปแล้วยังใช้งานได้ตามปกติ')}</small></span>
+        <label class="switch"><input type="checkbox" id="ppOn" ${_preOn?'checked':''} onchange="A_ppToggle(this)"><span class="slider"></span></label></div>
       <p class="muted" style="font-size:13px">${EN()?'Pay several months up front, get a discount. These tiers are what parents see; an Admin can still agree a one-off rate for a single family.':'ชำระล่วงหน้าหลายเดือนแล้วได้ส่วนลด · ระดับเหล่านี้คือที่ผู้ปกครองเห็น · แอดมินยังตกลงเรตพิเศษเฉพาะรายได้'}</p>
       <div id="ppList"></div>
       <button class="btn block" style="margin-top:8px" onclick="A_ppSave(this)">${esc(t('c.save'))}</button>`);
@@ -7317,6 +7332,16 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
         <button class="btn sm pink" style="align-self:end" onclick="A_ppDel(${i})" aria-label="${EN()?'Delete':'ลบ'}">✕</button></div>
         ${price>0?`<small class="muted">${EN()?'e.g.':'ตัวอย่าง'} ${baht(price)}/${EN()?'mo':'เดือน'} → ${baht(gross)} ${EN()?'becomes':'เหลือ'} <b>${baht(amt)}</b> (${EN()?'save':'ประหยัด'} ${baht(gross-amt)})</small>`:''}</div>`;
     }).join('')||`<small class="muted">${EN()?'No tiers — parents cannot pay in advance.':'ยังไม่มีระดับส่วนลด — ผู้ปกครองจะชำระล่วงหน้าไม่ได้'}</small>`; }
+  /* Saves immediately, like the check-in switch — and puts the tick BACK if the server refuses, so
+     the screen never shows a setting the school does not have. */
+  window.A_ppToggle=async(el)=>{ const on=el.checked; el.disabled=true;
+    try{ await api('setSchoolConfig',{values:{ParentPrepayEnabled:on?'true':'false'}});
+      const n=document.getElementById('ppOnNote');
+      if(n) n.textContent = on?(EN()?'On — parents see the ชำระล่วงหน้า card and these discounts.':'เปิดอยู่ — ผู้ปกครองเห็นการ์ด "ชำระล่วงหน้า" และส่วนลดด้านล่างนี้')
+                             :(EN()?'Off — the card is hidden and new advance payments are refused. Payments already made keep working.':'ปิดอยู่ — การ์ดถูกซ่อน และระบบไม่รับรายการใหม่ · รายการที่ชำระไปแล้วยังใช้งานได้ตามปกติ');
+      toast(on?(EN()?'Advance payment ON':'เปิดการชำระล่วงหน้าแล้ว'):(EN()?'Advance payment OFF':'ปิดการชำระล่วงหน้าแล้ว'));
+    }catch(e){ el.checked=!on; err(e); }
+    finally{ el.disabled=false; } };
   window.PP_SET=(i,k,v)=>{ PP_TIERS[i][k]=Number(v)||0; if(k==='discount')A_ppRender(); };
   window.A_ppAdd=()=>{ PP_TIERS.push({months:0,discount:0}); A_ppRender(); };
   window.A_ppDel=(i)=>{ PP_TIERS.splice(i,1); A_ppRender(); };
@@ -8146,13 +8171,8 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
       ${/* THE BIGGEST CONSUMER, and until 2026-09-02 the only channel with no switch at all — which
            is why emptying the recipient list changed nothing on the estimate. ON by default: it is
            the school's promise to families and has always worked this way. */''}
-      ${/* A PAYING CHANNEL THE SCHOOL CAN CLOSE. Asked 2026-09-02 for a switch shaped like the
-           check-in one: off hides the offer from every parent's finance screen and the server
-           refuses the route, so it is a rule rather than a hidden button. Rows already paid stay
-           visible — a family who paid six months ahead must still see what they bought. */''}
-      <label class="field" style="display:flex;align-items:center;gap:8px"><input type="checkbox" id="setPrepayOn" style="width:auto" ${cfgOn('ParentPrepayEnabled',true)?'checked':''}/> 💰 ${EN()?'Let parents pay several months in advance (with the discount)':'ให้ผู้ปกครองชำระล่วงหน้าหลายเดือนได้ (พร้อมส่วนลด)'}</label>
-      <p class="muted" style="font-size:13px">${EN()?'Off: the ชำระล่วงหน้า card disappears from the parents’ finance screen and any new advance payment is refused. Advance payments already made stay visible and keep working.'
-        :'ปิด: การ์ด "ชำระล่วงหน้า" จะหายไปจากหน้าการเงินของผู้ปกครอง และระบบจะไม่รับรายการใหม่ · รายการที่ชำระไปแล้วยังแสดงและใช้งานได้ตามปกติ'}</p>
+      ${/* the prepay switch used to sit here; it belongs with the discounts it governs — see
+           A_prepayTiers ("แพ็กเกจ → ส่วนลดชำระล่วงหน้า"), asked for on 2026-09-03 */''}
       <label class="field" style="display:flex;align-items:center;gap:8px"><input type="checkbox" id="setParentLine" style="width:auto" ${cfgOn('ParentLineNotify',true)?'checked':''}/> 👨‍👩‍👧 ${EN()?'LINE parents on arrival / pick-up, the daily journal and DSPM results':'ส่ง LINE ถึงผู้ปกครอง: รับ-ส่ง · บันทึกประจำวัน · ผลประเมิน DSPM'}</label>
       <p class="muted" style="font-size:13px">${EN()?'This is the school\'s promise to families and by far the largest use of the quota — it is not part of the recipient list above, which is for staff. A late-pickup charge and an accident always go out regardless.'
         :'<b>ใช้โควตามากที่สุด</b> และ<b>ไม่เกี่ยวกับรายชื่อผู้รับด้านบน</b> (รายการนั้นสำหรับพนักงาน) · ค่ารับช้าและอุบัติเหตุยังส่งเสมอไม่ว่าตั้งค่าอย่างไร'}</p>
@@ -9352,7 +9372,6 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
     if(ck('#setAdminLine')!==undefined) gv.AdminLineNotify=ck('#setAdminLine');
     if(ck('#setStaffLine')!==undefined) gv.StaffLineNotify=ck('#setStaffLine');
     if(ck('#setParentLine')!==undefined) gv.ParentLineNotify=ck('#setParentLine');
-    if(ck('#setPrepayOn')!==undefined) gv.ParentPrepayEnabled=ck('#setPrepayOn');
     if(ck('#setDigM')!==undefined) gv.DigestMorning=ck('#setDigM');
     if(ck('#setDigE')!==undefined) gv.DigestEvening=ck('#setDigE');
     if(Object.keys(gv).length) await api('setSchoolConfig',{values:gv});
