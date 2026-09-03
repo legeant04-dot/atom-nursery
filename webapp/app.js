@@ -112,7 +112,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.334'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.335'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -5357,7 +5357,7 @@
     const _line=(icon,label,col,out,warn)=>`
       <div class="spread" style="font-size:14px"><span>${icon} ${esc(label)}</span><span class="muted">${EN()?'this month':'เดือนนี้'}</span></div>
       <div class="spread" style="font-size:13px"><span class="muted">${EN()?'Collected':'เก็บได้'} <b style="color:var(--ok)">${baht(col)}</b></span><span class="muted">${EN()?'Outstanding':'ค้างชำระ'} <b style="color:${out>0?(warn?'var(--warn)':'var(--bad)'):'var(--ok)'}">${baht(out)}</b></span></div>`;
-    const payHtml=`<div class="card"><div class="spread"><h3>💰 ${EN()?'Payment tracking':'ติดตามการชำระเงิน'} <small class="muted">(${esc(fin.month||monthStr())})</small></h3><button class="btn sm outline" onclick="GO('finance')">${EN()?'Details':'รายละเอียด'}</button></div>
+    const payHtml=`<div class="card"><div class="spread"><h3>💰 ${EN()?'Payment tracking':'ติดตามการชำระเงิน'} <small class="muted">(${esc(monthNameYear(fin.month||monthStr()))})</small></h3><button class="btn sm outline" onclick="GO('finance')">${EN()?'Details':'รายละเอียด'}</button></div>
       <div style="text-align:center;margin:6px 0 8px;padding:8px;background:var(--surface-2);border-radius:10px">
         <small class="muted">${EN()?'Total billed this month (tuition + extras + student OT)':'ยอดทั้งหมดเดือนนี้ (ค่าเทอม + ค่าใช้จ่ายเพิ่มเติม + OT นักเรียน)'}</small>
         <div style="font-size:24px;font-weight:800;line-height:1.2">${baht(_allTotal)}</div>
@@ -5408,7 +5408,7 @@
      *
      * This throws away the cached answers and re-runs the screen. Nothing else — no writes, no
      * settings, so a mis-tap costs one round trip and nothing more. */
-    app.innerHTML=`<div class="dash-h"><h2 class="page">${esc(t('title.dashboard'))}</h2><span class="dash-date">${esc(todayStr())}</span>
+    app.innerHTML=`<div class="dash-h"><h2 class="page">${esc(t('title.dashboard'))}</h2><span class="dash-date">${esc(ddmmyyyy(todayStr()))}</span>
         <button class="btn sm outline dash-refresh" onclick="REFRESH_NOW(this)" title="${EN()?'Reload the latest data':'โหลดข้อมูลล่าสุด'}" aria-label="${EN()?'Reload the latest data':'โหลดข้อมูลล่าสุด'}">🔄 <span class="lbl">${EN()?'Refresh':'รีเฟรช'}</span></button></div>
       ${closedBanner}<div id="aholot"></div>${remHtml}${leaveRemHtml}
       ${kpi}${quick}
@@ -10148,9 +10148,9 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
      * "นักเรียนลาชั่วคราว" (reported 2026-09-02). She IS still at school and still billed for those
      * two days — the row was not wrong to bill her, it was wrong to say nothing. */
     const pausedTag = s.paused
-      ? `<br><small style="color:var(--warn);font-weight:400">⏳ ${EN()?'on temporary leave':'ลาชั่วคราว'}${s.pauseFrom?` · ${esc(s.pauseFrom)}${s.pauseTo?`–${esc(s.pauseTo)}`:''}`:''}</small>`
+      ? `<br><small style="color:var(--warn);font-weight:400">⏳ ${EN()?'on temporary leave':'ลาชั่วคราว'}${s.pauseFrom?` · ${esc(ddmmyyyy(s.pauseFrom))}${s.pauseTo?` – ${esc(ddmmyyyy(s.pauseTo))}`:''}`:''}</small>`
       : s.pauseScheduled
-      ? `<br><small style="color:var(--warn);font-weight:400">📅 ${EN()?`temporary leave from ${esc(s.pauseFrom)}${s.pauseTo?` to ${esc(s.pauseTo)}`:''} — still here until then`:`จะลาชั่วคราว ${esc(s.pauseFrom)}${s.pauseTo?`–${esc(s.pauseTo)}`:''} · ยังมาเรียนอยู่`}</small>`
+      ? `<br><small style="color:var(--warn);font-weight:400">📅 ${EN()?`temporary leave from ${esc(ddmmyyyy(s.pauseFrom))}${s.pauseTo?` to ${esc(ddmmyyyy(s.pauseTo))}`:''} — still here until then`:`จะลาชั่วคราว ${esc(ddmmyyyy(s.pauseFrom))}${s.pauseTo?` – ${esc(ddmmyyyy(s.pauseTo))}`:''} · ยังมาเรียนอยู่`}</small>`
       : '';
     return `<div class="list-item" style="cursor:pointer${s.paused?';opacity:.75':''}" onclick="A_finStudent('${s.studentId}')">
       <span><b>${esc(dnick(s))}</b><br><small class="muted" style="font-weight:400">${dnSub(s)?esc(dnSub(s))+" · ":""}${esc(planLabel(s.plan))}</small>${sub}${pausedTag}</span>

@@ -41,12 +41,17 @@ function fnSrc(name, until) {
 }
 const baht = n => (Math.round(Number(n || 0) * 100) / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const esc = s => String(s == null ? '' : s);
-const row = new Function('EN', 'baht', 'esc', 't', 'dnick', 'dnSub', 'planLabel', 'prepaySpan', 'monthNameYear', `
+// ddmmyyyy is the app's one date formatter (named month, Buddhist year in Thai) — supplied here so
+// the row prints dates the way the screen does rather than the way the payload stores them
+const TH_MON = ['ม.ค.','ก.พ.','มี.ค.','เม.ย.','พ.ค.','มิ.ย.','ก.ค.','ส.ค.','ก.ย.','ต.ค.','พ.ย.','ธ.ค.'];
+const ddmmyyyy = v => { const d = new Date(v); if (isNaN(d)) return String(v || '');
+  return ('0' + d.getDate()).slice(-2) + ' ' + TH_MON[d.getMonth()] + ' ' + (d.getFullYear() + 543); };
+const row = new Function('EN', 'baht', 'esc', 't', 'dnick', 'dnSub', 'planLabel', 'prepaySpan', 'monthNameYear', 'ddmmyyyy', `
   ${fnSrc('finStudentRow', '\n  SCREENS.Admin.finance')}
   return finStudentRow;`)(
   () => false, baht, esc,
   k => ({ 's.paid': 'ชำระแล้ว', 's.unpaid': 'ค้างชำระ', 'fin.noBill': 'ยังไม่ออกบิล' }[k] || k),
-  s => s.nick, () => '', () => 'รายเดือน', () => '', m => m
+  s => s.nick, () => '', () => 'รายเดือน', () => '', m => m, ddmmyyyy
 );
 
 const base = { studentId: 'STD-1', nick: 'x', plan: 'p', status: 'UNPAID' };
@@ -110,12 +115,15 @@ console.log('\n3b) BOOKED FOR LATER IS NOT AWAY NOW');
    * not wrong to bill her — it was wrong to say nothing. */
   const soon = html({ tuitionOpen: 6900, otherOpen: 0, otherPending: 0, tuitionPending: 0,
                       paid: false, paused: false, pauseScheduled: true, pauseFrom: '2026-09-04' });
-  ok_('a booked leave is stated on the row', /จะลาชั่วคราว 2026-09-04/.test(soon));
+  ok_('a booked leave is stated on the row', /จะลาชั่วคราว 04 ก\.ย\. 2569/.test(soon));
   ok_('...saying she is still here until then', /ยังมาเรียนอยู่/.test(soon));
   ok_('...and she is still billed like anyone else', /pill bad">ค้างชำระ/.test(soon));
   const away = html({ tuitionOpen: 0, otherOpen: 0, otherPending: 0, tuitionPending: 0,
                       paid: true, paused: true, pauseFrom: '2026-08-01', pauseTo: '2026-10-31' });
-  ok_('a child actually away still reads ลาชั่วคราว', /⏳ ลาชั่วคราว · 2026-08-01–2026-10-31/.test(away));
+  ok_('a child actually away still reads ลาชั่วคราว', /⏳ ลาชั่วคราว · 01 ส\.ค\. 2569 – 31 ต\.ค\. 2569/.test(away));
+  /* ...in the app's own format. These were printing the raw stored value — "2026-08-31–2026-12-01" —
+   * on a screen where every other date is a named month (reported 2026-09-03). */
+  ok_('...and no raw ISO date reaches the screen', !/\d{4}-\d{2}-\d{2}/.test(away) && !/\d{4}-\d{2}-\d{2}/.test(soon));
   ok_('...and the two cannot be confused', away.indexOf('จะลาชั่วคราว') < 0 && soon.indexOf('⏳ ลาชั่วคราว') < 0);
   // the server decides which it is, so every screen gets the same answer
   ok_('the server marks the difference',
