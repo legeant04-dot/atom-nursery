@@ -187,8 +187,30 @@ console.log('\n6) THE THREE SWITCHES ASKED FOR ON 2026-09-02');
   /* (b) THE PREPAY SWITCH, shaped like the check-in one, default ON. */
   ok_('the setting exists and is seeded ON', /\['ParentPrepayEnabled',   'true'\]/.test(R('src/Config.gs')));
   ok_('...and is savable, or the toggle would do nothing',
-    /ParentPrepayEnabled: 1,/.test(R('src/Staff.gs')) && /gv\.ParentPrepayEnabled=ck\('#setPrepayOn'\)/.test(app));
-  ok_('the admin has a toggle for it', /id="setPrepayOn"[\s\S]{0,80}cfgOn\('ParentPrepayEnabled',true\)/.test(app));
+    /ParentPrepayEnabled: 1,/.test(R('src/Staff.gs')) &&
+    /setSchoolConfig',\{values:\{ParentPrepayEnabled:on\?'true':'false'\}\}/.test(app));
+  /* THE TICK NEVER CAME BACK. Every switch in the settings modal falls back to MOCK.config when
+   * schoolConfig does not carry the key — and MOCK.config is the seed baked into the client, which
+   * nothing ever replaces in gas mode. So the tick saved, the sheet held it, and the box came up
+   * ticked again because the client was reading its own factory default (2026-09-03). The LINE
+   * switches had it too; it was silent there only because their seed matches what most schools want. */
+  ok_('the server hands the switches back, so a saved setting can be read',
+    /ParentPrepayEnabled:cfg\.ParentPrepayEnabled \}\)/.test(engine) &&
+    /AdminLineNotify:cfg\.AdminLineNotify, StaffLineNotify:cfg\.StaffLineNotify, ParentLineNotify:cfg\.ParentLineNotify/.test(engine));
+  ok_('...and the trap is written down', /THE SETTINGS SCREEN WAS READING ITS OWN DEFAULTS BACK/.test(engine));
+  /* The switch now lives with the discounts it governs, as a slider like the check-in one, saving on
+   * the spot — "ย้ายปุ่มนี้ไปอยู่ในส่วนที่ถูกต้อง ... เวลาดำเนินการได้อยู่ในหมวดเดียวกัน". */
+  ok_('the toggle sits in the advance-payment discounts screen',
+    /<label class="switch"><input type="checkbox" id="ppOn"[\s\S]{0,60}onchange="A_ppToggle\(this\)"/.test(app));
+  ok_('...as the same slider the check-in list uses', /<label class="switch"><input type="checkbox" data-sid=/.test(app));
+  ok_('...saving straight away rather than with the tiers below it', /window\.A_ppToggle=async\(el\)=>\{ const on=el\.checked;/.test(app));
+  ok_('...and putting the tick back if the server refuses', /catch\(e\)\{ el\.checked=!on; err\(e\); \}/.test(app));
+  ok_('it is gone from the settings modal', app.indexOf('id="setPrepayOn"') < 0 && app.indexOf("gv.ParentPrepayEnabled=ck") < 0);
+  /* And the parent app reads it from the SERVER — the same seed problem, where it mattered most:
+   * the parent could never see the school turn prepayment off. */
+  ok_('the parent screen reads the school’s value, not the seed',
+    /const preOn = String\(\(sc\|\|\{\}\)\.ParentPrepayEnabled==null\?'true':sc\.ParentPrepayEnabled\)/.test(app));
+  ok_('...in the batch that screen already sends', /api\('getQRCodes'\)\.catch\(\(\)=>\(\{qrs:\[\],otQrId:''\}\)\), api\('schoolConfig'\)\.catch/.test(app));
   ok_('the parent card disappears when it is off', /const preHtml=\(!preOn && !preShow\.length\) \? '' :/.test(app));
   /* ...but only the OFFER. A family who paid six months ahead must still be able to see what they
    * bought; hiding it would look like the money had gone. */
