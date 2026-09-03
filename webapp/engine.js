@@ -2853,9 +2853,9 @@ function createAtomAPI(M, GROWTH_STD) {
         const present=team.filter(s=>{ const a=M.staffAttendanceToday.find(x=>x.StaffID===s.StaffID); return a&&(a.Status==='IN'||a.Status==='OUT'); }).length;
         return {dept:dep, present, total:team.length}; }).filter(x=>x.total>0); },
 
-    payrollConfig: p => Object.assign({SocialSecurityDeduct:true,ChildThreshold:cfg.ExtraChildThreshold||31,ChildMultiplier:cfg.ExtraChildRate,TaxDeduct:false}, M.payrollConfig[p.staffId]||{}),
+    payrollConfig: p => Object.assign({SocialSecurityDeduct:false,ChildThreshold:cfg.ExtraChildThreshold||31,ChildMultiplier:cfg.ExtraChildRate,TaxDeduct:false}, M.payrollConfig[p.staffId]||{}),
     setPayrollConfig: p => { M.payrollConfig[p.staffId]=Object.assign(M.payrollConfig[p.staffId]||{},p.config||{}); return M.payrollConfig[p.staffId]; },
-    computePayroll: p => { const st=staffById(p.staffId); const pc=Object.assign({PayType:'monthly',DailyRate:0,SocialSecurityDeduct:true,ChildMultiplier:cfg.ExtraChildRate,TaxDeduct:false}, M.payrollConfig[p.staffId]||{});
+    computePayroll: p => { const st=staffById(p.staffId); const pc=Object.assign({PayType:'monthly',DailyRate:0,SocialSecurityDeduct:false,ChildMultiplier:cfg.ExtraChildRate,TaxDeduct:false}, M.payrollConfig[p.staffId]||{});
       // base = monthly salary, OR daily-rate × days worked (new/special teachers)
       const payType=p.payType||pc.PayType||'monthly'; const dailyRate=p.dailyRate!=null?Number(p.dailyRate):pc.DailyRate; const daysWorked=Number(p.daysWorked||0);
       let base= payType==='daily' ? dailyRate*daysWorked : (p.baseSalary!=null?Number(p.baseSalary):(st.BaseSalary||0));
@@ -2901,7 +2901,8 @@ function createAtomAPI(M, GROWTH_STD) {
       // OT วันหยุด — its own line, so the slip says what the money was for
       const otHol=p.otHoliday!=null?Number(p.otHoliday):H.staffMonthlyOT({staffId:p.staffId,month:p.month}).holiday;
       const gross=base+dT+oi+ot+otCarry+otHol+hb;
-      const ssDeduct=(p.socialSecurityDeduct!=null?p.socialSecurityDeduct:pc.SocialSecurityDeduct)!==false;
+      // ...and unset means OFF (see the note in Payroll.gs computePayroll)
+      const ssDeduct=(p.socialSecurityDeduct!=null?p.socialSecurityDeduct:pc.SocialSecurityDeduct)===true;
       const ss=p.socialSecurity!=null?p.socialSecurity:(ssDeduct?Math.min(Math.round(base*cfg.SocialSecurityRate),cfg.SocialSecurityMax):0);
       // เงินสมทบ is a savings fund: the teacher's half is deducted, the school matches it, and the
       // fund grows by BOTH halves. Only the teacher's half is a deduction.
@@ -4713,6 +4714,12 @@ function createAtomAPI(M, GROWTH_STD) {
     prepayDiscount: m => { const t=prepayTiers_().find(x=>Number(x.months)===Number(m)); return t?Number(t.discount)||0:0; },
     // create a PENDING prepay charge (summarized on the payment screen) — paid via QR + slip like the monthly bill
     prepay: p => { const s=studentById(p.studentId); if(!s)fail('NOT_FOUND','ไม่พบนักเรียน');
+      /* THE SCHOOL CAN CLOSE THIS (2026-09-02). Checked HERE and not only on the parent's screen:
+       * hiding a button is a suggestion, and the payable this creates commits the school to a
+       * discount for up to a year. Default ON — it is how the school has always worked, and turning
+       * a paying channel off by accident is the more expensive mistake. */
+      if(String(cfg.ParentPrepayEnabled==null?'true':cfg.ParentPrepayEnabled).toLowerCase()!=='true')
+        fail('PREPAY_OFF','ขณะนี้โรงเรียนปิดการชำระล่วงหน้าไว้ — กรุณาติดต่อโรงเรียน');
       const months=Number(p.months); const plan=studentPlan(s); const monthly=Number(plan.price||0);
       if(!(months>0)) fail('BAD_INPUT','ระบุจำนวนเดือนที่ชำระล่วงหน้า');
       // An Admin may price a one-off deal (e.g. 2 months at 10% this month only); a parent may only

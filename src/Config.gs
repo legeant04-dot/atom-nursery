@@ -340,6 +340,12 @@ var SCHOOL_CONFIG_DEFAULTS = [
    * turning it off is the school's decision to make and not a default to change underneath them.
    * A late-pickup charge and an injury are NOT here — money owed and a child hurt always send. */
   ['ParentLineNotify',      'true'],
+  /* MAY PARENTS PAY SEVERAL MONTHS IN ADVANCE? Asked 2026-09-02 — the school wants to be able to
+   * close it for a while without the feature being removed. ON by default, because that is how it
+   * has always worked and turning a paying channel off silently would be the wrong default. Off
+   * hides the card on the parent's finance screen AND refuses the route: a screen that only hides a
+   * button is not a switch. */
+  ['ParentPrepayEnabled',   'true'],
 
   // --- HR / Payroll defaults (used by Phase 2) ---
   ['OTRate',                '0'],            // baht per OT hour, or multiplier per HR policy

@@ -459,7 +459,7 @@ function handleSetSchoolConfig(p) {
     // is; without it in this list the switch would save and change nothing (writeRows_ drops it).
     // ParentLineNotify covers the routine messages to FAMILIES — arrival/pick-up, the daily journal
     // and a DSPM result. Biggest consumer of the quota; had no switch at all before 2026-09-02.
-    AdminLineNotify: 1, StaffLineNotify: 1, ParentLineNotify: 1, DigestMorning: 1, DigestEvening: 1,
+    AdminLineNotify: 1, StaffLineNotify: 1, ParentLineNotify: 1, ParentPrepayEnabled: 1, DigestMorning: 1, DigestEvening: 1,
     ContributionMatchRate: 1 };                                 // เงินสมทบ: school's share ÷ teacher's share
   var vals = p.values || {};
   var cfg = sheet_(getMainSpreadsheet_(), 'SCHOOL_CONFIG'), wrote = {};
