@@ -166,6 +166,12 @@ SCHEMA[WB.MAIN] = {
   INJURY_REPORTS:    ['InjuryID', 'Date', 'Time', 'CenterName', 'AffiliationType', 'AffiliationOther', 'District',
                       'RecorderName', 'StudentID', 'ChildName', 'Sex', 'AgeYears', 'AgeMonths', 'EduStatus', 'EduGrade',
                       'Narrative', 'CauseObject', 'Witness', 'Place', 'PlaceOther', 'InjuryTypes', 'TeacherID', 'CreatedDate',
+                      /* WHEN IT WAS FILED, to the minute — a different question from when it HAPPENED.
+                       * Date/Time are the incident, typed by the teacher; CreatedDate was the filing
+                       * DATE only. So an admin reading "02 ก.ย. 16:10" on a report that arrived at
+                       * 13:13 today had no way to tell whether the teacher was catching up on
+                       * yesterday or had mistyped (asked 2026-09-03). */
+                      'CreatedAt',
                       // whether the parents were told at the time. The engine has always SENT this and the
                       // report screen has always DISPLAYED it, but the column was missing — so every
                       // emergency read back as "ยังไม่แจ้ง" even when the family had been messaged.

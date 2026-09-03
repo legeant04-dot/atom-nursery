@@ -112,7 +112,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.336'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.337'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -4383,9 +4383,25 @@
     const cls = s==='APPROVED'?'ok' : s==='REJECTED'?'bad' : 'wait';
     return `<span class="pill ${cls}" style="font-size:11px">${esc((INJ_STATUS[s]||INJ_STATUS.PENDING_LEADER)())}</span>`;
   }
+  /* WHEN IT HAPPENED, AND WHEN IT WAS FILED — two different facts, and the list only showed one.
+   * Asked 2026-09-03: two reports arrived at 13:10 and 13:13 and read "10:25" and "16:10", and there
+   * was no way to see that they had been filed today about yesterday. The incident time is what the
+   * teacher typed; the filing stamp is the app's own record and is shown next to it whenever the two
+   * are not the same day. */
+  function injFiledNote(r){
+    const at=String(r.CreatedAt||'').trim(); if(!at) return '';
+    const d=at.slice(0,10); if(!/^\d{4}-\d{2}-\d{2}$/.test(d)) return '';
+    if(d===String(r.Date||'').slice(0,10)) return '';   // same day — the stamp adds nothing
+    return `<br><small class="muted">📝 ${EN()?'filed':'บันทึกเมื่อ'} ${esc(ddmmyyyy(d))} ${esc(at.slice(11,16))}</small>`;
+  }
+  /* Is the incident date+time still in the future? A slip every time — an accident cannot be
+     reported before it happens — and worth catching on the phone rather than after the round trip. */
+  const injFuture = f => { const d=String(f.date||'').slice(0,10), t=String(f.time||'').slice(0,5);
+    if(!/^\d{4}-\d{2}-\d{2}$/.test(d)) return false;
+    const now=todayStr(); return d>now || (d===now && /^\d{2}:\d{2}$/.test(t) && t>nowTime()); };
   function injuryListHTML(rows){ if(!rows||!rows.length)return `<small class="muted">${esc(t('c.noItems'))}</small>`;
     return rows.slice(0,10).map(r=>{ const types=injTypeNames(r.InjuryTypes);
-      return `<div class="list-item" onclick="A_viewInjury('${esc(r.InjuryID||'')}')" style="cursor:pointer"><span><b>${esc(EN()?(r.nameEN||r.ChildName):r.ChildName)}</b> <small class="muted">${esc(ddmmyyyy(r.Date))} ${esc(r.Time)}</small><br><small class="muted">${esc(types)}</small></span><span>${injStatusPill(r)} <span class="muted">›</span></span></div>`; }).join(''); }
+      return `<div class="list-item" onclick="A_viewInjury('${esc(r.InjuryID||'')}')" style="cursor:pointer"><span><b>${esc(EN()?(r.nameEN||r.ChildName):r.ChildName)}</b> <small class="muted">${esc(ddmmyyyy(r.Date))} ${esc(r.Time)}</small><br><small class="muted">${esc(types)}</small>${injFiledNote(r)}</span><span>${injStatusPill(r)} <span class="muted">›</span></span></div>`; }).join(''); }
   // injury type codes → the official form's wording. Stored as numbers; may arrive as a JSON string.
   function injTypeNames(v){ let a=v; if(typeof a==='string'&&a){ try{ a=JSON.parse(a); }catch(e){ a=String(a).split(/[,\s]+/).filter(Boolean); } }
     return (Array.isArray(a)?a:[]).map(n=>{ const it=INJURY_TYPES.find(x=>String(x.n)===String(n)); return it?(EN()?it.en:it.th):n; }).join(', '); }
@@ -4428,7 +4444,7 @@
       <div class="card"><h3>📋 ${EN()?'Reports':'รายการทั้งหมด'}</h3>
         ${sum.reports.map(r=>`<div class="list-item" onclick="A_viewInjury('${esc(r.injuryId)}')" style="cursor:pointer">
           <span><b>${esc(r.nick||r.name||r.studentId)}</b> <small class="muted">${esc(r.className||'')}</small><br>
-          <small class="muted">${esc(ddmmyyyy(r.date))} ${esc(r.time)} · ${esc(injTypeNames(r.types))}</small></span><span class="muted">›</span></div>`).join('')}</div>`
+          <small class="muted">${esc(ddmmyyyy(r.date))} ${esc(r.time)} · ${esc(injTypeNames(r.types))}</small>${injFiledNote({CreatedAt:r.filedAt,Date:r.date})}</span><span class="muted">›</span></div>`).join('')}</div>`
       : `<div class="card" style="text-align:center;color:var(--ok);padding:18px"><div style="font-size:34px">🎉</div><b>${EN()?'No injuries reported this month':'เดือนนี้ไม่มีรายงานอุบัติเหตุ'}</b></div>`}`;
   };
   // one report, exactly as the teacher filed it
@@ -4536,6 +4552,9 @@
     const studentId=$('#injChild')&&$('#injChild').value;
     if(!studentId){toast(t('inj.needChild'));return;}
     if(!f.injuryTypes.length){toast(t('inj.needType'));return;}
+    /* The server refuses a future incident time too (submitInjury) — this is here so the teacher is
+       told before the form is sent, standing next to a hurt child. */
+    if(injFuture(f)){ toast(EN()?'That time has not happened yet — check the date and time':'เวลาที่เกิดเหตุยังมาไม่ถึง — กรุณาตรวจสอบวันที่และเวลา'); return; }
     try{ await api('submitInjury',Object.assign({staffId:USER.staffId,studentId},f));
       confirmSaved(t('inj.saved')); GO('injury'); }catch(e){err(e);} };
   /**

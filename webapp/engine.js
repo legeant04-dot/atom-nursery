@@ -4844,6 +4844,14 @@ function createAtomAPI(M, GROWTH_STD) {
     submitInjury: p => { const s=studentById(p.studentId)||{};
       if(!p.studentId)fail('MISSING','กรุณาเลือกเด็กที่บาดเจ็บ');
       if(!Array.isArray(p.injuryTypes)||!p.injuryTypes.length)fail('MISSING','กรุณาเลือกชนิดการบาดเจ็บอย่างน้อย 1 ข้อ');
+      /* THE INCIDENT CANNOT HAVE HAPPENED YET. "16:10 ของวันนี้ยังไม่ถึง" (2026-09-03) — a time in
+       * the future is a typing slip every time, and on a document that may be read by a parent, an
+       * insurer or an inspector it is worth refusing rather than storing. Past dates are fine: a
+       * teacher catching up on yesterday is normal, and CreatedAt records when they actually did. */
+      { const _d=ymd(p.date||todayLocal()), _t=String(p.time||timeLocal()).slice(0,5);
+        const _now=todayLocal(), _nowT=timeLocal();
+        if(_d>_now || (_d===_now && /^\d{2}:\d{2}$/.test(_t) && _t>_nowT))
+          fail('FUTURE_TIME','เวลาที่เกิดเหตุยังมาไม่ถึง ('+_d+' '+_t+') — กรุณาตรวจสอบวันที่และเวลา'); }
       const id=nextSeqId_(M.injuryReports,'InjuryID','INJ-'+todayLocal().replace(/-/g,''),2);
       const rec={InjuryID:id,Date:p.date||todayLocal(),Time:p.time||timeLocal(),CenterName:p.centerName||cfg.SchoolName||'',
         AffiliationType:p.affiliationType||'',AffiliationOther:p.affiliationOther||'',District:p.district||'',
@@ -4851,6 +4859,8 @@ function createAtomAPI(M, GROWTH_STD) {
         AgeYears:p.ageYears!=null?p.ageYears:(s.DOB?Math.floor(ageMonths(s.DOB)/12):''),AgeMonths:p.ageMonths!=null?p.ageMonths:(s.DOB?ageMonths(s.DOB)%12:''),
         EduStatus:p.eduStatus||'',EduGrade:p.eduGrade||'',Narrative:p.narrative||'',CauseObject:p.causeObject||'',
         Witness:p.witness||'',Place:p.place||'',PlaceOther:p.placeOther||'',InjuryTypes:p.injuryTypes,TeacherID:p.staffId||'',NotifyParent:p.notifyParent?'YES':'',CreatedDate:todayLocal(),
+        // ...and to the MINUTE, so "filed" and "happened" can be told apart
+        CreatedAt:stampLocal(),
         // filed, not finished: หัวหน้าครู reads it first, then แอดมิน (see approveInjury)
         Status:'PENDING_LEADER',LeaderBy:'',LeaderAt:'',AdminBy:'',AdminAt:'',RejectReason:''};
       // a NEW record carries every column, blank when unused — an absent key reads back as
@@ -4997,6 +5007,9 @@ function createAtomAPI(M, GROWTH_STD) {
         reports:rows.map(r=>{ const s=studentById(r.StudentID)||{};
           return {injuryId:r.InjuryID,date:ymd(r.Date),time:r.Time,studentId:r.StudentID,
             name:s.NameTH||r.ChildName||'',nick:s.Nickname||'',className:s.Class||'',
+            // when the report REACHED the school, which is a different question from when the
+            // incident happened — the summary list prints it whenever the two are not the same day
+            filedAt:String(r.CreatedAt||''),
             types:r.InjuryTypes,narrative:r.Narrative||''}; })
           .sort((a,b)=>(b.date+b.time).localeCompare(a.date+a.time))}; },
 
