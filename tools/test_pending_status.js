@@ -165,10 +165,16 @@ console.log('\n6) THE THREE SWITCHES ASKED FOR ON 2026-09-02');
    * ทั้งหมดทุกหัวข้อ" — changed in ddmmyyyy itself rather than on the admin screens, because both
    * roles already call that one function. A second formatter for one screen would have created the
    * very inconsistency the request is about. */
-  ok_('dates are DD/MM/YYYY, in the one place that decides',
-    /return p2\(d\.getDate\(\)\)\+'\/'\+p2\(d\.getMonth\(\)\+1\)\+'\/'\+d\.getFullYear\(\);/.test(app));
-  ok_('...and the reason it was not done screen by screen is written down',
-    /ONE DATE FORMAT, EVERYWHERE: DD\/MM\/YYYY/.test(app));
+  /* Settled on 2026-09-03 as "03 ก.ย. 2569": a NAMED month, because 03/09/2569 and 09/03/2569 are
+   * the same eight characters in a different order and no reader can tell which convention a screen
+   * is using. Buddhist year in Thai, Gregorian in English — the rule the payslip period follows. */
+  ok_('every date is a named month in the reader’s calendar',
+    /return EN\(\)\?`\$\{dd\} \$\{EN_MON_SHORT\[mo\]\} \$\{y\}`:`\$\{dd\} \$\{TH_MON_SHORT\[mo\]\} \$\{y\+543\}`; \}/.test(app));
+  ok_('...with a leading zero, so a column of them lines up', /const dd=p2\(d\.getDate\(\)\), mo=d\.getMonth\(\)/.test(app));
+  ok_('...and an unparseable value stays as it was rather than becoming today',
+    /if\(isNaN\(d\)\) return String\(s\|\|''\);/.test(app));
+  ok_('...decided in the one place both roles already call',
+    /ONE DATE FORMAT, EVERYWHERE: "03 ก\.ย\. 2569"/.test(app));
 
   /* (b) THE PREPAY SWITCH, shaped like the check-in one, default ON. */
   ok_('the setting exists and is seeded ON', /\['ParentPrepayEnabled',   'true'\]/.test(R('src/Config.gs')));

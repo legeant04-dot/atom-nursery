@@ -112,7 +112,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.333'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.334'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -1632,15 +1632,25 @@
     if(btn)btn.disabled=true; try{ await api('saveTeacherReply',{staffId:USER.staffId,studentId:sid,date:date||undefined,reply}); confirmSaved(EN()?'Reply sent':'ส่งคำตอบแล้ว'); }catch(e){err(e);}finally{ if(btn)btn.disabled=false; } };
   window.P_saveComment=async(sid,date,btn)=>{ const el=document.getElementById('jPC'); const comment=el?el.value:'';
     if(btn)btn.disabled=true; try{ await api('saveParentComment',{parentId:USER.parentId,uid:USER.uid,studentId:sid,date:date||undefined,comment}); confirmSaved(EN()?'Comment saved':'บันทึกความคิดเห็นแล้ว'); }catch(e){err(e);}finally{ if(btn)btn.disabled=false; } };
-  /* ONE DATE FORMAT, EVERYWHERE: DD/MM/YYYY.
+  // short month names — used by ddmmyyyy (every date on screen) and by dobDate
+  const TH_MON_SHORT=['ม.ค.','ก.พ.','มี.ค.','เม.ย.','พ.ค.','มิ.ย.','ก.ค.','ส.ค.','ก.ย.','ต.ค.','พ.ย.','ธ.ค.'];
+  const EN_MON_SHORT=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  /* ONE DATE FORMAT, EVERYWHERE: "03 ก.ย. 2569" / "03 Sep 2026".
    *
-   * Asked 2026-09-02 for the admin home — "ให้ใช้ Format วันเดือนปี [DD/MM/YYYY] เหมือนของคุณครู
-   * ทั้งหมดทุกหัวข้อ". Changed HERE rather than on the admin screens, because the admin screens and
-   * the teacher screens already call this one function: adding a second formatter for one screen
-   * would have created the very inconsistency the request is about, and left the next date somebody
-   * adds to be a coin toss. Slashes, not dashes — 01/08/2026 is how the school writes a date, and
-   * 01-08-2026 reads like a range. Display only; nothing parses this back. */
-  function ddmmyyyy(s){ const d=new Date(s||todayStr()); return p2(d.getDate())+'/'+p2(d.getMonth()+1)+'/'+d.getFullYear(); }
+   * Asked 2026-09-02 for the admin home — "ให้ใช้ Format วันเดือนปี ... เหมือนของคุณครูทั้งหมดทุก
+   * หัวข้อ" — then settled on 2026-09-03: "03 ก.ย. 2569 แบบนี้". Changed HERE rather than on the
+   * admin screens, because the admin screens and the teacher screens already call this one function:
+   * adding a second formatter for one screen would have created the very inconsistency the request
+   * is about, and left the next date somebody adds to be a coin toss.
+   *
+   * A NAMED MONTH, not a numbered one. 03/09/2569 and 09/03/2569 are the same eight characters in a
+   * different order and no reader can tell which convention a screen is using; "ก.ย." can only be
+   * September. The Buddhist year in Thai — that is the calendar on the school's own paperwork — and
+   * the Gregorian one in English, the same rule the payslip period follows. The day keeps its
+   * leading zero so a column of dates lines up. Display only; nothing parses this back. */
+  function ddmmyyyy(s){ const d=new Date(s||todayStr()); if(isNaN(d)) return String(s||'');
+    const dd=p2(d.getDate()), mo=d.getMonth(), y=d.getFullYear();
+    return EN()?`${dd} ${EN_MON_SHORT[mo]} ${y}`:`${dd} ${TH_MON_SHORT[mo]} ${y+543}`; }
   // full Thai/English date + month names for the receipt (Buddhist year in Thai)
   const TH_MONTHS=['มกราคม','กุมภาพันธ์','มีนาคม','เมษายน','พฤษภาคม','มิถุนายน','กรกฎาคม','สิงหาคม','กันยายน','ตุลาคม','พฤศจิกายน','ธันวาคม'];
   const EN_MONTHS=['January','February','March','April','May','June','July','August','September','October','November','December'];
@@ -1659,8 +1669,6 @@
    * sits inline beside a child's name on a phone — the long form pushed the name off the row. The
    * FULL form is still there on hover/long-press, and on the roomier screens fullDate is unchanged.
    */
-  const TH_MON_SHORT=['ม.ค.','ก.พ.','มี.ค.','เม.ย.','พ.ค.','มิ.ย.','ก.ค.','ส.ค.','ก.ย.','ต.ค.','พ.ย.','ธ.ค.'];
-  const EN_MON_SHORT=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
   function dobDate(v){ const s=String(v||'').slice(0,10); if(!/^\d{4}-\d{2}-\d{2}$/.test(s)) return '';
     const d=new Date(s+'T00:00:00'); if(isNaN(d)) return '';
     const dd=d.getDate(), mo=d.getMonth(), y=d.getFullYear();
