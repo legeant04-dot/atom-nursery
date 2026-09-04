@@ -179,6 +179,12 @@ SCHEMA[WB.MAIN] = {
                       // two-step approval (teacher → หัวหน้าครู → แอดมิน), mirroring a leave request.
                       // Status: PENDING_LEADER | PENDING_ADMIN | APPROVED | REJECTED
                       'Status', 'LeaderBy', 'LeaderAt', 'AdminBy', 'AdminAt', 'RejectReason', 'UpdatedBy', 'UpdatedAt',
+                      /* WHO sent it back, WHEN, and when the corrected version came back. RejectReason
+                       * alone said why but never by whom — and a report sent back used to stop dead
+                       * there (asked 2026-09-04: "ตีกลับแล้วรอขั้นตอนไหน"). Correcting it now returns it
+                       * to step 1, and ResubmittedAt is what distinguishes "waiting, first time" from
+                       * "waiting again, after a correction" on the queue the head teacher reads. */
+                      'RejectBy', 'RejectAt', 'ResubmittedAt',
                       // ShareJournal YES = the report is ALSO attached to the สมุดรายวัน of that day so parents
                       // read it there. Blank = kept in the system for the school and the authority only.
                       // Photo1..3 = pictures of the injury. Written as data URLs; Db.gs offloads them to Drive

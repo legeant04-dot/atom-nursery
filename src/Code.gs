@@ -178,6 +178,8 @@ var ROUTES = {
   adminInbox:           function (p) { return handleAdminInbox(p); },
   markInboxRead:        function (p) { return handleMarkInboxRead(p); },
   submitInjury:         function (p) { return handleSubmitInjury(p); },
+  // approving is the engine's decision; the wrapper exists to tell the teacher when it is SENT BACK
+  approveInjury:        function (p) { return handleApproveInjury(p); },
   // new registrations run via the engine but also drop an in-app notice to Admin
   registerNew:          function (p) { return handleRegisterNew(p); },
   addChildNew:          function (p) { return handleAddChildNew(p); },

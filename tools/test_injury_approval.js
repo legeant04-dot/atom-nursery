@@ -105,8 +105,26 @@ console.log('\n4) sending it back');
   const { H, M } = boot(); const id = file(H).injuryId;
   eq('the head teacher can send it back', H.approveInjury({ staffId: 'L1', injuryId: id, decision: 'reject', reason: 'เวลาไม่ตรงกับกล้อง' }).status, 'REJECTED');
   eq('...with the reason kept, so the teacher knows what to fix', M.injuryReports[0].RejectReason, 'เวลาไม่ตรงกับกล้อง');
-  eq('and the teacher who filed it can still correct it', H.editInjury({ staffId: 'T1', injuryId: id, data: { Time: '10:50' } }).status, 'REJECTED');
+  eq('...and who sent it back', M.injuryReports[0].RejectBy, 'หัวหน้าแนน');
+  eq('...and when', /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}/.test(String(M.injuryReports[0].RejectAt || '')), true);
+  /* A REPORT SENT BACK USED TO STOP DEAD HERE. The teacher could correct it, but the corrected
+   * version stayed REJECTED — approveInjury refuses that status — so the only way back into the
+   * queue was an ADMIN pressing unlockInjury. One correction could park an accident report for
+   * ever, and nobody was told (asked 2026-09-04: "ตีกลับแล้วรอขั้นตอนไหน"). */
+  const res = H.editInjury({ staffId: 'T1', injuryId: id, data: { Time: '10:50' } });
+  eq('correcting it sends it back to the head teacher', res.status, 'PENDING_LEADER');
+  eq('...and says so, so the teacher is not left guessing', res.resubmitted, true);
   eq('...the correction sticks', M.injuryReports[0].Time, '10:50');
+  eq('...the old signatures are cleared, so it is read again from step 1', M.injuryReports[0].LeaderBy, '');
+  eq('...the reason is kept as history, not as the current state', M.injuryReports[0].RejectReason, 'เวลาไม่ตรงกับกล้อง');
+  eq('...and the head teacher can now act on it again', H.approveInjury({ staffId: 'L1', injuryId: id, decision: 'approve' }).status, 'PENDING_ADMIN');
+}
+{
+  // an ordinary correction (not a rejected one) must NOT reshuffle the queue
+  const { H, M } = boot(); const id = file(H).injuryId;
+  H.approveInjury({ staffId: 'L1', injuryId: id, decision: 'approve' });
+  eq('a correction while it waits for the admin leaves it there', H.editInjury({ staffId: 'L1', injuryId: id, data: { Time: '10:51' } }).status, 'PENDING_ADMIN');
+  eq('...and the head teacher signature stays on it', M.injuryReports[0].LeaderBy, 'หัวหน้าแนน');
 }
 
 console.log('\n5) correcting it — who, and until when');

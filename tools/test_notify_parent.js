@@ -29,14 +29,27 @@ const cfgSrc = R('src/Config.gs'), ge = R('src/GasEngine.gs'), app = R('webapp/a
 console.log('\n1) the column is declared');
 {
   const hdr = /INJURY_REPORTS:\s*\[([\s\S]*?)\]/.exec(cfgSrc);
-  const cols = (hdr ? hdr[1].match(/'[^']+'/g) || [] : []).map(s => s.slice(1, -1));
+  /* Comments come out FIRST. This reads quoted strings, and the declaration is heavily commented —
+   * so one apostrophe in an English word inside a comment ("the head teacher's queue") flips the
+   * quote parity and the rest of the column list reads as garbage. That is a broken reader, not a
+   * broken schema, and it fails in a way that points at the wrong file. */
+  const body = (hdr ? hdr[1] : '').replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '');
+  const cols = (body.match(/'[^']+'/g) || []).map(s => s.slice(1, -1));
   ok_('INJURY_REPORTS has a NotifyParent column', cols.indexOf('NotifyParent') >= 0);
   ok_('...and the rest of the form is still there', ['InjuryID', 'StudentID', 'InjuryTypes', 'TeacherID'].every(c => cols.indexOf(c) >= 0));
-  // 24 form fields + the 8 approval columns added in v224 (Status, LeaderBy/At, AdminBy/At,
-  // RejectReason, UpdatedBy/At) + the 9 added in v225 (ShareJournal, Photo1-3, Wounds and the
-  // four Treatment* fields of page 2) + CreatedAt, added 2026-09-03 so "when it was FILED" can be
-  // told apart from "when it HAPPENED"
-  eq('nothing was dropped while adding it', cols.length, 42);
+  /* NOTHING WAS DROPPED WHILE ADDING ONE. This used to assert an exact column COUNT, which meant
+   * every later column had to come back here and bump a number — a test that measures length, not
+   * behaviour, and one that says nothing about WHICH column went missing. Name them instead: the 24
+   * form fields, the v224 approval trail, the v225 page-2 block, and the filing stamp. */
+  const MUST = ['InjuryID','Date','Time','CenterName','AffiliationType','AffiliationOther','District',
+    'RecorderName','StudentID','ChildName','Sex','AgeYears','AgeMonths','EduStatus','EduGrade',
+    'Narrative','CauseObject','Witness','Place','PlaceOther','InjuryTypes','TeacherID','CreatedDate',
+    'CreatedAt','NotifyParent','Status','LeaderBy','LeaderAt','AdminBy','AdminAt','RejectReason',
+    'UpdatedBy','UpdatedAt','ShareJournal','Photo1','Photo2','Photo3'];
+  const missing = MUST.filter(c => cols.indexOf(c) < 0);
+  eq('nothing was dropped while adding it', missing.join(',') || 'none', 'none');
+  // a repeated name is a column that silently shadows another when writeRows_ maps fields to cells
+  eq('...and no column is declared twice', cols.filter((c, i) => cols.indexOf(c) !== i).join(',') || 'none', 'none');
   ok_('...and the filing stamp is one of them', cols.indexOf('CreatedAt') >= 0);
   ok_('...and the approval trail is stored, not just displayed',
     ['Status', 'LeaderBy', 'AdminBy', 'RejectReason'].every(c => cols.indexOf(c) >= 0));
