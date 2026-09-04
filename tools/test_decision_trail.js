@@ -172,7 +172,10 @@ console.log('\n3) time requests — who approved what, and when');
   ok_('...and the final answer lands in their inbox as well as LINE',
     /inboxAdd_\('approval', msg/.test(attreq));
   ok_('the admin screen offers the history', /A_timeReqHistory\(\)/.test(app));
-  ok_('...and so does the head teacher screen', (app.match(/A_timeReqHistory\(\)/g) || []).length >= 2);
+  // the head teacher reads the same rows inline on ดำเนินการ, through the SAME card renderer — two
+  // renderers for one row is how two screens end up disagreeing about what "ไม่อนุมัติ" looks like
+  ok_('...and the head teacher gets it inline on their own screen', /timeRequestHistory[\s\S]{0,200}timeReqHistCard/.test(app));
+  ok_('...built by one shared card, not a second copy', (app.match(/function timeReqHistCard/g) || []).length === 1);
   ok_('refusing asks for a reason', /ไม่อนุมัติเพราะอะไร/.test(app));
   ok_('...and cancelling that box cancels the refusal', /if\(a===null\) return;/.test(app));
 }

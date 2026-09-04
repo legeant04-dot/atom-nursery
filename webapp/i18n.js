@@ -20,7 +20,7 @@
     // nav
     'nav.home':['หน้าหลัก','Home'], 'nav.checkin':['รับ-ส่ง','Pickup'], 'nav.payment':['ชำระเงิน','Payment'],
     'nav.journal':['บันทึก','Record'], 'nav.dspm':['DSPM','DSPM'], 'nav.growth':['เติบโต','Growth'], 'nav.chat':['แชท','Chat'], 'nav.finance':['การเงิน','Finance'],
-    'nav.class':['นักเรียน','Students'], 'nav.leave':['ลางาน','Leave'], 'nav.schedule':['ตาราง','Schedule'],
+    'nav.class':['นักเรียน','Students'], 'nav.leave':['ดำเนินการ','Actions'], 'nav.schedule':['ตาราง','Schedule'],
     // "สลิป" named the document; the tab now holds the payslip AND the OT history, so it is named
     // for what it is about — this teacher's money.
     'nav.slip':['การเงิน','Finance'], 'nav.leaves':['ดำเนินการ','Actions'], 'nav.payroll':['เงินเดือน','Payroll'],
@@ -30,7 +30,7 @@
     'c.close':['ปิด','Close'], 'c.print':['พิมพ์','Print'], 'c.download':['ดาวน์โหลด','Download'],
     'c.remaining':['สิทธิคงเหลือ','Remaining'], 'c.today':['วันนี้','Today'], 'c.saved':['บันทึกข้อมูลเรียบร้อยแล้ว','Saved successfully'],
     'c.notifications':['การแจ้งเตือน','Notifications'], 'c.markread':['ทำเครื่องหมายว่าอ่านแล้ว','Mark all read'], 'c.logout':['ออก','Logout'],
-    'c.none':['—','—'], 'c.noItems':['ไม่มีรายการ','No items'], 'c.confirm':['ยืนยัน','Confirm'], 'c.month':['งวด (เดือน)','Period (month)'], 'c.reason':['เหตุผล','Reason'], 'c.type':['ประเภท','Type'], 'c.from':['วันที่เริ่ม','From'], 'c.to':['ถึงวันที่','To'], 'c.total':['รวม','Total'], 'c.due':['ครบกำหนด','Due'], 'c.paid':['ชำระ','Paid'], 'c.calc':['คำนวณ','Calculate'], 'c.staff':['พนักงาน','Staff'], 'c.days':['วัน','days'], 'c.approve':['อนุมัติ','Approve'], 'c.reject':['ปฏิเสธ','Reject'],
+    'c.none':['—','—'], 'c.noItems':['ไม่มีรายการ','No items'], 'c.confirm':['ยืนยัน','Confirm'], 'c.month':['งวด (เดือน)','Period (month)'], 'c.reason':['เหตุผล','Reason'], 'c.type':['ประเภท','Type'], 'c.from':['วันที่เริ่ม','From'], 'c.to':['ถึงวันที่','To'], 'c.total':['รวม','Total'], 'c.due':['ครบกำหนด','Due'], 'c.paid':['ชำระ','Paid'], 'c.calc':['คำนวณ','Calculate'], 'c.staff':['พนักงาน','Staff'], 'c.days':['วัน','days'], 'c.approve':['อนุมัติ','Approve'], 'c.reject':['ไม่อนุมัติ','Reject'],
     // class-management change requests (ย้ายครูประจำชั้น/แผนก) + manual attendance-time requests (ขอลงเวลา)
     'corg.title':['🔁 ย้าย/จัดชั้นเรียน','🔁 Class assignment'], 'corg.manage':['จัดชั้นเรียน','Manage'],
     'corg.leaderNote':['เลือกแผนก/ชั้นของครูแต่ละคน แล้วกด "ส่งคำขอ" เพื่อส่งให้แอดมินอนุมัติ','Set each teacher’s class/department, then Submit for Admin approval'],
@@ -39,11 +39,11 @@
     'att.adminTitle':['คำขอลงเวลา (คุณครู)','Attendance-time requests'], 'att.title':['⏰ ขอลงเวลา','⏰ Record-time request'],
     'att.reqIn':['ขอลงเวลาเข้างาน','Request check-in'], 'att.reqOut':['ขอลงเวลาเลิกงาน','Request check-out'],
     'att.myReq':['คำขอลงเวลาของฉัน','My time requests'], 'att.teamReq':['คำขอลงเวลา (ลูกน้อง)','Team time requests'],
-    'att.manual':['ขอลงเวลา','manual'], 'att.st.PENDING_LEADER':['รอหัวหน้า','Pending leader'], 'att.st.PENDING_ADMIN':['รอแอดมิน','Pending admin'], 'att.st.APPROVED':['อนุมัติแล้ว','Approved'], 'att.st.REJECTED':['ปฏิเสธ','Rejected'],
+    'att.manual':['ขอลงเวลา','manual'], 'att.st.PENDING_LEADER':['รอหัวหน้า','Pending leader'], 'att.st.PENDING_ADMIN':['รอแอดมิน','Pending admin'], 'att.st.APPROVED':['อนุมัติแล้ว','Approved'], 'att.st.REJECTED':['ไม่อนุมัติ','Rejected'],
     // screen titles
     'title.checkin':['📍 รับ-ส่งเด็ก (GPS)','📍 Pickup / Drop-off (GPS)'], 'title.payment':['💳 การชำระเงิน','💳 Payment'], 'title.journal':['📒 บันทึกประจำวัน','📒 Daily Journal'],
     'title.dspm':['📈 พัฒนาการ (DSPM)','📈 Development (DSPM)'], 'title.chat':['💬 แชทกับโรงเรียน','💬 Chat with school'], 'title.class':['👶 ชั้นเรียน','👶 My Class'],
-    'title.leave':['📩 การลางาน','📩 Leave'], 'title.schedule':['📅 ตารางการทำงาน & การลา','📅 Work schedule & leave'], 'title.slip':['💵 การเงินของฉัน','💵 My finances'],
+    'title.leave':['✅ ดำเนินการ','✅ Actions'], 'title.schedule':['📅 ตารางการทำงาน & การลา','📅 Work schedule & leave'], 'title.slip':['💵 การเงินของฉัน','💵 My finances'],
     'title.dashboard':['📊 แดชบอร์ดรายวัน','📊 Daily dashboard'], 'title.approvals':['✅ อนุมัติการลา (ขั้นสุดท้าย)','✅ Leave approval (final)'], 'title.payroll':['💵 เงินเดือน & สลิป','💵 Payroll & slips'],
     'title.analytics':['📈 วิเคราะห์ DSPM รายชั้นเรียน','📈 DSPM analytics by class'], 'title.manage':['🗂️ จัดการข้อมูล & สิทธิ','🗂️ Manage data & permissions'],
     'p.greeting':['สวัสดีค่ะ ','Hello, '], 't.greeting':['สวัสดีค่ะ ','Hello, '],
@@ -77,7 +77,7 @@
     // statuses
     's.pass':['ผ่าน','Pass'], 's.fail':['ไม่ผ่าน','Not passed'], 's.nottested':['ยังไม่ได้รับการทดสอบ','Not yet assessed'], 's.notenrolled':['ยังไม่เข้าโรงเรียน','Not enrolled yet'],
     's.paid':['ชำระแล้ว','Paid'], 's.unpaid':['ค้างชำระ','Unpaid'], 's.verify':['รอตรวจสอบ','Verifying'],
-    's.pending_leader':['รอหัวหน้างาน','Pending leader'], 's.pending_admin':['รอผู้บังคับบัญชา','Pending admin'], 's.approved':['อนุมัติแล้ว','Approved'], 's.rejected':['ปฏิเสธ','Rejected'],
+    's.pending_leader':['รอหัวหน้างาน','Pending leader'], 's.pending_admin':['รอผู้บังคับบัญชา','Pending admin'], 's.approved':['อนุมัติแล้ว','Approved'], 's.rejected':['ไม่อนุมัติ','Rejected'],
     'dom.GM':['การเคลื่อนไหว','Gross Motor'], 'dom.FM':['กล้ามเนื้อมัดเล็ก','Fine Motor'], 'dom.RL':['เข้าใจภาษา','Receptive Lang.'], 'dom.EL':['ใช้ภาษา','Expressive Lang.'], 'dom.PS':['ช่วยเหลือตัวเอง','Personal/Social'],
     'dspm.manageTitle':['เกณฑ์พัฒนาการ (DSPM)','DSPM criteria'], 'dspm.add':['เพิ่มเกณฑ์','Add item'], 'dspm.item':['ข้อ','Item'],
     'slv.title':['การลาของนักเรียน','Student leaves'], 'dedup.title':['ล้างข้อมูลซ้ำ','Cleanse duplicates'],
@@ -97,13 +97,13 @@
     'reg.nameTH':['ชื่อ-นามสกุล (ไทย)','Name-Surname (TH)'], 'reg.nameEN':['ชื่อ-นามสกุล (อังกฤษ)','Name-Surname (EN)'], 'reg.nickname':['ชื่อเล่น (ไทย)','Nickname (TH)'], 'reg.nicknameEN':['ชื่อเล่น (อังกฤษ)','Nickname (EN)'], 'reg.title':['คำนำหน้า','Title'],
     // staff OT approval workflow
     'ot.myOT':['⏰ OT ของฉัน','⏰ My OT'], 'ot.teamOT':['⏰ OT รออนุมัติ (ลูกน้อง)','⏰ Team OT (pending)'], 'ot.adminOT':['⏰ OT คุณครู','⏰ Staff OT'],
-    'ot.approve':['อนุมัติ','Approve'], 'ot.reject':['ปฏิเสธ','Reject'], 'ot.confirm':['ยืนยัน','Confirm'], 'ot.addOT':['+ เพิ่ม OT','+ Add OT'],
-    'ot.st.PENDING_LEADER':['รอหัวหน้าอนุมัติ','Awaiting leader'], 'ot.st.PENDING_ADMIN':['รอแอดมินยืนยัน','Awaiting admin'], 'ot.st.APPROVED':['อนุมัติแล้ว','Approved'], 'ot.st.REJECTED':['ปฏิเสธ','Rejected'],
+    'ot.approve':['อนุมัติ','Approve'], 'ot.reject':['ไม่อนุมัติ','Reject'], 'ot.confirm':['ยืนยัน','Confirm'], 'ot.addOT':['+ เพิ่ม OT','+ Add OT'],
+    'ot.st.PENDING_LEADER':['รอหัวหน้าอนุมัติ','Awaiting leader'], 'ot.st.PENDING_ADMIN':['รอแอดมินยืนยัน','Awaiting admin'], 'ot.st.APPROVED':['อนุมัติแล้ว','Approved'], 'ot.st.REJECTED':['ไม่อนุมัติ','Rejected'],
     'ot.hoursLabel':['จำนวนชั่วโมง','Hours'], 'ot.none':['ยังไม่มีรายการ OT','No OT records'], 'ot.confirmEdit':['ยืนยัน OT (แก้ชั่วโมง/ยอดได้)','Confirm OT (you may edit hours/amount)'],
     // duty roster (กะเวร)
     'duty.title':['🧑‍🏫 กะเวรคุณครู','🧑‍🏫 Duty roster'], 'duty.add':['+ เพิ่มกะเวร','+ Add duty'], 'duty.none':['ยังไม่มีกะเวร','No duty entries'],
     'duty.shift':['ช่วงเวร (ถ้ามี)','Shift (optional)'], 'duty.note':['หมายเหตุ','Note'], 'duty.staff':['คุณครู','Teacher'], 'duty.class':['ชั้นเรียน/จุดเวร','Class / post'],
-    'duty.pending':['รอแอดมินอนุมัติ','Awaiting admin'], 'duty.approved':['อนุมัติแล้ว','Approved'], 'duty.rejected':['ปฏิเสธ','Rejected'],
+    'duty.pending':['รอแอดมินอนุมัติ','Awaiting admin'], 'duty.approved':['อนุมัติแล้ว','Approved'], 'duty.rejected':['ไม่อนุมัติ','Rejected'],
     'duty.leaderNote':['กะเวรที่คุณเพิ่มจะส่งให้แอดมินอนุมัติก่อน','Duties you add are sent to the admin for approval'],
     'reg.gender':['เพศ','Gender'], 'reg.male':['ชาย','Male'], 'reg.female':['หญิง','Female'], 'reg.dob':['วันเกิด','Date of birth'], 'reg.age':['อายุ','Age'],
     'reg.nationalIdStudent':['เลขบัตรประชาชนนักเรียน (ใช้เป็นรหัสนักเรียน)','Student National ID (used as student code)'],
