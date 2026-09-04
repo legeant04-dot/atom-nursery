@@ -158,8 +158,26 @@ console.log('\n3) it costs no round trip');
   const scr = app.slice(app.indexOf('SCREENS.Admin.leaves = async () => {'), app.indexOf('window.A_lvMain='));
   /* Started BEFORE the first await, so it joins the batch that was already going. api.js merges
    * everything issued in one tick into a single request. */
+  /* The rule is "started before ANYTHING is awaited", not "before the first `await api(`" — as of
+   * 2026-09-04 the screen awaits promises it started earlier, so there is no `await api(` left in it
+   * at all and the old test compared against -1. Same rule, expressed so it cannot pass by accident. */
+  // comments stripped first: the reasoning above this screen contains the word "await", and matching
+  // prose instead of code is how a test comes to measure nothing
+  const code = scr.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/[^\n]*/g, '$1');
   ok_('opsPending is started before the screen’s first await',
-    scr.indexOf("api('opsPending'") < scr.indexOf('await api('));
+    code.indexOf("api('opsPending'") >= 0 && code.indexOf("api('opsPending'") < code.indexOf('await '));
+  /* ...and so is everything else on this screen. It was five SEQUENTIAL awaits — each its own ~5s
+   * round trip, because api.js batches by TICK and an await ends the tick — which is what put this
+   * screen at 6.4 requests a visit and p95=22.9s, the worst on the 01–04/09 board. */
+  ok_('...along with every other call the screen needs',
+    ['holidays','bigCleaningDays','adminOTList','allLeaves'].every(a =>
+      code.indexOf("api('"+a+"'") >= 0 && code.indexOf("api('"+a+"'") < code.indexOf('await ')));
+  /* ...including the two the student half needs. Which tab is showing is known synchronously, so
+   * starting them with the rest costs the teacher tab nothing and saves the student tab a whole
+   * second round trip — they used to start inside the `if`, four awaits later. */
+  ok_('...and the student tab’s two start with them, not four awaits later',
+    ['allStudentLeaves','studentAlerts'].every(a =>
+      code.indexOf("api('"+a+"'") >= 0 && code.indexOf("api('"+a+"'") < code.indexOf('await ')));
   eq('...and both tabs paint their badges from that one promise',
     (scr.match(/p_ops\.then\(OPS_badges\)/g) || []).length, 2);
   ok_('a failure to count leaves the screen alone', /api\('opsPending',\{staffId:USER\.staffId\}\)\.catch\(\(\)=>null\)/.test(scr));
