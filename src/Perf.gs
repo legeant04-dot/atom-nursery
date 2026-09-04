@@ -258,6 +258,9 @@ function handlePerfSummary(p) {
   var acts = {}, screens = {}, errs = {}, devs = {}, nets = {}, sids = {}, boot = {}, roles = {};
   var healed = {}, healedTotal = 0;
   var cacheHit = 0, cacheMiss = 0, total = 0, failed = 0, firstTs = '', lastTs = '', skipped = 0;
+  // one shape for a device bucket — it is created from three different places (api rows, error rows
+  // and cache rows) and a missing field in one of them is a silent zero in the report
+  function devInit_(d) { return { dev: d, n: 0, fail: 0, ms: [], cHit: 0, cMiss: 0, roles: {}, sids: {} }; }
   var refusedTotal = 0, refusals = {};
 
   for (var i = 0; i < vals.length; i++) {
@@ -271,7 +274,18 @@ function handlePerfSummary(p) {
         batch = Number(r[8]) || 0, screen = String(r[9]), dev = String(r[10]), net = String(r[11]);
     sids[sid] = 1;
 
-    if (type === 'cache') { if (action === 'readCache') cacheHit += batch; else cacheMiss += batch; continue; }
+    /* CACHE, PER DEVICE. Asked 2026-09-04: "iOS ช้ากว่า Android ตรวจสอบเพิ่ม". A device that cannot
+     * KEEP its cache has to fetch what other devices already have, and every one of those fetches
+     * queues behind the user's real work — which would look exactly like a slow phone. iOS Safari
+     * caps script-writable storage far more aggressively than Chrome, and the LINE in-app browser is
+     * WebKit, so this is the first thing to rule in or out. The device is already on the row; it was
+     * simply being thrown away here. */
+    if (type === 'cache') {
+      if (action === 'readCache') cacheHit += batch; else cacheMiss += batch;
+      if (dev) { var dc = devs[dev] = devs[dev] || devInit_(dev);
+        if (action === 'readCache') dc.cHit += batch; else dc.cMiss += batch; }
+      continue;
+    }
     if (type === 'boot') { (boot[action] = boot[action] || []).push(ms); continue; }
     /* A call that failed and then RECOVERED — an expired session signed back in behind the scenes
      * and the call went through. The first attempt is still recorded as a failure (it was one), but
@@ -285,7 +299,8 @@ function handlePerfSummary(p) {
       e.n++; e.users[sid] = 1;
       // Count it against the device too. A phone that produces NOTHING BUT errors would otherwise
       // never appear in the device breakdown — and that is precisely the phone we are looking for.
-      if (dev) { devs[dev] = devs[dev] || { dev: dev, n: 0, fail: 0, ms: [] }; devs[dev].n++; devs[dev].fail++; }
+      if (dev) { devs[dev] = devs[dev] || devInit_(dev); devs[dev].n++; devs[dev].fail++;
+        devs[dev].sids[sid] = 1; if (role) devs[dev].roles[role] = (devs[dev].roles[role] || 0) + 1; }
       continue;
     }
     if (type === 'nav') {
@@ -305,8 +320,13 @@ function handlePerfSummary(p) {
     a.n++; a.ms.push(ms);
     if (!ok) { a.codes[code || 'ERR'] = (a.codes[code || 'ERR'] || 0) + 1;
       if (refused) a.refused++; else { a.fail++; failed++; } }
-    if (dev) devs[dev] = devs[dev] || { dev: dev, n: 0, fail: 0, ms: [] };
-    if (dev) { devs[dev].n++; devs[dev].ms.push(ms); if (!ok && !refused) devs[dev].fail++; }
+    if (dev) { var dv = devs[dev] = devs[dev] || devInit_(dev);
+      dv.n++; dv.ms.push(ms); if (!ok && !refused) dv.fail++;
+      /* ...AND WHICH ROLE WAS HOLDING IT. The note below already records that this exact reading went
+       * wrong once — "Desktop p50 10.7s" was the admin's screens, not the hardware. The role is on
+       * every row; crossing it with the device is what turns "iOS is slow" from a guess into an
+       * answer, because a teacher's home screen costs 11 actions and a parent's costs three. */
+      dv.sids[sid] = 1; if (role) dv.roles[role] = (dv.roles[role] || 0) + 1; }
     /* "Desktop p50 10.7s vs Android 5.8s" invited the conclusion that desktops are slow. They are
      * not: the office computer is the ADMIN, whose screens (finance, payroll, the dashboard) ask for
      * far more than a parent's do, and whose browser stays open all day. The role is already
@@ -388,8 +408,15 @@ function handlePerfSummary(p) {
   }).sort(function (x, y) { return y.fail - x.fail; }).slice(0, 20);
 
   var byDev = Object.keys(devs).map(function (k) {
-    var d = devs[k], st = statify(d);
-    return { dev: d.dev, n: d.n, fail: d.fail, rate: d.n ? Math.round(d.fail / d.n * 100) : 0, p50: st.p50, p95: st.p95 };
+    var d = devs[k], st = statify(d), ns = Object.keys(d.sids).length;
+    // the role mix, biggest first — "iOS x4978 Teacher 71%" answers the question on its own
+    var mix = Object.keys(d.roles).map(function (r) { return { role: r, n: d.roles[r] }; })
+      .sort(function (x, y) { return y.n - x.n; })
+      .map(function (r) { return { role: r.role, pct: d.n ? Math.round(r.n / d.n * 100) : 0 }; }).slice(0, 3);
+    return { dev: d.dev, n: d.n, sessions: ns, perSession: ns ? Math.round(d.n / ns) : 0,
+             fail: d.fail, rate: d.n ? Math.round(d.fail / d.n * 100) : 0, p50: st.p50, p95: st.p95,
+             cacheRate: (d.cHit + d.cMiss) ? Math.round(d.cHit / (d.cHit + d.cMiss) * 100) : null,
+             roles: mix };
   }).sort(function (x, y) { return y.n - x.n; });
 
   // calls PER SESSION is the number Phase 1 set out to move: it was 71, and it is the reason every

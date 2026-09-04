@@ -179,10 +179,14 @@ console.log('\n10) The speed report can leave the phone');
 {
   ok_('there is a copy button', /A_perfCopy\(this\)/.test(app));
   ok_('the report data is kept for it', /window\._PERF=d/.test(app));
-  // the windows grew with the report itself (v255 added WINDOW and REFUSED); what is being pinned is
-  // that both paths are still inside A_perfCopy, not how many characters it takes to reach them
-  ok_('it copies to the clipboard', /A_perfCopy[\s\S]{0,3200}clipboard\.writeText/.test(app));
-  ok_('with a fallback for browsers that block the clipboard', /A_perfCopy[\s\S]{0,3800}<textarea readonly/.test(app));
+  /* Sliced to the END of the function rather than pinned to a character budget. These windows had
+   * already been widened once as the report grew (v255), and again on 2026-09-04 when the device
+   * breakdown gained its role mix and cache rate — a test that must be re-tuned every time the thing
+   * it watches gets longer is measuring length, not behaviour. */
+  const perfCopy = app.slice(app.indexOf('window.A_perfCopy'), app.indexOf('window.A_perfClear'));
+  ok_('the function was found at all', perfCopy.length > 500);
+  ok_('it copies to the clipboard', /clipboard\.writeText/.test(perfCopy));
+  ok_('with a fallback for browsers that block the clipboard', /<textarea readonly/.test(perfCopy));
   // v255: two lines that stop the report lying to us
   ok_('it says when the window is shorter than it claims', /A_perfCopy[\s\S]{0,1200}'WINDOW: capped at '/.test(app));
   ok_('...and separates refusals from failures', /A_perfCopy[\s\S]{0,1600}'REFUSED \(working as intended\): '/.test(app));

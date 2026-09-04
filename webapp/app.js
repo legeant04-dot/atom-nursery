@@ -112,7 +112,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.339'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.340'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -8975,7 +8975,20 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
     (d.problems||[]).slice(0,12).forEach(x=>L.push('  ['+x.users+' users x'+x.n+'] '+x.what+' :: '+(x.detail||'-')));
     L.push('FAILING:');
     (d.failing||[]).slice(0,10).forEach(x=>L.push('  '+x.action+' '+x.rate+'%'+(x.refused?' (+'+x.refused+' refused)':'')+' '+Object.keys(x.codes||{}).map(c=>c+'x'+x.codes[c]).join(',')));
-    L.push('DEVICES: '+(d.byDev||[]).map(x=>x.dev+' x'+x.n+' p50='+ms(x.p50)+(x.fail?' fail'+x.rate+'%':'')).join(' | '));
+    /* A DEVICE LINE THAT CANNOT BE MISREAD. p50 on its own invited "Desktop is slow" once (it was the
+       admin's screens) and "iOS is slow" again on 2026-09-04. Both are answered by the same two
+       figures, which were already in the data and simply not printed: WHO was holding the device, and
+       whether its cache is surviving. A phone that re-fetches what other phones kept will look slow
+       whatever its hardware does. */
+    L.push('DEVICES:');
+    (d.byDev||[]).forEach(x=>{
+      const mix=(x.roles||[]).map(r=>r.role+' '+r.pct+'%').join(' ');
+      L.push('  '+x.dev+' x'+x.n+'/'+(x.sessions||0)+'s ='+(x.perSession||0)+'/session'
+        +' p50='+ms(x.p50)+' p95='+ms(x.p95)
+        +(x.cacheRate!=null?' cache='+x.cacheRate+'%':'')
+        +(x.fail?' fail'+x.rate+'%':'')
+        +(mix?'  ['+mix+']':''));
+    });
     L.push('NETWORK: '+(d.byNet||[]).filter(x=>x.net).map(x=>x.net+' x'+x.n+' p50='+ms(x.p50)).join(' | '));
     L.push('BOOT: '+(d.boot||[]).map(x=>x.mark+'='+ms(x.p50)).join(' | '));
     L.push('rows='+d.rows+'/'+d.cap);
