@@ -2779,6 +2779,21 @@ function createAtomAPI(M, GROWTH_STD) {
       const i=M.leaves.findIndex(x=>x.LeaveID===p.leaveId); if(i<0)fail('NOT_FOUND','ไม่พบคำขอ'); M.leaves.splice(i,1); return {ok:true}; },
     teamPendingLeaves: p => { const me=staffById(p.staffId)||{}; if(me.PositionLevel!=='Leader'&&me.PositionLevel!=='Admin')return [];
       return M.leaves.filter(l=>l.Status==='PENDING_LEADER').map(leaveView_); },
+    /**
+     * The same month, decided rows included — what teamPendingLeaves cannot show.
+     *
+     * A head teacher only ever saw what was still waiting on them, so "did I approve ครูก้อย's leave
+     * or did the admin refuse it?" had no answer anywhere on their phone (asked 2026-09-05). The
+     * admin has had this list since v-early (allLeaves); the person who takes step 1 had nothing.
+     */
+    teamLeaveHistory: p => { const me=staffById(p&&p.staffId)||{};
+      if(me.PositionLevel!=='Leader'&&!adminLike_(me))fail('NO_PERMISSION','เฉพาะหัวหน้าครูหรือแอดมิน');
+      const month=p&&p.month?ym(p.month):null;
+      return (M.leaves||[])
+        // a leave is filed in one month and taken in another; either one puts it in this month's list
+        .filter(l=>!month||ym(l.StartDate)===month||ym(l.CreatedDate)===month)
+        .sort((a,b)=>String(b.CreatedDate||b.StartDate||'').localeCompare(String(a.CreatedDate||a.StartDate||'')))
+        .map(leaveView_); },
     leaveQuota: p => { const raw=M.leaveUsed[p.staffId]||{}; const q=cfg.LeaveQuota;
       // Fold any English-labelled total back onto the Thai key it belongs to, or a teacher who used
       // the app in English reads "0 days used" however much leave they have actually taken.
@@ -2796,8 +2811,10 @@ function createAtomAPI(M, GROWTH_STD) {
       M.leaves.push({LeaveID:id,StaffID:p.staffId,Department:st.Department,Type:leaveTypeTH_(p.type),StartDate:p.startDate,EndDate:p.endDate,Days:days,HalfDay:half,Reason:p.reason,Status:lead?'PENDING_ADMIN':'PENDING_LEADER',Step1ApproverName:'',Step1Status:lead?'Skipped':'Pending',Step1CrossDept:'',Step2ApproverName:'',Step2Status:'Pending',CreatedDate:todayLocal(),Attachment:p.attachment||''});
       return {leaveId:id,status:lead?'PENDING_ADMIN':'PENDING_LEADER',days,halfDay:half}; },
     approveLeave: p => { const ap=staffById(p.staffId)||{}; const l=M.leaves.find(x=>x.LeaveID===p.leaveId); if(!l)fail('NOT_FOUND','ไม่พบคำขอ'); const yes=p.decision==='approve';
-      if(l.Status==='PENDING_LEADER'){ if(ap.PositionLevel!=='Leader'&&ap.PositionLevel!=='Admin')fail('NO_PERMISSION','เฉพาะหัวหน้างาน'); l.Step1ApproverName=ap.NameTH;l.Step1Status=yes?'Approved':'Rejected';l.Step1CrossDept=(ap.Department!==l.Department)?'YES':'NO';l.Status=yes?'PENDING_ADMIN':'REJECTED'; return {status:l.Status,crossDept:l.Step1CrossDept==='YES'}; }
-      if(l.Status==='PENDING_ADMIN'){ if(ap.PositionLevel!=='Admin')fail('NO_PERMISSION','เฉพาะผู้บังคับบัญชา'); l.Step2ApproverName=ap.NameTH;l.Step2Status=yes?'Approved':'Rejected';l.Status=yes?'APPROVED':'REJECTED'; return {status:l.Status}; }
+      // Step1Date/Step2Date: the GAS route has always written them; the engine never did, so the
+      // history screen showed a signature with no date for anything decided in mock/test.
+      if(l.Status==='PENDING_LEADER'){ if(ap.PositionLevel!=='Leader'&&ap.PositionLevel!=='Admin')fail('NO_PERMISSION','เฉพาะหัวหน้างาน'); l.Step1ApproverName=ap.NameTH;l.Step1Status=yes?'Approved':'Rejected';l.Step1Date=stampLocal();l.Step1CrossDept=(ap.Department!==l.Department)?'YES':'NO';l.Status=yes?'PENDING_ADMIN':'REJECTED'; return {status:l.Status,crossDept:l.Step1CrossDept==='YES'}; }
+      if(l.Status==='PENDING_ADMIN'){ if(ap.PositionLevel!=='Admin')fail('NO_PERMISSION','เฉพาะผู้บังคับบัญชา'); l.Step2ApproverName=ap.NameTH;l.Step2Status=yes?'Approved':'Rejected';l.Step2Date=stampLocal();l.Status=yes?'APPROVED':'REJECTED'; return {status:l.Status}; }
       fail('ALREADY_RESOLVED','คำขอนี้ดำเนินการแล้ว'); },
     // `staff` is a sanitized directory of ALL staff (name/nickname) so screens never need client MOCK.staff.
     // `holidays` lets the schedule calendar mark school closures.

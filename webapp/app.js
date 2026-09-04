@@ -112,7 +112,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.342'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.343'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -1658,6 +1658,14 @@
   function monthNameYear(v){ const s=String(v||''); const m=/^(\d{4})-(\d{1,2})/.exec(s); let y,mo; if(m){y=+m[1];mo=+m[2]-1;} else {const d=new Date(s);y=d.getFullYear();mo=d.getMonth();} if(mo<0||mo>11)return s; return EN()?`${EN_MONTHS[mo]} ${y}`:`${TH_MONTHS[mo]} ${y+543}`; }
   // date → "25 กรกฎาคม 2569" / "25 July 2026"
   function fullDate(v){ const d=new Date(v||todayStr()); if(isNaN(d))return String(v||''); const dd=d.getDate(),mo=d.getMonth(),y=d.getFullYear(); return EN()?`${dd} ${EN_MONTHS[mo]} ${y}`:`${dd} ${TH_MONTHS[mo]} ${y+543}`; }
+  /* "04 กันยายน 2569" / "04 September 2026" — the same date as ddmmyyyy with the month spelled out
+   * and the day padded, for LISTS where a leave or a request is one line and the date is the thing
+   * being scanned (asked 2026-09-05 for the teacher's own request history, which showed a raw
+   * "2026-07-17"). Padded because a column of dates that starts 4/14/24 does not line up.
+   * The year follows the app's rule everywhere else: Buddhist in Thai, Gregorian in English. */
+  function longDate(v){ const d=new Date(v||todayStr()); if(isNaN(d))return String(v||'');
+    const mo=d.getMonth(), y=d.getFullYear();
+    return EN()?`${p2(d.getDate())} ${EN_MONTHS[mo]} ${y}`:`${p2(d.getDate())} ${TH_MONTHS[mo]} ${y+543}`; }
   /* A DATE OF BIRTH, WRITTEN OUT — "12 ธ.ค. 2566" / "12 Dec 2023".
    *
    * Asked 2026-08-31 for both the teacher's class screen and the admin's student list, which showed
@@ -4745,11 +4753,81 @@
       // stay in the assessment (re-render) so the teacher keeps working; history is always kept
       confirmSaved(EN()?'Saved — parent notified':'บันทึกแล้ว — แจ้งผู้ปกครอง'); T_assess(sid); }catch(e){err(e);} };
 
+  /* ✅ ดำเนินการ — ONE screen for everything a teacher has to DO, split into tabs.
+   *
+   * It used to be a single scroll called "ลางาน" carrying four unrelated things: the entitlement,
+   * the leave form, the time-correction form, and (for a head teacher) two approval queues. On a
+   * phone the approvals were below three forms, which is why they sat unanswered. Asked 2026-09-05
+   * to become tabs: [การลางาน | ขอลงเวลา] for the teacher's own business, plus a third [รออนุมัติ]
+   * for a head teacher carrying a red count and holding all three queues (leave, time, injury).
+   *
+   * THE TABS DO NOT REFETCH. Everything the screen needs is fetched once, in ONE tick — Apps Script
+   * runs one execution at a time per user, so seven awaits in a row is seven queued round trips
+   * (the lesson from the admin leaves screen, v339). Tab switching is a re-render of data already
+   * here. The month-scoped HISTORIES are the exception: they load when their fold is opened,
+   * because most of the time nobody opens them.
+   */
+  let TLV_TAB=null;                 // 'leave' | 'time' | 'approve'
+  let TLV_MY_MONTH=null;            // month filter for the teacher's OWN two histories
+  let TLV_DATA=null;                // what the last load fetched
+  const tlvMonth = () => TLV_MY_MONTH || monthStr();
+  const inMonth_ = (v,m) => String(v||'').slice(0,7)===m;
+
   SCREENS.Teacher.leave = async () => {
-    const [quota,me] = await Promise.all([api('leaveQuota',{staffId:USER.staffId}),api('staffSelf',{staffId:USER.staffId})]);
-    const isLeader=(me&&(me.PositionLevel==='Leader'||me.Role==='Leader'))||USER.role==='Leader';
+    /* The three team queues are fired for EVERYONE, not behind `if (isLeader)`. isLeader is only
+     * known once staffSelf answers, and an await ends the tick — so gating them would cost a second
+     * execution for every head teacher. All three already answer [] for a plain teacher (the server
+     * decides, not the screen), and .catch keeps one failure from emptying the other two. */
+    const [quota,me,myLeaves,myTimes,tpL,tpT,tpI] = await Promise.all([
+      api('leaveQuota',{staffId:USER.staffId}),
+      api('staffSelf',{staffId:USER.staffId}),
+      api('myLeaves',{staffId:USER.staffId}).catch(()=>[]),
+      api('myTimeRequests',{staffId:USER.staffId}).catch(()=>[]),
+      api('teamPendingLeaves',{staffId:USER.staffId}).catch(()=>[]),
+      api('teamPendingTimeRequests',{staffId:USER.staffId}).catch(()=>[]),
+      api('pendingInjuries',{staffId:USER.staffId}).catch(()=>[])]);
+    TLV_DATA={quota,me,myLeaves:myLeaves||[],myTimes:myTimes||[],tpL:tpL||[],tpT:tpT||[],tpI:tpI||[]};
+    TLV_render();
+  };
+  window.TLV_tab=(k)=>{ TLV_TAB=k; TLV_render(); };
+  window.TLV_myMonth=(m)=>{ TLV_MY_MONTH=m; TLV_render(); };
+  function TLV_render(){
+    const d=TLV_DATA; if(!d) return;
+    const me=d.me||{};
+    const isLeader=(me.PositionLevel==='Leader'||me.Role==='Leader')||USER.role==='Leader'||USER.role==='Admin';
+    const pend=d.tpL.length+d.tpT.length+d.tpI.length;
+    if(!TLV_TAB || (TLV_TAB==='approve' && !isLeader)) TLV_TAB='leave';
+    const tab=(k,label)=>`<button class="${TLV_TAB===k?'active':''}" onclick="TLV_tab('${k}')">${label}</button>`;
     app.innerHTML=`<h2 class="page">${esc(t('title.leave'))}</h2>
-      <div class="card"><h3>สิทธิคงเหลือ</h3><div class="quota">${quota.map(q=>`<div class="q"><div class="n">${esc(halfNum(q.remain))}</div><div class="l">${esc(q.type)} ${esc(halfNum(q.used))}/${esc(halfNum(q.quota))}</div></div>`).join('')}</div></div>
+      <div class="seg" style="margin-bottom:10px">
+        ${tab('leave','📩 '+(EN()?'Leave':'การลางาน'))}
+        ${tab('time','⏰ '+(EN()?'Time':'ขอลงเวลา'))}
+        ${isLeader?tab('approve','⭐ '+(EN()?'Approvals':'รออนุมัติ')+(pend?` <span class="pill bad" style="font-size:11px">${pend}</span>`:'')):''}
+      </div>
+      ${TLV_TAB==='leave'?TLV_leaveTab(d):TLV_TAB==='time'?TLV_timeTab(d):TLV_approveTab(d)}`;
+    if(window.translateTree) translateTree(app);
+  }
+  /* A fold with a month picker, used by all five histories on this screen. Kept in one place so a
+   * teacher's own history and a head teacher's team history cannot drift into two behaviours. */
+  function TLV_fold(id, title, month, onMonth, body, count){
+    return `<details class="card" id="${id}"${TLV_OPEN[id]?' open':''} ontoggle="TLV_fold_(this)">
+      <summary style="cursor:pointer;font-weight:600">${title}${count!=null?` <span class="pill info" style="font-size:11px">${count}</span>`:''}</summary>
+      <label class="field" style="margin-top:8px"><span>${esc(t('c.month'))}</span>
+        <input type="month" value="${esc(month)}" onclick="event.stopPropagation()" onchange="${onMonth}"/></label>
+      <div>${body}</div></details>`;
+  }
+  // remember which folds were open, or every re-render (a month change, an approval) snaps them shut
+  const TLV_OPEN={};
+  // opening a team fold is also what FETCHES it — the month's history is not loaded until somebody
+  // asks to see it, and asking is exactly this event
+  window.TLV_fold_=(el)=>{ if(!el||!el.id) return; TLV_OPEN[el.id]=el.open;
+    if(el.open && el.id.indexOf('tlvTeam')===0) TLV_teamLoad(); };
+
+  function TLV_leaveTab(d){
+    const m=tlvMonth();
+    const mine=(d.myLeaves||[]).filter(l=>inMonth_(l.StartDate,m)||inMonth_(l.CreatedDate,m))
+      .sort((a,b)=>String(b.StartDate||'').localeCompare(String(a.StartDate||'')));
+    return `<div class="card"><h3>สิทธิคงเหลือ</h3><div class="quota">${(d.quota||[]).map(q=>`<div class="q"><div class="n">${esc(halfNum(q.remain))}</div><div class="l">${esc(q.type)} ${esc(halfNum(q.used))}/${esc(halfNum(q.quota))}</div></div>`).join('')}</div></div>
       <div class="card"><h3>ยื่นใบลา</h3>
         <!-- The VALUE must be Thai and must never be translatable. These options used to carry the
              Thai text with no value attribute: in English mode i18n_tr.js rewrote that text to
@@ -4769,23 +4847,79 @@
         <label class="field"><span>เหตุผล</span><textarea id="lReason"></textarea></label>
         ${photoField('lDoc',(EN()?'Attachment (medical cert / doc — optional)':'เอกสารแนบ (ใบรับรองแพทย์ ฯลฯ — ถ้ามี)'),'',false)}
         <button class="btn block" onclick="T_submitLeave()">ส่งคำขอ</button></div>
-      <div class="card"><h3>📋 คำขอของฉัน</h3><div id="ml"></div></div>
-      <div class="card"><h3>${esc(t('att.title'))}</h3>
+      ${TLV_fold('tlvMyLeave','📋 '+(EN()?'My requests':'ประวัติคำขอของฉัน'), m, 'TLV_myMonth(this.value)',
+        mine.length?mine.map(myLeaveRow).join(''):`<small class="muted">${EN()?'Nothing this month':'ไม่มีรายการเดือนนี้'}</small>`, mine.length)}`;
+  }
+  function TLV_timeTab(d){
+    const m=tlvMonth();
+    const mine=(d.myTimes||[]).filter(r=>inMonth_(r.Date,m)||inMonth_(r.CreatedDate,m))
+      .sort((a,b)=>String(b.Date||'').localeCompare(String(a.Date||'')));
+    return `<div class="card"><h3>${esc(t('att.title'))}</h3>
         <p class="muted" style="font-size:13px">${EN()?'Forgot to clock in/out? Request a time — it goes to your leader then Admin.':'ลืมลงเวลา? ขอลงเวลาที่ต้องการ ระบบจะส่งให้หัวหน้าครูและแอดมินอนุมัติ'}</p>
         <div class="grid2"><label class="field"><span>${EN()?'Type':'ประเภท'}</span><select id="atType"><option value="IN">${esc(t('att.reqIn'))}</option><option value="OUT">${esc(t('att.reqOut'))}</option></select></label>
           <label class="field"><span>${EN()?'Date':'วันที่'}</span><input type="date" id="atDate" value="${todayStr()}"/></label></div>
         <div class="grid2"><label class="field"><span>${EN()?'Time':'เวลา'}</span><input type="time" id="atTime"/></label>
           <label class="field"><span>${esc(t('c.reason'))}</span><input id="atReason" placeholder="${EN()?'reason':'เหตุผล'}"/></label></div>
-        <button class="btn block" onclick="T_submitTimeReq()">📤 ${esc(t('att.title'))}</button>
-        <div id="atmine" style="margin-top:10px"></div></div>
-      ${isLeader?`<div class="card"><h3>⭐ รออนุมัติ — คำขอของลูกน้อง</h3><div id="tp"></div></div>
-      <div class="card"><h3>⭐ ${esc(t('att.teamReq'))} (${EN()?'pending':'รออนุมัติ'})</h3><div id="attp"></div>
-        <button class="btn sm outline block" style="margin-top:8px" onclick="A_timeReqHistory()">📜 ${EN()?'Decision history':'ประวัติการอนุมัติ'}</button></div>`:''}`;
-    setHTML('#ml', (await api('myLeaves',{staffId:USER.staffId})).map(leaveRow).join('')||'<small class="muted">ยังไม่มี</small>');
-    setHTML('#atmine', (await api('myTimeRequests',{staffId:USER.staffId})).map(timeReqRow).join('')||'<small class="muted">ยังไม่มี</small>');
-    if(isLeader){ setHTML('#tp', (await api('teamPendingLeaves',{staffId:USER.staffId})).map(teamLeaveRow).join('')||'<small class="muted">ไม่มีคำขอรออนุมัติ</small>');
-      setHTML('#attp', (await api('teamPendingTimeRequests',{staffId:USER.staffId})).map(timeReqApproveRow).join('')||'<small class="muted">ไม่มีคำขอรออนุมัติ</small>'); }
+        <button class="btn block" onclick="T_submitTimeReq()">📤 ${esc(t('att.title'))}</button></div>
+      ${TLV_fold('tlvMyTime','📋 '+(EN()?'My time requests':'ประวัติขอลงเวลาของฉัน'), m, 'TLV_myMonth(this.value)',
+        mine.length?mine.map(myTimeRow).join(''):`<small class="muted">${EN()?'Nothing this month':'ไม่มีรายการเดือนนี้'}</small>`, mine.length)}`;
+  }
+  /* The head teacher's three queues, each shaped the way the admin's screen shapes them: what is
+   * WAITING, then a fold holding the month's whole story including what was refused. Asked for on
+   * 2026-09-05 — a head teacher could only ever see what was still on their desk, so "did that get
+   * approved in the end?" was a question their own phone could not answer. */
+  function TLV_approveTab(d){
+    const m=tlvMonth();
+    const none=`<small class="muted">${EN()?'Nothing waiting':'ไม่มีรายการรออนุมัติ'}</small>`;
+    const sec=(icon,title,rows,html,foldId,foldTitle)=>`<div class="card">
+        <div class="spread"><h3 style="margin:0">${icon} ${esc(title)}</h3>${rows.length?`<span class="pill bad">${rows.length}</span>`:`<span class="pill ok" style="font-size:11px">✓</span>`}</div>
+        <div style="margin-top:6px">${rows.length?html:none}</div>
+        ${TLV_fold(foldId, '📜 '+foldTitle, m, 'TLV_teamMonth(this.value)',
+          `<div id="${foldId}Body" class="muted" style="font-size:13px">${EN()?'Loading…':'กำลังโหลด…'}</div>`)}</div>`;
+    // the folds fetch when they are OPEN, so a month nobody unfolds costs nothing
+    setTimeout(TLV_teamLoad,0);
+    return sec('📩', EN()?'Leave requests':'ลางาน', d.tpL, d.tpL.map(teamLeaveRow).join(''), 'tlvTeamLv', EN()?'All leave this month':'ประวัติการลาทั้งหมดเดือนนี้')
+      + sec('⏰', EN()?'Time requests':'ขอลงเวลา', d.tpT, d.tpT.map(timeReqApproveRow).join(''), 'tlvTeamTm', EN()?'All time requests this month':'ประวัติคำขอลงเวลาเดือนนี้')
+      + sec('🚑', EN()?'Injury reports':'รายงานอุบัติเหตุ', d.tpI, injuryListHTML(d.tpI), 'tlvTeamInj', EN()?'All reports this month':'รายงานทั้งหมดเดือนนี้');
+  }
+  window.TLV_teamMonth=(m)=>{ TLV_MY_MONTH=m; TLV_render(); };
+  /** Fill whichever team histories are open. One call each, only for the folds actually showing. */
+  window.TLV_teamLoad=()=>{
+    const m=tlvMonth();
+    const put=(id,html)=>{ const el=document.getElementById(id+'Body'); if(el) el.innerHTML=html; };
+    const empty=`<small class="muted">${EN()?'Nothing this month':'ไม่มีรายการเดือนนี้'}</small>`;
+    if(TLV_OPEN.tlvTeamLv) api('teamLeaveHistory',{staffId:USER.staffId,month:m})
+      .then(r=>put('tlvTeamLv',(r||[]).length?r.map(teamLeaveHistRow).join(''):empty)).catch(()=>put('tlvTeamLv',empty));
+    if(TLV_OPEN.tlvTeamTm) api('timeRequestHistory',{staffId:USER.staffId,month:m})
+      .then(r=>put('tlvTeamTm',(r||[]).length?r.map(timeReqHistCard).join(''):empty)).catch(()=>put('tlvTeamTm',empty));
+    if(TLV_OPEN.tlvTeamInj) api('injuryReports',{month:m})
+      .then(r=>put('tlvTeamInj',(r||[]).length?injuryListHTML(r):empty)).catch(()=>put('tlvTeamInj',empty));
   };
+  /* A teacher's own leave, written out: the type, the days with a named month, how many days, the
+   * document number and the status in words. It used to print "2026-07-17→2026-07-17" and an id —
+   * the raw row rather than a sentence anyone reads (asked 2026-09-05). */
+  function myLeaveRow(l){
+    const one=String(l.StartDate)===String(l.EndDate);
+    return `<div class="list-item"><div><b>${esc(tLeaveType(l.Type))}</b>${leaveDoc(l)}
+        <br><span style="font-size:13px">${esc(longDate(l.StartDate))}${one?'':' → '+esc(longDate(l.EndDate))} · <b>${lvDays(l.Days)}</b>${l.HalfDay?' · '+esc(halfLabel(l.HalfDay)):''}</span>
+        <br><small class="muted">${esc(l.LeaveID)}${l.Step1ApproverName?(EN()?' · step 1: ':' · ขั้น1: ')+esc(l.Step1ApproverName):''}${l.Step2ApproverName?(EN()?' · step 2: ':' · ขั้น2: ')+esc(l.Step2ApproverName):''}</small>
+      </div>${leaveStatusPill(l.Status)}</div>`;
+  }
+  function myTimeRow(r){
+    return `<div class="list-item"><div><b>${esc(timeTypeLabel(r.Type))}</b> <b style="color:var(--blue)">${esc(r.RequestTime)}</b>
+        <br><span style="font-size:13px">${esc(longDate(r.Date))}</span>
+        ${r.Reason?`<br><small class="muted">${esc(r.Reason)}</small>`:''}
+        ${r.DecisionNote?`<br><small style="color:var(--bad)">↩️ ${esc(r.DecisionNote)}</small>`:''}
+      </div>${timeReqStatusPill(r.Status)}</div>`;
+  }
+  /** One decided leave for the head teacher's month view — whose, what, and how it ended. */
+  function teamLeaveHistRow(l){
+    const one=String(l.StartDate)===String(l.EndDate);
+    return `<div class="list-item"><div><b>${esc(leaveName(l))}</b> · ${esc(tLeaveType(l.Type))}${leaveDoc(l)}
+        <br><span style="font-size:13px">${esc(longDate(l.StartDate))}${one?'':' → '+esc(longDate(l.EndDate))} · <b>${lvDays(l.Days)}</b></span>
+        <br><small class="muted">${esc(l.LeaveID)}${l.Step1ApproverName?` · ${EN()?'step 1':'ขั้น1'} ${esc(l.Step1ApproverName)}${l.Step1Status==='Rejected'?' ✕':''}`:''}${l.Step2ApproverName?` · ${EN()?'step 2':'ขั้น2'} ${esc(l.Step2ApproverName)}${l.Step2Status==='Rejected'?' ✕':''}`:''}</small>
+      </div>${leaveStatusPill(l.Status)}</div>`;
+  }
   // manual attendance-time request row renderers + actions
   const timeTypeLabel = ty => String(ty).toUpperCase()==='IN'?(EN()?'Check-in':'เข้างาน'):(EN()?'Check-out':'เลิกงาน');
   const timeReqStatusPill = st => { const k=String(st||'PENDING_LEADER').toUpperCase(); const cls=k==='APPROVED'?'ok':(k==='REJECTED'?'bad':'wait'); return `<span class="pill ${cls}">${esc(t('att.st.'+k)||k)}</span>`; };
@@ -4823,7 +4957,9 @@
   // "2ว." never made it through the runtime translator; days/steps are spelled out per language now.
   const lvDays = n => EN() ? `${halfNum(n)} d` : `${halfNum(n)}ว.`;
   function leaveRow(l){ return `<div class="list-item"><div><b>${esc(tLeaveType(l.Type))}</b> ${esc(l.StartDate)}→${esc(l.EndDate)} (${lvDays(l.Days)}${l.HalfDay?" · "+esc(halfLabel(l.HalfDay)):""})${leaveDoc(l)}<br><small class="muted">${esc(l.LeaveID)}${l.Step1ApproverName?(EN()?' · step 1: ':' · ขั้น1: ')+esc(l.Step1ApproverName)+(l.Step1CrossDept==='YES'?(EN()?' (cross-dept)':' (ข้ามแผนก)'):''):''}${l.Step2ApproverName?(EN()?' · step 2: ':' · ขั้น2: ')+esc(l.Step2ApproverName):''}</small></div>${leaveStatusPill(l.Status)}</div>`; }
-  function teamLeaveRow(l){ return `<div class="card" style="margin:8px 0"><div class="spread"><div><b>${esc(leaveName(l))}</b> <small class="muted">(${esc(l.Department)})</small><br>${esc(tLeaveType(l.Type))} ${esc(l.StartDate)}→${esc(l.EndDate)} (${lvDays(l.Days)}${l.HalfDay?" · "+esc(halfLabel(l.HalfDay)):""})${leaveDoc(l)}<br><small class="muted">${esc(l.Reason||'')}</small></div>${leaveStatusPill(l.Status)}</div><div class="row" style="margin-top:8px"><button class="btn sm green" onclick="T_teamApprove('${l.LeaveID}','approve')">${esc(t('ot.approve'))}</button><button class="btn sm pink" onclick="T_teamApprove('${l.LeaveID}','reject')">${esc(t('ot.reject'))}</button></div></div>`; }
+  // the same written-out date as the history row directly below it — a queue and its history showing
+  // one date two ways is how a screen stops being read as one screen
+  function teamLeaveRow(l){ return `<div class="card" style="margin:8px 0"><div class="spread"><div><b>${esc(leaveName(l))}</b> <small class="muted">(${esc(l.Department)})</small><br>${esc(tLeaveType(l.Type))} ${esc(longDate(l.StartDate))}${String(l.StartDate)===String(l.EndDate)?'':' → '+esc(longDate(l.EndDate))} (${lvDays(l.Days)}${l.HalfDay?" · "+esc(halfLabel(l.HalfDay)):""})${leaveDoc(l)}<br><small class="muted">${esc(l.Reason||'')}</small></div>${leaveStatusPill(l.Status)}</div><div class="row" style="margin-top:8px"><button class="btn sm green" onclick="T_teamApprove('${l.LeaveID}','approve')">${esc(t('ot.approve'))}</button><button class="btn sm pink" onclick="T_teamApprove('${l.LeaveID}','reject')">${esc(t('ot.reject'))}</button></div></div>`; }
 
   const firstName = s => (nm(s)||'').split(' ')[0];
   // opts: { shortName(staffId), holidays:[{Date,NameTH,NameEN}], leaves:[approved] } — never reads MOCK.staff
@@ -9652,22 +9788,25 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
    * every screen an admin could open (asked 2026-09-04). Both queues only ever showed what was still
    * waiting. This is the month, decided rows included, each with its two signatures and their times.
    */
+  const ATRH_ST={APPROVED:['ok',()=>EN()?'Approved':'อนุมัติแล้ว'],REJECTED:['bad',()=>EN()?'Rejected':'ไม่อนุมัติ'],
+    PENDING_LEADER:['wait',()=>EN()?'With the head teacher':'รอหัวหน้าครู'],PENDING_ADMIN:['wait',()=>EN()?'With the admin':'รอแอดมิน']};
+  const atrhStep=(by,at,st)=>by?`<b>${esc(by)}</b>${at?` <small class="muted">${esc(String(at).slice(0,16))}</small>`:''}${String(st||'').toLowerCase()==='rejected'?` <span style="color:var(--bad)">✕</span>`:''}`
+    :`<span class="muted">${String(st||'')==='Skipped'?(EN()?'skipped':'ข้ามขั้น'):(EN()?'not yet':'ยังไม่ดำเนินการ')}</span>`;
+  /* ONE card for a decided time request, used by the admin's modal AND by the head teacher's fold on
+   * the ดำเนินการ screen. Two renderers for the same row is how two screens end up disagreeing about
+   * what "ไม่อนุมัติ" looks like. */
+  function timeReqHistCard(r){ const s=String(r.Status||'').toUpperCase(); const d=ATRH_ST[s]||['info',()=>s];
+    return `<div class="card" style="padding:8px;margin:6px 0">
+      <div class="spread"><div><b>${esc(dnick(r))}</b> · ${esc(timeTypeLabel(r.Type))} <b style="color:var(--blue)">${esc(r.RequestTime)}</b></div>
+        <span class="pill ${d[0]}" style="font-size:11px">${esc(d[1]())}</span></div>
+      <small class="muted">${EN()?'for':'ของวันที่'} ${esc(longDate(r.Date))}${r.Reason?` · ${esc(r.Reason)}`:''}</small>
+      <div style="font-size:12px;margin-top:4px">1. ${EN()?'Head teacher':'หัวหน้าครู'}: ${atrhStep(r.Step1By,r.Step1At,r.Step1Status)}</div>
+      <div style="font-size:12px">2. ${EN()?'Admin':'แอดมิน'}: ${atrhStep(r.Step2By,r.Step2At,r.Step2Status)}</div>
+      ${r.DecisionNote?`<small style="color:var(--bad)">↩️ ${esc(r.DecisionNote)}</small>`:''}</div>`; }
   let ATRH_MONTH=null;
   window.A_timeReqHistory=async(month)=>{ ATRH_MONTH=month||ATRH_MONTH||monthStr();
     let rows=[]; try{ rows=await api('timeRequestHistory',{staffId:USER.staffId,month:ATRH_MONTH},{fresh:true}); }catch(e){ err(e); return; }
-    const tyLabel=ty=>String(ty).toUpperCase()==='IN'?(EN()?'Check-in':'เข้างาน'):(EN()?'Check-out':'เลิกงาน');
-    const ST={APPROVED:['ok',()=>EN()?'Approved':'อนุมัติแล้ว'],REJECTED:['bad',()=>EN()?'Rejected':'ไม่อนุมัติ'],
-      PENDING_LEADER:['wait',()=>EN()?'With the head teacher':'รอหัวหน้าครู'],PENDING_ADMIN:['wait',()=>EN()?'With the admin':'รอแอดมิน']};
-    const step=(by,at,st)=>by?`<b>${esc(by)}</b>${at?` <small class="muted">${esc(String(at).slice(0,16))}</small>`:''}${String(st||'').toLowerCase()==='rejected'?` <span style="color:var(--bad)">✕</span>`:''}`
-      :`<span class="muted">${String(st||'')==='Skipped'?(EN()?'skipped':'ข้ามขั้น'):(EN()?'not yet':'ยังไม่ดำเนินการ')}</span>`;
-    const card=r=>{ const s=String(r.Status||'').toUpperCase(); const d=ST[s]||['info',()=>s];
-      return `<div class="card" style="padding:8px;margin:6px 0">
-        <div class="spread"><div><b>${esc(dnick(r))}</b> · ${esc(tyLabel(r.Type))} <b style="color:var(--blue)">${esc(r.RequestTime)}</b></div>
-          <span class="pill ${d[0]}" style="font-size:11px">${esc(d[1]())}</span></div>
-        <small class="muted">${EN()?'for':'ของวันที่'} ${esc(ddmmyyyy(r.Date))}${r.Reason?` · ${esc(r.Reason)}`:''}</small>
-        <div style="font-size:12px;margin-top:4px">1. ${EN()?'Head teacher':'หัวหน้าครู'}: ${step(r.Step1By,r.Step1At,r.Step1Status)}</div>
-        <div style="font-size:12px">2. ${EN()?'Admin':'แอดมิน'}: ${step(r.Step2By,r.Step2At,r.Step2Status)}</div>
-        ${r.DecisionNote?`<small style="color:var(--bad)">↩️ ${esc(r.DecisionNote)}</small>`:''}</div>`; };
+    const card=timeReqHistCard;
     const done=rows.filter(r=>/^(APPROVED|REJECTED)$/.test(String(r.Status||'').toUpperCase()));
     const m0=document.querySelector('.modal'); if(m0)m0.remove();
     modal(`<h3>📜 ${EN()?'Time-request history':'ประวัติคำขอลงเวลา'}</h3>
