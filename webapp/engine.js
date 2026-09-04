@@ -4664,6 +4664,10 @@ function createAtomAPI(M, GROWTH_STD) {
         timeRequests: (M.attendanceReq||[]).filter(r=>pend(r.Status)).length,
         classChanges: (M.classChangeReq||[]).filter(r=>String(r.Status||'').toUpperCase()==='PENDING_ADMIN').length,
         studentOT:    (M.otDaily||[]).filter(r=>String(r.Status||'').toUpperCase()==='PENDING_VERIFY').length,
+        /* An injury report is signed off the same way a leave is (teacher → หัวหน้าครู → แอดมิน), so
+         * it belongs on the same row of tools with the same red badge. It was reachable only from
+         * the dashboard, where nothing said how many were waiting (asked 2026-09-03). */
+        injuries:     (M.injuryReports||[]).filter(r=>pend(r.Status)).length,
         leaves:       (M.leaves||[]).filter(l=>pend(l.Status)).length };
       o.total=Object.keys(o).reduce((a,k)=>a+o[k],0);
       return o; },
@@ -5010,6 +5014,9 @@ function createAtomAPI(M, GROWTH_STD) {
             // when the report REACHED the school, which is a different question from when the
             // incident happened — the summary list prints it whenever the two are not the same day
             filedAt:String(r.CreatedAt||''),
+            // where the report has got to in the teacher → หัวหน้าครู → แอดมิน chain, so the list can
+            // say which ones are still waiting on somebody
+            status:String(r.Status||''),
             types:r.InjuryTypes,narrative:r.Narrative||''}; })
           .sort((a,b)=>(b.date+b.time).localeCompare(a.date+a.time))}; },
 

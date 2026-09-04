@@ -112,7 +112,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.337'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.338'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -4431,21 +4431,47 @@
     const bar=(rows,total)=>rows.map(r=>`<div style="margin-top:5px"><div class="spread" style="font-size:13px"><span>${esc(r.label||r.key)}</span><b>${r.count}</b></div>
       <div style="height:6px;background:var(--surface-3);border-radius:3px;overflow:hidden"><div style="height:100%;width:${total?Math.round(r.count/total*100):0}%;background:var(--bad-2)"></div></div></div>`).join('');
     const byType=(sum.byType||[]).map(r=>({label:injTypeNames([r.key]),count:r.count}));
+    /* THE PAGE IS A SUMMARY, SO IT HAS TO FIT ON A SCREEN.
+     *
+     * Asked 2026-09-03. Three changes, all about the same thing — two figures and two short charts
+     * were taking a phone-and-a-half of scrolling before the list they describe:
+     *   · the two counts read as one sentence each, side by side, instead of icon-above-number-
+     *     above-caption stacked full width;
+     *   · the two breakdowns sit half a screen each, because they are read together ("which injury,
+     *     in which room") and never one at a time;
+     *   · either can hold a long tail — there are 15 official injury types — so past five rows the
+     *     card scrolls instead of pushing the list off the bottom.
+     * The list itself folds, with the month on its own header: the month is the question the list
+     * answers, and it belongs where the answer is. */
+    const half = (icon,title,rows,total) => `<div class="card" style="padding:8px;min-width:0">
+      <h3 style="font-size:14px;margin:0 0 2px">${icon} ${esc(title)}</h3>
+      <div style="${rows.length>5?'max-height:168px;overflow-y:auto;':''}">${bar(rows,total)||`<small class="muted">-</small>`}</div>
+      ${rows.length>5?`<small class="muted" style="font-size:11px">${EN()?`${rows.length} kinds — scroll`:`${rows.length} รายการ — เลื่อนดูได้`}</small>`:''}</div>`;
+    const stat = (icon,n,label,col) => `<div class="card" style="padding:8px;display:flex;align-items:center;gap:8px;min-width:0">
+      <span style="font-size:22px">${icon}</span>
+      <span style="min-width:0"><b style="font-size:22px;line-height:1;color:${col}">${n}</b>
+        <br><small class="muted">${esc(label)}</small></span></div>`;
     app.innerHTML=`<h2 class="page">🚑 ${EN()?'Injury reports':'รายงานอุบัติเหตุ'}</h2>
-      <div class="card"><label class="field" style="margin:0"><span>${esc(t('c.month'))}</span>
-        <input type="month" value="${esc(sum.month)}" onchange="A_injuries(this.value)"/></label></div>
-      <div class="kpis">
-        <div class="kpi"><span class="kic">🚑</span><b class="kn" style="color:${sum.total?'var(--bad)':'var(--ok)'}">${sum.total}</b><span class="kl">${EN()?'Reports this month':'รายงานเดือนนี้'}</span></div>
-        <div class="kpi"><span class="kic">👶</span><b class="kn">${sum.students}</b><span class="kl">${EN()?'Children involved':'จำนวนเด็กที่เกี่ยวข้อง'}</span></div>
-      </div>
+      <div class="grid2" style="gap:8px">
+        ${stat('🚑',sum.total,EN()?'reports this month':'รายงานเดือนนี้',sum.total?'var(--bad)':'var(--ok)')}
+        ${stat('👶',sum.students,EN()?'children involved':'จำนวนเด็กที่เกี่ยวข้อง','var(--ink)')}</div>
       ${sum.total?`
-      <div class="card"><h3>🩹 ${EN()?'By injury type':'แยกตามชนิดการบาดเจ็บ'}</h3>${bar(byType,sum.total)}</div>
-      <div class="card"><h3>🏫 ${EN()?'By class':'แยกตามชั้นเรียน'}</h3>${bar((sum.byClass||[]).map(r=>({label:r.key,count:r.count})),sum.total)}</div>
-      <div class="card"><h3>📋 ${EN()?'Reports':'รายการทั้งหมด'}</h3>
+      <div class="grid2" style="gap:8px;margin-top:8px">
+        ${half('🩹',EN()?'By injury type':'แยกตามชนิด',byType,sum.total)}
+        ${half('🏫',EN()?'By class':'แยกตามชั้นเรียน',(sum.byClass||[]).map(r=>({label:r.key,count:r.count})),sum.total)}</div>
+      <details class="card" open style="margin-top:8px">
+        <summary style="cursor:pointer;list-style:none"><div class="spread" style="align-items:center">
+          <b>📋 ${EN()?'Reports':'รายการทั้งหมด'} <span class="muted" style="font-weight:400">(${sum.reports.length})</span></b>
+          <input type="month" value="${esc(sum.month)}" onclick="event.preventDefault();event.stopPropagation()" onchange="A_injuries(this.value)" style="max-width:170px"/>
+        </div></summary>
         ${sum.reports.map(r=>`<div class="list-item" onclick="A_viewInjury('${esc(r.injuryId)}')" style="cursor:pointer">
           <span><b>${esc(r.nick||r.name||r.studentId)}</b> <small class="muted">${esc(r.className||'')}</small><br>
-          <small class="muted">${esc(ddmmyyyy(r.date))} ${esc(r.time)} · ${esc(injTypeNames(r.types))}</small>${injFiledNote({CreatedAt:r.filedAt,Date:r.date})}</span><span class="muted">›</span></div>`).join('')}</div>`
-      : `<div class="card" style="text-align:center;color:var(--ok);padding:18px"><div style="font-size:34px">🎉</div><b>${EN()?'No injuries reported this month':'เดือนนี้ไม่มีรายงานอุบัติเหตุ'}</b></div>`}`;
+          <small class="muted">${esc(ddmmyyyy(r.date))} ${esc(r.time)} · ${esc(injTypeNames(r.types))}</small>${injFiledNote({CreatedAt:r.filedAt,Date:r.date})}</span>
+          <span style="text-align:right;flex:0 0 auto">${injStatusPill({Status:r.status})} <span class="muted">›</span></span></div>`).join('')}</details>`
+      : `<div class="card" style="margin-top:8px"><div class="spread" style="align-items:center">
+           <b class="muted">📋 ${EN()?'Reports':'รายการทั้งหมด'}</b>
+           <input type="month" value="${esc(sum.month)}" onchange="A_injuries(this.value)" style="max-width:170px"/></div>
+         <div style="text-align:center;color:var(--ok);padding:14px 0"><div style="font-size:34px">🎉</div><b>${EN()?'No injuries reported this month':'เดือนนี้ไม่มีรายงานอุบัติเหตุ'}</b></div></div>`}`;
   };
   // one report, exactly as the teacher filed it
   window.A_viewInjury=async(id)=>{ if(!id){ GO('injuries'); return; }
@@ -5630,7 +5656,7 @@
   // which button each count belongs to — one place, so the handler's keys and the screen's buttons
   // cannot drift apart silently
   const OPS_BTN = { staffOT:'A_staffOT', holidayOT:'A_holidayOT', timeRequests:'A_timeRequests',
-    classChanges:'A_classChanges', studentOT:'A_studentOT' };
+    classChanges:'A_classChanges', studentOT:'A_studentOT', injuries:'A_injuries' };
 
   /* ---- one month of working time, per teacher --------------------------------------------------
    * The school could see who was on leave and who was in today, but not how a teacher's MONTH went
@@ -5897,6 +5923,9 @@
                  ['🎉',EN()?'Holiday OT':'OT วันหยุด','A_holidayOT()'],
                  ['⏰',t('att.adminTitle'),'A_timeRequests()'],
                  ['🔁',t('corg.adminTitle'),'A_classChanges()'],
+                 // moved off the dashboard 2026-09-03: it is signed off like a leave, so it belongs
+                 // with the other things waiting for a signature — and gets the same red badge
+                 ['🚑',EN()?'Injury reports':'รายงานอุบัติเหตุ','A_injuries()'],
                  ['🗓️',EN()?'Monthly work time':'เวลาเข้า-ออกรายเดือน','A_staffMonth()']])}
       <div class="leavegrid">
         <div class="lvcol">
