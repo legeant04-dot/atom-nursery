@@ -107,12 +107,49 @@ console.log('\n4) refused on purpose is not failed');
 {
   ok_('a refusal is counted apart from a failure', /var refused = !ok && PERF_EXPECTED_\[code\] === 1;/.test(perf));
   ok_('...and kept out of the headline rate', /if \(refused\) a\.refused\+\+; else \{ a\.fail\+\+; failed\+\+; \}/.test(perf));
-  ok_('...out of the device breakdown', /if \(!ok && !refused\) devs\[dev\]\.fail\+\+;/.test(perf));
+  // the bucket is held in a local now (it gained a role mix and a cache count) — the rule under test
+  // is that a REFUSAL does not raise a device's failure figure, not the name of the variable
+  ok_('...out of the device breakdown', /if \(!ok && !refused\) dv\.fail\+\+;/.test(perf));
   ok_('...and out of the role breakdown', /if \(!ok && !refused\) roles\[role\]\.fail\+\+;/.test(perf));
   ok_('the codes are still listed, so nothing is hidden', /a\.codes\[code \|\| 'ERR'\] = \(a\.codes\[code \|\| 'ERR'\] \|\| 0\) \+ 1;/.test(perf));
   ok_('the report shows the total', /'REFUSED \(working as intended\): '/.test(app));
   ok_('...and puts them beside each failing action', /\(x\.refused\?' \(\+'\+x\.refused\+' refused\)':''\)/.test(app));
   ok_('adding to the list is documented as a deliberate act', /Adding to this list is a deliberate act/.test(perf));
+}
+
+console.log('\n4b) A DEVICE LINE THAT CANNOT BE MISREAD');
+{
+  /* Asked 2026-09-04 after "iOS x4978 p50=8.7s" against "Android x6614 p50=6.5s": ตรวจสอบเพิ่ม.
+   *
+   * The report could not answer it, for a reason already written into Perf.gs — the same reading
+   * went wrong once before, when "Desktop p50 10.7s" was taken for slow hardware and was in fact the
+   * ADMIN's screens. A device p50 is a mixture of who holds that device and what their screens cost,
+   * and neither was printed.
+   *
+   * Two figures settle it, and both were already on every row:
+   *   · the ROLE MIX — a teacher's home screen is 11 actions in one request, a parent's is three;
+   *   · the CACHE RATE per device — a phone that cannot KEEP its cache re-fetches what other phones
+   *     already have, and every one of those queues behind the user's real work. iOS Safari caps
+   *     script-writable storage far harder than Chrome, and the LINE in-app browser is WebKit.
+   */
+  ok_('cache rows are attributed to the device that produced them',
+    /if \(action === 'readCache'\) dc\.cHit \+= batch; else dc\.cMiss \+= batch;/.test(perf));
+  ok_('...and reported as a rate per device',
+    /cacheRate: \(d\.cHit \+ d\.cMiss\) \? Math\.round\(d\.cHit \/ \(d\.cHit \+ d\.cMiss\) \* 100\) : null,/.test(perf));
+  ok_('the role holding each device is counted',
+    /dv\.sids\[sid\] = 1; if \(role\) dv\.roles\[role\] = \(dv\.roles\[role\] \|\| 0\) \+ 1;/.test(perf));
+  ok_('...and printed as a mix, biggest first', /\.map\(function \(r\) \{ return \{ role: r\.role, pct:/.test(perf));
+  ok_('sessions and calls-per-session too, so a heavy user is not read as a slow phone',
+    /sessions: ns, perSession: ns \? Math\.round\(d\.n \/ ns\) : 0,/.test(perf));
+  /* Three places build a device bucket — api rows, error rows and cache rows. A field missing from
+   * one of them is a silent zero in the report, which is the failure mode this whole file is about. */
+  ok_('one initialiser, so the three creation points cannot drift',
+    /function devInit_\(d\) \{ return \{ dev: d, n: 0, fail: 0, ms: \[\], cHit: 0, cMiss: 0, roles: \{\}, sids: \{\} \}; \}/.test(perf));
+  ok_('...used by all three', (perf.match(/devInit_\(dev\)/g) || []).length === 3);
+  ok_('the report prints all of it',
+    /const mix=\(x\.roles\|\|\[\]\)\.map\(r=>r\.role\+' '\+r\.pct\+'%'\)\.join\(' '\);/.test(app) &&
+    /\(x\.cacheRate!=null\?' cache='\+x\.cacheRate\+'%':''\)/.test(app));
+  ok_('...and says why, next to the line that was misread twice', /A DEVICE LINE THAT CANNOT BE MISREAD/.test(app));
 }
 
 console.log('\n5) a teacher does not type her daily report twice');
