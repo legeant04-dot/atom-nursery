@@ -170,5 +170,37 @@ console.log('\n6) WHEN IT HAPPENED vs WHEN IT WAS FILED');
   ok_('the refusal is known to be a rule working, not a crash', /FUTURE_TIME: 1,/.test(R('src/Perf.gs')));
 }
 
+console.log('\n7) THE REPORT SCREEN, WHERE THE WORK IS');
+{
+  /* Asked 2026-09-03. An injury report is signed off exactly like a leave (teacher → หัวหน้าครู →
+   * แอดมิน), and it was reachable only from the dashboard, where nothing said how many were waiting.
+   * It now sits on the operations row with the other things that need a signature, and carries the
+   * same red corner badge. */
+  ok_('the server counts the ones still waiting', /injuries:     \(M\.injuryReports\|\|\[\]\)\.filter\(r=>pend\(r\.Status\)\)\.length,/.test(eng));
+  ok_('...the badge knows which button it belongs to', /studentOT:'A_studentOT', injuries:'A_injuries'/.test(app));
+  ok_('...and the button is on the operations row', /\['🚑',EN\(\)\?'Injury reports':'รายงานอุบัติเหตุ','A_injuries\(\)'\],/.test(app));
+
+  /* The page is a summary, so it has to fit on a screen: two figures read as sentences side by side,
+   * the two breakdowns half a screen each because they are read together, and a scroll past five
+   * rows so a long tail cannot push the list off the bottom. */
+  ok_('the two counts sit on one row, number beside label',
+    /const stat = \(icon,n,label,col\) =>[\s\S]{0,140}display:flex;align-items:center/.test(app));
+  ok_('the two breakdowns are half a screen each', /\$\{half\('🩹'[\s\S]{0,160}\$\{half\('🏫'/.test(app));
+  ok_('...and scroll past five rows rather than growing', /rows\.length>5\?'max-height:168px;overflow-y:auto;':''/.test(app));
+  ok_('...saying so, so a hidden row is not simply missing', /รายการ — เลื่อนดูได้/.test(app));
+  ok_('the list folds, with the month on its own header',
+    /<details class="card" open[\s\S]{0,500}onchange="A_injuries\(this\.value\)"/.test(app));
+  ok_('...and opening the picker does not fold the list', /onclick="event\.preventDefault\(\);event\.stopPropagation\(\)"/.test(app));
+  /* WHICH STEP IS IT AT — the question an admin opens this screen to answer. */
+  ok_('the server sends each report’s step', /status:String\(r\.Status\|\|''\),/.test(eng));
+  ok_('...and every row shows it', /\$\{injStatusPill\(\{Status:r\.status\}\)\}/.test(app));
+  ok_('...in the same words the detail screen uses',
+    /PENDING_LEADER: \(\)=>EN\(\)\?'Waiting for the head teacher':'รอหัวหน้าครู'/.test(app));
+  // a month with nothing in it still has to offer the picker, or you cannot leave it
+  ok_('an empty month still lets you change month',
+    /No injuries reported this month[\s\S]{0,60}<\/div><\/div>`\}`;/.test(app) &&
+    (app.match(/onchange="A_injuries\(this\.value\)"/g) || []).length === 2);
+}
+
 console.log('\n' + (fail ? 'FAILED ' : 'PASSED ') + pass + ' passed, ' + fail + ' failed\n');
 process.exit(fail ? 1 : 0);
