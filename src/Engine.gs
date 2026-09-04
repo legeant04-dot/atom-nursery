@@ -2034,6 +2034,16 @@ function createAtomAPI(M, GROWTH_STD) {
           planEnd:o.PlanEnd, pickupTime:o.PickupTime, lateMinutes:Number(o.LateMinutes||0), hours:Number(o.Hours||0),
           amount:Number(o.Amount||0), status:o.Status||'UNPAID', rate:otRateFor(s),
           fullAmount:otFullOf_(o), discount:otDiscOf_(o,otFullOf_(o)),
+          /* WHY IS A CHILD WHO OWES NOTHING ON THE OT SCREEN AT ALL?
+           * Asked 2026-09-04: a child leaving at 16:00 picked up at 16:15 appeared here, and the
+           * school's rule is that OT starts only after the grace window. Nothing was charged — the
+           * row exists because a LATER time was recorded first and then corrected down, which
+           * cancels the charge but deliberately KEEPS the row so the correction stays visible
+           * (otUpsertForPickup_). The screen showed none of that: same "ยกเลิกแล้ว" pill as a
+           * charge an admin killed by hand, and no mention of the grace window the row is inside.
+           * Send the reason and the rule, so the row explains itself. */
+          cancelledBy:o.CancelledBy||'', cancelNote:o.CancelNote||'',
+          graceMinutes:Number(cfg.OTGraceMinutes||21),
           discountReason:o.DiscountReason||'', discountBy:o.DiscountBy||'' }; }); },
     // Teacher OT follow-up: outstanding student OT the teacher may act on. A homeroom teacher sees ONLY
     // the students in the class(es) they cover; a head teacher / Leader / Admin sees all. Grouped by
@@ -4711,10 +4721,30 @@ function createAtomAPI(M, GROWTH_STD) {
         .filter(r=>{ const s=String(r.Status).toUpperCase(); return s==='PENDING_ADMIN'||s==='PENDING_LEADER'; })
         .sort((a,b)=>String(a.CreatedDate||'').localeCompare(String(b.CreatedDate||'')))
         .map(r=>Object.assign(atrView_(r), { stage: String(r.Status).toUpperCase()==='PENDING_LEADER'?'leader':'admin' })); },
+    /**
+     * WHAT WAS DECIDED, BY WHOM, AND WHEN — the whole month, not just what is still waiting.
+     *
+     * Asked 2026-09-04: "คำขอลงเวลาของคุณครู มีประวัติให้ตรวจสอบไหมว่าอนุมัติไปเมื่อไหร่ ของใคร
+     * ไม่อนุมัติรายการไหนของใครบ้าง". There was none: the only listings were the two PENDING queues
+     * and the requester's own list, so the moment a request was decided it left every screen an
+     * admin could open. A manual time entry WRITES a real check-in — it changes late minutes, OT and
+     * therefore pay — so who approved it has to be answerable afterwards, not just before.
+     *
+     * A head teacher sees the same list (they take step 1); nobody else may call it.
+     */
+    timeRequestHistory: p => { const ap=staffById(p&&p.staffId)||{};
+      if(ap.PositionLevel!=='Leader'&&!adminLike_(ap))fail('NO_PERMISSION','เฉพาะหัวหน้าครูหรือแอดมิน');
+      const month=p&&p.month?ym(p.month):null;
+      return (M.attendanceReq||[])
+        .filter(r=>!month||ym(r.Date)===month||ym(r.CreatedDate)===month)
+        .sort((a,b)=>String(b.Step2At||b.Step1At||b.CreatedDate||'').localeCompare(String(a.Step2At||a.Step1At||a.CreatedDate||'')))
+        .map(r=>Object.assign(atrView_(r), { decidedAt:r.Step2At||r.Step1At||'', decidedBy:r.Step2By||r.Step1By||'' })); },
     approveTimeRequest: p => { const ap=staffById(p.staffId)||{}; const r=(M.attendanceReq||[]).find(x=>x.ReqID===p.reqId); if(!r)fail('NOT_FOUND','ไม่พบคำขอ');
       if(String(r.Status).toUpperCase()!=='PENDING_LEADER')fail('BAD_STATE','ไม่ได้รออนุมัติจากหัวหน้า');
       if(ap.PositionLevel!=='Leader'&&!adminLike_(ap))fail('NO_PERMISSION','เฉพาะหัวหน้าครู');
       const yes=p.decision==='approve'; r.Step1By=ap.NameTH||ap.Name; r.Step1Status=yes?'Approved':'Rejected'; r.Status=yes?'PENDING_ADMIN':'REJECTED';
+      r.Step1At=stampLocal(); if(p.reason) r.DecisionNote=String(p.reason).slice(0,200);
+      logAct('approveTimeRequest',r.ReqID,(yes?'อนุมัติขั้นหัวหน้า':'ไม่อนุมัติ')+' '+r.Type+' '+r.Date+' '+r.RequestTime,actorOf(p));
       return {reqId:r.ReqID,status:r.Status}; },
     confirmTimeRequest: p => { const ap=staffById(p.staffId); if(!adminLike_(ap))fail('NO_PERMISSION','เฉพาะแอดมิน');
       const r=(M.attendanceReq||[]).find(x=>x.ReqID===p.reqId); if(!r)fail('NOT_FOUND','ไม่พบคำขอ');
@@ -4725,6 +4755,8 @@ function createAtomAPI(M, GROWTH_STD) {
       // so, or the sheet would claim a step-1 approval that never happened.
       if(done==='PENDING_LEADER'){ r.Step1By=(ap.NameTH||ap.Name)+' (แอดมินอนุมัติแทน)'; r.Step1Status=yes?'Approved':'Rejected'; }
       r.Step2By=ap.NameTH||ap.Name; r.Step2Status=yes?'Approved':'Rejected'; r.Status=yes?'APPROVED':'REJECTED';
+      r.Step2At=stampLocal(); if(done==='PENDING_LEADER') r.Step1At=r.Step1At||r.Step2At;
+      if(p.reason) r.DecisionNote=String(p.reason).slice(0,200);
       if(yes) applyTimeRequest_(r);
       logAct('confirmTimeRequest',r.ReqID,r.Type+' '+r.Date+' '+r.RequestTime+(done==='PENDING_LEADER'?' (ข้ามขั้นหัวหน้า)':''),actorOf(p));
       return {reqId:r.ReqID,status:r.Status}; },
@@ -4910,7 +4942,18 @@ function createAtomAPI(M, GROWTH_STD) {
         r.AdminBy=ap.NameTH||ap.StaffID||''; r.AdminAt=stamp;
         r.Status=yes?'APPROVED':'REJECTED';
       } else fail('ALREADY_RESOLVED','รายงานนี้ดำเนินการเรียบร้อยแล้ว');
-      if(!yes) r.RejectReason=String(p.reason||'');
+      /* SENT BACK, AND THEN WHAT? Asked 2026-09-04: "ตีกลับแล้วรอขั้นตอนไหน มีอะไรแจ้งคุณครูไหม".
+       * REJECTED used to be a dead end. Nobody told the teacher, and nothing carried the report
+       * back into the queue — approveInjury refuses a REJECTED row (ALREADY_RESOLVED), so the only
+       * way out was an ADMIN pressing unlockInjury. A head teacher asking for one correction could
+       * park an accident report for ever without knowing it.
+       * Now: who sent it back and when is recorded, the filer is told (the GAS wrapper writes their
+       * 🔔 inbox row), and saving a correction re-enters the report at step 1 — see editInjury. */
+      if(!yes){ r.RejectReason=String(p.reason||''); r.RejectBy=ap.NameTH||ap.StaffID||''; r.RejectAt=stamp;
+        M.feed.unshift({id:'INJ-R'+r.InjuryID+'-'+stamp,text:'↩️ รายงานอุบัติเหตุถูกตีกลับให้แก้ไข: '+(r.ChildName||'')+(r.RejectReason?(' — '+r.RejectReason):''),
+          textEN:'↩️ Injury report sent back for correction'+(r.RejectReason?(' — '+r.RejectReason):''),
+          time:timeLocal(),roles:['Teacher','Leader','Admin'],staffId:r.TeacherID||'',read:false,
+          category:'approval',ref:'injury|'+r.InjuryID}); }
       logAct('approveInjury',r.InjuryID,(yes?'อนุมัติ':'ตีกลับ')+' → '+r.Status,actorOf(p));
       return {injuryId:r.InjuryID, status:r.Status}; },
 
@@ -4937,8 +4980,16 @@ function createAtomAPI(M, GROWTH_STD) {
       // filing and editing send them in exactly the same shape.
       Object.assign(r, injExtras_(p));
       r.UpdatedBy=ap.NameTH||ap.StaffID||''; r.UpdatedAt=stampLocal();
+      /* A CORRECTION TO A SENT-BACK REPORT IS THE RESUBMISSION. There is no second button to press,
+       * because a report that has been corrected is exactly what the head teacher asked for and
+       * leaving it parked at REJECTED is how it got lost. It re-enters at step 1 — the person who
+       * sent it back reads it again — and RejectReason is KEPT as the record of why, shown as
+       * history rather than as the current state. */
+      if(st==='REJECTED'){ r.Status='PENDING_LEADER'; r.LeaderBy=''; r.LeaderAt=''; r.AdminBy=''; r.AdminAt='';
+        r.ResubmittedAt=r.UpdatedAt;
+        logAct('resubmitInjury',r.InjuryID,'แก้ไขแล้วส่งกลับเข้าคิว',actorOf(p)); }
       logAct('editInjury',r.InjuryID,'แก้ไขรายงาน',actorOf(p));
-      return {injuryId:r.InjuryID, status:r.Status}; },
+      return {injuryId:r.InjuryID, status:r.Status, resubmitted:st==='REJECTED'}; },
 
     /** Admin sends a finished report back for correction. */
     unlockInjury: p => { const ap=staffById(p.staffId)||{};

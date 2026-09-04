@@ -17,7 +17,10 @@ function arStaffById_(id) {
 function arSheet_() {
   var ss = getHrSpreadsheet_();
   var sh = ss.getSheetByName('ATTENDANCE_REQUEST');
-  var cols = ['ReqID', 'StaffID', 'Date', 'Type', 'RequestTime', 'Reason', 'Status', 'Step1By', 'Step1Status', 'Step2By', 'Step2Status', 'CreatedDate'];
+  /* Step1At/Step2At/DecisionNote: WHEN each signature happened and anything said while refusing.
+   * The sheet recorded who, never when — so "อนุมัติไปเมื่อไหร่" had no answer at all, on a request
+   * that writes a real check-in and therefore moves late minutes, OT and pay (asked 2026-09-04). */
+  var cols = ['ReqID', 'StaffID', 'Date', 'Type', 'RequestTime', 'Reason', 'Status', 'Step1By', 'Step1Status', 'Step1At', 'Step2By', 'Step2Status', 'Step2At', 'DecisionNote', 'CreatedDate'];
   if (!sh) { sh = ss.insertSheet('ATTENDANCE_REQUEST'); sh.getRange(1, 1, 1, cols.length).setValues([cols]); return sh; }
   ensureColumns_(sh, cols);
   return sh;
@@ -89,8 +92,21 @@ function handleApproveTimeRequest(p) {
   var sh = arSheet_(); var r = arFind_(sh, p.reqId); if (!r) throw apiError_('NOT_FOUND', 'ไม่พบคำขอ');
   if (String(r.Status).toUpperCase() !== 'PENDING_LEADER') throw apiError_('BAD_STATE', 'ไม่ได้รออนุมัติจากหัวหน้า');
   var yes = p.decision === 'approve';
-  updateRow_(sh, r._row, { Step1By: ap.Name, Step1Status: yes ? 'Approved' : 'Rejected', Status: yes ? 'PENDING_ADMIN' : 'REJECTED' });
+  var patch = { Step1By: ap.Name, Step1Status: yes ? 'Approved' : 'Rejected', Status: yes ? 'PENDING_ADMIN' : 'REJECTED',
+    Step1At: nowStr_() };
+  if (p.reason) patch.DecisionNote = String(p.reason).slice(0, 200);
+  updateRow_(sh, r._row, patch);
   arBust_();
+  // A refusal at step 1 ended the request, and the requester was told nothing — only the ADMIN's
+  // final decision ever pushed a message (handleConfirmTimeRequest). They waited for an answer that
+  // had already been given.
+  if (!yes) {
+    try {
+      notifyStaffMember_(r.StaffID, '⏰ คำขอลงเวลา ' + (String(r.Type).toUpperCase() === 'IN' ? 'เข้างาน' : 'เลิกงาน') + ' '
+        + String(r.Date).slice(0, 10) + ' ' + r.RequestTime + ' — ไม่อนุมัติ ❌'
+        + (p.reason ? ('\nเหตุผล: ' + p.reason) : ''), 'approval');
+    } catch (e) {}
+  }
   return { reqId: p.reqId, status: yes ? 'PENDING_ADMIN' : 'REJECTED' };
 }
 
@@ -103,19 +119,27 @@ function handleConfirmTimeRequest(p) {
   if (done === 'APPROVED' || done === 'REJECTED') throw apiError_('BAD_STATE', 'คำขอนี้ตัดสินไปแล้ว');
   var yes = p.decision === 'approve';
   if (yes) arApply_(r);
-  var patch = { Step2By: ap.Name, Step2Status: yes ? 'Approved' : 'Rejected', Status: yes ? 'APPROVED' : 'REJECTED' };
+  var patch = { Step2By: ap.Name, Step2Status: yes ? 'Approved' : 'Rejected', Status: yes ? 'APPROVED' : 'REJECTED',
+    Step2At: nowStr_() };
+  if (p.reason) patch.DecisionNote = String(p.reason).slice(0, 200);
   // The admin list now includes requests still sitting with the head teacher, so an admin can settle
   // one directly. Record that it happened that way — otherwise the sheet would show a step-1 approval
   // by a leader who never saw it.
   if (done === 'PENDING_LEADER') {
     patch.Step1By = ap.Name + ' (แอดมินอนุมัติแทน)';
     patch.Step1Status = yes ? 'Approved' : 'Rejected';
+    patch.Step1At = patch.Step2At;
   }
   updateRow_(sh, r._row, patch);
   arBust_();
+  // The LINE push here is unconditional by design — it is the answer to a request this person made,
+  // not traffic they were subscribed to. The 🔔 inbox row is written too, so the answer survives an
+  // exhausted LINE quota.
   try {
+    var msg = '⏰ คำขอลงเวลา ' + (String(r.Type).toUpperCase() === 'IN' ? 'เข้างาน' : 'เลิกงาน') + ' ' + String(r.Date).slice(0, 10) + ' ' + r.RequestTime + ' — ' + (yes ? 'อนุมัติแล้ว ✅' : 'ไม่อนุมัติ ❌') + (p.reason ? ('\nเหตุผล: ' + p.reason) : '');
+    try { inboxAdd_('approval', msg, '', String(r.StaffID || '')); } catch (e2) {}
     var st = arStaffById_(r.StaffID);
-    if (st && st.LineUID) linePushText_(st.LineUID, '⏰ คำขอลงเวลา ' + (String(r.Type).toUpperCase() === 'IN' ? 'เข้างาน' : 'เลิกงาน') + ' ' + String(r.Date).slice(0, 10) + ' ' + r.RequestTime + ' — ' + (yes ? 'อนุมัติแล้ว ✅' : 'ไม่อนุมัติ ❌'));
+    if (st && st.LineUID) linePushText_(st.LineUID, msg);
   } catch (e) {}
   return { reqId: p.reqId, status: yes ? 'APPROVED' : 'REJECTED' };
 }

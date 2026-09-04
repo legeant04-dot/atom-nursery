@@ -241,6 +241,46 @@ function handleSubmitInjury(p) {
   return res;
 }
 
+/**
+ * Tell ONE member of staff something, the same way notifyStudentTeacher_ does: the in-app 🔔 inbox
+ * always (it costs nothing and it is what makes turning LINE off safe), LINE only when the school
+ * has StaffLineNotify on and the person has a UID.
+ */
+function notifyStaffMember_(staffId, text, category, ref) {
+  if (!staffId) return false;
+  try { inboxAdd_(category || 'approval', text, ref || '', String(staffId)); } catch (e) {}
+  try {
+    if (String(getConfig_('StaffLineNotify', 'false')) !== 'true') return false;
+    var st = findObject_(sheet_(getHrSpreadsheet_(), 'STAFF'), function (s) { return String(s.StaffID) === String(staffId); });
+    if (st && st.LineUID) return !!linePushText_(st.LineUID, text);
+  } catch (e) {}
+  return false;
+}
+
+/**
+ * Injury approval step (หัวหน้าครู or แอดมิน). The engine decides and records; this wrapper is here
+ * for the half the engine cannot do — TELLING THE TEACHER.
+ *
+ * Asked 2026-09-04: "หัวหน้าครูตีกลับไปให้แก้ไขข้อมูล มีอะไรแจ้งคุณครูให้แก้ไขไหม". There was nothing.
+ * The report changed to REJECTED on a screen the teacher had no reason to open, and until now
+ * nothing carried it back into the queue either (see approveInjury/editInjury in the engine).
+ */
+function handleApproveInjury(p) {
+  p = p || {};
+  var res = engineDispatch_('approveInjury', p);
+  try {
+    if (String(res && res.status) === 'REJECTED') {
+      var r = engineDispatch_('injuryReport', { injuryId: p.injuryId }) || {};
+      var who = r.ChildName || r.nick || r.StudentID || '';
+      var msg = '↩️ รายงานอุบัติเหตุถูกตีกลับให้แก้ไข: ' + who
+              + (p.reason ? ('\nเหตุผล: ' + p.reason) : '')
+              + '\nแก้ไขแล้วกดบันทึก ระบบจะส่งกลับเข้าคิวอนุมัติให้อัตโนมัติ';
+      notifyStaffMember_(r.TeacherID, msg, 'approval', 'injury|' + p.injuryId);
+    }
+  } catch (e) { try { Logger.log('handleApproveInjury notify ' + e.message); } catch (x) {} }
+  return res;
+}
+
 // New-registration notice → Admin in-app inbox (the parent-facing action runs via the shared engine;
 // this wrapper records it + then runs the engine). isNewParent flags a brand-new family (registerNew).
 function handleRegNotify_(action, p, isNewParent) {

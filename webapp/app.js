@@ -112,7 +112,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.340'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.342'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -4360,9 +4360,27 @@
       treatmentPlaceOther:v('injTreatOther')
     };
   }
+  /* SENT BACK TO YOU — the first thing on the screen, not a pill in a list.
+   * A report the head teacher returns is the ONLY thing here that is waiting on this teacher, and it
+   * used to look exactly like the ones that are simply moving through the queue (asked 2026-09-04).
+   * Correcting it re-submits it automatically — editInjury puts it back at step 1 — so the card says
+   * so, because "แก้ไข" and "ส่งใหม่" being one action is not something anyone should have to guess. */
+  function injRejectedHTML(rows){
+    const mine=(rows||[]).filter(r=>String(r.Status||'').toUpperCase()==='REJECTED'
+      && String(r.TeacherID||'')===String(USER.staffId||''));
+    if(!mine.length) return '';
+    return `<div class="card" style="background:var(--bad-bg);border-color:var(--bad-line);margin-bottom:12px">
+      <div class="spread"><b style="color:var(--bad)">↩️ ${EN()?'Sent back for correction':'ตีกลับให้แก้ไข'}</b><span class="pill bad">${mine.length}</span></div>
+      ${mine.map(r=>`<div style="margin-top:6px;font-size:13px">
+        <b>${esc(r.ChildName||r.nick||r.StudentID||'')}</b> · ${esc(ddmmyyyy(r.Date))} ${esc(String(r.Time||'').slice(0,5))}
+        ${r.RejectReason?`<div style="color:var(--bad)">"${esc(r.RejectReason)}"</div>`:''}
+        <small class="muted">${r.RejectBy?`${EN()?'by':'โดย'} ${esc(r.RejectBy)} ${esc(String(r.RejectAt||'').slice(0,16))} · `:''}${EN()?'correcting it sends it back into the approval queue':'แก้ไขแล้วบันทึก ระบบจะส่งกลับเข้าคิวอนุมัติให้เอง'}</small>
+        <button class="btn sm block" style="margin-top:4px" onclick="A_injEdit('${esc(r.InjuryID)}')">✏️ ${EN()?'Correct and resubmit':'แก้ไขและส่งใหม่'}</button></div>`).join('')}</div>`;
+  }
   SCREENS.Teacher.injury = async () => {
     const [cl,recent]=await Promise.all([api('classList',tc()),api('injuryReports',{})]);
     app.innerHTML=`<h2 class="page">🚑 ${esc(t('inj.title'))}</h2>
+      ${injRejectedHTML(recent)}
       ${injFormHTML('',{students:cl.students})}
       <button class="btn block pink" onclick="T_injurySave()">${esc(t('inj.save'))}</button>
       <div class="card" style="margin-top:12px"><h3>🗒️ ${esc(t('inj.recent'))}</h3><div id="injRecent">${injuryListHTML(recent)}</div></div>`;
@@ -4500,13 +4518,19 @@
         <div style="margin-top:4px;font-size:13px">
           <div>1. ${EN()?'Head teacher':'หัวหน้าครู'}: ${r.LeaderBy?`<b>${esc(r.LeaderBy)}</b> <small class="muted">${esc(r.LeaderAt||'')}</small>`:`<span class="muted">${EN()?'not yet':'ยังไม่ดำเนินการ'}</span>`}</div>
           <div>2. ${EN()?'Admin':'แอดมิน'}: ${r.AdminBy?`<b>${esc(r.AdminBy)}</b> <small class="muted">${esc(r.AdminAt||'')}</small>`:`<span class="muted">${EN()?'not yet':'ยังไม่ดำเนินการ'}</span>`}</div>
-          ${r.RejectReason?`<div style="color:var(--bad);margin-top:4px">↩️ ${esc(r.RejectReason)}</div>`:''}
+          ${r.RejectReason?(injStatus(r)==='REJECTED'
+            ? `<div style="color:var(--bad);margin-top:4px">↩️ ${EN()?'Sent back':'ตีกลับ'}${r.RejectBy?` ${EN()?'by':'โดย'} ${esc(r.RejectBy)}`:''} ${esc(String(r.RejectAt||'').slice(0,16))}<br>"${esc(r.RejectReason)}"</div>
+               <div class="muted" style="margin-top:2px">${EN()?'Correct the report and save — it goes back to the head teacher automatically.':'แก้ไขรายงานแล้วบันทึก ระบบจะส่งกลับให้หัวหน้าครูอนุมัติอีกครั้งอัตโนมัติ'}</div>`
+            /* kept after a resubmission, as history — the reason the report was corrected, not the
+               state it is in now. Reading it as the current state is what made "ตีกลับแล้วรออะไร"
+               impossible to answer from this screen. */
+            : `<div class="muted" style="margin-top:4px">↩️ ${EN()?'previously sent back':'เคยถูกตีกลับ'}${r.RejectBy?` ${EN()?'by':'โดย'} ${esc(r.RejectBy)}`:''}: "${esc(r.RejectReason)}"${r.ResubmittedAt?` · ${EN()?'corrected':'แก้ไขและส่งใหม่'} ${esc(String(r.ResubmittedAt).slice(0,16))}`:''}</div>`):''}
           ${r.UpdatedBy?`<div class="muted" style="margin-top:4px">✏️ ${EN()?'last edited by':'แก้ไขล่าสุดโดย'} ${esc(r.UpdatedBy)} ${esc(r.UpdatedAt||'')}</div>`:''}
         </div>
         ${injCanDecide(r)?`<div class="row" style="gap:8px;margin-top:8px">
           <button class="btn" style="flex:1" onclick="A_injDecide('${esc(r.InjuryID)}','approve',this)">✅ ${EN()?'Approve':'อนุมัติ'}</button>
           <button class="btn pink" style="flex:1" onclick="A_injDecide('${esc(r.InjuryID)}','reject',this)">↩️ ${EN()?'Send back':'ตีกลับ'}</button></div>`:''}
-        ${injCanEdit(r)?`<button class="btn sm outline block" style="margin-top:8px" onclick="A_injEdit('${esc(r.InjuryID)}')">✏️ ${EN()?'Correct this report':'แก้ไขรายงาน'}</button>`:''}
+        ${injCanEdit(r)?`<button class="btn sm ${injStatus(r)==='REJECTED'?'':'outline '}block" style="margin-top:8px" onclick="A_injEdit('${esc(r.InjuryID)}')">✏️ ${injStatus(r)==='REJECTED'?(EN()?'Correct and resubmit':'แก้ไขและส่งใหม่'):(EN()?'Correct this report':'แก้ไขรายงาน')}</button>`:''}
         ${isAdmin()?`<div class="row" style="gap:8px;margin-top:8px">
           ${injStatus(r)==='APPROVED'?`<button class="btn sm outline" style="flex:1" onclick="A_injUnlock('${esc(r.InjuryID)}',this)">🔓 ${EN()?'Unlock to edit':'ปลดล็อกให้แก้ไข'}</button>`:''}
           <button class="btn sm pink" style="flex:1" onclick="A_injDelete('${esc(r.InjuryID)}',this)">🗑️ ${EN()?'Delete':'ลบรายงาน'}</button></div>`:''}
@@ -4598,6 +4622,7 @@
     const m=document.querySelector('.modal'); if(m)m.remove();
     modal(`<h3>✏️ ${EN()?'Correct the injury report':'แก้ไขรายงานอุบัติเหตุ'}</h3>
       ${injStatus(r)==='APPROVED'?`<div class="card" style="background:var(--warn-bg);border-color:var(--warn-line);padding:8px;font-size:13px">🔓 ${EN()?'This report is already approved. Your correction is logged against your name.':'รายงานนี้อนุมัติครบแล้ว การแก้ไขจะถูกบันทึกในชื่อของคุณ'}</div>`:''}
+      ${injStatus(r)==='REJECTED'?`<div class="card" style="background:var(--bad-bg);border-color:var(--bad-line);padding:8px;font-size:13px">↩️ ${r.RejectReason?`<b>"${esc(r.RejectReason)}"</b><br>`:''}${EN()?'Saving sends this report back to the head teacher for approval.':'เมื่อกดบันทึก ระบบจะส่งรายงานนี้กลับให้หัวหน้าครูอนุมัติอีกครั้ง'}</div>`:''}
       ${injFormHTML('e',{r})}
       <div class="row" style="gap:8px">
         <button class="btn" style="flex:1" onclick="A_injEditSave('${esc(r.InjuryID)}',this)">💾 ${esc(t('c.save'))}</button>
@@ -4613,8 +4638,8 @@
       AgeYears:f.ageYears,AgeMonths:f.ageMonths,EduStatus:f.eduStatus,EduGrade:f.eduGrade,
       Narrative:f.narrative,CauseObject:f.causeObject,Witness:f.witness,Place:f.place,
       PlaceOther:f.placeOther,InjuryTypes:f.injuryTypes,NotifyParent:f.notifyParent};
-    try{ await api('editInjury',Object.assign({staffId:USER.staffId,injuryId:id,data},f));
-      confirmSaved(EN()?'Saved':'บันทึกแล้ว');
+    try{ const res=await api('editInjury',Object.assign({staffId:USER.staffId,injuryId:id,data},f));
+      confirmSaved(res&&res.resubmitted?(EN()?'Saved — sent back for approval':'บันทึกแล้ว · ส่งกลับเข้าคิวอนุมัติ'):(EN()?'Saved':'บันทึกแล้ว'));
       const m=document.querySelector('.modal'); if(m)m.remove(); A_viewInjury(id);
     }catch(e){ err(e); if(btn)btn.disabled=false; } };
 
@@ -4754,7 +4779,8 @@
         <button class="btn block" onclick="T_submitTimeReq()">📤 ${esc(t('att.title'))}</button>
         <div id="atmine" style="margin-top:10px"></div></div>
       ${isLeader?`<div class="card"><h3>⭐ รออนุมัติ — คำขอของลูกน้อง</h3><div id="tp"></div></div>
-      <div class="card"><h3>⭐ ${esc(t('att.teamReq'))} (${EN()?'pending':'รออนุมัติ'})</h3><div id="attp"></div></div>`:''}`;
+      <div class="card"><h3>⭐ ${esc(t('att.teamReq'))} (${EN()?'pending':'รออนุมัติ'})</h3><div id="attp"></div>
+        <button class="btn sm outline block" style="margin-top:8px" onclick="A_timeReqHistory()">📜 ${EN()?'Decision history':'ประวัติการอนุมัติ'}</button></div>`:''}`;
     setHTML('#ml', (await api('myLeaves',{staffId:USER.staffId})).map(leaveRow).join('')||'<small class="muted">ยังไม่มี</small>');
     setHTML('#atmine', (await api('myTimeRequests',{staffId:USER.staffId})).map(timeReqRow).join('')||'<small class="muted">ยังไม่มี</small>');
     if(isLeader){ setHTML('#tp', (await api('teamPendingLeaves',{staffId:USER.staffId})).map(teamLeaveRow).join('')||'<small class="muted">ไม่มีคำขอรออนุมัติ</small>');
@@ -4768,7 +4794,13 @@
   window.T_submitTimeReq=async()=>{ const type=$('#atType').value, date=$('#atDate').value, time=$('#atTime').value, reason=$('#atReason').value;
     if(!time){toast(EN()?'Pick a time':'เลือกเวลา');return;}
     try{ await api('submitTimeRequest',{staffId:USER.staffId,type,date,time,reason}); confirmSaved(t('corg.submitted')); GO('leave'); }catch(e){err(e);} };
-  window.T_approveTimeReq=async(reqId,dec)=>{ try{ await api('approveTimeRequest',{staffId:USER.staffId,reqId,decision:dec}); toast(dec==='approve'?(EN()?'Approved (→Admin)':'อนุมัติ (ส่งต่อแอดมิน)'):(EN()?'Rejected':'ปฏิเสธแล้ว')); GO('leave'); }catch(e){err(e);} };
+  window.T_approveTimeReq=async(reqId,dec)=>{
+    let reason='';
+    // A refusal at step 1 ends the request. The person who asked is told (AttReq.gs notifies them),
+    // so there has to be somewhere to say why.
+    if(dec==='reject'){ const a=prompt(EN()?'Why not? (the staff member will see this — optional)':'ไม่อนุมัติเพราะอะไร? (พนักงานจะเห็นข้อความนี้ · ไม่ใส่ก็ได้)');
+      if(a===null) return; reason=String(a).trim(); }
+    try{ await api('approveTimeRequest',{staffId:USER.staffId,reqId,decision:dec,reason}); toast(dec==='approve'?(EN()?'Approved (→Admin)':'อนุมัติ (ส่งต่อแอดมิน)'):(EN()?'Rejected':'ปฏิเสธแล้ว')); GO('leave'); }catch(e){err(e);} };
   // half a day is only meaningful on a single-day request — hide (and clear) it on a range
   window.T_halfToggle=()=>{ const a=$('#lStart'), b=$('#lEnd'), box=$('#lHalfBox'), sel=$('#lHalf');
     if(!a||!b||!box)return; const one=a.value && a.value===b.value;
@@ -9474,6 +9506,20 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
   window.A_studentOT=async()=>{ const month=OT_MONTH||monthStr(); const rows=await api('studentOtList',{month});
     const pill=st=>({UNPAID:'bad',PENDING_VERIFY:'wait',PARTIAL:'wait',PAID:'ok',CANCELLED:'info'}[st]||'info');
     const lbl=st=>({UNPAID:EN()?'unpaid':'ค้างชำระ',PENDING_VERIFY:EN()?'pending':'รอตรวจ',PARTIAL:EN()?'partial':'บางส่วน',PAID:EN()?'paid':'ชำระแล้ว',CANCELLED:EN()?'cancelled':'ยกเลิกแล้ว'}[st]||st);
+    /* INSIDE THE GRACE WINDOW IS NOT "CANCELLED" — IT IS "NOT OT".
+     * Reported 2026-09-04: a child who leaves at 16:00, picked up 16:15, appeared on this screen and
+     * read as if the school had charged OT before its own rule (OT starts only past the grace
+     * window). Nothing was charged. The row exists because a later pick-up time was recorded first
+     * and then corrected down — otUpsertForPickup_ keeps the row at zero so the correction stays
+     * visible instead of vanishing. But the pill said the same "ยกเลิกแล้ว" as a charge an admin
+     * killed by hand, and the rule the row is inside was nowhere on the card.
+     * Decided from the NUMBERS (late ≤ grace and nothing owed), not from a marker string, so it
+     * reads the same whichever path wrote the row. */
+    const graceOf=o=>Number(o.graceMinutes||21);
+    const inGrace=o=>Number(o.lateMinutes||0)<=graceOf(o) && Number(o.fullAmount||o.amount||0)<=0;
+    const otPill=o=>o.status==='CANCELLED'&&inGrace(o)
+      ? `<span class="pill info" style="font-size:11px">${EN()?'not OT (within grace)':'ไม่เข้าเงื่อนไข OT'}</span>`
+      : `<span class="pill ${pill(o.status)}" style="font-size:11px">${esc(lbl(o.status))}</span>`;
     // "ปกติ 200 · ส่วนลดพิเศษ −100 · เก็บจริง 100" — the admin must be able to see at a glance that a
     // row is discounted, not miscalculated. Rows with no discount just show the charge.
     const otLine=(full,disc)=>disc>0
@@ -9482,7 +9528,7 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
     const row=o=>{ const paid=o.status==='PAID', cancelled=o.status==='CANCELLED';
       const otFull=Number(o.fullAmount||o.amount||0), otDisc=Number(o.discount||0);
       return `<div class="card" style="padding:8px;${cancelled?'opacity:.6':''}">
-        <div class="spread"><label style="display:flex;gap:6px;align-items:center"><input type="checkbox" class="sotoc" value="${esc(o.otId)}" ${paid?'disabled':''} style="width:auto" onchange="A_socSel()"/> <b>${esc((EN()?(o.nickEN||o.nick||o.nameEN):(o.nick||o.name))||o.studentId)}</b></label><span class="pill ${pill(o.status)}" style="font-size:11px">${esc(lbl(o.status))}</span></div>
+        <div class="spread"><label style="display:flex;gap:6px;align-items:center"><input type="checkbox" class="sotoc" value="${esc(o.otId)}" ${paid?'disabled':''} style="width:auto" onchange="A_socSel()"/> <b>${esc((EN()?(o.nickEN||o.nick||o.nameEN):(o.nick||o.name))||o.studentId)}</b></label>${otPill(o)}</div>
         <small class="muted">${esc(String(o.date).slice(0,10))} · ${EN()?'leaves':'เลิกเรียน'} ${esc(o.endTime||o.planEnd||'-')} · ${EN()?'rate':'เรต'} ${baht(o.rate)}/${EN()?'hr':'ชม.'}</small>
         <div class="grid2" style="margin-top:6px">
           <label class="field"><span>${EN()?'Pickup time':'เวลารับ'}</span><input type="time" id="ot_t_${esc(o.otId)}" value="${esc(String(o.pickupTime||'').slice(0,5))}" data-orig="${esc(String(o.pickupTime||'').slice(0,5))}" ${paid?'disabled':''}/></label>
@@ -9493,6 +9539,8 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
         ${paid?'':`<label class="field"><span>${EN()?'Reason for the discount (optional)':'เหตุผลที่ให้ส่วนลด (ถ้ามี)'}</span><input id="ot_r_${esc(o.otId)}" value="${esc(o.discountReason||'')}" data-orig="${esc(o.discountReason||'')}" placeholder="${EN()?'e.g. heavy traffic, special case':'เช่น รถติดมาก / กรณีพิเศษ'}"/></label>`}
         <div id="ot_p_${esc(o.otId)}" style="font-size:13px;margin-top:2px">${otLine(otFull,otDisc)}</div>
         <small class="muted">${EN()?'late':'สาย'} ${o.lateMinutes} ${EN()?'min':'นาที'} · ${o.hours} ${EN()?'hr':'ชม.'}${o.discountBy?` · ${EN()?'discount by':'ส่วนลดโดย'} ${esc(staffNick(o.discountBy)||o.discountBy)}`:''}</small>
+        ${inGrace(o)?`<div style="font-size:12px;color:var(--ok);margin-top:2px">✅ ${EN()?`within the ${graceOf(o)}-minute grace — no OT charged`:`อยู่ในเวลาผ่อนผัน ${graceOf(o)} นาที — ไม่คิด OT`}</div>`:''}
+        ${o.cancelNote?`<small class="muted" style="display:block">↩️ ${esc(o.cancelNote)}</small>`:''}
         ${paid?`<div class="muted" style="font-size:13px;margin-top:6px">🔒 ${EN()?'Paid — locked':'ชำระแล้ว แก้ไขไม่ได้'}</div>`
           :`<div class="row" style="margin-top:6px"><button class="btn sm green" onclick="A_otSave('${esc(o.otId)}',this)">💾 ${esc(t('c.save'))}</button>
             ${cancelled?`<button class="btn sm outline" onclick="A_otRestore('${esc(o.otId)}')">♻️ ${EN()?'Restore':'คืนค่า'}</button>`
@@ -9595,9 +9643,46 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
         ${mine.length?`<h4 style="margin:6px 0">${EN()?'Waiting for you':'รอคุณอนุมัติ (ขั้นสุดท้าย)'} (${mine.length})</h4>${mine.map(card).join('')}`:''}
         ${lead.length?`<h4 style="margin:12px 0 6px">${EN()?'Still with the head teacher':'ยังรอหัวหน้าครู'} (${lead.length})</h4>${lead.map(card).join('')}`:''}
         ${rows.length?'':`<small class="muted">${esc(t('corg.noPending'))}</small>`}</div>
+      <button class="btn sm outline block" style="margin-top:8px" onclick="A_timeReqHistory()">📜 ${EN()?'Decision history':'ประวัติการอนุมัติ'}</button>
       <button class="btn outline block" style="margin-top:8px" onclick="this.closest('.modal').remove()">${esc(t('c.close'))}</button>`);
   };
-  window.ATR_decide=async(reqId,dec)=>{ try{ await api('confirmTimeRequest',{staffId:USER.staffId,reqId,decision:dec}); toast(dec==='approve'?(EN()?'Approved & written':'อนุมัติและบันทึกแล้ว'):(EN()?'Rejected':'ปฏิเสธแล้ว')); const m=document.querySelector('.modal'); if(m)m.remove(); A_timeRequests(); }catch(e){err(e);} };
+  /**
+   * WHO APPROVED WHAT, AND WHEN. A manual time entry writes a real check-in, so it moves late
+   * minutes, OT and therefore pay — and until now the moment one was decided it disappeared from
+   * every screen an admin could open (asked 2026-09-04). Both queues only ever showed what was still
+   * waiting. This is the month, decided rows included, each with its two signatures and their times.
+   */
+  let ATRH_MONTH=null;
+  window.A_timeReqHistory=async(month)=>{ ATRH_MONTH=month||ATRH_MONTH||monthStr();
+    let rows=[]; try{ rows=await api('timeRequestHistory',{staffId:USER.staffId,month:ATRH_MONTH},{fresh:true}); }catch(e){ err(e); return; }
+    const tyLabel=ty=>String(ty).toUpperCase()==='IN'?(EN()?'Check-in':'เข้างาน'):(EN()?'Check-out':'เลิกงาน');
+    const ST={APPROVED:['ok',()=>EN()?'Approved':'อนุมัติแล้ว'],REJECTED:['bad',()=>EN()?'Rejected':'ไม่อนุมัติ'],
+      PENDING_LEADER:['wait',()=>EN()?'With the head teacher':'รอหัวหน้าครู'],PENDING_ADMIN:['wait',()=>EN()?'With the admin':'รอแอดมิน']};
+    const step=(by,at,st)=>by?`<b>${esc(by)}</b>${at?` <small class="muted">${esc(String(at).slice(0,16))}</small>`:''}${String(st||'').toLowerCase()==='rejected'?` <span style="color:var(--bad)">✕</span>`:''}`
+      :`<span class="muted">${String(st||'')==='Skipped'?(EN()?'skipped':'ข้ามขั้น'):(EN()?'not yet':'ยังไม่ดำเนินการ')}</span>`;
+    const card=r=>{ const s=String(r.Status||'').toUpperCase(); const d=ST[s]||['info',()=>s];
+      return `<div class="card" style="padding:8px;margin:6px 0">
+        <div class="spread"><div><b>${esc(dnick(r))}</b> · ${esc(tyLabel(r.Type))} <b style="color:var(--blue)">${esc(r.RequestTime)}</b></div>
+          <span class="pill ${d[0]}" style="font-size:11px">${esc(d[1]())}</span></div>
+        <small class="muted">${EN()?'for':'ของวันที่'} ${esc(ddmmyyyy(r.Date))}${r.Reason?` · ${esc(r.Reason)}`:''}</small>
+        <div style="font-size:12px;margin-top:4px">1. ${EN()?'Head teacher':'หัวหน้าครู'}: ${step(r.Step1By,r.Step1At,r.Step1Status)}</div>
+        <div style="font-size:12px">2. ${EN()?'Admin':'แอดมิน'}: ${step(r.Step2By,r.Step2At,r.Step2Status)}</div>
+        ${r.DecisionNote?`<small style="color:var(--bad)">↩️ ${esc(r.DecisionNote)}</small>`:''}</div>`; };
+    const done=rows.filter(r=>/^(APPROVED|REJECTED)$/.test(String(r.Status||'').toUpperCase()));
+    const m0=document.querySelector('.modal'); if(m0)m0.remove();
+    modal(`<h3>📜 ${EN()?'Time-request history':'ประวัติคำขอลงเวลา'}</h3>
+      <label class="field"><span>${esc(t('c.month'))}</span><input type="month" value="${esc(ATRH_MONTH)}" onchange="A_timeReqHistory(this.value)"/></label>
+      <p class="muted" style="font-size:13px">${EN()?`${done.filter(r=>r.Status==='APPROVED').length} approved · ${done.filter(r=>r.Status==='REJECTED').length} rejected · ${rows.length-done.length} still waiting`:`อนุมัติ ${done.filter(r=>r.Status==='APPROVED').length} · ไม่อนุมัติ ${done.filter(r=>r.Status==='REJECTED').length} · ยังรอ ${rows.length-done.length}`}</p>
+      <div style="max-height:60vh;overflow:auto">${rows.length?rows.map(card).join(''):`<div class="card muted">${EN()?'Nothing this month':'ไม่มีรายการเดือนนี้'}</div>`}</div>
+      <button class="btn outline block" style="margin-top:8px" onclick="this.closest('.modal').remove();${isAdmin()?'A_timeRequests()':''}">${esc(t('c.close'))}</button>`);
+  };
+  window.ATR_decide=async(reqId,dec)=>{
+    let reason='';
+    // Cancel means cancel. A blank answer is allowed (a reason is optional), but closing the box must
+    // not go on and refuse the request anyway.
+    if(dec==='reject'){ const a=prompt(EN()?'Why not? (the staff member will see this — optional)':'ไม่อนุมัติเพราะอะไร? (พนักงานจะเห็นข้อความนี้ · ไม่ใส่ก็ได้)');
+      if(a===null) return; reason=String(a).trim(); }
+    try{ await api('confirmTimeRequest',{staffId:USER.staffId,reqId,decision:dec,reason}); toast(dec==='approve'?(EN()?'Approved & written':'อนุมัติและบันทึกแล้ว'):(EN()?'Rejected':'ปฏิเสธแล้ว')); const m=document.querySelector('.modal'); if(m)m.remove(); A_timeRequests(); }catch(e){err(e);} };
 
   // ---- Admin: staff OT approval + management (confirm/edit/reject/add/delete) ----
   let SOT_MONTH=null;
