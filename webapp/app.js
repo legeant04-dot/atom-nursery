@@ -112,7 +112,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.338'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.339'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -5883,23 +5883,42 @@
     /* Started HERE, before the first await, so it rides in the same batch as the holidays call and
      * costs no round trip at all. A separate fetch for a badge would be another ~5s queued in front
      * of the screen — the exact trade the perf work spent a week undoing. */
+    /* FIVE THINGS, ONE ROUND TRIP.
+     *
+     * These were five SEQUENTIAL awaits — holidays, then bigCleaningDays, then adminOTList, then
+     * allLeaves, then the pair below. api.js folds calls made in the SAME TICK into one request, and
+     * an await ends the tick: so each of them was its own ~5s wait, one after another, on a platform
+     * that runs one execution at a time per user. The perf report for 01–04/09 measured this screen
+     * at 6.4 requests a visit and p95=22.9s — the worst on the board, and every second of it was
+     * queueing, not work.
+     *
+     * Started together, awaited together. Same data, same order on screen, one trip. */
     const p_ops = api('opsPending',{staffId:USER.staffId}).catch(()=>null);
+    const p_hol = api('holidays').catch(()=>null);
+    const p_bc  = api('bigCleaningDays').catch(()=>null);
+    const p_hot = api('adminOTList',{month:monthStr()}).catch(()=>null);
+    const p_all = api('allLeaves').catch(()=>null);
+    const p_stf = (A_CACHE.staff&&A_CACHE.staff.length)?Promise.resolve(A_CACHE.staff):api('listStaff').catch(()=>null);
+    /* ...INCLUDING the two the student half needs. Which tab is showing is known synchronously, so
+       starting them here costs nothing on the teacher tab and saves the student tab a whole second
+       round trip — they used to start inside the `if`, which is four awaits later. */
+    const _stu = LV_MAIN==='student';
+    const p_slv = _stu ? api('allStudentLeaves').catch(()=>null) : null;
+    const p_sal = _stu ? api('studentAlerts',{staffId:USER.staffId,role:USER.role}).catch(()=>null) : null;
     // school holidays + meeting days → light-red / teal cells on the approval calendars
-    try{ window._LV_HOL=await api('holidays'); }catch(e){ window._LV_HOL=window._LV_HOL||[]; }
-    try{ const bc=await api('bigCleaningDays'); window._LV_BC=(bc&&bc.days)||bc||[]; }catch(e){ window._LV_BC=window._LV_BC||[]; }
+    window._LV_HOL = (await p_hol) || window._LV_HOL || [];
+    { const bc = await p_bc; window._LV_BC = (bc&&bc.days)||bc||window._LV_BC||[]; }
     // holiday OT for the month on show, so the leave calendar can mark the days someone came in
-    try{ const _ot=await api('adminOTList',{month:monthStr()});
-      window._LV_HOT=(_ot||[]).filter(isLiveHolOT);
-    }catch(e){ window._LV_HOT=window._LV_HOT||[]; }
+    { const _ot = await p_hot; window._LV_HOT = _ot ? _ot.filter(isLiveHolOT) : (window._LV_HOT||[]); }
     // pending teacher-leave count → badge on the tab so it's visible at a glance
-    let _lvPend=0; try{ const _al=await api('allLeaves'); window._LV_ALL=_al; _lvPend=_al.filter(l=>String(l.Status).indexOf('PENDING')===0).length; }catch(e){}
+    let _lvPend=0; { const _al = await p_all; if(_al){ window._LV_ALL=_al; _lvPend=_al.filter(l=>String(l.Status).indexOf('PENDING')===0).length; } }
     const mainSeg=`<div class="seg" style="margin-bottom:10px"><button class="${LV_MAIN==='staff'?'active':''}" onclick="A_lvMain('staff')">👩‍🏫 ${EN()?'Teachers':'คุณครู'}${_lvPend?` <span class="pill bad" style="font-size:11px">${_lvPend}</span>`:''}</button><button class="${LV_MAIN==='student'?'active':''}" onclick="A_lvMain('student')">👶 ${EN()?'Students':'นักเรียน'}</button></div>`;
-    if(LV_MAIN==='student'){
-      const leaves=await api('allStudentLeaves'); window._SLV_ALL=leaves||[];
+    if(_stu){
+      window._SLV_ALL=(await p_slv)||[];
       window._CALRENDER=studentLeaveCalRender;
-      // birthdays this month + the DSPM assessments that have come due — one call, drawn ON the
-      // calendar and summarised under it
-      try{ window._SALERTS=await api('studentAlerts',{staffId:USER.staffId,role:USER.role}); }catch(e){ window._SALERTS=null; }
+      // birthdays this month + the DSPM assessments that have come due — drawn ON the calendar and
+      // summarised under it
+      window._SALERTS=await p_sal;
       app.innerHTML=`<h2 class="page">✅ ${EN()?'Operations':'ดำเนินการ'}</h2>${mainSeg}
         ${opTools([['⏰',EN()?'Student late-pickup OT':'OT รับช้า (นักเรียน)','A_studentOT()'],
                    ['🕵️',EN()?'Attendance check':'ตรวจสอบการลงเวลา','A_attAudit()'],
@@ -5912,7 +5931,11 @@
       p_ops.then(OPS_badges);
       return;
     }
-    const [all,staff]=await Promise.all([window._LV_ALL?Promise.resolve(window._LV_ALL):api('allLeaves'),(A_CACHE.staff&&A_CACHE.staff.length)?Promise.resolve(A_CACHE.staff):api('listStaff')]);
+    // both already in flight from the batch above — no second trip for either
+    const [all0,staff]=await Promise.all([window._LV_ALL||p_all,p_stf]);
+    // .catch(()=>null) above means a failure now arrives as null rather than throwing — an empty
+    // list is the honest render, not a screen that dies on .filter
+    const all=all0||[];
     A_CACHE.staff=staff||A_CACHE.staff; window._LV_ALL=all;
     const pending=all.filter(l=>String(l.Status).indexOf('PENDING')===0);
     const resolved=all.filter(l=>String(l.Status).indexOf('PENDING')!==0);

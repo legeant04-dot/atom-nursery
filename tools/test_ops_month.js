@@ -175,8 +175,12 @@ console.log('\n6) The ⏰ tools moved to ดำเนินการ, split teac
   ok_('they are gone from the จัดการ menu', !/'⏰ เวลา & OT', items:/.test(app));
   const i = app.indexOf("SCREENS.Admin.leaves = async");
   const screen = app.slice(i, app.indexOf('window.A_lvMain=', i));
-  const stu = screen.slice(screen.indexOf("if(LV_MAIN==='student')"), screen.indexOf('return;'));
-  const tea = screen.slice(screen.indexOf('const [all,staff]'));
+  // the branch reads a variable now (_stu), decided before the batch so the student tab's two calls
+  // can ride in it — the tools it offers are what this block is about, so anchor on those
+  const stu = screen.slice(screen.indexOf('if(_stu){'), screen.indexOf('return;'));
+  // the destructure was renamed to all0 on 2026-09-04 (a swallowed error now arrives as null, so the
+  // raw value is defaulted before use) — anchor on the part that is about this screen's shape
+  const tea = screen.slice(screen.indexOf('const [all0,staff]'));
   ok_('student tab offers the student OT tool', /A_studentOT\(\)/.test(stu));
   ok_('...and only that one', !/A_staffOT\(\)|A_timeRequests\(\)/.test(stu));
   ok_('teacher tab offers staff OT', /A_staffOT\(\)/.test(tea));
