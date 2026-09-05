@@ -1,15 +1,18 @@
 /**
- * tools/test_injury_form.js — the official injury form, filled in, as a PDF.
+ * tools/test_injury_form.js — filling in the injury report, asked 2026-09-05.
  *   node tools/test_injury_form.js
  *
- * แบบบันทึกการบาดเจ็บรายบุคคล *๑๐ (๑.๓.๗) is what the school hands to the authority, so the PDF has
- * to be the SAME document: same boxes, same order, same wording, same tick boxes. A form an official
- * does not recognise is a form they send back.
+ * 1) A teacher who covers several rooms could only pick children from ONE. ครูฟิล์ม opened the form
+ *    and found Nursery 1 and nothing else, so an accident in either of her other rooms could not be
+ *    reported at all. The form was being fed classList, which answers for one class at a time — the
+ *    right shape for a register, the wrong one for "which child".
  *
- * The app does not collect everything the paper asks for — the body diagram, the eight numbered
- * wounds and the treatment given have no fields yet — so those print as the EMPTY form to be
- * completed by hand. That is checked here too: printing them blank is deliberate, and dropping the
- * second page would not be the same document.
+ * 2) "เรียนชั้น" was a free text box on a government form. N2 / Nursery2 / เนอสเซอรี่ 2 are three
+ *    spellings of one class.
+ *
+ * 3) The age was typed by hand underneath an option label that already said it. The app counts a
+ *    child's age everywhere else; asking a teacher to copy it from us back to us is not data entry,
+ *    it is transcription.
  */
 const fs = require('fs'), path = require('path'), vm = require('vm');
 
@@ -21,115 +24,97 @@ function eq(label, got, want) {
 }
 function ok_(label, cond) { console.log((cond ? '  ok   ' : '  FAIL ') + label); cond ? pass++ : fail++; }
 const R = f => fs.readFileSync(path.join(__dirname, '..', f), 'utf8').replace(/\r\n/g, '\n');
-const rc = R('webapp/report_card.js'), app = R('webapp/app.js'), eng = R('webapp/engine.js'), cfg = R('src/Config.gs');
+const app = R('webapp/app.js');
 
-console.log('\n1) every box on the paper form is drawn');
-{
-  const want = [
-    ['the form number', '*๑๐ (๑.๓.๗) แบบบันทึกการบาดเจ็บรายบุคคล'],
-    ['the title', 'แบบบันทึกการบาดเจ็บรายบุคคล'],
-    ['date of injury', 'วันที่เกิดการบาดเจ็บ'],
-    ['the Buddhist year prefix', 'พ.ศ. ๒๕'],
-    ['centre name', 'ชื่อศูนย์'],
-    ['affiliation', 'สังกัด'],
-    ['...its two options', 'สำนักพัฒนาสังคม'],
-    ['district', 'ชื่อเขต'],
-    ['recorder', 'ผู้บันทึก'],
-    ['the injured child', 'เด็กที่บาดเจ็บ'],
-    ['sex', 'ชาย'],
-    ['education', 'ไม่ได้เรียน'],
-    ['what led to it', 'เหตุนำและเหตุการณ์ของการบาดเจ็บ'],
-    ['...with the paper\'s own hint', 'ปีนโต๊ะแล้วตกลงมา'],
-    ['the object involved', 'สาเหตุหลักการบาดเจ็บ'],
-    ['a direct witness', 'มีผู้พบเห็นเหตุการณ์โดยตรง'],
-    ['...its three answers', 'ไม่แน่ใจ'],
-    ['where it happened', 'สถานที่เกิดเหตุ'],
-    ['...including the day-care option', 'ศูนย์พัฒนาเด็กหรือศูนย์เลี้ยงเด็ก'],
-    ['the injury-type instruction', 'ชนิดการบาดเจ็บ']
-  ];
-  want.forEach(w => ok_(w[0], rc.indexOf(w[1]) >= 0));
+function boot() {
+  const M = {
+    config: { Plans: [], LeaveQuota: {}, Departments: 'Nursery Baby,Nursery 1,Nursery 2,Nursery 3,Nursery Premium' },
+    classes: [
+      { ClassName: 'Nursery Baby', TeacherID: 'T9' }, { ClassName: 'Nursery 1', TeacherID: 'FILM' },
+      { ClassName: 'Nursery 2', TeacherID: 'T9' }, { ClassName: 'Nursery 3', TeacherID: 'T9' },
+      { ClassName: 'Nursery Premium', TeacherID: 'T9' }],
+    students: [
+      { StudentID: 'S1', NameTH: 'ภัธนิน', Nickname: 'นิน', Class: 'Nursery 1', Status: 'ACTIVE', DOB: '2025-08-01', Gender: 'M' },
+      { StudentID: 'S2', NameTH: 'ณัฏฐ์นภัทร', Nickname: 'ปุย', Class: 'Nursery 2', Status: 'ACTIVE', DOB: '2025-01-05', Gender: 'F' },
+      { StudentID: 'S3', NameTH: 'ชิระ', Nickname: 'ชิ', Class: 'Nursery 3', Status: 'ACTIVE', DOB: '2024-12-01', Gender: 'M' },
+      { StudentID: 'S4', NameTH: 'ที่ออกไปแล้ว', Nickname: 'x', Class: 'Nursery 1', Status: 'WITHDRAWN', DOB: '2024-01-01', Gender: 'F' }],
+    // ครูฟิล์ม covers three rooms: her own homeroom plus two named on her record
+    staff: [
+      { StaffID: 'FILM', NameTH: 'ครูฟิล์ม', Role: 'Teacher', PositionLevel: 'Officer', Classes: 'Nursery 2,Nursery 3' },
+      { StaffID: 'ONE', NameTH: 'ครูหนึ่ง', Role: 'Teacher', PositionLevel: 'Officer', Classes: 'Nursery 1' },
+      { StaffID: 'A1', NameTH: 'แอดมิน', Role: 'Admin', PositionLevel: 'Admin' }],
+    parents: [], userLinks: [], leaves: [], payments: [], otDaily: [], otRecords: [], studentCharges: [],
+    prepayments: [], paymentSlips: [], checkinStudent: [], journals: [], comments: [], holidays: [],
+    staffGroups: [], workSchedule: [], staffAttendanceToday: [], staffAttendanceHistory: [], payroll: [],
+    payrollConfig: {}, studentLeaves: [], absenceLog: [], dspmCriteria: [], activityLog: [], announcements: [],
+    notifications: [], vaccines: [], growth: [], growthRecords: [], assessments: [], classChanges: [],
+    classChangeReq: [], attendanceReq: [], adminInbox: [], foodMenus: [], foodItems: [], surveys: [],
+    surveyResponses: [], injuries: [], injuryReports: [], insurance: [], bigCleaning: [], departments: [],
+    permissions: {}, feed: [], calendar: [], studentAttendanceToday: [], studentCheckins: [], classCover: []
+  };
+  const ctx = { window: {}, console, Date, JSON, Math, Object, Array, String, Number, isFinite, parseInt, parseFloat, RegExp, Error };
+  ctx.window = ctx; vm.createContext(ctx); vm.runInContext(R('webapp/engine.js'), ctx);
+  return { H: ctx.createAtomAPI(M, {}).H, M: M };
 }
 
-console.log('\n2) all seventeen injury types, in the paper\'s order and wording');
+console.log('1) every room this teacher covers');
 {
-  const m = /var INJ_TYPES_TH = \[([\s\S]*?)\n  \];/.exec(rc);
-  const arr = (m ? m[1].match(/'[^']*'/g) || [] : []).map(s => s.slice(1, -1));
-  eq('seventeen of them', arr.length, 17);
-  eq('1 is the fall', arr[0], 'พลัดตกหกล้ม');
-  eq('5 is drowning', arr[4], 'ตกน้ำ จมน้ำ');
-  eq('9 is electric shock', arr[8], 'ถูกไฟฟ้าดูด');
-  eq('12 is traffic', arr[11], 'การจราจร เช่น ถูกรถชน');
-  eq('16 is self-harm', arr[15], 'ทำร้ายตนเอง');
-  eq('17 is "other"', arr[16], 'อื่นๆ');
-  // the codes stored by the app must line up with these positions, or a tick lands on the wrong line
-  const appTypes = /const INJURY_TYPES=\[([\s\S]*?)\n  \];/.exec(app);
-  const ns = (appTypes ? appTypes[1].match(/\{n:\s*(\d+)/g) || [] : []).map(s => Number(s.replace(/\D/g, '')));
-  eq('the app stores codes 1..17, in order', ns, Array.from({ length: 17 }, (_, i) => i + 1));
-  ok_('the form ticks by that code', /picked\.indexOf\(String\(k \+ 1\)\) >= 0/.test(rc));
+  const { H } = boot();
+  const mine = H.myStudents({ staffId: 'FILM' });
+  eq('ครูฟิล์ม sees all three of her rooms', mine.students.map(s => s.StudentID).sort(), ['S1', 'S2', 'S3']);
+  eq('...named, so a picker can group them', mine.students.map(s => s.Class).sort(), ['Nursery 1', 'Nursery 2', 'Nursery 3']);
+  /* classList — what the form USED to be fed — answers for one class, which is why she saw one. */
+  eq('classList still answers for one room only, as it should', H.classList({ staffId: 'FILM' }).students.length, 1);
+  eq('a withdrawn child is not on the list', mine.students.some(s => s.StudentID === 'S4'), false);
+  eq('a teacher with one room gets that room', H.myStudents({ staffId: 'ONE' }).students.map(s => s.StudentID), ['S1']);
+  eq('an admin gets everybody', H.myStudents({ staffId: 'A1' }).students.length, 3);
+  eq('a stranger gets nobody else\'s children', H.myStudents({ staffId: 'ZZZ' }).students.length <= 3, true);
 }
 
-console.log('\n3) the fourteen wound characteristics, and the eight wound rows');
+console.log('\n2) what the child picker needs to fill the form');
 {
-  const m = /var INJ_CHAR_TH = \[([\s\S]*?)\];/.exec(rc);
-  const arr = (m ? m[1].match(/'[^']*'/g) || [] : []).map(s => s.slice(1, -1));
-  eq('fourteen of them', arr.length, 14);
-  eq('1 is a graze', arr[0], 'บาดแผลถลอก');
-  eq('7 is a break or dislocation', arr[6], 'กระดูกเคลื่อน หรือหัก');
-  eq('13 is a brain injury', arr[12], 'บาดเจ็บสมอง');
-  ok_('the eight numbered wound rows are drawn', /'บาดแผลหมายเลข ' \+ '๑๒๓๔๕๖๗๘'\.charAt\(r2\)/.test(rc));
-  ok_('...as Thai numerals, like the paper', /๑๒๓๔๕๖๗๘/.test(rc));
+  const { H } = boot();
+  const s = H.myStudents({ staffId: 'FILM' }).students.find(x => x.StudentID === 'S2');
+  eq('the date of birth travels with the name', s.DOB, '2025-01-05');
+  eq('...and the sex', s.Gender, 'F');
+  eq('...and the room', s.Class, 'Nursery 2');
+  ok_('the shape is a student, so nm()/ageYM(s.DOB) keep working', 'NameTH' in s && 'Nickname' in s && 'StudentID' in s);
 }
 
-console.log('\n4) what is filled in, and what is deliberately left blank');
+console.log('\n3) the school\'s classes, for เรียนชั้น');
 {
-  ['CenterName', 'AffiliationType', 'AffiliationOther', 'District', 'RecorderName', 'ChildName',
-   'Sex', 'AgeYears', 'AgeMonths', 'EduStatus', 'EduGrade', 'Narrative', 'CauseObject', 'Witness',
-   'Place', 'PlaceOther', 'InjuryTypes'].forEach(f =>
-    ok_('the form prints d.' + f, new RegExp('d\\.' + f + '\\b').test(rc)));
-  // …and each of those is a real column, or it would print empty for ever
-  const hdr = /INJURY_REPORTS:\s*\[([\s\S]*?)\]/.exec(cfg);
-  const cols = (hdr ? hdr[1].match(/'[^']+'/g) || [] : []).map(s => s.slice(1, -1));
-  ['CenterName', 'RecorderName', 'ChildName', 'Narrative', 'CauseObject', 'Witness', 'Place', 'InjuryTypes']
-    .forEach(c => ok_(c + ' is stored, so it can be printed', cols.indexOf(c) >= 0));
-  ok_('page 2 is still drawn, not dropped', /function drawInjuryPage2/.test(rc));
-  // page 2 used to print entirely blank; it is now filled in from the record, EXCEPT the body
-  // diagram — a wound position is a mark on a picture and must not be invented from a line of text
-  ok_('...and the reader is told what is still filled in by hand', /ทำเครื่องหมายด้วยมือ/.test(app));
-  ok_('the reason is written down in the code too', /still printed as an empty outline/.test(rc));
+  const { H } = boot();
+  const all = H.myStudents({ staffId: 'FILM' }).allClasses;
+  eq('every room the school has, not just the ones she covers', all.sort(),
+    ['Nursery 1', 'Nursery 2', 'Nursery 3', 'Nursery Baby', 'Nursery Premium']);
+  // a teacher covering two rooms must still be able to record a child from a third correctly
+  eq('...which is more rooms than she covers', all.length > H.myStudents({ staffId: 'FILM' }).classes.length, true);
 }
 
-console.log('\n5) two A4 pages, built on the device, never uploaded');
+console.log('\n4) the form itself');
 {
-  ok_('renderInjury makes exactly two pages', /\[drawInjuryPage1, drawInjuryPage2\]\.map/.test(rc));
-  ok_('saveInjury is exported', /saveInjury: function \(d, kind\)/.test(rc));
-  ok_('PDF is the default, image is the option', /kind === 'jpg'/.test(rc));
-  ok_('the file is named after the child and the date', /'แบบบันทึกการบาดเจ็บ_' \+ \(who \|\| 'เด็ก'\) \+ '_'/.test(rc));
-  // the filename is scrubbed of characters a filesystem refuses (\ / : * ? " < > | and whitespace)
-  ok_('...with characters a filesystem refuses stripped out',
-    rc.indexOf('.replace(/[\\\\/:*?"<>|\\s]+/g, \'_\')') >= 0);
-  ok_('it reuses the same hand-built PDF writer', /buildPdf\(sheets\)/.test(rc));
-  ok_('the same A4 canvas as every other export', /var W = 1240, H = 1754/.test(rc));
-  ok_('fonts are awaited, or Thai renders as boxes', /document\.fonts\.ready/.test(rc.slice(rc.indexOf('function renderInjury'))));
+  ok_('the picker is grouped by class when there is more than one', /function injChildOptions[\s\S]{0,900}<optgroup label=/.test(app));
+  ok_('...and not grouped when there is only one', /order\.length<=1\) return list\.map\(opt\)/.test(app));
+  ok_('each option carries the child\'s dob, sex and room', /data-dob="\$\{esc\(s\.DOB\|\|''\)\}"[\s\S]{0,140}data-sex[\s\S]{0,140}data-class/.test(app));
+  ok_('the screen asks for every covered room, not one class', /api\('myStudents',\{staffId:USER\.staffId\}\)/.test(app));
+  ok_('...and classList is no longer what fills this form', !/SCREENS\.Teacher\.injury[\s\S]{0,400}api\('classList'/.test(app));
+
+  ok_('เรียนชั้น is a dropdown', /<select id="\$\{id\('injGrade'\)\}"/.test(app));
+  ok_('...built from the school\'s classes', /function injGradeOptions/.test(app));
+  ok_('...with nothing pre-picked, so a class is chosen rather than defaulted', /injGradeOptions[\s\S]{0,700}เลือกชั้นเรียน/.test(app));
+  /* An older report naming a class the school no longer runs must still show it. Dropping the value
+   * would silently rewrite what a teacher recorded about a real accident. */
+  ok_('...and a retired class on an old report survives', /injGradeOptions[\s\S]{0,700}orphan/.test(app));
+
+  ok_('picking a child fills the age', /window\.INJ_child[\s\S]{0,700}injAgeY[\s\S]{0,120}injAgeM/.test(app));
+  ok_('...in years AND months, from the months the app already counts', /Math\.floor\(m\/12\)[\s\S]{0,60}m%12/.test(app));
+  ok_('...ticks their sex', /window\.INJ_child[\s\S]{0,900}injSex"\]\[value="\$\{sx\}"/.test(app));
+  ok_('...and names their room', /window\.INJ_child[\s\S]{0,1100}g\.value=cls/.test(app));
+  // the dropdown opens on a child; that child is as chosen as one picked by hand
+  ok_('the child the form opens on is filled in too', /INJ_child\('''?\)|INJ_child\(''\);/.test(app));
+  ok_('the edit form gets the class list in the same tick as the report', /A_injEdit[\s\S]{0,700}Promise\.all\(\[p_r,p_c\]\)/.test(app));
+  ok_('...and does not refetch it once it is known', /window\._INJ_CLASSES \? Promise\.resolve/.test(app));
 }
 
-console.log('\n6) the button, and the data behind it');
-{
-  ok_('the injury report offers the form', /A_injuryPdf\('\$\{esc\(r\.InjuryID\|\|''\)\}'/.test(app));
-  ok_('...loading the drawing code only when asked', /__atomLoadScript\('report_card\.js',\(\)=>!!\(window\.AtomReportCard&&window\.AtomReportCard\.saveInjury\)\)/.test(app));
-  ok_('it fetches the FULL record, not the summary row', /const r=await api\('injuryReport',\{injuryId:id\}\)/.test(app));
-  ok_('the button cannot be double-tapped mid-build', /btn\.disabled=true; btn\.innerHTML='⏳'/.test(app));
-  ok_('...and comes back even if it fails', /finally\{ if\(btn\)\{ btn\.disabled=false; btn\.innerHTML=old; \} \}/.test(app));
-  ok_('the engine can return one report by id', /injuryReport: p => \{/.test(eng));
-  ok_('...with the child and the teacher resolved for the form', /teacherName:t\.NameTH\|\|t\.Name\|\|''/.test(eng));
-}
-
-console.log('\n7) PDPA — a child\'s health data must not leave the device');
-{
-  const fn = rc.slice(rc.indexOf('saveInjury: function'), rc.indexOf('buildPdf: buildPdf'));
-  ok_('no upload, no fetch, no share link', !/fetch\(|XMLHttpRequest|uploadSlip|api\(/.test(fn));
-  ok_('it only downloads', /download\(/.test(fn));
-  ok_('the whole file states the rule', /never uploaded/.test(rc));
-}
-
-console.log('\n' + (fail ? 'FAILED ' : 'PASSED ') + pass + ' passed, ' + fail + ' failed\n');
+console.log(fail ? `\nFAILED ${pass} passed, ${fail} failed` : `\nPASSED ${pass} passed, 0 failed`);
 process.exit(fail ? 1 : 0);

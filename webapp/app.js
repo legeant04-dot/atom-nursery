@@ -112,7 +112,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.344'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.345'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -4329,6 +4329,52 @@
    * `pfx` prefixes every id and radio name. The correction modal can be opened ON TOP of the filing
    * screen, and two elements sharing an id would hand the save handler the wrong one without a word.
    */
+  /* THE CHILD PICKER SHOWS EVERY CLASS THIS TEACHER COVERS.
+   *
+   * It used to be fed classList, which answers for ONE class — so ครูฟิล์ม, who looks after several
+   * rooms, opened the form and found only Nursery 1 (reported 2026-09-05). An accident in another of
+   * her rooms could not be reported at all. myStudents returns them all; they are grouped by class
+   * with <optgroup>, so the list is complete without becoming a list of strangers.
+   */
+  function injChildOptions(students){
+    const list=students||[];
+    const byClass={}; const order=[];
+    list.forEach(s=>{ const c=String(s.Class||'')||(EN()?'(no class)':'(ไม่ระบุชั้น)');
+      if(!byClass[c]){ byClass[c]=[]; order.push(c); } byClass[c].push(s); });
+    const opt=s=>`<option value="${esc(s.StudentID)}" data-dob="${esc(s.DOB||'')}" data-sex="${esc(String(s.Gender||'').toUpperCase())}" data-class="${esc(s.Class||'')}">${esc(nm(s))} (${esc(ageYM(s.DOB))})</option>`;
+    // one class → no point printing its name over every name in it
+    if(order.length<=1) return list.map(opt).join('');
+    return order.map(c=>`<optgroup label="${esc(c)}">${byClass[c].map(opt).join('')}</optgroup>`).join('');
+  }
+  /** The school's classes for "เรียนชั้น". A value from an older report that is no longer a class of
+   *  the school still shows — dropping it would silently rewrite what a teacher recorded. */
+  function injGradeOptions(classes, sel){
+    const L=(classes&&classes.length?classes:(window._INJ_CLASSES||[])).map(String).filter(Boolean);
+    const cur=String(sel||'');
+    const orphan=cur&&L.indexOf(cur)<0?`<option value="${esc(cur)}" selected>${esc(cur)}</option>`:'';
+    return `<option value="">${EN()?'– select a class –':'– เลือกชั้นเรียน –'}</option>${orphan}`
+      + L.map(c=>`<option value="${esc(c)}"${c===cur?' selected':''}>${esc(c)}</option>`).join('');
+  }
+  /* Picking the child fills in what the system already knows about them: age in years and months,
+   * sex, and the room they are in. Asked 2026-09-05 — the app counts the age on the option label
+   * already, so making a teacher retype it underneath is asking them to copy from us to us.
+   * Only ever fills; it does not clear a field the teacher has since corrected by hand... except
+   * when they change child, which is the one moment the old answers are certainly wrong. */
+  window.INJ_child=(pfx)=>{
+    pfx=pfx||'';
+    const sel=document.getElementById(pfx+'injChild'); if(!sel) return;
+    const o=sel.options[sel.selectedIndex]; if(!o) return;
+    const dob=o.getAttribute('data-dob')||'', sx=o.getAttribute('data-sex')||'', cls=o.getAttribute('data-class')||'';
+    if(dob){ const m=Math.max(0,Math.round(window.AGEMONTHS?AGEMONTHS(dob):0));
+      const y=document.getElementById(pfx+'injAgeY'), mo=document.getElementById(pfx+'injAgeM');
+      if(y) y.value=Math.floor(m/12); if(mo) mo.value=m%12; }
+    if(sx==='M'||sx==='F'){ const rb=document.querySelector(`input[name="${pfx}injSex"][value="${sx}"]`); if(rb) rb.checked=true; }
+    if(cls){ const g=document.getElementById(pfx+'injGrade');
+      if(g){ if(![...g.options].some(x=>x.value===cls)) g.insertAdjacentHTML('beforeend',`<option value="${esc(cls)}">${esc(cls)}</option>`);
+        g.value=cls;
+        // "เรียนชั้น" is only meaningful when the child IS at a school — tick it, since we just named one
+        const rb=document.querySelector(`input[name="${pfx}injEdu"][value="grade"]`); if(rb) rb.checked=true; } }
+  };
   function injFormHTML(pfx, o){
     o=o||{}; const r=o.r||{}, edit=!!o.r;
     const id=s=>pfx+s, V=v=>esc(v==null?'':String(v));
@@ -4352,11 +4398,14 @@
       </div>
       <div class="card"><h3>👶 ${esc(t('inj.child'))}</h3>
         ${edit ? `<div class="list-item"><span class="muted">${esc(t('inj.child'))}</span><b>${esc(r.nick||r.ChildName||r.StudentID)}</b></div>`
-               : `<label class="field"><span>${esc(t('inj.selectChild'))}</span><select id="${id('injChild')}">${(o.students||[]).map(s=>`<option value="${s.StudentID}">${esc(nm(s))} (${esc(ageYM(s.DOB))})</option>`).join('')}</select></label>`}
+               : `<label class="field"><span>${esc(t('inj.selectChild'))}</span><select id="${id('injChild')}" onchange="INJ_child('${pfx}')">${injChildOptions(o.students)}</select></label>`}
         <div class="jsec"><h4>${esc(t('inj.sex'))}</h4>${radio('injSex','M',t('inj.male'),sex==='M')} ${radio('injSex','F',t('inj.female'),sex==='F')}</div>
         <div class="grid2"><label class="field"><span>${esc(t('inj.age'))} (${esc(t('inj.years'))})</span><input type="number" id="${id('injAgeY')}" value="${V(r.AgeYears)}" placeholder="–"/></label><label class="field"><span>${esc(t('inj.age'))} (${esc(t('inj.months'))})</span><input type="number" id="${id('injAgeM')}" value="${V(r.AgeMonths)}" placeholder="–"/></label></div>
         <div class="jsec"><h4>${esc(t('inj.edu'))}</h4>${radio('injEdu','none',t('inj.edu.none'),edu==='none')} ${radio('injEdu','grade',t('inj.edu.grade'),edu!=='none')}
-          <input id="${id('injGrade')}" placeholder="${esc(t('inj.edu.grade'))}" value="${V(edit?r.EduGrade:'')}" style="margin-top:6px"/></div>
+          <!-- the school's own rooms, not a text box. A teacher typing "N2"/"Nursery2"/"เนอสเซอรี่ 2"
+               on a government form is three spellings of one class, and the age/room of a child the
+               system already knows is not something anyone should retype. -->
+          <select id="${id('injGrade')}" style="margin-top:6px">${injGradeOptions(o.classes, edit?r.EduGrade:'')}</select></div>
       </div>
       <div class="card"><h3>📝 ${esc(t('inj.narrative'))}</h3><p class="muted" style="font-size:13px">${esc(t('inj.narrativeHint'))}</p>
         <textarea id="${id('injNarr')}" rows="3">${V(r.Narrative)}</textarea>
@@ -4439,7 +4488,10 @@
         <button class="btn sm block" style="margin-top:4px" onclick="A_injEdit('${esc(r.InjuryID)}')">✏️ ${EN()?'Correct and resubmit':'แก้ไขและส่งใหม่'}</button></div>`).join('')}</div>`;
   }
   SCREENS.Teacher.injury = async () => {
-    const [cl,recent]=await Promise.all([api('classList',tc()),api('injuryReports',{})]);
+    // myStudents, not classList: this form needs a NAME from ANY room this teacher covers, and
+    // classList answers for one class at a time (see the engine's note on myStudents).
+    const [cl,recent]=await Promise.all([api('myStudents',{staffId:USER.staffId}),api('injuryReports',{})]);
+    window._INJ_CLASSES = cl.allClasses||[];   // the school's rooms, for the edit form's เรียนชั้น too
     /* The recent list FOLDS. The official form above it is two pages of fields, and the list added
      * ten more rows underneath — so the screen a teacher opens to REPORT an accident opened onto a
      * scroll of old ones (asked 2026-09-05). Shut by default; the count is on the summary, which is
@@ -4447,11 +4499,14 @@
      * stays open — that is the one thing here that is waiting on them. */
     app.innerHTML=`<h2 class="page">🚑 ${esc(t('inj.title'))}</h2>
       ${injRejectedHTML(recent)}
-      ${injFormHTML('',{students:cl.students})}
+      ${injFormHTML('',{students:cl.students, classes:cl.allClasses})}
       <button class="btn block pink" onclick="T_injurySave()">${esc(t('inj.save'))}</button>
       <details class="card" style="margin-top:12px">
         <summary style="cursor:pointer;font-weight:600">🗒️ ${esc(t('inj.recent'))} <span class="pill info" style="font-size:11px">${(recent||[]).length}</span></summary>
         <div id="injRecent" style="margin-top:6px">${injuryListHTML(recent)}</div></details>`;
+    // the child the dropdown opens on is a CHOSEN child too — fill their age, sex and room now,
+    // rather than only when the teacher happens to change the selection
+    INJ_child('');
     // the badge is recomputed from data already on the device — no second call to say the same thing
     NAV_setBadge('injury', (recent||[]).filter(r=>String(r.Status||'').toUpperCase()==='REJECTED'
       && String(r.TeacherID||'')===String(USER.staffId||'')).length);
@@ -4689,7 +4744,17 @@
     return isLeaderRole() || String(r.TeacherID||'')===String(USER.staffId||'');
   }
   window.A_injEdit=async(id)=>{
-    let r=null; try{ r=await api('injuryReport',{injuryId:id}); }catch(e){ err(e); return; }
+    /* Both in ONE tick. The class list is what turns "เรียนชั้น" into a dropdown here too, and an
+     * admin who opens a report without having passed through the teacher's injury screen has never
+     * fetched it. Cached after the first time, so this usually costs nothing at all. */
+    let r=null;
+    try{
+      const p_r=api('injuryReport',{injuryId:id});
+      const p_c=window._INJ_CLASSES ? Promise.resolve({allClasses:window._INJ_CLASSES})
+                                    : api('myStudents',{staffId:USER.staffId}).catch(()=>({}));
+      const [rr,cc]=await Promise.all([p_r,p_c]);
+      r=rr; window._INJ_CLASSES = (cc&&cc.allClasses)||window._INJ_CLASSES||[];
+    }catch(e){ err(e); return; }
     const m=document.querySelector('.modal'); if(m)m.remove();
     modal(`<h3>✏️ ${EN()?'Correct the injury report':'แก้ไขรายงานอุบัติเหตุ'}</h3>
       ${injStatus(r)==='APPROVED'?`<div class="card" style="background:var(--warn-bg);border-color:var(--warn-line);padding:8px;font-size:13px">🔓 ${EN()?'This report is already approved. Your correction is logged against your name.':'รายงานนี้อนุมัติครบแล้ว การแก้ไขจะถูกบันทึกในชื่อของคุณ'}</div>`:''}

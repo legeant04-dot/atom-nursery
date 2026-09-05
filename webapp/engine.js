@@ -2255,6 +2255,28 @@ function createAtomAPI(M, GROWTH_STD) {
         // silently being one child short
         offToday:activeStudents().filter(s2=>s2.Class===cls.ClassName && studentOffDay_(s2, today))
           .map(s2=>({studentId:s2.StudentID, nick:s2.Nickname||'', name:s2.NameTH||s2.Name||'', days:offDaysLabel_(s2)}))}; },
+    /**
+     * EVERY child this member of staff is responsible for, across EVERY class they cover — plus the
+     * school's own list of class names.
+     *
+     * classList answers for ONE class at a time; that is right for a register (the class screen has
+     * a switcher) and wrong for a form that just needs a NAME. The injury report used classList and
+     * therefore offered only the first covered class, so ครูฟิล์ม, who looks after several rooms,
+     * could not report an accident to a child in any of the others (2026-09-05). Reported names are
+     * grouped by class so one dropdown can show which room each child is in.
+     *
+     * allClasses is what the school HAS (Nursery Baby/1/2/3/Premium), not what this person covers:
+     * it fills the "เรียนชั้น" field on the official form, which is a fact about the child.
+     */
+    myStudents: p => { const s=staffById(p&&p.staffId)||{}; const covered=coveredClasses_(s);
+      const names=covered.map(c=>String(c.ClassName));
+      return { classes: covered.map(c=>({className:c.ClassName, classNameEN:c.ClassNameEN||c.ClassName})),
+        allClasses: allClassObjs_().map(c=>String(c.ClassName)).filter(Boolean),
+        // the raw student shape, so the screens' own nm()/ageYM(s.DOB) helpers keep working
+        students: activeStudents().filter(x=>names.indexOf(String(x.Class||''))>=0)
+          .map(x=>({StudentID:x.StudentID, NameTH:x.NameTH||x.Name||'', NameEN:x.NameEN||'',
+            Nickname:x.Nickname||'', NicknameEN:x.NicknameEN||'', Class:x.Class||'',
+            DOB:ymd(x.DOB||''), Gender:String(x.Gender||'')})) }; },
     // the class names this staff can pick between (used to show/hide a class switcher)
     myClasses: p => { const s=staffById(p.staffId); const covered=coveredClasses_(s);
       return {classes:covered.map(c=>({className:c.ClassName,classNameEN:c.ClassNameEN||c.ClassName})), all:covered.length===M.classes.length}; },
