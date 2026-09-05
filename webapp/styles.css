@@ -727,7 +727,13 @@ input::placeholder,textarea::placeholder{color:var(--ink-3);}
 /* nav / header icons: stroke SVGs on currentColor, so a tab's active colour and the dark theme both
    come for free. Emoji were drawn differently by every platform and 🗂️/🚑 were unreadable at 22px. */
 .i{display:block;flex:none;}
-.bottomnav .ic{display:flex;align-items:center;justify-content:center;height:22px;}
+.bottomnav .ic{display:flex;align-items:center;justify-content:center;height:22px;position:relative;}
+/* the red count that sits on a nav icon (a report sent back to this teacher, and anything else a tab
+   needs to shout about). position:absolute off the .ic box so it hangs on the ICON, not the label —
+   and pointer-events:none so it can never eat the tap that opens the tab. */
+.bottomnav .navbadge{position:absolute;top:-6px;right:-10px;min-width:16px;height:16px;padding:0 4px;
+  border-radius:8px;background:var(--bad,#e5484d);color:#fff;font-size:10px;line-height:16px;
+  font-weight:700;text-align:center;pointer-events:none;box-shadow:0 0 0 2px var(--surface);}
 .bell .i,.langtoggle .i{margin:0 auto;}
 
 /* Notifications drop down from the bell (Google-app-grid style) instead of a full modal, so the screen

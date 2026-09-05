@@ -115,10 +115,16 @@ console.log('\n3) the screens stop offering a button that would fail');
   ok_('...and the parent gets it from the same handler, inside the composite',
     /schoolDay:\s*soft\(\(\)=>H\.schoolDay\(\{\}\), null\)/.test(eng));
   ok_('...which the screen reads rather than re-deriving', /window\._SCHOOLDAY = HOME\.schoolDay;/.test(app));
-  // the teacher's copy must travel with the batch, not cost another round trip
-  // v282: three more prefetches now sit between p_day and the await (they used to be round trips of
-  // their own, fired after the screen was drawn) — the property is "same tick", not "same 700 chars"
-  ok_('the teacher fetches it with the rest of the screen', /const p_day = api\('schoolDay'[\s\S]{0,2200}await Promise\.all\(/.test(app));
+  /* The teacher's copy must travel with the batch, not cost another round trip. The property is
+   * "same tick" — no await between starting it and the batch — NOT "within N characters". This was
+   * a character budget that had to be widened every time another prefetch or a comment joined that
+   * block, which measures the comments and not the behaviour. */
+  {
+    const at = app.indexOf("const p_day = api('schoolDay'");
+    const block = at < 0 ? '' : app.slice(at, app.indexOf('await Promise.all(', at));
+    ok_('the teacher fetches it with the rest of the screen', at > 0 && block.length > 0);
+    ok_('...in the same tick, with nothing awaited in between', at > 0 && !/\bawait\b/.test(block.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '')));
+  }
 }
 
 console.log('\n4) the parent home screen still pairs each child with their OWN rows');

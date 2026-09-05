@@ -151,7 +151,9 @@ console.log('\n3) Milk: how many, and at what times');
   ok_('MilkTimes is a real journal column', /DAILY_JOURNAL:[^\]]*MilkTimes/.test(cfg));
   const jr = fs.readFileSync(path.join(__dirname, '..', 'src', 'Journal.gs'), 'utf8');
   ok_('...saved as a journal field', /JOURNAL_FIELDS = \[[^\]]*'MilkTimes'/.test(jr));
-  ok_('...with the column created on write', /ensureColumns_\(sheet, \[[^\]]*'MilkTimes'\]/.test(jr));
+  // named, not positioned — this used to require MilkTimes to be the LAST entry, so adding any
+  // column after it failed a test about milk feed times
+  ok_('...with the column created on write', /ensureColumns_\(sheet, \[[^\]]*'MilkTimes'/.test(jr));
 }
 {
   const { M, H } = fresh();
