@@ -169,7 +169,11 @@ console.log('\n3) NOT HERE — and not counted as anything');
 {
   eq('off the daily staff summary', res.board, ['เอ']);
   eq('...and cannot clock in', res.punchPaused, 'STAFF_PAUSED');
-  eq('...while everybody else still can', res.punchNormal, 'ok');
+  /* NOT `=== 'ok'`. Clocking in also goes through the school-calendar gate, so on a Saturday every
+   * punch is refused SCHOOL_CLOSED and this line failed for a reason that has nothing to do with
+   * temporary leave (it ran red on Sat 05/09/26 having passed all week). What is being tested is
+   * that the PAUSE refusal is aimed at one person: everybody else is not stopped BY THE PAUSE. */
+  eq('...while everybody else is not stopped by it', res.punchNormal === 'STAFF_PAUSED', false);
   eq('not notified about children arriving either', [res.onDutyPaused, res.onDutyNormal], [false, true]);
   /* THE POINT OF THE WHOLE FEATURE: "ไม่นับเป็นขาด/ลา/มาสาย". A day away on this arrangement is not
    * an absence, and it is not owed — so the month does not print a shortfall against them. */
@@ -212,7 +216,8 @@ console.log('\n5) BACK TO WORK');
   eq('every pause field is cleared', [res.cleared.from, res.cleared.to, res.cleared.reason, res.cleared.remark, res.cleared.mode],
     ['', '', '', '', '']);
   eq('...back on the daily summary', res.boardAfter.sort(), ['ก้อย', 'เอ']);
-  eq('...and clocking in works again', res.punchAfter, 'ok');
+  // same weekend trap as above — the pause is what must be gone, not the school calendar
+  eq('...and the pause no longer blocks clocking in', res.punchAfter === 'STAFF_PAUSED', false);
   ok_('the write is in place, like every other STAFF write in that file',
     /updateRow_\(sh, st\._row, \{ PauseFrom: '', PauseTo: ''/.test(staffGs));
   ok_('...and the route takes targetId, so applyIdentity_ cannot redirect it at the caller',

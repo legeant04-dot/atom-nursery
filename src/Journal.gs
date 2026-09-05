@@ -11,7 +11,10 @@
  * ------------------------------------------------------------------
  */
 var JOURNAL_FIELDS = ['Mood', 'Health', 'Milk', 'MilkTimes', 'Meals', 'MealItems', 'Sleep', 'Toilet', 'Activity', 'Skills', 'Highlight',
-  'HealthDetail', 'MilkTotal', 'Water', 'Theme', 'MilkUnit'];
+  'HealthDetail', 'MilkTotal', 'Water', 'Theme', 'MilkUnit',
+  // the day's pictures. appendObject_/updateRow_ hand Photo1..3 to Drive on the way in (IMAGE_COLS_),
+  // so what lands in the cell is a URL, never the base64 the phone sent.
+  'Photo1', 'Photo2', 'Photo3'];
 var JOURNAL_REQUIRED = ['Mood']; // minimum to submit (spec: block submit if required missing)
 
 function jsonCell_(v) {
@@ -52,7 +55,7 @@ function handleSubmitJournal(payload) {
     if (!inToday) throw apiError_('NOT_CHECKED_IN', 'ยังไม่ได้เช็คอินนักเรียนวันนี้ — กรุณาเช็คอินก่อนจึงจะบันทึกสมุดรายวันได้');
   }
   var sheet = sheet_(getMainSpreadsheet_(), 'DAILY_JOURNAL');
-  ensureColumns_(sheet, ['HealthDetail', 'MilkTotal', 'Water', 'Theme', 'SubmittedAt', 'Status', 'UpdatedAt', 'MilkUnit', 'ParentComment', 'TeacherReply', 'MealItems', 'MilkTimes']);
+  ensureColumns_(sheet, ['HealthDetail', 'MilkTotal', 'Water', 'Theme', 'SubmittedAt', 'Status', 'UpdatedAt', 'MilkUnit', 'ParentComment', 'TeacherReply', 'MealItems', 'MilkTimes', 'Photo1', 'Photo2', 'Photo3']);
 
   var existing = findObject_(sheet, function (r) {
     return String(r.StudentID) === String(student.StudentID) && dateStr_(new Date(r.Date)) === date;
@@ -109,7 +112,7 @@ function handleUnlockJournal(payload) {
   var student = getStudent_(payload.studentId);
   var date = payload.date || dateStr_(new Date());
   var sheet = sheet_(getMainSpreadsheet_(), 'DAILY_JOURNAL');
-  ensureColumns_(sheet, ['HealthDetail', 'MilkTotal', 'Water', 'Theme', 'SubmittedAt', 'Status', 'UpdatedAt', 'MilkUnit', 'ParentComment', 'TeacherReply', 'MealItems', 'MilkTimes']);
+  ensureColumns_(sheet, ['HealthDetail', 'MilkTotal', 'Water', 'Theme', 'SubmittedAt', 'Status', 'UpdatedAt', 'MilkUnit', 'ParentComment', 'TeacherReply', 'MealItems', 'MilkTimes', 'Photo1', 'Photo2', 'Photo3']);
   var row = findObject_(sheet, function (r) {
     return String(r.StudentID) === String(student.StudentID) && dateStr_(new Date(r.Date)) === date;
   });

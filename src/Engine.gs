@@ -5026,6 +5026,17 @@ function createAtomAPI(M, GROWTH_STD) {
       logAct('deleteInjury',r.InjuryID,(r.ChildName||'')+' '+ymd(r.Date),actorOf(p));
       return {ok:true, injuryId:p.injuryId}; },
 
+    /**
+     * How many injury reports are waiting on THIS teacher — reports they filed that were sent back.
+     *
+     * A number small enough to hang on a nav icon, and cheap enough to fetch with the home screen.
+     * Without it the only way to learn a report had been returned was to open the injury screen for
+     * some other reason (asked 2026-09-05: "เพิ่ม Notification ... ที่ไอคอนอุบัติเหตุ").
+     */
+    injuryAlerts: p => { const id=String((p&&p.staffId)||'');
+      const n=(M.injuryReports||[]).filter(r=>String(r.TeacherID||'')===id
+        && String(r.Status||'').toUpperCase()==='REJECTED').length;
+      return {rejected:n}; },
     /** Reports waiting for THIS person to act — the leader's queue, then the admin's. */
     pendingInjuries: p => { const ap=staffById(p&&p.staffId)||{};
       const isAdmin=adminLike_(ap), isLeader=ap.PositionLevel==='Leader'||isAdmin;

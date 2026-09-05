@@ -112,7 +112,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.343'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.344'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -807,11 +807,24 @@
     // one of its tools exists to change something, and offering them would only produce refusals.
     Observer:[['home','chart','nav.home'],['leaves','check','nav.leaves'],['finance','money','nav.finance'],['dspm','clipboard','nav.analytics']],
   };
+  /* A RED COUNT ON A NAV ICON. Something waiting for you is only useful if you can see it from
+   * wherever you are, and a teacher has no reason to open 🚑 อุบัติเหตุ on an ordinary day — so a
+   * report the head teacher sent back could sit there unseen (asked 2026-09-05).
+   * Kept OUT of setNav's own logic: a screen that learns a count calls NAV_setBadge and the bar
+   * updates in place, so no screen has to re-render the whole navigation to show one number. */
+  const NAV_BADGE = {};
+  window.NAV_setBadge=(key,n)=>{ const v=Number(n)||0;
+    if(NAV_BADGE[key]===v) return; NAV_BADGE[key]=v;
+    const el=nav.querySelector(`button[data-nav="${key}"] .ic`); if(!el) return;
+    const old=el.querySelector('.navbadge'); if(old) old.remove();
+    if(v>0) el.insertAdjacentHTML('beforeend', navBadgeHTML(v));
+  };
+  const navBadgeHTML = n => `<span class="navbadge" aria-label="${n}">${n>99?'99+':n}</span>`;
   function setNav(active){ if(!USER){nav.hidden=true;return;} nav.hidden=false;
     // aria-current marks the open tab for screen readers; the emoji is decorative next to the label
     // the label is wrapped so it can be ellipsised rather than widening the bar — a parent has seven
     // destinations and the bar has to fit a 360px phone without scrolling sideways
-    nav.innerHTML = NAVS[USER.role].map(([k,ic,l])=>`<button class="${k===active?'active':''}"${k===active?' aria-current="page"':''} onclick="GO('${k}')"><span class="ic">${svgIcon(ic)}</span><span class="lb">${esc(t(l))}</span></button>`).join(''); }
+    nav.innerHTML = NAVS[USER.role].map(([k,ic,l])=>`<button class="${k===active?'active':''}"${k===active?' aria-current="page"':''} data-nav="${k}" onclick="GO('${k}')"><span class="ic">${svgIcon(ic)}${NAV_BADGE[k]>0?navBadgeHTML(NAV_BADGE[k]):''}</span><span class="lb">${esc(t(l))}</span></button>`).join(''); }
 
   // header quick-actions slot (before the language toggle); each screen fills it or it clears on nav
   window.setTopActions = html => { const el=document.getElementById('topActions'); if(el) el.innerHTML=html||''; };
@@ -1618,7 +1631,7 @@
       : `<div class="jr-head"><b>🌈 ${esc(jt('MY DAY AT ATOM'))}</b><span class="muted">${esc(j.Date||opts.date||todayStr())}</span></div>`;
     return `<div class="card jrpt">${head}
       ${rows.length?`<div class="jr-rows">${rows.join('')}</div>`:`<div class="muted" style="text-align:center;padding:10px">${EN()?'The teacher has not filled in details yet.':'คุณครูยังไม่ได้กรอกรายละเอียด'}</div>`}
-      ${j.Highlight?`<div class="jr-hl"><span>⭐ ${esc(jt("Today's Highlight"))}</span><div>${esc(j.Highlight)}</div></div>`:''}
+      ${(j.Highlight||j.Photo1||j.Photo2||j.Photo3)?`<div class="jr-hl"><span>⭐ ${esc(jt("Today's Highlight"))}</span><div>${esc(j.Highlight||'')}</div>${jPhotosHTML(j)}</div>`:''}
       <div class="jr-cmt"><h4>💬 ${EN()?"Parent's comment":'ความคิดเห็นผู้ปกครอง'}</h4>${opts.parentEditable
         ? `<div class="row"><textarea id="jPC" placeholder="${EN()?'Write a comment… (tap mic to speak)':'พิมพ์ความคิดเห็น... (กดไมค์เพื่อพูด)'}" style="flex:1">${esc(j.ParentComment||'')}</textarea><button class="micbtn" onclick="J_mic('jPC',this)" aria-label="${EN()?"Voice input":"พูดเพื่อกรอกข้อความ"}" title="${EN()?"Voice input":"พูดเพื่อกรอกข้อความ"}">🎤</button></div>
            <button class="btn sm block" style="margin-top:6px" onclick="P_saveComment('${esc(j.StudentID||opts.studentId||'')}','${esc(j.Date||opts.date||'')}',this)">💾 ${EN()?'Save comment':'บันทึกความคิดเห็น'}</button>`
@@ -3462,6 +3475,10 @@
      * to this teacher's list; if nobody tells them why, the first they know of it is a roomful of
      * children they were not expecting. Same tick as the batch below, so it costs no round trip. */
     const p_cover   = api('myClassCover',{staffId:USER.staffId}).catch(()=>null);
+    /* How many of this teacher's injury reports were sent back to them. One number, in the same tick
+     * as everything else, so the 🚑 tab can carry a red count from anywhere in the app — a returned
+     * report used to be discoverable only by opening that screen for some other reason. */
+    const p_injAlert= api('injuryAlerts',{staffId:USER.staffId}).catch(()=>null);
     // myLeaves / myOT / recentAttendance were fetched here for lists that have MOVED — the leave
     // history and the work-time history to 📅 ตาราง, the OT history to 💵 การเงิน. Fetching them
     // for a screen that no longer shows them would be three requests spent on nothing.
@@ -3680,6 +3697,7 @@
     /* A day you clocked into and never out of is nobody's fault and everybody's problem: it has no
      * hours, no OT, and the month reads "ครบ" while two days sit half-written. Only the person who
      * was there knows what time they left, so they are told first — with the way to fix it. */
+    p_injAlert.then(a=>NAV_setBadge('injury', a&&a.rejected)).catch(()=>{});
     p_missOut.then(mo=>{
       if(!mo||!mo.count){ setHTML('#tmissout',''); return; }
       const days=((mo.staff||[])[0]||{}).days||[];
@@ -4106,6 +4124,10 @@
     try{ const ms=await api('mealSlots',{className:s.Class||'',date:todayStr()});
       JSLOTS=ms.slots||JSLOTS; JPLAN=ms.planned||{}; }catch(e){}
     const sent=jTime(j), draft=jIsDraft(j), jv=journalValues(j);
+    /* What is already ON the entry, remembered for the save. A teacher who edits a draft without
+     * touching the picker must not lose the picture they attached this morning — the same trap the
+     * injury form hit, where sending '' for an untouched slot erased a photo. */
+    J_PHOTOS_CUR = jv.photos.slice();
 
     // once submitted the entry is final — show it read-only rather than a form that cannot save
     if(j && !draft){ app.innerHTML=`<button class="btn sm outline backbtn" onclick="J_exit()">${t('c.back')}</button>
@@ -4136,7 +4158,8 @@
         ${[['Urination',URI],['Bowel',BOWEL],['Stool',STOOL],['Training',TT]].map(([k,opts])=>`<div><b style="font-size:13px">${esc(jt(k==='Training'?'Toilet Training':k))}:</b> <span class="choice" style="display:inline-flex">${opts.map(x=>`<button type="button" data-tl="${esc(k)}" data-v="${esc(x)}" onclick="J_tl('${k}','${x}',this)">${esc(jt(x))}</button>`).join('')}</span></div>`).join('')}</div>
       <div class="jsec"><h4>🎨 ${esc(jt('Learning Journey'))}</h4><div class="choice">${seg('Activity',ACTS,true)}</div><input id="jTheme" value="${esc(jv.theme)}" placeholder="Theme / Topic" style="margin-top:6px"/></div>
       <div class="jsec"><h4>🌟 ${esc(jt('Skills'))}</h4><div class="choice">${seg('Skills',SKILLS,true)}</div></div>
-      <div class="jsec"><h4>⭐ ${esc(jt('Highlight'))}</h4><div class="row"><textarea id="jHi" placeholder="เหตุการณ์น่าประทับใจ... (กดไมค์เพื่อพูด)" style="flex:1">${esc(jv.highlight)}</textarea><button class="micbtn" onclick="J_mic('jHi',this)" aria-label="${EN()?"Voice input":"พูดเพื่อกรอกข้อความ"}" title="${EN()?"Voice input":"พูดเพื่อกรอกข้อความ"}">🎤</button></div></div>
+      <div class="jsec"><h4>⭐ ${esc(jt('Highlight'))}</h4><div class="row"><textarea id="jHi" placeholder="เหตุการณ์น่าประทับใจ... (กดไมค์เพื่อพูด)" style="flex:1">${esc(jv.highlight)}</textarea><button class="micbtn" onclick="J_mic('jHi',this)" aria-label="${EN()?"Voice input":"พูดเพื่อกรอกข้อความ"}" title="${EN()?"Voice input":"พูดเพื่อกรอกข้อความ"}">🎤</button></div>
+        ${jPhotoFields(jv)}</div>
       <div class="savedock"><button class="btn block outline" onclick="T_saveJournal('${sid}',false)">${esc(t('jr.saveDraft'))}</button>
       <button class="btn block green" style="margin-top:8px" onclick="T_saveJournal('${sid}',true)">${esc(t('jr.submit'))}</button></div>`;
     if(j) J_prefill(j);
@@ -4163,7 +4186,34 @@
     return { healthDetail: j.HealthDetail||'', theme: j.Theme||'', highlight: j.Highlight||'',
       milkQty: mq===0?'':mq, milkUnit: j.MilkUnit || (Array.isArray(j.Milk)?'oz':'box'),
       milkTimes: jMilkTimes(j).join(', '),
+      photos: [j.Photo1||'', j.Photo2||'', j.Photo3||''],
       sleep: jArr(j.Sleep).map(s=>`${s.from||''}-${s.to||''}`).filter(x=>x!=='-').join(', ') }; }
+  /* PICTURES OF THE DAY — up to three, optional, attached to the highlight.
+   *
+   * Asked 2026-09-05: a photo of the activity or of what the child made. Shown as circles the same
+   * size as the food thumbnails and zoomed by the same viewer, so the journal keeps ONE way of
+   * showing a picture rather than growing a second.
+   *
+   * Stored exactly like the injury photos: the browser compresses to a data URL, and Db.gs offloads
+   * anything in Photo1/2/3 to Drive on write (IMAGE_COLS_) — a base64 photo would blow past the
+   * 50,000-character cell limit. Nothing is required: no photo, no change to the entry. */
+  const JR_PIC_PX = 28;   // == foodPic's default, so the two rows of circles match by construction
+  let J_PHOTOS_CUR = ['','',''];
+  function jPhotoFields(jv){
+    const cur=(jv&&jv.photos)||['','',''];
+    return `<div class="grid2" style="gap:6px;margin-top:6px">
+      ${[0,1,2].map(i=>photoField('jPh'+(i+1), (EN()?`Photo ${i+1}`:`รูปที่ ${i+1}`)+(EN()?' (optional)':' (ไม่บังคับ)'), cur[i], true)).join('')}</div>
+    <small class="muted">${EN()?'Up to three pictures of the activity or what they made. Optional — the entry saves fine without any.'
+      :'แนบรูปกิจกรรมหรือผลงานได้สูงสุด 3 รูป · ไม่บังคับ ไม่แนบก็บันทึกได้ตามปกติ'}</small>`;
+  }
+  /** The pictures on a saved entry, as circles a tap away from full size. */
+  function jPhotosHTML(j){
+    const ph=[j.Photo1,j.Photo2,j.Photo3].filter(Boolean);
+    if(!ph.length) return '';
+    return `<div style="display:flex;gap:6px;margin-top:6px;flex-wrap:wrap">${ph.map(u=>
+      `<img src="${esc(u)}" loading="lazy" onclick="event.stopPropagation();IMG_zoom('${esc(u)}')"
+        style="width:${JR_PIC_PX}px;height:${JR_PIC_PX}px;border-radius:50%;object-fit:cover;cursor:zoom-in;border:1px solid var(--line)"/>`).join('')}</div>`;
+  }
   window.J_pick=(g,v,el,multi)=>{ if(multi){ JSEL[g].has(v)?JSEL[g].delete(v):JSEL[g].add(v); el.classList.toggle('pass'); }
     else { JSEL[g]=v; [...el.parentElement.children].forEach(b=>b.classList.remove('pass')); el.classList.add('pass'); } };
   window.J_meal=(m,a,el)=>{ JSEL.Meals[m]=a; [...el.parentElement.children].forEach(b=>b.classList.remove('pass')); el.classList.add('pass'); };
@@ -4242,7 +4292,10 @@
     const sleep=($('#jSleep').value||'').split(',').map(x=>x.trim()).filter(Boolean).map(s=>({from:(s.split('-')[0]||'').trim(),to:(s.split('-')[1]||'').trim()}));
     // any dish typed as new is registered in the master list here, before the journal is written
     const mealItems=await jCollectMeals();
-    try{ const r=await api('submitJournal',{studentId:sid,staffId:USER.staffId,submit:!!submit,Mood:JSEL.Mood,Health:JSEL.Health,HealthDetail:$('#jHealthD').value,Milk:milkQty,MilkUnit:milkUnit,MilkTotal:milkQty,MilkTimes:milkTimes,Water:JSEL.Water,Meals:JSEL.Meals,MealItems:mealItems,Sleep:sleep,Toilet:JSEL.Toilet,Activity:[...JSEL.Activity],Theme:$('#jTheme').value,Skills:[...JSEL.Skills],Highlight:$('#jHi').value});
+    // a newly picked photo wins; otherwise KEEP what is already on the entry (photoVal is '' for a
+    // slot nobody touched, and sending that would delete the picture)
+    const ph=[0,1,2].map(i=>photoVal(document,'jPh'+(i+1)) || J_PHOTOS_CUR[i] || '');
+    try{ const r=await api('submitJournal',{studentId:sid,staffId:USER.staffId,submit:!!submit,Mood:JSEL.Mood,Health:JSEL.Health,HealthDetail:$('#jHealthD').value,Milk:milkQty,MilkUnit:milkUnit,MilkTotal:milkQty,MilkTimes:milkTimes,Water:JSEL.Water,Meals:JSEL.Meals,MealItems:mealItems,Sleep:sleep,Toilet:JSEL.Toilet,Activity:[...JSEL.Activity],Theme:$('#jTheme').value,Skills:[...JSEL.Skills],Highlight:$('#jHi').value,Photo1:ph[0],Photo2:ph[1],Photo3:ph[2]});
       confirmSaved(r.submitted?(EN()?'Sent to the parent':'ส่งให้ผู้ปกครองแล้ว'):(EN()?'Draft saved — not sent yet':'บันทึกร่างแล้ว — ยังไม่ได้ส่ง')); J_exit(); }catch(e){err(e);} };
 
   // ===== injury / accident report (แบบบันทึกการบาดเจ็บรายบุคคล) — teacher & leader =====
@@ -4387,11 +4440,21 @@
   }
   SCREENS.Teacher.injury = async () => {
     const [cl,recent]=await Promise.all([api('classList',tc()),api('injuryReports',{})]);
+    /* The recent list FOLDS. The official form above it is two pages of fields, and the list added
+     * ten more rows underneath — so the screen a teacher opens to REPORT an accident opened onto a
+     * scroll of old ones (asked 2026-09-05). Shut by default; the count is on the summary, which is
+     * the part anyone actually reads at a glance. What was sent back to THEM is a separate card and
+     * stays open — that is the one thing here that is waiting on them. */
     app.innerHTML=`<h2 class="page">🚑 ${esc(t('inj.title'))}</h2>
       ${injRejectedHTML(recent)}
       ${injFormHTML('',{students:cl.students})}
       <button class="btn block pink" onclick="T_injurySave()">${esc(t('inj.save'))}</button>
-      <div class="card" style="margin-top:12px"><h3>🗒️ ${esc(t('inj.recent'))}</h3><div id="injRecent">${injuryListHTML(recent)}</div></div>`;
+      <details class="card" style="margin-top:12px">
+        <summary style="cursor:pointer;font-weight:600">🗒️ ${esc(t('inj.recent'))} <span class="pill info" style="font-size:11px">${(recent||[]).length}</span></summary>
+        <div id="injRecent" style="margin-top:6px">${injuryListHTML(recent)}</div></details>`;
+    // the badge is recomputed from data already on the device — no second call to say the same thing
+    NAV_setBadge('injury', (recent||[]).filter(r=>String(r.Status||'').toUpperCase()==='REJECTED'
+      && String(r.TeacherID||'')===String(USER.staffId||'')).length);
   };
   /* ---- injury approval: teacher → หัวหน้าครู → แอดมิน ----------------------------------------
    * The same two steps as a leave request, and shown the same way, so nobody has to learn a second

@@ -114,7 +114,10 @@ SCHEMA[WB.MAIN] = {
   // A blank Status is a legacy row from before the draft flow: treat it as SUBMITTED.
   // SubmittedAt = when it was sent; UpdatedAt = last save of either kind.
   // Milk = quantity (number); MilkUnit = box|oz. ParentComment = the parent's comment on the report.
-  DAILY_JOURNAL:     ['Date', 'StudentID', 'TeacherID', 'Mood', 'Health', 'Milk', 'Meals', 'Sleep', 'Toilet', 'Activity', 'Skills', 'Highlight', 'HealthDetail', 'MilkTotal', 'Water', 'Theme', 'SubmittedAt', 'Status', 'UpdatedAt', 'MilkUnit', 'ParentComment', 'MealItems', 'MilkTimes'],
+  /* Photo1..3: up to three optional pictures of the day's activity or of what the child made,
+   * attached to the highlight (asked 2026-09-05). Named Photo1/2/3 deliberately — Db.gs already
+   * offloads exactly those keys to Drive (IMAGE_COLS_), and a base64 photo does not fit a cell. */
+  DAILY_JOURNAL:     ['Date', 'StudentID', 'TeacherID', 'Mood', 'Health', 'Milk', 'Meals', 'Sleep', 'Toilet', 'Activity', 'Skills', 'Highlight', 'HealthDetail', 'MilkTotal', 'Water', 'Theme', 'SubmittedAt', 'Status', 'UpdatedAt', 'MilkUnit', 'ParentComment', 'MealItems', 'MilkTimes', 'Photo1', 'Photo2', 'Photo3'],
   // Date is the DAY; Timestamp is the moment it was recorded and TeacherName is who recorded it, so a
   // result can be read back months later without looking a staff id up by hand. AdminComment is the
   // admin's note on ONE item (with who wrote it and when) — a second opinion beside the teacher's
