@@ -112,7 +112,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.345'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.346'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -4571,7 +4571,17 @@
   let INJ_MONTH=null;
   SCREENS.Admin.injuries = async () => A_injuries();
   window.A_injuries=async(month)=>{ INJ_MONTH=month||INJ_MONTH||monthStr();
-    const sum=await api('injurySummary',{month:INJ_MONTH});
+    /* THE RED NUMBER AND THIS SCREEN HAVE TO BE ABOUT THE SAME THING.
+     *
+     * Reported 2026-09-05: the ดำเนินการ button carried a red 2 and September held one report
+     * waiting. Both were right and that is the problem — the badge counts everything still waiting
+     * for a signature, ever, while the screen shows a MONTH. A report left unsigned in August is
+     * exactly the one that needs finding, and it was the one the month view could not show.
+     * So what is waiting is fetched too, whatever month it belongs to, and shown first. Same tick,
+     * so it costs no extra round trip. */
+    const [sum,pend]=await Promise.all([api('injurySummary',{month:INJ_MONTH}),
+      api('pendingInjuries',{staffId:USER.staffId}).catch(()=>[])]);
+    const waiting=(pend||[]);
     const bar=(rows,total)=>rows.map(r=>`<div style="margin-top:5px"><div class="spread" style="font-size:13px"><span>${esc(r.label||r.key)}</span><b>${r.count}</b></div>
       <div style="height:6px;background:var(--surface-3);border-radius:3px;overflow:hidden"><div style="height:100%;width:${total?Math.round(r.count/total*100):0}%;background:var(--bad-2)"></div></div></div>`).join('');
     const byType=(sum.byType||[]).map(r=>({label:injTypeNames([r.key]),count:r.count}));
@@ -4596,6 +4606,12 @@
       <span style="min-width:0"><b style="font-size:22px;line-height:1;color:${col}">${n}</b>
         <br><small class="muted">${esc(label)}</small></span></div>`;
     app.innerHTML=`<h2 class="page">🚑 ${EN()?'Injury reports':'รายงานอุบัติเหตุ'}</h2>
+      ${waiting.length?`<div class="card" style="background:var(--warn-bg);border-color:var(--warn-line)">
+        <div class="spread"><b style="color:var(--warn)">⭐ ${EN()?'Waiting for a signature':'รออนุมัติ'}</b><span class="pill bad">${waiting.length}</span></div>
+        <small class="muted" style="display:block;margin:2px 0 6px">${EN()
+          ? 'Every month, not just the one below — this is the number on the button.'
+          : 'นับทุกเดือน ไม่ใช่เฉพาะเดือนที่เลือกด้านล่าง · ตัวเลขนี้คือเลขสีแดงบนปุ่ม'}</small>
+        ${injuryListHTML(waiting)}</div>`:''}
       <div class="grid2" style="gap:8px">
         ${stat('🚑',sum.total,EN()?'reports this month':'รายงานเดือนนี้',sum.total?'var(--bad)':'var(--ok)')}
         ${stat('👶',sum.students,EN()?'children involved':'จำนวนเด็กที่เกี่ยวข้อง','var(--ink)')}</div>
@@ -4606,8 +4622,16 @@
       <details class="card" open style="margin-top:8px">
         <summary style="cursor:pointer;list-style:none"><div class="spread" style="align-items:center">
           <b>📋 ${EN()?'Reports':'รายการทั้งหมด'} <span class="muted" style="font-weight:400">(${sum.reports.length})</span></b>
-          <input type="month" value="${esc(sum.month)}" onclick="event.preventDefault();event.stopPropagation()" onchange="A_injuries(this.value)" style="max-width:170px"/>
+          <span class="muted" style="font-size:13px">${esc(monthNameYear(sum.month))}</span>
         </div></summary>
+        <!-- THE MONTH PICKER CANNOT LIVE INSIDE <summary>. Clicking anywhere in a summary toggles the
+             fold, so it carried onclick="event.preventDefault()" to stop that — and preventDefault on
+             a click cancels EVERY default action of that click, including opening the month picker.
+             The control was there, looked enabled, and did nothing (reported 2026-09-05). Moved out
+             of the summary, where it needs no event juggling at all; the month it is showing is
+             printed on the summary so folding the list does not hide the answer. -->
+        <label class="field" style="margin-top:6px"><span>${esc(t('c.month'))}</span>
+          <input type="month" value="${esc(sum.month)}" onchange="A_injuries(this.value)"/></label>
         ${sum.reports.map(r=>`<div class="list-item" onclick="A_viewInjury('${esc(r.injuryId)}')" style="cursor:pointer">
           <span><b>${esc(r.nick||r.name||r.studentId)}</b> <small class="muted">${esc(r.className||'')}</small><br>
           <small class="muted">${esc(ddmmyyyy(r.date))} ${esc(r.time)} · ${esc(injTypeNames(r.types))}</small>${injFiledNote({CreatedAt:r.filedAt,Date:r.date})}</span>
