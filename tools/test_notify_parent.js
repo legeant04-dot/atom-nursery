@@ -201,9 +201,22 @@ console.log('\n7) THE REPORT SCREEN, WHERE THE WORK IS');
   ok_('the two breakdowns are half a screen each', /\$\{half\('🩹'[\s\S]{0,160}\$\{half\('🏫'/.test(app));
   ok_('...and scroll past five rows rather than growing', /rows\.length>5\?'max-height:168px;overflow-y:auto;':''/.test(app));
   ok_('...saying so, so a hidden row is not simply missing', /รายการ — เลื่อนดูได้/.test(app));
-  ok_('the list folds, with the month on its own header',
-    /<details class="card" open[\s\S]{0,500}onchange="A_injuries\(this\.value\)"/.test(app));
-  ok_('...and opening the picker does not fold the list', /onclick="event\.preventDefault\(\);event\.stopPropagation\(\)"/.test(app));
+  {
+    const at = app.indexOf('<details class="card" open');
+    const fold = at < 0 ? '' : app.slice(at, at + 1400);
+    ok_('the list folds', at > 0);
+    ok_('...with the month above it', /onchange="A_injuries\(this\.value\)"/.test(fold));
+    /* THIS LINE USED TO ASSERT THE BUG. It required
+     *   onclick="event.preventDefault();event.stopPropagation()"
+     * on the month input, which was there to stop a click inside <summary> folding the list — and
+     * preventDefault cancels EVERY default action of that click, the native month picker included.
+     * So the control could not be opened at all (reported 2026-09-05), and the test said so was
+     * correct. The picker now lives outside the summary, where it needs no event handling. */
+    const sumEnd = fold.indexOf('</summary>');
+    ok_('...and the picker is outside the summary, so a click on it is just a click',
+      sumEnd > 0 && fold.slice(0, sumEnd).indexOf('type="month"') < 0);
+    ok_('...cancelling nothing', !/type="month"[^>]*preventDefault/.test(fold));
+  }
   /* WHICH STEP IS IT AT — the question an admin opens this screen to answer. */
   ok_('the server sends each report’s step', /status:String\(r\.Status\|\|''\),/.test(eng));
   ok_('...and every row shows it', /\$\{injStatusPill\(\{Status:r\.status\}\)\}/.test(app));
