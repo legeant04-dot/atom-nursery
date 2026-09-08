@@ -228,6 +228,30 @@ window.CONFIG = { MODE: 'gas', GAS_URL: 'https://script.google.com/macros/s/AKfy
         return 'Desktop';
       } catch (e) { return '?'; }
     })();
+    /* WHICH iOS, AND WHICH LINE APP.
+     *
+     * Asked 2026-09-08, after a parent who "used to get in" could not. Two things outside our code
+     * can change the sign-in without any deploy from us: Safari's own storage rules (which differ by
+     * iOS version) and the LINE app, which is what actually performs the hand-off that fails. The
+     * device bucket answered "iPhone or Android" and no more, so both were guesses.
+     *
+     * Kept COARSE and in the same spirit as `dev`: a platform and two version numbers, which is a
+     * fact about software, not about a person. The LINE in-app browser puts "Line/14.2.0" in its
+     * user agent, so a row also says whether the app was opened inside LINE at all — which is the
+     * other thing we keep having to infer. */
+    const osv = (function () {
+      try {
+        const u = navigator.userAgent || '';
+        let s = '';
+        const ios = /(?:iPhone|iPad|CPU)[^)]*?OS (\d+)[._](\d+)/.exec(u);
+        const and = /Android (\d+(?:\.\d+)?)/.exec(u);
+        if (ios) s = 'iOS' + ios[1] + '.' + ios[2];
+        else if (and) s = 'And' + and[1];
+        const line = /\bLine\/([\d.]+)/i.exec(u);
+        if (line) s += (s ? ' ' : '') + 'L' + line[1];
+        return s.slice(0, 24);
+      } catch (e) { return ''; }
+    })();
     const net = () => { try { return (navigator.connection && navigator.connection.effectiveType) || ''; } catch (e) { return ''; } };
     const standalone = (function () {
       try { return (window.matchMedia && matchMedia('(display-mode: standalone)').matches) || navigator.standalone === true; }
@@ -250,7 +274,7 @@ window.CONFIG = { MODE: 'gas', GAS_URL: 'https://script.google.com/macros/s/AKfy
       // decisions on trivial to poison. No token is fine, and is itself the interesting case.
       const body = JSON.stringify({
         action: 'perfLog', token: _session,
-        payload: { sid: sid, ver: (window.__atomVer || ''), dev: dev, net: net(), pwa: standalone ? 1 : 0, hit: h, miss: m, rows: rows }
+        payload: { sid: sid, ver: (window.__atomVer || ''), dev: dev, os: osv, net: net(), pwa: standalone ? 1 : 0, hit: h, miss: m, rows: rows }
       });
       // A page being closed cancels an in-flight fetch; sendBeacon survives it. This is exactly the
       // moment we most want the data — a user giving up on a slow screen and closing the app.

@@ -112,7 +112,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.355'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.356'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -9664,6 +9664,19 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
         +(x.fail?' fail'+x.rate+'%':'')
         +(mix?'  ['+mix+']':''));
     });
+    /* WHICH iOS, AND WHICH LINE APP — the two things outside our code that can change the sign-in
+     * without any deploy from us. `signin` is the count of faults the client named for itself
+     * (lineHandoff / lineStaleToken), and it is what the list is sorted by: the version that cannot
+     * sign people in will never be the biggest bucket, because a phone that cannot get in makes very
+     * few calls. "L14.2.0" means the app was opened INSIDE LINE; no L means an ordinary browser. */
+    if((d.byOs||[]).length){
+      L.push('VERSIONS (L = opened inside LINE):');
+      d.byOs.forEach(x=>{
+        L.push('  '+x.os+' x'+x.n+'/'+(x.sessions||0)+'s p50='+ms(x.p50)
+          +(x.fail?' fail'+x.rate+'%':'')
+          +(x.signin?'  ⚠ sign-in x'+x.signin:''));
+      });
+    }
     L.push('NETWORK: '+(d.byNet||[]).filter(x=>x.net).map(x=>x.net+' x'+x.n+' p50='+ms(x.p50)).join(' | '));
     L.push('BOOT: '+(d.boot||[]).map(x=>x.mark+'='+ms(x.p50)).join(' | '));
     L.push('rows='+d.rows+'/'+d.cap);
