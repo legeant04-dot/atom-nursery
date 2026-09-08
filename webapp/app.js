@@ -112,7 +112,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.354'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.355'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -1255,7 +1255,7 @@
            Hidden until the server says it is configured, and never inside LINE's own browser where
            the session already exists. */''}
       ${CONFIG.MODE==='gas'&&CONFIG.LIFF_ID&&!inLineApp()?`
-        <button class="btn-ghost block" id="lineWebBtn" ${lineWebReady()?'':'hidden'} style="margin-top:6px;font-size:13px" onclick="LINE_BROWSER_LOGIN()">${EN()?'Can’t get in? Sign in with a QR code':'เข้าไม่ได้? เข้าสู่ระบบด้วย QR code'}</button>
+        <button class="btn-ghost block" id="lineWebBtn" ${lineWebReady()?'':'hidden'} style="margin-top:6px;font-size:13px" onclick="LINE_BROWSER_LOGIN()">${EN()?'Can’t get in? Sign in to LINE by email':'เข้าไม่ได้? เข้าสู่ระบบ LINE ด้วยอีเมล'}</button>
         <button class="btn-ghost block" style="margin-top:2px;font-size:13px" onclick="OPEN_IN_LINE()">💬 ${EN()?'Or open inside the LINE app':'หรือเปิดผ่านแอป LINE'}</button>`:''}
       ${/* Android only, and ABOVE the add-to-home-screen box: for a phone that can take the real
            app, the shortcut is the second-best answer. iPhones see neither this nor a dead button. */''}
@@ -1476,19 +1476,24 @@
       <img src="assets/logo.png" class="logo-lg" alt="logo"/>
       <h2 class="page" style="text-align:center;margin-top:10px">${EN()?'Not signed in yet':'ยังเข้าสู่ระบบไม่สำเร็จ'}</h2>
       <div class="card" style="background:var(--warn-bg);border-color:var(--warn-line);font-size:13px">
-        ${EN()?'The LINE app opened and did not come back — that happens on some phones. <b>Signing in to LINE here</b> works instead: scan the QR code with the LINE app you already have.'
-              :'แอป LINE เปิดขึ้นมาแล้วไม่กลับมาที่หน้านี้ — เกิดขึ้นกับบางเครื่อง · <b>เข้าสู่ระบบ LINE ที่นี่</b>แทนได้เลย โดยสแกน QR ด้วยแอป LINE ที่มีอยู่แล้วในเครื่อง'}</div>
-      ${/* FIRST, THE ONE THAT CANNOT BE SWALLOWED BY THE LINE APP. Both of the other two hand the
-           phone to LINE, which on this device is the thing that just failed — offering them first
-           spends another attempt on the route we already know is broken here. Verified on the
-           phone that could not get in, 08/09: the QR route signed the same parent in first try.
-           Hidden until the server says it is configured; a button that can only error is worse
-           than no button. */''}
-      <button class="role-card" id="lineWebBtn" ${lineWebReady()?'':'hidden'} onclick="LINE_BROWSER_LOGIN()">
-        <span class="ic" style="background:#06C755;color:#fff;font-weight:800">L</span>
-        <span><b>${EN()?'Sign in to LINE here (QR code)':'เข้าสู่ระบบ LINE ที่นี่ (สแกน QR)'}</b><br><small>${EN()?'scan with the LINE app on this phone — no password':'สแกนด้วยแอป LINE ในเครื่อง ไม่ต้องจำรหัสผ่าน'}</small></span></button>
-      <button class="btn outline block" style="margin-top:8px" onclick="OPEN_IN_LINE()">💬 ${EN()?'Open inside the LINE app':'เปิดในแอป LINE'}</button>
+        ${/* THE QR CODE IS NOT AN ANSWER ON A PHONE, and this screen used to say it was. LINE's web
+             login shows a QR for signing in FROM ANOTHER DEVICE — on one handset there is no second
+             camera to point at its own screen. What actually happens on a phone is email, password,
+             and a verification code. Said plainly (reported 2026-09-08), because sending a parent
+             looking for a camera is worse than telling them it needs their LINE email. */''}
+        ${EN()?'The LINE app opened and did not come back — that happens on some phones. Try <b>opening the app inside LINE</b> first. The last option signs in to LINE itself and needs your LINE <b>email and password</b>.'
+              :'แอป LINE เปิดขึ้นมาแล้วไม่กลับมาที่หน้านี้ — เกิดขึ้นกับบางเครื่อง · แนะนำให้ลอง <b>เปิดในแอป LINE</b> ก่อน · ส่วนวิธีสุดท้ายคือล็อกอิน LINE เอง ซึ่งบนมือถือต้องใช้ <b>อีเมลและรหัสผ่าน LINE</b> (สแกน QR ใช้ได้เฉพาะตอนเปิดบนคอมพิวเตอร์)'}</div>
+      ${/* ORDERED BY WHAT IT COSTS THE PARENT, not by what we built last.
+           Opening the app INSIDE LINE is one tap and asks for nothing: LINE is already signed in, so
+           the LIFF session is simply there. It is a different request from the one that just failed
+           — that was an authorisation the app could not complete; this is "open this page" — which
+           is why it is worth trying before falling back to typing a password.
+           Signing in to LINE by hand is last because on a phone it means email, password and a
+           verification code; the QR on that page is for signing in from a computer. */''}
+      <button class="role-card" onclick="OPEN_IN_LINE()"><span class="ic" style="background:#06C755;color:#fff;font-weight:800">L</span>
+        <span><b>${EN()?'Open inside the LINE app':'เปิดในแอป LINE'}</b><br><small>${EN()?'one tap — LINE is already signed in':'กดครั้งเดียว — LINE ล็อกอินอยู่แล้ว ไม่ต้องกรอกอะไร'}</small></span></button>
       <button class="btn outline block" style="margin-top:8px" onclick="LIFF_LOGIN()">🔄 ${EN()?'Try again in this browser':'ลองอีกครั้งในเบราว์เซอร์นี้'}</button>
+      <button class="btn outline block" id="lineWebBtn" style="margin-top:8px" ${lineWebReady()?'':'hidden'} onclick="LINE_BROWSER_LOGIN()">✉️ ${EN()?'Sign in to LINE by email':'เข้าสู่ระบบ LINE ด้วยอีเมล'}</button>
       <button class="btn-ghost block" style="margin-top:8px" onclick="loginScreen()">${esc(t('c.back'))}</button></div>`;
   }
   /* Watch a sign-in that has left for LINE. Two ways to notice it failed:
@@ -8928,8 +8933,8 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
       <div style="margin-top:6px"><small class="muted">${EN()?'This URL must be in the channel’s Callback URL list — exactly:':'URL นี้ต้องอยู่ใน Callback URL ของ channel — ต้องตรงทุกตัวอักษร:'}</small>
         <br><code style="word-break:break-all" onclick="navigator.clipboard&&navigator.clipboard.writeText('${esc(cb)}')&&toast('${EN()?'Copied':'คัดลอกแล้ว'}')" style="cursor:pointer">${esc(cb)}</code></div>
       <small class="muted" style="display:block;margin-top:6px">${EN()
-        ? 'Used only after the LINE app hand-off fails on iPhone — the parent signs in to LINE in the browser (QR code). The button is hidden while the secret is missing.'
-        : 'ใช้เฉพาะเมื่อการส่งต่อไปแอป LINE ล้มเหลวบน iPhone — ผู้ปกครองจะล็อกอิน LINE ในเบราว์เซอร์ (สแกน QR) · ถ้ายังไม่ตั้งค่า ปุ่มจะไม่แสดงให้ผู้ปกครองเห็น'}</small>`;
+        ? 'The last resort after the LINE app hand-off fails — the parent signs in to LINE itself, which on a phone means email, password and a verification code. The button is hidden while the secret is missing.'
+        : 'ทางสุดท้ายเมื่อการส่งต่อไปแอป LINE ล้มเหลว — ผู้ปกครองต้องล็อกอิน LINE เอง ซึ่งบนมือถือคืออีเมล + รหัสผ่าน + รหัสยืนยัน (QR ใช้ได้เฉพาะบนคอมพิวเตอร์) · ถ้ายังไม่ตั้งค่า ปุ่มจะไม่แสดงให้ผู้ปกครองเห็น'}</small>`;
   };
   // ---- accumulated เงินสมทบ: review before overwriting ----------------------------------------
   // The fund total used to be built from the staff half only. Correcting the formula changes a stored
