@@ -112,7 +112,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.351'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.352'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -1346,9 +1346,21 @@
    */
   const LINE_STATE = 'atom_line_state';
   const lineChannelId = () => String(CONFIG.LIFF_ID||'').split('-')[0];
-  /* The URL LINE sends them back to, and it must match the console's callback list EXACTLY — so no
-   * query and no hash, whatever the parent happened to arrive with. */
-  const lineRedirectUri = () => location.origin + location.pathname;
+  /* THE URL LINE SENDS THEM BACK TO, AND IT MUST MATCH THE CONSOLE'S CALLBACK LIST EXACTLY.
+   *
+   * "400 Bad Request — Invalid redirect_uri value" on the first live try, 08/09. This was
+   * location.origin + location.pathname, which is where the parent HAPPENS TO BE STANDING — and the
+   * same page is served at two addresses:
+   *
+   *   https://…/atom-nursery/              ← the link, and the LIFF endpoint, and what is registered
+   *   https://…/atom-nursery/index.html    ← manifest start_url, so every installed home-screen app
+   *
+   * Anyone who opened the app from the icon they were told to add sent the second one, and LINE
+   * refused it. Building an identity out of the visitor's own URL was the mistake: there is exactly
+   * one registered callback, so send exactly one string. index.html is dropped (a directory and its
+   * index are the same page), and query and hash never took part.
+   */
+  const lineRedirectUri = () => location.origin + location.pathname.replace(/index\.html?$/i, '');
   window.LINE_BROWSER_LOGIN = () => {
     const st = 'atom' + Math.random().toString(36).slice(2) + Date.now().toString(36);
     try { sessionStorage.setItem(LINE_STATE, st); } catch (e) {}
@@ -8823,7 +8835,12 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
     let r = null; try { r = await api('lineLoginReady', {}); } catch (e) {}
     const ready = !!(r && r.ready);
     const chan = (r && r.channelId) || String(CONFIG.LIFF_ID||'').split('-')[0];
-    const cb = location.origin + location.pathname;
+    /* The SAME function the sign-in uses, never a second copy of the rule: the whole value of this
+     * line is that the admin can compare it character for character with the console, and a screen
+     * that computes the string its own way can print one that is right while the app sends one that
+     * is wrong. (It did: this was location.origin + location.pathname, which on the installed app
+     * ends in index.html — see lineRedirectUri.) */
+    const cb = lineRedirectUri();
     box.innerHTML = `<div class="spread"><b>${EN()?'Channel secret':'Channel secret'}</b>
         <span class="pill ${ready?'ok':'bad'}">${ready?(EN()?'set':'ตั้งค่าแล้ว'):(EN()?'missing':'ยังไม่ได้ตั้งค่า')}</span></div>
       ${ready?'':`<small style="color:var(--bad);display:block;margin-top:4px">${EN()

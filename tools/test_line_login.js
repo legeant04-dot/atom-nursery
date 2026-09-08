@@ -38,6 +38,11 @@ const src = fs.readFileSync(path.join(__dirname, '..', 'webapp', 'app.js'), 'utf
 const css = fs.readFileSync(path.join(__dirname, '..', 'webapp', 'styles.css'), 'utf8').replace(/\r\n/g, '\n');
 const R_ = f => fs.readFileSync(path.join(__dirname, '..', f), 'utf8').replace(/\r\n/g, '\n');
 const auth = R_('src/Auth.gs'), code = R_('src/Code.gs'), apijs = R_('webapp/api.js');
+/* Code with the comments taken out. Three assertions in this file have now been wrong because the
+ * note EXPLAINING a fix quotes the very expression it replaced — so "does this appear once?" and
+ * "does the guard come first?" both read prose as if it were code. */
+const noComments = s => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/[^\n]*$/gm, '');
+const srcCode = noComments(src);
 
 /** the real LIFF block from app.js, run against a LINE that we control */
 function boot(over) {
@@ -64,7 +69,7 @@ function boot(over) {
     CONFIG: { MODE: 'gas', LIFF_ID: 'x' }, liff, console, setTimeout, clearTimeout,
     document: doc, navigator: { userAgent: over.userAgent || 'Mozilla/5.0 (iPhone) Safari' },
     location: { set href(v) { log.push('goto:' + v); }, get href() { return 'https://s.io/app/'; },
-      origin: 'https://s.io', pathname: '/app/', search: over.search || '' },
+      origin: 'https://s.io', pathname: over.pathname || '/app/', search: over.search || '' },
     history: { replaceState: (a, b, url) => log.push('replaceState:' + url) },
     URLSearchParams, t: k => k,
     loadLiff: over.sdkFails ? () => { log.push('loadSDK'); return Promise.reject(new Error('offline')); }
@@ -270,6 +275,29 @@ const THAI_LINE_FAIL = /เชื่อมต่อ LINE ไม่สำเร�
     eq('...and the LIFF return flag is cleared — this route does not come back through LIFF', b.sess.atom_liff_pending, undefined);
   }
   {
+    /* "400 Bad Request — Invalid redirect_uri value", on the first live try (08/09).
+     *
+     * The redirect was built from location.origin + location.pathname — where the parent HAPPENS TO
+     * BE STANDING — and the same page is served at two addresses:
+     *     /atom-nursery/            the link, the LIFF endpoint, and the registered callback
+     *     /atom-nursery/index.html  manifest start_url, so EVERY installed home-screen app
+     * Anyone who opened the app from the icon they were told to add sent the second one and LINE
+     * refused it. There is exactly one registered callback, so exactly one string may be sent.
+     */
+    const b = boot({ pathname: '/app/index.html' });
+    b.ctx.LINE_BROWSER_LOGIN();
+    const url = (b.log.find(x => x.indexOf('goto:https://access.line.me') === 0) || '').slice(5);
+    ok_('the installed app sends the SAME callback as the link', /[?&]redirect_uri=https%3A%2F%2Fs\.io%2Fapp%2F(&|$)/.test(url));
+    ok_('...with index.html dropped, not appended', url.indexOf('index.html') < 0);
+    const c = boot({ pathname: '/app/index.htm' });
+    c.ctx.LINE_BROWSER_LOGIN();
+    ok_('...and the short spelling too', (c.log.find(x => x.indexOf('goto:') === 0) || '').indexOf('index.htm') < 0);
+    // a path that is not an index page is left alone — this trims one filename, it does not guess
+    const d = boot({ pathname: '/app/other/' });
+    d.ctx.LINE_BROWSER_LOGIN();
+    ok_('a different path is not rewritten', /redirect_uri=https%3A%2F%2Fs\.io%2Fapp%2Fother%2F(&|$)/.test((d.log.find(x => x.indexOf('goto:') === 0) || '')));
+  }
+  {
     // coming back with OUR code — recognised by the state we saved
     const b = boot({ search: '?code=THECODE&state=atomABC', state: 'atomABC' });
     eq('the callback is recognised', b.ctx.lineCallbackCode(), 'THECODE');
@@ -336,8 +364,11 @@ const THAI_LINE_FAIL = /เชื่อมต่อ LINE ไม่สำเร�
      * the exact string the app will send is what makes a mismatch (which reads as
      * "invalid_request", from neither end) something a person can spot. */
     ok_('...and prints the exact callback URL the app will send', /A_lineWebStatus[\s\S]{0,1600}location\.origin \+ location\.pathname/.test(src));
-    ok_('...which is the same one the sign-in uses, not a second guess',
-      (src.match(/location\.origin \+ location\.pathname/g) || []).length >= 2 && /const lineRedirectUri = \(\) => location\.origin \+ location\.pathname;/.test(src));
+    /* THE SAME FUNCTION, not a second copy of the rule. The whole value of printing it is that the
+     * admin compares it with the console character for character — and a screen that computes the
+     * string its own way can print one that is right while the app sends one that is wrong. It did.  */
+    ok_('...from the very function the sign-in uses', /const cb = lineRedirectUri\(\);/.test(src));
+    eq('...and the rule itself exists exactly once', (srcCode.match(/location\.origin \+ location\.pathname/g) || []).length, 1);
     ok_('...and names the row to add when it is missing', /LineLoginChannelSecret/.test(src));
     ok_('...warning which channel it belongs to', /Messaging API/.test(src));
   }
