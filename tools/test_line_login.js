@@ -492,10 +492,19 @@ const THAI_LINE_FAIL = /เชื่อมต่อ LINE ไม่สำเร�
     /* 20s of spinner is longer than a parent waits before reloading, and a reload is what put them
      * back at the login card having learned nothing. */
     ok_('the give-up wait is 8s, not 20', /setTimeout\(liffGiveUp, 8000\)/.test(srcCode));
-    // both other buttons hand the phone back to LINE, which is the thing that just failed
-    const stuck = src.slice(src.indexOf('function signInStuckScreen'), src.indexOf('function signInStuckScreen') + 2200);
-    ok_('the stuck screen leads with the route that cannot be swallowed', stuck.indexOf('LINE_BROWSER_LOGIN()') < stuck.indexOf('OPEN_IN_LINE()'));
-    ok_('...as the prominent choice, not a third link', /<button class="role-card" id="lineWebBtn"/.test(stuck));
+    /* ORDERED BY WHAT IT COSTS THE PARENT.
+     *
+     * This used to lead with the email route, on the reasoning that both other buttons hand the
+     * phone back to LINE — the thing that just failed. The school corrected that on 2026-09-08 by
+     * describing what the email route actually costs on a handset: email, password and a
+     * verification code. Opening the app INSIDE LINE costs one tap and asks for nothing, and it is a
+     * different request from the one that failed ("open this page", not "complete this
+     * authorisation"). So it goes first and the typing goes last.
+     */
+    const stuck = src.slice(src.indexOf('function signInStuckScreen'), src.indexOf('function liffGiveUp'));
+    ok_('the stuck screen leads with the tap that asks for nothing', stuck.indexOf('OPEN_IN_LINE()') < stuck.indexOf('LINE_BROWSER_LOGIN()'));
+    ok_('...as the prominent choice', /<button class="role-card" onclick="OPEN_IN_LINE\(\)"/.test(stuck));
+    ok_('...and typing a password is the last resort', stuck.lastIndexOf('LINE_BROWSER_LOGIN()') > stuck.indexOf('LIFF_LOGIN()'));
     /* A QUESTION WE COULD NOT ASK IS NOT AN ANSWER OF "NO". Left as false, one failed ask — a blip,
      * or a request iOS cancelled when the app went to the background — would hide the route for the
      * rest of the session, on exactly the device that needs it. */
@@ -514,6 +523,13 @@ const THAI_LINE_FAIL = /เชื่อมต่อ LINE ไม่สำเร�
     const card = src.slice(src.indexOf('function loginScreen()'), src.indexOf('function loginScreen()') + 3200);
     ok_('the QR route is on the login card itself', /id="lineWebBtn"[^>]*onclick="LINE_BROWSER_LOGIN\(\)"/.test(card));
     ok_('...worded as the answer to "I cannot get in"', /เข้าไม่ได้\?/.test(card));
+    /* AND WORDED HONESTLY. It said "scan the QR with the LINE app on this phone — no password",
+     * which is impossible: on one handset there is no second camera to point at its own screen.
+     * LINE's QR is for signing in FROM ANOTHER DEVICE; on a phone the page asks for email, password
+     * and a verification code. Reported by the school on 2026-09-08 after trying it. */
+    ok_('...and does not promise a QR scan that a single phone cannot do', !/สแกน QR ด้วยแอป LINE ในเครื่อง/.test(src));
+    ok_('...it says what it really asks for', /ด้วยอีเมล/.test(card));
+    ok_('...and the admin screen says the same', /อีเมล \+ รหัสผ่าน \+ รหัสยืนยัน/.test(src));
     ok_('...still hidden until the server says it is configured', /id="lineWebBtn" \$\{lineWebReady\(\)\?'':'hidden'\}/.test(card));
     ok_('...and never inside LINE\'s own browser, where there is nothing to fix', /!inLineApp\(\)\?/.test(card));
     /* "It loops" covers two completely different faults that need opposite fixes. The next report
