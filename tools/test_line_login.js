@@ -308,12 +308,34 @@ const THAI_LINE_FAIL = /เชื่อมต่อ LINE ไม่สำเร�
     ok_('...which is one question, asked once', /function lineWebReady/.test(src) && /api\('lineLoginReady'/.test(src));
     ok_('the QR code is named, because nobody remembers their LINE password', /สแกน QR/.test(src));
     ok_('the exchange is server-side, where the channel secret lives', /handleLineExchange/.test(auth) && /client_secret: c\.secret/.test(auth));
-    ok_('...and the secret is never sent to a phone', !/LineLoginChannelSecret/.test(src));
+    /* The secret never leaves the server. Asserted on what actually crosses the wire, not on the
+     * absence of the word — the admin settings screen names the KEY on purpose, to tell whoever is
+     * setting it up which row to add. */
+    ok_('the readiness answer is a yes/no, never the secret itself',
+      /return \{ ready: !!c\.secret, channelId: c\.id \};/.test(auth));
+    ok_('...and the phone sends only the code, the callback and a public channel id',
+      /api\('lineExchange', \{ code, redirectUri, clientId: lineChannelId\(\) \}\)/.test(src));
+    ok_('...so no secret is ever read on the client', !/getConfig[\s\S]{0,40}Secret/.test(src));
     ok_('an unconfigured school gets told what to set, not a blank failure', /LINE_LOGIN_NOT_CONFIGURED/.test(auth));
     ok_('the sign-in routes are reachable before there is a session', /lineLoginReady' \|\| a === 'lineExchange'/.test(code));
     /* An authorization code can only be spent once, so the reply must never be re-sent — the name
      * starts with no mutating verb, which would have made it retry-safe. */
     ok_('a lost reply is not retried with a burned code', /lineExchange: 1/.test(code) && /lineExchange: 1/.test(apijs));
+  }
+  {
+    /* THE ADMIN CAN SEE WHETHER IT IS SET UP. Two things have to be right and neither is visible
+     * from inside the app; until this screen existed the only way to find out was to wait for a
+     * parent to fail to sign in and watch whether the button appeared. */
+    ok_('the settings screen reports it', /A_lineWebStatus/.test(src) && /id="lineWebCfg"/.test(src));
+    ok_('...saying plainly whether the secret is set', /ยังไม่ได้ตั้งค่า/.test(src) && /ตั้งค่าแล้ว/.test(src));
+    /* The callback URL is the half the server cannot check — it lives in the LINE console. Printing
+     * the exact string the app will send is what makes a mismatch (which reads as
+     * "invalid_request", from neither end) something a person can spot. */
+    ok_('...and prints the exact callback URL the app will send', /A_lineWebStatus[\s\S]{0,1600}location\.origin \+ location\.pathname/.test(src));
+    ok_('...which is the same one the sign-in uses, not a second guess',
+      (src.match(/location\.origin \+ location\.pathname/g) || []).length >= 2 && /const lineRedirectUri = \(\) => location\.origin \+ location\.pathname;/.test(src));
+    ok_('...and names the row to add when it is missing', /LineLoginChannelSecret/.test(src));
+    ok_('...warning which channel it belongs to', /Messaging API/.test(src));
   }
 
   console.log('\n' + (fail ? 'FAILED ' : 'PASSED ') + pass + ' passed, ' + fail + ' failed\n');
