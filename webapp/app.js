@@ -112,7 +112,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.350'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.351'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -901,6 +901,14 @@
     if(sn.y) window.scrollTo(0,sn.y);
   }
   window.GO = function(screen, opts){
+    /* NOBODY IS SIGNED IN, SO THERE IS NO SCREEN TO GO TO.
+     *
+     * `SCREENS[USER.role]` threw "Cannot read properties of null (reading 'role')" on live — twice,
+     * for one user, in the 03–08/09 window. USER is null between a signed-out state and a sign-in,
+     * and GO() can still be reached in that gap: the back button restoring a history entry, or
+     * anything queued before the session went. The crash replaced the whole screen with nothing.
+     * Sending them to the sign-in they need is the only sensible answer, and it costs one line. */
+    if(!USER){ if(typeof AUTH_RENDER==='function') AUTH_RENDER(); else loginScreen(); return; }
     // every real navigation leaves whatever sub-view was open — check for unsaved work first.
     // Runs before CURRENT is reassigned so leaveOk() can re-push the entry the user came from.
     if(!(opts&&opts.silent)){ if(!leaveOk(opts)) return; CUR_SUB=null; FORM_DIRTY=false; window._ATTA_OPEN=false; }
@@ -1441,6 +1449,35 @@
     document.removeEventListener('visibilitychange', _liffOnVisible);
     window.removeEventListener('pageshow', _liffOnVisible);
   }
+  /* A LINE SESSION THAT LINE ITSELF NO LONGER HONOURS.
+   *
+   * liff.isLoggedIn() answers from what the SDK has stored; the access token behind it expires on
+   * LINE's clock. When the two disagree the app is certain the parent is signed in and the server
+   * refuses every token it is given — auth came back INVALID_TOKEN 7 times in the 03–08/09 window.
+   *
+   * Nothing in the app could get out of that. Every route back to the server reuses the same stored
+   * token: tapping the button again, reloading, reauth() after a refusal. So the parent taps, is
+   * bounced to the login card, taps again, and is bounced again — for ever, with a green LINE button
+   * that looks like it should work.
+   *
+   * The only cure is to throw the stored session away and ask LINE for a new one, which is exactly
+   * one redirect. Done once per attempt (_liffRetried), because if a FRESH token is also refused the
+   * problem is not the token and looping would hide that.
+   */
+  const isBadToken = e => String((e && (e.code || e.message)) || '').indexOf('INVALID_TOKEN') >= 0;
+  /* The "we already tried that" flag has to survive the redirect, because liff.login() reloads the
+   * page from scratch — a plain variable would be back to false by the time the answer arrives, and
+   * a token LINE keeps refusing would loop for ever instead of being reported. sessionStorage, so it
+   * dies with the tab and a genuinely new visit starts clean. */
+  const LIFF_FRESH = 'atom_liff_fresh';
+  const liffRetried = () => { try { return sessionStorage.getItem(LIFF_FRESH) === '1'; } catch (e) { return false; } };
+  const setLiffRetried = v => { try { v ? sessionStorage.setItem(LIFF_FRESH, '1') : sessionStorage.removeItem(LIFF_FRESH); } catch (e) {} };
+  function liffFreshLogin(){
+    if (liffRetried()) return false;                 // a FRESH token was refused too — not the token
+    setLiffRetried(true);
+    try { setLiffPending(true); liff.logout(); } catch (e) {}
+    try { liff.login(); return true; } catch (e) { setLiffRetried(false); return false; }
+  }
   /** profile → server session → the right screen. Shared by boot and by the button. */
   function liffAuth(){
     /* THE ID TOKEN IS ALREADY IN THE BROWSER; getProfile() is a round trip to LINE for the same
@@ -1456,8 +1493,15 @@
       // send the verifiable access token (NOT the raw userId): GAS verifies it server-side via
       // LINE's profile endpoint and trusts the resulting userId — prevents UID spoofing.
       return api('auth', { accessToken: liff.getAccessToken(), displayName: profile.displayName, pictureUrl: profile.pictureUrl })
+        .catch(e => {
+          // the stored LINE session is stale — swap it for a fresh one instead of bouncing them to a
+          // button that will do exactly this again (see liffFreshLogin)
+          if (isBadToken(e) && liffFreshLogin()) return new Promise(()=>{});  // leaving the page
+          throw e;
+        })
         .then(u => {
-          setLiffPending(false);
+          setLiffPending(false); setLiffRetried(false);   // a sign-in that worked ends the retry
+          if (!u || !u.role) { throw new Error(EN()?'Sign-in did not complete':'เข้าสู่ระบบไม่สำเร็จ กรุณาลองใหม่'); }
           if (u.role === 'guest') { PENDING_PROVIDER = 'LINE'; accountStage(); applyLangNow(); return; }  // unregistered → onboarding
           // the parent's whole home screen came back with the sign-in (see handleAuth) — hand it to
           // the screen so it does not spend another Apps Script round trip asking for what we have
