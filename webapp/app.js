@@ -112,7 +112,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.349'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.350'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -2128,9 +2128,12 @@
         : `<small class="muted">${due.count} ${EN()?'item(s) to pay':'รายการที่ต้องชำระ'}</small>`}
       <button class="btn sm block" style="margin-top:8px" onclick="event.stopPropagation();GO('payment')">${EN()?'Go to payment':'ไปหน้าชำระเงิน'} →</button></div>`;
   }
-  // header quick-actions: บันทึก / พัฒนาการ. (แจ้งลาออก removed — only Admin may withdraw a student.)
-    setTopActions(`<button class="btn sm outline" onclick="P_journal('${k0.StudentID}')" title="${esc(t('nav.journal'))}">📒<span class="lbl"> ${esc(t('nav.journal'))}</span></button>
-      <button class="btn sm outline" onclick="P_dspm('${k0.StudentID}')" title="${esc(t('nav.dspm'))}">📈<span class="lbl"> ${esc(t('nav.dspm'))}</span></button>`);
+    /* NO HEADER SHORTCUTS. บันทึก and พัฒนาการ were two more buttons in the top bar for two screens
+     * that are already tabs in the bottom navigation — the same destination offered twice, on the
+     * row that also holds the language toggle, the theme toggle, the bell and the profile. Removed
+     * 2026-09-08; the bottom tabs are unchanged. (แจ้งลาออก went earlier — only Admin may withdraw
+     * a student.) */
+    setTopActions('');
     /* EVERY CHILD'S LEAVE, NOT JUST THE FIRST ONE'S.
      * This read `slAll[0]` — the eldest's list — with nothing on screen to say so, so a family with
      * two children saw one child's notices under a heading that names neither. It matters more now
@@ -4371,9 +4374,24 @@
       `<img src="${esc(u)}" loading="lazy" onclick="event.stopPropagation();IMG_zoom('${esc(u)}')"
         style="width:${JR_PIC_PX}px;height:${JR_PIC_PX}px;border-radius:50%;object-fit:cover;cursor:zoom-in;border:1px solid var(--line)"/>`).join('')}</div>`;
   }
-  window.J_pick=(g,v,el,multi)=>{ if(multi){ JSEL[g].has(v)?JSEL[g].delete(v):JSEL[g].add(v); el.classList.toggle('pass'); }
-    else { JSEL[g]=v; [...el.parentElement.children].forEach(b=>b.classList.remove('pass')); el.classList.add('pass'); } };
-  window.J_meal=(m,a,el)=>{ JSEL.Meals[m]=a; [...el.parentElement.children].forEach(b=>b.classList.remove('pass')); el.classList.add('pass'); };
+  /* TAPPING THE CHOSEN ANSWER AGAIN CLEARS IT.
+   *
+   * The multi-choice rows (การเรียนรู้, ทักษะ) have always worked this way, and a teacher who ticks
+   * one of the single-choice rows by mistake — อารมณ์, สุขภาพ, น้ำ, ปริมาณอาหาร, การขับถ่าย — had no
+   * way to take it back: every one of those rows was write-once for the rest of the entry, and the
+   * only escape was to leave without saving. Asked 2026-09-08 to behave "เหมือนหัวข้อการเรียนรู้".
+   *
+   * The stored value goes back to what it was before anyone touched it (an empty string for a
+   * top-level group, and the key removed entirely for the per-slot maps, so an untouched meal or
+   * toilet row is indistinguishable from one that was cleared).
+   */
+  const jClearRow = el => [...el.parentElement.children].forEach(b=>b.classList.remove('pass'));
+  window.J_pick=(g,v,el,multi)=>{ if(multi){ JSEL[g].has(v)?JSEL[g].delete(v):JSEL[g].add(v); el.classList.toggle('pass'); return; }
+    const off = JSEL[g]===v;                       // already the answer → this tap is an undo
+    JSEL[g]= off?'':v; jClearRow(el); if(!off) el.classList.add('pass'); };
+  window.J_meal=(m,a,el)=>{ const off=(JSEL.Meals||{})[m]===a;
+    if(off) delete JSEL.Meals[m]; else JSEL.Meals[m]=a;
+    jClearRow(el); if(!off) el.classList.add('pass'); };
   /* ---- meals: which dish, and how much ------------------------------------------------------
    * JSLOTS is set when the journal opens (it depends on the child's class); JFOOD is the master
    * list. A teacher who picks "➕ เพิ่มเมนูใหม่" gets a text box, and on save that dish is written
@@ -4433,7 +4451,9 @@
     }
     return items;
   }
-  window.J_tl=(k,v,el)=>{ JSEL.Toilet[k]=v; [...el.parentElement.children].forEach(b=>b.classList.remove('pass')); el.classList.add('pass'); };
+  window.J_tl=(k,v,el)=>{ const off=(JSEL.Toilet||{})[k]===v;
+    if(off) delete JSEL.Toilet[k]; else JSEL.Toilet[k]=v;
+    jClearRow(el); if(!off) el.classList.add('pass'); };
   window.J_mic=(targetId,btn)=>{ const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
     if(!SR){ toast('เบราว์เซอร์นี้ไม่รองรับ Voice — ใช้ Chrome บนมือถือ/คอม'); return; }
     const rec=new SR(); rec.lang='th-TH'; rec.interimResults=false; btn.classList.add('rec'); btn.textContent='● ฟัง...';
