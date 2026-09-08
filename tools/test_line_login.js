@@ -49,22 +49,37 @@ function boot(over) {
     login() { if (!liff._init) throw new Error('LIFF init has not been finished yet'); liff._loginCalls++; log.push('redirect-to-LINE'); },
     getProfile() { log.push('getProfile'); return Promise.resolve({ userId: 'U1', displayName: 'father' }); },
     getAccessToken() { return 'tok'; } };
+  /* The browser bits the block now uses: a timer it can cancel, the page-visibility events it
+   * listens on to notice a hand-off to LINE that never came back, and a location it can send the
+   * parent to LINE with. Held here so a test can fire them (see "the hand-off never comes back"). */
+  const listeners = {};
+  const doc = { visibilityState: 'visible',
+    addEventListener: (k, fn) => { (listeners[k] = listeners[k] || []).push(fn); },
+    removeEventListener: (k, fn) => { listeners[k] = (listeners[k] || []).filter(f => f !== fn); } };
+  const fire = k => (listeners[k] || []).slice().forEach(fn => fn());
   const ctx = {
-    CONFIG: { MODE: 'gas', LIFF_ID: 'x' }, liff, console, setTimeout,
+    CONFIG: { MODE: 'gas', LIFF_ID: 'x' }, liff, console, setTimeout, clearTimeout,
+    document: doc, navigator: { userAgent: over.userAgent || 'Mozilla/5.0 (iPhone) Safari' },
+    location: { set href(v) { log.push('goto:' + v); }, get href() { return 'https://x/'; } },
+    t: k => k,
     loadLiff: over.sdkFails ? () => { log.push('loadSDK'); return Promise.reject(new Error('offline')); }
                             : () => { log.push('loadSDK'); return Promise.resolve(liff); },
     sessionStorage: { getItem: k => (k in sess ? sess[k] : null), setItem: (k, v) => { sess[k] = v; }, removeItem: k => { delete sess[k]; } },
     localStorage: { getItem: k => (k in loc ? loc[k] : null), setItem: (k, v) => { loc[k] = v; }, removeItem: k => { delete loc[k]; } },
     EN: () => false, esc: s => s, toast: m => log.push('toast:' + m),
     setHeader: () => {}, nav: {},
-    app: { set innerHTML(v) { log.push('screen:' + (/กำลังเข้าสู่ระบบ/.test(v) ? 'SIGNING_IN' : 'other')); } },
+    app: { set innerHTML(v) { log.push('screen:' + (/กำลังเข้าสู่ระบบ/.test(v) ? 'SIGNING_IN'
+      : /ยังเข้าสู่ระบบไม่สำเร็จ/.test(v) ? 'STUCK' : 'other')); } },
     api: over.authFails ? a => { log.push('api:' + a); return Promise.reject(new Error('NO_SESSION')); }
                         : a => { log.push('api:' + a); return Promise.resolve({ role: over.role || 'Parent', linkedId: 'PAR-1', displayName: 'father' }); },
     LOGIN_REAL: () => log.push('LOGIN_REAL'), applyLangNow: () => {}, accountStage: () => log.push('accountStage'),
     loginScreen: () => log.push('screen:LOGIN_CARD'), PROVIDER: () => {},
-    USER: null, AUTH_RENDER: null, PENDING_LINE_UID: null, PENDING_PROVIDER: null, window: {} };
+    USER: null, AUTH_RENDER: null, PENDING_LINE_UID: null, PENDING_PROVIDER: null,
+    // pageshow is listened for on window, visibilitychange on document — same registry either way
+    addEventListener: doc.addEventListener, removeEventListener: doc.removeEventListener,
+    window: {} };
   ctx.window = ctx; vm.createContext(ctx); vm.runInContext(code, ctx);
-  return { ctx, log, liff, sess };
+  return { ctx, log, liff, sess, doc, fire };
 }
 const settle = () => new Promise(r => setTimeout(r, 60));
 const THAI_LINE_FAIL = /เชื่อมต่อ LINE ไม่สำเร็จ/;
@@ -157,6 +172,64 @@ const THAI_LINE_FAIL = /เชื่อมต่อ LINE ไม่สำเร�
     ok_('...and it exists in the stylesheet', /\.authspin\{/.test(css));
     ok_('...reusing the one spin animation the app already has',
       /animation:busySpin/.test(css.slice(css.indexOf('.authspin{'), css.indexOf('.authspin{') + 300)));
+  }
+
+  /* ---------------------------------------------------------------------------------------------
+   * 6) THE HAND-OFF TO LINE THAT NEVER COMES BACK.
+   *
+   * A parent could not get in on 08/09/26; the recording shows it twice. liff.login() navigates to
+   * access.line.me — which iOS treats as a LINE universal link and hands to the app instead of
+   * loading. LINE opened on its Wallet tab, no consent screen, no redirect back. Returning to Safari
+   * left our spinner on screen for ever, with nothing on it to press: the overlay that stops a
+   * double tap became the dead end.
+   *
+   * On the SUCCESSFUL path the browser navigates back to our URL and the page reloads from scratch,
+   * so none of this code is alive to run. Being here at all means the hand-off did not complete.
+   * ------------------------------------------------------------------------------------------- */
+  console.log('\n6) when LINE opens and never comes back (iPhone)');
+  {
+    const b = boot();
+    b.ctx.LIFF_LOGIN(); await settle();
+    eq('we left for LINE', b.log[b.log.length - 1], 'redirect-to-LINE');
+    // the parent comes back to Safari, still not signed in
+    b.fire('visibilitychange');
+    await new Promise(r => setTimeout(r, 1100));
+    ok_('the spinner is not what they are left with', b.log.indexOf('screen:STUCK') > 0);
+    eq('...and the return flag is cleared, so a reload shows the card', b.sess.atom_liff_pending, undefined);
+    // ...and it is a screen they can act on
+    ok_('it offers the LINE app, which has no OAuth hop to lose', /เปิดในแอป LINE/.test(src));
+    ok_('...and says why, rather than blaming them', /ไม่กลับมาที่หน้านี้/.test(src));
+    ok_('...and still lets them retry in the browser', /ลองอีกครั้งในเบราว์เซอร์นี้/.test(src));
+  }
+  {
+    // a sign-in that DID land while we were away is a sign-in, not a failure
+    const b = boot();
+    b.ctx.LIFF_LOGIN(); await settle();
+    b.liff._in = true;                       // LINE authorised without a page reload
+    b.fire('visibilitychange');
+    await new Promise(r => setTimeout(r, 1100));
+    ok_('it re-asks LINE before giving up', b.log.indexOf('api:auth') > 0);
+    eq('...and signs them in', b.log[b.log.length - 1], 'LOGIN_REAL');
+    eq('...without ever showing the stuck screen', b.log.filter(x => x === 'screen:STUCK'), []);
+  }
+  {
+    const b = boot();
+    b.ctx.OPEN_IN_LINE();
+    eq('the escape hatch opens THIS app inside LINE', b.log[0], 'goto:https://liff.line.me/x');
+  }
+  {
+    // becoming visible when nothing is in flight must not manufacture a failure
+    const b = boot();
+    b.fire('visibilitychange');
+    await new Promise(r => setTimeout(r, 1100));
+    eq('an idle tab is left alone', b.log, []);
+  }
+  {
+    ok_('the login card offers the LINE app as a second route', /หรือเปิดผ่านแอป LINE/.test(src));
+    /* ...but not inside LINE's own browser, where it would reload the same page. LINE's in-app
+     * WebView puts " Line/" in the user agent. */
+    ok_('...only outside LINE', /!inLineApp\(\)\?/.test(src));
+    ok_('...detected from the user agent LINE actually sends', /\\bLine\\\//.test(src));
   }
 
   console.log('\n' + (fail ? 'FAILED ' : 'PASSED ') + pass + ' passed, ' + fail + ' failed\n');

@@ -112,7 +112,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.346'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.347'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -1223,6 +1223,11 @@
       <p class="muted">${esc(t('login.lineOnly'))}</p>
       <button class="role-card" onclick="LIFF_LOGIN()"><span class="ic" style="background:#06C755;color:#fff;font-weight:800">L</span><span><b>${esc(t('login.lineBtn'))}</b><br><small>${esc(t('login.lineSub'))}</small></span></button>
       <label style="display:flex;align-items:center;gap:8px;justify-content:center;margin-top:10px;font-size:13px"><input type="checkbox" id="rememberMe" checked style="width:auto"/> ${esc(t('login.remember'))}</label>
+      ${/* The second route, for the browser where the first one is fragile. Signing in through
+           access.line.me can be swallowed by iOS's universal link (see signInStuckScreen); opening
+           the app INSIDE LINE has no OAuth hop to lose. Not drawn when we are already in LINE's own
+           browser, where it would just reload the same page. */''}
+      ${CONFIG.MODE==='gas'&&CONFIG.LIFF_ID&&!inLineApp()?`<button class="btn-ghost block" style="margin-top:6px;font-size:13px" onclick="OPEN_IN_LINE()">💬 ${EN()?'Or open inside the LINE app':'หรือเปิดผ่านแอป LINE'}</button>`:''}
       ${/* Android only, and ABOVE the add-to-home-screen box: for a phone that can take the real
            app, the shortcut is the second-best answer. iPhones see neither this nor a dead button. */''}
       ${apkCardHTML()}
@@ -1290,6 +1295,69 @@
       <h2 class="page" style="text-align:center;margin-top:14px">${EN()?'Signing in with LINE…':'กำลังเข้าสู่ระบบด้วย LINE…'}</h2>
       <p class="muted">${EN()?'This takes a few seconds the first time.':'ครั้งแรกอาจใช้เวลาสักครู่ กรุณารอสักครู่'}</p></div>`;
   }
+  /* ---- WHEN THE HAND-OFF TO LINE NEVER COMES BACK (iPhone) --------------------------------------
+   *
+   * A parent could not get in on 08/09; the recording shows exactly what happened, twice in a row:
+   *   · Safari, our login card, tap "เข้าสู่ระบบด้วย LINE"
+   *   · our spinner appears, and iOS asks เปิดใน "LINE" หรือไม่ — because liff.login() navigates to
+   *     access.line.me, which iOS treats as a LINE universal link and hands to the app instead of
+   *     loading the page
+   *   · LINE opens on whatever tab it was last on (the Wallet, in the video). No consent screen, no
+   *     redirect back. The authorisation never happens
+   *   · back in Safari the page is exactly where it was: our spinner, for ever
+   *
+   * The last step is ours, and it is the one that turned a LINE problem into a dead end. The overlay
+   * was added (v-earlier) so a parent could not fire the request repeatedly — and with no redirect to
+   * end it, that overlay is a screen with nothing on it to press. The only way out was to reload the
+   * page by hand, which is what the video shows at 08:40.
+   *
+   * So: notice we are back and still not signed in, and say so with a way forward. The way forward
+   * that WORKS on iPhone is to open the app inside LINE (liff.line.me/<id>) — there the session
+   * already exists and there is no OAuth hop to lose.
+   */
+  const inLineApp = () => /\bLine\//i.test(navigator.userAgent||'');
+  const liffAppUrl = () => 'https://liff.line.me/' + CONFIG.LIFF_ID;
+  window.OPEN_IN_LINE = () => { setLiffPending(false); location.href = liffAppUrl(); };
+  function signInStuckScreen(){ USER = null; AUTH_RENDER = signInStuckScreen; setHeader(); nav.hidden = true;
+    app.innerHTML = `<div class="rolewrap" style="padding-top:24px">
+      <img src="assets/logo.png" class="logo-lg" alt="logo"/>
+      <h2 class="page" style="text-align:center;margin-top:10px">${EN()?'Not signed in yet':'ยังเข้าสู่ระบบไม่สำเร็จ'}</h2>
+      <div class="card" style="background:var(--warn-bg);border-color:var(--warn-line);font-size:13px">
+        ${EN()?'It looks like the LINE app opened and did not come back. On iPhone that happens sometimes. Opening the app <b>inside LINE</b> works every time — you are already signed in there.'
+              :'ดูเหมือนแอป LINE เปิดขึ้นมาแล้วไม่กลับมาที่หน้านี้ · บน iPhone เกิดขึ้นได้บางครั้ง · <b>เปิดผ่านแอป LINE</b> จะเข้าได้ทุกครั้ง เพราะคุณล็อกอิน LINE อยู่แล้ว'}</div>
+      <button class="role-card" onclick="OPEN_IN_LINE()"><span class="ic" style="background:#06C755;color:#fff;font-weight:800">L</span>
+        <span><b>${EN()?'Open in the LINE app':'เปิดในแอป LINE'}</b><br><small>${EN()?'the reliable way on iPhone':'วิธีที่ใช้ได้แน่นอนบน iPhone'}</small></span></button>
+      <button class="btn outline block" style="margin-top:8px" onclick="LIFF_LOGIN()">🔄 ${EN()?'Try again in this browser':'ลองอีกครั้งในเบราว์เซอร์นี้'}</button>
+      <button class="btn-ghost block" style="margin-top:8px" onclick="loginScreen()">${esc(t('c.back'))}</button></div>`;
+  }
+  /* Watch a sign-in that has left for LINE. Two ways to notice it failed:
+   *   · the tab becomes visible again and we are still not signed in — on the SUCCESSFUL path the
+   *     browser navigates back to our URL and the whole page reloads, so this listener would not
+   *     exist to fire. Being here at all means the hand-off did not complete.
+   *   · nothing happens at all within 20s (the navigation never even started).
+   * Before giving up we re-ask LINE, because a session that DID get established without a reload is
+   * a sign-in, not a failure. */
+  let _liffWatchT = null;
+  function liffGiveUp(){
+    if (!_liffBusy) return;
+    liffWatchStop();
+    liffReady().then(() => {
+      if (liff.isLoggedIn()) { _liffBusy = false; return liffAuth(); }   // it worked after all
+      _liffBusy = false; setLiffPending(false); signInStuckScreen();
+    }).catch(() => { _liffBusy = false; setLiffPending(false); signInStuckScreen(); });
+  }
+  const _liffOnVisible = () => { if (document.visibilityState === 'visible' && _liffBusy) setTimeout(liffGiveUp, 900); };
+  function liffWatchStart(){
+    liffWatchStop();
+    _liffWatchT = setTimeout(liffGiveUp, 20000);
+    document.addEventListener('visibilitychange', _liffOnVisible);
+    window.addEventListener('pageshow', _liffOnVisible);
+  }
+  function liffWatchStop(){
+    clearTimeout(_liffWatchT); _liffWatchT = null;
+    document.removeEventListener('visibilitychange', _liffOnVisible);
+    window.removeEventListener('pageshow', _liffOnVisible);
+  }
   /** profile → server session → the right screen. Shared by boot and by the button. */
   function liffAuth(){
     /* THE ID TOKEN IS ALREADY IN THE BROWSER; getProfile() is a round trip to LINE for the same
@@ -1326,7 +1394,7 @@
       /* The two failures are told apart on purpose. "เชื่อมต่อ LINE ไม่สำเร็จ" for a refusal that
        * came from OUR server sends a parent to check their signal when the problem is at our end,
        * and there is nothing they can do about it by trying again on better wifi. */
-      const bail = msg => { _liffBusy = false; setLiffPending(false); toast(msg); loginScreen(); applyLangNow(); };
+      const bail = msg => { liffWatchStop(); _liffBusy = false; setLiffPending(false); toast(msg); loginScreen(); applyLangNow(); };
       liffReady()
         .catch(() => { bail(EN() ? 'Could not reach LINE — check your connection' : 'เชื่อมต่อ LINE ไม่สำเร็จ — ตรวจสอบอินเทอร์เน็ต');
           throw { _handled: 1 }; })
@@ -1334,6 +1402,7 @@
           // already signed in with LINE (they came back, or the session outlived the app): there is
           // nothing to redirect for — go straight to the server
           if (liff.isLoggedIn()) return liffAuth();
+          liffWatchStart();                         // ...and notice if it never comes back
           liff.login();                             // leaves the page; nothing after this runs
         })
         .catch(e => { if (e && e._handled) return; bail('⚠️ ' + ((e && e.message) || e)); });
