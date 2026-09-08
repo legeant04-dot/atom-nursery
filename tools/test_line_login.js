@@ -75,7 +75,11 @@ function boot(over) {
     setHeader: () => {}, nav: {},
     app: { set innerHTML(v) { log.push('screen:' + (/กำลังเข้าสู่ระบบ/.test(v) ? 'SIGNING_IN'
       : /ยังเข้าสู่ระบบไม่สำเร็จ/.test(v) ? 'STUCK' : 'other')); } },
-    api: over.authFails ? a => { log.push('api:' + a); return Promise.reject(new Error('NO_SESSION')); }
+    // authFails may be a CODE, so a refusal about the token can be told from any other refusal
+    api: over.authFails ? a => { log.push('api:' + a);
+                                 const e = new Error(typeof over.authFails === 'string' ? over.authFails : 'NO_SESSION');
+                                 if (typeof over.authFails === 'string') e.code = over.authFails;
+                                 return Promise.reject(e); }
                         : a => { log.push('api:' + a); return Promise.resolve({ role: over.role || 'Parent', linkedId: 'PAR-1', displayName: 'father' }); },
     LOGIN_REAL: () => log.push('LOGIN_REAL'), applyLangNow: () => {}, accountStage: () => log.push('accountStage'),
     loginScreen: () => log.push('screen:LOGIN_CARD'), PROVIDER: () => {},
@@ -336,6 +340,70 @@ const THAI_LINE_FAIL = /เชื่อมต่อ LINE ไม่สำเร�
       (src.match(/location\.origin \+ location\.pathname/g) || []).length >= 2 && /const lineRedirectUri = \(\) => location\.origin \+ location\.pathname;/.test(src));
     ok_('...and names the row to add when it is missing', /LineLoginChannelSecret/.test(src));
     ok_('...warning which channel it belongs to', /Messaging API/.test(src));
+  }
+
+  /* ---------------------------------------------------------------------------------------------
+   * 8) A LINE SESSION THAT LINE ITSELF NO LONGER HONOURS.
+   *
+   * liff.isLoggedIn() answers from what the SDK stored; the access token behind it expires on LINE's
+   * clock. When they disagree, the app is certain the parent is signed in and the server refuses
+   * every token it is handed — `auth 2% INVALID_TOKENx7` in the 03–08/09 report.
+   *
+   * Nothing could get out of it: tapping again, reloading and reauth() all reuse the same stored
+   * token. Tap → bounced to the login card → tap → bounced, for ever, with a green LINE button that
+   * looks like it should work.
+   * ------------------------------------------------------------------------------------------- */
+  console.log('\n8) a stale LINE token no amount of tapping can clear');
+  {
+    const b = boot({ signedIn: true, authFails: 'INVALID_TOKEN' });
+    b.liff.logout = () => b.log.push('logout');
+    b.ctx.LIFF_LOGIN(); await settle();
+    ok_('the refusal is recognised as a dead LINE session', b.log.indexOf('logout') > 0);
+    ok_('...the stored session is thrown away', b.log.indexOf('logout') < b.log.lastIndexOf('redirect-to-LINE'));
+    ok_('...and a NEW one is asked for', b.log.lastIndexOf('redirect-to-LINE') > b.log.indexOf('api:auth'));
+    eq('...the parent is never shown the button that would do this again', b.log.filter(x => x === 'screen:LOGIN_CARD'), []);
+    /* The flag has to survive the redirect: liff.login() reloads the page, so a plain variable would
+     * be false again by the time the answer comes back, and a token LINE keeps refusing would loop
+     * for ever instead of being reported. */
+    eq('...and it is remembered across the reload', b.sess.atom_liff_fresh, '1');
+  }
+  {
+    // second time round: a FRESH token refused too is not a token problem, so say so and stop
+    const b = boot({ signedIn: true, authFails: 'INVALID_TOKEN' });
+    b.sess.atom_liff_fresh = '1';
+    b.liff.logout = () => b.log.push('logout');
+    b.ctx.LIFF_LOGIN(); await settle();
+    eq('a fresh token refused again does NOT loop', b.log.filter(x => x === 'logout'), []);
+    ok_('...and it lands somewhere with a message', b.log.some(x => x.indexOf('toast:') === 0));
+  }
+  {
+    // an ordinary failure must not throw the LINE session away
+    const b = boot({ signedIn: true, authFails: true });
+    b.liff.logout = () => b.log.push('logout');
+    b.ctx.LIFF_LOGIN(); await settle();
+    eq('a server refusal that is NOT about the token leaves the session alone', b.log.filter(x => x === 'logout'), []);
+    eq('...and reports it', b.log.filter(x => x.indexOf('toast:') === 0).length > 0, true);
+  }
+  {
+    const b = boot({ signedIn: true });
+    b.ctx.LIFF_LOGIN(); await settle();
+    eq('a sign-in that works clears the retry flag', b.sess.atom_liff_fresh, undefined);
+    eq('...and signs them in', b.log[b.log.length - 1], 'LOGIN_REAL');
+  }
+  {
+    /* "Cannot read properties of null (reading 'role')" appeared twice on live in the same window.
+     * GO() read SCREENS[USER.role] with no guard, and USER is null in the gap between signed-out and
+     * signed-in — which the back button can still navigate into. */
+    ok_('GO() refuses to navigate with nobody signed in', /if\(!USER\)\{ if\(typeof AUTH_RENDER==='function'\) AUTH_RENDER\(\); else loginScreen\(\); return; \}/.test(src));
+    // inside GO itself — the file has other, already-guarded readers of USER.role above it
+    /* comments stripped first — the note explaining the guard QUOTES the very expression it guards,
+     * so an ordering check that reads them finds the crash "before" its own fix */
+    const goSrc = src.slice(src.indexOf('window.GO = function'), src.indexOf('window.GO = function') + 1800)
+      .replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '');
+    ok_('...before it reads a role off it', goSrc.indexOf('if(!USER){') >= 0 && goSrc.indexOf('if(!USER){') < goSrc.indexOf('SCREENS[USER.role]'));
+    ok_('the back button was already guarded', /if\(!USER\)\{ if\(document\.getElementById\('rPDPA'\)/.test(src));
+    // and the sign-in itself must not assume the server answered with a role
+    ok_('a sign-in reply with no role is an error, not a crash', /if \(!u \|\| !u\.role\)/.test(src));
   }
 
   console.log('\n' + (fail ? 'FAILED ' : 'PASSED ') + pass + ' passed, ' + fail + ' failed\n');
