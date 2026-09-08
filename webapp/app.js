@@ -112,7 +112,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.352'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.353'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -1225,6 +1225,12 @@
   // would draw exactly it, leave it alone. English re-renders (the shell is written in Thai), and once
   // any other screen has replaced it the shell is gone and this renders normally.
   function loginScreen(){ USER=null; AUTH_RENDER=loginScreen; setHeader(); nav.hidden=true;
+    /* Asked HERE, above the early return, so the answer is already in hand when the parent taps.
+     * preferBrowserLogin() has to decide synchronously; a device that has failed twice would
+     * otherwise take the broken path once more while this was still in flight. Below the return it
+     * was never asked at all on a cold start, because the boot splash is still on screen — found by
+     * running it rather than reading it. */
+    if (CONFIG.MODE === 'gas' && CONFIG.LIFF_ID) lineWebReady();
     if(document.getElementById('bootSplash') && !EN()) return;
     app.innerHTML = `<div class="rolewrap"><img src="assets/logo.png" class="logo-lg" alt="logo"/>
       <h2 class="page" style="text-align:center">${esc(t('login.title'))}</h2>
@@ -1327,6 +1333,31 @@
   const liffAppUrl = () => 'https://liff.line.me/' + CONFIG.LIFF_ID;
   window.OPEN_IN_LINE = () => { setLiffPending(false); location.href = liffAppUrl(); };
 
+  /* ---- A DEVICE WHOSE HAND-OFF TO THE LINE APP DOES NOT WORK -----------------------------------
+   *
+   * Tested on the phone that could not get in, 08/09: the app hand-off still loops, and the browser
+   * route (QR / password) signs the same parent in on the first try. So the hand-off is broken FOR
+   * THAT PHONE — not for iOS. The same report has 4,501 iOS calls across 164 sessions with parents
+   * at 42% of them, all signing in normally; splitting the login screen by platform would punish
+   * every one of those for one device's broken LINE app.
+   *
+   * What can be observed directly is the thing that actually matters: on THIS device, did an attempt
+   * we started ever finish? Counted in localStorage — not session — because the parent does not sit
+   * and wait to be told. They reload, or close the tab and come back, and every one of those wipes
+   * anything held in memory or in the session. That is why "it just loops back to the start" was
+   * still the experience after v347: the stuck screen only appears to somebody who waits for it.
+   *
+   * TWO unfinished attempts, not one: a parent who taps and then changes their mind must not be
+   * moved onto the slower route for ever. After two, this device stops trying the hand-off and goes
+   * straight to what works — one bad experience, then it simply signs in.
+   */
+  const LIFF_FAILS = 'atom_liff_fails';
+  const liffFails = () => { try { return Number(localStorage.getItem(LIFF_FAILS)) || 0; } catch (e) { return 0; } };
+  const bumpLiffFails = () => { try { localStorage.setItem(LIFF_FAILS, String(liffFails() + 1)); } catch (e) {} };
+  const clearLiffFails = () => { try { localStorage.removeItem(LIFF_FAILS); } catch (e) {} };
+  /** Has the app hand-off proved unreliable here, and is there something better to send them to? */
+  const preferBrowserLogin = () => liffFails() >= 2 && lineWebReady();
+
   /* ---- SIGNING IN WITHOUT HANDING THE PHONE TO THE LINE APP ------------------------------------
    *
    * LINE's own answer to the hand-off that never returns is a parameter on the authorization URL:
@@ -1395,6 +1426,11 @@
     try { history.replaceState(null, '', redirectUri); } catch (e) {}
     api('lineExchange', { code, redirectUri, clientId: lineChannelId() })
       .then(u => {
+        if (!u || !u.role) throw new Error(EN()?'Sign-in did not complete':'เข้าสู่ระบบไม่สำเร็จ กรุณาลองใหม่');
+        setLiffPending(false); setLiffRetried(false);
+        /* NOT cleared: the hand-off is still broken on this device — it was the browser route that
+         * worked. Keeping the count is what makes the NEXT sign-in go straight here instead of
+         * failing first. It is cleared only by a hand-off that actually completes. */
         if (u.role === 'guest') { PENDING_PROVIDER = 'LINE'; accountStage(); applyLangNow(); return; }
         if (u.home && u.home.children) window._BOOT_HOME = u.home;
         LOGIN_REAL(u.role, u.linkedId, u.displayName, u.pictureUrl);
@@ -1411,7 +1447,12 @@
       _lineWebReady = false;
       api('lineLoginReady', {}).then(r => { _lineWebReady = !!(r && r.ready);
         const el = document.getElementById('lineWebBtn'); if (el) el.hidden = !_lineWebReady;
-      }).catch(() => {});
+      })
+      /* A question we could not ask is not an answer of "no". Left as false, one failed ask — a
+       * blip, a request cancelled by the app going to the background — would hide the route for the
+       * rest of the session, on exactly the device that needs it. Back to "unknown" so the next
+       * render or tap asks again. */
+      .catch(() => { _lineWebReady = null; });
     }
     return _lineWebReady;
   }
@@ -1420,17 +1461,19 @@
       <img src="assets/logo.png" class="logo-lg" alt="logo"/>
       <h2 class="page" style="text-align:center;margin-top:10px">${EN()?'Not signed in yet':'ยังเข้าสู่ระบบไม่สำเร็จ'}</h2>
       <div class="card" style="background:var(--warn-bg);border-color:var(--warn-line);font-size:13px">
-        ${EN()?'It looks like the LINE app opened and did not come back. On iPhone that happens sometimes. Opening the app <b>inside LINE</b> works every time — you are already signed in there.'
-              :'ดูเหมือนแอป LINE เปิดขึ้นมาแล้วไม่กลับมาที่หน้านี้ · บน iPhone เกิดขึ้นได้บางครั้ง · <b>เปิดผ่านแอป LINE</b> จะเข้าได้ทุกครั้ง เพราะคุณล็อกอิน LINE อยู่แล้ว'}</div>
-      <button class="role-card" onclick="OPEN_IN_LINE()"><span class="ic" style="background:#06C755;color:#fff;font-weight:800">L</span>
-        <span><b>${EN()?'Open in the LINE app':'เปิดในแอป LINE'}</b><br><small>${EN()?'the reliable way on iPhone':'วิธีที่ใช้ได้แน่นอนบน iPhone'}</small></span></button>
+        ${EN()?'The LINE app opened and did not come back — that happens on some phones. <b>Signing in to LINE here</b> works instead: scan the QR code with the LINE app you already have.'
+              :'แอป LINE เปิดขึ้นมาแล้วไม่กลับมาที่หน้านี้ — เกิดขึ้นกับบางเครื่อง · <b>เข้าสู่ระบบ LINE ที่นี่</b>แทนได้เลย โดยสแกน QR ด้วยแอป LINE ที่มีอยู่แล้วในเครื่อง'}</div>
+      ${/* FIRST, THE ONE THAT CANNOT BE SWALLOWED BY THE LINE APP. Both of the other two hand the
+           phone to LINE, which on this device is the thing that just failed — offering them first
+           spends another attempt on the route we already know is broken here. Verified on the
+           phone that could not get in, 08/09: the QR route signed the same parent in first try.
+           Hidden until the server says it is configured; a button that can only error is worse
+           than no button. */''}
+      <button class="role-card" id="lineWebBtn" ${lineWebReady()?'':'hidden'} onclick="LINE_BROWSER_LOGIN()">
+        <span class="ic" style="background:#06C755;color:#fff;font-weight:800">L</span>
+        <span><b>${EN()?'Sign in to LINE here (QR code)':'เข้าสู่ระบบ LINE ที่นี่ (สแกน QR)'}</b><br><small>${EN()?'scan with the LINE app on this phone — no password':'สแกนด้วยแอป LINE ในเครื่อง ไม่ต้องจำรหัสผ่าน'}</small></span></button>
+      <button class="btn outline block" style="margin-top:8px" onclick="OPEN_IN_LINE()">💬 ${EN()?'Open inside the LINE app':'เปิดในแอป LINE'}</button>
       <button class="btn outline block" style="margin-top:8px" onclick="LIFF_LOGIN()">🔄 ${EN()?'Try again in this browser':'ลองอีกครั้งในเบราว์เซอร์นี้'}</button>
-      ${/* The third way, and the one that cannot be swallowed by the LINE app: sign in to LINE in
-           the browser (disable_auto_login). Hidden until the server says it is configured — a
-           button that can only produce an error is worse than no button. */''}
-      <button class="btn outline block" id="lineWebBtn" style="margin-top:8px" ${lineWebReady()?'':'hidden'} onclick="LINE_BROWSER_LOGIN()">🌐 ${EN()?'Sign in to LINE in this browser (QR code)':'เข้าสู่ระบบ LINE ในเบราว์เซอร์ (สแกน QR)'}</button>
-      <p class="muted" style="font-size:12px;margin:6px 2px">${EN()?'That last one asks you to log in to LINE itself — scan the QR code with the LINE app on this phone.'
-        :'วิธีสุดท้ายจะให้ล็อกอิน LINE เอง · ใช้แอป LINE ในเครื่องสแกน QR code ได้เลย ไม่ต้องจำรหัสผ่าน'}</p>
       <button class="btn-ghost block" style="margin-top:8px" onclick="loginScreen()">${esc(t('c.back'))}</button></div>`;
   }
   /* Watch a sign-in that has left for LINE. Two ways to notice it failed:
@@ -1452,7 +1495,11 @@
   const _liffOnVisible = () => { if (document.visibilityState === 'visible' && _liffBusy) setTimeout(liffGiveUp, 900); };
   function liffWatchStart(){
     liffWatchStop();
-    _liffWatchT = setTimeout(liffGiveUp, 20000);
+    /* 8s, not 20. The navigation liff.login() starts is immediate — this timer is only for the case
+     * where it never happened at all (iOS handed the URL to the LINE app instead). Twenty seconds of
+     * a spinner is long enough that the parent reloads first, which is exactly how they ended up
+     * back at the login card with nothing learned. */
+    _liffWatchT = setTimeout(liffGiveUp, 8000);
     document.addEventListener('visibilitychange', _liffOnVisible);
     window.addEventListener('pageshow', _liffOnVisible);
   }
@@ -1513,6 +1560,7 @@
         })
         .then(u => {
           setLiffPending(false); setLiffRetried(false);   // a sign-in that worked ends the retry
+          clearLiffFails();      // the hand-off DID work here — this device is not one of the bad ones
           if (!u || !u.role) { throw new Error(EN()?'Sign-in did not complete':'เข้าสู่ระบบไม่สำเร็จ กรุณาลองใหม่'); }
           if (u.role === 'guest') { PENDING_PROVIDER = 'LINE'; accountStage(); applyLangNow(); return; }  // unregistered → onboarding
           // the parent's whole home screen came back with the sign-in (see handleAuth) — hand it to
@@ -1527,6 +1575,11 @@
   window.LIFF_LOGIN = () => {
     if (CONFIG.MODE === 'gas' && CONFIG.LIFF_ID) {
       if (_liffBusy) return;                       // a second tap while the first is still working
+      /* THIS DEVICE HAS ALREADY SHOWN THAT THE HAND-OFF DOES NOT COMPLETE HERE, so do not spend the
+       * parent's third attempt proving it again — go straight to the route that works. Everyone
+       * else is untouched: the hand-off is one tap and no LINE password, and it works for almost
+       * everybody (see the note on LIFF_FAILS). */
+      if (preferBrowserLogin()) { LINE_BROWSER_LOGIN(); return; }
       _liffBusy = true;
       signingInScreen();                            // the tap is acknowledged instantly, before any network
       setLiffPending(true);
@@ -1542,6 +1595,10 @@
           // nothing to redirect for — go straight to the server
           if (liff.isLoggedIn()) return liffAuth();
           liffWatchStart();                         // ...and notice if it never comes back
+          /* Counted BEFORE we leave, and cleared only by a sign-in that completed. A parent who
+           * gives up and reloads — which is what actually happens — takes every in-memory record of
+           * the failure with them, so the count has to be written to disk before the page goes. */
+          bumpLiffFails();
           liff.login();                             // leaves the page; nothing after this runs
         })
         .catch(e => { if (e && e._handled) return; bail('⚠️ ' + ((e && e.message) || e)); });

@@ -437,6 +437,79 @@ const THAI_LINE_FAIL = /เชื่อมต่อ LINE ไม่สำเร�
     ok_('a sign-in reply with no role is an error, not a crash', /if \(!u \|\| !u\.role\)/.test(src));
   }
 
+  /* ---------------------------------------------------------------------------------------------
+   * 9) A DEVICE WHOSE HAND-OFF TO THE LINE APP DOES NOT WORK.
+   *
+   * Tested 08/09 on the phone that could not get in: the hand-off still loops, and the browser route
+   * (QR) signs the same parent in first try. So it is broken FOR THAT PHONE, not for iOS — the same
+   * report has 4,501 iOS calls over 164 sessions with parents at 42%, all signing in normally.
+   * Splitting the login screen by platform would punish every one of them for one broken LINE app.
+   *
+   * What CAN be observed is the thing that matters: on this device, did an attempt we started ever
+   * finish? Counted in localStorage, because the parent does not wait to be told — they reload, and
+   * that wipes anything in memory or in the session. Which is why "it just loops back to the start"
+   * was still the experience: the stuck screen only appears to somebody who waits for it.
+   * ------------------------------------------------------------------------------------------- */
+  console.log('\n9) a device where the hand-off never completes');
+  {
+    const b = boot();
+    b.ctx.LIFF_LOGIN(); await settle();
+    eq('an attempt that leaves for LINE is written down before the page goes', b.ctx.localStorage.getItem('atom_liff_fails'), '1');
+    ok_('...to disk, not to the session a reload would take with it', /localStorage\.setItem\(LIFF_FAILS/.test(src));
+  }
+  {
+    // it survived, so this device is fine — the count must not creep up on healthy phones
+    const b = boot({ signedIn: true, localStorage: { atom_liff_fails: '1' } });
+    b.ctx.LIFF_LOGIN(); await settle();
+    eq('a sign-in that completes clears the count', b.ctx.localStorage.getItem('atom_liff_fails'), null);
+  }
+  {
+    // one abandoned attempt is not a broken device — a parent who changes their mind must not be
+    // moved onto the slower route for ever
+    const b = boot({ localStorage: { atom_liff_fails: '1' } });
+    b.ctx.LIFF_LOGIN(); await settle();
+    ok_('one unfinished attempt still tries the hand-off', b.log.indexOf('redirect-to-LINE') > 0);
+    eq('...and counts it', b.ctx.localStorage.getItem('atom_liff_fails'), '2');
+  }
+  {
+    const b = boot({ localStorage: { atom_liff_fails: '2' } });
+    b.ctx.lineWebReady = () => true;              // the server has said the browser route is set up
+    b.ctx._lineWebReady = true;
+    b.ctx.LIFF_LOGIN(); await settle();
+    ok_('after two, the third tap goes straight to what works', (b.log.find(x => x.indexOf('goto:https://access.line.me') === 0) || '') !== '');
+    eq('...and does not spend another attempt on the hand-off', b.log.filter(x => x === 'redirect-to-LINE'), []);
+  }
+  {
+    // ...but only when there IS something better to send them to
+    const b = boot({ localStorage: { atom_liff_fails: '9' } });
+    b.ctx._lineWebReady = false;
+    b.ctx.LIFF_LOGIN(); await settle();
+    ok_('an unconfigured school still gets the only route it has', b.log.indexOf('redirect-to-LINE') > 0);
+  }
+  {
+    ok_('the browser route does NOT clear the count — the hand-off is still broken here',
+      /NOT cleared: the hand-off is still broken on this device/.test(src));
+    /* 20s of spinner is longer than a parent waits before reloading, and a reload is what put them
+     * back at the login card having learned nothing. */
+    ok_('the give-up wait is 8s, not 20', /setTimeout\(liffGiveUp, 8000\)/.test(srcCode));
+    // both other buttons hand the phone back to LINE, which is the thing that just failed
+    const stuck = src.slice(src.indexOf('function signInStuckScreen'), src.indexOf('function signInStuckScreen') + 2200);
+    ok_('the stuck screen leads with the route that cannot be swallowed', stuck.indexOf('LINE_BROWSER_LOGIN()') < stuck.indexOf('OPEN_IN_LINE()'));
+    ok_('...as the prominent choice, not a third link', /<button class="role-card" id="lineWebBtn"/.test(stuck));
+    /* A QUESTION WE COULD NOT ASK IS NOT AN ANSWER OF "NO". Left as false, one failed ask — a blip,
+     * or a request iOS cancelled when the app went to the background — would hide the route for the
+     * rest of the session, on exactly the device that needs it. */
+    ok_('a failed readiness ask goes back to "unknown", not to "no"', /\.catch\(\(\) => \{ _lineWebReady = null; \}\)/.test(src));
+    ok_('the readiness question is asked before the parent taps, not after', /if \(CONFIG\.MODE === 'gas' && CONFIG\.LIFF_ID\) lineWebReady\(\);/.test(src));
+    /* ...and ABOVE loginScreen's early return. Below it the question was never asked at all on a
+     * cold start, because the boot splash is still on screen — the exact case a parent arrives in.
+     * Found by running it, not by reading it. */
+    {
+      const ls = src.slice(src.indexOf('function loginScreen()'), src.indexOf('function loginScreen()') + 1200);
+      ok_('...above the early return, which is where a cold start stops', ls.indexOf('lineWebReady()') < ls.indexOf("getElementById('bootSplash')"));
+    }
+  }
+
   console.log('\n' + (fail ? 'FAILED ' : 'PASSED ') + pass + ' passed, ' + fail + ' failed\n');
   process.exit(fail ? 1 : 0);
 })();
