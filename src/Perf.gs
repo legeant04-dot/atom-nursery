@@ -30,7 +30,11 @@
  */
 
 var PERF_SHEET = 'PERF_LOG';
-var PERF_HEADERS = ['Ts', 'Sid', 'Role', 'Type', 'Action', 'Ms', 'Ok', 'Code', 'Batch', 'Screen', 'Dev', 'Net', 'Pwa', 'Ver'];
+/* Os: the platform version and, when the app was opened inside LINE, the LINE app version — e.g.
+ * "iOS17.5 L14.2.0". Added 2026-09-08. `Dev` only ever said iPhone or Android, so the two things
+ * that can change the sign-in without any deploy from us — Safari's storage rules, which differ by
+ * iOS version, and the LINE app, which performs the hand-off that fails — were both guesses. */
+var PERF_HEADERS = ['Ts', 'Sid', 'Role', 'Type', 'Action', 'Ms', 'Ok', 'Code', 'Batch', 'Screen', 'Dev', 'Net', 'Pwa', 'Ver', 'Os'];
 var PERF_MAX_ROWS_PER_CALL = 60;
 var PERF_MAX_KEEP = 20000;          // ~4 days of a 30-user school; older rows are dropped
 
@@ -47,7 +51,17 @@ function perfSheet_() {
     sh.getRange(1, 1, 1, PERF_HEADERS.length).setValues([PERF_HEADERS]);
     sh.setFrozenRows(1);
     try { sh.getRange(1, 1, 1, PERF_HEADERS.length).setFontWeight('bold'); } catch (e) {}
+    return sh;
   }
+  /* The LIVE sheet was created with the headers of its day. A column added later has to be named on
+   * it too, or the rows carry a value under a blank heading and the next person to open the sheet
+   * cannot tell what it is. Only ever widens, and only when it is actually short. */
+  try {
+    if (sh.getLastColumn() < PERF_HEADERS.length) {
+      sh.getRange(1, 1, 1, PERF_HEADERS.length).setValues([PERF_HEADERS]);
+      try { sh.getRange(1, 1, 1, PERF_HEADERS.length).setFontWeight('bold'); } catch (e) {}
+    }
+  } catch (e) {}
   return sh;
 }
 
@@ -102,18 +116,18 @@ function handlePerfLog(p) {
     try { var sess = p.__sess; if (sess && sess.role) role = String(sess.role).slice(0, 12); } catch (e) {}
 
     var sid = perfCell_(p.sid, 20), dev = perfCell_(p.dev, 10), net = perfCell_(p.net, 8),
-        ver = perfCell_(p.ver, 20), pwa = p.pwa ? 1 : 0;
+        ver = perfCell_(p.ver, 20), pwa = p.pwa ? 1 : 0, os = perfCell_(p.os, 24);
     var ts = perfStamp_(new Date());
 
     var out = rows.map(function (r) {
       r = r || {};
       return [ts, sid, role, perfCell_(r.t, 8), perfCell_(r.a, 40), perfNum_(r.ms), (r.ok ? 1 : 0),
-              perfText_(r.c), perfNum_(r.b, 50), perfCell_(r.s, 30), dev, net, pwa, ver];
+              perfText_(r.c), perfNum_(r.b, 50), perfCell_(r.s, 30), dev, net, pwa, ver, os];
     });
     // one aggregate row for the read-cache counters (far too frequent to log individually)
     if (p.hit || p.miss) {
-      out.push([ts, sid, role, 'cache', 'readCache', 0, 1, '', perfNum_(p.hit, 100000), 'hit', dev, net, pwa, ver]);
-      out.push([ts, sid, role, 'cache', 'readMiss', 0, 1, '', perfNum_(p.miss, 100000), 'miss', dev, net, pwa, ver]);
+      out.push([ts, sid, role, 'cache', 'readCache', 0, 1, '', perfNum_(p.hit, 100000), 'hit', dev, net, pwa, ver, os]);
+      out.push([ts, sid, role, 'cache', 'readMiss', 0, 1, '', perfNum_(p.miss, 100000), 'miss', dev, net, pwa, ver, os]);
     }
     if (!out.length) return { ok: true, written: 0 };
 
@@ -261,6 +275,11 @@ function handlePerfSummary(p) {
   // one shape for a device bucket — it is created from three different places (api rows, error rows
   // and cache rows) and a missing field in one of them is a silent zero in the report
   function devInit_(d) { return { dev: d, n: 0, fail: 0, ms: [], cHit: 0, cMiss: 0, roles: {}, sids: {} }; }
+  /* One bucket per platform+app version. `signin` counts the sign-in faults NAMED by the client
+   * (lineHandoff / lineStaleToken) — the whole point of the column is to be able to say "it is this
+   * LINE version" or "it is this iOS", instead of inferring it from one parent's phone. */
+  var oss = {};
+  function osInit_(o) { return { os: o, n: 0, fail: 0, signin: 0, ms: [], sids: {} }; }
   var refusedTotal = 0, refusals = {};
 
   for (var i = 0; i < vals.length; i++) {
@@ -271,8 +290,10 @@ function handlePerfSummary(p) {
     if (ts > lastTs) lastTs = ts;
     var sid = String(r[1]), role = String(r[2] || ''), type = String(r[3]), action = String(r[4]),
         ms = Number(r[5]) || 0, ok = Number(r[6]) === 1, code = String(r[7]),
-        batch = Number(r[8]) || 0, screen = String(r[9]), dev = String(r[10]), net = String(r[11]);
+        batch = Number(r[8]) || 0, screen = String(r[9]), dev = String(r[10]), net = String(r[11]),
+        os = String(r[14] || '');
     sids[sid] = 1;
+    if (os) { var ov = oss[os] = oss[os] || osInit_(os); ov.sids[sid] = 1; }
 
     /* CACHE, PER DEVICE. Asked 2026-09-04: "iOS ช้ากว่า Android ตรวจสอบเพิ่ม". A device that cannot
      * KEEP its cache has to fetch what other devices already have, and every one of those fetches
@@ -301,6 +322,10 @@ function handlePerfSummary(p) {
       // never appear in the device breakdown — and that is precisely the phone we are looking for.
       if (dev) { devs[dev] = devs[dev] || devInit_(dev); devs[dev].n++; devs[dev].fail++;
         devs[dev].sids[sid] = 1; if (role) devs[dev].roles[role] = (devs[dev].roles[role] || 0) + 1; }
+      if (os) { var oe = oss[os] = oss[os] || osInit_(os); oe.n++; oe.fail++;
+        // the two the client names for itself — a hand-off that never returned, and a token LINE
+        // refused. They are the difference between "this LINE version" and "this iOS version".
+        if (action === 'lineHandoff' || action === 'lineStaleToken') oe.signin++; }
       continue;
     }
     if (type === 'nav') {
@@ -327,6 +352,8 @@ function handlePerfSummary(p) {
        * every row; crossing it with the device is what turns "iOS is slow" from a guess into an
        * answer, because a teacher's home screen costs 11 actions and a parent's costs three. */
       dv.sids[sid] = 1; if (role) dv.roles[role] = (dv.roles[role] || 0) + 1; }
+    if (os) { var ov2 = oss[os] = oss[os] || osInit_(os);
+      ov2.n++; ov2.ms.push(ms); if (!ok && !refused) ov2.fail++; }
     /* "Desktop p50 10.7s vs Android 5.8s" invited the conclusion that desktops are slow. They are
      * not: the office computer is the ADMIN, whose screens (finance, payroll, the dashboard) ask for
      * far more than a parent's do, and whose browser stays open all day. The role is already
@@ -419,6 +446,15 @@ function handlePerfSummary(p) {
              roles: mix };
   }).sort(function (x, y) { return y.n - x.n; });
 
+  /* WHICH iOS, AND WHICH LINE APP. Sorted by sign-in faults FIRST, then by size: the version that is
+   * failing to sign people in is the answer being looked for, and it will never be the biggest
+   * bucket — a phone that cannot get in makes very few calls precisely because it cannot get in. */
+  var byOs = Object.keys(oss).map(function (k) {
+    var o = oss[k], st = statify(o), ns = Object.keys(o.sids).length;
+    return { os: o.os, n: o.n, sessions: ns, fail: o.fail, signin: o.signin,
+             rate: o.n ? Math.round(o.fail / o.n * 100) : 0, p50: st.p50, p95: st.p95 };
+  }).sort(function (x, y) { return (y.signin - x.signin) || (y.n - x.n); }).slice(0, 25);
+
   // calls PER SESSION is the number Phase 1 set out to move: it was 71, and it is the reason every
   // action queued behind another. A total on its own hides it — 17,308 calls means nothing until you
   // know how many visits produced them.
@@ -450,7 +486,7 @@ function handlePerfSummary(p) {
     cacheHit: cacheHit, cacheMiss: cacheMiss,
     cacheRate: (cacheHit + cacheMiss) ? Math.round(cacheHit / (cacheHit + cacheMiss) * 100) : 0,
     slowest: slowest, slowScreens: slowScreens, problems: problems, failing: failing,
-    byDev: byDev, byNet: byNet, byRole: byRole, boot: bootStats,
+    byDev: byDev, byOs: byOs, byNet: byNet, byRole: byRole, boot: bootStats,
     // failures that recovered by themselves, and what is left after taking them out
     healed: healedTotal,
     healedBy: Object.keys(healed).map(function (k) { return { action: k, n: healed[k] }; })

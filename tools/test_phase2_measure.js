@@ -139,7 +139,8 @@ console.log('\n2) the report says which ROLE, not just which device');
   ok_('...and totalled', /roles\[role\] = roles\[role\] \|\| \{ role: role, n: 0, fail: 0, ms: \[\], sids: \{\} \}/.test(perf));
   ok_('each role reports how many calls one visit costs', /perSession: ns \? Math\.round\(t\.n \/ ns\) : 0/.test(perf));
   ok_('...and the whole window does too — the 71 Phase 1 set out to move', /perSession: Object\.keys\(sids\)\.length \? Math\.round\(total \/ Object\.keys\(sids\)\.length\) : 0/.test(perf));
-  ok_('it is returned to the client', /byDev: byDev, byNet: byNet, byRole: byRole/.test(perf));
+  // named, not positioned — this listed the breakdowns in order, so adding one broke a test about roles
+  ok_('it is returned to the client', /byRole: byRole/.test(perf) && /byDev: byDev/.test(perf) && /byNet: byNet/.test(perf));
   ok_('the screen shows it', /d\.byRole\|\|\[\]/.test(app) && /calls\/session':'ครั้ง\/เซสชัน/.test(app));
   ok_('...and says what the number means, so it is not read as trivia', /Apps Script รันทีละคำสั่งต่อผู้ใช้หนึ่งคน/.test(app));
   ok_('the device list now warns against reading it as hardware', /ตัวเครื่องไม่ได้บอกความเร็ว/.test(app));
