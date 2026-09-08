@@ -43,6 +43,9 @@ var ROUTES = {
     return out;
   },
   auth:           function (p) { return handleAuth(p); },
+  // browser-only LINE sign-in (the fallback when the iOS hand-off to the LINE app never returns)
+  lineLoginReady: function (p) { return handleLineLoginReady(p); },
+  lineExchange:   function (p) { return handleLineExchange(p); },
   changePassword: function (p) { return handleChangePassword(p); },
   // in-place staff CRUD (override the engine's full-collection rewrite, which could wipe other rows)
   saveStaff:      function (p) { return handleSaveStaff(p); },
@@ -300,7 +303,11 @@ function sessionRequired_() { try { return String(getConfig_('RequireSessionToke
 // perfLog is public because the most valuable telemetry comes from a session that never happened
 // (sign-in failing, the shell erroring before auth). It can only write to the isolated PERF_LOG
 // sheet and every field is whitelisted + sanitised in Perf.gs. READING it back is admin-only.
-function publicAction_(a) { return a === 'ping' || a === 'auth' || a === 'perfLog'; }
+/* lineLoginReady/lineExchange are public for the same reason `auth` is: they ARE the sign-in. One
+ * says whether the browser-only route is configured (a boolean and a public channel id, never the
+ * secret); the other turns an authorization code into the very session this gate would ask for. */
+function publicAction_(a) { return a === 'ping' || a === 'auth' || a === 'perfLog'
+  || a === 'lineLoginReady' || a === 'lineExchange'; }
 /** Ride a renewed session token back on a normal reply, so an active user is never signed out. */
 function withRenewal_(env, sess) {
   try { var t = renewSession_(sess); if (t) env.token = t; } catch (e) {}
@@ -518,7 +525,11 @@ var WRITES_ACTIONS_ = { recordCashPayment: 1, teacherStudentLeave: 1, unlockJour
   // who is expected on a closed day. None of the three starts with a mutating verb, and all three
   // decide whether a child may be checked in that day — a read lock on any of them is a wrong answer
   // waiting to happen.
-  holidayAttendSet: 1, holidayAttendAdd: 1, holidayAttendRemove: 1 };
+  holidayAttendSet: 1, holidayAttendAdd: 1, holidayAttendRemove: 1,
+  /* AN AUTHORIZATION CODE CAN ONLY BE SPENT ONCE. Nothing about the name says "write", so it would
+   * have counted as retry-safe — and a reply lost on the way back would be retried with a code LINE
+   * has already burned, turning a completed sign-in into "เข้าสู่ระบบไม่สำเร็จ". */
+  lineExchange: 1 };
 /**
  * A holiday write, plus the tidy-up it makes necessary.
  *

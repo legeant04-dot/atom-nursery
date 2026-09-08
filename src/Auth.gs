@@ -60,6 +60,80 @@ function verifySession_(token) {
   } catch (e) { return null; }
 }
 
+/* ---- SIGNING IN WITHOUT HANDING THE PHONE TO THE LINE APP ----------------------------------------
+ *
+ * liff.login() sends the browser to access.line.me, and on iOS that host is a LINE universal link:
+ * Safari gives the URL to the LINE app instead of loading it. When the app cannot complete the
+ * hand-off it simply opens on whatever tab it was last on, nothing returns, and the parent is stuck
+ * (recorded 08/09/26, twice in a row — see signInStuckScreen in app.js).
+ *
+ * LINE's own answer to this is a parameter on the authorization URL: disable_auto_login=true, which
+ * keeps the whole login inside the browser. It cannot be used through the LIFF SDK — liff.login()
+ * builds its own URL and accepts only redirectUri — so this path builds the authorization URL
+ * itself and finishes the handshake here.
+ *
+ * WHY THE SERVER HAS TO BE INVOLVED: exchanging the authorization code for an access token requires
+ * the channel SECRET, which must never reach a phone. The client sends the code; this returns the
+ * same session payload handleAuth already produces, so everything downstream is unchanged.
+ *
+ * IT IS A FALLBACK, NOT THE NEW FRONT DOOR. Disabling auto login means the parent signs in to LINE
+ * in the browser — QR code from their own LINE app, or email and password. That is a worse first
+ * experience than the app hand-off that works for almost everyone, so it is offered only after the
+ * hand-off has actually failed.
+ *
+ * Nothing works until the school sets SCHOOL_CONFIG LineLoginChannelSecret and adds the app's URL
+ * to the LINE Login channel's callback list. Missing config fails loudly with what to do; the
+ * button that leads here is not even drawn (see the client's lineLoginReady).
+ */
+function lineLoginCfg_() {
+  return { id: String(getConfig_('LineLoginChannelId', '') || '').trim(),
+           secret: String(getConfig_('LineLoginChannelSecret', '') || '').trim() };
+}
+/** Does the browser-only sign-in have what it needs? Public: it says yes/no, never the secret. */
+function handleLineLoginReady() {
+  var c = lineLoginCfg_();
+  return { ready: !!c.secret, channelId: c.id };
+}
+/**
+ * payload: { code, redirectUri, clientId? }
+ * Exchanges a LINE Login authorization code for an access token, then signs in exactly as `auth`
+ * does. clientId is public (it is the prefix of the LIFF id) and only used when the school has not
+ * written LineLoginChannelId; the SECRET is never accepted from the client.
+ */
+function handleLineExchange(payload) {
+  payload = payload || {};
+  var code = String(payload.code || '').trim();
+  var redirectUri = String(payload.redirectUri || '').trim();
+  if (!code || !redirectUri) throw apiError_('BAD_INPUT', 'ข้อมูลเข้าสู่ระบบไม่ครบ');
+  var c = lineLoginCfg_();
+  var channelId = c.id || String(payload.clientId || '').trim();
+  if (!c.secret || !channelId) {
+    throw apiError_('LINE_LOGIN_NOT_CONFIGURED',
+      'ยังไม่ได้ตั้งค่าเข้าสู่ระบบผ่านเบราว์เซอร์ — แอดมินต้องใส่ LineLoginChannelSecret ใน SCHOOL_CONFIG และเพิ่ม Callback URL ใน LINE Developers Console');
+  }
+  var res, body;
+  try {
+    res = UrlFetchApp.fetch('https://api.line.me/oauth2/v2.1/token', {
+      method: 'post', muteHttpExceptions: true,
+      contentType: 'application/x-www-form-urlencoded',
+      payload: { grant_type: 'authorization_code', code: code, redirect_uri: redirectUri,
+                 client_id: channelId, client_secret: c.secret }
+    });
+    body = JSON.parse(res.getContentText() || '{}');
+  } catch (e) {
+    throw apiError_('LINE_UNREACHABLE', 'ติดต่อ LINE ไม่สำเร็จ กรุณาลองใหม่');
+  }
+  if (res.getResponseCode() !== 200 || !body.access_token) {
+    /* The reason travels back. "invalid_grant" is a code already spent (a reload of the callback
+     * URL) and "invalid_request" is almost always a redirect_uri that is not in the console's
+     * callback list — two completely different things for whoever has to fix it. */
+    var why = String(body.error_description || body.error || res.getResponseCode());
+    try { logAudit('anon', 'LINE_EXCHANGE_FAIL', 'AUTH', why.slice(0, 120)); } catch (e) {}
+    throw apiError_('LINE_EXCHANGE_FAILED', 'เข้าสู่ระบบด้วย LINE ไม่สำเร็จ (' + why.slice(0, 80) + ')');
+  }
+  return handleAuth({ accessToken: body.access_token });
+}
+
 // ---- Login --------------------------------------------------------
 /**
  * payload: { accessToken?, lineUid?, displayName?, pictureUrl? }
