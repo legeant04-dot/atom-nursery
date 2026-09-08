@@ -112,7 +112,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.348'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.349'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -8730,6 +8730,13 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
       <button class="btn sm outline block" style="margin-top:4px" onclick="A_lineCost(this)">📊 ${EN()?'What would LINE alerts cost per day / month?':'ประเมินโควตา LINE ที่จะใช้ต่อวัน / ต่อเดือน'}</button>
       <button class="btn sm outline block" style="margin-top:4px" onclick="A_reinstallTriggers(this)">🔄 ${EN()?'Apply digest schedule (10:00 / 20:00)':'อัปเดตตารางส่งสรุป (10:00 / 20:00)'}</button>
       <p class="muted" style="font-size:13px">${EN()?'Digests skip weekends & holidays. Run "Apply" once after enabling.':'สรุปจะข้ามวันหยุด/เสาร์-อาทิตย์ · กด "อัปเดตตาราง" 1 ครั้งหลังเปิดใช้'}</p>
+      ${/* IS THE iPhone FALLBACK ACTUALLY SET UP? Two things have to be right and neither is visible
+           from inside the app: the channel secret in SCHOOL_CONFIG and this exact URL in the LINE
+           console's callback list. Until now the only way to find out was to wait for a parent to
+           fail to sign in and see whether the button appeared. It says what it can check (the
+           secret, from the server) and prints what it cannot (the URL), to be compared by eye. */''}
+      <h4 style="margin:10px 0 4px">🌐 ${EN()?'Browser sign-in (iPhone fallback)':'เข้าสู่ระบบผ่านเบราว์เซอร์ (สำรองสำหรับ iPhone)'}</h4>
+      <div id="lineWebCfg" class="card" style="padding:8px;font-size:13px">${EN()?'Checking…':'กำลังตรวจสอบ…'}</div>
       <h4 style="margin:10px 0 4px">🕑 ${EN()?'Today’s working hours':'เวลาทำงานของวันนี้'}</h4>
       <p class="muted" style="font-size:13px">${EN()
         ? 'If a half-day holiday was added or corrected AFTER someone had already clocked in, their late minutes were measured against the old hours. Recalculate rewrites today’s rows from the day’s real hours.'
@@ -8737,6 +8744,33 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
       <button class="btn sm outline block" onclick="A_recomputeAtt(this)">🕑 ${EN()?'Recalculate today’s late minutes':'คำนวณนาทีสายของวันนี้ใหม่'}</button>
       <button class="btn sm outline block" style="margin-top:4px" onclick="A_diagDay()">🔍 ${EN()?'What the server thinks today is':'ตรวจสอบว่าระบบมองวันนี้อย่างไร'}</button>
       <button class="btn block" onclick="A_saveSettings(this)">${esc(t('c.save'))}</button>`);
+    A_lineWebStatus();
+  };
+  /**
+   * Whether the browser-only sign-in is configured, and what it will send.
+   *
+   * The server can only answer half of it — the channel secret is in SCHOOL_CONFIG, so a yes/no is
+   * honest. The other half is in the LINE console's callback list, which nothing here can read, so
+   * the exact URL the app WILL send is printed for the admin to compare character for character.
+   * That is the mismatch that produces "invalid_request", and it is invisible from either side.
+   */
+  window.A_lineWebStatus = async () => {
+    const box = document.getElementById('lineWebCfg'); if (!box) return;
+    let r = null; try { r = await api('lineLoginReady', {}); } catch (e) {}
+    const ready = !!(r && r.ready);
+    const chan = (r && r.channelId) || String(CONFIG.LIFF_ID||'').split('-')[0];
+    const cb = location.origin + location.pathname;
+    box.innerHTML = `<div class="spread"><b>${EN()?'Channel secret':'Channel secret'}</b>
+        <span class="pill ${ready?'ok':'bad'}">${ready?(EN()?'set':'ตั้งค่าแล้ว'):(EN()?'missing':'ยังไม่ได้ตั้งค่า')}</span></div>
+      ${ready?'':`<small style="color:var(--bad);display:block;margin-top:4px">${EN()
+        ? 'Add a row to SCHOOL_CONFIG: Key = LineLoginChannelSecret, Value = the LINE LOGIN channel secret (not the Messaging API one).'
+        : 'เพิ่มแถวในชีต SCHOOL_CONFIG · Key = <b>LineLoginChannelSecret</b> · Value = Channel secret ของ <b>LINE Login</b> channel (ไม่ใช่ของ Messaging API)'}</small>`}
+      <div style="margin-top:6px"><small class="muted">${EN()?'Channel ID in use':'Channel ID ที่ใช้'}</small><br><code>${esc(chan)}</code></div>
+      <div style="margin-top:6px"><small class="muted">${EN()?'This URL must be in the channel’s Callback URL list — exactly:':'URL นี้ต้องอยู่ใน Callback URL ของ channel — ต้องตรงทุกตัวอักษร:'}</small>
+        <br><code style="word-break:break-all" onclick="navigator.clipboard&&navigator.clipboard.writeText('${esc(cb)}')&&toast('${EN()?'Copied':'คัดลอกแล้ว'}')" style="cursor:pointer">${esc(cb)}</code></div>
+      <small class="muted" style="display:block;margin-top:6px">${EN()
+        ? 'Used only after the LINE app hand-off fails on iPhone — the parent signs in to LINE in the browser (QR code). The button is hidden while the secret is missing.'
+        : 'ใช้เฉพาะเมื่อการส่งต่อไปแอป LINE ล้มเหลวบน iPhone — ผู้ปกครองจะล็อกอิน LINE ในเบราว์เซอร์ (สแกน QR) · ถ้ายังไม่ตั้งค่า ปุ่มจะไม่แสดงให้ผู้ปกครองเห็น'}</small>`;
   };
   // ---- accumulated เงินสมทบ: review before overwriting ----------------------------------------
   // The fund total used to be built from the staff half only. Correcting the formula changes a stored
