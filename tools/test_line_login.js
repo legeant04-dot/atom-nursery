@@ -500,6 +500,26 @@ const THAI_LINE_FAIL = /เชื่อมต่อ LINE ไม่สำเร�
      * or a request iOS cancelled when the app went to the background — would hide the route for the
      * rest of the session, on exactly the device that needs it. */
     ok_('a failed readiness ask goes back to "unknown", not to "no"', /\.catch\(\(\) => \{ _lineWebReady = null; \}\)/.test(src));
+  }
+  {
+    /* THE WAY IN THAT NEEDS NO FAILURE FIRST.
+     *
+     * A parent reported 08/09 that they used to get in and now cannot. Nothing in the sign-in changed
+     * in the five days before — Auth.gs, Code.gs, api.js, the LIFF block and index.html were checked
+     * commit by commit, and the LIFF endpoint still resolves to this app. What changes on its own is
+     * the LINE session stored on the phone. v351 (throw the dead token away) and v353 (stop asking a
+     * device that has failed twice) are both recoveries AFTER a failure; this one is offered from the
+     * first tap, and it depends on no stored session, no LINE app and no hand-off.
+     */
+    const card = src.slice(src.indexOf('function loginScreen()'), src.indexOf('function loginScreen()') + 3200);
+    ok_('the QR route is on the login card itself', /id="lineWebBtn"[^>]*onclick="LINE_BROWSER_LOGIN\(\)"/.test(card));
+    ok_('...worded as the answer to "I cannot get in"', /เข้าไม่ได้\?/.test(card));
+    ok_('...still hidden until the server says it is configured', /id="lineWebBtn" \$\{lineWebReady\(\)\?'':'hidden'\}/.test(card));
+    ok_('...and never inside LINE\'s own browser, where there is nothing to fix', /!inLineApp\(\)\?/.test(card));
+    /* "It loops" covers two completely different faults that need opposite fixes. The next report
+     * has to say which one a parent hit, rather than leaving it to be inferred. */
+    ok_('a hand-off that never returns is named in the telemetry', /__atomPerfErr\('lineHandoff'/.test(src));
+    ok_('...and a token LINE refuses is named differently', /__atomPerfErr\('lineStaleToken'/.test(src));
     ok_('the readiness question is asked before the parent taps, not after', /if \(CONFIG\.MODE === 'gas' && CONFIG\.LIFF_ID\) lineWebReady\(\);/.test(src));
     /* ...and ABOVE loginScreen's early return. Below it the question was never asked at all on a
      * cold start, because the boot splash is still on screen — the exact case a parent arrives in.

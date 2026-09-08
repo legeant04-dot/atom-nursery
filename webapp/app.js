@@ -112,7 +112,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.353'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.354'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -1237,11 +1237,26 @@
       <p class="muted">${esc(t('login.lineOnly'))}</p>
       <button class="role-card" onclick="LIFF_LOGIN()"><span class="ic" style="background:#06C755;color:#fff;font-weight:800">L</span><span><b>${esc(t('login.lineBtn'))}</b><br><small>${esc(t('login.lineSub'))}</small></span></button>
       <label style="display:flex;align-items:center;gap:8px;justify-content:center;margin-top:10px;font-size:13px"><input type="checkbox" id="rememberMe" checked style="width:auto"/> ${esc(t('login.remember'))}</label>
-      ${/* The second route, for the browser where the first one is fragile. Signing in through
-           access.line.me can be swallowed by iOS's universal link (see signInStuckScreen); opening
-           the app INSIDE LINE has no OAuth hop to lose. Not drawn when we are already in LINE's own
-           browser, where it would just reload the same page. */''}
-      ${CONFIG.MODE==='gas'&&CONFIG.LIFF_ID&&!inLineApp()?`<button class="btn-ghost block" style="margin-top:6px;font-size:13px" onclick="OPEN_IN_LINE()">💬 ${EN()?'Or open inside the LINE app':'หรือเปิดผ่านแอป LINE'}</button>`:''}
+      ${/* ---- THE WAY IN THAT CANNOT BE STALE OR BROKEN ------------------------------------------
+           Offered from the FIRST tap, not after two failures.
+
+           A parent reported 08/09 that they used to get in and now cannot. Nothing in the sign-in
+           changed in the five days before that — Auth.gs, Code.gs, api.js, the LIFF block in app.js
+           and index.html were all checked commit by commit, and the LIFF endpoint still resolves to
+           this app. What DOES change on its own is the LINE session stored on the phone: an access
+           token ages out, liff.isLoggedIn() keeps saying yes, and every route back to LINE reuses
+           the same dead token (`auth 2% INVALID_TOKENx7` in the 03–08/09 report).
+
+           v351 throws that token away and v353 stops asking a device that has failed twice. Both
+           are recoveries AFTER a failure. This is the one that needs no failure first: signing in
+           to LINE here depends on no stored session, no LINE app, and no hand-off. It is what the
+           parent who could not get in used, and it worked first try.
+
+           Hidden until the server says it is configured, and never inside LINE's own browser where
+           the session already exists. */''}
+      ${CONFIG.MODE==='gas'&&CONFIG.LIFF_ID&&!inLineApp()?`
+        <button class="btn-ghost block" id="lineWebBtn" ${lineWebReady()?'':'hidden'} style="margin-top:6px;font-size:13px" onclick="LINE_BROWSER_LOGIN()">${EN()?'Can’t get in? Sign in with a QR code':'เข้าไม่ได้? เข้าสู่ระบบด้วย QR code'}</button>
+        <button class="btn-ghost block" style="margin-top:2px;font-size:13px" onclick="OPEN_IN_LINE()">💬 ${EN()?'Or open inside the LINE app':'หรือเปิดผ่านแอป LINE'}</button>`:''}
       ${/* Android only, and ABOVE the add-to-home-screen box: for a phone that can take the real
            app, the shortcut is the second-best answer. iPhones see neither this nor a dead button. */''}
       ${apkCardHTML()}
@@ -1489,6 +1504,10 @@
     liffWatchStop();
     liffReady().then(() => {
       if (liff.isLoggedIn()) { _liffBusy = false; return liffAuth(); }   // it worked after all
+      /* NAMED IN THE TELEMETRY, so the next report says which failure a parent actually hit instead
+       * of leaving us to infer it. "It loops" covers two completely different faults — a hand-off
+       * that never returns, and a token LINE refuses — and they need opposite fixes. */
+      try { window.__atomPerfErr && __atomPerfErr('lineHandoff', 'never returned; fails=' + liffFails()); } catch (e) {}
       _liffBusy = false; setLiffPending(false); signInStuckScreen();
     }).catch(() => { _liffBusy = false; setLiffPending(false); signInStuckScreen(); });
   }
@@ -1533,6 +1552,8 @@
   const setLiffRetried = v => { try { v ? sessionStorage.setItem(LIFF_FRESH, '1') : sessionStorage.removeItem(LIFF_FRESH); } catch (e) {} };
   function liffFreshLogin(){
     if (liffRetried()) return false;                 // a FRESH token was refused too — not the token
+    // the other half of the pair: this is the token going stale, not the hand-off failing
+    try { window.__atomPerfErr && __atomPerfErr('lineStaleToken', 'logout+relogin'); } catch (e) {}
     setLiffRetried(true);
     try { setLiffPending(true); liff.logout(); } catch (e) {}
     try { liff.login(); return true; } catch (e) { setLiffRetried(false); return false; }
