@@ -36,12 +36,15 @@ function eq(label, got, want) {
 function ok_(label, cond) { console.log((cond ? '  ok   ' : '  FAIL ') + label); cond ? pass++ : fail++; }
 const src = fs.readFileSync(path.join(__dirname, '..', 'webapp', 'app.js'), 'utf8').replace(/\r\n/g, '\n');
 const css = fs.readFileSync(path.join(__dirname, '..', 'webapp', 'styles.css'), 'utf8').replace(/\r\n/g, '\n');
+const R_ = f => fs.readFileSync(path.join(__dirname, '..', f), 'utf8').replace(/\r\n/g, '\n');
+const auth = R_('src/Auth.gs'), code = R_('src/Code.gs'), apijs = R_('webapp/api.js');
 
 /** the real LIFF block from app.js, run against a LINE that we control */
 function boot(over) {
   over = over || {};
   const code = src.slice(src.indexOf('let _liffReady = null;'), src.indexOf('window.PROVIDER ='));
   const log = [], sess = {}, loc = Object.assign({}, over.localStorage);
+  if (over.state) sess.atom_line_state = over.state;
   const liff = { _init: false, _in: !!over.signedIn, _loginCalls: 0, _initCalls: 0,
     init() { liff._initCalls++; log.push('init'); return Promise.resolve().then(() => { liff._init = true; }); },
     // exactly like the real SDK: both of these throw before init
@@ -60,8 +63,10 @@ function boot(over) {
   const ctx = {
     CONFIG: { MODE: 'gas', LIFF_ID: 'x' }, liff, console, setTimeout, clearTimeout,
     document: doc, navigator: { userAgent: over.userAgent || 'Mozilla/5.0 (iPhone) Safari' },
-    location: { set href(v) { log.push('goto:' + v); }, get href() { return 'https://x/'; } },
-    t: k => k,
+    location: { set href(v) { log.push('goto:' + v); }, get href() { return 'https://s.io/app/'; },
+      origin: 'https://s.io', pathname: '/app/', search: over.search || '' },
+    history: { replaceState: (a, b, url) => log.push('replaceState:' + url) },
+    URLSearchParams, t: k => k,
     loadLiff: over.sdkFails ? () => { log.push('loadSDK'); return Promise.reject(new Error('offline')); }
                             : () => { log.push('loadSDK'); return Promise.resolve(liff); },
     sessionStorage: { getItem: k => (k in sess ? sess[k] : null), setItem: (k, v) => { sess[k] = v; }, removeItem: k => { delete sess[k]; } },
@@ -230,6 +235,85 @@ const THAI_LINE_FAIL = /เชื่อมต่อ LINE ไม่สำเร�
      * WebView puts " Line/" in the user agent. */
     ok_('...only outside LINE', /!inLineApp\(\)\?/.test(src));
     ok_('...detected from the user agent LINE actually sends', /\\bLine\\\//.test(src));
+  }
+
+  /* ---------------------------------------------------------------------------------------------
+   * 7) THE THIRD ROUTE — signing in to LINE inside the browser.
+   *
+   * LINE's own answer to the hand-off that never returns is disable_auto_login=true on the
+   * authorization URL, which keeps the whole login in the browser. It cannot be reached through the
+   * SDK (liff.login() builds its own URL and takes only redirectUri), so this builds the URL and the
+   * SERVER finishes it — the code→token exchange needs the channel secret, which never goes near a
+   * phone. Deliberately a fallback: with auto login off the parent has to sign in to LINE itself.
+   * ------------------------------------------------------------------------------------------- */
+  console.log('\n7) signing in to LINE in the browser (the disable_auto_login route)');
+  {
+    const b = boot();
+    b.ctx.LINE_BROWSER_LOGIN();
+    const url = (b.log.find(x => x.indexOf('goto:https://access.line.me') === 0) || '').slice(5);
+    ok_('it goes to the authorization endpoint itself', /^https:\/\/access\.line\.me\/oauth2\/v2\.1\/authorize\?/.test(url));
+    ok_('...asking for a code', /[?&]response_type=code(&|$)/.test(url));
+    ok_('...as the LINE Login channel, which is the LIFF id before the dash', /[?&]client_id=x(&|$)/.test(url));
+    /* THE POINT OF THE WHOLE EXERCISE. Without it iOS hands access.line.me to the LINE app, which
+     * is where the parent was lost on 08/09. */
+    ok_('...with auto login switched OFF', /[?&]disable_auto_login=true(&|$)/.test(url));
+    ok_('...and a scope that yields a profile', /[?&]scope=profile(%20|\+)openid(&|$)/.test(url));
+    // the callback URL is matched character for character against the console's list
+    ok_('the redirect carries no query or hash of its own', /[?&]redirect_uri=https%3A%2F%2Fs\.io%2Fapp%2F(&|$)/.test(url));
+    ok_('a state is generated', /[?&]state=atom/.test(url));
+    ok_('...and kept, or the callback cannot be recognised as ours', /^atom/.test(b.sess.atom_line_state || ''));
+    eq('the parent is not left looking at the login card', b.log[0], 'screen:SIGNING_IN');
+    eq('...and the LIFF return flag is cleared — this route does not come back through LIFF', b.sess.atom_liff_pending, undefined);
+  }
+  {
+    // coming back with OUR code — recognised by the state we saved
+    const b = boot({ search: '?code=THECODE&state=atomABC', state: 'atomABC' });
+    eq('the callback is recognised', b.ctx.lineCallbackCode(), 'THECODE');
+    eq('...and the state is spent, so a reload cannot replay it', b.sess.atom_line_state, undefined);
+    b.ctx.lineFinishBrowserLogin('THECODE');
+    await settle();
+    ok_('the code is exchanged on the server, not in the browser', b.log.indexOf('api:lineExchange') >= 0);
+    ok_('the query is stripped BEFORE the exchange, so a reload cannot spend the code twice',
+      b.log.indexOf('replaceState:https://s.io/app/') >= 0 &&
+      b.log.indexOf('replaceState:https://s.io/app/') < b.log.indexOf('api:lineExchange'));
+    eq('and they end up signed in', b.log[b.log.length - 1], 'LOGIN_REAL');
+  }
+  {
+    /* LIFF comes back to this same URL with a code of its own. Treating that as ours would burn it
+     * and break the route that works for nearly everyone. */
+    const b = boot({ search: '?code=LIFFCODE&state=someoneelse', state: 'atomABC' });
+    eq('a code that is not ours is left alone', b.ctx.lineCallbackCode(), null);
+    eq('...with our state untouched', b.sess.atom_line_state, 'atomABC');
+    const c = boot({ search: '?code=LIFFCODE&state=s2' });   // nothing of ours saved at all
+    eq('...and so is a callback we never started', c.ctx.lineCallbackCode(), null);
+    eq('an ordinary visit is not a callback', boot({ search: '' }).ctx.lineCallbackCode(), null);
+  }
+  {
+    const b = boot({ search: '?code=THECODE&state=atomABC', state: 'atomABC', authFails: true });
+    b.ctx.lineFinishBrowserLogin('THECODE');
+    await settle();
+    ok_('a refused exchange lands on a screen with a way forward', b.log.indexOf('screen:STUCK') > 0);
+  }
+  {
+    // the boot wiring itself — asserted on source, like the rest of the boot path above
+    const bootSrc = src.slice(src.indexOf('function boot(){ ensureTranslateObserver();'), src.indexOf('// ================= REGISTRATION'));
+    // plain text, not a regex: every character here is punctuation a regex would have to escape
+    ok_('boot checks OUR callback first', bootSrc.indexOf('const _webCode = lineCallbackCode();') >= 0);
+    ok_('...and returns, so liff.init is never handed a code that is not its own',
+      bootSrc.indexOf('if (_webCode) { lineFinishBrowserLogin(_webCode); return; }') >= 0);
+    ok_('...before the LIFF path it would otherwise take', bootSrc.indexOf('_webCode') < bootSrc.indexOf('liffReady()'));
+  }
+  {
+    ok_('the button is hidden until the server says it is configured', /id="lineWebBtn"[^>]*\$\{lineWebReady\(\)\?'':'hidden'\}/.test(src));
+    ok_('...which is one question, asked once', /function lineWebReady/.test(src) && /api\('lineLoginReady'/.test(src));
+    ok_('the QR code is named, because nobody remembers their LINE password', /สแกน QR/.test(src));
+    ok_('the exchange is server-side, where the channel secret lives', /handleLineExchange/.test(auth) && /client_secret: c\.secret/.test(auth));
+    ok_('...and the secret is never sent to a phone', !/LineLoginChannelSecret/.test(src));
+    ok_('an unconfigured school gets told what to set, not a blank failure', /LINE_LOGIN_NOT_CONFIGURED/.test(auth));
+    ok_('the sign-in routes are reachable before there is a session', /lineLoginReady' \|\| a === 'lineExchange'/.test(code));
+    /* An authorization code can only be spent once, so the reply must never be re-sent — the name
+     * starts with no mutating verb, which would have made it retry-safe. */
+    ok_('a lost reply is not retried with a burned code', /lineExchange: 1/.test(code) && /lineExchange: 1/.test(apijs));
   }
 
   console.log('\n' + (fail ? 'FAILED ' : 'PASSED ') + pass + ' passed, ' + fail + ' failed\n');

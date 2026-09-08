@@ -343,6 +343,14 @@ var SCHOOL_CONFIG_DEFAULTS = [
   ['LineChannelSecret',     '<FILL Messaging API channel secret>'],
   ['LiffID',                '<FILL LIFF ID>'],
   ['AdminLineUID',          '<FILL Admin LINE userId for notifications>'],
+  /* BROWSER-ONLY LINE SIGN-IN — the fallback for the iOS hand-off that opens the LINE app and never
+   * comes back (see handleLineExchange). These belong to the LINE **Login** channel, not the
+   * Messaging API one above. Blank = the fallback is switched off and its button is never drawn, so
+   * a half-configured school shows nothing rather than a button that fails.
+   * The channel's Callback URL list must also contain the app's own URL, or LINE refuses the
+   * exchange with "invalid_request" — that part cannot be done from here. */
+  ['LineLoginChannelId',    ''],    // blank = taken from the LIFF id the client already has
+  ['LineLoginChannelSecret',''],    // NEVER leaves the server
   /* WHO GETS A LINE PUSH, as opposed to the in-app 🔔 bell. The free plan caps messages at ~300 a
    * month and the school's quota is exhausted, so both default to OFF and everything still arrives
    * on the bell, which costs nothing. Emergencies (injury) ignore both and always push.

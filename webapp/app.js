@@ -112,7 +112,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.347'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.348'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -1318,6 +1318,83 @@
   const inLineApp = () => /\bLine\//i.test(navigator.userAgent||'');
   const liffAppUrl = () => 'https://liff.line.me/' + CONFIG.LIFF_ID;
   window.OPEN_IN_LINE = () => { setLiffPending(false); location.href = liffAppUrl(); };
+
+  /* ---- SIGNING IN WITHOUT HANDING THE PHONE TO THE LINE APP ------------------------------------
+   *
+   * LINE's own answer to the hand-off that never returns is a parameter on the authorization URL:
+   * disable_auto_login=true keeps the entire login inside the browser. It cannot be reached through
+   * the SDK — liff.login() builds its own URL and takes only redirectUri — so this builds the URL
+   * itself and the server finishes the handshake (handleLineExchange; the code→token exchange needs
+   * the channel secret, which must never be on a phone).
+   *
+   * NOT THE DEFAULT, ON PURPOSE. Disabling auto login means signing in to LINE in the browser: a QR
+   * code scanned with the LINE app they already have, or an email and password many parents have
+   * never set. That is a worse first experience than the app hand-off, which works for almost
+   * everyone — so it is offered only once the hand-off has actually failed.
+   *
+   * client_id is the LINE Login channel id, which is the part of the LIFF id before the dash. The
+   * school can override it in SCHOOL_CONFIG if that ever stops being true; the SECRET is only ever
+   * on the server.
+   */
+  const LINE_STATE = 'atom_line_state';
+  const lineChannelId = () => String(CONFIG.LIFF_ID||'').split('-')[0];
+  /* The URL LINE sends them back to, and it must match the console's callback list EXACTLY — so no
+   * query and no hash, whatever the parent happened to arrive with. */
+  const lineRedirectUri = () => location.origin + location.pathname;
+  window.LINE_BROWSER_LOGIN = () => {
+    const st = 'atom' + Math.random().toString(36).slice(2) + Date.now().toString(36);
+    try { sessionStorage.setItem(LINE_STATE, st); } catch (e) {}
+    setLiffPending(false);            // this route does not come back through LIFF
+    signingInScreen();
+    const q = ['response_type=code', 'client_id=' + encodeURIComponent(lineChannelId()),
+      'redirect_uri=' + encodeURIComponent(lineRedirectUri()), 'state=' + encodeURIComponent(st),
+      'scope=' + encodeURIComponent('profile openid'),
+      // the whole point: keep it in the browser instead of throwing the phone at the LINE app
+      'disable_auto_login=true'];
+    location.href = 'https://access.line.me/oauth2/v2.1/authorize?' + q.join('&');
+  };
+  /**
+   * Are we standing on OUR callback? Only when the state matches the one we saved — LIFF comes back
+   * to this same URL with a code of its own, and mistaking that for ours would burn it.
+   * Returns the code, and clears the state so a reload cannot replay it.
+   */
+  function lineCallbackCode(){
+    const p = new URLSearchParams(location.search || '');
+    const code = p.get('code'), st = p.get('state');
+    if (!code || !st) return null;
+    let mine = null; try { mine = sessionStorage.getItem(LINE_STATE); } catch (e) {}
+    if (!mine || mine !== st) return null;
+    try { sessionStorage.removeItem(LINE_STATE); } catch (e) {}
+    return code;
+  }
+  /** Finish it: code → server → session. The query is stripped first, so a reload of the page
+   *  cannot try to spend the same code again. */
+  function lineFinishBrowserLogin(code){
+    signingInScreen();
+    const redirectUri = lineRedirectUri();
+    try { history.replaceState(null, '', redirectUri); } catch (e) {}
+    api('lineExchange', { code, redirectUri, clientId: lineChannelId() })
+      .then(u => {
+        if (u.role === 'guest') { PENDING_PROVIDER = 'LINE'; accountStage(); applyLangNow(); return; }
+        if (u.home && u.home.children) window._BOOT_HOME = u.home;
+        LOGIN_REAL(u.role, u.linkedId, u.displayName, u.pictureUrl);
+        applyLangNow();
+      })
+      .catch(e => { toast('⚠️ ' + ((e && e.message) || e)); signInStuckScreen(); });
+  }
+  /* Whether to offer it at all. The school has to put the channel secret in SCHOOL_CONFIG and add
+   * this URL to the LINE Login channel's callback list; until both are done the button would only
+   * produce an error, so it is not drawn. Asked once and remembered. */
+  let _lineWebReady = null;
+  function lineWebReady(){
+    if (_lineWebReady === null) {
+      _lineWebReady = false;
+      api('lineLoginReady', {}).then(r => { _lineWebReady = !!(r && r.ready);
+        const el = document.getElementById('lineWebBtn'); if (el) el.hidden = !_lineWebReady;
+      }).catch(() => {});
+    }
+    return _lineWebReady;
+  }
   function signInStuckScreen(){ USER = null; AUTH_RENDER = signInStuckScreen; setHeader(); nav.hidden = true;
     app.innerHTML = `<div class="rolewrap" style="padding-top:24px">
       <img src="assets/logo.png" class="logo-lg" alt="logo"/>
@@ -1328,6 +1405,12 @@
       <button class="role-card" onclick="OPEN_IN_LINE()"><span class="ic" style="background:#06C755;color:#fff;font-weight:800">L</span>
         <span><b>${EN()?'Open in the LINE app':'เปิดในแอป LINE'}</b><br><small>${EN()?'the reliable way on iPhone':'วิธีที่ใช้ได้แน่นอนบน iPhone'}</small></span></button>
       <button class="btn outline block" style="margin-top:8px" onclick="LIFF_LOGIN()">🔄 ${EN()?'Try again in this browser':'ลองอีกครั้งในเบราว์เซอร์นี้'}</button>
+      ${/* The third way, and the one that cannot be swallowed by the LINE app: sign in to LINE in
+           the browser (disable_auto_login). Hidden until the server says it is configured — a
+           button that can only produce an error is worse than no button. */''}
+      <button class="btn outline block" id="lineWebBtn" style="margin-top:8px" ${lineWebReady()?'':'hidden'} onclick="LINE_BROWSER_LOGIN()">🌐 ${EN()?'Sign in to LINE in this browser (QR code)':'เข้าสู่ระบบ LINE ในเบราว์เซอร์ (สแกน QR)'}</button>
+      <p class="muted" style="font-size:12px;margin:6px 2px">${EN()?'That last one asks you to log in to LINE itself — scan the QR code with the LINE app on this phone.'
+        :'วิธีสุดท้ายจะให้ล็อกอิน LINE เอง · ใช้แอป LINE ในเครื่องสแกน QR code ได้เลย ไม่ต้องจำรหัสผ่าน'}</p>
       <button class="btn-ghost block" style="margin-top:8px" onclick="loginScreen()">${esc(t('c.back'))}</button></div>`;
   }
   /* Watch a sign-in that has left for LINE. Two ways to notice it failed:
@@ -1504,6 +1587,11 @@
        * me back to the start": coming back from the LINE redirect (the flag), and a device that has
        * signed in here before (atom_last_uid), which is every returning parent. A first-time visitor
        * with neither still sees the login card immediately, so nothing flashes for them. */
+      /* OUR OWN CALLBACK COMES FIRST. The browser-only route (LINE_BROWSER_LOGIN) returns to this
+       * same URL with ?code&state, and liff.init() would try to make sense of a code that is not
+       * its own. Matched by the state we saved, so LIFF's own callback still falls through to it. */
+      const _webCode = lineCallbackCode();
+      if (_webCode) { lineFinishBrowserLogin(_webCode); return; }
       let _known = false; try { _known = !!localStorage.getItem('atom_last_uid'); } catch (e) {}
       if (liffPending() || _known) signingInScreen();
       liffReady().then(() => {
