@@ -155,7 +155,16 @@ console.log('\n4) an account nobody has linked is turned away, and told what to 
   // a row whose Email an admin filled in but which has no LINE behind it: refused rather than
   // improvised around, because a session on a uid nothing else knows would break every USER_LINKS read
   const ctx = boot({ T_NL: good('g_nl', 'noline@gmail.com') });
-  eq('a record with no LINE account cannot be signed in', call(ctx, 'function(){ return handleGoogleExchange({credential:"T_NL"}); }').code, 'GOOGLE_NO_LINE_ACCOUNT');
+  const nl = call(ctx, 'function(){ return handleGoogleExchange({credential:"T_NL"}); }');
+  eq('a record with no LINE account cannot be signed in', nl.code, 'GOOGLE_NO_LINE_ACCOUNT');
+  /* AND IT SAYS WHICH RECORD. The school's own admin hit this and went looking in the wrong place:
+   * the address had matched a PARENT record an admin had typed it into, which never had a LINE
+   * account, while their admin record was linked to a different Google account altogether. Two
+   * records, one person, and the message named neither. */
+  ok_('...naming the address', nl.msg.indexOf('noline@gmail.com') >= 0);
+  ok_('...what kind of record it matched', nl.msg.indexOf('ผู้ปกครอง') >= 0);
+  ok_('...which one, by name', nl.msg.indexOf('ไม่มีไลน์') >= 0);
+  ok_('...and the two ways an admin can fix it', nl.msg.indexOf('ลบอีเมล') >= 0 && nl.msg.indexOf('LINE ID') >= 0);
 }
 
 console.log('\n5) the email finds you once; the permanent id is what is kept');

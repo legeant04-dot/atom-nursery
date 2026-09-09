@@ -311,9 +311,21 @@ function handleGoogleExchange(payload) {
   }
   var uid = String(found.row.LineUID || '').trim();
   if (!uid) {
+    /* NAME THE RECORD IT LANDED ON.
+     *
+     * "This account is not linked to LINE" sent the school's own admin looking in the wrong place:
+     * the address had matched a PARENT record — one an admin had typed it into, which never had a
+     * LINE account — while their admin record was linked to a different Google account entirely.
+     * Two records, one person, and the message named neither. Saying which record was matched, and
+     * what it is called, turns a support conversation into something the reader can act on alone.
+     */
     logAudit(found.id, 'GOOGLE_LOGIN_NO_LINE', found.kind, g.email);
+    var what = found.kind === 'PARENTS' ? 'ผู้ปกครอง' : (found.kind === 'STAFF' ? 'พนักงาน' : 'ผู้ใช้');
+    var who = String(found.row.Name || found.row.NameEN || found.id || '');
     throw apiError_('GOOGLE_NO_LINE_ACCOUNT',
-      'บัญชีนี้ยังไม่ได้ผูกกับ LINE จึงเข้าสู่ระบบด้วย Google ไม่ได้ — กรุณาแจ้งแอดมิน');
+      'อีเมล ' + g.email + ' ตรงกับข้อมูล' + what + (who ? ' "' + who + '"' : '') +
+      ' ซึ่งยังไม่เคยผูกกับ LINE จึงเข้าสู่ระบบด้วย Google ไม่ได้ — ' +
+      'ให้แอดมินลบอีเมลนี้ออกจากข้อมูล' + what + 'ดังกล่าว หรือใส่ LINE ID ให้ก่อน');
   }
   if (found.matched === 'email') linkGoogleSub_(found, g);   // first time: remember the permanent id
   logAudit(found.id, 'LOGIN_GOOGLE', found.kind, g.email);
