@@ -201,6 +201,11 @@ var PERF_EXPECTED_ = {
    *     else's child.
    *   AMOUNT_MISMATCH — the slip's total does not match what is owed. */
   ALREADY_REGISTERED: 1, VERIFY_FAILED: 1, AMOUNT_MISMATCH: 1,
+  /* EMAIL_TAKEN — an email address is a way IN once Google sign-in is on, so it may belong to one
+   * person only. Two parents on the family Gmail, or one mistyped character of a stranger's address,
+   * and the wrong person is shown a child's information. Hitting this is the guard doing exactly
+   * what it exists for, at the one moment somebody is there to correct the typing. */
+  EMAIL_TAKEN: 1,
   // a slip this school has already taken money against, offered for something else — the reuse
   // check refusing, which is the point of storing the bank reference at all
   SLIP_ALREADY_USED: 1

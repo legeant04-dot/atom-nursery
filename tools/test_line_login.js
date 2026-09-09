@@ -41,7 +41,11 @@ const auth = R_('src/Auth.gs'), code = R_('src/Code.gs'), apijs = R_('webapp/api
 /* Code with the comments taken out. Three assertions in this file have now been wrong because the
  * note EXPLAINING a fix quotes the very expression it replaced — so "does this appear once?" and
  * "does the guard come first?" both read prose as if it were code. */
-const noComments = s => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/[^\n]*$/gm, '');
+/* `accept="image/*"` opens a block comment that never closes, so stripping naively swallows the
+ * next sixteen thousand characters of REAL code — every assertion over that span would then be
+ * asking about text that is not there. Neutralise the attribute before stripping. */
+const noComments = s => s.replace(/image\/\*/g, 'image_ANY')
+  .replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/[^\n]*$/gm, '');
 const srcCode = noComments(src);
 
 /** the real LIFF block from app.js, run against a LINE that we control */
