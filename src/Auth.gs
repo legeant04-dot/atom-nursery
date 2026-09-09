@@ -134,6 +134,179 @@ function handleLineExchange(payload) {
   return handleAuth({ accessToken: body.access_token });
 }
 
+/* ---- GOOGLE: A SECOND KEY TO THE SAME DOOR -------------------------------------------------------
+ *
+ * Approved 09/09/26, after a parent on iOS could not complete the LINE hand-off for two days and the
+ * only way left was "remember your LINE password and wait for a verification code" — which is the
+ * worst path in the app. Nearly everyone is already signed in to Google on their phone, so this
+ * turns that path into one tap.
+ *
+ * IT IS NOT A SECOND IDENTITY. Signing in with Google RESOLVES to the LineUID already on the person's
+ * row and then calls handleAuth with it, so the account they land on, the role, the DISABLED and
+ * ENDED gates, the twelve-hour token and the home payload are all produced by the same code as
+ * before. Nothing downstream can tell which door was used, and there is no second place where "who
+ * is this" is decided — which is exactly how a second sign-in method goes wrong.
+ *
+ * A row with no LineUID is refused rather than improvised around: every account in this school was
+ * created through LINE, so a blank one means something is wrong with the record, and minting a
+ * session on a uid nothing else knows about would quietly break every lookup that reads USER_LINKS.
+ *
+ * WHY `sub` AND NOT THE EMAIL. Google's `sub` is a permanent account id; an email address is a label
+ * that can be changed. The email finds the person ONCE, and that first sign-in writes the `sub` down
+ * (linkGoogleSub_); every later sign-in matches on the `sub`, so changing their email address does
+ * not lock them out.
+ *
+ * The token is verified at Google, never decoded here: a JWT read without checking its signature is
+ * a sentence the client wrote about itself. tokeninfo does the crypto, and we then check the two
+ * things it cannot know for us — that the token was minted for OUR client, and that Google considers
+ * the address verified. Google itself asks for neither a client secret nor a redirect URI in this
+ * mode, which is also why the `Invalid redirect_uri` trouble the LINE route hit cannot happen here.
+ */
+function googleClientId_() { return String(getConfig_('GoogleClientId', '') || '').trim(); }
+
+/** Public: is the button worth drawing? Says yes/no and the client id, which is not a secret. */
+function handleGoogleLoginReady() {
+  var id = googleClientId_();
+  return { ready: !!id, clientId: id };
+}
+
+/**
+ * Verify a Google ID token and return the claims we trust.
+ * Throws rather than returning null, because every caller would only turn null into the same refusal.
+ */
+function googleVerify_(credential) {
+  var cred = String(credential || '').trim();
+  if (!cred) throw apiError_('BAD_INPUT', 'ไม่พบข้อมูลเข้าสู่ระบบจาก Google');
+  var clientId = googleClientId_();
+  if (!clientId) {
+    throw apiError_('GOOGLE_NOT_CONFIGURED',
+      'ยังไม่ได้ตั้งค่าเข้าสู่ระบบด้วย Google — แอดมินต้องใส่ GoogleClientId ใน SCHOOL_CONFIG');
+  }
+  var res, body;
+  try {
+    res = UrlFetchApp.fetch('https://oauth2.googleapis.com/tokeninfo?id_token=' + encodeURIComponent(cred),
+      { method: 'get', muteHttpExceptions: true });
+    body = JSON.parse(res.getContentText() || '{}');
+  } catch (e) {
+    throw apiError_('GOOGLE_UNREACHABLE', 'ติดต่อ Google ไม่สำเร็จ กรุณาลองใหม่');
+  }
+  if (res.getResponseCode() !== 200 || !body.sub) {
+    var why = String(body.error_description || body.error || res.getResponseCode());
+    try { logAudit('anon', 'GOOGLE_VERIFY_FAIL', 'AUTH', why.slice(0, 120)); } catch (e) {}
+    throw apiError_('GOOGLE_TOKEN_INVALID', 'ข้อมูลจาก Google ไม่ถูกต้องหรือหมดอายุ กรุณาลองใหม่');
+  }
+  /* A token minted for SOMEBODY ELSE'S app is a perfectly valid Google token. Without this check any
+   * site the person has ever signed in to could hand us one and be let in as them. */
+  if (String(body.aud || '') !== clientId) {
+    try { logAudit('anon', 'GOOGLE_AUD_MISMATCH', 'AUTH', String(body.aud || '').slice(0, 60)); } catch (e) {}
+    throw apiError_('GOOGLE_TOKEN_INVALID', 'ข้อมูลจาก Google ไม่ถูกต้อง (คนละแอป)');
+  }
+  // an address Google has not confirmed the person owns is not an identity
+  if (String(body.email_verified) !== 'true' && body.email_verified !== true) {
+    throw apiError_('GOOGLE_EMAIL_UNVERIFIED', 'อีเมล Google นี้ยังไม่ได้รับการยืนยันจาก Google');
+  }
+  return { sub: String(body.sub), email: normEmail_(body.email), name: String(body.name || ''),
+           picture: String(body.picture || '') };
+}
+
+/** Find the PARENTS/STAFF row this Google account belongs to. `sub` wins; the email is the fallback
+ *  that exists so a FIRST sign-in can happen at all. Returns null when nothing matches. */
+function googleFindRow_(g) {
+  var parents = sheet_(getMainSpreadsheet_(), 'PARENTS');
+  var staff = sheet_(getHrSpreadsheet_(), 'STAFF');
+  var bySub = function (r) { return r.GoogleSub && String(r.GoogleSub) === g.sub; };
+  var byMail = function (r) { return g.email && normEmail_(r.Email) === g.email; };
+  /* PARENTS before STAFF, the order handleAuth itself resolves a LineUID in — so a teacher whose own
+   * child attends lands on precisely the account she lands on with LINE today, not a different one. */
+  var hit = findObject_(parents, bySub);
+  if (hit) return { sheet: parents, row: hit, kind: 'PARENTS', id: hit.ParentID, matched: 'sub' };
+  hit = findObject_(staff, bySub);
+  if (hit) return { sheet: staff, row: hit, kind: 'STAFF', id: hit.StaffID, matched: 'sub' };
+  hit = findObject_(parents, byMail);
+  if (hit) return { sheet: parents, row: hit, kind: 'PARENTS', id: hit.ParentID, matched: 'email' };
+  hit = findObject_(staff, byMail);
+  if (hit) return { sheet: staff, row: hit, kind: 'STAFF', id: hit.StaffID, matched: 'email' };
+  return null;
+}
+
+/** Write the permanent account id onto a row the first time it is recognised by email alone. */
+function linkGoogleSub_(found, g) {
+  try {
+    ensureColumns_(found.sheet, ['Email', 'GoogleSub']);
+    updateRow_(found.sheet, found.row._row, { GoogleSub: g.sub, Email: g.email });
+    if (found.kind === 'PARENTS') { recCacheBust_('PARENTS'); } else { staffCacheBust_(); }
+    logAudit(found.id, 'GOOGLE_LINK', found.kind, g.email);
+  } catch (e) {}   // best effort: failing to remember it must not stop them getting in
+}
+
+/**
+ * payload: { credential }  — the ID token from Google Identity Services.
+ * Returns exactly what `auth` returns, because it IS what `auth` returns.
+ */
+function handleGoogleExchange(payload) {
+  var g = googleVerify_((payload || {}).credential);
+  var found = googleFindRow_(g);
+  if (!found) {
+    logAudit('anon', 'GOOGLE_LOGIN_UNKNOWN', 'AUTH', g.email);
+    throw apiError_('GOOGLE_NOT_LINKED',
+      'อีเมล ' + g.email + ' ยังไม่ได้ผูกกับบัญชีในระบบ — กรุณาเข้าสู่ระบบด้วย LINE แล้วกด "ผูกบัญชี Google" ที่หน้าข้อมูลของฉัน หรือแจ้งแอดมิน');
+  }
+  var uid = String(found.row.LineUID || '').trim();
+  if (!uid) {
+    logAudit(found.id, 'GOOGLE_LOGIN_NO_LINE', found.kind, g.email);
+    throw apiError_('GOOGLE_NO_LINE_ACCOUNT',
+      'บัญชีนี้ยังไม่ได้ผูกกับ LINE จึงเข้าสู่ระบบด้วย Google ไม่ได้ — กรุณาแจ้งแอดมิน');
+  }
+  if (found.matched === 'email') linkGoogleSub_(found, g);   // first time: remember the permanent id
+  logAudit(found.id, 'LOGIN_GOOGLE', found.kind, g.email);
+  // the SAME door: role, gates, token and home payload all come from handleAuth, not from here
+  return handleAuth({ lineUid: uid, displayName: g.name, pictureUrl: found.row.LinePictureUrl || '' });
+}
+
+/**
+ * payload: { credential, parentId?, staffId? } — link/unlink from inside a signed-in session.
+ *
+ * THE SAFE WAY TO COLLECT AN ADDRESS. The identity is already settled by the session token
+ * (applyIdentity_ injects parentId/staffId server-side and the client cannot widen it), so the link
+ * is correct by construction: nobody types an email, so nobody mistypes one onto a stranger.
+ * An address already on another row is still refused — emailGuard_ is the same guard the forms use.
+ */
+function handleGoogleLink(payload) {
+  var p = payload || {};
+  var sh, row, idField, ownId, kind;
+  if (p.parentId) {
+    sh = sheet_(getMainSpreadsheet_(), 'PARENTS'); idField = 'ParentID'; ownId = p.parentId; kind = 'PARENTS';
+    row = findObject_(sh, function (x) { return String(x.ParentID) === String(ownId); });
+  } else if (p.staffId) {
+    sh = sheet_(getHrSpreadsheet_(), 'STAFF'); idField = 'StaffID'; ownId = p.staffId; kind = 'STAFF';
+    row = findObject_(sh, function (x) { return String(x.StaffID) === String(ownId); });
+  } else {
+    throw apiError_('NO_SESSION', 'ต้องเข้าสู่ระบบใหม่');
+  }
+  if (!row) throw apiError_('NOT_FOUND', 'ไม่พบข้อมูลของบัญชีนี้');
+  try { ensureColumns_(sh, ['Email', 'GoogleSub']); } catch (e) {}
+
+  if (p.unlink) {
+    /* BOTH are cleared, not just the sub. The email alone is a way in (it is what a first sign-in
+     * matches on), so leaving it behind would leave the door open after somebody asked to close it. */
+    updateRow_(sh, row._row, { GoogleSub: '', Email: '' });
+    if (kind === 'PARENTS') { recCacheBust_('PARENTS'); } else { staffCacheBust_(); }
+    logAudit(ownId, 'GOOGLE_UNLINK', kind, '');
+    return { ok: true, linked: false, email: '' };
+  }
+
+  var g = googleVerify_(p.credential);
+  emailGuard_(sh, g.email, idField, ownId);            // throws EMAIL_TAKEN if it belongs to somebody else
+  var other = findObject_(sh, function (x) {
+    return x.GoogleSub && String(x.GoogleSub) === g.sub && String(x[idField] || '') !== String(ownId);
+  });
+  if (other) throw apiError_('EMAIL_TAKEN', 'บัญชี Google นี้ถูกผูกกับผู้ใช้อื่นแล้ว');
+  updateRow_(sh, row._row, { GoogleSub: g.sub, Email: g.email });
+  if (kind === 'PARENTS') { recCacheBust_('PARENTS'); } else { staffCacheBust_(); }
+  logAudit(ownId, 'GOOGLE_LINK_SELF', kind, g.email);
+  return { ok: true, linked: true, email: g.email };
+}
+
 // ---- Login --------------------------------------------------------
 /**
  * payload: { accessToken?, lineUid?, displayName?, pictureUrl? }

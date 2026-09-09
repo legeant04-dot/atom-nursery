@@ -66,6 +66,10 @@ function boot(over) {
    * parent to LINE with. Held here so a test can fire them (see "the hand-off never comes back"). */
   const listeners = {};
   const doc = { visibilityState: 'visible',
+    // the sign-in screens now also hold a container for Google's own button; this stub has no DOM,
+    // so there is nothing to paint into — which is exactly what an empty list means
+    querySelectorAll: () => [], getElementById: () => null,
+    createElement: () => ({ style: {}, dataset: {} }), head: { appendChild: () => {} },
     addEventListener: (k, fn) => { (listeners[k] = listeners[k] || []).push(fn); },
     removeEventListener: (k, fn) => { listeners[k] = (listeners[k] || []).filter(f => f !== fn); } };
   const fire = k => (listeners[k] || []).slice().forEach(fn => fn());

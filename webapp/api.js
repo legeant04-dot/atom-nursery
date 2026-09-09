@@ -562,7 +562,11 @@ window.CONFIG = { MODE: 'gas', GAS_URL: 'https://script.google.com/macros/s/AKfy
     holidayAttendSet: 1, holidayAttendAdd: 1, holidayAttendRemove: 1,
     // an authorization code can only be spent once — a retry with a burned code turns a completed
     // sign-in into a failure the parent can do nothing about
-    lineExchange: 1
+    lineExchange: 1,
+    /* A Google ID token is single-use in the same spirit: it is short-lived, and the row it writes
+     * (the permanent account id, or the link itself) must be written once and deliberately, not by a
+     * retry that fires while the person is still looking at the button. */
+    googleExchange: 1, googleLink: 1
   };
   const isMutating = a => !READ_ONLY[a] && !!(WRITES[a] || MUT.test(a) || /check(in|out)|absence|payOT$|^orgMove|^unlink|^claim|^recompute/i.test(a));
   // app.js asks the same question for the Observer role, so "does this write?" has ONE answer

@@ -112,7 +112,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.358'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.359'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -485,6 +485,17 @@
                        'ไม่ต้องดำเนินการซ้ำ หากยอดไม่ถูกต้องกรุณาแจ้งแอดมิน','Nothing more to do — tell the admin if the amount looks wrong'],
     ALREADY_REGISTERED:['ข้อมูลนี้มีอยู่ในระบบแล้ว','This record already exists',
                        'ลองค้นหาด้วยชื่อหรือเลขบัตรก่อนเพิ่มใหม่','Search by name or ID before adding a new one'],
+    /* GOOGLE_NOT_LINKED is deliberately ABSENT from this list, so err() falls through to the
+     * server's own sentence — which names the address that was refused. "Not linked" without saying
+     * WHICH account leaves somebody staring at a Google chooser with no idea which one to pick. */
+    GOOGLE_TOKEN_INVALID:['เข้าสู่ระบบด้วย Google ไม่สำเร็จ','Google sign-in did not complete',
+                       'กรุณาลองใหม่อีกครั้ง หรือเข้าสู่ระบบด้วย LINE','Try again, or sign in with LINE'],
+    GOOGLE_EMAIL_UNVERIFIED:['อีเมล Google นี้ยังไม่ได้รับการยืนยัน','That Google address is not verified',
+                       'ยืนยันอีเมลกับ Google ก่อน แล้วลองใหม่','Verify the address with Google, then try again'],
+    GOOGLE_NOT_CONFIGURED:['ยังไม่ได้เปิดใช้การเข้าสู่ระบบด้วย Google','Google sign-in is not switched on',
+                       'กรุณาเข้าสู่ระบบด้วย LINE และแจ้งแอดมิน','Sign in with LINE and tell the admin'],
+    GOOGLE_UNREACHABLE:['ติดต่อ Google ไม่สำเร็จ','Could not reach Google',
+                       'ตรวจสอบอินเทอร์เน็ตแล้วลองใหม่','Check your connection and try again'],
     EMAIL_TAKEN:      ['อีเมลนี้ถูกใช้กับบัญชีอื่นแล้ว','That email is already used by another account',
                        'อีเมลหนึ่งใช้ได้กับคนเดียวเท่านั้น — ตรวจอีเมลอีกครั้ง หรือใช้อีเมลอื่น','One email belongs to one person only — check it again, or use a different address'],
     BAD_INPUT:        ['ข้อมูลที่กรอกไม่ถูกต้อง','Something entered is not valid',
@@ -1241,6 +1252,7 @@
      * was never asked at all on a cold start, because the boot splash is still on screen — found by
      * running it rather than reading it. */
     if (CONFIG.MODE === 'gas' && CONFIG.LIFF_ID) lineWebReady();
+    if (CONFIG.MODE === 'gas') googleReady();   // same reason, same place: the answer before the tap
     if(document.getElementById('bootSplash') && !EN()) return;
     app.innerHTML = `<div class="rolewrap"><img src="assets/logo.png" class="logo-lg" alt="logo"/>
       <h2 class="page" style="text-align:center">${esc(t('login.title'))}</h2>
@@ -1267,10 +1279,19 @@
       ${CONFIG.MODE==='gas'&&CONFIG.LIFF_ID&&!inLineApp()?`
         <button class="btn-ghost block" id="lineWebBtn" ${lineWebReady()?'':'hidden'} style="margin-top:6px;font-size:13px" onclick="LINE_BROWSER_LOGIN()">${EN()?'Can’t get in? Sign in to LINE by email':'เข้าไม่ได้? เข้าสู่ระบบ LINE ด้วยอีเมล'}</button>
         <button class="btn-ghost block" style="margin-top:2px;font-size:13px" onclick="OPEN_IN_LINE()">💬 ${EN()?'Or open inside the LINE app':'หรือเปิดผ่านแอป LINE'}</button>`:''}
+      ${/* Google's own button, drawn by their script into this box once the server confirms the
+           school has an OAuth client. Below the LINE routes on purpose: LINE is still the way in and
+           the one that carries notifications — this is for the phone that cannot complete it. */''}
+      ${CONFIG.MODE==='gas'&&!inLineApp()?`
+        <div style="display:flex;justify-content:center;margin-top:10px" data-gsi="signin"></div>`:''}
       ${/* Android only, and ABOVE the add-to-home-screen box: for a phone that can take the real
            app, the shortcut is the second-best answer. iPhones see neither this nor a dead button. */''}
       ${apkCardHTML()}
       ${installButtonsHTML()}</div>`;
+    /* Painted AFTER the box exists. googleReady() above only asks the server; when the answer is
+     * already in hand from an earlier render it resolves nothing, so the draw has to be asked for
+     * here or the second visit to this screen shows an empty space where the button was. */
+    GOOGLE_PAINT();
   }
   // In gas+LIFF mode: trigger real LINE login; otherwise fall through to demo chooser
   /**
@@ -1481,6 +1502,132 @@
     }
     return _lineWebReady;
   }
+  /* ---- SIGN IN WITH GOOGLE ------------------------------------------------------------------------
+   *
+   * The second key to the SAME door. The server resolves a Google account to the LineUID already on
+   * that person's row and signs them in through handleAuth, so this route produces the identical
+   * session — same role, same twelve hours, same home screen. Nothing here decides who anybody is.
+   *
+   * WHY IT IS WORTH HAVING. When the LINE hand-off fails on iOS the last resort today is "remember
+   * your LINE password and wait for a verification code", which is the worst path in the app.
+   * Almost everybody is already signed in to Google on their phone, so this is one tap.
+   *
+   * NOT INSIDE LINE'S OWN BROWSER. Google refuses OAuth in an embedded WebView (`disallowed_useragent`),
+   * so a button drawn there could only ever fail. It is also not needed there: LIFF already signs
+   * people in with no button at all. Hidden by the same inLineApp() test the LINE fallbacks use.
+   */
+  const GSI_SRC = 'https://accounts.google.com/gsi/client';
+  let _gsiClientId = null;   // null = not asked yet · '' = configured off · else the id
+  let _gsiLoad = null;
+  /* Asked once and remembered, like lineWebReady — and a FAILED ask goes back to "unknown" rather
+   * than to "no", or one cancelled request would hide the route for the rest of the session on
+   * exactly the device that needs it. */
+  function googleReady(){
+    if (_gsiClientId === null) {
+      _gsiClientId = '';
+      api('googleLoginReady', {}).then(r => { _gsiClientId = String((r && r.clientId) || '');
+        if (_gsiClientId) GOOGLE_PAINT();
+      }).catch(() => { _gsiClientId = null; });
+    }
+    return !!_gsiClientId;
+  }
+  function gsiLoad(){
+    if (_gsiLoad) return _gsiLoad;
+    _gsiLoad = new Promise((res, rej) => {
+      if (window.google && window.google.accounts && window.google.accounts.id) return res();
+      const s = document.createElement('script');
+      s.src = GSI_SRC; s.async = true; s.defer = true;
+      s.onload = () => res();
+      s.onerror = () => { _gsiLoad = null; rej(new Error('gsi')); };   // null: a later screen may retry
+      document.head.appendChild(s);
+    });
+    return _gsiLoad;
+  }
+  /* Draw Google's own button into every [data-gsi] box on the current screen. It has to be THEIR
+   * button — the rendered one is what carries the signed credential back, and Google's branding
+   * rules require it — so the screens hand over a container and this fills it. */
+  window.GOOGLE_PAINT = async () => {
+    const boxes = [...document.querySelectorAll('[data-gsi]')].filter(el => !el.dataset.gsiDone);
+    if (!boxes.length || !_gsiClientId || inLineApp()) return;
+    try { await gsiLoad(); } catch (e) { return; }                     // offline / blocked → leave the box empty
+    try {
+      window.google.accounts.id.initialize({
+        client_id: _gsiClientId, callback: GOOGLE_CRED,
+        auto_select: false,          // never sign somebody in without them asking
+        cancel_on_tap_outside: true,
+        itp_support: true            // Safari's tracking prevention, which is half of why we are here
+      });
+    } catch (e) { return; }
+    boxes.forEach(el => { el.dataset.gsiDone = '1';
+      try {
+        window.google.accounts.id.renderButton(el, {
+          theme: 'outline', size: 'large', shape: 'pill',
+          text: el.dataset.gsi === 'link' ? 'continue_with' : 'signin_with',
+          width: Math.min(400, Math.max(200, el.clientWidth || 300)),
+          locale: EN() ? 'en' : 'th'
+        });
+      } catch (e) {}
+    });
+  };
+  /* ONE callback for both jobs, told apart by whether anybody is signed in. The link button only
+   * exists inside a session and the sign-in button only outside one, so this can never be ambiguous
+   * — and it means the credential is never handed to the wrong handler. */
+  window.GOOGLE_CRED = (resp) => {
+    const cred = resp && resp.credential;
+    if (!cred) return;
+    if (USER) GOOGLE_LINK_SAVE(cred); else GOOGLE_SIGNIN(cred);
+  };
+  function GOOGLE_SIGNIN(credential){
+    signingInScreen();
+    api('googleExchange', { credential })
+      .then(u => {
+        if (!u || !u.role) throw new Error(EN() ? 'Sign-in did not complete' : 'เข้าสู่ระบบไม่สำเร็จ กรุณาลองใหม่');
+        setLiffPending(false); setLiffRetried(false);
+        /* The LIFF failure count is NOT cleared. Google working says nothing about whether the LINE
+         * hand-off on this phone is fixed, and that count is what sends the next sign-in straight to
+         * a route that works instead of failing first. Only a completed hand-off clears it. */
+        if (u.role === 'guest') { PENDING_PROVIDER = 'LINE'; accountStage(); applyLangNow(); return; }
+        if (u.home && u.home.children) window._BOOT_HOME = u.home;
+        LOGIN_REAL(u.role, u.linkedId, u.displayName, u.pictureUrl);
+        applyLangNow();
+      })
+      .catch(e => { err(e); loginScreen(); });
+  }
+  /* Linking from INSIDE a session is the safe way to collect an address: the server already knows
+   * who is asking, so nobody types an email and nobody can mistype one onto another family. */
+  window.GOOGLE_LINK_SAVE = (credential) => {
+    api('googleLink', { credential })
+      .then(r => { confirmSaved((EN() ? 'Linked ' : 'ผูกบัญชีแล้ว ') + ((r && r.email) || ''));
+        if (typeof P_profile === 'function' && CURRENT === 'profile') P_profile();
+        else if (USER && USER.role !== 'Parent' && typeof T_profile === 'function') T_profile();
+        else if (typeof P_profile === 'function') P_profile();
+      })
+      .catch(e => err(e));
+  };
+  window.GOOGLE_UNLINK = async (btn) => {
+    if (!confirm(EN() ? 'Remove the Google account from this profile? You can still sign in with LINE.'
+                      : 'ยกเลิกการผูกบัญชี Google? ยังเข้าสู่ระบบด้วย LINE ได้ตามปกติ')) return;
+    if (btn) btn.disabled = true;
+    try { await api('googleLink', { unlink: true }); confirmSaved(EN() ? 'Unlinked' : 'ยกเลิกการผูกแล้ว');
+      if (USER && USER.role === 'Parent') P_profile(); else T_profile();
+    } catch (e) { err(e); } finally { if (btn) btn.disabled = false; }
+  };
+  /* The card shown on a My-info screen. `email` is what the record already holds: an address with no
+   * Google account behind it yet is exactly the admin-rescue case, and saying so is the difference
+   * between "nothing is set up" and "it is set up, go ahead and use it". */
+  const googleLinkCard = (email, linked) => {
+    if (inLineApp()) return '';                     // Google cannot run here; an empty box would puzzle
+    return `<div class="card"><h3>🔗 ${EN() ? 'Sign in with Google' : 'เข้าสู่ระบบด้วย Google'}</h3>
+      <p class="muted" style="font-size:13px">${EN()
+        ? 'A backup way in when LINE sign-in will not complete. Optional — LINE keeps working exactly as it does now.'
+        : 'ทางเข้าสำรองเมื่อเข้าสู่ระบบด้วย LINE ไม่สำเร็จ · ไม่บังคับ และ LINE ยังใช้ได้เหมือนเดิมทุกอย่าง'}</p>
+      ${email
+        ? `<div class="list-item"><span class="muted" style="font-size:13px">${EN() ? 'Linked account' : 'บัญชีที่ผูกไว้'}</span><span><b>${esc(email)}</b> ${linked ? '✅' : ''}</span></div>
+           ${linked ? '' : `<small class="muted" style="font-size:13px">${EN() ? 'The address is on file. Tap the button once to finish linking.' : 'มีอีเมลบันทึกไว้แล้ว · กดปุ่มด้านล่างหนึ่งครั้งเพื่อผูกบัญชีให้สมบูรณ์'}</small>`}
+           <div data-gsi="link" style="margin-top:8px"></div>
+           <button class="btn sm outline block" style="margin-top:8px" onclick="GOOGLE_UNLINK(this)">${EN() ? 'Unlink' : 'ยกเลิกการผูกบัญชี'}</button>`
+        : `<div data-gsi="link" style="margin-top:8px"></div>`}</div>`;
+  };
   function signInStuckScreen(){ USER = null; AUTH_RENDER = signInStuckScreen; setHeader(); nav.hidden = true;
     app.innerHTML = `<div class="rolewrap" style="padding-top:24px">
       <img src="assets/logo.png" class="logo-lg" alt="logo"/>
@@ -1503,8 +1650,15 @@
       <button class="role-card" onclick="OPEN_IN_LINE()"><span class="ic" style="background:#06C755;color:#fff;font-weight:800">L</span>
         <span><b>${EN()?'Open inside the LINE app':'เปิดในแอป LINE'}</b><br><small>${EN()?'one tap — LINE is already signed in':'กดครั้งเดียว — LINE ล็อกอินอยู่แล้ว ไม่ต้องกรอกอะไร'}</small></span></button>
       <button class="btn outline block" style="margin-top:8px" onclick="LIFF_LOGIN()">🔄 ${EN()?'Try again in this browser':'ลองอีกครั้งในเบราว์เซอร์นี้'}</button>
+      ${/* ABOVE the LINE email route, because it costs less: most people are already signed in to
+           Google on the phone, so it is one tap against email + password + a verification code. It
+           only works for somebody who has linked their Google account (or whose address the admin
+           put on file), which is why it is not the FIRST thing offered. */''}
+      ${CONFIG.MODE==='gas'&&!inLineApp()?`
+        <div style="display:flex;justify-content:center;margin-top:10px" data-gsi="signin"></div>`:''}
       <button class="btn outline block" id="lineWebBtn" style="margin-top:8px" ${lineWebReady()?'':'hidden'} onclick="LINE_BROWSER_LOGIN()">✉️ ${EN()?'Sign in to LINE by email':'เข้าสู่ระบบ LINE ด้วยอีเมล'}</button>
       <button class="btn-ghost block" style="margin-top:8px" onclick="loginScreen()">${esc(t('c.back'))}</button></div>`;
+    if (CONFIG.MODE === 'gas') { googleReady(); GOOGLE_PAINT(); }
   }
   /* Watch a sign-in that has left for LINE. Two ways to notice it failed:
    *   · the tab becomes visible again and we are still not signed in — on the SUCCESSFUL path the
@@ -2376,6 +2530,7 @@
   const ppFld=(pre,id,label,val,type)=>`<label class="field"><span>${esc(label)}</span><input id="${pre}_${id}" type="${type||'text'}" value="${esc(val==null?'':val)}"/></label>`;
   window.P_profile = async () => { setNav('home');
     const d = await api('familyProfile', parentScope()); const parents=d.parents||[]; const kids=d.students||[];
+    const me = parents.find(x=>x.isMe) || {};   // linking is about the caller, never a co-parent
     const parentCard=p=>{ const pre='pa_'+p.ParentID;
       // picture: uploaded Photo wins, else their LINE profile picture (no upload needed)
       const pic=photoOf(p), usingLine=!p.Photo&&!!p.LinePictureUrl;
@@ -2414,7 +2569,12 @@
       ${parents.map(parentCard).join('')||`<div class="card muted">${EN()?'none':'ยังไม่มี'}</div>`}
       <h3 class="page" style="font-size:15px">👶 ${EN()?'Children':'บุตรหลาน'} (${kids.length})</h3>
       ${kids.map(studentCard).join('')||`<div class="card muted">${EN()?'none':'ยังไม่มี'}</div>`}
-      <button class="btn sm outline block" style="margin-top:8px" onclick="P_addChild()">+ ${esc(t('p.addChild'))}</button>`;
+      <button class="btn sm outline block" style="margin-top:8px" onclick="P_addChild()">+ ${esc(t('p.addChild'))}</button>
+      ${/* THE SAFE WAY TO LINK. Done from here, the server already knows who is asking — nobody types
+           an address, so nobody can mistype one onto another family's record. `me` is their own row;
+           a co-parent links from their own phone, not from this one. */''}
+      ${googleLinkCard(me.Email||'', !!me.GoogleLinked)}`;
+    if (CONFIG.MODE === 'gas') { googleReady(); GOOGLE_PAINT(); }
     window.scrollTo(0,0); };
   window.P_saveParent = async (parentId,btn)=>{ const g=id=>{ const e=document.getElementById('pa_'+parentId+'_'+id); return e?e.value.trim():undefined; };
     const data={ Title:g('Title'), NameTH:g('NameTH'), NameEN:g('NameEN'), Nickname:g('Nickname'), NicknameEN:g('NicknameEN'), Relationship:g('Relationship'), Phone:g('Phone'), OfficePhone:g('OfficePhone'), Occupation:g('Occupation'), Workplace:g('Workplace'), Address:g('Address'), Email:emailFmt(g('Email')) };
@@ -5811,7 +5971,9 @@
         ${ro(EN()?'Check-in required':'ต้องลงเวลาเข้างาน',s.RequireCheckin?(EN()?'Yes':'ใช่'):(EN()?'No':'ไม่'))}
         ${ro(EN()?'Start date':'วันเข้าทำงาน',s.StartDate)}
         ${ro(EN()?'National ID':'เลขบัตรประชาชน',s.NationalID)}</div>
+      ${googleLinkCard(s.Email||'', !!s.GoogleLinked)}
       <div class="card"><div class="row"><button class="btn sm outline" onclick="T_changePw(false)">🔑 ${esc(t('pw.title'))}</button><button class="btn sm outline" onclick="T_forgotPw()">❓ ${EN()?'Forgot password':'ลืมรหัสผ่าน'}</button></div></div>`;
+    if (CONFIG.MODE === 'gas') { googleReady(); GOOGLE_PAINT(); }
     window.scrollTo(0,0); };
   window.T_saveProfile = async (btn)=>{ const g=k=>{ const e=document.getElementById('sp_'+k); return e?e.value.trim():undefined; };
     const data={ NameEN:g('NameEN'), Nickname:g('Nickname'), Phone:g('Phone'), DOB:g('DOB'), Email:emailFmt(g('Email')) };

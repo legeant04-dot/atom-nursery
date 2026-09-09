@@ -3300,7 +3300,7 @@ function createAtomAPI(M, GROWTH_STD) {
       const grp=(M.staffGroups||[]).find(g=>g.GroupName===s.StaffGroup)||null;
       return { StaffID:s.StaffID, NameTH:s.NameTH, NameEN:s.NameEN, Nickname:s.Nickname, NicknameEN:s.NicknameEN,
         Role:s.Role, PositionLevel:s.PositionLevel, Position:s.Position, Department:s.Department,
-        StaffGroup:s.StaffGroup, Phone:s.Phone, DOB:s.DOB, StartDate:s.StartDate, NationalID:s.NationalID, Email:s.Email,
+        StaffGroup:s.StaffGroup, Phone:s.Phone, DOB:s.DOB, StartDate:s.StartDate, NationalID:s.NationalID, Email:s.Email, GoogleLinked: !!s.GoogleSub,
         RequireCheckin: s.RequireCheckin!==false, MustChangePassword: !!s.MustChangePassword,
         CanClassOrg: canOrganize_(s), CanFoodMenu: canFoodMenu_(s),
         /* THE FACT, NEVER THE DATE. The screen needs to know not to draw two clock-in buttons the
@@ -4238,13 +4238,23 @@ function createAtomAPI(M, GROWTH_STD) {
       if(p.staffId){ const s=staffById(p.staffId); if(!s.StaffID)fail('NOT_FOUND','ไม่พบพนักงาน'); Object.assign(s,d); return s; }
       const id=nextSeqId_(M.staff,'StaffID','STF',2); const rec=Object.assign({StaffID:id,Role:'Teacher',Status:'ACTIVE'},d); M.staff.push(rec); return rec; },
     deleteStaff: p => { const i=M.staff.findIndex(s=>s.StaffID===p.staffId); if(i<0)fail('NOT_FOUND','ไม่พบพนักงาน'); M.staff.splice(i,1); return {ok:true}; },
+    /* Google sign-in is a GAS-only route (src/Auth.gs shadows these). Verifying an ID token means a
+     * call to Google, which the mock has no business making, so mock mode answers "not configured"
+     * and the button is simply never drawn — the same answer a school that has not set up an OAuth
+     * client gets. Present rather than missing so the action exists and its shape is fixed. */
+    googleLoginReady: () => ({ ready:false, clientId:'' }),
+    googleExchange: () => fail('GOOGLE_NOT_CONFIGURED','โหมดทดลองไม่รองรับการเข้าสู่ระบบด้วย Google'),
+    googleLink: () => fail('GOOGLE_NOT_CONFIGURED','โหมดทดลองไม่รองรับการผูกบัญชี Google'),
     listParents: () => M.parents,
     // family profile for the "My info" screen: ALL parents linked to the caller's children (co-parents
     // included) + the children themselves. Identity (uid/parentId) is injected server-side.
     familyProfile: p => { const kids=visibleStudents(p); const kidIds=kids.map(s=>s.StudentID); const seen={}; const parents=[];
       M.parents.forEach(pa=>{ if((kidIds.indexOf(pa.StudentID)>=0 || pa.ParentID===p.parentId) && !seen[pa.ParentID]){ seen[pa.ParentID]=1;
         // Photo = an uploaded picture (wins); LinePictureUrl = their current LINE profile picture (fallback)
-        parents.push({ ParentID:pa.ParentID, NameTH:pa.NameTH||pa.Name, NameEN:pa.NameEN, Nickname:pa.Nickname, NicknameEN:pa.NicknameEN, Title:pa.Title, NationalID:pa.NationalID, Relationship:pa.Relationship, Phone:pa.Phone, Occupation:pa.Occupation, Workplace:pa.Workplace, OfficePhone:pa.OfficePhone, Address:pa.Address, Email:pa.Email, Photo:pa.Photo, LinePictureUrl:pa.LinePictureUrl, StudentID:pa.StudentID, isMe: pa.ParentID===p.parentId }); } });
+        parents.push({ ParentID:pa.ParentID, NameTH:pa.NameTH||pa.Name, NameEN:pa.NameEN, Nickname:pa.Nickname, NicknameEN:pa.NicknameEN, Title:pa.Title, NationalID:pa.NationalID, Relationship:pa.Relationship, Phone:pa.Phone, Occupation:pa.Occupation, Workplace:pa.Workplace, OfficePhone:pa.OfficePhone, Address:pa.Address, Email:pa.Email,
+          /* WHETHER it is linked, never the id itself. GoogleSub is a stable identifier for a person
+           * across every site they use it on; the screen only needs a tick. */
+          GoogleLinked: !!pa.GoogleSub, Photo:pa.Photo, LinePictureUrl:pa.LinePictureUrl, StudentID:pa.StudentID, isMe: pa.ParentID===p.parentId }); } });
       return { parents, myParentId:p.parentId, students: kids.map(s=>({ StudentID:s.StudentID, NameTH:s.NameTH, NameEN:s.NameEN, Nickname:s.Nickname, NicknameEN:s.NicknameEN, Class:s.Class, DOB:s.DOB, Plan:s.Plan, NationalID:s.NationalID, Gender:s.Gender, BloodType:s.BloodType, RH:s.RH, Allergy:s.Allergy, MedicalHistory:s.MedicalHistory, EmergencyContact:s.EmergencyContact, Address:s.Address, Race:s.Race, Nationality:s.Nationality, Religion:s.Religion, Photo:s.Photo })) }; },
     // edit a parent that is either the caller or a co-parent of the caller's child (server validates); whitelisted.
     saveFamilyParent: p => { const kids=visibleStudents(p); const kidIds=kids.map(s=>s.StudentID); const tid=p.targetParentId||p.parentId;
