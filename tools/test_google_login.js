@@ -309,7 +309,12 @@ console.log('\n9) what the screens do with it');
   ok_('...including the link card', /if \(inLineApp\(\)\) return '';/.test(c));
   ok_('the button is never auto-triggered', /auto_select: false/.test(c));
   ok_('Safari’s tracking prevention is accounted for', /itp_support: true/.test(c));
-  ok_('a readiness ask that FAILED is not remembered as a no', /\.catch\(\(\) => \{ _gsiClientId = null; \}\)/.test(c));
+  ok_('a readiness ask that FAILED is not remembered as a no', /\.catch\(\(\) => \{ _gsiClientId = null;/.test(c));
+  /* "UNKNOWN" ONLY HELPS IF SOMETHING ASKS AGAIN, and the sign-in screen is drawn once and then
+   * waits — so a single failed ask (a blip, a request cancelled by the phone going to the
+   * background, a cold Apps Script execution) left an empty space for the whole visit, on exactly
+   * the device that needed the button. Bounded, so no network is not a retry loop. */
+  ok_('...and it is asked again, a bounded number of times', /if \(_gsiTries\+\+ < 2\) setTimeout\(\(\) => \{ if \(typeof GOOGLE_PAINT === 'function'\) GOOGLE_PAINT\(\); \}, 2500\);/.test(c));
   /* NOBODY IS WAITING ON A READINESS ANSWER. A read still in flight after 350ms covers the screen
    * with a blocking "ระบบกำลังดำเนินการ", and the first Apps Script execution after a deploy takes
    * seconds — so probing CONFIGURATION was greying out the very LINE button the parent was reaching
@@ -359,6 +364,14 @@ console.log('\n11) the button exists on a COLD start, which is the visit that fa
   ok_('...after inLineApp exists, not before it', c.indexOf('const inLineApp') < c.indexOf("['lineWebBtn','openInLineBtn','gsiShell']"));
   const ls = c.slice(c.indexOf('function loginScreen()'), c.indexOf('function loginScreen()') + 3000);
   ok_('the paint is asked for above the early return', ls.indexOf('GOOGLE_PAINT()') < ls.indexOf("getElementById('bootSplash')"));
+  /* WHICH BUILD IS THIS PHONE RUNNING? "The button is missing" and "you are on last week's app.js"
+   * are the same screenshot, and the only screen showing the version was one you have to be signed
+   * in to reach. The shell prints what it shipped with; app.js overwrites it with what is actually
+   * executing, so a cached shell beside a newer bundle shows itself. */
+  ok_('the sign-in screen names the build', /id="verTag"/.test(html) && /id="verTag"/.test(c));
+  ok_('...and app.js corrects it to what is really running', /_v\.textContent=APP_VERSION/.test(c));
+  ok_('...and the release script keeps the shell literal honest', /Version 1\\\.\\d\+/.test(R('tools/release.js')));
+  ok_('the shell literal matches this build', (html.match(/Version 1\.(\d+)/) || [])[1] === (c.match(/APP_VERSION = 'Version 1\.(\d+)'/) || [])[1]);
 }
 
 console.log(fail ? `\nFAILED ${pass} passed, ${fail} failed` : `\nPASSED ${pass} passed, 0 failed`);
