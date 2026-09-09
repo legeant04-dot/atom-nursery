@@ -309,6 +309,46 @@ console.log('\n6c) one LINE account, one record');
   ok_('...and is explained to the admin', /LINE_UID_TAKEN:\s*\[/.test(app));
 }
 
+console.log('\n6d) why did this person land on THAT account?');
+{
+  /* THE REAL CASE, 09/09/26. The owner gave himself a new STAFF record carrying his own LINE ID and
+   * signed in with LINE — and arrived on the SHARED admin record anyway, while Google took him to
+   * the new one. Nothing on any screen could explain it, because the deciding row was on the one
+   * sheet the app has no route for: USERS, which handleAuth reads BEFORE the other two. */
+  const ctx = boot({});
+  const setup = call(ctx, 'function(){' +
+    ' var u = sheet_(getMainSpreadsheet_(), "USERS");' +
+    ' appendObject_(u, { UserID:"U-2", LineUID:"U_me", Role:"Admin", LinkedID:"STF-OLD", Status:"ACTIVE" });' +   // stale: points at the shared record
+    ' var s = sheet_(getHrSpreadsheet_(), "STAFF");' +
+    ' appendObject_(s, { StaffID:"STF-NEW", Name:"ผมเอง", Role:"Admin", Status:"ACTIVE", LineUID:"U_me" });' +
+    ' try { CacheService.getScriptCache().removeAll(["col:USERS","rows:USERS","col:STAFF","rows:STAFF"]); } catch (e) {}' +
+    ' return handleAuthDiag({ uid: "U_me" }); }');
+  eq('both records carrying the uid are found', (setup.v.matches || []).map(m => m.sheet).sort(), ['STAFF', 'USERS']);
+  eq('...and it says which one actually wins', [setup.v.resolves.sheet, setup.v.resolves.id], ['USERS', 'U-2']);
+  eq('...and what that row points AT, which is the whole trick', setup.v.resolves.linkedId, 'STF-OLD');
+  /* The diagnostic has to agree with the thing it explains, or it is worse than nothing. */
+  const real = call(ctx, 'function(){ return ROUTES.auth({ lineUid: "U_me" }); }');
+  eq('handleAuth really does land there', real.v.linkedId, 'STF-OLD');
+  // and once the stale row is repointed, both agree again
+  const fixed = call(ctx, 'function(){' +
+    ' var u = sheet_(getMainSpreadsheet_(), "USERS"), r = findObject_(u, function (x) { return x.UserID === "U-2"; });' +
+    ' updateRow_(u, r._row, { LinkedID: "STF-NEW" });' +
+    ' try { CacheService.getScriptCache().removeAll(["col:USERS","rows:USERS"]); } catch (e) {}' +
+    ' return [handleAuthDiag({ uid: "U_me" }).resolves.linkedId, ROUTES.auth({ lineUid: "U_me" }).linkedId]; }');
+  eq('repointing the USERS row fixes it, and the check agrees', fixed.v, ['STF-NEW', 'STF-NEW']);
+}
+{
+  const ctx = boot({});
+  eq('an address can be looked up too', call(ctx, 'function(){ return handleAuthDiag({ email: "karn@gmail.com" }).matches[0].id; }').v, 'PAR-1');
+  eq('a uid nobody holds says so plainly', call(ctx, 'function(){ return handleAuthDiag({ uid: "U_nobody" }).matches.length; }').v, 0);
+  eq('asking nothing is refused', call(ctx, 'function(){ return handleAuthDiag({}); }').code, 'BAD_INPUT');
+  ok_('it is admin-only — it hands back the school’s LINE ids and addresses', /authDiag: 1/.test(srcCode(code)));
+  ok_('...and read-only: it writes nothing', !/updateRow_|appendObject_|deleteRow/.test(
+    srcCode(auth).slice(srcCode(auth).indexOf('function handleAuthDiag'), srcCode(auth).indexOf('function googleBust_'))));
+  ok_('the screen warns that a USERS row decides first', /มีสิทธิ์ตัดสินก่อนเสมอ/.test(app));
+  ok_('...and says where to fix one, since the app has no screen for that sheet', /ต้องแก้ที่ตาราง USERS ในชีตโดยตรง/.test(app));
+}
+
 console.log('\n7) readiness, and a school that has not set it up');
 {
   const ctx = boot({});

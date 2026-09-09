@@ -112,7 +112,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.365'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.366'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -9145,6 +9145,17 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
         : 'ถ้าเพิ่ม/แก้วันหยุดครึ่งวัน "หลังจาก" มีคนลงเวลาไปแล้ว นาทีสายของคนนั้นจะคิดจากเวลาเดิม · กดคำนวณใหม่เพื่อเขียนทับด้วยเวลาจริงของวันนี้'}</p>
       <button class="btn sm outline block" onclick="A_recomputeAtt(this)">🕑 ${EN()?'Recalculate today’s late minutes':'คำนวณนาทีสายของวันนี้ใหม่'}</button>
       <button class="btn sm outline block" style="margin-top:4px" onclick="A_diagDay()">🔍 ${EN()?'What the server thinks today is':'ตรวจสอบว่าระบบมองวันนี้อย่างไร'}</button>
+      ${/* WHICH RECORD DOES THIS PERSON LAND ON? An Admin-provisioned USERS row outranks every STAFF
+           and PARENTS row and the app has no other screen that shows one, so somebody can hold the
+           right LINE ID on the right staff record and still arrive somewhere else — with nothing
+           anywhere to explain it. That happened (09/09/26) and took a code reading to answer. */''}
+      <h4 style="margin:10px 0 4px">🪪 ${EN()?'Which record does a sign-in land on?':'เข้าสู่ระบบแล้วไปที่ข้อมูลไหน?'}</h4>
+      <p class="muted" style="font-size:13px">${EN()
+        ? 'Paste a LINE ID or an email to see every record that carries it, on all three sheets, and which one wins.'
+        : 'วาง LINE ID หรืออีเมล เพื่อดูว่ามีข้อมูลใดถืออยู่บ้างในทั้ง 3 ตาราง และระบบจะพาเข้าอันไหน'}</p>
+      <div class="row" style="gap:6px"><input id="adUid" placeholder="Uxxxxxxxx… ${EN()?'or':'หรือ'} name@gmail.com" style="flex:1"/>
+        <button class="btn sm outline" onclick="A_authDiag()">🔍 ${EN()?'Check':'ตรวจสอบ'}</button></div>
+      <div id="authDiagBox" style="font-size:13px"></div>
       <button class="btn block" onclick="A_saveSettings(this)">${esc(t('c.save'))}</button>`);
     A_lineWebStatus();
   };
@@ -9156,6 +9167,32 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
    * the exact URL the app WILL send is printed for the admin to compare character for character.
    * That is the mismatch that produces "invalid_request", and it is invisible from either side.
    */
+  /* Every record carrying a LINE ID or an address, on all three sheets, and which one handleAuth
+   * picks. The USERS row is the one worth drawing attention to: it is the only sheet with no screen
+   * of its own, it points AT another record rather than being one, and it beats both the others. */
+  window.A_authDiag = async () => {
+    const box = document.getElementById('authDiagBox'), v = (document.getElementById('adUid')||{}).value || '';
+    if (!box) return;
+    const q = v.trim(); if (!q) { box.innerHTML = ''; return; }
+    box.innerHTML = `<div class="card" style="padding:8px">${EN()?'Checking…':'กำลังตรวจสอบ…'}</div>`;
+    let d = null;
+    try { d = await api('authDiag', q.indexOf('@') > 0 ? { email: q } : { uid: q }); } catch (e) { err(e); box.innerHTML = ''; return; }
+    const sheetLbl = { USERS: EN()?'USERS (admin-provisioned)':'USERS (บัญชีที่แอดมินสร้าง)', PARENTS: EN()?'Parent':'ผู้ปกครอง', STAFF: EN()?'Staff':'พนักงาน' };
+    const rows = (d.matches||[]).map(m => {
+      const wins = d.resolves && d.resolves.sheet === m.sheet && d.resolves.id === m.id;
+      return `<div class="list-item stack" style="${wins?'border-left:3px solid var(--ok)':''}">
+        <span><b>${esc(m.name||m.id)}</b> <span class="pill ${m.sheet==='USERS'?'warn':'info'}" style="font-size:11px">${esc(sheetLbl[m.sheet]||m.sheet)}</span>
+          ${wins?`<span class="pill ok" style="font-size:11px">${EN()?'this one wins':'ระบบพาเข้าอันนี้'}</span>`:''}<br>
+          <small class="muted">${esc(m.id)}${m.role?' · '+esc(m.role):''}${m.linkedId?` · ${EN()?'points at':'ชี้ไปที่'} ${esc(m.linkedId)}`:''}</small><br>
+          <small class="muted">🔗 ${esc(m.lineUid||'—')}${m.email?' · 📧 '+esc(m.email):''}${m.googleLinked?' ✅':''}</small></span>
+        <span><small class="muted">${esc(m.matchedBy)}</small></span></div>`; }).join('');
+    box.innerHTML = `<div class="card" style="padding:8px">
+      ${rows || `<span class="muted">${EN()?'Nothing carries it — that sign-in would be a new user.':'ไม่มีข้อมูลใดถืออยู่ — จะถือเป็นผู้ใช้ใหม่'}</span>`}
+      ${(d.matches||[]).some(m=>m.sheet==='USERS') ? `<div class="card" style="background:var(--warn-bg);border-color:var(--warn-line);padding:8px;margin-top:6px"><small>⚠️ ${EN()
+        ? 'A USERS row decides first, whatever the staff or parent records say. It points at another record — if that is the wrong one, fix it on the USERS sheet; the app has no screen for it.'
+        : 'แถวใน USERS มีสิทธิ์ตัดสินก่อนเสมอ ไม่ว่าข้อมูลพนักงานหรือผู้ปกครองจะเป็นอย่างไร · แถวนี้ "ชี้ไปที่" ข้อมูลอีกอันหนึ่ง — ถ้าชี้ผิด ต้องแก้ที่ตาราง USERS ในชีตโดยตรง เพราะแอปยังไม่มีหน้าจอสำหรับตารางนี้'}</small></div>` : ''}
+      ${(d.matches||[]).length>1 ? `<small class="muted">${EN()?'More than one record carries it. Only the highlighted one is ever used.':'มีมากกว่าหนึ่งรายการที่ถืออยู่ · ระบบใช้เฉพาะอันที่ไฮไลต์ไว้'}</small>` : ''}</div>`;
+  };
   window.A_lineWebStatus = async () => {
     const box = document.getElementById('lineWebCfg'); if (!box) return;
     let r = null; try { r = await api('lineLoginReady', {}); } catch (e) {}

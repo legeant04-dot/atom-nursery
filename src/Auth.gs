@@ -282,6 +282,53 @@ function googleFindByUid_(uid) {
   }
   return null;
 }
+/**
+ * WHY DID THIS PERSON LAND ON THAT ACCOUNT?
+ *
+ * Asked 09/09/26 and it took a code reading to answer, which is the wrong shape of answer. The
+ * school's owner gave himself a new STAFF record with his own LINE ID, signed in with LINE, and
+ * arrived on the SHARED admin record anyway — while signing in with Google arrived on the new one.
+ * Nothing on any screen could explain it, because the deciding row was on the one sheet the app has
+ * no route for at all: USERS, which handleAuth reads BEFORE both of the others.
+ *
+ * An Admin-provisioned USERS row silently outranks every STAFF and PARENTS row, and until now the
+ * only way to see one was to open the spreadsheet. That is a trap with sixty accounts in it, so this
+ * says out loud what handleAuth is about to do: every row carrying the uid or the address, on all
+ * three sheets, and which one wins.
+ *
+ * READ-ONLY, and admin-only — it hands back LINE ids and email addresses for the whole school.
+ */
+function handleAuthDiag(p) {
+  p = p || {};
+  var uid = String(p.uid || '').trim();
+  var email = normEmail_(p.email);
+  if (!uid && !email) throw apiError_('BAD_INPUT', 'ใส่ LINE ID หรืออีเมลที่ต้องการตรวจสอบ');
+  var out = { uid: uid, email: email, matches: [], resolves: null };
+  googleSheets_().forEach(function (s) {
+    var rows;
+    try { rows = readObjects_(s.sheet); } catch (e) { return; }
+    rows.forEach(function (r) {
+      var byUid = uid && String(r.LineUID || '').trim() === uid;
+      var byMail = email && normEmail_(r.Email) === email;
+      if (!byUid && !byMail) return;
+      var hit = {
+        sheet: s.kind, id: String(r[s.idField] || ''),
+        name: String(r.Name || r.NameEN || r.LinkedID || r[s.idField] || ''),
+        role: String(r.Role || (s.kind === 'PARENTS' ? 'Parent' : '')),
+        linkedId: String(r.LinkedID || ''),          // USERS points AT another record — the whole trick
+        lineUid: String(r.LineUID || ''),
+        email: normEmail_(r.Email),
+        googleLinked: !!r.GoogleSub,
+        matchedBy: byUid ? (byMail ? 'uid+email' : 'uid') : 'email'
+      };
+      out.matches.push(hit);
+      // the first row carrying the UID, in handleAuth's own order, is the account they get
+      if (byUid && !out.resolves) out.resolves = hit;
+    });
+  });
+  return out;
+}
+
 /** Throw away the cached rows for whichever sheet was just written. */
 function googleBust_(kind) {
   try { if (kind === 'STAFF') staffCacheBust_(); else recCacheBust_(kind); } catch (e) {}

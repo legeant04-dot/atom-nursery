@@ -192,6 +192,7 @@ var ROUTES = {
   deleteStudentLeaves:  function (p) { return handleDeleteStudentLeaves(p); },   // batch, admin-only
   dedupData:            function (p) { return handleDedupData(p); },        // {preview:true} read-only; else applies
   lineDiag:             function (p) { return handleLineDiag(p); },          // admin-only: LINE push quota/token check
+  authDiag:             function (p) { return handleAuthDiag(p); },          // admin-only: which record a sign-in lands on, and why
   lineUsage:            function (p) { return handleLineUsage(p); },         // what a month of notifications would cost, counted
   lineRecipients:       function (p) { return handleLineRecipients(p); },    // who gets a LINE push, about what
   saveLineRecipients:   function (p) { return handleSaveLineRecipients(p); },
@@ -369,6 +370,8 @@ function applyIdentity_(action, payload, sess) {
     // still correct it, and this list cannot see either of those rules. The engine checks them.
     unlockInjury: 1, deleteInjury: 1,
     editStudentLeave: 1, deleteStudentLeave: 1, deleteStudentLeaves: 1, dedupData: 1, lineDiag: 1,
+    // hands back LINE ids and email addresses for the whole school — admin only, and read-only
+    authDiag: 1,
     // who the school messages, and what it costs — both admin-only: the list carries LINE user ids
     lineUsage: 1, lineRecipients: 1, saveLineRecipients: 1,
     adminInbox: 1, markInboxRead: 1, reinstallTriggers: 1, unlinkStudent: 1, linkParentAdmin: 1, setLeaveQuota: 1, setConfigVal: 1, markSalaryPaid: 1, notifyBills: 1, issueBillsFor: 1, savePlans: 1, saveQRCodes: 1, prepayAudit: 1, recomputeContributions: 1, contributionReset: 1, payrollDuplicates: 1, deletePayrollRow: 1, savePrepayTiers: 1, editPrepay: 1, setStudentPause: 1, setStaffEnd: 1, setStaffPause: 1, staffAttendanceMonth: 1, studentMonthReport: 1, recordCashPayment: 1, pausedStudents: 1, deleteSlip: 1, slipDiag: 1, saveSlipOk: 1, cancelPrepay: 1, perfSummary: 1, deletePerfLog: 1, prepaidStudents: 1, insuranceExport: 1,
