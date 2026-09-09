@@ -112,7 +112,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.362'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.363'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -1290,7 +1290,12 @@
       ${/* Android only, and ABOVE the add-to-home-screen box: for a phone that can take the real
            app, the shortcut is the second-best answer. iPhones see neither this nor a dead button. */''}
       ${apkCardHTML()}
-      ${installButtonsHTML()}</div>`;
+      ${installButtonsHTML()}
+      ${/* THE BUILD, ON THE ONE SCREEN WHERE NOBODY CAN REACH THE CHAT SCREEN TO READ IT.
+           "The Google button is not there" and "your phone is still on last week's app.js" look
+           identical in a screenshot, and this app is served from a cache that can hold an old copy
+           for a while. One line settles it without asking anybody to open developer tools. */''}
+      <div id="verTag" style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:18px">${esc(APP_VERSION)}</div></div>`;
     /* Painted AFTER the box exists. googleReady() above only asks the server; when the answer is
      * already in hand from an earlier render it resolves nothing, so the draw has to be asked for
      * here or the second visit to this screen shows an empty space where the button was. */
@@ -1387,6 +1392,10 @@
    * so calling it earlier is a temporal-dead-zone ReferenceError, not a hoisted function. */
   if(inLineApp()){ ['lineWebBtn','openInLineBtn','gsiShell'].forEach(id=>{
     const _e=document.getElementById(id); if(_e) _e.remove(); }); }
+  /* The shell's version literal is whatever index.html shipped with; app.js knows what IS running.
+   * They differ in exactly the case worth catching — a cached index.html beside a newer bundle, or
+   * the reverse — and the one that answers "why is the button missing" is this one. */
+  (()=>{ const _v=document.getElementById('verTag'); if(_v) _v.textContent=APP_VERSION; })();
   const liffAppUrl = () => 'https://liff.line.me/' + CONFIG.LIFF_ID;
   window.OPEN_IN_LINE = () => { setLiffPending(false); location.href = liffAppUrl(); };
 
@@ -1529,7 +1538,7 @@
    */
   const GSI_SRC = 'https://accounts.google.com/gsi/client';
   let _gsiClientId = null;   // null = not asked yet · '' = configured off · else the id
-  let _gsiLoad = null;
+  let _gsiLoad = null, _gsiTries = 0;
   /* Asked once and remembered, like lineWebReady — and a FAILED ask goes back to "unknown" rather
    * than to "no", or one cancelled request would hide the route for the rest of the session on
    * exactly the device that needs it. */
@@ -1543,7 +1552,15 @@
        * Seen on the live site (v362). lineWebReady is quietened for the same reason. */
       api('googleLoginReady', {}, { quiet: true }).then(r => { _gsiClientId = String((r && r.clientId) || '');
         if (_gsiClientId) GOOGLE_PAINT();
-      }).catch(() => { _gsiClientId = null; });
+      }).catch(() => { _gsiClientId = null;
+        /* AND TRY AGAIN, once or twice. Resetting to "unknown" only helps if something asks again,
+         * and on the sign-in screen nothing does — that screen is drawn once and then waits. So a
+         * single failed ask (a blip, a request cancelled by the phone going to the background, a
+         * cold Apps Script execution that timed out) left an empty space where the button should be,
+         * for the whole visit, on exactly the device that needed it. Bounded, so a school with no
+         * network does not sit in a retry loop. */
+        if (_gsiTries++ < 2) setTimeout(() => { if (typeof GOOGLE_PAINT === 'function') GOOGLE_PAINT(); }, 2500);
+      });
     }
     return !!_gsiClientId;
   }

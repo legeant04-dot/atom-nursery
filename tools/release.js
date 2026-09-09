@@ -54,7 +54,11 @@ function check() {
 function write(next) {
   const cur = current();
   fs.writeFileSync(P.app, read(P.app).replace(VER_RE, (m, a, maj, min, z) => a + maj + '.' + next + z));
-  fs.writeFileSync(P.html, read(P.html).replace(/\?v=\d+/g, '?v=' + next));
+  /* The shell prints the version too, so a screenshot of the sign-in screen says which build the
+   * phone is actually running. It is a literal in static HTML — bumped here, or it would quietly
+   * start lying, which is worse than not showing it at all. */
+  fs.writeFileSync(P.html, read(P.html).replace(/\?v=\d+/g, '?v=' + next)
+    .replace(/Version 1\.\d+/g, 'Version 1.' + next));
   fs.writeFileSync(P.sw, read(P.sw).replace(/atom-v\d+/g, 'atom-v' + next));
   return { from: cur.minor, to: next };
 }
