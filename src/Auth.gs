@@ -162,7 +162,33 @@ function handleLineExchange(payload) {
  * the address verified. Google itself asks for neither a client secret nor a redirect URI in this
  * mode, which is also why the `Invalid redirect_uri` trouble the LINE route hit cannot happen here.
  */
-function googleClientId_() { return String(getConfig_('GoogleClientId', '') || '').trim(); }
+/**
+ * The client id, and the difference between "switched off" and "never set up".
+ *
+ * getConfig_ treats a blank cell as absent and hands back the default, which would make it
+ * impossible to turn this OFF from the sheet — blanking the row would silently restore it. So the
+ * sheet is read directly: a row that EXISTS decides, blank included, and only the absence of a row
+ * falls back to the client baked into SCHOOL_CONFIG_DEFAULTS.
+ *
+ * Falling back at all matters because the live workbook predates this key — it is seeded only on
+ * setup — so without it the feature would ship switched off and look broken. A client id is not a
+ * secret (every browser drawing the button receives it), it belongs to this one school, and an admin
+ * can still override or clear it from Settings.
+ */
+function googleClientIdDefault_() {
+  try {
+    for (var i = 0; i < SCHOOL_CONFIG_DEFAULTS.length; i++) {
+      if (SCHOOL_CONFIG_DEFAULTS[i][0] === 'GoogleClientId') return String(SCHOOL_CONFIG_DEFAULTS[i][1] || '').trim();
+    }
+  } catch (e) {}
+  return '';
+}
+function googleClientId_() {
+  var v;
+  try { v = getAllConfig_()['GoogleClientId']; } catch (e) { v = undefined; }
+  if (v !== undefined) return String(v || '').trim();
+  return googleClientIdDefault_();
+}
 
 /** Public: is the button worth drawing? Says yes/no and the client id, which is not a secret. */
 function handleGoogleLoginReady() {
