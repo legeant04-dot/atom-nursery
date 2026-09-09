@@ -310,6 +310,12 @@ console.log('\n9) what the screens do with it');
   ok_('the button is never auto-triggered', /auto_select: false/.test(c));
   ok_('Safari’s tracking prevention is accounted for', /itp_support: true/.test(c));
   ok_('a readiness ask that FAILED is not remembered as a no', /\.catch\(\(\) => \{ _gsiClientId = null; \}\)/.test(c));
+  /* NOBODY IS WAITING ON A READINESS ANSWER. A read still in flight after 350ms covers the screen
+   * with a blocking "ระบบกำลังดำเนินการ", and the first Apps Script execution after a deploy takes
+   * seconds — so probing CONFIGURATION was greying out the very LINE button the parent was reaching
+   * for, on the sign-in screen, which is the one screen where that is least forgivable. */
+  ok_('probing configuration does not cover the sign-in screen', /api\('googleLoginReady', \{\}, \{ quiet: true \}\)/.test(c));
+  ok_('...and neither does the LINE one', /api\('lineLoginReady', \{\}, \{ quiet: true \}\)/.test(c));
   /* One callback for two jobs, told apart by whether anybody is signed in — the link button only
    * exists inside a session and the sign-in button only outside one. */
   ok_('the credential cannot reach the wrong handler', /if \(USER\) GOOGLE_LINK_SAVE\(cred\); else GOOGLE_SIGNIN\(cred\);/.test(c));
