@@ -388,8 +388,12 @@ function applyIdentity_(action, payload, sess) {
    * payload untouched, which would leave this one action with no identity at all and refuse the
    * admin their own link, so it is stamped here for every role including Admin. */
   if (action === 'googleLink') {
+    /* The UID, not a role-derived id. handleGoogleLink finds the row the way handleAuth does, so the
+     * link always lands on the record a LINE sign-in resolves to — including an Admin-provisioned
+     * USERS row, which is neither a parentId nor a staffId. Everything the client sent is thrown
+     * away first: this action is only ever about the caller. */
     delete payload.parentId; delete payload.staffId;
-    if (sess.role === ROLES.PARENT) payload.parentId = sess.linkedId; else payload.staffId = sess.linkedId;
+    payload.uid = sess.uid;
     return payload;
   }
   // Admin is fully trusted: may target ANY staff/student/parent (manage everyone + "view as" any role).
