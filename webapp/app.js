@@ -112,7 +112,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.359'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.360'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -1252,7 +1252,10 @@
      * was never asked at all on a cold start, because the boot splash is still on screen — found by
      * running it rather than reading it. */
     if (CONFIG.MODE === 'gas' && CONFIG.LIFF_ID) lineWebReady();
-    if (CONFIG.MODE === 'gas') googleReady();   // same reason, same place: the answer before the tap
+    /* Both ABOVE the early return, and for the same reason lineWebReady() is: on a cold start the
+     * shell is still on screen and this function stops here, so anything asked for below it is never
+     * asked at all. The shell now carries the same container, so painting from here fills it. */
+    if (CONFIG.MODE === 'gas') { googleReady(); GOOGLE_PAINT(); }
     if(document.getElementById('bootSplash') && !EN()) return;
     app.innerHTML = `<div class="rolewrap"><img src="assets/logo.png" class="logo-lg" alt="logo"/>
       <h2 class="page" style="text-align:center">${esc(t('login.title'))}</h2>
@@ -1376,6 +1379,14 @@
    * already exists and there is no OAuth hop to lose.
    */
   const inLineApp = () => /\bLine\//i.test(navigator.userAgent||'');
+  /* The shell's stuck-parent routes, settled the way the .apk card is and at the same moment: drawn
+   * for everyone at first paint, taken away here from the audience they cannot serve. Inside LINE's
+   * own browser neither belongs — the LIFF session is already there, and Google refuses OAuth in an
+   * embedded WebView, so that button could only ever fail.
+   * Placed AFTER inLineApp rather than beside the apkCard prune above it: this is a `const` arrow,
+   * so calling it earlier is a temporal-dead-zone ReferenceError, not a hoisted function. */
+  if(inLineApp()){ ['lineWebBtn','openInLineBtn','gsiShell'].forEach(id=>{
+    const _e=document.getElementById(id); if(_e) _e.remove(); }); }
   const liffAppUrl = () => 'https://liff.line.me/' + CONFIG.LIFF_ID;
   window.OPEN_IN_LINE = () => { setLiffPending(false); location.href = liffAppUrl(); };
 
