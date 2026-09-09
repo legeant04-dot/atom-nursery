@@ -89,7 +89,14 @@ SCHEMA[WB.MAIN] = {
   // Title = คำนำหน้า (นาย/นาง/นางสาว) — indicates gender; defaults from Relationship (บิดา→นาย, มารดา→นางสาว).
   // LinePictureUrl (appended at END) = the parent's CURRENT LINE profile picture, refreshed on each
   // login (handleAuth). It is the display fallback; an uploaded `Photo` always wins.
-  PARENTS:           ['ParentID', 'NationalID', 'Name', 'NameEN', 'Relationship', 'Phone', 'Occupation', 'Workplace', 'OfficePhone', 'LineUID', 'StudentID', 'Address', 'Photo', 'RegisterPhotoUrl', 'Nickname', 'NicknameEN', 'Title', 'LinePictureUrl'],
+  /* Email / GoogleSub — the SECOND way in, added 09/09/26 after a parent on iOS could not complete
+   * the LINE hand-off for two days. LineUID stays the identity spine: signing in with Google only
+   * RESOLVES to the same LineUID and mints the same session, so nothing downstream changes.
+   *   · Email is what a person can be asked for and an admin can type.
+   *   · GoogleSub is Google's permanent account id, captured the first time they sign in. Matching on
+   *     it (not on the email) is what survives a parent changing their email address later.
+   * Both are optional; a family that never gives an email keeps working exactly as before. */
+  PARENTS:           ['ParentID', 'NationalID', 'Name', 'NameEN', 'Relationship', 'Phone', 'Occupation', 'Workplace', 'OfficePhone', 'LineUID', 'StudentID', 'Address', 'Photo', 'RegisterPhotoUrl', 'Nickname', 'NicknameEN', 'Title', 'LinePictureUrl', 'Email', 'GoogleSub'],
   // Pickup persons authorized other than parents (PDPA application form §3)
   PICKUP_PERSONS:    ['StudentID', 'Name', 'Phone', 'Relation'],
   // user <-> student data-access links (data isolation; supports father linking after mother registered)
@@ -216,6 +223,10 @@ SCHEMA[WB.HR] = {
                   // to it) — Status goes INACTIVE and these say when and why, so the person can be
                   // brought back later without re-entering anything.
                   'EndDate', 'EndReason', 'EndRemark',
+                  // second way in — see the note on PARENTS. Staff are resolved BEFORE parents on
+                  // sign-in, so one person who is both a teacher and a parent lands on their staff
+                  // record either way, exactly as they already do with LineUID.
+                  'Email', 'GoogleSub',
                   // Temporary leave (ลาชั่วคราว) — employed, still on the roster, not here. Kept in
                   // its own columns rather than in Status, which already means 'no longer employed'.
                   // PauseSalaryMode: ''=paid as normal | NONE | HALF | CUSTOM (with PauseSalaryAmount).

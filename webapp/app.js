@@ -112,11 +112,17 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.356'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.357'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
   const phoneFmt = p => { let d=String(p==null?'':p).replace(/\D/g,''); if(d.length===9) d='0'+d; return d; };
+  /* Email is optional everywhere — but once given it becomes a way IN, so it is normalised the same
+   * way the server does (lower-case, trimmed) and checked for shape before it is sent. The server
+   * refuses a bad or duplicate address regardless; this only saves a round trip and says so on the
+   * field the person is looking at. */
+  const emailFmt = v => String(v==null?'':v).trim().toLowerCase();
+  const emailOk  = v => !v || /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(v);
   const phoneLink = p => { const d=phoneFmt(p); return d?`<a href="tel:${d}" onclick="event.stopPropagation()" style="color:inherit;text-decoration:underline dotted">${esc(d)}</a>`:'-'; };
   const esc = s => String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
   // Escape AND shield from the EN phrase dictionary. Use for anything the school typed in (names,
@@ -479,6 +485,10 @@
                        'ไม่ต้องดำเนินการซ้ำ หากยอดไม่ถูกต้องกรุณาแจ้งแอดมิน','Nothing more to do — tell the admin if the amount looks wrong'],
     ALREADY_REGISTERED:['ข้อมูลนี้มีอยู่ในระบบแล้ว','This record already exists',
                        'ลองค้นหาด้วยชื่อหรือเลขบัตรก่อนเพิ่มใหม่','Search by name or ID before adding a new one'],
+    EMAIL_TAKEN:      ['อีเมลนี้ถูกใช้กับบัญชีอื่นแล้ว','That email is already used by another account',
+                       'อีเมลหนึ่งใช้ได้กับคนเดียวเท่านั้น — ตรวจอีเมลอีกครั้ง หรือใช้อีเมลอื่น','One email belongs to one person only — check it again, or use a different address'],
+    BAD_INPUT:        ['ข้อมูลที่กรอกไม่ถูกต้อง','Something entered is not valid',
+                       'ตรวจข้อมูลในช่องที่กรอกอีกครั้ง','Check the fields again'],
     JOURNAL_LOCKED:   ['สมุดรายงานวันนี้ถูกส่งแล้ว แก้ไขไม่ได้','Today’s report has been sent and is locked',
                        'ติดต่อแอดมินเพื่อปลดล็อกหากต้องแก้ไข','Ask the admin to unlock it if it needs changing'],
     NO_PERMISSION:    ['บัญชีนี้ไม่มีสิทธิ์ใช้งานส่วนนี้','Your account cannot use this section',
@@ -1758,6 +1768,8 @@
         <div class="grid2"><label class="field"><span>${esc(t('reg.relationship'))}</span><select id="rRel" onchange="REG_titleFromRel()"><option>${esc(t('reg.father'))}</option><option>${esc(t('reg.mother'))}</option><option>${esc(t('reg.guardian'))}</option></select></label></div>
         <div class="grid2">${fld_('rPPhone',t('reg.mobile'))}${fld_('rPOffice',t('reg.officePhone'))}</div>
         <div class="grid2">${fld_('rPOcc',t('reg.occupation'))}${fld_('rPWork',t('reg.workplace'))}</div>
+        ${fld_('rPEmail',t('reg.email'),'email','name@gmail.com')}
+        <small class="muted" style="font-size:13px">📧 ${esc(t('reg.emailNote'))}</small>
         ${fld_('rPAddr',t('reg.address'))}
         <label class="field"><span>📸 ${esc(t('reg.photoCapture'))}</span><input id="rPPhoto" type="file" accept="image/*" capture="user" onchange="REG_photoPrev(this)"/><span id="rPPhoto_st" class="muted" style="font-size:13px"></span></label>
         <div style="text-align:center"><img id="rPPhotoPrev" alt="" style="max-height:160px;border-radius:10px;border:1px solid var(--line);margin:4px 0;cursor:zoom-in" hidden onclick="IMG_zoom(this.src)"/></div>
@@ -1778,11 +1790,13 @@
   window.REG_submit = async ()=>{ const v=id=>{ const e=$(id); return e?e.value.trim():''; };
     if(!v('#rPNameTH')&&!v('#rPNameEN')){toast(EN()?'Enter your name':'กรอกชื่อผู้ปกครอง');return;}
     if(!$('#rPDPA').checked){toast(EN()?'Please accept PDPA consent':'กรุณายอมรับ PDPA');return;}
+    const rEmail=emailFmt(v('#rPEmail'));
+    if(!emailOk(rEmail)){toast(t('reg.emailBad'));return;}
     const inp=$('#rPPhoto');
     if(!inp||!inp.files[0]){ toast(t('reg.photoRequired')); return; } // photo is mandatory (login security)
     const parentPhoto=inp.dataset.url||await compressImage(inp.files[0]); // compressed on pick; fall back if not
     const uid=PENDING_LINE_UID||(PENDING_PROVIDER||'LINE')+'_'+Date.now();
-    const parent={Title:$('#rTitle').value,NameTH:v('#rPNameTH'),NameEN:v('#rPNameEN'),Nickname:v('#rPNick'),NicknameEN:v('#rPNickEN'),Relationship:$('#rRel').value,NationalID:v('#rPNID'),Phone:v('#rPPhone'),OfficePhone:v('#rPOffice'),Occupation:v('#rPOcc'),Workplace:v('#rPWork'),Address:v('#rPAddr'),Photo:parentPhoto,LineUID:uid};
+    const parent={Title:$('#rTitle').value,NameTH:v('#rPNameTH'),NameEN:v('#rPNameEN'),Nickname:v('#rPNick'),NicknameEN:v('#rPNickEN'),Relationship:$('#rRel').value,NationalID:v('#rPNID'),Phone:v('#rPPhone'),OfficePhone:v('#rPOffice'),Occupation:v('#rPOcc'),Workplace:v('#rPWork'),Address:v('#rPAddr'),Email:rEmail,Photo:parentPhoto,LineUID:uid};
     try{ const r=await api('registerParent',{uid,parent});
       await UPGRADE_SESSION(); // guest token → Parent token now that a PARENTS row exists
       confirmSaved(EN()?'Registered — now add your child':'ลงทะเบียนแล้ว — เพิ่มข้อมูลบุตรหลานต่อ');
@@ -2379,6 +2393,8 @@
         <div class="grid2">${ppFld(pre,'NicknameEN',EN()?'Nickname (EN)':'ชื่อเล่น (อังกฤษ)',p.NicknameEN)}<label class="field"><span>${EN()?'Relationship':'ความสัมพันธ์'}</span><input id="${pre}_Relationship" value="${esc(String(p.Relationship||'').replace(/<[^>]*>/g,''))}"/></label></div>
         <div class="grid2">${ppFld(pre,'Phone',EN()?'Phone':'เบอร์โทร',phoneFmt(p.Phone))}${ppFld(pre,'OfficePhone',EN()?'Office phone':'เบอร์ที่ทำงาน',phoneFmt(p.OfficePhone))}</div>
         <div class="grid2">${ppFld(pre,'Occupation',EN()?'Occupation':'อาชีพ',p.Occupation)}${ppFld(pre,'Workplace',EN()?'Workplace':'ที่ทำงาน',p.Workplace)}</div>
+        ${ppFld(pre,'Email',t('reg.email'),p.Email)}
+        <small class="muted" style="font-size:13px">📧 ${esc(t('reg.emailNote'))}</small>
         <label class="field"><span>${EN()?'Address':'ที่อยู่'}</span><textarea id="${pre}_Address">${esc(p.Address||'')}</textarea></label>
         <p class="muted" style="font-size:13px">${EN()?'National ID':'เลขบัตรประชาชน'}: <b>${esc(p.NationalID||'-')}</b> · ${EN()?'contact admin to change':'ติดต่อแอดมินเพื่อแก้ไข'}</p>
         <button class="btn block green" onclick="P_saveParent('${p.ParentID}',this)">💾 ${EN()?'Save':'บันทึก'}</button></div>`; };
@@ -2400,8 +2416,9 @@
       <button class="btn sm outline block" style="margin-top:8px" onclick="P_addChild()">+ ${esc(t('p.addChild'))}</button>`;
     window.scrollTo(0,0); };
   window.P_saveParent = async (parentId,btn)=>{ const g=id=>{ const e=document.getElementById('pa_'+parentId+'_'+id); return e?e.value.trim():undefined; };
-    const data={ Title:g('Title'), NameTH:g('NameTH'), NameEN:g('NameEN'), Nickname:g('Nickname'), NicknameEN:g('NicknameEN'), Relationship:g('Relationship'), Phone:g('Phone'), OfficePhone:g('OfficePhone'), Occupation:g('Occupation'), Workplace:g('Workplace'), Address:g('Address') };
+    const data={ Title:g('Title'), NameTH:g('NameTH'), NameEN:g('NameEN'), Nickname:g('Nickname'), NicknameEN:g('NicknameEN'), Relationship:g('Relationship'), Phone:g('Phone'), OfficePhone:g('OfficePhone'), Occupation:g('Occupation'), Workplace:g('Workplace'), Address:g('Address'), Email:emailFmt(g('Email')) };
     if(!data.NameTH){ toast(EN()?'Name is required':'กรุณากรอกชื่อ'); return; }
+    if(!emailOk(data.Email)){ toast(t('reg.emailBad')); return; }
     // only send Photo when they actually picked one — otherwise leave the existing value alone
     const up=photoVal(document,'pa_'+parentId+'_PhotoUp'); if(up) data.Photo=up;
     if(btn)btn.disabled=true;
@@ -5780,6 +5797,8 @@
       <div class="card"><h3>${esc(nm(s)||USER.nameTH||'')}</h3>
         <div class="grid2">${f('NameEN',EN()?'Name (EN)':'ชื่อ-สกุล (อังกฤษ)',s.NameEN)}${f('Nickname',EN()?'Nickname':'ชื่อเล่น',s.Nickname)}</div>
         <div class="grid2">${f('Phone',EN()?'Phone':'เบอร์โทร',phoneFmt(s.Phone))}${f('DOB',EN()?'Date of birth':'วันเกิด',s.DOB,'date')}</div>
+        ${f('Email',t('reg.email'),s.Email,'email')}
+        <small class="muted" style="font-size:13px">📧 ${esc(t('reg.emailNote'))}</small>
         <button class="btn block green" onclick="T_saveProfile(this)">💾 ${EN()?'Save':'บันทึก'}</button></div>
       <div class="card"><h3>ℹ️ ${EN()?'Employment info':'ข้อมูลการทำงาน'}</h3>
         <p class="muted" style="font-size:13px">${EN()?'Contact admin to change these.':'ต้องการแก้ไข ติดต่อแอดมิน'}</p>
@@ -5794,7 +5813,8 @@
       <div class="card"><div class="row"><button class="btn sm outline" onclick="T_changePw(false)">🔑 ${esc(t('pw.title'))}</button><button class="btn sm outline" onclick="T_forgotPw()">❓ ${EN()?'Forgot password':'ลืมรหัสผ่าน'}</button></div></div>`;
     window.scrollTo(0,0); };
   window.T_saveProfile = async (btn)=>{ const g=k=>{ const e=document.getElementById('sp_'+k); return e?e.value.trim():undefined; };
-    const data={ NameEN:g('NameEN'), Nickname:g('Nickname'), Phone:g('Phone'), DOB:g('DOB') };
+    const data={ NameEN:g('NameEN'), Nickname:g('Nickname'), Phone:g('Phone'), DOB:g('DOB'), Email:emailFmt(g('Email')) };
+    if(!emailOk(data.Email)){ toast(t('reg.emailBad')); return; }
     if(btn)btn.disabled=true;
     try{ await api('saveStaffSelf',{staffId:USER.staffId,data}); confirmSaved(t('c.saved')); }catch(e){err(e);}finally{ if(btn)btn.disabled=false; } };
   window.T_slipUnlock=async()=>{ const pw=$('#slipPw').value;
@@ -7716,6 +7736,8 @@
           <input id="sf_ContributionOpening" type="number" value="${esc(s.ContributionOpening!=null?s.ContributionOpening:0)}" ${String(s.ContributionLocked||'')==='YES'?'readonly style="background:var(--surface-3)"':''}/></label>
         <label class="field" style="display:flex;align-items:center;gap:8px;margin:6px 0 0"><input type="checkbox" id="sf_ContributionLocked" style="width:auto" ${String(s.ContributionLocked||'')==='YES'?'checked':''}/> 🔒 ${EN()?'Lock this figure (no more edits)':'ล็อกยอดนี้ (ไม่ให้แก้ไขอีก)'}</label>
         <small class="muted" style="font-size:13px">${EN()?'The balance carried over from before the app. Each month’s contribution is added on top of it.':'ยอดสะสมเดิมก่อนใช้ระบบ · เงินสมทบของแต่ละเดือนจะบวกเพิ่มจากยอดนี้'}${s.ContributionAccum!=null&&s.ContributionAccum!==''?`<br>${EN()?'Running total now':'ยอดสะสมปัจจุบัน'}: <b>${baht(s.ContributionAccum)}</b>`:''}</small></div>
+      ${f('Email',t('reg.email'),s.Email)}
+      <div class="card" style="background:var(--surface-2);padding:8px"><small class="muted">📧 ${EN()?'A backup way in if LINE sign-in fails. <b>Confirm the address with them directly</b> before typing it. One email belongs to one person only.':'ทางเข้าสำรองเมื่อเข้าด้วย LINE ไม่ได้ · <b>ต้องยืนยันอีเมลกับเจ้าตัวโดยตรงก่อนกรอก</b> · อีเมลหนึ่งใช้ได้กับคนเดียวเท่านั้น'}</small></div>
       <label class="field"><span>🔗 LINE ID ${s.LineUID?'✅':''}</span><input id="sf_LineUID" value="${esc(s.LineUID||'')}" placeholder="Uxxxxxxxxxxxxxxxx"/></label>
       <div class="card" style="background:var(--surface-2);padding:8px"><small class="muted">${EN()?'To let this staff log in: they open the app via LINE → "New user or already registered?" shows their LINE ID → paste it here and Save.':'ให้ครูเข้าแอปผ่าน LINE → หน้า "New user or already registered?" จะโชว์ LINE ID ของครู → คัดลอกมาวางช่องนี้แล้วกดบันทึก'}</small></div>
       ${photoField('sf_Photo',t('manage.photo'),s.Photo,true)}
@@ -7763,8 +7785,9 @@
       return keep.join(','); })();
     const canOrg=m.querySelector('#sf_CanClassOrg')&&m.querySelector('#sf_CanClassOrg').checked;
     const canFood=m.querySelector('#sf_CanFoodMenu')&&m.querySelector('#sf_CanFoodMenu').checked;
-    const data={NameTH:v('NameTH'),NameEN:v('NameEN'),Nickname:v('Nickname'),NicknameEN:v('NicknameEN'),DOB:v('DOB'),Position:v('Position'),Department:dept,StaffGroup:v('StaffGroup'),PositionLevel:v('PositionLevel'),Phone:v('Phone'),NationalID:v('NationalID'),LineUID:v('LineUID'),StartDate:v('StartDate'),BaseSalary:+v('BaseSalary')||0,BankName:v('BankName'),BankAccount:v('BankAccount'),ContributionOpening:+v('ContributionOpening')||0,ContributionLocked:(m.querySelector('#sf_ContributionLocked')&&m.querySelector('#sf_ContributionLocked').checked)?'YES':'',Classes:dept,CanClassOrg:canOrg?'YES':'',CanFoodMenu:canFood?'YES':''};
+    const data={NameTH:v('NameTH'),NameEN:v('NameEN'),Nickname:v('Nickname'),NicknameEN:v('NicknameEN'),DOB:v('DOB'),Position:v('Position'),Department:dept,StaffGroup:v('StaffGroup'),PositionLevel:v('PositionLevel'),Phone:v('Phone'),NationalID:v('NationalID'),LineUID:v('LineUID'),StartDate:v('StartDate'),BaseSalary:+v('BaseSalary')||0,Email:emailFmt(v('Email')),BankName:v('BankName'),BankAccount:v('BankAccount'),ContributionOpening:+v('ContributionOpening')||0,ContributionLocked:(m.querySelector('#sf_ContributionLocked')&&m.querySelector('#sf_ContributionLocked').checked)?'YES':'',Classes:dept,CanClassOrg:canOrg?'YES':'',CanFoodMenu:canFood?'YES':''};
     data.Role=v('Role')||'Teacher';
+    if(!emailOk(data.Email)){ toast(t('reg.emailBad')); return; }
     const sfp=photoVal(m,'sf_Photo'); if(sfp) data.Photo=sfp;
     try{ const r=await api('saveStaff',{staffId:id||null,data});
       // The diligence figures live with the rest of this person's pay settings (PAYROLL_CONFIG), which
@@ -7928,6 +7951,8 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
       <div class="grid2">${f('NationalID',t('reg.nationalIdParent'),p.NationalID)}</div>
       <div class="grid2">${f('Phone',t('reg.mobile'),phoneFmt(p.Phone))}${f('OfficePhone',t('reg.officePhone'),phoneFmt(p.OfficePhone))}</div>
       <div class="grid2">${f('Occupation',t('reg.occupation'),p.Occupation)}${f('Workplace',t('reg.workplace'),p.Workplace)}</div>
+      ${f('Email',t('reg.email'),p.Email)}
+      <div class="card" style="background:var(--surface-2);padding:8px"><small class="muted">📧 ${EN()?'A backup way in if LINE sign-in fails. <b>Confirm the address with the parent directly</b> before typing it — one wrong character would hand their child’s information to a stranger. One email belongs to one person only.':'ทางเข้าสำรองเมื่อเข้าด้วย LINE ไม่ได้ · <b>ต้องยืนยันอีเมลกับผู้ปกครองโดยตรงก่อนกรอก</b> เพราะพิมพ์ผิดตัวเดียวอาจทำให้คนอื่นเห็นข้อมูลของเด็ก · อีเมลหนึ่งใช้ได้กับคนเดียวเท่านั้น'}</small></div>
       <label class="field"><span>🔗 LINE ID ${p.LineUID?'✅':''}</span><input id="pf_LineUID" value="${esc(p.LineUID||'')}" placeholder="Uxxxxxxxxxxxxxxxx"/></label>
       <div class="card" style="background:var(--surface-2);padding:8px"><small class="muted">${EN()?'This is what ties the account to their LINE. If they change phone or LINE account, have them open the app once — the sign-in screen shows their new LINE ID — then paste it here and Save. Nothing else has to be re-entered.':'ช่องนี้คือสิ่งที่ผูกบัญชีเข้ากับ LINE ของผู้ปกครอง · หากเปลี่ยนเครื่องหรือเปลี่ยนบัญชี LINE ให้เปิดแอปหนึ่งครั้ง หน้าเข้าสู่ระบบจะแสดง LINE ID ใหม่ → คัดลอกมาวางช่องนี้แล้วกดบันทึก ข้อมูลอื่นไม่ต้องกรอกใหม่'}</small></div>
       ${photoField('pf_Photo',t('reg.parentPhoto'),p.Photo,true)}
@@ -7961,7 +7986,8 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
       <button class="btn outline block" onclick="this.closest('.modal').remove()">${esc(t('c.close'))}</button>`);
   };
   window.A_saveParent=async(btn,id)=>{ const m=btn.closest('.modal'); const v=k=>{ const e=m.querySelector('#pf_'+k); return e?e.value.trim():''; };
-    const data={Title:v('Title'),NameTH:v('NameTH'),NameEN:v('NameEN'),Nickname:v('Nickname'),NicknameEN:v('NicknameEN'),Relationship:v('Relationship'),NationalID:v('NationalID'),Phone:v('Phone'),OfficePhone:v('OfficePhone'),Occupation:v('Occupation'),Workplace:v('Workplace'),LineUID:v('LineUID')};
+    const data={Title:v('Title'),NameTH:v('NameTH'),NameEN:v('NameEN'),Nickname:v('Nickname'),NicknameEN:v('NicknameEN'),Relationship:v('Relationship'),NationalID:v('NationalID'),Phone:v('Phone'),OfficePhone:v('OfficePhone'),Occupation:v('Occupation'),Workplace:v('Workplace'),Email:emailFmt(v('Email')),LineUID:v('LineUID')};
+    if(!emailOk(data.Email)){ toast(t('reg.emailBad')); return; }
     const pfp=photoVal(m,'pf_Photo'); if(pfp) data.Photo=pfp;
     try{ await api('saveParent',{parentId:id||null,data}); m.remove(); confirmSaved(t('c.saved')); GO('manage'); }catch(e){err(e);} };
   window.A_delParent=(id,btn)=>{ if(!confirm(t('manage.confirmDel')))return;

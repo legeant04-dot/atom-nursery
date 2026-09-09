@@ -29,12 +29,43 @@ function deptNorm_(v) {
   return keep.join(',');
 }
 
+/* ---- EMAIL, THE SECOND WAY IN ------------------------------------------------------------------
+ *
+ * An email is about to become a KEY: sign in with Google, and whoever owns that address is handed
+ * that person's account. Two things follow from that, and both are enforced here rather than in a
+ * form, because every write to a PARENTS or STAFF row passes through this file.
+ *
+ *   NORMALISED. "  Somchai@Gmail.com " and "somchai@gmail.com" are one address to Google and would
+ *   be two different rows to a lookup. Stored lower-case and trimmed, always.
+ *
+ *   UNIQUE. This is the whole risk of the feature. Two parents sharing one Gmail — ordinary in Thai
+ *   families — or an admin mistyping one character of a stranger's address, and the wrong person is
+ *   shown someone else's child. So a duplicate is REFUSED at the moment of saving, when the person
+ *   typing it is still there to fix it, instead of becoming a silent misrouting months later.
+ *   Uniqueness is per sheet, not across both: a teacher whose own child attends resolves to their
+ *   STAFF row exactly as they already do with LineUID (handleAuth reads STAFF first).
+ */
+function normEmail_(v) { return String(v == null ? '' : v).trim().toLowerCase(); }
+function validEmail_(v) { return /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(v); }
+/** throws if `email` is already on another row of `sh`; returns the normalised value */
+function emailGuard_(sh, email, idField, ownId) {
+  var e = normEmail_(email);
+  if (!e) return '';                                       // clearing it is always allowed
+  if (!validEmail_(e)) throw apiError_('BAD_INPUT', 'รูปแบบอีเมลไม่ถูกต้อง: ' + email);
+  var clash = findObject_(sh, function (r) {
+    return normEmail_(r.Email) === e && String(r[idField] || '') !== String(ownId || '');
+  });
+  if (clash) throw apiError_('EMAIL_TAKEN', 'อีเมล ' + e + ' ถูกใช้กับ ' + (clash.Name || clash.NameEN || clash[idField]) + ' แล้ว — อีเมลหนึ่งใช้ได้กับคนเดียวเท่านั้น');
+  return e;
+}
+
 function handleSaveStaff(p) {
   p = p || {};
   var sh = sheet_(getHrSpreadsheet_(), 'STAFF');
   try { ensureColumns_(sh, ['NicknameEN', 'Classes', 'CanClassOrg', 'CanFoodMenu', 'BankName', 'BankAccount', 'ContributionOpening',
-    'StartDate', 'EndDate', 'EndReason', 'EndRemark']); } catch (e) {}
+    'StartDate', 'EndDate', 'EndReason', 'EndRemark', 'Email', 'GoogleSub']); } catch (e) {}
   var d = p.data || {};
+  if (d.Email !== undefined) d.Email = emailGuard_(sh, d.Email, 'StaffID', p.staffId);
   var row = {};
   for (var k in d) { if (d.hasOwnProperty(k)) row[k] = d[k]; }
   if (d.NameTH !== undefined) row.Name = d.NameTH;         // sheet column is Name (engine alias Name->NameTH)
@@ -115,9 +146,13 @@ function handleSaveStaffSelf(p) {
   var sh = sheet_(getHrSpreadsheet_(), 'STAFF');
   var st = findObject_(sh, function (s) { return String(s.StaffID) === String(p.staffId); });
   if (!st) throw apiError_('NOT_FOUND', 'ไม่พบพนักงาน ' + p.staffId);
-  var d = p.data || {}, WHITE = ['NameEN', 'Nickname', 'NicknameEN', 'Phone', 'DOB', 'Photo'];
+  var d = p.data || {}, WHITE = ['NameEN', 'Nickname', 'NicknameEN', 'Phone', 'DOB', 'Photo', 'Email'];
   var row = {};
   WHITE.forEach(function (k) { if (d[k] !== undefined) row[k] = d[k]; });
+  if (row.Email !== undefined) {
+    try { ensureColumns_(sh, ['Email', 'GoogleSub']); } catch (e) {}
+    row.Email = emailGuard_(sh, row.Email, 'StaffID', p.staffId);
+  }
   updateRow_(sh, st._row, row);
   staffCacheBust_();
   return { ok: true, staffId: p.staffId };
@@ -383,8 +418,9 @@ function handleUnlinkStudent(p) {
 function handleSaveParent(p) {
   p = p || {};
   var sh = sheet_(getMainSpreadsheet_(), 'PARENTS');
-  try { ensureColumns_(sh, ['Nickname', 'NicknameEN', 'Title', 'LineUID']); } catch (e) {}
+  try { ensureColumns_(sh, ['Nickname', 'NicknameEN', 'Title', 'LineUID', 'Email', 'GoogleSub']); } catch (e) {}
   var row = mapName_(p.data || {});
+  if (row.Email !== undefined) row.Email = emailGuard_(sh, row.Email, 'ParentID', p.parentId);
   if (p.parentId) {
     var pa = findObject_(sh, function (x) { return String(x.ParentID) === String(p.parentId); });
     if (!pa) throw apiError_('NOT_FOUND', 'ไม่พบผู้ปกครอง ' + p.parentId);
@@ -407,10 +443,11 @@ function handleSaveParentSelf(p) {
   var sh = sheet_(getMainSpreadsheet_(), 'PARENTS');
   var pa = findObject_(sh, function (x) { return String(x.ParentID) === String(p.parentId); });
   if (!pa) throw apiError_('NOT_FOUND', 'ไม่พบผู้ปกครอง ' + p.parentId);
-  try { ensureColumns_(sh, ['Nickname', 'NicknameEN', 'Title']); } catch (e) {}
-  var d = p.data || {}, WHITE = ['NameTH', 'NameEN', 'Nickname', 'NicknameEN', 'Title', 'Relationship', 'Phone', 'Occupation', 'Workplace', 'OfficePhone', 'Address'];
+  try { ensureColumns_(sh, ['Nickname', 'NicknameEN', 'Title', 'Email', 'GoogleSub']); } catch (e) {}
+  var d = p.data || {}, WHITE = ['NameTH', 'NameEN', 'Nickname', 'NicknameEN', 'Title', 'Relationship', 'Phone', 'Occupation', 'Workplace', 'OfficePhone', 'Address', 'Email'];
   var row = {};
   WHITE.forEach(function (k) { if (d[k] !== undefined) row[k] = d[k]; });
+  if (row.Email !== undefined) row.Email = emailGuard_(sh, row.Email, 'ParentID', p.parentId);
   if (row.NameTH !== undefined) { row.Name = row.NameTH; delete row.NameTH; }  // sheet column is Name
   updateRow_(sh, pa._row, row);
   recCacheBust_('PARENTS');
@@ -626,15 +663,18 @@ function handleSaveFamilyParent(p) {
   var ok = (String(tid) === String(p.parentId));
   if (!ok) { var ids = familyStudentIds_(p.uid); if (pa.StudentID && ids[String(pa.StudentID)]) ok = true; }
   if (!ok) throw apiError_('NO_ACCESS', 'ไม่มีสิทธิ์แก้ไขผู้ปกครองนี้');
-  try { ensureColumns_(sh, ['Nickname', 'NicknameEN', 'Title', 'LinePictureUrl']); } catch (e) {}
+  try { ensureColumns_(sh, ['Nickname', 'NicknameEN', 'Title', 'LinePictureUrl', 'Email', 'GoogleSub']); } catch (e) {}
   // Photo is uploadable by the parent; '' clears it so the display falls back to their LINE picture.
   // (a data: URL is offloaded to Drive by updateRow_ -> driveifyImage_; LinePictureUrl is never written here)
-  var d = p.data || {}, WHITE = ['NameTH', 'NameEN', 'Nickname', 'NicknameEN', 'Title', 'Relationship', 'Phone', 'Occupation', 'Workplace', 'OfficePhone', 'Address', 'Photo'];
+  var d = p.data || {}, WHITE = ['NameTH', 'NameEN', 'Nickname', 'NicknameEN', 'Title', 'Relationship', 'Phone', 'Occupation', 'Workplace', 'OfficePhone', 'Address', 'Photo', 'Email'];
   var row = {};
   // never store markup in a name/relationship cell: v156-v157 briefly pre-filled the Relationship input
   // with a rendered '<span translate="no">…</span>' label, so a parent saving My-info wrote it back
   WHITE.forEach(function (k) { if (d[k] === undefined) return;
     row[k] = (k === 'Photo' || typeof d[k] !== 'string') ? d[k] : d[k].replace(/<[^>]*>/g, '').trim(); });
+  // the co-parent being edited is `tid`, not the caller — guard against THEIR id or a mother saving
+  // her own address onto the father's row would look like a clash with herself
+  if (row.Email !== undefined) row.Email = emailGuard_(sh, row.Email, 'ParentID', tid);
   if (row.NameTH !== undefined) { row.Name = row.NameTH; delete row.NameTH; }
   updateRow_(sh, pa._row, row);
   recCacheBust_('PARENTS');

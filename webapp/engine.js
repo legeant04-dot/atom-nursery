@@ -189,6 +189,18 @@ function createAtomAPI(M, GROWTH_STD) {
     return (M.students||[]).find(x=> nid ? _dig(x.NationalID)===nid : (nm && _nm(x.NameTH||x.Name)===nm && String(x.DOB||'').slice(0,10)===dob)); };
   const dupParent_ = p2 => { const par=p2||{}; const nid=_dig(par.NationalID); const nm=_nm(par.NameTH||par.Name); const ph=_dig(par.Phone);
     return (M.parents||[]).find(x=> nid ? _dig(x.NationalID)===nid : (nm && _nm(x.NameTH||x.Name)===nm && _dig(x.Phone)===ph)); };
+  /* An email is a KEY once Google sign-in is on: whoever owns the address is handed that account.
+   * So it is stored lower-case and trimmed (Google treats case as noise; a lookup would not), and a
+   * duplicate is REFUSED while the person typing it is still there to correct it. Two parents on one
+   * family Gmail, or one mistyped character of a stranger's address, is the difference between a
+   * convenience and showing somebody else's child. GAS enforces the same rule in Staff.gs. */
+  const _email = v => String(v==null?'':v).trim().toLowerCase();
+  const engEmail_ = (rows, email, idField, ownId) => { const e=_email(email);
+    if(!e) return '';                                                    // clearing it is always allowed
+    if(!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(e)) fail('BAD_INPUT','รูปแบบอีเมลไม่ถูกต้อง: '+email);
+    const clash=(rows||[]).find(x=> _email(x.Email)===e && String(x[idField]||'')!==String(ownId||''));
+    if(clash) fail('EMAIL_TAKEN','อีเมล '+e+' ถูกใช้กับ '+(clash.NameTH||clash.Name||clash[idField])+' แล้ว — อีเมลหนึ่งใช้ได้กับคนเดียวเท่านั้น');
+    return e; };
   const lateVs = (hhmm,t)=>{ const [h,m]=hhmm.split(':').map(Number); return Math.max(0,(t.getHours()*60+t.getMinutes())-(h*60+m)); };
   const toMin = hhmm => { const [h,m]=String(hhmm||'0:0').split(':').map(Number); return (h||0)*60+(m||0); };
 
@@ -3284,7 +3296,7 @@ function createAtomAPI(M, GROWTH_STD) {
       const grp=(M.staffGroups||[]).find(g=>g.GroupName===s.StaffGroup)||null;
       return { StaffID:s.StaffID, NameTH:s.NameTH, NameEN:s.NameEN, Nickname:s.Nickname, NicknameEN:s.NicknameEN,
         Role:s.Role, PositionLevel:s.PositionLevel, Position:s.Position, Department:s.Department,
-        StaffGroup:s.StaffGroup, Phone:s.Phone, DOB:s.DOB, StartDate:s.StartDate, NationalID:s.NationalID,
+        StaffGroup:s.StaffGroup, Phone:s.Phone, DOB:s.DOB, StartDate:s.StartDate, NationalID:s.NationalID, Email:s.Email,
         RequireCheckin: s.RequireCheckin!==false, MustChangePassword: !!s.MustChangePassword,
         CanClassOrg: canOrganize_(s), CanFoodMenu: canFoodMenu_(s),
         /* THE FACT, NEVER THE DATE. The screen needs to know not to draw two clock-in buttons the
@@ -3297,7 +3309,10 @@ function createAtomAPI(M, GROWTH_STD) {
     setRequireCheckin: p => { const s=M.staff.find(x=>x.StaffID===p.staffId); if(s) s.RequireCheckin=!!p.value; return {staffId:p.staffId, value:!!p.value}; },
     // staff edits their OWN record, whitelisted fields only (staffId injected server-side)
     saveStaffSelf: p => { const s=staffById(p.staffId); if(!s.StaffID)fail('NOT_FOUND','ไม่พบพนักงาน');
-      const d=p.data||{}; ['NameEN','Nickname','NicknameEN','Phone','DOB','Photo'].forEach(k=>{ if(d[k]!==undefined) s[k]=d[k]; }); return {ok:true, staffId:p.staffId}; },
+      const d=p.data||{};
+      const em = d.Email!==undefined ? engEmail_(M.staff, d.Email, 'StaffID', p.staffId) : undefined;  // before any write
+      ['NameEN','Nickname','NicknameEN','Phone','DOB','Photo'].forEach(k=>{ if(d[k]!==undefined) s[k]=d[k]; });
+      if(em!==undefined) s.Email=em; return {ok:true, staffId:p.staffId}; },
     // the Admin roster keeps paused children visible (with a flag) — hiding them would leave no way
     // to see who is away, or to bring them back
     listStudents: () => enrolledStudents().map(s=>Object.assign({ageMonth:ageMonths(s.DOB),
@@ -3597,6 +3612,9 @@ function createAtomAPI(M, GROWTH_STD) {
       const exPar=dupParent_(p.parent); if(exPar) fail('ALREADY_REGISTERED','ข้อมูลผู้ปกครองนี้ ('+(exPar.NameTH||exPar.Name||'')+') มีอยู่ในระบบแล้ว — ระบบไม่สร้างข้อมูลซ้ำ');
       const pid=nextSeqId_(M.parents,'ParentID','PAR',3);
       const par=Object.assign({ParentID:pid,LineUID:p.uid||''}, p.parent||{});
+      // an address that is about to be a way IN must not already belong to somebody else — refused
+      // here, while the person typing it is still on the form (see emailGuard_ in Staff.gs)
+      if(par.Email!==undefined) par.Email=engEmail_(M.parents, par.Email, 'ParentID', pid);
       if(par.Photo) par.RegisterPhotoUrl=registerPhotoUrl(pid); // mandatory live-capture ID photo → "New Register Photo" Drive folder
       M.parents.push(par);
       logAct('registerParent',pid,par.NameTH||pid,{role:'Parent',id:pid,name:par.NameTH||pid});
@@ -4211,7 +4229,8 @@ function createAtomAPI(M, GROWTH_STD) {
     // editable PDPA capability matrix
     permMatrix: () => M.permMatrix,
     setPerm: p => { if(!M.permMatrix[p.role])M.permMatrix[p.role]={}; M.permMatrix[p.role][p.cap]=!!p.value; return M.permMatrix[p.role]; },
-    saveStaff: p => { const d=p.data||{};
+    saveStaff: p => { const d=Object.assign({},p.data||{});
+      if(d.Email!==undefined) d.Email=engEmail_(M.staff, d.Email, 'StaffID', p.staffId);
       if(p.staffId){ const s=staffById(p.staffId); if(!s.StaffID)fail('NOT_FOUND','ไม่พบพนักงาน'); Object.assign(s,d); return s; }
       const id=nextSeqId_(M.staff,'StaffID','STF',2); const rec=Object.assign({StaffID:id,Role:'Teacher',Status:'ACTIVE'},d); M.staff.push(rec); return rec; },
     deleteStaff: p => { const i=M.staff.findIndex(s=>s.StaffID===p.staffId); if(i<0)fail('NOT_FOUND','ไม่พบพนักงาน'); M.staff.splice(i,1); return {ok:true}; },
@@ -4221,18 +4240,23 @@ function createAtomAPI(M, GROWTH_STD) {
     familyProfile: p => { const kids=visibleStudents(p); const kidIds=kids.map(s=>s.StudentID); const seen={}; const parents=[];
       M.parents.forEach(pa=>{ if((kidIds.indexOf(pa.StudentID)>=0 || pa.ParentID===p.parentId) && !seen[pa.ParentID]){ seen[pa.ParentID]=1;
         // Photo = an uploaded picture (wins); LinePictureUrl = their current LINE profile picture (fallback)
-        parents.push({ ParentID:pa.ParentID, NameTH:pa.NameTH||pa.Name, NameEN:pa.NameEN, Nickname:pa.Nickname, NicknameEN:pa.NicknameEN, Title:pa.Title, NationalID:pa.NationalID, Relationship:pa.Relationship, Phone:pa.Phone, Occupation:pa.Occupation, Workplace:pa.Workplace, OfficePhone:pa.OfficePhone, Address:pa.Address, Photo:pa.Photo, LinePictureUrl:pa.LinePictureUrl, StudentID:pa.StudentID, isMe: pa.ParentID===p.parentId }); } });
+        parents.push({ ParentID:pa.ParentID, NameTH:pa.NameTH||pa.Name, NameEN:pa.NameEN, Nickname:pa.Nickname, NicknameEN:pa.NicknameEN, Title:pa.Title, NationalID:pa.NationalID, Relationship:pa.Relationship, Phone:pa.Phone, Occupation:pa.Occupation, Workplace:pa.Workplace, OfficePhone:pa.OfficePhone, Address:pa.Address, Email:pa.Email, Photo:pa.Photo, LinePictureUrl:pa.LinePictureUrl, StudentID:pa.StudentID, isMe: pa.ParentID===p.parentId }); } });
       return { parents, myParentId:p.parentId, students: kids.map(s=>({ StudentID:s.StudentID, NameTH:s.NameTH, NameEN:s.NameEN, Nickname:s.Nickname, NicknameEN:s.NicknameEN, Class:s.Class, DOB:s.DOB, Plan:s.Plan, NationalID:s.NationalID, Gender:s.Gender, BloodType:s.BloodType, RH:s.RH, Allergy:s.Allergy, MedicalHistory:s.MedicalHistory, EmergencyContact:s.EmergencyContact, Address:s.Address, Race:s.Race, Nationality:s.Nationality, Religion:s.Religion, Photo:s.Photo })) }; },
     // edit a parent that is either the caller or a co-parent of the caller's child (server validates); whitelisted.
     saveFamilyParent: p => { const kids=visibleStudents(p); const kidIds=kids.map(s=>s.StudentID); const tid=p.targetParentId||p.parentId;
       const pa=M.parents.find(x=>x.ParentID===tid); if(!pa)fail('NOT_FOUND','ไม่พบผู้ปกครอง');
       if(!(pa.ParentID===p.parentId || kidIds.indexOf(pa.StudentID)>=0))fail('NO_ACCESS','ไม่มีสิทธิ์แก้ไขผู้ปกครองนี้');
       // Photo: '' clears the upload -> the display falls back to their LINE profile picture
-      const d=p.data||{}; ['NameTH','NameEN','Nickname','NicknameEN','Title','Relationship','Phone','Occupation','Workplace','OfficePhone','Address','Photo'].forEach(k=>{ if(d[k]!==undefined) pa[k]=d[k]; }); return {ok:true, parentId:tid}; },
+      const d=p.data||{};
+      // checked BEFORE anything is written, so a refused email leaves the row exactly as it was
+      const em = d.Email!==undefined ? engEmail_(M.parents, d.Email, 'ParentID', tid) : undefined;
+      ['NameTH','NameEN','Nickname','NicknameEN','Title','Relationship','Phone','Occupation','Workplace','OfficePhone','Address','Photo'].forEach(k=>{ if(d[k]!==undefined) pa[k]=d[k]; });
+      if(em!==undefined) pa.Email=em; return {ok:true, parentId:tid}; },
     // parent edits their own child's safe fields (studentId ownership is enforced by applyIdentity_ on GAS).
     saveStudentSelf: p => { const s=studentById(p.studentId); if(!s)fail('NOT_FOUND','ไม่พบนักเรียน');
       const d=p.data||{}; ['Nickname','NicknameEN','BloodType','RH','Allergy','MedicalHistory','EmergencyContact','Address','Race','Nationality','Religion','Photo'].forEach(k=>{ if(d[k]!==undefined) s[k]=d[k]; }); return {ok:true, studentId:p.studentId}; },
-    saveParent: p => { const d=p.data||{};
+    saveParent: p => { const d=Object.assign({},p.data||{});
+      if(d.Email!==undefined) d.Email=engEmail_(M.parents, d.Email, 'ParentID', p.parentId);
       if(p.parentId){ const pa=M.parents.find(x=>x.ParentID===p.parentId); if(!pa)fail('NOT_FOUND','ไม่พบผู้ปกครอง'); Object.assign(pa,d); return pa; }
       const id=nextSeqId_(M.parents,'ParentID','PAR',3); const rec=Object.assign({ParentID:id},d); M.parents.push(rec); return rec; },
     deleteParent: p => { const i=M.parents.findIndex(x=>x.ParentID===p.parentId); if(i<0)fail('NOT_FOUND','ไม่พบผู้ปกครอง'); M.parents.splice(i,1); return {ok:true}; },
