@@ -212,6 +212,9 @@ var PERF_EXPECTED_ = {
    * for another app, or an address Google has not confirmed the person owns. */
   GOOGLE_NOT_LINKED: 1, GOOGLE_NO_LINE_ACCOUNT: 1, GOOGLE_TOKEN_INVALID: 1,
   GOOGLE_EMAIL_UNVERIFIED: 1, GOOGLE_NOT_CONFIGURED: 1,
+  // one LINE account, one record — refused while somebody is moving a uid between two of them,
+  // which is the moment the second half of the job is easiest to forget
+  LINE_UID_TAKEN: 1,
   // a slip this school has already taken money against, offered for something else — the reuse
   // check refusing, which is the point of storing the bank reference at all
   SLIP_ALREADY_USED: 1

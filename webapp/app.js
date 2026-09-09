@@ -112,7 +112,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.364'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.365'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -496,6 +496,8 @@
                        'กรุณาเข้าสู่ระบบด้วย LINE และแจ้งแอดมิน','Sign in with LINE and tell the admin'],
     GOOGLE_UNREACHABLE:['ติดต่อ Google ไม่สำเร็จ','Could not reach Google',
                        'ตรวจสอบอินเทอร์เน็ตแล้วลองใหม่','Check your connection and try again'],
+    LINE_UID_TAKEN:   ['LINE ID นี้ถูกใช้กับรายการอื่นแล้ว','That LINE ID is already on another record',
+                       'ต้องลบ LINE ID ออกจากรายการเดิมก่อน แล้วจึงใส่ที่รายการใหม่','Remove it from the old record first, then add it to the new one'],
     EMAIL_TAKEN:      ['อีเมลนี้ถูกใช้กับบัญชีอื่นแล้ว','That email is already used by another account',
                        'อีเมลหนึ่งใช้ได้กับคนเดียวเท่านั้น — ตรวจอีเมลอีกครั้ง หรือใช้อีเมลอื่น','One email belongs to one person only — check it again, or use a different address'],
     BAD_INPUT:        ['ข้อมูลที่กรอกไม่ถูกต้อง','Something entered is not valid',
@@ -1543,6 +1545,12 @@
    * than to "no", or one cancelled request would hide the route for the rest of the session on
    * exactly the device that needs it. */
   function googleReady(){
+    /* THE ID IS ALREADY HERE. Asking the server whether Google sign-in is configured cost a full
+     * Apps Script round trip before the button could be drawn — over thirty seconds of empty space
+     * on a cold execution over mobile data, reported 09/09/26. The client id is public and does not
+     * change, so it ships in CONFIG beside LIFF_ID and the button loads with the page.
+     * The server probe stays as the fallback for a deployment that has no id baked in. */
+    if (_gsiClientId === null && CONFIG.GOOGLE_CLIENT_ID) _gsiClientId = String(CONFIG.GOOGLE_CLIENT_ID);
     if (_gsiClientId === null) {
       _gsiClientId = '';
       /* QUIET. A read still in flight after 350ms covers the screen with "ระบบกำลังดำเนินการ", and
@@ -1590,7 +1598,10 @@
      * site and found an empty space where the button should be (v361). Now an unknown answer starts
      * the question, and googleReady's callback paints when it lands; a known 'off' still draws
      * nothing, which is what a school without an OAuth client should see. */
-    if (_gsiClientId === null) { googleReady(); return; }
+    if (_gsiClientId === null) {
+      googleReady();                       // baked-in id answers synchronously; a probe does not
+      if (_gsiClientId === null) return;   // still asking — its callback paints when it lands
+    }
     if (!_gsiClientId) return;
     try { await gsiLoad(); } catch (e) { return; }                     // offline / blocked → leave the box empty
     try {

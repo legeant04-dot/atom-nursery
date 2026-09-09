@@ -5,7 +5,13 @@
  */
 // DEMO_MODE=true keeps the role chooser / demo logins for testing. At go-live flip it to false
 // (LINE-only login) AND set SCHOOL_CONFIG RequireSessionToken='true' (server-side enforcement).
-window.CONFIG = { MODE: 'gas', GAS_URL: 'https://script.google.com/macros/s/AKfycbxWUgs0oPyEN52F1qCGETDDbOVGeIBKe18u8_vDYz5bjKrHuS7V541oaeWqWPBsx-7d/exec', LIFF_ID: '2010457597-hcIeTe2L', DEMO_MODE: false };
+/* GOOGLE_CLIENT_ID sits beside LIFF_ID for the same reason: it is public (every browser that draws
+ * the button receives it), it never changes, and asking the SERVER for it cost a full Apps Script
+ * round trip before the button could be drawn at all. On a cold execution over mobile data that was
+ * measured at over thirty seconds of empty space — on the sign-in screen, where the whole point is
+ * to give somebody a way in quickly. Known here, the button starts loading with the page.
+ * Blank = the feature is off. SCHOOL_CONFIG still overrides it for a school with its own client. */
+window.CONFIG = { MODE: 'gas', GAS_URL: 'https://script.google.com/macros/s/AKfycbxWUgs0oPyEN52F1qCGETDDbOVGeIBKe18u8_vDYz5bjKrHuS7V541oaeWqWPBsx-7d/exec', LIFF_ID: '2010457597-hcIeTe2L', GOOGLE_CLIENT_ID: '120486339414-6auhdq0a1fur2ihu24rr8po58vgci3s1.apps.googleusercontent.com', DEMO_MODE: false };
 
 (function () {
   const M = window.MOCK;
