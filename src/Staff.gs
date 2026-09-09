@@ -45,6 +45,30 @@ function deptNorm_(v) {
  *   Uniqueness is per sheet, not across both: a teacher whose own child attends resolves to their
  *   STAFF row exactly as they already do with LineUID (handleAuth reads STAFF first).
  */
+/**
+ * ONE LINE ACCOUNT, ONE RECORD — within a sheet.
+ *
+ * handleAuth finds a person by LineUID. Two rows on the same sheet carrying one uid means which
+ * account they land on depends on which row happens to come first, which is not a rule anybody
+ * chose. It is a live risk the moment somebody moves a uid from one record to another — the second
+ * half of that job is easy to forget, and nothing said anything.
+ *
+ * DELIBERATELY PER SHEET, not across all three: a teacher whose own child attends may genuinely be
+ * both a STAFF row and a PARENTS row with the same LINE account, and handleAuth's own order already
+ * decides that case. Refusing it here would break a record the school legitimately has.
+ */
+function lineUidGuard_(sh, uid, idField, ownId) {
+  var u = String(uid == null ? '' : uid).trim();
+  if (!u) return '';                                       // clearing it is always allowed
+  var clash = findObject_(sh, function (r) {
+    return String(r.LineUID || '').trim() === u && String(r[idField] || '') !== String(ownId || '');
+  });
+  if (clash) {
+    throw apiError_('LINE_UID_TAKEN', 'LINE ID นี้ถูกใช้กับ ' + (clash.Name || clash.NameEN || clash[idField]) +
+      ' แล้ว — ต้องลบออกจากรายการนั้นก่อน มิฉะนั้นระบบจะไม่รู้ว่าควรพาเข้าบัญชีไหน');
+  }
+  return u;
+}
 function normEmail_(v) { return String(v == null ? '' : v).trim().toLowerCase(); }
 function validEmail_(v) { return /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(v); }
 /** throws if `email` is already on another row of `sh`; returns the normalised value */
@@ -66,6 +90,7 @@ function handleSaveStaff(p) {
     'StartDate', 'EndDate', 'EndReason', 'EndRemark', 'Email', 'GoogleSub']); } catch (e) {}
   var d = p.data || {};
   if (d.Email !== undefined) d.Email = emailGuard_(sh, d.Email, 'StaffID', p.staffId);
+  if (d.LineUID !== undefined) d.LineUID = lineUidGuard_(sh, d.LineUID, 'StaffID', p.staffId);
   var row = {};
   for (var k in d) { if (d.hasOwnProperty(k)) row[k] = d[k]; }
   if (d.NameTH !== undefined) row.Name = d.NameTH;         // sheet column is Name (engine alias Name->NameTH)
@@ -421,6 +446,7 @@ function handleSaveParent(p) {
   try { ensureColumns_(sh, ['Nickname', 'NicknameEN', 'Title', 'LineUID', 'Email', 'GoogleSub']); } catch (e) {}
   var row = mapName_(p.data || {});
   if (row.Email !== undefined) row.Email = emailGuard_(sh, row.Email, 'ParentID', p.parentId);
+  if (row.LineUID !== undefined) row.LineUID = lineUidGuard_(sh, row.LineUID, 'ParentID', p.parentId);
   if (p.parentId) {
     var pa = findObject_(sh, function (x) { return String(x.ParentID) === String(p.parentId); });
     if (!pa) throw apiError_('NOT_FOUND', 'ไม่พบผู้ปกครอง ' + p.parentId);

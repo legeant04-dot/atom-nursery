@@ -284,6 +284,31 @@ console.log('\n6b) the account that is not on any roster');
   ok_('...and a sub anywhere beats an email everywhere', srcCode(auth).indexOf('=== g.sub') < srcCode(auth).indexOf('normEmail_(r.Email) === g.email'));
 }
 
+console.log('\n6c) one LINE account, one record');
+{
+  /* Asked for while about to move a uid from a shared admin record onto a new personal one — the
+   * second half of that job is the easy half to forget, and two rows carrying one uid means which
+   * account you land on depends on row order, which is not a rule anybody chose. */
+  const ctx = boot({});
+  const r = call(ctx, 'function(){ return handleSaveStaff({ data: { NameTH: "ผมเอง", Role: "Admin", LineUID: "U_film" } }); }');
+  eq('a new staff record cannot take a LINE ID already in use', r.code, 'LINE_UID_TAKEN');
+  ok_('...and says which record holds it', r.msg.indexOf('ครูฟิล์ม') >= 0);
+  eq('parents are guarded the same way',
+    call(ctx, 'function(){ return handleSaveParent({ parentId: "PAR-2", data: { LineUID: "U_mum" } }); }').code, 'LINE_UID_TAKEN');
+  eq('re-saving a record with its OWN uid is not a clash',
+    call(ctx, 'function(){ return handleSaveStaff({ staffId: "STF-1", data: { LineUID: "U_film", Nickname: "ฟิล์ม" } }); }').code || '', '');
+  eq('clearing it is allowed — that is how you free it up',
+    call(ctx, 'function(){ return handleSaveStaff({ staffId: "STF-1", data: { LineUID: "" } }); }').code || '', '');
+  eq('...and then the new record can have it',
+    call(ctx, 'function(){ return handleSaveStaff({ data: { NameTH: "ผมเอง", Role: "Admin", LineUID: "U_film" } }); }').code || '', '');
+  /* PER SHEET on purpose: a teacher whose own child attends may genuinely hold the same LINE account
+   * on a STAFF row and a PARENTS row, and handleAuth's own order already decides that case. */
+  eq('a staff uid may also appear on a parent record, as it does today',
+    call(boot({}), 'function(){ return handleSaveParent({ parentId: "PAR-2", data: { LineUID: "U_film" } }); }').code || '', '');
+  ok_('the refusal reads as a rule, not an outage', /LINE_UID_TAKEN: 1/.test(perf));
+  ok_('...and is explained to the admin', /LINE_UID_TAKEN:\s*\[/.test(app));
+}
+
 console.log('\n7) readiness, and a school that has not set it up');
 {
   const ctx = boot({});
@@ -371,7 +396,10 @@ console.log('\n9) what the screens do with it');
   /* AN UNKNOWN ANSWER STARTS THE QUESTION. Giving up on a falsy client id made the button depend on
    * the readiness reply having already arrived — and on a cold start it has not, because the box is
    * in the shell and the ask is a round trip behind it. Found by loading the live site. */
-  ok_('...but an unknown readiness asks, rather than drawing nothing for ever', /if \(_gsiClientId === null\) \{ googleReady\(\); return; \}/.test(c));
+  // trailing `// …` comments survive the stripper (it only removes whole comment LINES), so this
+  // allows for what sits between the two statements rather than pinning their exact spacing
+  ok_('...but an unknown readiness asks, rather than drawing nothing for ever',
+    /googleReady\(\);[\s\S]{0,140}?if \(_gsiClientId === null\) return;/.test(c));
   ok_('...and a school with no OAuth client still sees nothing', /if \(!_gsiClientId\) return;/.test(c));
   ok_('...including the link card', /if \(inLineApp\(\)\) return '';/.test(c));
   ok_('the button is never auto-triggered', /auto_select: false/.test(c));
@@ -387,6 +415,13 @@ console.log('\n9) what the screens do with it');
    * seconds — so probing CONFIGURATION was greying out the very LINE button the parent was reaching
    * for, on the sign-in screen, which is the one screen where that is least forgivable. */
   ok_('probing configuration does not cover the sign-in screen', /api\('googleLoginReady', \{\}, \{ quiet: true \}\)/.test(c));
+  /* AND MOSTLY IT IS NOT ASKED AT ALL. Waiting on Apps Script before the button could be drawn cost
+   * over thirty seconds of empty space on a cold execution over mobile data — on the sign-in screen,
+   * whose entire job is to get somebody in quickly. The client id is public and does not change, so
+   * it ships beside LIFF_ID and the button starts loading with the page. */
+  ok_('the client id ships with the app', /GOOGLE_CLIENT_ID: '120486339414-/.test(api));
+  ok_('...and is used without asking the server', /if \(_gsiClientId === null && CONFIG\.GOOGLE_CLIENT_ID\)/.test(c));
+  ok_('...with the probe kept as the fallback for a deployment that has none', /if \(_gsiClientId === null\) \{\n\s+googleReady\(\);/.test(c));
   ok_('...and neither does the LINE one', /api\('lineLoginReady', \{\}, \{ quiet: true \}\)/.test(c));
   /* One callback for two jobs, told apart by whether anybody is signed in — the link button only
    * exists inside a session and the sign-in button only outside one. */
