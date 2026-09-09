@@ -46,7 +46,34 @@ function renewSession_(sess) {
   if (!sess || !sess.exp) return '';
   var left = sess.exp - Date.now();
   if (left <= 0 || left > (SESSION_TTL_SEC * 1000) / 2) return '';
-  return issueSession_(sess.uid, sess.role, sess.linkedId);
+  /* RE-DERIVED, NOT COPIED FORWARD.
+   *
+   * This used to reissue with the role and linkedId frozen into the token at sign-in, and renewal
+   * keeps happening for as long as somebody keeps using the app — so an account MOVED by an admin
+   * never took effect for an active user. Not in twelve hours: never. The school's own admin gave
+   * himself a new staff record, corrected every LINE ID, and kept arriving on the old shared record
+   * while the sheets said otherwise (09/09/26).
+   *
+   * The same rule applies to a role change or an account being repointed, both of which used to sit
+   * unapplied behind a session nobody thought to end.
+   *
+   * Costs one lookup per user per six hours — renewal only runs past half-life — and a uid that no
+   * longer resolves simply is not renewed, so a deleted record's session dies on its own schedule
+   * instead of being extended for ever.
+   */
+  var who = resolveIdentity_(sess.uid);
+  if (!who) return '';
+  return issueSession_(sess.uid, who.role, who.linkedId);
+}
+/** Who is this LINE uid, right now — in the order handleAuth resolves: USERS, PARENTS, STAFF. */
+function resolveIdentity_(uid) {
+  if (!uid) return null;
+  var found;
+  try { found = googleFindByUid_(uid); } catch (e) { return null; }
+  if (!found) return null;
+  if (found.kind === 'USERS') return { role: String(found.row.Role || ''), linkedId: String(found.row.LinkedID || '') };
+  if (found.kind === 'PARENTS') return { role: ROLES.PARENT, linkedId: String(found.row.ParentID || '') };
+  return { role: String(found.row.Role || 'Teacher'), linkedId: String(found.row.StaffID || '') };
 }
 function verifySession_(token) {
   if (!token || String(token).indexOf('.') < 0) return null;

@@ -153,9 +153,13 @@ console.log('\n5) a leaving date is a DATE, not a delete button');
   ok_('the row is still patched in place, never deleted', /updateRow_/.test(fn) && !/deleteRow/.test(fn));
 }
 {
-  const today = new Date().toISOString().slice(0, 10);
-  const future = new Date(Date.now() + 20 * 864e5).toISOString().slice(0, 10);
-  const past = new Date(Date.now() - 1 * 864e5).toISOString().slice(0, 10);
+  /* LOCAL, because that is what the code under test compares against (dateStr_/todayLocal). In
+   * Bangkok the UTC date is still yesterday between midnight and 07:00, which made "today itself is
+   * still a working day" ask about yesterday and fail every night. Caught at 00:01 on 2026-09-10. */
+  const ymd = d => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+  const today = ymd(new Date());
+  const future = ymd(new Date(Date.now() + 20 * 864e5));
+  const past = ymd(new Date(Date.now() - 1 * 864e5));
   const { H } = boot({ staff: [
     { StaffID: 'S1', NameTH: 'ยังอยู่', Role: 'Teacher', Status: 'ACTIVE' },
     { StaffID: 'S2', NameTH: 'จะลาออกสิ้นเดือน', Role: 'Teacher', Status: 'ACTIVE', EndDate: future },
