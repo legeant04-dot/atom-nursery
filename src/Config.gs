@@ -159,7 +159,10 @@ SCHEMA[WB.MAIN] = {
   // Withdrawal / cancel-enrolment requests — parent self-service OR Admin direct. Reason is one of the
   // standard codes (graduated / moved / transferred / other) + free-text detail; Admin processes -> removes the student.
   WITHDRAWALS:       ['WithdrawID', 'StudentID', 'RequestedBy', 'RequesterRole', 'Reason', 'Detail', 'EffectiveDate', 'Status', 'ProcessedBy', 'ProcessedDate', 'CreatedDate'],
-  USERS:             ['UserID', 'LineUID', 'Role', 'LinkedID', 'PasswordHash', 'CreatedDate', 'Status'],
+  // Email/GoogleSub here too — handleAuth resolves USERS FIRST, so an Admin-provisioned account that
+  // is not on the staff roster (the school's own owner/admin) exists only here. Leaving this sheet
+  // out of the Google lookup meant that person could link an account and then never be found by it.
+  USERS:             ['UserID', 'LineUID', 'Role', 'LinkedID', 'PasswordHash', 'CreatedDate', 'Status', 'Email', 'GoogleSub'],
   // Columns 1-9 match dspm_ocr/DSPM_CRITERIA_draft.csv for direct paste after proofreading.
   // AgeLabelTH = Thai age label from the manual; Track = Teacher (pp.79-81) | HealthPersonnel (pp.82-83)
   DSPM_CRITERIA:     ['AgeFrom', 'AgeTo', 'AgeLabelTH', 'ItemNo', 'Skill', 'Description', 'DescriptionEN', 'Method', 'PassCriteria', 'Track'],

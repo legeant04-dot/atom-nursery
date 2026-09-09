@@ -62,7 +62,12 @@ function boot(tokens) {
     var sc = main.insertSheet('SCHOOL_CONFIG');
     sc.appendRow(['Key', 'Value']);
     sc.appendRow(['GoogleClientId', '120486339414-6auhdq0a1fur2ihu24rr8po58vgci3s1.apps.googleusercontent.com']);
-    main.insertSheet('USERS').appendRow(['UserID', 'LineUID', 'Role', 'LinkedID', 'PasswordHash', 'CreatedDate', 'Status']);
+    /* THE OWNER'S OWN ACCOUNT. An Admin provisioned in USERS and not on the staff roster at all —
+     * reported 09/09/26 by that person, whose link had silently thrown NOT_FOUND because the code
+     * assumed every caller is a PARENTS or STAFF row. handleAuth reads USERS FIRST. */
+    var us = main.insertSheet('USERS');
+    us.appendRow(['UserID', 'LineUID', 'Role', 'LinkedID', 'PasswordHash', 'CreatedDate', 'Status', 'Email', 'GoogleSub']);
+    us.appendRow(['U-1', 'U_owner', 'Admin', 'U-1', '', '2026-01-01', 'ACTIVE', '', '']);
     main.insertSheet('AUDIT_LOG').appendRow(['Timestamp', 'UserID', 'Action', 'Sheet', 'Ref']);
     var p = main.insertSheet('PARENTS');
     p.appendRow(['ParentID', 'NationalID', 'Name', 'NameEN', 'Relationship', 'Phone', 'LineUID', 'StudentID', 'Email', 'GoogleSub']);
@@ -182,7 +187,7 @@ console.log('\n5) the email finds you once; the permanent id is what is kept');
 console.log('\n6) linking from inside a session — the safe way to collect an address');
 {
   const ctx = boot({ T_FILM: good('gsub_film', 'film@gmail.com') });
-  const r = call(ctx, 'function(){ return handleGoogleLink({staffId:"STF-1", credential:"T_FILM"}); }');
+  const r = call(ctx, 'function(){ return handleGoogleLink({uid:"U_film", credential:"T_FILM"}); }');
   eq('a teacher links her own account', [r.ok, r.v && r.v.linked, r.v && r.v.email], [true, true, 'film@gmail.com']);
   const sub = call(ctx, 'function(){ return findObject_(sheet_(getHrSpreadsheet_(),"STAFF"), function(x){ return x.StaffID==="STF-1"; }).GoogleSub; }');
   eq('...and it is remembered', sub.v, 'gsub_film');
@@ -191,30 +196,82 @@ console.log('\n6) linking from inside a session — the safe way to collect an a
   // THE RISK THE WHOLE FEATURE TURNS ON: one address must never open two accounts
   const ctx = boot({ T_MUMS: good('g_other', 'karn@gmail.com') });
   eq('the mother’s address cannot be linked to the father as well',
-    call(ctx, 'function(){ return handleGoogleLink({parentId:"PAR-2", credential:"T_MUMS"}); }').code, 'EMAIL_TAKEN');
+    call(ctx, 'function(){ return handleGoogleLink({uid:"U_dad", credential:"T_MUMS"}); }').code, 'EMAIL_TAKEN');
 }
 {
   // ...and neither can one GOOGLE ACCOUNT, even carrying an address nobody else holds
   const ctx = boot({ T_SUBDUP: good('gsub_mum', 'brand.new@gmail.com') });
   eq('a Google account already linked elsewhere cannot be linked again',
-    call(ctx, 'function(){ return handleGoogleLink({parentId:"PAR-2", credential:"T_SUBDUP"}); }').code, 'EMAIL_TAKEN');
+    call(ctx, 'function(){ return handleGoogleLink({uid:"U_dad", credential:"T_SUBDUP"}); }').code, 'EMAIL_TAKEN');
 }
 {
   const ctx = boot({});
-  const r = call(ctx, 'function(){ return handleGoogleLink({parentId:"PAR-1", unlink:true}); }');
+  const r = call(ctx, 'function(){ return handleGoogleLink({uid:"U_mum", unlink:true}); }');
   eq('unlinking works', [r.ok, r.v && r.v.linked], [true, false]);
   const row = call(ctx, 'function(){ var x=findObject_(sheet_(getMainSpreadsheet_(),"PARENTS"), function(y){ return y.ParentID==="PAR-1"; }); return [x.Email, x.GoogleSub]; }');
   /* BOTH cleared. The address on its own is a way in — it is what a first sign-in matches on — so
    * leaving it behind would leave the door open after somebody asked to close it. */
   eq('...and clears the address as well as the id', row.v, ['', '']);
   const after = boot({});   // fresh sheet, then unlink and try the address
-  call(after, 'function(){ return handleGoogleLink({parentId:"PAR-1", unlink:true}); }');
+  call(after, 'function(){ return handleGoogleLink({uid:"U_mum", unlink:true}); }');
   eq('...so the old address no longer opens the account',
     call(after, 'function(){ return handleGoogleExchange({credential:"T_MUM"}); }').code, 'GOOGLE_TOKEN_INVALID');
 }
 {
   const ctx = boot({});
   eq('linking with no identity at all is refused', call(ctx, 'function(){ return handleGoogleLink({credential:"x"}); }').code, 'NO_SESSION');
+}
+
+console.log('\n6b) the account that is not on any roster');
+{
+  /* THE OWNER. Both a parent (คุณพ่อ…, a PARENTS row) and the Admin — and the Admin account is
+   * provisioned in USERS, not on the staff list, because they do not work at the school. Reported
+   * 09/09/26 by that person about their own account: linking appeared to do nothing.
+   *
+   * The link is found by the session's LINE UID now, which is what handleAuth resolves an identity
+   * from — so the key lands on exactly the door LINE opens, whichever sheet that is. */
+  const ctx = boot({ T_OWN: good('gsub_own', 'owner@gmail.com') });
+  const r = call(ctx, 'function(){ return handleGoogleLink({uid:"U_owner", credential:"T_OWN"}); }');
+  eq('an Admin who is on no roster can link', [r.ok, r.v && r.v.linked, r.v && r.v.where], [true, true, 'USERS']);
+  const back = call(ctx, 'function(){ return handleGoogleExchange({credential:"T_OWN"}); }');
+  eq('...and signs back in as the Admin', [back.ok, back.v && back.v.role, back.v && back.v.linkedId], [true, 'Admin', 'U-1']);
+}
+{
+  /* ONE PERSON, TWO RECORDS. The owner is also a parent. USERS is read first by handleAuth, so LINE
+   * already gives them the Admin account; Google must give them the SAME one, or the two keys open
+   * different doors and "there is one place identity is decided" stops being true. */
+  const ctx = boot({ T_BOTH: good('gsub_both', 'both@gmail.com') });
+  const r = call(ctx, 'function(){' +
+    ' var m = getMainSpreadsheet_();' +
+    ' var u = sheet_(m, "USERS"), ur = findObject_(u, function (x) { return x.UserID === "U-1"; });' +
+    ' updateRow_(u, ur._row, { GoogleSub: "gsub_both", Email: "both@gmail.com" });' +
+    ' var p = sheet_(m, "PARENTS"), pr = findObject_(p, function (x) { return x.ParentID === "PAR-2"; });' +
+    ' updateRow_(p, pr._row, { GoogleSub: "gsub_both" });' +          // the same person's parent row
+    ' try { CacheService.getScriptCache().removeAll(["col:USERS","rows:USERS","col:PARENTS","rows:PARENTS"]); } catch (e) {}' +
+    ' return handleGoogleExchange({ credential: "T_BOTH" }); }');
+  eq('the admin record wins, exactly as it does for LINE', [r.v && r.v.role, r.v && r.v.linkedId], ['Admin', 'U-1']);
+  /* And linking cannot CREATE that situation in the first place: one Google account may hold one
+   * door, checked across all three sheets rather than only the caller's own. */
+  const ctx2 = boot({ T_X2: good('gsub_own', 'someone@gmail.com') });
+  const dup = call(ctx2, 'function(){' +
+    ' var u = sheet_(getMainSpreadsheet_(), "USERS"), ur = findObject_(u, function (x) { return x.UserID === "U-1"; });' +
+    ' updateRow_(u, ur._row, { GoogleSub: "gsub_own", Email: "owner@gmail.com" });' +
+    ' try { CacheService.getScriptCache().removeAll(["col:USERS","rows:USERS"]); } catch (e) {}' +
+    ' return handleGoogleLink({ uid: "U_mum", credential: "T_X2" }); }');
+  eq('a Google account already on another sheet cannot be linked again', dup.code, 'EMAIL_TAKEN');
+}
+{
+  const ctx = boot({});
+  eq('a uid nobody holds cannot link', call(ctx, 'function(){ return handleGoogleLink({uid:"U_nobody", credential:"x"}); }').code, 'NOT_FOUND');
+  ok_('the route hands the handler the session uid, not a role-guessed id', /payload\.uid = sess\.uid;/.test(srcCode(code)));
+  ok_('...and throws away whatever the client sent', /delete payload\.parentId; delete payload\.staffId;/.test(srcCode(code)));
+  ok_('USERS has somewhere to put it', /USERS:[^\n]*'Email', 'GoogleSub'/.test(cfg));
+  /* The order is the claim. If these three ever disagree with handleAuth, one key opens a different
+   * door from the other — which is the single thing this feature must never do. */
+  const order = srcCode(auth).slice(srcCode(auth).indexOf('function googleSheets_'), srcCode(auth).indexOf('function googleFindRow_'));
+  ok_('the sheets are searched in handleAuth’s own order: USERS, PARENTS, STAFF',
+    order.indexOf("'USERS'") < order.indexOf("'PARENTS'") && order.indexOf("'PARENTS'") < order.indexOf("'STAFF'"));
+  ok_('...and a sub anywhere beats an email everywhere', srcCode(auth).indexOf('=== g.sub') < srcCode(auth).indexOf('normEmail_(r.Email) === g.email'));
 }
 
 console.log('\n7) readiness, and a school that has not set it up');

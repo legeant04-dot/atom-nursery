@@ -235,24 +235,56 @@ function googleVerify_(credential) {
            picture: String(body.picture || '') };
 }
 
-/** Find the PARENTS/STAFF row this Google account belongs to. `sub` wins; the email is the fallback
- *  that exists so a FIRST sign-in can happen at all. Returns null when nothing matches. */
+/**
+ * THE THREE SHEETS AN IDENTITY CAN LIVE ON, in the order handleAuth itself reads them.
+ *
+ * USERS → PARENTS → STAFF. Getting this order wrong would mean signing in with Google landed
+ * somebody on a DIFFERENT account from the one LINE gives them, which is the exact failure this
+ * whole feature is designed not to have: one person, one identity, two keys.
+ *
+ * USERS was missing at first and it is the one that matters most here — an Admin-provisioned account
+ * for somebody who is not on the staff roster (the school's owner, say) exists ONLY there. They
+ * could link a Google account and then never be found by it. Reported 09/09/26 by exactly that
+ * person, about their own account.
+ */
+function googleSheets_() {
+  return [
+    { sheet: sheet_(getMainSpreadsheet_(), 'USERS'),   kind: 'USERS',   idField: 'UserID' },
+    { sheet: sheet_(getMainSpreadsheet_(), 'PARENTS'), kind: 'PARENTS', idField: 'ParentID' },
+    { sheet: sheet_(getHrSpreadsheet_(), 'STAFF'),     kind: 'STAFF',   idField: 'StaffID' }
+  ];
+}
+/** Find the row this Google account belongs to. `sub` wins across ALL sheets before any email is
+ *  considered — the email is only the fallback that lets a FIRST sign-in happen at all. */
 function googleFindRow_(g) {
-  var parents = sheet_(getMainSpreadsheet_(), 'PARENTS');
-  var staff = sheet_(getHrSpreadsheet_(), 'STAFF');
-  var bySub = function (r) { return r.GoogleSub && String(r.GoogleSub) === g.sub; };
-  var byMail = function (r) { return g.email && normEmail_(r.Email) === g.email; };
-  /* PARENTS before STAFF, the order handleAuth itself resolves a LineUID in — so a teacher whose own
-   * child attends lands on precisely the account she lands on with LINE today, not a different one. */
-  var hit = findObject_(parents, bySub);
-  if (hit) return { sheet: parents, row: hit, kind: 'PARENTS', id: hit.ParentID, matched: 'sub' };
-  hit = findObject_(staff, bySub);
-  if (hit) return { sheet: staff, row: hit, kind: 'STAFF', id: hit.StaffID, matched: 'sub' };
-  hit = findObject_(parents, byMail);
-  if (hit) return { sheet: parents, row: hit, kind: 'PARENTS', id: hit.ParentID, matched: 'email' };
-  hit = findObject_(staff, byMail);
-  if (hit) return { sheet: staff, row: hit, kind: 'STAFF', id: hit.StaffID, matched: 'email' };
+  var sheets = googleSheets_(), i, s, hit;
+  var pack = function (s, hit, how) {
+    return { sheet: s.sheet, row: hit, kind: s.kind, idField: s.idField, id: hit[s.idField], matched: how };
+  };
+  for (i = 0; i < sheets.length; i++) {
+    s = sheets[i];
+    hit = findObject_(s.sheet, function (r) { return r.GoogleSub && String(r.GoogleSub) === g.sub; });
+    if (hit) return pack(s, hit, 'sub');
+  }
+  for (i = 0; i < sheets.length; i++) {
+    s = sheets[i];
+    hit = findObject_(s.sheet, function (r) { return g.email && normEmail_(r.Email) === g.email; });
+    if (hit) return pack(s, hit, 'email');
+  }
   return null;
+}
+/** The row the CALLER is, found the way handleAuth finds it: by the LINE uid in their session. */
+function googleFindByUid_(uid) {
+  var sheets = googleSheets_(), i, hit;
+  for (i = 0; i < sheets.length; i++) {
+    hit = findObject_(sheets[i].sheet, function (r) { return r.LineUID && String(r.LineUID) === String(uid); });
+    if (hit) return { sheet: sheets[i].sheet, row: hit, kind: sheets[i].kind, idField: sheets[i].idField, id: hit[sheets[i].idField] };
+  }
+  return null;
+}
+/** Throw away the cached rows for whichever sheet was just written. */
+function googleBust_(kind) {
+  try { if (kind === 'STAFF') staffCacheBust_(); else recCacheBust_(kind); } catch (e) {}
 }
 
 /** Write the permanent account id onto a row the first time it is recognised by email alone. */
@@ -260,7 +292,7 @@ function linkGoogleSub_(found, g) {
   try {
     ensureColumns_(found.sheet, ['Email', 'GoogleSub']);
     updateRow_(found.sheet, found.row._row, { GoogleSub: g.sub, Email: g.email });
-    if (found.kind === 'PARENTS') { recCacheBust_('PARENTS'); } else { staffCacheBust_(); }
+    googleBust_(found.kind);
     logAudit(found.id, 'GOOGLE_LINK', found.kind, g.email);
   } catch (e) {}   // best effort: failing to remember it must not stop them getting in
 }
@@ -299,38 +331,47 @@ function handleGoogleExchange(payload) {
  */
 function handleGoogleLink(payload) {
   var p = payload || {};
-  var sh, row, idField, ownId, kind;
-  if (p.parentId) {
-    sh = sheet_(getMainSpreadsheet_(), 'PARENTS'); idField = 'ParentID'; ownId = p.parentId; kind = 'PARENTS';
-    row = findObject_(sh, function (x) { return String(x.ParentID) === String(ownId); });
-  } else if (p.staffId) {
-    sh = sheet_(getHrSpreadsheet_(), 'STAFF'); idField = 'StaffID'; ownId = p.staffId; kind = 'STAFF';
-    row = findObject_(sh, function (x) { return String(x.StaffID) === String(ownId); });
-  } else {
-    throw apiError_('NO_SESSION', 'ต้องเข้าสู่ระบบใหม่');
-  }
-  if (!row) throw apiError_('NOT_FOUND', 'ไม่พบข้อมูลของบัญชีนี้');
+  /* FOUND BY THE SESSION'S LINE UID, not by a parentId/staffId guessed from the role.
+   *
+   * This used to take whichever of the two applyIdentity_ had stamped, which quietly assumed every
+   * caller is a row on PARENTS or STAFF. An Admin-provisioned account that is not on the staff
+   * roster is a USERS row and neither, so linking threw NOT_FOUND for the one person most likely to
+   * be testing it. The uid is what handleAuth resolves an identity from, so looking the row up the
+   * same way guarantees the link lands on exactly the record a LINE sign-in produces — the two keys
+   * cannot end up on different doors. */
+  var uid = String(p.uid || '').trim();
+  if (!uid) throw apiError_('NO_SESSION', 'ต้องเข้าสู่ระบบใหม่');
+  var found = googleFindByUid_(uid);
+  if (!found) throw apiError_('NOT_FOUND', 'ไม่พบข้อมูลของบัญชีนี้');
+  var sh = found.sheet, idField = found.idField, ownId = found.id;
   try { ensureColumns_(sh, ['Email', 'GoogleSub']); } catch (e) {}
 
   if (p.unlink) {
     /* BOTH are cleared, not just the sub. The email alone is a way in (it is what a first sign-in
      * matches on), so leaving it behind would leave the door open after somebody asked to close it. */
-    updateRow_(sh, row._row, { GoogleSub: '', Email: '' });
-    if (kind === 'PARENTS') { recCacheBust_('PARENTS'); } else { staffCacheBust_(); }
-    logAudit(ownId, 'GOOGLE_UNLINK', kind, '');
+    updateRow_(sh, found.row._row, { GoogleSub: '', Email: '' });
+    googleBust_(found.kind);
+    logAudit(ownId, 'GOOGLE_UNLINK', found.kind, '');
     return { ok: true, linked: false, email: '' };
   }
 
   var g = googleVerify_(p.credential);
   emailGuard_(sh, g.email, idField, ownId);            // throws EMAIL_TAKEN if it belongs to somebody else
-  var other = findObject_(sh, function (x) {
-    return x.GoogleSub && String(x.GoogleSub) === g.sub && String(x[idField] || '') !== String(ownId);
-  });
-  if (other) throw apiError_('EMAIL_TAKEN', 'บัญชี Google นี้ถูกผูกกับผู้ใช้อื่นแล้ว');
-  updateRow_(sh, row._row, { GoogleSub: g.sub, Email: g.email });
-  if (kind === 'PARENTS') { recCacheBust_('PARENTS'); } else { staffCacheBust_(); }
-  logAudit(ownId, 'GOOGLE_LINK_SELF', kind, g.email);
-  return { ok: true, linked: true, email: g.email };
+  /* And no Google account may open two doors. Checked across ALL THREE sheets, not just this one:
+   * the same person's parent record and admin record are different rows on different sheets, and a
+   * sub on both would make which identity they get depend on lookup order rather than on intent. */
+  var sheets = googleSheets_(), i, other;
+  for (i = 0; i < sheets.length; i++) {
+    other = findObject_(sheets[i].sheet, function (x) {
+      return x.GoogleSub && String(x.GoogleSub) === g.sub &&
+        !(sheets[i].kind === found.kind && String(x[sheets[i].idField] || '') === String(ownId));
+    });
+    if (other) throw apiError_('EMAIL_TAKEN', 'บัญชี Google นี้ถูกผูกกับผู้ใช้อื่นแล้ว');
+  }
+  updateRow_(sh, found.row._row, { GoogleSub: g.sub, Email: g.email });
+  googleBust_(found.kind);
+  logAudit(ownId, 'GOOGLE_LINK_SELF', found.kind, g.email);
+  return { ok: true, linked: true, email: g.email, where: found.kind };
 }
 
 // ---- Login --------------------------------------------------------
