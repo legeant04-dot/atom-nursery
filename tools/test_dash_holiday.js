@@ -48,7 +48,14 @@ function boot(over) {
   const H = ctx.createAtomAPI(M, {}).H;
   return { H, M };
 }
-const today = new Date().toISOString().slice(0, 10);
+/* THE ENGINE'S DAY, NOT UTC'S.
+ *
+ * todayLocal() in engine.js is the machine's LOCAL calendar day; toISOString() is UTC. In Bangkok
+ * those are different days between midnight and 07:00, so seeding a holiday on the UTC date put it
+ * on YESTERDAY and every assertion here failed — a suite that is green all afternoon and red every
+ * night. Caught at 00:01 on 2026-09-10. */
+const ymd = d => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+const today = ymd(new Date());
 const kids = [
   { StudentID: 'C1', NameTH: 'คานะ', Nickname: 'คานะ', Class: 'Nursery 1', Status: 'ACTIVE' },
   { StudentID: 'C2', NameTH: 'ธันวา', Nickname: 'ธันวา', Class: 'Nursery 1', Status: 'ACTIVE' },

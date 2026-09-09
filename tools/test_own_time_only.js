@@ -78,7 +78,11 @@ console.log('\n1) a plain teacher is sent their own time, and nothing else');
   // collection, so the calendar used to draw a blank square for the day somebody had just clocked in
   eq('...so is the history behind the calendar', [...new Set(ids(d.history))], ['T1']);
   eq('...and today is IN it, not missing from it',
-    d.history.some(h => String(h.Date).slice(0, 10) === new Date().toISOString().slice(0, 10) && h.In === '06:47'), true);
+    // LOCAL, matching the engine's todayLocal(): between midnight and 07:00 in Bangkok the UTC date
+    // is still yesterday, and this would look for a row the engine wrote under today's date
+    d.history.some(h => String(h.Date).slice(0, 10) ===
+      (d2 => d2.getFullYear() + '-' + String(d2.getMonth() + 1).padStart(2, '0') + '-' + String(d2.getDate()).padStart(2, '0'))(new Date())
+      && h.In === '06:47'), true);
   /* v271 — THE SCHOOL CORRECTED PART OF THIS. Phase C took "who is off on Thursday" away from the
    * teachers along with everybody's arrival times, and cover is a question the staff answer between
    * them. A NAME IS NOT A SECRET; A CLOCK IS. So the leave goes to everyone — the name and the KIND

@@ -65,16 +65,31 @@ const reached = (c, a) => c.__sent.reduce((n, b) =>
     ok_('there is a renewal', /function renewSession_/.test(auth));
     ok_('it only fires past the halfway point', /left > \(SESSION_TTL_SEC \* 1000\) \/ 2\) return ''/.test(auth));
     ok_('an already-expired token is NOT renewed — that would be a way back in', /left <= 0/.test(auth));
-    ok_('the renewed token keeps the same identity, it does not invent one',
-      /issueSession_\(sess\.uid, sess\.role, sess\.linkedId\)/.test(auth));
+    /* THE IDENTITY IS RE-DERIVED, NOT CARRIED FORWARD.
+     *
+     * This used to assert the opposite — `issueSession_(sess.uid, sess.role, sess.linkedId)` — and
+     * that was the bug, not the rule. Renewal keeps happening for as long as somebody keeps using
+     * the app, so a role frozen into the token at sign-in never changed again: an account MOVED to
+     * a different record, or a role changed, never took effect for an active user. Not in twelve
+     * hours — never. Found 09/09/26 when the school's admin corrected every LINE ID in the sheets
+     * and still kept arriving on the record he had just moved off.
+     *
+     * The uid is still the only thing trusted from the old token; who that uid IS gets looked up
+     * again. */
+    ok_('the renewed token re-derives the identity from the uid',
+      /var who = resolveIdentity_\(sess\.uid\);/.test(auth) && /issueSession_\(sess\.uid, who\.role, who\.linkedId\)/.test(auth));
+    ok_('...and a uid that resolves to nobody is not renewed at all', /if \(!who\) return '';/.test(auth));
 
     // run it for real against a fake GAS runtime
     const ctx = { Date, JSON, SESSION_TTL_SEC: 43200, sessionSecret_: () => 'test-secret',
+      ROLES: { PARENT: 'Parent' },
+      // the lookup renewal now depends on — one staff row, so the identity comes back unchanged
+      googleFindByUid_: uid => (uid === 'U' ? { kind: 'STAFF', row: { StaffID: 'STF-1', Role: 'Teacher' } } : null),
       Utilities: { base64EncodeWebSafe: s => 'B64(' + String(s).slice(0, 40) + ')', computeHmacSha256Signature: () => 'SIG' } };
     vm.createContext(ctx);
     const cut = src => { const i = auth.indexOf('function ' + src); let d = 0, j = auth.indexOf('{', i), e = j;
       for (let k = j; k < auth.length; k++) { if (auth[k] === '{') d++; else if (auth[k] === '}') { d--; if (!d) { e = k; break; } } } return auth.slice(i, e + 1); };
-    vm.runInContext(cut('issueSession_') + '\n' + cut('renewSession_'), ctx);
+    vm.runInContext(cut('issueSession_') + '\n' + cut('renewSession_') + '\n' + cut('resolveIdentity_'), ctx);
     const now = Date.now(), TTL = 43200 * 1000;
     eq('fresh token (11h left): not renewed', ctx.renewSession_({ uid: 'U', exp: now + TTL * 0.9 }), '');
     ok_('past halfway (5h left): renewed', !!ctx.renewSession_({ uid: 'U', exp: now + TTL * 0.4 }));

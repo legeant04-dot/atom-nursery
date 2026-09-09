@@ -349,6 +349,47 @@ console.log('\n6d) why did this person land on THAT account?');
   ok_('...and says where to fix one, since the app has no screen for that sheet', /ต้องแก้ที่ตาราง USERS ในชีตโดยตรง/.test(app));
 }
 
+console.log('\n6e) an account that has been MOVED takes effect');
+{
+  /* REPORTED 09/09/26, and the last piece of it. The owner made himself a new staff record, put his
+   * LINE ID on it, took it off the shared one — and kept arriving on the shared record anyway. The
+   * sheets were right; the SESSION was wrong.
+   *
+   * renewSession_ reissued with the role and linkedId frozen in at sign-in, and renewal keeps
+   * happening for as long as somebody keeps using the app. So a moved account never took effect for
+   * an active user — not in twelve hours, never. The same held for a role change. */
+  const ctx = boot({});
+  const r = call(ctx, 'function(){' +
+    ' var s = sheet_(getHrSpreadsheet_(), "STAFF");' +
+    ' appendObject_(s, { StaffID:"STF-NEW", Name:"ผมเอง", Role:"Admin", Status:"ACTIVE", LineUID:"" });' +
+    // a session minted while the uid still sat on the OLD record, half-spent so renewal is due
+    ' var stale = { uid:"U_film", role:"Teacher", linkedId:"STF-1", exp: Date.now() + (SESSION_TTL_SEC*1000)/4 };' +
+    // the admin now moves the LINE ID across, exactly as the app's forms do
+    ' var old = findObject_(s, function (x) { return x.StaffID === "STF-1"; });' +
+    ' updateRow_(s, old._row, { LineUID: "" });' +
+    ' var nw = findObject_(s, function (x) { return x.StaffID === "STF-NEW"; });' +
+    ' updateRow_(s, nw._row, { LineUID: "U_film" });' +
+    ' staffCacheBust_();' +
+    ' var t = renewSession_(stale);' +
+    ' return t ? verifySession_(t) : null; }');
+  eq('the renewed session points at the NEW record, not the one it was minted on', r.v && r.v.linkedId, 'STF-NEW');
+  eq('...and carries the role that record actually has', r.v && r.v.role, 'Admin');
+}
+{
+  const ctx = boot({});
+  // a record that has gone: the session is simply not extended, and dies on its own schedule
+  const gone = call(ctx, 'function(){' +
+    ' var stale = { uid:"U_vanished", role:"Teacher", linkedId:"STF-1", exp: Date.now() + (SESSION_TTL_SEC*1000)/4 };' +
+    ' return renewSession_(stale); }');
+  eq('a uid that resolves to nobody is not renewed', gone.v, '');
+  // and a token with plenty of life left still costs no lookup at all
+  const early = call(ctx, 'function(){' +
+    ' return renewSession_({ uid:"U_film", role:"Teacher", linkedId:"STF-1", exp: Date.now() + SESSION_TTL_SEC*1000 }); }');
+  eq('a fresh token is left alone', early.v, '');
+  ok_('identity is re-derived, never copied forward', /var who = resolveIdentity_\(sess\.uid\);/.test(srcCode(auth)));
+  ok_('...in handleAuth’s own order, by reusing its lookup', /googleFindByUid_\(uid\)/.test(srcCode(auth).slice(srcCode(auth).indexOf('function resolveIdentity_'))));
+}
+
 console.log('\n7) readiness, and a school that has not set it up');
 {
   const ctx = boot({});
