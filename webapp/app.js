@@ -112,7 +112,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.361'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.362'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -1502,7 +1502,7 @@
   function lineWebReady(){
     if (_lineWebReady === null) {
       _lineWebReady = false;
-      api('lineLoginReady', {}).then(r => { _lineWebReady = !!(r && r.ready);
+      api('lineLoginReady', {}, { quiet: true }).then(r => { _lineWebReady = !!(r && r.ready);
         const el = document.getElementById('lineWebBtn'); if (el) el.hidden = !_lineWebReady;
       })
       /* A question we could not ask is not an answer of "no". Left as false, one failed ask — a
@@ -1536,7 +1536,12 @@
   function googleReady(){
     if (_gsiClientId === null) {
       _gsiClientId = '';
-      api('googleLoginReady', {}).then(r => { _gsiClientId = String((r && r.clientId) || '');
+      /* QUIET. A read still in flight after 350ms covers the screen with "ระบบกำลังดำเนินการ", and
+       * the first Apps Script execution after a deploy takes seconds — so probing CONFIGURATION was
+       * putting a blocking overlay over the sign-in screen and greying out the LINE button the
+       * parent was reaching for. Nobody is waiting on this answer; when it lands, a button appears.
+       * Seen on the live site (v362). lineWebReady is quietened for the same reason. */
+      api('googleLoginReady', {}, { quiet: true }).then(r => { _gsiClientId = String((r && r.clientId) || '');
         if (_gsiClientId) GOOGLE_PAINT();
       }).catch(() => { _gsiClientId = null; });
     }
