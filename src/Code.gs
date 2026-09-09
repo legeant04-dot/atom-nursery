@@ -42,10 +42,31 @@ var ROUTES = {
     }
     return out;
   },
-  auth:           function (p) { return handleAuth(p); },
+  /* A LINE UID ON ITS OWN IS A CLAIM, NOT A PROOF.
+   *
+   * handleAuth accepts `lineUid` without a token as a direct-API testing fallback (see its header),
+   * and `auth` is public — so anyone who knows somebody's LINE UID could post it here and be handed
+   * that person's twelve-hour session. Those ids are not secret: the sign-in screen prints your own
+   * for copying, and the admin forms hold everybody's.
+   *
+   * Found 09/09/26 while building the Google door, whose whole design rests on handleAuth being the
+   * one trustworthy place identity is decided. Refused here rather than inside handleAuth, because
+   * the setup and diagnostic functions call that directly and are not reachable from the internet;
+   * gated on the same flag as the rest of session enforcement, so local testing is unaffected.
+   */
+  auth:           function (p) {
+    if (p && p.lineUid && !p.accessToken && sessionRequired_()) {
+      try { logAudit('anon', 'AUTH_UID_ONLY_REFUSED', 'AUTH', String(p.lineUid).slice(0, 40)); } catch (e) {}
+      throw apiError_('NO_IDENTITY', 'ต้องเข้าสู่ระบบผ่าน LINE หรือ Google');
+    }
+    return handleAuth(p);
+  },
   // browser-only LINE sign-in (the fallback when the iOS hand-off to the LINE app never returns)
   lineLoginReady: function (p) { return handleLineLoginReady(p); },
   lineExchange:   function (p) { return handleLineExchange(p); },
+  googleLoginReady: function (p) { return handleGoogleLoginReady(p); },
+  googleExchange: function (p) { return handleGoogleExchange(p); },
+  googleLink:     function (p) { return handleGoogleLink(p); },
   changePassword: function (p) { return handleChangePassword(p); },
   // in-place staff CRUD (override the engine's full-collection rewrite, which could wipe other rows)
   saveStaff:      function (p) { return handleSaveStaff(p); },
@@ -306,8 +327,13 @@ function sessionRequired_() { try { return String(getConfig_('RequireSessionToke
 /* lineLoginReady/lineExchange are public for the same reason `auth` is: they ARE the sign-in. One
  * says whether the browser-only route is configured (a boolean and a public channel id, never the
  * secret); the other turns an authorization code into the very session this gate would ask for. */
+/* googleLoginReady/googleExchange are public for the same reason, and for the same length of time:
+ * they run BEFORE there is a session, because producing one is what they do. googleLink is NOT here
+ * — it is the opposite action, only ever performed by somebody already signed in, and its whole
+ * safety comes from the session deciding whose row is written. */
 function publicAction_(a) { return a === 'ping' || a === 'auth' || a === 'perfLog'
-  || a === 'lineLoginReady' || a === 'lineExchange'; }
+  || a === 'lineLoginReady' || a === 'lineExchange'
+  || a === 'googleLoginReady' || a === 'googleExchange'; }
 /** Ride a renewed session token back on a normal reply, so an active user is never signed out. */
 function withRenewal_(env, sess) {
   try { var t = renewSession_(sess); if (t) env.token = t; } catch (e) {}
@@ -357,6 +383,15 @@ function applyIdentity_(action, payload, sess) {
   // Observer reads these too — the role exists to see the whole school. It cannot write: dispatch_
   // has already refused every mutating action for it before this runs.
   if (ADMIN_ONLY[action] && sess.role !== 'Admin' && sess.role !== ROLES.OBSERVER) throw apiError_('NO_PERMISSION', 'เฉพาะแอดมิน');
+  /* googleLink is ALWAYS about the caller themselves — that is the entire safety of it. Nobody types
+   * an address, so nobody mistypes one onto another family. An Admin session returns below with the
+   * payload untouched, which would leave this one action with no identity at all and refuse the
+   * admin their own link, so it is stamped here for every role including Admin. */
+  if (action === 'googleLink') {
+    delete payload.parentId; delete payload.staffId;
+    if (sess.role === ROLES.PARENT) payload.parentId = sess.linkedId; else payload.staffId = sess.linkedId;
+    return payload;
+  }
   // Admin is fully trusted: may target ANY staff/student/parent (manage everyone + "view as" any role).
   // Observer is shaped the same way so it can OPEN any record; it simply cannot change one.
   if (sess.role === 'Admin' || sess.role === ROLES.OBSERVER) return payload;
@@ -529,7 +564,10 @@ var WRITES_ACTIONS_ = { recordCashPayment: 1, teacherStudentLeave: 1, unlockJour
   /* AN AUTHORIZATION CODE CAN ONLY BE SPENT ONCE. Nothing about the name says "write", so it would
    * have counted as retry-safe — and a reply lost on the way back would be retried with a code LINE
    * has already burned, turning a completed sign-in into "เข้าสู่ระบบไม่สำเร็จ". */
-  lineExchange: 1 };
+  lineExchange: 1,
+  // both write a row: googleExchange remembers the permanent account id the first time an email is
+  // recognised, and googleLink is the link itself
+  googleExchange: 1, googleLink: 1 };
 /**
  * A holiday write, plus the tidy-up it makes necessary.
  *

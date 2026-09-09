@@ -362,6 +362,13 @@ var SCHOOL_CONFIG_DEFAULTS = [
    * exchange with "invalid_request" — that part cannot be done from here. */
   ['LineLoginChannelId',    ''],    // blank = taken from the LIFF id the client already has
   ['LineLoginChannelSecret',''],    // NEVER leaves the server
+  /* SIGN IN WITH GOOGLE — the second key to the same door (see the block above handleGoogleExchange).
+   * The school's own OAuth client, created 09/09/26 and published to Production with only the
+   * `email` and `profile` scopes. A client id is NOT a secret: it is sent to every browser that
+   * draws the button, and Google's own docs treat it as public. There is deliberately no secret to
+   * store — this uses ID-token sign-in, which needs neither a client secret nor a redirect URI.
+   * Blank = the feature is off and the button is never drawn. */
+  ['GoogleClientId',        '120486339414-6auhdq0a1fur2ihu24rr8po58vgci3s1.apps.googleusercontent.com'],
   /* WHO GETS A LINE PUSH, as opposed to the in-app 🔔 bell. The free plan caps messages at ~300 a
    * month and the school's quota is exhausted, so both default to OFF and everything still arrives
    * on the bell, which costs nothing. Emergencies (injury) ignore both and always push.

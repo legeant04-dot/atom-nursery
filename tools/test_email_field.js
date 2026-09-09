@@ -219,8 +219,11 @@ console.log('\n9) LINE is untouched — it is still the way in');
   ok_('...and still what the admin form ties an account with', /pf_LineUID/.test(c));
   ok_('...and the staff form', /sf_LineUID/.test(c));
   ok_('registration still stamps the LINE uid on the new row', /LineUID:p\.uid\|\|''/.test(srcCode(eng)));
-  // no route was added, renamed or gated in this change — the sign-in path is exactly as it shipped
-  ok_('no Google route exists yet — this change only collects the address', !/googleExchange|googleLogin/.test(srcCode(R('src/Code.gs'))));
+  /* The Google routes arrived one release later (v359, tools/test_google_login.js). What this suite
+   * keeps asking is that they did not become a REQUIREMENT: an address is still optional, LineUID is
+   * still what the session carries, and a family that never gives an email is untouched. */
+  ok_('the LINE routes are still there, unchanged', /lineLoginReady:\s+function/.test(srcCode(R('src/Code.gs'))) && /lineExchange:\s+function/.test(srcCode(R('src/Code.gs'))));
+  ok_('...and a blank email is still a valid record', /if\(!e\) return '';/.test(srcCode(eng)));
 }
 
 console.log(fail ? `\nFAILED ${pass} passed, ${fail} failed` : `\nPASSED ${pass} passed, 0 failed`);

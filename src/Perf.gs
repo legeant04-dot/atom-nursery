@@ -206,6 +206,12 @@ var PERF_EXPECTED_ = {
    * and the wrong person is shown a child's information. Hitting this is the guard doing exactly
    * what it exists for, at the one moment somebody is there to correct the typing. */
   EMAIL_TAKEN: 1,
+  /* The Google door refusing. GOOGLE_NOT_LINKED is by far the most common and is not a fault at all
+   * — it is somebody trying the button before their account has been linked, which is what the
+   * message tells them to go and do. The token ones are the security checks working: a token minted
+   * for another app, or an address Google has not confirmed the person owns. */
+  GOOGLE_NOT_LINKED: 1, GOOGLE_NO_LINE_ACCOUNT: 1, GOOGLE_TOKEN_INVALID: 1,
+  GOOGLE_EMAIL_UNVERIFIED: 1, GOOGLE_NOT_CONFIGURED: 1,
   // a slip this school has already taken money against, offered for something else — the reuse
   // check refusing, which is the point of storing the bank reference at all
   SLIP_ALREADY_USED: 1
