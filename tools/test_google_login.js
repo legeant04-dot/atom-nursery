@@ -300,7 +300,12 @@ console.log('\n9) what the screens do with it');
   /* GOOGLE REFUSES OAUTH IN AN EMBEDDED WEBVIEW (disallowed_useragent), so a button drawn inside
    * LINE's own browser could only ever fail — and it is not needed there, because LIFF signs people
    * in with no button at all. */
-  ok_('nothing Google is drawn inside LINE’s browser', /if \(!boxes\.length \|\| !_gsiClientId \|\| inLineApp\(\)\) return;/.test(c));
+  ok_('nothing Google is drawn inside LINE’s browser', /if \(!boxes\.length \|\| inLineApp\(\) \|\| CONFIG\.MODE !== 'gas'\) return;/.test(c));
+  /* AN UNKNOWN ANSWER STARTS THE QUESTION. Giving up on a falsy client id made the button depend on
+   * the readiness reply having already arrived — and on a cold start it has not, because the box is
+   * in the shell and the ask is a round trip behind it. Found by loading the live site. */
+  ok_('...but an unknown readiness asks, rather than drawing nothing for ever', /if \(_gsiClientId === null\) \{ googleReady\(\); return; \}/.test(c));
+  ok_('...and a school with no OAuth client still sees nothing', /if \(!_gsiClientId\) return;/.test(c));
   ok_('...including the link card', /if \(inLineApp\(\)\) return '';/.test(c));
   ok_('the button is never auto-triggered', /auto_select: false/.test(c));
   ok_('Safari’s tracking prevention is accounted for', /itp_support: true/.test(c));

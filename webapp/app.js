@@ -112,7 +112,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.360'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.361'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -1559,7 +1559,17 @@
    * rules require it — so the screens hand over a container and this fills it. */
   window.GOOGLE_PAINT = async () => {
     const boxes = [...document.querySelectorAll('[data-gsi]')].filter(el => !el.dataset.gsiDone);
-    if (!boxes.length || !_gsiClientId || inLineApp()) return;
+    if (!boxes.length || inLineApp() || CONFIG.MODE !== 'gas') return;
+    /* ASK FOR WHAT WE DO NOT KNOW, instead of quietly drawing nothing.
+     *
+     * This read `!_gsiClientId` and gave up, which made the button depend on the readiness answer
+     * having already arrived — and on a cold start it has not: the box is painted into the shell
+     * before any screen runs, and the ask is one Apps Script round trip behind it. Loaded the live
+     * site and found an empty space where the button should be (v361). Now an unknown answer starts
+     * the question, and googleReady's callback paints when it lands; a known 'off' still draws
+     * nothing, which is what a school without an OAuth client should see. */
+    if (_gsiClientId === null) { googleReady(); return; }
+    if (!_gsiClientId) return;
     try { await gsiLoad(); } catch (e) { return; }                     // offline / blocked → leave the box empty
     try {
       window.google.accounts.id.initialize({
