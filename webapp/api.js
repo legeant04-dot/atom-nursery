@@ -60,6 +60,27 @@ window.CONFIG = { MODE: 'gas', GAS_URL: 'https://script.google.com/macros/s/AKfy
   } catch (e) {}
   window.__atomClearSession = () => { _session = null; try { localStorage.removeItem('atom_session_token'); } catch (e) {} };
   /**
+   * KEEP A SESSION, WHICHEVER DOOR IT CAME THROUGH.
+   *
+   * Only `auth` used to capture the token out of a reply, because for a long time `auth` was the only
+   * thing that produced one. It is not any more: lineExchange and googleExchange both finish a
+   * sign-in and both hand back the same payload — and neither was being stored, so the app showed
+   * the person signed in (the header knew their name and role) while every request it made after
+   * that carried no token and came back "ต้องเข้าสู่ระบบใหม่ (เซสชันหมดอายุ)". Reported 09/09/26,
+   * one screen after a successful Google sign-in.
+   *
+   * Central rather than a list of action names, so the next way in cannot forget: any reply that
+   * carries a well-formed token is a session, and ordinary writes simply do not carry one.
+   */
+  const keepToken = d => {
+    const t = d && d.token;
+    if (t && String(t).indexOf('.') > 0) {
+      _session = t;
+      try { localStorage.setItem('atom_session_token', t); } catch (e) {}
+    }
+    return d;
+  };
+  /**
    * The API always answers JSON. If it does not, something upstream replied for it — Apps Script's
    * own HTML error page, a Google sign-in page, or a captive portal — and r.json() would surface
    * 'Unexpected token "<", "<!DOCTYPE"...' to the user, which tells them nothing. Say what actually
@@ -886,11 +907,13 @@ window.CONFIG = { MODE: 'gas', GAS_URL: 'https://script.google.com/macros/s/AKfy
     payload = payload || {};
     if (CONFIG.MODE === 'gas') {
       if (action === 'auth') {                                                          // capture the session token; never cache auth
-        return enqueueGas(action, payload).then(d => { if (d && d.token) { _session = d.token; try { localStorage.setItem('atom_session_token', d.token); } catch (e) {} } return d; });
+        return enqueueGas(action, payload).then(keepToken);
       }
       // write → throw away what it could have changed, then quietly fill it again so the next
-      // screen is instant instead of waiting on the server all over again
-      if (isMutating(action)) { const was = rcRecentKeys(); rcClearFor(action); return guarded(action, payload).then(d => { rewarmLater(was); return d; }); }
+      // screen is instant instead of waiting on the server all over again.
+      // keepToken because the sign-in EXCHANGES live here: they are writes (an authorization code or
+      // a Google credential must never be retried) and they are also what hands back the session.
+      if (isMutating(action)) { const was = rcRecentKeys(); rcClearFor(action); return guarded(action, payload).then(d => { rewarmLater(was); return keepToken(d); }); }
       const ck = action + '|' + JSON.stringify(payload);
       // opts.fresh: never serve a possibly-stale cached value — always fetch (still populates the cache).
       // Used for time-sensitive reads like the announcement popup, where a stale empty must not suppress it.

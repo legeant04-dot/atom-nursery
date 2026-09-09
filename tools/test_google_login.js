@@ -37,6 +37,7 @@ const app = R('webapp/app.js'), code = R('src/Code.gs'), auth = R('src/Auth.gs')
 const srcCode = s => s.replace(/image\/\*/g, 'image_ANY')
   .replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
 
+let RUNTIME = async () => {};
 const CLIENT_ID = '120486339414-6auhdq0a1fur2ihu24rr8po58vgci3s1.apps.googleusercontent.com';
 
 /**
@@ -394,6 +395,18 @@ console.log('\n9) what the screens do with it');
    * failure count would send the next sign-in back into the route that is still broken. */
   ok_('signing in with Google does not pretend LINE is fixed', !/GOOGLE_SIGNIN[\s\S]{0,900}clearLiffFails\(\)/.test(c));
   ok_('the home payload still rides back with the sign-in', /if \(u\.home && u\.home\.children\) window\._BOOT_HOME = u\.home;/.test(c));
+  /* A SESSION IS ONLY USEFUL IF IT IS KEPT.
+   *
+   * Only `auth` captured the token out of a reply, because for a long time `auth` was the only thing
+   * that produced one. lineExchange and googleExchange both finish a sign-in and hand back the same
+   * payload, and neither was stored — so the app showed the person signed in, header and role and
+   * all, while every request after that carried no token and came back "เซสชันหมดอายุ". One screen
+   * after a successful Google sign-in. Central now, so the next door cannot forget. */
+  const a = srcCode(api);
+  ok_('there is one place a session is kept', /const keepToken = d => \{/.test(a));
+  ok_('...used by auth', /enqueueGas\(action, payload\)\.then\(keepToken\)/.test(a));
+  ok_('...and by the exchanges, which are writes', /rewarmLater\(was\); return keepToken\(d\); \}\)/.test(a));
+  ok_('...and it checks the shape, so junk is never stored as a session', /String\(t\)\.indexOf\('\.'\) > 0/.test(a));
   ok_('a refusal is explained and the parent is returned to the login screen', /\.catch\(e => \{ err\(e\); loginScreen\(\); \}\)/.test(c));
   // the server's sentence names the address; a generic dictionary entry would hide it
   ok_('GOOGLE_NOT_LINKED keeps the server’s own words', !/GOOGLE_NOT_LINKED:\s*\[/.test(app));
@@ -410,6 +423,52 @@ console.log('\n10) LINE is still the way in');
     c.indexOf('OPEN_IN_LINE()') < c.indexOf('data-gsi="signin"'));
   ok_('handleAuth is unchanged as the one place identity is decided', /function handleAuth\(payload\)/.test(auth));
   ok_('...and the Google route goes through it rather than around it', /return handleAuth\(\{ lineUid: uid/.test(auth));
+}
+
+console.log('\n10b) the session survives the sign-in that produced it');
+{
+  /* THE REAL api.js, answered by a fake server, so this is not a regex about the code but the code
+   * running. A sign-in that hands back a token and then does not send it on the next request is the
+   * bug that made a successful Google sign-in show "เซสชันหมดอายุ" one screen later. */
+  const vm = require('vm');
+  function bootApi() {
+    const store = {}, sent = [];
+    const mkStore = () => ({ getItem: k => (k in store ? store[k] : null), setItem: (k, v) => { store[k] = String(v); },
+      removeItem: k => { delete store[k]; }, key: i => Object.keys(store)[i], get length() { return Object.keys(store).length; } });
+    const ctx = {
+      console, setTimeout, clearTimeout, clearInterval, setInterval: () => 0, Promise, JSON, Math, Date, Object,
+      Array, String, Number, isFinite, RegExp, Error,
+      Blob: function (a, b) { this.parts = a; this.type = b && b.type; },
+      localStorage: mkStore(), sessionStorage: mkStore(),
+      navigator: { userAgent: 'Mozilla/5.0 (iPhone)', connection: { effectiveType: '4g' }, sendBeacon: null },
+      performance: { getEntriesByType: () => [] },
+      document: { addEventListener: () => {}, hidden: false, currentScript: null }
+    };
+    ctx.window = ctx; ctx.matchMedia = () => ({ matches: false }); ctx.addEventListener = () => {};
+    ctx.fetch = (url, init) => {
+      const body = JSON.parse(init.body);
+      sent.push(body);
+      const one = c => c.action === 'googleExchange'
+        ? { ok: true, data: { role: 'Admin', linkedId: 'U-1', token: 'BODY.SIG' } }
+        : { ok: true, data: { seen: c.token || null } };
+      const out = body.calls ? { ok: true, data: { results: body.calls.map(one) } } : one(body);
+      return Promise.resolve({ status: 200, text: () => Promise.resolve(JSON.stringify(out)) });
+    };
+    vm.createContext(ctx); vm.runInContext(R('webapp/api.js'), ctx);
+    ctx.CONFIG.MODE = 'gas'; ctx.CONFIG.GAS_URL = 'https://example.test/exec';
+    return { ctx, store, sent };
+  }
+  // runs last, after the synchronous sections below it — it owns the final summary
+  RUNTIME = async () => {
+    const t = bootApi();
+    eq('nothing is stored before signing in', t.store.atom_session_token, undefined);
+    const u = await t.ctx.api('googleExchange', { credential: 'X' });
+    eq('the sign-in returns a session', u.token, 'BODY.SIG');
+    eq('...and it is kept', t.store.atom_session_token, 'BODY.SIG');
+    await new Promise(r => setTimeout(r, 20));
+    const after = await t.ctx.api('dashboard', {});
+    eq('...and sent on the very next request, which is where it broke', after.seen, 'BODY.SIG');
+  };
 }
 
 console.log('\n11) the button exists on a COLD start, which is the visit that fails');
@@ -440,5 +499,8 @@ console.log('\n11) the button exists on a COLD start, which is the visit that fa
   ok_('the shell literal matches this build', (html.match(/Version 1\.(\d+)/) || [])[1] === (c.match(/APP_VERSION = 'Version 1\.(\d+)'/) || [])[1]);
 }
 
-console.log(fail ? `\nFAILED ${pass} passed, ${fail} failed` : `\nPASSED ${pass} passed, 0 failed`);
-process.exit(fail ? 1 : 0);
+// the one section that has to run the real api.js against a fake server, and so cannot be synchronous
+RUNTIME().then(() => {
+  console.log(fail ? `\nFAILED ${pass} passed, ${fail} failed` : `\nPASSED ${pass} passed, 0 failed`);
+  process.exit(fail ? 1 : 0);
+});
