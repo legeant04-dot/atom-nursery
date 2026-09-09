@@ -233,6 +233,23 @@ console.log('\n7) readiness, and a school that has not set it up');
     '   (function(){ try { handleGoogleExchange({ credential: "T_MUM" }); return ""; }' +
     '               catch (e) { return String(e.apiCode || e.code); } })()]; }');
   eq('with no client id the button is off and the route refuses cleanly', off.v, [false, 'GOOGLE_NOT_CONFIGURED']);
+  /* A BLANK ROW AND A MISSING ROW ARE DIFFERENT ANSWERS.
+   *
+   * getConfig_ treats a blank cell as absent and returns the default, which would make it impossible
+   * to switch this off from the sheet. And the live workbook predates the key — defaults are seeded
+   * only at setup — so with no fallback at all the feature would ship switched off and look broken
+   * on the very deployment it was built for. A blank row means off; no row means the built-in one.
+   */
+  const ctx2 = boot({ T_MUM: good('gsub_mum', 'karn@gmail.com') });
+  const gone = call(ctx2, 'function(){' +
+    ' var sh = sheet_(getMainSpreadsheet_(), "SCHOOL_CONFIG");' +
+    ' var r = findObject_(sh, function (x) { return String(x.Key) === "GoogleClientId"; });' +
+    ' sh.deleteRow(r._row);' +
+    ' try { CacheService.getScriptCache().removeAll(["col:SCHOOL_CONFIG","rows:SCHOOL_CONFIG","cfg"]); } catch (e) {}' +
+    ' _configCache = null;' +
+    ' return [handleGoogleLoginReady().clientId, handleGoogleExchange({ credential: "T_MUM" }).linkedId]; }');
+  eq('a workbook with no row at all uses the school’s own client, and still signs people in',
+    gone.v, [CLIENT_ID, 'PAR-1']);
 }
 
 console.log('\n8) how the request is allowed to reach the handler at all');
