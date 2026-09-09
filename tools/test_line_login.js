@@ -528,7 +528,13 @@ const THAI_LINE_FAIL = /เชื่อมต่อ LINE ไม่สำเร�
      * device that has failed twice) are both recoveries AFTER a failure; this one is offered from the
      * first tap, and it depends on no stored session, no LINE app and no hand-off.
      */
-    const card = src.slice(src.indexOf('function loginScreen()'), src.indexOf('function loginScreen()') + 3200);
+    /* THE WHOLE CARD, not the first N characters of it. This was `+ 3200`, and adding the Google
+     * button below the LINE routes pushed the wording out of the window — the assertions started
+     * failing about text that was still there, three lines further down. A slice measured in
+     * characters is a test that breaks whenever the screen grows; measured to the end of the
+     * template it asks the question it means to. */
+    const _lsAt = src.indexOf('function loginScreen()');
+    const card = src.slice(_lsAt, src.indexOf('installButtonsHTML()', _lsAt));
     ok_('the QR route is on the login card itself', /id="lineWebBtn"[^>]*onclick="LINE_BROWSER_LOGIN\(\)"/.test(card));
     ok_('...worded as the answer to "I cannot get in"', /เข้าไม่ได้\?/.test(card));
     /* AND WORDED HONESTLY. It said "scan the QR with the LINE app on this phone — no password",

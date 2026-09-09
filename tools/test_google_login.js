@@ -330,5 +330,25 @@ console.log('\n10) LINE is still the way in');
   ok_('...and the Google route goes through it rather than around it', /return handleAuth\(\{ lineUid: uid/.test(auth));
 }
 
+console.log('\n11) the button exists on a COLD start, which is the visit that fails');
+{
+  const html = R('webapp/index.html'), c = srcCode(app);
+  /* FOUND BY LOADING THE REAL SITE, not by reading the code. loginScreen() returns early while the
+   * shell is on screen, so on a first visit in Thai the page contained neither the LINE-by-email
+   * fallback nor the Google button — the two routes that exist for the parent whose FIRST attempt
+   * is the one that fails. index.html already carried this lesson for the .apk card. */
+  ok_('the shell carries the Google container', /data-gsi="signin"/.test(html));
+  ok_('...and the LINE-by-email fallback', /id="lineWebBtn"/.test(html));
+  ok_('...and the open-in-LINE route', /id="openInLineBtn"/.test(html));
+  ok_('the fallback starts hidden until the server says it is configured', /id="lineWebBtn" hidden/.test(html));
+  ok_('the shell guards every handler, since app.js may not have run yet', /window.LINE_BROWSER_LOGIN&&LINE_BROWSER_LOGIN()/.test(html) && /window.OPEN_IN_LINE&&OPEN_IN_LINE()/.test(html));
+  ok_('all three are removed inside LINE’s own browser', /['lineWebBtn','openInLineBtn','gsiShell'].forEach/.test(c));
+  /* inLineApp is a const arrow, so calling it from the top-level prune beside apkCard would be a
+   * temporal-dead-zone ReferenceError rather than a hoisted call. */
+  ok_('...after inLineApp exists, not before it', c.indexOf('const inLineApp') < c.indexOf("['lineWebBtn','openInLineBtn','gsiShell']"));
+  const ls = c.slice(c.indexOf('function loginScreen()'), c.indexOf('function loginScreen()') + 3000);
+  ok_('the paint is asked for above the early return', ls.indexOf('GOOGLE_PAINT()') < ls.indexOf("getElementById('bootSplash')"));
+}
+
 console.log(fail ? `\nFAILED ${pass} passed, ${fail} failed` : `\nPASSED ${pass} passed, 0 failed`);
 process.exit(fail ? 1 : 0);
