@@ -341,7 +341,19 @@ console.log('\n6d) why did this person land on THAT account?');
   const ctx = boot({});
   eq('an address can be looked up too', call(ctx, 'function(){ return handleAuthDiag({ email: "karn@gmail.com" }).matches[0].id; }').v, 'PAR-1');
   eq('a uid nobody holds says so plainly', call(ctx, 'function(){ return handleAuthDiag({ uid: "U_nobody" }).matches.length; }').v, 0);
-  eq('asking nothing is refused', call(ctx, 'function(){ return handleAuthDiag({}); }').code, 'BAD_INPUT');
+  eq('asking nothing, with no session either, is refused', call(ctx, 'function(){ return handleAuthDiag({}); }').code, 'BAD_INPUT');
+  /* ASKED WITH NOTHING = "WHICH RECORD AM I ON?" — the question that actually gets asked, and the one
+   * nothing could answer. A day was lost moving a LINE ID between records to stop landing on a shared
+   * account, checking against an id READ OFF A RECORD and assumed to be one's own. `__me` comes from
+   * the verified session, so it is the uid handleAuth just resolved them by and cannot be wrong. */
+  const mine = call(ctx, 'function(){ return handleAuthDiag({ __me: "U_film" }); }');
+  eq('with nothing asked, it looks the CALLER up', [mine.v.uid, mine.v.resolves.id], ['U_film', 'STF-1']);
+  eq('...and says that is who they are', [mine.v.me, mine.v.isMe], ['U_film', true]);
+  const other = call(ctx, 'function(){ return handleAuthDiag({ __me: "U_film", uid: "U_mum" }); }');
+  eq('checking somebody ELSE still reports whose session is asking', [other.v.uid, other.v.me, other.v.isMe], ['U_mum', 'U_film', false]);
+  ok_('the route is handed the session uid, never one from the box', /if \(action === 'authDiag'\) \{ payload\.__me = sess\.uid; return payload; \}/.test(srcCode(code)));
+  ok_('the screen offers it without typing', /A_authDiag\(true\)/.test(srcCode(app)));
+  ok_('...and warns when the id being checked is not your own', /กำลังตรวจสอบ ID ที่ไม่ใช่ของคุณเอง/.test(app));
   ok_('it is admin-only — it hands back the school’s LINE ids and addresses', /authDiag: 1/.test(srcCode(code)));
   ok_('...and read-only: it writes nothing', !/updateRow_|appendObject_|deleteRow/.test(
     srcCode(auth).slice(srcCode(auth).indexOf('function handleAuthDiag'), srcCode(auth).indexOf('function googleBust_'))));

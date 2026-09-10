@@ -390,6 +390,10 @@ function applyIdentity_(action, payload, sess) {
    * an address, so nobody mistypes one onto another family. An Admin session returns below with the
    * payload untouched, which would leave this one action with no identity at all and refuse the
    * admin their own link, so it is stamped here for every role including Admin. */
+  /* authDiag asked with nothing means "which record am I on?", so it needs the uid the session was
+   * actually resolved by — never one typed in, which is how a day was lost checking the wrong id.
+   * Stamped for every role including Admin, who returns below with the payload untouched. */
+  if (action === 'authDiag') { payload.__me = sess.uid; return payload; }
   if (action === 'googleLink') {
     /* The UID, not a role-derived id. handleGoogleLink finds the row the way handleAuth does, so the
      * link always lands on the record a LINE sign-in resolves to — including an Admin-provisioned
