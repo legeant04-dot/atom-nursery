@@ -1404,6 +1404,38 @@ function createAtomAPI(M, GROWTH_STD) {
      * A section that throws must not take the whole home down with it: each is guarded, and anything
      * that fails comes back null exactly as the client's own .catch() used to make it.
      */
+    /**
+     * THE HALF A PARENT CAME FOR.
+     *
+     * A parent opens this app in the morning to tap ส่งเข้าเรียน, and everything else on the screen —
+     * the journal, the calendar, announcements, what is owed, insurance, surveys — is reading, done
+     * after. But all of it was assembled in the SAME execution as the two buttons, so the buttons
+     * waited for the reading. Apps Script runs one execution at a time per user, so that wait is not
+     * shared with anything; it is just a wait. Asked for 10/09/26 off the 07–09/09 report.
+     *
+     * DELIBERATELY A SUBSET OF parentHome'S OWN SHAPE, field for field, so the screen renders it
+     * with no second code path — the missing halves are the ones it already guards with `||[]`. The
+     * full payload arrives a moment later and repaints over it. Two executions instead of one, on
+     * purpose: the first is short and it is the one somebody is standing at the gate waiting for.
+     *
+     * `checkins` carries only TODAY's row per child. It is the row the buttons read (in/out, to know
+     * whether the drop-off already happened); the rest of the history is what the calendar wants,
+     * and the calendar is not what anybody is waiting for.
+     */
+    parentHomeCore: p => {
+      const soft = (fn, dflt) => { try { return fn(); } catch (e) { return dflt; } };
+      const kids = H.parentChildren(p);
+      if(!kids.length) return { core:true, children: [] };
+      const today = todayLocal();
+      return {
+        core: true,                                   // the screen uses this to know to fetch the rest
+        children: kids,
+        schoolDay: soft(()=>H.schoolDay({}), null),   // whether the buttons may be drawn at all
+        plans:     soft(()=>H.getPlans(p), []),       // so the card names the package, not "pkg_e32dd4"
+        checkins:  kids.map(k => soft(()=>
+          (H.studentCheckinHistory(Object.assign({}, p, {studentId:k.StudentID})) || [])
+            .filter(x => ymd(x.Date) === today), []))
+      }; },
     parentHome: p => {
       const soft = (fn, dflt) => { try { return fn(); } catch (e) { return dflt; } };
       const kids = H.parentChildren(p);

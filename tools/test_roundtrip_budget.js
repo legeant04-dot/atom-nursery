@@ -80,13 +80,22 @@ console.log('\n4) parent home: ONE request for the whole screen');
    * (2026-08-26) and they were right — it was five, counting insuranceStatus, openSurveys and a
    * PREFETCH that re-asked for what the screen was already fetching.
    * The equivalence of the composite is checked in tools/test_parent_one_request.js. */
-  const home = between('SCREENS.Parent.home = async () => {', 'function parentDueCard(due)');
-  eq('one api() call on the busiest screen in the app', (home.match(/api\('/g) || []).length, 1);
-  /* Still ONE round trip. The food-photo lookup was added beside it inside the same Promise.all —
-   * same tick, so api.js batches the two into one HTTP request, and it is TTL_STATIC-cached so
-   * later screens do not send it at all. A call after an `await` would have been a second trip. */
+  /* TO THE END OF THE FUNCTION. This stopped at `function parentDueCard`, which is declared PART WAY
+   * THROUGH the home screen rather than after it — so the slice was only the first half and a call
+   * counted in the second half was invisible to a test whose whole subject is how many there are. */
+  const home = between('SCREENS.Parent.home = async (', '// add another child');
+  /* ONE ROUND TRIP PER VISIT, and on the login path one SHORT one and then the rest.
+   *
+   * This was a flat 1. It is two in the source now, and the second is unreachable on an ordinary
+   * visit: a normal fetch returns the full payload, which carries no `core` flag. The split exists
+   * only where signing in handed over parentHomeCore — the children, whether school is open, and
+   * today's in/out, which is everything the drop-off button needs and nothing else. Assembling the
+   * journal, calendar, bills, insurance and surveys in that same execution meant the button waited
+   * for the reading, and on Apps Script that wait is shared with nothing. */
+  eq('two api() calls in the source, and no more', (home.match(/api\('/g) || []).length, 2);
   ok_('...and it is the composite', /api\('parentHome', parentScope\(\)\)/.test(home));
-  ok_('...with anything else it needs in the SAME tick', /Promise\.all\(\[ window\._BOOT_HOME \|\| api\('parentHome'/.test(home));
+  ok_('...with anything else it needs in the SAME tick', /Promise\.all\(\[ [^\]]*api\('parentHome'/.test(home));
+  ok_('...and the second only fills in what the buttons did not need', /if \(HOME\.core\) \{/.test(home));
   ok_('the per-child lists are read by NAME now, not at an offset',
     /const ciAll = HOME\.checkins\|\|\[\], slAll = HOME\.leaves\|\|\[\];/.test(home));
   ok_('...so the FIXED-offset slicing that mixed up children is gone', !/FIXED/.test(home));

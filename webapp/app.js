@@ -112,7 +112,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.367'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.368'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -2381,15 +2381,28 @@
    * this batch by INDEX with a `FIXED = 7` offset, and every time an entry was added or removed the
    * per-child slices silently handed one child another child's calendar.
    */
-  SCREENS.Parent.home = async () => {
-    showAnnPopups();
+  /* TWO PASSES, ONLY ON THE PATH THAT NEEDS THEM.
+   *
+   * `pre` is a payload handed in rather than fetched. Signing in now carries parentHomeCore — the
+   * children, whether school is open, and today's in/out — which is everything the drop-off and
+   * pick-up buttons need and nothing else. The screen paints that immediately, then asks for the
+   * full parentHome and paints again over the top.
+   *
+   * The core is a SUBSET of parentHome's own shape, so there is no second render path: the parts
+   * that have not arrived are exactly the ones this function already guards with `||[]`.
+   *
+   * A later visit to the home screen fetches parentHome directly, gets no `core` flag, and stays a
+   * single pass — the split only exists on the login path, which is the one somebody is standing at
+   * the gate waiting for. */
+  SCREENS.Parent.home = async (pre) => {
+    if (!pre) showAnnPopups();      // the repaint must not pop the same announcement a second time
     /* Signing in already paid for this (handleAuth returns it), so the first render costs nothing.
      * Consumed ONCE: every later visit to the home screen fetches normally, or a parent would be
      * looking at their morning for the rest of the day. */
     /* FOOD_PICS goes out in the SAME tick as parentHome, so api.js batches the two into one request
      * rather than adding a round trip to a backend that runs one execution per user at a time. It is
      * cached after the first call, so every later screen gets it for nothing. */
-    const [HOME] = await Promise.all([ window._BOOT_HOME || api('parentHome', parentScope()), FOOD_PICS() ]);
+    const [HOME] = await Promise.all([ pre || window._BOOT_HOME || api('parentHome', parentScope()), FOOD_PICS() ]);
     window._BOOT_HOME = null;
     const kids = HOME.children || [];
     const addBtn = `<button class="btn sm outline" onclick="P_addChild()">+ ${esc(t('p.addChild'))}</button>`;
@@ -2569,6 +2582,15 @@
         return `<div class="list-item"><span><b>${esc(dispNick(k))}</b> <span class="pill ${f?'ok':'wait'}">${f?'✓ '+esc(t('ins2.filled')):esc(t('ins2.notFilled'))}</span></span>
           <button class="btn sm ${f?'outline':''}" onclick="P_insurance('${k.StudentID}')">${f?esc(t('lbl.view')):esc(t('ins2.btn'))}</button></div>`; }).join(''));
       else { const c=$('#insCard'); if(c)c.remove(); } }
+    /* NOW the rest of the screen, with the buttons already on it and usable. Guarded on still being
+     * here: a parent who taps ส่งเข้าเรียน and moves on must not have the home screen redrawn under
+     * whatever they opened next. A failure is silent on purpose — the half that matters is drawn,
+     * and the next visit fetches normally. */
+    if (HOME.core) {
+      api('parentHome', parentScope())
+        .then(full => { if (USER && USER.role === 'Parent' && CURRENT === 'home') SCREENS.Parent.home(full); })
+        .catch(() => {});
+    }
   };
   // add another child: always ask "new student" vs "existing (verify by NationalID)"
   window.P_addChild = ()=>{ modal(`<h3>👶 ${esc(t('p.addChild'))}</h3>

@@ -152,7 +152,9 @@ const reached = (c, a) => c.__sent.reduce((n, b) =>
     await c.api('payCombined', { amount: 100 });
     eq('the payment reached the server exactly ONCE after signing in', attempts, 2);
     ok_('...which is safe only because NO_SESSION is refused before the handler runs',
-      /if \(sessionRequired_\(\) && !publicAction_\(action\) && !sess\)[\s\S]{0,140}NO_SESSION/.test(R('src/Code.gs')));
+      // the property is that the gate refuses BEFORE the handler runs, not the exact list of things
+      // it lets past — an all-public batch was added to that list in v368
+      /if \(sessionRequired_\(\) && !publicAction_\(action\)[^)]*&& !sess\)[\s\S]{0,140}NO_SESSION/.test(R('src/Code.gs')));
   }
   {
     let auths = 0;
