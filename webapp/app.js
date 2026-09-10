@@ -112,7 +112,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.368'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.369'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -9177,6 +9177,10 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
         : 'วาง LINE ID หรืออีเมล เพื่อดูว่ามีข้อมูลใดถืออยู่บ้างในทั้ง 3 ตาราง และระบบจะพาเข้าอันไหน'}</p>
       <div class="row" style="gap:6px"><input id="adUid" placeholder="Uxxxxxxxx… ${EN()?'or':'หรือ'} name@gmail.com" style="flex:1"/>
         <button class="btn sm outline" onclick="A_authDiag()">🔍 ${EN()?'Check':'ตรวจสอบ'}</button></div>
+      ${/* THE ONE THAT NEEDS NO TYPING. A day was lost checking a LINE ID read off a record and
+           assumed to be one's own; the server knows which uid the session was actually resolved by,
+           and that one cannot be wrong. */''}
+      <button class="btn sm block" style="margin-top:6px" onclick="A_authDiag(true)">🪪 ${EN()?'Check MY account — no typing':'ตรวจสอบบัญชีของฉันเอง (ไม่ต้องพิมพ์)'}</button>
       <div id="authDiagBox" style="font-size:13px"></div>
       <button class="btn block" onclick="A_saveSettings(this)">${esc(t('c.save'))}</button>`);
     A_lineWebStatus();
@@ -9192,13 +9196,17 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
   /* Every record carrying a LINE ID or an address, on all three sheets, and which one handleAuth
    * picks. The USERS row is the one worth drawing attention to: it is the only sheet with no screen
    * of its own, it points AT another record rather than being one, and it beats both the others. */
-  window.A_authDiag = async () => {
+  window.A_authDiag = async (self) => {
     const box = document.getElementById('authDiagBox'), v = (document.getElementById('adUid')||{}).value || '';
     if (!box) return;
-    const q = v.trim(); if (!q) { box.innerHTML = ''; return; }
+    const q = v.trim();
+    if (!self && !q) { box.innerHTML = ''; return; }
     box.innerHTML = `<div class="card" style="padding:8px">${EN()?'Checking…':'กำลังตรวจสอบ…'}</div>`;
     let d = null;
-    try { d = await api('authDiag', q.indexOf('@') > 0 ? { email: q } : { uid: q }); } catch (e) { err(e); box.innerHTML = ''; return; }
+    // nothing sent = "who am I" — the server answers from the session, never from this box
+    try { d = await api('authDiag', self ? {} : (q.indexOf('@') > 0 ? { email: q } : { uid: q })); }
+    catch (e) { err(e); box.innerHTML = ''; return; }
+    if (self) { const el = document.getElementById('adUid'); if (el) el.value = d.uid || ''; }
     const sheetLbl = { USERS: EN()?'USERS (admin-provisioned)':'USERS (บัญชีที่แอดมินสร้าง)', PARENTS: EN()?'Parent':'ผู้ปกครอง', STAFF: EN()?'Staff':'พนักงาน' };
     const rows = (d.matches||[]).map(m => {
       const wins = d.resolves && d.resolves.sheet === m.sheet && d.resolves.id === m.id;
@@ -9208,7 +9216,15 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
           <small class="muted">${esc(m.id)}${m.role?' · '+esc(m.role):''}${m.linkedId?` · ${EN()?'points at':'ชี้ไปที่'} ${esc(m.linkedId)}`:''}</small><br>
           <small class="muted">🔗 ${esc(m.lineUid||'—')}${m.email?' · 📧 '+esc(m.email):''}${m.googleLinked?' ✅':''}</small></span>
         <span><small class="muted">${esc(m.matchedBy)}</small></span></div>`; }).join('');
+    /* THE UID THE SESSION WAS RESOLVED BY, printed whether or not it was asked for. This is the value
+     * that was assumed for a day and never actually checked — reading one off a record and taking it
+     * for your own is the mistake, and there was no way to notice it. */
+    const meLine = d.me ? `<div class="card" style="background:var(--surface-2);padding:8px;margin-bottom:6px">
+        <small class="muted">${EN()?'The LINE ID this session was signed in with':'LINE ID ที่เซสชันนี้เข้าสู่ระบบมาจริง'}</small>
+        <br><b style="font-size:13px;word-break:break-all">${esc(d.me)}</b>
+        ${d.uid && d.uid !== d.me ? `<br><small style="color:var(--warn)">⚠️ ${EN()?'You are checking a DIFFERENT id from your own.':'กำลังตรวจสอบ ID ที่ไม่ใช่ของคุณเอง'}</small>` : ''}</div>` : '';
     box.innerHTML = `<div class="card" style="padding:8px">
+      ${meLine}
       ${rows || `<span class="muted">${EN()?'Nothing carries it — that sign-in would be a new user.':'ไม่มีข้อมูลใดถืออยู่ — จะถือเป็นผู้ใช้ใหม่'}</span>`}
       ${(d.matches||[]).some(m=>m.sheet==='USERS') ? `<div class="card" style="background:var(--warn-bg);border-color:var(--warn-line);padding:8px;margin-top:6px"><small>⚠️ ${EN()
         ? 'A USERS row decides first, whatever the staff or parent records say. It points at another record — if that is the wrong one, fix it on the USERS sheet; the app has no screen for it.'

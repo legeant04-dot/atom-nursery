@@ -327,10 +327,23 @@ function googleFindByUid_(uid) {
  */
 function handleAuthDiag(p) {
   p = p || {};
+  /* ASKED WITH NOTHING = "WHICH RECORD AM I ON?", and that is the question that actually gets asked.
+   *
+   * The admin spent a day moving a LINE ID between records to stop landing on a shared account, then
+   * checked the sheets and found no duplicate anywhere — because the id being moved was one he had
+   * READ OFF A RECORD and assumed was his. Nothing in the app could tell him the uid his own LINE
+   * sign-in actually produces, so every check was against a value that might not be his.
+   *
+   * `__me` is stamped from the verified session in applyIdentity_ — it is the uid handleAuth just
+   * resolved him by, so it cannot be the wrong one. */
   var uid = String(p.uid || '').trim();
   var email = normEmail_(p.email);
-  if (!uid && !email) throw apiError_('BAD_INPUT', 'ใส่ LINE ID หรืออีเมลที่ต้องการตรวจสอบ');
-  var out = { uid: uid, email: email, matches: [], resolves: null };
+  var me = String(p.__me || '').trim();
+  if (!uid && !email) {
+    if (!me) throw apiError_('BAD_INPUT', 'ใส่ LINE ID หรืออีเมลที่ต้องการตรวจสอบ');
+    uid = me;                                            // no argument → look myself up
+  }
+  var out = { uid: uid, email: email, me: me, isMe: !!me && me === uid, matches: [], resolves: null };
   googleSheets_().forEach(function (s) {
     var rows;
     try { rows = readObjects_(s.sheet); } catch (e) { return; }

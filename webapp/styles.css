@@ -640,10 +640,11 @@ main:has(.savedock .btn + .btn){padding-bottom:180px;}   /* two stacked buttons 
 
 
 /* ---- dark theme (Phase 6 #15) ------------------------------------------------------------------
- * Only the palette above is re-pointed — no layout, no per-component overrides. Follows the phone's
- * own setting by default; the 🌙 button in the header writes data-theme to override it, and that
- * choice is remembered. Print/export documents are deliberately NOT themed: they are laid out for
- * white paper and open in their own window. */
+ * Only the palette above is re-pointed — no layout, no per-component overrides. LIGHT is the default:
+ * index.html writes data-theme="light" before the first paint unless a choice is stored, so the block
+ * below is reached only by a build that could not write the attribute at all. The 🌙 button stores an
+ * override and that choice is remembered. Print/export documents are deliberately NOT themed: they
+ * are laid out for white paper and open in their own window. */
 @media (prefers-color-scheme: dark){
   html:not([data-theme="light"]){
   --surface:#1b2027;

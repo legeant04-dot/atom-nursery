@@ -166,5 +166,30 @@ console.log('\n4) a batch of public calls is not a private request');
   eq('dashboard is not public, so a batch carrying it still needs a session', isPub('dashboard'), false);
 }
 
+console.log('\n5) light is the default, and a choice is remembered');
+{
+  /* Reported 10/09/26: "เปิดมาเป็น Dark Mode ตลอดเวลา ระบบควรจะจำได้ว่าค่า Default คือ Light Mode".
+   *
+   * The attribute was written ONLY when a choice was stored, so with nothing stored the CSS fell
+   * through to @media (prefers-color-scheme) — the PHONE's setting. A phone set to dark opened the
+   * app dark for ever, and nothing distinguished that from "I chose dark". The school's screens are
+   * laid out and photographed light, so light is the default; an explicit choice still wins. */
+  const html = R('webapp/index.html'), css = R('webapp/styles.css'), c = srcCode(app);
+  ok_('the attribute is written on every load, not only when a choice exists',
+    /document\.documentElement\.setAttribute\('data-theme',_t==='dark'\?'dark':'light'\)/.test(html));
+  ok_('...before the first paint, so there is no flash of the wrong theme',
+    html.indexOf("setAttribute('data-theme'") < html.indexOf('<body'));
+  /* The dark palette is reached two ways and only one of them may still fire: an explicit
+   * data-theme="dark". The media-query block is scoped :not([data-theme="light"]), which the default
+   * attribute now always satisfies — so the phone's setting can no longer decide. */
+  ok_('the dark block still exists for an explicit choice', /html\[data-theme="dark"\]\{/.test(css));
+  ok_('...and the phone-setting block is scoped so the default defeats it', /html:not\(\[data-theme="light"\]\)\{/.test(css));
+  ok_('the toggle still stores the choice', /localStorage\.setItem\('atom_theme', next\);/.test(c));
+  /* Storage stays EMPTY until somebody actually chooses. That is what keeps the default ours to
+   * change later without overriding people who never expressed a preference. */
+  ok_('...and nothing writes a default into storage', (c.match(/setItem\('atom_theme'/g) || []).length === 1
+    && !/setItem\('atom_theme', *'light'\)/.test(html));
+}
+
 console.log(fail ? `\nFAILED ${pass} passed, ${fail} failed` : `\nPASSED ${pass} passed, 0 failed`);
 process.exit(fail ? 1 : 0);
