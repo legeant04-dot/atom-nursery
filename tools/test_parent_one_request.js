@@ -147,24 +147,49 @@ console.log('\n4) one section failing must not take the home screen down');
 
 console.log('\n5) the screen really does make one request');
 {
-  const home = app.slice(app.indexOf('SCREENS.Parent.home = async () => {'), app.indexOf('// add another child'));
+  const home = app.slice(app.indexOf('SCREENS.Parent.home = async ('), app.indexOf('// add another child'));
   // counted on api('…') — a bare "api()" in prose is a comment, and matching it was this test
   // failing on the very sentence that says there is no second call
-  eq('exactly one api() call on the whole screen', (home.match(/api\('/g) || []).length, 1);
-  ok_('...and it is parentHome', /window\._BOOT_HOME \|\| api\('parentHome', parentScope\(\)\)/.test(home));
+  /* ONE REQUEST PER VISIT — and on the LOGIN path, one short one followed by the rest.
+   *
+   * This asserted a flat 1, which was the right rule while the whole screen came back together. It
+   * is now two calls in the source and the distinction matters, so it is written out rather than
+   * loosened: parentHome for an ordinary visit, and — only when the first payload was the CORE that
+   * signing in handed over — a second parentHome for everything the buttons did not need.
+   *
+   * A parent opens this app to tap ส่งเข้าเรียน. Assembling the journal, the calendar, what is owed,
+   * insurance and surveys in the same execution meant the buttons waited for the reading, and on
+   * Apps Script that wait is shared with nothing. Two executions is more total work; it is also the
+   * only way the first one can be short. Asked for 10/09/26 off the 07–09/09 report.
+   */
+  eq('two api() calls in the source, and no more', (home.match(/api\('/g) || []).length, 2);
+  ok_('...the first is parentHome, still preferring what the sign-in already paid for',
+    /pre \|\| window\._BOOT_HOME \|\| api\('parentHome', parentScope\(\)\)/.test(home));
+  /* THE SECOND IS UNREACHABLE ON AN ORDINARY VISIT. A normal fetch returns the full payload, which
+   * carries no `core` flag, so the screen stays exactly one request — which is what the five-into-one
+   * work above was for, and it has not been given back. */
+  ok_('...and the second is reached only when the first was the core', /if \(HOME\.core\) \{/.test(home));
+  ok_('...after the screen is already drawn, not before it', home.indexOf('app.innerHTML') < home.indexOf('if (HOME.core)'));
   /* THE FOOD-PHOTO LOOKUP RIDES WITH IT, and this is the distinction the suite is really about.
    * api.js batches every api() call made in the SAME TICK into one HTTP request, so a second action
    * inside this Promise.all is not a second round trip — a call placed after an `await` would be.
    * It is also TTL_STATIC-cached, so after the first screen it is not sent at all. */
   ok_('...and the food-photo lookup goes out in the same tick, not after an await',
-    /await Promise\.all\(\[ window\._BOOT_HOME \|\| api\('parentHome', parentScope\(\)\), FOOD_PICS\(\) \]\)/.test(home));
+    // the property is the shared Promise.all, not the fallback chain in front of it — that grew a
+    // `pre ||` when the login path started painting in two passes
+    /await Promise\.all\(\[ [^\]]*api\('parentHome', parentScope\(\)\), FOOD_PICS\(\) \]\)/.test(home));
   ok_('...which is cached, so later screens do not ask again', /if\(window\._FOOD_PIC\) return window\._FOOD_PIC;/.test(app));
   /* …and on the very first render there is no request at all: signing in already returned the whole
    * screen (handleAuth), which removes the SECOND Apps Script execution from the login path. It is
    * consumed once — a parent must not be looking at their morning for the rest of the day. */
   ok_('the sign-in hands the screen over, so the first render is free', /window\._BOOT_HOME = null;/.test(home));
   ok_('...and the server really sends it', /home: _home/.test(R('src/Auth.gs')));
-  ok_('...built from the same composite, not a second copy', /engineDispatch_\('parentHome'/.test(R('src/Auth.gs')));
+  /* THE CORE of the same composite, not a second copy of the rule. Signing in hands over the half
+   * the drop-off button needs — assembling the other half inside the sign-in was time spent staring
+   * at a spinner before the button existed. Still one execution to sign in, just a shorter one. */
+  ok_('...built from the same composite, not a second copy', /engineDispatch_\('parentHomeCore'/.test(R('src/Auth.gs')));
+  ok_('...and that core is a SUBSET of parentHome’s shape, so the screen needs no second render path',
+    /parentHomeCore: p => \{/.test(R('webapp/engine.js')));
   ok_('...and a failure there still signs them in', /catch \(e\) \{ _home = null; \}/.test(R('src/Auth.gs')));
   // the things that used to be separate trips are now read out of that one answer
   ['HOME.insurance', 'HOME.surveys', 'HOME.checkins', 'HOME.leaves', 'HOME.due', 'HOME.schoolDay']

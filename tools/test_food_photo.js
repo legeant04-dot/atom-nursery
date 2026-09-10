@@ -165,7 +165,9 @@ console.log('\n5) it costs no extra round trip');
   ok_('...and every use is inside a Promise.all, never after an await',
     !/await [^\n]*\n[\s\S]{0,200}?await FOOD_PICS\(\)/.test(appCode) && !/;\s*await FOOD_PICS\(\)/.test(appCode));
   ok_('the parent home takes it in its single batch',
-    /Promise\.all\(\[ window\._BOOT_HOME \|\| api\('parentHome', parentScope\(\)\), FOOD_PICS\(\) \]\)/.test(app));
+    // the property is that FOOD_PICS shares the Promise.all — NOT the exact fallback chain in front
+    // of it, which grew a `pre ||` when the login path started painting in two passes (v368)
+    /Promise\.all\(\[ [^\]]*api\('parentHome', parentScope\(\)\), FOOD_PICS\(\) \]\)/.test(app));
   ok_('the journal screen too', /api\('studentCheckinHistory',\{studentId:sid\}\)\.catch\(\(\)=>\[\]\),\s*\n\s*FOOD_PICS\(\),/.test(app));
   ok_('it is fetched once and kept', /if\(window\._FOOD_PIC\) return window\._FOOD_PIC;/.test(app));
   ok_('...and a failure means no thumbnails, not a broken screen', /catch\(e\)\{ window\._FOOD_PIC = \{\}; \}/.test(app));

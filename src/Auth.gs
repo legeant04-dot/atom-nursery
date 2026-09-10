@@ -537,7 +537,11 @@ function handleAuth(payload) {
     var _home = null;
     try {
       if (typeof engineDispatch_ === 'function') {
-        _home = engineDispatch_('parentHome', { uid: uid, parentId: par.ParentID, role: ROLES.PARENT });
+        /* THE CORE, not the whole screen. This runs INSIDE the sign-in, so everything it assembles
+         * is time the parent spends looking at a spinner before the drop-off button exists. The rest
+         * of the home screen is fetched by the screen itself a moment later and repaints over it —
+         * see parentHomeCore in engine.js. Signing in is still ONE execution, just a shorter one. */
+        _home = engineDispatch_('parentHomeCore', { uid: uid, parentId: par.ParentID, role: ROLES.PARENT });
       }
     } catch (e) { _home = null; }
     return {

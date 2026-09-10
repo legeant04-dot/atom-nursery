@@ -131,7 +131,7 @@ console.log('\n4) the parent home screen still pairs each child with their OWN r
 {
   // schoolDay was added to a Promise.all whose tail is one entry PER CHILD — the offsets below it
   // had to move with it, or every family's calendar shows another child's data
-  const start = app.indexOf('SCREENS.Parent.home = async () => {');
+  const start = app.indexOf('SCREENS.Parent.home = async (');
   const home = app.slice(start, app.indexOf('setTopActions(', start));
   /* v288: there is no batch to slice any more. The per-child rows come back as their own arrays, in
    * the children's order, so the pairing this block guards can no longer be broken by adding or

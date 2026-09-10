@@ -477,7 +477,28 @@ function dispatch_(action, payload, token) {
   // request down — it used to throw out here, outside the try, and the caller got an HTML error page.
   var sess = null;
   try { sess = verifySession_(token); } catch (se) { sess = null; }
-  if (sessionRequired_() && !publicAction_(action) && !sess) {
+  /* A BATCH IS A TRANSPORT, NOT AN ACTION.
+   *
+   * `batch` is not in publicAction_, so a batch sent before a session existed was refused whole —
+   * even when every call inside it was public. The client micro-batches everything issued in one
+   * tick, and the sign-in screen issues exactly two things in one tick: "is the LINE browser route
+   * configured" and "is Google configured". Both public, both about the sign-in screen, both asked
+   * when by definition there is no session yet.
+   *
+   * The 07–09/09 report priced it: lineLoginReady failing 27% and googleLoginReady 49%, all
+   * NO_SESSION. That is why the fallback buttons so often were not there — the whole saga of "the
+   * Google button does not appear" had this underneath it.
+   *
+   * A batch is allowed through only when EVERY call in it is public; one private passenger and it is
+   * refused exactly as before. handleBatch then applies identity per call, so nothing else changes.
+   */
+  var allPublic = (action === 'batch') && (function () {
+    var cs = (payload && payload.calls) || [];
+    if (!cs.length) return false;
+    for (var i = 0; i < cs.length; i++) { if (!publicAction_(cs[i] && cs[i].action)) return false; }
+    return true;
+  })();
+  if (sessionRequired_() && !publicAction_(action) && !allPublic && !sess) {
     return reply_({ ok: false, error: { code: 'NO_SESSION', message: 'ต้องเข้าสู่ระบบใหม่ (เซสชันหมดอายุ)' } });
   }
   try {
