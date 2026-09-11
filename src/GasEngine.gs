@@ -211,7 +211,20 @@ function wbOf_(which) { return which === 'HR' ? getHrSpreadsheet_() : getMainSpr
  * the only way to see something stale is to edit the spreadsheet BY HAND, outside the app. Five
  * minutes bounds that, and the school can change it in Settings.
  */
-function cacheTtl_() { var t = Number(getConfig_ ? getConfig_('CacheTTL', 300) : 300); return (t >= 1 && t <= 21600) ? t : 300; }
+/* 900s, raised from 300 on the owner's call (2026-09-11) off the 08–11/09 report.
+ *
+ * The admin works on a DESKTOP and had the worst cache hit rate in the school — 41%, against 61% on
+ * both phone platforms — while making 94 calls a visit. Nearly six calls in ten went all the way to
+ * the server at ~7s each, and an admin session is long enough that things cached at its start had
+ * already expired by the middle of it.
+ *
+ * WHAT IS TRADED: a change made by SOMEBODY ELSE can take up to this long to appear. Your own writes
+ * are unaffected — every in-place write busts the cache for what it touched, which is why this is
+ * safe to raise at all. The fallback here is the one that decides for a school with no CacheTTL row,
+ * so raising it takes effect without anybody editing a sheet; the admin can still override it in
+ * Settings, and the cap keeps a typo from pinning stale data for six hours.
+ */
+function cacheTtl_() { var t = Number(getConfig_ ? getConfig_('CacheTTL', 900) : 900); return (t >= 1 && t <= 21600) ? t : 900; }
 /**
  * One cache entry can hold ~100KB. The busiest sheets — check-ins, journals, payments — passed that
  * long ago, and the old code simply gave up on them ("if (s.length < 95000)"), so precisely the

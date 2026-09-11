@@ -141,5 +141,33 @@ console.log('\n4) a lost reply is retried at once, because nothing ran');
   ok_('...and the diagnostics that identified it are still recorded', /' http=' \+ r\.status/.test(a));
 }
 
+console.log('\n5) Phase 2.1 — the cache, and the trade it makes');
+{
+  /* Raised 300 → 900 on the owner's call (11/09/26). The evidence was specific: the admin works on a
+   * DESKTOP and had the worst cache hit rate in the school — 41%, against 61% on both phone
+   * platforms — while making 94 calls a visit. Nearly six in ten went to the server at ~7s each, and
+   * an admin session is long enough that things cached at its start had expired by the middle.
+   *
+   * It is safe to raise ONLY because every in-place write busts the cache for what it touched, so
+   * what you save yourself still appears at once. What is traded is somebody ELSE's change. */
+  const gasEng = R('src/GasEngine.gs'), cfg = R('src/Config.gs'), eng = R('webapp/engine.js'), c = srcCode(app);
+  ok_('the fallback decides for a school with no CacheTTL row, and it is 900',
+    /getConfig_\('CacheTTL', 900\)/.test(gasEng));
+  ok_('...so raising it needed nobody to edit a sheet', /\? t : 900; \}/.test(gasEng));
+  ok_('the seeded default agrees', /\['CacheTTL',\s*'900'\]/.test(cfg));
+  /* A CAP, still. A typo of 99999 would pin stale data for the rest of the day, and the one thing a
+   * cache must never do is outlive the working day it was filled in. */
+  ok_('a nonsense value cannot pin stale data', /t >= 1 && t <= 21600/.test(gasEng));
+  ok_('the current value comes back to the screen', /CacheTTL:cfg\.CacheTTL/.test(eng));
+  ok_('...so the control shows what is really set, not a guess', /Number\(\(sc&&sc\.CacheTTL\)\|\|900\)===v/.test(c));
+  ok_('it saves through the whitelisted route', /api\('setConfigVal', \{ key: 'CacheTTL', value: v \}\)/.test(c));
+  ok_('...which allows that key', /CacheTTL: 1 \}/.test(R('src/Staff.gs')));
+  /* The trade-off is stated ON the screen. A performance setting whose cost is only written in a
+   * commit message is one that gets blamed for a bug six weeks later. */
+  ok_('the screen says what is traded', /คนอื่น<\/b>แก้อาจใช้เวลาเท่านี้กว่าจะเห็น/.test(app));
+  ok_('...and that your own saves are unaffected', /ท่านบันทึกเอง<\/b>จะเห็นทันทีเสมอ/.test(app));
+  ok_('saved on change, not behind a Save button somebody may not press', /onchange="A_setCacheTtl\(this\)"/.test(c));
+}
+
 console.log(fail ? `\nFAILED ${pass} passed, ${fail} failed` : `\nPASSED ${pass} passed, 0 failed`);
 process.exit(fail ? 1 : 0);

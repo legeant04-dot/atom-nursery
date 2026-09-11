@@ -112,7 +112,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.370'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.371'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -9171,6 +9171,22 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
            and PARENTS row and the app has no other screen that shows one, so somebody can hold the
            right LINE ID on the right staff record and still arrive somewhere else — with nothing
            anywhere to explain it. That happened (09/09/26) and took a code reading to answer. */''}
+      ${/* THE ONE PERFORMANCE SETTING WITH A REAL TRADE-OFF, so it is stated on the screen rather
+           than buried. Raised 300→900 on the owner's call (11/09/26): the admin works on a desktop
+           and had the worst cache hit rate in the school, 41% against 61% on both phone platforms,
+           while making 94 calls a visit. Your OWN writes are unaffected — an in-place write busts
+           the cache for what it touched — which is the only reason this is safe to raise. */''}
+      <h4 style="margin:10px 0 4px">⚡ ${EN()?'Speed vs freshness':'ความเร็ว กับ ความสดของข้อมูล'}</h4>
+      <label class="field"><span>${EN()?'Reuse a cached read for':'ใช้ข้อมูลที่จำไว้ได้นาน'}</span>
+        <select id="setCacheTtl" onchange="A_setCacheTtl(this)">
+          ${[[300,EN()?'5 minutes — freshest, slowest':'5 นาที — สดที่สุด ช้าที่สุด'],
+             [900,EN()?'15 minutes — recommended':'15 นาที — แนะนำ'],
+             [1800,EN()?'30 minutes — fastest, least fresh':'30 นาที — เร็วที่สุด สดน้อยที่สุด']]
+            .map(([v,l])=>`<option value="${v}" ${Number((sc&&sc.CacheTTL)||900)===v?'selected':''}>${esc(l)}</option>`).join('')}
+        </select></label>
+      <small class="muted" style="font-size:13px">${EN()
+        ? 'Longer is faster for everyone, but a change made by SOMEBODY ELSE can take this long to appear. What you save yourself always shows immediately.'
+        : 'ยิ่งนาน ยิ่งเร็วสำหรับทุกคน แต่สิ่งที่<b>คนอื่น</b>แก้อาจใช้เวลาเท่านี้กว่าจะเห็น · ส่วนที่<b>ท่านบันทึกเอง</b>จะเห็นทันทีเสมอ'}</small>
       <h4 style="margin:10px 0 4px">🪪 ${EN()?'Which record does a sign-in land on?':'เข้าสู่ระบบแล้วไปที่ข้อมูลไหน?'}</h4>
       <p class="muted" style="font-size:13px">${EN()
         ? 'Paste a LINE ID or an email to see every record that carries it, on all three sheets, and which one wins.'
@@ -9196,6 +9212,15 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
   /* Every record carrying a LINE ID or an address, on all three sheets, and which one handleAuth
    * picks. The USERS row is the one worth drawing attention to: it is the only sheet with no screen
    * of its own, it points AT another record rather than being one, and it beats both the others. */
+  /* Saved on its own the moment it changes, not with the rest of the settings form: it is one number
+   * with an immediate, school-wide effect, and burying it behind a Save button somebody might not
+   * press is how a setting gets changed in the sheet instead. */
+  window.A_setCacheTtl = async (sel) => {
+    const v = Number(sel && sel.value) || 900;
+    try { await api('setConfigVal', { key: 'CacheTTL', value: v });
+      confirmSaved((EN()?'Cache: ':'จำข้อมูลไว้ ') + Math.round(v/60) + (EN()?' minutes':' นาที'));
+    } catch (e) { err(e); }
+  };
   window.A_authDiag = async (self) => {
     const box = document.getElementById('authDiagBox'), v = (document.getElementById('adUid')||{}).value || '';
     if (!box) return;
