@@ -179,7 +179,17 @@ window.CONFIG = { MODE: 'gas', GAS_URL: 'https://script.google.com/macros/s/AKfy
          * safe, not because we hope the first one did nothing. That is the whole of the exception,
          * and it is why a teacher whose morning punch is lost in transit no longer has to notice. */
         if (canRepeat(body) && attempt < 2) {
-          await sleep(400 * (attempt + 1));
+          /* THE MECHANISM IS NO LONGER A GUESS, so the wait can go. The comment above predicted that
+           * three fields would identify this, and the 08–11/09 report printed them:
+           *   batch got health  http=200  redirected via=script.googleusercontent.com
+           * A POST to /exec is answered with a 302, the browser re-issues a 302'd POST as a GET, and
+           * doGet answers with the health check — which is why the reply names itself 'health'.
+           *
+           * That means NOTHING RAN. There is no work in flight to let settle and no server to be
+           * polite to, so the first retry goes straight back out; the backoff stays on the second,
+           * where the cause is no longer known. 34 of these in two and a half days, each costing a
+           * wait nobody could see the reason for. */
+          if (attempt > 0) await sleep(400 * attempt);
           return postGas(body, attempt + 1).then(d => {
             // the retry worked: say so, or the report accuses a request nobody ever saw fail
             if (asked !== 'perfLog') { try { PERF.mark('healed', asked, 0); } catch (x) {} }
