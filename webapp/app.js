@@ -112,7 +112,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.373'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.374'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -9110,6 +9110,17 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
   window.A_delDep=async(name)=>{ if(!confirm(t('manage.confirmDel')))return; try{ await api('removeDepartment',{name}); const m=document.querySelector('.modal'); if(m)m.remove(); A_departments(); toast(t('manage.deleted')); }catch(e){err(e);} };
 
   // ---- settings: diligence amounts + leave quota (Admin-editable) ----
+  /* THE DIGEST TIMES, and the one place they are written on this side.
+   *
+   * They were typed into three separate labels, and when the morning digest moved to 11:15 (v373,
+   * off the hourly data — 10:00 was the worst hour in the school) all three went on saying 10:00.
+   * A label that disagrees with the schedule is worse than no label at all: somebody presses "apply",
+   * reads 10:00, and now believes something untrue about their own school.
+   *
+   * The schedule itself lives in src/Triggers.gs and that is where it is DECIDED — this is only how
+   * it is printed. tools/test_perf_hour.js reads both files and fails if they ever disagree, which
+   * is the only thing that keeps two files in step. */
+  const DIGEST_AM = '11:15', DIGEST_PM = '20:00';
   window.A_settings=async()=>{ const [q,sc]=await Promise.all([api('getLeaveQuota'),api('schoolConfig')]); const cfg=MOCK.config;
     const cfgOn=(k,def)=>{ const v=(sc&&sc[k]!=null)?sc[k]:cfg[k]; return v==null?def:(v===true||String(v).toLowerCase()==='true'); };
     modal(`<h3>⚙️ ${esc(t('manage.settings'))}</h3>
@@ -9166,11 +9177,11 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
       <label class="field" style="display:flex;align-items:center;gap:8px"><input type="checkbox" id="setParentLine" style="width:auto" ${cfgOn('ParentLineNotify',true)?'checked':''}/> 👨‍👩‍👧 ${EN()?'LINE parents on arrival / pick-up, the daily journal and DSPM results':'ส่ง LINE ถึงผู้ปกครอง: รับ-ส่ง · บันทึกประจำวัน · ผลประเมิน DSPM'}</label>
       <p class="muted" style="font-size:13px">${EN()?'This is the school\'s promise to families and by far the largest use of the quota — it is not part of the recipient list above, which is for staff. A late-pickup charge and an accident always go out regardless.'
         :'<b>ใช้โควตามากที่สุด</b> และ<b>ไม่เกี่ยวกับรายชื่อผู้รับด้านบน</b> (รายการนั้นสำหรับพนักงาน) · ค่ารับช้าและอุบัติเหตุยังส่งเสมอไม่ว่าตั้งค่าอย่างไร'}</p>
-      <label class="field" style="display:flex;align-items:center;gap:8px"><input type="checkbox" id="setDigM" style="width:auto" ${cfgOn('DigestMorning',true)?'checked':''}/> 🌅 ${EN()?`Morning digest 10:00 (${BC_NAME()} + pending)`:`สรุปเช้า 10:00 (${BC_NAME()} + รายการค้าง)`}</label>
-      <label class="field" style="display:flex;align-items:center;gap:8px"><input type="checkbox" id="setDigE" style="width:auto" ${cfgOn('DigestEvening',true)?'checked':''}/> 🌆 ${EN()?'Evening digest 20:00 (daily report)':'สรุปเย็น 20:00 (รายงานประจำวัน)'}</label>
+      <label class="field" style="display:flex;align-items:center;gap:8px"><input type="checkbox" id="setDigM" style="width:auto" ${cfgOn('DigestMorning',true)?'checked':''}/> 🌅 ${EN()?`Morning digest ${DIGEST_AM} (${BC_NAME()} + pending)`:`สรุปเช้า ${DIGEST_AM} (${BC_NAME()} + รายการค้าง)`}</label>
+      <label class="field" style="display:flex;align-items:center;gap:8px"><input type="checkbox" id="setDigE" style="width:auto" ${cfgOn('DigestEvening',true)?'checked':''}/> 🌆 ${EN()?`Evening digest ${DIGEST_PM} (daily report)`:`สรุปเย็น ${DIGEST_PM} (รายงานประจำวัน)`}</label>
       <button class="btn sm outline block" style="margin-top:4px" onclick="A_lineWho(this)">📇 ${EN()?'Who gets a LINE alert, and about what':'กำหนดว่าใครได้รับ LINE และเรื่องอะไรบ้าง'}</button>
       <button class="btn sm outline block" style="margin-top:4px" onclick="A_lineCost(this)">📊 ${EN()?'What would LINE alerts cost per day / month?':'ประเมินโควตา LINE ที่จะใช้ต่อวัน / ต่อเดือน'}</button>
-      <button class="btn sm outline block" style="margin-top:4px" onclick="A_reinstallTriggers(this)">🔄 ${EN()?'Apply digest schedule (10:00 / 20:00)':'อัปเดตตารางส่งสรุป (10:00 / 20:00)'}</button>
+      <button class="btn sm outline block" style="margin-top:4px" onclick="A_reinstallTriggers(this)">🔄 ${EN()?`Apply digest schedule (${DIGEST_AM} / ${DIGEST_PM})`:`อัปเดตตารางส่งสรุป (${DIGEST_AM} / ${DIGEST_PM})`}</button>
       <p class="muted" style="font-size:13px">${EN()?'Digests skip weekends & holidays. Run "Apply" once after enabling.':'สรุปจะข้ามวันหยุด/เสาร์-อาทิตย์ · กด "อัปเดตตาราง" 1 ครั้งหลังเปิดใช้'}</p>
       ${/* IS THE iPhone FALLBACK ACTUALLY SET UP? Two things have to be right and neither is visible
            from inside the app: the channel secret in SCHOOL_CONFIG and this exact URL in the LINE

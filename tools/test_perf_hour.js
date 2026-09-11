@@ -206,5 +206,29 @@ console.log('\n7) the cache box showed a number it had never read');
   ok_('...and no second saver left behind', !/A_setCacheTtl/.test(c));
 }
 
+console.log('\n8) the digest times the screen prints are the ones that are scheduled');
+{
+  /* The morning digest moved to 11:15 on the hourly evidence — 10:00 was the worst hour in the
+   * school — and three separate labels went on saying 10:00. The admin pressed "อัปเดตตาราง", read
+   * 10:00 back, and reasonably concluded nothing had happened.
+   *
+   * A label that disagrees with the schedule is worse than no label: it is a confident, wrong answer
+   * about your own school. Two files cannot be kept in step by intention, only by a test, so this
+   * reads the times out of BOTH and fails if they ever differ. */
+  const trig = R('src/Triggers.gs'), c = srcCode(app);
+  const at = fn => {
+    const m = trig.match(new RegExp("newTrigger\\('" + fn + "'\\)[^;]*?atHour\\((\\d+)\\)\\s*\\.nearMinute\\((\\d+)\\)"));
+    return m ? String(m[1]).padStart(2, '0') + ':' + String(m[2]).padStart(2, '0') : null;
+  };
+  const label = k => (c.match(new RegExp('const DIGEST_AM = \'([^\']+)\', DIGEST_PM = \'([^\']+)\'')) || [])[k];
+  eq('the morning digest is scheduled at the time the screen claims', at('digestMorning_'), label(1));
+  eq('...and the evening one too', at('digestEvening_'), label(2));
+  eq('...and it really did move off 10:00', at('digestMorning_'), '11:15');
+  // written ONCE on this side, so the next move cannot leave two of three labels behind
+  ok_('the screen prints it from one constant', (c.match(/DIGEST_AM/g) || []).length >= 3);
+  ok_('...and no hard-coded 10:00 label is left', !/สรุปเช้า 10:00/.test(app) && !/Morning digest 10:00/.test(app));
+  ok_('...nor on the apply button', !/อัปเดตตารางส่งสรุป \(10:00/.test(app));
+}
+
 console.log(fail ? `\nFAILED ${pass} passed, ${fail} failed` : `\nPASSED ${pass} passed, 0 failed`);
 process.exit(fail ? 1 : 0);
