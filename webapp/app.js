@@ -112,7 +112,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.374'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.375'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -1467,6 +1467,16 @@
    */
   const lineRedirectUri = () => location.origin + location.pathname.replace(/index\.html?$/i, '');
   window.LINE_BROWSER_LOGIN = () => {
+    /* ONE SIGN-IN AT A TIME, WHICHEVER DOOR.
+     *
+     * `_liffBusy` began as the LIFF hand-off's own flag, and the LINE button has always both checked
+     * it and painted signingInScreen() before touching the network — which is why a second tap there
+     * does nothing. The two routes added since (browser LINE, Google) never got either, so on those
+     * a double tap was two sign-ins. On Apps Script that is not a wasted click: it is a second
+     * execution queued IN FRONT of the first, so tapping twice makes it slower, which is exactly
+     * what somebody does when they think nothing is happening. */
+    if (_liffBusy) return;
+    _liffBusy = true;
     const st = 'atom' + Math.random().toString(36).slice(2) + Date.now().toString(36);
     try { sessionStorage.setItem(LINE_STATE, st); } catch (e) {}
     setLiffPending(false);            // this route does not come back through LIFF
@@ -1638,9 +1648,12 @@
     if (USER) GOOGLE_LINK_SAVE(cred); else GOOGLE_SIGNIN(cred);
   };
   function GOOGLE_SIGNIN(credential){
+    if (_liffBusy) return;      // same guard as the other two doors — see LINE_BROWSER_LOGIN
+    _liffBusy = true;
     signingInScreen();
     api('googleExchange', { credential })
       .then(u => {
+        _liffBusy = false;      // answered — put the flag down whichever way this turns out
         if (!u || !u.role) throw new Error(EN() ? 'Sign-in did not complete' : 'เข้าสู่ระบบไม่สำเร็จ กรุณาลองใหม่');
         setLiffPending(false); setLiffRetried(false);
         /* The LIFF failure count is NOT cleared. Google working says nothing about whether the LINE
@@ -1651,7 +1664,9 @@
         LOGIN_REAL(u.role, u.linkedId, u.displayName, u.pictureUrl);
         applyLangNow();
       })
-      .catch(e => { err(e); loginScreen(); });
+      // released on the way out, or a failed Google sign-in would lock the OTHER doors too — the
+      // whole point of one flag is that it must be put down as reliably as it is picked up
+      .catch(e => { _liffBusy = false; err(e); loginScreen(); });
   }
   /* Linking from INSIDE a session is the safe way to collect an address: the server already knows
    * who is asking, so nobody types an email and nobody can mistype one onto another family. */

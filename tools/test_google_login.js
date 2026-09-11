@@ -519,6 +519,20 @@ console.log('\n9) what the screens do with it');
   /* One callback for two jobs, told apart by whether anybody is signed in — the link button only
    * exists inside a session and the sign-in button only outside one. */
   ok_('the credential cannot reach the wrong handler', /if \(USER\) GOOGLE_LINK_SAVE\(cred\); else GOOGLE_SIGNIN\(cred\);/.test(c));
+  /* ONE SIGN-IN AT A TIME, WHICHEVER DOOR. The LINE button has always both checked a flag and
+   * painted the waiting screen before touching the network; the two routes added since did neither,
+   * so a double tap there was two sign-ins. On Apps Script that is not a wasted click — it is a
+   * second execution queued IN FRONT of the first, so tapping twice makes it slower, which is
+   * exactly what somebody does when they think nothing is happening. */
+  ok_('the Google route refuses a second tap', /function GOOGLE_SIGNIN\(credential\)\{\s*if \(_liffBusy\) return;/.test(c));
+  ok_('...and the browser-LINE route too', /window\.LINE_BROWSER_LOGIN = \(\) => \{[\s\S]{0,600}?if \(_liffBusy\) return;/.test(c));
+  ok_('...and the tap is acknowledged before any network', /_liffBusy = true;\s*signingInScreen\(\);/.test(c));
+  /* A FLAG MUST BE PUT DOWN AS RELIABLY AS IT IS PICKED UP, or one failed Google sign-in locks the
+   * other two doors for the rest of the visit — which would be a worse bug than the one being fixed. */
+  // the stripper only removes comment LINES, so a trailing `// …` survives between the two
+  // statements — allow for what sits there rather than pinning the spacing
+  ok_('...and released on both ways out',
+    /_liffBusy = false;[\s\S]{0,120}?if \(!u \|\| !u\.role\)/.test(c) && /_liffBusy = false; err\(e\); loginScreen\(\);/.test(c));
   /* Google working says nothing about whether the LINE hand-off on this phone is fixed. Clearing the
    * failure count would send the next sign-in back into the route that is still broken. */
   ok_('signing in with Google does not pretend LINE is fixed', !/GOOGLE_SIGNIN[\s\S]{0,900}clearLiffFails\(\)/.test(c));
@@ -535,7 +549,7 @@ console.log('\n9) what the screens do with it');
   ok_('...used by auth', /enqueueGas\(action, payload\)\.then\(keepToken\)/.test(a));
   ok_('...and by the exchanges, which are writes', /rewarmLater\(was\); return keepToken\(d\); \}\)/.test(a));
   ok_('...and it checks the shape, so junk is never stored as a session', /String\(t\)\.indexOf\('\.'\) > 0/.test(a));
-  ok_('a refusal is explained and the parent is returned to the login screen', /\.catch\(e => \{ err\(e\); loginScreen\(\); \}\)/.test(c));
+  ok_('a refusal is explained and the parent is returned to the login screen', /\.catch\(e => \{ _liffBusy = false; err\(e\); loginScreen\(\); \}\)/.test(c));
   // the server's sentence names the address; a generic dictionary entry would hide it
   ok_('GOOGLE_NOT_LINKED keeps the server’s own words', !/GOOGLE_NOT_LINKED:\s*\[/.test(app));
   ok_('the other Google codes are translated', /GOOGLE_TOKEN_INVALID:\s*\[/.test(app) && /GOOGLE_EMAIL_UNVERIFIED:\s*\[/.test(app));
