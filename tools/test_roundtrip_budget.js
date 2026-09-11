@@ -50,10 +50,24 @@ console.log('\n2) teacher home: nothing is fired after the render');
   const home = between('SCREENS.Teacher.home = async () => {', 'window.T_growthReminder =');
   const firstAwait = home.indexOf('await Promise.all(');
   ok_('there IS a first await to measure against', firstAwait > 0);
-  // every api( call outside a window.* handler must appear before that await
-  const prelude = home.slice(0, firstAwait);
-  ['schoolDay', 'teacherClassAttendance', 'myHolidayOTNext', 'holidayAttendList', 'staffMissingCheckout']
-    .forEach(a => ok_(`${a} is started before the await`, prelude.indexOf(`api('${a}'`) >= 0));
+  /* TWO BATCHES, AND WHICH CALL IS IN WHICH — reversed in v373 on measured evidence.
+   *
+   * This asserted that everything started before the first await: one tick, one request. That was
+   * right while the alternative was each call buying its own round trip. But a request is only as
+   * fast as its slowest member, so six cards nobody is waiting for were holding the clock-in button
+   * hostage — the 08–11/09 report showed all six at p50 ≈10.5s, identical, which is one batch timed
+   * six times over. A teacher opens this at 06:50 to clock in, in the busiest hour of the day.
+   *
+   * The rule is no longer "everything before the await". It is: the CORE goes first and is small,
+   * the rest follows as ONE more request, and nothing gets a trip of its own. */
+  const prelude = home.slice(0, firstAwait), after = home.slice(firstAwait);
+  ok_('schoolDay is in the core — the attendance card cannot draw without it',
+    prelude.indexOf("api('schoolDay'") >= 0);
+  ['teacherClassAttendance', 'myHolidayOTNext', 'holidayAttendList', 'staffMissingCheckout', 'myClassCover', 'injuryAlerts']
+    .forEach(a => ok_(`${a} waits for the second batch`, prelude.indexOf(`api('${a}'`) < 0 && after.indexOf(`api('${a}'`) >= 0));
+  // …and they are still ONE request between them: six ticks would be six trips, which is the mistake
+  // this whole section was written about
+  ok_('...and they share one tick with each other', !/const p_tca = api\([\s\S]*?\bawait\b[\s\S]*?const p_injAlert= api\(/.test(after));
   ok_('...and none of them is re-fired afterwards',
     !/\n\s{4}api\('(myHolidayOTNext|holidayAttendList|staffMissingCheckout)'/.test(home));
   /* The leader sections CANNOT join that batch — whether this person is a leader is only known once

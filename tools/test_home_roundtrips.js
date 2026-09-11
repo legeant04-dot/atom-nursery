@@ -153,14 +153,32 @@ const fresh = { fresh: true };   // every section is live data; the cache is not
     const home = app.slice(app.indexOf('SCREENS.Teacher.home = async () => {'), app.indexOf('window.T_growthReminder ='));
     // v232: myLeaves/myOT/recentAttendance left with the lists they fed (📅 ตาราง and 💵 การเงิน)
     // v243: leaveQuota left the batch with the remaining-days grid it fed
-    ok_('the remaining section starts before the first await', /const p_tca = api\('teacherClassAttendance'[\s\S]{0,2200}const \[att,cl,me0raw,jstat,al\] = await Promise\.all\(/.test(home));
-    /* v282, and the point of this whole section: three MORE calls moved up here. They were fired
-     * after the screen was drawn — each in its own tick, so each its own round trip, each ~5s
-     * queued in front of something the user was waiting for. holidayAttendList alone was 513 calls
-     * in four days, on a school where the answer is "nothing, it is a Tuesday" almost every time. */
-    ['p_holNext', 'p_holDay', 'p_missOut'].forEach(v =>
-      ok_(v + ' is started in the same tick, not after the render',
-        new RegExp('const ' + v + '\\s*=\\s*api\\(').test(home) && new RegExp('\\b' + v + '\\.then\\(').test(home)));
+    /* TWO BATCHES NOW, AND THE ORDER IS THE POINT — reversed in v373 on measured evidence.
+     *
+     * These six used to start alongside the batch below, which was right while the alternative was
+     * each of them buying its own round trip. But api.js folds one tick into ONE request, and a
+     * request is only as fast as its slowest member: six cards nobody is waiting for were holding
+     * the clock-in button hostage. The 08–11/09 report priced it — every one of them sat at p50
+     * ≈10.5s with p95 ≈28s, all identical, which is one batch being timed six times over.
+     *
+     * A teacher opens this app at 06:50 to clock in, and 06:00–07:00 is the busiest hour in the
+     * school (x2007 / 50 sessions). That button needs attendance, the staff record and whether
+     * school is open. Nothing else. */
+    ok_('the core batch goes first, on its own',
+      home.indexOf('const [att,cl,me0raw,jstat,al] = await Promise.all(') < home.indexOf("const p_tca = api('teacherClassAttendance'"));
+    ok_('...and schoolDay is in it, because the attendance card cannot draw without it',
+      home.indexOf("const p_day = api('schoolDay'") < home.indexOf('await Promise.all('));
+    /* The six are still ONE request between them — a later tick, but the same tick as each other.
+     * Six separate ticks would be six round trips, which is the mistake this section was written
+     * about in the first place. */
+    ['p_tca', 'p_holNext', 'p_holDay', 'p_missOut', 'p_cover', 'p_injAlert'].forEach(v =>
+      ok_(v + ' rides in the second batch, not a trip of its own',
+        // `const p_injAlert= api(` has no space before the '=' — match the declaration itself
+        // rather than a guess at how it is spaced
+        new RegExp('const ' + v + '\\s*=\\s*api\\(').test(home) &&
+        home.search(new RegExp('const ' + v + '\\s*=')) > home.indexOf('await Promise.all(')));
+    ok_('...with no await between them, so they are still one request',
+      !/const p_tca = api\([\s\S]*?await[\s\S]*?const p_injAlert= api\(/.test(home));
     ok_('...and none of them is still fired on its own after the batch',
       !/\n\s*api\('holidayAttendList',\{\}\)\.then\(/.test(home)
       && !/\n\s*api\('myHolidayOTNext'[^\n]*\)\.then\(/.test(home)

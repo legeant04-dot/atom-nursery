@@ -112,7 +112,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.372'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.373'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -4019,25 +4019,6 @@
      * a failure used to abort the entire tail, including the growth reminder.
      */
     const p_day = api('schoolDay',{}).catch(()=>null);
-    const p_tca = api('teacherClassAttendance',{staffId:USER.staffId}).catch(()=>null);
-    /* THESE THREE USED TO BE FIRED AFTER THE SCREEN WAS DRAWN, each in its own tick and therefore
-     * each its own round trip — three more ~5s waits queued behind everything else, because Apps
-     * Script runs ONE execution at a time per user and a spare call is not free, it is in front of
-     * something. holidayAttendList alone was 513 calls in four days, on a school where the answer is
-     * "nothing, it is a Tuesday" almost every time. Started HERE, in the same tick as the batch
-     * below, so api.js folds them into that one request; they are still rendered where they were,
-     * whenever they land. */
-    const p_holNext = api('myHolidayOTNext',{staffId:USER.staffId}).catch(()=>null);
-    const p_holDay  = api('holidayAttendList',{}).catch(()=>null);
-    const p_missOut = api('staffMissingCheckout',{staffId:USER.staffId}).catch(()=>null);
-    /* A CLASS THAT APPEARS ON SOMEBODY'S SCREEN WITHOUT EXPLANATION IS ALARMING. Cover ADDS a class
-     * to this teacher's list; if nobody tells them why, the first they know of it is a roomful of
-     * children they were not expecting. Same tick as the batch below, so it costs no round trip. */
-    const p_cover   = api('myClassCover',{staffId:USER.staffId}).catch(()=>null);
-    /* How many of this teacher's injury reports were sent back to them. One number, in the same tick
-     * as everything else, so the 🚑 tab can carry a red count from anywhere in the app — a returned
-     * report used to be discoverable only by opening that screen for some other reason. */
-    const p_injAlert= api('injuryAlerts',{staffId:USER.staffId}).catch(()=>null);
     // myLeaves / myOT / recentAttendance were fetched here for lists that have MOVED — the leave
     // history and the work-time history to 📅 ตาราง, the OT history to 💵 การเงิน. Fetching them
     // for a screen that no longer shows them would be three requests spent on nothing.
@@ -4045,6 +4026,31 @@
     // where it is actually read, and the home screen stops paying for a figure it no longer shows
     const [att,cl,me0raw,jstat,al] = await Promise.all([api('myAttendanceToday',{staffId:USER.staffId}),api('classList',tc()),api('staffSelf',{staffId:USER.staffId}),api('journalStatus',{}),
       api('studentAlerts',{staffId:USER.staffId,role:USER.role}).catch(()=>null)]);
+    /* DELIBERATELY IN A LATER TICK — the await above ends the first one, so these form a SECOND
+     * request instead of joining the first.
+     *
+     * They used to start alongside the batch above, which was right when the alternative was each of
+     * them buying its own round trip. But api.js folds one tick into one HTTP request, and a request
+     * is only as fast as its slowest member — so six cards nobody is waiting for were holding the
+     * clock-in button hostage. The 08–11/09 report priced it: every one of these sat at p50 ≈10.5s
+     * with p95 ≈28s, all identical, which is the signature of one batch being timed six times over.
+     *
+     * A teacher opens this app at 06:50 to clock in. That button needs attendance, the staff record
+     * and whether school is open — nothing below. Two requests is more total work; it is also the
+     * only way the first one can be short, and it is the one somebody is standing there waiting for.
+     * Each still renders into its own placeholder whenever it lands, exactly as before. */
+    const p_tca = api('teacherClassAttendance',{staffId:USER.staffId}).catch(()=>null);
+    const p_holNext = api('myHolidayOTNext',{staffId:USER.staffId}).catch(()=>null);
+    const p_holDay  = api('holidayAttendList',{}).catch(()=>null);
+    const p_missOut = api('staffMissingCheckout',{staffId:USER.staffId}).catch(()=>null);
+    /* A CLASS THAT APPEARS ON SOMEBODY'S SCREEN WITHOUT EXPLANATION IS ALARMING. Cover ADDS a class
+     * to this teacher's list; if nobody tells them why, the first they know of it is a roomful of
+     * children they were not expecting. */
+    const p_cover   = api('myClassCover',{staffId:USER.staffId}).catch(()=>null);
+    /* How many of this teacher's injury reports were sent back to them — so the 🚑 tab can carry a
+     * red count from anywhere in the app. A returned report used to be discoverable only by opening
+     * that screen for some other reason. */
+    const p_injAlert= api('injuryAlerts',{staffId:USER.staffId}).catch(()=>null);
     const jdone = journalDoneMap(jstat); setAlerts(al);
     T_STU={}; (cl.students||[]).forEach(s=>{ T_STU[s.StudentID]=s; });   // names for the ⋯ menu
     const day0 = await p_day;                 // already in flight with the batch above — no extra trip
