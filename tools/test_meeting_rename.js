@@ -47,7 +47,9 @@ console.log('\n2) every screen that showed the old name now shows the new one');
   ok_('the admin screen that sets the days', /<h3>\$\{BC_ICON\} \$\{BC_NAME\(\)\}<\/h3>/.test(app));
   ok_('...and each date in its list', /<span>\$\{BC_ICON\} \$\{esc\(ddmmyyyy\(d\)\)\}<\/span>/.test(app));
   ok_('the settings screen that points at it', /\$\{BC_ICON\} \$\{EN\(\)\?'Meeting days moved to':'วันประชุมย้ายไปที่'\}/.test(app));
-  ok_('the morning-digest checkbox', /Morning digest 10:00 \(\$\{BC_NAME\(\)\} \+ pending\)/.test(app));
+  // the subject here is BC_NAME, not the hour — which moved to 11:15 in v373 and is now printed
+  // from DIGEST_AM, checked against src/Triggers.gs by tools/test_perf_hour.js
+  ok_('the morning-digest checkbox', /Morning digest \$\{DIGEST_AM\} \(\$\{BC_NAME\(\)\} \+ pending\)/.test(app));
   ok_('the menu entry', /'manage\.holidays':\['วันหยุด \/ วันประชุม','Holidays \/ Meetings'\]/.test(i18n));
   // four calendars draw the day; all four must use the constant, or one keeps a broom
   eq('every calendar marks the day with the shared icon', (app.match(/BC_ICON/g) || []).length >= 10, true);
