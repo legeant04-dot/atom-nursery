@@ -112,7 +112,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.369'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.370'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -9993,6 +9993,29 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
         L.push('  '+x.os+' x'+x.n+'/'+(x.sessions||0)+'s p50='+ms(x.p50)
           +(x.fail?' fail'+x.rate+'%':'')
           +(x.signin?'  ⚠ sign-in x'+x.signin:''));
+      });
+    }
+    /* THE SHAPE OF THE DAY. The director reported the app being slow "ช่วงค่ำ" (10/09/26) and every
+     * figure in this report was a total across days — there was no way to answer a complaint about a
+     * TIME. In the school's own hours, in clock order, never re-sorted by badness: reading it against
+     * a clock is the whole point, and it is what says whether the 18:30 and 20:00 triggers land on
+     * top of people who are still working. */
+    if((d.byHour||[]).length){
+      L.push('BY HOUR (เวลาไทย):');
+      d.byHour.forEach(x=>{
+        L.push('  '+x.hour+':00  x'+x.n+'/'+(x.sessions||0)+'s p50='+ms(x.p50)+' p95='+ms(x.p95)
+          +(x.fail?' fail'+x.rate+'%':''));
+      });
+    }
+    /* AND THE INDIVIDUAL WORST MOMENTS. A screen visited twelve times has a p95 that IS one or two
+     * visits; "finance p95=125.9s" is a statistic nobody can act on, and "10/09 20:14 financeSummary
+     * admin Desktop" is a thing that can be looked at. */
+    if((d.slowMoments||[]).length){
+      L.push('SLOWEST SINGLE CALLS (over '+ms(d.slowMs||20000)+'):');
+      d.slowMoments.forEach(x=>{
+        L.push('  '+x.ts+'  '+ms(x.ms)+'  '+x.action
+          +(x.screen?' @'+x.screen:'')+(x.role?' · '+x.role:'')+(x.dev?' · '+x.dev:'')
+          +(x.ok?'':' · FAILED'+(x.code?' '+x.code:'')));
       });
     }
     L.push('NETWORK: '+(d.byNet||[]).filter(x=>x.net).map(x=>x.net+' x'+x.n+' p50='+ms(x.p50)).join(' | '));

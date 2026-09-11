@@ -295,6 +295,21 @@ function handlePerfSummary(p) {
   var oss = {};
   function osInit_(o) { return { os: o, n: 0, fail: 0, signin: 0, ms: [], sids: {} }; }
   var refusedTotal = 0, refusals = {};
+  /* WHAT TIME OF DAY, and WHICH EXACT MOMENTS.
+   *
+   * The director reported the app being slow "ช่วงค่ำ" (2026-09-10) and this report could not say
+   * anything at all about that — every figure was a total over two and a half days. A complaint
+   * about a time of day has to be answerable in a time of day, or the only way to act on it is to
+   * guess. The timestamp has been on every row since the first version; nothing was reading it.
+   *
+   * `byHour` is the shape of the day. `slowest` is the opposite: the individual worst moments, kept
+   * with their timestamp, so a p95 of 125.9s on a screen visited twelve times stops being a
+   * statistic and becomes "20:14 on the 10th, financeSummary, admin, Desktop" — which is a thing
+   * that can be looked at. Local hours (Asia/Bangkok), because that is when people were at work.
+   */
+  var hours = {};
+  function hourInit_(h) { return { hour: h, n: 0, fail: 0, ms: [], sids: {} }; }
+  var SLOW_MS = 20000, slowMoments = [];
 
   for (var i = 0; i < vals.length; i++) {
     var r = vals[i];
@@ -355,6 +370,22 @@ function handlePerfSummary(p) {
      * out of the failure figures. */
     var refused = !ok && PERF_EXPECTED_[code] === 1;
     if (refused) { refusedTotal++; refusals[code] = (refusals[code] || 0) + 1; }
+    /* The hour this call happened in, straight off the stamp — 'yyyy-MM-dd HH:mm:ss' in the school's
+     * own timezone (perfStamp_), so position 11..13 IS the local hour and no re-parsing can get it
+     * wrong. A refused call is not a failure here either, for the same reason as everywhere else. */
+    var hh = ts.slice(11, 13);
+    if (hh) { var hv = hours[hh] = hours[hh] || hourInit_(hh);
+      hv.n++; hv.ms.push(ms); hv.sids[sid] = 1; if (!ok && !refused) hv.fail++; }
+    /* THE WORST INDIVIDUAL MOMENTS, not a percentile of them. A screen visited twelve times has a
+     * p95 that IS one or two visits, and averaging them away is how a two-minute wait becomes a
+     * number nobody can act on. Kept smallest-first and capped, so this costs nothing on 20,000 rows. */
+    if (ms >= SLOW_MS) {
+      slowMoments.push({ ts: ts, action: action, ms: ms, screen: screen, role: role, dev: dev, ok: ok, code: code });
+      if (slowMoments.length > 40) {
+        slowMoments.sort(function (x, y) { return y.ms - x.ms; });
+        slowMoments.length = 20;
+      }
+    }
     var a = acts[action] || (acts[action] = { action: action, n: 0, fail: 0, refused: 0, ms: [], codes: {} });
     a.n++; a.ms.push(ms);
     if (!ok) { a.codes[code || 'ERR'] = (a.codes[code || 'ERR'] || 0) + 1;
@@ -469,6 +500,17 @@ function handlePerfSummary(p) {
              rate: o.n ? Math.round(o.fail / o.n * 100) : 0, p50: st.p50, p95: st.p95 };
   }).sort(function (x, y) { return (y.signin - x.signin) || (y.n - x.n); }).slice(0, 25);
 
+  /* THE SHAPE OF THE DAY, in the school's own hours. Sorted BY HOUR rather than by badness — the
+   * question is "is the evening worse", and an answer that has been re-ordered by size cannot be read
+   * against a clock. Hours with nothing in them are simply absent. */
+  var byHour = Object.keys(hours).map(function (k) {
+    var h = hours[k], st = statify(h), ns = Object.keys(h.sids).length;
+    return { hour: h.hour, n: h.n, sessions: ns, fail: h.fail,
+             rate: h.n ? Math.round(h.fail / h.n * 100) : 0, p50: st.p50, p95: st.p95 };
+  }).sort(function (x, y) { return x.hour < y.hour ? -1 : 1; });
+  slowMoments.sort(function (x, y) { return y.ms - x.ms; });
+  slowMoments = slowMoments.slice(0, 15);
+
   // calls PER SESSION is the number Phase 1 set out to move: it was 71, and it is the reason every
   // action queued behind another. A total on its own hides it — 17,308 calls means nothing until you
   // know how many visits produced them.
@@ -501,6 +543,9 @@ function handlePerfSummary(p) {
     cacheRate: (cacheHit + cacheMiss) ? Math.round(cacheHit / (cacheHit + cacheMiss) * 100) : 0,
     slowest: slowest, slowScreens: slowScreens, problems: problems, failing: failing,
     byDev: byDev, byOs: byOs, byNet: byNet, byRole: byRole, boot: bootStats,
+    /* `slowest` above is per ACTION, averaged. These two are the ones a complaint about a TIME can be
+     * answered with: the shape of the day, and the individual worst moments with their stamps. */
+    byHour: byHour, slowMoments: slowMoments, slowMs: SLOW_MS,
     // failures that recovered by themselves, and what is left after taking them out
     healed: healedTotal,
     healedBy: Object.keys(healed).map(function (k) { return { action: k, n: healed[k] }; })
