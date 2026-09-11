@@ -159,14 +159,51 @@ console.log('\n5) Phase 2.1 — the cache, and the trade it makes');
    * cache must never do is outlive the working day it was filled in. */
   ok_('a nonsense value cannot pin stale data', /t >= 1 && t <= 21600/.test(gasEng));
   ok_('the current value comes back to the screen', /CacheTTL:cfg\.CacheTTL/.test(eng));
-  ok_('...so the control shows what is really set, not a guess', /Number\(\(sc&&sc\.CacheTTL\)\|\|900\)===v/.test(c));
-  ok_('it saves through the whitelisted route', /api\('setConfigVal', \{ key: 'CacheTTL', value: v \}\)/.test(c));
+  ok_('it saves through the whitelisted route', /key:'CacheTTL'/.test(c));
   ok_('...which allows that key', /CacheTTL: 1 \}/.test(R('src/Staff.gs')));
-  /* The trade-off is stated ON the screen. A performance setting whose cost is only written in a
-   * commit message is one that gets blamed for a bug six weeks later. */
-  ok_('the screen says what is traded', /คนอื่น<\/b>แก้อาจใช้เวลาเท่านี้กว่าจะเห็น/.test(app));
-  ok_('...and that your own saves are unaffected', /ท่านบันทึกเอง<\/b>จะเห็นทันทีเสมอ/.test(app));
-  ok_('saved on change, not behind a Save button somebody may not press', /onchange="A_setCacheTtl\(this\)"/.test(c));
+  /* The trade-off is stated ON the screen, in the help text under the box. A performance setting
+   * whose cost is only written in a commit message is one that gets blamed for a bug six weeks on. */
+  ok_('the screen says what is traded', /แอปอาจตามช้าได้ไม่เกินเวลานี้/.test(app));
+  ok_('...and that a save through the app is always immediate', /การบันทึกผ่านแอปจะรีเฟรชให้ทันทีเสมอ/.test(app));
+  ok_('...and names the recommended value in the same breath', /900 = 15 นาที \(ค่าแนะนำ\)/.test(app));
+}
+
+console.log('\n6) a request that never comes back is given up on');
+{
+  /* WHAT THE HOURLY DATA ACTUALLY FOUND. The director's 21:04 was not a slow hour at all — 21:00 is
+   * one of the BEST (p50 6.8s, fail 0%). The photograph showed a sign-in spinner, and the per-call
+   * worst moments named it:
+   *   2026-09-10 08:04:50  1847.8s  auth · anon · Android · FAILED INVALID_TOKEN
+   * Thirty-one minutes. `fetch` has no timeout, so a connection that stalls without erroring never
+   * settles and the app waits as long as the person will look at it. The clock stops while the app
+   * is off screen (awakeTimer), so that is thirty-one minutes of somebody watching. */
+  const a = srcCode(api);
+  ok_('there is a cap at all', /const REQ_TIMEOUT = 90000;/.test(a));
+  ok_('...applied to the request', /signal: ac\.signal/.test(a) && /ac\.abort\(\)/.test(a));
+  ok_('...and cleared the moment a reply arrives', /finally \{ if \(killer\) clearTimeout\(killer\); \}/.test(a));
+  /* A TIMEOUT IS NOT A NETWORK ERROR and must not be reported as one: OFFLINE tells somebody to
+   * check their signal, which is the wrong thing to go and do. */
+  ok_('a timeout is told apart from being offline', /if \(timedOut\) \{/.test(a));
+  ok_('a read is simply asked again', /if \(canRepeat\(body\) && attempt < 2\) return postGas\(body, attempt \+ 1\);/.test(a));
+  /* AND A WRITE IS NEVER REPEATED, nor told it failed. After a timeout we do not know whether it
+   * landed — a duplicated payment is worse than an honest "check before repeating". */
+  ok_('...and a write says it does not know', /อาจบันทึกไปแล้ว/.test(api));
+  ok_('the screen explains it', /TIMEOUT:\s*\[/.test(app));
+  ok_('...and it is counted as a real failure, not a refusal', !/TIMEOUT: 1/.test(R('src/Perf.gs')));
+}
+
+console.log('\n7) the cache box showed a number it had never read');
+{
+  /* The owner raised CacheTTL to 900 and the screen still said 300. `schoolConfig` never returned
+   * CacheTTL at all, so the box only ever displayed its own fallback — and saving the settings form
+   * wrote that box back, which means every save silently pinned the school to 300 no matter what
+   * anybody had chosen. Two bugs meeting: a control that could not read, feeding a save that could. */
+  const c = srcCode(app), eng = R('webapp/engine.js');
+  ok_('the value is actually returned now', /CacheTTL:cfg\.CacheTTL/.test(eng));
+  ok_('...and the box shows it, treating blank as unset', /sc\.CacheTTL!=null&&sc\.CacheTTL!==''\?sc\.CacheTTL:900/.test(c));
+  ok_('...and a save no longer defaults it back down to 300', /\+t\.value\|\|900/.test(c) && !/\+t\.value\|\|300/.test(c));
+  eq('there is ONE control, not the two I briefly shipped', (c.match(/id="setTtl"/g) || []).length, 1);
+  ok_('...and no second saver left behind', !/A_setCacheTtl/.test(c));
 }
 
 console.log(fail ? `\nFAILED ${pass} passed, ${fail} failed` : `\nPASSED ${pass} passed, 0 failed`);
