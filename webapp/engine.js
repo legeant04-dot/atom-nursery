@@ -4595,6 +4595,9 @@ function createAtomAPI(M, GROWTH_STD) {
     schoolConfig: () => ({ GPS_Lat:cfg.GPS_Lat, GPS_Lng:cfg.GPS_Lng, Radius:cfg.Radius, LateGraceMinutes:cfg.LateGraceMinutes, OTRatePerHour:cfg.OTRatePerHour, StaffOTHourlyRate:cfg.StaffOTHourlyRate, ContributionMatchRate:cfg.ContributionMatchRate,
       AdminLineNotify:cfg.AdminLineNotify, StaffLineNotify:cfg.StaffLineNotify, ParentLineNotify:cfg.ParentLineNotify,
       DigestMorning:cfg.DigestMorning, DigestEvening:cfg.DigestEvening,
+      // how long a cached read may be reused — the one performance setting the admin can turn, so it
+      // has to come back here or the control could only ever show a guess
+      CacheTTL:cfg.CacheTTL,
       ParentPrepayEnabled:cfg.ParentPrepayEnabled }),
     /* THE WHITELIST HERE HAD DRIFTED FROM THE ONE ON THE LIVE ROUTE.
      *

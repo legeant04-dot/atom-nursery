@@ -431,7 +431,7 @@ var SCHOOL_CONFIG_DEFAULTS = [
   // collections a screen needs costs ~10.8s from the sheets and ~0.28s from here. 60 was right while
   // invalidation was incomplete; every write now drops the sheet it touched, so only a BY-HAND edit
   // of the spreadsheet can go unnoticed, and only for this long. Editable in Settings.
-  ['CacheTTL',              '300'],
+  ['CacheTTL',              '900'],
   ['BackupFolderName',      'AtomNursery_Backups'],
   ['BackupRetentionDays',   '14'],          // dailyBackup() keeps copies for this many days, then prunes
   ['SchemaVersion',         '2.1']
