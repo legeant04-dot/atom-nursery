@@ -112,7 +112,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.371'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.372'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -500,6 +500,12 @@
                        'ต้องลบ LINE ID ออกจากรายการเดิมก่อน แล้วจึงใส่ที่รายการใหม่','Remove it from the old record first, then add it to the new one'],
     EMAIL_TAKEN:      ['อีเมลนี้ถูกใช้กับบัญชีอื่นแล้ว','That email is already used by another account',
                        'อีเมลหนึ่งใช้ได้กับคนเดียวเท่านั้น — ตรวจอีเมลอีกครั้ง หรือใช้อีเมลอื่น','One email belongs to one person only — check it again, or use a different address'],
+    /* A request that never came back. Without a cap fetch simply waits, and a sign-in was measured
+     * spinning for 1847 seconds — the screen the director photographed. The wording splits on the
+     * one thing that matters after a timeout: for a read, try again; for a write, we genuinely do
+     * not know whether it landed, and saying so is better than guessing either way. */
+    TIMEOUT:          ['ระบบใช้เวลานานเกินไป','The system took too long to answer',
+                       'ลองใหม่อีกครั้ง — หากเป็นการบันทึกข้อมูล กรุณาตรวจสอบก่อนทำซ้ำ','Try again — if you were saving something, check before repeating it'],
     BAD_INPUT:        ['ข้อมูลที่กรอกไม่ถูกต้อง','Something entered is not valid',
                        'ตรวจข้อมูลในช่องที่กรอกอีกครั้ง','Check the fields again'],
     JOURNAL_LOCKED:   ['สมุดรายงานวันนี้ถูกส่งแล้ว แก้ไขไม่ได้','Today’s report has been sent and is locked',
@@ -9126,8 +9132,14 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
       <h4 style="margin:6px 0">🔍 ${EN()?'Slip verification (SlipOK)':'การตรวจสลิป (SlipOK)'}</h4>
       <button class="btn sm outline block" onclick="A_slipDiag(this)">${EN()?'Check whether slip verification is working':'ตรวจว่าระบบตรวจสลิปทำงานอยู่ไหม'}</button>
       <h4 style="margin:6px 0">⚡ ${EN()?'System speed & errors':'ความเร็วและข้อผิดพลาดของระบบ'}</h4>
-      <label class="field"><span>${EN()?'Keep data ready for (seconds)':'เก็บข้อมูลไว้ให้พร้อมใช้ (วินาที)'}</span><input id="setTtl" type="number" min="30" max="21600" value="${esc(sc.CacheTTL!=null?sc.CacheTTL:300)}"/></label>
-      <p class="muted" style="font-size:13px">${EN()?'Reading the sheets takes about 10 seconds; reading this ready-made copy takes under half a second. Saving anything in the app refreshes it immediately, so this only matters if someone edits the Google Sheet BY HAND — then the app can lag behind by up to this long. 300 = 5 minutes.':'การอ่านจากชีตใช้เวลาราว 10 วินาที · อ่านจากสำเนาที่เตรียมไว้ใช้ไม่ถึงครึ่งวินาที · การบันทึกผ่านแอปจะรีเฟรชให้ทันทีเสมอ ค่านี้จึงมีผลเฉพาะกรณีมีคนไปแก้ Google Sheet ด้วยมือ — แอปอาจตามช้าได้ไม่เกินเวลานี้ · 300 = 5 นาที'}</p>
+      ${/* THIS BOX SHOWED 300 WHATEVER WAS SET. `schoolConfig` never returned CacheTTL, so the
+           fallback below was the only value it ever displayed — and saving the settings form wrote
+           that box back, so every save silently pinned the school to 300 no matter what anybody had
+           chosen. The engine returns it now; the fallback is the default for a workbook that has no
+           row, and it is 900 like everywhere else. Found 11/09/26 when the owner raised it to 900
+           and the screen still read 300. */''}
+      <label class="field"><span>${EN()?'Keep data ready for (seconds)':'เก็บข้อมูลไว้ให้พร้อมใช้ (วินาที)'}</span><input id="setTtl" type="number" min="30" max="21600" value="${esc(sc.CacheTTL!=null&&sc.CacheTTL!==''?sc.CacheTTL:900)}"/></label>
+      <p class="muted" style="font-size:13px">${EN()?'Reading the sheets takes about 10 seconds; reading this ready-made copy takes under half a second. Saving anything in the app refreshes it immediately, so this only matters if someone edits the Google Sheet BY HAND — then the app can lag behind by up to this long. 900 = 15 minutes.':'การอ่านจากชีตใช้เวลาราว 10 วินาที · อ่านจากสำเนาที่เตรียมไว้ใช้ไม่ถึงครึ่งวินาที · การบันทึกผ่านแอปจะรีเฟรชให้ทันทีเสมอ ค่านี้จึงมีผลเฉพาะกรณีมีคนไปแก้ Google Sheet ด้วยมือ — แอปอาจตามช้าได้ไม่เกินเวลานี้ · 900 = 15 นาที (ค่าแนะนำ)'}</p>
       <button class="btn sm outline block" onclick="this.closest('.modal').remove();A_perfReport(7)">${EN()?'Which screens are slow, what is breaking':'ดูว่าหน้าไหนช้า อะไรพังบ้าง'}</button>
       <h4 style="margin:6px 0">${esc(t('set.leaveQuota'))}</h4>
       ${Object.keys(q).map(k=>`<label class="field"><span>${esc(tLeaveType(k))}</span><input type="number" id="lq_${esc(k)}" value="${q[k]}"/></label>`).join('')}
@@ -9171,22 +9183,6 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
            and PARENTS row and the app has no other screen that shows one, so somebody can hold the
            right LINE ID on the right staff record and still arrive somewhere else — with nothing
            anywhere to explain it. That happened (09/09/26) and took a code reading to answer. */''}
-      ${/* THE ONE PERFORMANCE SETTING WITH A REAL TRADE-OFF, so it is stated on the screen rather
-           than buried. Raised 300→900 on the owner's call (11/09/26): the admin works on a desktop
-           and had the worst cache hit rate in the school, 41% against 61% on both phone platforms,
-           while making 94 calls a visit. Your OWN writes are unaffected — an in-place write busts
-           the cache for what it touched — which is the only reason this is safe to raise. */''}
-      <h4 style="margin:10px 0 4px">⚡ ${EN()?'Speed vs freshness':'ความเร็ว กับ ความสดของข้อมูล'}</h4>
-      <label class="field"><span>${EN()?'Reuse a cached read for':'ใช้ข้อมูลที่จำไว้ได้นาน'}</span>
-        <select id="setCacheTtl" onchange="A_setCacheTtl(this)">
-          ${[[300,EN()?'5 minutes — freshest, slowest':'5 นาที — สดที่สุด ช้าที่สุด'],
-             [900,EN()?'15 minutes — recommended':'15 นาที — แนะนำ'],
-             [1800,EN()?'30 minutes — fastest, least fresh':'30 นาที — เร็วที่สุด สดน้อยที่สุด']]
-            .map(([v,l])=>`<option value="${v}" ${Number((sc&&sc.CacheTTL)||900)===v?'selected':''}>${esc(l)}</option>`).join('')}
-        </select></label>
-      <small class="muted" style="font-size:13px">${EN()
-        ? 'Longer is faster for everyone, but a change made by SOMEBODY ELSE can take this long to appear. What you save yourself always shows immediately.'
-        : 'ยิ่งนาน ยิ่งเร็วสำหรับทุกคน แต่สิ่งที่<b>คนอื่น</b>แก้อาจใช้เวลาเท่านี้กว่าจะเห็น · ส่วนที่<b>ท่านบันทึกเอง</b>จะเห็นทันทีเสมอ'}</small>
       <h4 style="margin:10px 0 4px">🪪 ${EN()?'Which record does a sign-in land on?':'เข้าสู่ระบบแล้วไปที่ข้อมูลไหน?'}</h4>
       <p class="muted" style="font-size:13px">${EN()
         ? 'Paste a LINE ID or an email to see every record that carries it, on all three sheets, and which one wins.'
@@ -9215,12 +9211,6 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
   /* Saved on its own the moment it changes, not with the rest of the settings form: it is one number
    * with an immediate, school-wide effect, and burying it behind a Save button somebody might not
    * press is how a setting gets changed in the sheet instead. */
-  window.A_setCacheTtl = async (sel) => {
-    const v = Number(sel && sel.value) || 900;
-    try { await api('setConfigVal', { key: 'CacheTTL', value: v });
-      confirmSaved((EN()?'Cache: ':'จำข้อมูลไว้ ') + Math.round(v/60) + (EN()?' minutes':' นาที'));
-    } catch (e) { err(e); }
-  };
   window.A_authDiag = async (self) => {
     const box = document.getElementById('authDiagBox'), v = (document.getElementById('adUid')||{}).value || '';
     if (!box) return;
@@ -10517,7 +10507,7 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
     await api('setConfigVal',{key:'DiligenceFacebookAmount',value:+m.querySelector('#setFb').value});
     { const o=m.querySelector('#setOtRate'); if(o) await api('setConfigVal',{key:'StaffOTHourlyRate',value:+o.value||100}); }
     { const c=m.querySelector('#setMatch'); if(c) await api('setConfigVal',{key:'ContributionMatchRate',value:c.value===''?1:+c.value}); }
-    { const t=m.querySelector('#setTtl'); if(t) await api('setConfigVal',{key:'CacheTTL',value:Math.max(30,Math.min(21600,+t.value||300))}); }
+    { const t=m.querySelector('#setTtl'); if(t) await api('setConfigVal',{key:'CacheTTL',value:Math.max(30,Math.min(21600,+t.value||900))}); }
     for(const el of m.querySelectorAll('input[id^="lq_"]')){ const type=el.id.slice(3); if(!type) continue;
       await api('setLeaveQuota',{type,days:+el.value||0}); }
     m.remove(); confirmSaved(t('c.saved')); };

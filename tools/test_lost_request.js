@@ -158,7 +158,13 @@ console.log('\n3) a teacher\'s morning punch is no longer lost with the request'
 console.log('\n4) the rule lives in ONE place now');
 {
   ok_('there is a single canRepeat', /const canRepeat = body => \{/.test(src));
-  eq('...used by all three paths that can retry', (src.match(/canRepeat\(body\)/g) || []).length, 3);
+  /* Counted as "at least", not "exactly". The property is that every path asks the SAME function —
+   * three copies of one rule is how a batch ends up retryable on one path and not on another. A
+   * fourth caller arrived with the 90s request timeout (v372), which both retries a read and words
+   * its message differently for a write, and pinning the number would have failed that on arrival
+   * while the thing it guards was never in danger. */
+  ok_('...used by every path that can retry, and defined once',
+    (src.match(/canRepeat\(body\)/g) || []).length >= 3 && (src.match(/const canRepeat = /g) || []).length === 1);
   ok_('and no path spells the rule out for itself any more',
     !/const safe0 = act0 === 'batch'/.test(src) && !/const safe = act === 'batch'/.test(src));
   ok_('the reason is recorded', /Three copies of one rule is how a batch ends up retryable on one path and not on/.test(src));

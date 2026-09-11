@@ -100,6 +100,10 @@ window.CONFIG = { MODE: 'gas', GAS_URL: 'https://script.google.com/macros/s/AKfy
   // moments later. Retrying is what a person does anyway, so do it for them.
   // Only for calls that cannot double-charge: a read, or auth/ping. A write is reported, never repeated.
   const sleep = ms => new Promise(r => setTimeout(r, ms));
+  /* How long a single request may run before it is given up on. See the note above the fetch: with
+   * no cap at all, a stalled connection never settles and a sign-in sat spinning for 1847 seconds.
+   * Well clear of anything healthy — p95 across the school is 25s. */
+  const REQ_TIMEOUT = 90000;
   // Resolve when the app is on screen again. Retrying while it is still in the background just
   // gets cancelled a second time on iOS.
   const visible = () => new Promise(r => {
@@ -128,9 +132,38 @@ window.CONFIG = { MODE: 'gas', GAS_URL: 'https://script.google.com/macros/s/AKfy
      * So: wait for the app to come back to the foreground, then try again, and only give up with a
      * message that says what actually happened. A write is still never repeated.
      */
+    /* A REQUEST THAT NEVER ENDS.
+     *
+     * `fetch` has no timeout. A connection that stalls without erroring simply never settles, and the
+     * app waits for it for as long as the person is prepared to look at a spinner.
+     *
+     * The 08–11/09 report measured what that costs, once the per-call worst moments were recorded:
+     *   2026-09-10 08:04:50  1847.8s  auth · anon · Android · FAILED INVALID_TOKEN
+     * Thirty-one minutes on a sign-in. That is the screen the director photographed at 21:04 —
+     * "กำลังเข้าสู่ระบบ LINE…" with the spinner still going — and the app had no way to ever stop it.
+     * The clock stops while the app is off screen (awakeTimer), so this is thirty-one minutes of
+     * somebody actually watching.
+     *
+     * 90 seconds is far beyond anything healthy: p95 across the whole school is 25s, and the worst
+     * genuinely-completing batches in this report were ~155s and had already failed by then anyway.
+     * A read gets retried by the path below; a WRITE is never repeated, and the message says plainly
+     * that it may or may not have gone through, because after a timeout we genuinely do not know.
+     */
     let r;
-    try { r = await fetch(CONFIG.GAS_URL, { method: 'POST', body: payload }); }
+    const ac = (typeof AbortController !== 'undefined') ? new AbortController() : null;
+    let timedOut = false;
+    const killer = ac ? setTimeout(() => { timedOut = true; try { ac.abort(); } catch (x) {} }, REQ_TIMEOUT) : null;
+    try { r = await fetch(CONFIG.GAS_URL, Object.assign({ method: 'POST', body: payload }, ac ? { signal: ac.signal } : {})); }
     catch (netErr) {
+      if (timedOut) {
+        // a read may simply be asked again; a write must not be, and must not claim it failed either
+        if (canRepeat(body) && attempt < 2) return postGas(body, attempt + 1);
+        const eT = new Error(canRepeat(body)
+          ? 'ระบบใช้เวลานานเกินไป — กรุณาลองใหม่อีกครั้ง'
+          : 'ระบบใช้เวลานานเกินไป — โปรดตรวจสอบก่อนทำรายการซ้ำ เพราะอาจบันทึกไปแล้ว');
+        eT.code = 'TIMEOUT';
+        throw eT;
+      }
       if (canRepeat(body) && attempt < 2) {
         if (typeof document !== 'undefined' && document.hidden) await visible();
         await sleep(400 * (attempt + 1));
@@ -139,7 +172,7 @@ window.CONFIG = { MODE: 'gas', GAS_URL: 'https://script.google.com/macros/s/AKfy
       const e2 = new Error('เชื่อมต่อไม่ได้ — กรุณาตรวจสอบสัญญาณอินเทอร์เน็ตแล้วลองใหม่');
       e2.code = 'OFFLINE';
       throw e2;
-    }
+    } finally { if (killer) clearTimeout(killer); }   // a reply that arrived must not be aborted behind it
     const text = await r.text();
     try {
       const j = JSON.parse(text);
