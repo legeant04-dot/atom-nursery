@@ -378,6 +378,14 @@ function applyIdentity_(action, payload, sess) {
     // the whole roster grouped by billing day, with each child's bill state — the same class of answer
     // as prepaidStudents, and money besides
     billingGroups: 1,
+    // creates a STUDENT record outright. The parent-facing registerNew/addChildNew are ONBOARDING
+    // actions any signed-in family may call for themselves; this one writes a child nobody has
+    // claimed, so it belongs to the admin alone.
+    addStudentByAdmin: 1,
+    /* absenceFollowupLog is deliberately NOT here. It is the teacher's own work — they write these
+     * rows and must be able to read back who has already rung a family before ringing them again,
+     * which is the entire reason the trail exists. It scopes itself by staffId to the classes that
+     * teacher covers (the same rule as absenceReport); a head teacher, Leader and Admin get the lot. */
     // Phase 7. The engine handlers already check the caller's role; listing them here as well means a
     // bug in one of those checks still cannot expose survey results or let anyone rewrite the menu.
     // saveFoodMenu is deliberately NOT here: it is the one action an admin can DELEGATE to a

@@ -3722,6 +3722,41 @@ function createAtomAPI(M, GROWTH_STD) {
       if(st.Weight||st.Height) M.growthRecords.push({Date:todayLocal(),StudentID:sid,AgeMonth:ageMonths(st.DOB),Weight:+st.Weight||0,Height:+st.Height||0});
       logAct('registerStudent',sid,(st.NameTH||sid)+' + Drive folder',actorOf(p));
       return {studentId:sid,driveFolder:st.DriveFolderUrl}; },
+    /**
+     * THE ADMIN ADDS A CHILD — the same act as a family registering, with nobody registering.
+     *
+     * Asked 2026-09-12: "สำหรับ Admin เพิ่มฟังก์ชันการเพิ่มนักเรียนเหมือนกันกับผู้ปกครองหรือคุณครู
+     * โดยใช้ข้อมูลเพิ่มนักเรียน". Until now A_studentForm could only EDIT: every child in the school
+     * had to arrive through a parent's LINE sign-up, so a family who walked in and handed over a
+     * form on paper could not be entered at all.
+     *
+     * It is deliberately NOT registerNew. That one creates a parent too, and the school's answer to
+     * "what about the parent" is 🔗 เชื่อมผู้ปกครอง, which attaches the child to a record that
+     * already exists rather than inventing a second one. Creating families from the admin side is
+     * precisely how this app ended up with 84 duplicate parents; a child with no parent yet is a
+     * loose end anyone can see and fix, a duplicate parent is not.
+     *
+     * Everything else is addChildNew's behaviour on purpose — the same duplicate guard, the same
+     * class-by-age default, the same Drive folder, the same first growth row — because a child
+     * entered by the admin and a child entered by their mother must end up as the same kind of
+     * record. Two paths that build a student differently is a bug waiting for whoever reads one.
+     */
+    addStudentByAdmin: p => {
+      const exSt=dupStudent_(p.student); if(exSt) fail('ALREADY_REGISTERED','ข้อมูลนักเรียนนี้มีอยู่ในระบบแล้ว ('+(exSt.NameTH||exSt.Name||'')+') — ระบบไม่สร้างข้อมูลซ้ำ');
+      const sid=nextSeqId_(M.students,'StudentID','STD',3);
+      const st=Object.assign({StudentID:sid,ParentID:'',Status:'ACTIVE',CreatedDate:todayLocal(),
+        EnrollDate:todayLocal(),LastGrowthUpdate:''}, p.student||{});
+      // a blank EnrollDate would bill from the day the record was TYPED IN; the admin may set the
+      // real first day on the form, and an empty box must not silently become today
+      if(!String(st.EnrollDate||'').trim()) st.EnrollDate=todayLocal();
+      if(!String(st.Class||'').trim()) st.Class=defaultClassByAge_(st.DOB);
+      st.DriveFolderUrl=studentFolderUrl(st);
+      M.students.push(st);
+      (p.pickupPersons||[]).forEach(pp=>M.pickupPersons.push(Object.assign({StudentID:sid},pp)));
+      if(st.Weight||st.Height) M.growthRecords.push({Date:todayLocal(),StudentID:sid,AgeMonth:ageMonths(st.DOB),Weight:+st.Weight||0,Height:+st.Height||0});
+      logAct('registerStudent',sid,(st.NameTH||sid)+' (แอดมินเพิ่มเอง)',actorOf(p));
+      return {studentId:sid, name:st.NameTH||'', nick:st.Nickname||'', className:st.Class||'',
+              driveFolder:st.DriveFolderUrl}; },
     // link an existing student to this user after verifying NationalID
     linkExisting: p => { const s=M.students.find(x=>String(x.NationalID)===String(p.nationalId).trim()); if(!s)fail('NOT_FOUND','เลขบัตรไม่ตรงกับนักเรียนในระบบ');
       if(p.uid && !M.userLinks.find(l=>l.UserUID===p.uid&&l.StudentID===s.StudentID)) M.userLinks.push({UserUID:p.uid,StudentID:s.StudentID,VerifiedBy:'verify',Date:todayLocal()});
@@ -4354,7 +4389,10 @@ function createAtomAPI(M, GROWTH_STD) {
       if(em!==undefined) pa.Email=em; return {ok:true, parentId:tid}; },
     // parent edits their own child's safe fields (studentId ownership is enforced by applyIdentity_ on GAS).
     saveStudentSelf: p => { const s=studentById(p.studentId); if(!s)fail('NOT_FOUND','ไม่พบนักเรียน');
-      const d=p.data||{}; ['Nickname','NicknameEN','BloodType','RH','Allergy','MedicalHistory','EmergencyContact','Address','Race','Nationality','Religion','Photo'].forEach(k=>{ if(d[k]!==undefined) s[k]=d[k]; }); return {ok:true, studentId:p.studentId}; },
+      /* 'RH' left this whitelist on 2026-09-12 when the school dropped Rh from the blood field.
+       * Taking it OUT of the writable set is the point: the column and every value already in it
+       * stay exactly as they are, and nothing in the app can change or blank them from now on. */
+      const d=p.data||{}; ['Nickname','NicknameEN','BloodType','Allergy','MedicalHistory','EmergencyContact','Address','Race','Nationality','Religion','Photo'].forEach(k=>{ if(d[k]!==undefined) s[k]=d[k]; }); return {ok:true, studentId:p.studentId}; },
     saveParent: p => { const d=Object.assign({},p.data||{});
       if(d.Email!==undefined) d.Email=engEmail_(M.parents, d.Email, 'ParentID', p.parentId);
       if(p.parentId){ const pa=M.parents.find(x=>x.ParentID===p.parentId); if(!pa)fail('NOT_FOUND','ไม่พบผู้ปกครอง'); Object.assign(pa,d); return pa; }
@@ -4417,22 +4455,111 @@ function createAtomAPI(M, GROWTH_STD) {
     // absence follow-up. Real sources: ABSENCE_LOG (no-shows) ∪ studentLeaves (parent/teacher-filed
     // leave/absence). Distinct dates per student → count; group 2–5 vs >5; if the child later checked
     // IN after the last absence, annotate the return date ("มาวันที่ …"). >5 days is flagged strongly.
+    /* WHICH CHILDREN, and WHO IS BEING ASKED.
+     *
+     * `staffId` scopes the answer to the classes that teacher actually covers (coveredClasses_ —
+     * the same scope as their class list, their journals and their injury reports). A head teacher
+     * (Department='*'), a Leader and an Admin get the whole school, as they do everywhere else.
+     *
+     * Asked 2026-09-12: a teacher had no way to know WHO needed chasing. Handing them thirty names
+     * from six rooms would not have fixed that — it would have made the list something to scroll
+     * past. Omitting staffId still returns the whole school, which is what the admin report and the
+     * daily digest ask for, so nothing that worked before changes. */
     absenceReport: p => { const min=p.minDays||2;
       const byStu={};
       const add=(sid,date,reason)=>{ if(!sid)return; const d=ymd(date); if(!d)return; const b=byStu[sid]=byStu[sid]||{dates:{},reasons:{}}; b.dates[d]=1; if(reason)b.reasons[String(reason)]=1; };
       (M.absenceLog||[]).forEach(a=>add(a.StudentID,a.Date,a.Reason));
       (M.studentLeaves||[]).forEach(l=>add(l.StudentID,l.Date,l.Reason||l.Type));
       const lastIn=sid=>{ const ins=(M.studentCheckins||[]).filter(c=>c.StudentID===sid&&c.InTime).map(c=>ymd(c.Date)).sort(); return ins.length?ins[ins.length-1]:''; };
-      return activeStudents().map(s=>{ const b=byStu[s.StudentID]||{dates:{},reasons:{}}; const dates=Object.keys(b.dates).sort(); const count=dates.length;
+      const me=p.staffId?staffById(p.staffId):null;
+      const whole=!me || adminLike_(me) || me.PositionLevel==='Leader' || headTeacher_(me);
+      const mine=whole?null:(coveredClasses_(me)||[]).map(c=>c.ClassName);
+      const logs=M.absenceFollowupLogs||[];
+      return activeStudents().filter(s=>whole || mine.indexOf(s.Class)>=0)
+        .map(s=>{ const b=byStu[s.StudentID]||{dates:{},reasons:{}}; const dates=Object.keys(b.dates).sort(); const count=dates.length;
           const fu=M.absenceFollowups.find(f=>f.StudentID===s.StudentID)||{};
           const lastAbs=dates[dates.length-1]||''; const li=lastIn(s.StudentID); const returned=(li&&lastAbs&&li>lastAbs)?li:'';
+          // the trail for THIS child, newest first — who chased them, when, and what was attached.
+          // `_i` breaks a tie: two follow-ups in the same MINUTE are not unusual (a note, then the
+          // certificate that arrived with it), and Date+Time alone leaves their order to chance.
+          // The sheet is append-only, so a later row is the later conversation.
+          const tr=logs.map((l,i)=>({l,i})).filter(x=>String(x.l.StudentID)===String(s.StudentID))
+            .sort((a,b2)=>String(b2.l.Date+(b2.l.Time||'')).localeCompare(String(a.l.Date+(a.l.Time||''))) || (b2.i-a.i))
+            .map(x=>x.l);
           return {studentId:s.StudentID,name:s.NameTH,nameEN:s.NameEN,nick:s.Nickname,nickEN:s.NicknameEN,class:s.Class,count,
             group:(count>5?'over5':'range'), firstDate:dates[0]||'', lastDate:lastAbs, returnedDate:returned,
             reasons:Object.keys(b.reasons).join(', '),
-            note:fu.Note||'',status:fu.Status||'',followDate:fu.Date||''}; })
+            note:fu.Note||'',status:fu.Status||'',followDate:fu.Date||'',
+            // the LAST person who did something about this child, and how many times anyone has
+            followBy:(tr[0]&&(tr[0].ByName||tr[0].ByStaffID))||'', followCount:tr.length,
+            docs:tr.filter(l=>l.Photo).length,
+            trail:tr.map(l=>({date:ymd(l.Date),time:l.Time||'',by:l.ByName||l.ByStaffID||'',
+                              status:l.Status||'',note:l.Note||'',photo:l.Photo||''}))}; })
         .filter(x=>x.count>=min).sort((a,b)=>b.count-a.count); },
+    /**
+     * JUST THE NUMBERS, for the red circle on the teacher's นักเรียน tab.
+     *
+     * absenceReport is the whole roster with every child's absence trail on it; a badge cannot cost
+     * that. This walks the same two sources and counts, scoped the same way, so the badge and the
+     * screen it points at can never disagree — which is the only thing worse than no badge.
+     *
+     * `watch` is what the circle shows: children away 2+ days whose follow-up is not settled. A
+     * child already marked ติดตามแล้ว / ลายาว / ออกกลางคัน is not outstanding work, and a badge that
+     * keeps counting finished jobs is a badge people learn to ignore.
+     */
+    absenceWatchCount: p => {
+      const rows=H.absenceReport({minDays:2, staffId:(p&&p.staffId)||''});
+      const DONE={'ติดตามแล้ว':1,'ลายาว':1,'ออกกลางคัน':1};
+      return { ge2: rows.length, ge5: rows.filter(x=>x.count>5).length,
+               watch: rows.filter(x=>!DONE[String(x.status||'')]).length,
+               done: rows.filter(x=>DONE[String(x.status||'')]).length }; },
+    /**
+     * THE FOLLOW-UP TRAIL, as its own list — "ใครเป็นผู้ติดตาม วันไหน ติดตามแล้ว" (asked 2026-09-12).
+     *
+     * ABSENCE_FOLLOWUP holds ONE row per child: the current note and status, overwritten each time.
+     * That answers "where does this stand" and destroys "who has already tried" — so a second
+     * teacher re-rings a family the first one spoke to yesterday, and nobody can show the school
+     * what was done. The state row stays (every screen reads it); this is the history beside it.
+     */
+    absenceFollowupLog: p => {
+      const sid=(p&&p.studentId)||''; const lim=Number(p&&p.limit)||200;
+      /* SCOPED THE SAME WAY THE REPORT IS. A teacher reads back the trail for the rooms they cover —
+       * that is what stops them re-ringing a family somebody spoke to yesterday — and nothing else.
+       * Without this the log would be a list of every child in the school, by name, with their
+       * medical certificates on it, handed to anyone who can open the absence screen. */
+      const me=(p&&p.staffId)?staffById(p.staffId):null;
+      const whole=!me || adminLike_(me) || me.PositionLevel==='Leader' || headTeacher_(me);
+      const mine=whole?null:(coveredClasses_(me)||[]).map(c=>c.ClassName);
+      return (M.absenceFollowupLogs||[])
+        .map((l,i)=>({l,i}))
+        .filter(x=>!sid || String(x.l.StudentID)===String(sid))
+        .filter(x=>{ if(whole) return true; const s=studentById(x.l.StudentID)||{}; return mine.indexOf(s.Class)>=0; })
+        .map(({l,i})=>{ const s=studentById(l.StudentID)||{};
+          return {_i:i, logId:l.LogID||'', studentId:l.StudentID, nick:s.Nickname||'', name:s.NameTH||'',
+                  className:s.Class||'', date:ymd(l.Date), time:l.Time||'',
+                  by:l.ByName||l.ByStaffID||'', byStaffId:l.ByStaffID||'',
+                  status:l.Status||'', note:l.Note||'', photo:l.Photo||''}; })
+        // same tiebreaker as the trail on the report — see the note there
+        .sort((a,b)=>String(b.date+b.time).localeCompare(String(a.date+a.time)) || (b._i-a._i))
+        .slice(0, lim); },
+    /* Saving a follow-up does TWO things now: it updates where the child stands, and it APPENDS to
+     * the trail. Both, every time — a note that changed the state without leaving a record is how
+     * "who rang them?" became unanswerable. The photo is optional and is a document about this
+     * conversation (a ใบรับรองแพทย์, usually), so it lives on the log row, not on the state row:
+     * the next follow-up must not overwrite the certificate the last one collected. */
     setAbsenceFollowup: p => { let f=M.absenceFollowups.find(x=>x.StudentID===p.studentId);
-      if(!f){f={StudentID:p.studentId};M.absenceFollowups.push(f);} f.Note=p.note; f.Status=p.status; f.Date=todayLocal(); return f; },
+      if(!f){f={StudentID:p.studentId};M.absenceFollowups.push(f);}
+      f.Note=p.note; f.Status=p.status; f.Date=todayLocal();
+      const who=actorOf(p)||{};
+      // defensive: a fixture (or a school on the build before this sheet existed) may not carry the
+      // collection at all, and losing the STATE row because the TRAIL could not be written would be
+      // the wrong way round — the follow-up itself must always save
+      if(!M.absenceFollowupLogs) M.absenceFollowupLogs=[];
+      M.absenceFollowupLogs.push({ LogID:'AFL-'+stampLocal().replace(/[^0-9]/g,'')+'-'+String(p.studentId||''),
+        StudentID:p.studentId, Date:todayLocal(), Time:timeLocal(),
+        ByStaffID:p.staffId||who.id||'', ByName:who.name||'',
+        Status:p.status||'', Note:p.note||'', Photo:p.photo||'' });
+      return Object.assign({}, f, {logged:true}); },
     /* CHILDREN COUNTED FOR THE TEACHER CHILD-RATE = active students, minus those absent
      * AbsenceRateExcludeDays or more — i.e. the ones who were not really here for the month.
      *

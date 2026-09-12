@@ -30,6 +30,7 @@ var COLLECTION_MAP = {
   growthRecords:   { wb: 'MAIN', sheet: 'GROWTH_RECORDS' },
   absenceLog:      { wb: 'MAIN', sheet: 'ABSENCE_LOG' },
   absenceFollowups:{ wb: 'MAIN', sheet: 'ABSENCE_FOLLOWUP' },
+  absenceFollowupLogs:{ wb: 'MAIN', sheet: 'ABSENCE_FOLLOWUP_LOG' },
   holidayAttend:   { wb: 'MAIN', sheet: 'HOLIDAY_ATTEND' },
   vaccineRecords:  { wb: 'MAIN', sheet: 'VACCINE_RECORDS' },
   paymentSlips:    { wb: 'MAIN', sheet: 'PAYMENT_SLIPS' },
@@ -295,7 +296,12 @@ var COLLECTION_HEADERS_ = {
   CLASS_COVER:      ['CoverID', 'StaffID', 'ClassName', 'From', 'To', 'Reason', 'AddedBy', 'AddedAt'],
   SURVEYS:          ['SurveyID', 'Title', 'Description', 'Type', 'Options', 'Questions', 'Scope', 'Target',
                      'StartDate', 'EndDate', 'Status', 'Anonymous', 'CreatedBy', 'CreatedAt'],
-  SURVEY_RESPONSES: ['ResponseID', 'SurveyID', 'StudentID', 'ParentID', 'Rating', 'Choice', 'Comment', 'Answers', 'SubmittedAt']
+  SURVEY_RESPONSES: ['ResponseID', 'SurveyID', 'StudentID', 'ParentID', 'Rating', 'Choice', 'Comment', 'Answers', 'SubmittedAt'],
+  /* The absence follow-up trail (2026-09-12). Declared here as well as in Config.gs SHEETS: without
+   * this line the first teacher to chase a family would save, be told it worked, and write to a
+   * sheet that does not exist — writeRows_ drops a missing sheet in silence. Same `Photo` rule as
+   * FOOD_ITEMS above: the name is what sends a ใบรับรองแพทย์ to Drive instead of into a cell. */
+  ABSENCE_FOLLOWUP_LOG: ['LogID', 'StudentID', 'Date', 'Time', 'ByStaffID', 'ByName', 'Status', 'Note', 'Photo']
 };
 /**
  * The declared columns for a collection's sheet: the map above first, then the DATABASE SCHEMA in

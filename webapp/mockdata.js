@@ -194,6 +194,14 @@ Object.assign(window.MOCK, {
   absenceFollowups: [
     { StudentID:'STD-1', Note:'โทรหาผู้ปกครองแล้ว เด็กเป็นหวัด', Status:'ติดตามแล้ว', Date:'2026-06-04' },
   ],
+  // ...and the TRAIL beside it: who chased which family, when, and what they attached. The state row
+  // above is overwritten every time; these are kept.
+  absenceFollowupLogs: [
+    { LogID:'AFL-1', StudentID:'STD-1', Date:'2026-06-02', Time:'09:20', ByStaffID:'STF-002', ByName:'ครูน้ำ',
+      Status:'กำลังติดตาม', Note:'โทรครั้งแรก ไม่รับสาย', Photo:'' },
+    { LogID:'AFL-2', StudentID:'STD-1', Date:'2026-06-04', Time:'15:05', ByStaffID:'STF-002', ByName:'ครูน้ำ',
+      Status:'ติดตามแล้ว', Note:'คุณแม่ส่งใบรับรองแพทย์มาแล้ว', Photo:'' },
+  ],
   // Standard child vaccine schedule (อายุ 1 เดือน – 6 ปี) — reference for record-keeping
   vaccineSchedule: [
     { ageTH:'1 เดือน', ageEN:'1 month', items:[

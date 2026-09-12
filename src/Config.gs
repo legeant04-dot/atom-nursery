@@ -144,6 +144,12 @@ SCHEMA[WB.MAIN] = {
   // Absence tracking (leave/no-show) + teacher follow-up
   ABSENCE_LOG:       ['StudentID', 'Date', 'Type', 'Reason'],
   ABSENCE_FOLLOWUP:  ['StudentID', 'Note', 'Status', 'Date'],
+  /* The TRAIL beside that state row. ABSENCE_FOLLOWUP keeps one row per child and overwrites it, so
+   * it can say where a child stands and never who has already tried — a second teacher then rings a
+   * family the first one spoke to yesterday, and the school cannot show what was done. One row per
+   * follow-up here, append-only. 'Photo' is the column name on purpose: IMAGE_COLS_ in Db.gs offloads
+   * a base64 ใบรับรองแพทย์ to Drive, which the 50,000-char cell limit would otherwise refuse. */
+  ABSENCE_FOLLOWUP_LOG: ['LogID', 'StudentID', 'Date', 'Time', 'ByStaffID', 'ByName', 'Status', 'Note', 'Photo'],
   /* Children expected on a day the school is otherwise CLOSED — the ones coming in alongside a
    * teacher's OT วันหยุด. One row per (Date, StudentID). It is an ALLOWLIST, not a plan: a child who
    * is not on it cannot be checked in that day, because "who is coming" is the only thing that makes

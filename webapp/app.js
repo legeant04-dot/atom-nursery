@@ -112,7 +112,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.376'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.377'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -2054,7 +2054,10 @@
         <div class="grid2"><label class="field"><span>${esc(t('reg.dob'))}</span><input id="rDOB" type="date" onchange="REG_age()"/></label><label class="field"><span>${esc(t('reg.age'))}</span><input id="rAge" disabled placeholder="–"/></label></div>
         <label class="field"><span>${esc(t('reg.nationalIdStudent'))}</span><input id="rSNID" inputmode="numeric" placeholder="x-xxxx-xxxxx-xx-x"/></label>
         <div class="grid2">${fld_('rW',t('reg.weight'),'number')}${fld_('rH',t('reg.height'),'number')}</div>
-        <div class="grid2">${fld_('rBlood',t('reg.bloodType'))}${fld_('rRH','RH')}</div>
+        ${/* Rh was dropped from every blood field on 2026-09-12 at the school's request. The COLUMN
+             stays on the sheet and existing values are untouched — removing a field is a screen
+             change, not a reason to delete what families already told us. Nothing writes it now. */''}
+        ${fld_('rBlood',t('reg.bloodType'))}
         ${photoField('rPhoto',t('reg.photo'),'',true)}
         <label class="field"><span>${esc(t('reg.allergy'))}</span><input id="rAllergy" placeholder="${esc(t('reg.allergyPh'))}"/></label>
         <label class="field"><span>${esc(t('reg.chronic'))}</span><input id="rChronic"/></label></div>
@@ -2083,7 +2086,7 @@
     if(missing.length){ REG_flashError((EN()?'Incomplete — please fill: ':'ใส่ข้อมูลไม่ครบ — กรุณากรอก: ')+missing.join(', ')); return; }
     const photo=photoVal(document,'rPhoto');
     const pickups=[]; for(let i=0;i<REG_PICKUPS;i++){ const n=v('#pkN'+i); if(n) pickups.push({Name:n,Phone:v('#pkP'+i),Relation:v('#pkR'+i)}); }
-    const student={NationalID:v('#rSNID'),NameTH:v('#rNameTH'),NameEN:v('#rNameEN'),Nickname:v('#rNick'),NicknameEN:v('#rNickEN'),Gender:$('#rGender').value,DOB:v('#rDOB'),Plan:'',Weight:+v('#rW')||'',Height:+v('#rH')||'',Photo:photo,BloodType:v('#rBlood'),RH:v('#rRH'),Allergy:v('#rAllergy')||'-',MedicalHistory:v('#rChronic')||'-',Class:''};
+    const student={NationalID:v('#rSNID'),NameTH:v('#rNameTH'),NameEN:v('#rNameEN'),Nickname:v('#rNick'),NicknameEN:v('#rNickEN'),Gender:$('#rGender').value,DOB:v('#rDOB'),Plan:'',Weight:+v('#rW')||'',Height:+v('#rH')||'',Photo:photo,BloodType:v('#rBlood'),Allergy:v('#rAllergy')||'-',MedicalHistory:v('#rChronic')||'-',Class:''};
     try{ await api('addChildNew',{uid:USER.uid,parentId:USER.parentId,student,pickupPersons:pickups}); confirmSaved(t('c.saved')); GO('home'); }catch(e){err(e);} };
 
   const SCREENS = { Parent:{}, Teacher:{}, Admin:{}, Observer:{} };
@@ -2655,7 +2658,7 @@
       return `<div class="card"><div class="spread"><h3>👶 ${esc(nm(s))}${nick(s)?` <span class="pill info" style="font-size:13px">${esc(nick(s))}</span>`:''}</h3><span class="muted" style="font-size:13px">🏫 ${esc(s.Class||(EN()?'no class':'ยังไม่จัดชั้น'))} · ${esc(ageYM(s.DOB))}</span></div>
         <p class="muted" style="font-size:13px">${EN()?'ID':'เลขบัตร'}: <b>${esc(s.NationalID||'-')}</b> · ${EN()?'class/plan/ID: contact admin':'ชั้นเรียน/แพ็กเกจ/เลขบัตร: ติดต่อแอดมิน'}</p>
         <div class="grid2">${ppFld(pre,'Nickname',EN()?'Nickname (TH)':'ชื่อเล่น (ไทย)',s.Nickname)}${ppFld(pre,'NicknameEN',EN()?'Nickname (EN)':'ชื่อเล่น (อังกฤษ)',s.NicknameEN)}</div>
-        <div class="grid2">${ppFld(pre,'BloodType',EN()?'Blood type':'กรุ๊ปเลือด',s.BloodType)}${ppFld(pre,'RH',EN()?'Rh':'Rh',s.RH)}</div>
+        ${ppFld(pre,'BloodType',EN()?'Blood type':'กรุ๊ปเลือด',s.BloodType)}
         <label class="field"><span>${EN()?'Allergies':'ประวัติแพ้ (อาหาร/ยา)'}</span><input id="${pre}_Allergy" value="${esc(s.Allergy||'')}"/></label>
         <label class="field"><span>${EN()?'Medical history':'ประวัติสุขภาพ/โรคประจำตัว'}</span><textarea id="${pre}_MedicalHistory">${esc(s.MedicalHistory||'')}</textarea></label>
         <label class="field"><span>${EN()?'Emergency contact':'ติดต่อฉุกเฉิน'}</span><input id="${pre}_EmergencyContact" value="${esc(s.EmergencyContact||'')}"/></label>
@@ -2686,7 +2689,7 @@
     if(btn)btn.disabled=true;
     try{ await api('saveFamilyParent',{parentId:USER.parentId,uid:USER.uid,targetParentId:parentId,data:{Photo:''}}); confirmSaved(t('c.saved')); P_profile(); }catch(e){err(e);}finally{ if(btn)btn.disabled=false; } };
   window.P_saveStudent = async (studentId,btn)=>{ const g=id=>{ const e=document.getElementById('st_'+studentId+'_'+id); return e?e.value.trim():undefined; };
-    const data={ Nickname:g('Nickname'), NicknameEN:g('NicknameEN'), BloodType:g('BloodType'), RH:g('RH'), Allergy:g('Allergy'), MedicalHistory:g('MedicalHistory'), EmergencyContact:g('EmergencyContact'), Address:g('Address') };
+    const data={ Nickname:g('Nickname'), NicknameEN:g('NicknameEN'), BloodType:g('BloodType'), Allergy:g('Allergy'), MedicalHistory:g('MedicalHistory'), EmergencyContact:g('EmergencyContact'), Address:g('Address') };
     if(btn)btn.disabled=true;
     try{ await api('saveStudentSelf',{studentId,data}); confirmSaved(t('c.saved')); }catch(e){err(e);}finally{ if(btn)btn.disabled=false; } };
   window.P_absence = async () => { const kids=await api('parentChildren',parentScope());
@@ -4066,6 +4069,12 @@
      * red count from anywhere in the app. A returned report used to be discoverable only by opening
      * that screen for some other reason. */
     const p_injAlert= api('injuryAlerts',{staffId:USER.staffId}).catch(()=>null);
+    /* HOW MANY CHILDREN IN THIS TEACHER'S OWN ROOMS NEED CHASING — asked 2026-09-12: "ฟังก์ชันการ
+     * ติดตามนักเรียนของ Role คุณครูไม่มีอะไรแจ้งเตือนให้คุณครูทราบว่า ต้องติดตามใคร ขาดไปแล้วกี่วัน".
+     * The screen has existed since v100-something; nothing ever pointed at it, so a child could be
+     * away a fortnight without anyone opening it. The count rides in this second batch (no extra
+     * round trip) and lands on the นักเรียน tab, where it is visible from every screen. */
+    const p_absWatch= api('absenceWatchCount',{staffId:USER.staffId}).catch(()=>null);
     const jdone = journalDoneMap(jstat); setAlerts(al);
     T_STU={}; (cl.students||[]).forEach(s=>{ T_STU[s.StudentID]=s; });   // names for the ⋯ menu
     const day0 = await p_day;                 // already in flight with the batch above — no extra trip
@@ -4172,7 +4181,7 @@
       <div id="tmissout"></div>
       <div class="card"><button class="btn sm outline block" onclick="GO('leave')">📩 ${EN()?'Leave — file or view':'ยื่น/ดูใบลา'}</button></div>
       ${isLeader?`<div class="card"><div class="spread"><h3>${esc(t('corg.title'))}</h3><button class="btn sm" onclick="T_classOrg()">🔁 ${esc(t('corg.manage'))}</button></div><small class="muted">${esc(t('corg.leaderNote'))}</small><div id="myccr" style="margin-top:8px"></div></div>`:''}
-      <div class="card"><div class="row"><button class="btn sm outline" onclick="GO('absence')">🔎 ${esc(t('abs.title'))}</button>
+      <div class="card"><div id="tabswatch"></div><div class="row"><button class="btn sm outline" onclick="GO('absence')">🔎 ${esc(t('abs.title'))}</button>
         <button class="btn sm outline" onclick="T_studentOT()">⏰ ${EN()?'Student OT (follow-up)':'OT นักเรียน (ติดตามชำระ)'}</button>
         <button class="btn sm outline" onclick="T_holidayOT()">🎉 ${EN()?'My holiday OT':'OT วันหยุดของฉัน'}</button>
         <button class="btn sm outline" onclick="A_attAudit()">🕵️ ${EN()?'Attendance check':'ตรวจสอบการลงเวลา'}</button>
@@ -4278,6 +4287,17 @@
      * hours, no OT, and the month reads "ครบ" while two days sit half-written. Only the person who
      * was there knows what time they left, so they are told first — with the way to fix it. */
     p_injAlert.then(a=>NAV_setBadge('injury', a&&a.rejected)).catch(()=>{});
+    /* The red circle on นักเรียน, and the line on the 🔎 button saying what it is. `watch` excludes
+     * the children already marked ติดตามแล้ว / ลายาว / ออกกลางคัน — a badge that keeps counting
+     * finished work is a badge people stop reading. */
+    p_absWatch.then(w=>{ if(!w) return;
+      NAV_setBadge('class', w.watch);
+      setHTML('#tabswatch', w.watch
+        ? `<div style="font-size:12.5px;color:var(--bad);font-weight:600;margin-top:4px">🔎 ${EN()
+            ? `${w.watch} child(ren) to follow up${w.ge5?` · ${w.ge5} away over 5 days`:''}`
+            : `ต้องติดตาม ${w.watch} คน${w.ge5?` · ขาดเกิน 5 วัน ${w.ge5} คน`:''}`}</div>`
+        : '');
+    }).catch(()=>{});
     p_missOut.then(mo=>{
       if(!mo||!mo.count){ setHTML('#tmissout',''); return; }
       const days=((mo.staff||[])[0]||{}).days||[];
@@ -4508,7 +4528,7 @@
         // "12 ธ.ค. 2566" on two screens about the same child is how a school mistrusts its own data
         row(EN()?'Date of birth':'วันเกิด',d.dob?`${dobDate(d.dob)} (${ageYM(d.dob)})`:'')+
         row(EN()?'Gender':'เพศ',d.gender)+
-        row(EN()?'Blood type':'กรุ๊ปเลือด',(d.bloodType||'')+(d.rh?' '+d.rh:''))+
+        row(EN()?'Blood type':'กรุ๊ปเลือด',d.bloodType||'')+
         row(EN()?'Weight / height':'น้ำหนัก / ส่วนสูง',(d.weight?d.weight+' kg':'—')+' · '+(d.height?d.height+' cm':'—')+(d.measuredAt?` (${ddmmyyyy(d.measuredAt)})`:''))+
         (d.scope==='full'?row(EN()?'National ID':'เลขบัตรประชาชน',d.nationalId):'')+
         (d.scope==='full'?row(EN()?'Race / nationality / religion':'เชื้อชาติ / สัญชาติ / ศาสนา',[d.race,d.nationality,d.religion].filter(Boolean).join(' · ')):'')+
@@ -7911,7 +7931,10 @@
         <div class="secbody" hidden>
         ${parents.map(p=>{ const lc=(window._LINKCOUNTS||{})[p.ParentID]||0; const lcBadge=`<span class="pill ${lc?'ok':'bad'}" style="font-size:11px" title="${EN()?'linked children':'จำนวนบุตรที่ผูก'}">👶 ${lc}</span>`;
           return `<div class="list-item stack" data-k="${esc((p.NameTH+' '+(p.NameEN||'')+' '+(p.Nickname||'')+' '+(p.NicknameEN||'')+' '+(p.Phone||'')+' '+String(p.Relationship||'').replace(/<[^>]*>/g,'')).toLowerCase())}"><span style="display:flex;gap:8px;align-items:center">${personAvatar(p)}<span><b>${esc(parentDisp(p))}</b> ${lcBadge} <small class="muted">${[p.NameTH||p.NameEN?esc(titledName(p)):'',relLabel(p.Relationship),p.Phone?phoneLink(p.Phone):(EN()?'no phone':'ไม่มีเบอร์โทร')].filter(Boolean).join(' · ')}</small></span></span><span class="acts"><button class="btn sm outline" onclick="A_parentLinks('${p.ParentID}')">🔗 ${EN()?'Children':'บุตรที่ผูก'}</button><button class="btn sm outline" onclick="A_parentForm('${p.ParentID}')">✏️ ${EN()?'Edit':'แก้ไข'}</button><button class="btn sm pink" onclick="A_delParent('${p.ParentID}',this)">🗑️ ${EN()?'Delete':'ลบ'}</button></span></div>`; }).join('')}</div></div>
-      <div class="card secw" id="sec-students">${secHead('👶',EN()?'Students':'นักเรียน',students.length,`<span class="row"><button class="btn sm outline" onclick="event.stopPropagation();A_issueCombined()">🧾 ${EN()?'Issue (select)':'ออกบิล (เลือก)'}</button><button class="btn sm" onclick="event.stopPropagation();A_genBills()">📅 ${esc(t('bill.genTitle'))}</button></span>`)}
+      ${/* ➕ เพิ่มนักเรียน sits FIRST, where 👪 ผู้ปกครอง has had its "+ เพิ่ม" all along. Until
+           2026-09-12 a child could only reach the school through a parent's LINE sign-up, so a
+           family who walked in with a paper form could not be entered at all. */''}
+      <div class="card secw" id="sec-students">${secHead('👶',EN()?'Students':'นักเรียน',students.length,`<span class="row"><button class="btn sm" onclick="event.stopPropagation();A_addStudent()">+ ${EN()?'Add student':'เพิ่มนักเรียน'}</button><button class="btn sm outline" onclick="event.stopPropagation();A_issueCombined()">🧾 ${EN()?'Issue (select)':'ออกบิล (เลือก)'}</button><button class="btn sm outline" onclick="event.stopPropagation();A_genBills()">📅 ${esc(t('bill.genTitle'))}</button></span>`)}
         <div class="secbody" hidden>
         ${students.map(s=>`<div class="list-item stack" data-k="${esc((s.NameTH+' '+(s.NameEN||'')+' '+(s.Nickname||'')+' '+(s.NicknameEN||'')+' '+(s.Class||'')+' '+(s.NationalID||'')).toLowerCase())}"><span>${studentAvatar(s)} <b>${esc(dispNick(s))}</b> ${pauseSoon(s)?`<span class="pill info" style="font-size:11px">📅 ${EN()?'leave booked':'จะลาชั่วคราว'}</span>`:isPaused(s)?`<span class="pill wait" style="font-size:11px">⏸️ ${EN()?'on leave':'ลาชั่วคราว'}</span>`:''} <small class="muted">${nmSub(s)?esc(nmSub(s))+" · ":""}${esc(s.Class)} · ${esc(ageYM(s.DOB))}${s.InsuranceHas?' · 🛡️':''}</small><br><small class="muted">${s.DOB?`🎂 ${esc(dobDate(s.DOB))} · `:''}${EN()?'ID':'บัตร'}: ${esc(s.NationalID||'-')}</small>${isPaused(s)?`<br><small style="color:var(--warn)">⏸️ ${esc(pauseSpan(s))}</small>`:''}</span><span class="acts"><button class="btn sm outline" onclick="A_studentForm('${s.StudentID}')">✏️ ${EN()?'Edit':'แก้ไข'}</button><button class="btn sm" onclick="A_issueBill('${s.StudentID}')">🧾 ${EN()?'Bill':'ออกบิล'}</button><button class="btn sm" onclick="A_charges('${s.StudentID}')">💵 ${EN()?'Charges':'เรียกเก็บ'}</button><button class="btn sm outline" onclick="A_stuMore('${s.StudentID}')" aria-label="${EN()?'More actions':'การทำงานเพิ่มเติม'}" title="${EN()?'More actions':'การทำงานเพิ่มเติม'}">⋯</button></span></div>`).join('')}</div></div>`;
   };
@@ -8371,6 +8394,72 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
     const otQrId=window._QR.otQrId===id?'':window._QR.otQrId; try{ const r=await api('saveQRCodes',{qrs,otQrId}); window._QR=r; const m=document.querySelector('.modal'); if(m)m.remove(); A_qrCodes(); }catch(e){err(e);} };
   window.A_qrSaveOt=async(btn)=>{ const m=btn.closest('.modal'); const otQrId=m.querySelector('#qr_ot').value; try{ const r=await api('saveQRCodes',{qrs:window._QR.qrs||[],otQrId}); window._QR=r; confirmSaved(t('c.saved')); }catch(e){err(e);} };
 
+  /* ---- ➕ ADD A STUDENT, from the admin side ---------------------------------------------------
+   *
+   * Asked 2026-09-12. The SAME fields a family fills in at registration, so a child entered from a
+   * paper form and a child entered by their mother end up as the same record — plus the two things
+   * only the school decides (ชั้นเรียน and แพ็กเกจ), which a parent never sees.
+   *
+   * NO PARENT HERE, deliberately. 🔗 เชื่อมผู้ปกครอง attaches the child to a parent record that
+   * already exists; creating families from this form is how the app once acquired 84 duplicate
+   * parents. The card says so out loud, because an admin who is not told will go looking.
+   *
+   * ชั้นเรียน defaults to "จัดตามอายุ" rather than a class name: the engine works it out from the
+   * date of birth (defaultClassByAge_), which is the rule the school already uses for registrations
+   * — and a dropdown pre-set to whatever happens to be first is how a baby lands in Nursery 3.
+   */
+  window.A_addStudent=()=>{
+    const f=(k,label,type,ph)=>`<label class="field"><span>${esc(label)}</span><input id="ast_${k}" type="${type||'text'}"${ph?` placeholder="${esc(ph)}"`:''}/></label>`;
+    modal(`<h3>➕ ${EN()?'Add a student':'เพิ่มนักเรียน'}</h3>
+      <p class="muted" style="font-size:12.5px;margin:0 0 8px">${EN()
+        ? 'Creates the child only. Attach a parent afterwards with 🔗 Link parent — that connects an existing record instead of creating a second one.'
+        : 'สร้างเฉพาะข้อมูลนักเรียน · ผูกผู้ปกครองภายหลังด้วยปุ่ม 🔗 เชื่อมผู้ปกครอง ซึ่งจะเชื่อมกับข้อมูลเดิมที่มีอยู่ ไม่สร้างซ้ำ'}</p>
+      <div class="grid2">${f('NameTH',t('reg.nameTH')+' *')}${f('NameEN',t('reg.nameEN'))}</div>
+      <div class="grid2">${f('Nickname',t('reg.nickname')+' *')}${f('NicknameEN',t('reg.nicknameEN'))}</div>
+      <div class="grid2"><label class="field"><span>${esc(t('reg.dob'))} *</span><input id="ast_DOB" type="date"/></label>
+        <label class="field"><span>${esc(t('reg.gender'))}</span><select id="ast_Gender">
+          ${['','Male','Female'].map(x=>`<option value="${x}">${esc({'':'-','Male':EN()?'Male':'ชาย','Female':EN()?'Female':'หญิง'}[x])}</option>`).join('')}</select></label></div>
+      ${f('NationalID',t('reg.nationalIdStudent'),'text','x-xxxx-xxxxx-xx-x')}
+      <div class="grid2">
+        ${/* '' = let the engine pick by age. Named as such, or it reads like "no class yet". */''}
+        <label class="field"><span>${esc(t('manage.class'))}</span><select id="ast_Class">
+          <option value="">${EN()?'By age (automatic)':'จัดตามอายุ (อัตโนมัติ)'}</option>
+          ${A_classOptions('').map(c=>`<option>${esc(c)}</option>`).join('')}</select></label>
+        <label class="field"><span>${esc(t('reg.plan'))}</span><select id="ast_Plan"><option value="">${esc(t('manage.noPlan'))}</option>
+          ${A_plans().map(p=>`<option value="${p.id}">${esc(EN()?p.labelEN:p.labelTH)} · ${baht(p.price)}</option>`).join('')}</select></label></div>
+      ${/* the first REAL day at school — what billing counts from. Blank would bill from the day
+           this form was filled in, which is rarely the same thing. */''}
+      <label class="field"><span>${EN()?'First day at school':'วันเริ่มเรียนจริง'}</span><input id="ast_EnrollDate" type="date" value="${esc(todayStr())}"/></label>
+      <div class="grid2">${f('Weight',EN()?'Weight (kg)':'น้ำหนัก (กก.)','number')}${f('Height',EN()?'Height (cm)':'ส่วนสูง (ซม.)','number')}</div>
+      <label class="field"><span>🩸 ${EN()?'Blood type':'กรุ๊ปเลือด'}</span><select id="ast_BloodType">
+        ${['','A','B','AB','O'].map(x=>`<option value="${x}">${esc(x||'-')}</option>`).join('')}</select></label>
+      ${f('Allergy',t('reg.allergy'))}
+      ${f('MedicalHistory',t('reg.chronic'))}
+      ${f('EmergencyContact',EN()?'Emergency contact':'ผู้ติดต่อฉุกเฉิน')}
+      ${photoField('ast_Photo',t('growth.photo'),'',true)}
+      <button class="btn block" onclick="A_addStudentDo(this)">💾 ${EN()?'Add student':'เพิ่มนักเรียน'}</button>
+      <button class="btn outline block" style="margin-top:8px" onclick="this.closest('.modal').remove()">${esc(t('c.close'))}</button>`); };
+  window.A_addStudentDo=async(btn)=>{ const m=btn.closest('.modal');
+    const v=k=>{ const e=m.querySelector('#ast_'+k); return e?String(e.value||'').trim():''; };
+    // the three the school cannot run without: a name to call the child, a nickname every screen
+    // shows as the headline, and a date of birth that decides the class AND the DSPM schedule
+    const missing=[[ 'NameTH', t('reg.nameTH')],['Nickname',t('reg.nickname')],['DOB',t('reg.dob')]]
+      .filter(([k])=>!v(k)).map(([,l])=>l);
+    if(missing.length){ toast((EN()?'Please fill: ':'กรุณากรอก: ')+missing.join(', ')); return; }
+    const student={NameTH:v('NameTH'),NameEN:v('NameEN'),Nickname:v('Nickname'),NicknameEN:v('NicknameEN'),
+      DOB:v('DOB'),Gender:v('Gender'),NationalID:v('NationalID'),Class:v('Class'),Plan:v('Plan'),
+      EnrollDate:v('EnrollDate'),
+      // '' must stay '' — an unmeasured child weighing 0 is plotted on the growth chart as 0
+      Weight:v('Weight')===''?'':(Number(v('Weight'))||0),Height:v('Height')===''?'':(Number(v('Height'))||0),
+      BloodType:v('BloodType'),Allergy:v('Allergy')||'-',MedicalHistory:v('MedicalHistory')||'-',
+      EmergencyContact:v('EmergencyContact')};
+    const ph=photoVal(m,'ast_Photo'); if(ph) student.Photo=ph;
+    btn.disabled=true;
+    try{ const r=await api('addStudentByAdmin',{student,adminId:USER.staffId});
+      m.remove(); confirmSaved((EN()?'Added ':'เพิ่มแล้ว ')+(r.nick||r.name||r.studentId)+(r.className?' · '+r.className:''));
+      A_CACHE.students=null; GO('manage'); }
+    catch(e){ err(e); btn.disabled=false; } };
+
   window.A_studentForm=(id)=>{ const s=findStudent(id);
     const f=(k,label,val,type)=>`<label class="field"><span>${esc(label)}</span><input id="stf_${k}" type="${type||'text'}" value="${esc(val!=null?val:'')}"/></label>`;
     modal(`<h3>✏️ ${esc(nm(s))}</h3>
@@ -8390,13 +8479,11 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
         <label class="field"><span>${EN()?'Gender':'เพศ'}</span><select id="stf_Gender">
           ${['','Male','Female'].map(x=>`<option value="${x}" ${String(s.Gender||'')===x?'selected':''}>${esc({'':'-','Male':EN()?'Male':'ชาย','Female':EN()?'Female':'หญิง'}[x])}</option>`).join('')}
         </select></label></div>
-      <div class="grid2">
-        <label class="field"><span>🩸 ${EN()?'Blood type':'กรุ๊ปเลือด'}</span><select id="stf_BloodType">
-          ${['','A','B','AB','O'].map(x=>`<option value="${x}" ${String(s.BloodType||'')===x?'selected':''}>${esc(x||'-')}</option>`).join('')}
-        </select></label>
-        <label class="field"><span>Rh</span><select id="stf_RH">
-          ${['','Rh+','Rh-'].map(x=>`<option value="${x}" ${String(s.RH||'')===x?'selected':''}>${esc(x||'-')}</option>`).join('')}
-        </select></label></div>
+      ${/* Rh dropped 2026-09-12 — see the note in the registration form. The column and its values
+           stay; this form simply no longer offers it, and A_saveStudent no longer sends it. */''}
+      <label class="field"><span>🩸 ${EN()?'Blood type':'กรุ๊ปเลือด'}</span><select id="stf_BloodType">
+        ${['','A','B','AB','O'].map(x=>`<option value="${x}" ${String(s.BloodType||'')===x?'selected':''}>${esc(x||'-')}</option>`).join('')}
+      </select></label>
       <div class="grid2">${f('Allergy',t('reg.allergy'),s.Allergy)}${f('MedicalHistory',t('reg.chronic'),s.MedicalHistory)}</div>
       <div class="grid2">${f('Weight',EN()?'Weight (kg)':'น้ำหนัก (กก.)',s.Weight,'number')}${f('Height',EN()?'Height (cm)':'ส่วนสูง (ซม.)',s.Height,'number')}</div>
       ${f('EmergencyContact',EN()?'Emergency contact':'ผู้ติดต่อฉุกเฉิน',s.EmergencyContact)}
@@ -8765,7 +8852,7 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
       // the registration fields the form could not reach until v267 — see A_studentForm.
       // Weight/Height are numbers on the sheet: '' must stay '' rather than becoming 0, or an
       // unmeasured child reads as weighing nothing and the growth chart plots it.
-      DOB:v('DOB'),Gender:v('Gender'),BloodType:v('BloodType'),RH:v('RH'),
+      DOB:v('DOB'),Gender:v('Gender'),BloodType:v('BloodType'),
       Weight:v('Weight')===''?'':(Number(v('Weight'))||0),Height:v('Height')===''?'':(Number(v('Height'))||0),
       EmergencyContact:v('EmergencyContact'),Address:v('Address'),
       Race:v('Race'),Nationality:v('Nationality'),Religion:v('Religion'),Vaccine:v('Vaccine'),
@@ -11950,25 +12037,102 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
     try{ await api('confirmPayment',{kind,id,adminId:USER.staffId,paidDate,method}); confirmSaved(t('verify.confirmed')); GO(CURRENT); }catch(e){err(e);} };
   window.A_rejectPay=async(kind,id)=>{ if(!confirm(t('verify.rejectConfirm')))return; try{ await api('rejectPayment',{kind,id}); toast(t('verify.rejected')); GO(CURRENT); }catch(e){err(e);} };
 
-  // ---- absence tracking (Teacher / Leader / Admin) ----
+  /* ---- absence tracking (Teacher / Leader / Admin) --------------------------------------------
+   *
+   * Reworked 2026-09-12 on three complaints, all of them about the same thing — this screen could
+   * be read but not USED:
+   *
+   *  1. Nothing pointed at it. A teacher had no way to know a child needed chasing without opening
+   *     it for some other reason. → the red circle on นักเรียน (absenceWatchCount, teacher home).
+   *  2. It showed the whole school to a teacher who covers one room. → absenceReport now takes
+   *     staffId; a head teacher, Leader and Admin still see everything.
+   *  3. It remembered the LAST note and nothing else, so "ใครเป็นผู้ติดตาม วันไหน" had no answer
+   *     and two teachers rang the same family. → every save appends to a trail, shown under each
+   *     child, and a ใบรับรองแพทย์ can be attached to the entry it belongs to.
+   *
+   * The admin also gets the counts at the top — "ตอนนี้มีนักเรียนกี่คนที่ขาดแล้ว มากกว่า 2 วัน 5 วัน".
+   */
+  const ABS_STATUSES=['','กำลังติดตาม','ติดตามแล้ว','ลายาว','ออกกลางคัน'];
+  const ABS_DONE={'ติดตามแล้ว':1,'ลายาว':1,'ออกกลางคัน':1};
   async function absenceScreen(){ setNav(CURRENT);
-    const [all,rate]=await Promise.all([api('absenceReport',{minDays:2}),api('ratedChildCount')]);
+    // staffId scopes a teacher to their own rooms; an Admin/Leader/head teacher gets the school
+    const [all,rate]=await Promise.all([api('absenceReport',{minDays:2,staffId:USER.staffId||''}),api('ratedChildCount')]);
+    window._ABS=all;
     const g1=all.filter(s=>s.group==='range'), g2=all.filter(s=>s.group==='over5');
-    const STATUSES=['','กำลังติดตาม','ติดตามแล้ว','ลายาว','ออกกลางคัน'];
+    const openN=all.filter(s=>!ABS_DONE[String(s.status||'')]).length;
     // if the child has since returned, annotate the come-back date behind the count
     const backNote=s=>s.returnedDate?` · <span style="color:var(--ok);font-weight:600">${EN()?'came back':'มาแล้ว'} ${esc(s.returnedDate)}</span>`:` · <span style="color:var(--bad)">${EN()?'still absent':'ยังขาดอยู่'}</span>`;
-    const row=(s)=>`<div class="list-item" style="flex-wrap:wrap"><span><b>${esc(s.nick||s.name)}</b> <small class="muted">${esc(s.name)} · ${esc(s.class)} · ${esc(t('abs.days').replace('{n}',s.count))}${s.reasons?' · '+esc(s.reasons):''}</small>${backNote(s)}</span>
+    /* WHO LAST DID SOMETHING, on the row itself. The point of the trail is that the next teacher can
+     * see it BEFORE picking up the phone, so the newest entry is on the card and the rest is one tap
+     * away — a list of five conversations on every row would bury the children nobody has called. */
+    const lastLine=s=>{ const l=(s.trail||[])[0]; if(!l) return `<small class="muted">${EN()?'nobody has followed this up yet':'ยังไม่มีใครติดตาม'}</small>`;
+      return `<small class="muted">👩‍🏫 ${esc(l.by||'-')} · ${esc(ddmmyyyy(l.date))}${l.time?' '+esc(l.time):''}${l.status?' · '+esc(l.status):''}${l.photo?' · 📎':''}</small>`; };
+    const row=(s)=>`<div class="list-item" style="flex-wrap:wrap"><span><b>${esc(dnick(s))}</b> <small class="muted">${esc(s.name)} · ${esc(s.class)} · ${esc(t('abs.days').replace('{n}',s.count))}${s.reasons?' · '+esc(s.reasons):''}</small>${backNote(s)}
+        ${ABS_DONE[String(s.status||'')]?`<span class="pill ok" style="font-size:11px;margin-left:4px">${esc(s.status)}</span>`:s.status?`<span class="pill wait" style="font-size:11px;margin-left:4px">${esc(s.status)}</span>`:''}
+        <br>${lastLine(s)}${s.followCount>1?` <a href="#" onclick="event.preventDefault();A_absTrail('${esc(s.studentId)}')" style="font-size:12px">· ${EN()?`history (${s.followCount})`:`ประวัติ (${s.followCount})`}</a>`:''}${s.docs?` <a href="#" onclick="event.preventDefault();A_absTrail('${esc(s.studentId)}')" style="font-size:12px;color:var(--blue)">· 📎 ${s.docs}</a>`:''}</span>
       <span class="row" style="width:100%;margin-top:6px"><input id="fn_${s.studentId}" placeholder="${esc(t('abs.note'))}" value="${esc(s.note)}" style="flex:1"/>
-        <select id="fs_${s.studentId}">${STATUSES.map(st=>`<option ${s.status===st?'selected':''}>${esc(st||'-')}</option>`).join('')}</select>
-        <button class="btn sm" onclick="A_followup('${s.studentId}')">${esc(t('c.save'))}</button></span></div>`;
+        <select id="fs_${s.studentId}">${ABS_STATUSES.map(st=>`<option ${s.status===st?'selected':''}>${esc(st||'-')}</option>`).join('')}</select></span>
+      ${/* the certificate belongs to THIS follow-up, not to the child: the next one must not
+           overwrite what this one collected, which is why it is on the log row */''}
+      <span class="row" style="width:100%;margin-top:4px;align-items:center">
+        <label class="btn sm outline" style="cursor:pointer;margin:0">📎 ${EN()?'Attach certificate':'แนบใบรับรองแพทย์'}
+          <input type="file" accept="image/*" id="fp_${s.studentId}" style="display:none" onchange="ABS_pick('${esc(s.studentId)}',this)"/></label>
+        <small class="muted" id="fpn_${s.studentId}" style="flex:1"></small>
+        <button class="btn sm" onclick="A_followup('${s.studentId}',this)">${esc(t('c.save'))}</button></span></div>`;
     const back = USER.role==='Admin'?'manage':'home';
+    /* THE COUNTS THE ADMIN ASKED FOR, at the top where a report belongs. They are computed from the
+     * same list the cards below are drawn from — not fetched separately — so the headline and the
+     * names under it can never disagree, which is the failure mode of every summary tile in this app
+     * that was ever wrong. */
+    const stat=(cls,n,l)=>`<div class="stat ${cls}"><div class="n">${n}</div><div class="l">${esc(l)}</div></div>`;
     app.innerHTML=`<button class="btn sm outline backbtn" onclick="GO('${back}')">${t('c.back')}</button><h2 class="page">🔎 ${esc(t('abs.title'))}</h2>
+      <div class="card"><div class="grid2" style="grid-template-columns:1fr 1fr;gap:8px">
+          ${stat('amber',g1.length+g2.length,EN()?'Away 2+ days':'ขาด/ลา ตั้งแต่ 2 วัน')}
+          ${stat('pink',g2.length,EN()?'Away over 5 days':'ขาด/ลา เกิน 5 วัน')}</div>
+        <div class="grid2" style="grid-template-columns:1fr 1fr;gap:8px;margin-top:8px">
+          ${stat(openN?'':'green',openN,EN()?'Still to follow up':'ยังต้องติดตาม')}
+          ${stat('green',all.length-openN,EN()?'Followed up':'ติดตามแล้ว')}</div>
+        <p class="muted" style="font-size:12.5px;margin:8px 0 0">${USER.role==='Admin'||USER.role==='Observer'
+          ? (EN()?'Whole school.':'ทั้งโรงเรียน')
+          : (EN()?'Your classes only.':'เฉพาะชั้นเรียนที่คุณดูแล')} ${EN()?'Counted as away: no-shows plus filed leave.':'นับรวม: วันที่ขาด + วันที่แจ้งลา'}</p>
+        ${(USER.role==='Admin'||USER.role==='Observer')?`<button class="btn sm outline block" style="margin-top:8px" onclick="A_absTrail('')">📒 ${EN()?'Full follow-up log':'ประวัติการติดตามทั้งหมด'}</button>`:''}</div>
       <div class="card" style="background:var(--blue-bg)"><div class="spread"><b>${esc(t('abs.rated'))}</b><b>${rate.rated}/${rate.total}</b></div><small class="muted">${esc(t('abs.rateNote').replace('{n}',rate.excludeDays).replace('{x}',rate.excluded))}</small></div>
-      <div class="card"><h3>⚠️ ${EN()?'Absent 2–5 days':'ขาด 2–5 วัน'} <small class="muted">(${g1.length})</small></h3>${g1.length?g1.map(row).join(''):`<small class="muted">${esc(t('c.noItems'))}</small>`}</div>
-      <div class="card" style="border:1px solid var(--bad-line)"><h3>🚨 ${EN()?'Absent over 5 days':'ขาดเกิน 5 วัน'} <small class="muted">(${g2.length})</small></h3>${g2.length?g2.map(row).join(''):`<small class="muted">${esc(t('c.noItems'))}</small>`}</div>`;
+      <div class="card" style="border:1px solid var(--bad-line)"><h3>🚨 ${EN()?'Absent over 5 days':'ขาดเกิน 5 วัน'} <small class="muted">(${g2.length})</small></h3>${g2.length?g2.map(row).join(''):`<small class="muted">${esc(t('c.noItems'))}</small>`}</div>
+      <div class="card"><h3>⚠️ ${EN()?'Absent 2–5 days':'ขาด 2–5 วัน'} <small class="muted">(${g1.length})</small></h3>${g1.length?g1.map(row).join(''):`<small class="muted">${esc(t('c.noItems'))}</small>`}</div>`;
   }
   SCREENS.Teacher.absence = absenceScreen; SCREENS.Admin.absence = absenceScreen;
-  window.A_followup=async(sid)=>{ await api('setAbsenceFollowup',{studentId:sid,note:$('#fn_'+sid).value,status:$('#fs_'+sid).value==='-'?'':$('#fs_'+sid).value}); confirmSaved(t('c.saved')); };
+  // the picked certificate, compressed on pick and held until Save — one per child per save
+  const ABS_PHOTO={};
+  window.ABS_pick=async(sid,inp)=>{ const f=inp.files&&inp.files[0]; const lbl=$('#fpn_'+sid); if(!f){ ABS_PHOTO[sid]=''; if(lbl)lbl.textContent=''; return; }
+    if(lbl) lbl.textContent=EN()?'preparing…':'กำลังเตรียมรูป…';
+    // 1400px: a certificate has to stay READABLE, which the 640px profile default does not manage
+    try{ ABS_PHOTO[sid]=await compressImage(f,1400,0.85)||''; }catch(e){ ABS_PHOTO[sid]=''; }
+    if(lbl) lbl.textContent=ABS_PHOTO[sid]?(EN()?'✅ attached — press Save':'✅ แนบแล้ว — กดบันทึก'):(EN()?'could not read the image':'อ่านรูปไม่สำเร็จ'); };
+  window.A_followup=async(sid,btn)=>{ if(btn)btn.disabled=true;
+    try{
+      await api('setAbsenceFollowup',{studentId:sid,note:$('#fn_'+sid).value,
+        status:$('#fs_'+sid).value==='-'?'':$('#fs_'+sid).value,
+        photo:ABS_PHOTO[sid]||'', staffId:USER.staffId||'', adminId:USER.role==='Admin'?USER.staffId:''});
+      ABS_PHOTO[sid]='';
+      confirmSaved(t('c.saved'));
+      // redraw: the trail line, the badge and the counts at the top all just changed
+      GO('absence');
+    }catch(e){ err(e); if(btn)btn.disabled=false; } };
+  /** The trail — for one child, or the whole school when the admin opens it with no id. */
+  window.A_absTrail=async(sid)=>{
+    // staffId scopes a teacher to their own rooms — the server decides, this only tells it who asked
+    let rows=[]; try{ rows=await api('absenceFollowupLog',{studentId:sid||'',staffId:USER.staffId||''})||[]; }catch(e){ err(e); return; }
+    const s=sid?(window._ABS||[]).find(x=>x.studentId===sid):null;
+    modal(`<h3>📒 ${EN()?'Follow-up history':'ประวัติการติดตาม'}${s?' — '+esc(dnick(s)):''}</h3>
+      <p class="muted" style="font-size:12.5px">${EN()?'Every follow-up that was saved, newest first. Nothing here is overwritten.':'ทุกครั้งที่บันทึกการติดตาม เรียงใหม่สุดก่อน · ข้อมูลเดิมไม่ถูกเขียนทับ'}</p>
+      <div style="max-height:60vh;overflow:auto">${rows.length?rows.map(l=>`<div class="list-item" style="flex-wrap:wrap">
+        <span><b>${esc(l.nick||l.name||l.studentId)}</b> <small class="muted">${esc(l.className||'')}</small><br>
+          <small class="muted">📅 ${esc(ddmmyyyy(l.date))}${l.time?' '+esc(l.time):''} · 👩‍🏫 ${esc(l.by||'-')}</small>
+          ${l.status?`<br><span class="pill ${ABS_DONE[l.status]?'ok':'wait'}" style="font-size:11px">${esc(l.status)}</span>`:''}
+          ${l.note?`<br><small style="white-space:pre-wrap">📝 ${esc(l.note)}</small>`:''}</span>
+        ${l.photo?`<img src="${esc(l.photo)}" alt="doc" style="width:72px;height:90px;object-fit:cover;border-radius:8px;border:1px solid var(--line);cursor:zoom-in" onclick="ZOOM_IMG('${esc(l.photo)}')"/>`:''}</div>`).join('')
+        :`<small class="muted">${EN()?'No follow-ups recorded yet':'ยังไม่มีประวัติการติดตาม'}</small>`}</div>
+      <button class="btn outline block" style="margin-top:8px" onclick="this.closest('.modal').remove()">${esc(t('c.close'))}</button>`); };
 
   // Admin audit: every on-behalf student check-in/out (staff, ACTUAL time entered, reason, OT produced)
   // so a disputed pick-up time — e.g. picked up 12:57 but recorded 17:26 → false OT — can be verified.
