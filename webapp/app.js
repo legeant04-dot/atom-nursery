@@ -112,7 +112,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.377'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.378'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -6078,29 +6078,48 @@
     const ro=(label,val)=>`<div class="list-item"><span class="muted" style="font-size:13px">${esc(label)}</span><span><b>${_notr(val==null||val===''?'-':val)}</b></span></div>`;
     const f=(k,label,val,type)=>`<label class="field"><span>${esc(label)}</span><input id="sp_${k}" type="${type||'text'}" value="${esc(val==null?'':val)}"/></label>`;
     app.innerHTML=`<div class="spread"><h2 class="page">👤 ${EN()?'My info':'ข้อมูลของฉัน'}</h2><button class="btn sm outline" onclick="GO('home')">← ${esc(t('c.back'))}</button></div>
+      ${/* EVERY PERSONAL FIELD IS EDITABLE HERE — asked 2026-09-12. NameTH, the nickname pair and the
+           photo were read-only for no reason anybody could state: a teacher who marries had to ask
+           an admin to spell their own name. What stays locked is money, time and the school's own
+           settings, and each one now says WHY rather than "ติดต่อแอดมิน", which reads as a brush-off
+           when you are looking at your own date of birth. */''}
       <div class="card"><h3>${esc(nm(s)||USER.nameTH||'')}</h3>
+        ${f('NameTH',(EN()?'Name (TH)':'ชื่อ-สกุล (ไทย)')+' *',s.NameTH)}
         <div class="grid2">${f('NameEN',EN()?'Name (EN)':'ชื่อ-สกุล (อังกฤษ)',s.NameEN)}${f('Nickname',EN()?'Nickname':'ชื่อเล่น',s.Nickname)}</div>
-        <div class="grid2">${f('Phone',EN()?'Phone':'เบอร์โทร',phoneFmt(s.Phone))}${f('DOB',EN()?'Date of birth':'วันเกิด',s.DOB,'date')}</div>
+        <div class="grid2">${f('NicknameEN',EN()?'Nickname (EN)':'ชื่อเล่น (อังกฤษ)',s.NicknameEN)}${f('Phone',EN()?'Phone':'เบอร์โทร',phoneFmt(s.Phone))}</div>
+        ${f('DOB',EN()?'Date of birth':'วันเกิด',s.DOB,'date')}
         ${f('Email',t('reg.email'),s.Email,'email')}
         <small class="muted" style="font-size:13px">📧 ${esc(t('reg.emailNote'))}</small>
+        ${photoField('sp_Photo',EN()?'Photo':'รูปประจำตัว',s.Photo,true)}
         <button class="btn block green" onclick="T_saveProfile(this)">💾 ${EN()?'Save':'บันทึก'}</button></div>
-      <div class="card"><h3>ℹ️ ${EN()?'Employment info':'ข้อมูลการทำงาน'}</h3>
-        <p class="muted" style="font-size:13px">${EN()?'Contact admin to change these.':'ต้องการแก้ไข ติดต่อแอดมิน'}</p>
-        ${ro(EN()?'Name (TH)':'ชื่อ-สกุล (ไทย)',s.NameTH)}
+      <div class="card"><h3>🔒 ${EN()?'Set by the school':'ข้อมูลที่โรงเรียนกำหนด'}</h3>
+        <p class="muted" style="font-size:13px">${EN()
+          ? 'These are not personal details — each one decides pay, hours or what you are allowed to do in the app, so only an admin can change them.'
+          : 'ส่วนนี้ไม่ใช่ข้อมูลส่วนตัว — แต่ละอย่างมีผลกับเงิน เวลาทำงาน หรือสิทธิ์การใช้งาน จึงแก้ไขได้เฉพาะแอดมิน'}</p>
         ${ro(EN()?'Position':'ตำแหน่ง',s.Position)}
         ${ro(EN()?'Level':'ระดับ',s.PositionLevel)}
         ${ro(EN()?'Department':'แผนก/Nursery',s.Department)}
-        ${ro(EN()?'Staff group':'กลุ่มพนักงาน',(s.StaffGroup||'')+((s.GroupIn||s.GroupOut)?` (${s.GroupIn||'--'}–${s.GroupOut||'--'})`:''))}
+        ${ro(EN()?'Staff group (hours)':'กลุ่มพนักงาน (เวลาทำงาน)',(s.StaffGroup||'')+((s.GroupIn||s.GroupOut)?` (${s.GroupIn||'--'}–${s.GroupOut||'--'})`:''))}
         ${ro(EN()?'Check-in required':'ต้องลงเวลาเข้างาน',s.RequireCheckin?(EN()?'Yes':'ใช่'):(EN()?'No':'ไม่'))}
         ${ro(EN()?'Start date':'วันเข้าทำงาน',s.StartDate)}
-        ${ro(EN()?'National ID':'เลขบัตรประชาชน',s.NationalID)}</div>
+        ${/* the national id is not locked for policy reasons — it is the USERNAME. Said plainly, or
+             it looks like the one arbitrary lock on the list. */''}
+        ${ro(EN()?'National ID (your username)':'เลขบัตรประชาชน (ใช้เป็นชื่อผู้ใช้)',s.NationalID)}
+        <p class="muted" style="font-size:12.5px;margin:6px 0 0">${EN()
+          ? 'Salary and bank details are not shown here at all — see your payslip.'
+          : 'เงินเดือนและบัญชีธนาคารไม่แสดงในหน้านี้ · ดูได้ที่สลิปเงินเดือน'}</p></div>
       ${googleLinkCard(s.Email||'', !!s.GoogleLinked)}
       <div class="card"><div class="row"><button class="btn sm outline" onclick="T_changePw(false)">🔑 ${esc(t('pw.title'))}</button><button class="btn sm outline" onclick="T_forgotPw()">❓ ${EN()?'Forgot password':'ลืมรหัสผ่าน'}</button></div></div>`;
     if (CONFIG.MODE === 'gas') { googleReady(); GOOGLE_PAINT(); }
     window.scrollTo(0,0); };
   window.T_saveProfile = async (btn)=>{ const g=k=>{ const e=document.getElementById('sp_'+k); return e?e.value.trim():undefined; };
-    const data={ NameEN:g('NameEN'), Nickname:g('Nickname'), Phone:g('Phone'), DOB:g('DOB'), Email:emailFmt(g('Email')) };
+    const data={ NameTH:g('NameTH'), NameEN:g('NameEN'), Nickname:g('Nickname'), NicknameEN:g('NicknameEN'),
+      Phone:g('Phone'), DOB:g('DOB'), Email:emailFmt(g('Email')) };
+    // the server refuses a blank one too (BAD_INPUT) — this is so it is caught before the round trip
+    if(!data.NameTH){ toast(EN()?'Your name cannot be blank':'กรุณากรอกชื่อ-นามสกุล'); return; }
     if(!emailOk(data.Email)){ toast(t('reg.emailBad')); return; }
+    // only send a picture when one was actually picked — '' would wipe the existing photo
+    const ph=photoVal(document,'sp_Photo'); if(ph) data.Photo=ph;
     if(btn)btn.disabled=true;
     try{ await api('saveStaffSelf',{staffId:USER.staffId,data}); confirmSaved(t('c.saved')); }catch(e){err(e);}finally{ if(btn)btn.disabled=false; } };
   window.T_slipUnlock=async()=>{ const pw=$('#slipPw').value;
@@ -10135,7 +10154,11 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
      * a clock is the whole point, and it is what says whether the 18:30 and 20:00 triggers land on
      * top of people who are still working. */
     if((d.byHour||[]).length){
-      L.push('BY HOUR (เวลาไทย):');
+      /* NAME THE CLOCK. This line said "(เวลาไทย)" as a claim; the stamps are actually written in
+       * whatever timezone the SPREADSHEET is set to, so on a workbook created outside Bangkok every
+       * hour here is quietly shifted. Printing the real zone is what makes the difference between
+       * "our evenings are busy" and "we are seven hours out" readable at a glance. */
+      L.push('BY HOUR ('+(d.tz||'?')+(String(d.tz||'')==='Asia/Bangkok'?' — เวลาไทย':' ⚠️ ไม่ใช่เวลาไทย — ชั่วโมงจะเคลื่อน')+'):');
       d.byHour.forEach(x=>{
         L.push('  '+x.hour+':00  x'+x.n+'/'+(x.sessions||0)+'s p50='+ms(x.p50)+' p95='+ms(x.p95)
           +(x.fail?' fail'+x.rate+'%':''));
@@ -10154,7 +10177,14 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
     }
     L.push('NETWORK: '+(d.byNet||[]).filter(x=>x.net).map(x=>x.net+' x'+x.n+' p50='+ms(x.p50)).join(' | '));
     L.push('BOOT: '+(d.boot||[]).map(x=>x.mark+'='+ms(x.p50)).join(' | '));
-    L.push('rows='+d.rows+'/'+d.cap);
+    /* THE LOG IS CAPPED, and asking for 7 or 30 days does not make it longer. `truncated` has been
+     * computed server-side all along and never printed, so a 30-day report silently showed three —
+     * and a drop in traffic read as the school getting quieter. Say it where the number is. */
+    L.push('rows='+d.rows+'/'+d.cap+(d.truncated
+      ? '  ⚠️ เต็ม — เก็บย้อนหลังได้เท่าที่เห็นด้านบนเท่านั้น ('+(d.from||'').slice(0,10)+' → '+(d.to||'').slice(0,10)+') แม้จะเลือก '+d.days+' วัน'
+      : ''));
+    // OFFLINE never reached the server, so it is counted as a failure but kept out of every timing
+    if(d.offline) L.push('OFFLINE (ไม่ถึงเซิร์ฟเวอร์ · ไม่นับในเวลา): '+d.offline);
     const txt=L.join('\n');
     try{ await navigator.clipboard.writeText(txt); toast(EN()?'Copied':'คัดลอกแล้ว'); return; }catch(e){}
     // Clipboard is blocked in plenty of in-app browsers — show it selectable instead of failing.
@@ -12109,15 +12139,33 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
     try{ ABS_PHOTO[sid]=await compressImage(f,1400,0.85)||''; }catch(e){ ABS_PHOTO[sid]=''; }
     if(lbl) lbl.textContent=ABS_PHOTO[sid]?(EN()?'✅ attached — press Save':'✅ แนบแล้ว — กดบันทึก'):(EN()?'could not read the image':'อ่านรูปไม่สำเร็จ'); };
   window.A_followup=async(sid,btn)=>{ if(btn)btn.disabled=true;
+    const status=$('#fs_'+sid).value==='-'?'':$('#fs_'+sid).value;
+    const photo=ABS_PHOTO[sid]||'';
     try{
-      await api('setAbsenceFollowup',{studentId:sid,note:$('#fn_'+sid).value,
-        status:$('#fs_'+sid).value==='-'?'':$('#fs_'+sid).value,
-        photo:ABS_PHOTO[sid]||'', staffId:USER.staffId||'', adminId:USER.role==='Admin'?USER.staffId:''});
+      await api('setAbsenceFollowup',{studentId:sid,note:$('#fn_'+sid).value,status,
+        photo, staffId:USER.staffId||'', adminId:USER.role==='Admin'?USER.staffId:''});
       ABS_PHOTO[sid]='';
+      const lbl=$('#fpn_'+sid); if(lbl) lbl.textContent='';
       confirmSaved(t('c.saved'));
-      // redraw: the trail line, the badge and the counts at the top all just changed
-      GO('absence');
-    }catch(e){ err(e); if(btn)btn.disabled=false; } };
+      /* UPDATED IN PLACE, NOT REFETCHED.
+       *
+       * The obvious move after a save is GO('absence') — and it costs TWO more round trips every
+       * time, on the one screen the 09-12 report already flagged as over its budget (4.6 > 3). On
+       * Apps Script that is ~10 seconds of somebody's afternoon per follow-up, to redraw a line the
+       * device already knows the contents of: we wrote the note, we chose the status, and the badge
+       * moves by exactly one when a child crosses into or out of "done".
+       *
+       * What is NOT recomputed here is the trail's date, time and author line — the server stamps
+       * those. That line keeps showing the PREVIOUS follow-up until the screen is next opened, which
+       * is a stale label rather than a wrong number, and costs nothing to be honest about. */
+      const s=(window._ABS||[]).find(x=>x.studentId===sid);
+      if(s){ const wasDone=!!ABS_DONE[String(s.status||'')], nowDone=!!ABS_DONE[status];
+        s.status=status; s.followCount=(s.followCount||0)+1; if(photo) s.docs=(s.docs||0)+1;
+        const openN=(window._ABS||[]).filter(x=>!ABS_DONE[String(x.status||'')]).length;
+        if(USER.role==='Teacher'&&wasDone!==nowDone) NAV_setBadge('class', openN);
+      }
+    }catch(e){ err(e); }
+    finally{ if(btn)btn.disabled=false; } };
   /** The trail — for one child, or the whole school when the admin opens it with no id. */
   window.A_absTrail=async(sid)=>{
     // staffId scopes a teacher to their own rooms — the server decides, this only tells it who asked

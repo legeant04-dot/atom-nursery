@@ -195,7 +195,21 @@ console.log('\n5) the screens');
   ok_('a certificate can be attached per child', /ABS_pick\('\$\{esc\(s\.studentId\)\}'/.test(app));
   ok_('...compressed larger than a profile photo, because it has to stay readable',
     /compressImage\(f,1400,0\.85\)/.test(app) && /has to stay READABLE/.test(app));
-  ok_('...and sent with the follow-up', /photo:ABS_PHOTO\[sid\]\|\|''/.test(app));
+  /* The picked photo is READ INTO A LOCAL before the request, not sent straight from ABS_PHOTO.
+   * It has to be: the handler clears ABS_PHOTO[sid] on success and then updates the card in place,
+   * and "did this save carry a document" is asked AFTER that clear. Reading it once at the top is
+   * what keeps the 📎 count on the card right. */
+  ok_('...and sent with the follow-up', /const photo=ABS_PHOTO\[sid\]\|\|'';/.test(app) && /\n\s+photo, staffId:USER\.staffId/.test(app));
+  /* AND THE SAVE DOES NOT REFETCH THE SCREEN. GO('absence') after each save would cost two more
+   * round trips on the one screen the 09-12 report already flagged as over budget (4.6 > 3) — about
+   * ten seconds of somebody's afternoon, to redraw a line the device already knows. */
+  // comments stripped first: the note explaining WHY the refetch was removed names GO('absence')
+  const followBody = app.slice(app.indexOf('window.A_followup=async(sid,btn)=>{'), app.indexOf('window.A_absTrail='))
+    .replace(/\/\*[\s\S]*?\*\//g, '');
+  ok_('saving updates the card in place instead of refetching the screen',
+    followBody.length > 200 && !/GO\('absence'\)/.test(followBody));
+  ok_('...moving the badge by hand when a child crosses into or out of "done"',
+    /if\(USER\.role==='Teacher'&&wasDone!==nowDone\) NAV_setBadge\('class', openN\);/.test(app));
   ok_('saving names the person doing it', /staffId:USER\.staffId\|\|'', adminId:USER\.role==='Admin'\?USER\.staffId:''/.test(app));
   ok_('the trail opens from a child\'s card', /A_absTrail\('\$\{esc\(s\.studentId\)\}'\)/.test(app));
   ok_('...and whole-school for the admin', /A_absTrail\(''\)/.test(app));

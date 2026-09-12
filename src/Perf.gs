@@ -286,6 +286,7 @@ function handlePerfSummary(p) {
   var acts = {}, screens = {}, errs = {}, devs = {}, nets = {}, sids = {}, boot = {}, roles = {};
   var healed = {}, healedTotal = 0;
   var cacheHit = 0, cacheMiss = 0, total = 0, failed = 0, firstTs = '', lastTs = '', skipped = 0;
+  var offlineTotal = 0;   // calls that never left the device — counted, but kept out of every timing
   // one shape for a device bucket — it is created from three different places (api rows, error rows
   // and cache rows) and a missing field in one of them is a silent zero in the report
   function devInit_(d) { return { dev: d, n: 0, fail: 0, ms: [], cHit: 0, cMiss: 0, roles: {}, sids: {} }; }
@@ -370,16 +371,31 @@ function handlePerfSummary(p) {
      * out of the failure figures. */
     var refused = !ok && PERF_EXPECTED_[code] === 1;
     if (refused) { refusedTotal++; refusals[code] = (refusals[code] || 0) + 1; }
+    /* A CALL THAT NEVER REACHED US IS NOT A MEASUREMENT OF US.
+     *
+     * The 09-12 report proved why this matters: FOURTEEN of the fifteen "slowest single calls" were
+     * one teacher's Android at 09:20:21, every one of them 3600.0s — which is not a duration, it is
+     * perfNum_'s ceiling. The phone was on screen with no signal for over an hour, and when it came
+     * back the whole home-screen batch flushed at once. That single event crowded every real slow
+     * moment in three days out of the list the list exists to show.
+     *
+     * OFFLINE means the request never left the device: its duration measures the user's signal, not
+     * our server. It is still COUNTED as a failure (it is one, and the FAILING section names it per
+     * action) — it simply stops distorting p50, p95 and the slow list, which are the three numbers
+     * used to decide what to fix. TIMEOUT is deliberately NOT here: that is our own 90-second cap,
+     * and it is a wait a person really sat through. */
+    var noReach = !ok && code === 'OFFLINE';
+    if (noReach) offlineTotal++;
     /* The hour this call happened in, straight off the stamp — 'yyyy-MM-dd HH:mm:ss' in the school's
      * own timezone (perfStamp_), so position 11..13 IS the local hour and no re-parsing can get it
      * wrong. A refused call is not a failure here either, for the same reason as everywhere else. */
     var hh = ts.slice(11, 13);
     if (hh) { var hv = hours[hh] = hours[hh] || hourInit_(hh);
-      hv.n++; hv.ms.push(ms); hv.sids[sid] = 1; if (!ok && !refused) hv.fail++; }
+      hv.n++; if (!noReach) hv.ms.push(ms); hv.sids[sid] = 1; if (!ok && !refused) hv.fail++; }
     /* THE WORST INDIVIDUAL MOMENTS, not a percentile of them. A screen visited twelve times has a
      * p95 that IS one or two visits, and averaging them away is how a two-minute wait becomes a
      * number nobody can act on. Kept smallest-first and capped, so this costs nothing on 20,000 rows. */
-    if (ms >= SLOW_MS) {
+    if (ms >= SLOW_MS && !noReach) {
       slowMoments.push({ ts: ts, action: action, ms: ms, screen: screen, role: role, dev: dev, ok: ok, code: code });
       if (slowMoments.length > 40) {
         slowMoments.sort(function (x, y) { return y.ms - x.ms; });
@@ -387,27 +403,27 @@ function handlePerfSummary(p) {
       }
     }
     var a = acts[action] || (acts[action] = { action: action, n: 0, fail: 0, refused: 0, ms: [], codes: {} });
-    a.n++; a.ms.push(ms);
+    a.n++; if (!noReach) a.ms.push(ms);
     if (!ok) { a.codes[code || 'ERR'] = (a.codes[code || 'ERR'] || 0) + 1;
       if (refused) a.refused++; else { a.fail++; failed++; } }
     if (dev) { var dv = devs[dev] = devs[dev] || devInit_(dev);
-      dv.n++; dv.ms.push(ms); if (!ok && !refused) dv.fail++;
+      dv.n++; if (!noReach) dv.ms.push(ms); if (!ok && !refused) dv.fail++;
       /* ...AND WHICH ROLE WAS HOLDING IT. The note below already records that this exact reading went
        * wrong once — "Desktop p50 10.7s" was the admin's screens, not the hardware. The role is on
        * every row; crossing it with the device is what turns "iOS is slow" from a guess into an
        * answer, because a teacher's home screen costs 11 actions and a parent's costs three. */
       dv.sids[sid] = 1; if (role) dv.roles[role] = (dv.roles[role] || 0) + 1; }
     if (os) { var ov2 = oss[os] = oss[os] || osInit_(os);
-      ov2.n++; ov2.ms.push(ms); if (!ok && !refused) ov2.fail++; }
+      ov2.n++; if (!noReach) ov2.ms.push(ms); if (!ok && !refused) ov2.fail++; }
     /* "Desktop p50 10.7s vs Android 5.8s" invited the conclusion that desktops are slow. They are
      * not: the office computer is the ADMIN, whose screens (finance, payroll, the dashboard) ask for
      * far more than a parent's do, and whose browser stays open all day. The role is already
      * recorded on every row — verified server-side, never self-reported — so summarise it, and the
      * device breakdown stops being read as a claim about hardware. */
     if (role) { roles[role] = roles[role] || { role: role, n: 0, fail: 0, ms: [], sids: {} };
-      roles[role].n++; roles[role].ms.push(ms); roles[role].sids[sid] = 1; if (!ok && !refused) roles[role].fail++; }
+      roles[role].n++; if (!noReach) roles[role].ms.push(ms); roles[role].sids[sid] = 1; if (!ok && !refused) roles[role].fail++; }
     if (net) nets[net] = nets[net] || { net: net, n: 0, ms: [] };
-    if (net) { nets[net].n++; nets[net].ms.push(ms); }
+    if (net) { nets[net].n++; if (!noReach) nets[net].ms.push(ms); }
     if (screen) {
       var sc = screens[screen] || (screens[screen] = { screen: screen, n: 0, ms: [] });
       sc.apiN = (sc.apiN || 0) + 1; sc.apiMs = (sc.apiMs || 0) + ms;
@@ -546,6 +562,14 @@ function handlePerfSummary(p) {
     /* `slowest` above is per ACTION, averaged. These two are the ones a complaint about a TIME can be
      * answered with: the shape of the day, and the individual worst moments with their stamps. */
     byHour: byHour, slowMoments: slowMoments, slowMs: SLOW_MS,
+    /* WHICH CLOCK "BY HOUR" IS IN. Every stamp is written with perfStamp_ in the SPREADSHEET's
+     * timezone, not a constant — so if the workbook was ever created (or moved) outside Asia/Bangkok,
+     * every hour in this report is shifted and nothing on the page says so. On 09-12 that produced a
+     * day with 55% of its traffic between midnight and 07:00, which is either the real shape of a
+     * nursery's evening or a seven-hour offset, and there was no way to tell which. Now it says. */
+    tz: perfTz_(),
+    // calls that never left the device: counted as failures, excluded from every timing above
+    offline: offlineTotal,
     // failures that recovered by themselves, and what is left after taking them out
     healed: healedTotal,
     healedBy: Object.keys(healed).map(function (k) { return { action: k, n: healed[k] }; })
