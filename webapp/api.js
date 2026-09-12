@@ -486,7 +486,21 @@ window.CONFIG = { MODE: 'gas', GAS_URL: 'https://script.google.com/macros/s/AKfy
     // the shape of the school — changes when someone reorganises it, not when the day is worked
     // saveStaff is here because a teacher's Department decides which class they are shown against —
     // a staff edit CAN change what this returns, even though it is not obviously about a class
-    classList:       /^(add|remove|rename)Class|^orgMove|^moveStudent|^(save|register)Student|^registerNew|^(add|remove|rename)Department|^decideClassChange|^saveStaff|^setStaffEnd/i,
+    /* ...AND TODAY'S ATTENDANCE, which is the half this entry was missing.
+     *
+     * Reported 2026-09-12: "เวลาเด็ก Check-in แล้ว คุณครูยังบันทึกสมุดรายงานนักเรียนไม่ได้ทันที".
+     * classList does not only say who is in the class — it carries inToday/outToday/onLeave for
+     * every child (see attOf in engine.js), and `canJ = s.inToday || done` is what unlocks the 📒
+     * button. The regex above lists only the writes that reorganise the school, so a check-in kept
+     * the cached roll INSTEAD of clearing it: the teacher checked the child in, the screen
+     * re-rendered from a copy taken before the check-in existed, and the journal stayed shut until
+     * the entry aged out and revalidated behind them. The server would have accepted the journal —
+     * once again the only thing refusing it was the button.
+     *
+     * So every write that can change whether a child counts as present today is named here: the two
+     * check-in doors, a corrected time, and the four ways a leave is filed or withdrawn. This entry
+     * sits in the default 30s tier, so being wrong here costs half a minute, never hours. */
+    classList:       /^(add|remove|rename)Class|^orgMove|^moveStudent|^(save|register)Student|^registerNew|^(add|remove|rename)Department|^decideClassChange|^saveStaff|^setStaffEnd|^(parent|staffStudent)Checkin$|^editStudentAttendance|^studentAbsence|^teacherStudentLeave|^(edit|delete)StudentLeaves?$/i,
     departments:     /^(add|remove|rename)Department|^decideClassChange/i,
     staffGroups:     /^saveStaffGroup|^setSchoolConfig|^saveStaff|^setStaffEnd/i,
     permissions:     /^saveStaff|^setPermission|^setSchoolConfig/i,

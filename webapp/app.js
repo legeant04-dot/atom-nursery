@@ -112,7 +112,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.375'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.376'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -11393,7 +11393,11 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
   }
   SCREENS.Admin.finance = async () => { const month=FIN_MONTH||monthStr();
     // plans come along so planLabel() can name the package instead of printing "pkg_e32dd4"
-    const [f,pend,plans]=await Promise.all([api('financeSummary',{month}), api('pendingPayments'), api('getPlans').catch(()=>[])]);
+    /* billingGroups is fetched ONLY on its own tab. It is the whole roster with each child's bill
+     * state on it — the most expensive read on this screen — and three of the four tabs never show
+     * it. Asking for it every time would put that cost on the income tab the admin opens all day. */
+    const [f,pend,plans,bg]=await Promise.all([api('financeSummary',{month}), api('pendingPayments'), api('getPlans').catch(()=>[]),
+      FIN_TAB==='cycle'?api('billingGroups',{month}).catch(()=>null):Promise.resolve(null)]);
     if(plans&&plans.length) A_CACHE.plans=plans;
     const pendN=(pend||[]).length;
     const stat=(cls,n,l,sub)=>`<div class="stat ${cls}"><div class="n">${n}</div><div class="l">${esc(l)}${sub?`<br><span style="opacity:.85;font-size:11px">${sub}</span>`:''}</div></div>`;
@@ -11410,6 +11414,8 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
         <button class="btn sm block" style="margin-top:10px" onclick="GO('payroll')">📄 ${EN()?'Full payroll calculator':'เครื่องคำนวณเงินเดือน (เต็ม)'}</button></div>`;
     // verify tab: pending slips/cash to confirm
     const waitTab=`<p class="muted" style="font-size:13px;margin:2px 2px 8px">${esc(t('verify.note'))}</p>${verifyListHTML(pend||[])}`;
+    // billing-cycle tab: the roster grouped by the day of the month each family pays on
+    const cycleTab=A_cycleTabHTML(bg, month);
     const tab=(k,ic,lbl,badge)=>`<button class="${FIN_TAB===k?'active':''}" onclick="A_finTab('${k}')">${ic} ${esc(lbl)}${badge?` (${badge})`:''}</button>`;
     app.innerHTML=`<h2 class="page">💰 ${EN()?'Finance':'การเงิน'}</h2>
       <div class="card"><label class="field" style="margin:0"><span>${esc(t('c.month'))}</span><input type="month" value="${month}" onchange="FIN_set(this.value)"/></label>
@@ -11426,10 +11432,87 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
               return stat('amber', baht(_all), t('fin.outstanding'),
                 _all>0?`🏫 ${baht(_t)} · ⏰ ${baht(_o)}${_c?` · ➕ ${baht(_c)}`:''}`:''); })()
           }</div></div></div>
-      <div class="seg">${tab('in','💵',EN()?'Income':'รับเงิน')}${tab('pay','💸',EN()?'Payroll':'จ่ายเงิน')}${tab('wait','✅',EN()?'To approve':'รออนุมัติ',pendN)}</div>
-      ${FIN_TAB==='pay'?payTab:FIN_TAB==='wait'?waitTab:inTab}`;
+      <div class="seg">${tab('in','💵',EN()?'Income':'รับเงิน')}${tab('pay','💸',EN()?'Payroll':'จ่ายเงิน')}${tab('wait','✅',EN()?'To approve':'รออนุมัติ',pendN)}${tab('cycle','📅',EN()?'Bill day':'รอบบิล')}</div>
+      ${FIN_TAB==='pay'?payTab:FIN_TAB==='wait'?waitTab:FIN_TAB==='cycle'?cycleTab:inTab}`;
   };
   window.FIN_set=(m)=>{ FIN_MONTH=m; GO('finance'); };
+
+  /* ---- วันตัดรอบบิล — the roster cut by the day of the month each family pays on ----------------
+   *
+   * Asked 2026-09-12: "ต้องการออกบิลรายกลุ่ม เช่น ออกบิลกลุ่มของนักเรียนวันที่ 5 หรือ 15 …
+   * แสดงชื่อนักเรียนเป็นชื่อเล่น และสามารถกดออกบิลในเมนูนี้ได้เลย".
+   *
+   * The one number that decides whether this screen can be trusted is the one ON THE BUTTON. It says
+   * how many bills pressing it will create, and it counts only the children who have neither been
+   * billed this month nor paid in advance — the same two the server refuses (issueBill →
+   * PREPAID_MONTH, and a second bill simply overwrites the first). A button that offered to bill
+   * "12 คน" and then quietly issued eight would teach the admin to stop believing the count, on the
+   * screen where เรื่องเงิน is the whole point.
+   */
+  window._CYCLE=null;
+  function cycleChip(s){
+    // the state marks are the reason a name is or is not in the button's count, said on the name itself
+    const mark = s.prepaid ? '💰' : s.billed ? '✅' : s.notStarted ? '🕗' : s.paused ? '⏸️' : '';
+    const tip = s.prepaid ? (EN()?'paid in advance':'ชำระล่วงหน้าแล้ว')
+      : s.billed ? (EN()?'billed ':'ออกบิลแล้ว ')+baht(s.amount)
+      : s.notStarted ? (EN()?'has not started yet':'ยังไม่เริ่มเรียน')
+      : s.paused ? (EN()?'paused':'พักการเรียน') : (EN()?'waiting for a bill':'รอออกบิล');
+    return `<span class="pill ${s.billed?'ok':s.prepaid?'info':'wait'}" style="margin:2px 3px 0 0;font-weight:600"
+      title="${esc(dn(s)+' · '+(s.className||'')+' · '+tip)}">${mark?mark+' ':''}${esc(dnick(s))}</span>`;
+  }
+  function A_cycleTabHTML(bg, month){
+    if(!bg) return `<div class="card"><p class="muted" style="font-size:13px">${EN()?'Could not load the billing rounds.':'โหลดข้อมูลรอบบิลไม่สำเร็จ'}</p></div>`;
+    if(!(bg.groups||[]).length) return `<div class="card"><p class="muted" style="font-size:13px">${EN()?'No enrolled students.':'ยังไม่มีนักเรียนในระบบ'}</p></div>`;
+    window._CYCLE=bg;
+    const head=`<div class="card" style="padding:10px"><div class="spread"><b style="font-size:14px">📅 ${EN()?'Billing rounds':'วันตัดรอบบิล'}</b>
+        <span class="pill info">${bg.total} ${EN()?'students':'คน'} · ${bg.groups.length} ${EN()?'rounds':'กลุ่ม'}</span></div>
+      <p class="muted" style="font-size:12.5px;margin:6px 0 0">${EN()
+        ? `A child with no day of their own is billed on the school's day (${bg.defaultDay}). Set a different day on the student's record.`
+        : `นักเรียนที่ไม่ได้ระบุวัน จะใช้ค่าของโรงเรียน (วันที่ ${bg.defaultDay}) · เปลี่ยนรายคนได้ที่ข้อมูลนักเรียน`}</p></div>`;
+    return head + bg.groups.map(g=>{
+      const canIssue=g.pending>0;
+      return `<div class="card" style="padding:10px">
+        <div class="spread"><b style="font-size:15px">📅 ${EN()?`Day ${g.day}`:`วันที่ ${g.day} ของเดือน`}
+          ${g.isDefault?`<span class="pill info" style="font-weight:400">${EN()?'school default':'ค่าเริ่มต้นของโรงเรียน'}</span>`:''}</b>
+          <b style="font-size:15px">${g.count} ${EN()?'students':'คน'}</b></div>
+        <div class="muted" style="font-size:12.5px;margin-top:2px">${EN()?'Due':'ครบกำหนด'} ${esc(ddmmyyyy(g.dueDate))}${
+          g.isDefault&&g.ownCount?` · ${EN()?'set by hand':'ระบุเอง'} ${g.ownCount}`:''}</div>
+        <div style="font-size:12.5px;margin-top:4px">✅ ${EN()?'billed':'ออกบิลแล้ว'} ${g.billed}${
+          g.prepaid?` · 💰 ${EN()?'prepaid':'ชำระล่วงหน้า'} ${g.prepaid}`:''} · <b style="color:${g.pending?'var(--warn)':'var(--ok)'}">${EN()?'to bill':'รอออกบิล'} ${g.pending}</b></div>
+        <div style="margin:8px 0 2px">${g.students.map(cycleChip).join('')}</div>
+        <button class="btn sm block ${canIssue?'':'outline'}" style="margin-top:8px${canIssue?'':';opacity:.5'}"${canIssue?` onclick="A_cycleIssue(${g.day},this)"`:' disabled'}>🧾 ${
+          canIssue ? (EN()?`Issue bills for this round (${g.pending})`:`ออกบิลกลุ่มนี้ (${g.pending} คน)`)
+                   : (EN()?'Everyone here is billed':'ออกบิลครบทุกคนแล้ว')}</button></div>`;
+    }).join('');
+  }
+  /** Issue this round's bills — the same batch route, notify step and skipped report as ออกบิล (เลือก). */
+  window.A_cycleIssue=(day,btn)=>{
+    const bg=window._CYCLE; if(!bg) return;
+    const g=(bg.groups||[]).find(x=>Number(x.day)===Number(day)); if(!g) return;
+    const ids=g.students.filter(s=>!s.billed&&!s.prepaid).map(s=>s.studentId);
+    if(!ids.length){ toast(EN()?'Nothing to issue':'ไม่มีรายการที่ต้องออกบิล'); return; }
+    modal(`<h3>🧾 ${EN()?`Issue bills — day ${g.day}`:`ออกบิลกลุ่มวันที่ ${g.day}`}</h3>
+      <p style="font-size:13.5px">${EN()?`${ids.length} bills for ${monthNameYear(bg.month)}, due ${ddmmyyyy(g.dueDate)}.`
+        :`ออกบิล ${ids.length} รายการ ของเดือน ${esc(monthNameYear(bg.month))} · ครบกำหนด ${esc(ddmmyyyy(g.dueDate))}`}</p>
+      <div style="max-height:32vh;overflow:auto;border:1px solid var(--line);border-radius:8px;padding:6px;margin:6px 0">${
+        g.students.filter(s=>!s.billed&&!s.prepaid).map(s=>`<div class="list-item"><span><b>${esc(dnick(s))}</b> <small class="muted">${esc(dn(s))} · ${esc(s.className||'')}</small></span></div>`).join('')}</div>
+      <label style="display:flex;align-items:center;gap:8px;font-size:13px;margin:4px 0"><input type="checkbox" id="cyNotify" checked style="width:auto"/> ${EN()?'Notify parents':'แจ้งเตือนผู้ปกครอง'}</label>
+      <button class="btn block" onclick="A_cycleIssueDo(${g.day},this)">🧾 ${EN()?'Issue bills':'ออกบิล'}</button>
+      <button class="btn outline block" style="margin-top:8px" onclick="this.closest('.modal').remove()">${esc(t('c.close'))}</button>`); };
+  window.A_cycleIssueDo=async(day,btn)=>{
+    const bg=window._CYCLE, m=btn.closest('.modal');
+    const g=(bg.groups||[]).find(x=>Number(x.day)===Number(day)); if(!g) return;
+    const ids=g.students.filter(s=>!s.billed&&!s.prepaid).map(s=>s.studentId);
+    const notify=m.querySelector('#cyNotify').checked;
+    btn.disabled=true;
+    try{ const r=await api('issueBillsFor',{studentIds:ids,month:bg.month});
+      // only the children who actually got a bill are told about one — same rule as A_issueCombinedDo
+      const billed=(r.students||[]).map(x=>x.studentId);
+      if(notify&&billed.length){ try{ await api('notifyBills',{studentIds:billed,month:bg.month}); }catch(e){} }
+      m.remove(); confirmSaved((EN()?'Issued ':'ออกบิลแล้ว ')+r.created+(EN()?' bills':' รายการ')+(notify&&billed.length?(EN()?' · parents notified':' · แจ้งผู้ปกครองแล้ว'):''));
+      GO('finance');
+      if((r.skipped||[]).length) setTimeout(()=>A_skippedModal(r.skipped, bg.month), 600); }
+    catch(e){ err(e); btn.disabled=false; } };
 
   // ---- Finance: per-student detail (bill + extra charges + OT) — view/add/edit/delete in one place ----
   window.A_finStudent=async(sid)=>{ const month=FIN_MONTH||monthStr(); window._FIN_SID=sid;

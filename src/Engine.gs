@@ -3412,6 +3412,60 @@ function createAtomAPI(M, GROWTH_STD) {
     prepaidStudents: p => { const month=ym((p&&p.month)||todayLocal().slice(0,7)); const by={};
       enrolledStudents().forEach(s=>{ const pi=prepayInfo_(s.StudentID, month); if(pi) by[s.StudentID]=pi; });
       return {month, count:Object.keys(by).length, byStudent:by}; },
+    /**
+     * THE ROSTER CUT THE WAY THE BILLS ACTUALLY GO OUT — by which day of the month each family pays.
+     *
+     * Asked 2026-09-12: "เพิ่มเมนู วันตัดรอบบิล ให้จัดกลุ่มนักเรียนที่มีการระบุวันเรียกเก็บ … จุดประสงค์
+     * คือต้องการออกบิลรายกลุ่มเช่น ออกบิลกลุ่มของนักเรียนวันที่ 5 หรือ 15".
+     *
+     * BillingDay has been on the student record since 2026-08-24 and decides the DueDate of every
+     * bill (billDueDate). Until now the only way to see it was to open one child at a time, and the
+     * only way to bill by round was to remember which names belonged to the 15th and tick them by
+     * hand off a list of everybody — which is exactly how a family gets missed for a month.
+     *
+     * The grouping is by the day that is ACTUALLY USED, not by what is typed in the cell: a blank
+     * BillingDay and an explicit "5" are the same billing round and must be one group, or the
+     * school's own default becomes invisible. `own` on each child, and `ownCount` on the group, keep
+     * the difference readable where it matters — that is the answer to "กลุ่มปกติที่ระบบตั้งค่าไว้
+     * วันที่ 5 มีจำนวนกี่คน / ตั้งค่าเรียกเก็บวันอื่น วันไหนบ้าง กี่คน".
+     *
+     * Keyed to a MONTH, because every status on it is: a child is billed in September and not yet in
+     * October, and prepaid for one and payable in the other. `pending` is the number the button acts
+     * on — not billed, not prepaid — so "ออกบิลกลุ่มนี้" can never claim more than it will do.
+     */
+    billingGroups: p => {
+      const month=ym((p&&p.month)||todayLocal().slice(0,7));
+      const schoolDay=billingDayOf({});           // the day a family with nothing agreed pays on
+      const by={};
+      enrolledStudents().forEach(s=>{
+        const b=M.payments.find(x=>String(x.StudentID)===String(s.StudentID)&&ym(x.Month)===month);
+        const pi=prepayInfo_(s.StudentID, month);
+        (by[billingDayOf(s)]||(by[billingDayOf(s)]=[])).push({
+          studentId:s.StudentID, nick:s.Nickname||'', nickEN:s.NicknameEN||'',
+          name:s.NameTH||s.Name||'', nameEN:s.NameEN||'', className:s.Class||'', plan:s.Plan||'',
+          // whether this day is the family's OWN agreement or the school's default falling through
+          own:!!String(s.BillingDay||'').trim(),
+          dueDate:billDueDate(s, month),
+          billed:!!b, status:b?(b.Status||''):'',
+          amount:b?Number(b.TotalDue!=null?b.TotalDue:b.Amount)||0:0,
+          prepaid:!!pi, prepay:pi||null,
+          // a paused child and one who has not started are still ON the round; they are the two the
+          // batch will skip, and the screen says so rather than letting the count look wrong
+          paused:studentPaused_(s), notStarted:studentNotStarted_(s)
+        });
+      });
+      const groups=Object.keys(by).map(Number).sort((a,b)=>a-b).map(day=>{
+        const list=by[day].sort((a,b)=>String(a.nick||a.name).localeCompare(String(b.nick||b.name),'th'));
+        return {day, isDefault:day===schoolDay, count:list.length,
+          ownCount:list.filter(x=>x.own).length,
+          billed:list.filter(x=>x.billed).length,
+          prepaid:list.filter(x=>x.prepaid).length,
+          // what pressing the button would actually issue
+          pending:list.filter(x=>!x.billed&&!x.prepaid).length,
+          dueDate:list.length?list[0].dueDate:'', students:list};
+      });
+      return {month, defaultDay:schoolDay, total:groups.reduce((a,g)=>a+g.count,0),
+              days:groups.map(g=>g.day), groups}; },
     pausedStudents: () => M.students.filter(s=>String(s.Status)===PAUSED_STATUS)
       .map(s=>({studentId:s.StudentID,name:s.NameTH||s.Name,nameEN:s.NameEN,nick:s.Nickname,nickEN:s.NicknameEN,className:s.Class,
         from:ymd(s.PauseFrom||''), to:ymd(s.PauseTo||''), reason:s.PauseReason||'',
