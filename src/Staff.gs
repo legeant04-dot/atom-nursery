@@ -714,7 +714,9 @@ function handleSaveStudentSelf(p) {
   var sh = sheet_(getMainSpreadsheet_(), 'STUDENTS');
   var st = findObject_(sh, function (x) { return String(x.StudentID) === String(p.studentId); });
   if (!st) throw apiError_('NOT_FOUND', 'ไม่พบนักเรียน ' + p.studentId);
-  var d = p.data || {}, WHITE = ['Nickname', 'NicknameEN', 'BloodType', 'RH', 'Allergy', 'MedicalHistory', 'EmergencyContact', 'Address', 'Race', 'Nationality', 'Religion', 'Photo'];
+  // 'RH' removed 2026-09-12 (the school dropped Rh from the blood field). The column and its values
+  // stay on the sheet; it is simply no longer writable — see the same list in webapp/engine.js.
+  var d = p.data || {}, WHITE = ['Nickname', 'NicknameEN', 'BloodType', 'Allergy', 'MedicalHistory', 'EmergencyContact', 'Address', 'Race', 'Nationality', 'Religion', 'Photo'];
   var row = {};
   WHITE.forEach(function (k) { if (d[k] !== undefined) row[k] = d[k]; });
   updateRow_(sh, st._row, row);

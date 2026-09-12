@@ -35,6 +35,8 @@ function throws_(label, fn, want) {
 }
 const R = f => fs.readFileSync(path.join(__dirname, '..', f), 'utf8').replace(/\r\n/g, '\n');
 const eng = R('webapp/engine.js'), app = R('webapp/app.js'), cfg = R('src/Config.gs');
+// removing a FIELD must never remove the DATA — these two are read to prove the column survived
+const cfgGs = cfg, staffGs = R('src/Staff.gs');
 
 // every field the registration form collects, filled in — this is the point of the test
 const KID = {
@@ -190,7 +192,22 @@ console.log('\n5) the admin can EDIT them, not just read them');
   has('date of birth is on the form', 'DOB');
   has('...gender', 'Gender');
   has('...blood type', 'BloodType');
-  has('...Rh', 'RH');
+  /* RH USED TO BE ASSERTED HERE, and dropping it is the change — not a relaxation.
+   *
+   * The school asked on 2026-09-12 to take Rh off the blood field ("ตัดข้อมูล RH ของข้อมูลเลือดออก").
+   * What matters is WHICH HALF went: the field is off every form and nothing writes it, while the
+   * column and every value already in it stay exactly where they are. A school that changes its mind
+   * next term gets its data back by putting the field back — which is only true if removing a field
+   * never meant deleting what families had already told us. */
+  ok_('Rh is off the admin form', !/stf_RH\b/.test(form) && !/\bf\('RH'/.test(form));
+  ok_('...and off the registration form and the parent-facing one',
+    !/rRH\b/.test(app) && !/ppFld\(pre,'RH'/.test(app));
+  ok_('...and the reason is written where the field used to be',
+    /Rh was dropped from every blood field on 2026-09-12/.test(app));
+  ok_('...while the sheet KEEPS the column, so nothing families told us is deleted',
+    /'BloodType', 'RH', 'Allergy'/.test(cfgGs));
+  ok_('...and it is simply no longer writable — off both whitelists',
+    !/'BloodType','RH'/.test(eng) && !/'BloodType', 'RH'/.test(staffGs));
   has('...weight', 'Weight');
   has('...height', 'Height');
   has('...emergency contact', 'EmergencyContact');
@@ -202,8 +219,10 @@ console.log('\n5) the admin can EDIT them, not just read them');
   ok_('blood type is a list, not a free-text box that collects typos', /id="stf_BloodType"><select|<select id="stf_BloodType">/.test(form));
 
   const save = app.slice(app.indexOf('window.A_saveStudent=async(btn,id)=>{'), app.indexOf('window.A_saveStudent=async(btn,id)=>{') + 2000);
-  ['DOB', 'Gender', 'BloodType', 'RH', 'EmergencyContact', 'Address', 'Race', 'Nationality', 'Religion', 'Vaccine']
+  // 'RH' is deliberately absent — see above. Sending it would put the field back by the side door.
+  ['DOB', 'Gender', 'BloodType', 'EmergencyContact', 'Address', 'Race', 'Nationality', 'Religion', 'Vaccine']
     .forEach(k => ok_('save sends ' + k, new RegExp(k + ":v\\('" + k + "'\\)").test(save)));
+  ok_('...and does NOT send Rh', !/RH:v\('RH'\)/.test(save));
   // a number column must keep '' as '' — 0 kg is a real weight and an unmeasured child is not it
   ok_('an unmeasured child is not saved as weighing nothing',
     /Weight:v\('Weight'\)===''\?'':\(Number/.test(save) && /Height:v\('Height'\)===''\?'':\(Number/.test(save));
