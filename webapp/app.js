@@ -112,7 +112,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.378'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.379'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -2965,6 +2965,47 @@
    * not filled → form empty. Children are tabs, the same childSwitcher every other multi-child
    * screen uses, so "which child is this" is never a guess.
    */
+  /* 🛡️ THE POLICY THE SCHOOL BOUGHT — the parent's copy, and the reason this feature exists.
+   *
+   * Asked 2026-09-12: "ผู้ปกครองสามารถดูได้ และนำไปใช้เบิกประกันหรือทำธุรกรรมเองได้". A family at a
+   * hospital counter needs the policy number and the sum insured; those lived in an email and were
+   * not findable in the one place the family actually opens.
+   *
+   * Read-only here on purpose. The school buys and enters it; a parent editing their own cover would
+   * be editing a contract they are not party to — and the server never accepts these fields from a
+   * parent anyway (saveStudent is admin-only), so the screen matches the rule rather than offering
+   * a box that fails.
+   *
+   * A BLANK PRINTS '-', and a row is drawn even when empty. It is tempting to hide empty rows and
+   * show a tidy card — but a parent scanning for "จำนวนเงินเอาประกันภัย" and not finding the line at
+   * all cannot tell "the school has not entered it" from "I am looking in the wrong place". The dash
+   * is the honest answer and it is the one the school's own paperwork uses.
+   */
+  function policyCard(p){
+    if(!p || !p.has) return '';
+    const row=(label,val,strong)=>`<div class="list-item"><span class="muted" style="font-size:13px">${esc(label)}</span>
+      <span style="text-align:right${strong?';font-weight:700':''}">${_notr(String(val==null?'':val).trim()||'-')}</span></div>`;
+    const ok=/มีผลบังคับ/.test(String(p.status||''));
+    return `<div class="card" style="border-color:var(--ok-line)">
+      <div class="spread"><h3 style="margin:0">🛡️ ${EN()?'School insurance policy':'กรมธรรม์ที่โรงเรียนทำให้'}</h3>
+        ${p.status?`<span class="pill ${ok?'ok':'wait'}">${_notr(p.status)}</span>`:''}</div>
+      <p class="muted" style="font-size:12.5px;margin:4px 0 6px">${EN()
+        ? 'Entered by the school from the policy document. Use these details to make a claim.'
+        : 'โรงเรียนกรอกจากหน้ากรมธรรม์ · ใช้ข้อมูลนี้ยื่นเบิกประกันหรือติดต่อบริษัทได้เอง'}</p>
+      ${row(EN()?'Company':'บริษัทประกัน', p.company)}
+      ${row(EN()?'Plan':'แผน/รหัสแผน', [p.type,p.plan].filter(Boolean).join(' · '))}
+      ${row(EN()?'Policy number':'เลขที่กรมธรรม์', p.policyNo, true)}
+      ${row(EN()?'Insured':'ผู้เอาประกันภัย', p.insured)}
+      ${row(EN()?'Policy owner':'เจ้าของกรมธรรม์', p.owner)}
+      ${row(EN()?'Policy date':'วันที่ของกรมธรรม์', p.start?ddmmyyyy(p.start):'')}
+      ${row(EN()?'Expires':'วันครบกำหนด', p.expiry?ddmmyyyy(p.expiry):'')}
+      ${row(EN()?'Sum insured':'จำนวนเงินเอาประกันภัย', p.sum, true)}
+      ${p.benefits?`<div style="margin-top:6px"><div class="muted" style="font-size:13px">${EN()?'Benefits / riders':'ผลประโยชน์ / สัญญาเพิ่มเติม'}</div>
+        <div style="font-size:13.5px;white-space:pre-wrap">${esc(p.benefits)}</div></div>`:row(EN()?'Benefits / riders':'ผลประโยชน์ / สัญญาเพิ่มเติม','')}
+      ${p.hotline?`<a class="btn sm outline block" style="margin-top:8px" href="tel:${esc(String(p.hotline).replace(/\D/g,''))}">📞 ${EN()?'Call the insurer':'โทรหาบริษัทประกัน'} ${esc(p.hotline)}</a>`:''}
+      ${p.card?`<div style="margin-top:8px"><img src="${esc(p.card)}" alt="policy" style="max-width:100%;border-radius:8px;border:1px solid var(--line);cursor:zoom-in" onclick="ZOOM_IMG('${esc(p.card)}')"/></div>`:''}</div>`;
+  }
+
   window.P_insurance = async (sid, edit)=>{
     // one tick, so api.js batches all three into a single request rather than three queued round trips
     const [kids,st,o] = await Promise.all([
@@ -2973,7 +3014,8 @@
     const kid = (kids||[]).find(k=>k.StudentID===sid) || {};
     const head = `<button class="btn sm outline backbtn" onclick="GO('home')">${t('c.back')}</button>
       <h2 class="page">🛡️ ${esc(t('ins2.title'))}${kids.length===1?` · <span style="color:var(--blue)">${esc(dispNick(kid)||'')}</span>`:''}</h2>
-      ${childSwitcher(kids, sid, 'P_insurance')}`;
+      ${childSwitcher(kids, sid, 'P_insurance')}
+      ${policyCard(st.policy)}`;
     if(st.filled && !edit){ const r=st.record||{};
       app.innerHTML=`${head}
         <div class="card" style="background:var(--ok-bg);border-color:var(--ok-line)"><b style="color:var(--ok)">✓ ${esc(t('ins2.filledMsg'))}</b>
@@ -6091,6 +6133,7 @@
         ${f('Email',t('reg.email'),s.Email,'email')}
         <small class="muted" style="font-size:13px">📧 ${esc(t('reg.emailNote'))}</small>
         ${photoField('sp_Photo',EN()?'Photo':'รูปประจำตัว',s.Photo,true)}
+        ${eduFields('sp',s)}
         <button class="btn block green" onclick="T_saveProfile(this)">💾 ${EN()?'Save':'บันทึก'}</button></div>
       <div class="card"><h3>🔒 ${EN()?'Set by the school':'ข้อมูลที่โรงเรียนกำหนด'}</h3>
         <p class="muted" style="font-size:13px">${EN()
@@ -6115,6 +6158,7 @@
   window.T_saveProfile = async (btn)=>{ const g=k=>{ const e=document.getElementById('sp_'+k); return e?e.value.trim():undefined; };
     const data={ NameTH:g('NameTH'), NameEN:g('NameEN'), Nickname:g('Nickname'), NicknameEN:g('NicknameEN'),
       Phone:g('Phone'), DOB:g('DOB'), Email:emailFmt(g('Email')) };
+    Object.assign(data, eduRead(document,'sp'));   // วุฒิการศึกษา / สาขา / วันจบ — a personal detail
     // the server refuses a blank one too (BAD_INPUT) — this is so it is caught before the round trip
     if(!data.NameTH){ toast(EN()?'Your name cannot be blank':'กรุณากรอกชื่อ-นามสกุล'); return; }
     if(!emailOk(data.Email)){ toast(t('reg.emailBad')); return; }
@@ -7934,7 +7978,7 @@
       ${amenu}
       <div class="sec-divider">🗂️ ${EN()?'People & data':'บุคลากร & ข้อมูล'}</div>
       ${searchBox()}
-      <div class="card secw" id="sec-staff">${secHead('👩‍🏫',t('c.staff'),_stAct.length,`<button class="btn sm" onclick="event.stopPropagation();A_staffForm()">+ ${esc(t('manage.add'))}</button>`)}
+      <div class="card secw" id="sec-staff">${secHead('👩‍🏫',t('c.staff'),_stAct.length,`<span class="row"><button class="btn sm" onclick="event.stopPropagation();A_staffForm()">+ ${esc(t('manage.add'))}</button><button class="btn sm outline" onclick="event.stopPropagation();A_staffExport(this)">📤 ${EN()?'Export':'นำออก'}</button></span>`)}
         <div class="secbody" hidden>
         ${_stAct.map(s=>`<div class="list-item stack" data-k="${esc((s.NameTH+' '+(s.NameEN||'')+' '+(s.Nickname||'')+' '+(s.Position||'')+' '+(s.Department||'')).toLowerCase())}"><span style="display:flex;gap:8px;align-items:center">${personAvatar(s)}<span><b>${esc(dispNick(s))}</b> ${nmSub(s)?`<small class="muted">${esc(nmSub(s))}</small>`:""}<br><small class="muted">${_notr(s.Position||"")} · ${esc(deptLabel(s))} · 🕑 ${_notr(groupLabel(s.StaffGroup))}${groupHours(s.StaffGroup)?' ('+esc(groupHours(s.StaffGroup))+')':''}</small><br><small class="muted">${esc(t('staff.start'))} ${esc(s.StartDate||'-')} · ${esc(t('staff.tenure'))} ${esc(tenure(s.StartDate))}</small>${endNote(s)}${pauseNote(s)}</span></span><span class="acts"><button class="btn sm outline" onclick="A_staffForm('${s.StaffID}')">✏️ ${EN()?'Edit':'แก้ไข'}</button><button class="btn sm pink" onclick="A_delStaff('${s.StaffID}',this)">🗑️ ${EN()?'Delete':'ลบ'}</button></span></div>`).join('')}</div></div>
       ${_stGone.length?`<div class="card secw" id="sec-staff-gone">${secHead('🚪',EN()?'No longer working here':'สิ้นสุดการทำงานแล้ว',_stGone.length,'')}
@@ -7963,6 +8007,102 @@
   window.GO_=(k)=>{ CURRENT='manage'; setNav('manage'); (ADMIN_SUB[k]||(()=>{}))(); window.scrollTo(0,0); };
 
   // ---- Staff CRUD ----
+  /* ---- วุฒิการศึกษา · สาขา · วันจบการศึกษา ------------------------------------------------------
+   *
+   * Asked 2026-09-12. The school keeps a รายชื่อคุณครู sheet with these columns and maintains it by
+   * hand; they are on the record now, and the export below is generated from it.
+   *
+   * ALL THREE ARE OPTIONAL, and a blank one prints '-' rather than an empty cell or a guess — the
+   * school's own sheet reads that way and it is the honest answer for a certificate nobody has
+   * handed in yet.
+   *
+   * The list is exactly the one the school gave. A ROW ALREADY HOLDING SOMETHING ELSE keeps it: the
+   * live sheet has "ป.โท", "มัธยมศึกษาตอนปลาย" and "กำลังศึกษา ป.ตรี" on it, and a <select> that
+   * silently snapped those to its first option would rewrite real records on the next save of an
+   * unrelated field. Same rule as the staff-group dropdown, for the same reason.
+   */
+  const EDU_LEVELS = ['ม.3','ม.6','ม.6 หรือเทียบเท่า','ปวช.','ปวช. หรือเทียบเท่า','ปวส.','ปริญญาตรี'];
+  function eduOptions(cur){ const c=String(cur||'').trim();
+    const list=EDU_LEVELS.slice();
+    if(c && list.indexOf(c)<0) list.unshift(c);     // keep what is already on the record
+    return `<option value="">-</option>`+list.map(x=>`<option value="${esc(x)}" ${c===x?'selected':''}>${esc(x)}</option>`).join('');
+  }
+  /** the three boxes, shared by the admin form (prefix 'sf') and the teacher's own profile ('sp') */
+  function eduFields(pre,s){ s=s||{};
+    return `<div class="jsec"><b style="font-size:13px">🎓 ${EN()?'Education':'วุฒิการศึกษา'}</b>
+      <small class="muted" style="display:block;font-size:12.5px;margin:2px 0 6px">${EN()?'All optional — a blank shows as “-”.':'ไม่บังคับกรอก · ช่องที่ไม่มีข้อมูลจะแสดงเป็น “-”'}</small>
+      <label class="field"><span>${EN()?'Level':'วุฒิการศึกษา'}</span>
+        <select id="${pre}_Education">${eduOptions(s.Education)}</select></label>
+      ${/* สาขา is free text on purpose: a certificate says whatever it says, and a fixed list would
+           only teach people to pick the nearest wrong one. */''}
+      <label class="field"><span>${EN()?'Field of study':'สาขา'}</span>
+        <textarea id="${pre}_EduMajor" rows="2" placeholder="${EN()?'e.g. Early Childhood Education':'เช่น การศึกษาปฐมวัย'}">${esc(s.EduMajor||'')}</textarea></label>
+      <label class="field"><span>${EN()?'Graduation date':'วัน/เดือน/ปี ที่จบการศึกษา'}</span>
+        <input id="${pre}_EduGradDate" type="date" value="${esc(String(s.EduGradDate||'').slice(0,10))}"/></label></div>`;
+  }
+  /** read them back out of whichever form they were drawn into */
+  function eduRead(root,pre){ const g=k=>{ const e=root.querySelector('#'+pre+'_'+k); return e?String(e.value||'').trim():''; };
+    return { Education:g('Education'), EduMajor:g('EduMajor'), EduGradDate:g('EduGradDate') }; }
+  // '-' for a blank, everywhere this is printed — the school's own sheet reads that way
+  const eduDash = v => { const s=String(v==null?'':v).trim(); return s||'-'; };
+
+  /* 📤 รายชื่อคุณครู, out to the .xlsx the school already keeps by hand.
+   *
+   * Asked 2026-09-12 with the sheet attached: ลำดับที่ · ชื่อจริง · เบอร์โทร · วันเกิด · อายุ ·
+   * วุฒิการศึกษา, in that order, under a "รายชื่อคุณครู" title row. "ดึงออกมาเป็นหน้าตาแบบนี้เลย" —
+   * so the columns are exactly those six and nothing is added to be helpful. สาขา and วันจบการศึกษา
+   * are collected but deliberately NOT exported: they are not on the school's sheet, and a file that
+   * does not match the one it replaces has to be re-checked by hand every time.
+   *
+   * NO ROUND TRIP. The roster is already on this screen — the manage page fetched it to draw the
+   * list — so the file is built from what the device holds. Asking the server again for data in
+   * front of the user would cost ~7 seconds on Apps Script for nothing.
+   *
+   * The attached sheet prints the date of birth without a year ("02 Jun bbbb"); that is a Google
+   * Sheets display format hiding it, not the data. A file meant to be worked with gets the real
+   * date, and the school can format it however they like once it is open.
+   */
+  window.A_staffExport = async (btn)=>{
+    if(btn){ btn.disabled=true; btn.style.opacity='.5'; }
+    try{
+      // ACTIVE staff only: the list is "รายชื่อคุณครู", and a leaver is kept on the record for their
+      // payroll history, not to be handed to whoever asked for the current teaching staff.
+      const rows=(A_CACHE.staff||[]).filter(s=>!s.ended && String(s.Status||'ACTIVE').toUpperCase()!=='INACTIVE');
+      if(!rows.length){ toast(EN()?'No staff to export':'ยังไม่มีข้อมูลให้นำออก'); return; }
+      const head=['ลำดับที่','ชื่อจริง','เบอร์โทร','วันเกิด','อายุ','วุฒิการศึกษา'];
+      const body=sortPeople(rows).map((s,i)=>[
+        i+1,
+        nm(s)||s.NameTH||s.Name||s.StaffID,
+        phoneDash(s.Phone),
+        s.DOB?ddmmyyyy(String(s.DOB).slice(0,10)):'-',
+        s.DOB?ageYM(s.DOB):'-',
+        eduDash(s.Education)
+      ]);
+      // the title row the school's own sheet has, then a blank line, then the table
+      const sheet=[['รายชื่อคุณครู'],[]].concat([head]).concat(body);
+      try{ await needXLSX(); }catch(e){}
+      const fname='รายชื่อคุณครู_'+todayStr()+'.xlsx';
+      if(window.XLSXMin){ XLSXMin.download(fname, sheet, 'รายชื่อคุณครู'); }
+      else {
+        // BOM, or Excel reads UTF-8 as latin-1 and every Thai name becomes mojibake
+        const csv=sheet.map(r=>r.map(c=>{ const v=String(c==null?'':c);
+          return /[",\n]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v; }).join(',')).join('\r\n');
+        const blob=new Blob(['﻿'+csv],{type:'text/csv;charset=utf-8'});
+        const a=document.createElement('a'); a.href=URL.createObjectURL(blob);
+        a.download=fname.replace(/\.xlsx$/,'.csv');
+        document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(a.href),2000);
+      }
+      confirmSaved((EN()?'Exported ':'นำออกแล้ว ')+body.length+(EN()?' staff':' คน'));
+    }catch(e){ err(e); }
+    finally{ if(btn){ btn.disabled=false; btn.style.opacity=''; } }
+  };
+  /* 08-9895-5895 — the shape on the school's sheet. phoneFmt() strips to digits (it feeds tel: links
+   * and the duplicate check, where punctuation would be noise); this is for a human reading a column. */
+  function phoneDash(p){ const d=String(p==null?'':p).replace(/\D/g,''); if(!d) return '-';
+    if(d.length===10) return d.slice(0,2)+'-'+d.slice(2,6)+'-'+d.slice(6);
+    if(d.length===9)  return d.slice(0,2)+'-'+d.slice(2,5)+'-'+d.slice(5);
+    return d; }
+
   window.A_staffForm=(id)=>{ const s=id?findStaff(id):{}; const groups=(A_CACHE.groups&&A_CACHE.groups.length)?A_CACHE.groups:MOCK.staffGroups;
     const f=(k,label,val,type)=>`<label class="field"><span>${esc(label)}</span><input id="sf_${k}" type="${type||'text'}" value="${esc(val!=null?val:'')}"/></label>`;
     // departments master (Nursery Baby/1/2/Premium…), NOT the CLASSES list — show ALL of them
@@ -7989,6 +8129,7 @@
       <label class="field" style="display:flex;align-items:center;gap:8px"><input type="checkbox" id="sf_CanClassOrg" style="width:auto" ${(s.CanClassOrg===true||s.CanClassOrg===1||['YES','TRUE'].indexOf(String(s.CanClassOrg||'').toUpperCase())>=0)?'checked':''}/> 🔁 ${EN()?'Allow this teacher to organize classes (move teachers/students, like Admin)':'ให้ครูคนนี้จัดชั้นเรียนได้ (ย้ายครู/นักเรียน เหมือนแอดมิน)'}</label>
       <label class="field" style="display:flex;align-items:center;gap:8px"><input type="checkbox" id="sf_CanFoodMenu" style="width:auto" ${(s.CanFoodMenu===true||s.CanFoodMenu===1||['YES','TRUE'].indexOf(String(s.CanFoodMenu||'').toUpperCase())>=0)?'checked':''}/> 🍚 ${EN()?'Allow this teacher to manage the monthly food menu':'ให้ครูคนนี้จัดการเมนูอาหารรายเดือนได้'}</label>
       <div class="grid2">${f('Phone',t('reg.phone'),phoneFmt(s.Phone))}${f('NationalID',t('reg.nationalId'),s.NationalID)}</div>
+      ${eduFields('sf',s)}
       <div class="grid2">${f('StartDate',t('staff.startDate'),s.StartDate,'date')}${f('BaseSalary',t('pay.baseSalary'),s.BaseSalary,'number')}</div>
       <p class="muted" style="font-size:13px;margin:-4px 2px 8px">${EN()?'Before the first working day this person cannot log time, and nothing counts them present or absent.':'ก่อนถึงวันเข้าทำงานวันแรก จะลงเวลาไม่ได้ และระบบจะไม่นับมา/ขาด/สายให้'}</p>
       ${/* THE SAVE AND THE READ WERE LOOKING AT DIFFERENT SHEETS.
@@ -8095,6 +8236,7 @@
     const canFood=m.querySelector('#sf_CanFoodMenu')&&m.querySelector('#sf_CanFoodMenu').checked;
     const data={NameTH:v('NameTH'),NameEN:v('NameEN'),Nickname:v('Nickname'),NicknameEN:v('NicknameEN'),DOB:v('DOB'),Position:v('Position'),Department:dept,StaffGroup:v('StaffGroup'),PositionLevel:v('PositionLevel'),Phone:v('Phone'),NationalID:v('NationalID'),LineUID:v('LineUID'),StartDate:v('StartDate'),BaseSalary:+v('BaseSalary')||0,Email:emailFmt(v('Email')),BankName:v('BankName'),BankAccount:v('BankAccount'),ContributionOpening:+v('ContributionOpening')||0,ContributionLocked:(m.querySelector('#sf_ContributionLocked')&&m.querySelector('#sf_ContributionLocked').checked)?'YES':'',Classes:dept,CanClassOrg:canOrg?'YES':'',CanFoodMenu:canFood?'YES':''};
     data.Role=v('Role')||'Teacher';
+    Object.assign(data, eduRead(m,'sf'));   // วุฒิการศึกษา / สาขา / วันจบ — all optional
     if(!emailOk(data.Email)){ toast(t('reg.emailBad')); return; }
     const sfp=photoVal(m,'sf_Photo'); if(sfp) data.Photo=sfp;
     try{ const r=await api('saveStaff',{staffId:id||null,data});
@@ -8574,9 +8716,26 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
           return `<label class="chk-inline" style="margin:0"><input type="checkbox" class="stf_off" value="${n}" ${on?'checked':''}/>
             <span>${EN()?['','Mon','Tue','Wed','Thu','Fri'][n]:['','จันทร์','อังคาร','พุธ','พฤหัสบดี','ศุกร์'][n]}</span></label>`; }).join('')}</div></div>
       <label class="field" style="display:flex;align-items:center;gap:8px"><input type="checkbox" id="stf_Ins" ${s.InsuranceHas?'checked':''} style="width:auto" onchange="document.getElementById('insBox').hidden=!this.checked"/> 🛡️ ${esc(t('ins.has'))}</label>
+      ${/* THE POLICY THE SCHOOL BOUGHT, as it reads on the insurer's own page (asked 2026-09-12).
+           The admin types it once; the parent reads it when they need to make a claim, which is the
+           point — a family at a hospital counter needs the policy number and the sum insured, and
+           until now those lived in an email nobody could find.
+           Every box is optional and a blank prints '-' on the parent's card; nothing here is a
+           guess, because a wrong policy number is worse than no policy number. */''}
       <div id="insBox" ${s.InsuranceHas?'':'hidden'}>
-        <div class="grid2">${f('InsurancePolicyNo',t('ins.policy'),s.InsurancePolicyNo)}${f('InsuranceCompany',t('ins.company'),s.InsuranceCompany)}</div>
-        ${f('InsuranceExpiry',t('ins.expiry'),s.InsuranceExpiry,'date')}
+        <p class="muted" style="font-size:12.5px;margin:2px 2px 6px">${EN()
+          ? 'Copied from the policy document. Parents can read this and use it to make a claim. Anything left blank shows as “-”.'
+          : 'กรอกตามหน้ากรมธรรม์ · ผู้ปกครองจะเห็นข้อมูลนี้และใช้ยื่นเบิกประกันเองได้ · ช่องที่ไม่กรอกจะแสดงเป็น “-”'}</p>
+        <div class="grid2">${f('InsuranceCompany',t('ins.company'),s.InsuranceCompany)}${f('InsurancePlan',EN()?'Plan code':'รหัสแผน (เช่น AIANPA2500)',s.InsurancePlan)}</div>
+        <div class="grid2">${f('InsuranceType',EN()?'Type of cover':'ประเภทการคุ้มครอง',s.InsuranceType)}${f('InsurancePolicyNo',t('ins.policy'),s.InsurancePolicyNo)}</div>
+        <div class="grid2">${f('InsuredName',EN()?'Insured person':'ผู้เอาประกันภัย',s.InsuredName)}${f('InsuranceOwner',EN()?'Policy owner':'เจ้าของกรมธรรม์',s.InsuranceOwner)}</div>
+        <label class="field"><span>${EN()?'Policy status':'สถานะกรมธรรม์'}</span><select id="stf_InsuranceStatus">
+          ${['','มีผลบังคับ','สิ้นผลบังคับ','รอชำระเบี้ย','ยกเลิก'].map(x=>`<option value="${esc(x)}" ${String(s.InsuranceStatus||'')===x?'selected':''}>${esc(x||'-')}</option>`).join('')}</select></label>
+        <div class="grid2">${f('InsuranceStart',EN()?'Policy date':'วันที่ของกรมธรรม์',String(s.InsuranceStart||'').slice(0,10),'date')}${f('InsuranceExpiry',t('ins.expiry'),String(s.InsuranceExpiry||'').slice(0,10),'date')}</div>
+        ${f('InsuranceSum',EN()?'Sum insured (THB)':'จำนวนเงินเอาประกันภัย (บาท)',s.InsuranceSum)}
+        <label class="field"><span>${EN()?'Benefits / riders':'ผลประโยชน์ / สัญญาเพิ่มเติม'}</span>
+          <textarea id="stf_InsuranceBenefits" rows="3" placeholder="${EN()?'one per line':'บรรทัดละรายการ'}">${esc(s.InsuranceBenefits||'')}</textarea></label>
+        ${f('InsuranceHotline',EN()?'Claims hotline':'เบอร์ติดต่อเคลม',s.InsuranceHotline)}
         ${photoField('stf_InsCard',t('ins.card'),s.InsuranceCardImage,false)}</div>
       ${s.DriveFolderUrl?`<div class="card" style="background:var(--surface-2);padding:8px"><small class="muted">📁 ${esc(t('folder.student'))}<br><code style="font-size:13px">${esc(s.DriveFolderUrl)}</code><br>${esc(t('folder.note'))}</small></div>`:''}
       ${id?A_pauseBox(s):''}
@@ -8878,6 +9037,10 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
       // blank stays blank — it means "use the school's day", not "the 0th of the month"
       BillingDay:v('BillingDay')===''?'':Math.min(31,Math.max(1,Number(v('BillingDay'))||1)),
       InsuranceHas:m.querySelector('#stf_Ins').checked,InsurancePolicyNo:v('InsurancePolicyNo'),InsuranceCompany:v('InsuranceCompany'),InsuranceExpiry:v('InsuranceExpiry'),
+      // the rest of the policy the school bought — all optional, all read by the parent
+      InsurancePlan:v('InsurancePlan'),InsuranceType:v('InsuranceType'),InsuredName:v('InsuredName'),
+      InsuranceOwner:v('InsuranceOwner'),InsuranceStatus:v('InsuranceStatus'),InsuranceStart:v('InsuranceStart'),
+      InsuranceSum:v('InsuranceSum'),InsuranceBenefits:v('InsuranceBenefits'),InsuranceHotline:v('InsuranceHotline'),
       StartTime:v('StartTime'),EndTime:v('EndTime'),   // per-student individual schedule (EndTime drives OT)
       OTGraceUntil:v('OTGraceUntil'),RateNote:v('RateNote'),  // OT-free cutoff decoupled from EndTime + parent-facing note
       DiscountAmount:v('DiscountAmount')===''?'':(Number(v('DiscountAmount'))||0),DiscountUnit:v('DiscountUnit')||'บาท',  // monthly tuition discount (master, hidden from parent)
@@ -9122,6 +9285,43 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
   window.A_insuranceSave = async (sid)=>{ const d=readInsuranceForm(); const _miss=insMissing(d); if(_miss.length){toast(t('ins2.required')+': '+_miss.slice(0,4).join(', ')+(_miss.length>4?' …(+'+(_miss.length-4)+')':''), 5000);return;}
     try{ await api('saveInsuranceAdmin',{studentId:sid,adminId:USER.staffId,data:d}); confirmSaved(t('c.saved')); A_insurance(); }catch(e){err(e);} };
 
+  /* 🕐 THE CLOCK, all four of them on one card.
+   *
+   * The script's zone is shown but NOT offered as fixable: it lives in appsscript.json, changing it
+   * needs a deploy, and it is the one the others should follow — a trigger firing at the wrong hour
+   * is worse than a sheet stamping at the wrong hour, because nobody is watching when it happens.
+   * So it is the target, and the button sets everything else TO it.
+   */
+  window.A_tzDiag = async (btn)=>{
+    if(btn){ btn.disabled=true; btn.style.opacity='.5'; }
+    let d=null; try{ d=await api('tzDiag',{},{fresh:true}); }catch(e){ err(e); }
+    if(btn){ btn.disabled=false; btn.style.opacity=''; }
+    if(!d) return;
+    const row=z=>`<div class="list-item"><span><b>${esc(z.tz||(EN()?'(not set — uses Asia/Bangkok)':'(ไม่ได้ตั้ง — ใช้ Asia/Bangkok)'))}</b><br><small class="muted">${esc(z.label)}</small></span>
+      <small class="muted" style="text-align:right">${esc(z.now||'-')}${(z.tz||'Asia/Bangkok')===d.target?'':`<br><span style="color:var(--bad);font-weight:600">${EN()?'differs':'ไม่ตรง'}</span>`}</small></div>`;
+    modal(`<h3>🕐 ${EN()?'Timezone':'เขตเวลา'}</h3>
+      <div class="card" style="padding:10px;background:${d.agreed?'var(--ok-bg)':'var(--bad-bg)'};border-color:${d.agreed?'var(--ok-line)':'var(--bad-line)'}">
+        <b style="color:${d.agreed?'var(--ok)':'var(--bad)'}">${d.agreed
+          ? (EN()?'✅ All four clocks agree':'✅ นาฬิกาทั้ง 4 จุดตรงกัน')
+          : (EN()?'⚠️ The clocks do NOT agree':'⚠️ เขตเวลาไม่ตรงกัน')}</b>
+        <div style="font-size:13px;margin-top:4px">${EN()?'Script time now':'เวลาตามสคริปต์ตอนนี้'}: <b>${esc(d.now||'-')}</b> (${esc(d.target||'')})</div></div>
+      <div class="card" style="padding:6px">${(d.zones||[]).map(row).join('')}</div>
+      ${d.agreed?'':`<div class="card" style="padding:10px"><p class="muted" style="font-size:12.5px;margin:0 0 8px">${EN()
+        ? 'A mismatch does not show an error. It files a check-in under the wrong date, counts an OT hour on the wrong day, and shifts every hour in the speed report.'
+        : 'เขตเวลาไม่ตรงกันจะไม่ขึ้น error — แต่การเช็คอินอาจถูกบันทึกผิดวัน · ชั่วโมง OT ไปอยู่ผิดวัน · และชั่วโมงในรายงานความเร็วเคลื่อนทั้งหมด'}</p>
+        <button class="btn block" onclick="A_tzFix('${esc(d.target||'Asia/Bangkok')}',this)">🕐 ${EN()?`Set everything to ${d.target}`:`ตั้งทุกจุดเป็น ${esc(d.target||'')}`}</button>
+        <small class="muted" style="font-size:12px">${EN()?'Changes both Google Sheets and the school settings row. The script’s own zone is set in the code and is not touched.'
+          :'จะแก้ทั้ง Google Sheet หลัก · Sheet ฝ่ายบุคคล · และค่าในตั้งค่าโรงเรียน · ส่วนเขตเวลาของสคริปต์อยู่ในโค้ด ไม่ถูกแก้'}</small></div>`}
+      <button class="btn outline block" style="margin-top:8px" onclick="this.closest('.modal').remove()">${esc(t('c.close'))}</button>`); };
+  window.A_tzFix = async (tz,btn)=>{
+    if(!confirm((EN()?'Set every clock to ':'ตั้งเขตเวลาทุกจุดเป็น ')+tz+'?')) return;
+    if(btn)btn.disabled=true;
+    try{ const r=await api('setTimezone',{timezone:tz,adminId:USER.staffId});
+      const m=btn.closest('.modal'); if(m)m.remove();
+      confirmSaved((EN()?'Timezone set to ':'ตั้งเขตเวลาเป็น ')+r.timezone);
+      setTimeout(()=>A_tzDiag(null),400);
+    }catch(e){ err(e); if(btn)btn.disabled=false; } };
+
   // ---- Admin: activity log (who did what) ----
   window.A_activityLog=async()=>{ const rows=await api('activityLog',{limit:200});
     app.innerHTML=`<button class="btn sm outline backbtn" onclick="GO('manage')">${t('c.back')}</button><h2 class="page">📜 ${esc(t('act.title'))}</h2>
@@ -9279,6 +9479,11 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
       <label class="field"><span>${EN()?'Keep data ready for (seconds)':'เก็บข้อมูลไว้ให้พร้อมใช้ (วินาที)'}</span><input id="setTtl" type="number" min="30" max="21600" value="${esc(sc.CacheTTL!=null&&sc.CacheTTL!==''?sc.CacheTTL:900)}"/></label>
       <p class="muted" style="font-size:13px">${EN()?'Reading the sheets takes about 10 seconds; reading this ready-made copy takes under half a second. Saving anything in the app refreshes it immediately, so this only matters if someone edits the Google Sheet BY HAND — then the app can lag behind by up to this long. 900 = 15 minutes.':'การอ่านจากชีตใช้เวลาราว 10 วินาที · อ่านจากสำเนาที่เตรียมไว้ใช้ไม่ถึงครึ่งวินาที · การบันทึกผ่านแอปจะรีเฟรชให้ทันทีเสมอ ค่านี้จึงมีผลเฉพาะกรณีมีคนไปแก้ Google Sheet ด้วยมือ — แอปอาจตามช้าได้ไม่เกินเวลานี้ · 900 = 15 นาที (ค่าแนะนำ)'}</p>
       <button class="btn sm outline block" onclick="this.closest('.modal').remove();A_perfReport(7)">${EN()?'Which screens are slow, what is breaking':'ดูว่าหน้าไหนช้า อะไรพังบ้าง'}</button>
+      ${/* THE CLOCK. Four places set it — the script (triggers), both Google Sheets, and the school
+           settings row — and until 2026-09-12 nothing compared them. A mismatch does not throw: it
+           files a check-in under yesterday and shifts every hour in the speed report, both of which
+           read as data problems and neither of which points at a timezone. */''}
+      <button class="btn sm outline block" style="margin-top:4px" onclick="A_tzDiag(this)">🕐 ${EN()?'Check the clock (timezone)':'ตรวจสอบเขตเวลา (Timezone)'}</button>
       <h4 style="margin:6px 0">${esc(t('set.leaveQuota'))}</h4>
       ${Object.keys(q).map(k=>`<label class="field"><span>${esc(tLeaveType(k))}</span><input type="number" id="lq_${esc(k)}" value="${q[k]}"/></label>`).join('')}
       <h4 style="margin:10px 0 4px">🔔 ${EN()?'Notifications':'การแจ้งเตือน'}</h4>

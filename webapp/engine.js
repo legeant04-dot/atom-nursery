@@ -286,6 +286,28 @@ function createAtomAPI(M, GROWTH_STD) {
     const pct=/%|percent/i.test(String((s&&s.DiscountUnit)||'')); const d=pct ? (Number(base)||0)*amt/100 : amt;
     return Math.min(Math.max(0,Math.round(d)), Number(base)||0); };
   const studentStartTime = s => { const e=String((s&&s.StartTime)||'').trim(); return /^\d{1,2}:\d{2}/.test(e) ? e.slice(0,5) : (cfg.DefaultStudentIn||'08:00'); };
+  /**
+   * The insurance policy the SCHOOL bought for a child, as one object.
+   *
+   * `has` is the only field anyone should branch on. It is deliberately NOT `!!s.InsuranceHas`
+   * alone: the tick and the details are entered at different times, and a policy whose number and
+   * sum insured are filled in is a policy whether or not somebody remembered the checkbox. A card
+   * that hid a real policy number because of an unticked box would be the exact failure this exists
+   * to prevent — a parent at a hospital counter with nothing to show.
+   *
+   * Every field is a string, blank when unset; the screens print '-' for a blank rather than an
+   * empty line, which is how the school's own records read.
+   */
+  function studentPolicy_(s){ s=s||{};
+    const g=k=>String(s[k]==null?'':s[k]).trim();
+    const p={ plan:g('InsurancePlan'), type:g('InsuranceType'),
+      policyNo:g('InsurancePolicyNo'), company:g('InsuranceCompany'),
+      insured:g('InsuredName'), owner:g('InsuranceOwner'), status:g('InsuranceStatus'),
+      start:ymd(s.InsuranceStart||''), expiry:ymd(s.InsuranceExpiry||''),
+      sum:g('InsuranceSum'), benefits:g('InsuranceBenefits'), hotline:g('InsuranceHotline'),
+      card:g('InsuranceCardImage') };
+    p.has = !!s.InsuranceHas || !!(p.policyNo||p.plan||p.company||p.sum||p.benefits);
+    return p; }
 
   // ---- enrolment date vs billing --------------------------------------------------------------
   // A child is billed from the month they actually START, not from the month their record was typed
@@ -3329,6 +3351,8 @@ function createAtomAPI(M, GROWTH_STD) {
       return { StaffID:s.StaffID, NameTH:s.NameTH, NameEN:s.NameEN, Nickname:s.Nickname, NicknameEN:s.NicknameEN,
         Role:s.Role, PositionLevel:s.PositionLevel, Position:s.Position, Department:s.Department,
         StaffGroup:s.StaffGroup, Phone:s.Phone, DOB:s.DOB, StartDate:s.StartDate, NationalID:s.NationalID, Email:s.Email, GoogleLinked: !!s.GoogleSub,
+        // education — optional everywhere; the screens print '-' rather than guessing
+        Education:s.Education||'', EduMajor:s.EduMajor||'', EduGradDate:ymd(s.EduGradDate||''),
         RequireCheckin: s.RequireCheckin!==false, MustChangePassword: !!s.MustChangePassword,
         CanClassOrg: canOrganize_(s), CanFoodMenu: canFoodMenu_(s),
         /* THE FACT, NEVER THE DATE. The screen needs to know not to draw two clock-in buttons the
@@ -3369,9 +3393,10 @@ function createAtomAPI(M, GROWTH_STD) {
       // a blank legal name is not an edit, it is a payslip with nobody on it — and the roster, the
       // approval queues and every LINE message to a parent print this field
       if(d.NameTH!==undefined && !String(d.NameTH).trim()) fail('BAD_INPUT','กรุณากรอกชื่อ-นามสกุล');
-      const WATCH=['NameTH','NameEN','Nickname','NicknameEN','Phone','DOB','Email'];
+      const WATCH=['NameTH','NameEN','Nickname','NicknameEN','Phone','DOB','Email','Education','EduMajor','EduGradDate'];
       const before={}; WATCH.forEach(k=>{ before[k]=s[k]; });
-      ['NameTH','NameEN','Nickname','NicknameEN','Phone','DOB','Photo'].forEach(k=>{ if(d[k]!==undefined) s[k]=d[k]; });
+      ['NameTH','NameEN','Nickname','NicknameEN','Phone','DOB','Photo','Education','EduMajor','EduGradDate']
+        .forEach(k=>{ if(d[k]!==undefined) s[k]=d[k]; });
       if(em!==undefined) s.Email=em;
       /* LEAVE A TRAIL. More fields being editable means more that can be changed quietly, and the one
        * question an admin will ask is "who changed this name?". Only the fields that ACTUALLY moved
@@ -3614,6 +3639,10 @@ function createAtomAPI(M, GROWTH_STD) {
         race:s.Race||'', nationality:s.Nationality||'', religion:s.Religion||'',
         plan:s.Plan||'', otRate:s.OTRate||'',
         parentId:s.ParentID||'', parents,
+        /* The whole policy, admin scope only. A teacher keeps being told THAT there is cover and
+         * never the number — the rule the `care` block above was written for, and the school did not
+         * ask to change it. The family reads their own policy through insuranceStatus. */
+        policy:studentPolicy_(s),
         insurancePolicyNo:s.InsurancePolicyNo||'', insuranceCompany:s.InsuranceCompany||'',
         insuranceExpiry:ymd(s.InsuranceExpiry||''), insuranceCardImage:s.InsuranceCardImage||'',
         driveFolderUrl:s.DriveFolderUrl||'', createdDate:ymd(s.CreatedDate||''),
@@ -5415,6 +5444,18 @@ function createAtomAPI(M, GROWTH_STD) {
     insuranceStatus: p => { const s=studentById(p.studentId)||{};
       const rec=M.insurancePCHI.find(x=>x.StudentID===p.studentId || (s.NationalID&&String(x.NationalID)===String(s.NationalID)))||null;
       return {studentId:p.studentId, filled:!!rec, record:rec,
+        /* THE POLICY THE SCHOOL BOUGHT, carried on the answer the parent already asks for.
+         *
+         * Asked 2026-09-12: "ผู้ปกครองสามารถดูได้ และนำไปใช้เบิกประกันหรือทำธุรกรรมเองได้". A family
+         * at a hospital counter needs the policy number and the sum insured, and until now those
+         * lived in an email nobody could find. It rides on insuranceStatus rather than getting a
+         * route of its own because the parent's insurance screen already calls this one — a second
+         * action would be another ~7 seconds on Apps Script for data of the same size.
+         *
+         * It is NOT the PCHI record above. That is the enrolment form a family fills in FOR an
+         * insurer; this is the finished contract, typed in by the admin and read-only to everyone
+         * else. Two different things that both answer to the word "ประกัน", so they are named apart. */
+        policy: studentPolicy_(s),
         student:{name:s.NameTH,nameEN:s.NameEN,nationalId:s.NationalID,gender:s.Gender,dob:s.DOB}}; },
     // Parent submits the insurance form and may CORRECT it at any time afterwards (2026-08-29) — the
     // facts change, and a mistyped claim account number used to be permanent. แผนประกัน and

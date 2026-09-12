@@ -161,8 +161,13 @@ console.log('\n2) STILL EMPLOYED — the reason this is not Status');
     [true, 'ลาคลอด', 'ครบกำหนดคลอด 20/09', 'HALF']);
   eq('...and the roster says so', [res.listed.paused, res.listed.reason, res.listed.mode], [true, 'ลาคลอด', 'HALF']);
   ok_('the decision is written down where it was made', /NOT stored as Status like the student version/.test(engine));
+  /* MEMBERSHIP, NOT POSITION. The `]` on the end of this pattern pinned PauseSalaryAmount as the
+   * LAST column of the STAFF schema, so the next person to append anything after it — education, on
+   * 2026-09-12 — failed a suite about maternity leave. The same trap test_billing_day was rewritten
+   * for in August. What matters is that the six are declared, wherever in the list they sit. */
   ok_('the columns are declared, or writeRows_ would drop them silently',
-    /'PauseFrom', 'PauseTo', 'PauseReason', 'PauseRemark', 'PauseSalaryMode', 'PauseSalaryAmount'\]/.test(configGs));
+    ['PauseFrom', 'PauseTo', 'PauseReason', 'PauseRemark', 'PauseSalaryMode', 'PauseSalaryAmount']
+      .every(c => new RegExp("'" + c + "'").test(configGs)));
 }
 
 console.log('\n3) NOT HERE — and not counted as anything');

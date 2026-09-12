@@ -176,3 +176,83 @@ function handleDedupData(p) {
   try { CacheService.getScriptCache().removeAll(['rows:PARENTS', 'col:PARENTS', 'rows:STUDENTS', 'col:STUDENTS', 'rows:USER_LINKS', 'col:USER_LINKS']); } catch (e) {}
   return { ok: true, deleted: { parents: parentDelRows.length, students: studentDelRows.length, userLinks: ulDel.length } };
 }
+
+/* ================================================================================================
+ * TIMEZONE — four clocks, and nothing ever compared them
+ *
+ * Asked 2026-09-12 after the speed report put 55% of a nursery's traffic between midnight and 07:00:
+ * "ตรวจสอบ timezone ของ Google Sheet และแก้ไขให้เป็นเวลาเดียวกันทั้งระบบ".
+ *
+ * This app reads the time from FOUR independent places, and every one of them can be set separately:
+ *
+ *   1. appsscript.json `timeZone`  → Session.getScriptTimeZone(). Decides when a TRIGGER fires —
+ *      the 06:50 reminder, the 11:15 and 20:00 digests, the nightly backup. Payroll.gs formats its
+ *      month with this one.
+ *   2. The MAIN spreadsheet's own timezone → ssTz_() and perfTz_(). Decides what hour a PERF row is
+ *      stamped with, which is what BY HOUR is built from.
+ *   3. The HR spreadsheet's timezone. Nothing checked it, ever. Attendance and payroll rows live
+ *      there.
+ *   4. SCHOOL_CONFIG 'Timezone' → getConfig_('Timezone'). Decides what date a check-in is filed
+ *      under (dateStr_), what time it is written as, and every backup stamp.
+ *
+ * A mismatch does not throw. It produces a check-in filed under yesterday, an OT hour counted in the
+ * wrong day, and a speed report whose hours are shifted — all of which look like data problems and
+ * none of which point at the clock. So: report all four side by side with the time each one thinks
+ * it is, and offer to set them to one value.
+ *
+ * Read-only by itself. handleSetTimezone is the half that writes, and it is admin-only.
+ * ============================================================================================== */
+function tzNow_(tz) {
+  try { return Utilities.formatDate(new Date(), tz, 'yyyy-MM-dd HH:mm'); } catch (e) { return '?'; }
+}
+function handleTzDiag() {
+  var script = '', main = '', hr = '', conf = '';
+  try { script = Session.getScriptTimeZone() || ''; } catch (e) {}
+  try { main = getMainSpreadsheet_().getSpreadsheetTimeZone() || ''; } catch (e) {}
+  try { hr = getHrSpreadsheet_().getSpreadsheetTimeZone() || ''; } catch (e) {}
+  try { conf = String(getConfig_('Timezone', '') || ''); } catch (e) {}
+  var list = [
+    { key: 'script', label: 'สคริปต์ (ทริกเกอร์ 06:50 / 11:15 / 20:00 / สำรองข้อมูล)', tz: script, fixable: false },
+    { key: 'main',   label: 'Google Sheet หลัก (รายงานความเร็ว BY HOUR)',              tz: main,   fixable: true },
+    { key: 'hr',     label: 'Google Sheet ฝ่ายบุคคล (ลงเวลา / เงินเดือน)',              tz: hr,     fixable: true },
+    { key: 'config', label: 'ตั้งค่าโรงเรียน (วันที่ของการเช็คอิน / OT / สำรองข้อมูล)',   tz: conf,   fixable: true }
+  ];
+  list.forEach(function (x) { x.now = x.tz ? tzNow_(x.tz) : ''; });
+  /* WHAT "AGREED" MEANS. Not string equality: a blank config row falls back to Asia/Bangkok in every
+   * caller (getConfig_('Timezone', 'Asia/Bangkok')), so a blank is not a disagreement — it is the
+   * default, and saying otherwise would send an admin to fix something that is already right. */
+  var effective = list.map(function (x) { return x.tz || 'Asia/Bangkok'; });
+  var agreed = effective.every(function (t) { return t === effective[0]; });
+  return { ok: true, zones: list, agreed: agreed, effective: effective[0],
+           // the script's zone cannot be changed from here — it lives in appsscript.json and needs a
+           // deploy. It is therefore the one the others should be set TO.
+           target: script || 'Asia/Bangkok',
+           scriptFixable: false,
+           now: tzNow_(script || 'Asia/Bangkok') };
+}
+/**
+ * Set the two spreadsheets and the config row to ONE timezone. Admin only.
+ *
+ * The script's own zone is deliberately not touched: it is in appsscript.json, changing it needs a
+ * deploy, and it is the one everything else should follow — a trigger that fires at the wrong hour
+ * is worse than a sheet that stamps at the wrong hour, because nobody is watching when it happens.
+ *
+ * Every cached read is dropped afterwards: gasToday_ and ciTimeHHmm_ format with the config value,
+ * so a cached copy made under the old zone would keep producing the old dates for up to CacheTTL.
+ */
+function handleSetTimezone(p) {
+  p = p || {};
+  var tz = String(p.timezone || '').trim();
+  if (!tz) { try { tz = Session.getScriptTimeZone(); } catch (e) { tz = 'Asia/Bangkok'; } }
+  // a bad zone silently formats as GMT and would be far worse than the mismatch it was meant to fix
+  var probe = ''; try { probe = Utilities.formatDate(new Date(), tz, 'Z'); } catch (e) { probe = ''; }
+  if (!probe) throw apiError_('BAD_INPUT', 'เขตเวลาไม่ถูกต้อง: ' + tz);
+  var done = [];
+  try { getMainSpreadsheet_().setSpreadsheetTimeZone(tz); done.push('main'); } catch (e) {}
+  try { getHrSpreadsheet_().setSpreadsheetTimeZone(tz); done.push('hr'); } catch (e) {}
+  try { setConfigValue_('Timezone', tz); done.push('config'); } catch (e) {}
+  try { _configCache = null; if (typeof cacheDel_ === 'function') cacheDel_('cfg'); } catch (e) {}
+  try { _ssTz = null; } catch (e) {}
+  try { logAudit(p.staffId || p.adminId || 'ADMIN', 'SET_TIMEZONE', 'SCHOOL_CONFIG', tz + ' (' + done.join(',') + ')'); } catch (e) {}
+  return { ok: true, timezone: tz, changed: done, diag: handleTzDiag() };
+}

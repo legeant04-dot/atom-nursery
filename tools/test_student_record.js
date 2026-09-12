@@ -122,8 +122,17 @@ console.log('\n1) the admin sees the record the family filled in');
     // engine names that differ from the column name
     .filter(k => !{ studentid: 1, nameth: 1, nameen: 1, nickname: 1, nicknameen: 1, nationalid: 1, bloodtype: 1,
       medicalhistory: 1, emergencycontact: 1, enrolldate: 1, insurancehas: 1, insurancepolicyno: 1,
-      insurancecompany: 1, insuranceexpiry: 1, withdrawreason: 1, withdrawdate: 1, createddate: 1 }[k]);
+      insurancecompany: 1, insuranceexpiry: 1, withdrawreason: 1, withdrawdate: 1, createddate: 1,
+      /* THE SCHOOL-BOUGHT POLICY (2026-09-12) is returned, but GROUPED under `policy` rather than as
+       * nine more top-level keys — it is one document, and a parent's card reads it as one. This
+       * list is "names that differ", not "things we stopped returning": the block below checks every
+       * one of them really does come back, so the coverage this test guarantees is not weakened. */
+      insuranceplan: 1, insurancetype: 1, insuredname: 1, insuranceowner: 1, insurancestatus: 1,
+      insurancestart: 1, insurancesum: 1, insurancebenefits: 1, insurancehotline: 1 }[k]);
   eq('every column the registration form fills is in the record', missing, []);
+  // ...and the nine that moved into `policy` are all genuinely there
+  eq('the school-bought policy comes back as one object', Object.keys(d.policy || {}).sort(),
+    ['benefits', 'card', 'company', 'expiry', 'has', 'hotline', 'insured', 'owner', 'plan', 'policyNo', 'start', 'status', 'sum', 'type'].sort());
 }
 
 console.log('\n2) a teacher gets what she needs to look after the child, and no more');

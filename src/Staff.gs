@@ -87,7 +87,9 @@ function handleSaveStaff(p) {
   p = p || {};
   var sh = sheet_(getHrSpreadsheet_(), 'STAFF');
   try { ensureColumns_(sh, ['NicknameEN', 'Classes', 'CanClassOrg', 'CanFoodMenu', 'BankName', 'BankAccount', 'ContributionOpening',
-    'StartDate', 'EndDate', 'EndReason', 'EndRemark', 'Email', 'GoogleSub']); } catch (e) {}
+    'StartDate', 'EndDate', 'EndReason', 'EndRemark', 'Email', 'GoogleSub',
+    // education (2026-09-12) — without the column, writeRows_/updateRow_ drop the field in silence
+    'Education', 'EduMajor', 'EduGradDate']); } catch (e) {}
   var d = p.data || {};
   if (d.Email !== undefined) d.Email = emailGuard_(sh, d.Email, 'StaffID', p.staffId);
   if (d.LineUID !== undefined) d.LineUID = lineUidGuard_(sh, d.LineUID, 'StaffID', p.staffId);
@@ -171,16 +173,40 @@ function handleSaveStaffSelf(p) {
   var sh = sheet_(getHrSpreadsheet_(), 'STAFF');
   var st = findObject_(sh, function (s) { return String(s.StaffID) === String(p.staffId); });
   if (!st) throw apiError_('NOT_FOUND', 'ไม่พบพนักงาน ' + p.staffId);
-  var d = p.data || {}, WHITE = ['NameEN', 'Nickname', 'NicknameEN', 'Phone', 'DOB', 'Photo', 'Email'];
+  /* Keep identical to the whitelist in webapp/engine.js saveStaffSelf, and read the long note there
+   * for why each excluded field is excluded. 'Name' is the SHEET column for NameTH — mapped below,
+   * the same way handleSaveStaff does it. Education/EduMajor/EduGradDate joined on 2026-09-12: a
+   * qualification is a personal detail, not pay, hours or a permission. */
+  var d = p.data || {}, WHITE = ['NameTH', 'NameEN', 'Nickname', 'NicknameEN', 'Phone', 'DOB', 'Photo', 'Email',
+    'Education', 'EduMajor', 'EduGradDate'];
   var row = {};
   WHITE.forEach(function (k) { if (d[k] !== undefined) row[k] = d[k]; });
+  if (row.NameTH !== undefined) { row.Name = row.NameTH; delete row.NameTH; }
+  if (row.Name !== undefined && !String(row.Name).trim()) throw apiError_('BAD_INPUT', 'กรุณากรอกชื่อ-นามสกุล');
+  try { ensureColumns_(sh, ['Education', 'EduMajor', 'EduGradDate']); } catch (e) {}
   if (row.Email !== undefined) {
     try { ensureColumns_(sh, ['Email', 'GoogleSub']); } catch (e) {}
     row.Email = emailGuard_(sh, row.Email, 'StaffID', p.staffId);
   }
+  /* LEAVE A TRAIL — the same line the engine writes, because THIS is the handler that runs.
+   *
+   * v378 added NameTH to the whitelist and an audit line, in webapp/engine.js. Neither reached the
+   * school: this route SHADOWS the engine (see the header of Code.gs), so the engine's copy is only
+   * ever exercised by the test suite and by mock mode. The suite went green on a change that did
+   * nothing on live. Anything added to one of these two must be added to the other, and
+   * tools/test_staff_profile.js now fails if the whitelists drift apart. */
+  var moved = [];
+  ['Name', 'NameEN', 'Nickname', 'NicknameEN', 'Phone', 'DOB', 'Email', 'Education', 'EduMajor', 'EduGradDate']
+    .forEach(function (k) {
+      if (row[k] === undefined) return;
+      if (String(st[k] == null ? '' : st[k]) !== String(row[k] == null ? '' : row[k])) moved.push(k === 'Name' ? 'NameTH' : k);
+    });
   updateRow_(sh, st._row, row);
   staffCacheBust_();
-  return { ok: true, staffId: p.staffId };
+  // Photo is deliberately not watched: it is a fresh Drive URL on every upload and would report a
+  // change each time somebody re-picked the same picture.
+  if (moved.length) { try { logAuditHr(p.staffId, 'SAVE_STAFF_SELF', 'STAFF', 'แก้ไขข้อมูลส่วนตัว: ' + moved.join(', ')); } catch (e) {} }
+  return { ok: true, staffId: p.staffId, changed: moved };
 }
 
 // Toggle a staff's check-in requirement in place (the engine version rewrote the whole STAFF sheet).
@@ -226,7 +252,11 @@ function handleSaveStudent(p) {
     'GeoExempt',
     // ...and this one too, for the same reason: without the column the day-off would appear to save
     // and the child would keep being marked absent every Wednesday
-    'OffDays']); } catch (e) {}
+    'OffDays',
+    // the school-bought policy the parent reads when making a claim (2026-09-12) — same rule again:
+    // no column, no error, no data
+    'InsurancePlan', 'InsuranceType', 'InsuredName', 'InsuranceOwner', 'InsuranceStatus',
+    'InsuranceStart', 'InsuranceSum', 'InsuranceBenefits', 'InsuranceHotline']); } catch (e) {}
   var row = mapName_(p.data || {});
   /* ONLY 1–5, AND ONLY EVER A CLEAN LIST. This decides whether a child is expected at school, so
    * whatever the form sends is normalised here rather than trusted: numbers outside Monday–Friday
