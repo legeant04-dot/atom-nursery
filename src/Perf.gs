@@ -309,7 +309,20 @@ function handlePerfSummary(p) {
    * that can be looked at. Local hours (Asia/Bangkok), because that is when people were at work.
    */
   var hours = {};
-  function hourInit_(h) { return { hour: h, n: 0, fail: 0, ms: [], sids: {} }; }
+  /* `roles` on the hour bucket, added 2026-09-12 after two wrong guesses about the same number.
+   *
+   * The 09-12 report put 55% of a nursery's traffic between midnight and 07:00 — 4,348 calls across
+   * 84 browser sessions between 00:00 and 04:00 alone. The first guess was a timezone offset; the
+   * school checked with the new clock tool and all four zones read Asia/Bangkok, so the hours are
+   * right and the traffic is real. The second guess was the revalidation heartbeat on tabs left
+   * open; reading revalidateDue showed it only refreshes keys touched in the last five minutes, so
+   * an idle tab stops on its own.
+   *
+   * Both guesses were made because the report says WHEN and never WHO. The role is on every row
+   * already — verified server-side, never self-reported — exactly as it is for the device
+   * breakdown. Crossing it with the hour turns "somebody is on at 3am" into a name for the school
+   * to recognise, and stops the next person guessing a third time. */
+  function hourInit_(h) { return { hour: h, n: 0, fail: 0, ms: [], sids: {}, roles: {}, devs: {} }; }
   var SLOW_MS = 20000, slowMoments = [];
 
   for (var i = 0; i < vals.length; i++) {
@@ -391,7 +404,9 @@ function handlePerfSummary(p) {
      * wrong. A refused call is not a failure here either, for the same reason as everywhere else. */
     var hh = ts.slice(11, 13);
     if (hh) { var hv = hours[hh] = hours[hh] || hourInit_(hh);
-      hv.n++; if (!noReach) hv.ms.push(ms); hv.sids[sid] = 1; if (!ok && !refused) hv.fail++; }
+      hv.n++; if (!noReach) hv.ms.push(ms); hv.sids[sid] = 1; if (!ok && !refused) hv.fail++;
+      if (role) hv.roles[role] = (hv.roles[role] || 0) + 1;
+      if (dev) hv.devs[dev] = (hv.devs[dev] || 0) + 1; }
     /* THE WORST INDIVIDUAL MOMENTS, not a percentile of them. A screen visited twelve times has a
      * p95 that IS one or two visits, and averaging them away is how a two-minute wait becomes a
      * number nobody can act on. Kept smallest-first and capped, so this costs nothing on 20,000 rows. */
@@ -519,10 +534,18 @@ function handlePerfSummary(p) {
   /* THE SHAPE OF THE DAY, in the school's own hours. Sorted BY HOUR rather than by badness — the
    * question is "is the evening worse", and an answer that has been re-ordered by size cannot be read
    * against a clock. Hours with nothing in them are simply absent. */
+  /** the biggest two or three shares of a {key: count} map, as percentages — same shape as byDev */
+  function mixOf_(map, total) {
+    return Object.keys(map).map(function (r) { return { k: r, n: map[r] }; })
+      .sort(function (x, y) { return y.n - x.n; })
+      .map(function (r) { return { k: r.k, pct: total ? Math.round(r.n / total * 100) : 0 }; }).slice(0, 3);
+  }
   var byHour = Object.keys(hours).map(function (k) {
     var h = hours[k], st = statify(h), ns = Object.keys(h.sids).length;
     return { hour: h.hour, n: h.n, sessions: ns, fail: h.fail,
-             rate: h.n ? Math.round(h.fail / h.n * 100) : 0, p50: st.p50, p95: st.p95 };
+             rate: h.n ? Math.round(h.fail / h.n * 100) : 0, p50: st.p50, p95: st.p95,
+             // WHO was using it in this hour, and on what — see the note on hourInit_
+             roles: mixOf_(h.roles, h.n), devs: mixOf_(h.devs, h.n) };
   }).sort(function (x, y) { return x.hour < y.hour ? -1 : 1; });
   slowMoments.sort(function (x, y) { return y.ms - x.ms; });
   slowMoments = slowMoments.slice(0, 15);
