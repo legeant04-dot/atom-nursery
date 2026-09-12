@@ -112,7 +112,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.380'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.381'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -10368,8 +10368,12 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
        * "our evenings are busy" and "we are seven hours out" readable at a glance. */
       L.push('BY HOUR ('+(d.tz||'?')+(String(d.tz||'')==='Asia/Bangkok'?' — เวลาไทย':' ⚠️ ไม่ใช่เวลาไทย — ชั่วโมงจะเคลื่อน')+'):');
       d.byHour.forEach(x=>{
+        // ...and WHO was on. "03:00 x1128 [Admin 92%]" is a fact about the school; the same line
+        // without it produced two wrong guesses in one day about who is using the app at 3am.
+        const who=(x.roles||[]).map(r=>r.k+' '+r.pct+'%').join(' ');
+        const dv=(x.devs||[]).slice(0,2).map(r=>r.k+' '+r.pct+'%').join(' ');
         L.push('  '+x.hour+':00  x'+x.n+'/'+(x.sessions||0)+'s p50='+ms(x.p50)+' p95='+ms(x.p95)
-          +(x.fail?' fail'+x.rate+'%':''));
+          +(x.fail?' fail'+x.rate+'%':'')+(who?'  ['+who+(dv?' · '+dv:'')+']':''));
       });
     }
     /* AND THE INDIVIDUAL WORST MOMENTS. A screen visited twelve times has a p95 that IS one or two

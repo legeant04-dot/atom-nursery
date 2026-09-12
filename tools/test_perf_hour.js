@@ -129,6 +129,20 @@ console.log('\n3) the report prints both');
    * could tell the two apart. So the heading now prints the zone the stamps were actually made in,
    * and says so loudly when it is not Bangkok. */
   ok_('by hour, naming the clock it is in', /L\.push\('BY HOUR \('\+\(d\.tz\|\|'\?'\)/.test(c));
+  /* ...AND WHO WAS ON, which the line never said.
+   *
+   * The 09-12 report put 55% of a nursery's traffic between midnight and 07:00. That produced two
+   * wrong guesses in one day — a timezone offset (the school checked: all four zones read
+   * Asia/Bangkok, so the hours are right) and the revalidation heartbeat (revalidateDue only
+   * refreshes keys touched in the last five minutes, so an idle tab stops on its own). Both guesses
+   * happened because the line says WHEN and never WHO, and the role is already on every row. */
+  ok_('...and who was using it in that hour', /const who=\(x\.roles\|\|\[\]\)\.map\(r=>r\.k\+' '\+r\.pct\+'%'\)/.test(c));
+  ok_('...with the device, which separates a phone at 3am from a desktop left open',
+    /const dv=\(x\.devs\|\|\[\]\)\.slice\(0,2\)/.test(c));
+  ok_('the server sends both, from the role it VERIFIED and never from the client',
+    /roles: mixOf_\(h\.roles, h\.n\), devs: mixOf_\(h\.devs, h\.n\)/.test(perf)
+    && /if \(role\) hv\.roles\[role\] = \(hv\.roles\[role\] \|\| 0\) \+ 1;/.test(perf));
+  ok_('...and the reason is written where the bucket is built', /two wrong guesses about the same number/.test(perf));
   ok_('...and warning when that clock is not Thai time', /ไม่ใช่เวลาไทย — ชั่วโมงจะเคลื่อน/.test(c));
   ok_('...with the zone coming from the same call that made the stamps', /tz: perfTz_\(\),/.test(perf));
   ok_('...in clock order, as the server sent them', /d\.byHour\.forEach/.test(c) && !/byHour[\s\S]{0,60}\.sort\(/.test(c));
