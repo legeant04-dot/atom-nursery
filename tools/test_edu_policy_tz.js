@@ -129,7 +129,7 @@ console.log('\n3) วุฒิการศึกษา — a fixed list, a free-
 }
 {
   ok_('the list is exactly the one the school gave',
-    /const EDU_LEVELS = \['ม\.3','ม\.6','ม\.6 หรือเทียบเท่า','ปวช\.','ปวช\. หรือเทียบเท่า','ปวส\.','ปริญญาตรี'\];/.test(app));
+    /const EDU_LEVELS = \['ม\.3','ม\.6','ม\.6 หรือเทียบเท่า','ปวช\.','ปวช\. หรือเทียบเท่า','ปวส\.','กำลังศึกษา ป\.ตรี','ปริญญาตรี'\];/.test(app));
   /* A ROW ALREADY HOLDING SOMETHING ELSE KEEPS IT. The live sheet has "ป.โท", "มัธยมศึกษาตอนปลาย"
    * and "กำลังศึกษา ป.ตรี" on it; a <select> that snapped those to its first option would rewrite a
    * real record the next time anybody saved an unrelated field on that form. */

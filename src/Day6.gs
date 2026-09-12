@@ -94,11 +94,42 @@ function handleInsuranceExport() {
 }
 
 /** Status: is the insurance form already filled for this student? */
+/**
+ * THE POLICY THE SCHOOL BOUGHT — the GAS half of studentPolicy_ in webapp/engine.js.
+ *
+ * This exists because handleInsuranceStatus SHADOWS the engine's insuranceStatus (see the note just
+ * below insDate_). The engine's copy was given a `policy` field on 2026-09-12 and, without this, the
+ * parent's card would simply never have appeared on the live school — the same failure as v378's
+ * NameTH, found by auditing the 115 shadowed routes rather than by anybody noticing.
+ *
+ * Keep the field names identical to the engine's: the screen reads one shape.
+ */
+function insPolicy_(stu) {
+  stu = stu || {};
+  var g = function (k) { var v = stu[k]; return (v === null || v === undefined) ? '' : String(v).trim(); };
+  var pol = {
+    plan: g('InsurancePlan'), type: g('InsuranceType'),
+    policyNo: g('InsurancePolicyNo'), company: g('InsuranceCompany'),
+    insured: g('InsuredName'), owner: g('InsuranceOwner'), status: g('InsuranceStatus'),
+    start: insDate_(stu.InsuranceStart), expiry: insDate_(stu.InsuranceExpiry),
+    sum: g('InsuranceSum'), benefits: g('InsuranceBenefits'), hotline: g('InsuranceHotline'),
+    card: g('InsuranceCardImage')
+  };
+  /* `has` is NOT the checkbox alone — same rule as the engine. The tick and the details are entered
+   * at different times, and a card that hid a real policy number because nobody ticked a box is the
+   * exact failure this exists to prevent: a parent at a hospital counter with nothing to show. */
+  var tick = String(stu.InsuranceHas == null ? '' : stu.InsuranceHas).toUpperCase();
+  pol.has = (tick === 'TRUE' || tick === 'YES' || tick === '1' || stu.InsuranceHas === true)
+            || !!(pol.policyNo || pol.plan || pol.company || pol.sum || pol.benefits);
+  return pol;
+}
 function handleInsuranceStatus(p) {
   var stu = findObject_(sheet_(getMainSpreadsheet_(), 'STUDENTS'), function (s) { return s.StudentID === p.studentId; }) || {};
   var rec = insuranceRecord_(p.studentId);
   return {
     studentId: p.studentId, filled: !!rec, record: insReadable_(rec) || null,
+    // the school's own policy, read by the parent to make a claim — see insPolicy_ above
+    policy: insPolicy_(stu),
     student: { name: stu.Name, nameEN: stu.NameEN, nationalId: stu.NationalID, gender: stu.Gender, dob: insDate_(stu.DOB) }
   };
 }
