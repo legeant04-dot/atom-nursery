@@ -375,6 +375,9 @@ function applyIdentity_(action, payload, sess) {
     // who the school messages, and what it costs — both admin-only: the list carries LINE user ids
     lineUsage: 1, lineRecipients: 1, saveLineRecipients: 1,
     adminInbox: 1, markInboxRead: 1, reinstallTriggers: 1, unlinkStudent: 1, linkParentAdmin: 1, setLeaveQuota: 1, setConfigVal: 1, markSalaryPaid: 1, notifyBills: 1, issueBillsFor: 1, savePlans: 1, saveQRCodes: 1, prepayAudit: 1, recomputeContributions: 1, contributionReset: 1, payrollDuplicates: 1, deletePayrollRow: 1, savePrepayTiers: 1, editPrepay: 1, setStudentPause: 1, setStaffEnd: 1, setStaffPause: 1, staffAttendanceMonth: 1, studentMonthReport: 1, recordCashPayment: 1, pausedStudents: 1, deleteSlip: 1, slipDiag: 1, saveSlipOk: 1, cancelPrepay: 1, perfSummary: 1, deletePerfLog: 1, prepaidStudents: 1, insuranceExport: 1,
+    // the whole roster grouped by billing day, with each child's bill state — the same class of answer
+    // as prepaidStudents, and money besides
+    billingGroups: 1,
     // Phase 7. The engine handlers already check the caller's role; listing them here as well means a
     // bug in one of those checks still cannot expose survey results or let anyone rewrite the menu.
     // saveFoodMenu is deliberately NOT here: it is the one action an admin can DELEGATE to a

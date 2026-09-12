@@ -30,6 +30,10 @@ function eq(label, got, want) {
   ok ? pass++ : fail++;
 }
 const src = fs.readFileSync(path.join(__dirname, '..', 'webapp', 'api.js'), 'utf8').replace(/\r\n/g, '\n');
+// the cache rule for classList is only correct BECAUSE of what these two files do with it — the
+// button that reads inToday, and the engine that puts it there. Checked, not assumed.
+const app = fs.readFileSync(path.join(__dirname, '..', 'webapp', 'app.js'), 'utf8').replace(/\r\n/g, '\n');
+const eng = fs.readFileSync(path.join(__dirname, '..', 'webapp', 'engine.js'), 'utf8').replace(/\r\n/g, '\n');
 
 // pull the two tables straight out of the source and run them
 const OWNED = {};
@@ -99,8 +103,28 @@ console.log('\n3) each live read is dropped by exactly what touches it');
 
 console.log('\n4) the reads that were already scoped still behave');
 {
-  ok_('classList survives a check-in', survives('classList', 'parentCheckin'));
+  /* THIS ASSERTION USED TO READ `survives('classList', 'parentCheckin')`, AND IT WAS THE BUG.
+   *
+   * It was written when classList was thought of as "who is in this class" — the shape of the
+   * school, which a check-in plainly does not change. But classList also carries inToday/outToday/
+   * onLeave for every child (attOf in engine.js), and `canJ = s.inToday || done` in
+   * studentRowButtons is what unlocks the 📒 journal button. So the cached roll surviving a
+   * check-in meant: teacher checks the child in → screen re-renders → reads a copy taken BEFORE the
+   * check-in → journal still shut. Reported 2026-09-12, "คุณครูยังบันทึกสมุดรายงานนักเรียนไม่ได้ทันที".
+   *
+   * The rule is not "a check-in cannot change the class list". It is "every write that can change
+   * whether a child counts as present today must drop it" — which is what these now assert. */
+  ['parentCheckin', 'staffStudentCheckin', 'editStudentAttendance', 'studentAbsence',
+   'teacherStudentLeave', 'editStudentLeave', 'deleteStudentLeaves'].forEach(w =>
+    ok_(`classList is dropped by ${w} — it carries today's attendance, not just the roll`,
+      !survives('classList', w)));
   ok_('...and is dropped when a child is moved', !survives('classList', 'orgMoveStudent'));
+  // ...but a write that cannot touch either half still leaves it alone — the whole point of the table
+  ok_('...while a journal or a slip leaves it alone',
+    survives('classList', 'submitJournal') && survives('classList', 'uploadSlip'));
+  // the button's own rule, checked against the engine that feeds it: one fact, two files
+  ok_('the journal button is unlocked by inToday', /const done=jdone\[s\.StudentID\], canJ = s\.inToday \|\| !!done;/.test(app));
+  ok_('...and classList is what carries it', /inToday:at\.checkedIn\|\|!!at\.inTime/.test(eng));
   ok_('payrollConfig survives a journal', survives('payrollConfig', 'submitJournal'));
   ok_('...and is dropped by setPayrollConfig', !survives('payrollConfig', 'setPayrollConfig'));
   ok_('schoolDay is dropped when a holiday is edited', !survives('schoolDay', 'editHoliday'));
