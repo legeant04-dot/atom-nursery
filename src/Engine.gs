@@ -3343,12 +3343,48 @@ function createAtomAPI(M, GROWTH_STD) {
         ended: staffEnded_(s),
         GroupIn: grp&&grp.CheckInTime||'', GroupOut: grp&&grp.CheckOutTime||'' }; },
     setRequireCheckin: p => { const s=M.staff.find(x=>x.StaffID===p.staffId); if(s) s.RequireCheckin=!!p.value; return {staffId:p.staffId, value:!!p.value}; },
-    // staff edits their OWN record, whitelisted fields only (staffId injected server-side)
+    /**
+     * A member of staff edits their OWN record. staffId is injected server-side, so this can only
+     * ever be the caller's own row — the whitelist decides WHICH OF THEIR OWN FIELDS they may touch.
+     *
+     * Widened 2026-09-12: "ข้อมูลส่วนตัวของคุณครู … สามารถแก้ไขได้ในส่วนของข้อมูลส่วนตัวทั้งหมด
+     * ยกเว้นเรื่องเงิน/เวลา/การตั้งค่าที่เป็นเงื่อนไขของโรงเรียน". NameTH joins the list — a teacher
+     * who marries should not have to ask an admin to spell their own name.
+     *
+     * WHAT IS DELIBERATELY NOT HERE, and why each one. This list is the whole security of the route,
+     * so a field added to it without a reason is a field somebody can give themselves:
+     *
+     *   BaseSalary, BankName, BankAccount, ContributionOpening/Accum/Locked, PauseSalary*  — MONEY.
+     *     Naming your own salary, or where it is paid, is the definition of what this must not allow.
+     *   StaffGroup, RequireCheckin, StartDate, EndDate, PauseFrom/To  — TIME. These decide when the
+     *     person is late, whether they clock in at all, and which days they are paid for.
+     *   Role, PositionLevel, Position, Department, Classes, CanClassOrg, CanFoodMenu, ReportsTo  —
+     *     THE SCHOOL'S OWN SETTINGS. Every one is a permission: Role picks the app they see,
+     *     Department='*' is what makes somebody a head teacher, CanClassOrg hands out the organise
+     *     tool. A teacher who could write these could promote themselves to Admin.
+     *   NationalID  — IT IS THE USERNAME. The password screen says so ("ชื่อผู้ใช้ (เลขบัตร ปชช.)"),
+     *     and it is the key that finds the person. Editing it is changing how you sign in, not a
+     *     personal detail, and a typo would lock somebody out of their own account.
+     *   LineUID, GoogleSub, PasswordHash, Status  — credentials and identity, never typed by hand.
+     */
     saveStaffSelf: p => { const s=staffById(p.staffId); if(!s.StaffID)fail('NOT_FOUND','ไม่พบพนักงาน');
       const d=p.data||{};
       const em = d.Email!==undefined ? engEmail_(M.staff, d.Email, 'StaffID', p.staffId) : undefined;  // before any write
-      ['NameEN','Nickname','NicknameEN','Phone','DOB','Photo'].forEach(k=>{ if(d[k]!==undefined) s[k]=d[k]; });
-      if(em!==undefined) s.Email=em; return {ok:true, staffId:p.staffId}; },
+      // a blank legal name is not an edit, it is a payslip with nobody on it — and the roster, the
+      // approval queues and every LINE message to a parent print this field
+      if(d.NameTH!==undefined && !String(d.NameTH).trim()) fail('BAD_INPUT','กรุณากรอกชื่อ-นามสกุล');
+      const WATCH=['NameTH','NameEN','Nickname','NicknameEN','Phone','DOB','Email'];
+      const before={}; WATCH.forEach(k=>{ before[k]=s[k]; });
+      ['NameTH','NameEN','Nickname','NicknameEN','Phone','DOB','Photo'].forEach(k=>{ if(d[k]!==undefined) s[k]=d[k]; });
+      if(em!==undefined) s.Email=em;
+      /* LEAVE A TRAIL. More fields being editable means more that can be changed quietly, and the one
+       * question an admin will ask is "who changed this name?". Only the fields that ACTUALLY moved
+       * are listed, so a save that touched nothing does not produce a line saying it did. Photo is
+       * not watched on purpose — it is a Drive URL that changes on every upload and would report a
+       * change every time somebody re-picked the same picture. */
+      const moved=WATCH.filter(k=>String(before[k]||'')!==String(s[k]||''));
+      if(moved.length) logAct('saveStaffSelf',p.staffId,'แก้ไขข้อมูลส่วนตัว: '+moved.join(', '),actorOf(p));
+      return {ok:true, staffId:p.staffId, changed:moved}; },
     // the Admin roster keeps paused children visible (with a flag) — hiding them would leave no way
     // to see who is away, or to bring them back
     listStudents: () => enrolledStudents().map(s=>Object.assign({ageMonth:ageMonths(s.DOB),

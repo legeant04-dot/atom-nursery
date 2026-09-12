@@ -121,7 +121,16 @@ console.log('\n2) the individual worst moments, with their stamps');
 console.log('\n3) the report prints both');
 {
   const c = srcCode(app);
-  ok_('by hour', /L\.push\('BY HOUR \(เวลาไทย\):'\)/.test(c));
+  /* THE HEADING USED TO SAY "(เวลาไทย)" AS A CLAIM, and this test checked the claim was printed.
+   * It was never checked against anything: perfStamp_ formats in the SPREADSHEET's timezone, so on a
+   * workbook created or moved outside Bangkok every hour in the report is shifted and the heading
+   * still said Thai time. The 09-12 report showed 55% of a nursery's traffic between midnight and
+   * 07:00, which is either a real evening pattern or a seven-hour offset — and nothing on the page
+   * could tell the two apart. So the heading now prints the zone the stamps were actually made in,
+   * and says so loudly when it is not Bangkok. */
+  ok_('by hour, naming the clock it is in', /L\.push\('BY HOUR \('\+\(d\.tz\|\|'\?'\)/.test(c));
+  ok_('...and warning when that clock is not Thai time', /ไม่ใช่เวลาไทย — ชั่วโมงจะเคลื่อน/.test(c));
+  ok_('...with the zone coming from the same call that made the stamps', /tz: perfTz_\(\),/.test(perf));
   ok_('...in clock order, as the server sent them', /d\.byHour\.forEach/.test(c) && !/byHour[\s\S]{0,60}\.sort\(/.test(c));
   ok_('the worst single calls', /SLOWEST SINGLE CALLS \(over/.test(c));
   ok_('...with the stamp first, because that is what is being looked up', /x\.ts\+'  '\+ms\(x\.ms\)/.test(c));
