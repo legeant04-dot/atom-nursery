@@ -192,6 +192,9 @@ var ROUTES = {
   deleteStudentLeaves:  function (p) { return handleDeleteStudentLeaves(p); },   // batch, admin-only
   dedupData:            function (p) { return handleDedupData(p); },        // {preview:true} read-only; else applies
   lineDiag:             function (p) { return handleLineDiag(p); },          // admin-only: LINE push quota/token check
+  // the four clocks this app reads the time from, side by side — and the button that aligns them
+  tzDiag:               function ()  { return handleTzDiag(); },             // admin-only, read-only
+  setTimezone:          function (p) { return handleSetTimezone(p); },       // admin-only, writes both workbooks
   authDiag:             function (p) { return handleAuthDiag(p); },          // admin-only: which record a sign-in lands on, and why
   lineUsage:            function (p) { return handleLineUsage(p); },         // what a month of notifications would cost, counted
   lineRecipients:       function (p) { return handleLineRecipients(p); },    // who gets a LINE push, about what
@@ -370,6 +373,9 @@ function applyIdentity_(action, payload, sess) {
     // still correct it, and this list cannot see either of those rules. The engine checks them.
     unlockInjury: 1, deleteInjury: 1,
     editStudentLeave: 1, deleteStudentLeave: 1, deleteStudentLeaves: 1, dedupData: 1, lineDiag: 1,
+    // tzDiag reads nothing personal, but setTimezone rewrites how every date in both workbooks is
+    // interpreted — the pair belongs to the admin, and they are listed together so neither drifts out
+    tzDiag: 1, setTimezone: 1,
     // hands back LINE ids and email addresses for the whole school — admin only, and read-only
     authDiag: 1,
     // who the school messages, and what it costs — both admin-only: the list carries LINE user ids

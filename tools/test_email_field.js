@@ -171,14 +171,18 @@ console.log('\n6) the sheets have somewhere to put it');
   /* A LIVE sheet was created with the headers of its day. Every handler that writes the column has
    * to name it in ensureColumns_ too, or the value is written under a heading that is not there. */
   const gas = srcCode(staffGs);
-  ok_('handleSaveStaff widens the sheet', /ensureColumns_\(sh, \[[^\]]*'Email', 'GoogleSub'\]\)/.test(gas.slice(gas.indexOf('function handleSaveStaff'), gas.indexOf('function handleSetStaffEnd'))));
+  /* MEMBERSHIP, NOT POSITION — see the same note in test_billing_day / test_off_days. This required
+   * 'GoogleSub' to be the LAST column named, so adding education after it on 2026-09-12 failed a
+   * suite about e-mail. What matters is that both are inside the ensureColumns_ call. */
+  ok_('handleSaveStaff widens the sheet', /ensureColumns_\(sh, \[[\s\S]*?'Email', 'GoogleSub'[\s\S]*?\]\)/
+    .test(gas.slice(gas.indexOf('function handleSaveStaff'), gas.indexOf('function handleSetStaffEnd'))));
   ['handleSaveParent', 'handleSaveParentSelf', 'handleSaveFamilyParent'].forEach(fn => {
     const seg = gas.slice(gas.indexOf('function ' + fn), gas.indexOf('function ' + fn) + 1400);
     ok_(fn + ' widens the sheet', /ensureColumns_\([^)]*'Email', 'GoogleSub'/.test(seg));
     ok_(fn + ' runs the guard', /emailGuard_\(/.test(seg));
   });
   const self = gas.slice(gas.indexOf('function handleSaveStaffSelf'), gas.indexOf('function handleSetRequireCheckin'));
-  ok_('handleSaveStaffSelf lets a teacher set their own, and guards it', /'Email'\]/.test(self) && /emailGuard_\(/.test(self));
+  ok_('handleSaveStaffSelf lets a teacher set their own, and guards it', /'Email'/.test(self) && /emailGuard_\(/.test(self));
   ok_('the guard normalises', /trim\(\)\.toLowerCase\(\)/.test(gas));
   ok_('...and excludes the row being written, so re-saving is not a clash', /String\(r\[idField\] \|\| ''\) !== String\(ownId \|\| ''\)/.test(gas));
   ok_('nothing widened is ever narrowed', !/deleteColumn/.test(gas));

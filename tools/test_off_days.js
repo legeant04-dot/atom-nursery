@@ -177,8 +177,13 @@ console.log('\n5) what gets stored, and what a screen is told');
    * two identical settings cannot look different in the sheet. */
   eq('7, 0 and rubbish are dropped; 3 twice becomes 3 once; sorted', res.cleaned, '2,3,5');
   eq('...and clearing every box really clears it', res.cleared, '');
-  ok_('the column is declared', /'OffDays'\]/.test(cfgGs));
-  ok_('...and topped up on save, so ticking a box cannot silently do nothing', /'OffDays'\]\); \} catch \(e\) \{\}/.test(staffGs));
+  /* MEMBERSHIP, NOT POSITION — both of these used to require OffDays to be the LAST entry of its
+   * list, so appending any column after it failed a suite about days off. (2026-09-12: the student
+   * insurance block went in after it.) What matters is that the column is declared and that the
+   * handler that writes it tops the sheet up. */
+  ok_('the column is declared', /'OffDays'/.test(cfgGs));
+  ok_('...and topped up on save, so ticking a box cannot silently do nothing',
+    /ensureColumns_\(sh, \[[\s\S]*?'OffDays'[\s\S]*?\]\); \} catch \(e\) \{\}/.test(staffGs));
   // changing which days a child attends moves them off lists and out of the absence count
   eq('every change is on the record', res.audit, 2);
 }

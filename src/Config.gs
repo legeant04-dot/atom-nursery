@@ -42,6 +42,23 @@ SCHEMA[WB.MAIN] = {
                       'Weight', 'Height', 'Photo', 'BloodType', 'RH', 'Allergy', 'Vaccine', 'MedicalHistory',
                       'Race', 'Nationality', 'Religion', 'EmergencyContact', 'Address', 'EnrollDate', 'LastGrowthUpdate',
                       'InsuranceHas', 'InsurancePolicyNo', 'InsuranceCompany', 'InsuranceExpiry', 'InsuranceCardImage',
+                      /* THE POLICY THE SCHOOL BOUGHT FOR THIS CHILD (2026-09-12), taken off the
+                       * insurer's own policy-detail page. Not to be confused with INSURANCE_PCHI,
+                       * which is the ENROLMENT FORM the family fills in FOR an insurer. This is the
+                       * finished contract: the admin types it in once and the parent reads it when
+                       * they need to make a claim — which is the whole point, because a family
+                       * standing at a hospital counter needs the policy number and the sum insured,
+                       * and until now those lived in an email nobody could find.
+                       * All optional: a blank prints '-' rather than an empty line. */
+                      'InsurancePlan',      // the plan code on the policy, e.g. AIANPA2500
+                      'InsuranceType',      // e.g. อุบัติเหตุส่วนบุคคล
+                      'InsuredName',        // ผู้เอาประกันภัย — usually the child
+                      'InsuranceOwner',     // เจ้าของกรมธรรม์ — usually a parent
+                      'InsuranceStatus',    // สถานะกรมธรรม์ (มีผลบังคับ / สิ้นผลบังคับ / …)
+                      'InsuranceStart',     // วันที่ของกรมธรรม์ / วันทำสัญญาประกันภัย
+                      'InsuranceSum',       // จำนวนเงินเอาประกันภัย
+                      'InsuranceBenefits',  // ผลประโยชน์ / สัญญาเพิ่มเติม — free text, several lines
+                      'InsuranceHotline',   // the number to ring to make a claim
                       'DriveFolderUrl', 'WithdrawReason', 'WithdrawDetail', 'WithdrawDate', 'WithdrawBy',
                       'Status', 'CreatedDate',
                       'OTRate',    // per-student late-pickup OT rate/hour; blank = SCHOOL_CONFIG OTRatePerHour
@@ -239,7 +256,13 @@ SCHEMA[WB.HR] = {
                   // Temporary leave (ลาชั่วคราว) — employed, still on the roster, not here. Kept in
                   // its own columns rather than in Status, which already means 'no longer employed'.
                   // PauseSalaryMode: ''=paid as normal | NONE | HALF | CUSTOM (with PauseSalaryAmount).
-                  'PauseFrom', 'PauseTo', 'PauseReason', 'PauseRemark', 'PauseSalaryMode', 'PauseSalaryAmount'],
+                  'PauseFrom', 'PauseTo', 'PauseReason', 'PauseRemark', 'PauseSalaryMode', 'PauseSalaryAmount',
+                  /* Education (2026-09-12). The school keeps a รายชื่อคุณครู sheet with these on it and
+                   * was maintaining it by hand; they are now on the record and exported from it.
+                   * All three are OPTIONAL — a blank reads '-' on screen and in the export, never a
+                   * guess. Education is a fixed list so the export can be grouped; EduMajor is free
+                   * text because a สาขา is whatever the certificate says. */
+                  'Education', 'EduMajor', 'EduGradDate'],
   // Staff groups with their own (editable) work hours — Admin-managed
   STAFF_GROUPS:  ['GroupName', 'GroupNameEN', 'CheckInTime', 'CheckOutTime'],
   // Per-staff payroll config (Admin-editable). Widened to carry every field the engine's computePayroll uses
