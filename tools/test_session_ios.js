@@ -63,7 +63,13 @@ const reached = (c, a) => c.__sent.reduce((n, b) =>
   {
     const auth = R('src/Auth.gs');
     ok_('there is a renewal', /function renewSession_/.test(auth));
-    ok_('it only fires past the halfway point', /left > \(SESSION_TTL_SEC \* 1000\) \/ 2\) return ''/.test(auth));
+    /* HALF-LIFE OF THIS PERSON'S TTL, not of the 12-hour default. This used to read
+     * `(SESSION_TTL_SEC * 1000) / 2` and that stopped being right the moment the TTL became
+     * per-role: a parent's 30-day token measured against a 6-hour half-life is inside "past
+     * halfway" from the first minute, so every single request would have reissued a token —
+     * an HMAC and an identity lookup each time, for nothing. */
+    ok_('it only fires past the halfway point OF THE CALLER\'S OWN TTL',
+      /var ttl = sessionTtlFor_\(sess\.role\) \* 1000;/.test(auth) && /left > ttl \/ 2\) return ''/.test(auth));
     ok_('an already-expired token is NOT renewed — that would be a way back in', /left <= 0/.test(auth));
     /* THE IDENTITY IS RE-DERIVED, NOT CARRIED FORWARD.
      *
@@ -81,7 +87,9 @@ const reached = (c, a) => c.__sent.reduce((n, b) =>
     ok_('...and a uid that resolves to nobody is not renewed at all', /if \(!who\) return '';/.test(auth));
 
     // run it for real against a fake GAS runtime
-    const ctx = { Date, JSON, SESSION_TTL_SEC: 43200, sessionSecret_: () => 'test-secret',
+    const ctx = { Date, JSON, SESSION_TTL_SEC: 43200,
+      SESSION_TTL_BY_ROLE_: { Parent: 30 * 24 * 3600, Teacher: 14 * 24 * 3600 },
+      sessionSecret_: () => 'test-secret',
       ROLES: { PARENT: 'Parent' },
       // the lookup renewal now depends on — one staff row, so the identity comes back unchanged
       googleFindByUid_: uid => (uid === 'U' ? { kind: 'STAFF', row: { StaffID: 'STF-1', Role: 'Teacher' } } : null),
@@ -89,13 +97,45 @@ const reached = (c, a) => c.__sent.reduce((n, b) =>
     vm.createContext(ctx);
     const cut = src => { const i = auth.indexOf('function ' + src); let d = 0, j = auth.indexOf('{', i), e = j;
       for (let k = j; k < auth.length; k++) { if (auth[k] === '{') d++; else if (auth[k] === '}') { d--; if (!d) { e = k; break; } } } return auth.slice(i, e + 1); };
-    vm.runInContext(cut('issueSession_') + '\n' + cut('renewSession_') + '\n' + cut('resolveIdentity_'), ctx);
+    vm.runInContext(cut('sessionTtlFor_') + '\n' + cut('issueSession_') + '\n' + cut('renewSession_') + '\n' + cut('resolveIdentity_'), ctx);
     const now = Date.now(), TTL = 43200 * 1000;
     eq('fresh token (11h left): not renewed', ctx.renewSession_({ uid: 'U', exp: now + TTL * 0.9 }), '');
     ok_('past halfway (5h left): renewed', !!ctx.renewSession_({ uid: 'U', exp: now + TTL * 0.4 }));
     ok_('nearly gone (1 min left): renewed', !!ctx.renewSession_({ uid: 'U', exp: now + 60000 }));
     eq('already expired: refused', ctx.renewSession_({ uid: 'U', exp: now - 1000 }), '');
     eq('no session at all: refused', ctx.renewSession_(null), '');
+
+    /* ---- HOW LONG A SESSION SURVIVES BEING LEFT ALONE (asked 2026-09-14) ---------------------
+     * The tiering is the security decision, so it is pinned rather than left to whoever edits the
+     * constant next: a parent sees their own children, an Admin sees every family and the money. */
+    const D = 24 * 3600;
+    eq('parent: 30 days', ctx.sessionTtlFor_('Parent'), 30 * D);
+    eq('teacher: 14 days', ctx.sessionTtlFor_('Teacher'), 14 * D);
+    eq('ADMIN IS NOT LENGTHENED — money and every family\'s records', ctx.sessionTtlFor_('Admin'), 43200);
+    eq('leader likewise', ctx.sessionTtlFor_('Leader'), 43200);
+    eq('observer likewise', ctx.sessionTtlFor_('Observer'), 43200);
+    /* A half-finished registration on a borrowed phone must not linger for a month — and `guest`
+     * can do nothing but register, so there is no convenience being bought by lengthening it. */
+    eq('guest keeps the short default', ctx.sessionTtlFor_('guest'), 43200);
+    eq('an unknown role falls back to the default, never to the longest', ctx.sessionTtlFor_('Nonsense'), 43200);
+
+    /* The renewal window follows the role, which is the whole reason the half-life had to change.
+     * 20 days left of a parent's 30 is NOT past halfway; the same 20 days on a teacher's 14-day
+     * token cannot happen, and 3 days left of 14 is. */
+    eq('parent with 20 of 30 days left: not renewed yet',
+      ctx.renewSession_({ uid: 'U', role: 'Parent', exp: now + 20 * D * 1000 }), '');
+    ok_('parent with 3 days left: renewed',
+      !!ctx.renewSession_({ uid: 'U', role: 'Parent', exp: now + 3 * D * 1000 }));
+    ok_('teacher with 3 of 14 days left: renewed',
+      !!ctx.renewSession_({ uid: 'U', role: 'Teacher', exp: now + 3 * D * 1000 }));
+
+    /* ISSUED-AT IS WHAT MAKES A REVOKE POSSIBLE. Without it there is no way to say "everything
+     * minted before this instant is dead", and a 30-day session on a lost phone could not be
+     * closed at all. Asserted on the JSON the token is built from. */
+    ok_('the token carries iat', /iat: now/.test(auth));
+    ok_('...and exp is measured from it, per role', /exp: now \+ sessionTtlFor_\(role\) \* 1000/.test(auth));
+    ok_('issueSession_ accepts an explicit instant, so a revoke can keep its own device alive',
+      /function issueSession_\(uid, role, linkedId, at\)/.test(auth) && /var now = Number\(at\) \|\| Date\.now\(\);/.test(auth));
 
     const code = R('src/Code.gs');
     ok_('the renewed token rides back on a normal reply', /function withRenewal_/.test(code));

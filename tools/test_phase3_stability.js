@@ -113,7 +113,15 @@ console.log('\n2) staffCheckout: "already done" is not a failure');
 console.log('\n3) a failure that recovered is reported as recovered');
 {
   ok_('the client marks the recovery', /return enqueueGas\(action, payload\)\.then\(d => \{ PERF\.mark\('healed', action, 0\); return d; \}\);/.test(api));
-  ok_('...only after a successful re-login', /if \(!ok\) throw e;/.test(api));
+  ok_('...only after a successful re-login', /if \(!ok\) \{[\s\S]{0,120}throw e; \}/.test(api));
+  /* AND WHEN LINE WILL NOT VOUCH FOR THEM EITHER, the app says "sign in again" instead of painting
+   * the screen red. This matters far more since v383: the app now opens from its own stored token
+   * without going near LINE, so arriving on a working screen with a session the server has already
+   * refused is a real path (expired while closed, or revoked from another device) rather than the
+   * near-impossibility it was when every session was minted seconds earlier by a live hand-off. */
+  ok_('a re-login LINE refuses ends in a sign-out, not a red screen', /window\.__atomSignedOut\(\)/.test(api));
+  ok_('...and the app implements the hook', /window\.__atomSignedOut = \(\) => \{/.test(app));
+  ok_('...once, not once per failing call on the screen', /if \(_signedOutShown \|\| !USER\) return; _signedOutShown = true;/.test(app));
   ok_('the server counts them', /if \(type === 'healed'\) \{ healed\[action\] = \(healed\[action\] \|\| 0\) \+ 1; healedTotal\+\+; continue; \}/.test(perf));
   ok_('...and reports what is left after taking them out', /realFailed: Math\.max\(0, failed - healedTotal\)/.test(perf) && /realFailRate:/.test(perf));
   ok_('...naming which actions recovered', /healedBy: Object\.keys\(healed\)/.test(perf));

@@ -65,6 +65,36 @@ window.CONFIG = { MODE: 'gas', GAS_URL: 'https://script.google.com/macros/s/AKfy
     if (t && t.indexOf('.') > 0) _session = t; else if (t) localStorage.removeItem('atom_session_token');
   } catch (e) {}
   window.__atomClearSession = () => { _session = null; try { localStorage.removeItem('atom_session_token'); } catch (e) {} };
+  /* A replacement handed back by an action rather than by a sign-in. signOutEverywhere ends every
+   * session the account holds INCLUDING this one, and re-mints the caller a token at the same
+   * instant so the phone in their hand carries on — that token has to land here or the next request
+   * would go out with the one that was just revoked. */
+  window.__atomSetSession = t => {
+    if (!t || String(t).indexOf('.') <= 0) return false;
+    _session = t; try { localStorage.setItem('atom_session_token', t); } catch (e) {}
+    return true;
+  };
+  /**
+   * WHAT THE TOKEN SAYS ABOUT ITS OWNER — read, not believed.
+   *
+   * The body is base64url JSON and the client can read it perfectly well; what it cannot do is forge
+   * one, because the server checks the HMAC on every request. So this is safe for the one thing it is
+   * used for: deciding, before any network call, that we already hold a session and the app can be
+   * painted from it instead of sending the user back through LINE (see resumeSession in app.js).
+   *
+   * Returns null for an expired token as well as a malformed one — an expiry the server would refuse
+   * is not a session worth trying to resume, and going to LINE straight away is the faster answer.
+   */
+  window.__atomSessionInfo = () => {
+    if (!_session) return null;
+    try {
+      let b = _session.split('.')[0].replace(/-/g, '+').replace(/_/g, '/');
+      while (b.length % 4) b += '=';                      // base64url drops padding; atob wants it
+      const p = JSON.parse(atob(b));                      // uid/role/linkedId are all ASCII
+      if (!p || !p.exp || Date.now() >= p.exp) return null;
+      return p;
+    } catch (e) { return null; }
+  };
   /**
    * KEEP A SESSION, WHICHEVER DOOR IT CAME THROUGH.
    *
@@ -650,7 +680,10 @@ window.CONFIG = { MODE: 'gas', GAS_URL: 'https://script.google.com/macros/s/AKfy
     /* A Google ID token is single-use in the same spirit: it is short-lived, and the row it writes
      * (the permanent account id, or the link itself) must be written once and deliberately, not by a
      * retry that fires while the person is still looking at the button. */
-    googleExchange: 1, googleLink: 1
+    googleExchange: 1, googleLink: 1,
+    // ends every session an account holds — "sign…" is not a mutating verb, and a revoke the client
+    // treated as a read would be answered from cache the next time it was asked for
+    signOutEverywhere: 1
   };
   const isMutating = a => !READ_ONLY[a] && !!(WRITES[a] || MUT.test(a) || /check(in|out)|absence|payOT$|^orgMove|^unlink|^claim|^recompute/i.test(a));
   // app.js asks the same question for the Observer role, so "does this write?" has ONE answer
@@ -847,7 +880,15 @@ window.CONFIG = { MODE: 'gas', GAS_URL: 'https://script.google.com/macros/s/AKfy
     const send = () => enqueueGas(action, payload).catch(e => {
       if (!isDeadSession(e) || action === 'auth') throw e;
       return reauth().then(ok => {
-        if (!ok) throw e;
+        /* LINE CANNOT VOUCH FOR THEM EITHER — say so instead of painting a red error.
+         *
+         * This was survivable while a session lasted twelve hours and was always minted moments
+         * earlier by a LINE hand-off that had just succeeded. It is not survivable now: the app
+         * opens from its own stored token without going near LINE, so "the token is dead and LINE
+         * will not replace it" — expired while the app was closed, or revoked from another device —
+         * is a real way to arrive on a working screen with no session behind it. Left alone the
+         * screen would fill with ต้องเข้าสู่ระบบใหม่ and look broken rather than signed out. */
+        if (!ok) { try { if (window.__atomSignedOut) window.__atomSignedOut(); } catch (x) {} throw e; }
         return enqueueGas(action, payload).then(d => { PERF.mark('healed', action, 0); return d; });
       });
     });
