@@ -500,6 +500,36 @@ function createAtomAPI(M, GROWTH_STD) {
     'personal':'ลากิจ','business leave':'ลากิจ','holiday leave':'ลาพักร้อน','vacation':'ลาพักร้อน',
     'vacation leave':'ลาพักร้อน','annual leave':'ลาพักร้อน','absent':'ขาด'};
   function leaveTypeTH_(v){ const s=String(v==null?'':v).trim(); return s?(LEAVE_ALIAS_[s.toLowerCase()]||s):''; }
+  /* ---- LEAVE ENTITLEMENT IS PER PERSON ---------------------------------------------------------
+   *
+   * Asked 2026-09-14: "สิทธิการลาจะขึ้นอยู่กับอายุงาน และทางโรงเรียนจะแก้ไข/เพิ่ม/ลดได้เอง เช่น
+   * ครู A ได้พักร้อน 6 วัน / ครู B ได้พักร้อน 8 วัน".
+   *
+   * SCHOOL_CONFIG.LeaveQuota stays exactly what it was — the DEFAULT, and the answer for everyone
+   * the admin has not touched. A staff row may carry its own LeaveQuota (a JSON object keyed by the
+   * same Thai leave-type names), and only the types it names are overridden: a teacher given 8 days
+   * of holiday still gets the school's 30 sick days without anybody re-typing them, and raising the
+   * school default later still reaches them.
+   *
+   * MERGED, NOT REPLACED, and that is the whole design. A full replacement would silently freeze
+   * every other type at whatever it happened to be on the day the admin set one number — so the
+   * school would raise ลาป่วย to 35 and one teacher would quietly stay on 30 for ever.
+   *
+   * A blank, a 0-length string or unparseable JSON means "no override": '' is how a cleared box is
+   * stored, and reading it as the number 0 would take away somebody's leave entirely.
+   */
+  function staffQuotaRaw_(s){
+    let v = s && s.LeaveQuota;
+    if (typeof v === 'string') { const t=v.trim(); if(!t) return {}; try { v=JSON.parse(t); } catch(e){ return {}; } }
+    if (!v || typeof v !== 'object' || Array.isArray(v)) return {};
+    const out={};
+    Object.keys(v).forEach(k=>{ const n=Number(v[k]);
+      // only a real number counts as an override — '' and null mean "use the school's"
+      if (v[k]!==null && v[k]!=='' && isFinite(n) && n>=0) out[leaveTypeTH_(k)]=n; });
+    return out;
+  }
+  /** the school's table with this person's overrides folded in */
+  function leaveQuotaOf_(s){ return Object.assign({}, cfg.LeaveQuota||{}, staffQuotaRaw_(s)); }
   // ---- student OT: charge vs goodwill discount (see adminUpdateOT) ----
   // Amount is always the NET payable. FullAmount is the charge before any waiver; rows written
   // before discounts existed have none, in which case their Amount IS the full charge.
@@ -2882,11 +2912,17 @@ function createAtomAPI(M, GROWTH_STD) {
         .filter(l=>!month||ym(l.StartDate)===month||ym(l.CreatedDate)===month)
         .sort((a,b)=>String(b.CreatedDate||b.StartDate||'').localeCompare(String(a.CreatedDate||a.StartDate||'')))
         .map(leaveView_); },
-    leaveQuota: p => { const raw=M.leaveUsed[p.staffId]||{}; const q=cfg.LeaveQuota;
+    leaveQuota: p => { const raw=M.leaveUsed[p.staffId]||{};
+      const q=leaveQuotaOf_(staffById(p.staffId));
+      const own=staffQuotaRaw_(staffById(p.staffId));
       // Fold any English-labelled total back onto the Thai key it belongs to, or a teacher who used
       // the app in English reads "0 days used" however much leave they have actually taken.
       const used={}; Object.keys(raw).forEach(k=>{ const n=leaveTypeTH_(k); used[n]=(used[n]||0)+(Number(raw[k])||0); });
-      return Object.keys(q).map(t=>({type:t,quota:q[t],used:used[t]||0,remain:q[t]-(used[t]||0)})); },
+      // `own` says whether THIS number is the school default or something the admin set for this
+      // person — the screen says so, because "8 วัน" means a different thing to a teacher who knows
+      // the school gives 6.
+      return Object.keys(q).map(t=>({type:t,quota:q[t],used:used[t]||0,remain:q[t]-(used[t]||0),
+        own:Object.prototype.hasOwnProperty.call(own,t)})); },
     submitLeave: p => { const st=staffById(p.staffId); const id=nextSeqId_(M.leaves,'LeaveID','LV2026',3);
       // leave entitlement does not carry across the year — a request may not span 31 Dec → next year
       if(String(p.startDate).slice(0,4)!==String(p.endDate).slice(0,4)) fail('CROSS_YEAR','ใช้สิทธิลาข้ามปีไม่ได้ — กรุณาแยกใบลาภายในปีเดียวกัน');
@@ -5482,8 +5518,11 @@ function createAtomAPI(M, GROWTH_STD) {
       logAct('submitInsurance',p.studentId,(s.NameTH||p.studentId),by);
       return {ok:true, updated:false, record:rec}; },
     // Admin: every active student with insurance filled/not-filled + the record
+    // the nickname is the headline on every parent-facing list in this app; this one printed the
+    // full legal name and nothing else, which is not how anybody at the school refers to a child
     insuranceList: () => activeStudents().map(s=>{ const rec=M.insurancePCHI.find(x=>x.StudentID===s.StudentID)||null;
-      return {studentId:s.StudentID, name:s.NameTH, nameEN:s.NameEN, nationalId:s.NationalID, class:s.Class, filled:!!rec, record:rec}; }),
+      return {studentId:s.StudentID, name:s.NameTH, nameEN:s.NameEN, nick:s.Nickname, nickEN:s.NicknameEN,
+              nationalId:s.NationalID, class:s.Class, filled:!!rec, record:rec}; }),
     // Admin edit/override (bypasses the once-only rule)
     saveInsuranceAdmin: p => H.submitInsurance(Object.assign({adminEdit:true}, p)),
 

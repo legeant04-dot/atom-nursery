@@ -262,7 +262,14 @@ SCHEMA[WB.HR] = {
                    * All three are OPTIONAL — a blank reads '-' on screen and in the export, never a
                    * guess. Education is a fixed list so the export can be grouped; EduMajor is free
                    * text because a สาขา is whatever the certificate says. */
-                  'Education', 'EduMajor', 'EduGradDate'],
+                  'Education', 'EduMajor', 'EduGradDate',
+                  /* THIS PERSON'S LEAVE ENTITLEMENT (2026-09-14), as JSON keyed by the same Thai
+                   * type names SCHOOL_CONFIG.LeaveQuota uses — {"ลาพักร้อน":8}. It is a set of
+                   * OVERRIDES, not a replacement: only the types named here differ from the school's
+                   * table, so raising the school's sick-leave later still reaches everybody.
+                   * Entitlement follows length of service, which is why it cannot live in one
+                   * school-wide number. Blank = this person is on the school's numbers. */
+                  'LeaveQuota'],
   // Staff groups with their own (editable) work hours — Admin-managed
   STAFF_GROUPS:  ['GroupName', 'GroupNameEN', 'CheckInTime', 'CheckOutTime'],
   // Per-staff payroll config (Admin-editable). Widened to carry every field the engine's computePayroll uses

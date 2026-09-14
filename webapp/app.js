@@ -112,7 +112,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.381'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.382'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -5638,7 +5638,11 @@
     const m=tlvMonth();
     const mine=(d.myLeaves||[]).filter(l=>inMonth_(l.StartDate,m)||inMonth_(l.CreatedDate,m))
       .sort((a,b)=>String(b.StartDate||'').localeCompare(String(a.StartDate||'')));
-    return `<div class="card"><h3>สิทธิคงเหลือ</h3><div class="quota">${(d.quota||[]).map(q=>`<div class="q"><div class="n">${esc(halfNum(q.remain))}</div><div class="l">${esc(q.type)} ${esc(halfNum(q.used))}/${esc(halfNum(q.quota))}</div></div>`).join('')}</div></div>
+    /* `own` marks a figure the admin set for THIS teacher rather than the school's default —
+     * "8 วัน" means a different thing to somebody who knows the school gives 6, and a teacher whose
+     * entitlement was raised for length of service should be able to see that it was. */
+    return `<div class="card"><h3>สิทธิคงเหลือ</h3><div class="quota">${(d.quota||[]).map(q=>`<div class="q"><div class="n"${Number(q.remain)<0?' style="color:var(--bad)"':(Number(q.remain)===0?' style="color:var(--warn)"':'')}>${esc(halfNum(q.remain))}</div><div class="l">${esc(tLeaveType(q.type))} ${esc(halfNum(q.used))}/${esc(halfNum(q.quota))}${q.own?` <span title="${EN()?'set for you':'สิทธิเฉพาะของคุณ'}">★</span>`:''}</div></div>`).join('')}</div>
+      ${(d.quota||[]).some(q=>q.own)?`<small class="muted" style="font-size:12px">★ ${EN()?'set for you by the school (not the standard entitlement)':'สิทธิที่โรงเรียนกำหนดให้คุณเป็นการเฉพาะ (ไม่ใช่ค่ามาตรฐาน)'}</small>`:''}</div>
       <div class="card"><h3>ยื่นใบลา</h3>
         <!-- The VALUE must be Thai and must never be translatable. These options used to carry the
              Thai text with no value attribute: in English mode i18n_tr.js rewrote that text to
@@ -7908,7 +7912,10 @@
     <small id="mgSearchCount" class="muted" style="font-size:13px;display:block;margin-top:4px"></small></div>`;
 
   SCREENS.Admin.manage = async () => {
-    const [staff,students,parents,pm,groups,exported,wds,classes,plans,depts,linkCounts,kidsMap]=await Promise.all([api('listStaff'),api('listStudents'),api('listParents'),api('permMatrix'),api('listStaffGroups'),api('listExportedStudents'),api('listWithdrawals',{pending:true}),api('listClasses'),api('getPlans'),api('listDepartments'),api('parentLinkCounts').catch(()=>({})),api('parentKidsMap').catch(()=>({}))]);
+    // getLeaveQuota rides in the SAME batch as everything else here, so the staff form can draw the
+    // school's numbers as placeholders without a round trip of its own
+    const [staff,students,parents,pm,groups,exported,wds,classes,plans,depts,linkCounts,kidsMap,lq]=await Promise.all([api('listStaff'),api('listStudents'),api('listParents'),api('permMatrix'),api('listStaffGroups'),api('listExportedStudents'),api('listWithdrawals',{pending:true}),api('listClasses'),api('getPlans'),api('listDepartments'),api('parentLinkCounts').catch(()=>({})),api('parentKidsMap').catch(()=>({})),api('getLeaveQuota').catch(()=>null)]);
+    if(lq && typeof lq==='object' && Object.keys(lq).length) A_CACHE.schoolQuota=lq;
     window._LINKCOUNTS=linkCounts||{};
     window._PKIDS=kidsMap||{};   // lets parentDisp() name every parent by their child, links included
     A_CACHE.staff=staff; A_CACHE.students=students; A_CACHE.parents=parents; A_CACHE.classes=classes||[]; A_CACHE.plans=plans||[]; A_CACHE.groups=groups||[]; A_CACHE.depts=depts||[];
@@ -8046,6 +8053,47 @@
   /** read them back out of whichever form they were drawn into */
   function eduRead(root,pre){ const g=k=>{ const e=root.querySelector('#'+pre+'_'+k); return e?String(e.value||'').trim():''; };
     return { Education:g('Education'), EduMajor:g('EduMajor'), EduGradDate:g('EduGradDate') }; }
+
+  /* ---- สิทธิวันลาของครูแต่ละคน ------------------------------------------------------------------
+   *
+   * Asked 2026-09-14: entitlement follows length of service, so it cannot be one school-wide number.
+   * "ครู A ได้พักร้อน 6 วัน / ครู B ได้พักร้อน 8 วัน".
+   *
+   * A BLANK BOX MEANS "USE THE SCHOOL'S", and it has to — typing the school's own number into every
+   * box for every teacher would freeze them all at today's figure, so raising ลาป่วย to 35 next year
+   * would reach nobody. The placeholder shows the school's number so the admin can see what blank
+   * will give them, and only a box they actually fill in becomes an override.
+   *
+   * The types are read from the school's own table rather than hard-coded: a school that adds
+   * ลาคลอด gets a box for it here without anybody editing this function.
+   */
+  /* The school's own table. Fetched with the manage screen's other reads (same batch, so no extra
+   * round trip) and kept here; the fallback is the school's stated default — ลาป่วย 30 / ลากิจ 3 /
+   * ลาพักร้อน 6 — so the form still draws the right boxes if that read ever fails. */
+  const QUOTA_FALLBACK = {'ลาป่วย':30,'ลากิจ':3,'ลาพักร้อน':6};
+  const schoolQuota = () => { const q=A_CACHE.schoolQuota||(MOCK.config&&MOCK.config.LeaveQuota);
+    return (q && typeof q==='object' && Object.keys(q).length) ? q : QUOTA_FALLBACK; };
+  function staffQuota(s){ let v=s&&s.LeaveQuota;
+    if(typeof v==='string'){ const t=v.trim(); if(!t) return {}; try{ v=JSON.parse(t); }catch(e){ return {}; } }
+    return (v && typeof v==='object' && !Array.isArray(v)) ? v : {}; }
+  /* The boxes are keyed by INDEX, not by the leave-type name. The names are Thai, and a Thai string
+   * in an id has to be CSS.escape()d at every query — one place forgetting it reads back nothing and
+   * silently drops that teacher's entitlement. The index is carried in a data- attribute instead. */
+  function quotaFields(pre,s){ const school=schoolQuota(), own=staffQuota(s||{}), keys=Object.keys(school);
+    return `<div class="jsec"><b style="font-size:13px">🌴 ${EN()?'Leave entitlement (this person)':'สิทธิวันลา (เฉพาะคนนี้)'}</b>
+      <small class="muted" style="display:block;font-size:12.5px;margin:2px 0 6px">${EN()
+        ? 'Leave blank to use the school default shown greyed in each box. Fill one in only when this person differs — entitlement follows length of service.'
+        : 'เว้นว่าง = ใช้ค่าของโรงเรียน (ตัวเลขจาง ๆ ในช่อง) · กรอกเฉพาะคนที่ได้ไม่เท่าโรงเรียน — สิทธิขึ้นกับอายุงาน'}</small>
+      <div class="grid2">${keys.map((k,i)=>`<label class="field"><span>${esc(tLeaveType(k))}</span>
+        <input class="${pre}_q" data-qk="${esc(k)}" id="${pre}_q${i}" type="number" min="0" step="0.5"
+          value="${own[k]!=null&&own[k]!==''?esc(own[k]):''}" placeholder="${esc(String(school[k]))}"/></label>`).join('')}</div></div>`;
+  }
+  /** back out as a JSON string — '' when every box was left blank, which means "the school's" */
+  function quotaRead(root,pre){ const out={};
+    [...root.querySelectorAll('.'+pre+'_q')].forEach(e=>{ const k=e.dataset.qk; if(!k) return;
+      const raw=String(e.value||'').trim(); if(raw==='') return;
+      const n=Number(raw); if(isFinite(n)&&n>=0) out[k]=n; });
+    return Object.keys(out).length ? JSON.stringify(out) : ''; }
   // '-' for a blank, everywhere this is printed — the school's own sheet reads that way
   const eduDash = v => { const s=String(v==null?'':v).trim(); return s||'-'; };
 
@@ -8133,6 +8181,7 @@
       <label class="field" style="display:flex;align-items:center;gap:8px"><input type="checkbox" id="sf_CanFoodMenu" style="width:auto" ${(s.CanFoodMenu===true||s.CanFoodMenu===1||['YES','TRUE'].indexOf(String(s.CanFoodMenu||'').toUpperCase())>=0)?'checked':''}/> 🍚 ${EN()?'Allow this teacher to manage the monthly food menu':'ให้ครูคนนี้จัดการเมนูอาหารรายเดือนได้'}</label>
       <div class="grid2">${f('Phone',t('reg.phone'),phoneFmt(s.Phone))}${f('NationalID',t('reg.nationalId'),s.NationalID)}</div>
       ${eduFields('sf',s)}
+      ${quotaFields('sf',s)}
       <div class="grid2">${f('StartDate',t('staff.startDate'),s.StartDate,'date')}${f('BaseSalary',t('pay.baseSalary'),s.BaseSalary,'number')}</div>
       <p class="muted" style="font-size:13px;margin:-4px 2px 8px">${EN()?'Before the first working day this person cannot log time, and nothing counts them present or absent.':'ก่อนถึงวันเข้าทำงานวันแรก จะลงเวลาไม่ได้ และระบบจะไม่นับมา/ขาด/สายให้'}</p>
       ${/* THE SAVE AND THE READ WERE LOOKING AT DIFFERENT SHEETS.
@@ -8240,6 +8289,7 @@
     const data={NameTH:v('NameTH'),NameEN:v('NameEN'),Nickname:v('Nickname'),NicknameEN:v('NicknameEN'),DOB:v('DOB'),Position:v('Position'),Department:dept,StaffGroup:v('StaffGroup'),PositionLevel:v('PositionLevel'),Phone:v('Phone'),NationalID:v('NationalID'),LineUID:v('LineUID'),StartDate:v('StartDate'),BaseSalary:+v('BaseSalary')||0,Email:emailFmt(v('Email')),BankName:v('BankName'),BankAccount:v('BankAccount'),ContributionOpening:+v('ContributionOpening')||0,ContributionLocked:(m.querySelector('#sf_ContributionLocked')&&m.querySelector('#sf_ContributionLocked').checked)?'YES':'',Classes:dept,CanClassOrg:canOrg?'YES':'',CanFoodMenu:canFood?'YES':''};
     data.Role=v('Role')||'Teacher';
     Object.assign(data, eduRead(m,'sf'));   // วุฒิการศึกษา / สาขา / วันจบ — all optional
+    data.LeaveQuota = quotaRead(m,'sf');    // this person's own entitlement; '' = use the school's
     if(!emailOk(data.Email)){ toast(t('reg.emailBad')); return; }
     const sfp=photoVal(m,'sf_Photo'); if(sfp) data.Photo=sfp;
     try{ const r=await api('saveStaff',{staffId:id||null,data});
@@ -9242,7 +9292,12 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
         <button class="btn sm outline dash-refresh" onclick="A_insuranceExport(this)"${_filled?'':' disabled style="opacity:.5"'}
           title="${EN()?'Export the PCHI sheet':'นำออกข้อมูลประกัน (PCHI)'}">📤 <span class="lbl">${EN()?'Export':'นำออก'}</span></button></div>
       <div class="card"><p class="muted" style="font-size:13px">${esc(t('ins2.manageNote'))}</p>
-      ${list.map(x=>`<div class="list-item"><span><b>${esc(EN()?(x.nameEN||x.name):x.name)}</b> <small class="muted">${esc(x.class||'')} · ${EN()?'ID':'บัตร'} ${esc(x.nationalId||'-')}</small> <span class="pill ${x.filled?'ok':'wait'}">${x.filled?'✓ '+esc(t('ins2.filled')):esc(t('ins2.notFilled'))}</span></span>
+      ${/* NICKNAME FIRST, full name underneath — asked 2026-09-14, and the rule every other
+           parent-facing list in this app already follows. Nobody at the school asks for
+           "ดนัยพัชร์ ปฏิจิตร"; they ask for น้องภูมิ, and a list that cannot be scanned by the name
+           people use is a list that gets read one row at a time. dnick falls back to the full name
+           when a child has no nickname, so a row can never come out blank. */''}
+      ${list.map(x=>`<div class="list-item"><span><b>${esc(dnick(x)||x.name)}</b> <span class="pill ${x.filled?'ok':'wait'}">${x.filled?'✓ '+esc(t('ins2.filled')):esc(t('ins2.notFilled'))}</span><br><small class="muted">${esc(EN()?(x.nameEN||x.name):x.name)} · ${esc(x.class||'')} · ${EN()?'ID':'บัตร'} ${esc(x.nationalId||'-')}</small></span>
         <button class="btn sm ${x.filled?'outline':''}" onclick="A_insuranceEdit('${x.studentId}')">${x.filled?'✏️':esc(t('ins2.btn'))}</button></div>`).join('')}</div>`;
     window.scrollTo(0,0); };
   /**

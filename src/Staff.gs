@@ -89,7 +89,9 @@ function handleSaveStaff(p) {
   try { ensureColumns_(sh, ['NicknameEN', 'Classes', 'CanClassOrg', 'CanFoodMenu', 'BankName', 'BankAccount', 'ContributionOpening',
     'StartDate', 'EndDate', 'EndReason', 'EndRemark', 'Email', 'GoogleSub',
     // education (2026-09-12) — without the column, writeRows_/updateRow_ drop the field in silence
-    'Education', 'EduMajor', 'EduGradDate']); } catch (e) {}
+    'Education', 'EduMajor', 'EduGradDate',
+    // ...and this person's own leave entitlement (2026-09-14), same rule
+    'LeaveQuota']); } catch (e) {}
   var d = p.data || {};
   if (d.Email !== undefined) d.Email = emailGuard_(sh, d.Email, 'StaffID', p.staffId);
   if (d.LineUID !== undefined) d.LineUID = lineUidGuard_(sh, d.LineUID, 'StaffID', p.staffId);
