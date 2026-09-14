@@ -236,7 +236,10 @@ function handleInsuranceList() {
     .map(function (s) {
       var rec = null;
       for (var i = 0; i < ins.length; i++) { if (ins[i].StudentID === s.StudentID) { rec = ins[i]; break; } }
-      return { studentId: s.StudentID, name: s.Name, nameEN: s.NameEN, nationalId: s.NationalID, class: s.Class, filled: !!rec, record: insReadable_(rec) };
+      // nick/nickEN so the list can lead with the name the school actually uses — this route SHADOWS
+      // the engine's insuranceList, so adding them there alone would have changed nothing on live
+      return { studentId: s.StudentID, name: s.Name, nameEN: s.NameEN, nick: s.Nickname, nickEN: s.NicknameEN,
+               nationalId: s.NationalID, class: s.Class, filled: !!rec, record: insReadable_(rec) };
     });
 }
 
