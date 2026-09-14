@@ -87,7 +87,14 @@ console.log('\n2) THE 115 — a new one is a behaviour silently replaced');
     'saveDspmCriteria', 'saveFamilyParent', 'saveInsuranceAdmin', 'saveParent', 'saveParentComment',
     'savePlans', 'savePrepayTiers', 'saveQRCodes', 'saveSlipOk', 'saveStaff', 'saveStaffSelf',
     'saveStudent', 'saveStudentSelf', 'saveTeacherReply', 'setConfigVal', 'setLeaveQuota',
-    'setRequireCheckin', 'setSchoolConfig', 'setStaffPause', 'setStudentPause', 'slipDiag',
+    'setRequireCheckin', 'setSchoolConfig', 'setStaffPause', 'setStudentPause',
+    /* A DELIBERATE SHADOW THAT IS NOT A RISK, and the reason is worth stating because every other
+     * name on this list IS one. The shadowing rule exists because two copies of the same logic drift
+     * apart silently. There is no same logic here: sessions only exist on GAS, so the engine entry
+     * is a stub that answers so the profile button does not fail with UNKNOWN_ACTION in mock mode.
+     * Nothing in the engine version could ever be the behaviour live is supposed to have. */
+    'signOutEverywhere',
+    'slipDiag',
     'staffCheckin', 'staffCheckout', 'staffStudentCheckin', 'studentAbsence', 'studentAssessment',
     'submitAssessment', 'submitClassChange', 'submitInjury', 'submitInsurance', 'submitJournal',
     'submitLeave', 'submitTimeRequest', 'teacherPayOT', 'teacherStudentLeave', 'unlinkStudent',

@@ -54,7 +54,15 @@ console.log('\n1) Observer — sees everything, changes nothing');
 {
   ok_('the role exists server-side', /OBSERVER: 'Observer'/.test(auth));
   // the gate is in dispatch_, which every request goes through — not in the screens
-  ok_('every mutating action is refused for it', /if \(mutates && sess && String\(sess\.role\) === 'Observer'\)/.test(code));
+  ok_('every mutating action is refused for it', /if \(mutates && !ownSessionWrite && sess && String\(sess\.role\) === 'Observer'\)/.test(code));
+  /* THE ONE EXCEPTION, and it is about the Observer's own phone rather than the school's records.
+   * Sessions last up to 30 days now, so "sign out of every device" is how a lost handset is closed
+   * — refusing it would leave the read-only role unable to protect the very data it may only read.
+   * It still cannot touch anybody else: naming a target is Admin-only inside the handler. */
+  ok_('...except closing their own sessions', /var ownSessionWrite = \(action === 'signOutEverywhere'\);/.test(code));
+  ok_('...and that exception cannot reach another account',
+    /if \(String\(p\.__role\) !== 'Admin'\) throw apiError_\('NO_PERMISSION'/.test(auth));
+  ok_('...while still taking the write lock, because it writes', /signOutEverywhere: 1 \};/.test(code));
   ok_('...with a plain explanation, not a bare code', /ดูอย่างเดียว \(Observer\)/.test(code));
   ok_('the refusal happens before the handler can run',
     code.indexOf("String(sess.role) === 'Observer'") < code.indexOf('return withWriteLock_'));

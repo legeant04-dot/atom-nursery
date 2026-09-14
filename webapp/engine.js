@@ -4463,6 +4463,11 @@ function createAtomAPI(M, GROWTH_STD) {
     googleLoginReady: () => ({ ready:false, clientId:'' }),
     googleExchange: () => fail('GOOGLE_NOT_CONFIGURED','โหมดทดลองไม่รองรับการเข้าสู่ระบบด้วย Google'),
     googleLink: () => fail('GOOGLE_NOT_CONFIGURED','โหมดทดลองไม่รองรับการผูกบัญชี Google'),
+    /* Sessions are a GAS-only idea too — the mock issues no tokens, so there is nothing to revoke.
+     * Present rather than missing so the button on the profile screen answers instead of failing
+     * with UNKNOWN_ACTION, and so the reply's shape is pinned in one place. `token` is deliberately
+     * absent: there is no replacement to store, and __atomSetSession ignores a missing one. */
+    signOutEverywhere: () => ({ ok:true, self:true, devices:1 }),
     listParents: () => M.parents,
     // family profile for the "My info" screen: ALL parents linked to the caller's children (co-parents
     // included) + the children themselves. Identity (uid/parentId) is injected server-side.

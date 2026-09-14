@@ -112,7 +112,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.382'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.383'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -1201,6 +1201,18 @@
     if (role === 'Parent') { USER.parentId = linkedId; USER.uid = PENDING_LINE_UID || linkedId; }
     else USER.staffId = linkedId;
     if (pictureUrl) USER.pictureUrl = pictureUrl;
+    /* THE TWO THINGS THE TOKEN DOES NOT CARRY. Role and linkedId are signed into the session and can
+     * be read back from it; the display name and the LINE photo are not, and a resumed session with
+     * neither would open on a header reading "Parent" with a blank avatar — which looks like the app
+     * lost who you are. Written on every sign-in so the NEXT open has them (see resumeSession). */
+    // ...unless they said not to remember this device, in which case the next open goes to LINE
+    // exactly as it used to. The SESSION is untouched — this is only what reopens it.
+    try {
+      if (rememberMe()) localStorage.setItem('atom_me', JSON.stringify({
+        role, linkedId, uid: PENDING_LINE_UID || '',
+        displayName: displayName || '', pictureUrl: pictureUrl || '' }));
+      else localStorage.removeItem('atom_me');
+    } catch (e) {}
     PENDING_LINE_UID = null;
     /* Ask ONCE whether this person still works here, before the first screen is drawn — otherwise a
      * deep link (#class) would open a working screen and only the home screen would be closed. It
@@ -1233,6 +1245,9 @@
   };
   function logout(){
     try{ localStorage.removeItem('atom_session'); }catch(e){}
+    // the name and photo the app would have reopened with — a sign-out that left them would put the
+    // previous person's header on the next sign-in's first paint
+    try{ localStorage.removeItem('atom_me'); }catch(e){}
     // drop the #screen deep link too, or the next sign-in would reopen the previous user's tab
     try{ history.replaceState(null,'',location.pathname+location.search); }catch(e){}
     USER=null; PENDING_PROVIDER=null; PENDING_LINE_UID=null;
@@ -1269,7 +1284,7 @@
       <h2 class="page" style="text-align:center">${esc(t('login.title'))}</h2>
       <p class="muted">${esc(t('login.lineOnly'))}</p>
       <button class="role-card" onclick="LIFF_LOGIN()"><span class="ic" style="background:#06C755;color:#fff;font-weight:800">L</span><span><b>${esc(t('login.lineBtn'))}</b><br><small>${esc(t('login.lineSub'))}</small></span></button>
-      <label style="display:flex;align-items:center;gap:8px;justify-content:center;margin-top:10px;font-size:13px"><input type="checkbox" id="rememberMe" checked style="width:auto"/> ${esc(t('login.remember'))}</label>
+      <label style="display:flex;align-items:center;gap:8px;justify-content:center;margin-top:10px;font-size:13px"><input type="checkbox" id="rememberMe" ${rememberMe()?'checked':''} style="width:auto" onchange="REMEMBER_ME(this)"/> ${esc(t('login.remember'))}</label>
       ${/* ---- THE WAY IN THAT CANNOT BE STALE OR BROKEN ------------------------------------------
            Offered from the FIRST tap, not after two failures.
 
@@ -1703,6 +1718,52 @@
            <button class="btn sm outline block" style="margin-top:8px" onclick="GOOGLE_UNLINK(this)">${EN() ? 'Unlink' : 'ยกเลิกการผูกบัญชี'}</button>`
         : `<div data-gsi="link" style="margin-top:8px"></div>`}</div>`;
   };
+  /* "จดจำการเข้าสู่ระบบ" — a checkbox that was decoration until v383.
+   *
+   * It sat on the login card, ticked, from the very first build, and NOTHING read it: the app called
+   * LINE on every open whether it was ticked or not. So it had been promising precisely the thing
+   * the school asked for on 2026-09-14 — "Login ค้างไว้เลยเหมือน Facebook" — while doing the
+   * opposite. Now that the app really does reopen its own session, the box is the way to say no.
+   *
+   * Recorded the MOMENT IT IS TAPPED rather than read when the sign-in returns, because signing in
+   * with LINE navigates away and reloads the page from scratch: by the time there is a session to
+   * remember, the checkbox and everything in memory are long gone.
+   *
+   * Default is ON, which is both what the box has always shown and the right default for a family's
+   * own phone. Unticking is for a borrowed or shared one, and it does not weaken the session that is
+   * running — it only stops the NEXT open from reusing it (resumeSession needs atom_me). */
+  const REMEMBER_KEY = 'atom_remember';
+  const rememberMe = () => { try { return localStorage.getItem(REMEMBER_KEY) !== '0'; } catch (e) { return true; } };
+  window.REMEMBER_ME = el => { try {
+    localStorage.setItem(REMEMBER_KEY, el && el.checked ? '1' : '0');
+    if (el && !el.checked) localStorage.removeItem('atom_me');   // and forget the one already on disk
+  } catch (e) {} };
+
+  /* THE OTHER HALF OF STAYING SIGNED IN.
+   *
+   * A session now survives thirty days of not opening the app (fourteen for staff), which is the
+   * whole point — and it is also the reason this button has to exist. A phone that is lost, sold or
+   * handed to a child keeps working for that long, and until now the only way to end a session was
+   * to wait for it. It signs out every OTHER device and leaves this one working, because signing
+   * yourself out of the phone in your hand in order to protect the one you lost is not what anybody
+   * means by it. Shown to everybody, on the screen where they already manage their own account. */
+  const signOutAllCard = () => `<div class="card"><h3>📵 ${EN()?'Sign out of other devices':'ออกจากระบบทุกอุปกรณ์'}</h3>
+    <p class="muted" style="font-size:13px">${EN()
+      ? 'Lost or replaced your phone, or used the app on someone else’s? This signs out every other device. This one keeps working.'
+      : 'ทำมือถือหาย เปลี่ยนเครื่อง หรือเคยเปิดแอปในเครื่องคนอื่น? กดปุ่มนี้เพื่อออกจากระบบทุกเครื่องที่เหลือ · เครื่องนี้ใช้งานต่อได้ตามปกติ'}</p>
+    <button class="btn sm outline block" onclick="SIGNOUT_ALL(this)">📵 ${EN()?'Sign out everywhere else':'ออกจากระบบอุปกรณ์อื่นทั้งหมด'}</button></div>`;
+  window.SIGNOUT_ALL = async (btn) => {
+    if (!confirm(EN() ? 'Sign out of every other device? You will stay signed in here.'
+                      : 'ออกจากระบบทุกอุปกรณ์อื่นใช่หรือไม่? · เครื่องนี้ยังใช้งานได้ตามปกติ')) return;
+    if (btn) btn.disabled = true;
+    try {
+      const r = await api('signOutEverywhere', {});
+      // the replacement minted at the cut-off instant — without storing it the very next request
+      // from THIS phone would carry the token we just revoked (see handleSignOutEverywhere)
+      if (r && r.token && window.__atomSetSession) __atomSetSession(r.token);
+      confirmSaved(EN() ? 'Other devices signed out' : 'ออกจากระบบอุปกรณ์อื่นแล้ว');
+    } catch (e) { err(e); } finally { if (btn) btn.disabled = false; }
+  };
   function signInStuckScreen(){ USER = null; AUTH_RENDER = signInStuckScreen; setHeader(); nav.hidden = true;
     app.innerHTML = `<div class="rolewrap" style="padding-top:24px">
       <img src="assets/logo.png" class="logo-lg" alt="logo"/>
@@ -1953,6 +2014,52 @@
     });
     return _liffP;
   }
+  /**
+   * Open the app from the session we already hold, without going near LINE.
+   *
+   * Refuses in three cases, all of which must go the long way round:
+   *   · no token, or one that has expired — there is nothing to resume
+   *   · role 'guest' — a half-finished registration. The onboarding screens need the LINE profile,
+   *     and resuming into them would strand somebody who never became a parent or a member of staff
+   *   · the cached profile does not belong to the token — a different LINE account signed in on this
+   *     device since, so the name and photo on disk are the previous person's. Signing in properly
+   *     is the only way to be sure whose app this is.
+   *
+   * Identity itself comes from the TOKEN, never from the cached profile: the profile only supplies
+   * the display name and the photo. A tampered atom_me therefore buys nothing — role and linkedId
+   * are signed, and every request is checked against that signature on the server anyway.
+   */
+  function resumeSession(){
+    if (!window.__atomSessionInfo) return false;
+    const s = __atomSessionInfo();
+    if (!s || !s.role || s.role === 'guest' || !s.linkedId) return false;
+    let me = null; try { me = JSON.parse(localStorage.getItem('atom_me') || 'null'); } catch (e) {}
+    if (!me || me.role !== s.role || String(me.linkedId) !== String(s.linkedId)) return false;
+    PENDING_LINE_UID = s.uid || me.uid || '';
+    LOGIN_REAL(s.role, s.linkedId, me.displayName, me.pictureUrl);
+    applyLangNow();
+    return true;
+  }
+  /* The session died and LINE would not replace it — see the note in api.js. Shown once, because
+   * every call on the screen fails the same way and a dozen identical toasts is not more informative
+   * than one. Not an error: an app that has been closed for a month is supposed to ask again. */
+  let _signedOutShown = false;
+  window.__atomSignedOut = () => {
+    if (_signedOutShown || !USER) return; _signedOutShown = true;
+    toast(EN() ? 'Please sign in again' : 'กรุณาเข้าสู่ระบบอีกครั้ง');
+    try { logout(); } catch (e) {}
+    /* THE LOGIN CARD HAS TO WIN THE RACE, and on the first try it did not.
+     *
+     * A screen opens with a handful of calls in flight. The FIRST to come back NO_SESSION signs the
+     * person out and paints the login card — and then the other five settle, and each one paints its
+     * own "โหลดไม่สำเร็จ" over the top. Watched happen: the session was correctly dropped, the token
+     * and the cached profile were gone, and the screen still read "ต้องเข้าสู่ระบบใหม่" above a
+     * ลองใหม่ button that could not possibly work.
+     *
+     * Re-asserted once the stragglers have landed. Guarded on USER, so a sign-in that succeeded in
+     * the meantime — the ordinary silent re-auth — is never painted over. */
+    setTimeout(() => { if (!USER) { try { loginScreen(); applyLangNow(); } catch (e) {} } }, 800);
+  };
   function boot(){ ensureTranslateObserver();
     // LIFF path: gas mode + LIFF_ID set → fetch the SDK, then real LINE auth
     if (CONFIG.MODE === 'gas' && CONFIG.LIFF_ID) {
@@ -1970,6 +2077,22 @@
        * its own. Matched by the state we saved, so LIFF's own callback still falls through to it. */
       const _webCode = lineCallbackCode();
       if (_webCode) { lineFinishBrowserLogin(_webCode); return; }
+      /* OUR OWN SESSION FIRST — which is the whole point of holding one.
+       *
+       * Everything below this line is a trip through LINE: 32 KB of SDK from line-scdn.net, then
+       * liff.init(), then `auth`, which is a full Apps Script execution that itself calls out to
+       * LINE to verify the access token. p50 for one of those was 6.8s on 10–14/09, and we were
+       * paying it on EVERY open while a perfectly good token sat in localStorage unused.
+       *
+       * Worse than slow: it was the failure. `lineHandoff :: never returned` hit 8 people in that
+       * window — iOS gives access.line.me to the LINE app, the app opens on some other tab, and
+       * nothing comes back — and those are parents who had signed in here before and whose session
+       * was still valid. We were walking them into the one broken step on every single open.
+       *
+       * If the token turns out to be dead after all, nothing is lost: the first refused request
+       * triggers the silent re-auth that already existed (__atomReauth), and a re-auth LINE will not
+       * honour lands on the login screen through __atomSignedOut. */
+      if (resumeSession()) return;
       let _known = false; try { _known = !!localStorage.getItem('atom_last_uid'); } catch (e) {}
       if (liffPending() || _known) signingInScreen();
       liffReady().then(() => {
@@ -2673,7 +2796,8 @@
       ${/* THE SAFE WAY TO LINK. Done from here, the server already knows who is asking — nobody types
            an address, so nobody can mistype one onto another family's record. `me` is their own row;
            a co-parent links from their own phone, not from this one. */''}
-      ${googleLinkCard(me.Email||'', !!me.GoogleLinked)}`;
+      ${googleLinkCard(me.Email||'', !!me.GoogleLinked)}
+      ${signOutAllCard()}`;
     if (CONFIG.MODE === 'gas') { googleReady(); GOOGLE_PAINT(); }
     window.scrollTo(0,0); };
   window.P_saveParent = async (parentId,btn)=>{ const g=id=>{ const e=document.getElementById('pa_'+parentId+'_'+id); return e?e.value.trim():undefined; };
@@ -6156,6 +6280,7 @@
           ? 'Salary and bank details are not shown here at all — see your payslip.'
           : 'เงินเดือนและบัญชีธนาคารไม่แสดงในหน้านี้ · ดูได้ที่สลิปเงินเดือน'}</p></div>
       ${googleLinkCard(s.Email||'', !!s.GoogleLinked)}
+      ${signOutAllCard()}
       <div class="card"><div class="row"><button class="btn sm outline" onclick="T_changePw(false)">🔑 ${esc(t('pw.title'))}</button><button class="btn sm outline" onclick="T_forgotPw()">❓ ${EN()?'Forgot password':'ลืมรหัสผ่าน'}</button></div></div>`;
     if (CONFIG.MODE === 'gas') { googleReady(); GOOGLE_PAINT(); }
     window.scrollTo(0,0); };
@@ -8245,6 +8370,19 @@
       ${id?`<div class="card" style="background:var(--surface-2);padding:8px"><b style="font-size:13px">🔑 ${EN()?'Salary-slip password':'รหัสผ่าน (เปิดสลิปเงินเดือน)'}</b>
         <div class="row" style="margin-top:6px"><button type="button" class="btn sm outline" onclick="A_viewPw('${id}')">👁️ ${EN()?'View':'ดูรหัสผ่าน'}</button><button type="button" class="btn sm pink" onclick="A_resetPw('${id}')">♻️ ${EN()?'Reset':'รีเซ็ต'}</button></div>
         <div id="pwView_${id}" class="muted" style="font-size:13px;margin-top:6px"></div></div>`:''}
+      ${/* THE ADMIN'S COPY OF THE SAME BUTTON, for the case the staff member cannot press it
+           themselves: the phone is already gone, or they have left and nobody thought about the
+           session still on it. A staff session lasts fourteen days without the app being opened, so
+           "they will be logged out eventually" is not an answer on the day it matters.
+           Separate from the salary-slip password on purpose — resetting that does not end a session
+           (the token is what gets them in; the password only opens the payslip), and an admin who
+           assumed it did would think they had closed a door that is still open. */''}
+      ${id?`<div class="card" style="background:var(--surface-2);padding:8px"><b style="font-size:13px">📵 ${EN()?'Sign out of all devices':'ออกจากระบบทุกอุปกรณ์'}</b>
+        <div class="muted" style="font-size:12.5px;margin-top:4px">${EN()
+          ? 'Ends every session on every phone this person is signed in on. They can sign in again with LINE unless you have also ended their employment.'
+          : 'ตัดการเข้าใช้งานทุกเครื่องของคนนี้ทันที · เจ้าตัวยังเข้าใหม่ด้วย LINE ได้ หากยังไม่ได้ตั้งวันสิ้นสุดการทำงาน'}</div>
+        <div class="row" style="margin-top:6px"><button type="button" class="btn sm pink" onclick="A_signOutStaff('${id}')">📵 ${EN()?'Sign out everywhere':'ออกจากระบบทุกเครื่อง'}</button></div>
+        <div id="soView_${id}" class="muted" style="font-size:13px;margin-top:6px"></div></div>`:''}
       <button class="btn block" onclick="A_saveStaff(this,'${id||''}')">${esc(t('c.save'))}</button>`);
     /* Read the per-person เบี้ยขยัน back from where it is SAVED (PAYROLL_CONFIG), not from the STAFF
      * row, which never held it. Loaded after the modal is up so opening a staff record does not wait
@@ -8331,6 +8469,13 @@
   window.A_viewPw=async(id)=>{ const box=document.getElementById('pwView_'+id); try{ const r=await api('getStaffPassword',{staffId:id}); if(box)box.innerHTML=`${EN()?'Current password':'รหัสผ่านปัจจุบัน'}: <b>${esc(r.password)}</b>`; }catch(e){err(e);} };
   window.A_resetPw=async(id)=>{ if(!confirm(EN()?'Reset this staff\'s password? A temporary password will be shown.':'รีเซ็ตรหัสผ่านพนักงานคนนี้? ระบบจะแสดงรหัสชั่วคราว'))return;
     const box=document.getElementById('pwView_'+id); try{ const r=await api('adminResetPassword',{staffId:id}); if(box)box.innerHTML=`✅ ${EN()?'Reset. Temporary password':'รีเซ็ตแล้ว รหัสชั่วคราว'}: <b>${esc(r.tempPassword)}</b> — ${EN()?'staff must change it after unlocking':'พนักงานต้องเปลี่ยนใหม่หลังเข้าใช้'}`; toast(t('c.saved')); }catch(e){err(e);} };
+
+  window.A_signOutStaff=async(id)=>{ if(!confirm(EN()?'Sign this person out of every device they are signed in on?':'ตัดการเข้าใช้งานของคนนี้ทุกเครื่องใช่หรือไม่?'))return;
+    const box=document.getElementById('soView_'+id);
+    try{ const r=await api('signOutEverywhere',{staffId:id});
+      if(box)box.innerHTML=`✅ ${EN()?'Signed out':'ออกจากระบบแล้ว'} — ${r&&r.devices||0} ${EN()?'LINE account(s)':'บัญชี LINE'}`;
+      toast(t('c.saved'));
+    }catch(e){ err(e); if(box)box.textContent=''; } };
 
   // ---- View-as: Admin previews the app as any role (stays logged in as admin; token is full-trust) ----
   let VIEW_AS_BACKUP=null;

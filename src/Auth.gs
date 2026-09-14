@@ -22,15 +22,89 @@ var USER_STATUS = { ACTIVE: 'ACTIVE', MUST_CHANGE: 'MUST_CHANGE_PASSWORD', DISAB
 // The client sends it with every request; the server verifies it and derives the caller's
 // identity FROM THE TOKEN (never trusting client-supplied uid/role), so anonymous callers
 // can't read other people's data. Enforced only when SCHOOL_CONFIG RequireSessionToken='true'.
-var SESSION_TTL_SEC = 43200; // 12h
+var SESSION_TTL_SEC = 43200; // 12h — the default, and what Admin/Leader/Observer keep
+/* HOW LONG A SESSION MAY SURVIVE WITHOUT THE APP BEING OPENED.
+ *
+ * Asked 2026-09-14 after an evening when several parents could not get in: "Login ค้างไว้เลยเหมือน
+ * Facebook ได้ไหม". Facebook does not ask Facebook every time either — it keeps its OWN session and
+ * only goes to the identity provider when that session is gone. We already mint exactly such a
+ * token; it was simply too short-lived to be the thing the app runs on.
+ *
+ * TIERED, because the risk is not the same. A parent sees their own children and nothing else; an
+ * Admin sees every family's records and the school's money, and a forgotten unlocked phone with an
+ * Admin session on it is a different kind of loss. So the roles that only ever look at themselves
+ * get a long one, and the roles that can see or move money keep the twelve hours they have now.
+ *
+ * It is an IDLE limit, not a lifetime: renewSession_ restarts the clock on use, so this is how long
+ * somebody may go WITHOUT opening the app before they are asked for LINE again — not how long they
+ * may stay signed in. A teacher who opens it daily is never asked at all.
+ */
+var SESSION_TTL_BY_ROLE_ = {
+  Parent:  30 * 24 * 3600,   // opens the app occasionally — and is who the question was asked about
+  Teacher: 14 * 24 * 3600    // opens it every working day; 14 covers a holiday
+};
+/* Anything not named — Admin, Leader, Observer, and `guest` (a half-finished registration, which
+ * should not linger on a shared phone for a month) — keeps the 12-hour default. */
+function sessionTtlFor_(role) {
+  return SESSION_TTL_BY_ROLE_[String(role || '')] || SESSION_TTL_SEC;
+}
+
+/* ---- REVOKING SESSIONS ("ออกจากระบบทุกอุปกรณ์") -------------------------------------------------
+ *
+ * A stateless token cannot be taken back — that is the trade that makes it cheap. Until now the only
+ * way to end one was to wait for it to expire, which was tolerable at twelve hours and is NOT
+ * tolerable at thirty days: a phone that is lost, sold or handed on would keep working for a month.
+ *
+ * So one number per person: tokens minted BEFORE it are refused. Kept in SCHOOL_CONFIG as a single
+ * JSON value rather than a sheet, because verifySession_ runs on EVERY request and getConfig_ is
+ * already cached per execution — this adds no sheet read to the hot path. Only people who have
+ * actually revoked appear in it, and entries older than the longest possible session are pruned on
+ * write, so it cannot grow without bound.
+ */
+var SESSION_EPOCH_KEY_ = 'SessionEpochs';
+function sessionEpochs_() {
+  try {
+    var raw = String(getConfig_(SESSION_EPOCH_KEY_, '') || '').trim();
+    if (!raw) return {};
+    var o = JSON.parse(raw);
+    return (o && typeof o === 'object' && !Array.isArray(o)) ? o : {};
+  } catch (e) { return {}; }   // unreadable → nobody is revoked, never sign the whole school out
+}
+function sessionEpochOf_(uid) {
+  var n = Number(sessionEpochs_()[String(uid || '')]);
+  return isFinite(n) && n > 0 ? n : 0;
+}
+/** End every session this uid holds. Returns the instant used, which a replacement token may carry. */
+function bumpSessionEpoch_(uid) {
+  var now = Date.now();
+  var map = sessionEpochs_();
+  map[String(uid)] = now;
+  // A token that could still be alive is at most the longest TTL old, so an epoch older than that
+  // can no longer refuse anything and is just weight in the cell.
+  var floor = now - (30 * 24 * 3600 * 1000);
+  Object.keys(map).forEach(function (k) { if (Number(map[k]) < floor) delete map[k]; });
+  setConfigValue_(SESSION_EPOCH_KEY_, JSON.stringify(map));
+  return now;
+}
+
 function sessionSecret_() {
   var sp = PropertiesService.getScriptProperties();
   var s = sp.getProperty('SESSION_SECRET');
   if (!s) { s = Utilities.getUuid() + Utilities.getUuid(); sp.setProperty('SESSION_SECRET', s); }
   return s;
 }
-function issueSession_(uid, role, linkedId) {
-  var body = Utilities.base64EncodeWebSafe(JSON.stringify({ uid: uid, role: role, linkedId: linkedId, exp: Date.now() + SESSION_TTL_SEC * 1000 }));
+/**
+ * `iat` (issued-at) is what makes a revoke possible: without knowing WHEN a token was minted there
+ * is no way to say "everything before now is dead". `at` lets a caller who is revoking their own
+ * other devices keep the session they are sitting in (see handleSignOutEverywhere).
+ */
+function issueSession_(uid, role, linkedId, at) {
+  var now = Number(at) || Date.now();
+  var body = Utilities.base64EncodeWebSafe(JSON.stringify({
+    uid: uid, role: role, linkedId: linkedId,
+    iat: now,
+    exp: now + sessionTtlFor_(role) * 1000
+  }));
   var sig = Utilities.base64EncodeWebSafe(Utilities.computeHmacSha256Signature(body, sessionSecret_()));
   return body + '.' + sig;
 }
@@ -44,8 +118,13 @@ function issueSession_(uid, role, linkedId) {
  */
 function renewSession_(sess) {
   if (!sess || !sess.exp) return '';
+  /* HALF-LIFE OF THIS PERSON'S OWN TTL, not of the 12-hour default. A parent's token is good for 30
+   * days, so it is renewed once it is inside the last 15 — checking it against 6 hours instead would
+   * have reissued a token on very nearly every request, which is a signature and a sheet lookup each
+   * time for no gain. The role comes from the token; the identity behind it is re-read below. */
+  var ttl = sessionTtlFor_(sess.role) * 1000;
   var left = sess.exp - Date.now();
-  if (left <= 0 || left > (SESSION_TTL_SEC * 1000) / 2) return '';
+  if (left <= 0 || left > ttl / 2) return '';
   /* RE-DERIVED, NOT COPIED FORWARD.
    *
    * This used to reissue with the role and linkedId frozen into the token at sign-in, and renewal
@@ -83,8 +162,75 @@ function verifySession_(token) {
   try {
     var p = JSON.parse(Utilities.newBlob(Utilities.base64DecodeWebSafe(parts[0])).getDataAsString());
     if (!p.exp || Date.now() > p.exp) return null;                        // expired
+    /* REVOKED. A signature that verifies and an expiry in the future are no longer enough: the owner
+     * (or an admin) may have ended every session since. A token from before the app carried `iat`
+     * has nothing to compare, so it is treated as the oldest possible — which is the right answer:
+     * "sign out everything" must include the sessions minted before the button existed.
+     * Only reached when an epoch actually exists for this uid, so it costs nothing for everyone else. */
+    var epoch = sessionEpochOf_(p.uid);
+    if (epoch && !(Number(p.iat) >= epoch)) return null;
     return p;
   } catch (e) { return null; }
+}
+
+/**
+ * Every LINE id an account answers to. A person can hold more than one row — an Admin-provisioned
+ * USERS row AND a STAFF row is the normal case here — and signing out "everywhere" that left one of
+ * them alive would be worse than not offering the button at all.
+ */
+function sessionUidsFor_(id) {
+  var want = String(id || '').trim(), out = {};
+  if (!want) return [];
+  function scan(sheet, idField) {
+    try {
+      readObjects_(sheet).forEach(function (r) {
+        if (String(r[idField] || '') === want && r.LineUID) out[String(r.LineUID)] = 1;
+      });
+    } catch (e) {}
+  }
+  scan(sheet_(getMainSpreadsheet_(), 'USERS'), 'LinkedID');
+  scan(sheet_(getMainSpreadsheet_(), 'PARENTS'), 'ParentID');
+  scan(sheet_(getHrSpreadsheet_(), 'STAFF'), 'StaffID');
+  return Object.keys(out);
+}
+
+/**
+ * "ออกจากระบบทุกอุปกรณ์" — the other half of a thirty-day session.
+ *
+ * Two actions wearing one name, told apart by whether a target was named:
+ *   · no target  → my own other devices. Anybody may do this for themselves, which is why the action
+ *                  is NOT in ADMIN_ONLY, and why applyIdentity_ hands it `__me` rather than the
+ *                  parentId/staffId it stamps on everything else.
+ *   · a target   → somebody else's devices, for a phone that was lost or an account handed on.
+ *                  Refused for anyone but an Admin HERE, because this is where the caller's real
+ *                  role is known — the client cannot be the one deciding.
+ *
+ * THE DEVICE ASKING KEEPS WORKING when you sign out your own: it is handed a replacement minted at
+ * the same instant as the cut-off, so every token older than this request dies and this one does
+ * not. Signing yourself out of the phone in your hand in order to sign out the one you lost is not
+ * what anybody means by the button.
+ */
+function handleSignOutEverywhere(p) {
+  p = p || {};
+  var me = String(p.__me || '');
+  if (!me) throw apiError_('NO_SESSION', 'ต้องเข้าสู่ระบบใหม่');
+  var target = String(p.staffId || p.parentId || p.targetId || '').trim();
+
+  if (!target) {
+    var at = bumpSessionEpoch_(me);
+    var who = resolveIdentity_(me);
+    logAudit(me, 'SIGNOUT_ALL_SELF', 'AUTH', '');
+    // re-minted at the cut-off instant, so this device survives its own revoke (see the note above)
+    return { ok: true, self: true, devices: 1,
+             token: who ? issueSession_(me, who.role, who.linkedId, at) : '' };
+  }
+
+  if (String(p.__role) !== 'Admin') throw apiError_('NO_PERMISSION', 'เฉพาะแอดมิน');
+  var uids = sessionUidsFor_(target);
+  if (!uids.length) throw apiError_('NOT_FOUND', 'ไม่พบบัญชี LINE ที่ผูกกับ ' + target + ' — ผู้ใช้รายนี้ยังไม่เคยเข้าสู่ระบบ');
+  uids.forEach(function (u) { bumpSessionEpoch_(u); });
+  logAudit(me, 'SIGNOUT_ALL_ADMIN', 'AUTH', target + ' uids=' + uids.length);
+  return { ok: true, self: false, target: target, devices: uids.length };
 }
 
 /* ---- SIGNING IN WITHOUT HANDING THE PHONE TO THE LINE APP ----------------------------------------

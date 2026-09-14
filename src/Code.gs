@@ -195,6 +195,10 @@ var ROUTES = {
   // the four clocks this app reads the time from, side by side — and the button that aligns them
   tzDiag:               function ()  { return handleTzDiag(); },             // admin-only, read-only
   setTimezone:          function (p) { return handleSetTimezone(p); },       // admin-only, writes both workbooks
+  /* Sessions are a GAS-only idea — the mock has no tokens — so this route has no engine twin to
+   * drift out of step with. That is deliberate: three features shipped dead this week because an
+   * engine copy was edited and the live route was not. */
+  signOutEverywhere:    function (p) { return handleSignOutEverywhere(p); },  // self: anyone · a target: admin only
   authDiag:             function (p) { return handleAuthDiag(p); },          // admin-only: which record a sign-in lands on, and why
   lineUsage:            function (p) { return handleLineUsage(p); },         // what a month of notifications would cost, counted
   lineRecipients:       function (p) { return handleLineRecipients(p); },    // who gets a LINE push, about what
@@ -411,6 +415,13 @@ function applyIdentity_(action, payload, sess) {
    * actually resolved by — never one typed in, which is how a day was lost checking the wrong id.
    * Stamped for every role including Admin, who returns below with the payload untouched. */
   if (action === 'authDiag') { payload.__me = sess.uid; return payload; }
+  /* SIGNING OUT EVERY DEVICE is two actions sharing a name, and the difference is who may ask — so
+   * it takes neither the ADMIN_ONLY route (that would refuse a parent their own button) nor the
+   * ordinary stamping below (that would put a parentId on a request that means "myself", making
+   * every self sign-out look like an admin targeting someone). The caller's uid and real role go
+   * across untouched and handleSignOutEverywhere decides. Everything the client sent about WHO is
+   * left in place on purpose: a non-Admin naming a target is refused there, not ignored here. */
+  if (action === 'signOutEverywhere') { payload.__me = sess.uid; payload.__role = sess.role; return payload; }
   if (action === 'googleLink') {
     /* The UID, not a role-derived id. handleGoogleLink finds the row the way handleAuth does, so the
      * link always lands on the record a LINE sign-in resolves to — including an Admin-provisioned
@@ -532,7 +543,12 @@ function dispatch_(action, payload, token) {
     // Observer is read-only. Checked HERE, against the verified session, because it is the one place
     // every request passes through — hiding buttons would leave the rule dependent on the screen a
     // person happens to be on, and on the app being the only way in.
-    if (mutates && sess && String(sess.role) === 'Observer') {
+    /* AN OBSERVER MAY STILL CLOSE THEIR OWN SESSIONS. The read-only rule is about the school's
+     * records — it was never meant to say "you may not sign your own lost phone out", which is the
+     * one write that protects the very data the role is restricted to reading. It cannot touch
+     * anyone else: naming a target is refused for every role but Admin, inside the handler. */
+    var ownSessionWrite = (action === 'signOutEverywhere');
+    if (mutates && !ownSessionWrite && sess && String(sess.role) === 'Observer') {
       // A single action is refused outright. A BATCH is refused call by call in handleBatch, because
       // refusing the whole thing also took down the reads travelling with it — one flagged call and
       // an Observer's home screen failed entirely (READ_ONLY on notifications, 2026-08-11 report).
@@ -616,7 +632,11 @@ var WRITES_ACTIONS_ = { recordCashPayment: 1, teacherStudentLeave: 1, unlockJour
   lineExchange: 1,
   // both write a row: googleExchange remembers the permanent account id the first time an email is
   // recognised, and googleLink is the link itself
-  googleExchange: 1, googleLink: 1 };
+  googleExchange: 1, googleLink: 1,
+  /* Ends every session an account holds, by writing the cut-off instant to SCHOOL_CONFIG. "sign…" is
+   * not a mutating verb, so without this it would run with no write lock — and a lost phone is
+   * exactly the moment the revoke must not be the one write that interleaves with another. */
+  signOutEverywhere: 1 };
 /**
  * A holiday write, plus the tidy-up it makes necessary.
  *

@@ -106,7 +106,11 @@ console.log('1) it opens onto exactly the account LINE opens onto');
    * and every lookup that reads a uid keep working — there is no second identity anywhere. */
   const payload = JSON.parse(Buffer.from(r.v.token.split('.')[0].replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString());
   eq('the token carries her LINE uid, not a Google one', payload.uid, 'U_mum');
-  eq('...and the same twelve hours', Math.round((payload.exp - Date.now()) / 3600000), 12);
+  /* THE SAME LIFETIME AS EVERY OTHER DOOR, which since v383 is the one set by the ROLE rather than a
+   * single constant — a parent's session survives 30 days of not opening the app. Asserted here
+   * because the whole design of the Google route is that it produces a session indistinguishable
+   * from a LINE one; a door that quietly issued a shorter token would be a door with different rules. */
+  eq('...and a parent lifetime, the same as the LINE door gives', Math.round((payload.exp - Date.now()) / 3600000), 30 * 24);
 }
 {
   // a teacher gets a teacher's session, from the same call
@@ -391,13 +395,19 @@ console.log('\n6e) an account that has been MOVED takes effect');
   const ctx = boot({});
   // a record that has gone: the session is simply not extended, and dies on its own schedule
   const gone = call(ctx, 'function(){' +
-    ' var stale = { uid:"U_vanished", role:"Teacher", linkedId:"STF-1", exp: Date.now() + (SESSION_TTL_SEC*1000)/4 };' +
+    ' var stale = { uid:"U_vanished", role:"Teacher", linkedId:"STF-1", exp: Date.now() + (sessionTtlFor_("Teacher")*1000)/4 };' +
     ' return renewSession_(stale); }');
   eq('a uid that resolves to nobody is not renewed', gone.v, '');
-  // and a token with plenty of life left still costs no lookup at all
+  /* A token with plenty of life left still costs no lookup at all — and "plenty" is now measured
+   * against THIS ROLE's lifetime. A teacher's token runs 14 days, so the twelve hours this used to
+   * hand it is deep past the halfway point and renewing it is the right answer; a full fresh
+   * lifetime is what "left alone" has to mean. */
   const early = call(ctx, 'function(){' +
-    ' return renewSession_({ uid:"U_film", role:"Teacher", linkedId:"STF-1", exp: Date.now() + SESSION_TTL_SEC*1000 }); }');
+    ' return renewSession_({ uid:"U_film", role:"Teacher", linkedId:"STF-1", exp: Date.now() + sessionTtlFor_("Teacher")*1000 }); }');
   eq('a fresh token is left alone', early.v, '');
+  const late = call(ctx, 'function(){' +
+    ' return renewSession_({ uid:"U_film", role:"Teacher", linkedId:"STF-1", exp: Date.now() + 12*3600*1000 }); }');
+  ok_('...while 12 hours left of a 14-day session is renewed', !!late.v);
   ok_('identity is re-derived, never copied forward', /var who = resolveIdentity_\(sess\.uid\);/.test(srcCode(auth)));
   ok_('...in handleAuth’s own order, by reusing its lookup', /googleFindByUid_\(uid\)/.test(srcCode(auth).slice(srcCode(auth).indexOf('function resolveIdentity_'))));
 }
