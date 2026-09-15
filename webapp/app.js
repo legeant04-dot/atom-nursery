@@ -112,7 +112,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.384'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.385'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -2415,10 +2415,40 @@
    * date must not be told that day was a holiday because today is: the dates are compared, and if
    * they do not match the card falls through to waiting, exactly as before.
    */
+  /* ON A TEMPORARY PAUSE — the fifth reason, and it was missing.
+   *
+   * Reported 2026-09-15 with two screenshots: a child paused 01/08 → 31/10 ("อยู่กับอากงอาม่าที่
+   * ต่างจังหวัด") whose own card correctly said they were not due in, with "⏳ รอคุณครูส่งข้อมูลของ
+   * วันที่ 15 ก.ย. 2569" sitting directly underneath it. The same screen, telling the family two
+   * opposite things — and the second one is a promise nobody is going to keep, because no teacher
+   * is writing a journal for a child who is three provinces away. It happened every single day of
+   * a three-month pause, to every paused family.
+   *
+   * Exactly the bug the four cards below already exist to prevent; the pause was simply never added
+   * to the list. The engine has sent `paused`/`pauseFrom`/`pauseTo` all along (parentHome), and the
+   * kid card above already reads them — only this helper did not.
+   *
+   * MEASURED AGAINST THE DATE BEING VIEWED, not against "is this child paused right now". The
+   * journal screen browses backwards, and a parent reading the journal from a day their child WAS
+   * at school must get that journal, not a pause notice. Same reason the holiday card compares
+   * dates. The window is `from <= d < to`, matching studentPaused_ in engine.js: PauseTo is the day
+   * the child comes BACK, so that date is a school day and its journal is real.
+   */
   function journalEmptyCard(kid, date){ kid=kid||{};
     if(kid.notStarted) return `<div class="card" style="text-align:center;background:var(--blue-bg);border-color:var(--blue-line)">
       <b style="color:var(--blue)">📅 ${EN()?'Not due to attend yet':'ยังไม่ถึงกำหนดเข้าเรียน'}</b>
       <br><small class="muted">${EN()?`The daily journal starts on ${ddmmyyyy(kid.startDate)}, the first day at school.`:`สมุดบันทึกประจำวันจะเริ่มในวันที่ ${esc(ddmmyyyy(kid.startDate))} ซึ่งเป็นวันแรกของการมาเรียน`}</small></div>`;
+    if(kid.paused){
+      const _d=String(date||todayStr()).slice(0,10), _f=String(kid.pauseFrom||'').slice(0,10), _t=String(kid.pauseTo||'').slice(0,10);
+      if((!_f || _d>=_f) && (!_t || _d<_t)) return `<div class="card" style="text-align:center;background:var(--warn-bg);border-color:var(--warn-line)">
+        <b style="color:var(--warn)">⏸️ ${EN()?'On a temporary break':'อยู่ระหว่างลาชั่วคราว'}</b>
+        ${kid.pauseReason?`<br><small class="muted">${esc(kid.pauseReason)}</small>`:''}
+        <br><small class="muted">${_t
+          ? (EN()?`The daily journal resumes on ${ddmmyyyy(_t)}, the day ${kid.nick||'your child'} comes back.`
+                : `สมุดบันทึกประจำวันจะกลับมาในวันที่ ${esc(ddmmyyyy(_t))} ซึ่งเป็นวันที่น้องกลับมาเรียน`)
+          : (EN()?'The daily journal resumes on the day your child comes back.'
+                : 'สมุดบันทึกประจำวันจะกลับมาในวันที่น้องกลับมาเรียน')}</small></div>`;
+    }
     const sd=window._SCHOOLDAY;
     if(sd && sd.closedForStudents && String(sd.date||'')===String(date||todayStr()))
       return `<div class="card" style="text-align:center;background:var(--surface-3);border-color:var(--line-strong)">
@@ -2642,10 +2672,21 @@
         // On temporary leave: there is nothing to record, so the buttons go rather than sitting there
         // doing nothing. Everything else about the child stays visible — the family still needs the
         // bills and their own details.
+        /* IT IS A PAUSE, SO SAY PAUSE. This read "ยังไม่ถึงกำหนดเข้าเรียน" — word for word what the
+         * card above says to a child who has never started — so a family three months into a break
+         * was told their child had not begun school yet. The admin screen has called it
+         * "นักเรียนลาชั่วคราว" all along; the parent was the only one seeing the other word.
+         * The RETURN DATE is now the largest thing on the card, because it is the one fact the
+         * family actually wants from it. PauseTo is the day they come BACK (studentPaused_), so it
+         * is shown as "กลับมาเรียน", never as "ถึง". */
         ? `<div class="card" style="background:var(--warn-bg);border-color:var(--warn-line);margin-top:12px;padding:10px;text-align:center">
-             <b style="color:var(--warn)">⏳ ${EN()?'Not due to attend yet':'ยังไม่ถึงกำหนดเข้าเรียน'}</b>
-             ${k.pauseFrom?`<br><small class="muted">${EN()?'from':'ตั้งแต่'} ${esc(k.pauseFrom)}${k.pauseTo?` ${EN()?'to':'ถึง'} ${esc(k.pauseTo)}`:''}</small>`:''}
-             ${k.pauseReason?`<br><small class="muted">${esc(k.pauseReason)}</small>`:''}</div>`
+             <b style="color:var(--warn)">⏸️ ${EN()?'On a temporary break':'อยู่ระหว่างลาชั่วคราว'}</b>
+             ${k.pauseReason?`<br><small class="muted">${esc(k.pauseReason)}</small>`:''}
+             ${k.pauseTo
+               ? `<br><small class="muted" style="display:inline-block;margin-top:4px">${EN()?'Back at school':'กลับมาเรียน'}</small>
+                  <br><span style="font-size:17px;font-weight:700;color:var(--warn-ink)">${esc(ddmmyyyy(k.pauseTo))}</span>`
+               : (k.pauseFrom?`<br><small class="muted">${EN()?'from':'ตั้งแต่'} ${esc(ddmmyyyy(k.pauseFrom))}</small>`:'')}
+             <br><small class="muted">${EN()?'Not billed, not marked absent, and no daily journal while away.':'ระหว่างนี้ไม่ออกบิล ไม่นับขาด และไม่มีสมุดบันทึกประจำวัน'}</small></div>`
         : `<div class="row" style="margin-top:12px;gap:10px"><button class="btn green" ${doneBtn(din)} onclick="P_punch('${k.StudentID}','IN',this)">🟢 ${din?(EN()?'Dropped off ':'ส่งแล้ว ')+esc(din):(EN()?'Drop off':'ส่งเข้าเรียน')}</button><button class="btn pink" ${doneBtn(dout)} onclick="P_punch('${k.StudentID}','OUT',this)">🔴 ${dout?(EN()?'Picked up ':'รับแล้ว ')+esc(dout):(EN()?'Pick up':'รับกลับ')}</button></div>
              ${/* WHERE THE TWO BUTTONS WORK FROM, said once, where the thumb already is. Drop-off is
                   allowed from anywhere — a parent who forgot at the gate can tap it from the car, and

@@ -245,14 +245,30 @@ console.log('\n6) A child on temporary leave: no attendance, but still billable'
 {
   ok_('the parent still sees the child', /parentChildren: p => visibleStudents\(p\)/.test(eng));
   ok_('...with the pause flags the screen needs', /paused:studentPaused_\(s\), pauseFrom:/.test(eng));
-  ok_('the drop-off / pick-up buttons are replaced by an explanation', /ยังไม่ถึงกำหนดเข้าเรียน/.test(app));
+  /* IT SAYS "PAUSE", NOT "HAS NOT STARTED". This used to assert ยังไม่ถึงกำหนดเข้าเรียน — which is
+   * word for word what the card above says to a child who has never set foot in the school, so a
+   * family three months into a break was told their child had not begun yet (reported 2026-09-15).
+   * The admin screen has said นักเรียนลาชั่วคราว all along; the parent was the only one told
+   * otherwise. Asserted on both strings so the two can never be confused again. */
+  ok_('the drop-off / pick-up buttons are replaced by an explanation', /อยู่ระหว่างลาชั่วคราว/.test(app));
+  ok_('...and the return date is the thing the card leads with', /EN\(\)\?'Back at school':'กลับมาเรียน'/.test(app));
+  /* THE JOURNAL HAS TO AGREE WITH THE CARD ABOVE IT. Same report: the child's own card correctly
+   * said they were away, and the journal directly underneath said "รอคุณครูส่งข้อมูลของวันที่ …" —
+   * a promise no teacher was going to keep, printed every day of a three-month pause. */
+  ok_('the journal says the same thing rather than promising a teacher is coming',
+    /if\(kid\.paused\)\{/.test(app) && /อยู่ระหว่างลาชั่วคราว[\s\S]{0,600}สมุดบันทึกประจำวันจะกลับมา/.test(app));
+  /* ...but only for dates INSIDE the pause. The journal screen browses backwards, and a journal
+   * from a day the child WAS at school is a real journal. Window is from <= d < to, matching
+   * studentPaused_: PauseTo is the day they come back, so that date is a school day. */
+  ok_('...measured against the date being viewed, not against "paused right now"',
+    /\(!_f \|\| _d>=_f\) && \(!_t \|\| _d<_t\)/.test(app));
   ok_('a stale screen cannot slip a check-in through anyway', /STUDENT_PAUSED/.test(eng));
   // only the buttons are swapped — the name, class, age, package and allergy line are outside the
   // ternary, so a paused child's card still tells the family everything it did before
   // v221 put a THIRD branch first (school closed today), so the paused branch is no longer the
   // opening test — but it still only swaps the buttons
   ok_('only the buttons change, the rest of the card is untouched',
-    /: k\.paused[\s\S]{0,1400}: `<div class="row"[\s\S]{0,400}P_punch/.test(app));
+    /: k\.paused[\s\S]{0,2600}: `<div class="row"[\s\S]{0,400}P_punch/.test(app));
   ok_('...and a closed day replaces them for every child', /window\._SCHOOLDAY&&window\._SCHOOLDAY\.closed/.test(app));
 
   // the window is wide because financeSummary now groups its collections before walking the roll
