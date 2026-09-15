@@ -373,7 +373,28 @@ throughout. Weeks, not calendar months — there will be waiting on decisions.
 
 ---
 
-## 8. What I need decided before anything starts
+## 8. DECIDED — 2026-09-15
+
+The four questions below were answered. **Sections 3.1, 5, 6 and 7 above are superseded by:**
+
+- **`docs/STACK_DECISIONS.md`** — auth, hosting and database, with what was rejected and why
+- **`docs/PRICING_AND_TENANCY.md`** — per-child packages, the billing floor, and what a tenant is
+
+The answers, and what each one changed:
+
+| Question | Answer | What changed |
+|---|---|---|
+| A second school? | **Not yet — but multi-tenant and the DevOps console must be finished before we sell** | Tenancy stops being a Track B phase. **`tenant_id` goes on every table in the first migration**, and `can(tenant, user, feature)` exists from the first screen. Retrofitting either is weeks; doing it now is nearly free |
+| ฿1,800/month? | **Accepted — and charge per child, not per school** | ฿199 / ฿299 / ฿399 per child per month, Enterprise by quote. See the pricing doc for the floor and the ceiling |
+| Clerk? | **Not the only option — propose something stable and sensibly priced** | **No auth vendor.** We keep the session layer built in v383 and mint a Postgres-compatible JWT from it. ฿0, and RLS enforces tenant isolation in the database rather than in 151 handlers |
+| Database? | **Supabase unless something better** | **Supabase confirmed**, and for a stronger reason than speed: `numeric` money. Sheets stores every amount as a float today — that is a live defect in a system that handles payroll |
+
+The corrected performance target is **p50 under 0.4s, p95 under 1.5s** (not 0.2s) — still 15–20×,
+with the working shown in `STACK_DECISIONS.md` §4.
+
+---
+
+## 8b. The original four questions, for the record
 
 1. **Is there a second school?** Everything about tenancy, Clerk Organizations and the DevOps
    console is justified by "yes" and hard to justify by "not yet". If the answer is "not yet", Track
