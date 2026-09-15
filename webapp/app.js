@@ -112,7 +112,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.383'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.384'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -1041,14 +1041,38 @@
    * somebody tapping it four times and queueing four identical round trips on a platform that runs
    * them one after another.
    */
+  /* A REFRESH IS NOT AN ARRIVAL. The parent's home screen pops the school's announcements when it
+   * is drawn, and a redraw is still a draw — so on the Admin dashboard, where this button has lived
+   * alone until now, it never mattered. Put the same button on the parent's home and every tap
+   * would throw the announcement modal over the screen they were trying to look at, for anyone who
+   * had not ticked "ไม่ต้องแสดงอีก". Read synchronously by the screen the moment it starts, which
+   * is inside this call, so a plain flag is enough. */
+  let _REFRESHING = false;
   window.REFRESH_NOW = async (btn) => {
     if (btn) { btn.disabled = true; btn.style.opacity = '.55'; }
     try { window.__atomCacheClear && __atomCacheClear(); } catch (e) {}
     try { if (typeof refreshBell === 'function') refreshBell(true); } catch (e) {}
+    _REFRESHING = true;
     try { await GO(CURRENT, { silent: true }); } catch (e) { err(e); }
+    finally { _REFRESHING = false; }
     if (btn) { btn.disabled = false; btn.style.opacity = ''; }
     toast(EN() ? 'Updated' : 'อัปเดตข้อมูลล่าสุดแล้ว');
   };
+  /**
+   * 🔄 The same button for every role, asked for 2026-09-15.
+   *
+   * It was on the Admin dashboard only, and the reason it was wanted there is not an admin reason:
+   * reads are cached for 30 seconds and revalidated in the background, so anyone who opens the app
+   * already knowing something has changed — a parent told their child was collected, a teacher told
+   * a class was moved — is looking at an answer from before they were told, with no way to say
+   * "now". What they did instead was close and reopen the app, which is the most expensive possible
+   * way to ask: the whole boot, and until v383 the LINE hand-off with it.
+   *
+   * ONE helper rather than three copies of the markup, because the version that drifts is the one
+   * that gets copied. REFRESH_NOW is already role-agnostic — it clears the read cache and re-runs
+   * whatever screen is open — so nothing but the button was missing.
+   */
+  const refreshBtn = () => `<button class="btn sm outline dash-refresh" onclick="REFRESH_NOW(this)" title="${EN()?'Reload the latest data':'โหลดข้อมูลล่าสุด'}" aria-label="${EN()?'Reload the latest data':'โหลดข้อมูลล่าสุด'}">🔄 <span class="lbl">${EN()?'Refresh':'รีเฟรช'}</span></button>`;
   window.PREFETCH = () => {
     if (CONFIG.MODE!=='gas' || !USER) return;
     /* A PARENT NEEDS NO PREFETCH AT ALL ANY MORE.
@@ -2542,7 +2566,8 @@
    * single pass — the split only exists on the login path, which is the one somebody is standing at
    * the gate waiting for. */
   SCREENS.Parent.home = async (pre) => {
-    if (!pre) showAnnPopups();      // the repaint must not pop the same announcement a second time
+    // the repaint must not pop the same announcement a second time — nor must a 🔄 tap (v384)
+    if (!pre && !_REFRESHING) showAnnPopups();
     /* Signing in already paid for this (handleAuth returns it), so the first render costs nothing.
      * Consumed ONCE: every later visit to the home screen fetches normally, or a parent would be
      * looking at their morning for the rest of the day. */
@@ -2555,7 +2580,7 @@
     const addBtn = `<button class="btn sm outline" onclick="P_addChild()">+ ${esc(t('p.addChild'))}</button>`;
     const profileBtn = `<button class="btn sm outline" onclick="P_profile()">👤 ${EN()?'My info':'ข้อมูลของฉัน'}</button>`;
     if(!kids.length){ app.innerHTML=`<h2 class="page">${esc(t('p.greeting'))}${esc(EN()?USER.nameEN:'คุณ'+USER.nameTH)} 👋</h2>
-      <div class="card" style="text-align:center"><p>${esc(t('p.noChild'))}</p><div class="row" style="justify-content:center">${addBtn}${profileBtn}</div></div>${socialFooter()}`; return; }
+      <div class="card" style="text-align:center"><p>${esc(t('p.noChild'))}</p><div class="row" style="justify-content:center">${addBtn}${profileBtn}${refreshBtn()}</div></div>${socialFooter()}`; return; }
     const k0 = kids[0];
     const j = HOME.journal, anns = HOME.announcements||[], cal = HOME.calendar||[], fam = HOME.familyProfile||{parents:[]};
     const plans = HOME.plans||[], due = HOME.due;
@@ -2671,7 +2696,7 @@
       ||`<small class="muted">${EN()?'No leave reported':'ไม่มีรายการ'}</small>`;
     // the edit dialog needs the row it is editing, and an onclick can only carry an id
     window._P_LEAVES = slRows;
-    app.innerHTML = `<div class="spread"><h2 class="page">${esc(t('p.greeting'))}${esc(greetName)} 👋</h2><div class="row">${profileBtn}${addBtn}</div></div>
+    app.innerHTML = `<div class="spread"><h2 class="page">${esc(t('p.greeting'))}${esc(greetName)} 👋</h2><div class="row">${refreshBtn()}${profileBtn}${addBtn}</div></div>
       ${kidsHtml}
       <div id="pDue"></div>
       ${/* Near the pick-up button, and only while the permission is missing. This is the screen the
@@ -4296,7 +4321,7 @@
           🎉 <b>${EN()?'A day off — no need to clock in':'วันนี้เป็นวันหยุด — ไม่ต้องลงเวลา'}</b>
           <br><span class="muted">${EN()?'The holiday covers your whole shift. Nothing counts as late or absent.':'เวลาวันหยุดครอบคลุมทั้งกะของคุณ · ไม่นับสายและไม่นับขาดงาน'}</span></div>`
       : '';
-    app.innerHTML = `<h2 class="page">${esc(t('t.greeting'))}${esc(EN()?USER.nameEN:USER.nameTH)} 👩‍🏫</h2>
+    app.innerHTML = `<div class="dash-h"><h2 class="page">${esc(t('t.greeting'))}${esc(EN()?USER.nameEN:USER.nameTH)} 👩‍🏫</h2>${refreshBtn()}</div>
       <div class="card"><h3>⏱️ ${esc(t('lbl.worktime'))} (${esc(att.date)})</h3>${bcBar}${reopenBar}
         ${me0.RequireCheckin===false?`<div style="background:var(--blue-bg);border-radius:8px;padding:8px;color:var(--blue);font-size:13px">ℹ️ ${esc(t('ci.notRequired'))}</div>`
         // School shut today: the server refuses the punch anyway (assertSchoolOpen_), so live buttons
@@ -6592,7 +6617,7 @@
      * This throws away the cached answers and re-runs the screen. Nothing else — no writes, no
      * settings, so a mis-tap costs one round trip and nothing more. */
     app.innerHTML=`<div class="dash-h"><h2 class="page">${esc(t('title.dashboard'))}</h2><span class="dash-date">${esc(ddmmyyyy(todayStr()))}</span>
-        <button class="btn sm outline dash-refresh" onclick="REFRESH_NOW(this)" title="${EN()?'Reload the latest data':'โหลดข้อมูลล่าสุด'}" aria-label="${EN()?'Reload the latest data':'โหลดข้อมูลล่าสุด'}">🔄 <span class="lbl">${EN()?'Refresh':'รีเฟรช'}</span></button></div>
+        ${refreshBtn()}</div>
       ${closedBanner}<div id="aholot"></div>${remHtml}${leaveRemHtml}
       ${kpi}${quick}
       ${payHtml}
