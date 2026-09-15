@@ -29,7 +29,8 @@ function eq(label, got, want) {
 function ok_(label, cond) { console.log((cond ? '  ok   ' : '  FAIL ') + label); cond ? pass++ : fail++; }
 const R = f => fs.readFileSync(path.join(__dirname, '..', f), 'utf8').replace(/\r\n/g, '\n');
 const app = R('webapp/app.js'), engine = R('webapp/engine.js'), gasEngine = R('src/Engine.gs'),
-      parentGs = R('src/Parent.gs'), authGs = R('src/Auth.gs'), staffGs = R('src/Staff.gs');
+      parentGs = R('src/Parent.gs'), authGs = R('src/Auth.gs'), staffGs = R('src/Staff.gs'),
+      code = R('src/Code.gs');   // applyIdentity_ — where both ends of the employment are enforced
 
 const { run } = H_(['Config', 'Db', 'Audit', 'Line', 'Auth', 'Code', 'Setup', 'Dspm_Seed', 'Checkin',
                     'Triggers', 'Leave', 'Notify', 'Parent', 'Staff', 'OT', 'Payroll', 'Backup',
@@ -59,6 +60,16 @@ const res = JSON.parse(run(function () {
    * dashboard, and her own record showed the reason as "—". */
   add('STF-GONE', 'ฉำฉา', 'Teacher', 'Nursery 1,Nursery 2,Nursery 1,Nursery 2', 'Ugone', yesterday, 'ไม่ผ่านการทดลองงาน');
   add('STF-LEAVING', 'ครูบี', 'Teacher', 'Nursery 1', 'Uleaving', tomorrow); // leaving, but not yet
+  /* HIRED, BUT NOT YET WORKING. The mirror of STF-GONE, and until v386 the app let her read the
+   * class roll and chase families for money six days before her first shift (reported 2026-09-15). */
+  add('STF-SOON', 'ครูใหม่', 'Teacher', 'Nursery 1', 'Usoon');
+  updateRow_(stSh, findObject_(stSh, function (s) { return s.StaffID === 'STF-SOON'; })._row,
+    { StartDate: tomorrow });
+  /* ...and somebody with NO start date at all, which is most of a school that never filled the
+   * field in. They must stay open, or shipping this rule locks out an entire staff. */
+  add('STF-NODATE', 'ครูไม่มีวัน', 'Teacher', 'Nursery 1', 'Unodate');
+  updateRow_(stSh, findObject_(stSh, function (s) { return s.StaffID === 'STF-NODATE'; })._row,
+    { StartDate: '' });
 
   appendObject_(sheet_(MAIN, 'CLASSES'), { ClassID: 'C1', ClassName: 'Nursery 1', TeacherID: 'STF-T' });
   appendObject_(sheet_(MAIN, 'STUDENTS'), { StudentID: 'STD-1', Name: 'ด.ญ. ทดสอบ', Nickname: 'ใบเตย',
@@ -133,6 +144,16 @@ const res = JSON.parse(run(function () {
   var tokAdmin = issueSession_('Uadmin', 'Admin', 'STF-ADM');
   o.oldTokenRead = post(tokGone, 'staffSelf', {});
   o.oldTokenPunch = post(tokGone, 'staffCheckin', { lat: 13.792472, lng: 100.646389 });
+  // ---- the other end: hired, first day is tomorrow ----
+  var tokSoon = issueSession_('Usoon', 'Teacher', 'STF-SOON');
+  var tokNoDate = issueSession_('Unodate', 'Teacher', 'STF-NODATE');
+  o.soonRoll   = post(tokSoon, 'classList', {});                 // the children — must be refused
+  o.soonAbs    = post(tokSoon, 'absenceReport', {});             // who is away — must be refused
+  o.soonLeave  = post(tokSoon, 'myLeaves', {});                  // work function — must be refused
+  o.soonPunch  = post(tokSoon, 'staffCheckin', { lat: 13.792472, lng: 100.646389 });
+  o.soonSelf   = post(tokSoon, 'staffSelf', {});                 // own record — must be ALLOWED
+  o.soonAtt    = post(tokSoon, 'myAttendanceToday', {});         // how the app learns the date — ALLOWED
+  o.noDateRoll = post(tokNoDate, 'classList', {});               // no start date → never refused
   o.okTokenRead = post(tokOk, 'staffSelf', {});
   o.leavingTokenRead = post(tokLeaving, 'staffSelf', {});
   // an admin "viewing as" her must still work — that is how the record gets closed
@@ -158,8 +179,13 @@ console.log('\n2) THE LINE SWITCH — the quota the school thought was protected
   /* ...but the teacher still LEARNS about it. That is what makes turning LINE off safe, and it is
    * the difference between saving quota and losing messages. */
   // both covering teachers: ครูบี leaves TOMORROW, so today is still hers and she is still told
-  eq('...and the covering teachers still get the bell', res.inboxedOff, ['STF-LEAVING', 'STF-T']);
-  eq('on: the covering teachers are pushed, and nobody else', res.pushedOn, ['Uleaving', 'Uteacher']);
+  /* ครูไม่มีวัน has no StartDate at all, which is most of a real school's staff sheet — she covers
+   * Nursery 1 and is on duty, so she is told. ครูใหม่ starts TOMORROW and is not: an inbox full of
+   * a job she cannot do yet, about children she has not met, was what the v386 test found. */
+  eq('...and the covering teachers still get the bell', res.inboxedOff, ['STF-LEAVING', 'STF-NODATE', 'STF-T']);
+  ok_('...but not somebody whose first day is tomorrow', res.inboxedOff.indexOf('STF-SOON') < 0);
+  eq('on: the covering teachers are pushed, and nobody else', res.pushedOn, ['Uleaving', 'Unodate', 'Uteacher']);
+  ok_('...still not the one who starts tomorrow', res.pushedOn.indexOf('Usoon') < 0);
   ok_('the switch is declared, or saving it would change nothing', /StaffLineNotify: 1/.test(staffGs));
   ok_('...and seeded off', /\['StaffLineNotify',\s*'false'\]/.test(R('src/Config.gs')));
   ok_('the settings screen offers it', /id="setStaffLine"/.test(app) && /gv\.StaffLineNotify=ck\('#setStaffLine'\)/.test(app));
@@ -170,7 +196,11 @@ console.log('\n3) SOMEBODY WHOSE LAST DAY HAS PASSED IS NOT STAFF');
 {
   /* EndDate is a LAST WORKING DAY, so every one of these must bite the day AFTER, never on it. The
    * teacher leaving tomorrow is in the fixture precisely to prove the boundary. */
-  eq('off the daily attendance board', res.board.sort(), ['ครูบี', 'ครูเอ'].sort());
+  /* ครูไม่มีวัน has no StartDate, so she is ordinary active staff and belongs here. ครูใหม่ starts
+   * tomorrow and is already absent from this board — the dashboard has always got that right, which
+   * is what made the app's other screens showing her the class roll so easy to miss. */
+  eq('off the daily attendance board', res.board.sort(), ['ครูบี', 'ครูเอ', 'ครูไม่มีวัน'].sort());
+  ok_('...and somebody who has not started is not on it either', res.board.indexOf('ครูใหม่') < 0);
   ok_('...so the school’s attendance is not dragged down by someone who left', res.board.indexOf('ฉำฉา') < 0);
   ok_('...and the one leaving TOMORROW is still counted, because today is still their day',
     res.board.indexOf('ครูบี') >= 0);
@@ -213,8 +243,43 @@ console.log('\n3) SOMEBODY WHOSE LAST DAY HAS PASSED IS NOT STAFF');
    * had every button to press: "บันทึกได้ กดเข้าไปแก้ไขได้ ลงบันทึกได้ รับส่งแทนได้ แจ้งอุบัติเหตุได้".
    * One gate around SCREENS.Teacher rather than nine separate patches — the same reasoning as
    * assertStudentDayOpen_, and it covers a screen added later without anyone remembering. */
+  /* TWO gates on the one wrapper since v386. The same mistake had been made at the other end of the
+   * employment: only assertStaffStarted_ guarded a teacher whose first day had not arrived, which
+   * covers the two clock-in routes and nothing else — so on 2026-09-15 somebody starting on the
+   * 21st was looking at the class roll, three children's check-in times, and OT ติดตามชำระ. */
   ok_('every teacher screen goes through one gate',
-    /Object\.keys\(SCREENS\.Teacher\)\.forEach\(k => \{[\s\S]{0,220}ENDED_SELF \? endedScreen\(\) : orig\(\.\.\.a\)/.test(app));
+    /Object\.keys\(SCREENS\.Teacher\)\.forEach\(k => \{[\s\S]{0,320}ENDED_SELF \? endedScreen\(\) : NOT_STARTED_SELF \? notStartedScreen\(\) : orig\(\.\.\.a\)/.test(app));
+  ok_('...and the same gate closes the door before the first day too',
+    /let NOT_STARTED_SELF = false/.test(app) && /function notStartedScreen\(\)\{/.test(app));
+  ok_('...naming what does not open until then', /การลงเวลา รายชื่อนักเรียน บันทึกประจำวัน/.test(app));
+  /* The server is the real gate; the screen only stops it looking broken. Allow-list is deliberately
+   * "my own account" — nothing about children, money or timekeeping. */
+  ok_('the SERVER refuses every working route before the start date',
+    /if \(\/\^\\d\{4\}-\\d\{2\}-\\d\{2\}\$\/\.test\(_start\) && dateStr_\(new Date\(\)\) < _start && !NOT_STARTED_OK_\[action\]\)/.test(code));
+  ok_('...on every request, beside the ENDED check, not at the login door',
+    code.indexOf('NOT_STARTED_OK_[action]') > code.indexOf("apiError_('ENDED'"));
+  ok_('...with an allow-list that carries no child, money or attendance data',
+    /var NOT_STARTED_OK_ = \{\n  staffSelf: 1, myAttendanceToday: 1, saveStaffSelf: 1,/.test(code) &&
+    !/NOT_STARTED_OK_ = \{[\s\S]{0,400}(classList|journalStatus|studentAlerts|teacherStudentOtList|absenceReport)/.test(code));
+  /* A blank StartDate must stay OPEN — a school that never filled the field in would otherwise lock
+   * out its whole staff on the day this shipped. */
+  ok_('...and a staff row with no start date is never refused',
+    /Blank StartDate means nobody set one/.test(code));
+
+  /* RUN OVER THE WIRE, not read out of the source. A regex proves the line is written; only a real
+   * request proves it fires — and the whole bug was a rule that existed (assertStaffStarted_) and
+   * simply did not cover the routes that mattered. */
+  eq('the class roll is refused before the first day',
+    [res.soonRoll.ok, res.soonRoll.error.code], [false, 'NOT_STARTED']);
+  eq('...so is who is absent', [res.soonAbs.ok, res.soonAbs.error.code], [false, 'NOT_STARTED']);
+  eq('...so is anything else about the job', [res.soonLeave.ok, res.soonLeave.error.code], [false, 'NOT_STARTED']);
+  eq('...and clocking in, as it already was', [res.soonPunch.ok, res.soonPunch.error.code], [false, 'NOT_STARTED']);
+  // the two the app needs to find out it is in this state and draw the card
+  ok_('...but her own record still opens', res.soonSelf.ok === true);
+  ok_('...telling the app the day has not come', res.soonSelf.data.notStarted === true);
+  ok_('...and today\'s attendance still answers', res.soonAtt.ok === true);
+  /* The one that would have been a school-wide outage. */
+  ok_('a staff row with NO start date is untouched by any of this', res.noDateRoll.ok === true);
   ok_('...naming what is closed, not just refusing', /การลงเวลา บันทึกประจำวัน ประเมินพัฒนาการ แจ้งอุบัติเหตุ/.test(app));
   ok_('...and saying nothing was deleted', /ข้อมูลไม่ได้ถูกลบ/.test(app));
   ok_('it is decided BEFORE the first screen is drawn, so a deep link cannot slip past',
