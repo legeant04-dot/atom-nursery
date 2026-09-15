@@ -464,9 +464,60 @@ function applyIdentity_(action, payload, sess) {
     if (/^\d{4}-\d{2}-\d{2}$/.test(_end) && dateStr_(new Date()) > _end) {
       throw apiError_('ENDED', 'สิ้นสุดการทำงานเมื่อ ' + _end + ' — เข้าใช้งานระบบไม่ได้แล้ว · หากกลับเข้าทำงาน กรุณาแจ้งแอดมิน');
     }
+    /* THE FIRST WORKING DAY HAS NOT ARRIVED — the mirror of the block above, and it was missing.
+     *
+     * Reported 2026-09-15 with a screenshot: a teacher whose StartDate is the 21st, signed in on
+     * the 15th, looking at "การมาเรียนวันนี้" — three children's nicknames, their check-in times,
+     * and the names of three more on leave. Under it: ยื่น/ดูใบลา, ติดตามการขาดเรียน, OT นักเรียน
+     * (ติดตามชำระ). Somebody who does not work here yet could read the roll and chase a family for
+     * money.
+     *
+     * Only assertStaffStarted_ existed, and it guards the two clock-in routes. Everything else was
+     * open, which is precisely the v315 mistake made the other way round: a rule enforced at one
+     * door instead of at the one place every request passes.
+     *
+     * Asked for as "ไม่ควรเปิดฟังก์ชันใดๆในการทำงาน … ควรจะเปิดระบบในวันที่ระบบระบุวันเริ่มงานเท่านั้น",
+     * so the allow-list below is deliberately narrow: it is what somebody needs to SET THEMSELVES UP
+     * before day one, and nothing about the school's children, money or timekeeping.
+     *
+     * Blank StartDate means nobody set one — that must stay open, or a school that leaves the field
+     * empty locks its whole staff out.
+     */
+    var _start = _me ? String(_me.StartDate || '').slice(0, 10) : '';
+    if (/^\d{4}-\d{2}-\d{2}$/.test(_start) && dateStr_(new Date()) < _start && !NOT_STARTED_OK_[action]) {
+      throw apiError_('NOT_STARTED', 'วันแรกของการทำงานคือ ' + _start + ' — ระบบจะเปิดให้ใช้งานในวันนั้น');
+    }
   }
   return payload;
 }
+/**
+ * The only things a member of staff may do before their first working day.
+ *
+ * Read it as "my own account", not "my job". Nothing here returns a child's name, an amount of
+ * money, or anything about attendance — the point of the rule is that the job starts on the date the
+ * school set, and not a day earlier.
+ *
+ *   staffSelf / myAttendanceToday  the two the app needs to find out it is in this state at all,
+ *                                  and to draw the "your first day is …" card. myAttendanceToday
+ *                                  already answers { notStarted, startDate } and nothing else when
+ *                                  the day has not come.
+ *   saveStaffSelf                  fill in your own profile, photo and qualifications beforehand
+ *   *Password / requestPasswordReset  the forced first-login password change has to work
+ *   notifications / markNotifsRead  the bell is in the header of every screen; refusing it would
+ *                                  put an error on a screen whose whole job is to say "not yet"
+ *   schoolDay                       the calendar. Public information, and shared header code asks
+ *                                  for it — allowed so the wait screen renders cleanly
+ *
+ * NOT listed and deliberately so: googleLink and signOutEverywhere return from applyIdentity_ before
+ * this check is reached, because both are about the caller's own session and neither can touch
+ * school data.
+ */
+var NOT_STARTED_OK_ = {
+  staffSelf: 1, myAttendanceToday: 1, saveStaffSelf: 1,
+  changeStaffPassword: 1, checkStaffPassword: 1, requestPasswordReset: 1,
+  notifications: 1, markNotifsRead: 1, schoolDay: 1
+};
+
 /** One staff row by id, for the identity checks above. Reads go through the cached row store. */
 function staffRowById_(staffId) {
   if (!staffId) return null;

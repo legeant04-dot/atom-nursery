@@ -3397,6 +3397,11 @@ function createAtomAPI(M, GROWTH_STD) {
          * the day has PASSED, which they discover anyway the moment they are signed out; a date set
          * in advance and not yet arrived stays invisible here, as it always has. */
         ended: staffEnded_(s),
+        /* THE OTHER END OF THE SAME RULE. StartDate is already above — unlike a leaving date it is
+         * something the person agreed to and needs to see — but the app should not be deciding
+         * "has it arrived yet" from a string and its own idea of today. The server owns the clock
+         * (see the Timezone config), so it owns the answer. Mirrors `ended` exactly. */
+        notStarted: !staffStarted_(s),
         GroupIn: grp&&grp.CheckInTime||'', GroupOut: grp&&grp.CheckOutTime||'' }; },
     setRequireCheckin: p => { const s=M.staff.find(x=>x.StaffID===p.staffId); if(s) s.RequireCheckin=!!p.value; return {staffId:p.staffId, value:!!p.value}; },
     /**

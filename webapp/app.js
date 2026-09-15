@@ -112,7 +112,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.385'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.386'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -1243,7 +1243,11 @@
      * rides in the same tick as the first screen's own calls, so it costs no extra round trip, and a
      * failure leaves it false: a lookup that did not answer must never lock somebody out. */
     if (role !== 'Parent') api('staffSelf', { staffId: linkedId })
-      .then(me => { if (window.__atomSetEnded) __atomSetEnded(me && me.ended); if (me && me.ended) GO(CURRENT || 'home'); })
+      .then(me => { if (window.__atomSetEnded) __atomSetEnded(me && me.ended);
+        // ...and whether the first day has arrived. Same shape, same reason: a deep link (#class)
+        // would otherwise open a working screen for somebody who does not work here yet.
+        if (window.__atomSetNotStarted) __atomSetNotStarted(me && me.notStarted, me && me.StartDate);
+        if (me && (me.ended || me.notStarted)) GO(CURRENT || 'home'); })
       .catch(() => {});
     setHeader(); GO(initialScreen()); PREFETCH();
   };
@@ -4274,8 +4278,21 @@
     // for a screen that no longer shows them would be three requests spent on nothing.
     // leaveQuota left this batch with the remaining-days grid it fed — the leave screen fetches it
     // where it is actually read, and the home screen stops paying for a figure it no longer shows
-    const [att,cl,me0raw,jstat,al] = await Promise.all([api('myAttendanceToday',{staffId:USER.staffId}),api('classList',tc()),api('staffSelf',{staffId:USER.staffId}),api('journalStatus',{}),
+    /* A REFUSAL THAT IS NOT A FAILURE. From v386 the server refuses every working route for somebody
+     * whose first day has not arrived, and three of the five calls below are working routes — so on
+     * that one morning Promise.all would reject and the screen would blank before it could find out
+     * WHY. Swallowed for this code only: any other error still reaches the user, which is the whole
+     * reason these did not have blanket .catch()es. */
+    const _softNS = e => { if (e && e.code === 'NOT_STARTED') return null; throw e; };
+    const [att,cl,me0raw,jstat,al] = await Promise.all([api('myAttendanceToday',{staffId:USER.staffId}),api('classList',tc()).catch(_softNS),api('staffSelf',{staffId:USER.staffId}),api('journalStatus',{}).catch(_softNS),
       api('studentAlerts',{staffId:USER.staffId,role:USER.role}).catch(()=>null)]);
+    /* THE DOOR, CHECKED BEFORE ANYTHING IS DRAWN. myAttendanceToday answers { notStarted, startDate }
+     * and the server has already refused the rest, so there is nothing to render but the wait card —
+     * and rendering it here stops the SECOND batch below from being issued at all. */
+    if (att && att.notStarted) {
+      __atomSetNotStarted(true, att.startDate || (me0raw && me0raw.StartDate));
+      return notStartedScreen();
+    }
     /* DELIBERATELY IN A LATER TICK — the await above ends the first one, so these form a SECOND
      * request instead of joining the first.
      *
@@ -12705,6 +12722,41 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
    */
   let ENDED_SELF = false;
   window.__atomSetEnded = v => { ENDED_SELF = !!v; };
+  /* THE FIRST DAY HAS NOT ARRIVED — the mirror of ENDED_SELF, and it rides the same gate.
+   *
+   * Reported 2026-09-15 with a screenshot: a teacher starting on the 21st, signed in on the 15th,
+   * reading "การมาเรียนวันนี้" — three children's nicknames and their check-in times, three more
+   * named as on leave — with ยื่นใบลา, ติดตามการขาดเรียน and OT นักเรียน (ติดตามชำระ) underneath.
+   * Only the two clock-in routes were ever guarded (assertStaffStarted_); every screen was open.
+   *
+   * Set from staffSelf, from myAttendanceToday, and from any request the server refuses with
+   * NOT_STARTED — three sources because the first screen paints before any of them has answered,
+   * and whichever arrives first should close the door. */
+  let NOT_STARTED_SELF = false, NOT_STARTED_DATE = '';
+  window.__atomSetNotStarted = (v, date) => { NOT_STARTED_SELF = !!v; if (date) NOT_STARTED_DATE = String(date).slice(0,10); };
+  function notStartedScreen(){
+    setNav(CURRENT);
+    const d = NOT_STARTED_DATE ? ddmmyyyy(NOT_STARTED_DATE) : '';
+    app.innerHTML = `<div class="card" style="text-align:center;background:var(--warn-bg);border-color:var(--warn-line);margin-top:12px;padding:18px">
+      <div style="font-size:44px;line-height:1.1">⏳</div>
+      <h3 style="color:var(--warn);margin:6px 0 2px">${EN()?'Not started yet':'ยังไม่ถึงวันเริ่มงาน'}</h3>
+      ${d?`<p class="muted" style="font-size:13px;margin:8px 0 0">${EN()?'Your first working day':'วันแรกของการทำงาน'}</p>
+           <div style="font-size:22px;font-weight:800;color:var(--warn-ink);margin:2px 0 8px">${esc(d)}</div>`:''}
+      <p style="font-size:14px;line-height:1.8;margin:8px 10px">${EN()
+        ? 'Clocking in, class lists, daily reports, assessments, accident reports, leave and student OT all open on that morning.'
+        : 'การลงเวลา รายชื่อนักเรียน บันทึกประจำวัน ประเมินพัฒนาการ แจ้งอุบัติเหตุ การลา และ OT นักเรียน <b>จะเปิดให้ใช้ในเช้าวันนั้น</b>'}</p>
+      <p class="muted" style="font-size:13px;margin:0 10px">${EN()
+        ? 'You can still fill in your own profile and set your password — tap your name at the top right.'
+        : 'ระหว่างนี้ยังกรอกข้อมูลส่วนตัวและตั้งรหัสผ่านของท่านไว้ล่วงหน้าได้ · กดที่ชื่อของท่านมุมขวาบน'}</p></div>`;
+  }
+  /* A request the server refused because the day has not come. Shown as the screen rather than as a
+   * red error, and once — every call on a screen fails the same way. */
+  window.__atomNotStarted = (msg) => {
+    if (NOT_STARTED_SELF) return;
+    const m = String(msg||'').match(/(\d{4}-\d{2}-\d{2})/);
+    window.__atomSetNotStarted(true, m?m[1]:'');
+    try { if (USER && USER.role !== 'Parent') GO(CURRENT || 'home'); } catch (e) {}
+  };
   function endedScreen(){
     setNav(CURRENT);
     app.innerHTML = `<div class="card" style="text-align:center;background:var(--warn-bg);border-color:var(--warn-line);margin-top:12px;padding:18px">
@@ -12720,7 +12772,9 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
   Object.keys(SCREENS.Teacher).forEach(k => {
     const orig = SCREENS.Teacher[k];
     if (typeof orig !== 'function') return;
-    SCREENS.Teacher[k] = (...a) => ENDED_SELF ? endedScreen() : orig(...a);
+    // Two gates, one wrapper. ENDED first: somebody who has both left and never started is a data
+    // error, and "your employment ended" is the more useful thing to be told about an account.
+    SCREENS.Teacher[k] = (...a) => ENDED_SELF ? endedScreen() : NOT_STARTED_SELF ? notStartedScreen() : orig(...a);
   });
 
   ['home','leaves','finance','dspm'].forEach(k => { SCREENS.Observer[k] = (...a) => SCREENS.Admin[k](...a); });

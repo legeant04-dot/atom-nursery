@@ -791,6 +791,13 @@ window.CONFIG = { MODE: 'gas', GAS_URL: 'https://script.google.com/macros/s/AKfy
       window.__atomClearSession();
       try { if (window.__atomEnded) window.__atomEnded(e.message); } catch (x) {}
     }
+    /* NOT_STARTED is the mirror of ENDED and is handled the opposite way: the session is KEPT.
+     * Somebody whose first day is next week has a perfectly good account — they simply may not do
+     * the job yet, and they still need to set their password and fill in their profile. So it is
+     * handed to the app to swap the screen, and nothing is signed out. */
+    else if (e && e.code === 'NOT_STARTED') {
+      try { if (window.__atomNotStarted) window.__atomNotStarted(e.message); } catch (x) {}
+    }
   };
   function flush() {
     const q = _q; _q = []; _scheduled = false;
