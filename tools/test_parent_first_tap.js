@@ -125,7 +125,12 @@ console.log('\n3) the screen paints twice, and only where it helps');
    * they opened next. */
   ok_('...and repaints only if they are still on that screen', /USER\.role === 'Parent' && CURRENT === 'home'/.test(c));
   ok_('...silently, because the half that matters is already drawn', /\.catch\(\(\) => \{\}\);/.test(c));
-  ok_('the announcement popup does not fire twice', /if \(!pre\) showAnnPopups\(\);/.test(c));
+  /* Two ways the same modal could be thrown over a parent who is trying to read their screen: the
+   * second pass of this very render, and — since v384 put the 🔄 button on every role's home — a
+   * refresh. A redraw is still a draw, so neither is caught by anything in showAnnPopups itself
+   * (its only memory is "ไม่ต้องแสดงอีก", which most people never tick). */
+  ok_('the announcement popup does not fire twice', /if \(!pre && !_REFRESHING\) showAnnPopups\(\);/.test(c));
+  ok_('...nor on a manual refresh', /_REFRESHING = true;\n    try \{ await GO\(CURRENT, \{ silent: true \}\); \}/.test(c));
   /* A LATER visit gets the full payload directly, has no `core` flag, and stays one pass. The split
    * exists only on the login path. */
   ok_('a later visit still fetches parentHome, unchanged', /api\('parentHome', parentScope\(\)\)/.test(c));
