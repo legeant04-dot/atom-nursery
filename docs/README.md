@@ -15,8 +15,9 @@ the work can start the same day, and so that none of it is carrying only in one 
 | 2 | **[STACK_DECISIONS.md](STACK_DECISIONS.md)** | ใช้ auth / hosting / database ตัวไหน และทำไมถึงไม่ใช้ตัวอื่น |
 | 3 | **[PRICING_AND_TENANCY.md](PRICING_AND_TENANCY.md)** | ขายเท่าไหร่ · นับเด็กยังไง · tenant คืออะไร |
 | 4 | **[DEVOPS_CONSOLE.md](DEVOPS_CONSOLE.md)** | ลูกค้าติดต่อเรายังไง · ระบบ ticket · AI agents ควรมีกี่ตัว |
-| 5 | **[FRONTEND_DESIGN.md](FRONTEND_DESIGN.md)** | กฎการออกแบบหน้าจอ ที่ระบบใหม่ต้องทำตาม |
-| 6 | **[spec/roles/](spec/roles/)** | คู่มือการใช้งานครบทั้ง 5 บทบาท — **คือข้อกำหนดของระบบใหม่** |
+| 5 | **[OPERATING_COSTS.md](OPERATING_COSTS.md)** | ต้นทุนฝั่งเรา · ค่า AI agents จริง · กี่โรงเรียนถึงจะยั่งยืน · จะขายยังไง |
+| 6 | **[FRONTEND_DESIGN.md](FRONTEND_DESIGN.md)** | กฎการออกแบบหน้าจอ ที่ระบบใหม่ต้องทำตาม |
+| 7 | **[spec/roles/](spec/roles/)** | คู่มือการใช้งานครบทั้ง 5 บทบาท — **คือข้อกำหนดของระบบใหม่** |
 
 ไฟล์นำเสนอ (ผอ.) และคู่มือฉบับ Word อยู่ใน [`../dist/`](../dist/) — สร้างใหม่ได้ด้วย
 `node dist/build_plan_deck.js` และ `python dist/build_role_manuals.py`
@@ -50,6 +51,16 @@ the work can start the same day, and so that none of it is carrying only in one 
 | App Store | **เลื่อนไปก่อน** · Play Store ทำได้ |
 
 ---
+
+## ตัวเลขที่ต้องจำ
+
+| | |
+|---|---|
+| ต้นทุนทั้งหมดของเรา ที่ 20 โรงเรียน | **฿6,985/เดือน** (โครงสร้าง 4,245 + หลังบ้าน 420 + AI agents 2,320) |
+| ต้นทุนต่อโรงเรียน ที่ 20 โรงเรียน | **฿349** |
+| **จำนวนโรงเรียนที่ทำให้เลี้ยงตัวเองได้** | **8 โรงเรียน** — พอสำหรับพัฒนาต่อเนื่อง |
+| ค่า AI agents ตอนเริ่ม (2–3 โรงเรียน) | **฿30/เดือน** |
+| ⚠️ ค่าคนดูแล ที่ไม่ได้อยู่ในตารางไหนเลย | **฿30,000–60,000/เดือน** เมื่อเกิน 8 โรงเรียน |
 
 ## สิ่งที่ยังไม่ได้ตัดสินใจ
 
