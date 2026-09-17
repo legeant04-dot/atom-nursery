@@ -30,12 +30,22 @@ console.log('\n1) The history is reachable from the screen that prompts the ques
 {
   /* It was only ever on ดำเนินการ. Both entry points now exist — an admin thinking about OT money is
    * in การเงิน; an admin correcting a pick-up time is in ดำเนินการ. Neither is wrong. */
-  ok_('การเงิน has an OT-history button', /ประวัติ OT นักเรียน','A_studentOT\(\)/.test(app));
+  /* Moved into the tab strip on 2026-09-17 at the school's request — same pill, same row, after
+   * รอบบิล. It shipped for a day as a full-width tool row underneath. */
+  ok_('การเงิน has an OT-history button', /onclick="A_studentOT\(\)" title="\$\{EN\(\)\?'Student OT history':'ประวัติ OT นักเรียน'\}"/.test(app));
   ok_('...and ดำเนินการ keeps the one it had', /OT รับช้า \(นักเรียน\)','A_studentOT\(\)/.test(app));
-  /* A fifth tab would wrap on a 375px phone, and these open over the screen rather than replacing
-   * it — so a tool row, the same component ดำเนินการ already uses. */
-  ok_('...as a tool row, not a fifth tab',
-    /\$\{opTools\(\[\['⏰',EN\(\)\?'Student OT history'/.test(app));
+  /* IT SITS AMONG THE TABS BUT IS NOT ONE. The four real tabs switch what is drawn below and one is
+   * always `active`; this opens a panel over the screen and leaves the active tab active. An icon
+   * rather than a word is what marks it as "a thing to open" instead of "a place you can be" — and
+   * a fifth worded pill would wrap the strip on a 375px phone. */
+  ok_('...inside the tab strip, after รอบบิล',
+    /tab\('cycle','📅',EN\(\)\?'Bill day':'รอบบิล'\)\}<button onclick="A_studentOT\(\)"/.test(app));
+  ok_('...icon-only, so it does not read as a fifth tab',
+    /aria-label="\$\{EN\(\)\?'Student OT history':'ประวัติ OT นักเรียน'\}">⏰<\/button>/.test(app));
+  // icon-only means the label has to reach a screen reader some other way
+  ok_('...and is still named for a screen reader', /title="[^"]*ประวัติ OT นักเรียน[^"]*" aria-label=/.test(app));
+  ok_('...without becoming a real tab, which would break "where am I"',
+    !/A_finTab\('ot'/.test(app));
 
   /* THE TRAP THAT WAS NOT SHIPPED. "ประวัติการชำระเงิน" was the obvious button to put beside it —
    * and A_payLog() with no arguments takes its scope from parentScope(), which on an Admin session
@@ -95,6 +105,37 @@ console.log('\n4) The history answers the question that was actually asked');
   ok_('...and the month is selectable, so "ย้อนหลัง" means any month',
     /<input type="month" value="\$\{month\}" onchange="A_otMonth\(this\.value\)"\/>/.test(app));
   ok_('...with the rows newest first', /\.sort\(\(a,b\)=>String\(b\.Date\)\.localeCompare\(String\(a\.Date\)\)\)/.test(eng));
+}
+
+console.log('\n5) The month in one look, above the rows');
+{
+  // "รวมยอด OT ทั้งหมดที่ได้รับ จำนวนรายการทั้งหมด/อนุมัติ/ยกเลิก ไว้ด้านบนของข้อมูล" (2026-09-17)
+  ok_('there is a summary, and it is above the list', /\$\{otSummary\}/.test(app) &&
+    app.indexOf('${otSummary}') < app.indexOf('${rows.length?rows.map(row).join(\'\')'));
+  ok_('money: charged, collected, still owed',
+    /เรียกเก็บทั้งหมด', baht\(charged\)/.test(app) && /เก็บได้แล้ว', baht\(collected\)/.test(app) &&
+    /ยังค้างชำระ', baht\(owed\)/.test(app));
+  ok_('counts: all, paid, unpaid, cancelled',
+    /รายการทั้งหมด', rows\.length/.test(app) && /ชำระแล้ว', nPaid/.test(app) &&
+    /ค้างชำระ', nUnpaid\+nWait/.test(app) && /ยกเลิก', nCancel/.test(app));
+
+  /* THE THREE MONEY RULES, each one a way a finance summary could lie.
+   * A cancelled row was never billed, so it must not appear in the charge total. */
+  ok_('cancelled rows are excluded from the charge total',
+    /const live = rows\.filter\(o=>o\.status!=='CANCELLED'\);/.test(app) &&
+    /charged=sum\(live,o=>o\.amount\)/.test(app));
+  /* Only a PAID row is money in the bank. studentOtList carries no confirmed-amount field, so a
+   * PARTIAL row cannot be valued — counting it as collected would overstate what came in, which is
+   * the one direction this card must never be wrong in. */
+  ok_('only fully-paid rows count as collected',
+    /collected=sum\(byStatus\('PAID'\),o=>o\.amount\)/.test(app));
+  ok_('...and part-paid rows are counted as owed, and said so out loud',
+    /nPartial\?`<div[\s\S]{0,240}ชำระบางส่วน/.test(app));
+  ok_('the confirmed amount really is absent from the row, so that caution is warranted',
+    !/studentOtList: p =>[\s\S]{0,2000}confirmedPaid/.test(eng));
+  // the school gives real discounts; the total goodwill is worth seeing, but only when there is some
+  ok_('discounts given are totalled when there are any', /discount>0\?`<div[\s\S]{0,120}ส่วนลดที่ให้ไป/.test(app));
+  ok_('an empty month draws no summary at all', /const otSummary = rows\.length \? /.test(app));
 }
 
 console.log(fail ? `\nFAILED ${pass} passed, ${fail} failed` : `\nALL PASS ${pass} checks`);
