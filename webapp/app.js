@@ -112,7 +112,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.386'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.387'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -12044,7 +12044,21 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
               return stat('amber', baht(_all), t('fin.outstanding'),
                 _all>0?`🏫 ${baht(_t)} · ⏰ ${baht(_o)}${_c?` · ➕ ${baht(_c)}`:''}`:''); })()
           }</div></div></div>
+      ${/* THE OT HISTORY LIVED ON THE WRONG SCREEN. Asked 2026-09-17: "ประวัติ OT ที่ผู้ปกครองชำระมา
+           สามารถตรวจสอบย้อนหลังได้ไหมว่าวันไหนมี OT เท่าไหร่ อนุมัติไปแล้ว ยังไม่อนุมัติ".
+           It could, in full, with a month picker — but only from ดำเนินการ, while the admin asking
+           was standing in การเงิน looking at an OT payment. Not finding it, they tapped the nearest
+           control that looked like it might expand (the payment-date field) and concluded the screen
+           was broken. Nothing was: the answer was one tab away and nothing pointed at it.
+           A tool row rather than a fifth tab — five tabs wrap on a 375px phone, and these two open
+           over the screen rather than replacing it. */''}
       <div class="seg">${tab('in','💵',EN()?'Income':'รับเงิน')}${tab('pay','💸',EN()?'Payroll':'จ่ายเงิน')}${tab('wait','✅',EN()?'To approve':'รออนุมัติ',pendN)}${tab('cycle','📅',EN()?'Bill day':'รอบบิล')}</div>
+      ${/* ONE button, not two. A "ประวัติการชำระเงิน" button next to it would have been the obvious
+           pairing — and A_payLog() with no arguments resolves its scope through parentScope(), which
+           on an Admin session carries neither uid nor parentId, so visibleStudents filters on
+           `ParentID === undefined` and returns nothing. It would have shipped an empty screen behind
+           a promising label: the very fault being reported. It needs a student picker first. */''}
+      ${opTools([['⏰',EN()?'Student OT history':'ประวัติ OT นักเรียน','A_studentOT()']])}
       ${FIN_TAB==='pay'?payTab:FIN_TAB==='wait'?waitTab:FIN_TAB==='cycle'?cycleTab:inTab}`;
   };
   window.FIN_set=(m)=>{ FIN_MONTH=m; GO('finance'); };
@@ -12544,7 +12558,30 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
           <table style="width:100%;font-size:13px;margin:6px 0"><tr><td>${esc(t('slip.amountDue'))}</td><td style="text-align:right"><b>${baht(x.due)}</b></td></tr>
           ${confirmed>0?`<tr><td>${EN()?'Confirmed so far':'ยืนยันแล้ว'}</td><td style="text-align:right;color:var(--ok)">${baht(confirmed)}</td></tr>`:''}
           <tr><td><b>${EN()?'Outstanding':'คงค้าง'}</b></td><td style="text-align:right"><b style="color:${outstanding>0?'var(--bad)':'var(--ok)'}">${baht(outstanding)}</b></td></tr></table>
-          <label class="field"><span>${esc(t('pay.paidDate'))} <small class="muted">${(x.slips&&x.slips[0]&&/^\d{4}-\d{2}-\d{2}/.test(x.slips[0].transDate||''))?(EN()?'(from slip)':'(จากสลิป)'):''}</small></span><input type="date" id="pd_${esc(x.id)}" value="${(x.slips&&x.slips[0]&&/^\d{4}-\d{2}-\d{2}/.test(x.slips[0].transDate||''))?esc(x.slips[0].transDate.slice(0,10)):todayStr()}"/></label>
+          ${/* STRAIGHT TO THE HISTORY FROM THE THING THAT PROMPTS THE QUESTION. An admin approving
+               ฿100 of OT for one day wants to know what else this month looked like — that is the
+               question that was asked. The month comes out of the OT's own label ("2026-09-16 OT"),
+               so the history opens on the month being approved rather than on today's. */''}
+          ${(()=>{ if(x.kind!=='ot') return '';
+            const m=String(x.label||'').match(/^(\d{4}-\d{2})/);
+            return `<button class="btn sm outline block" style="margin-bottom:6px" onclick="A_otMonth('${m?m[1]:monthStr()}')">⏰ ${EN()?'See this month\'s OT history':'ดูประวัติ OT ทั้งเดือนนี้'}</button>`; })()}
+          ${/* IT RECORDS A DATE. IT DOES NOT REVEAL ONE — and it was read as the second (2026-09-17).
+               An admin looking for "which day had how much OT, paid or not" found this control sitting
+               directly above the slip, tapped it because Chrome draws a date input with a chevron that
+               reads as "expand", got a calendar, and reported the screen as broken. The field was
+               working exactly as designed; the design said nothing about what it was for.
+               So it now says: this is the day the money actually moved, it lands in the receipt and
+               the month's report, and the history is elsewhere. The hint below is drawn whether or
+               not the slip supplied a date — when it did not (SlipOK could not read the slip, as in
+               that report), the admin is the one deciding the date and most needs to be told so. */''}
+          <label class="field"><span>${esc(t('pay.paidDate'))}
+            <small class="muted">${(x.slips&&x.slips[0]&&/^\d{4}-\d{2}-\d{2}/.test(x.slips[0].transDate||''))
+              ? (EN()?'(read from the slip)':'(อ่านจากสลิป)')
+              : (EN()?'(not on the slip — check it)':'(อ่านจากสลิปไม่ได้ — ตรวจสอบเอง)')}</small></span>
+            <input type="date" id="pd_${esc(x.id)}" value="${(x.slips&&x.slips[0]&&/^\d{4}-\d{2}-\d{2}/.test(x.slips[0].transDate||''))?esc(x.slips[0].transDate.slice(0,10)):todayStr()}"/>
+            <small class="muted" style="font-size:12px">${EN()
+              ? 'The day the money actually arrived — it goes on the receipt and into this month\'s report.'
+              : 'วันที่เงินเข้าจริง — จะถูกบันทึกในใบเสร็จและรายงานประจำเดือน'}</small></label>
           ${cash?`<div style="background:var(--warn-bg);border-radius:8px;padding:6px 8px;font-size:13px;color:var(--warn-ink);margin-bottom:6px">💵 ${esc(t('verify.cashPending'))} ${baht(x.slipAmount)}</div>
             <div class="row"><button class="btn sm green" onclick="A_confirmPay('${x.kind}','${x.id}','cash')">✅ ${esc(t('verify.confirm'))}</button><button class="btn sm pink" onclick="A_rejectPay('${x.kind}','${x.id}')">✗ ${esc(t('verify.reject'))}</button></div>`
             : (slipRows||`<small class="muted">${EN()?'no slips':'ไม่มีสลิป'}</small>`)}</div>`;
