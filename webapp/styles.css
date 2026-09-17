@@ -158,6 +158,11 @@ a.btn.block{display:block;}
 .seg{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px;}
 .seg button{border:1px solid var(--line);background:var(--surface);border-radius:999px;padding:7px 14px;cursor:pointer;font-family:inherit;font-size:13px;}
 .seg button.active{background:var(--blue);color:var(--on-accent);border-color:var(--blue);}
+/* A pill in the strip that OPENS something instead of switching to it. The four real tabs swap what
+   is drawn below and exactly one of them is `active`; this one puts a panel over the screen and
+   leaves the active tab active. Dashed, so the difference is visible at a glance rather than
+   discovered by tapping — and it never takes `.active`, because you are never "on" it. */
+.seg button.seg-open{border-style:dashed;color:var(--blue-d);}
 
 .choice{display:flex;gap:6px;flex-wrap:wrap;}
 .choice button{border:1px solid var(--line);background:var(--surface);border-radius:10px;padding:8px 12px;cursor:pointer;font-family:inherit;font-size:13px;}

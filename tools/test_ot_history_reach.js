@@ -24,26 +24,28 @@ const fs = require('fs'), path = require('path');
 let pass = 0, fail = 0;
 function ok_(label, cond) { console.log((cond ? '  ok   ' : '  FAIL ') + label); cond ? pass++ : fail++; }
 const R = f => fs.readFileSync(path.join(__dirname, '..', f), 'utf8').replace(/\r\n/g, '\n');
-const app = R('webapp/app.js'), eng = R('webapp/engine.js');
+const app = R('webapp/app.js'), eng = R('webapp/engine.js'), css = R('webapp/styles.css');
 
 console.log('\n1) The history is reachable from the screen that prompts the question');
 {
   /* It was only ever on ดำเนินการ. Both entry points now exist — an admin thinking about OT money is
    * in การเงิน; an admin correcting a pick-up time is in ดำเนินการ. Neither is wrong. */
   /* Moved into the tab strip on 2026-09-17 at the school's request — same pill, same row, after
-   * รอบบิล. It shipped for a day as a full-width tool row underneath. */
-  ok_('การเงิน has an OT-history button', /onclick="A_studentOT\(\)" title="\$\{EN\(\)\?'Student OT history':'ประวัติ OT นักเรียน'\}"/.test(app));
+   * รอบบิล. It shipped for one version as a bare ⏰ to save a row on a 375px phone, and the school
+   * asked the only question that matters about that: "ทำไมมีแต่ Icon ไม่มีชื่อเมนูว่าเมนูนี้คือเมนู
+   * อะไร". The four pills beside it all say what they are; one that does not reads as decoration or
+   * a bug. A control nobody can name is not a saving. */
+  ok_('การเงิน has an OT-history button', /<button class="seg-open" onclick="A_studentOT\(\)">/.test(app));
   ok_('...and ดำเนินการ keeps the one it had', /OT รับช้า \(นักเรียน\)','A_studentOT\(\)/.test(app));
-  /* IT SITS AMONG THE TABS BUT IS NOT ONE. The four real tabs switch what is drawn below and one is
-   * always `active`; this opens a panel over the screen and leaves the active tab active. An icon
-   * rather than a word is what marks it as "a thing to open" instead of "a place you can be" — and
-   * a fifth worded pill would wrap the strip on a 375px phone. */
   ok_('...inside the tab strip, after รอบบิล',
-    /tab\('cycle','📅',EN\(\)\?'Bill day':'รอบบิล'\)\}<button onclick="A_studentOT\(\)"/.test(app));
-  ok_('...icon-only, so it does not read as a fifth tab',
-    /aria-label="\$\{EN\(\)\?'Student OT history':'ประวัติ OT นักเรียน'\}">⏰<\/button>/.test(app));
-  // icon-only means the label has to reach a screen reader some other way
-  ok_('...and is still named for a screen reader', /title="[^"]*ประวัติ OT นักเรียน[^"]*" aria-label=/.test(app));
+    /tab\('cycle','📅',EN\(\)\?'Bill day':'รอบบิล'\)\}<button class="seg-open"/.test(app));
+  ok_('...CARRYING ITS NAME, not an icon on its own',
+    /⏰ \$\{EN\(\)\?'OT history':'ประวัติ OT'\}<\/button>/.test(app));
+  /* IT SITS AMONG THE TABS BUT IS NOT ONE. The four real tabs switch what is drawn below and one is
+   * always `active`; this opens a panel over the screen and leaves the active tab active. Now that
+   * it is worded like them, the dashed edge is the only thing left carrying that difference. */
+  ok_('...marked as an opener rather than a destination', /\.seg button\.seg-open\{border-style:dashed;/.test(css));
+  ok_('...and never takes the active state', !/seg-open[^`]{0,80}active/.test(app));
   ok_('...without becoming a real tab, which would break "where am I"',
     !/A_finTab\('ot'/.test(app));
 
@@ -136,6 +138,33 @@ console.log('\n5) The month in one look, above the rows');
   // the school gives real discounts; the total goodwill is worth seeing, but only when there is some
   ok_('discounts given are totalled when there are any', /discount>0\?`<div[\s\S]{0,120}ส่วนลดที่ให้ไป/.test(app));
   ok_('an empty month draws no summary at all', /const otSummary = rows\.length \? /.test(app));
+}
+
+console.log('\n6) Tapping a number shows the rows behind it');
+{
+  // "กดรายการชำระแล้ว ให้ขึ้นมาว่ามีรายการไหนบ้าง / ค้างชำระมีรายการไหน / ยกเลิกมีรายการไหน" (2026-09-17)
+  ok_('the four counts are buttons', /const fcell=\(k,lbl,val,col\)=>/.test(app) &&
+    /fcell\('all'/.test(app) && /fcell\('paid'/.test(app) && /fcell\('unpaid'/.test(app) && /fcell\('cancelled'/.test(app));
+  ok_('...and the list is filtered by the same predicate the number counts',
+    /const shown=rows\.filter\(OT_FILTERS\[OT_FILT\]\|\|OT_FILTERS\.all\);/.test(app));
+  /* THE NUMBER AND ITS LIST MUST NEVER DISAGREE. "ค้างชำระ" in the money row means everything not
+   * fully paid — unpaid, awaiting check, AND part-paid — so the filter behind that number has to
+   * mean the same three, or tapping 4 would show 3 rows and the screen would be lying. */
+  ok_('unpaid means the same three states in the count and in the filter',
+    /unpaid:\s+o => o\.status==='UNPAID' \|\| o\.status==='PENDING_VERIFY' \|\| o\.status==='PARTIAL',/.test(app) &&
+    /fcell\('unpaid', EN\(\)\?'Unpaid':'ค้างชำระ', nUnpaid\+nWait\+nPartial/.test(app));
+  ok_('the active filter is visible on the number itself', /aria-pressed="\$\{on\}"/.test(app));
+  ok_('...and the list says how many of how many it is showing', /แสดง \$\{shown\.length\} จาก \$\{rows\.length\} รายการ/.test(app));
+  /* A blank panel under a number that said 4 is how somebody decides the app is broken — which is
+   * precisely how this screen came to attention two days ago. */
+  ok_('an empty filter says so and offers the way back',
+    /ไม่มีรายการในตัวกรองนี้/.test(app) && /onclick="A_otFilter\('all'\)"/.test(app));
+  /* THE BATCH BUTTON CANCELS OT, SO IT IS MONEY. A_socToggleAll ticks `.sotoc` in the document, so
+   * under a filter "select all" means the filtered set — right behaviour, wrong words. */
+  ok_('"select all" says "shown" while a filter is on',
+    /OT_FILT==='all'\?\(EN\(\)\?'Select all':'เลือกทั้งหมด'\):\(EN\(\)\?'Select all shown':'เลือกทั้งหมดที่แสดงอยู่'\)/.test(app));
+  ok_('...and it really does only reach rendered rows',
+    /document\.querySelectorAll\('\.sotoc:not\(\[disabled\]\)'\)/.test(app));
 }
 
 console.log(fail ? `\nFAILED ${pass} passed, ${fail} failed` : `\nALL PASS ${pass} checks`);

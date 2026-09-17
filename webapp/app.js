@@ -112,7 +112,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.388'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.389'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -11159,6 +11159,21 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
   // ---- OT verification (check the ≥50min→1hr rule on attendance) ----
   // ---- Admin: student late-pickup OT (cancel / correct pickup time / override amount) ----
   let OT_MONTH=null;
+  /* WHICH ROWS ARE BEHIND THAT NUMBER. Asked 2026-09-17: "กดรายการชำระแล้ว ให้ขึ้นมาว่ามีรายการไหน
+   * บ้าง / ค้างชำระมีรายการไหน / ยกเลิกมีรายการไหน แสดงเป็น Lists".
+   * A total of 15 paid rows is only useful if you can see which fifteen. The counts in the summary
+   * become the filter, so the number and the list can never disagree — they are the same predicate.
+   * 'unpaid' deliberately covers UNPAID, PENDING_VERIFY and PARTIAL together: that is exactly what
+   * the "ค้างชำระ" figure above it counts, and a filter that disagreed with its own number would be
+   * worse than no filter at all. */
+  let OT_FILT='all';
+  const OT_FILTERS = {
+    all:       () => true,
+    paid:      o => o.status==='PAID',
+    unpaid:    o => o.status==='UNPAID' || o.status==='PENDING_VERIFY' || o.status==='PARTIAL',
+    cancelled: o => o.status==='CANCELLED',
+  };
+  window.A_otFilter=(k)=>{ OT_FILT=OT_FILTERS[k]?k:'all'; const x=document.querySelector('.modal'); if(x)x.remove(); A_studentOT(); };
   window.A_studentOT=async()=>{ const month=OT_MONTH||monthStr(); const rows=await api('studentOtList',{month});
     const pill=st=>({UNPAID:'bad',PENDING_VERIFY:'wait',PARTIAL:'wait',PAID:'ok',CANCELLED:'info'}[st]||'info');
     const lbl=st=>({UNPAID:EN()?'unpaid':'ค้างชำระ',PENDING_VERIFY:EN()?'pending':'รอตรวจ',PARTIAL:EN()?'partial':'บางส่วน',PAID:EN()?'paid':'ชำระแล้ว',CANCELLED:EN()?'cancelled':'ยกเลิกแล้ว'}[st]||st);
@@ -11222,6 +11237,13 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
     const charged=sum(live,o=>o.amount), collected=sum(byStatus('PAID'),o=>o.amount),
           owed=Math.max(0,charged-collected), discount=sum(live,o=>o.discount);
     const cell=(lbl,val,col)=>`<div style="flex:1;min-width:88px"><div style="font-size:18px;font-weight:800;color:${col||'var(--ink)'}">${val}</div><div class="muted" style="font-size:11.5px">${lbl}</div></div>`;
+    /* The count cells are BUTTONS — tapping one filters the list below to exactly the rows behind
+     * that number. The active one is outlined so the list can never be read as "all of them". */
+    const fcell=(k,lbl,val,col)=>{ const on=OT_FILT===k;
+      return `<button onclick="A_otFilter('${k}')" style="flex:1;min-width:84px;text-align:left;cursor:pointer;font-family:inherit;
+        background:${on?'var(--blue-bg)':'transparent'};border:1px solid ${on?'var(--blue-line)':'transparent'};border-radius:10px;padding:4px 6px"
+        aria-pressed="${on}"><div style="font-size:18px;font-weight:800;color:${col||'var(--ink)'}">${val}</div>
+        <div class="muted" style="font-size:11.5px">${lbl}${on?' ▾':''}</div></button>`; };
     const otSummary = rows.length ? `<div class="card" style="padding:10px;background:var(--surface-2)">
       <div style="display:flex;gap:10px;flex-wrap:wrap">
         ${cell(EN()?'Charged (excl. cancelled)':'เรียกเก็บทั้งหมด', baht(charged))}
@@ -11229,12 +11251,13 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
         ${cell(EN()?'Still owed':'ยังค้างชำระ', baht(owed), owed>0?'var(--bad)':'var(--ok)')}
       </div>
       ${discount>0?`<div style="font-size:12.5px;color:var(--warn);margin-top:6px">${EN()?'Discounts given':'ส่วนลดที่ให้ไป'} −${baht(discount)}</div>`:''}
-      <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:8px;padding-top:8px;border-top:1px solid var(--line)">
-        ${cell(EN()?'All rows':'รายการทั้งหมด', rows.length)}
-        ${cell(EN()?'Paid':'ชำระแล้ว', nPaid, 'var(--ok)')}
-        ${cell(EN()?'Unpaid':'ค้างชำระ', nUnpaid+nWait, (nUnpaid+nWait)>0?'var(--bad)':'var(--ink)')}
-        ${cell(EN()?'Cancelled':'ยกเลิก', nCancel, 'var(--ink-3)')}
+      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;padding-top:8px;border-top:1px solid var(--line)">
+        ${fcell('all', EN()?'All rows':'รายการทั้งหมด', rows.length)}
+        ${fcell('paid', EN()?'Paid':'ชำระแล้ว', nPaid, 'var(--ok)')}
+        ${fcell('unpaid', EN()?'Unpaid':'ค้างชำระ', nUnpaid+nWait+nPartial, (nUnpaid+nWait+nPartial)>0?'var(--bad)':'var(--ink)')}
+        ${fcell('cancelled', EN()?'Cancelled':'ยกเลิก', nCancel, 'var(--ink-3)')}
       </div>
+      <div class="muted" style="font-size:11.5px;margin-top:4px">${EN()?'Tap a number to see just those rows':'แตะตัวเลขเพื่อดูเฉพาะรายการนั้น'}</div>
       ${nPartial?`<div style="font-size:12px;color:var(--warn-ink);margin-top:6px">⚠️ ${EN()
         ? `${nPartial} row(s) part-paid — counted as still owed here; the exact amount is on the row.`
         : `มี ${nPartial} รายการชำระบางส่วน — นับรวมเป็นยังค้างในสรุปนี้ · ยอดที่รับแล้วดูในรายการ`}</div>`:''}
@@ -11244,9 +11267,24 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
       <label class="field"><span>${esc(t('c.month'))}</span><input type="month" value="${month}" onchange="A_otMonth(this.value)"/></label>
       ${otSummary}
       ${rows.length?`<div style="position:sticky;top:0;z-index:2;background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:6px 8px;margin-bottom:6px">
-        <div class="spread"><label style="display:flex;gap:6px;align-items:center"><input type="checkbox" id="socAll" style="width:auto" onchange="A_socToggleAll(this)"/> ${EN()?'Select all':'เลือกทั้งหมด'} <span class="muted" id="socN">(0)</span></label></div>
+        ${/* "เลือกทั้งหมด" MEANS THE ROWS ON SCREEN. A_socToggleAll ticks `.sotoc` in the document, so
+             under a filter it selects the filtered set — which is the behaviour you want, and not
+             the behaviour the words promise. The next button along cancels OT, so this is money:
+             say which "all" is meant rather than let an admin find out afterwards. */''}
+        <div class="spread"><label style="display:flex;gap:6px;align-items:center"><input type="checkbox" id="socAll" style="width:auto" onchange="A_socToggleAll(this)"/> ${OT_FILT==='all'?(EN()?'Select all':'เลือกทั้งหมด'):(EN()?'Select all shown':'เลือกทั้งหมดที่แสดงอยู่')} <span class="muted" id="socN">(0)</span></label></div>
         <div class="row" style="margin-top:6px"><button class="btn sm pink" onclick="A_socBatch('cancel')">🚫 ${EN()?'Cancel all selected':'ยกเลิกทั้งหมด'}</button><button class="btn sm outline" onclick="A_socBatch('restore')">♻️ ${EN()?'Restore all selected':'คืนค่าทั้งหมด'}</button></div></div>`:''}
-      ${rows.length?rows.map(row).join(''):`<div class="card muted">${EN()?'No OT this month':'ไม่มีรายการ OT เดือนนี้'}</div>`}
+      ${/* The list IS the filter's answer — same predicate as the number that was tapped, so the two
+           can never disagree. An empty result says which filter emptied it and offers the way back,
+           because a blank panel under a number that said 4 is how somebody decides the app is
+           broken (which is exactly how this screen came to attention two days ago). */''}
+      ${(()=>{ const shown=rows.filter(OT_FILTERS[OT_FILT]||OT_FILTERS.all);
+        if(!rows.length) return `<div class="card muted">${EN()?'No OT this month':'ไม่มีรายการ OT เดือนนี้'}</div>`;
+        if(!shown.length) return `<div class="card muted">${EN()?'No rows in this filter':'ไม่มีรายการในตัวกรองนี้'}
+          <button class="btn sm outline block" style="margin-top:8px" onclick="A_otFilter('all')">${EN()?'Show all rows':'ดูรายการทั้งหมด'}</button></div>`;
+        return (OT_FILT==='all'?'':`<div class="muted" style="font-size:12.5px;margin:2px 2px 6px">${EN()
+            ? `Showing ${shown.length} of ${rows.length} rows`
+            : `แสดง ${shown.length} จาก ${rows.length} รายการ`} · <a href="#" onclick="A_otFilter('all');return false">${EN()?'show all':'ดูทั้งหมด'}</a></div>`)
+          + shown.map(row).join(''); })()}
       <button class="btn outline block" style="margin-top:8px" onclick="this.closest('.modal').remove()">${esc(t('c.close'))}</button>`);
   };
   window.A_socSel=()=>{ const n=document.querySelectorAll('.sotoc:checked').length; const el=document.getElementById('socN'); if(el)el.textContent='('+n+')'; };
@@ -12091,19 +12129,23 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
            was broken. Nothing was: the answer was one tab away and nothing pointed at it.
            A tool row rather than a fifth tab — five tabs wrap on a 375px phone, and these two open
            over the screen rather than replacing it. */''}
-      ${/* IT SITS IN THE TAB STRIP, as asked — but it is NOT a tab, and that difference has to stay
-           visible or the strip starts lying about where you are. The four on the left switch what is
-           drawn below them and one of them is always `active`; this one opens a panel over the
-           screen and none of them stops being active while it is open. So: same pill, same row, and
-           an icon rather than a word, which is what marks it as "a thing to open" rather than "a
-           place you can be". Full row was ~40px of vertical space on a 375px phone for a control
-           used a few times a month.
+      ${/* IT CARRIES ITS NAME. It shipped for one version as a bare ⏰, to save a row on a 375px
+           phone, and the school asked the only question that matters about it: "ทำไมมีแต่ Icon ไม่มี
+           ชื่อเมนูว่าเมนูนี้คือเมนูอะไร". A control nobody can name is not a saving — the four pills
+           beside it all say what they are, and one that does not reads as decoration or a bug. The
+           row it costs is worth less than the question it makes somebody ask.
+
+           It sits among the tabs but is NOT one, and that has to stay visible or the strip starts
+           lying about where you are: the four on the left switch what is drawn below and one of them
+           is always `active`, while this opens a panel over the screen and leaves the active tab
+           active. The `.seg-open` class is the marker — a dashed edge and no active state, ever.
+
            ONE button, not two. A "ประวัติการชำระเงิน" beside it was the obvious pairing, and
            A_payLog() with no arguments resolves its scope through parentScope(), which on an Admin
            session carries neither uid nor parentId — visibleStudents then filters on
            `ParentID === undefined` and returns nothing. An empty screen behind a promising label is
            the very fault that was being reported. It needs a student picker first. */''}
-      <div class="seg">${tab('in','💵',EN()?'Income':'รับเงิน')}${tab('pay','💸',EN()?'Payroll':'จ่ายเงิน')}${tab('wait','✅',EN()?'To approve':'รออนุมัติ',pendN)}${tab('cycle','📅',EN()?'Bill day':'รอบบิล')}<button onclick="A_studentOT()" title="${EN()?'Student OT history':'ประวัติ OT นักเรียน'}" aria-label="${EN()?'Student OT history':'ประวัติ OT นักเรียน'}">⏰</button></div>
+      <div class="seg">${tab('in','💵',EN()?'Income':'รับเงิน')}${tab('pay','💸',EN()?'Payroll':'จ่ายเงิน')}${tab('wait','✅',EN()?'To approve':'รออนุมัติ',pendN)}${tab('cycle','📅',EN()?'Bill day':'รอบบิล')}<button class="seg-open" onclick="A_studentOT()">⏰ ${EN()?'OT history':'ประวัติ OT'}</button></div>
       ${FIN_TAB==='pay'?payTab:FIN_TAB==='wait'?waitTab:FIN_TAB==='cycle'?cycleTab:inTab}`;
   };
   window.FIN_set=(m)=>{ FIN_MONTH=m; GO('finance'); };
