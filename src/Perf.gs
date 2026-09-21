@@ -241,7 +241,27 @@ var SCREEN_BUDGET_ = {
   leaves: 6,      // approvals + both calendars
   manage: 5,
   class: 4, journal: 4, checkin: 3, payment: 5, growth: 3, dspm: 4,
-  chat: 2, schedule: 4, leave: 4, absence: 3, daily: 3, injury: 3
+  chat: 2, schedule: 4, leave: 4, daily: 3, injury: 3,
+  /* absence: 3 → 6 (v391), and this is a correction to the BUDGET, not a concession about the code.
+   *
+   * The screen loads in ONE round trip: absenceReport and ratedChildCount go out in a single
+   * Promise.all, and A_followup was changed in v389 to update the row in place rather than refetch.
+   * There is nothing left to batch. Yet it kept reporting 3.6 and kept being flagged.
+   *
+   * The 3.6 is the teacher DOING THE WORK. Every other screen on this list is a screen you read;
+   * this one is a screen where you ring three families and record what each of them said, and each
+   * of those saves is its own round trip because they are minutes apart. They cannot be batched with
+   * anything — there is nothing else in the tick — and the report shows exactly that: 20.4 actions
+   * in 3.6 requests is batching working, not failing.
+   *
+   * So a budget of 3 could only ever be met by a teacher who followed up two children and stopped.
+   * Six is one load plus five follow-ups; past that, something really has been added outside the
+   * batch and the flag means what it is supposed to mean again.
+   *
+   * (The wider point, worth writing down rather than rediscovering: this figure conflates loading a
+   * screen with working on one, and for read-only screens that is fine. It is not fine here, and it
+   * would not be fine on any screen we add later that saves one row at a time.) */
+  absence: 6
 };
 
 function perfStamp_(d) { return Utilities.formatDate(d, perfTz_(), 'yyyy-MM-dd HH:mm:ss'); }

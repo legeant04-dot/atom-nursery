@@ -207,7 +207,7 @@ console.log('\n6) a request that never comes back is given up on');
   /* A TIMEOUT IS NOT A NETWORK ERROR and must not be reported as one: OFFLINE tells somebody to
    * check their signal, which is the wrong thing to go and do. */
   ok_('a timeout is told apart from being offline', /if \(timedOut\) \{/.test(a));
-  ok_('a read is simply asked again', /if \(canRepeat\(body\) && attempt < 2\) return postGas\(body, attempt \+ 1\);/.test(a));
+  ok_('a read is simply asked again', /if \(canRepeat\(body\) && attempt < 2\) return postGas\(body, attempt \+ 1, resumes\);/.test(a));
   /* AND A WRITE IS NEVER REPEATED, nor told it failed. After a timeout we do not know whether it
    * landed — a duplicated payment is worse than an honest "check before repeating". */
   ok_('...and a write says it does not know', /อาจบันทึกไปแล้ว/.test(api));

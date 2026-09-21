@@ -156,8 +156,13 @@ console.log('\n5) a teacher does not type her daily report twice');
 {
   // 18 lost replies in one week, all confirmed by the diagnostic added in v247:
   //   http=200 redirected via=script.googleusercontent.com
-  ok_('the four the outbox already replays may now be retried too',
-    /const IDEMPOTENT_WRITE = \/\^\(staffCheckin\|staffCheckout\|staffStudentCheckin\|submitJournal\|studentAbsence\|submitAssessment\)\$\//.test(api));
+  /* parentCheckin joined them in v391: the 16–21/09 report had it failing 13%, the worst of any
+   * action a family performs, and it was the only check-in door left off — staffStudentCheckin
+   * writes the same sheet for the same child and had been on the list from the start. Its guard and
+   * the reason are asserted properly in tools/test_retry_budget.js; pinned here by name so the list
+   * cannot grow quietly. */
+  ok_('the ones the outbox already replays may be retried too, parentCheckin included',
+    /const IDEMPOTENT_WRITE = \/\^\(staffCheckin\|staffCheckout\|staffStudentCheckin\|parentCheckin\|submitJournal\|studentAbsence\|submitAssessment\)\$\//.test(api));
   ok_('...with what makes each one safe written down', /staffStudentCheckin updates the existing\s*\n\s*\* row for that \(student, date, type\)/.test(api));
   ok_('...and why a lost reply is a weaker demand than the outbox', /the outbox replays\s*\n\s*\* minutes or hours later, this retries within the same second/.test(api));
   ok_('money is still never repeated', /Everything that CREATES a row — payments, slips, bills, growth records — is deliberately absent/.test(api));

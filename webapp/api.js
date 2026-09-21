@@ -142,8 +142,25 @@ window.CONFIG = { MODE: 'gas', GAS_URL: 'https://script.google.com/macros/s/AKfy
     document.addEventListener('visibilitychange', on);
     setTimeout(() => { document.removeEventListener('visibilitychange', on); r(); }, 30000);   // never hang forever
   });
-  async function postGas(body, attempt) {
+  /* HOW MANY TIMES THE APP MAY BE SENT TO THE BACKGROUND MID-REQUEST BEFORE WE GIVE UP.
+   *
+   * Separate from `attempt` on purpose, and this is the whole point of it. iOS cancels an in-flight
+   * request the moment the app leaves the screen, and on a platform where p50 is 11.5s that is a
+   * glance at a LINE message. The old code spent a real retry on each one, so a parent who looked
+   * away twice had burned the entire budget before the server had failed even once — which is why
+   * iOS fails 6% against Android's 2% on the same building's wifi, with OFFLINE the top code on
+   * almost every route in the 16–21/09 report.
+   *
+   * Being backgrounded is not the server failing. It is us being paused. So it gets its own budget
+   * and does not consume the one that exists for things that genuinely went wrong.
+   *
+   * IT IS STILL CAPPED. An app being backgrounded over and over is a person who has walked away, and
+   * a request that follows them around for ever is worse than one that stops and says so. Two
+   * resumes, then it is treated as an ordinary failure. */
+  const MAX_RESUMES = 2;
+  async function postGas(body, attempt, resumes) {
     attempt = attempt || 0;
+    resumes = resumes || 0;
     const payload = JSON.stringify(Object.assign({ token: _session }, body));
     if (payload.length > MAX_POST) {
       const e = new Error('ไฟล์ที่แนบมาใหญ่เกินไป (' + Math.round(payload.length / 1048576) + ' MB) — กรุณาถ่ายใหม่หรือย่อรูปก่อน');
@@ -187,17 +204,25 @@ window.CONFIG = { MODE: 'gas', GAS_URL: 'https://script.google.com/macros/s/AKfy
     catch (netErr) {
       if (timedOut) {
         // a read may simply be asked again; a write must not be, and must not claim it failed either
-        if (canRepeat(body) && attempt < 2) return postGas(body, attempt + 1);
+        if (canRepeat(body) && attempt < 2) return postGas(body, attempt + 1, resumes);
         const eT = new Error(canRepeat(body)
           ? 'ระบบใช้เวลานานเกินไป — กรุณาลองใหม่อีกครั้ง'
           : 'ระบบใช้เวลานานเกินไป — โปรดตรวจสอบก่อนทำรายการซ้ำ เพราะอาจบันทึกไปแล้ว');
         eT.code = 'TIMEOUT';
         throw eT;
       }
-      if (canRepeat(body) && attempt < 2) {
-        if (typeof document !== 'undefined' && document.hidden) await visible();
+      /* WAS THIS THE NETWORK, OR WAS IT US BEING PAUSED? Asked before the retry budget is touched,
+       * because the two deserve different treatment and only one of them is a failure. `hidden` at
+       * the moment fetch rejected means the app went off screen and iOS cancelled the request
+       * underneath it — nothing reached the server and nothing was decided. */
+      const backgrounded = (typeof document !== 'undefined' && document.hidden);
+      if (canRepeat(body) && (backgrounded ? resumes < MAX_RESUMES : attempt < 2)) {
+        if (backgrounded) await visible();      // wait for them to come back, then pick up where we were
         await sleep(400 * (attempt + 1));
-        return postGas(body, attempt + 1);
+        /* The counter that moves is the one that describes what happened. A resume leaves `attempt`
+         * alone, so a person glancing at a message still arrives at the server with a full budget of
+         * real retries — which is the entire fix. */
+        return backgrounded ? postGas(body, attempt, resumes + 1) : postGas(body, attempt + 1, resumes);
       }
       const e2 = new Error('เชื่อมต่อไม่ได้ — กรุณาตรวจสอบสัญญาณอินเทอร์เน็ตแล้วลองใหม่');
       e2.code = 'OFFLINE';
@@ -253,7 +278,7 @@ window.CONFIG = { MODE: 'gas', GAS_URL: 'https://script.google.com/macros/s/AKfy
            * where the cause is no longer known. 34 of these in two and a half days, each costing a
            * wait nobody could see the reason for. */
           if (attempt > 0) await sleep(400 * attempt);
-          return postGas(body, attempt + 1).then(d => {
+          return postGas(body, attempt + 1, resumes).then(d => {
             // the retry worked: say so, or the report accuses a request nobody ever saw fail
             if (asked !== 'perfLog') { try { PERF.mark('healed', asked, 0); } catch (x) {} }
             return d;
@@ -276,7 +301,7 @@ window.CONFIG = { MODE: 'gas', GAS_URL: 'https://script.google.com/macros/s/AKfy
       const looksHTML = /^\s*<(!doctype|html)/i.test(text);
       try { console.error('postGas non-JSON', body && body.action, r.status, text.slice(0, 300)); } catch (x) {}
       // a batch is retried only when every call in it is safe to repeat
-      if (canRepeat(body) && attempt < 2) { await sleep(400 * (attempt + 1)); return postGas(body, attempt + 1); }
+      if (canRepeat(body) && attempt < 2) { await sleep(400 * (attempt + 1)); return postGas(body, attempt + 1, resumes); }
       const err = new Error(looksHTML
         ? 'ระบบของโรงเรียนตอบกลับไม่ถูกต้อง (HTTP ' + r.status + ') — กรุณาลองใหม่อีกครั้ง'
         : 'อ่านคำตอบจากระบบไม่ได้ (HTTP ' + r.status + ')');
@@ -710,7 +735,21 @@ window.CONFIG = { MODE: 'gas', GAS_URL: 'https://script.google.com/macros/s/AKfy
    *
    * Everything that CREATES a row — payments, slips, bills, growth records — is deliberately absent,
    * and nothing joins this list without a guard in its handler to point at. */
-  const IDEMPOTENT_WRITE = /^(staffCheckin|staffCheckout|staffStudentCheckin|submitJournal|studentAbsence|submitAssessment)$/;
+  /* parentCheckin joined them in v391, and it is the one that was costing the most.
+   *
+   * The 16–21/09 report put it at 13% — the worst failure rate of any action a family performs, and
+   * the only one on this list that had been left off. staffStudentCheckin, which writes the SAME
+   * sheet for the same child on the same day, was here from the start; the parent's own door to it
+   * was not, so a teacher's lost punch healed itself and a parent's did not. A parent standing at
+   * the gate was simply told it failed.
+   *
+   * THE GUARD IT POINTS AT (handleParentCheckin, src/Parent.gs): a repeat of the same student+type
+   * within CheckinDedupMinutes (10) UPDATES the existing row rather than adding one, does not
+   * re-notify the teacher, and RETURNS BEFORE THE OT BLOCK — so a retried pick-up cannot charge a
+   * second late fee. The retries here happen inside a second, three orders of magnitude inside that
+   * window. Checked against the handler line by line before adding it, because this is the one
+   * write on the list that touches money. */
+  const IDEMPOTENT_WRITE = /^(staffCheckin|staffCheckout|staffStudentCheckin|parentCheckin|submitJournal|studentAbsence|submitAssessment)$/;
   /* "May this request be sent again?" — asked in THREE places (the connection never opened, the
    * reply was unreadable, the reply answered a different question) and, until now, written out
    * three times. Three copies of one rule is how a batch ends up retryable on one path and not on
