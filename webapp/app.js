@@ -112,7 +112,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.389'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.390'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -2735,8 +2735,8 @@
      * Newest first, and future dates before past ones — a notice you can still change is the one
      * worth putting at the top. */
     const _multi = kids.length > 1;
-    const slRows = kids.flatMap((k,i)=>(slAll[i]||[]).map(l=>Object.assign({}, l, {_kid:k})))
-      .sort((a,b)=>String(b.Date).localeCompare(String(a.Date)));
+    const slRows = groupLeaveRuns_(kids.flatMap((k,i)=>(slAll[i]||[]).map(l=>Object.assign({}, l, {_kid:k})))
+      .sort((a,b)=>String(b.Date).localeCompare(String(a.Date))));
     const slHtml = slRows.map(l=>P_leaveRow(l, _multi)).join('')
       ||`<small class="muted">${EN()?'No leave reported':'ไม่มีรายการ'}</small>`;
     // the edit dialog needs the row it is editing, and an onclick can only carry an id
@@ -2892,14 +2892,51 @@
     const types=['ลาป่วย','ลากิจ','ลาพักร้อน','อื่นๆ'];
     const m=modal(`<h3>🏠 ${EN()?'Report your child absent':'แจ้งลาบุตรหลาน'}</h3>
       <label class="field"><span>${EN()?'Child':'บุตรหลาน'}</span><select id="aKid">${kids.map(k=>`<option value="${k.StudentID}">${esc(dispNick(k))}</option>`).join('')}</select></label>
-      <label class="field"><span>${EN()?'Date':'วันที่ลา'}</span><input type="date" id="aDate" value="${todayStr()}"/></label>
+      ${/* TWO DATES, NOT ONE (v390). Asked 2026-09-21: "พานักเรียนไปต่างจังหวัด 3 วัน 21/09/26-23/09/26".
+           Filing the same form once per day was the only way, and the day somebody forgot became an
+           unexplained absence with a teacher ringing the family to ask where the child was. */''}
+      <label class="field"><span>${EN()?'From':'วันที่เริ่มลา'}</span><input type="date" id="aDate" value="${todayStr()}" oninput="P_absSpan()"/></label>
+      <label class="field"><span>${EN()?'To (same day if only one)':'ถึงวันที่ (ลาวันเดียวใส่วันเดิม)'}</span><input type="date" id="aDateTo" value="${todayStr()}" oninput="this.dataset.touched=1;P_absSpan()"/></label>
+      <div id="aSpan" class="muted" style="font-size:12px;margin:-4px 0 10px"></div>
       <label class="field"><span>${EN()?'Leave type':'ประเภทการลา'}</span><select id="aType">${types.map(x=>`<option value="${esc(x)}">${esc(x==='อื่นๆ'?(EN()?'Other':'อื่นๆ'):tLeaveType(x))}</option>`).join('')}</select></label>
       <label class="field"><span>${EN()?'Reason (optional)':'สาเหตุ (ถ้ามี)'}</span><textarea id="aReason" placeholder="${EN()?'e.g. fever / family matter':'เช่น เป็นไข้ / มีธุระครอบครัว'}"></textarea></label>
       <button class="btn block" onclick="P_absenceDo(this)">${EN()?'Send':'ส่งแจ้งลา'}</button>`);
+    P_absSpan();
+  };
+  /* THE END DATE FOLLOWS THE START, until the family touches it. Almost every leave is one day, and
+   * a form that opens with two boxes already disagreeing is a form that gets a wrong date typed into
+   * it. Once "to" has been set by hand it is left alone — dragging it back under somebody who has
+   * just chosen it would be worse than either. */
+  window.P_absSpan = () => { const m=document.querySelector('.modal'); if(!m)return;
+    const a=m.querySelector('#aDate'), b=m.querySelector('#aDateTo'), out=m.querySelector('#aSpan');
+    if(!a||!b||!out)return;
+    if(!b.dataset.touched || b.value<a.value) b.value=a.value;
+    b.min=a.value;
+    const n=Math.round((new Date(b.value+'T00:00:00')-new Date(a.value+'T00:00:00'))/86400000)+1;
+    /* WHAT IS NOT PROMISED HERE. The server skips weekends and the school's own holidays, and this
+     * screen does not hold the school's holiday list — so it states the SPAN and says closed days
+     * are skipped, rather than printing a day count that could disagree with what actually gets
+     * filed. The toast after sending reports the real number. */
+    out.textContent = !(n>0) ? '' : n===1
+      ? (EN()?'One day':'ลา 1 วัน')
+      : (EN()?`${n} days — school holidays and weekends in between are skipped automatically`
+             :`รวม ${n} วัน — วันหยุดโรงเรียนและเสาร์-อาทิตย์ที่คั่นอยู่ ระบบข้ามให้อัตโนมัติ`);
   };
   window.P_absenceDo = async (btn) => { const m=btn.closest('.modal');
-    await api('studentAbsence',{studentId:m.querySelector('#aKid').value,date:m.querySelector('#aDate').value,type:m.querySelector('#aType').value,reason:m.querySelector('#aReason').value});
-    m.remove(); toast(EN()?'✅ Absence reported — the teacher has been notified':'✅ แจ้งลาแล้ว — ครูได้รับทราบ'); GO('home'); };
+    const from=m.querySelector('#aDate').value, to=m.querySelector('#aDateTo').value;
+    btn.disabled=true;
+    try{
+      const r=await api('studentAbsence',{studentId:m.querySelector('#aKid').value,date:from,dateTo:to,
+        type:m.querySelector('#aType').value,reason:m.querySelector('#aReason').value});
+      m.remove();
+      // the real number of days filed, not the number asked for — they differ whenever a weekend, a
+      // school holiday, or a day already filed sat inside the range
+      const n=Number(r&&r.days)||0;
+      toast(n>1 ? (EN()?`✅ Absence reported for ${n} days (${r.from} – ${r.to}) — the teacher has been notified`
+                       :`✅ แจ้งลาแล้ว ${n} วัน (${r.from} – ${r.to}) — ครูได้รับทราบ`)
+                : (EN()?'✅ Absence reported — the teacher has been notified':'✅ แจ้งลาแล้ว — ครูได้รับทราบ'));
+      GO('home');
+    }catch(e){ err(e); btn.disabled=false; } };
 
   /* ------- a leave the family filed, and can still take back ---------------------------------
    *
@@ -2917,18 +2954,61 @@
    * Both cases say WHY there is no button, because a row that is silently different from the row
    * above it reads as a bug.
    */
-  const leaveEditable = l => !String((l&&l.FiledBy)||'').trim() && String((l&&l.Date)||'').slice(0,10) >= todayStr();
+  /* ------- A TRIP IS ONE LINE, NOT FOUR (v390) -------------------------------------------------
+   *
+   * The sheet stores one row per day (see the engine's leaveDaysIn_) because every reader asks "is
+   * this child on leave on THIS date". That is right for the data and wrong for this screen: a
+   * family who told us about one holiday would open their home page to four identical rows with
+   * four cancel buttons, and nothing to say that cancelling one leaves three.
+   *
+   * So they are folded back into the run they came from, by GroupID. `_days`, `_from` and `_to`
+   * carry the span; `_ids` carries every row in it. Rows filed before v390 have no GroupID and stay
+   * one row each, which is exactly what they are.
+   */
+  function groupLeaveRuns_(rows){
+    const out=[], byGroup={};
+    rows.forEach(l=>{
+      const g=String(l.GroupID||'').trim();
+      // a run belongs to ONE child: never key on GroupID alone, or two children could share a row
+      const key=g?(g+'|'+((l._kid&&l._kid.StudentID)||l.StudentID||'')):'';
+      const d=String(l.Date||'').slice(0,10);
+      if(!key){ out.push(Object.assign({},l,{_days:1,_from:d,_to:d,_ids:[l.LeaveID]})); return; }
+      const seen=byGroup[key];
+      if(!seen){ const row=Object.assign({},l,{_days:1,_from:d,_to:d,_ids:[l.LeaveID]});
+        byGroup[key]=row; out.push(row); return; }
+      seen._days++; seen._ids.push(l.LeaveID);
+      if(d<seen._from) seen._from=d;
+      if(d>seen._to) seen._to=d;
+      /* THE ROW THE BUTTONS ACT ON IS THE EARLIEST DAY OF THE RUN. The list is sorted newest-first,
+       * so without this a run would be represented by its LAST row — and the cancel button would be
+       * decided by the wrong date. */
+      if(d<String(seen.Date||'').slice(0,10)){ seen.Date=l.Date; seen.LeaveID=l.LeaveID; }
+    });
+    return out;
+  }
+  /* Editable when the family filed it themselves and there is a day still to come. For a run that is
+   * measured against its LAST day, not its first: a family away 21-24 who comes home early on the
+   * 23rd can still call off the 23rd and the 24th, and the server keeps the days already past. */
+  const leaveEditable = l => !String((l&&l.FiledBy)||'').trim() &&
+    String((l&&(l._to||l.Date))||'').slice(0,10) >= todayStr();
   function P_leaveRow(l, showKid){
     const id=esc(l.LeaveID||''), sid=esc((l._kid&&l._kid.StudentID)||l.StudentID||'');
     const byTeacher=!!String(l.FiledBy||'').trim();
+    const run=Number(l._days||1)>1;
     const acts = leaveEditable(l)
-      ? `<button class="btn sm outline" onclick="P_leaveEdit('${id}','${sid}')" aria-label="${EN()?'Edit':'แก้ไข'}">✏️</button>
+      /* NO PENCIL ON A RUN. Editing one row of four would move a single day of a trip and leave the
+       * other three where they were — a change nobody asked for and nothing on screen would explain.
+       * Cancel it and file it again is the honest answer, and it is one more tap. */
+      ? `${run?'':`<button class="btn sm outline" onclick="P_leaveEdit('${id}','${sid}')" aria-label="${EN()?'Edit':'แก้ไข'}">✏️</button>`}
          <button class="btn sm pink" onclick="P_leaveCancel('${id}','${sid}',this)" aria-label="${EN()?'Cancel':'ยกเลิก'}">✖</button>`
       : `<small class="muted" style="font-size:12px">${byTeacher
             ? (EN()?'filed by the school':'คุณครูบันทึก')
             : (EN()?'past — contact the school':'ผ่านมาแล้ว')}</small>`;
+    const when = run
+      ? `${esc(ddmmyyyy(l._from||l.Date))} – ${esc(ddmmyyyy(l._to))} <span class="pill info" style="font-size:11px">${l._days} ${EN()?'days':'วัน'}</span>`
+      : esc(ddmmyyyy(l.Date));
     return `<div class="list-item" style="align-items:center;gap:8px">
-      <span style="flex:1;min-width:0">${esc(ddmmyyyy(l.Date))} · <b>${esc(stdLeaveDesc(l))}</b>${
+      <span style="flex:1;min-width:0">${when} · <b>${esc(stdLeaveDesc(l))}</b>${
         showKid&&l._kid?`<br><small class="muted">${esc(dispNick(l._kid))}</small>`:''}</span>
       <span class="acts" style="flex:0 0 auto;display:flex;gap:6px;align-items:center">${acts}</span></div>`;
   }
@@ -2956,11 +3036,23 @@
   window.P_leaveCancel = async (leaveId, studentId, btn)=>{
     /* A confirm, because it deletes. The wording names the CONSEQUENCE — the child is expected at
      * school again — rather than asking "are you sure", which tells nobody what they are agreeing to. */
-    if(!confirm(EN()?'Cancel this leave? Your child will be expected at school as usual.'
-                   :'ยกเลิกการแจ้งลานี้? บุตรหลานจะมาเรียนตามปกติ และระบบจะแจ้งคุณครูให้ทราบ')) return;
+    /* A RUN IS CANCELLED WHOLE, so the question has to say so. "ยกเลิกการแจ้งลานี้" in front of a row
+     * reading 21-24 answers a question the family did not ask — they are agreeing to four days, and
+     * the sentence they agree to should be the four days. */
+    const row=(window._P_LEAVES||[]).find(x=>String(x.LeaveID)===String(leaveId));
+    const n=Number(row&&row._days)||1;
+    if(!confirm(n>1
+        ? (EN()?`Cancel all ${n} days of this leave (${row._from} – ${row._to})? Your child will be expected at school as usual.`
+               :`ยกเลิกการแจ้งลาทั้ง ${n} วัน (${row._from} – ${row._to})? บุตรหลานจะมาเรียนตามปกติ และระบบจะแจ้งคุณครูให้ทราบ`)
+        : (EN()?'Cancel this leave? Your child will be expected at school as usual.'
+               :'ยกเลิกการแจ้งลานี้? บุตรหลานจะมาเรียนตามปกติ และระบบจะแจ้งคุณครูให้ทราบ'))) return;
     if(btn)btn.disabled=true;
-    try{ await api('parentCancelLeave',Object.assign({leaveId,studentId},parentScope()));
-      confirmSaved(EN()?'Leave cancelled — the teacher has been told':'ยกเลิกการแจ้งลาแล้ว — แจ้งคุณครูให้ทราบแล้ว'); GO('home');
+    try{ const r=await api('parentCancelLeave',Object.assign({leaveId,studentId},parentScope()));
+      // the number the server actually removed — days already past are kept, so it can be fewer
+      const c=Number(r&&r.cancelled)||1;
+      confirmSaved(c>1
+        ? (EN()?`${c} days cancelled — the teacher has been told`:`ยกเลิกการแจ้งลาแล้ว ${c} วัน — แจ้งคุณครูให้ทราบแล้ว`)
+        : (EN()?'Leave cancelled — the teacher has been told':'ยกเลิกการแจ้งลาแล้ว — แจ้งคุณครูให้ทราบแล้ว')); GO('home');
     }catch(e){ err(e); if(btn)btn.disabled=false; } };
 
   // shared withdrawal reason picker (4 standard reasons; "other" reveals a long-text box)
@@ -4853,11 +4945,31 @@
       <option value="ลาป่วย">${EN()?'Sick leave (ลาป่วย)':'ลาป่วย'}</option>
       <option value="ลากิจ">${EN()?'Personal leave (ลากิจ)':'ลากิจ'}</option>
       <option value="ขาด">${EN()?'Absent (ขาด)':'ขาด'}</option></select></label>
-    <label class="field"><span>${esc(t('inj.date'))}</span><input type="date" id="tslDate" value="${todayStr()}"/></label>
+    ${/* The same range a parent gets (v390). A teacher told on Monday that a child is away all week
+         had to file this form five times, and the day that got missed became an unexplained absence
+         with somebody ringing the family to ask where the child was. */''}
+    <label class="field"><span>${EN()?'From':'วันที่เริ่มลา'}</span><input type="date" id="tslDate" value="${todayStr()}" oninput="T_tslSpan()"/></label>
+    <label class="field"><span>${EN()?'To (same day if only one)':'ถึงวันที่ (ลาวันเดียวใส่วันเดิม)'}</span><input type="date" id="tslDateTo" value="${todayStr()}" oninput="this.dataset.touched=1;T_tslSpan()"/></label>
+    <div id="tslSpan" class="muted" style="font-size:12px;margin:-4px 0 10px"></div>
     <label class="field"><span>${EN()?'Reason':'เหตุผล'}</span><textarea id="tslReason" placeholder="${EN()?'reason…':'เหตุผล...'}"></textarea></label>
-    <button class="btn block" onclick="T_studentLeaveDo('${sid}',this)">${EN()?'Notify parents':'แจ้งผู้ปกครอง'}</button>`); };
+    <button class="btn block" onclick="T_studentLeaveDo('${sid}',this)">${EN()?'Notify parents':'แจ้งผู้ปกครอง'}</button>`); T_tslSpan(); };
+  // same rule as P_absSpan: the end follows the start until a teacher sets it, and the day count is
+  // not predicted here because this screen does not hold the school's holiday list
+  window.T_tslSpan=()=>{ const m=document.querySelector('.modal'); if(!m)return;
+    const a=m.querySelector('#tslDate'), b=m.querySelector('#tslDateTo'), out=m.querySelector('#tslSpan');
+    if(!a||!b||!out)return;
+    if(!b.dataset.touched || b.value<a.value) b.value=a.value;
+    b.min=a.value;
+    const n=Math.round((new Date(b.value+'T00:00:00')-new Date(a.value+'T00:00:00'))/86400000)+1;
+    out.textContent = (!(n>0)||n===1) ? ''
+      : (EN()?`${n} days — closed days in between are skipped automatically`
+             :`รวม ${n} วัน — วันหยุดที่คั่นอยู่ ระบบข้ามให้อัตโนมัติ`); };
   window.T_studentLeaveDo=async(sid,btn)=>{ const m=btn.closest('.modal'); const g=x=>{const e=m.querySelector('#'+x);return e?e.value:'';};
-    btn.disabled=true; try{ await api('teacherStudentLeave',{staffId:USER.staffId,studentId:sid,date:g('tslDate'),type:g('tslType'),reason:g('tslReason')}); m.remove(); confirmSaved(EN()?'Leave filed — parents notified':'แจ้งลาแล้ว — แจ้งผู้ปกครอง'); }catch(e){err(e);btn.disabled=false;} };
+    btn.disabled=true; try{ const r=await api('teacherStudentLeave',{staffId:USER.staffId,studentId:sid,date:g('tslDate'),dateTo:g('tslDateTo'),type:g('tslType'),reason:g('tslReason')}); m.remove();
+      const n=Number(r&&r.days)||0;   // what was actually filed, after holidays and days already filed
+      confirmSaved(n>1 ? (EN()?`Leave filed for ${n} days (${r.from} – ${r.to}) — parents notified`
+                              :`แจ้งลาแล้ว ${n} วัน (${r.from} – ${r.to}) — แจ้งผู้ปกครอง`)
+                       : (EN()?'Leave filed — parents notified':'แจ้งลาแล้ว — แจ้งผู้ปกครอง')); }catch(e){err(e);btn.disabled=false;} };
   // Teacher checks a student in/out on behalf of a pickup person who isn't a registered parent.
   // The ACTUAL time and the remark (who it was) are BOTH mandatory — Save stays disabled until filled.
   // inDone/outDone fade the type that's already recorded so it can't be double-entered.
@@ -8122,7 +8234,13 @@
   SCREENS.Admin.manage = async () => {
     // getLeaveQuota rides in the SAME batch as everything else here, so the staff form can draw the
     // school's numbers as placeholders without a round trip of its own
-    const [staff,students,parents,pm,groups,exported,wds,classes,plans,depts,linkCounts,kidsMap,lq]=await Promise.all([api('listStaff'),api('listStudents'),api('listParents'),api('permMatrix'),api('listStaffGroups'),api('listExportedStudents'),api('listWithdrawals',{pending:true}),api('listClasses'),api('getPlans'),api('listDepartments'),api('parentLinkCounts').catch(()=>({})),api('parentKidsMap').catch(()=>({})),api('getLeaveQuota').catch(()=>null)]);
+    const [staff,students,parents,pm,groups,exported,wds,classes,plans,depts,linkCounts,kidsMap,lq,ending]=await Promise.all([api('listStaff'),api('listStudents'),api('listParents'),api('permMatrix'),api('listStaffGroups'),api('listExportedStudents'),api('listWithdrawals',{pending:true}),api('listClasses'),api('getPlans'),api('listDepartments'),api('parentLinkCounts').catch(()=>({})),api('parentKidsMap').catch(()=>({})),api('getLeaveQuota').catch(()=>null),
+      /* Children whose last day is recorded — those still to come AND those already past. listStudents
+       * cannot answer this: a child past their end date is off that roster, which is the point of it.
+       * Without this section they would leave the class lists one morning with nothing anywhere
+       * saying why — the "แจ้ง Admin" half of the 2026-09-21 decision. .catch so an older deployment
+       * that does not know the route still renders the screen. */
+      api('endingStudents').catch(()=>[])]);
     if(lq && typeof lq==='object' && Object.keys(lq).length) A_CACHE.schoolQuota=lq;
     window._LINKCOUNTS=linkCounts||{};
     window._PKIDS=kidsMap||{};   // lets parentDisp() name every parent by their child, links included
@@ -8140,6 +8258,9 @@
     const _left=s=>String((s&&s.Status)||'ACTIVE').toUpperCase()==='INACTIVE' || !!(s&&s.ended);
     const _stAct=(staff||[]).filter(s=>!_left(s));
     const _stGone=(staff||[]).filter(s=>_left(s));
+    // Children past their last day are gone from the roster above, so they get their own section —
+    // exactly as staff who have left do. Children still to come stay in the main list, wearing 🎓.
+    const _stuGone=(ending||[]).filter(x=>x&&x.ended);
     const CAPS=[['students','perm.students'],['staff','perm.staff'],['payroll','perm.payroll'],['parentPII','perm.parentPII'],['edit','perm.edit'],['approve','perm.approve']];
     const ROLES=['Admin','Leader','Teacher','Parent'];
     window._PERM=pm; window._PERM_STAFF=staff;
@@ -8214,7 +8335,15 @@
            family who walked in with a paper form could not be entered at all. */''}
       <div class="card secw" id="sec-students">${secHead('👶',EN()?'Students':'นักเรียน',students.length,`<span class="row"><button class="btn sm" onclick="event.stopPropagation();A_addStudent()">+ ${EN()?'Add student':'เพิ่มนักเรียน'}</button><button class="btn sm outline" onclick="event.stopPropagation();A_issueCombined()">🧾 ${EN()?'Issue (select)':'ออกบิล (เลือก)'}</button><button class="btn sm outline" onclick="event.stopPropagation();A_genBills()">📅 ${esc(t('bill.genTitle'))}</button></span>`)}
         <div class="secbody" hidden>
-        ${students.map(s=>`<div class="list-item stack" data-k="${esc((s.NameTH+' '+(s.NameEN||'')+' '+(s.Nickname||'')+' '+(s.NicknameEN||'')+' '+(s.Class||'')+' '+(s.NationalID||'')).toLowerCase())}"><span>${studentAvatar(s)} <b>${esc(dispNick(s))}</b> ${pauseSoon(s)?`<span class="pill info" style="font-size:11px">📅 ${EN()?'leave booked':'จะลาชั่วคราว'}</span>`:isPaused(s)?`<span class="pill wait" style="font-size:11px">⏸️ ${EN()?'on leave':'ลาชั่วคราว'}</span>`:''} <small class="muted">${nmSub(s)?esc(nmSub(s))+" · ":""}${esc(s.Class)} · ${esc(ageYM(s.DOB))}${s.InsuranceHas?' · 🛡️':''}</small><br><small class="muted">${s.DOB?`🎂 ${esc(dobDate(s.DOB))} · `:''}${EN()?'ID':'บัตร'}: ${esc(s.NationalID||'-')}</small>${isPaused(s)?`<br><small style="color:var(--warn)">⏸️ ${esc(pauseSpan(s))}</small>`:''}</span><span class="acts"><button class="btn sm outline" onclick="A_studentForm('${s.StudentID}')">✏️ ${EN()?'Edit':'แก้ไข'}</button><button class="btn sm" onclick="A_issueBill('${s.StudentID}')">🧾 ${EN()?'Bill':'ออกบิล'}</button><button class="btn sm" onclick="A_charges('${s.StudentID}')">💵 ${EN()?'Charges':'เรียกเก็บ'}</button><button class="btn sm outline" onclick="A_stuMore('${s.StudentID}')" aria-label="${EN()?'More actions':'การทำงานเพิ่มเติม'}" title="${EN()?'More actions':'การทำงานเพิ่มเติม'}">⋯</button></span></div>`).join('')}</div></div>`;
+        ${students.map(s=>`<div class="list-item stack" data-k="${esc((s.NameTH+' '+(s.NameEN||'')+' '+(s.Nickname||'')+' '+(s.NicknameEN||'')+' '+(s.Class||'')+' '+(s.NationalID||'')).toLowerCase())}"><span>${studentAvatar(s)} <b>${esc(dispNick(s))}</b> ${pauseSoon(s)?`<span class="pill info" style="font-size:11px">📅 ${EN()?'leave booked':'จะลาชั่วคราว'}</span>`:isPaused(s)?`<span class="pill wait" style="font-size:11px">⏸️ ${EN()?'on leave':'ลาชั่วคราว'}</span>`:''}${endSoon(s)?`<span class="pill warn" style="font-size:11px">🎓 ${EN()?'finishes':'สิ้นสุด'} ${esc(ddmmyyyy(s.EndDate))}</span>`:''} <small class="muted">${nmSub(s)?esc(nmSub(s))+" · ":""}${esc(s.Class)} · ${esc(ageYM(s.DOB))}${s.InsuranceHas?' · 🛡️':''}</small><br><small class="muted">${s.DOB?`🎂 ${esc(dobDate(s.DOB))} · `:''}${EN()?'ID':'บัตร'}: ${esc(s.NationalID||'-')}</small>${isPaused(s)?`<br><small style="color:var(--warn)">⏸️ ${esc(pauseSpan(s))}</small>`:''}</span><span class="acts"><button class="btn sm outline" onclick="A_studentForm('${s.StudentID}')">✏️ ${EN()?'Edit':'แก้ไข'}</button><button class="btn sm" onclick="A_issueBill('${s.StudentID}')">🧾 ${EN()?'Bill':'ออกบิล'}</button><button class="btn sm" onclick="A_charges('${s.StudentID}')">💵 ${EN()?'Charges':'เรียกเก็บ'}</button><button class="btn sm outline" onclick="A_stuMore('${s.StudentID}')" aria-label="${EN()?'More actions':'การทำงานเพิ่มเติม'}" title="${EN()?'More actions':'การทำงานเพิ่มเติม'}">⋯</button></span></div>`).join('')}</div></div>
+      ${_stuGone.length?`<div class="card secw" id="sec-students-gone">${secHead('🎓',EN()?'Finished studying here':'สิ้นสุดการเรียนแล้ว',_stuGone.length,'')}
+        <div class="secbody" hidden>
+        ${/* The same three options as the staff section above, and the same recommendation. Said out
+             loud, because a list with no explanation reads as a job somebody still has to do. */''}
+        <p class="muted" style="font-size:13px;margin:2px 2px 8px">${EN()
+          ? 'Their last day has passed, so they are off the class lists, off attendance and no longer billed. Nothing was deleted — the journal, assessments and payment history are all still here. Leave it as it is (recommended), or bring a child back by clearing the last day if they are staying after all.'
+          : 'เลยวันสิ้นสุดการเรียนแล้ว — ออกจากรายชื่อห้องเรียน การเช็คชื่อ และไม่คิดค่าเทอมอีก · ไม่มีการลบข้อมูล สมุดบันทึก ผลประเมิน และประวัติการชำระเงินยังอยู่ครบ · ปล่อยไว้แบบนี้ได้เลย (แนะนำ) หรือหากนักเรียนเรียนต่อ ให้ล้างวันสิ้นสุดเพื่อนำกลับเข้ารายชื่อ'}</p>
+        ${_stuGone.map(x=>`<div class="list-item stack"><span><b>${esc(x.nick||x.name||x.studentId)}</b>${x.nick&&x.name?` <small class="muted">${esc(x.name)}</small>`:''}<br><small class="muted">${esc(x.className||'-')} · ${EN()?'last day':'วันสุดท้าย'} ${esc(ddmmyyyy(x.endDate))}</small>${x.reason?`<br><small style="color:var(--warn)">${esc(t('wd.reason.'+x.reason)||x.reason)}</small>`:''}${x.remark?`<br><small class="muted" style="white-space:pre-wrap">${esc(x.remark)}</small>`:''}</span><span class="acts"><button class="btn sm outline" onclick="STU_profile('${esc(x.studentId)}')">👁️ ${EN()?'Open':'เปิดดู'}</button><button class="btn sm" onclick="A_studentEndClear('${esc(x.studentId)}',this)">↩️ ${EN()?'Bring back':'นำกลับ'}</button></span></div>`).join('')}</div></div>`:''}`;
   };
   // navigate to an admin sub-screen (kept off the bottom nav)
   var ADMIN_SUB_organize, ADMIN_SUB_holidays, ADMIN_SUB_importExport;
@@ -8540,6 +8669,36 @@
     btn.disabled=true;
     try{ await api('setStaffEnd',{staffId:id,endDate,reason,remark,adminId:USER.staffId});
       m.remove(); confirmSaved(EN()?'Recorded — the record is kept':'บันทึกแล้ว — ข้อมูลยังเก็บไว้ครบ'); GO('manage');
+    }catch(e){err(e); btn.disabled=false;} };
+  /* THE SAME TWO BUTTONS AS A_staffEnd, and deliberately separate from A_saveStudent.
+   * Saving the record and ending a child's enrolment are different decisions, and a date typed into
+   * a form that is then saved along with everything else is a date nobody consciously agreed to.
+   * This asks, names the consequence, and is the only path that sends EndDate — A_saveStudent's
+   * field list does not include it. */
+  window.A_studentEnd=async(id,btn)=>{ const m=btn.closest('.modal');
+    const endDate=(m.querySelector('#stf_EndDate')||{}).value||'';
+    const reason=(m.querySelector('#stf_EndReason')||{}).value||'';
+    const remark=(m.querySelector('#stf_EndRemark')||{}).value||'';
+    if(!endDate){ toast(EN()?'Pick the last day at school':'กรุณาเลือกวันสิ้นสุดการเรียน'); return; }
+    if(!reason){ toast(EN()?'Pick a reason':'กรุณาเลือกเหตุผล'); return; }
+    /* The confirmation says WHAT happens and WHEN, because "ยืนยัน?" in front of a date does not tell
+     * an admin whether the child leaves the lists today or in May — which is the entire point. */
+    const past = endDate < todayStr();
+    if(!confirm(past
+      ? (EN()?`${endDate} has already passed — this child comes off the class and attendance lists straight away. Continue?`
+             :`วันที่ ${endDate} ผ่านมาแล้ว — นักเรียนจะออกจากรายชื่อห้องเรียนและการเช็คชื่อทันที ยืนยันหรือไม่?`)
+      : (EN()?`Record ${endDate} as this child's last day? They keep coming until then, and are billed for that whole month.`
+             :`บันทึกวันสิ้นสุดการเรียนเป็น ${endDate} ใช่หรือไม่? นักเรียนยังมาเรียนได้ตามปกติจนถึงวันนั้น และคิดค่าเทอมเต็มเดือนของเดือนนั้น`))) return;
+    btn.disabled=true;
+    try{ await api('setStudentEnd',{studentId:id,endDate,reason,remark,staffId:USER.staffId,adminId:USER.staffId});
+      m.remove(); confirmSaved(EN()?'Recorded — the record is kept':'บันทึกแล้ว — ข้อมูลยังเก็บไว้ครบ'); GO('manage');
+    }catch(e){err(e); btn.disabled=false;} };
+  window.A_studentEndClear=async(id,btn)=>{
+    if(!confirm(EN()?'Clear the last day? This child stays on the lists as usual.'
+                   :'ยกเลิกวันสิ้นสุดการเรียน? นักเรียนจะยังอยู่ในรายชื่อและเรียนต่อตามปกติ'))return;
+    btn.disabled=true; const m=btn.closest('.modal');
+    try{ await api('setStudentEnd',{studentId:id,endDate:'',staffId:USER.staffId,adminId:USER.staffId});
+      if(m)m.remove(); confirmSaved(EN()?'Cleared — the child stays':'ยกเลิกแล้ว — นักเรียนเรียนต่อตามปกติ'); GO('manage');
     }catch(e){err(e); btn.disabled=false;} };
   window.A_staffReturn=async(id,btn)=>{ if(!confirm(EN()?'Bring this person back to the active lists?':'นำกลับเข้าทำงานและกลับไปอยู่ในรายชื่อ?'))return;
     btn.disabled=true; const m=btn.closest('.modal');
@@ -8965,6 +9124,43 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
       <label class="field" id="prorateAmtBox" ${s.ProrateMode==='MANUAL'?'':'hidden'}><span>${EN()?'Amount for the starting month (฿)':'ยอดของเดือนที่เริ่มเรียน (฿)'}</span>
         <input id="stf_ProrateAmount" type="number" min="0" value="${esc(s.ProrateAmount!=null&&s.ProrateAmount!==''?s.ProrateAmount:'')}" oninput="A_prorateHint()"/></label>
       <small class="muted" id="prorateHint" style="display:block;margin:-2px 0 6px"></small>
+      ${/* THE LAST DAY, DIRECTLY UNDER THE FIRST ONE. Asked 2026-09-21: "ประวัตินักเรียนเพิ่มข้อมูล
+           วันสิ้นสุดการเรียน (นักเรียนครบกำหนดการเรียน ต้องย้ายไปเรียนโรงเรียนใหม่) ... คล้ายกับของพนักงาน".
+           Put beside วันเริ่มเรียนจริง on purpose: they are the two ends of one line, and an admin
+           reading one should see the other.
+
+           NOT "นำนักเรียนออก", which lives in the ⋯ menu and takes effect the moment it is pressed.
+           This is a date recorded IN ADVANCE while the child is still here — the school knows in
+           March that a child finishes in May. Status is never touched: the engine reads "the date
+           has passed" (studentEnded_), so clearing a mistake puts the child straight back rather
+           than leaving a WITHDRAWN row for somebody to repair.
+
+           ADMIN ONLY. This form also opens for a head teacher (scope 'full'), and ending a child's
+           enrolment is an enrolment-and-money decision. The server refuses it for anybody else
+           anyway (setStudentEnd is in the admin-only route list) — this only stops the app offering
+           a control that would answer with a refusal. */''}
+      ${USER.role==='Admin'&&id?(function(){
+        const _cur=String(s.EndReason||''), _end=String(s.EndDate||'').slice(0,10);
+        const _reasons=WD_REASONS.map(r=>[r,t('wd.reason.'+r)]);
+        // a reason no longer on the list is kept as its own option, so re-saving cannot rewrite history
+        if(_cur && !_reasons.some(r=>r[0]===_cur)) _reasons.push([_cur,_cur]);
+        const _done=!!_end && _end < todayStr();     // the last day itself still counts as a school day
+        return `<details class="card" style="background:var(--surface-2);padding:8px"${_end?' open':''}>
+          <summary style="font-size:13px;cursor:pointer"><b>🎓 ${EN()?'End of study':'สิ้นสุดการเรียน'}</b>${
+            _end?` <span class="pill ${_done?'warn':'info'}" style="font-size:11px">${_done?(EN()?'finished':'สิ้นสุดแล้ว'):(EN()?'scheduled':'บันทึกไว้แล้ว')}</span>`:''}</summary>
+          <p class="muted" style="font-size:13px;margin:6px 0">${EN()
+            ? 'The child’s last day. Record it in advance — they keep coming, keep being checked in, and are billed for the whole month they finish in. From the next day they come off the class and attendance lists. Nothing is deleted.'
+            : 'วันสุดท้ายที่นักเรียนมาเรียน · บันทึกล่วงหน้าได้ — จนถึงวันนั้นนักเรียนยังมาเรียน ลงเวลาได้ตามปกติ และคิดค่าเทอมเต็มเดือนของเดือนที่สิ้นสุด · หลังจากวันนั้นจึงจะออกจากรายชื่อห้องเรียนและการเช็คชื่อ · ไม่มีการลบข้อมูลใดๆ'}</p>
+          <div class="grid2"><label class="field" style="margin:0"><span>${EN()?'Last day at school':'วันสิ้นสุดการเรียน'}</span>
+              <input id="stf_EndDate" type="date" value="${esc(_end)}"/></label>
+            <label class="field" style="margin:0"><span>${EN()?'Reason':'เหตุผล'}</span><select id="stf_EndReason" translate="no">
+              <option value="">—</option>
+              ${_reasons.map(([v,l])=>`<option value="${esc(v)}" ${_cur===v?'selected':''}>${esc(l)}</option>`).join('')}</select></label></div>
+          <label class="field"><span>${EN()?'Notes':'รายละเอียดเพิ่มเติม'}</span><textarea id="stf_EndRemark" rows="2" style="width:100%">${esc(s.EndRemark||'')}</textarea></label>
+          <button type="button" class="btn sm pink block" onclick="A_studentEnd('${esc(id)}',this)">${
+            _end?(EN()?'Update':'อัปเดตข้อมูลการสิ้นสุดการเรียน'):(EN()?'Save the last day':'บันทึกวันสิ้นสุดการเรียน')}</button>
+          ${_end?`<button type="button" class="btn sm outline block" style="margin-top:6px" onclick="A_studentEndClear('${esc(id)}',this)">↩️ ${EN()?'Cancel this — the child is staying':'ยกเลิก — นักเรียนยังเรียนต่อ'}</button>`:''}
+        </details>`; })():''}
       <hr style="border:none;border-top:1px solid var(--line);margin:8px 0">
       ${/* THE ONE PHONE THAT CANNOT BE FIXED.
            Pick-up is fenced on purpose — it is a safety record and it starts the OT clock — and that
@@ -9080,6 +9276,12 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
    * she is away; Status only decides whether a leave exists at all. Reported 2026-09-02. */
   const pauseSoon = s => isPaused(s) && /^\d{4}-\d{2}-\d{2}$/.test(String(s&&s.PauseFrom||'').slice(0,10))
     && todayStr() < String(s.PauseFrom).slice(0,10);
+  /* A LAST DAY THAT IS SET BUT HAS NOT COME YET. Same reasoning as pauseSoon above: the roster has
+   * to say so, because the alternative is a child who is on every list this morning and on none of
+   * them tomorrow, with nothing anywhere saying why. Children already PAST their end date are gone
+   * from this roster entirely (enrolledStudents) — they get their own section below instead. */
+  const endSoon = s => /^\d{4}-\d{2}-\d{2}$/.test(String(s&&s.EndDate||'').slice(0,10))
+    && todayStr() <= String(s.EndDate).slice(0,10);
   function pauseSpan(s){ const f=String(s.PauseFrom||'').slice(0,10), tt=String(s.PauseTo||'').slice(0,10);
     if(!f) return '';
     return tt ? `${fullDate(f)} – ${fullDate(tt)}` : (EN()?`from ${fullDate(f)} (open-ended)`:`ตั้งแต่ ${fullDate(f)} เป็นต้นไป (ยังไม่ระบุวันกลับ)`); }

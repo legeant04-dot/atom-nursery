@@ -87,7 +87,11 @@ console.log('\n2) THE 115 — a new one is a behaviour silently replaced');
     'saveDspmCriteria', 'saveFamilyParent', 'saveInsuranceAdmin', 'saveParent', 'saveParentComment',
     'savePlans', 'savePrepayTiers', 'saveQRCodes', 'saveSlipOk', 'saveStaff', 'saveStaffSelf',
     'saveStudent', 'saveStudentSelf', 'saveTeacherReply', 'setConfigVal', 'setLeaveQuota',
-    'setRequireCheckin', 'setSchoolConfig', 'setStaffPause', 'setStudentPause',
+    'setRequireCheckin', 'setSchoolConfig', 'setStaffPause',
+    /* v390. Both write ONE STUDENTS row in place; the engine persists whole collections, so it must
+     * not be the live path for either. The rule they share — Status is never touched, and
+     * studentEnded_ / studentPaused_ decide on the date — is stated in both copies. */
+    'setStudentEnd', 'setStudentPause',
     /* A DELIBERATE SHADOW THAT IS NOT A RISK, and the reason is worth stating because every other
      * name on this list IS one. The shadowing rule exists because two copies of the same logic drift
      * apart silently. There is no same logic here: sessions only exist on GAS, so the engine entry

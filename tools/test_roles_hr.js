@@ -273,8 +273,12 @@ console.log('\n6) A child on temporary leave: no attendance, but still billable'
 
   // the window is wide because financeSummary now groups its collections before walking the roll
   // (v219, tools/test_finance_index.js) — the roll itself is still enrolledStudents()
+  /* v390 passes the MONTH: a child whose last day was the 15th is still billed for that whole month
+   * (decided 2026-09-21), so the October finance page must still find her on the 20th. Calling it
+   * with no month would cut by DAY and quietly drop the final invoice of a child who is leaving —
+   * the one invoice nobody is watching for. Still enrolledStudents, which is what this asserts. */
   ok_('finance lists them, so a deposit can be billed before the child starts',
-    /financeSummary: p =>[\s\S]{0,2600}enrolledStudents\(\)\.map/.test(eng));
+    /financeSummary: p =>[\s\S]{0,2600}enrolledStudents\(month\)\.map/.test(eng));
   ok_('...at the BOTTOM, so they never crowd the children attending',
     /\.sort\(\(a,b2\)=>\(a\.paused\?1:0\)-\(b2\.paused\?1:0\)\)/.test(eng));
   ok_('and they are marked, not silently mixed in', /on temporary leave|ลาชั่วคราว/.test(app));

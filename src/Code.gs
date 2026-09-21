@@ -90,6 +90,9 @@ var ROUTES = {
   savePlans:        function (p) { return handleSavePlans(p); },       // admin-only: package (Plan) CRUD → SCHOOL_CONFIG JSON
   savePrepayTiers:  function (p) { return handleSavePrepayTiers(p); }, // admin-only: advance-tuition discount tiers → SCHOOL_CONFIG JSON
   setStudentPause:  function (p) { return handleSetStudentPause(p); }, // admin-only: temporary leave (ลาชั่วคราว), in-place
+  // admin-only: the child's LAST DAY, recorded in advance. In place, and Status is left alone —
+  // studentEnded_ is what acts on the date when it passes (see handleSetStudentEnd).
+  setStudentEnd:    function (p) { return handleSetStudentEnd(p); },
   recordCashPayment: function (p) { return handleRecordCashPayment(p); }, // admin-only: money received outside the app
   deleteSlip:       function (p) { return handleDeleteSlip(p); },      // admin-only: remove an empty payment row (no image)
   cancelPrepay:     function (p) { return handleCancelPrepay(p); },    // admin-only: delete an UNPAID advance payment, in place
@@ -384,7 +387,7 @@ function applyIdentity_(action, payload, sess) {
     authDiag: 1,
     // who the school messages, and what it costs — both admin-only: the list carries LINE user ids
     lineUsage: 1, lineRecipients: 1, saveLineRecipients: 1,
-    adminInbox: 1, markInboxRead: 1, reinstallTriggers: 1, unlinkStudent: 1, linkParentAdmin: 1, setLeaveQuota: 1, setConfigVal: 1, markSalaryPaid: 1, notifyBills: 1, issueBillsFor: 1, savePlans: 1, saveQRCodes: 1, prepayAudit: 1, recomputeContributions: 1, contributionReset: 1, payrollDuplicates: 1, deletePayrollRow: 1, savePrepayTiers: 1, editPrepay: 1, setStudentPause: 1, setStaffEnd: 1, setStaffPause: 1, staffAttendanceMonth: 1, studentMonthReport: 1, recordCashPayment: 1, pausedStudents: 1, deleteSlip: 1, slipDiag: 1, saveSlipOk: 1, cancelPrepay: 1, perfSummary: 1, deletePerfLog: 1, prepaidStudents: 1, insuranceExport: 1,
+    adminInbox: 1, markInboxRead: 1, reinstallTriggers: 1, unlinkStudent: 1, linkParentAdmin: 1, setLeaveQuota: 1, setConfigVal: 1, markSalaryPaid: 1, notifyBills: 1, issueBillsFor: 1, savePlans: 1, saveQRCodes: 1, prepayAudit: 1, recomputeContributions: 1, contributionReset: 1, payrollDuplicates: 1, deletePayrollRow: 1, savePrepayTiers: 1, editPrepay: 1, setStudentPause: 1, setStudentEnd: 1, endingStudents: 1, setStaffEnd: 1, setStaffPause: 1, staffAttendanceMonth: 1, studentMonthReport: 1, recordCashPayment: 1, pausedStudents: 1, deleteSlip: 1, slipDiag: 1, saveSlipOk: 1, cancelPrepay: 1, perfSummary: 1, deletePerfLog: 1, prepaidStudents: 1, insuranceExport: 1,
     // the whole roster grouped by billing day, with each child's bill state — the same class of answer
     // as prepaidStudents, and money besides
     billingGroups: 1,

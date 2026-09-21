@@ -107,7 +107,75 @@ function handleParentCheckin(payload) {
   return { studentId: student.StudentID, type: type, time: timeStr_(now), distance: dist, ot: ot };
 }
 
-/** payload: { parentId|lineUid, studentId, date, reason } */
+/* ===== A LEAVE THAT LASTS MORE THAN ONE DAY ====================================================
+ *
+ * Asked 2026-09-21: "พานักเรียนไปต่างจังหวัด 3 วัน 21/09/26-23/09/26 จะมาโรงเรียนในวันที่ 24/09/26".
+ * Filing the same form once per day was the only way, and the day somebody forgot was an
+ * unexplained absence with a teacher ringing the family to ask where the child was.
+ *
+ * ONE ROW PER DAY, NOT A ROW WITH A RANGE ON IT. Every reader — the register, the calendar, the
+ * absence follow-up, the monthly report, the class list — already answers "is this child on leave on
+ * THIS date" by looking for that date's row. Expanding the range here means all of them keep working
+ * untouched; storing a span would mean changing every one, and the one that got missed would go on
+ * marking a child absent for days the school had been told about. The whole story is in
+ * webapp/engine.js (leaveDaysIn_), which this mirrors.
+ *
+ * SHADOWS the engine handler of the same name: this is the live path on GAS, because it writes one
+ * sheet in place and sends the LINE message.
+ */
+var MAX_LEAVE_SPAN_DAYS_ = 14;   // longer than this is ลาชั่วคราว, which the Admin sets — see below
+/**
+ * The dates a leave actually covers: every day from..to, minus the days the school is shut.
+ * Decided 2026-09-21 — a child is not absent on a Sunday, and a leave row for one would inflate both
+ * the absence count and the follow-up that chases it.
+ */
+function leaveDaysIn_(from, to) {
+  var a = otNormDate_(from || ''), b = otNormDate_(to || '') || a;
+  if (!a) throw apiError_('BAD_INPUT', 'ระบุวันที่เริ่มลา');
+  if (b < a) throw apiError_('BAD_RANGE', 'วันสิ้นสุดการลาต้องไม่ก่อนวันเริ่มลา');
+  var span = Math.round((new Date(b + 'T00:00:00') - new Date(a + 'T00:00:00')) / 86400000) + 1;
+  if (span > MAX_LEAVE_SPAN_DAYS_) throw apiError_('RANGE_TOO_LONG',
+    'แจ้งลาต่อเนื่องได้ครั้งละไม่เกิน ' + MAX_LEAVE_SPAN_DAYS_ + ' วัน (เลือกไว้ ' + span + ' วัน) — ' +
+    'หากต้องหยุดยาวกว่านี้ กรุณาติดต่อโรงเรียนเพื่อขอ "ลาชั่วคราว" ซึ่งจะไม่คิดค่าเทอมในช่วงนั้น');
+  var out = [], cur = new Date(a + 'T00:00:00');
+  for (var i = 0; i < span; i++) {
+    if (!isSchoolClosed_(cur)) out.push(dateStr_(cur));
+    cur.setDate(cur.getDate() + 1);
+  }
+  if (!out.length) throw apiError_('NO_OPEN_DAYS', 'ช่วงวันที่เลือกเป็นวันหยุดโรงเรียนทั้งหมด — ไม่ต้องแจ้งลา');
+  return out;
+}
+/** Human span for a LINE message: one day prints as one date, not as "21 – 21". */
+function leaveSpanLabel_(dates) {
+  return dates.length > 1 ? (dates[0] + ' – ' + dates[dates.length - 1] + ' (' + dates.length + ' วัน)') : dates[0];
+}
+/**
+ * Write one row per open day, skipping days this child is already on leave for, and return what was
+ * actually created. ONE LINE MESSAGE FOR THE WHOLE RUN — a teacher told four times that one child is
+ * away for four days learns nothing extra and stops reading the fourth one.
+ */
+function fileLeaveRun_(sheet, student, dates, fields) {
+  var existing = {};
+  readObjects_(sheet).forEach(function (r) {
+    if (String(r.StudentID) === String(student.StudentID)) existing[otNormDate_(r.Date)] = r.LeaveID;
+  });
+  var to = dates[dates.length - 1], group = 'LVG-' + student.StudentID + '-' + dates[0];
+  var made = [], skipped = [];
+  dates.forEach(function (d) {
+    if (existing[d]) { skipped.push(d); return; }
+    var id = nextId_(sheet, 'LeaveID', 'LVS');
+    var row = { LeaveID: id, StudentID: student.StudentID, Date: d, DateTo: to, GroupID: group };
+    Object.keys(fields).forEach(function (k) { row[k] = fields[k]; });
+    appendObject_(sheet, row);
+    existing[d] = id;                                   // so nextId_ and the dup check see it
+    made.push({ date: d, leaveId: id });
+  });
+  if (typeof cacheDel_ === 'function') { cacheDel_('col:LEAVE_REQUEST_STD'); cacheDel_('rows:LEAVE_REQUEST_STD'); }
+  return { made: made, skipped: skipped, groupId: group, from: dates[0], to: to,
+           leaveId: made.length ? made[0].leaveId : existing[skipped[0]] };
+}
+
+/** payload: { parentId|lineUid, studentId, date, dateTo?, reason, type? } */
 function handleStudentAbsence(payload) {
   payload = payload || {};
   var parent = resolveParent_(payload);
@@ -117,21 +185,28 @@ function handleStudentAbsence(payload) {
   if (!student) throw apiError_('STUDENT_NOT_FOUND', 'ไม่พบข้อมูลนักเรียน');
 
   var sheet = sheet_(getMainSpreadsheet_(), 'LEAVE_REQUEST_STD');
-  ensureColumns_(sheet, ['Type', 'FiledBy']);
-  // Idempotent: a double-submit (slow network) for the SAME student+date must not create a duplicate
-  // leave — return the existing one and don't re-notify.
-  var dup = findObject_(sheet, function (r) { return String(r.StudentID) === String(student.StudentID) && otNormDate_(r.Date) === otNormDate_(payload.date); });
-  if (dup) { logAudit(parent.ParentID, 'STUDENT_ABSENCE_DUP', 'LEAVE_REQUEST_STD', dup.LeaveID); return { leaveId: dup.LeaveID, studentId: student.StudentID, teacherNotified: false, duplicate: true }; }
-  var leaveId = nextId_(sheet, 'LeaveID', 'LVS');
-  var desc = (payload.type || '') + ((payload.type && payload.reason) ? ' — ' : '') + (payload.reason || '');
-  var notified = notifyStudentTeacher_(student, '🏠 แจ้งลา: ' + student.Name + ' วันที่ ' + payload.date +
-    '\n' + (desc || '-') + '\n(โดยผู้ปกครอง ' + parent.Name + ')');
-  appendObject_(sheet, {
-    LeaveID: leaveId, StudentID: student.StudentID, Date: payload.date, Type: payload.type || '',
-    Reason: payload.reason || '', Status: 'Notified', TeacherNotified: notified ? 'YES' : 'NO'
+  ensureColumns_(sheet, ['Type', 'FiledBy', 'DateTo', 'GroupID']);
+  var dates = leaveDaysIn_(payload.date, payload.dateTo);
+  /* Idempotent, and PER DAY rather than all-or-nothing. A double-submit on a slow network re-files
+   * the same days and creates nothing; a family extending 21-22 to 21-24 files 21-24 and gets the
+   * two new days rather than a refusal naming a day they already told us about. */
+  var run = fileLeaveRun_(sheet, student, dates, {
+    Type: payload.type || '', Reason: payload.reason || '', Status: 'Notified', TeacherNotified: 'YES'
   });
-  logAudit(parent.ParentID, 'STUDENT_ABSENCE', 'LEAVE_REQUEST_STD', leaveId);
-  return { leaveId: leaveId, studentId: student.StudentID, teacherNotified: notified };
+  if (!run.made.length) {
+    logAudit(parent.ParentID, 'STUDENT_ABSENCE_DUP', 'LEAVE_REQUEST_STD', run.leaveId);
+    return { leaveId: run.leaveId, studentId: student.StudentID, teacherNotified: false,
+             duplicate: true, days: 0, skipped: run.skipped };
+  }
+  var desc = (payload.type || '') + ((payload.type && payload.reason) ? ' — ' : '') + (payload.reason || '');
+  var notified = notifyStudentTeacher_(student, '🏠 แจ้งลา: ' + student.Name + ' วันที่ ' +
+    leaveSpanLabel_(run.made.map(function (x) { return x.date; })) +
+    '\n' + (desc || '-') + '\n(โดยผู้ปกครอง ' + parent.Name + ')');
+  logAudit(parent.ParentID, 'STUDENT_ABSENCE', 'LEAVE_REQUEST_STD',
+    run.leaveId + ' ' + run.from + (run.from === run.to ? '' : '–' + run.to));
+  return { leaveId: run.leaveId, leaveIds: run.made.map(function (x) { return x.leaveId; }),
+           studentId: student.StudentID, groupId: run.groupId, from: run.from, to: run.to,
+           days: run.made.length, skipped: run.skipped, teacherNotified: notified };
 }
 
 /**
@@ -146,21 +221,26 @@ function handleTeacherStudentLeave(payload) {
     function (s) { return String(s.StudentID) === String(payload.studentId); });
   if (!student) throw apiError_('STUDENT_NOT_FOUND', 'ไม่พบข้อมูลนักเรียน');
   var sheet = sheet_(getMainSpreadsheet_(), 'LEAVE_REQUEST_STD');
-  ensureColumns_(sheet, ['Type', 'FiledBy']);
-  var dup = findObject_(sheet, function (r) { return String(r.StudentID) === String(student.StudentID) && otNormDate_(r.Date) === otNormDate_(payload.date); });
-  if (dup) { logAudit(staff.StaffID, 'TEACHER_STUDENT_LEAVE_DUP', 'LEAVE_REQUEST_STD', dup.LeaveID); return { leaveId: dup.LeaveID, studentId: student.StudentID, parentNotified: false, duplicate: true }; }
-  var leaveId = nextId_(sheet, 'LeaveID', 'LVS');
-  appendObject_(sheet, {
-    LeaveID: leaveId, StudentID: student.StudentID, Date: payload.date,
+  ensureColumns_(sheet, ['Type', 'FiledBy', 'DateTo', 'GroupID']);
+  var dates = leaveDaysIn_(payload.date, payload.dateTo);
+  var run = fileLeaveRun_(sheet, student, dates, {
     Reason: payload.reason || '', Type: payload.type || '', Status: 'Notified',
     TeacherNotified: 'YES', FiledBy: staff.StaffID
   });
-  if (typeof cacheDel_ === 'function') { cacheDel_('col:LEAVE_REQUEST_STD'); cacheDel_('rows:LEAVE_REQUEST_STD'); }
-  // notify every parent linked to this student
-  var msg = '🏠 คุณครูแจ้งลาให้ ' + student.Name + ' วันที่ ' + payload.date + '\nเหตุผล: ' + (payload.reason || '-');
+  if (!run.made.length) {
+    logAudit(staff.StaffID, 'TEACHER_STUDENT_LEAVE_DUP', 'LEAVE_REQUEST_STD', run.leaveId);
+    return { leaveId: run.leaveId, studentId: student.StudentID, parentNotified: false,
+             duplicate: true, days: 0, skipped: run.skipped };
+  }
+  // notify every parent linked to this student — once for the whole run, not once per day
+  var msg = '🏠 คุณครูแจ้งลาให้ ' + student.Name + ' วันที่ ' +
+    leaveSpanLabel_(run.made.map(function (x) { return x.date; })) + '\nเหตุผล: ' + (payload.reason || '-');
   var sent = notifyStudentParents_(student, msg);
-  logAudit(staff.StaffID, 'TEACHER_STUDENT_LEAVE', 'LEAVE_REQUEST_STD', leaveId);
-  return { leaveId: leaveId, studentId: student.StudentID, parentNotified: sent };
+  logAudit(staff.StaffID, 'TEACHER_STUDENT_LEAVE', 'LEAVE_REQUEST_STD',
+    run.leaveId + ' ' + run.from + (run.from === run.to ? '' : '–' + run.to));
+  return { leaveId: run.leaveId, leaveIds: run.made.map(function (x) { return x.leaveId; }),
+           studentId: student.StudentID, groupId: run.groupId, from: run.from, to: run.to,
+           days: run.made.length, skipped: run.skipped, parentNotified: sent };
 }
 
 /** LINE-notify every parent linked to a student (USER_LINKS + PARENTS.LineUID). Returns count sent. */
@@ -355,8 +435,24 @@ function handleParentCancelLeave(p) {
   p = p || {};
   var parent = resolveParent_(p);
   var f = parentOwnLeave_(p);
-  var when = otNormDate_(f.row.Date);
-  f.sh.deleteRow(f.row._row);
+  /* CANCELLING A RANGE CANCELS THE RANGE. A family who filed "away 21-24" and came back early means
+   * all four days; cancelling one of the four would leave three rows behind with nothing on screen
+   * saying they were still there.
+   *
+   * DAYS ALREADY PAST ARE LEFT ALONE, for the reason parentOwnLeave_ gives above: a day the school
+   * has already taught is the register, not a plan. So cancelling 21-24 on the 23rd takes the 23rd
+   * and 24th and leaves the 21st and 22nd standing as the record of two days the child was away. */
+  var group = String(f.row.GroupID || '').trim();
+  var rows = group
+    ? readObjects_(f.sh).filter(function (r) { return String(r.GroupID || '').trim() === group; })
+    : [f.row];
+  rows = rows.filter(function (r) { return otNormDate_(r.Date) >= f.today; });
+  if (!rows.length) throw apiError_('LEAVE_PAST',
+    'ใบลาของวันที่ผ่านมาแล้วยกเลิกไม่ได้ — เป็นบันทึกการมาเรียนของวันนั้น · กรุณาติดต่อโรงเรียน');
+  var dates = rows.map(function (r) { return otNormDate_(r.Date); }).sort();
+  var when = leaveSpanLabel_(dates);
+  rows.map(function (r) { return r._row; }).sort(function (a, b) { return b - a; })
+      .forEach(function (n) { f.sh.deleteRow(n); });    // bottom-up so row indices stay valid
   if (typeof cacheDel_ === 'function') { cacheDel_('col:LEAVE_REQUEST_STD'); cacheDel_('rows:LEAVE_REQUEST_STD'); }
   /* THE TEACHER HAS TO BE TOLD. They were told the child was away; if that is withdrawn and nobody
    * says so, the class list still shows a child who is now expected — and on the day itself that is
@@ -368,7 +464,7 @@ function handleParentCancelLeave(p) {
       '\n(โดยผู้ปกครอง ' + parent.Name + ' — นักเรียนจะมาเรียนตามปกติ)');
   } catch (e) {}
   logAudit(parent.ParentID, 'PARENT_LEAVE_CANCEL', 'LEAVE_REQUEST_STD', String(p.leaveId) + ' ' + when);
-  return { ok: true };
+  return { ok: true, cancelled: dates.length, dates: dates, from: dates[0], to: dates[dates.length - 1] };
 }
 
 /** Admin edits a student leave in place. payload: { staffId, leaveId, date?, reason?, type? } */

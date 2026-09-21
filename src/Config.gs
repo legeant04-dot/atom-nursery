@@ -60,6 +60,15 @@ SCHEMA[WB.MAIN] = {
                       'InsuranceBenefits',  // ผลประโยชน์ / สัญญาเพิ่มเติม — free text, several lines
                       'InsuranceHotline',   // the number to ring to make a claim
                       'DriveFolderUrl', 'WithdrawReason', 'WithdrawDetail', 'WithdrawDate', 'WithdrawBy',
+                      /* THE LAST DAY, RECORDED IN ADVANCE (2026-09-21) — the same shape as the
+                       * staff EndDate/EndReason/EndRemark, and for the same reason. Withdraw* above
+                       * is an exit that happens the moment it is pressed; this one is a date the
+                       * school knows months ahead (a child ages out and moves to a new school) and
+                       * must be able to write down while the child is still here and still coming.
+                       * studentEnded_ in the engine is what acts on it when the day passes, so
+                       * nothing depends on a trigger running that morning. EndReason is one of the
+                       * WithdrawReasons codes, so both exits are countable together. */
+                      'EndDate', 'EndReason', 'EndRemark',
                       'Status', 'CreatedDate',
                       'OTRate',    // per-student late-pickup OT rate/hour; blank = SCHOOL_CONFIG OTRatePerHour
                       // WHICH DAY OF THE MONTH THIS FAMILY PAYS ON. Families do not all get paid on
@@ -178,7 +187,14 @@ SCHEMA[WB.MAIN] = {
   // TransDate/TransTime = when the money actually moved (read off the slip by SlipOK); SubmittedDate
   // = when the file was attached. Method: 'transfer' (a slip) or 'cash' (recorded by an Admin).
   PAYMENT_SLIPS:     ['SlipID', 'RefKind', 'RefID', 'StudentID', 'Amount', 'Url', 'FileId', 'Verified', 'TransRef', 'Receiver', 'SubmittedDate', 'Status', 'SlipGroup', 'TransDate', 'TransTime', 'Sender', 'Method'],
-  LEAVE_REQUEST_STD: ['LeaveID', 'StudentID', 'Date', 'Reason', 'Status', 'TeacherNotified'],
+  /* One row per DAY, always — a leave that spans 21-23 is three rows, not one row with a range.
+   * Every reader (register, calendar, absence follow-up, monthly report) asks "is this child on
+   * leave on THIS date", so a span would have to be taught to all of them and any one that was
+   * missed would keep marking a child absent. DateTo and GroupID carry the SPAN THEY CAME FROM:
+   * DateTo so a screen can print "21-23 ก.ย." without regrouping, GroupID so cancelling the trip
+   * cancels the trip rather than one day of it. Both appended at END; blank on every row filed
+   * before 2026-09-21, which reads correctly as a one-day leave. */
+  LEAVE_REQUEST_STD: ['LeaveID', 'StudentID', 'Date', 'Reason', 'Status', 'TeacherNotified', 'DateTo', 'GroupID'],
   // Withdrawal / cancel-enrolment requests — parent self-service OR Admin direct. Reason is one of the
   // standard codes (graduated / moved / transferred / other) + free-text detail; Admin processes -> removes the student.
   WITHDRAWALS:       ['WithdrawID', 'StudentID', 'RequestedBy', 'RequesterRole', 'Reason', 'Detail', 'EffectiveDate', 'Status', 'ProcessedBy', 'ProcessedDate', 'CreatedDate'],

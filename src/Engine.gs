@@ -977,8 +977,17 @@ function createAtomAPI(M, GROWTH_STD) {
     if(from && from>first) return false;
     if(to && to<last) return false;
     return true; }
-  // everyone still enrolled, INCLUDING the currently paused — the roster the Admin manages
-  const enrolledStudents = () => M.students.filter(s=>!INACTIVE[s.Status]);
+  /* everyone still enrolled, INCLUDING the currently paused — the roster the Admin manages.
+   * A child PAST their end date is not enrolled any more and drops off it.
+   *
+   * PASS A MONTH WHEN THE QUESTION IS ABOUT MONEY. Without one the cut is by DAY, which is right for
+   * a roster ("who is still with us today"). Every billing caller asks about a MONTH instead, and a
+   * child finishing on the 15th is billed for that whole month (decided 2026-09-21) — so the
+   * October finance page and October's bill run must still find her on the 20th, five days after her
+   * last day. Calling this with no month there would quietly drop the final invoice of a child who
+   * is leaving, which is the one invoice nobody is watching for. */
+  const enrolledStudents = (month) => M.students.filter(s=>!INACTIVE[s.Status] &&
+    !(month ? endedBeforeMonth_(s, month) : studentEnded_(s)));
   // everyone actually attending today: drives attendance, class lists, billing and the dashboard
   /**
    * May this person SEE what an admin sees? Observer may — that is the whole point of the role: the
@@ -1081,6 +1090,50 @@ function createAtomAPI(M, GROWTH_STD) {
    * A HALF-day holiday counts. The school shut for part of it and asked someone to come in anyway,
    * which is exactly the case the payment is for.
    */
+  /* ===== A LEAVE THAT LASTS MORE THAN ONE DAY ==================================================
+   *
+   * Asked 2026-09-21: "พานักเรียนไปต่างจังหวัด 3 วัน 21/09/26-23/09/26 จะมาโรงเรียนในวันที่ 24/09/26".
+   * A family taking a child away for a week had to file the same form seven times, and forgetting
+   * the fourth day made that day an unexplained absence with a teacher ringing round to find out
+   * where the child was.
+   *
+   * ONE ROW PER DAY, NOT A ROW WITH A RANGE ON IT. The register, the calendar, the absence
+   * follow-up, the monthly report and the class list all ask the same question — "is this child on
+   * leave on THIS date" — and every one of them already answers it by looking for that date's row.
+   * Storing a span instead would mean changing all of them, and any one that was missed would go on
+   * quietly marking a child absent for days the school had been told about. Expanding here means
+   * every screen that works today keeps working, with no change at all.
+   *
+   * DAYS THE SCHOOL IS SHUT ARE SKIPPED (decided 2026-09-21). A child is not absent on a Sunday, and
+   * a leave row for one would inflate both the absence count and the follow-up that chases it.
+   *
+   * MAX_LEAVE_SPAN_DAYS CAPS IT AT A FORTNIGHT (decided 2026-09-21). Longer than that is not a trip,
+   * it is ลาชั่วคราว — which the Admin sets, which the school already has, and which (unlike this)
+   * suspends the tuition. The refusal says so, because "ยาวเกินไป" leaves a parent with nothing to do
+   * next.
+   */
+  const MAX_LEAVE_SPAN_DAYS = 14;
+  function leaveDaysIn_(from, to){
+    const a=ymd(from||''), b=ymd(to||'')||a;
+    if(!a) fail('BAD_INPUT','ระบุวันที่เริ่มลา');
+    if(b<a) fail('BAD_RANGE','วันสิ้นสุดการลาต้องไม่ก่อนวันเริ่มลา');
+    /* WALKED IN UTC, ON PURPOSE. `ymd` is a string slicer, not a date formatter — handing it a Date
+     * gives "Mon Sep 21". And stepping a LOCAL Date across a daylight-saving boundary can repeat or
+     * skip a day, which here would mean a leave row for a day nobody asked about. Milliseconds from
+     * a UTC midnight have neither problem, and the result is sliced straight back to yyyy-MM-dd. */
+    const t0=Date.parse(a+'T00:00:00Z');
+    const span=Math.round((Date.parse(b+'T00:00:00Z')-t0)/86400000)+1;
+    if(span>MAX_LEAVE_SPAN_DAYS) fail('RANGE_TOO_LONG',
+      'แจ้งลาต่อเนื่องได้ครั้งละไม่เกิน '+MAX_LEAVE_SPAN_DAYS+' วัน (เลือกไว้ '+span+' วัน) — '+
+      'หากต้องหยุดยาวกว่านี้ กรุณาติดต่อโรงเรียนเพื่อขอ "ลาชั่วคราว" ซึ่งจะไม่คิดค่าเทอมในช่วงนั้น');
+    const out=[];
+    for(let i=0;i<span;i++){
+      const d=new Date(t0+i*86400000).toISOString().slice(0,10);
+      if(!isHolidayDate_(d)) out.push(d);          // weekends + the school's own holidays
+    }
+    if(!out.length) fail('NO_OPEN_DAYS','ช่วงวันที่เลือกเป็นวันหยุดโรงเรียนทั้งหมด — ไม่ต้องแจ้งลา');
+    return out;
+  }
   function isHolidayDate_(date){ const d=ymd(date||todayLocal());
     if((M.holidays||[]).some(h=>ymd(h.Date)===d)) return true;
     const g=new Date(d+'T00:00:00').getDay();
@@ -1132,7 +1185,12 @@ function createAtomAPI(M, GROWTH_STD) {
      * the wrong reason and the wrong date to give somebody. */
     { const s=studentById(studentId);
       if(s && studentNotStarted_(s, d)) fail('NOT_STARTED',
-        'วันแรกของการมาเรียนคือ '+ymd(s.EnrollDate)+' — ยังลงเวลาไม่ได้จนกว่าจะถึงวันนั้น'); }
+        'วันแรกของการมาเรียนคือ '+ymd(s.EnrollDate)+' — ยังลงเวลาไม่ได้จนกว่าจะถึงวันนั้น');
+      /* ...AND THE SAME GATE AT THE OTHER END. A child past their last day does not come here any
+       * more, so the button closes — but the record, the history and the final bill stay reachable
+       * to their family, which is why this is a check-in refusal and not a removal. */
+      if(s && studentEnded_(s, d)) fail('STUDENT_ENDED',
+        'วันสุดท้ายของการเรียนคือ '+ymd(s.EndDate)+' — ลงเวลาไม่ได้แล้ว'); }
     const why=schoolClosedFor_(d, true);
     if(why){
       if(isHolidayAttendee_(studentId, d)) return;        // expected today, by name
@@ -1246,6 +1304,40 @@ function createAtomAPI(M, GROWTH_STD) {
   const studentNotStarted_ = (s, onDate) => { const d=ymd((s&&s.EnrollDate)||'');
     return !!d && ymd(onDate||todayLocal()) < d; };
 
+  /* ===== THE OTHER END OF THE SAME LINE — A CHILD WHO HAS FINISHED =============================
+   *
+   * Asked 2026-09-21: "ประวัตินักเรียนเพิ่มข้อมูลวันสิ้นสุดการเรียน (นักเรียนครบกำหนดการเรียน ต้องย้ายไป
+   * เรียนโรงเรียนใหม่) ให้ Admin ใส่ข้อมูลและเหตุผล ... คล้ายกับของพนักงาน".
+   *
+   * WHY THIS IS NOT withdrawStudent, WHICH ALREADY EXISTS. That one takes effect the moment it is
+   * pressed — it is for a family who leaves. This is the staff EndDate model: a LAST DAY recorded in
+   * ADVANCE, while the child is still here and still coming. A nursery knows in March that a child
+   * finishes in May; the record should be able to say so in March without removing them in March.
+   *
+   * THE TEST IS `>`, NOT `>=`, AND FOR THE SAME REASON AS THE STAFF ONE. EndDate is the child's LAST
+   * DAY AT SCHOOL. They come in that morning, they are checked in, a teacher writes their journal.
+   * They are gone the day AFTER. Getting this backwards would lock a child out of their own last day
+   * — the one day that most needs to work properly.
+   *
+   * WHAT IT DOES NOT DECIDE IS THE BILL. See endedBeforeMonth_.
+   */
+  const studentEnded_ = (s, onDate) => { const d=ymd((s&&s.EndDate)||'');
+    return !!d && ymd(onDate||todayLocal()) > d; };
+  /** An end date recorded but not reached yet — the child is still here, and the Admin should see it coming. */
+  const endScheduled_ = (s, onDate) => { const d=ymd((s&&s.EndDate)||'');
+    return !!d && !studentEnded_(s, onDate); };
+  /**
+   * BILLING IS DECIDED BY THE MONTH, NOT BY THE DAY — decided 2026-09-21: a child finishing on the
+   * 15th is billed for that whole month as usual, no proration. The school's own answer, and the
+   * safer one: proration would mean a second money formula, and the Admin can already discount a
+   * single bill by hand if they choose to.
+   *
+   * So a child drops off the billing roster only from the month AFTER the one they finished in.
+   * Mirrors pausedWholeMonth_ above, which is the same shape of question.
+   */
+  function endedBeforeMonth_(s, month){ const d=ymd((s&&s.EndDate)||''); if(!d) return false;
+    return d.slice(0,7) < ym(month||todayLocal()); }
+
   /**
    * WHOSE HANDWRITING IS THIS — a staff member's NICKNAME, resolved on the server.
    *
@@ -1332,7 +1424,7 @@ function createAtomAPI(M, GROWTH_STD) {
     if(!last){ s.Weight=''; s.Height=''; s.LastGrowthUpdate=''; return; }
     s.Weight=last.Weight; s.Height=last.Height; s.LastGrowthUpdate=ymd(last.Date);
   }
-  const activeStudents = () => M.students.filter(s=>!INACTIVE[s.Status] && !studentPaused_(s) && !studentNotStarted_(s));
+  const activeStudents = () => M.students.filter(s=>!INACTIVE[s.Status] && !studentPaused_(s) && !studentNotStarted_(s) && !studentEnded_(s));
 
   // ---- payment-slip helpers (multiple slips per bill/OT/prepay + partial payments) ----
   const paySlips_ = () => (M.paymentSlips = M.paymentSlips || []);
@@ -1427,6 +1519,9 @@ function createAtomAPI(M, GROWTH_STD) {
       // ...and a child whose first day has not come yet: the card says the DATE instead of offering a
       // drop-off button the server would refuse (see assertStudentDayOpen_)
       notStarted:studentNotStarted_(s), startDate:ymd(s.EnrollDate||''),
+      // ...and the last day, once the school has set one: the family sees it coming rather than
+      // finding the buttons gone one morning with nothing saying why.
+      ended:studentEnded_(s), endScheduled:endScheduled_(s), endDate:ymd(s.EndDate||''),
       // ...and a child whose standing arrangement is to be away today. Same reason as the two above:
       // the card says so rather than offering a button the server would only refuse.
       dayOff:studentOffDay_(s), offDays:offDaysLabel_(s), offDaysEN:offDaysLabel_(s,true),
@@ -1726,9 +1821,23 @@ function createAtomAPI(M, GROWTH_STD) {
       return { date, done: M.journals.filter(x=>ymd(x.Date)===date && (!only||only.indexOf(String(x.StudentID))>=0))
         .map(x=>({studentId:x.StudentID, teacherId:x.TeacherID, status:jStatus_(x),
                   submittedAt:x.SubmittedAt||'', updatedAt:x.UpdatedAt||''})) }; },
-    // idempotent: a re-submit for the same student+date returns the existing leave, no duplicate
-    studentAbsence: p => { const dup=(M.studentLeaves||[]).find(l=>l.StudentID===p.studentId&&ymd(l.Date)===ymd(p.date)); if(dup) return {leaveId:dup.LeaveID,teacherNotified:false,duplicate:true};
-      const id=nextSeqId_(M.studentLeaves,'LeaveID','LVS',4); M.studentLeaves.push({LeaveID:id,StudentID:p.studentId,Date:p.date,Reason:p.reason,Type:p.type||'',Status:'Notified'}); return {leaveId:id,teacherNotified:true}; },
+    /* Idempotent: a re-submit for a day this child is already on leave adds nothing and re-notifies
+     * nobody. With a range that is per-day rather than all-or-nothing — a family extending 21-22 to
+     * 21-24 files 21-24 and gets the two new days, not a refusal naming a day they already told us
+     * about. `days` is what was actually created, `skipped` what was already there. */
+    studentAbsence: p => {
+      const dates=leaveDaysIn_(p.date, p.dateTo), to=dates[dates.length-1];
+      const has=d=>(M.studentLeaves||[]).find(l=>String(l.StudentID)===String(p.studentId)&&ymd(l.Date)===d);
+      const group='LVG-'+String(p.studentId)+'-'+dates[0];
+      const made=[], skipped=[];
+      dates.forEach(d=>{ const dup=has(d); if(dup){ skipped.push({date:d,leaveId:dup.LeaveID}); return; }
+        const id=nextSeqId_(M.studentLeaves,'LeaveID','LVS',4);
+        M.studentLeaves.push({LeaveID:id,StudentID:p.studentId,Date:d,DateTo:to,GroupID:group,
+          Reason:p.reason,Type:p.type||'',Status:'Notified'});
+        made.push({date:d,leaveId:id}); });
+      return {leaveId:made.length?made[0].leaveId:skipped[0].leaveId, leaveIds:made.map(x=>x.leaveId),
+        groupId:group, from:dates[0], to, days:made.length, skipped:skipped.map(x=>x.date),
+        teacherNotified:made.length>0, duplicate:made.length===0}; },
     /**
      * A PARENT CORRECTS OR WITHDRAWS THEIR OWN NOTICE.
      *
@@ -1762,19 +1871,42 @@ function createAtomAPI(M, GROWTH_STD) {
       if(p.date!=null) l.Date=ymd(p.date); if(p.reason!=null) l.Reason=p.reason; if(p.type!=null) l.Type=p.type;
       logAct('parentEditLeave',l.LeaveID,ymd(l.Date),actorOf(p));
       return {ok:true, leaveId:l.LeaveID}; },
+    /* CANCELLING A RANGE CANCELS THE WHOLE RANGE. A family who filed "away 21-24" and came back
+     * early means all four days, not one of them — and cancelling one day of four would leave three
+     * rows behind with nothing on screen to say they were still there.
+     *
+     * DAYS ALREADY PAST ARE LEFT ALONE, for the reason the single-day rule gives: a day the school
+     * has already taught is the register, not a plan. So cancelling 21-24 on the 23rd removes the
+     * 23rd and 24th and leaves the 21st and 22nd as the record of two days the child was away. A
+     * range ENTIRELY in the past is still refused outright — there is nothing left to cancel. */
     parentCancelLeave: p => { const i=(M.studentLeaves||[]).findIndex(x=>String(x.LeaveID)===String(p.leaveId));
       if(i<0) fail('NOT_FOUND','ไม่พบใบลานี้');
       const l=M.studentLeaves[i];
       if(String(l.StudentID)!==String(p.studentId)) fail('NO_ACCESS','ใบลานี้ไม่ใช่ของบุตรหลานท่าน');
       if(String(l.FiledBy||'').trim()) fail('FILED_BY_SCHOOL','ใบลานี้คุณครูเป็นผู้บันทึก — กรุณาติดต่อโรงเรียนเพื่อยกเลิก');
-      if(ymd(l.Date) < todayLocal()) fail('LEAVE_PAST','ใบลาของวันที่ผ่านมาแล้วยกเลิกไม่ได้ — เป็นบันทึกการมาเรียนของวันนั้น · กรุณาติดต่อโรงเรียน');
-      M.studentLeaves.splice(i,1);
-      logAct('parentCancelLeave',l.LeaveID,ymd(l.Date),actorOf(p));
-      return {ok:true}; },
+      const g=String(l.GroupID||'').trim(), today=todayLocal();
+      const inRun = x => g ? String(x.GroupID||'')===g : String(x.LeaveID)===String(l.LeaveID);
+      const doomed=(M.studentLeaves||[]).filter(x=>inRun(x) && ymd(x.Date)>=today);
+      if(!doomed.length) fail('LEAVE_PAST','ใบลาของวันที่ผ่านมาแล้วยกเลิกไม่ได้ — เป็นบันทึกการมาเรียนของวันนั้น · กรุณาติดต่อโรงเรียน');
+      const dates=doomed.map(x=>ymd(x.Date)).sort();
+      const gone={}; doomed.forEach(x=>{ gone[String(x.LeaveID)]=1; });
+      for(let k=(M.studentLeaves||[]).length-1;k>=0;k--) if(gone[String(M.studentLeaves[k].LeaveID)]) M.studentLeaves.splice(k,1);
+      logAct('parentCancelLeave',l.LeaveID,dates.join(', '),actorOf(p));
+      return {ok:true, cancelled:dates.length, dates, from:dates[0], to:dates[dates.length-1]}; },
     // Teacher files a leave for a student (notifies the linked parents). Shows in that student's parent calendar only.
-    teacherStudentLeave: p => { const dup=(M.studentLeaves||[]).find(l=>l.StudentID===p.studentId&&ymd(l.Date)===ymd(p.date)); if(dup) return {leaveId:dup.LeaveID,parentNotified:false,duplicate:true};
-      const id=nextSeqId_(M.studentLeaves,'LeaveID','LVS',4);
-      M.studentLeaves.push({LeaveID:id,StudentID:p.studentId,Date:p.date,Reason:p.reason||'',Type:p.type||'',Status:'Notified',FiledBy:p.staffId}); return {leaveId:id,parentNotified:true}; },
+    teacherStudentLeave: p => {
+      const dates=leaveDaysIn_(p.date, p.dateTo), to=dates[dates.length-1];
+      const has=d=>(M.studentLeaves||[]).find(l=>String(l.StudentID)===String(p.studentId)&&ymd(l.Date)===d);
+      const group='LVG-'+String(p.studentId)+'-'+dates[0];
+      const made=[], skipped=[];
+      dates.forEach(d=>{ const dup=has(d); if(dup){ skipped.push({date:d,leaveId:dup.LeaveID}); return; }
+        const id=nextSeqId_(M.studentLeaves,'LeaveID','LVS',4);
+        M.studentLeaves.push({LeaveID:id,StudentID:p.studentId,Date:d,DateTo:to,GroupID:group,
+          Reason:p.reason||'',Type:p.type||'',Status:'Notified',FiledBy:p.staffId});
+        made.push({date:d,leaveId:id}); });
+      return {leaveId:made.length?made[0].leaveId:skipped[0].leaveId, leaveIds:made.map(x=>x.leaveId),
+        groupId:group, from:dates[0], to, days:made.length, skipped:skipped.map(x=>x.date),
+        parentNotified:made.length>0, duplicate:made.length===0}; },
     // ---- Admin: manage student leaves (list all / edit / delete). On GAS the mutations are in-place ROUTES. ----
     allStudentLeaves: p => (M.studentLeaves||[]).slice().sort((a,b)=>String(b.Date).localeCompare(String(a.Date))).map(l=>{ const s=studentById(l.StudentID)||{};
       return Object.assign({},l,{name:s.NameTH||s.Name,nameEN:s.NameEN,nick:s.Nickname,class:s.Class}); }),
@@ -1893,7 +2025,7 @@ function createAtomAPI(M, GROWTH_STD) {
     generateMonthlyBills: p => { const month=p.month||todayLocal().slice(0,7); let created=0; const noPlan=[], notYet=[], prorated=[], paused=[], prepaid=[];
       // enrolledStudents, not activeStudents: a child paused only PART of this month is still billed,
       // and the paused-all-month check below is what actually excludes them (with a reason).
-      enrolledStudents().forEach(s=>{ if(M.payments.find(x=>x.StudentID===s.StudentID&&ym(x.Month)===month))return;
+      enrolledStudents(month).forEach(s=>{ if(M.payments.find(x=>x.StudentID===s.StudentID&&ym(x.Month)===month))return;
         if(pausedWholeMonth_(s, month)){ paused.push({studentId:s.StudentID, name:s.NameTH||s.Name||'', nick:s.Nickname||'', from:ymd(s.PauseFrom||''), to:ymd(s.PauseTo||'')}); return; }
         /* Bought and paid for in advance — see issueBill for why this is not just harmless noise.
          * Reported back BY NAME AND BY POSITION ("เดือนที่ 1/6"), because "ข้าม 3 คน" tells the
@@ -2446,7 +2578,8 @@ function createAtomAPI(M, GROWTH_STD) {
       // 'ลาป่วย' vs anything else the school records; an unlabelled leave counts as ลากิจ
       const isSick = t => /ป่วย|sick/i.test(String(t||''));
 
-      const rows = enrolledStudents().map(s=>{
+      // month, not today: a child who finished on the 15th still has a September to report on
+      const rows = enrolledStudents(month).map(s=>{
         let present=0, absent=0, sick=0, personal=0, run=0, worstRun=0, lastAbsent='';
         // days this child could actually have attended — the report says how many, because
         // "ขาด 0" for a child who joined on the 22nd means something different from "ขาด 0"
@@ -3186,7 +3319,7 @@ function createAtomAPI(M, GROWTH_STD) {
       // enrolledStudents, not activeStudents: a child on temporary leave still has to be billable —
       // this is how the school collects a deposit or a first month BEFORE the child starts. They are
       // listed last (see the sort below) so they never crowd the children currently attending.
-      const students=enrolledStudents().map(s=>{
+      const students=enrolledStudents(month).map(s=>{
         // a student may (wrongly) have >1 bill for a month — prefer the PAID/PARTIAL one over duplicates
         const bills=billsBy[String(s.StudentID)]||[];
         const b=bills.find(x=>x.Status==='PAID')||bills.find(x=>x.Status==='PARTIAL')||bills[0];
@@ -3454,7 +3587,9 @@ function createAtomAPI(M, GROWTH_STD) {
     // the Admin roster keeps paused children visible (with a flag) — hiding them would leave no way
     // to see who is away, or to bring them back
     listStudents: () => enrolledStudents().map(s=>Object.assign({ageMonth:ageMonths(s.DOB),
-      paused:studentPaused_(s), pauseFrom:ymd(s.PauseFrom||''), pauseTo:ymd(s.PauseTo||''), pauseReason:s.PauseReason||''}, s)),
+      paused:studentPaused_(s), pauseFrom:ymd(s.PauseFrom||''), pauseTo:ymd(s.PauseTo||''), pauseReason:s.PauseReason||'',
+      // a last day already set but not reached — the roster says so while there is still time to fix it
+      endScheduled:endScheduled_(s), endDate:ymd(s.EndDate||''), endReason:s.EndReason||''}, s)),
     /**
      * Admin puts a child on temporary leave, or brings them back. Admin only.
      * { studentId, paused:true, from?, to?, reason? } | { studentId, paused:false }
@@ -3495,6 +3630,52 @@ function createAtomAPI(M, GROWTH_STD) {
       s.Status=PAUSED_STATUS; s.PauseFrom=ymd(p.from); s.PauseTo=p.to?ymd(p.to):''; s.PauseReason=p.reason||'';
       logAct('setStudentPause',p.studentId,'ลาชั่วคราว '+s.PauseFrom+(s.PauseTo?(' – '+s.PauseTo):' เป็นต้นไป')+(s.PauseReason?(' · '+s.PauseReason):''),actorOf(p));
       return {ok:true,studentId:p.studentId,status:PAUSED_STATUS,paused:studentPaused_(s),from:s.PauseFrom,to:s.PauseTo,reason:s.PauseReason}; },
+    /* ===== THE LAST DAY, RECORDED IN ADVANCE ====================================================
+     *
+     * Asked 2026-09-21. The school knows months ahead that a child finishes — they age out of the
+     * nursery and move to a new school. Until now the only way to record that was withdrawStudent,
+     * which takes effect the instant it is pressed: an Admin who knew in March had to either remove
+     * the child in March or remember to come back in May. One of those loses a child who is still
+     * here; the other is a reminder in somebody's head.
+     *
+     * THE REASON IS REQUIRED, exactly as it is for staff and for a pause. "Why did this child
+     * leave?" is asked months later, by somebody who was not in the room, and the record is the only
+     * thing left that can answer. The standard reasons are the withdrawal ones the school already
+     * uses (graduated / moved / transferred / other) so the two exits are countable together.
+     *
+     * NOT A WITHDRAWAL, AND IT MUST NOT BECOME ONE HERE. Status is left alone: the child keeps
+     * coming, keeps being checked in, keeps their journal, and is billed for the month they finish
+     * in. studentEnded_ is what turns them off, on its own, when the day passes.
+     * { staffId, studentId, endDate, reason, remark? } | { staffId, studentId, endDate:'' }
+     */
+    setStudentEnd: p => { const ap=staffById(p.staffId); if(!adminLike_(ap))fail('NO_PERMISSION','เฉพาะแอดมิน');
+      const s=studentById(p.studentId); if(!s)fail('NOT_FOUND','ไม่พบนักเรียน');
+      if(INACTIVE[s.Status])fail('BAD_STATE','นักเรียนคนนี้ออกจากโรงเรียนแล้ว');
+      const end=ymd(p.endDate||'');
+      if(!end){ s.EndDate=''; s.EndReason=''; s.EndRemark='';
+        logAct('setStudentEnd',p.studentId,'ยกเลิกวันสิ้นสุดการเรียน',actorOf(p));
+        return {ok:true,studentId:p.studentId,endDate:'',ended:false,endScheduled:false}; }
+      /* A last day BEFORE the first day is not a short enrolment, it is a typo — and it would make a
+       * child who has not started already finished, invisible from the moment they were entered. */
+      const st=ymd(s.EnrollDate||'');
+      if(st && end<st)fail('BAD_INPUT','วันสิ้นสุดการเรียนต้องไม่ก่อนวันเริ่มเรียน ('+st+')');
+      const reason=String(p.reason||'').trim(); if(!reason)fail('BAD_INPUT','กรุณาระบุเหตุผลที่สิ้นสุดการเรียน');
+      s.EndDate=end; s.EndReason=reason; s.EndRemark=String(p.remark||'');
+      logAct('setStudentEnd',p.studentId,'สิ้นสุดการเรียน '+end+' · '+reason,actorOf(p));
+      return {ok:true,studentId:p.studentId,endDate:end,reason,ended:studentEnded_(s),endScheduled:endScheduled_(s)}; },
+    /**
+     * Children finishing — the ones still to come and the ones already past, in one list.
+     *
+     * THIS IS THE "แจ้ง Admin" HALF OF THE DECISION (2026-09-21): the cut-off happens on its own, so
+     * without a screen that shows it, a child would vanish from the class lists one morning and the
+     * only trace would be a column nobody opens. `days` is negative once the date has passed.
+     */
+    endingStudents: () => M.students.filter(s=>!INACTIVE[s.Status] && ymd(s.EndDate||''))
+      .map(s=>({studentId:s.StudentID, nick:s.Nickname, nickEN:s.NicknameEN, name:s.NameTH, nameEN:s.NameEN,
+        className:s.Class||'', endDate:ymd(s.EndDate), reason:s.EndReason||'', remark:s.EndRemark||'',
+        ended:studentEnded_(s), endScheduled:endScheduled_(s),
+        days:Math.round((new Date(ymd(s.EndDate)+'T00:00:00')-new Date(todayLocal()+'T00:00:00'))/86400000)}))
+      .sort((a,b)=>String(a.endDate).localeCompare(String(b.endDate))),
     // children currently away, so the Admin can see them in one place and bring them back
     /** Children whose first day has not come yet — enrolled, billable, and not here (studentNotStarted_). */
     startingStudents: () => M.students.filter(s=>!INACTIVE[s.Status] && studentNotStarted_(s))
@@ -3512,7 +3693,7 @@ function createAtomAPI(M, GROWTH_STD) {
      * prepaid in September and not in March. Returned as a map so a checkbox can look itself up.
      */
     prepaidStudents: p => { const month=ym((p&&p.month)||todayLocal().slice(0,7)); const by={};
-      enrolledStudents().forEach(s=>{ const pi=prepayInfo_(s.StudentID, month); if(pi) by[s.StudentID]=pi; });
+      enrolledStudents(month).forEach(s=>{ const pi=prepayInfo_(s.StudentID, month); if(pi) by[s.StudentID]=pi; });
       return {month, count:Object.keys(by).length, byStudent:by}; },
     /**
      * THE ROSTER CUT THE WAY THE BILLS ACTUALLY GO OUT — by which day of the month each family pays.
@@ -3539,7 +3720,7 @@ function createAtomAPI(M, GROWTH_STD) {
       const month=ym((p&&p.month)||todayLocal().slice(0,7));
       const schoolDay=billingDayOf({});           // the day a family with nothing agreed pays on
       const by={};
-      enrolledStudents().forEach(s=>{
+      enrolledStudents(month).forEach(s=>{
         const b=M.payments.find(x=>String(x.StudentID)===String(s.StudentID)&&ym(x.Month)===month);
         const pi=prepayInfo_(s.StudentID, month);
         (by[billingDayOf(s)]||(by[billingDayOf(s)]=[])).push({
@@ -3584,7 +3765,7 @@ function createAtomAPI(M, GROWTH_STD) {
      */
     holidayAttendList: p => { const d=ymd((p&&p.date)||todayLocal());
       const ids=holidayAttendIds_(d);
-      const rows=enrolledStudents().filter(s=>ids.indexOf(String(s.StudentID))>=0).map(s=>{
+      const rows=enrolledStudents(d).filter(s=>ids.indexOf(String(s.StudentID))>=0).map(s=>{
         const h=(M.studentCheckins||[]).find(c=>String(c.StudentID)===String(s.StudentID)&&ymd(c.Date)===d)||{};
         const ot=(M.otDaily||[]).find(o=>String(o.StudentID)===String(s.StudentID)&&ymd(o.Date)===d)||null;
         return { studentId:s.StudentID, nick:s.Nickname, nickEN:s.NicknameEN, name:s.NameTH, nameEN:s.NameEN,
@@ -3691,7 +3872,13 @@ function createAtomAPI(M, GROWTH_STD) {
         insurancePolicyNo:s.InsurancePolicyNo||'', insuranceCompany:s.InsuranceCompany||'',
         insuranceExpiry:ymd(s.InsuranceExpiry||''), insuranceCardImage:s.InsuranceCardImage||'',
         driveFolderUrl:s.DriveFolderUrl||'', createdDate:ymd(s.CreatedDate||''),
-        withdrawReason:s.WithdrawReason||'', withdrawDate:ymd(s.WithdrawDate||'') });
+        withdrawReason:s.WithdrawReason||'', withdrawDate:ymd(s.WithdrawDate||''),
+        /* THE LAST DAY OF THE CHILD'S TIME HERE (2026-09-21) — asked for as part of the record
+         * itself ("ประวัตินักเรียนเพิ่มข้อมูลวันสิ้นสุดการเรียน"), which is why it is here and not
+         * only on the Admin's edit form. `ended` is derived, so a screen never has to compare dates
+         * to know whether it is looking at a child who has finished or one who is still coming. */
+        endDate:ymd(s.EndDate||''), endReason:s.EndReason||'', endRemark:s.EndRemark||'',
+        ended:studentEnded_(s), endScheduled:endScheduled_(s) });
     },
     /** "ทำไมลงเวลาไม่ได้ ทั้งที่ยืนอยู่ในโรงเรียน" — answered without punching anything. See geoCheck_. */
     geoCheck: p => geoCheck_(p&&p.lat, p&&p.lng, p&&p.acc),

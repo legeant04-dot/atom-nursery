@@ -145,8 +145,11 @@ console.log('\n5) the admin form, and the column it writes to');
    * gets a box for it without anybody editing this function. */
   ok_('the boxes are built from the school’s table', /const school=schoolQuota\(\), own=staffQuota\(s\|\|\{\}\), keys=Object\.keys\(school\);/.test(app)
     && /keys\.map\(\(k,i\)=>/.test(app));
+  /* v390 appended endingStudents after it, so this no longer ends the array — the claim was never
+   * "it is last", it is "it rides in the one Promise.all with everything else". Asserted as being
+   * inside that call, which is the thing that costs a round trip if it is ever broken. */
   ok_('...fetched in the SAME batch as the rest of the manage screen, not a trip of its own',
-    /api\('getLeaveQuota'\)\.catch\(\(\)=>null\)\]\)/.test(app));
+    /Promise\.all\(\[[\s\S]{0,2000}api\('getLeaveQuota'\)\.catch\(\(\)=>null\)[\s\S]{0,600}\]\);/.test(app));
   /* A Thai string in an element id has to be CSS.escape()d at every query; one place forgetting it
    * reads back nothing and drops that teacher's entitlement without a word. Keyed by index instead,
    * with the type carried in a data- attribute. */

@@ -185,15 +185,36 @@ console.log('\n5) the same three rules on the GAS route, which SHADOWS the engin
 console.log('\n6) the screen offers only what the server would accept');
 {
   ok_('one rule decides whether the buttons are drawn', /const leaveEditable = l =>/.test(app));
-  ok_('...and it is the same two conditions', /!String\(\(l&&l\.FiledBy\)\|\|''\)\.trim\(\) && String\(\(l&&l\.Date\)\|\|''\)\.slice\(0,10\) >= todayStr\(\)/.test(app));
-  // run it, rather than reading it
-  const src = /const leaveEditable = l => (.*);/.exec(app);
+  /* v390: still the same two conditions, but the DATE half now reads `_to || Date`. A leave can span
+   * several days, and a run is measured against its LAST day — a family away 21-24 who comes home on
+   * the 23rd must still be able to call off the 23rd and the 24th. `_to` is only set on a grouped
+   * run, so a single-day leave is compared against its own Date exactly as before. */
+  ok_('...and it is the same two conditions', /!String\(\(l&&l\.FiledBy\)\|\|''\)\.trim\(\) &&\s*\n?\s*String\(\(l&&\(l\._to\|\|l\.Date\)\)\|\|''\)\.slice\(0,10\) >= todayStr\(\)/.test(app));
+  /* ...and BOTH servers agree with it: the engine and the GAS route that shadows it live. A screen
+   * that offers the button while one of them refuses is the exact failure this section exists for. */
+  ok_('...and the run it is measured against is the one the engine will act on',
+    /const g=String\(l\.GroupID\|\|''\)\.trim\(\)/.test(engGs) &&
+    /doomed=\(M\.studentLeaves\|\|\[\]\)\.filter\(x=>inRun\(x\) && ymd\(x\.Date\)>=today\)/.test(engGs));
+  ok_('...and the LIVE route cancels the whole run, keeping only the days already past',
+    /rows = group\s*\n?\s*\? readObjects_\(f\.sh\)\.filter\(/.test(parentGs) &&
+    /rows\.filter\(function \(r\) \{ return otNormDate_\(r\.Date\) >= f\.today; \}\)/.test(parentGs));
+  // run it, rather than reading it. (It spans two lines since v390 — hence [\s\S], not `.`)
+  const src = /const leaveEditable = l => ([\s\S]*?);\n/.exec(app);
   const leaveEditable = new Function('l', 'todayStr', 'return ' + src[1] + ';').bind(null);
   const f = l => leaveEditable(l, () => TODAY);
   eq('tomorrow, filed by the family → editable', f({ Date: TOMORROW }), true);
   eq('today → editable', f({ Date: TODAY }), true);
   eq('yesterday → not', f({ Date: YESTERDAY }), false);
   eq('teacher-filed → not, however far in the future', f({ Date: NEXTWEEK, FiledBy: 'STF-T' }), false);
+  /* A MULTI-DAY RUN IS JUDGED BY ITS LAST DAY. A trip that started yesterday and ends in three days
+   * still has days that can be called off, and the family is the one who would call them off — so
+   * the buttons have to be there. Judging it by its first day would take them away mid-trip, which
+   * is precisely when somebody comes home early and needs them. */
+  eq('a run that started yesterday but ends later → still cancellable',
+    f({ Date: YESTERDAY, _to: IN3, _days: 5 }), true);
+  eq('a run that has finished entirely → not', f({ Date: shift(-5), _to: YESTERDAY, _days: 3 }), false);
+  eq('a run the school filed → not, whatever its dates',
+    f({ Date: TODAY, _to: NEXTWEEK, _days: 6, FiledBy: 'STF-T' }), false);
   /* A ROW WITH NO BUTTONS AND NO EXPLANATION READS AS A BUG. Both refusals say which one it was. */
   ok_('a row without buttons says why', /คุณครูบันทึก/.test(app) && /ผ่านมาแล้ว/.test(app));
   ok_('the date picker itself refuses the past', /<input type="date" id="eDate" min="\$\{todayStr\(\)\}"/.test(app));
