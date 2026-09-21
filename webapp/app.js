@@ -112,7 +112,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.391'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.392'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -12733,9 +12733,33 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
     // an Observer may look at the day but not change it — the server refuses anyway, so showing the
     // buttons would only be an invitation to an error message
     const canEdit=USER&&USER.role!=='Observer';
+    /* WHO RECORDED THIS TIME, on the row that shows the time. Asked 2026-09-21.
+     *
+     * DRAWN ONLY WHEN A STAFF MEMBER DID IT. "หากผู้ปกครองลงเองก็แสดงเหมือนเดิม" — a family's own
+     * tap is the normal case and gets no extra line, so the ones that DO carry a line are exactly
+     * the ones worth looking at. A label on every row would be a label nobody reads.
+     *
+     * TWO TIMES, DELIBERATELY. `inTime`/`outTime` above is when the CHILD came and went — what OT is
+     * charged from. `at` is when the adult pressed save. They are usually minutes apart and
+     * sometimes hours, and the gap is the thing an Admin checking a charge actually wants: a 12:57
+     * pick-up entered at 17:30 is a correction made five hours later, and the row now says so
+     * instead of leaving it to be inferred.
+     *
+     * The remark is the school's own record of WHO COLLECTED THE CHILD — it is mandatory on that
+     * form (REMARK_REQUIRED), so it is never the empty string when a teacher recorded a pick-up. */
+    /* THE TWO WRITERS DISAGREE ON FORMAT, so the display must not assume one. The teacher's live
+     * button goes through GAS and stores "HH:mm" (timeStr_); the correction screen goes through the
+     * engine and stores "yyyy-MM-dd HH:mm" (stampLocal). Slicing by position worked for one and cut
+     * "17:30" down to "17" for the other — caught before shipping, and the reason this reads the
+     * LAST clock time in the string rather than counting characters from the end. */
+    const atHHmm=v=>{ const m=/(\d{1,2}:\d{2})(?::\d{2})?\s*$/.exec(String(v||'')); return m?m[1]:''; };
+    const by=(w,icon)=>!w?'':`<br><small style="color:var(--blue-d)">${icon} ${EN()?'recorded by':'ลงเวลาโดยคุณครู'} <b>${esc(w.by)}</b>${
+      atHHmm(w.at)?` <span class="muted">· ${EN()?'at':'เมื่อ'} ${esc(atHHmm(w.at))}</span>`:''}${
+      w.remark?`<br><span class="muted" style="padding-left:18px">📝 ${esc(w.remark)}</span>`:''}</small>`;
     const row=r=>`<div class="list-item" style="flex-wrap:wrap;gap:6px">
       <span style="min-width:0;flex:1"><b>${esc(dn(r))}</b> <small class="muted">${esc(r.class||'')}</small><br>
         <small class="muted">🟢 ${esc(r.inTime||'—')} → 🔴 ${esc(r.outTime||'—')} · ${EN()?'ends':'เลิกเรียน'} ${esc(r.planEnd||'')}</small>
+        ${by(r.inByStaff,'🟢')}${by(r.outByStaff,'🔴')}
         ${r.otAmount>0?`<br><small style="color:var(--warn)">⏰ OT ${esc(String(r.otLate||0))} ${EN()?'min':'นาที'} · ${baht(r.otAmount)}${r.otStatus==='PAID'?' ✅':''}</small>`:''}</span>
       <span style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">${pill(r)}
         ${canEdit&&r.status==='OPEN'?`<button class="btn sm pink" onclick="A_attPunch('${esc(r.studentId)}','OUT')">🔴 ${EN()?'Record pick-up':'ลงเวลากลับ'}</button>`:''}

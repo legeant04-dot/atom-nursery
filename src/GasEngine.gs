@@ -447,7 +447,18 @@ function deriveStudentCheckins_(events) {
   (events || []).forEach(function (e) {
     var d = String(e.Date).slice(0, 10), key = d + '|' + e.StudentID; var tm = ciTimeHHmm_(e.Time);
     if (!byDay[key]) byDay[key] = { Date: d, StudentID: e.StudentID, InTime: '', OutTime: '' };
-    if (e.Type === 'IN') byDay[key].InTime = tm; else if (e.Type === 'OUT') byDay[key].OutTime = tm;
+    /* WHO RECORDED IT, KEPT PER PUNCH — not per day. A parent drops the child off in the morning and
+     * a teacher records the pick-up because the grandmother came instead: one row, two different
+     * people, and collapsing them onto the day would attribute both to whichever was written last.
+     * Asked for 2026-09-21: "ครูคนไหน Check-in/out แทนเด็กคนไหนเวลาไหนบ้าง".
+     * Blank ByStaffID means the family did it themselves, which is what the screen reads it as. */
+    if (e.Type === 'IN') {
+      byDay[key].InTime = tm;
+      byDay[key].InBy = e.ByStaffID || ''; byDay[key].InRemark = e.Remark || ''; byDay[key].InAt = e.ByAt || '';
+    } else if (e.Type === 'OUT') {
+      byDay[key].OutTime = tm;
+      byDay[key].OutBy = e.ByStaffID || ''; byDay[key].OutRemark = e.Remark || ''; byDay[key].OutAt = e.ByAt || '';
+    }
   });
   return Object.keys(byDay).map(function (k) { return byDay[k]; });
 }
