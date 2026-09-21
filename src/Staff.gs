@@ -337,6 +337,59 @@ function handleSetStudentPause(p) {
   return { ok: true, studentId: p.studentId, status: patch.Status, from: patch.PauseFrom, to: patch.PauseTo, reason: patch.PauseReason };
 }
 
+/**
+ * THE LAST DAY OF A CHILD'S TIME HERE, RECORDED IN ADVANCE.
+ *
+ * Asked 2026-09-21: "ประวัตินักเรียนเพิ่มข้อมูลวันสิ้นสุดการเรียน ... ให้ Admin ใส่ข้อมูลและเหตุผล ...
+ * คล้ายกับของพนักงาน". The same shape as handleSetStaffEnd above, and for the same reason.
+ *
+ * WHY NOT withdrawStudent, WHICH ALREADY EXISTS. That one takes effect the instant it is pressed —
+ * it is for a family who leaves. This is a date the school knows months ahead: a child ages out of
+ * the nursery in May and the Admin is told in March. Recording it in March had to mean either
+ * removing a child who is still coming, or a reminder in somebody's head.
+ *
+ * STATUS IS NOT TOUCHED, even when the date has already passed. studentEnded_ in the engine reads
+ * "EndDate has passed" as ended, exactly as staffEnded_ does — so the cut-off happens on its own
+ * with nothing depending on a trigger running that morning, and clearing a date entered by mistake
+ * puts the child straight back rather than leaving a WITHDRAWN row to be repaired.
+ *
+ * THE REASON IS REQUIRED. "Why did this child leave?" is asked months later by somebody who was not
+ * in the room, and this record is the only thing left that can answer it. The codes are the school's
+ * existing WithdrawReasons (graduated / moved / transferred / other), so both kinds of exit count
+ * together. Written IN PLACE — STUDENTS is a no-shrink sheet.
+ * { studentId, endDate, reason, remark? } | { studentId, endDate:'' } to clear
+ */
+function handleSetStudentEnd(p) {
+  p = p || {};
+  var sh = sheet_(getMainSpreadsheet_(), 'STUDENTS');
+  try { ensureColumns_(sh, ['EndDate', 'EndReason', 'EndRemark']); } catch (e) {}
+  var st = findObject_(sh, function (s) { return String(s.StudentID) === String(p.studentId); });
+  if (!st) throw apiError_('NOT_FOUND', 'ไม่พบนักเรียน ' + p.studentId);
+  var cur = String(st.Status || '');
+  if (cur === 'WITHDRAWN' || cur === 'EXPORTED') throw apiError_('BAD_STATE', 'นักเรียนคนนี้ออกจากโรงเรียนแล้ว');
+  var end = String(p.endDate || '').slice(0, 10);
+  var patch, reason = String(p.reason || '').trim();
+  if (!end) {
+    patch = { EndDate: '', EndReason: '', EndRemark: '' };
+  } else {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(end)) throw apiError_('BAD_INPUT', 'รูปแบบวันที่ไม่ถูกต้อง');
+    /* A last day BEFORE the first day is not a short enrolment, it is a typo — and it would make a
+     * child who has not even started already finished, invisible from the moment they were entered. */
+    var start = String(st.EnrollDate || '').slice(0, 10);
+    if (/^\d{4}-\d{2}-\d{2}$/.test(start) && end < start)
+      throw apiError_('BAD_INPUT', 'วันสิ้นสุดการเรียนต้องไม่ก่อนวันเริ่มเรียน (' + start + ')');
+    if (!reason) throw apiError_('BAD_INPUT', 'กรุณาระบุเหตุผลที่สิ้นสุดการเรียน');
+    patch = { EndDate: end, EndReason: reason, EndRemark: String(p.remark || '') };
+  }
+  updateRow_(sh, st._row, patch);
+  recCacheBust_('STUDENTS');
+  var due = !!end && end < dateStr_(new Date());       // the last day itself still counts as a school day
+  try { logAudit(p.adminId || 'admin', end ? (due ? 'STUDENT_END' : 'STUDENT_END_SCHEDULED') : 'STUDENT_END_CLEAR',
+    'STUDENTS', String(p.studentId) + (end ? (' ' + end + ' ' + reason) : '')); } catch (e) {}
+  return { ok: true, studentId: p.studentId, endDate: end, reason: patch.EndReason,
+           ended: due, endScheduled: !!end && !due };
+}
+
 // Admin bypass: link a parent's LINE UID to a student (found by National ID) when the parent can't
 // self-register; optionally fill the parent's info. In-place (USER_LINKS/PARENTS are no-shrink sheets).
 // The parent may be identified three ways, in this order: an existing PARENTS row (parentId — what the
