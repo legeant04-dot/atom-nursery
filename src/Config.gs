@@ -129,7 +129,15 @@ SCHEMA[WB.MAIN] = {
   USER_LINKS:        ['UserUID', 'StudentID', 'VerifiedBy', 'Date'],
   // Remark + ByStaffID: set when a TEACHER checks a student in/out on behalf of an unregistered
   // pickup person (remark is mandatory). Appended at the END — never insert mid-schema.
-  CHECKIN_STUDENT:   ['Date', 'Time', 'StudentID', 'ParentID', 'Type', 'GPS_Lat', 'GPS_Lng', 'Status', 'Remark', 'ByStaffID'],
+  /* Time vs ByAt, and they are NOT the same clock — asked for 2026-09-21.
+   *   Time  = when the CHILD arrived or went home. A teacher recording on behalf types the real one,
+   *           which is what OT is charged from.
+   *   ByAt  = when the ADULT pressed save. Blank when a parent tapped it themselves (the two are the
+   *           same moment), filled whenever a staff member recorded or corrected it.
+   * The gap between them is the whole point: "รับกลับ 12:57" entered at 17:30 is a correction made
+   * five hours later, and an Admin checking an OT charge needs to see that rather than infer it.
+   * Appended at END; blank on every row written before today, which reads correctly as "unknown". */
+  CHECKIN_STUDENT:   ['Date', 'Time', 'StudentID', 'ParentID', 'Type', 'GPS_Lat', 'GPS_Lng', 'Status', 'Remark', 'ByStaffID', 'ByAt'],
   // Daily OT (overtime) charges — created on late pickup, settled via the OT (KTB) QR
   // PaymentMethod = transfer | cash; TransactionDate = when the parent notified payment; PaidDate set on Admin confirm.
   OT_DAILY:          ['OTID', 'Date', 'StudentID', 'PickupTime', 'PlanEnd', 'LateMinutes', 'Hours', 'Amount', 'Status', 'SlipRef', 'SlipAmount', 'PaymentMethod', 'TransactionDate', 'PaidDate'],

@@ -1717,8 +1717,13 @@ function createAtomAPI(M, GROWTH_STD) {
       const remark=String(p.remark||'').trim()||'แก้ไขโดยเจ้าหน้าที่';
       const put=(type,t)=>{ const i=M.checkinStudent.findIndex(c=>c.StudentID===st.StudentID&&ymd(c.Date)===date&&String(c.Type).toUpperCase()===type);
         if(!t){ if(i>=0) M.checkinStudent.splice(i,1); return; }
-        if(i>=0){ M.checkinStudent[i].Time=t; M.checkinStudent[i].Remark=remark; M.checkinStudent[i].ByStaffID=p.staffId||''; }
-        else M.checkinStudent.push({Date:date,Time:t,StudentID:st.StudentID,ParentID:st.ParentID||'',Type:type,Status:'OK',Remark:remark,ByStaffID:p.staffId||''}); };
+        /* ByAt = the moment the correction was MADE, which on this path is nearly always a different
+         * day from the times being corrected. A back-dated pick-up that raises an OT charge is the
+         * case an Admin is most likely to be asked about, and "who typed this, and when" is the
+         * first question. `t` is the child's time; this is the adult's. */
+        const byAt=stampLocal();
+        if(i>=0){ M.checkinStudent[i].Time=t; M.checkinStudent[i].Remark=remark; M.checkinStudent[i].ByStaffID=p.staffId||''; M.checkinStudent[i].ByAt=byAt; }
+        else M.checkinStudent.push({Date:date,Time:t,StudentID:st.StudentID,ParentID:st.ParentID||'',Type:type,Status:'OK',Remark:remark,ByStaffID:p.staffId||'',ByAt:byAt}); };
       if(inT!==null) put('IN',inT);
       if(outT!==null) put('OUT',outT);
       // the day's roll-up the app reads everywhere
@@ -1779,8 +1784,23 @@ function createAtomAPI(M, GROWTH_STD) {
           // a leave answers for the day: a child the family told us about is not "missing"
           const status = lv.onLeave ? 'LEAVE' : (inT&&outT) ? 'DONE' : inT ? 'OPEN' : 'NONE';
           const ot=(M.otDaily||[]).find(o=>String(o.StudentID)===String(s.StudentID)&&ymd(o.Date)===date)||null;
+          /* WHO PUT THIS TIME HERE — asked for 2026-09-21: "Admin สามารถตรวจสอบได้รึยังว่า ครูคนไหน
+           * Check-in/out แทนเด็กคนไหนเวลาไหนบ้าง".
+           *
+           * The answer was already in the sheet (ByStaffID, Remark) and nothing pointed at it — the
+           * same shape of miss as the OT history: a complete record with no screen reading it.
+           *
+           * ONE PUNCH AT A TIME, because the drop-off and the pick-up are often different people: a
+           * parent leaves the child in the morning and a teacher records the pick-up because the
+           * grandmother came instead. The nickname is resolved HERE and not on the client, because
+           * the staff directory is an Admin cache — a teacher's screen would show a raw STF- id.
+           *
+           * A BLANK inBy MEANS THE FAMILY DID IT THEMSELVES, and the screen shows that row exactly as
+           * it always has. Attribution appears only where somebody acted on their behalf. */
+          const who=(id,at,rm)=>id?{by:staffNickOf_(id,id), at:String(at||''), remark:String(rm||'')}:null;
           return { studentId:s.StudentID, nick:s.Nickname, nickEN:s.NicknameEN, name:s.NameTH, nameEN:s.NameEN,
             class:s.Class, photo:s.PhotoURL||'', status, inTime:inT, outTime:outT,
+            inByStaff:who(h.InBy, h.InAt, h.InRemark), outByStaff:who(h.OutBy, h.OutAt, h.OutRemark),
             planEnd:otThreshold(s), leaveType:lv.leaveType, leaveReason:lv.leaveReason,
             otAmount:ot?Number(ot.Amount||0):0, otLate:ot?Number(ot.LateMinutes||0):0, otStatus:ot?String(ot.Status||''):'' }; })
         .sort((a,b)=>String(a.class).localeCompare(String(b.class))||String(a.nick||a.name).localeCompare(String(b.nick||b.name)));

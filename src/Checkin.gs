@@ -620,7 +620,7 @@ function handleStaffStudentCheckin(p) {
   assertStudentDayOpen_(student.StudentID);
 
   var sh = sheet_(getMainSpreadsheet_(), 'CHECKIN_STUDENT');
-  ensureColumns_(sh, ['Remark', 'ByStaffID']);
+  ensureColumns_(sh, ['Remark', 'ByStaffID', 'ByAt']);
   var now = new Date(), today = dateStr_(now);
   // the teacher must record the ACTUAL drop-off / pick-up time — a child picked up at 12:57 must not
   // read the wall-clock 17:26 and wrongly trigger OT. Accept an HH:mm override; blank → now.
@@ -632,13 +632,18 @@ function handleStaffStudentCheckin(p) {
     return String(r.StudentID) === String(student.StudentID) && dateStr_(new Date(r.Date)) === today &&
            String(r.Type).toUpperCase() === type;
   });
+  /* WHEN THE TEACHER PRESSED SAVE, which is not when the child went home. `timeHM` above is the
+   * real drop-off/pick-up moment and can be typed in hours afterwards — that is the whole reason the
+   * override exists. Recording both means an Admin reviewing an OT charge can see a 12:57 pick-up
+   * that was entered at 17:30 instead of having to take it on trust. */
+  var byAt = timeStr_(now);
   if (existing) {
-    updateRow_(sh, existing._row, { Time: timeHM, Remark: remark, ByStaffID: staff.StaffID });
+    updateRow_(sh, existing._row, { Time: timeHM, Remark: remark, ByStaffID: staff.StaffID, ByAt: byAt });
   } else {
     appendObject_(sh, {
       Date: today, Time: timeHM, StudentID: student.StudentID,
       ParentID: student.ParentID || '', Type: type, GPS_Lat: '', GPS_Lng: '', Status: 'OK',
-      Remark: remark, ByStaffID: staff.StaffID
+      Remark: remark, ByStaffID: staff.StaffID, ByAt: byAt
     });
   }
   try { CacheService.getScriptCache().removeAll(['col:CHECKIN_STUDENT', 'rows:CHECKIN_STUDENT']); } catch (e) {}
