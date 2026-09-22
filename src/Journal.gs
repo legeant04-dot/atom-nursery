@@ -83,7 +83,10 @@ function handleSubmitJournal(payload) {
   else appendObject_(sheet, rec);
   // in-place writes bypass writeRows_, which is what normally invalidates the sheet cache — flush it
   // here or the engine's journalStatus/getJournal serve a stale read for up to CacheTTL seconds.
-  if (typeof cacheDel_ === 'function') { cacheDel_('col:DAILY_JOURNAL'); cacheDel_('rows:DAILY_JOURNAL'); }
+  /* ...AND THE PER-DAY KEY (v396). Journals are now hydrated one day at a time (jrn:<date>), so
+   * dropping only the whole-collection key would leave a teacher looking at a cached day that no
+   * longer matches the sheet she just wrote to — the one place a stale cache is actually visible. */
+  if (typeof cacheDel_ === 'function') { cacheDel_('col:DAILY_JOURNAL'); cacheDel_('rows:DAILY_JOURNAL'); cacheDel_('jrn:' + String(date).slice(0, 10)); }
   logAudit(teacher.StaffID, submit ? 'JOURNAL_SUBMIT' : 'JOURNAL_DRAFT', 'DAILY_JOURNAL', student.StudentID + '@' + date);
 
   // the parent hears about it only when the teacher submits — drafts stay internal
@@ -118,7 +121,10 @@ function handleUnlockJournal(payload) {
   });
   if (!row) throw apiError_('NOT_FOUND', 'ยังไม่มีบันทึกของวันที่ ' + date);
   updateRow_(sheet, row._row, { Status: 'DRAFT', SubmittedAt: '' });
-  if (typeof cacheDel_ === 'function') { cacheDel_('col:DAILY_JOURNAL'); cacheDel_('rows:DAILY_JOURNAL'); }
+  /* ...AND THE PER-DAY KEY (v396). Journals are now hydrated one day at a time (jrn:<date>), so
+   * dropping only the whole-collection key would leave a teacher looking at a cached day that no
+   * longer matches the sheet she just wrote to — the one place a stale cache is actually visible. */
+  if (typeof cacheDel_ === 'function') { cacheDel_('col:DAILY_JOURNAL'); cacheDel_('rows:DAILY_JOURNAL'); cacheDel_('jrn:' + String(date).slice(0, 10)); }
   logAudit(payload.staffId || payload.uid || 'ADMIN', 'JOURNAL_UNLOCK', 'DAILY_JOURNAL', student.StudentID + '@' + date);
   return { studentId: student.StudentID, date: date, status: 'DRAFT' };
 }
@@ -138,7 +144,10 @@ function handleSaveParentComment(payload) {
   });
   if (!row) throw apiError_('NOT_FOUND', 'ยังไม่มีบันทึกของวันที่ ' + date);
   updateRow_(sheet, row._row, { ParentComment: String(payload.comment || '') });
-  if (typeof cacheDel_ === 'function') { cacheDel_('col:DAILY_JOURNAL'); cacheDel_('rows:DAILY_JOURNAL'); }
+  /* ...AND THE PER-DAY KEY (v396). Journals are now hydrated one day at a time (jrn:<date>), so
+   * dropping only the whole-collection key would leave a teacher looking at a cached day that no
+   * longer matches the sheet she just wrote to — the one place a stale cache is actually visible. */
+  if (typeof cacheDel_ === 'function') { cacheDel_('col:DAILY_JOURNAL'); cacheDel_('rows:DAILY_JOURNAL'); cacheDel_('jrn:' + String(date).slice(0, 10)); }
   // notify the class teacher(s) that a parent commented (falls back to the Admin inbox if no teacher LINE)
   try {
     notifyStudentTeacher_(student, '💬 ผู้ปกครองแสดงความคิดเห็นในบันทึกของ ' + (student.Nickname || student.Name) +
@@ -160,7 +169,10 @@ function handleSaveTeacherReply(payload) {
   });
   if (!row) throw apiError_('NOT_FOUND', 'ยังไม่มีบันทึกของวันที่ ' + date);
   updateRow_(sheet, row._row, { TeacherReply: String(payload.reply || '') });
-  if (typeof cacheDel_ === 'function') { cacheDel_('col:DAILY_JOURNAL'); cacheDel_('rows:DAILY_JOURNAL'); }
+  /* ...AND THE PER-DAY KEY (v396). Journals are now hydrated one day at a time (jrn:<date>), so
+   * dropping only the whole-collection key would leave a teacher looking at a cached day that no
+   * longer matches the sheet she just wrote to — the one place a stale cache is actually visible. */
+  if (typeof cacheDel_ === 'function') { cacheDel_('col:DAILY_JOURNAL'); cacheDel_('rows:DAILY_JOURNAL'); cacheDel_('jrn:' + String(date).slice(0, 10)); }
   try {
     notifyStudentParents_(student, '↩️ คุณครูตอบกลับความคิดเห็นในบันทึกของ ' + (student.Nickname || student.Name) +
       ' (' + date + '):\n' + String(payload.reply || ''));
