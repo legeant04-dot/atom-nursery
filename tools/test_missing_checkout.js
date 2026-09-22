@@ -33,13 +33,18 @@ const TODAY = '2026-08-20';
 function boot(hist) {
   const M = {
     config: { Plans: [], LeaveQuota: {}, BigCleaningDays: [], DefaultCheckInTime: '08:00', DefaultCheckOutTime: '17:00' },
-    /* RequireCheckin is now EXPLICIT here, and the fixture is better for it. This person is an
-     * Admin only so that the school-wide call is allowed; what the suite is about is somebody who
-     * clocks in and forgot to clock out. From v393 a BLANK flag means "an Admin does not clock in"
-     * (the rule the 06:50 reminder has always used), so leaving it blank quietly dropped her from
-     * the report the test then read — saying out loud which of the two she is fixes that, and
-     * exercises the explicit-override path at the same time. */
-    staff: [{ StaffID: 'STF-01', NameTH: 'ปริณดา สว่างศรี', Nickname: 'ก้อย', StartDate: '2023-05-02', Status: 'ACTIVE', Role: 'Admin', PositionLevel: 'Admin', RequireCheckin: true }],
+    /* ก้อย IS A TEACHER, and this fixture used to say Role 'Admin' — carelessly, because the engine
+     * enforces no permission here (that is Code.gs's job) so the role never mattered to the test.
+     * It matters from v393: an Admin account manages the system and does not work a shift, so it is
+     * not counted in staff attendance at all, and this whole suite is about somebody who clocks in
+     * and forgot to clock out. Saying what she actually is fixes the fixture and describes the case.
+     * The permission path for this route is covered in tools/test_roles_hr.js. */
+    staff: [
+      { StaffID: 'STF-01', NameTH: 'ปริณดา สว่างศรี', Nickname: 'ก้อย', StartDate: '2023-05-02', Status: 'ACTIVE', Role: 'Teacher', PositionLevel: 'Staff' },
+      // ...and somebody allowed to ask for the WHOLE school's month, which is admin-only
+      // (adminLike_, webapp/engine.js). Not counted in the report itself — an Admin account manages
+      // the system rather than working a shift — so d.staff[0] is still ก้อย.
+      { StaffID: 'ADM', NameTH: 'แอดมิน', Nickname: 'แอด', StartDate: '2023-01-01', Status: 'ACTIVE', Role: 'Admin', PositionLevel: 'Admin' }],
     staffAttendanceHistory: hist || [], staffAttendanceToday: [],
     holidays: [], leaves: [], staffGroups: [], workSchedule: [],
     students: [], parents: [], userLinks: [], classes: [], payments: [], otDaily: [], studentCharges: [],
@@ -73,7 +78,7 @@ const HIST = [
 console.log('\n1) ก้อย\'s month is no longer "ครบ"');
 {
   const { H } = boot(HIST);
-  const d = H.staffAttendanceMonth({ month: '2026-08', staffId: 'STF-01' });
+  const d = H.staffAttendanceMonth({ month: '2026-08', staffId: 'ADM' });
   const me = d.staff[0];
   eq('the two open days are found', me.missingOutDays, ['2026-08-07', '2026-08-19']);
   eq('...and counted', me.missingOut, 2);
@@ -85,7 +90,8 @@ console.log('\n1) ก้อย\'s month is no longer "ครบ"');
   eq('a complete day is not flagged', day3.missingOut, false);
 }
 {
-  // the one-question version the home card and the digest both ask
+  // the one-question version the home card and the digest both ask. onlySelf inside it, so this one
+  // is asked AS ก้อย — it is her own screen, and the admin caller above would get her own empty month
   const { H } = boot(HIST);
   const mo = H.staffMissingCheckout({ staffId: 'STF-01' });
   eq('asked on its own it gives the same answer', [mo.count, mo.staff[0].days.length], [2, 2]);
@@ -94,13 +100,13 @@ console.log('\n1) ก้อย\'s month is no longer "ครบ"');
 console.log('\n2) a day still in progress is not a missing check-out');
 {
   const { H } = boot(HIST.concat([{ StaffID: 'STF-01', Date: TODAY, In: '07:30', Out: '' }]));
-  const d = H.staffAttendanceMonth({ month: '2026-08', staffId: 'STF-01' });
+  const d = H.staffAttendanceMonth({ month: '2026-08', staffId: 'ADM' });
   eq('today is left alone — she is still at work', d.staff[0].missingOutDays, ['2026-08-07', '2026-08-19']);
 }
 {
   // a day with NO arrival either is an absence, which is a different problem with a different name
   const { H } = boot([{ StaffID: 'STF-01', Date: '2026-08-05', In: '', Out: '' }]);
-  const d = H.staffAttendanceMonth({ month: '2026-08', staffId: 'STF-01' });
+  const d = H.staffAttendanceMonth({ month: '2026-08', staffId: 'ADM' });
   eq('a day nobody logged at all is not a missing check-out', d.staff[0].missingOut, 0);
   ok_('...it is counted as an absence instead', d.staff[0].absent > 0);
 }

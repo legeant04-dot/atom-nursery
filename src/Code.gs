@@ -568,7 +568,21 @@ var PAUSED_OK_ = {
   changeStaffPassword: 1, checkStaffPassword: 1, requestPasswordReset: 1,
   notifications: 1, markNotifsRead: 1, schoolDay: 1,
   // their own record, which exists and is theirs — unlike somebody who has not started
-  myLeaves: 1, myAttendanceMonth: 1, myPayslipMonths: 1, getPayslip: 1
+  /* ...their own record, which exists and is theirs — unlike somebody who has not started. These are
+   * exactly what the three screens PAUSED_SCREENS lets through actually fetch, checked call by call
+   * against each screen rather than guessed:
+   *   slip      myOT · myPayslipMonths · otCarryOver
+   *   leave     leaveQuota · staffSelf · myLeaves · myTimeRequests
+   *   schedule  schedule · myAttendanceMonth · myLeaves · myOT
+   * A list short of any one of them leaves a screen the app offers and the server refuses, which is
+   * the fault this whole allow-list exists to avoid.
+   *
+   * The leave screen ALSO fires teamPendingLeaves, teamPendingTimeRequests and pendingInjuries.
+   * Those are deliberately absent: they are other people's work, waiting for an approval somebody on
+   * leave should not be giving. All three already .catch(()=>[]) on the client, so they come back
+   * empty instead of breaking the screen — which is the correct answer for somebody who is away. */
+  myLeaves: 1, myAttendanceMonth: 1, myPayslipMonths: 1, getPayslip: 1,
+  myOT: 1, otCarryOver: 1, leaveQuota: 1, myTimeRequests: 1, schedule: 1
 };
 
 /** One staff row by id, for the identity checks above. Reads go through the cached row store. */
