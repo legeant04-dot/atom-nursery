@@ -146,7 +146,7 @@ console.log('\n3) the screen, and the preview bar the Admin reads it from');
 {
   ok_('there is a screen for it, not a red error', /function pausedScreen\(\)\{/.test(appCode));
   ok_('...reached by the same wrapper as the other two',
-    /PAUSED_SELF \? pausedScreen\(\) : orig\(\.\.\.a\)/.test(appCode));
+    /\(PAUSED_SELF && !PAUSED_SCREENS\[k\]\) \? pausedScreen\(\) : orig\(\.\.\.a\)/.test(appCode));
   ok_('...and by a refusal arriving mid-session', /e\.code === 'PAUSED'/.test(api) && /__atomPaused/.test(api));
   /* THE SESSION IS KEPT. Signing somebody out for being on maternity leave would be absurd, and they
    * would only sign straight back in — the same reasoning as NOT_STARTED, and the opposite of ENDED. */
@@ -160,6 +160,22 @@ console.log('\n3) the screen, and the preview bar the Admin reads it from');
   ok_('...which the server now answers', /paused: staffPaused_\(s\), pauseTo:/.test(engine));
 
   // "เวลาเข้าไปดูมุมมองให้ขึ้นข้อมูลด้านหลังด้วยว่า (ลาชั่วคราว)"
+  /* ...AND WHAT IT DOES NOT CLOSE. v393 blocked every teacher screen, including the three its own
+   * card promised were still open — so a teacher on leave got the same dead app as somebody who had
+   * resigned, tapped "สลิปเงินเดือน", and was shown the card again. Reported the day it shipped. */
+  ok_('the three own-record screens stay open', /const PAUSED_SCREENS = \{ slip: 1, leave: 1, schedule: 1 \};/.test(appCode));
+  ok_('...and the wrapper honours the list', /PAUSED_SELF && !PAUSED_SCREENS\[k\]/.test(appCode));
+  ok_('...while the screens about the school’s children stay closed',
+    !/PAUSED_SCREENS = \{[^}]*home: 1/.test(appCode) && !/PAUSED_SCREENS = \{[^}]*class: 1/.test(appCode));
+  /* THE CARD OFFERS THEM, rather than only describing them. `home` is itself closed, so a sentence
+   * saying "your payslips are still there" with no way to reach them is worse than saying nothing. */
+  ok_('the card has a button for each of the three', /GO\('slip'\)/.test(appCode) && /GO\('leave'\)/.test(appCode) &&
+    /onclick="GO\('schedule'\)">🗓️/.test(appCode));
+  /* AND THE SERVER ALLOWS WHAT THEY FETCH. The two lists have to agree or one of them is lying:
+   * a screen the app opens and the server refuses is the same bug seen from the other side. */
+  ['myOT','otCarryOver','leaveQuota','myTimeRequests','schedule','myAttendanceMonth','myPayslipMonths']
+    .forEach(a => ok_('server allows ' + a + ', which those screens call',
+      new RegExp('\\b' + a + ': 1').test((codeGsCode.match(/var PAUSED_OK_ = \{[\s\S]*?\};/) || [''])[0])));
   ok_('the view-as bar says which state it is previewing', /USER\._paused \?/.test(appCode));
   ok_('...and is cleared on the way out, or the admin stays locked out of their own screens',
     /A_exitViewAs=\(\)=>\{[\s\S]{0,160}__atomSetPaused\(false,''\)/.test(appCode));
@@ -190,8 +206,13 @@ console.log('\n4) who clocks in at all — one question, one answer');
    * A blank now follows it. An explicit value still wins in both directions, which is why this is
    * not simply `Role === 'Admin'`. */
   eq('blank: a teacher clocks in', requires({ Role: 'Teacher' }), true);
-  eq('blank: an Admin does not', requires({ Role: 'Admin' }), false);
-  eq('...but an Admin the school DOES want to clock in still does', requires({ Role: 'Admin', RequireCheckin: true }), true);
+  eq('an Admin does not', requires({ Role: 'Admin' }), false);
+  /* THE CASE v393 GOT WRONG, and it is why the flag gets no vote here. The "ตั้งค่าการลงเวลา" screen
+   * saves a boolean for EVERY row at once, so every record in this school already holds an explicit
+   * true — "explicit" cannot be told apart from "default", and letting true win meant the Admin went
+   * on being counted absent (10, then 16) through two releases. */
+  eq('...even with the box ticked, because every row has it ticked', requires({ Role: 'Admin', RequireCheckin: true }), false);
+  eq('...and with the string "true" too', requires({ Role: 'Admin', RequireCheckin: 'true' }), false);
   /* ผอ. IS NOT SPECIAL-CASED, and the report asked how it differs. It does not: Leader and Observer
    * are treated like anyone else, so if a ผอ. is not counted it is their own flag doing it. */
   eq('a Leader is treated like anybody else', requires({ Role: 'Leader' }), true);
@@ -199,9 +220,13 @@ console.log('\n4) who clocks in at all — one question, one answer');
 
   ok_('every reader goes through it — none left comparing to false by hand',
     !/RequireCheckin!==false/.test(engine));
-  ok_('...and the reminder agrees, rather than holding a second copy of the rule',
-    /String\(s\.RequireCheckin\)\.toLowerCase\(\) === 'true'/.test(checkinGs) &&
-    /String\(s\.Role\) === 'Admin'\) return;/.test(checkinGs));
+  /* ...and the 06:50 reminder asks it in the same ORDER: Role first, flag second. That order is the
+   * rule — it is the line the app has had since the reminder was written, and reversing it is
+   * exactly the mistake v393 made. */
+  const rem = checkinGs.slice(checkinGs.indexOf('checkedIn[String(s.StaffID)]'), checkinGs.indexOf('อรุณสวัสดิ์'));
+  ok_('...and the reminder agrees, Role before flag',
+    rem.indexOf("String(s.Role) === 'Admin'") < rem.indexOf("RequireCheckin") &&
+    /String\(s\.Role\) === 'Admin'\) return;/.test(rem));
 }
 
 // ============================================================================================

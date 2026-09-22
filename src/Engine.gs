@@ -1266,13 +1266,30 @@ function createAtomAPI(M, GROWTH_STD) {
    */
   function requiresCheckin_(s){
     if(!s) return false;
+    /* AN ADMIN IS NEVER COUNTED, and the flag does not get a vote.
+     *
+     * v393 let an explicit `true` override this, which was me being clever with a rule the app had
+     * already settled: src/Checkin.gs has read `if (String(s.Role) === 'Admin') return;` since the
+     * reminder was written, BEFORE any flag check. The override looked harmless and changed nothing,
+     * because the "ตั้งค่าการลงเวลา" screen saves a boolean for EVERY row at once — so every record
+     * in this school already holds an explicit true, and "explicit" cannot be told apart from
+     * "default". The Admin went on being counted absent, 10 then 16, and the report said so twice.
+     *
+     * So the rule is the simple one the app already believed: an Admin account manages the system,
+     * it does not work a shift. If a person who genuinely clocks in ever needs admin rights, they
+     * get them on a Teacher record — which is how every other school-management app does it, and
+     * how this one already treats หัวหน้าครู. */
+    if(String(s.Role||'') === 'Admin') return false;
     const raw = s.RequireCheckin;
     if(raw === true) return true;
     if(raw === false) return false;
+    /* ...and for everybody else the flag decides, read as TEXT as well as as a boolean. Six readers
+     * used `!== false`, a strict boolean compare, while the 06:50 reminder used String(...)==='false'
+     * — and a cell holding the TEXT "false", which is what an import or a hand-typed cell produces,
+     * is not the boolean false. The reminder skipped that person; every report counted them. */
     const v = String(raw == null ? '' : raw).trim().toLowerCase();
     if(v === 'false' || v === 'no' || v === '0' || v === 'ไม่') return false;
-    if(v === 'true' || v === 'yes' || v === '1' || v === 'ใช่') return true;
-    return String(s.Role||'') !== 'Admin';        // blank: everyone but an Admin — see (2) above
+    return true;                                   // blank or anything else: they clock in
   }
   function staffPaused_(s, onDate){ if(!s) return false;
     const from=ymd(s.PauseFrom||''); if(!from) return false;

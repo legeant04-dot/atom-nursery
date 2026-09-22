@@ -131,7 +131,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.393'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.394'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -13174,6 +13174,14 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
    * with that and says nothing that reads like being shut out. */
   let PAUSED_SELF = false, PAUSED_TO = '';
   window.__atomSetPaused = (v, to) => { PAUSED_SELF = !!v; if (to) PAUSED_TO = String(to).slice(0,10); };
+  /* THE SCREENS THAT STAY OPEN WHILE SOMEBODY IS ON LEAVE — the client half of PAUSED_OK_ in
+   * src/Code.gs, and the two lists have to agree or one of them is lying to somebody:
+   *   slip      สลิปเงินเดือน · OT ของฉัน
+   *   leave     การลาของฉัน · โควตา
+   *   schedule  เวลาทำงานย้อนหลัง · ประวัติการลา
+   * All three are about the person's OWN record. `home`, `class`, `journal`, `injury`, `absence`
+   * and `dspm` are about the school's children and stay closed. */
+  const PAUSED_SCREENS = { slip: 1, leave: 1, schedule: 1 };
   function pausedScreen(){
     setNav(CURRENT);
     const d = PAUSED_TO ? ddmmyyyy(PAUSED_TO) : '';
@@ -13185,9 +13193,21 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
       <p style="font-size:14px;line-height:1.8;margin:8px 10px">${EN()
         ? 'Clocking in, class lists, daily reports, assessments, accident reports and checking a child in or out are closed until then, and reopen on that morning by themselves.'
         : 'การลงเวลา รายชื่อนักเรียน บันทึกประจำวัน ประเมินพัฒนาการ แจ้งอุบัติเหตุ และการเช็คอิน-เอาท์แทนนักเรียน <b>ปิดไว้ก่อน</b> และ<b>จะเปิดให้เองในเช้าวันที่กลับมา</b>'}</p>
-      <p class="muted" style="font-size:13px;margin:0 10px">${EN()
-        ? 'Your own record is untouched — profile, payslips, leave and attendance history are all still here. Tap your name at the top right.'
-        : 'ข้อมูลของท่านอยู่ครบ · ประวัติส่วนตัว สลิปเงินเดือน การลา และประวัติการมาทำงาน ยังเปิดดูได้ตามปกติ · กดที่ชื่อของท่านมุมขวาบน'}</p></div>`;
+      <p class="muted" style="font-size:13px;margin:0 10px 10px">${EN()
+        ? 'Your own record is untouched — nothing has been deleted.'
+        : 'ข้อมูลของท่านอยู่ครบ ไม่มีอะไรถูกลบ'}</p>
+      ${/* THE BUTTONS, not just the sentence. v393 said these were still open and then closed them,
+           which is worse than saying nothing: the person reads that their payslips are there, taps,
+           and gets the same card again. Reported the day it shipped. These three are the screens
+           PAUSED_SCREENS lets through, so what the card offers and what the app allows are the same
+           list — and `home` is not among them, which is why they are needed here at all. */''}
+      <div class="row" style="flex-wrap:wrap;gap:8px;justify-content:center;margin:0 10px">
+        <button class="btn sm outline" onclick="GO('slip')">💵 ${EN()?'My payslips':'สลิปเงินเดือนของฉัน'}</button>
+        <button class="btn sm outline" onclick="GO('leave')">📩 ${EN()?'My leave':'การลาของฉัน'}</button>
+        <button class="btn sm outline" onclick="GO('schedule')">🗓️ ${EN()?'Work history':'เวลาทำงานย้อนหลัง'}</button></div>
+      <p class="muted" style="font-size:12.5px;margin:10px 10px 0">${EN()
+        ? 'Your profile and password are under your name at the top right.'
+        : 'ประวัติส่วนตัวและรหัสผ่าน อยู่ที่ชื่อของท่านมุมขวาบน'}</p></div>`;
   }
   /* A request the server refused with PAUSED. Same handling as NOT_STARTED: shown as the screen
    * rather than as a red error, and once — every call on a screen fails the same way. The session is
@@ -13216,10 +13236,17 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
     /* Three gates, one wrapper. ENDED first: somebody who has both left and never started is a data
      * error, and "your employment ended" is the more useful thing to be told about an account.
      * PAUSED last of the three because it is the only one that is temporary — if a record somehow
-     * says both "left" and "on leave", having left is the bigger fact. */
+     * says both "left" and "on leave", having left is the bigger fact.
+     *
+     * ...AND PAUSED DOES NOT CLOSE EVERYTHING, which is the difference between it and the other two
+     * and which v393 got wrong. The card it draws promises "ประวัติส่วนตัว สลิปเงินเดือน การลา และ
+     * ประวัติการมาทำงาน ยังเปิดดูได้ตามปกติ" and then the wrapper closed those screens too, so a
+     * teacher on leave got the same dead app as somebody who had resigned — reported the same day
+     * it shipped. PAUSED_SCREENS is the other half of PAUSED_OK_ on the server: the three screens
+     * that show the person their OWN record, and nothing about the school's children. */
     SCREENS.Teacher[k] = (...a) => ENDED_SELF ? endedScreen()
       : NOT_STARTED_SELF ? notStartedScreen()
-      : PAUSED_SELF ? pausedScreen() : orig(...a);
+      : (PAUSED_SELF && !PAUSED_SCREENS[k]) ? pausedScreen() : orig(...a);
   });
 
   ['home','leaves','finance','dspm'].forEach(k => { SCREENS.Observer[k] = (...a) => SCREENS.Admin[k](...a); });

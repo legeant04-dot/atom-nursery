@@ -854,9 +854,8 @@ function forgotCheckinReminder() {
      * wins either way, and a blank means everyone except an Admin — which is this line, written down
      * here first and never asked by anything else. Kept inline rather than called because Triggers
      * run outside the engine; the two are asserted equal in tools/test_require_checkin.js. */
-    if (String(s.RequireCheckin).toLowerCase() === 'true') { /* explicitly required — fall through */ }
-    else if (String(s.RequireCheckin).toLowerCase() === 'false') return;              // the "not required" toggle
-    else if (String(s.Role) === 'Admin') return;                                      // blank: admins don't clock in
+    if (String(s.Role) === 'Admin') return;                                           // admins don't clock in
+    if (String(s.RequireCheckin).toLowerCase() === 'false') return;                    // the "not required" toggle
     linePushText_(s.LineUID, '🌅 อรุณสวัสดิ์ค่ะ อย่าลืมลงเวลาเข้างานเวลา 07:00 นะคะ (' + s.Name + ')');
   });
 }

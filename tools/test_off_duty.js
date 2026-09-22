@@ -252,7 +252,13 @@ console.log('\n3) SOMEBODY WHOSE LAST DAY HAS PASSED IS NOT STAFF');
    * screen. staffPaused_ existed and was right; nothing asked it at the door. Same mistake as the
    * NOT_STARTED one above, made a third time, which is why all three live on this one wrapper. */
   ok_('every teacher screen goes through one gate',
-    /Object\.keys\(SCREENS\.Teacher\)\.forEach\(k => \{[\s\S]{0,700}ENDED_SELF \? endedScreen\(\)[\s\S]{0,120}NOT_STARTED_SELF \? notStartedScreen\(\)[\s\S]{0,120}PAUSED_SELF \? pausedScreen\(\) : orig\(\.\.\.a\)/.test(app));
+    /Object\.keys\(SCREENS\.Teacher\)\.forEach\(k => \{[\s\S]{0,1400}ENDED_SELF \? endedScreen\(\)[\s\S]{0,160}NOT_STARTED_SELF \? notStartedScreen\(\)[\s\S]{0,160}PAUSED_SCREENS\[k\]\) \? pausedScreen\(\) : orig\(\.\.\.a\)/.test(app));
+  /* ENDED and NOT_STARTED close EVERY screen; PAUSED does not, and that difference is deliberate.
+   * Somebody who has left or has not started has nothing of their own to look at here; somebody on
+   * ลาชั่วคราว has payslips, leave and an attendance history that are theirs. v393 closed those too
+   * and the card went on promising them — asserted here so the two cannot drift apart again. */
+  ok_('...and only PAUSED keeps three screens open', /const PAUSED_SCREENS = \{ slip: 1, leave: 1, schedule: 1 \};/.test(app) &&
+    !/ENDED_SELF && !PAUSED_SCREENS/.test(app));
   ok_('...and temporary leave has its own screen and its own flag',
     /let PAUSED_SELF = false/.test(app) && /function pausedScreen\(\)\{/.test(app));
   ok_('...and the same gate closes the door before the first day too',
