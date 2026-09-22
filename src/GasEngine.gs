@@ -66,7 +66,7 @@ var CONFIG_ARRAY_KEYS = { Departments: 1, GrowthUpdateMonths: 1, PositionLevels:
 
 // ---- main entry --------------------------------------------------
 function engineDispatch_(action, payload) {
-  var ctx = hydrateLazy_();
+  var ctx = hydrateLazy_(journalScopeFor_([{ action: action, payload: payload }]));
   var H = createAtomAPI(ctx.M, null).H;          // GROWTH_STD=null -> growth bands null (records still returned)
   var h = H[action];
   if (!h) throw apiError_('UNKNOWN_ACTION', 'ไม่รู้จัก action: ' + action);
@@ -91,7 +91,11 @@ function handleBatch(p) {
   var sess = p && p.__sess;                                            // verified session from dispatch_ (null when dormant)
   var ctx, H;
   try {
-    ctx = hydrateLazy_();
+    /* The WHOLE batch shares one M, so the scope has to satisfy every call in it: journalScopeFor_
+     * returns a date only when every journal-reading call in the batch names that same day, and ''
+     * (the full collection) otherwise. The class screen asks getJournal + journalStatus for today in
+     * one tick, which is exactly the shape this is for. */
+    ctx = hydrateLazy_(journalScopeFor_(calls));
     H = createAtomAPI(ctx.M, null).H;
   } catch (setupErr) {
     // could not even open the sheets — every call in this batch fails, but the SHAPE still holds
@@ -132,7 +136,40 @@ function handleBatch(p) {
 }
 
 // ---- lazy M ------------------------------------------------------
-function hydrateLazy_() {
+/* WHICH ACTIONS READ THE JOURNAL COLLECTION AT ALL, and which of them name a single day.
+ *
+ * Only the first list matters for safety: an action that is NOT in it never touches M.journals, so
+ * it cannot be affected by how journals were hydrated. Anything unknown is treated as if it reads
+ * everything, which is the safe direction — a new handler added next year gets the full collection
+ * and works, rather than silently seeing one day.
+ *
+ * The four in BY_DATE are all shadowed by in-place routes on GAS (src/Journal.gs), so in practice
+ * only getJournal and journalStatus reach the engine. They are listed anyway: the rule is about what
+ * the handler READS, and it must stay true if a shadow is ever removed.
+ */
+var JOURNAL_READERS_ = { getJournal: 1, journalStatus: 1, journalHistory: 1,
+                         saveParentComment: 1, saveTeacherReply: 1, submitJournal: 1, unlockJournal: 1 };
+var JOURNAL_BY_DATE_ = { getJournal: 1, journalStatus: 1, saveParentComment: 1, saveTeacherReply: 1 };
+/**
+ * The one date a request (or a whole batch) needs journals for, or '' when it needs the collection.
+ * calls = [{action, payload}, ...]. Returns '' unless EVERY journal-reading call names the SAME day,
+ * which is what the class screen and the parent's home screen both do.
+ */
+function journalScopeFor_(calls) {
+  var want = '';
+  for (var i = 0; i < calls.length; i++) {
+    var a = String((calls[i] && calls[i].action) || '');
+    if (!JOURNAL_READERS_[a]) continue;                    // does not read journals — irrelevant
+    if (!JOURNAL_BY_DATE_[a]) return '';                   // journalHistory & co: needs the lot
+    var p = calls[i].payload || {};
+    var d = String(p.date || '').slice(0, 10) || gasToday_();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) return '';
+    if (want && want !== d) return '';                     // two different days in one batch → full
+    want = d;
+  }
+  return want;
+}
+function hydrateLazy_(journalDate) {
   var cache = {}, snap = {}, M = {};
   var ckStaff;                                    // memoized raw CHECKIN_STAFF read
   function rawCheckinStaff() { if (ckStaff === undefined) ckStaff = readRows_('HR', 'CHECKIN_STAFF'); return ckStaff; }
@@ -144,6 +181,23 @@ function hydrateLazy_() {
   Object.keys(COLLECTION_MAP).forEach(function (key) {
     lazyRW_(M, cache, snap, key, function () { return readCollection_(key); });
   });
+  /* ...AND JOURNALS NARROWED TO ONE DAY, when the request only asked about one day.
+   *
+   * Redefined AFTER the loop above rather than skipped inside it, so the full-collection path stays
+   * exactly as it was and this is visibly an override rather than a branch buried in a lambda.
+   *
+   * lazyRO_, NOT lazyRW_, and that is the safety property: a read-only collection is never handed to
+   * persist(), so a day's worth of rows can never be written back over the whole sheet. See
+   * NO_SHRINK_SHEETS for the mechanism that catches it even if this reasoning is ever wrong.
+   *
+   * A reader that returns null (no Date column, an unreadable sheet) falls through to the full
+   * collection. Narrowing is an optimisation; being unable to narrow must never be an error. */
+  if (journalDate) {
+    lazyRO_(M, cache, 'journals', function () {
+      var rows = readJournalsForDate_(journalDate);
+      return rows === null ? readCollection_('journals') : rows;
+    });
+  }
   lazyRW_(M, cache, snap, 'payrollConfig', function () { return hydratePayrollConfig_(); });
   lazyRW_(M, cache, snap, 'staffAttendanceToday', function () {
     return rawCheckinStaff().filter(function (r) { return String(r.Date).slice(0, 10) === t; })
@@ -384,6 +438,73 @@ function readCollection_(key) {
   var rows = readObjects_(sh).map(function (r) { var o = {}; for (var col in r) o[alias[col] || col] = decodeCell_(r[col]); return o; });
   cachePut_('col:' + def.sheet, rows); return rows;
 }
+/* ===== READING ONE DAY OF JOURNALS INSTEAD OF FOUR YEARS =======================================
+ *
+ * DAILY_JOURNAL is 1.1MB and growing by a row per child per school day. Raising the cache ceiling
+ * (v395) stopped it being re-read on EVERY request, but two facts remain: every submitJournal busts
+ * the key, so the ~7s cold read still lands several times on a busy afternoon; and the sheet will
+ * cross any ceiling we pick. The fix is not a bigger cache. It is not asking for four years of
+ * journals to draw today's class screen.
+ *
+ * WHAT THE READS ACTUALLY WANT (webapp/engine.js):
+ *   getJournal      ONE student, ONE date
+ *   journalStatus   ALL students, ONE date
+ *   journalHistory  ONE student, every date   ← the only one that genuinely needs the lot
+ * The first two are 1,707 of the 1,800 journal calls in the 17–22/09 report, and they are the two
+ * slowest actions in it. They get the narrow path; journalHistory keeps the full one.
+ *
+ * HOW: read the DATE COLUMN ONLY (one column, not twenty-six) to find which rows belong to the day,
+ * then read just the block those rows sit in. Journals are appended, so a day's rows are together at
+ * the bottom — the block is tiny. The result is cached under its own per-date key, which is a few KB
+ * and can never approach the chunk limit that started all this.
+ */
+var JOURNAL_SHEET_ = 'DAILY_JOURNAL';
+function journalDateColumn_(sh) {
+  var hdr = headers_(sh), i = hdr.indexOf('Date');
+  return i < 0 ? 0 : i + 1;                       // 1-based; 0 means "no Date column, give up"
+}
+/**
+ * Rows for ONE date, in the same shape readCollection_ returns (alias + decodeCell_ applied), so the
+ * engine cannot tell the difference between this and the full collection.
+ */
+function readJournalsForDate_(date) {
+  var d = String(date || '').slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) return null;          // not a date we can scope by → caller falls back
+  var hit = cacheGet_('jrn:' + d); if (hit) return hit;
+  var sh = wbOf_('MAIN').getSheetByName(JOURNAL_SHEET_);
+  if (!sh) return [];
+  var last = sh.getLastRow(), hdr = headers_(sh), dc = journalDateColumn_(sh);
+  if (last < 2 || !hdr.length || !dc) return null;          // unexpected shape → full read, never a wrong answer
+  var col = sh.getRange(2, dc, last - 1, 1).getValues();
+  var first = -1, end = -1;
+  for (var i = 0; i < col.length; i++) {
+    /* The cell may be a Date object or a string — normalised the same way every other reader does.
+     * A row that cannot be parsed is simply not in this day, which is what it was before too. */
+    var v = col[i][0];
+    var s = (Object.prototype.toString.call(v) === '[object Date]')
+      ? Utilities.formatDate(v, getConfig_('Timezone', 'Asia/Bangkok'), 'yyyy-MM-dd')
+      : String(v == null ? '' : v).slice(0, 10);
+    if (s === d) { if (first < 0) first = i; end = i; }
+  }
+  if (first < 0) { cachePut_('jrn:' + d, []); return []; }
+  /* The BLOCK the day's rows sit in, read in one call. Rows for a day are appended together, so this
+   * is normally exactly the day; if an old row were edited in place it would widen, and the filter
+   * below still returns only the right ones. One range read either way. */
+  var alias = FIELD_ALIAS[JOURNAL_SHEET_] || {};
+  var vals = sh.getRange(first + 2, 1, end - first + 1, hdr.length).getValues();
+  var out = [];
+  vals.forEach(function (row) {
+    var o = {};
+    hdr.forEach(function (h, c) { o[alias[h] || h] = decodeCell_(row[c]); });
+    var od = o.Date;
+    var ods = (Object.prototype.toString.call(od) === '[object Date]')
+      ? Utilities.formatDate(od, getConfig_('Timezone', 'Asia/Bangkok'), 'yyyy-MM-dd')
+      : String(od == null ? '' : od).slice(0, 10);
+    if (ods === d) out.push(o);
+  });
+  cachePut_('jrn:' + d, out);
+  return out;
+}
 function writeCollection_(key, list) {
   var def = COLLECTION_MAP[key];
   ensureCollectionSheet_(def);                 // a sheet that does not exist would swallow the write
@@ -393,7 +514,17 @@ function writeCollection_(key, list) {
 // Sheets whose rows must NEVER disappear via a full-collection rewrite. Every legitimate deletion
 // there goes through an explicit in-place route (deleteRow). So ANY shrink here is a truncation bug
 // (stale/partial read, concurrent write) → abort loudly instead of destroying data.
-var NO_SHRINK_SHEETS = { STUDENTS: 1, PARENTS: 1, STAFF: 1, BILLING: 1, USER_LINKS: 1, PICKUP_PERSONS: 1 };
+/* DAILY_JOURNAL joined them in v396, and it is the reason the narrow read above is safe.
+ *
+ * When journals are hydrated for ONE DAY, M.journals holds a day's rows instead of the collection.
+ * If anything then persisted it, writeCollection_ would rewrite the sheet with that day alone and
+ * four years of daily reports would be gone in one request. Nothing can: every journal WRITE is an
+ * explicit in-place route (src/Journal.gs), so the engine's copy is read-only on GAS in practice —
+ * and the narrow path uses lazyRO_, which is never persisted, so it cannot happen by accident.
+ *
+ * This is the third lock on the same door, because the first two are arguments and this one is a
+ * mechanism: any write that would make this sheet shorter aborts loudly instead of doing it. */
+var NO_SHRINK_SHEETS = { STUDENTS: 1, PARENTS: 1, STAFF: 1, BILLING: 1, USER_LINKS: 1, PICKUP_PERSONS: 1, DAILY_JOURNAL: 1 };
 
 function writeRows_(wb, sheet, list, alias) {
   alias = alias || {};

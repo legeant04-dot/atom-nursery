@@ -38,6 +38,14 @@ var ROUTES = {
          * else, which is either a big sheet or an uncacheable one, and those need opposite fixes.
          * Bytes only — no rows, no content, nothing about any child leaves here. */
         out.bytes = {}; out.cacheLimit = (typeof CACHE_PART_ === 'number' ? CACHE_PART_ * CACHE_MAX_PARTS_ : 0);
+        /* ...and the NARROW journal read beside the full one, because the whole point of v396 is the
+         * difference between the two and it should be measurable from outside rather than argued. */
+        try {
+          var jd = gasToday_(), js = Date.now();
+          var jrows = readJournalsForDate_(jd);
+          out.journalDay = { date: jd, ms: Date.now() - js, rows: jrows ? jrows.length : -1,
+                             bytes: jrows ? JSON.stringify(jrows).length : -1 };
+        } catch (e) { out.journalDay = { error: String(e && e.message || e) }; }
         // the finance ones are here because financeSummary is the slowest action in the report and
         // "the sheets are slow" had to be proved or ruled out. payroll lives in the SECOND workbook,
         // which is the one thing on this list that could cost more than a read.
