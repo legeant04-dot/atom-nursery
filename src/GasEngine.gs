@@ -179,6 +179,13 @@ function hydrateLazy_(journalDate) {
 
   // writable + snapshotted (persisted): each COLLECTION_MAP key + payrollConfig + staffAttendanceToday
   Object.keys(COLLECTION_MAP).forEach(function (key) {
+    /* SKIPPED, NOT OVERWRITTEN — and this cost the school an afternoon (2026-09-22, v396).
+     * lazyRW_/lazyRO_ use Object.defineProperty, which is NOT configurable by default: defining
+     * `journals` here and again below threw "Cannot redefine property: journals" out of
+     * hydrateLazy_, before any handler ran. engineDispatch_ and handleBatch both hydrate FIRST, so
+     * every request from every teacher died at the door with "โหลดไม่สำเร็จ" and nobody could sign
+     * in at all. Defined exactly once, by whichever path this request needs. */
+    if (journalDate && key === 'journals') return;      // defined read-only below
     lazyRW_(M, cache, snap, key, function () { return readCollection_(key); });
   });
   /* ...AND JOURNALS NARROWED TO ONE DAY, when the request only asked about one day.
