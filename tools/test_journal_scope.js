@@ -253,5 +253,100 @@ console.log('\n5) the cache, which is the reason any of this is fast');
      (journalGs.match(/cacheDel_\('col:DAILY_JOURNAL'\)/g) || []).length, busts);
 }
 
+// ============================================================================================
+console.log('\n6) SAVING a journal — the path nobody had looked at');
+// ============================================================================================
+{
+  /* "เวลาบันทึกรายวันโหลดช้ามากค่ะ บางช่วงก็กดบันทึกไม่ได้ เป็นทุกวันเลยค่ะ" (2026-09-22).
+   *
+   * The READ path was narrowed in v396. The WRITE path was reading MORE than it ever did:
+   * findObject_ over the whole 1.1MB journal sheet to locate the row it was about to overwrite, plus
+   * readObjects_ over the 443KB check-in sheet to answer one yes/no. About 1.5MB of spreadsheet
+   * before a single cell was written — on every บันทึกร่าง, every ส่งให้ผู้ปกครอง, every parent
+   * comment and every teacher reply. Neither goes through readCollection_, so neither was ever
+   * cached, which is why none of the cache work touched them.
+   *
+   * TESTED THROUGH THE ROUTE, NOT THE HELPER — the lesson from the outage earlier the same day. */
+  const { run } = H_(['Config', 'Db', 'Audit', 'Line', 'Auth', 'Code', 'Setup', 'Dspm_Seed', 'Checkin',
+                      'Triggers', 'Leave', 'Notify', 'Parent', 'Staff', 'OT', 'Payroll', 'Backup',
+                      // Dspm defines getStudent_, which handleSubmitJournal calls — without it the
+                      // route throws before reaching anything this section is about
+                      'Dspm', 'Journal', 'GasEngine', 'Engine']);
+  const res = JSON.parse(run(function () {
+    _configCache = null; setupAll(); _configCache = null;
+    var MAIN = getMainSpreadsheet_(), HR = getHrSpreadsheet_(), t = gasToday_(), out = {};
+    appendObject_(sheet_(MAIN, 'STUDENTS'), { StudentID: 'S9', Name: 'เด็กหญิงซี', Nickname: 'ซี',
+      Class: 'Nursery 1', Status: 'ACTIVE', EnrollDate: '2026-01-05', ParentID: '' });
+    appendObject_(sheet_(HR, 'STAFF'), { StaffID: 'STF-T', Name: 'ครูเอ', Nickname: 'เอ', Role: 'Teacher',
+      PositionLevel: 'Staff', Status: 'ACTIVE', Department: 'Nursery 1', Classes: 'Nursery 1',
+      StartDate: '2025-01-01', RequireCheckin: true });
+    // the history the old code re-read in full on every single save
+    ['2026-03-02', '2026-04-08'].forEach(function (d) {
+      appendObject_(sheet_(MAIN, 'DAILY_JOURNAL'), { Date: d, StudentID: 'S9', TeacherID: 'STF-T', Status: 'SUBMITTED' }); });
+    var try_ = function (k, fn) { try { out[k] = fn(); } catch (e) { out[k] = (e && e.apiCode) || ('THREW: ' + (e && e.message || e)); } };
+
+    /* THE GATE MUST STILL BITE. A journal for a child nobody checked in is refused — that rule is
+     * older than any of this, and a narrow lookup that answered "no" wrongly would block a teacher
+     * from writing up a child who IS at school. */
+    try_('noCheckin', function () {
+      handleSubmitJournal({ staffId: 'STF-T', studentId: 'S9', date: t, Mood: 'ดี' }); return 'NOT REFUSED'; });
+
+    appendObject_(sheet_(MAIN, 'CHECKIN_STUDENT'), { Date: t, Time: '07:50', StudentID: 'S9', Type: 'IN', Status: 'OK' });
+    try_('draft', function () {
+      handleSubmitJournal({ staffId: 'STF-T', studentId: 'S9', date: t, Mood: 'ดี', Highlight: 'ร่าง' }); return 'ok'; });
+    // TODAY's rows only — the two seeded March/April journals are history and must still be there
+    try_('rowsAfterDraft', function () {
+      return readObjects_(sheet_(MAIN, 'DAILY_JOURNAL')).filter(function (r) {
+        return String(r.StudentID) === 'S9' && dateStr_(new Date(r.Date)) === t; }).length; });
+    // ...and the history is untouched by a save, which is the other half of the same claim
+    try_('historyIntact', function () {
+      return readObjects_(sheet_(MAIN, 'DAILY_JOURNAL')).filter(function (r) {
+        return String(r.StudentID) === 'S9' && dateStr_(new Date(r.Date)) !== t; }).length; });
+    /* SAVED AGAIN = THE SAME ROW UPDATED, never a second one. This is what findJournalRow_ is for,
+     * and getting it wrong would give a child two journals for one day. */
+    try_('draftAgain', function () {
+      handleSubmitJournal({ staffId: 'STF-T', studentId: 'S9', date: t, Mood: 'ร่าเริง', Highlight: 'ร่าง 2' });
+      var rows = readObjects_(sheet_(MAIN, 'DAILY_JOURNAL')).filter(function (r) {
+        return String(r.StudentID) === 'S9' && dateStr_(new Date(r.Date)) === t; });
+      return rows.length + '|' + (rows[0] && rows[0].Highlight); });
+    try_('submit', function () {
+      handleSubmitJournal({ staffId: 'STF-T', studentId: 'S9', date: t, submit: true, Mood: 'ดี', Highlight: 'ส่งแล้ว' });
+      var r = findJournalRow_(sheet_(MAIN, 'DAILY_JOURNAL'), 'S9', t);
+      return r.Status + '|' + r.Highlight; });
+    try_('locked', function () {
+      handleSubmitJournal({ staffId: 'STF-T', studentId: 'S9', date: t, Mood: 'ดี' }); return 'NOT REFUSED'; });
+    // an OLDER day is still found: the scan is narrow, not recent-only
+    try_('oldDay', function () {
+      return findJournalRow_(sheet_(MAIN, 'DAILY_JOURNAL'), 'S9', '2026-03-02') ? 'found' : 'MISSED'; });
+    try_('missing', function () {
+      return findJournalRow_(sheet_(MAIN, 'DAILY_JOURNAL'), 'S9', '2026-03-03') === null ? 'null' : 'WRONG'; });
+    try_('otherChild', function () {
+      return findJournalRow_(sheet_(MAIN, 'DAILY_JOURNAL'), 'S-NOBODY', t) === null ? 'null' : 'WRONG'; });
+    return JSON.stringify(out);
+  }));
+
+  eq('a child who was never checked in is still refused', res.noCheckin, 'NOT_CHECKED_IN');
+  eq('...and once checked in, the draft saves', res.draft, 'ok');
+  eq('one row for today, not one per save', res.rowsAfterDraft, 1);
+  eq('...and the two older journals are untouched', res.historyIntact, 2);
+  eq('saving again UPDATES that row rather than adding a second', res.draftAgain, '1|ร่าง 2');
+  eq('submitting marks it sent', res.submit, 'SUBMITTED|ส่งแล้ว');
+  eq('...and a sent journal is still locked', res.locked, 'JOURNAL_LOCKED');
+  eq('a journal from March is still found', res.oldDay, 'found');
+  eq('a day with no journal returns null, not a wrong row', res.missing, 'null');
+  eq('...and so does a student with none', res.otherChild, 'null');
+
+  /* THE SHAPE CONTRACT. Callers hand the result straight to updateRow_(sheet, o._row, …) and read
+   * o.TeacherID and o.Status off it. A plain object without a non-enumerable _row would write to the
+   * wrong row, or to none, and the teacher's entry would vanish. */
+  ok_('the narrow finder returns findObject_’s shape, _row and all',
+    /Object\.defineProperty\(o, '_row', \{ value: rowNum, enumerable: false \}\)/.test(journalGs));
+  ok_('...and falls back to the full scan if the sheet is not the expected shape',
+    /if \(last < 2 \|\| !hdr\.length \|\| !dc \|\| !sc\) \{[\s\S]{0,140}findObject_/.test(journalGs));
+  ok_('no full-sheet scan is left on the journal write path',
+    !/readObjects_\(sheet_\(getMainSpreadsheet_\(\), 'CHECKIN_STUDENT'\)\)\.some/.test(journalGs) &&
+    (journalGs.match(/findObject_\(sheet, function/g) || []).length === 1);
+}
+
 console.log('\n' + (fail ? 'FAILED ' : 'PASSED ') + pass + ' passed, ' + fail + ' failed');
 process.exit(fail ? 1 : 0);
