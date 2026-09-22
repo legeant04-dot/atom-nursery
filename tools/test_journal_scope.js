@@ -145,6 +145,59 @@ console.log('\n3) the narrow read returns the same rows the full one would');
 }
 
 // ============================================================================================
+console.log('\n3b) hydrate it for real — the step that was never tested, and broke the school');
+// ============================================================================================
+{
+  /* WHAT HAPPENED ON 2026-09-22, and why 142 green suites did not stop it.
+   *
+   * §1 tested journalScopeFor_. §3 tested readJournalsForDate_. Both passed, and nothing ever put
+   * the two together through hydrateLazy_ — which is where they meet, and where the bug was:
+   * `journals` was defined by the COLLECTION_MAP loop and then defined AGAIN, and
+   * Object.defineProperty is not configurable by default, so it threw
+   *
+   *     Cannot redefine property: journals
+   *
+   * out of hydrateLazy_ BEFORE any handler ran. engineDispatch_ and handleBatch both hydrate first,
+   * so every request from every role died at the door with "โหลดไม่สำเร็จ" and not one teacher could
+   * sign in. Testing two halves is not testing the join.
+   *
+   * So this section runs the ENTRY POINTS, not the pieces. */
+  const { run } = H_(['Config', 'Db', 'Audit', 'Line', 'Auth', 'Code', 'Setup', 'Dspm_Seed', 'Checkin',
+                      'Triggers', 'Leave', 'Notify', 'Parent', 'Staff', 'OT', 'Payroll', 'Backup',
+                      'Journal', 'GasEngine', 'Engine']);
+  const res = JSON.parse(run(function () {
+    _configCache = null; setupAll(); _configCache = null;
+    var t = gasToday_(), out = {};
+    var sh = sheet_(getMainSpreadsheet_(), 'DAILY_JOURNAL');
+    appendObject_(sh, { Date: t, StudentID: 'S1', TeacherID: 'STF-T', Mood: 'ดี', Status: 'SUBMITTED' });
+    appendObject_(sh, { Date: '2026-01-05', StudentID: 'S1', TeacherID: 'STF-T', Status: 'SUBMITTED' });
+
+    var try_ = function (k, fn) { try { out[k] = fn(); } catch (e) { out[k] = 'THREW: ' + (e && e.message || e); } };
+    // 1. hydrate BOTH ways — the redefinition crash was here and nowhere else
+    try_('hydrateScoped', function () { return 'rows=' + hydrateLazy_(t).M.journals.length; });
+    try_('hydrateFull',   function () { return 'rows=' + hydrateLazy_('').M.journals.length; });
+    // 2. ...through the real single-call entry point, scoped and unscoped
+    try_('dispatchScoped', function () { return engineDispatch_('journalStatus', { date: t }).done.length + ' done'; });
+    try_('dispatchFull',   function () { return engineDispatch_('journalHistory', { studentId: 'S1' }).length + ' rows'; });
+    // 3. ...and through the BATCH entry point, which is how every real screen arrives
+    try_('batch', function () {
+      var r = handleBatch({ calls: [ { action: 'journalStatus', payload: { date: t } },
+                                     { action: 'getJournal', payload: { studentId: 'S1', date: t, role: 'Teacher' } } ] });
+      return r.map(function (x) { return x.ok ? 'ok' : (x.error && x.error.code); }).join(',');
+    });
+    return JSON.stringify(out);
+  }));
+
+  eq('hydrating for ONE DAY does not throw', res.hydrateScoped, 'rows=1');
+  eq('...and hydrating the full collection still works', res.hydrateFull, 'rows=2');
+  /* THE TWO DOORS EVERY REQUEST COMES THROUGH. Both hydrate before dispatching, so a failure here is
+   * a failure for every role at once — which is exactly how this was reported. */
+  eq('a scoped action runs through engineDispatch_', res.dispatchScoped, '1 done');
+  eq('an unscoped one still sees every day', res.dispatchFull, '2 rows');
+  eq('...and a real batch of both journal reads succeeds', res.batch, 'ok,ok');
+}
+
+// ============================================================================================
 console.log('\n4) the three locks that stop a day overwriting four years');
 // ============================================================================================
 {
