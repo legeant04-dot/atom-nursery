@@ -1232,6 +1232,44 @@ function createAtomAPI(M, GROWTH_STD) {
    * PauseTo is the day they COME BACK, matching the student rule exactly — the school should not
    * have to remember which end of the range each screen means.
    */
+  /* ===== DOES THIS PERSON CLOCK IN AT ALL? ======================================================
+   *
+   * Reported 2026-09-22 from the monthly staff report: "Admin แอดมิน · มาทำงาน 0/17 · ขาด 10" — the
+   * Admin counted as absent ten times, sitting in a list next to the teachers. "ทำไมถึงเข้าไปนับเวลา
+   * เหมือนคุณครูปกติ ตรวจสอบว่าต่างกันกับ Role ผอ. ยังไง?"
+   *
+   * TWO SEPARATE FAULTS, and the app already contained the right answer to both.
+   *
+   * 1. THE FLAG WAS READ TWO DIFFERENT WAYS. Six readers here used `s.RequireCheckin !== false`, a
+   *    strict boolean compare; the 06:50 reminder (src/Checkin.gs) used
+   *    `String(s.RequireCheckin).toLowerCase() === 'false'`. A cell holding the TEXT "false" — which
+   *    is what an import or a hand-typed cell produces — is not the boolean false, so the reminder
+   *    correctly skipped that person while every report went on counting them absent. One helper,
+   *    used by all of them, so there is one answer to one question.
+   *
+   * 2. NOBODY HAD SAID WHAT A BLANK MEANS FOR AN ADMIN. The reminder has always had
+   *    `if (String(s.Role) === 'Admin') return;  // admins don't clock in` — the school's own view,
+   *    written down in exactly one place and never asked by the reports. So a blank now follows the
+   *    rule the app already believed: everyone clocks in EXCEPT an Admin.
+   *
+   * AN EXPLICIT VALUE ALWAYS WINS, in both directions. A school that does want its Admin to clock in
+   * ticks the box on the staff form and this returns true; that is a decision somebody makes, not a
+   * default they have to fight. And it is why the answer is not simply "Role === Admin".
+   *
+   * This says nothing about ผอ. — Leader and Observer are treated exactly like anybody else, because
+   * nothing in the app has ever said otherwise. If a ผอ. is not being counted today it is because
+   * their own flag is off, and the same tick controls it.
+   */
+  function requiresCheckin_(s){
+    if(!s) return false;
+    const raw = s.RequireCheckin;
+    if(raw === true) return true;
+    if(raw === false) return false;
+    const v = String(raw == null ? '' : raw).trim().toLowerCase();
+    if(v === 'false' || v === 'no' || v === '0' || v === 'ไม่') return false;
+    if(v === 'true' || v === 'yes' || v === '1' || v === 'ใช่') return true;
+    return String(s.Role||'') !== 'Admin';        // blank: everyone but an Admin — see (2) above
+  }
   function staffPaused_(s, onDate){ if(!s) return false;
     const from=ymd(s.PauseFrom||''); if(!from) return false;
     const d=ymd(onDate||todayLocal()), to=ymd(s.PauseTo||'');
@@ -2788,7 +2826,7 @@ function createAtomAPI(M, GROWTH_STD) {
       const self = !!(p && p.onlySelf);
       const people = M.staff
         .filter(s=>!self || String(s.StaffID)===String(p.staffId))
-        .filter(s=>!staffEnded_(s) && (self || s.RequireCheckin!==false))
+        .filter(s=>!staffEnded_(s) && (self || requiresCheckin_(s)))
         .map(s=>{
           const rows=[], missingOut=[], otDays=[]; let present=0, lateDays=0, lateMin=0, leaveDays=0, absent=0, ot=0;
           let holOtDays=0, holOtAmount=0;
@@ -3114,7 +3152,7 @@ function createAtomAPI(M, GROWTH_STD) {
       const isStaff = !!me.StaffID || all;
       const mine = id => String(id)===String((p&&p.staffId)||'');
       const view = s=>({StaffID:s.StaffID, NameTH:s.NameTH, NameEN:s.NameEN, Nickname:s.Nickname, NicknameEN:s.NicknameEN,
-        Role:s.Role, Department:s.Department, RequireCheckin:s.RequireCheckin!==false});
+        Role:s.Role, Department:s.Department, RequireCheckin:requiresCheckin_(s)});
       const keep = (list, idOf) => all ? list : list.filter(x=>mine(idOf(x)));
       return {
         // the screen needs to know which of the two it is looking at — it must not re-derive it
@@ -3153,7 +3191,7 @@ function createAtomAPI(M, GROWTH_STD) {
     staffingByNursery: () => { const deps=(Array.isArray(cfg.Departments)?cfg.Departments:String(cfg.Departments||'').split(',')).map(d=>String(d).trim()).filter(Boolean);
       const covers=(s,dep)=>{ const d=String(s.Department||''); return d==='*'||d.split(',').map(x=>x.trim()).indexOf(dep)>=0; };
       return deps.map(dep=>{
-        const team=M.staff.filter(s=>covers(s,dep)&&s.Role==='Teacher'&&s.RequireCheckin!==false&&staffStarted_(s));
+        const team=M.staff.filter(s=>covers(s,dep)&&s.Role==='Teacher'&&requiresCheckin_(s)&&staffStarted_(s));
         const present=team.filter(s=>{ const a=M.staffAttendanceToday.find(x=>x.StaffID===s.StaffID); return a&&(a.Status==='IN'||a.Status==='OUT'); }).length;
         return {dept:dep, present, total:team.length}; }).filter(x=>x.total>0); },
 
@@ -3476,7 +3514,7 @@ function createAtomAPI(M, GROWTH_STD) {
        * itself has always refused her (assertStaffStarted_ throws ENDED), and the monthly report has
        * always filtered her out — this one screen, the one an admin opens every morning, did not.
        * It asked staffStarted_ and never the other end of the same question. */
-      const staffStat=M.staff.filter(s=>s.Role==='Teacher'&&s.RequireCheckin!==false&&staffStarted_(s)&&!staffEnded_(s)&&!staffPaused_(s)).map(s=>{ const a=M.staffAttendanceToday.find(x=>x.StaffID===s.StaffID)||{};
+      const staffStat=M.staff.filter(s=>s.Role==='Teacher'&&requiresCheckin_(s)&&staffStarted_(s)&&!staffEnded_(s)&&!staffPaused_(s)).map(s=>{ const a=M.staffAttendanceToday.find(x=>x.StaffID===s.StaffID)||{};
         const onLeave=a.Status==='LEAVE'; return {staffId:s.StaffID,name:s.NameTH,nameEN:s.NameEN,nick:s.Nickname,nickEN:s.NicknameEN,dept:s.Department, status:a.Status||'ABSENT',
           checkIn:onLeave?'':(a.CheckIn||''), checkOut:onLeave?'':(a.CheckOut||''), late:onLeave?0:(a.Late||0), remark:onLeave?(a.Reason||'ลา'):''}; });
       return {classes:cls, staff:staffStat, pendingLeaves:M.leaves.filter(l=>l.Status.startsWith('PENDING')).length,
@@ -3514,7 +3552,7 @@ function createAtomAPI(M, GROWTH_STD) {
     pendingLeaves: p => { const lv=staffById(p.staffId).PositionLevel; if(lv==='Admin')return M.leaves.filter(l=>l.Status==='PENDING_ADMIN').map(leaveView_); if(lv==='Leader')return M.leaves.filter(l=>l.Status==='PENDING_LEADER').map(leaveView_); fail('NO_PERMISSION','ตำแหน่งนี้ไม่มีสิทธิ์อนุมัติ'); },
     // `ended` = employment is over TODAY (status INACTIVE, or a last working day that has passed);
     // `endScheduled` = a leaving date is on record but has not arrived, so they are still staff.
-    listStaff: () => M.staff.map(s=>Object.assign({RequireCheckin: s.RequireCheckin!==false,
+    listStaff: () => M.staff.map(s=>Object.assign({RequireCheckin: requiresCheckin_(s),
       ended: staffEnded_(s), endScheduled: !staffEnded_(s) && !!ymd(s.EndDate||''),
       paused: staffPaused_(s), pauseFrom: ymd(s.PauseFrom||''), pauseTo: ymd(s.PauseTo||''),
       pauseReason: s.PauseReason||'', pauseRemark: s.PauseRemark||'',
@@ -3542,7 +3580,7 @@ function createAtomAPI(M, GROWTH_STD) {
         StaffGroup:s.StaffGroup, Phone:s.Phone, DOB:s.DOB, StartDate:s.StartDate, NationalID:s.NationalID, Email:s.Email, GoogleLinked: !!s.GoogleSub,
         // education — optional everywhere; the screens print '-' rather than guessing
         Education:s.Education||'', EduMajor:s.EduMajor||'', EduGradDate:ymd(s.EduGradDate||''),
-        RequireCheckin: s.RequireCheckin!==false, MustChangePassword: !!s.MustChangePassword,
+        RequireCheckin: requiresCheckin_(s), MustChangePassword: !!s.MustChangePassword,
         CanClassOrg: canOrganize_(s), CanFoodMenu: canFoodMenu_(s),
         /* THE FACT, NEVER THE DATE. The screen needs to know not to draw two clock-in buttons the
          * server will refuse — but a leaving date is the admin's to give, and nobody learns their
@@ -3555,6 +3593,11 @@ function createAtomAPI(M, GROWTH_STD) {
          * "has it arrived yet" from a string and its own idea of today. The server owns the clock
          * (see the Timezone config), so it owns the answer. Mirrors `ended` exactly. */
         notStarted: !staffStarted_(s),
+        /* ...AND THE THIRD, which had no answer here at all (v393). ลาชั่วคราว is the one state of
+         * the three that is temporary and that the person has agreed to, so unlike a leaving date it
+         * is theirs to see — and the return date is the single most useful thing on the screen the
+         * app draws from it. The server owns the clock here too. */
+        paused: staffPaused_(s), pauseTo: ymd(s.PauseTo||''), pauseFrom: ymd(s.PauseFrom||''),
         GroupIn: grp&&grp.CheckInTime||'', GroupOut: grp&&grp.CheckOutTime||'' }; },
     setRequireCheckin: p => { const s=M.staff.find(x=>x.StaffID===p.staffId); if(s) s.RequireCheckin=!!p.value; return {staffId:p.staffId, value:!!p.value}; },
     /**

@@ -33,7 +33,13 @@ const TODAY = '2026-08-20';
 function boot(hist) {
   const M = {
     config: { Plans: [], LeaveQuota: {}, BigCleaningDays: [], DefaultCheckInTime: '08:00', DefaultCheckOutTime: '17:00' },
-    staff: [{ StaffID: 'STF-01', NameTH: 'ปริณดา สว่างศรี', Nickname: 'ก้อย', StartDate: '2023-05-02', Status: 'ACTIVE', Role: 'Admin', PositionLevel: 'Admin' }],
+    /* RequireCheckin is now EXPLICIT here, and the fixture is better for it. This person is an
+     * Admin only so that the school-wide call is allowed; what the suite is about is somebody who
+     * clocks in and forgot to clock out. From v393 a BLANK flag means "an Admin does not clock in"
+     * (the rule the 06:50 reminder has always used), so leaving it blank quietly dropped her from
+     * the report the test then read — saying out loud which of the two she is fixes that, and
+     * exercises the explicit-override path at the same time. */
+    staff: [{ StaffID: 'STF-01', NameTH: 'ปริณดา สว่างศรี', Nickname: 'ก้อย', StartDate: '2023-05-02', Status: 'ACTIVE', Role: 'Admin', PositionLevel: 'Admin', RequireCheckin: true }],
     staffAttendanceHistory: hist || [], staffAttendanceToday: [],
     holidays: [], leaves: [], staffGroups: [], workSchedule: [],
     students: [], parents: [], userLinks: [], classes: [], payments: [], otDaily: [], studentCharges: [],

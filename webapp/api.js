@@ -837,6 +837,13 @@ window.CONFIG = { MODE: 'gas', GAS_URL: 'https://script.google.com/macros/s/AKfy
     else if (e && e.code === 'NOT_STARTED') {
       try { if (window.__atomNotStarted) window.__atomNotStarted(e.message); } catch (x) {}
     }
+    /* ...and the third of the same family (v393). ลาชั่วคราว is the most clearly temporary of them:
+     * the person works here, is coming back on a known date, and their account is fine. Session
+     * KEPT, like NOT_STARTED — signing somebody out for being on maternity leave would be absurd,
+     * and they would only sign straight back in. */
+    else if (e && e.code === 'PAUSED') {
+      try { if (window.__atomPaused) window.__atomPaused(e.message); } catch (x) {}
+    }
   };
   function flush() {
     const q = _q; _q = []; _scheduled = false;

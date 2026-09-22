@@ -101,8 +101,27 @@
   if(window.api && !window.__apiBusyWrapped){ window.__apiBusyWrapped=true; _rawApi=window.api;
     window.api=function(action,payload,opts){
       if(_isMut(action)){
-        _busyShow(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _busyDone(false); throw e; }
-        return Promise.resolve(pr).then(v=>{ _busyDone(true); qFlush(); return v; }, e=>{ _busyDone(false);
+        /* BACKGROUND: A WRITE THE PERSON DOES NOT HAVE TO WATCH.
+         *
+         * Asked 2026-09-22: "ตอนกด Check-in ให้นักเรียนใช้เวลานานมาก เราสามารถลดเวลาลงกดแล้วเข้าไปรอ
+         * ใน Request Lists เอา Timestamp รอส่งข้อมูลกลับได้ไหม?" A teacher checking eight children in
+         * waits ~10s each behind a blocking overlay — eighty seconds of standing still, for eight
+         * taps that were decided the moment she made them.
+         *
+         * THE THING THAT MAKES THIS SAFE IS THE TIMESTAMP, and it already existed: this route takes
+         * an explicit `time` from the client (it has to — a child collected at 12:57 must not be
+         * billed OT against the wall clock when the teacher records it at 17:30). So the recorded
+         * time is decided at the TAP, and a request that lands thirty seconds later writes exactly
+         * the same row. Nothing drifts.
+         *
+         * ONLY for actions that are already safe to send twice (QUEUEABLE) — this reuses the outbox
+         * that has existed since v198, so a write that never lands is held and shown as pending
+         * rather than lost. Everything that creates a money row keeps the blocking overlay, because
+         * there the person genuinely does need to wait and see. */
+        const bg = !!(opts && opts.background) && !!QUEUEABLE[action];
+        if(!bg) _busyShow();
+        let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ if(!bg)_busyDone(false); throw e; }
+        return Promise.resolve(pr).then(v=>{ if(!bg)_busyDone(true); qFlush(); return v; }, e=>{ if(!bg)_busyDone(false);
           // network died mid-save and this action is replay-safe → keep it and let the UI carry on.
           // The outbox pill is what tells the truth: "saved" plus "2 waiting to send".
           if(!_qFlushing && QUEUEABLE[action] && _isNetErr(e)){ qAdd(action,payload); return {queued:true}; }
@@ -112,7 +131,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.392'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.393'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -1247,7 +1266,10 @@
         // ...and whether the first day has arrived. Same shape, same reason: a deep link (#class)
         // would otherwise open a working screen for somebody who does not work here yet.
         if (window.__atomSetNotStarted) __atomSetNotStarted(me && me.notStarted, me && me.StartDate);
-        if (me && (me.ended || me.notStarted)) GO(CURRENT || 'home'); })
+        // ...and the third: on temporary leave. listStaff/staffSelf already computes `paused` and
+        // `pauseTo` (staffPaused_), so this costs nothing and closes the same deep-link hole.
+        if (window.__atomSetPaused) __atomSetPaused(me && me.paused, me && me.pauseTo);
+        if (me && (me.ended || me.notStarted || me.paused)) GO(CURRENT || 'home'); })
       .catch(() => {});
     setHeader(); GO(initialScreen()); PREFETCH();
   };
@@ -5060,12 +5082,31 @@
     if(!time){ toast(EN()?'Time is required':'ต้องกรอกเวลาจริงก่อน'); return; }
     if(!remark){ toast(EN()?'Remark is required':'ต้องกรอกหมายเหตุก่อน'); return; }
     btn.disabled=true;
-    try{ const r=await api('staffStudentCheckin',{staffId:USER.staffId,studentId:sid,type:SC_TYPE,remark,time});
-      m.remove(); confirmSaved(`✅ ${SC_TYPE==='IN'?(EN()?'Dropped off':'ส่งเข้าเรียน'):(EN()?'Picked up':'รับกลับ')} ${r.time}`);
-      if(r.ot) toast(`⏰ ${EN()?'Late pickup OT':'OT รับช้า'} ${baht(r.ot.amount)}`);
-      // re-render so the journal unlocks + the check-in button fades for this child
-      try{ if(SCREENS[USER.role]&&SCREENS[USER.role][CURRENT]) SCREENS[USER.role][CURRENT](); }catch(_){}
-    }catch(e){ err(e); btn.disabled=false; } };
+    /* THE MODAL CLOSES ON THE TAP, not on the reply (v393). The teacher has decided; `time` and
+     * `remark` are captured and travel with the request, so the row that eventually lands is the one
+     * she just described. Waiting ten seconds to be told so bought nothing except eight children
+     * taking eighty seconds instead of eight.
+     *
+     * WHAT IS STILL HONEST ABOUT IT: the confirmation says ส่งแล้ว (sent), not บันทึกแล้ว (saved) —
+     * the screen is not going to claim the school has it when the reply has not come back. The
+     * outbox pill carries anything that could not be delivered, and a REFUSAL (on leave, school
+     * closed, no remark) still arrives as a loud error with the screen put back the way it was. */
+    m.remove();
+    const label=SC_TYPE==='IN'?(EN()?'Dropped off':'ส่งเข้าเรียน'):(EN()?'Picked up':'รับกลับ');
+    toast(`⏳ ${label} ${esc(time)} · ${EN()?'sending…':'กำลังส่ง…'}`);
+    api('staffStudentCheckin',{staffId:USER.staffId,studentId:sid,type:SC_TYPE,remark,time},{background:true})
+      .then(r=>{
+        if(r&&r.queued){ /* held in the outbox — the pill says so, and says how many */ return; }
+        confirmSaved(`✅ ${label} ${(r&&r.time)||time}`);
+        if(r&&r.ot) toast(`⏰ ${EN()?'Late pickup OT':'OT รับช้า'} ${baht(r.ot.amount)}`);
+      })
+      /* A refusal has to be seen. It is the whole risk of not blocking: the teacher has walked on,
+       * and "ON_LEAVE" shown for a second in a corner is the same as not showing it. err() is the
+       * app's loud path, and the re-render below puts the child back where they were. */
+      .catch(e=>{ err(e); })
+      // either way the screen is redrawn from the server, so what it shows is what actually happened
+      .finally(()=>{ try{ if(SCREENS[USER.role]&&SCREENS[USER.role][CURRENT]) SCREENS[USER.role][CURRENT](); }catch(_){} });
+  };
 
   SCREENS.Teacher.journal = async () => { const cl=await api('classList',tc()); T_journal(cl.students[0].StudentID); };
   let JSEL={};
@@ -8813,8 +8854,16 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
        it, and an admin checking on an ended teacher saw a fully working app and concluded, quite
        reasonably, that nothing had been fixed (2026-09-01). The roster already knows `ended`. */
     if(window.__atomSetEnded) __atomSetEnded(!!s.ended);
+    /* ...and the same for a temporary leave (2026-09-22): "เวลาเข้าไปดูมุมมองให้ขึ้นข้อมูลด้านหลัง
+       ด้วยว่า (ลาชั่วคราว)". View-as runs on the ADMIN's session, so the server never refuses it —
+       which is exactly why an admin checking on a paused teacher saw a fully working app and
+       concluded nothing had been fixed. The roster already knows `paused` and `pauseTo`. */
+    if(window.__atomSetPaused) __atomSetPaused(!!s.paused, s.pauseTo||s.PauseTo||'');
     _enterViewAs({role, _roleKey:(role==='Observer'?'Observer':(s.PositionLevel==='Leader'?'Leader':'Teacher')),
-      staffId:sid,nameEN:s.NameEN||s.NameTH||sid,nameTH:s.NameTH||sid}); };
+      staffId:sid,nameEN:s.NameEN||s.NameTH||sid,nameTH:s.NameTH||sid,
+      // shown in the view-as bar, so the admin can see WHY the screens are closed
+      _paused:!!s.paused, _pauseTo:String(s.pauseTo||s.PauseTo||'').slice(0,10),
+      _ended:!!s.ended, _notStarted:!!s.notStarted}); };
   window.A_viewAsParent=(btn)=>{ const m=btn.closest('.modal'); const pid=m.querySelector('#va_parent').value; if(!pid){toast(EN()?'Pick a parent':'เลือกผู้ปกครองก่อน');return;}
     const p=(A_CACHE.parents||[]).find(x=>String(x.ParentID)===String(pid))||{}; m.remove();
     // uid = their LINE UID so visibleStudents returns EVERY linked child (multi-child view); parentId for legacy links
@@ -8822,6 +8871,7 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
   function _enterViewAs(ctx){ if(!VIEW_AS_BACKUP) VIEW_AS_BACKUP=USER; USER=Object.assign({_viewAs:true},ctx); setHeader(); GO('home'); _viewAsBar(); }
   // ...and cleared on the way out, or the admin's own screens would stay closed behind them
   window.A_exitViewAs=()=>{ if(window.__atomSetEnded) __atomSetEnded(false);
+    if(window.__atomSetPaused) __atomSetPaused(false,'');
     if(VIEW_AS_BACKUP){ USER=VIEW_AS_BACKUP; VIEW_AS_BACKUP=null; } const b=document.getElementById('viewAsBar'); if(b)b.remove(); document.body.classList.remove('viewas'); setHeader(); GO('home'); };
   // Sits directly under the header, not above the bottom nav. Anchored to the bottom it covered
   // whatever the screen put there — the nav, and now the sticky save bar on the long forms.
@@ -8829,7 +8879,14 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
     const hd=document.querySelector('.topbar');
     b.style.top=((hd?hd.getBoundingClientRect().height:56))+'px';
     document.body.classList.add('viewas');   // gives <main> matching top padding
-    b.innerHTML=`<span>👁️ ${EN()?'Viewing as':'กำลังดูมุมมอง'}: <b>${esc(EN()?USER.nameEN:USER.nameTH)}</b>${USER.role==='Observer'?` · ${EN()?'view only':'ดูอย่างเดียว'}`:''}</span><button onclick="A_exitViewAs()">${EN()?'Back to Admin':'กลับเป็น Admin'}</button>`; }
+    /* WHY THE SCREENS LOOK CLOSED, said on the bar itself. Without it an admin previewing somebody
+       on leave sees a "ลาชั่วคราว" card and no explanation of whose state that is — theirs or the
+       person's. Asked for 2026-09-22. */
+    const _state = USER._ended ? (EN()?'employment ended':'สิ้นสุดการทำงาน')
+      : USER._paused ? (EN()?'on temporary leave':'ลาชั่วคราว') + (USER._pauseTo?` ${EN()?'until':'ถึง'} ${esc(ddmmyyyy(USER._pauseTo))}`:'')
+      : USER._notStarted ? (EN()?'not started yet':'ยังไม่ถึงวันเริ่มงาน')
+      : USER.role==='Observer' ? (EN()?'view only':'ดูอย่างเดียว') : '';
+    b.innerHTML=`<span>👁️ ${EN()?'Viewing as':'กำลังดูมุมมอง'}: <b>${esc(EN()?USER.nameEN:USER.nameTH)}</b>${_state?` · <b>(${_state})</b>`:''}</span><button onclick="A_exitViewAs()">${EN()?'Back to Admin':'กลับเป็น Admin'}</button>`; }
 
   // ---- Parent CRUD ----
   window.A_parentForm=(id)=>{ const p=id?findParent(id):{};
@@ -13107,6 +13164,40 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
     window.__atomSetNotStarted(true, m?m[1]:'');
     try { if (USER && USER.role !== 'Parent') GO(CURRENT || 'home'); } catch (e) {}
   };
+  /* ON TEMPORARY LEAVE — the third way of not being at work, and until v393 the only one with no
+   * screen and no gate. Reported 2026-09-22: ครู Esther, ลาชั่วคราว recorded by the Admin, opening
+   * the app on the first day of it with เข้างาน / เลิกงาน live and her whole class roll on screen.
+   *
+   * WORDED DIFFERENTLY FROM THE OTHER TWO ON PURPOSE. "ยังไม่ถึงวันเริ่มงาน" and "สิ้นสุดการทำงาน"
+   * are both about whether somebody works here. This one is not: she does work here, she is coming
+   * back, and the date she comes back is the single most useful thing on the screen. So it leads
+   * with that and says nothing that reads like being shut out. */
+  let PAUSED_SELF = false, PAUSED_TO = '';
+  window.__atomSetPaused = (v, to) => { PAUSED_SELF = !!v; if (to) PAUSED_TO = String(to).slice(0,10); };
+  function pausedScreen(){
+    setNav(CURRENT);
+    const d = PAUSED_TO ? ddmmyyyy(PAUSED_TO) : '';
+    app.innerHTML = `<div class="card" style="text-align:center;background:var(--info-bg,var(--surface-2));border-color:var(--blue-line,var(--line));margin-top:12px;padding:18px">
+      <div style="font-size:44px;line-height:1.1">⏸️</div>
+      <h3 style="color:var(--blue-d);margin:6px 0 2px">${EN()?'On temporary leave':'อยู่ระหว่างลาชั่วคราว'}</h3>
+      ${d?`<p class="muted" style="font-size:13px;margin:8px 0 0">${EN()?'Back at work on':'กลับมาทำงานวันที่'}</p>
+           <div style="font-size:22px;font-weight:800;color:var(--blue-d);margin:2px 0 8px">${esc(d)}</div>`:''}
+      <p style="font-size:14px;line-height:1.8;margin:8px 10px">${EN()
+        ? 'Clocking in, class lists, daily reports, assessments, accident reports and checking a child in or out are closed until then, and reopen on that morning by themselves.'
+        : 'การลงเวลา รายชื่อนักเรียน บันทึกประจำวัน ประเมินพัฒนาการ แจ้งอุบัติเหตุ และการเช็คอิน-เอาท์แทนนักเรียน <b>ปิดไว้ก่อน</b> และ<b>จะเปิดให้เองในเช้าวันที่กลับมา</b>'}</p>
+      <p class="muted" style="font-size:13px;margin:0 10px">${EN()
+        ? 'Your own record is untouched — profile, payslips, leave and attendance history are all still here. Tap your name at the top right.'
+        : 'ข้อมูลของท่านอยู่ครบ · ประวัติส่วนตัว สลิปเงินเดือน การลา และประวัติการมาทำงาน ยังเปิดดูได้ตามปกติ · กดที่ชื่อของท่านมุมขวาบน'}</p></div>`;
+  }
+  /* A request the server refused with PAUSED. Same handling as NOT_STARTED: shown as the screen
+   * rather than as a red error, and once — every call on a screen fails the same way. The session is
+   * KEPT, because being on leave is not being signed out. */
+  window.__atomPaused = (msg) => {
+    if (PAUSED_SELF) return;
+    const m = String(msg||'').match(/(\d{4}-\d{2}-\d{2})/);
+    window.__atomSetPaused(true, m?m[1]:'');
+    try { if (USER && USER.role !== 'Parent') GO(CURRENT || 'home'); } catch (e) {}
+  };
   function endedScreen(){
     setNav(CURRENT);
     app.innerHTML = `<div class="card" style="text-align:center;background:var(--warn-bg);border-color:var(--warn-line);margin-top:12px;padding:18px">
@@ -13122,9 +13213,13 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
   Object.keys(SCREENS.Teacher).forEach(k => {
     const orig = SCREENS.Teacher[k];
     if (typeof orig !== 'function') return;
-    // Two gates, one wrapper. ENDED first: somebody who has both left and never started is a data
-    // error, and "your employment ended" is the more useful thing to be told about an account.
-    SCREENS.Teacher[k] = (...a) => ENDED_SELF ? endedScreen() : NOT_STARTED_SELF ? notStartedScreen() : orig(...a);
+    /* Three gates, one wrapper. ENDED first: somebody who has both left and never started is a data
+     * error, and "your employment ended" is the more useful thing to be told about an account.
+     * PAUSED last of the three because it is the only one that is temporary — if a record somehow
+     * says both "left" and "on leave", having left is the bigger fact. */
+    SCREENS.Teacher[k] = (...a) => ENDED_SELF ? endedScreen()
+      : NOT_STARTED_SELF ? notStartedScreen()
+      : PAUSED_SELF ? pausedScreen() : orig(...a);
   });
 
   ['home','leaves','finance','dspm'].forEach(k => { SCREENS.Observer[k] = (...a) => SCREENS.Admin[k](...a); });

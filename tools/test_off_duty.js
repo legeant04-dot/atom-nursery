@@ -247,8 +247,14 @@ console.log('\n3) SOMEBODY WHOSE LAST DAY HAS PASSED IS NOT STAFF');
    * employment: only assertStaffStarted_ guarded a teacher whose first day had not arrived, which
    * covers the two clock-in routes and nothing else — so on 2026-09-15 somebody starting on the
    * 21st was looking at the class roll, three children's check-in times, and OT ติดตามชำระ. */
+  /* THREE gates since v393: ลาชั่วคราว joined them. Reported 2026-09-22 — a teacher on temporary
+   * leave from the 22nd opened the app on the 22nd with เข้างาน/เลิกงาน live and her class roll on
+   * screen. staffPaused_ existed and was right; nothing asked it at the door. Same mistake as the
+   * NOT_STARTED one above, made a third time, which is why all three live on this one wrapper. */
   ok_('every teacher screen goes through one gate',
-    /Object\.keys\(SCREENS\.Teacher\)\.forEach\(k => \{[\s\S]{0,320}ENDED_SELF \? endedScreen\(\) : NOT_STARTED_SELF \? notStartedScreen\(\) : orig\(\.\.\.a\)/.test(app));
+    /Object\.keys\(SCREENS\.Teacher\)\.forEach\(k => \{[\s\S]{0,700}ENDED_SELF \? endedScreen\(\)[\s\S]{0,120}NOT_STARTED_SELF \? notStartedScreen\(\)[\s\S]{0,120}PAUSED_SELF \? pausedScreen\(\) : orig\(\.\.\.a\)/.test(app));
+  ok_('...and temporary leave has its own screen and its own flag',
+    /let PAUSED_SELF = false/.test(app) && /function pausedScreen\(\)\{/.test(app));
   ok_('...and the same gate closes the door before the first day too',
     /let NOT_STARTED_SELF = false/.test(app) && /function notStartedScreen\(\)\{/.test(app));
   ok_('...naming what does not open until then', /การลงเวลา รายชื่อนักเรียน บันทึกประจำวัน/.test(app));

@@ -105,7 +105,14 @@ console.log('\n1b) "View as" previews the person\'s OWN role');
 
   ok_('the picker says which people are view-only, before you choose one',
     /Observer — view only|ผู้ตรวจสอบ \(ดูอย่างเดียว\)/.test(app));
-  ok_('and the preview bar repeats it', /USER\.role==='Observer'\?[\s\S]{0,80}ดูอย่างเดียว/.test(app));
+  // v393 moved the bar's label into a `_state` ternary so a paused/ended preview can say so too —
+  // the Observer branch is still there, just no longer glued to the '?'
+  ok_('and the preview bar repeats it', /USER\.role==='Observer'\s*\?[\s\S]{0,80}ดูอย่างเดียว/.test(app));
+  /* ...and the reason the bar grew: "เวลาเข้าไปดูมุมมองให้ขึ้นข้อมูลด้านหลังด้วยว่า (ลาชั่วคราว)".
+   * View-as runs on the ADMIN's session, so the server never refuses it — without this the admin
+   * sees a closed screen and no way to tell whose state closed it. */
+  ok_('...and says when the person being previewed is on temporary leave',
+    /USER\._paused \?/.test(app) && /ลาชั่วคราว/.test(app));
   // the four Observer screens exist, so switching to that role has somewhere to land
   ok_('the Observer screens are registered before any preview can use them', /SCREENS\.Observer\[k\] = /.test(app));
 }
@@ -181,7 +188,8 @@ console.log('\n3) Someone who has not started yet is not part of attendance');
   ok_('the engine agrees', /const staffStarted_ =/.test(eng));
   ok_('the screen can show it', /notStarted:!staffStarted_\(me\), startDate:/.test(eng));
   // the point of the request: no phantom absences before the first day
-  ok_('they are not counted on the daily attendance board', /staffStat=M\.staff\.filter\([^)]*staffStarted_\(s\)/.test(eng));
+  // `[^)]*` used to be enough; v393 put requiresCheckin_(s) in front of it, which has a ')' in it
+  ok_('they are not counted on the daily attendance board', /staffStat=M\.staff\.filter\([^;]{0,120}staffStarted_\(s\)/.test(eng));
   /* ...and NEITHER END of the same question is left out. Reported 2026-09-01: a teacher whose last
    * day was 31/08 was still on that card on 01/09, counted as ขาด, dragging the school to 83% (5/6).
    * The board asked staffStarted_ and never staffEnded_, while the monthly report had asked both all
