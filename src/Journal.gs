@@ -17,6 +17,95 @@ var JOURNAL_FIELDS = ['Mood', 'Health', 'Milk', 'MilkTimes', 'Meals', 'MealItems
   'Photo1', 'Photo2', 'Photo3'];
 var JOURNAL_REQUIRED = ['Mood']; // minimum to submit (spec: block submit if required missing)
 
+/**
+ * ONE JOURNAL ROW, WITHOUT READING THE WHOLE SHEET.
+ *
+ * Reported 2026-09-22 from the staff group: "เวลาบันทึกรายวันโหลดช้ามากค่ะ บางช่วงก็กดบันทึกไม่ได้
+ * เป็นทุกวันเลยค่ะ", with a screenshot of the spinner sitting on the form.
+ *
+ * Every one of the five journal handlers below located its row with
+ *     findObject_(sheet, r => r.StudentID === … && dateStr_(new Date(r.Date)) === date)
+ * and findObject_ calls readObjects_, which reads the ENTIRE sheet: 26 columns × every row ever
+ * written, 1.1MB of it, to find one row the teacher is about to overwrite. That is the same cost the
+ * READS were paying before v396 — the write path simply never got looked at, because it does not go
+ * through readCollection_ and so was never cached either. It is paid on every ✏️ บันทึกร่าง, every
+ * 📤 ส่งให้ผู้ปกครอง, every parent comment and every teacher reply.
+ *
+ * This reads the two INDEX COLUMNS only (Date and StudentID — two columns, not twenty-six) to find
+ * the row number, then reads that ONE row in full. Same object back, `_row` and all, so every caller
+ * is unchanged and updateRow_ still writes exactly where it did.
+ *
+ * FIRST MATCH, SCANNING FORWARD — deliberately identical to findObject_. If two rows ever existed
+ * for one student and one day, the same one must win as before; this is a speed change and nothing
+ * else. Anything unexpected about the sheet (no headers, missing columns) falls back to the original
+ * scan, because being unable to take the fast path must never mean failing to find the row.
+ */
+function findJournalRow_(sheet, studentId, date) {
+  var last = sheet.getLastRow(), hdr = headers_(sheet);
+  var dc = hdr.indexOf('Date') + 1, sc = hdr.indexOf('StudentID') + 1;
+  if (last < 2 || !hdr.length || !dc || !sc) {
+    return findObject_(sheet, function (r) {
+      return String(r.StudentID) === String(studentId) && dateStr_(new Date(r.Date)) === date;
+    });
+  }
+  // one range covering both index columns, whatever order they sit in
+  var lo = Math.min(dc, sc), hi = Math.max(dc, sc);
+  var idx = sheet.getRange(2, lo, last - 1, hi - lo + 1).getValues();
+  var di = dc - lo, si = sc - lo, sid = String(studentId);
+  for (var i = 0; i < idx.length; i++) {
+    if (String(idx[i][si]) !== sid) continue;
+    var dv = idx[i][di];
+    if (dv === '' || dv == null) continue;              // a blank date cannot be the day we want
+    var ds; try { ds = dateStr_(new Date(dv)); } catch (e) { continue; }
+    if (ds !== date) continue;
+    var rowNum = i + 2;
+    var vals = sheet.getRange(rowNum, 1, 1, hdr.length).getValues()[0];
+    var o = {};
+    hdr.forEach(function (h, c) { o[h] = vals[c]; });
+    // non-enumerable, exactly as readObjects_ builds it — callers pass o._row to updateRow_
+    Object.defineProperty(o, '_row', { value: rowNum, enumerable: false });
+    return o;
+  }
+  return null;
+}
+
+/**
+ * WAS THIS CHILD CHECKED IN ON THIS DAY — the other full-sheet read on the same save.
+ *
+ * handleSubmitJournal asked it with readObjects_(CHECKIN_STUDENT).some(...), which builds an object
+ * for every check-in and check-out the school has ever recorded — 443KB measured on 2026-09-22 — to
+ * answer one yes/no. Together with the journal scan above, saving one daily report was reading about
+ * 1.5MB of spreadsheet before it wrote a single cell.
+ *
+ * Same treatment: the three columns that decide it (Date, StudentID, Type), never the whole row.
+ * Falls back to the original scan if the sheet is not the shape we expect — a lookup that cannot
+ * take the fast path must still give the right answer, because the wrong one here blocks a teacher
+ * from writing a journal for a child who IS at school.
+ */
+function studentCheckedInOn_(studentId, date) {
+  var sheet = sheet_(getMainSpreadsheet_(), 'CHECKIN_STUDENT');
+  var last = sheet.getLastRow(), hdr = headers_(sheet);
+  var dc = hdr.indexOf('Date') + 1, sc = hdr.indexOf('StudentID') + 1, tc = hdr.indexOf('Type') + 1;
+  if (last < 2 || !hdr.length || !dc || !sc || !tc) {
+    return readObjects_(sheet).some(function (r) {
+      return String(r.StudentID) === String(studentId) && dateStr_(new Date(r.Date)) === date &&
+             String(r.Type).toUpperCase() === 'IN';
+    });
+  }
+  var lo = Math.min(dc, sc, tc), hi = Math.max(dc, sc, tc);
+  var idx = sheet.getRange(2, lo, last - 1, hi - lo + 1).getValues();
+  var di = dc - lo, si = sc - lo, ti = tc - lo, sid = String(studentId);
+  for (var i = 0; i < idx.length; i++) {
+    if (String(idx[i][si]) !== sid) continue;
+    if (String(idx[i][ti]).toUpperCase() !== 'IN') continue;
+    var dv = idx[i][di];
+    if (dv === '' || dv == null) continue;
+    var ds; try { ds = dateStr_(new Date(dv)); } catch (e) { continue; }
+    if (ds === date) return true;
+  }
+  return false;
+}
+
 function jsonCell_(v) {
   if (v === undefined || v === null) return '';
   return (typeof v === 'object') ? JSON.stringify(v) : v;
@@ -48,18 +137,14 @@ function handleSubmitJournal(payload) {
   // the daily journal can only be filled once the child has been checked IN that day (teacher must
   // confirm attendance first). Only enforced for today — back-filling a past day stays allowed.
   if (date === dateStr_(new Date())) {
-    var inToday = readObjects_(sheet_(getMainSpreadsheet_(), 'CHECKIN_STUDENT')).some(function (r) {
-      return String(r.StudentID) === String(student.StudentID) && dateStr_(new Date(r.Date)) === date &&
-             String(r.Type).toUpperCase() === 'IN';
-    });
-    if (!inToday) throw apiError_('NOT_CHECKED_IN', 'ยังไม่ได้เช็คอินนักเรียนวันนี้ — กรุณาเช็คอินก่อนจึงจะบันทึกสมุดรายวันได้');
+    if (!studentCheckedInOn_(student.StudentID, date)) {
+      throw apiError_('NOT_CHECKED_IN', 'ยังไม่ได้เช็คอินนักเรียนวันนี้ — กรุณาเช็คอินก่อนจึงจะบันทึกสมุดรายวันได้');
+    }
   }
   var sheet = sheet_(getMainSpreadsheet_(), 'DAILY_JOURNAL');
   ensureColumns_(sheet, ['HealthDetail', 'MilkTotal', 'Water', 'Theme', 'SubmittedAt', 'Status', 'UpdatedAt', 'MilkUnit', 'ParentComment', 'TeacherReply', 'MealItems', 'MilkTimes', 'Photo1', 'Photo2', 'Photo3']);
 
-  var existing = findObject_(sheet, function (r) {
-    return String(r.StudentID) === String(student.StudentID) && dateStr_(new Date(r.Date)) === date;
-  });
+  var existing = findJournalRow_(sheet, student.StudentID, date);
   // once sent to the parent the entry is final — the client hides the form, this is the real gate
   if (existing && journalStatusOf_(existing) === 'SUBMITTED') {
     throw apiError_('JOURNAL_LOCKED', 'บันทึกของวันที่ ' + date + ' ส่งให้ผู้ปกครองแล้ว แก้ไขไม่ได้');
@@ -116,9 +201,7 @@ function handleUnlockJournal(payload) {
   var date = payload.date || dateStr_(new Date());
   var sheet = sheet_(getMainSpreadsheet_(), 'DAILY_JOURNAL');
   ensureColumns_(sheet, ['HealthDetail', 'MilkTotal', 'Water', 'Theme', 'SubmittedAt', 'Status', 'UpdatedAt', 'MilkUnit', 'ParentComment', 'TeacherReply', 'MealItems', 'MilkTimes', 'Photo1', 'Photo2', 'Photo3']);
-  var row = findObject_(sheet, function (r) {
-    return String(r.StudentID) === String(student.StudentID) && dateStr_(new Date(r.Date)) === date;
-  });
+  var row = findJournalRow_(sheet, student.StudentID, date);
   if (!row) throw apiError_('NOT_FOUND', 'ยังไม่มีบันทึกของวันที่ ' + date);
   updateRow_(sheet, row._row, { Status: 'DRAFT', SubmittedAt: '' });
   /* ...AND THE PER-DAY KEY (v396). Journals are now hydrated one day at a time (jrn:<date>), so
@@ -139,9 +222,7 @@ function handleSaveParentComment(payload) {
   var date = payload.date || dateStr_(new Date());
   var sheet = sheet_(getMainSpreadsheet_(), 'DAILY_JOURNAL');
   ensureColumns_(sheet, ['MilkUnit', 'ParentComment', 'TeacherReply']);
-  var row = findObject_(sheet, function (r) {
-    return String(r.StudentID) === String(student.StudentID) && dateStr_(new Date(r.Date)) === date;
-  });
+  var row = findJournalRow_(sheet, student.StudentID, date);
   if (!row) throw apiError_('NOT_FOUND', 'ยังไม่มีบันทึกของวันที่ ' + date);
   updateRow_(sheet, row._row, { ParentComment: String(payload.comment || '') });
   /* ...AND THE PER-DAY KEY (v396). Journals are now hydrated one day at a time (jrn:<date>), so
@@ -164,9 +245,7 @@ function handleSaveTeacherReply(payload) {
   var date = payload.date || dateStr_(new Date());
   var sheet = sheet_(getMainSpreadsheet_(), 'DAILY_JOURNAL');
   ensureColumns_(sheet, ['ParentComment', 'TeacherReply']);
-  var row = findObject_(sheet, function (r) {
-    return String(r.StudentID) === String(student.StudentID) && dateStr_(new Date(r.Date)) === date;
-  });
+  var row = findJournalRow_(sheet, student.StudentID, date);
   if (!row) throw apiError_('NOT_FOUND', 'ยังไม่มีบันทึกของวันที่ ' + date);
   updateRow_(sheet, row._row, { TeacherReply: String(payload.reply || '') });
   /* ...AND THE PER-DAY KEY (v396). Journals are now hydrated one day at a time (jrn:<date>), so
@@ -185,9 +264,7 @@ function handleGetJournal(payload) {
   payload = payload || {};
   var student = getStudent_(payload.studentId);
   var date = payload.date || dateStr_(new Date());
-  var row = findObject_(sheet_(getMainSpreadsheet_(), 'DAILY_JOURNAL'), function (r) {
-    return String(r.StudentID) === String(student.StudentID) && dateStr_(new Date(r.Date)) === date;
-  });
+  var row = findJournalRow_(sheet_(getMainSpreadsheet_(), 'DAILY_JOURNAL'), student.StudentID, date);
   if (!row) throw apiError_('NOT_FOUND', 'ยังไม่มีบันทึกของวันที่ ' + date);
   return journalView_(row, student);
 }
