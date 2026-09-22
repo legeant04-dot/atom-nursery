@@ -131,7 +131,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.394'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.395'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -10854,6 +10854,15 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
       +(d.refusedBy||[]).map(x=>x.code+' x'+x.n).join(' '));
     if((d.byRole||[]).length) L.push('ROLES: '+d.byRole.map(x=>x.role+' x'+x.n+'/'+x.sessions+'s ='+x.perSession+'/session p50='+ms(x.p50)).join(' | '));
     if(Number(d.healed)>0) L.push('SELF-HEALED: '+d.healed+' (real fail='+d.realFailRate+'%) '+(d.healedBy||[]).map(x=>x.action+' x'+x.n).join(' '));
+    /* CHECK-IN / CHECK-OUT, listed whatever their ranking. These never reach SLOWEST — that is
+       ordered by TOTAL wait, so thirty punches a day cannot compete with nine hundred reads — and
+       "are the check-ins still slow" is a question that gets asked every time. Printed first,
+       because it is usually the reason the report was opened. */
+    if((d.punches||[]).length){
+      L.push('CHECK-IN / OUT (ทุก Role):');
+      d.punches.forEach(x=>L.push('  '+x.action+' ['+x.who+'] x'+x.n+
+        (x.n?' p50='+ms(x.p50)+' p95='+ms(x.p95)+(x.fail?' fail='+x.fail+' ('+Math.round(x.fail/x.n*100)+'%)':' fail=0'):' — ไม่มีการใช้งานในช่วงนี้')));
+    }
     L.push('SLOWEST (by total wait):');
     (d.slowest||[]).slice(0,10).forEach(x=>L.push('  '+x.action+' x'+x.n+' p50='+ms(x.p50)+' p95='+ms(x.p95)+(x.fail?' fail='+x.fail:'')));
     L.push('SCREENS:');

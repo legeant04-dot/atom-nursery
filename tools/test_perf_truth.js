@@ -172,5 +172,27 @@ console.log('\n5) a teacher does not type her daily report twice');
     /Everything that CREATES a\s*\n\s*\/\/ row \(payments, slips, bills, growth records\) or deletes one is deliberately NOT queued/.test(app));
 }
 
+console.log('\n6) the five punches, which ranking can never surface');
+{
+  /* "ตรวจสอบการ Check-in/out ของทุก Role ให้ทีว่ายังช้าอยู่ไหม" — asked repeatedly, most recently
+   * 2026-09-22, and the report could not answer it once. SLOWEST is ranked by TOTAL wait (n × p50),
+   * which is the right way to find where a school's time goes and the wrong way to find a specific
+   * action: thirty punches a day cannot out-rank nine hundred reads, however slow each one is. The
+   * only punch that ever appeared did so in FAILING, for failing. */
+  ok_('the five are named explicitly, not derived from a ranking', /var PUNCH_ACTIONS_ = \[/.test(perf));
+  ['parentCheckin', 'staffStudentCheckin', 'staffCheckin', 'staffCheckout', 'editStudentAttendance']
+    .forEach(a => ok_(a + ' is one of them', new RegExp("'" + a + "'").test(perf)));
+  ok_('...and every role is covered, because the question was about all of them',
+    /'Parent'/.test(perf) && /'Teacher'/.test(perf) && /'Staff'/.test(perf) && /'Admin'/.test(perf));
+  ok_('they are carried in the payload', /punches: punches,/.test(perf));
+  /* PRINTED EVEN AT ZERO. A punch nobody made is itself worth seeing on a day the school was open —
+   * and an empty line is the difference between "nobody used it" and "the section is missing". */
+  ok_('...and printed even when the count is zero', /ไม่มีการใช้งานในช่วงนี้/.test(app));
+  ok_('...above the ranked list, because it is usually why the report was opened',
+    app.indexOf('CHECK-IN / OUT') > 0 && app.indexOf('CHECK-IN / OUT') < app.indexOf('SLOWEST (by total wait)'));
+  ok_('the failure rate is shown as a percentage, not a bare count',
+    /Math\.round\(x\.fail\/x\.n\*100\)/.test(app));
+}
+
 console.log('\n' + (fail ? 'FAILED ' : 'PASSED ') + pass + ' passed, ' + fail + ' failed\n');
 process.exit(fail ? 1 : 0);

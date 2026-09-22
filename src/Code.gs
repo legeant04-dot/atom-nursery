@@ -29,14 +29,25 @@ var ROUTES = {
       // Milliseconds only — no rows, no counts, nothing about any child leaves here.
       if (p.probe === 2 || p.probe === '2') {
         out.read = {};
+        /* ...AND HOW BIG EACH ONE IS, because the time on its own does not say WHY.
+         *
+         * Every collection is cached (readCollection_), chunked up to ~1 MB
+         * (CACHE_PART_ × CACHE_MAX_PARTS_). Past that cachePut_ gives up and removes the key — so a
+         * collection over the limit is read LIVE on every single request, for ever, and nothing
+         * anywhere says so. On 2026-09-22 `journals` measured 10.7s against 45-120ms for everything
+         * else, which is either a big sheet or an uncacheable one, and those need opposite fixes.
+         * Bytes only — no rows, no content, nothing about any child leaves here. */
+        out.bytes = {}; out.cacheLimit = (typeof CACHE_PART_ === 'number' ? CACHE_PART_ * CACHE_MAX_PARTS_ : 0);
         // the finance ones are here because financeSummary is the slowest action in the report and
         // "the sheets are slow" had to be proved or ruled out. payroll lives in the SECOND workbook,
         // which is the one thing on this list that could cost more than a read.
         ['students', 'staff', 'checkinStudent', 'journals', 'payments', 'otDaily', 'leaves',
          'paymentSlips', 'studentCharges', 'prepayments', 'payroll'].forEach(function (k) {
           var s = Date.now();
-          try { readCollection_(k); } catch (e) {}
+          var rows = null;
+          try { rows = readCollection_(k); } catch (e) {}
           out.read[k] = Date.now() - s;
+          try { out.bytes[k] = rows ? JSON.stringify(rows).length : -1; } catch (e) { out.bytes[k] = -1; }
         });
       }
     }

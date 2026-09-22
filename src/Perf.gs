@@ -495,6 +495,33 @@ function handlePerfSummary(p) {
              cost: Math.round(a.n * st.p50 / 1000), codes: a.codes };
   }).sort(function (x, y) { return y.cost - x.cost; }).slice(0, 20);
 
+  /* THE FIVE PUNCHES, ALWAYS LISTED — ranking cannot answer a question about them.
+   *
+   * Asked three times now, most recently 2026-09-22: "ตรวจสอบการ Check-in/out ของทุก Role ให้ทีว่า
+   * ยังช้าอยู่ไหม". The report could not answer it. `slowest` is ranked by TOTAL wait (n × p50),
+   * which is the right way to find where a school's time goes — and it means a punch that happens
+   * thirty times a day never appears next to a read that happens nine hundred times, however slow
+   * each one is. The one action on this list that DID show up did so in FAILING, for failing.
+   *
+   * These are also the actions most worth watching: they are what somebody is standing at a gate
+   * doing, they start the OT clock, and they are the ones being optimised. So they get their own
+   * section, ordered by role rather than by size, and they appear even when the count is zero —
+   * a punch nobody made is itself worth seeing on a day the school was open. */
+  var PUNCH_ACTIONS_ = [
+    ['parentCheckin',       'Parent'],    // a family's own check-in / pick-up
+    ['staffStudentCheckin', 'Teacher'],   // a teacher recording for a child
+    ['staffCheckin',        'Staff'],     // clocking in
+    ['staffCheckout',       'Staff'],     // clocking out
+    ['editStudentAttendance', 'Admin']    // correcting a time afterwards
+  ];
+  var punches = PUNCH_ACTIONS_.map(function (pair) {
+    var a = acts[pair[0]];
+    if (!a) return { action: pair[0], who: pair[1], n: 0, fail: 0, p50: 0, p95: 0, max: 0, codes: {} };
+    var st = statify(a);
+    return { action: pair[0], who: pair[1], n: a.n, fail: a.fail,
+             p50: st.p50, p95: st.p95, max: st.max, codes: a.codes };
+  });
+
   /* CALLS PER VISIT — the number a screen's cost is actually made of, and the one nobody could see.
    * Every round trip queues behind the last (Apps Script runs one execution at a time per user), so a
    * screen that grew from 4 requests to 9 got twice as slow without any single call getting slower —
@@ -601,6 +628,8 @@ function handlePerfSummary(p) {
     cacheHit: cacheHit, cacheMiss: cacheMiss,
     cacheRate: (cacheHit + cacheMiss) ? Math.round(cacheHit / (cacheHit + cacheMiss) * 100) : 0,
     slowest: slowest, slowScreens: slowScreens, problems: problems, failing: failing,
+    // the five punches, always present — see PUNCH_ACTIONS_ for why ranking cannot answer this
+    punches: punches,
     byDev: byDev, byOs: byOs, byNet: byNet, byRole: byRole, boot: bootStats,
     /* `slowest` above is per ACTION, averaged. These two are the ones a complaint about a TIME can be
      * answered with: the shape of the day, and the individual worst moments with their stamps. */

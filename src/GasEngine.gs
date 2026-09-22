@@ -232,7 +232,28 @@ function cacheTtl_() { var t = Number(getConfig_ ? getConfig_('CacheTTL', 900) :
  * sheets that cost the most to read were the ones never cached and re-read in full on every single
  * request. Split them across numbered parts instead.
  */
-var CACHE_PART_ = 90000, CACHE_MAX_PARTS_ = 12;   // up to ~1MB per collection
+/* UP TO ~2.8MB PER COLLECTION — raised from 12 parts (~1.05MB) on 2026-09-22, and the reason is
+ * worth keeping because the failure was completely silent.
+ *
+ * DAILY_JOURNAL measured 1,119KB against a ceiling of 1,055KB. Sixty-four kilobytes over. Past the
+ * limit cachePut_ does `c.remove(k); return;` — so the collection is not cached at all and is read
+ * LIVE on every request that touches it, for ever, with nothing anywhere saying so. The probe
+ * measured that read at 3.3–10.7s while every other collection came back in 38–101ms.
+ *
+ * It explains the two slowest actions in the 17–22/09 report exactly: getJournal p50 12.4s and
+ * journalStatus p50 12.8s, the top two by total wait. And it explains the p50 regression across the
+ * school, 9.9s → 10.8s between two reports with no release that should have cost anything: the sheet
+ * simply grew past the line, and every journal-touching screen fell off a cliff on the day it did.
+ *
+ * A limit that is crossed by 6% and silently turns caching off is the wrong shape of limit. Reading
+ * is one getAll whatever the part count, so headroom is nearly free; ping?probe=2 now reports each
+ * collection's SIZE against this ceiling, so the next one to approach it is visible before it costs
+ * anybody a second.
+ *
+ * THIS BUYS TIME, IT IS NOT THE FIX. DAILY_JOURNAL grows by one row per child per school day and
+ * will cross 2.8MB too. The real answer is not to hydrate four years of journals to draw today's
+ * class screen. */
+var CACHE_PART_ = 90000, CACHE_MAX_PARTS_ = 32;
 function cacheGet_(k) {
   try {
     var v = CacheService.getScriptCache().get(k);
