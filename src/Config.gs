@@ -293,7 +293,17 @@ SCHEMA[WB.HR] = {
                    * table, so raising the school's sick-leave later still reaches everybody.
                    * Entitlement follows length of service, which is why it cannot live in one
                    * school-wide number. Blank = this person is on the school's numbers. */
-                  'LeaveQuota'],
+                  'LeaveQuota',
+                  /* TEMPORARY LEAVE — declared here from v393, having lived only inside
+                   * handleSetStaffPause's ensureColumns_ until now. That worked, but it meant the
+                   * columns existed only once somebody had been paused: a fresh workbook had no
+                   * PauseFrom at all, so anything reading it got undefined and quietly answered
+                   * "not on leave". Sitting beside EndDate/EndReason/EndRemark, which is the same
+                   * kind of fact about the same person and has always been declared.
+                   * PauseTo is the day they COME BACK — see staffPaused_ in webapp/engine.js. */
+                  'PauseFrom', 'PauseTo', 'PauseReason', 'PauseRemark',
+                  // what they are paid while away: '' = as normal | NONE | HALF | CUSTOM (+ amount)
+                  'PauseSalaryMode', 'PauseSalaryAmount'],
   // Staff groups with their own (editable) work hours — Admin-managed
   STAFF_GROUPS:  ['GroupName', 'GroupNameEN', 'CheckInTime', 'CheckOutTime'],
   // Per-staff payroll config (Admin-editable). Widened to carry every field the engine's computePayroll uses

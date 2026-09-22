@@ -119,8 +119,19 @@ console.log('\n3) both halves of the fix, in the code');
   ok_('the months route exists', /myPayslipMonths: function \(p\)/.test(codeGs));
   /* NOT admin-only: it is the teacher's OWN history, and applyIdentity_ has already pinned staffId
    * to whoever is signed in. Putting it in ADMIN_ONLY would lock a teacher out of their own slips. */
+  /* SCOPED TO THE ADMIN_ONLY MAP. This grepped the whole file for "myPayslipMonths: 1", and v393
+   * added a second map in the same `name: 1` shape (PAUSED_OK_ — what somebody on ลาชั่วคราว may
+   * still do, which includes reading their own payslips). The claim was always "it is not in
+   * ADMIN_ONLY"; now that is what it looks at, so another allow-list cannot fail it by existing. */
+  const _ao = codeGs.indexOf('var ADMIN_ONLY = {');
+  const adminOnly = _ao < 0 ? '' : codeGs.slice(_ao, codeGs.indexOf('};', _ao) + 2);
+  // ...and prove the slice is the MAP and not half the file — the first attempt at this ran on to a
+  // later terminator, swallowed the allow-list below it, and "found" the name in the wrong object
+  ok_('the ADMIN_ONLY map was found, and only it',
+    adminOnly.length > 200 && adminOnly.length < 8000 &&
+    /parentKidsMap: 1 \};$/.test(adminOnly) && !/PAUSED_OK_/.test(adminOnly));
   ok_('...and is NOT admin-only, or a teacher could not read their own',
-    !/myPayslipMonths: 1/.test(codeGs));
+    !/myPayslipMonths: 1/.test(adminOnly));
 }
 
 console.log('\n4) what the teacher sees');

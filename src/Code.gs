@@ -490,6 +490,36 @@ function applyIdentity_(action, payload, sess) {
     if (/^\d{4}-\d{2}-\d{2}$/.test(_start) && dateStr_(new Date()) < _start && !NOT_STARTED_OK_[action]) {
       throw apiError_('NOT_STARTED', 'วันแรกของการทำงานคือ ' + _start + ' — ระบบจะเปิดให้ใช้งานในวันนั้น');
     }
+    /* ...AND THE THIRD WAY OF NOT BEING AT WORK, which had no gate at all.
+     *
+     * Reported 2026-09-22 with a screenshot: ครู Esther, ลาชั่วคราว 22/09–01/12 recorded by the
+     * Admin, opening the app on the 22nd with เข้างาน / เลิกงาน live, her class roll on screen, and
+     * every button working exactly as before.
+     *
+     * staffPaused_ EXISTED and was correct — the monthly report, the dashboard and payroll all ask
+     * it. What nobody asked it was "may this person use the app today". So a pause was a fact the
+     * reports knew and the door did not: the same mistake as the missing NOT_STARTED block above,
+     * made a third time, and the reason all three now sit together in this one function rather than
+     * being scattered across the handlers that happen to remember.
+     *
+     * PauseTo is the day they COME BACK (staffPaused_ in webapp/engine.js says so, and the student
+     * rule matches), so the test is `< to` and the return date itself is a working day. A pause with
+     * no end runs until the Admin clears it.
+     *
+     * NOT Status='INACTIVE' and deliberately: somebody on maternity leave is still employed, and
+     * flipping Status would tell payroll they had left. The dates are the fact; this reads them.
+     */
+    var _pFrom = _me ? String(_me.PauseFrom || '').slice(0, 10) : '';
+    if (/^\d{4}-\d{2}-\d{2}$/.test(_pFrom) && !PAUSED_OK_[action]) {
+      var _pTo = _me ? String(_me.PauseTo || '').slice(0, 10) : '';
+      var _now = dateStr_(new Date());
+      var _onPause = _now >= _pFrom && !(/^\d{4}-\d{2}-\d{2}$/.test(_pTo) && _now >= _pTo);
+      if (_onPause) {
+        throw apiError_('PAUSED', 'อยู่ระหว่างลาชั่วคราว' +
+          (/^\d{4}-\d{2}-\d{2}$/.test(_pTo) ? ' ถึง ' + _pTo + ' — ระบบจะเปิดให้ใช้งานอีกครั้งในวันนั้น'
+                                            : ' ตั้งแต่ ' + _pFrom + ' — กรุณาติดต่อแอดมินเมื่อกลับมาทำงาน'));
+      }
+    }
   }
   return payload;
 }
@@ -519,6 +549,26 @@ var NOT_STARTED_OK_ = {
   staffSelf: 1, myAttendanceToday: 1, saveStaffSelf: 1,
   changeStaffPassword: 1, checkStaffPassword: 1, requestPasswordReset: 1,
   notifications: 1, markNotifsRead: 1, schoolDay: 1
+};
+/**
+ * ...and the same list for somebody on temporary leave. Same shape, same reasoning, kept SEPARATE
+ * on purpose: the two states look alike but are not the same person.
+ *
+ * Somebody who has not started yet has never worked here, so they get only what they need to set
+ * themselves up. Somebody on ลาชั่วคราว has a history — a payslip from last month, leave they filed,
+ * their own attendance record — and taking that away while they are off would be punishing them for
+ * being on leave. So their OWN past is readable and nothing about today is.
+ *
+ * What is NOT here is everything about the school's children, its money, and its timekeeping:
+ * no roll, no journal, no check-in, no approvals. `staffCheckin` and `staffCheckout` are absent
+ * precisely because the screenshot that reported this had both buttons live.
+ */
+var PAUSED_OK_ = {
+  staffSelf: 1, myAttendanceToday: 1, saveStaffSelf: 1,
+  changeStaffPassword: 1, checkStaffPassword: 1, requestPasswordReset: 1,
+  notifications: 1, markNotifsRead: 1, schoolDay: 1,
+  // their own record, which exists and is theirs — unlike somebody who has not started
+  myLeaves: 1, myAttendanceMonth: 1, myPayslipMonths: 1, getPayslip: 1
 };
 
 /** One staff row by id, for the identity checks above. Reads go through the cached row store. */
