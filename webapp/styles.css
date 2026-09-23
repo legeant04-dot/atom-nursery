@@ -760,3 +760,11 @@ input::placeholder,textarea::placeholder{color:var(--ink-3);}
 #notifMenu .nm-item[role=menuitem]:hover,#notifMenu .nm-item[role=menuitem]:focus{background:var(--blue-bg);outline:none;}
 #notifMenu .nm-item.unread{background:var(--surface-2);}
 #notifMenu .nm-item small{white-space:nowrap;font-size:12px;}
+
+/* The OT screen's action bar, pinned to the bottom of its own sheet (v399, asked 2026-09-23).
+   The sheet is the scroll container (.modal .sheet has overflow:auto), so sticky bottom:0 holds the
+   bar against the bottom edge while twenty-seven rows scroll behind it. The negative margins and
+   matching padding let it span the sheet's full width and sit flush on the rounded corner, instead
+   of floating in an 18px gutter. */
+.ot-foot{position:sticky;bottom:0;z-index:3;background:var(--surface);border-top:1px solid var(--line);
+  margin:8px -18px -18px;padding:10px 18px 14px;box-shadow:0 -6px 14px rgba(0,0,0,.06);}
