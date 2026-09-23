@@ -106,10 +106,35 @@ function inboxBust_() { try { CacheService.getScriptCache().removeAll(['rows:ADM
 
 /** Append a line to the Admin in-app inbox (best-effort; never throws into the caller).
  *  ref (optional) = a deep-link "kind|studentId|date" so tapping the notification opens that exact item. */
+var INBOX_DEDUP_MIN_ = 10;   // the same words, to the same person, inside this many minutes = one event
 function inboxAdd_(category, text, ref, staffId) {
   try {
     var sh = inboxSheet_();
     try { ensureColumns_(sh, ['InboxID', 'Date', 'Category', 'Text', 'Read', 'Ref', 'StaffID']); } catch (e) {}
+    /* THE SAME ALERT TWICE IS NOT TWO ALERTS. Reported 2026-09-23 with a screenshot of the admin's
+     * tray: the identical injury line at 20:22 and again at 20:23 — same child, same time, same
+     * narrative. Whatever produced the second one (a double tap, a re-submit, an edit that
+     * re-notified), a second copy of the same sentence tells the reader nothing the first did not,
+     * and it pushes a DIFFERENT notification off the visible part of the tray.
+     *
+     * Matched on category + text + recipient, inside ten minutes. Deliberately narrow: the same
+     * child injured twice in one afternoon produces different words (a different time, a different
+     * narrative) and both rows survive, which is the case that must not be swallowed. Eleven minutes
+     * later the same words are a new event and get their own row.
+     *
+     * Read-only and best-effort — if the check fails for any reason the row is written, because
+     * losing an emergency alert is far worse than showing it twice. */
+    try {
+      var cutoff = new Date(Date.now() - INBOX_DEDUP_MIN_ * 60000);
+      var dupe = readObjects_(sh).some(function (r) {
+        if (String(r.Category || '') !== String(category || '')) return false;
+        if (String(r.Text || '') !== String(text || '')) return false;
+        if (String(r.StaffID || '') !== String(staffId || '')) return false;
+        var d = (r.Date instanceof Date) ? r.Date : new Date(String(r.Date || '').replace(' ', 'T'));
+        return !isNaN(d) && d >= cutoff;
+      });
+      if (dupe) return;
+    } catch (e) {}
     var id = 'IN-' + Date.now() + '-' + Math.floor(Math.random() * 1000);
     appendObject_(sh, { InboxID: id, Category: category || '', Text: String(text || ''), Read: '', Ref: ref || '', StaffID: staffId || '',
       Date: dateStr_(new Date()) + ' ' + timeStr_(new Date()) });

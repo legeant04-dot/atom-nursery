@@ -131,7 +131,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.398'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.399'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -738,6 +738,28 @@
     d.style.top=(r.bottom+6)+'px';
     d.style.left=Math.max(8, Math.min(window.innerWidth-w-8, r.right-w))+'px';
     setTimeout(()=>document.addEventListener('click', _notifAway, true), 0);
+
+    /* OPENING THE TRAY IS READING IT (asked 2026-09-23: "เมื่อกดเปิด Notification = Clear").
+     *
+     * The rows stay — this clears the BADGE, not the history; the list is still there with
+     * everything on it, and the 🔵 dots go. What it removes is the separate "ทำเครื่องหมายว่าอ่านแล้ว"
+     * step, which meant a count of 100 sat on the bell for days after everything in it had been
+     * looked at, and then said nothing at all about whether something new had arrived.
+     *
+     * AFTER the tray is on screen and NOT awaited, so a ten-second round trip cannot delay the thing
+     * the person actually tapped for. The badge is zeroed locally first, because that is what they
+     * just did; if the call fails the next refreshBell puts the true count back.
+     *
+     * "รอคุณดำเนินการ" is deliberately NOT cleared — it is not a notification. It stops being true
+     * when the work is done, not when somebody glances at it, which is exactly why opsTrayHTML is a
+     * separate section. */
+    try {
+      const hadUnread = ns.some(x=>!x.read);
+      _bellN = (_bellOps && _bellOps.total) || 0;
+      const _b=$('#bellBadge'); if(_b){ _b.hidden=!_bellN; _b.textContent=_bellN; }
+      d.querySelectorAll('.nm-item.unread').forEach(el=>{ if(!el.getAttribute('onclick')||!/OPS_TAP/.test(el.getAttribute('onclick'))) el.classList.remove('unread'); });
+      if(hadUnread) api('markNotifsRead',notifParams()).catch(()=>{ _bellAt=0; });
+    } catch(e){}
   };
 
   // decide which screen a notification opens (by inbox category, falling back to keywords), role-aware
@@ -11434,7 +11456,14 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
    * 'unpaid' deliberately covers UNPAID, PENDING_VERIFY and PARTIAL together: that is exactly what
    * the "ค้างชำระ" figure above it counts, and a filter that disagreed with its own number would be
    * worse than no filter at all. */
-  let OT_FILT='all';
+  /* OPENS ON ค้างชำระ, not on everything (asked 2026-09-23). An admin opens this screen to find out
+   * who still owes, not to read twenty-three rows that are already settled — and at 27 rows the four
+   * that matter were below the fold. `all` is one tap away and the header still says which filter is
+   * on, so nothing is hidden, it is just no longer first. */
+  let OT_FILT='unpaid';
+  // the summary folds away (asked the same day) — remembered across the re-render a filter causes
+  let OT_SUM_OPEN=true;
+  window.A_otSumToggle=(el)=>{ OT_SUM_OPEN=!!el.open; };
   const OT_FILTERS = {
     all:       () => true,
     paid:      o => o.status==='PAID',
@@ -11512,7 +11541,12 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
         background:${on?'var(--blue-bg)':'transparent'};border:1px solid ${on?'var(--blue-line)':'transparent'};border-radius:10px;padding:4px 6px"
         aria-pressed="${on}"><div style="font-size:18px;font-weight:800;color:${col||'var(--ink)'}">${val}</div>
         <div class="muted" style="font-size:11.5px">${lbl}${on?' ▾':''}</div></button>`; };
-    const otSummary = rows.length ? `<div class="card" style="padding:10px;background:var(--surface-2)">
+    /* FOLDS AWAY. Twenty-seven rows plus a six-figure summary does not fit a phone, and the rows are
+     * what an admin came for — so the numbers collapse and the list keeps the screen. Open by
+     * default because the totals are the first thing to read ONCE; `open` is remembered so a filter
+     * tap does not spring it back open under somebody who just closed it. */
+    const otSummary = rows.length ? `<details class="card" style="padding:10px;background:var(--surface-2)"${OT_SUM_OPEN?' open':''} ontoggle="A_otSumToggle(this)">
+      <summary style="cursor:pointer;font-size:13px;font-weight:700;margin:-2px 0 6px">📊 ${EN()?'Summary & filters':'สรุปยอดและตัวกรอง'}</summary>
       <div style="display:flex;gap:10px;flex-wrap:wrap">
         ${cell(EN()?'Charged (excl. cancelled)':'เรียกเก็บทั้งหมด', baht(charged))}
         ${cell(EN()?'Collected':'เก็บได้แล้ว', baht(collected), 'var(--ok)')}
@@ -11529,31 +11563,50 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
       ${nPartial?`<div style="font-size:12px;color:var(--warn-ink);margin-top:6px">⚠️ ${EN()
         ? `${nPartial} row(s) part-paid — counted as still owed here; the exact amount is on the row.`
         : `มี ${nPartial} รายการชำระบางส่วน — นับรวมเป็นยังค้างในสรุปนี้ · ยอดที่รับแล้วดูในรายการ`}</div>`:''}
-    </div>` : '';
+    </details>` : '';
     modal(`<h3>⏰ ${EN()?'Student late-pickup OT':'OT รับช้า (นักเรียน)'}</h3>
       <p class="muted" style="font-size:13px">${EN()?'Cancelled OT is never billed. Editing a cancelled row restores it. Paid rows are locked.':'OT ที่ยกเลิกจะไม่ถูกเรียกเก็บ · แก้ไขรายการที่ยกเลิกแล้วจะคืนค่าอัตโนมัติ · รายการที่ชำระแล้วแก้ไม่ได้'}</p>
       <label class="field"><span>${esc(t('c.month'))}</span><input type="month" value="${month}" onchange="A_otMonth(this.value)"/></label>
       ${otSummary}
-      ${rows.length?`<div style="position:sticky;top:0;z-index:2;background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:6px 8px;margin-bottom:6px">
-        ${/* "เลือกทั้งหมด" MEANS THE ROWS ON SCREEN. A_socToggleAll ticks `.sotoc` in the document, so
-             under a filter it selects the filtered set — which is the behaviour you want, and not
-             the behaviour the words promise. The next button along cancels OT, so this is money:
-             say which "all" is meant rather than let an admin find out afterwards. */''}
-        <div class="spread"><label style="display:flex;gap:6px;align-items:center"><input type="checkbox" id="socAll" style="width:auto" onchange="A_socToggleAll(this)"/> ${OT_FILT==='all'?(EN()?'Select all':'เลือกทั้งหมด'):(EN()?'Select all shown':'เลือกทั้งหมดที่แสดงอยู่')} <span class="muted" id="socN">(0)</span></label></div>
-        <div class="row" style="margin-top:6px"><button class="btn sm pink" onclick="A_socBatch('cancel')">🚫 ${EN()?'Cancel all selected':'ยกเลิกทั้งหมด'}</button><button class="btn sm outline" onclick="A_socBatch('restore')">♻️ ${EN()?'Restore all selected':'คืนค่าทั้งหมด'}</button></div></div>`:''}
       ${/* The list IS the filter's answer — same predicate as the number that was tapped, so the two
            can never disagree. An empty result says which filter emptied it and offers the way back,
            because a blank panel under a number that said 4 is how somebody decides the app is
            broken (which is exactly how this screen came to attention two days ago). */''}
       ${(()=>{ const shown=rows.filter(OT_FILTERS[OT_FILT]||OT_FILTERS.all);
         if(!rows.length) return `<div class="card muted">${EN()?'No OT this month':'ไม่มีรายการ OT เดือนนี้'}</div>`;
-        if(!shown.length) return `<div class="card muted">${EN()?'No rows in this filter':'ไม่มีรายการในตัวกรองนี้'}
+        /* AN EMPTY "ค้างชำระ" IS GOOD NEWS, and now that it is the filter the screen OPENS on it is
+         * the most likely thing an admin sees. "ไม่มีรายการในตัวกรองนี้" under a screen you did not
+         * choose to filter reads as a fault; "เก็บครบแล้ว" is the same fact and the true one. */
+        if(!shown.length) return `<div class="card muted">${
+          OT_FILT==='unpaid' ? `✅ ${EN()?'Nothing outstanding — every OT this month has been paid.':'ไม่มีรายการค้างชำระ — OT เดือนนี้เก็บครบแล้ว'}`
+                             : (EN()?'No rows in this filter':'ไม่มีรายการในตัวกรองนี้')}
           <button class="btn sm outline block" style="margin-top:8px" onclick="A_otFilter('all')">${EN()?'Show all rows':'ดูรายการทั้งหมด'}</button></div>`;
         return (OT_FILT==='all'?'':`<div class="muted" style="font-size:12.5px;margin:2px 2px 6px">${EN()
             ? `Showing ${shown.length} of ${rows.length} rows`
             : `แสดง ${shown.length} จาก ${rows.length} รายการ`} · <a href="#" onclick="A_otFilter('all');return false">${EN()?'show all':'ดูทั้งหมด'}</a></div>`)
           + shown.map(row).join(''); })()}
-      <button class="btn outline block" style="margin-top:8px" onclick="this.closest('.modal').remove()">${esc(t('c.close'))}</button>`);
+      ${/* THE ACTIONS, PINNED TO THE BOTTOM (asked 2026-09-23). They used to sit above a list of
+           twenty-seven rows: an admin who scrolled to find the row she wanted then had to scroll
+           back up to act on it, and ปิด was somewhere below the last row. Sticky to the sheet's own
+           scroll container, so both are always under the thumb — which on a phone is also where the
+           thumb already is.
+
+           THE WORDS CHANGED BECAUSE THEY WERE WRONG. "ยกเลิกทั้งหมด" beside a tick-box list reads as
+           "cancel everything", and it never did that — it acts on what is TICKED. This is money
+           being written off; a button that overstates what it does is the worst kind to leave alone.
+           The line under them says what happens, because ยกเลิก and คืนค่า are not obvious verbs for
+           "stop billing this" and "put it back". */''}
+      ${rows.length?`<div class="ot-foot">
+        <div class="spread"><label style="display:flex;gap:6px;align-items:center;font-size:13px"><input type="checkbox" id="socAll" style="width:auto" onchange="A_socToggleAll(this)"/> ${
+          OT_FILT==='all'?(EN()?'Select all':'เลือกทั้งหมด'):(EN()?'Select all shown':'เลือกทั้งหมดที่แสดงอยู่')} <span class="muted" id="socN">(0)</span></label></div>
+        <div class="row" style="margin-top:6px">
+          <button class="btn sm pink" onclick="A_socBatch('cancel')">🚫 ${EN()?'Cancel selected':'ยกเลิกรายการที่เลือก'}</button>
+          <button class="btn sm outline" onclick="A_socBatch('restore')">♻️ ${EN()?'Restore selected':'คืนค่ารายการที่เลือก'}</button></div>
+        <div class="muted" style="font-size:11.5px;line-height:1.55;margin-top:6px">${EN()
+          ? '<b>Cancel</b> = this OT is not billed to the family (the row stays, marked cancelled).<br><b>Restore</b> = put a cancelled row back so it is billed again.<br>Only the ticked rows are affected. Paid rows cannot be changed.'
+          : '<b>ยกเลิกรายการที่เลือก</b> = ไม่เรียกเก็บ OT รายการนั้นจากผู้ปกครอง (รายการยังอยู่ แต่ขึ้นสถานะยกเลิก)<br><b>คืนค่ารายการที่เลือก</b> = นำรายการที่ยกเลิกไว้กลับมาเรียกเก็บตามเดิม<br>มีผลเฉพาะรายการที่ติ๊กไว้เท่านั้น · รายการที่ชำระแล้วแก้ไม่ได้'}</div>
+        <button class="btn outline block" style="margin-top:8px" onclick="this.closest('.modal').remove()">${esc(t('c.close'))}</button>
+      </div>`:`<button class="btn outline block" style="margin-top:8px" onclick="this.closest('.modal').remove()">${esc(t('c.close'))}</button>`}`);
   };
   window.A_socSel=()=>{ const n=document.querySelectorAll('.sotoc:checked').length; const el=document.getElementById('socN'); if(el)el.textContent='('+n+')'; };
   window.A_socToggleAll=(cb)=>{ document.querySelectorAll('.sotoc:not([disabled])').forEach(c=>{c.checked=cb.checked;}); A_socSel(); };
