@@ -484,3 +484,79 @@ Exactly four names in thirty-one hit both: **TONKLA · TRAKAN · ATRAKAN · TRAK
 
 Four checks remain for whichever is chosen: DIP classes 41 + 42, `.com`/`.co.th`, the LINE OA id,
 and the Play Store developer name. **Register the domain the day it is chosen.**
+
+---
+
+# Part V — roots that mean *beginning*, borrowed from languages nobody has mined
+
+Added 2026-09-23. Asked for names built from words meaning **ราก · การเริ่มต้น · จุดกำเนิด** in
+French, Ancient Greek and other languages — and for a sound that is **คุ้นหู ฟังง่าย ดูเป็นมิตร**.
+
+## 17. This request collides with §15, and the collision has an answer
+
+§15 proved that **meaning in a European language is the mechanism of unavailability**: sixteen names
+died and every one of them meant something — *ether, avant, alt, atrium, aster, atom, trellis, mater,
+nest, taproot, creative, quanta*. Going back to roots looks like walking into the same wall.
+
+It is not, provided the meaning moves:
+
+> **Put the meaning in the STORY, not in the STRING.**
+> The root earns its keep in one sentence told to a director. The letters on the trademark
+> certificate should belong to nobody.
+
+The ten below test that, and the results split exactly along two axes.
+
+### Two things decide whether a root-name survives
+
+| | |
+|---|---|
+| **How far the root was bent** | *éveil* → **EVELIA** is still éveil, and died. *alku* → **ALKEVA** is not alku any more, and lived |
+| **How mined the source language is** | French, Latin, Greek and Arabic have been quarried by every founder for a century. **Turkish and Finnish have not** — which is the whole reason FILIZA and ALKEVA came back empty |
+
+**A soft, friendly, open-syllable name is the most contested shape there is** — it is the shape all
+ten of Part I died in. Asking for *friendly* and *unclaimed* at once is a real trade, and the hit
+rate shows it: 4 of 10 here, against 6 of 13 for the deliberately harsh Set III.
+
+## 18. The ten, and what was found
+
+| | Name | Root | Meaning | Found |
+|---|---|---|---|---|
+| 🟢 | **RIZELA** · ริ-เซ-ลา | Gk **ῥίζα** *rhiza* | root | **No company. rizela.com on sale, $3,349** |
+| 🟢 | **FILIZA** · ฟิ-ลิ-ซา | Tr **filiz** | a young shoot — and a girl's name meaning exactly that | **Nothing at all** |
+| 🟢 | **ALKEVA** · อัล-เค-วา | Fi **alku** | the beginning | One small Spanish asset-holding firm |
+| 🟢 | **AUBELIA** · โอ-เบ-เลีย | Fr **aube** | daybreak | No company. aubelia.com on BrandBucket |
+| 🟡 | **TEMELIA** · เท-เม-เลีย | Gk **θεμέλιος** *themelios* | the foundation stone | Romanian quarry (1921), Moldovan clothing — **and it is the literal Romanian word for "the foundation"** |
+| 🟡 | **TUNARA** · ทู-นา-รา | Id/Ms **tunas** | a sprout (Indonesian schools are named *Tunas Bangsa*) | **Tunara Vision** — Tunisian web development and branding. Our class |
+| 🔴 | **EVELIA** · เอ-เว-เลีย | Fr **éveil** | awakening — *l'éveil de l'enfant* is France's own term for early-childhood development | **Evelia Oy, Finnish ERP software.** Plus Evelia Pharma |
+| 🔴 | **NAELIA** · นา-เอ-เลีย | Ja **苗** *nae* | a rice seedling before transplanting | A French appliance brand at Boulanger; a French engineering firm |
+| 🔴 | **ARAMIA** · อา-รา-เมีย | Sk **आरंभ** *ārambha* | commencement (Thai อารัมภบท) | A Persian meditation app, an Australian food firm, a UK Ltd, a cognac |
+| 🔴 | **ASILA** · อะ-ซิ-ลา | Ar **أصل** *aṣl* | origin, and "of good stock" | Moroccan leather, Lebanese holding group, jewellers, two UK Ltds, a Mexican firm |
+
+**EVELIA is the painful one.** *L'éveil de l'enfant* is the exact thing this platform exists to
+support, in the language that coined the term — and it is a Finnish ERP vendor.
+
+## 19. Roots rejected before searching, because a dictionary will not warn you
+
+Six roots with perfect meanings were dropped on Thai or English grounds that no availability check
+would ever surface:
+
+| Root | Means | Why it is unusable |
+|---|---|---|
+| **παιδεία** *paideia* | **The raising and educating of a child.** The single most exact word found in five rounds | `paed-/ped-` in English carries a meaning no children's brand can stand next to. **The best word here is the one we can never use** |
+| Sk **मूल** *mūla* | root, basis — Thai borrowed it as มูลฐาน, มูลนิธิ | **มูล also means dung in Thai.** มูลสัตว์ |
+| Sk **कुमार** *kumāra* | a child, a young prince — Thai กุมาร, as in กุมารแพทย์ | **กุมารทอง** — the occult child-spirit amulet. Wrong doorway entirely |
+| Sk **भूमि** *bhūmi* | the ground, the earth | Echoes **ภูมิพล**. Commercial use is not appropriate in Thailand |
+| Lat **semen / germen** | seed, sprout | *semen* and *germ* in English. Both are disqualifying for this audience |
+| Mi **pūtake** | root, origin | Māori vocabulary is culturally protected. Not ours to take |
+
+## 20. Shortlist
+
+| | | |
+|---|---|---|
+| 🥇 | **FILIZA** · ฟิ-ลิ-ซา | **Zero results anywhere.** Turkish *filiz* is a young green shoot **and a girl's given name** — so the word is already something people call a child. Soft, three syllables, every sound native to Thai. The friendliest name produced in five rounds |
+| 🥈 | **RIZELA** · ริ-เซ-ลา | Also no company, and the domain can be bought today. *ῥίζα* is the root. Thai **ริ-** happens to mean *to begin to do* (ริเริ่ม) ⚠️ but it is one sound from **Rizla**, the cigarette papers — check that on the phone before committing |
+| 🥉 | **AUBELIA** · โอ-เบ-เลีย | The softest of all. *Aube* is the first light. Seven letters is long for the slot, and Thai readers split on whether AU- is โอ or อาว |
+| | **ALKEVA** · อัล-เค-วา | Cleanest source language, nearly clear — but the K makes it the least warm of the four, which was the brief |
+
+Same four checks before anything is committed: DIP 41 + 42, the domains, the LINE OA id, the Play
+Store developer name.
