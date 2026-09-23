@@ -393,3 +393,94 @@ is not optional. KLATARA and KLATIVO keep the กล้า root with no such rea
 ⚠️ **Zero search results is strong evidence, not proof.** Before committing: DIP classes 41 + 42,
 `.com` and `.co.th` at a registrar, the LINE OA id, and the Play Store developer name. **A name that
 is free today is free to everyone** — register the domain the day it is chosen, not the week after.
+
+---
+
+# Part IV — all three sets merged, all thirty-one checked, and the law underneath them
+
+Added 2026-09-23. Asked: *"ถ้าลองเอาทุกชื่อที่สามารถใช้ได้ กับ Set แรกที่เป็นตัว A มารวมกัน จะออกมาเป็นแบบไหน"*
+
+Answering it properly required doing what Part I had said it could not: **checking the original ten.**
+They had never been verified. Eight of them are gone.
+
+## 13. Set I, finally checked
+
+| | Name | Found | |
+|---|---|---|---|
+| 🟢 | **ATOVIA** | **Nothing at all** | Clear |
+| 🟢 | **ATRINA** | Nothing (a mollusc genus) | Clear |
+| 🔴 | **ATHERA** | Athera Technology, Athera Technologies, Athera Solutions, Atheraa Analytics, Athera Healthcare, Athera VP | **Six. All software** |
+| 🔴 | **AVENTA** | Aventa Technology (custom software), Aventa (marine energy), Aventa (pharma, Caribbean) | Class 42 |
+| 🔴 | **AVANTRA** | **Avantra — AIOps for SAP.** London, ~93 staff, ~$15M revenue, mark held by Syslink Xandria | Enterprise software |
+| 🔴 | **ALTEVA** | Alteva, Inc. — US cloud/VoIP provider | Class 38/42 |
+| 🔴 | **ATRIVA** | **Atriva Therapeutics** — funded German biotech, five patent families to 2038 | Class 5, well funded |
+| 🔴 | **ASTERA** | Astera (stage lighting) **and Astera Labs** (NASDAQ semiconductors) | Two large holders |
+| 🔴 | **AURENTA** | **Aurenta — an AI call-answering product**, plus agri, perfume, a Lithuanian micro | Software-adjacent |
+| 🔴 | **ARATA** | A common Japanese word and given name | Unownable |
+
+**The shortlist of Part I was ATOVIA, ARATA, ALTEVA. One of the three survives — and it is the one
+that was ranked first.**
+
+## 14. The hybrid, which was the actual question
+
+Set I's A carries a real story (Atom, the first letter, the family). Set III's `KL-`/`TR-` clusters
+carry the scarcity. Combining them is A + a Thai cluster:
+
+| | Name | Reading | Found |
+|---|---|---|---|
+| 🟢 | **ATRAVIK** | อะ-ทรา-วิค | One Ukrainian lubricant trader. Nothing else |
+| 🟢 | **ATRAKAN** | อะ-ทรา-กาน | No company. A Turkish given name |
+| 🟢 | **ATRIKLA** | อะ-ทริ-กลา | **Nothing whatsoever** |
+| 🟢 | **ATIKLA** | อะ-ติ-กลา | Nothing |
+| 🟢 | **AKLATIK** | อะ-กลา-ติก | Nothing. *(Tagalog `aklat` = book — a gift, not a problem)* |
+| 🔴 | **AKLATO** | อะ-กลา-โต | **A dual-wield pistol in Warframe.** No company, but the association is a gun and the SEO is a games wiki |
+| 🔴 | **AZATIKO** | อะ-ซา-ติ-โก | azatiko.com is taken and live |
+| 🔴 | **ATRAKO** | อะ-ทรา-โก | Never searched. **Spanish *atraco* = a robbery.** Killed by ear, like KLATON |
+
+**Five of eight clear** — against two of ten for Set I. The rules from §8 hold.
+
+### But the A has a cost nobody had priced
+
+**An initial unstressed อะ- is the syllable Thai speech drops.** Said at conversational speed,
+*ขับเคลื่อนโดย ATRAVIK* is heard as **ทราวิค**. The A that carries the entire origin story is
+phonetically the weakest sound in the word — and it costs a letter against the 5–7 budget in a slot
+that punishes length.
+
+Worth paying only if the origin story is going to be *told*. If it is only going to be *spelled*,
+Set III's shorter names say more per syllable.
+
+## 15. What thirty-one checked names actually proved
+
+Sort every result by outcome and one variable separates them, and it is not the one §8 proposed:
+
+> **The dead names all mean something in English or Latin. The living names mean nothing — or mean
+> something in Thai.**
+
+| | |
+|---|---|
+| **Died** | ATHERA *ether* · AVENTA & AVANTRA *avant* · ALTEVA *alt* · ATRIVA & ATRIKA *atrium* · ASTERA *aster* · ATOMIK *atom* · TRELIA *trellis* · MATRIA *mater* · NESTARA *nest* · TAPRO *taproot* · ARTIVO *art* · KRATIVO *creative* · KWANTA *quanta* · ATRAKO *atraco* |
+| **Lived** | ATOVIA · ATRINA · TRAKIVO · KLATARA · KLATIVO · ZATIKO · ATRIKLA · ATIKLA — **arbitrary strings, meaning nothing anywhere** |
+| **Lived, and still means something** | TONKLA *ต้นกล้า* · TRAKAN *ตระการ* · ATRAKAN · AKLATIK — **meaningful in Thai, invisible to every registry on earth** |
+
+**The root that lets a name tell a story is the same root a thousand other founders reached for.**
+Meaning in English is what makes a name unavailable; it is *why* the collision exists. That is not
+bad luck — it is the mechanism.
+
+### Which makes the target precise
+
+**Arbitrary to a global trademark registry, and meaningful to a Thai school director.** Only Thai
+meaning is free, because nobody is competing for it.
+
+Exactly four names in thirty-one hit both: **TONKLA · TRAKAN · ATRAKAN · TRAKIVO**.
+
+## 16. The merged shortlist
+
+| | | Carries |
+|---|---|---|
+| 🥇 | **ATRAVIK** · อะ-ทรา-วิค | **Both sets at once.** Set I's A (Atom · Trust · Records · Attendance · Voice · Insight · Kin) and Set III's ตรา. Rare V+K pair, ends in a consonant Thai speaks cleanly |
+| 🥈 | **TRAKIVO** · ทรา-คี-โว | The same letters without the droppable อะ-. Zero commercial use worldwide — still the cleanest result of all thirty-one |
+| 🥉 | **ATOVIA** · อะ-โท-เวีย | **Part I's first choice, and it is actually free.** Still the best story in the document: *via* is the road, so ATOVIA is the road from Atom |
+| ⭐ | **TONKLA** · ต้น-กล้า | Not a coinage and not for export — and no invented word will ever mean to a Thai parent what ต้นกล้า already means |
+
+Four checks remain for whichever is chosen: DIP classes 41 + 42, `.com`/`.co.th`, the LINE OA id,
+and the Play Store developer name. **Register the domain the day it is chosen.**
