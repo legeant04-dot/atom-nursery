@@ -309,3 +309,87 @@ search in class 42 is the next step, not a guess.
 
 **Still to be done before any decision:** DIP search in classes 41 + 42, `.com` / `.co.th`
 availability, LINE OA id, and the Play Store developer name.
+
+---
+
+# Part III — engineered for rarity, then checked before proposing
+
+Added 2026-09-23, immediately after Part II found that **none of the first twenty names was clear**.
+
+## 8. The method changed
+
+Parts I and II invented names that sounded good and then discovered what they collided with. That
+order is backwards: it produces attachment to names that are already gone. **Part III designs for
+scarcity first and checks before the name is ever shown.**
+
+Three generative rules, all derived from what the Part II check actually found:
+
+| Rule | Why |
+|---|---|
+| **Rare letter PAIRS, not rare letters** | Z and K alone are common in brands. `ZK`, `KV`, `KW` and `TR…KV` in one short word are not |
+| **Not CV-CV-CV** | Every casualty in Parts I–II (ATRIKA, ATVIK, TRELIA, MATRIA) is open-syllable. Use a consonant cluster or a hard final instead |
+| **Clusters Thai already owns** | Thai has กร กล คร คล ตร ปร ปล natively, so `KL-` and `TR-` are rare in the global brand corpus **and** effortless for the customer. That combination is the whole trick |
+
+## 9. Thirteen checked, six clear
+
+Searched 2026-09-23. 🟢 = nothing in software, education or any adjacent class.
+
+| | Name | Reading | Found | Verdict |
+|---|---|---|---|---|
+| 🟢 | **TRAKIVO** | ทรา-คี-โว | **Nothing. No entity of any kind** | Clear |
+| 🟢 | **KLATARA** | กลา-ทา-รา | **Nothing. No entity of any kind** | Clear |
+| 🟢 | **KLATIVO** | กลา-ทิ-โว | Nothing | Clear |
+| 🟢 | **ZATIKO** | ซา-ติ-โก | No company. **`zatiko.com` listed for sale on BrandBucket** | Clear, and buyable |
+| 🟢 | **TRAKAN** | ตระ-กาน | No company found | Clear |
+| 🟢 | **KLATON** | กลา-ตัน | Three Kansas shell LLCs, an Italian beach hotel. No mark | Clear — but see §11 |
+| 🟡 | **TAVIKO** | ทา-วิ-โก | TAVIKO OÜ, Estonian structural-engineering firm, 2 staff | Different class, tiny |
+| 🟡 | **ATRIKO** | อะ-ทริ-โก | ATRIK (Serbia, waste vehicles); an Iranian perfume seller | Different class |
+| 🟡 | **VIKANTA** | วิ-กาน-ตา | vikanta.com storefront, VIKANTA MAISON (Amazon IN), a Latvian SIA | Crowded, all retail |
+| 🟡 | **JANTIKA** | จัน-ติ-กา | jantika.com — a Bali web-design brand | **Adjacent class.** Avoid |
+| 🔴 | **KWANTA** | ขวัญ-ตา | **KWANTA Software Solutions**, a Kwanta POS product, kwanta.ai | Dead. Class 42, three ways |
+| 🔴 | **KANTIVO** | คาน-ติ-โว | **Kantivo — accounting software**, $299/yr, plus kantivo.io SaaS | Dead. Class 42 |
+| 🔴 | **KRATIVO** | กรา-ติ-โว | Krativo Sdn Bhd (MY); Krativo/Kraftivo (IN, interiors) | Dead, and "creative" is obvious |
+
+**The loss of KWANTA is the one worth regretting.** ขวัญตา is a real Thai endearment for a treasured
+child, and ขวัญ is the spirit a newborn must keep — there is a ceremony for it. It is the best
+*meaning* produced in three rounds. It is also a POS system, an AI retail startup and an Indian
+software house.
+
+## 10. The root under the clear ones
+
+Three of the six clear names share **KLA = กล้า**, which in Thai carries two senses at once:
+
+- **กล้า** — the seedling (ต้นกล้า), the shoot that has broken the soil
+- **กล้า** — brave, daring (กล้าหาญ)
+
+A word for a small growing thing that also means courage is a fortunate accident, and `KL-` is a
+cluster Thai speaks natively while Western brands almost never use.
+
+**KLATON is ต้นกล้า with its two syllables reversed** — ton + kla → kla + ton. A Thai hears กล้า; a
+foreigner reads a coined word with no meaning to get wrong.
+
+**TRAKIVO and TRAKAN** carry **ตรา** — a seal or official mark, which is what a school stamps on a
+document. T·R·A·K·I·V·O also maps cleanly: Trust · Records · Attendance · Kin · Insight · Voice ·
+Onward. Seven letters, seven words, no padding.
+
+## 11. One defect found after the search, by reading them aloud in Thai
+
+**KLATON read cold by a Thai speaker is กลา-ตัน, and ตัน means blocked, clogged, stuck.** ท่อตัน is a
+blocked pipe; ความคิดตัน is being out of ideas. For a platform whose whole promise is that it does
+not jam, that is the wrong word hiding in the last syllable.
+
+The name is legally clear and still disqualified. **A web search cannot find this class of problem —
+only saying the name out loud in the customer's language can**, which is why §4's spell-it-back test
+is not optional. KLATARA and KLATIVO keep the กล้า root with no such reading.
+
+## 12. Shortlist
+
+| | | Why |
+|---|---|---|
+| 🥇 | **TRAKIVO** | The only name in three rounds returning **zero commercial use worldwide**. ตรา is a real hook, the letters map to the product without padding, TR- is native to Thai, and the -O ending is rare in this category |
+| 🥈 | **KLATARA** | Also zero use. Carries กล้า — seedling and brave — which is the business in one syllable. Softer; reads warmer to a parent |
+| 🥉 | **ZATIKO** | The rarest *sound* of the six, and `zatiko.com` is on the market today rather than needing to be prised from somebody |
+
+⚠️ **Zero search results is strong evidence, not proof.** Before committing: DIP classes 41 + 42,
+`.com` and `.co.th` at a registrar, the LINE OA id, and the Play Store developer name. **A name that
+is free today is free to everyone** — register the domain the day it is chosen, not the week after.
