@@ -196,3 +196,116 @@ Say the shortlist out loud, in Thai, in the sentence it will actually live in:
 Then have somebody who has never seen it written **spell it back after hearing it once.** A name that
 survives that is a name that survives a phone call with a director — which is how the first eight
 schools are going to arrive.
+
+---
+
+# Part II — ten more, and the first real availability check
+
+Added 2026-09-23, asked for after the first ten: *"ขอชื่อเพิ่มอีก 10 ชื่อโดยให้ออกมาเท่ ... ไม่ซ้ำใคร
+มีเอกลักษณ์ ชัดเจนต่อธุรกิจที่ทำ"*.
+
+## 5. What was wrong with the first ten
+
+Read as a set rather than one at a time, **all ten are the same name**:
+
+| | |
+|---|---|
+| Start with **A** | 8 of 10 |
+| End in **-A** | 10 of 10 |
+| Contain a hard stop (K, T-initial, X, Z) | 0 of 10 |
+| Say anything about **children, growth or care** | 0 of 10 |
+
+They are open syllables and soft consonants end to end — the exact phonetic shape of a European
+pharmaceutical brand, which is why ASTERA collides with stage lighting and why the whole set feels
+interchangeable. And the letter-acronyms (Accuracy·Trust·Open·Voice…) are **invisible**: nobody
+hearing ATOVIA on the phone decodes six virtues from it.
+
+So the second ten were generated from three different starting points instead.
+
+### A phonetic constraint the first ten ignored
+
+Thai has no released final **-s, -l, -r, -f, -v, -th**. A name ending in one of them is not
+mispronounced by Thai speakers so much as *rebuilt*: ATLAS is said อัด-ลัด. Final **-a, -o, -i, -n,
+-m, -k, -t, -ng** all survive intact. **Every name below ends in one of those.**
+
+## 6. The ten
+
+### Family A — Thai roots, which none of the first ten used
+
+**① TONKLA · ต้น-กล้า · 6** — *the seedling.* Not a coinage: the actual Thai word for the shoot that
+has broken the soil but is not yet a plant. In the one slot the brand lives in —
+**ขับเคลื่อนโดย TONKLA** — a Thai parent decodes it with no explanation at all, and it is their own
+child being named. The strongest *meaning* in either list.
+
+**② PATHOM · ปฐม · 6** — *the first.* **ปฐมวัย is the official Thai term for early childhood**, so
+this is the industry's own word for itself. See §7 for why it is nonetheless disqualified.
+
+### Family B — the metaphor of a structure that holds a growing thing up
+
+This is what an ingredient brand *is*: it does not teach the children, it holds the school up while
+the school does.
+
+**③ TRELIA · เทร-เลีย · 6** — *trellis.* A trellis grows nothing. It stands there so something else
+can climb higher than it could alone, and the better it works the less you look at it.
+
+**④ NESTARA · เนส-ทา-รา · 7** — *nest* + the -ara ending. Warm, and the only Family-B name a
+non-Thai reads instantly.
+
+**⑤ ATRIKA · อะ-ทริ-กา · 6** — from *atrium*: the open court that lets light into every room off it,
+and the chamber of the heart that receives. Hard K instead of the soft endings of the first ten.
+
+**⑥ TAPRO · ทา-โปร · 5** — *taproot*, **รากแก้ว** — the single deep root that anchors the plant and
+finds the water. The shortest name in either list, and the only one under six letters.
+
+**⑦ MATRIA · มา-ทรี-อา · 6** — *mater*, the root under **alma mater**, whose literal sense is
+"nourishing mother". A school for the very young named from the word education already uses for
+itself.
+
+### Family C — short, hard, modern
+
+**⑧ ATVIK · อัท-วิค · 5** — A·T·V·I·K = Attendance · Trust · Voice · Insight · Kin. Five letters,
+one hard stop at each end.
+
+**⑨ ATOMIK · อะ-โต-มิก · 6** — the origin said out loud, with a modern ending. Best story, worst
+availability.
+
+**⑩ ARTIVO · อาร์-ที-โว · 6** — Attendance · Records · Trust · Insight · Voice · Onward. The -O
+ending is rare in this category and Thai handles it perfectly.
+
+## 7. The check, actually run — and what it found
+
+Searched 2026-09-23. **Not one of the ten is clear.** That is the finding, and it matters more than
+the names.
+
+| | Name | What is already using it | Same trade class? |
+|---|---|---|---|
+| 🔴 | **ATRIKA** | Atrika LLC, Los Gatos CA — **an app development consultancy** | **Yes. Identical business** |
+| 🔴 | **ATVIK** | Atvik Security LLC — **registered US mark #7525373**, cybersecurity | **Yes, class 42** |
+| 🔴 | **TRELIA** | Trelia Data S.L. — computer programming & consulting; plus 3 others | **Yes, class 42** |
+| 🔴 | **ATOMIK** | Atomik Technologies (IT), Atomik Pro (ad-tech), atomik.studio, + vodka | **Yes, repeatedly** |
+| 🔴 | **PATHOM** | **นครปฐม.** A province | Geographic marks are near-unregistrable, and search is lost forever |
+| 🟡 | **MATRIA** | MATRIA registered US mark (2025); Matria Health Technologies SAS | Different class, but a live registration |
+| 🟡 | **TAPRO** | TAPro (NFC review cards, WA), Tapro Industries, Tapro d.o.o. | Adjacent consumer tech |
+| 🟡 | **NESTARA** | Nestara (mortgage fintech), Nestara (hospitality), Nestara™ (homewares) | Different classes, but crowded |
+| 🟡 | **ARTIVO** | **Artivo Surfaces** — US flooring group, 64 locations, formed 2024 | Different class (19/35), large company |
+| 🟢 | **TONKLA** | Thai SMEs: Tonkla Creative Group (printing), Tonkla Design, Tonkla Enterprise | **No software or education use found** |
+
+### The real lesson
+
+Every pronounceable five-to-seven-letter Latinate coinage is taken. It is the most contested naming
+space on earth and we were competing in the middle of it. **The question is not "is it used" — it is
+"is it used in class 9, 42 or 41, in the markets we sell in."** By that test exactly one of twenty
+names across both lists survives on the evidence gathered so far.
+
+### Where this leaves the recommendation
+
+**TONKLA**, with its weakness stated plainly: it is not a coinage, so the mark is weaker than an
+invented word would be, and an English speaker cannot read it cold.
+
+Against that: the customer is a **Thai school director**, the slot is **ขับเคลื่อนโดย ___** under
+that school's own logo, and no invented word can buy what ต้นกล้า already means to the person
+reading it. The existing Thai holders are in printing and design — different classes, and the DIP
+search in class 42 is the next step, not a guess.
+
+**Still to be done before any decision:** DIP search in classes 41 + 42, `.com` / `.co.th`
+availability, LINE OA id, and the Play Store developer name.
