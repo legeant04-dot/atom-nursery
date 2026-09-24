@@ -364,6 +364,11 @@
    */
   function buildPdf(pagesOrBytes, w, h) {
     // accepts either a single image (bytes, w, h) or a list of [{bytes,w,h}] — one entry per sheet
+    /* A sheet may carry `landscape:true` (the certificate does). Orientation is decided PER PAGE and
+     * defaults to portrait, so every existing caller — report card, injury form, food menu — produces
+     * exactly the bytes it did before. A landscape image on a portrait MediaBox is not "wrong" in a
+     * way that errors: it fits-and-centres into a letterboxed strip and prints a third of the size,
+     * which is why this is a flag rather than something inferred from w > h. */
     var pages = Array.isArray(pagesOrBytes) ? pagesOrBytes : [{ bytes: pagesOrBytes, w: w, h: h }];
     var A4W = 595.28, A4H = 841.89;
     var chunks = [], len = 0, offsets = [];
@@ -384,12 +389,13 @@
 
     for (var i = 0; i < N; i++) {
       var p = pages[i], pn = pageObj(i), imn = pn + 1, cn = pn + 2;
+      var pgW = p.landscape ? A4H : A4W, pgH = p.landscape ? A4W : A4H;
       // fit each image inside the page, centred, keeping its proportions
-      var scale = Math.min(A4W / p.w, A4H / p.h);
-      var iw = p.w * scale, ih = p.h * scale, ix = (A4W - iw) / 2, iy = (A4H - ih) / 2;
+      var scale = Math.min(pgW / p.w, pgH / p.h);
+      var iw = p.w * scale, ih = p.h * scale, ix = (pgW - iw) / 2, iy = (pgH - ih) / 2;
       var content = 'q ' + iw.toFixed(2) + ' 0 0 ' + ih.toFixed(2) + ' ' + ix.toFixed(2) + ' ' + iy.toFixed(2) + ' cm /Im0 Do Q';
 
-      obj(pn, '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ' + A4W + ' ' + A4H + ']' +
+      obj(pn, '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ' + pgW + ' ' + pgH + ']' +
               ' /Resources << /XObject << /Im0 ' + imn + ' 0 R >> >> /Contents ' + cn + ' 0 R >>');
       offsets[imn] = len;
       put(imn + ' 0 obj\n<< /Type /XObject /Subtype /Image /Width ' + p.w + ' /Height ' + p.h +
@@ -1054,6 +1060,9 @@
     },
     buildPdf: buildPdf,
     b64ToBytes: b64ToBytes,
+    /* certificate.js reuses the PDF writer and the download rather than shipping a second copy of
+     * either — one implementation of "hand the bytes to the browser", one place to fix it. */
+    download: download,
     safeName: safeName,
     paginate: paginate,
     /**

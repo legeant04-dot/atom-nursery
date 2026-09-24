@@ -131,7 +131,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.399'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.400'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -2417,6 +2417,31 @@
   function longDate(v){ const d=new Date(v||todayStr()); if(isNaN(d))return String(v||'');
     const mo=d.getMonth(), y=d.getFullYear();
     return EN()?`${p2(d.getDate())} ${EN_MONTHS[mo]} ${y}`:`${p2(d.getDate())} ${TH_MONTHS[mo]} ${y+543}`; }
+  /* ---- THE CERTIFICATE DATE — "วันที่ ๒๔ กันยายน พ.ศ. ๒๕๖๙" / "24 September 2026" -------------
+   *
+   * Asked 2026-09-24: a certificate is a formal document, and Thai formal documents write the day
+   * and the year in **Thai numerals** with พ.ศ. spelled out. Nowhere else in this app does that —
+   * every other date is read on a screen, where Arabic numerals are what people scan fastest — so
+   * this is deliberately its OWN function rather than a flag on longDate(). Changing longDate would
+   * have quietly re-numbered every leave list and payslip in the app.
+   *
+   * English keeps Arabic numerals and the Gregorian year, because "๒๔ September ๒๐๒๖" is nobody's
+   * convention. The two scripts are not two renderings of one rule; they are two different rules.
+   */
+  const TH_DIGITS = '๐๑๒๓๔๕๖๗๘๙';
+  const thaiDigits = v => String(v==null?'':v).replace(/[0-9]/g, d => TH_DIGITS[+d]);
+  /** `2026-09-24` → `๒๔ กันยายน พ.ศ. ๒๕๖๙` (th) · `24 September 2026` (en). `en` is passed in, not
+   *  read from EN(), because the renderer draws BOTH languages from one screen. */
+  function certDate(v, en){
+    const s = String(v||''); const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(s);
+    let y, mo, dd;
+    if (m) { y=+m[1]; mo=+m[2]-1; dd=+m[3]; }          // parse the string, never new Date(s) — that
+    else { const d=new Date(s||todayStr()); if(isNaN(d)) return s; // shifts by a day across timezones
+           y=d.getFullYear(); mo=d.getMonth(); dd=d.getDate(); }
+    if (mo<0 || mo>11) return s;
+    return en ? `${dd} ${EN_MONTHS[mo]} ${y}`
+              : `${thaiDigits(dd)} ${TH_MONTHS[mo]} พ.ศ. ${thaiDigits(y+543)}`;
+  }
   /* A DATE OF BIRTH, WRITTEN OUT — "12 ธ.ค. 2566" / "12 Dec 2023".
    *
    * Asked 2026-08-31 for both the teacher's class screen and the admin's student list, which showed
@@ -8129,6 +8154,226 @@
         <label class="switch"><input type="checkbox" data-sid="${s.StaffID}" ${s.RequireCheckin!==false?'checked':''}><span class="slider"></span></label></div>`).join('')}</div>
       <button class="btn block" style="margin-top:8px" onclick="A_saveReqCI(this)">💾 ${esc(t('c.save'))}</button>`);
   };
+  /* ===== ใบประกาศนียบัตร — จัดการ > รายงาน & เอกสาร ==========================================
+   * Asked 2026-09-24 by the ผอ. The rules they set, and where each one lives:
+   *   · only children with a recorded last day appear   → certStudents (engine)
+   *   · ชื่อจริง + (ชื่อเล่น)                              → certificate.js
+   *   · a calendar to pick the date, printed in Thai numerals with พ.ศ. → certDate()
+   *   · export to PDF, good enough to print and hand over → certificate.js + buildPdf(landscape)
+   *
+   * The filter STARTS on จบการศึกษา because that is the name of the menu and the common case, and
+   * can be widened — the ผอ.'s own answer when asked. A child who transferred away still attended.
+   */
+  let CERT_FILT='graduated', CERT_SEL=new Set(), CERT_LIST=[], CERT_CFG=null;
+  window.A_certificates = async () => {
+    const [list, cfg] = await Promise.all([api('certStudents'), api('certText')]);
+    CERT_LIST = list||[]; CERT_CFG = cfg||{}; CERT_SEL = new Set();
+    A_certRender();
+  };
+  window.A_certFilter = v => { CERT_FILT=v; A_certRender(true); };
+  const certRows = () => CERT_LIST.filter(s => CERT_FILT==='all' || String(s.reason||'')===CERT_FILT);
+  window.A_certToggle = (id,el) => { if(el.checked) CERT_SEL.add(id); else CERT_SEL.delete(id); A_certCount(); };
+  window.A_certAll = el => { const on=el.checked; certRows().forEach(s=>{ on?CERT_SEL.add(s.studentId):CERT_SEL.delete(s.studentId); });
+    A_certRender(true); };
+  window.A_certCount = () => { const n=CERT_SEL.size;
+    document.querySelectorAll('[data-certn]').forEach(e=>{ e.textContent=String(n); });
+    document.querySelectorAll('[data-certgo]').forEach(b=>{ b.disabled = !n; }); };
+  /* The picked date, echoed back the way it will be PRINTED. A date field shows 24/09/2026 whatever
+   * the language, and the one thing that cannot be checked after the sheets are printed is whether
+   * ๒๔ กันยายน พ.ศ. ๒๕๖๙ came out right — so it is shown before, not discovered after. */
+  window.A_certDateEcho = () => { const el=document.getElementById('certDate'); const o=document.getElementById('certDateEcho');
+    if(el&&o) o.textContent = certDate(el.value||todayStr(), EN()); };
+
+  function A_certRender(keepOpen){
+    const rows=certRows(), cfg=CERT_CFG||{};
+    const allOn = rows.length && rows.every(s=>CERT_SEL.has(s.studentId));
+    const missing = !cfg.hasBg || !String(cfg.CertSignerNameTH||cfg.CertSignerNameEN||'').trim();
+    const chip=(v,label)=>`<button class="btn sm ${CERT_FILT===v?'':'outline'}" onclick="A_certFilter('${v}')">${esc(label)}</button>`;
+    const html=`<h3>🎓 ${EN()?'Certificates':'ใบประกาศนียบัตร'}</h3>
+      ${missing?`<div class="card" style="background:var(--warn-bg);border-color:var(--warn-line);font-size:13px">
+        ⚠️ ${EN()?'The artwork and/or the director’s name are not set yet — certificates will print on a plain bordered sheet.'
+                 :'ยังไม่ได้ตั้งค่าพื้นหลังใบประกาศ และ/หรือ ชื่อผู้อำนวยการ — ตอนนี้จะพิมพ์ออกมาเป็นกระดาษขอบเรียบๆ'}
+        <button class="btn sm block" style="margin-top:6px" onclick="this.closest('.modal').remove();A_certSettings()">⚙️ ${EN()?'Set it up':'ไปตั้งค่า'}</button></div>`:''}
+      <p class="muted" style="font-size:13px;margin:6px 0">${EN()
+        ? 'Only children with a recorded last day appear here. Tick the names, choose the date on the certificate, then export.'
+        : 'รายชื่อที่ขึ้นตรงนี้คือนักเรียนที่บันทึก <b>วันสิ้นสุดการเรียน</b> ไว้แล้วเท่านั้น · ติ๊กชื่อ เลือกวันที่บนใบประกาศ แล้วกดออกไฟล์'}</p>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px">
+        ${chip('graduated', EN()?'Graduated':'จบการศึกษา')}${chip('all', EN()?'All who finished':'ทั้งหมดที่สิ้นสุดแล้ว')}</div>
+      <label class="field"><span>${EN()?'Date on the certificate':'วันที่บนใบประกาศ'}</span>
+        <input id="certDate" type="date" value="${esc(todayStr())}" oninput="A_certDateEcho()"/></label>
+      <div class="card" style="background:var(--surface-2);padding:8px;margin-top:-4px;font-size:15px;text-align:center">
+        <span class="muted" style="font-size:12px">${EN()?'will print as':'จะพิมพ์ออกมาเป็น'}</span><br>
+        <b id="certDateEcho" translate="no">${esc(certDate(todayStr(), EN()))}</b></div>
+      ${rows.length?`<label class="list-item" style="cursor:pointer"><span><b>${EN()?'Select all':'เลือกทั้งหมด'}</b>
+          <small class="muted">(${rows.length})</small></span>
+        <input type="checkbox" ${allOn?'checked':''} onchange="A_certAll(this)"/></label>
+      <div style="max-height:44vh;overflow:auto">${rows.map(s=>{
+        const who=EN()?(s.nameEN||s.name||s.studentId):(s.name||s.studentId);
+        const nick=EN()?(s.nickEN||s.nick||''):(s.nick||'');
+        return `<label class="list-item" style="cursor:pointer"><span><b>${esc(who)}</b>${nick?` <small class="muted">(${esc(nick)})</small>`:''}
+          <br><small class="muted">${esc(s.className||'-')} · ${EN()?'last day':'วันสุดท้าย'} ${esc(ddmmyyyy(s.endDate))}${
+            s.reason?` · ${esc(t('wd.reason.'+s.reason)||s.reason)}`:''}</small></span>
+          <input type="checkbox" ${CERT_SEL.has(s.studentId)?'checked':''} onchange="A_certToggle('${esc(s.studentId)}',this)"/></label>`;}).join('')}</div>`
+      :`<p class="muted" style="text-align:center;padding:16px 0">${CERT_FILT==='graduated'
+          ? (EN()?'No child is recorded as graduated yet. Record a last day with the reason “Graduated” on the student’s profile, or widen the filter above.'
+                 :'ยังไม่มีนักเรียนที่บันทึกเหตุผลว่า “จบการศึกษา” · ไปบันทึกวันสิ้นสุดการเรียนในประวัตินักเรียน หรือกดดู “ทั้งหมดที่สิ้นสุดแล้ว” ด้านบน')
+          : (EN()?'No child has a last day recorded yet.':'ยังไม่มีนักเรียนคนไหนบันทึกวันสิ้นสุดการเรียนไว้')}</p>`}
+      <div class="ot-foot">
+        <div class="muted" style="font-size:12px;text-align:center;margin-bottom:4px">${EN()?'selected':'เลือกไว้'} <b data-certn>0</b></div>
+        <div style="display:flex;gap:6px">
+          <button class="btn" style="flex:1" data-certgo disabled onclick="A_certExport('pdf',this)">📄 PDF</button>
+          <button class="btn outline" style="flex:1" data-certgo disabled onclick="A_certExport('jpg',this)">🖼️ JPG</button></div>
+        <div class="muted" style="font-size:11px;text-align:center;margin-top:4px">${EN()
+          ? 'One landscape A4 page per child, in a single PDF. Built on this device — nothing is uploaded.'
+          : 'A4 แนวนอน หนึ่งหน้าต่อหนึ่งคน รวมในไฟล์ PDF เดียว · สร้างบนเครื่องนี้ ไม่มีไฟล์ถูกอัปโหลดไปไหน'}</div>
+        <button class="btn sm outline block" style="margin-top:6px" onclick="A_certSettings()">⚙️ ${EN()?'Wording & artwork':'ข้อความและพื้นหลังใบประกาศ'}</button>
+        <button class="btn sm ghost block" onclick="this.closest('.modal').remove()">${esc(t('c.close'))}</button></div>`;
+    const open=document.querySelector('.modal .sheet');
+    if(keepOpen && open){ const d=document.getElementById('certDate'); const keep=d?d.value:''; open.innerHTML=html;
+      if(keep){ const n=document.getElementById('certDate'); if(n){ n.value=keep; A_certDateEcho(); } }
+      if(window.translateTree) translateTree(open); }
+    else modal(html);
+    A_certCount();
+  }
+
+  window.A_certExport = async (kind, btn) => {
+    if(!CERT_SEL.size) return;
+    const d=document.getElementById('certDate'); const issue=(d&&d.value)||todayStr();
+    const old=btn.textContent; btn.disabled=true; btn.textContent='⏳';
+    try{
+      await window.__atomLoadScript('report_card.js',()=>!!(window.AtomReportCard&&window.AtomReportCard.buildPdf));
+      await window.__atomLoadScript('certificate.js',()=>!!window.AtomCertificate);
+      const assets=await api('certAssets').catch(()=>({bg:'',sig:''}));
+      const cfg=CERT_CFG||{}, en=EN();
+      const head=(en?cfg.CertHeadEN:cfg.CertHeadTH)||cfg.schoolName||'';
+      const items=CERT_LIST.filter(s=>CERT_SEL.has(s.studentId)).map(s=>({
+        name: en?(s.nameEN||s.name||''):(s.name||''),
+        nick: en?(s.nickEN||s.nick||''):(s.nick||''),
+        head, line1: en?cfg.CertLine1EN:cfg.CertLine1TH,
+        line2: en?cfg.CertLine2EN:cfg.CertLine2TH,
+        line3: head,   // the sentence runs on to the school's name — second line, same thought
+        dateText: `${(en?cfg.CertDatePrefixEN:cfg.CertDatePrefixTH)||''} ${certDate(issue, en)}`.trim(),
+        signerTitle: en?cfg.CertSignerTitleEN:cfg.CertSignerTitleTH,
+        signerName: en?(cfg.CertSignerNameEN||cfg.CertSignerNameTH):(cfg.CertSignerNameTH||cfg.CertSignerNameEN),
+        bg: assets.bg||'', sig: assets.sig||'' }));
+      const base=(en?'Certificates_':'ใบประกาศนียบัตร_')+issue;
+      if(kind==='pdf') await window.AtomCertificate.savePdf(items, base+'.pdf');
+      else await window.AtomCertificate.saveJpeg(items, base);
+      /* The file is already on their machine; the audit line is a courtesy to the ผอ. (the signature
+       * is printed automatically, so somebody should be able to see who issued what). It must never
+       * be able to fail the export that has already happened. */
+      api('markCertIssued',{studentIds:[...CERT_SEL], issueDate:issue}).catch(()=>{});
+      toast(EN()?`Exported ${items.length} certificate(s)`:`ออกใบประกาศแล้ว ${items.length} ใบ`);
+    }catch(e){ err(e); }
+    finally{ btn.disabled=false; btn.textContent=old; A_certCount(); }
+  };
+
+  /* ---- certificate settings: the wording, the artwork, the signature -------------------------
+   * The artwork is uploaded BLANK — the school's frame with no names on it — because the app draws
+   * the name, the date and the signature. Said in the screen, because sending the finished sample
+   * with a child's name already on it is the obvious mistake and it would print twice. */
+  window.A_certSettings = async () => {
+    const cfg = await api('certText');
+    CERT_CFG = cfg;
+    const F=(k,label,ph)=>`<label class="field" style="margin:0"><span>${esc(label)}</span>
+      <input id="cs_${k}" value="${esc(cfg[k]||'')}" placeholder="${esc(ph||'')}"/></label>`;
+    modal(`<h3>⚙️ ${EN()?'Certificate wording & artwork':'ข้อความและพื้นหลังใบประกาศ'}</h3>
+      <div style="max-height:62vh;overflow:auto">
+      <details class="card" open style="background:var(--surface-2);padding:8px">
+        <summary style="cursor:pointer"><b>🖼️ ${EN()?'Artwork & signature':'พื้นหลัง & ลายเซ็น'}</b></summary>
+        <p class="muted" style="font-size:13px;margin:6px 0">${EN()
+          ? 'Upload the BLANK certificate — your frame with no name, no date and no signature on it. The app draws those on top.'
+          : 'อัปโหลด<b>ใบเปล่า</b> — กรอบของโรงเรียนที่<b>ยังไม่มีชื่อเด็ก ไม่มีวันที่ และไม่มีลายเซ็น</b> · ระบบจะวาดสามอย่างนั้นทับให้เอง (ถ้าส่งใบที่มีข้อความอยู่แล้ว จะพิมพ์ซ้อนกันสองชั้น)'}</p>
+        <div class="list-item"><span>🎨 ${EN()?'Background (A4 landscape)':'พื้นหลัง (A4 แนวนอน)'}<br>
+          <small class="muted">${cfg.hasBg?(EN()?'uploaded':'อัปโหลดแล้ว'):(EN()?'not set':'ยังไม่ได้ตั้ง')}</small></span>
+          <span class="acts"><input type="file" accept="image/*" id="cs_bg" style="display:none" onchange="A_certUpload('bg',this)"/>
+            <button class="btn sm" onclick="document.getElementById('cs_bg').click()">${EN()?'Choose':'เลือกไฟล์'}</button>
+            ${cfg.hasBg?`<button class="btn sm outline" onclick="A_certClear('bg',this)">🗑️</button>`:''}</span></div>
+        <div class="list-item"><span>✍️ ${EN()?'Director’s signature (PNG, transparent)':'ลายเซ็น ผอ. (PNG พื้นใส)'}<br>
+          <small class="muted">${cfg.hasSig?(EN()?'uploaded':'อัปโหลดแล้ว'):(EN()?'not set':'ยังไม่ได้ตั้ง')}</small></span>
+          <span class="acts"><input type="file" accept="image/*" id="cs_sig" style="display:none" onchange="A_certUpload('sig',this)"/>
+            <button class="btn sm" onclick="document.getElementById('cs_sig').click()">${EN()?'Choose':'เลือกไฟล์'}</button>
+            ${cfg.hasSig?`<button class="btn sm outline" onclick="A_certClear('sig',this)">🗑️</button>`:''}</span></div>
+        <div class="muted" style="font-size:12px;margin-top:6px">🔒 ${EN()
+          ? 'Both files are kept private in the school’s own Drive and are readable only by a signed-in admin — they are never given a public link.'
+          : 'ไฟล์ทั้งสองเก็บแบบ<b>ส่วนตัว</b>ใน Drive ของโรงเรียน เปิดได้เฉพาะ Admin ที่ล็อกอินแล้ว · <b>ไม่มีการสร้างลิงก์สาธารณะ</b>'}</div>
+      </details>
+      <details class="card" style="background:var(--surface-2);padding:8px">
+        <summary style="cursor:pointer"><b>🇹🇭 ${EN()?'Thai wording':'ข้อความภาษาไทย'}</b></summary>
+        <div class="grid2" style="margin-top:6px">
+          ${F('CertHeadTH', EN()?'Heading (school name)':'หัวใบ (ชื่อโรงเรียน)', cfg.schoolName||'')}
+          ${F('CertSignerNameTH', EN()?'Director’s name':'ชื่อผู้อำนวยการ','นายศิลา เส็งพานิช')}</div>
+        ${F('CertLine1TH', EN()?'Line above the name':'บรรทัดเหนือชื่อเด็ก')}
+        ${F('CertLine2TH', EN()?'Line below the name':'บรรทัดใต้ชื่อเด็ก')}
+        <div class="grid2">${F('CertDatePrefixTH', EN()?'Before the date':'คำนำหน้าวันที่')}
+          ${F('CertSignerTitleTH', EN()?'Signatory title':'ตำแหน่งผู้ลงนาม')}</div>
+      </details>
+      <details class="card" style="background:var(--surface-2);padding:8px">
+        <summary style="cursor:pointer"><b>🇬🇧 ${EN()?'English wording':'ข้อความภาษาอังกฤษ'}</b></summary>
+        <div class="grid2" style="margin-top:6px">
+          ${F('CertHeadEN','Heading (school name)',cfg.schoolName||'')}${F('CertSignerNameEN','Director’s name')}</div>
+        ${F('CertLine1EN','Line above the name')}
+        ${F('CertLine2EN','Line below the name')}
+        <div class="grid2">${F('CertDatePrefixEN','Before the date')}${F('CertSignerTitleEN','Signatory title')}</div>
+      </details>
+      <p class="muted" style="font-size:12px">${EN()
+        ? 'The sample given to us says เกียรติบัตร; the menu was asked for as ใบประกาศนียบัตร. They do not mean the same thing, so the school chooses — type whichever belongs on the sheet.'
+        : '💡 ใบตัวอย่างของโรงเรียนเขียนว่า <b>เกียรติบัตร</b> ส่วนชื่อเมนูคือ <b>ใบประกาศนียบัตร</b> — สองคำนี้ความหมายไม่เหมือนกัน จึงให้โรงเรียนเลือกเอง พิมพ์คำที่ต้องการลงไปได้เลย'}</p>
+      </div>
+      <button class="btn block" style="margin-top:8px" onclick="A_certSaveText(this)">💾 ${esc(t('c.save'))}</button>
+      <button class="btn sm ghost block" onclick="this.closest('.modal').remove()">${esc(t('c.close'))}</button>`);
+  };
+
+  window.A_certSaveText = async (btn) => {
+    const m=btn.closest('.sheet'); const p={};
+    ['CertHeadTH','CertHeadEN','CertLine1TH','CertLine1EN','CertLine2TH','CertLine2EN',
+     'CertDatePrefixTH','CertDatePrefixEN','CertSignerTitleTH','CertSignerTitleEN',
+     'CertSignerNameTH','CertSignerNameEN'].forEach(k=>{ const el=m.querySelector('#cs_'+k); if(el) p[k]=el.value; });
+    const old=btn.textContent; btn.disabled=true; btn.textContent='⏳';
+    try{ CERT_CFG=await api('saveCertText',p); toast(t('c.saved')); btn.closest('.modal').remove(); }
+    catch(e){ err(e); } finally{ btn.disabled=false; btn.textContent=old; }
+  };
+
+  /* DOWNSCALED HERE, BEFORE IT IS SENT. A phone photograph of a certificate is 4–8 MB, which Apps
+   * Script refuses somewhere on the way in — and the failure looks like "I pressed save and nothing
+   * happened". Resizing to exactly the sheet we render (2339 px wide) loses nothing that could ever
+   * be printed and turns the upload into a few hundred KB.
+   * The signature stays PNG: it has to be transparent, and a JPEG would print a white box over the
+   * artwork underneath it. */
+  function certShrink(file, maxW, asPng){
+    return new Promise((resolve,reject)=>{
+      const fr=new FileReader();
+      fr.onerror=()=>reject(new Error(EN()?'Could not read that file':'อ่านไฟล์ไม่ได้'));
+      fr.onload=()=>{ const im=new Image();
+        im.onerror=()=>reject(new Error(EN()?'That file is not an image':'ไฟล์นี้ไม่ใช่รูปภาพ'));
+        im.onload=()=>{ const sc=Math.min(1, maxW/im.width);
+          const cv=document.createElement('canvas'); cv.width=Math.round(im.width*sc); cv.height=Math.round(im.height*sc);
+          const cx=cv.getContext('2d');
+          if(!asPng){ cx.fillStyle='#FFFFFF'; cx.fillRect(0,0,cv.width,cv.height); }
+          cx.drawImage(im,0,0,cv.width,cv.height);
+          resolve(asPng ? cv.toDataURL('image/png') : cv.toDataURL('image/jpeg',0.86)); };
+        im.src=fr.result; };
+      fr.readAsDataURL(file); });
+  }
+  window.A_certUpload = async (which, input) => {
+    const f=input.files && input.files[0]; if(!f) return;
+    const btn=input.nextElementSibling; const old=btn?btn.textContent:''; if(btn){ btn.disabled=true; btn.textContent='⏳'; }
+    try{
+      const dataUrl = await certShrink(f, which==='bg'?2339:900, which==='sig');
+      await api('saveCertAsset',{which, dataUrl});
+      toast(EN()?'Uploaded':'อัปโหลดแล้ว');
+      input.closest('.modal').remove(); A_certSettings();
+    }catch(e){ err(e); if(btn){ btn.disabled=false; btn.textContent=old; } }
+    finally{ input.value=''; }
+  };
+  window.A_certClear = async (which, btn) => {
+    if(!await confirmBox(EN()?'Remove this file?':'ลบไฟล์นี้ออกจากระบบ?')) return;
+    const old=btn.textContent; btn.disabled=true; btn.textContent='⏳';
+    try{ await api('saveCertAsset',{which, clear:true}); toast(t('c.saved'));
+      btn.closest('.modal').remove(); A_certSettings(); }
+    catch(e){ err(e); btn.disabled=false; btn.textContent=old; }
+  };
+
   // Admin forms must read the LIVE records (gas mode), not the stale window.MOCK arrays.
   // manage()/home() fill this cache; the edit forms + dropdowns read from it (fallback to MOCK).
   /**
@@ -8340,6 +8585,7 @@
       // teacher tools sit under 👩‍🏫 คุณครู and the student one under 👶 นักเรียน. Keeping them here
       // as well would be two doors to the same room, and the second one always goes stale.
       {t:EN()?'📄 Reports & records':'📄 รายงาน & เอกสาร', items:[
+        ['🎓',EN()?'Certificates':'ใบประกาศนียบัตร','A_certificates()'],
         ['📒',t('jr.admin'),'A_journals()'],
         ['📍',EN()?'On-behalf check-in log':'ประวัติเช็คอิน-เอาท์แทน','A_checkinLog()'],
         ['🏠',t('slv.title'),"GO_('studentLeaves')"],

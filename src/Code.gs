@@ -104,6 +104,14 @@ var ROUTES = {
   claimParent:      function (p) { return handleClaimParent(p); },   // onboarding: a parent the school already has on file claims that record instead of creating a duplicate
   setLeaveQuota:    function (p) { return handleSetLeaveQuota(p); },   // admin-only: writes SCHOOL_CONFIG (the engine only mutated memory, which persist() never saves)
   setConfigVal:     function (p) { return handleSetConfigVal(p); },   // admin-only: one whitelisted SCHOOL_CONFIG value
+  /* Certificates (src/Certificate.gs). certStudents is left to the engine — it is a pure read over
+   * STUDENTS with no Sheets or Drive call in it — but everything that touches a FILE has to be here,
+   * because Drive does not exist in the shared engine. */
+  certText:         function (p) { return handleCertText(p); },       // admin-only: the twelve wording lines
+  saveCertText:     function (p) { return handleSaveCertText(p); },   // admin-only: all twelve in one write
+  certAssets:       function (p) { return handleCertAssets(p); },     // admin-only: artwork + signature, as data URLs
+  saveCertAsset:    function (p) { return handleSaveCertAsset(p); },  // admin-only: replace/clear one of them
+  markCertIssued:   function (p) { return handleMarkCertIssued(p); }, // admin-only: audit that a certificate was printed
   notifyBills:      function (p) { return handleNotifyBills(p); },   // admin-only: notify parents that bills were issued
   saveQRCodes:      function (p) { return handleSaveQRCodes(p); },   // admin-only: QR-code master + OT binding
   savePlans:        function (p) { return handleSavePlans(p); },       // admin-only: package (Plan) CRUD → SCHOOL_CONFIG JSON
@@ -407,6 +415,12 @@ function applyIdentity_(action, payload, sess) {
     // who the school messages, and what it costs — both admin-only: the list carries LINE user ids
     lineUsage: 1, lineRecipients: 1, saveLineRecipients: 1,
     adminInbox: 1, markInboxRead: 1, reinstallTriggers: 1, unlinkStudent: 1, linkParentAdmin: 1, setLeaveQuota: 1, setConfigVal: 1, markSalaryPaid: 1, notifyBills: 1, issueBillsFor: 1, savePlans: 1, saveQRCodes: 1, prepayAudit: 1, recomputeContributions: 1, contributionReset: 1, payrollDuplicates: 1, deletePayrollRow: 1, savePrepayTiers: 1, editPrepay: 1, setStudentPause: 1, setStudentEnd: 1, endingStudents: 1, setStaffEnd: 1, setStaffPause: 1, staffAttendanceMonth: 1, studentMonthReport: 1, recordCashPayment: 1, pausedStudents: 1, deleteSlip: 1, slipDiag: 1, saveSlipOk: 1, cancelPrepay: 1, perfSummary: 1, deletePerfLog: 1, prepaidStudents: 1, insuranceExport: 1,
+    /* CERTIFICATES — admin only, all five.
+     * certStudents names every child who has finished, including those long gone, and certAssets
+     * hands back the director's signature. Neither is anything a teacher or a parent has business
+     * fetching, and the signature in particular is the one image in this system a person could
+     * misuse. See src/Certificate.gs. */
+    certStudents: 1, certText: 1, saveCertText: 1, certAssets: 1, saveCertAsset: 1, markCertIssued: 1,
     // the whole roster grouped by billing day, with each child's bill state — the same class of answer
     // as prepaidStudents, and money besides
     billingGroups: 1,
