@@ -560,3 +560,130 @@ would ever surface:
 
 Same four checks before anything is committed: DIP 41 + 42, the domains, the LINE OA id, the Play
 Store developer name.
+
+---
+
+# Part VI — the school test, which should have been the first check of all
+
+Added 2026-09-24. Asked to build the story for **TONKLA** and re-verify the domain before moving on.
+The re-verification found a blocker, and the blocker generalises.
+
+## 21. 🔴 TONKLA is a school
+
+**`tonkla.ac.th` — โรงเรียนต้นกล้า.** A Thai private school running kindergarten and primary and
+currently building a high school. `.ac.th` is the academic domain: it is an accredited institution.
+
+This is not a trademark technicality. It is commercially fatal in one sentence:
+
+> **Every school we sell to would be printing a rival school's name under its own logo.**
+> ขับเคลื่อนโดย TONKLA, on the app of a nursery competing with โรงเรียนต้นกล้า.
+
+Class 41 is *education services*. A school is the textbook class-41 holder. And the search results
+for our own name would be another school's admissions pages, permanently.
+
+**My Part II check missed this**, and the reason is worth recording: the query was *"Tonkla company
+brand software"*. **A school is not a company brand software.** The check was scoped to the
+competitors I expected and not to the market I sell into.
+
+## 22. 🔴 And FILIZA is the same school, in Turkish
+
+**Filiz Okulları — Filiz Schools, Edirne, Turkey.** Private, taking children **from 45 months**
+through high school. Their Instagram handle carries a 🌱.
+
+FILIZA was Part V's first recommendation. It has the identical defect.
+
+### The pattern, which is the actual finding
+
+> **"Seedling" is the metaphor every school already reached for.**
+> ต้นกล้า → โรงเรียนต้นกล้า · filiz → Filiz Okulları · tunas → Tunas Bangsa · 苗 nae → 苗 schools
+
+This is §15's law again — meaning causes collision — but aimed at the one class that matters most:
+**our customers' own.** For an ingredient brand sold TO schools, the vocabulary schools use for
+themselves is the most contested vocabulary on earth: *seedling, sprout, growth, star, light,
+future, bright, first, learn.*
+
+Part V already had the evidence and failed to generalise it — **TUNARA was flagged as "Indonesian
+schools are named Tunas Bangsa"** and the conclusion was not drawn.
+
+### The rule this produces
+
+**A name whose meaning is readable in the string will collide with a school. A name that carries the
+same meaning only in its story will not.** Which is exactly §17, proven a second time:
+
+| | |
+|---|---|
+| Meaning **in the string** | TONKLA, FILIZA — **both are schools** |
+| Meaning **in the story only** | KLATARA (กล้า), RIZELA (ῥίζα), TRAKIVO (ตรา) — **all clear** |
+
+## 23. Re-verified, with the education class included this time
+
+DNS checked 2026-09-24; no A record is strong evidence a domain is unregistered, not proof.
+
+| | Name | Education check | `.com` |
+|---|---|---|---|
+| 🔴 | **TONKLA** | **โรงเรียนต้นกล้า, tonkla.ac.th** | — |
+| 🔴 | **FILIZA** | **Filiz Okulları, Turkey** | no DNS |
+| 🟢 | **KLATARA** | Nothing — no school, no company, nothing | no DNS |
+| 🟢 | **TRAKIVO** | Nothing — no school, no company, nothing | no DNS |
+| 🟢 | **ATRAVIK** | Nothing at all | no DNS |
+| 🟡 | **ATOVIA** | One UK micro-company, London 2016, business support services | no DNS |
+
+## 24. The story survives the name — it was never about the spelling
+
+The ต้นกล้า story asked for is **entirely portable**, and it is truest on **KLATARA**, which carries
+**กล้า** in its first syllable without printing it where a registrar can read it.
+
+### ① The image — แปลงกล้า
+
+**A seedling is not raised where it will grow.** It is started in a seedbed, tended closely at the
+stage when it cannot survive alone, and then **transplanted out.** The nursery school is the
+แปลงกล้า. The child leaves — and **the leaving is the point, not the failure.**
+
+This is not a metaphor invented for a deck. **This product has the transplant built into it**:
+`EndDate` and `EndReason` on STUDENTS exist because the ask was *"นักเรียนครบกำหนดการเรียน ต้องย้ายไป
+เรียนโรงเรียนใหม่"*. We shipped the goodbye before we had the name for it.
+
+### ② The word — กล้า means two things at once
+
+- **กล้า** — the seedling
+- **กล้า** — brave
+
+The same syllable is the smallest growing thing and the word for courage. **A two-year-old's first
+morning at nursery is the bravest thing they have ever done**, and the Thai language already knew.
+
+### ③ The origin — which is true, not marketing
+
+English **nursery** means both *a place where small children are cared for* and *เรือนเพาะชำ, where
+young plants are raised.* The school that took the first risk is **Atom Nursery**.
+
+**KLATARA is that school's name translated into Thai — without belonging to it.** The origin is
+permanent and tells in one sentence, and no customer owns the brand.
+
+### ④ The letters — an internal charter, not a slogan
+
+§15 proved letter-acronyms are invisible to anyone hearing the name. So these are not marketing.
+**They are seven commitments, each one already measurable in this repo**, and the name is how we
+remember them:
+
+| | | Already enforced by |
+|---|---|---|
+| **K** — Kin | Family is inside the system, not a recipient of reports | Parent role, LINE, journal comments |
+| **L** — Ledger | Money is exact to the satang | `numeric(12,2)` on all 39 money columns; no float |
+| **A** — Accuracy | Every figure traces back to who entered it | `ByStaffID` / `ByAt` on every check-in |
+| **T** — Trust | A child's data never crosses to another school | `tenant_id` + RLS on all 52 tables |
+| **A** — Always | It works at 07:00 when everyone checks in at once | p50 < 1.5s in the Phase Plan's done-criteria |
+| **R** — Records | The data belongs to the school and can leave | `docs/DATA_OWNERSHIP.md` |
+| **A** — Ascend | A school can grow without changing systems | Multi-tenant from migration 001 |
+
+**A charter you can fail is worth more than a slogan you cannot.**
+
+## 25. Where this leaves it
+
+**KLATARA** — clear of schools, companies and domains; carries กล้า honestly; and every word of §24
+is true of it.
+
+**TRAKIVO** and **ATRAVIK** are equally clear and carry ตรา instead — the seal a school stamps.
+**ATOVIA** keeps Part I's origin story and has one small unrelated UK holder.
+
+Remaining before commitment: **DIP classes 41 + 42** (41 matters most — that is where the schools
+are), the registrar, the LINE OA id, and the Play Store developer name.
