@@ -687,3 +687,71 @@ is true of it.
 
 Remaining before commitment: **DIP classes 41 + 42** (41 matters most — that is where the schools
 are), the registrar, the LINE OA id, and the Play Store developer name.
+
+---
+
+# Part VII — decided: KALONTA
+
+**2026-09-24.** Six rounds, thirty-eight names checked, twenty-nine eliminated with the reason
+recorded against each. **The brand document is now `docs/BRAND.md`.** This file stays as the record
+of how the decision was reached and what was rejected, which is the part that stops it being
+re-litigated in a year.
+
+## 26. Why the letters came back
+
+The six letters were never an acronym invented to justify a name. They are:
+
+**K**wan · **A**tom · **L**eia · **O**rganize · **N**ursery · **T**am
+
+which is why **TONKLA** was wanted in the first place, and why losing it to `tonkla.ac.th` mattered
+more than losing any of the other thirty-seven. **The order was never the meaning; the completeness
+was** — so the fix was to rearrange rather than to start again.
+
+## 27. And why KLANOTA was not the answer
+
+KLANOTA passed every check that exists: no company, no school, no software, and eight free TLDs —
+the cleanest result in all six rounds.
+
+**Then reading it aloud in English found KLAN in the first four capitals**, which is where the Play
+Store developer name, the contracts and the logo all live. Legally clear, and wrong anyway.
+
+This is the sixth time the deciding defect was invisible to every search and visible the moment the
+string was read in a human language:
+
+**ตัน** (clogged) · **คลอน** (wobbly) · **ลา** (to leave) · Spanish ***atraco*** (a robbery) ·
+**Aklato** (a gun in Warframe) · **KLAN**
+
+> **The availability check tells you whether a name is free. Only saying it out loud, in every
+> language the customer speaks, tells you whether it is usable.** Run both, in that order, every time.
+
+## 28. The final check
+
+| | |
+|---|---|
+| Company, any country, bare search | Nothing |
+| Education / preschool / childcare — **class 41** | Nothing |
+| Software / SaaS / app | Nothing |
+| **Domains** | **All 12 free** — `.com .co .io .app .ai .net .org .asia .co.th .in.th .tech .school` |
+| Near-misses | Kalontar (jewellery, catering) · Kalanta (UK Ltd, leather goods, generic Greek for *carols*) · Calonta (a personal account) — **all unrelated classes** |
+
+And two meanings the world already attached to the word, both found during the check rather than
+written afterwards: **perisai kayu — a wooden shield**, a Minahasan family name; and **κάλαντα**, the
+carols children sing.
+
+## 29. What the six rounds actually taught
+
+Recorded because it is reusable, and because most of it was learned by being wrong first:
+
+1. **Meaning in English or Latin is the mechanism of unavailability** — *ether, avant, atrium, aster,
+   atom, trellis, mater, nest, taproot, creative, quanta*. The root that lets a name tell a story is
+   the root a thousand other founders reached for.
+2. **Meaning in Thai is free**, because nobody is competing for it.
+3. **But not the meaning schools use for themselves.** ต้นกล้า → โรงเรียนต้นกล้า · filiz → Filiz
+   Okulları · tunas → Tunas Bangsa. For an ingredient brand sold TO schools, **class 41 is the check
+   that matters, and it is the one I kept forgetting to run.**
+4. **So: meaning in the story, never in the string.**
+5. **Thai has no released final -s, -l, -r, -f, -v, -th.** ATLAS is said อัด-ลัด.
+6. **กล- and ตร- are native to Thai and rare in the global brand corpus** — the one durable arbitrage.
+7. **An initial unstressed อะ- is dropped in fast Thai speech**, so a leading A is the weakest sound
+   in the word and costs a letter.
+8. **A search finds owners. Only a native speaker's ear finds landmines.**
