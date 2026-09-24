@@ -98,6 +98,21 @@ console.log('\n2) THE 115 — a new one is a behaviour silently replaced');
      * is a stub that answers so the profile button does not fail with UNKNOWN_ACTION in mock mode.
      * Nothing in the engine version could ever be the behaviour live is supposed to have. */
     'signOutEverywhere',
+    /* v400 CERTIFICATES — the same "not a risk" case as signOutEverywhere above, and for the same
+     * reason: the live behaviour cannot exist in the engine at all.
+     *
+     *   certAssets / saveCertAsset — read and write FILES in Drive. The engine entries answer
+     *     { bg:'', sig:'' } and a validation error, so the local build renders the no-artwork
+     *     fallback instead of failing with UNKNOWN_ACTION. There is no shared logic to drift.
+     *   markCertIssued — writes one AUDIT row. The engine entry counts and returns.
+     *   certText / saveCertText — this pair IS real duplication, twelve SCHOOL_CONFIG keys with the
+     *     same defaults on both sides. §6 of this file is the general warning; the specific guard is
+     *     in tools/test_certificate.js, which asserts the two default sets are identical rather than
+     *     trusting that two lists stay in step.
+     *
+     * certStudents is deliberately NOT here — it is a pure read over STUDENTS with no sheet or Drive
+     * call, so the engine stays its only implementation and there is nothing to keep in step. */
+    'certAssets', 'certText', 'markCertIssued', 'saveCertAsset', 'saveCertText',
     'slipDiag',
     'staffCheckin', 'staffCheckout', 'staffStudentCheckin', 'studentAbsence', 'studentAssessment',
     'submitAssessment', 'submitClassChange', 'submitInjury', 'submitInsurance', 'submitJournal',

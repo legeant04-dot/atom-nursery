@@ -1377,6 +1377,40 @@ function createAtomAPI(M, GROWTH_STD) {
   /** An end date recorded but not reached yet — the child is still here, and the Admin should see it coming. */
   const endScheduled_ = (s, onDate) => { const d=ymd((s&&s.EndDate)||'');
     return !!d && !studentEnded_(s, onDate); };
+
+  /* ---- certificate wording -------------------------------------------------------------------
+   * The sample the school gave us on 2026-09-24 reads, top to bottom:
+   *     สถานรับเลี้ยงเด็ก อะตอม เนอสเซอรี่        ← head
+   *     ขอมอบเกียรติบัตรฉบับนี้ให้ไว้เพื่อแสดงว่า      ← line1
+   *     ______________________                  ← the child
+   *     ได้เข้าเรียนและผ่านการประเมินจาก...          ← line2
+   *     ให้ไว้ ณ วันที่ ๓๑ มีนาคม ๒๕๖๔              ← datePrefix + the date
+   *     [signature] ครูผู้อำนวยการ (นายศิลา เส็งพานิช) ← signerTitle / signerName
+   *
+   * Note the sample says เกียรติบัตร while the menu was asked for as ใบประกาศนียบัตร. They are not
+   * the same word — เกียรติบัตร honours attendance, ประกาศนียบัตร certifies completion — which is
+   * exactly why this is wording the school sets rather than a string we choose for them.
+   *
+   * The defaults reproduce the sample's SENTENCES. The two that name this school specifically — the
+   * heading and the director's own name — default to blank on purpose: a default that printed one
+   * real person's name onto every school's certificate would be worse than an obvious gap, and the
+   * settings screen says so rather than leaving them to discover it on a printed sheet. */
+  const CERT_TEXT_KEYS = ['CertHeadTH','CertHeadEN','CertLine1TH','CertLine1EN','CertLine2TH','CertLine2EN',
+    'CertDatePrefixTH','CertDatePrefixEN','CertSignerTitleTH','CertSignerTitleEN','CertSignerNameTH','CertSignerNameEN'];
+  const CERT_TEXT_DEFAULTS = {
+    CertHeadTH:'', CertHeadEN:'',                       // blank => fall back to SchoolName
+    CertLine1TH:'ขอมอบเกียรติบัตรฉบับนี้ให้ไว้เพื่อแสดงว่า', CertLine1EN:'This certificate is proudly presented to',
+    CertLine2TH:'ได้เข้าเรียนและผ่านการประเมินจาก', CertLine2EN:'for attending and completing the programme at',
+    CertDatePrefixTH:'ให้ไว้ ณ วันที่', CertDatePrefixEN:'Given on',
+    CertSignerTitleTH:'ครูผู้อำนวยการ', CertSignerTitleEN:'Director',
+    CertSignerNameTH:'', CertSignerNameEN:'' };
+  const certTextRead_ = (c) => { const out={};
+    CERT_TEXT_KEYS.forEach(k=>{ const v=(c&&c[k]!==undefined&&c[k]!==null)?String(c[k]):'';
+      out[k] = v!=='' ? v : CERT_TEXT_DEFAULTS[k]; });
+    // the same three extras handleCertText returns, so one screen reads one shape in both modes
+    out.hasBg = !!(c && c.CertBgFileId); out.hasSig = !!(c && c.CertSigFileId);
+    out.schoolName = (c && c.SchoolName) || '';
+    return out; };
   /**
    * BILLING IS DECIDED BY THE MONTH, NOT BY THE DAY — decided 2026-09-21: a child finishing on the
    * 15th is billed for that whole month as usual, no proration. The school's own answer, and the
@@ -3752,6 +3786,30 @@ function createAtomAPI(M, GROWTH_STD) {
         ended:studentEnded_(s), endScheduled:endScheduled_(s),
         days:Math.round((new Date(ymd(s.EndDate)+'T00:00:00')-new Date(todayLocal()+'T00:00:00'))/86400000)}))
       .sort((a,b)=>String(a.endDate).localeCompare(String(b.endDate))),
+    /**
+     * WHO CAN BE GIVEN A CERTIFICATE. Asked 2026-09-24: the ผอ. wants to print one for a child who
+     * has finished, and "ข้อมูลนักเรียนจะต้องบันทึกวันจบการศึกษา ชื่อจึงจะมาอยู่ในรายการ" — the last
+     * day IS the qualification, so this is `EndDate is set` and nothing else.
+     *
+     * DELIBERATELY NOT endingStudents, which this otherwise resembles. That one filters
+     * !INACTIVE[Status] because it answers "who is about to leave my class lists" — a question about
+     * the roster. This answers "who finished here", and a child who finished two years ago and was
+     * marked INACTIVE is the MOST likely person to want a certificate for. Filtering them out would
+     * have hidden exactly the names the screen exists to find, and it would have looked like "some
+     * old students are missing" rather than like a wrong filter.
+     *
+     * Every reason is returned, not only `graduated` — the screen defaults its filter to graduated
+     * (that is the common case, and the name of the menu) but a child who transferred away still
+     * attended, and the ผอ. decides who is honoured, not this function.
+     */
+    certStudents: () => M.students.filter(s=>ymd(s.EndDate||''))
+      .map(s=>({studentId:s.StudentID, nick:s.Nickname, nickEN:s.NicknameEN, name:s.NameTH, nameEN:s.NameEN,
+        className:s.Class||'', endDate:ymd(s.EndDate), reason:s.EndReason||'', remark:s.EndRemark||'',
+        startDate:ymd(s.EnrollDate||''),
+        // the last day itself still counts as a school day, so "finished" is strictly after it
+        ended:studentEnded_(s)}))
+      // most recent first: the child who has just finished is the one being printed today
+      .sort((a,b)=>String(b.endDate).localeCompare(String(a.endDate))),
     // children currently away, so the Admin can see them in one place and bring them back
     /** Children whose first day has not come yet — enrolled, billable, and not here (studentNotStarted_). */
     startingStudents: () => M.students.filter(s=>!INACTIVE[s.Status] && studentNotStarted_(s))
@@ -5130,6 +5188,28 @@ function createAtomAPI(M, GROWTH_STD) {
     removeDepartment: p => { const i=cfg.Departments.indexOf(p.name); if(i<0)fail('NOT_FOUND','ไม่พบแผนก');
       if(activeStudents().some(s=>s.Class===p.name))fail('HAS_STUDENTS','ยังมีนักเรียนในแผนกนี้ ย้ายออกก่อน');
       cfg.Departments.splice(i,1); const ci=M.classes.findIndex(c=>c.ClassName===p.name); if(ci>=0)M.classes.splice(ci,1); return {ok:true}; },
+
+    /* ========== certificate wording ==========
+     * Every line printed on the certificate, in both languages, so a school can say เกียรติบัตร or
+     * ประกาศนียบัตร (they do not mean the same thing) without a code change — and so the next school
+     * on the platform is a settings screen rather than a fork.
+     *
+     * ONE ROUTE FOR ALL TWELVE, not twelve setConfigVal calls. The settings screen already does four
+     * of those in a row and it is four round trips at ~3.5s of transport each; twelve would be a
+     * minute of spinner, and a failure halfway would leave the wording half-saved with no way to
+     * tell which half. Saving them together makes it one write that either happened or did not.
+     */
+    certText: () => certTextRead_(cfg),
+    saveCertText: p => { CERT_TEXT_KEYS.forEach(k=>{ if(p && p[k]!==undefined) cfg[k]=String(p[k]==null?'':p[k]).slice(0,300); });
+      return certTextRead_(cfg); },
+    /* The artwork and the signature are FILES, and files exist only on GAS (src/Certificate.gs
+     * shadows all three). These stubs are what the local build answers with: no artwork, which the
+     * renderer already has to handle anyway for a school that has not uploaded any yet — so the mock
+     * exercises the fallback layout rather than crashing on a missing route. */
+    certAssets: () => ({ bg:'', sig:'' }),
+    saveCertAsset: p => { const w=String((p&&p.which)||''); if(w!=='bg'&&w!=='sig') fail('BAD_INPUT','ไม่รู้จักไฟล์ที่จะบันทึก: '+w);
+      return certTextRead_(cfg); },
+    markCertIssued: p => ({ ok:true, logged:(p&&Array.isArray(p.studentIds)?p.studentIds.length:0) }),
 
     // ========== generic config setter (diligence amounts, etc.) ==========
     getConfigVal: p => cfg[p.key],
