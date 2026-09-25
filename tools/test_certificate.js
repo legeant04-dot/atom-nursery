@@ -390,7 +390,36 @@ console.log('\n6b) the school’s own template: three things added, and nothing 
    * screen, wrong for a document that gets printed once and framed. fonts.load() fetches the face
    * regardless of that descriptor. */
   ok_('Sarabun is fetched explicitly before the sheet is drawn',
-    /document\.fonts\.load\('700 100px Sarabun'\)/.test(cert) && /return fontsReady\(\)/.test(cert));
+    /document\.fonts\.load\('700 100px Sarabun'\)/.test(cert) && /Promise\.all\(\[fontsReady\(\), useFont\(d\.font\)\]\)/.test(cert));
+
+  /* ---- THE FONT IS UPLOADED, because naming one cannot make it exist -------------------------
+   * v403 put "TH Sarabun New" at the head of the stack. Right name, no effect: it is one of
+   * Thailand's national fonts, free to use but not on Google Fonts, so it only reaches a machine
+   * that already has it installed — and the rendering machine did not (checked: no THSarabun* in
+   * C:\Windows\Fonts). Every certificate was coming out in Sarabun, the same designer's later
+   * redraw, beside template text set in the real thing. The school looking at a printed sheet
+   * found it; no test could have, which is why the fix is to stop depending on the machine. */
+  ok_('the school’s own font file is registered and used first',
+    /new FontFace\(CERT_FONT_FAMILY/.test(cert) && /_fontLoaded \? '"' \+ CERT_FONT_FAMILY/.test(cert));
+  ok_('...and it is uploaded like the artwork and the signature, not shipped',
+    /font: 'CertFontFileId'/.test(certGs) && /A_certUpload\('font'/.test(app));
+  ok_('...stored private in the school’s own Drive, with the other two',
+    /CERT_ASSET_KEYS_ = \{ bg: 'CertBgFileId', sig: 'CertSigFileId', font: 'CertFontFileId' \}/.test(certGs));
+  /* A FONT IS NOT RE-ENCODED. certShrink would destroy it, so the font path is a plain read. */
+  ok_('a font file is sent as-is, never through the image downscaler',
+    /if\(which==='font'\)\{[\s\S]{0,400}readRaw\(f\)/.test(appCode) && /function readRaw\(file\)/.test(appCode));
+  /* THE EXTENSION TRAVELS WITH IT. Windows reports .ttf as application/octet-stream as often as
+   * font/ttf, so trusting the data: URL's own mime would reject the most ordinary upload there is. */
+  ok_('...with its extension, because the browser’s mime guess cannot be trusted',
+    /ext\}\)/.test(appCode) && /String\(p\.ext \|\| ''\)/.test(certGs) && /CERT_FONT_MIME_/.test(certGs));
+  /* A WRONG FILE MUST NOT COST THE EXPORT. A school that uploads something unreadable should get a
+   * certificate that looks slightly different, not thirty missing certificates. */
+  ok_('a font that will not parse falls back instead of failing the export',
+    /\.catch\(function \(\) \{ _fontLoaded = false; return false; \}\)/.test(cert));
+  ok_('...and the same bytes are only parsed once for a whole batch',
+    /if \(src === _fontSrc && _fontLoaded !== null\)/.test(cert));
+  ok_('the settings screen says why naming a font in code is not enough',
+    /ได้ผลเฉพาะเครื่องที่ติดตั้งไว้แล้ว/.test(app));
   ok_('...and the reason display=optional forces this is written down',
     /display=optional/.test(cert) && /display=optional/.test(R('webapp/index.html')));
   ok_('...and a slow connection still gets a certificate, not an error',

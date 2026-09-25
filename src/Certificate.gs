@@ -23,8 +23,25 @@
  *      only a signed-in admin can ever fetch them.
  */
 
-/** Both assets, and nothing else, live under this key prefix in SCHOOL_CONFIG. */
-var CERT_ASSET_KEYS_ = { bg: 'CertBgFileId', sig: 'CertSigFileId' };
+/**
+ * The three uploaded files, and nothing else, live under these keys in SCHOOL_CONFIG.
+ *
+ * `font` was added 2026-09-25 because naming a font in CSS cannot make it exist. The school's
+ * template is set in **TH Sarabun New Bold**, which is one of Thailand's national fonts — free to
+ * use, but not on Google Fonts and therefore not something the app can ship. Naming it first in the
+ * stack only helps a machine that already has it installed, and the machine doing the rendering
+ * did not: every certificate was quietly coming out in Sarabun instead, which is the same
+ * designer's later redraw and visibly not the same letterforms next to the template's own text.
+ *
+ * So the school uploads the font it actually uses, exactly as it uploads its artwork and its
+ * signature. That makes the output identical on every machine — an admin's laptop, the ผอ.'s
+ * desktop, a phone — instead of depending on what happens to be installed, and it keeps the
+ * licensing where it belongs: with the school's own copy of its own font.
+ */
+var CERT_ASSET_KEYS_ = { bg: 'CertBgFileId', sig: 'CertSigFileId', font: 'CertFontFileId' };
+
+/** Font files that a browser can register through the FontFace API. */
+var CERT_FONT_MIME_ = { ttf: 'font/ttf', otf: 'font/otf', woff: 'font/woff', woff2: 'font/woff2' };
 
 /* An upload has to survive a POST body, and Apps Script starts refusing somewhere around the
  * low megabytes. The client already downscales to A4-landscape at 150 dpi before sending; this is
@@ -64,6 +81,7 @@ function handleCertText() {
   }
   out.hasBg = !!getConfig_(CERT_ASSET_KEYS_.bg, '');
   out.hasSig = !!getConfig_(CERT_ASSET_KEYS_.sig, '');
+  out.hasFont = !!getConfig_(CERT_ASSET_KEYS_.font, '');
   out.schoolName = getConfig_('SchoolName', '');
   return out;
 }
@@ -114,18 +132,31 @@ function handleSaveCertAsset(p) {
   }
 
   var url = String(p.dataUrl || '');
-  if (url.indexOf('data:image/') !== 0) throw apiError_('BAD_INPUT', 'ต้องเป็นไฟล์รูปภาพ');
+  var isFont = which === 'font';
+  if (url.indexOf('data:') !== 0) throw apiError_('BAD_INPUT', 'ไฟล์ไม่ถูกต้อง');
+  if (!isFont && url.indexOf('data:image/') !== 0) throw apiError_('BAD_INPUT', 'ต้องเป็นไฟล์รูปภาพ');
   var comma = url.indexOf(',');
   var b64 = comma >= 0 ? url.slice(comma + 1) : '';
   if (!b64) throw apiError_('BAD_INPUT', 'ไฟล์ว่าง');
   // base64 is 4 chars per 3 bytes — check before decoding, so an oversized upload is refused
   // rather than being decoded into memory first
   if (b64.length * 3 / 4 > CERT_MAX_ASSET_BYTES_)
-    throw apiError_('BAD_INPUT', 'ไฟล์ใหญ่เกินไป — ย่อรูปให้เล็กลงแล้วลองใหม่');
+    throw apiError_('BAD_INPUT', isFont ? 'ไฟล์ฟอนต์ใหญ่เกินไป' : 'ไฟล์ใหญ่เกินไป — ย่อรูปให้เล็กลงแล้วลองใหม่');
 
-  var mime = url.slice(5, url.indexOf(';') > 0 ? url.indexOf(';') : url.indexOf(','));
-  if (mime !== 'image/png' && mime !== 'image/jpeg') mime = 'image/png';
-  var ext = mime === 'image/jpeg' ? '.jpg' : '.png';
+  var mime, ext;
+  if (isFont) {
+    /* THE EXTENSION DECIDES, NOT THE BROWSER'S GUESS. Windows hands .ttf up as
+     * application/octet-stream as often as font/ttf, so trusting the data: URL's own mime would
+     * reject the most ordinary upload there is. `ext` comes from the filename the client sends. */
+    ext = String(p.ext || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+    if (!CERT_FONT_MIME_[ext]) throw apiError_('BAD_INPUT', 'รองรับเฉพาะไฟล์ .ttf .otf .woff .woff2');
+    mime = CERT_FONT_MIME_[ext];
+    ext = '.' + ext;
+  } else {
+    mime = url.slice(5, url.indexOf(';') > 0 ? url.indexOf(';') : url.indexOf(','));
+    if (mime !== 'image/png' && mime !== 'image/jpeg') mime = 'image/png';
+    ext = mime === 'image/jpeg' ? '.jpg' : '.png';
+  }
   var blob = Utilities.newBlob(Utilities.base64Decode(b64), mime, 'cert-' + which + '-' + Date.now() + ext);
   // NOT shared. See the header: the signature must not be reachable by URL.
   var file = certFolder_().createFile(blob);
@@ -149,7 +180,8 @@ function handleCertAssets() {
       return 'data:' + blob.getContentType() + ';base64,' + Utilities.base64Encode(blob.getBytes());
     } catch (e) { return ''; }   // deleted from Drive by hand, or permission lost
   };
-  return { bg: read(CERT_ASSET_KEYS_.bg), sig: read(CERT_ASSET_KEYS_.sig) };
+  return { bg: read(CERT_ASSET_KEYS_.bg), sig: read(CERT_ASSET_KEYS_.sig),
+           font: read(CERT_ASSET_KEYS_.font) };
 }
 
 /**

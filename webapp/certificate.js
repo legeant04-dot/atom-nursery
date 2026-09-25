@@ -101,16 +101,45 @@
    * between a filled-in certificate and a certificate with something typed on it. */
   var INK = '#121D4A', SOFT = '#3A4356', RULE = '#98A2B3';
   /**
-   * TH SARABUN NEW FIRST, as asked on 2026-09-25.
+   * THE SCHOOL'S OWN FONT FILE COMES FIRST — because naming a font cannot make it exist.
    *
-   * It is the Thai government standard face and is installed on most Thai machines, but it is not
-   * on Google Fonts, so it cannot be shipped — naming it first means a machine that HAS it uses it,
-   * which is the school's own office and print shop. `Sarabun` behind it is the open-licence cut of
-   * the same design by the same designer, served as a webfont, so a machine without it still gets
-   * the same letterforms. Everything after that is looped (มีหัว) too. Never add a loopless face.
+   * v403 put "TH Sarabun New" at the head of the stack, which was the right name and did nothing:
+   * it is one of Thailand's national fonts, free to use but not on Google Fonts, so it is only
+   * available to a machine that already has it installed — and the machine rendering these did not.
+   * Every certificate was quietly coming out in Sarabun, the same designer's later redraw, sitting
+   * next to template text set in the real thing. Caught by the school looking at a printed sheet.
+   *
+   * So the font is UPLOADED, like the artwork and the signature, registered here as `CertFont`, and
+   * the output is then identical on every machine rather than depending on what is installed. The
+   * rest of the stack is what happens before a school has uploaded one; every entry is looped
+   * (มีหัว). Never add a loopless face.
    */
+  var CERT_FONT_FAMILY = 'AtomCertFont';
+  var _fontLoaded = null, _fontSrc = '';
   function fontStack() {
-    return '"TH Sarabun New", "TH SarabunPSK", "Sarabun", "Noto Sans Thai", "Leelawadee UI", "Tahoma", sans-serif';
+    return (_fontLoaded ? '"' + CERT_FONT_FAMILY + '", ' : '') +
+      '"TH Sarabun New", "TH SarabunPSK", "Sarabun", "Noto Sans Thai", "Leelawadee UI", "Tahoma", sans-serif';
+  }
+
+  /**
+   * Register an uploaded font file for this document. Re-registering the same bytes is a no-op, so
+   * a batch of thirty certificates parses the file once.
+   *
+   * Never rejects: a corrupt or unreadable font falls back to the stack above, because a school
+   * that uploads the wrong file should get a certificate that looks slightly different, not an
+   * export that fails with nothing printed.
+   */
+  function useFont(dataUrl) {
+    var src = String(dataUrl || '');
+    if (!src || typeof FontFace === 'undefined') { _fontLoaded = false; return Promise.resolve(false); }
+    if (src === _fontSrc && _fontLoaded !== null) return Promise.resolve(_fontLoaded);
+    _fontSrc = src;
+    try {
+      var face = new FontFace(CERT_FONT_FAMILY, 'url(' + src + ')', { weight: '100 900' });
+      return face.load().then(function (f) {
+        document.fonts.add(f); _fontLoaded = true; return true;
+      }).catch(function () { _fontLoaded = false; return false; });
+    } catch (e) { _fontLoaded = false; return Promise.resolve(false); }
   }
   /* BOLD IS THE DEFAULT HERE, not 400. Asked for "ทั้งหมดในใบประกาศ วันที่ ชื่อนักเรียน" — both of
    * the things this file draws are set bold, so the weight is the default rather than something each
@@ -271,7 +300,7 @@
    */
   function render(d) {
     d = d || {};
-    return fontsReady().then(function () {
+    return Promise.all([fontsReady(), useFont(d.font)]).then(function () {
       return Promise.all([loadImage(d.bg), loadImage(d.sig)]);
     }).then(function (imgs) {
       var bg = imgs[0], sig = imgs[1];
