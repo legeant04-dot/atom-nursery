@@ -131,7 +131,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.403'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.404'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -8257,7 +8257,7 @@
         signerName: en?(cfg.CertSignerNameEN||cfg.CertSignerNameTH):(cfg.CertSignerNameTH||cfg.CertSignerNameEN),
         // the normal case: the school's template carries its own wording, so only three things are added
         bgHasText: String(cfg.CertBgHasText)!=='false',
-        bg: assets.bg||'', sig: assets.sig||'' }));
+        bg: assets.bg||'', sig: assets.sig||'', font: assets.font||'' }));
       const base=(en?'Certificates_':'ใบประกาศนียบัตร_')+issue;
       if(kind==='pdf') await window.AtomCertificate.savePdf(items, base+'.pdf');
       else await window.AtomCertificate.saveJpeg(items, base);
@@ -8296,6 +8296,17 @@
           <span class="acts"><input type="file" accept="image/*" id="cs_sig" style="display:none" onchange="A_certUpload('sig',this)"/>
             <button class="btn sm" onclick="document.getElementById('cs_sig').click()">${EN()?'Choose':'เลือกไฟล์'}</button>
             ${cfg.hasSig?`<button class="btn sm outline" onclick="A_certClear('sig',this)">🗑️</button>`:''}</span></div>
+        <div class="list-item"><span>🔤 ${EN()?'Font file (.ttf / .otf)':'ไฟล์ฟอนต์ (.ttf / .otf)'}<br>
+          <small class="muted">${cfg.hasFont
+            ? (EN()?'uploaded — used for the name and the date':'อัปโหลดแล้ว — ใช้กับชื่อนักเรียนและวันที่')
+            : (EN()?'not set — falls back to Sarabun, which is NOT the same as TH Sarabun New'
+                   :'ยังไม่ได้ตั้ง — ตอนนี้ใช้ Sarabun แทน ซึ่ง<b>ไม่ใช่</b>ตัวเดียวกับ TH Sarabun New')}</small></span>
+          <span class="acts"><input type="file" accept=".ttf,.otf,.woff,.woff2,font/*" id="cs_font" style="display:none" onchange="A_certUpload('font',this)"/>
+            <button class="btn sm" onclick="document.getElementById('cs_font').click()">${EN()?'Choose':'เลือกไฟล์'}</button>
+            ${cfg.hasFont?`<button class="btn sm outline" onclick="A_certClear('font',this)">🗑️</button>`:''}</span></div>
+        <div class="muted" style="font-size:12px;margin-top:4px">${EN()
+          ? 'Upload the same font the template was designed in. A font named in code only works on a machine that already has it installed; uploading it makes every certificate identical on every device.'
+          : '💡 อัปโหลด<b>ฟอนต์ตัวเดียวกับที่ใช้ออกแบบ template</b> (เช่น <b>TH Sarabun New Bold</b>) · การอ้างชื่อฟอนต์ในโค้ดจะได้ผลเฉพาะเครื่องที่ติดตั้งไว้แล้วเท่านั้น — <b>อัปโหลดแล้วทุกเครื่องจะได้ผลเหมือนกันหมด</b>'}</div>
         <label class="list-item" style="cursor:pointer;margin-top:6px"><span>📝 ${EN()
             ? 'The artwork already has its own wording'
             : 'พื้นหลังมีข้อความของตัวเองอยู่แล้ว'}<br><small class="muted">${EN()
@@ -8364,10 +8375,29 @@
         im.src=fr.result; };
       fr.readAsDataURL(file); });
   }
+  /* A FONT IS SENT AS-IS. There is nothing to downscale, and re-encoding it would destroy it — so
+   * this is a plain read, and the EXTENSION travels with it: Windows reports .ttf as
+   * application/octet-stream at least as often as font/ttf, so the server cannot trust the browser's
+   * guess about what the file is. */
+  function readRaw(file){
+    return new Promise((resolve,reject)=>{
+      const fr=new FileReader();
+      fr.onerror=()=>reject(new Error(EN()?'Could not read that file':'อ่านไฟล์ไม่ได้'));
+      fr.onload=()=>resolve(fr.result);
+      fr.readAsDataURL(file); });
+  }
   window.A_certUpload = async (which, input) => {
     const f=input.files && input.files[0]; if(!f) return;
     const btn=input.nextElementSibling; const old=btn?btn.textContent:''; if(btn){ btn.disabled=true; btn.textContent='⏳'; }
     try{
+      if(which==='font'){
+        const ext=(f.name.split('.').pop()||'').toLowerCase();
+        if(['ttf','otf','woff','woff2'].indexOf(ext)<0)
+          throw new Error(EN()?'Use a .ttf, .otf, .woff or .woff2 file':'ต้องเป็นไฟล์ .ttf .otf .woff หรือ .woff2');
+        await api('saveCertAsset',{which, dataUrl: await readRaw(f), ext});
+        toast(EN()?'Font uploaded':'อัปโหลดฟอนต์แล้ว');
+        input.closest('.modal').remove(); A_certSettings(); return;
+      }
       const dataUrl = await certShrink(f, which==='bg'?2339:900, which==='sig');
       await api('saveCertAsset',{which, dataUrl});
       toast(EN()?'Uploaded':'อัปโหลดแล้ว');

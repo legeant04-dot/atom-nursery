@@ -1431,7 +1431,7 @@ function createAtomAPI(M, GROWTH_STD) {
       if(v!=='' && CERT_LEGACY_[k]===v) v='';
       out[k] = v!=='' ? v : CERT_TEXT_DEFAULTS[k]; });
     // the same three extras handleCertText returns, so one screen reads one shape in both modes
-    out.hasBg = !!(c && c.CertBgFileId); out.hasSig = !!(c && c.CertSigFileId);
+    out.hasBg = !!(c && c.CertBgFileId); out.hasSig = !!(c && c.CertSigFileId); out.hasFont = !!(c && c.CertFontFileId);
     out.schoolName = (c && c.SchoolName) || '';
     return out; };
   /**
@@ -5229,8 +5229,8 @@ function createAtomAPI(M, GROWTH_STD) {
      * shadows all three). These stubs are what the local build answers with: no artwork, which the
      * renderer already has to handle anyway for a school that has not uploaded any yet — so the mock
      * exercises the fallback layout rather than crashing on a missing route. */
-    certAssets: () => ({ bg:'', sig:'' }),
-    saveCertAsset: p => { const w=String((p&&p.which)||''); if(w!=='bg'&&w!=='sig') fail('BAD_INPUT','ไม่รู้จักไฟล์ที่จะบันทึก: '+w);
+    certAssets: () => ({ bg:'', sig:'', font:'' }),
+    saveCertAsset: p => { const w=String((p&&p.which)||''); if(w!=='bg'&&w!=='sig'&&w!=='font') fail('BAD_INPUT','ไม่รู้จักไฟล์ที่จะบันทึก: '+w);
       return certTextRead_(cfg); },
     markCertIssued: p => ({ ok:true, logged:(p&&Array.isArray(p.studentIds)?p.studentIds.length:0) }),
 
