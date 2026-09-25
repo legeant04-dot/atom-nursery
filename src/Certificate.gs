@@ -48,9 +48,18 @@ function handleCertText() {
     CertLine2TH: 'ได้เข้าเรียนและผ่านการประเมินจาก', CertLine2EN: 'for attending and completing the programme at',
     CertDatePrefixTH: 'วันที่', CertDatePrefixEN: '',
     CertSignerTitleTH: 'ครูผู้อำนวยการ', CertSignerTitleEN: 'Director', CertBgHasText: 'true' };
+  /* A VALUE THIS PROJECT ITSELF WROTE, AND HAS TO TAKE BACK. v400 defaulted the date prefix to
+   * 'ให้ไว้ ณ วันที่' assuming a blank frame; the school's template already prints "ให้ไว้ ณ", so the
+   * first sheet read "ให้ไว้ ณ ให้ไว้ ณ วันที่ ๒๕ …". Changing the default in v401 fixed nothing —
+   * the admin had opened settings to upload the artwork, the box was pre-filled with that default,
+   * and Save stored it. So the exact string that default used is read as "never set". Exact match
+   * only, and read-side: the sheet is not rewritten, so there is nothing to undo. Kept identical to
+   * CERT_LEGACY_ in webapp/engine.js — tools/test_certificate.js asserts the two agree. */
+  var legacy = { CertDatePrefixTH: 'ให้ไว้ ณ วันที่', CertDatePrefixEN: 'Given on' };
   for (i = 0; i < keys.length; i++) {
     var v = cfg[keys[i]];
     v = (v === undefined || v === null) ? '' : String(v);
+    if (v !== '' && legacy[keys[i]] === v) v = '';
     out[keys[i]] = v !== '' ? v : (dflt[keys[i]] || '');
   }
   out.hasBg = !!getConfig_(CERT_ASSET_KEYS_.bg, '');
