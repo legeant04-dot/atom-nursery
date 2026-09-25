@@ -64,7 +64,7 @@ function handleCertText() {
     CertLine1TH: 'ขอมอบเกียรติบัตรฉบับนี้ให้ไว้เพื่อแสดงว่า', CertLine1EN: 'This certificate is proudly presented to',
     CertLine2TH: 'ได้เข้าเรียนและผ่านการประเมินจาก', CertLine2EN: 'for attending and completing the programme at',
     CertDatePrefixTH: 'วันที่', CertDatePrefixEN: '',
-    CertSignerTitleTH: 'ครูผู้อำนวยการ', CertSignerTitleEN: 'Director', CertBgHasText: 'true' };
+    CertSignerTitleTH: 'ครูผู้อำนวยการ', CertSignerTitleEN: 'Director', CertBgHasText: 'false' };
   /* A VALUE THIS PROJECT ITSELF WROTE, AND HAS TO TAKE BACK. v400 defaulted the date prefix to
    * 'ให้ไว้ ณ วันที่' assuming a blank frame; the school's template already prints "ให้ไว้ ณ", so the
    * first sheet read "ให้ไว้ ณ ให้ไว้ ณ วันที่ ๒๕ …". Changing the default in v401 fixed nothing —
@@ -76,7 +76,9 @@ function handleCertText() {
   for (i = 0; i < keys.length; i++) {
     var v = cfg[keys[i]];
     v = (v === undefined || v === null) ? '' : String(v);
-    if (v !== '' && legacy[keys[i]] === v) v = '';
+    /* ONLY WHEN THE ARTWORK CARRIES THE LEAD-IN. With a blank frame the app writes "ให้ไว้ ณ"
+     * itself, so 'ให้ไว้ ณ วันที่' is exactly right there and must survive. */
+    if (v !== '' && legacy[keys[i]] === v && String(cfg.CertBgHasText || 'true') !== 'false') v = '';
     out[keys[i]] = v !== '' ? v : (dflt[keys[i]] || '');
   }
   out.hasBg = !!getConfig_(CERT_ASSET_KEYS_.bg, '');

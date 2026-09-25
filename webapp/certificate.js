@@ -83,16 +83,34 @@
     sigMaxW: 0.185, sigMaxH: 0.075
   };
 
-  /* The no-artwork fallback: a plain bordered sheet that prints the wording from settings, so a
-   * school that has not uploaded anything yet still gets something usable. Unchanged from v400. */
+  /* ===== FULL MODE — the app writes every line ==================================================
+   * Chosen 2026-09-25: the school supplies a BLANK frame (its border and its logo, no text at all)
+   * and everything else is drawn here. It is the better arrangement by some distance — the type can
+   * be set to the brief instead of matched to whatever is already printed, there is no artwork to
+   * scan for rules, and the next school needs a different frame rather than a different code path.
+   *
+   * It also dissolves the problem that started all this. The old sheet looked wrong because OUR text
+   * sat beside THEIR text in a different font. When one font sets the whole page there is nothing
+   * left to clash with.
+   *
+   * MEASURED FROM THE BLANK FRAME, not estimated: the middle of that file (x 0.12–0.88) is clear
+   * from y 0.321 — where the logo ends — to y 0.905, where the bottom decorations begin. Every
+   * baseline below sits inside that, and the order follows the school's own certificate so it still
+   * reads as theirs.
+   *
+   * Sizes are the brief of 2026-09-25, as fractions of sheet height (× 199.2 / 0.3528 = pt):
+   *     heading 0.0531 → 30 pt      body 0.0354 → 20 pt      name 0.0744 → 42 pt
+   */
   var L = {
-    headY: 0.335, head: 68, line1Y: 0.410, line1: 40,
-    nameY: 0.508, name: 76, ruleY: 0.534, ruleW: 0.52,
-    line2Y: 0.605, line2: 40, line3Y: 0.663,
-    dateY: 0.722, date: 40,
-    sigX: 0.655, sigY: 0.798, sigMaxW: 0.20, sigMaxH: 0.085,
-    sigRuleY: 0.828, sigRuleW: 0.26,
-    titleY: 0.878, title: 36, signerY: 0.928, signer: 36
+    headY: 0.395, head: 0.0531, headMaxW: 0.76,
+    line1Y: 0.458, body: 0.0354, bodyMaxW: 0.80,
+    nameY: 0.572, name: 0.0744, nameMaxW: 0.52,
+    ruleY: 0.590, ruleW: 0.55,
+    line2Y: 0.652,
+    dateY: 0.710,
+    sigCx: 0.72, sigRuleY: 0.812, sigRuleW: 0.26,
+    sigMaxW: 0.185, sigMaxH: 0.075, sigDrop: 0.004,
+    titleY: 0.858, signerY: 0.892
   };
 
   /* #121D4A IS THE SCHOOL'S OWN INK, sampled from the heading on their artwork — the navy asked for
@@ -129,9 +147,17 @@
    * that uploads the wrong file should get a certificate that looks slightly different, not an
    * export that fails with nothing printed.
    */
+  /* THE FONT SHIPS WITH THE APP. TH Sarabun New is one of Thailand's national fonts — free to use
+   * and to redistribute — so it is bundled rather than hoped for: naming it in CSS only ever reached
+   * a machine that already had it installed, which is what made v403 look almost right. It is
+   * fetched ONLY by this file, which is itself loaded on demand, so the 352 KB costs nothing to a
+   * parent opening the app or a teacher taking a register, and is cached after the first export.
+   * An uploaded font (settings) overrides it — the next school may set its frame in something else. */
+  var BUNDLED_FONT = 'assets/fonts/THSarabunNew-Bold.ttf';
+
   function useFont(dataUrl) {
-    var src = String(dataUrl || '');
-    if (!src || typeof FontFace === 'undefined') { _fontLoaded = false; return Promise.resolve(false); }
+    var src = String(dataUrl || '') || BUNDLED_FONT;
+    if (typeof FontFace === 'undefined') { _fontLoaded = false; return Promise.resolve(false); }
     if (src === _fontSrc && _fontLoaded !== null) return Promise.resolve(_fontLoaded);
     _fontSrc = src;
     try {
@@ -348,35 +374,45 @@
         return { dataUrl: cv.toDataURL('image/jpeg', 0.92), width: W, height: H };
       }
 
-      // ===== no artwork: the plain fallback sheet, which DOES print the wording ==================
-      centred(ctx, d.head, cx, H * L.headY, L.head, 700, INK, W * 0.82);
-      centred(ctx, d.line1, cx, H * L.line1Y, L.line1, 400, SOFT, W * 0.78);
+      /* ===== FULL MODE — every line is ours, over a blank frame (or over nothing) ===============
+       * Bold throughout, in the school's own navy, at the sizes in the brief. One face, one colour,
+       * one hand: which is the whole reason this arrangement was chosen over overlaying a template
+       * that already carried type of its own. */
+      centred(ctx, d.head, cx, H * L.headY, H * L.head, 700, INK, W * L.headMaxW);
+      centred(ctx, d.line1, cx, H * L.line1Y, H * L.body, 700, INK, W * L.bodyMaxW);
 
       /* THE CHILD'S FULL NAME AND THEIR NICKNAME, on one line: "ณัฐภัทร ราชวงศ์ (ติณณ์)".
        * The ผอ. asked for "ชื่อจริง+(ชื่อเล่น)" and meant it literally — at this age the nickname is
        * what the child answers to and what the family will read first, and the legal name is what
-       * makes the document a record. Both, or the sheet is either impersonal or not evidence. */
+       * makes the document a record. Both, or the sheet is either impersonal or not evidence.
+       * Kept INSIDE its rule (2026-09-25), so a long name shrinks rather than overhanging. */
       var who = String(d.name || '').trim();
       var nick = String(d.nick || '').trim();
       if (nick && nick !== who) who = who ? who + ' (' + nick + ')' : nick;
-      centred(ctx, who, cx, H * L.nameY, L.name, 700, INK, W * (L.ruleW - 0.02));
+      centred(ctx, who, cx, H * L.nameY, H * L.name, 700, INK, W * L.nameMaxW);
       rule(ctx, cx, H * L.ruleY, W * L.ruleW);
 
-      centred(ctx, d.line2, cx, H * L.line2Y, L.line2, 400, SOFT, W * 0.80);
-      centred(ctx, d.line3, cx, H * L.line3Y, L.line2, 400, SOFT, W * 0.80);
-      centred(ctx, d.dateText, cx, H * L.dateY, L.date, 400, INK, W * 0.70);
+      /* ONE SENTENCE, ONE LINE: "ได้เข้าเรียนและผ่านการประเมินจาก" + the school's name. It reads as a
+       * single thought on the school's own certificate, so it is joined here rather than being set
+       * as two stacked lines that happen to make a sentence. */
+      var sentence = [String(d.line2 || '').trim(), String(d.head || '').trim()].filter(Boolean).join(' ');
+      centred(ctx, sentence, cx, H * L.line2Y, H * L.body, 700, INK, W * L.bodyMaxW);
+      centred(ctx, d.dateText, cx, H * L.dateY, H * L.body, 700, INK, W * L.bodyMaxW);
 
-      var sx = W * L.sigX;
+      var sx = W * L.sigCx;
       if (sig && sig.width && sig.height) {
-        var s = Math.min((W * L.sigMaxW) / sig.width, (H * L.sigMaxH) / sig.height);
-        var sw = sig.width * s, sh = sig.height * s;
-        ctx.drawImage(sig, sx - sw / 2, H * L.sigY - sh / 2, sw, sh);
+        // trimmed to the ink and dropped onto the rule, exactly as in overlay mode
+        var b2 = inkBox(sig) || { sx: 0, sy: 0, sw: sig.width, sh: sig.height };
+        var s = Math.min((W * L.sigMaxW) / b2.sw, (H * L.sigMaxH) / b2.sh);
+        var sw = b2.sw * s, sh = b2.sh * s;
+        ctx.drawImage(sig, b2.sx, b2.sy, b2.sw, b2.sh,
+                      sx - sw / 2, (L.sigRuleY + L.sigDrop) * H - sh, sw, sh);
       }
       rule(ctx, sx, H * L.sigRuleY, W * L.sigRuleW);
-      centred(ctx, d.signerTitle, sx, H * L.titleY, L.title, 400, INK, W * L.sigRuleW);
+      centred(ctx, d.signerTitle, sx, H * L.titleY, H * L.body, 700, INK, W * (L.sigRuleW + 0.10));
       // the name goes in brackets, which is how every Thai official document sets a signatory
       var nm = String(d.signerName || '').trim();
-      centred(ctx, nm ? '(' + nm + ')' : '', sx, H * L.signerY, L.signer, 400, INK, W * L.sigRuleW);
+      centred(ctx, nm ? '(' + nm + ')' : '', sx, H * L.signerY, H * L.body, 700, INK, W * (L.sigRuleW + 0.10));
 
       return { dataUrl: cv.toDataURL('image/jpeg', 0.92), width: W, height: H };
     });
