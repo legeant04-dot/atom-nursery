@@ -113,6 +113,12 @@ console.log('\n2) THE 115 — a new one is a behaviour silently replaced');
      * certStudents is deliberately NOT here — it is a pure read over STUDENTS with no sheet or Drive
      * call, so the engine stays its only implementation and there is nothing to keep in step. */
     'certAssets', 'certText', 'markCertIssued', 'saveCertAsset', 'saveCertText',
+    /* v407 งดคำนวณ OT. Real duplication, and it decides MONEY — a day on this list is a day of
+     * late-pickup charges the school does not collect. The list lives in SCHOOL_CONFIG, which only
+     * exists on GAS, so the pair is unavoidable; tools/test_ot_waiver.js asserts that both copies
+     * answer the same for the same day, including the boundary the school cares about most — that
+     * the day AFTER the range is charged normally, with nobody switching anything back. */
+    'otWaiveDays', 'saveOtWaiveDays',
     'slipDiag',
     'staffCheckin', 'staffCheckout', 'staffStudentCheckin', 'studentAbsence', 'studentAssessment',
     'submitAssessment', 'submitClassChange', 'submitInjury', 'submitInsurance', 'submitJournal',

@@ -814,12 +814,16 @@ function createAtomAPI(M, GROWTH_STD) {
     const r=i>=0?M.otDaily[i]:null;
     const status=r?String(r.Status||''):'';
     if(otSettled_(r)) return null;
-    const o=pickupHHMM?otFor(student,pickupHHMM):{amount:0,late:0,hours:0,planEnd:otThreshold(student)};
+    const o=pickupHHMM?otFor(student,pickupHHMM,d):{amount:0,late:0,hours:0,planEnd:otThreshold(student)};
     if(o.amount<=0){
       if(!r) return null;
       r.PickupTime=pickupHHMM||''; r.PlanEnd=o.planEnd; r.LateMinutes=o.late||0; r.Hours=0;
-      r.FullAmount=0; r.Amount=0; r.Status='CANCELLED'; r.CancelledBy='AUTO_TIME';
-      r.CancelNote=pickupHHMM?('แก้เวลารับกลับเป็น '+pickupHHMM+' — ไม่เข้าเงื่อนไข OT'):'ล้างเวลารับกลับ — ไม่เข้าเงื่อนไข OT';
+      r.FullAmount=0; r.Amount=0; r.Status='CANCELLED'; r.CancelledBy=o.waived?'AUTO_WAIVE':'AUTO_TIME';
+      /* SAY WHY. A parent who was late and is not charged will ask, and an auditor looking at a
+       * cancelled row a year later needs to see a school decision rather than a missing charge. */
+      r.CancelNote=o.waived
+        ? ('งดคำนวณ OT ประจำวันที่ '+d+(o.waiveReason?' — '+o.waiveReason:''))
+        : (pickupHHMM?('แก้เวลารับกลับเป็น '+pickupHHMM+' — ไม่เข้าเงื่อนไข OT'):'ล้างเวลารับกลับ — ไม่เข้าเงื่อนไข OT');
       return null;
     }
     if(r){
@@ -883,9 +887,38 @@ function createAtomAPI(M, GROWTH_STD) {
             .filter(x=>x.months>0).sort((a,b)=>a.months-b.months); }
   // per-student OT rate overrides the global OTRatePerHour when set (> 0)
   const otRateFor = student => { const r=Number(student&&student.OTRate); return r>0?r:Number(cfg.OTRatePerHour||100); };
-  function otFor(student, pickupHHMM){
+  /* ---- งดคำนวณ OT — days the school chooses not to charge late pick-up -----------------------
+   * Asked 2026-09-25: "วันที่ 25/09/26 ฝนตกหนักมาก โรงเรียนอยากช่วยเหลือผู้ปกครองโดยวันนี้เว้นการคิด
+   * OT ของทุกชั้นเรียน ... เมื่อข้ามวันเป็นวันที่ 26/09/26 ระบบจะกลับมาเป็นปกติ".
+   *
+   * A DATE RANGE, NOT A SWITCH. The whole point is that nobody has to remember to turn it back on
+   * the next morning — the same rule that makes a student's EndDate cut off by itself. A single day
+   * is a range whose ends are equal, which is why the form asks for two dates either way.
+   *
+   * It is decided at COMPUTATION time rather than stamped onto rows, so it applies to a pick-up
+   * recorded late that evening, to a correction made a week later, and to every class at once
+   * without touching a single existing row.
+   */
+  function otWaiveDays_(){
+    let v=cfg.OTWaiveDays;
+    if(typeof v==='string' && v.trim()){ try{ v=JSON.parse(v); }catch(e){ v=null; } }
+    if(!Array.isArray(v)) return [];
+    return v.map(x=>({ from:ymd(x&&x.from||''), to:ymd(x&&(x.to||x.from)||''), reason:String((x&&x.reason)||'') }))
+            .filter(x=>x.from && x.to);
+  }
+  /** The waiver covering `date`, or null. Both ends are inclusive — a one-day waiver is from===to. */
+  function otWaivedOn_(date){
+    const d=ymd(date||''); if(!d) return null;
+    return otWaiveDays_().find(w=>d>=w.from && d<=w.to) || null;
+  }
+
+  function otFor(student, pickupHHMM, date){
     const planEnd=otThreshold(student); const late=Math.max(0, toMin(pickupHHMM)-toMin(planEnd));
     const grace=Number(cfg.OTGraceMinutes||21);
+    /* The late minutes are still reported — the child WAS picked up late and the register should say
+     * so — but nothing is owed. Reporting 0 minutes as well would erase the fact. */
+    const w = date ? otWaivedOn_(date) : null;
+    if(w) return {late, hours:0, amount:0, planEnd, rate:otRateFor(student), waived:true, waiveReason:w.reason};
     if(late<=grace) return {late, hours:0, amount:0, planEnd, rate:otRateFor(student)};
     const hours=Math.ceil(late/60); return {late, hours, amount:hours*otRateFor(student), planEnd, rate:otRateFor(student)};
   }
@@ -2441,7 +2474,8 @@ function createAtomAPI(M, GROWTH_STD) {
     adminUpdateOT: p => { const o=M.otDaily.find(x=>x.OTID===p.otId); if(!o)fail('NOT_FOUND','ไม่พบรายการ OT');
       if(o.Status==='PAID')fail('ALREADY_PAID','รายการนี้ชำระแล้ว แก้ไขไม่ได้');
       let full=otFullOf_(o), touched=false;
-      if(p.pickupTime){ const s=studentById(o.StudentID)||{}; const c=otFor(s,p.pickupTime);
+      // the row's own date, so a correction made later is still judged against the day it happened
+      if(p.pickupTime){ const s=studentById(o.StudentID)||{}; const c=otFor(s,p.pickupTime,o.Date||'');
         o.PickupTime=p.pickupTime; o.PlanEnd=c.planEnd; o.LateMinutes=c.late; o.Hours=c.hours; full=c.amount; touched=true; }
       const had=otDiscOf_(o,otFullOf_(o));
       let disc=Math.min(had,full);                                  // a smaller charge caps an old discount
@@ -5235,6 +5269,25 @@ function createAtomAPI(M, GROWTH_STD) {
     saveCertAsset: p => { const w=String((p&&p.which)||''); if(w!=='bg'&&w!=='sig'&&w!=='font') fail('BAD_INPUT','ไม่รู้จักไฟล์ที่จะบันทึก: '+w);
       return certTextRead_(cfg); },
     markCertIssued: p => ({ ok:true, logged:(p&&Array.isArray(p.studentIds)?p.studentIds.length:0) }),
+
+    /* ========== งดคำนวณ OT ==========
+     * The list of waived date ranges, and today's status so the screen can say plainly whether OT is
+     * being charged right now — which is the one thing an admin actually wants to know when they
+     * open it on a rainy afternoon. */
+    otWaiveDays: () => ({ days: otWaiveDays_(), today: todayLocal(), active: otWaivedOn_(todayLocal()) }),
+    saveOtWaiveDays: p => {
+      const raw = Array.isArray(p && p.days) ? p.days : [];
+      const days = raw.map(x => {
+        const from = ymd((x && x.from) || '');
+        // ONE DAY IS A RANGE WITH EQUAL ENDS — asked for explicitly, and it keeps the form honest
+        const to = ymd((x && (x.to || x.from)) || '');
+        if (!from || !to) fail('BAD_INPUT', 'ต้องระบุวันเริ่มต้นและวันสิ้นสุด');
+        if (to < from) fail('BAD_RANGE', 'วันสิ้นสุดต้องไม่ก่อนวันเริ่มต้น');
+        return { from, to, reason: String((x && x.reason) || '').slice(0, 200) };
+      }).sort((a, b) => String(b.from).localeCompare(String(a.from)));
+      cfg.OTWaiveDays = days;
+      return { days, today: todayLocal(), active: otWaivedOn_(todayLocal()) };
+    },
 
     // ========== generic config setter (diligence amounts, etc.) ==========
     getConfigVal: p => cfg[p.key],

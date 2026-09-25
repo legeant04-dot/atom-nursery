@@ -14,7 +14,7 @@
  *
  *   2. ชื่อจริง + (ชื่อเล่น) on one line.
  *
- *   3. THE DATE IN THAI NUMERALS WITH พ.ศ. — ๒๔ กันยายน พ.ศ. ๒๕๖๙ — and Arabic with the Gregorian
+ *   3. THE DATE IN THAI NUMERALS WITH — ๒๔ กันยายน ๒๕๖๙ — and Arabic with the Gregorian
  *      year in English. Two rules, not one rule with a flag: "๒๔ September ๒๐๒๖" is nobody's
  *      convention. §3 also guards the thing a new function like this invites — somebody "tidying"
  *      it by making longDate() take a `thai` flag, which would re-number every leave list in the app.
@@ -118,7 +118,7 @@ console.log('\n2) the wording is the school’s, and the two copies of it agree'
 
   /* THE VALUE THIS PROJECT WROTE AND HAS TO TAKE BACK. v400 defaulted the prefix to 'ให้ไว้ ณ วันที่';
    * the template already prints "ให้ไว้ ณ", so the first real sheet read "ให้ไว้ ณ ให้ไว้ ณ วันที่
-   * ๒๕ กันยายน พ.ศ. ๒๕๖๙". Changing the default in v401 fixed nothing — the admin had opened settings
+   * ๒๕ กันยายน ๒๕๖๙". Changing the default in v401 fixed nothing — the admin had opened settings
    * to upload the artwork, the box was pre-filled with that default, and Save stored it. A default
    * only applies where nothing is stored. */
   {
@@ -155,7 +155,7 @@ console.log('\n2) the wording is the school’s, and the two copies of it agree'
 }
 
 // ============================================================================================
-console.log('\n3) ๒๔ กันยายน พ.ศ. ๒๕๖๙ — and 24 September 2026');
+console.log('\n3) ๒๔ กันยายน ๒๕๖๙ — and 24 September 2026');
 // ============================================================================================
 {
   /* certDate lives inside app.js's IIFE, so it is lifted out and run rather than re-implemented
@@ -167,14 +167,14 @@ console.log('\n3) ๒๔ กันยายน พ.ศ. ๒๕๖๙ — and 24 
   const certDate = new Function('TH_MONTHS', 'EN_MONTHS', 'todayStr',
     src[0] + '; return certDate;')(TH_MONTHS, EN_MONTHS, () => '2026-09-24');
 
-  eq('the ผอ.’s own example, exactly', certDate('2026-09-24', false), '๒๔ กันยายน พ.ศ. ๒๕๖๙');
+  eq('the ผอ.’s own example, exactly', certDate('2026-09-24', false), '๒๔ กันยายน ๒๕๖๙');
   eq('...and the English one', certDate('2026-09-24', true), '24 September 2026');
-  eq('a single-digit day is not padded — Thai does not write ๐๑', certDate('2026-03-01', false), '๑ มีนาคม พ.ศ. ๒๕๖๙');
-  eq('every digit is converted, including the year’s', certDate('2020-12-31', false), '๓๑ ธันวาคม พ.ศ. ๒๕๖๓');
+  eq('a single-digit day is not padded — Thai does not write ๐๑', certDate('2026-03-01', false), '๑ มีนาคม ๒๕๖๙');
+  eq('every digit is converted, including the year’s', certDate('2020-12-31', false), '๓๑ ธันวาคม ๒๕๖๓');
   /* PARSED AS A STRING, NEVER new Date('2026-01-01') — that is UTC midnight, which in a timezone
    * behind UTC prints the 31st of December. A certificate dated one day early is the kind of error
    * nobody finds until it is framed on a wall. */
-  eq('a January 1st does not slip back to December', certDate('2026-01-01', false), '๑ มกราคม พ.ศ. ๒๕๖๙');
+  eq('a January 1st does not slip back to December', certDate('2026-01-01', false), '๑ มกราคม ๒๕๖๙');
   eq('...in English either', certDate('2026-01-01', true), '1 January 2026');
 
   /* THE FUNCTION THAT MUST NOT HAVE BEEN "TIDIED" INTO THIS ONE. Every other date in the app is read
@@ -219,6 +219,22 @@ console.log('\n4) landscape — and every existing caller still portrait');
   const mixed = buildPdf([{ bytes: img, w: 100, h: 200 }, { bytes: img, w: 200, h: 100, landscape: true }]);
   eq('orientation is per page, not per document',
      boxes(mixed), ['/MediaBox [0 0 595.28 841.89]', '/MediaBox [0 0 841.89 595.28]']);
+
+  /* A5 FROM 2026-09-25 — "ปรับขนาด A5 Default แต่ยังคง High Resolution สำหรับพิมพ์ไว้".
+   * There is no tradeoff to make: the sheet is still rendered at 2400 px on its long edge, so
+   * printing it across A5's 210 mm is ~290 dpi where across A4's 297 mm it was ~205. A smaller page
+   * out of the same pixels is MORE resolution per millimetre, not less. */
+  const a5 = buildPdf([{ bytes: img, w: 2400, h: 1610, landscape: true, a5: true }]);
+  eq('the certificate page is A5 landscape', boxes(a5), ['/MediaBox [0 0 595.28 419.53]']);
+  ok_('...and the certificate asks for it', /a5: true/.test(cert));
+  ok_('...while every other caller stays A4', !/a5/.test(card.replace(/\/\*[\s\S]*?\*\//g, '')
+    .split('function buildPdf')[0]) && /var A5W = 419\.53, A5H = 595\.28;/.test(card));
+  eq('a page with no a5 flag is still A4, exactly as before',
+     boxes(buildPdf([{ bytes: img, w: 1240, h: 1754 }])), ['/MediaBox [0 0 595.28 841.89]']);
+  /* THE IMAGE STILL FILLS THE PAGE — an A5 page holding a letterboxed strip would be the one way
+   * this could go wrong quietly, since the file would still open and still say A5. */
+  const m5 = /q ([\d.]+) 0 0 ([\d.]+) ([\d.]+) ([\d.]+) cm/.exec(dec(a5));
+  ok_('...and the artwork fills it edge to edge', !!m5 && Math.abs(+m5[1] - 595.28) < 0.5);
 
   ok_('the certificate asks for landscape', /landscape: true/.test(cert));
   ok_('...and reuses the one PDF writer rather than shipping a second',

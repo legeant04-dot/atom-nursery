@@ -45,12 +45,63 @@ function otThreshold_(student) {
   if (/^\d{1,2}:\d{2}$/.test(g)) return g;
   return otStudentEnd_(student);
 }
-/** {late, hours, amount, planEnd, rate} for a pickup time. Nothing charged inside the grace window. */
-function otComputeFor_(student, pickupHHMM) {
+/* ---- งดคำนวณ OT — days the school chooses not to charge late pick-up ------------------------
+ * Asked 2026-09-25. A DATE RANGE, NOT A SWITCH: nobody has to remember to turn it back on the next
+ * morning, the same rule that makes a student's EndDate cut off by itself. A single day is a range
+ * with equal ends. Decided at COMPUTATION time, so it covers a pick-up entered that evening, a
+ * correction made a week later, and every class at once, without rewriting a single stored row.
+ * Kept in step with otWaiveDays_/otWaivedOn_ in webapp/engine.js — tools/test_ot_waiver.js asserts it. */
+function otWaiveDays_() {
+  var raw = getConfig_('OTWaiveDays', '');
+  if (!raw) return [];
+  var v = raw;
+  if (typeof v === 'string') { try { v = JSON.parse(v); } catch (e) { return []; } }
+  if (!Array.isArray(v)) return [];
+  var out = [];
+  for (var i = 0; i < v.length; i++) {
+    var x = v[i] || {};
+    var from = ymdStr_(x.from), to = ymdStr_(x.to || x.from);
+    if (from && to) out.push({ from: from, to: to, reason: String(x.reason || '') });
+  }
+  return out;
+}
+/** The waiver covering `dateS`, or null. Both ends inclusive. */
+function otWaivedOn_(dateS) {
+  var d = ymdStr_(dateS);
+  if (!d) return null;
+  var list = otWaiveDays_();
+  for (var i = 0; i < list.length; i++) if (d >= list[i].from && d <= list[i].to) return list[i];
+  return null;
+}
+/**
+ * 'YYYY-MM-DD' out of a Date or a string; '' when it is neither.
+ *
+ * `v` comes out of a CELL (OT_DAILY.Date), so it is formatted in the SPREADSHEET's timezone, not
+ * the one in SCHOOL_CONFIG. Getting that backwards is the v251 bug — a cell read in the wrong zone
+ * lands on the previous day, which here would mean a waiver silently covering the wrong date.
+ * tools/test_one_rule.js refuses the other spelling, and caught this one.
+ */
+function ymdStr_(v) {
+  if (v instanceof Date && !isNaN(v)) {
+    var z = (typeof ssTz_ === 'function') ? ssTz_() : tz_();
+    return Utilities.formatDate(v, z, 'yyyy-MM-dd');
+  }
+  var s = String(v == null ? '' : v).slice(0, 10);
+  return /^\d{4}-\d{2}-\d{2}$/.test(s) ? s : '';
+}
+
+/** {late, hours, amount, planEnd, rate} for a pickup time. Nothing charged inside the grace window,
+ *  and nothing charged at all on a day the school has waived. */
+function otComputeFor_(student, pickupHHMM, dateS) {
   var planEnd = otThreshold_(student);
   var rate = otRateFor_(student);
   var late = Math.max(0, otMinOfDay_(pickupHHMM) - otMinOfDay_(planEnd));
   var grace = Number(getConfig_('OTGraceMinutes', '21')) || 21;
+  /* The late minutes are still reported — the child WAS picked up late and the register should say
+   * so — but nothing is owed. */
+  var w = dateS ? otWaivedOn_(dateS) : null;
+  if (w) return { late: late, hours: 0, amount: 0, planEnd: planEnd, rate: rate,
+                  waived: true, waiveReason: w.reason };
   if (late <= grace) return { late: late, hours: 0, amount: 0, planEnd: planEnd, rate: rate };
   var hours = Math.ceil(late / 60);
   return { late: late, hours: hours, amount: hours * rate, planEnd: planEnd, rate: rate };
@@ -124,7 +175,7 @@ function otMoneyReceived_(o) {
  * correction owes something again.
  */
 function otUpsertForPickup_(student, pickupHHMM, dateS) {
-  var c = otComputeFor_(student, pickupHHMM);
+  var c = otComputeFor_(student, pickupHHMM, dateS);
   var sh = sheet_(getMainSpreadsheet_(), 'OT_DAILY');
   ensureColumns_(sh, OT_DISCOUNT_COLS_.concat(OT_CANCEL_COLS_));
   var otId = 'OT-' + String(dateS).replace(/-/g, '') + '-' + student.StudentID;
@@ -138,9 +189,14 @@ function otUpsertForPickup_(student, pickupHHMM, dateS) {
     if (settled) return null;                                      // settled money is never rewritten here
     // The charge existed only because of a time that has now been corrected away. Keep the row so the
     // correction can be seen (and so a slip already attached still points at something), at zero.
+    /* SAY WHY. A parent who was late and is not charged will ask, and an auditor looking at a
+     * cancelled row a year later needs to see a school decision rather than a missing charge. */
     updateRow_(sh, ex._row, { PickupTime: pickupHHMM, PlanEnd: c.planEnd, LateMinutes: c.late, Hours: 0,
-      FullAmount: 0, Amount: 0, Status: 'CANCELLED', CancelledBy: OT_CANCEL_AUTO_,
-      CancelNote: 'แก้เวลารับกลับเป็น ' + pickupHHMM + ' — ไม่เข้าเงื่อนไข OT' });
+      FullAmount: 0, Amount: 0, Status: 'CANCELLED',
+      CancelledBy: c.waived ? 'AUTO_WAIVE' : OT_CANCEL_AUTO_,
+      CancelNote: c.waived
+        ? ('งดคำนวณ OT ประจำวันที่ ' + dateS + (c.waiveReason ? ' — ' + c.waiveReason : ''))
+        : ('แก้เวลารับกลับเป็น ' + pickupHHMM + ' — ไม่เข้าเงื่อนไข OT') });
     otBust_();
     return null;
   }
@@ -216,7 +272,8 @@ function handleAdminUpdateOT(p) {
   var full = otFullOf_(r.o);
   if (p.pickupTime) {
     var student = findObject_(sheet_(getMainSpreadsheet_(), 'STUDENTS'), function (s) { return String(s.StudentID) === String(r.o.StudentID); }) || {};
-    var c = otComputeFor_(student, p.pickupTime);
+    // the row's own date, so a correction made later is still judged against the day it happened
+    var c = otComputeFor_(student, p.pickupTime, ymdStr_(r.o.Date));
     patch.PickupTime = toHHmm_(p.pickupTime); patch.PlanEnd = c.planEnd;
     patch.LateMinutes = c.late; patch.Hours = c.hours;
     full = c.amount; touched = true;
@@ -284,4 +341,42 @@ function handleAdminRestoreOT(p) {
   updateRow_(r.sh, r.o._row, { Status: 'UNPAID' });
   otBust_();
   return { otId: p.otId, status: 'UNPAID' };
+}
+
+/* ---- งดคำนวณ OT: the admin's list -----------------------------------------------------------
+ * Stored as JSON in SCHOOL_CONFIG, like Plans and PrepayTiers. Shadows the engine routes of the
+ * same names; both copies apply the same rule, and tools/test_ot_waiver.js asserts they agree.
+ */
+function handleOtWaiveDays() {
+  var today = Utilities.formatDate(new Date(), tz_(), 'yyyy-MM-dd');
+  return { days: otWaiveDays_(), today: today, active: otWaivedOn_(today) };
+}
+
+/** admin-only: replace the whole list. Validated here as well as on the client — a range whose end
+ *  is before its start would silently waive nothing and look like it had worked. */
+function handleSaveOtWaiveDays(p) {
+  p = p || {};
+  var raw = (p && Array.isArray(p.days)) ? p.days : [];
+  var days = [];
+  for (var i = 0; i < raw.length; i++) {
+    var x = raw[i] || {};
+    var from = ymdStr_(x.from);
+    // ONE DAY IS A RANGE WITH EQUAL ENDS — asked for explicitly, and it keeps the form honest
+    var to = ymdStr_(x.to || x.from);
+    if (!from || !to) throw apiError_('BAD_INPUT', 'ต้องระบุวันเริ่มต้นและวันสิ้นสุด');
+    if (to < from) throw apiError_('BAD_RANGE', 'วันสิ้นสุดต้องไม่ก่อนวันเริ่มต้น');
+    days.push({ from: from, to: to, reason: String(x.reason || '').slice(0, 200) });
+  }
+  days.sort(function (a, b) { return String(b.from).localeCompare(String(a.from)); });
+  setConfigValue_('OTWaiveDays', JSON.stringify(days));
+  /* THE CACHED OT READS HAVE TO GO. A waiver changes what every unpaid row is worth, and the OT
+   * screens are served from cache — without this the admin saves a waiver and still sees charges. */
+  try { otBust_(); } catch (e) {}
+  try {
+    logAudit(p.adminId || 'admin', 'OT_WAIVE', 'SCHOOL_CONFIG',
+      days.length + ' range(s): ' + days.map(function (d) {
+        return d.from === d.to ? d.from : (d.from + '→' + d.to);
+      }).join(', '));
+  } catch (e) {}
+  return handleOtWaiveDays();
 }

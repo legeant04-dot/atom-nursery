@@ -167,7 +167,13 @@ console.log('\n5) one rule, in one place, on each side');
 {
   ok_('the Apps Script route no longer leaves early when nothing is owed',
     !/var c = otComputeFor_\(student, pickupHHMM\);\s*\n\s*if \(c\.amount <= 0\) return null;/.test(otgs));
-  ok_('...it cancels the charge the old time made', /Status: 'CANCELLED', CancelledBy: OT_CANCEL_AUTO_/.test(otgs));
+  /* v407 split the attribution: a charge removed because the TIME was corrected is still
+   * OT_CANCEL_AUTO_, and one removed because the school waived the whole day (งดคำนวณ OT) is
+   * AUTO_WAIVE. Both still cancel, which is what this has always been guarding. */
+  ok_('...it cancels the charge the old time made',
+    /Status: 'CANCELLED',\s*\n\s*CancelledBy: c\.waived \? 'AUTO_WAIVE' : OT_CANCEL_AUTO_/.test(otgs));
+  ok_('...and a corrected time is still attributed to the automatic path, not to a person',
+    /OT_CANCEL_AUTO_/.test(otgs));
   // v254: "PAID" alone is not enough — a fully waived charge is marked PAID with nothing received,
   // and freezing THAT is what stopped a corrected time from ever charging again
   ok_('...keeps a row with money received untouched', /if \(settled\) return null;\s+\/\/ settled money is never rewritten here/.test(otgs));
