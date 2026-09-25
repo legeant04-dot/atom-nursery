@@ -77,7 +77,18 @@
      * nameSize is therefore a CEILING, not a size: short names still print at the full 42 pt. */
     nameY: 0.5938, nameSize: 0.0744, nameMaxW: 0.52,  // baseline sits just above the name rule
     nameRuleY: 0.6138, nameRuleCx: 0.4998,
-    dateX: 0.4280, dateY: 0.7345, dateSize: 0.0360,   // left-aligned, immediately after "ให้ไว้ ณ"
+    /* THE DATE IS SIZED TO MATCH INK, NOT NOMINAL POINTS.
+     *
+     * 0.0360 was the template's "ให้ไว้ ณ" measured as a fraction of sheet height, and it was the
+     * right number while everything was being set in Sarabun. Bundling the real TH Sarabun New
+     * changed what that number means: its glyphs are about two thirds the height of Sarabun's at the
+     * same nominal size — 0.68 against 1.02 for this very string, which is why Thai offices set it
+     * at 16 pt where another face is used at 12. So 0.0360 nominal now paints 0.0245 of ink beside
+     * printed text painting 0.0360, and the school saw the date come out visibly smaller.
+     *
+     * 0.0360 / 0.68 = 0.0529 nominal, which paints 0.0360 of ink: the same size as the words it
+     * continues. Measured against the artwork, not chosen. */
+    dateX: 0.4280, dateY: 0.7370, dateSize: 0.0529,   // left-aligned, immediately after "ให้ไว้ ณ"
     sigRuleY: 0.8367, sigCx: 0.7555,                  // the signature sits ON the rule, not above it
     sigDrop: 0.004,                                   // the last stroke lands a hair below the line
     sigMaxW: 0.185, sigMaxH: 0.075
@@ -98,12 +109,21 @@
    * baseline below sits inside that, and the order follows the school's own certificate so it still
    * reads as theirs.
    *
-   * Sizes are the brief of 2026-09-25, as fractions of sheet height (× 199.2 / 0.3528 = pt):
-   *     heading 0.0531 → 30 pt      body 0.0354 → 20 pt      name 0.0744 → 42 pt
+   * SIZES ARE MATCHED TO THE SCHOOL'S OWN DESIGN, not to nominal points. The first pass set them
+   * from the brief — 30 / 20 / 42 pt — which was correct arithmetic and came out visibly small,
+   * because those numbers had been calibrated while Sarabun was the face. TH Sarabun New paints
+   * about two thirds the ink at the same nominal size (0.68 against 1.02 for "ให้ไว้ ณ"), which is
+   * why a Thai office sets it at 16 pt where another face is used at 12. Nominal points are not a
+   * description of size across faces.
+   *
+   * So these are back-solved from the INK in the school's own certificate, measured off the file:
+   *     heading  ink 0.0412 ÷ 0.86  →  0.0479
+   *     body     ink 0.0365 ÷ 0.80  →  0.0456
+   *     name     0.0744, the size the school approved on a printed sheet
    */
   var L = {
-    headY: 0.395, head: 0.0531, headMaxW: 0.76,
-    line1Y: 0.458, body: 0.0354, bodyMaxW: 0.80,
+    headY: 0.395, head: 0.0479, headMaxW: 0.76,
+    line1Y: 0.458, body: 0.0456, bodyMaxW: 0.80,
     nameY: 0.572, name: 0.0744, nameMaxW: 0.52,
     ruleY: 0.590, ruleW: 0.55,
     line2Y: 0.652,

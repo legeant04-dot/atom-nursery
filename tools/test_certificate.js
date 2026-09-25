@@ -254,13 +254,27 @@ console.log('\n5) ชื่อจริง + (ชื่อเล่น), and not
     LG.sigRuleY < LG.titleY && LG.titleY < LG.signerY);
   ok_('...and the name rests on its rule rather than crossing it', LG.ruleY - LG.nameY < 0.03);
 
-  /* THE BRIEF, IN FULL MODE TOO — now that every line is ours, the heading can finally BE 28–32 pt
-   * instead of whatever the artwork happened to carry (the old template's was 23.3). */
-  const PTL = f => f * 199.2 / 0.3528;
-  ok_('heading 28–32 pt  (' + PTL(LG.head).toFixed(1) + ')', PTL(LG.head) >= 28 && PTL(LG.head) <= 32);
-  ok_('body 18–22 pt  (' + PTL(LG.body).toFixed(1) + ')', PTL(LG.body) >= 18 && PTL(LG.body) <= 22);
-  ok_('name 36–48 pt  (' + PTL(LG.name).toFixed(1) + ')', PTL(LG.name) >= 36 && PTL(LG.name) <= 48);
-  ok_('...and the name still stays inside its rule', LG.nameMaxW <= LG.ruleW);
+  /* SIZE IS MEASURED IN INK, NOT IN NOMINAL POINTS.
+   *
+   * The first pass set these from the brief — 30 / 20 / 42 pt — and the sheet came back visibly
+   * small. The arithmetic was right and the premise was wrong: those numbers were calibrated while
+   * Sarabun was the face, and TH Sarabun New paints about two thirds the ink at the same nominal
+   * size (0.68 against 1.02 for "ให้ไว้ ณ"). That is why a Thai office sets it at 16 pt where
+   * another face is used at 12 — a point size is not a description of size across faces.
+   *
+   * So the sizes are back-solved from the ink in the school's OWN certificate, measured off that
+   * file: heading 0.0412, body 0.0365. These assert the ink they produce, which is the thing a
+   * person actually sees, and they would have caught the regression that shipped. */
+  const INKR = { head: 0.86, body: 0.80 };     // TH Sarabun New ink ÷ nominal, measured per string
+  const ink = (f, r) => f * r;
+  ok_('the heading paints the same ink as the school’s own heading  ('
+      + ink(LG.head, INKR.head).toFixed(4) + ' vs 0.0412)',
+    Math.abs(ink(LG.head, INKR.head) - 0.0412) < 0.004);
+  ok_('...and the body the same as the school’s body  ('
+      + ink(LG.body, INKR.body).toFixed(4) + ' vs 0.0365)',
+    Math.abs(ink(LG.body, INKR.body) - 0.0365) < 0.004);
+  ok_('the name is the size the school approved on a printed sheet', LG.name === 0.0744);
+  ok_('...and still stays inside its rule', LG.nameMaxW <= LG.ruleW);
 }
 
 // ============================================================================================
@@ -371,11 +385,24 @@ console.log('\n6b) the school’s own template: three things added, and nothing 
   const MM = 199.2, PT = f => f * MM / 0.3528;
   ok_('the child’s name is 36–48 pt  (' + PT(P.nameSize).toFixed(1) + ')',
     PT(P.nameSize) >= 36 && PT(P.nameSize) <= 48);
-  ok_('the date is 18–22 pt  (' + PT(P.dateSize).toFixed(1) + ')',
-    PT(P.dateSize) >= 18 && PT(P.dateSize) <= 22);
-  /* AND IT MATCHES THE LINE IT CONTINUES. "ให้ไว้ ณ" was measured on the artwork at 0.0360 of the
-   * sheet — being merely inside 18–22 would still look like two different sentences. */
-  eq('...and is the same size as "ให้ไว้ ณ" printed beside it', P.dateSize, 0.0360);
+
+  /* THE DATE IS SIZED BY INK, BECAUSE IT SITS BESIDE PRINTED TEXT.
+   *
+   * 0.0360 was the artwork's "ให้ไว้ ณ" measured as a fraction of sheet height, and it was the right
+   * NOMINAL size only while everything was set in Sarabun. Bundling the real TH Sarabun New changed
+   * what that number means — its glyphs are ~0.68 of nominal for that string against Sarabun's 1.02
+   * — so 0.0360 nominal painted 0.0245 of ink next to printed text painting 0.0360, and the school
+   * saw the date come out visibly smaller. 0.0360 / 0.68 = 0.0529.
+   *
+   * Rendered against the real artwork afterwards and diffed against the bare sheet: baselines align
+   * to the pixel, and the date's ink is 0.0422 against the template's 0.0360 — taller only because
+   * "วันที่ ๒๕ …" carries two-level vowel stacks that "ให้ไว้ ณ" does not. Same size, different
+   * glyphs, which is what matching type looks like. */
+  const GIVEON_RATIO = 0.68;
+  ok_('the date paints the same ink as "ให้ไว้ ณ" printed beside it  ('
+      + (P.dateSize * GIVEON_RATIO).toFixed(4) + ' vs 0.0360)',
+    Math.abs(P.dateSize * GIVEON_RATIO - 0.0360) < 0.003);
+  ok_('...which is NOT the same as matching its nominal point size', P.dateSize > 0.0360);
 
   /* THE NAME STAYS INSIDE THE RULE. v402 let it overhang so a long name could hold 42 pt; the
    * school looked at a printed sheet and said no — "ชื่อนักเรียน ย่อให้อยู่ในเส้น". So the rule
