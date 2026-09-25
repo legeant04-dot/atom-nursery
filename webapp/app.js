@@ -131,7 +131,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.400'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.401'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -8255,6 +8255,8 @@
         dateText: `${(en?cfg.CertDatePrefixEN:cfg.CertDatePrefixTH)||''} ${certDate(issue, en)}`.trim(),
         signerTitle: en?cfg.CertSignerTitleEN:cfg.CertSignerTitleTH,
         signerName: en?(cfg.CertSignerNameEN||cfg.CertSignerNameTH):(cfg.CertSignerNameTH||cfg.CertSignerNameEN),
+        // the normal case: the school's template carries its own wording, so only three things are added
+        bgHasText: String(cfg.CertBgHasText)!=='false',
         bg: assets.bg||'', sig: assets.sig||'' }));
       const base=(en?'Certificates_':'ใบประกาศนียบัตร_')+issue;
       if(kind==='pdf') await window.AtomCertificate.savePdf(items, base+'.pdf');
@@ -8294,6 +8296,12 @@
           <span class="acts"><input type="file" accept="image/*" id="cs_sig" style="display:none" onchange="A_certUpload('sig',this)"/>
             <button class="btn sm" onclick="document.getElementById('cs_sig').click()">${EN()?'Choose':'เลือกไฟล์'}</button>
             ${cfg.hasSig?`<button class="btn sm outline" onclick="A_certClear('sig',this)">🗑️</button>`:''}</span></div>
+        <label class="list-item" style="cursor:pointer;margin-top:6px"><span>📝 ${EN()
+            ? 'The artwork already has its own wording'
+            : 'พื้นหลังมีข้อความของตัวเองอยู่แล้ว'}<br><small class="muted">${EN()
+            ? 'On: the app adds ONLY the name, the date and the signature. Off: it prints the wording below too.'
+            : 'เปิด = ระบบเติมแค่ <b>ชื่อ · วันที่ · ลายเซ็น</b> · ปิด = พิมพ์ข้อความด้านล่างลงไปด้วย (สำหรับพื้นหลังที่เป็นกรอบเปล่าจริงๆ)'}</small></span>
+          <input type="checkbox" id="cs_CertBgHasText" ${String(cfg.CertBgHasText)!=='false'?'checked':''}/></label>
         <div class="muted" style="font-size:12px;margin-top:6px">🔒 ${EN()
           ? 'Both files are kept private in the school’s own Drive and are readable only by a signed-in admin — they are never given a public link.'
           : 'ไฟล์ทั้งสองเก็บแบบ<b>ส่วนตัว</b>ใน Drive ของโรงเรียน เปิดได้เฉพาะ Admin ที่ล็อกอินแล้ว · <b>ไม่มีการสร้างลิงก์สาธารณะ</b>'}</div>
@@ -8329,6 +8337,7 @@
     ['CertHeadTH','CertHeadEN','CertLine1TH','CertLine1EN','CertLine2TH','CertLine2EN',
      'CertDatePrefixTH','CertDatePrefixEN','CertSignerTitleTH','CertSignerTitleEN',
      'CertSignerNameTH','CertSignerNameEN'].forEach(k=>{ const el=m.querySelector('#cs_'+k); if(el) p[k]=el.value; });
+    { const b=m.querySelector('#cs_CertBgHasText'); if(b) p.CertBgHasText = b.checked?'true':'false'; }
     const old=btn.textContent; btn.disabled=true; btn.textContent='⏳';
     try{ CERT_CFG=await api('saveCertText',p); toast(t('c.saved')); btn.closest('.modal').remove(); }
     catch(e){ err(e); } finally{ btn.disabled=false; btn.textContent=old; }

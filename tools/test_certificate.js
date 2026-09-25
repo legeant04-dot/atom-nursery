@@ -106,7 +106,10 @@ console.log('\n2) the wording is the school’s, and the two copies of it agree'
   eq('what the school types is what comes back', d2.CertSignerNameTH, 'นายศิลา เส็งพานิช');
   eq('...including เกียรติบัตร → ประกาศนียบัตร, which is the whole reason this is a setting',
      d2.CertLine1TH, 'ขอมอบประกาศนียบัตรฉบับนี้ให้ไว้เพื่อแสดงว่า');
-  eq('...and the untouched lines keep their defaults', d2.CertDatePrefixTH, 'ให้ไว้ ณ วันที่');
+  /* "ให้ไว้ ณ" IS ALREADY PRINTED ON THE SCHOOL'S TEMPLATE, so the prefix we add is just "วันที่".
+   * The first default was "ให้ไว้ ณ วันที่" and would have printed "ให้ไว้ ณ ให้ไว้ ณ วันที่ ๒๕…". */
+  eq('...and the untouched lines keep their defaults', d2.CertDatePrefixTH, 'วันที่');
+  eq('the artwork is assumed to carry its own wording, because it does', d2.CertBgHasText, 'true');
 
   /* THE DRIFT GUARD PROMISED IN tools/test_shadow_routes.js. certText is shadowed on GAS, so the
    * defaults exist TWICE — once in webapp/engine.js and once in src/Certificate.gs. Two lists that
@@ -260,6 +263,62 @@ console.log('\n6) the signature is private, and issuing leaves a trace');
     /api\('markCertIssued',\{studentIds:\[\.\.\.CERT_SEL\], issueDate:issue\}\)\.catch\(\(\)=>\{\}\)/.test(appCode));
 
   ok_('nothing about a named child is ever uploaded', /never exists on any server/i.test(cert));
+}
+
+// ============================================================================================
+console.log('\n6b) the school’s own template: three things added, and nothing else');
+// ============================================================================================
+{
+  /* THE BUG THIS SECTION EXISTS FOR. v400 assumed the uploaded artwork was a blank frame and drew
+   * the full wording on top. The school's template already carries its heading, both sentences,
+   * "ให้ไว้ ณ", "ครูผู้อำนวยการ" and the director's name — so the first print came back with every
+   * line doubled (2026-09-25). Only three things may be added now. */
+  ok_('with artwork, only the name, the date and the signature are drawn',
+    /if \(bg && d\.bgHasText !== false\)/.test(cert));
+  ok_('...and that branch returns before the wording is ever drawn',
+    /bgHasText !== false\)[\s\S]{0,1800}return \{ dataUrl[\s\S]{0,120}\}\n\n {6}\/\/ ===== no artwork/.test(cert));
+  ok_('the plain fallback still exists for a genuinely blank frame', /no artwork: the plain fallback/i.test(cert));
+  ok_('...and the school can say which it uploaded', /cs_CertBgHasText/.test(app) && /CertBgHasText/.test(engine));
+
+  /* THE SHEET IS THE SHAPE OF THE ARTWORK. The template is 2528×1696 — ratio 1.491 against A4
+   * landscape's 1.414. Drawing it "cover" onto a fixed A4 canvas, which is what v400 did, crops the
+   * overflow: the decorative border down both edges was being cut off the printed page. */
+  ok_('the canvas takes the artwork’s own proportions, so nothing is cropped',
+    /var ratio = bg \? \(bg\.width \/ bg\.height\) : A4_RATIO;/.test(cert));
+  ok_('...and Math.max "cover" is gone', !/Math\.max\(W \/ im\.width/.test(cert));
+
+  /* POSITIONS MEASURED OFF THE REAL FILE, not estimated: the two rules found by scanning for long
+   * unbroken runs of dark pixels, the text bands by scanning for rows of ink.
+   *   name rule  y 0.6138, centred x 0.4998
+   *   "ให้ไว้ ณ" band y 0.702–0.737, ending x 0.4173
+   *   sig rule   y 0.8367, centred x 0.7555
+   * Rendered against the template and diffed against the bare sheet, our ink landed at:
+   *   name  y 0.556–0.602  (0.080 clear of the text above, 0.012 above its rule)
+   *   date  y 0.698–0.735, x from 0.4283  (one space after "ให้ไว้ ณ", same type size)
+   *   sig   last stroke 6 px below its rule, centred within 0.0003 */
+  const P = {}; (/var P = \{([\s\S]*?)\n  \};/.exec(cert) || ['', ''])[1]
+    .replace(/(\w+): ([\d.]+)/g, (m, k, v) => { P[k] = +v; return m; });
+  ok_('the name sits just above the name rule, not on the line',
+    P.nameY < P.nameRuleY && (P.nameRuleY - P.nameY) < 0.03);
+  ok_('...centred on the rule the school drew', Math.abs(P.nameRuleCx - 0.4998) < 0.005);
+  ok_('the date starts clear of "ให้ไว้ ณ", which ends at x 0.4173', P.dateX > 0.4173 && P.dateX < 0.45);
+  ok_('...and is set at the same size as the line it continues', Math.abs(P.dateSize - 0.0305) < 0.004);
+  ok_('the signature is centred on ITS rule, which is not the middle of the sheet',
+    Math.abs(P.sigCx - 0.7555) < 0.005 && Math.abs(P.sigRuleY - 0.8367) < 0.005);
+
+  /* AUTO-DETECTED PER ARTWORK, so the next school's template lands on its own lines. Verified
+   * against the real file in the browser: nameY 0.6149 / sigY 0.8373 against 0.6138 / 0.8367
+   * measured by hand — inside 0.001. */
+  ok_('the rules are re-found in whatever artwork is uploaded', /function findRules\(im\)/.test(cert));
+  ok_('...and the measured constants are the fallback, not the only answer',
+    /findRules\(bg\) \|\| \{\}/.test(cert) && /R\.nameY \|\| P\.nameRuleY/.test(cert));
+
+  /* A SIGNATURE MUST TOUCH ITS LINE. The scan is whatever rectangle somebody cropped; placing the
+   * FILE against the rule left the ink floating 36 px clear of it, which is the detail that makes a
+   * document look machine-made. Trimming to the ink put the last stroke 6 px below the line. */
+  ok_('the blank margin around a scanned signature is trimmed off', /function inkBox\(im\)/.test(cert));
+  ok_('...and the trimmed box is what gets drawn', /ctx\.drawImage\(sig, b\.sx, b\.sy, b\.sw, b\.sh,/.test(cert));
+  ok_('...landing the last stroke on the line rather than above it', P.sigDrop > 0 && P.sigDrop < 0.02);
 }
 
 // ============================================================================================
