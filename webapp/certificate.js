@@ -67,15 +67,15 @@
    * the most prominent thing on the page" was telling us.
    */
   var P = {
-    /* nameMaxW IS WIDER THAN THE RULE ON PURPOSE (0.76 against the rule's 0.55).
+    /* nameMaxW STAYS INSIDE THE RULE (0.52 against the rule's 0.5506).
      *
-     * Constraining the name to the rule's own width looked tidy and quietly defeated the brief: a
-     * real Thai name plus a nickname — "วัชชิรวิณณ์ เรืองณรงค์ (โตเกียว)" — needs 0.66 of the sheet
-     * at 42 pt, so the auto-shrink took it down to 32.9 pt, and a long one to 21 pt, which is
-     * SMALLER than the heading printed above it. "ชื่อนักเรียนโดดเด่นที่สุดในหน้ากระดาษ" was the
-     * one thing the brief insisted on. The artwork is clear from 0.10 to 0.90, so a name may
-     * overhang its rule; that is how a handwritten one behaves too. */
-    nameY: 0.5938, nameSize: 0.0744, nameMaxW: 0.76,  // baseline sits just above the name rule
+     * v402 let the name overhang to hold 42 pt, and the school looked at it and said no: "ชื่อ
+     * นักเรียน ย่อให้อยู่ในเส้น" (2026-09-25). So the rule wins and the type gives way — a name that
+     * needs more room is shrunk to fit rather than allowed past the line. For the name that prompted
+     * this, "วัชชิรวิณณ์ เรืองณรงค์ (โตเกียว)", that is about 33 pt rather than 42.
+     *
+     * nameSize is therefore a CEILING, not a size: short names still print at the full 42 pt. */
+    nameY: 0.5938, nameSize: 0.0744, nameMaxW: 0.52,  // baseline sits just above the name rule
     nameRuleY: 0.6138, nameRuleCx: 0.4998,
     dateX: 0.4280, dateY: 0.7345, dateSize: 0.0360,   // left-aligned, immediately after "ให้ไว้ ณ"
     sigRuleY: 0.8367, sigCx: 0.7555,                  // the signature sits ON the rule, not above it
@@ -100,11 +100,22 @@
    * name we add and the sentences already printed are the same colour, which is the difference
    * between a filled-in certificate and a certificate with something typed on it. */
   var INK = '#121D4A', SOFT = '#3A4356', RULE = '#98A2B3';
-  /* A LOOPED Thai face (มีหัว), as asked. Sarabun is the open-licence cut of TH Sarabun New and is
-   * what the rest of the app already uses; every fallback here is looped too, so a device without it
-   * still prints something in the right register. Do not add a loopless face to this list. */
-  function fontStack() { return '"Sarabun", "Noto Sans Thai", "Leelawadee UI", "Tahoma", sans-serif'; }
-  function font(px, weight) { return (weight || 400) + ' ' + Math.round(px) + 'px ' + fontStack(); }
+  /**
+   * TH SARABUN NEW FIRST, as asked on 2026-09-25.
+   *
+   * It is the Thai government standard face and is installed on most Thai machines, but it is not
+   * on Google Fonts, so it cannot be shipped — naming it first means a machine that HAS it uses it,
+   * which is the school's own office and print shop. `Sarabun` behind it is the open-licence cut of
+   * the same design by the same designer, served as a webfont, so a machine without it still gets
+   * the same letterforms. Everything after that is looped (มีหัว) too. Never add a loopless face.
+   */
+  function fontStack() {
+    return '"TH Sarabun New", "TH SarabunPSK", "Sarabun", "Noto Sans Thai", "Leelawadee UI", "Tahoma", sans-serif';
+  }
+  /* BOLD IS THE DEFAULT HERE, not 400. Asked for "ทั้งหมดในใบประกาศ วันที่ ชื่อนักเรียน" — both of
+   * the things this file draws are set bold, so the weight is the default rather than something each
+   * call has to remember to pass. */
+  function font(px, weight) { return (weight || 700) + ' ' + Math.round(px) + 'px ' + fontStack(); }
 
   /**
    * MAKE SURE SARABUN IS ACTUALLY THERE BEFORE ANYTHING IS DRAWN.
@@ -248,8 +259,8 @@
   /** Draw `s` left-aligned from x, shrinking to fit maxW. Used for the date, which follows "ให้ไว้ ณ". */
   function leftText(ctx, s, x, y, px, maxW) {
     s = String(s == null ? '' : s).trim(); if (!s) return;
-    var size = px; ctx.font = font(size, 400);
-    while (size > 10 && ctx.measureText(s).width > maxW) { size -= 1; ctx.font = font(size, 400); }
+    var size = px; ctx.font = font(size, 700);
+    while (size > 10 && ctx.measureText(s).width > maxW) { size -= 1; ctx.font = font(size, 700); }
     ctx.fillStyle = INK; ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
     ctx.fillText(s, x, y);
   }

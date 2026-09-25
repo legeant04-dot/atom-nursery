@@ -1410,8 +1410,21 @@ function createAtomAPI(M, GROWTH_STD) {
     CertDatePrefixTH:'วันที่', CertDatePrefixEN:'',
     CertSignerTitleTH:'ครูผู้อำนวยการ', CertSignerTitleEN:'Director',
     CertSignerNameTH:'', CertSignerNameEN:'', CertBgHasText:'true' };
+  /* A VALUE THIS PROJECT ITSELF WROTE, AND HAS TO TAKE BACK.
+   *
+   * v400 shipped 'ให้ไว้ ณ วันที่' as the date prefix, on the assumption that the uploaded artwork
+   * was a blank frame. The school's template already prints "ให้ไว้ ณ", so the first real sheet read
+   * "ให้ไว้ ณ ให้ไว้ ณ วันที่ ๒๕ กันยายน พ.ศ. ๒๕๖๙". v401 changed the DEFAULT, which fixed nothing:
+   * the admin had opened settings to upload the artwork, the box was pre-filled with that default,
+   * and pressing Save stored it. A default only applies where nothing is stored.
+   *
+   * So the exact string that default used is treated as "never set". Exact match only — a school
+   * that deliberately types 'ให้ไว้ ณ วันที่' on a blank frame keeps it, and every other wording is
+   * untouched. Read-side: nothing in the sheet is rewritten, so there is nothing to undo. */
+  const CERT_LEGACY_ = { CertDatePrefixTH: 'ให้ไว้ ณ วันที่', CertDatePrefixEN: 'Given on' };
   const certTextRead_ = (c) => { const out={};
-    CERT_TEXT_KEYS.forEach(k=>{ const v=(c&&c[k]!==undefined&&c[k]!==null)?String(c[k]):'';
+    CERT_TEXT_KEYS.forEach(k=>{ let v=(c&&c[k]!==undefined&&c[k]!==null)?String(c[k]):'';
+      if(v!=='' && CERT_LEGACY_[k]===v) v='';
       out[k] = v!=='' ? v : CERT_TEXT_DEFAULTS[k]; });
     // the same three extras handleCertText returns, so one screen reads one shape in both modes
     out.hasBg = !!(c && c.CertBgFileId); out.hasSig = !!(c && c.CertSigFileId);

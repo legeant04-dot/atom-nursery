@@ -111,6 +111,31 @@ console.log('\n2) the wording is the school’s, and the two copies of it agree'
   eq('...and the untouched lines keep their defaults', d2.CertDatePrefixTH, 'วันที่');
   eq('the artwork is assumed to carry its own wording, because it does', d2.CertBgHasText, 'true');
 
+  /* THE VALUE THIS PROJECT WROTE AND HAS TO TAKE BACK. v400 defaulted the prefix to 'ให้ไว้ ณ วันที่';
+   * the template already prints "ให้ไว้ ณ", so the first real sheet read "ให้ไว้ ณ ให้ไว้ ณ วันที่
+   * ๒๕ กันยายน พ.ศ. ๒๕๖๙". Changing the default in v401 fixed nothing — the admin had opened settings
+   * to upload the artwork, the box was pre-filled with that default, and Save stored it. A default
+   * only applies where nothing is stored. */
+  {
+    const M3 = { students: [], studentLeaves: [], holidays: [], staff: [], parents: [], activityLog: [],
+      config: { CertDatePrefixTH: 'ให้ไว้ ณ วันที่', CertDatePrefixEN: 'Given on' } };
+    const r3 = createAtomAPI(M3).H.certText();
+    eq('the stored duplicate prefix is read as "never set"', r3.CertDatePrefixTH, 'วันที่');
+    eq('...in English too', r3.CertDatePrefixEN, '');
+    // EXACT MATCH ONLY — a school that deliberately types this on a blank frame keeps it
+    M3.config.CertDatePrefixTH = 'ลงวันที่';
+    eq('...but any other wording the school typed is untouched',
+       createAtomAPI(M3).H.certText().CertDatePrefixTH, 'ลงวันที่');
+    // read-side: nothing in the sheet was rewritten, so there is nothing to undo
+    eq('...and the stored value itself is left alone', M3.config.CertDatePrefixEN, 'Given on');
+    /* The same list exists on GAS because certText is shadowed there; two lists meant to be
+     * identical are exactly what stops being identical. */
+    const inEngine = /CERT_LEGACY_ = \{ CertDatePrefixTH: '([^']*)', CertDatePrefixEN: '([^']*)' \}/.exec(engine);
+    const inGas = /legacy = \{ CertDatePrefixTH: '([^']*)', CertDatePrefixEN: '([^']*)' \}/.exec(certGs);
+    ok_('engine and GAS carry the same legacy list', !!inEngine && !!inGas &&
+      inEngine[1] === inGas[1] && inEngine[2] === inGas[2]);
+  }
+
   /* THE DRIFT GUARD PROMISED IN tools/test_shadow_routes.js. certText is shadowed on GAS, so the
    * defaults exist TWICE — once in webapp/engine.js and once in src/Certificate.gs. Two lists that
    * are supposed to be identical are exactly the thing that stops being identical, and the symptom
@@ -333,22 +358,32 @@ console.log('\n6b) the school’s own template: three things added, and nothing 
    * sheet — being merely inside 18–22 would still look like two different sentences. */
   eq('...and is the same size as "ให้ไว้ ณ" printed beside it', P.dateSize, 0.0360);
 
-  /* THE FLOOR THE FIRST ATTEMPT FELL THROUGH. Constraining the name to the rule's own width (0.55)
-   * looked tidy and took a real Thai name down to 32.9 pt, and a long one to 21 pt — smaller than
-   * the heading above it. Re-checked here by measuring the string, so the regression cannot return
-   * quietly. Widths were measured in Sarabun at 42 pt: this name needs 0.664 of the sheet. */
-  ok_('...so the name box is wider than the rule, or a real name shrinks below the brief',
-    P.nameMaxW >= 0.70);
-  ok_('...which keeps "วัชชิรวิณณ์ เรืองณรงค์ (โตเกียว)" at the full 42 pt', 0.664 <= P.nameMaxW);
+  /* THE NAME STAYS INSIDE THE RULE. v402 let it overhang so a long name could hold 42 pt; the
+   * school looked at a printed sheet and said no — "ชื่อนักเรียน ย่อให้อยู่ในเส้น". So the rule
+   * wins and the type gives way, and nameSize is a CEILING rather than a size. Rendered against
+   * the real artwork afterwards, the name spanned 0.2454–0.7525 inside a rule running
+   * 0.2247–0.7749: about 50 px clear at each end. */
+  ok_('the name box stays inside the rule  (' + P.nameMaxW + ' vs the rule’s 0.5506)',
+    P.nameMaxW > 0 && P.nameMaxW <= 0.5506);
+  ok_('...and short names still print at the full 42 pt, because the size is a ceiling',
+    /while \(size > 12 && ctx\.measureText\(s\)\.width > maxW\)/.test(cert));
 
   /* NAVY, TAKEN FROM THE ARTWORK rather than chosen — the school's own heading is #121D4A, so the
    * name we add and the sentences already printed are the same ink. */
   ok_('the name is set in the school’s own navy, sampled from the template', /var INK = '#121D4A'/.test(cert));
 
-  /* A LOOPED THAI FACE, as asked (TH Sarabun New / Angsana New). Sarabun is the open-licence cut of
-   * TH Sarabun New and is already the app's face; every fallback here is looped too. */
-  ok_('the face is Sarabun, with looped fallbacks only',
-    /"Sarabun", "Noto Sans Thai", "Leelawadee UI", "Tahoma"/.test(cert));
+  /* TH SARABUN NEW FIRST, asked for by name 2026-09-25. It is not on Google Fonts so it cannot be
+   * shipped — naming it first means a machine that has it installed (most Thai offices) uses it,
+   * and `Sarabun` behind it is the same designer's open-licence cut of the same design, served as a
+   * webfont. Everything after is looped (มีหัว) too. */
+  ok_('TH Sarabun New is asked for first, with Sarabun as the shipped equivalent',
+    /"TH Sarabun New", "TH SarabunPSK", "Sarabun", "Noto Sans Thai", "Leelawadee UI", "Tahoma"/.test(cert));
+  /* BOLD FOR BOTH THINGS THIS FILE DRAWS. Asked as "Th Sarabun New (Bold) ... วันที่ ชื่อนักเรียน",
+   * so the weight is the DEFAULT rather than something each call site has to remember. The date was
+   * 400 in v402 and would have quietly stayed regular. */
+  ok_('bold is the default weight, not something each call must pass',
+    /function font\(px, weight\) \{ return \(weight \|\| 700\)/.test(cert));
+  ok_('...so the date is bold too, not only the name', /ctx\.font = font\(size, 700\);/.test(cert));
 
   /* THE FONT HAS TO BE THERE BEFORE ANYTHING IS DRAWN. index.html loads Sarabun with
    * `display=optional`, which lets a browser skip the swap entirely on a cold load — right for a
