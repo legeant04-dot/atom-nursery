@@ -302,7 +302,7 @@ console.log('\n6b) the school’s own template: three things added, and nothing 
     P.nameY < P.nameRuleY && (P.nameRuleY - P.nameY) < 0.03);
   ok_('...centred on the rule the school drew', Math.abs(P.nameRuleCx - 0.4998) < 0.005);
   ok_('the date starts clear of "ให้ไว้ ณ", which ends at x 0.4173', P.dateX > 0.4173 && P.dateX < 0.45);
-  ok_('...and is set at the same size as the line it continues', Math.abs(P.dateSize - 0.0305) < 0.004);
+  // the size itself is asserted against the brief further down, in the type block
   ok_('the signature is centred on ITS rule, which is not the middle of the sheet',
     Math.abs(P.sigCx - 0.7555) < 0.005 && Math.abs(P.sigRuleY - 0.8367) < 0.005);
 
@@ -319,6 +319,47 @@ console.log('\n6b) the school’s own template: three things added, and nothing 
   ok_('the blank margin around a scanned signature is trimmed off', /function inkBox\(im\)/.test(cert));
   ok_('...and the trimmed box is what gets drawn', /ctx\.drawImage\(sig, b\.sx, b\.sy, b\.sw, b\.sh,/.test(cert));
   ok_('...landing the last stroke on the line rather than above it', P.sigDrop > 0 && P.sigDrop < 0.02);
+
+  /* ---- TYPE, set 2026-09-25: name 36–48 pt, general text 18–22 pt, looped Thai, navy ----------
+   * Point sizes on paper, so they are checked against the sheet as it actually prints: the artwork
+   * is 1.491 wide, fits an A4 landscape page to its 297 mm width, and stands 199.2 mm tall.
+   * pt = fraction × 199.2 / 0.3528. */
+  const MM = 199.2, PT = f => f * MM / 0.3528;
+  ok_('the child’s name is 36–48 pt  (' + PT(P.nameSize).toFixed(1) + ')',
+    PT(P.nameSize) >= 36 && PT(P.nameSize) <= 48);
+  ok_('the date is 18–22 pt  (' + PT(P.dateSize).toFixed(1) + ')',
+    PT(P.dateSize) >= 18 && PT(P.dateSize) <= 22);
+  /* AND IT MATCHES THE LINE IT CONTINUES. "ให้ไว้ ณ" was measured on the artwork at 0.0360 of the
+   * sheet — being merely inside 18–22 would still look like two different sentences. */
+  eq('...and is the same size as "ให้ไว้ ณ" printed beside it', P.dateSize, 0.0360);
+
+  /* THE FLOOR THE FIRST ATTEMPT FELL THROUGH. Constraining the name to the rule's own width (0.55)
+   * looked tidy and took a real Thai name down to 32.9 pt, and a long one to 21 pt — smaller than
+   * the heading above it. Re-checked here by measuring the string, so the regression cannot return
+   * quietly. Widths were measured in Sarabun at 42 pt: this name needs 0.664 of the sheet. */
+  ok_('...so the name box is wider than the rule, or a real name shrinks below the brief',
+    P.nameMaxW >= 0.70);
+  ok_('...which keeps "วัชชิรวิณณ์ เรืองณรงค์ (โตเกียว)" at the full 42 pt', 0.664 <= P.nameMaxW);
+
+  /* NAVY, TAKEN FROM THE ARTWORK rather than chosen — the school's own heading is #121D4A, so the
+   * name we add and the sentences already printed are the same ink. */
+  ok_('the name is set in the school’s own navy, sampled from the template', /var INK = '#121D4A'/.test(cert));
+
+  /* A LOOPED THAI FACE, as asked (TH Sarabun New / Angsana New). Sarabun is the open-licence cut of
+   * TH Sarabun New and is already the app's face; every fallback here is looped too. */
+  ok_('the face is Sarabun, with looped fallbacks only',
+    /"Sarabun", "Noto Sans Thai", "Leelawadee UI", "Tahoma"/.test(cert));
+
+  /* THE FONT HAS TO BE THERE BEFORE ANYTHING IS DRAWN. index.html loads Sarabun with
+   * `display=optional`, which lets a browser skip the swap entirely on a cold load — right for a
+   * screen, wrong for a document that gets printed once and framed. fonts.load() fetches the face
+   * regardless of that descriptor. */
+  ok_('Sarabun is fetched explicitly before the sheet is drawn',
+    /document\.fonts\.load\('700 100px Sarabun'\)/.test(cert) && /return fontsReady\(\)/.test(cert));
+  ok_('...and the reason display=optional forces this is written down',
+    /display=optional/.test(cert) && /display=optional/.test(R('webapp/index.html')));
+  ok_('...and a slow connection still gets a certificate, not an error',
+    /\.catch\(function \(\) \{ return false; \}\)/.test(cert));
 }
 
 // ============================================================================================
