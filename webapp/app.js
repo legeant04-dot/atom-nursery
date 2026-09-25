@@ -131,7 +131,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.407'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.408'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -7391,6 +7391,12 @@
     const mainSeg=`<div class="seg" style="margin-bottom:10px"><button class="${LV_MAIN==='staff'?'active':''}" onclick="A_lvMain('staff')">👩‍🏫 ${EN()?'Teachers':'คุณครู'}${_lvPend?` <span class="pill bad" style="font-size:11px">${_lvPend}</span>`:''}</button><button class="${LV_MAIN==='student'?'active':''}" onclick="A_lvMain('student')">👶 ${EN()?'Students':'นักเรียน'}</button></div>`;
     if(_stu){
       window._SLV_ALL=(await p_slv)||[];
+      /* THE WAIVED DAYS, ON THE CALENDAR. Asked 2026-09-25 "เพื่อการตรวจสอบ" — a waiver is a
+       * decision not to collect money, and a list buried in its own modal is not somewhere anyone
+       * looks back at. On the calendar it is beside the day it applies to, next to the absences and
+       * the holidays, which is where the question "what happened on the 25th" is actually asked.
+       * .catch so an older deployment that does not know the route still draws the calendar. */
+      window._OTW=(await api('otWaiveDays').catch(()=>null)) || window._OTW || {days:[]};
       window._CALRENDER=studentLeaveCalRender;
       // birthdays this month + the DSPM assessments that have come due — drawn ON the calendar and
       // summarised under it
@@ -7453,12 +7459,18 @@
       (_al.birthdays||[]).forEach(b=>{ (bdayByDay[b.day]=bdayByDay[b.day]||[]).push(b); });
     let cells=['อา','จ','อ','พ','พฤ','ศ','ส'].map(w=>`<div style="text-align:center;font-size:13px;color:var(--ink-3)">${EN()?({'อา':'Su','จ':'Mo','อ':'Tu','พ':'We','พฤ':'Th','ศ':'Fr','ส':'Sa'}[w]):w}</div>`).join('');
     for(let i=0;i<first;i++)cells+='<div class="d dim"></div>';
+    /* งดคำนวณ OT on this month's days. Matched by string rather than by Date arithmetic — the ranges
+     * are stored as 'YYYY-MM-DD' and comparing them as text has no timezone in it to get wrong. */
+    const otwByDay={}; ((window._OTW&&window._OTW.days)||[]).forEach(w=>{
+      for(let dd=1; dd<=31; dd++){ const ds=`${y}-${String(mo+1).padStart(2,'0')}-${String(dd).padStart(2,'0')}`;
+        if(ds>=w.from && ds<=w.to) otwByDay[dd]=w; } });
     for(let dd=1;dd<=days;dd++){ const items=byDay[dd]; const today=(isCur&&dd===now.getDate())?'today':''; const n=items?items.length:0;
       const nCls=items?new Set(items.map(x=>x.class||'-')).size:0; const ds=`${y}-${String(mo+1).padStart(2,'0')}-${String(dd).padStart(2,'0')}`;
       const bg = n?'cursor:pointer;background:var(--warn-bg);border-color:var(--warn-line);':calOffBg(y,mo,dd,holByDay[dd],bcByDay[dd]);
       const bd = (bdayByDay[dd]||[]);
-      cells+=`<div class="d ${n?'ev':''} ${today}" style="min-height:52px;${bg}" ${n?`onclick="A_slvDay('${ds}')"`:''}>${dd}${holByDay[dd]?`<span class="io" style="text-align:left;color:var(--bad);font-weight:600">🏖️ ${esc(holByDay[dd])}</span>`:''}${bcByDay[dd]&&!holByDay[dd]?`<span class="io" style="text-align:left;color:var(--teal);font-weight:600">${BC_ICON}</span>`:''}${bd.length?`<span class="io" style="text-align:left;color:var(--brand);font-weight:700" title="${esc(bd.map(b=>dnick(b)).join(', '))}">🎂 ${bd.length===1?esc(dnick(bd[0])):bd.length}</span>`:''}${n?`<span class="io" style="text-align:left;color:var(--warn);font-weight:700">${EN()?'absent':'ขาด'} ${n}<br><span style="font-weight:400;color:var(--ink-3)">${nCls} ${EN()?'class':'ชั้น'}</span></span>`:''}</div>`; }
-    return `${calNavHeader(y,mo)}<div class="cal">${cells}</div><small class="muted">${EN()?`Orange = absences · weekend/holiday red · ${BC_ICON} meeting · 🎂 birthday`:`สีส้ม = มีนักเรียนลา · เสาร์-อาทิตย์/วันหยุดแดง · ${BC_ICON} ประชุม · 🎂 วันเกิด`}</small>`;
+      cells+=`<div class="d ${n?'ev':''} ${today}" style="min-height:52px;${bg}" ${n?`onclick="A_slvDay('${ds}')"`:''}>${dd}${holByDay[dd]?`<span class="io" style="text-align:left;color:var(--bad);font-weight:600">🏖️ ${esc(holByDay[dd])}</span>`:''}${bcByDay[dd]&&!holByDay[dd]?`<span class="io" style="text-align:left;color:var(--teal);font-weight:600">${BC_ICON}</span>`:''}${bd.length?`<span class="io" style="text-align:left;color:var(--brand);font-weight:700" title="${esc(bd.map(b=>dnick(b)).join(', '))}">🎂 ${bd.length===1?esc(dnick(bd[0])):bd.length}</span>`:''}${n?`<span class="io" style="text-align:left;color:var(--warn);font-weight:700">${EN()?'absent':'ขาด'} ${n}<br><span style="font-weight:400;color:var(--ink-3)">${nCls} ${EN()?'class':'ชั้น'}</span></span>`:''}${
+        otwByDay[dd]?`<span class="io" style="text-align:left;color:var(--teal);font-weight:700" title="${esc((EN()?'No OT charged':'งดคำนวณ OT')+(otwByDay[dd].reason?' — '+otwByDay[dd].reason:''))}">🌧️ ${EN()?'no OT':'งด OT'}</span>`:''}</div>`; }
+    return `${calNavHeader(y,mo)}<div class="cal">${cells}</div><small class="muted">${EN()?`Orange = absences · weekend/holiday red · ${BC_ICON} meeting · 🎂 birthday · 🌧️ no OT charged`:`สีส้ม = มีนักเรียนลา · เสาร์-อาทิตย์/วันหยุดแดง · ${BC_ICON} ประชุม · 🎂 วันเกิด · 🌧️ งดคำนวณ OT`}</small>`;
   }
   /**
    * Birthdays this month. The school wants to know BEFORE the day, which is why this is a month at
@@ -8273,7 +8285,7 @@
     if(to<from) return err(new Error(EN()?'The end date is before the start date':'วันสิ้นสุดอยู่ก่อนวันเริ่มต้น'));
     const old=btn.textContent; btn.disabled=true; btn.textContent='⏳';
     try{ OTW = await api('saveOtWaiveDays',{days:[...(OTW.days||[]),{from,to,reason}]});
-      toast(t('c.saved')); A_otWaiveRender(true); }
+      toast(t('c.saved')); window._OTW=OTW; CAL_redraw(); A_otWaiveRender(true); }
     catch(e){ err(e); btn.disabled=false; btn.textContent=old; }
   };
   window.A_otwDel = async (i, btn) => {
@@ -8281,7 +8293,7 @@
     if(!await confirmBox(EN()?'Charge OT on these days again?':'กลับมาคิด OT ในวันเหล่านี้ตามปกติ?')) return;
     const old=btn.textContent; btn.disabled=true; btn.textContent='⏳';
     try{ OTW = await api('saveOtWaiveDays',{days:(OTW.days||[]).filter((_,k)=>k!==i)});
-      toast(t('c.saved')); A_otWaiveRender(true); }
+      toast(t('c.saved')); window._OTW=OTW; CAL_redraw(); A_otWaiveRender(true); }
     catch(e){ err(e); btn.disabled=false; btn.textContent=old; }
   };
 
@@ -8380,9 +8392,13 @@
       const items=CERT_LIST.filter(s=>CERT_SEL.has(s.studentId)).map(s=>({
         name: en?(s.nameEN||s.name||''):(s.name||''),
         nick: en?(s.nickEN||s.nick||''):(s.nick||''),
-        head, line1: en?cfg.CertLine1EN:cfg.CertLine1TH,
+        head, title: en?cfg.CertTitleEN:cfg.CertTitleTH,
+        line1: en?cfg.CertLine1EN:cfg.CertLine1TH,
         line2: en?cfg.CertLine2EN:cfg.CertLine2TH,
-        line3: head,   // the sentence runs on to the school's name — second line, same thought
+        /* Thai's sentence runs on to the school's name; English's is complete on its own and the
+         * name is already in the title block, so repeating it would say it twice. */
+        joinHead: !en,
+        line3: head,   // (overlay mode only — the sentence's second line)
         dateText: `${(en?cfg.CertDatePrefixEN:cfg.CertDatePrefixTH)||''} ${certDate(issue, en)}`.trim(),
         signerTitle: en?cfg.CertSignerTitleEN:cfg.CertSignerTitleTH,
         signerName: en?(cfg.CertSignerNameEN||cfg.CertSignerNameTH):(cfg.CertSignerNameTH||cfg.CertSignerNameEN),
@@ -8450,6 +8466,7 @@
       </details>
       <details class="card" style="background:var(--surface-2);padding:8px">
         <summary style="cursor:pointer"><b>🇹🇭 ${EN()?'Thai wording':'ข้อความภาษาไทย'}</b></summary>
+        ${F('CertTitleTH', EN()?'Main title (leave blank for none)':'หัวเรื่องใหญ่ (เว้นว่าง = ไม่มี)','')}
         <div class="grid2" style="margin-top:6px">
           ${F('CertHeadTH', EN()?'Heading (school name)':'หัวใบ (ชื่อโรงเรียน)', cfg.schoolName||'')}
           ${F('CertSignerNameTH', EN()?'Director’s name':'ชื่อผู้อำนวยการ','นายศิลา เส็งพานิช')}</div>
@@ -8460,6 +8477,7 @@
       </details>
       <details class="card" style="background:var(--surface-2);padding:8px">
         <summary style="cursor:pointer"><b>🇬🇧 ${EN()?'English wording':'ข้อความภาษาอังกฤษ'}</b></summary>
+        ${F('CertTitleEN','Main title (leave blank for none)','CERTIFICATE OF COMPLETION')}
         <div class="grid2" style="margin-top:6px">
           ${F('CertHeadEN','Heading (school name)',cfg.schoolName||'')}${F('CertSignerNameEN','Director’s name')}</div>
         ${F('CertLine1EN','Line above the name')}
@@ -8476,7 +8494,7 @@
 
   window.A_certSaveText = async (btn) => {
     const m=btn.closest('.sheet'); const p={};
-    ['CertHeadTH','CertHeadEN','CertLine1TH','CertLine1EN','CertLine2TH','CertLine2EN',
+    ['CertTitleTH','CertTitleEN','CertHeadTH','CertHeadEN','CertLine1TH','CertLine1EN','CertLine2TH','CertLine2EN',
      'CertDatePrefixTH','CertDatePrefixEN','CertSignerTitleTH','CertSignerTitleEN',
      'CertSignerNameTH','CertSignerNameEN'].forEach(k=>{ const el=m.querySelector('#cs_'+k); if(el) p[k]=el.value; });
     { const b=m.querySelector('#cs_CertBgHasText'); if(b) p.CertBgHasText = b.checked?'true':'false'; }

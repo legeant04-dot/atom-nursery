@@ -1432,7 +1432,7 @@ function createAtomAPI(M, GROWTH_STD) {
    * heading and the director's own name — default to blank on purpose: a default that printed one
    * real person's name onto every school's certificate would be worse than an obvious gap, and the
    * settings screen says so rather than leaving them to discover it on a printed sheet. */
-  const CERT_TEXT_KEYS = ['CertHeadTH','CertHeadEN','CertLine1TH','CertLine1EN','CertLine2TH','CertLine2EN',
+  const CERT_TEXT_KEYS = ['CertTitleTH','CertTitleEN','CertHeadTH','CertHeadEN','CertLine1TH','CertLine1EN','CertLine2TH','CertLine2EN',
     'CertDatePrefixTH','CertDatePrefixEN','CertSignerTitleTH','CertSignerTitleEN','CertSignerNameTH','CertSignerNameEN',
     /* 'true' when the uploaded artwork ALREADY carries its own wording — which is the normal case and
      * so the default. The school's own template prints the heading, both sentences, "ให้ไว้ ณ",
@@ -1441,10 +1441,14 @@ function createAtomAPI(M, GROWTH_STD) {
      * assumed a blank sheet. A school that uploads a genuinely blank frame turns this off. */
     'CertBgHasText'];
   const CERT_TEXT_DEFAULTS = {
+    /* A MAIN TITLE ABOVE THE SCHOOL'S NAME. Thai leaves it blank — the school's own design goes
+     * straight to the school name — and English sets it, because an international certificate
+     * that does not say what it IS reads as a letter. Asked 2026-09-25 with the wording. */
+    CertTitleTH:'', CertTitleEN:'CERTIFICATE OF COMPLETION',
     CertHeadTH:'', CertHeadEN:'',                       // blank => fall back to SchoolName
-    CertLine1TH:'ขอมอบเกียรติบัตรฉบับนี้ให้ไว้เพื่อแสดงว่า', CertLine1EN:'This certificate is proudly presented to',
-    CertLine2TH:'ได้เข้าเรียนและผ่านการประเมินจาก', CertLine2EN:'for attending and completing the programme at',
-    CertDatePrefixTH:'วันที่', CertDatePrefixEN:'',
+    CertLine1TH:'ขอมอบเกียรติบัตรฉบับนี้ให้ไว้เพื่อแสดงว่า', CertLine1EN:'This is to certify that',
+    CertLine2TH:'ได้เข้าเรียนและผ่านการประเมินจาก', CertLine2EN:'has successfully completed the nursery program with wonderful growth and joyful learning.',
+    CertDatePrefixTH:'วันที่', CertDatePrefixEN:'Date:',
     CertSignerTitleTH:'ครูผู้อำนวยการ', CertSignerTitleEN:'Director',
     CertSignerNameTH:'', CertSignerNameEN:'', CertBgHasText:'false' };
   /* A VALUE THIS PROJECT ITSELF WROTE, AND HAS TO TAKE BACK.

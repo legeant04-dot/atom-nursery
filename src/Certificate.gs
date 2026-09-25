@@ -57,13 +57,14 @@ function certFolder_() {
 /** admin-only: the twelve wording lines, defaults filled in. Shadows the engine route. */
 function handleCertText() {
   var cfg = getAllConfig_(), out = {}, i;
-  var keys = ['CertHeadTH', 'CertHeadEN', 'CertLine1TH', 'CertLine1EN', 'CertLine2TH', 'CertLine2EN',
+  var keys = ['CertTitleTH', 'CertTitleEN', 'CertHeadTH', 'CertHeadEN', 'CertLine1TH', 'CertLine1EN', 'CertLine2TH', 'CertLine2EN',
     'CertDatePrefixTH', 'CertDatePrefixEN', 'CertSignerTitleTH', 'CertSignerTitleEN',
     'CertSignerNameTH', 'CertSignerNameEN', 'CertBgHasText'];
   var dflt = {
-    CertLine1TH: 'ขอมอบเกียรติบัตรฉบับนี้ให้ไว้เพื่อแสดงว่า', CertLine1EN: 'This certificate is proudly presented to',
-    CertLine2TH: 'ได้เข้าเรียนและผ่านการประเมินจาก', CertLine2EN: 'for attending and completing the programme at',
-    CertDatePrefixTH: 'วันที่', CertDatePrefixEN: '',
+    CertTitleEN: 'CERTIFICATE OF COMPLETION',
+    CertLine1TH: 'ขอมอบเกียรติบัตรฉบับนี้ให้ไว้เพื่อแสดงว่า', CertLine1EN: 'This is to certify that',
+    CertLine2TH: 'ได้เข้าเรียนและผ่านการประเมินจาก', CertLine2EN: 'has successfully completed the nursery program with wonderful growth and joyful learning.',
+    CertDatePrefixTH: 'วันที่', CertDatePrefixEN: 'Date:',
     CertSignerTitleTH: 'ครูผู้อำนวยการ', CertSignerTitleEN: 'Director', CertBgHasText: 'false' };
   /* A VALUE THIS PROJECT ITSELF WROTE, AND HAS TO TAKE BACK. v400 defaulted the date prefix to
    * 'ให้ไว้ ณ วันที่' assuming a blank frame; the school's template already prints "ให้ไว้ ณ", so the
@@ -91,7 +92,7 @@ function handleCertText() {
 /** admin-only: save all twelve at once — see the engine's note on why this is not twelve writes. */
 function handleSaveCertText(p) {
   p = p || {};
-  var keys = ['CertHeadTH', 'CertHeadEN', 'CertLine1TH', 'CertLine1EN', 'CertLine2TH', 'CertLine2EN',
+  var keys = ['CertTitleTH', 'CertTitleEN', 'CertHeadTH', 'CertHeadEN', 'CertLine1TH', 'CertLine1EN', 'CertLine2TH', 'CertLine2EN',
     'CertDatePrefixTH', 'CertDatePrefixEN', 'CertSignerTitleTH', 'CertSignerTitleEN',
     'CertSignerNameTH', 'CertSignerNameEN', 'CertBgHasText'];
   var wrote = 0;

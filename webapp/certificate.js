@@ -122,12 +122,19 @@
    *     name     0.0744, the size the school approved on a printed sheet
    */
   var L = {
-    headY: 0.395, head: 0.0479, headMaxW: 0.76,
-    line1Y: 0.458, body: 0.0456, bodyMaxW: 0.80,
+    /* AN OPTIONAL TITLE ABOVE THE SCHOOL'S NAME — "CERTIFICATE OF COMPLETION". The Thai design goes
+     * straight to the school name, so Thai leaves it blank and the two lines below move UP into the
+     * space; English sets it and everything shifts down. Two baselines rather than one layout with a
+     * gap in it, because a blank line where a title used to be is the thing that looks unfinished. */
+    mainTitleY: 0.368, mainTitle: 0.0520, mainTitleMaxW: 0.78,
+    headY: 0.425, headWithoutTitle: 0.395, head: 0.0479, headMaxW: 0.76,
+    line1Y: 0.482, line1WithoutTitle: 0.458, body: 0.0456, bodyMaxW: 0.80,
     nameY: 0.572, name: 0.0744, nameMaxW: 0.52,
     ruleY: 0.590, ruleW: 0.55,
-    line2Y: 0.652,
-    dateY: 0.710,
+    /* line2Y is pulled up from 0.652 so a TWO-line English sentence still leaves the date room
+     * before the signature. A one-line Thai sentence sits at dateY as it always did. */
+    line2Y: 0.638,
+    dateY: 0.710, dateGap: 0.048,
     sigCx: 0.72, sigRuleY: 0.812, sigRuleW: 0.26,
     sigMaxW: 0.185, sigMaxH: 0.075, sigDrop: 0.004,
     titleY: 0.858, signerY: 0.892
@@ -225,6 +232,47 @@
     ctx.textAlign = 'center';
     ctx.textBaseline = 'alphabetic';
     ctx.fillText(s, cx, y);
+  }
+
+  /**
+   * Centred, wrapped to at most `maxLines`, shrinking only if it STILL will not fit.
+   *
+   * The English achievement line — "has successfully completed the nursery program with wonderful
+   * growth and joyful learning." — is more than twice the length of its Thai counterpart. Shrinking
+   * one line until it fits took it to a size nobody would print; two lines at the right size is what
+   * a person would do. Returns the y of the LAST line drawn, so the caller knows what it used.
+   */
+  function centredWrap(ctx, s, cx, y, px, weight, colour, maxW, maxLines) {
+    s = String(s == null ? '' : s).trim();
+    if (!s) return y;
+    maxLines = maxLines || 1;
+    var size = px;
+    var lay = function () {
+      ctx.font = font(size, weight);
+      if (maxLines === 1 || ctx.measureText(s).width <= maxW) return [s];
+      /* Thai does not put spaces between words, so a Thai line has nothing to break on and falls
+       * through to shrinking — which is correct for it, and why this is not a general word-wrapper. */
+      var words = s.split(' ');
+      if (words.length < 2) return [s];
+      var lines = [], cur = '';
+      for (var i = 0; i < words.length; i++) {
+        var next = cur ? cur + ' ' + words[i] : words[i];
+        if (ctx.measureText(next).width > maxW && cur) { lines.push(cur); cur = words[i]; }
+        else cur = next;
+      }
+      if (cur) lines.push(cur);
+      return lines;
+    };
+    var lines = lay();
+    while (size > 12 && (lines.length > maxLines ||
+           lines.some(function (l) { ctx.font = font(size, weight); return ctx.measureText(l).width > maxW; }))) {
+      size -= 2; lines = lay();
+    }
+    ctx.font = font(size, weight); ctx.fillStyle = colour || INK;
+    ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
+    var step = size * 1.25;
+    for (var k = 0; k < lines.length; k++) ctx.fillText(lines[k], cx, y + k * step);
+    return y + (lines.length - 1) * step;
   }
 
   function rule(ctx, cx, y, w) {
@@ -398,8 +446,12 @@
        * Bold throughout, in the school's own navy, at the sizes in the brief. One face, one colour,
        * one hand: which is the whole reason this arrangement was chosen over overlaying a template
        * that already carried type of its own. */
-      centred(ctx, d.head, cx, H * L.headY, H * L.head, 700, INK, W * L.headMaxW);
-      centred(ctx, d.line1, cx, H * L.line1Y, H * L.body, 700, INK, W * L.bodyMaxW);
+      /* A title is drawn only when the school set one, and the two lines under it move up when it is
+       * absent — see the note on L.titleY. Thai has none; English is "CERTIFICATE OF COMPLETION". */
+      var hasTitle = !!String(d.title || '').trim();
+      if (hasTitle) centred(ctx, d.title, cx, H * L.mainTitleY, H * L.mainTitle, 700, INK, W * L.mainTitleMaxW);
+      centred(ctx, d.head, cx, H * (hasTitle ? L.headY : L.headWithoutTitle), H * L.head, 700, INK, W * L.headMaxW);
+      centred(ctx, d.line1, cx, H * (hasTitle ? L.line1Y : L.line1WithoutTitle), H * L.body, 700, INK, W * L.bodyMaxW);
 
       /* THE CHILD'S FULL NAME AND THEIR NICKNAME, on one line: "ณัฐภัทร ราชวงศ์ (ติณณ์)".
        * The ผอ. asked for "ชื่อจริง+(ชื่อเล่น)" and meant it literally — at this age the nickname is
@@ -415,9 +467,19 @@
       /* ONE SENTENCE, ONE LINE: "ได้เข้าเรียนและผ่านการประเมินจาก" + the school's name. It reads as a
        * single thought on the school's own certificate, so it is joined here rather than being set
        * as two stacked lines that happen to make a sentence. */
-      var sentence = [String(d.line2 || '').trim(), String(d.head || '').trim()].filter(Boolean).join(' ');
-      centred(ctx, sentence, cx, H * L.line2Y, H * L.body, 700, INK, W * L.bodyMaxW);
-      centred(ctx, d.dateText, cx, H * L.dateY, H * L.body, 700, INK, W * L.bodyMaxW);
+      /* Thai runs the sentence on to the school's name — "ได้เข้าเรียนและผ่านการประเมินจาก" + the
+       * school — because that is how their certificate reads. English does not: "has successfully
+       * completed the nursery program…" is a complete sentence and the school's name is already at
+       * the top, so appending it would say the name twice. `joinHead` is the caller's decision. */
+      var sentence = d.joinHead === false
+        ? String(d.line2 || '').trim()
+        : [String(d.line2 || '').trim(), String(d.head || '').trim()].filter(Boolean).join(' ');
+      /* THE DATE FOLLOWS THE SENTENCE. English wraps to two lines where Thai fits on one, and a
+       * fixed date baseline printed the date straight through the second line — found by rendering
+       * it, because on paper it reads as one muddled line rather than as two overlapping ones. */
+      var lastLine = centredWrap(ctx, sentence, cx, H * L.line2Y, H * L.body, 700, INK, W * L.bodyMaxW, 2);
+      centred(ctx, d.dateText, cx, Math.max(H * L.dateY, lastLine + H * L.dateGap),
+              H * L.body, 700, INK, W * L.bodyMaxW);
 
       var sx = W * L.sigCx;
       if (sig && sig.width && sig.height) {
