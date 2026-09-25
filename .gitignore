@@ -32,3 +32,13 @@ dist_pages/
 # and removed 2026-08-27. Never put one here again; the file now lives outside the repo.
 Backup codes.pdf
 *ackup*code*
+
+# The director's SIGNATURE and the certificate artwork. `Atom Signature.png` appeared in the repo
+# root on 2026-09-25 while the certificate feature was being tested, untracked and never committed.
+# A signature is the one image in this system a person could misuse, and this repo is PUBLIC — a
+# single `git add -A` would have published it permanently. It belongs in Settings → พื้นหลัง &
+# ลายเซ็น, which keeps it PRIVATE in the school's own Drive (src/Certificate.gs), not on disk here.
+*ignature*.png
+*ignature*.jpg
+*ertificate*Templ*
+_tmpl.*

@@ -19,32 +19,51 @@
 (function () {
   'use strict';
 
-  /* A4 LANDSCAPE AT 200 dpi — 2339 × 1654.
-   * The report card is 150 dpi because it is a dense page of small type that has to be readable and
-   * is usually read on screen. This is the opposite: a handful of large words, printed once, framed
-   * and kept. 200 dpi is where the curves of Thai letterforms stop showing stair-steps at the size
-   * a name is set here. The bitmap costs ~15 MB while it is being drawn, which is why the screen
-   * renders one certificate at a time even when a batch is being exported. */
-  var W = 2339, H = 1654;
+  /* THE SHEET IS THE SHAPE OF THE ARTWORK, not of A4.
+   *
+   * The school's template is 2528 × 1696 — ratio 1.491, where A4 landscape is 1.414. The first
+   * version drew it "cover" onto a fixed A4 canvas, which crops the overflow: the decorative border
+   * down the left and right edges was being cut off. Sizing the canvas to the artwork instead means
+   * nothing is cropped and nothing is stretched, and buildPdf fits the whole thing onto the page
+   * with two thin white bands top and bottom, which is what a print shop would do with it.
+   *
+   * 2400 px on the long edge ≈ 200 dpi across an A4 landscape sheet. That is where the curves of
+   * Thai letterforms stop showing stair-steps at the size a child's name is set here. With no
+   * artwork at all it falls back to A4 landscape at the same density. */
+  var LONG_EDGE = 2400, A4_RATIO = 297 / 210;
 
-  /* Every position is a FRACTION of the sheet, never a pixel — the school uploads its own artwork
-   * and the next school's will not be the same proportions. Tuned against the sample given
-   * 2026-09-24; grouped here so they can be nudged without reading the drawing code. */
+  /* THE SCHOOL'S TEMPLATE ALREADY CARRIES ITS OWN WORDING — the heading, both sentences, "ให้ไว้ ณ",
+   * "ครูผู้อำนวยการ", the director's name and the two rule lines are all printed on it. So the app
+   * adds exactly THREE things, which is what was asked for on 2026-09-25 after the first print came
+   * out with every line doubled:
+   *
+   *        the child's name  ·  the date  ·  the signature
+   *
+   * Positions measured off that file by scanning it for its two horizontal rules and its text bands,
+   * not estimated: name rule at y 0.6138 (centred, 0.55 wide), "ให้ไว้ ณ" ending at x 0.4173 on the
+   * band y 0.702–0.737, signature rule at y 0.8367 centred on x 0.7555.
+   *
+   * The two RULES are re-detected in each artwork at render time (findRules) so a school with a
+   * different template still lands on its own lines; these are the fallback when none is found. */
+  var P = {
+    nameY: 0.5985, nameSize: 0.047, nameMaxW: 0.53,   // baseline sits just above the name rule
+    nameRuleY: 0.6138, nameRuleCx: 0.4998,
+    dateX: 0.4280, dateY: 0.7345, dateSize: 0.0305,   // left-aligned, immediately after "ให้ไว้ ณ"
+    sigRuleY: 0.8367, sigCx: 0.7555,                  // the signature sits ON the rule, not above it
+    sigDrop: 0.004,                                   // the last stroke lands a hair below the line
+    sigMaxW: 0.185, sigMaxH: 0.075
+  };
+
+  /* The no-artwork fallback: a plain bordered sheet that prints the wording from settings, so a
+   * school that has not uploaded anything yet still gets something usable. Unchanged from v400. */
   var L = {
-    headY: 0.335, head: 68,          // school name
-    line1Y: 0.410, line1: 40,        // "ขอมอบเกียรติบัตรฉบับนี้ให้ไว้เพื่อแสดงว่า"
-    nameY: 0.508, name: 76,          // the child
-    ruleY: 0.534, ruleW: 0.52,       // the line under the child's name
-    line2Y: 0.605, line2: 40,        // "ได้เข้าเรียนและผ่านการประเมินจาก"
-    line3Y: 0.663,                   // ...the school's name, second line of the same sentence
+    headY: 0.335, head: 68, line1Y: 0.410, line1: 40,
+    nameY: 0.508, name: 76, ruleY: 0.534, ruleW: 0.52,
+    line2Y: 0.605, line2: 40, line3Y: 0.663,
     dateY: 0.722, date: 40,
-    sigX: 0.655, sigY: 0.798, sigMaxW: 0.20, sigMaxH: 0.085,   // the signature image sits ON the rule
+    sigX: 0.655, sigY: 0.798, sigMaxW: 0.20, sigMaxH: 0.085,
     sigRuleY: 0.828, sigRuleW: 0.26,
-    /* THE LAST LINE HAS TO CLEAR THE ARTWORK'S OWN BORDER. At 0.960 the bracketed name printed ON
-     * the frame — found by looking at a rendered sheet, not by reading the numbers, because 0.960
-     * "looks like" it is inside the page until the descenders and the border are both drawn. */
-    titleY: 0.878, title: 36,
-    signerY: 0.928, signer: 36
+    titleY: 0.878, title: 36, signerY: 0.928, signer: 36
   };
 
   var INK = '#1A2130', SOFT = '#3A4356', RULE = '#98A2B3';
@@ -80,21 +99,102 @@
     });
   }
 
-  /** Cover the sheet with the artwork, cropping the overflow — the artwork is a full-bleed background
-   *  and letterboxing it would print white bands the school did not design. */
-  function drawBackground(ctx, im) {
+  /**
+   * FIND THE TWO BLANK RULES THE SCHOOL LEFT FOR US. A certificate template has a line to write the
+   * child's name on and a line to sign above; landing the text on those lines is the whole job, and
+   * a template that is not this school's will put them somewhere else.
+   *
+   * Scans the middle of the sheet for rows holding one long unbroken run of dark pixels — the runs
+   * are the rules; letterforms never produce one. Returns null when it cannot find them, and the
+   * measured constants are used instead, so an unusual artwork degrades to "roughly right" rather
+   * than to "text in the top-left corner".
+   */
+  function findRules(im) {
+    try {
+      var cv = document.createElement('canvas');
+      var w = Math.min(im.width, 1200), h = Math.round(im.height * (w / im.width));
+      cv.width = w; cv.height = h;
+      var c = cv.getContext('2d'); c.drawImage(im, 0, 0, w, h);
+      var d = c.getImageData(0, 0, w, h).data;
+      var found = [];
+      for (var y = Math.round(h * 0.35); y < Math.round(h * 0.95); y++) {
+        var run = 0, st = -1, best = 0, bs = -1, be = -1;
+        for (var x = 0; x < w; x++) {
+          var i = (y * w + x) * 4;
+          if (d[i + 3] > 40 && d[i] < 190 && d[i + 1] < 190 && d[i + 2] < 190) {
+            if (!run) st = x;
+            run++; if (run > best) { best = run; bs = st; be = x; }
+          } else run = 0;
+        }
+        if (best > w * 0.12) {
+          var last = found[found.length - 1];
+          // rows of the same rule are adjacent; keep one entry per line
+          if (last && y - last.y <= 4) { last.y = y; }
+          else found.push({ y: y, cx: (bs + be) / 2 / w, wid: best / w });
+        }
+      }
+      if (found.length < 2) return null;
+      // the name rule is the wide one, the signature rule the narrow one below it
+      var name = found[0], sig = found[found.length - 1];
+      if (!(sig.y > name.y) || name.wid < sig.wid) return null;
+      return { nameY: name.y / h, nameCx: name.cx, sigY: sig.y / h, sigCx: sig.cx };
+    } catch (e) { return null; }
+  }
+
+  /** The artwork, drawn at its own proportions — the canvas was sized to it, so this is 1:1. */
+  function drawBackground(ctx, im, W, H) {
+    ctx.fillStyle = '#FFFFFF'; ctx.fillRect(0, 0, W, H);
     if (!im) {   // no artwork uploaded yet: a plain sheet with a double border, still printable
-      ctx.fillStyle = '#FFFFFF'; ctx.fillRect(0, 0, W, H);
       ctx.strokeStyle = '#1565C0'; ctx.lineWidth = 10;
       ctx.strokeRect(52, 52, W - 104, H - 104);
       ctx.strokeStyle = '#C8D6EA'; ctx.lineWidth = 3;
       ctx.strokeRect(78, 78, W - 156, H - 156);
       return;
     }
-    var scale = Math.max(W / im.width, H / im.height);
-    var iw = im.width * scale, ih = im.height * scale;
-    ctx.fillStyle = '#FFFFFF'; ctx.fillRect(0, 0, W, H);
-    ctx.drawImage(im, (W - iw) / 2, (H - ih) / 2, iw, ih);
+    ctx.drawImage(im, 0, 0, W, H);
+  }
+
+  /**
+   * THE BOUNDING BOX OF THE ACTUAL INK IN A SIGNATURE, ignoring transparent or white margin.
+   *
+   * A scan of a signature is whatever rectangle the person cropped — the sample used to build this
+   * had the strokes sitting in the top two thirds of the file. Placing the FILE against the rule
+   * left the signature floating 36 px above the line; a signature that hovers over its own line is
+   * the one detail that makes a document look generated. Trimming means the school can upload a
+   * loose crop and it still sits on the line.
+   *
+   * Returns null when the image is blank or the scan cannot be read (a cross-origin signature would
+   * taint this canvas — it never is, the API sends bytes, but null is the safe answer).
+   */
+  function inkBox(im) {
+    try {
+      var w = Math.min(im.width, 600), h = Math.max(1, Math.round(im.height * (w / im.width)));
+      var cv = document.createElement('canvas'); cv.width = w; cv.height = h;
+      var c = cv.getContext('2d'); c.drawImage(im, 0, 0, w, h);
+      var d = c.getImageData(0, 0, w, h).data;
+      var x1 = w, y1 = h, x2 = -1, y2 = -1;
+      for (var y = 0; y < h; y++) for (var x = 0; x < w; x++) {
+        var i = (y * w + x) * 4;
+        // ink = opaque enough AND darker than paper. Both tests: a white opaque scan has no alpha
+        // to go by, and a transparent PNG has no darkness to go by.
+        if (d[i + 3] > 40 && (d[i] < 210 || d[i + 1] < 210 || d[i + 2] < 210)) {
+          if (x < x1) x1 = x; if (x > x2) x2 = x;
+          if (y < y1) y1 = y; if (y > y2) y2 = y;
+        }
+      }
+      if (x2 < 0) return null;
+      var k = im.width / w;   // back to the original image's own pixels
+      return { sx: x1 * k, sy: y1 * k, sw: (x2 - x1 + 1) * k, sh: (y2 - y1 + 1) * k };
+    } catch (e) { return null; }
+  }
+
+  /** Draw `s` left-aligned from x, shrinking to fit maxW. Used for the date, which follows "ให้ไว้ ณ". */
+  function leftText(ctx, s, x, y, px, maxW) {
+    s = String(s == null ? '' : s).trim(); if (!s) return;
+    var size = px; ctx.font = font(size, 400);
+    while (size > 10 && ctx.measureText(s).width > maxW) { size -= 1; ctx.font = font(size, 400); }
+    ctx.fillStyle = INK; ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
+    ctx.fillText(s, x, y);
   }
 
   /**
@@ -108,13 +208,51 @@
       return Promise.all([loadImage(d.bg), loadImage(d.sig)]);
     }).then(function (imgs) {
       var bg = imgs[0], sig = imgs[1];
+
+      // the sheet takes the artwork's own proportions; A4 landscape when there is none
+      var ratio = bg ? (bg.width / bg.height) : A4_RATIO;
+      var W = ratio >= 1 ? LONG_EDGE : Math.round(LONG_EDGE * ratio);
+      var H = ratio >= 1 ? Math.round(LONG_EDGE / ratio) : LONG_EDGE;
+
       var cv = document.createElement('canvas');
       cv.width = W; cv.height = H;
       var ctx = cv.getContext('2d');
       var cx = W / 2;
 
-      drawBackground(ctx, bg);
+      drawBackground(ctx, bg, W, H);
 
+      /* ===== THE SCHOOL'S OWN TEMPLATE: add three things and nothing else =====================
+       * Asked 2026-09-25 after the first print doubled every line: "ผมต้องการให้เราเพิ่มแค่
+       * ชื่อ-นามสกุลนักเรียน (ชื่อเล่น) ... / วันที่ / ลายเซ็น". The heading, both sentences,
+       * "ให้ไว้ ณ", "ครูผู้อำนวยการ" and the director's name are already printed on the artwork. */
+      if (bg && d.bgHasText !== false) {
+        var R = findRules(bg) || {};
+        var nameRuleY = R.nameY || P.nameRuleY;
+        var nameCx = (R.nameCx || P.nameRuleCx) * W;
+        // the baseline sits a fixed gap above whichever rule was found, so the name rests ON the line
+        var gap = (P.nameRuleY - P.nameY) * H;
+        var who2 = String(d.name || '').trim(), nk2 = String(d.nick || '').trim();
+        if (nk2 && nk2 !== who2) who2 = who2 ? who2 + ' (' + nk2 + ')' : nk2;
+        centred(ctx, who2, nameCx, nameRuleY * H - gap, H * P.nameSize, 700, INK, W * P.nameMaxW);
+
+        leftText(ctx, d.dateText, W * P.dateX, H * P.dateY, H * P.dateSize, W * (1 - P.dateX - 0.10));
+
+        if (sig && sig.width && sig.height) {
+          var sigY = R.sigY || P.sigRuleY;
+          var b = inkBox(sig) || { sx: 0, sy: 0, sw: sig.width, sh: sig.height };
+          var s2 = Math.min((W * P.sigMaxW) / b.sw, (H * P.sigMaxH) / b.sh);
+          var sw2 = b.sw * s2, sh2 = b.sh * s2;
+          var scx = (R.sigCx || P.sigCx) * W;
+          /* THE INK ENDS ON THE LINE, not above it. `sigDrop` puts the last stroke a hair BELOW the
+           * rule, which is how a signature written by hand sits — a signature floating clear of its
+           * own line is the detail that makes a document look machine-made. */
+          ctx.drawImage(sig, b.sx, b.sy, b.sw, b.sh,
+                        scx - sw2 / 2, (sigY + P.sigDrop) * H - sh2, sw2, sh2);
+        }
+        return { dataUrl: cv.toDataURL('image/jpeg', 0.92), width: W, height: H };
+      }
+
+      // ===== no artwork: the plain fallback sheet, which DOES print the wording ==================
       centred(ctx, d.head, cx, H * L.headY, L.head, 700, INK, W * 0.82);
       centred(ctx, d.line1, cx, H * L.line1Y, L.line1, 400, SOFT, W * 0.78);
 
@@ -189,5 +327,8 @@
     }, Promise.resolve()).then(function () { return items.length; });
   }
 
-  window.AtomCertificate = { render: render, savePdf: savePdf, saveJpeg: saveJpeg, W: W, H: H, safe: safe };
+  /* findRules is exported so the settings screen can tell the school, at upload time, whether their
+   * artwork's lines were recognised — better than finding out from a printed sheet. */
+  window.AtomCertificate = { render: render, savePdf: savePdf, saveJpeg: saveJpeg,
+                             findRules: findRules, positions: P, longEdge: LONG_EDGE, safe: safe };
 })();

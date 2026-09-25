@@ -42,12 +42,12 @@ function handleCertText() {
   var cfg = getAllConfig_(), out = {}, i;
   var keys = ['CertHeadTH', 'CertHeadEN', 'CertLine1TH', 'CertLine1EN', 'CertLine2TH', 'CertLine2EN',
     'CertDatePrefixTH', 'CertDatePrefixEN', 'CertSignerTitleTH', 'CertSignerTitleEN',
-    'CertSignerNameTH', 'CertSignerNameEN'];
+    'CertSignerNameTH', 'CertSignerNameEN', 'CertBgHasText'];
   var dflt = {
     CertLine1TH: 'ขอมอบเกียรติบัตรฉบับนี้ให้ไว้เพื่อแสดงว่า', CertLine1EN: 'This certificate is proudly presented to',
     CertLine2TH: 'ได้เข้าเรียนและผ่านการประเมินจาก', CertLine2EN: 'for attending and completing the programme at',
-    CertDatePrefixTH: 'ให้ไว้ ณ วันที่', CertDatePrefixEN: 'Given on',
-    CertSignerTitleTH: 'ครูผู้อำนวยการ', CertSignerTitleEN: 'Director' };
+    CertDatePrefixTH: 'วันที่', CertDatePrefixEN: '',
+    CertSignerTitleTH: 'ครูผู้อำนวยการ', CertSignerTitleEN: 'Director', CertBgHasText: 'true' };
   for (i = 0; i < keys.length; i++) {
     var v = cfg[keys[i]];
     v = (v === undefined || v === null) ? '' : String(v);
@@ -64,7 +64,7 @@ function handleSaveCertText(p) {
   p = p || {};
   var keys = ['CertHeadTH', 'CertHeadEN', 'CertLine1TH', 'CertLine1EN', 'CertLine2TH', 'CertLine2EN',
     'CertDatePrefixTH', 'CertDatePrefixEN', 'CertSignerTitleTH', 'CertSignerTitleEN',
-    'CertSignerNameTH', 'CertSignerNameEN'];
+    'CertSignerNameTH', 'CertSignerNameEN', 'CertBgHasText'];
   var wrote = 0;
   for (var i = 0; i < keys.length; i++) {
     if (p[keys[i]] === undefined) continue;

@@ -1400,14 +1400,20 @@ function createAtomAPI(M, GROWTH_STD) {
    * real person's name onto every school's certificate would be worse than an obvious gap, and the
    * settings screen says so rather than leaving them to discover it on a printed sheet. */
   const CERT_TEXT_KEYS = ['CertHeadTH','CertHeadEN','CertLine1TH','CertLine1EN','CertLine2TH','CertLine2EN',
-    'CertDatePrefixTH','CertDatePrefixEN','CertSignerTitleTH','CertSignerTitleEN','CertSignerNameTH','CertSignerNameEN'];
+    'CertDatePrefixTH','CertDatePrefixEN','CertSignerTitleTH','CertSignerTitleEN','CertSignerNameTH','CertSignerNameEN',
+    /* 'true' when the uploaded artwork ALREADY carries its own wording — which is the normal case and
+     * so the default. The school's own template prints the heading, both sentences, "ให้ไว้ ณ",
+     * "ครูผู้อำนวยการ" and the director's name; the app then adds only the child's name, the date and
+     * the signature. The first print on 2026-09-25 came out with every line doubled because the app
+     * assumed a blank sheet. A school that uploads a genuinely blank frame turns this off. */
+    'CertBgHasText'];
   const CERT_TEXT_DEFAULTS = {
     CertHeadTH:'', CertHeadEN:'',                       // blank => fall back to SchoolName
     CertLine1TH:'ขอมอบเกียรติบัตรฉบับนี้ให้ไว้เพื่อแสดงว่า', CertLine1EN:'This certificate is proudly presented to',
     CertLine2TH:'ได้เข้าเรียนและผ่านการประเมินจาก', CertLine2EN:'for attending and completing the programme at',
-    CertDatePrefixTH:'ให้ไว้ ณ วันที่', CertDatePrefixEN:'Given on',
+    CertDatePrefixTH:'วันที่', CertDatePrefixEN:'',
     CertSignerTitleTH:'ครูผู้อำนวยการ', CertSignerTitleEN:'Director',
-    CertSignerNameTH:'', CertSignerNameEN:'' };
+    CertSignerNameTH:'', CertSignerNameEN:'', CertBgHasText:'true' };
   const certTextRead_ = (c) => { const out={};
     CERT_TEXT_KEYS.forEach(k=>{ const v=(c&&c[k]!==undefined&&c[k]!==null)?String(c[k]):'';
       out[k] = v!=='' ? v : CERT_TEXT_DEFAULTS[k]; });
