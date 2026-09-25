@@ -371,6 +371,12 @@
      * which is why this is a flag rather than something inferred from w > h. */
     var pages = Array.isArray(pagesOrBytes) ? pagesOrBytes : [{ bytes: pagesOrBytes, w: w, h: h }];
     var A4W = 595.28, A4H = 841.89;
+    /* A5 is half an A4, so its short edge is A4's short edge halved and its long edge is A4's short
+     * edge: 419.53 × 595.28 pt. A sheet may carry `a5:true` — the certificate does, from 2026-09-25.
+     * THE IMAGE IS NOT MADE SMALLER; only the page is. The same 2400 px sheet printed across A5's
+     * 210 mm is ~290 dpi where across A4's 297 mm it was ~205 — so the smaller page is the SHARPER
+     * one, which is why "A5 but keep it high resolution" needs no tradeoff. */
+    var A5W = 419.53, A5H = 595.28;
     var chunks = [], len = 0, offsets = [];
     var enc = function (s) { var a = new Uint8Array(s.length); for (var i = 0; i < s.length; i++) a[i] = s.charCodeAt(i) & 0xFF; return a; };
     var put = function (x) { var b = (typeof x === 'string') ? enc(x) : x; chunks.push(b); len += b.length; };
@@ -389,7 +395,8 @@
 
     for (var i = 0; i < N; i++) {
       var p = pages[i], pn = pageObj(i), imn = pn + 1, cn = pn + 2;
-      var pgW = p.landscape ? A4H : A4W, pgH = p.landscape ? A4W : A4H;
+      var shortSide = p.a5 ? A5W : A4W, longSide = p.a5 ? A5H : A4H;
+      var pgW = p.landscape ? longSide : shortSide, pgH = p.landscape ? shortSide : longSide;
       // fit each image inside the page, centred, keeping its proportions
       var scale = Math.min(pgW / p.w, pgH / p.h);
       var iw = p.w * scale, ih = p.h * scale, ix = (pgW - iw) / 2, iy = (pgH - ih) / 2;

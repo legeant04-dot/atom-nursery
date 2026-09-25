@@ -112,6 +112,10 @@ var ROUTES = {
   certAssets:       function (p) { return handleCertAssets(p); },     // admin-only: artwork + signature, as data URLs
   saveCertAsset:    function (p) { return handleSaveCertAsset(p); },  // admin-only: replace/clear one of them
   markCertIssued:   function (p) { return handleMarkCertIssued(p); }, // admin-only: audit that a certificate was printed
+  /* งดคำนวณ OT (src/OT.gs): the days the school chooses not to charge late pick-up. Both shadow the
+   * engine, and both must — the list lives in SCHOOL_CONFIG, which only exists here. */
+  otWaiveDays:      function (p) { return handleOtWaiveDays(p); },     // admin-only: the list + today's status
+  saveOtWaiveDays:  function (p) { return handleSaveOtWaiveDays(p); }, // admin-only: replace the list
   notifyBills:      function (p) { return handleNotifyBills(p); },   // admin-only: notify parents that bills were issued
   saveQRCodes:      function (p) { return handleSaveQRCodes(p); },   // admin-only: QR-code master + OT binding
   savePlans:        function (p) { return handleSavePlans(p); },       // admin-only: package (Plan) CRUD → SCHOOL_CONFIG JSON
@@ -421,6 +425,9 @@ function applyIdentity_(action, payload, sess) {
      * fetching, and the signature in particular is the one image in this system a person could
      * misuse. See src/Certificate.gs. */
     certStudents: 1, certText: 1, saveCertText: 1, certAssets: 1, saveCertAsset: 1, markCertIssued: 1,
+    /* งดคำนวณ OT — deciding that a whole day of late-pickup charges is not collected is a money
+     * decision for the school to make, not a teacher. */
+    otWaiveDays: 1, saveOtWaiveDays: 1,
     // the whole roster grouped by billing day, with each child's bill state — the same class of answer
     // as prepaidStudents, and money besides
     billingGroups: 1,

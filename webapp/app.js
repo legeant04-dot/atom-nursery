@@ -131,7 +131,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.406'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.407'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -2439,8 +2439,11 @@
     else { const d=new Date(s||todayStr()); if(isNaN(d)) return s; // shifts by a day across timezones
            y=d.getFullYear(); mo=d.getMonth(); dd=d.getDate(); }
     if (mo<0 || mo>11) return s;
+    /* NO "พ.ศ." — dropped 2026-09-25 after the school saw it printed. The certificate already says
+     * "ให้ไว้ ณ วันที่" and the year is in Thai numerals: on a Thai document that is unambiguous,
+     * and the abbreviation was just making the line longer. */
     return en ? `${dd} ${EN_MONTHS[mo]} ${y}`
-              : `${thaiDigits(dd)} ${TH_MONTHS[mo]} พ.ศ. ${thaiDigits(y+543)}`;
+              : `${thaiDigits(dd)} ${TH_MONTHS[mo]} ${thaiDigits(y+543)}`;
   }
   /* A DATE OF BIRTH, WRITTEN OUT — "12 ธ.ค. 2566" / "12 Dec 2023".
    *
@@ -2614,6 +2617,20 @@
   // earlier dismissal was hiding brand-new announcements; v2 starts everyone fresh.
   const ANN_DISMISS_KEY='atom_ann_dismissed_v2';
   let ANN_SHOWING=false;
+  /* ONE DEFINITION OF WHAT A PARENT SEES IN THE POP-UP.
+   *
+   * The Admin preview (A_previewAnn, asked 2026-09-25) draws from this too. A preview built from a
+   * second copy of this markup is worse than no preview at all: it would agree on the day it was
+   * written and then quietly stop agreeing, and the whole point of the button is to be able to trust
+   * it before the message goes to every family in the school. */
+  const annSlideHtml = a => {
+    const pri = Number(a.Priority||0)>=2 ? `<span class="annpop-pri">⭐ ${EN()?'Important':'สำคัญ'}</span>` : '';
+    const ti = EN()?(a.TitleEN||a.Title):(a.Title||a.TitleEN);
+    const co = EN()?(a.ContentEN||a.Content):(a.Content||a.ContentEN);
+    return `${pri}<h3>${esc(ti)}</h3>${co?`<p class="annpop-body">${esc(co)}</p>`:''}${
+      a.Image?`<img class="annpop-img" src="${esc(a.Image)}" onclick="IMG_zoom('${esc(a.Image)}')" alt=""/>`:''}`;
+  };
+
   async function showAnnPopups(onDone){
     if(ANN_SHOWING){ if(onDone)onDone(); return; }                    // already open → don't stack duplicates
     let anns=[]; try{ anns=await api('activeAnnouncements',{},{fresh:true}); }catch(e){}
@@ -2624,9 +2641,7 @@
     if(!queue.length){ if(onDone)onDone(); return; }
     ANN_SHOWING=true;
     let idx=0, timer=null;
-    const prPill=a=>Number(a.Priority||0)>=2?`<span class="annpop-pri">⭐ ${EN()?'Important':'สำคัญ'}</span>`:'';
-    const slide=a=>{ const ti=EN()?(a.TitleEN||a.Title):(a.Title||a.TitleEN); const co=EN()?(a.ContentEN||a.Content):(a.Content||a.ContentEN);
-      return `${prPill(a)}<h3>${esc(ti)}</h3>${co?`<p class="annpop-body">${esc(co)}</p>`:''}${a.Image?`<img class="annpop-img" src="${esc(a.Image)}" onclick="IMG_zoom('${esc(a.Image)}')" alt=""/>`:''}`; };
+    const slide=annSlideHtml;
     const m=modal(`<div class="annpop"><div class="annpop-ic">📢</div><div class="annpop-badge">${esc(t('ann.badge'))}</div>
       <div id="annSlide"></div>
       <div class="annpop-dots" id="annDots"></div>
@@ -6980,10 +6995,54 @@
       return `<div class="list-item" style="align-items:flex-start"><div style="flex:1;min-width:0">
         <b>${esc(ti)}</b> ${phasePill(a)}${a.Popup?` <span class="pill info" style="font-size:11px">Pop-up</span>`:''}${Number(a.Priority||0)>=2?` <span class="pill" style="font-size:11px;background:var(--warn-bg);color:var(--warn)">⭐ ${esc(t('ann.pri.high'))}</span>`:''}
         <br><small class="muted">${esc(when(a))}</small></div>
-        <span class="row" style="flex:0 0 auto"><button class="btn sm outline" onclick="A_editAnn('${a.AnnID}')" aria-label="${EN()?"Edit":"แก้ไข"}" title="${EN()?"Edit":"แก้ไข"}">✏️</button><button class="btn sm pink" onclick="A_delAnn('${a.AnnID}')" aria-label="${EN()?"Delete":"ลบ"}" title="${EN()?"Delete":"ลบ"}">🗑️</button></span></div>`;
+        <span class="row" style="flex:0 0 auto"><button class="btn sm outline" onclick="A_previewAnn('${a.AnnID}')" aria-label="${EN()?"Preview":"ดูตัวอย่าง"}" title="${EN()?"Preview as a parent sees it":"ดูตัวอย่างแบบที่ผู้ปกครองเห็น"}">👁️</button><button class="btn sm outline" onclick="A_editAnn('${a.AnnID}')" aria-label="${EN()?"Edit":"แก้ไข"}" title="${EN()?"Edit":"แก้ไข"}">✏️</button><button class="btn sm pink" onclick="A_delAnn('${a.AnnID}')" aria-label="${EN()?"Delete":"ลบ"}" title="${EN()?"Delete":"ลบ"}">🗑️</button></span></div>`;
       }).join('')}</div>`
       : `<small class="muted">${ANN_TAB==='live'?(EN()?'Nothing is showing right now':'ตอนนี้ไม่มีประกาศที่กำลังแสดง'):esc(t('c.noItems'))}</small>`;
   };
+  /**
+   * SEE IT THE WAY A FAMILY WILL, BEFORE THEY DO. Asked 2026-09-25.
+   *
+   * An announcement reaches every parent in the school at once and cannot be unsent, and the editing
+   * form shows fields rather than the message. This shows BOTH places it actually appears — the
+   * pop-up that interrupts them, and the line on their home screen — built from the same functions
+   * the parent app uses, so the preview cannot drift from the real thing.
+   *
+   * It also shows what it looks like in the OTHER language, because half the families read English
+   * and an empty TitleEN is invisible on this screen until somebody reports a blank announcement.
+   */
+  window.A_previewAnn=(annId)=>{
+    const a=findAnn(annId); if(!a||!a.AnnID) return;
+    const missing=[];
+    if(!String(a.Title||'').trim()) missing.push(EN()?'Thai title':'หัวข้อภาษาไทย');
+    if(!String(a.TitleEN||'').trim()) missing.push(EN()?'English title':'หัวข้อภาษาอังกฤษ');
+    if(!String(a.Content||'').trim() && !String(a.ContentEN||'').trim()) missing.push(EN()?'body text':'เนื้อหา');
+    modal(`<h3>👁️ ${EN()?'Preview — what a parent sees':'ดูตัวอย่าง — แบบที่ผู้ปกครองเห็น'}</h3>
+      ${missing.length?`<div class="card" style="background:var(--warn-bg);border-color:var(--warn-line);font-size:13px">
+        ⚠️ ${EN()?'Not filled in yet:':'ยังไม่ได้กรอก:'} <b>${esc(missing.join(' · '))}</b><br>
+        <small>${EN()?'A family reading in that language will see it blank.'
+                     :'ครอบครัวที่อ่านภาษานั้นจะเห็นว่าง'}</small></div>`:''}
+      ${a.Popup?`<div class="muted" style="font-size:12px;margin:8px 0 4px">${EN()
+          ? '① As a pop-up, the moment they open the app'
+          : '① แบบ Pop-up เด้งขึ้นทันทีที่เปิดแอป'}</div>
+        <div class="card" style="padding:0"><div class="annpop" style="margin:0">
+          <div class="annpop-ic">📢</div><div class="annpop-badge">${esc(t('ann.badge'))}</div>
+          ${annSlideHtml(a)}
+          <label class="annpop-hide"><input type="checkbox" disabled/> <span>${esc(t('ann.hide'))}</span></label>
+          <button class="btn block" disabled>${esc(t('ann.ok'))}</button></div></div>`
+        :`<div class="card" style="background:var(--surface-2);font-size:13px">📌 ${EN()
+            ? 'Pop-up is off, so this appears only in the list on their home screen.'
+            : 'ไม่ได้ตั้งเป็น Pop-up — จะขึ้นเฉพาะในรายการบนหน้าแรกของผู้ปกครอง'}</div>`}
+      <div class="muted" style="font-size:12px;margin:10px 0 4px">${a.Popup?'②':'①'} ${EN()
+        ? 'In the announcements list on their home screen'
+        : 'ในรายการประกาศบนหน้าแรกของผู้ปกครอง'}</div>
+      <div class="card" style="padding:0">${annRow(a)}</div>
+      <p class="muted" style="font-size:12px;margin-top:10px">${EN()
+        ? 'Shown in the language you are reading now. Switch language and preview again to check the other one.'
+        : '💡 แสดงด้วยภาษาที่ท่านกำลังใช้อยู่ · สลับภาษาแล้วกดดูอีกครั้งเพื่อตรวจอีกภาษาหนึ่ง'}</p>
+      <button class="btn sm block" onclick="this.closest('.modal').remove();A_editAnn('${esc(annId)}')">✏️ ${esc(t('ann.edit'))}</button>
+      <button class="btn sm ghost block" onclick="this.closest('.modal').remove()">${esc(t('c.close'))}</button>`);
+  };
+
   window.A_addAnn=(annId)=>{ const a=annId?findAnn(annId):{};
     modal(`<h3>📢 ${annId?esc(t('ann.edit')):'เพิ่มประกาศ / Add announcement'}</h3>
     <label class="field"><span>หัวข้อ (ไทย)</span><input id="anT" value="${esc(a.Title||'')}"/></label>
@@ -7338,6 +7397,8 @@
       window._SALERTS=await p_sal;
       app.innerHTML=`<h2 class="page">✅ ${EN()?'Operations':'ดำเนินการ'}</h2>${mainSeg}
         ${opTools([['⏰',EN()?'Student late-pickup OT':'OT รับช้า (นักเรียน)','A_studentOT()'],
+                   // beside the OT screen it acts on, not buried in settings — it is used on the day
+                   ['🌧️',EN()?'Days with no OT charge':'งดคำนวณ OT','A_otWaive()'],
                    ['🕵️',EN()?'Attendance check':'ตรวจสอบการลงเวลา','A_attAudit()'],
                    ['🕑',EN()?'Correct check-in / pick-up':'แก้ไขเวลารับ-ส่ง','A_editAttPick()'],
                    ['📊',EN()?'Class report':'สรุปรายชั้นเรียน','A_studentReport()']])}
@@ -8154,6 +8215,76 @@
         <label class="switch"><input type="checkbox" data-sid="${s.StaffID}" ${s.RequireCheckin!==false?'checked':''}><span class="slider"></span></label></div>`).join('')}</div>
       <button class="btn block" style="margin-top:8px" onclick="A_saveReqCI(this)">💾 ${esc(t('c.save'))}</button>`);
   };
+  /* ===== งดคำนวณ OT — ดำเนินการ > นักเรียน ====================================================
+   * Asked 2026-09-25: "วันที่ 25/09/26 ฝนตกหนักมาก โรงเรียนอยากช่วยเหลือผู้ปกครองโดยวันนี้เว้นการคิด
+   * OT ของทุกชั้นเรียน ... เมื่อข้ามวันเป็นวันที่ 26/09/26 ระบบจะกลับมาเป็นปกติ".
+   *
+   * A DATE RANGE RATHER THAN A SWITCH, so nobody has to remember to turn it back on the next
+   * morning. One day is a range with both ends the same — the form fills the end in from the start
+   * automatically, because typing the same date twice is a step whose only purpose is to be forgotten.
+   */
+  let OTW = { days: [], today: '', active: null };
+  window.A_otWaive = async () => { OTW = await api('otWaiveDays'); A_otWaiveRender(); };
+  function A_otWaiveRender(keep){
+    const rows = OTW.days || [];
+    const one = w => w.from === w.to;
+    const html = `<h3>🌧️ ${EN()?'Days with no OT charge':'งดคำนวณ OT'}</h3>
+      <div class="card" style="background:${OTW.active?'var(--warn-bg)':'var(--ok-bg)'};border-color:${OTW.active?'var(--warn-line)':'var(--ok-line)'};font-size:13px">
+        ${OTW.active
+          ? `🌧️ <b>${EN()?'Today, OT is NOT being charged.':'วันนี้ <u>ไม่คิด</u> OT'}</b>${
+              OTW.active.reason?`<br><small>${esc(OTW.active.reason)}</small>`:''}`
+          : `✅ <b>${EN()?'Today, OT is charged as usual.':'วันนี้คิด OT ตามปกติ'}</b>`}
+      </div>
+      <p class="muted" style="font-size:13px;margin:8px 0">${EN()
+        ? 'Late pick-up is not charged, for every class, on the days listed here. A late pick-up is still recorded — only the money is waived. The school goes back to normal by itself the day after the end date.'
+        : 'ในวันที่อยู่ในรายการนี้ <b>จะไม่คิดค่า OT รับช้ากับทุกชั้นเรียน</b> · ระบบยัง<b>บันทึกว่ารับช้า</b>ตามปกติ งดเฉพาะการคิดเงิน · <b>พ้นวันสิ้นสุดแล้วกลับมาคิดเองอัตโนมัติ ไม่ต้องมาปิด</b>'}</p>
+      <div class="card" style="background:var(--surface-2);padding:8px">
+        <div class="grid2"><label class="field" style="margin:0"><span>${EN()?'From':'วันเริ่มต้น'}</span>
+            <input id="otwFrom" type="date" oninput="A_otwSync()"/></label>
+          <label class="field" style="margin:0"><span>${EN()?'To':'วันสิ้นสุด'}</span>
+            <input id="otwTo" type="date"/></label></div>
+        <small class="muted" style="font-size:12px">${EN()
+          ? 'One day only? Put the same date in both — picking the start fills the end in for you.'
+          : 'วันเดียว = ใส่วันเดียวกันทั้ง 2 ช่อง · เลือกวันเริ่มต้นแล้วระบบเติมวันสิ้นสุดให้เอง'}</small>
+        <label class="field" style="margin-top:6px"><span>${EN()?'Reason (printed on the cancelled charge)':'เหตุผล (จะแสดงบนรายการที่ถูกยกเลิก)'}</span>
+          <input id="otwWhy" placeholder="${EN()?'e.g. heavy rain':'เช่น ฝนตกหนัก'}"/></label>
+        <button class="btn sm block" onclick="A_otwAdd(this)">➕ ${EN()?'Add these days':'เพิ่มวันที่งดคำนวณ'}</button>
+      </div>
+      ${rows.length?`<div style="max-height:34vh;overflow:auto;margin-top:8px">${rows.map((w,i)=>`
+        <div class="list-item"><span><b>${esc(one(w)?ddmmyyyy(w.from):ddmmyyyy(w.from)+' → '+ddmmyyyy(w.to))}</b>${
+          (OTW.today>=w.from&&OTW.today<=w.to)?` <span class="pill warn" style="font-size:11px">${EN()?'today':'วันนี้'}</span>`:''}
+          ${w.reason?`<br><small class="muted">${esc(w.reason)}</small>`:''}</span>
+          <button class="btn sm pink" onclick="A_otwDel(${i},this)">🗑️</button></div>`).join('')}</div>`
+        :`<p class="muted" style="text-align:center;padding:12px 0">${EN()?'No waived days — OT is charged every day.':'ยังไม่มีวันที่งดคำนวณ — คิด OT ทุกวันตามปกติ'}</p>`}
+      <button class="btn sm ghost block" style="margin-top:8px" onclick="this.closest('.modal').remove()">${esc(t('c.close'))}</button>`;
+    const open=document.querySelector('.modal .sheet');
+    if(keep && open){ open.innerHTML=html; if(window.translateTree) translateTree(open); } else modal(html);
+  }
+  /* PICKING A START FILLS IN THE END. The common case by far is one day, and an end date left blank
+   * (or accidentally earlier) is the difference between waiving a day and waiving nothing. */
+  window.A_otwSync = () => { const f=document.getElementById('otwFrom'), t2=document.getElementById('otwTo');
+    if(f && t2 && (!t2.value || t2.value < f.value)) t2.value = f.value; };
+  window.A_otwAdd = async (btn) => {
+    const m=btn.closest('.sheet');
+    const from=(m.querySelector('#otwFrom')||{}).value||'';
+    const to=(m.querySelector('#otwTo')||{}).value||from;
+    const reason=(m.querySelector('#otwWhy')||{}).value||'';
+    if(!from) return err(new Error(EN()?'Pick a start date':'เลือกวันเริ่มต้นก่อน'));
+    if(to<from) return err(new Error(EN()?'The end date is before the start date':'วันสิ้นสุดอยู่ก่อนวันเริ่มต้น'));
+    const old=btn.textContent; btn.disabled=true; btn.textContent='⏳';
+    try{ OTW = await api('saveOtWaiveDays',{days:[...(OTW.days||[]),{from,to,reason}]});
+      toast(t('c.saved')); A_otWaiveRender(true); }
+    catch(e){ err(e); btn.disabled=false; btn.textContent=old; }
+  };
+  window.A_otwDel = async (i, btn) => {
+    const w=(OTW.days||[])[i]; if(!w) return;
+    if(!await confirmBox(EN()?'Charge OT on these days again?':'กลับมาคิด OT ในวันเหล่านี้ตามปกติ?')) return;
+    const old=btn.textContent; btn.disabled=true; btn.textContent='⏳';
+    try{ OTW = await api('saveOtWaiveDays',{days:(OTW.days||[]).filter((_,k)=>k!==i)});
+      toast(t('c.saved')); A_otWaiveRender(true); }
+    catch(e){ err(e); btn.disabled=false; btn.textContent=old; }
+  };
+
   /* ===== ใบประกาศนียบัตร — จัดการ > รายงาน & เอกสาร ==========================================
    * Asked 2026-09-24 by the ผอ. The rules they set, and where each one lives:
    *   · only children with a recorded last day appear   → certStudents (engine)

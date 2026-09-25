@@ -458,7 +458,10 @@
     return items.reduce(function (chain, d) {
       return chain.then(function () {
         return render(d).then(function (r) {
-          sheets.push({ bytes: k.b64ToBytes(r.dataUrl.split(',')[1]), w: r.width, h: r.height, landscape: true });
+          /* A5 LANDSCAPE from 2026-09-25 — and sharper for it. The sheet is still rendered at 2400 px on
+           * the long edge, so printing it across A5's 210 mm gives ~290 dpi where A4's 297 mm gave ~205.
+           * A smaller page out of the same pixels is more resolution per millimetre, not less. */
+          sheets.push({ bytes: k.b64ToBytes(r.dataUrl.split(',')[1]), w: r.width, h: r.height, landscape: true, a5: true });
         });
       });
     }, Promise.resolve()).then(function () {
