@@ -45,10 +45,39 @@
    *
    * The two RULES are re-detected in each artwork at render time (findRules) so a school with a
    * different template still lands on its own lines; these are the fallback when none is found. */
+  /* TYPE SIZES, SET 2026-09-25 AND MEASURED RATHER THAN CHOSEN.
+   *
+   * The brief: the child's name 36–48 pt, general text 18–22 pt, in a LOOPED Thai face (TH Sarabun
+   * New / Angsana New). Those are point sizes on paper, so they were converted against the sheet as
+   * it actually prints: the artwork is 1.491 wide, so on A4 landscape it fits to the 297 mm width
+   * and stands 199.2 mm tall. 1 pt = 0.3528 mm, so a fraction of sheet height f = f × 199.2 / 0.3528 pt.
+   *
+   * The template's own type was measured the same way — by matching the ink-band height of each line
+   * against Sarabun rendered at a known size — so the additions sit in the school's own hierarchy
+   * rather than next to it:
+   *
+   *      template heading   0.0412  →  23.3 pt        (on the artwork; we do not draw it)
+   *      template body      0.0365  →  20.6 pt
+   *      "ให้ไว้ ณ"          0.0360  →  20.3 pt        ← the date continues THIS line
+   *
+   *      name   0.0744  →  42.0 pt   (middle of 36–48; auto-shrinks for a long name)
+   *      date   0.0360  →  20.3 pt   (identical to the line it continues, not merely inside 18–22)
+   *
+   * v401 had them at 26.5 pt and 17.2 pt — both below the brief, which is what "the name should be
+   * the most prominent thing on the page" was telling us.
+   */
   var P = {
-    nameY: 0.5985, nameSize: 0.047, nameMaxW: 0.53,   // baseline sits just above the name rule
+    /* nameMaxW IS WIDER THAN THE RULE ON PURPOSE (0.76 against the rule's 0.55).
+     *
+     * Constraining the name to the rule's own width looked tidy and quietly defeated the brief: a
+     * real Thai name plus a nickname — "วัชชิรวิณณ์ เรืองณรงค์ (โตเกียว)" — needs 0.66 of the sheet
+     * at 42 pt, so the auto-shrink took it down to 32.9 pt, and a long one to 21 pt, which is
+     * SMALLER than the heading printed above it. "ชื่อนักเรียนโดดเด่นที่สุดในหน้ากระดาษ" was the
+     * one thing the brief insisted on. The artwork is clear from 0.10 to 0.90, so a name may
+     * overhang its rule; that is how a handwritten one behaves too. */
+    nameY: 0.5938, nameSize: 0.0744, nameMaxW: 0.76,  // baseline sits just above the name rule
     nameRuleY: 0.6138, nameRuleCx: 0.4998,
-    dateX: 0.4280, dateY: 0.7345, dateSize: 0.0305,   // left-aligned, immediately after "ให้ไว้ ณ"
+    dateX: 0.4280, dateY: 0.7345, dateSize: 0.0360,   // left-aligned, immediately after "ให้ไว้ ณ"
     sigRuleY: 0.8367, sigCx: 0.7555,                  // the signature sits ON the rule, not above it
     sigDrop: 0.004,                                   // the last stroke lands a hair below the line
     sigMaxW: 0.185, sigMaxH: 0.075
@@ -66,9 +95,37 @@
     titleY: 0.878, title: 36, signerY: 0.928, signer: 36
   };
 
-  var INK = '#1A2130', SOFT = '#3A4356', RULE = '#98A2B3';
+  /* #121D4A IS THE SCHOOL'S OWN INK, sampled from the heading on their artwork — the navy asked for
+   * on 2026-09-25 ("สีกรมท่าหรือสีดำ"). Taking it from the file rather than picking a navy means the
+   * name we add and the sentences already printed are the same colour, which is the difference
+   * between a filled-in certificate and a certificate with something typed on it. */
+  var INK = '#121D4A', SOFT = '#3A4356', RULE = '#98A2B3';
+  /* A LOOPED Thai face (มีหัว), as asked. Sarabun is the open-licence cut of TH Sarabun New and is
+   * what the rest of the app already uses; every fallback here is looped too, so a device without it
+   * still prints something in the right register. Do not add a loopless face to this list. */
   function fontStack() { return '"Sarabun", "Noto Sans Thai", "Leelawadee UI", "Tahoma", sans-serif'; }
   function font(px, weight) { return (weight || 400) + ' ' + Math.round(px) + 'px ' + fontStack(); }
+
+  /**
+   * MAKE SURE SARABUN IS ACTUALLY THERE BEFORE ANYTHING IS DRAWN.
+   *
+   * index.html loads it with `display=optional`, which is right for the app — a screen must not
+   * block on a webfont — but it means that on a cold load the browser is entitled to skip the swap
+   * for the whole page and render in Tahoma. A screen recovers on the next visit. A certificate is
+   * printed once, framed, and the family keeps it, so it cannot be left to that. Asking the CSS Font
+   * Loading API for the face directly fetches it regardless of the display descriptor.
+   *
+   * Never rejects: a school on a slow connection gets the looped fallback, not a failed export.
+   */
+  function fontsReady() {
+    if (!document.fonts || !document.fonts.load) return Promise.resolve(false);
+    return Promise.all([
+      document.fonts.load('400 100px Sarabun'),
+      document.fonts.load('700 100px Sarabun')
+    ]).then(function () { return document.fonts.ready; })
+      .then(function () { return document.fonts.check('700 100px Sarabun'); })
+      .catch(function () { return false; });
+  }
 
   /** Draw `s` centred on cx, shrinking the type until it fits `maxW`. Never clipped, never ellipsised
    *  — a child's name is the whole point of the page and must be complete. */
@@ -203,8 +260,7 @@
    */
   function render(d) {
     d = d || {};
-    var ready = (document.fonts && document.fonts.ready) ? document.fonts.ready : Promise.resolve();
-    return ready.then(function () {
+    return fontsReady().then(function () {
       return Promise.all([loadImage(d.bg), loadImage(d.sig)]);
     }).then(function (imgs) {
       var bg = imgs[0], sig = imgs[1];
