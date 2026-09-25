@@ -109,7 +109,12 @@ console.log('\n2) the wording is the school’s, and the two copies of it agree'
   /* "ให้ไว้ ณ" IS ALREADY PRINTED ON THE SCHOOL'S TEMPLATE, so the prefix we add is just "วันที่".
    * The first default was "ให้ไว้ ณ วันที่" and would have printed "ให้ไว้ ณ ให้ไว้ ณ วันที่ ๒๕…". */
   eq('...and the untouched lines keep their defaults', d2.CertDatePrefixTH, 'วันที่');
-  eq('the artwork is assumed to carry its own wording, because it does', d2.CertBgHasText, 'true');
+  /* FULL MODE IS THE DEFAULT from 2026-09-25: the school supplies a BLANK frame and the app writes
+   * every line. It is the better arrangement — the type is set to the brief rather than matched to
+   * whatever is already printed, and there is nothing beside our text to clash with. The switch
+   * stays for a school whose artwork really does carry its own wording. */
+  eq('a new school gets full mode — a blank frame, and the app writes everything',
+     d2.CertBgHasText, 'false');
 
   /* THE VALUE THIS PROJECT WROTE AND HAS TO TAKE BACK. v400 defaulted the prefix to 'ให้ไว้ ณ วันที่';
    * the template already prints "ให้ไว้ ณ", so the first real sheet read "ให้ไว้ ณ ให้ไว้ ณ วันที่
@@ -234,15 +239,28 @@ console.log('\n5) ชื่อจริง + (ชื่อเล่น), and not
   ok_('long names shrink the type instead of being ellipsised',
     /while \(size > 12 && ctx\.measureText\(s\)\.width > maxW\)/.test(cert) && !/…/.test(cert));
 
-  /* THE LAST LINE MUST CLEAR THE ARTWORK'S BORDER. Found by rendering a sheet and measuring the
-   * lowest inked row: at signerY 0.960 the bracketed name printed AT 0.963, and the frame sits at
-   * 0.969 — it was on the border. Measured again after the fix: 0.931, about 8 mm of clearance on a
-   * real A4. Kept as a number rather than as a picture because a picture cannot fail a build. */
-  const L = {}; cert.replace(/(\w+): ([\d.]+)/g, (m, k, v) => { L[k] = +v; return m; });
-  ok_('the signatory name clears the bottom of the sheet  (signerY ' + L.signerY + ')', L.signerY <= 0.94);
-  ok_('...and the whole signature block stays in order, top to bottom',
-    L.dateY < L.sigY && L.sigY < L.sigRuleY && L.sigRuleY < L.titleY && L.titleY < L.signerY);
-  ok_('...and nothing overlaps the name and its rule', L.nameY < L.ruleY && L.ruleY < L.line2Y);
+  /* FULL MODE HAS TO FIT INSIDE THE BLANK FRAME'S CLEAR AREA. Measured off that file: the middle
+   * (x 0.12–0.88) is clear from y 0.321, where the logo ends, to y 0.905, where the bottom
+   * decorations begin. Rendered and diffed against the bare frame afterwards, the seven elements
+   * spanned 0.3503 to 0.8932 — inside at both ends. Kept as numbers because a picture cannot fail
+   * a build, and the failure mode here is a signatory name printed over a cartoon sun. */
+  const LG = {}; (/var L = \{([\s\S]*?)\n  \};/.exec(cert) || ['', ''])[1]
+    .replace(/(\w+): ([\d.]+)/g, (m, k, v) => { LG[k] = +v; return m; });
+  ok_('the first line clears the logo above it  (' + LG.headY + ' > 0.321)', LG.headY - LG.head > 0.321);
+  ok_('the last line clears the decorations below  (' + LG.signerY + ' < 0.905)', LG.signerY < 0.900);
+  ok_('every line is in order, top to bottom',
+    LG.headY < LG.line1Y && LG.line1Y < LG.nameY && LG.nameY < LG.ruleY &&
+    LG.ruleY < LG.line2Y && LG.line2Y < LG.dateY && LG.dateY < LG.sigRuleY &&
+    LG.sigRuleY < LG.titleY && LG.titleY < LG.signerY);
+  ok_('...and the name rests on its rule rather than crossing it', LG.ruleY - LG.nameY < 0.03);
+
+  /* THE BRIEF, IN FULL MODE TOO — now that every line is ours, the heading can finally BE 28–32 pt
+   * instead of whatever the artwork happened to carry (the old template's was 23.3). */
+  const PTL = f => f * 199.2 / 0.3528;
+  ok_('heading 28–32 pt  (' + PTL(LG.head).toFixed(1) + ')', PTL(LG.head) >= 28 && PTL(LG.head) <= 32);
+  ok_('body 18–22 pt  (' + PTL(LG.body).toFixed(1) + ')', PTL(LG.body) >= 18 && PTL(LG.body) <= 22);
+  ok_('name 36–48 pt  (' + PTL(LG.name).toFixed(1) + ')', PTL(LG.name) >= 36 && PTL(LG.name) <= 48);
+  ok_('...and the name still stays inside its rule', LG.nameMaxW <= LG.ruleW);
 }
 
 // ============================================================================================
@@ -301,8 +319,9 @@ console.log('\n6b) the school’s own template: three things added, and nothing 
   ok_('with artwork, only the name, the date and the signature are drawn',
     /if \(bg && d\.bgHasText !== false\)/.test(cert));
   ok_('...and that branch returns before the wording is ever drawn',
-    /bgHasText !== false\)[\s\S]{0,1800}return \{ dataUrl[\s\S]{0,120}\}\n\n {6}\/\/ ===== no artwork/.test(cert));
-  ok_('the plain fallback still exists for a genuinely blank frame', /no artwork: the plain fallback/i.test(cert));
+    /bgHasText !== false\)[\s\S]{0,1800}return \{ dataUrl[\s\S]{0,140}\/\* ===== FULL MODE/.test(cert));
+  ok_('full mode still exists, for a blank frame or for no artwork at all',
+    /FULL MODE — every line is ours/.test(cert));
   ok_('...and the school can say which it uploaded', /cs_CertBgHasText/.test(app) && /CertBgHasText/.test(engine));
 
   /* THE SHEET IS THE SHAPE OF THE ARTWORK. The template is 2528×1696 — ratio 1.491 against A4
@@ -420,6 +439,25 @@ console.log('\n6b) the school’s own template: three things added, and nothing 
     /if \(src === _fontSrc && _fontLoaded !== null\)/.test(cert));
   ok_('the settings screen says why naming a font in code is not enough',
     /ได้ผลเฉพาะเครื่องที่ติดตั้งไว้แล้ว/.test(app));
+
+  /* AND NOW IT SHIPS. TH Sarabun New is one of Thailand's national fonts — free to use and to
+   * redistribute — so the file is in the repo rather than hoped for on the rendering machine. It is
+   * fetched only by this module, which is itself loaded on demand, so a parent opening the app and
+   * a teacher taking a register never pay for it. */
+  ok_('the font is bundled, not merely named',
+    /var BUNDLED_FONT = 'assets\/fonts\/THSarabunNew-Bold\.ttf'/.test(cert));
+  ok_('...and the file is really there, and is really a TrueType font', (() => {
+    const p = path.join(__dirname, '..', 'webapp', 'assets', 'fonts', 'THSarabunNew-Bold.ttf');
+    if (!fs.existsSync(p)) return false;
+    const b = fs.readFileSync(p);
+    return b.length > 100000 && b.readUInt32BE(0) === 0x00010000;   // sfnt version for TrueType
+  })());
+  ok_('...used by default, with an uploaded font overriding it',
+    /String\(dataUrl \|\| ''\) \|\| BUNDLED_FONT/.test(cert));
+  /* IT MUST NOT LEAK INTO EVERY PAGE LOAD. The font is ~352 KB; the app's shell budget is the
+   * reason report_card.js and certificate.js are loaded on demand in the first place. */
+  ok_('...and it is not pulled in by the app shell', !/THSarabunNew/.test(R('webapp/index.html')) &&
+    !/THSarabunNew/.test(R('webapp/styles.css')) && !/THSarabunNew/.test(R('webapp/sw.js')));
   ok_('...and the reason display=optional forces this is written down',
     /display=optional/.test(cert) && /display=optional/.test(R('webapp/index.html')));
   ok_('...and a slow connection still gets a certificate, not an error',

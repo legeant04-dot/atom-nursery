@@ -1409,7 +1409,7 @@ function createAtomAPI(M, GROWTH_STD) {
     CertLine2TH:'ได้เข้าเรียนและผ่านการประเมินจาก', CertLine2EN:'for attending and completing the programme at',
     CertDatePrefixTH:'วันที่', CertDatePrefixEN:'',
     CertSignerTitleTH:'ครูผู้อำนวยการ', CertSignerTitleEN:'Director',
-    CertSignerNameTH:'', CertSignerNameEN:'', CertBgHasText:'true' };
+    CertSignerNameTH:'', CertSignerNameEN:'', CertBgHasText:'false' };
   /* A VALUE THIS PROJECT ITSELF WROTE, AND HAS TO TAKE BACK.
    *
    * v400 shipped 'ให้ไว้ ณ วันที่' as the date prefix, on the assumption that the uploaded artwork
@@ -1424,7 +1424,9 @@ function createAtomAPI(M, GROWTH_STD) {
   const CERT_LEGACY_ = { CertDatePrefixTH: 'ให้ไว้ ณ วันที่', CertDatePrefixEN: 'Given on' };
   const certTextRead_ = (c) => { const out={};
     CERT_TEXT_KEYS.forEach(k=>{ let v=(c&&c[k]!==undefined&&c[k]!==null)?String(c[k]):'';
-      if(v!=='' && CERT_LEGACY_[k]===v) v='';
+      /* ONLY WHEN THE ARTWORK CARRIES THE LEAD-IN. With a blank frame the app writes
+       * "ให้ไว้ ณ" itself, so 'ให้ไว้ ณ วันที่' is exactly right there and must survive. */
+      if(v!=='' && CERT_LEGACY_[k]===v && String((c&&c.CertBgHasText)||'true')!=='false') v='';
       out[k] = v!=='' ? v : CERT_TEXT_DEFAULTS[k]; });
     // the same three extras handleCertText returns, so one screen reads one shape in both modes
     out.hasBg = !!(c && c.CertBgFileId); out.hasSig = !!(c && c.CertSigFileId); out.hasFont = !!(c && c.CertFontFileId);
