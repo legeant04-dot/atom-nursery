@@ -211,6 +211,26 @@ console.log('\n6) the screen, and who may open it');
   ok_('removing a day asks first — it puts charges back', /กลับมาคิด OT ในวันเหล่านี้ตามปกติ/.test(app));
   ok_('the screen says the late pick-up is still recorded',
     /งดเฉพาะการคิดเงิน/.test(app) && /กลับมาคิดเองอัตโนมัติ/.test(app));
+
+  /* ---- ON THE CALENDAR, 2026-09-25 -----------------------------------------------------------
+   * "เพิ่มข้อมูลบันทึกใน ... ปฏิทินของนักเรียน > งด OT วันไหนเพื่อการตรวจสอบ". A waiver is a decision
+   * NOT to collect money, and a list inside its own modal is not somewhere anyone looks back at. On
+   * the calendar it sits beside the day it applies to, next to the absences and the holidays, which
+   * is where "what happened on the 25th" is actually asked. */
+  ok_('the waived days are marked on the student calendar', /otwByDay\[dd\]/.test(appCode));
+  ok_('...the list is fetched with the rest of that screen', /api\('otWaiveDays'\)\.catch/.test(appCode));
+  ok_('...and an older deployment without the route still draws the calendar',
+    /window\._OTW=\(await api\('otWaiveDays'\)\.catch\(\(\)=>null\)\) \|\| window\._OTW \|\| \{days:\[\]\}/.test(appCode));
+  ok_('...the reason is on the day, not only in the settings screen',
+    /title="\$\{esc\(\(EN\(\)\?'No OT charged':'งดคำนวณ OT'\)/.test(app));
+  ok_('...and the legend says what the marker means',
+    /🌧️ งดคำนวณ OT/.test(app) && /🌧️ no OT charged/.test(app));
+  /* Dates are compared as STRINGS. The ranges are stored 'YYYY-MM-DD', and text comparison has no
+   * timezone in it to get wrong — which is the same trap ymdStr_ fell into on the server. */
+  ok_('...matched as text, so no timezone can shift the marker a day',
+    /if\(ds>=w\.from && ds<=w\.to\) otwByDay\[dd\]=w;/.test(appCode));
+  ok_('saving or removing a waiver redraws the calendar under it',
+    (appCode.match(/window\._OTW=OTW; CAL_redraw\(\);/g) || []).length === 2);
 }
 
 console.log('\n' + (fail ? 'FAILED ' : 'PASSED ') + pass + ' passed, ' + fail + ' failed');

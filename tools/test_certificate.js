@@ -116,6 +116,19 @@ console.log('\n2) the wording is the school’s, and the two copies of it agree'
   eq('a new school gets full mode — a blank frame, and the app writes everything',
      d2.CertBgHasText, 'false');
 
+  /* THE ENGLISH WORDING THE SCHOOL SPECIFIED, 2026-09-25 — defaults rather than something they have
+   * to retype, because an English certificate that has never been opened should still be correct. */
+  const d0 = createAtomAPI({ students: [], studentLeaves: [], holidays: [], staff: [], parents: [],
+    activityLog: [], config: {} }).H.certText();
+  eq('English has a main title; Thai does not, because their design has none',
+     [d0.CertTitleEN, d0.CertTitleTH], ['CERTIFICATE OF COMPLETION', '']);
+  eq('...the line above the name', d0.CertLine1EN, 'This is to certify that');
+  eq('...the achievement line', d0.CertLine2EN,
+     'has successfully completed the nursery program with wonderful growth and joyful learning.');
+  eq('...and the date prefix', d0.CertDatePrefixEN, 'Date:');
+  eq('the signatory is Director / ครูผู้อำนวยการ', [d0.CertSignerTitleEN, d0.CertSignerTitleTH],
+     ['Director', 'ครูผู้อำนวยการ']);
+
   /* THE VALUE THIS PROJECT WROTE AND HAS TO TAKE BACK. v400 defaulted the prefix to 'ให้ไว้ ณ วันที่';
    * the template already prints "ให้ไว้ ณ", so the first real sheet read "ให้ไว้ ณ ให้ไว้ ณ วันที่
    * ๒๕ กันยายน ๒๕๖๙". Changing the default in v401 fixed nothing — the admin had opened settings
@@ -126,7 +139,7 @@ console.log('\n2) the wording is the school’s, and the two copies of it agree'
       config: { CertDatePrefixTH: 'ให้ไว้ ณ วันที่', CertDatePrefixEN: 'Given on' } };
     const r3 = createAtomAPI(M3).H.certText();
     eq('the stored duplicate prefix is read as "never set"', r3.CertDatePrefixTH, 'วันที่');
-    eq('...in English too', r3.CertDatePrefixEN, '');
+    eq('...in English too — the legacy value gives way to the new default', r3.CertDatePrefixEN, 'Date:');
     // EXACT MATCH ONLY — a school that deliberately types this on a blank frame keeps it
     M3.config.CertDatePrefixTH = 'ลงวันที่';
     eq('...but any other wording the school typed is untouched',
@@ -252,8 +265,11 @@ console.log('\n5) ชื่อจริง + (ชื่อเล่น), and not
     /nick !== who/.test(cert));
   /* A NAME IS THE POINT OF THE PAGE. Everything else here may be shrunk to fit; a name that ran long
    * must not come back as "ณัฐภัทร ราชว…" on a document a family keeps. */
+  /* CODE ONLY — a comment naming the English sentence ends in an ellipsis, so a grep over the raw
+   * file fails on the documentation rather than on the drawing. Same trap as §6's ANYONE_WITH_LINK. */
+  const certCode = cert.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
   ok_('long names shrink the type instead of being ellipsised',
-    /while \(size > 12 && ctx\.measureText\(s\)\.width > maxW\)/.test(cert) && !/…/.test(cert));
+    /while \(size > 12 && ctx\.measureText\(s\)\.width > maxW\)/.test(certCode) && !/…/.test(certCode));
 
   /* FULL MODE HAS TO FIT INSIDE THE BLANK FRAME'S CLEAR AREA. Measured off that file: the middle
    * (x 0.12–0.88) is clear from y 0.321, where the logo ends, to y 0.905, where the bottom
@@ -291,6 +307,44 @@ console.log('\n5) ชื่อจริง + (ชื่อเล่น), and not
     Math.abs(ink(LG.body, INKR.body) - 0.0365) < 0.004);
   ok_('the name is the size the school approved on a printed sheet', LG.name === 0.0744);
   ok_('...and still stays inside its rule', LG.nameMaxW <= LG.ruleW);
+
+  /* ---- THE ENGLISH CERTIFICATE, 2026-09-25 ---------------------------------------------------
+   * Asked: "สำหรับ Version ENG ที่ยังไม่มี Template ต้องทำยังไง ... ผมต้องทำเพิ่มไหม?" — no second
+   * template. Full mode draws every line, so ONE blank frame serves both languages and the wording
+   * is a setting. What English needs that Thai does not is a MAIN TITLE above the school's name. */
+  ok_('there is a main title, drawn only when the school sets one',
+    /var hasTitle = !!String\(d\.title \|\| ''\)\.trim\(\)/.test(cert));
+  ok_('...and the two lines under it move UP when it is absent, rather than leaving a hole',
+    /hasTitle \? L\.headY : L\.headWithoutTitle/.test(cert) &&
+    /hasTitle \? L\.line1Y : L\.line1WithoutTitle/.test(cert) &&
+    LG.headWithoutTitle < LG.headY && LG.line1WithoutTitle < LG.line1Y);
+  /* A KEY COLLISION THAT DREW THE TITLE ON TOP OF THE SIGNATURE. `titleY` was already taken by the
+   * signatory's title at 0.858, so a second `titleY: 0.368` in the same object literal was silently
+   * overwritten and "CERTIFICATE OF COMPLETION" printed across the signature block. Found by
+   * measuring the rendered sheet — the screenshot had looked merely "busy". */
+  ok_('the main title and the signatory title do not share a key',
+    /mainTitleY: [\d.]+/.test(cert) && /titleY: [\d.]+, signerY/.test(cert) &&
+    LG.mainTitleY < LG.nameY && LG.titleY > LG.sigRuleY);
+  /* Ink, not nominal size, for the same reason as everywhere else in this block: TH Sarabun New
+   * paints ~0.86 of nominal. Rendered and measured afterwards, the English title's first ink landed
+   * at 0.3422 against a logo ending at 0.321. */
+  ok_('the main title clears the logo above it  (ink from '
+      + (LG.mainTitleY - LG.mainTitle * INKR.head).toFixed(4) + ')',
+    LG.mainTitleY - LG.mainTitle * INKR.head > 0.321);
+
+  /* THE ENGLISH SENTENCE IS MORE THAN TWICE THE LENGTH OF THE THAI ONE. Shrinking one line until it
+   * fits took it to a size nobody would print; two lines at the right size is what a person would
+   * do. Thai has no spaces to break on and falls through to shrinking, which is correct for it. */
+  ok_('a long sentence wraps to two lines instead of shrinking away',
+    /function centredWrap\(/.test(cert) && /centredWrap\(ctx, sentence, cx[\s\S]{0,120}, 2\)/.test(cert));
+  /* AND THE DATE FOLLOWS IT. A fixed date baseline printed the date straight through the wrapped
+   * second line — which on paper reads as one muddled line, not as two overlapping ones. */
+  ok_('...and the date moves down with it',
+    /Math\.max\(H \* L\.dateY, lastLine \+ H \* L\.dateGap\)/.test(cert) && LG.dateGap > 0);
+  /* Thai runs its sentence on to the school's name; English's is complete and the name is already
+   * in the title block, so appending it would print the school twice. */
+  ok_('the school’s name is appended to the Thai sentence and not to the English one',
+    /d\.joinHead === false/.test(cert) && /joinHead: !en/.test(app));
 }
 
 // ============================================================================================
