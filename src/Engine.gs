@@ -3624,6 +3624,20 @@ function createAtomAPI(M, GROWTH_STD) {
        *
        * `noPayroll_` is the same helper listStaff answers with, so the two lists cannot drift.
        */
+      /* ⚠️ `Role==='Teacher'` IS A DECISION, NOT AN OVERSIGHT — do not widen it.
+       *
+       * It means the ผอ.'s own salary is NOT in this card and NOT in salaryExpense, so it does not
+       * reach the pink "รายจ่ายรวม" tile. That looks like a bug from the code alone, and it is not:
+       * the payroll screen WILL run her payslip (payableStaff keeps her — she is an Admin who is
+       * paid), and the school's answer when this was put to them on 2026-09-29 was "ถูกแล้ว —
+       * อย่านับรวม คงไว้แบบนี้". The director's pay is accounted for apart from the nursery's
+       * operating costs, which is an ordinary thing for an owner-run school.
+       *
+       * Written down because the next person to read this line — including me — will see a filter
+       * that drops a paid employee from an expense total and reach for it. Changing it moves a
+       * money figure the school reads every month, so it needs the school to say so first.
+       * Pinned by test_payroll_screen.js §1c.
+       */
       const staff=M.staff.filter(s=>s.Role==='Teacher').map(s=>{ const pr=M.payroll.find(x=>x.StaffID===s.StaffID&&ym(x.Month)===month);
         return {staffId:s.StaffID,name:s.NameTH,nameEN:s.NameEN,nick:s.Nickname,nickEN:s.NicknameEN,net:pr?pr.NetPay:0,paid:!!pr&&pr.SlipSent==='YES',computed:!!pr,
           _keep: !!pr || (!noPayroll_(s) && !staffEnded_(s))}; })
