@@ -124,6 +124,48 @@ console.log('1b) ...and the การเงิน card agrees — without droppi
 }
 
 // ============================================================================================
+console.log('1c) the ผอ. is paid, and deliberately NOT in รายจ่ายรวม');
+// ============================================================================================
+{
+  /* THE ONE THAT LOOKS LIKE A BUG AND IS A DECISION.
+   *
+   * financeSummary filters this card on Role==='Teacher', so the director's own salary is neither
+   * listed nor counted in salaryExpense — the pink "รายจ่ายรวม" tile. Meanwhile payableStaff KEEPS
+   * her, because she is an Admin who is paid and the payroll screen must be able to produce her
+   * slip (§1). Read from the code alone that pair reads as an inconsistency, and the obvious "fix"
+   * is to widen the filter.
+   *
+   * Put to the school on 2026-09-29: "ถูกแล้ว — อย่านับรวม คงไว้แบบนี้". The director's pay is
+   * accounted for apart from the nursery's operating costs.
+   *
+   * This test exists so that widening it FAILS LOUDLY rather than moving a figure the school reads
+   * every month. If the school changes its mind, change this test first — deliberately, with the
+   * new answer written into it. */
+  const M = {
+    staff: [
+      { StaffID: 'T1', NameTH: 'ก้อย', Nickname: 'ก้อย', Role: 'Teacher', Status: 'ACTIVE' },
+      { StaffID: 'DIR', NameTH: 'ศิลา เส็งพานิช', Nickname: 'ต้อม', Role: 'Admin', PositionLevel: 'Admin', Status: 'ACTIVE' }
+    ],
+    payroll: [
+      { PayrollID: 'P1', StaffID: 'T1', Month: '2026-09', NetPay: 14500, Contribution: 0 },
+      // her payslip HAS been run — payableStaff offers her, so this is a state the school reaches
+      { PayrollID: 'P2', StaffID: 'DIR', Month: '2026-09', NetPay: 30000, Contribution: 0 }
+    ],
+    students: [], parents: [], activityLog: [], userLinks: [], bills: [], charges: [], otDaily: [], paymentSlips: [], config: {}
+  };
+  const f = createAtomAPI(M).H.financeSummary({ month: '2026-09' });
+  eq('the ผอ. is not on the เงินเดือนคุณครู card', f.staff.map(s => s.nick).indexOf('ต้อม') >= 0, false);
+  eq('🔴 ...and her salary is deliberately not in รายจ่ายรวม (school’s decision 2026-09-29)', f.expense, 14500);
+  ok_('...and the reason is written next to the filter, not left to be guessed',
+    /Role==='Teacher'` IS A DECISION[\s\S]{0,1400}อย่านับรวม คงไว้แบบนี้/.test(engine));
+  // ...while the payroll screen still offers her, which is the half that IS a bug if it breaks
+  const m = /const payableStaff = (list => [^;]+);/.exec(appCode);
+  const payable = m ? eval('(' + m[1] + ')') : (() => []);
+  eq('CONTROL — the payroll screen still offers her, so the slip can be produced',
+    payable([{ StaffID: 'DIR', Role: 'Admin', ended: false, noPayroll: false }]).length, 1);
+}
+
+// ============================================================================================
 console.log('2) nobody is selected when the screen opens');
 // ============================================================================================
 {
