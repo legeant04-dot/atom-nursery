@@ -93,7 +93,8 @@ console.log('\n1) เงินสมทบ: the fund grows by BOTH halves');
   ok_('the route derives the total instead of reading it back', /function handleGetPayslip[\s\S]{0,1600}accum \+= num_\(r\.Contribution\) \+ empOf\(r\)/.test(pay));
   ok_('...reconstructing a missing employer half at the current rate', /function handleGetPayslip[\s\S]{0,1400}round2_\(own \* matchRate\)/.test(pay));
   ok_('a failure to total must not take the payslip down', /catch \(e\) \{ accum = num_\(row\.ContributionAccum\); \}/.test(pay));
-  ok_('the engine mirrors it, so mock and live agree', /getPayslip: p => \{[\s\S]{0,900}ContributionAccum:Math\.round\(accum\*100\)\/100/.test(eng));
+  // window widened in v409: the return line now carries a note about normalising Month to 'YYYY-MM'
+  ok_('the engine mirrors it, so mock and live agree', /getPayslip: p => \{[\s\S]{0,1600}ContributionAccum:Math\.round\(accum\*100\)\/100/.test(eng));
 }
 
 console.log('\n2) A teacher who has not started sees the date, not live buttons');

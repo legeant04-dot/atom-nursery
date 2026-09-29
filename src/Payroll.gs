@@ -605,6 +605,20 @@ function handleGetPayslip(payload) {
 
   row.ContributionEmployer = empOf(row);
   row.ContributionAccum = round2_(accum);
+  /* 🔴 THE HEADING ON THE SLIP WAS ONE MONTH BEHIND. Reported 2026-09-29: picking งวด กันยายน 2026
+   * printed "สลิป ... สิงหาคม 2569", and สิงหาคม printed กรกฎาคม.
+   *
+   * Nothing was wrong with the lookup — ym7_ already normalises both sides of it, which is why the
+   * right ROW came back every time. What went out was the row AS READ: Month is a cell holding
+   * 'YYYY-MM', Sheets coerced it to a Date at 00:00 Bangkok, and JSON.stringify writes a Date in
+   * UTC. So '2026-09' left here as "2026-08-31T17:00:00.000Z" and the client read the first seven
+   * characters of it.
+   *
+   * Every OTHER reader of this row was already safe because it ran ym7_ before comparing. The one
+   * value nobody normalised was the one printed at the top of a document about somebody's pay.
+   * Normalise it HERE, once, where the row is handed out — not in the client, which would leave
+   * the next caller to discover this again. */
+  row.Month = ym7_(row.Month);
   return row;
 }
 

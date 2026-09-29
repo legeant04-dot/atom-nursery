@@ -91,7 +91,12 @@ function handleSaveStaff(p) {
     // education (2026-09-12) — without the column, writeRows_/updateRow_ drop the field in silence
     'Education', 'EduMajor', 'EduGradDate',
     // ...and this person's own leave entitlement (2026-09-14), same rule
-    'LeaveQuota']); } catch (e) {}
+    'LeaveQuota',
+    // ...and "works here, the school does not pay them" (2026-09-29) — a private housekeeper, and
+    // the system accounts. Read by noPayroll_ in the engine; payroll is the only thing that reads
+    // it. Without the column writeRows_/updateRow_ drop the field in silence, which is how a flag
+    // that decides whether somebody appears in the payroll list would quietly never save.
+    'NoPayroll']); } catch (e) {}
   var d = p.data || {};
   if (d.Email !== undefined) d.Email = emailGuard_(sh, d.Email, 'StaffID', p.staffId);
   if (d.LineUID !== undefined) d.LineUID = lineUidGuard_(sh, d.LineUID, 'StaffID', p.staffId);

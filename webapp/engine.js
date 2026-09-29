@@ -742,6 +742,26 @@ function createAtomAPI(M, GROWTH_STD) {
     const lvl=String(staff.PositionLevel||''), role=String(staff.Role||'');
     if(lvl==='Admin'||lvl==='Leader'||role==='Admin') return true;
     const v=staff.CanClassOrg; return v===true||v==='YES'||v===1||String(v).toUpperCase()==='TRUE'; }
+  /* ===== NOT ON THE SCHOOL'S PAYROLL ============================================================
+   * Asked 2026-09-29: "ระบบตัดคุณเติ้ลออกไป เนื่องจากเป็นแม่บ้านส่วนตัวไม่ได้อยู่ในระบบโรงเรียน ...
+   * ให้ไม่อยู่ใน Lists รายชื่อคุณครูตอนทำเงินเดือน".
+   *
+   * A FLAG OF ITS OWN, not a reuse of Status or Role. Both of those were considered and both say
+   * something false:
+   *   · INACTIVE means "no longer employed" — it is read by staffEnded_, the login gate and half the
+   *     reports, so it would lock her out of the app and file her under พนักงานที่พ้นสภาพ while she
+   *     is still coming in every day.
+   *   · Observer is a PERMISSION ("may read the whole school"), which would hand a private
+   *     housekeeper every child's record and every teacher's pay.
+   * The true statement is narrower than either: she works here, and the school does not pay her.
+   * That is the only thing this flag says, and payroll is the only thing that reads it.
+   *
+   * The same flag is what keeps the system accounts (แอดมิน, อะตอม เนอสเซอรี่) out of the payroll
+   * list — the school's decision (2026-09-29) was to hide those rather than everyone whose Role is
+   * Admin, because the ผอ. is an Admin AND is paid, and a payroll list that cannot produce her slip
+   * is worse than one with two spare rows in it. */
+  function noPayroll_(staff){ if(!staff) return false;
+    const v=staff.NoPayroll; return v===true||v===1||['YES','TRUE','1'].indexOf(String(v==null?'':v).toUpperCase())>=0; }
   /**
    * ...and who may LEND a teacher to another class for a few days (classCoverAdd).
    *
@@ -2988,7 +3008,16 @@ function createAtomAPI(M, GROWTH_STD) {
             else if(status==='ABSENT') absent++;
             // the day's OT, in full — including a holiday lump sum, which has no hours and is still
             // the reason somebody was at work on a Saturday
+            /* ...AND THE CLOCK TIMES BEHIND EACH ONE. Asked 2026-09-29 for the payroll screen:
+             * "สรุปข้อมูล OT เพิ่มไปด้วยเลยว่ามีชั่วโมง วันไหนบ้าง เวลาเท่าไหร่ - เท่าไหร่".
+             * "OT 2 ชม. on 14/09" is still a figure to be trusted; "17:00–19:05" is one that can be
+             * checked against what the teacher remembers working. planEnd is the END OF THIS
+             * PERSON'S SHIFT ON THAT DAY (staffHoursOn_ — so a Big Cleaning day or a half-day
+             * holiday reports its own hours, not today's), which is where the overtime starts.
+             * Only computed for days that actually have an OT row. */
             const _otRows = otRowsOn[s.StaffID+'|'+ds] || [];
+            if(_otRows.length){ let _pe=''; try{ _pe=staffHoursOn_(s.StaffID, ds).checkOut||''; }catch(e){}
+              _otRows.forEach(r=>{ r.in=inT; r.out=outT; r.planEnd=_pe; }); }
             _otRows.forEach(r=>otDays.push(r));
             const _hot = holOtOn[s.StaffID+'|'+ds] || null;
             if(_hot){ holOtDays++; holOtAmount += _hot.amount; }
@@ -3422,7 +3451,10 @@ function createAtomAPI(M, GROWTH_STD) {
         return (x.ContributionEmployer==null||x.ContributionEmployer==='')?Math.round(own*matchRate*100)/100:Number(x.ContributionEmployer); };
       let accum=Number(st.ContributionOpening||0);
       (M.payroll||[]).forEach(x=>{ if(x.StaffID!==p.staffId)return; accum+=Number(x.Contribution||0)+empOf(x); });
-      return Object.assign({},r,{ContributionEmployer:empOf(r), ContributionAccum:Math.round(accum*100)/100}); },
+      /* THE MONTH GOES BACK AS 'YYYY-MM', ALWAYS — see the note on handleGetPayslip in Payroll.gs.
+       * Every comparison in here already runs the cell through ym(); only the value handed to the
+       * client did not, and that is the one the payslip prints its own heading from. */
+      return Object.assign({},r,{Month:ym(r.Month), ContributionEmployer:empOf(r), ContributionAccum:Math.round(accum*100)/100}); },
     markSalaryPaid: p => { const r=M.payroll.find(x=>x.StaffID===p.staffId&&ym(x.Month)===ym(p.month));
       if(!r) fail('NOT_FOUND','ยังไม่มีรายการจ่ายของเดือนนี้ — กดบันทึกเงินเดือนก่อน');
       const paid=p.paid!==false; r.SlipSent=paid?'YES':'NO'; r.PaidDate=paid?todayLocal():''; r.SlipUrl=paid?(p.slipUrl||r.SlipUrl||''):'';
@@ -3664,6 +3696,10 @@ function createAtomAPI(M, GROWTH_STD) {
     // `endScheduled` = a leaving date is on record but has not arrived, so they are still staff.
     listStaff: () => M.staff.map(s=>Object.assign({RequireCheckin: requiresCheckin_(s),
       ended: staffEnded_(s), endScheduled: !staffEnded_(s) && !!ymd(s.EndDate||''),
+      // "works here, the school does not pay them" — see noPayroll_. Answered HERE rather than left
+      // to each screen to read off the raw cell, which arrives as 'YES', true or 1 depending on how
+      // the row was written.
+      noPayroll: noPayroll_(s),
       paused: staffPaused_(s), pauseFrom: ymd(s.PauseFrom||''), pauseTo: ymd(s.PauseTo||''),
       pauseReason: s.PauseReason||'', pauseRemark: s.PauseRemark||'',
       pauseSalaryMode: String(s.PauseSalaryMode||''), pauseSalaryAmount: Number(s.PauseSalaryAmount||0),
