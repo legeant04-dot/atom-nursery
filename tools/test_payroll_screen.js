@@ -77,6 +77,53 @@ console.log('1) who may be paid — three exclusions, and one deliberate non-exc
 }
 
 // ============================================================================================
+console.log('1b) ...and the การเงิน card agrees — without dropping a salary that was paid');
+// ============================================================================================
+{
+  /* Reported 2026-09-29, the day after the payroll screen was taught the rule: คุณเติ้ล was ticked
+   * "ไม่อยู่ในระบบเงินเดือน" and still sat on การเงิน › จ่ายเงิน › เงินเดือนคุณครู. Two lists, two
+   * answers about who the school pays — and a "4/12 สรุปแล้ว" counter measuring itself against a
+   * denominator that included people nobody would ever run.
+   *
+   * 🔴 THE TRAP. financeSummary's salaryExpense is Σ net over this same list, and it is the pink
+   * "รายจ่ายรวม" tile. Filtering on "can still be paid" alone takes a LEAVER'S FINAL PAYSLIP out of
+   * the school's expense total for the month they left — a genuine, saved, signed-off salary quietly
+   * missing from the accounts. So the rule is "a row for this month always counts", and the test
+   * below is built to fail if anybody ever simplifies it back. */
+  const M = {
+    staff: [
+      { StaffID: 'T1', NameTH: 'ก้อย', Nickname: 'ก้อย', Role: 'Teacher', Status: 'ACTIVE' },
+      { StaffID: 'T2', NameTH: 'เติ้ล', Nickname: 'เติ้ล', Role: 'Teacher', Status: 'ACTIVE', NoPayroll: 'YES' },
+      { StaffID: 'T3', NameTH: 'ลินน์', Nickname: 'ลินน์', Role: 'Teacher', Status: 'INACTIVE', EndDate: '2026-06-30' },
+      { StaffID: 'T4', NameTH: 'ฟาง', Nickname: 'ฟาง', Role: 'Teacher', Status: 'INACTIVE', EndDate: '2026-09-15' },
+      { StaffID: 'T5', NameTH: 'แพรว', Nickname: 'แพรว', Role: 'Teacher', Status: 'ACTIVE' }
+    ],
+    payroll: [
+      { PayrollID: 'P1', StaffID: 'T1', Month: '2026-09', NetPay: 14500, Contribution: 0 },
+      // ฟาง left on the 15th and WAS paid for the days she worked
+      { PayrollID: 'P2', StaffID: 'T4', Month: '2026-09', NetPay: 7000, Contribution: 0 }
+    ],
+    students: [], parents: [], activityLog: [], userLinks: [], bills: [], charges: [], otDaily: [], paymentSlips: [], config: {}
+  };
+  const f = createAtomAPI(M).H.financeSummary({ month: '2026-09' });
+  const on = f.staff.map(s => s.nick);
+
+  eq('🔴 somebody marked "ไม่อยู่ในระบบเงินเดือน" is off the card', on.indexOf('เติ้ล') >= 0, false);
+  eq('a teacher who left in June, with nothing saved for September, is off it too', on.indexOf('ลินน์') >= 0, false);
+  eq('a working teacher with no slip yet stays — that is the ยังไม่สรุป the card is for', on.indexOf('แพรว') >= 0, true);
+  eq('...and one with a slip stays', on.indexOf('ก้อย') >= 0, true);
+  /* THE CONTROL, and the reason this filter is not one line. */
+  eq('🔴 CONTROL — a leaver PAID this month is still listed', on.indexOf('ฟาง') >= 0, true);
+  eq('🔴 CONTROL — and her salary is still in the school’s expense total', f.expense, 21500);
+  // ก้อย + ฟาง are done, แพรว is the one still to run. เติ้ล and ลินน์ are not in the denominator at
+  // all any more — which is the whole point: "4/12" was counting two people nobody would ever run.
+  eq('the counter is measured against people who can actually be run', f.staffPaid + '/' + f.staffTotal, '2/3');
+
+  ok_('the card and the payroll selector read the same helper, so they cannot drift',
+    /_keep: !!pr \|\| \(!noPayroll_\(s\) && !staffEnded_\(s\)\)/.test(engCode));
+}
+
+// ============================================================================================
 console.log('2) nobody is selected when the screen opens');
 // ============================================================================================
 {

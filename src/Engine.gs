@@ -3603,8 +3603,31 @@ function createAtomAPI(M, GROWTH_STD) {
           status:b?b.Status:'NO_BILL',slipAmount:b?b.SlipAmount||0:0}; })
         // children currently attending first, those on temporary leave at the bottom
         .sort((a,b2)=>(a.paused?1:0)-(b2.paused?1:0));
+      /* WHO IS ON THE "เงินเดือนคุณครู" CARD — and the one thing this filter must never do.
+       *
+       * Reported 2026-09-29: คุณเติ้ล was ticked "ไม่อยู่ในระบบเงินเดือน" and still appeared here.
+       * The payroll SCREEN had been taught the rule (payableStaff in app.js) and this had not, so the
+       * two lists disagreed about who the school pays — and the "4/12 สรุปแล้ว" counter was measuring
+       * itself against a denominator that included people nobody was ever going to run.
+       *
+       * The same omission was hiding a second one: nothing here excluded people who had LEFT, so a
+       * teacher who finished in June was still listed every month afterwards at ฿0 ยังไม่สรุป.
+       *
+       * 🔴 BUT A LEAVER'S FINAL PAYSLIP IS A REAL EXPENSE. salaryExpense is Σ net over this list and
+       * it is the pink "รายจ่ายรวม" tile — so filtering on "can still be paid" alone would have taken
+       * a genuine, saved salary out of the school's own expense total the month somebody left. That
+       * is not a tidier list, it is a wrong accounts figure.
+       *
+       * So the rule is: A ROW FOR THIS MONTH ALWAYS COUNTS, whoever it belongs to. Somebody is only
+       * dropped when they are both unpayable AND have nothing saved for this month — which is
+       * exactly คุณเติ้ล and the June leaver, and never anybody who was actually paid.
+       *
+       * `noPayroll_` is the same helper listStaff answers with, so the two lists cannot drift.
+       */
       const staff=M.staff.filter(s=>s.Role==='Teacher').map(s=>{ const pr=M.payroll.find(x=>x.StaffID===s.StaffID&&ym(x.Month)===month);
-        return {staffId:s.StaffID,name:s.NameTH,nameEN:s.NameEN,nick:s.Nickname,nickEN:s.NicknameEN,net:pr?pr.NetPay:0,paid:!!pr&&pr.SlipSent==='YES',computed:!!pr}; });
+        return {staffId:s.StaffID,name:s.NameTH,nameEN:s.NameEN,nick:s.Nickname,nickEN:s.NicknameEN,net:pr?pr.NetPay:0,paid:!!pr&&pr.SlipSent==='YES',computed:!!pr,
+          _keep: !!pr || (!noPayroll_(s) && !staffEnded_(s))}; })
+        .filter(s=>s._keep).map(s=>{ delete s._keep; return s; });
       /* THREE KINDS OF MONEY, KEPT APART.
        *
        * `tuitionCollected` has never been tuition: it is Σ collected — tuition, extra charges and OT
