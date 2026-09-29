@@ -131,7 +131,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.408'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.409'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -2406,7 +2406,23 @@
   const TH_MONTHS=['มกราคม','กุมภาพันธ์','มีนาคม','เมษายน','พฤษภาคม','มิถุนายน','กรกฎาคม','สิงหาคม','กันยายน','ตุลาคม','พฤศจิกายน','ธันวาคม'];
   const EN_MONTHS=['January','February','March','April','May','June','July','August','September','October','November','December'];
   // "YYYY-MM" (or a date) → "กรกฎาคม 2569" / "July 2026"
-  function monthNameYear(v){ const s=String(v||''); const m=/^(\d{4})-(\d{1,2})/.exec(s); let y,mo; if(m){y=+m[1];mo=+m[2]-1;} else {const d=new Date(s);y=d.getFullYear();mo=d.getMonth();} if(mo<0||mo>11)return s; return EN()?`${EN_MONTHS[mo]} ${y}`:`${TH_MONTHS[mo]} ${y+543}`; }
+  /* 🔴 "กันยายน" CAME OUT AS "สิงหาคม" — and the bug was in the regex, not the calendar.
+   *
+   * A Month cell holding '2026-09' is coerced by Sheets to a Date at 00:00 Bangkok, and JSON writes
+   * a Date in UTC: "2026-08-31T17:00:00.000Z". The pattern below matched the first seven characters
+   * of THAT and read August. The `else` branch would have been right all along — new Date(…) then
+   * .getMonth() is local time, which is the timezone the value was written in.
+   *
+   * So the fast path is now only taken for a value that is ALREADY a plain date — 'YYYY-MM' or
+   * 'YYYY-MM-DD', with no time after it. Anything carrying a clock goes through Date, where the
+   * offset is accounted for instead of being sliced off.
+   *
+   * The real fix is on the server (handleGetPayslip / the engine's getPayslip now hand the month
+   * back as 'YYYY-MM'). This stays because it is the function every screen prints a month with, and
+   * the next route to return a raw cell should not reproduce a payslip headed with the wrong month. */
+  function monthNameYear(v){ const s=String(v||''); const m=/^(\d{4})-(\d{1,2})(-\d{1,2})?$/.exec(s.trim()); let y,mo;
+    if(m){y=+m[1];mo=+m[2]-1;} else {const d=new Date(s); if(isNaN(d))return s; y=d.getFullYear();mo=d.getMonth();}
+    if(mo<0||mo>11)return s; return EN()?`${EN_MONTHS[mo]} ${y}`:`${TH_MONTHS[mo]} ${y+543}`; }
   // date → "25 กรกฎาคม 2569" / "25 July 2026"
   function fullDate(v){ const d=new Date(v||todayStr()); if(isNaN(d))return String(v||''); const dd=d.getDate(),mo=d.getMonth(),y=d.getFullYear(); return EN()?`${dd} ${EN_MONTHS[mo]} ${y}`:`${dd} ${TH_MONTHS[mo]} ${y+543}`; }
   /* "04 กันยายน 2569" / "04 September 2026" — the same date as ddmmyyyy with the month spelled out
@@ -7599,11 +7615,51 @@
   let PAY_ADJ=[];
   // the rate depends on the MONTH being paid, so it is re-fetched in A_payStaff whenever the month
   // (or the staff member) changes — see there. This first call just seeds the screen.
+  /* WHO CAN BE PAID — the list the payroll screen offers, and nothing else.
+   *
+   * Asked 2026-09-29: "พนักงานที่ลาออก/Admin/Observer ต้องไม่อยู่ใน Lists เงินเดือน".
+   *
+   * Three exclusions, each for its own reason, and one deliberate NON-exclusion:
+   *   · `ended`      — employment is over. The row stays for ever (it carries their payroll and
+   *                    attendance history) but a payslip for next month is not a thing that exists.
+   *   · Observer     — a read-only auditor account. Nobody is paid through one.
+   *   · `noPayroll`  — works here, the school does not pay them: a private housekeeper, and the
+   *                    system accounts (แอดมิน, อะตอม เนอสเซอรี่). See noPayroll_ in engine.js.
+   *
+   * NOT `Role==='Admin'`, which is what was first asked for. The ผอ. is an Admin and is paid, so
+   * that rule would have taken the director's own payslip off the screen — a payroll list that
+   * cannot produce a slip for somebody who is owed one is a worse fault than two spare rows.
+   * Confirmed with the school on 2026-09-29 before this was written.
+   *
+   * Someone on ลาชั่วคราว (`paused`) STAYS: they are still employed, PauseSalaryMode decides what
+   * they are paid, and a month with a half salary in it is exactly a month somebody has to run.
+   */
+  const payableStaff = list => (list||[]).filter(s=>!s.ended && String(s.Role||'')!=='Observer' && !s.noPayroll);
   SCREENS.Admin.payroll = async () => { const [staff,rate]=await Promise.all([api('listStaff'),api('ratedChildCount',{month:monthStr()})]); PAY_ADJ=[]; window._RATED=rate;
     A_CACHE.staff=staff||[];   // the base salary is read from HERE — MOCK.staff is empty in gas mode
+    window._PAYATT=null;       // the attendance month is cached per month — a fresh screen starts empty
+    const payable=payableStaff(staff);
+    const hidden=(staff||[]).length-payable.length;
     app.innerHTML=`<button class="btn sm outline backbtn" onclick="A_finTab('pay')">${t('c.back')} · ${EN()?'Finance':'การเงิน'}</button><h2 class="page">${esc(t('title.payroll'))}</h2><div class="card">
-      <div class="grid2"><label class="field"><span>${esc(t('c.staff'))}</span><select id="pStaff" onchange="A_payStaff()">${staff.map(s=>`<option value="${s.StaffID}">${esc(nmn(s))}</option>`).join('')}</select></label>
+      ${/* NOBODY IS SELECTED WHEN THE SCREEN OPENS — asked 2026-09-29: "ต้องไม่ให้พนักงานคนไหนเป็น
+           Default". A <select> picks its first option whether or not anybody chose it, so opening
+           payroll used to land on whoever happened to sort first, fill the form with their salary,
+           and leave an admin one stray tap on "บันทึก" away from writing a payslip they never meant
+           to open. A blank first option makes choosing a person a deliberate act. */''}
+      <div class="grid2"><label class="field"><span>${esc(t('c.staff'))}</span><select id="pStaff" onchange="A_payStaff()"><option value="">— ${EN()?'choose a member of staff':'เลือกพนักงาน'} —</option>${payable.map(s=>`<option value="${s.StaffID}">${esc(nmn(s))}</option>`).join('')}</select></label>
         <label class="field"><span>${esc(t('c.month'))}</span><input id="pMonth" type="month" value="${monthStr()}" onchange="A_payStaff()"/></label></div>
+      ${hidden?`<small class="muted" style="display:block;margin:-4px 2px 8px">${EN()
+        ? `${hidden} record(s) are not shown here — people who have left, view-only accounts, and anyone marked “not on the school’s payroll”. Set that on their staff record.`
+        : `ไม่แสดง ${hidden} รายชื่อ — คนที่พ้นสภาพแล้ว บัญชีดูอย่างเดียว และคนที่ตั้งไว้ว่า “ไม่อยู่ในระบบเงินเดือน” · ตั้งค่าได้ที่ประวัติพนักงาน`}</small>`:''}
+      ${/* THE MONTH THIS PERSON ACTUALLY WORKED, next to the money it is being turned into — asked
+           2026-09-29: "จะแสดงข้อมูล สรุปพนักงาน ขาด/ลา/มาสาย ไว้ในหน้านี้เพื่อประเมินการทำเงินเดือนด้วย".
+           เบี้ยขยัน is a decision about attendance that was being made on a screen that did not show
+           any. Filled by A_payAttRender. */''}
+      <div id="payAtt"></div>
+      <div id="payEmpty"><p class="muted" style="text-align:center;padding:14px 4px;margin:0">👆 ${EN()
+        ? 'Choose a member of staff to start.'
+        : 'เลือกพนักงานเพื่อเริ่มทำเงินเดือน'}</p></div>
+      <div id="payForm" hidden>
       <label class="field"><span>${esc(t('pay.payType'))}</span><select id="pType" onchange="A_payTypeToggle()"><option value="monthly">${esc(t('pay.monthly'))}</option><option value="daily">${esc(t('pay.dailyType'))}</option></select></label>
       <div class="grid2" id="pMonthlyBox"><label class="field"><span>${esc(t('pay.baseSalary'))}</span><input id="pBase" type="number"/></label></div>
       <div class="grid2" id="pDailyBox" hidden><label class="field"><span>${esc(t('pay.dailyRate'))}</span><input id="pDaily" type="number" value="0"/></label>
@@ -7631,13 +7687,52 @@
         <p class="muted" style="font-size:13px">${esc(t('pay.adjNote'))}</p><div id="adjList"></div></div>
       <div class="row" style="gap:8px"><button class="btn outline" style="flex:1" onclick="A_calc(false)">🧮 ${esc(t('c.calc'))}</button>
         <button class="btn" style="flex:1" onclick="A_calc(true)">💾 ${EN()?'Save as payable':'บันทึกเป็นรายการจ่าย'}</button></div>
-      <p class="muted" style="font-size:13px;text-align:center">${EN()?'Calculate only checks the figures. Saving creates the payable and adds it to this month’s expenses.':'กด "คำนวณ" เพื่อดูตัวเลขอย่างเดียว · กด "บันทึก" เมื่อยืนยันแล้ว ระบบจึงตั้งเป็นรายการจ่ายและรวมในรายจ่ายเดือนนี้'}</p></div><div id="slipResult"></div>`;
-    A_payStaff();
+      <p class="muted" style="font-size:13px;text-align:center">${EN()?'Calculate only checks the figures. Saving creates the payable and adds it to this month’s expenses.':'กด "คำนวณ" เพื่อดูตัวเลขอย่างเดียว · กด "บันทึก" เมื่อยืนยันแล้ว ระบบจึงตั้งเป็นรายการจ่ายและรวมในรายจ่ายเดือนนี้'}</p></div></div><div id="slipResult"></div>`;
+    // NOT A_payStaff() — nobody is chosen yet, and the empty state above is the correct screen.
   };
   // switching staff (or month) fires this again while the previous one is still fetching; without a
   // token the slower reply repaints the screen for the staff member you just left
   let _payReq=0;
+  /* 🔴 THE PREVIOUS TEACHER'S FIGURES STAYED ON THE SCREEN.
+   *
+   * Reported 2026-09-29: "พอทำเงินเดือนของคุณครูคนนึงเสร็จแล้ว พอเปลี่ยนไปทำอีกคนนึง ข้อมูลของคุณครู
+   * คนก่อนค้างอยู่".
+   *
+   * A_payStaff fills the form from four replies, and most of the filling was conditional: the saved
+   * payslip's `set()` helper only writes a field when the SAVED ROW HAS ONE. That is right for a
+   * person who has a saved slip, and it is silence for a person who does not — so every field that
+   * only the saved slip writes kept whatever the last teacher's slip had put there:
+   *
+   *   ใบประกาศอบรม · วันทำงาน (รายวัน) · เงินพิเศษวันพักผ่อน · ทั้งสองช่องเบี้ยขยัน ·
+   *   และรายการเพิ่ม/หักพิเศษ (PAY_ADJ), which was only reset inside the `if (saved)` branch.
+   *
+   * The adjustments are the reason this is a money bug and not an annoyance. A ฿2,000 deduction
+   * entered for ครูก้อย stayed in the list when the admin switched to ครูจอย, is sent by A_calc as
+   * part of the payload, and is SAVED into ครูจอย's payslip — a figure nobody typed for her, on a
+   * document she signs for.
+   *
+   * So the form is now CLEARED FIRST, every time, and then filled. Blank is an honest starting
+   * state; the previous person's numbers are not. */
+  function payFormReset(){
+    const set=(id,v)=>{ const e=$(id); if(e) e.value=v; };
+    const tick=(id,v)=>{ const e=$(id); if(e) e.checked=v; };
+    set('#pBase',0); set('#pType','monthly'); set('#pDaily',0); set('#pDays',0);
+    set('#pChild',0); set('#pCert',0); set('#pOt',0); set('#pOtHol',0); set('#pHb',0); set('#pContrib',0);
+    tick('#pSS',false); tick('#pAtt',true); tick('#pFb',false);
+    PAY_ADJ=[]; A_renderAdj();
+    window._OT_ENTRIES=[]; window._OT_CARRY=null;
+    setHTML('#otNote',''); setHTML('#otHolNote',''); setHTML('#otCarryBox',''); setHTML('#pLeaveWarn','');
+    setHTML('#childCalc',''); setHTML('#contribNote',''); setHTML('#slipResult','');
+    A_otDaysRender(); A_payTypeToggle();
+  }
   window.A_payStaff = async ()=>{ const sid=$('#pStaff').value; const my=++_payReq;
+    /* Nobody chosen (the blank first option, or the admin picked it back) — clear the form and put
+     * the empty state up. The form is HIDDEN rather than merely blank, because a blank payroll form
+     * with a live "บันทึกเป็นรายการจ่าย" button under it is an invitation to press it. */
+    const form=$('#payForm'), empty=$('#payEmpty'), att=$('#payAtt');
+    if(!sid){ payFormReset(); if(form) form.hidden=true; if(empty) empty.hidden=false; if(att) att.innerHTML=''; return; }
+    if(form) form.hidden=false; if(empty) empty.hidden=true;
+    payFormReset();
     const stale=()=>my!==_payReq||$('#pStaff')&&$('#pStaff').value!==sid;
     /* FOUR ROUND TRIPS, ONE AFTER THE OTHER — this is where "payroll 62.5 calls/visit" came from.
      * payrollConfig, staffMonthlyOT, otCarryOver and getPayslip were each awaited in turn, so every
@@ -7656,6 +7751,19 @@
     // then reused for every month the admin flicked through, which was harmless only because the
     // server was ignoring the month too. Same tick as the four above → still one request.
     const p_rate = api('ratedChildCount',{month:mth}).catch(()=>null);
+    /* ...and the attendance month behind the เบี้ยขยัน decision. staffAttendanceMonth answers for the
+     * WHOLE school in one reply, so it is fetched once per MONTH and reused for every person the
+     * admin steps through — switching staff costs nothing, and it joins the same tick as the rest
+     * when the month does change. */
+    const p_att = (window._PAYATT && window._PAYATT.month===mth)
+      ? Promise.resolve(window._PAYATT.data)
+      /* staffId IS THE CALLER, not a filter. applyIdentity_ returns an Admin's payload UNTOUCHED
+       * (that is what makes "view as" work), so an admin's own id is never stamped for them — and
+       * staffAttendanceMonth's first line refuses anyone it cannot recognise as an admin. Omitting
+       * it made this whole card read "อ่านข้อมูลไม่สำเร็จ" on live; the monthly attendance screen has
+       * passed it since the route was written. It does not narrow the reply — the whole school comes
+       * back either way, which is why one fetch serves every person the admin steps through. */
+      : api('staffAttendanceMonth',{month:mth,staffId:USER.staffId}).then(d=>{ window._PAYATT={month:mth,data:d}; return d; }).catch(()=>null);
     // ...and the leave summary, which used to be asked for at the very BOTTOM of this function after
     // four awaits — a tick of its own, and therefore a whole extra round trip. It depends on nothing
     // above it. Six calls, one request.
@@ -7745,7 +7853,96 @@
     try{ const ls=await p_leave; if(stale())return; if(!ls) throw new Error('no leave'); const w=$('#pLeaveWarn'), ch=$('#pChild');
       if(ls.exceeds){ if(ch) ch.value=0;
         if(w) w.innerHTML=`<div style="background:var(--warn-bg);border:1px solid var(--warn-line);border-radius:8px;padding:7px 9px;margin-bottom:6px;color:var(--warn);font-size:13px">⚠️ ${EN()?`Leave ${ls.days} days (> ${ls.limit}) this month — child-rate income not calculated. You can still enter a count manually.`:`ลาเกิน ${ls.limit} วัน (ลารวม ${ls.days} วัน) เดือนนี้ — ไม่คำนวณเรทจำนวนเด็กให้ · กรอกจำนวนเองได้หากต้องการ`}</div>`;
-      } else if(w){ w.innerHTML=''; } }catch(e){} };
+      } else if(w){ w.innerHTML=''; } }catch(e){}
+    // ...and the month this person actually worked, under the two selectors
+    try{ const ad=await p_att; if(stale())return; A_payAttRender(ad, sid, mth); }catch(e){} };
+  /* ===== THE MONTH BEHIND THE MONEY ==============================================================
+   * Asked 2026-09-29: "หน้าเงินเดือนและสลิปเมื่อเลือกพนักงานแต่ละคน จะแสดงข้อมูล สรุปพนักงาน ขาด/ลา/
+   * มาสาย ไว้ในหน้านี้เพื่อประเมินการทำเงินเดือนด้วย" — and then, for the OT: "มีชั่วโมง วันไหนบ้าง
+   * เวลาเท่าไหร่ - เท่าไหร่".
+   *
+   * Two ticks on this screen (เบี้ยขยัน — มาครบ ไม่ลา ไม่สาย, and the OT figure) are judgements about
+   * attendance, and the screen showed none. The admin had to leave payroll, open the attendance
+   * month, find the person, remember six numbers, and come back — or tick it from memory, which is
+   * what actually happens at 11pm on the 29th.
+   *
+   * EVERY FIGURE CARRIES ITS DATES. A number on its own ("สาย 2 ครั้ง") is a number to be trusted;
+   * "สาย 2 ครั้ง · 03/09, 17/09" can be checked against the person standing in front of you. Same
+   * reason the OT list gives clock times: a total is not an account of anything.
+   *
+   * NOTHING HERE DECIDES ANYTHING. The เบี้ยขยัน tick stays exactly as it was — the admin's. This
+   * reports; it does not reach into the form. Auto-unticking a bonus from a summary is how somebody
+   * loses ฿1,000 because a check-in failed to save one morning. */
+  const _dm = ds => { const p=String(ds||'').split('-'); return p.length===3?(EN()?`${p[2]}/${p[1]}`:`${+p[2]}/${+p[1]}`):String(ds||''); };
+  const _dlist = (list, cap) => { const a=(list||[]).slice(0,cap||8).map(_dm).join(', ');
+    return a + (((list||[]).length>(cap||8))?` +${list.length-(cap||8)}`:''); };
+  window.A_payAttRender=(d, sid, mth)=>{ const box=$('#payAtt'); if(!box) return;
+    /* "COULD NOT READ IT" AND "THERE IS NOTHING TO READ" ARE DIFFERENT ANSWERS, and only one of them
+     * is about this person. The fetch is a .catch(()=>null), so a dropped request arrived here
+     * looking exactly like an empty month — and told the admin, on the screen where เบี้ยขยัน is
+     * decided, that a teacher does not clock in. Say which it is. */
+    if(!d){ box.innerHTML=`<div class="card" style="padding:8px;margin:0 0 8px"><small class="muted">⚠️ ${EN()
+      ? 'Could not read this month’s attendance — the figures below are unaffected, but check the attendance screen before ticking the diligence bonus.'
+      : 'อ่านข้อมูลการมาทำงานของเดือนนี้ไม่สำเร็จ · ตัวเลขด้านล่างไม่ได้รับผลกระทบ แต่ควรตรวจที่หน้าสรุปการมาทำงานก่อนติ๊กเบี้ยขยัน'}</small></div>`; return; }
+    const me=(d.staff||[]).find(x=>String(x.staffId)===String(sid));
+    if(!me){ box.innerHTML=`<div class="card" style="padding:8px;margin:0 0 8px"><small class="muted">${EN()
+      ? 'No attendance record for this person this month — they may be exempt from clocking in.'
+      : 'เดือนนี้ไม่มีข้อมูลการลงเวลาของคนนี้ — อาจเป็นคนที่ไม่ต้องลงเวลาเข้างาน'}</small></div>`; return; }
+    // the days behind each figure, read back off the same rows the totals were counted from
+    const dayOf=st=>(me.days||[]).filter(x=>x.status===st).map(x=>x.date);
+    const absentDays=dayOf('ABSENT'), leaveDays=dayOf('LEAVE');
+    const lateDays=(me.days||[]).filter(x=>x.status==='IN'&&Number(x.late||0)>0);
+    const clean = !me.absent && !me.leaveDays && !me.lateDays && !me.missingOut;
+    // min-width:0 — a `1fr` track is minmax(auto,1fr), so without it the longest date list ("44 นาที ·
+    // 3/9, 17/9") sets the width of the whole column and the grid stops being even
+    const cell=(icon,label,val,sub,bad)=>`<div class="card" style="padding:6px;margin:0;min-width:0;text-align:center;${bad?'background:var(--warn-bg)':''}">
+      <b style="font-size:19px;${bad?'color:var(--warn)':''}">${val}</b><br><small class="muted">${icon} ${esc(label)}</small>
+      ${sub?`<br><small class="muted" style="font-size:11.5px">${esc(sub)}</small>`:''}</div>`;
+    /* OT, EVENING BY EVENING WITH ITS CLOCK TIMES. planEnd is the end of this person's shift on that
+     * day (the server works it out — a Big Cleaning day or a half-day holiday has its own hours), so
+     * the window reads 17:00–19:05 rather than "2 ชม." with nothing behind it. A holiday OT is a
+     * lump sum with no hours (v257) and says so instead of printing a fake window. */
+    const otRows=(me.otDays||[]).filter(x=>x.status!=='REJECTED');
+    const otHtml = otRows.length?`<details style="margin-top:6px"><summary style="cursor:pointer;font-size:13px;color:var(--blue)">⏰ ${EN()
+        ?`Overtime — ${otRows.length} day(s), ${me.otHours} hr`:`OT เดือนนี้ — ${otRows.length} วัน รวม ${me.otHours} ชม.`}</summary>
+      <table style="width:100%;border-collapse:collapse;font-size:13.5px;margin-top:6px">
+        <thead><tr class="muted" style="font-size:12.5px"><th style="text-align:left;padding:3px 6px">${EN()?'Date':'วันที่'}</th>
+          <th style="text-align:left;padding:3px 6px">${EN()?'Time':'เวลา'}</th>
+          <th style="padding:3px 6px">${EN()?'Hours':'ชม.'}</th>
+          <th style="text-align:right;padding:3px 6px">${EN()?'Amount':'จำนวนเงิน'}</th></tr></thead>
+        <tbody>${otRows.map(r=>{
+          const win = r.kind==='HOLIDAY' ? `<span class="pill">🎉 ${EN()?'holiday':'วันหยุด'}</span>`
+            : (r.planEnd&&r.out)?`${esc(r.planEnd)}–${esc(r.out)}`
+            : (r.out?`${EN()?'out':'ออก'} ${esc(r.out)}`:`<span class="muted">${EN()?'no clock-out':'ไม่มีเวลาออก'}</span>`);
+          return `<tr><td style="padding:3px 6px;white-space:nowrap">${esc(fullDate(r.date))}</td>
+            <td style="padding:3px 6px;white-space:nowrap">${win}</td>
+            <td style="padding:3px 6px;text-align:center">${r.kind==='HOLIDAY'?'—':Number(r.hours||0)}</td>
+            <td style="padding:3px 6px;text-align:right;white-space:nowrap"><b>${baht(r.amount)}</b>${String(r.status||'')==='PENDING'?`<br><small class="muted">${EN()?'pending':'รออนุมัติ'}</small>`:''}</td></tr>`;
+        }).join('')}</tbody></table>
+      <small class="muted" style="display:block;margin-top:4px">${EN()
+        ? 'The window is from the end of that day’s shift to the clock-out. A holiday OT is a fixed amount with no hours behind it.'
+        : 'ช่วงเวลาคือตั้งแต่เวลาเลิกงานของวันนั้นถึงเวลาที่ลงออก · OT วันหยุดเป็นยอดเหมา ไม่มีชั่วโมงกำกับ'}</small></details>`
+      : `<small class="muted" style="display:block;margin-top:6px">⏰ ${EN()?'No overtime this month.':'เดือนนี้ไม่มี OT'}</small>`;
+    box.innerHTML=`<div class="card" style="padding:8px;margin:0 0 8px;background:var(--surface-2)">
+      <div class="spread"><b style="font-size:13px">🗓️ ${EN()?'This person’s month':'สรุปการมาทำงานเดือนนี้'}</b>
+        ${clean?`<span class="pill ok">${EN()?'full attendance':'มาครบ ไม่ลา ไม่สาย'}</span>`:''}</div>
+      ${/* ONE grid of six, not two rows of three. .grid3 already drops to two columns under 560px,
+           so two separate rows of three wrapped to 2+1, 2+1 on a phone — an orphaned box twice over.
+           Six in one grid is 3×2 on a desktop and 2×3 on a phone, and never a lone cell. */''}
+      <div class="grid3" style="gap:6px;margin-top:6px">
+        ${cell('📌',EN()?'required':'ต้องมา',me.myRequiredToDate,'')}
+        ${cell('✅',EN()?'present':'มาแล้ว',me.present,'')}
+        ${cell('⛔',EN()?'absent':'ขาด',me.absent,_dlist(absentDays),me.absent>0)}
+        ${cell('🏖️',EN()?'leave':'ลา',me.leaveDays,_dlist(leaveDays),me.leaveDays>0)}
+        ${cell('⏱️',EN()?'late':'สาย',me.lateDays,me.lateDays?`${me.lateMinutes} ${EN()?'min':'นาที'} · ${_dlist(lateDays.map(x=>x.date),4)}`:'',me.lateDays>0)}
+        ${cell('🚪',EN()?'no clock-out':'ลืมออกงาน',me.missingOut,_dlist(me.missingOutDays),me.missingOut>0)}</div>
+      ${me.myRequiredToDate!==me.requiredToDate?`<small class="muted" style="display:block;margin-top:6px">${EN()
+        ? `The school’s figure for this month is ${me.requiredToDate} days so far — this person owes ${me.myRequiredToDate} because of their start date, leaving date or temporary leave.`
+        : `ทั้งโรงเรียนต้องมา ${me.requiredToDate} วัน (ถึงวันนี้) · คนนี้ ${me.myRequiredToDate} วัน เพราะวันเริ่มงาน วันสิ้นสุด หรือลาชั่วคราว`}</small>`:''}
+      ${otHtml}
+      <small class="muted" style="display:block;margin-top:6px">${EN()
+        ? 'For reference while you run payroll — it changes nothing on the form. The diligence-bonus ticks stay yours.'
+        : 'แสดงไว้เพื่อประกอบการทำเงินเดือนเท่านั้น · ไม่ไปเปลี่ยนค่าใดๆ ในฟอร์ม · การติ๊กเบี้ยขยันยังเป็นการตัดสินใจของแอดมิน'}</small></div>`; };
   window.A_payTypeToggle=()=>{ const daily=$('#pType').value==='daily'; $('#pMonthlyBox').hidden=daily; $('#pDailyBox').hidden=!daily; };
   // เงินสมทบ is a savings fund, not a cost: the teacher's half is deducted and the school matches it,
   // so the fund grows by both halves. Spell that out under the field — 200 deducted → +400 saved.
@@ -7852,7 +8049,11 @@
   function A_renderAdj(){ const box=$('#adjList'); if(!box)return;
     box.innerHTML=PAY_ADJ.map((a,i)=>`<div class="grid3" style="margin-bottom:6px;grid-template-columns:1fr 90px 36px"><input value="${esc(a.label)}" placeholder="${esc(t('pay.adjLabel'))}" oninput="PAY_ADJ_SET(${i},'label',this.value)"/><input type="number" value="${a.amount}" placeholder="±0" oninput="PAY_ADJ_SET(${i},'amount',this.value)"/><button class="btn sm pink" onclick="A_delAdj(${i})" aria-label="${EN()?"Delete":"ลบ"}" title="${EN()?"Delete":"ลบ"}">✕</button></div>`).join(''); }
   window.PAY_ADJ_SET=(i,k,v)=>{ PAY_ADJ[i][k]= k==='amount'?Number(v||0):v; };
-  window.A_calc=async(commit)=>{ const payType=$('#pType').value; const p={staffId:$('#pStaff').value,month:$('#pMonth').value,payType,baseSalary:+$('#pBase').value,dailyRate:+$('#pDaily').value,daysWorked:+$('#pDays').value,childMultiplier:+$('#pChildMul2').value,childThreshold:+$('#pThreshold').value,diligenceAttend:+$('#pAttendAmt').value,diligenceFb:+$('#pFbAmt').value,socialSecurityDeduct:$('#pSS').checked,facebookPosted:$('#pFb').checked,attendanceEligible:$('#pAtt').checked,extraChildCount:+$('#pChild').value,trainingCertCount:+$('#pCert').value,otEvening:+$('#pOt').value,otHoliday:+(($('#pOtHol')||{}).value||0),holidayBonus:+$('#pHb').value,contribution:+($('#pContrib')||{}).value||0,adjustments:PAY_ADJ.filter(a=>a.label||a.amount)};
+  window.A_calc=async(commit)=>{
+    // the form is hidden until somebody is chosen, but a payroll write is not a thing to leave
+    // guarded only by CSS — an empty staffId would compute against whatever the server resolves
+    if(!$('#pStaff').value){ toast(EN()?'Choose a member of staff first':'กรุณาเลือกพนักงานก่อน'); return; }
+    const payType=$('#pType').value; const p={staffId:$('#pStaff').value,month:$('#pMonth').value,payType,baseSalary:+$('#pBase').value,dailyRate:+$('#pDaily').value,daysWorked:+$('#pDays').value,childMultiplier:+$('#pChildMul2').value,childThreshold:+$('#pThreshold').value,diligenceAttend:+$('#pAttendAmt').value,diligenceFb:+$('#pFbAmt').value,socialSecurityDeduct:$('#pSS').checked,facebookPosted:$('#pFb').checked,attendanceEligible:$('#pAtt').checked,extraChildCount:+$('#pChild').value,trainingCertCount:+$('#pCert').value,otEvening:+$('#pOt').value,otHoliday:+(($('#pOtHol')||{}).value||0),holidayBonus:+$('#pHb').value,contribution:+($('#pContrib')||{}).value||0,adjustments:PAY_ADJ.filter(a=>a.label||a.amount)};
     // Only override the carry-over when the field is actually on screen. Sending 0 unconditionally
     // would wipe a genuine carry whenever its fetch was still in flight.
     { const c=$('#pOtCarry'); if(c) p.otCarry=+c.value||0; }
@@ -7887,7 +8088,11 @@
   window.A_dlSlip=async(staffId,month)=>{ let r=null; try{ r=await api('getPayslip',{staffId,month}); }catch(e){}
     if(!r){ toast(EN()?'No payslip for this month yet — press Calculate first':'ยังไม่มีสลิปของเดือนนี้ — กดคำนวณก่อน'); return; }
     await ensureLogos(); openOrDownload(buildSlipsHTML([r],month),'payslip-'+staffId+'-'+month+'.html', true); };
-  window.A_print=async(month)=>{ const list=(A_CACHE.staff&&A_CACHE.staff.length)?A_CACHE.staff:await api('listStaff').catch(()=>[]);
+  // ...and printing the whole month asks only about people who can be paid — the same list the
+  // selector offers, so "พิมพ์ทั้งเดือน" cannot go looking for a payslip for a leaver or a system
+  // account (one failed round trip per name, on a backend that runs one execution at a time)
+  window.A_print=async(month)=>{ const all=(A_CACHE.staff&&A_CACHE.staff.length)?A_CACHE.staff:await api('listStaff').catch(()=>[]);
+    const list=payableStaff(all);
     const rows=(await Promise.all((list||[]).map(x=>api('getPayslip',{staffId:x.StaffID,month}).catch(()=>null)))).filter(Boolean);
     if(!rows.length){ toast(EN()?'No payslips for this month yet':'ยังไม่มีสลิปของเดือนนี้'); return; }
     await ensureLogos(); openOrDownload(buildSlipsHTML(rows,month), 'payslips-'+month+'.html'); };
@@ -9013,6 +9218,14 @@
         <small class="muted" style="font-size:13px">${EN()?'Department = responsibility (can be several). Work time is set by the group, not the department.':'แผนก = ส่วนที่รับผิดชอบ (มีได้หลายแผนก) · เวลาเข้างานกำหนดที่กลุ่มพนักงาน ไม่ผูกกับแผนก'}</small></div>
       <label class="field" style="display:flex;align-items:center;gap:8px"><input type="checkbox" id="sf_CanClassOrg" style="width:auto" ${(s.CanClassOrg===true||s.CanClassOrg===1||['YES','TRUE'].indexOf(String(s.CanClassOrg||'').toUpperCase())>=0)?'checked':''}/> 🔁 ${EN()?'Allow this teacher to organize classes (move teachers/students, like Admin)':'ให้ครูคนนี้จัดชั้นเรียนได้ (ย้ายครู/นักเรียน เหมือนแอดมิน)'}</label>
       <label class="field" style="display:flex;align-items:center;gap:8px"><input type="checkbox" id="sf_CanFoodMenu" style="width:auto" ${(s.CanFoodMenu===true||s.CanFoodMenu===1||['YES','TRUE'].indexOf(String(s.CanFoodMenu||'').toUpperCase())>=0)?'checked':''}/> 🍚 ${EN()?'Allow this teacher to manage the monthly food menu':'ให้ครูคนนี้จัดการเมนูอาหารรายเดือนได้'}</label>
+      ${/* NOT ON THE SCHOOL'S PAYROLL — asked 2026-09-29 for คุณเติ้ล, a private housekeeper who is
+           here every day and is not paid by the nursery. Deliberately NOT "สิ้นสุดการทำงาน" (which
+           would lock her out of the app and file her under people who have left) and not Observer
+           (which is a permission to read the whole school). See noPayroll_ in engine.js. */''}
+      <label class="field" style="display:flex;align-items:center;gap:8px"><input type="checkbox" id="sf_NoPayroll" style="width:auto" ${(s.NoPayroll===true||s.NoPayroll===1||['YES','TRUE'].indexOf(String(s.NoPayroll||'').toUpperCase())>=0)?'checked':''}/> 🚫💵 ${EN()?'Not on the school’s payroll — hide from the payroll screen':'ไม่อยู่ในระบบเงินเดือน — ไม่ต้องขึ้นในหน้าทำเงินเดือน'}</label>
+      <p class="muted" style="font-size:13px;margin:-4px 2px 8px">${EN()
+        ? 'For someone who works here but is not paid by the nursery, and for system accounts. They still clock in, still appear in the daily summary and can still use the app — only the payroll list leaves them out.'
+        : 'สำหรับคนที่มาทำงานที่นี่แต่โรงเรียนไม่ได้เป็นคนจ่ายเงินเดือน และสำหรับบัญชีของระบบ · ยังลงเวลาได้ ยังอยู่ในสรุปการมาทำงาน ยังเข้าแอปได้ตามเดิม — หายเฉพาะจากรายชื่อตอนทำเงินเดือน'}</p>
       <div class="grid2">${f('Phone',t('reg.phone'),phoneFmt(s.Phone))}${f('NationalID',t('reg.nationalId'),s.NationalID)}</div>
       ${eduFields('sf',s)}
       ${quotaFields('sf',s)}
@@ -9133,7 +9346,8 @@
       return keep.join(','); })();
     const canOrg=m.querySelector('#sf_CanClassOrg')&&m.querySelector('#sf_CanClassOrg').checked;
     const canFood=m.querySelector('#sf_CanFoodMenu')&&m.querySelector('#sf_CanFoodMenu').checked;
-    const data={NameTH:v('NameTH'),NameEN:v('NameEN'),Nickname:v('Nickname'),NicknameEN:v('NicknameEN'),DOB:v('DOB'),Position:v('Position'),Department:dept,StaffGroup:v('StaffGroup'),PositionLevel:v('PositionLevel'),Phone:v('Phone'),NationalID:v('NationalID'),LineUID:v('LineUID'),StartDate:v('StartDate'),BaseSalary:+v('BaseSalary')||0,Email:emailFmt(v('Email')),BankName:v('BankName'),BankAccount:v('BankAccount'),ContributionOpening:+v('ContributionOpening')||0,ContributionLocked:(m.querySelector('#sf_ContributionLocked')&&m.querySelector('#sf_ContributionLocked').checked)?'YES':'',Classes:dept,CanClassOrg:canOrg?'YES':'',CanFoodMenu:canFood?'YES':''};
+    const noPay=m.querySelector('#sf_NoPayroll')&&m.querySelector('#sf_NoPayroll').checked;
+    const data={NameTH:v('NameTH'),NameEN:v('NameEN'),Nickname:v('Nickname'),NicknameEN:v('NicknameEN'),DOB:v('DOB'),Position:v('Position'),Department:dept,StaffGroup:v('StaffGroup'),PositionLevel:v('PositionLevel'),Phone:v('Phone'),NationalID:v('NationalID'),LineUID:v('LineUID'),StartDate:v('StartDate'),BaseSalary:+v('BaseSalary')||0,Email:emailFmt(v('Email')),BankName:v('BankName'),BankAccount:v('BankAccount'),ContributionOpening:+v('ContributionOpening')||0,ContributionLocked:(m.querySelector('#sf_ContributionLocked')&&m.querySelector('#sf_ContributionLocked').checked)?'YES':'',Classes:dept,CanClassOrg:canOrg?'YES':'',CanFoodMenu:canFood?'YES':'',NoPayroll:noPay?'YES':''};
     data.Role=v('Role')||'Teacher';
     Object.assign(data, eduRead(m,'sf'));   // วุฒิการศึกษา / สาขา / วันจบ — all optional
     data.LeaveQuota = quotaRead(m,'sf');    // this person's own entitlement; '' = use the school's

@@ -159,8 +159,12 @@ console.log('\n5) the admin form, and the column it writes to');
   ok_('the form says a blank box means the school default', /เว้นว่าง = ใช้ค่าของโรงเรียน/.test(app));
   ok_('...and shows the school’s number as the placeholder', /placeholder="\$\{esc\(String\(school\[k\]\)\)\}"/.test(app));
   ok_('the column is declared', /'LeaveQuota'\]/.test(cfgGs) || /'LeaveQuota'/.test(cfgGs));
+  /* The point is that LeaveQuota is INSIDE handleSaveStaff's ensureColumns_ list — without the
+   * column, updateRow_ drops the field in silence. It was pinned by matching up to the closing
+   * `'LeaveQuota'])`, which made it the last entry in the list for ever: adding NoPayroll after it
+   * (v409) failed a test about leave quotas. Match the list, not its last element. */
   ok_('...and topped up on save, or the write is dropped in silence',
-    /ensureColumns_\(sh, \[[\s\S]*?'LeaveQuota'\]\)/.test(staffGs));
+    /function handleSaveStaff[\s\S]{0,900}?ensureColumns_\(sh, \[[\s\S]*?'LeaveQuota'[\s\S]*?\]\)/.test(staffGs));
   // the teacher's own screen tells them when a figure was set for them personally
   ok_('the teacher sees which figures are theirs', /q\.own\?` <span title="\$\{EN\(\)\?'set for you'/.test(app));
   ok_('...and a negative balance is not printed as an ordinary number',
