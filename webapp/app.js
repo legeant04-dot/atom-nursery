@@ -131,7 +131,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.410'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.411'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -7423,7 +7423,11 @@
                    ['🌧️',EN()?'Days with no OT charge':'งดคำนวณ OT','A_otWaive()'],
                    ['🕵️',EN()?'Attendance check':'ตรวจสอบการลงเวลา','A_attAudit()'],
                    ['🕑',EN()?'Correct check-in / pick-up':'แก้ไขเวลารับ-ส่ง','A_editAttPick()'],
-                   ['📊',EN()?'Class report':'สรุปรายชั้นเรียน','A_studentReport()']])}
+                   ['📊',EN()?'Class report':'สรุปรายชั้นเรียน','A_studentReport()'],
+                   /* WHO IS LEAVING, WHO HAS LEFT, AND WHO IS AWAY — the ผอ.'s billing question.
+                    * Asked 2026-09-30: "ผอ. ไม่ทราบเลยว่าต้องออกบิลเดือนใหม่ให้ใคร และไม่ต้องออกให้ใคร".
+                    * Both facts existed (endingStudents / pausedStudents) and neither had a screen. */
+                   ['🎓',EN()?'Leaving / left / on leave':'สิ้นสุดการเรียน & ลาชั่วคราว','A_studentStatus()']])}
         <p class="muted" style="font-size:13px">${EN()?'Absences by day and class. Tap a day to see who is absent per class (history included).':'การลาแยกรายวันและชั้นเรียน · แตะวันเพื่อดูว่านักเรียนคนไหนขาดในแต่ละชั้น (ดูย้อนหลังได้)'}</p>
         <div class="card"><div id="calWrap">${studentLeaveCalRender()}</div></div>
         <div id="bdayCard">${birthdayCard(window._SALERTS)}</div>
@@ -8432,6 +8436,113 @@
         <label class="switch"><input type="checkbox" data-sid="${s.StaffID}" ${s.RequireCheckin!==false?'checked':''}><span class="slider"></span></label></div>`).join('')}</div>
       <button class="btn block" style="margin-top:8px" onclick="A_saveReqCI(this)">💾 ${esc(t('c.save'))}</button>`);
   };
+  /* ===== สิ้นสุดการเรียน & ลาชั่วคราว — ดำเนินการ > นักเรียน ======================================
+   * Asked 2026-09-30: "เคสนี้คือ ผอ. ไม่ทราบเลยว่าต้องออกบิลเดือนใหม่ให้ใคร และไม่ต้องออกให้ใคร
+   * เลยต้องแสดงข้อมูลนี้ด้วย ลาชั่วคราวด้วยเช่นกัน".
+   *
+   * THE QUESTION IS ABOUT NEXT MONTH'S BILLS, not about the roster — which is why all three groups
+   * are on ONE screen. "Who is leaving", "who has left" and "who is away" are three different
+   * records in the sheet and one question at the desk on the 1st, and splitting them across menus
+   * is how the ผอ. ended up answering it from memory.
+   *
+   * The two facts already existed (endingStudents, pausedStudents) and neither had a screen — so
+   * the only trace of a child leaving was a column nobody opens, and the only trace of a pause was
+   * that the bill was quietly skipped.
+   *
+   * EVERY ROW SAYS WHAT IT MEANS FOR THE BILL, in words, for the month in the picker. A date on its
+   * own still leaves the arithmetic to be done in somebody's head at the desk, which is the thing
+   * that went wrong.
+   */
+  let SST = { month: '', ending: [], paused: [] };
+  window.A_studentStatus = async () => {
+    SST.month = SST.month || monthStr();
+    const [ending, paused] = await Promise.all([
+      api('endingStudents').catch(()=>[]), api('pausedStudents').catch(()=>[])]);
+    SST.ending = ending || []; SST.paused = paused || [];
+    A_sstRender();
+  };
+  window.A_sstMonth = (m) => { SST.month = m || monthStr(); A_sstRender(true); };
+  function A_sstRender(keep){
+    const M = SST.month || monthStr();
+    // the first and last day of the month being billed — every verdict below is a comparison of a
+    // recorded date against THIS window, never against "today"
+    const mStart = M + '-01';
+    const mEnd = (()=>{ const [y,mo]=M.split('-').map(Number); return M+'-'+String(new Date(y,mo,0).getDate()).padStart(2,'0'); })();
+    const nameOf = r => `<b>${esc(r.nick||r.name||r.studentId)}</b>${r.name?` <small class="muted" style="font-weight:400">${esc(r.name)}</small>`:''}${r.className?` <small class="muted">· ${esc(r.className)}</small>`:''}`;
+    const line = (colour, icon, text) => `<div style="font-size:13px;color:var(--${colour});font-weight:600;margin-top:2px">${icon} ${text}</div>`;
+
+    /* WHAT THIS CHILD'S LAST DAY MEANS FOR THE MONTH IN THE PICKER. Three answers, and the middle
+     * one is the one people get wrong: a child leaving ON the 10th still owes that month. */
+    const billVerdict = end => {
+      if(end < mStart) return line('bad','🚫', EN()?'Do NOT issue a bill for this month — they had already left.':'<u>ไม่ต้อง</u>ออกบิลเดือนนี้ — สิ้นสุดการเรียนไปก่อนแล้ว');
+      if(end <= mEnd)  return line('warn','📄', EN()?'Last month to bill — they leave during it.':'เดือนนี้เป็น<u>เดือนสุดท้าย</u>ที่ต้องออกบิล');
+      return line('ok','✅', EN()?'Bill as usual — still here all month.':'ออกบิลตามปกติ — ยังเรียนอยู่ทั้งเดือน');
+    };
+    /* ...and the same for a pause. issueBill refuses only a pause that covers the WHOLE month
+     * (pausedWholeMonth_ / STUDENT_PAUSED), so a part-month pause is still billed — say so here
+     * rather than letting the admin discover it from a skipped row. */
+    const pauseVerdict = p => {
+      const from = p.from || '', to = p.to || '';
+      const whole = from && from <= mStart && (!to ? true : to >= mEnd);
+      if(whole) return line('bad','🚫', EN()?'Do NOT issue a bill — away for the whole month.':'<u>ไม่ต้อง</u>ออกบิลเดือนนี้ — ลาตลอดทั้งเดือน');
+      if((from && from > mEnd) || (to && to < mStart))
+        return line('ok','✅', EN()?'Bill as usual — the leave is not in this month.':'ออกบิลตามปกติ — ช่วงลาไม่อยู่ในเดือนนี้');
+      return line('warn','📄', EN()?'Bill as usual — away for part of the month only.':'ออกบิลตามปกติ — ลาเพียงบางส่วนของเดือน');
+    };
+
+    const soon = SST.ending.filter(r=>!r.ended);
+    const gone = SST.ending.filter(r=>r.ended);
+    const away = SST.paused;
+
+    const endRow = r => `<div class="list-item" style="display:block;cursor:pointer" onclick="A_sstOpen('${esc(r.studentId)}')">
+      <div class="spread"><span>${nameOf(r)}</span><span class="muted">›</span></div>
+      <small class="muted">🎓 ${EN()?'last day':'วันสิ้นสุด'} ${esc(fullDate(r.endDate))}${
+        r.ended ? '' : ` · ${r.days===0?(EN()?'today':'วันนี้'):(EN()?`in ${r.days} day(s)`:`อีก ${r.days} วัน`)}`}${
+        // the reason is a STORED KEY ('graduated', 'moved'…), not a sentence — printed raw it read
+        // "· graduated" in the middle of a Thai line. Same lookup the manage screen uses.
+        r.reason?` · ${esc(t('wd.reason.'+r.reason)||r.reason)}`:''}</small>
+      ${billVerdict(r.endDate)}</div>`;
+    const pauseRow = p => `<div class="list-item" style="display:block;cursor:pointer" onclick="A_sstOpen('${esc(p.studentId)}')">
+      <div class="spread"><span>${nameOf(p)}</span><span class="muted">›</span></div>
+      <small class="muted">🏖️ ${esc(fullDate(p.from))}${p.to?` – ${esc(fullDate(p.to))}`:` – ${EN()?'no return date':'ยังไม่กำหนดวันกลับ'}`}${
+        p.reason?` · ${esc(p.reason)}`:''}</small>
+      ${p.active?'':(p.scheduled
+        ? `<small class="muted" style="display:block">⏳ ${EN()?'recorded, has not started — the child is at school today':'บันทึกไว้แล้ว ยังไม่เริ่ม — วันนี้เด็กยังมาเรียนตามปกติ'}</small>`
+        : (p.due?`<small style="display:block;color:var(--warn);font-size:13px">↩️ ${EN()?'the return date has passed — bring them back or extend it':'ถึงวันกลับแล้ว — กรุณายืนยันกลับเข้าเรียน หรือขยายวัน'}</small>`:''))}
+      ${pauseVerdict(p)}</div>`;
+
+    const section = (icon, title, rows, empty, open) => `<details class="card"${open&&rows.length?' open':''} style="padding:10px">
+      <summary style="cursor:pointer;font-weight:700">${icon} ${esc(title)} <span class="pill ${rows.length?'wait':'ok'}">${rows.length}</span></summary>
+      <div style="margin-top:6px">${rows.join('')||`<small class="muted">${esc(empty)}</small>`}</div></details>`;
+
+    const html = `<h3>🎓 ${EN()?'Leaving · left · on leave':'สิ้นสุดการเรียน & ลาชั่วคราว'}</h3>
+      <p class="muted" style="font-size:13px;margin-top:0">${EN()
+        ? 'Everyone whose enrolment is ending, has ended, or is paused — and what each one means for the month you are about to bill.'
+        : 'รายชื่อนักเรียนที่กำลังจะสิ้นสุดการเรียน สิ้นสุดไปแล้ว และลาชั่วคราว · พร้อมบอกว่าเดือนที่กำลังจะออกบิลนั้น ต้องออกบิลให้ใครบ้าง'}</p>
+      <label class="field"><span>${EN()?'Month you are billing':'งวดที่กำลังจะออกบิล'}</span>
+        <input type="month" id="sstMonth" value="${esc(M)}" onchange="A_sstMonth(this.value)"/></label>
+      ${section('🎓', EN()?'Enrolment ending soon':'กำลังจะสิ้นสุดการเรียน', soon.map(endRow),
+        EN()?'Nobody has a last day coming up.':'ยังไม่มีนักเรียนที่กำหนดวันสิ้นสุดไว้ล่วงหน้า', true)}
+      ${section('🏁', EN()?'Already finished':'สิ้นสุดการเรียนแล้ว', gone.map(endRow),
+        EN()?'Nobody has finished yet.':'ยังไม่มีนักเรียนที่สิ้นสุดการเรียน', false)}
+      ${section('🏖️', EN()?'On temporary leave':'ลาชั่วคราว', away.map(pauseRow),
+        EN()?'Nobody is on temporary leave.':'ไม่มีนักเรียนที่ลาชั่วคราว', true)}
+      <p class="muted" style="font-size:12.5px">${EN()
+        ? 'A child who has already finished is off the roster, so they are not offered on the bill screens at all. A pause covering the whole month is skipped automatically; a part-month pause is still billed in full.'
+        : 'นักเรียนที่สิ้นสุดการเรียนไปแล้วจะไม่อยู่ในรายชื่อของหน้าออกบิลตั้งแต่แรก · ส่วนการลาชั่วคราวที่กินทั้งเดือน ระบบจะข้ามให้อัตโนมัติ แต่ถ้าลาเพียงบางส่วนของเดือน ยังคิดค่าเทอมเต็มเดือนตามปกติ'}</p>
+      <button class="btn outline block" style="margin-top:8px" onclick="this.closest('.modal').remove()">${esc(t('c.close'))}</button>`;
+    // re-render in place when the month changes, rather than reopening the modal (same shape as
+    // A_otWaiveRender) — reopening would collapse the sections and jump back to the top
+    const open = document.querySelector('.modal .sheet');
+    if(keep && open){ open.innerHTML=html; if(window.translateTree) translateTree(open); } else modal(html);
+  }
+  /* One tap from the summary into the record behind it. STU_profile, NOT A_studentForm: the form
+   * reads A_CACHE.students, which this screen does not fill and which EXCLUDES children who have
+   * already finished — so the "สิ้นสุดแล้ว" group, the one most likely to be tapped from here,
+   * would have opened a blank new-student form. STU_profile fetches by id and works for all three
+   * groups. (It is also what the manage screen already uses for exactly these children.) */
+  window.A_sstOpen = (sid) => { const m=document.querySelector('.modal'); if(m) m.remove(); STU_profile(sid); };
+
   /* ===== งดคำนวณ OT — ดำเนินการ > นักเรียน ====================================================
    * Asked 2026-09-25: "วันที่ 25/09/26 ฝนตกหนักมาก โรงเรียนอยากช่วยเหลือผู้ปกครองโดยวันนี้เว้นการคิด
    * OT ของทุกชั้นเรียน ... เมื่อข้ามวันเป็นวันที่ 26/09/26 ระบบจะกลับมาเป็นปกติ".
@@ -10326,21 +10437,60 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
       <label class="field"><span>${esc(t('c.month'))}</span><input id="icMonth" type="month" value="${month}" onchange="A_icMonth(this.value)"/></label>
       <label style="display:flex;align-items:center;gap:8px;font-size:13px;margin:4px 0"><input type="checkbox" id="icNotify" checked style="width:auto"/> ${EN()?'Notify parents':'แจ้งเตือนผู้ปกครอง'}</label>
       <div style="max-height:40vh;overflow:auto;border:1px solid var(--line);border-radius:8px;padding:6px;margin:6px 0"><label style="display:flex;align-items:center;gap:8px;font-size:13px;border-bottom:1px solid var(--line);padding-bottom:4px"><input type="checkbox" id="icAll" onchange="document.querySelectorAll('.icStu:not([disabled])').forEach(c=>c.checked=this.checked)" style="width:auto"/> <b>${EN()?'Select all':'เลือกทั้งหมด'}</b></label>
-        <div id="icRows">${icRows(students, (pre&&pre.byStudent)||{})}</div></div>
+        <div id="icRows">${icRows(students, (pre&&pre.byStudent)||{}, month)}</div></div>
       <button class="btn block" onclick="A_issueCombinedDo(this)">🧾 ${EN()?'Issue bills':'ออกบิล'}</button>
       <button class="btn outline block" style="margin-top:8px" onclick="this.closest('.modal').remove()">${esc(t('c.close'))}</button>`); };
   // "เลือกทั้งหมด" must not tick a child it cannot bill, which is why the disabled ones are excluded
   // above rather than just styled — a ticked-then-skipped row is exactly the confusion this removes.
-  function icRows(students, by){
+  /* ...AND THE OTHER TWO REASONS A CHILD MIGHT NOT NEED THIS MONTH'S BILL.
+   *
+   * Asked 2026-09-30: "สำหรับนักเรียนที่มีการระบุวันสิ้นสุด ให้แสดงข้อมูลสิ้นสุดการเรียน วันที่ เหมือนกับ
+   * นักเรียนที่ชำระล่วงหน้า ... เคสนี้คือ ผอ. ไม่ทราบเลยว่าต้องออกบิลเดือนใหม่ให้ใคร และไม่ต้องออกให้ใคร
+   * ... ลาชั่วคราวด้วยเช่นกัน".
+   *
+   * The prepay badge had been the only one, and it made the gap obvious: a leaving date and a
+   * temporary leave decide the same question and said nothing. Both facts were already on the row —
+   * listStudents returns endScheduled/endDate and paused/pauseFrom/pauseTo — so this costs no
+   * request; it was simply never printed.
+   *
+   * KEYED TO THE MONTH IN THE PICKER, exactly as the prepay badge is. A child leaving on 1 Oct is a
+   * normal September bill and a mistake in November, and a badge that ignored the picker would be a
+   * confident lie half the time — the same reasoning that put the prepay lookup behind A_icMonth.
+   *
+   * INFORMATION, NOT A LOCK (the school's decision, 2026-09-30): "แสดงป้ายอย่างเดียว ยังติ๊กได้".
+   * Unlike a prepaid month — which the server refuses outright, so a tickable box would be a lie —
+   * a final bill after the last day is sometimes exactly what the ผอ. means to issue. The row says
+   * what it knows and the decision stays hers.
+   */
+  function icRows(students, by, month){
+    const M = month || monthStr();
+    const mStart = M+'-01';
+    const mEnd = (()=>{ const [y,mo]=M.split('-').map(Number); return M+'-'+String(new Date(y,mo,0).getDate()).padStart(2,'0'); })();
+    const tag = (colour,html) => `<small style="color:var(--${colour});font-weight:600;margin-left:auto;text-align:right;flex:0 0 auto">${html}</small>`;
     return students.map(s=>{ const pi=by[s.StudentID];
-      return `<label class="field" style="display:flex;align-items:center;gap:8px;margin:2px 0${pi?';opacity:.6':''}"><input type="checkbox" class="icStu" value="${s.StudentID}" style="width:auto"${pi?' disabled':''}/> <b>${esc(dispNick(s))}</b> <small class="muted">${esc(nm(s))} · ${esc(s.Class||'')}</small>${
-        pi?` <small style="color:var(--ok);font-weight:600;margin-left:auto;text-align:right">💰 ${EN()?'prepaid':'ชำระล่วงหน้า'} (${pi.index}/${pi.months})<br><span class="muted" style="font-weight:400">${EN()?'left':'เหลืออีก'} ${Math.max(0,(pi.left||1)-1)} ${EN()?'mo':'เดือน'}</span></small>`:''}</label>`;
+      const end = s.endDate||'';
+      const pFrom = s.pauseFrom||'', pTo = s.pauseTo||'';
+      let note='';
+      if(pi) note = tag('ok', `💰 ${EN()?'prepaid':'ชำระล่วงหน้า'} (${pi.index}/${pi.months})<br><span class="muted" style="font-weight:400">${EN()?'left':'เหลืออีก'} ${Math.max(0,(pi.left||1)-1)} ${EN()?'mo':'เดือน'}</span>`);
+      else if(end && end < mStart)
+        note = tag('bad', `🚫 ${EN()?'already left':'สิ้นสุดแล้ว'}<br><span style="font-weight:400">${esc(fullDate(end))}</span>`);
+      else if(end && end <= mEnd)
+        note = tag('warn', `🎓 ${EN()?'last month':'เดือนสุดท้าย'}<br><span style="font-weight:400">${esc(fullDate(end))}</span>`);
+      else if(end)
+        note = tag('muted', `🎓 ${EN()?'leaving':'สิ้นสุด'}<br><span style="font-weight:400">${esc(fullDate(end))}</span>`);
+      // a pause covering the WHOLE month is what issueBill refuses (STUDENT_PAUSED); a part-month
+      // pause is still billed in full, and saying so stops it looking like the same thing
+      else if(pFrom && pFrom<=mStart && (!pTo || pTo>=mEnd))
+        note = tag('bad', `🚫 ${EN()?'on leave all month':'ลาตลอดเดือน'}<br><span style="font-weight:400">${esc(fullDate(pFrom))}${pTo?` – ${esc(fullDate(pTo))}`:''}</span>`);
+      else if(pFrom && !(pFrom>mEnd || (pTo && pTo<mStart)))
+        note = tag('warn', `🏖️ ${EN()?'away part of the month':'ลาบางส่วนของเดือน'}<br><span style="font-weight:400">${EN()?'billed as usual':'ยังคิดเต็มเดือน'}</span>`);
+      return `<label class="field" style="display:flex;align-items:center;gap:8px;margin:2px 0${pi?';opacity:.6':''}"><input type="checkbox" class="icStu" value="${s.StudentID}" style="width:auto"${pi?' disabled':''}/> <b>${esc(dispNick(s))}</b> <small class="muted">${esc(nm(s))} · ${esc(s.Class||'')}</small>${note}</label>`;
     }).join('');
   }
   window.A_icMonth=async(month)=>{ const el=$('#icRows'); if(!el) return;
     const all=$('#icAll'); if(all) all.checked=false;
     let by={}; try{ by=(await api('prepaidStudents',{month})).byStudent||{}; }catch(e){}
-    el.innerHTML=icRows(window._IC_STU||[], by); };
+    el.innerHTML=icRows(window._IC_STU||[], by, month); };
   window.A_issueCombinedDo=async(btn)=>{ const m=btn.closest('.modal'); const ids=[...m.querySelectorAll('.icStu:checked')].map(c=>c.value); const month=m.querySelector('#icMonth').value; const notify=m.querySelector('#icNotify').checked;
     if(!ids.length){ toast(EN()?'Select at least one student':'เลือกนักเรียนอย่างน้อย 1 คน'); return; }
     btn.disabled=true;
