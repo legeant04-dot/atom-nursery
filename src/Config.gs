@@ -166,7 +166,11 @@ SCHEMA[WB.MAIN] = {
   DSPM_ASSESSMENT:   ['AssessmentID', 'StudentID', 'AgeMonth', 'ItemNo', 'Skill', 'Result', 'Date', 'TeacherID',
                       'TeacherName', 'Timestamp', 'AdminComment', 'CommentBy', 'CommentAt'],
   // PaymentMethod = transfer | cash; TransactionDate = when payment was notified; PaidDate = Admin-confirmed payment date (retro-auditable).
-  BILLING:           ['BillingID', 'StudentID', 'Month', 'Amount', 'OTRollover', 'DueDate', 'PaidDate', 'Status', 'SlipAmount', 'VerifiedStatus', 'QRRef', 'PaymentMethod', 'TransactionDate'],
+  /* BillRun appended at END (2026-09-30): which BULK run created this row, so "ย้อนกลับการออกบิล
+   * ล่าสุด" can name exactly the rows it made and nothing else. A bill issued by hand has none, and
+   * is therefore never in reach of an undo. Blank on every row written before this existed, which
+   * is correct — there is no run to go back to. */
+  BILLING:           ['BillingID', 'StudentID', 'Month', 'Amount', 'OTRollover', 'DueDate', 'PaidDate', 'Status', 'SlipAmount', 'VerifiedStatus', 'QRRef', 'PaymentMethod', 'TransactionDate', 'BillRun'],
   // Priority (appended at END): higher = more important; popups sort by it (important first) then date.
   // StartTime/EndTime appended at END (blank = the whole of that day, which is how every
   // announcement written before they existed behaved).
