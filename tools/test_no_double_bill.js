@@ -169,7 +169,15 @@ console.log('\n4) the screens say it');
   ok_('...and by the monthly run', /\$\{pre\.length\?prepaidSkipCard\(pre\):''\}/.test(app));
   ok_('the monthly run reports every reason it skipped somebody, not just one',
     /const np=r\.noPlan\|\|\[\], pre=r\.prepaid\|\|\[\], notYet=r\.notYet\|\|\[\], paused=r\.paused\|\|\[\];/.test(app));
-  ok_('...and stays silent when it skipped nobody', /if\(!\(np\.length\|\|pre\.length\|\|notYet\.length\|\|paused\.length\)\) return;/.test(app));
+  /* CHANGED 2026-09-30, deliberately. This used to assert the opposite — that a run which skipped
+   * nobody showed nothing at all. That was right while the after-screen only listed skips, and it
+   * became wrong the moment the screen also carried "↩️ ย้อนกลับการออกบิลล่าสุด": a CLEAN run is
+   * exactly the one an admin is most likely to have made for the wrong month, and suppressing the
+   * card hid the way back from the only person who needed it. The skip LIST is still conditional —
+   * only its heading — so nothing is invented when there is nothing to report. */
+  ok_('a clean run still offers the way back', /const undoCard=r\.created\?/.test(app));
+  ok_('...and the skip heading is still only drawn when somebody was skipped',
+    /\$\{\(np\.length\|\|pre\.length\|\|notYet\.length\|\|paused\.length\)\?/.test(app));
   ok_('the card says the extras are still billed', /ค่าอาหาร\/กิจกรรม\/เรียนพิเศษ เป็นรายการแยก ยังเรียกเก็บตามปกติ/.test(app));
   /* AND NOBODY IS TOLD ABOUT A BILL THAT DOES NOT EXIST. notifyBills used to be sent the whole
    * ticked list; a child skipped for any reason has no new bill, and "คุณมีบิลใหม่" for a bill that

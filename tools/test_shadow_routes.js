@@ -69,6 +69,16 @@ console.log('\n2) THE 115 — a new one is a behaviour silently replaced');
    * the engine handler did — that check is the entire point of adding it. Removing a name means the
    * engine took the job back, which is fine and also worth noticing. */
   const KNOWN = [
+    /* billRunLast / undoBillRun (2026-09-30) — shadowed because they HAVE to be.
+     *
+     * BILLING is in NO_SHRINK_SHEETS: any full-collection rewrite that makes that sheet shorter is
+     * aborted by WRITE_GUARD, deliberately, because a shrink there is how a stale read destroys a
+     * school's billing history. The engine's undoBillRun removes rows from M.payments, so on GAS it
+     * would be refused and the button would simply never work. src/BillRun.gs deletes the rows in
+     * place instead — the same shape as deleteBill, which is already on this list for the same
+     * reason. The engine version remains the statement of the rule and is what mock mode and
+     * tools/test_bill_undo.js run on; that suite pins both sides against each other. */
+    'billRunLast', 'undoBillRun',
     'addAnnouncement', 'addBigCleaning', 'addChildNew', 'addDepartment', 'addHoliday',
     'adminAddHolidayOT', 'adminAddOT', 'adminCancelOT', 'adminDeleteOT', 'adminEditOT',
     'adminResetPassword', 'adminRestoreOT', 'adminUpdateOT', 'allLeaves', 'approveInjury',

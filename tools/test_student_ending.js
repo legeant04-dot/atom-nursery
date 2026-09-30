@@ -35,6 +35,8 @@ const appCode = app.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, ''
 
 // ============================================================================================
 console.log('1) the badge on the bill screen — measured against the month in the picker');
+  // matched case-insensitively: the badge WORDING went to caps on 2026-09-30 ("ให้เด่นกว่านี้") and
+  // these assertions are about which verdict is reached, not about how loudly it is printed
 // ============================================================================================
 {
   /* icRows lifted out of app.js and run for real: this is the function that decides what the ผอ.
@@ -58,35 +60,35 @@ console.log('1) the badge on the bill screen — measured against the month in t
   const tokyo = stu('tokyo', { endDate: '2026-10-01', endScheduled: true });
 
   eq('SEPTEMBER — still here all month, so it is an ordinary bill',
-    /leaving/.test(rowFor(tokyo, '2026-09')) && !/last month|already left/.test(rowFor(tokyo, '2026-09')), true);
+    /leaving/i.test(rowFor(tokyo, '2026-09')) && !/last month|already left/.test(rowFor(tokyo, '2026-09')), true);
   /* 🔴 THE BOUNDARY. The last day is the 1st, so October is the month they leave DURING — and the
    * school's rule is that the month they leave in is still owed. "already left" here would tell the
    * ผอ. not to issue a bill the family is due to receive. */
   eq('🔴 OCTOBER — they leave on the 1st, so it is the LAST month to bill',
-    /last month/.test(rowFor(tokyo, '2026-10')), true);
+    /last month/i.test(rowFor(tokyo, '2026-10')), true);
   eq('...and October is not reported as already gone',
-    /already left/.test(rowFor(tokyo, '2026-10')), false);
+    /already left/i.test(rowFor(tokyo, '2026-10')), false);
   eq('NOVEMBER — after the last day, so do not bill',
-    /already left/.test(rowFor(tokyo, '2026-11')), true);
+    /already left/i.test(rowFor(tokyo, '2026-11')), true);
 
   // ...and the other side of the same boundary: a last day on the 31st
   const latey = stu('latey', { endDate: '2026-10-31', endScheduled: true });
   eq('a last day on the 31st is still that month’s bill',
-    /last month/.test(rowFor(latey, '2026-10')), true);
-  eq('...and November is after it', /already left/.test(rowFor(latey, '2026-11')), true);
+    /last month/i.test(rowFor(latey, '2026-10')), true);
+  eq('...and November is after it', /already left/i.test(rowFor(latey, '2026-11')), true);
 
   // a pause covering the whole month is what issueBill refuses; a part-month pause is billed in full
   const away = stu('away', { paused: true, pauseFrom: '2026-10-01', pauseTo: '2026-10-31' });
   eq('🔴 a pause covering the whole month says do not bill',
-    /on leave all month/.test(rowFor(away, '2026-10')), true);
+    /on leave all month/i.test(rowFor(away, '2026-10')), true);
   const half = stu('half', { paused: true, pauseFrom: '2026-10-10', pauseTo: '2026-10-20' });
   eq('🔴 ...and a part-month pause says the opposite, because the school still charges it',
-    /away part of the month/.test(rowFor(half, '2026-10')), true);
+    /away part of the month/i.test(rowFor(half, '2026-10')), true);
   eq('a pause in another month says nothing at all',
-    /leave|away/.test(rowFor(half, '2026-12')), false);
+    /leave|away/i.test(rowFor(half, '2026-12')), false);
   const openEnded = stu('openEnded', { paused: true, pauseFrom: '2026-09-01', pauseTo: '' });
   eq('a pause with no return date covers the month too',
-    /on leave all month/.test(rowFor(openEnded, '2026-10')), true);
+    /on leave all month/i.test(rowFor(openEnded, '2026-10')), true);
 
   // the prepay badge is unchanged and still wins — it is the one the server actually enforces
   const pre = stu('pre', { endDate: '2026-12-31', endScheduled: true });
@@ -94,7 +96,7 @@ console.log('1) the badge on the bill screen — measured against the month in t
   eq('a prepaid child still shows the prepay badge', /prepaid/.test(h), true);
   eq('...and is still the disabled one', /disabled/.test(h), true);
   eq('an ordinary child has no badge and no lock',
-    /prepaid|leaving|leave|disabled/.test(rowFor(stu('plain'), '2026-10')), false);
+    /prepaid|leaving|leave|disabled/i.test(rowFor(stu('plain'), '2026-10')), false);
 }
 
 // ============================================================================================

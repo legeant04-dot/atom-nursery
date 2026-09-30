@@ -2209,7 +2209,21 @@ function createAtomAPI(M, GROWTH_STD) {
     // Admin deletes a bill (ยอดเรียกเก็บ). Removes the BILLING row; leaves any slip history in PAYMENT_SLIPS.
     deleteBill: p => { const i=M.payments.findIndex(x=>x.BillingID===p.billingId); if(i<0)fail('NOT_FOUND','ไม่พบบิล'); const b=M.payments[i]; M.payments.splice(i,1); logAct('deleteBill',p.billingId,'ลบบิล '+ym(b&&b.Month),actorOf(p)); return {ok:true}; },
     // auto-generate the month's bill for all active students from Plan price (skip if already billed)
+    /* PREVIEW-FIRST, AND UNDOABLE — asked 2026-09-30 after the ผอ. re-ran September to see what the
+     * screen looked like and had no way to find out what that had done.
+     *
+     * `preview:true` runs the WHOLE decision and writes nothing, so the warning screen is the same
+     * arithmetic as the run rather than a second implementation of it that can disagree. That is the
+     * only honest way to show "who is about to be billed" — a separate estimate would eventually
+     * say something the run does not do.
+     *
+     * Every row a bulk run creates is stamped with `BillRun`, so the undo can name exactly the rows
+     * that run made. A bill issued by hand carries none and is out of reach of an undo for ever.
+     */
     generateMonthlyBills: p => { const month=p.month||todayLocal().slice(0,7); let created=0; const noPlan=[], notYet=[], prorated=[], paused=[], prepaid=[];
+      const preview=!!p.preview;
+      const runId = preview ? '' : ('BR-'+month+'-'+stampLocal().replace(/[^0-9]/g,''));
+      const willBill=[], ending=[];
       // enrolledStudents, not activeStudents: a child paused only PART of this month is still billed,
       // and the paused-all-month check below is what actually excludes them (with a reason).
       enrolledStudents(month).forEach(s=>{ if(M.payments.find(x=>x.StudentID===s.StudentID&&ym(x.Month)===month))return;
@@ -2231,8 +2245,72 @@ function createAtomAPI(M, GROWTH_STD) {
         const pr=tuitionForMonth_(s, month, net0);                  // mid-month rule for their starting month
         const note=pr.prorated?` (เริ่มเรียน ${enrolDate_(s)} · ${prorateLabel_(pr)})`:'';
         if(pr.prorated) prorated.push({studentId:s.StudentID, nick:s.Nickname||'', name:s.NameTH||s.Name||'', mode:pr.mode, full:net0, amount:pr.amount});
-        M.payments.push({BillingID:'BL-'+month+'-'+s.StudentID,StudentID:s.StudentID,Month:month,Items:[['ค่าเทอม '+((plan&&plan.labelTH)||'')+note,pr.amount]],Amount:pr.amount,OTRollover:0,DueDate:billDueDate(s,month),PaidDate:'',Status:'UNPAID',SlipUrl:'',SlipAmount:0,VerifiedStatus:'',Auto:true}); created++; });
-      return {month,created,noPlan,notYet,prorated,paused,prepaid}; },
+        /* ...AND WHOSE LAST DAY IS ALREADY RECORDED. The warning screen's whole reason for existing:
+         * a child finishing this month or next is still billed (the school's rule — see
+         * docs/spec/rules/billing_who.md), so this is not a skip. It is the one line the ผอ. wants to
+         * read BEFORE the bills go out, not after. */
+        if(ymd(s.EndDate||'')) ending.push({studentId:s.StudentID, nick:s.Nickname||'', name:s.NameTH||s.Name||'',
+          className:s.Class||'', endDate:ymd(s.EndDate), reason:s.EndReason||'', amount:pr.amount,
+          lastMonth: ymd(s.EndDate).slice(0,7)===ym(month)});
+        willBill.push({studentId:s.StudentID, nick:s.Nickname||'', name:s.NameTH||s.Name||'', className:s.Class||'', amount:pr.amount});
+        if(!preview){
+          M.payments.push({BillingID:'BL-'+month+'-'+s.StudentID,StudentID:s.StudentID,Month:month,Items:[['ค่าเทอม '+((plan&&plan.labelTH)||'')+note,pr.amount]],Amount:pr.amount,OTRollover:0,DueDate:billDueDate(s,month),PaidDate:'',Status:'UNPAID',SlipUrl:'',SlipAmount:0,VerifiedStatus:'',Auto:true,BillRun:runId});
+        }
+        created++; });
+      /* NOTHING IS LOGGED BY A RUN THAT WROTE NOTHING. A preview is a read; recording it would fill
+       * the audit trail with the admin looking at a screen, and make the one entry that matters —
+       * "bills were issued" — harder to find rather than easier. */
+      if(!preview && created) logAct('generateMonthlyBills', runId, created+' ใบ เดือน '+month+' รวม ฿'+
+        willBill.reduce((a,x)=>a+Number(x.amount||0),0), actorOf(p));
+      return {month,created,noPlan,notYet,prorated,paused,prepaid,ending,willBill,preview,runId}; },
+    /* ---- THE LAST BULK RUN, AND UNDOING IT ------------------------------------------------------
+     * Asked 2026-09-30: "ผมออกบิลของเดือน September ตอน 14:48 ไปอีกครั้ง ไม่แน่ใจว่ามีผลอะไรไหม ...
+     * หากดำเนินการผิดพลาดจะต้องเรียกการออกบิลทั้งหมดย้อนกลับได้".
+     *
+     * Two routes on purpose: one that ANSWERS and one that ACTS. Showing what would be removed, and
+     * removing it, are different questions, and an undo that cannot be inspected first is another
+     * button somebody presses to find out what it does — which is the situation this is fixing.
+     *
+     * SCOPE: the latest run only (the school's decision, 2026-09-30). "Every auto bill of month X"
+     * would be a wider blade than anyone asked for, and it cannot tell a run made by mistake from a
+     * run made last week and already acted on.
+     */
+    billRunLast: p => { const month=p&&p.month?ym(p.month):'';
+      const runs={};
+      (M.payments||[]).forEach(b=>{ const r=String(b.BillRun||''); if(!r) return;
+        if(month && ym(b.Month)!==month) return;
+        (runs[r]=runs[r]||[]).push(b); });
+      const ids=Object.keys(runs).sort();            // the id carries its own timestamp, so this sorts by time
+      if(!ids.length) return {found:false, month:month||null};
+      const runId=ids[ids.length-1], rows=runs[runId];
+      /* TOUCHED = the family has done something about it. A bill with a slip, a payment, a
+       * confirmation or a recorded cash payment is no longer just a row the school created: undoing
+       * it would delete a record of money. Checked against PAYMENT_SLIPS as well as the row's own
+       * fields, because a slip can be sitting there unconfirmed. */
+      const withSlip={}; (M.paymentSlips||[]).forEach(s=>{ if(String(s.RefKind||s.Kind||'')==='bill') withSlip[String(s.RefID||s.BillingID||'')]=1; });
+      const touched_=b=>!!withSlip[String(b.BillingID)] || String(b.Status||'').toUpperCase()!=='UNPAID'
+        || Number(b.SlipAmount||0)>0 || !!String(b.VerifiedStatus||'').trim() || !!String(b.PaidDate||'').trim();
+      const view=b=>{ const s=studentById(b.StudentID)||{};
+        return {billingId:b.BillingID, studentId:b.StudentID, nick:s.Nickname||'', name:s.NameTH||s.Name||'',
+          className:s.Class||'', amount:Number(b.Amount||0), status:String(b.Status||''),
+          slipAmount:Number(b.SlipAmount||0), verified:String(b.VerifiedStatus||'')}; };
+      const removable=rows.filter(b=>!touched_(b)).map(view), keep=rows.filter(touched_).map(view);
+      return {found:true, runId, month:ym(rows[0].Month), when:runId.replace(/^BR-\d{4}-\d{2}-/,''),
+        total:rows.length, removable, keep,
+        amount:removable.reduce((a,x)=>a+x.amount,0)}; },
+    undoBillRun: p => { const runId=String((p&&p.runId)||'').trim();
+      if(!runId) fail('BAD_INPUT','ไม่ได้ระบุรอบการออกบิล');
+      if(!p || p.confirm!==true) fail('NEED_CONFIRM','ต้องยืนยันก่อนย้อนกลับการออกบิล');
+      const info=H.billRunLast({month:''});
+      // the id is checked rather than assumed: the admin may have been looking at this screen while
+      // another run happened, and "undo the latest" must never mean a run they have not seen
+      if(!info.found || info.runId!==runId) fail('RUN_CHANGED','รอบการออกบิลเปลี่ยนไปแล้ว — กรุณาเปิดหน้านี้ใหม่');
+      const drop={}; info.removable.forEach(x=>drop[x.billingId]=1);
+      const before=(M.payments||[]).length;
+      M.payments=(M.payments||[]).filter(b=>!drop[String(b.BillingID)]);
+      const removed=before-M.payments.length;
+      logAct('undoBillRun', runId, 'ย้อนกลับ '+removed+' ใบ'+(info.keep.length?' (ข้าม '+info.keep.length+' ใบที่ชำระ/แนบสลิปแล้ว)':''), actorOf(p));
+      return {ok:true, runId, month:info.month, removed, skipped:info.keep, amount:info.amount}; },
     // attach a monthly slip → records a PAYMENT_SLIPS row (multiple allowed), bill → PENDING_VERIFY.
     uploadSlip: p => recordSlip_('bill', p.billingId, p),
     // ONE transfer slip paying several siblings' bills. The ticked bills are summed; the slip amount MUST

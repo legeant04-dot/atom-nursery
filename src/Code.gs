@@ -137,6 +137,11 @@ var ROUTES = {
   deletePerfLog:    function (p) { return handlePerfClear(p); },       // admin-only: start a fresh measurement window ("delete" prefix => takes the write lock)
   prepayAudit:      function (p) { return handlePrepayAudit(p); },     // admin-only: find/repair bills over-credited by the old prepay logic
   deleteBill:       function (p) { return handleDeleteBill(p); },
+  /* BILLING is shrink-protected (NO_SHRINK_SHEETS), so the engine's undoBillRun — which removes rows
+   * from the collection and persists it — would be refused by WRITE_GUARD and the button would never
+   * work. Both take the explicit in-place path instead. See src/BillRun.gs. */
+  billRunLast:      function (p) { return handleBillRunLast(p); },     // admin-only READ: what the last bulk run made
+  undoBillRun:      function (p) { return handleUndoBillRun(p); },     // admin-only: take it back, in place
   setSchoolConfig:  function (p) { return handleSetSchoolConfig(p); },
   recomputeAttendance: function (p) { return handleRecomputeAttendance(p); },
   diagDay:          function (p) { return handleDiagDay(p); },         // admin-only READ: what the server thinks today is
@@ -394,7 +399,14 @@ function applyIdentity_(action, payload, sess) {
     return payload;
   }
   // Admin-only destructive/sensitive actions — block non-admins (parent/teacher tokens).
-  var ADMIN_ONLY = { deleteBill: 1, adminResetPassword: 1, getStaffPassword: 1, setSchoolConfig: 1, recomputeAttendance: 1, diagDay: 1,
+  /* ISSUING A BILL IS THE SCHOOL ASKING A FAMILY FOR MONEY, so all three doors to it are the
+   * admin's. `issueBillsFor` was listed below and these two were not — an omission, not a decision:
+   * the only screens that call them are admin screens, and the read-only gate above stops an
+   * Observer but nothing stopped a signed-in teacher or parent posting `generateMonthlyBills` and
+   * billing the whole school. Found 2026-09-30 while adding the undo. Listing them takes nothing
+   * away from the admin. */
+  var ADMIN_ONLY = { generateMonthlyBills: 1, issueBill: 1, billRunLast: 1, undoBillRun: 1,
+    deleteBill: 1, adminResetPassword: 1, getStaffPassword: 1, setSchoolConfig: 1, recomputeAttendance: 1, diagDay: 1,
     addDepartment: 1, removeDepartment: 1, renameDepartment: 1, listBackups: 1, restoreSheet: 1, setRequireCheckin: 1,
     adminUpdateOT: 1, adminCancelOT: 1, adminRestoreOT: 1, unlockJournal: 1,
     confirmOT: 1, adminAddOT: 1, adminAddHolidayOT: 1, adminEditOT: 1, adminDeleteOT: 1,

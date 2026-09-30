@@ -131,7 +131,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.411'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.412'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -10466,22 +10466,29 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
     const M = month || monthStr();
     const mStart = M+'-01';
     const mEnd = (()=>{ const [y,mo]=M.split('-').map(Number); return M+'-'+String(new Date(y,mo,0).getDate()).padStart(2,'0'); })();
+    /* LOUDER THAN A GREY LINE — asked 2026-09-30: "ข้อความนักเรียนสิ้นสุดการศึกษา ให้เด่นกว่านี้".
+     * It was the same weight as the class name beside it, so on a list of thirty children the one
+     * row that needs a decision read like the other twenty-nine. A filled chip in its own colour,
+     * with the date under it, so the eye finds it without reading. */
     const tag = (colour,html) => `<small style="color:var(--${colour});font-weight:600;margin-left:auto;text-align:right;flex:0 0 auto">${html}</small>`;
+    const chip = (bg,line,ink,label,sub) => `<span style="margin-left:auto;flex:0 0 auto;text-align:right;line-height:1.3">
+      <b style="display:inline-block;background:var(--${bg});border:1px solid var(--${line});color:var(--${ink});border-radius:999px;padding:2px 9px;font-size:12.5px;white-space:nowrap">${label}</b>
+      ${sub?`<br><small class="muted" style="font-size:11.5px">${sub}</small>`:''}</span>`;
     return students.map(s=>{ const pi=by[s.StudentID];
       const end = s.endDate||'';
       const pFrom = s.pauseFrom||'', pTo = s.pauseTo||'';
       let note='';
       if(pi) note = tag('ok', `💰 ${EN()?'prepaid':'ชำระล่วงหน้า'} (${pi.index}/${pi.months})<br><span class="muted" style="font-weight:400">${EN()?'left':'เหลืออีก'} ${Math.max(0,(pi.left||1)-1)} ${EN()?'mo':'เดือน'}</span>`);
       else if(end && end < mStart)
-        note = tag('bad', `🚫 ${EN()?'already left':'สิ้นสุดแล้ว'}<br><span style="font-weight:400">${esc(fullDate(end))}</span>`);
+        note = chip('bad-bg','bad','bad', `🚫 ${EN()?'ALREADY LEFT':'สิ้นสุดแล้ว'}`, esc(fullDate(end)));
       else if(end && end <= mEnd)
-        note = tag('warn', `🎓 ${EN()?'last month':'เดือนสุดท้าย'}<br><span style="font-weight:400">${esc(fullDate(end))}</span>`);
+        note = chip('warn-bg','warn-line','warn', `🎓 ${EN()?'LAST MONTH':'เดือนสุดท้าย'}`, esc(fullDate(end)));
       else if(end)
-        note = tag('muted', `🎓 ${EN()?'leaving':'สิ้นสุด'}<br><span style="font-weight:400">${esc(fullDate(end))}</span>`);
+        note = chip('warn-bg','warn-line','warn', `🎓 ${EN()?'leaving':'กำลังจะสิ้นสุด'}`, esc(fullDate(end)));
       // a pause covering the WHOLE month is what issueBill refuses (STUDENT_PAUSED); a part-month
       // pause is still billed in full, and saying so stops it looking like the same thing
       else if(pFrom && pFrom<=mStart && (!pTo || pTo>=mEnd))
-        note = tag('bad', `🚫 ${EN()?'on leave all month':'ลาตลอดเดือน'}<br><span style="font-weight:400">${esc(fullDate(pFrom))}${pTo?` – ${esc(fullDate(pTo))}`:''}</span>`);
+        note = chip('bad-bg','bad','bad', `🚫 ${EN()?'ON LEAVE ALL MONTH':'ลาตลอดเดือน'}`, esc(fullDate(pFrom))+(pTo?' – '+esc(fullDate(pTo)):''));
       else if(pFrom && !(pFrom>mEnd || (pTo && pTo<mStart)))
         note = tag('warn', `🏖️ ${EN()?'away part of the month':'ลาบางส่วนของเดือน'}<br><span style="font-weight:400">${EN()?'billed as usual':'ยังคิดเต็มเดือน'}</span>`);
       return `<label class="field" style="display:flex;align-items:center;gap:8px;margin:2px 0${pi?';opacity:.6':''}"><input type="checkbox" class="icStu" value="${s.StudentID}" style="width:auto"${pi?' disabled':''}/> <b>${esc(dispNick(s))}</b> <small class="muted">${esc(nm(s))} · ${esc(s.Class||'')}</small>${note}</label>`;
@@ -10532,10 +10539,71 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
     try{ await api('issueBill',{studentId:sid,month:m.querySelector('#biMonth').value,amount:amt,label:m.querySelector('#biLabel').value.trim(),note:m.querySelector('#biNote').value.trim(),paid,paidDate});
       m.remove(); confirmSaved(t('bill.sent')); GO('manage'); }catch(e){err(e);} };
   // auto-generate the month's bills for all active students (recurring monthly)
+  /* ===== OUTBOUND BILLS: LOOK FIRST, THEN SEND ==================================================
+   * Asked 2026-09-30: "เมื่อกดเลือกให้แสดงข้อความทักท้วงก่อนที่จะคอนเฟิร์มว่า มีรายการของนักเรียนที่กำลัง
+   * จะจบการศึกษา และปุ่มย้อนกลับ".
+   *
+   * It used to be one tap: pick a month, press, and thirty families were asked for money. The only
+   * thing shown afterwards was who had been SKIPPED — never who had been billed, and never before
+   * it happened. That is how the ผอ. came to re-run September "to see what it looked like" and then
+   * have to ask what that had done.
+   *
+   * The preview is the RUN ITSELF with `preview:true` — the same arithmetic, writing nothing. A
+   * separate estimate would eventually say something the run does not do, and on this screen that
+   * means a family billed (or not) contrary to what the admin was shown.
+   */
   window.A_genBills=()=>{ modal(`<h3>📅 ${esc(t('bill.genTitle'))}</h3><p class="muted" style="font-size:13px">${esc(t('bill.genNote'))}</p>
     <label class="field"><span>${esc(t('c.month'))}</span><input type="month" id="gbMonth" value="${monthStr()}"/></label>
-    <button class="btn block" onclick="A_genBillsDo(this)">${esc(t('bill.genBtn'))}</button>`); };
-  window.A_genBillsDo=async(btn)=>{ const m=btn.closest('.modal'); const r=await api('generateMonthlyBills',{month:m.querySelector('#gbMonth').value});
+    <button class="btn block" onclick="A_genBillsCheck(this)">🔎 ${EN()?'Check before issuing':'ตรวจสอบก่อนออกบิล'}</button>
+    <button class="btn-ghost block" style="margin-top:6px" onclick="A_billUndo()">↩️ ${EN()?'Undo the last bill run':'ย้อนกลับการออกบิลล่าสุด'}</button>`); };
+  /** The dry run, and the warning screen built from it. Nothing has been written when this appears. */
+  window.A_genBillsCheck=async(btn)=>{ const m=btn.closest('.modal'); const month=m.querySelector('#gbMonth').value;
+    btn.disabled=true;
+    let r; try{ r=await api('generateMonthlyBills',{month,preview:true}); }catch(e){ err(e); btn.disabled=false; return; }
+    const np=r.noPlan||[], pre=r.prepaid||[], notYet=r.notYet||[], paused=r.paused||[], ending=r.ending||[], will=r.willBill||[];
+    const total=will.reduce((a,x)=>a+Number(x.amount||0),0);
+    const li=(x,extra)=>`<div class="list-item"><span><b>${esc(x.nick||x.name||x.studentId)}</b>${x.nick&&x.name?` <small class="muted">${esc(x.name)}</small>`:''}${extra?extra(x):''}</span></div>`;
+    const grp=(bg,line,icon,title,list,extra)=>list.length?`<div class="card" style="padding:8px;background:var(--${bg});border-color:var(--${line})">
+      <b style="font-size:13px">${icon} ${esc(title)} (${list.length})</b>${list.map(x=>li(x,extra)).join('')}</div>`:'';
+    if(!r.created){ m.remove(); modal(`<h3>ℹ️ ${EN()?'Nothing to issue':'ไม่มีบิลที่ต้องออก'}</h3>
+      <p class="muted" style="font-size:13px">${EN()?`Every child who should be billed for ${r.month} already has a bill. Nothing was changed.`
+        :`นักเรียนทุกคนที่ต้องออกบิลของเดือน ${esc(r.month)} มีบิลอยู่แล้ว · ระบบไม่ได้เปลี่ยนแปลงอะไร`}</p>
+      ${pre.length?prepaidSkipCard(pre):''}
+      <button class="btn outline block" onclick="this.closest('.modal').remove()">${esc(t('c.close'))}</button>`); return; }
+    m.remove();
+    modal(`<h3>⚠️ ${EN()?'Check before issuing':'ตรวจสอบก่อนออกบิล'} <small class="muted" style="font-weight:400">${esc(monthNameYear(r.month))}</small></h3>
+      <div class="card" style="padding:10px;background:var(--blue-bg);border-color:var(--blue-line)">
+        <div class="spread"><b>${EN()?'About to bill':'กำลังจะออกบิล'}</b><b style="font-size:19px;color:var(--blue)">${r.created} ${EN()?'children':'คน'}</b></div>
+        <div class="spread"><span class="muted">${EN()?'Total':'ยอดรวม'}</span><b>${baht(total)}</b></div>
+        <small class="muted">${EN()?'Nothing has been issued yet — this is a check.':'ยังไม่มีการออกบิล · หน้านี้เป็นการตรวจสอบเท่านั้น'}</small></div>
+      ${/* 🎓 FIRST, and in warning colours. It is the one the ผอ. asked for by name, and the one a
+           list of thirty children hides completely if it is anywhere else. */''}
+      ${ending.length?`<div class="card" style="padding:10px;background:var(--warn-bg);border-color:var(--warn-line)">
+        <b style="font-size:14px;color:var(--warn)">🎓 ${EN()?'These children are finishing':'นักเรียนที่กำลังจะสิ้นสุดการเรียน'} (${ending.length})</b>
+        <p style="font-size:13px;margin:4px 0 6px">${EN()
+          ? 'They are still billed — the month a child leaves in is owed in full. Check the dates before you send.'
+          : 'ระบบ<u>ยังออกบิลให้</u> เพราะเดือนที่เด็กออกยังต้องจ่ายเต็มเดือน · กรุณาตรวจวันที่ก่อนส่ง'}</p>
+        ${ending.map(x=>`<div class="list-item"><span><b>${esc(x.nick||x.name||x.studentId)}</b>${x.name?` <small class="muted">${esc(x.name)}</small>`:''}
+          <br><small style="color:var(--warn);font-weight:600">🎓 ${EN()?'last day':'วันสิ้นสุด'} ${esc(fullDate(x.endDate))}${
+            x.lastMonth?` · ${EN()?'LAST MONTH TO BILL':'เดือนสุดท้ายที่ต้องออกบิล'}`:''}${
+            x.reason?` · ${esc(t('wd.reason.'+x.reason)||x.reason)}`:''}</small></span><b>${baht(x.amount)}</b></div>`).join('')}</div>`:''}
+      ${grp('warn-bg','warn-line','⚠️',EN()?'No package yet — will NOT be billed':'ยังไม่ได้เลือกแพ็กเกจ — จะไม่ได้รับบิล',np)}
+      ${grp('surface-2','line','⏳',EN()?'On temporary leave all month — will NOT be billed':'ลาชั่วคราวตลอดเดือน — จะไม่ได้รับบิล',paused,
+        x=>x.from?`<br><small class="muted">${esc(fullDate(x.from))}${x.to?' – '+esc(fullDate(x.to)):''}</small>`:'')}
+      ${grp('surface-2','line','📅',EN()?'First day not reached — will NOT be billed':'ยังไม่ถึงวันเริ่มเรียน — จะไม่ได้รับบิล',notYet,
+        x=>x.enrolDate?`<br><small class="muted">${EN()?'starts':'เริ่ม'} ${esc(fullDate(x.enrolDate))}</small>`:'')}
+      ${pre.length?prepaidSkipCard(pre):''}
+      <div class="row" style="gap:8px;margin-top:10px">
+        ${/* ย้อนกลับ FIRST and on the left — the way out should never be the harder one to reach on
+             a screen whose other button asks thirty families for money. */''}
+        <button class="btn outline" style="flex:1" onclick="this.closest('.modal').remove();A_genBills()">← ${EN()?'Back':'ย้อนกลับ'}</button>
+        <button class="btn" style="flex:1" onclick="A_genBillsDo(this,'${esc(r.month)}')">✅ ${EN()?'Issue the bills':'ยืนยันออกบิล'}</button></div>
+      <p class="muted" style="font-size:12.5px;text-align:center;margin-top:6px">${EN()
+        ? 'If this goes wrong, "Undo the last bill run" takes back every bill this run creates that no parent has paid yet.'
+        : 'หากผิดพลาด สามารถกด “ย้อนกลับการออกบิลล่าสุด” เพื่อลบบิลที่รอบนี้สร้างและยังไม่มีผู้ปกครองชำระได้'}</p>`);
+    };
+  window.A_genBillsDo=async(btn,month)=>{ const m=btn.closest('.modal'); btn.disabled=true;
+    const r=await api('generateMonthlyBills',{month:month||(m.querySelector('#gbMonth')||{}).value});
     m.remove(); confirmSaved(t('bill.genDone').replace('{n}',r.created).replace('{m}',r.month));
     /* WHO WAS NOT BILLED, AND WHY — ALWAYS.
      *
@@ -10546,10 +10614,21 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
      * instead of being trusted.
      */
     const np=r.noPlan||[], pre=r.prepaid||[], notYet=r.notYet||[], paused=r.paused||[];
-    if(!(np.length||pre.length||notYet.length||paused.length)) return;
     const plain=(title,list,extra)=>list.length?`<div class="card" style="padding:8px"><b style="font-size:13px">${title} (${list.length})</b>
       ${list.map(x=>`<div class="list-item"><span><b>${esc(x.nick||x.name||x.studentId)}</b>${x.nick&&x.name?` <small class="muted">${esc(x.name)}</small>`:''}${extra?extra(x):''}</span></div>`).join('')}</div>`:'';
-    setTimeout(()=>modal(`<h3>ℹ️ ${EN()?'Not billed this run':'ไม่ได้ออกบิลในรอบนี้'} (${np.length+pre.length+notYet.length+paused.length}) <small class="muted" style="font-weight:400">${esc(r.month||'')}</small></h3>
+    /* THE WAY BACK IS OFFERED HERE, not only from a menu. The minute after the bills go out is when
+     * somebody realises the month was wrong, and that is the minute they are looking at this screen.
+     * Shown even when nothing was skipped — this card used to be suppressed entirely in that case,
+     * which is exactly the clean run an admin is most likely to have made for the wrong month. */
+    const undoCard=r.created?`<div class="card" style="padding:8px;background:var(--surface-2)">
+      <b style="font-size:13px">↩️ ${EN()?'Issued by mistake?':'ออกบิลผิดพลาด?'}</b>
+      <p class="muted" style="font-size:13px;margin:2px 0 6px">${EN()
+        ? 'This takes back every bill this run created that no parent has paid or attached a slip to. Bills from earlier runs are untouched.'
+        : 'ย้อนกลับได้เฉพาะบิลที่รอบนี้สร้าง และยังไม่มีผู้ปกครองชำระหรือแนบสลิป · บิลจากรอบก่อนหน้าไม่ถูกแตะ'}</p>
+      <button class="btn sm pink block" onclick="this.closest('.modal').remove();A_billUndo()">↩️ ${EN()?'Undo this run':'ย้อนกลับรอบนี้'}</button></div>`:'';
+    setTimeout(()=>modal(`<h3>ℹ️ ${EN()?'After issuing':'สรุปหลังออกบิล'} <small class="muted" style="font-weight:400">${esc(monthNameYear(r.month||''))}</small></h3>
+      ${undoCard}
+      ${(np.length||pre.length||notYet.length||paused.length)?`<p class="muted" style="font-size:13px;margin:8px 2px 4px"><b>${EN()?'Not billed this run':'ไม่ได้ออกบิลในรอบนี้'}</b> (${np.length+pre.length+notYet.length+paused.length})</p>`:''}
       ${pre.length?prepaidSkipCard(pre):''}
       ${np.length?`<div class="card" style="padding:8px;background:var(--warn-bg);border-color:var(--warn-line)"><b style="font-size:13px">⚠️ ${EN()?'No package yet':'ยังไม่ได้เลือกแพ็กเกจ'} (${np.length})</b>
         <small class="muted" style="display:block;margin:2px 0 6px">${EN()?'Set a package in the student record, then generate again.':'ตั้งแพ็กเกจในข้อมูลนักเรียน แล้วกดออกบิลอีกครั้ง'}</small>
@@ -10557,6 +10636,57 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
       ${plain('📅 '+(EN()?'First day not reached':'ยังไม่ถึงวันเริ่มเรียน'), notYet, x=>x.enrolDate?`<br><small class="muted">${EN()?'starts':'เริ่ม'} ${esc(x.enrolDate)}</small>`:'')}
       ${plain('⏳ '+(EN()?'On temporary leave all month':'ลาชั่วคราวตลอดเดือน'), paused, x=>x.from?`<br><small class="muted">${esc(x.from)}${x.to?' – '+esc(x.to):''}</small>`:'')}
       <button class="btn outline block" style="margin-top:8px" onclick="this.closest('.modal').remove()">${esc(t('c.close'))}</button>`), 600); };
+
+  /* ===== ย้อนกลับการออกบิลล่าสุด ==================================================================
+   * Asked 2026-09-30: "หากดำเนินการผิดพลาดจะต้องเรียกการออกบิลทั้งหมดย้อนกลับได้".
+   *
+   * TWO STEPS, ALWAYS. This screen ASKS the server what the last run made and shows it by name
+   * before anything is deleted — an undo that cannot be inspected first is another button somebody
+   * presses to find out what it does, which is the situation it exists to fix.
+   *
+   * A bill a family has already paid or attached a slip to is skipped and NAMED, never deleted
+   * (the school's decision: "ข้ามใบนั้นไป ลบที่เหลือ แล้วรายงานว่าข้ามใคร"). Deleting one would delete
+   * the record of money changing hands, which is not a thing an undo button gets to do.
+   */
+  window.A_billUndo=async()=>{
+    let r; try{ r=await api('billRunLast',{},{fresh:true}); }catch(e){ err(e); return; }
+    if(!r||!r.found){ modal(`<h3>↩️ ${EN()?'Undo the last bill run':'ย้อนกลับการออกบิลล่าสุด'}</h3>
+      <p class="muted" style="font-size:13px">${EN()
+        ? 'No bulk bill run is on record. Bills issued one at a time, and bills issued before this feature existed, cannot be undone from here — delete those individually from the student’s finance screen.'
+        : 'ยังไม่มีรอบการออกบิลแบบกลุ่มที่บันทึกไว้ · บิลที่ออกทีละคน และบิลที่ออกก่อนจะมีฟังก์ชันนี้ ย้อนกลับจากหน้านี้ไม่ได้ — หากต้องการลบ ให้ลบรายใบจากหน้าการเงินของนักเรียน'}</p>
+      <button class="btn outline block" onclick="this.closest('.modal').remove()">${esc(t('c.close'))}</button>`); return; }
+    const row=x=>`<div class="list-item"><span><b>${esc(x.nick||x.name||x.studentId)}</b>${x.name?` <small class="muted">${esc(x.name)}</small>`:''}${
+      x.className?` <small class="muted">· ${esc(x.className)}</small>`:''}</span><b>${baht(x.amount)}</b></div>`;
+    modal(`<h3>↩️ ${EN()?'Undo the last bill run':'ย้อนกลับการออกบิลล่าสุด'}</h3>
+      <div class="card" style="padding:10px;background:var(--surface-2)">
+        <div class="spread"><b>${esc(monthNameYear(r.month))}</b><span class="pill">${r.total} ${EN()?'bills':'ใบ'}</span></div>
+        <small class="muted">${EN()?'run':'รอบ'} ${esc(r.runId)}</small></div>
+      ${r.removable.length?`<div class="card" style="padding:8px;background:var(--warn-bg);border-color:var(--warn-line)">
+        <div class="spread"><b style="font-size:13px;color:var(--warn)">🗑️ ${EN()?'Will be removed':'จะถูกลบ'} (${r.removable.length})</b><b>${baht(r.amount)}</b></div>
+        <small class="muted" style="display:block;margin:2px 0 6px">${EN()?'Nobody has paid these or attached a slip.':'ยังไม่มีผู้ปกครองชำระหรือแนบสลิป'}</small>
+        ${r.removable.map(row).join('')}</div>`
+        :`<div class="card" style="padding:8px"><small class="muted">${EN()?'Nothing from this run can be removed — every bill in it has been paid or has a slip attached.':'ไม่มีบิลใดในรอบนี้ที่ย้อนกลับได้ — ทุกใบมีการชำระหรือแนบสลิปแล้ว'}</small></div>`}
+      ${/* NAMED, not counted. "ข้าม 3 ใบ" tells the admin a number and not whether it was the right
+           three — and these are the families who have already paid, so they are exactly the ones
+           somebody will be asked about. */''}
+      ${r.keep.length?`<div class="card" style="padding:8px;background:var(--ok-bg);border-color:var(--ok-line)">
+        <b style="font-size:13px;color:var(--ok)">🔒 ${EN()?'Kept — already paid or has a slip':'เก็บไว้ — ชำระหรือแนบสลิปแล้ว'} (${r.keep.length})</b>
+        <small class="muted" style="display:block;margin:2px 0 6px">${EN()?'These are records of money and are never deleted by an undo.':'รายการเหล่านี้เป็นหลักฐานการเงิน · การย้อนกลับจะไม่ลบทิ้ง'}</small>
+        ${r.keep.map(row).join('')}</div>`:''}
+      <div class="row" style="gap:8px;margin-top:10px">
+        <button class="btn outline" style="flex:1" onclick="this.closest('.modal').remove()">${esc(t('c.close'))}</button>
+        ${r.removable.length?`<button class="btn pink" style="flex:1" onclick="A_billUndoDo(this,'${esc(r.runId)}')">🗑️ ${EN()?'Undo':'ยืนยันย้อนกลับ'}</button>`:''}</div>`);
+  };
+  window.A_billUndoDo=async(btn,runId)=>{
+    if(!confirm(EN()?'Remove these bills? Parents who have already paid are not affected.'
+      :'ยืนยันลบบิลเหล่านี้? ผู้ปกครองที่ชำระแล้วจะไม่ได้รับผลกระทบ'))return;
+    btn.disabled=true;
+    try{ const r=await api('undoBillRun',{runId,confirm:true,adminId:USER.staffId});
+      const m=btn.closest('.modal'); if(m) m.remove();
+      confirmSaved((EN()?'Removed ':'ย้อนกลับแล้ว ')+r.removed+(EN()?' bills':' ใบ')+
+        ((r.skipped||[]).length?(EN()?` · ${r.skipped.length} kept (already paid)`:` · เก็บไว้ ${r.skipped.length} ใบ (ชำระแล้ว)`):''));
+      if(CURRENT==='finance') GO('finance');
+    }catch(e){ err(e); btn.disabled=false; } };
 
   // ---- per-student extra charges (auto-merged into monthly bill) ----
   window.A_charges=async(sid)=>{ const s=MOCK.students.find(x=>x.StudentID===sid)||{}; const month=monthStr(); const list=await api('studentCharges',{studentId:sid,month});
