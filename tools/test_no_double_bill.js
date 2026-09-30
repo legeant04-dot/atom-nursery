@@ -198,7 +198,26 @@ console.log('\n4) the screens say it');
    * ticked list; a child skipped for any reason has no new bill, and "คุณมีบิลใหม่" for a bill that
    * is not there is worse than silence. */
   ok_('only the children actually billed are notified', /const billed=\(r\.students\|\|\[\]\)\.map\(x=>x\.studentId\);/.test(app));
-  ok_('...and nothing is sent when nothing was issued', /if\(notify && billed\.length\)\{ try\{ await api\('notifyBills',\{studentIds:billed,month\}\)/.test(app));
+  ok_('...and nothing is sent when nothing was issued',
+    /if\(notify && billed\.length\)\{[\s\S]{0,300}api\('notifyBills',\{studentIds:billed,month\}\)/.test(app));
+  /* 🔴 REORDERED 2026-09-30 after the ผอ. reported "ระบบไม่ปิดหน้าต่างหลังจาก process เสร็จแล้ว".
+   * The bills were written and the dialog stayed open for the whole notify round — one LINE push per
+   * family, one execution at a time — so a finished job looked like a hung one, and refreshing is
+   * what somebody does next. The money is now finished and CONFIRMED before the notifying starts. */
+  /* Stated as the ORDER itself rather than as a shape, because the order is the whole fix and any
+   * amount of code may legitimately grow between the three steps. */
+  ok_('🔴 the window closes as soon as the bills exist, not after the LINE round', (() => {
+    const fn = /window\.A_issueCombinedDo=async\(btn\)=>\{[\s\S]*?\n  \/\*\* Everyone the batch/.exec(app);
+    if (!fn) return false;
+    const s = fn[0].replace(/\/\*[\s\S]*?\*\//g, '');   // comments quote the old order on purpose
+    const issued = s.indexOf("api('issueBillsFor'");
+    const closed = s.indexOf('m.remove()');
+    const notify = s.indexOf("api('notifyBills'");
+    return issued > -1 && closed > issued && notify > closed;
+  })());
+  ok_('...and a failed notification is reported rather than swallowed',
+    /แจ้งผู้ปกครองไม่สำเร็จ/.test(app));
+  ok_('...while the bills are still reported as issued', /ออกบิลแล้ว แต่แจ้งผู้ปกครองไม่สำเร็จ/.test(app));
 }
 {
   ok_('the new read is admin-only on the server too', /prepaidStudents: 1/.test(code));
