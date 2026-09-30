@@ -131,7 +131,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.413'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.414'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -9148,7 +9148,11 @@
            family who walked in with a paper form could not be entered at all. */''}
       <div class="card secw" id="sec-students">${secHead('👶',EN()?'Students':'นักเรียน',students.length,`<span class="row"><button class="btn sm" onclick="event.stopPropagation();A_addStudent()">+ ${EN()?'Add student':'เพิ่มนักเรียน'}</button><button class="btn sm outline" onclick="event.stopPropagation();A_issueCombined()">🧾 ${EN()?'Issue (select)':'ออกบิล (เลือก)'}</button><button class="btn sm outline" onclick="event.stopPropagation();A_genBills()">📅 ${esc(t('bill.genTitle'))}</button></span>`)}
         <div class="secbody" hidden>
-        ${students.map(s=>`<div class="list-item stack" data-k="${esc((s.NameTH+' '+(s.NameEN||'')+' '+(s.Nickname||'')+' '+(s.NicknameEN||'')+' '+(s.Class||'')+' '+(s.NationalID||'')).toLowerCase())}"><span>${studentAvatar(s)} <b>${esc(dispNick(s))}</b> ${pauseSoon(s)?`<span class="pill info" style="font-size:11px">📅 ${EN()?'leave booked':'จะลาชั่วคราว'}</span>`:isPaused(s)?`<span class="pill wait" style="font-size:11px">⏸️ ${EN()?'on leave':'ลาชั่วคราว'}</span>`:''}${endSoon(s)?`<span class="pill warn" style="font-size:11px">🎓 ${EN()?'finishes':'สิ้นสุด'} ${esc(ddmmyyyy(s.EndDate))}</span>`:''} <small class="muted">${nmSub(s)?esc(nmSub(s))+" · ":""}${esc(s.Class)} · ${esc(ageYM(s.DOB))}${s.InsuranceHas?' · 🛡️':''}</small><br><small class="muted">${s.DOB?`🎂 ${esc(dobDate(s.DOB))} · `:''}${EN()?'ID':'บัตร'}: ${esc(s.NationalID||'-')}</small>${isPaused(s)?`<br><small style="color:var(--warn)">⏸️ ${esc(pauseSpan(s))}</small>`:''}</span><span class="acts"><button class="btn sm outline" onclick="A_studentForm('${s.StudentID}')">✏️ ${EN()?'Edit':'แก้ไข'}</button><button class="btn sm" onclick="A_issueBill('${s.StudentID}')">🧾 ${EN()?'Bill':'ออกบิล'}</button><button class="btn sm" onclick="A_charges('${s.StudentID}')">💵 ${EN()?'Charges':'เรียกเก็บ'}</button><button class="btn sm outline" onclick="A_stuMore('${s.StudentID}')" aria-label="${EN()?'More actions':'การทำงานเพิ่มเติม'}" title="${EN()?'More actions':'การทำงานเพิ่มเติม'}">⋯</button></span></div>`).join('')}</div></div>
+        ${students.map(s=>`<div class="list-item stack" data-k="${esc((s.NameTH+' '+(s.NameEN||'')+' '+(s.Nickname||'')+' '+(s.NicknameEN||'')+' '+(s.Class||'')+' '+(s.NationalID||'')).toLowerCase())}"><span>${studentAvatar(s)} <b>${esc(dispNick(s))}</b> ${pauseSoon(s)?`<span class="pill info" style="font-size:11px">📅 ${EN()?'leave booked':'จะลาชั่วคราว'}</span>`:isPaused(s)?`<span class="pill wait" style="font-size:11px">⏸️ ${EN()?'on leave':'ลาชั่วคราว'}</span>`:''}${endSoon(s)?`<span class="pill warn" style="font-size:11px">🎓 ${EN()?'finishes':'สิ้นสุด'} ${esc(ddmmyyyy(s.EndDate))}</span>`:''} <small class="muted">${nmSub(s)?esc(nmSub(s))+" · ":""}${esc(s.Class)} · ${esc(ageYM(s.DOB))}${s.InsuranceHas?' · 🛡️':''}</small><br><small class="muted">${s.DOB?`🎂 ${esc(dobDate(s.DOB))} · `:''}${EN()?'ID':'บัตร'}: ${esc(s.NationalID||'-')}</small>${isPaused(s)?`<br><small style="color:var(--warn)">⏸️ ${esc(pauseSpan(s))}</small>`:''}${
+          /* ...and the same second line for a child who is FINISHING. ลาชั่วคราว had one and this did
+             not, so on a roster of thirty the row that needs a decision this month was quieter than
+             the row that needs none. Asked 2026-09-30: "ทำให้มีแถบหลังเหมือนกับลาชั่วคราว". */
+          endSoon(s)?`<br><small style="color:var(--warn)">🎓 ${EN()?'last day':'วันสิ้นสุดการเรียน'} ${esc(ddmmyyyy(s.EndDate))}${s.endReason?' · '+esc(t('wd.reason.'+s.endReason)||s.endReason):''}</small>`:''}</span><span class="acts"><button class="btn sm outline" onclick="A_studentForm('${s.StudentID}')">✏️ ${EN()?'Edit':'แก้ไข'}</button><button class="btn sm" onclick="A_issueBill('${s.StudentID}')">🧾 ${EN()?'Bill':'ออกบิล'}</button><button class="btn sm" onclick="A_charges('${s.StudentID}')">💵 ${EN()?'Charges':'เรียกเก็บ'}</button><button class="btn sm outline" onclick="A_stuMore('${s.StudentID}')" aria-label="${EN()?'More actions':'การทำงานเพิ่มเติม'}" title="${EN()?'More actions':'การทำงานเพิ่มเติม'}">⋯</button></span></div>`).join('')}</div></div>
       ${_stuGone.length?`<div class="card secw" id="sec-students-gone">${secHead('🎓',EN()?'Finished studying here':'สิ้นสุดการเรียนแล้ว',_stuGone.length,'')}
         <div class="secbody" hidden>
         ${/* The same three options as the staff section above, and the same recommendation. Said out
@@ -10535,8 +10539,14 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
        * รอบบิล ให้แสดงวันที่ว่า คนไหน รอบบิลวันไหนด้วย". `own` is what tells a family's OWN agreed day
        * apart from the school's default falling through, and that difference is the whole reason
        * somebody would look: a date everybody shares is not news, a date one family negotiated is. */
-      const round = st ? `<small class="muted" style="display:block;font-size:12px">🗓️ ${EN()?'billing round':'รอบบิล'} ${esc(fullDate(st.dueDate))}${
-        st.own?` <span style="color:var(--blue)">· ${EN()?'agreed for this family':'ตกลงเฉพาะรายนี้'}</span>`:''}</small>` : '';
+      /* A DAY THIS FAMILY AGREED IS THE WHOLE DATE IN RED — not a label after it.
+       * Asked 2026-09-30: "เอาข้อความออกแต่เปลี่ยนรายการรอบบิลที่มีการกำหนดเฉพาะให้เป็นตัวอักษรสีแดงแทน".
+       * The words "· ตกลงเฉพาะรายนี้" doubled the length of the line to say something the colour
+       * says on its own, and on a phone that pushed the date onto a second line. The `title` keeps
+       * the explanation for anyone who wants it without spending a row on it. */
+      const round = !st ? '' : (st.own
+        ? `<small style="display:block;font-size:12px;color:var(--bad);font-weight:600" title="${EN()?'A billing day agreed for this family — not the school default':'วันครบกำหนดที่ตกลงเฉพาะครอบครัวนี้ ไม่ใช่ค่าเริ่มต้นของโรงเรียน'}">🗓️ ${EN()?'billing round':'รอบบิล'} ${esc(fullDate(st.dueDate))}</small>`
+        : `<small class="muted" style="display:block;font-size:12px">🗓️ ${EN()?'billing round':'รอบบิล'} ${esc(fullDate(st.dueDate))}</small>`);
       const lock = billed || !!pi;
       /* THE WAY OUT OF THE LOCK, on the row that is locked. Shown only for a billed row: a prepaid
        * one is not something to cancel, it is something that was paid. */
@@ -10554,8 +10564,17 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
   }
   window.A_icMonth=async(month)=>{ const el=$('#icRows'); if(!el) return;
     const all=$('#icAll'); if(all) all.checked=false;
-    let by={}; try{ by=icStateOf(await api('billingGroups',{month})); }catch(e){}
-    el.innerHTML=icRows(window._IC_STU||[], by, month);
+    /* SAY THAT IT IS WORKING. The ผอ. read "เหมือนกับการดึงข้อมูลว่าได้ออกบิลครบถ้วนค่อนข้างช้า" off a
+     * list that simply sat there showing the PREVIOUS month's rows while the new month was fetched —
+     * so a slow answer and a wrong answer looked identical. billingGroups walks every child's
+     * prepayments, and on Apps Script that is not instant. */
+    el.innerHTML=`<p class="muted" style="text-align:center;padding:14px 4px;margin:0">⏳ ${EN()?'Loading this month…':'กำลังโหลดข้อมูลของเดือนนี้…'}</p>`;
+    const cnt=$('#icCount'); if(cnt) cnt.innerHTML='';
+    let by={}, ok=true; try{ by=icStateOf(await api('billingGroups',{month})); }catch(e){ ok=false; }
+    el.innerHTML=(ok?'':`<p style="color:var(--warn);font-size:13px;margin:2px">⚠️ ${EN()
+      ? 'Could not read this month’s bills — the list below does not know who has already been billed.'
+      : 'อ่านข้อมูลบิลของเดือนนี้ไม่สำเร็จ — รายการด้านล่างจะไม่รู้ว่าใครออกบิลไปแล้ว'}</p>`)
+      + icRows(window._IC_STU||[], by, month);
     icCount(); };
   /* ออกบิลแล้ว กี่คน / ยังไม่ออก กี่คน — the two numbers the ผอ. is actually after, above a list of
    * thirty. Counted from the rendered rows rather than from the reply, so it can never disagree with
@@ -10567,16 +10586,43 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
       <span class="pill" style="background:var(--surface-2)">${locked} ${EN()?'locked':'ออกบิลแล้ว / ชำระล่วงหน้า'}</span>`; };
   window.A_issueCombinedDo=async(btn)=>{ const m=btn.closest('.modal'); const ids=[...m.querySelectorAll('.icStu:checked')].map(c=>c.value); const month=m.querySelector('#icMonth').value; const notify=m.querySelector('#icNotify').checked;
     if(!ids.length){ toast(EN()?'Select at least one student':'เลือกนักเรียนอย่างน้อย 1 คน'); return; }
-    btn.disabled=true;
-    try{ const r=await api('issueBillsFor',{studentIds:ids,month});
-      /* Tell the parents of the children who were actually BILLED — not of everyone who was ticked.
-       * A child skipped for any reason (no package, prepaid, not started) has no new bill, and
-       * "คุณมีบิลใหม่" for a bill that does not exist is worse than silence. */
-      const billed=(r.students||[]).map(x=>x.studentId);
-      if(notify && billed.length){ try{ await api('notifyBills',{studentIds:billed,month}); }catch(e){} }
-      m.remove(); confirmSaved((EN()?'Issued ':'ออกบิลแล้ว ')+r.created+(EN()?' bills':' รายการ')+(notify&&billed.length?(EN()?' · parents notified':' · แจ้งผู้ปกครองแล้ว'):''));
-      if((r.skipped||[]).length) setTimeout(()=>A_skippedModal(r.skipped, month), 600); }
-    catch(e){ err(e); btn.disabled=false; } };
+    /* 🔴 THE WINDOW STAYED OPEN LONG AFTER THE BILLS WERE WRITTEN.
+     *
+     * Reported by the ผอ. 2026-09-30: "ตอนนี้กดออกบิลเรียบร้อยหมดแล้ว แต่ระบบไม่ปิดหน้าต่างหลังจาก
+     * process เสร็จแล้ว แล้วตอนนี้กำลังกดรีเฟรชไปหลายรอบแล้ว ... ก็ยังไม่ได้ขึ้นว่าออกบิลแล้ว".
+     *
+     * The bills WERE written — the wait was notifyBills, which pushes a LINE message per family on a
+     * backend that runs one execution at a time. m.remove() sat AFTER it, so for thirty children the
+     * dialog was frozen for the whole round with no button state and nothing to read, and the only
+     * available interpretation was that it had hung. Refreshing during it is exactly what somebody
+     * does next, and refreshing is the one thing that could make it worse.
+     *
+     * So the two are now separated, in the order they matter: the money is done first and SAID so
+     * first — modal closed, confirmation shown — and telling the parents happens after, with its own
+     * toast. Nothing about the bills depends on the notification succeeding; it never did.
+     */
+    btn.disabled=true; const _lbl=btn.innerHTML;
+    btn.innerHTML=`⏳ ${EN()?'Issuing…':'กำลังออกบิล…'}`;
+    let r;
+    try{ r=await api('issueBillsFor',{studentIds:ids,month}); }
+    catch(e){ err(e); btn.disabled=false; btn.innerHTML=_lbl; return; }
+    m.remove();
+    confirmSaved((EN()?'Issued ':'ออกบิลแล้ว ')+r.created+(EN()?' bills':' รายการ'));
+    if((r.skipped||[]).length) setTimeout(()=>A_skippedModal(r.skipped, month), 600);
+    /* Tell the parents of the children who were actually BILLED — not of everyone who was ticked.
+     * A child skipped for any reason (no package, prepaid, not started) has no new bill, and
+     * "คุณมีบิลใหม่" for a bill that does not exist is worse than silence. */
+    const billed=(r.students||[]).map(x=>x.studentId);
+    if(notify && billed.length){
+      toast(EN()?`Notifying ${billed.length} parent(s)…`:`กำลังแจ้งผู้ปกครอง ${billed.length} คน…`);
+      try{ await api('notifyBills',{studentIds:billed,month});
+        toast(EN()?'Parents notified':'แจ้งผู้ปกครองแล้ว'); }
+      /* ...and a failure is SAID, not swallowed. It used to be caught and dropped, so an admin whose
+       * notifications never went out was told "แจ้งผู้ปกครองแล้ว" anyway. The bills are fine either
+       * way — which is the point of saying which half failed. */
+      catch(e){ toast(EN()?'⚠️ Bills issued, but notifying parents failed — tell them another way'
+        :'⚠️ ออกบิลแล้ว แต่แจ้งผู้ปกครองไม่สำเร็จ — กรุณาแจ้งทางอื่น'); }
+    } };
   /** Everyone the batch did NOT bill, grouped by reason — see A_genBillsDo for why this is one list. */
   window.A_skippedModal=(skipped, month)=>{
     const pre=skipped.filter(x=>x.code==='PREPAID_MONTH'), rest=skipped.filter(x=>x.code!=='PREPAID_MONTH');

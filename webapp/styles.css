@@ -150,6 +150,14 @@ a.btn.block{display:block;}
 .pill{display:inline-block;padding:2px 10px;border-radius:999px;font-size:12px;font-weight:600;}
 .pill.ok{background:var(--ok-bg);color:var(--ok);} .pill.bad{background:var(--bad-bg);color:var(--bad);}
 .pill.wait{background:var(--warn-bg);color:var(--warn);} .pill.info{background:var(--blue-bg);color:var(--blue-d);}
+/* 🔴 `.pill.warn` HAD NEVER EXISTED. Nine places in app.js wrote `class="pill warn"` — the
+   finishing-student badge, the DSPM-due count, today's OT waiver, "ยังไม่ได้จัดชั้น" and the rest —
+   and every one of them rendered as a bare pill: no background, no colour, the same weight as the
+   plain text beside it. Reported 2026-09-30 as "นักเรียนที่สิ้นสุดการศึกษา ... ให้เด่นขึ้นมาอีกหน่อย",
+   next to a ลาชั่วคราว badge that DID stand out — and the only difference between them was one word
+   in a class attribute. Named separately from .wait rather than aliased: these are warnings, and a
+   later decision to colour them differently should not have to hunt down nine call sites. */
+.pill.warn{background:var(--warn-bg);color:var(--warn);}
 
 .list-item{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--line);}
 .list-item:last-child{border-bottom:none;}
