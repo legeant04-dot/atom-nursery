@@ -131,7 +131,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.412'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.413'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -10427,19 +10427,33 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
    * in September and payable in March, and a list that did not follow the picker would be a
    * confident lie half the time.
    */
+  /* WHAT THIS MONTH ALREADY LOOKS LIKE, per child — billed or not, on which billing day, prepaid or
+   * not. `billingGroups` answers all of it in one reply (it is what การเงิน › รอบบิล is built from),
+   * so this REPLACES the prepaidStudents call rather than adding to it: one request, and the two
+   * screens can no longer disagree about whether a child has been billed. Flattened to a lookup
+   * here because the round is grouped by day and this list is by child. */
+  const icStateOf = bg => { const by={};
+    ((bg&&bg.groups)||[]).forEach(g=>(g.students||[]).forEach(s=>{ by[s.studentId]=Object.assign({day:g.day}, s); }));
+    return by; };
   window.A_issueCombined=async()=>{ const month=monthStr();
-    const [students,pre]=await Promise.all([
+    const [students,bg]=await Promise.all([
       (A_CACHE.students&&A_CACHE.students.length)?Promise.resolve(A_CACHE.students):api('listStudents'),
-      api('prepaidStudents',{month}).catch(()=>({byStudent:{}}))]);
+      api('billingGroups',{month}).catch(()=>null)]);
     A_CACHE.students=students; window._IC_STU=students;
+    const pre={byStudent:icStateOf(bg)};
     modal(`<h3>🧾 ${EN()?'Issue combined bills':'ออกบิลรวม (เลือกนักเรียน)'}</h3>
       <p class="muted" style="font-size:13px">${EN()?'Pick 2+ students; this issues each one\'s monthly tuition bill and notifies the parents. Parents can pay them combined (one slip) or separately.':'เลือกนักเรียนตั้งแต่ 2 คนขึ้นไป · ระบบจะออกบิลค่าเทอมรายเดือนของแต่ละคนและแจ้งผู้ปกครอง · ผู้ปกครองเลือกจ่ายรวมสลิปเดียวหรือแยกได้'}</p>
       <label class="field"><span>${esc(t('c.month'))}</span><input id="icMonth" type="month" value="${month}" onchange="A_icMonth(this.value)"/></label>
       <label style="display:flex;align-items:center;gap:8px;font-size:13px;margin:4px 0"><input type="checkbox" id="icNotify" checked style="width:auto"/> ${EN()?'Notify parents':'แจ้งเตือนผู้ปกครอง'}</label>
+      <div id="icCount" class="row" style="gap:6px;margin:6px 0"></div>
       <div style="max-height:40vh;overflow:auto;border:1px solid var(--line);border-radius:8px;padding:6px;margin:6px 0"><label style="display:flex;align-items:center;gap:8px;font-size:13px;border-bottom:1px solid var(--line);padding-bottom:4px"><input type="checkbox" id="icAll" onchange="document.querySelectorAll('.icStu:not([disabled])').forEach(c=>c.checked=this.checked)" style="width:auto"/> <b>${EN()?'Select all':'เลือกทั้งหมด'}</b></label>
         <div id="icRows">${icRows(students, (pre&&pre.byStudent)||{}, month)}</div></div>
+      <p class="muted" style="font-size:12.5px;margin:0 2px 6px">${EN()
+        ? 'A child who already has a bill for this month is locked. Cancel the bill on their finance screen to issue a new one.'
+        : 'นักเรียนที่มีบิลของเดือนนี้แล้วจะถูกล็อกไว้ · หากต้องการออกบิลใหม่ ให้ยกเลิกบิลเดิมที่หน้าการเงินของนักเรียนคนนั้นก่อน'}</p>
       <button class="btn block" onclick="A_issueCombinedDo(this)">🧾 ${EN()?'Issue bills':'ออกบิล'}</button>
-      <button class="btn outline block" style="margin-top:8px" onclick="this.closest('.modal').remove()">${esc(t('c.close'))}</button>`); };
+      <button class="btn outline block" style="margin-top:8px" onclick="this.closest('.modal').remove()">${esc(t('c.close'))}</button>`);
+    icCount(); };
   // "เลือกทั้งหมด" must not tick a child it cannot bill, which is why the disabled ones are excluded
   // above rather than just styled — a ticked-then-skipped row is exactly the confusion this removes.
   /* ...AND THE OTHER TWO REASONS A CHILD MIGHT NOT NEED THIS MONTH'S BILL.
@@ -10470,15 +10484,41 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
      * It was the same weight as the class name beside it, so on a list of thirty children the one
      * row that needs a decision read like the other twenty-nine. A filled chip in its own colour,
      * with the date under it, so the eye finds it without reading. */
-    const tag = (colour,html) => `<small style="color:var(--${colour});font-weight:600;margin-left:auto;text-align:right;flex:0 0 auto">${html}</small>`;
-    const chip = (bg,line,ink,label,sub) => `<span style="margin-left:auto;flex:0 0 auto;text-align:right;line-height:1.3">
+    const tag = (colour,html) => `<small style="color:var(--${colour});font-weight:600;text-align:right;flex:0 0 auto">${html}</small>`;
+    const chip = (bg,line,ink,label,sub) => `<span style="flex:0 0 auto;text-align:right;line-height:1.3">
       <b style="display:inline-block;background:var(--${bg});border:1px solid var(--${line});color:var(--${ink});border-radius:999px;padding:2px 9px;font-size:12.5px;white-space:nowrap">${label}</b>
       ${sub?`<br><small class="muted" style="font-size:11.5px">${sub}</small>`:''}</span>`;
-    return students.map(s=>{ const pi=by[s.StudentID];
+    return students.map(s=>{ const st=by[s.StudentID]||null;
+      const pp=st&&st.prepay ? st.prepay : null;          // the prepayment itself, when there is one
+      const pi=pp;                                        // (kept: every branch below reads `pi`)
+      /* ALREADY BILLED — LOCKED UNTIL THE BILL IS CANCELLED.
+       *
+       * Asked 2026-09-30: "หากรายการไหนมีการออกบิลไปแล้วของเดือนนั้นๆ ให้ล็อคการออกบิลของนักเรียนคนที่
+       * ออกบิลไปแล้วไว้ จนกว่าจะมีการยกเลิกบิล".
+       *
+       * The server already refused to double-bill — issueBill overwrites the existing row rather
+       * than adding a second one, and the batch reports it as skipped. What it did NOT do was say so
+       * beforehand: the box ticked, the run appeared to work, and the only way to learn that nothing
+       * new had happened was to read the "ไม่ได้ออกบิล" list afterwards. A ticked-then-skipped row is
+       * the exact confusion the prepay lock was added to remove, and this is the same rule.
+       *
+       * A LOCK NEEDS A DOOR. The row carries a link straight to that child's finance screen, where
+       * the bill is cancelled — otherwise this is a dead end and somebody works around it. */
+      const billed = !!(st && st.billed);
       const end = s.endDate||'';
       const pFrom = s.pauseFrom||'', pTo = s.pauseTo||'';
       let note='';
-      if(pi) note = tag('ok', `💰 ${EN()?'prepaid':'ชำระล่วงหน้า'} (${pi.index}/${pi.months})<br><span class="muted" style="font-weight:400">${EN()?'left':'เหลืออีก'} ${Math.max(0,(pi.left||1)-1)} ${EN()?'mo':'เดือน'}</span>`);
+      if(billed){
+        /* 🔴 EXACTLY 'PAID', not "contains PAID". `/PAID/i` matches **UNPAID**, so every unpaid bill
+         * announced "ชำระแล้ว" next to the family's name on the billing screen — a statement about
+         * somebody's money that was false for the commonest case of all. Caught by rendering a row
+         * with Status:'UNPAID' and reading it, not by reading the regex. */
+        const paid=String(st.status||'').trim().toUpperCase()==='PAID';
+        note = chip(paid?'ok-bg':'surface-2', paid?'ok-line':'line', paid?'ok':'ink',
+          `🧾 ${EN()?'BILLED':'ออกบิลแล้ว'}${paid?` · ${EN()?'paid':'ชำระแล้ว'}`:''}`,
+          (st.amount?esc(baht(st.amount)):'') );
+      }
+      else if(pi) note = tag('ok', `💰 ${EN()?'prepaid':'ชำระล่วงหน้า'} (${pi.index}/${pi.months})<br><span class="muted" style="font-weight:400">${EN()?'left':'เหลืออีก'} ${Math.max(0,(pi.left||1)-1)} ${EN()?'mo':'เดือน'}</span>`);
       else if(end && end < mStart)
         note = chip('bad-bg','bad','bad', `🚫 ${EN()?'ALREADY LEFT':'สิ้นสุดแล้ว'}`, esc(fullDate(end)));
       else if(end && end <= mEnd)
@@ -10491,13 +10531,40 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
         note = chip('bad-bg','bad','bad', `🚫 ${EN()?'ON LEAVE ALL MONTH':'ลาตลอดเดือน'}`, esc(fullDate(pFrom))+(pTo?' – '+esc(fullDate(pTo)):''));
       else if(pFrom && !(pFrom>mEnd || (pTo && pTo<mStart)))
         note = tag('warn', `🏖️ ${EN()?'away part of the month':'ลาบางส่วนของเดือน'}<br><span style="font-weight:400">${EN()?'billed as usual':'ยังคิดเต็มเดือน'}</span>`);
-      return `<label class="field" style="display:flex;align-items:center;gap:8px;margin:2px 0${pi?';opacity:.6':''}"><input type="checkbox" class="icStu" value="${s.StudentID}" style="width:auto"${pi?' disabled':''}/> <b>${esc(dispNick(s))}</b> <small class="muted">${esc(nm(s))} · ${esc(s.Class||'')}</small>${note}</label>`;
+      /* THE BILLING ROUND, PER CHILD — asked in the same breath: "ในกรณีที่มีการระบุเหมือนในการเงิน
+       * รอบบิล ให้แสดงวันที่ว่า คนไหน รอบบิลวันไหนด้วย". `own` is what tells a family's OWN agreed day
+       * apart from the school's default falling through, and that difference is the whole reason
+       * somebody would look: a date everybody shares is not news, a date one family negotiated is. */
+      const round = st ? `<small class="muted" style="display:block;font-size:12px">🗓️ ${EN()?'billing round':'รอบบิล'} ${esc(fullDate(st.dueDate))}${
+        st.own?` <span style="color:var(--blue)">· ${EN()?'agreed for this family':'ตกลงเฉพาะรายนี้'}</span>`:''}</small>` : '';
+      const lock = billed || !!pi;
+      /* THE WAY OUT OF THE LOCK, on the row that is locked. Shown only for a billed row: a prepaid
+       * one is not something to cancel, it is something that was paid. */
+      const door = billed ? `<button type="button" class="btn sm outline" style="flex:0 0 auto" onclick="event.preventDefault();this.closest('.modal').remove();A_finStudent('${esc(s.StudentID)}')">${EN()?'Open / cancel':'เปิด / ยกเลิกบิล'}</button>` : '';
+      /* 🔴 THE RIGHT-HAND SIDE IS ONE BLOCK THAT WRAPS, not three flex items competing for a phone's
+       * width. With the chip and the button as siblings of the name, a 375px row gave the name
+       * column about forty pixels and printed "ปอ / ปอ / รัก / เรียน" one word per line. Now the name
+       * takes the row and the chip+button drop underneath it when there is no space — which is the
+       * mobile-first rule this screen is held to. */
+      const right = (note||door) ? `<span style="margin-left:auto;flex:0 0 auto;display:flex;align-items:center;gap:6px">${note}${door}</span>` : '';
+      return `<label class="field" style="display:flex;flex-wrap:wrap;align-items:center;gap:6px 8px;margin:2px 0${lock?';opacity:.6':''}">
+        <input type="checkbox" class="icStu" value="${s.StudentID}" style="width:auto;flex:0 0 auto"${lock?' disabled':''}/>
+        <span style="flex:1 1 150px;min-width:0"><b>${esc(dispNick(s))}</b> <small class="muted">${esc(nm(s))} · ${esc(s.Class||'')}</small>${round}</span>${right}</label>`;
     }).join('');
   }
   window.A_icMonth=async(month)=>{ const el=$('#icRows'); if(!el) return;
     const all=$('#icAll'); if(all) all.checked=false;
-    let by={}; try{ by=(await api('prepaidStudents',{month})).byStudent||{}; }catch(e){}
-    el.innerHTML=icRows(window._IC_STU||[], by, month); };
+    let by={}; try{ by=icStateOf(await api('billingGroups',{month})); }catch(e){}
+    el.innerHTML=icRows(window._IC_STU||[], by, month);
+    icCount(); };
+  /* ออกบิลแล้ว กี่คน / ยังไม่ออก กี่คน — the two numbers the ผอ. is actually after, above a list of
+   * thirty. Counted from the rendered rows rather than from the reply, so it can never disagree with
+   * what is on the screen: a disabled box IS a child who cannot be billed again. */
+  window.icCount=()=>{ const el=$('#icCount'); if(!el) return;
+    const all=[...document.querySelectorAll('.icStu')];
+    const locked=all.filter(c=>c.disabled).length;
+    el.innerHTML=`<span class="pill ok">${all.length-locked} ${EN()?'can be issued':'ยังไม่ออกบิล'}</span>
+      <span class="pill" style="background:var(--surface-2)">${locked} ${EN()?'locked':'ออกบิลแล้ว / ชำระล่วงหน้า'}</span>`; };
   window.A_issueCombinedDo=async(btn)=>{ const m=btn.closest('.modal'); const ids=[...m.querySelectorAll('.icStu:checked')].map(c=>c.value); const month=m.querySelector('#icMonth').value; const notify=m.querySelector('#icNotify').checked;
     if(!ids.length){ toast(EN()?'Select at least one student':'เลือกนักเรียนอย่างน้อย 1 คน'); return; }
     btn.disabled=true;

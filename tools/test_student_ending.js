@@ -43,10 +43,10 @@ console.log('1) the badge on the bill screen — measured against the month in t
    * reads next to a checkbox, and re-typing it here would test a copy that cannot go stale. */
   const src = /function icRows\(students, by, month\)\{[\s\S]*?\n  \}/.exec(app);
   ok_('icRows is defined and takes the month', !!src);
-  const rows = new Function('EN', 'esc', 'nm', 'dispNick', 'monthStr', 'fullDate',
+  const rows = new Function('EN', 'esc', 'nm', 'dispNick', 'monthStr', 'fullDate', 'baht',
     src[0] + '\n return icRows;')(
     () => true, s => String(s), s => s.NameTH || '', s => s.Nickname || '', () => '2026-10',
-    d => String(d));
+    d => String(d), n => '฿' + n);
 
   const stu = (id, extra) => Object.assign({ StudentID: id, NameTH: 'ด.ช. ' + id, Nickname: id, Class: 'Nursery 1' }, extra || {});
   const html = (list, by, month) => rows(list, by || {}, month);
@@ -90,11 +90,37 @@ console.log('1) the badge on the bill screen — measured against the month in t
   eq('a pause with no return date covers the month too',
     /on leave all month/i.test(rowFor(openEnded, '2026-10')), true);
 
-  // the prepay badge is unchanged and still wins — it is the one the server actually enforces
+  /* The lookup shape changed on 2026-09-30: it now comes from billingGroups, so each entry carries
+   * `billed` / `dueDate` / `own` alongside the prepayment, which moved under `prepay`. */
   const pre = stu('pre', { endDate: '2026-12-31', endScheduled: true });
-  const h = rowFor(pre, '2026-10', { pre: { index: 2, months: 6, left: 5 } });
+  const h = rowFor(pre, '2026-10', { pre: { billed: false, dueDate: '2026-10-05', own: false,
+    prepaid: true, prepay: { index: 2, months: 6, left: 5 } } });
   eq('a prepaid child still shows the prepay badge', /prepaid/.test(h), true);
   eq('...and is still the disabled one', /disabled/.test(h), true);
+  /* 🔴 ...AND SO IS ONE ALREADY BILLED, which is the new half of the same rule. */
+  const bh = rowFor(stu('billed'), '2026-10', { billed: { billed: true, status: 'UNPAID', amount: 6000,
+    dueDate: '2026-10-05', own: false } });
+  eq('🔴 a child already billed this month is locked', /disabled/.test(bh), true);
+  eq('...and says so', /BILLED|ออกบิลแล้ว/.test(bh), true);
+  eq('...and offers the way to cancel it', /A_finStudent/.test(bh), true);
+  /* `· paid` is the suffix the chip adds ONLY when the bill really is paid — "BILLED" on its own
+   * does not contain it. (The harness renders in English, so these match the English wording.) */
+  const saysPaid = h => /· paid/.test(h);
+  eq('a PAID one says that instead', saysPaid(
+    rowFor(stu('paid'), '2026-10', { paid: { billed: true, status: 'PAID', amount: 6000, dueDate: '2026-10-05' } })), true);
+  /* 🔴 FOUND BY RENDERING A ROW, NOT BY READING THE REGEX. The check was /PAID/i, which matches
+   * **UNPAID** — so every unpaid bill announced "ชำระแล้ว" beside the family's name. UNPAID is the
+   * commonest status there is, so this was wrong nearly every time it was shown. */
+  eq('🔴 an UNPAID bill does NOT claim to be paid', saysPaid(bh), false);
+  eq('...and a PENDING_VERIFY one does not either', saysPaid(
+    rowFor(stu('pv'), '2026-10', { pv: { billed: true, status: 'PENDING_VERIFY', amount: 6000, dueDate: '2026-10-05' } })), false);
+  /* THE BILLING ROUND, per child — and the difference between a date everybody shares and one a
+   * family negotiated, which is the only reason anyone looks. */
+  eq('every known row shows its billing round', /รอบบิล|billing round/.test(bh), true);
+  eq('🔴 ...and marks a day this family agreed for themselves', /ตกลงเฉพาะรายนี้|agreed for this family/.test(
+    rowFor(stu('ownday'), '2026-10', { ownday: { billed: false, dueDate: '2026-10-20', own: true } })), true);
+  eq('...and does not, when it is just the school default', /ตกลงเฉพาะรายนี้|agreed for this family/.test(
+    rowFor(stu('defday'), '2026-10', { defday: { billed: false, dueDate: '2026-10-05', own: false } })), false);
   eq('an ordinary child has no badge and no lock',
     /prepaid|leaving|leave|disabled/i.test(rowFor(stu('plain'), '2026-10')), false);
 }
@@ -148,11 +174,24 @@ console.log('3) 🔴 CONTROL — the badge must not become a lock');
    * disabled. A last day is different: issuing a final bill after it is a thing the ผอ. does on
    * purpose. If someone later "tidies" this by disabling the row, the school loses the ability to
    * bill a leaver at all — silently, because the box simply stops responding. */
+  /* A SECOND LOCK JOINED ON 2026-09-30 — "ออกบิลไปแล้ว" — so this control can no longer be "there is
+   * exactly one". It is now stated as what it always meant: the lock is made of the two conditions
+   * the school chose, and a LEAVING DATE IS NOT ONE OF THEM. Measured on the rendered row rather
+   * than on the source, which is the thing that actually reaches the admin. */
   const src = /function icRows\(students, by, month\)\{[\s\S]*?\n  \}/.exec(app)[0];
-  const dis = src.match(/disabled/g) || [];
-  eq('there is exactly one disabling condition in the row', dis.length, 1);
-  ok_('...and it is the prepay one', /\$\{pi\?' disabled':''\}/.test(src));
-  ok_('the end date and the pause only ever produce a tag', !/end[\s\S]{0,200}disabled/.test(src));
+  ok_('the lock is exactly billed-or-prepaid', /const lock = billed \|\| !!pi;/.test(src));
+  ok_('...and nothing else sets disabled', (src.match(/disabled/g) || []).length === 1);
+
+  const rows2 = new Function('EN', 'esc', 'nm', 'dispNick', 'monthStr', 'fullDate', 'baht',
+    src + '\n return icRows;')(() => true, s => String(s), s => s.NameTH || '', s => s.Nickname || '',
+    () => '2026-10', d => String(d), n => '฿' + n);
+  const one = (extra, st) => rows2([Object.assign({ StudentID: 'X', NameTH: 'ด.ช. เอ', Nickname: 'เอ', Class: 'N1' }, extra)],
+    st ? { X: st } : {}, '2026-11');
+  eq('🔴 a child past their last day is NOT locked', /disabled/.test(one({ endDate: '2026-10-01' })), false);
+  eq('🔴 ...nor is one leaving later', /disabled/.test(one({ endDate: '2027-01-31' })), false);
+  eq('🔴 ...nor one on temporary leave all month',
+    /disabled/.test(one({ pauseFrom: '2026-11-01', pauseTo: '2026-11-30' })), false);
+  eq('CONTROL — but a billed one IS', /disabled/.test(one({}, { billed: true, status: 'UNPAID', dueDate: '2026-11-05' })), true);
 
   /* ...and the server side of the same decision: issueBill must NOT have grown an EndDate refusal,
    * or the tickable box would fail on submit and the badge would be a lock after all. */
