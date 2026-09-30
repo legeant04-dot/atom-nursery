@@ -153,10 +153,25 @@ console.log('\n3) who is prepaid THIS month — the answer the picker greys itse
 
 console.log('\n4) the screens say it');
 {
-  ok_('the picker asks who is prepaid for the month on show', /api\('prepaidStudents',\{month\}\)/.test(app));
-  ok_('...alongside the roster, in one round trip', /const \[students,pre\]=await Promise\.all\(\[/.test(app));
+  /* SOURCE CHANGED 2026-09-30, and this assertion moved with it. It used to name prepaidStudents.
+   * billingGroups answers the same question AND "has this child been billed yet" and "on which
+   * billing day" — all three in one reply, and it is the same reply การเงิน › รอบบิล is drawn from,
+   * so the two screens can no longer disagree about whether a child has a bill. Still ONE request:
+   * it replaced prepaidStudents rather than joining it. */
+  ok_('the picker asks what this month already looks like, per child', /api\('billingGroups',\{month\}\)/.test(app));
+  ok_('...and that reply still carries the prepayments', /prepaid:!!pi, prepay:pi\|\|null/.test(eng));
+  ok_('...alongside the roster, in one round trip', /const \[students,bg\]=await Promise\.all\(\[/.test(app));
   ok_('...and re-asks when the month changes', /window\.A_icMonth=async\(month\)=>/.test(app) && /onchange="A_icMonth\(this\.value\)"/.test(app));
-  ok_('a prepaid child cannot be ticked', /<input type="checkbox" class="icStu" value="\$\{s\.StudentID\}" style="width:auto"\$\{pi\?' disabled':''\}\/>/.test(app));
+  /* ...AND NOR CAN A CHILD WHO ALREADY HAS THIS MONTH'S BILL (2026-09-30). The two reasons share one
+   * flag now, because they are the same rule from the admin's side: this child cannot be billed
+   * again from here. The prepay half is enforced by the server (PREPAID_MONTH); the billed half is
+   * the screen refusing to offer a run that would report itself as skipped. */
+  ok_('a prepaid child cannot be ticked', /const lock = billed \|\| !!pi;/.test(app));
+  ok_('🔴 ...and nor can one that has already been billed this month', /const billed = !!\(st && st\.billed\);/.test(app));
+  ok_('...the same flag drives the box and the grey', /\$\{lock\?';opacity:\.6':''\}[\s\S]{0,200}\$\{lock\?' disabled':''\}/.test(app));
+  /* A LOCK NEEDS A DOOR, or somebody works around it. */
+  ok_('...and a billed row links straight to where the bill is cancelled',
+    /const door = billed \? [\s\S]{0,300}A_finStudent\(/.test(app));
   /* "SELECT ALL" MUST NOT TICK ONE EITHER — a ticked-then-skipped row is exactly the confusion this
    * was asked to remove, and :not([disabled]) is what stops it. */
   ok_('...not even by "select all"', /document\.querySelectorAll\('\.icStu:not\(\[disabled\]\)'\)/.test(app));
