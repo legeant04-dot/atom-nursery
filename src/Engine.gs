@@ -4020,6 +4020,10 @@ function createAtomAPI(M, GROWTH_STD) {
       .map(s=>({studentId:s.StudentID, nick:s.Nickname, nickEN:s.NicknameEN, name:s.NameTH, nameEN:s.NameEN,
         className:s.Class||'', endDate:ymd(s.EndDate), reason:s.EndReason||'', remark:s.EndRemark||'',
         startDate:ymd(s.EnrollDate||''),
+        // ...and whether this child has already been handed one, and what date it carries. The list
+        // is where the question is asked (printing a child twice, or missing one, is only found out
+        // at the ceremony), so the answer travels with the list.
+        certIssuedDate:ymd(s.CertIssuedDate||''), certIssuedAt:String(s.CertIssuedAt||''),
         // the last day itself still counts as a school day, so "finished" is strictly after it
         ended:studentEnded_(s)}))
       // most recent first: the child who has just finished is the one being printed today
@@ -5423,7 +5427,17 @@ function createAtomAPI(M, GROWTH_STD) {
     certAssets: () => ({ bg:'', sig:'', font:'' }),
     saveCertAsset: p => { const w=String((p&&p.which)||''); if(w!=='bg'&&w!=='sig'&&w!=='font') fail('BAD_INPUT','ไม่รู้จักไฟล์ที่จะบันทึก: '+w);
       return certTextRead_(cfg); },
-    markCertIssued: p => ({ ok:true, logged:(p&&Array.isArray(p.studentIds)?p.studentIds.length:0) }),
+    /* THE CERTIFICATE THIS CHILD ALREADY HAS. Asked 2026-10-03 — it used to log the issue and store
+     * nothing, so the list could not say who had already been printed, and at a graduation that is
+     * the only question. LATEST ONLY, overwritten: "has this child got one, and what date does it
+     * say" is the question; how many times it was issued belongs in the audit log, which still gets
+     * every one. (src/Certificate.gs shadows this and writes the two cells in place.) */
+    markCertIssued: p => { const ids=(p&&Array.isArray(p.studentIds))?p.studentIds:[];
+      const issue=ymd((p&&p.issueDate)||todayLocal()); let stamped=0;
+      ids.forEach(id=>{ const s=studentById(id); if(!s) return;
+        s.CertIssuedDate=issue; s.CertIssuedAt=stampLocal(); stamped++; });
+      if(stamped) logAct('markCertIssued','', ids.length+' ใบ ลงวันที่ '+issue, actorOf(p));
+      return { ok:true, logged:ids.length, stamped, issueDate:issue }; },
 
     /* ========== งดคำนวณ OT ==========
      * The list of waived date ranges, and today's status so the screen can say plainly whether OT is

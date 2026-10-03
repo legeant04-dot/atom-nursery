@@ -196,13 +196,49 @@ function handleCertAssets() {
  * line saying which child, by whom, and when. The PDF is still built entirely on the client; this
  * is one small call afterwards, and a failure here never blocks the download.
  */
+/**
+ * ...AND IT IS WRITTEN DOWN ON THE CHILD, not only in the log.
+ *
+ * Asked 2026-10-03: "หากเด็กคนไหนมีการกด Download ออกใบประกาศไปแล้ว ให้บันทึกข้อมูล เป็น Status
+ * ออกประกาศแล้ว ล่าสุดเมื่อวันที่ dd/mm/yyyy แต่ก็ยังสามารถกด Download และแก้ไขวันที่ออกใหม่ได้ หรือจะ
+ * เลือกวันเดิมก็ได้และบันทึกล่าสุดเท่านั้น".
+ *
+ * This used to write ONE AUDIT LINE and nothing else, so the list could not tell the ผอ. which
+ * children already had a certificate — and at a graduation that is the only question: a child
+ * printed twice gets two, and a child missed gets none, and neither is discovered until the
+ * ceremony. The audit log had the answer and nobody reads an audit log to hand out certificates.
+ *
+ * LATEST ONLY, overwritten — the school's decision. Issuing again replaces the record: the question
+ * is "has this child got one, and what date does it say", not "how many times did we try". The full
+ * history stays in AUDIT_LOG, which is where a history belongs, and this keeps logging there too.
+ *
+ * In place, row by row (updateRow_), because STUDENTS is shrink-protected and a collection rewrite
+ * is not something a courtesy stamp gets to do.
+ */
 function handleMarkCertIssued(p) {
   p = p || {};
   var ids = Array.isArray(p.studentIds) ? p.studentIds.slice(0, 200) : [];
   if (!ids.length) return { ok: true, logged: 0 };
+  var issue = String(p.issueDate || '').slice(0, 10);
+  var stamped = 0;
   try {
-    logAudit(p.adminId || 'admin', 'CERT_ISSUED', ids.join(','),
-      ids.length + ' certificate(s), dated ' + String(p.issueDate || ''));
+    var sh = sheet_(getMainSpreadsheet_(), 'STUDENTS');
+    try { ensureColumns_(sh, ['CertIssuedDate', 'CertIssuedAt']); } catch (e) {}
+    var at = dateStr_(new Date()) + ' ' + timeStr_(new Date());
+    var want = {};
+    ids.forEach(function (id) { want[String(id)] = 1; });
+    readObjects_(sh).forEach(function (s) {
+      if (!want[String(s.StudentID)]) return;
+      updateRow_(sh, s._row, { CertIssuedDate: issue, CertIssuedAt: at });
+      stamped++;
+    });
+    recCacheBust_('STUDENTS');
   } catch (e) {}
-  return { ok: true, logged: ids.length };
+  /* The LOG still gets every issue, including the re-issues the row no longer remembers. The stamp
+   * answers "what does this child have"; the log answers "what did we do, and when". */
+  try {
+    logAudit(p.adminId || 'admin', 'CERT_ISSUED', 'STUDENTS',
+      ids.join(',') + ' — ' + ids.length + ' ใบ ลงวันที่ ' + issue);
+  } catch (e) {}
+  return { ok: true, logged: ids.length, stamped: stamped, issueDate: issue };
 }
