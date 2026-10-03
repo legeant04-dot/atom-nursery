@@ -42,7 +42,7 @@ function ok_(label, cond) { console.log((cond ? '  ok   ' : '  FAIL ') + label);
 const R = f => fs.readFileSync(path.join(__dirname, '..', f), 'utf8').replace(/\r\n/g, '\n');
 const app = R('webapp/app.js'), engine = R('webapp/engine.js'), cert = R('webapp/certificate.js'),
       card = R('webapp/report_card.js'), certGs = R('src/Certificate.gs'), codeGs = R('src/Code.gs'),
-      api = R('webapp/api.js');
+      api = R('webapp/api.js'), configGs = R('src/Config.gs');
 const appCode = app.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
 
 // ============================================================================================
@@ -389,7 +389,7 @@ console.log('\n6) the signature is private, and issuing leaves a trace');
   // the call moved into A_certIssued on 2026-10-03, so the download and the share can both make it
   // without a third copy; the `.catch` is the part that matters and it is still there
   ok_('...and a failure to log never fails the download that already happened',
-    /api\('markCertIssued',\{studentIds:\[\.\.\.CERT_SEL\], issueDate:CERT_PV\.issue\}\)\.catch\(\(\)=>\{\}\)/.test(appCode));
+    /api\('markCertIssued',\{studentIds:\[\.\.\.CERT_SEL\], issueDate:CERT_PV\.issue, adminId:USER\.staffId\}\)\.catch\(\(\)=>\{\}\)/.test(appCode));
 
   ok_('nothing about a named child is ever uploaded', /never exists on any server/i.test(cert));
 }
@@ -638,6 +638,66 @@ console.log('\n8) look at it before you print it, and be told when it saved');
     !/จะไปอยู่ใน Album|will be saved to your album|บันทึกลงอัลบั้มให้อัตโนมัติ/.test(app));
 
   ok_('issuing is still recorded, and still cannot fail the export', /const A_certIssued = \(\) =>[\s\S]{0,160}\.catch\(\(\)=>\{\}\)/.test(appCode));
+}
+
+// ============================================================================================
+console.log('\n9) who has already been handed one');
+// ============================================================================================
+{
+  /* Asked 2026-10-03: "หากเด็กคนไหนมีการกด Download ออกใบประกาศไปแล้ว ให้บันทึกข้อมูล เป็น Status
+   * ออกประกาศแล้ว ล่าสุดเมื่อวันที่ dd/mm/yyyy แต่ก็ยังสามารถกด Download และแก้ไขวันที่ออกใหม่ได้ ...
+   * และบันทึกล่าสุดเท่านั้น".
+   *
+   * markCertIssued used to write ONE AUDIT LINE and nothing else, so the list could not say which
+   * children already had a certificate — and at a graduation that is the only question the list is
+   * read for: printed twice means two, missed means none, and neither is found out until the day. */
+  const M = {
+    students: [
+      { StudentID: 'S1', NameTH: 'ด.ญ. เอ', Nickname: 'เอ', Class: 'N2', Status: 'ACTIVE', EndDate: '2026-03-31', EndReason: 'graduated' },
+      { StudentID: 'S2', NameTH: 'ด.ช. บี', Nickname: 'บี', Class: 'N2', Status: 'ACTIVE', EndDate: '2026-03-31', EndReason: 'graduated' }
+    ],
+    parents: [], staff: [], activityLog: [], userLinks: [], payments: [], config: {}
+  };
+  const H = createAtomAPI(M).H;
+
+  eq('nobody starts with a certificate', H.certStudents().map(s => s.certIssuedDate), ['', '']);
+  H.markCertIssued({ studentIds: ['S1'], issueDate: '2026-03-31' });
+  const after = H.certStudents();
+  eq('🔴 the child who was printed carries the date', (after.find(s => s.studentId === 'S1') || {}).certIssuedDate, '2026-03-31');
+  eq('...and the one who was not, still does not', (after.find(s => s.studentId === 'S2') || {}).certIssuedDate, '');
+  ok_('...and when the file was taken is recorded too',
+    /^\d{4}-\d{2}-\d{2}/.test((after.find(s => s.studentId === 'S1') || {}).certIssuedAt || ''));
+
+  /* 🔴 RE-ISSUING IS ALLOWED, AND REPLACES. The school was explicit: a new date OR the same one,
+   * and only the latest is kept. A second row, or a refusal, would both be wrong. */
+  H.markCertIssued({ studentIds: ['S1'], issueDate: '2026-04-20' });
+  eq('🔴 issuing again replaces the date rather than adding a second record',
+    (H.certStudents().find(s => s.studentId === 'S1') || {}).certIssuedDate, '2026-04-20');
+  H.markCertIssued({ studentIds: ['S1'], issueDate: '2026-04-20' });
+  eq('...and the same date again is simply the same answer',
+    (H.certStudents().find(s => s.studentId === 'S1') || {}).certIssuedDate, '2026-04-20');
+  eq('the child is still on the list — a certificate is not a lock', H.certStudents().length, 2);
+  /* ...while the HISTORY the row no longer remembers is still in the log, which is where a history
+   * belongs. Three issues, three entries. */
+  eq('every issue is still on the activity log', (M.activityLog || []).filter(a => /markCertIssued/.test(JSON.stringify(a))).length, 3);
+
+  // the live path writes the same two cells, in place (STUDENTS is shrink-protected)
+  ok_('the route stamps the row rather than only logging',
+    /function handleMarkCertIssued[\s\S]{0,900}updateRow_\(sh, s\._row, \{ CertIssuedDate: issue, CertIssuedAt: at \}\)/.test(certGs));
+  ok_('...having made sure the columns exist', /ensureColumns_\(sh, \['CertIssuedDate', 'CertIssuedAt'\]\)/.test(certGs));
+  ok_('...and still logs every issue, including the ones the row forgets', /function handleMarkCertIssued[\s\S]{0,1400}logAudit\(/.test(certGs));
+  ok_('the columns are declared', /'CertIssuedDate', 'CertIssuedAt'/.test(configGs));
+  ok_('a failure to stamp never fails the export that already happened',
+    /function handleMarkCertIssued[\s\S]{0,900}\} catch \(e\) \{\}/.test(certGs));
+
+  // the screen
+  ok_('🔴 the list marks a child who already has one', /✅ \$\{EN\(\)\?'issued':'ออกแล้ว'\}/.test(app));
+  ok_('...with the date it carries', /ออกใบประกาศแล้ว · ลงวันที่/.test(app));
+  ok_('...and says re-issuing is allowed, so nobody treats the tick as a lock',
+    /ออกซ้ำได้ จะเลือกวันที่ใหม่หรือวันเดิมก็ได้ · ระบบเก็บเฉพาะครั้งล่าสุด/.test(app));
+  ok_('🔴 ...and the list behind the preview learns it immediately',
+    /CERT_LIST\.forEach\(s=>\{ if\(CERT_SEL\.has\(s\.studentId\)\) s\.certIssuedDate=on; \}\)/.test(appCode));
+  ok_('...repainted, not left for the next visit', /A_certIssued[\s\S]{0,400}A_certRender\(true\)/.test(appCode));
 }
 
 console.log('\n' + (fail ? 'FAILED ' : 'PASSED ') + pass + ' passed, ' + fail + ' failed');

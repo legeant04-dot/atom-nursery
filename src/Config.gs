@@ -69,6 +69,14 @@ SCHEMA[WB.MAIN] = {
                        * nothing depends on a trigger running that morning. EndReason is one of the
                        * WithdrawReasons codes, so both exits are countable together. */
                       'EndDate', 'EndReason', 'EndRemark',
+                      /* THE CERTIFICATE THAT HAS ALREADY BEEN HANDED OVER (2026-10-03).
+                       * CertIssuedDate is the date PRINTED ON THE SHEET — the one the admin picks —
+                       * and CertIssuedAt is when the file was actually downloaded. Only the LATEST
+                       * of each is kept, by the school's own decision: issuing again replaces the
+                       * record rather than adding to it, because the question these answer is "has
+                       * this child got one, and what does it say", not "how many times did we try".
+                       * The full history is in AUDIT_LOG, which is where a history belongs. */
+                      'CertIssuedDate', 'CertIssuedAt',
                       'Status', 'CreatedDate',
                       'OTRate',    // per-student late-pickup OT rate/hour; blank = SCHOOL_CONFIG OTRatePerHour
                       // WHICH DAY OF THE MONTH THIS FAMILY PAYS ON. Families do not all get paid on

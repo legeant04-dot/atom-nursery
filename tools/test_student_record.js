@@ -117,7 +117,12 @@ console.log('\n1) the admin sees the record the family filled in');
   const notAsked = ['name', 'photo', 'lastgrowthupdate', 'insurancecardimage', 'drivefolderurl',
     'withdrawdetail', 'withdrawby', 'parentid', 'otrate',
     // an admin's decision about this child's phone, not something the family was asked at registration
-    'geoexempt'];
+    'geoexempt',
+    /* ...and what the SCHOOL did, not what the family told us: the date on the certificate it handed
+     * over and when that file was downloaded (2026-10-03). They belong to the certificate screen,
+     * which is the only thing that writes or reads them; a parent's record page has no use for
+     * them and a registration form never asks. */
+    'certissueddate', 'certissuedat'];
   const missing = declared.map(lc).filter(k => notAsked.indexOf(k) < 0 && shown.indexOf(k) < 0)
     // engine names that differ from the column name
     .filter(k => !{ studentid: 1, nameth: 1, nameen: 1, nickname: 1, nicknameen: 1, nationalid: 1, bloodtype: 1,

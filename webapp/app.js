@@ -131,7 +131,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.415'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.416'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -8669,10 +8669,20 @@
       <div style="max-height:44vh;overflow:auto">${rows.map(s=>{
         const who=EN()?(s.nameEN||s.name||s.studentId):(s.name||s.studentId);
         const nick=EN()?(s.nickEN||s.nick||''):(s.nick||'');
+        /* ALREADY HANDED ONE OUT — asked 2026-10-03. At a graduation this is the only question the
+         * list is really being read for: a child printed twice gets two, a child missed gets none,
+         * and neither is discovered until the ceremony. It does NOT lock the row — re-issuing with a
+         * new date (or the same one) is explicitly allowed; only the latest is kept. */
+        const done=s.certIssuedDate||'';
         return `<label class="list-item" style="cursor:pointer"><span><b>${esc(who)}</b>${nick?` <small class="muted">(${esc(nick)})</small>`:''}
+          ${done?`<span class="pill ok" style="font-size:11px">✅ ${EN()?'issued':'ออกแล้ว'}</span>`:''}
           <br><small class="muted">${esc(s.className||'-')} · ${EN()?'last day':'วันสุดท้าย'} ${esc(ddmmyyyy(s.endDate))}${
-            s.reason?` · ${esc(t('wd.reason.'+s.reason)||s.reason)}`:''}</small></span>
-          <input type="checkbox" ${CERT_SEL.has(s.studentId)?'checked':''} onchange="A_certToggle('${esc(s.studentId)}',this)"/></label>`;}).join('')}</div>`
+            s.reason?` · ${esc(t('wd.reason.'+s.reason)||s.reason)}`:''}</small>${
+          done?`<br><small style="color:var(--ok)">🎓 ${EN()?'certificate issued, dated':'ออกใบประกาศแล้ว · ลงวันที่'} ${esc(ddmmyyyy(done))}</small>`:''}</span>
+          <input type="checkbox" ${CERT_SEL.has(s.studentId)?'checked':''} onchange="A_certToggle('${esc(s.studentId)}',this)"/></label>`;}).join('')}</div>
+      ${rows.some(s=>s.certIssuedDate)?`<small class="muted" style="display:block;margin:6px 2px;font-size:12px">${EN()
+        ? '✅ marks a child who already has a certificate. Issuing again is allowed — pick a new date or the same one; only the latest is kept.'
+        : '✅ คือนักเรียนที่เคยออกใบประกาศไปแล้ว · ออกซ้ำได้ จะเลือกวันที่ใหม่หรือวันเดิมก็ได้ · ระบบเก็บเฉพาะครั้งล่าสุด'}</small>`:''}`
       :`<p class="muted" style="text-align:center;padding:16px 0">${CERT_FILT==='graduated'
           ? (EN()?'No child is recorded as graduated yet. Record a last day with the reason “Graduated” on the student’s profile, or widen the filter above.'
                  :'ยังไม่มีนักเรียนที่บันทึกเหตุผลว่า “จบการศึกษา” · ไปบันทึกวันสิ้นสุดการเรียนในประวัตินักเรียน หรือกดดู “ทั้งหมดที่สิ้นสุดแล้ว” ด้านบน')
@@ -8842,7 +8852,19 @@
   /* The file is already on their machine; the audit line is a courtesy to the ผอ. (the signature is
    * printed automatically, so somebody should be able to see who issued what). It must never be
    * able to fail an export that has already happened. */
-  const A_certIssued = () => { api('markCertIssued',{studentIds:[...CERT_SEL], issueDate:CERT_PV.issue}).catch(()=>{}); };
+  const A_certIssued = () => {
+    api('markCertIssued',{studentIds:[...CERT_SEL], issueDate:CERT_PV.issue, adminId:USER.staffId}).catch(()=>{});
+    /* ...AND THE LIST BEHIND THIS SCREEN LEARNS IT NOW, rather than on the next visit. The admin
+     * presses "ย้อนกลับ" straight after downloading and is looking at the same names: a ✅ that only
+     * appears after closing and reopening the whole screen is a ✅ nobody sees at the moment they
+     * are deciding who still needs one. The server has been told; this is the same fact, applied to
+     * the copy already on the page. */
+    const on=CERT_PV.issue;
+    CERT_LIST.forEach(s=>{ if(CERT_SEL.has(s.studentId)) s.certIssuedDate=on; });
+    // repaint the list underneath — A_certRender(true) writes into the FIRST .modal, which is the
+    // list, because the preview opened on top of it
+    try{ A_certRender(true); }catch(e){}
+  };
   window.A_certDownload = async (btn) => {
     const { items, kind, issue } = CERT_PV; if(!items.length) return;
     const old=btn.innerHTML; btn.disabled=true; btn.innerHTML=`⏳ ${EN()?'Saving…':'กำลังบันทึก…'}`;
