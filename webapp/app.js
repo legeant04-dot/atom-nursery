@@ -131,7 +131,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.414'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.415'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -8679,12 +8679,17 @@
           : (EN()?'No child has a last day recorded yet.':'ยังไม่มีนักเรียนคนไหนบันทึกวันสิ้นสุดการเรียนไว้')}</p>`}
       <div class="ot-foot">
         <div class="muted" style="font-size:12px;text-align:center;margin-bottom:4px">${EN()?'selected':'เลือกไว้'} <b data-certn>0</b></div>
+        ${/* ONE BUTTON, AND IT OPENS A PROOF — asked 2026-10-03: "หากเลือกนักเรียน และข้อมูลเสร็จแล้ว
+             ให้มีการ Preview ตรวจสอบก่อน ... ผู้ใช้ไม่รู้ว่าตอนนี้เลือกโหลดแบบไหน".
+             Two buttons side by side made the FORMAT the thing you choose and the certificate the
+             thing you hope for. A printed certificate with the wrong name or the wrong date is
+             handed to a child's family — the one document in this app with no second chance — so
+             the file type moves inside a screen that shows the sheet first. */''}
         <div style="display:flex;gap:6px">
-          <button class="btn" style="flex:1" data-certgo disabled onclick="A_certExport('pdf',this)">📄 PDF</button>
-          <button class="btn outline" style="flex:1" data-certgo disabled onclick="A_certExport('jpg',this)">🖼️ JPG</button></div>
+          <button class="btn block" data-certgo disabled onclick="A_certPreview(this)">👁️ ${EN()?'Preview & download':'ดูตัวอย่าง & ดาวน์โหลด'}</button></div>
         <div class="muted" style="font-size:11px;text-align:center;margin-top:4px">${EN()
-          ? 'One landscape A4 page per child, in a single PDF. Built on this device — nothing is uploaded.'
-          : 'A4 แนวนอน หนึ่งหน้าต่อหนึ่งคน รวมในไฟล์ PDF เดียว · สร้างบนเครื่องนี้ ไม่มีไฟล์ถูกอัปโหลดไปไหน'}</div>
+          ? 'One landscape A5 sheet per child. Built on this device — nothing is uploaded.'
+          : 'A5 แนวนอน หนึ่งแผ่นต่อหนึ่งคน · สร้างบนเครื่องนี้ ไม่มีไฟล์ถูกอัปโหลดไปไหน'}</div>
         <button class="btn sm outline block" style="margin-top:6px" onclick="A_certSettings()">⚙️ ${EN()?'Wording & artwork':'ข้อความและพื้นหลังใบประกาศ'}</button>
         <button class="btn sm ghost block" onclick="this.closest('.modal').remove()">${esc(t('c.close'))}</button></div>`;
     const open=document.querySelector('.modal .sheet');
@@ -8695,43 +8700,176 @@
     A_certCount();
   }
 
-  window.A_certExport = async (kind, btn) => {
+  /* Everything a sheet is made of, for ONE list of children — extracted so the preview and the
+   * download are built from the same description. Two copies of this would be two certificates, and
+   * the one on screen would be the one nobody printed. */
+  async function certItems(issue){
+    await window.__atomLoadScript('report_card.js',()=>!!(window.AtomReportCard&&window.AtomReportCard.buildPdf));
+    await window.__atomLoadScript('certificate.js',()=>!!window.AtomCertificate);
+    const assets=await api('certAssets').catch(()=>({bg:'',sig:''}));
+    const cfg=CERT_CFG||{}, en=EN();
+    const head=(en?cfg.CertHeadEN:cfg.CertHeadTH)||cfg.schoolName||'';
+    return CERT_LIST.filter(s=>CERT_SEL.has(s.studentId)).map(s=>({
+      studentId: s.studentId,
+      name: en?(s.nameEN||s.name||''):(s.name||''),
+      nick: en?(s.nickEN||s.nick||''):(s.nick||''),
+      head, title: en?cfg.CertTitleEN:cfg.CertTitleTH,
+      line1: en?cfg.CertLine1EN:cfg.CertLine1TH,
+      line2: en?cfg.CertLine2EN:cfg.CertLine2TH,
+      joinHead: !en,
+      line3: head,
+      dateText: `${(en?cfg.CertDatePrefixEN:cfg.CertDatePrefixTH)||''} ${certDate(issue, en)}`.trim(),
+      signerTitle: en?cfg.CertSignerTitleEN:cfg.CertSignerTitleTH,
+      signerName: en?(cfg.CertSignerNameEN||cfg.CertSignerNameTH):(cfg.CertSignerNameTH||cfg.CertSignerNameEN),
+      bgHasText: String(cfg.CertBgHasText)!=='false',
+      bg: assets.bg||'', sig: assets.sig||'', font: assets.font||'' }));
+  }
+  /* ===== THE PROOF, BEFORE THE PRINT =============================================================
+   * Asked 2026-10-03. A certificate is the one document this app produces that is handed to a
+   * family on paper, signed, and cannot be corrected afterwards — and until now the first time
+   * anybody saw one was after it had been exported.
+   *
+   * The sheet is rendered at FULL quality and shown scaled down, so what is on screen is the file
+   * byte for byte, not an approximation of it. Rendered one at a time (each is a ~15 MB bitmap) and
+   * cached by index, so stepping back and forth through thirty children costs each one once.
+   */
+  let CERT_PV={ items:[], i:0, kind:'pdf', cache:{}, issue:'' };
+  window.A_certPreview = async (btn) => {
     if(!CERT_SEL.size) return;
     const d=document.getElementById('certDate'); const issue=(d&&d.value)||todayStr();
-    const old=btn.textContent; btn.disabled=true; btn.textContent='⏳';
+    const old=btn.innerHTML; btn.disabled=true; btn.innerHTML=`⏳ ${EN()?'Preparing…':'กำลังเตรียม…'}`;
     try{
-      await window.__atomLoadScript('report_card.js',()=>!!(window.AtomReportCard&&window.AtomReportCard.buildPdf));
-      await window.__atomLoadScript('certificate.js',()=>!!window.AtomCertificate);
-      const assets=await api('certAssets').catch(()=>({bg:'',sig:''}));
-      const cfg=CERT_CFG||{}, en=EN();
-      const head=(en?cfg.CertHeadEN:cfg.CertHeadTH)||cfg.schoolName||'';
-      const items=CERT_LIST.filter(s=>CERT_SEL.has(s.studentId)).map(s=>({
-        name: en?(s.nameEN||s.name||''):(s.name||''),
-        nick: en?(s.nickEN||s.nick||''):(s.nick||''),
-        head, title: en?cfg.CertTitleEN:cfg.CertTitleTH,
-        line1: en?cfg.CertLine1EN:cfg.CertLine1TH,
-        line2: en?cfg.CertLine2EN:cfg.CertLine2TH,
-        /* Thai's sentence runs on to the school's name; English's is complete on its own and the
-         * name is already in the title block, so repeating it would say it twice. */
-        joinHead: !en,
-        line3: head,   // (overlay mode only — the sentence's second line)
-        dateText: `${(en?cfg.CertDatePrefixEN:cfg.CertDatePrefixTH)||''} ${certDate(issue, en)}`.trim(),
-        signerTitle: en?cfg.CertSignerTitleEN:cfg.CertSignerTitleTH,
-        signerName: en?(cfg.CertSignerNameEN||cfg.CertSignerNameTH):(cfg.CertSignerNameTH||cfg.CertSignerNameEN),
-        // the normal case: the school's template carries its own wording, so only three things are added
-        bgHasText: String(cfg.CertBgHasText)!=='false',
-        bg: assets.bg||'', sig: assets.sig||'', font: assets.font||'' }));
-      const base=(en?'Certificates_':'ใบประกาศนียบัตร_')+issue;
+      const items=await certItems(issue);
+      CERT_PV={ items, i:0, kind:CERT_PV.kind||'pdf', cache:{}, issue };
+      A_certPvRender(); await A_certPvPaint();
+    }catch(e){ err(e); }
+    finally{ btn.disabled=false; btn.innerHTML=old; }
+  };
+  window.A_certPvGo = async (step) => { const n=CERT_PV.items.length; if(!n) return;
+    CERT_PV.i=(CERT_PV.i+step+n)%n; A_certPvRender(true); await A_certPvPaint(); };
+  window.A_certPvKind = (k) => { CERT_PV.kind=k; A_certPvRender(true); A_certPvPaint(); };
+  function A_certPvRender(keep){
+    const { items, i, kind } = CERT_PV, n=items.length, d=items[i]||{};
+    const who=[d.name, d.nick?`(${d.nick})`:''].filter(Boolean).join(' ');
+    const seg=(v,icon,label)=>`<button class="btn ${kind===v?'':'outline'}" style="flex:1" onclick="A_certPvKind('${v}')">${icon} ${esc(label)}${kind===v?' ✓':''}</button>`;
+    /* WHERE THE FILE WILL ACTUALLY GO, said before the tap rather than discovered after it. A web
+     * app cannot choose a folder: a download lands wherever the browser puts downloads, and the only
+     * honest route into the phone's photo album is the share sheet (navigator.share with a file),
+     * which is offered below for JPG. Promising a folder we cannot write to would be worse than
+     * saying nothing. */
+    const mobile=/Android|iPhone|iPad|iPod/i.test(navigator.userAgent||'');
+    const dest = kind==='pdf'
+      ? (EN()?'Saves to your Downloads folder.':'ไฟล์จะถูกบันทึกลงโฟลเดอร์ “ดาวน์โหลด” ของเครื่อง')
+      : (EN()?`Saves to Downloads${mobile?' — use “Save to album” below to put it in Photos':''}.`
+             :`ไฟล์จะถูกบันทึกลงโฟลเดอร์ “ดาวน์โหลด”${mobile?' · หากต้องการเก็บไว้ในอัลบั้มรูป ให้กดปุ่ม “บันทึกลงอัลบั้ม” ด้านล่าง':''}`);
+    const html=`<h3>👁️ ${EN()?'Check before you print':'ตรวจสอบก่อนพิมพ์'}</h3>
+      <div class="spread" style="margin:-2px 0 6px">
+        <span><b translate="no">${esc(who||'—')}</b></span>
+        <span class="pill info">${i+1} / ${n}</span></div>
+      <div id="certPvBox" style="border:1px solid var(--line);border-radius:10px;overflow:hidden;background:var(--surface-2);min-height:140px;display:flex;align-items:center;justify-content:center">
+        <small class="muted" style="padding:28px 0">⏳ ${EN()?'Rendering…':'กำลังสร้างภาพตัวอย่าง…'}</small></div>
+      ${n>1?`<div class="row" style="gap:6px;margin-top:6px">
+        <button class="btn sm outline" style="flex:1" onclick="A_certPvGo(-1)">← ${EN()?'Previous':'ก่อนหน้า'}</button>
+        <button class="btn sm outline" style="flex:1" onclick="A_certPvGo(1)">${EN()?'Next':'ถัดไป'} →</button></div>`:''}
+      <p class="muted" style="font-size:12px;margin:8px 2px 4px">${EN()
+        ? 'This is the file itself, shown smaller — the name, the date and the signature are exactly what will print.'
+        : 'ภาพนี้คือไฟล์จริง เพียงแต่ย่อขนาดลง — ชื่อ วันที่ และลายเซ็น จะพิมพ์ออกมาตามนี้ทุกประการ'}</p>
+      ${/* THE FILE TYPE, AS A CHOICE THAT SHOWS ITS OWN STATE. It used to be two buttons that both
+           looked like actions, so "which one am I getting" had no answer until the file arrived. */''}
+      <label class="field" style="margin-bottom:4px"><span>${EN()?'File type':'ชนิดไฟล์ที่จะดาวน์โหลด'}</span></label>
+      <div class="row" style="gap:6px">
+        ${seg('pdf','📄', n>1?(EN()?`PDF · ${n} sheets in one file`:`PDF · ${n} แผ่นในไฟล์เดียว`):'PDF')}
+        ${seg('jpg','🖼️', n>1?(EN()?`JPG · ${n} images`:`JPG · ${n} ไฟล์ภาพ`):'JPG')}</div>
+      <small class="muted" style="display:block;margin:6px 2px">📁 ${esc(dest)}</small>
+      <div id="certDlNote"></div>
+      <div class="row" style="gap:6px;margin-top:8px">
+        <button class="btn outline" style="flex:1" onclick="this.closest('.modal').remove()">← ${EN()?'Back':'ย้อนกลับ'}</button>
+        <button class="btn" style="flex:1" onclick="A_certDownload(this)">⬇️ ${EN()?'Download':'ดาวน์โหลด'}</button></div>
+      ${(mobile && kind==='jpg' && navigator.share)?`<button class="btn sm outline block" style="margin-top:6px" onclick="A_certShare(this)">📲 ${EN()?'Save to album / share':'บันทึกลงอัลบั้ม / แชร์'}</button>`:''}`;
+    /* 🔴 SCOPED TO ITS OWN MODAL, never to the document.
+     *
+     * The preview opens ON TOP of the list — that is deliberate, so "← ย้อนกลับ" lands back on the
+     * ticked names rather than on nothing — which means two `.modal` elements are on the page at
+     * once. A document-wide lookup finds whichever came FIRST, so the picture was being painted into
+     * the modal underneath while the one the admin was looking at sat on "⏳ กำลังสร้างภาพตัวอย่าง…"
+     * for ever. Found by opening it, not by reading it. */
+    const sheet = CERT_PV.el && CERT_PV.el.querySelector('.sheet');
+    if(keep && sheet){ sheet.innerHTML=html; if(window.translateTree) translateTree(sheet); }
+    else CERT_PV.el = modal(html);
+  }
+  const certPvBox = () => CERT_PV.el ? CERT_PV.el.querySelector('#certPvBox') : null;
+  // same reason as certPvBox: with the list still open underneath, a document-wide #certDlNote is
+  // not necessarily the one on the screen the admin is reading the confirmation from
+  const certDlNote = html => { const e=CERT_PV.el && CERT_PV.el.querySelector('#certDlNote'); if(!e) return;
+    e.innerHTML=html;
+    /* ...AND BRING IT INTO VIEW. On a phone the sheet is taller than the screen and the confirmation
+     * sits below the fold, under the buttons — so "ดาวน์โหลดสำเร็จ" was written somewhere the person
+     * who just tapped Download could not see, which is the same as not writing it. */
+    try{ e.scrollIntoView({block:'nearest', behavior:'smooth'}); }catch(x){ try{ e.scrollIntoView(); }catch(y){} } };
+  async function A_certPvPaint(){
+    const { items, i } = CERT_PV, d=items[i];
+    if(!certPvBox()||!d) return;
+    try{
+      if(!CERT_PV.cache[i]) CERT_PV.cache[i]=(await window.AtomCertificate.render(d)).dataUrl;
+      const b=certPvBox();                                // may have been redrawn while rendering
+      if(b) b.innerHTML=`<img src="${CERT_PV.cache[i]}" alt="${EN()?'Certificate preview':'ตัวอย่างใบประกาศ'}" style="width:100%;display:block"/>`;
+    }catch(e){ const b=certPvBox();
+      if(b) b.innerHTML=`<small style="color:var(--warn);padding:20px">⚠️ ${EN()?'Could not render the preview.':'สร้างภาพตัวอย่างไม่สำเร็จ'}</small>`; }
+  }
+  /** Turn the rendered sheets into real Files, for the share sheet — the only route into Photos. */
+  function certFiles(){
+    return CERT_PV.items.map((d,i)=>{ const url=CERT_PV.cache[i]; if(!url) return null;
+      const bin=atob(url.split(',')[1]); const buf=new Uint8Array(bin.length);
+      for(let k=0;k<bin.length;k++) buf[k]=bin.charCodeAt(k);
+      const base=(EN()?'Certificate_':'ใบประกาศนียบัตร_')+window.AtomCertificate.safe(d.nick||d.name||(i+1));
+      return new File([buf], base+'.jpg', {type:'image/jpeg'}); }).filter(Boolean);
+  }
+  window.A_certShare = async (btn) => {
+    const old=btn.innerHTML; btn.disabled=true; btn.innerHTML=`⏳ ${EN()?'Preparing…':'กำลังเตรียม…'}`;
+    try{
+      // every sheet has to exist before it can be shared — the preview only renders the one on screen
+      for(let i=0;i<CERT_PV.items.length;i++) if(!CERT_PV.cache[i]) CERT_PV.cache[i]=(await window.AtomCertificate.render(CERT_PV.items[i])).dataUrl;
+      const files=certFiles();
+      if(!files.length || !(navigator.canShare&&navigator.canShare({files}))){
+        toast(EN()?'This phone cannot share files — use Download instead':'เครื่องนี้แชร์ไฟล์ไม่ได้ — กรุณาใช้ปุ่มดาวน์โหลดแทน'); return; }
+      await navigator.share({ files, title: EN()?'Certificates':'ใบประกาศนียบัตร' });
+      A_certIssued();
+      certDlNote( `<div class="card" style="background:var(--ok-bg);border-color:var(--ok-line);padding:8px;margin:8px 0 0;font-size:13px;color:var(--ok)">
+        ✅ <b>${EN()?'Shared':'ส่งไปยังแอปที่เลือกแล้ว'}</b><br><small>${EN()?'Choose “Save to Photos” in the sheet to keep it in your album.':'เลือก “บันทึกรูปภาพ” ในหน้าต่างที่เปิดขึ้น เพื่อเก็บไว้ในอัลบั้มของเครื่อง'}</small></div>`);
+    }catch(e){ if(!/AbortError/.test(String(e&&e.name))) err(e); }
+    finally{ btn.disabled=false; btn.innerHTML=old; }
+  };
+  /* The file is already on their machine; the audit line is a courtesy to the ผอ. (the signature is
+   * printed automatically, so somebody should be able to see who issued what). It must never be
+   * able to fail an export that has already happened. */
+  const A_certIssued = () => { api('markCertIssued',{studentIds:[...CERT_SEL], issueDate:CERT_PV.issue}).catch(()=>{}); };
+  window.A_certDownload = async (btn) => {
+    const { items, kind, issue } = CERT_PV; if(!items.length) return;
+    const old=btn.innerHTML; btn.disabled=true; btn.innerHTML=`⏳ ${EN()?'Saving…':'กำลังบันทึก…'}`;
+    try{
+      const base=(EN()?'Certificates_':'ใบประกาศนียบัตร_')+issue;
       if(kind==='pdf') await window.AtomCertificate.savePdf(items, base+'.pdf');
       else await window.AtomCertificate.saveJpeg(items, base);
-      /* The file is already on their machine; the audit line is a courtesy to the ผอ. (the signature
-       * is printed automatically, so somebody should be able to see who issued what). It must never
-       * be able to fail the export that has already happened. */
-      api('markCertIssued',{studentIds:[...CERT_SEL], issueDate:issue}).catch(()=>{});
-      toast(EN()?`Exported ${items.length} certificate(s)`:`ออกใบประกาศแล้ว ${items.length} ใบ`);
+      A_certIssued();
+      /* 🔴 SAY IT WORKED, ON THE SCREEN. Asked 2026-10-03: "เมื่อกด Download จะต้องบอกด้วยว่า
+       * ดาวน์โหลดสำเร็จ". A browser download is silent on a phone — no dialog, no sound, often no
+       * visible notification — so the only feedback was a toast that may already have gone. It is
+       * stated here, with the file name and where to find it, and it stays until the screen is
+       * closed. */
+      const fn = kind==='pdf' ? base+'.pdf' : (EN()?`${items.length} × .jpg`:`${items.length} ไฟล์ .jpg`);
+      certDlNote( `<div class="card" style="background:var(--ok-bg);border-color:var(--ok-line);padding:8px;margin:8px 0 0;font-size:13px;color:var(--ok)">
+        ✅ <b>${EN()?'Downloaded':'ดาวน์โหลดสำเร็จ'}</b> <span translate="no">${esc(fn)}</span>
+        <br><small>${EN()?'Look in your Downloads folder (or the browser’s download list).'
+          :'ดูได้ที่โฟลเดอร์ “ดาวน์โหลด” ของเครื่อง หรือในรายการดาวน์โหลดของเบราว์เซอร์'}</small></div>`);
+      toast(EN()?`Downloaded ${items.length} certificate(s)`:`ดาวน์โหลดใบประกาศแล้ว ${items.length} ใบ`);
     }catch(e){ err(e); }
-    finally{ btn.disabled=false; btn.textContent=old; A_certCount(); }
+    finally{ btn.disabled=false; btn.innerHTML=old; }
   };
+  /* The old one-tap export pair (A_certExport) was removed on 2026-10-03 when the preview screen
+   * replaced it. It carried its OWN copy of the item description — every field built a second
+   * time — and a second copy of what a certificate says is how the sheet on screen stops being
+   * the sheet that prints. certItems() is the only description now; A_certPreview and
+   * A_certDownload both read it. */
 
   /* ---- certificate settings: the wording, the artwork, the signature -------------------------
    * The artwork is uploaded BLANK — the school's frame with no names on it — because the app draws

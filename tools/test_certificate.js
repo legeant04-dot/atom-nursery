@@ -386,8 +386,10 @@ console.log('\n6) the signature is private, and issuing leaves a trace');
   ok_('...under a name both mutation rules recognise as a write',
     /markCertIssued/.test(codeGs) && /^\(\?:\^\)?|mark/.test('mark') &&
     /\bmark\b/.test(/const MUT = \/\^\(([^)]*)\)/.exec(api)[1]));
+  // the call moved into A_certIssued on 2026-10-03, so the download and the share can both make it
+  // without a third copy; the `.catch` is the part that matters and it is still there
   ok_('...and a failure to log never fails the download that already happened',
-    /api\('markCertIssued',\{studentIds:\[\.\.\.CERT_SEL\], issueDate:issue\}\)\.catch\(\(\)=>\{\}\)/.test(appCode));
+    /api\('markCertIssued',\{studentIds:\[\.\.\.CERT_SEL\], issueDate:CERT_PV\.issue\}\)\.catch\(\(\)=>\{\}\)/.test(appCode));
 
   ok_('nothing about a named child is ever uploaded', /never exists on any server/i.test(cert));
 }
@@ -574,6 +576,68 @@ console.log('\n7) the screen is where the ผอ. asked for it');
   ok_('the upload screen says the file must be BLANK — the obvious mistake prints twice',
     /ยังไม่มีชื่อเด็ก/.test(app));
   ok_('the export buttons are dead until somebody is ticked', /data-certgo disabled/.test(appCode));
+}
+
+// ============================================================================================
+console.log('\n8) look at it before you print it, and be told when it saved');
+// ============================================================================================
+{
+  /* Asked 2026-10-03. A certificate is the one document this app produces that is handed to a family
+   * on paper, signed, and cannot be corrected afterwards — and until now the first time anybody saw
+   * one was after it had been exported. */
+  ok_('the list button opens a preview, not a download', /onclick="A_certPreview\(this\)"/.test(appCode));
+  ok_('...and the old straight-to-file pair is gone', !/A_certExport\s*=/.test(appCode));
+
+  /* 🔴 ONE DESCRIPTION, NOT TWO. The removed export built its own copy of every field; a second copy
+   * of what a certificate says is how the sheet on screen stops being the sheet that prints. */
+  ok_('🔴 the preview and the download are built from one description', /async function certItems\(issue\)/.test(appCode));
+  ok_('...which the preview reads', /A_certPreview[\s\S]{0,400}await certItems\(issue\)/.test(appCode));
+  ok_('...and the download reads the same rendered items', /A_certDownload[\s\S]{0,400}const \{ items, kind, issue \} = CERT_PV/.test(appCode));
+  eq('certItems appears exactly once', (appCode.match(/certItems\(/g) || []).length, 2);   // definition + the one call
+
+  /* WHAT IS ON SCREEN IS THE FILE. The preview renders at full quality and is shown scaled, so it
+   * cannot drift from what prints — and says so, because a thumbnail that is merely "about right"
+   * is worse than none on a document nobody can reissue. */
+  ok_('the preview renders the real sheet', /AtomCertificate\.render\(d\)\)\.dataUrl/.test(appCode));
+  ok_('...cached per child, because each one is a ~15 MB bitmap', /if\(!CERT_PV\.cache\[i\]\)/.test(appCode));
+  ok_('...and the screen says it is the file itself', /ภาพนี้คือไฟล์จริง เพียงแต่ย่อขนาดลง/.test(app));
+  ok_('more than one child can be stepped through', /A_certPvGo\(-1\)/.test(appCode) && /A_certPvGo\(1\)/.test(appCode));
+
+  /* THE FILE TYPE AS A CHOICE THAT SHOWS ITS OWN STATE — "ผู้ใช้ไม่รู้ว่าตอนนี้เลือกโหลดแบบไหน". */
+  ok_('🔴 the chosen type is marked on the button that is chosen',
+    /kind===v\?'':'outline'/.test(appCode) && /\$\{kind===v\?' ✓':''\}/.test(appCode));
+  ok_('...and it is remembered between previews', /kind:CERT_PV\.kind\|\|'pdf'/.test(appCode));
+
+  /* 🔴 SAY IT WORKED. A browser download is silent on a phone — no dialog, often no notification —
+   * so "did that work?" had no answer. Stated on the screen, with the file name, and it stays. */
+  ok_('🔴 a finished download says so on the screen, not only in a toast',
+    /ดาวน์โหลดสำเร็จ/.test(app) && /certDlNote\(/.test(appCode));
+  /* 🔴 ...INTO ITS OWN MODAL. The preview sits ON TOP of the still-open list, so there are two
+   * `.modal` elements and a document-wide lookup finds the wrong one — which is exactly how the
+   * preview image painted into a modal nobody could see while the visible one said "กำลังสร้าง…"
+   * for ever. Both the picture and the confirmation are scoped to CERT_PV.el. */
+  ok_('🔴 the preview paints into its own modal, not whichever is first in the document',
+    /CERT_PV\.el\.querySelector\('#certPvBox'\)/.test(appCode) && !/getElementById\('certPvBox'\)/.test(appCode));
+  ok_('...and so does the confirmation', /CERT_PV\.el\.querySelector\('#certDlNote'\)/.test(appCode));
+  ok_('...and the preview remembers which modal is its own', /CERT_PV\.el = modal\(html\)/.test(appCode));
+  ok_('...and names the file', /esc\(fn\)/.test(appCode));
+  ok_('...and where to look for it', /โฟลเดอร์ “ดาวน์โหลด”/.test(app));
+
+  /* THE ONLY HONEST ROUTE INTO THE PHONE'S ALBUM. A web app cannot choose a folder; navigator.share
+   * with a File opens the system sheet, where "Save to Photos" exists. Offered for JPG on a phone
+   * and nowhere else, because a button that cannot work is worse than no button. */
+  ok_('🔴 a phone is offered the share sheet for JPG', /mobile && kind==='jpg' && navigator\.share/.test(appCode));
+  ok_('...with real File objects, which is what makes Photos possible', /new File\(\[buf\]/.test(appCode));
+  ok_('...every sheet rendered first, since the preview only renders the one on screen',
+    /A_certShare[\s\S]{0,400}for\(let i=0;i<CERT_PV\.items\.length;i\+\+\)/.test(appCode));
+  ok_('...and a phone that cannot share is told to use Download instead',
+    /เครื่องนี้แชร์ไฟล์ไม่ได้/.test(app));
+  ok_('...while cancelling the share is not reported as an error', /AbortError/.test(appCode));
+  /* NO FOLDER IS PROMISED THAT WE CANNOT WRITE TO. */
+  ok_('the destination is described, never guaranteed',
+    !/จะไปอยู่ใน Album|will be saved to your album|บันทึกลงอัลบั้มให้อัตโนมัติ/.test(app));
+
+  ok_('issuing is still recorded, and still cannot fail the export', /const A_certIssued = \(\) =>[\s\S]{0,160}\.catch\(\(\)=>\{\}\)/.test(appCode));
 }
 
 console.log('\n' + (fail ? 'FAILED ' : 'PASSED ') + pass + ' passed, ' + fail + ' failed');
