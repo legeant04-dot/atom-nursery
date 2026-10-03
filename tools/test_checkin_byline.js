@@ -94,6 +94,18 @@ console.log('\n2) a teacher recording on behalf, through the LIVE route');
     appendObject_(sheet_(HR, 'STAFF'), { StaffID: 'STF-T', Name: 'ครูสมศรี', Nickname: 'ครูศรี',
       Role: 'Teacher', PositionLevel: 'Staff', Status: 'ACTIVE', Department: 'Nursery 1',
       Classes: 'Nursery 1', StartDate: '2025-01-01', RequireCheckin: true });
+    /* 🔴 THIS SUITE USED TO FAIL EVERY SATURDAY AND SUNDAY, and it had nothing to do with
+     * attribution. The punch goes through the live route, which asks assertStudentDayOpen_ whether
+     * the school is open TODAY — and on a weekend it is not, so the fixture was refused with
+     * SCHOOL_CLOSED and two assertions went red for two days out of seven. A suite that is only
+     * green on weekdays teaches people to ignore red, which is the one thing a suite must not do.
+     *
+     * Fixed with the school's OWN mechanism rather than by stubbing the calendar: HOLIDAY_ATTEND is
+     * the by-name allowlist for "this child IS coming on a day we are otherwise shut", and the guard
+     * honours it (isHolidayAttendee_). So the day the test runs stops being an input, and the path
+     * it exercises is still the real one. */
+    appendObject_(sheet_(MAIN, 'HOLIDAY_ATTEND'), { Date: dateStr_(new Date()), StudentID: 'S9',
+      AddedBy: 'STF-T', AddedAt: 'test-fixture' });
     _configCache = null;
 
     var out = { steps: [] };
