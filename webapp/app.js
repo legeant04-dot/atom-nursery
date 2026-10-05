@@ -131,7 +131,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.416'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.418'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -7944,6 +7944,10 @@
         ? `The school’s figure for this month is ${me.requiredToDate} days so far — this person owes ${me.myRequiredToDate} because of their start date, leaving date or temporary leave.`
         : `ทั้งโรงเรียนต้องมา ${me.requiredToDate} วัน (ถึงวันนี้) · คนนี้ ${me.myRequiredToDate} วัน เพราะวันเริ่มงาน วันสิ้นสุด หรือลาชั่วคราว`}</small>`:''}
       ${otHtml}
+      ${/* ...and the whole year, one tap away. This card answers "what was this month like"; the
+           question behind a pay decision is "what has this year been like", and it should not need
+           the admin to leave payroll and go looking. */''}
+      <button class="btn sm outline block" style="margin-top:8px" onclick="A_staffPerf('${esc(sid)}')">📊 ${EN()?'See this person’s whole year':'ดูสรุปผลการทำงานทั้งปีของคนนี้'}</button>
       <small class="muted" style="display:block;margin-top:6px">${EN()
         ? 'For reference while you run payroll — it changes nothing on the form. The diligence-bonus ticks stay yours.'
         : 'แสดงไว้เพื่อประกอบการทำเงินเดือนเท่านั้น · ไม่ไปเปลี่ยนค่าใดๆ ในฟอร์ม · การติ๊กเบี้ยขยันยังเป็นการตัดสินใจของแอดมิน'}</small></div>`; };
@@ -8315,6 +8319,136 @@
         <text x="${pl}" y="${H-6}" font-size="8" style="fill:var(--ink-3)">${xmin}${EN()?'m':'ด'}</text>
         <text x="${W-pr-16}" y="${H-6}" font-size="8" style="fill:var(--ink-3)">${xmax}${EN()?'m':'ด'}</text>
       </svg></div>`; }
+
+  /* ===== ONE PERSON'S YEAR, ON ONE SCREEN ========================================================
+   * Asked 2026-10-05: "แสดงเป็น Dashboard Performance รายคน แสดง Chart / วันที่มาทำงาน Total กับ
+   * จำนวนวันที่มาจริง / จำนวนและประวัติวันลา - สาย / สรุปจำนวนรายได้รายคนและเงินสะสม".
+   *
+   * Everything here already existed, a month at a time, on three different screens. The reason it is
+   * worth a screen of its own is the question it is for: when somebody's pay or position is being
+   * decided, "what did this year look like" is one question, and answering it by opening three
+   * screens twelve times each is how it gets answered from memory instead.
+   *
+   * EVERY NUMBER CARRIES ITS DATES. The counts are the summary; the dated lists under them are what
+   * makes a figure checkable against what the person in the room remembers. A review that cannot be
+   * checked is an accusation.
+   */
+  let SPERF={ staffId:'', year:'', d:null };
+  window.A_staffPerf = async (staffId, year) => {
+    SPERF.staffId=staffId||SPERF.staffId; SPERF.year=String(year||SPERF.year||todayStr().slice(0,4));
+    const keep=!!SPERF.d;
+    if(!keep) modal(`<h3>📊 ${EN()?'Performance':'สรุปผลการทำงานรายคน'}</h3>
+      <p class="muted" style="text-align:center;padding:24px 0">⏳ ${EN()?'Reading the year…':'กำลังอ่านข้อมูลทั้งปี…'}</p>`);
+    try{ SPERF.d=await api('staffPerformance',{targetId:SPERF.staffId, staffId:USER.staffId, year:SPERF.year}); }
+    catch(e){ err(e); return; }
+    A_sperfRender();
+  };
+  window.A_sperfYear = (y) => { SPERF.year=y; A_staffPerf(SPERF.staffId, y); };
+  /* A bar pair per month: what the school expected, and what actually happened. Inline SVG with the
+   * theme's own variables — same approach as the growth chart, and for the same reason: a chart
+   * library is 60 KB to draw twelve pairs of rectangles, and it would not know about dark mode. */
+  function sperfBars(months, keys, title, fmt){
+    if(!months.length) return `<p class="muted" style="font-size:13px;text-align:center;padding:10px">${EN()?'No months in range.':'ยังไม่มีข้อมูลในช่วงนี้'}</p>`;
+    const W=320,H=120,pl=26,pb=16,pt=8;
+    const max=Math.max(1, ...months.map(m=>Math.max(...keys.map(k=>Number(m[k.k])||0))));
+    const bw=(W-pl-4)/months.length, gap=Math.min(3,bw*0.12), inner=(bw-gap*2)/keys.length;
+    const bars=months.map((m,i)=>keys.map((k,j)=>{
+      const v=Number(m[k.k])||0, h=(H-pt-pb)*(v/max);
+      const x=pl+i*bw+gap+j*inner, y=H-pb-h;
+      return `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${Math.max(1,inner-1).toFixed(1)}" height="${Math.max(0,h).toFixed(1)}" rx="1.5" style="fill:var(--${k.c})"><title>${esc(monthNameYear(m.month))} · ${esc(k.l)} ${fmt?fmt(v):v}</title></rect>`;
+    }).join('')).join('');
+    const xl=months.map((m,i)=>`<text x="${(pl+i*bw+bw/2).toFixed(1)}" y="${H-4}" font-size="7.5" text-anchor="middle" style="fill:var(--ink-3)">${esc(String(Number(m.month.slice(5,7))))}</text>`).join('');
+    return `<div style="margin:6px 0"><b style="font-size:13px">${esc(title)}</b>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;margin:2px 0 4px">${keys.map(k=>`<small class="muted"><span style="display:inline-block;width:9px;height:9px;border-radius:2px;background:var(--${k.c});vertical-align:-1px"></span> ${esc(k.l)}</small>`).join('')}</div>
+      <svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto">
+        <line x1="${pl}" y1="${H-pb}" x2="${W-2}" y2="${H-pb}" style="stroke:var(--line-strong)" stroke-width="0.7"/>
+        <text x="2" y="${pt+6}" font-size="7.5" style="fill:var(--ink-3)">${fmt?fmt(max):max}</text>
+        <text x="2" y="${H-pb-1}" font-size="7.5" style="fill:var(--ink-3)">0</text>
+        ${bars}${xl}</svg></div>`;
+  }
+  function A_sperfRender(){
+    const d=SPERF.d||{}; const nm2=EN()?(d.nameEN||d.name):(d.name||d.nameEN);
+    const pct=(a,b)=>b>0?Math.round(a/b*100):0;
+    const cell=(icon,label,val,sub,tone)=>`<div class="card" style="padding:6px;margin:0;min-width:0;text-align:center;${tone?`background:var(--${tone}-bg)`:''}">
+      <b style="font-size:19px;${tone?`color:var(--${tone==='ok'?'ok':'warn'})`:''}">${val}</b><br><small class="muted">${icon} ${esc(label)}</small>
+      ${sub?`<br><small class="muted" style="font-size:11.5px">${esc(sub)}</small>`:''}</div>`;
+    const money=v=>baht(v);
+    const years=[]; { const y=Number(todayStr().slice(0,4)); for(let i=0;i<4;i++) years.push(String(y-i)); }
+    const row2=(l,v,strong)=>`<div class="spread" style="font-size:14px;padding:2px 0"><span${strong?'':' class="muted"'}>${esc(l)}</span><b${strong?' style="font-size:15px"':''}>${v}</b></div>`;
+
+    const inc=d.income||{}, fund=d.fund||{};
+    const html=`<h3>📊 ${EN()?'Performance':'สรุปผลการทำงานรายคน'}</h3>
+      <div class="card" style="padding:8px;margin:0 0 8px;background:var(--surface-2)">
+        <div class="spread"><b translate="no">${esc(nm2||d.staffId||'')}</b><span class="pill info">${esc(d.year||'')}</span></div>
+        <small class="muted">${_notr(d.position||'-')}${d.dept?' · '+esc(d.dept):''}${d.startDate?` · ${EN()?'since':'เริ่มงาน'} ${esc(ddmmyyyy(d.startDate))}`:''}</small></div>
+      <div class="row" style="gap:6px;margin-bottom:8px;flex-wrap:wrap">${years.map(y=>`<button class="btn sm ${String(d.year)===y?'':'outline'}" onclick="A_sperfYear('${y}')">${y}</button>`).join('')}</div>
+
+      ${/* THE HEADLINE PAIR the ผอ. asked for by name: วันที่ต้องมา vs มาจริง. Counted only up to
+           TODAY — the rest of the year is not absence, and a review read in March would otherwise
+           show nine months of it. */''}
+      <div class="card" style="padding:10px;background:var(--blue-bg);border-color:var(--blue-line)">
+        <div class="spread"><b>${EN()?'Days expected (to date)':'วันที่ต้องมาทำงาน (ถึงวันนี้)'}</b><b style="font-size:21px;color:var(--blue)">${d.required||0}</b></div>
+        <div class="spread"><span>${EN()?'Days actually here':'มาทำงานจริง'}</span><b style="font-size:21px;color:var(--ok)">${d.present||0}</b></div>
+        <div style="height:9px;border-radius:999px;background:var(--line);overflow:hidden;margin-top:6px">
+          <div style="height:100%;width:${Math.min(100,pct(d.present||0,d.required||0))}%;background:var(--ok)"></div></div>
+        <small class="muted">${pct(d.present||0,d.required||0)}% ${EN()?'of the days the school expected':'ของวันที่โรงเรียนกำหนด'}${
+          (d.myRequired!=null && d.myRequired!==d.required)?` · ${EN()?`this person owes ${d.myRequired} (start date / leave)`:`เฉพาะคนนี้ ${d.myRequired} วัน (วันเริ่มงาน / ลาชั่วคราว)`}`:''}</small></div>
+
+      <div class="grid3" style="gap:6px;margin-top:8px">
+        ${cell('⛔',EN()?'absent':'ขาด',d.absent||0,'',(d.absent||0)>0?'warn':'')}
+        ${cell('🏖️',EN()?'leave':'ลา',d.leaveDays||0,'',(d.leaveDays||0)>0?'warn':'')}
+        ${cell('⏱️',EN()?'late':'สาย',d.lateDays||0,(d.lateMinutes||0)?`${d.lateMinutes} ${EN()?'min':'นาที'}`:'',(d.lateDays||0)>0?'warn':'')}
+        ${cell('⏰','OT',(d.otHours||0)+' '+(EN()?'hr':'ชม.'),'','')}
+        ${cell('🎉',EN()?'holiday OT':'OT วันหยุด',(d.holidayOTDays||0)+' '+(EN()?'d':'วัน'),'','')}
+        ${cell('🚪',EN()?'no clock-out':'ลืมออกงาน',d.missingOut||0,'',(d.missingOut||0)>0?'warn':'')}</div>
+
+      <div class="card" style="padding:8px;margin-top:8px">
+        ${sperfBars(d.months||[],[{k:'required',l:EN()?'expected':'ต้องมา',c:'blue-line'},{k:'present',l:EN()?'here':'มาจริง',c:'ok'}],EN()?'Month by month':'รายเดือน · ต้องมา เทียบกับ มาจริง')}
+        ${sperfBars(d.months||[],[{k:'absent',l:EN()?'absent':'ขาด',c:'bad'},{k:'leave',l:EN()?'leave':'ลา',c:'warn'},{k:'late',l:EN()?'late':'สาย',c:'blue'}],EN()?'Absence, leave and lateness':'ขาด · ลา · สาย')}
+        ${(d.pay||[]).length?sperfBars((d.pay||[]).map(x=>({month:x.month,net:x.net,gross:x.gross})),[{k:'gross',l:EN()?'gross':'รวมรับ',c:'blue-line'},{k:'net',l:EN()?'net':'สุทธิ',c:'ok'}],EN()?'Pay by month':'รายได้รายเดือน',money):''}</div>
+
+      ${/* ...and the DATED lists under the counts. */''}
+      <details class="card" style="padding:8px"><summary style="cursor:pointer;font-weight:700">🏖️ ${EN()?'Leave history':'ประวัติการลา'} <span class="pill ${(d.leaves||[]).length?'wait':'ok'}">${(d.leaves||[]).length}</span></summary>
+        ${Object.keys(d.leaveByType||{}).length?`<div class="row" style="gap:6px;flex-wrap:wrap;margin:6px 0">${Object.keys(d.leaveByType).map(k=>`<span class="pill wait">${esc(k)} ${d.leaveByType[k]} ${EN()?'d':'วัน'}</span>`).join('')}</div>`:''}
+        ${(d.leaves||[]).map(l=>`<div class="list-item"><span><b>${esc(l.type||'-')}</b> <small class="muted">${esc(fullDate(l.from))}${l.to&&l.to!==l.from?` – ${esc(fullDate(l.to))}`:''}${l.half?` (${EN()?'half day':'ครึ่งวัน'})`:''}</small>
+          ${l.reason?`<br><small class="muted">${esc(l.reason)}</small>`:''}</span><span>${l.days} ${EN()?'d':'วัน'} ${String(l.status).toUpperCase()==='APPROVED'?'':leaveStatusPill(String(l.status).toUpperCase())}</span></div>`).join('')
+          ||`<small class="muted">${EN()?'No leave this year.':'ปีนี้ไม่มีการลา'}</small>`}</details>
+
+      <details class="card" style="padding:8px"><summary style="cursor:pointer;font-weight:700">⏱️ ${EN()?'Late arrivals':'ประวัติการมาสาย'} <span class="pill ${(d.lates||[]).length?'wait':'ok'}">${(d.lates||[]).length}</span></summary>
+        ${(d.lates||[]).map(x=>`<div class="list-item"><span>${esc(fullDate(x.date))} <small class="muted">${EN()?'in':'เข้า'} ${esc(x.in||'-')}</small></span><b style="color:var(--warn)">+${x.minutes} ${EN()?'min':'นาที'}</b></div>`).join('')
+          ||`<small class="muted">${EN()?'Never late this year.':'ปีนี้ไม่มีมาสาย'}</small>`}</details>
+
+      <div class="card" style="padding:10px">
+        <b style="font-size:14px">💵 ${EN()?'Earnings this year':'รายได้รวมทั้งปี'}</b>
+        <small class="muted" style="display:block;margin-bottom:4px">${EN()?`from ${d.slipCount||0} issued payslip(s)`:`จากสลิปที่ออกแล้ว ${d.slipCount||0} เดือน`}</small>
+        ${row2(EN()?'Base salary':'เงินเดือน',money(inc.base))}
+        ${inc.diligence?row2(EN()?'Diligence bonus':'เบี้ยขยัน',money(inc.diligence)):''}
+        ${inc.childRate?row2(EN()?'Child-count allowance':'รายได้ตามจำนวนเด็ก',money(inc.childRate)):''}
+        ${inc.trainingCert?row2(EN()?'Training certificates':'ใบประกาศอบรม',money(inc.trainingCert)):''}
+        ${inc.ot?row2('OT',money(inc.ot)):''}
+        ${inc.holidayBonus?row2(EN()?'Holiday bonus':'เงินพิเศษวันพักผ่อน',money(inc.holidayBonus)):''}
+        ${inc.other?row2(EN()?'Other':'อื่น ๆ',money(inc.other)):''}
+        <div style="border-top:1px solid var(--line);margin-top:4px;padding-top:4px"></div>
+        ${row2(EN()?'Gross':'รวมรายได้',money(inc.gross),true)}
+        ${row2(EN()?'Deductions':'รวมรายการหัก','−'+money(inc.deductions))}
+        ${row2(EN()?'Net paid':'รับสุทธิ',money(inc.net),true)}</div>
+
+      <div class="card" style="padding:10px;background:var(--ok-bg);border-color:var(--ok-line)">
+        <b style="font-size:14px">🏦 ${EN()?'Provident fund':'เงินสะสม (กองทุน)'}</b>
+        ${row2(EN()?'Deducted from them this year':'หักจากพนักงานปีนี้',money(fund.own))}
+        ${row2(EN()?'School contributed':'โรงเรียนสมทบ',money(fund.employer))}
+        ${row2(EN()?'Added this year':'เข้ากองทุนปีนี้',money(fund.addedThisPeriod),true)}
+        <div style="border-top:1px solid var(--ok-line);margin-top:4px;padding-top:4px"></div>
+        ${row2(EN()?'Running total':'ยอดสะสมทั้งหมด',money(fund.accum),true)}
+        <small class="muted">${fund.accumAsOf?`${EN()?'as of the':'ณ สลิปเดือน'} ${esc(monthNameYear(fund.accumAsOf))}${EN()?' payslip':''}`:(EN()?'no payslip in range — showing the opening balance':'ยังไม่มีสลิปในช่วงนี้ — แสดงยอดยกมา')}</small></div>
+
+      <p class="muted" style="font-size:12px">${EN()
+        ? 'Figures come from the payslips that were actually issued — never recomputed, so this always agrees with what was paid. Days not yet reached are not counted as absence.'
+        : 'ตัวเลขรายได้ดึงจากสลิปที่ออกจริง ไม่ได้คำนวณใหม่ จึงตรงกับที่จ่ายเสมอ · วันที่ยังมาไม่ถึงไม่นับเป็นขาด'}</p>
+      <button class="btn outline block" onclick="this.closest('.modal').remove();SPERF.d=null">${esc(t('c.close'))}</button>`;
+    const open=document.querySelector('.modal .sheet');
+    if(open){ open.innerHTML=html; if(window.translateTree) translateTree(open); } else modal(html);
+  }
 
   window.A_reqCI = async (id,val) => { await api('setRequireCheckin',{staffId:id,value:val}); toast((val?'เปิด':'ปิด')+'การบังคับลงเวลา'); };
   // Save all check-in-requirement toggles at once (persists to STAFF.RequireCheckin). One batched round-trip.
@@ -9289,7 +9423,7 @@
       ${searchBox()}
       <div class="card secw" id="sec-staff">${secHead('👩‍🏫',t('c.staff'),_stAct.length,`<span class="row"><button class="btn sm" onclick="event.stopPropagation();A_staffForm()">+ ${esc(t('manage.add'))}</button><button class="btn sm outline" onclick="event.stopPropagation();A_staffExport(this)">📤 ${EN()?'Export':'นำออก'}</button></span>`)}
         <div class="secbody" hidden>
-        ${_stAct.map(s=>`<div class="list-item stack" data-k="${esc((s.NameTH+' '+(s.NameEN||'')+' '+(s.Nickname||'')+' '+(s.Position||'')+' '+(s.Department||'')).toLowerCase())}"><span style="display:flex;gap:8px;align-items:center">${personAvatar(s)}<span><b>${esc(dispNick(s))}</b> ${nmSub(s)?`<small class="muted">${esc(nmSub(s))}</small>`:""}<br><small class="muted">${_notr(s.Position||"")} · ${esc(deptLabel(s))} · 🕑 ${_notr(groupLabel(s.StaffGroup))}${groupHours(s.StaffGroup)?' ('+esc(groupHours(s.StaffGroup))+')':''}</small><br><small class="muted">${esc(t('staff.start'))} ${esc(s.StartDate||'-')} · ${esc(t('staff.tenure'))} ${esc(tenure(s.StartDate))}</small>${endNote(s)}${pauseNote(s)}</span></span><span class="acts"><button class="btn sm outline" onclick="A_staffForm('${s.StaffID}')">✏️ ${EN()?'Edit':'แก้ไข'}</button><button class="btn sm pink" onclick="A_delStaff('${s.StaffID}',this)">🗑️ ${EN()?'Delete':'ลบ'}</button></span></div>`).join('')}</div></div>
+        ${_stAct.map(s=>`<div class="list-item stack" data-k="${esc((s.NameTH+' '+(s.NameEN||'')+' '+(s.Nickname||'')+' '+(s.Position||'')+' '+(s.Department||'')).toLowerCase())}"><span style="display:flex;gap:8px;align-items:center">${personAvatar(s)}<span><b>${esc(dispNick(s))}</b> ${nmSub(s)?`<small class="muted">${esc(nmSub(s))}</small>`:""}<br><small class="muted">${_notr(s.Position||"")} · ${esc(deptLabel(s))} · 🕑 ${_notr(groupLabel(s.StaffGroup))}${groupHours(s.StaffGroup)?' ('+esc(groupHours(s.StaffGroup))+')':''}</small><br><small class="muted">${esc(t('staff.start'))} ${esc(s.StartDate||'-')} · ${esc(t('staff.tenure'))} ${esc(tenure(s.StartDate))}</small>${endNote(s)}${pauseNote(s)}</span></span><span class="acts"><button class="btn sm outline" onclick="A_staffPerf('${s.StaffID}')" title="${EN()?'Performance':'สรุปผลการทำงาน'}">📊</button><button class="btn sm outline" onclick="A_staffForm('${s.StaffID}')">✏️ ${EN()?'Edit':'แก้ไข'}</button><button class="btn sm pink" onclick="A_delStaff('${s.StaffID}',this)">🗑️ ${EN()?'Delete':'ลบ'}</button></span></div>`).join('')}</div></div>
       ${_stGone.length?`<div class="card secw" id="sec-staff-gone">${secHead('🚪',EN()?'No longer working here':'สิ้นสุดการทำงานแล้ว',_stGone.length,'')}
         <div class="secbody" hidden>
         ${/* What "closing the record" actually means — spelled out, because the dashboard used to say
