@@ -356,7 +356,19 @@ SCHEMA[WB.HR] = {
                   // why THIS month's salary is not the usual figure — a half salary with no reason on
                   // the slip is indistinguishable from a mistake (writeRows_ silently DROPS a field
                   // with no column, so these must be declared or the explanation never reaches the slip)
-                  'PauseSalaryMode', 'PauseFrom', 'PauseTo', 'PauseReason'],
+                  'PauseSalaryMode', 'PauseFrom', 'PauseTo', 'PauseReason',
+                  /* APPROVED BEFORE THE TEACHER SEES IT (2026-10-05). Saving used to publish: the
+                   * moment an admin pressed บันทึก the slip was on the teacher's screen, half-checked.
+                   * Now saving records and APPROVING publishes — the admin looks at the slip exactly
+                   * as the teacher will, then signs it off. An unapproved row reads to a teacher as
+                   * "not issued yet", which is what it is, and their screen already says so. */
+                  'Approved', 'ApprovedBy', 'ApprovedAt'],
+  /* EVERY CHANGE TO WHAT SOMEBODY IS PAID (2026-10-05). The STAFF row and PAYROLL_CONFIG hold the
+   * CURRENT figures; this holds how they got there. Asked for with the annual review: "ปรับเงินเดือน
+   * / ปรับค่าเบี้ยต่างๆ ... เก็บประวัติพร้อมเหตุผล". One row per FIELD changed, so "ขึ้นเงินเดือน และ
+   * เลื่อนตำแหน่ง" on the same day is two rows and each can be read on its own. */
+  PAY_ADJUSTMENTS: ['AdjID', 'StaffID', 'Date', 'Field', 'FromValue', 'ToValue', 'Reason',
+                    'ByStaffID', 'ByName', 'CreatedAt'],
   TRAINING:      ['TrainingID', 'StaffID', 'CourseName', 'Date', 'Provider', 'Certificate', 'ExpireDate'],
   WORK_SCHEDULE: ['StaffID', 'DayOfWeek', 'CheckInTime', 'CheckOutTime', 'EffectiveDate'],
   // Manual attendance-time request (ขอลงเวลา): staff asks to record a check-in/out at a chosen time.

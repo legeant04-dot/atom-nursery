@@ -79,6 +79,13 @@ console.log('\n2) THE 115 — a new one is a behaviour silently replaced');
      * reason. The engine version remains the statement of the rule and is what mock mode and
      * tools/test_bill_undo.js run on; that suite pins both sides against each other. */
     'billRunLast', 'undoBillRun',
+    /* approvePayslip / adjustStaffPay / payAdjustHistory (2026-10-05) — shadowed for the same reason
+     * as the two above. STAFF and PAYROLL are written by the engine as WHOLE COLLECTIONS, and STAFF
+     * is in NO_SHRINK_SHEETS besides: a pay rise going out through a collection rewrite would carry
+     * every other row with it, read from whatever that request happened to hydrate — the shape of
+     * the 2026-07-09 wipe. src/PayAdjust.gs writes one row by its own row number. The engine keeps
+     * the rules (mock mode and tools/test_pay_adjust.js run on them) and that suite pins both. */
+    'approvePayslip', 'adjustStaffPay', 'payAdjustHistory',
     'addAnnouncement', 'addBigCleaning', 'addChildNew', 'addDepartment', 'addHoliday',
     'adminAddHolidayOT', 'adminAddOT', 'adminCancelOT', 'adminDeleteOT', 'adminEditOT',
     'adminResetPassword', 'adminRestoreOT', 'adminUpdateOT', 'allLeaves', 'approveInjury',

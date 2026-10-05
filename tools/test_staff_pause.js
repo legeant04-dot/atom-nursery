@@ -211,7 +211,9 @@ console.log('\n4) THE SALARY IS THE SCHOOL’S DECISION');
   /* An unexplained half salary is indistinguishable from a mistake, so the payslip row carries the
    * rule and the reason — and the columns exist, or writeRows_ drops them. */
   eq('the slip says which rule was applied, and why', [res.payHalf.mode, res.payHalf.reason], ['HALF', 'ลาคลอด']);
-  ok_('...with columns to land in', /'PauseSalaryMode', 'PauseFrom', 'PauseTo', 'PauseReason'\]/.test(configGs));
+  /* Matched WITHOUT the closing bracket since 2026-10-05: Approved/ApprovedBy/ApprovedAt were
+   * appended after these, and a test about the PAUSE columns should not also pin what follows them. */
+  ok_('...with columns to land in', /'PauseSalaryMode', 'PauseFrom', 'PauseTo', 'PauseReason'/.test(configGs));
   ok_('the rule is duplicated into the .gs route that shadows the engine, and says so',
     /function staffPauseSalaryFor_/.test(payrollGs) && /lives in the engine alone would never run on live/.test(payrollGs));
 }

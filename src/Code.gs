@@ -142,6 +142,12 @@ var ROUTES = {
    * work. Both take the explicit in-place path instead. See src/BillRun.gs. */
   billRunLast:      function (p) { return handleBillRunLast(p); },     // admin-only READ: what the last bulk run made
   undoBillRun:      function (p) { return handleUndoBillRun(p); },     // admin-only: take it back, in place
+  /* STAFF and PAYROLL are written by the engine as WHOLE COLLECTIONS, and STAFF is shrink-protected
+   * besides — a pay rise through a collection rewrite would carry every other row with it. All three
+   * take the explicit in-place path. See src/PayAdjust.gs. */
+  approvePayslip:   function (p) { return handleApprovePayslip(p); },  // admin-only: this is what the teacher then sees
+  adjustStaffPay:   function (p) { return handleAdjustStaffPay(p); },  // admin-only: salary / position / allowances
+  payAdjustHistory: function (p) { return handlePayAdjustHistory(p); },// a teacher may read their own
   setSchoolConfig:  function (p) { return handleSetSchoolConfig(p); },
   recomputeAttendance: function (p) { return handleRecomputeAttendance(p); },
   diagDay:          function (p) { return handleDiagDay(p); },         // admin-only READ: what the server thinks today is
@@ -405,7 +411,11 @@ function applyIdentity_(action, payload, sess) {
    * Observer but nothing stopped a signed-in teacher or parent posting `generateMonthlyBills` and
    * billing the whole school. Found 2026-09-30 while adding the undo. Listing them takes nothing
    * away from the admin. */
-  var ADMIN_ONLY = { generateMonthlyBills: 1, issueBill: 1, billRunLast: 1, undoBillRun: 1,
+  /* Approving a payslip is what publishes it to the person it is about, and adjusting pay is the
+   * school deciding what somebody earns. `payAdjustHistory` is deliberately NOT here — a teacher may
+   * read their own trail, and the handler scopes it to them. */
+  var ADMIN_ONLY = { approvePayslip: 1, adjustStaffPay: 1, saveAttendanceSince: 1,
+    generateMonthlyBills: 1, issueBill: 1, billRunLast: 1, undoBillRun: 1,
     deleteBill: 1, adminResetPassword: 1, getStaffPassword: 1, setSchoolConfig: 1, recomputeAttendance: 1, diagDay: 1,
     addDepartment: 1, removeDepartment: 1, renameDepartment: 1, listBackups: 1, restoreSheet: 1, setRequireCheckin: 1,
     adminUpdateOT: 1, adminCancelOT: 1, adminRestoreOT: 1, unlockJournal: 1,

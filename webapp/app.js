@@ -131,7 +131,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.418'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.419'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -6505,6 +6505,12 @@
       ${T_slipMonthList(mo, month)}
       <div id="slipBox">${payslipCard(pay,month)}</div>
       <button class="btn outline block" onclick="T_slipDownload()">⬇️ ${esc(t('lbl.downloadSlip'))}</button>
+      ${/* ...and their own year. Asked 2026-10-05: "ในส่วนของคุณครูแสดงใน การเงิน > ใส่รหัสผ่าน >
+           สรุปข้อมูลของฉัน" — behind the same password as the payslip, because it is the same class of
+           information about the same person. The screen is the admin's, minus the controls: a
+           teacher sees their own year and the HISTORY of what was decided about their pay, which is
+           the part that builds trust, and no way to change any of it. */''}
+      <button class="btn outline block" style="margin-top:6px" onclick="A_staffPerf('${esc(USER.staffId||'')}')">📊 ${EN()?'My year — attendance, leave and earnings':'สรุปข้อมูลของฉัน (มาทำงาน · ลา · รายได้)'}</button>
       <details class="card" style="margin-top:10px" open><summary style="cursor:pointer;font-weight:700">${esc(t('ot.myOT'))}</summary>
         ${periodPicker('myot')}
         <div id="myot" style="margin-top:8px"><small class="muted">${EN()?'Loading…':'กำลังโหลด…'}</small></div></details>`;
@@ -7453,7 +7459,10 @@
                  // moved off the dashboard 2026-09-03: it is signed off like a leave, so it belongs
                  // with the other things waiting for a signature — and gets the same red badge
                  ['🚑',EN()?'Injury reports':'รายงานอุบัติเหตุ','A_injuries()'],
-                 ['🗓️',EN()?'Monthly work time':'เวลาเข้า-ออกรายเดือน','A_staffMonth()']])}
+                 ['🗓️',EN()?'Monthly work time':'เวลาเข้า-ออกรายเดือน','A_staffMonth()'],
+                 /* THE ANNUAL REVIEW — asked 2026-10-05: "ย้ายมาอยู่ใน ดำเนินการ > รายงาน > สรุปรายปี
+                  * จะแสดงข้อมูลพนักงานทั้งหมด ดูรายคน ปรับเงินเดือน/ตำแหน่ง/เบี้ยต่างๆในนี้". */
+                 ['📊',EN()?'Annual review':'สรุปรายปี (ทุกคน)','A_yearReview()']])}
       <div class="leavegrid">
         <div class="lvcol">
           <div class="seg" style="margin-bottom:10px"><button class="${LV_TAB==='pending'?'active':''}" onclick="A_lvTab('pending')">⏳ ${EN()?'In progress':'กำลังดำเนินการ'} (${pending.length})</button><button class="${LV_TAB==='resolved'?'active':''}" onclick="A_lvTab('resolved')">✅ ${EN()?'Done':'อนุมัติแล้ว/เสร็จสิ้น'} (${resolved.length})</button></div>
@@ -7847,6 +7856,9 @@
         const box=$('#slipResult');
         if(box) box.innerHTML=`<div class="spread" style="margin:8px 2px 0"><b>${EN()?'Saved for this month':'ที่บันทึกไว้ของเดือนนี้'}</b><span class="pill ok">💾 ${EN()?'saved':'บันทึกแล้ว'}</span></div>`
           + payslipCard(saved)
+          // reopening a month must say whether the teacher can see it, not just that it was saved —
+          // "บันทึกแล้ว" and "คุณครูเห็นแล้ว" stopped meaning the same thing on 2026-10-05
+          + slipApproveCard(saved)
           + `<div class="row"><button class="btn outline" onclick="A_dlSlip('${sid}','${$('#pMonth').value}')">⬇️ ${esc(t('pay.download'))}</button><button class="btn outline" onclick="A_print('${$('#pMonth').value}')">🖨️ ${esc(t('pay.print3'))}</button></div>`;
       } else { const box=$('#slipResult'); if(box) box.innerHTML=`<p class="muted" style="font-size:13px;text-align:center;margin-top:8px">${EN()?'Nothing saved for this month yet.':'ยังไม่มีรายการที่บันทึกไว้ของเดือนนี้'}</p>`; }
     }catch(e){}
@@ -8057,6 +8069,53 @@
   function A_renderAdj(){ const box=$('#adjList'); if(!box)return;
     box.innerHTML=PAY_ADJ.map((a,i)=>`<div class="grid3" style="margin-bottom:6px;grid-template-columns:1fr 90px 36px"><input value="${esc(a.label)}" placeholder="${esc(t('pay.adjLabel'))}" oninput="PAY_ADJ_SET(${i},'label',this.value)"/><input type="number" value="${a.amount}" placeholder="±0" oninput="PAY_ADJ_SET(${i},'amount',this.value)"/><button class="btn sm pink" onclick="A_delAdj(${i})" aria-label="${EN()?"Delete":"ลบ"}" title="${EN()?"Delete":"ลบ"}">✕</button></div>`).join(''); }
   window.PAY_ADJ_SET=(i,k,v)=>{ PAY_ADJ[i][k]= k==='amount'?Number(v||0):v; };
+  /* ===== LOOK AT IT AS THE TEACHER WILL, THEN SIGN IT ============================================
+   * Asked 2026-10-05: "เพิ่มปุ่ม Preview Slip เงินเดือนของคุณครูคนนั้น เพื่อให้ Admin เห็นข้อมูลเหมือนกัน
+   * กับคุณครูเสมอ และให้ Approve ข้อมูลก่อนจะบันทึกให้คุณครู".
+   *
+   * Saving used to publish: the moment บันทึก was pressed the slip was on the teacher's screen —
+   * including a half-finished one saved to come back to, and the figure that was about to be
+   * corrected. Now saving records and APPROVING publishes (see getPayslip), and recalculating an
+   * approved slip withdraws the approval, because the figures it was given for have changed.
+   */
+  const slipApproved = r => String((r&&r.Approved)||'').toUpperCase()==='YES';
+  function slipApproveCard(r){
+    const on=slipApproved(r);
+    return `<div class="card" style="padding:10px;background:var(--${on?'ok':'warn'}-bg);border-color:var(--${on?'ok-line':'warn-line'})">
+      <div class="spread"><b style="color:var(--${on?'ok':'warn'})">${on?`✅ ${EN()?'Approved — the teacher can see this slip':'อนุมัติแล้ว · คุณครูเห็นสลิปนี้แล้ว'}`
+        :`⏳ ${EN()?'Saved, not yet approved — the teacher cannot see it':'บันทึกแล้ว ยังไม่อนุมัติ · คุณครูยังไม่เห็น'}`}</b></div>
+      ${r.ApprovedAt?`<small class="muted">${EN()?'approved':'อนุมัติเมื่อ'} ${esc(r.ApprovedAt)}</small>`:''}
+      <div class="row" style="gap:6px;margin-top:8px">
+        <button class="btn outline" style="flex:1" onclick="A_slipPreview('${esc(r.StaffID)}','${esc(r.Month)}')">👁️ ${EN()?'Preview as the teacher':'ดูสลิปแบบที่คุณครูเห็น'}</button>
+        <button class="btn ${on?'pink':''}" style="flex:1" onclick="A_slipApprove('${esc(r.StaffID)}','${esc(r.Month)}',${on?'false':'true'},this)">${on?`↩️ ${EN()?'Withdraw':'ยกเลิกอนุมัติ'}`:`✅ ${EN()?'Approve & send':'อนุมัติและส่งให้คุณครู'}`}</button></div>
+      <small class="muted" style="display:block;margin-top:6px">${EN()
+        ? 'Recalculating after approval withdraws it — the slip is no longer the one that was signed off.'
+        : 'หากคำนวณใหม่หลังอนุมัติ ระบบจะยกเลิกการอนุมัติให้เอง เพราะตัวเลขไม่ใช่ชุดที่เซ็นรับรองไว้แล้ว'}</small></div>`;
+  }
+  /* The slip EXACTLY as the teacher's screen draws it — payslipCard is the same function their
+   * screen calls, so this cannot drift from what they will read. */
+  window.A_slipPreview = async (sid, month) => {
+    let r=null; try{ r=await api('getPayslip',{staffId:sid,month},{fresh:true}); }catch(e){ err(e); return; }
+    if(!r){ toast(EN()?'Nothing saved for this month':'ยังไม่มีสลิปของเดือนนี้'); return; }
+    modal(`<h3>👁️ ${EN()?'As the teacher sees it':'สลิปแบบที่คุณครูเห็น'}</h3>
+      <p class="muted" style="font-size:13px;margin-top:0">${EN()
+        ? 'This is the teacher’s own screen, drawn by the same code. Check it before approving.'
+        : 'นี่คือหน้าจอของคุณครูเอง วาดด้วยโค้ดชุดเดียวกัน · ตรวจสอบให้เรียบร้อยก่อนกดอนุมัติ'}</p>
+      ${payslipCard(r)}
+      <div class="row" style="gap:6px;margin-top:8px">
+        <button class="btn outline" style="flex:1" onclick="this.closest('.modal').remove()">← ${EN()?'Back':'ย้อนกลับ'}</button>
+        ${slipApproved(r)?'':`<button class="btn" style="flex:1" onclick="A_slipApprove('${esc(sid)}','${esc(month)}',true,this)">✅ ${EN()?'Approve & send':'อนุมัติและส่งให้คุณครู'}</button>`}</div>`);
+  };
+  window.A_slipApprove = async (sid, month, on, btn) => {
+    if(!on && !confirm(EN()?'Withdraw the approval? The teacher will stop seeing this slip.'
+      :'ยกเลิกการอนุมัติ? คุณครูจะไม่เห็นสลิปนี้อีก')) return;
+    if(btn) btn.disabled=true;
+    try{ await api('approvePayslip',{targetId:sid, staffId:USER.staffId, month, approve:!!on, adminId:USER.staffId});
+      const m=document.querySelector('.modal'); if(m) m.remove();
+      confirmSaved(on?(EN()?'Approved — the teacher can see it now':'อนุมัติแล้ว · คุณครูเห็นสลิปได้แล้ว')
+                     :(EN()?'Approval withdrawn':'ยกเลิกการอนุมัติแล้ว'));
+      A_payStaff();
+    }catch(e){ err(e); if(btn) btn.disabled=false; } };
   window.A_calc=async(commit)=>{
     // the form is hidden until somebody is chosen, but a payroll write is not a thing to leave
     // guarded only by CSS — an empty staffId would compute against whatever the server resolves
@@ -8087,7 +8146,7 @@
       : `<span class="pill wait">🧮 ${EN()?'preview — not saved yet':'ตัวอย่าง · ยังไม่บันทึก'}</span>`;
     $('#slipResult').innerHTML=`<div class="spread" style="margin:8px 2px 0"><b>${EN()?'Result':'ผลการคำนวณ'}</b>${savedBadge}</div>`
       + payslipCard(r)
-      + (commit?`<div class="row"><button class="btn outline" onclick="A_dlSlip('${r.StaffID}','${r.Month}')">⬇️ ${esc(t('pay.download'))}</button><button class="btn outline" onclick="A_print('${r.Month}')">🖨️ ${esc(t('pay.print3'))}</button></div>`
+      + (commit?`${slipApproveCard(r)}<div class="row"><button class="btn outline" onclick="A_dlSlip('${r.StaffID}','${r.Month}')">⬇️ ${esc(t('pay.download'))}</button><button class="btn outline" onclick="A_print('${r.Month}')">🖨️ ${esc(t('pay.print3'))}</button></div>`
               :`<p class="muted" style="font-size:13px">${EN()?'Press "Save as payable" to record this and add it to expenses.':'กด "บันทึกเป็นรายการจ่าย" เพื่อบันทึกและรวมเข้ารายจ่าย'}</p>`);
     if(commit) confirmSaved(EN()?'Saved — included in this month’s expenses':'บันทึกแล้ว · รวมในรายจ่ายเดือนนี้');
     else toast(EN()?'Calculated — not saved yet':'คำนวณแล้ว · ยังไม่บันทึก'); };
@@ -8333,6 +8392,93 @@
    * makes a figure checkable against what the person in the room remembers. A review that cannot be
    * checked is an accusation.
    */
+  /* ===== สรุปรายปี — ทุกคน แล้วค่อยเจาะรายคน =======================================================
+   * Asked 2026-10-05: "ดำเนินการ > รายงาน > สรุปรายปี จะแสดงข้อมูลพนักงานทั้งหมด ดูรายคน ปรับเงินเดือน/
+   * ตำแหน่ง/เบี้ยต่างๆในนี้ และสรุปข้อมูลทั้งหมด".
+   *
+   * The list first, because the year-end question is comparative: who was here, who was not, who is
+   * owed a conversation. Opening twelve dashboards one at a time answers it only for whoever you
+   * happened to open.
+   *
+   * ONE REQUEST PER PERSON, in sequence rather than all at once: each is a walk of the whole
+   * calendar, and Apps Script runs one execution at a time — firing ten in parallel makes the last
+   * one wait for all ten anyway and risks the 6-minute ceiling. The rows fill in as they arrive.
+   */
+  let YREV={ year:'', rows:[], payable:[], loading:false };
+  window.A_yearReview = async (year) => {
+    YREV.year = String(year || YREV.year || todayStr().slice(0,4));
+    const staff = payableStaff(await api('listStaff').catch(()=>[]));
+    YREV.payable = staff; YREV.rows = staff.map(s=>({ staffId:s.StaffID, nick:nmn(s), position:s.Position||'', d:null }));
+    A_yrevRender();
+    for(const r of YREV.rows){
+      try{ r.d = await api('staffPerformance',{targetId:r.staffId, staffId:USER.staffId, year:YREV.year}); }
+      catch(e){ r.err = true; }
+      A_yrevRender(true);
+    }
+  };
+  window.A_yrevYear = (y) => { YREV.year=y; A_yearReview(y); };
+  function A_yrevRender(keep){
+    const done = YREV.rows.filter(r=>r.d).length, n = YREV.rows.length;
+    const years=[]; { const y=Number(todayStr().slice(0,4)); for(let i=0;i<4;i++) years.push(String(y-i)); }
+    const sum = k => YREV.rows.reduce((a,r)=>a+Number((r.d&&r.d[k])||0),0);
+    const money = v => baht(Math.round(v*100)/100);
+    const pct=(a,b)=>b>0?Math.round(a/b*100):0;
+    const row = r => { const d=r.d;
+      if(r.err) return `<div class="list-item"><span><b>${esc(r.nick)}</b></span><small style="color:var(--warn)">${EN()?'could not read':'อ่านข้อมูลไม่สำเร็จ'}</small></div>`;
+      if(!d) return `<div class="list-item"><span><b>${esc(r.nick)}</b></span><small class="muted">⏳</small></div>`;
+      const p = pct(d.present, d.required);
+      return `<div class="list-item" style="display:block;cursor:pointer" onclick="A_staffPerf('${esc(r.staffId)}','${esc(YREV.year)}')">
+        <div class="spread"><span><b>${esc(r.nick)}</b> <small class="muted">${_notr(d.position||'')}</small></span>
+          <span><b style="color:var(--${p>=95?'ok':(p>=85?'blue':'warn')})">${p}%</b> <span class="muted">›</span></span></div>
+        <small class="muted">${EN()?'here':'มา'} ${d.present}/${d.required} · ${EN()?'absent':'ขาด'} ${d.absent} · ${EN()?'leave':'ลา'} ${d.leaveDays} · ${EN()?'late':'สาย'} ${d.lateDays} · OT ${d.otHours} ${EN()?'hr':'ชม.'}</small>
+        <small class="muted" style="display:block">${EN()?'paid this year':'จ่ายไปแล้วปีนี้'} <b>${money((d.income||{}).net||0)}</b>${
+          (d.fund||{}).accum?` · ${EN()?'fund':'กองทุน'} ${money(d.fund.accum)}`:''}</small></div>`; };
+    const html=`<h3>📊 ${EN()?'Annual review':'สรุปรายปี'} <span class="pill info">${esc(YREV.year)}</span></h3>
+      <div class="row" style="gap:6px;margin-bottom:8px;flex-wrap:wrap">${years.map(y=>`<button class="btn sm ${YREV.year===y?'':'outline'}" onclick="A_yrevYear('${y}')">${y}</button>`).join('')}</div>
+      ${done<n?`<p class="muted" style="font-size:13px">⏳ ${EN()?`Reading ${done} of ${n}…`:`กำลังอ่านข้อมูล ${done} / ${n} คน…`}</p>`:''}
+      ${done?`<div class="card" style="padding:10px;background:var(--surface-2)">
+        <b style="font-size:13px">${EN()?'Everyone together':'ภาพรวมทั้งโรงเรียน'}</b>
+        <div class="grid3" style="gap:6px;margin-top:6px">
+          <div class="card" style="padding:6px;margin:0;text-align:center"><b style="font-size:18px">${pct(sum('present'),sum('required'))}%</b><br><small class="muted">${EN()?'attendance':'มาทำงาน'}</small></div>
+          <div class="card" style="padding:6px;margin:0;text-align:center"><b style="font-size:18px">${sum('absent')}</b><br><small class="muted">${EN()?'absences':'ขาดรวม'}</small></div>
+          <div class="card" style="padding:6px;margin:0;text-align:center"><b style="font-size:18px">${sum('lateDays')}</b><br><small class="muted">${EN()?'late':'สายรวม'}</small></div></div>
+        <div class="grid3" style="gap:6px;margin-top:6px">
+          <div class="card" style="padding:6px;margin:0;text-align:center"><b style="font-size:18px">${sum('leaveDays')}</b><br><small class="muted">${EN()?'leave days':'ลารวม'}</small></div>
+          <div class="card" style="padding:6px;margin:0;text-align:center"><b style="font-size:18px">${Math.round(sum('otHours')*10)/10}</b><br><small class="muted">${EN()?'OT hours':'OT (ชม.)'}</small></div>
+          <div class="card" style="padding:6px;margin:0;text-align:center"><b style="font-size:16px">${money(YREV.rows.reduce((a,r)=>a+Number(((r.d||{}).income||{}).net||0),0))}</b><br><small class="muted">${EN()?'salary paid':'เงินเดือนจ่ายแล้ว'}</small></div></div>
+        <small class="muted" style="display:block;margin-top:6px">${EN()
+          ? 'Salary figures are the sum of issued payslips. Days not yet reached, and days before the school began clocking in, are not counted.'
+          : 'ยอดเงินคือผลรวมจากสลิปที่ออกจริง · วันที่ยังมาไม่ถึง และวันก่อนที่โรงเรียนเริ่มให้ลงเวลา ไม่ถูกนับ'}</small></div>`:''}
+      <div id="yrevSince"></div>
+      <p class="muted" style="font-size:13px;margin:8px 2px 2px">${EN()?'Tap a name for the full year, and to adjust pay.':'แตะชื่อเพื่อดูทั้งปี และปรับเงินเดือน/ตำแหน่ง/เบี้ย'}</p>
+      ${YREV.rows.map(row).join('')}
+      <button class="btn outline block" style="margin-top:8px" onclick="this.closest('.modal').remove()">${esc(t('c.close'))}</button>`;
+    const open=document.querySelector('.modal .sheet');
+    if(keep && open){ const sc=open.scrollTop; open.innerHTML=html; open.scrollTop=sc; if(window.translateTree) translateTree(open); }
+    else modal(html);
+    if(done===n) A_yrevSince();
+  }
+  /* WHEN THE SCHOOL STARTED CLOCKING IN — shown here because this is the screen whose numbers it
+   * changes, and because "ขาด 125 วัน" is read here first. The derived date is printed beside the one
+   * in use, so the admin can see what the data actually says before overriding it. */
+  window.A_yrevSince = async () => { const box=document.getElementById('yrevSince'); if(!box) return;
+    let s; try{ s=await api('attendanceSince'); }catch(e){ return; }
+    const el=document.getElementById('yrevSince'); if(!el) return;
+    el.innerHTML=`<details class="card" style="padding:8px;background:var(--surface-2)"><summary style="cursor:pointer;font-size:13px"><b>🕑 ${EN()?'Attendance records begin':'ระบบเริ่มบันทึกการลงเวลา'}</b> ${esc(fullDate(s.effective)||'—')}</summary>
+      <p class="muted" style="font-size:13px;margin:6px 0">${EN()
+        ? 'Working days before this date are not counted — nobody was asked to clock in yet. Without it, a teacher who joined before the system did shows months of absence they never took.'
+        : 'วันทำงานก่อนวันนี้จะไม่ถูกนับ เพราะยังไม่ได้เริ่มให้ลงเวลา · ถ้าไม่มีวันนี้ คุณครูที่อยู่มาก่อนระบบจะขึ้นว่าขาดงานหลายเดือนทั้งที่ไม่ได้ขาด'}</p>
+      <div class="list-item"><span class="muted">${EN()?'Earliest clock-in on record':'การลงเวลาที่เก่าที่สุดในระบบ'}</span><b>${esc(s.derived?fullDate(s.derived):(EN()?'none yet':'ยังไม่มี'))}</b></div>
+      <div class="list-item"><span class="muted">${EN()?'Set by the school':'ที่โรงเรียนกำหนดเอง'}</span><b>${s.set?esc(fullDate(s.set)):(EN()?'— using the earliest above':'— ใช้ค่าจากข้อมูลจริง')}</b></div>
+      <label class="field" style="margin-top:6px"><span>${EN()?'Override (blank = use the earliest on record)':'กำหนดเอง (เว้นว่าง = ใช้ค่าจากข้อมูลจริง)'}</span>
+        <input type="date" id="yrSince" value="${esc(s.set||'')}"/></label>
+      <button class="btn sm block" onclick="A_yrevSinceSave(this)">💾 ${esc(t('c.save'))}</button></details>`;
+  };
+  window.A_yrevSinceSave = async (btn) => { const v=(document.getElementById('yrSince')||{}).value||'';
+    btn.disabled=true;
+    try{ await api('saveAttendanceSince',{date:v, staffId:USER.staffId}); confirmSaved(t('c.saved')); A_yearReview(YREV.year); }
+    catch(e){ err(e); btn.disabled=false; } };
+
   let SPERF={ staffId:'', year:'', d:null };
   window.A_staffPerf = async (staffId, year) => {
     SPERF.staffId=staffId||SPERF.staffId; SPERF.year=String(year||SPERF.year||todayStr().slice(0,4));
@@ -8445,10 +8591,81 @@
       <p class="muted" style="font-size:12px">${EN()
         ? 'Figures come from the payslips that were actually issued — never recomputed, so this always agrees with what was paid. Days not yet reached are not counted as absence.'
         : 'ตัวเลขรายได้ดึงจากสลิปที่ออกจริง ไม่ได้คำนวณใหม่ จึงตรงกับที่จ่ายเสมอ · วันที่ยังมาไม่ถึงไม่นับเป็นขาด'}</p>
+      ${/* ...AND THE DECISION THIS SCREEN EXISTS FOR. Asked 2026-10-05: the review and the adjustment
+           belong together — reading somebody's year and then going somewhere else to act on it is
+           how the two drift apart. Admin only; a teacher reading their own year sees the HISTORY
+           (what was decided about them, and why) and no controls. */''}
+      <div id="sperfAdjust"></div>
       <button class="btn outline block" onclick="this.closest('.modal').remove();SPERF.d=null">${esc(t('c.close'))}</button>`;
     const open=document.querySelector('.modal .sheet');
     if(open){ open.innerHTML=html; if(window.translateTree) translateTree(open); } else modal(html);
+    A_sperfAdjust();
   }
+  /* ปรับเงินเดือน / ตำแหน่ง / เบี้ย — and the trail of what was decided before.
+   *
+   * The ADMIN gets the form; everybody gets the history. A teacher reading their own year should be
+   * able to see that their rise on 1 April was "ประเมินประจำปี 2569" and who signed it — that is the
+   * part of this that builds trust, and hiding it would make the screen feel like surveillance.
+   *
+   * The boxes start EMPTY, not pre-filled with the current figures. A form pre-filled with today's
+   * salary invites a save that changes nothing but writes a history row saying it did; blank means
+   * "leave this alone" and only a typed number is a decision.
+   */
+  window.A_sperfAdjust = async () => {
+    const box=document.getElementById('sperfAdjust'); if(!box) return;
+    const d=SPERF.d||{}; const isAdmin = USER.role==='Admin';
+    let hist=[]; try{ hist=await api('payAdjustHistory',{targetId:SPERF.staffId, staffId:USER.staffId}); }catch(e){}
+    const el=document.getElementById('sperfAdjust'); if(!el) return;
+    const FLD={ BaseSalary:EN()?'Base salary':'เงินเดือน', Position:EN()?'Position':'ตำแหน่ง',
+      PositionLevel:EN()?'Level':'ระดับ', DiligenceAttendanceAmount:EN()?'Diligence — attendance':'เบี้ยขยัน (มาครบ)',
+      DiligenceFacebookAmount:EN()?'Diligence — Facebook':'เบี้ยขยัน (Facebook)',
+      ChildMultiplier:EN()?'Child rate':'เรทต่อเด็ก', ChildThreshold:EN()?'Child threshold':'เริ่มคิดเรทที่เด็กคนที่',
+      Contribution:EN()?'Provident fund':'เงินสมทบ' };
+    const money=k=>/Salary|Amount|Multiplier|Contribution/.test(k);
+    const histHtml = hist.length?hist.map(h=>`<div class="list-item" style="display:block">
+        <div class="spread"><b>${esc(FLD[h.field]||h.field)}</b><span><span class="muted">${esc(money(h.field)?baht(h.from||0):(h.from||'—'))}</span> → <b>${esc(money(h.field)?baht(h.to||0):h.to)}</b></span></div>
+        <small class="muted">${esc(fullDate(h.date))} · ${esc(h.reason||'')} · ${EN()?'by':'โดย'} ${_notr(h.by||'')}</small></div>`).join('')
+      : `<small class="muted">${EN()?'No pay changes recorded yet.':'ยังไม่มีประวัติการปรับ'}</small>`;
+    const f=(id,label,ph)=>`<label class="field" style="margin:0"><span>${esc(label)}</span><input id="${id}" type="number" min="0" placeholder="${esc(ph==null?'':String(ph))}"/></label>`;
+    el.innerHTML=`
+      ${isAdmin?`<details class="card" style="padding:10px;background:var(--blue-bg);border-color:var(--blue-line)">
+        <summary style="cursor:pointer;font-weight:700">💰 ${EN()?'Adjust pay, position or allowances':'ปรับเงินเดือน / ตำแหน่ง / เบี้ย'}</summary>
+        <p class="muted" style="font-size:13px;margin:6px 0">${EN()
+          ? 'Leave a box blank to leave it alone. Changes take effect immediately and are recorded with the reason.'
+          : 'เว้นว่าง = ไม่เปลี่ยนค่านั้น · มีผลทันที และบันทึกประวัติพร้อมเหตุผลไว้ด้วย'}</p>
+        <div class="grid2" style="gap:6px">
+          ${f('adjBase',EN()?'Base salary (฿)':'เงินเดือน (฿)','')}
+          <label class="field" style="margin:0"><span>${EN()?'Position':'ตำแหน่ง'}</span><input id="adjPos" placeholder="${esc(d.position||'')}"/></label></div>
+        <div class="grid2" style="gap:6px;margin-top:6px">
+          ${f('adjDA',EN()?'Diligence — attendance (฿)':'เบี้ยขยัน มาครบ (฿)','')}
+          ${f('adjDF',EN()?'Diligence — Facebook (฿)':'เบี้ยขยัน Facebook (฿)','')}</div>
+        <div class="grid2" style="gap:6px;margin-top:6px">
+          ${f('adjCM',EN()?'Child rate (฿/child)':'เรทต่อเด็ก (฿/คน)','')}
+          ${f('adjCT',EN()?'Count from child #':'เริ่มคิดเรทที่เด็กคนที่','')}</div>
+        <div class="grid2" style="gap:6px;margin-top:6px">
+          ${f('adjCon',EN()?'Provident fund (฿/month)':'เงินสมทบ (฿/เดือน)','')}
+          <label class="field" style="margin:0"><span>${EN()?'Effective date':'วันที่มีผล'}</span><input type="date" id="adjDate" value="${esc(todayStr())}"/></label></div>
+        <label class="field" style="margin-top:6px"><span>${EN()?'Reason *':'เหตุผล *'}</span>
+          <input id="adjReason" placeholder="${EN()?'e.g. annual review 2026':'เช่น ประเมินประจำปี 2569'}"/></label>
+        <button class="btn block" onclick="A_sperfAdjustSave(this)">💾 ${EN()?'Apply and record':'บันทึกการปรับ'}</button></details>`:''}
+      <details class="card" style="padding:8px"${hist.length?'':' hidden'}><summary style="cursor:pointer;font-weight:700">📜 ${EN()?'Pay history':'ประวัติการปรับเงินเดือน/ตำแหน่ง'} <span class="pill info">${hist.length}</span></summary>
+        <div style="margin-top:6px">${histHtml}</div></details>`;
+  };
+  window.A_sperfAdjustSave = async (btn) => {
+    const g=id=>{ const e=document.getElementById(id); const v=e?String(e.value).trim():''; return v===''?null:v; };
+    const reason=g('adjReason');
+    if(!reason){ toast(EN()?'Please give a reason':'กรุณาระบุเหตุผลของการปรับ'); return; }
+    const p={ targetId:SPERF.staffId, staffId:USER.staffId, adminId:USER.staffId, reason, date:g('adjDate')||todayStr(),
+      baseSalary:g('adjBase'), position:g('adjPos'), diligenceAttend:g('adjDA'), diligenceFb:g('adjDF'),
+      childMultiplier:g('adjCM'), childThreshold:g('adjCT'), contribution:g('adjCon') };
+    btn.disabled=true;
+    try{ const r=await api('adjustStaffPay',p);
+      confirmSaved((EN()?'Recorded ':'บันทึกแล้ว ')+r.changes.length+(EN()?' change(s)':' รายการ'));
+      /* Re-read the year: the salary on the card and the history underneath both just changed, and a
+       * screen that still shows the old figure after saying "บันทึกแล้ว" is the thing that makes
+       * somebody save twice. */
+      await A_staffPerf(SPERF.staffId, SPERF.year);
+    }catch(e){ err(e); btn.disabled=false; } };
 
   window.A_reqCI = async (id,val) => { await api('setRequireCheckin',{staffId:id,value:val}); toast((val?'เปิด':'ปิด')+'การบังคับลงเวลา'); };
   // Save all check-in-requirement toggles at once (persists to STAFF.RequireCheckin). One batched round-trip.
