@@ -56,7 +56,9 @@ var COLLECTION_MAP = {
   otRecords:       { wb: 'HR',   sheet: 'OT_RECORDS' },
   attendanceReq:   { wb: 'HR',   sheet: 'ATTENDANCE_REQUEST' },
   classChangeReq:  { wb: 'HR',   sheet: 'CLASS_CHANGE_REQ' },
-  payroll:         { wb: 'HR',   sheet: 'PAYROLL' }
+  payroll:         { wb: 'HR',   sheet: 'PAYROLL' },
+  // how somebody's pay got to where it is — one row per field changed. See SCHEMA.PAY_ADJUSTMENTS.
+  payAdjustments:  { wb: 'HR',   sheet: 'PAY_ADJUSTMENTS' }
 };
 var FIELD_ALIAS = { STUDENTS: { Name: 'NameTH' }, PARENTS: { Name: 'NameTH' }, STAFF: { Name: 'NameTH' },
   // engine uses Key/Dates; sheet columns are VaccineKey/DoseDate. DoseDate holds a JSON array of dose

@@ -66,15 +66,21 @@ console.log('1) 🔴 the two sides of the comparison are counted by the same rul
 {
   /* A day in the FUTURE can exist: an admin correcting a pick-up time writes one, and an import can.
    * It must not be attendance (nobody has been here yet) and it must not be absence either. */
-  const { M, H } = school();
+  /* AttendanceSince is pinned to the start of the year so this section is about the FUTURE rule and
+   * nothing else — left to derive itself it would land on the first seeded row and collapse the
+   * range to a couple of days. (The derivation has its own section, §7.) */
+  const { M, H } = school({ config: { Timezone: 'Asia/Bangkok', ContributionMatchRate: 1, AttendanceSince: Y + '-01-01' } });
   // yesterday — a real day, really here
   M.staffAttendanceHistory.push({ Date: shift(-1), StaffID: 'T1', In: '07:00', Out: '17:00', Late: 0 });
   // ...and a day that has not happened
   M.staffAttendanceHistory.push({ Date: shift(30), StaffID: 'T1', In: '07:00', Out: '17:00', Late: 0 });
   const r = ask(H);
 
-  ok_('🔴 present never exceeds the days expected', r.present <= r.required);
-  eq('...because only days already past are counted present', r.present, 1);
+  /* 🔴 NOT "present <= required" — that is not true and should not be. Somebody who comes in on a
+   * Saturday (Big Cleaning, OT วันหยุด) is present on a day that was never required, and the first
+   * version of this assertion failed on exactly that. What the fix actually guarantees is narrower
+   * and checkable: a day that has not happened is not attendance. */
+  eq('🔴 only days already past are counted present', r.present, 1);
   ok_('the year ahead is not counted as days expected', r.required < r.requiredWhole);
   ok_('...and the whole-year figure is still reported, for context', r.requiredWhole > 0);
   const future = (r.months || []).find(m => m.month === shift(30).slice(0, 7));
@@ -232,6 +238,74 @@ console.log('6) the screen');
   ok_('it is reachable from the staff list', /A_staffPerf\('\$\{s\.StaffID\}'\)/.test(app));
   ok_('...and from the payroll screen, where pay is actually decided',
     /ดูสรุปผลการทำงานทั้งปีของคนนี้/.test(app));
+}
+
+// ============================================================================================
+console.log('7) 🔴 the school did not always have a clock');
+// ============================================================================================
+{
+  /* Reported 2026-10-05: "คุณครูที่อยู่ในระบบตั้งแต่แรก จะขาดงาน 125 วัน เราขึ้นระบบกับวันที่เริ่มให้ใช้
+   * งานจริง คนละวันกัน".
+   *
+   * A teacher who started in 2024 owes every working day of the year by this calculation, and there
+   * is no CHECKIN_STAFF row for any day before the school began clocking in — so every one came out
+   * ABSENT. A hundred and twenty-five accusations against somebody with a clean record, on the
+   * screen their pay is decided from. staffStarted_ could not fix it: that is when the PERSON
+   * started, and the question is when the SCHOOL started.
+   */
+  const SEP = Y + '-09-01';
+  const base = () => {
+    const s = school();
+    s.M.staffAttendanceHistory.push({ Date: SEP, StaffID: 'T1', In: '07:00', Out: '17:00', Late: 0 });
+    s.M.staffAttendanceHistory.push({ Date: Y + '-09-02', StaffID: 'T1', In: '07:00', Out: '17:00', Late: 0 });
+    return s;
+  };
+  const a = base(); const ra = ask(a.H);
+  eq('the date is derived from the earliest clock-in on record', a.H.attendanceSince().derived, SEP);
+  eq('...and that is what is used when nothing is configured', a.H.attendanceSince().effective, SEP);
+  /* 🔴 THE WHOLE POINT. January to August is not absence — nobody was asked to clock in. */
+  ok_('🔴 the months before it are not counted as absence', ra.absent < 40);
+  ok_('...and they are not in the target either', ra.required > 0 && ra.required < 60);
+  const jan = (ra.months || []).find(m => m.month === Y + '-01');
+  ok_('🔴 a month before the clock existed contributes nothing at all',
+    !jan || (jan.required === 0 && jan.absent === 0));
+  /* BOTH SIDES, OR NEITHER. Taking the days out of requiredDates alone left the day cells saying
+   * ABSENT, so the target dropped and the count underneath it did not: 24 expected, 195 absent. */
+  ok_('🔴 the target and the absence count were fixed together', ra.absent <= ra.required);
+
+  // ...and an admin can move it: the first week was a trial and should not count
+  const b = base(); b.M.config.AttendanceSince = Y + '-09-02';
+  const rb = ask(b.H);
+  eq('a configured date wins over the derived one', b.H.attendanceSince().effective, Y + '-09-02');
+  /* It moves the TARGET, not the records: one fewer day the school expected, and the clock-in that
+   * already exists for the excluded day is still honoured (the CONTROL at the end of this section).
+   * Anything else would mean an admin tidying the cut-off could delete somebody's attendance. */
+  ok_('...and the day before it leaves the target', rb.required === ra.required - 1);
+  eq('...while the attendance already recorded is untouched', rb.present, ra.present);
+  eq('...while the derived date is still reported, so the admin can see what the data says',
+    b.H.attendanceSince().derived, SEP);
+  // clearing it goes back to deriving
+  b.H.saveAttendanceSince({ staffId: 'ADM', date: '' });
+  eq('clearing the override returns to the derived date', b.H.attendanceSince().effective, SEP);
+  throws_('a future date is refused — it would erase the whole year',
+    () => b.H.saveAttendanceSince({ staffId: 'ADM', date: shift(5) }), 'BAD_RANGE');
+
+  /* 🔴 THE CALENDAR STILL SAYS WHY A DAY IS EMPTY. Put above the weekend and holiday tests, the
+   * cut-off swallowed them — a Saturday in January came out BEFORE instead of OFF. */
+  const sat = (() => { const d = new Date(Y + '-01-01T00:00:00');
+    while (d.getDay() !== 6) d.setDate(d.getDate() + 1); return DS(d); })();
+  const att = a.H.staffAttendanceMonth({ staffId: 'ADM', from: Y + '-01-01', to: Y + '-12-31' });
+  const row = (att.staff || []).find(x => x.staffId === 'T1') || {};
+  const satCell = (row.days || []).find(x => x.date === sat);
+  eq('🔴 a weekend before the cut-off still reads as a weekend', satCell && satCell.status, 'OFF');
+  const workday = (row.days || []).find(x => x.date < SEP && x.status === 'BEFORE');
+  ok_('...while a working day before it reads as "not part of this record"', !!workday);
+  /* CONTROL: a check-in that DOES exist before the cut-off is still honoured — a record is a record. */
+  const c = base(); c.M.config.AttendanceSince = Y + '-09-02';
+  const catt = c.H.staffAttendanceMonth({ staffId: 'ADM', from: Y + '-09-01', to: Y + '-09-02' });
+  const crow = (catt.staff || []).find(x => x.staffId === 'T1') || {};
+  eq('CONTROL — a clock-in before the cut-off is still read as present',
+    (crow.days || []).find(x => x.date === SEP).status, 'IN');
 }
 
 console.log('\n' + (fail ? 'FAILED ' : 'PASSED ') + pass + ' passed, ' + fail + ' failed');

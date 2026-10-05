@@ -1429,6 +1429,30 @@ function createAtomAPI(M, GROWTH_STD) {
    *
    * WHAT IT DOES NOT DECIDE IS THE BILL. See endedBeforeMonth_.
    */
+  /* WHEN THIS SCHOOL STARTED KEEPING TIME — see the long note in staffAttendanceMonth.
+   *
+   * The configured date wins (an admin who knows the first week was a trial can move it forward).
+   * Otherwise it is DERIVED from the earliest clock-in on record, which is both the honest answer
+   * and one nobody has to be asked for. Cached per request: it walks the whole check-in history, and
+   * requiredDates would otherwise ask for it once per screen.
+   */
+  let _attSince;
+  function attendanceSince_(){
+    if(_attSince!==undefined) return _attSince;
+    const set=ymd(cfg.AttendanceSince||'');
+    if(/^\d{4}-\d{2}-\d{2}$/.test(set)) return (_attSince=set);
+    let min='';
+    (M.staffAttendanceHistory||[]).forEach(h=>{ const d=ymd(h.Date||''); if(d && (!min || d<min)) min=d; });
+    (M.staffAttendanceToday||[]).forEach(a=>{ if(a&&(a.CheckIn||a.CheckOut)){ const d=todayLocal(); if(!min||d<min) min=d; } });
+    return (_attSince = min || '');
+  }
+  /** The same answer, with its workings — so the screen can show WHY and let it be corrected. */
+  function attendanceSinceInfo_(){
+    const set=ymd(cfg.AttendanceSince||'');
+    let derived=''; (M.staffAttendanceHistory||[]).forEach(h=>{ const d=ymd(h.Date||''); if(d && (!derived || d<derived)) derived=d; });
+    return { set: /^\d{4}-\d{2}-\d{2}$/.test(set)?set:'', derived, effective: attendanceSince_(),
+             rows: (M.staffAttendanceHistory||[]).length };
+  }
   const studentEnded_ = (s, onDate) => { const d=ymd((s&&s.EndDate)||'');
     return !!d && ymd(onDate||todayLocal()) > d; };
   /** An end date recorded but not reached yet — the child is still here, and the Admin should see it coming. */
@@ -2979,7 +3003,26 @@ function createAtomAPI(M, GROWTH_STD) {
        * `toDate` stops the month accusing anybody of being behind at 09:00 on the 12th: days that
        * have not happened yet are in the target but not yet in what is owed.
        */
+      /* 🔴 THE SCHOOL DID NOT ALWAYS HAVE A CLOCK.
+       *
+       * Reported 2026-10-05: "คุณครูที่อยู่ในระบบตั้งแต่แรก จะขาดงาน 125 วัน เราขึ้นระบบกับวันที่เริ่มให้
+       * ใช้งานจริง คนละวันกัน".
+       *
+       * A teacher who started in 2024 owes every working day of 2026 by this calculation, and there
+       * is no CHECKIN_STAFF row for any day before the school began clocking in — so every one of
+       * them came out as ABSENT. Not a rounding error: a hundred and twenty-five accusations against
+       * somebody with a clean record, on the screen their pay is decided from.
+       *
+       * `staffStarted_` could not fix it: that is when the PERSON started, and the question here is
+       * when the SCHOOL started. Two different dates, and only one of them is on the staff row.
+       *
+       * The date is derived from the data itself — the earliest clock-in anybody has — so it is
+       * right without anybody being asked, and an admin can override it when the first week was a
+       * trial that should not count. Applied HERE rather than in the yearly screen, because the
+       * monthly screen has exactly the same hole for exactly the same reason. */
+      const since = attendanceSince_();
       const requiredDates = dayList.filter(ds=>{
+        if(since && ds < since) return false;             // before the school kept any record at all
         /* ORDER IS THE SCHOOL'S DECISION, and it is the other way round from schoolDayFor_ on
          * purpose: a holiday declared over a meeting day CANCELS it (test_required_days pins this),
          * so nobody owes a day the school has since closed. Do not "fix" this to match
@@ -3067,6 +3110,18 @@ function createAtomAPI(M, GROWTH_STD) {
             // still prints the holiday's name (below) — it just no longer excuses the day.
             else if(holAll[ds]) status='HOLIDAY';
             else if(weekend) status='OFF';
+            /* ...and the same answer as "had not started yet" for a WORKING day before the SCHOOL
+             * began clocking in. BEFORE already means "not part of this record", which is exactly
+             * what it is: there is no check-in row because nobody was asked to make one yet.
+             *
+             * 🔴 LAST, NOT FIRST. Put above the weekend and holiday tests it swallowed them — a
+             * Saturday in January came out BEFORE instead of OFF, and the calendar stopped saying
+             * why a day was empty. A check-in that DOES exist before the date still reads IN, up at
+             * the top, because a record is a record whatever the cut-off says.
+             *
+             * Taking these days out of requiredDates alone was not enough: the target dropped to 24
+             * while the count underneath it stayed at 195 absences. Both sides, or neither. */
+            else if(since && ds < since) status='BEFORE';
             else if(ds>today) status='FUTURE';
             // Today is not over. Someone who has not checked in by the time an admin opens this is
             // not yet an absence — the dashboard is where "who is missing right now" belongs, and
@@ -3662,6 +3717,12 @@ function createAtomAPI(M, GROWTH_STD) {
       // preview → return the numbers without persisting (see the GAS route)
       if(p.preview){ rec.PayrollID=i>=0?M.payroll[i].PayrollID:''; rec.Preview=true; rec.Saved=i>=0; return rec; }
       rec.Saved=true;
+      /* 🔴 SAVING UN-APPROVES — see the long note on the same line in src/Payroll.gs. A slip the
+       * admin signed off and then recalculated is no longer the slip that was signed off, and
+       * leaving the approval in place would show a teacher new figures under an old sign-off.
+       * 'NO' rather than '': the gate hides only an explicit NO, so slips written before this column
+       * existed keep working instead of vanishing from teachers' screens on release day. */
+      rec.Approved='NO'; rec.ApprovedBy=''; rec.ApprovedAt='';
       if(i>=0)M.payroll[i]=rec; else M.payroll.push(rec); return rec; },
     /**
      * The slip, with the accumulated fund WORKED OUT rather than read back.
@@ -3693,6 +3754,9 @@ function createAtomAPI(M, GROWTH_STD) {
       if(!sid) fail('BAD_INPUT','ต้องระบุ StaffID');
       const seen={};
       (M.payroll||[]).forEach(r=>{ if(String(r.StaffID)!==sid) return;
+        // ...and an unapproved slip is not one of "my payslips" either, or the month button would be
+        // there and open an estimate — see the note on getPayslip
+        if(String(r.Approved||'').toUpperCase()==='NO') return;
         const m=ym(r.Month); if(!m) return;
         const cand={ month:m, netPay:Number(r.NetPay||0),
           slipSent:String(r.SlipSent||'').toUpperCase()==='YES',
@@ -3705,6 +3769,19 @@ function createAtomAPI(M, GROWTH_STD) {
       const months=Object.keys(seen).sort().reverse().map(m=>seen[m]);
       return { staffId:sid, count:months.length, months }; },
     getPayslip: p => { const r=M.payroll.find(x=>x.StaffID===p.staffId&&ym(x.Month)===ym(p.month)); if(!r) return null;
+      /* 🔴 SAVING IS NOT PUBLISHING (2026-10-05).
+       *
+       * Asked: "ให้ Approve ข้อมูลก่อนจะบันทึกให้คุณครู". The moment an admin pressed บันทึก the slip
+       * was on the teacher's screen — including a half-finished one saved to come back to, and the
+       * wrong figure that was about to be corrected. A teacher reading a number about their own pay
+       * and then watching it change is the fastest way to lose their trust in all of it.
+       *
+       * `role` is stamped by applyIdentity_ on every NON-admin session and never on an admin's, so a
+       * role that is present and is not Admin is conclusive — the same test handleComputePayroll
+       * uses. An unapproved slip is simply NOT THERE for them, and their screen already has the
+       * right answer for that: it falls back to a preview marked "ตัวเลขประมาณการ — ยังไม่ใช่สลิปที่
+       * โรงเรียนออกให้", which is exactly what an unapproved slip is. */
+      if(p.role && p.role!=='Admin' && String(r.Approved||'').toUpperCase()==='NO') return null;
       const st=staffById(p.staffId)||{};
       const matchRate=Number(cfg.ContributionMatchRate!=null?cfg.ContributionMatchRate:1);
       const empOf=x=>{ const own=Number(x.Contribution||0);
@@ -3715,6 +3792,80 @@ function createAtomAPI(M, GROWTH_STD) {
        * Every comparison in here already runs the cell through ym(); only the value handed to the
        * client did not, and that is the one the payslip prints its own heading from. */
       return Object.assign({},r,{Month:ym(r.Month), ContributionEmployer:empOf(r), ContributionAccum:Math.round(accum*100)/100}); },
+    /* THE SIGNATURE ON A SLIP. Admin-only (Code.gs); the engine is the statement of the rule.
+     * Approving is what puts the slip on the teacher's screen — see getPayslip. Un-approving is
+     * allowed and is the honest way to correct a mistake: it takes the slip back off their screen
+     * rather than editing a number under them, and both directions are on the activity log. */
+    approvePayslip: p => { const sid=String((p&&p.targetId)||(p&&p.staffId)||'');
+      const r=M.payroll.find(x=>String(x.StaffID)===sid&&ym(x.Month)===ym(p&&p.month));
+      if(!r) fail('NOT_FOUND','ยังไม่มีสลิปของเดือนนี้ — กดบันทึกก่อน');
+      const on = (p&&p.approve)!==false;
+      /* 🔴 'NO', NOT ''. The gate grandfathers rows written before this column existed by hiding
+       * only an EXPLICIT 'NO' — so clearing the field on withdrawal made the slip look like a
+       * legacy row and put it straight back on the teacher's screen. Withdrawing has to SAY no. */
+      r.Approved = on?'YES':'NO'; r.ApprovedBy = on?String((p&&p.adminId)||''):''; r.ApprovedAt = on?stampLocal():'';
+      logAct('approvePayslip', r.PayrollID||'', (on?'อนุมัติสลิป ':'ยกเลิกการอนุมัติสลิป ')+ym(r.Month)+' · '+sid, actorOf(p));
+      return { ok:true, staffId:sid, month:ym(r.Month), approved:on, approvedAt:r.ApprovedAt }; },
+    /* ===== ปรับเงินเดือน / ตำแหน่ง / เบี้ย — WITH ITS REASON ========================================
+     * Asked 2026-10-05: "ปรับเงินเดือน/ตำแหน่ง/เบี้ยต่างๆในนี้ ... มีผลทันที + เก็บประวัติพร้อมเหตุผล".
+     *
+     * ONE ROW PER FIELD CHANGED, not one per press: "ขึ้นเงินเดือนและเลื่อนตำแหน่ง" on the same day is
+     * two facts that get asked about separately a year later, and a single row holding both can only
+     * answer one of them. Unchanged fields write nothing at all — a history full of "14300 → 14300"
+     * is a history nobody reads.
+     *
+     * The CURRENT figures still live where every other screen already reads them (STAFF.BaseSalary,
+     * STAFF.Position, PAYROLL_CONFIG for the allowances). This adds the trail, it does not become a
+     * second source of truth for what somebody is paid.
+     */
+    adjustStaffPay: p => {
+      p = p || {};
+      const me = staffById(p.staffId)||{}; if(!adminLike_(me)) fail('NO_PERMISSION','เฉพาะแอดมิน');
+      const sid = String(p.targetId||''); const st = staffById(sid);
+      if(!st || !st.StaffID) fail('NOT_FOUND','ไม่พบพนักงาน');
+      const reason = String(p.reason||'').trim();
+      if(!reason) fail('BAD_INPUT','กรุณาระบุเหตุผลของการปรับ');
+      M.payAdjustments = M.payAdjustments || [];
+      const pc = (M.payrollConfig && M.payrollConfig[sid]) || {};
+      const when = ymd(p.date||todayLocal()), at = stampLocal();
+      const byName = me.NameTH||me.Name||String(p.staffId||'');
+      const changes = [];
+      const note = (field, from, to) => {
+        if(String(from==null?'':from) === String(to==null?'':to)) return;   // nothing happened
+        M.payAdjustments.push({ AdjID:'ADJ-'+Date.now()+'-'+M.payAdjustments.length, StaffID:sid,
+          Date:when, Field:field, FromValue:String(from==null?'':from), ToValue:String(to==null?'':to),
+          Reason:reason, ByStaffID:String(p.staffId||''), ByName:byName, CreatedAt:at });
+        changes.push({ field, from, to });
+      };
+      // the STAFF row — what the person is, and what they are paid
+      if(p.baseSalary!=null && p.baseSalary!==''){ const v=Number(p.baseSalary)||0;
+        if(v<0) fail('BAD_INPUT','เงินเดือนต้องไม่ติดลบ');
+        note('BaseSalary', Number(st.BaseSalary||0), v); st.BaseSalary=v; }
+      if(p.position!=null && String(p.position).trim()!==''){ const v=String(p.position).trim();
+        note('Position', String(st.Position||''), v); st.Position=v; }
+      if(p.positionLevel!=null && String(p.positionLevel).trim()!==''){ const v=String(p.positionLevel).trim();
+        note('PositionLevel', String(st.PositionLevel||''), v); st.PositionLevel=v; }
+      // ...and the allowances, which live with the rest of this person's pay settings
+      const cfgFields = [['diligenceAttend','DiligenceAttendanceAmount'],['diligenceFb','DiligenceFacebookAmount'],
+                         ['childMultiplier','ChildMultiplier'],['childThreshold','ChildThreshold'],['contribution','Contribution']];
+      let touchedCfg=false;
+      cfgFields.forEach(([k,col])=>{ if(p[k]==null || p[k]==='') return;
+        const v=Number(p[k]); if(!isFinite(v)||v<0) fail('BAD_INPUT','ค่าของ '+col+' ไม่ถูกต้อง');
+        note(col, (pc[col]==null||pc[col]==='')?'':Number(pc[col]), v); pc[col]=v; touchedCfg=true; });
+      if(touchedCfg){ M.payrollConfig=M.payrollConfig||{}; M.payrollConfig[sid]=pc; }
+      if(!changes.length) fail('NO_CHANGE','ไม่มีรายการใดเปลี่ยนแปลง');
+      logAct('adjustStaffPay', sid, changes.map(c=>c.field+': '+c.from+' → '+c.to).join(' · ')+' · '+reason, actorOf(p));
+      return { ok:true, staffId:sid, date:when, changes, reason };
+    },
+    /** The trail, newest first. A teacher may read their own; an admin may read anybody's. */
+    payAdjustHistory: p => { p=p||{};
+      const me = staffById(p.staffId)||{}; const sid=String(p.targetId||p.staffId||'');
+      if(!adminLike_(me) && sid!==String(p.staffId)) fail('NO_PERMISSION','ดูข้อมูลของพนักงานคนอื่นไม่ได้');
+      return (M.payAdjustments||[]).filter(a=>String(a.StaffID)===sid)
+        .map(a=>({ adjId:a.AdjID, date:ymd(a.Date), field:String(a.Field||''),
+          from:String(a.FromValue==null?'':a.FromValue), to:String(a.ToValue==null?'':a.ToValue),
+          reason:String(a.Reason||''), by:String(a.ByName||a.ByStaffID||''), at:String(a.CreatedAt||'') }))
+        .sort((x,y)=>String(y.date+y.at).localeCompare(String(x.date+x.at))); },
     markSalaryPaid: p => { const r=M.payroll.find(x=>x.StaffID===p.staffId&&ym(x.Month)===ym(p.month));
       if(!r) fail('NOT_FOUND','ยังไม่มีรายการจ่ายของเดือนนี้ — กดบันทึกเงินเดือนก่อน');
       const paid=p.paid!==false; r.SlipSent=paid?'YES':'NO'; r.PaidDate=paid?todayLocal():''; r.SlipUrl=paid?(p.slipUrl||r.SlipUrl||''):'';
@@ -5639,6 +5790,18 @@ function createAtomAPI(M, GROWTH_STD) {
     // ========== generic config setter (diligence amounts, etc.) ==========
     getConfigVal: p => cfg[p.key],
     setConfigVal: p => { cfg[p.key]=p.value; return {key:p.key, value:cfg[p.key]}; },
+    /* WHEN THE SCHOOL STARTED CLOCKING IN — read, and corrected. See attendanceSince_ for why this
+     * exists at all; the short version is that a teacher who started before the system did was shown
+     * 125 days of absence they never took. The screen shows the DERIVED date beside the one in use,
+     * so an admin can see what the data actually says before overriding it. */
+    attendanceSince: () => attendanceSinceInfo_(),
+    saveAttendanceSince: p => { const d=ymd((p&&p.date)||'');
+      if(d && !/^\d{4}-\d{2}-\d{2}$/.test(d)) fail('BAD_INPUT','รูปแบบวันที่ไม่ถูกต้อง');
+      if(d && d > todayLocal()) fail('BAD_RANGE','วันที่เริ่มบันทึกเวลาต้องไม่เป็นอนาคต');
+      cfg.AttendanceSince = d;            // '' = go back to deriving it from the data
+      _attSince = undefined;              // the cache is per request, but this one changes within it
+      logAct('saveAttendanceSince','', d||'(อัตโนมัติจากข้อมูล)', actorOf(p));
+      return attendanceSinceInfo_(); },
 
     // ========== leave: quota, January reminder, OT verification ==========
     setLeaveQuota: p => { cfg.LeaveQuota=cfg.LeaveQuota||{}; cfg.LeaveQuota[p.type]=Number(p.days||0); return cfg.LeaveQuota; },

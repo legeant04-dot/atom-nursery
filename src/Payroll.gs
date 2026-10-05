@@ -279,6 +279,20 @@ function computePayroll(payload) {
     if (stRow) { updateRow_(stSh, stRow._row, { ContributionAccum: contribAccum });
       try { CacheService.getScriptCache().removeAll(['col:STAFF', 'rows:STAFF']); } catch (e) {} }
   } catch (e) {}
+  /* 🔴 SAVING UN-APPROVES — and that is the whole point of the pair (2026-10-05).
+   *
+   * A slip the admin has signed off and then RECALCULATES is no longer the slip that was signed off.
+   * Leaving the approval in place would mean a teacher's screen quietly showing new figures under an
+   * old sign-off, which is worse than not having the gate at all.
+   *
+   * 'NO' rather than '' on purpose. The gate hides a slip only when it is explicitly NOT approved,
+   * so every row written before this column existed — months of slips teachers have already read —
+   * keeps working instead of vanishing from their screens on the day this ships. Self-migrating,
+   * with the safe failure direction: if the column somehow does not write, slips behave exactly as
+   * they did yesterday rather than everyone being locked out of their own payslip.
+   */
+  try { ensureColumns_(sheet, ['Approved', 'ApprovedBy', 'ApprovedAt']); } catch (e) {}
+  rec.Approved = 'NO'; rec.ApprovedBy = ''; rec.ApprovedAt = '';
   if (existing) { rec.PayrollID = existing.PayrollID; updateRow_(sheet, existing._row, rec); }
   else { rec.PayrollID = nextId_(sheet, 'PayrollID', 'PR'); appendObject_(sheet, rec); }
   rec.Saved = true;
@@ -587,6 +601,12 @@ function handleGetPayslip(payload) {
   // failure, which hides the real ones.
   if (!row) return null;
 
+  /* 🔴 SAVING IS NOT PUBLISHING (2026-10-05) — the same gate as the engine's getPayslip, and read
+   * the long note there for why. `role` is stamped by applyIdentity_ on every non-admin session and
+   * never on an admin's, so a role that is present and is not Admin is conclusive. An unapproved
+   * slip is simply not there for a teacher, and their screen falls back to a preview that says so. */
+  if (payload.role && payload.role !== 'Admin' && String(row.Approved || '').toUpperCase() === 'NO') return null;
+
   var staff = findObject_(sheet_(getHrSpreadsheet_(), 'STAFF'), function (s) {
     return String(s.StaffID) === String(payload.staffId);
   }) || {};
@@ -664,6 +684,9 @@ function handleMyPayslipMonths(p) {
   var seen = {};
   readObjects_(sheet_(getHrSpreadsheet_(), 'PAYROLL')).forEach(function (r) {
     if (String(r.StaffID) !== staffId) return;
+    // ...and an unapproved slip is not one of "my payslips" either, or the month button would be
+    // there and open an estimate. Same gate as handleGetPayslip above.
+    if (String(r.Approved || '').toUpperCase() === 'NO') return;
     var m = ym7_(r.Month); if (!m) return;
     /* One entry per MONTH, not per row. A duplicate month (see handlePayrollDuplicates) must not
      * appear twice in a teacher's own list — and the one worth showing them is the one that was
