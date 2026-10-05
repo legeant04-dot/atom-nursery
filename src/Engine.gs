@@ -3138,6 +3138,184 @@ function createAtomAPI(M, GROWTH_STD) {
      * `staffId` narrows it to one person (a teacher may only ask about themselves; the check is the
      * caller's, since a teacher's own home screen is the main user of this).
      */
+    /* ===== ONE PERSON'S YEAR ======================================================================
+     * Asked 2026-10-05 after the annual-review survey: "แสดงเป็น Dashboard Performance รายคน แสดง
+     * Chart / วันที่มาทำงาน Total กับ จำนวนวันที่มาจริง / จำนวนและประวัติวันลา - สาย / สรุปจำนวนรายได้
+     * รายคนและเงินสะสม".
+     *
+     * EVERY FIGURE HERE ALREADY EXISTED, scattered across three screens that each answer a month at a
+     * time. This is not new arithmetic — it is the same arithmetic asked over a year and for one
+     * person, which is the shape the question actually has when somebody's pay is being decided.
+     *
+     * ONE PASS, NOT TWELVE. staffAttendanceMonth takes from/to for any span (that is why it was
+     * generalised), so a year costs one walk of the calendar rather than twelve monthly calls — on a
+     * backend that runs one execution at a time, the difference is a usable screen and an unusable
+     * one. The per-month breakdown the chart needs is folded out of the day rows it returns.
+     *
+     * TARGET, NOT CALLER. `targetId` is separate from `staffId` on purpose: applyIdentity_ forces
+     * staffId to the signed-in person for every non-admin, so a shared field would mean a teacher
+     * could never be looked at by an admin and an admin could never look at themselves. Same shape
+     * as orgMoveTeacher. A non-admin may only ever ask about themselves, checked here.
+     */
+    staffPerformance: p => {
+      p = p || {};
+      const me = staffById(p.staffId) || {};
+      const target = String(p.targetId || p.staffId || '');
+      const isAdmin = adminLike_(me);
+      if(!isAdmin && String(target) !== String(p.staffId)) fail('NO_PERMISSION','ดูข้อมูลของพนักงานคนอื่นไม่ได้');
+      const st = staffById(target); if(!st || !st.StaffID) fail('NOT_FOUND','ไม่พบพนักงาน');
+
+      const year = String(p.year || todayLocal().slice(0,4));
+      const from = ymd(p.from || (year+'-01-01'));
+      const to   = ymd(p.to   || (year+'-12-31'));
+
+      /* The attendance walk, for this person alone. onlySelf narrows to p.staffId — which is the
+       * CALLER — so it is only usable when the caller is the person being asked about. An admin
+       * looking at somebody else takes the whole-school answer and picks the row, which is what the
+       * monthly screen has always done. */
+      const selfView = String(target) === String(p.staffId);
+      const att = H.staffAttendanceMonth(selfView
+        ? { staffId: p.staffId, from, to, onlySelf: true }
+        : { staffId: p.staffId, from, to });
+      const row = ((att.staff)||[]).find(x => String(x.staffId) === String(target)) || null;
+
+      /* MONTH BY MONTH, folded out of the day rows — the chart needs a shape the eye can read, and
+       * "required vs actually here" is the pair the whole screen is about. A day that has not
+       * happened yet is in neither: counting the rest of the year as absence would make every
+       * review before December look like a disaster. */
+      const months = {};
+      const mOf = ds => String(ds).slice(0,7);
+      const bump = (ds, k, n) => { const m=mOf(ds); (months[m]=months[m]||{month:m, required:0, present:0, absent:0, leave:0, late:0, lateMinutes:0, otHours:0, missingOut:0})[k] += (n==null?1:n); };
+      const today = todayLocal();
+      /* 🔴 EVERY HEADLINE IS "TO DATE", INCLUDING THE ONES THAT ARE NOT THE TARGET.
+       *
+       * `required` was already cut at today (the rest of the year is not absence), and `present` was
+       * taken from the whole range — so a day recorded in the future, which an admin correcting a
+       * time can create, counted as attendance against a target that did not include it. Measured on
+       * the first fixture: present 197 of required 195, and a progress bar past 100%.
+       *
+       * So the two sides of the comparison are now counted by the SAME rule, from the same walk.
+       * Future rows are still in `days` for the calendar; they are simply not in the score. */
+      const upto = ds => ds < today;
+      let present=0, absent=0, lateDays=0, lateMinutes=0, otHours=0, missingOut=0;
+      (att.requiredDates||[]).forEach(ds => { if(upto(ds)) bump(ds,'required'); });
+      ((row&&row.days)||[]).forEach(d => {
+        if(!upto(d.date)) return;
+        if(d.status==='IN'){ bump(d.date,'present'); present++;
+          if(Number(d.late||0)>0){ bump(d.date,'late'); bump(d.date,'lateMinutes',Number(d.late)); lateDays++; lateMinutes+=Number(d.late); } }
+        else if(d.status==='ABSENT'){ bump(d.date,'absent'); absent++; }
+        if(Number(d.otHours||0)>0){ bump(d.date,'otHours', Number(d.otHours)); otHours+=Number(d.otHours); }
+        if(d.missingOut){ bump(d.date,'missingOut'); missingOut++; }
+      });
+      /* 🔴 LEAVE IS COUNTED FROM THE LEAVE RECORDS, NOT FROM THE CALENDAR.
+       *
+       * The day-by-day view marks a day LEAVE only when there is no check-in — right for a calendar
+       * (somebody who came in was here, whatever the paperwork says) and wrong for a review, where
+       * the question is "how many days of leave did this person take" and the answer is the one the
+       * entitlement was deducted from. The first fixture showed the gap plainly: "ลา 0" printed
+       * directly above a list of three approved leaves, which reads as a broken screen.
+       *
+       * So both the headline and the chart are expanded from LEAVE_REQUEST — one source, so the
+       * number above the list can never contradict the list. */
+      let leaveDays=0;
+      (M.leaves||[]).filter(l=>String(l.StaffID)===String(target)
+          && String(l.Status||'').toUpperCase()==='APPROVED').forEach(l=>{
+        const s0=ymd(l.StartDate||''), e0=ymd(l.EndDate||l.StartDate||'')||ymd(l.StartDate||''); if(!s0) return;
+        const half = halfDay_(l.HalfDay) ? 0.5 : 1;
+        /* 🔴 THE LOOP COUNTS IN LOCAL DAYS, AND SO DOES ITS CONDITION.
+         * It was `new Date(s+'T00:00:00')` (local midnight) tested with `.toISOString()` (UTC) — one
+         * day behind in any timezone ahead of UTC, so every leave ran one iteration too long. A
+         * two-day leave was counted as three, and a half-day as a whole extra half: 2.5 days of
+         * leave came out as 4. The same trap that put สิงหาคม on a September payslip, and it is
+         * found the same way — by counting a fixture whose answer is known. */
+        for(let dt=new Date(s0+'T00:00:00'); ; dt.setDate(dt.getDate()+1)){
+          const ds=dt.getFullYear()+'-'+String(dt.getMonth()+1).padStart(2,'0')+'-'+String(dt.getDate()).padStart(2,'0');
+          if(ds > e0) break;
+          if(ds<from || ds>to || !upto(ds)) continue;
+          bump(ds,'leave',half); leaveDays+=half;
+        }
+      });
+      leaveDays=Math.round(leaveDays*2)/2;
+
+      /* THE MONEY, from the slips that were actually issued — never recomputed. A review screen that
+       * re-derives pay would eventually disagree with the slip the person was paid on, and the slip
+       * is the document they signed for. ContributionAccum is read from the LAST slip in range
+       * because it is a running total, not a monthly amount. */
+      const slips = (M.payroll||[]).filter(x => String(x.StaffID)===String(target))
+        .filter(x => { const m=ym(x.Month); return m >= mOf(from) && m <= mOf(to); })
+        .sort((a,b)=>String(ym(a.Month)).localeCompare(String(ym(b.Month))));
+      const n_ = v => Number(v||0);
+      const pay = slips.map(x => ({ month: ym(x.Month),
+        base:n_(x.BaseSalary), diligence:n_(x.DiligenceTotal), childRate:n_(x.ExtraChildAmount),
+        trainingCert:n_(x.TrainingCertAmount), otEvening:n_(x.OTEvening), otHoliday:n_(x.OTHoliday),
+        otCarry:n_(x.OTCarry), holidayBonus:n_(x.HolidayBonus), other:n_(x.OtherIncome),
+        gross:n_(x.GrossIncome), socialSecurity:n_(x.SocialSecurity), contribution:n_(x.Contribution),
+        deductions:n_(x.TotalDeductions), net:n_(x.NetPay),
+        position:String(x.Position||''), paid:!!String(x.PaidDate||'').trim() }));
+      const sum = k => Math.round(pay.reduce((a,x)=>a+x[k],0)*100)/100;
+      const matchRate = Number(cfg.ContributionMatchRate!=null?cfg.ContributionMatchRate:1);
+      const ownContrib = sum('contribution');
+      const lastSlip = slips.length ? slips[slips.length-1] : null;
+
+      /* EVERY LEAVE, with its dates and its type — "ลา 7 วัน" is a number to be trusted; seven dated
+       * rows with reasons is one that can be checked against what anybody remembers. */
+      const overlaps = (s,e) => !(e < from || s > to);
+      const leaves = (M.leaves||[]).filter(l => String(l.StaffID)===String(target))
+        .filter(l => { const s=ymd(l.StartDate||''), e=ymd(l.EndDate||l.StartDate||''); return s && overlaps(s, e||s); })
+        .map(l => ({ leaveId:l.LeaveID, type:leaveTypeTH_(l.Type),
+          rawType:String(l.Type||''), from:ymd(l.StartDate), to:ymd(l.EndDate||l.StartDate),
+          days:Number(l.Days)||0, half:halfDay_(l.HalfDay), reason:String(l.Reason||''),
+          status:String(l.Status||'') }))
+        .sort((a,b)=>String(b.from).localeCompare(String(a.from)));
+      /* 🔴 THE BREAKDOWN IS THE SAME COUNT, SPLIT — not a second one.
+       * It summed the record's own `Days` field, which does not know about HalfDay: a half day
+       * recorded as Days=1 made the chips add up to 3 under a headline of 2.5. Two numbers for one
+       * fact, on the screen where somebody's leave is being discussed. Both now come from the same
+       * per-date expansion, so they cannot disagree by construction. */
+      const leaveByType = {};
+      (M.leaves||[]).filter(l=>String(l.StaffID)===String(target)
+          && String(l.Status||'').toUpperCase()==='APPROVED').forEach(l=>{
+        const s0=ymd(l.StartDate||''), e0=ymd(l.EndDate||l.StartDate||'')||ymd(l.StartDate||''); if(!s0) return;
+        const half = halfDay_(l.HalfDay) ? 0.5 : 1, ty = leaveTypeTH_(l.Type);
+        for(let dt=new Date(s0+'T00:00:00'); ; dt.setDate(dt.getDate()+1)){
+          const ds=dt.getFullYear()+'-'+String(dt.getMonth()+1).padStart(2,'0')+'-'+String(dt.getDate()).padStart(2,'0');
+          if(ds > e0) break;
+          if(ds<from || ds>to || !upto(ds)) continue;
+          leaveByType[ty]=Math.round(((leaveByType[ty]||0)+half)*2)/2;
+        }
+      });
+
+      // ...and every LATE arrival, dated, for the same reason
+      const lates = ((row&&row.days)||[]).filter(d=>d.status==='IN' && Number(d.late||0)>0)
+        .map(d=>({ date:d.date, minutes:Number(d.late||0), in:d.in||'' }))
+        .sort((a,b)=>String(b.date).localeCompare(String(a.date)));
+
+      const monthList = Object.keys(months).sort().map(m=>months[m]);
+      return {
+        staffId: target, name: st.NameTH||st.Name||'', nameEN: st.NameEN||'', nick: st.Nickname||'',
+        nickEN: st.NicknameEN||'', position: st.Position||'', level: st.PositionLevel||'',
+        dept: st.Department||'', startDate: ymd(st.StartDate||''), endDate: ymd(st.EndDate||''),
+        year, from, to, today,
+        // the headline pair: what the school expected, and what actually happened
+        required: (att.requiredDates||[]).filter(ds=>ds<today).length,
+        requiredWhole: (att.requiredDates||[]).length,
+        myRequired: row?row.myRequiredToDate:0,
+        present, absent, leaveDays, lateDays, lateMinutes, missingOut,
+        otHours: Math.round(otHours*100)/100, holidayOTDays: row?row.holidayOTDays:0,
+        months: monthList, pay,
+        income: { base:sum('base'), diligence:sum('diligence'), childRate:sum('childRate'),
+          trainingCert:sum('trainingCert'), ot:Math.round((sum('otEvening')+sum('otHoliday')+sum('otCarry'))*100)/100,
+          holidayBonus:sum('holidayBonus'), other:sum('other'),
+          gross:sum('gross'), deductions:sum('deductions'), net:sum('net'),
+          socialSecurity:sum('socialSecurity') },
+        fund: { own: ownContrib, employer: Math.round(ownContrib*matchRate*100)/100,
+          addedThisPeriod: Math.round(ownContrib*(1+matchRate)*100)/100,
+          // the running total the school owes this person, as of the latest slip in range
+          accum: lastSlip ? n_(lastSlip.ContributionAccum) : n_(st.ContributionOpening),
+          accumAsOf: lastSlip ? ym(lastSlip.Month) : '', matchRate },
+        leaves, leaveByType, lates,
+        slipCount: slips.length
+      }; },
     staffMissingCheckout: p => {
       const month = ym((p&&p.month)||todayLocal().slice(0,7));
       const d = H.staffAttendanceMonth({month, staffId:(p&&p.staffId)||'', onlySelf:true});
