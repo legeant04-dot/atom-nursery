@@ -182,7 +182,7 @@ console.log('\n5) Phase 2.1 — the cache, and the trade it makes');
    * cache must never do is outlive the working day it was filled in. */
   ok_('a nonsense value cannot pin stale data', /t >= 1 && t <= 21600/.test(gasEng));
   ok_('the current value comes back to the screen', /CacheTTL:cfg\.CacheTTL/.test(eng));
-  ok_('it saves through the whitelisted route', /key:'CacheTTL'/.test(c));
+  ok_('it saves through the whitelisted route', /cfgVal\('CacheTTL','#setTtl'/.test(c));
   ok_('...which allows that key', /CacheTTL: 1 \}/.test(R('src/Staff.gs')));
   /* The trade-off is stated ON the screen, in the help text under the box. A performance setting
    * whose cost is only written in a commit message is one that gets blamed for a bug six weeks on. */
@@ -224,7 +224,12 @@ console.log('\n7) the cache box showed a number it had never read');
   const c = srcCode(app), eng = R('webapp/engine.js');
   ok_('the value is actually returned now', /CacheTTL:cfg\.CacheTTL/.test(eng));
   ok_('...and the box shows it, treating blank as unset', /sc\.CacheTTL!=null&&sc\.CacheTTL!==''\?sc\.CacheTTL:900/.test(c));
-  ok_('...and a save no longer defaults it back down to 300', /\+t\.value\|\|900/.test(c) && !/\+t\.value\|\|300/.test(c));
+  /* Scoped to the CacheTTL line itself. A bare "nothing anywhere says 300" also matched the child
+   * rate's own default (฿300 a head) on the payroll screen — a negative assertion over a whole file
+   * fails for reasons that have nothing to do with what it is guarding. */
+  { const ttl = (c.match(/cfgVal\('CacheTTL'[^\n]*/) || [''])[0];
+    ok_('...and a save no longer defaults it back down to 300', /\|\|900/.test(ttl) && !/\|\|300/.test(ttl));
+    ok_('...and the cap is still there, so a typo cannot pin stale data all day', /21600/.test(ttl)); }
   eq('there is ONE control, not the two I briefly shipped', (c.match(/id="setTtl"/g) || []).length, 1);
   ok_('...and no second saver left behind', !/A_setCacheTtl/.test(c));
 }

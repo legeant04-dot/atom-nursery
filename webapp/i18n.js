@@ -161,7 +161,11 @@
     'staff.startDate':['วันเข้าทำงาน','Start date'], 'staff.start':['เข้างาน','Started'], 'staff.tenure':['อายุงาน','Tenure'],
     'pw.title':['เปลี่ยนรหัสผ่าน','Change password'], 'pw.forced':['กรุณาตั้งรหัสผ่านใหม่ก่อนใช้งานครั้งแรก','Please set a new password before first use'], 'pw.user':['ชื่อผู้ใช้ (เลขบัตร ปชช.)','Username (National ID)'],
     'pw.new':['รหัสผ่านใหม่','New password'], 'pw.confirm':['ยืนยันรหัสผ่าน','Confirm password'], 'pw.rule':['8-15 ตัวอักษร · มีพิมพ์เล็ก พิมพ์ใหญ่ และตัวเลข','8-15 chars · upper + lower + digit'],
-    'manage.departments':['แผนก (Nursery)','Departments (Nursery)'], 'manage.settings':['ตั้งค่าเบี้ย/วันลา','Diligence/Leave settings'], 'manage.otVerify':['ตรวจสอบ OT','Verify OT'],
+    'manage.departments':['แผนก (Nursery)','Departments (Nursery)'], /* Renamed 2026-10-07: "แก้ไขชื่อเป็น 'ตั้งค่าระบบ' เพราะในเมนูนี้มีหลายเรื่องมากกว่าค่าเบี้ยและวันลา".
+       It had long since stopped being about either — and the four subjects it was really carrying have
+       now been split out into menus of their own (A_setMoney / A_setLeave / A_setNotify / A_setTools),
+       so what is left under this name is the school's own system settings. */
+    'manage.settings':['ตั้งค่าระบบ','System settings'], 'manage.otVerify':['ตรวจสอบ OT','Verify OT'],
     'dep.name':['ชื่อแผนก','Department name'],
     'set.diligence':['เบี้ยขยัน','Diligence bonuses'], 'set.attendAmt':['มาครบ ไม่ลา ไม่สาย','Full attendance'], 'set.fbAmt':['โพสต์ Facebook','Facebook post'], 'set.leaveQuota':['สิทธิวันลา (ต่อปี)','Leave quota (per year)'],
     'ot.verifyNote':['กฎ: ทำเกิน ≥50 นาทีในชั่วโมงนั้น = OT เต็ม 1 ชม. (อ้างอิงเวลาเลิกงานตามตาราง)','Rule: ≥50 min in an hour = 1 full OT hour (vs scheduled check-out)'],

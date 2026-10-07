@@ -131,7 +131,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.423'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.424'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -7026,7 +7026,7 @@
       <hr style="border:none;border-top:1px solid var(--surface-3);margin:8px 0">
       ${_line('⏰', EN()?'Student OT':'OT นักเรียน', _otCol, _otOut, true)}</div>`;
     const remHtml = rem.due?`<div class="card" style="background:var(--warn-bg);border-color:var(--warn-line);color:var(--warn)"><div class="spread"><b>🔔 ${esc(t('admin.payrollReminder'))}</b><button class="btn sm" onclick="GO('payroll')">${esc(t('admin.goPayroll'))}</button></div><small>${esc(t('admin.payrollReminderSub').replace('{d}',rem.lastDay-1).replace('{last}',rem.lastDay))}</small></div>`:'';
-    const leaveRemHtml = lrem.due?`<div class="card" style="background:var(--ok-bg);border-color:var(--ok-line);color:var(--ok)"><div class="spread"><b>🗓️ ${esc(t('admin.leaveReset'))}</b><button class="btn sm" onclick="A_settings()">${esc(t('manage.settings'))}</button></div><small>${esc(t('admin.leaveResetSub'))}</small></div>`:'';
+    const leaveRemHtml = lrem.due?`<div class="card" style="background:var(--ok-bg);border-color:var(--ok-line);color:var(--ok)"><div class="spread"><b>🗓️ ${esc(t('admin.leaveReset'))}</b><button class="btn sm" onclick="A_setLeave()">${EN()?'Leave settings':'ตั้งค่าวันลา'}</button></div><small>${esc(t('admin.leaveResetSub'))}</small></div>`:'';
     /* Open — but open TO WHOM. The dashboard used to work this out for itself and treated a Big
      * Cleaning day as an ordinary working day for everybody, so on a holiday that was also a Big
      * Cleaning day it marked all 31 children ขาด. The server already answers both questions
@@ -9843,12 +9843,21 @@
         ['💬',EN()?'Satisfaction survey':'แบบสอบถามความพึงพอใจ','A_surveys()'],
         ['📜',t('act.open'),'A_activityLog()'],
       ]},
-      {t:EN()?'⚙️ System settings':'⚙️ ตั้งค่าระบบ', items:[
+      /* FIVE DOORS WHERE THERE WAS ONE — asked 2026-10-07. The group keeps its name; what changed is
+       * that ตั้งค่าเบี้ย/วันลา, which actually held seven unrelated subjects, is now one entry per
+       * subject. Ordered by how often the school touches them, not by how the code is arranged:
+       * notifications and leave are the two an admin comes here for; the diagnostics are last,
+       * because nobody opens those unless something is already wrong. */
+      {t:EN()?'⚙️ Settings & tools':'⚙️ ตั้งค่า & เครื่องมือ', items:[
         ['⚙️',t('manage.settings'),'A_settings()'],
-        ['🗓️',t('manage.holidays'),"GO_('holidays')"],
+        ['🔔',EN()?'Notifications':'ตั้งค่าการแจ้งเตือน','A_setNotify()'],
+        ['💰',EN()?'Money settings':'ตั้งค่าการเงิน','A_setMoney()'],
+        ['🗓️',EN()?'Leave settings':'ตั้งค่าวันลา','A_setLeave()'],
+        ['📅',t('manage.holidays'),"GO_('holidays')"],
         ['📥',t('manage.importExport'),"GO_('importExport')"],
         ['🔐',t('lbl.perms'),'A_perms()'],
         ['🧹',t('dedup.title'),'A_dedup()'],
+        ['🩺',EN()?'Diagnostic tools':'เครื่องมือตรวจสอบ','A_setTools()'],
       ]},
     ];
     // some i18n labels already start with an emoji; strip it since the button shows its own icon
@@ -11793,21 +11802,61 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
    * it is printed. tools/test_perf_hour.js reads both files and fails if they ever disagree, which
    * is the only thing that keeps two files in step. */
   const DIGEST_AM = '11:15', DIGEST_PM = '20:00';
-  window.A_settings=async()=>{ const [q,sc]=await Promise.all([api('getLeaveQuota'),api('schoolConfig')]); const cfg=MOCK.config;
-    const cfgOn=(k,def)=>{ const v=(sc&&sc[k]!=null)?sc[k]:cfg[k]; return v==null?def:(v===true||String(v).toLowerCase()==='true'); };
-    modal(`<h3>⚙️ ${esc(t('manage.settings'))}</h3>
+  /* ⚙️ ONE DIALOG BECAME FIVE — asked 2026-10-07: "แก้ไขชื่อเป็น 'ตั้งค่าระบบ' เพราะในเมนูนี้มีหลายเรื่อง
+   * มากกว่าค่าเบี้ยและวันลา … ลองประเมินเพิ่มเติมว่ามีฟังก์ชันไหนควรแยกออกมาเป็นเมนูของตัวเอง เพื่อลด
+   * ภาระการโหลดข้อมูล".
+   *
+   * It was called ตั้งค่าเบี้ย/วันลา and held seven unrelated subjects: the school's GPS fence, the
+   * allowances, the OT rate and the provident fund, the cache, the leave quota, every LINE switch,
+   * and six diagnostic tools. An admin who came to turn one notification off scrolled past the
+   * geofence to get there.
+   *
+   * WHAT IT COST, measured rather than guessed. Opening it fetched getLeaveQuota AND schoolConfig
+   * whatever you came for; on the v421 figures that is one round trip either way, so the loading was
+   * never the expensive half. SAVING was: A_saveSettings awaited eight calls ONE AFTER ANOTHER —
+   * setSchoolConfig, four setConfigVal, then one setLeaveQuota per leave type — and on this platform
+   * every one of those is a separate 3-to-30-second draw. Pressing บันทึก could take a minute.
+   *
+   * So the split comes with the fix that matters more than the split: ONE save function, shared by
+   * all five dialogs, which reads whatever fields the dialog in front of it actually has and issues
+   * every write IN ONE TICK — one request, and the server takes its write lock once instead of eight
+   * times. Five save buttons that each knew their own fields would be five places for a field to be
+   * forgotten; this way a form contributes its inputs and nothing else has to know.
+   */
+  const _setOn=(sc,cfg)=>(k,def)=>{ const v=(sc&&sc[k]!=null)?sc[k]:(cfg||{})[k]; return v==null?def:(v===true||String(v).toLowerCase()==='true'); };
+  const _setSave=()=>`<button class="btn block" style="margin-top:10px" onclick="A_saveSettings(this)">${esc(t('c.save'))}</button>`;
+  const _setClose=()=>`<button class="btn outline block" style="margin-top:6px" onclick="this.closest('.modal').remove()">${esc(t('c.close'))}</button>`;
+
+  /* ---- the pieces, each owned by exactly one dialog -------------------------------------------
+   * Fragments rather than five hand-written forms: A_saveSettings finds its fields by id, so a field
+   * that exists in two places, or whose id drifts in one of them, is a setting that silently stops
+   * saving. One definition each, and the ids live beside the markup that carries them. */
+  const _setGeoHTML = sc => `
       <h4 style="margin:6px 0">📍 ${EN()?'Check-in location (geofence)':'พิกัดโรงเรียน (เช็คอิน)'}</h4>
       <p class="muted" style="font-size:13px">${EN()?'Open Google Maps → long-press the school → copy the lat, long numbers here.':'เปิด Google Maps → กดค้างที่ตำแหน่งโรงเรียน → คัดลอกเลข lat, long มาใส่'}</p>
       <div class="grid2"><label class="field"><span>Latitude</span><input id="cfgLat" type="number" step="any" value="${esc(sc.GPS_Lat!=null?sc.GPS_Lat:'')}"/></label>
         <label class="field"><span>Longitude</span><input id="cfgLng" type="number" step="any" value="${esc(sc.GPS_Lng!=null?sc.GPS_Lng:'')}"/></label></div>
       <div class="grid2"><label class="field"><span>${EN()?'Radius (metres)':'รัศมี (เมตร)'}</span><input id="cfgRadius" type="number" value="${esc(sc.Radius!=null?sc.Radius:30)}"/></label>
         <label class="field"><span>${EN()?'GPS tolerance (metres)':'เผื่อความคลาดเคลื่อน GPS (เมตร)'}</span><input id="cfgSlack" type="number" min="0" value="${esc(sc.GpsAccuracySlack!=null?sc.GpsAccuracySlack:50)}"/></label></div>
-      <p class="muted" style="font-size:13px">${EN()?'A phone reports how sure it is of your position. This is how much of that margin may count in your favour, so someone standing at the gate with a poor signal is not refused. 0 = judge by the dot alone (strict).':'มือถือจะบอกด้วยว่าตำแหน่งที่จับได้คลาดเคลื่อนได้เท่าไร · ค่านี้คือส่วนที่ยอมให้นับเป็นประโยชน์กับผู้ใช้ คนที่ยืนอยู่หน้าประตูแต่สัญญาณไม่ดีจะได้ไม่ถูกปฏิเสธ · ใส่ 0 = ตัดสินจากจุดที่จับได้อย่างเดียว (เข้มงวด)'}</p>
+      <p class="muted" style="font-size:13px">${EN()?'A phone reports how sure it is of your position. This is how much of that margin may count in your favour, so someone standing at the gate with a poor signal is not refused. 0 = judge by the dot alone (strict).':'มือถือจะบอกด้วยว่าตำแหน่งที่จับได้คลาดเคลื่อนได้เท่าไร · ค่านี้คือส่วนที่ยอมให้นับเป็นประโยชน์กับผู้ใช้ คนที่ยืนอยู่หน้าประตูแต่สัญญาณไม่ดีจะได้ไม่ถูกปฏิเสธ · ใส่ 0 = ตัดสินจากจุดที่จับได้อย่างเดียว (เข้มงวด)'}</p>`;
+
+  const _setCacheHTML = sc => `
+      <h4 style="margin:10px 0 4px">⚡ ${EN()?'How fresh the data is kept':'ความสดของข้อมูล'}</h4>
+      ${/* THIS BOX SHOWED 300 WHATEVER WAS SET. `schoolConfig` never returned CacheTTL, so the
+           fallback below was the only value it ever displayed — and saving the settings form wrote
+           that box back, so every save silently pinned the school to 300 no matter what anybody had
+           chosen. The engine returns it now; the fallback is the default for a workbook that has no
+           row, and it is 900 like everywhere else. Found 11/09/26 when the owner raised it to 900
+           and the screen still read 300. */''}
+      <label class="field"><span>${EN()?'Keep data ready for (seconds)':'เก็บข้อมูลไว้ให้พร้อมใช้ (วินาที)'}</span><input id="setTtl" type="number" min="30" max="21600" value="${esc(sc.CacheTTL!=null&&sc.CacheTTL!==''?sc.CacheTTL:900)}"/></label>
+      <p class="muted" style="font-size:13px">${EN()?'Reading the sheets takes about 10 seconds; reading this ready-made copy takes under half a second. Saving anything in the app refreshes it immediately, so this only matters if someone edits the Google Sheet BY HAND — then the app can lag behind by up to this long. 900 = 15 minutes.':'การอ่านจากชีตใช้เวลาราว 10 วินาที · อ่านจากสำเนาที่เตรียมไว้ใช้ไม่ถึงครึ่งวินาที · การบันทึกผ่านแอปจะรีเฟรชให้ทันทีเสมอ ค่านี้จึงมีผลเฉพาะกรณีมีคนไปแก้ Google Sheet ด้วยมือ — แอปอาจตามช้าได้ไม่เกินเวลานี้ · 900 = 15 นาที (ค่าแนะนำ)'}</p>`;
+
+  const _setMoneyHTML = (sc,cfg) => `
       <h4 style="margin:6px 0">${esc(t('set.diligence'))}</h4>
-      <div class="grid2"><label class="field"><span>${esc(t('set.attendAmt'))}</span><input id="setAtt" type="number" value="${cfg.DiligenceAttendanceAmount}"/></label>
-        <label class="field"><span>${esc(t('set.fbAmt'))}</span><input id="setFb" type="number" value="${cfg.DiligenceFacebookAmount}"/></label></div>
+      <div class="grid2"><label class="field"><span>${esc(t('set.attendAmt'))}</span><input id="setAtt" type="number" value="${esc(cfg.DiligenceAttendanceAmount)}"/></label>
+        <label class="field"><span>${esc(t('set.fbAmt'))}</span><input id="setFb" type="number" value="${esc(cfg.DiligenceFacebookAmount)}"/></label></div>
       <p class="muted" style="font-size:13px">${BC_ICON} ${EN()?'Meeting days moved to':'วันประชุมย้ายไปที่'} <a href="#" onclick="event.preventDefault();this.closest('.modal').remove();GO_('holidays')"><b>${esc(t('manage.holidays'))}</b></a></p>
-      <h4 style="margin:6px 0">⏰ ${EN()?'Staff OT & provident fund':'OT พนักงาน & เงินสมทบ'}</h4>
+      <h4 style="margin:10px 0 4px">⏰ ${EN()?'Staff OT & provident fund':'OT พนักงาน & เงินสมทบ'}</h4>
       <div class="grid2"><label class="field"><span>${EN()?'Staff OT (฿/hour)':'OT พนักงาน (฿/ชั่วโมง)'}</span><input id="setOtRate" type="number" min="0" value="${esc(sc.StaffOTHourlyRate!=null?sc.StaffOTHourlyRate:100)}"/></label>
         <label class="field"><span>${EN()?'School match (× staff share)':'โรงเรียนสมทบ (เท่าของยอดหักพนักงาน)'}</span><input id="setMatch" type="number" min="0" step="0.1" value="${esc(sc.ContributionMatchRate!=null?sc.ContributionMatchRate:1)}"/></label></div>
       <p class="muted" style="font-size:13px">${EN()?'Match 1 = deduct 200 from staff, school adds 200, fund grows 400.':'สมทบ 1 เท่า = หักพนักงาน 200 · โรงเรียนสมทบ 200 · เข้ากองทุน 400'}</p>
@@ -11817,27 +11866,14 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
       <button class="btn sm outline block" style="margin-top:4px" onclick="A_contribReset(this)">♻️ ${EN()?'Reset one person’s fund to zero':'ล้างเงินสมทบของพนักงาน 1 คน'}</button>
       ${/* Above the fund tools in importance, because the fund is COMPUTED FROM these rows: clearing
            a total while the duplicates are still there just rebuilds it wrong next month. */''}
-      <button class="btn sm outline block" style="margin-top:4px" onclick="A_payrollDups(this)">🔎 ${EN()?'Find duplicate payslips':'ตรวจหาสลิปเงินเดือนซ้ำ'}</button>
-      <h4 style="margin:6px 0">🔍 ${EN()?'Slip verification (SlipOK)':'การตรวจสลิป (SlipOK)'}</h4>
-      <button class="btn sm outline block" onclick="A_slipDiag(this)">${EN()?'Check whether slip verification is working':'ตรวจว่าระบบตรวจสลิปทำงานอยู่ไหม'}</button>
-      <h4 style="margin:6px 0">⚡ ${EN()?'System speed & errors':'ความเร็วและข้อผิดพลาดของระบบ'}</h4>
-      ${/* THIS BOX SHOWED 300 WHATEVER WAS SET. `schoolConfig` never returned CacheTTL, so the
-           fallback below was the only value it ever displayed — and saving the settings form wrote
-           that box back, so every save silently pinned the school to 300 no matter what anybody had
-           chosen. The engine returns it now; the fallback is the default for a workbook that has no
-           row, and it is 900 like everywhere else. Found 11/09/26 when the owner raised it to 900
-           and the screen still read 300. */''}
-      <label class="field"><span>${EN()?'Keep data ready for (seconds)':'เก็บข้อมูลไว้ให้พร้อมใช้ (วินาที)'}</span><input id="setTtl" type="number" min="30" max="21600" value="${esc(sc.CacheTTL!=null&&sc.CacheTTL!==''?sc.CacheTTL:900)}"/></label>
-      <p class="muted" style="font-size:13px">${EN()?'Reading the sheets takes about 10 seconds; reading this ready-made copy takes under half a second. Saving anything in the app refreshes it immediately, so this only matters if someone edits the Google Sheet BY HAND — then the app can lag behind by up to this long. 900 = 15 minutes.':'การอ่านจากชีตใช้เวลาราว 10 วินาที · อ่านจากสำเนาที่เตรียมไว้ใช้ไม่ถึงครึ่งวินาที · การบันทึกผ่านแอปจะรีเฟรชให้ทันทีเสมอ ค่านี้จึงมีผลเฉพาะกรณีมีคนไปแก้ Google Sheet ด้วยมือ — แอปอาจตามช้าได้ไม่เกินเวลานี้ · 900 = 15 นาที (ค่าแนะนำ)'}</p>
-      <button class="btn sm outline block" onclick="this.closest('.modal').remove();A_perfReport(7)">${EN()?'Which screens are slow, what is breaking':'ดูว่าหน้าไหนช้า อะไรพังบ้าง'}</button>
-      ${/* THE CLOCK. Four places set it — the script (triggers), both Google Sheets, and the school
-           settings row — and until 2026-09-12 nothing compared them. A mismatch does not throw: it
-           files a check-in under yesterday and shifts every hour in the speed report, both of which
-           read as data problems and neither of which points at a timezone. */''}
-      <button class="btn sm outline block" style="margin-top:4px" onclick="A_tzDiag(this)">🕐 ${EN()?'Check the clock (timezone)':'ตรวจสอบเขตเวลา (Timezone)'}</button>
+      <button class="btn sm outline block" style="margin-top:4px" onclick="A_payrollDups(this)">🔎 ${EN()?'Find duplicate payslips':'ตรวจหาสลิปเงินเดือนซ้ำ'}</button>`;
+
+  const _setLeaveHTML = q => `
       <h4 style="margin:6px 0">${esc(t('set.leaveQuota'))}</h4>
-      ${Object.keys(q).map(k=>`<label class="field"><span>${esc(tLeaveType(k))}</span><input type="number" id="lq_${esc(k)}" value="${q[k]}"/></label>`).join('')}
-      <h4 style="margin:10px 0 4px">🔔 ${EN()?'Notifications':'การแจ้งเตือน'}</h4>
+      <p class="muted" style="font-size:13px">${EN()?'Days per person per year. Changing a number here does not alter leave already approved.':'จำนวนวันต่อคนต่อปี · การแก้ตัวเลขที่นี่ไม่กระทบใบลาที่อนุมัติไปแล้ว'}</p>
+      ${Object.keys(q).map(k=>`<label class="field"><span>${esc(tLeaveType(k))}</span><input type="number" id="lq_${esc(k)}" value="${esc(q[k])}"/></label>`).join('')}`;
+
+  const _setNotifyHTML = cfgOn => `
       <p class="muted" style="font-size:13px">${EN()?'To protect the LINE monthly quota, approval alerts go to the in-app bell 🔔. Turn options on to also use LINE. Emergencies (accidents) always LINE.':'เพื่อประหยัดโควตา LINE รายเดือน คำขออนุมัติจะเข้ากล่องแจ้งเตือนในแอป 🔔 · เปิดตัวเลือกเพื่อส่ง LINE เพิ่ม · เหตุฉุกเฉิน (อุบัติเหตุ) ส่ง LINE ทุกครั้ง'}</p>
       <label class="field" style="display:flex;align-items:center;gap:8px"><input type="checkbox" id="setAdminLine" style="width:auto" ${cfgOn('AdminLineNotify',false)?'checked':''}/> 📲 ${EN()?'Also LINE-push admins for approvals (uses quota)':'ส่ง LINE ถึงแอดมินเมื่อมีคำขออนุมัติ (ใช้โควตา)'}</label>
       ${/* The highest-volume traffic in the app by far — a leave, a comment or a child arriving is a
@@ -11852,14 +11888,63 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
       ${/* the prepay switch used to sit here; it belongs with the discounts it governs — see
            A_prepayTiers ("แพ็กเกจ → ส่วนลดชำระล่วงหน้า"), asked for on 2026-09-03 */''}
       <label class="field" style="display:flex;align-items:center;gap:8px"><input type="checkbox" id="setParentLine" style="width:auto" ${cfgOn('ParentLineNotify',true)?'checked':''}/> 👨‍👩‍👧 ${EN()?'LINE parents on arrival / pick-up, the daily journal and DSPM results':'ส่ง LINE ถึงผู้ปกครอง: รับ-ส่ง · บันทึกประจำวัน · ผลประเมิน DSPM'}</label>
-      <p class="muted" style="font-size:13px">${EN()?'This is the school\'s promise to families and by far the largest use of the quota — it is not part of the recipient list above, which is for staff. A late-pickup charge and an accident always go out regardless.'
-        :'<b>ใช้โควตามากที่สุด</b> และ<b>ไม่เกี่ยวกับรายชื่อผู้รับด้านบน</b> (รายการนั้นสำหรับพนักงาน) · ค่ารับช้าและอุบัติเหตุยังส่งเสมอไม่ว่าตั้งค่าอย่างไร'}</p>
+      <p class="muted" style="font-size:13px">${EN()?'This is the school\'s promise to families and by far the largest use of the quota — it is not part of the recipient list below, which is for staff. A late-pickup charge and an accident always go out regardless.'
+        :'<b>ใช้โควตามากที่สุด</b> และ<b>ไม่เกี่ยวกับรายชื่อผู้รับด้านล่าง</b> (รายการนั้นสำหรับพนักงาน) · ค่ารับช้าและอุบัติเหตุยังส่งเสมอไม่ว่าตั้งค่าอย่างไร'}</p>
       <label class="field" style="display:flex;align-items:center;gap:8px"><input type="checkbox" id="setDigM" style="width:auto" ${cfgOn('DigestMorning',true)?'checked':''}/> 🌅 ${EN()?`Morning digest ${DIGEST_AM} (${BC_NAME()} + pending)`:`สรุปเช้า ${DIGEST_AM} (${BC_NAME()} + รายการค้าง)`}</label>
       <label class="field" style="display:flex;align-items:center;gap:8px"><input type="checkbox" id="setDigE" style="width:auto" ${cfgOn('DigestEvening',true)?'checked':''}/> 🌆 ${EN()?`Evening digest ${DIGEST_PM} (daily report)`:`สรุปเย็น ${DIGEST_PM} (รายงานประจำวัน)`}</label>
       <button class="btn sm outline block" style="margin-top:4px" onclick="A_lineWho(this)">📇 ${EN()?'Who gets a LINE alert, and about what':'กำหนดว่าใครได้รับ LINE และเรื่องอะไรบ้าง'}</button>
       <button class="btn sm outline block" style="margin-top:4px" onclick="A_lineCost(this)">📊 ${EN()?'What would LINE alerts cost per day / month?':'ประเมินโควตา LINE ที่จะใช้ต่อวัน / ต่อเดือน'}</button>
       <button class="btn sm outline block" style="margin-top:4px" onclick="A_reinstallTriggers(this)">🔄 ${EN()?`Apply digest schedule (${DIGEST_AM} / ${DIGEST_PM})`:`อัปเดตตารางส่งสรุป (${DIGEST_AM} / ${DIGEST_PM})`}</button>
-      <p class="muted" style="font-size:13px">${EN()?'Digests skip weekends & holidays. Run "Apply" once after enabling.':'สรุปจะข้ามวันหยุด/เสาร์-อาทิตย์ · กด "อัปเดตตาราง" 1 ครั้งหลังเปิดใช้'}</p>
+      <p class="muted" style="font-size:13px">${EN()?'Digests skip weekends & holidays. Run "Apply" once after enabling.':'สรุปจะข้ามวันหยุด/เสาร์-อาทิตย์ · กด "อัปเดตตาราง" 1 ครั้งหลังเปิดใช้'}</p>`;
+
+  /* ---- the five dialogs ----------------------------------------------------------------------
+   * Each fetches ONLY what its own fields are drawn from. ตั้งค่าวันลา no longer reads schoolConfig,
+   * การแจ้งเตือน no longer reads getLeaveQuota, and เครื่องมือตรวจสอบ fetches nothing at all until a
+   * button is pressed — it used to be the tail of a dialog that always loaded both. */
+  window.A_settings=async()=>{ const sc=await api('schoolConfig');
+    modal(`<h3>⚙️ ${EN()?'System settings':'ตั้งค่าระบบ'}</h3>
+      ${_setGeoHTML(sc)}
+      ${_setCacheHTML(sc)}
+      ${_setSave()}`); };
+
+  window.A_setMoney=async()=>{ const sc=await api('schoolConfig'); const cfg=MOCK.config;
+    modal(`<h3>💰 ${EN()?'Money settings':'ตั้งค่าการเงิน'}</h3>
+      <p class="muted" style="font-size:13px">${EN()?'Allowances, the OT rate and the provident fund. Pay for ONE person is adjusted on their annual review, not here.':'เบี้ยต่าง ๆ เรต OT และเงินสมทบ · การปรับเงินของคุณครู "รายคน" อยู่ที่สรุปรายปี ไม่ใช่หน้านี้'}</p>
+      ${_setMoneyHTML(sc,cfg)}
+      ${_setSave()}`); };
+
+  window.A_setLeave=async()=>{ const q=await api('getLeaveQuota');
+    modal(`<h3>🗓️ ${EN()?'Leave settings':'ตั้งค่าวันลา'}</h3>
+      ${_setLeaveHTML(q||{})}
+      ${_setSave()}`); };
+
+  window.A_setNotify=async()=>{ const sc=await api('schoolConfig'); const cfg=MOCK.config;
+    modal(`<h3>🔔 ${EN()?'Notification settings':'ตั้งค่าการแจ้งเตือน'}</h3>
+      ${_setNotifyHTML(_setOn(sc,cfg))}
+      ${_setSave()}`); };
+
+  /* 🩺 NOTHING HERE IS A SETTING, which is why it is not in any of the four above. These answer
+   * questions — is slip verification working, what does the server think today is, which record does
+   * a sign-in land on — and a screen that mixes "look at this" with "change this" invites somebody
+   * to press a diagnostic expecting it to save. No save button, by design. */
+  window.A_setTools=()=>{
+    modal(`<h3>🩺 ${EN()?'Diagnostic tools':'เครื่องมือตรวจสอบ'}</h3>
+      <p class="muted" style="font-size:13px">${EN()?'These only LOOK. Nothing here changes a setting.':'เครื่องมือเหล่านี้ "ตรวจสอบ" อย่างเดียว ไม่มีการเปลี่ยนค่าใด ๆ'}</p>
+      <h4 style="margin:10px 0 4px">⚡ ${EN()?'Speed and errors':'ความเร็วและข้อผิดพลาด'}</h4>
+      <button class="btn sm outline block" onclick="this.closest('.modal').remove();A_perfReport(7)">${EN()?'Which screens are slow, what is breaking':'ดูว่าหน้าไหนช้า อะไรพังบ้าง'}</button>
+      <h4 style="margin:10px 0 4px">🔍 ${EN()?'Slip verification (SlipOK)':'การตรวจสลิป (SlipOK)'}</h4>
+      <button class="btn sm outline block" onclick="A_slipDiag(this)">${EN()?'Check whether slip verification is working':'ตรวจว่าระบบตรวจสลิปทำงานอยู่ไหม'}</button>
+      ${/* THE CLOCK. Four places set it — the script (triggers), both Google Sheets, and the school
+           settings row — and until 2026-09-12 nothing compared them. A mismatch does not throw: it
+           files a check-in under yesterday and shifts every hour in the speed report, both of which
+           read as data problems and neither of which points at a timezone. */''}
+      <h4 style="margin:10px 0 4px">🕑 ${EN()?'The clock, and today’s hours':'เวลาและชั่วโมงทำงานของวันนี้'}</h4>
+      <button class="btn sm outline block" onclick="A_tzDiag(this)">🕐 ${EN()?'Check the clock (timezone)':'ตรวจสอบเขตเวลา (Timezone)'}</button>
+      <p class="muted" style="font-size:13px">${EN()
+        ? 'If a half-day holiday was added or corrected AFTER someone had already clocked in, their late minutes were measured against the old hours. Recalculate rewrites today’s rows from the day’s real hours.'
+        : 'ถ้าเพิ่ม/แก้วันหยุดครึ่งวัน "หลังจาก" มีคนลงเวลาไปแล้ว นาทีสายของคนนั้นจะคิดจากเวลาเดิม · กดคำนวณใหม่เพื่อเขียนทับด้วยเวลาจริงของวันนี้'}</p>
+      <button class="btn sm outline block" onclick="A_recomputeAtt(this)">🕑 ${EN()?'Recalculate today’s late minutes':'คำนวณนาทีสายของวันนี้ใหม่'}</button>
+      <button class="btn sm outline block" style="margin-top:4px" onclick="A_diagDay()">🔍 ${EN()?'What the server thinks today is':'ตรวจสอบว่าระบบมองวันนี้อย่างไร'}</button>
       ${/* IS THE iPhone FALLBACK ACTUALLY SET UP? Two things have to be right and neither is visible
            from inside the app: the channel secret in SCHOOL_CONFIG and this exact URL in the LINE
            console's callback list. Until now the only way to find out was to wait for a parent to
@@ -11867,12 +11952,6 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
            secret, from the server) and prints what it cannot (the URL), to be compared by eye. */''}
       <h4 style="margin:10px 0 4px">🌐 ${EN()?'Browser sign-in (iPhone fallback)':'เข้าสู่ระบบผ่านเบราว์เซอร์ (สำรองสำหรับ iPhone)'}</h4>
       <div id="lineWebCfg" class="card" style="padding:8px;font-size:13px">${EN()?'Checking…':'กำลังตรวจสอบ…'}</div>
-      <h4 style="margin:10px 0 4px">🕑 ${EN()?'Today’s working hours':'เวลาทำงานของวันนี้'}</h4>
-      <p class="muted" style="font-size:13px">${EN()
-        ? 'If a half-day holiday was added or corrected AFTER someone had already clocked in, their late minutes were measured against the old hours. Recalculate rewrites today’s rows from the day’s real hours.'
-        : 'ถ้าเพิ่ม/แก้วันหยุดครึ่งวัน "หลังจาก" มีคนลงเวลาไปแล้ว นาทีสายของคนนั้นจะคิดจากเวลาเดิม · กดคำนวณใหม่เพื่อเขียนทับด้วยเวลาจริงของวันนี้'}</p>
-      <button class="btn sm outline block" onclick="A_recomputeAtt(this)">🕑 ${EN()?'Recalculate today’s late minutes':'คำนวณนาทีสายของวันนี้ใหม่'}</button>
-      <button class="btn sm outline block" style="margin-top:4px" onclick="A_diagDay()">🔍 ${EN()?'What the server thinks today is':'ตรวจสอบว่าระบบมองวันนี้อย่างไร'}</button>
       ${/* WHICH RECORD DOES THIS PERSON LAND ON? An Admin-provisioned USERS row outranks every STAFF
            and PARENTS row and the app has no other screen that shows one, so somebody can hold the
            right LINE ID on the right staff record and still arrive somewhere else — with nothing
@@ -11888,7 +11967,7 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
            and that one cannot be wrong. */''}
       <button class="btn sm block" style="margin-top:6px" onclick="A_authDiag(true)">🪪 ${EN()?'Check MY account — no typing':'ตรวจสอบบัญชีของฉันเอง (ไม่ต้องพิมพ์)'}</button>
       <div id="authDiagBox" style="font-size:13px"></div>
-      <button class="btn block" onclick="A_saveSettings(this)">${esc(t('c.save'))}</button>`);
+      ${_setClose()}`);
     A_lineWebStatus();
   };
   /**
@@ -13220,28 +13299,60 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
       <button class="btn outline block" style="margin-top:8px" onclick="this.closest('.modal').remove()">${esc(t('c.close'))}</button>`);
   };
   window.A_reinstallTriggers=async(btn)=>{ if(btn)btn.disabled=true; try{ const r=await api('reinstallTriggers',{}); toast((EN()?'Schedule updated · triggers: ':'อัปเดตตารางแล้ว · triggers: ')+(r&&r.triggers!=null?r.triggers:'?')); }catch(e){err(e);}finally{ if(btn)btn.disabled=false; } };
+  /**
+   * ONE SAVE FOR ALL FIVE SETTINGS DIALOGS, AND ONE ROUND TRIP FOR THE LOT.
+   *
+   * 🔴 IT USED TO BE EIGHT REQUESTS, ONE AFTER ANOTHER. setSchoolConfig, then four setConfigVal, then
+   * one setLeaveQuota PER LEAVE TYPE — each `await`ed before the next began, and on the measured live
+   * deployment every one of those is a separate 2.7-to-30-second draw (see v421). Pressing บันทึก on
+   * the old combined dialog could take a minute, and it took the server's write lock eight times
+   * where one would do.
+   *
+   * Every call is now ISSUED IN THE SAME TICK and awaited together, which api.js folds into a single
+   * batch. Nothing here depends on anything else here, so the order never mattered.
+   *
+   * EVERY FIELD IS OPTIONAL, which is what lets five different forms share this. A dialog that does
+   * not draw a field simply does not write it — `#cfgLat` and `#setAtt` used to be read without a
+   * guard, so splitting the dialog without this would have thrown the moment anybody opened
+   * ตั้งค่าวันลา and pressed save.
+   */
   window.A_saveSettings=async(btn)=>{ const m=btn.closest('.modal');
-    const lat=parseFloat(m.querySelector('#cfgLat').value), lng=parseFloat(m.querySelector('#cfgLng').value), rad=parseFloat(m.querySelector('#cfgRadius').value);
-    const slackEl=m.querySelector('#cfgSlack'); const slack=slackEl?parseFloat(slackEl.value):NaN;
-    const gv={}; if(!isNaN(lat))gv.GPS_Lat=lat; if(!isNaN(lng))gv.GPS_Lng=lng; if(!isNaN(rad))gv.Radius=rad;
-    if(!isNaN(slack)&&slack>=0) gv.GpsAccuracySlack=slack;   // 0 is a real choice (strict), so test for NaN, not falsiness
+    const numOf=id=>{ const e=m.querySelector(id); if(!e) return undefined;
+      const v=parseFloat(e.value); return isNaN(v)?undefined:v; };
+    const gv={};
+    { const v=numOf('#cfgLat'); if(v!==undefined) gv.GPS_Lat=v; }
+    { const v=numOf('#cfgLng'); if(v!==undefined) gv.GPS_Lng=v; }
+    { const v=numOf('#cfgRadius'); if(v!==undefined) gv.Radius=v; }
+    // 0 is a real choice (strict), so test for undefined, not falsiness
+    { const v=numOf('#cfgSlack'); if(v!==undefined && v>=0) gv.GpsAccuracySlack=v; }
 
     // notification prefs (checkboxes) — stored in SCHOOL_CONFIG so the digests/triggers read them
     const ck=id=>{ const e=m.querySelector(id); return e?(e.checked?'true':'false'):undefined; };
-    if(ck('#setAdminLine')!==undefined) gv.AdminLineNotify=ck('#setAdminLine');
-    if(ck('#setStaffLine')!==undefined) gv.StaffLineNotify=ck('#setStaffLine');
-    if(ck('#setParentLine')!==undefined) gv.ParentLineNotify=ck('#setParentLine');
-    if(ck('#setDigM')!==undefined) gv.DigestMorning=ck('#setDigM');
-    if(ck('#setDigE')!==undefined) gv.DigestEvening=ck('#setDigE');
-    if(Object.keys(gv).length) await api('setSchoolConfig',{values:gv});
-    await api('setConfigVal',{key:'DiligenceAttendanceAmount',value:+m.querySelector('#setAtt').value});
-    await api('setConfigVal',{key:'DiligenceFacebookAmount',value:+m.querySelector('#setFb').value});
-    { const o=m.querySelector('#setOtRate'); if(o) await api('setConfigVal',{key:'StaffOTHourlyRate',value:+o.value||100}); }
-    { const c=m.querySelector('#setMatch'); if(c) await api('setConfigVal',{key:'ContributionMatchRate',value:c.value===''?1:+c.value}); }
-    { const t=m.querySelector('#setTtl'); if(t) await api('setConfigVal',{key:'CacheTTL',value:Math.max(30,Math.min(21600,+t.value||900))}); }
+    [['AdminLineNotify','#setAdminLine'],['StaffLineNotify','#setStaffLine'],['ParentLineNotify','#setParentLine'],
+     ['DigestMorning','#setDigM'],['DigestEvening','#setDigE']].forEach(([k,id])=>{
+       const v=ck(id); if(v!==undefined) gv[k]=v; });
+
+    /* ALL IN FLIGHT BEFORE THE FIRST await — that is the whole of the fix. An `await` anywhere in
+     * this block would split the batch, and the cost of that is not a little slower, it is another
+     * full draw from a distribution that reaches thirty seconds. */
+    const jobs=[];
+    if(Object.keys(gv).length) jobs.push(api('setSchoolConfig',{values:gv}));
+    const cfgVal=(key,id,fix)=>{ const e=m.querySelector(id); if(!e) return;
+      jobs.push(api('setConfigVal',{key,value:fix(e.value)})); };
+    cfgVal('DiligenceAttendanceAmount','#setAtt', v=>+v||0);
+    cfgVal('DiligenceFacebookAmount','#setFb',    v=>+v||0);
+    cfgVal('StaffOTHourlyRate','#setOtRate',      v=>+v||100);
+    cfgVal('ContributionMatchRate','#setMatch',   v=>v===''?1:+v);
+    cfgVal('CacheTTL','#setTtl',                  v=>Math.max(30,Math.min(21600,+v||900)));
     for(const el of m.querySelectorAll('input[id^="lq_"]')){ const type=el.id.slice(3); if(!type) continue;
-      await api('setLeaveQuota',{type,days:+el.value||0}); }
-    m.remove(); confirmSaved(t('c.saved')); };
+      jobs.push(api('setLeaveQuota',{type,days:+el.value||0})); }
+    if(!jobs.length){ m.remove(); return; }
+    /* ...and a failure is now SAID. There was no catch here at all: a save that did not happen left
+     * the dialog sitting open with no message, which is indistinguishable from one that worked and
+     * is exactly the shape of the น้องโมน่า report. err() raises the blocking dialog for a write. */
+    btn.disabled=true;
+    try{ await Promise.all(jobs); m.remove(); confirmSaved(t('c.saved')); }
+    catch(e){ err(e); btn.disabled=false; } };
 
   // ---- OT verification (check the ≥50min→1hr rule on attendance) ----
   // ---- Admin: student late-pickup OT (cancel / correct pickup time / override amount) ----
