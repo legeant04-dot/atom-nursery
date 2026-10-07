@@ -131,7 +131,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.420'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.421'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -4524,28 +4524,29 @@
      * WHY. Swallowed for this code only: any other error still reaches the user, which is the whole
      * reason these did not have blanket .catch()es. */
     const _softNS = e => { if (e && e.code === 'NOT_STARTED') return null; throw e; };
-    const [att,cl,me0raw,jstat,al] = await Promise.all([api('myAttendanceToday',{staffId:USER.staffId}),api('classList',tc()).catch(_softNS),api('staffSelf',{staffId:USER.staffId}),api('journalStatus',{}).catch(_softNS),
-      api('studentAlerts',{staffId:USER.staffId,role:USER.role}).catch(()=>null)]);
-    /* THE DOOR, CHECKED BEFORE ANYTHING IS DRAWN. myAttendanceToday answers { notStarted, startDate }
-     * and the server has already refused the rest, so there is nothing to render but the wait card —
-     * and rendering it here stops the SECOND batch below from being issued at all. */
-    if (att && att.notStarted) {
-      __atomSetNotStarted(true, att.startDate || (me0raw && me0raw.StartDate));
-      return notStartedScreen();
-    }
-    /* DELIBERATELY IN A LATER TICK — the await above ends the first one, so these form a SECOND
-     * request instead of joining the first.
+    /* 🔴 ONE TICK, AND THEREFORE ONE REQUEST — the 2026-10-07 measurement reversed this.
      *
-     * They used to start alongside the batch above, which was right when the alternative was each of
-     * them buying its own round trip. But api.js folds one tick into one HTTP request, and a request
-     * is only as fast as its slowest member — so six cards nobody is waiting for were holding the
-     * clock-in button hostage. The 08–11/09 report priced it: every one of these sat at p50 ≈10.5s
-     * with p95 ≈28s, all identical, which is the signature of one batch being timed six times over.
+     * These seven were deliberately issued in a LATER tick, as a second request, on the reasoning
+     * that "a request is only as fast as its slowest member", so six cards nobody is waiting for
+     * should not hold the clock-in button hostage. That reasoning assumed the SIZE of a request is
+     * what costs. It is not, and the live deployment was measured to settle it rather than argued:
      *
-     * A teacher opens this app at 06:50 to clock in. That button needs attendance, the staff record
-     * and whether school is open — nothing below. Two requests is more total work; it is also the
-     * only way the first one can be short, and it is the one somebody is standing there waiting for.
-     * Each still renders into its own placeholder whenever it lands, exactly as before. */
+     *     a request doing NOTHING          median 10.8s   (2.7s … 30.5s)
+     *     a request reading ELEVEN sheets  median  4.8s   (3.8s … 18.4s)
+     *     ...the sheet reads inside it                     median 416ms
+     *
+     * The work is noise. The round trip is everything, and its spread is so wide that the request
+     * doing eleven reads came back FASTER than the empty one. Splitting therefore bought nothing and
+     * cost a whole extra draw from that distribution — a second 3-to-30-second wait, every time a
+     * teacher opened the app, for cards that could have ridden along for 400ms.
+     *
+     * So they join the batch above. The screen still renders the moment the batch lands and each
+     * card still fills its own placeholder; what has gone is the second round trip.
+     *
+     * The one thing given up: on the single morning a teacher's first day has not arrived, the
+     * notStarted card below now pays for seven answers it throws away. One request either way, and
+     * the server refuses them in the same execution for nothing.
+     */
     const p_tca = api('teacherClassAttendance',{staffId:USER.staffId}).catch(()=>null);
     const p_holNext = api('myHolidayOTNext',{staffId:USER.staffId}).catch(()=>null);
     const p_holDay  = api('holidayAttendList',{}).catch(()=>null);
@@ -4561,9 +4562,19 @@
     /* HOW MANY CHILDREN IN THIS TEACHER'S OWN ROOMS NEED CHASING — asked 2026-09-12: "ฟังก์ชันการ
      * ติดตามนักเรียนของ Role คุณครูไม่มีอะไรแจ้งเตือนให้คุณครูทราบว่า ต้องติดตามใคร ขาดไปแล้วกี่วัน".
      * The screen has existed since v100-something; nothing ever pointed at it, so a child could be
-     * away a fortnight without anyone opening it. The count rides in this second batch (no extra
-     * round trip) and lands on the นักเรียน tab, where it is visible from every screen. */
+     * away a fortnight without anyone opening it. The count rides along (no extra round trip) and
+     * lands on the นักเรียน tab, where it is visible from every screen. */
     const p_absWatch= api('absenceWatchCount',{staffId:USER.staffId}).catch(()=>null);
+    /* THE AWAIT, AND THEREFORE THE END OF THE TICK, IS HERE — everything above is now in flight
+     * together as ONE request. Moving this line is what merges the two; nothing else did. */
+    const [att,cl,me0raw,jstat,al] = await Promise.all([api('myAttendanceToday',{staffId:USER.staffId}),api('classList',tc()).catch(_softNS),api('staffSelf',{staffId:USER.staffId}),api('journalStatus',{}).catch(_softNS),
+      api('studentAlerts',{staffId:USER.staffId,role:USER.role}).catch(()=>null)]);
+    /* THE DOOR, CHECKED BEFORE ANYTHING IS DRAWN. myAttendanceToday answers { notStarted, startDate }
+     * and the server has already refused the rest, so there is nothing to render but the wait card. */
+    if (att && att.notStarted) {
+      __atomSetNotStarted(true, att.startDate || (me0raw && me0raw.StartDate));
+      return notStartedScreen();
+    }
     const jdone = journalDoneMap(jstat); setAlerts(al);
     T_STU={}; (cl.students||[]).forEach(s=>{ T_STU[s.StudentID]=s; });   // names for the ⋯ menu
     const day0 = await p_day;                 // already in flight with the batch above — no extra trip
@@ -6885,6 +6896,17 @@
     // ...and the holiday-OT card rides in the SAME batch instead of taking a round trip of its own
     // after the screen is drawn. On an ordinary day it answers "nothing"; that answer is now free.
     const p_holDay = api('holidayAttendList',{}).catch(()=>null);
+    /* 🔴 THE ANNOUNCEMENTS, started HERE rather than awaited at the bottom of the screen.
+     *
+     * It was the last line of this function — `const _anns = await api('announcements')` — issued
+     * after the batch below had already resolved, so it was a round trip of its own: on the measured
+     * live deployment, another 2.7-to-30-second wait, for a list nobody is waiting for. Nothing
+     * above it depends on it; it only fills #anns at the end. Started with the batch, awaited where
+     * it is drawn. Found 2026-10-07 while answering "เช้านี้ ผอ. เข้าระบบแล้วค้าง".
+     *
+     * Its own fallback, like every other card here: a failed announcements list must leave the rest
+     * of the dashboard standing. */
+    const p_anns = api('announcements').catch(()=>null);
     const [d,rem,lrem,pend,fin]=await Promise.all([api('dashboard'),api('payrollReminderDue'),api('leaveResetReminder'),api('pendingPayments'),api('financeSummary',{})]);
     const pendN=pend.length;
     // ---- payment tracking (this month): monthly tuition + student OT collection ----
@@ -7031,7 +7053,9 @@
           ? 'For these people today is a working day: they clock in and out, and the children are checked in, journalled and charged as usual.'
           : 'สำหรับคนกลุ่มนี้ วันนี้คือวันทำงาน — ลงเวลาเข้า-ออกได้ และนักเรียนลงเวลา/บันทึก/คิดค่าใช้จ่ายได้ตามปกติ'}</small></div>`;
     }).catch(()=>{});
-    const _anns=await api('announcements'); A_CACHE.announcements=_anns;
+    // already in flight with the batch above — no extra trip. null means that one call failed and
+    // the rest of the dashboard is still on screen, which is the point of the fallback.
+    const _anns=await p_anns; if(!_anns) return; A_CACHE.announcements=_anns;
     const _annEl=$('#anns'); if(!_annEl) return; // user navigated away before this resolved
     A_annRender();
   };
@@ -12482,8 +12506,21 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
        because it is usually the reason the report was opened. */
     if((d.punches||[]).length){
       L.push('CHECK-IN / OUT (ทุก Role):');
-      d.punches.forEach(x=>L.push('  '+x.action+' ['+x.who+'] x'+x.n+
-        (x.n?' p50='+ms(x.p50)+' p95='+ms(x.p95)+(x.fail?' fail='+x.fail+' ('+Math.round(x.fail/x.n*100)+'%)':' fail=0'):' — ไม่มีการใช้งานในช่วงนี้')));
+      /* 🔴 WITH THE CODES. The server has computed them all along and this line threw them away, so
+         the 02–07/10 report could say "staffCheckout fail 32%" and nothing about WHY — and a third
+         of the school's clock-outs failing is the most serious number the report has ever carried,
+         because that is somebody's working time. FAILING prints its codes one section below; these
+         did not, and these are the ones somebody is standing at a gate doing. */
+      d.punches.forEach(x=>{
+        // failCodes, NOT codes: the latter counts the deliberate refusals too, and beside a bare
+        // "fail=7" that reads as eleven faults where there are seven. The refusals are still shown,
+        // on their own, so nothing is hidden.
+        const cd=Object.keys(x.failCodes||{}).map(c=>c+'x'+x.failCodes[c]).join(',');
+        L.push('  '+x.action+' ['+x.who+'] x'+x.n+
+          (x.n?' p50='+ms(x.p50)+' p95='+ms(x.p95)
+            +(x.fail?' fail='+x.fail+' ('+Math.round(x.fail/x.n*100)+'%)'+(cd?' :: '+cd:''):' fail=0')
+            +(Number(x.refused)>0?' (+'+x.refused+' refused)':'')
+            :' — ไม่มีการใช้งานในช่วงนี้')); });
     }
     L.push('SLOWEST (by total wait):');
     (d.slowest||[]).slice(0,10).forEach(x=>L.push('  '+x.action+' x'+x.n+' p50='+ms(x.p50)+' p95='+ms(x.p95)+(x.fail?' fail='+x.fail:'')));
