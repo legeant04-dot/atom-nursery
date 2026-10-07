@@ -169,7 +169,12 @@ ok_('…keyed by student for the row renderers', /function setAlerts\(al\)/.test
  * screens showed an age, which answers a different question from the one a teacher planning a party
  * or working out who moves up a class is asking. */
 ok_('the badge sits right after the child’s name on the class screen',
-  /<b>\$\{esc\(dispNick\(s\)\)\}<\/b>\$\{bdayTag\(s\.DOB\)\} \$\{due\?dspmDueBadge\(due\):''\}/.test(app));
+  /<b>\$\{esc\(dispNick\(s\)\)\}<\/b>\$\{bdayTag\(s\.DOB\)\} \$\{\(!onDay&&due\)\?dspmDueBadge\(due\):''\}/.test(app));
+/* ...and NOT when the teacher is reading an earlier day (v423). The DSPM reminder is "this child is
+ * due an assessment", which is a fact about now; printed under last Friday's heading it reads as
+ * something that was outstanding then, and the assess button it points at is not even on the row. */
+ok_('…and it is hidden while an earlier day is on screen',
+  /\$\{\(!onDay&&due\)\?dspmDueBadge\(due\):''\}/.test(app));
 ok_('…and on the home list too', /<b>\$\{esc\(dispNick\(s\)\)\}<\/b>\$\{bdayTag\(s\.DOB\)\} \$\{dueA\?dspmDueBadge\(dueA\):''\}/.test(app));
 /* It was day-and-month ("11-07"), on the grounds that the year was already in the age beside it.
  * Changed 2026-08-31 to the whole date with the MONTH AS A WORD: "11-07" is a date only to somebody

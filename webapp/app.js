@@ -131,7 +131,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.422'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.423'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -4951,10 +4951,32 @@
    * The full sentence stays on `title` for anyone on a desktop.
    */
   const jShortLabel = d => !d ? (EN()?'Write':'บันทึก') : (jIsDraft(d) ? (EN()?'Edit':'แก้ไข') : (EN()?'View':'ดู'));
-  function studentRowButtons(s, jdone){
+  function studentRowButtons(s, jdone, onDay){
     const done=jdone[s.StudentID], canJ = s.inToday || !!done;
     // label '' = icon only (the ⋯ menu): a word there would cost a third of the row for nothing
     const B=(cls,onclick,icon,label,title)=>`<button class="btn sm ${cls}" ${onclick?`onclick="${onclick}"`:'disabled style="opacity:.45"'} title="${esc(title||label)}" aria-label="${esc(label||title||'')}">${icon}${label?' '+esc(label):''}</button>`;
+    /* 🔴 A PAST DAY IS SOMETHING TO READ, NOT SOMETHING TO DO.
+     *
+     * The date picker above lets a teacher look back at the class's reports (asked 2026-10-07). On
+     * any day but today only the REPORT is answerable: a check-in belongs to the moment it happened
+     * and the server refuses a back-dated one, a DSPM assessment is not about a date at all, and
+     * `inToday` on these rows is genuinely TODAY's attendance — classList answers for now, whatever
+     * date the journals were asked for. Offering those buttons would be offering a lie and, in the
+     * case of the check-in, one the server would then refuse.
+     *
+     * ⋯ stays: filing a leave, correcting a time and reading one child's history are all things a
+     * teacher does precisely BECAUSE they are looking at an earlier day.
+     */
+    if(onDay){
+      const jPast = done
+        ? B('outline', `A_viewJournal('${s.StudentID}','${esc(onDay)}')`, '👁️', EN()?'Read':'ดูบันทึก',
+            (EN()?'The report for ':'บันทึกของวันที่ ')+ddmmyyyy(onDay)+' — '+dispNick(s))
+        : B('outline', '', '📒', EN()?'No report':'ไม่มีบันทึก',
+            (EN()?'Nothing was recorded on ':'ไม่มีบันทึกของวันที่ ')+ddmmyyyy(onDay));
+      return `<div class="stuacts">${[jPast,
+        B('outline more', `T_stuMore('${s.StudentID}')`, '⋯', '', EN()?'File leave · correct times · past reports':'แจ้งลา · แก้ไขเวลา · บันทึกย้อนหลัง')
+      ].join('')}</div>`;
+    }
     const jBtn = canJ
       ? B(done?'outline':'', `T_journal('${s.StudentID}')`, !done?'📒':(jIsDraft(done)?'✏️':'👁️'),
           jShortLabel(done), journalBtnLabel(done)+' — '+dispNick(s))
@@ -5068,7 +5090,21 @@
   const dspmDueOf = sid => DSPM_DUE[sid];
   function setAlerts(al){ DSPM_DUE={}; ((al&&al.dspmDue)||[]).forEach(k=>{ DSPM_DUE[k.studentId]=k; }); return al; }
   SCREENS.Teacher.class = async () => {
-    const [cl,jstat,al]=await Promise.all([api('classList',tc()),api('journalStatus',{}),
+    /* 🔴 THE DAY THE REPORTS BELONG TO — asked 2026-10-07: "ด้านบนทำเป็นฟังก์ชัน Calendar เลือกวัน/
+     * เดือน/ปี ของบันทึก เพื่อที่คุณครูจะสามารถไปดูข้อมูลบันทึกย้อนหลังของนักเรียนได้".
+     *
+     * Looking back existed, but one child at a time and two taps deep inside the ⋯ menu — so the
+     * question a teacher actually has ("what did we send home on Friday?") could only be answered
+     * child by child. The whole class, one day, from the top of the screen.
+     *
+     * A NATIVE <input type="date"> rather than three selects: on a phone it opens the system's own
+     * day/month/year wheel, which is the thing the school asked for and is also the one control
+     * every parent and teacher here already knows. Mobile first, and nothing to style.
+     *
+     * Capped at today. There is no report for tomorrow, and a date picker that offers one invites
+     * the question of why the screen is empty. */
+    const onDay = (T_CDATE && T_CDATE!==todayStr()) ? T_CDATE : '';
+    const [cl,jstat,al]=await Promise.all([api('classList',tc()),api('journalStatus',onDay?{date:onDay}:{}),
       api('studentAlerts',{staffId:USER.staffId,role:USER.role}).catch(()=>null),
       // the on-behalf check-in button must know whether the nursery is open TO THE CHILDREN today
       api('schoolDay',{}).then(d=>{ window._SCHOOLDAY=d; return d; }).catch(()=>null)]);
@@ -5084,7 +5120,16 @@
            ${cl.offToday.map(o=>`<div class="list-item" style="padding:3px 0"><span>${esc(o.nick||o.name)}</span><small class="muted">${EN()?'off':'หยุดทุก'} ${esc(o.days)}</small></div>`).join('')}
            <small class="muted">${EN()?'No check-in and no daily journal for them today, and it is not an absence.':'ไม่ต้องเช็คอินและไม่ต้องบันทึกประจำวัน · ไม่นับเป็นวันขาด'}</small></div>`
       : '';
-    app.innerHTML=`<h2 class="page">👶 ${esc(cl.class.ClassName)}</h2>${classSwitcher(cl)}<div id="tbday">${birthdayCard(al,{nav:true})}</div>${offCard}`+cl.students.map(s=>{
+    /* THE BIRTHDAY STRIP MOVED TO THE BOTTOM — asked in the same breath: "กรอบของวันเกิดนักเรียน
+     * เดือนนั้นให้แยกลงมา".
+     *
+     * It sat directly under the class tabs, carrying its own ◀ ▶ month arrows, and with a date
+     * control now at the top of the screen two sets of arrows one above the other would be read as
+     * one thing. They are not: one moves the DAY of the reports, the other moves the MONTH of a
+     * birthday list. It is reference, not work, so it goes under the children. */
+    const bdayHtml = `<div id="tbday">${birthdayCard(al,{nav:true})}</div>`;
+    app.innerHTML=`<h2 class="page">👶 ${esc(cl.class.ClassName)}</h2>${classSwitcher(cl)}
+      ${T_classDateBar(onDay)}${onDay?'':offCard}`+cl.students.map(s=>{
       const attTag = s.onLeave
         ? `<small class="pill warn" style="margin-left:4px">🏖️ ${esc(s.leaveType||(EN()?'on leave':'ลา'))}${s.leaveReason?' · '+esc(s.leaveReason):''}</small>`
         /* A CHECK-IN WITH NO TIME IS STILL A CHECK-IN. This used to print nothing at all unless
@@ -5095,8 +5140,46 @@
       // the DSPM reminder rides after the name, where the teacher is already looking, and clears
       // itself once the band is finished
       const due=dspmDueOf(s.StudentID);
-      return `<div class="card"><div style="display:flex;gap:10px;align-items:center">${studentAvatar(s)}<div style="min-width:0"><b>${esc(dispNick(s))}</b>${bdayTag(s.DOB)} ${due?dspmDueBadge(due):''} ${nmSub(s)?`<small class="muted">${esc(nmSub(s))}</small>`:""}${attTag}<br><small class="muted">${esc(ageYM(s.DOB))} · ${EN()?'allergy':'แพ้'}: ${esc(s.Allergy||'-')}</small><br>${journalPill(jdone[s.StudentID])}</div></div>
-        ${studentRowButtons(s,jdone)}</div>`; }).join(''); };
+      /* On a past day the attendance chip and the DSPM reminder are both about NOW — classList
+       * answers for today whatever date the journals were asked for, so printing "มา 08:02" beside
+       * last Friday's report would be stating today's fact under yesterday's heading. */
+      return `<div class="card"><div style="display:flex;gap:10px;align-items:center">${studentAvatar(s)}<div style="min-width:0"><b>${esc(dispNick(s))}</b>${bdayTag(s.DOB)} ${(!onDay&&due)?dspmDueBadge(due):''} ${nmSub(s)?`<small class="muted">${esc(nmSub(s))}</small>`:""}${onDay?'':attTag}<br><small class="muted">${esc(ageYM(s.DOB))} · ${EN()?'allergy':'แพ้'}: ${esc(s.Allergy||'-')}</small><br>${journalPill(jdone[s.StudentID])}</div></div>
+        ${studentRowButtons(s,jdone,onDay)}</div>`; }).join('') + bdayHtml; };
+  /* THE DAY THESE REPORTS ARE FROM. '' means today, so the ordinary case carries no state at all and
+   * a teacher who opens the app in the morning always lands on today — a remembered date would have
+   * them writing into a screen headed last Tuesday. */
+  let T_CDATE='';
+  function T_classDateBar(onDay){
+    const today=todayStr(), cur=onDay||today;
+    const label = onDay ? fullDate(onDay) : (EN()?'Today':'วันนี้')+' · '+fullDate(today);
+    return `<div class="card" style="padding:8px;${onDay?'background:var(--warn-bg);border-color:var(--warn-line)':''}">
+      <div class="row" style="gap:6px;align-items:center;flex-wrap:nowrap">
+        <button class="btn sm outline" style="flex:0 0 auto" onclick="T_classDay(-1)" aria-label="${EN()?'Previous day':'วันก่อนหน้า'}" title="${EN()?'Previous day':'วันก่อนหน้า'}">◀</button>
+        <input type="date" id="tcDate" value="${esc(cur)}" max="${esc(today)}" onchange="T_classDate(this.value)"
+          aria-label="${EN()?'Date of the daily reports':'วันที่ของบันทึกประจำวัน'}"
+          style="flex:1;min-width:0;padding:8px;border:1px solid var(--line);border-radius:8px"/>
+        <button class="btn sm outline" style="flex:0 0 auto" ${onDay?`onclick="T_classDay(1)"`:'disabled style="flex:0 0 auto;opacity:.4"'} aria-label="${EN()?'Next day':'วันถัดไป'}" title="${EN()?'Next day':'วันถัดไป'}">▶</button>
+      </div>
+      ${/* align-items:center — .spread only spreads them apart, so a small label beside a full-height
+           button sat 13px above it. Measured at 375px, which is where this screen lives. */''}
+      <div class="spread" style="margin-top:6px;gap:6px;align-items:center">
+        <small style="${onDay?'color:var(--warn);font-weight:700':'color:var(--muted)'}">${onDay?'🕑 ':'📒 '}${esc(label)}</small>
+        ${onDay?`<button class="btn sm" style="flex:0 0 auto" onclick="T_classDate('')">${EN()?'Back to today':'กลับมาวันนี้'}</button>`:''}
+      </div>
+      ${onDay?`<small class="muted" style="display:block;margin-top:4px">${EN()
+        ? 'Reading an earlier day. The reports are read-only; check-in and assessment are about today and are not shown.'
+        : 'กำลังดูบันทึกย้อนหลัง — อ่านได้อย่างเดียว · เช็คอินและประเมินพัฒนาการเป็นเรื่องของวันนี้ จึงไม่แสดงในหน้านี้'}</small>`:''}</div>`;
+  }
+  window.T_classDate = (v) => { const today=todayStr();
+    let d=ymd(v||'');
+    // a date beyond today has no report to show, and the picker is capped — but a typed value is not
+    if(!/^\d{4}-\d{2}-\d{2}$/.test(d) || d>today) d='';
+    T_CDATE = (d===today) ? '' : d;
+    GO('class');
+  };
+  window.T_classDay = (step) => { const base=T_CDATE||todayStr();
+    const d=new Date(base+'T00:00:00'); d.setDate(d.getDate()+Number(step||0));
+    T_classDate(d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0')); };
   // Teacher files a leave for a student → notifies the linked parents; shows in that student's parent calendar
   window.T_studentLeave=(sid,name)=>{ modal(`<h3>🏖️ ${EN()?'File student leave':'แจ้งลานักเรียน'} — ${esc(name)}</h3>
     <!-- same trap as #lType: the value is what reaches the sheet, so it stays Thai in both languages -->

@@ -47,7 +47,7 @@ const today = (() => { const d = new Date(), p = n => String(n).padStart(2, '0')
 function grab(fn) { let e = null; try { fn(); } catch (x) { e = x.message || String(x); } return e; }
 
 console.log('\n=== 1. the buttons say what they do ===');
-ok_('one builder for a child’s row', /function studentRowButtons\(s, jdone\)/.test(app));
+ok_('one builder for a child’s row', /function studentRowButtons\(s, jdone, onDay\)/.test(app));
 // the three a teacher uses all day stay on the row, each named in ONE word
 [['บันทึก', 'journal — none yet'], ['แก้ไข', 'journal — draft'], ['ดู', 'journal — sent'],
  ['ประเมิน', 'assess'], ['เช็คอิน', 'check in'], ['รับกลับ', 'pick up'], ['ลา', 'on leave']]
