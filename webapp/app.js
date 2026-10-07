@@ -131,7 +131,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.424'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.425'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -469,6 +469,25 @@
     return k ? t(k) : s; };
   // ms: errors stay long enough to read a two-line hint. raw: skip the EN phrase dictionary for text
   // that is already in the right language (see err()).
+  /* 🔴 COPY TO THE CLIPBOARD, FROM AN INLINE HANDLER — and the reason it needs to be global.
+   *
+   * An onclick attribute runs in GLOBAL scope; everything in this file lives inside an IIFE. The
+   * callback-URL box in the LINE sign-in check called `toast(...)` straight from its onclick, which
+   * is a ReferenceError every time somebody tapped it: the copy went through (it was the left half
+   * of an `&&`) and then the handler threw, so the admin got no confirmation and the only sign of it
+   * was in a console nobody has open. Found 2026-10-07 by auditing every inline handler in the file
+   * against what is actually defined — it was the one dead reference in 505.
+   *
+   * navigator.clipboard is also absent outside a secure context, where the old code silently did
+   * nothing at all. Here that is SAID, with the text left selected so it can be copied by hand.
+   */
+  window.COPY_ = (text) => { const s=String(text||''); if(!s) return;
+    const done = () => toast('✅ '+(EN()?'Copied':'คัดลอกแล้ว'));
+    if(navigator.clipboard && navigator.clipboard.writeText){
+      navigator.clipboard.writeText(s).then(done, ()=>toast(EN()?'Could not copy — select the text and copy it by hand':'คัดลอกอัตโนมัติไม่ได้ — กรุณาเลือกข้อความแล้วคัดลอกเอง'));
+      return; }
+    toast(EN()?'Select the text and copy it by hand':'กรุณาเลือกข้อความแล้วคัดลอกเอง');
+  };
   let toastT; function toast(m,ms,raw){ if(!raw && window.trPhrase) m=trPhrase(m); let t=$('.toast'); if(!t){t=document.createElement('div');t.className='toast';document.body.appendChild(t);} t.textContent=m; t.classList.add('show'); clearTimeout(toastT); toastT=setTimeout(()=>t.classList.remove('show'), ms||2400); }
   // runtime translator hook: auto-translate any remaining Thai in #app when EN
   let _mo=null,_translating=false;
@@ -12037,7 +12056,7 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
         : 'เพิ่มแถวในชีต SCHOOL_CONFIG · Key = <b>LineLoginChannelSecret</b> · Value = Channel secret ของ <b>LINE Login</b> channel (ไม่ใช่ของ Messaging API)'}</small>`}
       <div style="margin-top:6px"><small class="muted">${EN()?'Channel ID in use':'Channel ID ที่ใช้'}</small><br><code>${esc(chan)}</code></div>
       <div style="margin-top:6px"><small class="muted">${EN()?'This URL must be in the channel’s Callback URL list — exactly:':'URL นี้ต้องอยู่ใน Callback URL ของ channel — ต้องตรงทุกตัวอักษร:'}</small>
-        <br><code style="word-break:break-all" onclick="navigator.clipboard&&navigator.clipboard.writeText('${esc(cb)}')&&toast('${EN()?'Copied':'คัดลอกแล้ว'}')" style="cursor:pointer">${esc(cb)}</code></div>
+        <br><code style="word-break:break-all" onclick="COPY_(this.textContent)" style="cursor:pointer" title="${EN()?'Tap to copy':'แตะเพื่อคัดลอก'}">${esc(cb)}</code></div>
       <small class="muted" style="display:block;margin-top:6px">${EN()
         ? 'The last resort after the LINE app hand-off fails — the parent signs in to LINE itself, which on a phone means email, password and a verification code. The button is hidden while the secret is missing.'
         : 'ทางสุดท้ายเมื่อการส่งต่อไปแอป LINE ล้มเหลว — ผู้ปกครองต้องล็อกอิน LINE เอง ซึ่งบนมือถือคืออีเมล + รหัสผ่าน + รหัสยืนยัน (QR ใช้ได้เฉพาะบนคอมพิวเตอร์) · ถ้ายังไม่ตั้งค่า ปุ่มจะไม่แสดงให้ผู้ปกครองเห็น'}</small>`;
