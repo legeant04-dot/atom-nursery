@@ -24,6 +24,13 @@ const path = require('path'), fs = require('fs');
 const H_ = require(path.join(__dirname, 'gas_test_harness.js'));
 const { createAtomAPI } = require(path.join(__dirname, '..', 'webapp', 'engine.js'));
 
+/* LOCAL dates, never toISOString(). The engine works in the school's own timezone; this
+   file used UTC, so between midnight and 07:00 Bangkok its "today" was YESTERDAY and the
+   assertions below failed for no reason at all. Found 2026-10-08 at 00:28, running the suite
+   past midnight for the first time. Same trap as the payslip month and the leave expansion. */
+const _p2 = n => String(n).padStart(2, "0");
+const _dLocal = d => d.getFullYear() + "-" + _p2(d.getMonth() + 1) + "-" + _p2(d.getDate());
+
 let pass = 0, fail = 0;
 function eq(label, got, want) {
   const ok = JSON.stringify(got) === JSON.stringify(want);
@@ -37,7 +44,7 @@ const app = R('webapp/app.js'), engine = R('webapp/engine.js'),
 const strip = s => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
 const appCode = strip(app);
 
-const TODAY = new Date().toISOString().slice(0, 10);
+const TODAY = _dLocal(new Date());
 
 // ============================================================================================
 console.log('1) attribution is per PUNCH, not per day');

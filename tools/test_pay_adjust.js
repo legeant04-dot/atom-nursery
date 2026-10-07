@@ -203,8 +203,27 @@ console.log('5) the screens');
 
   ok_('the annual review is on ดำเนินการ', /'A_yearReview\(\)'\]/.test(appCode));
   ok_('...and lists everyone before anybody is opened', /window\.A_yearReview = async/.test(appCode));
-  ok_('...one request at a time, because Apps Script runs one at a time',
-    /for\(const r of YREV\.rows\)\{[\s\S]{0,200}await api\('staffPerformance'/.test(appCode));
+  /* 🔴 THIS ASSERTION USED TO PIN THE BUG, and it is worth saying how.
+   *
+   * It read: "...one request at a time, because Apps Script runs one at a time" — and demanded
+   * `for(const r of YREV.rows){ await api('staffPerformance' …) }`. The premise is right and the
+   * conclusion was exactly backwards. BECAUSE the platform runs one execution at a time for the
+   * whole web app, nine sequential requests are nine slots nobody else in the school can have.
+   *
+   * On 2026-10-07 at 18:06, four teachers could not clock out. This screen is the most likely
+   * reason. Server work for the whole lot is 8ms; the nine round trips are 30 seconds at the median
+   * and over four minutes at p95.
+   *
+   * It is ONE request now, and a loop that awaits inside itself is what this check forbids. */
+  ok_('🔴 the whole screen is ONE request, not one per teacher',
+    /await api\('staffPerformanceAll'/.test(appCode));
+  ok_('🔴 ...and nothing awaits per row any more',
+    !/for\s*\(\s*const r of YREV\.rows\s*\)\s*\{[\s\S]{0,300}await api\(/.test(appCode));
+  ok_('...the engine answers for a LIST of people', /staffPerformanceAll: p => \{/.test(engine));
+  ok_('...by delegating to staffPerformance, so the pay figures have one source',
+    /staffPerformanceAll[\s\S]{0,900}H\.staffPerformance\(\{ staffId: p\.staffId, targetId: id/.test(engine));
+  ok_('...and one person failing does not blank the rest',
+    /catch\(e\)\{ return \{ staffId: id, error:/.test(engine));
   ok_('...with a school-wide total', /ภาพรวมทั้งโรงเรียน/.test(app));
   ok_('the adjust form is on the per-person screen', /A_sperfAdjustSave/.test(appCode));
   /* The boxes start EMPTY. Pre-filled with today's salary, a save that changes nothing still writes
