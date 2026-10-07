@@ -50,24 +50,31 @@ console.log('\n2) teacher home: nothing is fired after the render');
   const home = between('SCREENS.Teacher.home = async () => {', 'window.T_growthReminder =');
   const firstAwait = home.indexOf('await Promise.all(');
   ok_('there IS a first await to measure against', firstAwait > 0);
-  /* TWO BATCHES, AND WHICH CALL IS IN WHICH — reversed in v373 on measured evidence.
+  /* 🔴 EVERYTHING BEFORE THE AWAIT — restored 2026-10-07, having been reversed in v373.
    *
-   * This asserted that everything started before the first await: one tick, one request. That was
-   * right while the alternative was each call buying its own round trip. But a request is only as
-   * fast as its slowest member, so six cards nobody is waiting for were holding the clock-in button
-   * hostage — the 08–11/09 report showed all six at p50 ≈10.5s, identical, which is one batch timed
-   * six times over. A teacher opens this at 06:50 to clock in, in the busiest hour of the day.
+   * v373 split this in two on the reasoning that "a request is only as fast as its slowest member",
+   * so six cards nobody waits for should not hold the clock-in button hostage. The live deployment
+   * was then measured directly, fourteen paired samples, and the premise did not survive:
    *
-   * The rule is no longer "everything before the await". It is: the CORE goes first and is small,
-   * the rest follows as ONE more request, and nothing gets a trip of its own. */
+   *     a request doing NOTHING          median 10.8s   (2.7s … 30.5s)
+   *     a request reading ELEVEN sheets  median  4.8s   (3.8s … 18.4s)
+   *     ...the sheet reads inside it                     median 416ms
+   *
+   * The request doing eleven reads came back FASTER than the empty one. 416ms of work cannot be seen
+   * inside a 28-second spread, so a request's size is not what it costs — its EXISTENCE is. The
+   * split therefore bought nothing and charged a second 3-to-30-second draw on every home screen.
+   *
+   * The rule is back to: everything starts before the one await, and nothing is fetched after it. */
   const prelude = home.slice(0, firstAwait), after = home.slice(firstAwait);
   ok_('schoolDay is in the core — the attendance card cannot draw without it',
     prelude.indexOf("api('schoolDay'") >= 0);
-  ['teacherClassAttendance', 'myHolidayOTNext', 'holidayAttendList', 'staffMissingCheckout', 'myClassCover', 'injuryAlerts']
-    .forEach(a => ok_(`${a} waits for the second batch`, prelude.indexOf(`api('${a}'`) < 0 && after.indexOf(`api('${a}'`) >= 0));
-  // …and they are still ONE request between them: six ticks would be six trips, which is the mistake
-  // this whole section was written about
-  ok_('...and they share one tick with each other', !/const p_tca = api\([\s\S]*?\bawait\b[\s\S]*?const p_injAlert= api\(/.test(after));
+  ['teacherClassAttendance', 'myHolidayOTNext', 'holidayAttendList', 'staffMissingCheckout',
+   'myClassCover', 'injuryAlerts', 'absenceWatchCount']
+    .forEach(a => ok_(`🔴 ${a} starts before the await — same request`,
+      prelude.indexOf(`api('${a}'`) >= 0 && after.indexOf(`api('${a}'`) < 0));
+  // …and they really are one tick: a single stray await among them restores the second trip while
+  // every ordering check above still passes
+  ok_('🔴 ...with nothing awaiting in between', !/const p_tca = api\([\s\S]*?\bawait\b[\s\S]*?const p_absWatch\s*=/.test(prelude));
   ok_('...and none of them is re-fired afterwards',
     !/\n\s{4}api\('(myHolidayOTNext|holidayAttendList|staffMissingCheckout)'/.test(home));
   /* The leader sections CANNOT join that batch — whether this person is a leader is only known once
@@ -83,6 +90,19 @@ console.log('\n3) admin home: the holiday card rides along');
   ok_('holidayAttendList is started before the await',
     home.indexOf("api('holidayAttendList'") < home.indexOf('await Promise.all('));
   ok_('...and rendered from the promise, not re-fetched', /p_holDay\.then\(h=>\{/.test(home));
+  /* 🔴 ...AND SO DOES THE ANNOUNCEMENTS LIST. It was the LAST line of this screen — awaited after
+   * the batch had already resolved — so the ผอ.'s dashboard paid a second 2.7-to-30-second round
+   * trip for a list nobody is waiting for. Reported 2026-10-07: "เช้านี้ ผอ. เข้าระบบแล้วค้าง". */
+  ok_('🔴 announcements starts before the await too',
+    home.indexOf("api('announcements')") < home.indexOf('await Promise.all('));
+  /* Comments stripped first: the note explaining this change QUOTES the line it removed, and a
+   * check that searched the raw text found its own explanation and called it a regression. */
+  const homeCode = home.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+  ok_('🔴 ...and is awaited from the promise, never re-fetched at the bottom',
+    /const _anns=await p_anns;/.test(homeCode) && !/await api\('announcements'\)/.test(homeCode));
+  // ...and a failed announcements call must leave the rest of the dashboard standing
+  ok_('...with its own fallback, like every other card here',
+    /api\('announcements'\)\.catch\(\(\)=>null\)/.test(home));
 }
 
 console.log('\n4) parent home: ONE request for the whole screen');

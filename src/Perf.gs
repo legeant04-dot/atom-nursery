@@ -437,10 +437,18 @@ function handlePerfSummary(p) {
         slowMoments.length = 20;
       }
     }
-    var a = acts[action] || (acts[action] = { action: action, n: 0, fail: 0, refused: 0, ms: [], codes: {} });
+    var a = acts[action] || (acts[action] = { action: action, n: 0, fail: 0, refused: 0, ms: [], codes: {}, failCodes: {} });
     a.n++; if (!noReach) a.ms.push(ms);
     if (!ok) { a.codes[code || 'ERR'] = (a.codes[code || 'ERR'] || 0) + 1;
-      if (refused) a.refused++; else { a.fail++; failed++; } }
+      /* ...AND THE SAME TALLY WITH THE DELIBERATE REFUSALS TAKEN OUT.
+       *
+       * `codes` counts every not-ok answer, refusals included, which is right for FAILING (it prints
+       * the refused count beside it). Printed next to a bare "fail=7" it reads as eleven faults where
+       * there are seven, and ALREADY_CHECKED_OUT — the system working — would sit in a list of things
+       * to go and fix. The check-out line is where this matters: a third of the school's clock-outs
+       * failing is the most serious figure this report carries, and it has to be the right third. */
+      if (refused) { a.refused++; }
+      else { a.failCodes[code || 'ERR'] = (a.failCodes[code || 'ERR'] || 0) + 1; a.fail++; failed++; } }
     if (dev) { var dv = devs[dev] = devs[dev] || devInit_(dev);
       dv.n++; if (!noReach) dv.ms.push(ms); if (!ok && !refused) dv.fail++;
       /* ...AND WHICH ROLE WAS HOLDING IT. The note below already records that this exact reading went
@@ -516,10 +524,13 @@ function handlePerfSummary(p) {
   ];
   var punches = PUNCH_ACTIONS_.map(function (pair) {
     var a = acts[pair[0]];
-    if (!a) return { action: pair[0], who: pair[1], n: 0, fail: 0, p50: 0, p95: 0, max: 0, codes: {} };
+    if (!a) return { action: pair[0], who: pair[1], n: 0, fail: 0, refused: 0, p50: 0, p95: 0, max: 0, codes: {}, failCodes: {} };
     var st = statify(a);
-    return { action: pair[0], who: pair[1], n: a.n, fail: a.fail,
-             p50: st.p50, p95: st.p95, max: st.max, codes: a.codes };
+    /* failCodes, and the refusal count beside it. The 02–07/10 report said "staffCheckout fail=7
+     * (32%)" and stopped there — the codes were computed and thrown away by the line that printed
+     * this, so the one number worth acting on could not be acted on. */
+    return { action: pair[0], who: pair[1], n: a.n, fail: a.fail, refused: a.refused || 0,
+             p50: st.p50, p95: st.p95, max: st.max, codes: a.codes, failCodes: a.failCodes || {} };
   });
 
   /* CALLS PER VISIT — the number a screen's cost is actually made of, and the one nobody could see.

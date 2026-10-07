@@ -124,6 +124,34 @@ const fresh = { fresh: true };   // every section is live data; the cache is not
     eq('the shape it replaced really was five requests', shape(c).length, 5);
   }
 
+  console.log('\n3c) 🔴 the TEACHER: the whole home screen in one request, not two');
+  {
+    /* THE ARITHMETIC, ON THE REAL api.js, because §5 can only read the order of the lines and the
+     * thing that actually decides this is where the `await` is. The call list below is the screen's,
+     * in the screen's order. */
+    const CORE = ['myAttendanceToday', 'classList', 'staffSelf', 'journalStatus', 'studentAlerts'];
+    const CARDS = ['teacherClassAttendance', 'myHolidayOTNext', 'holidayAttendList',
+                   'staffMissingCheckout', 'myClassCover', 'injuryAlerts', 'absenceWatchCount'];
+    const c = boot();
+    const day = c.api('schoolDay', {}, fresh);
+    const cards = CARDS.map(a => c.api(a, {}, fresh).catch(() => null));
+    await Promise.all(CORE.map(a => c.api(a, {}, fresh)));
+    await Promise.all(cards.concat([day]));
+    eq('🔴 thirteen calls, ONE request', shape(c), [13]);
+  }
+  {
+    // ...and the shape it replaced, on the same harness, so the saving is measured and not claimed.
+    // One `await` between the two groups is the whole difference.
+    const c = boot();
+    const day = c.api('schoolDay', {}, fresh);
+    await Promise.all(['myAttendanceToday', 'classList', 'staffSelf', 'journalStatus', 'studentAlerts']
+      .map(a => c.api(a, {}, fresh)));
+    await Promise.all(['teacherClassAttendance', 'myHolidayOTNext', 'holidayAttendList',
+      'staffMissingCheckout', 'myClassCover', 'injuryAlerts', 'absenceWatchCount']
+      .map(a => c.api(a, {}, fresh)).concat([day]));
+    eq('the split really did cost a second round trip', shape(c).length, 2);
+  }
+
   console.log('\n4) one broken section must not blank the rest of the screen');
   {
     // this is what the sequential version really cost: the FIRST failure aborted everything after it,
@@ -153,36 +181,49 @@ const fresh = { fresh: true };   // every section is live data; the cache is not
     const home = app.slice(app.indexOf('SCREENS.Teacher.home = async () => {'), app.indexOf('window.T_growthReminder ='));
     // v232: myLeaves/myOT/recentAttendance left with the lists they fed (📅 ตาราง and 💵 การเงิน)
     // v243: leaveQuota left the batch with the remaining-days grid it fed
-    /* TWO BATCHES NOW, AND THE ORDER IS THE POINT — reversed in v373 on measured evidence.
+    /* 🔴 ONE BATCH — v373 split it in two and the 2026-10-07 measurement reversed that again.
      *
-     * These six used to start alongside the batch below, which was right while the alternative was
-     * each of them buying its own round trip. But api.js folds one tick into ONE request, and a
-     * request is only as fast as its slowest member: six cards nobody is waiting for were holding
-     * the clock-in button hostage. The 08–11/09 report priced it — every one of them sat at p50
-     * ≈10.5s with p95 ≈28s, all identical, which is one batch being timed six times over.
+     * The split rested on "a request is only as fast as its slowest member", so six cards nobody is
+     * waiting for should not hold the clock-in button hostage. That is true of a request whose cost
+     * is its WORK. This one's is not, and the live deployment was measured rather than argued:
      *
-     * A teacher opens this app at 06:50 to clock in, and 06:00–07:00 is the busiest hour in the
-     * school (x2007 / 50 sessions). That button needs attendance, the staff record and whether
-     * school is open. Nothing else. */
-    ok_('the core batch goes first, on its own',
-      home.indexOf('const [att,cl,me0raw,jstat,al] = await Promise.all(') < home.indexOf("const p_tca = api('teacherClassAttendance'"));
+     *     a request doing NOTHING          median 10.8s   (2.7s … 30.5s)
+     *     a request reading ELEVEN sheets  median  4.8s   (3.8s … 18.4s)
+     *     ...the sheet reads inside it                     median 416ms
+     *
+     * Fourteen paired samples. The request doing eleven reads came back FASTER than the empty one,
+     * because 416ms of work is lost inside a 28-second spread. So batch size buys nothing and the
+     * split cost a whole extra draw from that distribution — a second 3-to-30-second wait on every
+     * home screen a teacher opened, for cards that could have ridden along for 400ms.
+     *
+     * THE RULE THIS PINS: every api() call on this screen is issued before the ONE await that ends
+     * the tick. Adding a fetch after that await is how a screen quietly grows a second round trip,
+     * and it is the single most expensive mistake available on this platform. */
+    const AWAIT_AT = home.indexOf('const [att,cl,me0raw,jstat,al] = await Promise.all(');
+    ok_('the screen still has its one batching await', AWAIT_AT > 0);
     ok_('...and schoolDay is in it, because the attendance card cannot draw without it',
-      home.indexOf("const p_day = api('schoolDay'") < home.indexOf('await Promise.all('));
-    /* The six are still ONE request between them — a later tick, but the same tick as each other.
-     * Six separate ticks would be six round trips, which is the mistake this section was written
-     * about in the first place. */
-    ['p_tca', 'p_holNext', 'p_holDay', 'p_missOut', 'p_cover', 'p_injAlert'].forEach(v =>
-      ok_(v + ' rides in the second batch, not a trip of its own',
+      home.indexOf("const p_day = api('schoolDay'") < AWAIT_AT);
+    ['p_tca', 'p_holNext', 'p_holDay', 'p_missOut', 'p_cover', 'p_injAlert', 'p_absWatch'].forEach(v =>
+      ok_('🔴 ' + v + ' rides in the SAME request, not a second trip',
         // `const p_injAlert= api(` has no space before the '=' — match the declaration itself
         // rather than a guess at how it is spaced
         new RegExp('const ' + v + '\\s*=\\s*api\\(').test(home) &&
-        home.search(new RegExp('const ' + v + '\\s*=')) > home.indexOf('await Promise.all(')));
-    ok_('...with no await between them, so they are still one request',
-      !/const p_tca = api\([\s\S]*?await[\s\S]*?const p_injAlert= api\(/.test(home));
+        home.search(new RegExp('const ' + v + '\\s*=')) < AWAIT_AT));
+    /* 🔴 NOTHING AWAITS IN BETWEEN. One stray `await` among the declarations splits the tick and
+     * silently restores the second request — with every assertion above still passing, because they
+     * only check the ORDER of the lines. */
+    ok_('🔴 ...and nothing awaits between the first call and the batch',
+      !/const p_day = api\('schoolDay'[\s\S]*?\bawait\b[\s\S]*?const p_absWatch\s*=/.test(home));
     ok_('...and none of them is still fired on its own after the batch',
       !/\n\s*api\('holidayAttendList',\{\}\)\.then\(/.test(home)
       && !/\n\s*api\('myHolidayOTNext'[^\n]*\)\.then\(/.test(home)
       && !/\n\s*api\('staffMissingCheckout'[^\n]*\)\.then\(/.test(home));
+    /* ...and the door is still checked before anything is drawn. Moving the await DOWN moved this
+     * gate with it, and a teacher whose first day has not arrived must still get the wait card and
+     * not a half-rendered home screen. */
+    ok_('the not-started gate still comes before the screen is drawn',
+      home.indexOf('att.notStarted') > AWAIT_AT &&
+      home.indexOf('att.notStarted') < home.indexOf('const jdone = journalDoneMap(jstat)'));
     ok_('...and are only AWAITED at render time', /const tca=await p_tca; setHTML\('#tcatt'/.test(home));
     ok_('no sequential fetch is left', !/const (tca|ml|myot)=await api\(/.test(home));
     ok_('each carries its own fallback', (home.match(/\.catch\(\(\)=>(\[\]|null)\)/g) || []).length >= 6);

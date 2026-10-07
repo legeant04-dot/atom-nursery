@@ -106,7 +106,11 @@ console.log('\n4) refused on purpose is not failed');
 }
 {
   ok_('a refusal is counted apart from a failure', /var refused = !ok && PERF_EXPECTED_\[code\] === 1;/.test(perf));
-  ok_('...and kept out of the headline rate', /if \(refused\) a\.refused\+\+; else \{ a\.fail\+\+; failed\+\+; \}/.test(perf));
+  /* ...and kept out of the headline rate. Written against the INTENT rather than the exact line:
+   * the branch grew a failCodes tally in v421 and this check, matching the old spelling character
+   * for character, failed for a change that did not touch what it was guarding. */
+  ok_('...and kept out of the headline rate',
+    /if \(refused\) \{[^}]*a\.refused\+\+[^}]*\}\s*else \{[\s\S]{0,120}?a\.fail\+\+; failed\+\+; \}/.test(perf));
   // the bucket is held in a local now (it gained a role mix and a cache count) — the rule under test
   // is that a REFUSAL does not raise a device's failure figure, not the name of the variable
   ok_('...out of the device breakdown', /if \(!ok && !refused\) dv\.fail\+\+;/.test(perf));
@@ -192,6 +196,24 @@ console.log('\n6) the five punches, which ranking can never surface');
     app.indexOf('CHECK-IN / OUT') > 0 && app.indexOf('CHECK-IN / OUT') < app.indexOf('SLOWEST (by total wait)'));
   ok_('the failure rate is shown as a percentage, not a bare count',
     /Math\.round\(x\.fail\/x\.n\*100\)/.test(app));
+
+  /* 🔴 AND WHY THEY FAILED. The 02–07/10 report said "staffCheckout x22 … fail=7 (32%)" and stopped
+   * there: a third of the school's clock-outs, which is somebody's working time, and nothing to act
+   * on. The codes had been counted all along — the line that printed this threw them away, and
+   * FAILING one section below printed its own. Found 2026-10-07 while trying to answer the question
+   * and discovering the report could not. */
+  ok_('🔴 the server hands the punch codes over', /failCodes: a\.failCodes \|\| \{\}/.test(perf));
+  ok_('🔴 ...and the report prints them', /x\.failCodes\|\|\{\}/.test(app));
+  /* SEPARATED FROM THE REFUSALS, which is the whole reason failCodes exists beside codes. `codes`
+   * counts every not-ok answer, so printing it next to a bare "fail=7" would show eleven faults
+   * where there are seven — with ALREADY_CHECKED_OUT, the guard working exactly as designed, sitting
+   * in a list of things to go and fix. */
+  ok_('🔴 ...the deliberate refusals are NOT mixed into that list',
+    /if \(refused\) \{ a\.refused\+\+; \}/.test(perf) &&
+    /else \{ a\.failCodes\[code \|\| 'ERR'\]/.test(perf));
+  ok_('...but they are still shown, so nothing is hidden', /refused\)>0\?' \(\+'\+x\.refused\+' refused\)'/.test(app));
+  // and the count still has to reach the client to be printable at all
+  ok_('...and the refused count is carried in the payload too', /refused: a\.refused \|\| 0,[\s\S]{0,400}failCodes:/.test(perf));
 }
 
 console.log('\n' + (fail ? 'FAILED ' : 'PASSED ') + pass + ' passed, ' + fail + ' failed\n');
