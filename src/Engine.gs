@@ -2044,10 +2044,17 @@ function createAtomAPI(M, GROWTH_STD) {
       dates.forEach(d=>{ const dup=has(d); if(dup){ skipped.push({date:d,leaveId:dup.LeaveID}); return; }
         const id=nextSeqId_(M.studentLeaves,'LeaveID','LVS',4);
         M.studentLeaves.push({LeaveID:id,StudentID:p.studentId,Date:d,DateTo:to,GroupID:group,
-          Reason:p.reason,Type:p.type||'',Status:'Notified'});
+          Reason:p.reason,Type:p.type||'',Status:'Notified',
+          /* An admin on "ดูมุมมองผู้ปกครอง" files through this same route. The school's call
+           * (2026-10-07) is that those belong to the SCHOOL: FiledBy is what parentEditLeave reads to
+           * refuse a family withdrawing a leave the office entered, so leaving it blank would hand
+           * them a cancel button for somebody else's decision. applyIdentity_ stamps __role from the
+           * SESSION, so a parent cannot claim it. */
+          FiledBy: String(p.__role||'')==='Admin' ? String(p.__meId||'admin') : ''});
         made.push({date:d,leaveId:id}); });
       return {leaveId:made.length?made[0].leaveId:skipped[0].leaveId, leaveIds:made.map(x=>x.leaveId),
         groupId:group, from:dates[0], to, days:made.length, skipped:skipped.map(x=>x.date),
+        filedByOffice:String(p.__role||'')==='Admin',
         teacherNotified:made.length>0, duplicate:made.length===0}; },
     /**
      * A PARENT CORRECTS OR WITHDRAWS THEIR OWN NOTICE.

@@ -131,7 +131,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.419'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.420'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -573,6 +573,43 @@
       const m=ERR_MSG[code];
       head = m ? (EN()?m[1]:m[0]) : raw;      // unlisted code → the server's own sentence
       hint = m ? (EN()?m[3]:m[2]) : '';
+    }
+    /* A SAVE THAT DID NOT HAPPEN IS NOT A TOAST.
+     *
+     * Asked 2026-10-07: "หากมีการ Error ให้แสดงเป็น pop-up ค้างและแจ้ง Error และมีปุ่มปิดหน้าแจ้งเตือน" —
+     * and the Mona case is exactly why. The leave was not written, the toast said so for 3.6 seconds
+     * over a screen that still looked normal, and the conclusion drawn was that the parent record had
+     * gone missing. A message about data that was NOT saved has to outlive the glance that missed it.
+     *
+     * ONLY FOR WRITES, which is the whole of the judgement here. On live the median call takes 7.3
+     * seconds and one in forty fails, and almost all of those are badges and counts loading on a home
+     * screen — a dialog for each of those would put the teacher behind five pop-ups before they ever
+     * reached a button. Those keep the toast. api.js stamps the action and whether it writes.
+     *
+     * The CODE is shown. "ลองใหม่อีกครั้ง" tells the school nothing it can report to us; LOST_REQUEST
+     * and BAD_RESPONSE are different faults with different answers, and the person on the phone to
+     * the office is the one who has to say which.
+     */
+    const writes = !!(e && e.mutating) ||
+      (e && e.action && window.__atomIsMutating ? !!window.__atomIsMutating(e.action) : false);
+    if(writes && typeof modal==='function'){
+      const m=modal(`<h3 style="color:var(--bad)">⚠️ ${esc(EN()?'Not saved':'บันทึกไม่สำเร็จ')}</h3>
+        <div class="card" style="background:var(--bad-bg);border-color:var(--bad-line);margin:0">
+          <b style="white-space:pre-wrap">${esc(head)}</b>
+          ${hint?`<br><small class="muted" style="white-space:pre-wrap">${esc(hint)}</small>`:''}</div>
+        ${/* said plainly, because "ลองใหม่" leaves the person wondering whether they are about to file
+             the same leave twice */''}
+        <p class="muted" style="font-size:13px;margin:10px 2px 0">${EN()
+          ? 'Nothing was saved. You can close this and try again.'
+          : 'ข้อมูลยังไม่ถูกบันทึก — ปิดหน้านี้แล้วลองใหม่ได้เลย'}</p>
+        ${(code||(e&&e.action))?`<p class="muted" style="font-size:11.5px;margin:4px 2px 0">${
+          esc([e&&e.action, code].filter(Boolean).join(' · '))}</p>`:''}
+        <button class="btn block" style="margin-top:12px" onclick="this.closest('.modal').remove()">${
+          esc(EN()?'Close':'ปิดหน้าแจ้งเตือน')}</button>`);
+      // a dialog about a failed write must not be dismissed by the stray tap that is still landing
+      // from the button the person just pressed — the close button is the way out
+      m.onclick=null;
+      return;
     }
     // raw=true: already in the right language, so keep the phrase dictionary away from it
     toast('⚠️ '+head+(hint?'\n'+hint:''), hint?5200:3600, true);
@@ -3026,8 +3063,19 @@
     const from=m.querySelector('#aDate').value, to=m.querySelector('#aDateTo').value;
     btn.disabled=true;
     try{
-      const r=await api('studentAbsence',{studentId:m.querySelector('#aKid').value,date:from,dateTo:to,
-        type:m.querySelector('#aType').value,reason:m.querySelector('#aReason').value});
+      /* 🔴 parentScope() — WHOSE CHILD THIS IS, said out loud.
+       *
+       * Every other call on these screens carries it and this one did not, which for a signed-in
+       * family changed nothing: the server fills the parent in from their session and never reads
+       * what the client sent. An ADMIN's payload is returned UNTOUCHED (that is what makes "ดูมุมมอง
+       * ผู้ปกครอง" work at all), so for them nothing filled it in, and the leave was refused with
+       * ไม่พบข้อมูลผู้ปกครอง — which reads as the family's record having gone missing rather than as
+       * this call forgetting to say who it was for. Reported 2026-10-07 for น้องโมน่า.
+       *
+       * The same shape of bug as staffAttendanceMonth in v419, found the same way: on the screen.
+       */
+      const r=await api('studentAbsence',Object.assign({studentId:m.querySelector('#aKid').value,date:from,dateTo:to,
+        type:m.querySelector('#aType').value,reason:m.querySelector('#aReason').value},parentScope()));
       m.remove();
       // the real number of days filed, not the number asked for — they differ whenever a weekend, a
       // school holiday, or a day already filed sat inside the range

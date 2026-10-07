@@ -190,8 +190,19 @@ function handleStudentAbsence(payload) {
   /* Idempotent, and PER DAY rather than all-or-nothing. A double-submit on a slow network re-files
    * the same days and creates nothing; a family extending 21-22 to 21-24 files 21-24 and gets the
    * two new days rather than a refusal naming a day they already told us about. */
+  /* FILED BY THE OFFICE, NOT BY THE FAMILY.
+   *
+   * An admin on "ดูมุมมองผู้ปกครอง" files through this same route — see the stamp in applyIdentity_.
+   * The school's call (2026-10-07) is that those are the SCHOOL's record: FiledBy is what parentEdit-
+   * Leave reads to refuse a family withdrawing a leave they did not enter, so leaving it blank would
+   * hand the family a cancel button for a decision the office made.
+   *
+   * A real parent's session stamps __role 'Parent' and this stays empty, exactly as before.
+   */
+  var byOffice = String(payload.__role || '') === 'Admin';
   var run = fileLeaveRun_(sheet, student, dates, {
-    Type: payload.type || '', Reason: payload.reason || '', Status: 'Notified', TeacherNotified: 'YES'
+    Type: payload.type || '', Reason: payload.reason || '', Status: 'Notified', TeacherNotified: 'YES',
+    FiledBy: byOffice ? String(payload.__meId || 'admin') : ''
   });
   if (!run.made.length) {
     logAudit(parent.ParentID, 'STUDENT_ABSENCE_DUP', 'LEAVE_REQUEST_STD', run.leaveId);
@@ -201,8 +212,11 @@ function handleStudentAbsence(payload) {
   var desc = (payload.type || '') + ((payload.type && payload.reason) ? ' — ' : '') + (payload.reason || '');
   var notified = notifyStudentTeacher_(student, '🏠 แจ้งลา: ' + student.Name + ' วันที่ ' +
     leaveSpanLabel_(run.made.map(function (x) { return x.date; })) +
-    '\n' + (desc || '-') + '\n(โดยผู้ปกครอง ' + parent.Name + ')');
-  logAudit(parent.ParentID, 'STUDENT_ABSENCE', 'LEAVE_REQUEST_STD',
+    '\n' + (desc || '-') + '\n' + (byOffice ? '(บันทึกโดยทางโรงเรียน)' : '(โดยผู้ปกครอง ' + parent.Name + ')'));
+  // the trail names whoever actually did it — an office entry logged against the family would make
+  // the one record that says "the school decided this" point at the wrong person
+  logAudit(byOffice ? String(payload.__meId || 'admin') : parent.ParentID,
+    byOffice ? 'STUDENT_ABSENCE_BY_OFFICE' : 'STUDENT_ABSENCE', 'LEAVE_REQUEST_STD',
     run.leaveId + ' ' + run.from + (run.from === run.to ? '' : '–' + run.to));
   return { leaveId: run.leaveId, leaveIds: run.made.map(function (x) { return x.leaveId; }),
            studentId: student.StudentID, groupId: run.groupId, from: run.from, to: run.to,
