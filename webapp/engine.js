@@ -1449,6 +1449,22 @@ function createAtomAPI(M, GROWTH_STD) {
     return { set: /^\d{4}-\d{2}-\d{2}$/.test(set)?set:'', derived, effective: attendanceSince_(),
              rows: (M.staffAttendanceHistory||[]).length };
   }
+  /**
+   * DOES THIS PERSON OWE THIS WORKING DAY?
+   *
+   * The school's target is the same for everybody — that is the school's decision — but nobody owes
+   * the days either side of their own employment, or the days they were on ลาชั่วคราว.
+   *
+   * ONE RULE, because it is asked in two places that must agree: the monthly screen's myRequiredDays
+   * and the annual review's target. Asked 2026-10-07: "ข้อมูลการมาทำงานให้นับจากวันเริ่มงานด้วย …
+   * หากมีคุณครูที่มาหลังจากนั้นให้นับวันเริ่มทำงาน". The annual review was measuring everybody against
+   * the SCHOOL's year, so a teacher who joined in June was shown owing January.
+   *
+   * Note what is NOT here: the date the school began clocking in at all. That is already out of
+   * `requiredDates` before this is ever asked (see attendanceSince_), so the two floors compose —
+   * whichever is later wins, which is exactly the two-part answer the school asked for.
+   */
+  const owesDay_ = (s, ds) => staffStarted_(s, ds) && !staffEnded_(s, ds) && !staffPaused_(s, ds);
   const studentEnded_ = (s, onDate) => { const d=ymd((s&&s.EndDate)||'');
     return !!d && ymd(onDate||todayLocal()) > d; };
   /** An end date recorded but not reached yet — the child is still here, and the Admin should see it coming. */
@@ -3174,8 +3190,8 @@ function createAtomAPI(M, GROWTH_STD) {
              * school's figure the screen says so rather than printing a shortfall nobody owes. */
             requiredDays: requiredDates.length,
             requiredToDate,
-            myRequiredDays: requiredDates.filter(ds=>staffStarted_(s,ds) && !staffEnded_(s,ds) && !staffPaused_(s,ds)).length,
-            myRequiredToDate: requiredDates.filter(ds=>ds<today && staffStarted_(s,ds) && !staffEnded_(s,ds) && !staffPaused_(s,ds)).length,
+            myRequiredDays: requiredDates.filter(ds=>owesDay_(s,ds)).length,
+            myRequiredToDate: requiredDates.filter(ds=>ds<today && owesDay_(s,ds)).length,
             present, lateDays, lateMinutes:lateMin, leaveDays, absent, otHours:Math.round(ot*100)/100,
             // what the "OT n ชม." total is actually made of, so it can be checked rather than trusted
             otDays:otDays.sort((a,b)=>a.date.localeCompare(b.date)),
@@ -3255,8 +3271,20 @@ function createAtomAPI(M, GROWTH_STD) {
        * So the two sides of the comparison are now counted by the SAME rule, from the same walk.
        * Future rows are still in `days` for the calendar; they are simply not in the score. */
       const upto = ds => ds < today;
+      /* 🔴 THIS PERSON'S YEAR, NOT THE SCHOOL'S.
+       *
+       * `att.requiredDates` is the school's calendar, the same list for everybody. Counted straight,
+       * a teacher who joined in June was measured against January — months of "absence" from before
+       * she worked here, which is the same fault as the 125 days v419 fixed for the school as a
+       * whole, one level down. Reported 2026-10-07.
+       *
+       * owesDay_ is the rule the monthly screen's myRequiredDays already used, now shared so the two
+       * cannot drift. The school-wide floor (attendanceSince_) is ALREADY out of requiredDates before
+       * this runs, so the two compose and the later of the two dates wins — which is precisely the
+       * two-part answer asked for: the day the system began, and each person's own first day. */
+      const mine = ds => owesDay_(st, ds);
       let present=0, absent=0, lateDays=0, lateMinutes=0, otHours=0, missingOut=0;
-      (att.requiredDates||[]).forEach(ds => { if(upto(ds)) bump(ds,'required'); });
+      (att.requiredDates||[]).forEach(ds => { if(upto(ds) && mine(ds)) bump(ds,'required'); });
       ((row&&row.days)||[]).forEach(d => {
         if(!upto(d.date)) return;
         if(d.status==='IN'){ bump(d.date,'present'); present++;
@@ -3354,9 +3382,21 @@ function createAtomAPI(M, GROWTH_STD) {
         nickEN: st.NicknameEN||'', position: st.Position||'', level: st.PositionLevel||'',
         dept: st.Department||'', startDate: ymd(st.StartDate||''), endDate: ymd(st.EndDate||''),
         year, from, to, today,
-        // the headline pair: what the school expected, and what actually happened
-        required: (att.requiredDates||[]).filter(ds=>ds<today).length,
-        requiredWhole: (att.requiredDates||[]).length,
+        /* THE HEADLINE PAIR: what was expected OF THIS PERSON, and what actually happened.
+         *
+         * `required` was the school's own calendar, identical for everybody, so a teacher who joined
+         * in June was scored against January and read as months absent. It is now their own — the
+         * same owesDay_ rule the monthly screen uses, and the same one the per-month chart above was
+         * just filtered by, so the bars and the headline cannot disagree.
+         *
+         * The school's figure is still here, named for what it is: the annual screen prints it so an
+         * admin can see that somebody's smaller target is their start date and not a mistake. */
+        required: (att.requiredDates||[]).filter(ds=>ds<today && mine(ds)).length,
+        requiredWhole: (att.requiredDates||[]).filter(ds=>mine(ds)).length,
+        schoolRequired: (att.requiredDates||[]).filter(ds=>ds<today).length,
+        schoolRequiredWhole: (att.requiredDates||[]).length,
+        // kept: the monthly screen's own per-person count, computed from the staff row rather than
+        // re-derived here. The two must match, and test_staff_performance asserts that they do.
         myRequired: row?row.myRequiredToDate:0,
         present, absent, leaveDays, lateDays, lateMinutes, missingOut,
         otHours: Math.round(otHours*100)/100, holidayOTDays: row?row.holidayOTDays:0,

@@ -131,7 +131,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.421'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.422'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -7720,6 +7720,24 @@
    * they are paid, and a month with a half salary in it is exactly a month somebody has to run.
    */
   const payableStaff = list => (list||[]).filter(s=>!s.ended && String(s.Role||'')!=='Observer' && !s.noPayroll);
+  /**
+   * WHO IS IN THE ANNUAL REVIEW — a narrower list than payroll's, and deliberately so.
+   *
+   * Asked 2026-10-07: "เอา Role Admin/Observer และคุณเติ้ล (แม่บ้าน) ออกจากสรุปรายปี เอาเฉพาะคุณครูเท่านั้น".
+   *
+   * payableStaff answers a different question — "who gets a payslip" — and the ผอ. is an Admin who is
+   * paid, so it keeps them. This screen is about TEACHING performance: attendance against a class,
+   * lateness, leave, and the pay decision that follows from them. The director reviewing themselves
+   * on their own dashboard is not that, and an auditor account is not a person.
+   *
+   * Role==='Teacher' covers คุณครู, หัวหน้าครู and ผู้ช่วย alike — those differ by PositionLevel, not
+   * by role (ROLES in src/Auth.gs has only Admin/Teacher/Parent/Observer). So this is the whole
+   * teaching staff and nobody else, without naming three levels that could grow a fourth.
+   *
+   * noPayroll still applies on top: คุณเติ้ล is a private housekeeper who works here and is not paid
+   * by the school, and the school has already ticked that box for her. One flag, used by both lists.
+   */
+  const reviewStaff = list => (list||[]).filter(s=>!s.ended && String(s.Role||'')==='Teacher' && !s.noPayroll);
   SCREENS.Admin.payroll = async () => { const [staff,rate]=await Promise.all([api('listStaff'),api('ratedChildCount',{month:monthStr()})]); PAY_ADJ=[]; window._RATED=rate;
     A_CACHE.staff=staff||[];   // the base salary is read from HERE — MOCK.staff is empty in gas mode
     window._PAYATT=null;       // the attendance month is cached per month — a fresh screen starts empty
@@ -8479,8 +8497,11 @@
   let YREV={ year:'', rows:[], payable:[], loading:false };
   window.A_yearReview = async (year) => {
     YREV.year = String(year || YREV.year || todayStr().slice(0,4));
-    const staff = payableStaff(await api('listStaff').catch(()=>[]));
-    YREV.payable = staff; YREV.rows = staff.map(s=>({ staffId:s.StaffID, nick:nmn(s), position:s.Position||'', d:null }));
+    // reviewStaff, not payableStaff — teachers only. See reviewStaff for why the two differ.
+    const staff = reviewStaff(await api('listStaff').catch(()=>[]));
+    YREV.payable = staff; YREV.rows = staff.map(s=>({ staffId:s.StaffID, nick:nmn(s), position:s.Position||'',
+      // their own first day, so a smaller target can say WHY on the row rather than look like a bug
+      start:ymd(s.StartDate||''), d:null }));
     A_yrevRender();
     for(const r of YREV.rows){
       try{ r.d = await api('staffPerformance',{targetId:r.staffId, staffId:USER.staffId, year:YREV.year}); }
@@ -8499,10 +8520,20 @@
       if(r.err) return `<div class="list-item"><span><b>${esc(r.nick)}</b></span><small style="color:var(--warn)">${EN()?'could not read':'อ่านข้อมูลไม่สำเร็จ'}</small></div>`;
       if(!d) return `<div class="list-item"><span><b>${esc(r.nick)}</b></span><small class="muted">⏳</small></div>`;
       const p = pct(d.present, d.required);
+      /* WHY THIS PERSON'S TARGET IS SMALLER THAN EVERYBODY ELSE'S — said on the row.
+       *
+       * The target is now each teacher's own (owesDay_ in the engine), so somebody who joined in June
+       * is scored against June. Without a word of explanation that is a number nobody can check: two
+       * teachers side by side with 112 and 180 working days and nothing saying which fact that is.
+       * Only shown when it actually differs from the school's figure. */
+      const lateStart = d.schoolRequired > d.required;
       return `<div class="list-item" style="display:block;cursor:pointer" onclick="A_staffPerf('${esc(r.staffId)}','${esc(YREV.year)}')">
         <div class="spread"><span><b>${esc(r.nick)}</b> <small class="muted">${_notr(d.position||'')}</small></span>
           <span><b style="color:var(--${p>=95?'ok':(p>=85?'blue':'warn')})">${p}%</b> <span class="muted">›</span></span></div>
         <small class="muted">${EN()?'here':'มา'} ${d.present}/${d.required} · ${EN()?'absent':'ขาด'} ${d.absent} · ${EN()?'leave':'ลา'} ${d.leaveDays} · ${EN()?'late':'สาย'} ${d.lateDays} · OT ${d.otHours} ${EN()?'hr':'ชม.'}</small>
+        ${lateStart?`<small style="display:block;color:var(--blue)">🗓️ ${EN()
+          ? `counted from ${fullDate(d.startDate)}, their first day — the school's year is ${d.schoolRequired} days`
+          : `นับตั้งแต่ ${esc(fullDate(d.startDate))} ซึ่งเป็นวันเริ่มงาน — ทั้งโรงเรียนคือ ${d.schoolRequired} วัน`}</small>`:''}
         <small class="muted" style="display:block">${EN()?'paid this year':'จ่ายไปแล้วปีนี้'} <b>${money((d.income||{}).net||0)}</b>${
           (d.fund||{}).accum?` · ${EN()?'fund':'กองทุน'} ${money(d.fund.accum)}`:''}</small></div>`; };
     const html=`<h3>📊 ${EN()?'Annual review':'สรุปรายปี'} <span class="pill info">${esc(YREV.year)}</span></h3>
@@ -9537,6 +9568,43 @@
   // ---- app-wide search (admin) -------------------------------------------------------------------
   // The Manage screen's box only searches Manage. This one is in the header, so a name can be found
   // from any screen, and each hit opens the record it belongs to instead of just scrolling to a row.
+  /* 🔴 A FAMILY FOUND BY THE CHILD'S NAME, AND A CHILD BY THE FAMILY'S.
+   *
+   * Asked 2026-10-07: "พิมพ์ชื่อนักเรียนเช่น โมน่า Filter ต้องจับข้อมูลคุณพ่อ คุณแม่ของน้องโมน่าแสดงด้วย".
+   * Typing a child's nickname found the child and stopped there, so an admin who needed to ring the
+   * family then had to already know the mother's name — which is the thing they opened the search to
+   * find out. The school thinks in families; the search thought in rows.
+   *
+   * BOTH DIRECTIONS, because both get asked: "who are โมน่า's parents" when a child is ill, and
+   * "whose child is this" when an unknown number rings the office.
+   *
+   * Built from _PKIDS (parentKidsMap), which the manage screen and the header search BOTH already
+   * fetch in a batch they were making anyway — so this costs no round trip, which after the v421
+   * measurement is the only cost worth counting. It also matters that it comes from there and not
+   * from STUDENTS.ParentID: a child can be linked to a family three ways (USER_LINKS, the student
+   * row, and the legacy PARENTS.StudentID) and parentKidsMap is the one place that knows all three.
+   * Reading the student row alone would miss exactly the second parent who is hardest to find.
+   *
+   * ONE helper for the TWO search boxes. They are written quite differently — จัดการ filters already
+   * rendered rows by a data-k attribute, the header search builds its own list — and two copies of
+   * "what counts as a match" is how one of them quietly stops finding families.
+   */
+  function famSearchIndex(){
+    const pk = window._PKIDS || {};
+    const nm = o => [o&&o.NameTH, o&&o.NameEN, o&&o.Nickname, o&&o.NicknameEN].filter(Boolean).join(' ');
+    const kidsOf = {}, parentsOf = {};
+    Object.keys(pk).forEach(pid=>{
+      const kids = pk[pid] || [];
+      kidsOf[pid] = kids.map(nm).join(' ').toLowerCase();
+      const pa = (A_CACHE.parents||[]).find(x=>String(x.ParentID)===String(pid));
+      // the parent's PHONE too: the office is as likely to be holding a number as a name
+      const pw = pa ? (nm(pa) + ' ' + (pa.Phone||'') + ' ' + phoneFmt(pa.Phone||'')).toLowerCase() : '';
+      if(!pw) return;
+      kids.forEach(k=>{ parentsOf[k.StudentID] = ((parentsOf[k.StudentID]||'') + ' ' + pw).trim(); });
+    });
+    return { kidsOf, parentsOf };
+  }
+
   window.A_globalSearch = async ()=>{
     const m=modal(`<h3>🔎 ${EN()?'Search':'ค้นหา'}</h3>
       <input id="gsq" type="search" autocomplete="off" oninput="A_gsRun(this.value)"
@@ -9559,14 +9627,16 @@
     const box=document.getElementById('gsres'); if(!box) return;
     if(q.length<1){ box.innerHTML=''; return; }
     const hit=(...parts)=>parts.filter(Boolean).join(' ').toLowerCase().indexOf(q)>=0;
+    const fam=famSearchIndex();   // see famSearchIndex: the family, both ways round
     const rows=[];
     (A_CACHE.students||[]).forEach(s=>{ if(rows.length>40) return;
-      if(hit(s.NameTH,s.NameEN,s.Nickname,s.NicknameEN,s.Class,s.NationalID))
+      if(hit(s.NameTH,s.NameEN,s.Nickname,s.NicknameEN,s.Class,s.NationalID,fam.parentsOf[s.StudentID]))
         rows.push({ic:'👶',t:EN()?'Student':'นักเรียน',head:dispNick(s),sub:[nmSub(s),s.Class].filter(Boolean).join(' · '),
                    go:`A_studentForm('${esc(s.StudentID)}')`}); });
     (A_CACHE.parents||[]).forEach(p=>{ if(rows.length>40) return;
       // phones are stored as numbers, so the leading 0 is gone — match both "811…" and "0811…"
-      if(hit(p.NameTH,p.NameEN,p.Nickname,p.NicknameEN,p.Phone,phoneFmt(p.Phone),p.NationalID))
+      // ...and the names of their CHILDREN, which is how the office actually asks for a family
+      if(hit(p.NameTH,p.NameEN,p.Nickname,p.NicknameEN,p.Phone,phoneFmt(p.Phone),p.NationalID,fam.kidsOf[p.ParentID]))
         rows.push({ic:'👪',t:EN()?'Parent':'ผู้ปกครอง',head:parentDisp(p),sub:[titledName(p),phoneFmt(p.Phone)].filter(Boolean).join(' · '),
                    go:`A_parentForm('${esc(p.ParentID)}')`}); });
     (A_CACHE.staff||[]).forEach(s=>{ if(rows.length>40) return;
@@ -9640,6 +9710,13 @@
     window._LINKCOUNTS=linkCounts||{};
     window._PKIDS=kidsMap||{};   // lets parentDisp() name every parent by their child, links included
     A_CACHE.staff=staff; A_CACHE.students=students; A_CACHE.parents=parents; A_CACHE.classes=classes||[]; A_CACHE.plans=plans||[]; A_CACHE.groups=groups||[]; A_CACHE.depts=depts||[];
+    /* ...and lets the search box find a FAMILY by the child's name, and a child by the family's.
+     * Built once per render rather than per row — see famSearchIndex.
+     *
+     * AFTER A_CACHE.parents is filled, not before: famSearchIndex reads it to get the parents' own
+     * names, and one line earlier it still held the PREVIOUS render's roster — or nothing at all on
+     * the first load, which is every load that matters. */
+    const _fam=famSearchIndex();
     // Someone who has left keeps their record — payroll and attendance history still point at it —
     // but they do not belong in the working list. They get their own collapsed section below.
     /* WHO IS STILL ON THE STAFF. Asked 2026-09-01: "ย้ายพนักงานที่สิ้นสุดการทำงานไปไว้ในนั้นแทน และ
@@ -9725,13 +9802,13 @@
       <div class="card secw" id="sec-parents">${secHead('👪',t('manage.parents'),parents.length,`<button class="btn sm" onclick="event.stopPropagation();A_parentForm()">+ ${esc(t('manage.add'))}</button>`)}
         <div class="secbody" hidden>
         ${parents.map(p=>{ const lc=(window._LINKCOUNTS||{})[p.ParentID]||0; const lcBadge=`<span class="pill ${lc?'ok':'bad'}" style="font-size:11px" title="${EN()?'linked children':'จำนวนบุตรที่ผูก'}">👶 ${lc}</span>`;
-          return `<div class="list-item stack" data-k="${esc((p.NameTH+' '+(p.NameEN||'')+' '+(p.Nickname||'')+' '+(p.NicknameEN||'')+' '+(p.Phone||'')+' '+String(p.Relationship||'').replace(/<[^>]*>/g,'')).toLowerCase())}"><span style="display:flex;gap:8px;align-items:center">${personAvatar(p)}<span><b>${esc(parentDisp(p))}</b> ${lcBadge} <small class="muted">${[p.NameTH||p.NameEN?esc(titledName(p)):'',relLabel(p.Relationship),p.Phone?phoneLink(p.Phone):(EN()?'no phone':'ไม่มีเบอร์โทร')].filter(Boolean).join(' · ')}</small></span></span><span class="acts"><button class="btn sm outline" onclick="A_parentLinks('${p.ParentID}')">🔗 ${EN()?'Children':'บุตรที่ผูก'}</button><button class="btn sm outline" onclick="A_parentForm('${p.ParentID}')">✏️ ${EN()?'Edit':'แก้ไข'}</button><button class="btn sm pink" onclick="A_delParent('${p.ParentID}',this)">🗑️ ${EN()?'Delete':'ลบ'}</button></span></div>`; }).join('')}</div></div>
+          return `<div class="list-item stack" data-k="${esc((p.NameTH+' '+(p.NameEN||'')+' '+(p.Nickname||'')+' '+(p.NicknameEN||'')+' '+(p.Phone||'')+' '+String(p.Relationship||'').replace(/<[^>]*>/g,'')+' '+(_fam.kidsOf[p.ParentID]||'')).toLowerCase())}"><span style="display:flex;gap:8px;align-items:center">${personAvatar(p)}<span><b>${esc(parentDisp(p))}</b> ${lcBadge} <small class="muted">${[p.NameTH||p.NameEN?esc(titledName(p)):'',relLabel(p.Relationship),p.Phone?phoneLink(p.Phone):(EN()?'no phone':'ไม่มีเบอร์โทร')].filter(Boolean).join(' · ')}</small></span></span><span class="acts"><button class="btn sm outline" onclick="A_parentLinks('${p.ParentID}')">🔗 ${EN()?'Children':'บุตรที่ผูก'}</button><button class="btn sm outline" onclick="A_parentForm('${p.ParentID}')">✏️ ${EN()?'Edit':'แก้ไข'}</button><button class="btn sm pink" onclick="A_delParent('${p.ParentID}',this)">🗑️ ${EN()?'Delete':'ลบ'}</button></span></div>`; }).join('')}</div></div>
       ${/* ➕ เพิ่มนักเรียน sits FIRST, where 👪 ผู้ปกครอง has had its "+ เพิ่ม" all along. Until
            2026-09-12 a child could only reach the school through a parent's LINE sign-up, so a
            family who walked in with a paper form could not be entered at all. */''}
       <div class="card secw" id="sec-students">${secHead('👶',EN()?'Students':'นักเรียน',students.length,`<span class="row"><button class="btn sm" onclick="event.stopPropagation();A_addStudent()">+ ${EN()?'Add student':'เพิ่มนักเรียน'}</button><button class="btn sm outline" onclick="event.stopPropagation();A_issueCombined()">🧾 ${EN()?'Issue (select)':'ออกบิล (เลือก)'}</button><button class="btn sm outline" onclick="event.stopPropagation();A_genBills()">📅 ${esc(t('bill.genTitle'))}</button></span>`)}
         <div class="secbody" hidden>
-        ${students.map(s=>`<div class="list-item stack" data-k="${esc((s.NameTH+' '+(s.NameEN||'')+' '+(s.Nickname||'')+' '+(s.NicknameEN||'')+' '+(s.Class||'')+' '+(s.NationalID||'')).toLowerCase())}"><span>${studentAvatar(s)} <b>${esc(dispNick(s))}</b> ${pauseSoon(s)?`<span class="pill info" style="font-size:11px">📅 ${EN()?'leave booked':'จะลาชั่วคราว'}</span>`:isPaused(s)?`<span class="pill wait" style="font-size:11px">⏸️ ${EN()?'on leave':'ลาชั่วคราว'}</span>`:''}${endSoon(s)?`<span class="pill warn" style="font-size:11px">🎓 ${EN()?'finishes':'สิ้นสุด'} ${esc(ddmmyyyy(s.EndDate))}</span>`:''} <small class="muted">${nmSub(s)?esc(nmSub(s))+" · ":""}${esc(s.Class)} · ${esc(ageYM(s.DOB))}${s.InsuranceHas?' · 🛡️':''}</small><br><small class="muted">${s.DOB?`🎂 ${esc(dobDate(s.DOB))} · `:''}${EN()?'ID':'บัตร'}: ${esc(s.NationalID||'-')}</small>${isPaused(s)?`<br><small style="color:var(--warn)">⏸️ ${esc(pauseSpan(s))}</small>`:''}${
+        ${students.map(s=>`<div class="list-item stack" data-k="${esc((s.NameTH+' '+(s.NameEN||'')+' '+(s.Nickname||'')+' '+(s.NicknameEN||'')+' '+(s.Class||'')+' '+(s.NationalID||'')+' '+(_fam.parentsOf[s.StudentID]||'')).toLowerCase())}"><span>${studentAvatar(s)} <b>${esc(dispNick(s))}</b> ${pauseSoon(s)?`<span class="pill info" style="font-size:11px">📅 ${EN()?'leave booked':'จะลาชั่วคราว'}</span>`:isPaused(s)?`<span class="pill wait" style="font-size:11px">⏸️ ${EN()?'on leave':'ลาชั่วคราว'}</span>`:''}${endSoon(s)?`<span class="pill warn" style="font-size:11px">🎓 ${EN()?'finishes':'สิ้นสุด'} ${esc(ddmmyyyy(s.EndDate))}</span>`:''} <small class="muted">${nmSub(s)?esc(nmSub(s))+" · ":""}${esc(s.Class)} · ${esc(ageYM(s.DOB))}${s.InsuranceHas?' · 🛡️':''}</small><br><small class="muted">${s.DOB?`🎂 ${esc(dobDate(s.DOB))} · `:''}${EN()?'ID':'บัตร'}: ${esc(s.NationalID||'-')}</small>${isPaused(s)?`<br><small style="color:var(--warn)">⏸️ ${esc(pauseSpan(s))}</small>`:''}${
           /* ...and the same second line for a child who is FINISHING. ลาชั่วคราว had one and this did
              not, so on a roster of thirty the row that needs a decision this month was quieter than
              the row that needs none. Asked 2026-09-30: "ทำให้มีแถบหลังเหมือนกับลาชั่วคราว". */

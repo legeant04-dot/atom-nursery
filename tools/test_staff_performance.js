@@ -308,5 +308,118 @@ console.log('7) 🔴 the school did not always have a clock');
     (crow.days || []).find(x => x.date === SEP).status, 'IN');
 }
 
+// ============================================================================
+console.log('\n8) 🔴 a teacher who joined in June is not scored against January');
+{
+  /* Asked 2026-10-07: "ข้อมูลการมาทำงานให้นับจากวันเริ่มงานด้วย แยกเป็น 2 ส่วนคือวันที่ระบบใช้ Check-in
+   * จริง และหากมีคุณครูที่มาหลังจากนั้นให้นับวันเริ่มทำงาน".
+   *
+   * v419 fixed the SCHOOL's floor — nobody owes the days before the school began clocking in. This is
+   * the same fault one level down: everybody was then measured against the school's whole year, so a
+   * teacher hired halfway through it carried months of absence from before she worked here. The two
+   * floors have to COMPOSE, later one winning, which is what the school asked for in two parts. */
+  const JUL = Y + '-07-01';
+  const c = school({
+    staff: [
+      { StaffID: 'ADM', NameTH: 'แอดมิน', Role: 'Admin', PositionLevel: 'Admin', Status: 'ACTIVE', StartDate: '2020-01-01' },
+      { StaffID: 'OLD', NameTH: 'ครูเก่า', Role: 'Teacher', StaffGroup: 'G1', Status: 'ACTIVE', StartDate: '2024-01-01' },
+      { StaffID: 'NEW', NameTH: 'ครูใหม่', Role: 'Teacher', StaffGroup: 'G1', Status: 'ACTIVE', StartDate: JUL }
+    ],
+    // the school has been clocking in since the start of the year, so the ONLY floor that can move
+    // ครูใหม่'s target is her own first day
+    config: { Timezone: 'Asia/Bangkok', ContributionMatchRate: 1, AttendanceSince: Y + '-01-01' }
+  });
+  const oldT = c.H.staffPerformance({ staffId: 'ADM', targetId: 'OLD', year: Y });
+  const newT = c.H.staffPerformance({ staffId: 'ADM', targetId: 'NEW', year: Y });
+
+  eq('the teacher who was here all year carries the school’s whole target',
+    oldT.required, oldT.schoolRequired);
+  ok_('🔴 ...and the one who joined in July carries less', newT.required < newT.schoolRequired);
+  /* 🔴 ...and NOTHING BEFORE HER FIRST DAY is counted as absence. Her absences after July are real
+   * (this fixture has her never clocking in), so the assertion has to be about WHICH months carry
+   * them — a bare `absent === 0` would have passed on a fixture that proved nothing. */
+  eq('🔴 no month before her first day carries any absence at all',
+    (newT.months || []).filter(m => m.month < JUL.slice(0, 7) && (m.absent || m.required)).map(m => m.month), []);
+  ok_('...while the teacher who was here all year does carry them', oldT.absent > newT.absent);
+  /* THE NUMBER ITSELF, counted by hand from the same calendar rather than taken from the code:
+   * her target is exactly the school's required days that fall on or after her first day. */
+  const expected = (c.H.staffAttendanceMonth({ staffId: 'ADM', from: Y + '-01-01', to: Y + '-12-31' })
+    .requiredDates || []).filter(ds => ds >= JUL && ds < DS(TODAY)).length;
+  eq('🔴 ...her target is exactly the working days from her first day onward', newT.required, expected);
+  // the screen prints the school's figure beside it so a smaller target reads as a date, not a bug
+  ok_('the school’s own figure is still reported, for the row to explain itself with',
+    newT.schoolRequired > 0 && newT.schoolRequiredWhole >= newT.schoolRequired);
+  ok_('...and the screen actually says so', /counted from|นับตั้งแต่/.test(app) && /schoolRequired > d\.required/.test(appCode));
+
+  /* 🔴 THE CHART AND THE HEADLINE ARE THE SAME NUMBER. The per-month bars are filtered separately
+   * from the headline; two filters is how a screen ends up with 112 at the top and 180 in the bars,
+   * and the reviewer believes whichever they read first. */
+  eq('🔴 the months add up to the headline',
+    (newT.months || []).reduce((a, m) => a + m.required, 0), newT.required);
+  eq('...and for the teacher who was here all year too',
+    (oldT.months || []).reduce((a, m) => a + m.required, 0), oldT.required);
+  // ...and the monthly screen's own per-person count is the same rule, so the two screens agree
+  eq('🔴 the monthly screen’s figure for her matches this one', newT.myRequired, newT.required);
+
+  /* 🔴 CONTROL — AND THE SCORE CANNOT GO ABOVE 100%.
+   *
+   * The danger in moving a floor is always the same one §1 was written about: cut `required` and
+   * leave `present` counting the whole year, and somebody shows 197 of 195. Here the risk is a
+   * check-in that exists BEFORE the person's recorded start date — a back-filled StartDate, or
+   * somebody who came in early to help.
+   *
+   * THE TWO FLOORS ARE DELIBERATELY ASYMMETRIC, and this pins the difference so neither drifts:
+   *
+   *   · the SCHOOL's floor (attendanceSince_) is tested LAST in the status chain, so a real clock-in
+   *     before it still reads IN — "a record is a record whatever the cut-off says";
+   *   · a PERSON's own start date is tested FIRST, so the day is not part of their record at all.
+   *
+   * The second is what keeps present ≤ required: a day nobody owes cannot be a day somebody
+   * over-attended. The check-in row is untouched in the sheet either way. */
+  const c2 = school({
+    staff: [{ StaffID: 'ADM', NameTH: 'แอดมิน', Role: 'Admin', PositionLevel: 'Admin', Status: 'ACTIVE', StartDate: '2020-01-01' },
+            { StaffID: 'NEW', NameTH: 'ครูใหม่', Role: 'Teacher', StaffGroup: 'G1', Status: 'ACTIVE', StartDate: JUL }],
+    staffAttendanceHistory: [{ StaffID: 'NEW', Date: Y + '-06-02', In: '07:00', Out: '17:00', Late: 0 }],
+    config: { Timezone: 'Asia/Bangkok', ContributionMatchRate: 1, AttendanceSince: Y + '-01-01' }
+  });
+  const att2 = c2.H.staffAttendanceMonth({ staffId: 'ADM', from: Y + '-06-01', to: Y + '-06-30' });
+  const row2 = (att2.staff || []).find(x => x.staffId === 'NEW') || {};
+  eq('a day before her own first day is outside her record, not an absence',
+    ((row2.days || []).find(x => x.date === Y + '-06-02') || {}).status, 'BEFORE');
+  const perf2 = c2.H.staffPerformance({ staffId: 'ADM', targetId: 'NEW', year: Y });
+  ok_('🔴 CONTROL · ...so present can never exceed the target', perf2.present <= perf2.required);
+  // ...and the school's own floor still keeps a real clock-in before IT, which is the other half
+  const c3 = school({
+    staff: [{ StaffID: 'ADM', NameTH: 'แอดมิน', Role: 'Admin', PositionLevel: 'Admin', Status: 'ACTIVE', StartDate: '2020-01-01' },
+            { StaffID: 'OLD', NameTH: 'ครูเก่า', Role: 'Teacher', StaffGroup: 'G1', Status: 'ACTIVE', StartDate: '2024-01-01' }],
+    staffAttendanceHistory: [{ StaffID: 'OLD', Date: Y + '-06-02', In: '07:00', Out: '17:00', Late: 0 }],
+    config: { Timezone: 'Asia/Bangkok', ContributionMatchRate: 1, AttendanceSince: Y + '-07-01' }
+  });
+  const row3 = ((c3.H.staffAttendanceMonth({ staffId: 'ADM', from: Y + '-06-01', to: Y + '-06-30' }).staff) || [])
+    .find(x => x.staffId === 'OLD') || {};
+  eq('CONTROL · a clock-in before the SCHOOL’s cut-off is still read as present',
+    ((row3.days || []).find(x => x.date === Y + '-06-02') || {}).status, 'IN');
+}
+
+// ============================================================================
+console.log('\n9) 🔴 the annual review is the teaching staff, and nobody else');
+{
+  /* Asked 2026-10-07: "เอา Role Admin/Observer และคุณเติ้ล (แม่บ้าน) ออกจากสรุปรายปี เอาเฉพาะคุณครู
+   * เท่านั้น". A DIFFERENT list from payroll's, which deliberately keeps the ผอ. because they are an
+   * Admin who is paid — see the note on payableStaff. Two questions, two filters. */
+  ok_('the review has a filter of its own', /const reviewStaff = list =>/.test(appCode));
+  ok_('🔴 ...and it is teachers only', /String\(s\.Role\|\|''\)==='Teacher'/.test(appCode));
+  ok_('🔴 ...the housekeeper’s flag still applies on top', /reviewStaff = list =>[^;]*!s\.noPayroll/.test(appCode));
+  ok_('...and somebody who has left is still out', /reviewStaff = list =>[^;]*!s\.ended/.test(appCode));
+  ok_('🔴 the annual screen uses it', /reviewStaff\(await api\('listStaff'\)/.test(appCode));
+  /* CONTROL — PAYROLL MUST NOT HAVE CHANGED. The ผอ. is paid through this app; a filter applied to
+   * both lists would have taken the director's own payslip off the screen, which the school settled
+   * on 2026-09-29 and is a worse fault than a spare row on a review. */
+  ok_('CONTROL · payroll still uses its own, wider list',
+    /const payable=payableStaff\(staff\)/.test(appCode));
+  ok_('CONTROL · ...and payableStaff still does NOT filter by Role==="Teacher"',
+    !/payableStaff = list =>[^;]*Role\|\|''\)==='Teacher'/.test(appCode));
+}
+
 console.log('\n' + (fail ? 'FAILED ' : 'PASSED ') + pass + ' passed, ' + fail + ' failed');
 process.exit(fail ? 1 : 0);
