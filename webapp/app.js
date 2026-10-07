@@ -131,7 +131,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.425'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.426'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -3744,7 +3744,13 @@
       if(type==='OUT'){ ({lat,lng,acc}=await getPosition()); }
       // drop-off: whatever the phone already knows, and never more than 3s of waiting for it
       else { try{ ({lat,lng,acc}=await getPosition(GEO_QUICK)); }catch(e){ lat=null; lng=null; acc=0; } }
-      const r=await api('parentCheckin',{parentId:USER.parentId,uid:USER.uid,studentId,type,lat,lng,acc});
+      /* The same bounded retry the staff punch uses, and for the same reason: this is the slowest
+       * action in the whole app (p50 19.5s) and it is the one a parent is standing at the gate doing.
+       * Safe for the same kind of reason too — handleParentCheckin updates the existing row for a
+       * repeat of the same student+type inside CheckinDedupMinutes, does not re-notify, and returns
+       * BEFORE the OT block, so a retried pick-up cannot charge a second late fee. That guard was
+       * checked line by line when parentCheckin joined the lost-reply retry list in v391. */
+      const r=await punchWithRetry('parentCheckin',{parentId:USER.parentId,uid:USER.uid,studentId,type,lat,lng,acc});
       const distTxt=(r.distance!=null)?` (${EN()?'distance':'ระยะ'} ${r.distance} ${EN()?'m':'ม.'})`:'';
       toast(`✅ ${type==='IN'?(EN()?'Drop off':'ส่งเข้าเรียน'):(EN()?'Pick up':'รับกลับ')} ${r.time}${distTxt} — ${EN()?'teacher notified':'แจ้งครูแล้ว'}`);
       // keep the button faded + un-clickable for the rest of the day (prevents double-submit; one per day)
@@ -4916,9 +4922,39 @@
       <button class="btn outline block" style="margin-top:8px" onclick="this.closest('.modal').remove()">${esc(t('c.close'))}</button>`);
   };
   window.T_payOT=(otId,amt)=>{ const x=document.querySelector('.modal'); if(x)x.remove(); P_slip(otId,amt,'teacherOt'); };
+  /* 🔴 A PUNCH THAT HIT A BUSY SERVER IS RETRIED, NOT LOST.
+   *
+   * 2026-10-07, 18:06 — four teachers could not clock out, within two minutes of each other. Everyone
+   * leaves at the same time, every write takes the server's script lock, and a lock it cannot get
+   * inside 25 seconds comes back BUSY. BUSY is a RECEIVED reply, so none of the existing retry paths
+   * touched it: those only cover a reply that was lost in transit.
+   *
+   * WHAT MAKES RETRYING SAFE IS THE SERVER'S OWN GUARD, not hope. handleStaffCheckout refuses a
+   * second punch for the same person on the same day with ALREADY_CHECKED_OUT, and this screen has
+   * read that as the success it is since v245 — so the worst a repeat can do is be told the work is
+   * already done, and show the real time. Nothing can write two rows.
+   *
+   * BOUNDED AND SHORT. Two retries, ~1.5s apart: enough for a lock held by one other teacher's
+   * check-out to free up, and not so long that somebody standing at the door gives up and taps again.
+   * Anything that is NOT a busy signal is handed straight to the normal error path.
+   */
+  const PUNCH_RETRY = /^(BUSY|TIMEOUT|LOST_REQUEST|BAD_RESPONSE)$/;
+  async function punchWithRetry(action, body){
+    let last;
+    for(let attempt=0; attempt<3; attempt++){
+      try{ return await api(action, body); }
+      catch(e){ last=e;
+        const code=String((e&&e.code)||'');
+        // ALREADY_* is success, and OUT_OF_RANGE / NOT_CHECKED_IN are decisions — never repeat those
+        if(!PUNCH_RETRY.test(code) || attempt===2) throw e;
+        await new Promise(r=>setTimeout(r, 1500));
+      }
+    }
+    throw last;
+  }
   window.T_punch=async(kind,btn)=>{ if(btn){ btn.disabled=true; btn.style.opacity='.45'; btn.style.cursor='not-allowed'; }  // prevent double-tap immediately
     try{ const {lat,lng,acc}=await getPosition();
-      const r=await api(kind==='in'?'staffCheckin':'staffCheckout',{staffId:USER.staffId,lat,lng,acc}); toast(kind==='in'?`✅ ${t('lbl.checkIn')} ${r.time}${r.lateMinutes>0?` (${t('lbl.late')} ${r.lateMinutes} ${t('lbl.min')})`:' ('+t('lbl.onTime')+')'}`:`✅ ${t('lbl.checkOut')} ${r.time}${r.otHours>0?` · OT ${hmHours(r.otHours)}${r.otPay?' ≈ '+baht(r.otPay):''}`:''}`); GO('home'); }
+      const r=await punchWithRetry(kind==='in'?'staffCheckin':'staffCheckout',{staffId:USER.staffId,lat,lng,acc}); toast(kind==='in'?`✅ ${t('lbl.checkIn')} ${r.time}${r.lateMinutes>0?` (${t('lbl.late')} ${r.lateMinutes} ${t('lbl.min')})`:' ('+t('lbl.onTime')+')'}`:`✅ ${t('lbl.checkOut')} ${r.time}${r.otHours>0?` · OT ${hmHours(r.otHours)}${r.otPay?' ≈ '+baht(r.otPay):''}`:''}`); GO('home'); }
     catch(e){
       /* "You already clocked in/out today" is not a failure — it is the work having been DONE, and
        * the app not knowing it yet. It happens when the reply to the first tap was lost in transit
@@ -8605,11 +8641,26 @@
       // their own first day, so a smaller target can say WHY on the row rather than look like a bug
       start:ymd(s.StartDate||''), d:null }));
     A_yrevRender();
-    for(const r of YREV.rows){
-      try{ r.d = await api('staffPerformance',{targetId:r.staffId, staffId:USER.staffId, year:YREV.year}); }
-      catch(e){ r.err = true; }
-      A_yrevRender(true);
-    }
+    /* 🔴 ONE REQUEST FOR THE WHOLE SCREEN — this was a `for` loop with an `await` in it.
+     *
+     * Nine teachers meant nine sequential round trips. The server work is nothing (8ms each); the
+     * round trips are 3 to 30 seconds EACH, so this screen cost half a minute at the median and over
+     * four minutes at p95 — and because Apps Script runs one execution at a time for the whole web
+     * app, those nine slots were nine slots no TEACHER could have. On 2026-10-07 at 18:06, four of
+     * them could not clock out. This screen is the most likely reason.
+     *
+     * A loop that awaits inside it is the same mistake as a stray `await` between batched calls
+     * (v421), in its most expensive form: not one extra request, but one per row.
+     */
+    try{
+      const all = await api('staffPerformanceAll',
+        { targetIds: YREV.rows.map(r=>r.staffId), staffId:USER.staffId, year:YREV.year });
+      const by={}; (all||[]).forEach(d=>{ if(d&&d.staffId) by[String(d.staffId)]=d; });
+      YREV.rows.forEach(r=>{ const d=by[String(r.staffId)];
+        // an error row carries `error` instead of the figures — one person failing must not blank the rest
+        if(d && !d.error) r.d=d; else r.err=true; });
+    }catch(e){ YREV.rows.forEach(r=>{ r.err=true; }); err(e); }
+    A_yrevRender(true);
   };
   window.A_yrevYear = (y) => { YREV.year=y; A_yearReview(y); };
   function A_yrevRender(keep){
@@ -13709,7 +13760,27 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
   window.A_sotToggleAll=(cb)=>{ document.querySelectorAll('.sotchk:not([disabled])').forEach(c=>{c.checked=cb.checked;}); A_sotSel(); };
   window.A_sotBatch=async(decision)=>{ const ids=[...document.querySelectorAll('.sotchk:checked')].map(c=>c.value); if(!ids.length){toast(EN()?'Select at least one':'เลือกอย่างน้อย 1 รายการ');return;}
     if(!confirm((decision==='approve'?(EN()?'Approve ':'อนุมัติ '):(EN()?'Reject ':'ไม่อนุมัติ '))+ids.length+(EN()?' item(s)?':' รายการ?')))return;
-    try{ for(const id of ids){ await api('confirmOT',{staffId:USER.staffId,otId:id,decision,hours:sotH(id),amount:sotA(id)}); } toast(EN()?'Done':'ดำเนินการแล้ว'); A_sotRefresh(); }catch(e){err(e);} };
+    /* 🔴 ONE REQUEST FOR THE WHOLE BATCH — this awaited inside the loop, so approving ten OT records
+     * was ten sequential round trips at 3 to 30 seconds each. The ผอ. does this at the END OF THE DAY,
+     * which is exactly when every teacher is clocking out, and Apps Script gives the whole web app
+     * one execution at a time: ten slots nobody else can have. Same fault as สรุปรายปี, found in the
+     * same sweep on 2026-10-07 after four teachers could not clock out at 18:06.
+     *
+     * Batched writes also take the server's write lock ONCE for the lot instead of once each.
+     *
+     * Each result is kept separately so one refusal reports itself instead of hiding the nine that
+     * worked — `allSettled`, not `all`. */
+    try{
+      const res = await Promise.all(ids.map(id =>
+        api('confirmOT',{staffId:USER.staffId,otId:id,decision,hours:sotH(id),amount:sotA(id)})
+          .then(()=>null, e=>e)));
+      const bad = res.filter(Boolean);
+      if(!bad.length) toast(EN()?'Done':'ดำเนินการแล้ว');
+      else if(bad.length===ids.length) throw bad[0];
+      else toast((EN()?`Done ${ids.length-bad.length} of ${ids.length} — `:`สำเร็จ ${ids.length-bad.length} จาก ${ids.length} รายการ · `)
+        +((bad[0]&&bad[0].message)||''), 5200, true);
+      A_sotRefresh();
+    }catch(e){err(e);} };
   window.A_restoreStaffOT=async(otId)=>{ try{ await api('confirmOT',{staffId:USER.staffId,otId,decision:'approve',hours:sotH(otId),amount:sotA(otId)}); toast(EN()?'Restored':'คืนค่าแล้ว'); A_sotRefresh(); }catch(e){err(e);} };
   window.A_confirmOT=async(otId)=>{ try{ await api('confirmOT',{staffId:USER.staffId,otId,decision:'approve',hours:sotH(otId),amount:sotA(otId)}); toast(EN()?'Confirmed':'ยืนยันแล้ว'); A_sotRefresh(); }catch(e){err(e);} };
   window.A_rejectOT=async(otId)=>{ if(!confirm(EN()?'Reject this OT?':'ปฏิเสธ OT นี้?'))return; try{ await api('confirmOT',{staffId:USER.staffId,otId,decision:'reject'}); toast(EN()?'Rejected':'ปฏิเสธแล้ว'); A_sotRefresh(); }catch(e){err(e);} };

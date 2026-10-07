@@ -9,6 +9,13 @@
  */
 const fs = require('fs'), path = require('path'), vm = require('vm');
 
+/* LOCAL dates, never toISOString(). The engine works in the school's own timezone; this
+   file used UTC, so between midnight and 07:00 Bangkok its "today" was YESTERDAY and the
+   assertions below failed for no reason at all. Found 2026-10-08 at 00:28, running the suite
+   past midnight for the first time. Same trap as the payslip month and the leave expansion. */
+const _p2 = n => String(n).padStart(2, "0");
+const _dLocal = d => d.getFullYear() + "-" + _p2(d.getMonth() + 1) + "-" + _p2(d.getDate());
+
 let pass = 0, fail = 0;
 function eq(label, got, want) {
   const ok = JSON.stringify(got) === JSON.stringify(want);
@@ -38,7 +45,7 @@ function runStaffEnd(payload, rows) {
     updateRow_: (s, row, patch) => s.update(row, patch),
     staffCacheBust_: () => {}, logAuditHr: (...a) => audit.push(a),
     // the handler now compares the leaving date with TODAY, so the harness has to supply one
-    dateStr_: d => new Date(d).toISOString().slice(0, 10),
+    dateStr_: d => _dLocal(new Date(d)),
     apiError_: (c, m) => Object.assign(new Error(m), { code: c }), console, Date
   };
   vm.createContext(ctx);
@@ -122,8 +129,8 @@ console.log('\n2) A staff member leaves — and the record stays');
   // v221: EndDate is a LAST WORKING DAY, recorded in advance. Someone leaving at the end of the
   // month must stay on the roster until then — they are still turning up, still clocking in, still
   // being paid — so the record is written today and the status flips ON the date.
-  const FUTURE = new Date(Date.now() + 20 * 864e5).toISOString().slice(0, 10);
-  const PAST = new Date(Date.now() - 1 * 864e5).toISOString().slice(0, 10);
+  const FUTURE = _dLocal(new Date(Date.now() + 20 * 864e5));
+  const PAST = _dLocal(new Date(Date.now() - 1 * 864e5));
   const r = runStaffEnd({ staffId: 'STF-1', endDate: FUTURE, reason: 'ลาออก', remark: 'ย้ายกลับต่างจังหวัด', adminId: 'A1' });
   ok_('no error', !r.thrown);
   eq('a FUTURE leaving date does not remove them yet', r.row.Status, 'ACTIVE');
@@ -140,7 +147,7 @@ console.log('\n2) A staff member leaves — and the record stays');
     /function handleSetStaffEnd[\s\S]{0,1400}updateRow_/.test(staffGs) && !/function handleSetStaffEnd[\s\S]{0,1400}deleteRow/.test(staffGs));
 }
 {
-  const FUTURE2 = new Date(Date.now() + 20 * 864e5).toISOString().slice(0, 10);
+  const FUTURE2 = _dLocal(new Date(Date.now() + 20 * 864e5));
   ['ไม่ผ่านการทดลองงาน', 'ลาออก', 'ให้ออก'].forEach(x =>
     ok_('reason accepted: ' + x, !runStaffEnd({ staffId: 'STF-1', endDate: FUTURE2, reason: x }).thrown));
   ok_('a reason outside the three is refused', !!runStaffEnd({ staffId: 'STF-1', endDate: FUTURE2, reason: 'อื่นๆ' }).thrown);

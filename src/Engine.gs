@@ -3235,6 +3235,39 @@ function createAtomAPI(M, GROWTH_STD) {
      * could never be looked at by an admin and an admin could never look at themselves. Same shape
      * as orgMoveTeacher. A non-admin may only ever ask about themselves, checked here.
      */
+    /**
+     * 🔴 EVERY TEACHER'S YEAR, IN ONE REQUEST.
+     *
+     * URGENT, 2026-10-07 evening. The annual-review screen fetched staffPerformance ONCE PER TEACHER,
+     * in a `for` loop with an `await` in it — nine sequential round trips. The server work is nothing
+     * (measured: 8ms each) but on this backend a round trip is 3 to 30 seconds, so opening สรุปรายปี
+     * cost 30 seconds at the median and over four minutes at p95.
+     *
+     * AND IT DID NOT ONLY COST THE PERSON WHO OPENED IT. The web app runs as its owner, so Apps
+     * Script gives the WHOLE SCHOOL one execution at a time. Nine queued executions is nine slots
+     * nobody else can have — and at 18:06 on 2026-10-07 four teachers could not clock out. The ops
+     * screen in their report had this very screen listed on it.
+     *
+     * So: one call, one answer, same arithmetic — this delegates to staffPerformance itself rather
+     * than reimplementing it, because those are somebody's pay figures and a second copy of that
+     * sum is a second thing to get wrong.
+     *
+     * WHO is decided by the CLIENT (reviewStaff), not duplicated here — otherwise "who is in the
+     * review" would be two rules that can disagree. Capped, because a list is an input.
+     * One person failing returns an error row rather than taking the other eight down with it.
+     */
+    staffPerformanceAll: p => {
+      p = p || {};
+      const me = staffById(p.staffId) || {};
+      if(!adminLike_(me)) fail('NO_PERMISSION','เฉพาะแอดมิน');
+      const year = String(p.year || todayLocal().slice(0,4));
+      const ids = (Array.isArray(p.targetIds) ? p.targetIds : []).map(String).filter(Boolean).slice(0, 60);
+      if(!ids.length) fail('BAD_INPUT','ต้องระบุรายชื่อพนักงาน');
+      return ids.map(id => {
+        try { return H.staffPerformance({ staffId: p.staffId, targetId: id, year }); }
+        catch(e){ return { staffId: id, error: String((e && e.message) || e) }; }
+      });
+    },
     staffPerformance: p => {
       p = p || {};
       const me = staffById(p.staffId) || {};

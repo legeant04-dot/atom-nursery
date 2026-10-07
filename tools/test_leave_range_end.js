@@ -24,6 +24,13 @@ const path = require('path'), fs = require('fs');
 const H_ = require(path.join(__dirname, 'gas_test_harness.js'));
 const { createAtomAPI } = require(path.join(__dirname, '..', 'webapp', 'engine.js'));
 
+/* LOCAL dates, never toISOString(). The engine works in the school's own timezone; this
+   file used UTC, so between midnight and 07:00 Bangkok its "today" was YESTERDAY and the
+   assertions below failed for no reason at all. Found 2026-10-08 at 00:28, running the suite
+   past midnight for the first time. Same trap as the payslip month and the leave expansion. */
+const _p2 = n => String(n).padStart(2, "0");
+const _dLocal = d => d.getFullYear() + "-" + _p2(d.getMonth() + 1) + "-" + _p2(d.getDate());
+
 let pass = 0, fail = 0;
 function eq(label, got, want) {
   const ok = JSON.stringify(got) === JSON.stringify(want);
@@ -133,8 +140,8 @@ console.log('\n3) filing it twice, and filing MORE of it');
 console.log('\n4) cancelling a trip cancels the trip — and keeps the days already taught');
 // ============================================================================================
 {
-  const TODAY = (() => { const d = new Date(); return d.toISOString().slice(0, 10); })();
-  const shift = n => { const d = new Date(); d.setDate(d.getDate() + n); return d.toISOString().slice(0, 10); };
+  const TODAY = _dLocal(new Date());
+  const shift = n => { const d = new Date(); d.setDate(d.getDate() + n); return _dLocal(d); };
   const M = { students: [{ StudentID: 'S1', NameTH: 'เอ', Status: 'ACTIVE' }],
               studentLeaves: [], holidays: [], staff: [], parents: [], activityLog: [], config: {} };
   const H = createAtomAPI(M).H;
@@ -162,7 +169,7 @@ console.log('\n4) cancelling a trip cancels the trip — and keeps the days alre
 console.log('\n5) the last day — recorded in advance, acting on its own');
 // ============================================================================================
 {
-  const shift = n => { const d = new Date(); d.setDate(d.getDate() + n); return d.toISOString().slice(0, 10); };
+  const shift = n => { const d = new Date(); d.setDate(d.getDate() + n); return _dLocal(d); };
   const M = {
     students: [
       { StudentID: 'S1', NameTH: 'เอ', Nickname: 'เอ', Class: 'Nursery 1', Status: 'ACTIVE', EnrollDate: '2026-01-05' },
