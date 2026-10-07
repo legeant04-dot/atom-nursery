@@ -1090,4 +1090,28 @@ window.CONFIG = { MODE: 'gas', GAS_URL: 'https://script.google.com/macros/s/AKfy
       catch (e) { rej(e); }
     }, 110)));
   };
+
+  /* THE NAME OF WHAT FAILED, CARRIED ON THE ERROR ITSELF.
+   *
+   * Asked 2026-10-07: "หากมีการ Error ให้แสดงเป็น pop-up ค้าง". A pop-up that must be dismissed is
+   * right for a SAVE that did not happen and wrong for a badge that did not load — and on live, with
+   * a p95 of 32 seconds, the second kind is most of them. So err() has to tell the two apart, and the
+   * only thing that answers it is the action's name.
+   *
+   * Nothing below here built the error (eleven places do, across three transports), so there was
+   * nowhere for err() to read it from and every failure looked alike. Stamped at the ONE door every
+   * call goes through instead of at each of those eleven.
+   *
+   * Never overwritten: a call that already arrived carrying a name keeps it, so a wrapper deeper in
+   * cannot relabel somebody else's failure as its own.
+   */
+  const _apiNamed = window.api;
+  window.api = function (action, payload, opts) {
+    return _apiNamed(action, payload, opts).catch(e => {
+      if (e && typeof e === 'object' && !e.action) {
+        try { e.action = action; e.mutating = isMutating(action); } catch (_) {}
+      }
+      throw e;
+    });
+  };
 })();

@@ -487,6 +487,19 @@ function applyIdentity_(action, payload, sess) {
    * across untouched and handleSignOutEverywhere decides. Everything the client sent about WHO is
    * left in place on purpose: a non-Admin naming a target is refused there, not ignored here. */
   if (action === 'signOutEverywhere') { payload.__me = sess.uid; payload.__role = sess.role; return payload; }
+  /* WHO ACTUALLY FILED THE LEAVE — stamped for EVERY role, Admin included.
+   *
+   * studentAbsence is the family's own route and is normally exactly that. But an admin using
+   * "ดูมุมมองผู้ปกครอง" reaches it too, and an Admin payload is returned untouched below — so the
+   * handler could see a parentId and had no way to tell whether the family sent it or the office did.
+   * The school's answer (2026-10-07) is that the office must be recorded as the filer: a leave the
+   * school entered is the school's record to correct, and parentEditLeave already refuses to let a
+   * family withdraw one. Without this stamp that distinction cannot be made at all.
+   *
+   * Stamped and not trusted from the client: __role is the SESSION's role, so a parent cannot post
+   * __role:'Admin' and file a leave the family can then never cancel.
+   */
+  if (action === 'studentAbsence') { payload.__role = sess.role; payload.__meId = sess.linkedId; }
   if (action === 'googleLink') {
     /* The UID, not a role-derived id. handleGoogleLink finds the row the way handleAuth does, so the
      * link always lands on the record a LINE sign-in resolves to — including an Admin-provisioned
