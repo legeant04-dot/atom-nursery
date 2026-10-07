@@ -209,7 +209,8 @@ console.log('\n3) THE MONEY — counted, not guessed');
   ok_('the screen separates them from the staff half', /ส่งถึงผู้ปกครอง — ไม่เกี่ยวกับรายชื่อผู้รับ/.test(app));
   /* THE SWITCH. ON by default, because it is the school's promise to families and has always worked
    * this way — turning it off is theirs to decide, not a default to change underneath them. */
-  ok_('there is a switch for it', /id="setParentLine"/.test(app) && /gv\.ParentLineNotify=ck\('#setParentLine'\)/.test(app));
+  // the five checkboxes are saved from one table since v424 — same keys, same ids
+  ok_('there is a switch for it', /id="setParentLine"/.test(app) && /\['ParentLineNotify','#setParentLine'\]/.test(app));
   ok_('...declared, or saving it would do nothing', /ParentLineNotify: 1/.test(staffGs));
   ok_('...and seeded ON, unlike the other two', /\['ParentLineNotify',\s*'true'\]/.test(cfgGs));
   ok_('...gating all three routine channels and nothing else',

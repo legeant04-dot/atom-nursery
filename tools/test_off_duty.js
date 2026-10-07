@@ -188,7 +188,8 @@ console.log('\n2) THE LINE SWITCH — the quota the school thought was protected
   ok_('...still not the one who starts tomorrow', res.pushedOn.indexOf('Usoon') < 0);
   ok_('the switch is declared, or saving it would change nothing', /StaffLineNotify: 1/.test(staffGs));
   ok_('...and seeded off', /\['StaffLineNotify',\s*'false'\]/.test(R('src/Config.gs')));
-  ok_('the settings screen offers it', /id="setStaffLine"/.test(app) && /gv\.StaffLineNotify=ck\('#setStaffLine'\)/.test(app));
+  // the five checkboxes are saved from one table since v424 — same keys, same ids
+  ok_('the settings screen offers it', /id="setStaffLine"/.test(app) && /\['StaffLineNotify','#setStaffLine'\]/.test(app));
   ok_('...saying plainly that the bell still works', /คุณครูยังได้รับครบทุกเรื่องที่กระดิ่ง/.test(app));
 }
 

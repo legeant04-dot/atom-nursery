@@ -75,7 +75,11 @@ console.log('\n3) the school can turn it off, or widen it');
   ok_('and 50 is the shipped default', /\['GpsAccuracySlack',\s*'50'\]/.test(cfgSrc));
   ok_('the admin can save it', /GpsAccuracySlack: 1/.test(staffSrc));
   ok_('...from the settings screen', /id="cfgSlack"/.test(app));
-  ok_('0 is savable — the test is for NaN, not falsiness', /if\(!isNaN\(slack\)&&slack>=0\) gv\.GpsAccuracySlack=slack/.test(app));
+  // v424 split the settings dialog in five and every field became optional, so the guard is now
+  // "was this box drawn at all" (undefined) rather than NaN. The rule it protects is unchanged: a
+  // tolerance of 0 is a real choice — strict — and must survive a save.
+  ok_('0 is savable — the test is for "not on this form", not falsiness',
+    /v!==undefined && v>=0\) gv\.GpsAccuracySlack=v/.test(app));
 }
 
 console.log('\n4) bad input is still bad input');
