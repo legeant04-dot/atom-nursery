@@ -140,7 +140,18 @@ console.log('\n2) THE 115 — a new one is a behaviour silently replaced');
     'staffCheckin', 'staffCheckout', 'staffStudentCheckin', 'studentAbsence', 'studentAssessment',
     'submitAssessment', 'submitClassChange', 'submitInjury', 'submitInsurance', 'submitJournal',
     'submitLeave', 'submitTimeRequest', 'teacherPayOT', 'teacherStudentLeave', 'unlinkStudent',
-    'unlockJournal', 'uploadSlip', 'verifySlip'
+    'unlockJournal', 'uploadSlip', 'verifySlip',
+    /* v427 BULK SEND / RECALL OF DAILY REPORTS. Real duplication and it has to be: the live pair
+     * writes three cells on one row at a time (DAILY_JOURNAL is in NO_SHRINK_SHEETS, and the engine
+     * persists whole collections), flushes the per-day cache key, and pushes LINE to the families.
+     * None of that can live in the engine.
+     *
+     * The rule they share, and the reason both copies state it: NEITHER MAY WRITE CONTENT. They find
+     * the row already on the sheet and move its status. submitJournal — the single-child route right
+     * above them on this list — REPLACES the whole row from its payload, so a bulk call built that
+     * way would have blanked every draft it touched. §7 of this file pins the two copies against
+     * each other: the same refusals, in the same order, for the same reasons. */
+    'recallJournalsMany', 'submitJournalsMany'
   ];
   const actual = ROUTES.filter(r => HANDLERS.indexOf(r) >= 0).sort();
   eq('NEWLY shadowed (a route now replaces an engine handler — check it reproduces the engine)',

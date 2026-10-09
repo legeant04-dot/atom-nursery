@@ -247,10 +247,27 @@ console.log('\n5) the cache, which is the reason any of this is fast');
     /cachePut_\('jrn:' \+ d, \[\]\)/.test(gasEngine));
   /* AND EVERY WRITE DROPS IT. This is the one place a stale cache would actually be seen: a teacher
    * saves a journal and the screen behind her still shows the day without it. */
-  const busts = (journalGs.match(/cacheDel_\('jrn:' \+ String\(date\)\.slice\(0, 10\)\)/g) || []).length;
-  eq('every journal write drops that day’s key', busts, 4);
-  eq('...which is every place the collection key is dropped, none missed',
-     (journalGs.match(/cacheDel_\('col:DAILY_JOURNAL'\)/g) || []).length, busts);
+  /* BY HANDLER, not by counting lines. This was `=== 4`, so adding a fifth writer broke it whether
+   * or not that writer busted the cache — and the number told nobody WHICH one was missing. It now
+   * names every function in Journal.gs that writes to the sheet and checks each one drops the key,
+   * directly or through journalCacheBust_. A sixth writer added next month is covered. */
+  const BUST = /cacheDel_\('jrn:' \+ String\(date\)\.slice\(0, 10\)\)|journalCacheBust_\(/;
+  const fnBodies = {};
+  journalGs.split(/\nfunction /).slice(1).forEach(seg => { fnBodies['function ' + seg.split('(')[0]] = seg; });
+  const writers = Object.keys(fnBodies).filter(k =>
+    /updateRow_\(sheet|appendObject_\(sheet/.test(fnBodies[k]));
+  ok_('the sweep found the journal writers at all', writers.length >= 4);
+  eq('🔴 every journal writer drops that day’s key',
+    writers.filter(k => !BUST.test(fnBodies[k])), []);
+  // ...and the helper they share really does drop all three keys
+  ok_('...and the shared helper drops the collection keys too',
+    /function journalCacheBust_[\s\S]{0,300}col:DAILY_JOURNAL[\s\S]{0,120}rows:DAILY_JOURNAL/.test(journalGs));
+  /* The per-day key and the collection key are dropped TOGETHER, everywhere. One without the other
+   * is the half-stale state that is hardest to reason about: the day looks right and the month does
+   * not, or the other way round. */
+  eq('...and the two keys are never dropped apart',
+     (journalGs.match(/cacheDel_\('col:DAILY_JOURNAL'\)/g) || []).length,
+     (journalGs.match(/cacheDel_\('jrn:' \+ String\(date\)\.slice\(0, 10\)\)/g) || []).length);
 }
 
 // ============================================================================================

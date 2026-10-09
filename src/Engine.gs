@@ -3529,6 +3529,85 @@ function createAtomAPI(M, GROWTH_STD) {
       const out={updated:i>=0,submitted:submit,status:rec.Status,submittedAt:rec.SubmittedAt,updatedAt:now};
       if(i>=0) M.journals[i]=rec; else M.journals.push(rec);
       return out; },
+    /**
+     * 🔴 SEND SEVERAL DAILY REPORTS AT ONCE — WITHOUT REWRITING ONE OF THEM.
+     *
+     * Asked 2026-10-08: "เพิ่ม Check Box ให้คุณครูติ๊กเพื่อส่งบันทึกทีละหลายคนได้ … เพื่อลดการ Request
+     * ในการส่งข้อมูลเด็กทีละคน หากเจอ Error หรือโหลดนาน จะทำให้ขั้นตอนนี้ใช้เวลานานมาก". A teacher with
+     * twelve children was buying twelve round trips at the end of the day, on a backend where each
+     * one costs 3 to 30 seconds and is a turn nobody else in the school can have (see v426).
+     *
+     * 🔴 WHY THIS IS NOT submitJournal IN A LOOP. submitJournal REPLACES the whole row from its
+     * payload — every field, every meal, the photos. A bulk call carrying only "please send these"
+     * would therefore have blanked every draft it touched. This one never looks at the payload for
+     * content: it finds the row that is already there and flips its status in place. The only thing
+     * it can change about a report is whether the family can see it.
+     *
+     * WHAT IT REFUSES, per child, without taking the others down:
+     *   · no entry for that day at all   — there is nothing to send;
+     *   · already sent                   — saying so beats sending it twice;
+     *   · no Mood                        — the one field submitJournal has always required.
+     * The screen disables the box for the first case, but the rule lives here, because a screen is
+     * not a gate.
+     */
+    submitJournalsMany: p => {
+      p = p || {};
+      const me = staffById(p.staffId) || {};
+      const date = ymd(p.date || todayLocal());
+      const ids = (Array.isArray(p.studentIds) ? p.studentIds : []).map(String).filter(Boolean).slice(0, 60);
+      if(!ids.length) fail('BAD_INPUT','ยังไม่ได้เลือกนักเรียน');
+      /* Scoped to the classes this person actually covers. The single-child route has never checked
+       * this, and widening it now is not the job — but a BULK action has a bigger blast radius than
+       * a tap, and this is exactly the set the screen offers anyway. */
+      const mine = {}; (coveredClasses_(me)||[]).forEach(c=>{ mine[String(c.ClassName)]=1; });
+      const anyClass = adminLike_(me) || headTeacher_(me);
+      const out = { date, sent: [], skipped: [] };
+      ids.forEach(sid => {
+        const st = studentById(sid);
+        if(!st){ out.skipped.push({studentId:sid, reason:'NOT_FOUND'}); return; }
+        if(!anyClass && !mine[String(st.Class||'')]){ out.skipped.push({studentId:sid, reason:'NOT_MY_CLASS'}); return; }
+        const i = (M.journals||[]).findIndex(x=>String(x.StudentID)===sid && ymd(x.Date)===date);
+        if(i<0){ out.skipped.push({studentId:sid, reason:'NO_JOURNAL'}); return; }
+        if(jStatus_(M.journals[i])==='SUBMITTED'){ out.skipped.push({studentId:sid, reason:'ALREADY_SENT'}); return; }
+        if(!String(M.journals[i].Mood||'').trim()){ out.skipped.push({studentId:sid, reason:'MISSING_MOOD'}); return; }
+        const now = stampLocal();
+        M.journals[i].Status='SUBMITTED'; M.journals[i].SubmittedAt=now; M.journals[i].UpdatedAt=now;
+        out.sent.push({studentId:sid, submittedAt:now});
+      });
+      return out; },
+    /**
+     * 🔴 THE HEAD TEACHER TAKES A REPORT BACK FROM THE FAMILY.
+     *
+     * Asked in the same breath: "ในกรณีของหัวหน้าครูหากรายงานมีการส่งไปแล้ว สามารถใช้ฟังก์ชันนี้ส่งกลับ
+     * ให้แก้ไข จะเป็นการดึงบันทึกของนักเรียนคนนั้นกลับมาจากผู้ปกครอง และส่งแจ้งเตือนคุณครูที่บันทึก".
+     *
+     * A SEPARATE ROUTE AND A SEPARATE BUTTON, on the school's decision (2026-10-08). Sending a
+     * report to a family and taking one back from them are opposite acts, and one control that did
+     * whichever the row happened to need is a control whose effect you cannot see before you press
+     * it. This one UNPUBLISHES: the family loses sight of a report they may already have read.
+     *
+     * The author is returned so the caller can tell them — a report that quietly reappears as a
+     * draft, with nobody told, is work that never gets done. The content is untouched, as with
+     * unlockJournal: only the status moves.
+     */
+    recallJournalsMany: p => {
+      p = p || {};
+      const me = staffById(p.staffId) || {};
+      if(!headTeacher_(me) && !adminLike_(me)) fail('NO_PERMISSION','เฉพาะหัวหน้าครูและแอดมิน');
+      const date = ymd(p.date || todayLocal());
+      const ids = (Array.isArray(p.studentIds) ? p.studentIds : []).map(String).filter(Boolean).slice(0, 60);
+      if(!ids.length) fail('BAD_INPUT','ยังไม่ได้เลือกนักเรียน');
+      const out = { date, recalled: [], skipped: [] };
+      ids.forEach(sid => {
+        const i = (M.journals||[]).findIndex(x=>String(x.StudentID)===sid && ymd(x.Date)===date);
+        if(i<0){ out.skipped.push({studentId:sid, reason:'NO_JOURNAL'}); return; }
+        if(jStatus_(M.journals[i])!=='SUBMITTED'){ out.skipped.push({studentId:sid, reason:'NOT_SENT'}); return; }
+        M.journals[i].Status='DRAFT'; M.journals[i].SubmittedAt='';
+        const st = studentById(sid) || {};
+        out.recalled.push({ studentId:sid, teacherId:String(M.journals[i].TeacherID||''),
+          nick: st.Nickname || st.NameTH || sid });
+      });
+      return out; },
     // admin-only (ADMIN_ONLY guard on GAS): reopen a submitted entry for correction. It returns to
     // DRAFT, so it also leaves the parent's view until a teacher submits it again.
     unlockJournal: p => { const date=p.date||todayLocal();

@@ -190,6 +190,139 @@ function handleSubmitJournal(payload) {
     status: rec.Status, submittedAt: rec.SubmittedAt, updatedAt: rec.UpdatedAt };
 }
 
+/** Both bulk routes below write IN PLACE, row by row, and then flush the same three cache keys
+ *  handleSubmitJournal does — including the per-day key, or the teacher's own list serves her a
+ *  stale "ยังไม่ส่ง" for up to CacheTTL seconds right after she sent it. */
+function journalCacheBust_(date) {
+  if (typeof cacheDel_ !== 'function') return;
+  cacheDel_('col:DAILY_JOURNAL'); cacheDel_('rows:DAILY_JOURNAL');
+  cacheDel_('jrn:' + String(date).slice(0, 10));
+}
+
+/**
+ * 🔴 SEND SEVERAL DAILY REPORTS AT ONCE — WITHOUT REWRITING ONE OF THEM.
+ *
+ * Asked 2026-10-08. A teacher with twelve children was buying twelve round trips at the end of the
+ * day, each 3 to 30 seconds and each a turn nobody else in the school could have (v426).
+ *
+ * 🔴 THIS IS NOT handleSubmitJournal IN A LOOP, and that is the whole point. That one REPLACES the
+ * row from its payload — every field, every meal, the photos — so a bulk call carrying only "please
+ * send these" would have blanked every draft it touched. This reads the row that is already on the
+ * sheet, checks it, and writes three cells: Status, SubmittedAt, UpdatedAt. It cannot alter what a
+ * report says; only whether the family can see it.
+ *
+ * ONE WRITE LOCK FOR THE WHOLE BATCH instead of one per child, which is the other half of the cost.
+ */
+function handleSubmitJournalsMany(payload) {
+  payload = payload || {};
+  var teacher = resolveStaff_(payload);
+  var date = payload.date || dateStr_(new Date());
+  var ids = (payload.studentIds || []).map(String).filter(function (x) { return !!x; }).slice(0, 60);
+  if (!ids.length) throw apiError_('BAD_INPUT', 'ยังไม่ได้เลือกนักเรียน');
+
+  var sheet = sheet_(getMainSpreadsheet_(), 'DAILY_JOURNAL');
+  try { ensureColumns_(sheet, ['SubmittedAt', 'Status', 'UpdatedAt']); } catch (e) {}
+  var now = dateStr_(new Date()) + ' ' + timeStr_(new Date());
+  var sent = [], skipped = [];
+
+  ids.forEach(function (sid) {
+    var row;
+    try { row = findJournalRow_(sheet, sid, date); } catch (e) { row = null; }
+    if (!row) { skipped.push({ studentId: sid, reason: 'NO_JOURNAL' }); return; }
+    if (journalStatusOf_(row) === 'SUBMITTED') { skipped.push({ studentId: sid, reason: 'ALREADY_SENT' }); return; }
+    // the one field submitJournal has always required — read from the STORED draft, never the payload
+    if (!String(row.Mood == null ? '' : row.Mood).trim()) { skipped.push({ studentId: sid, reason: 'MISSING_MOOD' }); return; }
+    updateRow_(sheet, row._row, { Status: 'SUBMITTED', SubmittedAt: now, UpdatedAt: now });
+    sent.push({ studentId: sid, submittedAt: now });
+  });
+
+  journalCacheBust_(date);
+  try { logAudit(teacher.StaffID, 'JOURNAL_SUBMIT_MANY', 'DAILY_JOURNAL',
+    date + ' · sent ' + sent.length + ' · skipped ' + skipped.length); } catch (e) {}
+
+  /* THE FAMILIES ARE TOLD AFTER EVERY ROW IS WRITTEN, never between two of them. A LINE push is an
+   * external call, and dispatch_ is still holding the school's write lock while this runs — the
+   * fault flagged in docs/WORKLOG.md on 2026-10-08. Doing the writes first means a slow or failing
+   * LINE cannot leave half the class sent and half not. One message per child per day, exactly as
+   * sending them one at a time produced, and behind the same ParentLineNotify switch. */
+  var pSheet = sheet_(getMainSpreadsheet_(), 'PARENTS');
+  var liff = getConfig_('LiffID', '');
+  sent.forEach(function (s) {
+    try {
+      var student = getStudent_(s.studentId);
+      if (!student || !student.ParentID || !parentLineOn_()) return;
+      var parent = findObject_(pSheet, function (p) { return String(p.ParentID) === String(student.ParentID); });
+      if (!parent || !parent.LineUID) return;
+      var link = (liff && String(liff).indexOf('<FILL') !== 0)
+        ? '\nดูรายละเอียด: https://liff.line.me/' + liff + '?view=journal&student=' + student.StudentID + '&date=' + date : '';
+      linePushText_(parent.LineUID, '📒 บันทึกประจำวันของ ' + student.Name + ' พร้อมแล้ว (' + date + ')' + link);
+    } catch (e) {}
+  });
+
+  return { date: date, sent: sent, skipped: skipped };
+}
+
+/**
+ * 🔴 THE HEAD TEACHER TAKES A REPORT BACK FROM THE FAMILY.
+ *
+ * A SEPARATE ROUTE FROM SENDING, on the school's decision (2026-10-08): these are opposite acts, and
+ * one control that did whichever the row happened to need would be a control whose effect you cannot
+ * see before pressing it. This one UNPUBLISHES — the family loses sight of a report they may already
+ * have read — so it is gated to the head teacher and the admin, and it is audited by name.
+ *
+ * THE AUTHOR IS TOLD, on the in-app bell. A report that quietly reappears as a draft with nobody
+ * told is work nobody does. The bell and not LINE, on the school's decision: the quota is 300 a
+ * month and is kept for the things that cannot wait.
+ */
+function handleRecallJournalsMany(payload) {
+  payload = payload || {};
+  var staff = resolveStaff_(payload);
+  // Department '*' is what makes somebody a head teacher — the same test canCover_ uses
+  var isHead = String(staff.Department || '') === '*';
+  var isAdmin = String(staff.Role || '') === 'Admin' || String(staff.PositionLevel || '') === 'Admin';
+  if (!isHead && !isAdmin) throw apiError_('NO_PERMISSION', 'เฉพาะหัวหน้าครูและแอดมิน');
+
+  var date = payload.date || dateStr_(new Date());
+  var ids = (payload.studentIds || []).map(String).filter(function (x) { return !!x; }).slice(0, 60);
+  if (!ids.length) throw apiError_('BAD_INPUT', 'ยังไม่ได้เลือกนักเรียน');
+
+  var sheet = sheet_(getMainSpreadsheet_(), 'DAILY_JOURNAL');
+  try { ensureColumns_(sheet, ['SubmittedAt', 'Status', 'UpdatedAt']); } catch (e) {}
+  var recalled = [], skipped = [], byTeacher = {};
+
+  ids.forEach(function (sid) {
+    var row;
+    try { row = findJournalRow_(sheet, sid, date); } catch (e) { row = null; }
+    if (!row) { skipped.push({ studentId: sid, reason: 'NO_JOURNAL' }); return; }
+    if (journalStatusOf_(row) !== 'SUBMITTED') { skipped.push({ studentId: sid, reason: 'NOT_SENT' }); return; }
+    updateRow_(sheet, row._row, { Status: 'DRAFT', SubmittedAt: '' });
+    var who = String(row.TeacherID || '');
+    var st = null; try { st = getStudent_(sid); } catch (e) {}
+    var nick = (st && (st.Nickname || st.Name)) || sid;
+    recalled.push({ studentId: sid, teacherId: who, nick: nick });
+    if (who) (byTeacher[who] = byTeacher[who] || []).push(nick);
+  });
+
+  journalCacheBust_(date);
+  try { logAudit(staff.StaffID, 'JOURNAL_RECALL_MANY', 'DAILY_JOURNAL',
+    date + ' · ' + recalled.map(function (r) { return r.studentId; }).join(',')); } catch (e) {}
+
+  /* ONE NOTIFICATION PER TEACHER, naming the children — not one per child. A teacher who finds four
+   * separate lines saying "a report came back" has to open four of them to learn it is the same
+   * afternoon's work. ref deep-links the bell straight to that day's journals. */
+  Object.keys(byTeacher).forEach(function (tid) {
+    try {
+      inboxAdd_('journal',
+        '↩️ ' + staff.Name + ' ส่งบันทึกกลับมาให้แก้ไข (' + date + '): ' + byTeacher[tid].join(', ') +
+        ' · กรุณาแก้ไขแล้วส่งใหม่',
+        'journal|' + byTeacher[tid].length + '|' + date, tid);
+    } catch (e) {}
+  });
+
+  return { date: date, recalled: recalled, skipped: skipped,
+           notified: Object.keys(byTeacher).length };
+}
+
 /**
  * Admin-only: reopen a submitted entry so it can be corrected. It goes back to DRAFT, which means
  * it also disappears from the parent's view until it is submitted again. payload: { studentId, date? }
