@@ -28,6 +28,7 @@ create table if not exists tenant (
 -- ── ATTENDANCE_REQUEST  (HR workbook)
 create table if not exists attendance_request (
   id          uuid primary key default gen_random_uuid(),
+  seq         bigserial not null,
   tenant_id   uuid not null references tenant(id) on delete restrict,
   req_id                     text,
   staff_id                   text,
@@ -46,11 +47,13 @@ create table if not exists attendance_request (
 );
 create unique index if not exists attendance_request_code_uq on attendance_request(tenant_id, req_id);
 create index if not exists attendance_request_tenant_ix on attendance_request(tenant_id);
+create index if not exists attendance_request_seq_ix on attendance_request(tenant_id, seq);
 alter table attendance_request enable row level security;
 
 -- ── AUDIT_LOG  (HR workbook)
 create table if not exists audit_log (
   id          uuid primary key default gen_random_uuid(),
+  seq         bigserial not null,
   tenant_id   uuid not null references tenant(id) on delete restrict,
   timestamp                  timestamptz,
   user_id                    text,
@@ -62,11 +65,13 @@ create table if not exists audit_log (
 );
 create unique index if not exists audit_log_code_uq on audit_log(tenant_id, user_id);
 create index if not exists audit_log_tenant_ix on audit_log(tenant_id);
+create index if not exists audit_log_seq_ix on audit_log(tenant_id, seq);
 alter table audit_log enable row level security;
 
 -- ── CHECKIN_STAFF  (HR workbook)
 create table if not exists checkin_staff (
   id          uuid primary key default gen_random_uuid(),
+  seq         bigserial not null,
   tenant_id   uuid not null references tenant(id) on delete restrict,
   date                       date,
   staff_id                   text,
@@ -82,11 +87,13 @@ create table if not exists checkin_staff (
 );
 create unique index if not exists checkin_staff_code_uq on checkin_staff(tenant_id, staff_id);
 create index if not exists checkin_staff_tenant_ix on checkin_staff(tenant_id);
+create index if not exists checkin_staff_seq_ix on checkin_staff(tenant_id, seq);
 alter table checkin_staff enable row level security;
 
 -- ── CLASS_CHANGE_REQ  (HR workbook)
 create table if not exists class_change_req (
   id          uuid primary key default gen_random_uuid(),
+  seq         bigserial not null,
   tenant_id   uuid not null references tenant(id) on delete restrict,
   req_id                     text,
   request_by                 text,
@@ -102,11 +109,13 @@ create table if not exists class_change_req (
 );
 create unique index if not exists class_change_req_code_uq on class_change_req(tenant_id, req_id);
 create index if not exists class_change_req_tenant_ix on class_change_req(tenant_id);
+create index if not exists class_change_req_seq_ix on class_change_req(tenant_id, seq);
 alter table class_change_req enable row level security;
 
 -- ── LEAVE_REQUEST  (HR workbook)
 create table if not exists leave_request (
   id          uuid primary key default gen_random_uuid(),
+  seq         bigserial not null,
   tenant_id   uuid not null references tenant(id) on delete restrict,
   leave_id                   text,
   staff_id                   text,
@@ -134,11 +143,13 @@ create table if not exists leave_request (
 );
 create unique index if not exists leave_request_code_uq on leave_request(tenant_id, leave_id);
 create index if not exists leave_request_tenant_ix on leave_request(tenant_id);
+create index if not exists leave_request_seq_ix on leave_request(tenant_id, seq);
 alter table leave_request enable row level security;
 
 -- ── OT_RECORDS  (HR workbook)
 create table if not exists ot_records (
   id          uuid primary key default gen_random_uuid(),
+  seq         bigserial not null,
   tenant_id   uuid not null references tenant(id) on delete restrict,
   otrecord_id                text,
   staff_id                   text,
@@ -163,11 +174,13 @@ create table if not exists ot_records (
 );
 create unique index if not exists ot_records_code_uq on ot_records(tenant_id, otrecord_id);
 create index if not exists ot_records_tenant_ix on ot_records(tenant_id);
+create index if not exists ot_records_seq_ix on ot_records(tenant_id, seq);
 alter table ot_records enable row level security;
 
 -- ── PAY_ADJUSTMENTS  (HR workbook)
 create table if not exists pay_adjustments (
   id          uuid primary key default gen_random_uuid(),
+  seq         bigserial not null,
   tenant_id   uuid not null references tenant(id) on delete restrict,
   adj_id                     text,
   staff_id                   text,
@@ -185,11 +198,13 @@ create table if not exists pay_adjustments (
 );
 create unique index if not exists pay_adjustments_code_uq on pay_adjustments(tenant_id, adj_id);
 create index if not exists pay_adjustments_tenant_ix on pay_adjustments(tenant_id);
+create index if not exists pay_adjustments_seq_ix on pay_adjustments(tenant_id, seq);
 alter table pay_adjustments enable row level security;
 
 -- ── PAYROLL  (HR workbook)
 create table if not exists payroll (
   id          uuid primary key default gen_random_uuid(),
+  seq         bigserial not null,
   tenant_id   uuid not null references tenant(id) on delete restrict,
   payroll_id                 text,
   staff_id                   text,
@@ -244,11 +259,13 @@ create table if not exists payroll (
 );
 create unique index if not exists payroll_code_uq on payroll(tenant_id, payroll_id);
 create index if not exists payroll_tenant_ix on payroll(tenant_id);
+create index if not exists payroll_seq_ix on payroll(tenant_id, seq);
 alter table payroll enable row level security;
 
 -- ── PAYROLL_CONFIG  (HR workbook)
 create table if not exists payroll_config (
   id          uuid primary key default gen_random_uuid(),
+  seq         bigserial not null,
   tenant_id   uuid not null references tenant(id) on delete restrict,
   staff_id                   text,
   pay_type                   text,
@@ -266,11 +283,13 @@ create table if not exists payroll_config (
 );
 create unique index if not exists payroll_config_code_uq on payroll_config(tenant_id, staff_id);
 create index if not exists payroll_config_tenant_ix on payroll_config(tenant_id);
+create index if not exists payroll_config_seq_ix on payroll_config(tenant_id, seq);
 alter table payroll_config enable row level security;
 
 -- ── STAFF  (HR workbook)
 create table if not exists staff (
   id          uuid primary key default gen_random_uuid(),
+  seq         bigserial not null,
   tenant_id   uuid not null references tenant(id) on delete restrict,
   staff_id                   text,
   national_id                text,
@@ -322,11 +341,13 @@ create table if not exists staff (
 );
 create unique index if not exists staff_code_uq on staff(tenant_id, staff_id);
 create index if not exists staff_tenant_ix on staff(tenant_id);
+create index if not exists staff_seq_ix on staff(tenant_id, seq);
 alter table staff enable row level security;
 
 -- ── STAFF_GROUPS  (HR workbook)
 create table if not exists staff_groups (
   id          uuid primary key default gen_random_uuid(),
+  seq         bigserial not null,
   tenant_id   uuid not null references tenant(id) on delete restrict,
   group_name                 text,
   group_name_en              text,
@@ -336,11 +357,13 @@ create table if not exists staff_groups (
   updated_at  timestamptz not null default now()
 );
 create index if not exists staff_groups_tenant_ix on staff_groups(tenant_id);
+create index if not exists staff_groups_seq_ix on staff_groups(tenant_id, seq);
 alter table staff_groups enable row level security;
 
 -- ── TRAINING  (HR workbook)
 create table if not exists training (
   id          uuid primary key default gen_random_uuid(),
+  seq         bigserial not null,
   tenant_id   uuid not null references tenant(id) on delete restrict,
   training_id                text,
   staff_id                   text,
@@ -354,11 +377,13 @@ create table if not exists training (
 );
 create unique index if not exists training_code_uq on training(tenant_id, training_id);
 create index if not exists training_tenant_ix on training(tenant_id);
+create index if not exists training_seq_ix on training(tenant_id, seq);
 alter table training enable row level security;
 
 -- ── WORK_SCHEDULE  (HR workbook)
 create table if not exists work_schedule (
   id          uuid primary key default gen_random_uuid(),
+  seq         bigserial not null,
   tenant_id   uuid not null references tenant(id) on delete restrict,
   staff_id                   text,
   day_of_week                text,
@@ -370,11 +395,13 @@ create table if not exists work_schedule (
 );
 create unique index if not exists work_schedule_code_uq on work_schedule(tenant_id, staff_id);
 create index if not exists work_schedule_tenant_ix on work_schedule(tenant_id);
+create index if not exists work_schedule_seq_ix on work_schedule(tenant_id, seq);
 alter table work_schedule enable row level security;
 
 -- ── ABSENCE_FOLLOWUP  (MAIN workbook, engine: absenceFollowups)
 create table if not exists absence_followup (
   id          uuid primary key default gen_random_uuid(),
+  seq         bigserial not null,
   tenant_id   uuid not null references tenant(id) on delete restrict,
   student_id                 text,
   note                       text,
@@ -385,11 +412,13 @@ create table if not exists absence_followup (
 );
 create unique index if not exists absence_followup_code_uq on absence_followup(tenant_id, student_id);
 create index if not exists absence_followup_tenant_ix on absence_followup(tenant_id);
+create index if not exists absence_followup_seq_ix on absence_followup(tenant_id, seq);
 alter table absence_followup enable row level security;
 
 -- ── ABSENCE_FOLLOWUP_LOG  (MAIN workbook, engine: absenceFollowupLogs)
 create table if not exists absence_followup_log (
   id          uuid primary key default gen_random_uuid(),
+  seq         bigserial not null,
   tenant_id   uuid not null references tenant(id) on delete restrict,
   log_id                     text,
   student_id                 text,
@@ -405,11 +434,13 @@ create table if not exists absence_followup_log (
 );
 create unique index if not exists absence_followup_log_code_uq on absence_followup_log(tenant_id, log_id);
 create index if not exists absence_followup_log_tenant_ix on absence_followup_log(tenant_id);
+create index if not exists absence_followup_log_seq_ix on absence_followup_log(tenant_id, seq);
 alter table absence_followup_log enable row level security;
 
 -- ── ABSENCE_LOG  (MAIN workbook, engine: absenceLog)
 create table if not exists absence_log (
   id          uuid primary key default gen_random_uuid(),
+  seq         bigserial not null,
   tenant_id   uuid not null references tenant(id) on delete restrict,
   student_id                 text,
   date                       date,
@@ -420,11 +451,13 @@ create table if not exists absence_log (
 );
 create unique index if not exists absence_log_code_uq on absence_log(tenant_id, student_id);
 create index if not exists absence_log_tenant_ix on absence_log(tenant_id);
+create index if not exists absence_log_seq_ix on absence_log(tenant_id, seq);
 alter table absence_log enable row level security;
 
 -- ── ACTIVITY_LOG  (MAIN workbook, engine: activityLog)
 create table if not exists activity_log (
   id          uuid primary key default gen_random_uuid(),
+  seq         bigserial not null,
   tenant_id   uuid not null references tenant(id) on delete restrict,
   log_id                     text,
   timestamp                  timestamptz,
@@ -439,11 +472,13 @@ create table if not exists activity_log (
 );
 create unique index if not exists activity_log_code_uq on activity_log(tenant_id, log_id);
 create index if not exists activity_log_tenant_ix on activity_log(tenant_id);
+create index if not exists activity_log_seq_ix on activity_log(tenant_id, seq);
 alter table activity_log enable row level security;
 
 -- ── ADMIN_INBOX  (MAIN workbook) — the 🔔 in-app inbox — built when the LINE quota ran out
 create table if not exists admin_inbox (
   id          uuid primary key default gen_random_uuid(),
+  seq         bigserial not null,
   tenant_id   uuid not null references tenant(id) on delete restrict,
   inbox_id                   text,
   date                       date,
@@ -457,11 +492,13 @@ create table if not exists admin_inbox (
 );
 create unique index if not exists admin_inbox_code_uq on admin_inbox(tenant_id, inbox_id);
 create index if not exists admin_inbox_tenant_ix on admin_inbox(tenant_id);
+create index if not exists admin_inbox_seq_ix on admin_inbox(tenant_id, seq);
 alter table admin_inbox enable row level security;
 
 -- ── ANNOUNCEMENTS  (MAIN workbook, engine: announcements)
 create table if not exists announcements (
   id          uuid primary key default gen_random_uuid(),
+  seq         bigserial not null,
   tenant_id   uuid not null references tenant(id) on delete restrict,
   ann_id                     text,
   title                      text,
@@ -483,11 +520,13 @@ create table if not exists announcements (
 );
 create unique index if not exists announcements_code_uq on announcements(tenant_id, ann_id);
 create index if not exists announcements_tenant_ix on announcements(tenant_id);
+create index if not exists announcements_seq_ix on announcements(tenant_id, seq);
 alter table announcements enable row level security;
 
 -- ── AUDIT_LOG  (MAIN workbook)
 create table if not exists audit_log (
   id          uuid primary key default gen_random_uuid(),
+  seq         bigserial not null,
   tenant_id   uuid not null references tenant(id) on delete restrict,
   timestamp                  timestamptz,
   user_id                    text,
@@ -499,11 +538,13 @@ create table if not exists audit_log (
 );
 create unique index if not exists audit_log_code_uq on audit_log(tenant_id, user_id);
 create index if not exists audit_log_tenant_ix on audit_log(tenant_id);
+create index if not exists audit_log_seq_ix on audit_log(tenant_id, seq);
 alter table audit_log enable row level security;
 
 -- ── BACKUP_LOG  (MAIN workbook)
 create table if not exists backup_log (
   id          uuid primary key default gen_random_uuid(),
+  seq         bigserial not null,
   tenant_id   uuid not null references tenant(id) on delete restrict,
   backup_date                date,
   workbook_name              text,
@@ -514,11 +555,13 @@ create table if not exists backup_log (
 );
 create unique index if not exists backup_log_code_uq on backup_log(tenant_id, drive_file_id);
 create index if not exists backup_log_tenant_ix on backup_log(tenant_id);
+create index if not exists backup_log_seq_ix on backup_log(tenant_id, seq);
 alter table backup_log enable row level security;
 
 -- ── BILLING  (MAIN workbook, engine: payments)
 create table if not exists billing (
   id          uuid primary key default gen_random_uuid(),
+  seq         bigserial not null,
   tenant_id   uuid not null references tenant(id) on delete restrict,
   billing_id                 text,
   student_id                 text,
@@ -539,11 +582,13 @@ create table if not exists billing (
 );
 create unique index if not exists billing_code_uq on billing(tenant_id, billing_id);
 create index if not exists billing_tenant_ix on billing(tenant_id);
+create index if not exists billing_seq_ix on billing(tenant_id, seq);
 alter table billing enable row level security;
 
 -- ── CHECKIN_STUDENT  (MAIN workbook, engine: checkinStudent)
 create table if not exists checkin_student (
   id          uuid primary key default gen_random_uuid(),
+  seq         bigserial not null,
   tenant_id   uuid not null references tenant(id) on delete restrict,
   date                       date,
   time                       time,
@@ -561,11 +606,13 @@ create table if not exists checkin_student (
 );
 create unique index if not exists checkin_student_code_uq on checkin_student(tenant_id, student_id);
 create index if not exists checkin_student_tenant_ix on checkin_student(tenant_id);
+create index if not exists checkin_student_seq_ix on checkin_student(tenant_id, seq);
 alter table checkin_student enable row level security;
 
 -- ── CLASS_COVER  (MAIN workbook, engine: classCover) — engine-managed — a teacher lent to another class
 create table if not exists class_cover (
   id          uuid primary key default gen_random_uuid(),
+  seq         bigserial not null,
   tenant_id   uuid not null references tenant(id) on delete restrict,
   cover_id                   text,
   staff_id                   text,
@@ -578,11 +625,13 @@ create table if not exists class_cover (
 );
 create unique index if not exists class_cover_code_uq on class_cover(tenant_id, cover_id);
 create index if not exists class_cover_tenant_ix on class_cover(tenant_id);
+create index if not exists class_cover_seq_ix on class_cover(tenant_id, seq);
 alter table class_cover enable row level security;
 
 -- ── CLASSES  (MAIN workbook, engine: classes)
 create table if not exists classes (
   id          uuid primary key default gen_random_uuid(),
+  seq         bigserial not null,
   tenant_id   uuid not null references tenant(id) on delete restrict,
   class_id                   text,
   class_name                 text,
@@ -594,11 +643,13 @@ create table if not exists classes (
 );
 create unique index if not exists classes_code_uq on classes(tenant_id, class_id);
 create index if not exists classes_tenant_ix on classes(tenant_id);
+create index if not exists classes_seq_ix on classes(tenant_id, seq);
 alter table classes enable row level security;
 
 -- ── COMMENTS  (MAIN workbook, engine: comments)
 create table if not exists comments (
   id          uuid primary key default gen_random_uuid(),
+  seq         bigserial not null,
   tenant_id   uuid not null references tenant(id) on delete restrict,
   comment_id                 text,
   student_id                 text,
@@ -612,11 +663,13 @@ create table if not exists comments (
 );
 create unique index if not exists comments_code_uq on comments(tenant_id, comment_id);
 create index if not exists comments_tenant_ix on comments(tenant_id);
+create index if not exists comments_seq_ix on comments(tenant_id, seq);
 alter table comments enable row level security;
 
 -- ── DAILY_JOURNAL  (MAIN workbook, engine: journals)
 create table if not exists daily_journal (
   id          uuid primary key default gen_random_uuid(),
+  seq         bigserial not null,
   tenant_id   uuid not null references tenant(id) on delete restrict,
   date                       date,
   student_id                 text,
@@ -650,11 +703,13 @@ create table if not exists daily_journal (
 );
 create unique index if not exists daily_journal_code_uq on daily_journal(tenant_id, student_id);
 create index if not exists daily_journal_tenant_ix on daily_journal(tenant_id);
+create index if not exists daily_journal_seq_ix on daily_journal(tenant_id, seq);
 alter table daily_journal enable row level security;
 
 -- ── DSPM_ASSESSMENT  (MAIN workbook, engine: assessments)
 create table if not exists dspm_assessment (
   id          uuid primary key default gen_random_uuid(),
+  seq         bigserial not null,
   tenant_id   uuid not null references tenant(id) on delete restrict,
   assessment_id              text,
   student_id                 text,
@@ -674,11 +729,13 @@ create table if not exists dspm_assessment (
 );
 create unique index if not exists dspm_assessment_code_uq on dspm_assessment(tenant_id, assessment_id);
 create index if not exists dspm_assessment_tenant_ix on dspm_assessment(tenant_id);
+create index if not exists dspm_assessment_seq_ix on dspm_assessment(tenant_id, seq);
 alter table dspm_assessment enable row level security;
 
 -- ── DSPM_CRITERIA  (MAIN workbook, engine: dspmCriteria)
 create table if not exists dspm_criteria (
   id          uuid primary key default gen_random_uuid(),
+  seq         bigserial not null,
   tenant_id   uuid not null references tenant(id) on delete restrict,
   age_from                   text,
   age_to                     text,
@@ -694,11 +751,13 @@ create table if not exists dspm_criteria (
   updated_at  timestamptz not null default now()
 );
 create index if not exists dspm_criteria_tenant_ix on dspm_criteria(tenant_id);
+create index if not exists dspm_criteria_seq_ix on dspm_criteria(tenant_id, seq);
 alter table dspm_criteria enable row level security;
 
 -- ── FOOD_ITEMS  (MAIN workbook, engine: foodItems) — engine-managed
 create table if not exists food_items (
   id          uuid primary key default gen_random_uuid(),
+  seq         bigserial not null,
   tenant_id   uuid not null references tenant(id) on delete restrict,
   item_id                    text,
   name                       text,
@@ -711,11 +770,13 @@ create table if not exists food_items (
 );
 create unique index if not exists food_items_code_uq on food_items(tenant_id, item_id);
 create index if not exists food_items_tenant_ix on food_items(tenant_id);
+create index if not exists food_items_seq_ix on food_items(tenant_id, seq);
 alter table food_items enable row level security;
 
 -- ── FOOD_MENU  (MAIN workbook, engine: foodMenus) — engine-managed (ensureCollectionSheet_ creates it from first write)
 create table if not exists food_menu (
   id          uuid primary key default gen_random_uuid(),
+  seq         bigserial not null,
   tenant_id   uuid not null references tenant(id) on delete restrict,
   menu_id                    text,
   month                      text,
@@ -728,11 +789,13 @@ create table if not exists food_menu (
 );
 create unique index if not exists food_menu_code_uq on food_menu(tenant_id, menu_id);
 create index if not exists food_menu_tenant_ix on food_menu(tenant_id);
+create index if not exists food_menu_seq_ix on food_menu(tenant_id, seq);
 alter table food_menu enable row level security;
 
 -- ── GROWTH_RECORDS  (MAIN workbook, engine: growthRecords)
 create table if not exists growth_records (
   id          uuid primary key default gen_random_uuid(),
+  seq         bigserial not null,
   tenant_id   uuid not null references tenant(id) on delete restrict,
   date                       date,
   student_id                 text,
@@ -746,11 +809,13 @@ create table if not exists growth_records (
 );
 create unique index if not exists growth_records_code_uq on growth_records(tenant_id, student_id);
 create index if not exists growth_records_tenant_ix on growth_records(tenant_id);
+create index if not exists growth_records_seq_ix on growth_records(tenant_id, seq);
 alter table growth_records enable row level security;
 
 -- ── HOLIDAY_ATTEND  (MAIN workbook, engine: holidayAttend)
 create table if not exists holiday_attend (
   id          uuid primary key default gen_random_uuid(),
+  seq         bigserial not null,
   tenant_id   uuid not null references tenant(id) on delete restrict,
   date                       date,
   student_id                 text,
@@ -761,11 +826,13 @@ create table if not exists holiday_attend (
 );
 create unique index if not exists holiday_attend_code_uq on holiday_attend(tenant_id, student_id);
 create index if not exists holiday_attend_tenant_ix on holiday_attend(tenant_id);
+create index if not exists holiday_attend_seq_ix on holiday_attend(tenant_id, seq);
 alter table holiday_attend enable row level security;
 
 -- ── HOLIDAYS  (MAIN workbook, engine: holidays)
 create table if not exists holidays (
   id          uuid primary key default gen_random_uuid(),
+  seq         bigserial not null,
   tenant_id   uuid not null references tenant(id) on delete restrict,
   date                       date,
   name_th                    text,
@@ -777,11 +844,13 @@ create table if not exists holidays (
   updated_at  timestamptz not null default now()
 );
 create index if not exists holidays_tenant_ix on holidays(tenant_id);
+create index if not exists holidays_seq_ix on holidays(tenant_id, seq);
 alter table holidays enable row level security;
 
 -- ── INJURY_REPORTS  (MAIN workbook, engine: injuryReports)
 create table if not exists injury_reports (
   id          uuid primary key default gen_random_uuid(),
+  seq         bigserial not null,
   tenant_id   uuid not null references tenant(id) on delete restrict,
   injury_id                  text,
   date                       date,
@@ -833,11 +902,13 @@ create table if not exists injury_reports (
 );
 create unique index if not exists injury_reports_code_uq on injury_reports(tenant_id, injury_id);
 create index if not exists injury_reports_tenant_ix on injury_reports(tenant_id);
+create index if not exists injury_reports_seq_ix on injury_reports(tenant_id, seq);
 alter table injury_reports enable row level security;
 
 -- ── INSURANCE_PCHI  (MAIN workbook, engine: insurancePCHI)
 create table if not exists insurance_pchi (
   id          uuid primary key default gen_random_uuid(),
+  seq         bigserial not null,
   tenant_id   uuid not null references tenant(id) on delete restrict,
   insurance_id               text,
   student_id                 text,
@@ -876,11 +947,13 @@ create table if not exists insurance_pchi (
 );
 create unique index if not exists insurance_pchi_code_uq on insurance_pchi(tenant_id, insurance_id);
 create index if not exists insurance_pchi_tenant_ix on insurance_pchi(tenant_id);
+create index if not exists insurance_pchi_seq_ix on insurance_pchi(tenant_id, seq);
 alter table insurance_pchi enable row level security;
 
 -- ── LEAVE_REQUEST_STD  (MAIN workbook, engine: studentLeaves)
 create table if not exists leave_request_std (
   id          uuid primary key default gen_random_uuid(),
+  seq         bigserial not null,
   tenant_id   uuid not null references tenant(id) on delete restrict,
   leave_id                   text,
   student_id                 text,
@@ -895,11 +968,13 @@ create table if not exists leave_request_std (
 );
 create unique index if not exists leave_request_std_code_uq on leave_request_std(tenant_id, leave_id);
 create index if not exists leave_request_std_tenant_ix on leave_request_std(tenant_id);
+create index if not exists leave_request_std_seq_ix on leave_request_std(tenant_id, seq);
 alter table leave_request_std enable row level security;
 
 -- ── LINE_RECIPIENTS  (MAIN workbook) — who is pushed for which topic
 create table if not exists line_recipients (
   id          uuid primary key default gen_random_uuid(),
+  seq         bigserial not null,
   tenant_id   uuid not null references tenant(id) on delete restrict,
   topic                      text,
   staff_id                   text,
@@ -909,11 +984,13 @@ create table if not exists line_recipients (
 );
 create unique index if not exists line_recipients_code_uq on line_recipients(tenant_id, staff_id);
 create index if not exists line_recipients_tenant_ix on line_recipients(tenant_id);
+create index if not exists line_recipients_seq_ix on line_recipients(tenant_id, seq);
 alter table line_recipients enable row level security;
 
 -- ── OT_DAILY  (MAIN workbook, engine: otDaily)
 create table if not exists ot_daily (
   id          uuid primary key default gen_random_uuid(),
+  seq         bigserial not null,
   tenant_id   uuid not null references tenant(id) on delete restrict,
   otid                       text,
   date                       date,
@@ -934,11 +1011,13 @@ create table if not exists ot_daily (
 );
 create unique index if not exists ot_daily_code_uq on ot_daily(tenant_id, otid);
 create index if not exists ot_daily_tenant_ix on ot_daily(tenant_id);
+create index if not exists ot_daily_seq_ix on ot_daily(tenant_id, seq);
 alter table ot_daily enable row level security;
 
 -- ── PARENTS  (MAIN workbook, engine: parents)
 create table if not exists parents (
   id          uuid primary key default gen_random_uuid(),
+  seq         bigserial not null,
   tenant_id   uuid not null references tenant(id) on delete restrict,
   parent_id                  text,
   national_id                text,
@@ -965,11 +1044,13 @@ create table if not exists parents (
 );
 create unique index if not exists parents_code_uq on parents(tenant_id, parent_id);
 create index if not exists parents_tenant_ix on parents(tenant_id);
+create index if not exists parents_seq_ix on parents(tenant_id, seq);
 alter table parents enable row level security;
 
 -- ── PAYMENT_SLIPS  (MAIN workbook, engine: paymentSlips)
 create table if not exists payment_slips (
   id          uuid primary key default gen_random_uuid(),
+  seq         bigserial not null,
   tenant_id   uuid not null references tenant(id) on delete restrict,
   slip_id                    text,
   ref_kind                   text,
@@ -993,11 +1074,13 @@ create table if not exists payment_slips (
 );
 create unique index if not exists payment_slips_code_uq on payment_slips(tenant_id, slip_id);
 create index if not exists payment_slips_tenant_ix on payment_slips(tenant_id);
+create index if not exists payment_slips_seq_ix on payment_slips(tenant_id, seq);
 alter table payment_slips enable row level security;
 
 -- ── PERF_LOG  (MAIN workbook) — Phase 0 telemetry. NOT migrated — see the note in the DDL
 create table if not exists perf_log (
   id          uuid primary key default gen_random_uuid(),
+  seq         bigserial not null,
   tenant_id   uuid not null references tenant(id) on delete restrict,
   ts                         timestamptz,
   sid                        text,
@@ -1018,11 +1101,13 @@ create table if not exists perf_log (
   updated_at  timestamptz not null default now()
 );
 create index if not exists perf_log_tenant_ix on perf_log(tenant_id);
+create index if not exists perf_log_seq_ix on perf_log(tenant_id, seq);
 alter table perf_log enable row level security;
 
 -- ── PICKUP_PERSONS  (MAIN workbook, engine: pickupPersons)
 create table if not exists pickup_persons (
   id          uuid primary key default gen_random_uuid(),
+  seq         bigserial not null,
   tenant_id   uuid not null references tenant(id) on delete restrict,
   student_id                 text,
   name                       text,
@@ -1033,11 +1118,13 @@ create table if not exists pickup_persons (
 );
 create unique index if not exists pickup_persons_code_uq on pickup_persons(tenant_id, student_id);
 create index if not exists pickup_persons_tenant_ix on pickup_persons(tenant_id);
+create index if not exists pickup_persons_seq_ix on pickup_persons(tenant_id, seq);
 alter table pickup_persons enable row level security;
 
 -- ── PREPAYMENTS  (MAIN workbook, engine: prepayments)
 create table if not exists prepayments (
   id          uuid primary key default gen_random_uuid(),
+  seq         bigserial not null,
   tenant_id   uuid not null references tenant(id) on delete restrict,
   prepay_id                  text,
   student_id                 text,
@@ -1059,11 +1146,13 @@ create table if not exists prepayments (
 );
 create unique index if not exists prepayments_code_uq on prepayments(tenant_id, prepay_id);
 create index if not exists prepayments_tenant_ix on prepayments(tenant_id);
+create index if not exists prepayments_seq_ix on prepayments(tenant_id, seq);
 alter table prepayments enable row level security;
 
 -- ── SCHOOL_CONFIG  (MAIN workbook)
 create table if not exists school_config (
   id          uuid primary key default gen_random_uuid(),
+  seq         bigserial not null,
   tenant_id   uuid not null references tenant(id) on delete restrict,
   key                        text,
   value                      text,
@@ -1071,11 +1160,13 @@ create table if not exists school_config (
   updated_at  timestamptz not null default now()
 );
 create index if not exists school_config_tenant_ix on school_config(tenant_id);
+create index if not exists school_config_seq_ix on school_config(tenant_id, seq);
 alter table school_config enable row level security;
 
 -- ── STUDENT_CHARGES  (MAIN workbook, engine: studentCharges)
 create table if not exists student_charges (
   id          uuid primary key default gen_random_uuid(),
+  seq         bigserial not null,
   tenant_id   uuid not null references tenant(id) on delete restrict,
   charge_id                  text,
   student_id                 text,
@@ -1088,11 +1179,13 @@ create table if not exists student_charges (
 );
 create unique index if not exists student_charges_code_uq on student_charges(tenant_id, student_id);
 create index if not exists student_charges_tenant_ix on student_charges(tenant_id);
+create index if not exists student_charges_seq_ix on student_charges(tenant_id, seq);
 alter table student_charges enable row level security;
 
 -- ── STUDENTS  (MAIN workbook, engine: students)
 create table if not exists students (
   id          uuid primary key default gen_random_uuid(),
+  seq         bigserial not null,
   tenant_id   uuid not null references tenant(id) on delete restrict,
   student_id                 text,
   national_id                text,
@@ -1155,11 +1248,13 @@ create table if not exists students (
 );
 create unique index if not exists students_code_uq on students(tenant_id, student_id);
 create index if not exists students_tenant_ix on students(tenant_id);
+create index if not exists students_seq_ix on students(tenant_id, seq);
 alter table students enable row level security;
 
 -- ── SURVEY_RESPONSES  (MAIN workbook, engine: surveyResponses) — engine-managed
 create table if not exists survey_responses (
   id          uuid primary key default gen_random_uuid(),
+  seq         bigserial not null,
   tenant_id   uuid not null references tenant(id) on delete restrict,
   response_id                text,
   survey_id                  text,
@@ -1171,11 +1266,13 @@ create table if not exists survey_responses (
 );
 create unique index if not exists survey_responses_code_uq on survey_responses(tenant_id, survey_id);
 create index if not exists survey_responses_tenant_ix on survey_responses(tenant_id);
+create index if not exists survey_responses_seq_ix on survey_responses(tenant_id, seq);
 alter table survey_responses enable row level security;
 
 -- ── SURVEYS  (MAIN workbook, engine: surveys) — engine-managed
 create table if not exists surveys (
   id          uuid primary key default gen_random_uuid(),
+  seq         bigserial not null,
   tenant_id   uuid not null references tenant(id) on delete restrict,
   survey_id                  text,
   title                      text,
@@ -1190,11 +1287,13 @@ create table if not exists surveys (
 );
 create unique index if not exists surveys_code_uq on surveys(tenant_id, survey_id);
 create index if not exists surveys_tenant_ix on surveys(tenant_id);
+create index if not exists surveys_seq_ix on surveys(tenant_id, seq);
 alter table surveys enable row level security;
 
 -- ── USER_LINKS  (MAIN workbook, engine: userLinks)
 create table if not exists user_links (
   id          uuid primary key default gen_random_uuid(),
+  seq         bigserial not null,
   tenant_id   uuid not null references tenant(id) on delete restrict,
   user_uid                   text,
   student_id                 text,
@@ -1205,11 +1304,13 @@ create table if not exists user_links (
 );
 create unique index if not exists user_links_code_uq on user_links(tenant_id, user_uid);
 create index if not exists user_links_tenant_ix on user_links(tenant_id);
+create index if not exists user_links_seq_ix on user_links(tenant_id, seq);
 alter table user_links enable row level security;
 
 -- ── USERS  (MAIN workbook)
 create table if not exists users (
   id          uuid primary key default gen_random_uuid(),
+  seq         bigserial not null,
   tenant_id   uuid not null references tenant(id) on delete restrict,
   user_id                    text,
   line_uid                   text,
@@ -1225,11 +1326,13 @@ create table if not exists users (
 );
 create unique index if not exists users_code_uq on users(tenant_id, user_id);
 create index if not exists users_tenant_ix on users(tenant_id);
+create index if not exists users_seq_ix on users(tenant_id, seq);
 alter table users enable row level security;
 
 -- ── VACCINE_RECORDS  (MAIN workbook, engine: vaccineRecords)
 create table if not exists vaccine_records (
   id          uuid primary key default gen_random_uuid(),
+  seq         bigserial not null,
   tenant_id   uuid not null references tenant(id) on delete restrict,
   student_id                 text,
   vaccine_key                text,
@@ -1241,11 +1344,13 @@ create table if not exists vaccine_records (
 );
 create unique index if not exists vaccine_records_code_uq on vaccine_records(tenant_id, student_id);
 create index if not exists vaccine_records_tenant_ix on vaccine_records(tenant_id);
+create index if not exists vaccine_records_seq_ix on vaccine_records(tenant_id, seq);
 alter table vaccine_records enable row level security;
 
 -- ── WITHDRAWALS  (MAIN workbook, engine: withdrawals)
 create table if not exists withdrawals (
   id          uuid primary key default gen_random_uuid(),
+  seq         bigserial not null,
   tenant_id   uuid not null references tenant(id) on delete restrict,
   withdraw_id                text,
   student_id                 text,
@@ -1263,6 +1368,7 @@ create table if not exists withdrawals (
 );
 create unique index if not exists withdrawals_code_uq on withdrawals(tenant_id, withdraw_id);
 create index if not exists withdrawals_tenant_ix on withdrawals(tenant_id);
+create index if not exists withdrawals_seq_ix on withdrawals(tenant_id, seq);
 alter table withdrawals enable row level security;
 
 -- ── row-level security ────────────────────────────────────────────────────────────────

@@ -228,6 +228,16 @@ if (process.argv.includes('--sql') || process.argv.includes('--write')) {
     L.push(`-- ── ${t.sheet}  (${t.wb} workbook${t.collection ? ', engine: ' + t.collection : ''})${t.note ? ' — ' + t.note : ''}`);
     L.push(`create table if not exists ${tbl} (`);
     L.push('  id          uuid primary key default gen_random_uuid(),');
+    /* 🔴 THE ROW'S PLACE IN THE SHEET, KEPT.
+     *
+     * A spreadsheet has an order and the app shows it: lists appear in the order rows were added,
+     * and the engine takes `[0]` of a filtered list in forty-two places. Order by a uuid primary key
+     * and that order is random — on the first run of tools/test_pg_engine.js, listStudents came back
+     * with the second child first and two handler comparisons failed for no other reason.
+     *
+     * A bigserial is one column and it is exact. Added 2026-10-09, while the database was still
+     * empty: doing this later means rewriting every row in every table of a live system. */
+    L.push('  seq         bigserial not null,');
     L.push('  tenant_id   uuid not null references tenant(id) on delete restrict,');
     /* 🔴 A COLUMN MAY ONLY BE DECLARED ONCE, and until 2026-10-09 three tables broke that rule —
      * which means migration 001 had never been runnable at all. Postgres rejects the whole
@@ -246,7 +256,7 @@ if (process.argv.includes('--sql') || process.argv.includes('--write')) {
      *      places in SCHEMA. Harmless to ensureColumns_, fatal here. Deduplicated rather than
      *      reported, because the declaration is correct for the purpose it was written for.
      */
-    const RESERVED = new Set(['id', 'tenant_id', 'created_at', 'updated_at']);
+    const RESERVED = new Set(['id', 'seq', 'tenant_id', 'created_at', 'updated_at']);
     const emitted = new Set();
     const absorbed = [];
     t.cols.forEach(c => {
@@ -268,6 +278,8 @@ if (process.argv.includes('--sql') || process.argv.includes('--write')) {
               || t.cols.find(c => /^[A-Za-z]+ID$/.test(c));
     if (idCol) L.push(`create unique index if not exists ${tbl}_code_uq on ${tbl}(tenant_id, ${snake(idCol)});`);
     L.push(`create index if not exists ${tbl}_tenant_ix on ${tbl}(tenant_id);`);
+    // every read is scoped to one school AND ordered by sheet position, so one index serves both
+    L.push(`create index if not exists ${tbl}_seq_ix on ${tbl}(tenant_id, seq);`);
     L.push(`alter table ${tbl} enable row level security;`);
     L.push('');
   });
