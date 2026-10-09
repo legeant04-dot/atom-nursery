@@ -76,41 +76,67 @@ console.log('\n1) คอลัมน์ที่โค้ดสร้างต�
   ok_('...และรู้ว่าแต่ละจุดเป็นของตารางไหนเกือบทั้งหมด',
     sites.filter(s => s.sheet).length >= sites.length - 8);
 
-  const gaps = [];
-  sites.forEach(s => {
-    if (!s.sheet) return;
-    const tbl = snake(s.sheet);
-    if (!tableCols[tbl]) return;                       // sheet not in the migration at all — other test
-    s.cols.forEach(c => {
-      if ((dec[s.sheet] || new Set()).has(c)) return;   // declared properly
-      if (tableCols[tbl].has(snake(c))) return;         // present in SQL some other way
-      gaps.push(s.sheet + '.' + c + '  (' + s.file + ')');
+  /* the detector itself, as a function of what is DECLARED — so the control below can feed it a
+   * doctored schema and watch the real code find the hole */
+  const gapsGiven = (declaredBySheet, sqlCols) => {
+    const gaps = [];
+    sites.forEach(s => {
+      if (!s.sheet) return;
+      const tbl = snake(s.sheet);
+      if (!sqlCols[tbl]) return;                           // sheet not in the migration at all — other test
+      s.cols.forEach(c => {
+        if ((declaredBySheet[s.sheet] || new Set()).has(c)) return;   // declared properly
+        if (sqlCols[tbl].has(snake(c))) return;                       // present in SQL some other way
+        gaps.push(s.sheet + '.' + c + '  (' + s.file + ')');
+      });
     });
-  });
-  const uniq = [...new Set(gaps)].sort();
+    return [...new Set(gaps)].sort();
+  };
+  const uniq = gapsGiven(dec, tableCols);
 
-  /* 🔴 THE LEDGER — known debt, and not one column more.
+  /* 🔴 THE DEBT IS PAID — 18 → 0 on 2026-10-09, the first task of Phase 2.2.
    *
-   * Every line below is a column holding real data on a live sheet today with nowhere to go in
-   * Postgres. Phase 2.2 must declare each one in SCHEMA, on the sheet that actually uses it, and
-   * re-generate the migration.
+   * This started as a pinned count (KNOWN = 18) rather than `=== []`, deliberately: a permanently
+   * failing check teaches everyone to scroll past red and the next REAL failure goes with it. The
+   * eighteen are now declared in SCHEMA — DAILY_JOURNAL.TeacherReply, LEAVE_REQUEST_STD.Type/FiledBy,
+   * three PAYROLL contribution/OT-carry columns, STAFF.NoPayroll, and eleven on STUDENTS of which
+   * nine decide what a family pays — so the pin comes down to zero and the check changes shape with
+   * it. From here it is no longer a ledger of known debt; it is the guard that stops a nineteenth.
    *
-   * It would be easy to assert `=== []` and leave the suite red until then. That is the wrong shape:
-   * a permanently failing check teaches everyone to scroll past red, and the next REAL failure goes
-   * with it. So the count is pinned instead. Fixing one means lowering KNOWN by one — a deliberate
-   * act, recorded in the diff — and adding a nineteenth fails immediately, which is the thing that
-   * actually needs catching.
+   * 🔴 WHAT IT IS GUARDING, in one sentence: ensureColumns_ is a fine idea on a spreadsheet and a
+   * trap in a database. A column created at run time and declared nowhere still works on Sheets, and
+   * on Postgres it is simply ABSENT — `select` answers undefined, the engine reads '' and bills the
+   * full price. Nothing throws. So any new ensureColumns_ column must be declared in the same commit.
    *
-   * An attempt to close all eighteen on 2026-10-09 corrupted Config.gs (the anchor matched a later
-   * sheet's identical column name) and was reverted. They need doing one at a time, by hand, with
-   * the call site in view. */
-  const KNOWN = 18;
+   * (The first attempt closed all eighteen in one pass and corrupted Config.gs, because an anchor
+   * matched an identical column name on a later sheet. Reverted; redone one sheet at a time with the
+   * call site in view, which is how it should have been done.) */
   if (uniq.length) {
-    console.log('  ── ค้างอยู่ ' + uniq.length + ' คอลัมน์ (งานของ Phase 2.2) ──');
+    console.log('  ── 🔴 ' + uniq.length + ' คอลัมน์ที่โค้ดสร้างเองแต่ไม่มีใครประกาศ — ประกาศใน SCHEMA ให้ครบก่อน ──');
     uniq.forEach(g => console.log('     · ' + g));
+    console.log('     (แล้วรัน node tools/schema_inventory.js เพื่อสร้าง migration ใหม่)');
   }
-  eq('🔴 ไม่มีคอลัมน์ที่จะหายตอน migrate เพิ่มขึ้นจากที่รู้อยู่แล้ว', uniq.length, KNOWN);
-  ok_('...และรายการนี้คือสิ่งที่ Phase 2.2 ต้องปิดให้หมด', uniq.length <= KNOWN);
+  eq('🔴 ไม่มีคอลัมน์ไหนที่จะหายเงียบๆ ตอน migrate', uniq, []);
+
+  /* CONTROL — the check above must be capable of failing. If callSites() or declared() ever stops
+   * finding anything (a regex that no longer matches the file it reads), `uniq` goes empty and the
+   * assertion passes on NOTHING, which is the one way this suite could lie. So: pretend one real
+   * declared column was never declared, and prove the same code reports it. */
+  {
+    ok_('CONTROL: ยังอ่านจุดเรียก ensureColumns_ ของ STUDENTS ได้จริง',
+      sites.some(s => s.sheet === 'STUDENTS' && s.cols.indexOf('DiscountUnit') >= 0));
+
+    // un-declare one real money column, in BOTH places it could be found, and re-run the detector
+    const doctored = {}; Object.keys(dec).forEach(k => { doctored[k] = new Set([...dec[k]]); });
+    doctored.STUDENTS.delete('DiscountUnit');
+    const noSql = {}; Object.keys(tableCols).forEach(t => { noSql[t] = new Set([...tableCols[t]]); });
+    noSql.students.delete('discount_unit');
+
+    const found = gapsGiven(doctored, noSql);
+    ok_('CONTROL: ถอดการประกาศ DiscountUnit ออก แล้วตัวตรวจต้องจับได้',
+      found.some(g => g.indexOf('STUDENTS.DiscountUnit') === 0));
+    ok_('...และจับได้แค่ตัวนั้นตัวเดียว (ไม่ใช่พังทั้งก้อน)', found.length === 1);
+  }
 }
 
 console.log('\n' + (fail ? 'FAILED ' : 'PASSED ') + pass + ' passed, ' + fail + ' failed\n');

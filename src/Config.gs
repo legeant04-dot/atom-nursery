@@ -115,7 +115,33 @@ SCHEMA[WB.MAIN] = {
                        * Only 1–5 are honoured. The weekend is already closed for everyone, and a
                        * setting that looks like it does something and cannot is worse than none.
                        * Tuition is unaffected — the school charges the full monthly rate. */
-                      'OffDays'],
+                      'OffDays',
+                      /* ─── DECLARED 2026-10-09, AND ELEVEN OF THESE DECIDE WHAT A FAMILY PAYS ───
+                       *
+                       * Every one of these has been on the live sheet for months, created by
+                       * handleSaveStudent / handleSetStudentPause calling ensureColumns_ and declared
+                       * nowhere. On a spreadsheet that works. For the migration it is the worst kind
+                       * of gap: a column nobody declares is a column nobody moves, and `select`
+                       * answers undefined — so the engine reads '' and bills the FULL plan price with
+                       * nothing thrown and nothing logged.
+                       *
+                       *   StartTime / EndTime   this child's own day. EndTime is where the OT clock
+                       *                         starts (otFor) — lose it and every family is charged
+                       *                         from the plan's end instead of their own.
+                       *   OTGraceUntil          OT is free until this time even so (otThreshold).
+                       *   RateNote              why this family's figures differ, in words.
+                       *   DiscountAmount        the monthly discount…
+                       *   DiscountUnit          …and whether it is baht or a PERCENT. Lose the unit
+                       *                         and '10' stops being 10% and becomes ฿10.
+                       *   ProrateMode           how the FIRST month is charged when a child starts
+                       *   ProrateAmount         mid-month: FULL | NONE | DAILY | CUSTOM (+ amount).
+                       *   PauseFrom/To/Reason   ลาชั่วคราว — while paused a child is not billed, not
+                       *                         marked absent and not on any list. Lose these and a
+                       *                         paused child is billed and marked absent every day.
+                       */
+                      'StartTime', 'EndTime', 'OTGraceUntil', 'RateNote',
+                      'DiscountAmount', 'DiscountUnit', 'ProrateMode', 'ProrateAmount',
+                      'PauseFrom', 'PauseTo', 'PauseReason'],
   CLASSES:           ['ClassID', 'ClassName', 'TeacherID', 'AgeRange', 'Capacity'],
   // Photo / RegisterPhotoUrl = the MANDATORY live-capture photo taken at registration ("New Register Photo"
   // Drive folder), used as an identity/security check when signing in.
@@ -166,7 +192,12 @@ SCHEMA[WB.MAIN] = {
   /* Photo1..3: up to three optional pictures of the day's activity or of what the child made,
    * attached to the highlight (asked 2026-09-05). Named Photo1/2/3 deliberately — Db.gs already
    * offloads exactly those keys to Drive (IMAGE_COLS_), and a base64 photo does not fit a cell. */
-  DAILY_JOURNAL:     ['Date', 'StudentID', 'TeacherID', 'Mood', 'Health', 'Milk', 'Meals', 'Sleep', 'Toilet', 'Activity', 'Skills', 'Highlight', 'HealthDetail', 'MilkTotal', 'Water', 'Theme', 'SubmittedAt', 'Status', 'UpdatedAt', 'MilkUnit', 'ParentComment', 'MealItems', 'MilkTimes', 'Photo1', 'Photo2', 'Photo3'],
+  DAILY_JOURNAL:     ['Date', 'StudentID', 'TeacherID', 'Mood', 'Health', 'Milk', 'Meals', 'Sleep', 'Toilet', 'Activity', 'Skills', 'Highlight', 'HealthDetail', 'MilkTotal', 'Water', 'Theme', 'SubmittedAt', 'Status', 'UpdatedAt', 'MilkUnit', 'ParentComment',
+                      /* ↩️ THE TEACHER'S ANSWER to that comment (declared 2026-10-09). It has existed
+                       * on the live sheet since the reply box was built, by ensureColumns_ alone —
+                       * written by handleSaveTeacherReply, read by the parent's journal screen, and
+                       * declared nowhere. The migration had no column to put it in. */
+                      'TeacherReply', 'MealItems', 'MilkTimes', 'Photo1', 'Photo2', 'Photo3'],
   // Date is the DAY; Timestamp is the moment it was recorded and TeacherName is who recorded it, so a
   // result can be read back months later without looking a staff id up by hand. AdminComment is the
   // admin's note on ONE item (with who wrote it and when) — a second opinion beside the teacher's
@@ -214,7 +245,15 @@ SCHEMA[WB.MAIN] = {
    * DateTo so a screen can print "21-23 ก.ย." without regrouping, GroupID so cancelling the trip
    * cancels the trip rather than one day of it. Both appended at END; blank on every row filed
    * before 2026-09-21, which reads correctly as a one-day leave. */
-  LEAVE_REQUEST_STD: ['LeaveID', 'StudentID', 'Date', 'Reason', 'Status', 'TeacherNotified', 'DateTo', 'GroupID'],
+  /* Type / FiledBy declared 2026-10-09, having lived in Parent.gs's ensureColumns_ since they were
+   * built. Both hold four years of real answers on the live sheet:
+   *   Type     = ลาป่วย / ลากิจ / ขาด — the whole difference between a leave and a no-show, which the
+   *              absence follow-up and the monthly report both read.
+   *   FiledBy  = the staff id when the OFFICE filed it for the family (the น้องโมน่า case), blank
+   *              when a parent filed it themselves. Who recorded an absence is not a detail.
+   * Declaring them does nothing to the live sheet — the columns are already there. It gives the
+   * migration somewhere to put them, which is the point: an undeclared column is dropped in SILENCE. */
+  LEAVE_REQUEST_STD: ['LeaveID', 'StudentID', 'Date', 'Reason', 'Status', 'TeacherNotified', 'Type', 'FiledBy', 'DateTo', 'GroupID'],
   // Withdrawal / cancel-enrolment requests — parent self-service OR Admin direct. Reason is one of the
   // standard codes (graduated / moved / transferred / other) + free-text detail; Admin processes -> removes the student.
   WITHDRAWALS:       ['WithdrawID', 'StudentID', 'RequestedBy', 'RequesterRole', 'Reason', 'Detail', 'EffectiveDate', 'Status', 'ProcessedBy', 'ProcessedDate', 'CreatedDate'],
@@ -315,7 +354,13 @@ SCHEMA[WB.HR] = {
                    * PauseTo is the day they COME BACK — see staffPaused_ in webapp/engine.js. */
                   'PauseFrom', 'PauseTo', 'PauseReason', 'PauseRemark',
                   // what they are paid while away: '' = as normal | NONE | HALF | CUSTOM (+ amount)
-                  'PauseSalaryMode', 'PauseSalaryAmount'],
+                  'PauseSalaryMode', 'PauseSalaryAmount',
+                  /* "WORKS HERE, THE SCHOOL DOES NOT PAY THEM" (declared 2026-10-09; written by
+                   * handleSaveStaff's ensureColumns_ since 2026-09-29). YES keeps the person on the
+                   * roster and out of payroll and out of the annual review — the housekeeper paid
+                   * privately by the ผอ. Lose the column and that person reappears as an unpaid
+                   * employee in รายจ่ายรวม, which is a figure the school shows people. */
+                  'NoPayroll'],
   // Staff groups with their own (editable) work hours — Admin-managed
   STAFF_GROUPS:  ['GroupName', 'GroupNameEN', 'CheckInTime', 'CheckOutTime'],
   // Per-staff payroll config (Admin-editable). Widened to carry every field the engine's computePayroll uses
@@ -362,7 +407,21 @@ SCHEMA[WB.HR] = {
                    * Now saving records and APPROVING publishes — the admin looks at the slip exactly
                    * as the teacher will, then signs it off. An unapproved row reads to a teacher as
                    * "not issued yet", which is what it is, and their screen already says so. */
-                  'Approved', 'ApprovedBy', 'ApprovedAt'],
+                  'Approved', 'ApprovedBy', 'ApprovedAt',
+                  /* ─── DECLARED 2026-10-09. THESE THREE ARE ON EVERY SLIP ALREADY ───────────────
+                   * Written by handleGeneratePayroll (and the engine's computePayroll) through
+                   * ensureColumns_ only, so they are on the live sheet and in nobody's schema.
+                   *
+                   *   ContributionEmployer  the school's HALF of the provident fund, as it stood the
+                   *     month it was paid. Losing it does NOT give a zero — both readers fall back to
+                   *     `own × the CURRENT match rate`, so every slip ever issued would be silently
+                   *     re-priced the next time the ผอ. changes that rate. The whole reason this is a
+                   *     stored column and not a formula is that the rate has already changed once.
+                   *   OTCarry / OTCarryDetail  approved OT that was NOT paid in its own month and is
+                   *     carried into this one, with the rows it came from. Lose the detail and
+                   *     otCarryOver_ can no longer tell paid from unpaid — it carries the same hours
+                   *     forward for ever, or drops them. Either way a teacher is owed money. */
+                  'ContributionEmployer', 'OTCarry', 'OTCarryDetail'],
   /* EVERY CHANGE TO WHAT SOMEBODY IS PAID (2026-10-05). The STAFF row and PAYROLL_CONFIG hold the
    * CURRENT figures; this holds how they got there. Asked for with the annual review: "ปรับเงินเดือน
    * / ปรับค่าเบี้ยต่างๆ ... เก็บประวัติพร้อมเหตุผล". One row per FIELD changed, so "ขึ้นเงินเดือน และ

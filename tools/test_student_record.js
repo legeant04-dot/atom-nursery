@@ -122,7 +122,20 @@ console.log('\n1) the admin sees the record the family filled in');
      * over and when that file was downloaded (2026-10-03). They belong to the certificate screen,
      * which is the only thing that writes or reads them; a parent's record page has no use for
      * them and a registration form never asks. */
-    'certissueddate', 'certissuedat'];
+    'certissueddate', 'certissuedat',
+    /* ...and the eleven declared on 2026-10-09 (Phase 2.2), for the same reason as `otrate` above,
+     * which is the precedent: these are the SCHOOL'S arrangement with this family, set by an admin
+     * on the student form and read by billing and the OT clock — this child's own day
+     * (StartTime/EndTime/OTGraceUntil), the discount and how the first month is prorated, the note
+     * explaining why their figures differ, and ลาชั่วคราว. A registration form never asks for any of
+     * them and a parent's record card has no business showing a discount.
+     *
+     * They are listed because the guard above INSISTS: every column declared on STUDENTS must either
+     * appear in the record or be named here with a reason. That is the whole value of it — declaring
+     * a column cannot be a silent act. */
+    'starttime', 'endtime', 'otgraceuntil', 'ratenote',
+    'discountamount', 'discountunit', 'proratemode', 'prorateamount',
+    'pausefrom', 'pauseto', 'pausereason'];
   const missing = declared.map(lc).filter(k => notAsked.indexOf(k) < 0 && shown.indexOf(k) < 0)
     // engine names that differ from the column name
     .filter(k => !{ studentid: 1, nameth: 1, nameen: 1, nickname: 1, nicknameen: 1, nationalid: 1, bloodtype: 1,
