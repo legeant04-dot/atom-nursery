@@ -28,6 +28,22 @@ dist_pages/
 *.jks
 *.keystore
 
+# 🔴 SUPABASE CONNECTION DETAILS — a CREDENTIAL, and the most dangerous one this repo will ever sit
+# next to. The database password and the service_role key give FULL read/write access to every
+# school's data, bypassing row-level security entirely. This repo is PUBLIC: one `git add -A` and
+# they are in the history for ever, exactly as the Google backup codes were (see below).
+#
+# Added 2026-10-09, BEFORE the file exists, so there is no window in which it is unprotected.
+# `secrets/supabase.env.example` is the template and IS committed — it holds no values.
+# `secrets/*` and not `secrets/` — git does not descend into an ignored DIRECTORY, so a rule on the
+# folder makes the un-ignore below unreachable and the template uncommittable too. Caught by
+# `git check-ignore` before either file existed.
+secrets/*
+!secrets/*.example
+*.env
+.env*
+!*.env.example
+
 # Google account backup codes — a CREDENTIAL. Was committed to this PUBLIC repo on 2026-06-22
 # and removed 2026-08-27. Never put one here again; the file now lives outside the repo.
 Backup codes.pdf
