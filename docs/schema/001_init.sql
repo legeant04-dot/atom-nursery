@@ -165,6 +165,28 @@ create unique index if not exists ot_records_code_uq on ot_records(tenant_id, ot
 create index if not exists ot_records_tenant_ix on ot_records(tenant_id);
 alter table ot_records enable row level security;
 
+-- ── PAY_ADJUSTMENTS  (HR workbook)
+create table if not exists pay_adjustments (
+  id          uuid primary key default gen_random_uuid(),
+  tenant_id   uuid not null references tenant(id) on delete restrict,
+  adj_id                     text,
+  staff_id                   text,
+  date                       date,
+  field                      text,
+  from_value                 text,
+  to_value                   text,
+  reason                     text,
+  by_staff_id                text,
+  by_name                    text,
+  -- CreatedAt: the sheet's own column, carried by the
+  -- reserved column of the same name below — same meaning, and never declared twice.
+  created_at  timestamptz not null default now(),
+  updated_at  timestamptz not null default now()
+);
+create unique index if not exists pay_adjustments_code_uq on pay_adjustments(tenant_id, adj_id);
+create index if not exists pay_adjustments_tenant_ix on pay_adjustments(tenant_id);
+alter table pay_adjustments enable row level security;
+
 -- ── PAYROLL  (HR workbook)
 create table if not exists payroll (
   id          uuid primary key default gen_random_uuid(),
@@ -214,6 +236,9 @@ create table if not exists payroll (
   pause_from                 text,
   pause_to                   text,
   pause_reason               text,
+  approved                   text,
+  approved_by                text,
+  approved_at                timestamptz,
   created_at  timestamptz not null default now(),
   updated_at  timestamptz not null default now()
 );
@@ -292,12 +317,6 @@ create table if not exists staff (
   edu_major                  text,
   edu_grad_date              date,
   leave_quota                text,
-  pause_from                 text,
-  pause_to                   text,
-  pause_reason               text,
-  pause_remark               text,
-  pause_salary_mode          text,
-  pause_salary_amount        numeric(12,2),
   created_at  timestamptz not null default now(),
   updated_at  timestamptz not null default now()
 );
@@ -514,6 +533,7 @@ create table if not exists billing (
   qrref                      text,
   payment_method             text,
   transaction_date           date,
+  bill_run                   text,
   created_at  timestamptz not null default now(),
   updated_at  timestamptz not null default now()
 );
@@ -616,7 +636,6 @@ create table if not exists daily_journal (
   theme                      text,
   submitted_at               timestamptz,
   status                     text,
-  updated_at                 timestamptz,
   milk_unit                  text,
   parent_comment             text,
   meal_items                 text,
@@ -624,6 +643,8 @@ create table if not exists daily_journal (
   photo1                     text,
   photo2                     text,
   photo3                     text,
+  -- UpdatedAt: the sheet's own column, carried by the
+  -- reserved column of the same name below — same meaning, and never declared twice.
   created_at  timestamptz not null default now(),
   updated_at  timestamptz not null default now()
 );
@@ -785,7 +806,6 @@ create table if not exists injury_reports (
   injury_types               text,
   teacher_id                 text,
   created_date               date,
-  created_at                 timestamptz,
   notify_parent              boolean,
   status                     text,
   leader_by                  text,
@@ -794,7 +814,6 @@ create table if not exists injury_reports (
   admin_at                   timestamptz,
   reject_reason              text,
   updated_by                 text,
-  updated_at                 timestamptz,
   reject_by                  text,
   reject_at                  timestamptz,
   resubmitted_at             timestamptz,
@@ -807,6 +826,8 @@ create table if not exists injury_reports (
   treatment_places           text,
   treatment_place_other      text,
   treatment_by               text,
+  -- CreatedAt, UpdatedAt: the sheet's own columns, carried by the
+  -- reserved column of the same name below — same meaning, and never declared twice.
   created_at  timestamptz not null default now(),
   updated_at  timestamptz not null default now()
 );
@@ -1121,6 +1142,8 @@ create table if not exists students (
   end_date                   date,
   end_reason                 text,
   end_remark                 text,
+  cert_issued_date           date,
+  cert_issued_at             timestamptz,
   status                     text,
   created_date               date,
   otrate                     numeric(12,2),
@@ -1256,3 +1279,4 @@ do $$ declare t text; begin
     $f$, t);
   end loop;
 end $$;
+
