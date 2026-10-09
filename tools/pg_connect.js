@@ -187,6 +187,50 @@ async function main() {
     else tb.rows.forEach(r => console.log('         · ' + r.table_name));
   }
 
+  /* 🔴 --reset — DROP EVERY TABLE AND RE-RUN 001_init.sql, AND ONLY WHILE THE DATABASE IS EMPTY.
+   *
+   * Needed because the schema is GENERATED and still moving: on 2026-10-09 eighteen columns were
+   * declared and thirteen money columns changed from text to numeric, and a staging database built
+   * from the old file proves nothing about the new one. Re-creating is right while there is nothing
+   * in there; `alter table` migrations start at 002, once there is data worth keeping.
+   *
+   * THE GUARD IS THE POINT. It counts the rows in every table first and REFUSES if it finds any —
+   * so the day real data lands (which needs the PDPA agreement and the ผอ.'s approval first), this
+   * command stops working rather than quietly destroying it. A convenience that stays convenient
+   * after it has become dangerous is how data gets lost; this project has already lost data once.
+   */
+  if (arg === '--reset') {
+    const rows = await c.query("select tablename from pg_tables where schemaname='public' order by 1");
+    let total = 0; const nonEmpty = [];
+    for (const r of rows.rows) {
+      const n = (await c.query('select count(*)::int n from "' + r.tablename + '"')).rows[0].n;
+      total += n; if (n) nonEmpty.push(r.tablename + ' (' + n + ')');
+    }
+    console.log('\n  --reset: ' + rows.rows.length + ' ตาราง, ' + total + ' แถว');
+    if (total > 0) {
+      console.log('  🔴 ปฏิเสธ — ฐานข้อมูลนี้มีข้อมูลอยู่ จะไม่ลบให้:');
+      nonEmpty.slice(0, 10).forEach(s => console.log('     · ' + s));
+      console.log('\n     ถ้าต้องการเปลี่ยนโครงสร้างตารางที่มีข้อมูลแล้ว ให้เขียน migration 002 แบบ');
+      console.log('     alter table แทน — คำสั่งนี้มีไว้ใช้ตอนฐานข้อมูลยังว่างเท่านั้น\n');
+      await c.end(); process.exit(1);
+    }
+    const sql = fs.readFileSync(path.join(__dirname, '..', 'docs', 'schema', '001_init.sql'), 'utf8');
+    try {
+      await c.query('begin');
+      for (const r of rows.rows) await c.query('drop table if exists "' + r.tablename + '" cascade');
+      await c.query(sql);
+      await c.query('commit');
+      const after = await c.query(
+        "select count(*)::int n from information_schema.tables where table_schema='public'");
+      console.log('  ✅ สร้างใหม่จาก docs/schema/001_init.sql แล้ว — ' + after.rows[0].n + ' ตาราง');
+    } catch (e) {
+      await c.query('rollback').catch(() => {});
+      console.log('  🔴 ล้มเหลว — ย้อนกลับทั้งหมดแล้ว ฐานข้อมูลไม่เปลี่ยนแปลง');
+      console.log('     ' + scrub(e.message).slice(0, 300));
+      await c.end(); process.exit(1);
+    }
+  }
+
   if (arg === '--run') {
     const f = process.argv[3];
     if (!f) { console.log('\n  ใช้: node tools/pg_connect.js --run docs/schema/001_init.sql\n'); await c.end(); process.exit(2); }

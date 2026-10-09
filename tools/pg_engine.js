@@ -107,6 +107,29 @@ function decode_(v, pgType) {
     if (!p.h && !p.mi && !p.s) return ymd;                  // midnight reads back as a date
     return ymd + ' ' + p2(p.h) + ':' + p2(p.mi) + ':' + p2(p.s);
   }
+  /* 🔴 numeric COMES BACK AS A STRING, AND THAT IS A MONEY BUG (found 2026-10-09).
+   *
+   * node-postgres refuses to parse `numeric` into a JS number on purpose — numeric can hold values
+   * float64 cannot represent, so handing back a number would lose precision silently. Correct of the
+   * driver, and wrong for us: Sheets gives the engine a NUMBER, so a column that arrives as
+   * '18000.00' changes what the engine computes without changing what it reads.
+   *
+   *     Number('18000.00')          18000        — so Number(x||0) sites survive, and most are
+   *     '18000.00' + '1200.50'      '18000.001200.50'   — and these do not
+   *     '0.00' === 0                false        — nor these
+   *     sort((a,b) => a.Amount - b.Amount)       works; sort by string does not
+   *
+   * The irony is exact: thirteen columns became numeric TO protect the money, and becoming numeric
+   * is what turned them into strings. This was hidden by a test that asserted
+   * `Number(staff[0].BaseSalary) === 16000` — Number() applied in the assertion itself, which tests
+   * the value and cannot see the type. 12 digits with 2 decimals is at most 9,999,999,999.99, well
+   * inside float64's exact range in cents, so nothing is lost converting here — and this is the same
+   * number the engine has always worked with on Sheets. */
+  if (pgType === 'numeric') {
+    if (v === '') return '';
+    const n = Number(v);
+    return Number.isFinite(n) ? n : v;
+  }
   if (pgType === 'time' || pgType === 'time without time zone') return String(v).slice(0, 5);
   if (typeof v === 'string' && /^[[{]/.test(v.trim())) { try { return JSON.parse(v); } catch (e) {} }
   if (typeof v === 'object') return v;                      // jsonb already parsed by the driver

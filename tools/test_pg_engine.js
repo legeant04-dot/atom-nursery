@@ -99,6 +99,17 @@ function memM(src) {
     eq('time → HH:mm', decode_('08:02:00', 'time'), '08:02');
     eq('ข้อความที่เป็น JSON → แปลงกลับเป็น object', decode_('[1,2]'), [1, 2]);
     eq('ตัวเลขยังเป็นตัวเลข', decode_(16000), 16000);
+    /* 🔴 numeric มาเป็น "ข้อความ" จาก driver — ต้องแปลงกลับเป็นตัวเลขให้ engine
+     * node-postgres ไม่แปลง numeric ให้ เพราะ numeric เก็บค่าที่ float64 เก็บไม่ได้ (ถูกของเขา)
+     * แต่ Sheets ส่งเป็น "ตัวเลข" มาตลอด → '18000.00' + '1200.50' = '18000.001200.50' */
+    eq('🔴 numeric → ตัวเลข ไม่ใช่ "18000.00"', decode_('18000.00', 'numeric'), 18000);
+    ok_('🔴 ...และเป็น typeof number จริงๆ', typeof decode_('18000.00', 'numeric') === 'number');
+    eq('🔴 ศูนย์เป็นเลข 0 (ไม่ใช่ "0.00" ที่ === 0 เป็น false)', decode_('0.00', 'numeric'), 0);
+    eq('...บวกกันได้ ไม่ใช่ต่อกัน', decode_('18000.00','numeric') + decode_('1200.50','numeric'), 19200.5);
+    eq('ช่องเงินที่ว่าง ยังเป็น "" เหมือนเดิม', decode_(null, 'numeric'), '');
+    /* CONTROL — ต้องไม่แปลงมั่ว: คอลัมน์ที่ไม่ใช่ numeric ยังเป็นข้อความตามเดิม
+     * (ถ้าเผลอแปลงทุกอย่างที่หน้าตาเหมือนเลข บัญชีธนาคาร '0012345' จะกลายเป็น 12345) */
+    eq('CONTROL: เลขบัญชีที่เป็น text ต้องไม่ถูกแปลงเป็นตัวเลข', decode_('0012345'), '0012345');
     /* 🔴 เขตเวลาของโรงเรียน ไม่ใช่ของเซิร์ฟเวอร์ — เที่ยงคืนกรุงเทพคือ 17:00 UTC ของวันก่อนหน้า
      * ถ้าอ่านเป็น UTC จะได้วันที่ผิดไป 1 วัน ซึ่งเป็นกับดักที่โครงการนี้โดนมาแล้วทั้งเดือนในสลิปและการนับวันลา */
     eq('🔴 เที่ยงคืนตามเวลาไทย ต้องได้วันของไทย',
@@ -126,7 +137,26 @@ function memM(src) {
     eq('ชื่อไทยกลับมาครบ', a.NameTH, 'เด็กทดสอบ หนึ่ง');
     eq('🔴 วันเกิดเป็นข้อความ ไม่ใช่ Date object', a.DOB, '2023-04-15');
     eq('🔴 ช่องว่างกลับมาเป็น "" ไม่ใช่ null', pgM.students.find(s => s.StudentID === 'S-2').ParentID, '');
-    eq('เงินเดือนเป็นตัวเลข', Number(pgM.staff[0].BaseSalary), 16000);
+    /* 🔴 THE ASSERTION THAT USED TO HIDE THE BUG. It read
+     *      eq('เงินเดือนเป็นตัวเลข', Number(pgM.staff[0].BaseSalary), 16000)
+     * — Number() applied inside the assertion, so it tested the VALUE and could not see the TYPE.
+     * It passed happily on the string '16000.00' for as long as it existed. The lesson is small and
+     * costly: a test that coerces before comparing is testing its own coercion. */
+    eq('เงินเดือนเป็นตัวเลข (ไม่ใช่ข้อความ)', pgM.staff[0].BaseSalary, 16000);
+    ok_('🔴 ...typeof number — ไม่ Number() ครอบในข้อสอบเอง',
+      typeof pgM.staff[0].BaseSalary === 'number');
+    /* ...and every money column on every hydrated row, not just this one. A single spot-check is how
+     * twelve of the thirteen would have slipped through again. */
+    {
+      const MONEYISH = ['BaseSalary', 'Amount', 'SlipAmount', 'OTRate', 'DiscountAmount',
+        'ProrateAmount', 'OTEvening', 'OTHoliday', 'OTCarry', 'OtherIncome', 'SocialSecurity',
+        'NetPay', 'GrossIncome', 'Gross'];
+      const bad = [];
+      Object.keys(pgM).forEach(key => (pgM[key] || []).forEach(r =>
+        MONEYISH.forEach(f => { const v = r[f];
+          if (v !== undefined && v !== '' && typeof v !== 'number') bad.push(key + '.' + f + '=' + JSON.stringify(v)); })));
+      eq('🔴 ทุกช่องเงินที่อ่านกลับมา เป็นตัวเลขหมด', bad, []);
+    }
     eq('เวลาเป็น HH:mm ไม่ใช่ 08:02:00', pgM.checkinStudent[0].Time, '08:02');
   }
 

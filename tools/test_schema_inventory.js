@@ -70,11 +70,37 @@ console.log('\n2) money is numeric, and the tool will not guess');
    *
    * The number is pinned rather than bounded because it is a FLOOR THAT MUST NOT DROP: every one of
    * these is a figure that runs on binary fractions in Sheets today, and a money column that quietly
-   * stops being numeric is the whole reason this file exists. */
+   * stops being numeric is the whole reason this file exists.
+   *
+   * 🔴 38 → 51 on 2026-10-09, and the thirteen it had been missing are the embarrassing part. The
+   * guard that was supposed to catch them matched column NAMES against a money-ish pattern, and
+   * these are what a payslip actually calls its lines:
+   *
+   *     otevening · otholiday · otcarry · other_income · social_security
+   *     diligence_attendance · diligence_facebook · child_multiplier · contribution_employer
+   *     otrollover  (+ the four money columns newly declared on STUDENTS)
+   *
+   * Not one matches /amount|salary|pay|total|rate|…/, so all of them were generated as `text`. The
+   * pattern had already been added once to fix fifteen misses of exactly this kind, and then missed
+   * these on the same sheet. A name pattern cannot answer a question about meaning, so on the sheets
+   * made of money the generator now inverts the default: every column classified by hand, or the run
+   * refuses. See MONEY_SHEETS in schema_inventory.js. */
   const pairs = new Set();
   for (const m of sql.matchAll(/create table if not exists (\w+) \(([\s\S]*?)\n\);/g))
     for (const c of m[2].matchAll(/^\s+(\w+)\s+numeric\(12,2\),/gm)) pairs.add(m[1] + '.' + c[1]);
-  eq('money columns are numeric(12,2), never float or text', pairs.size, 38);
+  eq('money columns are numeric(12,2), never float or text', pairs.size, 51);
+
+  /* 🔴 AND THE PAYSLIP IN PARTICULAR — named, not counted. The count above would be satisfied by
+   * fifty-one of the wrong columns; these nine are the ones a teacher reads on their slip, and every
+   * one of them was `text` until today. Named individually so that losing any single one fails here
+   * rather than being absorbed into a number. */
+  const payslipMoney = ['otevening', 'otholiday', 'otcarry', 'other_income', 'social_security',
+    'diligence_attendance', 'diligence_facebook', 'child_multiplier', 'contribution_employer'];
+  eq('🔴 every money line on a payslip is numeric(12,2)',
+    payslipMoney.filter(c => !pairs.has('payroll.' + c)), []);
+  // CONTROL: the same lookup must be able to say no — these two are on payroll and are NOT money
+  eq('CONTROL: ...and a non-amount on the same table is not numeric(12,2)',
+    ['staff_name', 'pause_reason'].filter(c => pairs.has('payroll.' + c)), []);
   // the bare column names, for the two spot-checks below
   const money = [...new Set([...pairs].map(p => p.split(".")[1]))];
   /* COLUMN DEFINITIONS ONLY — the header comment explains WHY there is no float, and a grep over the

@@ -124,7 +124,21 @@ const MONEY = new Set([
   'BaseSalary', 'NetPay', 'GrossIncome', 'AdjustmentsTotal', 'DiligenceTotal', 'ExtraChildAmount',
   'HolidayBonus', 'OtherDeductions', 'TotalDeductions', 'TrainingCertAmount',
   'Contribution', 'ContributionOpening', 'ContributionAccum', 'PauseSalaryAmount',
-  'DiligenceAttendanceAmount', 'DiligenceFacebookAmount', 'SocialSecurityDeduct', 'TaxDeduct'
+  'DiligenceAttendanceAmount', 'DiligenceFacebookAmount', 'SocialSecurityDeduct', 'TaxDeduct',
+  /* ─── ADDED 2026-10-09. EVERY ONE OF THESE WAS `text` IN THE GENERATED MIGRATION ───────────────
+   * Found by inverting the default on the money sheets (see MONEY_SHEETS below). They are not
+   * borderline: these are the lines of a payslip, read off `gross = base + dT + oi + ot + otCarry
+   * + otHol + hb` and `net = gross - ss - contrib - od`.
+   *   OTEvening/OTHoliday/OTCarry  the three overtime lines, separate on purpose
+   *   OtherIncome                  the admin's free line on the slip
+   *   SocialSecurity               ประกันสังคม — a DEDUCTION, and text held it just as happily
+   *   DiligenceAttendance/Facebook เบี้ยขยัน, ฿500 each
+   *   ContributionEmployer         the school's half of the provident fund, as paid that month
+   *   ChildMultiplier              ฿ per extra child (ec = childCount × childMult), not a ratio
+   *   OTRollover                   unpaid OT rolled into a family's bill */
+  'OTEvening', 'OTHoliday', 'OTCarry', 'OtherIncome', 'SocialSecurity',
+  'DiligenceAttendance', 'DiligenceFacebook', 'ContributionEmployer', 'ChildMultiplier',
+  'OTRollover'
 ]);
 /* WHAT ONLY LOOKS LIKE MONEY. Listed as explicitly as the money itself, because the check below
  * refuses to let a column matching the money pattern go through unclassified — and "not money" is a
@@ -136,13 +150,53 @@ const MONEY = new Set([
 const NOT_MONEY = new Set([
   'PaidDate', 'PaymentMethod', 'GeneratedBy', 'GeneratedDate', 'PaidBy', 'PayType', 'PayrollID',
   'PrepayID', 'ChargeID', 'PauseSalaryMode', 'ContributionLocked', 'MilkTotal', 'Water',
-  'Net'   // PERF_LOG: the connection class, '4g' / '3g' — caught by "net" in the pattern
+  'Net',  // PERF_LOG: the connection class, '4g' / '3g' — caught by "net" in the pattern
+
+  /* ─── EVERY OTHER COLUMN ON A MONEY SHEET, SAID OUT LOUD (2026-10-09) ──────────────────────────
+   * Long, and deliberately so. On the sheets in MONEY_SHEETS the default is inverted: a column that
+   * nobody has classified refuses the whole run. So this list is not noise — it is the record that
+   * somebody looked at each of these and decided it is not an amount. The cost of that is typing;
+   * the cost of the alternative was `social_security text`. */
+  // ids, periods and keys
+  'StaffID', 'StudentID', 'BillingID', 'OTID', 'OTRecordID', 'AdjID', 'SlipID', 'Month',
+  // state machines and approval trails
+  'Status', 'VerifiedStatus', 'Verified', 'Approved', 'ApprovedBy', 'ApprovedAt', 'ApprovedBy',
+  'Step1By', 'Step1Status', 'Step2By', 'Step2Status', 'SlipSent', 'LeaveExceeds',
+  // dates, times and the clock readings OT is computed FROM (not amounts)
+  'Date', 'DueDate', 'TransactionDate', 'TransDate', 'TransTime', 'SubmittedDate', 'CreatedAt',
+  'PickupTime', 'PlanEnd', 'PlanOut', 'ActualOut', 'PauseFrom', 'PauseTo',
+  // references to money that are not money: a QR payload, a bank slip's ref, a Drive url
+  'QRRef', 'SlipRef', 'SlipUrl', 'Url', 'FileId', 'TransRef', 'BankAccount', 'BankName',
+  'BillRun', 'SlipGroup', 'RefKind', 'RefID', 'Receiver', 'Sender', 'Method',
+  // words: who, why, and what about
+  'Position', 'StaffName', 'ByName', 'ByStaffID', 'Reason', 'PauseReason', 'Note', 'Label',
+  'Field', 'Kind',
+  /* FromValue / ToValue are TEXT and must stay text. PAY_ADJUSTMENTS holds one row per FIELD
+   * changed, so the same two columns carry '18000' on a salary row and 'ครู' → 'หัวหน้าครู' on a
+   * promotion row. Typing them numeric would make the promotion unstorable. */
+  'FromValue', 'ToValue',
+  /* JSON, both of them. Adjustments is the list of ad-hoc lines on this slip; OTCarryDetail is the
+   * OT rows the carry-over came from — otCarryOver_ parses it to tell paid from unpaid. */
+  'Adjustments', 'OTCarryDetail',
+  'Covered',    // PREPAYMENTS: the JSON list of months this payment covers, not an amount
+  // ...and the four outside a money sheet that the name pattern flagged
+  'NoPayroll',    // STAFF: 'YES' = on the roster, not on the payroll
+  'DiscountUnit', // STUDENTS: 'baht' or '%' — the unit, not the figure
+  'ProrateMode',  // STUDENTS: FULL | NONE | DAILY | CUSTOM
+  'RateNote'      // STUDENTS: why this family's figures differ, in words
 ]);
 /* ...and the ones that are a COUNT or a MEASUREMENT. Separated deliberately: `Weight` and `Hours`
  * look numeric in the same way and must not become numeric(12,2) by accident. */
 const NUMERIC_OTHER = new Set(['Weight', 'Height', 'Hours', 'OTHours', 'Days', 'LateMinutes', 'Minutes',
   'Count', 'Qty', 'Priority', 'AgeMonth', 'ItemNo', 'BillingDay', 'Ms', 'Batch', 'Year',
-  'MilkTotal', 'Water']);
+  'MilkTotal', 'Water',
+  /* counts and limits on the payslip — a number, never an amount (2026-10-09). DaysWorked decides a
+   * daily-rate salary and LeaveLimit decides whether leave is unpaid, so they are not decorative:
+   * they were `text`, and 'text' compares as a string the moment anyone sorts or sums it. */
+  'DaysWorked', 'ExtraChildCount', 'ChildCount', 'LeaveDays', 'LeaveLimit', 'TrainingCertCount',
+  'ChildThreshold',
+  'Months'   // PREPAYMENTS: how many months were bought (2 | 3 | 6 | 12)
+]);
 
 /* THE GUARD, and the reason the money list can be trusted. Any column whose NAME looks like money
  * must appear in MONEY or in NOT_MONEY — never in neither. The first version of this tool had
@@ -152,20 +206,53 @@ const NUMERIC_OTHER = new Set(['Weight', 'Height', 'Hours', 'OTHours', 'Days', '
  *
  * A new money column added to a sheet now fails this run until somebody says which it is. */
 const MONEY_LIKE = /(amount|price|salary|pay|total|rate|discount|deduct|bonus|allow|contribut|fee|charge|sum|balance|owed|cost|baht|net|gross|paid)/i;
+
+/* 🔴 THE SHEETS WHERE A NAME PATTERN IS NOT GOOD ENOUGH, AND WHY (2026-10-09).
+ *
+ * The pattern above was the guard, and on 2026-10-09 it was caught doing exactly what it was written
+ * to prevent. These were in the generated migration as `text`, every one of them a figure on a
+ * teacher's payslip:
+ *
+ *     OTEvening · OTHoliday        baht. `gross = base + dT + oi + ot + otCarry + otHol + hb`
+ *     OTCarry                      baht, in that same sum
+ *     OtherIncome                  baht  — 'income' is not in the pattern
+ *     SocialSecurity               baht, DEDUCTED — 'security' is not in the pattern
+ *     DiligenceAttendance/Facebook baht, ฿500 each — 'diligence' is not in the pattern
+ *
+ * The pattern cannot be extended its way out of this. The failure is structural: it asks what a
+ * column is CALLED, and money is a question about what a column MEANS. The first version of this
+ * tool missed fifteen columns, the pattern was added to fix that, and the pattern then missed seven
+ * more of the same kind on the same sheet.
+ *
+ * So on the sheets that are made entirely of money, the DEFAULT IS INVERTED: every column must be
+ * classified by name, money or not, and an unclassified one refuses the whole run. A new column on a
+ * payslip cannot be typed by accident any more — somebody has to say which it is. That is more
+ * typing and it is the correct amount of typing, because "เรื่องเงินเป็นเรื่องละเอียดและสำคัญมาก
+ * ต่อความน่าเชื่อถือของ Application เรา" and a float on a payslip is how an application stops being
+ * believed. */
+const MONEY_SHEETS = new Set(['PAYROLL', 'PAYROLL_CONFIG', 'BILLING', 'OT_DAILY', 'OT_RECORDS',
+  'PREPAYMENTS', 'STUDENT_CHARGES', 'PAY_ADJUSTMENTS', 'PAYMENT_SLIPS']);
+
 function assertMoneyClassified(tables) {
-  const unclassified = [];
+  const unclassified = [], strict = [];
   tables.forEach(t => (t.cols || []).forEach(c => {
-    if (!MONEY_LIKE.test(c)) return;
     if (MONEY.has(c) || NOT_MONEY.has(c) || NUMERIC_OTHER.has(c)) return;
-    unclassified.push(t.sheet + '.' + c);
+    if (MONEY_SHEETS.has(t.sheet)) { strict.push(t.sheet + '.' + c); return; }
+    if (MONEY_LIKE.test(c)) unclassified.push(t.sheet + '.' + c);
   }));
-  if (unclassified.length) {
-    console.error('\n❌ these columns look like money and are classified nowhere.');
-    console.error('   Add each to MONEY (numeric) or NOT_MONEY (it only looks like money):\n');
-    unclassified.sort().forEach(c => console.error('     ' + c));
-    console.error('\n   Refusing to generate a schema that guesses at money.\n');
-    process.exit(1);
+  if (!unclassified.length && !strict.length) return;
+  console.error('\n❌ columns on a money sheet that are classified nowhere.');
+  console.error('   Add each to MONEY (numeric) or NOT_MONEY (it is not an amount):\n');
+  if (strict.length) {
+    console.error('   on a MONEY_SHEET — every column must be classified, pattern or no pattern:');
+    strict.sort().forEach(c => console.error('     ' + c));
   }
+  if (unclassified.length) {
+    console.error('\n   elsewhere — these match the money name pattern:');
+    unclassified.sort().forEach(c => console.error('     ' + c));
+  }
+  console.error('\n   Refusing to generate a schema that guesses at money.\n');
+  process.exit(1);
 }
 
 const BOOL_PREFIX = /^(Is|Has|Can|Require|Notify|Allow|Enabled?|Active|Read|Locked?|Verified?|Anonymous|Popup|GeoExempt|MustChange)/;
@@ -300,7 +387,13 @@ if (process.argv.includes('--sql') || process.argv.includes('--write')) {
   L.push('end $$;');
   L.push('');
 
-  const sql = L.join('\n');
+  /* 🔴 --write AND --sql MUST PRODUCE THE SAME BYTES (2026-10-09).
+   * console.log adds a trailing newline and writeFileSync does not, so the two modes of the same
+   * generator differed by exactly one byte — and test_schema_inventory compares the committed file
+   * against the `--sql` form. The result: `--write` produced a file the staleness check called
+   * STALE, with no visible difference to read in the diff. One '\n', and the only way to get an
+   * answer was to compare them by hand. The newline is now part of the document either way. */
+  const sql = L.join('\n') + '\n';
   if (process.argv.includes('--write')) {
     const dir = path.join(ROOT, 'docs', 'schema');
     fs.mkdirSync(dir, { recursive: true });
@@ -308,7 +401,7 @@ if (process.argv.includes('--sql') || process.argv.includes('--write')) {
     console.log('docs/schema/001_init.sql written —', withCols.length, 'tables,',
       withCols.reduce((a, t) => a + t.cols.length, 0), 'columns');
   } else {
-    console.log(sql);
+    process.stdout.write(sql);          // NOT console.log — that would re-add the newline above
   }
 } else {
   const money = [];
