@@ -687,6 +687,10 @@ window.CONFIG = { MODE: 'gas', GAS_URL: 'https://script.google.com/macros/s/AKfy
    * Keep identical to WRITES_ACTIONS_ in src/Code.gs.
    */
   const WRITES = {
+    /* v427: a head teacher takes a sent report back from the family. 'recall' is not one of the
+     * mutating verbs, and a write the cache and the lock do not know about is the whole class of bug
+     * WRITES exists for. Listed, not renamed — the name is the right name. */
+    recallJournalsMany: 1,
     recordCashPayment: 1, teacherStudentLeave: 1, unlockJournal: 1, unlockInjury: 1,
     // A parent correcting or withdrawing their own leave. Both start with "parent", so the anchored
     // verb test calls them reads — and a write the cache does not know about is a family deleting a

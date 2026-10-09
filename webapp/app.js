@@ -14,7 +14,7 @@
   // user can't double-tap a button or resubmit while the request is in flight. Reads are never covered
   // (they paint from cache instantly). Wraps window.api once, after api.js has defined it.
   const _mutRe = /^(submit|save|add|remove|delete|set|register|pay|upload|confirm|reject|issue|generate|move|export|import|compute|cancel|prepay|link|notify|request|mark|approve|edit|rename|update|change|seed|dedup|reindex)/i;
-  const _isMut = a => _mutRe.test(a) || /check(in|out)|absence|payOT$|^orgMove|^unlink|^claim/i.test(a);
+  const _isMut = a => _mutRe.test(a) || /check(in|out)|absence|payOT$|^orgMove|^unlink|^claim|^recall/i.test(a);
   const _EN = () => (typeof EN==='function' && EN());
   const _busyTxt = () => _EN() ? 'Processing…' : 'ระบบกำลังดำเนินการ…';
   let _busyN = 0, _busyEl = null, _busyFail = false, _busyOkT = null;
@@ -131,7 +131,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.426'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.427'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -5183,8 +5183,17 @@
      * one thing. They are not: one moves the DAY of the reports, the other moves the MONTH of a
      * birthday list. It is reference, not work, so it goes under the children. */
     const bdayHtml = `<div id="tbday">${birthdayCard(al,{nav:true})}</div>`;
+    /* 🔴 TICK SEVERAL CHILDREN, SEND ONE REQUEST — asked 2026-10-08: "เพื่อลดการ Request ในการส่งข้อมูล
+     * เด็กทีละคน หากเจอ Error หรือโหลดนาน จะทำให้ขั้นตอนนี้ใช้เวลานานมาก".
+     *
+     * Twelve children was twelve round trips at the end of the day, each one 3 to 30 seconds and
+     * each a turn nobody else in the school could have (v426). One now.
+     *
+     * The bar is only drawn when there is something it could do. On a past day there is nothing to
+     * send: those reports are read-only (v423) and the boxes would be a control that refuses. */
+    T_SEL = {};   // a fresh screen starts with nothing ticked — see T_selToggle
     app.innerHTML=`<h2 class="page">👶 ${esc(cl.class.ClassName)}</h2>${classSwitcher(cl)}
-      ${T_classDateBar(onDay)}${onDay?'':offCard}`+cl.students.map(s=>{
+      ${T_classDateBar(onDay)}${onDay?'':offCard}${onDay?'':T_sendBar(cl,jdone)}`+cl.students.map(s=>{
       const attTag = s.onLeave
         ? `<small class="pill warn" style="margin-left:4px">🏖️ ${esc(s.leaveType||(EN()?'on leave':'ลา'))}${s.leaveReason?' · '+esc(s.leaveReason):''}</small>`
         /* A CHECK-IN WITH NO TIME IS STILL A CHECK-IN. This used to print nothing at all unless
@@ -5198,8 +5207,69 @@
       /* On a past day the attendance chip and the DSPM reminder are both about NOW — classList
        * answers for today whatever date the journals were asked for, so printing "มา 08:02" beside
        * last Friday's report would be stating today's fact under yesterday's heading. */
-      return `<div class="card"><div style="display:flex;gap:10px;align-items:center">${studentAvatar(s)}<div style="min-width:0"><b>${esc(dispNick(s))}</b>${bdayTag(s.DOB)} ${(!onDay&&due)?dspmDueBadge(due):''} ${nmSub(s)?`<small class="muted">${esc(nmSub(s))}</small>`:""}${onDay?'':attTag}<br><small class="muted">${esc(ageYM(s.DOB))} · ${EN()?'allergy':'แพ้'}: ${esc(s.Allergy||'-')}</small><br>${journalPill(jdone[s.StudentID])}</div></div>
-        ${studentRowButtons(s,jdone,onDay)}</div>`; }).join('') + bdayHtml; };
+      /* THE TICK BOX, at the right of the row where the school asked for it ("มุมขวาของเด็กนักเรียน
+       * แต่ละคน"). DISABLED when there is nothing to send, with the reason on the box itself: a child
+       * with no entry at all cannot be sent, and a box that accepts a tap and then quietly does
+       * nothing is worse than one that will not take it. "เลือกทั้งหมด" skips those too. */
+      const pick = onDay ? '' : T_pickBox(s, jdone[s.StudentID]);
+      return `<div class="card"><div style="display:flex;gap:10px;align-items:center">${studentAvatar(s)}<div style="min-width:0;flex:1"><b>${esc(dispNick(s))}</b>${bdayTag(s.DOB)} ${(!onDay&&due)?dspmDueBadge(due):''} ${nmSub(s)?`<small class="muted">${esc(nmSub(s))}</small>`:""}${onDay?'':attTag}<br><small class="muted">${esc(ageYM(s.DOB))} · ${EN()?'allergy':'แพ้'}: ${esc(s.Allergy||'-')}</small><br>${journalPill(jdone[s.StudentID])}</div>${pick}</div>
+        ${studentRowButtons(s,jdone,onDay)}</div>`; }).join('') + bdayHtml;
+    T_selCount(); };
+
+  /* ---- bulk send of the day's reports --------------------------------------------------------
+   * One request for the whole class instead of one per child. T_SEL holds what is ticked, keyed by
+   * StudentID, and is cleared on every render: selection belongs to the list in front of you, and a
+   * tick that survived a class switch would send a child off a screen nobody is looking at.
+   *
+   * ONE CLASS AT A TIME, on the school's decision (2026-10-08) — the tab you are on. Selecting
+   * across tabs would need the fewest requests of all, but a confirmation reading "ส่ง 14 คน" with
+   * no way to see which ones is not a confirmation. */
+  let T_SEL = {};
+  // what each row is allowed to do, from the journal state the screen already has
+  const T_can = d => !d ? 'none' : (jIsDraft(d) ? 'send' : 'sent');
+  function T_pickBox(s, d){
+    const can = T_can(d);
+    const why = can==='none' ? (EN()?'No report yet — nothing to send':'ยังไม่มีบันทึก — ยังส่งไม่ได้')
+      : can==='sent' ? (EN()?'Already sent — a head teacher can recall it':'ส่งแล้ว — หัวหน้าครูดึงกลับมาแก้ได้')
+      : (EN()?'Tick to send this report':'ติ๊กเพื่อส่งบันทึกนี้');
+    const off = (can==='none') || (can==='sent' && !isHeadRole());
+    return `<label style="flex:0 0 auto;padding:6px;cursor:${off?'not-allowed':'pointer'}" title="${esc(why)}">
+      <input type="checkbox" class="tsel" value="${esc(s.StudentID)}" data-can="${can}" ${off?'disabled':''}
+        onchange="T_selToggle(this)" aria-label="${esc(dispNick(s))} — ${esc(why)}"
+        style="width:22px;height:22px;${off?'opacity:.3':''}"/></label>`;
+  }
+  // a head teacher (Department '*') may take a sent report back; the server checks this too
+  const isHeadRole = () => !!(USER && (USER._headTeacher || USER.role==='Admin'));
+  window.T_selToggle = (el) => { if(el.checked) T_SEL[el.value]=el.dataset.can; else delete T_SEL[el.value]; T_selCount(); };
+  window.T_selAll = (on) => { document.querySelectorAll('input.tsel:not([disabled])').forEach(c=>{ c.checked=!!on;
+    if(on) T_SEL[c.value]=c.dataset.can; else delete T_SEL[c.value]; }); T_selCount(); };
+  function T_selCount(){
+    const ids=Object.keys(T_SEL), send=ids.filter(k=>T_SEL[k]==='send').length, sent=ids.filter(k=>T_SEL[k]==='sent').length;
+    const n=document.getElementById('tselN'); if(n) n.textContent=ids.length?String(ids.length):'';
+    const b=document.getElementById('tselSend'); if(b){ b.disabled=!send; b.style.opacity=send?'':'.45'; }
+    const r=document.getElementById('tselBack'); if(r){ r.disabled=!sent; r.style.opacity=sent?'':'.45'; }
+  }
+  function T_sendBar(cl, jdone){
+    const kids=(cl.students||[]);
+    const drafts=kids.filter(s=>T_can(jdone[s.StudentID])==='send').length;
+    const sent=kids.filter(s=>T_can(jdone[s.StudentID])==='sent').length;
+    if(!kids.length) return '';
+    return `<div class="card" style="padding:8px">
+      <div class="spread" style="gap:6px;align-items:center;flex-wrap:wrap">
+        <span class="row" style="gap:6px;flex:0 0 auto">
+          <button class="btn sm outline" onclick="T_selAll(true)">☑️ ${EN()?'Select all':'เลือกทั้งหมด'}</button>
+          <button class="btn sm outline" onclick="T_selAll(false)">${EN()?'Clear':'ยกเลิกที่เลือก'}</button>
+        </span>
+        <small class="muted" style="flex:1;min-width:0;text-align:right">${EN()?'selected':'เลือกไว้'} <b id="tselN"></b></small>
+      </div>
+      <button class="btn block" id="tselSend" style="margin-top:8px" disabled onclick="T_sendMany(this)">📤 ${
+        EN()?'Send selected reports':'ส่งบันทึกที่เลือก'}</button>
+      ${isHeadRole()?`<button class="btn outline block" id="tselBack" style="margin-top:6px" disabled onclick="T_recallMany(this)">↩️ ${
+        EN()?'Recall selected for editing':'ดึงกลับมาแก้ไข'}</button>`:''}
+      <small class="muted" style="display:block;margin-top:6px">${EN()
+        ? `${drafts} ready to send · ${sent} already sent. Sending tells the family; a report with no mood cannot be sent.`
+        : `พร้อมส่ง ${drafts} คน · ส่งไปแล้ว ${sent} คน · การส่งจะแจ้งผู้ปกครองทันที · บันทึกที่ยังไม่ได้เลือกอารมณ์จะส่งไม่ได้`}</small></div>`;
+  }
   /* THE DAY THESE REPORTS ARE FROM. '' means today, so the ordinary case carries no state at all and
    * a teacher who opens the app in the morning always lands on today — a remembered date would have
    * them writing into a screen headed last Tuesday. */
@@ -5235,6 +5305,54 @@
   window.T_classDay = (step) => { const base=T_CDATE||todayStr();
     const d=new Date(base+'T00:00:00'); d.setDate(d.getDate()+Number(step||0));
     T_classDate(d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0')); };
+  /* WHAT CAME BACK, SAID IN WORDS. The server answers with `sent` and `skipped`, and a skip has a
+   * reason — a report with no mood, one already sent, a child with nothing written. "ส่งแล้ว" over a
+   * class where three were quietly skipped is the kind of success message that costs somebody an
+   * evening, so the count that got through and the count that did not are both printed. */
+  const T_SKIP_WHY = {
+    NO_JOURNAL:   ['ยังไม่มีบันทึก','no report yet'],
+    ALREADY_SENT: ['ส่งไปแล้ว','already sent'],
+    MISSING_MOOD: ['ยังไม่ได้เลือกอารมณ์','mood not chosen'],
+    NOT_MY_CLASS: ['ไม่ได้อยู่ในชั้นที่ดูแล','not in your class'],
+    NOT_SENT:     ['ยังไม่ได้ส่ง จึงดึงกลับไม่ได้','not sent, so nothing to recall'],
+    NOT_FOUND:    ['ไม่พบนักเรียน','student not found'] };
+  const T_skipText = (skipped) => { const by={}; (skipped||[]).forEach(s=>{ by[s.reason]=(by[s.reason]||0)+1; });
+    return Object.keys(by).map(k=>`${by[k]} ${esc((T_SKIP_WHY[k]||[k,k])[EN()?1:0])}`).join(' · '); };
+
+  window.T_sendMany = async (btn) => {
+    const ids = Object.keys(T_SEL).filter(k=>T_SEL[k]==='send');
+    if(!ids.length) return;
+    if(!confirm(EN()?`Send ${ids.length} report(s) to their families now?`
+                    :`ส่งบันทึก ${ids.length} คน ให้ผู้ปกครองเลยไหม?`)) return;
+    btn.disabled=true;
+    try{
+      const r = await api('submitJournalsMany',{ staffId:USER.staffId, studentIds:ids });
+      const n=((r&&r.sent)||[]).length, sk=((r&&r.skipped)||[]);
+      confirmSaved(EN()?`Sent ${n} report(s)`:`ส่งบันทึกแล้ว ${n} คน`);
+      if(sk.length) toast((EN()?`Not sent: `:`ไม่ได้ส่ง: `)+T_skipText(sk), 6000, true);
+      GO('class');
+    }catch(e){ err(e); btn.disabled=false; }
+  };
+
+  /* 🔴 TAKING A REPORT BACK IS NOT SENDING ONE, which is why it is its own button and its own
+   * sentence. The family may already have read it; the confirmation says so rather than asking
+   * "are you sure". */
+  window.T_recallMany = async (btn) => {
+    const ids = Object.keys(T_SEL).filter(k=>T_SEL[k]==='sent');
+    if(!ids.length) return;
+    if(!confirm(EN()?`Take ${ids.length} report(s) back from their families? They will disappear from the parent's app until a teacher sends them again, and the teacher who wrote them will be told.`
+                    :`ดึงบันทึก ${ids.length} คน กลับมาจากผู้ปกครอง?\n\nบันทึกจะหายไปจากแอปของผู้ปกครองจนกว่าคุณครูจะส่งใหม่ · ระบบจะแจ้งคุณครูที่เป็นคนบันทึกให้ทราบ`)) return;
+    btn.disabled=true;
+    try{
+      const r = await api('recallJournalsMany',{ staffId:USER.staffId, studentIds:ids });
+      const n=((r&&r.recalled)||[]).length, sk=((r&&r.skipped)||[]);
+      confirmSaved(EN()?`${n} report(s) recalled — the teacher has been told`
+                       :`ดึงกลับแล้ว ${n} คน — แจ้งคุณครูเรียบร้อย`);
+      if(sk.length) toast((EN()?`Not recalled: `:`ดึงกลับไม่ได้: `)+T_skipText(sk), 6000, true);
+      GO('class');
+    }catch(e){ err(e); btn.disabled=false; }
+  };
+
   // Teacher files a leave for a student → notifies the linked parents; shows in that student's parent calendar
   window.T_studentLeave=(sid,name)=>{ modal(`<h3>🏖️ ${EN()?'File student leave':'แจ้งลานักเรียน'} — ${esc(name)}</h3>
     <!-- same trap as #lType: the value is what reaches the sheet, so it stays Thai in both languages -->

@@ -42,7 +42,15 @@ const app = R('webapp/app.js'), apiJs = R('webapp/api.js'),
 const p2 = n => String(n).padStart(2, '0');
 const dstr = d => d.getFullYear() + '-' + p2(d.getMonth() + 1) + '-' + p2(d.getDate());
 const shift = n => { const d = new Date(); d.setDate(d.getDate() + n); return dstr(d); };
-const TOMORROW = shift(1), IN3 = shift(3);
+/* 🔴 A WEEKDAY, not "tomorrow". The engine refuses a leave whose whole range is a school holiday
+ * ("ช่วงวันที่เลือกเป็นวันหยุดโรงเรียนทั้งหมด"), so a suite that files one for shift(1) passes all
+ * week and throws every Friday and Saturday. Found 2026-10-09 — a Friday. The same trap
+ * test_checkin_byline hit, and the reason this file now asks for the next working day instead. */
+const nextWeekday = (from) => { const d = new Date(); d.setDate(d.getDate() + (from || 1));
+  while (d.getDay() === 0 || d.getDay() === 6) d.setDate(d.getDate() + 1); return dstr(d); };
+const TOMORROW = nextWeekday(1);
+const IN3 = (() => { const d = new Date(TOMORROW + 'T00:00:00'); d.setDate(d.getDate() + 1);
+  while (d.getDay() === 0 || d.getDay() === 6) d.setDate(d.getDate() + 1); return dstr(d); })();
 
 function fresh() {
   const M = {

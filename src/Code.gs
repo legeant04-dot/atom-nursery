@@ -279,6 +279,12 @@ var ROUTES = {
   // which returns null/[] gracefully instead of throwing NOT_FOUND when there is no journal yet)
   submitJournal:  function (p) { return handleSubmitJournal(p); },
   unlockJournal:  function (p) { return handleUnlockJournal(p); },   // admin-only, see ADMIN_ONLY
+  /* Bulk send / recall of daily reports (v427). Explicit routes because both write IN PLACE, row by
+   * row — DAILY_JOURNAL is in NO_SHRINK_SHEETS and a collection rewrite from a partially hydrated
+   * request is the shape of the 2026-07-09 wipe. recallJournalsMany is NOT in ADMIN_ONLY: a head
+   * teacher may use it, and the handler checks that itself (Department '*'). */
+  submitJournalsMany: function (p) { return handleSubmitJournalsMany(p); },
+  recallJournalsMany: function (p) { return handleRecallJournalsMany(p); },
   saveParentComment: function (p) { return handleSaveParentComment(p); },   // parent comment (parentOwnsStudent_ gates)
   saveTeacherReply:  function (p) { return handleSaveTeacherReply(p); },     // teacher replies to a parent comment → notifies the parent
   // Day 5 — DSPM Assessment + analytics
@@ -802,7 +808,11 @@ var READ_ONLY_ACTIONS_ = { absenceReport: 1, paymentLog: 1, paymentSlips: 1, pay
  * recorded a cash payment kept seeing the bill as unpaid.
  * Keep identical to WRITES in webapp/api.js — tools/test_lost_reply.js fails if it drifts.
  */
-var WRITES_ACTIONS_ = { recordCashPayment: 1, teacherStudentLeave: 1, unlockJournal: 1, unlockInjury: 1,
+var WRITES_ACTIONS_ = {
+  /* v427 — see WRITES in webapp/api.js. Without this the server would run a recall with NO WRITE
+   * LOCK, and two head teachers recalling at once could interleave against the same rows. */
+  recallJournalsMany: 1,
+  recordCashPayment: 1, teacherStudentLeave: 1, unlockJournal: 1, unlockInjury: 1,
   commentAssessment: 1,   // writes a note onto an assessment row; "comment" is not a mutating verb
   // A parent correcting or withdrawing their own leave. Both start with "parent", so MUTATING_RE —
   // which is anchored — treats them as reads. That means no write lock on the server and no cache
