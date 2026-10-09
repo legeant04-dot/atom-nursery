@@ -38,8 +38,64 @@ function verifyLineAccessToken_(accessToken) {
  * Push a text message to a LINE user. Returns true on success.
  * No-op (returns false) if the channel token is not configured yet.
  */
+/* 🔴 A LINE PUSH MUST NOT HOLD THE SCHOOL'S WRITE LOCK.
+ *
+ * Reported by the 06–09/10 speed report: 18:00 fail 13%, 19:00 15%, 20:00 37% — the worst hours of
+ * the day, and the hours when every teacher clocks out. A check-out that produced OT called
+ * notifyAdmins_, which calls UrlFetchApp out to LINE, and all of that ran INSIDE withWriteLock_.
+ * So one teacher's push was ~300ms during which NOBODY else in the school could write — and a bulk
+ * action that messages ten families held it for seconds.
+ *
+ * THE FIX IS IN ONE PLACE BECAUSE THE PROBLEM IS. Twenty-two call sites push LINE across ten files;
+ * changing them all would be twenty-two chances to miss one, and the twenty-third written next month
+ * would reintroduce it. While a locked section is running, a push is QUEUED instead of sent, and
+ * dispatch_ flushes the queue after the lock is released. Nothing else changes: outside a lock —
+ * triggers, digests, the reminder jobs — LINE_DEFER_ is null and the push goes straight out.
+ *
+ * WHAT A CALLER IS TOLD. Several count the return value (`if (linePushText_(…)) sent++`) to decide
+ * whether anybody was reached. A queued push answers TRUE, which is a promise rather than a receipt
+ * — and that is the honest trade: the alternative is holding the lock to find out. The one decision
+ * that turns on the count, notifyAdmins_'s "nobody on the list, use the fallback uid", is about
+ * whether a RECIPIENT was found, not about delivery, so it is unaffected.
+ *
+ * ORDERING IS PRESERVED. The queue is flushed in the order the pushes were made, so a family still
+ * reads "arrived" before "picked up".
+ */
+var LINE_DEFER_ = null;   // an array only while a write-locked section is running
+
 function linePushText_(toUid, text) {
+  if (LINE_DEFER_) {
+    // the token/recipient check is cheap and local — refuse here rather than queue a push that
+    // could never have gone, so the caller's count stays as truthful as it was before
+    var tok = getConfig_('LineChannelAccessToken', '');
+    if (!toUid || !tok || String(tok).indexOf('<FILL') === 0) return false;
+    LINE_DEFER_.push([toUid, String(text)]);
+    return true;
+  }
   return linePush_(toUid, [{ type: 'text', text: String(text) }]);
+}
+
+/** Arm the queue. Called by dispatch_ immediately before it takes the write lock. */
+function lineDeferBegin_() { LINE_DEFER_ = []; }
+
+/**
+ * Send everything that was queued, now that the lock is released.
+ *
+ * Best-effort and it NEVER throws into the response: the writes already succeeded, and a failed
+ * notification must not turn a saved check-out into an error on somebody's screen. A push that fails
+ * here is logged, exactly as linePush_ has always logged one that failed inline.
+ *
+ * Called from a `finally`, so a handler that threw still sends what it had already queued — those
+ * pushes were queued AFTER their writes, so they describe things that did happen.
+ */
+function lineDeferFlush_() {
+  var q = LINE_DEFER_;
+  LINE_DEFER_ = null;                       // disarm FIRST, or the pushes below would re-queue themselves
+  if (!q || !q.length) return;
+  for (var i = 0; i < q.length; i++) {
+    try { linePush_(q[i][0], [{ type: 'text', text: q[i][1] }]); }
+    catch (e) { try { Logger.log('lineDeferFlush_ failed: ' + (e && e.message || e)); } catch (x) {} }
+  }
 }
 
 function linePush_(toUid, messages) {

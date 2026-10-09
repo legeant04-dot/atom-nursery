@@ -756,15 +756,34 @@ function dispatch_(action, payload, token) {
       }
       mutates = false;   // nothing in this batch will be allowed to write, so it needs no write lock
     }
-    return withWriteLock_(mutates, function () {
-      if (action === 'batch') { (payload = payload || {}).__sess = sess; return reply_(withRenewal_({ ok: true, data: handler(payload) }, sess)); }
-      // perfLog records WHICH ROLE was affected. That must come from the verified session, never
-      // from the client — otherwise the one report we use to make decisions is trivially poisoned.
-      // No session is itself the signal we want (a user who could not sign in), recorded as 'anon'.
-      if (action === 'perfLog') { (payload = payload || {}).__sess = sess; return reply_({ ok: true, data: handler(payload) }); }
-      payload = applyIdentity_(action, payload, sess);
-      return reply_(withRenewal_({ ok: true, data: handler(payload) }, sess));
-    });
+    /* 🔴 LINE IS SENT AFTER THE LOCK IS RELEASED, NEVER WHILE IT IS HELD.
+     *
+     * The 06–09/10 report: 18:00 fail 13%, 19:00 15%, 20:00 37% — the worst hours of the day, and the
+     * hours when every teacher clocks out. A check-out that produced OT pushed LINE from inside this
+     * very lock, so one person's notification was ~300ms during which NOBODY in the school could
+     * write; a bulk action messaging ten families held it for seconds.
+     *
+     * Only armed for a write, because only a write takes the lock. A read pushes nothing, and arming
+     * it anyway would put a queue in front of every screen load for no reason.
+     *
+     * The flush is in a `finally` so a handler that threw still sends what it had queued — those
+     * pushes were queued AFTER their writes, so they describe things that really happened. It cannot
+     * throw: a failed notification must not turn a saved check-out into an error on screen.
+     */
+    if (mutates) lineDeferBegin_();
+    try {
+      return withWriteLock_(mutates, function () {
+        if (action === 'batch') { (payload = payload || {}).__sess = sess; return reply_(withRenewal_({ ok: true, data: handler(payload) }, sess)); }
+        // perfLog records WHICH ROLE was affected. That must come from the verified session, never
+        // from the client — otherwise the one report we use to make decisions is trivially poisoned.
+        // No session is itself the signal we want (a user who could not sign in), recorded as 'anon'.
+        if (action === 'perfLog') { (payload = payload || {}).__sess = sess; return reply_({ ok: true, data: handler(payload) }); }
+        payload = applyIdentity_(action, payload, sess);
+        return reply_(withRenewal_({ ok: true, data: handler(payload) }, sess));
+      });
+    } finally {
+      if (mutates) { try { lineDeferFlush_(); } catch (e) {} }
+    }
   } catch (err) {
     var code = (err && err.apiCode) ? err.apiCode : 'INTERNAL';
     var msg = (err && err.message) ? err.message : String(err);

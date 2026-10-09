@@ -297,9 +297,24 @@ function handleVerifySlip(p) {
 function logAudit_(action, table, recordId) {
   try { logAudit(action, table, recordId); } catch (e) {}   // Audit.gs provides logAudit; ignore if signature differs
 }
+/* 🔴 TWO FAULTS IN ONE LINE, both found 2026-10-09 while taking LINE out of the write lock.
+ *
+ * 1. IT NEVER WORKED. linePush_ takes an ARRAY of message objects — `[{type:'text', text:'…'}]` —
+ *    and this handed it a bare string, so the payload LINE received had no messages in it. Every
+ *    one of these went out as a 400 and was swallowed by the try/catch. Three callers, all of them
+ *    quiet for as long as they have existed: a parent filling in the insurance form, a parent
+ *    editing it, and a member of staff asking for a password reset. Nobody was ever told.
+ *
+ * 2. IT BYPASSED THE QUEUE. All three callers are mutating actions, so they run inside the write
+ *    lock — the exact fault the deferral was written for. Calling linePush_ directly walked straight
+ *    past it.
+ *
+ * Both answered by using linePushText_, which is the only thing that should ever push text: it
+ * builds the message array correctly AND defers while a lock is held.
+ */
 function notifyAdmin_(message) {
   try {
     var uid = getConfig_('AdminLineUID', '');
-    if (uid && String(uid).indexOf('<FILL') !== 0) linePush_(uid, message);  // Line.gs
+    if (uid && String(uid).indexOf('<FILL') !== 0) linePushText_(uid, message);  // Line.gs
   } catch (e) {}
 }
