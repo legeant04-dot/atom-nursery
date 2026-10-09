@@ -229,11 +229,37 @@ if (process.argv.includes('--sql') || process.argv.includes('--write')) {
     L.push(`create table if not exists ${tbl} (`);
     L.push('  id          uuid primary key default gen_random_uuid(),');
     L.push('  tenant_id   uuid not null references tenant(id) on delete restrict,');
+    /* 🔴 A COLUMN MAY ONLY BE DECLARED ONCE, and until 2026-10-09 three tables broke that rule —
+     * which means migration 001 had never been runnable at all. Postgres rejects the whole
+     * `create table`, so Phase 2 would have stopped on its first command.
+     *
+     * TWO SEPARATE CAUSES, and both are the generator's to absorb:
+     *
+     *   1. RESERVED NAMES. Every table gets id / tenant_id / created_at / updated_at from here.
+     *      DAILY_JOURNAL has an `UpdatedAt` column and INJURY_REPORTS and PAY_ADJUSTMENTS have
+     *      `CreatedAt` — all of which snake down onto those. Only `id` was being guarded.
+     *      The sheet's value is the one that matters (when the thing was RECORDED, not when the row
+     *      was inserted), and it lands in the reserved column during migration — same name, same
+     *      type, and `default now()` is then exactly right for rows created afterwards.
+     *
+     *   2. A NAME DECLARED TWICE IN THE SHEET ITSELF. STAFF lists the six Pause* columns in two
+     *      places in SCHEMA. Harmless to ensureColumns_, fatal here. Deduplicated rather than
+     *      reported, because the declaration is correct for the purpose it was written for.
+     */
+    const RESERVED = new Set(['id', 'tenant_id', 'created_at', 'updated_at']);
+    const emitted = new Set();
+    const absorbed = [];
     t.cols.forEach(c => {
       const name = snake(c);
-      if (name === 'id') return;
+      if (RESERVED.has(name)) { absorbed.push(c); return; }   // provided below, once
+      if (emitted.has(name)) return;                          // the sheet named it twice
+      emitted.add(name);
       L.push(`  ${name.padEnd(26)} ${sqlType(c)},`);
     });
+    if (absorbed.length) {
+      L.push(`  -- ${absorbed.join(', ')}: the sheet's own column${absorbed.length > 1 ? 's' : ''}, carried by the`);
+      L.push('  -- reserved column of the same name below — same meaning, and never declared twice.');
+    }
     L.push('  created_at  timestamptz not null default now(),');
     L.push('  updated_at  timestamptz not null default now()');
     L.push(');');

@@ -61,8 +61,22 @@ console.log('\n2) money is numeric, and the tool will not guess');
 // ============================================================================================
 {
   const sql = run('--sql');
-  const money = [...sql.matchAll(/^\s+(\w+)\s+numeric\(12,2\),/gm)].map(m => m[1]);
-  ok_('money columns are numeric(12,2), never float or text  (' + money.length + ')', money.length >= 39);
+  /* 🔴 COUNTED AS (table, column) PAIRS, not as lines.
+   *
+   * This read `>= 39` and passed — on a file where STAFF declared pause_salary_amount TWICE, which
+   * is invalid SQL Postgres would have refused outright. The thirty-ninth money column did not
+   * exist; it was the same column counted again. The real figure is 38, and counting pairs means a
+   * duplicate can never inflate it back.
+   *
+   * The number is pinned rather than bounded because it is a FLOOR THAT MUST NOT DROP: every one of
+   * these is a figure that runs on binary fractions in Sheets today, and a money column that quietly
+   * stops being numeric is the whole reason this file exists. */
+  const pairs = new Set();
+  for (const m of sql.matchAll(/create table if not exists (\w+) \(([\s\S]*?)\n\);/g))
+    for (const c of m[2].matchAll(/^\s+(\w+)\s+numeric\(12,2\),/gm)) pairs.add(m[1] + '.' + c[1]);
+  eq('money columns are numeric(12,2), never float or text', pairs.size, 38);
+  // the bare column names, for the two spot-checks below
+  const money = [...new Set([...pairs].map(p => p.split(".")[1]))];
   /* COLUMN DEFINITIONS ONLY — the header comment explains WHY there is no float, and a grep over the
    * whole file reads its own explanation as the thing it forbids. Same trap as the comment-stripping
    * in tools/test_retry_budget.js: a test a document can fail is not testing the code. */
@@ -141,6 +155,48 @@ console.log('\n4) the decisions that cost the most to reverse are in the DDL its
     /create unique index if not exists students_code_uq on students\(tenant_id, student_id\)/.test(sql));
   ok_('the file says it is generated, so nobody edits it by hand',
     /DO NOT EDIT BY HAND/.test(sql));
+
+  /* 🔴 POSTGRES CAN ACTUALLY RUN IT — and until 2026-10-09 it could not.
+   *
+   * Three tables declared the same column twice, so `create table` would have been rejected and
+   * Phase 2 would have stopped on its very first command. Nothing here had ever checked; the suite
+   * counted tables, tenant_id and policies, all of which were correct in a file that could not be
+   * executed. Two separate causes, both the generator's to absorb:
+   *
+   *   · DAILY_JOURNAL has UpdatedAt, INJURY_REPORTS and PAY_ADJUSTMENTS have CreatedAt — every
+   *     table already gets created_at / updated_at from the generator, and only `id` was guarded;
+   *   · STAFF lists the six Pause* columns twice in SCHEMA. Harmless to ensureColumns_, fatal here.
+   */
+  const dupes = [];
+  for (const m of sql.matchAll(/create table if not exists (\w+) \(([\s\S]*?)\n\);/g)) {
+    const cols = [...m[2].matchAll(/^ {2}([a-z_]+)\s/gm)].map(x => x[1]);
+    const d = [...new Set(cols.filter((c, i) => cols.indexOf(c) !== i))];
+    if (d.length) dupes.push(m[1] + ': ' + d.join(','));
+  }
+  eq('🔴 no table declares the same column twice', dupes, []);
+  // ...and the reserved four are provided exactly once per table, by the generator
+  const RES = ['id', 'tenant_id', 'created_at', 'updated_at'];
+  const wrong = [];
+  for (const m of sql.matchAll(/create table if not exists (\w+) \(([\s\S]*?)\n\);/g)) {
+    if (m[1] === 'tenant') continue;
+    RES.forEach(r => {
+      const n = (m[2].match(new RegExp('^ {2}' + r + '\\s', 'gm')) || []).length;
+      if (n !== 1) wrong.push(m[1] + '.' + r + '=' + n);
+    });
+  }
+  eq('🔴 ...and every table has each reserved column exactly once', wrong, []);
+
+  /* 🔴 AND IT IS IN STEP WITH WHAT THE CODE DECLARES TODAY. The file is generated; a stale copy is
+   * a migration that silently drops whatever was added since. On 2026-10-09 it was missing the whole
+   * PAY_ADJUSTMENTS table and six columns shipped in v416–v419 — the payslip approval flags, the
+   * certificate stamps, the bill-run id and the no-payroll flag. Regenerating is one command, so
+   * there is no reason for this ever to be out of date. */
+  const { execFileSync } = require('child_process');
+  const regen = execFileSync(process.execPath,
+    [path.join(__dirname, 'schema_inventory.js'), '--sql'], { encoding: 'utf8' }).replace(/\r\n/g, '\n');
+  eq('🔴 the committed schema is exactly what the code generates today',
+    regen === sql ? 'in step' : 'STALE — run: node tools/schema_inventory.js --sql > docs/schema/001_init.sql',
+    'in step');
 }
 
 console.log('\n' + (fail ? 'FAILED ' : 'PASSED ') + pass + ' passed, ' + fail + ' failed');
