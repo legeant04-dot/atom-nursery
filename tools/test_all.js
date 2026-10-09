@@ -40,8 +40,21 @@ if (!want.length) {
   results.push(run('node tools/release.js --check', 'version consistency'));
 }
 
+/* 🔴 SUITES THAT NEED THE STAGING DATABASE ARE NOT PART OF THIS RUN.
+ *
+ * Everything else here is offline and deterministic: clone the repo, run one command, get an answer.
+ * A suite that reaches across the network for credentials breaks that for anybody who has not set
+ * secrets/supabase.env up — and during the migration that is most people most of the time. They are
+ * real suites and they must be run; they are just run on purpose, by name:
+ *
+ *     node tools/test_pg_engine.js      node tools/pg_rls_spike.js
+ *
+ * Asking for one explicitly (`node tools/test_all.js pg`) still includes it, because then you have
+ * said you want it. */
+const NEEDS_DB = /^(test_pg_|pg_)/;
 const suites = fs.readdirSync(path.join(ROOT, 'tools'))
   .filter(f => /^test_.*\.js$/.test(f) && f !== 'test_all.js')
+  .filter(f => !NEEDS_DB.test(f) || want.length)
   .filter(f => !want.length || want.some(w => f.indexOf(w) >= 0))
   .sort();
 
