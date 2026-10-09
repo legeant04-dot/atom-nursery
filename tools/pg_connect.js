@@ -100,12 +100,73 @@ async function main() {
   // built before the first thing that can fail, so every message below goes through it
   const scrub = makeScrubber(env, url);
   console.log('\n  host   : ' + safeHost(url) + '   (ปิดบังบางส่วนไว้ตั้งใจ)');
-  const c = new Client({ connectionString: url, ssl: { rejectUnauthorized: false },
-                         connectionTimeoutMillis: 15000 });
-  const t0 = Date.now();
-  try { await c.connect(); }
-  catch (e) {
-    console.log('  🔴 เชื่อมต่อไม่สำเร็จ: ' + scrub(e.message));
+
+  /* 🔴 THE PASSWORD IS NOT PART OF A URL, SO DO NOT MAKE IT ONE.
+   *
+   * 2026-10-09, the very first connection attempt: `password authentication failed`. The password
+   * Supabase generated contains a `%`, which is the percent-ESCAPE character. Handing the whole
+   * string to pg means pg's own parser runs decodeURIComponent over it, so `%2f` becomes `/`,
+   * `%ab` becomes something else again, and the password that reaches the server is not the one
+   * anybody typed. The dashboard hands you a string with `[YOUR-PASSWORD]` in it and expects you to
+   * percent-encode what you paste in — which nobody does, and which has to be redone every time the
+   * password is reset.
+   *
+   * So the string is split here and the parts handed over SEPARATELY, with no decoding at all:
+   * split at the LAST `@` (a password may contain one) and at the FIRST `:` after that (a username
+   * may not). Any password now works exactly as typed.
+   *
+   * ...AND THE OTHER CASE IS STILL COVERED. Somebody who DID encode it properly would otherwise be
+   * broken by this fix, so a failure is retried once with the decoded form. Two attempts, and the
+   * message says which one worked — guessing silently is how this kind of thing stays mysterious.
+   */
+  const parseConn = (s) => {
+    const m = String(s).match(/^postgres(?:ql)?:\/\/(.*)$/i);
+    if (!m) return null;
+    const rest = m[1];
+    const at = rest.lastIndexOf('@');
+    if (at < 0) return null;
+    const cred = rest.slice(0, at), hostPart = rest.slice(at + 1);
+    const colon = cred.indexOf(':');
+    const user = colon < 0 ? cred : cred.slice(0, colon);
+    const pass = colon < 0 ? '' : cred.slice(colon + 1);
+    const hm = hostPart.match(/^([^:/?]+)(?::(\d+))?(?:\/([^?]*))?/);
+    if (!hm) return null;
+    return { user, password: pass, host: hm[1], port: Number(hm[2] || 5432),
+             database: hm[3] || 'postgres' };
+  };
+
+  const base = parseConn(url);
+  if (!base) { console.log('  🔴 อ่านสายเชื่อมต่อไม่ออก — คัดลอกมาจาก Dashboard → Connect → Connection string อีกครั้ง\n'); process.exit(2); }
+
+  /* 🔴 THE BRACKETS. The dashboard hands you `...:[YOUR-PASSWORD]@...` and the instruction is to
+   * replace the whole placeholder — brackets included. On 2026-10-09 the first real attempt put the
+   * password INSIDE them, so an 18-character secret went to the server with `[` and `]` on it and
+   * came back `password authentication failed`, which is the least informative thing it could have
+   * said. Said plainly here, and tried anyway so nobody is blocked on punctuation. */
+  if (/^\[.*\]$/.test(base.password)) {
+    console.log('  ⚠️  รหัสผ่านมีวงเล็บ [ ] ครอบอยู่ — ตอน copy มาต้องลบวงเล็บออกด้วย');
+    console.log('      (ผมลองแบบลบวงเล็บให้แล้ว · ถ้าผ่าน กรุณาแก้ไฟล์ให้ตรงด้วย)');
+  }
+  const attempts = [{ label: 'ตามที่พิมพ์ไว้', pw: base.password }];
+  const seen = new Set([base.password]);
+  const add = (label, pw) => { if (pw != null && !seen.has(pw)) { seen.add(pw); attempts.push({ label, pw }); } };
+  if (/^\[.*\]$/.test(base.password)) add('ลบวงเล็บ [ ] ออก', base.password.slice(1, -1));
+  let decoded = null;
+  try { decoded = decodeURIComponent(base.password); } catch (e) {}
+  add('แบบถอดรหัส %xx', decoded);
+
+  let c = null, t0 = Date.now(), lastErr = null;
+  for (const a of attempts) {
+    const cand = new Client(Object.assign({}, base, { password: a.pw,
+      ssl: { rejectUnauthorized: false }, connectionTimeoutMillis: 15000 }));
+    t0 = Date.now();
+    try { await cand.connect(); c = cand;
+      if (attempts.length > 1) console.log('  (ใช้รหัสผ่าน ' + a.label + ')');
+      break; }
+    catch (e) { lastErr = e; try { await cand.end(); } catch (x) {} }
+  }
+  if (!c) {
+    console.log('  🔴 เชื่อมต่อไม่สำเร็จ: ' + scrub(lastErr && lastErr.message));
     console.log('\n  ตรวจ 3 อย่างนี้:');
     console.log('    · รหัสผ่านในสายเชื่อมต่อถูกต้องไหม (ตัวที่ตั้งตอนสร้าง project)');
     console.log('    · ใช้แบบ "Session pooler" หรือยัง — แบบ Direct connection ต้องใช้ IPv6');
