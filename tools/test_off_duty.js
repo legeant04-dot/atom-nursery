@@ -84,17 +84,17 @@ const res = JSON.parse(run(function () {
 
   // ---- with the LINE switch OFF (the default, and what the school believed was set) ----
   PUSH.length = 0;
-  notifyStudentTeacher_(student, '👶 ใบเตย มาถึงโรงเรียนแล้ว (07:20)', { adminFallback: false });
+  notifyStudentTeacher_(student, '👶 ใบเตย มาถึงโรงเรียนแล้ว (07:20)', { adminFallback: false, topic: 'staff.arrival' });
   o.pushedOff = whoPushed();
   o.inboxedOff = whoInboxed();
 
   // ---- ...and with it ON ----
-  updateRow_(cfg, findObject_(cfg, function (r) { return r.Key === 'StaffLineNotify'; })._row, { Value: 'true' });
+  updateRow_(cfg, findObject_(cfg, function (r) { return r.Key === 'NotifyStaffArrival'; })._row, { Value: 'true' });
   _configCache = null;
   PUSH.length = 0;
-  notifyStudentTeacher_(student, '👶 ใบเตย ถูกรับกลับแล้ว (17:00)', { adminFallback: false });
+  notifyStudentTeacher_(student, '👶 ใบเตย ถูกรับกลับแล้ว (17:00)', { adminFallback: false, topic: 'staff.arrival' });
   o.pushedOn = whoPushed();
-  updateRow_(cfg, findObject_(cfg, function (r) { return r.Key === 'StaffLineNotify'; })._row, { Value: 'false' });
+  updateRow_(cfg, findObject_(cfg, function (r) { return r.Key === 'NotifyStaffArrival'; })._row, { Value: 'false' });
   _configCache = null;
 
   // ---- the daily board ----
@@ -186,10 +186,12 @@ console.log('\n2) THE LINE SWITCH — the quota the school thought was protected
   ok_('...but not somebody whose first day is tomorrow', res.inboxedOff.indexOf('STF-SOON') < 0);
   eq('on: the covering teachers are pushed, and nobody else', res.pushedOn, ['Uleaving', 'Unodate', 'Uteacher']);
   ok_('...still not the one who starts tomorrow', res.pushedOn.indexOf('Usoon') < 0);
-  ok_('the switch is declared, or saving it would change nothing', /StaffLineNotify: 1/.test(staffGs));
-  ok_('...and seeded off', /\['StaffLineNotify',\s*'false'\]/.test(R('src/Config.gs')));
-  // the five checkboxes are saved from one table since v424 — same keys, same ids
-  ok_('the settings screen offers it', /id="setStaffLine"/.test(app) && /\['StaffLineNotify','#setStaffLine'\]/.test(app));
+  /* ONE SWITCH BECAME THREE on 2026-10-10 — arrivals, leaves and journal comments are separate
+   * topics now, because a school that wants to hear about a leave should not have to accept a push
+   * for every child walking through the door. This path is the arrival. */
+  ok_('the switch is declared, or saving it would change nothing', /LINE_TOPIC_KEYS_\[t\]\] = 1/.test(staffGs));
+  ok_('...and seeded off', /\['NotifyStaffArrival',\s*'false'\]/.test(R('src/Config.gs')));
+  ok_('the settings screen offers it', /k:'NotifyStaffArrival'/.test(app) && /input\[data-notify\]/.test(app));
   ok_('...saying plainly that the bell still works', /คุณครูยังได้รับครบทุกเรื่องที่กระดิ่ง/.test(app));
 }
 

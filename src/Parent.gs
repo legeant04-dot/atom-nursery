@@ -91,13 +91,13 @@ function handleParentCheckin(payload) {
 
   var verb = (type === 'IN') ? 'มาถึงโรงเรียนแล้ว' : 'ผู้ปกครองรับกลับแล้ว';
   // routine check-in/out: notify covering teachers only — do NOT fall back to the Admin inbox (avoids flooding it)
-  notifyStudentTeacher_(student, '👶 ' + student.Name + ' ' + verb + ' (' + timeStr_(now) + ')', { adminFallback: false });
+  notifyStudentTeacher_(student, '👶 ' + student.Name + ' ' + verb + ' (' + timeStr_(now) + ')', { adminFallback: false, topic: 'staff.arrival' });
 
   // late pickup → create/refresh the OT charge (it then rolls into this month's bill)
   var ot = null;
   if (type === 'OUT') {
     ot = otUpsertForPickup_(student, timeStr_(now), dateStr_(now));
-    if (ot && parent.LineUID) {
+    if (ot && parent.LineUID && lineTopicOn_('parent.ot')) {
       try {
         linePushText_(parent.LineUID, '⏰ รับช้า ' + ot.lateMinutes + ' นาที (เลิกเรียน ' + ot.planEnd + ')\n' +
           'ค่าล่วงเวลา ' + ot.hours + ' ชม. × ' + ot.rate + ' = ' + ot.amount + ' บาท\nยอดนี้จะรวมในบิลรายเดือน');
@@ -212,7 +212,8 @@ function handleStudentAbsence(payload) {
   var desc = (payload.type || '') + ((payload.type && payload.reason) ? ' — ' : '') + (payload.reason || '');
   var notified = notifyStudentTeacher_(student, '🏠 แจ้งลา: ' + student.Name + ' วันที่ ' +
     leaveSpanLabel_(run.made.map(function (x) { return x.date; })) +
-    '\n' + (desc || '-') + '\n' + (byOffice ? '(บันทึกโดยทางโรงเรียน)' : '(โดยผู้ปกครอง ' + parent.Name + ')'));
+    '\n' + (desc || '-') + '\n' + (byOffice ? '(บันทึกโดยทางโรงเรียน)' : '(โดยผู้ปกครอง ' + parent.Name + ')'),
+    { topic: 'staff.leave' });
   // the trail names whoever actually did it — an office entry logged against the family would make
   // the one record that says "the school decided this" point at the wrong person
   logAudit(byOffice ? String(payload.__meId || 'admin') : parent.ParentID,
@@ -249,7 +250,7 @@ function handleTeacherStudentLeave(payload) {
   // notify every parent linked to this student — once for the whole run, not once per day
   var msg = '🏠 คุณครูแจ้งลาให้ ' + student.Name + ' วันที่ ' +
     leaveSpanLabel_(run.made.map(function (x) { return x.date; })) + '\nเหตุผล: ' + (payload.reason || '-');
-  var sent = notifyStudentParents_(student, msg);
+  var sent = notifyStudentParents_(student, msg, 'parent.leave');
   logAudit(staff.StaffID, 'TEACHER_STUDENT_LEAVE', 'LEAVE_REQUEST_STD',
     run.leaveId + ' ' + run.from + (run.from === run.to ? '' : '–' + run.to));
   return { leaveId: run.leaveId, leaveIds: run.made.map(function (x) { return x.leaveId; }),
@@ -257,8 +258,22 @@ function handleTeacherStudentLeave(payload) {
            days: run.made.length, skipped: run.skipped, parentNotified: sent };
 }
 
-/** LINE-notify every parent linked to a student (USER_LINKS + PARENTS.LineUID). Returns count sent. */
-function notifyStudentParents_(student, text) {
+/**
+ * LINE-notify every parent linked to a student (USER_LINKS + PARENTS.LineUID). Returns count sent.
+ *
+ * 🔴 `topic` IS REQUIRED, AND IT IS REQUIRED BECAUSE OF WHAT HAPPENED WITHOUT IT (2026-10-09).
+ *
+ * This function used to take (student, text) and send. No config, no condition — four callers, four
+ * topics, none of them switchable. The ผอ. saw two of them arrive at families and asked, for the
+ * second time, why the system was pushing LINE when the school had turned notifications off. It had
+ * not turned THESE off, because there was nothing to turn off.
+ *
+ * Now every caller must say what KIND of message this is, and `lineTopicOn_` decides. Omit the
+ * topic and nothing is sent at all — see the note on LINE_TOPIC_KEYS_ in Line.gs. The in-app route
+ * for families is the app itself, which costs no quota and is always up to date.
+ */
+function notifyStudentParents_(student, text, topic) {
+  if (!lineTopicOn_(topic)) return 0;            // 🔴 fails closed — an undeclared topic sends nothing
   var sent = 0, seen = {};
   var push = function (uid) { if (uid && !seen[uid]) { seen[uid] = 1; try { linePushText_(uid, text); sent++; } catch (e) {} } };
   readObjects_(sheet_(getMainSpreadsheet_(), 'PARENTS')).forEach(function (p) {
@@ -281,7 +296,7 @@ function handleNotifyBills(p) {
     var st = findObject_(stSheet, function (s) { return String(s.StudentID) === String(sid); });
     if (!st) return;
     var msg = '🧾 ออกบิลค่าเทอมเดือน ' + month + ' ของ ' + (st.Nickname || st.Name) + ' แล้ว — เปิดแอปเพื่อดู/ชำระเงิน';
-    try { if (notifyStudentParents_(st, msg) > 0) n++; } catch (e) {}
+    try { if (notifyStudentParents_(st, msg, 'parent.bill') > 0) n++; } catch (e) {}
   });
   return { ok: true, notified: n, month: month };
 }
@@ -349,8 +364,15 @@ function notifyStudentTeacher_(student, text, opts) {
    *
    * The IN-APP INBOX IS ALWAYS WRITTEN either way — that is the teacher's 🔔 bell, it costs nothing,
    * and it is what makes turning LINE off safe. Emergencies do not come through here at all
-   * (notifyAdminsUrgent_ pushes LINE regardless, by design). Default off, like the admin switch. */
-  var lineOn = String(getConfig_('StaffLineNotify', 'false')) === 'true';
+   * (notifyAdminsUrgent_ pushes LINE regardless, by design). Default off, like the admin switch.
+   *
+   * 🔴 ONE SWITCH BECAME THREE (2026-10-10). `StaffLineNotify` covered arrivals, leaves and journal
+   * comments together, so a school that wanted to know about a leave had to accept a push for every
+   * child walking through the door — which is the highest-volume message in the app, and why the
+   * school turned the whole thing off and stopped hearing about leaves too. `opts.topic` now names
+   * which of the three this is. THE GATE IS ON THE LINE HALF ONLY: the bell still rings for
+   * everything, every time, which is exactly what makes a topic safe to switch off. */
+  var lineOn = lineTopicOn_(opts.topic);
   var reach = function (staff) {
     if (!staff || !staff.StaffID || seenStaff[staff.StaffID]) return;
     if (!staffOnDuty_(staff)) return;              // observers, admins, and anyone who has left
@@ -439,7 +461,7 @@ function handleParentEditLeave(p) {
       function (s) { return String(s.StudentID) === String(p.studentId); }) || {};
     notifyStudentTeacher_(stu, '✏️ แก้ไขใบลา: ' + (stu.Name || p.studentId) + ' → วันที่ ' + (patch.Date || otNormDate_(f.row.Date)) +
       '\n' + ((p.type || f.row.Type || '') + ((p.reason || f.row.Reason) ? ' — ' + (p.reason != null ? p.reason : f.row.Reason) : '') || '-') +
-      '\n(โดยผู้ปกครอง ' + parent.Name + ')');
+      '\n(โดยผู้ปกครอง ' + parent.Name + ')', { topic: 'staff.leave' });
   } catch (e) {}
   logAudit(parent.ParentID, 'PARENT_LEAVE_EDIT', 'LEAVE_REQUEST_STD', String(p.leaveId));
   return { ok: true, leaveId: p.leaveId };
@@ -475,7 +497,7 @@ function handleParentCancelLeave(p) {
     var stu = findObject_(sheet_(getMainSpreadsheet_(), 'STUDENTS'),
       function (s) { return String(s.StudentID) === String(p.studentId); }) || {};
     notifyStudentTeacher_(stu, '↩️ ยกเลิกใบลา: ' + (stu.Name || p.studentId) + ' วันที่ ' + when +
-      '\n(โดยผู้ปกครอง ' + parent.Name + ' — นักเรียนจะมาเรียนตามปกติ)');
+      '\n(โดยผู้ปกครอง ' + parent.Name + ' — นักเรียนจะมาเรียนตามปกติ)', { topic: 'staff.leave' });
   } catch (e) {}
   logAudit(parent.ParentID, 'PARENT_LEAVE_CANCEL', 'LEAVE_REQUEST_STD', String(p.leaveId) + ' ' + when);
   return { ok: true, cancelled: dates.length, dates: dates, from: dates[0], to: dates[dates.length - 1] };

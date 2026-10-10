@@ -912,7 +912,7 @@ function editAttendanceWrite_(p) {
     try {
       var parent = st.ParentID ? findObject_(sheet_(getMainSpreadsheet_(), 'PARENTS'),
         function (pr) { return String(pr.ParentID) === String(st.ParentID); }) : null;
-      if (parent && parent.LineUID && typeof linePushText_ === 'function') linePushText_(parent.LineUID, msg);
+      if (parent && parent.LineUID && lineTopicOn_('parent.ot') && typeof linePushText_ === 'function') linePushText_(parent.LineUID, msg);
     } catch (e) {}
     try { if (typeof notifyAdmins_ === 'function') notifyAdmins_(msg); } catch (e) {}
   } catch (e) { try { Logger.log('editAttendanceWrite_ notify failed: ' + (e && e.stack || e)); } catch (x) {} }

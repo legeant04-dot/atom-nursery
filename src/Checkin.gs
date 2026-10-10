@@ -661,10 +661,9 @@ function handleStaffStudentCheckin(p) {
   try {
     var parent = student.ParentID ? findObject_(sheet_(getMainSpreadsheet_(), 'PARENTS'),
       function (pr) { return String(pr.ParentID) === String(student.ParentID); }) : null;
-    // routine check-in: no Admin-inbox fallback (avoids flooding), and behind ParentLineNotify —
-    // the single biggest consumer of the LINE quota, and until 2026-09-02 the only channel with no
-    // switch of any kind. See parentLineOn_ in Line.gs.
-    if (parent && parent.LineUID && parentLineOn_()) linePushText_(parent.LineUID, msg);
+    // routine check-in: no Admin-inbox fallback (avoids flooding). The single biggest consumer of
+    // the LINE quota — its own topic since 2026-10-10 (LINE_TOPIC_KEYS_ in Line.gs).
+    if (parent && parent.LineUID && lineTopicOn_('parent.checkin')) linePushText_(parent.LineUID, msg);
   } catch (e) {}
   // the time RECORDED, not the moment the button was pressed — the two differ whenever a teacher
   // enters the real time, and the confirmation must show what was actually written down
@@ -757,7 +756,7 @@ function notifyAdmins_(text, category, ref) {
   /* LEGACY: every Admin-role user, about everything. Kept because it is what the school had before
    * the list existed, and it is off. The list above is the one to use — this cannot express "only
    * these topics" and is exactly why the school turned notifications off altogether. */
-  if (String(getConfig_('AdminLineNotify', 'false')) !== 'true') return;
+  if (!lineTopicOn_('admin.approval')) return;
   var users = readObjects_(sheet_(getMainSpreadsheet_(), 'USERS'));
   var legacy = 0;
   users.forEach(function (u) {
@@ -856,6 +855,7 @@ function forgotCheckinReminder() {
      * run outside the engine; the two are asserted equal in tools/test_require_checkin.js. */
     if (String(s.Role) === 'Admin') return;                                           // admins don't clock in
     if (String(s.RequireCheckin).toLowerCase() === 'false') return;                    // the "not required" toggle
+    if (!lineTopicOn_('staff.punch')) return;
     linePushText_(s.LineUID, '🌅 อรุณสวัสดิ์ค่ะ อย่าลืมลงเวลาเข้างานเวลา 07:00 นะคะ (' + s.Name + ')');
   });
 }
@@ -868,7 +868,7 @@ function forgotCheckoutReminder() {
     if (dateStr_(new Date(r.Date)) === today && r.CheckIn && !r.CheckOut) {
       var staff = findObject_(sheet_(getHrSpreadsheet_(), 'STAFF'),
         function (s) { return String(s.StaffID) === String(r.StaffID); });
-      if (staff && staff.LineUID) linePushText_(staff.LineUID, '⏰ อย่าลืมลงเวลาออกงานวันนี้นะคะ (' + staff.Name + ')');
+      if (staff && staff.LineUID && lineTopicOn_('staff.punch')) linePushText_(staff.LineUID, '⏰ อย่าลืมลงเวลาออกงานวันนี้นะคะ (' + staff.Name + ')');
     }
   });
 }

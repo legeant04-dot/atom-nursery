@@ -43,7 +43,7 @@ function coApply_(changes) {
     var r = findObject_(sh, function (s) { return String(s.StaffID) === String(c.staffId); });
     if (!r) return;
     updateRow_(sh, r._row, { Department: c.after, Classes: c.after });
-    try { if (r.LineUID) linePushText_(r.LineUID, '🔁 คุณถูกย้ายแผนก/ชั้นเรียน: ' + (c.before || '—') + ' → ' + (c.after || '—')); } catch (e) {}
+    try { if (r.LineUID && lineTopicOn_('staff.org')) linePushText_(r.LineUID, '🔁 คุณถูกย้ายแผนก/ชั้นเรียน: ' + (c.before || '—') + ' → ' + (c.after || '—')); } catch (e) {}
   });
   if (typeof cacheDel_ === 'function') { cacheDel_('col:STAFF'); cacheDel_('rows:STAFF'); }
 }
