@@ -51,7 +51,7 @@ create index if not exists attendance_request_seq_ix on attendance_request(tenan
 alter table attendance_request enable row level security;
 
 -- ── AUDIT_LOG  (HR workbook)
-create table if not exists audit_log (
+create table if not exists hr_audit_log (
   id          uuid primary key default gen_random_uuid(),
   seq         bigserial not null,
   tenant_id   uuid not null references tenant(id) on delete restrict,
@@ -63,10 +63,10 @@ create table if not exists audit_log (
   created_at  timestamptz not null default now(),
   updated_at  timestamptz not null default now()
 );
-create unique index if not exists audit_log_code_uq on audit_log(tenant_id, user_id);
-create index if not exists audit_log_tenant_ix on audit_log(tenant_id);
-create index if not exists audit_log_seq_ix on audit_log(tenant_id, seq);
-alter table audit_log enable row level security;
+create unique index if not exists hr_audit_log_code_uq on hr_audit_log(tenant_id, user_id);
+create index if not exists hr_audit_log_tenant_ix on hr_audit_log(tenant_id);
+create index if not exists hr_audit_log_seq_ix on hr_audit_log(tenant_id, seq);
+alter table hr_audit_log enable row level security;
 
 -- ── CHECKIN_STAFF  (HR workbook)
 create table if not exists checkin_staff (

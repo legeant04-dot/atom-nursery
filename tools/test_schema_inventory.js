@@ -200,6 +200,31 @@ console.log('\n4) the decisions that cost the most to reverse are in the DDL its
     if (d.length) dupes.push(m[1] + ': ' + d.join(','));
   }
   eq('🔴 no table declares the same column twice', dupes, []);
+
+  /* 🔴 ...AND NO TABLE IS DECLARED TWICE EITHER (Phase 2.2, 2026-10-10).
+   *
+   * A duplicate `create table if not exists` does not fail — it MERGES. `AUDIT_LOG` exists in both
+   * workbooks and they are not the same log: the MAIN one records access to school data, the HR one
+   * was created as the PDPA access log for salaries and national IDs. Both snake() to `audit_log`,
+   * so the generator emitted the name twice and the second was a silent no-op. The file looked
+   * right — 54 create statements, 53 tables — and four years of two separate audit trails would
+   * have landed in one with nothing to tell them apart.
+   *
+   * The two workbooks are an ACCESS BOUNDARY, not just storage. Merging them would have dissolved a
+   * PDPA control into a convenience. The HR copy is now `hr_audit_log`. */
+  {
+    const names = [...sql.matchAll(/create table if not exists (\w+) \(/g)].map(m => m[1]);
+    const dupTbl = [...new Set(names.filter((n, i) => names.indexOf(n) !== i))];
+    eq('🔴 no table name is emitted twice — `if not exists` merges rather than fails', dupTbl, []);
+    ok_('...and the two audit logs are separate tables',
+      names.indexOf('audit_log') >= 0 && names.indexOf('hr_audit_log') >= 0);
+    // CONTROL: the check can see a collision — it must not pass simply because the regex found none
+    ok_('CONTROL: the table-name scan actually read the file', names.length > 50);
+    // ...and the generator refuses rather than merging, so this cannot come back by omission
+    const gen = R('tools/schema_inventory.js');
+    ok_('🔴 the generator refuses a collision instead of emitting it',
+      /function assertNoTableCollision/.test(gen) && /assertNoTableCollision\(withCols\)/.test(gen));
+  }
   // ...and the reserved four are provided exactly once per table, by the generator
   const RES = ['id', 'tenant_id', 'created_at', 'updated_at'];
   const wrong = [];
