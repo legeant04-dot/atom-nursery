@@ -93,6 +93,51 @@ const RUNTIME_SHEETS = [
 // ---------------------------------------------------------------------------------------------
 // 2. build the inventory
 // ---------------------------------------------------------------------------------------------
+/* ── WHAT A SHEET IS CALLED IN POSTGRES ──────────────────────────────────────────────────────────
+ *
+ * 🔴 TWO WORKBOOKS, ONE SCHEMA — AND ONE NAME WAS USED TWICE (found 2026-10-10, Phase 2.2).
+ *
+ * `AUDIT_LOG` exists in BOTH workbooks and they are not the same log. The MAIN one records access to
+ * school data; the HR one was created deliberately as "PDPA access log dedicated to the confidential
+ * workbook" — salaries, national IDs, leave. Both snake() to `audit_log`, so the generator emitted
+ *
+ *     create table if not exists audit_log ( … );      -- MAIN
+ *     create table if not exists audit_log ( … );      -- HR, and `if not exists` makes it a no-op
+ *
+ * …which runs cleanly and merges four years of two different audit trails into one table with
+ * nothing to tell them apart. The file even looked right: 54 create statements, 53 tables.
+ *
+ * 🔴 THE TWO WORKBOOKS ARE AN ACCESS BOUNDARY, NOT JUST STORAGE. That is the thing a flat schema
+ * loses by default. Somebody who may read the school's audit log must not thereby learn who has been
+ * looking at payroll. So the HR copy becomes its own table, and the boundary survives the move —
+ * where merging it would have quietly dissolved a PDPA control into a convenience.
+ *
+ * Only the colliding sheet is prefixed: renaming all ten HR tables would churn every name for a
+ * problem one of them has.
+ */
+function tableName(t) {
+  const base = snake(t.sheet);
+  return (t.wb === 'HR' && HR_PREFIXED.has(t.sheet)) ? 'hr_' + base : base;
+}
+const HR_PREFIXED = new Set(['AUDIT_LOG']);
+
+/* ...and the generator refuses to emit the same table twice ever again. A duplicate `create table
+ * if not exists` does not fail, it merges — the worst available outcome, and invisible in the file.
+ * Checked on the names actually emitted, so a future collision is caught by the thing that causes
+ * it rather than by somebody counting create statements by hand. */
+function assertNoTableCollision(tables) {
+  const by = {};
+  tables.forEach(t => { const n = tableName(t); (by[n] = by[n] || []).push(t.wb + '.' + t.sheet); });
+  const clash = Object.keys(by).filter(n => by[n].length > 1);
+  if (!clash.length) return;
+  console.error('\n❌ two sheets would become the same Postgres table.');
+  console.error('   `create table if not exists` would silently MERGE them — add the sheet to');
+  console.error('   HR_PREFIXED, or rename it, so each one keeps its own table:\n');
+  clash.forEach(n => console.error('     ' + n + '  ←  ' + by[n].join('  +  ')));
+  console.error('');
+  process.exit(1);
+}
+
 function inventory() {
   const sheets = readSheets(), cols = readCollections();
   const byKey = new Map();
@@ -279,6 +324,7 @@ const snake = s => s.replace(/([a-z0-9])([A-Z])/g, '$1_$2').replace(/[^A-Za-z0-9
 const inv = inventory();
 const withCols = inv.filter(t => t.cols && t.cols.length);
 assertMoneyClassified(withCols);   // refuse to go further if any amount is unclassified
+assertNoTableCollision(withCols);  // ...or if two sheets would quietly become one table
 
 if (process.argv.includes('--sql') || process.argv.includes('--write')) {
   const L = [];
@@ -311,7 +357,7 @@ if (process.argv.includes('--sql') || process.argv.includes('--write')) {
   L.push('');
 
   withCols.forEach(t => {
-    const tbl = snake(t.sheet);
+    const tbl = tableName(t);
     L.push(`-- ── ${t.sheet}  (${t.wb} workbook${t.collection ? ', engine: ' + t.collection : ''})${t.note ? ' — ' + t.note : ''}`);
     L.push(`create table if not exists ${tbl} (`);
     L.push('  id          uuid primary key default gen_random_uuid(),');

@@ -51,7 +51,16 @@ if (!want.length) {
  *
  * Asking for one explicitly (`node tools/test_all.js pg`) still includes it, because then you have
  * said you want it. */
-const NEEDS_DB = /^(test_pg_|pg_)/;
+/* 🔴 NAMED, NOT GUESSED FROM A PREFIX.
+ *
+ * This was `/^(test_pg_|pg_)/` — a guess about what a file needs made from what it is called. On
+ * 2026-10-10 `test_pg_migrate.js` arrived: entirely offline (it runs the migrator against a
+ * fabricated export) and excluded from every default run purely because of its name. A suite that
+ * silently stops running is worse than one that fails, and nothing would ever have said so.
+ *
+ * The list is short and it is the truth: these three reach the network. */
+const DB_SUITES = new Set(['test_pg_engine.js', 'pg_rls_spike.js', 'test_pg_load.js']);
+const NEEDS_DB = { test: f => DB_SUITES.has(f) };
 const suites = fs.readdirSync(path.join(ROOT, 'tools'))
   .filter(f => /^test_.*\.js$/.test(f) && f !== 'test_all.js')
   .filter(f => !NEEDS_DB.test(f) || want.length)

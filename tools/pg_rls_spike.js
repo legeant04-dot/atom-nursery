@@ -181,7 +181,15 @@ const errCode = async (c, sql, args) => {
      * ข้อนี้จึงอ่าน "ข้อความ" ของทุกนโยบายแทน — จับความผิดพลาดแบบเดียวกันได้โดยไม่ต้องพังอะไร */
     const pol = (await c.query(
       "select tablename, qual, with_check, cmd, roles::text from pg_policies where schemaname='public'")).rows;
-    eq('มีนโยบายครบทุกตาราง (ยกเว้น tenant เอง)', pol.length, 52);
+    /* 52 → 53 เมื่อ 10/10 (Phase 2.2): `AUDIT_LOG` มีอยู่ในทั้งสอง workbook และเป็นคนละบันทึกกัน —
+     * ของ MAIN คือการเข้าถึงข้อมูลโรงเรียน ส่วนของ HR คือบันทึกการเข้าถึงเงินเดือน/เลขบัตรประชาชน
+     * ทั้งคู่ snake() เป็น `audit_log` ตัวสร้างจึงเขียนชื่อซ้ำ และ `if not exists` ทำให้ตัวที่สอง
+     * **เงียบไปเฉยๆ** → สองบันทึกรวมกันโดยไม่มีอะไรแยกได้ · ตอนนี้แยกเป็น `hr_audit_log`
+     *
+     * ตัวเลขนี้**ปักไว้ ไม่ใช่ `>=`** เพราะตารางใหม่ที่ลืมเปิด RLS จะทำให้มันลดลง ซึ่งต้องเห็นใน diff */
+    eq('มีนโยบายครบทุกตาราง (ยกเว้น tenant เอง)', pol.length, 53);
+    ok_('🔴 ...รวมถึงบันทึกการเข้าถึงของ HR ซึ่งเป็นตารางใหม่',
+      pol.some(p => p.tablename === 'hr_audit_log'));
     const EXPECT = /tenant_id = \(\(auth\.jwt\(\) ->> 'tenant_id'::text\)\)::uuid/;
     const loose = pol.filter(p => !EXPECT.test(String(p.qual || '')) || !EXPECT.test(String(p.with_check || '')));
     eq('🔴 ไม่มีนโยบายไหนหลวมกว่าที่ควร (เช่น using(true))',
