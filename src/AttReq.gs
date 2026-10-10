@@ -104,7 +104,7 @@ function handleApproveTimeRequest(p) {
     try {
       notifyStaffMember_(r.StaffID, '⏰ คำขอลงเวลา ' + (String(r.Type).toUpperCase() === 'IN' ? 'เข้างาน' : 'เลิกงาน') + ' '
         + String(r.Date).slice(0, 10) + ' ' + r.RequestTime + ' — ไม่อนุมัติ ❌'
-        + (p.reason ? ('\nเหตุผล: ' + p.reason) : ''), 'approval');
+        + (p.reason ? ('\nเหตุผล: ' + p.reason) : ''), 'approval', '', 'staff.approval');
     } catch (e) {}
   }
   return { reqId: p.reqId, status: yes ? 'PENDING_ADMIN' : 'REJECTED' };

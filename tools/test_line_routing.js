@@ -38,6 +38,12 @@ const res = JSON.parse(run(function () {
   var MAIN = getMainSpreadsheet_();
   var cfg = sheet_(MAIN, 'SCHOOL_CONFIG');
   updateRow_(cfg, findObject_(cfg, function (r) { return r.Key === 'LineChannelAccessToken'; })._row, { Value: 'REALTOKEN' });
+  /* The parent check-in topic is turned ON here because §3 measures what it COSTS — every switch
+   * ships off (2026-10-10), and an estimate of a channel that is off is a table of zeros, which
+   * cannot answer the question the school asked it. The TEACHER half is deliberately left off, and
+   * §3 asserts it reads as zero AND says so in words. */
+  (function () { var r = findObject_(cfg, function (x) { return x.Key === 'NotifyParentCheckin'; });
+    if (r) updateRow_(cfg, r._row, { Value: 'true' }); else appendObject_(cfg, { Key: 'NotifyParentCheckin', Value: 'true' }); })();
   _configCache = null;
 
   handleSaveLineRecipients({ rows: [
@@ -172,8 +178,11 @@ console.log('\n3) THE MONEY — counted, not guessed');
 
   console.log('   — and it says what LINE itself reports');
   ok_('the plan is asked for, not assumed', u.plan && u.plan.checked === true);
+  /* ...and WHICH topics were on when it measured. Two booleans used to stand in for the whole
+   * channel; there are fifteen topics now and the estimate is only readable next to them. */
   ok_('the settings it measured are reported alongside',
-    u.staffLineOn === false && typeof u.teachersPerClass === 'number');
+    u.topics && u.topics['staff.arrival'] === false && u.topics['parent.checkin'] === true &&
+    typeof u.teachersPerClass === 'number');
 
   console.log('   — and "what if I turned everything on?"');
   /* Asked 2026-09-01: "ลองตั้งค่าคนเดียวให้ส่งทุกอย่างแต่ประเมินไม่ได้คำนวนให้ว่า ถ้าส่งทุกอย่างให้
@@ -207,17 +216,24 @@ console.log('\n3) THE MONEY — counted, not guessed');
     /String\(r\.Status \|\| ''\)\.toUpperCase\(\) !== 'DRAFT'/.test(lineGs));
   ok_('they are still counted while the switch is on', item('checkinParent').perEvent === 1);
   ok_('the screen separates them from the staff half', /ส่งถึงผู้ปกครอง — ไม่เกี่ยวกับรายชื่อผู้รับ/.test(app));
-  /* THE SWITCH. ON by default, because it is the school's promise to families and has always worked
-   * this way — turning it off is theirs to decide, not a default to change underneath them. */
-  // the five checkboxes are saved from one table since v424 — same keys, same ids
-  ok_('there is a switch for it', /id="setParentLine"/.test(app) && /\['ParentLineNotify','#setParentLine'\]/.test(app));
-  ok_('...declared, or saving it would do nothing', /ParentLineNotify: 1/.test(staffGs));
-  ok_('...and seeded ON, unlike the other two', /\['ParentLineNotify',\s*'true'\]/.test(cfgGs));
-  ok_('...gating all three routine channels and nothing else',
-    /parentLineOn_\(\)/.test(R('src/Checkin.gs')) && /parentLineOn_\(\)/.test(R('src/Journal.gs')) && /parentLineOn_\(\)/.test(R('src/Dspm.gs')));
-  /* Money owed and a child hurt are NOT routine. They push regardless, as they always have. */
-  ok_('a late-pickup charge is not behind it', !/parentLineOn_\(\)/.test(R('src/Parent.gs')));
-  ok_('...and the reason is written down', /money the family owes and\s*\n \* an injury is their child being hurt/.test(lineGs));
+  /* 🔴 ONE SWITCH FOR THREE CHANNELS BECAME ONE PER TOPIC (2026-10-10).
+   *
+   * The old `ParentLineNotify` was labelled with the three channels it covered while the app sent
+   * families TEN — the other six read no config at all. The ผอ. reported two of them arriving after
+   * notifications were believed off. tools/test_notify_topics.js owns that guarantee now; what this
+   * suite still asserts is the part it is in a position to see, which is that the ESTIMATE and the
+   * SENDING ask the same question about the same topic. */
+  ok_('each routine family channel asks for its own topic',
+    /lineTopicOn_\('parent\.checkin'\)/.test(R('src/Checkin.gs')) &&
+    /lineTopicOn_\('parent\.journal'\)/.test(R('src/Journal.gs')) &&
+    /lineTopicOn_\('parent\.dspm'\)/.test(R('src/Dspm.gs')));
+  ok_('...and a late-pickup charge has its own, separate from them',
+    /lineTopicOn_\('parent\.ot'\)/.test(R('src/Parent.gs')));
+  ok_('...saving any of them is allowed, derived from the topic table', /LINE_TOPIC_KEYS_\[t\]\] = 1/.test(staffGs));
+  /* 🚨 ...but a child being hurt has NO topic and cannot be switched off, by anyone, ever. */
+  ok_('an injury is sent under emergency, which has no key',
+    /notifyStudentParents_\([\s\S]{0,400}?'emergency'\)/.test(R('src/Notify.gs')) &&
+    !/'emergency'\s*:/.test(lineGs));
 
   console.log('   — the digest is filed under its own topic');
   /* It passed NO category, so it defaulted to 'approval': ticking "สรุปประจำวัน" did nothing, and

@@ -121,7 +121,7 @@ function handleApproveLeave(payload) {
     logAuditHr(approver.StaffID, approve ? 'LEAVE_L1_APPROVE' : 'LEAVE_L1_REJECT', 'LEAVE_REQUEST', leave.LeaveID);
 
     if (!approve) {
-      if (requester.LineUID) linePushText_(requester.LineUID, '❌ คำขอลา ' + leave.LeaveID + ' ถูกปฏิเสธโดยหัวหน้างาน ' + approver.Name + (payload.note ? '\nเหตุผล: ' + payload.note : ''));
+      if (requester.LineUID && lineTopicOn_('staff.approval')) linePushText_(requester.LineUID, '❌ คำขอลา ' + leave.LeaveID + ' ถูกปฏิเสธโดยหัวหน้างาน ' + approver.Name + (payload.note ? '\nเหตุผล: ' + payload.note : ''));
       return { leaveId: leave.LeaveID, status: LEAVE_STATUS.REJECTED };
     }
     if (crossDept) {
@@ -143,7 +143,7 @@ function handleApproveLeave(payload) {
       Status: approve ? LEAVE_STATUS.APPROVED : LEAVE_STATUS.REJECTED
     });
     logAuditHr(approver.StaffID, approve ? 'LEAVE_FINAL_APPROVE' : 'LEAVE_FINAL_REJECT', 'LEAVE_REQUEST', leave.LeaveID);
-    if (requester.LineUID) {
+    if (requester.LineUID && lineTopicOn_('staff.approval')) {
       linePushText_(requester.LineUID, (approve ? '✅ คำขอลา ' + leave.LeaveID + ' ได้รับอนุมัติแล้ว' :
         '❌ คำขอลา ' + leave.LeaveID + ' ถูกปฏิเสธ') + ' โดยผู้บังคับบัญชา ' + approver.Name +
         (payload.note ? '\nหมายเหตุ: ' + payload.note : ''));
@@ -258,7 +258,7 @@ function notifyLeaders_(text, dept) {
   readObjects_(sheet_(getHrSpreadsheet_(), 'STAFF')).forEach(function (s) {
     if (String(s.PositionLevel) === 'Leader' && String(s.Status) === 'ACTIVE' && s.LineUID &&
         (!dept || String(s.Department) === String(dept))) {
-      linePushText_(s.LineUID, text);
+      if (lineTopicOn_('staff.approvalQueue')) linePushText_(s.LineUID, text);
     }
   });
 }

@@ -196,7 +196,9 @@ console.log('\n6) THE THREE SWITCHES ASKED FOR ON 2026-09-02');
    * switches had it too; it was silent there only because their seed matches what most schools want. */
   ok_('the server hands the switches back, so a saved setting can be read',
     /ParentPrepayEnabled:cfg\.ParentPrepayEnabled \}\)/.test(engine) &&
-    /AdminLineNotify:cfg\.AdminLineNotify, StaffLineNotify:cfg\.StaffLineNotify, ParentLineNotify:cfg\.ParentLineNotify/.test(engine));
+    // ...and since 2026-10-10 the fifteen per-topic switches are spread in from NOTIFY_KEYS_, so a
+    // new topic is readable the moment it is declared and cannot be forgotten here
+    /NOTIFY_KEYS_\.reduce\(\(o,k\)=>\{ o\[k\]=cfg\[k\]; return o; \},\{\}\)/.test(engine));
   ok_('...and the trap is written down', /THE SETTINGS SCREEN WAS READING ITS OWN DEFAULTS BACK/.test(engine));
   /* The switch now lives with the discounts it governs, as a slider like the check-in one, saving on
    * the spot — "ย้ายปุ่มนี้ไปอยู่ในส่วนที่ถูกต้อง ... เวลาดำเนินการได้อยู่ในหมวดเดียวกัน". */

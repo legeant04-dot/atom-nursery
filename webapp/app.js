@@ -131,7 +131,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.428'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.429'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -12061,29 +12061,69 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
       <p class="muted" style="font-size:13px">${EN()?'Days per person per year. Changing a number here does not alter leave already approved.':'จำนวนวันต่อคนต่อปี · การแก้ตัวเลขที่นี่ไม่กระทบใบลาที่อนุมัติไปแล้ว'}</p>
       ${Object.keys(q).map(k=>`<label class="field"><span>${esc(tLeaveType(k))}</span><input type="number" id="lq_${esc(k)}" value="${esc(q[k])}"/></label>`).join('')}`;
 
-  const _setNotifyHTML = cfgOn => `
-      <p class="muted" style="font-size:13px">${EN()?'To protect the LINE monthly quota, approval alerts go to the in-app bell 🔔. Turn options on to also use LINE. Emergencies (accidents) always LINE.':'เพื่อประหยัดโควตา LINE รายเดือน คำขออนุมัติจะเข้ากล่องแจ้งเตือนในแอป 🔔 · เปิดตัวเลือกเพื่อส่ง LINE เพิ่ม · เหตุฉุกเฉิน (อุบัติเหตุ) ส่ง LINE ทุกครั้ง'}</p>
-      <label class="field" style="display:flex;align-items:center;gap:8px"><input type="checkbox" id="setAdminLine" style="width:auto" ${cfgOn('AdminLineNotify',false)?'checked':''}/> 📲 ${EN()?'Also LINE-push admins for approvals (uses quota)':'ส่ง LINE ถึงแอดมินเมื่อมีคำขออนุมัติ (ใช้โควตา)'}</label>
-      ${/* The highest-volume traffic in the app by far — a leave, a comment or a child arriving is a
-           push per covering teacher, all day. It had no switch at all while the admin one did, which
-           is how the quota went on being spent after it was believed to be off (2026-09-01). */''}
-      <label class="field" style="display:flex;align-items:center;gap:8px"><input type="checkbox" id="setStaffLine" style="width:auto" ${cfgOn('StaffLineNotify',false)?'checked':''}/> 📲 ${EN()?'Also LINE-push teachers about leaves, comments and arrivals (heaviest use of the quota)':'ส่ง LINE ถึงคุณครูเรื่องแจ้งลา ความคิดเห็น และเด็กมาถึง (ใช้โควตามากที่สุด)'}</label>
-      <p class="muted" style="font-size:13px">${EN()?'Off: teachers still get everything on the 🔔 bell in the app, which costs nothing. Emergencies always go to LINE either way.'
-        :'ปิดไว้: คุณครูยังได้รับครบทุกเรื่องที่กระดิ่ง 🔔 ในแอป ซึ่งไม่เสียโควตา · เหตุฉุกเฉินส่ง LINE เสมอไม่ว่าตั้งค่าอย่างไร'}</p>
-      ${/* THE BIGGEST CONSUMER, and until 2026-09-02 the only channel with no switch at all — which
-           is why emptying the recipient list changed nothing on the estimate. ON by default: it is
-           the school's promise to families and has always worked this way. */''}
-      ${/* the prepay switch used to sit here; it belongs with the discounts it governs — see
-           A_prepayTiers ("แพ็กเกจ → ส่วนลดชำระล่วงหน้า"), asked for on 2026-09-03 */''}
-      <label class="field" style="display:flex;align-items:center;gap:8px"><input type="checkbox" id="setParentLine" style="width:auto" ${cfgOn('ParentLineNotify',true)?'checked':''}/> 👨‍👩‍👧 ${EN()?'LINE parents on arrival / pick-up, the daily journal and DSPM results':'ส่ง LINE ถึงผู้ปกครอง: รับ-ส่ง · บันทึกประจำวัน · ผลประเมิน DSPM'}</label>
-      <p class="muted" style="font-size:13px">${EN()?'This is the school\'s promise to families and by far the largest use of the quota — it is not part of the recipient list below, which is for staff. A late-pickup charge and an accident always go out regardless.'
-        :'<b>ใช้โควตามากที่สุด</b> และ<b>ไม่เกี่ยวกับรายชื่อผู้รับด้านล่าง</b> (รายการนั้นสำหรับพนักงาน) · ค่ารับช้าและอุบัติเหตุยังส่งเสมอไม่ว่าตั้งค่าอย่างไร'}</p>
+  /* ═══ ONE LINE PER TOPIC, AND THE LIST IS THE SAME ONE THE SERVER SENDS BY ═══════════════════
+   *
+   * 🔴 WHY THIS SCREEN WAS REBUILT (2026-10-10). It had three checkboxes. One of them read
+   * "ส่ง LINE ถึงผู้ปกครอง: รับ-ส่ง · บันทึกประจำวัน · ผลประเมิน DSPM" — and the app sent families TEN
+   * kinds of message, of which that switch governed those three. The ผอ. turned it on, read the
+   * label, and reasonably believed it described the whole channel. On 09/10 they reported parents
+   * receiving pushes again; the two they showed (a teacher's reply to a comment, a teacher filing a
+   * leave) were among the six that had no switch at all.
+   *
+   * A label that lists three things above code that does ten is not an incomplete feature, it is a
+   * FALSE STATEMENT the school makes decisions on. So each topic is now its own line, and both the
+   * line and the push read the SAME key — NOTIFY_TOPICS_ below mirrors LINE_TOPIC_KEYS_ in
+   * src/Line.gs, and tools/test_notify_topics.js fails the build if they stop matching.
+   *
+   * 🚨 Emergencies are deliberately NOT a row here. They have no key and cannot be switched off. */
+  const NOTIFY_TOPICS_ = [
+    { group:'parent', k:'NotifyParentCheckin',      th:'🚪 รับ-ส่ง: เด็กมาถึง / ผู้ปกครองรับกลับ',  en:'🚪 Arrival / pick-up', hint:{th:'ใช้โควตามากที่สุด — ส่งทุกคน ทุกวัน วันละ 2 ครั้ง',en:'Heaviest use of the quota — every child, twice a day'} },
+    { group:'parent', k:'NotifyParentJournal',      th:'📒 บันทึกประจำวันพร้อมแล้ว',               en:'📒 Daily journal is ready' },
+    { group:'parent', k:'NotifyParentJournalReply', th:'↩️ คุณครูตอบกลับความคิดเห็น',              en:'↩️ Teacher replied to a comment' },
+    { group:'parent', k:'NotifyParentDspm',         th:'📝 ผลประเมินพัฒนาการ (DSPM)',             en:'📝 DSPM assessment result' },
+    { group:'parent', k:'NotifyParentLeave',        th:'🏠 คุณครูแจ้งลาให้นักเรียน',                en:'🏠 A leave was filed for the child' },
+    { group:'parent', k:'NotifyParentOt',           th:'⏰ ค่าล่วงเวลา (รับช้า / ย้อนหลัง)',        en:'⏰ Late-pickup charge', hint:{th:'เป็นเรื่องเงินที่ครอบครัวต้องรู้ — ปิดแล้วจะเห็นในแอปอย่างเดียว',en:'Money owed — off means the app only'} },
+    { group:'parent', k:'NotifyParentBill',         th:'🧾 แจ้งออกบิลประจำเดือน',                  en:'🧾 Monthly bill issued' },
+
+    { group:'staff',  k:'NotifyStaffArrival',       th:'👶 เด็กในชั้นมาถึง / ถูกรับกลับ',           en:'👶 A child in the class arrived / left', hint:{th:'ส่งถึงคุณครูทุกคนที่ดูแลชั้นนั้น — คูณจำนวนครูเข้าไปด้วย',en:'One push per covering teacher'} },
+    { group:'staff',  k:'NotifyStaffLeave',         th:'🏠 ผู้ปกครองแจ้ง / แก้ / ยกเลิกใบลา',       en:'🏠 Parent filed / changed / cancelled a leave' },
+    { group:'staff',  k:'NotifyStaffComment',       th:'💬 ผู้ปกครองแสดงความคิดเห็นในบันทึก',       en:'💬 Parent commented on a journal' },
+    { group:'staff',  k:'NotifyStaffApproval',      th:'✅ ผลอนุมัติคำขอของตัวเอง (ลา · OT · ขอลงเวลา)', en:'✅ My own request was approved / rejected' },
+    { group:'staff',  k:'NotifyStaffApprovalQueue', th:'📥 มีคำขอรออนุมัติ (ถึงหัวหน้าครู)',        en:'📥 A request is waiting for me (head teacher)' },
+    { group:'staff',  k:'NotifyStaffPunch',         th:'🌅 เตือนลงเวลาเข้างาน / เลิกงาน',           en:'🌅 Clock-in / clock-out reminder' },
+    { group:'staff',  k:'NotifyStaffOrg',           th:'🔁 ถูกย้ายแผนก / ชั้นเรียน',                en:'🔁 Moved to another class / department' },
+
+    { group:'admin',  k:'NotifyAdminApproval',      th:'📲 มีคำขออนุมัติเข้ามา',                    en:'📲 A request needs approval' }
+  ];
+  const _notifyRow = (cfgOn, t) => `
+      <label class="field" style="display:flex;align-items:flex-start;gap:8px;margin:2px 0"><input type="checkbox" data-notify="${esc(t.k)}" style="width:auto;margin-top:3px" ${cfgOn(t.k,false)?'checked':''}/>
+        <span>${EN()?t.en:t.th}${t.hint?`<br><span class="muted" style="font-size:12px">${EN()?t.hint.en:t.hint.th}</span>`:''}</span></label>`;
+
+  const _setNotifyHTML = cfgOn => {
+    const rows = g => NOTIFY_TOPICS_.filter(t=>t.group===g).map(t=>_notifyRow(cfgOn,t)).join('');
+    const anyOn = NOTIFY_TOPICS_.some(t=>cfgOn(t.k,false));
+    return `
+      <p class="muted" style="font-size:13px">${EN()?'Each topic is its own switch. Everything still reaches the in-app bell 🔔 whatever you set here, which costs no quota — these decide only whether LINE is used as well.':'แต่ละเรื่องมีสวิตช์ของตัวเอง · ทุกเรื่องยังเข้ากล่องแจ้งเตือนในแอป 🔔 เสมอไม่ว่าตั้งค่าอย่างไร ซึ่งไม่เสียโควตา · ตรงนี้ตัดสินแค่ว่าจะส่ง LINE ด้วยไหม'}</p>
+      ${/* 🔴 SAY IT WHEN NOTHING IS BEING SENT. All fifteen default to OFF (see Config.gs), so on the
+           first open after this ships the whole channel is silent — which is what the school asked
+           for, and exactly the state nobody would notice from a grid of empty boxes. */''}
+      ${anyOn?'':`<p style="background:var(--warn-bg,#fff4e5);border-left:3px solid var(--warn,#e8a33d);padding:8px;border-radius:6px;font-size:13px">${EN()?'<b>No LINE messages are being sent right now</b> — every topic below is off. The in-app bell 🔔 still works for everyone. Tick the topics the school wants on LINE, then save.':'<b>ตอนนี้ยังไม่ส่ง LINE เลยสักเรื่อง</b> — ปิดอยู่ทุกหัวข้อด้านล่าง · กระดิ่ง 🔔 ในแอปยังทำงานปกติทุกคน · ติ๊กเฉพาะเรื่องที่โรงเรียนต้องการให้ส่ง LINE แล้วกดบันทึก'}</p>`}
+      <h4 style="margin:10px 0 2px">👨‍👩‍👧 ${EN()?'To parents':'ถึงผู้ปกครอง'}</h4>
+      ${rows('parent')}
+      <h4 style="margin:10px 0 2px">🧑‍🏫 ${EN()?'To teachers':'ถึงคุณครู'}</h4>
+      ${rows('staff')}
+      <p class="muted" style="font-size:12px">${EN()?'Off: teachers still get all of these on the 🔔 bell in the app.':'ปิดไว้: คุณครูยังได้รับครบทุกเรื่องที่กระดิ่ง 🔔 ในแอป'}</p>
+      <h4 style="margin:10px 0 2px">🛡️ ${EN()?'To admins':'ถึงแอดมิน'}</h4>
+      ${rows('admin')}
+      <p class="muted" style="font-size:13px;margin-top:8px">🚨 ${EN()?'<b>Emergencies (an accident or injury) always go to LINE</b> — to the family and to the admins — and are deliberately not in this list. There is no switch for them.':'<b>เหตุฉุกเฉิน (อุบัติเหตุ/บาดเจ็บ) ส่ง LINE เสมอ</b> ทั้งถึงครอบครัวและแอดมิน · ตั้งใจไม่ใส่ไว้ในรายการนี้ และไม่มีสวิตช์ให้ปิด'}</p>
+      <p class="muted" style="font-size:12px">${EN()?'The recipient list below decides WHO on the staff receives an alert; these decide WHICH topics are sent at all. They work together — a topic that is off here reaches nobody, however the list is set.':'รายชื่อผู้รับด้านล่างกำหนด<b>ว่าใคร</b>ในทีมงานได้รับ · ส่วนด้านบนกำหนด<b>ว่าเรื่องไหน</b>ถูกส่ง · ทำงานร่วมกัน — เรื่องที่ปิดไว้จะไม่ถึงใครเลยไม่ว่าตั้งรายชื่อไว้อย่างไร'}</p>
       <label class="field" style="display:flex;align-items:center;gap:8px"><input type="checkbox" id="setDigM" style="width:auto" ${cfgOn('DigestMorning',true)?'checked':''}/> 🌅 ${EN()?`Morning digest ${DIGEST_AM} (${BC_NAME()} + pending)`:`สรุปเช้า ${DIGEST_AM} (${BC_NAME()} + รายการค้าง)`}</label>
       <label class="field" style="display:flex;align-items:center;gap:8px"><input type="checkbox" id="setDigE" style="width:auto" ${cfgOn('DigestEvening',true)?'checked':''}/> 🌆 ${EN()?`Evening digest ${DIGEST_PM} (daily report)`:`สรุปเย็น ${DIGEST_PM} (รายงานประจำวัน)`}</label>
       <button class="btn sm outline block" style="margin-top:4px" onclick="A_lineWho(this)">📇 ${EN()?'Who gets a LINE alert, and about what':'กำหนดว่าใครได้รับ LINE และเรื่องอะไรบ้าง'}</button>
       <button class="btn sm outline block" style="margin-top:4px" onclick="A_lineCost(this)">📊 ${EN()?'What would LINE alerts cost per day / month?':'ประเมินโควตา LINE ที่จะใช้ต่อวัน / ต่อเดือน'}</button>
       <button class="btn sm outline block" style="margin-top:4px" onclick="A_reinstallTriggers(this)">🔄 ${EN()?`Apply digest schedule (${DIGEST_AM} / ${DIGEST_PM})`:`อัปเดตตารางส่งสรุป (${DIGEST_AM} / ${DIGEST_PM})`}</button>
       <p class="muted" style="font-size:13px">${EN()?'Digests skip weekends & holidays. Run "Apply" once after enabling.':'สรุปจะข้ามวันหยุด/เสาร์-อาทิตย์ · กด "อัปเดตตาราง" 1 ครั้งหลังเปิดใช้'}</p>`;
+  };
 
   /* ---- the five dialogs ----------------------------------------------------------------------
    * Each fetches ONLY what its own fields are drawn from. ตั้งค่าวันลา no longer reads schoolConfig,
@@ -12698,8 +12738,16 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
         <p class="muted" style="font-size:12px;margin:0">${EN()
           ? 'LINE changes its Thai pricing from time to time, so check the current tiers and price in the LINE Official Account Manager before deciding — the number above is what to compare them against.'
           : 'ราคาและโควตาของแต่ละแพ็กเกจ LINE มีการเปลี่ยนแปลงเป็นระยะ — <b>กรุณาเช็กราคาปัจจุบันใน LINE Official Account Manager</b> แล้วเทียบกับตัวเลขด้านบน · ผมไม่อยากให้ตัดสินใจจากราคาที่ผมจำมา'}</p></div>
-      ${!d.staffLineOn||!d.adminLineOn?`<p class="muted" style="font-size:12px">${EN()?'Note: some LINE channels are currently OFF, so the figures above are for the settings as they stand. Turning one on multiplies its line.'
-        :'หมายเหตุ: ตอนนี้บางช่องทางปิดอยู่ ตัวเลขข้างบนจึงเป็นค่าตามการตั้งค่าปัจจุบัน · ถ้าเปิดเพิ่ม ตัวเลขบรรทัดนั้นจะเพิ่มตามจำนวนคนที่รับ'}</p>`:''}
+      ${/* COUNTED FROM THE TOPIC TABLE THE SERVER SENT, not from two booleans that no longer exist.
+           The estimate is only ever "under the settings as they stand", and a school reading it to
+           choose a LINE plan needs to know how many of the fifteen are currently silent — this
+           screen having quietly reported traffic as if everything were on is part of how the
+           September quota went. */''}
+      ${(()=>{ const tp=d.topics||{}; const ks=Object.keys(tp); const off=ks.filter(k=>!tp[k]).length;
+        if(!off) return '';
+        return `<p class="muted" style="font-size:12px">${EN()
+          ? `Note: ${off} of ${ks.length} topics are currently OFF, so the figures above are for the settings as they stand. Turning one on multiplies its line by the number of recipients.`
+          : `หมายเหตุ: ตอนนี้<b>ปิดอยู่ ${off} จาก ${ks.length} หัวข้อ</b> ตัวเลขข้างบนจึงเป็นค่าตามการตั้งค่าปัจจุบัน · ถ้าเปิดเพิ่ม ตัวเลขบรรทัดนั้นจะเพิ่มตามจำนวนคนที่รับ`}</p>`; })()}
       <button class="btn outline block" style="margin-top:8px" onclick="this.closest('.modal').remove()">${esc(t('c.close'))}</button>`); };
 
   window.A_slipDiag=async(btn)=>{ if(btn)btn.disabled=true;
@@ -13516,9 +13564,17 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
 
     // notification prefs (checkboxes) — stored in SCHOOL_CONFIG so the digests/triggers read them
     const ck=id=>{ const e=m.querySelector(id); return e?(e.checked?'true':'false'):undefined; };
-    [['AdminLineNotify','#setAdminLine'],['StaffLineNotify','#setStaffLine'],['ParentLineNotify','#setParentLine'],
-     ['DigestMorning','#setDigM'],['DigestEvening','#setDigE']].forEach(([k,id])=>{
+    [['DigestMorning','#setDigM'],['DigestEvening','#setDigE']].forEach(([k,id])=>{
        const v=ck(id); if(v!==undefined) gv[k]=v; });
+    /* 🔴 THE PER-TOPIC SWITCHES ARE READ FROM THE DOM, NOT FROM A SECOND LIST OF IDS.
+     *
+     * Fifteen `['NotifyParentCheckin','#setParentCheckin']` pairs would be a sixteenth place the
+     * topic list has to be kept in step, and the one most likely to be forgotten — a missing pair
+     * does not throw, it just silently stops saving that one switch while the box still ticks. So
+     * every box carries its own key in `data-notify` and this reads whatever the dialog drew. Add a
+     * topic to NOTIFY_TOPICS_ and it saves, with nothing to remember here. */
+    for(const el of m.querySelectorAll('input[data-notify]')){
+      const k=el.getAttribute('data-notify'); if(k) gv[k]=el.checked?'true':'false'; }
 
     /* ALL IN FLIGHT BEFORE THE FIRST await — that is the whole of the fix. An `await` anywhere in
      * this block would split the batch, and the cost of that is not a little slower, it is another

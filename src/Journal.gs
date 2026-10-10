@@ -178,8 +178,8 @@ function handleSubmitJournal(payload) {
   if (submit && student.ParentID) {
     var parent = findObject_(sheet_(getMainSpreadsheet_(), 'PARENTS'),
       function (p) { return String(p.ParentID) === String(student.ParentID); });
-    // one per child per school day — behind ParentLineNotify (see parentLineOn_ in Line.gs)
-    if (parent && parent.LineUID && parentLineOn_()) {
+    // one per child per school day — its own topic (LINE_TOPIC_KEYS_ in Line.gs)
+    if (parent && parent.LineUID && lineTopicOn_('parent.journal')) {
       var liff = getConfig_('LiffID', '');
       var link = (liff && String(liff).indexOf('<FILL') !== 0)
         ? '\nดูรายละเอียด: https://liff.line.me/' + liff + '?view=journal&student=' + student.StudentID + '&date=' + date : '';
@@ -250,7 +250,7 @@ function handleSubmitJournalsMany(payload) {
   sent.forEach(function (s) {
     try {
       var student = getStudent_(s.studentId);
-      if (!student || !student.ParentID || !parentLineOn_()) return;
+      if (!student || !student.ParentID || !lineTopicOn_('parent.journal')) return;
       var parent = findObject_(pSheet, function (p) { return String(p.ParentID) === String(student.ParentID); });
       if (!parent || !parent.LineUID) return;
       var link = (liff && String(liff).indexOf('<FILL') !== 0)
@@ -366,7 +366,7 @@ function handleSaveParentComment(payload) {
   try {
     notifyStudentTeacher_(student, '💬 ผู้ปกครองแสดงความคิดเห็นในบันทึกของ ' + (student.Nickname || student.Name) +
       ' (' + date + '):\n' + String(payload.comment || ''),
-      { category: 'comment', ref: 'journal|' + student.StudentID + '|' + date });
+      { category: 'comment', ref: 'journal|' + student.StudentID + '|' + date, topic: 'staff.comment' });
   } catch (e) {}
   return { ok: true, studentId: student.StudentID, date: date };
 }
@@ -387,7 +387,7 @@ function handleSaveTeacherReply(payload) {
   if (typeof cacheDel_ === 'function') { cacheDel_('col:DAILY_JOURNAL'); cacheDel_('rows:DAILY_JOURNAL'); cacheDel_('jrn:' + String(date).slice(0, 10)); }
   try {
     notifyStudentParents_(student, '↩️ คุณครูตอบกลับความคิดเห็นในบันทึกของ ' + (student.Nickname || student.Name) +
-      ' (' + date + '):\n' + String(payload.reply || ''));
+      ' (' + date + '):\n' + String(payload.reply || ''), 'parent.journalReply');
   } catch (e) {}
   return { ok: true, studentId: student.StudentID, date: date };
 }

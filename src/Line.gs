@@ -128,23 +128,63 @@ function linePush_(toUid, messages) {
  * an admin fire a real test push to their own UID. payload: { testUid? }
  */
 /**
- * A ROUTINE MESSAGE TO A PARENT — the only channel that had no switch at all.
+ * ═══ WHETHER A LINE MESSAGE OF THIS KIND MAY BE SENT AT ALL ═════════════════════════════════════
  *
- * Reported 2026-09-02: the school emptied the recipient list, pressed estimate, and still saw 203
- * messages against "แจ้งผู้ปกครองเมื่อคุณครูบันทึกรับ-ส่ง". They were right to ask. That list governs
- * alerts to STAFF; the pushes to families were never part of it and were never gated by anything —
- * and they are by far the largest consumer of the quota.
+ * 🔴 ONE TABLE, AND EVERY PUSH SITE ASKS IT. Before 2026-10-10 the answer lived in three broad
+ * config keys read by `getConfig_` at a dozen scattered call sites — and six more sites read
+ * nothing, so they sent unconditionally. Nobody could tell which was which without grepping, which
+ * is precisely how the school came to have a switch labelled with four topics sitting above code
+ * that sent ten. Reported by the ผอ. 2026-10-09, twice over.
  *
- * DEFAULT ON, because it is the school's promise to families and turning it off silently would be a
- * product decision I do not get to make. It is a switch so the school can make it.
+ * So the list of topics IS this table. A topic that is not in it cannot be sent (see below), and
+ * the settings screen is generated from the same table — label and behaviour cannot drift apart,
+ * because there is only one of them.
  *
- * NOT everything to a parent goes through here. A late-pickup OT charge is money the family owes and
- * an injury is their child being hurt: both push regardless, as they always have. This covers the
- * routine three — arrival/pick-up, the daily journal, and a DSPM result.
+ * 🔴 AND IT FAILS CLOSED. An unknown topic returns FALSE, not true. If somebody adds a push site
+ * next year and forgets to declare its topic, the consequence is that it sends nothing — not that
+ * it quietly messages every family in the school. That is the failure this whole change exists to
+ * prevent, and it must not be possible to reintroduce it by omission.
+ *
+ * 🚨 THE ONE EXCEPTION, AND IT IS NOT IN THE TABLE: 'emergency'. An injury always pushes, to
+ * families and to admins, whatever is set. A switch that can silence a hurt child is not a feature,
+ * so there is no key for it — `lineTopicOn_('emergency')` returns true and cannot be configured.
  */
-function parentLineOn_() {
-  return String(getConfig_('ParentLineNotify', 'true')) !== 'false';
+var LINE_TOPIC_KEYS_ = {
+  // ถึงผู้ปกครอง
+  'parent.checkin':      'NotifyParentCheckin',
+  'parent.journal':      'NotifyParentJournal',
+  'parent.journalReply': 'NotifyParentJournalReply',
+  'parent.dspm':         'NotifyParentDspm',
+  'parent.leave':        'NotifyParentLeave',
+  'parent.ot':           'NotifyParentOt',
+  'parent.bill':         'NotifyParentBill',
+  // ถึงคุณครู — the in-app 🔔 bell is written either way; this is only the LINE half
+  'staff.arrival':       'NotifyStaffArrival',
+  'staff.leave':         'NotifyStaffLeave',
+  'staff.comment':       'NotifyStaffComment',
+  'staff.approval':      'NotifyStaffApproval',
+  'staff.approvalQueue': 'NotifyStaffApprovalQueue',
+  'staff.punch':         'NotifyStaffPunch',
+  'staff.org':           'NotifyStaffOrg',
+  // ถึงแอดมิน
+  'admin.approval':      'NotifyAdminApproval'
+};
+
+function lineTopicOn_(topic) {
+  if (topic === 'emergency') return true;              // 🚨 never configurable — see above
+  var key = LINE_TOPIC_KEYS_[topic];
+  if (!key) return false;                              // 🔴 unknown topic → send nothing
+  return String(getConfig_(key, 'false')) === 'true';
 }
+
+/* 🔴 `parentLineOn_()` IS DELETED ON PURPOSE — do not reintroduce it as an alias.
+ *
+ * It had four callers meaning THREE different topics: arrival/pick-up, the daily journal (twice),
+ * and a DSPM result. Any single topic it could have been aliased to would have silently put the
+ * other two under the wrong switch — turning off DSPM results would have stopped check-in messages,
+ * and nobody would have been able to see why from the settings screen. Each call site now names its
+ * own topic. A helper that answers a question nobody asked is how the old switch came to cover four
+ * things out of ten. */
 
 /**
  * WHAT WOULD A MONTH OF NOTIFICATIONS ACTUALLY COST?
@@ -184,8 +224,11 @@ function handleLineUsage(p) {
   var inWin = function (v) { var s = luDate_(v); return !!s && s >= from && s <= today; };
 
   // --- who a message of each kind reaches, under the settings as they stand right now ---
-  var staffLineOn = String(getConfig_('StaffLineNotify', 'false')) === 'true';
-  var adminLineOn = String(getConfig_('AdminLineNotify', 'false')) === 'true';
+  /* 🔴 PER TOPIC NOW, NOT PER AUDIENCE (2026-10-10). This estimate used to multiply whole groups
+   * of messages by one broad switch, which is what let it report traffic the school believed was
+   * off — and the school DID read this screen before deciding. Each line below asks about its own
+   * topic, so the estimate and the sending now disagree only if lineTopicOn_ is wrong for both. */
+  var adminLineOn = lineTopicOn_('admin.approval');
   var recip = {};
   LINE_TOPICS_.forEach(function (t) { recip[t] = lineRecipientsFor_(t).length; });
   var adminUsers = 0;
@@ -206,7 +249,7 @@ function handleLineUsage(p) {
   var clsList = Object.keys(classNames);
   var perClass = clsList.length ? Math.round(clsList.reduce(function (a, c) {
     return a + onDuty.filter(function (s) { return staffCoversClass_(s, c); }).length; }, 0) / clsList.length * 10) / 10 : 0;
-  var teacherReach = staffLineOn ? perClass : 0;
+  var reachIf = function (topic) { return lineTopicOn_(topic) ? perClass : 0; };
 
   var count = function (wb, sheet, dateField, filter) {
     try {
@@ -243,31 +286,31 @@ function handleLineUsage(p) {
    * to STAFF, and these go to PARENTS. They are the largest consumer of the quota by a distance, and
    * had no switch of any kind until ParentLineNotify. Marked `parent:true` so the screen can group
    * them apart instead of leaving the school to work out why emptying the list changed nothing. */
-  var parentOn = parentLineOn_() ? 1 : 0;
+  var on_ = function (topic) { return lineTopicOn_(topic) ? 1 : 0; };
   var byStaff = count('MAIN', 'CHECKIN_STUDENT', 'Date', function (r) { return String(r.ByStaffID || ''); });
-  push('checkinParent', 'แจ้งผู้ปกครองเมื่อคุณครูบันทึกรับ-ส่ง', byStaff, parentOn,
-    parentOn ? 'ส่งหาผู้ปกครองของเด็กคนนั้น 1 คน' : 'ปิดอยู่ — ไม่เสียโควตา', 1);
+  push('checkinParent', 'แจ้งผู้ปกครองเมื่อคุณครูบันทึกรับ-ส่ง', byStaff, on_('parent.checkin'),
+    on_('parent.checkin') ? 'ส่งหาผู้ปกครองของเด็กคนนั้น 1 คน' : 'ปิดอยู่ — ไม่เสียโควตา', 1);
   items[items.length - 1].parent = true;
   /* NEVER COUNTED AT ALL until now, and one of them is a message per child per school day — bigger
    * than everything the recipient list controls put together. An estimate that silently omits the
    * biggest line is worse than no estimate. */
   push('journalParent', 'แจ้งผู้ปกครองเมื่อคุณครูส่งบันทึกประจำวัน',
     count('MAIN', 'JOURNAL', 'Date', function (r) { return String(r.Status || '').toUpperCase() !== 'DRAFT'; }),
-    parentOn, parentOn ? 'ส่งหาผู้ปกครอง 1 คน ต่อเด็ก 1 คน ต่อวัน' : 'ปิดอยู่ — ไม่เสียโควตา', 1);
+    on_('parent.journal'), on_('parent.journal') ? 'ส่งหาผู้ปกครอง 1 คน ต่อเด็ก 1 คน ต่อวัน' : 'ปิดอยู่ — ไม่เสียโควตา', 1);
   items[items.length - 1].parent = true;
   push('dspmParent', 'แจ้งผู้ปกครองเมื่อบันทึกผลประเมิน DSPM',
-    count('MAIN', 'ASSESSMENTS', 'Date'), parentOn, parentOn ? '' : 'ปิดอยู่ — ไม่เสียโควตา', 1);
+    count('MAIN', 'ASSESSMENTS', 'Date'), on_('parent.dspm'), on_('parent.dspm') ? '' : 'ปิดอยู่ — ไม่เสียโควตา', 1);
   items[items.length - 1].parent = true;
-  push('otParent', 'แจ้งผู้ปกครองเรื่องค่ารับช้า (OT)', count('MAIN', 'OT_DAILY', 'Date'), 1,
-    'เรื่องเงินที่ครอบครัวต้องชำระ — ส่งเสมอ', 1);
+  push('otParent', 'แจ้งผู้ปกครองเรื่องค่ารับช้า (OT)', count('MAIN', 'OT_DAILY', 'Date'), on_('parent.ot'),
+    on_('parent.ot') ? 'เรื่องเงินที่ครอบครัวต้องชำระ' : 'ปิดอยู่ — ไม่เสียโควตา', 1);
   items[items.length - 1].parent = true;
   // ...and the covering teachers, when StaffLineNotify is on
   var allCheck = count('MAIN', 'CHECKIN_STUDENT', 'Date');
-  push('checkinTeacher', 'แจ้งคุณครูเมื่อเด็กมาถึง / กลับ', allCheck, teacherReach,
-    staffLineOn ? ('ส่งหาคุณครูที่ดูแลห้องนั้น ~' + perClass + ' คน') : 'ปิดอยู่ — ไม่เสียโควตา', perClass);
-  push('leave', 'ผู้ปกครองแจ้งลานักเรียน', count('MAIN', 'LEAVE_REQUEST_STD', 'Date'), teacherReach + adminReach('leave'),
-    staffLineOn ? '' : 'ส่วนของคุณครูปิดอยู่', perClass + oneAll);
-  push('comment', 'ผู้ปกครองแสดงความคิดเห็นในบันทึก', count('MAIN', 'COMMENTS', 'Date'), teacherReach + adminReach('comment'), '', perClass + oneAll);
+  push('checkinTeacher', 'แจ้งคุณครูเมื่อเด็กมาถึง / กลับ', allCheck, reachIf('staff.arrival'),
+    lineTopicOn_('staff.arrival') ? ('ส่งหาคุณครูที่ดูแลห้องนั้น ~' + perClass + ' คน') : 'ปิดอยู่ — ไม่เสียโควตา', perClass);
+  push('leave', 'ผู้ปกครองแจ้งลานักเรียน', count('MAIN', 'LEAVE_REQUEST_STD', 'Date'), reachIf('staff.leave') + adminReach('leave'),
+    lineTopicOn_('staff.leave') ? '' : 'ส่วนของคุณครูปิดอยู่', perClass + oneAll);
+  push('comment', 'ผู้ปกครองแสดงความคิดเห็นในบันทึก', count('MAIN', 'COMMENTS', 'Date'), reachIf('staff.comment') + adminReach('comment'), '', perClass + oneAll);
   push('staffLeave', 'พนักงานยื่นใบลา (รออนุมัติ)', count('HR', 'LEAVE_REQUEST', 'StartDate'), adminReach('approval'), '', oneAll);
   push('ot', 'OT พนักงาน (รออนุมัติ)', count('HR', 'OT_RECORDS', 'Date'), adminReach('ot'), '', oneAll);
   push('payment', 'ผู้ปกครองส่งสลิป', count('MAIN', 'PAYMENT_SLIPS', 'SubmittedDate'), adminReach('payment'), '', oneAll);
@@ -308,7 +351,8 @@ function handleLineUsage(p) {
   } catch (e) { plan = { checked: false, error: String(e) }; }
 
   return { from: from, to: today, days: days, schoolDays: schoolDaysIn,
-    staffLineOn: staffLineOn, adminLineOn: adminLineOn, parentLineOn: parentLineOn_(), teachersPerClass: perClass,
+    adminLineOn: adminLineOn, teachersPerClass: perClass,
+    topics: (function () { var o = {}; for (var t in LINE_TOPIC_KEYS_) { if (LINE_TOPIC_KEYS_.hasOwnProperty(t)) o[t] = lineTopicOn_(t); } return o; })(),
     recipients: recip, adminUsers: adminUsers,
     items: items, perDay: perDay, perMonth: perMonth, totalInWindow: totalMsgs,
     // "everything on, one person receiving it" — the question a school choosing a plan is asking

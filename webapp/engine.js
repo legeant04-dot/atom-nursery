@@ -4,6 +4,26 @@
  * Browser loads this via <script>; GAS uses the generated copy src/Engine.gs (run tools/build_engine.js).
  */
 /* ============================================================================================
+ * EVERY PER-TOPIC LINE SWITCH, NAMED ONCE (2026-10-10).
+ *
+ * The same list is needed in four places — the defaults in src/Config.gs, the topic table in
+ * src/Line.gs, the settings screen in webapp/app.js, and the two whitelists that decide what an
+ * admin may save (here and handleSetSchoolConfig in src/Staff.gs, which shadows this one on GAS).
+ *
+ * 🔴 THEY HAVE ALREADY DRIFTED ONCE. The whitelist below used to list the notification keys by hand
+ * and the live one in Staff.gs listed different ones, so switches saved correctly on the school's
+ * server and did nothing in the local build — meaning every test written against the engine was
+ * testing a rule the school does not run. Named once here, derived everywhere else, and
+ * tools/test_notify_topics.js fails if any of the four lists stops matching the others.
+ * ========================================================================================== */
+const NOTIFY_KEYS_ = [
+  'NotifyParentCheckin', 'NotifyParentJournal', 'NotifyParentJournalReply', 'NotifyParentDspm',
+  'NotifyParentLeave', 'NotifyParentOt', 'NotifyParentBill',
+  'NotifyStaffArrival', 'NotifyStaffLeave', 'NotifyStaffComment', 'NotifyStaffApproval',
+  'NotifyStaffApprovalQueue', 'NotifyStaffPunch', 'NotifyStaffOrg',
+  'NotifyAdminApproval'
+];
+/* ============================================================================================
  * WHAT HOURS DOES THIS PERSON WORK, ON THIS DAY — one answer, for everything that asks.
  *
  * Five places used to work this out for themselves: the check-in (lateness), the check-out (OT), the
@@ -5975,7 +5995,7 @@ function createAtomAPI(M, GROWTH_STD) {
      * parent — these are school-wide settings, not staff data, which is why this route is not
      * admin-only. */
     schoolConfig: () => ({ GPS_Lat:cfg.GPS_Lat, GPS_Lng:cfg.GPS_Lng, Radius:cfg.Radius, LateGraceMinutes:cfg.LateGraceMinutes, OTRatePerHour:cfg.OTRatePerHour, StaffOTHourlyRate:cfg.StaffOTHourlyRate, ContributionMatchRate:cfg.ContributionMatchRate,
-      AdminLineNotify:cfg.AdminLineNotify, StaffLineNotify:cfg.StaffLineNotify, ParentLineNotify:cfg.ParentLineNotify,
+      ...NOTIFY_KEYS_.reduce((o,k)=>{ o[k]=cfg[k]; return o; },{}),
       DigestMorning:cfg.DigestMorning, DigestEvening:cfg.DigestEvening,
       // how long a cached read may be reused — the one performance setting the admin can turn, so it
       // has to come back here or the control could only ever show a guess
@@ -5989,7 +6009,7 @@ function createAtomAPI(M, GROWTH_STD) {
      * different rule from the one the school runs. Kept in step deliberately: two lists that decide
      * what may be written are one list that is sometimes wrong. */
     setSchoolConfig: p => { const W={GPS_Lat:1,GPS_Lng:1,Radius:1,GpsAccuracySlack:1,LateGraceMinutes:1,OTRatePerHour:1,OTGraceMinutes:1,StaffOTHourlyRate:1,OTRoundUpMinutes:1,DefaultCheckInTime:1,DefaultCheckOutTime:1,BigCleaningAmount:1,BigCleaningIn:1,BigCleaningOut:1,ContributionMatchRate:1,
-      AdminLineNotify:1,StaffLineNotify:1,ParentLineNotify:1,ParentPrepayEnabled:1,DigestMorning:1,DigestEvening:1}; const v=p.values||{};
+      ParentPrepayEnabled:1,DigestMorning:1,DigestEvening:1}; NOTIFY_KEYS_.forEach(k=>{ W[k]=1; }); const v=p.values||{};
       // 'true'/'false' are not numbers, so they pass through as the strings the rest of the app reads
       Object.keys(v).forEach(k=>{ if(W[k]) cfg[k]=(v[k]===''||isNaN(Number(v[k])))?v[k]:Number(v[k]); }); return {ok:true, wrote:v}; },
     leaveResetReminder: () => { const n=new Date(); return {due:n.getMonth()===0, month:n.getMonth()+1, year:n.getFullYear()}; }, // every January

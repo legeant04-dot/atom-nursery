@@ -261,7 +261,7 @@ function handleSubmitInjury(p) {
     var ref = (res && res.injuryId) ? ('injury|' + res.injuryId) : '';
     notifyAdminsUrgent_(msg, ref);
     try { notifyLeaders_(msg); } catch (e) {}
-    if (p.notifyParent) { try { notifyStudentParents_(student, '🚨 แจ้งเหตุจากโรงเรียน: ' + who + cls + '\nเวลา ' + (p.time || timeStr_(new Date())) + (p.narrative ? ('\n' + p.narrative) : '') + '\nคุณครูได้ดูแลเบื้องต้นแล้ว หากมีข้อสงสัยติดต่อโรงเรียน'); } catch (e) {} }
+    if (p.notifyParent) { try { notifyStudentParents_(student, '🚨 แจ้งเหตุจากโรงเรียน: ' + who + cls + '\nเวลา ' + (p.time || timeStr_(new Date())) + (p.narrative ? ('\n' + p.narrative) : '') + '\nคุณครูได้ดูแลเบื้องต้นแล้ว หากมีข้อสงสัยติดต่อโรงเรียน', 'emergency'); } catch (e) {} }
   } catch (e) { try { Logger.log('handleSubmitInjury notify ' + e.message); } catch (x) {} }
   return res;
 }
@@ -271,11 +271,11 @@ function handleSubmitInjury(p) {
  * always (it costs nothing and it is what makes turning LINE off safe), LINE only when the school
  * has StaffLineNotify on and the person has a UID.
  */
-function notifyStaffMember_(staffId, text, category, ref) {
+function notifyStaffMember_(staffId, text, category, ref, topic) {
   if (!staffId) return false;
   try { inboxAdd_(category || 'approval', text, ref || '', String(staffId)); } catch (e) {}
   try {
-    if (String(getConfig_('StaffLineNotify', 'false')) !== 'true') return false;
+    if (!lineTopicOn_(topic)) return false;            // LINE half only — the 🔔 bell above always fires
     var st = findObject_(sheet_(getHrSpreadsheet_(), 'STAFF'), function (s) { return String(s.StaffID) === String(staffId); });
     if (st && st.LineUID) return !!linePushText_(st.LineUID, text);
   } catch (e) {}
@@ -300,7 +300,7 @@ function handleApproveInjury(p) {
       var msg = '↩️ รายงานอุบัติเหตุถูกตีกลับให้แก้ไข: ' + who
               + (p.reason ? ('\nเหตุผล: ' + p.reason) : '')
               + '\nแก้ไขแล้วกดบันทึก ระบบจะส่งกลับเข้าคิวอนุมัติให้อัตโนมัติ';
-      notifyStaffMember_(r.TeacherID, msg, 'approval', 'injury|' + p.injuryId);
+      notifyStaffMember_(r.TeacherID, msg, 'approval', 'injury|' + p.injuryId, 'staff.approval');
     }
   } catch (e) { try { Logger.log('handleApproveInjury notify ' + e.message); } catch (x) {} }
   return res;

@@ -525,18 +525,53 @@ var SCHOOL_CONFIG_DEFAULTS = [
    * store — this uses ID-token sign-in, which needs neither a client secret nor a redirect URI.
    * Blank = the feature is off and the button is never drawn. */
   ['GoogleClientId',        '120486339414-6auhdq0a1fur2ihu24rr8po58vgci3s1.apps.googleusercontent.com'],
-  /* WHO GETS A LINE PUSH, as opposed to the in-app 🔔 bell. The free plan caps messages at ~300 a
-   * month and the school's quota is exhausted, so both default to OFF and everything still arrives
-   * on the bell, which costs nothing. Emergencies (injury) ignore both and always push.
-   * StaffLineNotify covers leaves, journal comments and children arriving — by far the heaviest
-   * traffic in the app, and until 2026-09-01 it had no switch at all while the admin one did. */
-  ['AdminLineNotify',       'false'],
-  ['StaffLineNotify',       'false'],
-  /* Routine messages to FAMILIES — arrival/pick-up, the daily journal, a DSPM result. ON by default,
-   * unlike the two above: it is the school's promise to families and has always worked this way, so
-   * turning it off is the school's decision to make and not a default to change underneath them.
-   * A late-pickup charge and an injury are NOT here — money owed and a child hurt always send. */
-  ['ParentLineNotify',      'true'],
+  /* ═══ ONE SWITCH PER TOPIC (2026-10-10). THE THREE THAT WERE HERE BEFORE COVERED LESS THAN HALF ══
+   *
+   * 🔴 WHY THIS CHANGED. The ผอ. reported on 09/10 that parents were being LINE-pushed again, and
+   * showed two messages: a teacher's reply to a journal comment, and a teacher filing a leave for a
+   * child. Both were sent with `ParentLineNotify` ON — but that switch never covered them. It
+   * covered four topics; the app sends parents TEN, and SIX of them had no switch of any kind.
+   * `notifyStudentParents_` did not read a single config value: it just sent.
+   *
+   * A switch whose label lists four things, sitting above code that sends ten, is worse than no
+   * switch — the school turned it on believing it described what it controlled, and it did not.
+   *
+   * So the three broad switches are replaced by one key per topic, per audience. "แยกเป็นข้อเดี่ยวๆ
+   * เลย เพื่อ…ลดข้อจำกัดในการส่งเฉพาะเรื่องที่โรงเรียนต้องการ" (asked 2026-10-10).
+   *
+   * 🔴 EVERY ONE DEFAULTS TO OFF, INCLUDING THE FOUR THAT USED TO BE ON. The school's decision, and
+   * deliberately not a migration of the old values: the old values were set against labels that
+   * misdescribed what they did, so carrying them forward would carry the misunderstanding forward.
+   * The ผอ. sets all fourteen once, against labels that are now true.
+   *
+   * THIS MEANS LINE GOES SILENT AT DEPLOY until that is done. The in-app 🔔 bell still receives
+   * everything and costs no quota, and the settings screen says plainly that nothing is being sent.
+   *
+   * 🚨 EMERGENCIES ARE NOT IN THIS LIST AND HAVE NO KEY. An injury always pushes, to parents and to
+   * admins, whatever is set here. A switch that can silence a hurt child is not a feature. */
+
+  // ── ถึงผู้ปกครอง ────────────────────────────────────────────────────────────────────────────
+  ['NotifyParentCheckin',      'false'],   // 🚪 เด็กมาถึง / ผู้ปกครองรับกลับ
+  ['NotifyParentJournal',      'false'],   // 📒 บันทึกประจำวันพร้อมแล้ว
+  ['NotifyParentJournalReply', 'false'],   // ↩️ คุณครูตอบกลับความคิดเห็น      ← หลุดเมื่อ 09/10
+  ['NotifyParentDspm',         'false'],   // 📝 ผลประเมินพัฒนาการ DSPM
+  ['NotifyParentLeave',        'false'],   // 🏠 คุณครูแจ้งลาให้นักเรียน        ← หลุดเมื่อ 09/10
+  ['NotifyParentOt',           'false'],   // ⏰ ค่าล่วงเวลา (รับช้า / ย้อนหลัง)
+  ['NotifyParentBill',         'false'],   // 🧾 แจ้งออกบิลประจำเดือน
+
+  // ── ถึงคุณครู (🔔 กระดิ่งในแอปได้รับเสมอ ไม่ว่าตั้งค่าอย่างไร) ──────────────────────────────
+  ['NotifyStaffArrival',       'false'],   // 👶 เด็กในชั้นมาถึง / ถูกรับกลับ
+  ['NotifyStaffLeave',         'false'],   // 🏠 ผู้ปกครองแจ้ง / แก้ / ยกเลิกใบลา
+  ['NotifyStaffComment',       'false'],   // 💬 ผู้ปกครองแสดงความคิดเห็นในบันทึก
+  ['NotifyStaffApproval',      'false'],   // ✅ ผลอนุมัติคำขอของตัวเอง (ลา · OT · ขอลงเวลา · รายงานตีกลับ)
+  /* 📥 ...และคิวของหัวหน้าครู ซึ่งเป็นคนละเรื่องกับบรรทัดบน: บรรทัดบนคือ "คำขอ*ของฉัน*ผ่านหรือไม่"
+   * ส่วนอันนี้คือ "มีคำขอ*ของคนอื่น*รอฉันอนุมัติ" — คนละคนรับ คนละความเร่งด่วน จึงต้องปิด/เปิดแยกกัน */
+  ['NotifyStaffApprovalQueue', 'false'],   // 📥 มีคำขอรออนุมัติ (ถึงหัวหน้าครู)
+  ['NotifyStaffPunch',         'false'],   // 🌅 เตือนลงเวลาเข้างาน / เลิกงาน
+  ['NotifyStaffOrg',           'false'],   // 🔁 ถูกย้ายแผนก / ชั้นเรียน
+
+  // ── ถึงแอดมิน ───────────────────────────────────────────────────────────────────────────────
+  ['NotifyAdminApproval',      'false'],   // 📲 มีคำขออนุมัติเข้ามา
   /* MAY PARENTS PAY SEVERAL MONTHS IN ADVANCE? Asked 2026-09-02 — the school wants to be able to
    * close it for a while without the feature being removed. ON by default, because that is how it
    * has always worked and turning a paying channel off silently would be the wrong default. Off

@@ -25,6 +25,13 @@ const result = run(function () {
   _configCache = null; setupAll(); _configCache = null;
   const cfg = sheet_(getMainSpreadsheet_(), 'SCHOOL_CONFIG');
   updateRow_(cfg, findObject_(cfg, r => r.Key === 'LineChannelAccessToken')._row, { Value: 'TOK' });
+  /* Every per-topic LINE switch ships OFF (2026-10-10). This suite asserts that a family IS told
+   * about a journal and a DSPM result, so it has to turn those two topics on — the assertions below
+   * are about the message reaching the parent, not about the school's default settings. */
+  ['NotifyParentJournal', 'NotifyParentDspm'].forEach(function (k) {
+    const r = findObject_(cfg, x => x.Key === k);
+    if (r) updateRow_(cfg, r._row, { Value: 'true' }); else appendObject_(cfg, { Key: k, Value: 'true' });
+  });
   updateRow_(cfg, findObject_(cfg, r => r.Key === 'DspmManualFileId')._row, { Value: 'FILEID123' });
   _configCache = null;
 

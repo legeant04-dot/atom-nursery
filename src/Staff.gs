@@ -607,13 +607,18 @@ function handleRenameDepartment(p) {
 function handleSetSchoolConfig(p) {
   p = p || {};
   var WHITE = { GPS_Lat: 1, GPS_Lng: 1, Radius: 1, GpsAccuracySlack: 1, LateGraceMinutes: 1, OTRatePerHour: 1, OTGraceMinutes: 1, StaffOTHourlyRate: 1, OTRoundUpMinutes: 1, DefaultCheckInTime: 1, DefaultCheckOutTime: 1, BigCleaningAmount: 1, BigCleaningIn: 1, BigCleaningOut: 1,
-    // notification prefs (in-app inbox vs LINE + daily digests). StaffLineNotify gates the LINE half
-    // of notifyStudentTeacher_ — leaves, comments and arrivals, which is the heaviest traffic there
-    // is; without it in this list the switch would save and change nothing (writeRows_ drops it).
-    // ParentLineNotify covers the routine messages to FAMILIES — arrival/pick-up, the daily journal
-    // and a DSPM result. Biggest consumer of the quota; had no switch at all before 2026-09-02.
-    AdminLineNotify: 1, StaffLineNotify: 1, ParentLineNotify: 1, ParentPrepayEnabled: 1, DigestMorning: 1, DigestEvening: 1,
+    ParentPrepayEnabled: 1, DigestMorning: 1, DigestEvening: 1,
     ContributionMatchRate: 1 };                                 // เงินสมทบ: school's share ÷ teacher's share
+  /* 🔴 THE PER-TOPIC LINE SWITCHES ARE ADDED FROM THE TOPIC TABLE, NOT TYPED OUT AGAIN.
+   *
+   * This whitelist and the engine's copy of it are two lists that decide the same thing, and they
+   * have already disagreed once — switches saved here and were silently dropped there. Fifteen
+   * hand-typed keys in two files would be that same mistake, fourteen more times over. A key not in
+   * this list does not fail: `writeRows_` drops it and the screen reports success, which is the
+   * worst shape a settings bug can have. So it is derived from LINE_TOPIC_KEYS_ in Line.gs — the
+   * same table that decides whether a message is sent — and a topic cannot exist without being
+   * saveable. */
+  try { for (var t in LINE_TOPIC_KEYS_) { if (LINE_TOPIC_KEYS_.hasOwnProperty(t)) WHITE[LINE_TOPIC_KEYS_[t]] = 1; } } catch (e) {}
   var vals = p.values || {};
   var cfg = sheet_(getMainSpreadsheet_(), 'SCHOOL_CONFIG'), wrote = {};
   Object.keys(vals).forEach(function (k) {

@@ -161,7 +161,7 @@ console.log('\n4) the two suites that had been red for months');
   // all three were test rot. Recording WHAT they were, so nobody re-investigates them as bugs.
   ok_('day4 loads the file whose function Parent.gs actually calls', /'Leave','Notify','Parent'\]/.test(d4));
   ok_('...and no longer demands a LINE push the school turned off on purpose', /admin notified for final approval \(inbox, or LINE when enabled\)/.test(d4));
-  ok_('...checking the channel that is actually configured', /String\(getConfig_\('AdminLineNotify', 'false'\)\) === 'true'/.test(d4));
+  ok_('...checking the channel that is actually configured', /lineTopicOn_\('admin\.approval'\)/.test(d4));
   ok_('day5 anchors the child\'s age to TODAY instead of a literal date', /_b\.setMonth\(_b\.getMonth\(\) - 13\)/.test(d5));
   ok_('...and says why, so it is not "simplified" back', /the test aged with the calendar and\s+\*?\s*failed by itself/.test(d5));
   ok_('day5 now proves BOTH gates, in the order a teacher meets them', /NOT_CHECKED_IN', 'journal is refused until the child is checked in'/.test(d5) && /MISSING_FIELDS', 'submit blocks missing required field/.test(d5));
