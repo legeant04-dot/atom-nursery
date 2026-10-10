@@ -131,7 +131,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.429'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.430'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -12095,24 +12095,56 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
 
     { group:'admin',  k:'NotifyAdminApproval',      th:'📲 มีคำขออนุมัติเข้ามา',                    en:'📲 A request needs approval' }
   ];
-  const _notifyRow = (cfgOn, t) => `
-      <label class="field" style="display:flex;align-items:flex-start;gap:8px;margin:2px 0"><input type="checkbox" data-notify="${esc(t.k)}" style="width:auto;margin-top:3px" ${cfgOn(t.k,false)?'checked':''}/>
-        <span>${EN()?t.en:t.th}${t.hint?`<br><span class="muted" style="font-size:12px">${EN()?t.hint.en:t.hint.th}</span>`:''}</span></label>`;
+  /* ═══ TWO CHANNELS, TWO COLUMNS ═══════════════════════════════════════════════════════════════
+   *
+   * Asked 2026-10-10 with a marked-up screenshot: a column of boxes for 📱 App and another for 💬
+   * Line OA, lined up under their headings, to the RIGHT of each topic — "เรื่องไหนแจ้งในแอปพอ
+   * เรื่องไหนให้ Line แจ้ง".
+   *
+   * The stored value is a channel LIST (`app,line`), so `chOn` asks the value, not a second key.
+   *
+   * MOBILE FIRST, which is what decides the markup here: a <table> at 375px either scrolls
+   * sideways or squeezes the Thai label to two words a line. This is a grid with the two columns
+   * FIXED at 52px and the label taking the rest, so the boxes stay in their columns at every width
+   * and the heading above them keeps meaning what it says. The headings are sticky-free and simply
+   * repeat per section — a single heading at the top would scroll away long before the teacher
+   * section, leaving fourteen unlabelled pairs of boxes. */
+  const _notifyHead = () => `
+      <div style="display:grid;grid-template-columns:1fr 58px 58px;align-items:end;gap:2px;margin:8px 0 2px;font-size:12px;font-weight:600">
+        <span></span>
+        <span style="text-align:center;color:var(--accent,#2d6cdf)">📱 ${EN()?'App':'แอป'}</span>
+        <span style="text-align:center;color:#06C755">💬 Line</span></div>`;
+  const _notifyRow = (chOn, t) => `
+      <div style="display:grid;grid-template-columns:1fr 58px 58px;align-items:center;gap:2px;padding:5px 0;border-top:1px solid var(--line,#eee)">
+        <span style="font-size:14px;line-height:1.35">${EN()?t.en:t.th}${t.hint?`<br><span class="muted" style="font-size:11.5px">${EN()?t.hint.en:t.hint.th}</span>`:''}</span>
+        <span style="text-align:center"><input type="checkbox" data-notify="${esc(t.k)}" data-ch="app"  style="width:20px;height:20px" ${chOn(t.k,'app')?'checked':''}/></span>
+        <span style="text-align:center"><input type="checkbox" data-notify="${esc(t.k)}" data-ch="line" style="width:20px;height:20px" ${chOn(t.k,'line')?'checked':''}/></span></div>`;
 
   const _setNotifyHTML = cfgOn => {
-    const rows = g => NOTIFY_TOPICS_.filter(t=>t.group===g).map(t=>_notifyRow(cfgOn,t)).join('');
-    const anyOn = NOTIFY_TOPICS_.some(t=>cfgOn(t.k,false));
+    /* the stored value is `app,line` — and 'true' from the day before channels existed means both,
+     * exactly as notifyChannels_ reads it on the server. Two readers of one format, kept the same
+     * on purpose; tools/test_notify_topics.js checks they agree. */
+    const chOn = (k, ch) => { const v = String(cfgOn(k,'')||'').toLowerCase();
+      return v==='true' ? true : v.indexOf(ch)>=0; };
+    const rows = g => _notifyHead() + NOTIFY_TOPICS_.filter(t=>t.group===g).map(t=>_notifyRow(chOn,t)).join('');
+    const anyOn = NOTIFY_TOPICS_.some(t=>chOn(t.k,'app')||chOn(t.k,'line'));
+    const silent = NOTIFY_TOPICS_.filter(t=>!chOn(t.k,'app')&&!chOn(t.k,'line')).length;
     return `
-      <p class="muted" style="font-size:13px">${EN()?'Each topic is its own switch. Everything still reaches the in-app bell 🔔 whatever you set here, which costs no quota — these decide only whether LINE is used as well.':'แต่ละเรื่องมีสวิตช์ของตัวเอง · ทุกเรื่องยังเข้ากล่องแจ้งเตือนในแอป 🔔 เสมอไม่ว่าตั้งค่าอย่างไร ซึ่งไม่เสียโควตา · ตรงนี้ตัดสินแค่ว่าจะส่ง LINE ด้วยไหม'}</p>
-      ${/* 🔴 SAY IT WHEN NOTHING IS BEING SENT. All fifteen default to OFF (see Config.gs), so on the
-           first open after this ships the whole channel is silent — which is what the school asked
-           for, and exactly the state nobody would notice from a grid of empty boxes. */''}
-      ${anyOn?'':`<p style="background:var(--warn-bg,#fff4e5);border-left:3px solid var(--warn,#e8a33d);padding:8px;border-radius:6px;font-size:13px">${EN()?'<b>No LINE messages are being sent right now</b> — every topic below is off. The in-app bell 🔔 still works for everyone. Tick the topics the school wants on LINE, then save.':'<b>ตอนนี้ยังไม่ส่ง LINE เลยสักเรื่อง</b> — ปิดอยู่ทุกหัวข้อด้านล่าง · กระดิ่ง 🔔 ในแอปยังทำงานปกติทุกคน · ติ๊กเฉพาะเรื่องที่โรงเรียนต้องการให้ส่ง LINE แล้วกดบันทึก'}</p>`}
+      <p class="muted" style="font-size:13px">${EN()?'Each topic chooses its own channels. <b>📱 App</b> is the in-app 🔔 bell and costs nothing. <b>💬 Line OA</b> uses the monthly quota. Tick either, both, or neither.':'แต่ละเรื่องเลือกช่องทางของตัวเองได้ · <b>📱 ในแอป</b> คือกระดิ่ง 🔔 ไม่เสียโควตา · <b>💬 Line OA</b> ใช้โควตารายเดือน · ติ๊กช่องเดียว สองช่อง หรือไม่ติ๊กเลยก็ได้'}</p>
+      ${/* 🔴 SAY IT WHEN NOTHING IS BEING SENT. Everything ships with both channels off, so on the
+           first open the whole thing is silent — which is what the school asked for, and exactly the
+           state nobody would notice from a grid of empty boxes. */''}
+      ${anyOn?'':`<p style="background:var(--warn-bg,#fff4e5);border-left:3px solid var(--warn,#e8a33d);padding:8px;border-radius:6px;font-size:13px">${EN()?'<b>Nothing is being sent right now</b> — every topic below has both channels off. Tick what the school wants, then save.':'<b>ตอนนี้ยังไม่แจ้งเตือนเลยสักเรื่อง</b> — ทุกหัวข้อด้านล่างปิดทั้งสองช่อง · ติ๊กเฉพาะเรื่องที่โรงเรียนต้องการ แล้วกดบันทึก'}</p>`}
+      ${/* 🔴 ...AND WHEN *SOME* TOPIC REACHES NOBODY. The school chose to allow both-off ("เตือนแต่ให้
+           ทำได้"), so this is a warning and not a refusal — but a topic with neither box ticked is a
+           message the system simply drops, and that has to be visible rather than inferred from two
+           empty squares among thirty. Counted, so it cannot be mistaken for decoration. */''}
+      ${(anyOn&&silent)?`<p style="background:var(--warn-bg,#fff4e5);border-left:3px solid var(--warn,#e8a33d);padding:8px;border-radius:6px;font-size:13px">⚠️ ${EN()?`<b>${silent} topic${silent>1?'s':''} will reach nobody</b> — neither channel is ticked, so those messages are not sent and are not stored anywhere either.`:`<b>มี ${silent} เรื่องที่จะไม่ถึงใครเลย</b> — ไม่ได้ติ๊กช่องไหนเลย ข้อความเหล่านั้นจะไม่ถูกส่งและไม่ถูกเก็บไว้ที่ไหนด้วย`}</p>`:''}
       <h4 style="margin:10px 0 2px">👨‍👩‍👧 ${EN()?'To parents':'ถึงผู้ปกครอง'}</h4>
       ${rows('parent')}
       <h4 style="margin:10px 0 2px">🧑‍🏫 ${EN()?'To teachers':'ถึงคุณครู'}</h4>
       ${rows('staff')}
-      <p class="muted" style="font-size:12px">${EN()?'Off: teachers still get all of these on the 🔔 bell in the app.':'ปิดไว้: คุณครูยังได้รับครบทุกเรื่องที่กระดิ่ง 🔔 ในแอป'}</p>
+      <p class="muted" style="font-size:12px">${EN()?'📱 on and 💬 off is the cheap setting: the teacher still sees everything on the bell, and it costs no quota.':'ติ๊ก 📱 แต่ไม่ติ๊ก 💬 คือแบบประหยัด — คุณครูยังเห็นครบที่กระดิ่ง และไม่เสียโควตาเลย'}</p>
       <h4 style="margin:10px 0 2px">🛡️ ${EN()?'To admins':'ถึงแอดมิน'}</h4>
       ${rows('admin')}
       <p class="muted" style="font-size:13px;margin-top:8px">🚨 ${EN()?'<b>Emergencies (an accident or injury) always go to LINE</b> — to the family and to the admins — and are deliberately not in this list. There is no switch for them.':'<b>เหตุฉุกเฉิน (อุบัติเหตุ/บาดเจ็บ) ส่ง LINE เสมอ</b> ทั้งถึงครอบครัวและแอดมิน · ตั้งใจไม่ใส่ไว้ในรายการนี้ และไม่มีสวิตช์ให้ปิด'}</p>
@@ -13572,9 +13604,22 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
      * topic list has to be kept in step, and the one most likely to be forgotten — a missing pair
      * does not throw, it just silently stops saving that one switch while the box still ticks. So
      * every box carries its own key in `data-notify` and this reads whatever the dialog drew. Add a
-     * topic to NOTIFY_TOPICS_ and it saves, with nothing to remember here. */
-    for(const el of m.querySelectorAll('input[data-notify]')){
-      const k=el.getAttribute('data-notify'); if(k) gv[k]=el.checked?'true':'false'; }
+     * topic to NOTIFY_TOPICS_ and it saves, with nothing to remember here.
+     *
+     * TWO BOXES PER TOPIC SINCE 2026-10-10, collected into one `app,line` value. Built from the
+     * boxes that are PRESENT rather than from the topic list, so a dialog that draws half the rows
+     * saves half the rows — and a topic whose boxes are both clear writes '' rather than being left
+     * out, because omitting it would leave the previous value standing and turning a topic off
+     * would appear to work while changing nothing. */
+    {
+      const chans={};
+      for(const el of m.querySelectorAll('input[data-notify]')){
+        const k=el.getAttribute('data-notify'); if(!k) continue;
+        if(!chans[k]) chans[k]=[];
+        if(el.checked) chans[k].push(el.getAttribute('data-ch')||'app');
+      }
+      Object.keys(chans).forEach(k=>{ gv[k]=chans[k].join(','); });
+    }
 
     /* ALL IN FLIGHT BEFORE THE FIRST await — that is the whole of the fix. An `await` anywhere in
      * this block would split the batch, and the cost of that is not a little slower, it is another

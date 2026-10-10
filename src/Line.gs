@@ -170,12 +170,34 @@ var LINE_TOPIC_KEYS_ = {
   'admin.approval':      'NotifyAdminApproval'
 };
 
-function lineTopicOn_(topic) {
-  if (topic === 'emergency') return true;              // 🚨 never configurable — see above
+/* ── TWO CHANNELS PER TOPIC (2026-10-10, same day, asked straight after the split) ───────────────
+ *
+ * "เรื่องนี้ส่ง Notification ในแอป เรื่องนี้ส่ง Line OA … เรื่องไหนแจ้งในแอปพอ เรื่องไหนให้ Line แจ้ง"
+ *
+ * So each topic answers TWO questions, not one, and the value stored is the LIST OF CHANNELS it
+ * goes out on — `app,line`, `app`, `line`, or empty. One SCHOOL_CONFIG row per topic rather than
+ * thirty: a person reading the sheet sees `NotifyParentJournal = app,line` and knows what it means,
+ * where `NotifyParentJournal_App = true` beside `NotifyParentJournal_Line = false` is two rows that
+ * can contradict each other and a name that has to be parsed to be understood.
+ *
+ * 🔴 'true' IS STILL READ, AND MEANS BOTH. These keys shipped yesterday holding 'true'/'false', and
+ * the ผอ. was told to go and set them — so some may already say 'true' on the live sheet. Reading
+ * that as "no channels" would silently switch off whatever they had just turned on. An old value
+ * means what it meant when it was written: send it.
+ */
+function notifyChannels_(topic) {
+  if (topic === 'emergency') return { app: true, line: true };   // 🚨 never configurable
   var key = LINE_TOPIC_KEYS_[topic];
-  if (!key) return false;                              // 🔴 unknown topic → send nothing
-  return String(getConfig_(key, 'false')) === 'true';
+  if (!key) return { app: false, line: false };                  // 🔴 unknown topic → nothing at all
+  var v = String(getConfig_(key, '')).toLowerCase().trim();
+  if (v === 'true') return { app: true, line: true };            // written before channels existed
+  if (v === 'false') return { app: false, line: false };
+  return { app: v.indexOf('app') >= 0, line: v.indexOf('line') >= 0 };
 }
+/** Does this topic go out on LINE? */
+function lineTopicOn_(topic) { return notifyChannels_(topic).line; }
+/** ...and does it go in the in-app bell? */
+function appTopicOn_(topic) { return notifyChannels_(topic).app; }
 
 /* 🔴 `parentLineOn_()` IS DELETED ON PURPOSE — do not reintroduce it as an alias.
  *
@@ -352,7 +374,11 @@ function handleLineUsage(p) {
 
   return { from: from, to: today, days: days, schoolDays: schoolDaysIn,
     adminLineOn: adminLineOn, teachersPerClass: perClass,
+    /* which topics were ON when this measured — LINE only, because this screen is about the
+     * LINE quota and the in-app bell costs nothing. `channels` carries both halves for the screen
+     * that wants to say "13 of 15 are app-only". */
     topics: (function () { var o = {}; for (var t in LINE_TOPIC_KEYS_) { if (LINE_TOPIC_KEYS_.hasOwnProperty(t)) o[t] = lineTopicOn_(t); } return o; })(),
+    channels: (function () { var o = {}; for (var t in LINE_TOPIC_KEYS_) { if (LINE_TOPIC_KEYS_.hasOwnProperty(t)) o[t] = notifyChannels_(t); } return o; })(),
     recipients: recip, adminUsers: adminUsers,
     items: items, perDay: perDay, perMonth: perMonth, totalInWindow: totalMsgs,
     // "everything on, one person receiving it" — the question a school choosing a plan is asking

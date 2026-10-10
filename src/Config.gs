@@ -548,30 +548,47 @@ var SCHOOL_CONFIG_DEFAULTS = [
    * everything and costs no quota, and the settings screen says plainly that nothing is being sent.
    *
    * 🚨 EMERGENCIES ARE NOT IN THIS LIST AND HAVE NO KEY. An injury always pushes, to parents and to
-   * admins, whatever is set here. A switch that can silence a hurt child is not a feature. */
+   * admins, whatever is set here. A switch that can silence a hurt child is not a feature.
+   *
+   * ─── AND THE VALUE IS A LIST OF CHANNELS, NOT A YES/NO (added the same day) ──────────────────
+   *
+   * "เรื่องไหนแจ้งในแอปพอ เรื่องไหนให้ Line แจ้ง" — so each topic carries WHICH CHANNELS it goes out
+   * on: `app,line` · `app` · `line` · or empty for neither.
+   *
+   *   app   = the in-app 🔔 bell. Costs no LINE quota. For STAFF and ADMINS this has existed for
+   *           months; for a FAMILY it was built on 2026-10-10 and did not exist before — the parent
+   *           bell read an array nothing ever wrote to, so every family topic was LINE or nothing.
+   *   line  = a LINE OA push. Counts against the ~300/month free quota, which has run out before.
+   *
+   * One row per topic rather than thirty: `NotifyParentJournal = app,line` says what it does, where
+   * a pair of `_App`/`_Line` rows can contradict each other and still both look right.
+   *
+   * 'true' is still read, and means BOTH — these keys shipped the previous day holding 'true'/'false'
+   * and the ผอ. was asked to go and set them. Reading an old 'true' as "no channels" would switch
+   * off exactly what they had just switched on. */
 
   // ── ถึงผู้ปกครอง ────────────────────────────────────────────────────────────────────────────
-  ['NotifyParentCheckin',      'false'],   // 🚪 เด็กมาถึง / ผู้ปกครองรับกลับ
-  ['NotifyParentJournal',      'false'],   // 📒 บันทึกประจำวันพร้อมแล้ว
-  ['NotifyParentJournalReply', 'false'],   // ↩️ คุณครูตอบกลับความคิดเห็น      ← หลุดเมื่อ 09/10
-  ['NotifyParentDspm',         'false'],   // 📝 ผลประเมินพัฒนาการ DSPM
-  ['NotifyParentLeave',        'false'],   // 🏠 คุณครูแจ้งลาให้นักเรียน        ← หลุดเมื่อ 09/10
-  ['NotifyParentOt',           'false'],   // ⏰ ค่าล่วงเวลา (รับช้า / ย้อนหลัง)
-  ['NotifyParentBill',         'false'],   // 🧾 แจ้งออกบิลประจำเดือน
+  ['NotifyParentCheckin',      ''],   // 🚪 เด็กมาถึง / ผู้ปกครองรับกลับ
+  ['NotifyParentJournal',      ''],   // 📒 บันทึกประจำวันพร้อมแล้ว
+  ['NotifyParentJournalReply', ''],   // ↩️ คุณครูตอบกลับความคิดเห็น      ← หลุดเมื่อ 09/10
+  ['NotifyParentDspm',         ''],   // 📝 ผลประเมินพัฒนาการ DSPM
+  ['NotifyParentLeave',        ''],   // 🏠 คุณครูแจ้งลาให้นักเรียน        ← หลุดเมื่อ 09/10
+  ['NotifyParentOt',           ''],   // ⏰ ค่าล่วงเวลา (รับช้า / ย้อนหลัง)
+  ['NotifyParentBill',         ''],   // 🧾 แจ้งออกบิลประจำเดือน
 
   // ── ถึงคุณครู (🔔 กระดิ่งในแอปได้รับเสมอ ไม่ว่าตั้งค่าอย่างไร) ──────────────────────────────
-  ['NotifyStaffArrival',       'false'],   // 👶 เด็กในชั้นมาถึง / ถูกรับกลับ
-  ['NotifyStaffLeave',         'false'],   // 🏠 ผู้ปกครองแจ้ง / แก้ / ยกเลิกใบลา
-  ['NotifyStaffComment',       'false'],   // 💬 ผู้ปกครองแสดงความคิดเห็นในบันทึก
-  ['NotifyStaffApproval',      'false'],   // ✅ ผลอนุมัติคำขอของตัวเอง (ลา · OT · ขอลงเวลา · รายงานตีกลับ)
+  ['NotifyStaffArrival',       ''],   // 👶 เด็กในชั้นมาถึง / ถูกรับกลับ
+  ['NotifyStaffLeave',         ''],   // 🏠 ผู้ปกครองแจ้ง / แก้ / ยกเลิกใบลา
+  ['NotifyStaffComment',       ''],   // 💬 ผู้ปกครองแสดงความคิดเห็นในบันทึก
+  ['NotifyStaffApproval',      ''],   // ✅ ผลอนุมัติคำขอของตัวเอง (ลา · OT · ขอลงเวลา · รายงานตีกลับ)
   /* 📥 ...และคิวของหัวหน้าครู ซึ่งเป็นคนละเรื่องกับบรรทัดบน: บรรทัดบนคือ "คำขอ*ของฉัน*ผ่านหรือไม่"
    * ส่วนอันนี้คือ "มีคำขอ*ของคนอื่น*รอฉันอนุมัติ" — คนละคนรับ คนละความเร่งด่วน จึงต้องปิด/เปิดแยกกัน */
-  ['NotifyStaffApprovalQueue', 'false'],   // 📥 มีคำขอรออนุมัติ (ถึงหัวหน้าครู)
-  ['NotifyStaffPunch',         'false'],   // 🌅 เตือนลงเวลาเข้างาน / เลิกงาน
-  ['NotifyStaffOrg',           'false'],   // 🔁 ถูกย้ายแผนก / ชั้นเรียน
+  ['NotifyStaffApprovalQueue', ''],   // 📥 มีคำขอรออนุมัติ (ถึงหัวหน้าครู)
+  ['NotifyStaffPunch',         ''],   // 🌅 เตือนลงเวลาเข้างาน / เลิกงาน
+  ['NotifyStaffOrg',           ''],   // 🔁 ถูกย้ายแผนก / ชั้นเรียน
 
   // ── ถึงแอดมิน ───────────────────────────────────────────────────────────────────────────────
-  ['NotifyAdminApproval',      'false'],   // 📲 มีคำขออนุมัติเข้ามา
+  ['NotifyAdminApproval',      ''],   // 📲 มีคำขออนุมัติเข้ามา
   /* MAY PARENTS PAY SEVERAL MONTHS IN ADVANCE? Asked 2026-09-02 — the school wants to be able to
    * close it for a while without the feature being removed. ON by default, because that is how it
    * has always worked and turning a paying channel off silently would be the wrong default. Off

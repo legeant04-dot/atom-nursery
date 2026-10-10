@@ -42,8 +42,10 @@ const res = JSON.parse(run(function () {
    * ships off (2026-10-10), and an estimate of a channel that is off is a table of zeros, which
    * cannot answer the question the school asked it. The TEACHER half is deliberately left off, and
    * §3 asserts it reads as zero AND says so in words. */
-  (function () { var r = findObject_(cfg, function (x) { return x.Key === 'NotifyParentCheckin'; });
-    if (r) updateRow_(cfg, r._row, { Value: 'true' }); else appendObject_(cfg, { Key: 'NotifyParentCheckin', Value: 'true' }); })();
+  ['NotifyParentCheckin', 'NotifyAdminApproval'].forEach(function (k) {
+    var r = findObject_(cfg, function (x) { return x.Key === k; });
+    if (r) updateRow_(cfg, r._row, { Value: 'app,line' }); else appendObject_(cfg, { Key: k, Value: 'app,line' });
+  });
   _configCache = null;
 
   handleSaveLineRecipients({ rows: [
@@ -223,12 +225,15 @@ console.log('\n3) THE MONEY — counted, not guessed');
    * notifications were believed off. tools/test_notify_topics.js owns that guarantee now; what this
    * suite still asserts is the part it is in a position to see, which is that the ESTIMATE and the
    * SENDING ask the same question about the same topic. */
+  /* ...through familyBell_, which answers BOTH questions at once since 2026-10-10: it writes the
+   * family's 🔔 row when the app channel is on and returns whether the LINE half should go. One
+   * call, so a site cannot send the push while forgetting the bell. */
   ok_('each routine family channel asks for its own topic',
-    /lineTopicOn_\('parent\.checkin'\)/.test(R('src/Checkin.gs')) &&
-    /lineTopicOn_\('parent\.journal'\)/.test(R('src/Journal.gs')) &&
-    /lineTopicOn_\('parent\.dspm'\)/.test(R('src/Dspm.gs')));
+    /familyBell_\('parent\.checkin'/.test(R('src/Checkin.gs')) &&
+    /familyBell_\('parent\.journal'/.test(R('src/Journal.gs')) &&
+    /familyBell_\('parent\.dspm'/.test(R('src/Dspm.gs')));
   ok_('...and a late-pickup charge has its own, separate from them',
-    /lineTopicOn_\('parent\.ot'\)/.test(R('src/Parent.gs')));
+    /familyBell_\('parent\.ot'/.test(R('src/Parent.gs')) && /familyBell_\('parent\.ot'/.test(R('src/Code.gs')));
   ok_('...saving any of them is allowed, derived from the topic table', /LINE_TOPIC_KEYS_\[t\]\] = 1/.test(staffGs));
   /* 🚨 ...but a child being hurt has NO topic and cannot be switched off, by anyone, ever. */
   ok_('an injury is sent under emergency, which has no key',
