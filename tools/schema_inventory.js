@@ -71,7 +71,7 @@ function readCollections() {
  * ensureColumns_/insertSheet call that creates each one — quoted here because there is nowhere else
  * to read them from, and checked by tools/test_schema_inventory.js against those call sites. */
 const RUNTIME_SHEETS = [
-  { sheet: 'ADMIN_INBOX', wb: 'MAIN', cols: ['InboxID', 'Date', 'Category', 'Text', 'Read', 'Ref', 'StaffID'],
+  { sheet: 'ADMIN_INBOX', wb: 'MAIN', cols: ['InboxID', 'Date', 'Category', 'Text', 'Read', 'Ref', 'StaffID', 'StudentID'],
     note: 'the 🔔 in-app inbox — built when the LINE quota ran out' },
   { sheet: 'PERF_LOG', wb: 'MAIN', cols: ['Ts', 'Sid', 'Role', 'Type', 'Action', 'Ms', 'Ok', 'Code', 'Batch', 'Screen', 'Dev', 'Net', 'Pwa', 'Ver', 'Os'],
     note: 'Phase 0 telemetry. NOT migrated — see the note in the DDL' },

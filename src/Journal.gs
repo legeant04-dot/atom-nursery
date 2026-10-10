@@ -178,12 +178,15 @@ function handleSubmitJournal(payload) {
   if (submit && student.ParentID) {
     var parent = findObject_(sheet_(getMainSpreadsheet_(), 'PARENTS'),
       function (p) { return String(p.ParentID) === String(student.ParentID); });
-    // one per child per school day — its own topic (LINE_TOPIC_KEYS_ in Line.gs)
-    if (parent && parent.LineUID && lineTopicOn_('parent.journal')) {
+    // one per child per school day — its own topic, on either channel (LINE_TOPIC_KEYS_ in Line.gs).
+    // The bell row carries the journal deep-link, so tapping it opens that child's report for that day.
+    var jMsg = '📒 บันทึกประจำวันของ ' + student.Name + ' พร้อมแล้ว (' + date + ')';
+    if (familyBell_('parent.journal', student, jMsg, 'journal|' + student.StudentID + '|' + date)
+        && parent && parent.LineUID) {
       var liff = getConfig_('LiffID', '');
       var link = (liff && String(liff).indexOf('<FILL') !== 0)
         ? '\nดูรายละเอียด: https://liff.line.me/' + liff + '?view=journal&student=' + student.StudentID + '&date=' + date : '';
-      linePushText_(parent.LineUID, '📒 บันทึกประจำวันของ ' + student.Name + ' พร้อมแล้ว (' + date + ')' + link);
+      linePushText_(parent.LineUID, jMsg + link);
     }
   }
   return { studentId: student.StudentID, date: date, updated: !!existing, submitted: submit,
@@ -250,12 +253,17 @@ function handleSubmitJournalsMany(payload) {
   sent.forEach(function (s) {
     try {
       var student = getStudent_(s.studentId);
-      if (!student || !student.ParentID || !lineTopicOn_('parent.journal')) return;
+      if (!student) return;
+      var jMsg = '📒 บันทึกประจำวันของ ' + student.Name + ' พร้อมแล้ว (' + date + ')';
+      // the bell goes to the family even when the child has no ParentID on their row yet — the row
+      // is keyed by student, so whoever is linked to that child sees it
+      var wantLine = familyBell_('parent.journal', student, jMsg, 'journal|' + student.StudentID + '|' + date);
+      if (!wantLine || !student.ParentID) return;
       var parent = findObject_(pSheet, function (p) { return String(p.ParentID) === String(student.ParentID); });
       if (!parent || !parent.LineUID) return;
       var link = (liff && String(liff).indexOf('<FILL') !== 0)
         ? '\nดูรายละเอียด: https://liff.line.me/' + liff + '?view=journal&student=' + student.StudentID + '&date=' + date : '';
-      linePushText_(parent.LineUID, '📒 บันทึกประจำวันของ ' + student.Name + ' พร้อมแล้ว (' + date + ')' + link);
+      linePushText_(parent.LineUID, jMsg + link);
     } catch (e) {}
   });
 

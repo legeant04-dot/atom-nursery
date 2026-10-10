@@ -13,12 +13,16 @@ const result = run(function () {
   /* THE LEAVE WORKFLOW IS WHAT THIS SUITE IS ABOUT, so the two topics it travels on are turned on
    * here rather than asserted about — every per-topic LINE switch ships OFF (2026-10-10), and a
    * suite that measures "did the leader get told" has to put the channel in the state it is
-   * describing. The arrival topic is deliberately left OFF: the block further down proves the
-   * switch decides, in both directions. */
-  ['NotifyStaffApprovalQueue', 'NotifyStaffApproval'].forEach(function (k) {
+   * describing. The ARRIVAL topic is seeded 'app' only — bell yes, LINE no — which is now a state
+   * the system can actually express, and is exactly what the two assertions further down check:
+   * the teacher IS told without spending quota, and flipping the same topic to 'app,line' turns the
+   * LINE half on. */
+  ['NotifyStaffApprovalQueue', 'NotifyStaffApproval', 'NotifyAdminApproval', 'NotifyStaffLeave'].forEach(function (k) {
     const r = findObject_(cfg, x => x.Key === k);
-    if (r) updateRow_(cfg, r._row, { Value: 'true' }); else appendObject_(cfg, { Key: k, Value: 'true' });
+    if (r) updateRow_(cfg, r._row, { Value: 'app,line' }); else appendObject_(cfg, { Key: k, Value: 'app,line' });
   });
+  (function () { var r = findObject_(cfg, x => x.Key === 'NotifyStaffArrival');
+    if (r) updateRow_(cfg, r._row, { Value: 'app' }); else appendObject_(cfg, { Key: 'NotifyStaffArrival', Value: 'app' }); })();
   _configCache = null;
 
   let pass = true;
@@ -108,7 +112,7 @@ const result = run(function () {
   ok(!PUSH.some(p => p.to === 'Uofficer1' && /มาถึง/.test(p.text)),
     '...and NO LINE push while NotifyStaffArrival is off');
   { // ...and the switch really is what decides
-    updateRow_(cfg, findObject_(cfg, r => r.Key === 'NotifyStaffArrival')._row, { Value: 'true' });
+    updateRow_(cfg, findObject_(cfg, r => r.Key === 'NotifyStaffArrival')._row, { Value: 'app,line' });
     _configCache = null;
     PUSH.length = 0;
     // notifyStudentTeacher_ directly: the check-OUT path would drag in otUpsertForPickup_, which
@@ -117,7 +121,7 @@ const result = run(function () {
       '👶 ทดสอบ มาถึงโรงเรียนแล้ว (08:00)', { adminFallback: false, topic: 'staff.arrival' });
     ok(PUSH.some(p => p.to === 'Uofficer1' && /มาถึง/.test(p.text)),
       '...and a LINE push once the school turns it on');
-    updateRow_(cfg, findObject_(cfg, r => r.Key === 'NotifyStaffArrival')._row, { Value: 'false' });
+    updateRow_(cfg, findObject_(cfg, r => r.Key === 'NotifyStaffArrival')._row, { Value: 'app' });
     _configCache = null;
   }
   ok(sheet_(MAIN, 'CHECKIN_STUDENT').getLastRow() === 2, 'CHECKIN_STUDENT row written');

@@ -99,7 +99,10 @@ function handleSaveLineRecipients(p) {
 function inboxSheet_() {
   var ss = getMainSpreadsheet_();
   var sh = ss.getSheetByName('ADMIN_INBOX');
-  if (!sh) { sh = ss.insertSheet('ADMIN_INBOX'); sh.appendRow(['InboxID', 'Date', 'Category', 'Text', 'Read', 'Ref', 'StaffID']); }
+  if (!sh) { sh = ss.insertSheet('ADMIN_INBOX'); sh.appendRow(['InboxID', 'Date', 'Category', 'Text', 'Read', 'Ref', 'StaffID', 'StudentID']); }
+  /* StudentID carries a FAMILY notification (2026-10-10). Declared in SCHEMA too — a column created
+   * only here is a column the Postgres migration loses in silence (Phase 2.2). */
+  try { ensureColumns_(sh, ['StaffID', 'StudentID']); } catch (e) {}
   return sh;
 }
 function inboxBust_() { try { CacheService.getScriptCache().removeAll(['rows:ADMIN_INBOX', 'col:ADMIN_INBOX']); } catch (e) {} }
@@ -142,6 +145,83 @@ function inboxAdd_(category, text, ref, staffId) {
   } catch (e) { try { Logger.log('inboxAdd_ ' + e.message); } catch (x) {} }
 }
 
+/* ── 🔔 THE FAMILY'S BELL — NEW ON 2026-10-10, AND IT DID NOT EXIST BEFORE TODAY ─────────────────
+ *
+ * Asked for alongside the App / Line OA columns: "เรื่องไหนแจ้งในแอปพอ เรื่องไหนให้ Line แจ้ง".
+ *
+ * 🔴 That question could not be answered yesterday, because for a PARENT the first half had no
+ * implementation at all. Staff and admins have had an inbox for months; the parent branch of
+ * handleNotifications fell through to the engine's `M.feed`, which GasEngine hard-codes to `[]` and
+ * which nothing in the entire codebase ever pushes to. The parent bell has been permanently empty
+ * since go-live, so every one of the seven family topics was LINE or nothing.
+ *
+ * KEYED BY STUDENT, NOT BY PARENT, and deliberately:
+ *   · a child has two parents and both must see it — one row, both bells, no duplication
+ *   · a father who linked later through USER_LINKS has no PARENTS row of his own in some families,
+ *     so a ParentID key would silently skip him; "whose child is this about" is the question that
+ *     always has an answer
+ *   · it matches what the message says. Every one of these is about a child.
+ */
+function inboxAddStudent_(category, text, ref, studentId) {
+  if (!studentId) return;
+  try {
+    var sh = inboxSheet_();
+    var id = 'IN-' + Date.now() + '-' + Math.floor(Math.random() * 1000);
+    appendObject_(sh, { InboxID: id, Category: category || '', Text: String(text || ''), Read: '',
+      Ref: ref || '', StaffID: '', StudentID: String(studentId),
+      Date: dateStr_(new Date()) + ' ' + timeStr_(new Date()) });
+    inboxBust_();
+  } catch (e) { try { Logger.log('inboxAddStudent_ ' + e.message); } catch (x) {} }
+}
+
+/**
+ * ONE CALL FOR THE SIX SITES THAT PUSH A FAMILY DIRECTLY, rather than through
+ * notifyStudentParents_ — the check-in, the two OT charges, the DSPM result and both journal sends
+ * each message ONE parent they have already looked up, so they cannot use the fan-out helper.
+ *
+ * Writes the family's 🔔 row when the topic's app channel is on, and RETURNS whether LINE should go.
+ * Shaped as a return value on purpose: the call site reads
+ *
+ *     if (familyBell_('parent.checkin', student, msg) && parent.LineUID) linePushText_(…)
+ *
+ * so there is no way to send the LINE half while forgetting the bell, which is what would happen if
+ * this were two separate calls and somebody copied the wrong one.
+ */
+function familyBell_(topic, student, text, ref) {
+  var ch = notifyChannels_(topic);
+  if (ch.app) { try { inboxAddStudent_('parent', text, ref || '', student && student.StudentID); } catch (e) {} }
+  return ch.line;
+}
+
+/** Which children this signed-in parent may be told about — the same resolution the rest of the
+ *  parent app uses, so the bell can never show a family a child that is not theirs. */
+function inboxStudentsForParent_(p) {
+  var ids = {}, out = [];
+  var add = function (v) { v = String(v || ''); if (v && !ids[v]) { ids[v] = 1; out.push(v); } };
+  try {
+    var pid = String((p && p.parentId) || '');
+    if (pid) readObjects_(sheet_(getMainSpreadsheet_(), 'PARENTS')).forEach(function (r) {
+      if (String(r.ParentID) === pid) add(r.StudentID);
+    });
+    var uid = String((p && p.uid) || '');
+    if (uid) readObjects_(sheet_(getMainSpreadsheet_(), 'USER_LINKS')).forEach(function (l) {
+      if (String(l.UserUID) === uid) add(l.StudentID);
+    });
+  } catch (e) {}
+  return out;
+}
+
+/** The family's inbox rows, newest first — the parent half of handleNotifications. */
+function inboxItemsForParent_(p) {
+  var sh = getMainSpreadsheet_().getSheetByName('ADMIN_INBOX');
+  if (!sh) return [];
+  var mine = {}; inboxStudentsForParent_(p).forEach(function (s) { mine[s] = 1; });
+  if (!Object.keys(mine).length) return [];
+  return readObjects_(sh).filter(function (r) {
+    return String(r.StudentID || '') !== '' && mine[String(r.StudentID)];
+  });
+}
+
 /** Format an inbox Date cell for display. Sheets often coerces the stored "YYYY-MM-DD HH:mm" text into a
  *  Date object, whose String() is "Thu Jul 22 2026 …" — format it back to a clean "dd/MM HH:mm". */
 function inboxFmtDate_(d) {
@@ -156,7 +236,14 @@ function inboxItems_(staffId) {
   var sh = getMainSpreadsheet_().getSheetByName('ADMIN_INBOX');
   if (!sh) return [];
   var want = String(staffId || '');
-  return readObjects_(sh).filter(function (r) { return String(r.StaffID || '') === want; });
+  /* 🔴 ...AND NEVER A FAMILY'S ROW. The shared Admin inbox is "every row with no StaffID", and a
+   * parent notification also has no StaffID — so without this line, adding the family bell would
+   * have poured every child's journal and pick-up message into the admin's tray, and the admin
+   * would have been the first to notice rather than a test. A row that names a student belongs to
+   * that student's family; see inboxItemsForParent_. */
+  return readObjects_(sh).filter(function (r) {
+    return String(r.StaffID || '') === want && String(r.StudentID || '') === '';
+  });
 }
 function handleAdminInbox(p) {
   p = p || {};
@@ -178,8 +265,16 @@ function handleMarkInboxRead(p) {
   var sh = getMainSpreadsheet_().getSheetByName('ADMIN_INBOX');
   if (!sh) return { ok: true };
   var own = String(p.staffId || '');   // only ever clear the caller's own inbox
+  /* ...and a family clears only the rows about ITS OWN children. `studentIds` is resolved on the
+   * server from the signed-in parent (inboxStudentsForParent_), never taken from the request — the
+   * same rule as every other parent route, and the reason a family cannot mark another family's
+   * notification read by guessing an id. */
+  var mine = null;
+  if (p.studentIds) { mine = {}; p.studentIds.forEach(function (s) { mine[String(s)] = 1; }); }
   readObjects_(sh).forEach(function (r) {
-    if (String(r.StaffID || '') !== own) return;
+    var sid = String(r.StudentID || '');
+    if (mine) { if (!sid || !mine[sid]) return; }
+    else if (sid || String(r.StaffID || '') !== own) return;
     if (String(r.Read) !== 'YES' && (!p.id || String(r.InboxID) === String(p.id))) updateRow_(sh, r._row, { Read: 'YES' });
   });
   inboxBust_();
@@ -213,14 +308,30 @@ function handleNotifications(p) {
     });
   };
   if (String(p.role) === ROLES.ADMIN) return shape(handleAdminInbox(p));
-  // staff (teacher / leader) now have their own inbox rows; fall back to the engine for parents
   if (p.staffId) return shape(handleStaffInbox(p));
+  /* 🔔 THE FAMILY'S BELL. Until 2026-10-10 this line fell through to the engine, whose `notifications`
+   * reads `M.feed` — hard-coded to `[]` on GAS and never written to by anything. A parent's bell had
+   * therefore been empty since go-live, which is why the App column could not honestly be offered
+   * for a family topic until inboxAddStudent_ existed. */
+  var fam = inboxItemsForParent_(p);
+  if (fam.length) {
+    var rows = fam.map(function (r) {
+      var mm = /^IN-(\d+)-/.exec(String(r.InboxID || ''));
+      var disp = mm ? Utilities.formatDate(new Date(parseInt(mm[1], 10)), tz_(), 'dd/MM HH:mm') : inboxFmtDate_(r.Date);
+      return { id: r.InboxID, date: disp, category: r.Category, text: r.Text,
+               read: String(r.Read) === 'YES', ref: r.Ref || '' };
+    });
+    rows.sort(function (a, b) { return String(b.id).localeCompare(String(a.id)); });
+    return shape({ items: rows.slice(0, 100) });
+  }
   try { return engineDispatch_('notifications', p); } catch (e) { return []; }
 }
 function handleMarkNotifsRead(p) {
   p = p || {};
   if (String(p.role) === ROLES.ADMIN) return handleMarkInboxRead({});
   if (p.staffId) return handleMarkInboxRead({ staffId: p.staffId });
+  var mine = inboxStudentsForParent_(p);
+  if (mine.length) return handleMarkInboxRead({ studentIds: mine });
   try { return engineDispatch_('markNotifsRead', p); } catch (e) { return { ok: true }; }
 }
 
@@ -273,9 +384,10 @@ function handleSubmitInjury(p) {
  */
 function notifyStaffMember_(staffId, text, category, ref, topic) {
   if (!staffId) return false;
-  try { inboxAdd_(category || 'approval', text, ref || '', String(staffId)); } catch (e) {}
+  var ch = notifyChannels_(topic);
+  if (ch.app) { try { inboxAdd_(category || 'approval', text, ref || '', String(staffId)); } catch (e) {} }
   try {
-    if (!lineTopicOn_(topic)) return false;            // LINE half only — the 🔔 bell above always fires
+    if (!ch.line) return false;
     var st = findObject_(sheet_(getHrSpreadsheet_(), 'STAFF'), function (s) { return String(s.StaffID) === String(staffId); });
     if (st && st.LineUID) return !!linePushText_(st.LineUID, text);
   } catch (e) {}

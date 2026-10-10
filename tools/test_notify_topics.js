@@ -126,11 +126,20 @@ console.log('\n2) 🔴 ไม่มีการส่ง LINE ถึงครอ
   eq('🔴 ทุกจุดที่ส่งหาผู้ปกครองแบบหว่าน ระบุหัวข้อครบ', bad, []);
 
   // ...and the two fan-outs to staff take it through opts.topic / the 5th argument
-  ok_('notifyStudentTeacher_ ตัดสินด้วย lineTopicOn_(opts.topic)',
-    /var lineOn = lineTopicOn_\(opts\.topic\)/.test(decom(R('src/Parent.gs'))));
-  ok_('notifyStaffMember_ ตัดสินด้วย lineTopicOn_(topic)',
-    /function notifyStaffMember_\(staffId, text, category, ref, topic\)/.test(R('src/Notify.gs')) &&
-    /if \(!lineTopicOn_\(topic\)\) return false;/.test(R('src/Notify.gs')));
+  /* ...และทั้งสองตัวแยก 2 ช่องทาง: กระดิ่งในแอปกับ LINE ปิด/เปิดอิสระจากกัน
+   * (ก่อน 10/10 กระดิ่งของคุณครูเขียนเสมอ ปิดไม่ได้ — ตอนนี้ปิดได้ และหน้าจอเตือนถ้าปิดทั้งคู่) */
+  {
+    const parentGs = decom(R('src/Parent.gs')), notifyGs = R('src/Notify.gs');
+    ok_('notifyStudentTeacher_ แยก app/line จาก notifyChannels_(opts.topic)',
+      /var chans = notifyChannels_\(opts\.topic\);/.test(parentGs) &&
+      /var lineOn = chans\.line, appOn = chans\.app;/.test(parentGs) &&
+      /if \(appOn\) \{ inboxAdd_\(/.test(parentGs));
+    ok_('notifyStaffMember_ แยก app/line เหมือนกัน',
+      /function notifyStaffMember_\(staffId, text, category, ref, topic\)/.test(notifyGs) &&
+      /var ch = notifyChannels_\(topic\);/.test(notifyGs) &&
+      /if \(ch\.app\) \{ try \{ inboxAdd_\(/.test(notifyGs) &&
+      /if \(!ch\.line\) return false;/.test(notifyGs));
+  }
 
   /* Every caller of notifyStudentTeacher_ must pass opts.topic. A caller that passes no opts at all
    * now reaches nobody on LINE — which is the safe direction, but it is still a bug, so name them. */
@@ -151,15 +160,14 @@ console.log('\n3) 🔴 ไม่รู้จักหัวข้อ = ไม่
   /* Run the real function. A reading of the source would pass on code that looks right and is not —
    * and "fails open" is a defect you cannot see by reading, because the mistake is the ABSENCE of a
    * branch. So: build the two things lineTopicOn_ depends on, and ask it. */
-  const body = /function lineTopicOn_\(topic\) \{([\s\S]*?)\n\}/.exec(line);
-  ok_('อ่านตัว lineTopicOn_ ออกมารันได้', !!body);
+  const body = /function notifyChannels_\(topic\) \{([\s\S]*?)\n\}/.exec(line);
+  ok_('อ่านตัว notifyChannels_ ออกมารันได้', !!body);
   const tbl = /var LINE_TOPIC_KEYS_ = \{[\s\S]*?\n\};/.exec(line)[0];
 
-  // every key reads 'true' — so anything that comes back false came back false on purpose
-  const mk = cfg => new Function('getConfig_', tbl + '\nreturn function lineTopicOn_(topic){' + body[1] + '\n};')(
+  const mkCh = cfg => new Function('getConfig_', tbl + '\nreturn function notifyChannels_(topic){' + body[1] + '\n};')(
     (k, d) => (cfg.hasOwnProperty(k) ? cfg[k] : d));
-  const allOn = {}; keys.forEach(k => { allOn[k] = 'true'; });
-  const on = mk(allOn), off = mk({});
+  const allOn = {}; keys.forEach(k => { allOn[k] = 'app,line'; });
+  const on = t => mkCh(allOn)(t).line, off = t => mkCh({})(t).line;
 
   eq('🔴 หัวข้อที่ไม่มีในตาราง → ไม่ส่ง', on('parent.somethingNobodyDeclared'), false);
   eq('🔴 ไม่ใส่หัวข้อเลย (undefined) → ไม่ส่ง', on(undefined), false);
@@ -170,16 +178,83 @@ console.log('\n3) 🔴 ไม่รู้จักหัวข้อ = ไม่
   eq('🔴 ครูตอบกลับความคิดเห็น ปิดได้แล้ว', off('parent.journalReply'), false);
   eq('🔴 ครูแจ้งลาให้นักเรียน ปิดได้แล้ว', off('parent.leave'), false);
 
+  console.log('\n3b) 📱/💬 สองช่องทางต่อหัวข้อ — แยกกันจริง');
+  {
+    const ch = cfg => mkCh(cfg)('parent.journal');
+    eq('ติ๊กแค่ในแอป → ไม่ส่ง LINE', ch({ NotifyParentJournal: 'app' }), { app: true, line: false });
+    eq('ติ๊กแค่ LINE → ไม่เข้ากระดิ่ง', ch({ NotifyParentJournal: 'line' }), { app: false, line: true });
+    eq('ติ๊กทั้งคู่', ch({ NotifyParentJournal: 'app,line' }), { app: true, line: true });
+    eq('ไม่ติ๊กเลย → ไม่ถึงใคร (โรงเรียนเลือกให้ทำได้ แต่เตือน)', ch({ NotifyParentJournal: '' }), { app: false, line: false });
+    /* 🔴 ค่าเดิมจากวันก่อนหน้าที่ยังไม่มีช่องทาง — ผอ. ถูกบอกให้ไปตั้งค่าแล้ว บางตัวอาจเป็น 'true' อยู่
+     * ถ้าอ่านเป็น "ไม่มีช่องทาง" จะเท่ากับปิดสิ่งที่เพิ่งเปิดไปเมื่อวานโดยเงียบๆ */
+    eq("🔴 ค่าเก่า 'true' = เปิดทั้งสองช่อง ไม่ใช่ปิด", ch({ NotifyParentJournal: 'true' }), { app: true, line: true });
+    eq("ค่าเก่า 'false' = ปิดทั้งคู่", ch({ NotifyParentJournal: 'false' }), { app: false, line: false });
+    // CONTROL — a value that means nothing must not accidentally match 'app' or 'line'
+    eq('CONTROL: ค่าขยะ → ไม่ถึงใคร', ch({ NotifyParentJournal: 'yes please' }), { app: false, line: false });
+    // ...and the client reads the SAME format, or the boxes would disagree with the sending
+    const appJs = R('webapp/app.js');
+    ok_('🔴 หน้าตั้งค่าอ่านรูปแบบเดียวกัน (รวมค่าเก่า true)',
+      /v==='true' \? true : v\.indexOf\(ch\)>=0/.test(appJs));
+    ok_('...และบันทึกกลับเป็น "app,line"', /chans\[k\]\.join\(','\)/.test(appJs));
+  }
+
   // ────────────────────────────────────────────────────────────────────────────────────────────
   console.log('\n4) 🚨 เหตุฉุกเฉิน ปิดไม่ได้');
   // ────────────────────────────────────────────────────────────────────────────────────────────
   eq('🚨 ทุกสวิตช์ปิดหมด — อุบัติเหตุยังส่ง', off('emergency'), true);
   eq('🚨 ...และทุกสวิตช์เปิดหมด ก็ยังส่ง (ไม่ได้บังเอิญผ่านเพราะค่าอื่น)', on('emergency'), true);
+  eq('🚨 ...และเข้ากระดิ่งในแอปด้วยเสมอ', mkCh({})('emergency'), { app: true, line: true });
   ok_('🚨 ไม่มีคีย์ตั้งค่าสำหรับเหตุฉุกเฉิน — ปิดไม่ได้เลยแม้แก้ชีตเอง',
     !Object.keys(topicTable).some(t => t === 'emergency') &&
     !keys.some(k => /emergency|urgent|injury/i.test(k)));
   ok_('🚨 การแจ้งผู้ปกครองเรื่องอุบัติเหตุ ใช้หัวข้อ emergency',
     /notifyStudentParents_\([\s\S]{0,400}?'emergency'\)/.test(R('src/Notify.gs')));
+}
+
+// ════════════════════════════════════════════════════════════════════════════════════════════
+console.log('\n4b) 🔔 กระดิ่งของผู้ปกครอง — ของใหม่ 10/10 และก่อนหน้านี้ไม่มีเลย');
+// ════════════════════════════════════════════════════════════════════════════════════════════
+{
+  /* 🔴 ก่อน 10/10/2026 ฝั่งผู้ปกครองของ handleNotifications ตกไปที่ engine ซึ่งอ่าน `M.feed`
+   * — GasEngine ตั้งเป็น [] ตายตัว และไม่มีโค้ดบรรทัดไหนในระบบเขียนลงไปเลย
+   * กระดิ่งของผู้ปกครองจึงว่างเปล่ามาตั้งแต่เปิดใช้ และทั้ง 7 เรื่องเป็น LINE หรือไม่มีอะไรเลย */
+  const notify = R('src/Notify.gs'), parent = R('src/Parent.gs'), gas = R('src/GasEngine.gs');
+  ok_('🔴 M.feed ยังเป็น [] ตายตัวบน GAS — ยืนยันว่าทางเดิมไม่เคยมีข้อมูล',
+    /\['calendar', 'feed'\][\s\S]{0,120}return \[\];/.test(gas));
+  ok_('มีตัวเขียนแถวแจ้งเตือนของครอบครัวแล้ว', /function inboxAddStudent_\(/.test(notify));
+  ok_('...และตัวอ่านฝั่งผู้ปกครอง', /function inboxItemsForParent_\(/.test(notify));
+  ok_('🔴 handleNotifications มีสาขาของผู้ปกครองก่อนจะตกไปที่ engine',
+    /inboxItemsForParent_\(p\)[\s\S]{0,600}engineDispatch_\('notifications'/.test(notify));
+
+  /* 🔴 THE LEAK THIS WOULD HAVE CAUSED. The shared Admin inbox is "every row with no StaffID", and
+   * a family row also has no StaffID — so without an explicit exclusion every child's journal and
+   * pick-up message would have poured into the admin's tray. */
+  ok_('🔴 กล่องของแอดมินไม่หยิบแถวของครอบครัวมาแสดง',
+    /String\(r\.StaffID \|\| ''\) === want && String\(r\.StudentID \|\| ''\) === ''/.test(notify));
+
+  // ...and a family only ever sees its own children — resolved on the server, never from the request
+  ok_('🔴 รายชื่อเด็กของครอบครัว resolve ที่ server ไม่รับจาก payload',
+    /function inboxStudentsForParent_\(p\)[\s\S]{0,700}PARENTS[\s\S]{0,400}USER_LINKS/.test(notify));
+  ok_('...และ markNotifsRead ของผู้ปกครองก็ใช้รายชื่อเดียวกัน',
+    /var mine = inboxStudentsForParent_\(p\);[\s\S]{0,160}handleMarkInboxRead\(\{ studentIds: mine \}\)/.test(notify));
+
+  // every family push writes the bell when the app channel is on
+  ok_('notifyStudentParents_ เขียนกระดิ่งเมื่อเปิดช่องในแอป',
+    /if \(ch\.app\)[\s\S]{0,200}inboxAddStudent_/.test(parent));
+  ok_('...และจุดที่ส่งตรงหาผู้ปกครองใช้ familyBell_ ซึ่งคืนค่าว่าจะส่ง LINE ไหม',
+    /function familyBell_\(topic, student, text, ref\)[\s\S]{0,400}return ch\.line;/.test(notify));
+  {
+    // ...at every one of them, so the bell cannot be forgotten at a site that only sends LINE
+    const direct = ['src/Checkin.gs', 'src/Code.gs', 'src/Dspm.gs', 'src/Parent.gs', 'src/Journal.gs'];
+    const missing = direct.filter(f => !/familyBell_\(/.test(R(f)));
+    eq('🔴 ทุกไฟล์ที่ส่งตรงหาผู้ปกครอง เรียก familyBell_', missing, []);
+    // Journal sends two ways (one child, and the bulk send) — both must ring the bell
+    eq('...และ Journal.gs เรียกทั้งแบบส่งเดี่ยวและส่งหลายคน',
+      (R('src/Journal.gs').match(/familyBell_\(/g) || []).length, 2);
+  }
+  // the StudentID column is DECLARED, or Phase 2.2's migration loses the family's notifications
+  ok_('🔴 คอลัมน์ StudentID ประกาศไว้ในตัวสร้าง migration แล้ว',
+    /ADMIN_INBOX'[\s\S]{0,160}'StudentID'/.test(R('tools/schema_inventory.js')));
 }
 
 // ════════════════════════════════════════════════════════════════════════════════════════════
@@ -190,10 +265,10 @@ console.log('\n5) ค่าเริ่มต้น: ปิดทุกหัว
    * values forward: they had been set against labels that misdescribed what they controlled, so
    * carrying them would have carried the misunderstanding. This pins that decision — if a default
    * ever flips to 'true', it is a product change somebody has to make on purpose. */
-  const on = keys.filter(k => new RegExp("\\['" + k + "',\\s*'true'\\]").test(config));
-  eq('🔴 ไม่มีหัวข้อไหนเปิดไว้เป็นค่าเริ่มต้น', on, []);
-  const declared = keys.filter(k => new RegExp("\\['" + k + "',\\s*'false'\\]").test(config));
-  eq('...และทุกหัวข้อประกาศค่าเริ่มต้นไว้ชัดเจนว่า false', declared.length, keys.length);
+  const on = keys.filter(k => new RegExp("\\['" + k + "',\\s*'(?:true|app|line)").test(config));
+  eq('🔴 ไม่มีหัวข้อไหนเปิดช่องทางไหนไว้เป็นค่าเริ่มต้น', on, []);
+  const declared = keys.filter(k => new RegExp("\\['" + k + "',\\s*''\\]").test(config));
+  eq('...และทุกหัวข้อประกาศค่าเริ่มต้นไว้ชัดเจนว่าไม่มีช่องทาง', declared.length, keys.length);
 
   // the three old keys are gone from the code that DECIDES — not merely unused
   const liveSrc = ['src/Line.gs', 'src/Parent.gs', 'src/Journal.gs', 'src/Checkin.gs', 'src/Dspm.gs',

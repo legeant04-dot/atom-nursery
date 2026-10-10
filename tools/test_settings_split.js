@@ -64,7 +64,11 @@ function runSave(fields) {
     querySelectorAll: sel => {
       if (String(sel).indexOf('data-notify') >= 0)
         return Object.keys(fields).filter(k => k.indexOf('notify_') === 0)
-          .map(k => ({ checked: !!fields[k], getAttribute: a => a === 'data-notify' ? k.slice(7) : null }));
+          /* `notify_<Key>_<channel>` models ONE box. Two boxes per topic since 2026-10-10, so the
+       * stub has to produce both or it cannot exercise the `app,line` collection at all. */
+      .map(k => { const p = k.slice(7), i = p.lastIndexOf('_');
+        return { checked: !!fields[k],
+                 getAttribute: a => a === 'data-notify' ? p.slice(0, i) : a === 'data-ch' ? p.slice(i + 1) : null }; });
       return Object.keys(fields).filter(k => k.indexOf('lq_') === 0)
         .map(k => ({ id: k, value: String(fields[k]) }));
     },
@@ -99,17 +103,19 @@ console.log('\n1) 🔴 every field is optional — five forms share one save');
   /* 🔔 notifications only. The three broad switches became fifteen per-topic ones on 2026-10-10,
    * and they are read from the DOM by `data-notify` rather than by a list of ids — so this checks
    * that whatever the dialog DREW gets saved, which is the property that matters. */
-  const r = await runSave({ notify_NotifyParentCheckin: true, notify_NotifyParentLeave: false,
-                            notify_NotifyStaffComment: true,
+  const r = await runSave({ notify_NotifyParentCheckin_app: true, notify_NotifyParentCheckin_line: true,
+                            notify_NotifyParentLeave_app: false, notify_NotifyParentLeave_line: false,
+                            notify_NotifyStaffComment_app: true, notify_NotifyStaffComment_line: false,
                             setDigM: true, setDigE: false });
   eq('🔴 a notifications-only form writes one call', r.calls.map(c => c.action), ['setSchoolConfig']);
-  eq('🔴 ...carrying exactly those keys, as strings', r.calls[0].payload.values,
+  eq('🔴 ...carrying exactly those keys, as channel lists', r.calls[0].payload.values,
     { DigestMorning: 'true', DigestEvening: 'false',
-      NotifyParentCheckin: 'true', NotifyParentLeave: 'false', NotifyStaffComment: 'true' });
+      NotifyParentCheckin: 'app,line', NotifyParentLeave: '', NotifyStaffComment: 'app' });
   /* 🔴 AN UNTICKED BOX MUST SAVE 'false', NOT BE OMITTED. Omitting it would leave the old value in
    * SCHOOL_CONFIG, so turning a topic OFF would appear to work and change nothing — which is the
    * exact shape of the bug this whole change is fixing. */
-  eq('🔴 ปิดสวิตช์แล้วต้องบันทึก false จริง ไม่ใช่ข้ามไป', r.calls[0].payload.values.NotifyParentLeave, 'false');
+  eq('🔴 ปิดทั้งสองช่องต้องบันทึกค่าว่างจริง ไม่ใช่ข้ามไป', r.calls[0].payload.values.NotifyParentLeave, '');
+  eq('🔴 ติ๊กแค่ในแอป บันทึกแค่ app ไม่พ่วง line', r.calls[0].payload.values.NotifyStaffComment, 'app');
   ok_('🔴 ...and NOT the geofence it never drew', !('GPS_Lat' in r.calls[0].payload.values));
 }
 {
@@ -149,7 +155,7 @@ console.log('\n2) 🔴 the whole save is ONE request');
   /* The shape the old code had: eight writes, each awaited. Here every call must be issued before
    * the first await — which is what api.js folds into a single batch. Counted, not asserted about. */
   const r = await runSave({ cfgLat: 13.79, cfgLng: 100.64, cfgRadius: 30, cfgSlack: 50,
-                            notify_NotifyParentCheckin: true, notify_NotifyAdminApproval: false,
+                            notify_NotifyParentCheckin_app: true, notify_NotifyAdminApproval_line: false,
                             setDigM: true, setDigE: true,
                             setAtt: 500, setFb: 500, setOtRate: 100, setMatch: 1, setTtl: 900,
                             lq_ลาป่วย: 30, lq_ลากิจ: 6, lq_ลาพักร้อน: 6 });

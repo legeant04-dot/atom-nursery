@@ -97,7 +97,7 @@ function handleParentCheckin(payload) {
   var ot = null;
   if (type === 'OUT') {
     ot = otUpsertForPickup_(student, timeStr_(now), dateStr_(now));
-    if (ot && parent.LineUID && lineTopicOn_('parent.ot')) {
+    if (ot && familyBell_('parent.ot', student, '⏰ รับช้า ' + ot.lateMinutes + ' นาที') && parent.LineUID) {
       try {
         linePushText_(parent.LineUID, '⏰ รับช้า ' + ot.lateMinutes + ' นาที (เลิกเรียน ' + ot.planEnd + ')\n' +
           'ค่าล่วงเวลา ' + ot.hours + ' ชม. × ' + ot.rate + ' = ' + ot.amount + ' บาท\nยอดนี้จะรวมในบิลรายเดือน');
@@ -268,12 +268,24 @@ function handleTeacherStudentLeave(payload) {
  * second time, why the system was pushing LINE when the school had turned notifications off. It had
  * not turned THESE off, because there was nothing to turn off.
  *
- * Now every caller must say what KIND of message this is, and `lineTopicOn_` decides. Omit the
- * topic and nothing is sent at all — see the note on LINE_TOPIC_KEYS_ in Line.gs. The in-app route
- * for families is the app itself, which costs no quota and is always up to date.
+ * Now every caller must say what KIND of message this is, and `notifyChannels_` decides. Omit the
+ * topic and nothing is sent at all — see the note on LINE_TOPIC_KEYS_ in Line.gs.
+ *
+ * 🔔 AND SINCE 2026-10-10 IT WRITES THE FAMILY'S BELL TOO, when the topic's `app` channel is on.
+ * That bell did not exist before today (see inboxAddStudent_ in Notify.gs): the parent branch of
+ * handleNotifications read an array nothing ever wrote to. One row per CHILD, so both parents see
+ * it once, and it costs no LINE quota — which is the whole point of letting a topic be "แจ้งในแอป
+ * พอ" rather than forcing every school to choose between LINE and nothing.
+ *
+ * Returns the number of LINE pushes, which is what the callers report as `parentNotified`.
  */
 function notifyStudentParents_(student, text, topic) {
-  if (!lineTopicOn_(topic)) return 0;            // 🔴 fails closed — an undeclared topic sends nothing
+  var ch = notifyChannels_(topic);               // 🔴 fails closed — an undeclared topic does nothing
+  if (ch.app) {
+    try { inboxAddStudent_(topic === 'emergency' ? 'emergency' : 'parent',
+      text, '', student && student.StudentID); } catch (e) {}
+  }
+  if (!ch.line) return 0;
   var sent = 0, seen = {};
   var push = function (uid) { if (uid && !seen[uid]) { seen[uid] = 1; try { linePushText_(uid, text); sent++; } catch (e) {} } };
   readObjects_(sheet_(getMainSpreadsheet_(), 'PARENTS')).forEach(function (p) {
@@ -372,12 +384,13 @@ function notifyStudentTeacher_(student, text, opts) {
    * school turned the whole thing off and stopped hearing about leaves too. `opts.topic` now names
    * which of the three this is. THE GATE IS ON THE LINE HALF ONLY: the bell still rings for
    * everything, every time, which is exactly what makes a topic safe to switch off. */
-  var lineOn = lineTopicOn_(opts.topic);
+  var chans = notifyChannels_(opts.topic);
+  var lineOn = chans.line, appOn = chans.app;
   var reach = function (staff) {
     if (!staff || !staff.StaffID || seenStaff[staff.StaffID]) return;
     if (!staffOnDuty_(staff)) return;              // observers, admins, and anyone who has left
     seenStaff[staff.StaffID] = 1;
-    inboxAdd_(opts.category, text, opts.ref, staff.StaffID); inboxed++;
+    if (appOn) { inboxAdd_(opts.category, text, opts.ref, staff.StaffID); inboxed++; }
     var uid = staff.LineUID;
     if (lineOn && uid && !seenUid[uid]) { seenUid[uid] = 1; if (linePushText_(uid, text)) sent = true; }
   };

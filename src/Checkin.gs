@@ -663,7 +663,7 @@ function handleStaffStudentCheckin(p) {
       function (pr) { return String(pr.ParentID) === String(student.ParentID); }) : null;
     // routine check-in: no Admin-inbox fallback (avoids flooding). The single biggest consumer of
     // the LINE quota — its own topic since 2026-10-10 (LINE_TOPIC_KEYS_ in Line.gs).
-    if (parent && parent.LineUID && lineTopicOn_('parent.checkin')) linePushText_(parent.LineUID, msg);
+    if (familyBell_('parent.checkin', student, msg) && parent && parent.LineUID) linePushText_(parent.LineUID, msg);
   } catch (e) {}
   // the time RECORDED, not the moment the button was pressed — the two differ whenever a teacher
   // enters the real time, and the confirmation must show what was actually written down
@@ -739,7 +739,11 @@ function notifyAdmins_(text, category, ref) {
   // Always land in the in-app Admin inbox (the 🔔 bell) — this is what the admin actually reads now.
   // category/ref (optional) let the bell deep-link straight to the item (e.g. a journal report).
   var cat = (category && typeof category === 'string') ? category : 'approval';
-  if (typeof inboxAdd_ === 'function') inboxAdd_(cat, text, ref);
+  /* ...unless the school has switched the App channel off for admin approvals (2026-10-10). The
+   * digests come through here too and are governed by their own DigestMorning/DigestEvening
+   * switches, so they are never silenced by this one. */
+  var isDigest = (cat === 'digest');
+  if (typeof inboxAdd_ === 'function' && (isDigest || appTopicOn_('admin.approval'))) inboxAdd_(cat, text, ref);
   var seen = {}, sent = 0;
   /* NAMED PEOPLE, CHOSEN TOPICS — the list in LINE_RECIPIENTS (see lineRecipientsFor_). This is the
    * setting the school asked for: "แจ้งเตือนไปที่ Admin หรือคนที่ระบบกำหนด … เฉพาะเรื่องไหน". Nobody

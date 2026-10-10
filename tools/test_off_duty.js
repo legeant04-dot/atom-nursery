@@ -82,19 +82,25 @@ const res = JSON.parse(run(function () {
       .map(function (r) { return String(r.StaffID); }).sort();
   };
 
-  // ---- with the LINE switch OFF (the default, and what the school believed was set) ----
+  /* ---- with the LINE half OFF but the bell ON ----
+   * Since 2026-10-10 a topic carries a CHANNEL LIST, so "ไม่ส่ง LINE แต่ยังเข้ากระดิ่ง" is a state
+   * the system can express rather than a consequence of how the code happened to be written: the
+   * bell used to be unconditional. 'app' is the cheap setting this suite is describing. */
+  (function () { var r = findObject_(cfg, function (x) { return x.Key === 'NotifyStaffArrival'; });
+    if (r) updateRow_(cfg, r._row, { Value: 'app' }); else appendObject_(cfg, { Key: 'NotifyStaffArrival', Value: 'app' }); })();
+  _configCache = null;
   PUSH.length = 0;
   notifyStudentTeacher_(student, '👶 ใบเตย มาถึงโรงเรียนแล้ว (07:20)', { adminFallback: false, topic: 'staff.arrival' });
   o.pushedOff = whoPushed();
   o.inboxedOff = whoInboxed();
 
   // ---- ...and with it ON ----
-  updateRow_(cfg, findObject_(cfg, function (r) { return r.Key === 'NotifyStaffArrival'; })._row, { Value: 'true' });
+  updateRow_(cfg, findObject_(cfg, function (r) { return r.Key === 'NotifyStaffArrival'; })._row, { Value: 'app,line' });
   _configCache = null;
   PUSH.length = 0;
   notifyStudentTeacher_(student, '👶 ใบเตย ถูกรับกลับแล้ว (17:00)', { adminFallback: false, topic: 'staff.arrival' });
   o.pushedOn = whoPushed();
-  updateRow_(cfg, findObject_(cfg, function (r) { return r.Key === 'NotifyStaffArrival'; })._row, { Value: 'false' });
+  updateRow_(cfg, findObject_(cfg, function (r) { return r.Key === 'NotifyStaffArrival'; })._row, { Value: 'app' });
   _configCache = null;
 
   // ---- the daily board ----
@@ -190,9 +196,10 @@ console.log('\n2) THE LINE SWITCH — the quota the school thought was protected
    * topics now, because a school that wants to hear about a leave should not have to accept a push
    * for every child walking through the door. This path is the arrival. */
   ok_('the switch is declared, or saving it would change nothing', /LINE_TOPIC_KEYS_\[t\]\] = 1/.test(staffGs));
-  ok_('...and seeded off', /\['NotifyStaffArrival',\s*'false'\]/.test(R('src/Config.gs')));
+  // seeded with NO channels at all — the value is an `app,line` list since 2026-10-10
+  ok_('...and seeded off', /\['NotifyStaffArrival',\s*''\]/.test(R('src/Config.gs')));
   ok_('the settings screen offers it', /k:'NotifyStaffArrival'/.test(app) && /input\[data-notify\]/.test(app));
-  ok_('...saying plainly that the bell still works', /คุณครูยังได้รับครบทุกเรื่องที่กระดิ่ง/.test(app));
+  ok_('...saying plainly that the bell is the cheap half', /คุณครูยังเห็นครบที่กระดิ่ง และไม่เสียโควตาเลย/.test(app));
 }
 
 console.log('\n3) SOMEBODY WHOSE LAST DAY HAS PASSED IS NOT STAFF');

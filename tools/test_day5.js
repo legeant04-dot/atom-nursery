@@ -1,7 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const harness = require('./gas_test_harness');
-const { g, run } = harness(['Config','Db','Audit','Line','Auth','Code','Setup','Dspm_Seed','Checkin','Triggers','Leave','Parent','Dspm','Journal','Payroll','Slips']);
+const { g, run } = harness(['Config','Db','Audit','Line','Auth','Code','Setup','Dspm_Seed','Checkin','Triggers','Leave','Notify','Parent','Dspm','Journal','Payroll','Slips']);
 
 // minimal CSV parser (handles quoted fields)
 function parseCsv(text) {

@@ -116,7 +116,7 @@ function handleSubmitAssessment(payload) {
   if (student.ParentID) {
     var parent = findObject_(sheet_(getMainSpreadsheet_(), 'PARENTS'),
       function (p) { return String(p.ParentID) === String(student.ParentID); });
-    if (parent && parent.LineUID && lineTopicOn_('parent.dspm')) {   // its own topic — see Line.gs
+    if (familyBell_('parent.dspm', student, '📝 บันทึกผลประเมินพัฒนาการ (DSPM) ของ ' + student.Name + ' เรียบร้อยแล้ว (' + saved + ' ข้อ)') && parent && parent.LineUID) {
       linePushText_(parent.LineUID, '📝 บันทึกผลประเมินพัฒนาการ (DSPM) ของ ' + student.Name + ' เรียบร้อยแล้ว (' + saved + ' ข้อ)');
     }
   }

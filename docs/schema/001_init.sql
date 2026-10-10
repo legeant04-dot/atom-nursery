@@ -491,6 +491,7 @@ create table if not exists admin_inbox (
   read                       boolean,
   ref                        text,
   staff_id                   text,
+  student_id                 text,
   created_at  timestamptz not null default now(),
   updated_at  timestamptz not null default now()
 );
