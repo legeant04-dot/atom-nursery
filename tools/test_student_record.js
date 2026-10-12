@@ -150,7 +150,56 @@ console.log('\n1) the admin sees the record the family filled in');
   eq('every column the registration form fills is in the record', missing, []);
   // ...and the nine that moved into `policy` are all genuinely there
   eq('the school-bought policy comes back as one object', Object.keys(d.policy || {}).sort(),
-    ['benefits', 'card', 'company', 'expiry', 'has', 'hotline', 'insured', 'owner', 'plan', 'policyNo', 'start', 'status', 'sum', 'type'].sort());
+    ['benefits', 'card', 'company', 'expired', 'expiry', 'has', 'hotline', 'insured', 'onFile',
+     'owner', 'plan', 'policyNo', 'start', 'status', 'sum', 'type'].sort());
+}
+
+/* ═══ 🔴 AN EXPIRED POLICY IS NOT COVER (2026-10-12) ═══════════════════════════════════════════
+ *
+ * `has` was true the moment any policy field was filled in, and `expiry` was printed but never
+ * consulted. So a card read "มีประกัน" with last year's policy number for as long as the row
+ * existed — and the person reading that card is a teacher at a hospital counter deciding what to
+ * tell a family.
+ *
+ * Found while adding summer terms (the school chose not to insure a four-week stay), but it was
+ * never a summer problem: it was true of every child whose policy had lapsed.
+ */
+console.log('\n1b) 🛡️ ประกันที่หมดอายุ ต้องไม่ถูกนับว่ายังคุ้มครอง');
+{
+  /* 🔴 RELATIVE TO NOW, AND IN THE SCHOOL'S CLOCK, NOT UTC.
+   *
+   * Relative because a literal '2027-05-01' turns this suite red by itself one day with nothing
+   * wrong. Local because the first draft used toISOString().slice(0,10) — which is the exact trap
+   * that failed five suites every night between midnight and 07:00 Bangkok, and which
+   * test_queue_hogs now forbids. It caught this within a minute of my writing it. */
+  const localYmd = d => { const x = new Date(d);
+    return x.getFullYear() + '-' + String(x.getMonth() + 1).padStart(2, '0') + '-' + String(x.getDate()).padStart(2, '0'); };
+  const far = localYmd(Date.now() + 365 * 86400000);
+  const past = localYmd(Date.now() - 2 * 86400000);
+  const was = KID.InsuranceExpiry;
+  const pol = (expiry) => { KID.InsuranceExpiry = expiry;
+    return H.studentProfile({ studentId: 'S1', staffId: 'ADM', role: 'Admin' }).policy; };
+
+  const live = pol(far);
+  eq('ยังไม่หมดอายุ → คุ้มครองอยู่', [live.has, live.expired], [true, false]);
+
+  pol(past);
+  const dead = H.studentProfile({ studentId: 'S1', staffId: 'ADM', role: 'Admin' }).policy;
+  eq('🔴 หมดอายุแล้ว → ไม่คุ้มครอง', dead.has, false);
+  eq('...แต่ข้อมูลยังอยู่ให้ใช้ต่ออายุ/สอบถามได้', [dead.onFile, dead.policyNo], [true, 'PCHI-0099']);
+  eq('...และบอกตรงๆ ว่าหมดอายุ', dead.expired, true);
+
+  /* 🔴 AND THE TEACHER'S CARD — the one that gets read at the hospital door. It carries only the
+   * FACT of cover, never the policy number, so if that fact is wrong there is nothing else on the
+   * screen to correct it. */
+  const care = H.studentProfile({ studentId: 'S1', staffId: 'T1', role: 'Teacher' });
+  eq('🔴 การ์ดของคุณครูบอกว่าไม่มีความคุ้มครองด้วย', [care.insuranceHas, care.insuranceExpired], [false, true]);
+
+  // CONTROL — no expiry recorded at all must stay as it was: a policy on file is cover. Guessing
+  // "expired" from a blank would switch off cover for every child whose date was never typed in.
+  const noExp = pol('');
+  eq('CONTROL: ไม่ได้กรอกวันหมดอายุ → ยังนับว่าคุ้มครอง (ไม่เดาว่าหมด)', [noExp.has, noExp.expired], [true, false]);
+  KID.InsuranceExpiry = was;
 }
 
 console.log('\n2) a teacher gets what she needs to look after the child, and no more');

@@ -124,6 +124,14 @@ function createAtomAPI(M, GROWTH_STD) {
   const ym = v => String(v==null?'':v).slice(0,7);
   // same idea one level down: a date cell may decode as 'YYYY-MM-DD HH:mm:ss' — compare the date part only
   const ymd = v => String(v==null?'':v).slice(0,10);
+  /* 'YYYY-MM-DD' ± n days, as 'YYYY-MM-DD'.
+   *
+   * 🔴 `ymd` is a STRING SLICE, not a formatter — `ymd(new Date(...))` returns "Thu Nov 05", which
+   * is what the first draft of the summer badge printed as a child's last day. Anchored at
+   * 'T00:00:00Z' and read back through toISOString so the arithmetic happens in one timezone and
+   * cannot land on the day before; the same pattern schoolDaysBetween_ already uses. */
+  const shiftYmd_ = (d, n) => { const t=Date.parse(ymd(d)+'T00:00:00Z');
+    return isNaN(t) ? '' : new Date(t + n*86400000).toISOString().slice(0,10); };
   // journal lifecycle: DRAFT = editable, parent not notified. Blank Status = legacy row, already sent.
   const jStatus_ = r => String((r&&r.Status)||'').toUpperCase()==='DRAFT' ? 'DRAFT' : 'SUBMITTED';
   const staffViewer_ = p => { const r=String((p&&p.role)||''); return !!r && r!=='Parent' && r!=='guest'; };
@@ -322,7 +330,7 @@ function createAtomAPI(M, GROWTH_STD) {
    * Every field is a string, blank when unset; the screens print '-' for a blank rather than an
    * empty line, which is how the school's own records read.
    */
-  function studentPolicy_(s){ s=s||{};
+  function studentPolicy_(s, onDate){ s=s||{};
     const g=k=>String(s[k]==null?'':s[k]).trim();
     const p={ plan:g('InsurancePlan'), type:g('InsuranceType'),
       policyNo:g('InsurancePolicyNo'), company:g('InsuranceCompany'),
@@ -330,7 +338,26 @@ function createAtomAPI(M, GROWTH_STD) {
       start:ymd(s.InsuranceStart||''), expiry:ymd(s.InsuranceExpiry||''),
       sum:g('InsuranceSum'), benefits:g('InsuranceBenefits'), hotline:g('InsuranceHotline'),
       card:g('InsuranceCardImage') };
-    p.has = !!s.InsuranceHas || !!(p.policyNo||p.plan||p.company||p.sum||p.benefits);
+    const onFile = !!s.InsuranceHas || !!(p.policyNo||p.plan||p.company||p.sum||p.benefits);
+    /* 🔴 A POLICY THAT HAS RUN OUT IS NOT COVER (2026-10-12).
+     *
+     * `has` was true the moment ANY policy field was filled in, and the expiry date was printed but
+     * never consulted. So a card went on reading "มีประกัน" with last year's policy number for as
+     * long as the row existed — and the person who reads that card is a teacher standing at a
+     * hospital counter deciding what to tell the family.
+     *
+     * Found while adding summer terms: the school has decided NOT to insure a four-week stay
+     * ("ไม่ทำประกันให้ เนื่องจากช่วงเวลาสั้นเกิน"), which is theirs to decide — but the app must not
+     * then claim the child is covered. It turned out to be true of every child whose policy had
+     * lapsed, not only the summer ones, so this is a live fix and not a summer feature.
+     *
+     * `expired` is kept separate from `has` on purpose: the number and the hotline are still worth
+     * showing, because renewing or querying a lapsed policy needs them. What changes is that
+     * nothing may read `has` and believe there is cover today. */
+    const d = ymd(onDate||todayLocal());
+    p.expired = !!(p.expiry && d > p.expiry);
+    p.onFile  = onFile;
+    p.has = onFile && !p.expired;
     return p; }
 
   // ---- enrolment date vs billing --------------------------------------------------------------
@@ -341,7 +368,9 @@ function createAtomAPI(M, GROWTH_STD) {
   const enrolDate_ = s => { const d=String((s&&s.EnrollDate)||'').trim(); const m=/^(\d{4})-(\d{2})-(\d{2})/.exec(d);
     return m ? m[0] : (d ? (function(){ const x=new Date(d); return isNaN(x)?'':ymd(x); })() : ''); };
   // has this student started by the given MONTH? used for billing, which is monthly
-  function enrolledBy_(s, month){ const e=enrolDate_(s); return !e || e.slice(0,7) <= ym(month); }
+  function enrolledBy_(s, month){ const e=enrolDate_(s);
+    if(!e || e.slice(0,7) <= ym(month)) return true;
+    return !!termInMonth_(s, month); }       // a term is a start of its own
   // has this student started by the given DAY? used wherever "is this child here right now" is the
   // question — a child starting on the 15th is not on today's class list on the 3rd. Billing and
   // attendance genuinely need different granularities; using the monthly one for both made the DSPM
@@ -356,7 +385,17 @@ function createAtomAPI(M, GROWTH_STD) {
    */
   function tuitionForMonth_(s, month, fullPrice){
     const full=Math.max(0, Number(fullPrice)||0);
-    const e=enrolDate_(s), mm=ym(month);
+    /* 🔴 THE MONTH THIS CHILD'S CURRENT PERIOD BEGAN — not the month they first ever enrolled.
+     *
+     * A child back for the summer enrolled years ago, so `enrolDate_` never matches the month being
+     * billed and the part-month rule below could never fire: they would be charged a FULL month for
+     * a fortnight, silently, with nothing to see. The school's answer to a part month is "แอดมิน
+     * ใส่ราคาเอง" (ProrateMode='MANUAL'), and that setting would simply have been ignored.
+     *
+     * Falls back to the enrolment date whenever there is no term, so nothing changes for the 31
+     * children who are here all year. */
+    const t=termInMonth_(s, month);
+    const e=(t && ymd(t.From||'')) || enrolDate_(s), mm=ym(month);
     if(!e || e.slice(0,7)!==mm) return {amount:full, prorated:false, mode:'FULL', days:0, ofDays:0};
     const startDay=Number(e.slice(8,10))||1, total=daysInMonth_(mm);
     if(startDay<=1) return {amount:full, prorated:false, mode:'FULL', days:total, ofDays:total};
@@ -1429,8 +1468,63 @@ function createAtomAPI(M, GROWTH_STD) {
    * ก็เปิดระบบการใช้งานของผู้ปกครองวันที่ 01/10/26" — so the test is `<`, and the first day itself
    * is a school day.
    */
+  /* ===== ☀️ A CHILD WHO CAME BACK FOR THE SUMMER ================================================
+   *
+   * Asked 2026-10-11: children who have already GRADUATED come back for the school holiday, and
+   * must have the whole app working — check-in, the daily journal, the class list — but only for an
+   * agreed window of 30 or 60 days, after which it closes BY ITSELF.
+   *
+   * 🔴 THE SEAM IS DELIBERATELY TINY. Everything that asks "is this child here" flows through two
+   * one-line predicates (and two more for the monthly bill). Teaching those four about terms makes
+   * every screen correct at once; touching the twenty-odd screens individually would mean missing
+   * one, and the one missed would be a child who is here but invisible to their teacher.
+   *
+   *     open(child, day)  =  (inside their main enrolment)  OR  (inside an open term)
+   *
+   * A term carries its own From/To, so the window shuts on its own date with nobody remembering to
+   * do it — which is the whole of what was asked for, and the opposite of the only thing possible
+   * before today (clearing EndDate by hand, and destroying the graduation record with it).
+   */
+  const termsOf_ = sid => (M.studentTerms||[]).filter(t =>
+    String(t.StudentID)===String(sid) && String(t.Status||'ACTIVE').toUpperCase()!=='CANCELLED');
+  /** The term covering this day, or null. `To` is EXCLUSIVE — the same rule PauseTo follows. */
+  function termOn_(s, onDate){
+    if(!s || !s.StudentID) return null;
+    const d=ymd(onDate||todayLocal());
+    return termsOf_(s.StudentID).find(t => {
+      const f=ymd(t.From||''), to=ymd(t.To||'');
+      return (!f || d>=f) && (!to || d<to);
+    }) || null;
+  }
+  /** ...and the one covering any part of a MONTH, which is the question the bill run asks. */
+  function termInMonth_(s, month){
+    if(!s || !s.StudentID) return null;
+    const mm=ym(month||todayLocal().slice(0,7));
+    return termsOf_(s.StudentID).find(t => {
+      const f=ymd(t.From||''), to=ymd(t.To||'');
+      return (!f || f.slice(0,7)<=mm) && (!to || to.slice(0,7)>=mm);
+    }) || null;
+  }
+  /* 🔴 "SUMMER" IS A BADGE, NOT A CLASS — decided with the school 2026-10-12.
+   *
+   * The obvious move is a separate "Summer" class, and it is wrong here: a class in this system
+   * decides WHO SEES THE CHILD. `staffCoversClass_` matches a teacher's Department/Classes, so a
+   * child moved to a class no teacher covers disappears from the class list, from the daily journal
+   * and from the arrival notification — invisible to the very teacher standing next to them.
+   *
+   * These children sit in Nursery 3 and are looked after by Nursery 3's teachers. The system should
+   * say so. What the school actually wanted was to be able to TELL THEM APART, and that is a label
+   * on the row plus a separate count on the header — the same shape `paused` and `notStarted`
+   * already use. It is also sturdier: the DSPM and annual-summary exclusions key off the TERM, not
+   * off a class name anybody can rename. */
+  const inSummerTerm_ = (s, onDate) => { const t=termOn_(s, onDate);
+    return !!t && String(t.Kind||'SUMMER').toUpperCase()==='SUMMER'; };
+
   const studentNotStarted_ = (s, onDate) => { const d=ymd((s&&s.EnrollDate)||'');
-    return !!d && ymd(onDate||todayLocal()) < d; };
+    if(!d) return false;
+    if(ymd(onDate||todayLocal()) >= d) return false;
+    return !termOn_(s, onDate);               // a term of its own opens the door early
+  };
 
   /* ===== THE OTHER END OF THE SAME LINE — A CHILD WHO HAS FINISHED =============================
    *
@@ -1490,7 +1584,11 @@ function createAtomAPI(M, GROWTH_STD) {
    */
   const owesDay_ = (s, ds) => staffStarted_(s, ds) && !staffEnded_(s, ds) && !staffPaused_(s, ds);
   const studentEnded_ = (s, onDate) => { const d=ymd((s&&s.EndDate)||'');
-    return !!d && ymd(onDate||todayLocal()) > d; };
+    if(!d || ymd(onDate||todayLocal()) <= d) return false;
+    /* ...unless they are back on an agreed term. The graduation still stands — EndDate, EndReason
+     * and the certificate are untouched — the child is simply here again, for these dates. */
+    return !termOn_(s, onDate);
+  };
   /** An end date recorded but not reached yet — the child is still here, and the Admin should see it coming. */
   const endScheduled_ = (s, onDate) => { const d=ymd((s&&s.EndDate)||'');
     return !!d && !studentEnded_(s, onDate); };
@@ -1563,7 +1661,12 @@ function createAtomAPI(M, GROWTH_STD) {
    * Mirrors pausedWholeMonth_ above, which is the same shape of question.
    */
   function endedBeforeMonth_(s, month){ const d=ymd((s&&s.EndDate)||''); if(!d) return false;
-    return d.slice(0,7) < ym(month||todayLocal()); }
+    if(d.slice(0,7) >= ym(month||todayLocal())) return false;
+    /* 🔴 ...AND THIS IS WHAT PUTS A SUMMER CHILD BACK ON THE BILL. Before terms existed, a past
+     * EndDate removed them from the monthly run entirely — which was right for a child who has
+     * left and wrong for one who is here this month. The school charges the NORMAL monthly rate
+     * for the summer (ผอ., 2026-10-12), so there is one billing path and this is the whole of it. */
+    return !termInMonth_(s, month); }
 
   /**
    * WHOSE HANDWRITING IS THIS — a staff member's NICKNAME, resolved on the server.
@@ -2813,8 +2916,13 @@ function createAtomAPI(M, GROWTH_STD) {
        * class's "everyone recorded?" total — so they come off it. */
       return {class:cls, classes:covered.map(c=>({className:c.ClassName,classNameEN:c.ClassNameEN||c.ClassName})),
         students:activeStudents().filter(s2=>s2.Class===cls.ClassName && !studentOffDay_(s2, today)).map(s2=>{ const at=attOf(s2.StudentID);
+          /* the badge, not a class — see inSummerTerm_. The teacher sees this child in the room
+           * they are actually in, with a label saying how long they are here for. */
+          const _tm=termOn_(s2, today);
           return Object.assign({ageMonth:ageMonths(s2.DOB), attStatus:at.status,
             inToday:at.checkedIn||!!at.inTime, outToday:at.pickedUp||!!at.outTime,
+            summer: !!_tm && String(_tm.Kind||'SUMMER').toUpperCase()==='SUMMER',
+            summerLastDay: _tm ? shiftYmd_(_tm.To, -1) : '',
             inTime:at.inTime, outTime:at.outTime, onLeave:at.onLeave, leaveType:at.leaveType, leaveReason:at.leaveReason}, s2); }),
         // who is away today by standing arrangement, so the screen can say so instead of the class
         // silently being one child short
@@ -2962,13 +3070,21 @@ function createAtomAPI(M, GROWTH_STD) {
         let done=0, pass=0;
         band.forEach(c=>{ const r=latest[c.ItemNo]; if(!r||!r.Result||r.Result==='ยังไม่ได้รับการทดสอบ') return;
           done++; if(/ผ่าน|pass/i.test(String(r.Result)) && !/ไม่ผ่าน|not/i.test(String(r.Result))) pass++; });
+        const _t=termOn_(s); const summer=!!_t && String(_t.Kind||'SUMMER').toUpperCase()==='SUMMER';
+        const summerTo=summer?ymd(_t.To||''):'';
         return {studentId:s.StudentID, name:s.NameTH||s.Name||'', nameEN:s.NameEN||'', nick:s.Nickname||'', nickEN:s.NicknameEN||'',
           class:s.Class||'', ageMonth:age, paused:studentPaused_(s),
           // ...and say so on the row, so a short month reads as a late start rather than a mystery
           notStarted:studentNotStarted_(s), startDate:ymd(s.EnrollDate||''), schoolDays:owed,
           present, absent, sick, personal, maxConsecutive:worstRun, lastAbsent,
           weight:last?Number(last.Weight)||0:0, height:last?Number(last.Height)||0:0, measuredAt:last?ymd(last.Date):'',
-          dspmTotal:band.length, dspmDone:done, dspmPass:pass};
+          /* ☀️ SUMMER CHILDREN ARE NOT ASSESSED AND ARE NOT COUNTED (school, 2026-10-12).
+           * They were assessed when they graduated; a DSPM band for a four-week stay is a form
+           * nobody needs filled in, and an incomplete one would sit in the head teacher's pending
+           * count for ever. A total of 0 is what every other "nothing due" row already looks like,
+           * so nothing downstream has to learn a new case. */
+          summer, summerTo,
+          dspmTotal:summer?0:band.length, dspmDone:summer?0:done, dspmPass:summer?0:pass};
       });
 
       // grouped by class, because that is the unit a teacher and a head teacher think in
@@ -4451,6 +4567,97 @@ function createAtomAPI(M, GROWTH_STD) {
       s.PauseSalaryMode=mode; s.PauseSalaryAmount=mode==='CUSTOM'?Math.max(0,Number(p.salaryAmount)||0):'';
       logAct('setStaffPause',s.StaffID,'ลาชั่วคราว '+from+(to?(' – '+to):' เป็นต้นไป')+' · '+reason+' · '+(mode||'จ่ายตามปกติ'),actorOf(p));
       return {ok:true,staffId:s.StaffID,paused:staffPaused_(s),from,to,reason,salaryMode:mode}; },
+    /* ═══ ☀️ SUMMER TERMS — a child who has finished, back for an agreed window ══════════════════
+     *
+     * Asked 2026-10-11. See termOn_ for the model and why it is a sheet rather than two columns.
+     * Admin-only, like every other decision about a child's enrolment.
+     */
+    studentTerms: p => { const ap=staffById(p&&p.staffId); if(!adminLike_(ap))fail('NO_PERMISSION','เฉพาะแอดมิน');
+      const today=todayLocal();
+      return (M.studentTerms||[])
+        .filter(t=>!p.studentId || String(t.StudentID)===String(p.studentId))
+        .map(t=>{ const s=studentById(t.StudentID)||{};
+          const from=ymd(t.From||''), to=ymd(t.To||'');
+          return { termId:t.TermID, studentId:t.StudentID,
+            name:s.NameTH||s.Name||'', nick:s.Nickname||'', class:t.Class||s.Class||'',
+            kind:String(t.Kind||'SUMMER').toUpperCase(), from, to,
+            status:String(t.Status||'ACTIVE').toUpperCase(),
+            // the last day a child actually comes — To is exclusive, and nobody thinks in exclusive
+            lastDay: to ? shiftYmd_(to, -1) : '',
+            days: (from&&to) ? Math.round((new Date(to)-new Date(from))/86400000) : 0,
+            open: String(t.Status||'ACTIVE').toUpperCase()!=='CANCELLED' && (!from||today>=from) && (!to||today<to),
+            upcoming: !!from && today<from,
+            // 7 days' notice, so a window never closes on a morning nobody saw coming
+            endingSoon: !!to && today<to && Math.round((new Date(to)-new Date(today))/86400000)<=7,
+            note:t.Note||'' };
+        })
+        .sort((a,b)=>String(b.from).localeCompare(String(a.from))); },
+
+    /**
+     * Open a term, or change the dates of one that exists.
+     *
+     * `to` is EXCLUSIVE — the day after the last day, the same rule PauseTo follows — but the screen
+     * asks for a LAST DAY, because that is what the school agrees with the family. The conversion
+     * happens here, once, rather than in every caller.
+     */
+    setStudentTerm: p => { const ap=staffById(p&&p.staffId); if(!adminLike_(ap))fail('NO_PERMISSION','เฉพาะแอดมิน');
+      const s=studentById(p.studentId); if(!s)fail('NOT_FOUND','ไม่พบนักเรียน');
+      const from=ymd(p.from||''); if(!from)fail('BAD_INPUT','กรุณาระบุวันเริ่ม');
+      /* the screen sends a LAST DAY; `days` is the other way the school says the same thing
+       * ("30 วัน", "60 วัน") and is accepted so neither has to be worked out by hand */
+      let to=ymd(p.to||'');
+      if(!to && Number(p.days)>0) to=shiftYmd_(from, Number(p.days));
+      else if(to) to=shiftYmd_(to, 1);                      // the screen sends a LAST DAY; store it exclusive
+      if(!to)fail('BAD_INPUT','กรุณาระบุวันสุดท้าย หรือจำนวนวัน');
+      if(to<=from)fail('BAD_INPUT','วันสุดท้ายต้องอยู่หลังวันเริ่ม');
+
+      const cls=String(p.class||s.Class||'').trim();
+      if(!cls)fail('BAD_INPUT','กรุณาระบุชั้นเรียน');
+      if(!(M.classes||[]).some(c=>String(c.ClassName)===cls))fail('BAD_INPUT','ไม่พบชั้นเรียน '+cls);
+
+      const by=actorOf(p);
+      let t = p.termId ? (M.studentTerms||[]).find(x=>String(x.TermID)===String(p.termId)) : null;
+      if(p.termId && !t)fail('NOT_FOUND','ไม่พบช่วงเวลานี้');
+
+      /* 🔴 TWO TERMS MAY NOT OVERLAP FOR ONE CHILD. Not tidiness: termOn_ takes the FIRST match, so
+       * two overlapping rows would make which dates apply depend on row order — and the one that
+       * decides whether a parent can check in today would be chosen by accident. */
+      const clash=(M.studentTerms||[]).find(x=> String(x.StudentID)===String(p.studentId)
+        && String(x.Status||'ACTIVE').toUpperCase()!=='CANCELLED'
+        && (!t || String(x.TermID)!==String(t.TermID))
+        && ymd(x.From||'') < to && from < ymd(x.To||'9999-12-31'));
+      if(clash)fail('BAD_STATE','ช่วงเวลานี้ทับกับช่วง '+clash.TermID+' ('+ymd(clash.From)+' – '+ymd(clash.To)+')');
+
+      if(t){
+        const was=ymd(t.To||'');
+        t.From=from; t.To=to; t.Class=cls; t.Note=String(p.note||t.Note||'');
+        t.UpdatedBy=by.name||by.id; t.UpdatedAt=stampLocal();
+        /* the agreed end date is OVERWRITTEN when a stay is extended (the school's choice,
+         * 2026-10-12: "Admin จะไปสอบถามผู้ปกครองและนำข้อมูลมาแก้ในระบบ"), so the move itself is
+         * written to the trail — otherwise "until when did we agree?" has no answer afterwards */
+        logAct('setStudentTerm', t.TermID, 'แก้ช่วงเวลา '+from+' – '+to+(was&&was!==to?(' (เดิมถึง '+was+')'):''), by);
+      } else {
+        t={ TermID:nextSeqId_(M.studentTerms||[],'TermID','TM',4), StudentID:String(p.studentId),
+            Kind:String(p.kind||'SUMMER').toUpperCase(), From:from, To:to, Class:cls,
+            Status:'ACTIVE', Note:String(p.note||''), CreatedBy:by.name||by.id, CreatedAt:stampLocal(),
+            UpdatedBy:'', UpdatedAt:'' };
+        (M.studentTerms=M.studentTerms||[]).push(t);
+        logAct('setStudentTerm', t.TermID, 'เปิดช่วงเวลา '+from+' – '+to+' · '+cls, by);
+      }
+      /* The child sits in a real classroom with real teachers, so the class on their record moves to
+       * match — see the note on inSummerTerm_ for why this is NOT a separate "Summer" class. The
+       * term keeps its own Class, so the history of which room they were in that summer survives. */
+      s.Class=cls;
+      return {ok:true, termId:t.TermID, studentId:t.StudentID, from, to,
+              lastDay:shiftYmd_(to, -1), class:cls}; },
+
+    /** Cancel a term — it stops counting immediately, and the row stays as the record that it happened. */
+    cancelStudentTerm: p => { const ap=staffById(p&&p.staffId); if(!adminLike_(ap))fail('NO_PERMISSION','เฉพาะแอดมิน');
+      const t=(M.studentTerms||[]).find(x=>String(x.TermID)===String(p.termId));
+      if(!t)fail('NOT_FOUND','ไม่พบช่วงเวลานี้');
+      t.Status='CANCELLED'; t.UpdatedBy=(actorOf(p).name||actorOf(p).id); t.UpdatedAt=stampLocal();
+      logAct('cancelStudentTerm', t.TermID, 'ยกเลิกช่วงเวลา '+ymd(t.From)+' – '+ymd(t.To), actorOf(p));
+      return {ok:true, termId:t.TermID, status:'CANCELLED'}; },
     setStudentPause: p => { const ap=staffById(p.staffId); if(!adminLike_(ap))fail('NO_PERMISSION','เฉพาะแอดมิน');
       const s=studentById(p.studentId); if(!s)fail('NOT_FOUND','ไม่พบนักเรียน');
       if(INACTIVE[s.Status])fail('BAD_STATE','นักเรียนคนนี้ออกจากโรงเรียนแล้ว — ใช้เมนูรับกลับเข้าเรียนแทน');
@@ -4710,9 +4917,14 @@ function createAtomAPI(M, GROWTH_STD) {
         // WHICH DAYS THIS CHILD COMES. In the `care` half on purpose: it is not a private detail and
         // it is exactly what a teacher needs to know before wondering where a child is on a Wednesday.
         offDays:offDays_(s).join(','), offDaysLabel:offDaysLabel_(s), offDaysLabelEN:offDaysLabel_(s,true),
-        // a teacher is told THAT there is cover, never the policy number — it is what they would need
-        // to say at a hospital door, and nothing more
-        insuranceHas: !!s.InsuranceHas
+        /* a teacher is told THAT there is cover, never the policy number — it is what they would
+         * need to say at a hospital door, and nothing more.
+         *
+         * 🔴 Read through studentPolicy_ since 2026-10-12, so an EXPIRED policy reads as no cover.
+         * `!!s.InsuranceHas` stayed true for ever: a teacher at that door would have been told the
+         * child was insured on the strength of a tick nobody had revisited since last year. */
+        insuranceHas: studentPolicy_(s).has,
+        insuranceExpired: studentPolicy_(s).expired
       };
       if(!full) return Object.assign({scope:'care'}, care);
       const parents=(M.parents||[]).filter(x=>String(x.ParentID)===String(s.ParentID) ||

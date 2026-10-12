@@ -25,6 +25,7 @@ var COLLECTION_MAP = {
   dspmCriteria:    { wb: 'MAIN', sheet: 'DSPM_CRITERIA' },
   payments:        { wb: 'MAIN', sheet: 'BILLING' },
   studentCharges:  { wb: 'MAIN', sheet: 'STUDENT_CHARGES' },
+  studentTerms:    { wb: 'MAIN', sheet: 'STUDENT_TERMS' },
   prepayments:     { wb: 'MAIN', sheet: 'PREPAYMENTS' },
   otDaily:         { wb: 'MAIN', sheet: 'OT_DAILY' },
   growthRecords:   { wb: 'MAIN', sheet: 'GROWTH_RECORDS' },

@@ -216,6 +216,29 @@ SCHEMA[WB.MAIN] = {
   ANNOUNCEMENTS:     ['AnnID', 'Title', 'TitleEN', 'Content', 'ContentEN', 'Image', 'Date', 'Type', 'TargetGroup', 'Popup', 'StartDate', 'EndDate', 'Priority', 'StartTime', 'EndTime'],
   // Per-student extra charges merged into the monthly bill
   STUDENT_CHARGES:   ['ChargeID', 'StudentID', 'Month', 'Label', 'Amount', 'Status'],
+  /* ☀️ A PERIOD A CHILD IS WITH THE SCHOOL, BESIDES THEIR MAIN ENROLMENT (2026-10-12).
+   *
+   * Asked for the children who have already GRADUATED and come back for the summer holiday —
+   * "ให้ใช้ระบบได้ปกติแค่ในช่วงเวลานั้นๆ แล้วกำหนดวัน เช่น 30 หรือ 60 วัน".
+   *
+   * 🔴 WHY A SHEET AND NOT TWO COLUMNS ON STUDENTS. It happens EVERY YEAR. Two columns hold one
+   * window, so next summer overwrites this one and the school can no longer answer "did this child
+   * come last year" — and a row per period also keeps the graduation itself intact, which clearing
+   * EndDate (the only thing possible before today) destroyed along with EndReason and EndRemark.
+   *
+   * The child keeps ONE record: same StudentID, same parents, same growth chart, same journal
+   * history. The alternative — a second enrolment under a new id — splits all of that in two, and
+   * this school has already lived through 13 duplicated children once.
+   *
+   * From/To are inclusive of From and EXCLUSIVE of To, the same rule PauseTo follows: `To` is the
+   * day after the last day, so the last day is a full school day and check-in works on it.
+   *
+   * Price is the school's NORMAL monthly rate (ผอ., 2026-10-12) — there is deliberately no amount
+   * or billing-mode column here. A summer child rides the ordinary monthly bill run; a part-month
+   * is handled by the existing STUDENTS.ProrateMode='MANUAL' the admin already uses for a child
+   * starting mid-month. One billing path, not two. */
+  STUDENT_TERMS:     ['TermID', 'StudentID', 'Kind', 'From', 'To', 'Class', 'Status',
+                      'Note', 'CreatedBy', 'CreatedAt', 'UpdatedBy', 'UpdatedAt'],
   // Advance tuition payments (with discount) + the months they cover
   PREPAYMENTS:       ['PrepayID', 'StudentID', 'Months', 'Discount', 'Gross', 'Amount', 'Covered', 'Status', 'SlipUrl', 'SlipAmount', 'VerifiedStatus', 'Date', 'PaymentMethod', 'TransactionDate', 'PaidDate'],
   // Absence tracking (leave/no-show) + teacher follow-up

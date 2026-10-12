@@ -1190,6 +1190,31 @@ create index if not exists student_charges_tenant_ix on student_charges(tenant_i
 create index if not exists student_charges_seq_ix on student_charges(tenant_id, seq);
 alter table student_charges enable row level security;
 
+-- ── STUDENT_TERMS  (MAIN workbook, engine: studentTerms)
+create table if not exists student_terms (
+  id          uuid primary key default gen_random_uuid(),
+  seq         bigserial not null,
+  tenant_id   uuid not null references tenant(id) on delete restrict,
+  term_id                    text,
+  student_id                 text,
+  kind                       text,
+  from                       text,
+  to                         text,
+  class                      text,
+  status                     text,
+  note                       text,
+  created_by                 text,
+  updated_by                 text,
+  -- CreatedAt, UpdatedAt: the sheet's own columns, carried by the
+  -- reserved column of the same name below — same meaning, and never declared twice.
+  created_at  timestamptz not null default now(),
+  updated_at  timestamptz not null default now()
+);
+create unique index if not exists student_terms_code_uq on student_terms(tenant_id, student_id);
+create index if not exists student_terms_tenant_ix on student_terms(tenant_id);
+create index if not exists student_terms_seq_ix on student_terms(tenant_id, seq);
+alter table student_terms enable row level security;
+
 -- ── STUDENTS  (MAIN workbook, engine: students)
 create table if not exists students (
   id          uuid primary key default gen_random_uuid(),

@@ -191,9 +191,14 @@ console.log('\n4) insuranceStatus — the v379 break, found by this audit and no
   ok_('the LIVE route returns the school-bought policy at all', /policy: insPolicy_\(stu\)/.test(gasSeg));
   /* THE SAME SHAPE, key for key. The parent's card reads one object; two halves that return
    * different field names would draw an empty card on live and a full one in every test. */
-  const keys = ['plan', 'type', 'policyNo', 'company', 'insured', 'owner', 'status', 'start', 'expiry', 'sum', 'benefits', 'hotline', 'card', 'has'];
+  // 'expired' + 'onFile' added 2026-10-12 — an expired policy is no longer reported as cover, and
+  // BOTH halves had to learn it: fixing only the engine would have changed the tests and nothing else
+  const keys = ['plan', 'type', 'policyNo', 'company', 'insured', 'owner', 'status', 'start', 'expiry', 'sum', 'benefits', 'hotline', 'card', 'has', 'expired', 'onFile'];
   const gasPol = day6.slice(day6.indexOf('function insPolicy_'), day6.indexOf('function handleInsuranceStatus'));
-  const engPol = eng.slice(eng.indexOf('function studentPolicy_'), eng.indexOf('function studentPolicy_') + 1200);
+  // sized to the function, not to a guessed character count — the window was 1200 and the body grew
+  // past it, so the check started failing on 'has' while the code was perfectly correct
+  const _ps = eng.indexOf('function studentPolicy_');
+  const engPol = eng.slice(_ps, eng.indexOf('return p; }', _ps) + 20);
   // `has` is derived last on both sides, so it is an assignment rather than a literal key — accept either
   const carries = (src, k) => new RegExp('\\b' + k + ':').test(src) || new RegExp('\\.' + k + '\\s*=').test(src);
   eq('every key the engine returns, the live route returns', keys.filter(k => !carries(gasPol, k)), []);
