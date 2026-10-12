@@ -730,7 +730,24 @@ function handleStaffCheckout(payload) {
     notifyAdmins_('🔴 ' + staff.Name + ' ออกงาน ' + timeStr_(now) +
       ' • OT ' + otHours + ' ชม. (' + hmMinTH_(otMin) + ') ≈ ' + otPay + ' บาท · รออนุมัติ');
   }
-  return { staffId: staff.StaffID, time: timeStr_(now), otHours: otHours, otMinutes: otMin, otPay: otPay };
+  /* ⏪ LEAVING EARLY — measured here, decided by the person (2026-10-12).
+   *
+   * OT is `max(0, now - end)`, so the other side of that subtraction was simply thrown away: a
+   * teacher going home two hours early produced a row identical to one who stayed. The school asked
+   * for a prompt offering to file the half-day leave, which needs the minutes to exist first.
+   *
+   * 🔴 THE PUNCH IS WRITTEN BEFORE ANYBODY IS ASKED ANYTHING, and that is deliberate. On 2026-10-08
+   * four teachers could not clock out at all; a dialog standing between a person and their own
+   * check-out is one more way for that evening to repeat, and a day with no end time has to be
+   * corrected by hand. So the row is saved, and the prompt is an OFFER about what to do next —
+   * which is also exactly what the school asked for: "ถ้ากดยกเลิก ให้ Check-out ได้ตามปกติ".
+   */
+  var earlyMin = staffHasHolidayOT_(staff.StaffID, today) ? 0 : Math.max(0, outMin - minOfDay_(now));
+  var earlyGate = parseInt(getConfig_('EarlyLeaveMinutes', '30'), 10);
+  if (isNaN(earlyGate) || earlyGate < 0) earlyGate = 30;
+  return { staffId: staff.StaffID, time: timeStr_(now), otHours: otHours, otMinutes: otMin, otPay: otPay,
+           earlyMinutes: earlyMin, earlyGate: earlyGate, early: earlyMin >= earlyGate && earlyGate > 0,
+           planOut: outHHmm };
 }
 
 // ---- Notification helpers ----------------------------------------

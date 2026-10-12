@@ -131,7 +131,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.431'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.432'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -4966,7 +4966,16 @@
   }
   window.T_punch=async(kind,btn)=>{ if(btn){ btn.disabled=true; btn.style.opacity='.45'; btn.style.cursor='not-allowed'; }  // prevent double-tap immediately
     try{ const {lat,lng,acc}=await getPosition();
-      const r=await punchWithRetry(kind==='in'?'staffCheckin':'staffCheckout',{staffId:USER.staffId,lat,lng,acc}); toast(kind==='in'?`✅ ${t('lbl.checkIn')} ${r.time}${r.lateMinutes>0?` (${t('lbl.late')} ${r.lateMinutes} ${t('lbl.min')})`:' ('+t('lbl.onTime')+')'}`:`✅ ${t('lbl.checkOut')} ${r.time}${r.otHours>0?` · OT ${hmHours(r.otHours)}${r.otPay?' ≈ '+baht(r.otPay):''}`:''}`); GO('home'); }
+      const r=await punchWithRetry(kind==='in'?'staffCheckin':'staffCheckout',{staffId:USER.staffId,lat,lng,acc}); toast(kind==='in'?`✅ ${t('lbl.checkIn')} ${r.time}${r.lateMinutes>0?` (${t('lbl.late')} ${r.lateMinutes} ${t('lbl.min')})`:' ('+t('lbl.onTime')+')'}`:`✅ ${t('lbl.checkOut')} ${r.time}${r.otHours>0?` · OT ${hmHours(r.otHours)}${r.otPay?' ≈ '+baht(r.otPay):''}`:''}`);
+      /* ⏪ LEFT EARLY → OFFER THE HALF-DAY LEAVE THAT GOES WITH IT (2026-10-12).
+       *
+       * 🔴 AFTER the punch, never before it. On 2026-10-08 four teachers could not clock out at all;
+       * a dialog standing between a person and their own check-out is one more way for that evening
+       * to repeat, and a day with no end time has to be corrected by hand afterwards. The school
+       * asked for exactly this outcome anyway — "ถ้ากดยกเลิก ให้ Check-out ได้ตามปกติ" — so the
+       * check-out is already saved and this is an offer about what to do next, not a gate. */
+      if(kind==='out' && r && r.early){ T_earlyLeave(r); return; }
+      GO('home'); }
     catch(e){
       /* "You already clocked in/out today" is not a failure — it is the work having been DONE, and
        * the app not knowing it yet. It happens when the reply to the first tap was lost in transit
@@ -4989,6 +4998,68 @@
   // daily-report badge — journalStatus returns every student with an entry for `date` + its DRAFT/SUBMITTED state
   function journalDoneMap(st){ const m={}; ((st&&st.done)||[]).forEach(d=>{ m[d.studentId]=d; }); return m; }
   // journalStatus returns `submittedAt`; getJournal returns the raw row (`SubmittedAt`)
+  /* ═══ ⏪ LEAVING BEFORE YOUR OWN END TIME ═════════════════════════════════════════════════════
+   *
+   * Asked 2026-10-12: a teacher clocking out early should be asked to confirm, and the system should
+   * raise the leave request for them — same types, same reason box, same two-step approval as any
+   * other leave.
+   *
+   * 🔴 THE CHECK-OUT HAS ALREADY HAPPENED by the time this opens. See T_punch for why: a dialog in
+   * front of somebody's own check-out is how an evening ends with four teachers unable to clock out,
+   * and the school's own answer to "what if they cancel" was "ให้ Check-out ได้ตามปกติ" — which is
+   * what a saved punch already is.
+   *
+   * 💰 AND IT SAYS WHAT THE LEAVE COSTS, before it is filed. An approved leave of any kind voids the
+   * month's ฿500 เบี้ยขยัน (attendanceEligible_ in src/Payroll.gs) — the school knows and accepts
+   * this ("ตอนทำเงินเดือน Admin จะพิจารณาให้หรือไม่ให้เองอีกที"), but the person signing it should
+   * not find out on their payslip.
+   */
+  window.T_earlyLeave = (r) => {
+    const mins = Number(r && r.earlyMinutes) || 0;
+    const hrs = Math.floor(mins / 60), rem = mins % 60;
+    const span = hrs ? `${hrs} ${EN()?'hr':'ชม.'}${rem?` ${rem} ${EN()?'min':'นาที'}`:''}` : `${mins} ${EN()?'min':'นาที'}`;
+    const m = modal(`<h3>⏪ ${EN()?'You left before your end time':'ออกงานก่อนเวลา'}</h3>
+      <p style="background:var(--warn-bg,#fff4e5);border-left:3px solid var(--warn,#e8a33d);padding:8px;border-radius:6px;font-size:13.5px">
+        ${EN()
+          ? `Clocked out at <b>${esc(r.time||'')}</b>, <b>${span}</b> before your end time (${esc(r.planOut||'')}). <b>Your check-out is saved.</b>`
+          : `ลงเวลาออก <b>${esc(r.time||'')}</b> · ก่อนเวลาเลิกงาน (${esc(r.planOut||'')}) <b>${span}</b> · <b>ระบบบันทึกเวลาออกให้แล้ว</b>`}</p>
+      <p class="muted" style="font-size:13px">${EN()
+        ? 'Would you like to file the half-day leave that goes with it? It follows the normal approval route — your head teacher, then the office.'
+        : 'ต้องการแจ้งลาครึ่งวันสำหรับช่วงที่ออกก่อนไหม? · ใบลาจะเดินตามขั้นตอนปกติ คือหัวหน้าครูแล้วจึงถึงสำนักงาน'}</p>
+      <label class="field"><span>${EN()?'Leave type':'ประเภทการลา'}</span><select id="elType" translate="no">
+        <option value="ลากิจ">${EN()?'Personal leave (ลากิจ)':'ลากิจ'}</option>
+        <option value="ลาป่วย">${EN()?'Sick leave (ลาป่วย)':'ลาป่วย'}</option>
+        <option value="ลาพักร้อน">${EN()?'Holiday leave (ลาพักร้อน)':'ลาพักร้อน'}</option></select></label>
+      <label class="field"><span>${EN()?'Reason':'เหตุผล'}</span><textarea id="elReason" placeholder="${EN()?'e.g. hospital appointment':'เช่น มีนัดหมอ'}"></textarea></label>
+      ${/* 💰 said before they sign it, not after it reaches their payslip */''}
+      <p class="muted" style="font-size:12.5px">💰 ${EN()
+        ? 'Counts as <b>half a day (0.5)</b> off your entitlement. Like any approved leave it affects this month’s attendance allowance — the office reviews that when payroll is run.'
+        : 'หักสิทธิลา <b>ครึ่งวัน (0.5)</b> · และเหมือนใบลาที่อนุมัติทุกใบ จะมีผลกับเบี้ยขยันของเดือนนี้ ซึ่งทางสำนักงานจะพิจารณาอีกครั้งตอนทำเงินเดือน'}</p>
+      <button class="btn block" onclick="T_earlyLeaveDo(this)">${EN()?'Send the leave request':'ส่งคำขอลา'}</button>
+      <button class="btn block outline" style="margin-top:8px" onclick="this.closest('.modal').remove();GO('home')">${EN()
+        ? 'No, just the check-out':'ไม่ต้อง · บันทึกเวลาออกอย่างเดียว'}</button>`);
+    /* a stray tap on the backdrop must not dismiss this — the teacher has a decision to make and
+     * losing the dialog means losing the only moment the app will ever offer it */
+    if(m) m.onclick=null;
+  };
+
+  window.T_earlyLeaveDo = async (btn) => {
+    const m = btn.closest('.modal');
+    const q = sel => { const e = m.querySelector(sel); return e ? String(e.value||'').trim() : ''; };
+    const reason = q('#elReason');
+    if(!reason){ toast(EN()?'Please give a reason':'กรุณาระบุเหตุผล'); return; }
+    btn.disabled = true;
+    try{
+      /* the SAME route a hand-written leave uses — halfDay 'PM' makes it 0.5 of a day, and the
+       * two-step approval, the entitlement maths and the history screen all behave identically.
+       * Nothing about this request is special once it exists, which is the point. */
+      await api('submitLeave',{ staffId:USER.staffId, type:q('#elType'),
+        startDate: todayStr(), endDate: todayStr(), halfDay:'PM', reason });
+      m.remove();
+      confirmSaved(EN()?'Leave request sent':'ส่งคำขอลาแล้ว');
+      GO('home');
+    }catch(e){ err(e); btn.disabled=false; }
+  };
   const jTime = d => { const s=String((d&&(d.submittedAt||d.SubmittedAt))||''); return s.length>=16 ? s.slice(11,16) : ''; };
   const jIsDraft = d => !!d && String(d.status||d.Status||'').toUpperCase()==='DRAFT';
   function journalPill(d){
@@ -7531,12 +7602,29 @@
       ? {kind:'custom', from:SM_FROM, to:SM_TO, label:`${ddmmyyyy(SM_FROM)} – ${ddmmyyyy(SM_TO)}`}
       : periodRange(SM_KIND, SM_ANCHOR||SM_MONTH||todayStr());
     SM_MONTH = ym(rng.from);
+    /* 🏷️ WHY A ROW LOOKS THE WAY IT DOES (2026-10-12).
+     *
+     * Two very different people both read as "มาทำงาน 0/0 *" before today: somebody the school told
+     * NOT to clock in, and somebody on temporary leave. Identical on screen, and identical to a
+     * data error — an admin had no way to tell which, or whether anything was wrong at all.
+     *
+     * The badge says it in words. For a temporary leave it also says SINCE WHEN, because the next
+     * question is always "from when", and the answer decides whether the days above it are right. */
+    const smTag = s => {
+      if(s.exemptCheckin) return ` <span class="pill" style="background:#eef2ff;color:#3449a8">🪪 ${EN()?'no clock-in':'ไม่ต้องลงเวลา'}</span>`;
+      if(s.paused || s.pausedInRange){
+        const f = s.pauseFrom?ddmmyyyy(s.pauseFrom).replace(/ \d{4}$/,''):'';
+        const t = s.pauseTo?ddmmyyyy(s.pauseTo).replace(/ \d{4}$/,''):'';
+        return ` <span class="pill wait">⏸️ ${EN()?'on break':'ลาชั่วคราว'}${f?(EN()?' from '+f:' ตั้งแต่ '+f):''}${t?(EN()?' to '+t:' ถึง '+t):''}</span>`;
+      }
+      return '';
+    };
     let d; try { d = await api('staffAttendanceMonth',{month:SM_MONTH,from:rng.from,to:rng.to,staffId:USER.staffId}); } catch(e){ err(e); return; }
     d._range = rng;
     window._SM = d;
     const rows = sortPeopleD(d.staff||[]).map(s=>`
       <div class="list-item" style="cursor:pointer" onclick="A_staffMonthOne('${esc(s.staffId)}')">
-        <span><b>${esc(dnick(s))}</b>${dnSub(s)?` <small class="muted" style="font-weight:400">${esc(dnSub(s))}</small>`:''}
+        <span><b>${esc(dnick(s))}</b>${dnSub(s)?` <small class="muted" style="font-weight:400">${esc(dnSub(s))}</small>`:''}${smTag(s)}
           ${/* against the target, not on its own — "16" means nothing until you know it is out of 21.
                Somebody who started or left mid-period owes only their own share, and it says so. */''}
           <br><small class="muted"><b>${EN()?'present':'มาทำงาน'} ${s.present}/${s.myRequiredDays!=null?s.myRequiredDays:s.requiredDays}</b>${(s.myRequiredDays!=null&&s.myRequiredDays!==s.requiredDays)?` <span title="${EN()?'started or left inside this period':'เริ่มงานหรือสิ้นสุดระหว่างช่วงนี้'}">*</span>`:''} · ${EN()?'late':'สาย'} ${s.lateDays}${s.lateMinutes?` (${s.lateMinutes} ${EN()?'min':'นาที'})`:''} · ${EN()?'leave':'ลา'} ${s.leaveDays} · ${EN()?'absent':'ขาด'} ${s.absent}${s.otHours?` · OT ${s.otHours} ${EN()?'hr':'ชม.'}`:''}</small></span>
