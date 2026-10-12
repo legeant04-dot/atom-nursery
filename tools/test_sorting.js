@@ -89,6 +89,16 @@ console.log('\n4) The rule is applied once, where it cannot be forgotten');
   ok_('a class roster is sorted too', /action === 'classList'[\s\S]{0,200}students: sortPeople/.test(app));
   ok_('so is the finance list of children', /sortBy\(f\.students,dnick\)/.test(app));
   ok_('and the salary list', /sortPeopleD\(f\.staff\)/.test(app));
+  /* 🔴 ...AND THE CHECK-IN SWITCHES, which had neither the order nor the names (2026-10-12).
+   *
+   * It printed `nm(s)` — the full formal name, alone and unsorted — so an admin ticking switches had
+   * to translate "จุฑามาศ อุ่นคำ" into "แพรว2" for every row, in whatever order the sheet happened
+   * to hold. The school calls nobody by their full name. Every other list of people in this app is
+   * nickname-first and alphabetical; this one had quietly drifted out of that. */
+  ok_('and the check-in switches, by nickname like everything else',
+    /sortPeople\(staff\)\.map\(s=>`<div class="list-item"><span><b>\$\{esc\(dispNick\(s\)\)\}/.test(app));
+  ok_('...with the formal name kept underneath, so two people sharing a nickname stay apart',
+    /dispNick\(s\)\)\}<\/b>\$\{nmSub\(s\)\?/.test(app));
   ok_('the food master, within each category', /const byCat=c=>sortBy\(items\.filter/.test(app));
   // one picker serves both the journal and the monthly menu, so one sort covers both
   ok_("and the dish dropdown", /const its=sortBy\(L\.filter\(i=>i\.category===c\), foodLabel\)/.test(app));

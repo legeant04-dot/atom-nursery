@@ -131,7 +131,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.433'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.434'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -9285,7 +9285,12 @@
   // Require-check-in toggles — moved into a modal (opened from the menu)
   window.A_requireCI = async () => { const staff=window._PERM_STAFF||await api('listStaff');
     modal(`<h3>⏱️ ${esc(t('lbl.requireCI'))}</h3><p class="muted" style="font-size:13px">${EN()?'Turn OFF for positions that need not clock in (e.g. leaders). Press Save after changes.':'ปิดสำหรับตำแหน่งที่ไม่ต้องลงเวลา (เช่น หัวหน้างาน) — กด บันทึก หลังเปลี่ยน'}</p>
-      <div style="max-height:56vh;overflow:auto">${staff.map(s=>`<div class="list-item"><span><b>${esc(nm(s))}</b> <small class="muted">${esc(s.PositionLevel||'')}</small></span>
+      ${/* 🔴 NICKNAME FIRST, like every other list of people in this app (2026-10-12).
+           This one printed the full name alone, so an admin ticking switches had to translate
+           "จุฑามาศ อุ่นคำ" into "แพรว2" in their head for every row — and the school calls nobody by
+           their full name. The full name stays underneath, because two people can share a nickname
+           and a switch is not a thing to turn off for the wrong person. */''}
+      <div style="max-height:56vh;overflow:auto">${sortPeople(staff).map(s=>`<div class="list-item"><span><b>${esc(dispNick(s))}</b>${nmSub(s)?` <small class="muted" style="font-weight:400">${esc(nmSub(s))}</small>`:''} <small class="muted">${esc(s.PositionLevel||'')}</small></span>
         <label class="switch"><input type="checkbox" data-sid="${s.StaffID}" ${s.RequireCheckin!==false?'checked':''}><span class="slider"></span></label></div>`).join('')}</div>
       <button class="btn block" style="margin-top:8px" onclick="A_saveReqCI(this)">💾 ${esc(t('c.save'))}</button>`);
   };
