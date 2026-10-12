@@ -1403,6 +1403,10 @@ function createAtomAPI(M, GROWTH_STD) {
     if(v === 'false' || v === 'no' || v === '0' || v === 'ไม่') return false;
     return true;                                   // blank or anything else: they clock in
   }
+  /** Someone the school has told NOT to clock in — a housekeeper, an office role. Not an Admin:
+   *  an Admin account is outside the attendance record altogether (see requiresCheckin_). */
+  const exemptCheckin_ = s => !!s && String(s.Role||'')!=='Admin' && !requiresCheckin_(s);
+
   function staffPaused_(s, onDate){ if(!s) return false;
     const from=ymd(s.PauseFrom||''); if(!from) return false;
     const d=ymd(onDate||todayLocal()), to=ymd(s.PauseTo||'');
@@ -3240,7 +3244,16 @@ function createAtomAPI(M, GROWTH_STD) {
       const self = !!(p && p.onlySelf);
       const people = M.staff
         .filter(s=>!self || String(s.StaffID)===String(p.staffId))
-        .filter(s=>!staffEnded_(s) && (self || requiresCheckin_(s)))
+        /* 🔴 SOMEBODY EXEMPT FROM CLOCKING IN IS STILL PART OF THE MONTH (2026-10-12).
+         *
+         * They used to be filtered out entirely, so the admin's monthly screen simply had no row
+         * for them — which reads as "this person does not work here" rather than "this person
+         * does not clock in". The school asked for the opposite: "ให้ใส่ป้ายกำกับไว้ และนับวันมา
+         * ทำงานปกติเหมือนคุณครูทุกคน".
+         *
+         * An Admin account is still left out: it manages the system, it does not work a shift —
+         * see the long note on requiresCheckin_. */
+        .filter(s=>!staffEnded_(s) && (self || requiresCheckin_(s) || exemptCheckin_(s)))
         .map(s=>{
           const rows=[], missingOut=[], otDays=[]; let present=0, lateDays=0, lateMin=0, leaveDays=0, absent=0, ot=0;
           let holOtDays=0, holOtAmount=0;
@@ -3263,6 +3276,17 @@ function createAtomAPI(M, GROWTH_STD) {
             // on temporary leave: not here, and not counted as anything — see staffPaused_
             else if(staffPaused_(s, ds)) status='PAUSED';
             else if(inT) status='IN';
+            /* 🔴 EXEMPT FROM CLOCKING IN = PRESENT ON A WORKING DAY, not absent (2026-10-12).
+             *
+             * There is no CHECKIN_STAFF row for somebody who was told not to make one, so every
+             * working day of theirs fell through to ABSENT. The school's rule is that they are here
+             * like everybody else — "นับวันมาทำงานปกติเหมือนคุณครูทุกคน" — so the day counts, with
+             * no time against it, and the badge on the row says why there is no time.
+             *
+             * Below the leave test on purpose: an exempt person who files a leave is on leave that
+             * day, which is a thing they can still do. */
+            else if(exemptCheckin_(s) && !lv && !holAll[ds] && !weekend && ds<=today && !(since&&ds<since)) status='EXEMPT';
+
             else if(lv) status='LEAVE';
             // ...and the same distinction here: a day the school was shut for a MORNING is a day
             // somebody was expected in, so not turning up is an absence like any other. The cell
@@ -3300,6 +3324,8 @@ function createAtomAPI(M, GROWTH_STD) {
              * payslip. Now the total and the day-by-day breakdown below it are the same arithmetic. */
             ot += oth;
             if(status==='IN'){ present++; if(lt>0){ lateDays++; lateMin+=lt; } }
+            // counted as a day worked, with no clock reading behind it — never late, never absent
+            else if(status==='EXEMPT') present++;
             else if(status==='LEAVE') leaveDays += (lv&&lv.half) ? 0.5 : 1;
             else if(status==='ABSENT') absent++;
             // the day's OT, in full — including a holiday lump sum, which has no hours and is still
@@ -3330,6 +3356,17 @@ function createAtomAPI(M, GROWTH_STD) {
              * school's figure the screen says so rather than printing a shortfall nobody owes. */
             requiredDays: requiredDates.length,
             requiredToDate,
+            /* 🏷️ WHY THIS ROW LOOKS THE WAY IT DOES — said on the row, not left to be guessed.
+             *
+             * Both of these read as "0/0 *" before today, which tells an admin nothing: a person
+             * exempt from clocking in and a person on temporary leave looked identical to each
+             * other and to a data error. The target arithmetic was already right (owesDay_ drops
+             * paused days, so a teacher paused from the 16th still has the 1st–15th counted) —
+             * what was missing was the sentence explaining it. */
+            exemptCheckin: exemptCheckin_(s),
+            paused: staffPaused_(s),
+            pausedInRange: requiredDates.some(ds=>staffPaused_(s, ds)),
+            pauseFrom: ymd(s.PauseFrom||''), pauseTo: ymd(s.PauseTo||''), pauseReason: s.PauseReason||'',
             myRequiredDays: requiredDates.filter(ds=>owesDay_(s,ds)).length,
             myRequiredToDate: requiredDates.filter(ds=>ds<today && owesDay_(s,ds)).length,
             present, lateDays, lateMinutes:lateMin, leaveDays, absent, otHours:Math.round(ot*100)/100,
@@ -3642,7 +3679,13 @@ function createAtomAPI(M, GROWTH_STD) {
       const ot=holOT?0:Math.max(0,(t.getHours()*60+t.getMinutes())-toMin(outT));
       // OT rule: ≥OTRoundUpMinutes (50) within an hour rounds up to a full hour
       let r=M.staffAttendanceToday.find(x=>x.StaffID===p.staffId); if(!r)fail('NOT_CHECKED_IN','ยังไม่ได้ลงเวลาเข้างาน'); r.CheckOut=timeLocal();r.Status='OUT';r.OTHours=otHoursRule(ot);
-      return {time:r.CheckOut,otHours:r.OTHours,otMinutes:ot,distance:d,holidayOT:holOT}; },
+      /* ⏪ ...and the other side of that same subtraction — see handleStaffCheckout in Checkin.gs for
+       * why the punch is saved BEFORE anyone is asked anything. */
+      const earlyMin = holOT?0:Math.max(0, toMin(outT)-(t.getHours()*60+t.getMinutes()));
+      let earlyGate = parseInt(cfg.EarlyLeaveMinutes==null?30:cfg.EarlyLeaveMinutes,10);
+      if(isNaN(earlyGate)||earlyGate<0) earlyGate=30;
+      return {time:r.CheckOut,otHours:r.OTHours,otMinutes:ot,distance:d,holidayOT:holOT,
+              earlyMinutes:earlyMin, earlyGate, early: earlyMin>=earlyGate && earlyGate>0, planOut:outT}; },
     // submit=false → DRAFT (editable, parent not notified); submit=true → sent to the parent and locked
     submitJournal: p => { const date=p.date||todayLocal();
       const submit = p.submit===true || String(p.submit)==='true';

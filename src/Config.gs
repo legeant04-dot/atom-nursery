@@ -485,6 +485,14 @@ var SCHOOL_CONFIG_DEFAULTS = [
   // home. 0 = the old strict rule. See gpsSlack_ in Checkin.gs.
   ['GpsAccuracySlack',      '50'],
   ['LateGraceMinutes',      '0'],            // grace window before "late" is counted
+  /* ⏪ HOW EARLY IS "EARLY" (2026-10-12). Clocking out this many minutes before your own end time
+   * offers to file the half-day leave that goes with it. 0 switches the prompt off entirely.
+   *
+   * Thirty, because the school said thirty — and because the figure has to be a setting rather than
+   * a constant: a prompt that fires on two minutes teaches everybody to dismiss it, and a dismissed
+   * prompt is the same as no prompt while still being in the way. OT already measures the opposite
+   * direction from the same end time, so the two can never disagree about when the day ends. */
+  ['EarlyLeaveMinutes',     '30'],
   /* A half-day holiday that ends at noon makes noon the start of work (atomStaffHours_). This is how
    * many minutes either side of that moment the app is reasonable about: clocking in opens this far
    * BEFORE the school does, and the same minutes are forgiven AFTER. Without it, a teacher standing
