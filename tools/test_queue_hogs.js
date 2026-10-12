@@ -169,10 +169,21 @@ console.log('\n3) 🔴 a punch that hit a busy server is retried, not lost');
        * built their "today" from toISOString(), which is UTC. Between midnight and 07:00 Bangkok
        * that is YESTERDAY, so three assertions in test_leave_range_end failed for no reason. The
        * product was never wrong; the tests were, every night. */
+      /* 🔴 CODE ONLY — a comment EXPLAINING the trap is not the trap (fixed 2026-10-12).
+       *
+       * This read the raw source, so writing "the first draft used toISOString().slice(0,10)" in a
+       * comment above the correct code failed the check. A rule that cannot be written down next to
+       * the thing it governs is a rule the next person meets as a mysterious failure instead of an
+       * explanation — and the obvious way out is to delete the comment, which loses exactly the
+       * sentence that would have stopped them repeating it. */
+      const bare = s => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
       const offenders = fs.readdirSync(path.join(__dirname))
         .filter(f => /^test_.*\.js$/.test(f))
-        .filter(f => /toISOString\(\)\.slice\(0,\s*10\)/.test(R('tools/' + f)));
+        .filter(f => /toISOString\(\)\.slice\(0,\s*10\)/.test(bare(R('tools/' + f))));
       eq('🔴 no suite derives a date from UTC', offenders, []);
+      // CONTROL: the scan still reads real code — break it and this number goes to zero
+      ok_('CONTROL: ...and it is still reading the suites, not an empty list',
+        fs.readdirSync(path.join(__dirname)).filter(f => /^test_.*\.js$/.test(f)).length > 100);
       // ...and the local helper really does differ from UTC right now, or this check proves nothing
       const d = new Date();
       ok_('(this machine is not on UTC, so the check above is meaningful)',

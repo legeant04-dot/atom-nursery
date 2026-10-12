@@ -119,8 +119,19 @@ function insPolicy_(stu) {
    * at different times, and a card that hid a real policy number because nobody ticked a box is the
    * exact failure this exists to prevent: a parent at a hospital counter with nothing to show. */
   var tick = String(stu.InsuranceHas == null ? '' : stu.InsuranceHas).toUpperCase();
-  pol.has = (tick === 'TRUE' || tick === 'YES' || tick === '1' || stu.InsuranceHas === true)
+  pol.onFile = (tick === 'TRUE' || tick === 'YES' || tick === '1' || stu.InsuranceHas === true)
             || !!(pol.policyNo || pol.plan || pol.company || pol.sum || pol.benefits);
+  /* 🔴 ...AND A POLICY THAT HAS RUN OUT IS NOT COVER (2026-10-12).
+   *
+   * THIS is the copy that actually answers a parent on live — the engine's studentPolicy_ is
+   * shadowed by this route. `has` was true for ever once any field was filled in, and the expiry
+   * date was printed and never consulted, so a card went on reading "มีประกัน" with last year's
+   * policy number. Fixing only the engine would have changed the tests and nothing else.
+   *
+   * `onFile` keeps the details reachable for renewing or querying; `has` is the one anybody may
+   * read as "covered today", and it now goes false on the day the policy ends. */
+  pol.expired = !!(pol.expiry && insDate_(new Date()) > pol.expiry);
+  pol.has = pol.onFile && !pol.expired;
   return pol;
 }
 function handleInsuranceStatus(p) {

@@ -131,7 +131,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.430'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.431'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -3435,16 +3435,28 @@
    * is the honest answer and it is the one the school's own paperwork uses.
    */
   function policyCard(p){
-    if(!p || !p.has) return '';
+    /* 🔴 A LAPSED POLICY IS STILL SHOWN — with the expiry said out loud (2026-10-12).
+     *
+     * The guard used to be `!p.has`, and `has` now goes false the day a policy expires. Hiding the
+     * card then would take the policy number and the insurer's phone number away from the family
+     * at exactly the moment they need them to renew or to ask a question about last year's claim.
+     * So: show it when anything is on file, and let the banner below say plainly that it has run
+     * out. Hiding a fact is not the same as correcting it. */
+    if(!p || !(p.onFile!==undefined ? p.onFile : p.has)) return '';
+    const lapsed = !!p.expired;
     const row=(label,val,strong)=>`<div class="list-item"><span class="muted" style="font-size:13px">${esc(label)}</span>
       <span style="text-align:right${strong?';font-weight:700':''}">${_notr(String(val==null?'':val).trim()||'-')}</span></div>`;
-    const ok=/มีผลบังคับ/.test(String(p.status||''));
-    return `<div class="card" style="border-color:var(--ok-line)">
+    const ok=/มีผลบังคับ/.test(String(p.status||'')) && !lapsed;
+    return `<div class="card" style="border-color:var(${lapsed?'--bad':'--ok-line'})">
       <div class="spread"><h3 style="margin:0">🛡️ ${EN()?'School insurance policy':'กรมธรรม์ที่โรงเรียนทำให้'}</h3>
-        ${p.status?`<span class="pill ${ok?'ok':'wait'}">${_notr(p.status)}</span>`:''}</div>
-      <p class="muted" style="font-size:12.5px;margin:4px 0 6px">${EN()
+        ${lapsed?`<span class="pill bad">${EN()?'EXPIRED':'หมดอายุแล้ว'}</span>`
+                :(p.status?`<span class="pill ${ok?'ok':'wait'}">${_notr(p.status)}</span>`:'')}</div>
+      ${lapsed?`<p style="background:var(--bad-bg,#fdeaea);border-left:3px solid var(--bad);padding:8px;border-radius:6px;font-size:13px;margin:4px 0 6px">${EN()
+        ? `<b>This policy expired on ${ddmmyyyy(p.expiry)} — the child is NOT covered right now.</b> The details below are kept so you can renew or query it.`
+        : `<b>กรมธรรม์นี้หมดอายุเมื่อ ${ddmmyyyy(p.expiry)} — ขณะนี้ยังไม่มีความคุ้มครอง</b> · ข้อมูลด้านล่างเก็บไว้เพื่อใช้ต่ออายุหรือสอบถามเท่านั้น`}</p>`
+      :`<p class="muted" style="font-size:12.5px;margin:4px 0 6px">${EN()
         ? 'Entered by the school from the policy document. Use these details to make a claim.'
-        : 'โรงเรียนกรอกจากหน้ากรมธรรม์ · ใช้ข้อมูลนี้ยื่นเบิกประกันหรือติดต่อบริษัทได้เอง'}</p>
+        : 'โรงเรียนกรอกจากหน้ากรมธรรม์ · ใช้ข้อมูลนี้ยื่นเบิกประกันหรือติดต่อบริษัทได้เอง'}</p>`}
       ${row(EN()?'Company':'บริษัทประกัน', p.company)}
       ${row(EN()?'Plan':'แผน/รหัสแผน', [p.type,p.plan].filter(Boolean).join(' · '))}
       ${row(EN()?'Policy number':'เลขที่กรมธรรม์', p.policyNo, true)}
@@ -4736,7 +4748,7 @@
           // min-width:0 lets the name column shrink; without it the two buttons were pushed onto
           // their own lines and every row ended up a different height
           const dueA=dspmDueOf(s.StudentID);
-          return `<div class="list-item"><span style="min-width:0;flex:1">${studentAvatar(s)} <b>${esc(dispNick(s))}</b>${bdayTag(s.DOB)} ${dueA?dspmDueBadge(dueA):''} ${journalPill(done)}</span><span class="acts2">${jBtn}<button class="btn sm outline" onclick="T_assess('${s.StudentID}')">${esc(t('lbl.assess'))}</button></span></div>`; }).join('')}</div>
+          return `<div class="list-item"><span style="min-width:0;flex:1">${studentAvatar(s)} <b>${esc(dispNick(s))}</b>${bdayTag(s.DOB)}${summerTag(s)} ${dueA?dspmDueBadge(dueA):''} ${journalPill(done)}</span><span class="acts2">${jBtn}<button class="btn sm outline" onclick="T_assess('${s.StudentID}')">${esc(t('lbl.assess'))}</button></span></div>`; }).join('')}</div>
       <div id="tbday">${birthdayCard(al,{nav:true})}</div>`;
     // render, don't fetch: this was started before the batch above and travelled with it
     const tca=await p_tca; setHTML('#tcatt', tca?tcaHtml(tca,day0):'');
@@ -5192,7 +5204,15 @@
      * The bar is only drawn when there is something it could do. On a past day there is nothing to
      * send: those reports are read-only (v423) and the boxes would be a control that refuses. */
     T_SEL = {};   // a fresh screen starts with nothing ticked — see T_selToggle
-    app.innerHTML=`<h2 class="page">👶 ${esc(cl.class.ClassName)}</h2>${classSwitcher(cl)}
+    /* ☀️ COUNTED SEPARATELY ON THE HEADING, which is the other half of "ทำให้ชัดเจน": the badge
+     * says WHICH child, the count says HOW MANY — so a teacher reading "12 + 3" knows the room size
+     * without counting badges down the list. Drawn only when there are any. */
+    const _sum = cl.students.filter(x=>x.summer).length;
+    const _reg = cl.students.length - _sum;
+    const headCount = _sum
+      ? `<div class="muted" style="font-size:13px;margin:-6px 0 8px">${EN()?`${_reg} regular · ☀️ ${_sum} summer`:`เด็กประจำ ${_reg} คน · ☀️ ซัมเมอร์ ${_sum} คน`}</div>`
+      : '';
+    app.innerHTML=`<h2 class="page">👶 ${esc(cl.class.ClassName)}</h2>${headCount}${classSwitcher(cl)}
       ${T_classDateBar(onDay)}${onDay?'':offCard}${onDay?'':T_sendBar(cl,jdone)}`+cl.students.map(s=>{
       const attTag = s.onLeave
         ? `<small class="pill warn" style="margin-left:4px">🏖️ ${esc(s.leaveType||(EN()?'on leave':'ลา'))}${s.leaveReason?' · '+esc(s.leaveReason):''}</small>`
@@ -5212,7 +5232,7 @@
        * with no entry at all cannot be sent, and a box that accepts a tap and then quietly does
        * nothing is worse than one that will not take it. "เลือกทั้งหมด" skips those too. */
       const pick = onDay ? '' : T_pickBox(s, jdone[s.StudentID]);
-      return `<div class="card"><div style="display:flex;gap:10px;align-items:center">${studentAvatar(s)}<div style="min-width:0;flex:1"><b>${esc(dispNick(s))}</b>${bdayTag(s.DOB)} ${(!onDay&&due)?dspmDueBadge(due):''} ${nmSub(s)?`<small class="muted">${esc(nmSub(s))}</small>`:""}${onDay?'':attTag}<br><small class="muted">${esc(ageYM(s.DOB))} · ${EN()?'allergy':'แพ้'}: ${esc(s.Allergy||'-')}</small><br>${journalPill(jdone[s.StudentID])}</div>${pick}</div>
+      return `<div class="card"><div style="display:flex;gap:10px;align-items:center">${studentAvatar(s)}<div style="min-width:0;flex:1"><b>${esc(dispNick(s))}</b>${bdayTag(s.DOB)}${summerTag(s)} ${(!onDay&&due)?dspmDueBadge(due):''} ${nmSub(s)?`<small class="muted">${esc(nmSub(s))}</small>`:""}${onDay?'':attTag}<br><small class="muted">${esc(ageYM(s.DOB))} · ${EN()?'allergy':'แพ้'}: ${esc(s.Allergy||'-')}</small><br>${journalPill(jdone[s.StudentID])}</div>${pick}</div>
         ${studentRowButtons(s,jdone,onDay)}</div>`; }).join('') + bdayHtml;
     T_selCount(); };
 
@@ -7891,6 +7911,21 @@
    * knows which half is the month, and the age is not always on the same row. The month is a word
    * now, and the year is there (see dobDate).
    */
+  /* ☀️ A CHILD WHO HAS GRADUATED AND IS BACK FOR THE SUMMER (2026-10-12).
+   *
+   * Asked for as a label rather than a separate class: these children sit in Nursery 3 and are
+   * looked after by Nursery 3's teachers, and a "Summer" class would have hidden them from the very
+   * teacher standing next to them (staffCoversClass_ decides who sees whom). What the school needed
+   * was to tell them apart — "ชั้นเรียนอาจจะไม่ได้บ่งบอกหรือแยกชัดเจนว่าเด็กคนนี้มาจากไหน".
+   *
+   * The LAST DAY is on the badge, not just the word: "until when" is the question a teacher asks
+   * next, and the answer is already in hand. */
+  function summerTag(s){ if(!s||!s.summer) return '';
+    // day + short month, no year: it is always this year, and the badge sits inline beside a name
+    const last = s.summerLastDay ? ddmmyyyy(s.summerLastDay).replace(/ d{4}$/, '') : '';
+    return `<small class="pill info" style="margin-left:4px" title="${EN()?'Here for the summer only':'มาเรียนเฉพาะช่วงซัมเมอร์'}">`
+      + `☀️ ${EN()?'summer':'ซัมเมอร์'}${last?(EN()?' · to '+last:' · ถึง '+last):''}</small>`; }
+
   function bdayTag(dob){ const d=String(dob||'').slice(0,10); if(!/^\d{4}-\d{2}-\d{2}$/.test(d)) return '';
     const today=todayStr();
     const isToday = d.slice(5)===today.slice(5);
@@ -9801,6 +9836,10 @@
       <button class="btn block outline" style="margin-top:8px" onclick="${close}A_vaccines('${esc(sid)}')">💉 ${EN()?'Vaccination record':'บันทึกวัคซีน'}</button>
       <!-- correcting a time moved to ดำเนินการ → นักเรียน (A_editAttPick): it is a daily attendance job,
            not something you go looking for inside one child's record -->
+      ${/* ☀️ offered ONLY for a child who has already finished — that is who the summer term is for.
+           Putting it on every child would invite its being used instead of ลาชั่วคราว for one who is
+           simply away for a fortnight, and the two mean opposite things to the bill. */''}
+      ${(s&&s.EndDate)?`<button class="btn block outline" style="margin-top:8px" onclick="${close}A_termForm('${esc(sid)}')">☀️ ${EN()?'Summer term':'ช่วงเรียนซัมเมอร์'}</button>`:''}
       <button class="btn block gray" style="margin-top:8px" onclick="${close}A_exportStudent('${esc(sid)}')">📤 ${EN()?'Export data':'ส่งออกข้อมูล'}</button>
       <button class="btn block pink" style="margin-top:8px" onclick="${close}A_removeStudent('${esc(sid)}')">🚪 ${EN()?'Withdraw student':'นำนักเรียนออก'}</button>
       <button class="btn block outline" style="margin-top:12px" onclick="${close}">${esc(t('c.close'))}</button>`); };
@@ -11166,6 +11205,82 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
       const m=document.querySelector('.modal'); if(m)m.remove();
       confirmSaved(EN()?'Back at work':'กลับมาทำงานตามปกติแล้ว'); GO('manage'); }catch(e){ err(e); btn.disabled=false; } };
 
+  /* ═══ ☀️ SUMMER TERM — a graduated child, back for an agreed window ═══════════════════════════
+   *
+   * Asked 2026-10-11. The only thing possible before this existed was clearing EndDate by hand,
+   * which also wiped EndReason and EndRemark — the record of the child's graduation, destroyed to
+   * let them attend for four weeks. This leaves all of it alone.
+   *
+   * The form asks for a LAST DAY, because that is what the school agrees with the family; the
+   * server stores the day AFTER it, so the last day is a full school day (the same rule PauseTo
+   * follows). 30 / 60 are one tap because that is how the school says it.
+   */
+  window.A_termForm=async(sid)=>{ const s=findStudent(sid)||{};
+    let terms=[]; try{ terms=await api('studentTerms',{studentId:sid,staffId:USER.staffId}); }catch(e){}
+    const open=terms.find(x=>x.open), soon=terms.filter(x=>x.upcoming);
+    const cls=(A_CACHE.classes||[]).map(c=>c.ClassName||c.className).filter(Boolean);
+    const cur=open?open.class:(s.Class||'');
+    modal(`<h3>☀️ ${EN()?'Summer term':'ช่วงเรียนซัมเมอร์'} — ${esc(dispNick(s)||sid)}</h3>
+      <p class="muted" style="font-size:13px">${EN()
+        ? 'For a child who has already finished and is coming back for the holiday. The whole app works for them during these dates — check-in, the daily journal, the class list — and <b>closes by itself</b> on the last day. Their graduation record is not touched.'
+        : 'สำหรับเด็กที่จบไปแล้วและกลับมาเรียนช่วงปิดเทอม · ในช่วงวันที่กำหนด ระบบใช้งานได้ครบ ทั้งเช็คอิน บันทึกประจำวัน และรายชื่อชั้นเรียน · <b>พอถึงวันสุดท้ายจะปิดเอง</b> ไม่ต้องมีใครมาปิด · ประวัติการจบการศึกษาไม่ถูกแตะ'}</p>
+      ${open?`<p style="background:var(--ok-bg,#eaf7ee);border-left:3px solid var(--ok);padding:8px;border-radius:6px;font-size:13px">
+        ☀️ ${EN()?'Currently open':'กำลังเปิดอยู่'}: ${esc(open.from)} – ${esc(open.lastDay)} · ${esc(open.class)}
+        ${open.endingSoon?`<br><b>${EN()?'Ends within 7 days':'จะสิ้นสุดภายใน 7 วัน'}</b>`:''}
+        <br><button class="btn sm outline" style="margin-top:6px" onclick="A_termCancel('${esc(open.termId)}','${esc(sid)}')">${EN()?'Cancel this term':'ยกเลิกช่วงนี้'}</button></p>`:''}
+      ${soon.length?`<p class="muted" style="font-size:12.5px">${EN()?'Scheduled':'นัดไว้แล้ว'}: ${soon.map(x=>esc(x.from+' – '+x.lastDay)).join(' · ')}</p>`:''}
+      <div class="grid2">
+        <label class="field"><span>${EN()?'First day':'วันแรก'}</span><input type="date" id="tm_from" value="${esc(todayStr())}"/></label>
+        <label class="field"><span>${EN()?'Last day':'วันสุดท้าย'}</span><input type="date" id="tm_to"/></label>
+      </div>
+      <div style="display:flex;gap:6px;margin:-4px 0 8px">
+        <button class="btn sm outline" onclick="A_termDays(30)">30 ${EN()?'days':'วัน'}</button>
+        <button class="btn sm outline" onclick="A_termDays(45)">45 ${EN()?'days':'วัน'}</button>
+        <button class="btn sm outline" onclick="A_termDays(60)">60 ${EN()?'days':'วัน'}</button>
+      </div>
+      <label class="field"><span>${EN()?'Class':'ชั้นเรียน'}</span><select id="tm_class">
+        ${cls.map(c=>`<option value="${esc(c)}"${c===cur?' selected':''}>${esc(c)}</option>`).join('')}
+      </select></label>
+      <label class="field"><span>${EN()?'Note (optional)':'หมายเหตุ (ไม่ระบุก็ได้)'}</span><input id="tm_note" placeholder="${EN()?'e.g. summer 2026':'เช่น ซัมเมอร์ 2569'}"/></label>
+      ${/* 💰 said on the form, not left to be discovered on the 1st of the month. The school charges
+           the normal rate (ผอ., 12/10); a part month is the admin's own figure, set on the student
+           form exactly as it is for a child starting mid-month. */''}
+      <p class="muted" style="font-size:12.5px">💰 ${EN()
+        ? 'Billed at the normal monthly rate, on the usual bill run. For a part month, set "ProrateMode = MANUAL" and the amount on the student form first.'
+        : 'คิดราคาปกติ และออกบิลพร้อมรอบรายเดือนตามปกติ · ถ้ามาไม่เต็มเดือน ให้ตั้งราคาของเดือนนั้นเองที่ฟอร์มนักเรียนก่อน'}</p>
+      ${/* 🔴 the school has decided not to insure a short stay — said here, where the decision is
+           being made, rather than discovered at a hospital door */''}
+      <p class="muted" style="font-size:12.5px">🛡️ ${EN()
+        ? 'No insurance is taken out for a short stay, so the child shows as NOT covered. That is the school’s decision — it is stated on their card so nobody assumes otherwise.'
+        : 'ช่วงสั้นๆ โรงเรียนไม่ได้ทำประกันให้ · ระบบจะแสดงว่า "ไม่มีความคุ้มครอง" ตามจริง เพื่อไม่ให้ใครเข้าใจผิดตอนเกิดเหตุ'}</p>
+      <button class="btn block" onclick="A_termDo('${esc(sid)}',this)">${esc(t('c.save'))}</button>`); };
+
+  /** the 30 / 60 buttons fill the LAST DAY, so the form always shows what was actually agreed */
+  window.A_termDays=(n)=>{ const m=document.querySelector('.modal'); if(!m)return;
+    const f=m.querySelector('#tm_from'), to=m.querySelector('#tm_to');
+    if(!f||!f.value){ toast(EN()?'Pick the first day':'เลือกวันแรกก่อน'); return; }
+    const d=new Date(f.value+'T00:00:00'); d.setDate(d.getDate()+n-1);
+    to.value=`${d.getFullYear()}-${p2(d.getMonth()+1)}-${p2(d.getDate())}`; };
+
+  window.A_termDo=async(sid,btn)=>{ const m=btn.closest('.modal');
+    const v=x=>{const e=m.querySelector(x);return e?String(e.value||'').trim():'';};
+    const from=v('#tm_from'), to=v('#tm_to');
+    if(!from){ toast(EN()?'Pick the first day':'เลือกวันแรก'); return; }
+    if(!to){ toast(EN()?'Pick the last day, or use 30/60':'เลือกวันสุดท้าย หรือกดปุ่ม 30/60 วัน'); return; }
+    if(to<from){ toast(EN()?'The last day cannot be before the first':'วันสุดท้ายต้องไม่ก่อนวันแรก'); return; }
+    btn.disabled=true;
+    try{ const r=await api('setStudentTerm',{studentId:sid,from,to,class:v('#tm_class'),note:v('#tm_note'),staffId:USER.staffId});
+      m.remove(); const m2=document.querySelector('.modal'); if(m2)m2.remove();
+      confirmSaved((EN()?'Summer term open until ':'เปิดช่วงซัมเมอร์ถึง ')+ddmmyyyy(r.lastDay));
+      GO('manage'); }
+    catch(e){ err(e); btn.disabled=false; } };
+
+  window.A_termCancel=async(termId,sid)=>{
+    if(!confirm(EN()?'Cancel this term? The child stops being on the lists from now.'
+                   :'ยกเลิกช่วงนี้? นักเรียนจะหลุดจากรายชื่อทันที'))return;
+    try{ await api('cancelStudentTerm',{termId,staffId:USER.staffId});
+      const m=document.querySelector('.modal'); if(m)m.remove();
+      confirmSaved(EN()?'Term cancelled':'ยกเลิกช่วงเรียนแล้ว'); GO('manage'); }catch(e){err(e);} };
   window.A_pauseForm=(sid)=>{ const s=findStudent(sid)||{};
     modal(`<h3>⏸️ ${EN()?'Temporary leave':'ลาชั่วคราว'} — ${esc(dispNick(s)||sid)}</h3>
       <p class="muted" style="font-size:13px">${EN()?'For a child who is away for a while and coming back. They stay in the system; while away they are not billed, not marked absent, and not on class or activity lists. To end the enrolment, use withdraw instead.':'สำหรับเด็กที่หยุดพักช่วงหนึ่งแล้วจะกลับมาเรียน · ข้อมูลยังอยู่ในระบบ ระหว่างลาจะไม่ออกบิล ไม่นับขาด/ลา และไม่ขึ้นชื่อในชั้นเรียน/กิจกรรม · หากจะออกจากโรงเรียนถาวร ให้ใช้เมนูลาออกแทน'}</p>
