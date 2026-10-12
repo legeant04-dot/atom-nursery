@@ -131,7 +131,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.435'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.436'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -10140,6 +10140,10 @@
     window._LINKCOUNTS=linkCounts||{};
     window._PKIDS=kidsMap||{};   // lets parentDisp() name every parent by their child, links included
     A_CACHE.staff=staff; A_CACHE.students=students; A_CACHE.parents=parents; A_CACHE.classes=classes||[]; A_CACHE.plans=plans||[]; A_CACHE.groups=groups||[]; A_CACHE.depts=depts||[];
+    /* children past their last day are NOT in A_CACHE.students (listStudents drops them), so the only
+     * place their name exists on this screen is `ending`. The summer-term form needs it — see
+     * A_termForm's fallback — otherwise the one child the form is FOR opens as a bare id. */
+    A_CACHE.ending=ending||[];
     /* ...and lets the search box find a FAMILY by the child's name, and a child by the family's.
      * Built once per render rather than per row — see famSearchIndex.
      *
@@ -10257,9 +10261,14 @@
         ${/* The same three options as the staff section above, and the same recommendation. Said out
              loud, because a list with no explanation reads as a job somebody still has to do. */''}
         <p class="muted" style="font-size:13px;margin:2px 2px 8px">${EN()
-          ? 'Their last day has passed, so they are off the class lists, off attendance and no longer billed. Nothing was deleted — the journal, assessments and payment history are all still here. Leave it as it is (recommended), or bring a child back by clearing the last day if they are staying after all.'
-          : 'เลยวันสิ้นสุดการเรียนแล้ว — ออกจากรายชื่อห้องเรียน การเช็คชื่อ และไม่คิดค่าเทอมอีก · ไม่มีการลบข้อมูล สมุดบันทึก ผลประเมิน และประวัติการชำระเงินยังอยู่ครบ · ปล่อยไว้แบบนี้ได้เลย (แนะนำ) หรือหากนักเรียนเรียนต่อ ให้ล้างวันสิ้นสุดเพื่อนำกลับเข้ารายชื่อ'}</p>
-        ${_stuGone.map(x=>`<div class="list-item stack"><span><b>${esc(x.nick||x.name||x.studentId)}</b>${x.nick&&x.name?` <small class="muted">${esc(x.name)}</small>`:''}<br><small class="muted">${esc(x.className||'-')} · ${EN()?'last day':'วันสุดท้าย'} ${esc(ddmmyyyy(x.endDate))}</small>${x.reason?`<br><small style="color:var(--warn)">${esc(t('wd.reason.'+x.reason)||x.reason)}</small>`:''}${x.remark?`<br><small class="muted" style="white-space:pre-wrap">${esc(x.remark)}</small>`:''}</span><span class="acts"><button class="btn sm outline" onclick="STU_profile('${esc(x.studentId)}')">👁️ ${EN()?'Open':'เปิดดู'}</button><button class="btn sm" onclick="A_studentEndClear('${esc(x.studentId)}',this)">↩️ ${EN()?'Bring back':'นำกลับ'}</button></span></div>`).join('')}</div></div>`:''}`;
+          ? 'Their last day has passed, so they are off the class lists, off attendance and no longer billed. Nothing was deleted — the journal, assessments and payment history are all still here. Leave it as it is (recommended); use ☀️ Summer for a child coming back for the holiday only, which closes by itself on the last day; use ↩️ Bring back only if they are staying for good.'
+          : 'เลยวันสิ้นสุดการเรียนแล้ว — ออกจากรายชื่อห้องเรียน การเช็คชื่อ และไม่คิดค่าเทอมอีก · ไม่มีการลบข้อมูล สมุดบันทึก ผลประเมิน และประวัติการชำระเงินยังอยู่ครบ · ปล่อยไว้แบบนี้ได้เลย (แนะนำ) · ถ้ากลับมาเฉพาะช่วงปิดเทอม ให้กด ☀️ ซัมเมอร์ แล้วระบบจะปิดเองเมื่อครบกำหนด · กด ↩️ นำกลับ เฉพาะกรณีที่กลับมาเรียนต่อถาวร'}</p>
+        ${_stuGone.map(x=>`<div class="list-item stack"><span><b>${esc(x.nick||x.name||x.studentId)}</b>${x.nick&&x.name?` <small class="muted">${esc(x.name)}</small>`:''}<br><small class="muted">${esc(x.className||'-')} · ${EN()?'last day':'วันสุดท้าย'} ${esc(ddmmyyyy(x.endDate))}</small>${x.reason?`<br><small style="color:var(--warn)">${esc(t('wd.reason.'+x.reason)||x.reason)}</small>`:''}${x.remark?`<br><small class="muted" style="white-space:pre-wrap">${esc(x.remark)}</small>`:''}</span><span class="acts"><button class="btn sm outline" onclick="STU_profile('${esc(x.studentId)}')">👁️ ${EN()?'Open':'เปิดดู'}</button>${
+          /* ☀️ HAD NO WAY IN. The summer term is for a child who has already finished — and the only
+             button that opened its form sat behind ⋯ on the main roster, which by definition this
+             child is no longer on. So the feature was reachable for everyone except the people it
+             was built for. Asked 2026-10-12: "ขั้นตอนการนำเด็กกลับมาเข้าระบบ ต้องทำอย่างไร". */''
+        }<button class="btn sm outline" onclick="A_termForm('${esc(x.studentId)}')">☀️ ${EN()?'Summer':'ซัมเมอร์'}</button><button class="btn sm" onclick="A_studentEndClear('${esc(x.studentId)}',this)">↩️ ${EN()?'Bring back':'นำกลับ'}</button></span></div>`).join('')}</div></div>`:''}`;
   };
   // navigate to an admin sub-screen (kept off the bottom nav)
   var ADMIN_SUB_organize, ADMIN_SUB_holidays, ADMIN_SUB_importExport;
@@ -11335,7 +11344,12 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
    * server stores the day AFTER it, so the last day is a full school day (the same rule PauseTo
    * follows). 30 / 60 are one tap because that is how the school says it.
    */
-  window.A_termForm=async(sid)=>{ const s=findStudent(sid)||{};
+  window.A_termForm=async(sid)=>{ let s=findStudent(sid);
+    /* a child who has finished is not in listStudents, so findStudent gives {} and the form would
+     * open titled with a raw id and no class pre-selected. Their name is in `ending` — use it. */
+    if(!s||!s.StudentID){ const g=(A_CACHE.ending||[]).find(x=>String(x.studentId)===String(sid));
+      if(g) s={StudentID:sid, Nickname:g.nick, NicknameEN:g.nickEN, NameTH:g.name, NameEN:g.nameEN, Class:g.className}; }
+    s=s||{};
     let terms=[]; try{ terms=await api('studentTerms',{studentId:sid,staffId:USER.staffId}); }catch(e){}
     const open=terms.find(x=>x.open), soon=terms.filter(x=>x.upcoming);
     const cls=(A_CACHE.classes||[]).map(c=>c.ClassName||c.className).filter(Boolean);

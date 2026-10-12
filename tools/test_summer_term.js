@@ -278,5 +278,26 @@ console.log('\n6) 🔴 เทอมทับกันไม่ได้ แล�
   eq('รายการเทอมอ่านได้ และบอกว่ากำลังเปิดอยู่', [list.length, list[0].open, list[0].days], [1, true, 30]);
 }
 
+console.log('\n7) 🔴 ปุ่มต้องกดถึงได้ — จากรายการ "สิ้นสุดการเรียนแล้ว"');
+{
+  /* 🔴 THE FEATURE WAS UNREACHABLE FOR THE ONLY PEOPLE IT IS FOR (found 2026-10-12, asked:
+   * "ขั้นตอนการนำเด็กกลับมาเข้าระบบ ต้องทำอย่างไร"). Every route and every predicate above was
+   * right, and all of it was dead: the one button that opens A_termForm sat behind ⋯ on the main
+   * roster, and a child past their last day is dropped from listStudents — so they have no ⋯.
+   * The admin's only way in was to clear EndDate, which is the exact workaround §2 exists to kill.
+   *
+   * A source check, not a behaviour one, because the defect is "no caller", and no amount of
+   * engine testing can see that. */
+  const app = R('webapp/app.js');
+  const gone = app.slice(app.indexOf('id="sec-students-gone"'), app.indexOf('id="sec-students-gone"') + 4000);
+  ok_('🔴 แถวเด็กที่จบแล้ว มีปุ่มเปิดฟอร์มซัมเมอร์', /A_termForm\(/.test(gone));
+  ok_('...และยังมีปุ่มนำกลับถาวรอยู่เหมือนเดิม', /A_studentEndClear\(/.test(gone));
+  /* and the form must survive being opened for someone findStudent cannot see, or it opens titled
+   * with a raw StudentID and no class — on the one child it was built for. */
+  const form = app.slice(app.indexOf('window.A_termForm='), app.indexOf('window.A_termDays='));
+  ok_('🔴 ฟอร์มหาชื่อเด็กที่จบแล้วเจอ (ไม่ได้มาจาก listStudents)', /A_CACHE\.ending/.test(form));
+  ok_('...และ A_CACHE.ending ถูกเก็บไว้จริงตอนโหลดหน้าจัดการ', /A_CACHE\.ending\s*=/.test(app));
+}
+
 console.log('\n' + (fail ? 'FAILED ' : 'PASSED ') + pass + ' passed, ' + fail + ' failed\n');
 process.exit(fail ? 1 : 0);
