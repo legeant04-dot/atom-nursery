@@ -3360,6 +3360,18 @@ function createAtomAPI(M, GROWTH_STD) {
              * paused days, so a teacher paused from the 16th still has the 1st–15th counted) —
              * what was missing was the sentence explaining it. */
             exemptCheckin: exemptCheckin_(s),
+            /* 🔴 ...AND THE THIRD REASON A ROW READS 0/0, which the first version of this still did
+             * not explain: somebody whose start date is after the end of the period being looked at.
+             * Asked on 2026-10-12 about one such row — and the honest answer was that the screen
+             * could not say, so somebody had to go and open the staff record to find out.
+             *
+             * There are only three ways to owe nothing (owesDay_), so naming all three means a 0/0
+             * row can always account for itself. An unexplained zero on the screen somebody's pay is
+             * discussed from is the thing to remove, not to get better at interpreting. */
+            startDate: ymd(s.StartDate||''),
+            startsLater: !!ymd(s.StartDate||'') && !requiredDates.some(ds=>staffStarted_(s, ds)),
+            endedInRange: !!ymd(s.EndDate||'') && requiredDates.some(ds=>staffEnded_(s, ds)),
+            endDate: ymd(s.EndDate||''),
             paused: staffPaused_(s),
             pausedInRange: requiredDates.some(ds=>staffPaused_(s, ds)),
             pauseFrom: ymd(s.PauseFrom||''), pauseTo: ymd(s.PauseTo||''), pauseReason: s.PauseReason||'',
