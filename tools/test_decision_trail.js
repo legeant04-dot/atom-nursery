@@ -169,8 +169,14 @@ console.log('\n3) time requests — who approved what, and when');
     /'Step1At'/.test(attreq) && /'Step2At'/.test(attreq) && /'DecisionNote'/.test(attreq));
   ok_('both GAS decisions stamp the time', (attreq.match(/Step1At: nowStr_\(\)|Step2At: nowStr_\(\)/g) || []).length >= 2);
   ok_('a refusal at step 1 now reaches the person who asked', /notifyStaffMember_\(r\.StaffID/.test(attreq));
+  /* 🔴 Through notifyStaffMember_ since 2026-10-12, which writes the 🔔 bell and pushes LINE by the
+   * topic's own channels. It used to be a bare inboxAdd_ with an UNGATED linePushText_ beside it —
+   * the push ignored every notification setting, which is the exact defect the per-topic switches
+   * exist to end. One helper, one rule; the inbox half is no longer a separate thing to remember. */
   ok_('...and the final answer lands in their inbox as well as LINE',
-    /inboxAdd_\('approval', msg/.test(attreq));
+    /notifyStaffMember_\(r\.StaffID, msg, 'approval', '', 'staff\.approval'\)/.test(attreq));
+  ok_('...and nothing pushes that person LINE behind the helper’s back',
+    !/linePushText_\(st\.LineUID/.test(attreq));
   ok_('the admin screen offers the history', /A_timeReqHistory\(\)/.test(app));
   // the head teacher reads the same rows inline on ดำเนินการ, through the SAME card renderer — two
   // renderers for one row is how two screens end up disagreeing about what "ไม่อนุมัติ" looks like

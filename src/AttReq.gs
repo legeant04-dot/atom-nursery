@@ -137,9 +137,11 @@ function handleConfirmTimeRequest(p) {
   // exhausted LINE quota.
   try {
     var msg = '⏰ คำขอลงเวลา ' + (String(r.Type).toUpperCase() === 'IN' ? 'เข้างาน' : 'เลิกงาน') + ' ' + String(r.Date).slice(0, 10) + ' ' + r.RequestTime + ' — ' + (yes ? 'อนุมัติแล้ว ✅' : 'ไม่อนุมัติ ❌') + (p.reason ? ('\nเหตุผล: ' + p.reason) : '');
-    try { inboxAdd_('approval', msg, '', String(r.StaffID || '')); } catch (e2) {}
-    var st = arStaffById_(r.StaffID);
-    if (st && st.LineUID) linePushText_(st.LineUID, msg);
+    /* 🔴 THE LINE HALF WAS UNGATED — missed when the per-topic switches shipped (fixed 2026-10-12).
+     * The bell was already written here unconditionally, which was right; the push beside it ignored
+     * every setting, which is the exact defect v429 existed to end. notifyStaffMember_ does both
+     * halves by the house rule, so there is nothing left to forget. */
+    notifyStaffMember_(r.StaffID, msg, 'approval', '', 'staff.approval');
   } catch (e) {}
   return { reqId: p.reqId, status: yes ? 'APPROVED' : 'REJECTED' };
 }

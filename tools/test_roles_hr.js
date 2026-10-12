@@ -179,7 +179,22 @@ console.log('\n2) A staff member leaves — and the record stays');
    * recording a leaving date does not set a status. Reported 2026-09-01. `ended` comes from
    * listStaff (staffEnded_), so clearing the date puts them back with no extra step. */
   ok_('...whether that is an INACTIVE status OR a last working day that has passed',
-    /const _left=s=>String\(\(s&&s\.Status\)\|\|'ACTIVE'\)\.toUpperCase\(\)==='INACTIVE' \|\| !!\(s&&s\.ended\)/.test(app));
+    /const staffLeft = s => String\(\(s&&s\.Status\)\|\|'ACTIVE'\)\.toUpperCase\(\)==='INACTIVE' \|\| !!\(s&&s\.ended\)/.test(app));
+  /* 🔴 ...AND THE CHECK-IN SWITCHES ASK THE SAME QUESTION (2026-10-12).
+   *
+   * That screen listed every row in STAFF, so people who finished months ago sat among the toggles —
+   * each one a decision an admin has to read and skip, on a screen whose whole job is to be scanned,
+   * and the list only ever grows. Pinned to the SHARED predicate: two screens answering "has this
+   * person left" differently is the kind of thing nobody notices until one of them is wrong about a
+   * real person. */
+  ok_('the check-in switches drop people who have left, by the same rule',
+    /const staff=\(all\|\|\[\]\)\.filter\(s=>!staffLeft\(s\)\);/.test(app));
+  /* ...and somebody whose last day is still AHEAD stays on it. `ended` is "the last day has passed"
+   * (listStaff → staffEnded_), so a leaving date in the future leaves them clocking in until it
+   * arrives — which is the whole reason this is not a test on EndDate being present. */
+  ok_('...but a leaving date still in the future keeps them on it',
+    /ended: staffEnded_\(s\)/.test(R('webapp/engine.js')) &&
+    /endScheduled: !staffEnded_\(s\) && !!ymd\(s\.EndDate\|\|''\)/.test(R('webapp/engine.js')));
 }
 
 console.log('\n3) Someone who has not started yet is not part of attendance');
