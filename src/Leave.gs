@@ -121,7 +121,9 @@ function handleApproveLeave(payload) {
     logAuditHr(approver.StaffID, approve ? 'LEAVE_L1_APPROVE' : 'LEAVE_L1_REJECT', 'LEAVE_REQUEST', leave.LeaveID);
 
     if (!approve) {
-      if (requester.LineUID && lineTopicOn_('staff.approval')) linePushText_(requester.LineUID, '❌ คำขอลา ' + leave.LeaveID + ' ถูกปฏิเสธโดยหัวหน้างาน ' + approver.Name + (payload.note ? '\nเหตุผล: ' + payload.note : ''));
+      /* the 🔔 bell as well as LINE — see notifyLeaders_. Being told your own leave was refused must
+       * not depend on a quota setting: the person has to plan around the answer. */
+      notifyStaffMember_(requester.StaffID, '❌ คำขอลา ' + leave.LeaveID + ' ถูกปฏิเสธโดยหัวหน้างาน ' + approver.Name + (payload.note ? '\nเหตุผล: ' + payload.note : ''), 'approval', '', 'staff.approval');
       return { leaveId: leave.LeaveID, status: LEAVE_STATUS.REJECTED };
     }
     if (crossDept) {
@@ -143,11 +145,10 @@ function handleApproveLeave(payload) {
       Status: approve ? LEAVE_STATUS.APPROVED : LEAVE_STATUS.REJECTED
     });
     logAuditHr(approver.StaffID, approve ? 'LEAVE_FINAL_APPROVE' : 'LEAVE_FINAL_REJECT', 'LEAVE_REQUEST', leave.LeaveID);
-    if (requester.LineUID && lineTopicOn_('staff.approval')) {
-      linePushText_(requester.LineUID, (approve ? '✅ คำขอลา ' + leave.LeaveID + ' ได้รับอนุมัติแล้ว' :
-        '❌ คำขอลา ' + leave.LeaveID + ' ถูกปฏิเสธ') + ' โดยผู้บังคับบัญชา ' + approver.Name +
-        (payload.note ? '\nหมายเหตุ: ' + payload.note : ''));
-    }
+    notifyStaffMember_(requester.StaffID,
+      (approve ? '✅ คำขอลา ' + leave.LeaveID + ' ได้รับอนุมัติแล้ว'
+               : '❌ คำขอลา ' + leave.LeaveID + ' ถูกปฏิเสธ') + ' โดยผู้บังคับบัญชา ' + approver.Name +
+      (payload.note ? '\nหมายเหตุ: ' + payload.note : ''), 'approval', '', 'staff.approval');
     return { leaveId: leave.LeaveID, status: approve ? LEAVE_STATUS.APPROVED : LEAVE_STATUS.REJECTED };
   }
 
@@ -253,13 +254,29 @@ function leaveView_(r) {
 }
 
 // ---- Helpers ------------------------------------------------------
-/** Notify every active Leader's LINE. If dept given, only that dept's Leaders. */
+/**
+ * Tell every active Leader there is something waiting. If dept given, only that dept's Leaders.
+ *
+ * 🔴 THE 🔔 BELL ALWAYS, LINE ONLY WHEN THE SCHOOL ASKED FOR IT — and this used to be neither.
+ *
+ * Found 2026-10-12 while checking what this week's changes affect, and it is my own break. This was
+ * LINE-ONLY, which was harmless while the push was unconditional: the leader always heard. On
+ * 2026-10-10 the per-topic switches shipped with everything OFF, and `lineTopicOn_` was dropped in
+ * front of that one line — so a leave request reached the head teacher through NO CHANNEL AT ALL,
+ * and sat unapproved with nobody aware of it. The teacher who filed it would have been the only
+ * person who knew.
+ *
+ * 🔴 ...and `s.LineUID &&` in the condition meant a Leader with no LINE account was never told
+ * EITHER, under any setting, since this was written. The bell does not need a LINE id.
+ *
+ * notifyStaffMember_ is the house pattern for exactly this: inbox unconditionally, LINE behind the
+ * topic. Using it rather than repeating the rule is also what stops the two drifting apart again.
+ */
 function notifyLeaders_(text, dept) {
   readObjects_(sheet_(getHrSpreadsheet_(), 'STAFF')).forEach(function (s) {
-    if (String(s.PositionLevel) === 'Leader' && String(s.Status) === 'ACTIVE' && s.LineUID &&
-        (!dept || String(s.Department) === String(dept))) {
-      if (lineTopicOn_('staff.approvalQueue')) linePushText_(s.LineUID, text);
-    }
+    if (String(s.PositionLevel) !== 'Leader' || String(s.Status) !== 'ACTIVE') return;
+    if (dept && String(s.Department) !== String(dept)) return;
+    notifyStaffMember_(s.StaffID, text, 'approval', '', 'staff.approvalQueue');
   });
 }
 

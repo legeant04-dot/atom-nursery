@@ -131,7 +131,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.434'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.435'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -287,6 +287,12 @@
   const titledName = p => { const ti=EN()?'':titleOf(p); const n=nm(p); return ti?`${ti} ${n}`:n; };
   // student / staff: nickname first, else full name
   const dispNick = o => nick(o) || nm(o);
+  /* HAS THIS PERSON LEFT — one answer, for every screen that asks.
+   *
+   * INACTIVE as well as a past last day: a record can be closed without a leaving date ever being
+   * typed in. Lived as a local `_left` inside the admin roster until 2026-10-12, when a second
+   * screen needed it and the choice was to copy four lines or to name them once. */
+  const staffLeft = s => String((s&&s.Status)||'ACTIVE').toUpperCase()==='INACTIVE' || !!(s&&s.ended);
   /* Is this OT record the holiday LUMP SUM (as opposed to hours × rate)? The engine owns this rule
    * (isHolidayOT_) and Apps Script has its own (otIsHoliday_), because the three runtimes cannot
    * share a function — but the CLIENT had written it out five separate times, which is one drift
@@ -9283,7 +9289,23 @@
       toast((EN()?'Deleted ':'ลบแล้ว ')+r.deleted.parents+'P/'+r.deleted.students+'S'); GO('manage'); }catch(e){err(e);btn.disabled=false;} };
 
   // Require-check-in toggles — moved into a modal (opened from the menu)
-  window.A_requireCI = async () => { const staff=window._PERM_STAFF||await api('listStaff');
+  window.A_requireCI = async () => { const all=window._PERM_STAFF||await api('listStaff');
+    /* 🔴 SOMEBODY WHO HAS LEFT IS NOT A SETTING ANYBODY NEEDS TO MAKE (2026-10-12).
+     *
+     * This listed every row in STAFF, so people who finished months ago sat among the switches —
+     * each one a decision an admin has to read, understand and skip, on a screen whose whole job is
+     * to be scanned. The list gets longer every year and never shorter.
+     *
+     * `ended` comes from the SERVER (listStaff → staffEnded_), not re-derived here: the rule is "the
+     * last day has PASSED", and a leaving date still in the future means they are here and still
+     * clocking in until it arrives. Working that out again on the client is how the two halves come
+     * to disagree about who works here.
+     *
+     * `staffLeft` is the SAME predicate the admin roster already uses to split "here" from "gone" —
+     * INACTIVE counts too, because a record can be closed without a date ever being typed in. Two
+     * screens answering "has this person left" differently is the kind of thing nobody notices
+     * until one of them is wrong about a real person. */
+    const staff=(all||[]).filter(s=>!staffLeft(s));
     modal(`<h3>⏱️ ${esc(t('lbl.requireCI'))}</h3><p class="muted" style="font-size:13px">${EN()?'Turn OFF for positions that need not clock in (e.g. leaders). Press Save after changes.':'ปิดสำหรับตำแหน่งที่ไม่ต้องลงเวลา (เช่น หัวหน้างาน) — กด บันทึก หลังเปลี่ยน'}</p>
       ${/* 🔴 NICKNAME FIRST, like every other list of people in this app (2026-10-12).
            This one printed the full name alone, so an admin ticking switches had to translate
@@ -10135,7 +10157,7 @@
      * working list. That is the ordinary case: the admin records a leaving date and nothing sets a
      * status. `ended` comes from listStaff (staffEnded_ — INACTIVE **or** a last day gone), so
      * clearing the end date puts them straight back in the main list with no extra step. */
-    const _left=s=>String((s&&s.Status)||'ACTIVE').toUpperCase()==='INACTIVE' || !!(s&&s.ended);
+    const _left=staffLeft;                 // one predicate, named once — see staffLeft
     const _stAct=(staff||[]).filter(s=>!_left(s));
     const _stGone=(staff||[]).filter(s=>_left(s));
     // Children past their last day are gone from the roster above, so they get their own section —

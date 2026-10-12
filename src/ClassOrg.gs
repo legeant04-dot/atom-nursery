@@ -43,7 +43,9 @@ function coApply_(changes) {
     var r = findObject_(sh, function (s) { return String(s.StaffID) === String(c.staffId); });
     if (!r) return;
     updateRow_(sh, r._row, { Department: c.after, Classes: c.after });
-    try { if (r.LineUID && lineTopicOn_('staff.org')) linePushText_(r.LineUID, '🔁 คุณถูกย้ายแผนก/ชั้นเรียน: ' + (c.before || '—') + ' → ' + (c.after || '—')); } catch (e) {}
+    /* ...and the 🔔 bell as well as LINE. This was LINE-only, so with the topic off a teacher was
+     * moved to another class and never told by anything. Being moved is a fact about you. */
+    try { notifyStaffMember_(r.StaffID, '🔁 คุณถูกย้ายแผนก/ชั้นเรียน: ' + (c.before || '—') + ' → ' + (c.after || '—'), 'approval', '', 'staff.org'); } catch (e) {}
   });
   if (typeof cacheDel_ === 'function') { cacheDel_('col:STAFF'); cacheDel_('rows:STAFF'); }
 }

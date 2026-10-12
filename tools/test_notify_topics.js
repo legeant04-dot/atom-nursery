@@ -141,6 +141,63 @@ console.log('\n2) 🔴 ไม่มีการส่ง LINE ถึงครอ
       /if \(!ch\.line\) return false;/.test(notifyGs));
   }
 
+  /* 🔴 AND notifyLeaders_ GOES THROUGH THE HOUSE PATTERN (found 2026-10-12, and it was my break).
+   *
+   * It was LINE-ONLY, which was harmless while the push was unconditional: the head teacher always
+   * heard. Putting `lineTopicOn_` in front of that one line — with every topic shipping OFF — meant
+   * a leave request reached them through NO channel at all. It is still visible on their 📩 screen,
+   * so nothing is lost, but nobody is prompted, and a request nobody is prompted about is a request
+   * that waits.
+   *
+   * `s.LineUID &&` in the old condition also meant a Leader with no LINE account was never told
+   * under ANY setting, since this was written. The bell does not need a LINE id. */
+  {
+    const leaveGs = R('src/Leave.gs');
+    ok_('🔴 notifyLeaders_ ใช้ notifyStaffMember_ (กระดิ่งเสมอ · LINE ตามหัวข้อ)',
+      /function notifyLeaders_[\s\S]{0,600}notifyStaffMember_\(s\.StaffID, text, 'approval', '', 'staff\.approvalQueue'\)/.test(leaveGs));
+    ok_('...และไม่ต้องมี LineUID ถึงจะได้รับแจ้ง',
+      !/PositionLevel\) === 'Leader'[\s\S]{0,120}s\.LineUID &&/.test(leaveGs));
+    ok_('CONTROL: ยังกรองเฉพาะหัวหน้าที่ยังทำงานอยู่ และตามแผนกเมื่อระบุ',
+      /String\(s\.PositionLevel\) !== 'Leader' \|\| String\(s\.Status\) !== 'ACTIVE'/.test(leaveGs) &&
+      /if \(dept && String\(s\.Department\) !== String\(dept\)\) return;/.test(leaveGs));
+  }
+
+  /* ═══ 🔴 NO RAW LINE PUSH TO A MEMBER OF STAFF, ANYWHERE ══════════════════════════════════════
+   *
+   * The sweep above only followed the two FAN-OUT helpers. Four sites pushed a staff member
+   * directly, and §2 could not see any of them — found on 2026-10-12 by reading every file by hand,
+   * which is not a method:
+   *
+   *   AttReq.gs    the result of a time-correction request — UNGATED, ignoring every setting,
+   *                the exact defect the per-topic switches existed to end
+   *   ClassOrg.gs  "you have been moved to another class" — LINE only, so with the topic off a
+   *                teacher was moved and never told by anything
+   *   Leave.gs ×2  "your leave was approved / refused" — LINE only, same hole
+   *
+   * All four go through notifyStaffMember_ now: 🔔 bell by the app channel, LINE by the line
+   * channel, one rule. This check is what makes the fifth one fail instead of being found by eye.
+   *
+   * `s.LineUID` in a condition is the tell: it means the code is reaching for a LINE id directly
+   * rather than asking the helper to decide. */
+  {
+    const staffFiles = ['src/AttReq.gs', 'src/ClassOrg.gs', 'src/Leave.gs', 'src/Day6.gs'];
+    const raw = [];
+    staffFiles.forEach(f => {
+      const src = decom(R(f));
+      for (const m of src.matchAll(/linePushText_\(\s*(\w+)\.LineUID/g)) raw.push(f + ': ' + m[1] + '.LineUID');
+    });
+    eq('🔴 ไม่มีการยิง LINE ถึงพนักงานตรงๆ โดยไม่ผ่านตัวกลาง', raw, []);
+    ok_('...AttReq ใช้ notifyStaffMember_',
+      /notifyStaffMember_\(r\.StaffID, msg, 'approval', '', 'staff\.approval'\)/.test(R('src/AttReq.gs')));
+    ok_('...ClassOrg ใช้ notifyStaffMember_', /notifyStaffMember_\(r\.StaffID[\s\S]{0,160}'staff\.org'\)/.test(R('src/ClassOrg.gs')));
+    ok_('...และผลอนุมัติ/ปฏิเสธใบลา ทั้งสองขั้น',
+      (R('src/Leave.gs').match(/notifyStaffMember_\(requester\.StaffID/g) || []).length === 2);
+    /* CONTROL — the scan reads real files and can still find a push. Without this it would pass just
+     * as happily on a typo in a filename. */
+    ok_('CONTROL: ตัวตรวจยังอ่านไฟล์จริงอยู่',
+      staffFiles.every(f => R(f).length > 500) && /linePushText_/.test(R('src/Checkin.gs')));
+  }
+
   /* Every caller of notifyStudentTeacher_ must pass opts.topic. A caller that passes no opts at all
    * now reaches nobody on LINE — which is the safe direction, but it is still a bug, so name them. */
   const noTopic = [];

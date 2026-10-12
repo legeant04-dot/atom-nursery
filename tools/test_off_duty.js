@@ -314,8 +314,12 @@ console.log('\n3) SOMEBODY WHOSE LAST DAY HAS PASSED IS NOT STAFF');
   ok_('...and leaving view-as clears it again', /window\.A_exitViewAs=\(\)=>\{ if\(window\.__atomSetEnded\) __atomSetEnded\(false\);/.test(app));
 
   console.log('   — and they are moved out of the working roster');
+  /* the rule is unchanged; it moved out of the admin roster and got a name on 2026-10-12, when a
+   * second screen (the check-in switches) needed the same answer and the choice was to copy four
+   * lines or to name them once */
   ok_('the admin roster splits on ended, not just on status',
-    /const _left=s=>String\(\(s&&s\.Status\)\|\|'ACTIVE'\)\.toUpperCase\(\)==='INACTIVE' \|\| !!\(s&&s\.ended\)/.test(app));
+    /const staffLeft = s => String\(\(s&&s\.Status\)\|\|'ACTIVE'\)\.toUpperCase\(\)==='INACTIVE' \|\| !!\(s&&s\.ended\)/.test(app));
+  ok_('...and the roster uses that one predicate rather than its own copy', /const _left=staffLeft;/.test(app));
   ok_('...into the section that already existed', /_stGone\.length\?/.test(app));
   ok_('listStaff is what tells it', /ended: staffEnded_\(s\)/.test(engine));
 }
