@@ -131,7 +131,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.432'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.433'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -7610,13 +7610,18 @@
      *
      * The badge says it in words. For a temporary leave it also says SINCE WHEN, because the next
      * question is always "from when", and the answer decides whether the days above it are right. */
+    const _d = v => v ? ddmmyyyy(v).replace(/ \d{4}$/,'') : '';
     const smTag = s => {
       if(s.exemptCheckin) return ` <span class="pill" style="background:#eef2ff;color:#3449a8">🪪 ${EN()?'no clock-in':'ไม่ต้องลงเวลา'}</span>`;
       if(s.paused || s.pausedInRange){
-        const f = s.pauseFrom?ddmmyyyy(s.pauseFrom).replace(/ \d{4}$/,''):'';
-        const t = s.pauseTo?ddmmyyyy(s.pauseTo).replace(/ \d{4}$/,''):'';
+        const f = _d(s.pauseFrom), t = _d(s.pauseTo);
         return ` <span class="pill wait">⏸️ ${EN()?'on break':'ลาชั่วคราว'}${f?(EN()?' from '+f:' ตั้งแต่ '+f):''}${t?(EN()?' to '+t:' ถึง '+t):''}</span>`;
       }
+      /* 🔴 THE THIRD REASON, and the one that sent somebody looking through staff records by hand:
+       * a start date after the period being viewed. There are only three ways to owe nothing, so
+       * naming all three means a 0/0 row can always account for itself. */
+      if(s.startsLater) return ` <span class="pill">🗓️ ${EN()?'starts '+_d(s.startDate):'เริ่มงาน '+_d(s.startDate)}</span>`;
+      if(s.endedInRange) return ` <span class="pill">🚪 ${EN()?'left '+_d(s.endDate):'สิ้นสุด '+_d(s.endDate)}</span>`;
       return '';
     };
     let d; try { d = await api('staffAttendanceMonth',{month:SM_MONTH,from:rng.from,to:rng.to,staffId:USER.staffId}); } catch(e){ err(e); return; }

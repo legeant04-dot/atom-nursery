@@ -217,6 +217,31 @@ console.log('\n5) ⏸️ ลาชั่วคราว — เก็บวั�
 }
 
 // ════════════════════════════════════════════════════════════════════════════════════════════
+console.log('\n5b) 🗓️ ...และเหตุผลที่สาม: ยังไม่ถึงวันเริ่มงาน');
+// ════════════════════════════════════════════════════════════════════════════════════════════
+{
+  /* 🔴 Asked on 2026-10-12 about a row reading "0/0 *" — and the honest answer was that the screen
+   * could not say why, so somebody had to go and open the staff record. There are only three ways
+   * to owe nothing (owesDay_: not started, ended, paused), so naming all three means a 0/0 row can
+   * always account for itself. */
+  const next = ymd(new Date(new Date(TODAY + 'T00:00:00').getTime() + 400 * 86400000));
+  const { H } = boot({ staff: [
+    { StaffID: 'T5', NameTH: 'ครูห้า', Role: 'Teacher', Department: 'Nursery 3', PositionLevel: 'Staff',
+      Status: 'ACTIVE', StartDate: next, RequireCheckin: true },
+    { StaffID: 'ADM', NameTH: 'แอดมิน', Role: 'Admin', PositionLevel: 'Admin', Status: 'ACTIVE' }
+  ] });
+  const t5 = H.staffAttendanceMonth({ staffId: 'ADM', month: MONTH }).staff.find(x => x.staffId === 'T5');
+  eq('เป้าเป็น 0 เพราะยังไม่เริ่มงาน', t5.myRequiredDays, 0);
+  eq('🔴 ...และบอกเหตุผลออกมา พร้อมวันเริ่มงาน', [t5.startsLater, t5.startDate], [true, next]);
+  eq('...ไม่ถูกนับว่าขาดสักวัน', t5.absent, 0);
+  /* CONTROL — somebody who started long ago must NOT carry this flag, or the badge would appear on
+   * every row and explain nothing. */
+  const { H: H2 } = boot();
+  const t1 = H2.staffAttendanceMonth({ staffId: 'ADM', month: MONTH }).staff.find(x => x.staffId === 'T1');
+  eq('CONTROL: คนที่เริ่มงานไปนานแล้ว ไม่มีป้ายนี้', t1.startsLater, false);
+}
+
+// ════════════════════════════════════════════════════════════════════════════════════════════
 console.log('\n6) ป้ายบนหน้าจอ');
 // ════════════════════════════════════════════════════════════════════════════════════════════
 {
@@ -224,6 +249,11 @@ console.log('\n6) ป้ายบนหน้าจอ');
   ok_('หน้าสรุปรายเดือนวาดป้ายต่อท้ายชื่อ', /\$\{smTag\(s\)\}/.test(app));
   ok_('🪪 ป้าย "ไม่ต้องลงเวลา"', /ไม่ต้องลงเวลา/.test(app));
   ok_('⏸️ ป้าย "ลาชั่วคราว" พร้อมวันที่', /ลาชั่วคราว[\s\S]{0,120}ตั้งแต่/.test(app));
+  ok_('🗓️ ป้าย "เริ่มงาน" สำหรับคนที่ยังไม่เริ่ม', /s\.startsLater\) return[\s\S]{0,120}เริ่มงาน/.test(app));
+  /* 🔴 ทุกแถวที่เป็น 0/0 ต้องอธิบายตัวเองได้ — มีแค่ 3 ทางที่จะไม่เป็นหนี้วันทำงาน
+   * (ยังไม่เริ่ม · สิ้นสุดแล้ว · ลาชั่วคราว) บวกกับ "ไม่ต้องลงเวลา" ที่ไม่ใช่ 0/0 แต่เคยดูเหมือน */
+  ok_('🔴 ครบทั้ง 4 กรณีที่ทำให้แถวดูว่าง', ['exemptCheckin','pausedInRange','startsLater','endedInRange']
+    .every(k => app.indexOf('s.'+k) >= 0));
 }
 
 console.log('\n' + (fail ? 'FAILED ' : 'PASSED ') + pass + ' passed, ' + fail + ' failed\n');
