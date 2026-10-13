@@ -148,7 +148,12 @@ function handleStudentAssessment(payload) {
   DOMAINS.forEach(function (d) { totalPass += byDomain[d].pass; totalFail += byDomain[d].fail; });
 
   return {
-    studentId: student.StudentID, name: student.Name, ageMonth: ageMonths_(student.DOB),
+    /* nameEN added 2026-10-13: the engine half has returned it all along and this one did not, so
+     * the two implementations of one answer disagreed. Found by tools/test_shadow_parity.js. Added
+     * here rather than removed there — the engine is what runs after the migration, so the live
+     * route catches up. Additive; no caller loses anything. */
+    studentId: student.StudentID, name: student.Name, nameEN: student.NameEN || '',
+    ageMonth: ageMonths_(student.DOB),
     byDomain: byDomain, totalPass: totalPass, totalFail: totalFail,
     items: Object.keys(latest).map(function (k) {
       return { itemNo: Number(k), skill: latest[k].Skill, result: latest[k].Result, date: latest[k].Date };

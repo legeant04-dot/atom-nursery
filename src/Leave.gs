@@ -189,6 +189,20 @@ function leaveDecodeEnrich_(r) {
   var o = {}; for (var k in r) o[k] = (typeof decodeCell_ === 'function') ? decodeCell_(r[k]) : r[k];
   var s = leaveStaffName_(o.StaffID);
   o.name = s.Name; o.nameEN = s.NameEN; o.nick = s.Nickname; o.nickEN = s.NicknameEN;
+  /* 🔴 days / halfDay — ADDED 2026-10-13 BECAUSE THE ENGINE HALF ALREADY HAD THEM.
+   *
+   * `leaveView_` in webapp/engine.js returns these two derived fields and this route did not, so the
+   * two implementations of one answer disagreed. Nothing reads them today, which is exactly why it
+   * went unnoticed — and exactly the shape that cost v378 and v379: a screen written against the
+   * engine half works in mock mode and finds `undefined` on live, because an explicit route shadows
+   * the engine and the engine half never runs at the school.
+   *
+   * Found by tools/test_shadow_parity.js, which runs both halves on one school and compares. Added
+   * here rather than removed there: the engine is what will run after the migration, so the live
+   * route should catch up, not the other way round. Additive — no caller loses anything. */
+  o.days = Number(o.Days) || 0;
+  var h = String(o.HalfDay || '').toUpperCase().trim();
+  o.halfDay = (h === 'AM' || h === 'PM') ? h : '';
   return o;
 }
 
