@@ -107,6 +107,11 @@ function handleBatch(p) {
     });
   }
   var isObs = sess && String(sess.role) === 'Observer';
+  /* The write lock was held by somebody else and dispatch_ handed the batch over unlocked. Exactly
+   * the Observer shape below: the writes are refused individually, the reads — which never needed
+   * the lock — answer normally. Before this, one write in the batch meant the whole home screen
+   * failed with BUSY, which is what put BUSY×6–8 on every read in the 07–13/10 report. */
+  var isBusy = !!(p && p.__busy);
   var out = calls.map(function (c) {
     try {
       // Observer is read-only. Refused HERE, per call, so the reads sharing this batch still answer —
@@ -114,6 +119,10 @@ function handleBatch(p) {
       if (isObs && typeof isMutatingAction_ === 'function' && isMutatingAction_(c.action)) {
         return { ok: false, error: { code: 'READ_ONLY',
           message: (typeof OBSERVER_READ_ONLY_MSG_ !== 'undefined') ? OBSERVER_READ_ONLY_MSG_ : 'read only' } };
+      }
+      if (isBusy && typeof isMutatingAction_ === 'function' && isMutatingAction_(c.action)) {
+        return { ok: false, error: { code: 'BUSY',
+          message: (typeof BUSY_MSG_ !== 'undefined') ? BUSY_MSG_ : 'ระบบกำลังบันทึกข้อมูลอยู่ กรุณาลองใหม่อีกครั้ง' } };
       }
       var pl = (typeof applyIdentity_ === 'function') ? applyIdentity_(c.action, c.payload || {}, sess) : (c.payload || {});
       var fn = (typeof ROUTES !== 'undefined') ? ROUTES[c.action] : null;
@@ -126,7 +135,12 @@ function handleBatch(p) {
   });
   // A failure to write the sheets back must not discard results the caller is waiting on — report it
   // on the entries that could have written, and still hand back one entry per call.
-  try { ctx.persist(); }
+  /* 🔴 AND NOTHING IS WRITTEN BACK WHILE THE LOCK BELONGS TO SOMEBODY ELSE. persist() only writes
+   * collections that differ from the snapshot, and every mutating call above was refused, so it
+   * would write nothing anyway — but "would write nothing anyway" is a property of the handlers,
+   * and the lock exists precisely so that correctness is not a property of the handlers. Skipped
+   * outright, so there is no argument to get wrong. */
+  try { if (!isBusy) ctx.persist(); }
   catch (pe) {
     try { Logger.log('handleBatch persist failed: ' + (pe && pe.stack || pe)); } catch (x) {}
     out = out.map(function (r, i) {

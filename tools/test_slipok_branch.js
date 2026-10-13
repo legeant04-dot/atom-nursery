@@ -145,7 +145,13 @@ console.log('\n8) Undo — the key box overwrites the only copy the app holds');
   // the diagnostic reads the key in order to USE it — what must never happen is handing it back
   const diag = R('src/PaySlips.gs').split('function handleSlipDiag')[1] || '';
   ok_('the key is never handed back to the browser', !/\bkey: key\b/.test(diag) && !/apiKey:/.test(diag));
-  ok_('...only a masked tail is', /keyTail: key\.length > 4/.test(diag));
+  /* The masking lives in slipOkProbe_ since 2026-10-13 — the probe was split out so the daily
+   * expiry watch asks SlipOK the same question the diagnostics screen does, rather than carrying a
+   * second copy of it. The screen still shows only what the probe returns, so the claim is the
+   * same; it is simply asserted where the code now is. */
+  ok_('...only a masked tail is', /keyTail: key\.length > 4/.test(R('src/PaySlips.gs')));
+  ok_('...and the probe is the only place that reads the key at all',
+    (R('src/PaySlips.gs').match(/getConfig_\('SlipOK_ApiKey'/g) || []).length <= 2);
   ok_('only WHETHER an undo exists is reported', /hasPrevKey: !!getConfig_/.test(R('src/PaySlips.gs')));
   ok_('the undo button only shows when there is something to undo', /d\.hasPrevKey\?/.test(app));
   ok_('...and is wired up', /A_slipOkUndo\(this\)/.test(app) && /window\.A_slipOkUndo=/.test(app));
@@ -157,7 +163,10 @@ console.log('\n9) The probe asks SlipOK the question the school actually has');
   const ps = R('src/PaySlips.gs');
   // Slice the actual function rather than allowing N characters after its name — a distance bound
   // silently breaks on a comment edit or a CRLF checkout, and then reports a fault that is not there.
-  const dg = ps.slice(ps.indexOf('function handleSlipDiag'));
+  /* slipOkProbe_, not handleSlipDiag: the probe was split out of the screen on 2026-10-13 so the
+   * daily expiry watch asks the identical question. Pointed at the function that now holds it —
+   * and because BOTH callers go through it, this is now one assertion covering two features. */
+  const dg = ps.slice(ps.indexOf('function slipOkProbe_'), ps.indexOf('function handleSlipDiag'));
   // /quota costs nothing and returns the expiry date + slips remaining; a dummy-slip POST returns
   // neither, and cannot tell a wrong branch from a wrong key from an unpaid package.
   ok_('it calls the quota endpoint', /\+ '\/quota'/.test(dg));

@@ -225,8 +225,14 @@ console.log('\n4) the screens that show all this');
     /window\._OT_ENTRIES=\[\]; window\._OT_CARRY=null; A_otDaysRender\(\);/.test(app));
   /* A payslip notification says "สลิป", which the keyword fallback maps to 'verify' — an ADMIN
    * screen. A teacher tapping her own payslip notification would have gone nowhere. */
+  /* Asserted as ORDER, not as adjacency. The old regex pinned 'payslip' to sit immediately beside
+     'payment' in the ternary, which is not the claim — the claim is that the explicit category is
+     consulted BEFORE the keyword fallback. Adding a third explicit category between them (2026-10-13,
+     'system' for the SlipOK watch, which says "สลิป" and has the identical problem) broke the
+     assertion while the behaviour it describes was untouched. */
   ok_('a payslip notification is categorised before the keyword guess',
-    /cat==='payslip'\?'payslip':cat==='payment'\?'verify'/.test(app));
+    /cat==='payslip'\?'payslip'/.test(app) &&
+    app.indexOf("cat==='payslip'?'payslip'") < app.indexOf("if(!key){ if(has("));
   ok_('...and opens the teacher’s own slip screen', /payslip:\(\)=>GO\('slip'\)/.test(app));
   ok_('...the admin’s payroll screen', /payslip:\(\)=>GO\('payroll'\)/.test(app));
   ok_('...and nothing for a parent, who has no payslip', /payslip:null/.test(app));

@@ -109,8 +109,17 @@ console.log('\n4) refused on purpose is not failed');
   /* ...and kept out of the headline rate. Written against the INTENT rather than the exact line:
    * the branch grew a failCodes tally in v421 and this check, matching the old spelling character
    * for character, failed for a change that did not touch what it was guarding. */
-  ok_('...and kept out of the headline rate',
-    /if \(refused\) \{[^}]*a\.refused\+\+[^}]*\}\s*else \{[\s\S]{0,120}?a\.fail\+\+; failed\+\+; \}/.test(perf));
+  /* ...and this is the THIRD time the "exact line" spelling has had to be loosened (v421 added a
+   * failCodes tally; v437 added a round-trip tally beside `failed++`). So it is written as the two
+   * facts it is actually about: a refusal increments only `a.refused`, and the failure counters
+   * live exclusively on the other branch. */
+  ok_('...and kept out of the headline rate', (() => {
+    const m = /if \(refused\) \{([\s\S]*?)\}\s*else \{([\s\S]*?)\} \}/.exec(perf);
+    if (!m) return false;
+    const refusedArm = m[1], failArm = m[2];
+    return /a\.refused\+\+/.test(refusedArm) && !/failed\+\+/.test(refusedArm)
+        && /a\.fail\+\+/.test(failArm) && /failed\+\+/.test(failArm);
+  })());
   // the bucket is held in a local now (it gained a role mix and a cache count) — the rule under test
   // is that a REFUSAL does not raise a device's failure figure, not the name of the variable
   ok_('...out of the device breakdown', /if \(!ok && !refused\) dv\.fail\+\+;/.test(perf));

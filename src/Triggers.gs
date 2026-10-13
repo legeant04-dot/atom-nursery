@@ -28,6 +28,12 @@ function installTriggers() {
    * one of the BEST hours — that complaint was a sign-in hanging, fixed by the request timeout.) */
   if (typeof digestMorning_ === 'function') ScriptApp.newTrigger('digestMorning_').timeBased().atHour(11).nearMinute(15).everyDays(1).create();
   if (typeof digestEvening_ === 'function') ScriptApp.newTrigger('digestEvening_').timeBased().atHour(20).nearMinute(0).everyDays(1).create();
+  /* 💳 Is SlipOK still good? Once a day at 09:00 — early enough that an admin acts on it the same
+   * morning, and in one of the quieter hours. It costs one outbound request and SlipOK's /quota
+   * consumes nothing; and because slipOkExpiryCheck_ is silent unless something is running out, on
+   * an ordinary day it writes nothing at all. Weekends included deliberately: a package expires on
+   * a Sunday as readily as a Tuesday, and the warning window is a fortnight, not a day. */
+  if (typeof slipOkExpiryCheck_ === 'function') ScriptApp.newTrigger('slipOkExpiryCheck_').timeBased().atHour(9).nearMinute(0).everyDays(1).create();
   // Daily backup (implemented Day 7) — registered here so the schedule exists.
   if (typeof dailyBackup === 'function') {
     ScriptApp.newTrigger('dailyBackup').timeBased().atHour(1).everyDays(1).create();
