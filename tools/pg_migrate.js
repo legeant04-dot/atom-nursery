@@ -51,7 +51,10 @@ function targetSchema() {
   const tables = {};
   for (const m of sql.matchAll(/create table if not exists (\w+) \(([\s\S]*?)\n\);/g)) {
     const cols = {};
-    for (const c of m[2].matchAll(/^ {2}([a-z_]+)\s+([a-z0-9_(), ]+?),?\s*$/gm)) cols[c[1]] = c[2].trim();
+    /* The quotes are optional because migration 001 now emits them — STUDENT_TERMS has columns
+     * called `from` and `to`, which are reserved words and are a syntax error unquoted. Reading the
+     * schema has to survive that or every column of every table reads as missing. */
+    for (const c of m[2].matchAll(/^ {2}"?([a-z_]+)"?\s+([a-z0-9_(), ]+?),?\s*$/gm)) cols[c[1]] = c[2].trim();
     tables[m[1]] = cols;
   }
   return tables;
@@ -313,17 +316,72 @@ function planLoad(data, schema) {
   return { plan, unknownTables, unknownCols };
 }
 
-function encode_(v, type) {
+/* ── A VALUE THE SHEET HOLDS, IN A COLUMN POSTGRES DECLARES ──────────────────────────────────────
+ *
+ * 🔴 EXPANDED BY PHASE 2.3 (2026-10-13). Running the suites against the real schema produced, in
+ * one sweep, four shapes of value that a spreadsheet really does hold and that a typed column
+ * refuses outright:
+ *
+ *     time     "Sat Dec 30 1899 00:00:00"   Sheets' epoch — a time cell someone damaged
+ *     numeric  "500,000.00"                 money typed with a thousands separator
+ *     numeric  "วันที่ 15"                     Thai text where a day of the month was expected
+ *     boolean  "maybe"                      anything at all
+ *
+ * Every one of those was already in a test fixture, which is to say every one of them has already
+ * happened to this school. And `load()` wraps a whole table in one transaction, so ONE of them
+ * would have rolled back every row of that table on migration day.
+ *
+ * The rule here is: coerce only where the meaning is beyond doubt, and otherwise store NULL and
+ * SAY SO. `rejected` is read by the report — a value quietly turned into nothing is how the money
+ * report ends up balancing against data nobody has.
+ *
+ * 🔴 AND NEVER GUESS AT A NUMBER. '500,000.00' is unambiguous and is read. '1,2' is not — it could
+ * be twelve or one point two — so it is refused rather than halved or doubled. The strict grouping
+ * pattern is the whole difference between coercing and inventing.
+ */
+const encodeRejects_ = [];
+function encode_(v, type, where) {
   if (v === undefined || v === null || v === '') return null;
-  if (typeof v === 'object') return JSON.stringify(v);
-  if (/^numeric/.test(type || '')) {
-    const n = typeof v === 'number' ? v : Number(String(v).replace(/,/g, ''));
-    return Number.isFinite(n) ? round2(n) : null;
+  if (typeof v === 'object' && !(v instanceof Date)) return JSON.stringify(v);
+  const reject = () => { if (where) encodeRejects_.push({ where, type, value: String(v).slice(0, 40) }); return null; };
+  const t = String(type || '');
+  if (/^numeric/.test(t)) {
+    let n;
+    if (typeof v === 'number') n = v;
+    else {
+      const s = String(v).trim();
+      // a plain number, or one grouped in threes — nothing else is read as a number
+      n = /^-?\d+(\.\d+)?$/.test(s) ? Number(s)
+        : /^-?\d{1,3}(,\d{3})+(\.\d+)?$/.test(s) ? Number(s.replace(/,/g, ''))
+        : NaN;
+    }
+    return Number.isFinite(n) ? round2(n) : reject();
   }
-  if (/^boolean/.test(type || '')) {
+  if (/^boolean/.test(t)) {
     const s = String(v).trim().toUpperCase();
     return ['YES', 'TRUE', '1', 'Y'].indexOf(s) >= 0 ? true
-         : ['NO', 'FALSE', '0', 'N', ''].indexOf(s) >= 0 ? false : null;
+         : ['NO', 'FALSE', '0', 'N', ''].indexOf(s) >= 0 ? false : reject();
+  }
+  if (/^date/.test(t)) {
+    if (v instanceof Date) return isNaN(v) ? reject() : v;
+    const s = String(v).trim().slice(0, 10);
+    return /^\d{4}-\d{2}-\d{2}$/.test(s) ? s : reject();
+  }
+  /* 🔴 `timestamp` BEFORE `time`, because "timestamptz" starts with "time". Written the other way
+   * round, every SubmittedAt in the system took the time branch, failed its HH:mm test and became
+   * null — the moment a teacher's report was sent, gone from every row. Caught by a suite that
+   * asserts an already-sent report keeps its original time.
+   *
+   * Third prefix of the day to match something it was never meant to (see `Can` matching Cancel… in
+   * schema_inventory.js). The pattern is always right about the name and wrong about the meaning. */
+  if (/^timestamp/.test(t)) {
+    if (v instanceof Date) return isNaN(v) ? reject() : v;
+    const s = String(v).trim();
+    return /^\d{4}-\d{2}-\d{2}([ T]\d{2}:\d{2}(:\d{2})?)?/.test(s) ? s : reject();
+  }
+  if (/^time/.test(t)) {
+    const s = String(v).trim();
+    return /^\d{1,2}:\d{2}(:\d{2})?$/.test(s) ? s : reject();
   }
   return v;
 }
@@ -331,12 +389,15 @@ function encode_(v, type) {
 async function load(client, tenantId, plan, schema) {
   const done = {};
   for (const t of plan) {
-    const names = Object.values(t.cols);
+    // quoted, because STUDENT_TERMS has columns called `from` and `to` — reserved words, and a
+    // syntax error unquoted, which would have failed that whole table on migration day
+    const names = Object.values(t.cols).map(n => '"' + n + '"');
     if (!names.length) continue;
     await client.query('begin');
     try {
       for (const row of t.rows) {
-        const vals = Object.keys(t.cols).map(k => encode_(row[k], schema[t.table][t.cols[k]]));
+        const vals = Object.keys(t.cols).map(k =>
+          encode_(row[k], schema[t.table][t.cols[k]], t.table + '.' + t.cols[k]));
         const ph = vals.map((_, i) => '$' + (i + 2)).join(',');
         await client.query(
           `insert into ${t.table} (tenant_id,${names.join(',')}) values ($1,${ph})`, [tenantId, ...vals]);
@@ -419,5 +480,5 @@ async function main() {
   console.log('');
 }
 
-module.exports = { targetSchema, moneyReport, renderReport, planLoad, tableFor, encode_, round2, load };
+module.exports = { targetSchema, moneyReport, renderReport, planLoad, tableFor, encode_, round2, load, encodeRejects_ };
 if (require.main === module) main().catch(e => { console.log('🔴 ' + e.message); process.exit(1); });

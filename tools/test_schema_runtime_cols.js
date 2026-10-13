@@ -37,8 +37,30 @@ function callSites() {
   const out = [];
   for (const f of fs.readdirSync(path.join(ROOT, 'src')).filter(x => x.endsWith('.gs'))) {
     const src = decom(R('src/' + f));
-    for (const m of src.matchAll(/ensureColumns_\(\s*([A-Za-z_][\w.]*)\s*,\s*\[([^\]]*)\]/g)) {
-      const cols = (m[2].match(/'([^']+)'/g) || []).map(s => s.slice(1, -1));
+    /* 🔴 A LIST IN A VARIABLE IS STILL A LIST (found by Phase 2.3, 2026-10-13).
+     *
+     * This matched `ensureColumns_(sh, ['A','B'])` only — a LITERAL array. src/OT.gs writes
+     *
+     *     ensureColumns_(sh, OT_DISCOUNT_COLS_.concat(OT_CANCEL_COLS_));
+     *
+     * and so seven columns of OT_DAILY — FullAmount, Discount, DiscountReason, DiscountBy,
+     * DiscountAt, CancelledBy, CancelNote — were invisible to the ledger whose entire job is to
+     * find exactly those. They are every OT discount this school has given and the reason every
+     * cancelled OT charge was cancelled; on migration day they would have gone, in silence, while
+     * this suite printed "ไม่มีคอลัมน์ไหนที่จะหายเงียบๆ".
+     *
+     * A ledger with a blind spot is worse than no ledger, because it is believed. Named variables
+     * are resolved to their contents here, so the shape cannot hide a column again. */
+    const varLists = {};
+    for (const v of src.matchAll(/var ([A-Z][A-Z0-9_]*_)\s*=\s*\[([^\]]*)\]/g))
+      varLists[v[1]] = (v[2].match(/'([^']+)'/g) || []).map(s => s.slice(1, -1));
+    for (const m of src.matchAll(/ensureColumns_\(\s*([A-Za-z_][\w.]*)\s*,\s*([^;]*?)\)\s*;/g)) {
+      const arg = m[2];
+      let cols = (arg.match(/'([^']+)'/g) || []).map(s => s.slice(1, -1));
+      // ...plus whatever the named lists in the same expression hold
+      for (const name of (arg.match(/\b[A-Z][A-Z0-9_]*_\b/g) || []))
+        if (varLists[name]) cols = cols.concat(varLists[name]);
+      cols = [...new Set(cols)];
       if (!cols.length) continue;
       /* the sheet this variable was assigned from, nearest assignment BEFORE the call — the same
        * way a reader would work it out, and good enough because these are all local `var sh = ...` */
@@ -70,11 +92,21 @@ console.log('\n1) คอลัมน์ที่โค้ดสร้างต�
   const sql = R('docs/schema/001_init.sql');
   const tableCols = {};
   for (const m of sql.matchAll(/create table if not exists (\w+) \(([\s\S]*?)\n\);/g))
-    tableCols[m[1]] = new Set([...m[2].matchAll(/^ {2}([a-z_]+)\s/gm)].map(x => x[1]));
+    // `"?` — migration 001 quotes every identifier since Phase 2.3 (reserved words; see q() there)
+    tableCols[m[1]] = new Set([...m[2].matchAll(/^ {2}"?([a-z_]+)"?\s/gm)].map(x => x[1]));
 
   ok_('พบจุดที่เรียก ensureColumns_ จริง', sites.length >= 40);
-  ok_('...และรู้ว่าแต่ละจุดเป็นของตารางไหนเกือบทั้งหมด',
-    sites.filter(s => s.sheet).length >= sites.length - 8);
+  /* 🔴 PINNED, NOT TOLERATED (2026-10-13). This read `>= sites.length - 8`, which is a budget for
+   * call sites whose sheet cannot be traced back to a `var sh = sheet_(…, 'NAME')`. Those sites are
+   * the ledger's blind spot — their columns are never checked against anything — so a budget lets
+   * the blind spot GROW silently, which is the one thing a ledger may not do.
+   *
+   * Pinned instead, like the column count it replaces. Resolving one means lowering the number and
+   * seeing it in the diff; adding an untraceable call site fails here immediately. The current
+   * fourteen are `sh` assigned through a helper or a property (`r.sh`, `found.sheet`). */
+  const unresolved = sites.filter(s => !s.sheet);
+  eq('จุดเรียกที่ยังสาวกลับไปหาชีตไม่ได้ — ล็อกจำนวนไว้', unresolved.length, 9);
+  if (unresolved.length !== 9) unresolved.forEach(s => console.log('        · ' + s.file + ' (' + s.cols.slice(0, 4).join(',') + ')'));
 
   /* the detector itself, as a function of what is DECLARED — so the control below can feed it a
    * doctored schema and watch the real code find the hole */

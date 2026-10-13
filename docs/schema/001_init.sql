@@ -30,22 +30,22 @@ create table if not exists attendance_request (
   id          uuid primary key default gen_random_uuid(),
   seq         bigserial not null,
   tenant_id   uuid not null references tenant(id) on delete restrict,
-  req_id                     text,
-  staff_id                   text,
-  date                       date,
-  type                       text,
-  request_time               time,
-  reason                     text,
-  status                     text,
-  step1_by                   text,
-  step1_status               text,
-  step2_by                   text,
-  step2_status               text,
-  created_date               date,
+  "req_id"                     text,
+  "staff_id"                   text,
+  "date"                       date,
+  "type"                       text,
+  "request_time"               time,
+  "reason"                     text,
+  "status"                     text,
+  "step1_by"                   text,
+  "step1_status"               text,
+  "step2_by"                   text,
+  "step2_status"               text,
+  "created_date"               date,
   created_at  timestamptz not null default now(),
   updated_at  timestamptz not null default now()
 );
-create unique index if not exists attendance_request_code_uq on attendance_request(tenant_id, req_id);
+create unique index if not exists attendance_request_code_uq on attendance_request(tenant_id, "req_id");
 create index if not exists attendance_request_tenant_ix on attendance_request(tenant_id);
 create index if not exists attendance_request_seq_ix on attendance_request(tenant_id, seq);
 alter table attendance_request enable row level security;
@@ -55,15 +55,14 @@ create table if not exists hr_audit_log (
   id          uuid primary key default gen_random_uuid(),
   seq         bigserial not null,
   tenant_id   uuid not null references tenant(id) on delete restrict,
-  timestamp                  timestamptz,
-  user_id                    text,
-  action                     text,
-  table_name                 text,
-  record_id                  text,
+  "timestamp"                  timestamptz,
+  "user_id"                    text,
+  "action"                     text,
+  "table_name"                 text,
+  "record_id"                  text,
   created_at  timestamptz not null default now(),
   updated_at  timestamptz not null default now()
 );
-create unique index if not exists hr_audit_log_code_uq on hr_audit_log(tenant_id, user_id);
 create index if not exists hr_audit_log_tenant_ix on hr_audit_log(tenant_id);
 create index if not exists hr_audit_log_seq_ix on hr_audit_log(tenant_id, seq);
 alter table hr_audit_log enable row level security;
@@ -73,19 +72,18 @@ create table if not exists checkin_staff (
   id          uuid primary key default gen_random_uuid(),
   seq         bigserial not null,
   tenant_id   uuid not null references tenant(id) on delete restrict,
-  date                       date,
-  staff_id                   text,
-  check_in                   time,
-  check_out                  time,
-  late_minutes               numeric,
-  othours                    numeric,
-  status                     text,
-  in_manual                  text,
-  out_manual                 text,
+  "date"                       date,
+  "staff_id"                   text,
+  "check_in"                   time,
+  "check_out"                  time,
+  "late_minutes"               numeric,
+  "othours"                    numeric,
+  "status"                     text,
+  "in_manual"                  text,
+  "out_manual"                 text,
   created_at  timestamptz not null default now(),
   updated_at  timestamptz not null default now()
 );
-create unique index if not exists checkin_staff_code_uq on checkin_staff(tenant_id, staff_id);
 create index if not exists checkin_staff_tenant_ix on checkin_staff(tenant_id);
 create index if not exists checkin_staff_seq_ix on checkin_staff(tenant_id, seq);
 alter table checkin_staff enable row level security;
@@ -95,19 +93,19 @@ create table if not exists class_change_req (
   id          uuid primary key default gen_random_uuid(),
   seq         bigserial not null,
   tenant_id   uuid not null references tenant(id) on delete restrict,
-  req_id                     text,
-  request_by                 text,
-  request_by_name            text,
-  created_date               date,
-  status                     text,
-  changes                    text,
-  note                       text,
-  step2_by                   text,
-  decided_date               date,
+  "req_id"                     text,
+  "request_by"                 text,
+  "request_by_name"            text,
+  "created_date"               date,
+  "status"                     text,
+  "changes"                    text,
+  "note"                       text,
+  "step2_by"                   text,
+  "decided_date"               date,
   created_at  timestamptz not null default now(),
   updated_at  timestamptz not null default now()
 );
-create unique index if not exists class_change_req_code_uq on class_change_req(tenant_id, req_id);
+create unique index if not exists class_change_req_code_uq on class_change_req(tenant_id, "req_id");
 create index if not exists class_change_req_tenant_ix on class_change_req(tenant_id);
 create index if not exists class_change_req_seq_ix on class_change_req(tenant_id, seq);
 alter table class_change_req enable row level security;
@@ -117,31 +115,31 @@ create table if not exists leave_request (
   id          uuid primary key default gen_random_uuid(),
   seq         bigserial not null,
   tenant_id   uuid not null references tenant(id) on delete restrict,
-  leave_id                   text,
-  staff_id                   text,
-  department                 text,
-  type                       text,
-  start_date                 date,
-  end_date                   date,
-  days                       numeric,
-  reason                     text,
-  status                     text,
-  step1_approver_id          text,
-  step1_approver_name        text,
-  step1_status               text,
-  step1_date                 date,
-  step1_cross_dept           text,
-  step2_approver_id          text,
-  step2_approver_name        text,
-  step2_status               text,
-  step2_date                 date,
-  created_date               date,
-  attachment                 text,
-  half_day                   text,
+  "leave_id"                   text,
+  "staff_id"                   text,
+  "department"                 text,
+  "type"                       text,
+  "start_date"                 date,
+  "end_date"                   date,
+  "days"                       numeric,
+  "reason"                     text,
+  "status"                     text,
+  "step1_approver_id"          text,
+  "step1_approver_name"        text,
+  "step1_status"               text,
+  "step1_date"                 date,
+  "step1_cross_dept"           text,
+  "step2_approver_id"          text,
+  "step2_approver_name"        text,
+  "step2_status"               text,
+  "step2_date"                 date,
+  "created_date"               date,
+  "attachment"                 text,
+  "half_day"                   text,
   created_at  timestamptz not null default now(),
   updated_at  timestamptz not null default now()
 );
-create unique index if not exists leave_request_code_uq on leave_request(tenant_id, leave_id);
+create unique index if not exists leave_request_code_uq on leave_request(tenant_id, "leave_id");
 create index if not exists leave_request_tenant_ix on leave_request(tenant_id);
 create index if not exists leave_request_seq_ix on leave_request(tenant_id, seq);
 alter table leave_request enable row level security;
@@ -151,28 +149,28 @@ create table if not exists ot_records (
   id          uuid primary key default gen_random_uuid(),
   seq         bigserial not null,
   tenant_id   uuid not null references tenant(id) on delete restrict,
-  otrecord_id                text,
-  staff_id                   text,
-  date                       date,
-  hours                      numeric,
-  rate                       numeric(12,2),
-  amount                     numeric(12,2),
-  approved_by                text,
-  status                     text,
-  minutes                    numeric,
-  plan_out                   time,
-  actual_out                 time,
-  month                      text,
-  step1_by                   text,
-  step1_status               text,
-  step2_by                   text,
-  step2_status               text,
-  note                       text,
-  kind                       text,
+  "otrecord_id"                text,
+  "staff_id"                   text,
+  "date"                       date,
+  "hours"                      numeric,
+  "rate"                       numeric(12,2),
+  "amount"                     numeric(12,2),
+  "approved_by"                text,
+  "status"                     text,
+  "minutes"                    numeric,
+  "plan_out"                   time,
+  "actual_out"                 time,
+  "month"                      text,
+  "step1_by"                   text,
+  "step1_status"               text,
+  "step2_by"                   text,
+  "step2_status"               text,
+  "note"                       text,
+  "kind"                       text,
   created_at  timestamptz not null default now(),
   updated_at  timestamptz not null default now()
 );
-create unique index if not exists ot_records_code_uq on ot_records(tenant_id, otrecord_id);
+create unique index if not exists ot_records_code_uq on ot_records(tenant_id, "otrecord_id");
 create index if not exists ot_records_tenant_ix on ot_records(tenant_id);
 create index if not exists ot_records_seq_ix on ot_records(tenant_id, seq);
 alter table ot_records enable row level security;
@@ -182,21 +180,21 @@ create table if not exists pay_adjustments (
   id          uuid primary key default gen_random_uuid(),
   seq         bigserial not null,
   tenant_id   uuid not null references tenant(id) on delete restrict,
-  adj_id                     text,
-  staff_id                   text,
-  date                       date,
-  field                      text,
-  from_value                 text,
-  to_value                   text,
-  reason                     text,
-  by_staff_id                text,
-  by_name                    text,
+  "adj_id"                     text,
+  "staff_id"                   text,
+  "date"                       date,
+  "field"                      text,
+  "from_value"                 text,
+  "to_value"                   text,
+  "reason"                     text,
+  "by_staff_id"                text,
+  "by_name"                    text,
   -- CreatedAt: the sheet's own column, carried by the
   -- reserved column of the same name below — same meaning, and never declared twice.
   created_at  timestamptz not null default now(),
   updated_at  timestamptz not null default now()
 );
-create unique index if not exists pay_adjustments_code_uq on pay_adjustments(tenant_id, adj_id);
+create unique index if not exists pay_adjustments_code_uq on pay_adjustments(tenant_id, "adj_id");
 create index if not exists pay_adjustments_tenant_ix on pay_adjustments(tenant_id);
 create index if not exists pay_adjustments_seq_ix on pay_adjustments(tenant_id, seq);
 alter table pay_adjustments enable row level security;
@@ -206,61 +204,61 @@ create table if not exists payroll (
   id          uuid primary key default gen_random_uuid(),
   seq         bigserial not null,
   tenant_id   uuid not null references tenant(id) on delete restrict,
-  payroll_id                 text,
-  staff_id                   text,
-  month                      text,
-  base_salary                numeric(12,2),
-  diligence_attendance       numeric(12,2),
-  diligence_facebook         numeric(12,2),
-  diligence_total            numeric(12,2),
-  extra_child_count          numeric,
-  extra_child_amount         numeric(12,2),
-  training_cert_count        numeric,
-  training_cert_amount       numeric(12,2),
-  otevening                  numeric(12,2),
-  otholiday                  numeric(12,2),
-  holiday_bonus              numeric(12,2),
-  other_income               numeric(12,2),
-  gross_income               numeric(12,2),
-  social_security            numeric(12,2),
-  contribution               numeric(12,2),
-  other_deductions           numeric(12,2),
-  total_deductions           numeric(12,2),
-  net_pay                    numeric(12,2),
-  bank_account               text,
-  slip_sent                  text,
-  generated_date             date,
-  generated_by               text,
-  pay_type                   text,
-  daily_rate                 numeric(12,2),
-  days_worked                numeric,
-  child_multiplier           numeric(12,2),
-  adjustments                text,
-  adjustments_total          numeric(12,2),
-  bank_name                  text,
-  leave_days                 numeric,
-  leave_limit                numeric,
-  leave_exceeds              text,
-  contribution_accum         numeric(12,2),
-  position                   text,
-  staff_name                 text,
-  slip_url                   text,
-  paid_date                  date,
-  paid_by                    text,
-  pause_salary_mode          text,
-  pause_from                 text,
-  pause_to                   text,
-  pause_reason               text,
-  approved                   text,
-  approved_by                text,
-  approved_at                timestamptz,
-  contribution_employer      numeric(12,2),
-  otcarry                    numeric(12,2),
-  otcarry_detail             text,
+  "payroll_id"                 text,
+  "staff_id"                   text,
+  "month"                      text,
+  "base_salary"                numeric(12,2),
+  "diligence_attendance"       numeric(12,2),
+  "diligence_facebook"         numeric(12,2),
+  "diligence_total"            numeric(12,2),
+  "extra_child_count"          numeric,
+  "extra_child_amount"         numeric(12,2),
+  "training_cert_count"        numeric,
+  "training_cert_amount"       numeric(12,2),
+  "otevening"                  numeric(12,2),
+  "otholiday"                  numeric(12,2),
+  "holiday_bonus"              numeric(12,2),
+  "other_income"               numeric(12,2),
+  "gross_income"               numeric(12,2),
+  "social_security"            numeric(12,2),
+  "contribution"               numeric(12,2),
+  "other_deductions"           numeric(12,2),
+  "total_deductions"           numeric(12,2),
+  "net_pay"                    numeric(12,2),
+  "bank_account"               text,
+  "slip_sent"                  text,
+  "generated_date"             date,
+  "generated_by"               text,
+  "pay_type"                   text,
+  "daily_rate"                 numeric(12,2),
+  "days_worked"                numeric,
+  "child_multiplier"           numeric(12,2),
+  "adjustments"                text,
+  "adjustments_total"          numeric(12,2),
+  "bank_name"                  text,
+  "leave_days"                 numeric,
+  "leave_limit"                numeric,
+  "leave_exceeds"              text,
+  "contribution_accum"         numeric(12,2),
+  "position"                   text,
+  "staff_name"                 text,
+  "slip_url"                   text,
+  "paid_date"                  date,
+  "paid_by"                    text,
+  "pause_salary_mode"          text,
+  "pause_from"                 text,
+  "pause_to"                   text,
+  "pause_reason"               text,
+  "approved"                   text,
+  "approved_by"                text,
+  "approved_at"                timestamptz,
+  "contribution_employer"      numeric(12,2),
+  "otcarry"                    numeric(12,2),
+  "otcarry_detail"             text,
   created_at  timestamptz not null default now(),
   updated_at  timestamptz not null default now()
 );
-create unique index if not exists payroll_code_uq on payroll(tenant_id, payroll_id);
+create unique index if not exists payroll_code_uq on payroll(tenant_id, "payroll_id");
 create index if not exists payroll_tenant_ix on payroll(tenant_id);
 create index if not exists payroll_seq_ix on payroll(tenant_id, seq);
 alter table payroll enable row level security;
@@ -270,21 +268,21 @@ create table if not exists payroll_config (
   id          uuid primary key default gen_random_uuid(),
   seq         bigserial not null,
   tenant_id   uuid not null references tenant(id) on delete restrict,
-  staff_id                   text,
-  pay_type                   text,
-  daily_rate                 numeric(12,2),
-  base_salary                numeric(12,2),
-  social_security_deduct     numeric(12,2),
-  child_threshold            numeric,
-  child_multiplier           numeric(12,2),
-  diligence_attendance_amount numeric(12,2),
-  diligence_facebook_amount  numeric(12,2),
-  tax_deduct                 numeric(12,2),
-  contribution               numeric(12,2),
+  "staff_id"                   text,
+  "pay_type"                   text,
+  "daily_rate"                 numeric(12,2),
+  "base_salary"                numeric(12,2),
+  "social_security_deduct"     numeric(12,2),
+  "child_threshold"            numeric,
+  "child_multiplier"           numeric(12,2),
+  "diligence_attendance_amount" numeric(12,2),
+  "diligence_facebook_amount"  numeric(12,2),
+  "tax_deduct"                 numeric(12,2),
+  "contribution"               numeric(12,2),
   created_at  timestamptz not null default now(),
   updated_at  timestamptz not null default now()
 );
-create unique index if not exists payroll_config_code_uq on payroll_config(tenant_id, staff_id);
+create unique index if not exists payroll_config_code_uq on payroll_config(tenant_id, "staff_id");
 create index if not exists payroll_config_tenant_ix on payroll_config(tenant_id);
 create index if not exists payroll_config_seq_ix on payroll_config(tenant_id, seq);
 alter table payroll_config enable row level security;
@@ -294,56 +292,56 @@ create table if not exists staff (
   id          uuid primary key default gen_random_uuid(),
   seq         bigserial not null,
   tenant_id   uuid not null references tenant(id) on delete restrict,
-  staff_id                   text,
-  national_id                text,
-  name                       text,
-  name_en                    text,
-  nickname                   text,
-  dob                        date,
-  position                   text,
-  role                       text,
-  department                 text,
-  position_level             text,
-  staff_group                text,
-  reports_to                 text,
-  phone                      text,
-  line_uid                   text,
-  start_date                 date,
-  base_salary                numeric(12,2),
-  require_checkin            boolean,
-  password_hash              text,
-  must_change_password       boolean,
-  photo                      text,
-  status                     text,
-  nickname_en                text,
-  classes                    text,
-  bank_name                  text,
-  bank_account               text,
-  contribution_opening       numeric(12,2),
-  contribution_accum         numeric(12,2),
-  contribution_locked        text,
-  can_class_org              boolean,
-  can_food_menu              boolean,
-  end_date                   date,
-  end_reason                 text,
-  end_remark                 text,
-  email                      text,
-  google_sub                 text,
-  pause_from                 text,
-  pause_to                   text,
-  pause_reason               text,
-  pause_remark               text,
-  pause_salary_mode          text,
-  pause_salary_amount        numeric(12,2),
-  education                  text,
-  edu_major                  text,
-  edu_grad_date              date,
-  leave_quota                text,
-  no_payroll                 text,
+  "staff_id"                   text,
+  "national_id"                text,
+  "name"                       text,
+  "name_en"                    text,
+  "nickname"                   text,
+  "dob"                        date,
+  "position"                   text,
+  "role"                       text,
+  "department"                 text,
+  "position_level"             text,
+  "staff_group"                text,
+  "reports_to"                 text,
+  "phone"                      text,
+  "line_uid"                   text,
+  "start_date"                 date,
+  "base_salary"                numeric(12,2),
+  "require_checkin"            boolean,
+  "password_hash"              text,
+  "must_change_password"       boolean,
+  "photo"                      text,
+  "status"                     text,
+  "nickname_en"                text,
+  "classes"                    text,
+  "bank_name"                  text,
+  "bank_account"               text,
+  "contribution_opening"       numeric(12,2),
+  "contribution_accum"         numeric(12,2),
+  "contribution_locked"        text,
+  "can_class_org"              boolean,
+  "can_food_menu"              boolean,
+  "end_date"                   date,
+  "end_reason"                 text,
+  "end_remark"                 text,
+  "email"                      text,
+  "google_sub"                 text,
+  "pause_from"                 text,
+  "pause_to"                   text,
+  "pause_reason"               text,
+  "pause_remark"               text,
+  "pause_salary_mode"          text,
+  "pause_salary_amount"        numeric(12,2),
+  "education"                  text,
+  "edu_major"                  text,
+  "edu_grad_date"              date,
+  "leave_quota"                text,
+  "no_payroll"                 text,
   created_at  timestamptz not null default now(),
   updated_at  timestamptz not null default now()
 );
-create unique index if not exists staff_code_uq on staff(tenant_id, staff_id);
+create unique index if not exists staff_code_uq on staff(tenant_id, "staff_id");
 create index if not exists staff_tenant_ix on staff(tenant_id);
 create index if not exists staff_seq_ix on staff(tenant_id, seq);
 alter table staff enable row level security;
@@ -353,10 +351,10 @@ create table if not exists staff_groups (
   id          uuid primary key default gen_random_uuid(),
   seq         bigserial not null,
   tenant_id   uuid not null references tenant(id) on delete restrict,
-  group_name                 text,
-  group_name_en              text,
-  check_in_time              time,
-  check_out_time             time,
+  "group_name"                 text,
+  "group_name_en"              text,
+  "check_in_time"              time,
+  "check_out_time"             time,
   created_at  timestamptz not null default now(),
   updated_at  timestamptz not null default now()
 );
@@ -369,17 +367,17 @@ create table if not exists training (
   id          uuid primary key default gen_random_uuid(),
   seq         bigserial not null,
   tenant_id   uuid not null references tenant(id) on delete restrict,
-  training_id                text,
-  staff_id                   text,
-  course_name                text,
-  date                       date,
-  provider                   text,
-  certificate                text,
-  expire_date                date,
+  "training_id"                text,
+  "staff_id"                   text,
+  "course_name"                text,
+  "date"                       date,
+  "provider"                   text,
+  "certificate"                text,
+  "expire_date"                date,
   created_at  timestamptz not null default now(),
   updated_at  timestamptz not null default now()
 );
-create unique index if not exists training_code_uq on training(tenant_id, training_id);
+create unique index if not exists training_code_uq on training(tenant_id, "training_id");
 create index if not exists training_tenant_ix on training(tenant_id);
 create index if not exists training_seq_ix on training(tenant_id, seq);
 alter table training enable row level security;
@@ -389,15 +387,14 @@ create table if not exists work_schedule (
   id          uuid primary key default gen_random_uuid(),
   seq         bigserial not null,
   tenant_id   uuid not null references tenant(id) on delete restrict,
-  staff_id                   text,
-  day_of_week                text,
-  check_in_time              time,
-  check_out_time             time,
-  effective_date             date,
+  "staff_id"                   text,
+  "day_of_week"                text,
+  "check_in_time"              time,
+  "check_out_time"             time,
+  "effective_date"             date,
   created_at  timestamptz not null default now(),
   updated_at  timestamptz not null default now()
 );
-create unique index if not exists work_schedule_code_uq on work_schedule(tenant_id, staff_id);
 create index if not exists work_schedule_tenant_ix on work_schedule(tenant_id);
 create index if not exists work_schedule_seq_ix on work_schedule(tenant_id, seq);
 alter table work_schedule enable row level security;
@@ -407,14 +404,13 @@ create table if not exists absence_followup (
   id          uuid primary key default gen_random_uuid(),
   seq         bigserial not null,
   tenant_id   uuid not null references tenant(id) on delete restrict,
-  student_id                 text,
-  note                       text,
-  status                     text,
-  date                       date,
+  "student_id"                 text,
+  "note"                       text,
+  "status"                     text,
+  "date"                       date,
   created_at  timestamptz not null default now(),
   updated_at  timestamptz not null default now()
 );
-create unique index if not exists absence_followup_code_uq on absence_followup(tenant_id, student_id);
 create index if not exists absence_followup_tenant_ix on absence_followup(tenant_id);
 create index if not exists absence_followup_seq_ix on absence_followup(tenant_id, seq);
 alter table absence_followup enable row level security;
@@ -424,19 +420,19 @@ create table if not exists absence_followup_log (
   id          uuid primary key default gen_random_uuid(),
   seq         bigserial not null,
   tenant_id   uuid not null references tenant(id) on delete restrict,
-  log_id                     text,
-  student_id                 text,
-  date                       date,
-  time                       time,
-  by_staff_id                text,
-  by_name                    text,
-  status                     text,
-  note                       text,
-  photo                      text,
+  "log_id"                     text,
+  "student_id"                 text,
+  "date"                       date,
+  "time"                       time,
+  "by_staff_id"                text,
+  "by_name"                    text,
+  "status"                     text,
+  "note"                       text,
+  "photo"                      text,
   created_at  timestamptz not null default now(),
   updated_at  timestamptz not null default now()
 );
-create unique index if not exists absence_followup_log_code_uq on absence_followup_log(tenant_id, log_id);
+create unique index if not exists absence_followup_log_code_uq on absence_followup_log(tenant_id, "log_id");
 create index if not exists absence_followup_log_tenant_ix on absence_followup_log(tenant_id);
 create index if not exists absence_followup_log_seq_ix on absence_followup_log(tenant_id, seq);
 alter table absence_followup_log enable row level security;
@@ -446,14 +442,13 @@ create table if not exists absence_log (
   id          uuid primary key default gen_random_uuid(),
   seq         bigserial not null,
   tenant_id   uuid not null references tenant(id) on delete restrict,
-  student_id                 text,
-  date                       date,
-  type                       text,
-  reason                     text,
+  "student_id"                 text,
+  "date"                       date,
+  "type"                       text,
+  "reason"                     text,
   created_at  timestamptz not null default now(),
   updated_at  timestamptz not null default now()
 );
-create unique index if not exists absence_log_code_uq on absence_log(tenant_id, student_id);
 create index if not exists absence_log_tenant_ix on absence_log(tenant_id);
 create index if not exists absence_log_seq_ix on absence_log(tenant_id, seq);
 alter table absence_log enable row level security;
@@ -463,18 +458,18 @@ create table if not exists activity_log (
   id          uuid primary key default gen_random_uuid(),
   seq         bigserial not null,
   tenant_id   uuid not null references tenant(id) on delete restrict,
-  log_id                     text,
-  timestamp                  timestamptz,
-  user_role                  text,
-  user_id                    text,
-  user_name                  text,
-  action                     text,
-  target                     text,
-  detail                     text,
+  "log_id"                     text,
+  "timestamp"                  timestamptz,
+  "user_role"                  text,
+  "user_id"                    text,
+  "user_name"                  text,
+  "action"                     text,
+  "target"                     text,
+  "detail"                     text,
   created_at  timestamptz not null default now(),
   updated_at  timestamptz not null default now()
 );
-create unique index if not exists activity_log_code_uq on activity_log(tenant_id, log_id);
+create unique index if not exists activity_log_code_uq on activity_log(tenant_id, "log_id");
 create index if not exists activity_log_tenant_ix on activity_log(tenant_id);
 create index if not exists activity_log_seq_ix on activity_log(tenant_id, seq);
 alter table activity_log enable row level security;
@@ -484,18 +479,18 @@ create table if not exists admin_inbox (
   id          uuid primary key default gen_random_uuid(),
   seq         bigserial not null,
   tenant_id   uuid not null references tenant(id) on delete restrict,
-  inbox_id                   text,
-  date                       date,
-  category                   text,
-  text                       text,
-  read                       boolean,
-  ref                        text,
-  staff_id                   text,
-  student_id                 text,
+  "inbox_id"                   text,
+  "date"                       date,
+  "category"                   text,
+  "text"                       text,
+  "read"                       boolean,
+  "ref"                        text,
+  "staff_id"                   text,
+  "student_id"                 text,
   created_at  timestamptz not null default now(),
   updated_at  timestamptz not null default now()
 );
-create unique index if not exists admin_inbox_code_uq on admin_inbox(tenant_id, inbox_id);
+create unique index if not exists admin_inbox_code_uq on admin_inbox(tenant_id, "inbox_id");
 create index if not exists admin_inbox_tenant_ix on admin_inbox(tenant_id);
 create index if not exists admin_inbox_seq_ix on admin_inbox(tenant_id, seq);
 alter table admin_inbox enable row level security;
@@ -505,25 +500,25 @@ create table if not exists announcements (
   id          uuid primary key default gen_random_uuid(),
   seq         bigserial not null,
   tenant_id   uuid not null references tenant(id) on delete restrict,
-  ann_id                     text,
-  title                      text,
-  title_en                   text,
-  content                    text,
-  content_en                 text,
-  image                      text,
-  date                       date,
-  type                       text,
-  target_group               text,
-  popup                      boolean,
-  start_date                 date,
-  end_date                   date,
-  priority                   numeric,
-  start_time                 time,
-  end_time                   time,
+  "ann_id"                     text,
+  "title"                      text,
+  "title_en"                   text,
+  "content"                    text,
+  "content_en"                 text,
+  "image"                      text,
+  "date"                       date,
+  "type"                       text,
+  "target_group"               text,
+  "popup"                      boolean,
+  "start_date"                 date,
+  "end_date"                   date,
+  "priority"                   numeric,
+  "start_time"                 time,
+  "end_time"                   time,
   created_at  timestamptz not null default now(),
   updated_at  timestamptz not null default now()
 );
-create unique index if not exists announcements_code_uq on announcements(tenant_id, ann_id);
+create unique index if not exists announcements_code_uq on announcements(tenant_id, "ann_id");
 create index if not exists announcements_tenant_ix on announcements(tenant_id);
 create index if not exists announcements_seq_ix on announcements(tenant_id, seq);
 alter table announcements enable row level security;
@@ -533,15 +528,14 @@ create table if not exists audit_log (
   id          uuid primary key default gen_random_uuid(),
   seq         bigserial not null,
   tenant_id   uuid not null references tenant(id) on delete restrict,
-  timestamp                  timestamptz,
-  user_id                    text,
-  action                     text,
-  table_name                 text,
-  record_id                  text,
+  "timestamp"                  timestamptz,
+  "user_id"                    text,
+  "action"                     text,
+  "table_name"                 text,
+  "record_id"                  text,
   created_at  timestamptz not null default now(),
   updated_at  timestamptz not null default now()
 );
-create unique index if not exists audit_log_code_uq on audit_log(tenant_id, user_id);
 create index if not exists audit_log_tenant_ix on audit_log(tenant_id);
 create index if not exists audit_log_seq_ix on audit_log(tenant_id, seq);
 alter table audit_log enable row level security;
@@ -551,14 +545,13 @@ create table if not exists backup_log (
   id          uuid primary key default gen_random_uuid(),
   seq         bigserial not null,
   tenant_id   uuid not null references tenant(id) on delete restrict,
-  backup_date                date,
-  workbook_name              text,
-  drive_file_id              text,
-  status                     text,
+  "backup_date"                date,
+  "workbook_name"              text,
+  "drive_file_id"              text,
+  "status"                     text,
   created_at  timestamptz not null default now(),
   updated_at  timestamptz not null default now()
 );
-create unique index if not exists backup_log_code_uq on backup_log(tenant_id, drive_file_id);
 create index if not exists backup_log_tenant_ix on backup_log(tenant_id);
 create index if not exists backup_log_seq_ix on backup_log(tenant_id, seq);
 alter table backup_log enable row level security;
@@ -568,24 +561,24 @@ create table if not exists billing (
   id          uuid primary key default gen_random_uuid(),
   seq         bigserial not null,
   tenant_id   uuid not null references tenant(id) on delete restrict,
-  billing_id                 text,
-  student_id                 text,
-  month                      text,
-  amount                     numeric(12,2),
-  otrollover                 numeric(12,2),
-  due_date                   date,
-  paid_date                  date,
-  status                     text,
-  slip_amount                numeric(12,2),
-  verified_status            boolean,
-  qrref                      text,
-  payment_method             text,
-  transaction_date           date,
-  bill_run                   text,
+  "billing_id"                 text,
+  "student_id"                 text,
+  "month"                      text,
+  "amount"                     numeric(12,2),
+  "otrollover"                 numeric(12,2),
+  "due_date"                   date,
+  "paid_date"                  date,
+  "status"                     text,
+  "slip_amount"                numeric(12,2),
+  "verified_status"            boolean,
+  "qrref"                      text,
+  "payment_method"             text,
+  "transaction_date"           date,
+  "bill_run"                   text,
   created_at  timestamptz not null default now(),
   updated_at  timestamptz not null default now()
 );
-create unique index if not exists billing_code_uq on billing(tenant_id, billing_id);
+create unique index if not exists billing_code_uq on billing(tenant_id, "billing_id");
 create index if not exists billing_tenant_ix on billing(tenant_id);
 create index if not exists billing_seq_ix on billing(tenant_id, seq);
 alter table billing enable row level security;
@@ -595,21 +588,20 @@ create table if not exists checkin_student (
   id          uuid primary key default gen_random_uuid(),
   seq         bigserial not null,
   tenant_id   uuid not null references tenant(id) on delete restrict,
-  date                       date,
-  time                       time,
-  student_id                 text,
-  parent_id                  text,
-  type                       text,
-  gps_lat                    text,
-  gps_lng                    text,
-  status                     text,
-  remark                     text,
-  by_staff_id                text,
-  by_at                      timestamptz,
+  "date"                       date,
+  "time"                       time,
+  "student_id"                 text,
+  "parent_id"                  text,
+  "type"                       text,
+  "gps_lat"                    text,
+  "gps_lng"                    text,
+  "status"                     text,
+  "remark"                     text,
+  "by_staff_id"                text,
+  "by_at"                      timestamptz,
   created_at  timestamptz not null default now(),
   updated_at  timestamptz not null default now()
 );
-create unique index if not exists checkin_student_code_uq on checkin_student(tenant_id, student_id);
 create index if not exists checkin_student_tenant_ix on checkin_student(tenant_id);
 create index if not exists checkin_student_seq_ix on checkin_student(tenant_id, seq);
 alter table checkin_student enable row level security;
@@ -619,16 +611,16 @@ create table if not exists class_cover (
   id          uuid primary key default gen_random_uuid(),
   seq         bigserial not null,
   tenant_id   uuid not null references tenant(id) on delete restrict,
-  cover_id                   text,
-  staff_id                   text,
-  class_name                 text,
-  from_date                  date,
-  to_date                    date,
-  note                       text,
+  "cover_id"                   text,
+  "staff_id"                   text,
+  "class_name"                 text,
+  "from_date"                  date,
+  "to_date"                    date,
+  "note"                       text,
   created_at  timestamptz not null default now(),
   updated_at  timestamptz not null default now()
 );
-create unique index if not exists class_cover_code_uq on class_cover(tenant_id, cover_id);
+create unique index if not exists class_cover_code_uq on class_cover(tenant_id, "cover_id");
 create index if not exists class_cover_tenant_ix on class_cover(tenant_id);
 create index if not exists class_cover_seq_ix on class_cover(tenant_id, seq);
 alter table class_cover enable row level security;
@@ -638,15 +630,15 @@ create table if not exists classes (
   id          uuid primary key default gen_random_uuid(),
   seq         bigserial not null,
   tenant_id   uuid not null references tenant(id) on delete restrict,
-  class_id                   text,
-  class_name                 text,
-  teacher_id                 text,
-  age_range                  text,
-  capacity                   text,
+  "class_id"                   text,
+  "class_name"                 text,
+  "teacher_id"                 text,
+  "age_range"                  text,
+  "capacity"                   text,
   created_at  timestamptz not null default now(),
   updated_at  timestamptz not null default now()
 );
-create unique index if not exists classes_code_uq on classes(tenant_id, class_id);
+create unique index if not exists classes_code_uq on classes(tenant_id, "class_id");
 create index if not exists classes_tenant_ix on classes(tenant_id);
 create index if not exists classes_seq_ix on classes(tenant_id, seq);
 alter table classes enable row level security;
@@ -656,17 +648,17 @@ create table if not exists comments (
   id          uuid primary key default gen_random_uuid(),
   seq         bigserial not null,
   tenant_id   uuid not null references tenant(id) on delete restrict,
-  comment_id                 text,
-  student_id                 text,
-  parent_id                  text,
-  sender_role                text,
-  message                    text,
-  timestamp                  timestamptz,
-  read_status                boolean,
+  "comment_id"                 text,
+  "student_id"                 text,
+  "parent_id"                  text,
+  "sender_role"                text,
+  "message"                    text,
+  "timestamp"                  timestamptz,
+  "read_status"                boolean,
   created_at  timestamptz not null default now(),
   updated_at  timestamptz not null default now()
 );
-create unique index if not exists comments_code_uq on comments(tenant_id, comment_id);
+create unique index if not exists comments_code_uq on comments(tenant_id, "comment_id");
 create index if not exists comments_tenant_ix on comments(tenant_id);
 create index if not exists comments_seq_ix on comments(tenant_id, seq);
 alter table comments enable row level security;
@@ -676,38 +668,37 @@ create table if not exists daily_journal (
   id          uuid primary key default gen_random_uuid(),
   seq         bigserial not null,
   tenant_id   uuid not null references tenant(id) on delete restrict,
-  date                       date,
-  student_id                 text,
-  teacher_id                 text,
-  mood                       text,
-  health                     text,
-  milk                       text,
-  meals                      text,
-  sleep                      text,
-  toilet                     text,
-  activity                   text,
-  skills                     text,
-  highlight                  text,
-  health_detail              text,
-  milk_total                 numeric,
-  water                      numeric,
-  theme                      text,
-  submitted_at               timestamptz,
-  status                     text,
-  milk_unit                  text,
-  parent_comment             text,
-  teacher_reply              text,
-  meal_items                 text,
-  milk_times                 text,
-  photo1                     text,
-  photo2                     text,
-  photo3                     text,
+  "date"                       date,
+  "student_id"                 text,
+  "teacher_id"                 text,
+  "mood"                       text,
+  "health"                     text,
+  "milk"                       text,
+  "meals"                      text,
+  "sleep"                      text,
+  "toilet"                     text,
+  "activity"                   text,
+  "skills"                     text,
+  "highlight"                  text,
+  "health_detail"              text,
+  "milk_total"                 numeric,
+  "water"                      numeric,
+  "theme"                      text,
+  "submitted_at"               timestamptz,
+  "status"                     text,
+  "milk_unit"                  text,
+  "parent_comment"             text,
+  "teacher_reply"              text,
+  "meal_items"                 text,
+  "milk_times"                 text,
+  "photo1"                     text,
+  "photo2"                     text,
+  "photo3"                     text,
   -- UpdatedAt: the sheet's own column, carried by the
   -- reserved column of the same name below — same meaning, and never declared twice.
   created_at  timestamptz not null default now(),
   updated_at  timestamptz not null default now()
 );
-create unique index if not exists daily_journal_code_uq on daily_journal(tenant_id, student_id);
 create index if not exists daily_journal_tenant_ix on daily_journal(tenant_id);
 create index if not exists daily_journal_seq_ix on daily_journal(tenant_id, seq);
 alter table daily_journal enable row level security;
@@ -717,23 +708,23 @@ create table if not exists dspm_assessment (
   id          uuid primary key default gen_random_uuid(),
   seq         bigserial not null,
   tenant_id   uuid not null references tenant(id) on delete restrict,
-  assessment_id              text,
-  student_id                 text,
-  age_month                  numeric,
-  item_no                    numeric,
-  skill                      text,
-  result                     text,
-  date                       date,
-  teacher_id                 text,
-  teacher_name               text,
-  timestamp                  timestamptz,
-  admin_comment              text,
-  comment_by                 text,
-  comment_at                 timestamptz,
+  "assessment_id"              text,
+  "student_id"                 text,
+  "age_month"                  numeric,
+  "item_no"                    numeric,
+  "skill"                      text,
+  "result"                     text,
+  "date"                       date,
+  "teacher_id"                 text,
+  "teacher_name"               text,
+  "timestamp"                  timestamptz,
+  "admin_comment"              text,
+  "comment_by"                 text,
+  "comment_at"                 timestamptz,
   created_at  timestamptz not null default now(),
   updated_at  timestamptz not null default now()
 );
-create unique index if not exists dspm_assessment_code_uq on dspm_assessment(tenant_id, assessment_id);
+create unique index if not exists dspm_assessment_code_uq on dspm_assessment(tenant_id, "assessment_id");
 create index if not exists dspm_assessment_tenant_ix on dspm_assessment(tenant_id);
 create index if not exists dspm_assessment_seq_ix on dspm_assessment(tenant_id, seq);
 alter table dspm_assessment enable row level security;
@@ -743,16 +734,16 @@ create table if not exists dspm_criteria (
   id          uuid primary key default gen_random_uuid(),
   seq         bigserial not null,
   tenant_id   uuid not null references tenant(id) on delete restrict,
-  age_from                   text,
-  age_to                     text,
-  age_label_th               text,
-  item_no                    numeric,
-  skill                      text,
-  description                text,
-  description_en             text,
-  method                     text,
-  pass_criteria              text,
-  track                      text,
+  "age_from"                   text,
+  "age_to"                     text,
+  "age_label_th"               text,
+  "item_no"                    numeric,
+  "skill"                      text,
+  "description"                text,
+  "description_en"             text,
+  "method"                     text,
+  "pass_criteria"              text,
+  "track"                      text,
   created_at  timestamptz not null default now(),
   updated_at  timestamptz not null default now()
 );
@@ -765,16 +756,16 @@ create table if not exists food_items (
   id          uuid primary key default gen_random_uuid(),
   seq         bigserial not null,
   tenant_id   uuid not null references tenant(id) on delete restrict,
-  item_id                    text,
-  name                       text,
-  name_en                    text,
-  category                   text,
-  allergens                  text,
-  active                     boolean,
+  "item_id"                    text,
+  "name"                       text,
+  "name_en"                    text,
+  "category"                   text,
+  "allergens"                  text,
+  "active"                     boolean,
   created_at  timestamptz not null default now(),
   updated_at  timestamptz not null default now()
 );
-create unique index if not exists food_items_code_uq on food_items(tenant_id, item_id);
+create unique index if not exists food_items_code_uq on food_items(tenant_id, "item_id");
 create index if not exists food_items_tenant_ix on food_items(tenant_id);
 create index if not exists food_items_seq_ix on food_items(tenant_id, seq);
 alter table food_items enable row level security;
@@ -784,16 +775,16 @@ create table if not exists food_menu (
   id          uuid primary key default gen_random_uuid(),
   seq         bigserial not null,
   tenant_id   uuid not null references tenant(id) on delete restrict,
-  menu_id                    text,
-  month                      text,
-  day                        text,
-  slot                       text,
-  item_id                    text,
-  note                       text,
+  "menu_id"                    text,
+  "month"                      text,
+  "day"                        text,
+  "slot"                       text,
+  "item_id"                    text,
+  "note"                       text,
   created_at  timestamptz not null default now(),
   updated_at  timestamptz not null default now()
 );
-create unique index if not exists food_menu_code_uq on food_menu(tenant_id, menu_id);
+create unique index if not exists food_menu_code_uq on food_menu(tenant_id, "menu_id");
 create index if not exists food_menu_tenant_ix on food_menu(tenant_id);
 create index if not exists food_menu_seq_ix on food_menu(tenant_id, seq);
 alter table food_menu enable row level security;
@@ -803,17 +794,16 @@ create table if not exists growth_records (
   id          uuid primary key default gen_random_uuid(),
   seq         bigserial not null,
   tenant_id   uuid not null references tenant(id) on delete restrict,
-  date                       date,
-  student_id                 text,
-  age_month                  numeric,
-  weight                     numeric,
-  height                     numeric,
-  recorded_by                text,
-  recorded_at                timestamptz,
+  "date"                       date,
+  "student_id"                 text,
+  "age_month"                  numeric,
+  "weight"                     numeric,
+  "height"                     numeric,
+  "recorded_by"                text,
+  "recorded_at"                timestamptz,
   created_at  timestamptz not null default now(),
   updated_at  timestamptz not null default now()
 );
-create unique index if not exists growth_records_code_uq on growth_records(tenant_id, student_id);
 create index if not exists growth_records_tenant_ix on growth_records(tenant_id);
 create index if not exists growth_records_seq_ix on growth_records(tenant_id, seq);
 alter table growth_records enable row level security;
@@ -823,14 +813,13 @@ create table if not exists holiday_attend (
   id          uuid primary key default gen_random_uuid(),
   seq         bigserial not null,
   tenant_id   uuid not null references tenant(id) on delete restrict,
-  date                       date,
-  student_id                 text,
-  added_by                   text,
-  added_at                   timestamptz,
+  "date"                       date,
+  "student_id"                 text,
+  "added_by"                   text,
+  "added_at"                   timestamptz,
   created_at  timestamptz not null default now(),
   updated_at  timestamptz not null default now()
 );
-create unique index if not exists holiday_attend_code_uq on holiday_attend(tenant_id, student_id);
 create index if not exists holiday_attend_tenant_ix on holiday_attend(tenant_id);
 create index if not exists holiday_attend_seq_ix on holiday_attend(tenant_id, seq);
 alter table holiday_attend enable row level security;
@@ -840,12 +829,12 @@ create table if not exists holidays (
   id          uuid primary key default gen_random_uuid(),
   seq         bigserial not null,
   tenant_id   uuid not null references tenant(id) on delete restrict,
-  date                       date,
-  name_th                    text,
-  name_en                    text,
-  recurring                  text,
-  start_time                 time,
-  end_time                   time,
+  "date"                       date,
+  "name_th"                    text,
+  "name_en"                    text,
+  "recurring"                  text,
+  "start_time"                 time,
+  "end_time"                   time,
   created_at  timestamptz not null default now(),
   updated_at  timestamptz not null default now()
 );
@@ -858,55 +847,55 @@ create table if not exists injury_reports (
   id          uuid primary key default gen_random_uuid(),
   seq         bigserial not null,
   tenant_id   uuid not null references tenant(id) on delete restrict,
-  injury_id                  text,
-  date                       date,
-  time                       time,
-  center_name                text,
-  affiliation_type           text,
-  affiliation_other          text,
-  district                   text,
-  recorder_name              text,
-  student_id                 text,
-  child_name                 text,
-  sex                        text,
-  age_years                  text,
-  age_months                 text,
-  edu_status                 text,
-  edu_grade                  text,
-  narrative                  text,
-  cause_object               text,
-  witness                    text,
-  place                      text,
-  place_other                text,
-  injury_types               text,
-  teacher_id                 text,
-  created_date               date,
-  notify_parent              boolean,
-  status                     text,
-  leader_by                  text,
-  leader_at                  timestamptz,
-  admin_by                   text,
-  admin_at                   timestamptz,
-  reject_reason              text,
-  updated_by                 text,
-  reject_by                  text,
-  reject_at                  timestamptz,
-  resubmitted_at             timestamptz,
-  share_journal              text,
-  photo1                     text,
-  photo2                     text,
-  photo3                     text,
-  wounds                     text,
-  treatment_type             text,
-  treatment_places           text,
-  treatment_place_other      text,
-  treatment_by               text,
+  "injury_id"                  text,
+  "date"                       date,
+  "time"                       time,
+  "center_name"                text,
+  "affiliation_type"           text,
+  "affiliation_other"          text,
+  "district"                   text,
+  "recorder_name"              text,
+  "student_id"                 text,
+  "child_name"                 text,
+  "sex"                        text,
+  "age_years"                  text,
+  "age_months"                 text,
+  "edu_status"                 text,
+  "edu_grade"                  text,
+  "narrative"                  text,
+  "cause_object"               text,
+  "witness"                    text,
+  "place"                      text,
+  "place_other"                text,
+  "injury_types"               text,
+  "teacher_id"                 text,
+  "created_date"               date,
+  "notify_parent"              boolean,
+  "status"                     text,
+  "leader_by"                  text,
+  "leader_at"                  timestamptz,
+  "admin_by"                   text,
+  "admin_at"                   timestamptz,
+  "reject_reason"              text,
+  "updated_by"                 text,
+  "reject_by"                  text,
+  "reject_at"                  timestamptz,
+  "resubmitted_at"             timestamptz,
+  "share_journal"              text,
+  "photo1"                     text,
+  "photo2"                     text,
+  "photo3"                     text,
+  "wounds"                     text,
+  "treatment_type"             text,
+  "treatment_places"           text,
+  "treatment_place_other"      text,
+  "treatment_by"               text,
   -- CreatedAt, UpdatedAt: the sheet's own columns, carried by the
   -- reserved column of the same name below — same meaning, and never declared twice.
   created_at  timestamptz not null default now(),
   updated_at  timestamptz not null default now()
 );
-create unique index if not exists injury_reports_code_uq on injury_reports(tenant_id, injury_id);
+create unique index if not exists injury_reports_code_uq on injury_reports(tenant_id, "injury_id");
 create index if not exists injury_reports_tenant_ix on injury_reports(tenant_id);
 create index if not exists injury_reports_seq_ix on injury_reports(tenant_id, seq);
 alter table injury_reports enable row level security;
@@ -916,42 +905,42 @@ create table if not exists insurance_pchi (
   id          uuid primary key default gen_random_uuid(),
   seq         bigserial not null,
   tenant_id   uuid not null references tenant(id) on delete restrict,
-  insurance_id               text,
-  student_id                 text,
-  type                       text,
-  title                      text,
-  insured_name               text,
-  insured_middle_name        text,
-  insured_last_name          text,
-  gender                     text,
-  national_id                text,
-  passport                   text,
-  dob                        date,
-  member_status              text,
-  marital_status             text,
-  occupation                 text,
-  effective_date             date,
-  plan                       text,
-  mobile                     text,
-  email                      text,
-  bank_account_name          text,
-  bank_account_number        text,
-  employee_id                text,
-  beneficiary_name           text,
-  beneficiary_last_name      text,
-  beneficiary_relationship   text,
-  remarks                    text,
-  company_name               text,
-  policy_no                  text,
-  filled_by                  text,
-  filled_by_role             text,
-  filled_date                date,
-  updated_by                 text,
-  updated_date               date,
+  "insurance_id"               text,
+  "student_id"                 text,
+  "type"                       text,
+  "title"                      text,
+  "insured_name"               text,
+  "insured_middle_name"        text,
+  "insured_last_name"          text,
+  "gender"                     text,
+  "national_id"                text,
+  "passport"                   text,
+  "dob"                        date,
+  "member_status"              text,
+  "marital_status"             text,
+  "occupation"                 text,
+  "effective_date"             date,
+  "plan"                       text,
+  "mobile"                     text,
+  "email"                      text,
+  "bank_account_name"          text,
+  "bank_account_number"        text,
+  "employee_id"                text,
+  "beneficiary_name"           text,
+  "beneficiary_last_name"      text,
+  "beneficiary_relationship"   text,
+  "remarks"                    text,
+  "company_name"               text,
+  "policy_no"                  text,
+  "filled_by"                  text,
+  "filled_by_role"             text,
+  "filled_date"                date,
+  "updated_by"                 text,
+  "updated_date"               date,
   created_at  timestamptz not null default now(),
   updated_at  timestamptz not null default now()
 );
-create unique index if not exists insurance_pchi_code_uq on insurance_pchi(tenant_id, insurance_id);
+create unique index if not exists insurance_pchi_code_uq on insurance_pchi(tenant_id, "insurance_id");
 create index if not exists insurance_pchi_tenant_ix on insurance_pchi(tenant_id);
 create index if not exists insurance_pchi_seq_ix on insurance_pchi(tenant_id, seq);
 alter table insurance_pchi enable row level security;
@@ -961,20 +950,20 @@ create table if not exists leave_request_std (
   id          uuid primary key default gen_random_uuid(),
   seq         bigserial not null,
   tenant_id   uuid not null references tenant(id) on delete restrict,
-  leave_id                   text,
-  student_id                 text,
-  date                       date,
-  reason                     text,
-  status                     text,
-  teacher_notified           text,
-  type                       text,
-  filed_by                   text,
-  date_to                    text,
-  group_id                   text,
+  "leave_id"                   text,
+  "student_id"                 text,
+  "date"                       date,
+  "reason"                     text,
+  "status"                     text,
+  "teacher_notified"           text,
+  "type"                       text,
+  "filed_by"                   text,
+  "date_to"                    text,
+  "group_id"                   text,
   created_at  timestamptz not null default now(),
   updated_at  timestamptz not null default now()
 );
-create unique index if not exists leave_request_std_code_uq on leave_request_std(tenant_id, leave_id);
+create unique index if not exists leave_request_std_code_uq on leave_request_std(tenant_id, "leave_id");
 create index if not exists leave_request_std_tenant_ix on leave_request_std(tenant_id);
 create index if not exists leave_request_std_seq_ix on leave_request_std(tenant_id, seq);
 alter table leave_request_std enable row level security;
@@ -984,13 +973,12 @@ create table if not exists line_recipients (
   id          uuid primary key default gen_random_uuid(),
   seq         bigserial not null,
   tenant_id   uuid not null references tenant(id) on delete restrict,
-  topic                      text,
-  staff_id                   text,
-  enabled                    boolean,
+  "topic"                      text,
+  "staff_id"                   text,
+  "enabled"                    boolean,
   created_at  timestamptz not null default now(),
   updated_at  timestamptz not null default now()
 );
-create unique index if not exists line_recipients_code_uq on line_recipients(tenant_id, staff_id);
 create index if not exists line_recipients_tenant_ix on line_recipients(tenant_id);
 create index if not exists line_recipients_seq_ix on line_recipients(tenant_id, seq);
 alter table line_recipients enable row level security;
@@ -1000,24 +988,31 @@ create table if not exists ot_daily (
   id          uuid primary key default gen_random_uuid(),
   seq         bigserial not null,
   tenant_id   uuid not null references tenant(id) on delete restrict,
-  otid                       text,
-  date                       date,
-  student_id                 text,
-  pickup_time                time,
-  plan_end                   text,
-  late_minutes               numeric,
-  hours                      numeric,
-  amount                     numeric(12,2),
-  status                     text,
-  slip_ref                   text,
-  slip_amount                numeric(12,2),
-  payment_method             text,
-  transaction_date           date,
-  paid_date                  date,
+  "otid"                       text,
+  "date"                       date,
+  "student_id"                 text,
+  "pickup_time"                time,
+  "plan_end"                   text,
+  "late_minutes"               numeric,
+  "hours"                      numeric,
+  "amount"                     numeric(12,2),
+  "status"                     text,
+  "slip_ref"                   text,
+  "slip_amount"                numeric(12,2),
+  "payment_method"             text,
+  "transaction_date"           date,
+  "paid_date"                  date,
+  "full_amount"                numeric(12,2),
+  "discount"                   numeric(12,2),
+  "discount_reason"            text,
+  "discount_by"                text,
+  "discount_at"                timestamptz,
+  "cancelled_by"               text,
+  "cancel_note"                text,
   created_at  timestamptz not null default now(),
   updated_at  timestamptz not null default now()
 );
-create unique index if not exists ot_daily_code_uq on ot_daily(tenant_id, otid);
+create unique index if not exists ot_daily_code_uq on ot_daily(tenant_id, "otid");
 create index if not exists ot_daily_tenant_ix on ot_daily(tenant_id);
 create index if not exists ot_daily_seq_ix on ot_daily(tenant_id, seq);
 alter table ot_daily enable row level security;
@@ -1027,30 +1022,30 @@ create table if not exists parents (
   id          uuid primary key default gen_random_uuid(),
   seq         bigserial not null,
   tenant_id   uuid not null references tenant(id) on delete restrict,
-  parent_id                  text,
-  national_id                text,
-  name                       text,
-  name_en                    text,
-  relationship               text,
-  phone                      text,
-  occupation                 text,
-  workplace                  text,
-  office_phone               text,
-  line_uid                   text,
-  student_id                 text,
-  address                    text,
-  photo                      text,
-  register_photo_url         text,
-  nickname                   text,
-  nickname_en                text,
-  title                      text,
-  line_picture_url           text,
-  email                      text,
-  google_sub                 text,
+  "parent_id"                  text,
+  "national_id"                text,
+  "name"                       text,
+  "name_en"                    text,
+  "relationship"               text,
+  "phone"                      text,
+  "occupation"                 text,
+  "workplace"                  text,
+  "office_phone"               text,
+  "line_uid"                   text,
+  "student_id"                 text,
+  "address"                    text,
+  "photo"                      text,
+  "register_photo_url"         text,
+  "nickname"                   text,
+  "nickname_en"                text,
+  "title"                      text,
+  "line_picture_url"           text,
+  "email"                      text,
+  "google_sub"                 text,
   created_at  timestamptz not null default now(),
   updated_at  timestamptz not null default now()
 );
-create unique index if not exists parents_code_uq on parents(tenant_id, parent_id);
+create unique index if not exists parents_code_uq on parents(tenant_id, "parent_id");
 create index if not exists parents_tenant_ix on parents(tenant_id);
 create index if not exists parents_seq_ix on parents(tenant_id, seq);
 alter table parents enable row level security;
@@ -1060,27 +1055,27 @@ create table if not exists payment_slips (
   id          uuid primary key default gen_random_uuid(),
   seq         bigserial not null,
   tenant_id   uuid not null references tenant(id) on delete restrict,
-  slip_id                    text,
-  ref_kind                   text,
-  ref_id                     text,
-  student_id                 text,
-  amount                     numeric(12,2),
-  url                        text,
-  file_id                    text,
-  verified                   boolean,
-  trans_ref                  text,
-  receiver                   text,
-  submitted_date             date,
-  status                     text,
-  slip_group                 text,
-  trans_date                 date,
-  trans_time                 time,
-  sender                     text,
-  method                     text,
+  "slip_id"                    text,
+  "ref_kind"                   text,
+  "ref_id"                     text,
+  "student_id"                 text,
+  "amount"                     numeric(12,2),
+  "url"                        text,
+  "file_id"                    text,
+  "verified"                   boolean,
+  "trans_ref"                  text,
+  "receiver"                   text,
+  "submitted_date"             date,
+  "status"                     text,
+  "slip_group"                 text,
+  "trans_date"                 date,
+  "trans_time"                 time,
+  "sender"                     text,
+  "method"                     text,
   created_at  timestamptz not null default now(),
   updated_at  timestamptz not null default now()
 );
-create unique index if not exists payment_slips_code_uq on payment_slips(tenant_id, slip_id);
+create unique index if not exists payment_slips_code_uq on payment_slips(tenant_id, "slip_id");
 create index if not exists payment_slips_tenant_ix on payment_slips(tenant_id);
 create index if not exists payment_slips_seq_ix on payment_slips(tenant_id, seq);
 alter table payment_slips enable row level security;
@@ -1090,21 +1085,21 @@ create table if not exists perf_log (
   id          uuid primary key default gen_random_uuid(),
   seq         bigserial not null,
   tenant_id   uuid not null references tenant(id) on delete restrict,
-  ts                         timestamptz,
-  sid                        text,
-  role                       text,
-  type                       text,
-  action                     text,
-  ms                         numeric,
-  ok                         text,
-  code                       text,
-  batch                      numeric,
-  screen                     text,
-  dev                        text,
-  net                        text,
-  pwa                        text,
-  ver                        text,
-  os                         text,
+  "ts"                         timestamptz,
+  "sid"                        text,
+  "role"                       text,
+  "type"                       text,
+  "action"                     text,
+  "ms"                         numeric,
+  "ok"                         text,
+  "code"                       text,
+  "batch"                      numeric,
+  "screen"                     text,
+  "dev"                        text,
+  "net"                        text,
+  "pwa"                        text,
+  "ver"                        text,
+  "os"                         text,
   created_at  timestamptz not null default now(),
   updated_at  timestamptz not null default now()
 );
@@ -1117,14 +1112,13 @@ create table if not exists pickup_persons (
   id          uuid primary key default gen_random_uuid(),
   seq         bigserial not null,
   tenant_id   uuid not null references tenant(id) on delete restrict,
-  student_id                 text,
-  name                       text,
-  phone                      text,
-  relation                   text,
+  "student_id"                 text,
+  "name"                       text,
+  "phone"                      text,
+  "relation"                   text,
   created_at  timestamptz not null default now(),
   updated_at  timestamptz not null default now()
 );
-create unique index if not exists pickup_persons_code_uq on pickup_persons(tenant_id, student_id);
 create index if not exists pickup_persons_tenant_ix on pickup_persons(tenant_id);
 create index if not exists pickup_persons_seq_ix on pickup_persons(tenant_id, seq);
 alter table pickup_persons enable row level security;
@@ -1134,25 +1128,25 @@ create table if not exists prepayments (
   id          uuid primary key default gen_random_uuid(),
   seq         bigserial not null,
   tenant_id   uuid not null references tenant(id) on delete restrict,
-  prepay_id                  text,
-  student_id                 text,
-  months                     numeric,
-  discount                   numeric(12,2),
-  gross                      numeric(12,2),
-  amount                     numeric(12,2),
-  covered                    text,
-  status                     text,
-  slip_url                   text,
-  slip_amount                numeric(12,2),
-  verified_status            boolean,
-  date                       date,
-  payment_method             text,
-  transaction_date           date,
-  paid_date                  date,
+  "prepay_id"                  text,
+  "student_id"                 text,
+  "months"                     numeric,
+  "discount"                   numeric(12,2),
+  "gross"                      numeric(12,2),
+  "amount"                     numeric(12,2),
+  "covered"                    text,
+  "status"                     text,
+  "slip_url"                   text,
+  "slip_amount"                numeric(12,2),
+  "verified_status"            boolean,
+  "date"                       date,
+  "payment_method"             text,
+  "transaction_date"           date,
+  "paid_date"                  date,
   created_at  timestamptz not null default now(),
   updated_at  timestamptz not null default now()
 );
-create unique index if not exists prepayments_code_uq on prepayments(tenant_id, prepay_id);
+create unique index if not exists prepayments_code_uq on prepayments(tenant_id, "prepay_id");
 create index if not exists prepayments_tenant_ix on prepayments(tenant_id);
 create index if not exists prepayments_seq_ix on prepayments(tenant_id, seq);
 alter table prepayments enable row level security;
@@ -1162,8 +1156,8 @@ create table if not exists school_config (
   id          uuid primary key default gen_random_uuid(),
   seq         bigserial not null,
   tenant_id   uuid not null references tenant(id) on delete restrict,
-  key                        text,
-  value                      text,
+  "key"                        text,
+  "value"                      text,
   created_at  timestamptz not null default now(),
   updated_at  timestamptz not null default now()
 );
@@ -1176,16 +1170,16 @@ create table if not exists student_charges (
   id          uuid primary key default gen_random_uuid(),
   seq         bigserial not null,
   tenant_id   uuid not null references tenant(id) on delete restrict,
-  charge_id                  text,
-  student_id                 text,
-  month                      text,
-  label                      text,
-  amount                     numeric(12,2),
-  status                     text,
+  "charge_id"                  text,
+  "student_id"                 text,
+  "month"                      text,
+  "label"                      text,
+  "amount"                     numeric(12,2),
+  "status"                     text,
   created_at  timestamptz not null default now(),
   updated_at  timestamptz not null default now()
 );
-create unique index if not exists student_charges_code_uq on student_charges(tenant_id, student_id);
+create unique index if not exists student_charges_code_uq on student_charges(tenant_id, "charge_id");
 create index if not exists student_charges_tenant_ix on student_charges(tenant_id);
 create index if not exists student_charges_seq_ix on student_charges(tenant_id, seq);
 alter table student_charges enable row level security;
@@ -1195,22 +1189,22 @@ create table if not exists student_terms (
   id          uuid primary key default gen_random_uuid(),
   seq         bigserial not null,
   tenant_id   uuid not null references tenant(id) on delete restrict,
-  term_id                    text,
-  student_id                 text,
-  kind                       text,
-  from                       text,
-  to                         text,
-  class                      text,
-  status                     text,
-  note                       text,
-  created_by                 text,
-  updated_by                 text,
+  "term_id"                    text,
+  "student_id"                 text,
+  "kind"                       text,
+  "from"                       date,
+  "to"                         date,
+  "class"                      text,
+  "status"                     text,
+  "note"                       text,
+  "created_by"                 text,
+  "updated_by"                 text,
   -- CreatedAt, UpdatedAt: the sheet's own columns, carried by the
   -- reserved column of the same name below — same meaning, and never declared twice.
   created_at  timestamptz not null default now(),
   updated_at  timestamptz not null default now()
 );
-create unique index if not exists student_terms_code_uq on student_terms(tenant_id, student_id);
+create unique index if not exists student_terms_code_uq on student_terms(tenant_id, "term_id");
 create index if not exists student_terms_tenant_ix on student_terms(tenant_id);
 create index if not exists student_terms_seq_ix on student_terms(tenant_id, seq);
 alter table student_terms enable row level security;
@@ -1220,77 +1214,77 @@ create table if not exists students (
   id          uuid primary key default gen_random_uuid(),
   seq         bigserial not null,
   tenant_id   uuid not null references tenant(id) on delete restrict,
-  student_id                 text,
-  national_id                text,
-  name                       text,
-  name_en                    text,
-  nickname                   text,
-  nickname_en                text,
-  gender                     text,
-  dob                        date,
-  class                      text,
-  parent_id                  text,
-  plan                       text,
-  weight                     numeric,
-  height                     numeric,
-  photo                      text,
-  blood_type                 text,
-  rh                         text,
-  allergy                    text,
-  vaccine                    text,
-  medical_history            text,
-  race                       text,
-  nationality                text,
-  religion                   text,
-  emergency_contact          text,
-  address                    text,
-  enroll_date                date,
-  last_growth_update         text,
-  insurance_has              text,
-  insurance_policy_no        text,
-  insurance_company          text,
-  insurance_expiry           date,
-  insurance_card_image       text,
-  insurance_plan             text,
-  insurance_type             text,
-  insured_name               text,
-  insurance_owner            text,
-  insurance_status           text,
-  insurance_start            text,
-  insurance_sum              numeric(12,2),
-  insurance_benefits         text,
-  insurance_hotline          text,
-  drive_folder_url           text,
-  withdraw_reason            text,
-  withdraw_detail            text,
-  withdraw_date              date,
-  withdraw_by                text,
-  end_date                   date,
-  end_reason                 text,
-  end_remark                 text,
-  cert_issued_date           date,
-  cert_issued_at             timestamptz,
-  status                     text,
-  created_date               date,
-  otrate                     numeric(12,2),
-  billing_day                numeric,
-  geo_exempt                 boolean,
-  off_days                   text,
-  start_time                 time,
-  end_time                   time,
-  otgrace_until              text,
-  rate_note                  text,
-  discount_amount            numeric(12,2),
-  discount_unit              text,
-  prorate_mode               text,
-  prorate_amount             numeric(12,2),
-  pause_from                 text,
-  pause_to                   text,
-  pause_reason               text,
+  "student_id"                 text,
+  "national_id"                text,
+  "name"                       text,
+  "name_en"                    text,
+  "nickname"                   text,
+  "nickname_en"                text,
+  "gender"                     text,
+  "dob"                        date,
+  "class"                      text,
+  "parent_id"                  text,
+  "plan"                       text,
+  "weight"                     numeric,
+  "height"                     numeric,
+  "photo"                      text,
+  "blood_type"                 text,
+  "rh"                         text,
+  "allergy"                    text,
+  "vaccine"                    text,
+  "medical_history"            text,
+  "race"                       text,
+  "nationality"                text,
+  "religion"                   text,
+  "emergency_contact"          text,
+  "address"                    text,
+  "enroll_date"                date,
+  "last_growth_update"         text,
+  "insurance_has"              text,
+  "insurance_policy_no"        text,
+  "insurance_company"          text,
+  "insurance_expiry"           date,
+  "insurance_card_image"       text,
+  "insurance_plan"             text,
+  "insurance_type"             text,
+  "insured_name"               text,
+  "insurance_owner"            text,
+  "insurance_status"           text,
+  "insurance_start"            text,
+  "insurance_sum"              text,
+  "insurance_benefits"         text,
+  "insurance_hotline"          text,
+  "drive_folder_url"           text,
+  "withdraw_reason"            text,
+  "withdraw_detail"            text,
+  "withdraw_date"              date,
+  "withdraw_by"                text,
+  "end_date"                   date,
+  "end_reason"                 text,
+  "end_remark"                 text,
+  "cert_issued_date"           date,
+  "cert_issued_at"             timestamptz,
+  "status"                     text,
+  "created_date"               date,
+  "otrate"                     numeric(12,2),
+  "billing_day"                numeric,
+  "geo_exempt"                 boolean,
+  "off_days"                   text,
+  "start_time"                 time,
+  "end_time"                   time,
+  "otgrace_until"              text,
+  "rate_note"                  text,
+  "discount_amount"            numeric(12,2),
+  "discount_unit"              text,
+  "prorate_mode"               text,
+  "prorate_amount"             numeric(12,2),
+  "pause_from"                 text,
+  "pause_to"                   text,
+  "pause_reason"               text,
   created_at  timestamptz not null default now(),
   updated_at  timestamptz not null default now()
 );
-create unique index if not exists students_code_uq on students(tenant_id, student_id);
+create unique index if not exists students_code_uq on students(tenant_id, "student_id");
 create index if not exists students_tenant_ix on students(tenant_id);
 create index if not exists students_seq_ix on students(tenant_id, seq);
 alter table students enable row level security;
@@ -1300,15 +1294,15 @@ create table if not exists survey_responses (
   id          uuid primary key default gen_random_uuid(),
   seq         bigserial not null,
   tenant_id   uuid not null references tenant(id) on delete restrict,
-  response_id                text,
-  survey_id                  text,
-  respondent_id              text,
-  answer                     text,
-  date                       date,
+  "response_id"                text,
+  "survey_id"                  text,
+  "respondent_id"              text,
+  "answer"                     text,
+  "date"                       date,
   created_at  timestamptz not null default now(),
   updated_at  timestamptz not null default now()
 );
-create unique index if not exists survey_responses_code_uq on survey_responses(tenant_id, survey_id);
+create unique index if not exists survey_responses_code_uq on survey_responses(tenant_id, "response_id");
 create index if not exists survey_responses_tenant_ix on survey_responses(tenant_id);
 create index if not exists survey_responses_seq_ix on survey_responses(tenant_id, seq);
 alter table survey_responses enable row level security;
@@ -1318,18 +1312,18 @@ create table if not exists surveys (
   id          uuid primary key default gen_random_uuid(),
   seq         bigserial not null,
   tenant_id   uuid not null references tenant(id) on delete restrict,
-  survey_id                  text,
-  title                      text,
-  question                   text,
-  options                    text,
-  target                     text,
-  start_date                 date,
-  end_date                   date,
-  status                     text,
+  "survey_id"                  text,
+  "title"                      text,
+  "question"                   text,
+  "options"                    text,
+  "target"                     text,
+  "start_date"                 date,
+  "end_date"                   date,
+  "status"                     text,
   created_at  timestamptz not null default now(),
   updated_at  timestamptz not null default now()
 );
-create unique index if not exists surveys_code_uq on surveys(tenant_id, survey_id);
+create unique index if not exists surveys_code_uq on surveys(tenant_id, "survey_id");
 create index if not exists surveys_tenant_ix on surveys(tenant_id);
 create index if not exists surveys_seq_ix on surveys(tenant_id, seq);
 alter table surveys enable row level security;
@@ -1339,14 +1333,13 @@ create table if not exists user_links (
   id          uuid primary key default gen_random_uuid(),
   seq         bigserial not null,
   tenant_id   uuid not null references tenant(id) on delete restrict,
-  user_uid                   text,
-  student_id                 text,
-  verified_by                boolean,
-  date                       date,
+  "user_uid"                   text,
+  "student_id"                 text,
+  "verified_by"                boolean,
+  "date"                       date,
   created_at  timestamptz not null default now(),
   updated_at  timestamptz not null default now()
 );
-create unique index if not exists user_links_code_uq on user_links(tenant_id, user_uid);
 create index if not exists user_links_tenant_ix on user_links(tenant_id);
 create index if not exists user_links_seq_ix on user_links(tenant_id, seq);
 alter table user_links enable row level security;
@@ -1356,19 +1349,19 @@ create table if not exists users (
   id          uuid primary key default gen_random_uuid(),
   seq         bigserial not null,
   tenant_id   uuid not null references tenant(id) on delete restrict,
-  user_id                    text,
-  line_uid                   text,
-  role                       text,
-  linked_id                  text,
-  password_hash              text,
-  created_date               date,
-  status                     text,
-  email                      text,
-  google_sub                 text,
+  "user_id"                    text,
+  "line_uid"                   text,
+  "role"                       text,
+  "linked_id"                  text,
+  "password_hash"              text,
+  "created_date"               date,
+  "status"                     text,
+  "email"                      text,
+  "google_sub"                 text,
   created_at  timestamptz not null default now(),
   updated_at  timestamptz not null default now()
 );
-create unique index if not exists users_code_uq on users(tenant_id, user_id);
+create unique index if not exists users_code_uq on users(tenant_id, "user_id");
 create index if not exists users_tenant_ix on users(tenant_id);
 create index if not exists users_seq_ix on users(tenant_id, seq);
 alter table users enable row level security;
@@ -1378,15 +1371,14 @@ create table if not exists vaccine_records (
   id          uuid primary key default gen_random_uuid(),
   seq         bigserial not null,
   tenant_id   uuid not null references tenant(id) on delete restrict,
-  student_id                 text,
-  vaccine_key                text,
-  vaccine_name               text,
-  dose_date                  date,
-  note                       text,
+  "student_id"                 text,
+  "vaccine_key"                text,
+  "vaccine_name"               text,
+  "dose_date"                  date,
+  "note"                       text,
   created_at  timestamptz not null default now(),
   updated_at  timestamptz not null default now()
 );
-create unique index if not exists vaccine_records_code_uq on vaccine_records(tenant_id, student_id);
 create index if not exists vaccine_records_tenant_ix on vaccine_records(tenant_id);
 create index if not exists vaccine_records_seq_ix on vaccine_records(tenant_id, seq);
 alter table vaccine_records enable row level security;
@@ -1396,21 +1388,21 @@ create table if not exists withdrawals (
   id          uuid primary key default gen_random_uuid(),
   seq         bigserial not null,
   tenant_id   uuid not null references tenant(id) on delete restrict,
-  withdraw_id                text,
-  student_id                 text,
-  requested_by               text,
-  requester_role             text,
-  reason                     text,
-  detail                     text,
-  effective_date             date,
-  status                     text,
-  processed_by               text,
-  processed_date             date,
-  created_date               date,
+  "withdraw_id"                text,
+  "student_id"                 text,
+  "requested_by"               text,
+  "requester_role"             text,
+  "reason"                     text,
+  "detail"                     text,
+  "effective_date"             date,
+  "status"                     text,
+  "processed_by"               text,
+  "processed_date"             date,
+  "created_date"               date,
   created_at  timestamptz not null default now(),
   updated_at  timestamptz not null default now()
 );
-create unique index if not exists withdrawals_code_uq on withdrawals(tenant_id, withdraw_id);
+create unique index if not exists withdrawals_code_uq on withdrawals(tenant_id, "withdraw_id");
 create index if not exists withdrawals_tenant_ix on withdrawals(tenant_id);
 create index if not exists withdrawals_seq_ix on withdrawals(tenant_id, seq);
 alter table withdrawals enable row level security;
@@ -1422,6 +1414,7 @@ alter table withdrawals enable row level security;
 -- of this by design and must never leave the server.
 do $$ declare t text; begin
   for t in select tablename from pg_tables where schemaname = 'public' and tablename <> 'tenant' loop
+    execute format($f$drop policy if exists tenant_isolation on %I$f$, t);
     execute format($f$
       create policy tenant_isolation on %I
         using (tenant_id = (auth.jwt() ->> 'tenant_id')::uuid)

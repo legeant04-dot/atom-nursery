@@ -63,7 +63,7 @@ function school() {
       { StudentID: 'S-DRAFT',  Date: TODAY, TeacherID: 'T1', Status: 'DRAFT', Mood: 'ยิ้มแย้ม',
         HealthDetail: 'สบายดี', Meals: '{"lunch":"ข้าวผัด"}', Photos: 'p1.jpg', Theme: 'ผีเสื้อ' },
       { StudentID: 'S-DRAFT2', Date: TODAY, TeacherID: 'T1', Status: 'DRAFT', Mood: 'ร่าเริง', HealthDetail: 'ปกติ' },
-      { StudentID: 'S-SENT',   Date: TODAY, TeacherID: 'T1', Status: 'SUBMITTED', SubmittedAt: TODAY + ' 16:00', Mood: 'ยิ้มแย้ม' },
+      { StudentID: 'S-SENT',   Date: TODAY, TeacherID: 'T1', Status: 'SUBMITTED', SubmittedAt: TODAY + ' 16:00:00', Mood: 'ยิ้มแย้ม' },
       { StudentID: 'S-NOMOOD', Date: TODAY, TeacherID: 'T1', Status: 'DRAFT', Mood: '', HealthDetail: 'ยังไม่ได้เลือก' },
       { StudentID: 'S-OTHER',  Date: TODAY, TeacherID: 'T2', Status: 'DRAFT', Mood: 'ยิ้มแย้ม' }
     ],
@@ -86,8 +86,13 @@ console.log('\n1) 🔴 sending a report must never rewrite it');
   /* 🔴 EVERY FIELD THE TEACHER WROTE IS STILL THERE. This is the whole suite in one assertion: the
    * loop-over-submitJournal version would have left all five of these empty, sent the empty report
    * to the family, and thrown nothing. */
+  /* Compared by VALUE, not by identity. `Meals` holds '{"lunch":…}', and both halves of the engine
+   * parse a cell that looks like JSON into an object — decodeCell_ on Sheets, decode_ on Postgres —
+   * so on real data this is an object, and `!==` on two objects is true however untouched they are.
+   * It passed only because an in-memory fixture leaves the string a string. (Phase 2.3, 2026-10-13) */
+  const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
   eq('🔴 ...and NOTHING she wrote was touched',
-    ['Mood', 'HealthDetail', 'Meals', 'Photos', 'Theme'].filter(k => after[k] !== before[k]), []);
+    ['Mood', 'HealthDetail', 'Meals', 'Photos', 'Theme'].filter(k => !same(after[k], before[k])), []);
   eq('...the author is unchanged too', after.TeacherID, before.TeacherID);
 }
 
@@ -103,7 +108,7 @@ console.log('\n2) 🔴 what it refuses, per child, without taking the others dow
     ['S-NOMOOD:MISSING_MOOD', 'S-NONE:NO_JOURNAL', 'S-SENT:ALREADY_SENT']);
   /* 🔴 THE ONE ALREADY SENT IS NOT RE-SENT. Its SubmittedAt must be the original — a second send
    * would push the family a second LINE message about the same afternoon. */
-  eq('🔴 an already-sent report keeps its original time', jOf(M, 'S-SENT').SubmittedAt, TODAY + ' 16:00');
+  eq('🔴 an already-sent report keeps its original time', jOf(M, 'S-SENT').SubmittedAt, TODAY + ' 16:00:00');
   eq('...and a draft with no mood stays a draft', jOf(M, 'S-NOMOOD').Status, 'DRAFT');
 }
 {

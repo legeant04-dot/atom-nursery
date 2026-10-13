@@ -58,6 +58,19 @@ async function connect() {
     { ssl: { rejectUnauthorized: false }, connectionTimeoutMillis: 15000 }));
   try { await client.connect(); }
   catch (e) { console.log('\n🔴 เชื่อมต่อไม่สำเร็จ: ' + scrub(e.message) + '\n'); process.exit(1); }
+  /* 🔴 THE SCHOOL'S CLOCK, ON EVERY CONNECTION (Phase 2.3, 2026-10-13).
+   *
+   * A `timestamptz` written as the bare text '2026-10-13 16:00' is interpreted in the SESSION's
+   * timezone, and the server's is UTC. So a journal sent at 16:00 was stored as 16:00 UTC and read
+   * back as 23:00 — every SubmittedAt, every approval time, every audit line, seven hours out, and
+   * nothing anywhere would have thrown. A suite asserting that a sent report keeps its own time is
+   * what caught it.
+   *
+   * This project has paid for this exact trap twice already, in payslip months and in leave counts,
+   * and the note in pg_engine's decode_ says so. The READ side was fixed there by converting in the
+   * school's zone; this is the write side, and it belongs on the connection so that no tool can be
+   * written later that forgets it. */
+  try { await client.query("set time zone 'Asia/Bangkok'"); } catch (e) {}
   return { client, scrub, env };
 }
 

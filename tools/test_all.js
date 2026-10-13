@@ -59,7 +59,11 @@ if (!want.length) {
  * silently stops running is worse than one that fails, and nothing would ever have said so.
  *
  * The list is short and it is the truth: these three reach the network. */
-const DB_SUITES = new Set(['test_pg_engine.js', 'pg_rls_spike.js', 'test_pg_load.js']);
+const DB_SUITES = new Set(['test_pg_engine.js', 'pg_rls_spike.js', 'test_pg_load.js',
+  /* test_all_pg.js is Phase 2.3 — it re-runs every suite below with its data coming out of
+   * Postgres, so letting the ordinary run pick it up would make the ordinary run take a quarter of
+   * an hour, need credentials, and recurse. Run it by name: node tools/test_all_pg.js */
+  'test_all_pg.js']);
 const NEEDS_DB = { test: f => DB_SUITES.has(f) };
 const suites = fs.readdirSync(path.join(ROOT, 'tools'))
   .filter(f => /^test_.*\.js$/.test(f) && f !== 'test_all.js')
