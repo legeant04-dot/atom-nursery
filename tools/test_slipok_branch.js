@@ -197,8 +197,13 @@ console.log('\n10) The speed report can leave the phone');
   ok_('it copies to the clipboard', /clipboard\.writeText/.test(perfCopy));
   ok_('with a fallback for browsers that block the clipboard', /<textarea readonly/.test(perfCopy));
   // v255: two lines that stop the report lying to us
-  ok_('it says when the window is shorter than it claims', /A_perfCopy[\s\S]{0,1200}'WINDOW: capped at '/.test(app));
-  ok_('...and separates refusals from failures', /A_perfCopy[\s\S]{0,1600}'REFUSED \(working as intended\): '/.test(app));
+  /* Sliced to the FUNCTION rather than to a character distance from its name. The distance bound
+   * broke the moment a line was added to the report (2026-10-13: the round-trip figure), reporting
+   * a fault in something it had not looked at — the same brittleness this file's own §9 comment
+   * warns about, and the fourth instance in two days. */
+  const perfCopyFn = app.slice(app.indexOf('window.A_perfCopy='), app.indexOf('window.A_perfClear='));
+  ok_('it says when the window is shorter than it claims', /'WINDOW: capped at '/.test(perfCopyFn));
+  ok_('...and separates refusals from failures', /'REFUSED \(working as intended\): '/.test(perfCopyFn));
   /* THE FUNCTION, not a character count. This was `A_perfCopy[\s\S]{0,3000}` and the report keeps
    * learning to say more — v255 added WINDOW and REFUSED, v256 calls-per-visit, v313 the requests /
    * actions split — so every time it grew, the last heading fell out of the window and this went red
