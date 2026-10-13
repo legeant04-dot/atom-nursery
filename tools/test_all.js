@@ -63,7 +63,9 @@ const DB_SUITES = new Set(['test_pg_engine.js', 'pg_rls_spike.js', 'test_pg_load
   /* test_all_pg.js is Phase 2.3 — it re-runs every suite below with its data coming out of
    * Postgres, so letting the ordinary run pick it up would make the ordinary run take a quarter of
    * an hour, need credentials, and recurse. Run it by name: node tools/test_all_pg.js */
-  'test_all_pg.js']);
+  'test_all_pg.js',
+  // Phase 2.4 — the diff is proved offline in test_pg_sync.js; this one applies it for real
+  'test_pg_sync_live.js']);
 const NEEDS_DB = { test: f => DB_SUITES.has(f) };
 const suites = fs.readdirSync(path.join(ROOT, 'tools'))
   .filter(f => /^test_.*\.js$/.test(f) && f !== 'test_all.js')
