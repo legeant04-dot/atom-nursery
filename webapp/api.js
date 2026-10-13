@@ -300,6 +300,23 @@ window.CONFIG = { MODE: 'gas', GAS_URL: 'https://script.google.com/macros/s/AKfy
       if (e && e.code === 'LOST_REQUEST') throw e;
       const looksHTML = /^\s*<(!doctype|html)/i.test(text);
       try { console.error('postGas non-JSON', body && body.action, r.status, text.slice(0, 300)); } catch (x) {}
+      /* RECORD THE THREE FACTS, exactly as the lost-reply branch above does — because the first
+       * guess about this one has already been tested and was wrong.
+       *
+       * HTTP 404 reached four people on the home screen and seven more elsewhere in the 07–13/10
+       * window, and the obvious explanation was a deploy: Apps Script answers 404 for the seconds
+       * it takes to swap versions. The git log says otherwise — there was no deploy on 2026-10-08,
+       * the day the slowest of them (145.2s, then 404) happened. So the cause is unknown, and the
+       * way that stops being true is the way it stopped being true for lostReply: write down the
+       * status, whether a REDIRECT was followed, and where the request finally landed. If these are
+       * googleusercontent with a redirect, it is the same 302 mechanism in another costume. */
+      if ((body && body.action) !== 'perfLog') {
+        let diag = '';
+        try { diag = ' http=' + r.status + (r.redirected ? ' redirected' : '') +
+          ' via=' + String(r.url || '').replace(/^https?:\/\//, '').split('/')[0] +
+          (looksHTML ? ' html' : '') + ' attempt=' + attempt; } catch (x) {}
+        try { PERF.err('badReply', ((body && body.action) || '?') + diag); } catch (x) {}
+      }
       // a batch is retried only when every call in it is safe to repeat
       if (canRepeat(body) && attempt < 2) { await sleep(400 * (attempt + 1)); return postGas(body, attempt + 1, resumes); }
       const err = new Error(looksHTML

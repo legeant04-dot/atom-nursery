@@ -131,7 +131,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.436'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.437'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -838,7 +838,12 @@
     const has=re=>re.test(s);
     // 'payslip' must come BEFORE the keyword fallback: "สลิป" in the text matches /สลิป|slip/ below
     // and would send a teacher to 'verify', which is an Admin screen — i.e. nowhere for her.
-    let key = cat==='comment'?'journal':cat==='leave'?'leave':cat==='ot'?'ot':cat==='registration'?'register':cat==='emergency'?'injury':cat==='payslip'?'payslip':cat==='payment'?'verify':cat==='digest'?'home':'';
+    /* 'system' is the SlipOK watch, and it is listed BEFORE the keyword fallback for the same reason
+       'payslip' is: its text says "สลิป", which the fallback below reads as a payment and would send
+       the admin to the verification queue — a screen full of parents' slips, and nothing at all
+       about the thing that is expiring. It opens the SlipOK check instead, which is where the answer
+       and the renew instructions are. */
+    let key = cat==='comment'?'journal':cat==='leave'?'leave':cat==='ot'?'ot':cat==='registration'?'register':cat==='emergency'?'injury':cat==='payslip'?'payslip':cat==='system'?'slipok':cat==='payment'?'verify':cat==='digest'?'home':'';
     if(!key){ if(has(/ความคิดเห็น|คอมเมนต์|comment|ตอบกลับ|reply|บันทึกของ|รายงาน/i))key='journal';
       else if(has(/แจ้งลา|ลาป่วย|ลากิจ|พักร้อน|\bลา\b|leave/i))key='leave';
       else if(has(/OT|โอที|รับช้า|ล่วงเวลา/i))key='ot';
@@ -847,9 +852,12 @@
       else if(has(/สรุปประจำวัน|digest/i))key='home'; }
     if(!key) return null;
     // map the logical key to the actual screen for this role
-    const M={ Admin:{journal:()=>A_journals&&A_journals(), leave:()=>GO('leaves'), ot:()=>GO('manage'), register:()=>GO('manage'), verify:()=>GO('verify'), injury:()=>GO('injuries'), home:()=>GO('home'), payslip:()=>GO('payroll')},
-      Teacher:{journal:()=>GO('class'), leave:()=>GO('leave'), ot:()=>GO('slip'), register:null, verify:null, injury:()=>GO('injury'), home:()=>GO('home'), payslip:()=>GO('slip')},
-      Parent:{journal:()=>GO('journal'), leave:()=>GO('home'), ot:()=>GO('payment'), register:null, verify:()=>GO('payment'), injury:()=>GO('home'), home:()=>GO('home'), payslip:null} };
+    /* `slipok` is Admin-only on purpose: renewing the package is an admin job and the screen behind
+       it is in ตั้งค่า. A teacher who somehow sees the row simply gets no destination, which is the
+       right outcome — a dead tap beats being dropped on a screen they cannot act on. */
+    const M={ Admin:{journal:()=>A_journals&&A_journals(), leave:()=>GO('leaves'), ot:()=>GO('manage'), register:()=>GO('manage'), verify:()=>GO('verify'), injury:()=>GO('injuries'), home:()=>GO('home'), payslip:()=>GO('payroll'), slipok:()=>window.A_slipDiag&&A_slipDiag()},
+      Teacher:{journal:()=>GO('class'), leave:()=>GO('leave'), ot:()=>GO('slip'), register:null, verify:null, injury:()=>GO('injury'), home:()=>GO('home'), payslip:()=>GO('slip'), slipok:null},
+      Parent:{journal:()=>GO('journal'), leave:()=>GO('home'), ot:()=>GO('payment'), register:null, verify:()=>GO('payment'), injury:()=>GO('home'), home:()=>GO('home'), payslip:null, slipok:null} };
     const fn=(M[role]||{})[key]; return fn||null; }
   window.NOTIF_TAP = (i)=>{ const n=(window._NOTIFS||[])[i]; if(!n)return; const go=notifTarget(n);
     NOTIF_CLOSE(); const m=document.querySelector('.modal'); if(m)m.remove();
@@ -1946,7 +1954,13 @@
       /* NAMED IN THE TELEMETRY, so the next report says which failure a parent actually hit instead
        * of leaving us to infer it. "It loops" covers two completely different faults — a hand-off
        * that never returns, and a token LINE refuses — and they need opposite fixes. */
-      try { window.__atomPerfErr && __atomPerfErr('lineHandoff', 'never returned; fails=' + liffFails()); } catch (e) {}
+      /* ...AND WHERE THEY WERE STANDING WHEN IT FAILED. "2 users x7" says a parent hit this seven
+       * times and nothing about whether the fix is ours. Inside the LINE app the hand-off is barely
+       * a hand-off (LINE is already signed in); in Safari it is a jump to another application that
+       * may never come back, which is the failure this screen was built for. Those two want
+       * opposite answers, and the report could not tell them apart. */
+      try { window.__atomPerfErr && __atomPerfErr('lineHandoff',
+        'never returned; fails=' + liffFails() + (inLineApp() ? '; inLINE' : '; browser')); } catch (e) {}
       _liffBusy = false; setLiffPending(false); signInStuckScreen();
     }).catch(() => { _liffBusy = false; setLiffPending(false); signInStuckScreen(); });
   }
@@ -2020,6 +2034,12 @@
         })
         .then(u => {
           setLiffPending(false); setLiffRetried(false);   // a sign-in that worked ends the retry
+          /* 🔴 DID THE PARENT EVER GET IN? The report counted the failures and never the recoveries,
+           * so "lineHandoff never returned, fails=7" read as somebody locked out of their child's
+           * account — when the stuck screen offers four ways through and most people take one. The
+           * difference between a crisis and a nuisance was not in the data at all. Marked as healed
+           * exactly like the silent re-login, so the next report can say which it is. */
+          try { if (liffFails() > 0 && window.__atomPerfMark) __atomPerfMark('healed', 'lineHandoff', 0); } catch (e) {}
           clearLiffFails();      // the hand-off DID work here — this device is not one of the bad ones
           if (!u || !u.role) { throw new Error(EN()?'Sign-in did not complete':'เข้าสู่ระบบไม่สำเร็จ กรุณาลองใหม่'); }
           if (u.role === 'guest') { PENDING_PROVIDER = 'LINE'; accountStage(); applyLangNow(); return; }  // unregistered → onboarding
@@ -13250,6 +13270,14 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
     if(d.truncated) L.push('WINDOW: capped at '+d.cap+' rows — this covers LESS than '+d.days+' days');
     L.push('calls='+d.calls+' sessions='+d.sessions+' perSession='+(d.perSession!=null?d.perSession:'?')
       +' p50='+ms(d.p50)+' p95='+ms(d.p95)+' fail='+d.failRate+'% cache='+d.cacheRate+'%');
+    /* 🔴 THE SAME FAILURES, COUNTED AS TIMES SOMEBODY SAW ONE.
+       `calls` and `fail%` are per ACTION, and the home screen sends ten actions in one request — so
+       one dead connection writes ten failures and the line above multiplies every incident by ten.
+       The 07–13/10 report showed it plainly: ten different routes, all with the same tallies
+       (OFFLINEx24,16,16,15,15,15,14,14,15,14), which is one screen failing about twenty times, not
+       ten broken routes. Both numbers are true; only this one is what a person experienced. */
+    if(d.trips!=null) L.push('REQUESTS (= ครั้งที่คนเห็นหน้าจอ 1 ครั้ง): '+d.trips
+      +' fail='+d.tripsFailed+' ('+d.tripFailRate+'%)  ← ตัวเลขฝั่งคน · บรรทัดบนเป็นฝั่งคำขอ');
     // refused ON PURPOSE (outside the geofence, already clocked in, a field left empty). Kept out of
     // fail% — it is the rule working, and mixed in it buried the failures that were ours.
     if(Number(d.refused)>0) L.push('REFUSED (working as intended): '+d.refused+' '
@@ -13363,6 +13391,10 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
       : ''));
     // OFFLINE never reached the server, so it is counted as a failure but kept out of every timing
     if(d.offline) L.push('OFFLINE (ไม่ถึงเซิร์ฟเวอร์ · ไม่นับในเวลา): '+d.offline);
+    /* Named, so it can never be silently large again. These rows sit on the counter's clamp — they
+       are the stopwatch giving up, not a duration — and they are now kept out of p50, p95 and the
+       slow list for the same reason OFFLINE already was. Still counted as failures. */
+    if(d.ceilinged) L.push('ตันที่เพดานตัวนับ ('+ms(d.ceilingMs||3600000)+' · ไม่ใช่เวลาจริง ไม่นับในเวลา): '+d.ceilinged);
     const txt=L.join('\n');
     try{ await navigator.clipboard.writeText(txt); toast(EN()?'Copied':'คัดลอกแล้ว'); return; }catch(e){}
     // Clipboard is blocked in plenty of in-app browsers — show it selectable instead of failing.

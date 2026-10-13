@@ -158,5 +158,45 @@ console.log('\n8) the reads that caused this are reads in the engine, not writes
   });
 }
 
+console.log('\n9) a reply we could not read records the same three facts');
+{
+  /* HTTP 404 reached four people on the home screen and seven more elsewhere in the 07–13/10
+   * window, the worst of them after a 145-second wait. The obvious explanation was a deploy —
+   * Apps Script answers 404 for the seconds it takes to swap versions — and that explanation has
+   * been TESTED AND IS WRONG: `git log` records no deploy at all on 2026-10-08, the day it
+   * happened. So the cause is unknown.
+   *
+   * The way that stops being true is the way it stopped being true for lostReply two sections up:
+   * write down the status, whether a REDIRECT was followed, and where the request finally landed,
+   * and let the next report answer it. Guessing is how the v186 crash went unexplained for months. */
+  const post = api.slice(api.indexOf('async function postGas('), api.indexOf('/* ---- Phase 0 telemetry'));
+  ok_('an unreadable reply is recorded at all', /PERF\.err\('badReply'/.test(post));
+  ok_('...with the HTTP status', /badReply[\s\S]{0,400}http=/.test(post) || /diag = ' http=' \+ r\.status/.test(post));
+  ok_('...whether it was redirected, and where it landed',
+    (post.match(/r\.redirected \? ' redirected'/g) || []).length >= 2 &&
+    (post.match(/via=' \+ String\(r\.url/g) || []).length >= 2);
+  ok_('...and which attempt it was, so a retry is not read as a second fault', /badReply[\s\S]{0,400}attempt=|attempt=' \+ attempt/.test(post));
+  ok_('the logger still never logs itself', /!== 'perfLog'/.test(post));
+  /* ...and it must not swallow the carefully-worded LOST_REQUEST refusal, which is thrown from
+   * inside the same try and caught here. That bug has happened once already. */
+  ok_('a lost request is still rethrown before any of this',
+    post.indexOf("e.code === 'LOST_REQUEST') throw e") < post.indexOf("PERF.err('badReply'"));
+}
+
+console.log('\n10) a parent stuck at the LINE hand-off — which failure, and did they get in?');
+{
+  const app = R('webapp/app.js');
+  /* "[2 users x7] lineHandoff :: never returned" read as a parent locked out of their child's
+   * account for a week. It might be — or it might be somebody who tapped the second button on the
+   * stuck screen and was fine. The report counted the failures and never the recoveries, so the
+   * difference between a crisis and a nuisance was not in the data at all. */
+  ok_('🔴 a sign-in that recovers is marked as healed',
+    /liffFails\(\) > 0 && window\.__atomPerfMark\) __atomPerfMark\('healed', 'lineHandoff'/.test(app));
+  /* Inside the LINE app the hand-off is barely a hand-off; in Safari it is a jump to another
+     application that may never come back. Those two want opposite fixes. */
+  ok_('...and the failure says where they were standing', /inLineApp\(\) \? '; inLINE' : '; browser'/.test(app));
+  ok_('the stuck screen still offers a way through', /signInStuckScreen\(\)/.test(app) && /OPEN_IN_LINE\(\)/.test(app));
+}
+
 console.log('\n' + (fail ? 'FAILED ' : 'PASSED ') + pass + ' passed, ' + fail + ' failed\n');
 process.exit(fail ? 1 : 0);

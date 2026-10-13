@@ -115,12 +115,17 @@ console.log('\n6) EVERY slip form asks when the money actually moved');
 console.log('\n7) The slip-check diagnostic tells the truth about SlipOK');
 {
   const ps = fs.readFileSync(path.join(__dirname, '..', 'src', 'PaySlips.gs'), 'utf8');
+  /* The probe moved into slipOkProbe_ on 2026-10-13 so the daily expiry watch asks the same
+   * question — so the chain is asserted rather than a distance from a function name, which is both
+   * truer and no longer breaks the next time a comment is edited. */
+  const probe = ps.slice(ps.indexOf('function slipOkProbe_'), ps.indexOf('function handleSlipDiag'));
   ok_('it actually CALLS SlipOK rather than only checking that settings exist',
-    /function handleSlipDiag[\s\S]{0,1600}UrlFetchApp\.fetch/.test(ps));
+    /UrlFetchApp\.fetch/.test(probe));
+  ok_('...and the diagnostic screen really goes through that probe', /var live = slipOkProbe_\(\);/.test(ps));
   // It used to POST a dummy slip and read 1011/1012 ("no such transaction") as proof of life. The
   // /quota endpoint is strictly better: it cannot consume a slip at all, and it returns the expiry
   // date and remaining quota, which is what the school actually needs to know.
-  ok_('the probe cannot consume a slip', /handleSlipDiag[\s\S]{0,1600}\/quota'/.test(ps));
+  ok_('the probe cannot consume a slip', /\/quota'/.test(probe) && !/method: 'post'/i.test(probe));
   ok_('health is decided by SlipOK saying yes, not by guessing from an error code',
     /alive = \(http === 200 && body\.success === true\)/.test(ps));
   ok_('it reports the branch id, which is what you compare with the dashboard', /branch: String\(url\)/.test(ps));

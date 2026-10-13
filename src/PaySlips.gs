@@ -468,6 +468,123 @@ function handleCancelPrepay(p) {
  * Is SlipOK actually reachable, and what does it say about the slips we already hold?
  * Admin-only diagnostic — answers "is verification working?" without uploading anything.
  */
+/**
+ * ASK SLIPOK WHETHER IT IS STILL GOOD. Separated from handleSlipDiag (2026-10-13) because the watch
+ * below needs exactly the same answer, and two copies of a question about the school's money is two
+ * chances to ask it differently.
+ *
+ * SlipOK's own /quota endpoint is the right probe: it consumes nothing, and it answers the two
+ * questions the school actually has — is the package still valid (endDate), and how many slips are
+ * left. It also separates the failure modes, which a dummy-slip POST cannot: a wrong BRANCH fails at
+ * 1001 before auth, a wrong KEY at 1002, an unpaid package at 1003/1015.
+ */
+function slipOkProbe_() {
+  var url = getConfig_('SlipOK_Url', ''), key = getConfig_('SlipOK_ApiKey', '');
+  if (!url || !key) return { checked: false };
+  try {
+    var res = UrlFetchApp.fetch(String(url).replace(/\/+$/, '') + '/quota', {
+      method: 'get', headers: { 'x-authorization': key }, muteHttpExceptions: true
+    });
+    var http = res.getResponseCode();
+    var body = {}; try { body = JSON.parse(res.getContentText()); } catch (e) {}
+    var code = body.code || null, msg = String(body.message || '');
+    var q = body.data || {};
+    var alive = (http === 200 && body.success === true);
+    return { checked: true, http: http, code: code, message: msg, alive: alive,
+      // which of the two values is wrong decides what the admin has to go and fetch
+      badBranch: code === 1001, badKey: code === 1002, expired: code === 1003 || code === 1004 || code === 1015,
+      quota: (q.quota != null ? Number(q.quota) : null),
+      overQuota: (q.overQuota != null ? Number(q.overQuota) : null),
+      endDate: String(q.endDate || ''),
+      // the two things needed to compare against the SlipOK dashboard
+      branch: String(url).replace(/\/+$/, '').split('/').pop(),
+      keyTail: key.length > 4 ? ('••••' + key.slice(-4)) : '••••' };
+  } catch (e) {
+    return { checked: true, alive: false, message: 'ติดต่อ SlipOK ไม่ได้: ' + String(e), branch: '', keyTail: '' };
+  }
+}
+
+/* ── ⏰ THE SLIPOK WATCH ─────────────────────────────────────────────────────────────────────────
+ *
+ * Asked 2026-10-13: "ระบบสามารถต่ออายุ SlipOK เองได้ไหม หรือมีการแจ้งเตือนทุกวันที่ 7 ของทุกเดือน".
+ *
+ * Renewing is a PAYMENT and is deliberately not automated — a school system should not be able to
+ * spend the school's money. The reminder is, and it is driven by the real `endDate` rather than a
+ * day of the month, for two reasons the school would otherwise discover the hard way:
+ *
+ *   · the 7th is a date we chose. `endDate` is the date SlipOK will actually stop. Renew once a
+ *     fortnight early or a week late and the 7th is wrong from then on, silently and for ever.
+ *   · a package can run out of SLIPS before it runs out of days, and that fails exactly the same
+ *     way — every parent's transfer rejected — on a date no calendar could have predicted.
+ *
+ * 🔴 AND IT IS SILENT WHEN THERE IS NOTHING TO SAY. A notice that arrives every month whether or
+ * not anything is wrong is a notice that stops being read, and the one month it matters it will be
+ * skimmed past with the other eleven. This speaks only when an answer has changed something.
+ *
+ * Channel: the admin's 🔔 in-app bell, by the school's own instruction ("แจ้งเตือน Admin ส่งทาง
+ * Notification App"). NOT routed through notifyAdmins_, which would also push LINE and is governed
+ * by the admin.approval topic switch — this is an alarm about the school's own money plumbing, and
+ * burying it behind a switch that is currently OFF is how the thing it warns about goes unnoticed.
+ */
+var SLIPOK_WARN_DAYS_ = 14;      // start warning this many days before the package ends
+var SLIPOK_URGENT_DAYS_ = 7;     // ...and say so more loudly inside this many
+var SLIPOK_LOW_QUOTA_ = 50;      // slips remaining that counts as nearly out
+
+function slipOkExpiryCheck_() {
+  try {
+    var live = slipOkProbe_();
+    if (!live.checked) return { checked: false };   // not configured — nothing to watch
+    var msg = slipOkWarning_(live, new Date());
+    if (!msg) return { checked: true, warned: false };
+    // category 'system', not 'approval': there is nothing to approve, and the bell groups by category
+    if (typeof inboxAdd_ === 'function') inboxAdd_('system', msg, '');
+    return { checked: true, warned: true, text: msg };
+  } catch (e) {
+    try { Logger.log('slipOkExpiryCheck_ ' + (e && e.stack || e)); } catch (x) {}
+    return { checked: false, error: String(e) };
+  }
+}
+
+/**
+ * The whole decision, as a pure function of the probe and today — so it can be tested without a
+ * network, which is the only way a warning about money gets tested at all.
+ * Returns the message to show, or '' when there is nothing worth saying.
+ */
+function slipOkWarning_(live, now) {
+  if (!live || !live.checked) return '';
+  var head = '💳 ตรวจสอบสลิปอัตโนมัติ (SlipOK)';
+  // ---- already broken: say what to go and fix, because the three causes need different actions
+  if (live.badBranch) return head + '\n🔴 รหัสสาขาไม่ถูกต้อง — ระบบตรวจสลิปอัตโนมัติไม่ทำงาน · ตรวจรหัสสาขาในหน้าตั้งค่า';
+  if (live.badKey) return head + '\n🔴 API Key ไม่ถูกต้อง — ระบบตรวจสลิปอัตโนมัติไม่ทำงาน · ตรวจ API Key ในหน้าตั้งค่า';
+  if (live.expired) return head + '\n🔴 แพ็กเกจหมดอายุแล้ว — สลิปที่ผู้ปกครองส่งเข้ามาจะไม่ถูกตรวจอัตโนมัติ · ต่ออายุที่ SlipOK';
+  if (!live.alive) return head + '\n🔴 ติดต่อ SlipOK ไม่ได้ — สลิปจะไม่ถูกตรวจอัตโนมัติจนกว่าจะติดต่อได้'
+    + (live.message ? ('\n' + String(live.message).slice(0, 120)) : '');
+  // ---- still working: warn only when something is running out
+  var lines = [];
+  var days = slipOkDaysLeft_(live.endDate, now);
+  if (days != null && days <= SLIPOK_WARN_DAYS_) {
+    lines.push((days <= SLIPOK_URGENT_DAYS_ ? '🟠' : '🟡') + ' แพ็กเกจเหลืออีก ' + days + ' วัน (หมดอายุ ' + live.endDate + ')');
+  }
+  if (live.quota != null && live.quota <= SLIPOK_LOW_QUOTA_) {
+    lines.push('🟡 โควตาตรวจสลิปเหลือ ' + live.quota + ' ใบ');
+  }
+  if (!lines.length) return '';
+  return head + '\n' + lines.join('\n') + '\nต่ออายุก่อนหมด เพื่อให้สลิปของผู้ปกครองยังถูกตรวจอัตโนมัติ';
+}
+
+/** Whole days from `now` to an endDate, or null when SlipOK did not give one we can read.
+ *  Both sides are flattened to the school's own calendar day: a package ending today is 0, not -0.4
+ *  because the probe happened to run in the afternoon. */
+function slipOkDaysLeft_(endDate, now) {
+  var s = String(endDate || '').slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return null;
+  var end = new Date(s + 'T00:00:00');
+  if (isNaN(end)) return null;
+  var today = new Date(dateStr_(now || new Date()) + 'T00:00:00');
+  if (isNaN(today)) return null;
+  return Math.round((end - today) / 86400000);
+}
+
 function handleSlipDiag(p) {
   var url = getConfig_('SlipOK_Url', ''), key = getConfig_('SlipOK_ApiKey', '');
   var rows = readObjects_(paySlipsSheet_());
@@ -483,34 +600,7 @@ function handleSlipDiag(p) {
   // Having a URL and a key configured is NOT the same as the service working. An expired package or
   // a wrong branch id used to read here as "connected and running normally" while every single slip
   // was being rejected — so actually ask SlipOK, with log:false so the probe consumes nothing.
-  var live = { checked: false };
-  if (url && key) {
-    // SlipOK's own /quota endpoint is the right probe: it consumes nothing, and it answers the two
-    // questions the school actually has — is the package still valid (endDate), and how many slips
-    // are left. It also separates the failure modes, which a dummy-slip POST cannot: a wrong BRANCH
-    // fails at 1001 before auth, a wrong KEY at 1002, an unpaid package at 1003/1015.
-    try {
-      var res = UrlFetchApp.fetch(String(url).replace(/\/+$/, '') + '/quota', {
-        method: 'get', headers: { 'x-authorization': key }, muteHttpExceptions: true
-      });
-      var http = res.getResponseCode();
-      var body = {}; try { body = JSON.parse(res.getContentText()); } catch (e) {}
-      var code = body.code || null, msg = String(body.message || '');
-      var q = body.data || {};
-      var alive = (http === 200 && body.success === true);
-      live = { checked: true, http: http, code: code, message: msg, alive: alive,
-        // which of the two values is wrong decides what the admin has to go and fetch
-        badBranch: code === 1001, badKey: code === 1002, expired: code === 1003 || code === 1004 || code === 1015,
-        quota: (q.quota != null ? Number(q.quota) : null),
-        overQuota: (q.overQuota != null ? Number(q.overQuota) : null),
-        endDate: String(q.endDate || ''),
-        // the two things needed to compare against the SlipOK dashboard
-        branch: String(url).replace(/\/+$/, '').split('/').pop(),
-        keyTail: key.length > 4 ? ('••••' + key.slice(-4)) : '••••' };
-    } catch (e) {
-      live = { checked: true, alive: false, message: 'ติดต่อ SlipOK ไม่ได้: ' + String(e), branch: '', keyTail: '' };
-    }
-  }
+  var live = slipOkProbe_();
   /* "Is it checking?" cannot be answered by a total. 49 slips and 0 genuine reads the same whether
    * verification has never run or whether it ran and objected to all 49 — and the quota sitting at
    * its full number says only that nothing has been charged against THIS package, which is also what

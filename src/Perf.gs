@@ -75,10 +75,15 @@ function perfCell_(v, max) {
   if (/^[=+\-@]/.test(s)) s = "'" + s;
   return s.slice(0, max || 60);
 }
+/* The highest number a duration cell can hold. Named, because the REPORT has to recognise it: a row
+ * sitting exactly on the ceiling is not a measurement of anything, it is the counter giving up, and
+ * treating it as a duration is what let one phone's bad hour crowd three days of real slow moments
+ * out of the list that exists to show them. See the guard in the row loop. */
+var PERF_MS_CEILING_ = 3600000;
 function perfNum_(v, max) {
   var n = Number(v);
   if (!isFinite(n) || n < 0) return 0;
-  return Math.min(Math.round(n), max || 3600000);
+  return Math.min(Math.round(n), max || PERF_MS_CEILING_);
 }
 /**
  * Free-text (error messages) is the only field we do not fully control, so scrub the shapes that
@@ -240,7 +245,20 @@ var SCREEN_BUDGET_ = {
   finance: 8,     // bills, slips, payroll and the month's totals
   leaves: 6,      // approvals + both calendars
   manage: 5,
-  class: 4, journal: 4, checkin: 3, payment: 5, growth: 3, dspm: 4,
+  class: 4, journal: 4, checkin: 3, payment: 5, growth: 3,
+  /* dspm: 4 → 8 (v437), and like `absence` below this corrects the BUDGET, not the screen.
+   *
+   * The admin's analytics screen loads in ONE trip (listStudents + listDepartments batched) and
+   * then asks classAssessment for the first class — two. Every further round trip is the admin
+   * TAPPING A TAB: one per class they look at, which is the entire purpose of the screen, and
+   * A_student adds one more per child they open from it. The school has five departments, so
+   * reading all of them is 2 + 4 = 6 and glancing at one child is 7 — which is exactly the figure
+   * that was flagged, and it is the screen working.
+   *
+   * There is nothing to batch: the taps are seconds or minutes apart, so no tick contains two of
+   * them. Eight is a full read of every class plus a couple of children; past that, something has
+   * genuinely been added outside the batch. */
+  dspm: 8,
   chat: 2, schedule: 4, leave: 4, daily: 3, injury: 3,
   /* absence: 3 → 6 (v391), and this is a correction to the BUDGET, not a concession about the code.
    *
@@ -307,6 +325,18 @@ function handlePerfSummary(p) {
   var healed = {}, healedTotal = 0;
   var cacheHit = 0, cacheMiss = 0, total = 0, failed = 0, firstTs = '', lastTs = '', skipped = 0;
   var offlineTotal = 0;   // calls that never left the device — counted, but kept out of every timing
+  var ceilingTotal = 0;   // rows sitting on perfNum_'s clamp — not durations, see the guard below
+  /* ROUND TRIPS, AND HOW MANY OF THEM FAILED. `total`/`failed` count ROWS, and api.js writes one row
+   * per action inside a batch — so one home screen that fails writes ten failures with the same
+   * stamp, the same code and the same session. That is why the 07–13/10 FAILING list read as ten
+   * broken routes with near-identical tallies (OFFLINEx24,16,16,15,15,15,14,14,15,14) when it was
+   * about twenty bad moments on one screen.
+   *
+   * Both figures are true and they answer different questions: "how many calls failed" sizes the
+   * retry load, "how many times did somebody see an error" sizes the complaint. The report prints
+   * both now, because printing only the first made every incident look ten times its size. Each row
+   * is 1/batch of a request, exactly as the screen budget already counts — see sc.trips. */
+  var tripsTotal = 0, tripsFailed = 0;
   // one shape for a device bucket — it is created from three different places (api rows, error rows
   // and cache rows) and a missing field in one of them is a silent zero in the report
   function devInit_(d) { return { dev: d, n: 0, fail: 0, ms: [], cHit: 0, cMiss: 0, roles: {}, sids: {} }; }
@@ -397,6 +427,7 @@ function handlePerfSummary(p) {
     }
     // type === 'api'
     total++;
+    tripsTotal += 1 / (batch > 0 ? batch : 1);
     /* REFUSED IS NOT BROKEN. "staffCheckin fail 53%" was six people standing outside the geofence
      * and four tapping a button they had already used — the server working exactly as designed,
      * reported as though the app were falling over. Mixed into the headline it hides the failures
@@ -417,8 +448,28 @@ function handlePerfSummary(p) {
      * action) — it simply stops distorting p50, p95 and the slow list, which are the three numbers
      * used to decide what to fix. TIMEOUT is deliberately NOT here: that is our own 90-second cap,
      * and it is a wait a person really sat through. */
-    var noReach = !ok && code === 'OFFLINE';
-    if (noReach) offlineTotal++;
+    /* 🔴 AND THE SAME DEFECT CAME BACK WEARING A DIFFERENT CODE (07–13/10).
+     *
+     * The note above excluded OFFLINE and said TIMEOUT was deliberately kept, "our own 90-second cap
+     * — a wait a person really sat through". That reasoning holds for a 90-second TIMEOUT. It does
+     * not hold for the ten that opened this report's slow list:
+     *
+     *   2026-10-08 19:49:15  3600.0s  myClassCover … FAILED TIMEOUT      (×10, same second,
+     *   2026-10-08 19:49:15  3600.0s  injuryAlerts  … FAILED TIMEOUT      one teacher, one phone)
+     *
+     * 3600.0s is not a wait. It is PERF_MS_CEILING_ — the clamp in perfNum_ — and our own abort
+     * fires at 90s, so no call we issue can honestly measure an hour. The home batch sat on a dead
+     * connection with the page still foreground (so awakeTimer kept counting), and when it finally
+     * gave up it wrote ten rows at the ceiling. They took every slot in a list of fifteen.
+     *
+     * So the rule is about the VALUE, not the code: a row at the ceiling is the counter giving up,
+     * whatever label it carries. Counted as a failure exactly as before — it is one — and kept out
+     * of p50, p95 and the slow list, which are the three numbers used to decide what to fix. Named
+     * in its own figure so it cannot be silently large. */
+    var ceilinged = (ms >= PERF_MS_CEILING_);
+    var noReach = (!ok && code === 'OFFLINE') || ceilinged;
+    if (!ok && code === 'OFFLINE') offlineTotal++;
+    if (ceilinged) ceilingTotal++;
     /* The hour this call happened in, straight off the stamp — 'yyyy-MM-dd HH:mm:ss' in the school's
      * own timezone (perfStamp_), so position 11..13 IS the local hour and no re-parsing can get it
      * wrong. A refused call is not a failure here either, for the same reason as everywhere else. */
@@ -448,7 +499,8 @@ function handlePerfSummary(p) {
        * to go and fix. The check-out line is where this matters: a third of the school's clock-outs
        * failing is the most serious figure this report carries, and it has to be the right third. */
       if (refused) { a.refused++; }
-      else { a.failCodes[code || 'ERR'] = (a.failCodes[code || 'ERR'] || 0) + 1; a.fail++; failed++; } }
+      else { a.failCodes[code || 'ERR'] = (a.failCodes[code || 'ERR'] || 0) + 1; a.fail++; failed++;
+        tripsFailed += 1 / (batch > 0 ? batch : 1); } }
     if (dev) { var dv = devs[dev] = devs[dev] || devInit_(dev);
       dv.n++; if (!noReach) dv.ms.push(ms); if (!ok && !refused) dv.fail++;
       /* ...AND WHICH ROLE WAS HOLDING IT. The note below already records that this exact reading went
@@ -653,6 +705,13 @@ function handlePerfSummary(p) {
     tz: perfTz_(),
     // calls that never left the device: counted as failures, excluded from every timing above
     offline: offlineTotal,
+    // rows pinned to perfNum_'s clamp: not durations, excluded from p50/p95 and the slow list
+    ceilinged: ceilingTotal, ceilingMs: PERF_MS_CEILING_,
+    /* the same failures counted as ROUND TRIPS — i.e. as the number of times somebody watched a
+     * screen fail, rather than the number of calls that were inside it when it did */
+    trips: Math.round(tripsTotal),
+    tripsFailed: Math.round(tripsFailed),
+    tripFailRate: tripsTotal ? Math.round(tripsFailed / tripsTotal * 1000) / 10 : 0,
     // failures that recovered by themselves, and what is left after taking them out
     healed: healedTotal,
     healedBy: Object.keys(healed).map(function (k) { return { action: k, n: healed[k] }; })

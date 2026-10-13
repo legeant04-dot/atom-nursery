@@ -783,7 +783,14 @@ function dispatch_(action, payload, token) {
         if (action === 'perfLog') { (payload = payload || {}).__sess = sess; return reply_({ ok: true, data: handler(payload) }); }
         payload = applyIdentity_(action, payload, sess);
         return reply_(withRenewal_({ ok: true, data: handler(payload) }, sess));
-      });
+      }, (action === 'batch') ? function () {
+        /* The lock is held by somebody else. Run the batch anyway WITHOUT it and let handleBatch
+         * refuse the writes one by one — the reads need no lock and have no reason to fail. A single
+         * (non-batch) write still throws BUSY, which is correct: there is nothing else in it. */
+        (payload = payload || {}).__sess = sess;
+        payload.__busy = true;
+        return reply_(withRenewal_({ ok: true, data: handler(payload) }, sess));
+      } : null);
     } finally {
       if (mutates) { try { lineDeferFlush_(); } catch (e) {} }
     }
@@ -928,14 +935,29 @@ function isMutatingAction_(a) { a = String(a || '');
   if (WRITES_ACTIONS_[a]) return true;
   return MUTATING_RE.test(a) || /check(in|out)|absence|^dedup|^reindex|payOT$|^orgMove|^unlink|^claim|^recompute/i.test(a); }
 
-/** Run fn under a script lock when it may write. Reads run unlocked (no queueing). */
-function withWriteLock_(needed, fn) {
+/** Run fn under a script lock when it may write. Reads run unlocked (no queueing).
+ *
+ * `onBusy` is for a BATCH, and it exists because of what BUSY did to the 07–13/10 report: every
+ * read on the home screen carried BUSY×6–8 — staffSelf, journalStatus, classList, myAttendanceToday
+ * — and reads do not take this lock at all. They were killed by the company they kept. One write
+ * anywhere in a batch arms the lock for the WHOLE batch, so when the lock could not be taken the
+ * nine pure reads travelling beside it failed with it, and a teacher's whole home screen went red
+ * because somebody else was saving.
+ *
+ * This is the same lesson, and the same remedy, as the Observer rule two screens up: refuse the
+ * calls that are actually refused, and let the rest answer. The guarantee is untouched — no write
+ * runs without the lock, it is simply told BUSY on its own instead of taking the screen with it. */
+function withWriteLock_(needed, fn, onBusy) {
   if (!needed || typeof LockService === 'undefined') return fn();   // no LockService in the test harness
   var lock;
   try { lock = LockService.getScriptLock(); } catch (e) { return fn(); }
-  if (!lock.tryLock(25000)) throw apiError_('BUSY', 'ระบบกำลังบันทึกข้อมูลอยู่ กรุณาลองใหม่อีกครั้ง');
+  if (!lock.tryLock(25000)) {
+    if (onBusy) return onBusy();
+    throw apiError_('BUSY', BUSY_MSG_);
+  }
   try { return fn(); } finally { try { lock.releaseLock(); } catch (e) {} }
 }
+var BUSY_MSG_ = 'ระบบกำลังบันทึกข้อมูลอยู่ กรุณาลองใหม่อีกครั้ง';
 
 /** Build a typed error that dispatch_ maps to { code, message }. */
 function apiError_(code, message) {
