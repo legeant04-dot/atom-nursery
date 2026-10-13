@@ -243,7 +243,15 @@ console.log('\n6) the refusals — a typo must not make a child disappear');
   let e3 = null;
   try { H.setStudentEnd({ staffId: 'STF-T', studentId: 'S1', endDate: '2026-12-01', reason: 'moved' }); } catch (x) { e3 = x; }
   eq('a teacher may not end a child’s enrolment', e3 && e3.code, 'NO_PERMISSION');
-  eq('...and nothing was written', M.students[0].EndDate, undefined);
+  /* 🔴 "STILL EMPTY", not "still undefined" (Phase 2.3, 2026-10-13).
+   *
+   * `undefined` is a property of this FIXTURE, not of the school. A row that has never had a last
+   * day reads back as '' from Sheets (decodeCell_ gives '' for a blank cell) and as '' from
+   * Postgres — the literal object here is the only place in the system where that field is
+   * `undefined`. So the assertion was pinned to an artefact of how the test builds its data, and it
+   * failed the moment the same data came through a real database while the behaviour it describes
+   * was exactly right. The claim is that nothing was written; this says that. */
+  ok_('...and nothing was written', !M.students[0].EndDate);
 
   ok_('the route is admin-only on the server too, not just in the engine',
     /setStudentEnd: 1/.test(codeGs) && /endingStudents: 1/.test(codeGs));

@@ -35,6 +35,10 @@ const ROOT = path.join(__dirname, '..');
 const R = f => fs.readFileSync(path.join(ROOT, f), 'utf8').replace(/\r\n/g, '\n');
 const decomment = s => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
 const snake = s => s.replace(/([a-z0-9])([A-Z])/g, '$1_$2').replace(/[^A-Za-z0-9]+/g, '_').toLowerCase();
+/* Quote every identifier, for the same reason the generator does (see q() in schema_inventory.js):
+ * STUDENT_TERMS has columns called `from` and `to`, which are reserved words in Postgres. Unquoted
+ * they are a syntax error — and an INSERT that fails is a row that silently never arrives. */
+const q = name => '"' + String(name).replace(/"/g, '""') + '"';
 
 /* ── the mapping, read from the SAME declarations the SQL was generated from ──────────────────────
  * Three names for one thing, and all three are needed:
@@ -135,13 +139,32 @@ function decode_(v, pgType) {
   if (typeof v === 'object') return v;                      // jsonb already parsed by the driver
   return v;
 }
-/** The other direction: what goes back into a column. */
-function encode_(v) {
-  if (v === undefined || v === '' ) return null;
-  if (v === null) return null;
+/* ── the other direction: what goes back into a column ───────────────────────────────────────────
+ *
+ * 🔴 TYPE-AWARE SINCE PHASE 2.3, and borrowed from the migrator rather than written again.
+ *
+ * This used to hand the value straight to the driver, which is fine until the value is one a
+ * spreadsheet really holds and a typed column really refuses — "Sat Dec 30 1899" in a `time`,
+ * "500,000.00" in a `numeric`, "วันที่ 15" where a day of the month was expected. Running the test
+ * suites against the live schema produced all four shapes in a single sweep, because the fixtures
+ * are a record of what has already happened to this school.
+ *
+ * It is pg_migrate's encode_ because there must not be two answers to "what goes in this column".
+ * The migrator is where the rule is written down and tested; this follows it. */
+const TYPES_BY_TABLE = (() => {
+  try { return require('./pg_migrate.js').targetSchema(); } catch (e) { return {}; }
+})();
+const migEncode_ = (() => {
+  try { return require('./pg_migrate.js').encode_; } catch (e) { return null; }
+})();
+function encode_(v, pgType, where) {
+  if (migEncode_) return migEncode_(v, pgType, where);
+  if (v === undefined || v === '' || v === null) return null;
   if (typeof v === 'object' && !(v instanceof Date)) return JSON.stringify(v);
   return v;
 }
+/** The declared type of one column, so encode_ above knows what it is aiming at. */
+const typeOf_ = (table, col) => (TYPES_BY_TABLE[table] || {})[col] || '';
 
 /* ── hydrate ─────────────────────────────────────────────────────────────────────────────────────
  * Only the collections asked for. GasEngine does the same thing lazily per request, and for the
@@ -186,10 +209,20 @@ async function persist(client, tenantId, M, snapshot, keys) {
     const seen = new Set();
 
     for (const row of (M[key] || [])) {
-      const cols = Object.keys(c.toPg).filter(f => row[f] !== undefined);
+      /* 🔴 NOTHING NULL GOES INTO created_at / updated_at. Three sheets carry their own CreatedAt /
+       * UpdatedAt columns, which snake onto the reserved ones the schema declares `not null default
+       * now()`. A blank cell encodes to null and the insert is refused outright; so does a cell
+       * holding something that is not a timestamp, which is the commoner case and the reason this
+       * tests the ENCODED value rather than the raw one. Leaving the column out lets the default do
+       * exactly what it is there for. */
+      const cols = Object.keys(c.toPg).filter(f => {
+        if (row[f] === undefined) return false;
+        if (!/^(created_at|updated_at)$/.test(c.toPg[f])) return true;
+        return encode_(row[f], typeOf_(c.table, c.toPg[f])) != null;
+      });
       if (row.__id == null) {
-        const names = cols.map(f => c.toPg[f]);
-        const vals = cols.map(f => encode_(row[f]));
+        const names = cols.map(f => q(c.toPg[f]));
+        const vals = cols.map(f => encode_(row[f], typeOf_(c.table, c.toPg[f]), c.table + "." + c.toPg[f]));
         const ph = vals.map((_, i) => '$' + (i + 2)).join(',');
         const res = await client.query(
           `insert into ${c.table} (tenant_id${names.length ? ',' + names.join(',') : ''})
@@ -198,8 +231,8 @@ async function persist(client, tenantId, M, snapshot, keys) {
       } else {
         seen.add(row.__id);
         if (before.get(row.__id) === JSON.stringify(row)) continue;   // untouched
-        const names = cols.map((f, i) => c.toPg[f] + '=$' + (i + 3));
-        const vals = cols.map(f => encode_(row[f]));
+        const names = cols.map((f, i) => q(c.toPg[f]) + '=$' + (i + 3));
+        const vals = cols.map(f => encode_(row[f], typeOf_(c.table, c.toPg[f]), c.table + "." + c.toPg[f]));
         await client.query(
           `update ${c.table} set ${names.join(',')}, updated_at = now()
            where id = $1 and tenant_id = $2`, [row.__id, tenantId, ...vals]);

@@ -100,7 +100,11 @@ console.log('\n2) MONEY, TIME AND PERMISSIONS ARE NOT PERSONAL DETAILS');
   eq('the shift that decides "late" is untouched', me(M).StaffGroup, 'ATMG-01');
   eq('...and so is whether they clock in at all', me(M).RequireCheckin, true);
   eq('...and the start date the school gave them', me(M).StartDate, '2024-01-15');
-  eq('no end date was granted either', me(M).EndDate, undefined);
+  /* "still empty", not "still undefined" — `undefined` is a property of this fixture and of nothing
+   * else. A blank field reads back as '' from Sheets (decodeCell_) and as '' from Postgres, so the
+   * assertion was pinned to how the test builds its data rather than to what the school holds.
+   * Line 109 below already compares against '' for the same kind of field. (Phase 2.3, 2026-10-13) */
+  ok_('no end date was granted either', !me(M).EndDate);
   /* THE ONE THAT MATTERS MOST. Role and Department='*' are the two fields that decide which app a
    * person sees and whether they are a head teacher. If either were writable here, promoting
    * yourself to Admin would be one request from your own profile page. */
@@ -109,7 +113,10 @@ console.log('\n2) MONEY, TIME AND PERMISSIONS ARE NOT PERSONAL DETAILS');
   eq('...nor hand themselves the class-organise tool', [me(M).CanClassOrg, me(M).CanFoodMenu], ['', '']);
   eq('...nor take every class', me(M).Classes, 'Nursery 1');
   eq('the username they sign in with is unchanged', me(M).NationalID, '1101700100013');
-  eq('...and so are the credentials nobody types by hand', [me(M).PasswordHash, me(M).LineUID, me(M).GoogleSub], [undefined, undefined, undefined]);
+  // ...and the same here: what matters is that none of the three was given a value, not which
+  // flavour of empty an in-memory object happens to use
+  ok_('...and so are the credentials nobody types by hand',
+    !me(M).PasswordHash && !me(M).LineUID && !me(M).GoogleSub);
   ok_('every exclusion has its reason written beside it, not just its name',
     /MONEY\.\n\s+\*\s+Naming your own salary/.test(eng) && /IT IS THE USERNAME/.test(eng)
     && /could promote themselves to Admin/.test(eng));

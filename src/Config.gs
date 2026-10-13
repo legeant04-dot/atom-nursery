@@ -174,7 +174,15 @@ SCHEMA[WB.MAIN] = {
   CHECKIN_STUDENT:   ['Date', 'Time', 'StudentID', 'ParentID', 'Type', 'GPS_Lat', 'GPS_Lng', 'Status', 'Remark', 'ByStaffID', 'ByAt'],
   // Daily OT (overtime) charges — created on late pickup, settled via the OT (KTB) QR
   // PaymentMethod = transfer | cash; TransactionDate = when the parent notified payment; PaidDate set on Admin confirm.
-  OT_DAILY:          ['OTID', 'Date', 'StudentID', 'PickupTime', 'PlanEnd', 'LateMinutes', 'Hours', 'Amount', 'Status', 'SlipRef', 'SlipAmount', 'PaymentMethod', 'TransactionDate', 'PaidDate'],
+  /* FullAmount…CancelNote: created at runtime by src/OT.gs (OT_DISCOUNT_COLS_ / OT_CANCEL_COLS_) and
+   * undeclared until 2026-10-13. They are every OT discount the school has given — the amount before
+   * it, who gave it, why and when — and the reason every cancelled charge was cancelled. Phase 2.3
+   * found them by running a suite whose fixture used them: they had no column in Postgres, so the
+   * migration would have dropped all seven without a word. The ledger that exists to catch exactly
+   * this could not see them because they are passed as a variable rather than a literal array;
+   * tools/test_schema_runtime_cols.js now resolves both. */
+  OT_DAILY:          ['OTID', 'Date', 'StudentID', 'PickupTime', 'PlanEnd', 'LateMinutes', 'Hours', 'Amount', 'Status', 'SlipRef', 'SlipAmount', 'PaymentMethod', 'TransactionDate', 'PaidDate',
+                      'FullAmount', 'Discount', 'DiscountReason', 'DiscountBy', 'DiscountAt', 'CancelledBy', 'CancelNote'],
   // Growth measurement history feeding the development line charts
   // RecordedBy/RecordedAt appended at END: who put this measurement in, so the teacher who took it
   // can correct their own without being able to touch anybody else's. Rows written before this

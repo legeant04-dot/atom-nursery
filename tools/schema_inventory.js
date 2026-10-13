@@ -164,7 +164,10 @@ function inventory() {
  * money column without adding it here is a test failure (tools/test_schema_inventory.js). */
 const MONEY = new Set([
   'Amount', 'Price', 'SlipAmount', 'Rate', 'DailyRate', 'OTRate', 'OTAmount',
-  'Discount', 'DiscountAmount', 'Gross', 'ProrateAmount', 'InsuranceSum',
+  'Discount', 'DiscountAmount', 'Gross', 'ProrateAmount',
+  // the OT charge BEFORE a discount — `Amount` is what is billed, this is what it would have been,
+  // and the difference is the discount an admin gave and has to be able to justify
+  'FullAmount',
   // payroll — every one of these is a figure on somebody's payslip
   'BaseSalary', 'NetPay', 'GrossIncome', 'AdjustmentsTotal', 'DiligenceTotal', 'ExtraChildAmount',
   'HolidayBonus', 'OtherDeductions', 'TotalDeductions', 'TrainingCertAmount',
@@ -195,6 +198,18 @@ const MONEY = new Set([
 const NOT_MONEY = new Set([
   'PaidDate', 'PaymentMethod', 'GeneratedBy', 'GeneratedDate', 'PaidBy', 'PayType', 'PayrollID',
   'PrepayID', 'ChargeID', 'PauseSalaryMode', 'ContributionLocked', 'MilkTotal', 'Water',
+  /* 🔴 InsuranceSum: MONEY → NOT_MONEY (Phase 2.3, 2026-10-13). It is not an amount this school
+   * computes — it is a figure TRANSCRIBED from the insurer's document, '500,000.00' exactly as the
+   * policy prints it, and the app only ever displays it. Typed numeric, Postgres normalises it to
+   * 500000, and the parent's insurance card would read "จำนวนเงินเอาประกันภัย 500000" directly above
+   * a benefits line still saying "(อ.บ.1) 500,000.00" — the same figure, twice, differently, on the
+   * card a family is holding at a hospital counter and being asked to match against the policy.
+   * Nothing adds it up, so numeric buys nothing and costs that. Same distinction as MilkTotal
+   * above, pointing the other way: a number is not money just because it is large. */
+  'InsuranceSum',
+  // ...and the rest of the OT discount/cancel trail: who, why and when — words and a timestamp,
+  // never an amount. Only FullAmount and Discount beside them are figures.
+  'DiscountReason', 'DiscountBy', 'DiscountAt', 'CancelledBy', 'CancelNote',
   'Net',  // PERF_LOG: the connection class, '4g' / '3g' — caught by "net" in the pattern
 
   /* ─── EVERY OTHER COLUMN ON A MONEY SHEET, SAID OUT LOUD (2026-10-09) ──────────────────────────
@@ -278,6 +293,92 @@ const MONEY_LIKE = /(amount|price|salary|pay|total|rate|discount|deduct|bonus|al
 const MONEY_SHEETS = new Set(['PAYROLL', 'PAYROLL_CONFIG', 'BILLING', 'OT_DAILY', 'OT_RECORDS',
   'PREPAYMENTS', 'STUDENT_CHARGES', 'PAY_ADJUSTMENTS', 'PAYMENT_SLIPS']);
 
+/* ── WHICH COLUMN IDENTIFIES A ROW ────────────────────────────────────────────────────────────────
+ *
+ * 🔴 FOUND BY PHASE 2.3 (2026-10-13), AND IT WOULD HAVE DESTROYED THE SCHOOL'S HISTORY.
+ *
+ * This used to be guessed: "the first column ending in ID whose name starts like the sheet's".
+ * A unique index is not a naming convention — it is an assertion that the school never has two of
+ * something — and the guess asserted, in a live schema already applied to staging:
+ *
+ *     checkin_staff   (tenant_id, staff_id)     one clock-in per teacher. EVER.
+ *     checkin_student (tenant_id, student_id)   one check-in per child. EVER.
+ *     daily_journal   (tenant_id, student_id)   one journal entry per child. EVER.
+ *     growth_records  (tenant_id, student_id)   one weight and height per child. EVER.
+ *     audit_log       (tenant_id, user_id)      one PDPA audit line per person. EVER.
+ *     student_terms   (tenant_id, student_id)   one summer term per child — which the engine
+ *                                               explicitly allows two of, and a suite proves
+ *     … 17 of the 48 were wrong, the same way.
+ *
+ * On migration day `pg_migrate.js` would have inserted the first journal for each child and been
+ * refused every one after it. Four years of journals, every measurement, every check-in and the
+ * whole audit log, gone — and the money report, which compares column totals, would have said
+ * nothing, because it never looks at the rows that failed to arrive.
+ *
+ * So it is DECLARED, and every table must appear. `null` means "this table has no unique key", which
+ * is the correct answer for anything keyed by a person AND a date. A new sheet forces a decision
+ * rather than inheriting a guess — the same rule as MONEY above and DB_SUITES in test_all.js.
+ */
+const ROW_KEY_ = {
+  // ── one row per generated id ────────────────────────────────────────────────────────────────
+  STUDENTS: 'StudentID', PARENTS: 'ParentID', STAFF: 'StaffID', USERS: 'UserID', CLASSES: 'ClassID',
+  /* 🔴 USER_LINKS has NO unique key, and declaring one on UserUID was wrong for the same reason the
+   * guess it replaced was wrong — just by hand this time. A row is (LINE uid → child), so a parent
+   * with two children at the school has two rows with the same uid, and three suites said so the
+   * first time they ran against the real index. The lesson repeats: the key is a fact about the
+   * school, and no amount of looking at the column name will tell you it. */
+  USER_LINKS: null,
+  BILLING: 'BillingID', PAYMENT_SLIPS: 'SlipID', PREPAYMENTS: 'PrepayID', STUDENT_CHARGES: 'ChargeID',
+  WITHDRAWALS: 'WithdrawID', STUDENT_TERMS: 'TermID', INSURANCE_PCHI: 'InsuranceID',
+  ANNOUNCEMENTS: 'AnnID', COMMENTS: 'CommentID', ADMIN_INBOX: 'InboxID', INJURY_REPORTS: 'InjuryID',
+  DSPM_ASSESSMENT: 'AssessmentID', OT_DAILY: 'OTID', LEAVE_REQUEST_STD: 'LeaveID',
+  ABSENCE_FOLLOWUP_LOG: 'LogID', ACTIVITY_LOG: 'LogID',
+  FOOD_ITEMS: 'ItemID', FOOD_MENU: 'MenuID', CLASS_COVER: 'CoverID',
+  SURVEYS: 'SurveyID', SURVEY_RESPONSES: 'ResponseID',   // NOT SurveyID — a survey has many answers
+  LEAVE_REQUEST: 'LeaveID', OT_RECORDS: 'OTRecordID', PAYROLL: 'PayrollID',
+  PAY_ADJUSTMENTS: 'AdjID', TRAINING: 'TrainingID',
+  ATTENDANCE_REQUEST: 'ReqID', CLASS_CHANGE_REQ: 'ReqID',
+  PAYROLL_CONFIG: 'StaffID',                              // one pay configuration per person
+
+  // ── no unique key: these hold MANY rows for the same person ─────────────────────────────────
+  CHECKIN_STAFF: null,        // one per staff per DAY
+  CHECKIN_STUDENT: null,      // one per child per day, and in/out are separate rows
+  WORK_SCHEDULE: null,        // one per staff per day of the week
+  DAILY_JOURNAL: null,        // one per child per day, for years
+  GROWTH_RECORDS: null,       // every measurement ever taken
+  VACCINE_RECORDS: null,      // one per vaccine
+  PICKUP_PERSONS: null,       // a child may have several authorised adults
+  ABSENCE_LOG: null, ABSENCE_FOLLOWUP: null, HOLIDAY_ATTEND: null,
+  LINE_RECIPIENTS: null,      // one per staff per TOPIC
+  AUDIT_LOG: null, BACKUP_LOG: null, PERF_LOG: null,      // logs. The whole point is many rows.
+  // ── reference / key-value sheets with no id column at all ───────────────────────────────────
+  HOLIDAYS: null, DSPM_CRITERIA: null, SCHOOL_CONFIG: null, STAFF_GROUPS: null
+};
+
+/** Every table must have been thought about. A new sheet stops the generator instead of inheriting
+ *  a guess — see the note above for what the guess cost. */
+function assertRowKeysDeclared(tables) {
+  const missing = tables.filter(t => !(t.sheet in ROW_KEY_)).map(t => t.sheet);
+  const wrong = [];
+  tables.forEach(t => {
+    const k = ROW_KEY_[t.sheet];
+    if (k && !(t.cols || []).includes(k)) wrong.push(t.sheet + '.' + k);
+  });
+  if (!missing.length && !wrong.length) return;
+  if (missing.length) {
+    console.error('\n❌ these sheets are not in ROW_KEY_:\n');
+    missing.sort().forEach(s => console.error('     ' + s));
+    console.error('\n   Name the column that identifies ONE row, or null if the sheet holds many');
+    console.error('   rows per person (a journal, a check-in, a log). Do not guess from the name.\n');
+  }
+  if (wrong.length) {
+    console.error('\n❌ ROW_KEY_ names a column that does not exist:\n');
+    wrong.sort().forEach(s => console.error('     ' + s));
+    console.error('');
+  }
+  process.exit(1);
+}
+
 function assertMoneyClassified(tables) {
   const unclassified = [], strict = [];
   tables.forEach(t => (t.cols || []).forEach(c => {
@@ -300,8 +401,22 @@ function assertMoneyClassified(tables) {
   process.exit(1);
 }
 
-const BOOL_PREFIX = /^(Is|Has|Can|Require|Notify|Allow|Enabled?|Active|Read|Locked?|Verified?|Anonymous|Popup|GeoExempt|MustChange)/;
-const DATE_EXACT = /(Date|DOB|Expiry|Birthday)$/;
+/* 🔴 THE PREFIX MUST END ON A WORD BOUNDARY (Phase 2.3, 2026-10-13).
+ *
+ * Without the lookahead, `Can` matches **Can**celledBy and **Can**celNote — so OT_DAILY's two
+ * cancellation columns were generated as `boolean`. CancelledBy holds 'AUTO_TIME' or an admin's
+ * name and CancelNote holds a sentence in Thai explaining why a family was not charged; both would
+ * have become NULL on migration day, which is the answer to "why was this OT charge cancelled"
+ * for every OT charge ever cancelled.
+ *
+ * `(?=[A-Z]|$)` says the prefix is a whole word in CamelCase: CanClassOrg still matches, Cancel…
+ * no longer does. Third time in two days that a name pattern has answered a question about meaning
+ * and got it wrong — see MONEY_SHEETS and ROW_KEY_ for the other two. */
+const BOOL_PREFIX = /^(Is|Has|Can|Require|Notify|Allow|Enabled?|Active|Read|Locked?|Verified?|Anonymous|Popup|GeoExempt|MustChange)(?=[A-Z]|$)/;
+/* `From`/`To` are STUDENT_TERMS' first and last day — real dates, typed `text` until Phase 2.3
+ * because the pattern looks for a suffix and these have none. The same shape of miss as the money
+ * columns in Phase 2.2: a name-based guard cannot see a column that does not follow the naming. */
+const DATE_EXACT = /(Date|DOB|Expiry|Birthday)$|^(From|To)$/;
 const TIME_EXACT = /(Time|CheckIn|CheckOut|In|Out)$/;
 const STAMP_EXACT = /(At|Timestamp|Ts)$/;
 
@@ -318,6 +433,22 @@ function sqlType(col) {
 }
 const snake = s => s.replace(/([a-z0-9])([A-Z])/g, '$1_$2').replace(/[^A-Za-z0-9]+/g, '_').toLowerCase();
 
+/* ── SQL KEYWORDS ────────────────────────────────────────────────────────────────────────────────
+ *
+ * 🔴 STUDENT_TERMS declares `From` and `To`, which snake down to `from` and `to`. Both are RESERVED
+ * in Postgres, so `create table student_terms (… from text, to text …)` is a syntax error and the
+ * statement never ran — which is why the table was missing from staging while sitting in the
+ * generated file, and why Phase 2.3's first run against the summer-term suites failed with
+ * `relation "student_terms" does not exist`.
+ *
+ * The header of this file already records that migration 001 "had never been runnable at all" once
+ * before, for a different reason. That guard was written for the four columns it knew about; this
+ * is the general case, so every identifier is quoted and the class of fault closes. Quoting a plain
+ * lower-case name changes nothing about it, so this is free everywhere else.
+ *
+ * ANYTHING THAT WRITES SQL FROM THESE NAMES MUST DO THE SAME — see q() in tools/pg_engine.js. */
+const q = name => '"' + String(name).replace(/"/g, '""') + '"';
+
 // ---------------------------------------------------------------------------------------------
 // 4. output
 // ---------------------------------------------------------------------------------------------
@@ -325,6 +456,7 @@ const inv = inventory();
 const withCols = inv.filter(t => t.cols && t.cols.length);
 assertMoneyClassified(withCols);   // refuse to go further if any amount is unclassified
 assertNoTableCollision(withCols);  // ...or if two sheets would quietly become one table
+assertRowKeysDeclared(withCols);   // ...or if a unique index would be guessed from a column name
 
 if (process.argv.includes('--sql') || process.argv.includes('--write')) {
   const L = [];
@@ -397,7 +529,7 @@ if (process.argv.includes('--sql') || process.argv.includes('--write')) {
       if (RESERVED.has(name)) { absorbed.push(c); return; }   // provided below, once
       if (emitted.has(name)) return;                          // the sheet named it twice
       emitted.add(name);
-      L.push(`  ${name.padEnd(26)} ${sqlType(c)},`);
+      L.push(`  ${q(name).padEnd(28)} ${sqlType(c)},`);
     });
     if (absorbed.length) {
       L.push(`  -- ${absorbed.join(', ')}: the sheet's own column${absorbed.length > 1 ? 's' : ''}, carried by the`);
@@ -406,10 +538,11 @@ if (process.argv.includes('--sql') || process.argv.includes('--write')) {
     L.push('  created_at  timestamptz not null default now(),');
     L.push('  updated_at  timestamptz not null default now()');
     L.push(');');
-    // the sheet's own id column becomes a per-tenant unique code
-    const idCol = t.cols.find(c => /ID$/.test(c) && c.toLowerCase().startsWith(t.sheet.split('_')[0].slice(0, 4).toLowerCase()))
-              || t.cols.find(c => /^[A-Za-z]+ID$/.test(c));
-    if (idCol) L.push(`create unique index if not exists ${tbl}_code_uq on ${tbl}(tenant_id, ${snake(idCol)});`);
+    /* The sheet's own id column becomes a per-tenant unique code — DECLARED, never guessed. See
+     * ROW_KEY_ for what the guess asserted about the school's journals and attendance. A null there
+     * means this table genuinely holds many rows per person and gets no unique index at all. */
+    const idCol = ROW_KEY_[t.sheet] || null;
+    if (idCol) L.push(`create unique index if not exists ${tbl}_code_uq on ${tbl}(tenant_id, ${q(snake(idCol))});`);
     L.push(`create index if not exists ${tbl}_tenant_ix on ${tbl}(tenant_id);`);
     // every read is scoped to one school AND ordered by sheet position, so one index serves both
     L.push(`create index if not exists ${tbl}_seq_ix on ${tbl}(tenant_id, seq);`);
@@ -422,8 +555,14 @@ if (process.argv.includes('--sql') || process.argv.includes('--write')) {
   L.push('-- how one table ends up readable across tenants, so there are none.');
   L.push('-- The app connects with the anon key plus a JWT we mint; the service-role key bypasses ALL');
   L.push('-- of this by design and must never leave the server.');
+  /* 🔴 RE-RUNNABLE. Until Phase 2.3 this block said `create policy` only, so the SECOND time the
+   * file was applied it raised "policy already exists" on the first table and stopped — leaving
+   * every table after it unpoliced. That is what happened to `student_terms`: it was added, RLS was
+   * enabled on it, and the policy never arrived, which in Postgres means the table denies everyone.
+   * A migration file that cannot be applied twice is a migration file that silently half-applies. */
   L.push('do $$ declare t text; begin');
   L.push('  for t in select tablename from pg_tables where schemaname = \'public\' and tablename <> \'tenant\' loop');
+  L.push('    execute format($f$drop policy if exists tenant_isolation on %I$f$, t);');
   L.push('    execute format($f$');
   L.push('      create policy tenant_isolation on %I');
   L.push('        using (tenant_id = (auth.jwt() ->> \'tenant_id\')::uuid)');
