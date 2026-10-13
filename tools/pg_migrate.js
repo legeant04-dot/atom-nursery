@@ -480,5 +480,5 @@ async function main() {
   console.log('');
 }
 
-module.exports = { targetSchema, moneyReport, renderReport, planLoad, tableFor, encode_, round2, load, encodeRejects_ };
+module.exports = { targetSchema, moneyReport, renderReport, planLoad, tableFor, encode_, round2, load, encodeRejects_, moneyColumns };
 if (require.main === module) main().catch(e => { console.log('🔴 ' + e.message); process.exit(1); });
