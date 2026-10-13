@@ -337,5 +337,68 @@ console.log('\n5) ค่าเริ่มต้น: ปิดทุกหัว
     !/function parentLineOn_/.test(liveSrc));
 }
 
+console.log('\n6) 🔴 ติ๊กแล้วบันทึก แล้วเปิดใหม่ — ต้องเห็นสิ่งที่ติ๊กไว้');
+{
+  /* 🔴 THE INCIDENT, 2026-10-13: "ทดสอบติ๊กการแจ้งเตือน พอกดบันทึกแล้วระบบไม่บันทึก
+   * เลยยังไม่มีการแจ้งเตือนใดๆเกิดขึ้นเลย".
+   *
+   * The save was never the problem. `_setOn` — written for yes/no switches and ending in
+   * `String(v).toLowerCase()==='true'` — was handed to the channel dialog when the values became
+   * 'app' / 'line' / 'app,line' on 10/10. So every stored value except the legacy 'true' read back
+   * as FALSE, and every box drew empty.
+   *
+   * And then the second half, which is what actually destroyed the settings: an empty dialog saves
+   * '' to all fifteen keys on purpose (a cleared topic must be written, or turning one off would do
+   * nothing). So reopening the dialog and saving erased what the previous save had stored. The ผอ.
+   * lost their settings by looking at them.
+   *
+   * Everything here was separately correct — the client collected the right keys, the route wrote
+   * them, the server read them — so nothing failed, and no test asked the one question that spans
+   * them: does a value survive being written and then displayed? */
+  const app = R('webapp/app.js');
+  const grab = (name) => {
+    const i = app.indexOf('const ' + name + '=');
+    return app.slice(i, app.indexOf('\n', i));
+  };
+  const ctx = {};
+  // the real functions, lifted from the file rather than retyped
+  eval(grab('_setOn') + '\nctx._setOn=_setOn;');
+  eval(grab('_setRaw') + '\nctx._setRaw=_setRaw;');
+  // ...and the real chOn out of _setNotifyHTML
+  const chSrc = /const chOn = \(k, ch\) => \{([\s\S]*?)\};/.exec(app);
+  ok_('อ่านตัวจริงจาก app.js ได้ทั้งสามตัว', !!ctx._setOn && !!ctx._setRaw && !!chSrc);
+  const chOn = (rawOf) => new Function('rawOf', 'return (k, ch) => {' + chSrc[1] + '};')(rawOf);
+
+  const sc = { NotifyParentCheckin: 'app,line', NotifyStaffApprovalQueue: 'app',
+               NotifyStaffOrg: 'line', NotifyAdminApproval: 'true', NotifyParentBill: '' };
+  const on = chOn(ctx._setRaw(sc, {}));
+  eq('🔴 เก็บ "app,line" → ติ๊กทั้งสองช่อง', [on('NotifyParentCheckin','app'), on('NotifyParentCheckin','line')], [true, true]);
+  eq('🔴 เก็บ "app" → ติ๊กเฉพาะแอป', [on('NotifyStaffApprovalQueue','app'), on('NotifyStaffApprovalQueue','line')], [true, false]);
+  eq('🔴 เก็บ "line" → ติ๊กเฉพาะ LINE', [on('NotifyStaffOrg','app'), on('NotifyStaffOrg','line')], [false, true]);
+  eq('ค่าเก่า "true" → ทั้งสองช่อง (ของเดิมก่อนมีช่องทาง)', [on('NotifyAdminApproval','app'), on('NotifyAdminApproval','line')], [true, true]);
+  eq('ว่าง → ไม่ติ๊กเลย', [on('NotifyParentBill','app'), on('NotifyParentBill','line')], [false, false]);
+  eq('ไม่มีค่าเลย → ไม่ติ๊ก', [on('NotifyParentDspm','app'), on('NotifyParentDspm','line')], [false, false]);
+
+  /* 🔴 CONTROL — the actual defect, reproduced. Hand chOn the yes/no reader and the channel values
+   * all vanish. This is here so the fix cannot be undone by "simplifying" the two readers back into
+   * one, which is exactly how they came to be one. */
+  const broken = chOn((k) => ctx._setOn(sc, {})(k, ''));
+  eq('🔴 CONTROL: ถ้าใช้ตัวอ่านแบบ yes/no ค่าช่องทางจะหายหมด',
+    [broken('NotifyParentCheckin','app'), broken('NotifyStaffApprovalQueue','app')], [false, false]);
+
+  // and the dialog must be wired to the raw reader, not the boolean one
+  ok_('🔴 กล่องติ๊กช่องทางอ่านค่าดิบ', /const chOn = \(k, ch\) => \{ const v = String\(rawOf\(k\)/.test(app));
+  ok_('...และหน้าต่างส่งตัวอ่านค่าดิบเข้าไปจริง', /_setNotifyHTML\(_setOn\(sc,cfg\), _setRaw\(sc,cfg\)\)/.test(app));
+  /* the two digest switches are yes/no and must KEEP the boolean reader — a single reader for both
+   * is the mistake, in either direction */
+  ok_('...แต่สวิตช์สรุปเช้า/เย็น ยังใช้ตัวอ่านแบบ yes/no', /cfgOn\('DigestMorning',true\)/.test(app));
+
+  /* THE SECOND LOCK: a save that turns every topic off now has to be agreed to. The first lock is
+   * the reader above; this one is what keeps a future reader bug from erasing the school's settings
+   * silently rather than loudly. */
+  ok_('🔴 บันทึกที่ปิดทุกหัวข้อ ต้องถามก่อน', /keys\.every\(k=>!chans\[k\]\.length\)/.test(app) && /confirm\(EN\(\)/.test(app));
+  ok_('...และยังเขียน "" ให้หัวข้อที่ปิด (ไม่งั้นปิดไม่ติด)', /keys\.forEach\(k=>\{ gv\[k\]=chans\[k\]\.join\(','\); \}\)/.test(app));
+}
+
 console.log('\n' + (fail ? 'FAILED ' : 'PASSED ') + pass + ' passed, ' + fail + ' failed\n');
 process.exit(fail ? 1 : 0);

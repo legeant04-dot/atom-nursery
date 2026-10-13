@@ -131,7 +131,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.438'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.439'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -12281,6 +12281,23 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
    * forgotten; this way a form contributes its inputs and nothing else has to know.
    */
   const _setOn=(sc,cfg)=>(k,def)=>{ const v=(sc&&sc[k]!=null)?sc[k]:(cfg||{})[k]; return v==null?def:(v===true||String(v).toLowerCase()==='true'); };
+  /* 🔴 THE SAME LOOKUP WITHOUT THE YES/NO COERCION — and the lack of it cost the school every
+   * notification setting it tried to make (reported 2026-10-13: "ติ๊กแล้วกดบันทึก ระบบไม่บันทึก").
+   *
+   * _setOn above predates channels. It answers "is this switch on?" and therefore ends with
+   * `String(v).toLowerCase()==='true'`. When the notification values became a channel LIST on
+   * 2026-10-10 — 'app', 'line', 'app,line' — the new dialog kept asking _setOn, so:
+   *
+   *     stored 'app,line'  →  _setOn  →  'app,line' === 'true'  →  false  →  both boxes EMPTY
+   *
+   * Every value except the legacy 'true' read back as nothing ticked. The save had worked; the
+   * screen simply could not show it. And that is the half that did the damage: the ผอ. reopened the
+   * dialog, saw empty boxes, and saved again — and a save from an empty dialog writes '' to all
+   * fifteen keys, deliberately (see the note in A_saveSettings: omitting a cleared topic would
+   * leave the old value standing). So the second save really did erase the first.
+   *
+   * A reader that silently narrows a value to a yes/no is not a display bug. */
+  const _setRaw=(sc,cfg)=>(k)=>{ const v=(sc&&sc[k]!=null)?sc[k]:(cfg||{})[k]; return v==null?'':String(v); };
   const _setSave=()=>`<button class="btn block" style="margin-top:10px" onclick="A_saveSettings(this)">${esc(t('c.save'))}</button>`;
   const _setClose=()=>`<button class="btn outline block" style="margin-top:6px" onclick="this.closest('.modal').remove()">${esc(t('c.close'))}</button>`;
 
@@ -12389,11 +12406,14 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
         <span style="text-align:center"><input type="checkbox" data-notify="${esc(t.k)}" data-ch="app"  style="width:20px;height:20px" ${chOn(t.k,'app')?'checked':''}/></span>
         <span style="text-align:center"><input type="checkbox" data-notify="${esc(t.k)}" data-ch="line" style="width:20px;height:20px" ${chOn(t.k,'line')?'checked':''}/></span></div>`;
 
-  const _setNotifyHTML = cfgOn => {
+  /** @param cfgOn  yes/no reader, for the two digest switches
+   *  @param rawOf  🔴 the RAW value, for the channel boxes — see _setRaw for what passing the
+   *                yes/no reader here did to every notification setting the school made */
+  const _setNotifyHTML = (cfgOn, rawOf) => {
     /* the stored value is `app,line` — and 'true' from the day before channels existed means both,
      * exactly as notifyChannels_ reads it on the server. Two readers of one format, kept the same
      * on purpose; tools/test_notify_topics.js checks they agree. */
-    const chOn = (k, ch) => { const v = String(cfgOn(k,'')||'').toLowerCase();
+    const chOn = (k, ch) => { const v = String(rawOf(k)||'').toLowerCase();
       return v==='true' ? true : v.indexOf(ch)>=0; };
     const rows = g => _notifyHead() + NOTIFY_TOPICS_.filter(t=>t.group===g).map(t=>_notifyRow(chOn,t)).join('');
     const anyOn = NOTIFY_TOPICS_.some(t=>chOn(t.k,'app')||chOn(t.k,'line'));
@@ -12449,7 +12469,7 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
 
   window.A_setNotify=async()=>{ const sc=await api('schoolConfig'); const cfg=MOCK.config;
     modal(`<h3>🔔 ${EN()?'Notification settings':'ตั้งค่าการแจ้งเตือน'}</h3>
-      ${_setNotifyHTML(_setOn(sc,cfg))}
+      ${_setNotifyHTML(_setOn(sc,cfg), _setRaw(sc,cfg))}
       ${_setSave()}`); };
 
   /* 🩺 NOTHING HERE IS A SETTING, which is why it is not in any of the four above. These answer
@@ -13899,7 +13919,24 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
         if(!chans[k]) chans[k]=[];
         if(el.checked) chans[k].push(el.getAttribute('data-ch')||'app');
       }
-      Object.keys(chans).forEach(k=>{ gv[k]=chans[k].join(','); });
+      /* 🔴 SILENCING THE WHOLE SCHOOL IS A DECISION, NOT A SIDE EFFECT (added 2026-10-13).
+       *
+       * Writing '' for a cleared topic is deliberate — leaving it out would leave the old value
+       * standing, so turning something OFF would appear to work and change nothing. But it means a
+       * save from a dialog showing all boxes empty wipes all fifteen keys at once, and that is
+       * exactly what happened when the dialog could not read the channel values back: the ผอ. saw
+       * empty boxes, saved, and their settings were erased by the act of looking at them.
+       *
+       * The reader is fixed. This is the second lock: the one save that can take the entire school
+       * silent now has to be agreed to. Only asked when it would actually turn everything off AND
+       * there is more than one topic on screen — a dialog drawn with one row, or already all-off,
+       * asks nothing. */
+      const keys=Object.keys(chans);
+      if(keys.length>1 && keys.every(k=>!chans[k].length)
+         && !confirm(EN()
+            ? 'This turns OFF every notification topic — the school will send nothing at all, on either channel. Save anyway?'
+            : 'การบันทึกนี้จะปิดการแจ้งเตือน "ทุกหัวข้อ" — โรงเรียนจะไม่ส่งอะไรเลยทั้งในแอปและทาง LINE\n\nยืนยันที่จะบันทึกหรือไม่?')) return;
+      keys.forEach(k=>{ gv[k]=chans[k].join(','); });
     }
 
     /* ALL IN FLIGHT BEFORE THE FIRST await — that is the whole of the fix. An `await` anywhere in
