@@ -304,6 +304,13 @@ var ROUTES = {
   myPayslipMonths: function (p) { return handleMyPayslipMonths(p); },
   markSalaryPaid: function (p) { return handleMarkSalaryPaid(p); },   // admin-only: salary transferred (+ slip)
   otCarryOver:    function (p) { return handleOtCarryOver(p); },      // OT approved after an earlier payroll was saved
+  /* 📦 PHASE 4.6 — the school's own copy of its own data. Admin-only, read-only, PAGED (see the long
+   * note at the top of src/Portability.gs, including which columns are credentials and never leave). An
+   * explicit route rather than an engine handler on purpose: it reads the declared SCHEMA and pages
+   * whatever is storing the rows, so the same two calls answer out of Sheets today and out of
+   * Postgres after the cutover — which is the only reason this can be a cutover criterion. */
+  exportManifest: function (p) { return handleExportManifest(p); },
+  exportTable:    function (p) { return handleExportTable(p); },
   recomputeContributions: function (p) { return handleRecomputeContributions(p); },  // admin-only, preview-first
   // wipes ONE staff member's provident fund. Admin-only, preview-first, and it takes a full backup
   // of both workbooks before it writes a single cell — see handleContributionReset.
@@ -450,6 +457,11 @@ function applyIdentity_(action, payload, sess) {
     // ☀️ summer terms — opening one decides whether a child may be checked in at all, and the list
     // names every child who has ever come back. Both belong to the admin (engine checks too).
     studentTerms: 1, setStudentTerm: 1, cancelStudentTerm: 1, setStaffEnd: 1, setStaffPause: 1, staffAttendanceMonth: 1, studentMonthReport: 1, recordCashPayment: 1, pausedStudents: 1, deleteSlip: 1, slipDiag: 1, saveSlipOk: 1, cancelPrepay: 1, perfSummary: 1, deletePerfLog: 1, prepaidStudents: 1, insuranceExport: 1,
+    /* 📦 THE WHOLE-SCHOOL EXPORT (Phase 4.6) — the most concentrated read in the app: every child,
+     * every family, every staff salary and every daily journal entry in one file. Admin only, and
+     * handleExportManifest writes an audit line for each export so there is a record of who took a
+     * copy of the school and when (PDPA §39). */
+    exportManifest: 1, exportTable: 1,
     /* CERTIFICATES — admin only, all five.
      * certStudents names every child who has finished, including those long gone, and certAssets
      * hands back the director's signature. Neither is anything a teacher or a parent has business

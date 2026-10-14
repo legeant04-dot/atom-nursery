@@ -207,6 +207,15 @@
     'ins.has':['มีประกัน','Has insurance'], 'ins.policy':['เลขกรมธรรม์','Policy no.'], 'ins.company':['บริษัทประกัน','Insurance company'], 'ins.expiry':['วันครบกำหนด','Expiry date'], 'ins.card':['รูปบัตรประกัน','Insurance card image'],
     'ie.exportedFolder':['นักเรียนที่นำออกแล้ว','Exported students'], 'ie.folderNote':['ไฟล์ถูกบันทึกในโฟลเดอร์ "ข้อมูลนักเรียนที่ Export"','Files saved in the "ข้อมูลนักเรียนที่ Export" folder'], 'ie.reimport':['นำกลับเข้าระบบ','Re-import'],
     'ie.importFile':['นำเข้าจากไฟล์','Import from file'], 'ie.importNote':['เลือกไฟล์ .xlsx ที่เคยนำออก เพื่อเพิ่มนักเรียนกลับเข้าระบบ','Choose a previously exported .xlsx to add the student back'], 'ie.chooseXlsx':['เลือกไฟล์ .xlsx','Choose .xlsx file'], 'ie.import':['นำเข้า','Import'], 'ie.imported':['นำเข้าข้อมูลแล้ว','Imported'],
+    /* 📦 Phase 4.6 — the whole-school export. The note says what the file IS and the "safe" line says
+     * what it deliberately leaves out: a promise of "all your data" has to be honest about the two
+     * things it withholds, or the school discovers the gap at the worst moment. */
+    'ie.exportAll':['สำรองข้อมูลทั้งโรงเรียน','Export all school data'],
+    'ie.exportAllNote':['ดาวน์โหลดข้อมูลทุกตารางของโรงเรียนเป็นไฟล์ Excel ไฟล์เดียว (หนึ่งตาราง = หนึ่งแท็บ) — เก็บไว้เป็นสำเนาของโรงเรียนเอง เปิดได้โดยไม่ต้องใช้แอปนี้',
+      'Download every table in the school as a single Excel file (one table per tab) — the school’s own copy, readable without this app'],
+    'ie.exportAllBtn':['ดาวน์โหลดไฟล์ Excel','Download Excel file'],
+    'ie.exportAllSafe':['ไฟล์นี้ไม่มีรหัสผ่าน และไม่มีคีย์เชื่อมต่อ (SlipOK · LINE) — เพื่อไม่ให้ไฟล์ที่หลุดออกไปถูกใช้สวมรอยโรงเรียน',
+      'The file contains no passwords and no integration keys (SlipOK, LINE) — so a copy that goes astray cannot be used to impersonate the school'],
     'org.note':['ลากชื่อไปวางที่ Nursery ปลายทาง หรือเลือกจาก Dropdown หลังชื่อ','Drag a name onto a Nursery, or pick from the dropdown after each name'], 'org.moved':['ย้ายแล้ว','Moved'],
     'hol.add':['เพิ่มวันหยุด','Add holiday'], 'hol.date':['วันที่','Date'], 'hol.recurring':['ทุกปี','Every year'], 'hol.nameTH':['ชื่อวันหยุด (ไทย)','Holiday name (TH)'], 'hol.nameEN':['ชื่อวันหยุด (อังกฤษ)','Holiday name (EN)'], 'hol.list':['รายการวันหยุด','Holiday list'], 'hol.yearly':['ทุกปี','Yearly'],
     'lbl.checkOut':['เลิกงาน','Check out'],

@@ -122,7 +122,21 @@ console.log('\n2) 🔴 no screen awaits once per row');
   /* jCollectMeals is the one allowed case and it is named, not waved through: it registers a dish a
    * teacher has just TYPED, which is zero or one per journal, and it has to finish before the meal
    * can reference it. Everything else on this list is a queue hog. */
-  const ALLOWED = new Set(['saveFoodItem']);
+  /* `exportTable` is the second allowed case, and it is allowed for the OPPOSITE reason to the
+   * first: it is a loop of calls ON PURPOSE (Phase 4.6, src/Portability.gs).
+   *
+   * The whole-school export is ~47 tables, one of them years of daily journals, and an Apps Script
+   * reply has a hard size ceiling — so it has to be paged. Firing the pages in parallel is the thing
+   * that would be wrong here: 47+ simultaneous reads from one admin would spend the script's
+   * concurrent-execution budget and make the app slow for every teacher and parent in the building,
+   * to shorten one admin's once-a-term download.
+   *
+   * It is also a READ (never queues behind the write lock, see READ_ONLY_ACTIONS_), it is one admin
+   * pressing one button, and the screen prints a running row count so a long wait is legible rather
+   * than looking like a hang. Named here rather than exempted by a pattern, so the next loop of
+   * awaits still has to come and argue its case.
+   */
+  const ALLOWED = new Set(['saveFoodItem', 'exportTable']);
   eq('🔴 every remaining per-row await is one we have looked at',
     hogs.filter(h => !ALLOWED.has(h.action)).map(h => h.action + '@' + h.line), []);
 }

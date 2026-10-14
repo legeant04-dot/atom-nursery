@@ -50,10 +50,17 @@ const res = JSON.parse(run(function () {
     Class: 'Nursery 1', Status: 'ACTIVE', DOB: '2023-04-15', EnrollDate: '2026-01-05',
     InsuranceHas: 'YES', InsurancePolicyNo: 'P-1', InsuranceCompany: 'AIA',
     InsuranceExpiry: '2100-01-01', InsuranceSum: '500,000.00' });
-  appendObject_(sheet_(hr, 'STAFF'), { StaffID: 'T-1', NameTH: 'ครูทดสอบ', Nickname: 'ครู',
+  /* 🔴 `Name`, NOT `NameTH`. The STAFF sheet's column is literally `Name` (SCHEMA.STAFF) and the
+   * engine only sees `NameTH` because FIELD_ALIAS renames it on the way in. The fixture used to
+   * write NameTH — a column the sheet does not have — so the ROUTE half read no name at all and the
+   * payslip-name difference below looked like a missing field in the route rather than a fixture
+   * that had never populated it. Position / BankName / BankAccount are here for the same reason:
+   * a parity test on fields that are blank on both sides proves nothing. */
+  appendObject_(sheet_(hr, 'STAFF'), { StaffID: 'T-1', Name: 'ครูทดสอบ', Nickname: 'ครู',
     Role: 'Teacher', PositionLevel: 'Staff', Department: 'Nursery 1', Classes: 'Nursery 1',
+    Position: 'ครูประจำชั้น', BankName: 'KBANK', BankAccount: '123-4-56789-0',
     Status: 'ACTIVE', StartDate: '2024-01-01', BaseSalary: 18000, StaffGroup: 'ATMG-01' });
-  appendObject_(sheet_(hr, 'STAFF'), { StaffID: 'ADM', NameTH: 'แอดมิน', Role: 'Admin',
+  appendObject_(sheet_(hr, 'STAFF'), { StaffID: 'ADM', Name: 'แอดมิน', Role: 'Admin',
     PositionLevel: 'Admin', Status: 'ACTIVE', StartDate: '2024-01-01' });
   appendObject_(sheet_(hr, 'LEAVE_REQUEST'), { LeaveID: 'LV-1', StaffID: 'T-1', Type: 'ลาป่วย',
     DateFrom: '2026-10-20', DateTo: '2026-10-20', Days: 1, Reason: 'ไข้', Status: 'PENDING_LEADER',
@@ -105,27 +112,39 @@ const res = JSON.parse(run(function () {
 const keysOf = v => Array.isArray(v) ? (v.length ? Object.keys(v[0]).sort() : ['(empty)'])
   : (v && typeof v === 'object') ? Object.keys(v).sort() : [typeof v];
 
-/* ── 🔴 THE DIFFERENCES WE KNOW ABOUT, AND HAVE NOT CLOSED YET ───────────────────────────────────
+/* ── 🔴 THE PAYSLIP GAP — CLOSED 2026-10-14 ──────────────────────────────────────────────────────
  *
- * `computePayroll` is the payslip, and its two halves are a long way apart. This is the single
- * largest finding of Phase 2.6 and it is NOT fixed here, because it is money and it is big: hurrying
- * it in the same pass that found it is how a payslip gets a wrong number.
+ * This was the largest finding of Phase 2.6: `computePayroll` is the payslip, and its two halves
+ * disagreed about ELEVEN fields. The explicit route is what the school runs today; the engine half
+ * is what runs after the cutover. So cutting over as things stood would have:
  *
- * 🔴 WHAT IT MEANS FOR THE MIGRATION. The explicit route is what the school runs today. The ENGINE
- * half is what runs in mock mode — and what will run after the cutover. So cutting over as things
- * stand would silently drop the staff member's NAME, position, bank name, and the generated-by /
- * generated-date audit fields from every payslip, and gain three fields nothing reads.
+ *   · dropped the staff member's NAME, POSITION, BANK NAME and the generated-by / generated-date
+ *     audit fields from every payslip;
+ *   · put the school's bank NAME into the teacher's account-number cell (the engine's only
+ *     `BankAccount: cfg.BankName`), so the slip showed "SCB" where an account number belongs;
+ *   · ERASED SlipSent / PaidDate / PaidBy / SlipUrl on any recalculation — the engine assigned a
+ *     whole new row over the old one, so a slip the school had already PAID read back as unpaid and
+ *     the obvious next action was to pay it twice;
+ *   · called one quantity by two names (`ChildCount` here, `ExtraChildCount` in the sheet and on the
+ *     route) so the screen's own fallback was the only thing keeping "เด็ก N คน × ฿300" on the slip;
+ *   · lost the certificate COUNT, keeping only the money, so the payroll screen reopened at 0;
+ *   · grown OTCarryDetail without limit toward the 50,000-character cell ceiling.
  *
- * Pinned rather than tolerated: the lists below are the work item, and any change to them fails
- * here, so the gap can only ever shrink deliberately. */
-const KNOWN_DIFF = {
-  computePayroll: {
-    why: 'เงินเดือน — ช่องว่างที่ใหญ่ที่สุดของ 2.6 · ต้องปิดก่อนตัดระบบ',
-    routeOnly: ['BankName', 'ExtraChildCount', 'GeneratedBy', 'GeneratedDate', 'Position',
-                'SlipSent', 'StaffName', 'TrainingCertCount'],
-    engineOnly: ['ChildCount', 'ChildThreshold', 'RatedTotal']
-  }
-};
+ * KNOWN_DIFF is now EMPTY, and that is the assertion: an empty object means every field of the
+ * payslip is named the same on both sides. It is kept rather than deleted because a future shadow
+ * that needs a pinned difference should be added here, visibly, and not tolerated in silence.
+ *
+ * 🔴 WHAT IS STILL OPEN is a VALUE, not a field: the Nth child the rate starts at. See
+ * CHILD_RATE_THRESHOLD_DEFAULT_ in src/Payroll.gs and section 3 below. */
+const KNOWN_DIFF = {};
+
+/* The fields that are the same QUANTITY on both sides and must therefore hold the same VALUE.
+ * Keys-only parity is what let the bank-name-in-the-account-cell bug sit here unseen: both halves
+ * had a `BankAccount`, and they held different things. GeneratedDate is excluded — it is a clock
+ * reading, and two calls a millisecond apart are allowed to differ. */
+const SAME_VALUE = ['StaffID', 'Month', 'BaseSalary', 'StaffName', 'Position', 'BankName',
+  'BankAccount', 'ExtraChildCount', 'ChildThreshold', 'TrainingCertCount', 'SlipSent',
+  'PaidDate', 'PaidBy', 'SlipUrl', 'GeneratedBy'];
 
 console.log('\n1) 🔴 ประตูสองบานของคำถามเดียวกัน ต้องตอบเหมือนกัน');
 Object.keys(res).forEach(name => {
@@ -151,6 +170,26 @@ Object.keys(res).forEach(name => {
   }
   eq(name + ' — รูปร่างคำตอบตรงกัน', keysOf(r.route), keysOf(r.engine));
 });
+
+console.log('\n1b) 🔴 ...และช่องเดียวกันต้องมีค่าเดียวกัน (ไม่ใช่แค่ชื่อตรงกัน)');
+{
+  const a = res.computePayroll.route || {}, b = res.computePayroll.engine || {};
+  SAME_VALUE.forEach(k => {
+    /* Compared as text: the route reads a Sheets cell and the engine reads a decoded collection, so
+     * 18000 and '18000' are the SAME ANSWER arriving through two readers. A test that called that a
+     * defect would be testing the harness. */
+    const s = v => (v == null ? '' : (v instanceof Date ? 'date' : String(v)));
+    eq('  computePayroll.' + k, s(a[k]), s(b[k]));
+  });
+  /* 🔴 THE ONE THAT MUST NOT BE SILENTLY "FIXED" BY A FALLBACK. A paid slip that is recalculated
+   * must still say it was paid, on BOTH sides. This is the double-payment bug, asserted directly
+   * rather than inferred from a field list. */
+  ok_('  🔴 ExtraChildCount เป็นชื่อเดียวกันทั้งสองฝั่ง (ไม่มี ChildCount เหลืออยู่)',
+    !Object.prototype.hasOwnProperty.call(b, 'ChildCount') &&
+    Object.prototype.hasOwnProperty.call(b, 'ExtraChildCount'));
+  ok_('  🔴 BankAccount ไม่ใช่ชื่อธนาคาร (engine เคยใส่ชื่อธนาคารลงช่องเลขบัญชี)',
+    String(b.BankAccount || '') === '123-4-56789-0' && String(b.BankName || '') === 'KBANK');
+}
 
 console.log('\n2) 🔴 รายชื่อ shadow ที่เป็นการอ่านล้วน — ต้องไม่โตขึ้นเงียบๆ');
 {
