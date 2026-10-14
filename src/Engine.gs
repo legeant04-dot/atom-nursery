@@ -4025,14 +4025,34 @@ function createAtomAPI(M, GROWTH_STD) {
       // ...and the same rule for the child rate: a blank per-staff figure is not a rate of zero
       const childMult=p.childMultiplier!=null?Number(p.childMultiplier)
         :(perStaff(pc.ChildMultiplier)!=null?perStaff(pc.ChildMultiplier):cfg.ExtraChildRate);
-      // child-rate count is AUTO from the DB unless overridden: children from #ChildThreshold onward
-      const threshold=p.childThreshold!=null?Number(p.childThreshold):(pc.ChildThreshold||cfg.ExtraChildThreshold||31);
+      /* child-rate count is AUTO from the DB unless overridden: children from #ChildThreshold onward
+       *
+       * 🔴 THE NUMBER IS LEFT EXACTLY AS IT IS, AND THAT IS DELIBERATE (2026-10-14).
+       *
+       * SCHOOL_CONFIG seeds ExtraChildThreshold = 30 under the comment "children counted from #31
+       * onward" — the value and its own documentation disagree, and the difference is one child at
+       * the child rate (฿300) on a payslip. It reaches the admin's screen through `payrollConfig`,
+       * which has no explicit route and is therefore served by THIS file on live: the screen fills
+       * its box with 30 and pays from the 30th child.
+       *
+       * So this is not a cutover question — it is a figure the school has been paying. Which of the
+       * two is the policy is the SCHOOL'S to say, not something to infer from a code comment, and
+       * changing it here would move money on the next payroll run with no one having decided to.
+       * Written down in src/Payroll.gs (CHILD_RATE_THRESHOLD_DEFAULT_) and asserted in
+       * tools/test_shadow_parity.js so both halves keep using the one number while it is decided. */
+      const threshold=p.childThreshold!=null?Number(p.childThreshold):(Number(pc.ChildThreshold)||Number(cfg.ExtraChildThreshold)||31);
       // leave over the limit → child-rate auto-count drops to 0 (Admin can still type a count to override).
       // FOR THE MONTH BEING PAID. ratedChildCount used to ignore the month entirely and count every
       // absence ever recorded, so an old absence kept a child out of the rate for good.
       const ratedTotal=H.ratedChildCount({month:p.month}).rated; const autoChild=leaveExceeds?0:Math.max(0, ratedTotal-(threshold-1));
       const childCount=p.extraChildCount!=null?Math.max(0,p.extraChildCount):autoChild;
-      const ec=childCount*childMult; const tc=Math.min(cfg.TrainingCertMaxPerMonth,Math.max(0,p.trainingCertCount||0))*cfg.TrainingCertRate;
+      const ec=childCount*childMult;
+      /* THE CERTIFICATE COUNT IS KEPT, not only the money it came to. The slip prints
+       * "2 ใบ × ฿100" and the payroll screen refills its box from the saved row, so a row that
+       * stored only the amount made the screen reopen at 0 and the next save silently drop a
+       * certificate the teacher had already earned. The cap is applied ONCE, here. */
+      const tcCount=Math.min(cfg.TrainingCertMaxPerMonth,Math.max(0,p.trainingCertCount||0));
+      const tc=tcCount*cfg.TrainingCertRate;
       // signed adjustment lines (e.g. {label:'มาสาย',amount:-200}). A positive line is income and a
       // negative one is a deduction, folded INTO the two totals — applying them to the net separately
       // made the slip print an "อื่นๆ" figure that was not inside รวมรายได้ / รวมหัก.
@@ -4062,7 +4082,36 @@ function createAtomAPI(M, GROWTH_STD) {
         accum+=own+emp; });
       accum=Math.round(accum*100)/100;
       const od=(p.otherDeductions||0)+adjMinus; const dd=contrib+od; const total=ss+dd; const net=gross-total;
-      const rec={PayrollID:nextSeqId_(M.payroll,'PayrollID','PR',4),StaffID:p.staffId,Month:p.month,PayType:payType,DailyRate:dailyRate,DaysWorked:daysWorked,BaseSalary:base,DiligenceAttendance:dA,DiligenceFacebook:dF,DiligenceTotal:dT,ExtraChildAmount:ec,ChildCount:childCount,ChildThreshold:threshold,RatedTotal:ratedTotal,ChildMultiplier:childMult,TrainingCertAmount:tc,OTEvening:ot,OTCarry:otCarry,OTCarryDetail:JSON.stringify(carry.detail||[]),OTHoliday:otHol,HolidayBonus:hb,OtherIncome:oi,GrossIncome:gross,SocialSecurity:ss,Contribution:contrib,ContributionEmployer:contribEmp,ContributionAccum:accum,OtherDeductions:od,TotalDeductions:total,Adjustments:adj,AdjustmentsTotal:adjSum,NetPay:net,BankAccount:cfg.BankName,LeaveDays:ls.days,LeaveLimit:ls.limit,LeaveExceeds:leaveExceeds,PauseSalaryMode:pauseSalary?pauseSalary.mode:'',PauseFrom:pauseSalary?ymd(st.PauseFrom||''):'',PauseTo:pauseSalary?ymd(st.PauseTo||''):'',PauseReason:pauseSalary?(st.PauseReason||''):''};
+      /* 🔴 THE ROW ALREADY ON FILE, LOOKED UP BEFORE THE NEW ONE IS BUILT — because three of its
+       * cells are NOT recomputed, they are CARRIED.
+       *
+       * SlipSent / PaidDate / SlipUrl record that the school PAID this slip and filed the transfer
+       * receipt. None of them is derivable from a calculation. The record below used to be assigned
+       * whole over the old row (`M.payroll[i]=rec`), so recalculating an already-paid month erased
+       * the payment: the slip read as unpaid, the finance screen counted it as owing, and the
+       * obvious next action was to pay it a second time.
+       *
+       * The Sheets route never had this bug — it writes in place and only touches the cells it
+       * names — which is exactly why it could sit here unnoticed: nothing the school runs today goes
+       * through this code, and after the cutover everything does. */
+      const prev=M.payroll.find(x=>x.StaffID===p.staffId&&ym(x.Month)===ym(p.month))||null;
+      const rec={PayrollID:nextSeqId_(M.payroll,'PayrollID','PR',4),StaffID:p.staffId,Month:p.month,PayType:payType,DailyRate:dailyRate,DaysWorked:daysWorked,BaseSalary:base,DiligenceAttendance:dA,DiligenceFacebook:dF,DiligenceTotal:dT,ExtraChildAmount:ec,ExtraChildCount:childCount,ChildThreshold:threshold,RatedTotal:ratedTotal,ChildMultiplier:childMult,TrainingCertCount:tcCount,TrainingCertAmount:tc,OTEvening:ot,OTCarry:otCarry,
+        /* only what the carry-over arithmetic reads back (month + amount + hours), not the
+         * per-evening list the SCREEN shows — see the same trim in src/Payroll.gs. The full detail
+         * grows without limit on a teacher with years behind them and the cell has a 50,000-char
+         * ceiling, which is a crash on the oldest staff member first. */
+        OTCarryDetail:JSON.stringify((carry.detail||[]).map(d=>({month:d.month,amount:d.amount,hours:d.hours}))),
+        OTHoliday:otHol,HolidayBonus:hb,OtherIncome:oi,GrossIncome:gross,SocialSecurity:ss,Contribution:contrib,ContributionEmployer:contribEmp,ContributionAccum:accum,OtherDeductions:od,TotalDeductions:total,Adjustments:adj,AdjustmentsTotal:adjSum,NetPay:net,
+        /* WHO is being paid, for WHAT job, and into WHICH account — the slip prints all four and the
+         * engine carried none of them. BankName and BankAccount are two different things: this used
+         * to put the school's bank NAME into the account-number cell, so the slip showed "SCB" where
+         * the teacher's account number belongs and no bank name at all. */
+        StaffName:st.NameTH||st.NameEN||'',Position:st.Position||'',
+        BankName:st.BankName||cfg.BankName||'',BankAccount:st.BankAccount||'',
+        SlipSent:prev?(prev.SlipSent||'NO'):'NO',PaidDate:prev?(prev.PaidDate||''):'',PaidBy:prev?(prev.PaidBy||''):'',SlipUrl:prev?(prev.SlipUrl||''):'',
+        // ...and an audit trail, so a figure anybody queries can be traced to a run and a person
+        GeneratedBy:p.generatedBy||'system',GeneratedDate:new Date(),
+        LeaveDays:ls.days,LeaveLimit:ls.limit,LeaveExceeds:leaveExceeds,PauseSalaryMode:pauseSalary?pauseSalary.mode:'',PauseFrom:pauseSalary?ymd(st.PauseFrom||''):'',PauseTo:pauseSalary?ymd(st.PauseTo||''):'',PauseReason:pauseSalary?(st.PauseReason||''):''};
       const i=M.payroll.findIndex(x=>x.StaffID===p.staffId&&ym(x.Month)===ym(p.month));
       // preview → return the numbers without persisting (see the GAS route)
       if(p.preview){ rec.PayrollID=i>=0?M.payroll[i].PayrollID:''; rec.Preview=true; rec.Saved=i>=0; return rec; }
@@ -4218,7 +4267,10 @@ function createAtomAPI(M, GROWTH_STD) {
         .sort((x,y)=>String(y.date+y.at).localeCompare(String(x.date+x.at))); },
     markSalaryPaid: p => { const r=M.payroll.find(x=>x.StaffID===p.staffId&&ym(x.Month)===ym(p.month));
       if(!r) fail('NOT_FOUND','ยังไม่มีรายการจ่ายของเดือนนี้ — กดบันทึกเงินเดือนก่อน');
+      // ...and WHO recorded it. The Sheets route has written PaidBy since the column existed; this
+      // half never did, so after the cutover a payment would have no one's name against it.
       const paid=p.paid!==false; r.SlipSent=paid?'YES':'NO'; r.PaidDate=paid?todayLocal():''; r.SlipUrl=paid?(p.slipUrl||r.SlipUrl||''):'';
+      r.PaidBy=paid?String(p.adminId||actorOf(p)||'admin'):'';
       logAct('markSalaryPaid',p.staffId,(paid?'จ่ายเงินเดือนแล้ว ':'ยกเลิกสถานะจ่าย ')+ym(p.month),actorOf(p));
       return {ok:true,paid}; },
     // Rebuild every staff member's accumulated เงินสมทบ from source (opening + both halves of every

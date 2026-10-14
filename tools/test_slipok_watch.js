@@ -138,11 +138,19 @@ console.log('\n4) 🔔 ถึงกระดิ่งแอดมิน · 💬 
     setConfigValue_('SlipOK_Url', 'https://api.slipok.com/api/line/apikey/12345');
     setConfigValue_('SlipOK_ApiKey', 'SLIPOKTESTKEY');
     _configCache = null;
-    // SlipOK answers: alive, but the package ends in three days
+    /* SlipOK answers: alive, but the package ends in three days.
+     *
+     * 🔴 DERIVED FROM TODAY, NOT WRITTEN DOWN. This was the literal '2026-10-16', three days out
+     * from the day the test was written — and it failed on 2026-10-14 for the one reason that is
+     * never a defect: the calendar moved. "เหลือ 3 วัน" is the claim, so three days from now is
+     * what the fixture has to say. (Fifth instance of the same lesson in this suite's history:
+     * an assertion written as a distance or a date decays; written as the claim, it does not.) */
+    var end = new Date(); end.setDate(end.getDate() + 3);
+    var endDate = Utilities.formatDate(end, 'Asia/Bangkok', 'yyyy-MM-dd');
     UrlFetchApp.fetch = function () {
       return { getResponseCode: function () { return 200; },
         getContentText: function () {
-          return JSON.stringify({ success: true, data: { quota: 900, overQuota: 0, endDate: '2026-10-16' } });
+          return JSON.stringify({ success: true, data: { quota: 900, overQuota: 0, endDate: endDate } });
         } };
     };
     var r = slipOkExpiryCheck_();

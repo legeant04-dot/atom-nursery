@@ -63,6 +63,72 @@
     ];
   }
 
+  /* ───── MANY WORKSHEETS IN ONE WORKBOOK (Phase 4.6) ──────────────────────────────────────────────
+   *
+   * The whole-school export is ~55 tables and nobody wants 55 downloads. Written as a SECOND builder
+   * rather than by generalising `parts` above: that one is three years old, four admin screens call
+   * it, and the single-sheet path through it still produces exactly the bytes it did yesterday.
+   *
+   * sheets = [{ name, rows }]. Rows are arrays of arrays, same as the single-sheet API.
+   *
+   * 🔴 SHEET NAMES ARE WHERE EXCEL REFUSES A FILE. The limits are not optional and the failure mode
+   * is "Excel found unreadable content" with no hint which sheet did it — so they are enforced here,
+   * once, rather than trusted to every caller:
+   *   · 31 characters maximum
+   *   · none of  : \ / ? * [ ]
+   *   · must be unique, case-insensitively — DAILY_JOURNAL and daily_journal collide
+   *   · must not be empty
+   */
+  function safeNames(sheets) {
+    var used = {}, out = [];
+    sheets.forEach(function (s, i) {
+      var n = String((s && s.name) || '').replace(/[:\\\/\?\*\[\]]/g, '_').slice(0, 31) || ('Sheet' + (i + 1));
+      var base = n, k = 2;
+      // ...and if the 31-character truncation is what caused the collision, the counter has to fit
+      // INSIDE 31 too, or the de-duplicated name is just as invalid as the duplicate was
+      while (used[n.toLowerCase()]) { var suf = '~' + (k++); n = base.slice(0, 31 - suf.length) + suf; }
+      used[n.toLowerCase()] = 1;
+      out.push(n);
+    });
+    return out;
+  }
+
+  function partsMulti(sheets) {
+    sheets = (sheets || []).filter(function (s) { return s && s.rows; });
+    if (!sheets.length) sheets = [{ name: 'Sheet1', rows: [] }];
+    var names = safeNames(sheets);
+    var ct = [], wbSheets = [], wbRels = [], files = [];
+    sheets.forEach(function (s, i) {
+      var n = i + 1, target = 'worksheets/sheet' + n + '.xml';
+      ct.push('<Override PartName="/xl/' + target + '" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>');
+      wbSheets.push('<sheet name="' + esc(names[i]) + '" sheetId="' + n + '" r:id="rId' + n + '"/>');
+      wbRels.push('<Relationship Id="rId' + n + '" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="' + target + '"/>');
+      files.push(['xl/' + target, sheetXml(s.rows, names[i])]);
+    });
+    return [
+      ['[Content_Types].xml',
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
+        '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">' +
+        '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>' +
+        '<Default Extension="xml" ContentType="application/xml"/>' +
+        '<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>' +
+        ct.join('') + '</Types>'],
+      ['_rels/.rels',
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
+        '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">' +
+        '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>' +
+        '</Relationships>'],
+      ['xl/workbook.xml',
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
+        '<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">' +
+        '<sheets>' + wbSheets.join('') + '</sheets></workbook>'],
+      ['xl/_rels/workbook.xml.rels',
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
+        '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">' +
+        wbRels.join('') + '</Relationships>']
+    ].concat(files);
+  }
+
   // ---- store-only ZIP ----
   function zip(files) {
     var chunks = [], central = [], offset = 0;
@@ -96,6 +162,17 @@
       document.body.appendChild(a); a.click(); a.remove();
       setTimeout(function () { URL.revokeObjectURL(url); }, 2000);
     },
+    // ---- many sheets, one file (Phase 4.6): sheets = [{name, rows}] ----
+    blobMulti: function (sheets) { return zip(partsMulti(sheets)); },
+    downloadMulti: function (filename, sheets) {
+      var url = URL.createObjectURL(zip(partsMulti(sheets)));
+      var a = document.createElement('a'); a.href = url; a.download = filename;
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(function () { URL.revokeObjectURL(url); }, 2000);
+    },
+    /* exposed for tools/test_export_school.js — the sheet-name rules are where Excel refuses a file,
+     * and they are worth asserting without a browser or a download */
+    _safeNames: safeNames,
     // parse a previously exported .xlsx (inlineStr/number cells) back to rows[][]
     parse: function (file) {
       return file.arrayBuffer().then(function (buf) { return rowsFromXlsx(new Uint8Array(buf)); });

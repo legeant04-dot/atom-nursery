@@ -245,6 +245,8 @@ create table if not exists payroll (
   "slip_url"                   text,
   "paid_date"                  date,
   "paid_by"                    text,
+  "child_threshold"            numeric,
+  "rated_total"                numeric,
   "pause_salary_mode"          text,
   "pause_from"                 text,
   "pause_to"                   text,

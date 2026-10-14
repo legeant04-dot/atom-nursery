@@ -131,7 +131,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.440'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.441'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -12153,7 +12153,66 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
         ${exported.length?exported.map(s=>`<div class="list-item"><span><b>${esc(nm(s))}</b> <small class="muted">${esc(s.NationalID||'')} · ${EN()?'exported':'นำออก'} ${esc(s.ExportedDate||'')}</small></span><button class="btn sm green" onclick="A_reimport('${s.StudentID}')">↩️ ${esc(t('ie.reimport'))}</button></div>`).join(''):`<small class="muted">${esc(t('c.noItems'))}</small>`}</div>
       <div class="card"><h3>📂 ${esc(t('ie.importFile'))}</h3><p class="muted" style="font-size:13px">${esc(t('ie.importNote'))}</p>
         <label class="field"><span>${esc(t('ie.chooseXlsx'))}</span><input type="file" id="impF" accept=".xlsx"/></label>
-        <button class="btn block" onclick="A_importFile()">${esc(t('ie.import'))}</button></div>`;
+        <button class="btn block" onclick="A_importFile()">${esc(t('ie.import'))}</button></div>
+      <!-- 📦 PHASE 4.6 — the whole school, in one file the school keeps. See src/Portability.gs. -->
+      <div class="card"><h3>📦 ${esc(t('ie.exportAll'))}</h3>
+        <p class="muted" style="font-size:13px">${esc(t('ie.exportAllNote'))}</p>
+        <div id="expProg" class="muted" style="font-size:13px;margin:6px 0"></div>
+        <button class="btn block" id="expBtn" onclick="A_exportSchool(this)">📦 ${esc(t('ie.exportAllBtn'))}</button>
+        <small class="muted" style="font-size:12px;display:block;margin-top:6px">${esc(t('ie.exportAllSafe'))}</small></div>`;
+  };
+
+  /* 📦 EVERY TABLE THE SCHOOL HAS, INTO ONE .xlsx — Phase 4.6.
+   *
+   * Paged deliberately (src/Portability.gs explains the ceiling), and the progress line counts ROWS rather
+   * than tables: 55 tables where one of them is four years of daily journals is a progress bar that
+   * sits at 98% for most of the wait and tells the admin nothing about whether it has stalled.
+   *
+   * 🔴 THE FILE IS BUILT IN THE BROWSER, which is the property that makes this a real answer to
+   * "the data is yours": nothing is staged on a server, nothing is emailed, nothing needs us to be
+   * reachable beyond serving the rows. The file lands in the school's own Downloads folder.
+   */
+  window.A_exportSchool = async (btn) => {
+    const prog = $('#expProg'), say = s => { if (prog) prog.textContent = s; };
+    if (btn) btn.disabled = true;
+    try {
+      await needXLSX();
+      if (!window.XLSXMin || !XLSXMin.downloadMulti) throw new Error(EN()
+        ? 'The spreadsheet writer could not be loaded. Check the connection and try again.'
+        : 'โหลดตัวสร้างไฟล์ไม่สำเร็จ — ตรวจสอบอินเทอร์เน็ตแล้วลองอีกครั้ง');
+      say(EN() ? 'Checking what there is…' : 'กำลังตรวจว่ามีข้อมูลอะไรบ้าง…');
+      const man = await api('exportManifest', { staffId: USER.staffId || '' });
+      const tables = man.tables || [], total = man.totalRows || 0;
+      let done = 0;
+      const sheets = [];
+      for (const tdef of tables) {
+        /* The HEADER ROW ALWAYS GOES IN, even for a table with no rows. An empty tab named
+         * WITHDRAWALS with its columns spelt out says "the school has had no withdrawals"; a tab
+         * that is simply absent says "we did not give you this", and the two are not the same
+         * message to anybody reading the file a year from now. */
+        const rows = [tdef.cols.slice()];
+        let offset = 0;
+        for (;;) {
+          // by KEY, not by sheet name: AUDIT_LOG exists in both workbooks and only the key tells
+          // them apart (see exportKeyFor_ in src/Portability.gs)
+          const page = await api('exportTable', { key: tdef.key, offset, limit: man.pageSize || 400 });
+          (page.rows || []).forEach(r => rows.push(r));
+          offset += (page.rows || []).length;
+          done += (page.rows || []).length;
+          say(`${EN() ? 'Collecting' : 'กำลังรวบรวม'} ${tdef.key} · ${done.toLocaleString()}/${total.toLocaleString()} ${EN() ? 'rows' : 'แถว'}`);
+          /* Stop on `done`, but ALSO stop on a page that returned nothing: a pager that trusts only
+           * the server's flag spins for ever if the flag is ever wrong, and a browser tab that never
+           * finishes is indistinguishable to the admin from one that is still working. */
+          if (page.done || !(page.rows || []).length) break;
+        }
+        sheets.push({ name: tdef.key, rows });
+      }
+      say(EN() ? 'Building the file…' : 'กำลังสร้างไฟล์…');
+      const stamp = (man.generatedAt || todayStr()).replace(/[^0-9]/g, '').slice(0, 12);
+      XLSXMin.downloadMulti(`AtomNursery_${stamp}.xlsx`, sheets);
+      say(`✅ ${EN() ? 'Downloaded' : 'ดาวน์โหลดแล้ว'} · ${sheets.length} ${EN() ? 'tables' : 'ตาราง'} · ${total.toLocaleString()} ${EN() ? 'rows' : 'แถว'}`);
+    } catch (e) { say(''); err(e); }
+    finally { if (btn) btn.disabled = false; }
   };
   window.A_reimport=async(id)=>{ try{ await api('importStudent',{studentId:id}); confirmSaved(t('ie.imported')); GO_('importExport'); }catch(e){err(e);} };
   window.A_importFile=async()=>{ const f=$('#impF').files[0]; if(!f){toast(t('ie.chooseXlsx'));return;}

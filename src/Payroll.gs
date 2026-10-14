@@ -78,6 +78,69 @@ function pcBool_(v) {
   return null;
 }
 
+/**
+ * HOW MANY CHILDREN COUNT TOWARD THE CHILD RATE THIS MONTH — asked of the ONE implementation.
+ *
+ * The rule ("เด็กที่มาอยู่เต็มเดือน": ขาด + ลา under AbsenceRateExcludeDays) lives in the engine's
+ * ratedChildCount, and it took two bug reports to get right — it counted every absence ever
+ * recorded, and it looked only at ABSENCE_LOG, a sheet nothing has ever written to. Re-implementing
+ * it here in Sheets terms would make a fourth copy of a rule that decides part of somebody's pay,
+ * and the fourth copy is the one that drifts. So this ASKS the engine instead.
+ *
+ * Read-only on purpose: hydrateLazy_ is lazy, so this touches only students / studentLeaves /
+ * absenceLog, and persist() is DELIBERATELY NOT CALLED. A read that wrote whole collections back is
+ * the 2026-07-09 wipe. Memoized per execution because handleComputePayroll may be called per staff
+ * member and the answer is the same for all of them.
+ *
+ * 🔴 RETURNS null WHEN IT COULD NOT FIND OUT, never 0. A zero here is indistinguishable from "every
+ * child was away all month" and would quietly remove the child rate from a payslip. The caller
+ * reports an unknown as unknown and leaves the figure at the admin's entry.
+ */
+/* ===== THE Nth CHILD THE RATE STARTS AT — ONE NUMBER, AND A CONTRADICTION TO SETTLE ============
+ *
+ * 🔴 FOUND 2026-10-14 WHILE CLOSING THE PAYSLIP GAP. NOT CHANGED — IT IS THE SCHOOL'S TO DECIDE.
+ *
+ *   src/Config.gs   ['ExtraChildThreshold', '30']   // children counted from #31 onward
+ *                    ^^ the value                      ^^ its own documentation
+ *
+ * Those two do not agree, and the gap between them is one child at the child rate — ฿300 on a
+ * payslip. The engine's `payrollConfig` hands the figure to the admin's payroll screen, and
+ * payrollConfig has NO explicit route, so the engine is what answers it on live: the screen fills
+ * its box with 30 and `rated − (30−1)` pays from the 30th child, not the 31st.
+ *
+ * So this is not a cutover question. It is a figure the school has been paying with, and whether
+ * the policy is "from the 30th" or "from the 31st" is a question for the ผอ. — a name pattern
+ * cannot answer a question about meaning, and neither can a comment. Picking one here would move
+ * money on the next payroll run with nobody having decided to.
+ *
+ * WHAT IS FIXED is that the two halves can no longer disagree about it: this is the one place the
+ * default is read, the engine's fallback chain ends at the same config key, and
+ * tools/test_shadow_parity.js asserts route and engine produce the identical ChildThreshold. When
+ * the ผอ. answers, exactly one value changes.
+ *
+ * (This route had NO threshold at all before today — the derivation below was a placeholder that
+ * always returned 0 — so nothing here is being taken away from anybody.)
+ */
+var CHILD_RATE_THRESHOLD_DEFAULT_ = 31;      // only when SCHOOL_CONFIG has no row at all
+function childRateThresholdDefault_() {
+  var n = parseInt(getConfig_('ExtraChildThreshold', String(CHILD_RATE_THRESHOLD_DEFAULT_)), 10);
+  return n || CHILD_RATE_THRESHOLD_DEFAULT_;
+}
+
+var _ratedChildCache_ = {};
+function ratedChildTotalFor_(month) {
+  var mm = ym7_(month) || '';
+  if (_ratedChildCache_.hasOwnProperty(mm)) return _ratedChildCache_[mm];
+  var out = null;
+  try {
+    var ctx = hydrateLazy_('');
+    var H = createAtomAPI(ctx.M, null).H;     // NO ctx.persist() — see above
+    var r = H.ratedChildCount({ month: mm });
+    if (r && r.rated != null && isFinite(Number(r.rated))) out = Number(r.rated);
+  } catch (e) { out = null; }
+  return (_ratedChildCache_[mm] = out);
+}
+
 function computePayroll(payload) {
   payload = payload || {};
   if (!payload.month) throw apiError_('BAD_INPUT', 'ต้องระบุ month (YYYY-MM)');
@@ -141,9 +204,32 @@ function computePayroll(payload) {
   // --- รายได้อื่นๆ ---
   // leave over the limit → child-rate not calculated by default (0). If the caller sends an explicit
   // count it is respected (Admin override — no field locked); the client auto-zeroes on leaveExceeds.
+  /* ...and WHEN THE CALLER DOES NOT SEND A COUNT, work it out the way the engine does.
+   *
+   * This line used to read `(leaveExceeds ? 0 : 0)` — a branch with the same answer on both sides,
+   * which is a derivation somebody meant to write and never did. The payroll SCREEN always sends a
+   * count, so on live the placeholder was invisible; but the teacher's own payslip screen falls back
+   * to computePayroll as a PREVIEW for a month with no saved slip, and it sends none. So a teacher
+   * looking at next month saw her child rate as ฿0 while the admin's slip for the same month paid
+   * it — the same question answered two different ways by one function.
+   *
+   * The admin's entry still wins in both directions; nothing is locked. An UNKNOWN rated total
+   * (ratedChildTotalFor_ returning null) leaves the count at 0 and is reported as unknown rather
+   * than being shown as a confident zero.
+   */
+  var pcThreshold = pcNum_(pc.ChildThreshold);
+  var childThreshold = (payload.childThreshold != null && String(payload.childThreshold) !== '')
+    ? (parseInt(payload.childThreshold, 10) || CHILD_RATE_THRESHOLD_DEFAULT_)
+    : (pcThreshold != null ? pcThreshold : childRateThresholdDefault_());
+  /* Recorded on EVERY slip, not only when it was used to derive the count. "เด็ก 4 คน × ฿300" is a
+   * figure a teacher may query a year later, and ExtraChildCount alone cannot answer "out of how
+   * many?". One lazy lookup, memoized per execution, on a once-a-month action. */
+  var ratedTotal = ratedChildTotalFor_(month);
+  var autoChildCount = (leaveExceeds || ratedTotal == null) ? 0
+    : Math.max(0, ratedTotal - (childThreshold - 1));
   var extraChildCount = (payload.extraChildCount != null)
     ? Math.max(0, parseInt(payload.extraChildCount, 10) || 0)
-    : (leaveExceeds ? 0 : 0);
+    : autoChildCount;
   var pcChild = pcNum_(pc.ChildMultiplier);
   var childMultiplier = (payload.childMultiplier != null) ? num_(payload.childMultiplier)
     : (pcChild != null ? pcChild : num_(getConfig_('ExtraChildRate', '300')));
@@ -228,7 +314,7 @@ function computePayroll(payload) {
   contribAccum = round2_(contribAccum);
   try { ensureColumns_(sheet, ['PayType', 'DailyRate', 'DaysWorked', 'ChildMultiplier', 'Adjustments',
     'AdjustmentsTotal', 'BankName', 'LeaveDays', 'LeaveLimit', 'LeaveExceeds',
-    'ContributionAccum', 'Position', 'StaffName',
+    'ContributionAccum', 'Position', 'StaffName', 'ChildThreshold', 'RatedTotal',
     'ContributionEmployer', 'OTCarry', 'OTCarryDetail', 'OTHoliday']); } catch (e) {}
   var existing = findObject_(sheet, function (r) {
     return String(r.StaffID) === String(staff.StaffID) && ym7_(r.Month) === ym7_(month);
@@ -240,6 +326,9 @@ function computePayroll(payload) {
     StaffID: staff.StaffID, Month: month, BaseSalary: base,
     DiligenceAttendance: diligenceAttendance, DiligenceFacebook: diligenceFacebook, DiligenceTotal: diligenceTotal,
     ExtraChildCount: extraChildCount, ExtraChildAmount: extraChildAmount,
+    // ...and the working behind that count: which child the rate starts at, and out of how many.
+    // '' rather than 0 for an unknown total — see ratedChildTotalFor_.
+    ChildThreshold: childThreshold, RatedTotal: (ratedTotal == null ? '' : ratedTotal),
     TrainingCertCount: trainingCertCount, TrainingCertAmount: trainingCertAmount,
     // the per-evening `days` list is for the SCREEN to show; the row keeps only what the carry-over
     // arithmetic reads back (month + amount + hours), so this cell cannot grow toward the 50,000-char
@@ -258,7 +347,15 @@ function computePayroll(payload) {
     NetPay: netPay, BankName: staff.BankName || getConfig_('BankName', 'SCB'),
     ContributionAccum: round2_(contribAccum), Position: staff.Position || '',
     StaffName: staff.Name || staff.NameEN || '',
-    BankAccount: staff.BankAccount || '', SlipSent: existing ? existing.SlipSent : 'NO',
+    BankAccount: staff.BankAccount || '',
+    /* CARRIED, NOT RECOMPUTED. These three say the school PAID this slip and filed the receipt, and
+     * none of them is derivable from an arithmetic. Written back unchanged so the record this
+     * function RETURNS is the whole slip — the payslip screen reads SlipSent/SlipUrl off it, and a
+     * recompute used to hand back a row that said nothing about a payment that had happened. */
+    SlipSent: existing ? (existing.SlipSent || 'NO') : 'NO',
+    PaidDate: existing ? (existing.PaidDate || '') : '',
+    PaidBy: existing ? (existing.PaidBy || '') : '',
+    SlipUrl: existing ? (existing.SlipUrl || '') : '',
     LeaveDays: leaveDays, LeaveLimit: leaveLimit, LeaveExceeds: leaveExceeds,
     // ...and if this month's salary was set by a temporary-leave rule, the slip has to SAY so —
     // an unexplained half salary is indistinguishable from a mistake

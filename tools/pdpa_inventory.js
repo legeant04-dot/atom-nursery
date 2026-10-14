@@ -172,8 +172,19 @@ L.push('## รายการตามตาราง');
 L.push('');
 L.push('| ตาราง | ข้อมูลของใคร | จำนวนคอลัมน์ | ข้อมูลอ่อนไหว | ตัวระบุตัวบุคคล |');
 L.push('|---|---|---|---|---|');
+/* 🔴 WHICH WORKBOOK, where the same name is in both (found 2026-10-14 while building the Phase 4.6
+ * export). AUDIT_LOG is declared in SCHEMA[WB.MAIN] and again in SCHEMA[WB.HR] — the general access
+ * log, and the one dedicated to the confidential HR workbook. The record of processing listed them
+ * as two IDENTICAL rows, so a reader of this document — the ผอ. and a lawyer — could see there were
+ * two of something but not which was which, and could not tell the row covering "who read the
+ * salaries" from the row covering ordinary access. Only shown where there is an ambiguity to
+ * resolve, so no existing row changes. */
+const dupNames = {};
+inv.forEach(t => { dupNames[t.sheet] = (dupNames[t.sheet] || 0) + 1; });
+const WB_LABEL = { MAIN: 'ไฟล์หลัก', HR: 'ไฟล์ฝ่ายบุคคล' };
 inv.forEach(t => {
-  L.push('| `' + t.sheet + '` | ' + t.subject + ' | ' + t.cols.length + ' | ' +
+  const which = dupNames[t.sheet] > 1 ? ' *(' + (WB_LABEL[t.wb] || t.wb) + ')*' : '';
+  L.push('| `' + t.sheet + '`' + which + ' | ' + t.subject + ' | ' + t.cols.length + ' | ' +
     (t.sensitive.length ? '🔴 ' + t.sensitive.join(', ') : '—') + ' | ' +
     (t.identifiers.length ? t.identifiers.map(c => IDENTIFIER[c].replace('🔴 ', '🔴')).join(', ') : '—') + ' |');
 });

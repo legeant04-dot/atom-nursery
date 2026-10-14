@@ -253,8 +253,19 @@ const NUMERIC_OTHER = new Set(['Weight', 'Height', 'Hours', 'OTHours', 'Days', '
   /* counts and limits on the payslip — a number, never an amount (2026-10-09). DaysWorked decides a
    * daily-rate salary and LeaveLimit decides whether leave is unpaid, so they are not decorative:
    * they were `text`, and 'text' compares as a string the moment anyone sorts or sums it. */
-  'DaysWorked', 'ExtraChildCount', 'ChildCount', 'LeaveDays', 'LeaveLimit', 'TrainingCertCount',
+  'DaysWorked', 'ExtraChildCount', 'LeaveDays', 'LeaveLimit', 'TrainingCertCount',
   'ChildThreshold',
+  /* PAYROLL.RatedTotal (2026-10-14) — how many children counted toward the child rate that month,
+   * i.e. "4 คน จาก 32". It sits beside ExtraChildAmount, which is the baht; the guard stopped on
+   * "Total" in the name and stopping was right, because one of that pair IS money. A count belongs
+   * here and not in NOT_MONEY, or it types as `text` next to a numeric ChildThreshold and the two
+   * halves of one explanation sort differently.
+   *
+   * ('ChildCount' was removed from this list on the same day: the engine used that name for the
+   * same quantity the sheet has always called ExtraChildCount, and the rename is what closed the
+   * Phase 2.6 payslip gap. Left out rather than kept "just in case" — if the name ever reappears,
+   * the guard above stops the build and says so, which is the outcome we want.) */
+  'RatedTotal',
   'Months'   // PREPAYMENTS: how many months were bought (2 | 3 | 6 | 12)
 ]);
 

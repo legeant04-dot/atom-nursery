@@ -429,6 +429,10 @@ SCHEMA[WB.HR] = {
                   // added later — these were being written and silently dropped for want of a column
                   'PayType', 'DailyRate', 'DaysWorked', 'ChildMultiplier', 'Adjustments', 'AdjustmentsTotal',
                   'BankName', 'LeaveDays', 'LeaveLimit', 'LeaveExceeds', 'ContributionAccum', 'Position', 'StaffName', 'SlipUrl', 'PaidDate', 'PaidBy',
+                  /* THE WORKING BEHIND เรทจำนวนเด็ก (declared 2026-10-14). ExtraChildCount alone
+                   * cannot answer "4 children out of how many, counted from which one?" — and that
+                   * is the question a teacher asks a year later when she compares two slips. */
+                  'ChildThreshold', 'RatedTotal',
                   // why THIS month's salary is not the usual figure — a half salary with no reason on
                   // the slip is indistinguishable from a mistake (writeRows_ silently DROPS a field
                   // with no column, so these must be declared or the explanation never reaches the slip)
