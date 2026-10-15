@@ -131,7 +131,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.443'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.444'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -12553,26 +12553,57 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
         ? `<div class="card" style="padding:8px;margin-top:6px">${rows.map(x =>
             `<div class="list-item"><span><b>${esc(x.key)}</b><br><small class="muted">${esc(x.why)}</small></span></div>`).join('')}</div>`
         : `<div class="muted" style="font-size:13px;margin-top:4px">— ${EN()?'nothing outstanding':'ไม่มีรายการค้าง'} —</div>`;
+      /* THE ONE REPAIR THIS SCREEN CAN OFFER, shown only when it applies. "ไม่มีแถวนี้ในชีต" is the
+       * one finding with a safe one-click fix — every other line needs a value only the school has.
+       * Offering a button that does nothing would make the rest of the report look actionable too. */
+      const missingRows = (r.blockers||[]).concat(r.required||[], r.confirm||[])
+        .filter(x => /ไม่มีแถวนี้/.test(x.why)).map(x => x.key);
       modal(`<h3>🏫 ${EN()?'School setup':'ความพร้อมของโรงเรียน'}</h3>
         <div class="card" style="padding:10px;background:${r.ready?'var(--ok-bg)':'var(--bad-bg)'};border-color:${r.ready?'var(--ok-line)':'var(--bad-line)'}">
           <b style="color:${r.ready?'var(--ok)':'var(--bad)'}">${r.ready
             ? (EN()?'✅ No blockers — the school can open':'✅ ไม่มีรายการที่ติดขัด — เปิดใช้งานได้')
             : (EN()?`🔴 ${r.blockers.length} blocker(s) — the school cannot open yet`:`🔴 ติดขัด ${r.blockers.length} รายการ — ยังเปิดใช้งานไม่ได้`)}</b>
           <div style="font-size:13px;margin-top:4px">${esc(r.school||(EN()?'(no school name set)':'(ยังไม่ได้ตั้งชื่อโรงเรียน)'))} · ${EN()?'checked':'ตรวจ'} ${r.checked} ${EN()?'settings':'ค่า'} · ${EN()?'already set':'ตั้งแล้ว'} ${r.ok}</div></div>
+        ${missingRows.length?`<div class="card" style="padding:10px;margin-top:8px;background:var(--surface-2)">
+          <b style="font-size:13px">🧩 ${EN()?'Settings with no row at all':'การตั้งค่าที่ไม่มีแถวในชีตเลย'} (${missingRows.length})</b>
+          <p class="muted" style="font-size:12.5px;margin:4px 0 8px">${EN()
+            ? 'The app is using a value written in its own source code, which the school never chose and cannot see or change. Adding the rows fixes that — it only ADDS missing keys and never touches a row that already exists.'
+            : 'ตอนนี้ระบบใช้ค่าที่เขียนอยู่ในโค้ดแทน ซึ่งโรงเรียนไม่ได้เป็นคนตั้ง และมองไม่เห็น/แก้ไม่ได้ · การเพิ่มแถวจะแก้เรื่องนี้ — ระบบจะ<b>เพิ่มเฉพาะคีย์ที่ขาด ไม่แตะแถวที่มีอยู่แล้ว</b>'}</p>
+          <button class="btn sm block" onclick="A_backfillConfig(this)">🧩 ${EN()?'Add the missing rows':'เพิ่มแถวที่ขาดลงในชีต'}</button></div>`:''}
         <h4 style="margin:10px 0 2px">🔴 ${EN()?'Blockers':'ติดขัด — ต้องแก้ก่อนเปิดใช้'}</h4>${list(r.blockers||[])}
         <h4 style="margin:10px 0 2px">⚠️ ${EN()?'Required before parents are let in':'ต้องมีก่อนให้ผู้ปกครองเข้าใช้'}</h4>${list(r.required||[])}
         <h4 style="margin:10px 0 2px">📋 ${EN()?'Confirm these are this school’s own':'ยืนยันว่าเป็นค่าของโรงเรียนนี้จริง'}</h4>${list(r.confirm||[])}
         <h4 style="margin:10px 0 2px">📊 ${EN()?'And the things a setting cannot create':'และสิ่งที่การตั้งค่าสร้างแทนไม่ได้'}</h4>
         <div class="card" style="padding:8px">
-          <div class="list-item"><span>${EN()?'Classes':'ชั้นเรียน'}</span><b>${c.classes||0}</b></div>
+          <div class="list-item"><span>${EN()?'Classes / departments':'ชั้นเรียน (แผนก)'}</span><b>${c.departments||0}</b></div>
           <div class="list-item"><span>${EN()?'Price plans':'แผนราคา'}</span><b>${c.plans||0}</b></div>
           <div class="list-item"><span>${EN()?'Staff groups (hours)':'กลุ่มพนักงาน (เวลาทำงาน)'}</span><b>${c.staffGroups||0}</b></div>
+          <div class="list-item"><span>${EN()?'Holidays on file':'วันหยุดที่บันทึกไว้'}</span><b>${c.holidays||0}</b></div>
           <div class="list-item"><span>${EN()?'Staff':'พนักงาน'}</span><b>${c.staff||0}</b></div>
           <div class="list-item"><span>${EN()?'Students':'นักเรียน'}</span><b>${c.students||0}</b></div></div>
         <small class="muted" style="font-size:12px;display:block;margin-top:6px">${EN()
           ? 'This never shows a value — only whether one is set. See docs/ONBOARDING.md for the steps that need a browser.'
           : 'หน้านี้ไม่แสดง "ค่า" ของการตั้งค่าใด ๆ บอกแค่ว่าตั้งแล้วหรือยัง · ขั้นตอนที่ต้องทำบนเว็บ (LINE · SlipOK · Google) อยู่ใน docs/ONBOARDING.md'}</small>
         <button class="btn outline block" style="margin-top:8px" onclick="this.closest('.modal').remove()">${esc(t('c.close'))}</button>`);
+    } catch (e) { err(e); }
+    finally { if (btn) btn.disabled = false; }
+  };
+
+  /* 🧩 Add SCHOOL_CONFIG rows that are missing entirely. Preview first — the admin sees exactly
+   * which keys would be added before anything is written, which is how every other repair tool in
+   * this app behaves (recomputeContributions, dedup, prepayAudit). */
+  window.A_backfillConfig = async (btn) => {
+    if (btn) btn.disabled = true;
+    try {
+      const pv = await api('backfillConfig', { preview: true });
+      if (!pv.count) { toast(EN()?'Nothing missing':'ไม่มีคีย์ที่ขาด'); return; }
+      if (!confirm((EN()
+        ? `Add ${pv.count} missing setting row(s)?\n\n${pv.wouldAdd.join(', ')}\n\nExisting rows are never changed.`
+        : `เพิ่มแถวการตั้งค่าที่ขาด ${pv.count} แถว?\n\n${pv.wouldAdd.join(', ')}\n\nแถวที่มีอยู่แล้วจะไม่ถูกแก้ไข`))) return;
+      const r = await api('backfillConfig', { preview: false, adminId: USER.staffId || '' });
+      confirmSaved((EN()?'Added ':'เพิ่มแล้ว ')+r.count+(EN()?' row(s)':' แถว'));
+      const m = btn && btn.closest('.modal'); if (m) m.remove();
+      setTimeout(()=>A_onboardCheck(null), 400);
     } catch (e) { err(e); }
     finally { if (btn) btn.disabled = false; }
   };

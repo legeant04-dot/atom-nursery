@@ -99,7 +99,12 @@ var ONBOARD_SCOPE_ = {
   DefaultCheckInTime:     'CONFIRM',  DefaultCheckOutTime:   'CONFIRM',
   WithdrawReasons:        'CONFIRM',
   GrowthUpdateMonths:     'CONFIRM',
-  HolidayList:            'CONFIRM',
+  /* 🔴 HolidayList is UNIVERSAL, not CONFIRM — it was noise on the first live run. Holidays are
+   * entered through the HOLIDAYS SHEET (จัดการ › วันหยุด), and isSchoolClosed_ reads "the config
+   * list OR the sheet". Atom has 19 holidays on file and a blank config key, which is the normal,
+   * correct state — so asking an admin to confirm an empty setting they are right to leave empty is
+   * exactly the kind of line that teaches people to skim the report. */
+  HolidayList:            'UNIVERSAL',
   ParentPrepayEnabled:    'CONFIRM',
   SchoolSlogan:           'CONFIRM',
   Links_Facebook:         'CONFIRM',  Links_Website:         'CONFIRM',
@@ -140,6 +145,24 @@ var ONBOARD_SCOPE_ = {
  * Matched as whole values, and only for the key they belong to — so a new school legitimately
  * called "Atom Nursery 2" is not accused of anything.
  */
+/**
+ * 🔴 WHOSE VALUES THOSE ARE — AND WHY THE FIRST RUN ON THE REAL SCHOOL CRIED WOLF (2026-10-15).
+ *
+ * The check below was written for the copy-the-workbook case and ran straight into the obvious
+ * thing: **Atom Nursery is itself a school using this app.** Its `LineOAId` IS `@atomnursery` and
+ * that is correct, not inherited — but the first live run flagged `Links_LINE`, `LineOAId` and
+ * `Links_Facebook` in red and told the school to change its own LINE account.
+ *
+ * Three false alarms out of four findings, and the real one (GoogleClientId) was sitting among
+ * them. That is precisely the failure the speed report taught: **a report that cries wolf stops
+ * being read**, and the next time it is right nobody looks.
+ *
+ * So the net only applies to a school that is NOT the one those values belong to. A workbook copied
+ * from Atom and renamed still trips it — which is the case it was built for — and Atom itself is
+ * left alone.
+ */
+var ONBOARD_ORIGIN_SCHOOL_ = 'Atom Nursery';
+
 var ONBOARD_ATOM_VALUES_ = {
   GPS_Lat: '13.792472', GPS_Lng: '100.646389',
   SlipOK_ApiKey: 'SLIPOKKR8B249',
@@ -174,6 +197,9 @@ function handleOnboardingCheck(p) {
     }
   }
 
+  // see ONBOARD_ORIGIN_SCHOOL_ — Atom's own values are not an inheritance when the school IS Atom
+  var isOrigin = String(rowOf.SchoolName || '').trim() === ONBOARD_ORIGIN_SCHOOL_;
+
   var out = { BLOCKER: [], REQUIRED: [], CONFIRM: [] }, okCount = 0;
   Object.keys(ONBOARD_SCOPE_).forEach(function (key) {
     var scope = ONBOARD_SCOPE_[key];
@@ -189,7 +215,7 @@ function handleOnboardingCheck(p) {
       why = 'ยังว่าง';
     } else if (onboardIsPlaceholder_(val)) {
       why = 'ยังเป็นข้อความตัวอย่าง (<FILL …>) ไม่ใช่ค่าจริง';
-    } else if (ONBOARD_ATOM_VALUES_[key] && val === ONBOARD_ATOM_VALUES_[key]) {
+    } else if (!isOrigin && ONBOARD_ATOM_VALUES_[key] && val === ONBOARD_ATOM_VALUES_[key]) {
       why = '🔴 ยังเป็นค่าของ Atom Nursery — ต้องเปลี่ยนเป็นของโรงเรียนนี้';
     } else { okCount++; return; }
     out[scope].push({ key: key, why: why });
@@ -206,11 +232,19 @@ function handleOnboardingCheck(p) {
      * price list is not ready however complete its config is. Counted, never listed — the names are
      * the school's own data. */
     counts: {
+      /* 🔴 DEPARTMENTS FIRST, because that is what the app actually organises by. The first live run
+       * reported "ชั้นเรียน 2" for a school that plainly has more than two — the CLASSES sheet is
+       * largely vestigial (Line.gs and one parent lookup read it), while the class list every screen
+       * uses is the Departments config. Reporting only the sheet made a healthy school look
+       * half-configured, which is the same cry-wolf problem as the LINE flags above. */
+      departments: onboardDeptCount_(),
       classes: onboardCount_(getMainSpreadsheet_(), 'CLASSES'),
       staff: onboardCount_(getHrSpreadsheet_(), 'STAFF'),
       students: onboardCount_(getMainSpreadsheet_(), 'STUDENTS'),
       staffGroups: onboardCount_(getHrSpreadsheet_(), 'STAFF_GROUPS'),
-      plans: onboardPlanCount_()
+      plans: onboardPlanCount_(),
+      // ...and the holidays that HolidayList above deliberately no longer asks about
+      holidays: onboardCount_(getMainSpreadsheet_(), 'HOLIDAYS')
     }
   };
 }
@@ -218,6 +252,52 @@ function handleOnboardingCheck(p) {
 function onboardCount_(ss, name) {
   try { var sh = ss.getSheetByName(name); return sh ? Math.max(0, sh.getLastRow() - 1) : 0; }
   catch (e) { return 0; }
+}
+/**
+ * ADD THE SCHOOL_CONFIG ROWS THAT ARE MISSING — and nothing else.
+ *
+ * 🔴 WHY THIS EXISTS. The first live run of the check found `GoogleClientId` with NO ROW AT ALL:
+ * sign-in-with-Google has been running off the value baked into SCHOOL_CONFIG_DEFAULTS, through
+ * googleClientIdDefault_ in Auth.gs. The school is using a setting it never made and cannot see, and
+ * the seed cannot be blanked for the next school until that row exists.
+ *
+ * `setupAll()` already does this, but it also creates sheets and columns, and "run the whole setup
+ * on the live school" is a much larger sentence than the problem deserves. This does the one thing.
+ *
+ * 🔴 PREVIEW FIRST, LIKE EVERY OTHER ADMIN TOOL HERE. Nothing is written until preview:false, and
+ * it only ever APPENDS a key that has no row — an existing row, blank included, is a decision
+ * somebody made and is never touched. That is the same rule setupAll follows, and it is the reason
+ * blanking the seed was safe in the first place.
+ */
+function handleBackfillConfig(p) {
+  p = p || {};
+  var preview = p.preview !== false;
+  var sh = getMainSpreadsheet_().getSheetByName('SCHOOL_CONFIG');
+  if (!sh) throw apiError_('NOT_FOUND', 'ไม่พบชีต SCHOOL_CONFIG');
+  var have = {}, last = sh.getLastRow();
+  if (last > 1) {
+    var keys = sh.getRange(2, 1, last - 1, 1).getValues();
+    for (var i = 0; i < keys.length; i++) have[String(keys[i][0] || '').trim()] = true;
+  }
+  var toAdd = SCHOOL_CONFIG_DEFAULTS.filter(function (r) { return !have[r[0]]; });
+  // the KEYS are reported, never the values — a settings screen must not print a credential
+  var names = toAdd.map(function (r) { return r[0]; });
+  if (preview) return { preview: true, wouldAdd: names, count: names.length };
+  if (toAdd.length) {
+    sh.getRange(sh.getLastRow() + 1, 1, toAdd.length, 2).setValues(toAdd);
+    try { CacheService.getScriptCache().removeAll(['cfg']); } catch (e) {}
+    _configCache = null;
+    try { logAudit(p.adminId || 'admin', 'CONFIG_BACKFILL', 'SCHOOL_CONFIG', names.join(',')); } catch (e) {}
+  }
+  return { preview: false, added: names, count: names.length };
+}
+
+/** The class/department list the app organises by (SCHOOL_CONFIG Departments, a comma list). */
+function onboardDeptCount_() {
+  try {
+    return String(getConfig_('Departments', '') || '').split(',')
+      .map(function (s) { return s.trim(); }).filter(Boolean).length;
+  } catch (e) { return 0; }
 }
 function onboardPlanCount_() {
   try { var v = JSON.parse(getConfig_('Plans', '[]')); return Array.isArray(v) ? v.length : 0; }
