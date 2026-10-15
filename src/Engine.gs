@@ -158,7 +158,20 @@ function createAtomAPI(M, GROWTH_STD) {
   function gpsSlack(acc){ const cap=Number(cfg.GpsAccuracySlack!=null?cfg.GpsAccuracySlack:50);
     const a=Number(acc); if(!isFinite(a)||a<=0) return 0;
     return Math.min(Math.round(a), (isFinite(cap)&&cap>=0)?cap:50); }
-  function geo(lat,lng,acc){ const dist=haversine(cfg.GPS_Lat,cfg.GPS_Lng,lat,lng); const slack=gpsSlack(acc);
+  /* 🔴 A FENCE WITH NO CENTRE LET EVERYONE THROUGH — see the long note on assertWithinGeofence_ in
+   * src/Checkin.gs. `dist` is NaN when the school's coordinates are unset, and `NaN > radius` is
+   * false, so the guard below stopped guarding and said nothing. Refused here too, because the two
+   * halves must agree about a refusal (Phase 2.6) and because this is the half that runs after the
+   * cutover. */
+  /* BLANK is what "unset" looks like — not 0. hydrateConfig_ leaves an empty cell as '' (it coerces
+   * only cells that match a number), so `''` and `0` are genuinely different here, and 0 is left
+   * alone on purpose: several suites use GPS 0,0 with a huge Radius to mean "this test is not about
+   * the fence". Refusing 0 would break that idiom to catch a case that cannot occur. */
+  function schoolFixed_(){ const a=cfg.GPS_Lat, b=cfg.GPS_Lng;
+    return a!=null && a!=='' && b!=null && b!=='' && isFinite(Number(a)) && isFinite(Number(b)); }
+  function geo(lat,lng,acc){
+    if(!schoolFixed_()) fail('NO_SCHOOL_GPS','ยังไม่ได้ตั้งพิกัดของโรงเรียน — แอดมินต้องตั้งค่าที่ ตั้งค่า › ตั้งค่าโรงเรียน ก่อนจึงจะลงเวลาได้');
+    const dist=haversine(cfg.GPS_Lat,cfg.GPS_Lng,lat,lng); const slack=gpsSlack(acc);
     // the phone's OWN accuracy belongs in the message — `slack` is that figure already capped, so a
     // phone guessing to the nearest 2 km printed the same "50 ม." as one with a perfect fix. See
     // assertWithinGeofence_ in Checkin.gs (2026-08-24: a teacher inside the school, 620 m out).

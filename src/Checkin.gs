@@ -41,6 +41,27 @@ function assertWithinGeofence_(lat, lng, accuracy) {
     throw apiError_('BAD_GPS', 'ไม่พบพิกัด GPS ที่ถูกต้อง');
   }
   var sLat = parseFloat(getConfig_('GPS_Lat')), sLng = parseFloat(getConfig_('GPS_Lng'));
+  /* 🔴 A FENCE WITH NO CENTRE LET EVERYONE THROUGH (found 2026-10-15, Phase 4.1).
+   *
+   * With GPS_Lat/GPS_Lng unset, parseFloat('') is NaN, haversine returns NaN, and the test below is
+   * `NaN - slack > radius` — which is FALSE. So the guard did not refuse. It stopped guarding, and
+   * said nothing: every staff member could clock in from home and the app would record it as normal.
+   *
+   * It had never mattered because the seed carried Atom's own coordinates, so the value was never
+   * actually absent. Phase 4.1 blanked that seed — a new school must not start life fenced around
+   * somebody else's car park — and blanking it is what made this reachable. The check-in screen for
+   * a school that has not set its address must REFUSE, loudly, naming the setting: an unconfigured
+   * fence that passes is indistinguishable from a fence that works, which is the whole problem.
+   *
+   * Nothing changes for a school that HAS set its coordinates, which includes the live one. */
+  /* BLANK is what "unset" looks like — not 0. hydrateConfig_ leaves an empty cell as '' (it only
+   * coerces cells that match a number), so the two are genuinely distinguishable, and 0 is left
+   * alone deliberately: several suites use GPS 0,0 with a huge Radius to mean "this test is not
+   * about the fence". Refusing 0 would have broken that idiom to catch a case that cannot occur. */
+  if (!isFinite(sLat) || !isFinite(sLng)) {
+    throw apiError_('NO_SCHOOL_GPS',
+      'ยังไม่ได้ตั้งพิกัดของโรงเรียน — แอดมินต้องตั้งค่าที่ ตั้งค่า › ตั้งค่าโรงเรียน ก่อนจึงจะลงเวลาได้');
+  }
   var radius = parseFloat(getConfig_('Radius', '30'));
   var dist = haversineMeters_(sLat, sLng, lat, lng);
   var slack = gpsSlack_(accuracy);
