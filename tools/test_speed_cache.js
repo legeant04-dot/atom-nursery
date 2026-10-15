@@ -94,9 +94,36 @@ const reached = (c, a) => c.__sent.reduce((n, b) =>
     // twelve since v285 (prepaidStudents — its NAME starts with "prepay"; staffMissingCheckout, the
     // eleventh, contains "Checkout"). Pinned deliberately: every entry here has been read against
     // its handler, and the count is what makes an unchecked addition impossible to slip in.
-    eq('the list is exactly the twelve that were checked', names.length, 12);
+    eq('the list is exactly the fifteen that were checked', names.length, 15);
+    /* 🔴 THREE OF THEM DO NOT LIVE IN THE ENGINE, and that is why they are named here rather than
+     * quietly exempted. exportManifest / exportTable (src/Portability.gs) and onboardingCheck
+     * (src/Onboarding.gs) are explicit ROUTES — the engine-body check below cannot find them, and a
+     * check that cannot find its subject must say so instead of passing.
+     *
+     * They are verified against their own source directly, by the same rule: a read must not append
+     * a row or log an action. backfillConfig, which DOES write, is deliberately not on the list —
+     * it is in WRITES on both sides. */
+    {
+      const ROUTE_READS = { exportManifest: 'src/Portability.gs', exportTable: 'src/Portability.gs',
+        onboardingCheck: 'src/Onboarding.gs' };
+      Object.keys(ROUTE_READS).forEach(n => {
+        ok_(n + ' is on the read list and lives in ' + ROUTE_READS[n], names.indexOf(n) >= 0);
+        const gs = R(ROUTE_READS[n]);
+        const h = 'function handle' + n.charAt(0).toUpperCase() + n.slice(1) + '(';
+        const i = gs.indexOf(h);
+        const rest = i < 0 ? '' : gs.slice(i);
+        const nxt = /\nfunction [A-Za-z_$][\w$]*\(/.exec(rest.slice(1));
+        const body = nxt ? rest.slice(0, nxt.index + 1) : rest;
+        /* logAudit is allowed in exportManifest ON PURPOSE — PDPA §39 wants a record of who took a
+         * copy of the whole school. It writes to the audit sheet, never to the data, so the thing
+         * that matters for CACHING and for RE-SENDING a lost reply still holds: nothing the school
+         * reads back is changed. appendObject_/updateRow_/setValues against anything else is not. */
+        ok_(n + ' really is read-only (its own source, not the engine)',
+          i >= 0 && !/appendObject_\(|updateRow_\(|deleteRow\(|setValues\(/.test(body));
+      });
+    }
     const eng = R('webapp/engine.js');
-    names.forEach(n => {
+    names.filter(n => !/^(exportManifest|exportTable|onboardingCheck)$/.test(n)).forEach(n => {
       const i = eng.indexOf('\n    ' + n + ':');
       // stop at the NEXT handler, or a one-liner runs into its neighbour and gets blamed for it
       // (prepayTiers sits directly above savePrepayTiers, which does log a write)

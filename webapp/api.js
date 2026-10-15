@@ -694,7 +694,17 @@ window.CONFIG = { MODE: 'gas', GAS_URL: 'https://script.google.com/macros/s/AKfy
     // refuses the whole batch — take the bill screen down with it.
     prepaidStudents: 1,
     // contains "Checkout", so the verb test calls it a write; it only reads (see Code.gs)
-    staffMissingCheckout: 1
+    staffMissingCheckout: 1,
+    /* 🔴 THE WHOLE-SCHOOL BACKUP, caught by the `export` verb — which is there for exportStudent,
+     * a real write that stamps Status='EXPORTED'. These two touch nothing (src/Portability.gs).
+     *
+     * Being called writes cost the admin twice on every single page: the export fetches ~46 tables
+     * in pages, and EACH page threw away the entire client cache. The school's own backup button
+     * therefore left the app with nothing cached, so the next several screens went back to the
+     * server — at ~3.4s a round trip, for an action whose whole point is that it reads. */
+    exportManifest: 1, exportTable: 1,
+    // asks what is still unset; it never writes (the repair is backfillConfig, listed in WRITES)
+    onboardingCheck: 1
   };
   /**
    * The mirror: WRITES whose name does not start with a mutating verb. Missing them meant the cache
@@ -708,6 +718,11 @@ window.CONFIG = { MODE: 'gas', GAS_URL: 'https://script.google.com/macros/s/AKfy
      * mutating verbs, and a write the cache and the lock do not know about is the whole class of bug
      * WRITES exists for. Listed, not renamed — the name is the right name. */
     recallJournalsMany: 1,
+    /* 🔴 backfillConfig appends rows to SCHOOL_CONFIG and starts with no mutating verb — see the
+     * matching entry in WRITES_ACTIONS_ in src/Code.gs. It must bust the cache too, or the readiness
+     * screen refreshes straight out of a cached reply and still shows the row as missing: the fix
+     * would look as if it had done nothing. */
+    backfillConfig: 1,
     recordCashPayment: 1, teacherStudentLeave: 1, unlockJournal: 1, unlockInjury: 1,
     // A parent correcting or withdrawing their own leave. Both start with "parent", so the anchored
     // verb test calls them reads — and a write the cache does not know about is a family deleting a
