@@ -131,7 +131,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.450'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.451'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -4765,6 +4765,10 @@
         <button class="btn sm outline" onclick="T_studentOT()">⏰ ${EN()?'Student OT (follow-up)':'OT นักเรียน (ติดตามชำระ)'}</button>
         <button class="btn sm outline" onclick="T_holidayOT()">🎉 ${EN()?'My holiday OT':'OT วันหยุดของฉัน'}</button>
         <button class="btn sm outline" onclick="A_attAudit()">🕵️ ${EN()?'Attendance check':'ตรวจสอบการลงเวลา'}</button>
+        ${/* 👨‍👩‍👧 THE FAMILIES BEHIND THE CHILDREN THIS PERSON LOOKS AFTER (2026-10-15). Read-only,
+             contact level, and scoped by the SERVER to the classes they cover — see leaderParents
+             in engine.js for why it is not simply listParents with a wider permission. */''}
+        ${isLeader?`<button class="btn sm outline" onclick="T_parents()">👨‍👩‍👧 ${EN()?'Parent contacts':'ข้อมูลผู้ปกครอง'}</button>`:''}
         ${canOrg?`<button class="btn sm outline" onclick="T_organize()">🔁 ${EN()?'Organize classes':'จัดชั้นเรียน'}</button>`:''}
         ${/* The head teacher gets COVER without getting the drag grid: lending somebody to a class
              for a day and moving them into it permanently are different decisions, and only the
@@ -4960,6 +4964,75 @@
   function otApproveRow(o){ return `<div class="list-item"><span><b>${esc(dnick(o))}</b> · ${esc(ddmmyyyy(o.Date))} · ${o.Hours} ${EN()?'h':'ชม.'} ${esc(baht(o.Amount))}<br><small class="muted">${esc(o.PlanOut||'')}→${esc(o.ActualOut||'')} (${esc(hmMin(o.Minutes))})</small></span><span class="row"><button class="btn sm green" onclick="T_approveOT('${o.OTRecordID}','approve')" aria-label="${EN()?"Approve":"อนุมัติ"}" title="${EN()?"Approve":"อนุมัติ"}">✔</button><button class="btn sm pink" onclick="T_approveOT('${o.OTRecordID}','reject')" aria-label="${EN()?"Reject":"ปฏิเสธ"}" title="${EN()?"Reject":"ปฏิเสธ"}">✕</button></span></div>`; }
   window.T_approveOT=async(otId,decision)=>{ try{ await api('approveOT',{staffId:USER.staffId,otId,decision}); toast(decision==='approve'?(EN()?'Approved':'อนุมัติแล้ว'):(EN()?'Rejected':'ปฏิเสธแล้ว')); GO('home'); }catch(e){err(e);} };
   // Teacher OT follow-up: outstanding student OT (own class only; head teacher sees all) → chase or attach a slip on behalf.
+  /* 👨‍👩‍👧 PARENT CONTACTS — the head teacher's read-only view of the families in the classes they
+   * cover (asked 2026-10-15).
+   *
+   * 🔴 WHAT IS DELIBERATELY NOT HERE: the national ID, the home address, the email and the LINE user
+   * id. The student record screen already tells teachers in writing that those belong to the admin,
+   * and a head teacher is a teacher — showing them here would make the app say two contradictory
+   * things about the same data on two screens. The server decides this, not this file; the screen
+   * only has to be honest about it, which is what the footer line does.
+   *
+   * There is no edit button anywhere on this screen on purpose. "ดูได้อย่างเดียว" is the whole
+   * request, and the server has no write route for it either — a disabled button would imply the
+   * permission exists and is merely switched off. */
+  /* ONE renderer, used by the first draw AND by the search — two renderers for one list is how a
+   * filtered view quietly stops matching the unfiltered one. */
+  const _pqTel = s => { const n = String(s || '').replace(/[^0-9+]/g, ''); return n
+    ? `<a href="tel:${esc(n)}" style="color:var(--blue);font-weight:600">${esc(phoneFmt(s))}</a>` : ''; };
+  function _pqCard(p) {
+    const kids = (p.children || []).map(k =>
+      `<span class="pill info" style="font-size:12px">${esc(k.nick || k.name)}${k.cls ? ` · ${esc(k.cls)}` : ''}</span>`).join(' ');
+    const who = [p.title, p.name].filter(Boolean).join('');
+    const sub = [p.relationship, p.occupation].filter(Boolean).join(' · ');
+    return `<div class="card" style="padding:10px">
+      <div style="display:flex;gap:10px;align-items:flex-start">
+        ${p.photo ? `<img src="${esc(p.photo)}" style="width:40px;height:40px;border-radius:50%;object-fit:cover;flex:0 0 auto" alt=""/>` : ''}
+        <div style="min-width:0;flex:1">
+          <b>${esc(who || p.parentId)}</b>${p.nick ? ` <small class="muted">(${esc(p.nick)})</small>` : ''}
+          ${/* whether the family can be reached IN THE APP at all — the question a head teacher
+               actually has when a message goes unanswered. The LINE id itself stays server-side. */''}
+          ${p.linked ? '' : `<small class="pill" style="margin-left:4px;font-size:11px;background:var(--warn-bg);color:var(--warn)">${EN() ? 'not on LINE' : 'ยังไม่ผูก LINE'}</small>`}
+          ${sub ? `<br><small class="muted">${esc(sub)}</small>` : ''}
+          ${kids ? `<br><span style="display:inline-flex;flex-wrap:wrap;gap:4px;margin-top:4px">${kids}</span>` : ''}
+        </div>
+      </div>
+      <div class="row" style="margin-top:6px;gap:12px;font-size:14px">
+        ${p.phone ? `<span>📱 ${_pqTel(p.phone)}</span>` : `<span class="muted">📱 ${EN() ? 'no phone on file' : 'ไม่มีเบอร์โทรในระบบ'}</span>`}
+        ${p.officePhone ? `<span>☎️ ${_pqTel(p.officePhone)}</span>` : ''}
+      </div>
+      ${p.workplace ? `<small class="muted">🏢 ${esc(p.workplace)}</small>` : ''}</div>`;
+  }
+
+  window.T_parents = async () => {
+    let d; try { d = await api('leaderParents', { staffId: USER.staffId }); } catch (e) { err(e); return; }
+    const list = d.parents || [];
+    app.innerHTML = `<button class="btn sm outline backbtn" onclick="GO('home')">${t('c.back')}</button>
+      <h2 class="page">👨‍👩‍👧 ${EN() ? 'Parent contacts' : 'ข้อมูลผู้ปกครอง'}</h2>
+      <div class="card"><div class="spread"><span class="muted" style="font-size:13px">${
+        esc((d.classes || []).join(' · ') || (EN() ? 'your classes' : 'ชั้นที่ดูแล'))}</span><b>${d.total || 0} ${EN() ? 'families' : 'คน'}</b></div>
+        <input id="pqS" placeholder="🔎 ${EN() ? 'Search name, child or phone' : 'ค้นหาชื่อผู้ปกครอง ชื่อเด็ก หรือเบอร์โทร'}" oninput="T_parentsFilter(this.value)" style="margin-top:6px"/></div>
+      <div id="pqList">${list.length ? list.map(_pqCard).join('') : `<div class="card"><small class="muted">${EN() ? 'No families in your classes yet.' : 'ยังไม่มีผู้ปกครองในชั้นที่ดูแล'}</small></div>`}</div>
+      ${/* 🔴 SAY WHAT IS NOT HERE. A head teacher who cannot find the address will otherwise assume
+           the record is empty and go and ask the family for it again — the gap has to read as a
+           boundary, not as missing data. */''}
+      <div class="card" style="padding:10px;background:var(--surface-2)"><small class="muted">${EN()
+        ? 'Read only. National ID, home address and email are the admin’s — ask them if you need one. This list covers the classes you look after.'
+        : 'หน้านี้<b>ดูได้อย่างเดียว แก้ไขไม่ได้</b> · <b>เลขบัตรประชาชน ที่อยู่ และอีเมล ไม่ได้แสดงที่นี่</b> — อยู่ในสิทธิ์ของแอดมิน ถ้าจำเป็นต้องใช้กรุณาสอบถามแอดมิน · รายชื่อนี้เฉพาะชั้นเรียนที่คุณดูแล'}</small></div>`;
+    window._PQ = list;
+  };
+  window.T_parentsFilter = (q) => {
+    const s = String(q || '').trim().toLowerCase();
+    const hit = p => !s || [p.name, p.nameEN, p.nick, p.phone, p.officePhone, p.relationship, p.workplace,
+      ...(p.children || []).map(k => k.nick + ' ' + k.name + ' ' + k.cls)].join(' ').toLowerCase().indexOf(s) >= 0;
+    const el = $('#pqList'); if (!el) return;
+    const rows = (window._PQ || []).filter(hit);
+    // re-rendered through the same code path as the first draw — two renderers for one list is how
+    // a filtered view quietly stops matching the unfiltered one
+    el.innerHTML = rows.length ? rows.map(_pqCard).join('')
+      : `<div class="card"><small class="muted">${EN() ? 'Nobody matches that.' : 'ไม่พบรายการที่ค้นหา'}</small></div>`;
+  };
+
   window.T_studentOT=async()=>{ const d=await api('teacherStudentOtList',{staffId:USER.staffId});
     const stLbl=st=>({UNPAID:EN()?'unpaid':'ค้างชำระ',PENDING_VERIFY:EN()?'pending':'รอตรวจ',PARTIAL:EN()?'partial':'บางส่วน',PAID:EN()?'paid':'ชำระแล้ว',CANCELLED:EN()?'cancelled':'ยกเลิก'}[st]||st);
     const stPill=st=>({UNPAID:'bad',PENDING_VERIFY:'wait',PARTIAL:'wait',PAID:'ok',CANCELLED:'info'}[st]||'info');

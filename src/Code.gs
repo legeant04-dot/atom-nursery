@@ -433,7 +433,24 @@ function applyIdentity_(action, payload, sess) {
   /* Approving a payslip is what publishes it to the person it is about, and adjusting pay is the
    * school deciding what somebody earns. `payAdjustHistory` is deliberately NOT here — a teacher may
    * read their own trail, and the handler scopes it to them. */
-  var ADMIN_ONLY = { approvePayslip: 1, adjustStaffPay: 1, saveAttendanceSince: 1,
+  /* 🔴 THE PARENT ROSTER HAD NO DOOR AT ALL (found 2026-10-15).
+   *
+   * `listParents` returns M.parents — the whole table: every family's NationalID, Address, Phone,
+   * LineUID and Email. It was not in this list, and the engine's handler is `() => M.parents` with
+   * no check of its own, so ANY signed-in session could ask for it: a teacher, and — because a
+   * parent holds a session too — any parent, for every other family in the school.
+   *
+   * Nothing in the UI ever drew it, which is why nobody saw it. But "no screen calls it" is not a
+   * permission; it is a coincidence that holds until somebody opens the network tab. The same
+   * shape as the geofence that stopped guarding: the guard was not refusing, it was absent.
+   *
+   * Every caller is an admin screen (the admin roster, the dedup tool, the link editor and the
+   * post-login prefetch, which only runs the roster jobs for role Admin), so listing it takes
+   * nothing away. A head teacher reaches parents through `leaderParents` instead — scoped to the
+   * classes they cover and contact-level only. */
+  // (parentKidsMap is already listed at the bottom of this map — not repeated here)
+  var ADMIN_ONLY = { listParents: 1, parentLinkCounts: 1,
+    approvePayslip: 1, adjustStaffPay: 1, saveAttendanceSince: 1,
     generateMonthlyBills: 1, issueBill: 1, billRunLast: 1, undoBillRun: 1,
     deleteBill: 1, adminResetPassword: 1, getStaffPassword: 1, setSchoolConfig: 1, recomputeAttendance: 1, diagDay: 1,
     addDepartment: 1, removeDepartment: 1, renameDepartment: 1, listBackups: 1, restoreSheet: 1, setRequireCheckin: 1,

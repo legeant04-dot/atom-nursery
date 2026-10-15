@@ -216,8 +216,18 @@ console.log('\n6) both runtimes, and the door they share');
   ok_('the three writes are named as writes, server side',
     /holidayAttendSet: 1, holidayAttendAdd: 1, holidayAttendRemove: 1/.test(code));
   ok_('...and client side', /holidayAttendSet: 1, holidayAttendAdd: 1, holidayAttendRemove: 1/.test(R('webapp/api.js')));
-  ok_('replacing the whole day is admin-only', /ADMIN_ONLY = \{[\s\S]{0,900}holidayAttendSet: 1/.test(code));
-  ok_('...but adding ONE name deliberately is not', !/ADMIN_ONLY = \{[\s\S]{0,900}holidayAttendAdd: 1/.test(code));
+  /* 🔴 THE CLAIM IS "IT IS IN THE MAP", NOT "IT IS WITHIN 900 CHARACTERS OF THE OPENING BRACE".
+   * This read `ADMIN_ONLY = \{[\s\S]{0,900}…`, so adding one entry near the top of the map pushed
+   * these names past the window and the suite went red on a change that was correct (2026-10-15,
+   * listParents). An assertion written as a DISTANCE decays; written as the claim it does not —
+   * the same lesson as the SlipOK fixture that hard-coded a date three days out. */
+  const _ao = code.indexOf('var ADMIN_ONLY = {');
+  const adminOnly = _ao < 0 ? '' : code.slice(_ao, code.indexOf('};', _ao) + 2);
+  ok_('the ADMIN_ONLY map was found, and only it',
+    adminOnly.length > 200 && adminOnly.length < 8000 && /\};$/.test(adminOnly));
+  const isAdminOnly = n => new RegExp('\\b' + n + ':\\s*1').test(adminOnly);
+  ok_('replacing the whole day is admin-only', isAdminOnly('holidayAttendSet'));
+  ok_('...but adding ONE name deliberately is not', !isAdminOnly('holidayAttendAdd'));
 }
 
 console.log('\n7) the screens');

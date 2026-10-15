@@ -177,10 +177,22 @@ console.log('4) the live path, and why it has to exist');
   ok_('...and the approval', /updateRow_\(sh, row\._row, \{ Approved:/.test(adjCode));
   ok_('every trail row is appended, never rewritten', /rows\.forEach\(function \(r\) \{ appendObject_\(adjSh, r\); \}\)/.test(adjCode));
   ok_('the routes are wired up', /approvePayslip:\s*function/.test(codeGs) && /adjustStaffPay:\s*function/.test(codeGs));
+  /* 🔴 BOTH OF THESE ASSERTED A POSITION, NOT A FACT. The first required approvePayslip and
+   * adjustStaffPay to be the FIRST TWO entries in the map — which nobody ever decided — and the
+   * second searched only the first 400 characters, so it would have said "not admin-only" about an
+   * entry that simply sat further down. Adding listParents in front of them broke the first and
+   * could have made the second pass while being wrong (2026-10-15).
+   *
+   * The claim in both cases is membership of the map. Read the map, then ask. */
+  const _ao2 = codeGs.indexOf('var ADMIN_ONLY = {');
+  const adminOnly2 = _ao2 < 0 ? '' : codeGs.slice(_ao2, codeGs.indexOf('};', _ao2) + 2);
+  const inAdminOnly = n => new RegExp('\\b' + n + ':\\s*1').test(adminOnly2);
+  ok_('the ADMIN_ONLY map was found, and only it',
+    adminOnly2.length > 200 && adminOnly2.length < 8000 && /\};$/.test(adminOnly2));
   ok_('🔴 approving and adjusting are admin-only',
-    /ADMIN_ONLY = \{ approvePayslip: 1, adjustStaffPay: 1/.test(codeGs));
+    inAdminOnly('approvePayslip') && inAdminOnly('adjustStaffPay'));
   ok_('...and reading your own history is NOT, or a teacher could never see it',
-    !/ADMIN_ONLY[\s\S]{0,400}payAdjustHistory: 1/.test(codeGs));
+    !inAdminOnly('payAdjustHistory'));
   ok_('the columns are declared, or writeRows_ drops them in silence',
     /'Approved', 'ApprovedBy', 'ApprovedAt'/.test(cfgGs) && /PAY_ADJUSTMENTS: \['AdjID'/.test(cfgGs));
   ok_('...and the trail sheet is in the collection map', /payAdjustments:\s*\{ wb: 'HR'/.test(R('src/GasEngine.gs')));
