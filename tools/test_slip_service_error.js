@@ -103,6 +103,51 @@ console.log('\n2) 🔴 SlipOK ตัดสิน "สลิป" — ต้อง
 eq('สลิปแท้ → YES', res.good.verified, 'YES');
 ok_('...และไม่ถูกนับเป็นปัญหาบัญชี', res.good.serviceError === false);
 
+console.log('\n2b) 🔴 ปิดการตรวจล่วงหน้าได้ — ครึ่งหนึ่งของโควตา โดยไม่มีอะไรเหลือไม่ได้ตรวจ');
+{
+  /* Every slip costs TWO SlipOK calls: the parent's screen pre-checks on attach (log:false) and the
+   * server verifies on submit (log:true). On the free package's 100 calls a month that is fifty
+   * slips, not a hundred — which is how the school reached 0/100 and every transfer stopped being
+   * verified (15/10/2569, code 1003).
+   *
+   * The switch gives up the CONVENIENCE half and keeps the half that decides anything. Asserted as
+   * exactly that: with it off, the pre-check makes no call AND the submit-time check still does. */
+  const q = JSON.parse(run(function () {
+    _configCache = null; setupAll(); _configCache = null;
+    setConfigValue_('SlipOK_Url', 'https://api.slipok.com/api/line/apikey/70537');
+    setConfigValue_('SlipOK_ApiKey', 'SLIPOKTESTKEY');
+    var calls = 0;
+    UrlFetchApp.fetch = function () { calls++;
+      return { getResponseCode: function () { return 200; },
+        getContentText: function () { return JSON.stringify({ success: true, data: { amount: 100, transRef: 'T1' } }); } }; };
+    function count(pre) {
+      setConfigValue_('SlipOK_PreCheck', pre);
+      _configCache = null;
+      try { CacheService.getScriptCache().removeAll(['cfg']); } catch (e) {}
+      calls = 0;
+      var v = handleVerifySlip({ qrData: 'QR', amount: 100, log: false });   // the parent's screen
+      var preCalls = calls;
+      var row = paySlipVerify_({ qrData: 'QR', slipAmount: 100 }, 100);       // the real one, on submit
+      return { pre: preCalls, total: calls, preAvailable: !!v.available, verified: String(row.verified) };
+    }
+    return JSON.stringify({ on: count('true'), off: count('false') });
+  }));
+  eq('ค่าเริ่มต้น (เปิด) — 2 ครั้งต่อสลิป 1 ใบ', [q.on.pre, q.on.total], [1, 2]);
+  eq('🔴 ปิดแล้ว — การตรวจล่วงหน้าไม่ยิงเลย เหลือ 1 ครั้ง', [q.off.pre, q.off.total], [0, 1]);
+  ok_('🔴 ...แต่การตรวจตอนส่งจริง ยังทำงานเหมือนเดิม', q.off.verified === 'YES' && q.on.verified === 'YES');
+  ok_('หน้าผู้ปกครองรับมือได้ (available:false → ไม่แสดงอะไร ไม่ใช่ error)', q.off.preAvailable === false);
+  /* 🔴 REACHABLE, AND NEXT TO THE NUMBER THAT EXPLAINS IT. A setting only an admin with the sheet
+   * open can change is not a lever the school has — the tick sits on the SlipOK screen, directly
+   * under the quota figure that makes it make sense. Twice in a fortnight a finished feature shipped
+   * with no way in (the ☀️ summer button, the whole-school backup). */
+  const app = R('webapp/app.js'), ps = R('src/PaySlips.gs'), st = R('src/Staff.gs');
+  ok_('🔴 มีช่องติ๊กจริงในหน้าตรวจสลิป', /id="sokPre"/.test(app));
+  ok_('...ส่งค่าไปกับการบันทึก', /preCheck:\s*pre\?pre\.checked:null/.test(app));
+  ok_('...ฝั่งเซิร์ฟเวอร์บันทึกเฉพาะตอนที่แอดมินแตะจริง (ไม่แอบเปลี่ยนตอนบันทึกเลขสาขา)',
+    /if \(p\.preCheck != null\) setConfigValue_\('SlipOK_PreCheck'/.test(st));
+  ok_('...และหน้าจอรู้สถานะปัจจุบัน (ไม่ใช่ติ๊กไว้ทุกครั้งที่เปิด)', /preCheck: preCheck/.test(ps));
+}
+
 console.log('\n3) 🔴 การแยกประเภทต้องเป็น "รายการที่ประกาศไว้" ไม่ใช่การเดาจากตัวเลขหรือข้อความ');
 {
   const d6 = R('src/Day6.gs');

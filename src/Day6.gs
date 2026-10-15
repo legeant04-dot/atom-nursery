@@ -269,6 +269,23 @@ function handleVerifySlip(p) {
   var url = getConfig_('SlipOK_Url', '');
   var key = getConfig_('SlipOK_ApiKey', '');
   if (!url || !key) return { available: false, provider: 'SlipOK', note: 'SlipOK not configured' };
+  /* 🔴 TWO CALLS PER SLIP, AND THE QUOTA IS COUNTED IN CALLS (2026-10-15).
+   *
+   * Every payment makes two: the parent's screen asks with log:false the moment the image is
+   * attached (so the amount can be filled in and a wrong slip caught before they submit), and the
+   * server asks again with log:true when they actually submit, which is the authoritative one.
+   *
+   * On the free Basic package that is 100 calls a month — so FIFTY SLIPS, not a hundred. The school
+   * reached 0/100 and every parent's transfer stopped being verified, which is how this was found.
+   *
+   * The pre-check is a CONVENIENCE: it fills the amount in and warns early. The submit-time check is
+   * the one that decides anything. So when the quota is the binding constraint, this is the half to
+   * give up — and the school can, with one setting, without losing any verification.
+   *
+   * Default ON: that is today's behaviour, and nothing changes for a school with quota to spare. */
+  if (p && p.log === false && String(getConfig_('SlipOK_PreCheck', 'true')) === 'false') {
+    return { available: false, provider: 'SlipOK', note: 'pre-check disabled (SlipOK_PreCheck=false)' };
+  }
   try {
     // log:true → SlipOK STORES the slip (dedupe on repeat = code 1012) and checks the receiver
     // (wrong receiver = 1014). The parent PRE-CHECK must pass log:false so it doesn't consume the

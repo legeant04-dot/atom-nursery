@@ -131,7 +131,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.447'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.448'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -13221,8 +13221,8 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
   window.A_slipOkSave=async(btn)=>{
     const m=btn.closest('.modal'), b=m.querySelector('#sokBranch').value.trim(), k=m.querySelector('#sokKey').value.trim();
     if(!b){ toast(EN()?'Enter the branch id':'ใส่เลขสาขาก่อน'); return; }
-    btn.disabled=true;
-    try{ const d=await api('saveSlipOk',{branch:b,apiKey:k,staffId:USER.staffId,adminId:USER.staffId});
+    const pre=m.querySelector('#sokPre'); btn.disabled=true;
+    try{ const d=await api('saveSlipOk',{branch:b,apiKey:k,preCheck:pre?pre.checked:null,staffId:USER.staffId,adminId:USER.staffId});
       m.remove(); A_slipDiagShow(d);
       toast(d.working?(EN()?'Saved — SlipOK is answering now':'บันทึกแล้ว — SlipOK ตอบกลับได้แล้ว')
         :(EN()?'Saved, but SlipOK still is not answering':'บันทึกแล้ว แต่ SlipOK ยังไม่ตอบกลับ'));
@@ -13274,6 +13274,16 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
           <p class="muted" style="font-size:13px;margin:4px 0">${EN()?'Copy the branch id and API key from your SlipOK dashboard. Renewing on a new branch gives you a NEW id — the app keeps using the old one until it is changed here.':'คัดลอกเลขสาขาและ API key จากหน้า SlipOK ของโรงเรียนมาใส่ · การต่ออายุแบบเปิดสาขาใหม่จะได้เลขสาขาใหม่ ระบบจะยังใช้เลขเดิมจนกว่าจะแก้ตรงนี้'}</p>
           <label class="field"><span>${EN()?'Branch id':'เลขสาขา (Branch ID)'}</span><input id="sokBranch" value="${esc(lv.branch||'')}" placeholder="${EN()?'e.g. 69307':'เช่น 69307'}"/></label>
           <label class="field"><span>${EN()?'API key':'API key'} <small class="muted">${EN()?'leave blank to keep the current one':'เว้นว่างไว้ = ใช้คีย์เดิม'} ${esc(lv.keyTail||'')}</small></span><input id="sokKey" placeholder="SLIPOK…"/></label>
+          ${/* 🔴 THE QUOTA LEVER, next to the quota figure that makes it make sense. Every slip
+                costs TWO SlipOK calls — the parent's screen pre-checks on attach, the server
+                verifies on submit — so a 100-a-month package is FIFTY SLIPS. Unticking gives up the
+                convenience half and leaves nothing unverified. */''}
+          <label class="field" style="margin-top:6px"><span style="display:flex;gap:8px;align-items:flex-start">
+            <input type="checkbox" id="sokPre" ${d.preCheck===false?'':'checked'} style="margin-top:3px"/>
+            <span><b style="font-size:13px">${EN()?'Check the slip as soon as the parent attaches it':'ตรวจสลิปทันทีที่ผู้ปกครองแนบ'}</b>
+            <br><small class="muted">${EN()
+              ? 'Fills the amount in for them and warns early — but it DOUBLES the SlipOK quota each slip uses (two calls instead of one). Unticking it checks nothing less: the check on submit is untouched, the parent just types the amount.'
+              : 'ช่วยกรอกยอดเงินให้และเตือนตั้งแต่ก่อนส่ง — แต่ทำให้<b>ใช้โควตา SlipOK เป็น 2 เท่าต่อสลิป 1 ใบ</b> (ยิง 2 ครั้งแทนที่จะเป็น 1) · ถ้าเอาติ๊กออก <b>ไม่ได้ตรวจน้อยลงเลย</b> — การตรวจตอนส่งจริงยังเหมือนเดิม ผู้ปกครองแค่พิมพ์ยอดเอง'}</small></span></span></label>
           <button class="btn sm block" onclick="A_slipOkSave(this)">💾 ${EN()?'Save and test again':'บันทึกแล้วตรวจใหม่'}</button>
           ${d.hasPrevKey?`<button class="btn sm outline block" style="margin-top:6px" onclick="A_slipOkUndo(this)">↩️ ${EN()?'Put the previous API key back':'ย้อนกลับไปใช้ API key เดิม'}</button>`:''}</div>
         <div class="card" style="padding:8px"><b style="font-size:13px">${EN()?'Slips on file':'สลิปทั้งหมดในระบบ'} (${c.total||0})</b>
