@@ -314,6 +314,9 @@ var ROUTES = {
   /* 🏫 PHASE 4.1 — is this school actually set up, or is it still running on the seed's values?
    * Read-only, admin-only, and it reports STATUS not VALUES (see src/Onboarding.gs). */
   onboardingCheck: function (p) { return handleOnboardingCheck(p); },
+  // ...and the one repair it can prompt: add SCHOOL_CONFIG rows that are missing entirely.
+  // Preview-first, append-only, never touches an existing row. See src/Onboarding.gs.
+  backfillConfig: function (p) { return handleBackfillConfig(p); },
   recomputeContributions: function (p) { return handleRecomputeContributions(p); },  // admin-only, preview-first
   // wipes ONE staff member's provident fund. Admin-only, preview-first, and it takes a full backup
   // of both workbooks before it writes a single cell — see handleContributionReset.
@@ -467,7 +470,7 @@ function applyIdentity_(action, payload, sess) {
     exportManifest: 1, exportTable: 1,
     // names every unset credential-bearing setting the school has — admin only, even though it
     // never returns a value: knowing WHICH keys are blank is itself a map for an attacker
-    onboardingCheck: 1,
+    onboardingCheck: 1, backfillConfig: 1,
     /* CERTIFICATES — admin only, all five.
      * certStudents names every child who has finished, including those long gone, and certAssets
      * hands back the director's signature. Neither is anything a teacher or a parent has business

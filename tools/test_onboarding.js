@@ -155,6 +155,83 @@ console.log('\n6) 🔴 setupAll ต้องไม่ทับค่าที่
   ok_('...และยังไม่พร้อมอยู่ดี เพราะยังเหลือค่าอื่น (LIFF ฯลฯ)', after.ready === false);
 }
 
+console.log('\n6b) 🔴 ห้ามบอกโรงเรียนเจ้าของค่า ว่าค่าของตัวเองเป็นของคนอื่น');
+{
+  /* 🔴 THE FALSE POSITIVE FROM THE FIRST RUN ON THE REAL SCHOOL (2026-10-15).
+   *
+   * The inherited-value net was written for the copy-the-workbook case and walked straight into the
+   * obvious thing: Atom Nursery is itself a school using this app. Its LineOAId IS '@atomnursery'.
+   * The first live run put Links_LINE, LineOAId and Links_Facebook in red and told the school to
+   * change its own LINE account — three false alarms out of four findings, with the one real finding
+   * sitting among them.
+   *
+   * A report that cries wolf stops being read, and the next time it is right nobody looks. Both
+   * directions are asserted here: the origin school is left alone, AND a copy that was renamed is
+   * still caught, or the fix would have been to simply switch the net off. */
+  const two = JSON.parse(run(function () {
+    _configCache = null; setupAll(); _configCache = null;
+    function check(name) {
+      setConfigValue_('SchoolName', name);
+      setConfigValue_('LineOAId', '@atomnursery');
+      setConfigValue_('Links_LINE', 'https://line.me/R/ti/p/@atomnursery');
+      _configCache = null;
+      try { CacheService.getScriptCache().removeAll(['cfg']); } catch (e) {}
+      var r = handleOnboardingCheck({});
+      var flagged = (r.blockers || []).concat(r.required || [], r.confirm || [])
+        .filter(function (x) { return /ค่าของ Atom/.test(x.why); })
+        .map(function (x) { return x.key; }).sort();
+      return flagged;
+    }
+    return JSON.stringify({ origin: check('Atom Nursery'), copy: check('โรงเรียนอนุบาลแห่งที่สอง') });
+  }));
+  eq('🔴 โรงเรียนเจ้าของค่า — ไม่มีรายการ "ยังเป็นค่าของ Atom" เลย', two.origin, []);
+  /* GoogleClientId is in that list too, and correctly so: it is the one Atom value still in the
+   * seed (it cannot be blanked yet — see section 2), so a second school really would be carrying
+   * Atom's OAuth client and really should be told. */
+  eq('...แต่ชีตที่ถูกคัดลอกแล้วเปลี่ยนชื่อ ยังโดนจับเหมือนเดิม',
+    two.copy, ['GoogleClientId', 'LineOAId', 'Links_LINE']);
+}
+
+console.log('\n6c) 🧩 เพิ่มแถวที่ขาด — ต้องเพิ่มอย่างเดียว ห้ามแตะแถวที่มีอยู่');
+{
+  const bf = JSON.parse(run(function () {
+    _configCache = null; setupAll(); _configCache = null;
+    var sh = getMainSpreadsheet_().getSheetByName('SCHOOL_CONFIG');
+    // a school that is missing a row entirely, and one whose row holds a value it chose itself
+    var rows = readObjects_(sh);
+    for (var i = 0; i < rows.length; i++) {
+      if (String(rows[i].Key) === 'GoogleClientId') { sh.deleteRow(rows[i]._row); break; }
+    }
+    setConfigValue_('OTRatePerHour', '175');     // the school's own figure, not the seed's 100
+    setConfigValue_('SchoolName', '');            // an EMPTY row — a decision, not an absence
+    _configCache = null;
+    try { CacheService.getScriptCache().removeAll(['cfg']); } catch (e) {}
+    var pv = handleBackfillConfig({ preview: true });
+    var before = readObjects_(sh).length;
+    var done = handleBackfillConfig({ preview: false, adminId: 'ADM' });
+    _configCache = null;
+    try { CacheService.getScriptCache().removeAll(['cfg']); } catch (e) {}
+    var again = handleBackfillConfig({ preview: true });
+    return JSON.stringify({ pv: pv, done: done, before: before,
+      after: readObjects_(sh).length, again: again.count,
+      ot: getConfig_('OTRatePerHour', ''), name: getConfig_('SchoolName', 'FELLTHROUGH'),
+      google: getConfig_('GoogleClientId', '') });
+  }));
+  eq('ดูก่อนว่าจะเพิ่มอะไร — เจอคีย์ที่หายไป', bf.pv.wouldAdd, ['GoogleClientId']);
+  ok_('🔴 ดูอย่างเดียวต้องไม่เขียนอะไร (เพิ่มจริงตอน preview:false เท่านั้น)', bf.pv.preview === true);
+  eq('เพิ่มแล้ว 1 แถว', bf.done.count, 1);
+  eq('จำนวนแถวเพิ่มขึ้น 1', bf.after - bf.before, 1);
+  // compared as text: getConfig_ hands back whatever the cell holds, and '175' vs 175 is the
+  // reader's type, not the answer
+  eq('🔴 ค่าที่โรงเรียนตั้งเอง ไม่ถูกเขียนทับ', String(bf.ot), '175');
+  /* 🔴 AN EMPTY ROW IS A DECISION. getConfig_ hands back the default for a blank cell, so this
+   * reads as the fallback — the point is that the ROW was not re-added and not overwritten, which
+   * `again === 0` proves. Re-adding it would turn "I cleared this on purpose" into "here is the
+   * seed value again", silently. */
+  eq('🔴 รันซ้ำแล้วไม่เพิ่มอะไรอีก (รวมถึงแถวที่ตั้งใจเว้นว่าง)', bf.again, 0);
+  ok_('...และคีย์ที่หายไป กลับมามีค่าใช้งานได้', String(bf.google || '').indexOf('.apps.googleusercontent.com') > 0);
+}
+
 console.log('\n7) 🔴 รั้วที่ยังไม่ได้ตั้งจุดศูนย์กลาง ต้องปฏิเสธ ไม่ใช่ปล่อยผ่าน');
 {
   /* 🔴 THE BUG BLANKING THE SEED EXPOSED — and it was there all along, hidden.
