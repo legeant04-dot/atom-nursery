@@ -56,7 +56,11 @@ const res = JSON.parse(run(function () {
       return { getResponseCode: function () { return http; },
         getContentText: function () { return JSON.stringify(body); } };
     };
-    var v = handleVerifySlip({ qrData: 'QR', amount: 100, log: false });
+    /* log:true — the AUTHORITATIVE check, the one that runs on submit and writes the verdict. (The
+     * pre-check is the other half and now defaults OFF; asking with log:false here would be
+     * answered by the quota lever rather than by SlipOK, and this section is about what SlipOK's
+     * ANSWER means, not about whether we asked.) */
+    var v = handleVerifySlip({ qrData: 'QR', amount: 100, log: true });
     // ...and what the PAYMENT ROW would end up saying, which is the thing families see
     var row = paySlipVerify_({ qrData: 'QR', slipAmount: 100 }, 100);
     return { serviceError: !!v.serviceError, available: !!v.available, ok: !!v.ok,
@@ -132,7 +136,21 @@ console.log('\n2b) 🔴 ปิดการตรวจล่วงหน้า�
     }
     return JSON.stringify({ on: count('true'), off: count('false') });
   }));
-  eq('ค่าเริ่มต้น (เปิด) — 2 ครั้งต่อสลิป 1 ใบ', [q.on.pre, q.on.total], [1, 2]);
+  /* 🔴 THE DEFAULT IS OFF, AND IT IS ONE VALUE IN ONE PLACE.
+   *
+   * It briefly lived in three (Day6.gs, PaySlips.gs, and the Config.gs seed), which is how a screen
+   * comes to draw a ticked box above code that is switched off — the app lying about itself. The
+   * seed has to be a LITERAL (that array is built at load time and Apps Script does not promise
+   * Day6.gs has run by then), so the two cannot share a reference and must be checked instead. */
+  const d6 = R('src/Day6.gs'), cfg = R('src/Config.gs');
+  ok_('🔴 ค่าเริ่มต้นคือ "ปิด" — การตรวจตอนส่งยังอยู่ครบ เสียแค่ความสะดวก',
+    /var SLIPOK_PRECHECK_DEFAULT_ = 'false';/.test(d6));
+  ok_('...และ seed ตรงกับตัวที่โค้ดใช้จริง (คนละที่ แต่ห้ามต่างกัน)',
+    /\['SlipOK_PreCheck',\s*'false'\]/.test(cfg));
+  ok_('...อ่านผ่านฟังก์ชันเดียว ไม่ใช่เขียนค่าเริ่มต้นซ้ำที่ผู้เรียกแต่ละราย',
+    /slipOkPreCheckOn_\(\)/.test(R('src/PaySlips.gs')) &&
+    !/getConfig_\('SlipOK_PreCheck'/.test(R('src/PaySlips.gs')));
+  eq('เปิดเอง — 2 ครั้งต่อสลิป 1 ใบ', [q.on.pre, q.on.total], [1, 2]);
   eq('🔴 ปิดแล้ว — การตรวจล่วงหน้าไม่ยิงเลย เหลือ 1 ครั้ง', [q.off.pre, q.off.total], [0, 1]);
   ok_('🔴 ...แต่การตรวจตอนส่งจริง ยังทำงานเหมือนเดิม', q.off.verified === 'YES' && q.on.verified === 'YES');
   ok_('หน้าผู้ปกครองรับมือได้ (available:false → ไม่แสดงอะไร ไม่ใช่ error)', q.off.preAvailable === false);

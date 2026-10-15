@@ -131,7 +131,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.448'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.449'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -13279,7 +13279,7 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
                 verifies on submit — so a 100-a-month package is FIFTY SLIPS. Unticking gives up the
                 convenience half and leaves nothing unverified. */''}
           <label class="field" style="margin-top:6px"><span style="display:flex;gap:8px;align-items:flex-start">
-            <input type="checkbox" id="sokPre" ${d.preCheck===false?'':'checked'} style="margin-top:3px"/>
+            <input type="checkbox" id="sokPre" ${d.preCheck===true?'checked':''} style="margin-top:3px"/>
             <span><b style="font-size:13px">${EN()?'Check the slip as soon as the parent attaches it':'ตรวจสลิปทันทีที่ผู้ปกครองแนบ'}</b>
             <br><small class="muted">${EN()
               ? 'Fills the amount in for them and warns early — but it DOUBLES the SlipOK quota each slip uses (two calls instead of one). Unticking it checks nothing less: the check on submit is untouched, the parent just types the amount.'
