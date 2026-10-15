@@ -343,10 +343,22 @@ function handleLineExchange(payload) {
  * sheet is read directly: a row that EXISTS decides, blank included, and only the absence of a row
  * falls back to the client baked into SCHOOL_CONFIG_DEFAULTS.
  *
- * Falling back at all matters because the live workbook predates this key — it is seeded only on
- * setup — so without it the feature would ship switched off and look broken. A client id is not a
- * secret (every browser drawing the button receives it), it belongs to this one school, and an admin
- * can still override or clear it from Settings.
+ * 🔴 AND THE FALLBACK IS NOW EMPTY, ON PURPOSE (2026-10-15).
+ *
+ * It used to hand back Atom Nursery's own client id, baked into SCHOOL_CONFIG_DEFAULTS. That was
+ * right while the live workbook had no row for this key — it arrived after setup, so without the
+ * fallback the feature would have shipped switched off and looked broken on the one deployment it
+ * was built for.
+ *
+ * It became wrong the moment a SECOND school could be created from the same seed: with no row of its
+ * own, that school would have drawn its sign-in button against OUR OAuth client, and nothing would
+ * have looked wrong to anybody. The Phase 4.1 readiness check found the missing row on live, the
+ * 🧩 backfill wrote it, and only then was the literal cleared — so Atom now reads its client id from
+ * its own settings, which is where it always belonged.
+ *
+ * This function is kept rather than deleted because the three-way distinction it implements is still
+ * the right one (a row that exists decides, blank included; no row falls back) — the fallback simply
+ * has nothing to offer now, which means "off", which is the safe answer for an unconfigured school.
  */
 function googleClientIdDefault_() {
   try {

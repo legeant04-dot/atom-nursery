@@ -428,12 +428,20 @@ console.log('\n7) readiness, and a school that has not set it up');
     '   (function(){ try { handleGoogleExchange({ credential: "T_MUM" }); return ""; }' +
     '               catch (e) { return String(e.apiCode || e.code); } })()]; }');
   eq('with no client id the button is off and the route refuses cleanly', off.v, [false, 'GOOGLE_NOT_CONFIGURED']);
-  /* A BLANK ROW AND A MISSING ROW ARE DIFFERENT ANSWERS.
+  /* 🔴 A MISSING ROW USED TO FALL BACK TO A CLIENT ID BAKED INTO THE SOURCE. NOT ANY MORE.
    *
-   * getConfig_ treats a blank cell as absent and returns the default, which would make it impossible
-   * to switch this off from the sheet. And the live workbook predates the key — defaults are seeded
-   * only at setup — so with no fallback at all the feature would ship switched off and look broken
-   * on the very deployment it was built for. A blank row means off; no row means the built-in one.
+   * The fallback was written for a real reason: this key arrived after the live workbook was built,
+   * defaults are seeded only at setup, so without it the feature would have shipped switched off and
+   * looked broken on the one deployment it was built for. That reason expired on 2026-10-15, when
+   * the Phase 4.1 readiness check found the row genuinely missing on live, the backfill button wrote
+   * it, and the check reported 0 blockers.
+   *
+   * It had to go, because the literal was ATOM NURSERY'S OAuth client: a second school with no row
+   * of its own would have drawn its sign-in button against our client, and nobody would have seen
+   * anything wrong. "The app works" and "the school configured it" are not the same sentence.
+   *
+   * So the claim is now the opposite one, and it is the safe direction: a school that has not set a
+   * client id gets NO BUTTON and a clean refusal — never somebody else's identity provider.
    */
   const ctx2 = boot({ T_MUM: good('gsub_mum', 'karn@gmail.com') });
   const gone = call(ctx2, 'function(){' +
@@ -442,9 +450,11 @@ console.log('\n7) readiness, and a school that has not set it up');
     ' sh.deleteRow(r._row);' +
     ' try { CacheService.getScriptCache().removeAll(["col:SCHOOL_CONFIG","rows:SCHOOL_CONFIG","cfg"]); } catch (e) {}' +
     ' _configCache = null;' +
-    ' return [handleGoogleLoginReady().clientId, handleGoogleExchange({ credential: "T_MUM" }).linkedId]; }');
-  eq('a workbook with no row at all uses the school’s own client, and still signs people in',
-    gone.v, [CLIENT_ID, 'PAR-1']);
+    ' return [handleGoogleLoginReady().ready, handleGoogleLoginReady().clientId,' +
+    '   (function(){ try { handleGoogleExchange({ credential: "T_MUM" }); return ""; }' +
+    '               catch (e) { return String(e.apiCode || e.code); } })()]; }');
+  eq('🔴 no row at all → the button is off and nobody is signed in against another school’s client',
+    gone.v, [false, '', 'GOOGLE_NOT_CONFIGURED']);
 }
 
 console.log('\n8) how the request is allowed to reach the handler at all');
@@ -460,7 +470,18 @@ console.log('\n8) how the request is allowed to reach the handler at all');
   ok_('...clearing anything the client sent first', /delete payload\.parentId; delete payload\.staffId;/.test(c));
   ok_('both writing routes take the write lock', /googleExchange: 1, googleLink: 1/.test(c));
   ok_('...and the client will not retry them behind the user’s back', /googleExchange: 1, googleLink: 1/.test(srcCode(api)));
-  ok_('the client id has a home in SCHOOL_CONFIG', /'GoogleClientId',\s*'120486339414-/.test(cfg));
+  /* 🔴 THE KEY HAS A HOME IN SCHOOL_CONFIG — AND THE SEED NO LONGER FILLS IT IN (2026-10-15).
+   *
+   * This used to assert the opposite: that the seed carried Atom Nursery's own client id. That was
+   * the right check while the live workbook had no row and the literal was load-bearing; it became
+   * the wrong one the moment a second school could be created from the same seed and would have
+   * drawn its sign-in button against OUR OAuth client.
+   *
+   * The claim now is the one Phase 4.1 makes about every per-school setting: the key is DECLARED so
+   * a school can set it, and the seed carries NOBODY'S identity. */
+  ok_('the client id has a home in SCHOOL_CONFIG', /'GoogleClientId',\s*''/.test(cfg));
+  ok_('🔴 ...and the seed no longer carries any school’s own client id',
+    !/'GoogleClientId',\s*'[^']+'/.test(cfg) && !/120486339414-/.test(cfg));
   ok_('every Google refusal is a rule, not an outage', /GOOGLE_NOT_LINKED: 1/.test(perf) && /GOOGLE_TOKEN_INVALID: 1/.test(perf));
 }
 

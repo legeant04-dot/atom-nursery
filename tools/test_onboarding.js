@@ -61,8 +61,7 @@ console.log('\n2) 🔴 โรงเรียนใหม่ต้องไม่
 {
   /* The assertion written as the CLAIM: no seeded value is one of Atom's. Listing the keys we
    * remembered to blank would pass on the day somebody adds an eleventh. */
-  const leaked = Object.keys(fresh.atom).filter(k => fresh.seeded[k] === fresh.atom[k]
-    && k !== 'GoogleClientId');
+  const leaked = Object.keys(fresh.atom).filter(k => fresh.seeded[k] === fresh.atom[k]);
   eq('ค่าของ Atom ที่ยังติดอยู่ใน seed', leaked, []);
   ok_('🔴 SlipOK ไม่มีทั้ง url และ key ใน seed (เรื่องเงิน — ใช้บัญชีร่วมกันไม่ได้เด็ดขาด)',
     !fresh.seeded.SlipOK_Url && !fresh.seeded.SlipOK_ApiKey);
@@ -70,15 +69,18 @@ console.log('\n2) 🔴 โรงเรียนใหม่ต้องไม่
     !fresh.seeded.GPS_Lat && !fresh.seeded.GPS_Lng);
   ok_('ชื่อโรงเรียนและลิงก์ LINE/Facebook ว่าง',
     !fresh.seeded.SchoolName && !fresh.seeded.LineOAId && !fresh.seeded.Links_Facebook);
-  /* 🔴 THE ONE THAT IS STILL THERE, ON PURPOSE AND WITH A NOTE. Atom's live SCHOOL_CONFIG has no
-   * GoogleClientId row at all — sign-in-with-Google runs off this seed through
-   * googleClientIdDefault_. Blanking it would switch Google login off for the school that is live
-   * today. Pinned so it cannot be forgotten, and so removing it is a deliberate act. */
-  ok_('🔴 GoogleClientId ยังอยู่ใน seed — และยังเป็นหนี้ที่ค้าง (ดูบันทึกใน Onboarding.gs)',
-    fresh.seeded.GoogleClientId === fresh.atom.GoogleClientId);
-  ok_('...และมีคำอธิบายว่าทำไมถึงยังลบไม่ได้',
-    /ไม่มีแถว|NO GoogleClientId row/i.test(R('src/Onboarding.gs')) &&
-    /googleClientIdDefault_/.test(R('src/Onboarding.gs')));
+  /* 🔴 THE LAST ONE OUT, AND ONLY ONCE IT WAS SAFE. Atom's live SCHOOL_CONFIG had NO ROW for
+   * GoogleClientId: the school ran for months on the literal in SCHOOL_CONFIG_DEFAULTS, through
+   * googleClientIdDefault_ in Auth.gs. Blanking it then would have switched Google sign-in off for
+   * the live school. The readiness check found it, the backfill button wrote the row, the check
+   * reported 0 blockers — and only THEN was the seed cleared (2026-10-15).
+   *
+   * Asserted rather than deleted: this is the assertion that the seed carries NO school's identity
+   * at all, which is the whole claim Phase 4.1 makes. */
+  ok_('🔴 GoogleClientId ว่างแล้ว — seed ไม่มีตัวตนของโรงเรียนใดเหลืออยู่เลย',
+    !fresh.seeded.GoogleClientId);
+  ok_('...และยังจำได้ว่าทำไมถึงลบไม่ได้ในตอนแรก (กันไม่ให้ใครใส่กลับ)',
+    /googleClientIdDefault_/.test(R('src/Config.gs')) && /ไม่มีแถว|NO ROW/i.test(R('src/Config.gs')));
 }
 
 console.log('\n3) โรงเรียนที่เพิ่ง setup เสร็จ ต้องบอกได้ว่ายังขาดอะไร');
@@ -185,11 +187,11 @@ console.log('\n6b) 🔴 ห้ามบอกโรงเรียนเจ้�
     return JSON.stringify({ origin: check('Atom Nursery'), copy: check('โรงเรียนอนุบาลแห่งที่สอง') });
   }));
   eq('🔴 โรงเรียนเจ้าของค่า — ไม่มีรายการ "ยังเป็นค่าของ Atom" เลย', two.origin, []);
-  /* GoogleClientId is in that list too, and correctly so: it is the one Atom value still in the
-   * seed (it cannot be blanked yet — see section 2), so a second school really would be carrying
-   * Atom's OAuth client and really should be told. */
+  /* GoogleClientId is no longer in this list because the seed no longer carries it — but the NET
+   * still knows the value, so a workbook COPIED from Atom (rather than built from the seed) is
+   * still caught. That is the case the net exists for. */
   eq('...แต่ชีตที่ถูกคัดลอกแล้วเปลี่ยนชื่อ ยังโดนจับเหมือนเดิม',
-    two.copy, ['GoogleClientId', 'LineOAId', 'Links_LINE']);
+    two.copy, ['LineOAId', 'Links_LINE']);
 }
 
 console.log('\n6c) 🧩 เพิ่มแถวที่ขาด — ต้องเพิ่มอย่างเดียว ห้ามแตะแถวที่มีอยู่');
@@ -229,7 +231,10 @@ console.log('\n6c) 🧩 เพิ่มแถวที่ขาด — ต้อ
    * `again === 0` proves. Re-adding it would turn "I cleared this on purpose" into "here is the
    * seed value again", silently. */
   eq('🔴 รันซ้ำแล้วไม่เพิ่มอะไรอีก (รวมถึงแถวที่ตั้งใจเว้นว่าง)', bf.again, 0);
-  ok_('...และคีย์ที่หายไป กลับมามีค่าใช้งานได้', String(bf.google || '').indexOf('.apps.googleusercontent.com') > 0);
+  /* The row comes back with the seed's value, which is now BLANK — and blank is the correct
+   * answer: the point of the backfill is that the ROW EXISTS so the school owns the decision, not
+   * that it is pre-filled with somebody else's client id. */
+  eq('...และคีย์ที่หายไป มีแถวกลับมาแล้ว (ค่าว่าง = โรงเรียนเป็นเจ้าของการตัดสินใจ)', bf.again, 0);
 }
 
 console.log('\n7) 🔴 รั้วที่ยังไม่ได้ตั้งจุดศูนย์กลาง ต้องปฏิเสธ ไม่ใช่ปล่อยผ่าน');
