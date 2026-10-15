@@ -847,7 +847,13 @@ var READ_ONLY_ACTIONS_ = { absenceReport: 1, paymentLog: 1, paymentSlips: 1, pay
   // reads the month and reports the days nobody closed — and an unlisted "write" on a teacher's home
   // screen is refused for an Observer and takes the whole batch down with it, which is what these
   // ten are here to prevent.
-  staffMissingCheckout: 1 };
+  staffMissingCheckout: 1,
+  /* The whole-school backup and the readiness check — both pure reads (src/Portability.gs,
+   * src/Onboarding.gs). Listed here rather than relying on the regexes agreeing by luck: the
+   * CLIENT's verb list contains `export` (for exportStudent, which really does stamp
+   * Status='EXPORTED') and the server's does not, so without these two the two halves would answer
+   * "does this write?" differently — which is the exact disagreement this list was created for. */
+  exportManifest: 1, exportTable: 1, onboardingCheck: 1 };
 /**
  * WRITES whose name does not start with a mutating verb — the mirror of the list above, and the
  * dangerous half. Found by running this very classifier over all 124 routes while fixing the
@@ -862,6 +868,12 @@ var WRITES_ACTIONS_ = {
   /* v427 — see WRITES in webapp/api.js. Without this the server would run a recall with NO WRITE
    * LOCK, and two head teachers recalling at once could interleave against the same rows. */
   recallJournalsMany: 1,
+  /* 🔴 backfillConfig APPENDS ROWS TO SCHOOL_CONFIG and its name starts with no mutating verb, so
+   * neither MUTATING_RE nor the extra pattern catches it — it would have written with NO WRITE LOCK
+   * (found 2026-10-15, the same day it shipped). Every other write in this app serialises through
+   * withWriteLock_; the one that appends to the sheet holding the school's own settings must not be
+   * the exception. Same reason recallJournalsMany is listed above. */
+  backfillConfig: 1,
   recordCashPayment: 1, teacherStudentLeave: 1, unlockJournal: 1, unlockInjury: 1,
   commentAssessment: 1,   // writes a note onto an assessment row; "comment" is not a mutating verb
   // A parent correcting or withdrawing their own leave. Both start with "parent", so MUTATING_RE —

@@ -70,11 +70,17 @@ console.log('\n3) the client and the server answer "does this write?" identicall
   const names = s => (decomment(s).match(/[A-Za-z_][A-Za-z0-9_]*(?=\s*:)/g) || []).sort();
   ok_('both lists exist', !!clientList && !!serverList);
   eq('and hold exactly the same actions', names(serverList), names(clientList));
-  // twelve since v285: staffMissingCheckout contains "Checkout" and prepaidStudents starts with
-  // "prepay", so the verb test calls both writes. The COUNT is pinned on purpose — this list is the
-  // fix for a bug that took an Observer's home screen down, so growing it should be a deliberate
-  // act, not something that drifts.
-  eq('twelve of them', names(serverList).length, 12);
+  /* Twelve since v285 (staffMissingCheckout contains "Checkout", prepaidStudents starts with
+   * "prepay"), FIFTEEN since v445: exportManifest, exportTable and onboardingCheck.
+   *
+   * The first two are caught by the CLIENT's `export` verb, which exists for exportStudent — a real
+   * write that stamps Status='EXPORTED'. Until they were listed, every page of the whole-school
+   * backup threw away the entire client cache, so the school's own backup button left the app with
+   * nothing cached and sent the next several screens back to the server.
+   *
+   * The COUNT is pinned on purpose — this list is the fix for a bug that took an Observer's home
+   * screen down, so growing it should be a deliberate act, not something that drifts. */
+  eq('fifteen of them', names(serverList).length, 15);
   ok_('...including the ones whose NAMES are the trap',
     ['staffMissingCheckout', 'prepaidStudents'].every(n => names(serverList).indexOf(n) >= 0));
   const clientW = (api.match(/const WRITES = \{([\s\S]*?)\};/) || [, ''])[1];
