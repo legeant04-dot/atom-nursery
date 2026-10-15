@@ -265,6 +265,33 @@ function handleSaveInsuranceAdmin(p) { p.adminEdit = true; return handleSubmitIn
  * Endpoint + key come from SCHOOL_CONFIG (SlipOK_Url / SlipOK_ApiKey).
  * Adjust the request shape to match the current SlipOK API docs if needed.
  */
+/**
+ * IS THE PARENT-SIDE PRE-CHECK ON? — asked in ONE place, by everything.
+ *
+ * 🔴 DEFAULT OFF (2026-10-15), AND THE TWO WRONG ANSWERS ARE NOT THE SAME SIZE.
+ *
+ * Every slip costs TWO SlipOK calls — the parent's screen checks it on attach, the server verifies
+ * it on submit — so the free Basic package's 100 calls a month is FIFTY SLIPS. The school reached
+ * 0/100 and every parent's transfer silently stopped being verified. That is what ON costs when it
+ * is wrong.
+ *
+ * What OFF costs when IT is wrong is that a parent types the amount themselves instead of having it
+ * filled in. Nothing goes unverified either way: the check on submit is untouched.
+ *
+ * So the default takes the small mistake, the same reasoning as social security defaulting to
+ * unticked in computePayroll — a school that leaves it alone gets a bit less convenience, rather
+ * than discovering months later that verification stopped. A school with quota to spare ticks the
+ * box once.
+ *
+ * 🔴 AND IT IS ASKED HERE, NOT SPELLED OUT AT EACH CALLER. The default briefly lived in three
+ * places (this file, PaySlips.gs and the Config.gs seed) — which is how a screen comes to show a
+ * ticked box above code that is switched off, and that reads as the app lying about itself.
+ */
+var SLIPOK_PRECHECK_DEFAULT_ = 'false';
+function slipOkPreCheckOn_() {
+  return String(getConfig_('SlipOK_PreCheck', SLIPOK_PRECHECK_DEFAULT_)) === 'true';
+}
+
 function handleVerifySlip(p) {
   var url = getConfig_('SlipOK_Url', '');
   var key = getConfig_('SlipOK_ApiKey', '');
@@ -283,7 +310,7 @@ function handleVerifySlip(p) {
    * give up — and the school can, with one setting, without losing any verification.
    *
    * Default ON: that is today's behaviour, and nothing changes for a school with quota to spare. */
-  if (p && p.log === false && String(getConfig_('SlipOK_PreCheck', 'true')) === 'false') {
+  if (p && p.log === false && !slipOkPreCheckOn_()) {
     return { available: false, provider: 'SlipOK', note: 'pre-check disabled (SlipOK_PreCheck=false)' };
   }
   try {

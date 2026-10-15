@@ -617,7 +617,7 @@ function handleSlipDiag(p) {
   var live = slipOkProbe_();
   // ...and whether the parent-side pre-check is on, so the tick on that screen shows the truth
   // rather than defaulting to ticked every time the screen is drawn
-  var preCheck = String(getConfig_('SlipOK_PreCheck', 'true')) !== 'false';
+  var preCheck = slipOkPreCheckOn_();
   /* "Is it checking?" cannot be answered by a total. 49 slips and 0 genuine reads the same whether
    * verification has never run or whether it ran and objected to all 49 — and the quota sitting at
    * its full number says only that nothing has been charged against THIS package, which is also what

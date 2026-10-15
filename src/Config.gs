@@ -545,6 +545,12 @@ var SCHOOL_CONFIG_DEFAULTS = [
   ['Links_Website',         ''],
 
   // --- SlipOK (slip/QR verification API) — GAS posts the slip image here to read & verify the transfer ---
+  /* THE ONE PLACE THE DEFAULT IS WRITTEN. It is read by slipOkPreCheckOn_ (Day6.gs), by the
+   * diagnostic that draws the tick (PaySlips.gs) and seeded below — three readers, one value, so a
+   * screen can never show a ticked box above code that is switched off.
+   *
+   * 'false' since 2026-10-15; see the long note on slipOkPreCheckOn_ for why the default takes the
+   * smaller mistake. */
   /* HALF THE SLIPOK CALLS, WHEN THE QUOTA IS WHAT HURTS (2026-10-15).
    *
    * Every slip costs TWO calls: the parent's screen pre-checks it on attach (log:false, fills the
@@ -554,7 +560,11 @@ var SCHOOL_CONFIG_DEFAULTS = [
    *
    * 'false' turns off the PRE-CHECK only. Nothing is left unverified: the submit-time check is
    * untouched. The parent simply types the amount themselves instead of having it filled in. */
-  ['SlipOK_PreCheck',       'true'],
+  /* 🔴 A LITERAL, not SLIPOK_PRECHECK_DEFAULT_ — this array is built at LOAD time and Apps Script
+   * does not promise that Day6.gs has run by then, so referencing the constant here would seed the
+   * word "undefined" on whichever deploy happened to order the files the other way. It must agree
+   * with slipOkPreCheckOn_'s default, and tools/test_slip_service_error.js fails if it does not. */
+  ['SlipOK_PreCheck',       'false'],
   ['SlipOK_Url',            ''],            // 🔴 the school's OWN SlipOK branch — never inherited
   ['SlipOK_ApiKey',         ''],            // 🔴 ...and its own key. Sharing one spends another school's quota.
 
