@@ -5853,6 +5853,75 @@ function createAtomAPI(M, GROWTH_STD) {
      * absent: there is no replacement to store, and __atomSetSession ignores a missing one. */
     signOutEverywhere: () => ({ ok:true, self:true, devices:1 }),
     listParents: () => M.parents,
+    /**
+     * 👨‍👩‍👧 THE FAMILIES OF THE CHILDREN THIS HEAD TEACHER LOOKS AFTER — read-only, contact level.
+     *
+     * Asked 2026-10-15: "หัวหน้าครูสามารถดูข้อมูลผู้ปกครองได้เพิ่มเติมเหมือน Admin แต่ดูได้อย่างเดียว".
+     *
+     * 🔴 THE REASON THIS IS A NEW HANDLER RATHER THAN A PERMISSION ON listParents. That one returns
+     * M.parents whole — NationalID, Address, Email and the LINE user id for every family in the
+     * school — and it had no gate at all until today, so a parent's own session could have asked
+     * for it. Widening it to head teachers would have been widening exactly the wrong thing.
+     *
+     * TWO LIMITS, both decided by the school on 2026-10-15 and both enforced HERE, on the server,
+     * because a limit the client applies is a limit anybody can skip:
+     *
+     *   WHO   — only families with a child in a class this person covers (coveredClasses_). A head
+     *           teacher who covers everything sees everything, which is the same rule every other
+     *           screen already uses, not a special case for them.
+     *   WHAT  — contact level: who they are, how to reach them, whose parent they are. NOT the
+     *           national ID, NOT the home address, NOT the email, NOT the LINE user id.
+     *
+     * 🔴 WHY NOT "THE SAME AS THE ADMIN". The student record screen tells a teacher, in writing,
+     * that "เลขบัตรประชาชน ที่อยู่ และข้อมูลการชำระเงินของครอบครัว อยู่ในสิทธิ์ของแอดมิน" — and a
+     * head teacher is a teacher. Handing them the national ID would make the app say two
+     * contradictory things about the same data on two screens, which is how a school stops
+     * believing either of them. The one field that IS about the ID says only `hasNationalID`:
+     * whether the record is complete is a thing a head teacher may usefully chase; the digits are
+     * not a thing they need.
+     */
+    leaderParents: p => { const me=staffById(p.staffId)||{};
+      if(!me.StaffID) fail('NO_PERMISSION','เฉพาะคุณครูหรือแอดมิน');
+      const lvl=String(me.PositionLevel||''), role=String(me.Role||'');
+      // the head teacher's screen, and the admin's own — a plain class teacher is not given it
+      if(!(lvl==='Leader'||lvl==='Admin'||role==='Admin')) fail('NO_PERMISSION','เฉพาะหัวหน้าครูหรือแอดมิน');
+      const cov={}; (coveredClasses_(me)||[]).forEach(c=>{ cov[c.ClassName]=1; });
+      const kids=activeStudents().filter(s=>cov[s.Class]);
+      const kidOf={};                                     // parentId -> [children]
+      kids.forEach(s=>{
+        /* BOTH ways a family is attached to a child. USER_LINKS is where a modern link lives and
+         * STUDENTS.ParentID is the legacy one — a list built from either alone is missing families,
+         * and "this child appears to have no parent" is the worst possible error on this screen. */
+        (M.userLinks||[]).filter(l=>String(l.StudentID)===String(s.StudentID)).forEach(l=>{
+          (kidOf[l.ParentID]=kidOf[l.ParentID]||[]).push(s); });
+        if(s.ParentID) (kidOf[s.ParentID]=kidOf[s.ParentID]||[]).push(s);
+      });
+      const out=[];
+      M.parents.forEach(pa=>{
+        let mine=kidOf[pa.ParentID]||[];
+        if(!mine.length && pa.StudentID) mine=kids.filter(s=>String(s.StudentID)===String(pa.StudentID));
+        if(!mine.length) return;
+        const seen={}; const children=mine.filter(s=>seen[s.StudentID]?false:(seen[s.StudentID]=1));
+        out.push({ parentId:pa.ParentID,
+          name:pa.NameTH||pa.Name||'', nameEN:pa.NameEN||'',
+          nick:pa.Nickname||'', nickEN:pa.NicknameEN||'', title:pa.Title||'',
+          relationship:pa.Relationship||'', phone:pa.Phone||'',
+          occupation:pa.Occupation||'', workplace:pa.Workplace||'', officePhone:pa.OfficePhone||'',
+          photo:pa.Photo||pa.LinePictureUrl||'',
+          /* WHETHER they can be reached in the app at all — the question a head teacher actually
+           * has ("did this family get the message?"). The LINE user id itself stays on the server. */
+          linked: !!String(pa.LineUID||'').trim(),
+          // ...and whether the record is complete, without handing over the digits
+          hasNationalID: !!String(pa.NationalID||'').trim(),
+          children: children.map(s=>({ studentId:s.StudentID, nick:s.Nickname||s.NicknameEN||'',
+            name:s.NameTH||s.Name||'', cls:s.Class||'' })) });
+      });
+      out.sort((a,b)=>String(a.children[0]&&a.children[0].cls).localeCompare(String(b.children[0]&&b.children[0].cls))
+        || String(a.name).localeCompare(String(b.name),'th'));
+      return { parents: out, classes: Object.keys(cov).sort(), total: out.length,
+        /* said in the payload, so the SCREEN can tell the head teacher what it is not showing
+         * rather than leaving them to wonder whether the record is thin or their view is */
+        scope:'contact' }; },
     // family profile for the "My info" screen: ALL parents linked to the caller's children (co-parents
     // included) + the children themselves. Identity (uid/parentId) is injected server-side.
     familyProfile: p => { const kids=visibleStudents(p); const kidIds=kids.map(s=>s.StudentID); const seen={}; const parents=[];
