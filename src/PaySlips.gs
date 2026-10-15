@@ -615,6 +615,9 @@ function handleSlipDiag(p) {
   // a wrong branch id used to read here as "connected and running normally" while every single slip
   // was being rejected — so actually ask SlipOK, with log:false so the probe consumes nothing.
   var live = slipOkProbe_();
+  // ...and whether the parent-side pre-check is on, so the tick on that screen shows the truth
+  // rather than defaulting to ticked every time the screen is drawn
+  var preCheck = String(getConfig_('SlipOK_PreCheck', 'true')) !== 'false';
   /* "Is it checking?" cannot be answered by a total. 49 slips and 0 genuine reads the same whether
    * verification has never run or whether it ran and objected to all 49 — and the quota sitting at
    * its full number says only that nothing has been charged against THIS package, which is also what
@@ -669,6 +672,7 @@ function handleSlipDiag(p) {
     refs: refs,
     // Whether an undo is available at all. The key itself is never returned — only that one exists.
     hasPrevKey: !!getConfig_('SlipOK_ApiKeyPrev', ''),
+    preCheck: preCheck,          // the quota lever — see SlipOK_PreCheck in Config.gs
     url: url ? String(url).replace(/\/[^/]*$/, '/…') : '',
     counts: counts,
     byCode: Object.keys(byCode).map(function (c) { return { code: c, count: byCode[c] }; })

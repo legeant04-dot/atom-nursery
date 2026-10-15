@@ -704,7 +704,11 @@ function handleSaveSlipOk(p) {
     if (cur && cur !== key) setConfigValue_('SlipOK_ApiKeyPrev', cur);   // one generation of undo
     setConfigValue_('SlipOK_ApiKey', key);
   }
-  try { logAudit(p.adminId || 'admin', 'SET_SLIPOK', 'SCHOOL_CONFIG', 'branch=' + branch + (key ? ' +key' : '')); } catch (e) {}
+  /* ...and the quota lever, saved from the same box. Sent only when the admin actually moved the
+   * tick, so saving a branch never silently changes it. See SlipOK_PreCheck in Config.gs: ON costs
+   * two SlipOK calls per slip, OFF costs one and leaves nothing unverified. */
+  if (p.preCheck != null) setConfigValue_('SlipOK_PreCheck', p.preCheck ? 'true' : 'false');
+  try { logAudit(p.adminId || 'admin', 'SET_SLIPOK', 'SCHOOL_CONFIG', 'branch=' + branch + (key ? ' +key' : '') + (p.preCheck != null ? ' precheck=' + (p.preCheck ? 'on' : 'off') : '')); } catch (e) {}
   return handleSlipDiag(p);   // answer with a fresh live probe: did that actually fix it?
 }
 

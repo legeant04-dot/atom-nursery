@@ -545,6 +545,16 @@ var SCHOOL_CONFIG_DEFAULTS = [
   ['Links_Website',         ''],
 
   // --- SlipOK (slip/QR verification API) — GAS posts the slip image here to read & verify the transfer ---
+  /* HALF THE SLIPOK CALLS, WHEN THE QUOTA IS WHAT HURTS (2026-10-15).
+   *
+   * Every slip costs TWO calls: the parent's screen pre-checks it on attach (log:false, fills the
+   * amount in, warns early) and the server verifies it again on submit (log:true, authoritative).
+   * On the free Basic package's 100 calls a month that is fifty slips, not a hundred — which is how
+   * the school reached 0/100 and every transfer stopped being verified.
+   *
+   * 'false' turns off the PRE-CHECK only. Nothing is left unverified: the submit-time check is
+   * untouched. The parent simply types the amount themselves instead of having it filled in. */
+  ['SlipOK_PreCheck',       'true'],
   ['SlipOK_Url',            ''],            // 🔴 the school's OWN SlipOK branch — never inherited
   ['SlipOK_ApiKey',         ''],            // 🔴 ...and its own key. Sharing one spends another school's quota.
 
