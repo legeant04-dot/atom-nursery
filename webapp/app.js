@@ -131,7 +131,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.446'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.447'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -4071,10 +4071,18 @@
         if(vk.code===1014){ if(vk.amount!=null)setAmt(vk.amount); const rcv=vk.receiver&&vk.receiver.name?esc(vk.receiver.name):'';
           out.innerHTML=`⚠️ SlipOK: ${EN()?'the slip receiver':'บัญชีผู้รับในสลิป'}${rcv?` (<b>${rcv}</b>)`:''} ${EN()?"doesn't match the account registered in SlipOK — you can still submit; the admin will verify":'ยังไม่ตรงกับบัญชีที่ลงทะเบียนไว้ใน SlipOK — ส่งได้เลย แอดมินจะตรวจสอบอีกครั้ง'}`; return; }
         if(vk.code===1012){ out.innerHTML=`⚠️ ${EN()?'Duplicate slip (already used)':'สลิปนี้เคยใช้แล้ว (สลิปซ้ำ)'}`; return; }
-        // A raw SlipOK message like "Package ของคุณหมดอายุแล้ว" is about the SCHOOL's subscription,
-        // not this family's slip — shown as-is it reads like the parent did something wrong.
-        if(vk.message){
-          const school=/หมดอายุ|expire|สาขา|branch|apikey|api key|quota|โควต/i.test(String(vk.message));
+        /* A raw SlipOK message like "Package ของคุณหมดอายุแล้ว" is about the SCHOOL's subscription,
+         * not this family's slip — shown as-is it reads like the parent did something wrong.
+         *
+         * 🔴 `serviceError` is now the ANSWER rather than the wording (2026-10-15). The server
+         * declares which codes are about our account (1001/1002/1003/1004/1015 and the HTTP
+         * statuses that never reached SlipOK's slip logic), so a message in wording nobody
+         * anticipated — or an empty one, which is what code 1002 actually sends — no longer slips
+         * through and gets shown to a family as if it were about their transfer. The regex stays as
+         * a second net for an older deployment that does not send the flag yet. */
+        if(vk.message || vk.serviceError){
+          const school = vk.serviceError === true
+            || /หมดอายุ|expire|สาขา|branch|apikey|api key|quota|โควต/i.test(String(vk.message||''));
           out.innerHTML = school
             ? `ℹ️ ${EN()?'Automatic slip checking is unavailable at the moment — attach your slip as usual, the school will confirm it.':'ระบบตรวจสลิปอัตโนมัติใช้งานไม่ได้ชั่วคราว — แนบสลิปได้ตามปกติ ทางโรงเรียนจะตรวจสอบให้'}`
             : `ℹ️ SlipOK: ${esc(vk.message)}`; }

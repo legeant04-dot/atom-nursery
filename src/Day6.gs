@@ -289,10 +289,35 @@ function handleVerifySlip(p) {
     var amount = d.amount != null ? Number(d.amount) : null;
     var receiver = d.receiver ? { name: d.receiver.displayName || d.receiver.name || '',
       account: (d.receiver.account && d.receiver.account.value) || (d.receiver.proxy && d.receiver.proxy.value) || '' } : null;
+    /* 🔴 DID SLIPOK JUDGE THE SLIP, OR DID IT REFUSE *US*? (2026-10-15)
+     *
+     * `available: true` used to mean "a reply arrived and parsed", and paySlipVerify_ read that as
+     * "SlipOK has given a verdict on this slip" — so a refusal aimed at OUR ACCOUNT was written onto
+     * the PARENT'S payment as `NO:1002`, and the admin's screen showed it under "⚠️ SlipOK ทักท้วง".
+     *
+     * A family's genuine transfer, marked as objected-to, because our API key was wrong.
+     *
+     * It is not theoretical: between 13/10 and 15/10 the school's key was the SlipOK notification
+     * reference instead of the branch API key, and every one of the six slips that arrived in those
+     * two days was stamped as objected-to. 148 of 159 slips on file carry that mark.
+     *
+     * DECLARED, not inferred from the number. These are refusals about the ACCOUNT — the branch, the
+     * key, the package, the quota — and none of them says anything whatsoever about the slip:
+     *   1001 branch not found · 1002 bad key · 1003/1004/1015 package expired or unpaid
+     * Plus any HTTP status that never reached SlipOK's slip logic at all (401/403, and 5xx).
+     *
+     * Everything else IS a verdict and must still be recorded: 1011 no such transaction,
+     * 1012 already used, 1013 amount differs, 1014 wrong receiver. Those are about the slip. */
+    var ACCOUNT_CODES = { 1001: 1, 1002: 1, 1003: 1, 1004: 1, 1015: 1 };
+    var code0 = body.code || null;
+    var serviceError = !!(ACCOUNT_CODES[code0] || http === 401 || http === 403 || http >= 500);
     return {
       available: true,
       ok: http === 200 && body.success === true,                     // a genuine, matching slip
-      code: body.code || null,                                       // 1013 wrong amount · 1014 wrong receiver · 1012 duplicate · 1011 no txn
+      /* 🔴 TRUE = "the answer is about US, not about this slip". The caller must not record a
+       * verdict when this is set — see paySlipVerify_ in PaySlips.gs. */
+      serviceError: serviceError,
+      code: code0,                                                   // 1013 wrong amount · 1014 wrong receiver · 1012 duplicate · 1011 no txn
       message: body.message || d.message || '',
       amount: amount, ref: d.transRef || '',
       transDate: d.transDate || '', transTime: d.transTime || '',
