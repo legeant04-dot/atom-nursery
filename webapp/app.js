@@ -131,7 +131,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.449'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.450'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -2819,7 +2819,16 @@
     const doneBtn=(done,txt)=> done ? `disabled style="flex:1;padding:18px;font-size:18px;font-weight:700;opacity:.45;cursor:not-allowed"` : `style="flex:1;padding:18px;font-size:18px;font-weight:700"`;
     // рับ-ส่งเด็ก (GPS) is now on the home kid card: big IN/OUT buttons like the teacher's, no location bar
     const kidsHtml = kids.map(k=>{ const din=todayCI[k.StudentID].in, dout=todayCI[k.StudentID].out;
-      return `<div class="card"><div class="spread"><div><b style="font-size:17px">${esc(dispNick(k))}</b> <small class="muted">${esc(nm(k))}</small><br><small class="muted">🏫 ${esc(k.Class||(EN()?'no class':'ยังไม่จัดชั้น'))} · ${esc(ageYM(k.DOB))} · ${esc(planLabel(k.Plan))}<br>${EN()?'allergy':'แพ้'}: ${esc(k.Allergy||'-')}</small>${k.RateNote?`<br><small style="color:var(--blue)">🕕 ${esc(k.RateNote)}</small>`:''}</div>${studentAvatar(k)}</div>
+      return `<div class="card"><div class="spread"><div><b style="font-size:17px">${esc(dispNick(k))}</b> <small class="muted">${esc(nm(k))}</small><br><small class="muted">🏫 ${esc(k.Class||(EN()?'no class':'ยังไม่จัดชั้น'))} · ${esc(ageYM(k.DOB))} · ${esc(planLabel(k.Plan))}</small>${careLine(k)}${
+        /* 🔴 THE PARENT IS THE ONLY PERSON WHO CAN ANSWER THIS, so the ask belongs on their screen.
+         * 43 of 51 children have no allergy or medical note on file — and the school decided this
+         * stays the family's and the admin's to write, not the teacher's. A teacher who spots the
+         * gap can only tell somebody; the mother looking at this card can fix it in ten seconds.
+         * Shown ONLY when both are empty, and as an invitation rather than a warning: a parent whose
+         * child genuinely has no allergies has done nothing wrong and must not be nagged in red. */
+        (!careHas(k.Allergy) && !careHas(k.MedicalHistory))
+          ? `<br><small class="muted">🍼 ${EN()?'No allergy or medical note on file.':'ยังไม่ได้บันทึกข้อมูลแพ้อาหาร/ยา หรือโรคประจำตัว'} <a href="#" onclick="event.preventDefault();P_profile()" style="color:var(--blue)">${EN()?'Add it':'เพิ่มข้อมูล'}</a></small>`
+          : ''}${k.RateNote?`<br><small style="color:var(--blue)">🕕 ${esc(k.RateNote)}</small>`:''}</div>${studentAvatar(k)}</div>
       ${(window._SCHOOLDAY&&window._SCHOOLDAY.closedForStudents)
         // School shut today: the server refuses a check-in anyway, so offering the buttons could only
         // produce an error. Say WHICH holiday — that is the thing a parent actually wants to know.
@@ -5205,11 +5214,27 @@
     /* Allergy and medical history are the two lines somebody reads in a hurry, so they are FIRST and
      * they are red when there is something in them — a page where the urgent fact sits ninth is a
      * page that gets skimmed past. */
-    const urgent=(d.allergy||d.medicalHistory)?`<div class="card" style="background:var(--bad-bg);border-color:var(--bad-line);padding:10px">
+    /* 🔴 '-' IS NOT A VALUE — see careHas. Registration writes '-' into an empty box itself, so a
+     * dash here means the same as blank: nobody recorded anything. */
+    const _al=careHas(d.allergy), _md=careHas(d.medicalHistory), _ec=careHas(d.emergencyContact);
+    /* 🔴 THE GREEN LINE USED TO SAY "ไม่มีประวัติแพ้หรือโรคประจำตัวที่บันทึกไว้", WHICH IS A CLAIM
+     * THE SCHOOL CANNOT MAKE. On live, 43 of 51 children have nothing recorded — because nobody
+     * asked, not because they are free of allergies. A teacher reading a green tick next to "no
+     * allergies" has been told something, and it is not true; a teacher reading "not recorded" knows
+     * to ask. Same single state, same absence of data — the sentence is just no longer a promise.
+     * (Related, and deliberately NOT built: a "confirmed, none" tick. The school chose to keep this
+     * simple rather than add a third state.) */
+    const urgent=(_al||_md)?`<div class="card" style="background:var(--bad-bg);border-color:var(--bad-line);padding:10px">
       <b style="color:var(--bad);font-size:14px">⚠️ ${EN()?'Read this first':'ข้อควรระวัง'}</b>
-      ${d.allergy?row(EN()?'Allergies':'ประวัติแพ้',d.allergy,true):''}
-      ${d.medicalHistory?row(EN()?'Medical history':'โรคประจำตัว/ประวัติสุขภาพ',d.medicalHistory,true):''}</div>`
-      :`<div class="card" style="padding:8px"><small class="muted">✅ ${EN()?'No allergies or medical conditions recorded.':'ไม่มีประวัติแพ้หรือโรคประจำตัวที่บันทึกไว้'}</small></div>`;
+      ${_al?row(EN()?'Allergies':'ประวัติแพ้',_al,true):''}
+      ${_md?row(EN()?'Medical history':'โรคประจำตัว/ประวัติสุขภาพ',_md,true):''}
+      ${/* the number somebody dials WHILE reading the two lines above — it belongs here, not nine
+           sections down, and its ABSENCE is itself worth saying out loud */''}
+      ${_ec?row(EN()?'Emergency contact':'ติดต่อฉุกเฉิน',_ec):`<div style="font-size:13px;margin-top:4px;color:var(--warn)">☎️ ${EN()?'No emergency contact on file — ask the admin to add one.':'ยังไม่มีเบอร์ติดต่อฉุกเฉินในระบบ — แจ้งแอดมินให้เพิ่ม'}</div>`}</div>`
+      :`<div class="card" style="padding:8px;background:var(--warn-bg);border-color:var(--warn-line)"><small>⚠️ ${EN()
+        ? 'No allergy or medical information has been recorded for this child — which is not the same as there being none. Please ask the family.'
+        : 'ยังไม่มีการบันทึกข้อมูลแพ้อาหาร/ยา หรือโรคประจำตัวของเด็กคนนี้ — <b>ไม่ได้แปลว่าไม่มี</b> · รบกวนสอบถามผู้ปกครอง'}</small>${
+        _ec?'':`<br><small style="color:var(--warn)">☎️ ${EN()?'...and no emergency contact either.':'...และยังไม่มีเบอร์ติดต่อฉุกเฉินด้วย'}</small>`}</div>`;
     modal(`<h3>👶 ${esc(dispNick(d)||sid)} <small class="muted" style="font-weight:400;font-size:13px">${esc(nameLine||'')}</small></h3>
       <div class="spread" style="margin-bottom:6px"><span class="pill info">${esc(d.class||(EN()?'no class':'ยังไม่จัดชั้น'))}</span>
         <span class="muted" style="font-size:13px">${d.scope==='care'?(EN()?'care information':'ข้อมูลสำหรับการดูแล'):(EN()?'full record':'ข้อมูลทั้งหมด')}</span></div>
@@ -5337,7 +5362,7 @@
        * with no entry at all cannot be sent, and a box that accepts a tap and then quietly does
        * nothing is worse than one that will not take it. "เลือกทั้งหมด" skips those too. */
       const pick = onDay ? '' : T_pickBox(s, jdone[s.StudentID]);
-      return `<div class="card"><div style="display:flex;gap:10px;align-items:center">${studentAvatar(s)}<div style="min-width:0;flex:1"><b>${esc(dispNick(s))}</b>${bdayTag(s.DOB)}${summerTag(s)} ${(!onDay&&due)?dspmDueBadge(due):''} ${nmSub(s)?`<small class="muted">${esc(nmSub(s))}</small>`:""}${onDay?'':attTag}<br><small class="muted">${esc(ageYM(s.DOB))} · ${EN()?'allergy':'แพ้'}: ${esc(s.Allergy||'-')}</small><br>${journalPill(jdone[s.StudentID])}</div>${pick}</div>
+      return `<div class="card"><div style="display:flex;gap:10px;align-items:center">${studentAvatar(s)}<div style="min-width:0;flex:1"><b>${esc(dispNick(s))}</b>${bdayTag(s.DOB)}${summerTag(s)} ${(!onDay&&due)?dspmDueBadge(due):''} ${nmSub(s)?`<small class="muted">${esc(nmSub(s))}</small>`:""}${careTag(s)}${onDay?'':attTag}<br><small class="muted">${esc(ageYM(s.DOB))}</small>${careLine(s)}<br>${journalPill(jdone[s.StudentID])}</div>${pick}</div>
         ${studentRowButtons(s,jdone,onDay)}</div>`; }).join('') + bdayHtml;
     T_selCount(); };
 
@@ -8052,6 +8077,44 @@
     const last = s.summerLastDay ? ddmmyyyy(s.summerLastDay).replace(/ d{4}$/, '') : '';
     return `<small class="pill info" style="margin-left:4px" title="${EN()?'Here for the summer only':'มาเรียนเฉพาะช่วงซัมเมอร์'}">`
       + `☀️ ${EN()?'summer':'ซัมเมอร์'}${last?(EN()?' · to '+last:' · ถึง '+last):''}</small>`; }
+
+  /* ===== ⚠️ WHAT A TEACHER HAS TO KNOW ABOUT THIS CHILD BEFORE ANYTHING ELSE =====================
+   *
+   * Asked 2026-10-15: "ถ้าในประวัติเด็กมีข้อมูลแพ้อาหาร/โรคประจำตัว ต้องแสดงให้คุณครูเห็น".
+   *
+   * The data was already there and already reaching the class list (classList spreads the whole
+   * student row), and the profile screen already puts it in a red card. What was missing is the
+   * only thing that matters in a room with twenty children in it: **you cannot see it without
+   * opening each child one at a time.**
+   *
+   * 🔴 AND THE OLD LINE WAS WORSE THAN NOTHING. Every row carried a grey "แพ้: -" — on live, 43 of
+   * 51 children have no allergy recorded, so the overwhelming majority of rows said "แพ้: -" in the
+   * same muted grey as their age. A warning that is present on every row, in the colour of
+   * furniture, is not a warning; it is a thing the eye learns to skip. By the time a row DID say
+   * "แพ้: นมวัว" it was in the same place, the same size and the same grey as the forty that said
+   * nothing.
+   *
+   * So: the children who need care get a RED badge beside the name, where the birthday and summer
+   * badges already draw the eye, and the children who do not get nothing at all. "Nothing" is the
+   * right amount of ink for "nothing to say".
+   *
+   * 🔴 '-' IS NOT A VALUE. Registration writes `Allergy: v('#rAllergy')||'-'`, so the app itself
+   * manufactured 17 of those dashes. '-', '–' and blank are all "nothing recorded" and none of them
+   * is "this child has no allergies" — nobody has established that either way.
+   */
+  const careHas = v => { const s=String(v==null?'':v).trim();
+    return (s && s!=='-' && s!=='–' && s!=='—' && s.toLowerCase()!=='none' && s!=='ไม่มี') ? s : ''; };
+  function careOf(s){ return { allergy: careHas(s&&s.Allergy), medical: careHas(s&&s.MedicalHistory) }; }
+  /** the badge beside the name — red, short, and only when there is something to say */
+  function careTag(s){ const c=careOf(s); if(!c.allergy && !c.medical) return '';
+    const bits=[]; if(c.allergy) bits.push((EN()?'allergy: ':'แพ้ ')+c.allergy);
+    if(c.medical) bits.push((EN()?'condition: ':'โรค ')+c.medical);
+    return `<small class="pill bad" style="margin-left:4px" title="${esc(bits.join(' · '))}">⚠️ ${
+      EN()?'care':'ต้องระวัง'}</small>`; }
+  /** ...and the detail underneath, so the teacher does not have to open anything to act on it */
+  function careLine(s){ const c=careOf(s); if(!c.allergy && !c.medical) return '';
+    return `<br><small style="color:var(--bad)">⚠️ ${c.allergy?`${EN()?'Allergy':'แพ้'}: <b>${esc(c.allergy)}</b>`:''}${
+      c.allergy&&c.medical?' · ':''}${c.medical?`${EN()?'Condition':'โรคประจำตัว'}: <b>${esc(c.medical)}</b>`:''}</small>`; }
 
   function bdayTag(dob){ const d=String(dob||'').slice(0,10); if(!/^\d{4}-\d{2}-\d{2}$/.test(d)) return '';
     const today=todayStr();

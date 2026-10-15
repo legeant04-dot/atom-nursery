@@ -244,9 +244,30 @@ console.log('\n4) the screen');
 {
   ok_('there is one, reachable from the teacher’s menu', /STU_profile\('\$\{esc\(sid\)\}'\)/.test(app));
   ok_('...and from the admin’s', /\$\{close\}STU_profile/.test(app));
-  ok_('the urgent two are FIRST and in red', /ข้อควรระวัง/.test(app) && /d\.allergy\|\|d\.medicalHistory/.test(app));
+  ok_('the urgent two are FIRST and in red', /ข้อควรระวัง/.test(app) && /\(_al\|\|_md\)\?/.test(app));
+  /* 🔴 '-' IS NOT A VALUE, AND THE GREEN TICK WAS A CLAIM THE SCHOOL COULD NOT MAKE (2026-10-15).
+   *
+   * Registration writes `Allergy: v('#rAllergy')||'-'`, so the app manufactures dashes itself: on
+   * live, 51 children carry 26 blanks and 17 dashes between them, and only 8 have a real allergy
+   * recorded. The card used to read those 43 as "✅ ไม่มีประวัติแพ้ฯ ที่บันทึกไว้" — which a teacher
+   * reads as "this child has no allergies", when the truth is that nobody ever asked. */
+  ok_('🔴 a dash counts as nothing recorded, not as "no allergies"',
+    /careHas\s*=\s*v\s*=>/.test(app) && /s!=='-'/.test(app) && /_al=careHas\(d\.allergy\)/.test(app));
+  /* Matched against the TERNARY that renders it, not against the words appearing anywhere in the
+   * file — the sentence is quoted in the comment that explains why it went, and an assertion that
+   * cannot tell a comment from a screen would have failed on its own documentation. */
+  ok_('🔴 ...and "nothing recorded" no longer claims the child is clear',
+    /ไม่ได้แปลว่าไม่มี/.test(app) &&
+    !/'No allergies or medical conditions recorded\.':'ไม่มีประวัติแพ้/.test(app));
+  /* the number somebody dials WHILE reading those two lines. 46 of 51 children have none on file,
+   * so its absence is said out loud rather than left as an empty row nine sections down. */
+  ok_('the emergency contact is in the same card, and says so when it is missing',
+    /_ec=careHas\(d\.emergencyContact\)/.test(app) && /ยังไม่มีเบอร์ติดต่อฉุกเฉิน/.test(app));
+  /* Still asserts what it always asserted — that a child with nothing on file gets a SENTENCE
+   * rather than an empty space. Only the sentence changed (2026-10-15): it used to claim the child
+   * had no allergies, and now says nobody has recorded any, which is the fact. */
   ok_('...and it says so plainly when there are none, rather than showing nothing',
-    /ไม่มีประวัติแพ้หรือโรคประจำตัวที่บันทึกไว้/.test(app));
+    /ยังไม่มีการบันทึกข้อมูลแพ้อาหาร/.test(app));
   ok_('the screen prints what the SERVER sent, never deciding for itself', /d\.scope==='full'\?row/.test(app));
   ok_('...and tells a teacher why her copy is shorter', /อยู่ในสิทธิ์ของแอดมิน/.test(app));
   ok_('an admin can go straight from reading it to editing it', /A_studentForm\('\$\{esc\(sid\)\}'\)/.test(app));
