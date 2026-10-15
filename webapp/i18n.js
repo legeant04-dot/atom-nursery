@@ -197,7 +197,13 @@
     'slip.qrNone':['ไม่พบ QR ในรูป — กรอกยอดเอง','No QR found — enter amount manually'], 'slip.qrMatch':['ยอดจาก QR ตรงกัน:','QR amount matches:'], 'slip.qrMismatch':['ยอดจาก QR ไม่ตรง:','QR amount mismatch:'], 'slip.qrNoAmount':['QR ไม่มีข้อมูลจำนวนเงิน — กรอกเอง','QR has no amount — enter manually'],
     'hol.startTime':['เวลาเริ่มหยุด','Closed from'], 'hol.endTime':['เวลาสิ้นสุด','Until'],
     'hol.timeNote':['เว้นเวลาว่างไว้ = หยุดทั้งวัน · ใส่เวลา = หยุดเฉพาะช่วงนั้น (เช่น 08:00-12:30 หยุดครึ่งวัน · นอกช่วงนี้ยังเช็คอินได้ตามปกติ)','Leave the times blank to close all day · set them to close only for that window (e.g. 08:00–12:30 — check-in works as usual outside it)'],
-    'manage.organize':['ย้าย/จัดชั้นเรียน','Organize classes'], 'manage.holidays':['วันหยุด / วันประชุม','Holidays / Meetings'], 'manage.importExport':['นำเข้า/นำออกนักเรียน','Import/Export students'], 'manage.groups':['กลุ่มพนักงาน & เวลา','Staff groups & hours'],
+    'manage.organize':['ย้าย/จัดชั้นเรียน','Organize classes'], 'manage.holidays':['วันหยุด / วันประชุม','Holidays / Meetings'], /* 🔴 RENAMED 2026-10-15, THE DAY AFTER THE BUTTON SHIPPED, BECAUSE NOBODY COULD FIND IT.
+ * This screen stopped being only about students when the whole-school backup landed on it (Phase
+ * 4.6). The tile still said "นำเข้า/นำออกนักเรียน", so an admin looking for a backup of the SCHOOL
+ * had no reason to open it — the same defect as the notification switch whose label listed four
+ * topics above code that sent ten: a label that under-describes what is behind it is not a wording
+ * problem, it is the feature being unreachable. */
+'manage.importExport':['นำเข้า/นำออก · สำรองข้อมูล','Import / Export / Backup'], 'manage.groups':['กลุ่มพนักงาน & เวลา','Staff groups & hours'],
     'manage.add':['เพิ่ม','Add'], 'manage.parents':['ผู้ปกครอง','Parents'], 'manage.position':['ตำแหน่ง','Position'], 'manage.dept':['แผนก/Nursery','Department/Nursery'], 'manage.group':['กลุ่มพนักงาน','Staff group'], 'manage.level':['ระดับ','Level'], 'manage.class':['ชั้นเรียน','Class'],
     'manage.photo':['รูปถ่าย','Photo'],
     'perm.note':['ติ๊กเพื่อกำหนดว่าแต่ละบทบาทเห็น/ทำอะไรได้','Tick to set what each role can see/do'], 'perm.role':['บทบาท','Role'],
