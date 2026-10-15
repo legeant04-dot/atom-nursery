@@ -571,7 +571,23 @@ var SCHOOL_CONFIG_DEFAULTS = [
    * draws the button, and Google's own docs treat it as public. There is deliberately no secret to
    * store — this uses ID-token sign-in, which needs neither a client secret nor a redirect URI.
    * Blank = the feature is off and the button is never drawn. */
-  ['GoogleClientId',        '120486339414-6auhdq0a1fur2ihu24rr8po58vgci3s1.apps.googleusercontent.com'],
+  /* 🔴 BLANKED 2026-10-15, AND ONLY ONCE IT WAS SAFE TO.
+   *
+   * This held Atom Nursery's own OAuth client, which meant a second school would have drawn its
+   * sign-in-with-Google button against OUR client. It could not simply be removed, because Atom's
+   * live SCHOOL_CONFIG had NO ROW for this key at all — the school had been running on this literal
+   * for months, through googleClientIdDefault_ below, and blanking it would have switched Google
+   * sign-in off for the school that is live today.
+   *
+   * The readiness check (Phase 4.1) is what found that, the 🧩 backfill button wrote the row, and
+   * the check then reported 0 blockers — which is the evidence that the value now lives in the
+   * school's own settings rather than in our source. Only then was this safe to clear.
+   *
+   * Blank = the feature is off and the button is never drawn, which is the right default for a
+   * school that has not created an OAuth client. A client id is not a secret (every browser that
+   * draws the button receives it) — the problem was never secrecy, it was that it belonged to
+   * somebody else. */
+  ['GoogleClientId',        ''],
   /* ═══ ONE SWITCH PER TOPIC (2026-10-10). THE THREE THAT WERE HERE BEFORE COVERED LESS THAN HALF ══
    *
    * 🔴 WHY THIS CHANGED. The ผอ. reported on 09/10 that parents were being LINE-pushed again, and
