@@ -46,6 +46,20 @@ function paySlipVerify_(p, due) {
   try {
     var b64 = p.slipData ? (String(p.slipData).indexOf(',') >= 0 ? String(p.slipData).split(',')[1] : String(p.slipData)) : '';
     var v = handleVerifySlip({ qrData: p.qrData, slipBase64: b64, slipUrl: p.slipUrl, amount: (p.slipAmount || due) });
+    /* 🔴 A REFUSAL AIMED AT OUR ACCOUNT IS NOT A VERDICT ON THE FAMILY'S SLIP (2026-10-15).
+     *
+     * `available` only ever meant "a reply arrived and parsed". So when SlipOK answered 1002 —
+     * our API key is wrong — this recorded `NO:1002` on the PARENT'S payment, and the admin's
+     * screen listed it under "⚠️ SlipOK ทักท้วง". The school's key was wrong for two days and all
+     * six slips that arrived in that window were marked as objected-to; 148 of 159 on file carry
+     * the mark.
+     *
+     * Falling through to the no-verdict return below leaves the slip as "— ยังไม่ได้ตรวจ", which is
+     * exactly what it is: nobody has looked at it yet. That is also the only state it can be
+     * re-checked from once the account is fixed — a slip stamped NO is a judgement that has already
+     * been made, and the admin has no reason to revisit it. */
+    if (v && v.serviceError) return { verified: '', ref: '', receiver: '', transDate: '',
+      transTime: '', sender: '', slipAmount: '' };
     if (v && v.available) return {
       // 'NO:<code>' is a SlipOK VERDICT, not a failure to read the slip — it read it fine (that is
       // where the ref, the receiver and the transfer date come from) and then objected to something:
