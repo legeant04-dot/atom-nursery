@@ -131,7 +131,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.442'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.443'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -12535,9 +12535,53 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
    * questions — is slip verification working, what does the server think today is, which record does
    * a sign-in land on — and a screen that mixes "look at this" with "change this" invites somebody
    * to press a diagnostic expecting it to save. No save button, by design. */
+  /* 🏫 PHASE 4.1 — WHAT IS STILL MISSING BEFORE THIS SCHOOL CAN OPEN.
+   *
+   * Useful for Atom too, not only for a school we have not sold yet: it is the thing that found
+   * that Atom's own sign-in-with-Google has NO row in SCHOOL_CONFIG and runs off a value hard-coded
+   * in the source. "The app works" and "the school configured it" are not the same sentence, and
+   * nothing in the app could tell them apart until now.
+   *
+   * 🔴 Shows STATUS, never a VALUE — the reply does not contain one. An API key on a screen is an
+   * API key over someone's shoulder. */
+  window.A_onboardCheck = async (btn) => {
+    if (btn) btn.disabled = true;
+    try {
+      const r = await api('onboardingCheck', {});
+      const c = r.counts || {};
+      const list = (rows, colour) => rows.length
+        ? `<div class="card" style="padding:8px;margin-top:6px">${rows.map(x =>
+            `<div class="list-item"><span><b>${esc(x.key)}</b><br><small class="muted">${esc(x.why)}</small></span></div>`).join('')}</div>`
+        : `<div class="muted" style="font-size:13px;margin-top:4px">— ${EN()?'nothing outstanding':'ไม่มีรายการค้าง'} —</div>`;
+      modal(`<h3>🏫 ${EN()?'School setup':'ความพร้อมของโรงเรียน'}</h3>
+        <div class="card" style="padding:10px;background:${r.ready?'var(--ok-bg)':'var(--bad-bg)'};border-color:${r.ready?'var(--ok-line)':'var(--bad-line)'}">
+          <b style="color:${r.ready?'var(--ok)':'var(--bad)'}">${r.ready
+            ? (EN()?'✅ No blockers — the school can open':'✅ ไม่มีรายการที่ติดขัด — เปิดใช้งานได้')
+            : (EN()?`🔴 ${r.blockers.length} blocker(s) — the school cannot open yet`:`🔴 ติดขัด ${r.blockers.length} รายการ — ยังเปิดใช้งานไม่ได้`)}</b>
+          <div style="font-size:13px;margin-top:4px">${esc(r.school||(EN()?'(no school name set)':'(ยังไม่ได้ตั้งชื่อโรงเรียน)'))} · ${EN()?'checked':'ตรวจ'} ${r.checked} ${EN()?'settings':'ค่า'} · ${EN()?'already set':'ตั้งแล้ว'} ${r.ok}</div></div>
+        <h4 style="margin:10px 0 2px">🔴 ${EN()?'Blockers':'ติดขัด — ต้องแก้ก่อนเปิดใช้'}</h4>${list(r.blockers||[])}
+        <h4 style="margin:10px 0 2px">⚠️ ${EN()?'Required before parents are let in':'ต้องมีก่อนให้ผู้ปกครองเข้าใช้'}</h4>${list(r.required||[])}
+        <h4 style="margin:10px 0 2px">📋 ${EN()?'Confirm these are this school’s own':'ยืนยันว่าเป็นค่าของโรงเรียนนี้จริง'}</h4>${list(r.confirm||[])}
+        <h4 style="margin:10px 0 2px">📊 ${EN()?'And the things a setting cannot create':'และสิ่งที่การตั้งค่าสร้างแทนไม่ได้'}</h4>
+        <div class="card" style="padding:8px">
+          <div class="list-item"><span>${EN()?'Classes':'ชั้นเรียน'}</span><b>${c.classes||0}</b></div>
+          <div class="list-item"><span>${EN()?'Price plans':'แผนราคา'}</span><b>${c.plans||0}</b></div>
+          <div class="list-item"><span>${EN()?'Staff groups (hours)':'กลุ่มพนักงาน (เวลาทำงาน)'}</span><b>${c.staffGroups||0}</b></div>
+          <div class="list-item"><span>${EN()?'Staff':'พนักงาน'}</span><b>${c.staff||0}</b></div>
+          <div class="list-item"><span>${EN()?'Students':'นักเรียน'}</span><b>${c.students||0}</b></div></div>
+        <small class="muted" style="font-size:12px;display:block;margin-top:6px">${EN()
+          ? 'This never shows a value — only whether one is set. See docs/ONBOARDING.md for the steps that need a browser.'
+          : 'หน้านี้ไม่แสดง "ค่า" ของการตั้งค่าใด ๆ บอกแค่ว่าตั้งแล้วหรือยัง · ขั้นตอนที่ต้องทำบนเว็บ (LINE · SlipOK · Google) อยู่ใน docs/ONBOARDING.md'}</small>
+        <button class="btn outline block" style="margin-top:8px" onclick="this.closest('.modal').remove()">${esc(t('c.close'))}</button>`);
+    } catch (e) { err(e); }
+    finally { if (btn) btn.disabled = false; }
+  };
+
   window.A_setTools=()=>{
     modal(`<h3>🩺 ${EN()?'Diagnostic tools':'เครื่องมือตรวจสอบ'}</h3>
       <p class="muted" style="font-size:13px">${EN()?'These only LOOK. Nothing here changes a setting.':'เครื่องมือเหล่านี้ "ตรวจสอบ" อย่างเดียว ไม่มีการเปลี่ยนค่าใด ๆ'}</p>
+      <h4 style="margin:10px 0 4px">🏫 ${EN()?'Is this school set up?':'โรงเรียนนี้ตั้งค่าครบหรือยัง'}</h4>
+      <button class="btn sm outline block" onclick="A_onboardCheck(this)">🏫 ${EN()?'Check school setup':'ตรวจความพร้อมของโรงเรียน'}</button>
       <h4 style="margin:10px 0 4px">⚡ ${EN()?'Speed and errors':'ความเร็วและข้อผิดพลาด'}</h4>
       <button class="btn sm outline block" onclick="this.closest('.modal').remove();A_perfReport(7)">${EN()?'Which screens are slow, what is breaking':'ดูว่าหน้าไหนช้า อะไรพังบ้าง'}</button>
       <h4 style="margin:10px 0 4px">🔍 ${EN()?'Slip verification (SlipOK)':'การตรวจสลิป (SlipOK)'}</h4>

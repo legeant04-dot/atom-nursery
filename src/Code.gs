@@ -311,6 +311,9 @@ var ROUTES = {
    * Postgres after the cutover — which is the only reason this can be a cutover criterion. */
   exportManifest: function (p) { return handleExportManifest(p); },
   exportTable:    function (p) { return handleExportTable(p); },
+  /* 🏫 PHASE 4.1 — is this school actually set up, or is it still running on the seed's values?
+   * Read-only, admin-only, and it reports STATUS not VALUES (see src/Onboarding.gs). */
+  onboardingCheck: function (p) { return handleOnboardingCheck(p); },
   recomputeContributions: function (p) { return handleRecomputeContributions(p); },  // admin-only, preview-first
   // wipes ONE staff member's provident fund. Admin-only, preview-first, and it takes a full backup
   // of both workbooks before it writes a single cell — see handleContributionReset.
@@ -462,6 +465,9 @@ function applyIdentity_(action, payload, sess) {
      * handleExportManifest writes an audit line for each export so there is a record of who took a
      * copy of the school and when (PDPA §39). */
     exportManifest: 1, exportTable: 1,
+    // names every unset credential-bearing setting the school has — admin only, even though it
+    // never returns a value: knowing WHICH keys are blank is itself a map for an attacker
+    onboardingCheck: 1,
     /* CERTIFICATES — admin only, all five.
      * certStudents names every child who has finished, including those long gone, and certAssets
      * hands back the director's signature. Neither is anything a teacher or a parent has business

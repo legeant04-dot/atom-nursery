@@ -92,6 +92,16 @@ const result = run(function () {
   appendObject_(sheet_(MAIN, 'CLASSES'), { ClassID: 'CL1', ClassName: 'Nursery 1', TeacherID: 'STF-O1', AgeRange: '2-3', Capacity: 20 });
   appendObject_(sheet_(MAIN, 'PARENTS'), { ParentID: 'PAR-001', Name: 'คุณแม่', Phone: '08x', LineUID: 'Uparent1', StudentID: 'STD-001', Address: '' });
   PUSH.length = 0;
+  /* THE SCHOOL'S OWN COORDINATES, SET BY THE SCHOOL — which is what a school does.
+   * These used to arrive from SCHOOL_CONFIG_DEFAULTS, so this suite was quietly asserting against
+   * Atom Nursery's real car park. Phase 4.1 blanked that seed (a new school must not start life
+   * fenced around someone else's address) and this went red — correctly: the fixture was bound to a
+   * value that is not this test's subject. Written as the claim instead: a parent standing AT the
+   * school is 0 m from it. */
+  setConfigValue_('GPS_Lat', '13.792472');
+  setConfigValue_('GPS_Lng', '100.646389');
+  _configCache = null;
+  try { CacheService.getScriptCache().removeAll(['cfg']); } catch (e) {}
   /* THIS SUITE IS ABOUT CHECK-IN AND NOTIFICATION, NOT ABOUT THE CALENDAR — but it checks a child in
    * on the REAL today, and two days in every seven that is a weekend, when the school is shut to the
    * children and assertStudentDayOpen_ refuses before anything under test runs. Red on a Saturday,

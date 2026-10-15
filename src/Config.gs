@@ -483,13 +483,17 @@ SCHEMA[WB.HR] = {
 // must be completed by the school before Go Live.
 var SCHOOL_CONFIG_DEFAULTS = [
   // --- Identity ---
-  ['SchoolName',            'Atom Nursery'],
-  ['SchoolSlogan',          'Learn happiness, funny & lively'],
+  ['SchoolName',            ''],            // per-school — see ONBOARD_SCOPE_
+  ['SchoolSlogan',          ''],
   ['Timezone',              'Asia/Bangkok'],
 
   // --- GPS / Check-in (Proposal §9 Day 1) ---
-  ['GPS_Lat',               '13.792472'],
-  ['GPS_Lng',               '100.646389'],
+  /* 🔴 per-school, and blank on purpose. Unset now REFUSES staff check-in with NO_SCHOOL_GPS
+   * (assertWithinGeofence_ / engine geo) rather than silently passing everyone — which is what it
+   * used to do, because NaN fails every comparison. Parent check-IN is unfenced by design and is
+   * unaffected; parent check-OUT goes through the same fence and is refused. */
+  ['GPS_Lat',               ''],
+  ['GPS_Lng',               ''],
   ['Radius',                '30'],            // §12 recommended 30m to absorb GPS drift (±5–15m). Confirmed by school.
   // ...but a real phone often reports ±20–65 m (indoors, under a roof, beside a building), and the
   // fence was judging the reported dot as if it were exact. This is how much of the phone's OWN
@@ -535,17 +539,17 @@ var SCHOOL_CONFIG_DEFAULTS = [
   ['HolidayList',           ''],
 
   // --- Social links ---
-  ['Links_LINE',            'https://line.me/R/ti/p/@atomnursery'],  // LINE OA @atomnursery (chat button + home icon)
-  ['LineOAId',              '@atomnursery'],
-  ['Links_Facebook',        'https://www.facebook.com/AtomNursery1'],
+  ['Links_LINE',            ''],  // LINE OA @atomnursery (chat button + home icon)
+  ['LineOAId',              ''],
+  ['Links_Facebook',        ''],
   ['Links_Website',         ''],
 
   // --- SlipOK (slip/QR verification API) — GAS posts the slip image here to read & verify the transfer ---
-  ['SlipOK_Url',            'https://api.slipok.com/api/line/apikey/69307'],
-  ['SlipOK_ApiKey',         'SLIPOKKR8B249'],
+  ['SlipOK_Url',            ''],            // 🔴 the school's OWN SlipOK branch — never inherited
+  ['SlipOK_ApiKey',         ''],            // 🔴 ...and its own key. Sharing one spends another school's quota.
 
   // --- Insurance (PCHI member form) ---
-  ['InsuranceCompanyName',  'Atom Nursery'],
+  ['InsuranceCompanyName',  ''],
   ['InsurancePolicyNo',     ''],   // fill the PCHI policy number before go-live
 
   // --- LINE OA / LIFF (Proposal §10) ---
