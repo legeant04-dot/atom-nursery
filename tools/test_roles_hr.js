@@ -299,7 +299,10 @@ console.log('\n6) A child on temporary leave: no attendance, but still billable'
   // opening test — but it still only swaps the buttons
   ok_('only the buttons change, the rest of the card is untouched',
     /: k\.paused[\s\S]{0,2600}: `<div class="row"[\s\S]{0,400}P_punch/.test(app));
-  ok_('...and a closed day replaces them for every child', /window\._SCHOOLDAY&&window\._SCHOOLDAY\.closed/.test(app));
+  /* 🔴 "for every child" stopped being true on 2026-10-16: a child named for a holiday (OT วันหยุด)
+   * keeps the buttons, because the server takes their check-in. */
+  ok_('...and a closed day replaces them for every child NOT named for today',
+    /window\._SCHOOLDAY && window\._SCHOOLDAY\.closedForStudents && !_expectedToday\(/.test(app));
 
   // the window is wide because financeSummary now groups its collections before walking the roll
   // (v219, tools/test_finance_index.js) — the roll itself is still enrolledStudents()

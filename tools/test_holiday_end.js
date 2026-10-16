@@ -94,7 +94,13 @@ console.log('\n2) the server refuses attendance on a closed day');
 
 console.log('\n3) the screens stop offering a button that would fail');
 {
-  ok_('the parent card shows the holiday instead of the buttons', /window\._SCHOOLDAY&&window\._SCHOOLDAY\.closed/.test(app));
+  /* 🔴 ...FOR A CHILD WHO IS NOT EXPECTED TODAY (2026-10-16). The server has always taken a named
+   * holiday attendee's check-in (assertStudentDayOpen_ → isHolidayAttendee_); this card asked only
+   * whether the SCHOOL was shut and hid the buttons from the one family the school had asked to
+   * come in. The condition now carries the per-child half too — see _expectedToday. */
+  ok_('the parent card shows the holiday instead of the buttons',
+    /window\._SCHOOLDAY && window\._SCHOOLDAY\.closedForStudents && !_expectedToday\(k\.StudentID\)/.test(app));
+  ok_('🔴 ...but a child named for today keeps them', /const _expectedToday = \(sid\) =>/.test(app));
   ok_('...naming it', /window\._SCHOOLDAY\.reason/.test(app));
   // v259: ...with ONE exception, and only one — a teacher holding OT วันหยุด for that day, whose
   // punch the server accepts. Hiding her buttons was why she had to file a คำขอลงเวลา on 22/08/26.

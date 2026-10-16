@@ -492,7 +492,24 @@ function createAtomAPI(M, GROWTH_STD) {
     const holAllDay=!!hol && !partial;
     const closed=!bc && (weekend || holNow);              // shut RIGHT NOW, for STAFF
     const closedStd=!!(weekend || holNow);                // ...and for the CHILDREN
+    /* 🔴 WHO IS STILL EXPECTED ON A CLOSED DAY — and this field is the fix for a defect that made
+     * the whole OT-วันหยุด feature unusable (reported 2026-10-16).
+     *
+     * assertStudentDayOpen_ has always let a named child through (isHolidayAttendee_), and
+     * staffCheckin has always let a teacher with OT วันหยุด through. BOTH SERVERS SAID YES. But the
+     * screens asked `closedForStudents`, which answers for the SCHOOL, and hid the buttons — so a
+     * teacher was rostered, a child was named, the admin dashboard said in so many words "สำหรับคน
+     * กลุ่มนี้ วันนี้คือวันทำงาน", and neither the parent nor the teacher had anything to press.
+     *
+     * The teacher's own card was fixed this way once already (`att.holidayOT` on
+     * myAttendanceToday): the answer has to travel with the PERSON, because a question about one
+     * child cannot be answered by a fact about the school. The children's half never got the same
+     * treatment — this is it.
+     *
+     * Only read on a day that is actually shut: on an ordinary morning the answer is always "every
+     * child", and HOLIDAY_ATTEND has no business on the home screen's critical path. */
     return { date, closed, closedForStudents:closedStd, bigCleaning:bc, weekend,
+      openStudentIds: closedStd ? holidayAttendIds_(date) : [],
       // the whole day off, as opposed to shut for part of it — what a calendar cell needs to know
       closedAllDay: !bc && (weekend || holAllDay),
       partial, holStart:hs, holEnd:he,

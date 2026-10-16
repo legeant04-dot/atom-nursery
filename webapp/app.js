@@ -131,7 +131,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.451'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.452'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -1183,6 +1183,27 @@
    * that gets copied. REFRESH_NOW is already role-agnostic — it clears the read cache and re-runs
    * whatever screen is open — so nothing but the button was missing.
    */
+  /* 🔴 IS *THIS CHILD* STILL EXPECTED, ON A DAY THE SCHOOL IS SHUT?
+   *
+   * A closed day can be open to some people: a teacher comes in on OT วันหยุด and a few children
+   * come with her. The server has always known that — assertStudentDayOpen_ lets a named child
+   * through — but every screen asked `closedForStudents`, which is a fact about the SCHOOL, and hid
+   * the buttons from exactly the family the school had asked to come in (reported 2026-10-16).
+   *
+   * Asked here, in ONE place, by all three screens that draw a child's check-in control: the
+   * parent's home card, the teacher's class list and the dashboard's class card. Three copies of
+   * this test is how two of them end up disagreeing about whether a child may be checked in.
+   *
+   * Defaults to FALSE when the school day is unknown — the fallback is "behave as before", not
+   * "open the gate", because this decides whether a child may be recorded as present.
+   */
+  const _expectedToday = (sid) => {
+    const d = window._SCHOOLDAY;
+    if (!d || !d.closedForStudents) return true;        // an ordinary day: everyone is expected
+    const ids = d.openStudentIds;
+    return Array.isArray(ids) && ids.map(String).indexOf(String(sid)) >= 0;
+  };
+
   const refreshBtn = () => `<button class="btn sm outline dash-refresh" onclick="REFRESH_NOW(this)" title="${EN()?'Reload the latest data':'โหลดข้อมูลล่าสุด'}" aria-label="${EN()?'Reload the latest data':'โหลดข้อมูลล่าสุด'}">🔄 <span class="lbl">${EN()?'Refresh':'รีเฟรช'}</span></button>`;
   window.PREFETCH = () => {
     if (CONFIG.MODE!=='gas' || !USER) return;
@@ -2624,7 +2645,14 @@
                 : 'สมุดบันทึกประจำวันจะกลับมาในวันที่น้องกลับมาเรียน')}</small></div>`;
     }
     const sd=window._SCHOOLDAY;
-    if(sd && sd.closedForStudents && String(sd.date||'')===String(date||todayStr()))
+    /* 🔴 ...and not for a child who was NAMED for today. A holiday attendee's day behaves like any
+     * other — check in, check out, AND the journal (see the note above assertStudentDayOpen_ in
+     * engine.js). Telling that family "วันที่ไม่มีการเรียนการสอน จะไม่มีสมุดบันทึกประจำวัน" about a
+     * day their child spent at the school is simply false. `_expectedToday` answers only about
+     * TODAY, so it is asked only when the day being viewed IS today — browsing back to an older
+     * closed day still gets the holiday card, correctly. */
+    const _sameDay = String(sd&&sd.date||'')===String(date||todayStr());
+    if(sd && sd.closedForStudents && _sameDay && !(_sameDay && _expectedToday(kid.StudentID||kid.studentId)))
       return `<div class="card" style="text-align:center;background:var(--surface-3);border-color:var(--line-strong)">
         <b>🏖️ ${EN()?'School closed today':'วันนี้โรงเรียนหยุด'}</b>
         <br><small class="muted">${esc(EN()?(sd.reasonEN||'Holiday'):(sd.reason||'วันหยุด'))}${
@@ -2829,9 +2857,16 @@
         (!careHas(k.Allergy) && !careHas(k.MedicalHistory))
           ? `<br><small class="muted">🍼 ${EN()?'No allergy or medical note on file.':'ยังไม่ได้บันทึกข้อมูลแพ้อาหาร/ยา หรือโรคประจำตัว'} <a href="#" onclick="event.preventDefault();P_profile()" style="color:var(--blue)">${EN()?'Add it':'เพิ่มข้อมูล'}</a></small>`
           : ''}${k.RateNote?`<br><small style="color:var(--blue)">🕕 ${esc(k.RateNote)}</small>`:''}</div>${studentAvatar(k)}</div>
-      ${(window._SCHOOLDAY&&window._SCHOOLDAY.closedForStudents)
+      ${(window._SCHOOLDAY && window._SCHOOLDAY.closedForStudents && !_expectedToday(k.StudentID))
         // School shut today: the server refuses a check-in anyway, so offering the buttons could only
         // produce an error. Say WHICH holiday — that is the thing a parent actually wants to know.
+        /* 🔴 ...UNLESS THIS CHILD WAS NAMED FOR TODAY. The server has always allowed a holiday
+         * attendee through (assertStudentDayOpen_ → isHolidayAttendee_); this card asked
+         * `closedForStudents`, which answers for the SCHOOL, and hid the buttons from the one family
+         * the school had asked to come in. Reported 2026-10-16: a teacher was rostered for OT
+         * วันหยุด, a child was named, the admin dashboard said "สำหรับคนกลุ่มนี้ วันนี้คือวันทำงาน",
+         * and nobody had anything to press. A question about one child cannot be answered by a fact
+         * about the school — see openStudentIds in schoolDayFor_. */
         // a HALF-day holiday says the window, and says the buttons come back after it — otherwise a
         // parent reads "closed today" at 09:00 and does not come back at 13:00
         ? `<div class="card" style="background:var(--surface-3);border-color:var(--line-strong);margin-top:12px;padding:10px;text-align:center">
@@ -4561,7 +4596,11 @@
   // server anyway (assertSchoolOpen_ with forStudents). Say the day is closed instead of accusing
   // the whole roll of not turning up.
   function tcaHtml(d, day){ if(!d||!d.classes||!d.classes.length) return '';
-    if(day&&day.closedForStudents) return `<div class="card"><div class="spread"><h3>👶 ${EN()?'Class attendance today':'การมาเรียนวันนี้'}</h3><span class="pill" style="background:var(--surface-3);color:var(--ink-3)">🏖️ ${EN()?'Holiday':'วันหยุด'}</span></div>
+    /* 🔴 ...unless some children WERE named for today. "ไม่มีการรับ-ส่งนักเรียน" is the right thing
+     * to say on a closed day that is closed to everybody, and the wrong thing to say on the day a
+     * teacher came in on OT วันหยุด with three children. When anybody is expected the card falls
+     * through and shows the roster as usual. */
+    if(day&&day.closedForStudents&&!((day.openStudentIds||[]).length)) return `<div class="card"><div class="spread"><h3>👶 ${EN()?'Class attendance today':'การมาเรียนวันนี้'}</h3><span class="pill" style="background:var(--surface-3);color:var(--ink-3)">🏖️ ${EN()?'Holiday':'วันหยุด'}</span></div>
       <div style="text-align:center;color:var(--ink-3);padding:10px 0"><b>${EN()?'School closed today':'วันนี้โรงเรียนหยุด'}${day.reason?` (${esc(EN()?(day.reasonEN||day.reason):day.reason)})`:''}</b><br><small>${EN()?'no drop-off or pick-up':'ไม่มีการรับ-ส่งนักเรียน'}</small></div></div>`;
     const cards=d.classes.map(c=>{ const present=c.in+c.out; const pct=c.total?Math.round(present/c.total*100):100;
       const inNow=(c.students||[]).filter(s=>s.status==='IN');    // present, not yet picked up
@@ -5242,7 +5281,11 @@
     // stray check-in would contradict it.
     // shut to the children today (weekend / holiday — and a meeting day IS shut to them, even
     // though the teachers are in). The server refuses it, so offering the tap only produces an error.
-    const stdClosed = !!(window._SCHOOLDAY && window._SCHOOLDAY.closedForStudents);
+    /* 🔴 ...BUT NOT FOR A CHILD WHO WAS NAMED FOR TODAY. The server takes the check-in for a
+     * holiday attendee (assertStudentDayOpen_ → isHolidayAttendee_); this row asked only whether the
+     * school was shut, so the teacher who had been rostered for OT วันหยุด could not check in the
+     * very child she had come in for (reported 2026-10-16). See _expectedToday. */
+    const stdClosed = !!(window._SCHOOLDAY && window._SCHOOLDAY.closedForStudents) && !_expectedToday(s.StudentID);
     const ciBtn = stdClosed
       ? B('outline', '', '🏖️', EN()?'Closed':'หยุด',
           (EN()?'School closed to children today':'วันนี้โรงเรียนหยุดสำหรับนักเรียน')+
