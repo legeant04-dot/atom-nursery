@@ -162,8 +162,12 @@ console.log('\n5) the parent is not told to wait for something that is not comin
    * them a promise it could not keep. It happened every weekend, to every family.
    *
    * The reasoning had already been written down for the other two cases and this one was missed. */
+  /* 🔴 ...unless the child was NAMED for today (2026-10-16). A holiday attendee's day behaves like
+   * any other — check in, check out and the journal — so telling that family "วันที่ไม่มีการเรียน
+   * การสอน จะไม่มีสมุดบันทึกประจำวัน" about a day their child spent at the school is false. */
   ok_('a closed day says so, instead of promising a journal nobody will write',
-    /sd && sd\.closedForStudents && String\(sd\.date\|\|''\)===String\(date\|\|todayStr\(\)\)/.test(app));
+    /sd && sd\.closedForStudents && _sameDay && !\(_sameDay && _expectedToday\(/.test(app));
+  ok_('🔴 ...but not for a child who was named for today', /const _expectedToday = \(sid\) =>/.test(app));
   ok_('...naming the holiday, the way the card above it does', /esc\(EN\(\)\?\(sd\.reasonEN\|\|'Holiday'\):\(sd\.reason\|\|'วันหยุด'\)\)/.test(app));
   ok_('...and saying why there is no journal', /วันที่ไม่มีการเรียนการสอน จะไม่มีสมุดบันทึกประจำวัน/.test(app));
   ok_('...with the window shown when the school is shut for only part of the day', /sd\.partial\?` <b>\$\{esc\(\(sd\.holStart\|\|'00:00'\)/.test(app));

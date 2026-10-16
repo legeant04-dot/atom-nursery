@@ -133,9 +133,18 @@ console.log('\n3) the teacher\'s home card had the same defect');
   ok_('it is told what day it is', /function tcaHtml\(d, day\)\{/.test(app));
   ok_('...and is given the answer the screen already fetched', /tcaHtml\(tca,day0\)/.test(app));
   ok_('on a closed day it says so instead of listing the class as absent',
-    /if\(day&&day\.closedForStudents\) return `<div class="card">[\s\S]{0,400}วันนี้โรงเรียนหยุด/.test(app));
+    /if\(day&&day\.closedForStudents&&!\(\(day\.openStudentIds\|\|\[\]\)\.length\)\) return `<div class="card">[\s\S]{0,400}วันนี้โรงเรียนหยุด/.test(app));
   ok_('...and offers no check-in-on-behalf button the server would refuse',
-    /closedForStudents\) return[\s\S]{0,500}ไม่มีการรับ-ส่งนักเรียน[\s\S]{0,40}<\/div>`;/.test(app));
+    /closedForStudents&&!\(\(day\.openStudentIds\|\|\[\]\)\.length\)\) return[\s\S]{0,500}ไม่มีการรับ-ส่งนักเรียน[\s\S]{0,40}<\/div>`;/.test(app));
+  /* 🔴 ...BUT NOT WHEN CHILDREN WERE NAMED FOR TODAY (2026-10-16).
+   *
+   * "ไม่มีการรับ-ส่งนักเรียน" is the right thing to say on a day that is closed to everybody, and
+   * the wrong thing to say on the day a teacher came in on OT วันหยุด with a child. The server has
+   * always taken the check-in for a named attendee; this card hid the whole roster anyway, so the
+   * feature could be set up and then not used. When anybody is expected, the card falls through and
+   * shows the class as usual. */
+  ok_('🔴 ...but a day somebody WAS named for is not blanked',
+    /openStudentIds/.test(app) && /openStudentIds: closedStd \? holidayAttendIds_\(date\) : \[\]/.test(R('webapp/engine.js')));
 }
 
 console.log('\n' + (fail ? 'FAILED ' : 'PASSED ') + pass + ' passed, ' + fail + ' failed\n');
