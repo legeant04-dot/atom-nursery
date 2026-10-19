@@ -115,7 +115,12 @@ console.log('\n4) both search boxes use it, and the rows carry it');
    * stops finding families. */
   ok_('🔴 the header search asks for the children', /fam\.kidsOf\[p\.ParentID\]/.test(appCode));
   ok_('🔴 ...and for the parents', /fam\.parentsOf\[s\.StudentID\]/.test(appCode));
-  ok_('🔴 the จัดการ parent rows carry the children in data-k', /_fam\.kidsOf\[p\.ParentID\]/.test(appCode));
+  /* The parent rows moved into A_parentGroups on 2026-10-19 (three groups: enrolled / all children
+   * left / never linked), so the index is read through a guard now — `_fam` arrives as an argument
+   * rather than a closure. The CLAIM is unchanged: a parent row is findable by their child's name. */
+  ok_('🔴 the จัดการ parent rows carry the children in data-k',
+    /\(_fam\.kidsOf \|\| \{\}\)\[p\.ParentID\]|_fam\.kidsOf\[p\.ParentID\]/.test(appCode));
+  ok_('...and the grouped renderer is handed that index', /A_parentGroups\(parents, _fam\)/.test(appCode));
   ok_('🔴 ...and the student rows carry the parents', /_fam\.parentsOf\[s\.StudentID\]/.test(appCode));
   ok_('there is only ONE index builder', (appCode.match(/function famSearchIndex\(\)/g) || []).length === 1);
 

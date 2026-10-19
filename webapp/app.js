@@ -131,7 +131,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.453'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.454'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -1210,6 +1210,53 @@
    * to — that is why requiresCheckin_ was made explicit about both roles first. If this predicate
    * were the only thing standing between an Admin and being marked absent, it would be decoration.
    */
+  /* 👨‍👩‍👧 THE ADMIN'S PARENT LIST, IN THREE GROUPS (ผอ., 2026-10-19).
+   *
+   * 🔴 "👶 0" USED TO MEAN TWO COMPLETELY DIFFERENT THINGS, and the list could not tell them apart:
+   *
+   *     a family whose children have finished and left   — a family the school HAD
+   *     a record attached to nobody at all               — a stray sign-up
+   *
+   * The first group is the one the ผอ. asked about: their data must stay with the child who left,
+   * and the admin needs to see them as a group rather than hunting them out of a list of seventy.
+   * The second is the one worth counting: "how many people got into the system without ever
+   * reaching a child".
+   *
+   * The numbers come from parentLinkDetail → parentStudentIds_, the ONE resolver, so "attached"
+   * means the same here as it does to the server that decides whether they may sign in. Before
+   * today three different functions answered that question three different ways and the admin list
+   * had the narrowest answer of the three — which is why seven real families read as unlinked.
+   */
+  function A_parentGroups(parents, _fam) {
+    const D = window._LINKDETAIL || {};
+    const det = x => D[x.ParentID] || { active: 0, total: 0, onlyEnded: false, children: [] };
+    const row = (p, extra) => {
+      const d = det(p);
+      /* 👶 N / M — enrolled now out of attached in total. One number could not say "this family is
+       * still here but their child has left", which is exactly the state the ผอ. is looking for. */
+      const badge = `<span class="pill ${d.active ? 'ok' : (d.total ? 'warn' : 'bad')}" style="font-size:11px" title="${EN() ? 'enrolled now / attached in total' : 'กำลังเรียนอยู่ / ผูกทั้งหมด'}">👶 ${d.active}${d.total > d.active ? ` / ${d.total}` : ''}</span>`;
+      const key = (p.NameTH + ' ' + (p.NameEN || '') + ' ' + (p.Nickname || '') + ' ' + (p.NicknameEN || '') + ' ' + (p.Phone || '') + ' ' + String(p.Relationship || '').replace(/<[^>]*>/g, '') + ' ' + ((_fam.kidsOf || {})[p.ParentID] || '')).toLowerCase();
+      const meta = [p.NameTH || p.NameEN ? esc(titledName(p)) : '', relLabel(p.Relationship),
+        p.Phone ? phoneLink(p.Phone) : (EN() ? 'no phone' : 'ไม่มีเบอร์โทร')].filter(Boolean).join(' · ');
+      return `<div class="list-item stack" data-k="${esc(key)}"><span style="display:flex;gap:8px;align-items:center">${personAvatar(p)}<span><b>${esc(parentDisp(p))}</b> ${badge} <small class="muted">${meta}</small>${extra || ''}</span></span><span class="acts"><button class="btn sm outline" onclick="A_parentLinks('${p.ParentID}')">🔗 ${EN() ? 'Children' : 'บุตรที่ผูก'}</button><button class="btn sm outline" onclick="A_parentForm('${p.ParentID}')">✏️ ${EN() ? 'Edit' : 'แก้ไข'}</button><button class="btn sm pink" onclick="A_delParent('${p.ParentID}',this)">🗑️ ${EN() ? 'Delete' : 'ลบ'}</button></span></div>`;
+    };
+    const grp = (icon, title, note, list, extraOf) => list.length
+      ? `<div style="margin-top:6px"><div class="list-item" style="background:var(--surface-2);border-radius:8px;padding:6px 8px"><b style="font-size:13px">${icon} ${esc(title)}</b><b>${list.length}</b></div>${note ? `<small class="muted" style="display:block;padding:2px 8px 6px">${note}</small>` : ''}${list.map(x => row(x, extraOf && extraOf(x))).join('')}</div>`
+      : '';
+    const g1 = parents.filter(x => det(x).active > 0);
+    const g2 = parents.filter(x => det(x).onlyEnded);
+    const g3 = parents.filter(x => !det(x).total);
+    return grp('✅', EN() ? 'With a child enrolled' : 'มีบุตรกำลังเรียนอยู่', '', g1)
+      + grp('🎓', EN() ? 'All their children have left' : 'บุตรจบ / ออกจากโรงเรียนแล้วทั้งหมด',
+          EN() ? 'Still attached to a child who has left — the record and the final bill stay reachable. This is <b>not</b> a stray record.'
+               : 'ยังผูกอยู่กับนักเรียนที่ออกไปแล้ว · ข้อมูลและบิลงวดสุดท้ายยังเปิดดูได้ — <b>ไม่ใช่ข้อมูลตกค้าง</b>', g2,
+          x => { const ks = (det(x).children || []); return ks.length
+            ? `<br><small style="color:var(--warn)">🎓 ${ks.map(k => esc(k.nick || k.name)).join(' · ')}</small>` : ''; })
+      + grp('⚠️', EN() ? 'Not linked to any child' : 'ยังไม่ได้ผูกกับนักเรียนคนใดเลย',
+          EN() ? 'In the system but attached to nobody. They can only add a child to connect — the same condition as a new sign-up.'
+               : 'มีข้อมูลในระบบแต่ไม่ได้ผูกกับนักเรียนคนไหน · <b>ทำได้แค่เพิ่มข้อมูลนักเรียนเพื่อเชื่อมต่อ</b> เหมือนผู้สมัครใหม่', g3);
+  }
+
   const staffInStructure = (s) => {
     const r = String((s && s.Role) || ''), lvl = String((s && s.PositionLevel) || '');
     return r !== 'Admin' && r !== 'Observer' && lvl !== 'Admin' && lvl !== 'Observer';
@@ -10392,7 +10439,7 @@
   SCREENS.Admin.manage = async () => {
     // getLeaveQuota rides in the SAME batch as everything else here, so the staff form can draw the
     // school's numbers as placeholders without a round trip of its own
-    const [staff,students,parents,pm,groups,exported,wds,classes,plans,depts,linkCounts,kidsMap,lq,ending]=await Promise.all([api('listStaff'),api('listStudents'),api('listParents'),api('permMatrix'),api('listStaffGroups'),api('listExportedStudents'),api('listWithdrawals',{pending:true}),api('listClasses'),api('getPlans'),api('listDepartments'),api('parentLinkCounts').catch(()=>({})),api('parentKidsMap').catch(()=>({})),api('getLeaveQuota').catch(()=>null),
+    const [staff,students,parents,pm,groups,exported,wds,classes,plans,depts,linkCounts,kidsMap,lq,ending]=await Promise.all([api('listStaff'),api('listStudents'),api('listParents'),api('permMatrix'),api('listStaffGroups'),api('listExportedStudents'),api('listWithdrawals',{pending:true}),api('listClasses'),api('getPlans'),api('listDepartments'),api('parentLinkDetail').catch(()=>({})),api('parentKidsMap').catch(()=>({})),api('getLeaveQuota').catch(()=>null),
       /* Children whose last day is recorded — those still to come AND those already past. listStudents
        * cannot answer this: a child past their end date is off that roster, which is the point of it.
        * Without this section they would leave the class lists one morning with nothing anywhere
@@ -10400,7 +10447,7 @@
        * that does not know the route still renders the screen. */
       api('endingStudents').catch(()=>[])]);
     if(lq && typeof lq==='object' && Object.keys(lq).length) A_CACHE.schoolQuota=lq;
-    window._LINKCOUNTS=linkCounts||{};
+    window._LINKDETAIL=linkCounts||{};
     window._PKIDS=kidsMap||{};   // lets parentDisp() name every parent by their child, links included
     A_CACHE.staff=staff; A_CACHE.students=students; A_CACHE.parents=parents; A_CACHE.classes=classes||[]; A_CACHE.plans=plans||[]; A_CACHE.groups=groups||[]; A_CACHE.depts=depts||[];
     /* children past their last day are NOT in A_CACHE.students (listStudents drops them), so the only
@@ -10507,8 +10554,7 @@
         ${_stGone.map(s=>`<div class="list-item stack"><span style="display:flex;gap:8px;align-items:center">${personAvatar(s)}<span><b>${esc(dispNick(s))}</b> ${nmSub(s)?`<small class="muted">${esc(nmSub(s))}</small>`:""}<br><small class="muted">${esc(t('staff.start'))} ${esc(s.StartDate||'-')} → ${esc(s.EndDate||'-')}</small>${s.EndReason?`<br><small style="color:var(--warn)">${esc(s.EndReason)}</small>`:''}${s.EndRemark?`<br><small class="muted" style="white-space:pre-wrap">${esc(s.EndRemark)}</small>`:''}</span></span><span class="acts"><button class="btn sm outline" onclick="A_staffForm('${s.StaffID}')">👁️ ${EN()?'Open':'เปิดดู'}</button><button class="btn sm" onclick="A_staffReturn('${s.StaffID}',this)">↩️ ${EN()?'Bring back':'นำกลับ'}</button></span></div>`).join('')}</div></div>`:''}
       <div class="card secw" id="sec-parents">${secHead('👪',t('manage.parents'),parents.length,`<button class="btn sm" onclick="event.stopPropagation();A_parentForm()">+ ${esc(t('manage.add'))}</button>`)}
         <div class="secbody" hidden>
-        ${parents.map(p=>{ const lc=(window._LINKCOUNTS||{})[p.ParentID]||0; const lcBadge=`<span class="pill ${lc?'ok':'bad'}" style="font-size:11px" title="${EN()?'linked children':'จำนวนบุตรที่ผูก'}">👶 ${lc}</span>`;
-          return `<div class="list-item stack" data-k="${esc((p.NameTH+' '+(p.NameEN||'')+' '+(p.Nickname||'')+' '+(p.NicknameEN||'')+' '+(p.Phone||'')+' '+String(p.Relationship||'').replace(/<[^>]*>/g,'')+' '+(_fam.kidsOf[p.ParentID]||'')).toLowerCase())}"><span style="display:flex;gap:8px;align-items:center">${personAvatar(p)}<span><b>${esc(parentDisp(p))}</b> ${lcBadge} <small class="muted">${[p.NameTH||p.NameEN?esc(titledName(p)):'',relLabel(p.Relationship),p.Phone?phoneLink(p.Phone):(EN()?'no phone':'ไม่มีเบอร์โทร')].filter(Boolean).join(' · ')}</small></span></span><span class="acts"><button class="btn sm outline" onclick="A_parentLinks('${p.ParentID}')">🔗 ${EN()?'Children':'บุตรที่ผูก'}</button><button class="btn sm outline" onclick="A_parentForm('${p.ParentID}')">✏️ ${EN()?'Edit':'แก้ไข'}</button><button class="btn sm pink" onclick="A_delParent('${p.ParentID}',this)">🗑️ ${EN()?'Delete':'ลบ'}</button></span></div>`; }).join('')}</div></div>
+        ${A_parentGroups(parents, _fam)}</div></div>
       ${/* ➕ เพิ่มนักเรียน sits FIRST, where 👪 ผู้ปกครอง has had its "+ เพิ่ม" all along. Until
            2026-09-12 a child could only reach the school through a parent's LINE sign-up, so a
            family who walked in with a paper form could not be entered at all. */''}
@@ -10986,15 +11032,20 @@
     const need=[];
     if(!(A_CACHE.staff&&A_CACHE.staff.length)) need.push(api('listStaff').then(r=>A_CACHE.staff=r||A_CACHE.staff));
     if(!(A_CACHE.parents&&A_CACHE.parents.length)) need.push(api('listParents').then(r=>A_CACHE.parents=r||A_CACHE.parents));
-    if(!(window._LINKCOUNTS&&Object.keys(window._LINKCOUNTS).length)) need.push(api('parentLinkCounts').then(r=>window._LINKCOUNTS=r||{}).catch(()=>{}));
+    if(!(window._LINKDETAIL&&Object.keys(window._LINKDETAIL).length)) need.push(api('parentLinkDetail').then(r=>window._LINKDETAIL=r||{}).catch(()=>{}));
     // children per parent, so this list can name people the way the school does: คุณแม่น้อง<ชื่อเล่น>
     if(!(window._PKIDS&&Object.keys(window._PKIDS).length)) need.push(api('parentKidsMap').then(r=>window._PKIDS=r||{}).catch(()=>{}));
     if(need.length){ try{ await Promise.all(need); }catch(e){} }
     // parents WITH ≥1 linked child (so the multi-child view is meaningful) sorted by count desc
     // alphabetical, but families WITH a linked child first — picking someone with no child
     // opens an empty view, so those stay at the bottom rather than scattered through the list
-    const cnt=window._LINKCOUNTS||{};
-    const paList=sortBy(A_CACHE.parents||[], p=>vaLabel(p,EN())).sort((a,b)=>((cnt[b.ParentID]||0)>0?1:0)-((cnt[a.ParentID]||0)>0?1:0));
+    /* 👶 counted from parentLinkDetail now (2026-10-19) — the same resolver the admin list and the
+     * server's access check use. The old count was built on a uid→ParentID map that could not see a
+     * link row whose UserUID matched no parent record, so this picker sorted real families to the
+     * bottom as though they had no children. That is exactly the "พิชชา อนันต์ shows 0 but opens
+     * น้องนูรีน" the ผอ. reported. */
+    const det=window._LINKDETAIL||{}; const cnt0=p=>Number((det[p]||{}).active||0);
+    const paList=sortBy(A_CACHE.parents||[], p=>vaLabel(p,EN())).sort((a,b)=>(cnt0(b.ParentID)>0?1:0)-(cnt0(a.ParentID)>0?1:0));
     modal(`<h3>👁️ ${EN()?'View as role':'ดูในมุมมอง (สลับ Role)'}</h3>
     <p class="muted" style="font-size:13px">${EN()?'Preview the app exactly as this person sees it. You stay logged in as admin — tap "Back to Admin" to return.':'ดูแอปแบบที่คน ๆ นั้นเห็นจริง (ยังเป็นแอดมินอยู่) — กด "กลับเป็น Admin" เพื่อกลับ'}</p>
     <label class="field"><span>👩‍🏫 ${EN()?'As teacher / leader':'มุมมองครู / หัวหน้า'}</span><select id="va_staff"><option value="">—</option>${/* somebody who has left is still listed — an admin needs to be able to look at their screens to
@@ -11003,7 +11054,7 @@
 ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1:0)-(b.ended?1:0)).map(s=>`<option value="${s.StaffID}">${esc(nmn(s))} · ${esc(String(s.Role||'')==='Observer'?(EN()?'Observer — view only':'ผู้ตรวจสอบ (ดูอย่างเดียว)'):(s.PositionLevel||''))}${s.ended?(EN()?' — ENDED':' (สิ้นสุดการทำงาน)'):''}</option>`).join('')}</select></label>
     <button class="btn block" onclick="A_viewAsStaff(this)">${EN()?'View as this staff':'ดูมุมมองครูคนนี้'}</button>
     <div style="height:12px"></div>
-    <label class="field"><span>👪 ${EN()?'As parent (all their children)':'มุมมองผู้ปกครอง (เห็นลูกทุกคนที่ผูก)'}</span><select id="va_parent"><option value="">—</option>${paList.map(p=>`<option value="${esc(p.ParentID)}">${esc(vaLabel(p,EN()))}${p.Phone?' · '+esc(phoneFmt(p.Phone)):''} · 👶 ${cnt[p.ParentID]||0}</option>`).join('')}</select></label>
+    <label class="field"><span>👪 ${EN()?'As parent (all their children)':'มุมมองผู้ปกครอง (เห็นลูกทุกคนที่ผูก)'}</span><select id="va_parent"><option value="">—</option>${paList.map(p=>`<option value="${esc(p.ParentID)}">${esc(vaLabel(p,EN()))}${p.Phone?' · '+esc(phoneFmt(p.Phone)):''} · 👶 ${cnt0(p.ParentID)}</option>`).join('')}</select></label>
     <button class="btn block outline" onclick="A_viewAsParent(this)">${EN()?'View as this parent':'ดูมุมมองผู้ปกครองคนนี้'}</button>`); };
   window.A_viewAsStaff=(btn)=>{ const m=btn.closest('.modal'); const sid=m.querySelector('#va_staff').value; if(!sid){toast(EN()?'Pick a staff':'เลือกครูก่อน');return;} const s=findStaff(sid); m.remove();
     // Preview the person's OWN role. This said 'Teacher' for everybody, so previewing an Observer
@@ -12565,7 +12616,17 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
     // staff list may not be cached yet (the modal opens straight from the manage header)
     const [deps,staff]=await Promise.all([api('listDepartments'), (A_CACHE.staff&&A_CACHE.staff.length)?Promise.resolve(A_CACHE.staff):api('listStaff')]);
     A_CACHE.depts=deps||A_CACHE.depts; A_CACHE.staff=staff||A_CACHE.staff; // keep the form dropdowns in sync
-    const active=(staff||[]).filter(s=>String(s.Status||'ACTIVE').toUpperCase()!=='INACTIVE');
+    /* 🔴 THE SAME "IS THIS PERSON STILL HERE" RULE THE ROSTER USES — `staffLeft` (ผอ., 2026-10-19).
+     *
+     * This asked only `Status !== 'INACTIVE'`, which is a WEAKER test: a teacher whose last working
+     * day has passed keeps Status ACTIVE until somebody edits the row, so four people who had left
+     * — including two who did not pass probation — were still listed in the school's departments
+     * and in the ⚠️ "ยังไม่ได้อยู่แผนกใด" warning.
+     *
+     * Two screens answering "has this person left?" differently is the thing that goes unnoticed
+     * until one of them is wrong about a real person — the admin roster already splits "here" from
+     * "สิ้นสุดการทำงานแล้ว" with staffLeft, and now so does this. */
+    const active=(staff||[]).filter(s=>!staffLeft(s));
     const members=d=>active.filter(s=>String(s.Department||'')===d);
     const chip=s=>`<span class="pill info" style="margin:2px 3px 0 0">${esc(nm(s))}${nick(s)?` (${esc(nick(s))})`:''}${s.PositionLevel==='Leader'?' ⭐':''}</span>`;
     const unassigned=active.filter(s=>!s.Department||deps.indexOf(s.Department)<0);
