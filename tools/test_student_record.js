@@ -312,12 +312,21 @@ console.log('\n5) the admin can EDIT them, not just read them');
   has('...race', 'Race');
   has('...nationality', 'Nationality');
   has('...religion', 'Religion');
-  has('...vaccine notes', 'Vaccine');
+  /* 💉 THE VACCINE BOX IS GONE FROM THIS FORM (ผอ., 2026-10-19), AND THAT IS THE POINT.
+   * STUDENTS.Vaccine was a loose note sitting beside VACCINE_RECORDS, which holds the real doses
+   * and has its own screen — two places to look for one answer, and the one on this form was the
+   * one that was always empty. It is now the STATUS of the real record plus a way in. */
+  ok_('🔴 the vaccine FREE-TEXT box is gone', !/id="stf_Vaccine"/.test(form));
+  ok_('...replaced by the status of the real record', /id="vaxStat"/.test(app) && /studentVaccines/.test(app));
+  ok_('...which says มีข้อมูล / ไม่มีข้อมูล', /มีข้อมูล/.test(app) && /ไม่มีข้อมูล/.test(app));
+  ok_('...and a failed lookup says THAT, rather than reading as "none"', /ตรวจไม่สำเร็จ/.test(app));
   ok_('blood type is a list, not a free-text box that collects typos', /id="stf_BloodType"><select|<select id="stf_BloodType">/.test(form));
 
   const save = app.slice(app.indexOf('window.A_saveStudent=async(btn,id)=>{'), app.indexOf('window.A_saveStudent=async(btn,id)=>{') + 2000);
   // 'RH' is deliberately absent — see above. Sending it would put the field back by the side door.
-  ['DOB', 'Gender', 'BloodType', 'EmergencyContact', 'Address', 'Race', 'Nationality', 'Religion', 'Vaccine']
+  // 'Vaccine' left the list on 2026-10-19 with the input: `v('Vaccine')` on a field that no longer
+  // exists returns '', which would wipe an older note every time an admin saved anything else.
+  ['DOB', 'Gender', 'BloodType', 'EmergencyContact', 'Address', 'Race', 'Nationality', 'Religion']
     .forEach(k => ok_('save sends ' + k, new RegExp(k + ":v\\('" + k + "'\\)").test(save)));
   ok_('...and does NOT send Rh', !/RH:v\('RH'\)/.test(save));
   // a number column must keep '' as '' — 0 kg is a real weight and an unmeasured child is not it

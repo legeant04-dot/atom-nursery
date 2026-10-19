@@ -157,10 +157,28 @@ console.log('\n8) the reads that caused this are reads in the engine, not writes
 {
   // if any of the ten actually wrote, dropping the lock would be a data-loss bug — check the source
   const eng = R('webapp/engine.js');
+  /* 🔴 THE BODY, NOT THE FIRST 2,000 CHARACTERS OF IT. This read `eng.slice(i, i + 2000)`, so
+   * adding a few lines to `payments` pushed the thing it was looking for out of the window and the
+   * suite went red on a change that was correct (2026-10-19, the discount deduction). Worse in the
+   * other direction: a window that runs PAST the end of a handler finds whatever the next one does,
+   * and would have called a write a read. Cut at the next handler instead.
+   *
+   * Third time an assertion written as a DISTANCE has rotted here (the SlipOK date, the ADMIN_ONLY
+   * windows, this). Written as the claim, it does not. */
+  const bodyOf = name => {
+    const i = eng.indexOf('\n    ' + name + ':');
+    if (i < 0) return '';
+    const rest = eng.slice(i + 1);
+    const next = /\n    [A-Za-z_$][\w$]*:\s/.exec(rest.slice(1));
+    return next ? rest.slice(0, next.index + 1) : rest;
+  };
   [['payments', 'Object.assign({},b,'], ['studentCheckinHistory', 'M.studentCheckins.filter'],
    ['prepayments', 'M.prepayments.filter'], ['paymentSlips', 'paySlips_().filter']].forEach(([a, needle]) => {
-    const i = eng.indexOf('\n    ' + a + ':');
-    ok_(a + ' only filters/maps', i > 0 && eng.slice(i, i + 2000).indexOf(needle) >= 0);
+    const body = bodyOf(a);
+    ok_(a + ' only filters/maps', body.length > 0 && body.indexOf(needle) >= 0);
+    /* ...and the point of the section: it must not WRITE. A read that pushes a row or logs an
+     * action is one the write lock was dropped from by mistake. */
+    ok_('  ...and ' + a + ' writes nothing', !/M\.\w+\.push\(|logAct\(|\.splice\(/.test(body));
   });
 }
 

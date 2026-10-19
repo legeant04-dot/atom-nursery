@@ -187,8 +187,13 @@ console.log('\n2) A staff member leaves — and the record stays');
    * and the list only ever grows. Pinned to the SHARED predicate: two screens answering "has this
    * person left" differently is the kind of thing nobody notices until one of them is wrong about a
    * real person. */
+  /* ...and, since 2026-10-19, people whose ROLE has no shift either: an Admin manages the system
+   * and an Observer reads it. requiresCheckin_ already ignores the flag for both, so the switch
+   * decided nothing — and a control that cannot change the answer is worse than none, because
+   * somebody will set it and believe it. */
   ok_('the check-in switches drop people who have left, by the same rule',
-    /const staff=\(all\|\|\[\]\)\.filter\(s=>!staffLeft\(s\)\);/.test(app));
+    /const staff=\(all\|\|\[\]\)\.filter\(s=>!staffLeft\(s\)&&staffInStructure\(s\)\);/.test(app));
+  ok_('🔴 ...and Admin / Observer, who have no shift to be on', /const staffInStructure = \(s\) =>/.test(app));
   /* ...and somebody whose last day is still AHEAD stays on it. `ended` is "the last day has passed"
    * (listStaff → staffEnded_), so a leaving date in the future leaves them clocking in until it
    * arrives — which is the whole reason this is not a test on EndDate being present. */
