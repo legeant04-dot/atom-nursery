@@ -191,8 +191,11 @@ console.log('\n6) both halves of the app refuse it');
     eng.indexOf('if(s && studentNotStarted_(s, d)) fail') < eng.indexOf("const why=schoolClosedFor_(d, true)"));
   ok_('Apps Script does the same, and it is what runs live', /NOT_STARTED', 'วันแรกของการมาเรียนคือ '/.test(ci));
   ok_('...also before the calendar test', ci.indexOf("NOT_STARTED', 'วันแรกของการมาเรียนคือ '") < ci.indexOf('if (!isSchoolClosed_(d)) return;'));
+  /* the catch grew a second refusal in v457 (STUDENT_ENDED, the gate at the other end of the same
+   * record) — this asserts that NOT_STARTED is re-thrown, which is the claim, rather than that the
+   * line still reads exactly as it did */
   ok_('...and it does not swallow its own refusal in the try/catch around the sheet read',
-    /catch \(e\) \{ if \(e && e\.apiCode === 'NOT_STARTED'\) throw e; \}/.test(ci));
+    /catch \(e\) \{ if \(e && [^}]*e\.apiCode === 'NOT_STARTED'[^}]*\) throw e; \}/.test(ci));
 }
 
 console.log('\n' + (fail ? 'FAILED ' : 'PASSED ') + pass + ' passed, ' + fail + ' failed\n');

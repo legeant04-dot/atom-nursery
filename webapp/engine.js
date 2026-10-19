@@ -2016,7 +2016,13 @@ function createAtomAPI(M, GROWTH_STD) {
       notStarted:studentNotStarted_(s), startDate:ymd(s.EnrollDate||''),
       // ...and the last day, once the school has set one: the family sees it coming rather than
       // finding the buttons gone one morning with nothing saying why.
+      /* 🔴 ...AND WHAT THE FAMILY IS TOLD AFTERWARDS (ผอ., 2026-10-19). The flag existed and no
+       * screen read it, so a child past their last day — off every class list, with no teacher
+       * writing their journal — still had two live check-in buttons on their family's home screen.
+       * `accessUntil` is here so the card can count the window down instead of the door simply
+       * shutting one morning. */
       ended:studentEnded_(s), endScheduled:endScheduled_(s), endDate:ymd(s.EndDate||''),
+      endReason:s.EndReason||'', accessUntil:parentAccessUntil_(s),
       // ...and a child whose standing arrangement is to be away today. Same reason as the two above:
       // the card says so rather than offering a button the server would only refuse.
       dayOff:studentOffDay_(s), offDays:offDaysLabel_(s), offDaysEN:offDaysLabel_(s,true),
