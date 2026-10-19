@@ -564,6 +564,16 @@ var SCHOOL_CONFIG_DEFAULTS = [
    * does not promise that Day6.gs has run by then, so referencing the constant here would seed the
    * word "undefined" on whichever deploy happened to order the files the other way. It must agree
    * with slipOkPreCheckOn_'s default, and tools/test_slip_service_error.js fails if it does not. */
+  /* 🚪 HOW LONG A FAMILY KEEPS ACCESS AFTER THEIR CHILD LEAVES (ผอ., 19/10/2569 — option B).
+   *
+   * The record stays reachable for this many days after the last day, then closes by itself. Not
+   * zero, because the final month's bill is usually still open when a child leaves, the certificate
+   * is issued afterwards, and the growth and DSPM history belongs to the family too — cutting
+   * access on the leaving date would lock a family out of a bill they still owe.
+   *
+   * Derived from EndDate on every request, never written down: a flag would need a scheduled job to
+   * set it, and a family's access would then depend on whether that job ran. */
+  ['ParentAccessGraceDays', '30'],
   ['SlipOK_PreCheck',       'false'],
   ['SlipOK_Url',            ''],            // 🔴 the school's OWN SlipOK branch — never inherited
   ['SlipOK_ApiKey',         ''],            // 🔴 ...and its own key. Sharing one spends another school's quota.

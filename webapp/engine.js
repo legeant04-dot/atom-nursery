@@ -1126,7 +1126,14 @@ function createAtomAPI(M, GROWTH_STD) {
   function visibleStudents(p){ const uid=p.uid||p.lineUID; const ids=uid?linkedStudentIds(uid):null;
     let list = ids ? M.students.filter(s=>ids.indexOf(s.StudentID)>=0)
                    : M.students.filter(s=>s.ParentID===p.parentId);
-    return list.filter(s=>!INACTIVE[s.Status]); }
+    /* 🚪 ...and a child whose grace period has run out (ผอ., 2026-10-19). The record stays reachable
+     * for ParentAccessGraceDays after the last day — the final bill, the certificate and the growth
+     * history — and then the door closes on its own. See parentAccessClosed_.
+     *
+     * This is the ONE place a parent's children are resolved, which is why the rule goes here: an
+     * access rule applied by each screen is an access rule with as many exceptions as there are
+     * screens. */
+    return list.filter(s=>!INACTIVE[s.Status] && !parentAccessClosed_(s)); }
   const INACTIVE = { EXPORTED:1, WITHDRAWN:1 };
   /**
    * A child can be paused: away for a while (family abroad, a long illness) and coming back. They
@@ -1721,6 +1728,35 @@ function createAtomAPI(M, GROWTH_STD) {
   /** An end date recorded but not reached yet — the child is still here, and the Admin should see it coming. */
   const endScheduled_ = (s, onDate) => { const d=ymd((s&&s.EndDate)||'');
     return !!d && !studentEnded_(s, onDate); };
+
+  /* ===== 🚪 WHEN A FAMILY'S ACCESS CLOSES AFTER THEIR CHILD LEAVES ==============================
+   *
+   * Asked by the ผอ. 2026-10-19 — "ต้องปิดระบบไม่ให้สามารถเข้าใช้งานได้" — and settled as option B
+   * after the trade-off was put to the school: closed, but not on the last day.
+   *
+   * 🔴 WHY NOT THE LAST DAY. The final month's bill is usually still open when a child leaves, the
+   * certificate is issued afterwards, and a family may want the growth and DSPM history they have
+   * been adding to for years. Cutting access on the leaving date would lock a family out of a bill
+   * THEY STILL OWE — the school would be asking for money through a door it had just shut.
+   *
+   * So the record stays reachable for a grace period and then closes by itself. Nobody has to
+   * remember to do it, which is the only kind of rule that actually gets applied.
+   *
+   * 🔴 AND IT IS A DATE, NOT A FLAG. Nothing is written when the window expires: the answer is
+   * derived from EndDate every time it is asked. A flag would have to be set by something running
+   * on a schedule, and a family's access would then depend on whether that job ran.
+   *
+   * A summer term reopens it, because studentEnded_ already says the child is here again.
+   */
+  const parentGraceDays_ = () => { const n=parseInt(cfg.ParentAccessGraceDays,10);
+    return (isFinite(n) && n>=0) ? n : 30; };
+  /** The last day a family may still open a record after their child has left ('' = not ended). */
+  const parentAccessUntil_ = (s) => { const d=ymd((s&&s.EndDate)||'');
+    if(!d || !studentEnded_(s)) return '';
+    return shiftYmd_(d, parentGraceDays_()); };
+  /** Has the window closed? Only ever true for a child who has actually left. */
+  const parentAccessClosed_ = (s, onDate) => { const until=parentAccessUntil_(s);
+    return !!until && ymd(onDate||todayLocal()) > until; };
 
   /* ---- certificate wording -------------------------------------------------------------------
    * The sample the school gave us on 2026-09-24 reads, top to bottom:
@@ -5486,7 +5522,10 @@ function createAtomAPI(M, GROWTH_STD) {
           onlyEnded: r.all.length>0 && r.active.length===0,
           children:r.all.map(s=>({ studentId:s.StudentID, nick:s.Nickname||s.NicknameEN||'',
             name:s.NameTH||s.Name||'', cls:s.Class||'', status:String(s.Status||''),
-            ended: !INACTIVE[s.Status] && studentEnded_(s) })) }; });
+            ended: !INACTIVE[s.Status] && studentEnded_(s),
+            /* 🚪 WHEN THIS FAMILY'S DOOR CLOSES — so the admin can see it before it happens rather
+             * than hearing about it from a parent who cannot sign in. '' while the child is here. */
+            accessUntil: parentAccessUntil_(s), accessClosed: parentAccessClosed_(s) })) }; });
       return out; },
     // Admin: {parentId: [child, ...]} for every parent — same link resolution as parentLinkCounts
     // (USER_LINKS by LINE UID first, then the legacy STUDENTS.ParentID), active children only.
