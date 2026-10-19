@@ -398,7 +398,23 @@ function assertStudentDayOpen_(studentId, d) {
     if (/^\d{4}-\d{2}-\d{2}$/.test(ed) && ds < ed) {
       throw apiError_('NOT_STARTED', 'วันแรกของการมาเรียนคือ ' + ed + ' — ยังลงเวลาไม่ได้จนกว่าจะถึงวันนั้น');
     }
-  } catch (e) { if (e && e.apiCode === 'NOT_STARTED') throw e; }
+    /* 🔴 ...AND THE SAME GATE AT THE OTHER END, WHICH THIS ROUTE NEVER HAD (ผอ., 2026-10-19).
+     *
+     * The engine has refused STUDENT_ENDED for a long time. This file SHADOWS the engine — it is
+     * the route that actually runs on live — and it only ever checked the first day. So a child
+     * past their last day, off every class list, with no teacher writing their journal, could still
+     * be checked in and out, and the attendance sheet would carry a day for somebody who no longer
+     * goes here: "การไม่มีชื่อในชั้นเรียน แต่ Check-in/out ได้ จะทำให้ข้อมูลผิด และเข้าใจผิด".
+     *
+     * This is the fourth time an explicit route has quietly disagreed with the engine behind it.
+     * It is a REFUSAL, not a removal: the record, the final bill and the certificate stay reachable
+     * to the family for ParentAccessGraceDays afterwards — see parentAccessClosed_.
+     */
+    var xd = st ? String(decodeCell_(st.EndDate) || '').slice(0, 10) : '';
+    if (/^\d{4}-\d{2}-\d{2}$/.test(xd) && ds > xd) {
+      throw apiError_('STUDENT_ENDED', 'วันสุดท้ายของการเรียนคือ ' + xd + ' — ลงเวลาไม่ได้แล้ว');
+    }
+  } catch (e) { if (e && (e.apiCode === 'NOT_STARTED' || e.apiCode === 'STUDENT_ENDED')) throw e; }
   if (!isSchoolClosed_(d)) return;                                  // an ordinary open day
   if (isHolidayAttendee_(studentId, ds)) return;                    // expected today, by name
   var why = '';

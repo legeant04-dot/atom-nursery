@@ -131,7 +131,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.456'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.457'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -2942,7 +2942,37 @@
         (!careHas(k.Allergy) && !careHas(k.MedicalHistory))
           ? `<br><small class="muted">🍼 ${EN()?'No allergy or medical note on file.':'ยังไม่ได้บันทึกข้อมูลแพ้อาหาร/ยา หรือโรคประจำตัว'} <a href="#" onclick="event.preventDefault();P_profile()" style="color:var(--blue)">${EN()?'Add it':'เพิ่มข้อมูล'}</a></small>`
           : ''}${k.RateNote?`<br><small style="color:var(--blue)">🕕 ${esc(k.RateNote)}</small>`:''}</div>${studentAvatar(k)}</div>
-      ${(window._SCHOOLDAY && window._SCHOOLDAY.closedForStudents && !_expectedToday(k.StudentID))
+      ${k.ended
+        /* 🎓 THE LAST DAY HAS PASSED — AND THE BUTTONS GO FIRST, BEFORE EVERY OTHER REASON.
+         *
+         * ผอ., 2026-10-19: "การไม่มีชื่อในชั้นเรียน แต่ Check-in/out ได้ จะทำให้ข้อมูลผิด และเข้าใจผิด".
+         * Exactly right, and it was both: the engine refused a check-in for an ended child, the LIVE
+         * route in Checkin.gs never learned to (it shadows the engine), and no screen read the
+         * `ended` flag the server had been sending all along. A child off every class list, with no
+         * teacher writing their journal, had two live buttons on their family's home screen.
+         *
+         * FIRST in the chain because this outranks every other reason a button might be hidden — a
+         * family whose child has left must not be told "วันนี้โรงเรียนหยุด", which implies the
+         * buttons come back tomorrow.
+         *
+         * AND IT COUNTS DOWN. The grace window is the one thing this family needs from the app now:
+         * the final bill, the certificate and the growth history are still here, and then they are
+         * not. Counted from `accessUntil` at draw time, so a cached screen cannot show yesterday's
+         * number. The last week says so in red — "เหลือ 3 วัน" is a thing you act on today. */
+        ? (()=>{ const until=k.accessUntil||'';
+            const left=until?Math.ceil((new Date(until+'T23:59:59')-new Date())/86400000):null;
+            const over=left!=null && left<0;
+            return `<div class="card" style="background:var(--surface-3);border-color:var(--line-strong);margin-top:12px;padding:12px;text-align:center">
+             <b style="font-size:16px">🎓 ${EN()?'No longer attending':'สิ้นสุดการเรียนแล้ว'}</b>
+             <br><small class="muted">${EN()?'Last day':'วันสุดท้าย'} <b>${esc(ddmmyyyy(k.endDate))}</b>${k.endReason?' · '+esc(k.endReason):''}</small>
+             <br><small class="muted">${EN()?'There is no drop-off or pick-up to record.':'ไม่มีการส่ง-รับให้บันทึกแล้ว'}</small>
+             ${until?`<div style="margin-top:8px;padding-top:8px;border-top:1px solid var(--line)">
+               <small class="muted">${EN()?'You can still open bills, documents and history until':'ยังเปิดดูบิล เอกสาร และประวัติได้ถึง'}</small>
+               <br><span style="font-size:17px;font-weight:700">${esc(ddmmyyyy(until))}</span>
+               ${over?`<br><b style="color:var(--bad)">${EN()?'This period has ended':'พ้นกำหนดแล้ว'}</b>`
+                 : `<br><b style="color:${left<=7?'var(--bad)':'var(--warn)'}">${EN()?`${left} day${left===1?'':'s'} left`:`เหลืออีก ${left} วัน`}</b>`}
+               <br><small class="muted">${EN()?'After that, please contact the school directly.':'หลังจากนั้นกรุณาติดต่อทางโรงเรียนโดยตรง'}</small></div>`:''}</div>`; })()
+        : (window._SCHOOLDAY && window._SCHOOLDAY.closedForStudents && !_expectedToday(k.StudentID))
         // School shut today: the server refuses a check-in anyway, so offering the buttons could only
         // produce an error. Say WHICH holiday — that is the thing a parent actually wants to know.
         /* 🔴 ...UNLESS THIS CHILD WAS NAMED FOR TODAY. The server has always allowed a holiday
