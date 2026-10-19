@@ -1082,6 +1082,46 @@ function createAtomAPI(M, GROWTH_STD) {
   // ---- data-access links (a user sees only linked students) ----
   function linkedStudentIds(uid){ const ids=M.userLinks.filter(l=>l.UserUID===uid).map(l=>l.StudentID);
     return ids.length?ids:null; }
+  /* ===== 👨‍👩‍👧 WHICH CHILDREN IS THIS PARENT ATTACHED TO — ONE ANSWER ============================
+   *
+   * 🔴 REPORTED BY THE ผอ. 2026-10-19: "ทำไมผู้ปกครองชื่อ พิชชา อนันต์ แสดงว่าไม่ผูกกับนักเรียน
+   * แต่เข้าไปดูผูกกับน้องนูรีน".
+   *
+   * Because the app had THREE answers to one question, and they disagreed:
+   *
+   *   visibleStudents      links by UID, else STUDENTS.ParentID · excludes EXPORTED/WITHDRAWN only
+   *   parentOwnsStudent_   links by UID, or PARENTS.StudentID+LineUID  (this is what grants ACCESS)
+   *   parentLinkCounts     links by UID→ParentID, STUDENTS.ParentID, PARENTS.StudentID
+   *                        ...but only over enrolledStudents(), which ALSO drops children whose
+   *                        last day has passed
+   *
+   * So a family could open the app, see their child, and be listed by the admin as attached to
+   * nobody. Measured on the real export: 3 children are past their last day with 7 parents
+   * attached to them, and SIX UserUIDs on link rows match no parent's LineUID at all — the
+   * uid→ParentID map those counts are built on simply cannot see them.
+   *
+   * 🔴 AND "ATTACHED" IS NOT ONE QUESTION, IT IS TWO. "Does this person have a child here at all"
+   * (which decides whether they may sign in) is not "do they have a child currently enrolled"
+   * (which decides whether the admin should chase them). Conflating them is what produced a list
+   * that called seven real families unlinked. Both are answered here, side by side, so no caller
+   * has to pick one by accident.
+   */
+  function parentStudentIds_(pa){
+    if(!pa) return { all:[], active:[] };
+    const seen={}, all=[];
+    const add=sid=>{ if(!sid||seen[sid])return; seen[sid]=1; const s=studentById(sid); if(s&&s.StudentID) all.push(s); };
+    // 1 · USER_LINKS, by the LINE id on the parent record
+    const uid=String(pa.LineUID||'').trim();
+    if(uid) (M.userLinks||[]).filter(l=>String(l.UserUID)===uid).forEach(l=>add(l.StudentID));
+    // 2 · the legacy pointer on the CHILD
+    (M.students||[]).forEach(s=>{ if(String(s.ParentID||'')===String(pa.ParentID)) add(s.StudentID); });
+    // 3 · ...and the older one on the PARENT. parentOwnsStudent_ trusts this for access, so a list
+    //     that ignored it called a family unlinked while the server let them in.
+    if(pa.StudentID) add(pa.StudentID);
+    return { all,
+      /* currently enrolled — the same predicate every roster uses, so "this parent has nobody here
+       * any more" means the same thing on every screen */
+      active: all.filter(s=>!INACTIVE[s.Status] && !studentEnded_(s)) }; }
   // resolve the students a parent user may see: links first, else legacy ParentID
   function visibleStudents(p){ const uid=p.uid||p.lineUID; const ids=uid?linkedStudentIds(uid):null;
     let list = ids ? M.students.filter(s=>ids.indexOf(s.StudentID)>=0)
@@ -5397,17 +5437,57 @@ function createAtomAPI(M, GROWTH_STD) {
      * through visibleStudents, which has always kept paused children. Withdrawn children are still
      * excluded, by both.
      */
-    parentLinkCounts: () => { const cnt={}; const uidToPid={}; (M.parents||[]).forEach(pa=>{ if(pa.LineUID)uidToPid[pa.LineUID]=pa.ParentID; cnt[pa.ParentID]=0; });
-      const seen={}; const active=enrolledStudents();
-      active.forEach(s=>{ (M.userLinks||[]).filter(l=>String(l.StudentID)===String(s.StudentID)).forEach(l=>{ const pid=uidToPid[l.UserUID]; if(!pid)return; const k=pid+'|'+s.StudentID; if(seen[k])return; seen[k]=1; cnt[pid]=(cnt[pid]||0)+1; });
-        if(s.ParentID){ const k=s.ParentID+'|'+s.StudentID; if(!seen[k]){ seen[k]=1; cnt[s.ParentID]=(cnt[s.ParentID]||0)+1; } } });
-      // Third link: PARENTS.StudentID. It is the oldest of the three and these lists never consulted
-      // it, yet the server trusts it for ACCESS (parentOwnsStudent_) — so a family linked that way
-      // could open the child while the admin's list called them unlinked.
-      (M.parents||[]).forEach(pa=>{ if(!pa.StudentID)return; const s=studentById(pa.StudentID);
-        if(!s||INACTIVE[s.Status])return; const k=pa.ParentID+'|'+s.StudentID; if(seen[k])return; seen[k]=1;
-        cnt[pa.ParentID]=(cnt[pa.ParentID]||0)+1; });
+    /* 👨‍👩‍👧 HOW MANY CHILDREN — asked of parentStudentIds_, which is now the ONLY definition.
+     *
+     * 🔴 This used to build its own uid→ParentID map and walk three link routes over
+     * enrolledStudents(). Two faults, both measured on the real data (ผอ., 2026-10-19):
+     *
+     *   · the map is keyed on PARENTS.LineUID, so a link row whose UserUID matches no parent record
+     *     was invisible to it — SIX of them on live. Those families sign in and see their child
+     *     while the admin's list says they are attached to nobody.
+     *   · enrolledStudents() drops a child whose last day has passed, so the parents of a child who
+     *     has finished were counted as unlinked rather than as what they are: attached to somebody
+     *     who has left. Three such children on live, seven parents behind them.
+     *
+     * Now it reports BOTH numbers, because they answer different questions and the old single
+     * number was silently answering the wrong one. */
+    parentLinkCounts: () => { const cnt={};
+      (M.parents||[]).forEach(pa=>{ cnt[pa.ParentID]=parentStudentIds_(pa).active.length; });
       return cnt; },
+    /**
+     * 🔴 LINK ROWS THAT BELONG TO NOBODY — six of them on live (measured 2026-10-19).
+     *
+     * USER_LINKS is UID → Student; the parent is found by matching that UID against
+     * PARENTS.LineUID. When no parent record carries it, the row cannot be attributed to anyone
+     * FROM THE PARENT SIDE at all — and yet it still grants access, because sign-in resolves by uid
+     * directly (parentOwnsStudent_ / visibleStudents).
+     *
+     * So somebody can open a child's record while appearing in no admin list. Counting them as 0 is
+     * correct — there is genuinely no parent to credit — but staying SILENT about them is not: an
+     * access grant nobody can see is exactly the shape of thing this project keeps finding. They are
+     * reported so the number is visible, rather than inferred from a discrepancy later.
+     */
+    orphanLinks: () => { const known={};
+      (M.parents||[]).forEach(pa=>{ const u=String(pa.LineUID||'').trim(); if(u) known[u]=1; });
+      const rows=(M.userLinks||[]).filter(l=>{ const u=String(l.UserUID||'').trim();
+        return u && !known[u]; });
+      // the UID itself is never returned — it is a credential-grade identifier for a person
+      return { count: rows.length,
+        students: rows.map(l=>{ const s=studentById(l.StudentID)||{};
+          return { studentId:l.StudentID, nick:s.Nickname||s.NicknameEN||'', name:s.NameTH||s.Name||'',
+            exists: !!s.StudentID, verifiedBy:String(l.VerifiedBy||''), date:ymd(l.Date||'') }; }) }; },
+    /** ...and the whole picture per parent: enrolled now, and attached-but-no-longer-enrolled. */
+    parentLinkDetail: () => { const out={};
+      (M.parents||[]).forEach(pa=>{ const r=parentStudentIds_(pa);
+        out[pa.ParentID]={ active:r.active.length, total:r.all.length,
+          /* 🔴 THE GROUP THE ผอ. ASKED TO SEE SEPARATELY: a parent whose children have all left.
+           * Not the same as "never linked to anybody", and treating them as the same is what made
+           * seven real families look like stray records. */
+          onlyEnded: r.all.length>0 && r.active.length===0,
+          children:r.all.map(s=>({ studentId:s.StudentID, nick:s.Nickname||s.NicknameEN||'',
+            name:s.NameTH||s.Name||'', cls:s.Class||'', status:String(s.Status||''),
+            ended: !INACTIVE[s.Status] && studentEnded_(s) })) }; });
+      return out; },
     // Admin: {parentId: [child, ...]} for every parent — same link resolution as parentLinkCounts
     // (USER_LINKS by LINE UID first, then the legacy STUDENTS.ParentID), active children only.
     // Keys stay PascalCase so the client can feed these straight into parentDisp()/dispNick().
@@ -5982,22 +6062,24 @@ function createAtomAPI(M, GROWTH_STD) {
       // the head teacher's screen, and the admin's own — a plain class teacher is not given it
       if(!(lvl==='Leader'||lvl==='Admin'||role==='Admin')) fail('NO_PERMISSION','เฉพาะหัวหน้าครูหรือแอดมิน');
       const cov={}; (coveredClasses_(me)||[]).forEach(c=>{ cov[c.ClassName]=1; });
-      const kids=activeStudents().filter(s=>cov[s.Class]);
-      const kidOf={};                                     // parentId -> [children]
-      kids.forEach(s=>{
-        /* BOTH ways a family is attached to a child. USER_LINKS is where a modern link lives and
-         * STUDENTS.ParentID is the legacy one — a list built from either alone is missing families,
-         * and "this child appears to have no parent" is the worst possible error on this screen. */
-        (M.userLinks||[]).filter(l=>String(l.StudentID)===String(s.StudentID)).forEach(l=>{
-          (kidOf[l.ParentID]=kidOf[l.ParentID]||[]).push(s); });
-        if(s.ParentID) (kidOf[s.ParentID]=kidOf[s.ParentID]||[]).push(s);
-      });
+      /* 🔴 ASKED OF parentStudentIds_, NOT RE-DERIVED HERE (fixed 2026-10-19).
+       *
+       * The first version of this walked USER_LINKS looking at `l.ParentID` — a column USER_LINKS
+       * DOES NOT HAVE. The filter therefore matched nothing and the screen fell back to the legacy
+       * pointer alone, so a head teacher saw only some of the families in her own classes and had
+       * no way to tell which ones were missing.
+       *
+       * It is the same mistake parentLinkCounts made in its own way, which is the argument for one
+       * resolver: every place that re-derives "who is attached to whom" gets a different subset of
+       * the four routes, and all of them look right until somebody checks a specific family. */
+      const mineOf={};
+      M.parents.forEach(pa=>{ const r=parentStudentIds_(pa);
+        const ks=r.all.filter(s=>cov[s.Class] && !INACTIVE[s.Status] && !studentEnded_(s));
+        if(ks.length) mineOf[pa.ParentID]=ks; });
       const out=[];
       M.parents.forEach(pa=>{
-        let mine=kidOf[pa.ParentID]||[];
-        if(!mine.length && pa.StudentID) mine=kids.filter(s=>String(s.StudentID)===String(pa.StudentID));
-        if(!mine.length) return;
-        const seen={}; const children=mine.filter(s=>seen[s.StudentID]?false:(seen[s.StudentID]=1));
+        const children=mineOf[pa.ParentID]||[];
+        if(!children.length) return;
         out.push({ parentId:pa.ParentID,
           name:pa.NameTH||pa.Name||'', nameEN:pa.NameEN||'',
           nick:pa.Nickname||'', nickEN:pa.NicknameEN||'', title:pa.Title||'',

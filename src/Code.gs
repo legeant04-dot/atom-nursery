@@ -488,6 +488,8 @@ function applyIdentity_(action, payload, sess) {
     // names every unset credential-bearing setting the school has — admin only, even though it
     // never returns a value: knowing WHICH keys are blank is itself a map for an attacker
     onboardingCheck: 1, backfillConfig: 1,
+    // the parent roster and its link maps — same reason as listParents above
+    parentLinkDetail: 1, orphanLinks: 1,
     /* CERTIFICATES — admin only, all five.
      * certStudents names every child who has finished, including those long gone, and certAssets
      * hands back the director's signature. Neither is anything a teacher or a parent has business

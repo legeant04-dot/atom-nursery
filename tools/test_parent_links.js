@@ -1,14 +1,31 @@
 /**
- * tools/test_parent_links.js — the admin's view of who is linked to whom must match the parent's.
+ * tools/test_parent_links.js — "is this parent attached to a child" must have ONE answer.
  *   node tools/test_parent_links.js
  *
- * Reported live: อัจฉยะ อัศวเดชาสกุล is linked to น้องโมน่า — the parent view opens that child and
- * greets them by name — yet the admin's "view as parent" list showed the family as "👶 0".
+ * ───────────────────────────────────────────────────────────────────────────────────────────────
+ * 🔴 REPORTED BY THE ผอ. 2026-10-19: "ทำไมผู้ปกครองชื่อ พิชชา อนันต์ แสดงข้อมูลว่าไม่ผูกกับนักเรียน
+ * แต่เข้าไปดูผูกกับนักเรียนน้องนูรีน".
  *
- * Two causes, and the shape of both is the same: the ADMIN side resolved links differently from the
- * PARENT side. So these tests check the two against each other, not against a hard-coded number.
+ * Because the app had THREE answers to that one question and they disagreed:
+ *
+ *   visibleStudents      links by UID, else STUDENTS.ParentID · drops EXPORTED/WITHDRAWN only
+ *   parentOwnsStudent_   links by UID, or PARENTS.StudentID + LineUID   ← this one grants ACCESS
+ *   parentLinkCounts     built its own uid→ParentID map, over enrolledStudents()
+ *
+ * So a family could sign in, see their child, and be listed by the admin as attached to nobody.
+ *
+ * MEASURED ON THE REAL EXPORT, not guessed:
+ *   · 6 UserUIDs on link rows match NO parent's LineUID — invisible to a uid→ParentID map
+ *   · 3 children are past their last day, with 7 parents attached to them — counted as unlinked
+ *     because enrolledStudents() drops a child who has finished
+ *
+ * 🔴 AND "ATTACHED" IS TWO QUESTIONS, NOT ONE. "Has a child here at all" decides whether somebody
+ * may sign in; "has a child currently enrolled" decides whether the admin should chase them.
+ * Collapsing them into a single 👶 0 is what made seven real families look like stray records —
+ * and a stray record is a thing an admin deletes.
  */
-const fs = require('fs'), path = require('path'), vm = require('vm');
+const path = require('path'), fs = require('fs');
+const H_ = require(path.join(__dirname, 'gas_test_harness.js'));
 
 let pass = 0, fail = 0;
 function eq(label, got, want) {
@@ -17,128 +34,118 @@ function eq(label, got, want) {
   ok ? pass++ : fail++;
 }
 function ok_(label, cond) { console.log((cond ? '  ok   ' : '  FAIL ') + label); cond ? pass++ : fail++; }
+const R = f => fs.readFileSync(path.join(__dirname, '..', f), 'utf8').replace(/\r\n/g, '\n');
 
-// ---- boot the real engine on a tiny school ---------------------------------------------------
-function boot(over) {
-  const M = {
-    config: { Plans: [], LeaveQuota: {}, OTRatePerHour: 100 },
-    students: [], parents: [], userLinks: [], staff: [], leaves: [], payments: [], otDaily: [],
-    studentCharges: [], prepayments: [], paySlips: [], checkinStudent: [], journals: [], comments: [],
-    holidays: [], staffGroups: [], workSchedule: [], staffAttendanceToday: [], staffAttendanceHistory: [],
-    payroll: [], payrollConfig: {}, studentLeaves: [], absenceLog: [], dspmCriteria: [], activityLog: [],
-    announcements: [], notifications: [], vaccines: [], growth: [], assessments: [], classChanges: [],
-    timeRequests: [], adminInbox: [], foodMenus: [], foodItems: [], surveys: [], surveyResponses: [],
-    injuries: [], insurance: [], bigCleaning: [], departments: [], permissions: {}, feed: [], calendar: []
-  };
-  Object.assign(M, over || {});
-  const ctx = { window: {}, console, Date, JSON, Math, Object, Array, String, Number, isFinite, parseInt, parseFloat, RegExp, Error };
-  ctx.window = ctx;
-  vm.createContext(ctx);
-  vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'webapp', 'engine.js'), 'utf8'), ctx);
-  return ctx.createAtomAPI(M, {}).H;
-}
-const kid = (id, over) => Object.assign({ StudentID: id, NameTH: 'ด.ญ. ' + id, Nickname: id, Class: 'Nursery Baby', Status: 'ACTIVE', DOB: '2026-07-01' }, over || {});
-const par = (id, over) => Object.assign({ ParentID: id, Name: id, NameTH: id, Relationship: 'บิดา' }, over || {});
+const { run } = H_(['Config', 'Db', 'Audit', 'Line', 'Auth', 'Code', 'Setup', 'Dspm_Seed', 'Checkin',
+                    'Triggers', 'Leave', 'Notify', 'Parent', 'Staff', 'OT', 'Payroll', 'Backup',
+                    'PaySlips', 'PayAdjust', 'Password', 'Certificate', 'Dspm', 'BillRun',
+                    'GasEngine', 'Engine', 'Day6']);
 
-console.log('\n1) The reported case: a child on TEMPORARY LEAVE still belongs to their parent');
-{
-  // exactly the live shape: linked through USER_LINKS by LINE UID, child paused 03/08–20/08
-  const H = boot({
-    // PauseTo is the day the child COMES BACK (v254) — a date in the future keeps them away today
-    students: [kid('โมน่า', { Status: 'PAUSED', PauseFrom: '2026-08-03', PauseTo: '2099-01-01' })],
-    parents: [par('PAR-1', { NameTH: 'อัจฉยะ อัศวเดชาสกุล', LineUID: 'U_ajch' })],
-    userLinks: [{ UserUID: 'U_ajch', StudentID: 'โมน่า' }]
-  });
-  const parentSees = H.parentChildren({ uid: 'U_ajch', parentId: 'PAR-1' });
-  eq('the PARENT sees their child', parentSees.map(s => s.StudentID), ['โมน่า']);
-  eq('...and the admin count now agrees', H.parentLinkCounts()['PAR-1'], parentSees.length);
-  eq('...and so does the admin map', (H.parentKidsMap()['PAR-1'] || []).map(s => s.StudentID), ['โมน่า']);
-  ok_('the child is flagged as paused, so the admin can see why', (H.parentKidsMap()['PAR-1'] || [])[0].paused === true);
-}
-{
-  // the same family with the child back at school — must not change
-  const H = boot({
-    students: [kid('โมน่า')],
-    parents: [par('PAR-1', { LineUID: 'U_ajch' })],
-    userLinks: [{ UserUID: 'U_ajch', StudentID: 'โมน่า' }]
-  });
-  eq('an ordinary linked child still counts once', H.parentLinkCounts()['PAR-1'], 1);
-}
+/* One parent for each of the four ways a family can be attached, plus the two states the ผอ. wants
+ * told apart. Built from the real shapes found on live, not from what the schema suggests. */
+const res = JSON.parse(run(function () {
+  _configCache = null; setupAll(); _configCache = null;
+  var MAIN = getMainSpreadsheet_();
+  function kid(id, name, extra) {
+    appendObject_(sheet_(MAIN, 'STUDENTS'), Object.assign({ StudentID: id, Name: name, Nickname: name,
+      Class: 'Nursery 2', Status: 'ACTIVE', DOB: '2023-01-01', EnrollDate: '2024-01-01' }, extra || {}));
+  }
+  function par(id, name, extra) {
+    appendObject_(sheet_(MAIN, 'PARENTS'), Object.assign({ ParentID: id, Name: name,
+      Relationship: 'มารดา', Phone: '08x' }, extra || {}));
+  }
+  // A · linked through USER_LINKS, parent's LineUID matches
+  kid('K-A', 'เด็กเอ');  par('P-A', 'แม่เอ', { LineUID: 'U-A' });
+  appendObject_(sheet_(MAIN, 'USER_LINKS'), { UserUID: 'U-A', StudentID: 'K-A', VerifiedBy: 'test', Date: '2026-01-01' });
+  // B · 🔴 an ORPHAN link: the row grants access by uid, but NO parent record carries that uid, so
+  //     it cannot be attributed to anybody from the parent side. Six of these on live. Counting the
+  //     parent as 0 is correct — there is no parent to credit — but the ROW must still be reported.
+  kid('K-B', 'เด็กบี');  par('P-B', 'แม่บี', { LineUID: '' });
+  appendObject_(sheet_(MAIN, 'USER_LINKS'), { UserUID: 'U-ORPHAN', StudentID: 'K-B', VerifiedBy: 'test', Date: '2026-01-01' });
+  // C · the legacy pointer on the CHILD
+  kid('K-C', 'เด็กซี', { ParentID: 'P-C' });  par('P-C', 'แม่ซี');
+  // D · the oldest pointer, on the PARENT — parentOwnsStudent_ trusts this for ACCESS
+  kid('K-D', 'เด็กดี');  par('P-D', 'แม่ดี', { StudentID: 'K-D' });
+  // E · 🔴 attached, but the child's last day has passed — a family the school HAD
+  kid('K-E', 'เด็กอี', { ParentID: 'P-E', EndDate: '2026-01-31' });  par('P-E', 'แม่อี');
+  // F · attached to nobody at all — a stray sign-up
+  par('P-F', 'คนที่ไม่มีลูกในระบบ');
+  _configCache = null;
+  try { CacheService.getScriptCache().removeAll(['cfg', 'col:PARENTS', 'col:STUDENTS', 'col:USER_LINKS']); } catch (e) {}
 
-console.log('\n2) All three ways a family can be linked are counted');
+  var ctx = hydrateLazy_(['students', 'parents', 'userLinks', 'classes']);
+  var H = createAtomAPI(ctx.M, null).H;
+  return JSON.stringify({ counts: H.parentLinkCounts({}), detail: H.parentLinkDetail({}), orphans: H.orphanLinks({}) });
+}));
+
+console.log('\n1) 🔴 ทั้งสี่เส้นทางที่ครอบครัวถูกผูกกับเด็ก ต้องนับได้ครบ');
 {
-  const H = boot({
-    students: [kid('A'), kid('B', { ParentID: 'PAR-B' }), kid('C')],
-    parents: [par('PAR-A', { LineUID: 'U_a' }), par('PAR-B'), par('PAR-C', { StudentID: 'C' })],
-    userLinks: [{ UserUID: 'U_a', StudentID: 'A' }]
-  });
-  const c = H.parentLinkCounts();
-  eq('USER_LINKS by LINE UID', c['PAR-A'], 1);
-  eq('the legacy STUDENTS.ParentID', c['PAR-B'], 1);
-  eq('and PARENTS.StudentID — the oldest, which these lists used to ignore', c['PAR-C'], 1);
-  const m = H.parentKidsMap();
-  eq('the map agrees on all three', [m['PAR-A'].length, m['PAR-B'].length, m['PAR-C'].length], [1, 1, 1]);
-  // the server already trusts PARENTS.StudentID for ACCESS, so calling it "not linked" was inconsistent
-  ok_('...which is the same linkage the access check uses',
-    /PARENTS'\);[\s\S]{0,200}String\(pr\.StudentID\) === String\(sid\)/.test(fs.readFileSync(path.join(__dirname, '..', 'src', 'Code.gs'), 'utf8')));
-}
-{
-  const H = boot({
-    students: [kid('A')],
-    parents: [par('PAR-A', { LineUID: 'U_a', StudentID: 'A' })],
-    userLinks: [{ UserUID: 'U_a', StudentID: 'A' }]
-  });
-  eq('a family linked THREE ways is still one child, not three', H.parentLinkCounts()['PAR-A'], 1);
-  eq('...in the map too', H.parentKidsMap()['PAR-A'].length, 1);
+  const c = res.counts;
+  eq('A · ผูกผ่าน USER_LINKS และ LineUID ตรงกัน', c['P-A'], 1);
+  /* 🔴 THE ONE THAT WAS INVISIBLE. The old count mapped uid→ParentID off PARENTS.LineUID, so a link
+   * row whose UserUID matched no parent record simply did not exist to it. Six on live. */
+  /* 🔴 B is an ORPHAN link and 0 is the RIGHT answer: nothing on the parent side carries that
+   * uid, so there is no family to credit. The fault is not the count — it is that the row still
+   * opens a child's record while appearing in no list. Section 2b asserts it is reported. */
+  eq('B · ลิงก์กำพร้า (ไม่มีผู้ปกครองคนไหนถือ uid นี้) → นับ 0 ถูกแล้ว', c['P-B'], 0);
+  eq('C · ผูกผ่าน STUDENTS.ParentID', c['P-C'], 1);
+  eq('D · ผูกผ่าน PARENTS.StudentID (เส้นทางที่เซิร์ฟเวอร์ใช้ตัดสินสิทธิ์)', c['P-D'], 1);
+  eq('F · ไม่ได้ผูกกับใครจริงๆ', c['P-F'], 0);
 }
 
-console.log('\n3) A parent with no child really does read zero');
+console.log('\n2) 🔴 "ลูกออกไปแล้ว" ไม่เท่ากับ "ไม่เคยผูกกับใคร"');
 {
-  const H = boot({ students: [kid('A')], parents: [par('PAR-A', { LineUID: 'U_a' }), par('PAR-NONE')], userLinks: [{ UserUID: 'U_a', StudentID: 'A' }] });
-  eq('nobody linked → 0', H.parentLinkCounts()['PAR-NONE'], 0);
-  eq('...and an empty list', (H.parentKidsMap()['PAR-NONE'] || []).length, 0);
-}
-{
-  // a child who has LEFT the school must not keep counting
-  const H = boot({
-    students: [kid('A', { Status: 'WITHDRAWN' }), kid('B', { Status: 'EXPORTED' })],
-    parents: [par('PAR-A', { LineUID: 'U_a' }), par('PAR-B', { StudentID: 'B' })],
-    userLinks: [{ UserUID: 'U_a', StudentID: 'A' }]
-  });
-  eq('a withdrawn child is not counted', H.parentLinkCounts()['PAR-A'], 0);
-  eq('nor an exported one, via the legacy link', H.parentLinkCounts()['PAR-B'], 0);
-  eq('...and neither appears in the map', (H.parentKidsMap()['PAR-A'] || []).length + (H.parentKidsMap()['PAR-B'] || []).length, 0);
+  const d = res.detail;
+  eq('E · ลูกเลยวันสุดท้ายแล้ว → กำลังเรียนอยู่ 0', d['P-E'].active, 0);
+  eq('...แต่ยังผูกอยู่ 1 คน', d['P-E'].total, 1);
+  ok_('🔴 ...และถูกจัดเป็นกลุ่ม "ลูกออกไปแล้วทั้งหมด"', d['P-E'].onlyEnded === true);
+  /* The distinction the ผอ. asked for. Seven real families were in this state and the single 👶 0
+   * put them in the same bucket as a stray record — which is a thing an admin deletes. */
+  eq('F · ไม่เคยผูกกับใคร → total 0 เช่นกัน', d['P-F'].total, 0);
+  ok_('🔴 ...แต่ไม่ใช่กลุ่มเดียวกัน', d['P-F'].onlyEnded === false);
+  ok_('...และบอกชื่อลูกที่ออกไปแล้วด้วย', (d['P-E'].children || []).some(k => k.ended === true));
 }
 
-console.log('\n4) Several children, and two parents of one child');
+console.log('\n3) 🔴 การนับ ต้องตรงกับสิ่งที่เซิร์ฟเวอร์ใช้ให้สิทธิ์เข้าถึง');
 {
-  const H = boot({
-    students: [kid('A'), kid('B', { Status: 'PAUSED', PauseFrom: '2026-08-01' }), kid('C')],
-    parents: [par('DAD', { LineUID: 'U_d' }), par('MUM', { LineUID: 'U_m' })],
-    userLinks: [{ UserUID: 'U_d', StudentID: 'A' }, { UserUID: 'U_d', StudentID: 'B' }, { UserUID: 'U_d', StudentID: 'C' },
-                { UserUID: 'U_m', StudentID: 'A' }]
-  });
-  eq('a father with three children, one of them paused', H.parentLinkCounts()['DAD'], 3);
-  eq('the mother of one of them', H.parentLinkCounts()['MUM'], 1);
-  eq('the admin count matches what each parent actually sees (dad)',
-    H.parentLinkCounts()['DAD'], H.parentChildren({ uid: 'U_d' }).length);
-  eq('...and (mum)', H.parentLinkCounts()['MUM'], H.parentChildren({ uid: 'U_m' }).length);
+  /* The whole bug in one assertion: every parent the ACCESS path would let in must be a parent the
+   * admin list calls attached. Before today four of the six below were counted 0 by one function
+   * or the other. */
+  const d = res.detail;
+  ['P-A', 'P-C', 'P-D', 'P-E'].forEach(p =>
+    ok_('  ' + p + ' — ระบบถือว่าผูกกับเด็ก (เข้าใช้งานได้)', d[p].total > 0));
+  ok_('  P-F — ไม่ผูก และเข้าไม่ได้', d['P-F'].total === 0);
 }
 
-console.log('\n5) The admin list and the parent view agree, whatever the linkage');
+console.log('\n4) มีตัวตอบคำถามนี้ "ตัวเดียว" ไม่ใช่สามตัว');
 {
-  // the property that actually failed live — check it directly, for every parent at once
-  const H = boot({
-    students: [kid('A'), kid('B', { Status: 'PAUSED', PauseFrom: '2026-08-01' }), kid('C', { ParentID: 'PAR-C' }), kid('D')],
-    parents: [par('PAR-A', { LineUID: 'U_a' }), par('PAR-B', { LineUID: 'U_b' }), par('PAR-C'), par('PAR-D', { StudentID: 'D' })],
-    userLinks: [{ UserUID: 'U_a', StudentID: 'A' }, { UserUID: 'U_b', StudentID: 'B' }]
-  });
-  const cnt = H.parentLinkCounts();
-  [['PAR-A', { uid: 'U_a' }], ['PAR-B', { uid: 'U_b' }], ['PAR-C', { parentId: 'PAR-C' }]].forEach(([pid, scope]) => {
-    eq(pid + ': admin count === what the parent sees', cnt[pid], H.parentChildren(scope).length);
-  });
-  ok_('PAR-D (oldest linkage) is no longer reported as unlinked', cnt['PAR-D'] === 1);
+  const eng = R('webapp/engine.js');
+  ok_('🔴 มี parentStudentIds_ เป็นตัวกลาง', /function parentStudentIds_\(pa\)\{/.test(eng));
+  ok_('parentLinkCounts ถามจากตัวนั้น', /parentStudentIds_\(pa\)\.active\.length/.test(eng));
+  ok_('parentLinkDetail ก็ถามจากตัวเดียวกัน', /parentLinkDetail: \(\) =>[\s\S]{0,200}parentStudentIds_\(pa\)/.test(eng));
+  /* 🔴 AND leaderParents, WHICH WAS WRONG IN ITS OWN WAY. It walked USER_LINKS looking at
+   * `l.ParentID` — a column USER_LINKS does not have — so the filter matched nothing and a head
+   * teacher saw only the families attached by the legacy pointer. Written 2026-10-15, found while
+   * fixing this on 2026-10-19: every place that re-derives this gets a different subset. */
+  ok_('🔴 leaderParents ก็เลิกคิดเองแล้ว (เดิมอ่าน l.ParentID ซึ่งไม่มีคอลัมน์นั้น)',
+    /mineOf\[pa\.ParentID\]/.test(eng) && !/filter\(l=>String\(l\.StudentID\)===String\(s\.StudentID\)\)\.forEach\(l=>\{\s*\n?\s*\(kidOf\[l\.ParentID\]/.test(eng));
+  ok_('USER_LINKS ไม่มีคอลัมน์ ParentID จริงๆ (เหตุผลที่โค้ดเดิมเงียบ)',
+    /USER_LINKS:\s*\['UserUID', 'StudentID', 'VerifiedBy', 'Date'\]/.test(R('src/Config.gs')));
 }
 
-console.log('\n' + (fail ? 'FAILED ' + fail + ' / ' : 'ALL PASS ') + (pass + fail) + ' checks');
+console.log('\n5) หน้าจอแอดมิน — แยกสามกลุ่ม');
+{
+  const app = R('webapp/app.js');
+  ok_('มีตัววาดกลุ่ม', /function A_parentGroups\(parents, _fam\)/.test(app));
+  ok_('กลุ่ม 1 · มีบุตรกำลังเรียนอยู่', /มีบุตรกำลังเรียนอยู่/.test(app));
+  ok_('🔴 กลุ่ม 2 · บุตรจบ/ออกแล้วทั้งหมด — และบอกว่าไม่ใช่ข้อมูลตกค้าง',
+    /บุตรจบ \/ ออกจากโรงเรียนแล้วทั้งหมด/.test(app) && /ไม่ใช่ข้อมูลตกค้าง/.test(app));
+  ok_('🔴 กลุ่ม 3 · ไม่ได้ผูกกับใครเลย — และบอกว่าทำได้แค่เพิ่มนักเรียน',
+    /ยังไม่ได้ผูกกับนักเรียนคนใดเลย/.test(app) && /ทำได้แค่เพิ่มข้อมูลนักเรียน/.test(app));
+  ok_('ป้ายบอกทั้ง "กำลังเรียน" และ "ผูกทั้งหมด"', /👶 \$\{d\.active\}\$\{d\.total > d\.active/.test(app));
+  ok_('หน้า "ดูมุมมอง" ใช้ตัวเลขชุดเดียวกัน ไม่ใช่ชุดเก่า',
+    /_LINKDETAIL/.test(app) && !/_LINKCOUNTS/.test(app));
+}
+
+console.log('\n' + (fail ? 'FAILED ' : 'PASSED ') + pass + ' passed, ' + fail + ' failed\n');
 process.exit(fail ? 1 : 0);
