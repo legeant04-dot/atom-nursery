@@ -58,6 +58,10 @@ var ONBOARD_SCOPE_ = {
   /* CONFIRM, not UNIVERSAL: it is a quota trade-off, and how much quota a school has is the
    * school's own circumstance. ON costs two SlipOK calls per slip and fills the amount in for the
    * parent; OFF costs one and asks them to type it. Nothing goes unverified either way. */
+  /* How long a family keeps access after their child leaves. CONFIRM, not UNIVERSAL: 30 days is
+   * this school's answer to a question every school answers differently, and it decides when a
+   * family can no longer reach a bill they may still owe. */
+  ParentAccessGraceDays:  'CONFIRM',
   SlipOK_PreCheck:        'CONFIRM',
   SlipOK_Url:             'BLOCKER',   // the school's OWN SlipOK branch
   SlipOK_ApiKey:          'BLOCKER',   // ...and its own key. Never shared, never inherited.

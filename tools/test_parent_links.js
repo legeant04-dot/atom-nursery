@@ -147,5 +147,61 @@ console.log('\n5) หน้าจอแอดมิน — แยกสามก
     /_LINKDETAIL/.test(app) && !/_LINKCOUNTS/.test(app));
 }
 
+console.log('\n6) 🚪 ประตูปิดเองหลังลูกออกไปแล้ว 30 วัน (ผอ. เลือกแบบ B)');
+{
+  /* 🔴 NOT ON THE LAST DAY, AND THAT IS THE DECISION. The final month's bill is usually still open
+   * when a child leaves, the certificate comes afterwards, and the growth history is the family's
+   * too — cutting access on the leaving date would lock a family out of a bill they still owe. So
+   * the record stays reachable for a grace period and then closes by itself, with nobody having to
+   * remember to do it. */
+  const g = JSON.parse(run(function () {
+    _configCache = null; setupAll(); _configCache = null;
+    var MAIN = getMainSpreadsheet_();
+    function days(n){ var d=new Date(); d.setDate(d.getDate()+n); return dateStr_(d); }
+    // three children: still here · left 5 days ago (inside the window) · left 40 days ago (closed)
+    [['G-HERE',''],['G-IN',days(-5)],['G-OUT',days(-40)]].forEach(function(r){
+      appendObject_(sheet_(MAIN,'STUDENTS'),{StudentID:r[0],Name:r[0],Nickname:r[0],Class:'Nursery 2',
+        Status:'ACTIVE',DOB:'2023-01-01',EnrollDate:'2024-01-01',ParentID:'PP-'+r[0],EndDate:r[1]});
+      appendObject_(sheet_(MAIN,'PARENTS'),{ParentID:'PP-'+r[0],Name:'แม่ '+r[0],LineUID:'U-'+r[0]});
+      appendObject_(sheet_(MAIN,'USER_LINKS'),{UserUID:'U-'+r[0],StudentID:r[0],VerifiedBy:'t',Date:'2024-01-01'});
+    });
+    _configCache = null;
+    try { CacheService.getScriptCache().removeAll(['cfg','col:STUDENTS','col:PARENTS','col:USER_LINKS']); } catch(e){}
+    var ctx = hydrateLazy_(['students','parents','userLinks','classes','studentTerms']);
+    var H = createAtomAPI(ctx.M, null).H;
+    var out = {};
+    ['G-HERE','G-IN','G-OUT'].forEach(function(id){
+      out[id] = H.parentChildren({ uid:'U-'+id, parentId:'PP-'+id, role:'Parent' }).length;
+    });
+    // ...and the LIVE route, which is the gate a request naming a studentId goes through
+    out.liveHere = parentAccessClosed_('G-HERE');
+    out.liveIn   = parentAccessClosed_('G-IN');
+    out.liveOut  = parentAccessClosed_('G-OUT');
+    out.owns     = parentOwnsStudent_('U-G-OUT','G-OUT');
+    return JSON.stringify(out);
+  }));
+  eq('เด็กที่ยังเรียนอยู่ — ครอบครัวเห็นตามปกติ', g['G-HERE'], 1);
+  eq('🔴 ออกไป 5 วัน (ยังในช่วงผ่อนผัน) — ยังเข้าดูได้ เคลียร์บิลงวดสุดท้ายได้', g['G-IN'], 1);
+  eq('🔴 ออกไป 40 วัน — ประตูปิดแล้ว', g['G-OUT'], 0);
+  /* 🔴 BOTH HALVES, because the live route is the one the school runs and a family past the window
+   * could otherwise still reach one child BY ID while no list would show it to them — the same
+   * "server says yes, screen says no" split that has cost this project three separate bugs. */
+  eq('เส้นทางที่รันจริง — ยังเรียนอยู่: ไม่ปิด', g.liveHere, false);
+  eq('...ในช่วงผ่อนผัน: ไม่ปิด', g.liveIn, false);
+  eq('...พ้นช่วงผ่อนผัน: ปิด', g.liveOut, true);
+  eq('🔴 ...และ parentOwnsStudent_ ปฏิเสธด้วย (ไม่ใช่แค่ไม่แสดงในรายการ)', g.owns, false);
+  const cfgGs = R('src/Config.gs'), eng = R('webapp/engine.js');
+  ok_('จำนวนวันตั้งค่าได้ ไม่ได้ฝังไว้ในโค้ด', /\['ParentAccessGraceDays', '30'\]/.test(cfgGs));
+  /* 🔴 DERIVED, NOT STORED. A flag would need a scheduled job to set it, and a family's access
+   * would then depend on whether that job ran — the same shape as the SlipOK watch that was never
+   * installed, except this one decides whether somebody can reach their own child's record. */
+  ok_('🔴 คำนวณจาก EndDate ทุกครั้ง ไม่ได้เขียนธงลงชีต', /const parentAccessUntil_ = \(s\) =>/.test(eng));
+  ok_('ช่วงซัมเมอร์เปิดประตูกลับ (เด็กกลับมาอยู่ที่โรงเรียนจริง)', /STUDENT_TERMS/.test(R('src/Code.gs')));
+  ok_('ปฏิเสธตั้งแต่ตอนเข้าสู่ระบบ พร้อมบอกให้ติดต่อโรงเรียน',
+    /ACCESS_ENDED/.test(R('src/Auth.gs')) && /กรุณาติดต่อทางโรงเรียนโดยตรง/.test(R('src/Auth.gs')));
+  ok_('หน้าแอดมินบอกวันที่ประตูจะปิดของแต่ละครอบครัว',
+    /เข้าใช้ได้ถึง/.test(R('webapp/app.js')) && /ปิดการเข้าใช้แล้ว/.test(R('webapp/app.js')));
+}
+
 console.log('\n' + (fail ? 'FAILED ' : 'PASSED ') + pass + ' passed, ' + fail + ' failed\n');
 process.exit(fail ? 1 : 0);

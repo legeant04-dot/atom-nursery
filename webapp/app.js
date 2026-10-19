@@ -131,7 +131,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.454'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.455'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -1250,8 +1250,15 @@
       + grp('🎓', EN() ? 'All their children have left' : 'บุตรจบ / ออกจากโรงเรียนแล้วทั้งหมด',
           EN() ? 'Still attached to a child who has left — the record and the final bill stay reachable. This is <b>not</b> a stray record.'
                : 'ยังผูกอยู่กับนักเรียนที่ออกไปแล้ว · ข้อมูลและบิลงวดสุดท้ายยังเปิดดูได้ — <b>ไม่ใช่ข้อมูลตกค้าง</b>', g2,
+          /* 🚪 ...and WHEN the door closes for this family, per child. Shown before it happens, so
+           * the admin learns it here rather than from a parent who cannot sign in. A window that
+           * has already closed says so in red — that family is now locked out and anything they
+           * still owe has to be collected another way. */
           x => { const ks = (det(x).children || []); return ks.length
-            ? `<br><small style="color:var(--warn)">🎓 ${ks.map(k => esc(k.nick || k.name)).join(' · ')}</small>` : ''; })
+            ? `<br><small style="color:var(--warn)">🎓 ${ks.map(k => esc(k.nick || k.name)
+                + (k.accessClosed ? ` <b style="color:var(--bad)">· ${EN() ? 'access closed' : 'ปิดการเข้าใช้แล้ว'}</b>`
+                  : k.accessUntil ? ` <span class="muted">· ${EN() ? 'access until' : 'เข้าใช้ได้ถึง'} ${esc(ddmmyyyy(k.accessUntil))}</span>` : '')).join(' · ')}</small>`
+            : ''; })
       + grp('⚠️', EN() ? 'Not linked to any child' : 'ยังไม่ได้ผูกกับนักเรียนคนใดเลย',
           EN() ? 'In the system but attached to nobody. They can only add a child to connect — the same condition as a new sign-up.'
                : 'มีข้อมูลในระบบแต่ไม่ได้ผูกกับนักเรียนคนไหน · <b>ทำได้แค่เพิ่มข้อมูลนักเรียนเพื่อเชื่อมต่อ</b> เหมือนผู้สมัครใหม่', g3);

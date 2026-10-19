@@ -715,6 +715,29 @@ function handleAuth(payload) {
         _home = engineDispatch_('parentHomeCore', { uid: uid, parentId: par.ParentID, role: ROLES.PARENT });
       }
     } catch (e) { _home = null; }
+    /* 🚪 EVERY CHILD HAS LEFT AND THE GRACE PERIOD HAS RUN OUT (ผอ., 2026-10-19 — option B).
+     *
+     * Refused HERE, at the door, rather than letting them in to an empty home screen. A parent who
+     * signs in and finds nothing has been told nothing: they do not know whether the app is broken,
+     * whether their link was removed by mistake, or whether this is the school's decision. The
+     * refusal names the date and says who to talk to.
+     *
+     * Deliberately checked AFTER the home screen is assembled, so a family still inside the window
+     * pays nothing for this. And only when they have children we can see at all — a parent with no
+     * children yet is a new sign-up, which is a different state with its own screen. */
+    try {
+      var _kids = (_home && _home.students) || [];
+      if (!_kids.length && typeof parentAccessClosed_ === 'function') {
+        var _all = readObjects_(sheet_(getMainSpreadsheet_(), 'USER_LINKS'))
+          .filter(function (l) { return String(l.UserUID) === String(uid); })
+          .map(function (l) { return String(l.StudentID); });
+        if (par.StudentID) _all.push(String(par.StudentID));
+        if (_all.length && _all.every(function (sid) { return parentAccessClosed_(sid); })) {
+          throw apiError_('ACCESS_ENDED',
+            'ข้อมูลของบุตรหลานสิ้นสุดการเข้าใช้งานแล้ว — หากต้องการเอกสารหรือมีค่าใช้จ่ายค้างชำระ กรุณาติดต่อทางโรงเรียนโดยตรง');
+        }
+      }
+    } catch (e) { if (e && e.apiCode === 'ACCESS_ENDED') throw e; }
     return {
       userId: par.ParentID, role: ROLES.PARENT, linkedId: par.ParentID, status: USER_STATUS.ACTIVE,
       mustChangePassword: false,

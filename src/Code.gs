@@ -717,7 +717,51 @@ function staffRowById_(staffId) {
       function (s) { return String(s.StaffID) === String(staffId); });
   } catch (e) { return null; }    // never let a lookup failure lock the whole school out
 }
+/* 🚪 HAS THIS FAMILY'S WINDOW CLOSED? (ผอ., 2026-10-19 — option B.)
+ *
+ * A record stays reachable for ParentAccessGraceDays (default 30) after the child's last day, then
+ * closes by itself: the final bill, the certificate and the growth history are usually still wanted
+ * after a child leaves, and cutting access on the leaving date would lock a family out of a bill
+ * they still owe.
+ *
+ * 🔴 CHECKED HERE TOO, not only in the engine's visibleStudents. This is the gate the LIVE route
+ * uses for a request that names a studentId, so a family past the window could otherwise still
+ * reach one child by id even though no list would show it to them — the same "the server says yes
+ * while the screen says no" split that has cost this project three separate bugs.
+ */
+function parentAccessClosed_(sid) {
+  try {
+    var st = findObject_(sheet_(getMainSpreadsheet_(), 'STUDENTS'),
+      function (x) { return String(x.StudentID) === String(sid); });
+    var end = st ? String(decodeCell_(st.EndDate) || '').slice(0, 10) : '';
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(end)) return false;          // no last day → nothing to close
+    var today = dateStr_(new Date());
+    if (today <= end) return false;                              // still here
+    /* 🔴 A SUMMER TERM REOPENS IT — the child is here again, whatever the graduation says, and a
+     * family whose child is in the building must be able to open the app. Read from STUDENT_TERMS
+     * directly rather than borrowing the engine's termOn_: this file is the one that runs live, and
+     * a second copy of the rule is better than a cross-layer call on the auth path. `To` is the day
+     * AFTER the last one, matching how the engine bounds a term. */
+    try {
+      var terms = readObjects_(sheet_(getMainSpreadsheet_(), 'STUDENT_TERMS'));
+      var onTerm = terms.some(function (t) {
+        if (String(t.StudentID) !== String(sid)) return false;
+        if (String(t.Status || '').toUpperCase() === 'CANCELLED') return false;
+        var f = String(decodeCell_(t.From) || '').slice(0, 10), to = String(decodeCell_(t.To) || '').slice(0, 10);
+        return /^\d{4}-\d{2}-\d{2}$/.test(f) && today >= f && (!to || today < to);
+      });
+      if (onTerm) return false;
+    } catch (e) {}
+    var grace = parseInt(getConfig_('ParentAccessGraceDays', '30'), 10);
+    if (!isFinite(grace) || grace < 0) grace = 30;
+    var until = new Date(end + 'T00:00:00');
+    until.setDate(until.getDate() + grace);
+    return today > dateStr_(until);
+  } catch (e) { return false; }                                  // unreadable → behave as before
+}
+
 function parentOwnsStudent_(uid, sid) {
+  if (parentAccessClosed_(sid)) return false;
   var links = sheet_(getMainSpreadsheet_(), 'USER_LINKS');
   if (findObject_(links, function (l) { return String(l.UserUID) === String(uid) && String(l.StudentID) === String(sid); })) return true;
   var parents = sheet_(getMainSpreadsheet_(), 'PARENTS');                 // legacy ParentID linkage
