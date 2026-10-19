@@ -141,8 +141,12 @@ console.log('\n2) "ทุกชั้น" IS A VALUE, NOT FIVE TICKS');
 console.log('\n3) NO CLASS AT ALL IS AN ANSWER');
 {
   eq('clearing every tick clears both columns', res.koiNone, { dept: '', classes: '' });
+  /* 🔴 THE CARD AND THE BANNER ABOVE IT ASK ONE PREDICATE (v456). They used to each carry their own
+   * copy of the test, and the copies disagreed about '*': ครูจอย was listed as having no class while
+   * her own card showed ทุกชั้น ticked. So this now asserts the SHARING, not the expression — the
+   * behaviour itself is exercised for real in test_view_as.js §1. */
   ok_('...and the card says so rather than looking like a save that failed',
-    /const none=!all && !deps\.some\(dep=>mine\.indexOf\(dep\)>=0\);/.test(app) && /ยังไม่ได้จัดชั้น/.test(app));
+    /const none=noClass\(s\);/.test(app) && /const noClass = s =>/.test(app) && /ยังไม่ได้จัดชั้น/.test(app));
 }
 
 console.log('\n4) TWO TABS, BECAUSE THEY ARE TWO DIFFERENT PROBLEMS');

@@ -98,7 +98,10 @@ console.log('\n2) 🔴 the session decides who filed it, never the payload');
   /* 🔴 ORDER. The stamp is useless if it runs after the line that returns an Admin's payload
    * untouched — which is the only case it exists for. */
   const at = codeGs.indexOf("if (action === 'studentAbsence')");
-  const adminReturn = codeGs.indexOf("if (sess.role === 'Admin' || sess.role === ROLES.OBSERVER) return payload;");
+  /* matched on the CONDITION, not on the whole line: the admin free pass grew a body in v456 (the
+   * view-as gate) and this assertion failed for no reason anybody could act on. An assertion
+   * written as a claim survives; one written as a line of source is a copy of that line. */
+  const adminReturn = codeGs.indexOf("if (sess.role === 'Admin' || sess.role === ROLES.OBSERVER)");
   ok_('🔴 ...and it is stamped BEFORE the Admin payload is returned untouched', at > 0 && adminReturn > at);
 
   /* ...and it does NOT return early itself: a parent must still have parentId forced onto them and a

@@ -74,7 +74,8 @@ console.log('\n1) Observer — sees everything, changes nothing');
   ok_('the refusal happens before the handler can run',
     code.indexOf("String(sess.role) === 'Observer'") < code.indexOf('return withWriteLock_'));
   ok_('it may READ the admin-only screens', /sess\.role !== ROLES\.OBSERVER\) throw apiError_\('NO_PERMISSION'/.test(code));
-  ok_('...and open any record, like an admin', /sess\.role === 'Admin' \|\| sess\.role === ROLES\.OBSERVER\) return payload/.test(code));
+  // the free pass grew a body in v456 (the view-as gate) — match the CONDITION, which is the claim
+  ok_('...and open any record, like an admin', /if \(sess\.role === 'Admin' \|\| sess\.role === ROLES\.OBSERVER\)/.test(code));
   ok_('the engine lets it see what an admin sees', /const adminLike_ = s =>[\s\S]{0,120}Role==='Observer'/.test(eng));
   eq('no inline admin check was left behind', (eng.match(/PositionLevel!=='Admin'&&\w+\.Role!=='Admin'/g) || []).length, 0);
   ok_('thirty-five checks now go through the one helper', (eng.match(/!adminLike_\(/g) || []).length >= 30);
