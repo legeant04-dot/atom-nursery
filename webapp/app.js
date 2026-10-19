@@ -131,7 +131,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.455'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.456'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -11085,8 +11085,21 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
       _ended:!!s.ended, _notStarted:!!s.notStarted}); };
   window.A_viewAsParent=(btn)=>{ const m=btn.closest('.modal'); const pid=m.querySelector('#va_parent').value; if(!pid){toast(EN()?'Pick a parent':'เลือกผู้ปกครองก่อน');return;}
     const p=(A_CACHE.parents||[]).find(x=>String(x.ParentID)===String(pid))||{}; m.remove();
-    // uid = their LINE UID so visibleStudents returns EVERY linked child (multi-child view); parentId for legacy links
-    _enterViewAs({role:'Parent',_roleKey:'Parent',parentId:pid,uid:p.LineUID||pid,nameEN:vaLabel(p,true),nameTH:vaLabel(p,false)}); };
+    /* uid = their LINE UID so visibleStudents returns EVERY linked child (multi-child view);
+     * parentId for legacy links.
+     *
+     * 🔴 AND BLANK WHEN THEY HAVE NO LINE ID — not the ParentID (ผอ., 2026-10-19: "ความเป็นจริงใน
+     * การเข้าไปดูมุมมองคือ ต้องการเห็นเหมือนกับผู้ปกครอง เป๊ะๆ ด้วยเงื่อนไขเดียวกัน").
+     *
+     * The fallback was `p.LineUID||pid`, and on the real data THREE USER_LINKS rows carry a
+     * ParentID in their UserUID column instead of a LINE id. For those families the preview looked
+     * up links by a key no sign-in can ever present, and showed the admin a child the family
+     * themselves could not reach. A preview that is more generous than the real thing is worse than
+     * no preview: it is the admin confirming, with their own eyes, something that is not true. */
+    const d=(window._LINKDETAIL||{})[pid]||{};
+    const closed=!!(d.children&&d.children.length&&d.children.every(k=>k.accessClosed));
+    _enterViewAs({role:'Parent',_roleKey:'Parent',parentId:pid,uid:p.LineUID||'',_accessClosed:closed,
+      nameEN:vaLabel(p,true),nameTH:vaLabel(p,false)}); };
   function _enterViewAs(ctx){ if(!VIEW_AS_BACKUP) VIEW_AS_BACKUP=USER; USER=Object.assign({_viewAs:true},ctx); setHeader(); GO('home'); _viewAsBar(); }
   // ...and cleared on the way out, or the admin's own screens would stay closed behind them
   window.A_exitViewAs=()=>{ if(window.__atomSetEnded) __atomSetEnded(false);
@@ -11101,7 +11114,8 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
     /* WHY THE SCREENS LOOK CLOSED, said on the bar itself. Without it an admin previewing somebody
        on leave sees a "ลาชั่วคราว" card and no explanation of whose state that is — theirs or the
        person's. Asked for 2026-09-22. */
-    const _state = USER._ended ? (EN()?'employment ended':'สิ้นสุดการทำงาน')
+    const _state = USER._accessClosed ? (EN()?'access closed — they can no longer sign in':'ปิดการเข้าใช้แล้ว — ผู้ปกครองรายนี้เข้าระบบไม่ได้')
+      : USER._ended ? (EN()?'employment ended':'สิ้นสุดการทำงาน')
       : USER._paused ? (EN()?'on temporary leave':'ลาชั่วคราว') + (USER._pauseTo?` ${EN()?'until':'ถึง'} ${esc(ddmmyyyy(USER._pauseTo))}`:'')
       : USER._notStarted ? (EN()?'not started yet':'ยังไม่ถึงวันเริ่มงาน')
       : USER.role==='Observer' ? (EN()?'view only':'ดูอย่างเดียว') : '';
@@ -12633,7 +12647,14 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
      * Two screens answering "has this person left?" differently is the thing that goes unnoticed
      * until one of them is wrong about a real person — the admin roster already splits "here" from
      * "สิ้นสุดการทำงานแล้ว" with staffLeft, and now so does this. */
-    const active=(staff||[]).filter(s=>!staffLeft(s));
+    /* 🔴 ...AND NOT AN ADMIN OR AN OBSERVER EITHER (ผอ., 2026-10-19, second report).
+     *
+     * The leavers were taken out of this screen and the Admin/Observer accounts were not — they were
+     * only taken out of the clock-in switch list — so the ⚠️ warning still named them. One predicate,
+     * `staffInStructure`, now answers "does this person sit in the school's rooms-and-shifts
+     * structure at all" everywhere it is asked; two screens that answer it differently is how one of
+     * them ends up wrong about a real person. */
+    const active=(staff||[]).filter(s=>!staffLeft(s) && staffInStructure(s));
     const members=d=>active.filter(s=>String(s.Department||'')===d);
     const chip=s=>`<span class="pill info" style="margin:2px 3px 0 0">${esc(nm(s))}${nick(s)?` (${esc(nick(s))})`:''}${s.PositionLevel==='Leader'?' ⭐':''}</span>`;
     const unassigned=active.filter(s=>!s.Department||deps.indexOf(s.Department)<0);
@@ -15058,8 +15079,18 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
     // They are still employed, so this is not the leavers rule — it is the same question the daily
     // board asks: is this person at the nursery to be given a room?
     const teachers = staff.filter(s=>canClass(s) && !s.ended && !s.paused);
-    // a staff is "unassigned" if their Department is blank, '*' (all classes), or not one of the current classes
-    const unassigned = teachers.filter(s=>{ const d=depOf(s); return d===''||d==='*'|| !deps.some(dep=>inDep(s,dep)); });
+    /* 🔴 "ยังไม่ได้จัดชั้น" AND THE CARD BELOW IT MUST BE THE SAME QUESTION (ผอ., 2026-10-19).
+     *
+     * They were not. The card asked `!all && no room ticked`; this list asked `d===''||d==='*'||…`
+     * — so '*', which is the way a HEAD TEACHER is stored and means EVERY class, counted as having
+     * no class at all. ครูจอย was listed at the top of the screen as unassigned while her own card,
+     * four centimetres below, showed ทุกชั้น (หัวหน้าครู) ticked.
+     *
+     * A warning that contradicts the screen it is printed on teaches the reader to ignore warnings.
+     * One predicate now, read by both. */
+    const noClass = s => { const d=depOf(s); if(d==='*') return false;      // '*' = every class, present and future
+      return !deps.some(dep=>inDep(s,dep)); };
+    const unassigned = teachers.filter(noClass);
 
     /* ---- 👩‍🏫 THE TEACHER TAB — tick the rooms, one card per person ---------------------------
      *
@@ -15078,7 +15109,7 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
     const tick=(id,label,checked,dis)=>`<label class="orgtick${checked?' on':''}" style="display:inline-flex;align-items:center;gap:6px;border:1px solid ${checked?'var(--blue)':'var(--line)'};background:${checked?'var(--blue-bg,rgba(59,130,246,.12))':'transparent'};border-radius:999px;padding:6px 12px;margin:3px 4px 3px 0;font-size:14px;${dis?'opacity:.4;pointer-events:none':'cursor:pointer'}">
       <input type="checkbox" ${id?`id="${esc(id)}"`:''} class="orgdep" style="width:auto;margin:0" ${checked?'checked':''} ${dis?'disabled':''}/> ${esc(label)}</label>`;
     const tCard=s=>{ const d=depOf(s), all=d==='*', mine=all?[]:d.split(',').map(x=>x.trim()).filter(Boolean);
-      const none=!all && !deps.some(dep=>mine.indexOf(dep)>=0);
+      const none=noClass(s);                       // the SAME predicate the banner above counts with
       return `<div class="card" id="orgT_${esc(s.StaffID)}" data-sid="${esc(s.StaffID)}" style="padding:10px${none?';border-color:var(--warn-line);background:var(--warn-bg)':''}">
         <div style="display:flex;gap:8px;align-items:center">${personAvatar(s)}<div style="min-width:0">
           <b>${esc(dispNick(s))}</b> ${nmSub(s)?`<small class="muted">${esc(nmSub(s))}</small>`:''}
@@ -16350,7 +16381,19 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
     // Classes and departments are deliberately absent: their order is the school's (Baby, 1, 2, 3,
     // Premium), which alphabetical would scramble.
     const ROSTER = { listStaff:1, listStudents:1, listParents:1, listExportedStudents:1 };
+    /* 👁️ A PREVIEW SAYS IT IS A PREVIEW — on every request, not on the screens that remembered.
+     *
+     * An Admin session is returned UNTOUCHED by applyIdentity_ (that is what makes "ดูมุมมอง" work
+     * at all), which also means every gate the family's own session passes through is skipped. So
+     * the admin could open a child the family had been locked out of and see a working screen.
+     *
+     * Stamped HERE rather than in each screen's payload, because the gap is exactly the screens
+     * nobody remembered. The server decides what to do with it (applyIdentity_); this only tells
+     * the truth about who is asking. It cannot widen anything: an Admin already had the free pass. */
+    const _vaStamp = (payload) => (USER && USER._viewAs && USER.role === 'Parent')
+      ? Object.assign({}, payload || {}, { __viewAs: 'Parent' }) : payload;
     window.api = function (action, payload, opts) {
+      payload = _vaStamp(payload);
       if (ROSTER[action]) return _api(action, payload, opts).then(r => Array.isArray(r) ? sortPeople(r) : r);
       // a class roster is a list of children too, just wrapped in the class it belongs to
       if (action === 'classList') return _api(action, payload, opts)

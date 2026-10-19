@@ -560,7 +560,32 @@ function applyIdentity_(action, payload, sess) {
   }
   // Admin is fully trusted: may target ANY staff/student/parent (manage everyone + "view as" any role).
   // Observer is shaped the same way so it can OPEN any record; it simply cannot change one.
-  if (sess.role === 'Admin' || sess.role === ROLES.OBSERVER) return payload;
+  if (sess.role === 'Admin' || sess.role === ROLES.OBSERVER) {
+    /* 👁️ ...EXCEPT WHILE PREVIEWING A FAMILY, WHERE THE POINT IS TO SEE WHAT THEY SEE.
+     *
+     * ผอ., 2026-10-19: "ความเป็นจริงในการเข้าไปดูมุมมองคือ ต้องการเห็นเหมือนกับผู้ปกครอง เป๊ะๆ
+     * ด้วยเงื่อนไขเดียวกัน" — and it was not. The home screen already matched, because it resolves
+     * children through the same visibleStudents the family's own session uses. A route that names a
+     * studentId did not: the free pass above skipped the grace-window check, so an admin could open
+     * the record of a child whose family was locked out and come away believing the family could
+     * too.
+     *
+     * ONLY THE CLOSED DOOR IS SIMULATED HERE, not the whole parent gate. parentOwnsStudent_ decides
+     * ownership from the caller's LINE uid, and an admin previewing a family that has never signed
+     * in with LINE has no uid to offer — enforcing that would refuse every screen and teach the
+     * admin that the preview is broken rather than that the family is locked out. The closure is
+     * the thing the ผอ. asked to be able to trust, and it is a fact about the CHILD, so it holds
+     * whoever is asking.
+     *
+     * 🔴 This can only ever REFUSE. __viewAs comes from the client and an Admin session already had
+     * the free pass, so a forged flag costs its sender access and gains them nothing.
+     */
+    if (payload.__viewAs === 'Parent' && payload.studentId && parentAccessClosed_(payload.studentId)) {
+      throw apiError_('ACCESS_ENDED',
+        'ผู้ปกครองรายนี้เข้าถึงข้อมูลของนักเรียนคนนี้ไม่ได้แล้ว (พ้นกำหนดหลังออกจากโรงเรียน) — มุมมองนี้ตรงกับที่ผู้ปกครองเห็นจริง');
+    }
+    return payload;
+  }
   payload.uid = sess.uid; payload.role = sess.role;                       // overwrite — never trust client identity
   if (sess.role === ROLES.PARENT) {
     payload.parentId = sess.linkedId;
