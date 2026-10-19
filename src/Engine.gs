@@ -977,6 +977,57 @@ function createAtomAPI(M, GROWTH_STD) {
    * into a debt the family had already paid — the bill showed "ค่าเทอม 7,500 − ชำระล่วงหน้า 5,500 =
    * ค้าง 2,000". A prepaid month owes no tuition, whatever the tuition happens to be.
    */
+  /* ===== 💰 A DISCOUNT IS A DEDUCTION, NOT SOMETHING A FAMILY PAYS ===============================
+   *
+   * 🔴 REPORTED BY THE ผอ. 2026-10-19, AND IT IS A MONEY BUG. The admin's screen has offered a
+   * "− ส่วนลด" option for a long time; nothing ever subtracted what it created. A −3,500 row was
+   * swallowed twice over:
+   *
+   *     if (confirmed >= amt && amt > 0) st = 'PAID';   // amt > 0 is false → NEVER settles
+   *     Outstanding: Math.max(0, amt - confirmed)       // Math.max(0, −3500) → 0
+   *
+   * So the discount sat in "ค้างชำระ" for ever, reduced nothing, and the parent's payment screen —
+   * which lists only items with `out > 0` — dropped it entirely. The school granted a half-month
+   * discount and the family was asked for the full 11,500 instead of 8,000.
+   *
+   * THE RULE, decided by the school on 2026-10-19:
+   *   · the discount comes off the MONTH'S TOTAL (tuition + entrance fee + any other charge)
+   *   · it stops at zero and does NOT carry into the next month
+   *
+   * 🔴 WHY IT IS ALLOCATED HERE RATHER THAN SUBTRACTED AT THE TOTAL. The parent's screen lets a
+   * family tick items one at a time. A discount that only existed as a line in a sum would let
+   * somebody tick the ฿2,000 entrance fee alone against a −฿3,500 discount and owe nothing — the
+   * discount spent twice. Allocating it to the payable items ONCE, server-side, means every item
+   * carries its own already-reduced figure and any selection is consistent.
+   *
+   * Order: the tuition bill first, then the positive charges oldest-first. Deterministic, so the
+   * same month allocates the same way every time it is asked about.
+   */
+  function monthDiscount_(studentId, month){ const mm=ym(month);
+    return (M.studentCharges||[])
+      .filter(c=>String(c.StudentID)===String(studentId) && ym(c.Month)===mm && Number(c.Amount||0)<0)
+      .reduce((a,c)=>a+Math.abs(Number(c.Amount||0)),0); }
+  /** { bill: x, byCharge: {ChargeID: y}, unused: z } — how this month's discount is spent. */
+  function discountAlloc_(studentId, month){ const mm=ym(month);
+    let left=monthDiscount_(studentId, mm);
+    const out={ bill:0, byCharge:{}, unused:0, total:left };
+    if(left<=0) return out;
+    const bill=(M.payments||[]).find(b=>String(b.StudentID)===String(studentId)&&ym(b.Month)===mm);
+    if(bill){
+      /* against what the family would otherwise owe on the bill — AFTER any advance payment has
+       * already covered the tuition, or the same money would be credited twice */
+      const pre=prepayInfo_(studentId, mm);
+      const due=Math.max(0, Number(bill.Amount||0) - (pre?billTuition_(bill):0));
+      out.bill=Math.min(left, due); left-=out.bill;
+    }
+    (M.studentCharges||[])
+      .filter(c=>String(c.StudentID)===String(studentId)&&ym(c.Month)===mm&&Number(c.Amount||0)>0)
+      .sort((a,b)=>String(a.ChargeID).localeCompare(String(b.ChargeID)))
+      .forEach(c=>{ if(left<=0) return;
+        const take=Math.min(left, Number(c.Amount||0)); out.byCharge[c.ChargeID]=take; left-=take; });
+    out.unused=left;                                  // stops at zero — it does not carry forward
+    return out; }
+
   function billTuition_(b){ if(!b) return 0;
     let items=b.Items;
     if(typeof items==='string' && items){ try{ items=JSON.parse(items); }catch(e){ items=null; } }
@@ -1421,7 +1472,15 @@ function createAtomAPI(M, GROWTH_STD) {
      * it does not work a shift. If a person who genuinely clocks in ever needs admin rights, they
      * get them on a Teacher record — which is how every other school-management app does it, and
      * how this one already treats หัวหน้าครู. */
-    if(String(s.Role||'') === 'Admin') return false;
+    /* ...AND AN OBSERVER, for the same reason and by the same rule (ผอ., 2026-10-19). An Observer
+     * account reads the school's data; it has no shift, no department and no hours. It reached here
+     * only because the rule named Admin alone, so whether an Observer was "absent" depended on a
+     * flag somebody had to remember to turn off on a screen they should never have appeared on.
+     *
+     * Both roles are now also hidden from the department and clock-in screens (staffInStructure in
+     * app.js) — and that is only SAFE because the answer is settled here, on the server: hiding a
+     * switch does not change what it is set to. */
+    if(String(s.Role||'') === 'Admin' || String(s.Role||'') === 'Observer') return false;
     const raw = s.RequireCheckin;
     if(raw === true) return true;
     if(raw === false) return false;
@@ -2327,11 +2386,16 @@ function createAtomAPI(M, GROWTH_STD) {
         // advance payment covers this month's TUITION in full → credit it (extras are still billed)
         const prepay = prepayInfo_(p.studentId, bm);
         const prepaidTuition = prepay ? billTuition_(b) : 0;
-        const items2 = prepaidTuition>0 ? base.concat([['ค่าเทอม (ชำระล่วงหน้าแล้ว)', -prepaidTuition]]) : base;
-        const net = Math.max(0, total - prepaidTuition);              // due after the tuition credit
+        /* 💰 ...and the school's own discount for this month, the share of it that lands on the
+         * bill. See discountAlloc_: it is a DEDUCTION, never a payable item, and it is allocated
+         * once so the bill and the charges cannot both claim the same baht. */
+        const _disc = discountAlloc_(p.studentId, bm).bill;
+        const items2 = (prepaidTuition>0 ? base.concat([['ค่าเทอม (ชำระล่วงหน้าแล้ว)', -prepaidTuition]]) : base)
+          .concat(_disc>0 ? [['ส่วนลด', -_disc]] : []);
+        const net = Math.max(0, total - prepaidTuition - _disc);      // due after the credit and the discount
         const outstanding = Math.max(0, net - confirmed);
         let st = b.Status;
-        if((net>0 && outstanding===0) || (net===0 && prepaidTuition>0)) st='PAID';
+        if((net>0 && outstanding===0) || (net===0 && (prepaidTuition>0 || _disc>0))) st='PAID';
         else if(confirmed>0) st='PARTIAL';
         // receipt "ชำระ" date = the slip's ACTUAL transfer date (SlipOK transDate) when we have it
         const paidSlip=paySlips_().find(s=>s.RefKind==='bill'&&s.RefID===b.BillingID&&s.Status==='CONFIRMED'&&s.TransDate);
@@ -2342,8 +2406,23 @@ function createAtomAPI(M, GROWTH_STD) {
     // per-student extra charges (Admin) — each is its own payable item (parent pays like OT).
     studentCharges: p => M.studentCharges.filter(c=>c.StudentID===p.studentId && (!p.month||ym(c.Month)===ym(p.month)))
       .map(c=>{ const confirmed=sumSlips_('charge',c.ChargeID,['CONFIRMED']); const submitted=sumSlips_('charge',c.ChargeID,['SUBMITTED']);
-        const amt=Number(c.Amount||0); let st=c.Status||'UNPAID'; if(confirmed>=amt&&amt>0)st='PAID'; else if(confirmed>0)st='PARTIAL'; else if(submitted>0)st='PENDING_VERIFY';
-        return Object.assign({},c,{Amount:amt,Status:st,PaidConfirmed:confirmed,PendingSubmitted:submitted,Outstanding:Math.max(0,amt-confirmed)}); }),
+        const amt=Number(c.Amount||0);
+        /* 💰 A NEGATIVE ROW IS A DISCOUNT, AND A DISCOUNT IS NOT A PAYABLE ITEM (2026-10-19).
+         *
+         * It used to fall through the arithmetic below — `amt > 0` meant it could never reach
+         * 'PAID', so it sat in ค้างชำระ for ever, and Math.max(0, …) meant it reduced nothing. It
+         * is DEDUCTED from this month's items instead (discountAlloc_), so here it reports what it
+         * is: applied, nothing outstanding, nobody owes it. */
+        if(amt<0) return Object.assign({},c,{Amount:amt,Status:'DISCOUNT',IsDiscount:true,
+          PaidConfirmed:0,PendingSubmitted:0,Outstanding:0});
+        // ...and a positive charge carries the share of the discount that landed on IT
+        const disc=Number(discountAlloc_(c.StudentID, c.Month).byCharge[c.ChargeID]||0);
+        const due=Math.max(0, amt-disc);
+        let st=c.Status||'UNPAID';
+        if(confirmed>=due&&due>0)st='PAID'; else if(due===0&&disc>0)st='PAID';
+        else if(confirmed>0)st='PARTIAL'; else if(submitted>0)st='PENDING_VERIFY';
+        return Object.assign({},c,{Amount:amt,Discount:disc,NetDue:due,Status:st,
+          PaidConfirmed:confirmed,PendingSubmitted:submitted,Outstanding:Math.max(0,due-confirmed)}); }),
     addStudentCharge: p => { const c={ChargeID:nextSeqId_(M.studentCharges,'ChargeID','CH',0),StudentID:p.studentId,Month:p.month||todayLocal().slice(0,7),Label:p.label,Amount:Number(p.amount||0),Status:'UNPAID'}; M.studentCharges.push(c); return c; },
     removeStudentCharge: p => { const i=M.studentCharges.findIndex(c=>c.ChargeID===p.chargeId); if(i>=0)M.studentCharges.splice(i,1); return {ok:true}; },
     // parent pays a single extra charge (SCB QR + attach slip), like payOT

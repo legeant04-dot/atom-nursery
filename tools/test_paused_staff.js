@@ -213,10 +213,23 @@ console.log('\n4) who clocks in at all — one question, one answer');
    * on being counted absent (10, then 16) through two releases. */
   eq('...even with the box ticked, because every row has it ticked', requires({ Role: 'Admin', RequireCheckin: true }), false);
   eq('...and with the string "true" too', requires({ Role: 'Admin', RequireCheckin: 'true' }), false);
-  /* ผอ. IS NOT SPECIAL-CASED, and the report asked how it differs. It does not: Leader and Observer
-   * are treated like anyone else, so if a ผอ. is not counted it is their own flag doing it. */
+  /* ผอ. IS NOT SPECIAL-CASED BY TITLE: a Leader is treated like anyone else, so if a ผอ. is not
+   * counted it is their own flag doing it. */
   eq('a Leader is treated like anybody else', requires({ Role: 'Leader' }), true);
-  eq('...and an Observer likewise', requires({ Role: 'Observer' }), true);
+  /* 🔴 AN OBSERVER IS — CHANGED BY THE ผอ. 2026-10-19, REVERSING THE LINE THAT WAS HERE.
+   *
+   * This used to assert the opposite ("...and an Observer likewise", true). The reasoning then was
+   * that the app should not invent exemptions by role. What the school actually wanted is the same
+   * rule it already had for Admin: an Observer account READS the data — no shift, no department, no
+   * hours — so counting it absent is counting a login as a person.
+   *
+   * Recorded as a reversal rather than quietly flipped, because the old line was a decision too.
+   * It also makes it SAFE to hide the clock-in switch for these roles (staffInStructure in
+   * app.js): hiding a control does not change what it is set to, so the answer had to be settled
+   * here first. */
+  eq('🔴 ...but an Observer is not counted (ผอ. 19/10) — it reads the data, it has no shift',
+    requires({ Role: 'Observer' }), false);
+  eq('...even with the box ticked, same as an Admin', requires({ Role: 'Observer', RequireCheckin: true }), false);
 
   ok_('every reader goes through it — none left comparing to false by hand',
     !/RequireCheckin!==false/.test(engine));

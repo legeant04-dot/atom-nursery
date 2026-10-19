@@ -160,7 +160,11 @@ console.log('\n5) THE SAME THREE STATES INSIDE THE STUDENT’S OWN SCREEN');
    * One helper now answers for all three. */
   ok_('there is one helper, not three spellings', /const statePill = \(sl, status\) => \{ const p=pendAmt\(sl\);/.test(app));
   ok_('the bill pill uses it', /const _p=pendAmt\(slipsOf\('bill',bill\.BillingID\)\);/.test(app));
-  ok_('the extra charges use it', /\$\{statePill\(slipsOf\('charge',c\.ChargeID\), c\.Status\|\|'UNPAID'\)\}/.test(app));
+  /* 💰 ...for a CHARGE. A discount row has no payment state at all (2026-10-19): it is applied, not
+   * owed, so it gets a plain "หักให้แล้ว" and never a ค้างชำระ pill — which is what it used to show,
+   * because the engine could not move a negative row off UNPAID. */
+  ok_('the extra charges use it', /statePill\(slipsOf\('charge',c\.ChargeID\), c\.Status\|\|'UNPAID'\)/.test(app));
+  ok_('🔴 ...but a discount has no payment state to show', /_isDisc\s*\n?\s*\? `<span class="pill ok">/.test(app));
   ok_('the OT rows use it', /\$\{statePill\(sl, o\.Status\)\}/.test(app));
   /* ...and while it was there: those rows printed the RAW status ("PENDING_VERIFY") at a school
    * where the whole screen is otherwise Thai. */

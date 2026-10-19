@@ -131,7 +131,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.452'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.453'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -1197,6 +1197,24 @@
    * Defaults to FALSE when the school day is unknown — the fallback is "behave as before", not
    * "open the gate", because this decides whether a child may be recorded as present.
    */
+  /* 🏫 DOES THIS PERSON SIT IN THE SCHOOL'S DEPARTMENT / TIME STRUCTURE AT ALL?
+   *
+   * Asked by the ผอ. 2026-10-19: Admin and Observer were appearing in "ยังไม่ได้อยู่แผนกใด" and in
+   * the clock-in switch list. They are not teachers with a room and a shift — an Admin account
+   * manages the system and an Observer reads it — so listing them produced a permanent ⚠️ warning
+   * about people who are not missing anything, and offered a switch that decides nothing
+   * (requiresCheckin_ has ignored the flag for an Admin for a long time, and now for an Observer
+   * too).
+   *
+   * 🔴 THE SERVER DECIDES, THIS ONLY STOPS DRAWING. Hiding a switch does not change what it is set
+   * to — that is why requiresCheckin_ was made explicit about both roles first. If this predicate
+   * were the only thing standing between an Admin and being marked absent, it would be decoration.
+   */
+  const staffInStructure = (s) => {
+    const r = String((s && s.Role) || ''), lvl = String((s && s.PositionLevel) || '');
+    return r !== 'Admin' && r !== 'Observer' && lvl !== 'Admin' && lvl !== 'Observer';
+  };
+
   const _expectedToday = (sid) => {
     const d = window._SCHOOLDAY;
     if (!d || !d.closedForStudents) return true;        // an ordinary day: everyone is expected
@@ -2359,6 +2377,16 @@
         ${photoField('rPhoto',t('reg.photo'),'',true)}
         <label class="field"><span>${esc(t('reg.allergy'))}</span><input id="rAllergy" placeholder="${esc(t('reg.allergyPh'))}"/></label>
         <label class="field"><span>${esc(t('reg.chronic'))}</span><input id="rChronic"/></label></div>
+      ${/* 🏳️ เชื้อชาติ / สัญชาติ / ศาสนา — asked for by the ผอ. 2026-10-19. The STUDENTS sheet has
+           had Race / Nationality / Religion all along and the ADMIN's edit form shows them; the
+           registration form the family fills in never collected them, so every child arrived with
+           three blank cells somebody had to chase by hand.
+           Optional on purpose: these are not facts a school may demand before enrolling a child,
+           and ศาสนา in particular is sensitive personal data under PDPA §26 — a blank is an answer. */''}
+      <div class="grid2">
+        <label class="field"><span>${EN()?'Ethnicity':'เชื้อชาติ'}</span><input id="rRace" placeholder="${EN()?'e.g. Thai':'เช่น ไทย'}"/></label>
+        <label class="field"><span>${EN()?'Nationality':'สัญชาติ'}</span><input id="rNationality" placeholder="${EN()?'e.g. Thai':'เช่น ไทย'}"/></label></div>
+      <label class="field"><span>${EN()?'Religion':'ศาสนา'} <small class="muted">${EN()?'optional':'ไม่บังคับ'}</small></span><input id="rReligion"/></label>
       <div class="card"><div class="spread"><h3>🚗 ${esc(t('reg.pickupPersons'))}</h3><button class="btn sm outline" onclick="REG_addPickup()">+ ${esc(t('reg.addPickup'))}</button></div>
         <div id="rPickups"></div></div>
       <div class="savedock"><button class="btn block" onclick="REG_childSubmit()">${esc(t('reg.saveChild'))}</button></div>`;
@@ -2384,7 +2412,10 @@
     if(missing.length){ REG_flashError((EN()?'Incomplete — please fill: ':'ใส่ข้อมูลไม่ครบ — กรุณากรอก: ')+missing.join(', ')); return; }
     const photo=photoVal(document,'rPhoto');
     const pickups=[]; for(let i=0;i<REG_PICKUPS;i++){ const n=v('#pkN'+i); if(n) pickups.push({Name:n,Phone:v('#pkP'+i),Relation:v('#pkR'+i)}); }
-    const student={NationalID:v('#rSNID'),NameTH:v('#rNameTH'),NameEN:v('#rNameEN'),Nickname:v('#rNick'),NicknameEN:v('#rNickEN'),Gender:$('#rGender').value,DOB:v('#rDOB'),Plan:'',Weight:+v('#rW')||'',Height:+v('#rH')||'',Photo:photo,BloodType:v('#rBlood'),Allergy:v('#rAllergy')||'-',MedicalHistory:v('#rChronic')||'-',Class:''};
+    const student={NationalID:v('#rSNID'),NameTH:v('#rNameTH'),NameEN:v('#rNameEN'),Nickname:v('#rNick'),NicknameEN:v('#rNickEN'),Gender:$('#rGender').value,DOB:v('#rDOB'),Plan:'',Weight:+v('#rW')||'',Height:+v('#rH')||'',Photo:photo,BloodType:v('#rBlood'),Allergy:v('#rAllergy')||'-',MedicalHistory:v('#rChronic')||'-',
+      // 🏳️ blank stays blank here — unlike Allergy above, which the app turns into '-' and then has
+      // to spend effort reading back as "nothing recorded" (see careHas)
+      Race:v('#rRace'),Nationality:v('#rNationality'),Religion:v('#rReligion'),Class:''};
     try{ await api('addChildNew',{uid:USER.uid,parentId:USER.parentId,student,pickupPersons:pickups}); confirmSaved(t('c.saved')); GO('home'); }catch(e){err(e);} };
 
   const SCREENS = { Parent:{}, Teacher:{}, Admin:{}, Observer:{} };
@@ -4224,11 +4255,22 @@
       window._PICKQR.byKid[k.StudentID]=imgOf(plan.qrId)||window._PICKQR.school;
       pv.forEach(b=>{ const out=Number(b.Outstanding!=null?b.Outstanding:(b.TotalDue!=null?b.TotalDue:b.Amount));
         if(b.Status!=='PAID'&&b.VerifiedStatus!=='PREPAID'&&out>0) rows.push({kind:'bill',id:b.BillingID,label:(EN()?'Tuition ':'ค่าเทอม ')+monthNameYear(b.Month),out}); });
-      chs.forEach(c=>{ const out=Number(c.Outstanding!=null?c.Outstanding:c.Amount);
-        if(c.Status!=='PAID'&&out>0) rows.push({kind:'charge',id:c.ChargeID,label:c.Label,out}); });
+      /* 💰 A DISCOUNT IS NOT A ROW TO TICK — it has already been taken off the items above
+       * (discountAlloc_ in the engine). It is listed so the family can SEE it was applied, and
+       * never as something to select or pay. Before 2026-10-19 it was dropped from this list
+       * altogether, because the filter below only keeps `out > 0`, and the parent was asked for the
+       * full amount as though the school had never granted it. */
+      chs.forEach(c=>{ if(c.IsDiscount||Number(c.Amount)<0){
+          rows.push({kind:'discount',id:c.ChargeID,label:c.Label,out:Number(c.Amount)||0,info:true}); return; }
+        const out=Number(c.Outstanding!=null?c.Outstanding:c.Amount);
+        if(c.Status!=='PAID'&&out>0) rows.push({kind:'charge',id:c.ChargeID,label:c.Label,out,
+          // ...and when part of the discount landed on THIS charge, say so beside it
+          note:Number(c.Discount||0)>0?((EN()?'after discount ':'หลังหักส่วนลด ')+baht(Number(c.Discount))):''}); });
       ot.forEach(o=>{ if(o.Status!=='PAID'&&o.Status!=='PENDING_VERIFY'&&o.Status!=='PARTIAL'&&Number(o.Amount)>0)
         rows.push({kind:'ot',id:o.OTID,label:'OT '+ddmmyyyy(o.Date),out:Number(o.Amount)}); });
-      return {kid:k, rows}; }).filter(g=>g.rows.length);
+      /* A child whose only row is the DISCOUNT line owes nothing — the discount cleared the month.
+       * Showing "เลือกรายการที่จะชำระ" with one green line and a ฿0 total would read as a bill. */
+      return {kid:k, rows}; }).filter(g=>g.rows.some(r=>!r.info));
   }
   window.P_pickRender=async()=>{
     let groups=[]; try{ groups=await P_pickLoad(); }catch(e){ setHTML('#payPick',''); return; }
@@ -4241,9 +4283,19 @@
         <span><b style="font-size:16px">${esc(dispNick(g.kid))}</b> <small class="muted">${esc(nm(g.kid))}</small></span>
         <span style="display:flex;align-items:center;gap:6px;font-size:13px" class="muted">${EN()?'all':'ทั้งหมด'}
           <input type="checkbox" class="pickAllKid" data-g="${gi}" checked onchange="P_pickAllKid(${gi},this.checked)" style="width:auto"/></span></label>
-      ${g.rows.map((r,ri)=>`<label class="field" style="display:block;background:var(--surface);border-radius:8px;padding:6px;margin:6px 0">
+      ${g.rows.map((r,ri)=> r.info
+        /* 💰 THE DISCOUNT LINE — shown, never tickable. It has already been taken off the items
+         * above, so a checkbox would either double-count it or let a family spend it against an
+         * item it was not allocated to. Green, with no box, so it reads as "already in your
+         * favour" rather than as one more thing to pay. */
+        ? `<div class="field" style="display:block;background:var(--ok-bg);border-radius:8px;padding:6px;margin:6px 0">
+        <span style="display:flex;align-items:center;gap:8px"><span style="width:18px;text-align:center">🏷️</span>
+          <b>${esc(r.label)}</b> <b style="margin-left:auto;color:var(--ok)">${baht(r.out)}</b></span>
+        <small class="muted" style="margin-left:26px">${EN()?'already deducted from the items above':'หักออกจากรายการด้านบนให้แล้ว'}</small></div>`
+        : `<label class="field" style="display:block;background:var(--surface);border-radius:8px;padding:6px;margin:6px 0">
         <span style="display:flex;align-items:center;gap:8px"><input type="checkbox" class="pickCb" data-g="${gi}" data-kind="${esc(r.kind)}" data-id="${esc(r.id)}" data-out="${r.out}" data-sid="${esc(g.kid.StudentID)}" checked onchange="P_pickRecalc()" style="width:auto"/>
-          <b>${esc(r.label)}</b> <b style="margin-left:auto;color:var(--blue)">${baht(r.out)}</b></span></label>`).join('')}</div>`).join('');
+          <b>${esc(r.label)}</b> <b style="margin-left:auto;color:var(--blue)">${baht(r.out)}</b></span>
+        ${r.note?`<small class="muted" style="margin-left:26px">${esc(r.note)}</small>`:''}</label>`).join('')}</div>`).join('');
     setHTML('#payPick', `<div class="card" style="background:var(--blue-bg);border-color:var(--blue-line)">
       <div class="spread"><b>💳 ${EN()?'Choose what to pay':'เลือกรายการที่จะชำระ'}</b>
         <label style="display:flex;align-items:center;gap:6px;font-size:13px" class="muted">${EN()?'select all':'เลือกทั้งหมด'}
@@ -9512,7 +9564,11 @@
      * INACTIVE counts too, because a record can be closed without a date ever being typed in. Two
      * screens answering "has this person left" differently is the kind of thing nobody notices
      * until one of them is wrong about a real person. */
-    const staff=(all||[]).filter(s=>!staffLeft(s));
+    /* 🏫 ...and nobody whose role has no shift. An Admin's switch here has decided nothing since
+     * the reminder was written (requiresCheckin_ returns false for the role before the flag is
+     * read), and an Observer's now behaves the same way — a control that cannot change the answer
+     * is worse than no control, because somebody will set it and believe it. */
+    const staff=(all||[]).filter(s=>!staffLeft(s)&&staffInStructure(s));
     modal(`<h3>⏱️ ${esc(t('lbl.requireCI'))}</h3><p class="muted" style="font-size:13px">${EN()?'Turn OFF for positions that need not clock in (e.g. leaders). Press Save after changes.':'ปิดสำหรับตำแหน่งที่ไม่ต้องลงเวลา (เช่น หัวหน้างาน) — กด บันทึก หลังเปลี่ยน'}</p>
       ${/* 🔴 NICKNAME FIRST, like every other list of people in this app (2026-10-12).
            This one printed the full name alone, so an admin ticking switches had to translate
@@ -10641,7 +10697,12 @@
           [['Teacher',EN()?'Teacher':'คุณครู'],['Admin',EN()?'Admin — full access':'ผู้ดูแลระบบ — ทำได้ทุกอย่าง'],['Observer',EN()?'Observer — view only':'ผู้ตรวจสอบ — ดูอย่างเดียว']]
             .map(([v,l])=>`<option value="${v}" ${String(s.Role||'Teacher')===v?'selected':''}>${esc(l)}</option>`).join('')}</select></label>
         <label class="field"><span>${EN()?'Work group & time (admin-managed)':'กลุ่มพนักงาน & เวลา (แอดมินจัดการ)'}</span>
-          <div class="row" style="gap:6px"><select id="sf_StaffGroup" style="flex:1">${grpOpts.map(g=>`<option value="${esc(g.GroupName)}" ${s.StaffGroup===g.GroupName?'selected':''}>${esc(g.GroupName)}${g.CheckInTime?` (${esc(g.CheckInTime)}–${esc(g.CheckOutTime||'')})`:''}</option>`).join('')}</select><button type="button" class="btn sm outline" onclick="A_groups()" title="${EN()?'Edit groups & times':'แก้ไขกลุ่ม & เวลา'}" aria-label="${EN()?"Edit":"แก้ไข"}" title="${EN()?"Edit":"แก้ไข"}">✏️</button></div></label></div>
+          ${/* 🏫 A BLANK OPTION, asked for by the ผอ. 2026-10-19. An Admin or an Observer has no
+               shift, so forcing them into a working-hours group made the roster read
+               "ผู้อำนวยการ · ATMG-01 (07:00–18:00)" — hours that person does not work, next to a
+               group they are not in. The dropdown had no way to say "none", so there was no way to
+               correct it. Blank is a legitimate answer: nobody needs hours to manage the system. */''}
+          <div class="row" style="gap:6px"><select id="sf_StaffGroup" style="flex:1"><option value="" ${!String(s.StaffGroup||'').trim()?'selected':''}>— ${EN()?'no group (no fixed hours)':'ไม่อยู่ในกลุ่มเวลา'} —</option>${grpOpts.map(g=>`<option value="${esc(g.GroupName)}" ${s.StaffGroup===g.GroupName?'selected':''}>${esc(g.GroupName)}${g.CheckInTime?` (${esc(g.CheckInTime)}–${esc(g.CheckOutTime||'')})`:''}</option>`).join('')}</select><button type="button" class="btn sm outline" onclick="A_groups()" title="${EN()?'Edit groups & times':'แก้ไขกลุ่ม & เวลา'}" aria-label="${EN()?"Edit":"แก้ไข"}" title="${EN()?"Edit":"แก้ไข"}">✏️</button></div></label></div>
       <div class="jsec"><b style="font-size:13px">🏫 ${EN()?'Department(s) responsible (choose one or more)':'แผนกที่รับผิดชอบ (เลือกได้หลายแผนก)'}</b>
         <label style="display:block;margin:4px 0"><input type="checkbox" id="sf_AllDept" style="width:auto" ${s.Department==='*'||s.Classes==='*'?'checked':''} onchange="SF_allDept(this)"/> ${EN()?'All departments (head teacher)':'ทุกแผนก (หัวหน้าครู)'}</label>
         <div id="sf_DeptList" ${(s.Department==='*'||s.Classes==='*')?'style="opacity:.4;pointer-events:none"':''}>${A_classOptions(s.Department&&s.Department!=='*'?s.Department:'').map(d=>`<label style="margin-right:10px;font-size:13px"><input type="checkbox" class="sfDept" value="${esc(d)}" style="width:auto" ${String(s.Department||'').split(',').map(x=>x.trim()).indexOf(d)>=0?'checked':''}/> ${esc(d)}</label>`).join('')||`<small class="muted">${EN()?'no departments yet':'ยังไม่มีแผนก'}</small>`}</div>
@@ -11247,7 +11308,16 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
       ${f('EmergencyContact',EN()?'Emergency contact':'ผู้ติดต่อฉุกเฉิน',s.EmergencyContact)}
       <label class="field"><span>${EN()?'Home address':'ที่อยู่'}</span><textarea id="stf_Address">${esc(s.Address||'')}</textarea></label>
       <div class="grid2">${f('Race',EN()?'Race':'เชื้อชาติ',s.Race)}${f('Nationality',EN()?'Nationality':'สัญชาติ',s.Nationality)}</div>
-      <div class="grid2">${f('Religion',EN()?'Religion':'ศาสนา',s.Religion)}${f('Vaccine',EN()?'Vaccine notes':'บันทึกวัคซีน',s.Vaccine)}</div>
+      ${/* 💉 THE VACCINE BOX WAS A FREE-TEXT FIELD BESIDE A REAL VACCINE RECORD (ผอ., 2026-10-19).
+           VACCINE_RECORDS holds the actual doses — the 💉 บันทึกวัคซีน screen writes them — while
+           STUDENTS.Vaccine was a loose note nobody maintained. Two places to look for one answer,
+           and the one on this form was the one that was always empty.
+           Replaced by the STATUS of the real record plus a way in: what an admin wants here is
+           "does this child have a vaccine record?", not somewhere else to type. */''}
+      <div class="grid2">${f('Religion',EN()?'Religion':'ศาสนา',s.Religion)}
+        <div class="field"><span>${EN()?'Vaccination record':'บันทึกวัคซีน'}</span>
+          <div id="vaxStat" class="row" style="gap:8px;align-items:center;padding:6px 0">
+            <span class="muted">${EN()?'checking…':'กำลังตรวจ…'}</span></div></div></div>
       <div class="grid2">
         <label class="field"><span>🕗 ${EN()?'Arrive time':'เวลาเข้าเรียน'}</span><input id="stf_StartTime" type="time" value="${esc(String(s.StartTime||'').slice(0,5))}" placeholder="08:00"/></label>
         <label class="field"><span>🕔 ${EN()?'Leave time (OT after this)':'เวลาเลิกเรียน (คิด OT หลังเวลานี้)'}</span><input id="stf_EndTime" type="time" value="${esc(String(s.EndTime||'').slice(0,5))}" placeholder="17:00"/></label></div>
@@ -11376,6 +11446,21 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
       ${id?`<button class="btn block outline" onclick="A_studentLinks('${id}')">🔗 ${EN()?'Linked parents / unlink':'ผู้ปกครองที่ผูก / ยกเลิกการผูก'}</button>`:''}
       <button class="btn block" onclick="A_saveStudent(this,'${id}')">${esc(t('c.save'))}</button>`);
     A_prorateHint();   // show the first-month figure straight away, not only after a field is touched
+    /* 💉 ...and the vaccine STATUS, read from the real record (VACCINE_RECORDS) rather than from a
+     * note on the student row. Loaded after the form is drawn so the modal opens at once — a
+     * readiness answer is not worth a round trip's delay on every student anybody edits.
+     *
+     * A FAILED LOOKUP SAYS SO. "ตรวจไม่สำเร็จ" and "ไม่มีข้อมูล" are different facts, and only one
+     * of them means somebody should go and ask the family for the vaccine book. */
+    if (id) api('studentVaccines', { studentId: id }).then(recs => {
+      const el = $('#vaxStat'); if (!el) return;
+      const n = (recs || []).filter(r => (r.Dates || r.DoseDate || []).length).length;
+      el.innerHTML = n > 0
+        ? `<span class="pill ok">✅ ${EN() ? 'on file' : 'มีข้อมูล'}</span><small class="muted">${n} ${EN() ? 'vaccines' : 'รายการ'}</small>`
+        : `<span class="pill" style="background:var(--warn-bg);color:var(--warn)">⚠️ ${EN() ? 'none on file' : 'ไม่มีข้อมูล'}</span>`;
+      el.innerHTML += `<button class="btn sm outline" style="margin-left:auto" onclick="this.closest('.modal').remove();A_vaccines('${esc(id)}')">💉 ${EN() ? 'Open' : 'เปิดดู/แก้ไข'}</button>`;
+    }).catch(() => { const el = $('#vaxStat'); if (el) el.innerHTML =
+      `<span class="muted">${EN() ? 'could not check' : 'ตรวจไม่สำเร็จ'}</span>`; });
   };
   // Admin: list the parents linked to a child and unlink one (child stays enrolled — this is NOT a withdrawal).
   window.A_studentLinks=async(sid)=>{ const d=await api('studentLinkedParents',{studentId:sid});
@@ -11754,7 +11839,11 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
       DOB:v('DOB'),Gender:v('Gender'),BloodType:v('BloodType'),
       Weight:v('Weight')===''?'':(Number(v('Weight'))||0),Height:v('Height')===''?'':(Number(v('Height'))||0),
       EmergencyContact:v('EmergencyContact'),Address:v('Address'),
-      Race:v('Race'),Nationality:v('Nationality'),Religion:v('Religion'),Vaccine:v('Vaccine'),
+      Race:v('Race'),Nationality:v('Nationality'),Religion:v('Religion'),
+      /* 💉 Vaccine is NOT written from this form any more — the box became a status read from
+       * VACCINE_RECORDS (2026-10-19). Omitted rather than sent as '': `v('Vaccine')` on a field
+       * that no longer exists returns '', which would have wiped whatever note an older record
+       * still carries every time an admin saved an unrelated change. */
       // blank stays blank — it means "use the school's day", not "the 0th of the month"
       BillingDay:v('BillingDay')===''?'':Math.min(31,Math.max(1,Number(v('BillingDay'))||1)),
       InsuranceHas:m.querySelector('#stf_Ins').checked,InsurancePolicyNo:v('InsurancePolicyNo'),InsuranceCompany:v('InsuranceCompany'),InsuranceExpiry:v('InsuranceExpiry'),
@@ -15473,7 +15562,14 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
     const _disc=Number(s.DiscountAmount||0);
     const discBox=_disc>0?`<div class="list-item" style="background:var(--ok-bg);border-radius:8px;padding:6px 8px;margin-top:4px"><span>🏷️ ${EN()?'Standing discount':'ส่วนลดประจำของนักเรียน'} <small class="muted">${EN()?'always applied to tuition':'หักจากค่าเทอมทุกบิล'}</small></span><b style="color:var(--ok)">−${/%|percent/i.test(String(s.DiscountUnit||''))?_disc+'%':baht(_disc)}</b></div>`:'';
     const chargeBox = `${(charges||[]).length?(charges).map(c=>{ const cOut=Number(c.Outstanding!=null?c.Outstanding:c.Amount);
-      return `<div style="border-bottom:1px solid var(--surface-3);padding:4px 0"><div class="list-item"><span>${Number(c.Amount)<0?'🏷️ ':''}${esc(c.Label)} <b style="color:${Number(c.Amount)<0?'var(--ok)':'inherit'}">${Number(c.Amount)<0?'−'+baht(Math.abs(c.Amount)):baht(c.Amount)}</b> ${statePill(slipsOf('charge',c.ChargeID), c.Status||'UNPAID')}</span><button class="btn sm pink" onclick="A_finDelCharge('${esc(c.ChargeID)}','${sid}',this)" aria-label="${EN()?"Delete":"ลบ"}" title="${EN()?"Delete":"ลบ"}">🗑️</button></div>${slipHistoryHTML(slipsOf('charge',c.ChargeID),true)}${cOut>0?cashBox('charge',c.ChargeID,sid,cOut):''}</div>`;
+      /* 💰 A DISCOUNT HAS NO PAYMENT STATE. It used to be drawn with the same ค้างชำระ pill as a
+       * charge — because the engine could never move it off UNPAID (`amt > 0`) — so the school's
+       * own discount looked like money a family still owed. It is applied, not owed: a green
+       * "หักให้แล้ว" and no cash box, because nobody pays a discount. */
+      const _isDisc = Number(c.Amount)<0;
+      return `<div style="border-bottom:1px solid var(--surface-3);padding:4px 0"><div class="list-item"><span>${_isDisc?'🏷️ ':''}${esc(c.Label)} <b style="color:${_isDisc?'var(--ok)':'inherit'}">${_isDisc?'−'+baht(Math.abs(c.Amount)):baht(c.Amount)}</b> ${_isDisc
+        ? `<span class="pill ok">${EN()?'applied':'หักให้แล้ว'}</span>`
+        : statePill(slipsOf('charge',c.ChargeID), c.Status||'UNPAID')}${(!_isDisc&&Number(c.Discount||0)>0)?` <small class="muted">${EN()?'after discount':'หลังหักส่วนลด'} ${baht(Number(c.NetDue||0))}</small>`:''}</span><button class="btn sm pink" onclick="A_finDelCharge('${esc(c.ChargeID)}','${sid}',this)" aria-label="${EN()?"Delete":"ลบ"}" title="${EN()?"Delete":"ลบ"}">🗑️</button></div>${_isDisc?'':slipHistoryHTML(slipsOf('charge',c.ChargeID),true)}${(!_isDisc&&cOut>0)?cashBox('charge',c.ChargeID,sid,cOut):''}</div>`;
       }).join(''):`<small class="muted">${EN()?'No extra charges':'ไม่มีรายการเพิ่มเติม'}</small>`}
       <div class="grid2" style="margin-top:6px"><input id="fcLabel" placeholder="${EN()?'e.g. Special class':'เช่น ค่าเรียนพิเศษ'}"/>
         <div class="row" style="gap:6px"><select id="fcSign" style="max-width:104px"><option value="1">+ ${EN()?'charge':'เรียกเก็บ'}</option><option value="-1">− ${EN()?'discount':'ส่วนลด'}</option></select><input id="fcAmt" type="number" min="0" placeholder="${EN()?'amount':'จำนวนเงิน'}" style="flex:1"/></div></div>
