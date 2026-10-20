@@ -172,6 +172,19 @@ console.log('\n4) 🔔 เจ้าตัวต้องรู้ทุกคร
    * showing a new time beside yesterday's month totals is a half-true screen, and those get
    * believed */
   ok_('บันทึกแล้วโหลดเดือนใหม่ ไม่ได้แก้แค่ช่องเดียว', /await A_staffMonth\(\);\s*\n\s*A_staffMonthOne\(sid\);/.test(app));
+  /* 🔴 REPORTED ON THE DAY IT SHIPPED (v458): "กดบันทึก > เวลาไม่เปลี่ยน". The server had stored it
+   * correctly — verified through the real dispatcher. `modal()` APPENDS rather than replaces, so
+   * three were stacked by the time Save was pressed, and removing only the form left the person's
+   * calendar underneath STILL SHOWING THE OLD TIME. The admin closed the fresh one, landed on the
+   * stale one, and read it as a write that had not happened.
+   *
+   * A stale copy of a screen left underneath a fresh one is indistinguishable from a failed save. */
+  ok_('🔴 ปิดทุกหน้าต่างที่ค้างอยู่ก่อนวาดใหม่ (ไม่เหลือหน้าจอเก่าที่ยังโชว์เวลาเดิม)',
+    /document\.querySelectorAll\('\.modal'\)\.forEach\(x => x\.remove\(\)\);/.test(app));
+  /* ...and the toast states what the SERVER stored, not what was typed — so it stays a true
+   * statement about the sheet even if the redraw after it fails. */
+  ok_('🔴 ข้อความยืนยันบอกเวลาที่บันทึกจริง (อ่านจากคำตอบของเซิร์ฟเวอร์)',
+    /\$\{res\.checkIn \|\| '—'\}–\$\{res\.checkOut \|\| '—'\}/.test(app));
 }
 
 console.log('\n' + (fail ? 'FAILED ' : 'PASSED ') + pass + ' passed, ' + fail + ' failed\n');

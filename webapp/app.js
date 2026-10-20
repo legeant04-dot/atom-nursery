@@ -131,7 +131,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.458'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.459'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -8191,10 +8191,25 @@
       // both halves always sent, including empty — '' means CLEAR, and leaving one out would mean
       // "don't touch it", which is not what an empty box on this form says
       const res = await api('editStaffAttendance', { staffId: USER.staffId, targetId: sid, date, checkIn: cin, checkOut: cout, remark: why });
-      m.remove();
+      /* 🔴 EVERY OPEN MODAL GOES, NOT JUST THIS ONE (reported 2026-10-20: "กดบันทึก > เวลาไม่เปลี่ยน").
+       *
+       * `modal()` APPENDS — it does not replace. Getting here means three are stacked: the month
+       * list, this person's calendar, and this form. Removing only the form left the person's
+       * calendar sitting underneath STILL SHOWING THE OLD TIME, and the redraw below then put two
+       * more on top of it. The admin closed the fresh one, landed on the stale one, and read it as
+       * "the save did nothing" — the times were already correct on the server.
+       *
+       * A stale copy of a screen left underneath a fresh one is indistinguishable from a write that
+       * never happened. Every other flow in this file removes the modal before redrawing; this one
+       * has to remove ALL of them, because it opened two.
+       */
+      document.querySelectorAll('.modal').forEach(x => x.remove());
+      /* ...and the toast says WHAT WAS STORED, read back from the server's own reply rather than
+       * from the boxes that were just typed into. If the redraw below ever fails, this is still a
+       * true statement about the sheet. */
       toast(res && res.removed ? (EN() ? '✅ The day was removed — they have been notified' : '✅ ลบการลงเวลาของวันนั้นแล้ว — แจ้งเจ้าตัวแล้ว')
-        : (EN() ? `✅ Saved — late ${res.late || 0} min, OT ${res.otHours || 0} hr. They have been notified`
-                : `✅ บันทึกแล้ว — สาย ${res.late || 0} นาที · OT ${res.otHours || 0} ชม. · แจ้งเจ้าตัวแล้ว`), 4200);
+        : (EN() ? `✅ Saved ${res.checkIn || '—'}–${res.checkOut || '—'} — late ${res.late || 0} min, OT ${res.otHours || 0} hr. They have been notified`
+                : `✅ บันทึกแล้ว ${res.checkIn || '—'}–${res.checkOut || '—'} · สาย ${res.late || 0} นาที · OT ${res.otHours || 0} ชม. · แจ้งเจ้าตัวแล้ว`), 4600);
       /* reload the month rather than patching the cell: late minutes, OT and the month's totals all
        * moved, and a calendar showing a new time beside yesterday's totals is the kind of half-true
        * screen that gets believed */
