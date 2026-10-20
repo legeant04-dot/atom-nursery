@@ -183,7 +183,11 @@ console.log('\n5) a leaving date is a DATE, not a delete button');
 }
 {
   // clocking in is guarded at BOTH ends of the employment, and only after the last day has passed
-  ok_('the check-in guard knows about the end date too', /var end = String\(\(rec && rec\.EndDate\) \|\| ''\)/.test(checkin));
+  /* ymdCell_ since v460 — the string slice this used to assert returned "Tue Oct 20" for a Sheets
+   * date cell, so the guard never fired on live at all. The claim is that the guard READS the end
+   * date, not the characters it happened to read it with; the behaviour itself is exercised against
+   * a real Date object in tools/test_date_cells.js. */
+  ok_('the check-in guard knows about the end date too', /var end = ymdCell_\(rec && rec\.EndDate\);/.test(checkin));
   ok_('...and only refuses AFTER it', /test\(end\) && today > end/.test(checkin));
   ok_('the message says when it ended', /สิ้นสุดการทำงานเมื่อ/.test(checkin));
 }

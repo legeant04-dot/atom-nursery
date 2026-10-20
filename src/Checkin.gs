@@ -445,14 +445,14 @@ function resolveStaff_(payload) {
  * are simply not part of attendance.
  */
 function assertStaffStarted_(rec) {
-  var start = String((rec && rec.StartDate) || '').slice(0, 10);
+  var start = ymdCell_(rec && rec.StartDate);
   var today = dateStr_(new Date());
   if (/^\d{4}-\d{2}-\d{2}$/.test(start) && today < start) {
     throw apiError_('NOT_STARTED', 'วันแรกของการทำงานคือ ' + start + ' — ยังลงเวลาไม่ได้');
   }
   // ...and the other end of it. EndDate is a LAST WORKING DAY recorded in advance, so it must not
   // block anything until it has passed — the person is still turning up until then.
-  var end = String((rec && rec.EndDate) || '').slice(0, 10);
+  var end = ymdCell_(rec && rec.EndDate);
   if (/^\d{4}-\d{2}-\d{2}$/.test(end) && today > end) {
     throw apiError_('ENDED', 'สิ้นสุดการทำงานเมื่อ ' + end + ' — ลงเวลาไม่ได้แล้ว');
   }
@@ -460,8 +460,8 @@ function assertStaffStarted_(rec) {
    * above and deliberately duplicated in the smallest form: this is a .gs handler and the engine's
    * staffPaused_ is not in scope. PauseTo is the day they COME BACK, so it stops applying ON that
    * date, exactly as it does for a child. */
-  var pFrom = String((rec && rec.PauseFrom) || '').slice(0, 10);
-  var pTo = String((rec && rec.PauseTo) || '').slice(0, 10);
+  var pFrom = ymdCell_(rec && rec.PauseFrom);
+  var pTo = ymdCell_(rec && rec.PauseTo);
   if (/^\d{4}-\d{2}-\d{2}$/.test(pFrom) && today >= pFrom &&
       !(/^\d{4}-\d{2}-\d{2}$/.test(pTo) && today >= pTo)) {
     throw apiError_('STAFF_PAUSED', 'อยู่ระหว่างลาชั่วคราว' +
@@ -644,7 +644,7 @@ function handleStaffStudentCheckin(p) {
     if (lvSh) {
       var d0 = dateStr_(new Date());
       var lv = findObject_(lvSh, function (l) {
-        return String(l.StudentID) === String(p.studentId) && String(l.Date).slice(0, 10) === d0;
+        return String(l.StudentID) === String(p.studentId) && ymdCell_(l.Date) === d0;
       });
       if (lv) throw apiError_('ON_LEAVE', 'นักเรียนแจ้งลาวันนี้แล้ว (' + (lv.Type || 'ลา') +
         (lv.Reason ? ' · ' + lv.Reason : '') + ') — หากมาจริงให้ยกเลิกใบลาก่อน');

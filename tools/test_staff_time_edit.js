@@ -52,9 +52,15 @@ const res = JSON.parse(run(function () {
   appendObject_(stSh, { StaffID: 'TE-OTH', Name: 'ครูบี', Nickname: 'บี', Role: 'Teacher',
     PositionLevel: 'Staff', Status: 'ACTIVE', Department: 'Nursery 1', StartDate: '2025-01-01' });
 
-  // the wrong time, as it would have been recorded: clocked out at 12:05 by mistake
+  /* 🔴 THE DATE IS A Date OBJECT, BECAUSE THAT IS WHAT LIVE HAS.
+   *
+   * Sheets turns a "2026-10-20" string into a DATE CELL on write, so it reads back as a Date. Every
+   * fixture in this repo writes the string, so a date comparison written as String(r.Date).slice()
+   * passes in all 184 suites and fails on the only machine that matters — which is exactly what
+   * happened on 2026-10-20: each correction appended a SECOND row and every screen kept reading the
+   * first. This row is the real shape on purpose. */
   var ci = sheet_(HR, 'CHECKIN_STAFF');
-  appendObject_(ci, { Date: YDAY, StaffID: 'TE-TCH', CheckIn: '08:40', CheckOut: '12:05',
+  appendObject_(ci, { Date: new Date(YDAY + 'T00:00:00'), StaffID: 'TE-TCH', CheckIn: '08:40', CheckOut: '12:05',
     LateMinutes: 25, OTHours: 0, Status: 'OUT' });
   // ...and a day they clocked in on by accident and never worked
   appendObject_(ci, { Date: days(-2), StaffID: 'TE-TCH', CheckIn: '07:58', CheckOut: '',
@@ -76,8 +82,11 @@ const res = JSON.parse(run(function () {
   // the real correction: she actually left at 17:30
   out.fix = call({ staffId: 'TE-ADM', targetId: 'TE-TCH', date: YDAY, checkIn: '08:05', checkOut: '17:30',
     remark: 'ลืมลงเวลาออก กลับจริง 17:30' });
-  var rowAfter = findObject_(sheet_(HR, 'CHECKIN_STAFF'), function (r) {
-    return String(r.StaffID) === 'TE-TCH' && String(r.Date).slice(0, 10) === YDAY; }) || {};
+  /* read back with the SAME predicate the handler uses, and count the rows — "the sheet now has the
+   * right time" is only half the claim; "it did not write a second row to put it in" is the other */
+  var allY = arDayRows_(sheet_(HR, 'CHECKIN_STAFF'), 'TE-TCH', YDAY);
+  out.rowCount = allY.length;
+  var rowAfter = allY[0] || {};
   out.row = { checkIn: toHHmm_(rowAfter.CheckIn), checkOut: toHHmm_(rowAfter.CheckOut),
     late: Number(rowAfter.LateMinutes || 0), ot: Number(rowAfter.OTHours || 0),
     inManual: String(rowAfter.InManual || ''), editedBy: String(rowAfter.EditedBy || ''),
@@ -102,6 +111,18 @@ const res = JSON.parse(run(function () {
   // ...and it must not be the stale figure that was sitting in the row before the edit
   out.staleLate = 25;
   out.isWrite = isMutatingAction_('editStaffAttendance');
+
+  /* 🔴 ...AND THE DAYS ALREADY DUPLICATED BY THE BUG MUST HEAL THEMSELVES. A fix that only stops
+   * making new duplicates leaves the school reading the stale copy of every day it already broke. */
+  var D = days(-6);
+  appendObject_(ci, { Date: new Date(D + 'T00:00:00'), StaffID: 'TE-TCH', CheckIn: '08:00', CheckOut: '17:00', Status: 'OUT' });
+  appendObject_(ci, { Date: D, StaffID: 'TE-TCH', CheckIn: '08:00', CheckOut: '12:00', Status: 'OUT' });   // the duplicate
+  appendObject_(ci, { Date: D, StaffID: 'TE-TCH', CheckIn: '08:00', CheckOut: '13:00', Status: 'OUT' });   // ...and another
+  out.dupBefore = arDayRows_(ci, 'TE-TCH', D).length;
+  out.dupFix = call({ staffId: 'TE-ADM', targetId: 'TE-TCH', date: D, checkIn: '08:00', checkOut: '17:30', remark: 'รวมแถวซ้ำ' });
+  var left = arDayRows_(ci, 'TE-TCH', D);
+  out.dupAfter = left.length;
+  out.dupOut = left.length ? toHHmm_(left[0].CheckOut) : '';
   return JSON.stringify(out);
 }));
 
@@ -136,7 +157,25 @@ console.log('\n2) ✏️ แก้แล้วคำนวณสาย/OT ให
   eq('🔴 ...และแก้เมื่อไหร่', res.row.hasWhen, true);
 }
 
-console.log('\n3) 🚫 ล้างทั้งวัน — สิ่งที่คำขอลงเวลาทำไม่ได้เลย');
+console.log('\n3) 🔴 วันที่ในชีตเป็น Date object — ต้องเจอแถวเดิม ไม่ใช่เพิ่มแถวใหม่');
+{
+  /* 🔴 THE BUG THE ผอ. CAUGHT ON 2026-10-20. The notification gave it away: it read
+   * "เข้างาน — → 07:57", so the handler had found NO previous row on a day that plainly had one.
+   * String(DateObject).slice(0,10) is "Tue Oct 2", which matches nothing — so every save appended a
+   * SECOND row, and every reader takes the first. ✅ บันทึกแล้ว, and nothing on screen moved. */
+  eq('🔴 ไม่ได้เพิ่มแถวใหม่ — ยังมีแถวเดียวของวันนั้น', res.rowCount, 1);
+  eq('🔴 ...และระบบอ่านค่าเดิมเจอ (ไม่ใช่ "—")', res.fix.ok && res.fix.r.before.checkOut, '12:05');
+  eq('วันที่เคยมีแถวซ้ำอยู่แล้ว (จากบั๊กเดิม) — ตั้งต้น', res.dupBefore, 3);
+  eq('🔴 แก้ครั้งเดียว รวมแถวซ้ำให้เหลือแถวเดียว', res.dupAfter, 1);
+  eq('🔴 ...และแถวที่เหลือคือแถวที่แก้แล้ว', res.dupOut, '17:30');
+  eq('รายงานกลับว่ารวมแถวซ้ำไปกี่แถว', res.dupFix.ok && res.dupFix.r.healed, 2);
+  /* one definition of "this person, this day", used by the writer and by the repair — and the same
+   * answer handleStaffCheckin has always given with dateStr_(new Date(r.Date)) */
+  ok_('🔴 เทียบวันด้วยตัวเดียวกันทั้งไฟล์ ไม่ใช่ slice สตริง',
+    /function arSameDay_/.test(att) && !/String\(r\.Date\)\.slice\(0, 10\) === date/.test(att));
+}
+
+console.log('\n4) 🚫 ล้างทั้งวัน — สิ่งที่คำขอลงเวลาทำไม่ได้เลย');
 {
   eq('ล้างทั้งสองช่องสำเร็จ', res.wipe.ok && res.wipe.r.removed, true);
   eq('🔴 แถวนั้นหายไปจริง (ไม่ใช่เหลือแถวว่าง = มาทำงาน)', res.gone, true);
@@ -144,7 +183,7 @@ console.log('\n3) 🚫 ล้างทั้งวัน — สิ่งที�
   eq('...และได้ค่าตามที่กรอก', res.create.ok && res.create.r.checkOut, '17:00');
 }
 
-console.log('\n4) 🔔 เจ้าตัวต้องรู้ทุกครั้ง และหน้าจออยู่ตรงที่แอดมินเห็นปัญหา');
+console.log('\n5) 🔔 เจ้าตัวต้องรู้ทุกครั้ง และหน้าจออยู่ตรงที่แอดมินเห็นปัญหา');
 {
   /* 🔴 A SILENT CORRECTION IS INDISTINGUISHABLE FROM A BUG. Somebody else changed a number that
    * decides their เบี้ยขยัน and their OT; if nobody tells them, they find out from the payslip,
