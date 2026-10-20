@@ -131,7 +131,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.457'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.458'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -8105,7 +8105,19 @@
         : r.status==='ABSENT' ? `<span class="io" style="text-align:left;color:var(--bad);font-weight:700">${EN()?'absent':'ขาด'}</span>`
         : r.status==='BEFORE' ? `<span class="io" style="text-align:left;color:var(--ink-3)">–</span>`
         : r.status==='TODAY' ? `<span class="io" style="text-align:left;color:var(--ink-3)">${EN()?'today':'วันนี้'}</span>` : '';
-      return `<div class="d" style="min-height:56px;background:${bg};border-color:${bd}">${r.day}${r.bigCleaning?' '+BC_ICON:''}${body}</div>`;
+      /* ✏️ THE CELL IS THE EDIT BUTTON (ผอ., 2026-10-20).
+       *
+       * The admin is already looking at the wrong time when they notice it, so the correction opens
+       * from the day itself rather than from a separate screen that would make them find the person
+       * and the date all over again. Same idea as the children's 🕑 แก้ไขเวลารับ-ส่ง.
+       *
+       * Not on a day that has not happened — the server refuses it (FUTURE_DATE) and a control that
+       * can only produce a refusal should not be offered. Admin only: a teacher's late minutes and
+       * OT hours are their pay, which is not a colleague's business. */
+      const mayEdit = USER && USER.role==='Admin' && r.status!=='FUTURE';
+      return `<div class="d" style="min-height:56px;background:${bg};border-color:${bd}${mayEdit?';cursor:pointer':''}"${
+        mayEdit?` onclick="A_editStaffTime('${esc(sid)}','${esc(r.date)}')" title="${EN()?'Correct these times':'แก้ไขเวลาของวันนี้'}"`:''
+      }>${r.day}${r.bigCleaning?' '+BC_ICON:''}${body}</div>`;
     };
     let cells=['อา','จ','อ','พ','พฤ','ศ','ส'].map(w=>`<div style="text-align:center;font-size:13px;color:var(--ink-3)">${EN()?({'อา':'Su','จ':'Mo','อ':'Tu','พ':'We','พฤ':'Th','ศ':'Fr','ส':'Sa'}[w]):w}</div>`).join('');
     for(let i=0;i<first;i++) cells+='<div class="d dim"></div>';
@@ -8119,7 +8131,8 @@
         ${smStat(s.absent, EN()?'absent':'ขาด', s.absent?'pink':'')}</div>
       ${s.lateMinutes?`<p class="muted" style="font-size:13px">${EN()?'Total minutes late':'รวมเวลามาสาย'} <b>${s.lateMinutes}</b> ${EN()?'min':'นาที'}${s.otHours?` · OT <b>${s.otHours}</b> ${EN()?'hr':'ชม.'}`:''}</p>`:''}
       <div class="cal">${cells}</div>
-      <small class="muted">${EN()?'green = worked · blue = leave · red = absent · orange = holiday · 🎉 = holiday OT · ✍️ = time entered by request. Today is not counted as absent until the day is over.':'เขียว = มาทำงาน · ฟ้า = ลา · แดง = ขาด · ส้ม = วันหยุด · 🎉 = OT วันหยุด · ✍️ = ลงเวลาย้อนหลังจากคำขอ · วันนี้ยังไม่นับเป็นขาดจนกว่าจะหมดวัน'}</small>
+      <small class="muted">${EN()?'green = worked · blue = leave · red = absent · orange = holiday · 🎉 = holiday OT · ✍️ = time entered by hand. Today is not counted as absent until the day is over.':'เขียว = มาทำงาน · ฟ้า = ลา · แดง = ขาด · ส้ม = วันหยุด · 🎉 = OT วันหยุด · ✍️ = เวลาที่คนกรอกเอง (คำขอลงเวลา/แอดมินแก้) · วันนี้ยังไม่นับเป็นขาดจนกว่าจะหมดวัน'}</small>
+      ${USER&&USER.role==='Admin'?`<small class="muted" style="display:block;margin-top:4px">✏️ ${EN()?'Tap any day to correct the times — the person is told, and it is recorded who changed it.':'แตะที่วันไหนก็ได้เพื่อแก้เวลา — ระบบจะแจ้งเจ้าตัว และบันทึกไว้ว่าใครแก้'}</small>`:''}
       ${/* the days behind "OT n ชม." — a payslip figure nobody could trace */''}
       ${(s.otDays||[]).length?`<details style="margin-top:8px"><summary style="cursor:pointer;font-weight:700;font-size:14px">⏰ ${EN()?'OT day by day':'OT รายวัน'} (${(s.otDays||[]).length}) — ${EN()?'total':'รวม'} <b>${s.otHours||0}</b> ${EN()?'hr':'ชม.'}${s.holidayOTAmount?` · 🎉 ${esc(baht(s.holidayOTAmount))}`:''}</summary>
         ${(s.otDays||[]).map(o=>{ const rej=o.status==='REJECTED';
@@ -8129,6 +8142,67 @@
         <small class="muted">${EN()?'Rejected rows are struck out and are not in the total. Holiday OT is an agreed amount with no hours behind it.':'รายการที่ปฏิเสธจะขีดฆ่าและไม่รวมในยอด · OT วันหยุดเป็นเงินก้อน ไม่มีชั่วโมง'}</small></details>`:''}
       <button class="btn outline block" style="margin-top:8px" onclick="this.closest('.modal').remove()">${esc(t('c.close'))}</button>`);
   };
+
+  /* ═══ ✏️ แก้ไขเวลาทำงานของพนักงาน ═══════════════════════════════════════════════════════════
+   *
+   * ผอ., 2026-10-20: "มีฟังก์ชันไหนในการแก้เวลาพนักงานบ้าง หากลงเวลาผิด ที่ไม่ใช่คำขอลงเวลา
+   * เหมือนฟังก์ชันของนักเรียนเวลาผู้ปกครองกดผิด". There was none — the only route was a two-step
+   * approval that can WRITE a time and never clear one, so a clock-in on a day somebody did not
+   * work was permanent and a second tap was refused outright.
+   *
+   * 🔴 THE REASON IS REQUIRED, and that is deliberate. These two fields decide เบี้ยขยัน and OT,
+   * which is somebody's pay — a change to it with nobody's name and no sentence attached is exactly
+   * what editing the sheet by hand already allowed, and the thing this screen exists to replace.
+   * The server refuses an empty one too (NEED_REASON); this only saves the round trip.
+   */
+  window.A_editStaffTime = async (sid, date) => {
+    const d = window._SM || {};
+    const s = (d.staff || []).find(x => x.staffId === sid) || {};
+    const r = (s.days || []).find(x => x.date === date) || {};
+    /* WHAT THE DAY ALREADY IS, said before anything is changed. A leave or a holiday is not a
+     * reason to refuse the edit — a teacher who came in on a declared holiday is precisely the case
+     * somebody needs to record by hand — but typing a time onto a day the school was shut should be
+     * a decision, not a surprise. */
+    const note = r.status === 'LEAVE' ? `🏖️ ${EN() ? 'On approved leave' : 'วันนี้ลา'} (${esc(r.leaveType || 'ลา')})`
+      : r.status === 'HOLIDAY' ? `🏫 ${EN() ? 'School holiday' : 'วันหยุดโรงเรียน'}${r.holiday ? ' · ' + esc(r.holiday) : ''}`
+      : r.status === 'OFF' ? `📅 ${EN() ? 'Not a working day' : 'ไม่ใช่วันทำงาน'}` : '';
+    modal(`<h3>✏️ ${EN() ? 'Correct working time' : 'แก้ไขเวลาทำงาน'} — ${esc(dnick(s) || sid)}</h3>
+      <p class="muted" style="font-size:13px">${esc(ddmmyyyy(date))}${note ? ' · ' + note : ''}</p>
+      <p class="muted" style="font-size:13px">${EN()
+        ? 'Late minutes and OT hours are recalculated from these times. Clearing BOTH removes the day entirely — use that when somebody clocked in by mistake.'
+        : 'ระบบจะคำนวณ <b>นาทีสาย</b> และ <b>ชั่วโมง OT</b> ใหม่จากเวลาที่กรอก · ถ้าล้าง<b>ทั้งสองช่อง</b> = ลบการลงเวลาของวันนั้นทิ้งทั้งหมด (ใช้กรณีกดลงเวลาผิดวัน)'}</p>
+      <div class="grid2"><label class="field"><span>🟢 ${EN() ? 'Check-in' : 'เข้างาน'}</span><input type="time" id="stIn" value="${esc(String(r.in || '').slice(0, 5))}"/></label>
+        <label class="field"><span>🔴 ${EN() ? 'Check-out' : 'เลิกงาน'}</span><input type="time" id="stOut" value="${esc(String(r.out || '').slice(0, 5))}"/></label></div>
+      <button class="btn sm outline block" onclick="document.getElementById('stIn').value='';document.getElementById('stOut').value=''">🚫 ${EN() ? 'Clear the whole day (clocked in by mistake)' : 'ล้างทั้งวัน (กดลงเวลาผิด)'}</button>
+      <label class="field" style="margin-top:6px"><span>${EN() ? 'Reason (required — kept in the log)' : 'เหตุผล (จำเป็น · บันทึกไว้ในประวัติ)'}</span>
+        <input id="stWhy" placeholder="${EN() ? 'e.g. forgot to clock out, left at 17:00' : 'เช่น ลืมลงเวลาออก กลับจริง 17:00'}"/></label>
+      <p class="muted" style="font-size:12.5px">🔔 ${EN() ? 'The person is notified of the change, with the old and new times.' : 'ระบบจะแจ้งเจ้าตัวทุกครั้ง พร้อมบอกเวลาเดิมและเวลาใหม่'}</p>
+      <button class="btn block" onclick="A_editStaffTimeSave('${esc(sid)}','${esc(date)}',this)">${esc(t('c.save'))}</button>
+      <button class="btn outline block" style="margin-top:8px" onclick="this.closest('.modal').remove()">${esc(t('c.close'))}</button>`);
+  };
+  window.A_editStaffTimeSave = async (sid, date, btn) => {
+    const m = btn.closest('.modal'); const g = id => { const e = m.querySelector('#' + id); return e ? e.value.trim() : ''; };
+    const why = g('stWhy');
+    if (!why) { toast(EN() ? 'Please give a reason' : 'กรุณาใส่เหตุผลของการแก้ไข'); return; }
+    const cin = g('stIn'), cout = g('stOut');
+    if (!cin && !cout && !confirm(EN() ? 'Remove this day’s attendance entirely?' : 'ลบการลงเวลาของวันนี้ทั้งหมดใช่หรือไม่?')) return;
+    btn.disabled = true;
+    try {
+      // both halves always sent, including empty — '' means CLEAR, and leaving one out would mean
+      // "don't touch it", which is not what an empty box on this form says
+      const res = await api('editStaffAttendance', { staffId: USER.staffId, targetId: sid, date, checkIn: cin, checkOut: cout, remark: why });
+      m.remove();
+      toast(res && res.removed ? (EN() ? '✅ The day was removed — they have been notified' : '✅ ลบการลงเวลาของวันนั้นแล้ว — แจ้งเจ้าตัวแล้ว')
+        : (EN() ? `✅ Saved — late ${res.late || 0} min, OT ${res.otHours || 0} hr. They have been notified`
+                : `✅ บันทึกแล้ว — สาย ${res.late || 0} นาที · OT ${res.otHours || 0} ชม. · แจ้งเจ้าตัวแล้ว`), 4200);
+      /* reload the month rather than patching the cell: late minutes, OT and the month's totals all
+       * moved, and a calendar showing a new time beside yesterday's totals is the kind of half-true
+       * screen that gets believed */
+      await A_staffMonth();
+      A_staffMonthOne(sid);
+    } catch (e) { err(e); btn.disabled = false; }
+  };
+
   SCREENS.Admin.leaves = async () => {
     /* Started HERE, before the first await, so it rides in the same batch as the holidays call and
      * costs no round trip at all. A separate fetch for a badge would be another ~5s queued in front

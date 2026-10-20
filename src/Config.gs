@@ -399,7 +399,12 @@ SCHEMA[WB.HR] = {
   PAYROLL_CONFIG:['StaffID', 'PayType', 'DailyRate', 'BaseSalary', 'SocialSecurityDeduct', 'ChildThreshold', 'ChildMultiplier', 'DiligenceAttendanceAmount', 'DiligenceFacebookAmount', 'TaxDeduct', 'Contribution'],
   // InManual/OutManual = 'YES' when the time was set via an approved manual-attendance request (ขอลงเวลา);
   // the app renders a manual time in blue/bold to distinguish it from a normal GPS clock-in. Appended at END.
-  CHECKIN_STAFF: ['Date', 'StaffID', 'CheckIn', 'CheckOut', 'LateMinutes', 'OTHours', 'Status', 'InManual', 'OutManual'],
+  /* EditedBy/EditedAt/EditNote — an admin correcting a clock time writes straight into this row
+   * (handleEditStaffAttendance), so unlike the two-step request there is no ATTENDANCE_REQUEST row
+   * carrying the signatures. The trail lives here or it does not exist, and these two columns
+   * decide เบี้ยขยัน and OT. */
+  CHECKIN_STAFF: ['Date', 'StaffID', 'CheckIn', 'CheckOut', 'LateMinutes', 'OTHours', 'Status', 'InManual', 'OutManual',
+                  'EditedBy', 'EditedAt', 'EditNote'],
   // 2-step approval: Leader (step 1) -> Admin (step 2); cross-dept flagged. (chat spec)
   LEAVE_REQUEST: ['LeaveID', 'StaffID', 'Department', 'Type', 'StartDate', 'EndDate', 'Days', 'Reason', 'Status',
                   'Step1ApproverID', 'Step1ApproverName', 'Step1Status', 'Step1Date', 'Step1CrossDept',

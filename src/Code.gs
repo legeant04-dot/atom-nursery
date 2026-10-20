@@ -221,6 +221,12 @@ var ROUTES = {
   submitTimeRequest:  function (p) { return handleSubmitTimeRequest(p); },
   approveTimeRequest: function (p) { return handleApproveTimeRequest(p); },
   confirmTimeRequest: function (p) { return handleConfirmTimeRequest(p); },  // admin-only, see ADMIN_ONLY
+  /* ✏️ ...and correcting a time that is already there, WITHOUT an approval round (ผอ., 2026-10-20).
+   * The request above can only ever write one; it could not clear a clock-in on a day somebody did
+   * not work, and a second tap is refused, so a wrong time was frozen the moment it was made. The
+   * children have had this since v300 (editStudentAttendance); the staff had the sheet and a pen.
+   * Admin-only — see ADMIN_ONLY and the long note in AttReq.gs. */
+  editStaffAttendance: function (p) { return handleEditStaffAttendance(p); },
   // announcements — in-place + unique AnnID + Priority (admin-only, see ADMIN_ONLY)
   addAnnouncement:    function (p) { return handleAddAnnouncement(p); },
   editAnnouncement:   function (p) { return handleEditAnnouncement(p); },
@@ -461,7 +467,7 @@ function applyIdentity_(action, payload, sess) {
     // is deliberately not here: a teacher standing in front of a family who turned up must be able
     // to do it, and the engine records who did.
     holidayAttendSet: 1,
-    decideClassChange: 1, confirmTimeRequest: 1,
+    decideClassChange: 1, confirmTimeRequest: 1, editStaffAttendance: 1,
     addAnnouncement: 1, editAnnouncement: 1, deleteAnnouncement: 1, reindexAnnouncements: 1, reindexParents: 1, checkDuplicateIds: 1,
     saveDspmCriteria: 1, deleteDspmCriteria: 1,
     // injury: unlocking a finished report and deleting one are the admin's alone. approveInjury and
