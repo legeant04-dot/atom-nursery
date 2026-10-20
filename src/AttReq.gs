@@ -29,6 +29,51 @@ function arBust_() { if (typeof cacheDel_ === 'function') { cacheDel_('col:ATTEN
 function arIsAdmin_(s) { return s.PositionLevel === 'Admin' || s.Role === 'Admin'; }
 function arIsLeader_(s) { return arIsAdmin_(s) || s.PositionLevel === 'Leader'; }
 function arFind_(sh, id) { return findObject_(sh, function (r) { return String(r.ReqID) === String(id); }); }
+/* ═══ 🔴 A DATE CELL IS A Date OBJECT, NOT A STRING ═══════════════════════════════════════════
+ *
+ * Reported 2026-10-20: an admin corrected a time, the app said ✅ บันทึกแล้ว, and the calendar, the
+ * teacher's own screen and the sheet all still showed the old one. The notification told us exactly
+ * what had happened — it read "เข้างาน — → 07:57", so the handler had found NO PREVIOUS ROW on a
+ * day that plainly had one. It was appending a second row every single time, and every reader takes
+ * the FIRST match, which is the original.
+ *
+ * Because `String(r.Date).slice(0,10)` on a Sheets date cell is not "2026-10-20". Sheets converts a
+ * "2026-10-20" string into a DATE CELL on write, so it reads back as a Date object and String() of
+ * it begins "Tue Oct 20 2026" — the slice yields "Tue Oct 2", which equals nothing.
+ *
+ * 🔴 AND IT IS NOT JUST THE NEW CODE. arApply_ has compared dates the same way since the time
+ * request shipped: approving a request for a day that ALREADY had a row appended a duplicate rather
+ * than filling in the missing half. Nobody saw it because the usual case — forgot to clock in, so
+ * there is no row — appends correctly either way.
+ *
+ * 🔴 WHY NO TEST CAUGHT IT: the in-memory harness stores whatever a fixture writes, and fixtures
+ * write 'YYYY-MM-DD' strings. A Date object never appears, so a string-slice comparison passes in
+ * every suite and fails on the only machine that matters. handleStaffCheckin has always used
+ * dateStr_(new Date(r.Date)) — one file over, the right answer was already written down.
+ */
+function arSameDay_(cell, ymd) {
+  if (cell === null || cell === undefined || cell === '') return false;
+  if (Object.prototype.toString.call(cell) === '[object Date]') {
+    return isNaN(cell.getTime()) ? false : dateStr_(cell) === ymd;
+  }
+  return ymdCell_(cell) === ymd;
+}
+/** EVERY row for this person on this day — plural on purpose, so duplicates can be healed. */
+function arDayRows_(sh, staffId, ymd) {
+  return readObjects_(sh).filter(function (r) {
+    return String(r.StaffID) === String(staffId) && arSameDay_(r.Date, ymd);
+  });
+}
+/* ...and the repair. The bug above has already written duplicate rows into the live sheet, and a
+ * fix that only stops making new ones would leave the school reading the stale copy forever. The
+ * first row is the one every reader already picks, so that is the one that is kept and corrected;
+ * the rest are deleted BOTTOM-UP, because deleting a row shifts every row below it. */
+function arCollapseDupes_(sh, rows) {
+  if (!rows || rows.length < 2) return 0;
+  var extra = rows.slice(1).map(function (r) { return r._row; }).sort(function (a, b) { return b - a; });
+  extra.forEach(function (n) { sh.deleteRow(n); });
+  return extra.length;
+}
 function arNextId_(sh) {
   var max = 0;
   readObjects_(sh).forEach(function (r) { var m = /ATR-?(\d+)/.exec(String(r.ReqID || '')); if (m) { var n = parseInt(m[1], 10); if (n > max) max = n; } });
@@ -39,14 +84,18 @@ function arNextId_(sh) {
 function arApply_(req) {
   var sh = sheet_(getHrSpreadsheet_(), 'CHECKIN_STAFF');
   ensureColumns_(sh, ['InManual', 'OutManual']);
-  var date = String(req.Date).slice(0, 10);
+  var date = ymdCell_(req.Date);
   var time = toHHmm_(req.RequestTime);
   var type = String(req.Type).toUpperCase();
   // the day being approved may have had its own hours — a Big Cleaning day, or a holiday that ran
   // until noon. Asking staffDayHours_ for THAT date is what stops an approval disagreeing with what
   // the check-in would have recorded on the day itself.
   var hrs = staffDayHours_(req.StaffID, new Date(date + 'T00:00:00'));
-  var row = findObject_(sh, function (r) { return String(r.StaffID) === String(req.StaffID) && String(r.Date).slice(0, 10) === date; });
+  // arSameDay_, not a string slice — see the note on it. This compared a Date object as a string
+  // and so approved requests appended a second row whenever the day already had one.
+  var dayRows = arDayRows_(sh, req.StaffID, date);
+  arCollapseDupes_(sh, dayRows);
+  var row = dayRows[0] || null;
   var patch = {};
   if (type === 'IN') {
     var expectMin = hhmmToMin_(hrs.checkIn); if (expectMin == null) expectMin = hhmmToMin_('08:00');
@@ -103,7 +152,7 @@ function handleApproveTimeRequest(p) {
   if (!yes) {
     try {
       notifyStaffMember_(r.StaffID, '⏰ คำขอลงเวลา ' + (String(r.Type).toUpperCase() === 'IN' ? 'เข้างาน' : 'เลิกงาน') + ' '
-        + String(r.Date).slice(0, 10) + ' ' + r.RequestTime + ' — ไม่อนุมัติ ❌'
+        + ymdCell_(r.Date) + ' ' + r.RequestTime + ' — ไม่อนุมัติ ❌'
         + (p.reason ? ('\nเหตุผล: ' + p.reason) : ''), 'approval', '', 'staff.approval');
     } catch (e) {}
   }
@@ -136,7 +185,7 @@ function handleConfirmTimeRequest(p) {
   // not traffic they were subscribed to. The 🔔 inbox row is written too, so the answer survives an
   // exhausted LINE quota.
   try {
-    var msg = '⏰ คำขอลงเวลา ' + (String(r.Type).toUpperCase() === 'IN' ? 'เข้างาน' : 'เลิกงาน') + ' ' + String(r.Date).slice(0, 10) + ' ' + r.RequestTime + ' — ' + (yes ? 'อนุมัติแล้ว ✅' : 'ไม่อนุมัติ ❌') + (p.reason ? ('\nเหตุผล: ' + p.reason) : '');
+    var msg = '⏰ คำขอลงเวลา ' + (String(r.Type).toUpperCase() === 'IN' ? 'เข้างาน' : 'เลิกงาน') + ' ' + ymdCell_(r.Date) + ' ' + r.RequestTime + ' — ' + (yes ? 'อนุมัติแล้ว ✅' : 'ไม่อนุมัติ ❌') + (p.reason ? ('\nเหตุผล: ' + p.reason) : '');
     /* 🔴 THE LINE HALF WAS UNGATED — missed when the per-topic switches shipped (fixed 2026-10-12).
      * The bell was already written here unconditionally, which was right; the push beside it ignored
      * every setting, which is the exact defect v429 existed to end. notifyStaffMember_ does both
@@ -205,9 +254,13 @@ function handleEditStaffAttendance(p) {
    * two signatures in ATTENDANCE_REQUEST; this one writes straight into the attendance row, so the
    * trail has to live on the row itself or it does not exist. */
   ensureColumns_(sh, ['InManual', 'OutManual', 'EditedBy', 'EditedAt', 'EditNote']);
-  var row = findObject_(sh, function (r) {
-    return String(r.StaffID) === String(target.StaffID) && String(r.Date).slice(0, 10) === date;
-  });
+  /* 🔴 arSameDay_, AND ALL ROWS, NOT findObject_ WITH A STRING SLICE — see the note on arSameDay_.
+   * This is the bug the ผอ. reported: the lookup never matched, so each save appended a second row
+   * and every reader kept showing the first. Collapsing here also repairs the days that were
+   * duplicated before this fix, the next time one of them is corrected. */
+  var dayRows = arDayRows_(sh, target.StaffID, date);
+  var healed = arCollapseDupes_(sh, dayRows);
+  var row = dayRows[0] || null;
   var before = { checkIn: row ? toHHmm_(row.CheckIn) : '', checkOut: row ? toHHmm_(row.CheckOut) : '' };
   var finalIn  = inT  === null ? before.checkIn  : inT;
   var finalOut = outT === null ? before.checkOut : outT;
@@ -222,7 +275,7 @@ function handleEditStaffAttendance(p) {
     try { logAuditHr(p.staffId || 'admin', 'STAFF_ATT_DELETE', 'CHECKIN_STAFF',
       target.StaffID + ' ' + date + ' (เดิม ' + (before.checkIn || '-') + '/' + (before.checkOut || '-') + ') — ' + remark); } catch (e) {}
     editStaffAttendanceNotify_(target, date, before, { checkIn: '', checkOut: '' }, remark, ap);
-    return { staffId: target.StaffID, date: date, checkIn: '', checkOut: '', removed: true, before: before };
+    return { staffId: target.StaffID, date: date, checkIn: '', checkOut: '', removed: true, before: before, healed: healed };
   }
 
   var hrs = staffDayHours_(target.StaffID, new Date(date + 'T00:00:00'));
@@ -258,8 +311,11 @@ function handleEditStaffAttendance(p) {
       ' (เดิม ' + (before.checkIn || '-') + '/' + (before.checkOut || '-') + ') — ' + remark);
   } catch (e) {}
   editStaffAttendanceNotify_(target, date, before, { checkIn: finalIn, checkOut: finalOut }, remark, ap);
+  /* `healed` = duplicate rows this day was carrying, now collapsed. Returned rather than swallowed:
+   * a day that had two attendance rows was being read wrong by every screen, and the admin who
+   * fixes it is the person who should be told it had happened. */
   return { staffId: target.StaffID, date: date, checkIn: finalIn, checkOut: finalOut,
-    late: patch.LateMinutes, otHours: patch.OTHours, before: before };
+    late: patch.LateMinutes, otHours: patch.OTHours, before: before, healed: healed };
 }
 
 /* 🔴 THE PERSON WHOSE MONTH THIS IS ALWAYS HEARS ABOUT IT (the school's decision, 2026-10-20).

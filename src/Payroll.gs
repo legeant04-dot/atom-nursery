@@ -360,8 +360,8 @@ function computePayroll(payload) {
     // ...and if this month's salary was set by a temporary-leave rule, the slip has to SAY so —
     // an unexplained half salary is indistinguishable from a mistake
     PauseSalaryMode: pauseSalary ? pauseSalary.mode : '',
-    PauseFrom: pauseSalary ? String(staff.PauseFrom || '').slice(0, 10) : '',
-    PauseTo: pauseSalary ? String(staff.PauseTo || '').slice(0, 10) : '',
+    PauseFrom: pauseSalary ? ymdCell_(staff.PauseFrom) : '',
+    PauseTo: pauseSalary ? ymdCell_(staff.PauseTo) : '',
     PauseReason: pauseSalary ? String(staff.PauseReason || '') : '',
     GeneratedDate: new Date(), GeneratedBy: payload.generatedBy || 'system'
   };
@@ -412,12 +412,12 @@ function computePayroll(payload) {
  * rule that lives in the engine alone would never run on live.
  */
 function staffPauseSalaryFor_(staff, month, fullBase) {
-  var from = String((staff && staff.PauseFrom) || '').slice(0, 10);
+  var from = ymdCell_(staff && staff.PauseFrom);
   if (!/^\d{4}-\d{2}-\d{2}$/.test(from)) return null;
   var mm = ym7_(month); if (!mm) return null;
   var first = mm + '-01';
   var last = mm + '-' + ('0' + new Date(Number(mm.slice(0, 4)), Number(mm.slice(5, 7)), 0).getDate()).slice(-2);
-  var to = String((staff && staff.PauseTo) || '').slice(0, 10);
+  var to = ymdCell_(staff && staff.PauseTo);
   if (from > last) return null;                       // the leave starts after this month
   if (/^\d{4}-\d{2}-\d{2}$/.test(to) && to <= first) return null;   // ...or ended before it
   var mode = String((staff && staff.PauseSalaryMode) || '').toUpperCase();

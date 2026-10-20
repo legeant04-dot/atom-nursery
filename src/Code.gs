@@ -618,7 +618,7 @@ function applyIdentity_(action, payload, sess) {
      * correct and close the record of somebody who has left.
      */
     var _me = staffRowById_(sess.linkedId);
-    var _end = _me ? String(_me.EndDate || '').slice(0, 10) : '';
+    var _end = _me ? ymdCell_(_me.EndDate) : '';
     if (/^\d{4}-\d{2}-\d{2}$/.test(_end) && dateStr_(new Date()) > _end) {
       throw apiError_('ENDED', 'สิ้นสุดการทำงานเมื่อ ' + _end + ' — เข้าใช้งานระบบไม่ได้แล้ว · หากกลับเข้าทำงาน กรุณาแจ้งแอดมิน');
     }
@@ -641,7 +641,7 @@ function applyIdentity_(action, payload, sess) {
      * Blank StartDate means nobody set one — that must stay open, or a school that leaves the field
      * empty locks its whole staff out.
      */
-    var _start = _me ? String(_me.StartDate || '').slice(0, 10) : '';
+    var _start = _me ? ymdCell_(_me.StartDate) : '';
     if (/^\d{4}-\d{2}-\d{2}$/.test(_start) && dateStr_(new Date()) < _start && !NOT_STARTED_OK_[action]) {
       throw apiError_('NOT_STARTED', 'วันแรกของการทำงานคือ ' + _start + ' — ระบบจะเปิดให้ใช้งานในวันนั้น');
     }
@@ -664,9 +664,9 @@ function applyIdentity_(action, payload, sess) {
      * NOT Status='INACTIVE' and deliberately: somebody on maternity leave is still employed, and
      * flipping Status would tell payroll they had left. The dates are the fact; this reads them.
      */
-    var _pFrom = _me ? String(_me.PauseFrom || '').slice(0, 10) : '';
+    var _pFrom = _me ? ymdCell_(_me.PauseFrom) : '';
     if (/^\d{4}-\d{2}-\d{2}$/.test(_pFrom) && !PAUSED_OK_[action]) {
-      var _pTo = _me ? String(_me.PauseTo || '').slice(0, 10) : '';
+      var _pTo = _me ? ymdCell_(_me.PauseTo) : '';
       var _now = dateStr_(new Date());
       var _onPause = _now >= _pFrom && !(/^\d{4}-\d{2}-\d{2}$/.test(_pTo) && _now >= _pTo);
       if (_onPause) {

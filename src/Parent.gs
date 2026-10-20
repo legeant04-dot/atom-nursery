@@ -347,18 +347,18 @@ function staffOnDuty_(s) {
   if (role === 'Admin' || role === 'Observer') return false;
   if (String(s.Status || 'ACTIVE').toUpperCase() !== 'ACTIVE') return false;
   // EndDate is a LAST WORKING DAY, so it stops mattering only once it has PASSED
-  var end = String(s.EndDate || '').slice(0, 10);
+  var end = ymdCell_(s.EndDate);
   if (/^\d{4}-\d{2}-\d{2}$/.test(end) && dateStr_(new Date()) > end) return false;
   /* ...nor anyone whose FIRST day has not come. Found by the test written for v386: a teacher hired
    * for Nursery 1 starting tomorrow was already being sent every arrival, comment and leave for the
    * class — an inbox full of a job she cannot do yet, about children she has not met. The same
    * reasoning as the EndDate line directly above, at the other end of the employment.
    * A blank StartDate is not a date and never refuses anybody. */
-  var start = String(s.StartDate || '').slice(0, 10);
+  var start = ymdCell_(s.StartDate);
   if (/^\d{4}-\d{2}-\d{2}$/.test(start) && dateStr_(new Date()) < start) return false;
   // ...nor anyone on temporary leave: they are not at the nursery, so there is nothing they can do
   // about a child arriving, and a notification they cannot act on is only a message they have to read
-  var pf = String(s.PauseFrom || '').slice(0, 10), pt = String(s.PauseTo || '').slice(0, 10), td = dateStr_(new Date());
+  var pf = ymdCell_(s.PauseFrom), pt = ymdCell_(s.PauseTo), td = dateStr_(new Date());
   if (/^\d{4}-\d{2}-\d{2}$/.test(pf) && td >= pf && !(/^\d{4}-\d{2}-\d{2}$/.test(pt) && td >= pt)) return false;
   return true;
 }

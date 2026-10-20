@@ -15,6 +15,42 @@ function sheet_(ss, name) {
 }
 
 /** Header names (row 1) of a sheet. */
+/* ═══ 🔴 A DATE COLUMN READ FROM A SHEET IS A Date OBJECT ════════════════════════════════════════
+ *
+ * readObjects_ hands back RAW cell values. Sheets turns a "2026-10-20" string into a DATE CELL on
+ * write, so it reads back as a Date — and `String(thatDate).slice(0, 10)` is "Tue Oct 2", which
+ * equals nothing and matches no `/^\d{4}-\d{2}-\d{2}$/`.
+ *
+ * That is not a theory. It has now cost this project three separate things:
+ *
+ *   · the LINE usage report counted ZERO for every line (fixed in place, v~430, with a local copy
+ *     of this function buried inside one handler)
+ *   · an admin's attendance correction appended a SECOND row every time instead of updating the
+ *     first, so the app said ✅ บันทึกแล้ว and every screen kept the old time (ผอ., 2026-10-20)
+ *   · and every guard below that is written as a raw `.slice(0, 10)` compare: a date that cannot be
+ *     parsed fails the regex, the guard decides there is no date, and it simply never fires.
+ *
+ * 🔴 A GUARD THAT NEVER FIRES LOOKS EXACTLY LIKE A GUARD THAT PASSES. That is why this is one
+ * function in the lowest layer rather than a fix at each call site: the next person to compare a
+ * sheet date should find this already here.
+ *
+ * 🔴 AND NO TEST COULD HAVE CAUGHT IT. The in-memory harness stores whatever a fixture writes, and
+ * every fixture in this repo writes 'YYYY-MM-DD' strings — a Date object never appears, so a
+ * string-slice compare passes in all 184 suites and fails on the only machine that matters.
+ * tools/test_date_cells.js now writes real Date objects on purpose.
+ *
+ * Returns '' for anything it cannot read as a day, which is what every caller already treats as
+ * "no date recorded".
+ */
+function ymdCell_(v) {
+  if (v === null || v === undefined || v === '') return '';
+  if (Object.prototype.toString.call(v) === '[object Date]') return isNaN(v.getTime()) ? '' : dateStr_(v);
+  var s = String(v);
+  if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10);
+  var d = new Date(s);
+  return isNaN(d.getTime()) ? '' : dateStr_(d);
+}
+
 function headers_(sheet) {
   var lastCol = sheet.getLastColumn();
   if (lastCol === 0) return [];

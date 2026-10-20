@@ -766,7 +766,7 @@ function handleAuth(payload) {
      * EndDate is a LAST working day, so this bites only once it has passed — somebody leaving on the
      * 30th still signs in on the 30th. Nothing is deleted: the record keeps their payroll and
      * attendance history, and clearing EndDate lets them straight back in if they return. */
-    var _end = String(st.EndDate || '').slice(0, 10);
+    var _end = ymdCell_(st.EndDate);
     if (/^\d{4}-\d{2}-\d{2}$/.test(_end) && dateStr_(new Date()) > _end) {
       logAudit(st.StaffID, 'LOGIN_DENIED_ENDED', 'STAFF', st.StaffID + ' end=' + _end);
       throw apiError_('ENDED', 'สิ้นสุดการทำงานเมื่อ ' + _end + ' — เข้าใช้งานระบบไม่ได้แล้ว · หากกลับเข้าทำงาน กรุณาแจ้งแอดมิน');

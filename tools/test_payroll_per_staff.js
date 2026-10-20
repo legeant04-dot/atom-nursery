@@ -52,6 +52,15 @@ global.setConfigValue_ = (k, v) => { CONFIG[k] = v; };
 global.bigCleaningDays_ = () => [];
 
 (0, eval)(fs.readFileSync(path.join(ROOT, 'src', 'OtStaff.gs'), 'utf8'));
+/* ymdCell_ lives in Db.gs — whose sheet layer this file replaces wholesale, so the file cannot be
+ * loaded. The ONE function needed is lifted out and loaded FOR REAL instead of stubbed: a stub
+ * would be a second implementation of the exact date coercion the pause-salary rule depends on,
+ * and the bug it exists for (a Sheets date cell read back as a Date object) is precisely the kind
+ * a stub re-implements correctly while the real one is wrong. */
+{ const _db = fs.readFileSync(path.join(ROOT, 'src', 'Db.gs'), 'utf8');
+  const _f = _db.indexOf('function ymdCell_'), _t = _db.indexOf('\nfunction ', _f + 1);
+  if (_f < 0) throw new Error('ymdCell_ not found in src/Db.gs');
+  (0, eval)(_db.slice(_f, _t) + '\nglobal.ymdCell_ = ymdCell_;'); }
 (0, eval)(fs.readFileSync(path.join(ROOT, 'src', 'Payroll.gs'), 'utf8'));
 
 /* LOCAL dates, never toISOString(). The engine works in the school's own timezone; this
