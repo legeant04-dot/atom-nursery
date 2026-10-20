@@ -145,3 +145,145 @@ function handleConfirmTimeRequest(p) {
   } catch (e) {}
   return { reqId: p.reqId, status: yes ? 'APPROVED' : 'REJECTED' };
 }
+
+/* ═══════════════════════════════════════════════════════════════════════════════════════════════
+ * ✏️ CORRECTING A STAFF CLOCK TIME — the thing the children's side has had all along.
+ *
+ * ผอ., 2026-10-20: "ระบบของเรามีฟังก์ชันไหนในการแก้เวลาพนักงานบ้าง หากลงเวลาผิด ที่ไม่ใช่คำขอลงเวลา
+ * เหมือนฟังก์ชันของนักเรียนเวลาผู้ปกครองกดผิด".
+ *
+ * There was none. A child whose parent taps "รับกลับ" by mistake is corrected in ten seconds by any
+ * teacher covering their class (editStudentAttendance) — times set or CLEARED, OT recomputed, who
+ * did it and why recorded. A teacher who taps the wrong thing had exactly one route: คำขอลงเวลา,
+ * two approvals, and it can only ever WRITE a time:
+ *
+ *   · clocked IN on a day they did not work  → no route on earth could remove that row
+ *   · tapped the button twice                → ALREADY_CHECKED_IN, the wrong time frozen on the spot
+ *   · a teacher who has left, or cannot open the app → nobody could file on their behalf
+ *
+ * And staff time IS MONEY: LateMinutes feeds เบี้ยขยัน and OTHours feeds the payslip. So the only
+ * repair was editing the Google Sheet by hand — which records nothing about who changed it.
+ *
+ * 🔴 ADMIN ONLY, AND THE PERSON IS ALWAYS TOLD. The school's decision (2026-10-20). The children's
+ * version is deliberately wider (a teacher may fix their own class) because a child's pick-up time
+ * is the teacher's own business; a colleague's pay is not.
+ *
+ * 🔴 AND IT RECOMPUTES RATHER THAN TRUSTING WHAT IS IN THE ROW. Late minutes and OT hours are
+ * derived from the hours THAT DAY had (staffDayHours_ for that date — a Big Cleaning Saturday and a
+ * half-day holiday have their own), which is the same derivation arApply_ uses. A correction that
+ * changed the time and left yesterday's late minutes standing would be a worse lie than the typo.
+ * ═══════════════════════════════════════════════════════════════════════════════════════════════ */
+
+/** payload: { staffId (the ADMIN), targetId, date, checkIn?, checkOut?, remark? } */
+function handleEditStaffAttendance(p) {
+  p = p || {};
+  var ap = arStaffById_(p.staffId);
+  if (!arIsAdmin_(ap)) throw apiError_('NO_PERMISSION', 'เฉพาะแอดมิน');
+  var target = arStaffById_(p.targetId);
+  if (!target.StaffID) throw apiError_('NOT_FOUND', 'ไม่พบพนักงาน');
+  var date = String(p.date || '').slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw apiError_('BAD_INPUT', 'ระบุวันที่');
+  /* 🔴 NOT A DAY THAT HAS NOT HAPPENED. Attendance is a record of something that occurred; a clock
+   * time typed for next Tuesday is not a correction, it is an invention — and it would sit in the
+   * month's totals as a day worked. */
+  if (date > dateStr_(new Date())) throw apiError_('FUTURE_DATE', 'แก้เวลาของวันที่ยังมาไม่ถึงไม่ได้');
+
+  var hhmm = function (v) {
+    if (v === null || v === undefined) return null;          // not sent → leave this half alone
+    var t = String(v).trim();
+    if (!t) return '';                                        // sent EMPTY → clear it
+    if (!/^\d{1,2}:\d{2}$/.test(t)) throw apiError_('BAD_TIME', 'รูปแบบเวลาต้องเป็น HH:mm');
+    return toHHmm_(t);
+  };
+  var inT = hhmm(p.checkIn), outT = hhmm(p.checkOut);
+  if (inT === null && outT === null) throw apiError_('BAD_INPUT', 'ไม่มีอะไรให้แก้');
+  var remark = String(p.remark || '').trim();
+  if (!remark) throw apiError_('NEED_REASON', 'ใส่เหตุผลของการแก้ไขด้วย — เวลาของพนักงานมีผลกับเงินเดือน');
+
+  var sh = sheet_(getHrSpreadsheet_(), 'CHECKIN_STAFF');
+  /* EditedBy / EditedAt / EditNote — who typed this, when, and why. The request route records its
+   * two signatures in ATTENDANCE_REQUEST; this one writes straight into the attendance row, so the
+   * trail has to live on the row itself or it does not exist. */
+  ensureColumns_(sh, ['InManual', 'OutManual', 'EditedBy', 'EditedAt', 'EditNote']);
+  var row = findObject_(sh, function (r) {
+    return String(r.StaffID) === String(target.StaffID) && String(r.Date).slice(0, 10) === date;
+  });
+  var before = { checkIn: row ? toHHmm_(row.CheckIn) : '', checkOut: row ? toHHmm_(row.CheckOut) : '' };
+  var finalIn  = inT  === null ? before.checkIn  : inT;
+  var finalOut = outT === null ? before.checkOut : outT;
+
+  /* BOTH TIMES BLANK IS A DAY THAT DID NOT HAPPEN, so the row goes rather than sitting there as a
+   * present-but-empty day. This is the half arApply_ could never do, and the reason an accidental
+   * clock-in was permanent. */
+  if (!finalIn && !finalOut) {
+    // in-place, like every other delete in this project — see the DATA-LOSS note in GasEngine.gs
+    if (row) { sh.deleteRow(row._row); bustSheetCache_(sh); }
+    try { CacheService.getScriptCache().removeAll(['rows:CHECKIN_STAFF', 'col:CHECKIN_STAFF']); } catch (e) {}
+    try { logAuditHr(p.staffId || 'admin', 'STAFF_ATT_DELETE', 'CHECKIN_STAFF',
+      target.StaffID + ' ' + date + ' (เดิม ' + (before.checkIn || '-') + '/' + (before.checkOut || '-') + ') — ' + remark); } catch (e) {}
+    editStaffAttendanceNotify_(target, date, before, { checkIn: '', checkOut: '' }, remark, ap);
+    return { staffId: target.StaffID, date: date, checkIn: '', checkOut: '', removed: true, before: before };
+  }
+
+  var hrs = staffDayHours_(target.StaffID, new Date(date + 'T00:00:00'));
+  var patch = { Date: date, StaffID: target.StaffID, CheckIn: finalIn, CheckOut: finalOut,
+    EditedBy: ap.Name || p.staffId, EditedAt: nowStr_(), EditNote: remark.slice(0, 200) };
+
+  // late — only ever against the hours that day actually had, and never on a day off
+  var expectMin = hhmmToMin_(hrs.checkIn); if (expectMin == null) expectMin = hhmmToMin_('08:00');
+  var inMin = hhmmToMin_(finalIn);
+  patch.LateMinutes = (!finalIn || hrs.dayOff || inMin == null) ? 0 : Math.max(0, inMin - (expectMin + hrs.grace));
+
+  // OT — the same arithmetic the clock-out and the approved request both use
+  var planOut = hhmmToMin_(hrs.checkOut); if (planOut == null) planOut = hhmmToMin_('17:00');
+  var outMin = hhmmToMin_(finalOut);
+  if (!finalOut || outMin == null) { patch.OTHours = ''; }
+  else {
+    var otMin = Math.max(0, outMin - planOut);
+    var roundUp = parseInt(getConfig_('OTRoundUpMinutes', '50'), 10) || 50;
+    patch.OTHours = Math.floor(otMin / 60) + ((otMin % 60) >= roundUp ? 1 : 0);
+  }
+  patch.Status = finalOut ? 'OUT' : (finalIn ? 'IN' : 'NONE');
+  // a time an admin typed is a manual time, same as one that came through an approved request —
+  // the ✍️ on the month calendar means "a person entered this", and that is true either way
+  if (inT !== null) patch.InManual = finalIn ? 'YES' : '';
+  if (outT !== null) patch.OutManual = finalOut ? 'YES' : '';
+
+  if (row) updateRow_(sh, row._row, patch);
+  else appendObject_(sh, patch);
+  try { CacheService.getScriptCache().removeAll(['rows:CHECKIN_STAFF', 'col:CHECKIN_STAFF']); } catch (e) {}
+  try {
+    logAuditHr(p.staffId || 'admin', 'STAFF_ATT_EDIT', 'CHECKIN_STAFF',
+      target.StaffID + ' ' + date + ' เข้า ' + (finalIn || '-') + ' ออก ' + (finalOut || '-') +
+      ' (เดิม ' + (before.checkIn || '-') + '/' + (before.checkOut || '-') + ') — ' + remark);
+  } catch (e) {}
+  editStaffAttendanceNotify_(target, date, before, { checkIn: finalIn, checkOut: finalOut }, remark, ap);
+  return { staffId: target.StaffID, date: date, checkIn: finalIn, checkOut: finalOut,
+    late: patch.LateMinutes, otHours: patch.OTHours, before: before };
+}
+
+/* 🔴 THE PERSON WHOSE MONTH THIS IS ALWAYS HEARS ABOUT IT (the school's decision, 2026-10-20).
+ *
+ * Somebody else changed a number that decides their เบี้ยขยัน and their OT. A silent correction is
+ * indistinguishable from a bug in the app, and they would find out — if at all — from the payslip,
+ * which is the worst possible place to discover it. The message says what it WAS as well as what it
+ * is now, because "your check-in is 08:30" tells them nothing they can check.
+ *
+ * Never breaks the correction: the times ARE saved, and a push that did not go out is a message
+ * that did not arrive, not a reason to tell an admin their correction failed.
+ */
+function editStaffAttendanceNotify_(target, date, before, after, remark, by) {
+  try {
+    var fmt = function (v) { return v || '—'; };
+    var msg = '✏️ แอดมินแก้ไขเวลาทำงานของคุณ\n' +
+      '📅 วันที่ ' + date + '\n' +
+      'เข้างาน ' + fmt(before.checkIn) + ' → ' + fmt(after.checkIn) + '\n' +
+      'เลิกงาน ' + fmt(before.checkOut) + ' → ' + fmt(after.checkOut) + '\n' +
+      (!after.checkIn && !after.checkOut ? 'ลบการลงเวลาของวันนี้ออกทั้งหมด\n' : '') +
+      'เหตุผล: ' + remark + '\n' +
+      'แก้ไขโดย: ' + ((by && by.Name) || 'แอดมิน') + '\n' +
+      'หากไม่ถูกต้อง กรุณาแจ้งแอดมินทันที';
+    if (typeof notifyStaffMember_ === 'function') notifyStaffMember_(target.StaffID, msg, 'approval', '', 'staff.approval');
+    if (typeof notifyAdmins_ === 'function') notifyAdmins_(msg);
+  } catch (e) { try { Logger.log('editStaffAttendanceNotify_ failed: ' + (e && e.stack || e)); } catch (x) {} }
+}

@@ -81,6 +81,9 @@ create table if not exists checkin_staff (
   "status"                     text,
   "in_manual"                  text,
   "out_manual"                 text,
+  "edited_by"                  text,
+  "edited_at"                  timestamptz,
+  "edit_note"                  text,
   created_at  timestamptz not null default now(),
   updated_at  timestamptz not null default now()
 );
