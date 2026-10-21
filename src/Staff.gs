@@ -380,7 +380,9 @@ function handleSetStudentEnd(p) {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(end)) throw apiError_('BAD_INPUT', 'รูปแบบวันที่ไม่ถูกต้อง');
     /* A last day BEFORE the first day is not a short enrolment, it is a typo — and it would make a
      * child who has not even started already finished, invisible from the moment they were entered. */
-    var start = String(st.EnrollDate || '').slice(0, 10);
+    // ymdCell_: EnrollDate อ่านจากชีตเป็น Date object — String(...).slice เคยทำให้การตรวจนี้
+    // ไม่เคยทำงานเลย (พบโดย tools/audit_system.js R1, 2026-10-21) ดู note ใน src/Db.gs
+    var start = ymdCell_(st.EnrollDate);
     if (/^\d{4}-\d{2}-\d{2}$/.test(start) && end < start)
       throw apiError_('BAD_INPUT', 'วันสิ้นสุดการเรียนต้องไม่ก่อนวันเริ่มเรียน (' + start + ')');
     if (!reason) throw apiError_('BAD_INPUT', 'กรุณาระบุเหตุผลที่สิ้นสุดการเรียน');
