@@ -723,6 +723,10 @@ window.CONFIG = { MODE: 'gas', GAS_URL: 'https://script.google.com/macros/s/AKfy
      * screen refreshes straight out of a cached reply and still shows the row as missing: the fix
      * would look as if it had done nothing. */
     backfillConfig: 1,
+    /* 🔴 undoBillRun / adjustStaffPay / contributionReset — ทั้งสามเขียนเรื่องเงิน และชื่อไม่ตรงกับ
+     * คำกริยาใดในรายการ (พบโดย tools/audit_system.js R3, 2026-10-21) ต้องตรงกับ WRITES_ACTIONS_
+     * ใน src/Code.gs เสมอ ไม่งั้นหน้าจอจะโชว์ยอดเก่าหลังกดยกเลิกรอบบิล */
+    undoBillRun: 1, adjustStaffPay: 1, contributionReset: 1,
     recordCashPayment: 1, teacherStudentLeave: 1, unlockJournal: 1, unlockInjury: 1,
     // A parent correcting or withdrawing their own leave. Both start with "parent", so the anchored
     // verb test calls them reads — and a write the cache does not know about is a family deleting a

@@ -152,6 +152,24 @@ function paySlipDupCheck_(vr, kind, refId) {
 function paySlipRecord_(kind, refId, p) {
   var tgt = paySlipTarget_(kind, refId);
   if (!tgt) throw apiError_('NOT_FOUND', 'ไม่พบรายการ');
+  /* 🔴 รายการนี้เป็นของบุตรหลานผู้ที่กำลังเรียกจริงหรือเปล่า — พบโดย tools/audit_system.js (R2) 2026-10-21
+   *
+   * ฟังก์ชันนี้คือตัวรับสลิปของ uploadSlip / payOT / payCharge / payPrepay ทั้งสี่เส้นทาง และ
+   * **ไม่เคยตรวจเจ้าของรายการเลย** มีแต่ handlePayCombined (เส้นทางจ่ายรวมหลายรายการ) ที่ตรวจ
+   * ด้วยบรรทัดเดียวกันนี้ — เส้นทางที่ใช้บ่อยที่สุดกลับเป็นเส้นทางที่ไม่มีด่าน
+   *
+   * ผลคือผู้ปกครองที่ล็อกอินอยู่ ส่ง billingId/otId/chargeId ของครอบครัวอื่นก็ได้ แล้วสลิปนั้น
+   * จะถูกบันทึกเข้าไปในบิลของเด็กคนอื่น · paySlipRecompute_ จะปรับยอดค้างของครอบครัวนั้นตามไปด้วย
+   *
+   * 🔴 นี่คือ "เรื่องเงิน" และเป็นรูปแบบเดียวกับ listParents (2026-10-15) ทุกประการ:
+   * ด่านที่ไม่มี ไม่ใช่ด่านที่ปฏิเสธ
+   *
+   * `if (uid && ...)` ตามแบบเดียวกับ handlePayCombined: applyIdentity_ ใส่ uid ให้ทุกเซสชันที่
+   * ไม่ใช่แอดมิน ส่วนแอดมินผ่านได้ เพราะแอดมินบันทึกการชำระแทนครอบครัวได้อยู่แล้วโดยตั้งใจ */
+  var _uid = p && (p.uid || p.lineUID) || '';
+  if (_uid && !parentOwnsStudent_(_uid, tgt.studentId)) {
+    throw apiError_('NO_PERMISSION', 'รายการนี้ไม่ใช่ของบุตรหลานท่าน');
+  }
   var amt = Number(p.slipAmount || 0);
   var drive = { url: '', fileId: '' };
   if (p.slipData) { var b64 = String(p.slipData).indexOf(',') >= 0 ? String(p.slipData).split(',')[1] : String(p.slipData); if (b64) drive = paySlipToDrive_(b64, p.slipName || ('slip-' + refId + '.jpg')); }

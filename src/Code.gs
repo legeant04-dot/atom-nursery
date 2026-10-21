@@ -455,7 +455,19 @@ function applyIdentity_(action, payload, sess) {
    * nothing away. A head teacher reaches parents through `leaderParents` instead — scoped to the
    * classes they cover and contact-level only. */
   // (parentKidsMap is already listed at the bottom of this map — not repeated here)
+  /* 🔴 เจ็ดเส้นทางที่ไม่เคยมีประตู — พบโดย tools/audit_system.js (R2) ในการรันครั้งแรก 2026-10-21
+   *
+   * ทุกตัวถูกเรียกจากหน้าจอของแอดมินเท่านั้น (A_delParent, A_confirmSlip, A_insuranceSave, …) แต่
+   * "หน้าจอไม่มีปุ่ม" ไม่ใช่ด่าน — applyIdentity_ ปักหมุดให้แค่ staffId/uid เท่านั้น เซสชัน **ครู**
+   * ส่ง parentId/studentId/slipId ของใครก็ได้ไปตรงๆ
+   *
+   * ที่หนักที่สุดคือ deleteParent (ลบแถวผู้ปกครองทิ้งทันที ไม่ถามใคร) และ confirmSlip/rejectSlip
+   * (ชี้ขาดว่าบิลใบหนึ่งถือว่าชำระแล้วหรือยัง — เรื่องเงิน)
+   *
+   * รูปแบบเดียวกับ listParents เมื่อ 2026-10-15 ทุกประการ ซึ่งเป็นเหตุผลที่ตัวตรวจระบบมีกฎข้อนี้ */
   var ADMIN_ONLY = { listParents: 1, parentLinkCounts: 1,
+    deleteParent: 1, removeStudent: 1, saveStudent: 1, saveParent: 1,
+    confirmSlip: 1, rejectSlip: 1, saveInsuranceAdmin: 1,
     approvePayslip: 1, adjustStaffPay: 1, saveAttendanceSince: 1,
     generateMonthlyBills: 1, issueBill: 1, billRunLast: 1, undoBillRun: 1,
     deleteBill: 1, adminResetPassword: 1, getStaffPassword: 1, setSchoolConfig: 1, recomputeAttendance: 1, diagDay: 1,
@@ -968,6 +980,15 @@ var WRITES_ACTIONS_ = {
    * withWriteLock_; the one that appends to the sheet holding the school's own settings must not be
    * the exception. Same reason recallJournalsMany is listed above. */
   backfillConfig: 1,
+  /* 🔴 อีกสามตัวในรูปแบบเดียวกันเป๊ะ — พบโดย tools/audit_system.js (R3) 2026-10-21
+   *
+   *   undoBillRun        ลบแถวบิลทั้งรอบออกจากชีต        ("undo" ไม่ใช่คำกริยาในรายการ)
+   *   adjustStaffPay     เขียนรายการปรับเงินเดือน          ("adjust" ไม่ใช่)
+   *   contributionReset  ตั้งยอดกองทุนสำรองเลี้ยงชีพใหม่   ("contribution" ไม่ใช่)
+   *
+   * ทั้งสามเป็นแอดมินอยู่แล้ว แต่ **ไม่ได้จับ write lock** และ **ไม่ล้าง cache ฝั่งแอป** →
+   * เขียนชนกับงานอื่นได้ และหน้าจอโชว์ตัวเลขเก่าหลังกด ทั้งสามเรื่องคือเงิน */
+  undoBillRun: 1, adjustStaffPay: 1, contributionReset: 1,
   recordCashPayment: 1, teacherStudentLeave: 1, unlockJournal: 1, unlockInjury: 1,
   commentAssessment: 1,   // writes a note onto an assessment row; "comment" is not a mutating verb
   // A parent correcting or withdrawing their own leave. Both start with "parent", so MUTATING_RE —
