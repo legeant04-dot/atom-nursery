@@ -259,6 +259,10 @@ var ROUTES = {
   notifications:        function (p) { return handleNotifications(p); },
   markNotifsRead:       function (p) { return handleMarkNotifsRead(p); },
   adminInbox:           function (p) { return handleAdminInbox(p); },
+  // โหมดสาธิต — ดู src/Demo.gs · demoStatus/demoLogin เป็นสาธารณะ (publicAction_), demoReset แอดมิน
+  demoStatus:           function ()  { return handleDemoStatus(); },
+  demoLogin:            function (p) { return handleDemoLogin(p); },
+  demoReset:            function (p) { return handleDemoReset(p); },
   markInboxRead:        function (p) { return handleMarkInboxRead(p); },
   submitInjury:         function (p) { return handleSubmitInjury(p); },
   // approving is the engine's decision; the wrapper exists to tell the teacher when it is SENT BACK
@@ -411,7 +415,12 @@ function sessionRequired_() { try { return String(getConfig_('RequireSessionToke
  * safety comes from the session deciding whose row is written. */
 function publicAction_(a) { return a === 'ping' || a === 'auth' || a === 'perfLog'
   || a === 'lineLoginReady' || a === 'lineExchange'
-  || a === 'googleLoginReady' || a === 'googleExchange'; }
+  || a === 'googleLoginReady' || a === 'googleExchange'
+  /* 🔴 โหมดสาธิต: สองเส้นทางนี้ต้องเรียกได้ก่อนมีเซสชัน เพราะมันคือ "หน้าร้าน"
+   * demoStatus คืนแค่ว่าเปิดโหมดสาธิตไหม (ไม่มีข้อมูลเลยแม้แต่ช่องเดียว) และ demoLogin
+   * ปฏิเสธทุกครั้งที่ demoOn_() เป็นเท็จ ซึ่งบน deployment ของโรงเรียนจริงเป็นเท็จเสมอ
+   * เหตุผลเดียวกับที่ auth/lineExchange เป็นสาธารณะ: มันคือตัวล็อกอินเอง */
+  || a === 'demoStatus' || a === 'demoLogin'; }
 /** Ride a renewed session token back on a normal reply, so an active user is never signed out. */
 function withRenewal_(env, sess) {
   try { var t = renewSession_(sess); if (t) env.token = t; } catch (e) {}
@@ -494,7 +503,7 @@ function applyIdentity_(action, payload, sess) {
     authDiag: 1,
     // who the school messages, and what it costs — both admin-only: the list carries LINE user ids
     lineUsage: 1, lineRecipients: 1, saveLineRecipients: 1,
-    adminTodo: 1, financeTrend: 1, adminInbox: 1, markInboxRead: 1, reinstallTriggers: 1, unlinkStudent: 1, linkParentAdmin: 1, setLeaveQuota: 1, setConfigVal: 1, markSalaryPaid: 1, notifyBills: 1, issueBillsFor: 1, savePlans: 1, saveQRCodes: 1, prepayAudit: 1, recomputeContributions: 1, contributionReset: 1, payrollDuplicates: 1, deletePayrollRow: 1, savePrepayTiers: 1, editPrepay: 1, setStudentPause: 1, setStudentEnd: 1, endingStudents: 1,
+    adminTodo: 1, financeTrend: 1, demoReset: 1, adminInbox: 1, markInboxRead: 1, reinstallTriggers: 1, unlinkStudent: 1, linkParentAdmin: 1, setLeaveQuota: 1, setConfigVal: 1, markSalaryPaid: 1, notifyBills: 1, issueBillsFor: 1, savePlans: 1, saveQRCodes: 1, prepayAudit: 1, recomputeContributions: 1, contributionReset: 1, payrollDuplicates: 1, deletePayrollRow: 1, savePrepayTiers: 1, editPrepay: 1, setStudentPause: 1, setStudentEnd: 1, endingStudents: 1,
     // ☀️ summer terms — opening one decides whether a child may be checked in at all, and the list
     // names every child who has ever come back. Both belong to the admin (engine checks too).
     studentTerms: 1, setStudentTerm: 1, cancelStudentTerm: 1, setStaffEnd: 1, setStaffPause: 1, staffAttendanceMonth: 1, studentMonthReport: 1, recordCashPayment: 1, pausedStudents: 1, deleteSlip: 1, slipDiag: 1, saveSlipOk: 1, cancelPrepay: 1, perfSummary: 1, deletePerfLog: 1, prepaidStudents: 1, insuranceExport: 1,
@@ -944,7 +953,7 @@ var MUTATING_RE = /^(submit|save|add|remove|delete|set|register|pay|upload|confi
  *     studentCheckinHistory / studentLeaves / getPlans came from.
  * Keep it identical to READ_ONLY in webapp/api.js — tools/test_readonly_sync.js fails if it drifts.
  */
-var READ_ONLY_ACTIONS_ = { absenceReport: 1, paymentLog: 1, paymentSlips: 1, payments: 1, payrollConfig: 1,
+var READ_ONLY_ACTIONS_ = { demoStatus: 1, absenceReport: 1, paymentLog: 1, paymentSlips: 1, payments: 1, payrollConfig: 1,
   payrollReminderDue: 1, prepayTiers: 1, prepayments: 1, staffCheckinLog: 1, studentCheckinHistory: 1,
   // starts with "prepay", so the verb test calls it a write. It only asks which children have
   // already paid for a month; see the note in webapp/api.js READ_ONLY.

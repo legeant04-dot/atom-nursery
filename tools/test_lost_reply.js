@@ -80,7 +80,10 @@ console.log('\n3) the client and the server answer "does this write?" identicall
    *
    * The COUNT is pinned on purpose — this list is the fix for a bug that took an Observer's home
    * screen down, so growing it should be a deliberate act, not something that drifts. */
-  eq('fifteen of them', names(serverList).length, 15);
+  /* 16 since v464: demoStatus. It is a pure read that answers one boolean before anybody has
+   * signed in — see src/Demo.gs. Growing this list stays a deliberate act; that is the point of
+   * pinning the number at all. */
+  eq('sixteen of them', names(serverList).length, 16);
   ok_('...including the ones whose NAMES are the trap',
     ['staffMissingCheckout', 'prepaidStudents'].every(n => names(serverList).indexOf(n) >= 0));
   const clientW = (api.match(/const WRITES = \{([\s\S]*?)\};/) || [, ''])[1];

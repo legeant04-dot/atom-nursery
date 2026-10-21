@@ -131,7 +131,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.463'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.464'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -689,7 +689,22 @@
     const sb=$('#searchBtn'); if(sb) sb.hidden = !(USER && USER.role==='Admin');
     // Say it once, at the top, rather than letting someone discover it by pressing a button that
     // refuses. Reuses the "viewing as" bar so there is one strip in one place, never two.
-    if (USER && USER.role === 'Observer') {
+    /* 🔵 โหมดสาธิต — บอกบนทุกหน้า ทุกครั้ง (Phase A · ผอ. 2026-10-21)
+     *
+     * คนที่กำลังลองอยู่ต้อง "กล้ากด" ซึ่งแปลว่าเขาต้องมั่นใจตลอดเวลาว่านี่ไม่ใช่ข้อมูลของใครจริง
+     * และถ้าภาพหน้าจอจากเดโมหลุดออกไป มันต้องบอกตัวเองได้ว่ามันคือเดโม
+     *
+     * ใช้แถบเดียวกับ "ดูมุมมอง"/Observer — หนึ่งแถบ หนึ่งที่ ไม่ใช่สามแถบซ้อนกัน
+     * และอยู่เหนือการตรวจ Observer เพราะ "นี่คือข้อมูลปลอม" สำคัญกว่า "คุณแก้ไม่ได้" */
+    if (window.__DEMO) {
+      let b=document.getElementById('viewAsBar');
+      if(!b){ b=document.createElement('div'); b.id='viewAsBar'; document.body.appendChild(b); }
+      const hd=document.querySelector('.topbar');
+      b.style.top=((hd?hd.getBoundingClientRect().height:56))+'px';
+      document.body.classList.add('viewas');
+      b.innerHTML=`<span>🧪 ${EN()?'Demo — every name, child and number here is made up':'โหมดสาธิต — ชื่อ เด็ก และตัวเลขทั้งหมดเป็นข้อมูลจำลอง'}</span>`;
+    }
+    else if (USER && USER.role === 'Observer') {
       let b=document.getElementById('viewAsBar');
       if(!b){ b=document.createElement('div'); b.id='viewAsBar'; document.body.appendChild(b); }
       const hd=document.querySelector('.topbar');
@@ -1545,6 +1560,7 @@
            the one that carries notifications — this is for the phone that cannot complete it. */''}
       ${CONFIG.MODE==='gas'&&!inLineApp()?`
         <div style="display:flex;justify-content:center;margin-top:10px" data-gsi="signin"></div>`:''}
+      ${demoButtons()}
       ${/* Android only, and ABOVE the add-to-home-screen box: for a phone that can take the real
            app, the shortcut is the second-best answer. iPhones see neither this nor a dead button. */''}
       ${apkCardHTML()}
@@ -1775,6 +1791,47 @@
   /* Whether to offer it at all. The school has to put the channel secret in SCHOOL_CONFIG and add
    * this URL to the LINE Login channel's callback list; until both are done the button would only
    * produce an error, so it is not drawn. Asked once and remembered. */
+  /* ═══ 🧪 โหมดสาธิต — ปุ่ม "เข้าดูตัวอย่าง" (Phase A · ผอ. 2026-10-21) ═══════════════════════
+   *
+   * เราล็อกอินด้วย LINE อย่างเดียว คนที่กดมาจากโฆษณายังไม่มี LINE UID ในระบบเรา — การขอให้
+   * คนแปลกหน้าผูก LINE ก่อนได้ดูสินค้า คือการขอสิ่งที่ไม่มีใครยอมทำ
+   *
+   * 🔴 ปุ่มนี้ไม่โผล่เลยถ้าเซิร์ฟเวอร์ไม่ได้ตอบว่าเปิดโหมดสาธิต และบน deployment ของโรงเรียนจริง
+   * เซิร์ฟเวอร์ตอบว่า "ไม่" เสมอ (ต้องมีกุญแจสองดอก ดู src/Demo.gs) · และถึงใครจะเรียก demoLogin
+   * ตรงๆ เซิร์ฟเวอร์ก็ปฏิเสธด้วยเหตุผลเดียวกัน — **หน้าจอไม่ใช่ด่าน หน้าจอแค่ไม่ชวน**
+   */
+  let _demoReady = null;
+  function demoReady(){
+    if (_demoReady === null) {
+      _demoReady = false;
+      api('demoStatus', {}, { quiet: true }).then(r => { _demoReady = !!(r && r.demo);
+        const el = document.getElementById('demoBox'); if (el) el.hidden = !_demoReady;
+      }).catch(() => { _demoReady = null; });   // ถามไม่ได้ ≠ คำตอบว่าไม่ (เหมือน lineWebReady)
+    }
+    return _demoReady;
+  }
+  function demoButtons(){
+    if (CONFIG.MODE !== 'gas') return '';
+    const b = (role, icon, th, en) => `<button class="btn sm outline" style="flex:1" onclick="DEMO_LOGIN('${role}')">${icon} ${EN()?en:th}</button>`;
+    return `<div id="demoBox" ${demoReady()?'':'hidden'} style="margin-top:14px;padding-top:12px;border-top:1px solid var(--line)">
+      <small class="muted" style="display:block;text-align:center;margin-bottom:6px">🧪 ${EN()?'Try it with made-up data — nothing here is a real child':'ลองใช้งานด้วยข้อมูลจำลอง — ไม่มีข้อมูลเด็กจริงในนี้'}</small>
+      <div class="row" style="gap:6px">${b('Admin','🗂️','แอดมิน','Admin')}${b('Teacher','👩‍🏫','คุณครู','Teacher')}${b('Parent','👪','ผู้ปกครอง','Parent')}</div></div>`;
+  }
+  window.DEMO_LOGIN = async (role) => {
+    try{
+      const r = await api('demoLogin', { role });
+      if (!r || !r.token) { toast(EN()?'Demo is not available':'ยังเปิดโหมดสาธิตไม่ได้'); return; }
+      window.__DEMO = true;
+      /* เดินเข้าประตูเดียวกับการล็อกอินจริงทุกประการ — token ถูกเก็บโดย keepToken ใน api.js
+       * (ทุกคำตอบที่มี token คือเซสชัน) แล้วเข้า LOGIN_REAL ตัวเดิม
+       *
+       * 🔴 ไม่เขียนทางเข้าใหม่ของตัวเอง ถ้าเดโมเดินคนละทางกับของจริง สิ่งที่ลูกค้าเห็นก็จะไม่ใช่
+       * สิ่งที่เขาจะได้ — และเราจะมีหน้าจอชุดที่สองที่ไม่มีใครทดสอบ */
+      if (r.role === 'Parent') PENDING_LINE_UID = r.uid;
+      LOGIN_REAL(r.role, r.linkedId, r.name || (EN() ? 'Demo' : 'ตัวอย่าง'));
+      applyLangNow();
+    }catch(e){ err(e); }
+  };
   let _lineWebReady = null;
   function lineWebReady(){
     if (_lineWebReady === null) {

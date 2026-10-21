@@ -686,6 +686,8 @@ window.CONFIG = { MODE: 'gas', GAS_URL: 'https://script.google.com/macros/s/AKfy
    * because it stamps Status='EXPORTED'.
    */
   const READ_ONLY = {
+    // โหมดสาธิต: ถามว่าเปิดอยู่ไหม — อ่านล้วน ต้องตรงกับ READ_ONLY_ACTIONS_ ใน src/Code.gs
+    demoStatus: 1,
     absenceReport: 1, paymentLog: 1, paymentSlips: 1, payments: 1, payrollConfig: 1,
     payrollReminderDue: 1, prepayTiers: 1, prepayments: 1, staffCheckinLog: 1, studentCheckinHistory: 1,
     // starts with "prepay", so the verb test calls it a write. It only asks WHICH children have

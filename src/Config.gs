@@ -580,6 +580,10 @@ var SCHOOL_CONFIG_DEFAULTS = [
    * set it, and a family's access would then depend on whether that job ran. */
   ['ParentAccessGraceDays', '30'],
   ['SlipOK_PreCheck',       'false'],
+  /* 🔴 โหมดสาธิต — ต้องเป็น false เสมอบนสมุดงานของโรงเรียนจริง
+   * ลำพังคีย์นี้เปิดอะไรไม่ได้: ต้องมี Script Property ATOM_DEMO='1' ที่ตัว Apps Script project
+   * ด้วยอีกชั้น ดูเหตุผลของกุญแจสองดอกใน src/Demo.gs */
+  ['DemoMode',             'false'],
   ['SlipOK_Url',            ''],            // 🔴 the school's OWN SlipOK branch — never inherited
   ['SlipOK_ApiKey',         ''],            // 🔴 ...and its own key. Sharing one spends another school's quota.
 
