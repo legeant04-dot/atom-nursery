@@ -62,6 +62,9 @@ var ONBOARD_SCOPE_ = {
    * this school's answer to a question every school answers differently, and it decides when a
    * family can no longer reach a bill they may still owe. */
   ParentAccessGraceDays:  'CONFIRM',
+  /* UNIVERSAL เพราะคำตอบของทุกโรงเรียนจริงคือ 'false' เหมือนกันหมด — ไม่ใช่เรื่องที่ต้องถาม
+   * และต้องไม่ใช่เรื่องที่ใครเผลอตอบว่าใช่ตอนตั้งโรงเรียนใหม่ */
+  DemoMode:               'UNIVERSAL',
   SlipOK_PreCheck:        'CONFIRM',
   SlipOK_Url:             'BLOCKER',   // the school's OWN SlipOK branch
   SlipOK_ApiKey:          'BLOCKER',   // ...and its own key. Never shared, never inherited.

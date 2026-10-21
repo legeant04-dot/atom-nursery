@@ -99,6 +99,16 @@ function lineDeferFlush_() {
 }
 
 function linePush_(toUid, messages) {
+  /* 🔴 โหมดสาธิตไม่ส่ง LINE หาใครทั้งสิ้น — ตัดที่นี่ ที่เดียว (ผอ. 2026-10-21)
+   *
+   * ตัดที่ "ท่อ" ไม่ใช่ที่สวิตช์รายหัวข้อ เพราะระบบนี้มีข้อความที่ **ตั้งใจให้ไม่มีสวิตช์ปิด**:
+   * รายงานอุบัติเหตุส่ง LINE หาแอดมิน หัวหน้าครู และครอบครัวเสมอ ซึ่งถูกต้องสำหรับโรงเรียนจริง
+   * และจะเป็นหายนะถ้ามีคนแปลกหน้ากดลองในเดโมแล้วมันไปถึงพ่อแม่ตัวจริง
+   *
+   * ทุกการส่ง LINE ในระบบวิ่งผ่านฟังก์ชันนี้ฟังก์ชันเดียว — จึงเป็นจุดเดียวที่ปิดได้จริง
+   * และเป็นจุดที่ "ฟีเจอร์ที่เขียนพรุ่งนี้" จะถูกปิดไปด้วยโดยไม่มีใครต้องจำ
+   */
+  try { if (typeof demoOn_ === 'function' && demoOn_()) { Logger.log('linePush_ skipped (demo mode)'); return false; } } catch (e) {}
   var token = getConfig_('LineChannelAccessToken', '');
   if (!toUid || !token || String(token).indexOf('<FILL') === 0) {
     Logger.log('linePush_ skipped (no token or recipient)');

@@ -94,10 +94,10 @@ const reached = (c, a) => c.__sent.reduce((n, b) =>
     // twelve since v285 (prepaidStudents — its NAME starts with "prepay"; staffMissingCheckout, the
     // eleventh, contains "Checkout"). Pinned deliberately: every entry here has been read against
     // its handler, and the count is what makes an unchecked addition impossible to slip in.
-    eq('the list is exactly the fifteen that were checked', names.length, 15);
+    eq('the list is exactly the sixteen that were checked', names.length, 16);
     /* 🔴 THREE OF THEM DO NOT LIVE IN THE ENGINE, and that is why they are named here rather than
-     * quietly exempted. exportManifest / exportTable (src/Portability.gs) and onboardingCheck
-     * (src/Onboarding.gs) are explicit ROUTES — the engine-body check below cannot find them, and a
+     * quietly exempted. exportManifest / exportTable (src/Portability.gs), onboardingCheck
+     * (src/Onboarding.gs) and demoStatus (src/Demo.gs) are explicit ROUTES — the engine-body check below cannot find them, and a
      * check that cannot find its subject must say so instead of passing.
      *
      * They are verified against their own source directly, by the same rule: a read must not append
@@ -123,7 +123,7 @@ const reached = (c, a) => c.__sent.reduce((n, b) =>
       });
     }
     const eng = R('webapp/engine.js');
-    names.filter(n => !/^(exportManifest|exportTable|onboardingCheck)$/.test(n)).forEach(n => {
+    names.filter(n => !/^(exportManifest|exportTable|onboardingCheck|demoStatus)$/.test(n)).forEach(n => {
       const i = eng.indexOf('\n    ' + n + ':');
       // stop at the NEXT handler, or a one-liner runs into its neighbour and gets blamed for it
       // (prepayTiers sits directly above savePrepayTiers, which does log a write)
