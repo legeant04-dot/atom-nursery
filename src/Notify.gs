@@ -404,6 +404,14 @@ function notifyStaffMember_(staffId, text, category, ref, topic) {
  */
 function handleApproveInjury(p) {
   p = p || {};
+  /* 🔴 การอนุมัติรายงานอุบัติเหตุคือการที่โรงเรียนรับรองว่าเกิดอะไรขึ้นกับเด็กคนหนึ่ง — เป็นของ
+   * หัวหน้าครูและแอดมินเท่านั้น หน้าจอกันไว้แล้ว (isLeaderRole/isAdmin) แต่หน้าจอไม่ใช่ด่าน
+   * พบโดย tools/audit_system.js (R2) 2026-10-21 */
+  var _me = staffRowById_(p.staffId) || {};
+  var _lvl = String(_me.PositionLevel || ''), _role = String(_me.Role || '');
+  if (!(_role === 'Admin' || _lvl === 'Admin' || _lvl === 'Leader')) {
+    throw apiError_('NO_PERMISSION', 'เฉพาะหัวหน้าครูและแอดมิน');
+  }
   var res = engineDispatch_('approveInjury', p);
   try {
     if (String(res && res.status) === 'REJECTED') {

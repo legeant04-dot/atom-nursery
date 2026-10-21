@@ -119,7 +119,12 @@ console.log('\n2) injury — sent back, and then what?');
 {
   ok_('the sheet has somewhere to keep all three', /'RejectBy',\s*'RejectAt',\s*'ResubmittedAt'/.test(R('src/Config.gs')));
   ok_('live routes approveInjury through the notifying wrapper', /approveInjury:\s*function[^\n]*handleApproveInjury/.test(code));
-  const h = /function handleApproveInjury\(p\)\{?[\s\S]{0,900}/.exec(notify.replace(/\r/g, ''));
+  /* 🔴 ทั้งก้อนของฟังก์ชัน ไม่ใช่ 900 ตัวอักษรแรก — ตัวตรวจระบบ (R7) จับ assertion แบบนั้นอยู่
+   * และอันนี้ก็พังจริงตอน v462 เพิ่มการตรวจสิทธิ์ 8 บรรทัดไว้ต้นฟังก์ชัน ทั้งที่ไม่มีบั๊กอะไรเลย */
+  const _n = notify.replace(/\r/g, ''), _i = _n.indexOf('function handleApproveInjury(');
+  const h = _i < 0 ? null : [_n.slice(_i, (function () { let d = 0, j = _n.indexOf('{', _i);
+    for (let k = j; k < _n.length; k++) { if (_n[k] === '{') d++; else if (_n[k] === '}') { d--; if (!d) return k + 1; } }
+    return _n.length; })())];
   ok_('...which only speaks up when the answer was "sent back"', !!h && /REJECTED/.test(h[0]));
   ok_('...to the teacher who filed it', !!h && /r\.TeacherID/.test(h[0]));
   ok_('...via the inbox-first helper, so an exhausted LINE quota still reaches them',

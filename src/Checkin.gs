@@ -636,6 +636,10 @@ function handleStaffStudentCheckin(p) {
   var student = findObject_(sheet_(getMainSpreadsheet_(), 'STUDENTS'),
     function (s) { return String(s.StudentID) === String(p.studentId); });
   if (!student) throw apiError_('STUDENT_NOT_FOUND', 'ไม่พบข้อมูลนักเรียน');
+  /* 🔴 ...และเด็กคนนี้ต้องอยู่ในชั้นที่ครูคนนี้ดูแล (ผอ. 2026-10-21)
+   * การลงเวลาแทนคือการบันทึกว่าเด็กคนหนึ่งมาถึงหรือกลับบ้านแล้ว — เป็นบันทึกความปลอดภัย
+   * และมันตั้งนาฬิกาค่ารับช้าด้วย จึงเป็นทั้งเรื่องความปลอดภัยและเรื่องเงิน */
+  assertStaffCoversStudent_(staff, p.studentId);
 
   // The parent already told us the child is away today. Recording an arrival would contradict the
   // leave and quietly make the attendance figures wrong, so refuse and say why.
