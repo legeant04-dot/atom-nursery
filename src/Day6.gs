@@ -187,6 +187,7 @@ function insReadable_(rec) {
  * unless adminEdit=true). Data is written ONLY to INSURANCE_PCHI.
  */
 function handleSubmitInsurance(p) {
+  assertStaffCoversStudent_(p && p.staffId, p && p.studentId);     // เฉพาะชั้นที่ตัวเองดูแล
   var ss = getMainSpreadsheet_();
   var stu = findObject_(sheet_(ss, 'STUDENTS'), function (s) { return s.StudentID === p.studentId; });
   if (!stu) throw apiError_('NOT_FOUND', 'ไม่พบนักเรียน');

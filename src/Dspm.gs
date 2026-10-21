@@ -84,6 +84,7 @@ function handleDspmCriteria(payload) {
 function handleSubmitAssessment(payload) {
   payload = payload || {};
   var teacher = resolveStaff_(payload);
+  assertStaffCoversStudent_(teacher, payload.studentId);           // เฉพาะชั้นที่ตัวเองดูแล
   var student = getStudent_(payload.studentId);
   if (!Array.isArray(payload.results) || !payload.results.length) {
     throw apiError_('BAD_INPUT', 'ต้องระบุผลการประเมิน (results)');

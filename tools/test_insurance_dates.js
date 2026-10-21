@@ -35,7 +35,10 @@ const day6 = R('src/Day6.gs');
 
 const ISO = /\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/;    // the shape that must never reach a screen
 
-const { run } = H(['Config', 'Db', 'Day6', 'GasEngine', 'Checkin', 'Password']);
+/* Parent.gs + Code.gs: handleSubmitInsurance ผ่าน assertStaffCoversStudent_ (ผอ. 2026-10-21) ซึ่ง
+ * อยู่ใน Parent.gs และเรียก staffRowById_ ใน Code.gs — โหลดของจริงมาแทนที่จะ stub เพราะด่านที่
+ * ถูก stub คือด่านที่ไม่ได้ถูกทดสอบ */
+const { run } = H(['Config', 'Db', 'Day6', 'GasEngine', 'Checkin', 'Password', 'Parent', 'Code']);
 const res = JSON.parse(run(function () {
   var main = SpreadsheetApp.create('MAIN'), hr = SpreadsheetApp.create('HR');
   PropertiesService.getScriptProperties().setProperty('WB_MAIN_ID', main.getId());

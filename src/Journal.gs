@@ -130,6 +130,7 @@ function journalStatusOf_(row) {
 function handleSubmitJournal(payload) {
   payload = payload || {};
   var teacher = resolveStaff_(payload);
+  assertStaffCoversStudent_(teacher, payload.studentId);           // เฉพาะชั้นที่ตัวเองดูแล
   var student = getStudent_(payload.studentId);
   var submit = payload.submit === true || String(payload.submit) === 'true';
 
@@ -222,6 +223,10 @@ function handleSubmitJournalsMany(payload) {
   var date = payload.date || dateStr_(new Date());
   var ids = (payload.studentIds || []).map(String).filter(function (x) { return !!x; }).slice(0, 60);
   if (!ids.length) throw apiError_('BAD_INPUT', 'ยังไม่ได้เลือกนักเรียน');
+  /* 🔴 ทุกคนในชุดต้องอยู่ในชั้นที่ครูคนนี้ดูแล (ผอ. 2026-10-21) — ปฏิเสธทั้งชุด ไม่ใช่ข้ามเงียบๆ
+   * การข้ามเงียบๆ คือ "เซิร์ฟเวอร์บอกว่าสำเร็จ แต่บางคนไม่ได้ถูกส่ง" ซึ่งครูจะไม่มีทางรู้เลย
+   * หน้าจอเสนอเฉพาะเด็กในชั้นของตัวเองอยู่แล้ว มาถึงตรงนี้ได้ = หน้าจอค้างอยู่กับข้อมูลเก่า */
+  ids.forEach(function (sid) { assertStaffCoversStudent_(teacher, sid); });
 
   var sheet = sheet_(getMainSpreadsheet_(), 'DAILY_JOURNAL');
   try { ensureColumns_(sheet, ['SubmittedAt', 'Status', 'UpdatedAt']); } catch (e) {}
@@ -382,6 +387,7 @@ function handleSaveParentComment(payload) {
 /** Teacher replies to the parent's comment on a daily report → notify the parent(s). payload: { studentId, date, reply } */
 function handleSaveTeacherReply(payload) {
   payload = payload || {};
+  assertStaffCoversStudent_(payload.staffId, payload.studentId);   // เฉพาะชั้นที่ตัวเองดูแล
   var student = getStudent_(payload.studentId);
   var date = payload.date || dateStr_(new Date());
   var sheet = sheet_(getMainSpreadsheet_(), 'DAILY_JOURNAL');

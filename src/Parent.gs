@@ -232,6 +232,7 @@ function handleTeacherStudentLeave(payload) {
   payload = payload || {};
   var staff = resolveStaff_(payload);
   if (!payload.studentId || !payload.date) throw apiError_('BAD_INPUT', 'ต้องระบุนักเรียนและวันที่');
+  assertStaffCoversStudent_(staff, payload.studentId);        // เฉพาะชั้นที่ตัวเองดูแล (ผอ. 2026-10-21)
   var student = findObject_(sheet_(getMainSpreadsheet_(), 'STUDENTS'),
     function (s) { return String(s.StudentID) === String(payload.studentId); });
   if (!student) throw apiError_('STUDENT_NOT_FOUND', 'ไม่พบข้อมูลนักเรียน');
@@ -319,6 +320,53 @@ function staffCoversClass_(s, className) {
   if (d.indexOf('*') >= 0) return true;
   return d.split(',').map(function (x) { return x.trim(); }).indexOf(String(className)) >= 0;
 }
+/* ═══ 🔴 เด็กคนนี้อยู่ในชั้นที่ครูคนนี้ดูแลหรือเปล่า ═══════════════════════════════════════════
+ *
+ * ผอ. 2026-10-21: "จำกัดให้ครูดำเนินการได้เฉพาะชั้นเรียนที่ตนเองดูแล แต่หัวหน้าครูทำได้ทั้งหมด"
+ *
+ * พบโดย tools/audit_system.js (R2): มีเจ็ดเส้นทางที่ครูคนใดก็ได้ทำกับเด็ก **คนใดก็ได้ทั้งโรงเรียน**
+ * ลงเวลาแทน · แจ้งลาแทน · ตอบสมุดบันทึก · ส่งสมุดบันทึก (เดี่ยวและหลายคน) · ประเมิน DSPM ·
+ * บันทึกข้อมูลประกัน — ทุกอย่างเป็นงานที่ครู *ควร* ทำได้ คำถามคือ "กับเด็กคนไหน"
+ *
+ * วันนี้คำตอบคือทุกคน · โรงเรียนเดียว 10 คนเชื่อใจกันได้ แต่ยี่สิบโรงเรียนไม่ใช่เรื่องเดียวกัน
+ * และนี่ไม่ใช่เรื่อง "ไม่ไว้ใจครู" — มันคือการทำให้ความผิดพลาดกลายเป็นเรื่องเล็ก: กดผิดคน
+ * ในรายชื่อ 26 คนที่ตัวเองสอน แก้ง่ายกว่ากดผิดคนในรายชื่อ 300 คนทั้งโรงเรียน
+ *
+ * 🔴 หัวหน้าครูคือ Department '*' — กฎเดียวกับที่ทุกหน้าจอใช้มาตลอด ไม่ใช่กฎใหม่
+ *
+ * 🔴 และข้อความปฏิเสธไม่เอ่ยชื่อเด็ก: ครูที่ไม่มีสิทธิ์กับเด็กคนนั้น ไม่ควรได้รู้จากข้อความ
+ * ปฏิเสธว่าเด็กคนนั้นมีตัวตนอยู่ในระบบหรือเปล่า และอยู่ชั้นไหน
+ */
+function assertStaffCoversStudent_(staffOrId, studentId) {
+  var sid = String(studentId || '');
+  if (!sid) return null;
+  /* 🔴 ไม่มี staffId = ผู้เรียกไม่ใช่พนักงาน — และนั่นคือ "ผู้ปกครอง" ซึ่งมีด่านของตัวเองอยู่แล้ว
+   *
+   * applyIdentity_ **ลบ** staffId ทิ้งสำหรับเซสชันผู้ปกครอง (เพื่อไม่ให้ปลอมเป็นพนักงานได้) และ
+   * **ใส่** ให้เสมอสำหรับเซสชันครู/หัวหน้า ดังนั้น "มี staffId" ⟺ "ผู้เรียกเป็นพนักงาน"
+   *
+   * เส้นทางอย่าง submitInsurance ถูกเรียกได้ทั้งจากผู้ปกครอง (กรอกประกันของลูกตัวเอง) และจากครู
+   * ฝั่งผู้ปกครอง applyIdentity_ ปฏิเสธ studentId ที่ไม่ใช่ลูกตัวเองไปแล้วด้วย parentOwnsStudent_
+   * การบังคับให้ต้องมีแถวพนักงานตรงนี้ จะทำให้ผู้ปกครองกรอกประกันของลูกตัวเองไม่ได้
+   *
+   * (ส่วนเส้นทางของครูล้วน — ลงเวลาแทน/สมุดบันทึก/DSPM — ผ่าน resolveStaff_ ซึ่งโยน
+   *  STAFF_NOT_FOUND ไปก่อนแล้ว จึงไม่มีทางมาถึงบรรทัดนี้โดยไม่มีแถวพนักงาน) */
+  if (!staffOrId) return null;
+  var me = (staffOrId && staffOrId.StaffID) ? staffOrId : staffRowById_(staffOrId);
+  if (!me || !me.StaffID) throw apiError_('NO_ACCESS', 'ไม่พบข้อมูลผู้ใช้งาน');
+  // แอดมินและผู้ตรวจ (Observer) ไม่ผ่านทางนี้อยู่แล้ว (applyIdentity_ คืน payload ก่อน) — เขียนไว้
+  // ให้ชัดเพื่อกรณีที่ถูกเรียกจากที่อื่นในอนาคต
+  var role = String(me.Role || ''), lvl = String(me.PositionLevel || '');
+  if (role === 'Admin' || lvl === 'Admin' || role === 'Observer' || lvl === 'Observer') return null;
+  var st = findObject_(sheet_(getMainSpreadsheet_(), 'STUDENTS'),
+    function (s) { return String(s.StudentID) === sid; });
+  if (!st) throw apiError_('NOT_FOUND', 'ไม่พบข้อมูลนักเรียน');
+  if (!staffCoversClass_(me, st.Class)) {
+    throw apiError_('NO_ACCESS', 'ทำรายการได้เฉพาะนักเรียนในชั้นที่ท่านดูแล — หากต้องดูแลชั้นอื่นด้วย กรุณาแจ้งแอดมิน');
+  }
+  return st;
+}
+
 /**
  * Notify the teacher(s) who look after this student's class (+fallback Admins). Covers BOTH the CLASSES
  * homeroom teacher AND any staff whose Department/Classes includes the student's class (so e.g. ครูจอย
