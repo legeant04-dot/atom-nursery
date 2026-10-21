@@ -4671,6 +4671,36 @@ function createAtomAPI(M, GROWTH_STD) {
         studentsPaid:students.filter(s=>s.paid).length, studentsTotal:students.length,
         staffPaid:staff.filter(s=>s.computed).length, staffTotal:staff.length}; },
 
+    /* ═══ 💰 รายได้ย้อนหลัง (Phase C · ผอ. 2026-10-21) ═════════════════════════════════════════
+     *
+     * ตัวเลขเดือนนี้ตัวเดียวตอบไม่ได้ว่า "ดีขึ้นหรือแย่ลง" — ซึ่งเป็นคำถามเดียวที่เจ้าของโรงเรียน
+     * ถามจริงๆ เวลามองตัวเลขรายได้
+     *
+     * 🔴 เรียก financeSummary ตัวเดิมซ้ำ 3 เดือน ไม่ได้คำนวณสูตรใหม่
+     *
+     * ถ้าเขียนสูตรรายได้ขึ้นมาอีกชุดเพื่อให้มันเร็วขึ้น วันหนึ่งกราฟบนหน้าแรกกับหน้าการเงินจะไม่
+     * ตรงกัน และ **วันนั้นจะไม่มีใครรู้ว่าอันไหนถูก** · เรื่องเงินมีได้แค่แหล่งเดียว
+     * (บทเรียนเดียวกับที่ tuitionCollected เคยไม่ใช่ค่าเทอม และการ์ดสองใบบนจอเดียวเถียงกันเอง)
+     *
+     * คืนเฉพาะ "ตัวเลขต่อเดือน" ไม่ได้คืนรายชื่อเด็กของสามเดือน — การ์ดบนหน้าแรกไม่ต้องใช้ และ
+     * payload ที่ใหญ่โดยไม่จำเป็นคือเวลารอของแอดมินทุกเช้า
+     */
+    financeTrend: p => {
+      { const me=staffById(p&&p.staffId); if(!adminLike_(me)) fail('NO_PERMISSION','เฉพาะแอดมิน'); }
+      const n=Math.min(Math.max(parseInt((p&&p.months)||3,10)||3,1),12);
+      const base=ym((p&&p.month)||todayLocal().slice(0,7));
+      const [Y,Mo]=base.split('-').map(Number);
+      const out=[];
+      for(let i=n-1;i>=0;i--){
+        const d=new Date(Y, Mo-1-i, 1);
+        const m=d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0');
+        const f=H.financeSummary({month:m})||{};
+        out.push({ month:m, collected:Number(f.collectedAll||0), income:Number(f.income||0),
+          expense:Number(f.expense||0), net:Number(f.net||0) });
+      }
+      return { months: out };
+    },
+
     // ---------- Admin ----------
     dashboard: () => { const std=activeStudents();
         // class list = CLASSES rows ∪ departments master ∪ every class a student is actually in,
@@ -5110,6 +5140,81 @@ function createAtomAPI(M, GROWTH_STD) {
       });
       return {month, defaultDay:schoolDay, total:groups.reduce((a,g)=>a+g.count,0),
               days:groups.map(g=>g.day), groups}; },
+    /* ═══ 📋 สิ่งที่ต้องทำวันนี้ (Phase B · ผอ. 2026-10-21) ═══════════════════════════════════
+     *
+     * แดชบอร์ดเดิมตอบว่า "เมื่อวานเป็นยังไง" — ตัวเลขสรุป เปอร์เซ็นต์ กราฟ · ถูกต้องทุกตัว และไม่มี
+     * ตัวไหนบอกว่า **เช้านี้ต้องทำอะไร** แอดมินจึงต้องไล่เปิดเองวันละหกหน้าจอเพื่อหาว่ามีอะไรค้าง
+     *
+     * 🔴 ทุกบรรทัดต้องเป็นงานที่ "ทำวันนี้ได้" ไม่ใช่สถิติ
+     *    "ขาดเรียน 11 วันเดือนนี้" ไม่ใช่งาน · "ใบลา 3 ใบรออนุมัติ" คืองาน
+     *
+     * 🔴 รายการที่เป็นศูนย์ ไม่ขึ้นเลย
+     *    แบนเนอร์ "ไม่มีอะไรค้าง" ทุกวันคือเสียงรบกวน และเสียงรบกวนคือสิ่งที่ทำให้คนเลิกอ่านหน้าจอ
+     *    ที่สำคัญจริง — เหตุผลเดียวกับที่ parentDueCard ไม่พิมพ์อะไรเลยเมื่อไม่มียอดค้าง
+     *
+     * 🔴 นับจากคอลเล็กชันตรงๆ ไม่เรียก handler หนักๆ ต่อ
+     *    Apps Script รันทีละคำสั่ง — การ์ดบนหน้าแรกที่เรียกอีกห้า handler คือเช้าที่แอดมินรอนานขึ้น
+     *
+     * 🔴 และตัวเลขต้องมาจากที่เดียวกับหน้าจอที่มันลิงก์ไป
+     *    ถ้าหน้าแรกบอก 12 แล้วกดเข้าไปเจอ 9 ทั้งหน้าจะไม่ถูกเชื่ออีกเลย
+     */
+    adminTodo: p => {
+      { const me=staffById(p&&p.staffId); if(!adminLike_(me)) fail('NO_PERMISSION','เฉพาะแอดมิน'); }
+      const today=todayLocal(), items=[];
+      const add=(key,n,go,extra)=>{ if(n>0) items.push(Object.assign({key,n,go},extra||{})); };
+      const pend=s=>String(s||'').toUpperCase().indexOf('PENDING')===0;
+      const dayDiff=(a,b)=>Math.round((new Date(a+'T00:00:00')-new Date(b+'T00:00:00'))/86400000);
+
+      /* 🔴 ของที่รออนุมัติ ถามจาก opsPending ตัวเดิม ไม่ได้นับใหม่เอง
+       *
+       * opsPending นับ staffOT / holidayOT / timeRequests / classChanges / studentOT / injuries /
+       * leaves อยู่แล้ว และป้ายแดงบนแถบเครื่องมืออ่านจากมันอยู่ · ถ้าการ์ดนี้นับเองอีกชุด วันหนึ่ง
+       * สองที่จะไม่ตรงกัน แล้วจะไม่มีใครรู้ว่าอันไหนถูก — เหมือน "ผูกกับนักเรียนไหม" ที่เคยมี
+       * สามคำตอบ (v454) และ "ยังไม่ได้จัดชั้น" ที่เคยมีสอง (v456) */
+      const ops = H.opsPending(p) || {};
+      add('leaves',   ops.leaves||0,       'leaves');
+      add('timeReq',  ops.timeRequests||0, 'timeRequests');
+      add('classReq', ops.classChanges||0, 'classChanges');
+      add('injury',   ops.injuries||0,     'injuries');
+      add('staffOT',  (ops.staffOT||0)+(ops.holidayOT||0), 'staffOT');
+      add('studentOT',ops.studentOT||0,    'studentOT');
+      // ...และของที่ opsPending ไม่ได้นับ
+      add('slips',    (M.paymentSlips||[]).filter(s=>String(s.Status||'').toUpperCase()==='SUBMITTED').length, 'pendingPayments');
+      add('withdraw', (M.withdrawals||[]).filter(w=>String(w.Status||'').toUpperCase()==='PENDING').length, 'withdrawals');
+
+      /* วันที่ลงเวลาเข้าแล้วไม่เคยลงเวลาออก และวันนั้นผ่านไปแล้ว — วันเหล่านั้นไม่มีชั่วโมงทำงาน
+       * และไม่มี OT จนกว่าจะมีคนแก้ ซึ่งแปลว่ามันคือเงินเดือนที่ยังไม่ถูกต้อง */
+      add('noCheckout', (M.staffAttendanceHistory||[])
+        .filter(h=>h.In && !h.Out && ymd(h.Date) && ymd(h.Date)<today && ymd(h.Date).slice(0,7)===today.slice(0,7)).length,
+        'staffMonth');
+
+      /* สมุดบันทึกของวันนี้ที่ยังไม่ได้ส่ง — นับเฉพาะวันที่โรงเรียนเปิด ไม่งั้นเสาร์-อาทิตย์จะขึ้น
+       * ตัวเลขแดงทุกสัปดาห์ให้คนเรียนรู้ที่จะข้ามการ์ดนี้ */
+      if(!schoolClosedFor_(today, true)){
+        const sent={}; (M.journals||[]).forEach(j=>{ if(ymd(j.Date)===today && jStatus_(j)==='SUBMITTED') sent[String(j.StudentID)]=1; });
+        /* เฉพาะเด็กที่ "วันนี้ควรมีบันทึก" จริงๆ — ไม่นับคนที่ลาวันนี้ คนที่วันนี้เป็นวันหยุดประจำ
+         * ของตัวเอง และคนที่ยังไม่เริ่มเรียน · การนับเขาเข้าไปด้วย คือตัวเลขแดงที่แก้ไม่ได้ */
+        add('journals', activeStudents().filter(s=>
+          !sent[String(s.StudentID)] && !studentOffDay_(s) && !studentNotStarted_(s) &&
+          !(studentLeaveToday_(s.StudentID)||{}).onLeave).length, 'journals');
+      }
+
+      // เด็กที่ใกล้ถึงวันสุดท้าย (ภายใน 7 วัน) — ยังไม่ถึง จึงยังแก้/ยกเลิกได้
+      add('ending', H.endingStudents().filter(x=>x.days>=0 && x.days<=7).length, 'students');
+
+      /* 🚪 ครอบครัวที่ใกล้หมดช่วงผ่อนผัน — ภายใน 7 วันนี้ประตูจะปิดเอง · นี่คือโอกาสสุดท้ายที่จะ
+       * เก็บยอดค้างหรือออกเอกสารให้เขา ก่อนที่เขาจะเข้าระบบไม่ได้อีก */
+      add('graceSoon', M.students.filter(s=>{ const u=parentAccessUntil_(s);
+        return !!u && !parentAccessClosed_(s) && dayDiff(u,today)<=7; }).length, 'parents');
+
+      /* 🔔 กล่องข้อความแอดมินไม่ได้นับที่นี่ — มันเป็นเส้นทางฝั่ง .gs (ADMIN_INBOX ไม่ได้อยู่ใน
+       * คอลเล็กชันของ engine) และกระดิ่งบนหัวจอบอกจำนวนนั้นอยู่แล้วตลอดเวลา · การนับซ้ำในสองที่
+       * คือสองตัวเลขที่วันหนึ่งจะไม่ตรงกัน */
+
+      return { date: today, items,
+        /* ผลรวมมาจากรายการเดียวกับที่แสดง ไม่ได้นับแยก — ป้ายตัวเลขบนหัวการ์ดที่ไม่ตรงกับจำนวน
+         * บรรทัดใต้มัน คือหน้าจอที่เถียงกันเอง (บทเรียน "ยังไม่ได้จัดชั้น" v456) */
+        total: items.reduce((a,x)=>a+x.n,0) }; },
     pausedStudents: () => M.students.filter(s=>String(s.Status)===PAUSED_STATUS)
       .map(s=>({studentId:s.StudentID,name:s.NameTH||s.Name,nameEN:s.NameEN,nick:s.Nickname,nickEN:s.NicknameEN,className:s.Class,
         from:ymd(s.PauseFrom||''), to:ymd(s.PauseTo||''), reason:s.PauseReason||'',
