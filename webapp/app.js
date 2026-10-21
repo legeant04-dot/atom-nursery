@@ -131,7 +131,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.462'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.463'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -7565,7 +7565,13 @@
      * Its own fallback, like every other card here: a failed announcements list must leave the rest
      * of the dashboard standing. */
     const p_anns = api('announcements').catch(()=>null);
-    const [d,rem,lrem,pend,fin]=await Promise.all([api('dashboard'),api('payrollReminderDue'),api('leaveResetReminder'),api('pendingPayments'),api('financeSummary',{})]);
+    /* 📋 ...และ "สิ่งที่ต้องทำวันนี้" ขี่ไปในชุดเดียวกัน — api.js รวมทุก call ที่เกิดใน tick เดียวกัน
+     * ให้เป็น request เดียว การ์ดนี้จึงไม่เพิ่มเวลารอของเช้าวันไหนเลย · .catch เพื่อให้ deployment
+     * เก่าที่ยังไม่รู้จัก route นี้ยังเปิดแดชบอร์ดได้ตามปกติ (การ์ดจะไม่ขึ้นเฉยๆ) */
+    const [d,rem,lrem,pend,fin,todo,trend]=await Promise.all([api('dashboard'),api('payrollReminderDue'),api('leaveResetReminder'),api('pendingPayments'),api('financeSummary',{}),
+      api('adminTodo',{staffId:USER.staffId}).catch(()=>null),
+      api('financeTrend',{staffId:USER.staffId,months:3}).catch(()=>null)]);
+    window._TODO = todo; window._TREND = trend;
     const pendN=pend.length;
     // ---- payment tracking (this month): monthly tuition + student OT collection ----
     /* THREE KINDS OF MONEY, EACH REPORTED AS ITSELF.
@@ -7609,6 +7615,103 @@
      *   · the children's card → closedForStudents (the nursery is shut to the families)
      *   · the staff card      → closed            (a meeting Saturday IS a working day)
      */
+    /* ═══ 📋 สิ่งที่ต้องทำวันนี้ (Phase B · ผอ. 2026-10-21) ═══════════════════════════════════
+     *
+     * หน้านี้ตอบมาตลอดว่า "เมื่อวานเป็นยังไง" — ตัวเลขถูกทุกตัว และไม่มีตัวไหนบอกว่าเช้านี้ต้องทำ
+     * อะไร แอดมินจึงไล่เปิดเองวันละหกหน้าจอเพื่อหาว่ามีอะไรค้าง
+     *
+     * 🔴 ไม่มีงานค้าง = ไม่พิมพ์อะไรเลย ไม่ใช่แบนเนอร์เขียวว่า "เรียบร้อย"
+     * การ์ดที่ขึ้นทุกวันไม่ว่าจะมีอะไรหรือไม่ คือการ์ดที่สายตาเรียนรู้ที่จะข้าม — และวันที่มันสำคัญ
+     * จริงก็จะถูกข้ามไปด้วย (เหตุผลเดียวกับ parentDueCard และ "แพ้: -" สีเทาบนทุกแถว)
+     *
+     * 🔴 ขี่ไปกับ batch เดิม ไม่ได้เพิ่มรอบเรียกเซิร์ฟเวอร์
+     * Apps Script รันทีละคำสั่ง — รอบใหม่หนึ่งรอบ = เช้าที่แอดมินรอนานขึ้นจริงๆ 5-10 วินาที
+     */
+    const TODO_LABEL = {
+      leaves:     ['ใบลารออนุมัติ', 'leave requests to approve'],
+      timeReq:    ['คำขอลงเวลารออนุมัติ', 'time requests to approve'],
+      classReq:   ['คำขอย้ายชั้นรออนุมัติ', 'class changes to approve'],
+      injury:     ['รายงานอุบัติเหตุรออนุมัติ', 'injury reports to approve'],
+      staffOT:    ['OT ของครูรออนุมัติ', 'staff OT to approve'],
+      studentOT:  ['ค่ารับช้ารอตรวจสลิป', 'late-pickup slips to verify'],
+      slips:      ['สลิปรอตรวจสอบ', 'payment slips to verify'],
+      withdraw:   ['ใบแจ้งออกรอดำเนินการ', 'withdrawals to process'],
+      noCheckout: ['วันที่ครูลืมลงเวลาออก (เดือนนี้)', 'days a teacher never clocked out'],
+      journals:   ['สมุดบันทึกวันนี้ที่ยังไม่ได้ส่ง', 'journals not sent today'],
+      ending:     ['เด็กที่ถึงวันสุดท้ายภายใน 7 วัน', 'children finishing within 7 days'],
+      graceSoon:  ['ครอบครัวที่ใกล้หมดสิทธิ์เข้าใช้งาน', 'families whose access closes soon']
+    };
+    /* 🔴 ปลายทางของสี่ตัวที่ opsPending นับให้ ใช้ OPS_BTN ตัวเดิม ไม่ได้เขียนที่อยู่ใหม่
+     * ถ้าวันหนึ่งหน้าจออนุมัติ OT ย้ายที่ ป้ายบนกระดิ่งกับการ์ดนี้ต้องย้ายตามพร้อมกัน ไม่ใช่
+     * ตัวหนึ่งย้ายแล้วอีกตัวพาไปหน้าที่ไม่มีอะไร */
+    const TODO_GO = { leaves:"GO('leaves')", timeReq:OPS_BTN.timeRequests+'()', classReq:OPS_BTN.classChanges+'()',
+      injury:"GO('injuries')", staffOT:OPS_BTN.staffOT+'()', studentOT:OPS_BTN.studentOT+'()',
+      slips:"GO('finance')", withdraw:"GO('manage')", noCheckout:"A_staffMonth()", journals:"A_journals()",
+      ending:"GO('manage')", graceSoon:"GO('manage')" };
+    const TODO_TONE = { slips:'bad', studentOT:'bad', noCheckout:'warn', graceSoon:'warn', journals:'warn' };
+    const todoHtml = (() => {
+      const td = window._TODO;
+      if (!td || !td.items || !td.items.length) return '';     // ไม่มีงานค้าง = ไม่พิมพ์อะไรเลย
+      const row = it => { const L = TODO_LABEL[it.key] || [it.key, it.key];
+        const tone = TODO_TONE[it.key] || 'info';
+        return `<div class="list-item" style="cursor:pointer;padding:8px 0" onclick="${TODO_GO[it.key] || "GO('manage')"}">
+          <span><span class="pill ${tone}" style="min-width:34px;text-align:center;font-weight:700">${it.n}</span>
+            <span style="margin-left:8px">${esc(EN() ? L[1] : L[0])}</span></span><span class="muted">›</span></div>`; };
+      return `<div class="card" style="border-color:var(--blue-line)">
+        <div class="spread"><b>📋 ${EN() ? 'To do today' : 'สิ่งที่ต้องทำวันนี้'}</b>
+          <b style="color:var(--blue)">${td.total}</b></div>
+        ${td.items.map(row).join('')}</div>`;
+    })();
+    /* ═══ 📊 สรุปภาพรวม (Phase C · ผอ. 2026-10-21) ════════════════════════════════════════════
+     *
+     * 🔴 ตัวเลขเงินทุกตัวมาจาก financeSummary/financeTrend ตัวเดียวกับหน้าการเงิน
+     * ถ้าเขียนสูตรขึ้นมาใหม่เพื่อให้เร็ว วันหนึ่งสองหน้าจะไม่ตรงกัน และวันนั้นจะไม่มีใครรู้ว่า
+     * อันไหนถูก
+     *
+     * 🔴 และ % การดำเนินงาน คำนวณจากข้อมูลที่ "โหลดมาแล้ว" บนหน้านี้ ไม่ได้ขอเพิ่ม
+     * มันจึงเป็นไปไม่ได้ที่เลขบนการ์ดนี้จะเถียงกับการ์ดที่อยู่ใต้มันบนจอเดียวกัน
+     */
+    /* เป็นฟังก์ชัน ไม่ใช่ค่าที่คำนวณทันที — มันอ่าน _attTs/_closedStd ซึ่งประกาศอยู่ข้างล่าง
+     * และจะถูกเรียกตอนประกอบหน้าจอ ซึ่งตอนนั้นทุกตัวพร้อมแล้ว */
+    const summaryCard = () => {
+      const tr = (window._TREND && window._TREND.months) || [];
+      // % เช็คชื่อ — ตัวเลขเดียวกับไทล์ KPI ด้านบน ไม่ได้นับใหม่
+      const att = _attTs.t ? Math.round(_attTs.p / _attTs.t * 100) : 100;
+      // % ครูลงเวลา — จากการ์ดครูบนหน้านี้
+      const stf = (d.staff || []).length;
+      const stfIn = (d.staff || []).filter(s => s.status === 'IN' || s.status === 'OUT').length;
+      const stfPct = stf ? Math.round(stfIn / stf * 100) : 100;
+      // % สมุดบันทึก — จาก "สิ่งที่ต้องทำวันนี้" ที่โหลดมาแล้ว (ค้างกี่เล่ม จากเด็กที่ควรมีวันนี้)
+      const jLeft = ((window._TODO && window._TODO.items) || []).filter(x => x.key === 'journals')[0];
+      const jTot = _attTs.t, jDone = jTot - Number((jLeft && jLeft.n) || 0);
+      const jPct = jTot ? Math.max(0, Math.round(jDone / jTot * 100)) : 100;
+
+      const bar = (m) => { const max = tr.reduce((a, x) => Math.max(a, x.collected), 0) || 1;
+        const h = Math.max(4, Math.round(m.collected / max * 62));
+        const cur = m.month === monthStr();
+        return `<div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:3px">
+          <small class="muted" style="font-size:10.5px">${esc(baht(m.collected))}</small>
+          <div style="width:70%;height:${h}px;border-radius:4px 4px 0 0;background:${cur ? 'var(--blue)' : 'var(--line-strong)'}"></div>
+          <small class="muted" style="font-size:11px">${esc(monthNameYear(m.month).split(' ')[0])}</small></div>`; };
+      const pctRow = (label, v) => `<div style="margin-top:6px"><div class="spread" style="font-size:13px"><span class="muted">${esc(label)}</span><b style="color:${pctColor(v)}">${v}%</b></div>
+        <div style="height:5px;background:var(--line);border-radius:3px;overflow:hidden;margin-top:2px"><div style="height:100%;width:${v}%;background:${pctColor(v)}"></div></div></div>`;
+
+      if (!tr.length) return '';
+      return `<div class="card">
+        <div class="spread"><b>📊 ${EN() ? 'Overview' : 'สรุปภาพรวม'}</b>
+          <button class="btn sm outline" onclick="GO('finance')">${EN() ? 'Finance' : 'การเงิน'} ›</button></div>
+        <small class="muted" style="display:block;margin-bottom:6px">${EN() ? 'Money received each month — the same figures as the finance screen' : 'ยอดเงินที่ <b>รับจริง</b>แต่ละเดือน — ตัวเลขชุดเดียวกับหน้าการเงิน'}</small>
+        <div style="display:flex;align-items:flex-end;gap:8px;height:92px;padding:0 4px">${tr.map(bar).join('')}</div>
+        ${/* 🔴 เงินเดือน ผอ. ไม่ได้นับใน "รายจ่ายรวม" (มติ ผอ. 2026-09-30) — เขียนไว้บนหน้าจอ
+             ไม่ใช่ซ่อนไว้ในโค้ด ไม่งั้นตัวเลขนี้จะถูกอ่านผิดโดยคนที่ไม่เคยรู้เรื่องนั้น */''}
+        <small class="muted" style="display:block;margin-top:6px;font-size:11.5px">${EN() ? 'Expenses exclude the director’s own salary, by the school’s decision.' : 'รายจ่ายไม่รวมเงินเดือนของ ผอ. ตามมติของโรงเรียน'}</small>
+        <div style="margin-top:10px;padding-top:8px;border-top:1px solid var(--line)">
+          <b style="font-size:13px">${EN() ? 'Today’s progress' : 'ความคืบหน้าวันนี้'}</b>
+          ${_closedStd ? `<div class="muted" style="font-size:13px;margin-top:4px">${EN() ? 'School closed today' : 'วันนี้โรงเรียนหยุด'}</div>` : `
+            ${pctRow(EN() ? 'Children checked in' : 'เช็คชื่อเด็กแล้ว', att)}
+            ${pctRow(EN() ? 'Journals sent' : 'ส่งสมุดบันทึกแล้ว', jPct)}
+            ${pctRow(EN() ? 'Staff clocked in' : 'ครูลงเวลาแล้ว', stfPct)}`}</div></div>`;
+    };
     const _day=d.day||{};
     const _closedStd=!!_day.closedForStudents, _closedStaff=!!_day.closed;
     const _closed=_closedStd;                                   // the dashboard is mostly about the children
@@ -7642,7 +7745,9 @@
     app.innerHTML=`<div class="dash-h"><h2 class="page">${esc(t('title.dashboard'))}</h2><span class="dash-date">${esc(ddmmyyyy(todayStr()))}</span>
         ${refreshBtn()}</div>
       ${closedBanner}<div id="aholot"></div>${remHtml}${leaveRemHtml}
+      ${todoHtml}
       ${kpi}${quick}
+      ${summaryCard()}
       ${payHtml}
       <div class="card"><div class="spread"><h3>👶 ${EN()?'Attendance by class':'การมาเรียนแต่ละชั้น'}</h3>${_closed?`<span class="pill" style="background:var(--surface-3);color:var(--ink-3)">🏖️ ${EN()?'Holiday':'วันหยุด'}</span>`:''}</div>
         ${_closed?`<div style="text-align:center;color:var(--ink-3);padding:10px 0"><b>${EN()?'School closed — no attendance today':'โรงเรียนหยุด — ไม่มีการมาเรียนวันนี้'}</b></div>`:`
