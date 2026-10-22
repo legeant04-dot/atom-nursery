@@ -1,178 +1,153 @@
-# KALONTA — the brand
+# 🪪 แบรนด์ · ORVIA
 
-**Chosen 2026-09-24.** `docs/BRAND_NAMING.md` is the journey: six rounds, thirty-eight names
-checked, twenty-nine eliminated with the reason recorded. **This document is the decision.** It is
-the one to read before writing anything the public will see.
+> **ตัดสินใจแล้ว 2026-10-22** โดย ผอ. · ปิด Phase 1.6 (ชื่อแบรนด์ + โดเมน)
+>
+> 🔴 **นี่คือชื่อของแพลตฟอร์ม ไม่ใช่ชื่อโรงเรียน** — **Atom Nursery ยังเป็น Atom Nursery**
+> โรงเรียนคือ *ลูกค้ารายแรก* ไม่ใช่ *ตัวสินค้า* · ไม่มีอะไรในแอปที่ต้องเปลี่ยนชื่อจากการตัดสินใจนี้
 
 ---
 
-## 1. The name
+## ชื่อ
 
 | | |
 |---|---|
-| **Written** | **KALONTA** |
-| **Thai** | **คา-ลอน-ตา** — stress on **ลอน** |
-| **English** | *kah-LON-tah* |
-| **Letters / syllables** | 7 / 3 |
-| **Never** | `Kalonta Co.` in the logo, `KALONTA School Management`, or any descriptive suffix. See §7 |
+| **ละติน** | **Orvia** — รูปเดียว ไม่มีรูปสำรอง |
+| **ไทย** | **ออร์เวีย** |
+| **อ่าน** | ออร์-เวีย · OR-vee-a |
 
-### Why it survived when thirty-seven others did not
+### 🔴 กฎการเขียนที่ห้ามพลาด
 
-- No company, no school, no software, no app, anywhere — checked in the education class as well as
-  the software one, which is the check that killed TONKLA and FILIZA
-- **All twelve domains free** — `.com .co .io .app .ai .net .org .asia .co.th .in.th .tech .school`
-- Contains no loaded substring. Its predecessor KLANOTA was legally clear and read **KLAN** in
-  capitals; one swap removed that for nothing
-- Thai reads it correctly on the first attempt, with no unfortunate homophone — unlike KLATON
-  (**ตัน**, clogged), KLONTA (**คลอน**, wobbly) or LATONK (**ลา**, to leave)
+**`ร` ต้องมีการันต์เสมอ → `ออร์เวีย`**
+
+ถ้าพิมพ์ตกเป็น **"ออรเวีย"** คนไทยจะอ่าน **"ออ-ระ-เวีย" สามพยางค์ทันที** และเราจะเสียความเป็นชื่อสองพยางค์ไป
+
+**ห้ามใช้รูปสำรอง** (Orvea / Orvya / Orvía) แม้จะอ่านเหมือนกัน
+ทุกรูปสะกดที่ปล่อยออกไป = คนที่พิมพ์แล้วหาเราไม่เจอ · รูปใกล้เคียงจดไว้**กันคนอื่นเอา** ไม่ใช่เอาไว้ใช้เอง
 
 ---
 
-## 2. Layer one — the six letters are six people
+## ที่มาของชื่อ — ตรวจสอบแล้ว ไม่ได้แต่งขึ้น
 
-**This is the true origin and it belongs to nobody else.**
+### `OR` ← ละติน **`aurum`** (ทอง)
+
+เป็นการเปลี่ยนเสียงที่เกิดขึ้นจริงในตระกูลโรมานซ์:
+`aurum` → ฝรั่งเศส **`or`** · สเปน `oro` · อิตาลี `oro` · โรมาเนีย `aur`
+
+🔴 **และรากที่ลึกกว่านั้นคือสิ่งที่ทำให้ชื่อนี้ใช่:**
+
+> PIE **`*h₂ews-`** = **"รุ่งสาง · สว่างขึ้น · แดงขึ้น"**
+> **ทองคำถูกตั้งชื่อตามแสงเรืองของรุ่งอรุณ**
+
+พยางค์ `Or` พยางค์เดียวจึงบรรจุทั้ง **ทอง** และ **แสงแรกของวัน** ไว้แล้วโดยธรรมชาติ — เราไม่ได้ยัดความหมายใส่
+
+### `ōrāre` ← ละติน **"พูด · กล่าว"** (จาก `ōs, ōris` = ปาก)
+
+รากของคำว่า **oration** และ **oracle** · เป็นคนละรากกับ `aurum` อย่างชัดเจน
+
+### `VIA` ← ละติน **"ทาง"**
+
+> ## **ORVIA = ทางที่ส่องให้เห็น แล้วบอกตรงๆ ว่าเห็นอะไร**
+
+---
+
+## 🧭 โครงสร้างแบรนด์ — สองชั้น
+
+```
+┌─ แกน C ─ คำสัญญาของเรา "ต่อโรงเรียน" ──────────────────┐
+│  "ทางที่พูดตรง"                                        │
+│  🔮 คำพยากรณ์พูดเป็นปริศนา — Orvia พูดตรงๆ              │
+│  ไทย:    ตัวเลขเดียวกัน ทุกหน้าจอ                       │
+│  อังกฤษ: The way that speaks plainly.                  │
+│                                                         │
+│   └─ แกน B ─ สิ่งที่โรงเรียนส่งต่อ "ถึงผู้ปกครอง" ─────┐ │
+│      "แสงแรก"                                        │ │
+│      ไทย:    อุ่นใจตั้งแต่เช้า                        │ │
+│      อังกฤษ: From the first light of the day.        │ │
+│      └──────────────────────────────────────────────┘ │
+└────────────────────────────────────────────────────────┘
+```
+
+**ลูกค้าที่จ่ายเงินคือโรงเรียน → แกน C คือสิ่งที่เราขาย**
+**สิ่งที่โรงเรียนอยากได้คือความไว้ใจจากผู้ปกครอง → แกน B คือสิ่งที่เราทำให้เขาส่งมอบได้**
+
+🔴 **แกนเดียว ไม่ใช่สองแกนเท่ากัน** — แบรนด์ที่มีสองแกนเท่ากันคือแบรนด์ที่ไม่มีแกน
+B อยู่ *ใต้* C เสมอ: เราบอกความจริงกับโรงเรียน เพื่อให้โรงเรียนให้ความอุ่นใจกับครอบครัวได้
+
+---
+
+## 🔴 สิ่งที่แกน C ผูกมัดเราไว้ — และนี่คือข้อดี
+
+เรื่องเล่าที่ไม่ผูกมัดอะไรเลย คือเรื่องเล่าที่ไม่ได้บอกอะไรเลย ถ้าเราประกาศว่า *"เราพูดตรง"*:
+
+| ต้องทำ | เพราะ |
+|---|---|
+| **ติดราคาไว้บนเว็บ** | จาก 19 แพลตฟอร์มที่เทียบ **ไม่มีใครบอกราคาเลยสักเจ้า** ต้องจองเดโมคุยเซลส์ · การติดราคาคือการพิสูจน์แกน C ด้วยการกระทำ และคู่แข่งขยับตามไม่ได้ถ้าไม่รื้อทั้งบริษัท |
+| **ให้ลูกค้าเอาข้อมูลออกได้ตลอดเวลา** | ปุ่มสำรองข้อมูลทั้งโรงเรียน (Phase 4.6) ไม่ใช่ฟีเจอร์ — มันคือหลักฐานของคำสัญญา |
+| **ตัวเลขเดียวกันทุกหน้าจอ** | กฎที่เราบังคับในโค้ดอยู่แล้ว: `financeTrend` เรียก `financeSummary` ตัวเดิม · `adminTodo` ถาม `opsPending` ตัวเดิม |
+| **บอกเมื่อระบบเคยผิด** | `docs/WORKLOG.md` และ `tools/audit_system.js` คือเครื่องมือที่หาที่ที่ระบบโกหกผู้ใช้ของมันเอง |
+| **ห้ามซ่อนข้อผิดพลาด** | ข้อความยืนยันต้องบอกสิ่งที่บันทึกจริง ไม่ใช่สิ่งที่ผู้ใช้เพิ่งพิมพ์ |
+
+---
+
+## ❌ ทางที่ไม่เลือก และเหตุผล
+
+### `aura` + via — **ตรวจแล้ว ไม่ใช่**
+
+ถาม: *"ถ้าไปทาง aura + via = เส้นทางของแสงสว่าง ดีไหม?"*
 
 | | |
 |---|---|
-| **K** | **Kwan** |
-| **A** | **Atom** — the nursery that took the first risk |
-| **L** | **Leia** |
-| **O** | **Organize** — the system itself |
-| **N** | **Nursery** |
-| **T** | **Tam** |
+| 🔴 **`aura` ในภาษาละตินไม่ได้แปลว่าแสง** | แปลว่า **"ลมอ่อนๆ · ลมหายใจ · อากาศ"** ← กรีก `αὔρα` ← `ἀήρ` (อากาศ) |
+| 🔴 **ความหมาย "แสงเรืองรอบตัว" เป็นของใหม่และเป็นสายลี้ลับ** | มาจากกลุ่ม **Theosophy ปลายศตวรรษที่ 19** (Leadbeater) ไม่ใช่ความหมายดั้งเดิม |
+| 🔴 **และในทางการแพทย์ `aura` คือสัญญาณเตือนก่อนชักลมบ้าหมู** | *aura epileptica* — ย้อนไปถึงกาเลนศตวรรษที่ 2 · ความหมายที่สองที่เราไม่อยากได้เลยในสินค้าเกี่ยวกับเด็ก |
+| 🔴 **ภาษาไทย "ออร่า" = การตลาดครีมบำรุงผิว** | ออร่ากระจาย · ครีมออร่า — ไม่ใช่ภาพที่เราต้องการให้ ผอ. นึกถึงตอนเซ็นสัญญา |
+| ⚠️ **และเสียงก็ไม่ได้ช่วย** | `aura` = "ออ-รา" ไม่ใช่ "ออร์" จึงไม่ได้ทำให้สะกด Orvia ง่ายขึ้นด้วยซ้ำ |
 
-*(The closing A belongs to Atom as well.)*
+> ✅ **ข่าวดีคือความหมายที่ ผอ. ต้องการ อยู่ในชื่อนี้อยู่แล้ว**
+> `or` ← `aurum` ← รากที่แปลว่า **"รุ่งสาง · สว่างขึ้น"**
+> **เราได้ "เส้นทางของแสงสว่าง" มาแล้ว โดยไม่ต้องแตะคำที่มีสองความหมายซ้อนอยู่**
 
-The letters arrived first, as **TONKLA** — which turned out to be `tonkla.ac.th`, a Thai school.
-Same six letters, rearranged. **The order was never the meaning; the completeness was.**
+### ชื่ออื่นที่ตกรอบจากการตรวจ (2026-10-21/22)
 
-> Tell this to a director once, at the end, not the beginning. It is the part they repeat to somebody
-> else.
-
----
-
-## 3. Layer two — what the world already says the word means
-
-Both of these were found in the availability check, not invented afterwards, and both happen to
-point at the business:
-
-| Source | Meaning |
+| | เหตุผล |
 |---|---|
-| **Minahasa** (North Sulawesi, Indonesia) — a family name | **perisai kayu — a wooden shield** |
-| **Greek** κάλαντα, as in *paidika kalonta* | **the carols children sing** |
-
-**A shield, and the sound of children singing.** For a platform whose two jobs are protecting a
-child's record and carrying what happened today home to a parent, that is a better-evidenced story
-than any metaphor we could have written.
-
-And because it reads as a local family name in Indonesia — our first expansion market — it arrives
-there as familiar rather than foreign.
-
-### ⚠️ What is NOT the story any more
-
-The **ต้นกล้า / seedling** narrative belonged to TONKLA and KLATARA, which carried **กล้า** in their
-letters. **KALONTA does not.** Do not staple that metaphor back on. The shield and the carol are
-true of this name; the seedling is not, and a story the name cannot carry is the kind that falls
-apart in the second interview.
+| **Alma** | 🔴 เป็น **ระบบสารสนเทศนักเรียน Pre-K–ม.ปลาย** อยู่แล้ว (Alma Technologies, จดเครื่องหมายการค้า Class 42) — สินค้าเดียวกัน หมวดเดียวกัน |
+| **Sabai** | 🔴 ชนเสียง **SABUY Technology PCL** ซึ่งเปลี่ยนชื่อเป็น WSOL และ**ยื่นฟื้นฟูกิจการต่อศาลล้มละลายกลาง** |
+| **Raksa** | 🟡 ชน **RAKxa Integrative Wellness** (Minor Hotels + VitalLife บำรุงราษฎร์) — คนละวงการ แต่ปิดเส้นทางขยายไปสุขภาพ/ประกัน |
+| **KALONTA** | 🔴 คนไทยอ่านใกล้ **"กะล่อน"** |
+| **Nido · Brio · Bambis · Tula · Kinto · Velo · Cura · Axon** | 🔴 ชนแบรนด์ในวงการเด็ก/ซอฟต์แวร์/นิโคติน |
+| **Maia** | 🔴 ไทยอ่าน **"มายา"** = หลอกลวง — พลาดแบบเดียวกับ KALONTA |
 
 ---
 
-## 4. Layer three — the letters as a charter
+## 🌐 โดเมน
 
-§15 of `BRAND_NAMING.md` proved letter-acronyms are invisible to anyone hearing a name, so **these
-are not marketing.** They are seven commitments, each already enforced somewhere in this repo, and
-the name is how we remember them.
+**สถานะ ณ 2026-10-22** (ตรวจผ่าน RDAP ของทะเบียนจริง)
 
-| | Commitment | Enforced by |
-|---|---|---|
-| **K** — Kin | Family is inside the system, not a recipient of reports | Parent role · LINE · journal comments |
-| **A** — Accuracy | Every figure traces back to who entered it and when | `ByStaffID` / `ByAt` on every check-in |
-| **L** — Ledger | Money is exact to the satang | `numeric(12,2)` on all 39 money columns; no float anywhere |
-| **O** — Open | The data belongs to the school and can leave | `docs/DATA_OWNERSHIP.md` |
-| **N** — Nurture | What happened to a child today is written down today | Daily journal · DSPM |
-| **T** — Trust | A child's record never crosses to another school | `tenant_id` + RLS on all 52 tables |
-| **A** — Always | It works at 07:00, when everybody checks in at once | p50 < 1.5s in the Phase Plan's done-criteria |
+### ต้องจด — ตัวจริง
+| | |
+|---|---|
+| **`orvia.co.th`** ✅ ว่าง | ⭐ **ตัวหลัก** — จดได้เฉพาะบริษัทที่จดทะเบียนในไทย **ตัวโดเมนเองคือหลักฐานว่าเราเป็นบริษัทจริง** ซึ่งเป็นสิ่งที่โรงเรียนตรวจ |
+| **`orvia.io`** ✅ ว่าง | สำหรับงานเทคนิค/เอกสารนักพัฒนา |
+| **`orvia.co`** ✅ ว่าง | สำรอง |
 
-**A charter that can be failed is worth more than a slogan that cannot.**
+### ควรจดกันไว้ — ป้องกันรูปสะกดใกล้เคียง
+`orvea.co.th` · `orvya.co.th` · `aurvia.co.th` · `orvia.school` · `orvia.asia` — **ทั้งหมดยังว่าง**
 
----
+### ไม่ว่าง — ไม่ต้องตาม
+`orvia.com` · `orvia.app` · `orvia.net` · `orvia.org` · `orvia.cloud` · `orvia.tech` · `getorvia.com` · `orviaapp.com`
 
-## 5. How to say it — three registers
-
-### The line under a school's logo
-
-> **ขับเคลื่อนโดย KALONTA**
-> *Powered by KALONTA*
-
-Nothing else. No tagline, no descriptor, no "school management system".
-
-### The one sentence
-
-> **เราไม่ได้สอนเด็ก — เราค้ำโรงเรียนไว้ตอนที่โรงเรียนสอน**
-> *We don't teach the children. We hold the school up while it does.*
-
-This is the ingredient-brand position stated honestly, and it is what stops a director asking
-whether we compete with them.
-
-### Thirty seconds, for a director
-
-> KALONTA เป็นระบบหลังบ้านของโรงเรียนอนุบาลครับ — ลงเวลาเด็กและครู บันทึกพัฒนาการรายวันถึงผู้ปกครอง
-> ใบแจ้งหนี้ เงินเดือน และแจ้งเหตุฉุกเฉินถึงพ่อแม่ทันที
->
-> **แอปขึ้นชื่อโรงเรียนของท่าน ไม่ใช่ชื่อเรา** ชื่อเราอยู่บรรทัดเล็กๆ ข้างล่างเท่านั้น
->
-> ส่วนชื่อ KALONTA — มันคือตัวอักษรของคนหกคนที่ทำให้ระบบนี้เกิดขึ้นครับ และบังเอิญว่าในภาษาหนึ่ง
-> ของอินโดนีเซีย มันแปลว่า **โล่ไม้**
+> 🔴 **ไม่ต้องไล่ล่า `.com`** — จาก 125 ชื่อที่ตรวจมา เหลือ `.com` ว่างแค่ 2 ชื่อ
+> `.com` ไม่ใช่สัญญาณความน่าเชื่อถือในตลาดไทยอีกแล้ว แต่ **`.co.th` เป็น**
 
 ---
 
-## 6. Naming architecture
+## ⏳ ยังต้องตรวจก่อนจดจริง — ผมทำแทนไม่ได้
 
-Amity's structure, not Shopify's — a parent brand holding products, each school keeping its own face.
+| | ทำยังไง |
+|---|---|
+| 🔴 **เครื่องหมายการค้าไทย** | ค้นที่ **DIP กรมทรัพย์สินทางปัญญา** — `Orvia` และ `ออร์เวีย` ใน **จำพวก 42 (ซอฟต์แวร์/SaaS)** และ **จำพวก 41 (การศึกษา)** · *(เว็บ tmsearch.ipthailand.go.th ปฏิเสธการเข้าถึงอัตโนมัติ — ต้องค้นด้วยมือ)* |
+| 🟡 **LINE OA `@orvia`** | `page.line.me/orvia` ตอบ **404** = **ยังไม่มีใครใช้** *(เป็นสัญญาณ ไม่ใช่คำรับประกัน)* · ยืนยันจริงใน **LINE OA Manager** ตอนสร้างบัญชี — **`@id` คือสิ่งที่ผู้ปกครองพิมพ์เพื่อเพิ่มเพื่อน จึงสำคัญกว่าชื่อที่แสดง** |
 
-| Layer | Name | Example |
-|---|---|---|
-| **The company** | KALONTA | contracts, invoices, the Play Store developer name |
-| **What a parent opens** | **the school's own name** | *Atom Nursery*, on the school's own domain |
-| **The attribution** | ขับเคลื่อนโดย KALONTA | one small line |
-| **Products, later** | `KALONTA <noun>` | `KALONTA Console` — never `KALONTA-ify`, never an acronym |
-
----
-
-## 7. Two rules taken from `docs/NAMING_BENCHMARK.md`
-
-### Never add a descriptive suffix
-
-17 of the 20 winning global names say nothing about the product. Every descriptive one is carrying a
-ceiling: Salesforce bought Slack and Tableau and is still the CRM company; Gusto had to stop being
-*ZenPayroll*; Miro had to stop being *RealtimeBoard*.
-
-**The moment we are "KALONTA School Management", we can never sell to a clinic, a daycare, a
-tutoring centre or an after-school programme without a rebrand.**
-
-### Never rename
-
-**Omise → Opn (May 2022) → Omise (March 2025).** Two years, two rebrands, back to the start. The
-newer name was shorter, more global and more abstract — and it lost to the name people already
-trusted. `api.omise.co` was never changed through either.
-
-> **Brand equity lives in the old name. A rename spends it rather than transferring it.** This choice
-> was made at the only cheap moment there will ever be — one school live, no equity to lose. It does
-> not get made again.
-
----
-
-## 8. Still open
-
-| | Who | Note |
-|---|---|---|
-| 🔴 **Register the domains** | **Owner, today** | `.com` first, then `.co.th` once the company exists. A name free today is free to everybody |
-| 🔴 **DIP classes 41 + 42** | Owner, via an IP agent | `tmsearch.ipthailand.go.th` is the official register; **41 matters most — that is where the schools are.** Initial examination 4–8 months, total 10–18 |
-| **LINE OA id** | Owner | |
-| **Play Store developer name** | Owner | Organisation verification needs a D-U-N-S number and takes weeks — start early |
-| **Company registration** | Owner | `.co.th` requires a matching registered Thai company |
-
-Near-misses found and judged non-blocking, all in unrelated classes: **Kalontar** (handcrafted
-jewellery app; organic catering, Canada), **Kalanta** (a UK Ltd; a Guangzhou leather-goods maker;
-and the generic Greek word for carols — which limits distinctiveness in the EU but not in Thailand),
-**Calonta** (a personal Instagram account).
+**ลำดับที่ถูกต้อง: จดบริษัท → `.co.th` → LINE OA → แล้วค่อยสร้างผู้ติดตาม**
+ไม่ใช่กลับกัน — ผู้ติดตามที่มาก่อนบริษัท คือผู้ติดตามที่เราอาจรักษาชื่อไว้ให้เขาไม่ได้
