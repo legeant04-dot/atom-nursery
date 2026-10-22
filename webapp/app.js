@@ -1,5 +1,29 @@
 /* app.js — UI shell + 3 portals on the mock API (revamped). */
 (function () {
+  /* ═══ 🚚 ย้ายโดเมน — ครึ่งที่อยู่ฝั่งหน้าเว็บ (2026-10-22) ════════════════════════════════
+   *
+   * ต้องมีสองครึ่ง เพราะมีผู้ใช้สองแบบที่เดินคนละทาง:
+   *
+   *   · แอปที่ติดตั้งไว้แล้ว  → service worker ส่งต่อให้ (webapp/sw.js)
+   *   · เปิดจากเบราว์เซอร์ธรรมดา / เครื่องที่ SW ยังไม่ทันติดตั้ง → บรรทัดนี้ส่งต่อให้
+   *
+   * 🔴 ค่าต้องตรงกับ MIGRATE_TO ใน webapp/sw.js เสมอ — tools/test_domain_move.js ตรึงไว้
+   * 🔴 และเปิดสวิตช์ "หลัง" โดเมนใหม่ใช้งานได้จริงแล้วเท่านั้น · ดู docs/DOMAIN_MOVE.md
+   *
+   * อยู่บรรทัดแรกสุดของไฟล์ ก่อนทุกอย่าง — ไม่ให้แอปเริ่มทำงาน ไม่ให้ยิง request หาเซิร์ฟเวอร์
+   * และไม่ให้เขียนอะไรลง localStorage ของโดเมนเก่า ระหว่างที่กำลังจะย้ายออกไปอยู่แล้ว
+   *
+   * ใช้ location.replace ไม่ใช่ location.href — ที่อยู่เก่าต้องไม่ค้างอยู่ในประวัติการเข้าชม
+   * ให้ปุ่ม "ย้อนกลับ" พากลับมาวนอยู่ที่เดิม
+   */
+  const MIGRATE_TO = '';
+  if (MIGRATE_TO && location.origin !== MIGRATE_TO) {
+    try { if (navigator.serviceWorker) navigator.serviceWorker.getRegistrations()
+      .then(rs => rs.forEach(r => r.unregister())).catch(() => {}); } catch (e) {}
+    location.replace(MIGRATE_TO + location.pathname + location.search + location.hash);
+    return;
+  }
+
   const $ = s => document.querySelector(s);
   // Deferred writes (after an await) must tolerate the user having navigated away — the target node
   // is gone and `el.innerHTML=` would throw "Cannot set properties of null" and clobber the new screen.
@@ -131,7 +155,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.464'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.465'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
