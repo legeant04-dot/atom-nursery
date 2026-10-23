@@ -155,7 +155,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.466'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.467'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -7541,7 +7541,10 @@
     const adjPlusSum=adjPlus.reduce((s,a)=>s+_n(a.amount),0);
     const adjMinusSum=adjMinus.reduce((s,a)=>s-_n(a.amount),0);
     const childCount=_n(r.ExtraChildCount!=null?r.ExtraChildCount:r.ChildCount);
-    const childRate=_n(r.ChildMultiplier!=null&&r.ChildMultiplier!==''?r.ChildMultiplier:(cfg.ExtraChildRate||300));
+    /* 🔴 ไม่มี `|| 300` อยู่ข้างหลังอีกแล้ว (ผอ. 2026-10-23) · สลิปที่ไม่มีเรทเก็บไว้ คือสลิปของ
+     * เดือนที่ยังไม่ได้กำหนดเรท — การเติม 300 ให้ตรงนั้น คือใบจ่ายเงินที่พิมพ์ "× ฿300" ใต้ยอด ฿0 */
+    const childRateSet=(r.ChildMultiplier!=null&&r.ChildMultiplier!=='');
+    const childRate=_n(r.ChildMultiplier);
     const certRate=_n(cfg.TrainingCertRate||100);
     // เบี้ยขยัน has three parts but only two are stored separately; Big Cleaning is the remainder
     const bigClean=_r2(_n(r.DiligenceTotal)-_n(r.DiligenceAttendance)-_n(r.DiligenceFacebook));
@@ -7558,9 +7561,12 @@
     // BC_NAME(), never the words themselves — the day was renamed once and must stay renamed here too
     if(bigClean>0.005) income.push({ label:`${E('Diligence bonus — ','เบี้ยขยัน — ')}${BC_NAME()}`, amount:bigClean });
     income.push({ label:E('Child-count allowance','รายได้ตามจำนวนเด็ก'), amount:_n(r.ExtraChildAmount), always:true,
-      note: childCount?`${childCount} ${E('children','คน')} × ${baht(childRate)}`
+      note: (childCount&&childRateSet)?`${childCount} ${E('children','คน')} × ${baht(childRate)}`
+        /* 🔴 "ยังไม่กำหนด" มาก่อนเหตุผลอื่น — เหตุผลอื่นทุกข้อบอกเป็นนัยว่า "เรทมีอยู่ แต่เดือนนี้
+         * ไม่เข้าเงื่อนไข" ซึ่งคนละเรื่องกับ "ยังไม่มีใครกำหนดเรทให้ครูคนนี้" */
+        : (!childRateSet?E('child rate not set yet — ask the school office','ยังไม่ได้กำหนดเรทจำนวนเด็กของครูท่านนี้')
         : (r.LeaveExceeds?E(`leave over ${_n(r.LeaveLimit)||3} days — allowance not calculated`,`ลาเกิน ${_n(r.LeaveLimit)||3} วัน — ไม่คำนวณเรท`)
-                         :E('no children above the threshold','ไม่มีเด็กเกินเกณฑ์')) });
+                         :E('no children above the threshold','ไม่มีเด็กเกินเกณฑ์'))) });
     if(_n(r.TrainingCertAmount)) income.push({ label:E('Training certificates','ใบประกาศอบรม'), amount:_n(r.TrainingCertAmount),
       note:`${_n(r.TrainingCertCount)} ${E('certificates','ใบ')} × ${baht(certRate)}` });
     income.push({ label:E('Evening overtime (OT)','ค่าล่วงเวลาตอนเย็น (OT)'), amount:_n(r.OTEvening), always:true });
@@ -7720,7 +7726,9 @@
       noCheckout: ['วันที่ครูลืมลงเวลาออก (เดือนนี้)', 'days a teacher never clocked out'],
       journals:   ['สมุดบันทึกวันนี้ที่ยังไม่ได้ส่ง', 'journals not sent today'],
       ending:     ['เด็กที่ถึงวันสุดท้ายภายใน 7 วัน', 'children finishing within 7 days'],
-      graceSoon:  ['ครอบครัวที่ใกล้หมดสิทธิ์เข้าใช้งาน', 'families whose access closes soon']
+      graceSoon:  ['ครอบครัวที่ใกล้หมดสิทธิ์เข้าใช้งาน', 'families whose access closes soon'],
+      // ผอ. 2026-10-23 — ไม่มีค่าสำรองอยู่ข้างหลังแล้ว คนที่ยังไม่ตั้งค่าคือคนที่ยังไม่ได้เงินก้อนนี้
+      childRate:  ['ครูที่ยังไม่ได้กำหนดเรทจำนวนเด็ก', 'teachers with no child rate set']
     };
     /* 🔴 ปลายทางของสี่ตัวที่ opsPending นับให้ ใช้ OPS_BTN ตัวเดิม ไม่ได้เขียนที่อยู่ใหม่
      * ถ้าวันหนึ่งหน้าจออนุมัติ OT ย้ายที่ ป้ายบนกระดิ่งกับการ์ดนี้ต้องย้ายตามพร้อมกัน ไม่ใช่
@@ -7728,8 +7736,10 @@
     const TODO_GO = { leaves:"GO('leaves')", timeReq:OPS_BTN.timeRequests+'()', classReq:OPS_BTN.classChanges+'()',
       injury:"GO('injuries')", staffOT:OPS_BTN.staffOT+'()', studentOT:OPS_BTN.studentOT+'()',
       slips:"GO('finance')", withdraw:"GO('manage')", noCheckout:"A_staffMonth()", journals:"A_journals()",
-      ending:"GO('manage')", graceSoon:"GO('manage')" };
-    const TODO_TONE = { slips:'bad', studentOT:'bad', noCheckout:'warn', graceSoon:'warn', journals:'warn' };
+      ending:"GO('manage')", graceSoon:"GO('manage')", childRate:"GO('payroll')" };
+    const TODO_TONE = { slips:'bad', studentOT:'bad', noCheckout:'warn', graceSoon:'warn', journals:'warn',
+      // เรื่องเงินที่ยังไม่ถูกต้อง — โทนเดียวกับ noCheckout ซึ่งเป็นเงินเดือนที่ยังคำนวณไม่ได้เหมือนกัน
+      childRate:'warn' };
     const todoHtml = (() => {
       const td = window._TODO;
       if (!td || !td.items || !td.items.length) return '';     // ไม่มีงานค้าง = ไม่พิมพ์อะไรเลย
@@ -8782,7 +8792,7 @@
       <div class="card" style="background:var(--blue-bg);padding:8px"><b style="font-size:13px">👶 ${esc(t('pay.childRate'))}</b>
         <div id="pLeaveWarn"></div>
         <div class="grid2" style="margin-top:6px"><label class="field" style="margin:0"><span>${esc(t('pay.childThreshold'))}</span><input id="pThreshold" type="number" onchange="A_recalcChild()"/></label>
-          <label class="field" style="margin:0"><span>${esc(t('pay.childMultiplier'))} (฿)</span><input id="pChildMul2" type="number"/></label></div>
+          <label class="field" style="margin:0"><span>${esc(t('pay.childMultiplier'))} (฿)</span><input id="pChildMul2" type="number" onchange="A_recalcChild()"/></label></div>
         <div id="childCalc" class="muted" style="font-size:13px;margin-top:6px"></div>
         <label class="field" style="margin:6px 0 0"><span>${esc(t('pay.childCount'))} <small class="muted">(${esc(t('pay.autoEditable'))})</small></span><input id="pChild" type="number" value="0"/></label></div>
       <div class="grid2"><label class="field"><span>${esc(t('pay.cert'))}</span><input id="pCert" type="number" value="0"/></label>
@@ -8888,7 +8898,8 @@
     $('#pType').value=pc.PayType||'monthly'; $('#pDaily').value=pc.DailyRate||0;
     $('#pAttendAmt').value=pc.DiligenceAttendanceAmount!=null?pc.DiligenceAttendanceAmount:MOCK.config.DiligenceAttendanceAmount;
     $('#pFbAmt').value=pc.DiligenceFacebookAmount!=null?pc.DiligenceFacebookAmount:MOCK.config.DiligenceFacebookAmount;
-    $('#pThreshold').value=pc.ChildThreshold||31;
+    // ว่าง = ว่าง · ไม่เติม 31 ให้ (ผอ. 2026-10-23) — ช่องที่เติมเลขไว้ให้ คือช่องที่ไม่มีใครตั้งค่า
+    $('#pThreshold').value=(pc.ChildThreshold!=null&&pc.ChildThreshold!=='')?pc.ChildThreshold:'';
     { const c=$('#pContrib'); if(c) c.value=pc.Contribution||0; }
     A_payTypeToggle(); A_recalcChild(); A_contribNote();
     // auto-pull this staff's APPROVED OT for the selected month into the OT field
@@ -9072,8 +9083,21 @@
       ? `Deducted from staff ${baht(v)} + school matches ${baht(emp)} → <b>${baht(v+emp)}</b> added to the fund this month`
       : `หักจากพนักงาน ${baht(v)} + โรงเรียนสมทบ ${baht(emp)} → เข้ากองทุนเดือนนี้ <b>${baht(v+emp)}</b>`; };
   // auto child-rate count from DB: children from #threshold onward = rated − (threshold−1)
-  window.A_recalcChild=()=>{ const r=window._RATED||{}; const th=+$('#pThreshold').value||31; const cnt=Math.max(0,(r.rated||0)-(th-1)); $('#pChild').value=cnt;
-    setHTML('#childCalc', `${esc(t('abs.rated'))} <b>${r.rated||0}</b> <span class="muted">(${esc(t('abs.rateNote').replace('{n}',r.excludeDays||6).replace('{x}',r.excluded||0))})</span> − ${esc(t('pay.fromChild'))} #${th} → <b style="color:var(--blue)">${cnt} ${EN()?'children':'คน'}</b>`
+  /* 🔴 ยังไม่กำหนดเรท = ไม่คำนวณ และบอกตรงๆ ว่าต้องกรอกอะไร (ผอ. 2026-10-23)
+   *
+   * บรรทัดนี้เคยเป็น `+$('#pThreshold').value||31` — ช่องว่างจึงกลายเป็น 31 ตอนคิดเลขหน้าจอ
+   * ขณะที่ฝั่งเซิร์ฟเวอร์อ่าน 30 จากชีต · สองฝั่งตอบคำถามเดียวกันไม่เหมือนกัน และฝั่งที่จ่ายเงิน
+   * คือฝั่งที่ไม่มีใครเห็น */
+  window.A_recalcChild=()=>{ const r=window._RATED||{};
+    const thRaw=String(($('#pThreshold')||{}).value||'').trim();
+    const mulRaw=String(($('#pChildMul2')||{}).value||'').trim();
+    if(!thRaw||!mulRaw){ $('#pChild').value=0;
+      setHTML('#childCalc', `<span style="color:var(--warn-ink)">⚠️ ${esc(EN()
+        ? 'Set BOTH the first child paid for and the baht per child — until then this teacher earns no child-count allowance.'
+        : 'ต้องกำหนดทั้ง "เริ่มคิดเรทที่เด็กคนที่" และ "เรทต่อเด็ก" ก่อน — ระหว่างนี้ครูท่านนี้ยังไม่ได้รับรายได้ตามจำนวนเด็ก')}</span>`);
+      return; }
+    const th=+thRaw||0, cnt=Math.max(0,(r.rated||0)-(th-1)); $('#pChild').value=cnt;
+    setHTML('#childCalc', `${esc(t('abs.rated'))} <b>${r.rated||0}</b> <span class="muted">(${esc(t('abs.rateNote').replace('{n}',r.excludeDays||6).replace('{x}',r.excluded||0))})</span> − ${esc(t('pay.fromChild'))} #${th} → <b style="color:var(--blue)">${cnt} ${EN()?'children':'คน'}</b> × ${baht(+mulRaw||0)}`
       + ((r.students&&r.students.length)?`<button class="btn sm outline block" style="margin-top:6px" onclick="A_childDetail()">🧒 ${EN()?'Show the children behind this number':'ดูรายชื่อเด็กที่ระบบนับ'}</button>`:'')); };
   /* WHO THE NUMBER IS MADE OF.
    * Asked 2026-08-30: "แสดงชื่อเล่นเด็กและจำนวนที่ระบบนับเพื่อเป็นข้อมูลตรวจสอบว่าจำนวนที่ระบบคิดมาว่าคิดเรทได้
@@ -9085,7 +9109,8 @@
    * ขาด and ลา are shown in separate columns because only ขาด excludes. That is the school's
    * existing rule, and this screen reports it rather than quietly changing what people are paid. */
   window.A_childDetail=()=>{ const r=window._RATED||{}; const list=r.students||[];
-    const th=+(($('#pThreshold')||{}).value)||31;
+    // 0 = ยังไม่กำหนด · ไม่เติม 31 ให้ ไม่งั้นรายชื่อจะติด 💰 ให้เด็กตามเกณฑ์ที่ไม่มีใครตั้ง
+    const th=+(($('#pThreshold')||{}).value)||0;
     /* NUMBERED — asked for straight after the list appeared, and it is the point of the screen.
      * The rule is "เด็กคนที่ ${th} เป็นต้นไป", so the only number that means anything is the child's
      * position IN THE COUNTED SEQUENCE. Numbering all 34 rows 1–34 would look tidy and answer the
@@ -9096,7 +9121,8 @@
      * advance the count. The ones at or past the threshold are marked 💰 — those are the children
      * actually earning the teacher the rate, which is the figure in the field below. */
     let seq=0;
-    const row=s=>{ const n=s.rated?++seq:0; const earns=n && n>=th;
+    // th>0 FIRST — ยังไม่กำหนดเกณฑ์ แล้ว `n>=0` เป็นจริงกับทุกคน จะติด 💰 ให้เด็กทั้งห้อง
+    const row=s=>{ const n=s.rated?++seq:0; const earns=th>0 && n && n>=th;
       return `<tr style="${s.rated?(earns?'background:var(--blue-bg)':''):'background:var(--warn-bg)'}">
       <td style="padding:4px 6px;text-align:right;white-space:nowrap"${n?'':' class="muted"'}>${n?`<b>${n}.</b>`:'—'}</td>
       <td style="padding:4px 6px">${s.rated?(earns?'💰':'✅'):'⛔'} <b>${esc(s.nick||s.name||s.studentId)}</b>${s.nick&&s.name?`<br><small class="muted">${esc(s.name)}</small>`:''}</td>
@@ -16832,9 +16858,19 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
             <b>${E('accumulated total','สะสมรวม')} ${baht(b.contribAccum)}</b></div>
         </div></div>
       <div class="ft">
-        <div class="fn"><b>${E('Notes','หมายเหตุ')}</b> ${E(
-            `The diligence bonus is earned by full attendance with no leave and no lateness, plus posting activity photos on Facebook · The child-count allowance is paid from child number ${esc(p.ChildThreshold||31)} onwards (children attending the whole month) at ${baht(p.ChildMultiplier||300)} each · Training certificates ${baht((MOCK.config&&MOCK.config.TrainingCertRate)||100)} each, up to 2 per month · The provident fund is savings; the school contributes the same amount`,
-            `เบี้ยขยันคำนวณจากการมาทำงานครบทุกวัน ไม่ลา ไม่มาสาย + โพสต์รูปกิจกรรมลง Facebook · รายได้ตามจำนวนเด็กคิดจากเด็กคนที่ ${esc(p.ChildThreshold||31)} เป็นต้นไป (ที่มาเรียนเต็มเดือน) ${baht(p.ChildMultiplier||300)}/คน · ใบประกาศอบรม ${baht((MOCK.config&&MOCK.config.TrainingCertRate)||100)}/ใบ สูงสุด 2 ใบ/เดือน · เงินสมทบเป็นเงินออม โรงเรียนสมทบให้เท่ากัน`)}${p.LeaveExceeds?` · <span class="de">${E(`Leave this month totals ${esc(p.LeaveDays)} days (over ${esc(p.LeaveLimit||3)}), so the child-count allowance is not calculated`,`เดือนนี้ลารวม ${esc(p.LeaveDays)} วัน (เกิน ${esc(p.LeaveLimit||3)}) จึงไม่คำนวณรายได้ตามจำนวนเด็ก`)}</span>`:''}
+        ${/* 🔴 ข้อความอธิบายบนใบจ่ายเงิน ต้องไม่พูดถึงเรทที่ยังไม่มีใครกำหนด (ผอ. 2026-10-23)
+             บรรทัดนี้เคยเขียน `p.ChildThreshold||31` และ `p.ChildMultiplier||300` — สลิปของเดือนที่
+             ยังไม่ได้ตั้งเรท จึงพิมพ์ "คนที่ 31 เป็นต้นไป ฿300/คน" ใต้ยอด ฿0 ซึ่งเป็นเอกสารที่
+             อธิบายกฎที่โรงเรียนไม่ได้ใช้ ให้คนที่ไม่ได้รับเงินก้อนนั้น */''}
+        <div class="fn"><b>${E('Notes','หมายเหตุ')}</b> ${(() => {
+          const thSet=(p.ChildThreshold!=null&&p.ChildThreshold!==''), mulSet=(p.ChildMultiplier!=null&&p.ChildMultiplier!=='');
+          const child=(thSet&&mulSet)
+            ? E(`The child-count allowance is paid from child number ${esc(p.ChildThreshold)} onwards (children attending the whole month) at ${baht(p.ChildMultiplier)} each`,
+                `รายได้ตามจำนวนเด็กคิดจากเด็กคนที่ ${esc(p.ChildThreshold)} เป็นต้นไป (ที่มาเรียนเต็มเดือน) ${baht(p.ChildMultiplier)}/คน`)
+            : E('The child-count allowance has not been set for this month', 'ยังไม่ได้กำหนดเรทรายได้ตามจำนวนเด็กของเดือนนี้');
+          return E(
+            `The diligence bonus is earned by full attendance with no leave and no lateness, plus posting activity photos on Facebook · ${child} · Training certificates ${baht((MOCK.config&&MOCK.config.TrainingCertRate)||100)} each, up to 2 per month · The provident fund is savings; the school contributes the same amount`,
+            `เบี้ยขยันคำนวณจากการมาทำงานครบทุกวัน ไม่ลา ไม่มาสาย + โพสต์รูปกิจกรรมลง Facebook · ${child} · ใบประกาศอบรม ${baht((MOCK.config&&MOCK.config.TrainingCertRate)||100)}/ใบ สูงสุด 2 ใบ/เดือน · เงินสมทบเป็นเงินออม โรงเรียนสมทบให้เท่ากัน`); })()}${p.LeaveExceeds?` · <span class="de">${E(`Leave this month totals ${esc(p.LeaveDays)} days (over ${esc(p.LeaveLimit||3)}), so the child-count allowance is not calculated`,`เดือนนี้ลารวม ${esc(p.LeaveDays)} วัน (เกิน ${esc(p.LeaveLimit||3)}) จึงไม่คำนวณรายได้ตามจำนวนเด็ก`)}</span>`:''}
           <br>${E(`This document is personal and confidential — do not disclose · Printed ${esc(fullDate(todayStr()))} · If any figure is wrong, please tell HR within 7 days`,`เอกสารนี้เป็นความลับเฉพาะบุคคล ห้ามเปิดเผย · พิมพ์เมื่อ ${esc(fullDate(todayStr()))} · หากตัวเลขไม่ตรง กรุณาแจ้งฝ่ายบุคคลภายใน 7 วัน`)}</div>
         <div class="sig"><div class="ln"></div>${E('Employee signature','ลงชื่อผู้รับเงิน')}</div></div></div>`; };
     let pages=''; for(let i=0;i<rows.length;i+=PER_SHEET)

@@ -100,7 +100,11 @@ var ONBOARD_SCOPE_ = {
   OTRate:                 'CONFIRM',  OTEveningRate:         'CONFIRM',
   OTGraceMinutes:         'CONFIRM',
   DiligenceAttendanceAmount: 'CONFIRM', DiligenceFacebookAmount: 'CONFIRM',
-  ExtraChildThreshold:    'CONFIRM',  ExtraChildRate:        'CONFIRM',
+  /* ExtraChildThreshold / ExtraChildRate were CONFIRM here until 2026-10-23. They are no longer
+   * seeded at all (see the tombstone in src/Config.gs): the child rate is per-teacher, so there is
+   * nothing school-wide for a new school to confirm. Classifying a key that does not exist would
+   * fail test_onboarding's second assertion, which is the right way round — the two lists must
+   * agree in BOTH directions. */
   TrainingCertRate:       'CONFIRM',  TrainingCertMaxPerMonth: 'CONFIRM',
   SocialSecurityRate:     'CONFIRM',  SocialSecurityMax:     'CONFIRM',
   ContributionMatchRate:  'CONFIRM',
@@ -117,6 +121,7 @@ var ONBOARD_SCOPE_ = {
    * exactly the kind of line that teaches people to skim the report. */
   HolidayList:            'UNIVERSAL',
   ParentPrepayEnabled:    'CONFIRM',
+  ChildRateEnabled:       'CONFIRM',  // does this school pay teachers per extra child at all?
   SchoolSlogan:           'CONFIRM',
   Links_Facebook:         'CONFIRM',  Links_Website:         'CONFIRM',
   InsurancePolicyNo:      'CONFIRM',

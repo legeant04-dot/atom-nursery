@@ -713,9 +713,37 @@ var SCHOOL_CONFIG_DEFAULTS = [
   // --- Diligence bonus (เบี้ยขยัน) — chat spec ---
   ['DiligenceAttendanceAmount', '500'],     // no leave + no late
   ['DiligenceFacebookAmount',   '500'],     // Admin ticks if staff posted on Facebook
-  // --- Other income (รายได้อื่นๆ) — chat spec ---
-  ['ExtraChildThreshold',   '30'],          // children counted from #31 onward
-  ['ExtraChildRate',        '300'],         // baht per extra child (full-month attendance)
+  /* --- Other income (รายได้อื่นๆ) — chat spec ---
+   *
+   * 🔴 ExtraChildThreshold / ExtraChildRate ARE GONE FROM HERE ON PURPOSE (ผอ. 2026-10-23).
+   *
+   * There is no school-wide child rate any more. The Nth child the rate starts at, AND the baht per
+   * child, are set PER TEACHER in PAYROLL_CONFIG — teacher A may earn ฿100 from her 21st child while
+   * teacher B earns ฿300 from her 31st, and the school changes either whenever it decides to. Some
+   * schools do not run the scheme at all.
+   *
+   * These two keys are not seeded blank, they are REMOVED, because a seeded key that nothing reads
+   * is worse than no key: an admin would set ฿300 here and no teacher would be paid it. Nothing in
+   * the payroll path reads them (see childRateFor_ in src/Payroll.gs); they are also out of
+   * handleSetConfigVal's whitelist and out of ONBOARD_SCOPE_.
+   *
+   * WHAT THEY USED TO SAY, and why leaving them was the defect:
+   *     ['ExtraChildThreshold', '30']   // children counted from #31 onward
+   *                              ^^ the value          ^^ its own documentation
+   * The value and the comment disagreed, `rated − (30−1)` paid from the 30TH child, this file's own
+   * fallback said 31, and every suite pinned 31. Three places, two answers — and the one that won on
+   * live was the sheet row. ฿300 per teacher per month, on a number nobody had chosen.
+   */
+  /* ...and whether the school runs the scheme AT ALL (ผอ. 2026-10-23: "บางโรงเรียนอาจจะไม่มี
+   * ฟังก์ชันนี้"). Default 'true' because the alternative — the admin's to-do card naming every
+   * teacher who has no rate set — is a red number that cannot be cleared at a school that never
+   * intended to pay one, and an unclearable number is how people learn to ignore the whole card.
+   *
+   * A SWITCH may have a default; an AMOUNT may not. Defaulting "does this school do X?" to "ask
+   * them during onboarding" costs nothing if it is wrong. Defaulting "฿ per child" to 300 pays
+   * somebody 300. That is the entire difference, and it is why the two keys above are gone while
+   * this one is here. */
+  ['ChildRateEnabled',      'true'],
   ['TrainingCertRate',      '100'],         // baht per training certificate
   ['TrainingCertMaxPerMonth','2'],          // max certs counted per month
   // --- Deductions ---

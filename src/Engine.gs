@@ -4190,9 +4190,14 @@ function createAtomAPI(M, GROWTH_STD) {
         const present=team.filter(s=>{ const a=M.staffAttendanceToday.find(x=>x.StaffID===s.StaffID); return a&&(a.Status==='IN'||a.Status==='OUT'); }).length;
         return {dept:dep, present, total:team.length}; }).filter(x=>x.total>0); },
 
-    payrollConfig: p => Object.assign({SocialSecurityDeduct:false,ChildThreshold:cfg.ExtraChildThreshold||31,ChildMultiplier:cfg.ExtraChildRate,TaxDeduct:false}, M.payrollConfig[p.staffId]||{}),
+    /* 🔴 NO CHILD-RATE DEFAULTS HERE (ผอ. 2026-10-23). This route has no explicit .gs handler, so
+     * THIS is what fills the admin's payroll screen on live — and it used to fill the threshold box
+     * with `cfg.ExtraChildThreshold||31`, which is how a number nobody chose became the number that
+     * was paid. Blank reaches the screen as blank, and the screen says ยังไม่กำหนด.
+     * See the long note in src/Payroll.gs (childRateFor_). */
+    payrollConfig: p => Object.assign({SocialSecurityDeduct:false,ChildThreshold:'',ChildMultiplier:'',TaxDeduct:false}, M.payrollConfig[p.staffId]||{}),
     setPayrollConfig: p => { M.payrollConfig[p.staffId]=Object.assign(M.payrollConfig[p.staffId]||{},p.config||{}); return M.payrollConfig[p.staffId]; },
-    computePayroll: p => { const st=staffById(p.staffId); const pc=Object.assign({PayType:'monthly',DailyRate:0,SocialSecurityDeduct:false,ChildMultiplier:cfg.ExtraChildRate,TaxDeduct:false}, M.payrollConfig[p.staffId]||{});
+    computePayroll: p => { const st=staffById(p.staffId); const pc=Object.assign({PayType:'monthly',DailyRate:0,SocialSecurityDeduct:false,ChildMultiplier:'',TaxDeduct:false}, M.payrollConfig[p.staffId]||{});
       // base = monthly salary, OR daily-rate × days worked (new/special teachers)
       const payType=p.payType||pc.PayType||'monthly'; const dailyRate=p.dailyRate!=null?Number(p.dailyRate):pc.DailyRate; const daysWorked=Number(p.daysWorked||0);
       let base= payType==='daily' ? dailyRate*daysWorked : (p.baseSalary!=null?Number(p.baseSalary):(st.BaseSalary||0));
@@ -4214,30 +4219,25 @@ function createAtomAPI(M, GROWTH_STD) {
       const ls=H.staffLeaveSummary({staffId:p.staffId,month:p.month}); const leaveExceeds=ls.exceeds;
       const dA=p.attendanceEligible!==false?attendAmt:0; const dF=p.facebookPosted?fbAmt:0; const dT=dA+dF;
       // ...and the same rule for the child rate: a blank per-staff figure is not a rate of zero
-      const childMult=p.childMultiplier!=null?Number(p.childMultiplier)
-        :(perStaff(pc.ChildMultiplier)!=null?perStaff(pc.ChildMultiplier):cfg.ExtraChildRate);
+      const childMult=(p.childMultiplier!=null&&p.childMultiplier!=='')?Number(p.childMultiplier)
+        :perStaff(pc.ChildMultiplier);
       /* child-rate count is AUTO from the DB unless overridden: children from #ChildThreshold onward
        *
-       * 🔴 THE NUMBER IS LEFT EXACTLY AS IT IS, AND THAT IS DELIBERATE (2026-10-14).
-       *
-       * SCHOOL_CONFIG seeds ExtraChildThreshold = 30 under the comment "children counted from #31
-       * onward" — the value and its own documentation disagree, and the difference is one child at
-       * the child rate (฿300) on a payslip. It reaches the admin's screen through `payrollConfig`,
-       * which has no explicit route and is therefore served by THIS file on live: the screen fills
-       * its box with 30 and pays from the 30th child.
-       *
-       * So this is not a cutover question — it is a figure the school has been paying. Which of the
-       * two is the policy is the SCHOOL'S to say, not something to infer from a code comment, and
-       * changing it here would move money on the next payroll run with no one having decided to.
-       * Written down in src/Payroll.gs (CHILD_RATE_THRESHOLD_DEFAULT_) and asserted in
-       * tools/test_shadow_parity.js so both halves keep using the one number while it is decided. */
-      const threshold=p.childThreshold!=null?Number(p.childThreshold):(Number(pc.ChildThreshold)||Number(cfg.ExtraChildThreshold)||31);
+       * 🔴 NO DEFAULT BEHIND THIS ONE EITHER (ผอ. 2026-10-23). It read
+       * `Number(pc.ChildThreshold)||Number(cfg.ExtraChildThreshold)||31` — a chain whose last two
+       * links disagreed with each other (30 in the sheet, 31 in the code) and whose first link,
+       * being `||`, treated a blank as "ask the next one". The ผอ. sets the figure per teacher; if
+       * it is not set, the honest answer is no money and a name on the admin's to-do list.
+       * See src/Payroll.gs (childRateFor_) for the full note. */
+      const threshold=(p.childThreshold!=null&&p.childThreshold!=='')?Number(p.childThreshold):perStaff(pc.ChildThreshold);
+      const childRateUnset = (threshold==null || childMult==null);
       // leave over the limit → child-rate auto-count drops to 0 (Admin can still type a count to override).
       // FOR THE MONTH BEING PAID. ratedChildCount used to ignore the month entirely and count every
       // absence ever recorded, so an old absence kept a child out of the rate for good.
-      const ratedTotal=H.ratedChildCount({month:p.month}).rated; const autoChild=leaveExceeds?0:Math.max(0, ratedTotal-(threshold-1));
+      const ratedTotal=H.ratedChildCount({month:p.month}).rated;
+      const autoChild=(childRateUnset||leaveExceeds)?0:Math.max(0, ratedTotal-(threshold-1));
       const childCount=p.extraChildCount!=null?Math.max(0,p.extraChildCount):autoChild;
-      const ec=childCount*childMult;
+      const ec=childRateUnset?0:childCount*childMult;
       /* THE CERTIFICATE COUNT IS KEPT, not only the money it came to. The slip prints
        * "2 ใบ × ฿100" and the payroll screen refills its box from the saved row, so a row that
        * stored only the amount made the screen reopen at 0 and the next save silently drop a
@@ -4286,7 +4286,9 @@ function createAtomAPI(M, GROWTH_STD) {
        * names — which is exactly why it could sit here unnoticed: nothing the school runs today goes
        * through this code, and after the cutover everything does. */
       const prev=M.payroll.find(x=>x.StaffID===p.staffId&&ym(x.Month)===ym(p.month))||null;
-      const rec={PayrollID:nextSeqId_(M.payroll,'PayrollID','PR',4),StaffID:p.staffId,Month:p.month,PayType:payType,DailyRate:dailyRate,DaysWorked:daysWorked,BaseSalary:base,DiligenceAttendance:dA,DiligenceFacebook:dF,DiligenceTotal:dT,ExtraChildAmount:ec,ExtraChildCount:childCount,ChildThreshold:threshold,RatedTotal:ratedTotal,ChildMultiplier:childMult,TrainingCertCount:tcCount,TrainingCertAmount:tc,OTEvening:ot,OTCarry:otCarry,
+      const rec={PayrollID:nextSeqId_(M.payroll,'PayrollID','PR',4),StaffID:p.staffId,Month:p.month,PayType:payType,DailyRate:dailyRate,DaysWorked:daysWorked,BaseSalary:base,DiligenceAttendance:dA,DiligenceFacebook:dF,DiligenceTotal:dT,ExtraChildAmount:ec,ExtraChildCount:childCount,
+        // '' not a number when unset — the blank IS the signal the screens read (see Payroll.gs)
+        ChildThreshold:(threshold==null?'':threshold),RatedTotal:ratedTotal,ChildMultiplier:(childMult==null?'':childMult),TrainingCertCount:tcCount,TrainingCertAmount:tc,OTEvening:ot,OTCarry:otCarry,
         /* only what the carry-over arithmetic reads back (month + amount + hours), not the
          * per-evening list the SCREEN shows — see the same trim in src/Payroll.gs. The full detail
          * grows without limit on a teacher with years behind them and the cell has a 50,000-char
@@ -5210,6 +5212,28 @@ function createAtomAPI(M, GROWTH_STD) {
        * เก็บยอดค้างหรือออกเอกสารให้เขา ก่อนที่เขาจะเข้าระบบไม่ได้อีก */
       add('graceSoon', M.students.filter(s=>{ const u=parentAccessUntil_(s);
         return !!u && !parentAccessClosed_(s) && dayDiff(u,today)<=7; }).length, 'parents');
+
+      /* 💰 ครูที่ยังไม่ได้กำหนด "เรทจำนวนเด็ก" — ผอ. 2026-10-23
+       *
+       * "ต้องแจ้งเตือนหากยังไม่ได้กำหนดว่า ครูคนไหนนับเรทเด็กคนที่เท่าไหร่และได้เท่าไหร่"
+       *
+       * ต้องกำหนดทั้งสองค่า: เริ่มที่เด็กคนที่เท่าไหร่ (ChildThreshold) และคนละเท่าไหร่
+       * (ChildMultiplier) · ขาดข้างใดข้างหนึ่งก็คิดเงินไม่ได้ จึงนับว่า "ยังไม่กำหนด" เหมือนกัน
+       *
+       * 🔴 ไม่มีค่าสำรองอยู่ข้างหลังอีกแล้ว — เมื่อก่อนมี 30 ในชีตและ 31 ในโค้ด ซึ่งแปลว่า
+       * "ยังไม่กำหนด" เป็นไปไม่ได้ และเงินก็เดินด้วยเลขที่ไม่มีใครเลือก (ดู src/Payroll.gs)
+       *
+       * นับเฉพาะ "ครู" ที่ยังทำงานอยู่ — Admin/ผอ./Observer ไม่ได้รับเรทนี้ และคนที่ลาออกแล้ว
+       * ไม่ต้องตั้งค่าอีก · การนับเขาเข้าไปด้วยคือตัวเลขแดงที่แก้ไม่ได้ ซึ่งสอนให้คนข้ามการ์ดนี้
+       *
+       * 🔴 และโรงเรียนที่ไม่มีเรทนี้เลย ต้องปิดได้ (ChildRateEnabled) — ไม่งั้นการ์ดจะขึ้นชื่อครู
+       * ทุกคนทุกเช้าตลอดไป ที่โรงเรียนที่ไม่เคยคิดจะจ่ายเงินก้อนนี้ ซึ่งคือตัวเลขแดงที่แก้ไม่ได้
+       * อีกแบบหนึ่ง · ค่าเริ่มต้นเปิด เพราะ "ยังไม่ได้ถามโรงเรียน" ควรดังกว่าเงียบ */
+      if(String(cfg.ChildRateEnabled==null?'true':cfg.ChildRateEnabled).toLowerCase()==='true')
+      add('childRate', M.staff.filter(s=>s.Role==='Teacher' && !staffEnded_(s) && staffStarted_(s)).filter(s=>{
+        const pc=M.payrollConfig[s.StaffID]||{};
+        const set=v=>(v!=null && v!=='' && isFinite(Number(v)));
+        return !set(pc.ChildThreshold) || !set(pc.ChildMultiplier); }).length, 'payroll');
 
       /* 🔔 กล่องข้อความแอดมินไม่ได้นับที่นี่ — มันเป็นเส้นทางฝั่ง .gs (ADMIN_INBOX ไม่ได้อยู่ใน
        * คอลเล็กชันของ engine) และกระดิ่งบนหัวจอบอกจำนวนนั้นอยู่แล้วตลอดเวลา · การนับซ้ำในสองที่

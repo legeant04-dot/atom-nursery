@@ -211,7 +211,12 @@ console.log('\n4) the screens that show all this');
    * the count from there down. An excluded child therefore takes no number and does not advance it. */
   ok_('the list is numbered', /const n=s\.rated\?\+\+seq:0;/.test(app));
   ok_('...only the counted children take a number', /\$\{n\?`<b>\$\{n\}\.<\/b>`:'—'\}/.test(app));
-  ok_('...and the ones actually earning the rate are marked', /const earns=n && n>=th;/.test(app) && /earns\?'💰':'✅'/.test(app));
+  /* 🔴 `th>0` COMES FIRST, and that is the assertion — not the line's old shape.
+   * Since 2026-10-23 the threshold may be UNSET (ผอ.: per teacher, no school-wide default), and an
+   * unset one arrives as 0. `n >= 0` is true for every child, so without the guard a school that
+   * has not set this teacher's rate yet would see 💰 against the whole class. */
+  ok_('...and the ones actually earning the rate are marked',
+    /const earns=th>0 && n && n>=th;/.test(app) && /earns\?'💰':'✅'/.test(app));
   ok_('...with the numbering explained under the table', /ลำดับนับเฉพาะเด็กที่นับเรทได้ · เด็กที่ไม่นับจะไม่กินลำดับ/.test(app));
   ok_('the empty-list row still spans every column', /colspan="4"[^>]*>\$\{EN\(\)\?'No active children'/.test(app));
   ok_('...and says plainly which number the rule uses', /“หยุดรวม” = ขาด \+ ลา รวมกัน ซึ่งเป็นตัวเลขที่ใช้ตัดสิน/.test(app));

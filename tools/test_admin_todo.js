@@ -53,6 +53,10 @@ const res = JSON.parse(run(function () {
     PositionLevel: 'Admin', Status: 'ACTIVE', Department: '*', StartDate: '2025-01-01' });
   appendObject_(sheet_(HR, 'STAFF'), { StaffID: 'TD-T', Name: 'ครู', Nickname: 'ครู', Role: 'Teacher',
     PositionLevel: 'Staff', Status: 'ACTIVE', Department: 'Nursery 1', StartDate: '2025-01-01' });
+  /* ...and her child rate IS set, so "โรงเรียนที่ไม่มีอะไรค้าง" really has nothing outstanding.
+   * Without this row the new childRate item fires here and section 1 would fail for the right
+   * reason — which is itself the point: an unset child rate IS outstanding work (ผอ. 2026-10-23). */
+  appendObject_(sheet_(HR, 'PAYROLL_CONFIG'), { StaffID: 'TD-T', ChildThreshold: 31, ChildMultiplier: 300 });
   _configCache = null;
   try { CacheService.getScriptCache().removeAll(['cfg', 'col:STAFF', 'rows:STAFF', 'col:HOLIDAYS', 'rows:HOLIDAYS']); } catch (e) {}
 
@@ -81,6 +85,32 @@ const res = JSON.parse(run(function () {
     'rows:PAYMENT_SLIPS', 'col:PAYMENT_SLIPS', 'rows:STUDENTS', 'col:STUDENTS',
     'rows:LEAVE_REQUEST_STD', 'col:LEAVE_REQUEST_STD']); } catch (e) {}
   out.busy = todo();
+
+  /* 💰 ครูคนใหม่ที่ยังไม่ได้กำหนดเรทจำนวนเด็ก (ผอ. 2026-10-23)
+   * "ต้องแจ้งเตือนหากยังไม่ได้กำหนดว่า ครูคนไหนนับเรทเด็กคนที่เท่าไหร่และได้เท่าไหร่" */
+  appendObject_(sheet_(HR, 'STAFF'), { StaffID: 'TD-T2', Name: 'ครูใหม่', Nickname: 'ใหม่', Role: 'Teacher',
+    PositionLevel: 'Staff', Status: 'ACTIVE', Department: 'Nursery 1', StartDate: '2025-01-01' });
+  // ครูที่ลาออกแล้ว ไม่ต้องตั้งค่าอีก — ต้องไม่ถูกนับ
+  appendObject_(sheet_(HR, 'STAFF'), { StaffID: 'TD-T3', Name: 'ครูที่ลาออก', Role: 'Teacher',
+    PositionLevel: 'Staff', Status: 'INACTIVE', Department: 'Nursery 1', StartDate: '2025-01-01' });
+  // ...และมีเกณฑ์แต่ไม่มีเรทบาท ก็ยังคิดเงินไม่ได้ จึงนับว่ายังไม่กำหนดเหมือนกัน
+  appendObject_(sheet_(HR, 'STAFF'), { StaffID: 'TD-T4', Name: 'ครูครึ่งเดียว', Role: 'Teacher',
+    PositionLevel: 'Staff', Status: 'ACTIVE', Department: 'Nursery 1', StartDate: '2025-01-01' });
+  appendObject_(sheet_(HR, 'PAYROLL_CONFIG'), { StaffID: 'TD-T4', ChildThreshold: 21, ChildMultiplier: '' });
+  try { CacheService.getScriptCache().removeAll(['rows:STAFF', 'col:STAFF',
+    'rows:PAYROLL_CONFIG', 'col:PAYROLL_CONFIG']); } catch (e) {}
+  out.childRate = todo();
+
+  // ...และโรงเรียนที่ไม่มีเรทนี้เลย ปิดได้ แล้วการ์ดต้องเงียบ
+  var cre = findObject_(cfg, function (r) { return r.Key === 'ChildRateEnabled'; });
+  if (cre) updateRow_(cfg, cre._row, { Value: 'false' });
+  else appendObject_(cfg, { Key: 'ChildRateEnabled', Value: 'false' });
+  _configCache = null;
+  try { CacheService.getScriptCache().removeAll(['cfg']); } catch (e) {}
+  out.childRateOff = todo();
+  if (cre) updateRow_(cfg, cre._row, { Value: 'true' });
+  _configCache = null;
+  try { CacheService.getScriptCache().removeAll(['cfg']); } catch (e) {}
 
   // 💰 แนวโน้มรายได้ 3 เดือน
   var ctx2 = hydrateLazy_(); var H2 = createAtomAPI(ctx2.M, null).H;
@@ -148,7 +178,26 @@ console.log('\n4) 💰 สรุปภาพรวม — เงินต้อ�
     !/api\('journalStatus'/.test(app.slice(app.indexOf('const summaryCard'), app.indexOf('const summaryCard') + 3000)));
 }
 
-console.log('\n5) 🔒 แอดมินเท่านั้น และไม่เพิ่มรอบเรียกเซิร์ฟเวอร์');
+console.log('\n5) 💰 ครูที่ยังไม่ได้กำหนดเรทจำนวนเด็ก (ผอ. 2026-10-23)');
+{
+  /* 🔴 เดิมไม่มีทางรู้ว่า "ยังไม่กำหนด" เพราะมีค่าสำรองอยู่ข้างหลังเสมอ (30 ในชีต / 31 ในโค้ด)
+   * เงินจึงเดินด้วยเลขที่ไม่มีใครเลือก และไม่มีใครเห็นว่าควรเลือก */
+  eq('ครูใหม่ที่ยังไม่ตั้งค่า + คนที่ตั้งไว้ครึ่งเดียว = 2 คน', res.childRate.byKey.childRate, 2);
+  ok_('🔴 ครูที่ลาออกแล้ว ไม่ถูกนับ (ตัวเลขแดงที่แก้ไม่ได้ สอนให้คนข้ามการ์ด)',
+    res.childRate.byKey.childRate === 2);
+  ok_('...และครูที่ตั้งค่าครบแล้ว ไม่ถูกนับ', res.busy.keys.indexOf('childRate') < 0);
+  eq('🏫 โรงเรียนที่ปิดฟังก์ชันนี้ — ไม่ขึ้นเลย', res.childRateOff.keys.indexOf('childRate'), -1);
+  ok_('กดจากการ์ดแล้วไปหน้าเงินเดือน ซึ่งเป็นที่ที่แก้ได้จริง',
+    /childRate:"GO\('payroll'\)"/.test(app));
+  ok_('การ์ดบอกเป็นภาษาคน ไม่ใช่ชื่อคีย์', /ครูที่ยังไม่ได้กำหนดเรทจำนวนเด็ก/.test(app));
+  /* ...และหน้าจอกรอกเงินเดือนต้องไม่เติมเลขให้เอง — ช่องที่มีเลขรออยู่ คือช่องที่ไม่มีใครตั้งค่า */
+  ok_('🔴 ช่อง "เริ่มคิดเรทที่เด็กคนที่" ว่างไว้จริง ไม่เติม 31',
+    /pThreshold'\)\.value=\(pc\.ChildThreshold!=null&&pc\.ChildThreshold!==''\)\?pc\.ChildThreshold:''/.test(app));
+  ok_('...และบอกว่าต้องกรอกอะไรก่อน ถึงจะได้เงินก้อนนี้',
+    /ต้องกำหนดทั้ง "เริ่มคิดเรทที่เด็กคนที่" และ "เรทต่อเด็ก" ก่อน/.test(app));
+}
+
+console.log('\n6) 🔒 แอดมินเท่านั้น และไม่เพิ่มรอบเรียกเซิร์ฟเวอร์');
 {
   eq('ครูธรรมดาเรียก adminTodo ไม่ได้', res.teacher, 'NO_PERMISSION');
   eq('ครูธรรมดาเรียก financeTrend ไม่ได้', res.teacherTrend, 'NO_PERMISSION');

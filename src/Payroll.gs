@@ -96,35 +96,42 @@ function pcBool_(v) {
  * child was away all month" and would quietly remove the child rate from a payslip. The caller
  * reports an unknown as unknown and leaves the figure at the admin's entry.
  */
-/* ===== THE Nth CHILD THE RATE STARTS AT — ONE NUMBER, AND A CONTRADICTION TO SETTLE ============
+/* ===== THE CHILD RATE — PER TEACHER, AND UNSET IS A REAL ANSWER ================================
  *
- * 🔴 FOUND 2026-10-14 WHILE CLOSING THE PAYSLIP GAP. NOT CHANGED — IT IS THE SCHOOL'S TO DECIDE.
+ * ✅ ANSWERED BY ผอ. 2026-10-23, and the answer is that there is no school-wide number to answer with.
  *
- *   src/Config.gs   ['ExtraChildThreshold', '30']   // children counted from #31 onward
- *                    ^^ the value                      ^^ its own documentation
+ *   "ครู A นับเรทเด็กตั้งแต่คนที่ 20 ขึ้นไป และให้เงินตั้งแต่คนที่ 21 คือ 100/คน แต่ครู B นับตั้งแต่คนที่ 30
+ *    แต่ให้เงินตั้งแต่คนที่ 31 คือ 300/คน ... ต้องสามารถปรับแต่งความหลากหลายได้ไม่ใช่ค่ามาตรฐาน"
  *
- * Those two do not agree, and the gap between them is one child at the child rate — ฿300 on a
- * payslip. The engine's `payrollConfig` hands the figure to the admin's payroll screen, and
- * payrollConfig has NO explicit route, so the engine is what answers it on live: the screen fills
- * its box with 30 and `rated − (30−1)` pays from the 30th child, not the 31st.
+ * So BOTH halves live in PAYROLL_CONFIG, per staff member, and there is no fallback behind them:
  *
- * So this is not a cutover question. It is a figure the school has been paying with, and whether
- * the policy is "from the 30th" or "from the 31st" is a question for the ผอ. — a name pattern
- * cannot answer a question about meaning, and neither can a comment. Picking one here would move
- * money on the next payroll run with nobody having decided to.
+ *   ChildThreshold  — the first child this teacher is PAID for (21 for A, 31 for B)
+ *   ChildMultiplier — baht per child from there on (฿100 for A, ฿300 for B)
  *
- * WHAT IS FIXED is that the two halves can no longer disagree about it: this is the one place the
- * default is read, the engine's fallback chain ends at the same config key, and
- * tools/test_shadow_parity.js asserts route and engine produce the identical ChildThreshold. When
- * the ผอ. answers, exactly one value changes.
+ *   both set  → pay `rated − (threshold − 1)` children at that rate
+ *   either blank → 🔴 NOT SET. The count stays 0, the amount stays 0, and the slip carries a BLANK
+ *                  ChildThreshold/ChildMultiplier so every screen can say "ยังไม่กำหนด" rather than
+ *                  print a figure nobody chose. The admin may still type a count and a rate for the
+ *                  month by hand; nothing is locked.
  *
- * (This route had NO threshold at all before today — the derivation below was a placeholder that
- * always returned 0 — so nothing here is being taken away from anybody.)
+ * 🔴 WHY THERE IS NO FALLBACK, when a fallback looks like the safe option.
+ *
+ * There was one, and it is the whole bug. SCHOOL_CONFIG seeded ExtraChildThreshold = 30 under a
+ * comment that said "children counted from #31 onward"; this file's own constant said 31; every
+ * suite pinned 31. Three places, two answers — and the one that wins on live is the sheet row, so
+ * `rated − (30−1)` paid from the 30TH child. ฿300 per teacher per month, decided by nobody.
+ *
+ * A default cannot be right here, because the question it answers ("from which child?") has no
+ * school-wide answer — it is a judgement the ผอ. makes per person. A silent default does not remove
+ * the uncertainty, it just stops anyone being asked. So the uncertainty is now VISIBLE: unset money
+ * is ฿0 and shows up on the admin's to-do card by teacher name until somebody decides.
+ *
+ * (See the tombstone in src/Config.gs for the keys that were removed, and `adminTodo` in
+ * webapp/engine.js for the list of teachers still unset.)
  */
-var CHILD_RATE_THRESHOLD_DEFAULT_ = 31;      // only when SCHOOL_CONFIG has no row at all
-function childRateThresholdDefault_() {
-  var n = parseInt(getConfig_('ExtraChildThreshold', String(CHILD_RATE_THRESHOLD_DEFAULT_)), 10);
-  return n || CHILD_RATE_THRESHOLD_DEFAULT_;
+/** A PAYROLL_CONFIG number, or null when it has not been set. Blank is NOT zero. */
+function childRateFor_(pc) {
+  return { threshold: pcNum_((pc || {}).ChildThreshold), rate: pcNum_((pc || {}).ChildMultiplier) };
 }
 
 var _ratedChildCache_ = {};
@@ -217,23 +224,29 @@ function computePayroll(payload) {
    * (ratedChildTotalFor_ returning null) leaves the count at 0 and is reported as unknown rather
    * than being shown as a confident zero.
    */
-  var pcThreshold = pcNum_(pc.ChildThreshold);
-  var childThreshold = (payload.childThreshold != null && String(payload.childThreshold) !== '')
-    ? (parseInt(payload.childThreshold, 10) || CHILD_RATE_THRESHOLD_DEFAULT_)
-    : (pcThreshold != null ? pcThreshold : childRateThresholdDefault_());
+  /* THIS TEACHER'S OWN TWO NUMBERS, or nulls. The payload still wins — the admin's typed figure is
+   * an override in both directions and nothing on this screen is locked — but a blank payload box
+   * is NOT an override of zero, which is the same trap already documented for เบี้ยขยัน. */
+  var pcRate = childRateFor_(pc);
+  var childThreshold = (payload.childThreshold != null && String(payload.childThreshold).trim() !== '')
+    ? (parseInt(payload.childThreshold, 10) || null)
+    : pcRate.threshold;
+  var childMultiplier = (payload.childMultiplier != null && String(payload.childMultiplier).trim() !== '')
+    ? num_(payload.childMultiplier)
+    : pcRate.rate;
+  /* 🔴 NOT SET → NO MONEY, AND SAID SO. Either half missing and there is no rate to apply: a
+   * threshold with no baht figure cannot pay, and baht with no threshold cannot count. */
+  var childRateUnset = (childThreshold == null || childMultiplier == null);
   /* Recorded on EVERY slip, not only when it was used to derive the count. "เด็ก 4 คน × ฿300" is a
    * figure a teacher may query a year later, and ExtraChildCount alone cannot answer "out of how
    * many?". One lazy lookup, memoized per execution, on a once-a-month action. */
   var ratedTotal = ratedChildTotalFor_(month);
-  var autoChildCount = (leaveExceeds || ratedTotal == null) ? 0
+  var autoChildCount = (childRateUnset || leaveExceeds || ratedTotal == null) ? 0
     : Math.max(0, ratedTotal - (childThreshold - 1));
   var extraChildCount = (payload.extraChildCount != null)
     ? Math.max(0, parseInt(payload.extraChildCount, 10) || 0)
     : autoChildCount;
-  var pcChild = pcNum_(pc.ChildMultiplier);
-  var childMultiplier = (payload.childMultiplier != null) ? num_(payload.childMultiplier)
-    : (pcChild != null ? pcChild : num_(getConfig_('ExtraChildRate', '300')));
-  var extraChildAmount = extraChildCount * childMultiplier;
+  var extraChildAmount = childRateUnset ? 0 : extraChildCount * childMultiplier;
   var certCap = parseInt(getConfig_('TrainingCertMaxPerMonth', '2'), 10);
   var trainingCertCount = Math.min(certCap, Math.max(0, parseInt(payload.trainingCertCount, 10) || 0));
   var trainingCertAmount = trainingCertCount * num_(getConfig_('TrainingCertRate', '100'));
@@ -328,7 +341,11 @@ function computePayroll(payload) {
     ExtraChildCount: extraChildCount, ExtraChildAmount: extraChildAmount,
     // ...and the working behind that count: which child the rate starts at, and out of how many.
     // '' rather than 0 for an unknown total — see ratedChildTotalFor_.
-    ChildThreshold: childThreshold, RatedTotal: (ratedTotal == null ? '' : ratedTotal),
+    /* '' RATHER THAN A NUMBER WHEN THE RATE IS NOT SET — this blank IS the signal every screen
+     * reads to print "ยังไม่กำหนด". A 31 written here would be indistinguishable from a 31 the
+     * school chose, a year later, on a slip somebody is querying. */
+    ChildThreshold: (childThreshold == null ? '' : childThreshold),
+    RatedTotal: (ratedTotal == null ? '' : ratedTotal),
     TrainingCertCount: trainingCertCount, TrainingCertAmount: trainingCertAmount,
     // the per-evening `days` list is for the SCREEN to show; the row keeps only what the carry-over
     // arithmetic reads back (month + amount + hours), so this cell cannot grow toward the 50,000-char
@@ -342,7 +359,7 @@ function computePayroll(payload) {
     SocialSecurity: ss, Contribution: contribution, ContributionEmployer: contributionEmployer,
     OtherDeductions: otherDeductions, TotalDeductions: totalDeductions,
     PayType: payType, DailyRate: num_(payload.dailyRate), DaysWorked: num_(payload.daysWorked),
-    ChildMultiplier: childMultiplier,
+    ChildMultiplier: (childMultiplier == null ? '' : childMultiplier),
     Adjustments: JSON.stringify(adjustments), AdjustmentsTotal: adjustmentsTotal,
     NetPay: netPay, BankName: staff.BankName || getConfig_('BankName', 'SCB'),
     ContributionAccum: round2_(contribAccum), Position: staff.Position || '',
