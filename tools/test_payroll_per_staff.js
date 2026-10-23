@@ -156,11 +156,41 @@ console.log('\n3) the rest of that person’s pay settings are read too');
   eq('a daily-rate teacher is paid rate × days', r.BaseSalary, 2700);
   eq('...and the slip says which kind of pay it was', r.PayType, 'daily');
 }
+/* ───────────────────────────────────────────────────────────────────────────────────────────────
+ * 🔴 THE CHILD RATE HAS NO SCHOOL-WIDE FALLBACK ANY MORE (ผอ. 2026-10-23).
+ *
+ * The second assertion here used to read "...and falls back when unset → 900", i.e. 3 children at
+ * the school's ฿300. That assertion was WRONG IN THE SAME WAY THE CODE WAS: it certified that an
+ * unset teacher still gets paid at a figure nobody chose. SCHOOL_CONFIG seeded the threshold as 30
+ * under a comment saying 31, so "the school's number" was itself two different numbers.
+ *
+ * ผอ. set the policy: the threshold AND the rate are per teacher, the school decides each, and some
+ * schools do not run the scheme. So unset is a real state and its answer is ฿0 plus a name on the
+ * admin's to-do card — never a silent payment. BOTH halves must be set; a threshold with no baht
+ * cannot pay and baht with no threshold cannot count.
+ */
 {
-  reset({ ChildMultiplier: 400 });
-  eq('the child rate is this person’s, not the school’s 300', run({ extraChildCount: 3 }).ExtraChildAmount, 1200);
+  reset({ ChildThreshold: 31, ChildMultiplier: 400 });
+  eq('ครูที่ตั้งค่าไว้ — ใช้เรทของตัวเอง', run({ extraChildCount: 3 }).ExtraChildAmount, 1200);
+  eq('...และสลิปเก็บทั้งสองค่าไว้ว่าใช้เกณฑ์อะไรคิด',
+    [run({ extraChildCount: 3 }).ChildThreshold, run({ extraChildCount: 3 }).ChildMultiplier], [31, 400]);
+
   reset(null);
-  eq('...and falls back when unset', run({ extraChildCount: 3 }).ExtraChildAmount, 900);
+  eq('🔴 ยังไม่ได้ตั้งค่าเลย — ไม่จ่าย (ไม่มีค่าสำรอง ฿300 อยู่ข้างหลังแล้ว)',
+    run({ extraChildCount: 3 }).ExtraChildAmount, 0);
+  eq('...และสลิปเว้นว่าง ไม่ได้เขียน 31 ลงไป (ว่างคือสัญญาณที่หน้าจออ่าน)',
+    [run({ extraChildCount: 3 }).ChildThreshold, run({ extraChildCount: 3 }).ChildMultiplier], ['', '']);
+
+  reset({ ChildThreshold: 31 });
+  eq('🔴 มีเกณฑ์ แต่ไม่มีเรทบาท — ยังคิดเงินไม่ได้', run({ extraChildCount: 3 }).ExtraChildAmount, 0);
+  reset({ ChildMultiplier: 400 });
+  eq('🔴 มีเรทบาท แต่ไม่มีเกณฑ์ — ยังนับไม่ได้', run({ extraChildCount: 3 }).ExtraChildAmount, 0);
+
+  /* ...and the admin is never locked out: typing both figures onto the form pays that month without
+   * anything being saved to the person's config first. */
+  reset(null);
+  eq('แอดมินพิมพ์ทั้งสองค่าบนฟอร์มเอง — จ่ายได้ตามที่พิมพ์',
+    run({ extraChildCount: 3, childThreshold: 21, childMultiplier: 100 }).ExtraChildAmount, 300);
 }
 
 console.log('\n4) OT is unchanged and still correct');
@@ -189,7 +219,18 @@ console.log('\n5) the two halves of the app agree');
   ok_('...and asks "is this actually set?" in one place', /function pcNum_\(v\)/.test(pay));
   ok_('...blank included, so an emptied box is not a zero', /String\(v\)\.trim\(\) === ''\) return null/.test(pay));
   ok_('the engine has the same rule', /const perStaff=\(v\)=> \(v!=null && v!=='' && isFinite\(Number\(v\)\)\) \? Number\(v\) : null;/.test(eng));
-  ok_('...and both apply it to the child rate as well', /perStaff\(pc\.ChildMultiplier\)/.test(eng) && /pcNum_\(pc\.ChildMultiplier\)/.test(pay));
+  ok_('...and both apply it to the child rate as well', /perStaff\(pc\.ChildMultiplier\)/.test(eng) && /pcNum_\(\(pc \|\| \{\}\)\.ChildMultiplier\)/.test(pay));
+  /* THE CLAIM, not a line's shape: neither half may name a child-rate number of its own. A `|| 31`
+   * or `|| 300` anywhere in these two files is the bug coming back, wherever somebody puts it.
+   *
+   * 🔴 CODE ONLY — comments are stripped first. The note above each fix QUOTES the chain it
+   * replaced, and a guard that fires on an explanation of a fixed bug teaches everyone to stop
+   * writing explanations. (Same false positive the system auditor's R7 produced on 2026-10-22.) */
+  const codeOnly = s => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^[ \t]*\/\/.*$/gm, '');
+  const bad = /Child(Threshold|Multiplier)[^\n]*\|\|\s*(31|300)\b/;
+  ok_('🔴 ไม่มีเลขเรทเด็กฝังอยู่ในโค้ดทั้งสองฝั่ง',
+    !bad.test(codeOnly(pay)) && !bad.test(codeOnly(eng)) &&
+    !/ExtraChild(Threshold|Rate)\s*\|\|/.test(codeOnly(eng)));
   ok_('the reason is written where the money is worked out', /was never opened here at all|The middle step was missing/.test(pay));
 }
 

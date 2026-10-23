@@ -121,8 +121,13 @@ const result = run(function () {
   appendObject_(sheet_(HR, 'CHECKIN_STAFF'), { Date: '2026-06-02', StaffID: 'STF-T1', CheckIn: '07:55', CheckOut: '17:05', LateMinutes: 0, OTHours: 0, Status: 'OUT' });
   // socialSecurityDeduct is now sent EXPLICITLY: the default became "off" on 2026-09-02 (the school
   // asked for it), and this block is testing the CAP, not what happens when nobody has decided.
+  /* ...and the child rate is sent EXPLICITLY too, for the same reason: on 2026-10-23 the ผอ. made it
+   * per-teacher with NO school-wide fallback, so there is no ฿300 behind this call any more. This
+   * block is testing the arithmetic (5 × 300) and the cap, not what an unset teacher is paid —
+   * tools/test_payroll_per_staff.js owns that question. */
   const pr = computePayroll({ staffId: 'STF-T1', month: '2026-06', facebookPosted: true,
-    socialSecurityDeduct: true, extraChildCount: 5, trainingCertCount: 3 /*capped to 2*/, generatedBy: 'STF-ADM' });
+    socialSecurityDeduct: true, extraChildCount: 5, childThreshold: 31, childMultiplier: 300,
+    trainingCertCount: 3 /*capped to 2*/, generatedBy: 'STF-ADM' });
   ok(pr.DiligenceTotal === 1000, 'diligence = 1000 (attendance500 + fb500)');
   ok(pr.ExtraChildAmount === 1500, 'extra children 5*300 = 1500');
   ok(pr.TrainingCertAmount === 200, 'training certs capped at 2 -> 200');

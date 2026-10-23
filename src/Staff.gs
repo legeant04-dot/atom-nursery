@@ -672,7 +672,10 @@ function handleSetLeaveQuota(p) {
 // One config value at a time, whitelisted the same way handleSetSchoolConfig is.
 function handleSetConfigVal(p) {
   p = p || {};
-  var WHITE = { DiligenceAttendanceAmount: 1, DiligenceFacebookAmount: 1, ExtraChildRate: 1, TrainingCertRate: 1,
+  /* ExtraChildRate was whitelisted here until 2026-10-23 and was never on any screen, so nothing
+   * could set it anyway. The child rate is per-teacher now (ดำเนินการ › เงินเดือน › ตั้งค่ารายคน);
+   * leaving it editable would offer an admin a box that moves no money. */
+  var WHITE = { DiligenceAttendanceAmount: 1, DiligenceFacebookAmount: 1, TrainingCertRate: 1,
     TrainingCertMaxPerMonth: 1, SocialSecurityRate: 1, SocialSecurityMax: 1, OTRatePerHour: 1, OTGraceMinutes: 1,
     StaffOTHourlyRate: 1, LateGraceMinutes: 1, OTRoundUpMinutes: 1, AbsenceRateExcludeDays: 1, DspmManualUrl: 1,
     ContributionMatchRate: 1, CacheTTL: 1 };
