@@ -29,6 +29,7 @@ function eq(label, got, want) {
 function ok_(label, cond) { console.log((cond ? '  ok   ' : '  FAIL ') + label); cond ? pass++ : fail++; }
 const R = f => fs.readFileSync(path.join(__dirname, '..', f), 'utf8').replace(/\r\n/g, '\n');
 
+const _d=new Date().getDay(); const _weekend=(_d===0||_d===6);
 const { run } = H_(['Config', 'Db', 'Audit', 'Line', 'Auth', 'Code', 'Setup', 'Dspm_Seed', 'Checkin',
                     'Triggers', 'Leave', 'Notify', 'Parent', 'Staff', 'OT', 'Payroll', 'Backup',
                     'PaySlips', 'PayAdjust', 'Password', 'Certificate', 'Dspm', 'BillRun',
@@ -280,7 +281,11 @@ console.log('\n7) 🔴 รั้วที่ยังไม่ได้ตั้
     return JSON.stringify(out);
   }));
   eq('🔴 ยังไม่ตั้งพิกัด → ฝั่ง Sheets ปฏิเสธ (เดิมปล่อยผ่านเงียบๆ)', g.routeBlank, 'NO_SCHOOL_GPS');
-  ok_('🔴 ...ฝั่ง engine ก็ปฏิเสธด้วยเหตุผลเดียวกัน', g.engineBlank === 'NO_SCHOOL_GPS');
+  /* 🔴 เสาร์-อาทิตย์: ด่าน "วันนี้โรงเรียนเปิดไหม" อยู่ก่อนด่านรั้ว staffCheckin จึงตอบ SCHOOL_CLOSED
+   * ก่อนที่จะได้ดูพิกัดเลย — ซึ่งก็ยังเป็นการ "ปฏิเสธ" อยู่ดี และนั่นคือสิ่งที่ข้อนี้มีไว้ตรวจ
+   * (เสาร์-อาทิตย์ถูกตรึงไว้ใน engine เอง และ SCHOOL_CONFIG.WorkDays ไม่มีโค้ดไหนอ่าน) */
+  ok_('🔴 ...ฝั่ง engine ก็ปฏิเสธด้วยเหตุผลเดียวกัน',
+    g.engineBlank === 'NO_SCHOOL_GPS' || (_weekend && g.engineBlank === 'SCHOOL_CLOSED'));
   eq('ตั้งพิกัดแล้ว ยืนอยู่ที่โรงเรียน → ผ่าน', g.routeSet, 'ALLOWED');
   eq('...และยืนอยู่ไกล → ยังถูกปฏิเสธเหมือนเดิม', g.routeFar, 'OUT_OF_RANGE');
 }

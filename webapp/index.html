@@ -31,7 +31,7 @@
        override that survives reloads. Storage stays empty until somebody actually chooses, so the
        default remains ours to change. -->
   <script>try{var _t=localStorage.getItem('atom_theme');document.documentElement.setAttribute('data-theme',_t==='dark'?'dark':'light');}catch(e){}</script>
-  <link rel="stylesheet" href="styles.css?v=468" />
+  <link rel="stylesheet" href="styles.css?v=469" />
   <link rel="stylesheet" media="print" onload="this.media='all';this.onload=null"
         href="https://fonts.googleapis.com/css2?family=Sarabun:wght@400;500;600;700&display=optional" />
   <noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Sarabun:wght@400;500;600;700&display=optional" /></noscript>
@@ -70,36 +70,41 @@
          so the LCP element now exists at first paint. app.js replaces it (identically when signed
          out, with the home screen when signed in). Buttons need JS, which is fine: by the time
          anyone can tap, app.js has run. -->
-    <div class="rolewrap" id="bootSplash">
+    <div class="lgwrap" id="bootSplash">
       <img src="assets/logo.png" class="logo-lg" alt="Atom Nursery" width="132" height="112" fetchpriority="high" />
-      <h2 class="page" style="text-align:center">เข้าสู่ระบบ</h2>
-      <p class="muted">เข้าสู่ระบบด้วย LINE เท่านั้น · เชื่อมต่อกับ LINE OA ของโรงเรียน</p>
-      <button class="role-card" onclick="window.LIFF_LOGIN&&LIFF_LOGIN()">
-        <span class="ic" style="background:#06C755;color:#fff;font-weight:800">L</span>
-        <span><b>เข้าสู่ระบบด้วย LINE</b><br><small>ใช้บัญชี LINE ที่เพิ่มเพื่อน OA ของโรงเรียน</small></span>
-      </button>
-      <label style="display:flex;align-items:center;gap:8px;justify-content:center;margin-top:10px;font-size:13px">
-        <!-- IT NOW MEANS SOMETHING. This box has been on the login card, ticked, since the app
-             shipped, and nothing read it: the app went to LINE on every single open regardless, so
-             it promised the parent exactly the thing they asked for on 2026-09-14 and never did it.
-             Unticking it stops the session being reopened on the next visit (see REMEMBER_ME) —
-             which is the answer for a borrowed or shared phone. -->
-        <input type="checkbox" id="rememberMe" checked style="width:auto" onchange="window.REMEMBER_ME&&REMEMBER_ME(this)" /> จดจำการเข้าสู่ระบบ
-      </label>
-      <!-- THE WAYS IN FOR SOMEBODY WHO IS STUCK — IN THE SHELL, for the same reason as the .apk card.
-           loginScreen() does not redraw while this shell is on screen, so anything living only there
-           is invisible on a first visit. That is exactly what had happened: on a cold start in Thai
-           neither the LINE-by-email fallback nor the Google button existed on the page at all, and
-           they are for the parent whose FIRST attempt is the one that fails. Found by loading the
-           real site rather than by reading the code (v359).
-           Rendered for everyone and taken away by app.js inside LINE's own browser, where the
-           session already exists and Google refuses OAuth outright.
-           Must mirror the same three lines in loginScreen(). -->
-      <button class="btn-ghost block" id="lineWebBtn" hidden style="margin-top:6px;font-size:13px"
-              onclick="window.LINE_BROWSER_LOGIN&&LINE_BROWSER_LOGIN()">เข้าไม่ได้? เข้าสู่ระบบ LINE ด้วยอีเมล</button>
-      <button class="btn-ghost block" id="openInLineBtn" style="margin-top:2px;font-size:13px"
-              onclick="window.OPEN_IN_LINE&&OPEN_IN_LINE()">💬 หรือเปิดผ่านแอป LINE</button>
-      <div id="gsiShell" style="display:flex;justify-content:center;margin-top:10px" data-gsi="signin"></div>
+      <div class="lgbrand">
+        <h2 class="page">ยินดีต้อนรับ</h2>
+        <p>ระบบสำหรับผู้ปกครองและคุณครู</p>
+      </div>
+      <!-- ── หมวดที่ 1: ทางเข้า ──────────────────────────────────────────────────────────────
+           โครง C2 (ผอ. เลือก 2026-10-23): ทางเข้าทุกทางอยู่ในการ์ดเดียว เป็นแถวทรงเดียวกัน
+           ของเดิมมี 4 หน้าตา (การ์ดใหญ่ · widget ของ Google · ปุ่มจาง 2 อัน) จนสายตาไม่รู้ว่า
+           ทั้งหมดนี้คือเรื่องเดียวกัน
+           🔴 ต้องตรงกับ loginScreen() ใน app.js เป๊ะ — ถ้าต่างกัน หน้าจะกระตุกตอน JS แทนที่ -->
+      <h3 class="lgsect">เข้าสู่ระบบ</h3>
+      <div class="lgbox">
+        <button class="lgrow rec" onclick="window.LIFF_LOGIN&&LIFF_LOGIN()">
+          <span class="i"><svg viewBox="0 0 24 24" aria-hidden="true"><rect width="24" height="24" rx="6" fill="#06C755"/><text x="12" y="17" font-size="14" font-weight="800" fill="#fff" text-anchor="middle" font-family="inherit">L</text></svg></span>
+          <span class="t">LINE</span>
+          <span class="lgpill">แนะนำ</span>
+          <span class="chev">›</span>
+        </button>
+        <!-- Google's own button is drawn in here by their script. IN THE SHELL for the same reason
+             as the .apk card: loginScreen() does not redraw while this shell is on screen, so on a
+             cold start in Thai a box that existed only there was never on the page at all — and it
+             is for the parent whose FIRST attempt is the one that fails (found by loading the real
+             site, v359). Removed by app.js inside LINE's browser, where Google refuses OAuth. -->
+        <div id="gsiShell" data-gsi="signin"></div>
+        <label class="lgchk">
+          <!-- IT NOW MEANS SOMETHING. This box has been on the login card, ticked, since the app
+               shipped, and nothing read it: the app went to LINE on every single open regardless, so
+               it promised the parent exactly the thing they asked for on 2026-09-14 and never did it.
+               Unticking it stops the session being reopened on the next visit (see REMEMBER_ME) —
+               which is the answer for a borrowed or shared phone. -->
+          <input type="checkbox" id="rememberMe" checked onchange="window.REMEMBER_ME&&REMEMBER_ME(this)" /> จดจำการเข้าสู่ระบบ
+        </label>
+      </div>
+      <h3 class="lgsect mid">ติดตั้งแอป <span class="opt">(ไม่บังคับ)</span></h3>
       <!-- THE .apk OFFER HAS TO BE IN THE SHELL, not only in loginScreen().
            loginScreen() deliberately does NOT redraw while this shell is on screen (see the comment
            above it — redrawing an identical card restarted LCP). So a card that existed only in
@@ -108,28 +113,33 @@
            It is rendered for everyone and REMOVED by app.js on anything that is not Android, so the
            audience it is for gets it at first paint with no shift at all.
            Must mirror apkCardHTML() in app.js — tools/test_android_apk.js compares them. -->
-      <div class="card" id="apkCard" style="background:var(--ok-bg,var(--blue-bg));border-color:var(--ok-line,var(--blue-line))">
-        <b>📱 ติดตั้งแอป Atom Nursery</b>
-        <small class="muted" style="display:block;margin:2px 0 8px">เป็นแอปจริง ไม่ใช่หน้าเว็บในเบราว์เซอร์ · เปิดเต็มจอ ไม่มีแถบที่อยู่เว็บ และใช้งานเหมือนกันทุกเครื่อง</small>
-        <button class="btn block" onclick="window.APK_GET&&APK_GET()">⬇️ ดาวน์โหลดสำหรับ Android</button>
+      <div class="card lgbox" id="apkCard" style="background:var(--ok-bg);border-color:var(--ok-line)">
+        <small class="muted" style="text-align:center">เป็นแอปจริง ไม่ใช่หน้าเว็บในเบราว์เซอร์ · เปิดเต็มจอ ไม่มีแถบที่อยู่เว็บ และใช้งานเหมือนกันทุกเครื่อง</small>
+        <button class="lgrow" style="background:var(--brand);border-color:var(--brand);color:var(--on-accent);justify-content:center" onclick="window.APK_GET&&APK_GET()">
+          <span class="i"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v11m0 0 4-4m-4 4-4-4M5 19h14"/></svg></span><span>ดาวน์โหลดสำหรับ Android</span></button>
       </div>
       <!-- this block must mirror installButtonsHTML() in app.js EXACTLY: loginScreen() ends with it,
            and any difference means JS changes the page height on replace — that is what took CLS from
            0.002 to 0.021 in v156. -->
-      <div class="card instbox">
-        <b>📲 เพิ่มแอปลงหน้าจอมือถือ</b>
-        <small class="muted">จะมีไอคอน "Atom Nursery" อยู่ที่หน้าจอมือถือ กดเปิดได้ทันที ไม่ต้องเข้าผ่าน LINE ทุกครั้ง</small>
-        <div class="row" style="gap:8px">
-          <button class="btn outline" style="flex:1" onclick="window.DO_INSTALL&&DO_INSTALL('android')">🤖 เครื่อง Android</button>
-          <button class="btn outline" style="flex:1" onclick="window.DO_INSTALL&&DO_INSTALL('ios')">🍎 iPhone / iPad</button>
+      <div class="card instbox lgbox" style="margin-top:8px">
+        <small class="muted" style="text-align:center">จะมีไอคอน "Atom Nursery" อยู่ที่หน้าจอมือถือ กดเปิดได้ทันที ไม่ต้องเข้าผ่าน LINE ทุกครั้ง</small>
+        <div class="lgpair">
+          <button class="lgrow" onclick="window.DO_INSTALL&&DO_INSTALL('android')"><span class="i"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 11a7 7 0 0 1 14 0v6a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1z"/><path d="m7 7-1-2M17 7l1-2"/><circle cx="9.5" cy="12" r=".6" fill="currentColor"/><circle cx="14.5" cy="12" r=".6" fill="currentColor"/></svg></span><span>Android</span></button>
+          <button class="lgrow" onclick="window.DO_INSTALL&&DO_INSTALL('ios')"><span class="i"><svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M16.4 12.8c0-2.3 1.9-3.4 2-3.5-1.1-1.6-2.8-1.8-3.4-1.8-1.4-.1-2.8.9-3.5.9s-1.8-.8-3-.8c-1.5 0-2.9.9-3.7 2.3-1.6 2.7-.4 6.8 1.1 9 .8 1.1 1.7 2.3 2.9 2.3 1.2 0 1.6-.7 3-.7s1.8.7 3 .7c1.3 0 2.1-1.1 2.8-2.2.9-1.3 1.3-2.5 1.3-2.6 0 0-2.5-1-2.5-3.6zM14.2 5.5c.6-.8 1.1-1.9 1-3-1 0-2.1.6-2.8 1.5-.6.7-1.1 1.8-1 2.9 1.1.1 2.2-.6 2.8-1.4z"/></svg></span><span>iPhone</span></button>
         </div>
       </div>
-      <!-- app.js overwrites this with its own APP_VERSION the moment it runs. Until then it says what
-           the SHELL is, which is the more useful half of the answer: "the button is missing" and
-           "this phone is still on last week's app.js" look identical in a screenshot, and the only
-           screen where the version was readable is one you have to be signed in to reach.
-           Mirrors the same line at the end of loginScreen() so replacing the shell shifts nothing. -->
-      <div id="verTag" style="text-align:center;color:var(--ink-3);font-size:12px;margin-top:18px">Version 1.468</div>
+      <!-- ทางสำรองยุบไว้หลังลิงก์เดียว (LOGIN_HELP) — ของเดิมเป็นปุ่มจาง 2 อันที่อยู่บนหน้าจอตลอด
+           ทำให้หน้านี้เสนอ "ทางเข้า" 4 ทางพร้อมกัน ทั้งที่ 2 ใน 4 มีไว้สำหรับคนที่ติดปัญหาแล้ว
+           ฟังก์ชันยังอยู่ครบทั้ง LINE_BROWSER_LOGIN และ OPEN_IN_LINE -->
+      <div class="lgfoot">
+        <button class="lglink" id="loginHelpBtn" onclick="window.LOGIN_HELP&&LOGIN_HELP()">เข้าไม่ได้?</button>
+        <!-- app.js overwrites this with its own APP_VERSION the moment it runs. Until then it says what
+             the SHELL is, which is the more useful half of the answer: "the button is missing" and
+             "this phone is still on last week's app.js" look identical in a screenshot, and the only
+             screen where the version was readable is one you have to be signed in to reach.
+             Mirrors the same line at the end of loginScreen() so replacing the shell shifts nothing. -->
+        <div id="verTag" style="color:var(--ink-3);font-size:12px;margin-top:8px">Version 1.469</div>
+      </div>
     </div>
   </main>
   <nav class="bottomnav" id="bottomnav" hidden></nav>
@@ -143,12 +153,12 @@
        server-side (src/Engine.gs), the sample rows are mock-mode only, and the spreadsheet writer is
        needed by two admin screens. api.js fetches each on demand (mockconfig.js keeps the seed
        CONFIG that ~30 fallbacks read). -->
-  <script defer src="mockconfig.js?v=468"></script>
-  <script defer src="growth_standard.js?v=468"></script>
-  <script defer src="i18n.js?v=468"></script>
-  <script defer src="i18n_tr.js?v=468"></script>
-  <script defer src="api.js?v=468"></script>
-  <script defer src="app.js?v=468"></script>
+  <script defer src="mockconfig.js?v=469"></script>
+  <script defer src="growth_standard.js?v=469"></script>
+  <script defer src="i18n.js?v=469"></script>
+  <script defer src="i18n_tr.js?v=469"></script>
+  <script defer src="api.js?v=469"></script>
+  <script defer src="app.js?v=469"></script>
   <script>
     // Register SW but always pull fresh code: check for updates and auto-reload
     // once a new service worker takes control (prevents stale-cache showing old UI).

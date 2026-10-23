@@ -20,6 +20,7 @@
  * §6  two terms cannot overlap — termOn_ takes the first match, so overlapping rows would decide a
  *     parent's check-in by row order
  */
+const _d = new Date().getDay(), _weekend = (_d === 0 || _d === 6);
 const fs = require('fs'), path = require('path'), vm = require('vm');
 
 let pass = 0, fail = 0;
@@ -162,6 +163,10 @@ console.log('\n3) ✅ สิ่งที่โรงเรียนบอกว�
   eq('...พร้อมบอกวันสุดท้าย', row.summerLastDay, plus(24));
   eq('CONTROL: เด็กปกติไม่มีป้าย', cl.students.find(s => s.StudentID === 'S1').summer, false);
 
+  /* 🔴 เสาร์-อาทิตย์ถูกตรึงเป็นวันหยุดไว้ใน engine เอง (schoolClosedFor_: getDay()===0||6)
+   * และด่านวันหยุดมาก่อนด่านซัมเมอร์ · สามข้อนี้จึงตรวจได้เฉพาะวันเปิดเรียน
+   * ก่อนหน้านี้ไม่ได้กันไว้ ชุดนี้จึงไม่ใช่แค่ไม่ผ่าน แต่ตายทั้งไฟล์ทุกวันเสาร์-อาทิตย์ */
+  if (_weekend) { console.log('  --   ข้าม 3 ข้อเรื่องเช็คอิน/สมุดบันทึก (วันนี้เสาร์/อาทิตย์)'); } else {
   const inRes = H.parentCheckin({ parentId: 'PAR-G', studentId: 'G1', type: 'IN', lat: 0, lng: 0 });
   eq('🔴 ผู้ปกครองเช็คอินได้', inRes.type, 'IN');
   /* the journal is gated on the child being checked IN first — which is the point: the gate let
@@ -170,6 +175,7 @@ console.log('\n3) ✅ สิ่งที่โรงเรียนบอกว�
   // asserted on the stored row, not the return value: what matters is that the day was recorded
   const saved = M.journals.filter(x => x.StudentID === 'G1' && x.Date === TODAY);
   eq('🔴 คุณครูเขียนบันทึกประจำวันได้', [saved.length, saved[0] && saved[0].Mood], [1, 'ดี']);
+  }
 }
 
 // ════════════════════════════════════════════════════════════════════════════════════════════

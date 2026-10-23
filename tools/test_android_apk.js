@@ -253,12 +253,15 @@ console.log('\n7) what the parent is shown');
   const idx = R('webapp/index.html');
   ok_('the shell carries the card too, or a first visit never sees it', /id="apkCard"/.test(idx));
   ok_('...above the add-to-home-screen box, same order as loginScreen',
-    idx.indexOf('id="apkCard"') < idx.indexOf('class="card instbox"'));
+    idx.indexOf('id="apkCard"') < idx.search(/class="[^"]*instbox/));
   ok_('...and it opens the same walkthrough', /onclick="window\.APK_GET&&APK_GET\(\)"/.test(idx));
   ok_('...and is taken away on anything that is not Android',
     /if\(!isAndroid\(\)\)\{ const _c=document\.getElementById\('apkCard'\); if\(_c\) _c\.remove\(\); \}/.test(app));
   // the two copies must say the same thing, or the shell and the render disagree on screen
-  ['ติดตั้งแอป Atom Nursery', 'ดาวน์โหลดสำหรับ Android', 'เปิดเต็มจอ ไม่มีแถบที่อยู่เว็บ']
+  /* 🔴 ข้อความที่ "ต้องตรงกันทั้งสองชุด" ไม่ใช่ทุกคำบนการ์ด — เป็นคำที่การ์ดนี้เป็นคนพูดเอง
+   * หัวข้อ "ติดตั้งแอป Atom Nursery" ย้ายขึ้นไปเป็นหัวข้อหมวดในโครง C2 (ผอ. เลือก 2026-10-23)
+   * การ์ดใบนี้จึงไม่ได้พูดมันอีกแล้ว ทั้งสองชุดเหมือนกัน — ที่เปลี่ยนคือที่อยู่ของมัน ไม่ใช่ความต่าง */
+  ['ดาวน์โหลดสำหรับ Android', 'เปิดเต็มจอ ไม่มีแถบที่อยู่เว็บ']
     .forEach(s => ok_(`"${s.slice(0, 24)}…" is in both copies`, idx.indexOf(s) >= 0 && app.indexOf(s) >= 0));
   ok_('the link is the "latest" redirect, so it never has to be reprinted',
     /releases\/latest\/download\/atom-nursery\.apk/.test(app));
