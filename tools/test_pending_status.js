@@ -137,7 +137,11 @@ console.log('\n3b) BOOKED FOR LATER IS NOT AWAY NOW');
   ok_('...and says plainly that nothing applies yet', /จนถึงวันเริ่มลา ยังออกบิล ยังนับการมาเรียน/.test(app));
   ok_('...and the footnote no longer speaks for them', /— นับจากวันเริ่มลาเป็นต้นไป/.test(app));
   // the roster and the child's own record are the third and fourth screens that said it
-  ok_('the roster pill distinguishes them', /pauseSoon\(s\)\?`<span class="pill info" style="font-size:11px">📅 /.test(app));
+  /* THE CLAIM, not the line's shape. This used to pin `style="font-size:11px"` inside the pill, so
+   * raising the app's floor to 12px for readability (Phase 3, 2026-10-23) failed a test about
+   * whether a scheduled pause is distinguishable — which has nothing to do with the type size. */
+  ok_('the roster pill distinguishes them',
+    /pauseSoon\(s\)\?`<span class="pill info"[^>]*>📅 /.test(app));
   ok_('...on the dates, not on Status', /const pauseSoon = s => isPaused\(s\) &&/.test(app));
   ok_('the leave box in the record says it has not begun', /Leave booked — still at school until then/.test(app));
 }

@@ -68,8 +68,12 @@ console.log('\n=== 1b. the occasional three live behind ⋯, as a list ===');
 ok_('there is a ⋯ menu for a child', /window\.T_stuMore=\(sid\)=>/.test(app));
 [['T_studentLeave', 'file leave'], ['EDIT_ATT', 'correct times'], ['T_journalHistory', 'past reports']]
   .forEach(w => ok_('⋯ offers ' + w[1], new RegExp('\\$\\{close\\}' + w[0] + "\\('\\$\\{esc\\(sid\\)\\}'").test(app)));
+/* CLASS ORDER IS NOT THE CLAIM. `btn block outline` and `btn outline block` are the same button to
+ * CSS; the app had 18 of one and 110 of the other until they were normalised (Phase 3, 2026-10-23).
+ * What this asserts is that all three rows are full-width quiet buttons — `block` and `outline`
+ * present, in whatever order somebody writes them. */
 ok_('…each on its own full-width line, like the admin’s ⋯',
-  (app.match(/<button class="btn block outline"[^>]*onclick="\$\{close\}(T_studentLeave|EDIT_ATT|T_journalHistory)/g) || []).length === 3);
+  (app.match(/<button class="btn(?=[^"]*\bblock\b)(?=[^"]*\boutline\b)[^"]*"[^>]*onclick="\$\{close\}(T_studentLeave|EDIT_ATT|T_journalHistory)/g) || []).length === 3);
 ok_('the menu knows the child’s name without another round trip', /let T_STU=\{\}/.test(app) && /T_STU\[s\.StudentID\]=s;/.test(app));
 ok_('…filled by BOTH screens that list children',
   (app.match(/T_STU\[s\.StudentID\]=s;/g) || []).length === 2);
