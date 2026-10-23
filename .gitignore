@@ -61,3 +61,7 @@ _tmpl.*
 _probe.*
 Blank Template.png
 THSarabunNew/
+
+# Phase 3 design explorations — HTML mockups served by tools/serve.js on :8092.
+# Kept out of the repo so they never reach dist_pages/ and the school's live app.
+design/
