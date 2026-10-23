@@ -98,6 +98,19 @@ table a year from now.)*
 
 ## 5. How the account should actually be set up
 
+> ### ✅ ครึ่งแรกทำแล้ว — 2026-10-23
+>
+> Supabase ย้ายมาอยู่ใต้ **`atomnursery.system@gmail.com`** (อัตลักษณ์ของการปฏิบัติงาน) แล้ว
+> ไม่ใช่อีเมลส่วนตัวอีกต่อไป · โปรเจกต์เดิมใต้บัญชีส่วนตัว **ลบทิ้งแล้ว**
+>
+> สร้างใหม่จาก `docs/schema/001_init.sql` ทั้งก้อน — 55 ตาราง · 54 นโยบาย RLS · `pg_rls_spike` 28/28
+> ซึ่ง**เป็นการซ้อมใหญ่ของการย้ายจริงไปในตัว**
+>
+> 🔴 **ยังไม่ได้ทำ และเป็นข้อที่สำคัญที่สุดในหน้านี้:**
+> - **MFA ยังไม่ได้เปิด** บนบัญชีที่ตอนนี้ถือฐานข้อมูลของโรงเรียน *(หน้า Team แสดง ✗)*
+> - **ยังมีคนเดียวที่เข้าได้** — ข้อ "สองคนต้องเข้าได้" ด้านล่างยังไม่เป็นจริง
+> - รหัสผ่านฐานข้อมูลอยู่ในไฟล์ธรรมดาบนเครื่องเครื่องเดียว
+
 Not a personal Gmail with a shared password. That is how a single leaver or a single leaked file
 takes the whole business down — and we have already had the second one.
 
