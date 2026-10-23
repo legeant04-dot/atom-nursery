@@ -557,6 +557,18 @@ function handleSaveParent(p) {
 // session token in applyIdentity_, so a parent can only ever patch themselves; never ID/NationalID/LineUID).
 function handleSaveParentSelf(p) {
   p = p || {};
+  /* 🔴 "Self" แปลว่าตัวเอง — และเส้นทางนี้ไม่เคยบังคับมันเลย (พบโดย tools/audit_system.js R2)
+   *
+   * เซสชัน **ผู้ปกครอง** ปลอดภัยอยู่แล้ว เพราะ applyIdentity_ เขียนทับ parentId ด้วยของตัวเอง
+   * แต่เซสชัน **ครู** ไม่ถูกปักหมุด parentId เลย → ครูคนใดก็ได้ส่ง parentId ของใครก็ได้ แล้วแก้
+   * ชื่อ เบอร์โทร ที่อยู่ และอีเมลของครอบครัวนั้นได้ทั้งหมด
+   *
+   * พนักงานที่ต้องแก้ข้อมูลผู้ปกครองจริงๆ ใช้ `saveParent` ซึ่งอยู่ใน ADMIN_ONLY — มีประตูของมันเอง
+   *
+   * 🔴 และตอนนี้ **ไม่มีหน้าจอไหนเรียกเส้นทางนี้เลยสักที่** มันคือพื้นที่โจมตีที่ไม่ได้แลกอะไรกลับมา
+   * ไม่ลบทิ้งเพราะหน้าจอ "แก้ข้อมูลของฉัน" ของผู้ปกครองควรมีในอนาคต — แต่ปิดประตูไว้ตั้งแต่ตอนนี้
+   * จะได้ไม่ต้องหวังว่าคนที่สร้างหน้าจอนั้นจะนึกถึงเรื่องนี้เอง */
+  if (p.staffId) throw apiError_('NO_ACCESS', 'พนักงานแก้ข้อมูลผู้ปกครองผ่านเส้นทางนี้ไม่ได้');
   if (!p.parentId) throw apiError_('NO_SESSION', 'ต้องเข้าสู่ระบบใหม่');
   var sh = sheet_(getMainSpreadsheet_(), 'PARENTS');
   var pa = findObject_(sh, function (x) { return String(x.ParentID) === String(p.parentId); });
@@ -812,6 +824,15 @@ function handleSaveFamilyParent(p) {
 function handleSaveStudentSelf(p) {
   p = p || {};
   if (!p.studentId) throw apiError_('NO_SESSION', 'ต้องเข้าสู่ระบบใหม่');
+  /* 🔴 ครูต้องแก้ได้เฉพาะเด็กในชั้นที่ตัวเองดูแล (พบโดย tools/audit_system.js R2)
+   *
+   * เซสชัน **ผู้ปกครอง** ปลอดภัยอยู่แล้ว — applyIdentity_ ปฏิเสธ studentId ที่ไม่ใช่ลูกตัวเอง
+   * ด้วย parentOwnsStudent_ และด่านข้างล่างนี้ปล่อยผ่านเมื่อไม่มี staffId
+   *
+   * แต่เซสชัน **ครู** ไม่ถูกปักหมุด studentId → ก่อนหน้านี้ครูคนใดก็ได้แก้ของเด็กคนใดก็ได้
+   * และรายการที่แก้ได้คือ หมู่เลือด · อาการแพ้ · ประวัติการรักษา · ผู้ติดต่อฉุกเฉิน · ที่อยู่ ·
+   * เชื้อชาติ · สัญชาติ · ศาสนา — **ซึ่งเกือบทั้งหมดคือข้อมูลอ่อนไหวตามมาตรา 26** */
+  assertStaffCoversStudent_(p.staffId, p.studentId);
   var sh = sheet_(getMainSpreadsheet_(), 'STUDENTS');
   var st = findObject_(sh, function (x) { return String(x.StudentID) === String(p.studentId); });
   if (!st) throw apiError_('NOT_FOUND', 'ไม่พบนักเรียน ' + p.studentId);

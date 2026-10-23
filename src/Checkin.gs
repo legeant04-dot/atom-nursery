@@ -414,7 +414,35 @@ function assertStudentDayOpen_(studentId, d) {
     if (/^\d{4}-\d{2}-\d{2}$/.test(xd) && ds > xd) {
       throw apiError_('STUDENT_ENDED', 'วันสุดท้ายของการเรียนคือ ' + xd + ' — ลงเวลาไม่ได้แล้ว');
     }
-  } catch (e) { if (e && (e.apiCode === 'NOT_STARTED' || e.apiCode === 'STUDENT_ENDED')) throw e; }
+    /* 🔴 ...และวันหยุดประจำของเด็กคนนี้เอง — กฎที่ engine มีมานาน แต่ route ที่รันจริงไม่เคยรู้จัก
+     * (พบโดย tools/audit_system.js R5 · ครั้งที่ 5 ที่ route บังหน้า engine แล้วตกกฎไปข้อหนึ่ง)
+     *
+     * เด็กที่มาเรียนสี่วันต่อสัปดาห์ หยุดทุกวันพุธ — วันพุธไม่ควรมีการลงเวลา และ**ไม่นับเป็นวันขาด**
+     * หน้าจอซ่อนปุ่มในวันนั้นอยู่แล้ว มาถึงตรงนี้ได้ = หน้าจอค้าง เครื่องที่สอง หรือปุ่มของคุณครู
+     * ซึ่งเป็นประตูเดียวกัน จึงต้องได้คำตอบเดียวกัน
+     *
+     * 1..5 เท่านั้น (จันทร์-ศุกร์) · เลขแปลกปลอมในชีตถูกเมิน ไม่ใช่เชื่อฟัง — เหมือน offDays_ ใน engine */
+    var offRaw = st ? String(decodeCell_(st.OffDays) || '') : '';
+    if (offRaw) {
+      var offDays = [];
+      offRaw.split(/[,\s]+/).forEach(function (x) {
+        var n = parseInt(x, 10);
+        if (n >= 1 && n <= 5 && offDays.indexOf(n) < 0) offDays.push(n);
+      });
+      var dow = new Date(ds + 'T00:00:00').getDay();
+      if (offDays.indexOf(dow) >= 0) {
+        var TH = ['อาทิตย์', 'จันทร์', 'อังคาร', 'พุธ', 'พฤหัสบดี', 'ศุกร์', 'เสาร์'];
+        throw apiError_('STUDENT_DAY_OFF', 'วันนี้เป็นวันหยุดประจำของ ' +
+          (st.Nickname || st.Name || 'นักเรียนคนนี้') + ' (วัน' +
+          offDays.map(function (n) { return TH[n]; }).join(', วัน') + ') — ไม่ต้องลงเวลา และไม่นับเป็นวันขาด');
+      }
+    }
+    /* 🔴 ทุกการปฏิเสธที่เกิดในบล็อกนี้ต้องถูกโยนต่อ ไม่งั้น catch ข้างล่างจะกลืนมันหายไป
+     * และเราจะได้ "ด่านที่ไม่เคยทำงาน" เพิ่มอีกตัว — ซึ่งหน้าตาเหมือนด่านที่ผ่านทุกประการ
+     * (เกือบพลาดข้อนี้ตอนเพิ่ม STUDENT_DAY_OFF เมื่อ 23/10) */
+  } catch (e) {
+    if (e && (e.apiCode === 'NOT_STARTED' || e.apiCode === 'STUDENT_ENDED' || e.apiCode === 'STUDENT_DAY_OFF')) throw e;
+  }
   if (!isSchoolClosed_(d)) return;                                  // an ordinary open day
   if (isHolidayAttendee_(studentId, ds)) return;                    // expected today, by name
   var why = '';

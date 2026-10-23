@@ -203,7 +203,11 @@ console.log('\n7) THE REPORT SCREEN, WHERE THE WORK IS');
   ok_('...saying so, so a hidden row is not simply missing', /รายการ — เลื่อนดูได้/.test(app));
   {
     const at = app.indexOf('<details class="card" open');
-    const fold = at < 0 ? '' : app.slice(at, at + 1400);
+    /* 🔴 อ่านถึงแท็กปิดจริง ไม่ใช่ 1,400 ตัวอักษรแรก — assertion ที่ผูกกับระยะจะพังเองเมื่อมี
+     * คนเติมคอมเมนต์หรือเพิ่มบรรทัด โดยที่ไม่มีบั๊กอะไรเลย (ดู R7 ใน tools/audit_system.js)
+     * ตรงนี้เป็น HTML ในเทมเพลต ไม่ใช่บล็อก JS — ขอบเขตของมันคือ </details> ไม่ใช่ปีกกา */
+    const end = app.indexOf('</details>', at);
+    const fold = at < 0 ? '' : app.slice(at, end > at ? end : at + 1400);
     ok_('the list folds', at > 0);
     ok_('...with the month above it', /onchange="A_injuries\(this\.value\)"/.test(fold));
     /* THIS LINE USED TO ASSERT THE BUG. It required

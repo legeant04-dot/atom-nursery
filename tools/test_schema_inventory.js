@@ -195,8 +195,21 @@ console.log('\n4) the decisions that cost the most to reverse are in the DDL its
   const tables = (sql.match(/^create table if not exists (\w+) \(/gm) || []).length;
   const tenanted = (sql.match(/tenant_id\s+uuid not null references tenant\(id\)/g) || []).length;
   eq('every table except `tenant` itself carries tenant_id', tenanted, tables - 1);
-  ok_('...and every one has RLS turned on',
-    (sql.match(/enable row level security/g) || []).length === tables - 1);
+  /* 🔴 `tables`, NOT `tables - 1` — and this line is where the hole started.
+   *
+   * `tenant` has no tenant_id column (its row IS the tenant), so it is rightly outside the
+   * tenant_isolation loop. This assertion then encoded "...and therefore it needs no RLS at all",
+   * which is a different claim entirely, and nobody noticed the difference. The table sat open:
+   * probed with the real anon role on 2026-10-23, it could be READ, INSERTED INTO, UPDATED and
+   * DELETED FROM by anyone holding the anon key — which ships inside the web app and is public.
+   *
+   * Supabase's own advisor is what reported it (CRITICAL · RLS Disabled in Public), not us. The
+   * assertion that should have caught it was busy agreeing with the mistake.
+   *
+   * `tenant` now carries a SELECT-only policy keyed on its own id — stricter than every other
+   * table, never looser. The exception is declared in tools/pg_rls_spike.js. */
+  ok_('...and every one has RLS turned on — including `tenant`',
+    (sql.match(/enable row level security/g) || []).length === tables);
   /* ONE POLICY, ALL IDENTICAL. A per-table exception is how one table ends up readable across
    * tenants — so the DDL writes them in a loop rather than by hand. */
   ok_('the isolation policy is generated for every table, not written per table',

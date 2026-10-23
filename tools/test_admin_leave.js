@@ -77,7 +77,12 @@ console.log('\n1) 🔴 the call says whose child it is — the Mona bug');
    * while the screen stays broken — which is how this one survived in the first place. */
   const i = app.indexOf("api('studentAbsence'");
   ok_('the screen still calls studentAbsence at all', i > 0);
-  const seg = app.slice(i, i + 400);
+  /* 🔴 อ่าน "ทั้ง call" ไม่ใช่ "N ตัวอักษรแรก" — ดู R7 ใน tools/audit_system.js */
+  const callAt = (src, i) => { let d = 0, j = src.indexOf('(', i);
+    if (j < 0) return src.slice(i);   // หาไม่เจอ → คืนที่เหลือทั้งหมด ไม่ตัดเงียบๆ
+    for (let k = j; k < src.length; k++) { if (src[k] === '(') d++; else if (src[k] === ')') { d--; if (!d) return src.slice(i, k + 1); } }
+    return src.slice(i); };
+  const seg = callAt(app, i);
   ok_('🔴 ...and it carries parentScope() — without it an admin files nothing',
     /parentScope\(\)/.test(seg));
 

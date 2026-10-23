@@ -498,6 +498,26 @@ if (process.argv.includes('--sql') || process.argv.includes('--write')) {
   L.push('  created_at  timestamptz not null default now()');
   L.push(');');
   L.push('');
+  /* 🔴 ตารางนี้เคยเป็นตารางเดียวที่ RLS ปิดอยู่ — และนั่นคือรูจริง (พบ 2026-10-23)
+   *
+   * มันถูกกันออกจากลูปข้างล่างอย่างถูกต้อง เพราะมันไม่มีคอลัมน์ `tenant_id` (แถวของมัน *คือ*
+   * tenant) แต่ "ไม่มีนโยบาย tenant_isolation" ไม่ได้แปลว่า "ไม่ต้องมี RLS" — และสองอย่างนี้ถูก
+   * สับสนกันจนตารางนี้เปิดโล่ง
+   *
+   * ยิงทดสอบด้วยบทบาท `anon` จริง (ซึ่งคือสิ่งที่ anon key ในแอปใช้ และ anon key เป็นของสาธารณะ
+   * เพราะมันถูกส่งไปกับหน้าเว็บ) ผลคือ **อ่านได้ · เพิ่มได้ · แก้ได้ · และลบได้ทุกแถว**
+   * แปลว่าใครก็ตามที่เปิด DevTools ดู key ก็ลบทะเบียนโรงเรียนทั้งหมดได้
+   *
+   * 🔴 มีแค่นโยบาย SELECT ตัวเดียว และตั้งใจให้เป็นแบบนั้น
+   * เมื่อ RLS เปิดแล้ว คำสั่งที่ **ไม่มี** นโยบายรองรับ จะถูกปฏิเสธทั้งหมด → insert/update/delete
+   * จึงทำไม่ได้เลยจากฝั่ง client · การสร้างโรงเรียนใหม่เป็นงานของเซิร์ฟเวอร์ด้วย service_role
+   * ซึ่งข้าม RLS โดยการออกแบบอยู่แล้ว ไม่ใช่สิ่งที่หน้าเว็บควรทำได้ */
+  L.push('alter table tenant enable row level security;');
+  L.push('drop policy if exists tenant_self_read on tenant;');
+  L.push('-- อ่านได้เฉพาะแถวของโรงเรียนตัวเอง · ไม่มีนโยบาย insert/update/delete = ทำไม่ได้เลย');
+  L.push('create policy tenant_self_read on tenant');
+  L.push('  for select using (id = (auth.jwt() ->> \'tenant_id\')::uuid);');
+  L.push('');
 
   withCols.forEach(t => {
     const tbl = tableName(t);
