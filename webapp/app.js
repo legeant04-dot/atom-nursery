@@ -155,9 +155,9 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.467'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.468'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
-  const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:24px">${APP_VERSION}</div>`;
+  const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:12px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
   const phoneFmt = p => { let d=String(p==null?'':p).replace(/\D/g,''); if(d.length===9) d='0'+d; return d; };
   /* Email is optional everywhere — but once given it becomes a way IN, so it is normalised the same
@@ -651,7 +651,7 @@
         <p class="muted" style="font-size:13px;margin:10px 2px 0">${EN()
           ? 'Nothing was saved. You can close this and try again.'
           : 'ข้อมูลยังไม่ถูกบันทึก — ปิดหน้านี้แล้วลองใหม่ได้เลย'}</p>
-        ${(code||(e&&e.action))?`<p class="muted" style="font-size:11.5px;margin:4px 2px 0">${
+        ${(code||(e&&e.action))?`<p class="muted" style="font-size:12px;margin:4px 2px 0">${
           esc([e&&e.action, code].filter(Boolean).join(' · '))}</p>`:''}
         <button class="btn block" style="margin-top:12px" onclick="this.closest('.modal').remove()">${
           esc(EN()?'Close':'ปิดหน้าแจ้งเตือน')}</button>`);
@@ -1273,7 +1273,7 @@
       const d = det(p);
       /* 👶 N / M — enrolled now out of attached in total. One number could not say "this family is
        * still here but their child has left", which is exactly the state the ผอ. is looking for. */
-      const badge = `<span class="pill ${d.active ? 'ok' : (d.total ? 'warn' : 'bad')}" style="font-size:11px" title="${EN() ? 'enrolled now / attached in total' : 'กำลังเรียนอยู่ / ผูกทั้งหมด'}">👶 ${d.active}${d.total > d.active ? ` / ${d.total}` : ''}</span>`;
+      const badge = `<span class="pill ${d.active ? 'ok' : (d.total ? 'warn' : 'bad')}" style="font-size:12px" title="${EN() ? 'enrolled now / attached in total' : 'กำลังเรียนอยู่ / ผูกทั้งหมด'}">👶 ${d.active}${d.total > d.active ? ` / ${d.total}` : ''}</span>`;
       const key = (p.NameTH + ' ' + (p.NameEN || '') + ' ' + (p.Nickname || '') + ' ' + (p.NicknameEN || '') + ' ' + (p.Phone || '') + ' ' + String(p.Relationship || '').replace(/<[^>]*>/g, '') + ' ' + ((_fam.kidsOf || {})[p.ParentID] || '')).toLowerCase();
       const meta = [p.NameTH || p.NameEN ? esc(titledName(p)) : '', relLabel(p.Relationship),
         p.Phone ? phoneLink(p.Phone) : (EN() ? 'no phone' : 'ไม่มีเบอร์โทร')].filter(Boolean).join(' · ');
@@ -1593,7 +1593,7 @@
            "The Google button is not there" and "your phone is still on last week's app.js" look
            identical in a screenshot, and this app is served from a cache that can hold an old copy
            for a while. One line settles it without asking anybody to open developer tools. */''}
-      <div id="verTag" style="text-align:center;color:var(--ink-3);font-size:11px;margin-top:18px">${esc(APP_VERSION)}</div></div>`;
+      <div id="verTag" style="text-align:center;color:var(--ink-3);font-size:12px;margin-top:18px">${esc(APP_VERSION)}</div></div>`;
     /* Painted AFTER the box exists. googleReady() above only asks the server; when the answer is
      * already in hand from an earlier render it resolves nothing, so the draw has to be asked for
      * here or the second visit to this screen shows an empty space where the button was. */
@@ -3119,7 +3119,7 @@
                   many did not know that. Pick-up is fenced, because it is a safety record and it
                   starts the late-pickup charge. Both halves in one line, or the half people remember
                   is the wrong one. Asked 2026-08-25. */''}
-             <div style="margin-top:6px;font-size:12.5px;line-height:1.5;color:var(--ink-3)">
+             <div style="margin-top:6px;font-size:13px;line-height:1.5;color:var(--ink-3)">
                🟢 <b style="color:var(--ok)">${EN()?'Drop off':'ส่งเข้าเรียน'}</b> ${EN()?'— tap from anywhere, any time.':'— กดได้จากทุกที่ ทุกเวลา ไม่ต้องอยู่ที่โรงเรียน'}
                <br>🔴 <b style="color:var(--bad)">${EN()?'Pick up':'รับกลับ'}</b> ${EN()?'— tap when you are at the school.':'— กดตอนที่มาถึงโรงเรียนแล้ว'}</div>
              ${geoHelpRow()}`}</div>`; }).join('');
@@ -3212,7 +3212,7 @@
     // an open survey is offered, never forced: a dismissible card, and answering is one tap
     { const open=(HOME.surveys||[]).filter(s=>!s.answered);
       if(open.length) setHTML('#svCard', open.slice(0,2).map(s=>`<div class="card" style="border-color:var(--brand-line);background:var(--brand-soft)">
-        <div class="spread"><b>💬 ${esc(s.title)}</b>${s.anonymous?`<span class="pill info" style="font-size:11px">${EN()?'anonymous':'ไม่ระบุชื่อ'}</span>`:''}</div>
+        <div class="spread"><b>💬 ${esc(s.title)}</b>${s.anonymous?`<span class="pill info" style="font-size:12px">${EN()?'anonymous':'ไม่ระบุชื่อ'}</span>`:''}</div>
         ${s.description?`<small class="muted">${esc(s.description)}</small>`:''}
         <button class="btn sm block" style="margin-top:8px" onclick="P_survey('${esc(s.surveyId)}')">${EN()?'Answer — it takes a moment':'ร่วมตอบแบบสอบถาม ใช้เวลาไม่ถึงนาที'}</button></div>`).join('')); }
     // insurance status per child (parent fills once; shows "กรอกแล้ว" if done)
@@ -3237,7 +3237,7 @@
     <button class="btn block" onclick="this.closest('.modal').remove();REG_CHILD_FORM()">📝 ${esc(t('p.childNew'))}</button>
     <div style="height:10px"></div>
     <label class="field"><span>${esc(t('p.childExistingNID'))}</span><input id="lnNID" inputmode="numeric" placeholder="x-xxxx-xxxxx-xx-x"/></label>
-    <button class="btn block outline" onclick="P_linkChild(this)">🔗 ${esc(t('p.childLink'))}</button>`); };
+    <button class="btn outline block" onclick="P_linkChild(this)">🔗 ${esc(t('p.childLink'))}</button>`); };
   window.P_linkChild = async (btn)=>{ const m=btn.closest('.modal'); const nid=m.querySelector('#lnNID').value.trim(); if(!nid){toast(EN()?'Enter National ID':'กรอกเลขบัตร');return;}
     try{ const r=await api('linkExisting',{uid:USER.uid,nationalId:nid}); m.remove(); confirmSaved((EN()?'Linked: ':'เชื่อมข้อมูลแล้ว: ')+(EN()?r.nameEN:r.name)); GO('home'); }catch(e){err(e);} };
   // parent's own profile: view + edit personal info, and see linked children
@@ -3249,11 +3249,11 @@
     const parentCard=p=>{ const pre='pa_'+p.ParentID;
       // picture: uploaded Photo wins, else their LINE profile picture (no upload needed)
       const pic=photoOf(p), usingLine=!p.Photo&&!!p.LinePictureUrl;
-      return `<div class="card"><div class="spread"><h3>${p.isMe?'👤':'👥'} ${esc(parentDisp(p)||(EN()?'Parent':'ผู้ปกครอง'))} ${p.isMe?`<span class="pill ok" style="font-size:11px">${EN()?'me':'ฉัน'}</span>`:''}</h3></div>
+      return `<div class="card"><div class="spread"><h3>${p.isMe?'👤':'👥'} ${esc(parentDisp(p)||(EN()?'Parent':'ผู้ปกครอง'))} ${p.isMe?`<span class="pill ok" style="font-size:12px">${EN()?'me':'ฉัน'}</span>`:''}</h3></div>
         <div class="ppic">
           ${pic?`<img class="ppic-img" src="${esc(pic)}" alt="" onclick="IMG_zoom('${esc(pic)}')"/>`:`<span class="ppic-none">${esc(initialEN(p.NameEN))}</span>`}
           <div class="ppic-side">
-            <span class="pill ${usingLine?'info':'ok'}" style="font-size:11px">${usingLine?('LINE '+(EN()?'picture':'โปรไฟล์')):(p.Photo?(EN()?'uploaded':'รูปที่อัปโหลด'):(EN()?'no picture':'ยังไม่มีรูป'))}</span>
+            <span class="pill ${usingLine?'info':'ok'}" style="font-size:12px">${usingLine?('LINE '+(EN()?'picture':'โปรไฟล์')):(p.Photo?(EN()?'uploaded':'รูปที่อัปโหลด'):(EN()?'no picture':'ยังไม่มีรูป'))}</span>
             <small class="muted" style="font-size:13px">${EN()?'Uses your LINE picture automatically. Upload one to replace it.':'ใช้รูปโปรไฟล์ LINE อัตโนมัติ · อัปโหลดรูปเพื่อใช้แทนได้'}</small>
             ${photoField(pre+'_PhotoUp',(EN()?'Upload a picture':'อัปโหลดรูป'),'',false)}
             ${p.Photo?`<button class="btn sm outline" onclick="P_useLinePic('${p.ParentID}',this)">↩︎ ${EN()?'Use my LINE picture':'ใช้รูป LINE แทน'}</button>`:''}
@@ -3438,7 +3438,7 @@
             ? (EN()?'filed by the school':'คุณครูบันทึก')
             : (EN()?'past — contact the school':'ผ่านมาแล้ว')}</small>`;
     const when = run
-      ? `${esc(ddmmyyyy(l._from||l.Date))} – ${esc(ddmmyyyy(l._to))} <span class="pill info" style="font-size:11px">${l._days} ${EN()?'days':'วัน'}</span>`
+      ? `${esc(ddmmyyyy(l._from||l.Date))} – ${esc(ddmmyyyy(l._to))} <span class="pill info" style="font-size:12px">${l._days} ${EN()?'days':'วัน'}</span>`
       : esc(ddmmyyyy(l.Date));
     return `<div class="list-item" style="align-items:center;gap:8px">
       <span style="flex:1;min-width:0">${when} · <b>${esc(stdLeaveDesc(l))}</b>${
@@ -3720,7 +3720,7 @@
       ${lapsed?`<p style="background:var(--bad-bg,#fdeaea);border-left:3px solid var(--bad);padding:8px;border-radius:6px;font-size:13px;margin:4px 0 6px">${EN()
         ? `<b>This policy expired on ${ddmmyyyy(p.expiry)} — the child is NOT covered right now.</b> The details below are kept so you can renew or query it.`
         : `<b>กรมธรรม์นี้หมดอายุเมื่อ ${ddmmyyyy(p.expiry)} — ขณะนี้ยังไม่มีความคุ้มครอง</b> · ข้อมูลด้านล่างเก็บไว้เพื่อใช้ต่ออายุหรือสอบถามเท่านั้น`}</p>`
-      :`<p class="muted" style="font-size:12.5px;margin:4px 0 6px">${EN()
+      :`<p class="muted" style="font-size:13px;margin:4px 0 6px">${EN()
         ? 'Entered by the school from the policy document. Use these details to make a claim.'
         : 'โรงเรียนกรอกจากหน้ากรมธรรม์ · ใช้ข้อมูลนี้ยื่นเบิกประกันหรือติดต่อบริษัทได้เอง'}</p>`}
       ${row(EN()?'Company':'บริษัทประกัน', p.company)}
@@ -3732,7 +3732,7 @@
       ${row(EN()?'Expires':'วันครบกำหนด', p.expiry?ddmmyyyy(p.expiry):'')}
       ${row(EN()?'Sum insured':'จำนวนเงินเอาประกันภัย', p.sum, true)}
       ${p.benefits?`<div style="margin-top:6px"><div class="muted" style="font-size:13px">${EN()?'Benefits / riders':'ผลประโยชน์ / สัญญาเพิ่มเติม'}</div>
-        <div style="font-size:13.5px;white-space:pre-wrap">${esc(p.benefits)}</div></div>`:row(EN()?'Benefits / riders':'ผลประโยชน์ / สัญญาเพิ่มเติม','')}
+        <div style="font-size:13px;white-space:pre-wrap">${esc(p.benefits)}</div></div>`:row(EN()?'Benefits / riders':'ผลประโยชน์ / สัญญาเพิ่มเติม','')}
       ${p.hotline?`<a class="btn sm outline block" style="margin-top:8px" href="tel:${esc(String(p.hotline).replace(/\D/g,''))}">📞 ${EN()?'Call the insurer':'โทรหาบริษัทประกัน'} ${esc(p.hotline)}</a>`:''}
       ${p.card?`<div style="margin-top:8px"><img src="${esc(p.card)}" alt="policy" style="max-width:100%;border-radius:8px;border:1px solid var(--line);cursor:zoom-in" onclick="ZOOM_IMG('${esc(p.card)}')"/></div>`:''}</div>`;
   }
@@ -3753,7 +3753,7 @@
           <br><small class="muted">${esc(t('ins2.filledBy'))}: ${esc(r.FilledBy||'')} · ${esc(r.FilledDate||'')}${
             r.UpdatedDate?`<br>${esc(t('ins2.updatedBy'))}: ${esc(r.UpdatedBy||'')} · ${esc(r.UpdatedDate)}`:''}</small></div>
         <div class="card"><small class="muted" style="display:block;margin-bottom:6px">${esc(t('ins2.review'))}</small>${insReviewHTML(r)}</div>
-        <div class="savedock"><button class="btn block outline" onclick="P_insurance('${sid}',1)">${esc(t('ins2.edit'))}</button></div>`;
+        <div class="savedock"><button class="btn outline block" onclick="P_insurance('${sid}',1)">${esc(t('ins2.edit'))}</button></div>`;
       window.scrollTo(0,0); return; }
     app.innerHTML=`${head}
       <div class="card" style="background:var(--surface-2)"><small class="muted">${esc(t('ins2.note'))}</small></div>
@@ -3783,7 +3783,7 @@
    * school is shut today, has no pick-up to be refused and does not need to be asked about GPS.
    */
   const geoHelpRow = () => `<div style="margin-top:8px;padding-top:8px;border-top:1px dashed var(--line);display:flex;align-items:center;gap:8px">
-      <span style="flex:1;min-width:0;font-size:12.5px;color:var(--ink-3)">📍 ${EN()?'Pick-up not working at the gate?':'อยู่หน้าโรงเรียนแล้วกดรับกลับไม่ได้?'}</span>
+      <span style="flex:1;min-width:0;font-size:13px;color:var(--ink-3)">📍 ${EN()?'Pick-up not working at the gate?':'อยู่หน้าโรงเรียนแล้วกดรับกลับไม่ได้?'}</span>
       <button class="btn sm outline" style="flex:0 0 auto" onclick="GEO_check(this)">${EN()?'Check':'ตรวจสอบ'}</button></div>`;
   /**
    * The pick-up history, folded, inside บันทึก.
@@ -4049,7 +4049,7 @@
   window.P_otQR=(ot)=>{ qrModalHTML({ title:'⏰ '+t('ot.title'),
       note:`${t('ot.late')} ${ot.lateMinutes} ${t('lbl.min')} · ${ot.hours} ${EN()?'hr':'ชม.'} × ${baht(MOCK.config.OTRatePerHour)} = `,
       amount:ot.amount, img:MOCK.config.QRCode_OT, imgName:'OT-'+ot.otId+'.png',
-      extra:`<button class="btn block outline" style="margin-top:8px" onclick="this.closest('.modal').remove();GO('payment')">${esc(t('ot.goPay'))}</button>` }); };
+      extra:`<button class="btn outline block" style="margin-top:8px" onclick="this.closest('.modal').remove();GO('payment')">${esc(t('ot.goPay'))}</button>` }); };
 
   // generic PromptPay QR modal with a Save-image button
   function qrModalHTML(o){ const qr=o.img||'';
@@ -4087,9 +4087,9 @@
                  : {cls:'bad', icon:'⚠', text:EN()?'not verified':'ตรวจไม่ผ่าน', why:code}; }
     return {cls:'info', icon:'', text:EN()?'not checked':'ยังไม่ตรวจ', why:''}; }
   function slipVerBadge(v){ const i=slipVerInfo(v);
-    return `<span class="pill ${i.cls}" style="font-size:11px"${i.why?` title="SlipOK ${esc(i.why)}"`:''}>${i.icon?i.icon+' ':''}${esc(i.text)}</span>`; }
-  function slipStatusPill(s){ const c={SUBMITTED:'wait',CONFIRMED:'ok',PARTIAL:'wait',REJECTED:'bad'}[s]||'info'; const lbl={SUBMITTED:EN()?'pending':'รอตรวจ',CONFIRMED:EN()?'confirmed':'ยืนยันแล้ว',REJECTED:EN()?'rejected':'ปฏิเสธ'}[s]||s; return `<span class="pill ${c}" style="font-size:11px">${esc(lbl)}</span>`; }
-  function slipThumb(url){ return url?`<img src="${esc(url)}" alt="slip" style="width:46px;height:46px;object-fit:cover;border-radius:6px;border:1px solid var(--line);cursor:zoom-in" onclick="ZOOM_IMG('${esc(url)}')" onerror="this.replaceWith(Object.assign(document.createElement('span'),{className:'pill info',textContent:'📎',style:'font-size:11px'}))"/>`:`<span class="pill info" style="font-size:13px">📎</span>`; }
+    return `<span class="pill ${i.cls}" style="font-size:12px"${i.why?` title="SlipOK ${esc(i.why)}"`:''}>${i.icon?i.icon+' ':''}${esc(i.text)}</span>`; }
+  function slipStatusPill(s){ const c={SUBMITTED:'wait',CONFIRMED:'ok',PARTIAL:'wait',REJECTED:'bad'}[s]||'info'; const lbl={SUBMITTED:EN()?'pending':'รอตรวจ',CONFIRMED:EN()?'confirmed':'ยืนยันแล้ว',REJECTED:EN()?'rejected':'ปฏิเสธ'}[s]||s; return `<span class="pill ${c}" style="font-size:12px">${esc(lbl)}</span>`; }
+  function slipThumb(url){ return url?`<img src="${esc(url)}" alt="slip" style="width:46px;height:46px;object-fit:cover;border-radius:6px;border:1px solid var(--line);cursor:zoom-in" onclick="ZOOM_IMG('${esc(url)}')" onerror="this.replaceWith(Object.assign(document.createElement('span'),{className:'pill info',textContent:'📎',style:'font-size:12px'}))"/>`:`<span class="pill info" style="font-size:13px">📎</span>`; }
   // Payments recorded by an Admin (cash, or a transfer already seen in the bank) have no image, so the
   // 📎 slip thumbnail read as "a slip that failed to load". They get a 💵 and their note instead.
   const isCashRow = s => String(s.Method||'')==='cash' || (!s.Url && String(s.Verified||'')==='MANUAL');
@@ -4121,7 +4121,7 @@
       // an empty row (no image at all) is a double-tap or a mistaken cash entry — the admin can bin it.
       // A row WITH a slip is evidence: reject it instead, which keeps the image and the trail.
       const del = canDelete && !s.Url ? `<button class="btn sm pink" onclick="A_delSlip('${esc(s.SlipID)}',this)" aria-label="${EN()?'Delete':'ลบ'}" title="${EN()?'Delete this empty entry':'ลบรายการที่ไม่มีสลิป'}">🗑️</button>` : '';
-      return `<div class="list-item" style="gap:8px;align-items:center">${cash?`<span class="pill ok" style="font-size:13px">💵</span>`:slipThumb(s.Url)}<span style="flex:1"><b>${baht(s.Amount)}</b> ${slipStatusPill(s.Status)} ${slipVerBadge(s.Verified)}${s.SlipGroup?` <span class="pill info" style="font-size:11px" title="${esc(s.SlipGroup)}">🔗 ${EN()?'combined':'สลิปรวมหลายคน'}</span>`:''}${cash&&s.TransRef?`<br><small class="muted">${esc(s.TransRef)}</small>`:''}${!cash&&s.TransRef?`<br><small class="muted">${EN()?'ref':'เลขอ้างอิง'} ${esc(s.TransRef)}</small>`:''}${s.Sender?`<br><small class="muted">${EN()?'from':'จาก'} ${esc(s.Sender)}</small>`:''}${s.Receiver?`<br><small class="muted">→ ${esc(s.Receiver)}</small>`:''}<br><small>${slipWhen(s)}</small></span>${del}</div>`;
+      return `<div class="list-item" style="gap:8px;align-items:center">${cash?`<span class="pill ok" style="font-size:13px">💵</span>`:slipThumb(s.Url)}<span style="flex:1"><b>${baht(s.Amount)}</b> ${slipStatusPill(s.Status)} ${slipVerBadge(s.Verified)}${s.SlipGroup?` <span class="pill info" style="font-size:12px" title="${esc(s.SlipGroup)}">🔗 ${EN()?'combined':'สลิปรวมหลายคน'}</span>`:''}${cash&&s.TransRef?`<br><small class="muted">${esc(s.TransRef)}</small>`:''}${!cash&&s.TransRef?`<br><small class="muted">${EN()?'ref':'เลขอ้างอิง'} ${esc(s.TransRef)}</small>`:''}${s.Sender?`<br><small class="muted">${EN()?'from':'จาก'} ${esc(s.Sender)}</small>`:''}${s.Receiver?`<br><small class="muted">→ ${esc(s.Receiver)}</small>`:''}<br><small>${slipWhen(s)}</small></span>${del}</div>`;
     }).join('')}</div>`; }
   window.A_delSlip=async(slipId,btn)=>{ if(!confirm(EN()?'Delete this empty payment entry? The balance is recalculated.':'ลบรายการรับชำระที่ไม่มีสลิปนี้? ระบบจะคำนวณยอดค้างใหม่'))return;
     const sid=window._FIN_SID;
@@ -4784,7 +4784,7 @@
            It is a record to look back at, not the answer to "how is my child doing now".
            Asked 2026-08-25, same reason as the vaccine card. */''}
       ${past.length?`<details class="card"><summary style="cursor:pointer;font-weight:700">📜 ${EN()?'Earlier results (previous age bands)':'ผลย้อนหลัง (ช่วงวัยก่อนหน้า)'}
-          <span class="pill info" style="font-size:11px">${past.length} ${EN()?'band(s)':'ช่วงวัย'}</span></summary>
+          <span class="pill info" style="font-size:12px">${past.length} ${EN()?'band(s)':'ช่วงวัย'}</span></summary>
         <div style="margin-top:8px">`+past.reverse().map(b=>`<div class="card" style="padding:8px"><h3 style="font-size:14px">${esc(ageBandLabel(b.label))}</h3>${b.items.map(i=>`<div class="list-item"><span><b>${EN()?'Item':'ข้อ'} ${i.itemNo}</b> <span class="pill info">${i.skill}</span> <small>${esc(EN()&&i.descriptionEN?i.descriptionEN:i.description)}</small>${DSPM_BY(i)}</span>${DSPM_PILL(i.result)}</div>`).join('')}</div>`).join('')+`</div></details>`:''}`;
   };
 
@@ -4795,7 +4795,7 @@
         <a class="btn block green" href="${esc(line)}" target="_blank">${esc(t('chat.openLine'))} →</a>
         <p class="muted" style="font-size:13px;margin-top:10px">${esc(t('chat.lineNote'))}</p></div>${verTag()}`;
   };
-  function bubble(c){ const me=c.SenderRole==='Parent'; return `<div style="display:flex;justify-content:${me?'flex-end':'flex-start'};margin:6px 0"><div style="max-width:80%;background:${me?'var(--blue-bg)':'var(--surface-3)'};padding:8px 12px;border-radius:12px"><div style="font-size:13px;color:var(--ink-3)">${esc(c.SenderName||c.SenderRole)}</div><div style="font-size:14px">${esc(c.Message)}</div><div class="muted" style="font-size:11px;text-align:right">${esc(c.Timestamp)}</div></div></div>`; }
+  function bubble(c){ const me=c.SenderRole==='Parent'; return `<div style="display:flex;justify-content:${me?'flex-end':'flex-start'};margin:6px 0"><div style="max-width:80%;background:${me?'var(--blue-bg)':'var(--surface-3)'};padding:8px 12px;border-radius:12px"><div style="font-size:13px;color:var(--ink-3)">${esc(c.SenderName||c.SenderRole)}</div><div style="font-size:14px">${esc(c.Message)}</div><div class="muted" style="font-size:12px;text-align:right">${esc(c.Timestamp)}</div></div></div>`; }
   window.P_send=async(sid)=>{ const v=$('#msg').value.trim(); if(!v)return; await api('addComment',{studentId:sid,parentId:USER.parentId,senderRole:'Parent',senderName:USER.nameEN,message:v}); SCREENS.Parent.chat(); };
 
   // ================= TEACHER =================
@@ -5133,7 +5133,7 @@
     p_absWatch.then(w=>{ if(!w) return;
       NAV_setBadge('class', w.watch);
       setHTML('#tabswatch', w.watch
-        ? `<div style="font-size:12.5px;color:var(--bad);font-weight:600;margin-top:4px">🔎 ${EN()
+        ? `<div style="font-size:13px;color:var(--bad);font-weight:600;margin-top:4px">🔎 ${EN()
             ? `${w.watch} child(ren) to follow up${w.ge5?` · ${w.ge5} away over 5 days`:''}`
             : `ต้องติดตาม ${w.watch} คน${w.ge5?` · ขาดเกิน 5 วัน ${w.ge5} คน`:''}`}</div>`
         : '');
@@ -5190,7 +5190,7 @@
         <span class="pill bad">${total}</span></div>
       ${secs.map(s=>{ const rows=s[2]||[]; if(!rows.length) return '';
         return `<div style="margin-top:10px"><div class="spread" style="margin-bottom:4px">
-            <b style="font-size:14px">${s[0]} ${esc(s[1])}</b><span class="pill wait" style="font-size:11px">${rows.length}</span></div>
+            <b style="font-size:14px">${s[0]} ${esc(s[1])}</b><span class="pill wait" style="font-size:12px">${rows.length}</span></div>
           ${s[3] ? rows.map(s[3]).join('') : injuryListHTML(rows)}</div>`; }).join('')}</div>`;
   }
   // Even-numbered months (Feb, Apr, … Dec) are weight+height measurement months — remind teachers once,
@@ -5248,7 +5248,7 @@
           <b>${esc(who || p.parentId)}</b>${p.nick ? ` <small class="muted">(${esc(p.nick)})</small>` : ''}
           ${/* whether the family can be reached IN THE APP at all — the question a head teacher
                actually has when a message goes unanswered. The LINE id itself stays server-side. */''}
-          ${p.linked ? '' : `<small class="pill" style="margin-left:4px;font-size:11px;background:var(--warn-bg);color:var(--warn)">${EN() ? 'not on LINE' : 'ยังไม่ผูก LINE'}</small>`}
+          ${p.linked ? '' : `<small class="pill" style="margin-left:4px;font-size:12px;background:var(--warn-bg);color:var(--warn)">${EN() ? 'not on LINE' : 'ยังไม่ผูก LINE'}</small>`}
           ${sub ? `<br><small class="muted">${esc(sub)}</small>` : ''}
           ${kids ? `<br><span style="display:inline-flex;flex-wrap:wrap;gap:4px;margin-top:4px">${kids}</span>` : ''}
         </div>
@@ -5298,7 +5298,7 @@
       <small class="muted">${esc(g.class||'')}</small>
       ${g.items.map(o=>{ const closed=o.status==='PAID'||o.status==='CANCELLED';
         return `<div class="list-item"><span>${esc(String(o.date).slice(0,10))} · ${esc(String(o.pickupTime||'').slice(0,5))} <small class="muted">(${EN()?'leave':'เลิก'} ${esc(o.planEnd||'-')})</small><br>
-          <b>${baht(o.amount)}</b> <span class="pill ${stPill(o.status)}" style="font-size:11px">${esc(stLbl(o.status))}</span>${o.submitted>0&&o.status!=='PAID'?` <small class="muted">(${EN()?'slip sent':'ส่งสลิปแล้ว'})</small>`:''}</span>
+          <b>${baht(o.amount)}</b> <span class="pill ${stPill(o.status)}" style="font-size:12px">${esc(stLbl(o.status))}</span>${o.submitted>0&&o.status!=='PAID'?` <small class="muted">(${EN()?'slip sent':'ส่งสลิปแล้ว'})</small>`:''}</span>
           ${closed?'':`<button class="btn sm" onclick="T_payOT('${esc(o.otId)}',${o.outstanding||o.amount})">📎 ${EN()?'Add slip':'แนบสลิป'}</button>`}</div>`; }).join('')}</div>`;
     modal(`<h3>⏰ ${EN()?'Student OT — follow-up':'OT นักเรียน — ติดตามชำระ'}</h3>
       <p class="muted" style="font-size:13px">${d.seeAll?(EN()?'All classes (head teacher).':'ทุกชั้นเรียน (หัวหน้าครู)'):(EN()?'Your class only.':'เฉพาะชั้นเรียนที่ดูแล')} ${EN()?'Total outstanding':'ยอดค้างรวม'} <b>${baht(d.totalOutstanding)}</b></p>
@@ -5391,7 +5391,7 @@
     const hrs = Math.floor(mins / 60), rem = mins % 60;
     const span = hrs ? `${hrs} ${EN()?'hr':'ชม.'}${rem?` ${rem} ${EN()?'min':'นาที'}`:''}` : `${mins} ${EN()?'min':'นาที'}`;
     const m = modal(`<h3>⏪ ${EN()?'You left before your end time':'ออกงานก่อนเวลา'}</h3>
-      <p style="background:var(--warn-bg,#fff4e5);border-left:3px solid var(--warn,#e8a33d);padding:8px;border-radius:6px;font-size:13.5px">
+      <p style="background:var(--warn-bg,#fff4e5);border-left:3px solid var(--warn,#e8a33d);padding:8px;border-radius:6px;font-size:13px">
         ${EN()
           ? `Clocked out at <b>${esc(r.time||'')}</b>, <b>${span}</b> before your end time (${esc(r.planOut||'')}). <b>Your check-out is saved.</b>`
           : `ลงเวลาออก <b>${esc(r.time||'')}</b> · ก่อนเวลาเลิกงาน (${esc(r.planOut||'')}) <b>${span}</b> · <b>ระบบบันทึกเวลาออกให้แล้ว</b>`}</p>
@@ -5404,11 +5404,11 @@
         <option value="ลาพักร้อน">${EN()?'Holiday leave (ลาพักร้อน)':'ลาพักร้อน'}</option></select></label>
       <label class="field"><span>${EN()?'Reason':'เหตุผล'}</span><textarea id="elReason" placeholder="${EN()?'e.g. hospital appointment':'เช่น มีนัดหมอ'}"></textarea></label>
       ${/* 💰 said before they sign it, not after it reaches their payslip */''}
-      <p class="muted" style="font-size:12.5px">💰 ${EN()
+      <p class="muted" style="font-size:13px">💰 ${EN()
         ? 'Counts as <b>half a day (0.5)</b> off your entitlement. Like any approved leave it affects this month’s attendance allowance — the office reviews that when payroll is run.'
         : 'หักสิทธิลา <b>ครึ่งวัน (0.5)</b> · และเหมือนใบลาที่อนุมัติทุกใบ จะมีผลกับเบี้ยขยันของเดือนนี้ ซึ่งทางสำนักงานจะพิจารณาอีกครั้งตอนทำเงินเดือน'}</p>
       <button class="btn block" onclick="T_earlyLeaveDo(this)">${EN()?'Send the leave request':'ส่งคำขอลา'}</button>
-      <button class="btn block outline" style="margin-top:8px" onclick="this.closest('.modal').remove();GO('home')">${EN()
+      <button class="btn outline block" style="margin-top:8px" onclick="this.closest('.modal').remove();GO('home')">${EN()
         ? 'No, just the check-out':'ไม่ต้อง · บันทึกเวลาออกอย่างเดียว'}</button>`);
     /* a stray tap on the backdrop must not dismiss this — the teacher has a decision to make and
      * losing the dialog means losing the only moment the app will ever offer it */
@@ -5610,10 +5610,10 @@
     const close="this.closest('.modal').remove();";
     modal(`<h3>👶 ${esc(dispNick(s)||sid)} ${nmSub(s)?`<small class="muted" style="font-size:13px">${esc(nmSub(s))}</small>`:''}</h3>
       <button class="btn block" onclick="${close}STU_profile('${esc(sid)}')">📋 ${EN()?'Student record':'ประวัตินักเรียน'}</button>
-      <button class="btn block outline" style="margin-top:8px" onclick="${close}T_studentLeave('${esc(sid)}','${esc(dispNick(s)||sid)}')">🏖️ ${EN()?'File leave for this student':'แจ้งลาให้นักเรียน'}</button>
-      <button class="btn block outline" style="margin-top:8px" onclick="${close}EDIT_ATT('${esc(sid)}')">🕑 ${EN()?'Correct check-in / pick-up':'แก้ไขเวลารับ-ส่ง'}</button>
-      <button class="btn block outline" style="margin-top:8px" onclick="${close}T_journalHistory('${esc(sid)}')">📅 ${EN()?'Past daily reports':'ดูบันทึกย้อนหลัง'}</button>
-      <button class="btn block outline" style="margin-top:12px" onclick="${close}">${esc(t('c.close'))}</button>`); };
+      <button class="btn outline block" style="margin-top:8px" onclick="${close}T_studentLeave('${esc(sid)}','${esc(dispNick(s)||sid)}')">🏖️ ${EN()?'File leave for this student':'แจ้งลาให้นักเรียน'}</button>
+      <button class="btn outline block" style="margin-top:8px" onclick="${close}EDIT_ATT('${esc(sid)}')">🕑 ${EN()?'Correct check-in / pick-up':'แก้ไขเวลารับ-ส่ง'}</button>
+      <button class="btn outline block" style="margin-top:8px" onclick="${close}T_journalHistory('${esc(sid)}')">📅 ${EN()?'Past daily reports':'ดูบันทึกย้อนหลัง'}</button>
+      <button class="btn outline block" style="margin-top:12px" onclick="${close}">${esc(t('c.close'))}</button>`); };
   // who is due a DSPM assessment / whose birthday it is, keyed by student — filled by any screen
   // that fetches studentAlerts, read by the row renderers
   let DSPM_DUE={};
@@ -6038,7 +6038,7 @@
       <div class="jsec"><h4>🌟 ${esc(jt('Skills'))}</h4><div class="choice">${seg('Skills',SKILLS,true)}</div></div>
       <div class="jsec"><h4>⭐ ${esc(jt('Highlight'))}</h4><div class="row"><textarea id="jHi" placeholder="เหตุการณ์น่าประทับใจ... (กดไมค์เพื่อพูด)" style="flex:1">${esc(jv.highlight)}</textarea><button class="micbtn" onclick="J_mic('jHi',this)" aria-label="${EN()?"Voice input":"พูดเพื่อกรอกข้อความ"}" title="${EN()?"Voice input":"พูดเพื่อกรอกข้อความ"}">🎤</button></div>
         ${jPhotoFields(jv)}</div>
-      <div class="savedock"><button class="btn block outline" onclick="T_saveJournal('${sid}',false)">${esc(t('jr.saveDraft'))}</button>
+      <div class="savedock"><button class="btn outline block" onclick="T_saveJournal('${sid}',false)">${esc(t('jr.saveDraft'))}</button>
       <button class="btn block green" style="margin-top:8px" onclick="T_saveJournal('${sid}',true)">${esc(t('jr.submit'))}</button></div>`;
     if(j) J_prefill(j);
   };
@@ -6397,7 +6397,7 @@
       ${injFormHTML('',{students:cl.students, classes:cl.allClasses})}
       <button class="btn block pink" onclick="T_injurySave()">${esc(t('inj.save'))}</button>
       <details class="card" style="margin-top:12px">
-        <summary style="cursor:pointer;font-weight:600">🗒️ ${esc(t('inj.recent'))} <span class="pill info" style="font-size:11px">${(recent||[]).length}</span></summary>
+        <summary style="cursor:pointer;font-weight:600">🗒️ ${esc(t('inj.recent'))} <span class="pill info" style="font-size:12px">${(recent||[]).length}</span></summary>
         <div id="injRecent" style="margin-top:6px">${injuryListHTML(recent)}</div></details>`;
     // the child the dropdown opens on is a CHOSEN child too — fill their age, sex and room now,
     // rather than only when the teacher happens to change the selection
@@ -6420,7 +6420,7 @@
   const injStatus = r => String((r&&r.Status)||'PENDING_LEADER').toUpperCase();
   function injStatusPill(r){ const s=injStatus(r);
     const cls = s==='APPROVED'?'ok' : s==='REJECTED'?'bad' : 'wait';
-    return `<span class="pill ${cls}" style="font-size:11px">${esc((INJ_STATUS[s]||INJ_STATUS.PENDING_LEADER)())}</span>`;
+    return `<span class="pill ${cls}" style="font-size:12px">${esc((INJ_STATUS[s]||INJ_STATUS.PENDING_LEADER)())}</span>`;
   }
   /* WHEN IT HAPPENED, AND WHEN IT WAS FILED — two different facts, and the list only showed one.
    * Asked 2026-09-03: two reports arrived at 13:10 and 13:13 and read "10:25" and "16:10", and there
@@ -6495,7 +6495,7 @@
     const half = (icon,title,rows,total) => `<div class="card" style="padding:8px;min-width:0">
       <h3 style="font-size:14px;margin:0 0 2px">${icon} ${esc(title)}</h3>
       <div style="${rows.length>5?'max-height:168px;overflow-y:auto;':''}">${bar(rows,total)||`<small class="muted">-</small>`}</div>
-      ${rows.length>5?`<small class="muted" style="font-size:11px">${EN()?`${rows.length} kinds — scroll`:`${rows.length} รายการ — เลื่อนดูได้`}</small>`:''}</div>`;
+      ${rows.length>5?`<small class="muted" style="font-size:12px">${EN()?`${rows.length} kinds — scroll`:`${rows.length} รายการ — เลื่อนดูได้`}</small>`:''}</div>`;
     const stat = (icon,n,label,col) => `<div class="card" style="padding:8px;display:flex;align-items:center;gap:8px;min-width:0">
       <span style="font-size:22px">${icon}</span>
       <span style="min-width:0"><b style="font-size:22px;line-height:1;color:${col}">${n}</b>
@@ -6849,7 +6849,7 @@
       <div class="seg" style="margin-bottom:10px">
         ${tab('leave','📩 '+(EN()?'Leave':'การลางาน'))}
         ${tab('time','⏰ '+(EN()?'Time':'ขอลงเวลา'))}
-        ${isLeader?tab('approve','⭐ '+(EN()?'Approvals':'รออนุมัติ')+(pend?` <span class="pill bad" style="font-size:11px">${pend}</span>`:'')):''}
+        ${isLeader?tab('approve','⭐ '+(EN()?'Approvals':'รออนุมัติ')+(pend?` <span class="pill bad" style="font-size:12px">${pend}</span>`:'')):''}
       </div>
       ${TLV_TAB==='leave'?TLV_leaveTab(d):TLV_TAB==='time'?TLV_timeTab(d):TLV_approveTab(d)}`;
     if(window.translateTree) translateTree(app);
@@ -6858,7 +6858,7 @@
    * teacher's own history and a head teacher's team history cannot drift into two behaviours. */
   function TLV_fold(id, title, month, onMonth, body, count){
     return `<details class="card" id="${id}"${TLV_OPEN[id]?' open':''} ontoggle="TLV_fold_(this)">
-      <summary style="cursor:pointer;font-weight:600">${title}${count!=null?` <span class="pill info" style="font-size:11px">${count}</span>`:''}</summary>
+      <summary style="cursor:pointer;font-weight:600">${title}${count!=null?` <span class="pill info" style="font-size:12px">${count}</span>`:''}</summary>
       <label class="field" style="margin-top:8px"><span>${esc(t('c.month'))}</span>
         <input type="month" value="${esc(month)}" onclick="event.stopPropagation()" onchange="${onMonth}"/></label>
       <div>${body}</div></details>`;
@@ -6923,7 +6923,7 @@
     const m=tlvMonth();
     const none=`<small class="muted">${EN()?'Nothing waiting':'ไม่มีรายการรออนุมัติ'}</small>`;
     const sec=(icon,title,rows,html,foldId,foldTitle)=>`<div class="card">
-        <div class="spread"><h3 style="margin:0">${icon} ${esc(title)}</h3>${rows.length?`<span class="pill bad">${rows.length}</span>`:`<span class="pill ok" style="font-size:11px">✓</span>`}</div>
+        <div class="spread"><h3 style="margin:0">${icon} ${esc(title)}</h3>${rows.length?`<span class="pill bad">${rows.length}</span>`:`<span class="pill ok" style="font-size:12px">✓</span>`}</div>
         <div style="margin-top:6px">${rows.length?html:none}</div>
         ${TLV_fold(foldId, '📜 '+foldTitle, m, 'TLV_teamMonth(this.value)',
           `<div id="${foldId}Body" class="muted" style="font-size:13px">${EN()?'Loading…':'กำลังโหลด…'}</div>`)}</div>`;
@@ -7114,11 +7114,11 @@
         const _i=String(a.CheckIn||'').slice(0,5), _o=String(a.CheckOut||'').slice(0,5);
         const when=a.Status==='LEAVE' ? (EN()?'Leave':'ลา')+' ('+(a.Reason||'')+')'
           : _i ? (_i+'–'+_o) : (EN()?'not clocked in':'ยังไม่ลงเวลา');
-        return `<div class="att"><span class="dot-s ${cls}"></span> ${esc(fullName(a.StaffID))} — ${esc(when)}${a.Late?` <span class="pill bad" style="font-size:11px">${esc(t('lbl.late'))} ${a.Late}</span>`:''}</span></div>`;}).join('')||`<small class="muted">${esc(t('c.noItems'))}</small>`}
+        return `<div class="att"><span class="dot-s ${cls}"></span> ${esc(fullName(a.StaffID))} — ${esc(when)}${a.Late?` <span class="pill bad" style="font-size:12px">${esc(t('lbl.late'))} ${a.Late}</span>`:''}</span></div>`;}).join('')||`<small class="muted">${esc(t('c.noItems'))}</small>`}
         <!-- Approved leave was printed in full underneath the summary every time. It is a "who do I
              need to cover for" reference, not something to read daily — folded shut, with the count
              on the summary line so you can see whether it is worth opening. -->
-        <details style="margin-top:8px"><summary style="cursor:pointer;font-weight:700;font-size:13px">${EN()?'Approved leave (for coverage)':'การลาที่อนุมัติแล้ว (วางแผนสับเปลี่ยน)'} <span class="pill ${d.leavesToday.length?'wait':'ok'}" style="font-size:11px">${d.leavesToday.length}</span></summary>
+        <details style="margin-top:8px"><summary style="cursor:pointer;font-weight:700;font-size:13px">${EN()?'Approved leave (for coverage)':'การลาที่อนุมัติแล้ว (วางแผนสับเปลี่ยน)'} <span class="pill ${d.leavesToday.length?'wait':'ok'}" style="font-size:12px">${d.leavesToday.length}</span></summary>
           <div style="margin-top:6px">${d.leavesToday.map(l=>`<div class="list-item"><span>${esc(fullName(l.StaffID))} · ${esc(tLeaveType(l.Type))}</span><span class="muted">${esc(l.StartDate)}→${esc(l.EndDate)}</span></div>`).join('')||`<small class="muted">${esc(t('c.noItems'))}</small>`}</div></details></div>`
         :`<div class="card"><h3>⏱️ ${EN()?'My time today':'เวลาของฉันวันนี้'} (${esc(todayStr())})</h3>
           ${(d.attendance||[]).length?(d.attendance||[]).map(a=>{ const _i=String(a.CheckIn||'').slice(0,5), _o=String(a.CheckOut||'').slice(0,5);
@@ -7163,7 +7163,7 @@
       const total=hol.reduce((a,o)=>a+(Number(o.Amount)||0),0);
       // its own card now: it used to sit inside the daily-summary card, which a plain teacher no
       // longer has (their own OT วันหยุด is theirs, and must not disappear with somebody else's day)
-      setHTML('#myHolOT', `<details class="card"><summary style="cursor:pointer;font-weight:700;font-size:13px">🎉 ${EN()?'My holiday OT':'OT วันหยุดของฉัน'} <span class="pill ok" style="font-size:11px">${hol.length}</span> <span class="muted" style="font-weight:400">${esc(baht(total))}</span></summary>
+      setHTML('#myHolOT', `<details class="card"><summary style="cursor:pointer;font-weight:700;font-size:13px">🎉 ${EN()?'My holiday OT':'OT วันหยุดของฉัน'} <span class="pill ok" style="font-size:12px">${hol.length}</span> <span class="muted" style="font-weight:400">${esc(baht(total))}</span></summary>
         <div style="margin-top:6px">${hol.map(o=>`<div class="list-item" style="align-items:flex-start"><span style="flex:1;min-width:0"><b>${esc(ddmmyyyy(o.Date))}</b>${o.Note?`<br><small class="muted">${esc(o.Note)}</small>`:''}</span><b style="color:var(--ok);white-space:nowrap">${esc(baht(o.Amount))}</b></div>`).join('')}
         <small class="muted">${EN()?'Paid on its own line of your payslip.':'จ่ายเป็นบรรทัดแยกในสลิปเงินเดือน'}</small></div></details>`);
     }).catch(()=>{});
@@ -7258,7 +7258,7 @@
         : `<span class="pill ${d.status==='ABSENT'?'bad':d.status==='LEAVE'?'info':'wait'}">${esc((MH_LABEL[d.status]||MH_LABEL.FUTURE)())}${d.leaveType?' · '+esc(d.leaveType):''}${d.holiday?' · '+esc(d.holiday):''}</span>`;
       // a Saturday somebody was PAID to work is not a blank row (22/08/26) — the day says so whether
       // or not there is a punch on it
-      const hot=d.holidayOT?`<br><span class="pill ok" style="font-size:11px">🎉 OT ${EN()?'holiday':'วันหยุด'} ${esc(baht(d.holidayOT))}</span>`:'';
+      const hot=d.holidayOT?`<br><span class="pill ok" style="font-size:12px">🎉 OT ${EN()?'holiday':'วันหยุด'} ${esc(baht(d.holidayOT))}</span>`:'';
       return `<div class="list-item"><span>${esc(ddmmyyyy(d.date))}${d.bigCleaning?' '+BC_ICON:''}${d.manual?' <small class="muted">✍️</small>':''}${d.holidayOTNote?`<br><small class="muted">${esc(d.holidayOTNote)}</small>`:''}</span><span style="font-size:13px;text-align:right">${right}${hot}</span></div>`;
     }).join('') || `<small class="muted">${esc(t('c.noItems'))}</small>`));
   };
@@ -7394,7 +7394,7 @@
         ${/* the national id is not locked for policy reasons — it is the USERNAME. Said plainly, or
              it looks like the one arbitrary lock on the list. */''}
         ${ro(EN()?'National ID (your username)':'เลขบัตรประชาชน (ใช้เป็นชื่อผู้ใช้)',s.NationalID)}
-        <p class="muted" style="font-size:12.5px;margin:6px 0 0">${EN()
+        <p class="muted" style="font-size:13px;margin:6px 0 0">${EN()
           ? 'Salary and bank details are not shown here at all — see your payslip.'
           : 'เงินเดือนและบัญชีธนาคารไม่แสดงในหน้านี้ · ดูได้ที่สลิปเงินเดือน'}</p></div>
       ${googleLinkCard(s.Email||'', !!s.GoogleLinked)}
@@ -7781,9 +7781,9 @@
         const h = Math.max(4, Math.round(m.collected / max * 62));
         const cur = m.month === monthStr();
         return `<div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:3px">
-          <small class="muted" style="font-size:10.5px">${esc(baht(m.collected))}</small>
+          <small class="muted" style="font-size:12px">${esc(baht(m.collected))}</small>
           <div style="width:70%;height:${h}px;border-radius:4px 4px 0 0;background:${cur ? 'var(--blue)' : 'var(--line-strong)'}"></div>
-          <small class="muted" style="font-size:11px">${esc(monthNameYear(m.month).split(' ')[0])}</small></div>`; };
+          <small class="muted" style="font-size:12px">${esc(monthNameYear(m.month).split(' ')[0])}</small></div>`; };
       const pctRow = (label, v) => `<div style="margin-top:6px"><div class="spread" style="font-size:13px"><span class="muted">${esc(label)}</span><b style="color:${pctColor(v)}">${v}%</b></div>
         <div style="height:5px;background:var(--line);border-radius:3px;overflow:hidden;margin-top:2px"><div style="height:100%;width:${v}%;background:${pctColor(v)}"></div></div></div>`;
 
@@ -7795,7 +7795,7 @@
         <div style="display:flex;align-items:flex-end;gap:8px;height:92px;padding:0 4px">${tr.map(bar).join('')}</div>
         ${/* 🔴 เงินเดือน ผอ. ไม่ได้นับใน "รายจ่ายรวม" (มติ ผอ. 2026-09-30) — เขียนไว้บนหน้าจอ
              ไม่ใช่ซ่อนไว้ในโค้ด ไม่งั้นตัวเลขนี้จะถูกอ่านผิดโดยคนที่ไม่เคยรู้เรื่องนั้น */''}
-        <small class="muted" style="display:block;margin-top:6px;font-size:11.5px">${EN() ? 'Expenses exclude the director’s own salary, by the school’s decision.' : 'รายจ่ายไม่รวมเงินเดือนของ ผอ. ตามมติของโรงเรียน'}</small>
+        <small class="muted" style="display:block;margin-top:6px;font-size:12px">${EN() ? 'Expenses exclude the director’s own salary, by the school’s decision.' : 'รายจ่ายไม่รวมเงินเดือนของ ผอ. ตามมติของโรงเรียน'}</small>
         <div style="margin-top:10px;padding-top:8px;border-top:1px solid var(--line)">
           <b style="font-size:13px">${EN() ? 'Today’s progress' : 'ความคืบหน้าวันนี้'}</b>
           ${_closedStd ? `<div class="muted" style="font-size:13px;margin-top:4px">${EN() ? 'School closed today' : 'วันนี้โรงเรียนหยุด'}</div>` : `
@@ -7934,14 +7934,14 @@
     const when=a=>{ const s=a.StartDate?ddmmyyyy(a.StartDate)+(a.StartTime?' '+a.StartTime:''):'';
       const e=a.EndDate?ddmmyyyy(a.EndDate)+(a.EndTime?' '+a.EndTime:''):'';
       return e?`${s} → ${e}`:(s?`${s} → ${EN()?'no end':'ไม่มีวันสิ้นสุด'}`:'-'); };
-    const phasePill=a=>({live:`<span class="pill ok" style="font-size:11px">▶️ ${EN()?'showing':'กำลังแสดง'}</span>`,
-      soon:`<span class="pill wait" style="font-size:11px">🕘 ${EN()?'scheduled':'รอเวลา'}</span>`,
-      ended:`<span class="pill" style="font-size:11px;background:var(--surface-3);color:var(--ink-3)">🔕 ${EN()?'ended':'จบแล้ว'}</span>`}[String(a.Phase||'live')]||'');
+    const phasePill=a=>({live:`<span class="pill ok" style="font-size:12px">▶️ ${EN()?'showing':'กำลังแสดง'}</span>`,
+      soon:`<span class="pill wait" style="font-size:12px">🕘 ${EN()?'scheduled':'รอเวลา'}</span>`,
+      ended:`<span class="pill" style="font-size:12px;background:var(--surface-3);color:var(--ink-3)">🔕 ${EN()?'ended':'จบแล้ว'}</span>`}[String(a.Phase||'live')]||'');
     const rows=groups[ANN_TAB]||[];
     el.innerHTML=rows.length?`<div style="max-height:46vh;overflow:auto">${rows.map(a=>{
       const ti=EN()?(a.TitleEN||a.Title):(a.Title||a.TitleEN);
       return `<div class="list-item" style="align-items:flex-start"><div style="flex:1;min-width:0">
-        <b>${esc(ti)}</b> ${phasePill(a)}${a.Popup?` <span class="pill info" style="font-size:11px">Pop-up</span>`:''}${Number(a.Priority||0)>=2?` <span class="pill" style="font-size:11px;background:var(--warn-bg);color:var(--warn)">⭐ ${esc(t('ann.pri.high'))}</span>`:''}
+        <b>${esc(ti)}</b> ${phasePill(a)}${a.Popup?` <span class="pill info" style="font-size:12px">Pop-up</span>`:''}${Number(a.Priority||0)>=2?` <span class="pill" style="font-size:12px;background:var(--warn-bg);color:var(--warn)">⭐ ${esc(t('ann.pri.high'))}</span>`:''}
         <br><small class="muted">${esc(when(a))}</small></div>
         <span class="row" style="flex:0 0 auto"><button class="btn sm outline" onclick="A_previewAnn('${a.AnnID}')" aria-label="${EN()?"Preview":"ดูตัวอย่าง"}" title="${EN()?"Preview as a parent sees it":"ดูตัวอย่างแบบที่ผู้ปกครองเห็น"}">👁️</button><button class="btn sm outline" onclick="A_editAnn('${a.AnnID}')" aria-label="${EN()?"Edit":"แก้ไข"}" title="${EN()?"Edit":"แก้ไข"}">✏️</button><button class="btn sm pink" onclick="A_delAnn('${a.AnnID}')" aria-label="${EN()?"Delete":"ลบ"}" title="${EN()?"Delete":"ลบ"}">🗑️</button></span></div>`;
       }).join('')}</div>`
@@ -7988,7 +7988,7 @@
         ? 'Shown in the language you are reading now. Switch language and preview again to check the other one.'
         : '💡 แสดงด้วยภาษาที่ท่านกำลังใช้อยู่ · สลับภาษาแล้วกดดูอีกครั้งเพื่อตรวจอีกภาษาหนึ่ง'}</p>
       <button class="btn sm block" onclick="this.closest('.modal').remove();A_editAnn('${esc(annId)}')">✏️ ${esc(t('ann.edit'))}</button>
-      <button class="btn sm ghost block" onclick="this.closest('.modal').remove()">${esc(t('c.close'))}</button>`);
+      <button class="btn outline block" onclick="this.closest('.modal').remove()">${esc(t('c.close'))}</button>`);
   };
 
   window.A_addAnn=(annId)=>{ const a=annId?findAnn(annId):{};
@@ -8119,7 +8119,10 @@
      * question is always "from when", and the answer decides whether the days above it are right. */
     const _d = v => v ? ddmmyyyy(v).replace(/ \d{4}$/,'') : '';
     const smTag = s => {
-      if(s.exemptCheckin) return ` <span class="pill" style="background:#eef2ff;color:#3449a8">🪪 ${EN()?'no clock-in':'ไม่ต้องลงเวลา'}</span>`;
+      /* `.pill info` — the ONE pill in the app that was hand-coloured (#eef2ff / #3449a8). Those two
+       * were an approximation of --blue-bg / --blue-d, which .pill.info already is; written as
+       * literals it was the only badge in the app that stayed light-blue-on-navy in dark mode. */
+      if(s.exemptCheckin) return ` <span class="pill info">🪪 ${EN()?'no clock-in':'ไม่ต้องลงเวลา'}</span>`;
       if(s.paused || s.pausedInRange){
         const f = _d(s.pauseFrom), t = _d(s.pauseTo);
         return ` <span class="pill wait">⏸️ ${EN()?'on break':'ลาชั่วคราว'}${f?(EN()?' from '+f:' ตั้งแต่ '+f):''}${t?(EN()?' to '+t:' ถึง '+t):''}</span>`;
@@ -8227,7 +8230,7 @@
         <div class="muted" style="font-size:13px;margin:2px 0 6px">${EN()?'present':'มาเรียน'} ${c.present} · ${EN()?'absent':'ขาด'} ${c.absent} · ${EN()?'sick':'ลาป่วย'} ${c.sick} · ${EN()?'personal':'ลากิจ'} ${c.personal}
           ${c.watch?` · <span style="color:var(--bad);font-weight:600">${EN()?'to follow up':'ต้องติดตาม'} ${c.watch}</span>`:''}</div>
         ${sortPeopleD(c.students).map(s=>`<div class="list-item" style="align-items:flex-start${s.paused?';opacity:.7':''}">
-          <span style="flex:1"><b>${esc(dnick(s))}</b>${s.paused?` <span class="pill info" style="font-size:11px">${EN()?'on leave':'ลาชั่วคราว'}</span>`:''}${s.notStarted?` <span class="pill info" style="font-size:11px">${EN()?'starts':'เริ่ม'} ${esc(ddmmyyyy(s.startDate))}</span>`:''}
+          <span style="flex:1"><b>${esc(dnick(s))}</b>${s.paused?` <span class="pill info" style="font-size:12px">${EN()?'on leave':'ลาชั่วคราว'}</span>`:''}${s.notStarted?` <span class="pill info" style="font-size:12px">${EN()?'starts':'เริ่ม'} ${esc(ddmmyyyy(s.startDate))}</span>`:''}
             <br><small class="muted">${EN()?'present':'มา'} ${s.present} · ${EN()?'absent':'ขาด'} ${s.absent} · ${EN()?'sick':'ป่วย'} ${s.sick} · ${EN()?'personal':'กิจ'} ${s.personal}${
               /* A SHORT MONTH MUST READ AS A LATE START, NOT AS A GOOD RECORD. Once the days before
                  a child's first day stopped counting as absences, "มา 2 · ขาด 0" and "มา 18 · ขาด 0"
@@ -8372,7 +8375,7 @@
       <button class="btn sm outline block" onclick="document.getElementById('stIn').value='';document.getElementById('stOut').value=''">🚫 ${EN() ? 'Clear the whole day (clocked in by mistake)' : 'ล้างทั้งวัน (กดลงเวลาผิด)'}</button>
       <label class="field" style="margin-top:6px"><span>${EN() ? 'Reason (required — kept in the log)' : 'เหตุผล (จำเป็น · บันทึกไว้ในประวัติ)'}</span>
         <input id="stWhy" placeholder="${EN() ? 'e.g. forgot to clock out, left at 17:00' : 'เช่น ลืมลงเวลาออก กลับจริง 17:00'}"/></label>
-      <p class="muted" style="font-size:12.5px">🔔 ${EN() ? 'The person is notified of the change, with the old and new times.' : 'ระบบจะแจ้งเจ้าตัวทุกครั้ง พร้อมบอกเวลาเดิมและเวลาใหม่'}</p>
+      <p class="muted" style="font-size:13px">🔔 ${EN() ? 'The person is notified of the change, with the old and new times.' : 'ระบบจะแจ้งเจ้าตัวทุกครั้ง พร้อมบอกเวลาเดิมและเวลาใหม่'}</p>
       <button class="btn block" onclick="A_editStaffTimeSave('${esc(sid)}','${esc(date)}',this)">${esc(t('c.save'))}</button>
       <button class="btn outline block" style="margin-top:8px" onclick="this.closest('.modal').remove()">${esc(t('c.close'))}</button>`);
   };
@@ -8447,7 +8450,7 @@
     { const _ot = await p_hot; window._LV_HOT = _ot ? _ot.filter(isLiveHolOT) : (window._LV_HOT||[]); }
     // pending teacher-leave count → badge on the tab so it's visible at a glance
     let _lvPend=0; { const _al = await p_all; if(_al){ window._LV_ALL=_al; _lvPend=_al.filter(l=>String(l.Status).indexOf('PENDING')===0).length; } }
-    const mainSeg=`<div class="seg" style="margin-bottom:10px"><button class="${LV_MAIN==='staff'?'active':''}" onclick="A_lvMain('staff')">👩‍🏫 ${EN()?'Teachers':'คุณครู'}${_lvPend?` <span class="pill bad" style="font-size:11px">${_lvPend}</span>`:''}</button><button class="${LV_MAIN==='student'?'active':''}" onclick="A_lvMain('student')">👶 ${EN()?'Students':'นักเรียน'}</button></div>`;
+    const mainSeg=`<div class="seg" style="margin-bottom:10px"><button class="${LV_MAIN==='staff'?'active':''}" onclick="A_lvMain('staff')">👩‍🏫 ${EN()?'Teachers':'คุณครู'}${_lvPend?` <span class="pill bad" style="font-size:12px">${_lvPend}</span>`:''}</button><button class="${LV_MAIN==='student'?'active':''}" onclick="A_lvMain('student')">👶 ${EN()?'Students':'นักเรียน'}</button></div>`;
     if(_stu){
       window._SLV_ALL=(await p_slv)||[];
       /* THE WAIVED DAYS, ON THE CALENDAR. Asked 2026-09-25 "เพื่อการตรวจสอบ" — a waiver is a
@@ -8658,7 +8661,7 @@
     const isToday = d.slice(5)===today.slice(5);
     // the whole date, month as a word — "11-07" was a date only to somebody who already knew which
     // half was the month (asked 2026-08-31). The long form stays on hover.
-    return `<small class="pill ${isToday?'ok':''}" style="font-size:11px;margin-left:4px" title="${esc(fullDate(d))}">${
+    return `<small class="pill ${isToday?'ok':''}" style="font-size:12px;margin-left:4px" title="${esc(fullDate(d))}">${
       isToday?'🎉':'🎂'} ${esc(dobDate(d))}</small>`; }
   /**
    * Who is due a DSPM assessment. The reminder is the ONLY thing that makes a bi-monthly assessment
@@ -8678,14 +8681,14 @@
   const ageMonthLabel = m => { m=Number(m)||0; const y=Math.floor(m/12), r=m%12;
     return EN() ? `${y}y ${r}m` : `${y} ปี ${r} เดือน`; };
   /** The band a child is due, and how far through it they are. Small enough to sit after a name. */
-  const dspmDueBadge = k => `<span class="pill warn" style="font-size:11px" title="${esc((EN()?'DSPM ':'ประเมิน DSPM ')+(k.ageLabel||k.band))}">📝 ${esc(k.band)} ${EN()?'mo':'เดือน'}${k.done?` · ${k.done}/${k.total}`:''}</span>`;
+  const dspmDueBadge = k => `<span class="pill warn" style="font-size:12px" title="${esc((EN()?'DSPM ':'ประเมิน DSPM ')+(k.ageLabel||k.band))}">📝 ${esc(k.band)} ${EN()?'mo':'เดือน'}${k.done?` · ${k.done}/${k.total}`:''}</span>`;
   window.A_slvDay=(ds)=>{ const items=(window._SLV_ALL||[]).filter(l=>ymd(l.Date)===ds);
     const byClass={}; items.forEach(l=>{ const c=l.class||(EN()?'(no class)':'(ไม่ระบุชั้น)'); (byClass[c]=byClass[c]||[]).push(l); });
     const classes=Object.keys(byClass).sort();
     modal(`<h3>🗓️ ${EN()?'Absent on':'ขาดเรียนวันที่'} ${esc(ddmmyyyy(ds))}</h3>
       <p class="muted" style="font-size:13px">${EN()?'Total':'รวม'} <b>${items.length}</b> ${EN()?'across':'ใน'} ${classes.length} ${EN()?'class(es)':'ชั้นเรียน'}</p>
       <div style="max-height:60vh;overflow:auto">${classes.length?classes.map(c=>`<div class="card" style="padding:8px"><div class="spread"><b>🏫 ${esc(c)}</b><span class="pill bad">${byClass[c].length} ${EN()?'absent':'ขาด'}</span></div>
-        ${byClass[c].map(l=>`<div class="list-item"><span>${esc((EN()?(l.nickEN||l.nick||l.nameEN):(l.nick||l.name))||l.StudentID)} ${l.Type?`<span class="pill info" style="font-size:11px">${esc(l.Type)}</span>`:''}</span><small class="muted">${esc(l.Reason||'')}</small></div>`).join('')}</div>`).join(''):`<div class="card muted">${EN()?'None':'ไม่มี'}</div>`}</div>
+        ${byClass[c].map(l=>`<div class="list-item"><span>${esc((EN()?(l.nickEN||l.nick||l.nameEN):(l.nick||l.name))||l.StudentID)} ${l.Type?`<span class="pill info" style="font-size:12px">${esc(l.Type)}</span>`:''}</span><small class="muted">${esc(l.Reason||'')}</small></div>`).join('')}</div>`).join(''):`<div class="card muted">${EN()?'None':'ไม่มี'}</div>`}</div>
       <button class="btn outline block" style="margin-top:8px" onclick="this.closest('.modal').remove()">${esc(t('c.close'))}</button>`);
   };
   window.A_editLeave=async(id)=>{ const l=(await api('allLeaves')).find(x=>x.LeaveID===id); if(!l){toast(t('c.noItems'));return;}
@@ -9022,7 +9025,7 @@
     // 3/9, 17/9") sets the width of the whole column and the grid stops being even
     const cell=(icon,label,val,sub,bad)=>`<div class="card" style="padding:6px;margin:0;min-width:0;text-align:center;${bad?'background:var(--warn-bg)':''}">
       <b style="font-size:19px;${bad?'color:var(--warn)':''}">${val}</b><br><small class="muted">${icon} ${esc(label)}</small>
-      ${sub?`<br><small class="muted" style="font-size:11.5px">${esc(sub)}</small>`:''}</div>`;
+      ${sub?`<br><small class="muted" style="font-size:12px">${esc(sub)}</small>`:''}</div>`;
     /* OT, EVENING BY EVENING WITH ITS CLOCK TIMES. planEnd is the end of this person's shift on that
      * day (the server works it out — a Big Cleaning day or a half-day holiday has its own hours), so
      * the window reads 17:00–19:05 rather than "2 ชม." with nothing behind it. A holiday OT is a
@@ -9030,8 +9033,8 @@
     const otRows=(me.otDays||[]).filter(x=>x.status!=='REJECTED');
     const otHtml = otRows.length?`<details style="margin-top:6px"><summary style="cursor:pointer;font-size:13px;color:var(--blue)">⏰ ${EN()
         ?`Overtime — ${otRows.length} day(s), ${me.otHours} hr`:`OT เดือนนี้ — ${otRows.length} วัน รวม ${me.otHours} ชม.`}</summary>
-      <table style="width:100%;border-collapse:collapse;font-size:13.5px;margin-top:6px">
-        <thead><tr class="muted" style="font-size:12.5px"><th style="text-align:left;padding:3px 6px">${EN()?'Date':'วันที่'}</th>
+      <table style="width:100%;border-collapse:collapse;font-size:13px;margin-top:6px">
+        <thead><tr class="muted" style="font-size:13px"><th style="text-align:left;padding:3px 6px">${EN()?'Date':'วันที่'}</th>
           <th style="text-align:left;padding:3px 6px">${EN()?'Time':'เวลา'}</th>
           <th style="padding:3px 6px">${EN()?'Hours':'ชม.'}</th>
           <th style="text-align:right;padding:3px 6px">${EN()?'Amount':'จำนวนเงิน'}</th></tr></thead>
@@ -9326,7 +9329,7 @@
         return `<div class="list-item"><span><b>${esc(nick)}</b> <small class="muted">${s.ageMonth} ${EN()?'m.':'ด.'}</small>${real?`<br><small class="muted" style="font-weight:400">${esc(real)}</small>`:''}</span>
         <span>${s.assessed
           ? `<span class="pill ok">${s.pass}</span> <span class="pill bad">${s.fail}</span>`
-          : `<span class="pill info" style="font-size:11px">${EN()?'not assessed':'ยังไม่ประเมิน'}</span>`} <button class="btn sm outline" onclick="A_student('${s.studentId}')">${EN()?'view':'ดูราย นร.'}</button></span></div>`;
+          : `<span class="pill info" style="font-size:12px">${EN()?'not assessed':'ยังไม่ประเมิน'}</span>`} <button class="btn sm outline" onclick="A_student('${s.studentId}')">${EN()?'view':'ดูราย นร.'}</button></span></div>`;
       }).join(''):`<small class="muted">${EN()?'No students in this class':'ยังไม่มีนักเรียนในชั้นนี้'}</small>`}</div>`); };
   /* ---- one-page report card (PDF / JPEG) --------------------------------------------------
    * PDPA: the file is drawn on THIS device and handed straight to the download. Nothing is
@@ -9454,7 +9457,7 @@
       const done=sched.reduce((a,g)=>a+g.items.filter(it=>vacDatesOf(recs,it.key).length).length,0);
       const all=sched.reduce((a,g)=>a+g.items.length,0);
       return `<details class="card" id="vaccard" data-sid="${esc(sid)}"><summary style="cursor:pointer;font-weight:700">💉 ${esc(t('vac.title'))}
-        <span class="pill ${done?'ok':'wait'}" style="font-size:11px">${done}/${all}</span></summary>
+        <span class="pill ${done?'ok':'wait'}" style="font-size:12px">${done}/${all}</span></summary>
         <div style="margin-top:8px">${inner}</div></details>`;
     }
     return `<div class="card" id="vaccard" data-sid="${esc(sid)}"><h3>💉 ${esc(t('vac.title'))}</h3>${inner}</div>`; }
@@ -9669,7 +9672,7 @@
     const pct=(a,b)=>b>0?Math.round(a/b*100):0;
     const cell=(icon,label,val,sub,tone)=>`<div class="card" style="padding:6px;margin:0;min-width:0;text-align:center;${tone?`background:var(--${tone}-bg)`:''}">
       <b style="font-size:19px;${tone?`color:var(--${tone==='ok'?'ok':'warn'})`:''}">${val}</b><br><small class="muted">${icon} ${esc(label)}</small>
-      ${sub?`<br><small class="muted" style="font-size:11.5px">${esc(sub)}</small>`:''}</div>`;
+      ${sub?`<br><small class="muted" style="font-size:12px">${esc(sub)}</small>`:''}</div>`;
     const money=v=>baht(v);
     const years=[]; { const y=Number(todayStr().slice(0,4)); for(let i=0;i<4;i++) years.push(String(y-i)); }
     const row2=(l,v,strong)=>`<div class="spread" style="font-size:14px;padding:2px 0"><span${strong?'':' class="muted"'}>${esc(l)}</span><b${strong?' style="font-size:15px"':''}>${v}</b></div>`;
@@ -9858,7 +9861,7 @@
       <div class="spread"><h2 class="page">📈 ${esc(t('dspm.manageTitle'))}</h2><button class="btn sm" onclick="A_dspmForm()">➕ ${esc(t('dspm.add'))}</button></div>
       <p class="muted" style="font-size:13px">${EN()?'Add, edit or remove milestone items. Grouped by age band.':'เพิ่ม แก้ไข หรือลบเกณฑ์พัฒนาการ · จัดกลุ่มตามช่วงอายุ'} (${rows.length})</p>
       ${ordered.map(b=>`<div class="card"><h3>${esc(b.label)} <small class="muted">(${b.items[0]?esc(b.items[0].AgeFrom+'–'+b.items[0].AgeTo+(EN()?' mo':' เดือน')):''})</small></h3>
-        ${b.items.sort((x,y)=>Number(x.ItemNo)-Number(y.ItemNo)).map(r=>`<div class="list-item"><span><b>${esc(t('dspm.item'))} ${esc(r.ItemNo)}</b> <span class="pill info" style="font-size:11px">${esc(r.Skill||'')}</span><br><small class="muted">${esc(r.Description||'')}</small></span>
+        ${b.items.sort((x,y)=>Number(x.ItemNo)-Number(y.ItemNo)).map(r=>`<div class="list-item"><span><b>${esc(t('dspm.item'))} ${esc(r.ItemNo)}</b> <span class="pill info" style="font-size:12px">${esc(r.Skill||'')}</span><br><small class="muted">${esc(r.Description||'')}</small></span>
           <span class="row"><button class="btn sm outline" onclick="A_dspmForm(${Number(r.ItemNo)},'${esc(r.Track||'Teacher')}')" aria-label="${EN()?"Edit":"แก้ไข"}" title="${EN()?"Edit":"แก้ไข"}">✏️</button><button class="btn sm pink" onclick="A_dspmDel(${Number(r.ItemNo)},'${esc(r.Track||'Teacher')}')" aria-label="${EN()?"Delete":"ลบ"}" title="${EN()?"Delete":"ลบ"}">🗑️</button></span></div>`).join('')}</div>`).join('')||`<div class="card muted">${esc(t('c.noItems'))}</div>`}`;
     window.scrollTo(0,0);
   };
@@ -10055,7 +10058,7 @@
         EN()?'Nobody has finished yet.':'ยังไม่มีนักเรียนที่สิ้นสุดการเรียน', false)}
       ${section('🏖️', EN()?'On temporary leave':'ลาชั่วคราว', away.map(pauseRow),
         EN()?'Nobody is on temporary leave.':'ไม่มีนักเรียนที่ลาชั่วคราว', true)}
-      <p class="muted" style="font-size:12.5px">${EN()
+      <p class="muted" style="font-size:13px">${EN()
         ? 'A child who has already finished is off the roster, so they are not offered on the bill screens at all. A pause covering the whole month is skipped automatically; a part-month pause is still billed in full.'
         : 'นักเรียนที่สิ้นสุดการเรียนไปแล้วจะไม่อยู่ในรายชื่อของหน้าออกบิลตั้งแต่แรก · ส่วนการลาชั่วคราวที่กินทั้งเดือน ระบบจะข้ามให้อัตโนมัติ แต่ถ้าลาเพียงบางส่วนของเดือน ยังคิดค่าเทอมเต็มเดือนตามปกติ'}</p>
       <button class="btn outline block" style="margin-top:8px" onclick="this.closest('.modal').remove()">${esc(t('c.close'))}</button>`;
@@ -10108,11 +10111,11 @@
       </div>
       ${rows.length?`<div style="max-height:34vh;overflow:auto;margin-top:8px">${rows.map((w,i)=>`
         <div class="list-item"><span><b>${esc(one(w)?ddmmyyyy(w.from):ddmmyyyy(w.from)+' → '+ddmmyyyy(w.to))}</b>${
-          (OTW.today>=w.from&&OTW.today<=w.to)?` <span class="pill warn" style="font-size:11px">${EN()?'today':'วันนี้'}</span>`:''}
+          (OTW.today>=w.from&&OTW.today<=w.to)?` <span class="pill warn" style="font-size:12px">${EN()?'today':'วันนี้'}</span>`:''}
           ${w.reason?`<br><small class="muted">${esc(w.reason)}</small>`:''}</span>
           <button class="btn sm pink" onclick="A_otwDel(${i},this)">🗑️</button></div>`).join('')}</div>`
         :`<p class="muted" style="text-align:center;padding:12px 0">${EN()?'No waived days — OT is charged every day.':'ยังไม่มีวันที่งดคำนวณ — คิด OT ทุกวันตามปกติ'}</p>`}
-      <button class="btn sm ghost block" style="margin-top:8px" onclick="this.closest('.modal').remove()">${esc(t('c.close'))}</button>`;
+      <button class="btn outline block" style="margin-top:8px" onclick="this.closest('.modal').remove()">${esc(t('c.close'))}</button>`;
     const open=document.querySelector('.modal .sheet');
     if(keep && open){ open.innerHTML=html; if(window.translateTree) translateTree(open); } else modal(html);
   }
@@ -10203,7 +10206,7 @@
          * new date (or the same one) is explicitly allowed; only the latest is kept. */
         const done=s.certIssuedDate||'';
         return `<label class="list-item" style="cursor:pointer"><span><b>${esc(who)}</b>${nick?` <small class="muted">(${esc(nick)})</small>`:''}
-          ${done?`<span class="pill ok" style="font-size:11px">✅ ${EN()?'issued':'ออกแล้ว'}</span>`:''}
+          ${done?`<span class="pill ok" style="font-size:12px">✅ ${EN()?'issued':'ออกแล้ว'}</span>`:''}
           <br><small class="muted">${esc(s.className||'-')} · ${EN()?'last day':'วันสุดท้าย'} ${esc(ddmmyyyy(s.endDate))}${
             s.reason?` · ${esc(t('wd.reason.'+s.reason)||s.reason)}`:''}</small>${
           done?`<br><small style="color:var(--ok)">🎓 ${EN()?'certificate issued, dated':'ออกใบประกาศแล้ว · ลงวันที่'} ${esc(ddmmyyyy(done))}</small>`:''}</span>
@@ -10225,11 +10228,11 @@
              the file type moves inside a screen that shows the sheet first. */''}
         <div style="display:flex;gap:6px">
           <button class="btn block" data-certgo disabled onclick="A_certPreview(this)">👁️ ${EN()?'Preview & download':'ดูตัวอย่าง & ดาวน์โหลด'}</button></div>
-        <div class="muted" style="font-size:11px;text-align:center;margin-top:4px">${EN()
+        <div class="muted" style="font-size:12px;text-align:center;margin-top:4px">${EN()
           ? 'One landscape A5 sheet per child. Built on this device — nothing is uploaded.'
           : 'A5 แนวนอน หนึ่งแผ่นต่อหนึ่งคน · สร้างบนเครื่องนี้ ไม่มีไฟล์ถูกอัปโหลดไปไหน'}</div>
         <button class="btn sm outline block" style="margin-top:6px" onclick="A_certSettings()">⚙️ ${EN()?'Wording & artwork':'ข้อความและพื้นหลังใบประกาศ'}</button>
-        <button class="btn sm ghost block" onclick="this.closest('.modal').remove()">${esc(t('c.close'))}</button></div>`;
+        <button class="btn outline block" onclick="this.closest('.modal').remove()">${esc(t('c.close'))}</button></div>`;
     const open=document.querySelector('.modal .sheet');
     if(keepOpen && open){ const d=document.getElementById('certDate'); const keep=d?d.value:''; open.innerHTML=html;
       if(keep){ const n=document.getElementById('certDate'); if(n){ n.value=keep; A_certDateEcho(); } }
@@ -10493,7 +10496,7 @@
         : '💡 ใบตัวอย่างของโรงเรียนเขียนว่า <b>เกียรติบัตร</b> ส่วนชื่อเมนูคือ <b>ใบประกาศนียบัตร</b> — สองคำนี้ความหมายไม่เหมือนกัน จึงให้โรงเรียนเลือกเอง พิมพ์คำที่ต้องการลงไปได้เลย'}</p>
       </div>
       <button class="btn block" style="margin-top:8px" onclick="A_certSaveText(this)">💾 ${esc(t('c.save'))}</button>
-      <button class="btn sm ghost block" onclick="this.closest('.modal').remove()">${esc(t('c.close'))}</button>`);
+      <button class="btn outline block" onclick="this.closest('.modal').remove()">${esc(t('c.close'))}</button>`);
   };
 
   window.A_certSaveText = async (btn) => {
@@ -10601,16 +10604,16 @@
     const close="this.closest('.modal').remove();";
     modal(`<h3>👶 ${esc(dispNick(s)||sid)} ${nmSub(s)?`<small class="muted" style="font-size:13px">${esc(nmSub(s))}</small>`:''}</h3>
       <button class="btn block" onclick="${close}STU_profile('${esc(sid)}')">📋 ${EN()?'Student record':'ประวัตินักเรียน'}</button>
-      <button class="btn block outline" style="margin-top:8px" onclick="${close}A_vaccines('${esc(sid)}')">💉 ${EN()?'Vaccination record':'บันทึกวัคซีน'}</button>
+      <button class="btn outline block" style="margin-top:8px" onclick="${close}A_vaccines('${esc(sid)}')">💉 ${EN()?'Vaccination record':'บันทึกวัคซีน'}</button>
       <!-- correcting a time moved to ดำเนินการ → นักเรียน (A_editAttPick): it is a daily attendance job,
            not something you go looking for inside one child's record -->
       ${/* ☀️ offered ONLY for a child who has already finished — that is who the summer term is for.
            Putting it on every child would invite its being used instead of ลาชั่วคราว for one who is
            simply away for a fortnight, and the two mean opposite things to the bill. */''}
-      ${(s&&s.EndDate)?`<button class="btn block outline" style="margin-top:8px" onclick="${close}A_termForm('${esc(sid)}')">☀️ ${EN()?'Summer term':'ช่วงเรียนซัมเมอร์'}</button>`:''}
+      ${(s&&s.EndDate)?`<button class="btn outline block" style="margin-top:8px" onclick="${close}A_termForm('${esc(sid)}')">☀️ ${EN()?'Summer term':'ช่วงเรียนซัมเมอร์'}</button>`:''}
       <button class="btn block gray" style="margin-top:8px" onclick="${close}A_exportStudent('${esc(sid)}')">📤 ${EN()?'Export data':'ส่งออกข้อมูล'}</button>
       <button class="btn block pink" style="margin-top:8px" onclick="${close}A_removeStudent('${esc(sid)}')">🚪 ${EN()?'Withdraw student':'นำนักเรียนออก'}</button>
-      <button class="btn block outline" style="margin-top:12px" onclick="${close}">${esc(t('c.close'))}</button>`); };
+      <button class="btn outline block" style="margin-top:12px" onclick="${close}">${esc(t('c.close'))}</button>`); };
   const findParent  = id => (A_CACHE.parents||[]).find(x=>x.ParentID===id)   || (MOCK.parents||[]).find(x=>x.ParentID===id)   || {};
   const findAnn     = id => (A_CACHE.announcements||[]).find(x=>x.AnnID===id) || (MOCK.announcements||[]).find(x=>x.AnnID===id) || {};
   const A_classes   = () => (A_CACHE.classes&&A_CACHE.classes.length)?A_CACHE.classes:(MOCK.classes||[]);
@@ -10723,7 +10726,7 @@
                    go:`A_staffForm('${esc(s.StaffID)}')`}); });
     box.innerHTML = rows.length
       ? rows.map(r=>`<div class="list-item" style="cursor:pointer" onclick="A_gsOpen(&quot;${r.go.replace(/"/g,'&quot;')}&quot;)">
-          <span><b>${r.ic} ${esc(r.head)}</b> <span class="pill info" style="font-size:11px">${esc(r.t)}</span>
+          <span><b>${r.ic} ${esc(r.head)}</b> <span class="pill info" style="font-size:12px">${esc(r.t)}</span>
           ${r.sub?`<br><small class="muted">${esc(r.sub)}</small>`:''}</span><span class="muted">›</span></div>`).join('')
       : `<p class="muted" style="text-align:center;padding:14px">${EN()?'No matches':'ไม่พบข้อมูลที่ค้นหา'}</p>`;
   };
@@ -10898,7 +10901,7 @@
            family who walked in with a paper form could not be entered at all. */''}
       <div class="card secw" id="sec-students">${secHead('👶',EN()?'Students':'นักเรียน',students.length,`<span class="row"><button class="btn sm" onclick="event.stopPropagation();A_addStudent()">+ ${EN()?'Add student':'เพิ่มนักเรียน'}</button><button class="btn sm outline" onclick="event.stopPropagation();A_issueCombined()">🧾 ${EN()?'Issue (select)':'ออกบิล (เลือก)'}</button><button class="btn sm outline" onclick="event.stopPropagation();A_genBills()">📅 ${esc(t('bill.genTitle'))}</button></span>`)}
         <div class="secbody" hidden>
-        ${students.map(s=>`<div class="list-item stack" data-k="${esc((s.NameTH+' '+(s.NameEN||'')+' '+(s.Nickname||'')+' '+(s.NicknameEN||'')+' '+(s.Class||'')+' '+(s.NationalID||'')+' '+(_fam.parentsOf[s.StudentID]||'')).toLowerCase())}"><span>${studentAvatar(s)} <b>${esc(dispNick(s))}</b> ${pauseSoon(s)?`<span class="pill info" style="font-size:11px">📅 ${EN()?'leave booked':'จะลาชั่วคราว'}</span>`:isPaused(s)?`<span class="pill wait" style="font-size:11px">⏸️ ${EN()?'on leave':'ลาชั่วคราว'}</span>`:''}${endSoon(s)?`<span class="pill warn" style="font-size:11px">🎓 ${EN()?'finishes':'สิ้นสุด'} ${esc(ddmmyyyy(s.EndDate))}</span>`:''} <small class="muted">${nmSub(s)?esc(nmSub(s))+" · ":""}${esc(s.Class)} · ${esc(ageYM(s.DOB))}${s.InsuranceHas?' · 🛡️':''}</small><br><small class="muted">${s.DOB?`🎂 ${esc(dobDate(s.DOB))} · `:''}${EN()?'ID':'บัตร'}: ${esc(s.NationalID||'-')}</small>${isPaused(s)?`<br><small style="color:var(--warn)">⏸️ ${esc(pauseSpan(s))}</small>`:''}${
+        ${students.map(s=>`<div class="list-item stack" data-k="${esc((s.NameTH+' '+(s.NameEN||'')+' '+(s.Nickname||'')+' '+(s.NicknameEN||'')+' '+(s.Class||'')+' '+(s.NationalID||'')+' '+(_fam.parentsOf[s.StudentID]||'')).toLowerCase())}"><span>${studentAvatar(s)} <b>${esc(dispNick(s))}</b> ${pauseSoon(s)?`<span class="pill info" style="font-size:12px">📅 ${EN()?'leave booked':'จะลาชั่วคราว'}</span>`:isPaused(s)?`<span class="pill wait" style="font-size:12px">⏸️ ${EN()?'on leave':'ลาชั่วคราว'}</span>`:''}${endSoon(s)?`<span class="pill warn" style="font-size:12px">🎓 ${EN()?'finishes':'สิ้นสุด'} ${esc(ddmmyyyy(s.EndDate))}</span>`:''} <small class="muted">${nmSub(s)?esc(nmSub(s))+" · ":""}${esc(s.Class)} · ${esc(ageYM(s.DOB))}${s.InsuranceHas?' · 🛡️':''}</small><br><small class="muted">${s.DOB?`🎂 ${esc(dobDate(s.DOB))} · `:''}${EN()?'ID':'บัตร'}: ${esc(s.NationalID||'-')}</small>${isPaused(s)?`<br><small style="color:var(--warn)">⏸️ ${esc(pauseSpan(s))}</small>`:''}${
           /* ...and the same second line for a child who is FINISHING. ลาชั่วคราว had one and this did
              not, so on a roster of thirty the row that needs a decision this month was quieter than
              the row that needs none. Asked 2026-09-30: "ทำให้มีแถบหลังเหมือนกับลาชั่วคราว". */
@@ -10949,7 +10952,7 @@
   /** the three boxes, shared by the admin form (prefix 'sf') and the teacher's own profile ('sp') */
   function eduFields(pre,s){ s=s||{};
     return `<div class="jsec"><b style="font-size:13px">🎓 ${EN()?'Education':'วุฒิการศึกษา'}</b>
-      <small class="muted" style="display:block;font-size:12.5px;margin:2px 0 6px">${EN()?'All optional — a blank shows as “-”.':'ไม่บังคับกรอก · ช่องที่ไม่มีข้อมูลจะแสดงเป็น “-”'}</small>
+      <small class="muted" style="display:block;font-size:13px;margin:2px 0 6px">${EN()?'All optional — a blank shows as “-”.':'ไม่บังคับกรอก · ช่องที่ไม่มีข้อมูลจะแสดงเป็น “-”'}</small>
       <label class="field"><span>${EN()?'Level':'วุฒิการศึกษา'}</span>
         <select id="${pre}_Education">${eduOptions(s.Education)}</select></label>
       ${/* สาขา is free text on purpose: a certificate says whatever it says, and a fixed list would
@@ -10990,7 +10993,7 @@
    * silently drops that teacher's entitlement. The index is carried in a data- attribute instead. */
   function quotaFields(pre,s){ const school=schoolQuota(), own=staffQuota(s||{}), keys=Object.keys(school);
     return `<div class="jsec"><b style="font-size:13px">🌴 ${EN()?'Leave entitlement (this person)':'สิทธิวันลา (เฉพาะคนนี้)'}</b>
-      <small class="muted" style="display:block;font-size:12.5px;margin:2px 0 6px">${EN()
+      <small class="muted" style="display:block;font-size:13px;margin:2px 0 6px">${EN()
         ? 'Leave blank to use the school default shown greyed in each box. Fill one in only when this person differs — entitlement follows length of service.'
         : 'เว้นว่าง = ใช้ค่าของโรงเรียน (ตัวเลขจาง ๆ ในช่อง) · กรอกเฉพาะคนที่ได้ไม่เท่าโรงเรียน — สิทธิขึ้นกับอายุงาน'}</small>
       <div class="grid2">${keys.map((k,i)=>`<label class="field"><span>${esc(tLeaveType(k))}</span>
@@ -11144,7 +11147,7 @@
              const _cur=String(s.EndReason||'');
              if(_cur && !_reasons.some(r=>r[0]===_cur)) _reasons.push([_cur,_cur]);
              const _sched=!!s.EndDate;
-             return `<details class="card" style="background:var(--surface-2);padding:8px"${_sched?' open':''}><summary style="font-size:13px;cursor:pointer"><b>🚪 ${EN()?'End employment':'สิ้นสุดการทำงาน'}</b>${_sched?` <span class="pill warn" style="font-size:11px">${EN()?'recorded':'บันทึกไว้แล้ว'}</span>`:''}</summary>
+             return `<details class="card" style="background:var(--surface-2);padding:8px"${_sched?' open':''}><summary style="font-size:13px;cursor:pointer"><b>🚪 ${EN()?'End employment':'สิ้นสุดการทำงาน'}</b>${_sched?` <span class="pill warn" style="font-size:12px">${EN()?'recorded':'บันทึกไว้แล้ว'}</span>`:''}</summary>
              <p class="muted" style="font-size:13px;margin:6px 0">${EN()?'Removes them from the active lists. Nothing is deleted — payroll and attendance history are kept, and they can be brought back later.':'จะนำชื่อออกจากรายชื่อที่ใช้งานอยู่ · ไม่มีการลบข้อมูล ประวัติเงินเดือนและการลงเวลายังอยู่ครบ และนำกลับเข้ามาใหม่ได้'}</p>
              <div class="grid2"><label class="field" style="margin:0"><span>${EN()?'Last working day':'วันสิ้นสุดการทำงาน'}</span><input id="sf_EndDate" type="date" value="${esc(s.EndDate||'')}"/></label>
                <label class="field" style="margin:0"><span>${EN()?'Reason':'เหตุผล'}</span><select id="sf_EndReason" translate="no">
@@ -11175,7 +11178,7 @@
            (the token is what gets them in; the password only opens the payslip), and an admin who
            assumed it did would think they had closed a door that is still open. */''}
       ${id?`<div class="card" style="background:var(--surface-2);padding:8px"><b style="font-size:13px">📵 ${EN()?'Sign out of all devices':'ออกจากระบบทุกอุปกรณ์'}</b>
-        <div class="muted" style="font-size:12.5px;margin-top:4px">${EN()
+        <div class="muted" style="font-size:13px;margin-top:4px">${EN()
           ? 'Ends every session on every phone this person is signed in on. They can sign in again with LINE unless you have also ended their employment.'
           : 'ตัดการเข้าใช้งานทุกเครื่องของคนนี้ทันที · เจ้าตัวยังเข้าใหม่ด้วย LINE ได้ หากยังไม่ได้ตั้งวันสิ้นสุดการทำงาน'}</div>
         <div class="row" style="margin-top:6px"><button type="button" class="btn sm pink" onclick="A_signOutStaff('${id}')">📵 ${EN()?'Sign out everywhere':'ออกจากระบบทุกเครื่อง'}</button></div>
@@ -11393,7 +11396,7 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
     <button class="btn block" onclick="A_viewAsStaff(this)">${EN()?'View as this staff':'ดูมุมมองครูคนนี้'}</button>
     <div style="height:12px"></div>
     <label class="field"><span>👪 ${EN()?'As parent (all their children)':'มุมมองผู้ปกครอง (เห็นลูกทุกคนที่ผูก)'}</span><select id="va_parent"><option value="">—</option>${paList.map(p=>`<option value="${esc(p.ParentID)}">${esc(vaLabel(p,EN()))}${p.Phone?' · '+esc(phoneFmt(p.Phone)):''} · 👶 ${cnt0(p.ParentID)}</option>`).join('')}</select></label>
-    <button class="btn block outline" onclick="A_viewAsParent(this)">${EN()?'View as this parent':'ดูมุมมองผู้ปกครองคนนี้'}</button>`); };
+    <button class="btn outline block" onclick="A_viewAsParent(this)">${EN()?'View as this parent':'ดูมุมมองผู้ปกครองคนนี้'}</button>`); };
   window.A_viewAsStaff=(btn)=>{ const m=btn.closest('.modal'); const sid=m.querySelector('#va_staff').value; if(!sid){toast(EN()?'Pick a staff':'เลือกครูก่อน');return;} const s=findStaff(sid); m.remove();
     // Preview the person's OWN role. This said 'Teacher' for everybody, so previewing an Observer
     // showed the teacher screens — the very thing the preview exists to check. Their real role is on
@@ -11467,7 +11470,7 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
       <label class="field"><span>🔗 LINE ID ${p.LineUID?'✅':''}</span><input id="pf_LineUID" value="${esc(p.LineUID||'')}" placeholder="Uxxxxxxxxxxxxxxxx"/></label>
       <div class="card" style="background:var(--surface-2);padding:8px"><small class="muted">${EN()?'This is what ties the account to their LINE. If they change phone or LINE account, have them open the app once — the sign-in screen shows their new LINE ID — then paste it here and Save. Nothing else has to be re-entered.':'ช่องนี้คือสิ่งที่ผูกบัญชีเข้ากับ LINE ของผู้ปกครอง · หากเปลี่ยนเครื่องหรือเปลี่ยนบัญชี LINE ให้เปิดแอปหนึ่งครั้ง หน้าเข้าสู่ระบบจะแสดง LINE ID ใหม่ → คัดลอกมาวางช่องนี้แล้วกดบันทึก ข้อมูลอื่นไม่ต้องกรอกใหม่'}</small></div>
       ${photoField('pf_Photo',t('reg.parentPhoto'),p.Photo,true)}
-      ${id?`<button class="btn block outline" onclick="this.closest('.modal').remove();A_payLog('${esc(id)}')">🧾 ${EN()?'Payment history':'ประวัติการชำระเงิน'}</button>`:''}
+      ${id?`<button class="btn outline block" onclick="this.closest('.modal').remove();A_payLog('${esc(id)}')">🧾 ${EN()?'Payment history':'ประวัติการชำระเงิน'}</button>`:''}
       <button class="btn block" onclick="A_saveParent(this,'${id||''}')">${esc(t('c.save'))}</button>`);
   };
 
@@ -11486,7 +11489,7 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
       return `<div class="list-item stack" ${e.slipUrl?`onclick="ZOOM_IMG('${esc(e.slipUrl)}')" style="cursor:zoom-in"`:''}>
         <span><b>${kindIcon[e.refKind]||'💳'} ${esc(e.label)}</b>${e.month?` <small class="muted">${esc(monthNameYear(e.month))}</small>`:''}<br>
           <small class="muted">${esc(dispNick({Nickname:e.nick,NameTH:e.name})||e.studentId)} · ${esc(e.date?fullDate(e.date):'-')}${e.transTime?' '+esc(e.transTime)+(EN()?'':' น.'):''}${e.transRef?' · '+esc(e.transRef):''}${e.via==='cash'?' · '+(EN()?'cash':'เงินสด'):''}</small></span>
-        <span style="text-align:right"><b>${baht(e.amount)}</b><br><span class="pill ${cls}" style="font-size:11px">${esc(lbl)}</span>${e.slipUrl?' 📎':''}</span></div>`; }).join('');
+        <span style="text-align:right"><b>${baht(e.amount)}</b><br><span class="pill ${cls}" style="font-size:12px">${esc(lbl)}</span>${e.slipUrl?' 📎':''}</span></div>`; }).join('');
     modal(`<h3>🧾 ${EN()?'Payment history':'ประวัติการชำระเงิน'}</h3>
       <p class="muted" style="font-size:13px">${(d.students||[]).map(s=>esc(s.nick||s.name||s.studentId)).join(' · ')||'-'}</p>
       <div class="grid2">
@@ -11633,7 +11636,7 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
   window.A_addStudent=()=>{
     const f=(k,label,type,ph)=>`<label class="field"><span>${esc(label)}</span><input id="ast_${k}" type="${type||'text'}"${ph?` placeholder="${esc(ph)}"`:''}/></label>`;
     modal(`<h3>➕ ${EN()?'Add a student':'เพิ่มนักเรียน'}</h3>
-      <p class="muted" style="font-size:12.5px;margin:0 0 8px">${EN()
+      <p class="muted" style="font-size:13px;margin:0 0 8px">${EN()
         ? 'Creates the child only. Attach a parent afterwards with 🔗 Link parent — that connects an existing record instead of creating a second one.'
         : 'สร้างเฉพาะข้อมูลนักเรียน · ผูกผู้ปกครองภายหลังด้วยปุ่ม 🔗 เชื่อมผู้ปกครอง ซึ่งจะเชื่อมกับข้อมูลเดิมที่มีอยู่ ไม่สร้างซ้ำ'}</p>
       <div class="grid2">${f('NameTH',t('reg.nameTH')+' *')}${f('NameEN',t('reg.nameEN'))}</div>
@@ -11777,7 +11780,7 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
         const _done=!!_end && _end < todayStr();     // the last day itself still counts as a school day
         return `<details class="card" style="background:var(--surface-2);padding:8px"${_end?' open':''}>
           <summary style="font-size:13px;cursor:pointer"><b>🎓 ${EN()?'End of study':'สิ้นสุดการเรียน'}</b>${
-            _end?` <span class="pill ${_done?'warn':'info'}" style="font-size:11px">${_done?(EN()?'finished':'สิ้นสุดแล้ว'):(EN()?'scheduled':'บันทึกไว้แล้ว')}</span>`:''}</summary>
+            _end?` <span class="pill ${_done?'warn':'info'}" style="font-size:12px">${_done?(EN()?'finished':'สิ้นสุดแล้ว'):(EN()?'scheduled':'บันทึกไว้แล้ว')}</span>`:''}</summary>
           <p class="muted" style="font-size:13px;margin:6px 0">${EN()
             ? 'The child’s last day. Record it in advance — they keep coming, keep being checked in, and are billed for the whole month they finish in. From the next day they come off the class and attendance lists. Nothing is deleted.'
             : 'วันสุดท้ายที่นักเรียนมาเรียน · บันทึกล่วงหน้าได้ — จนถึงวันนั้นนักเรียนยังมาเรียน ลงเวลาได้ตามปกติ และคิดค่าเทอมเต็มเดือนของเดือนที่สิ้นสุด · หลังจากวันนั้นจึงจะออกจากรายชื่อห้องเรียนและการเช็คชื่อ · ไม่มีการลบข้อมูลใดๆ'}</p>
@@ -11830,7 +11833,7 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
            Every box is optional and a blank prints '-' on the parent's card; nothing here is a
            guess, because a wrong policy number is worse than no policy number. */''}
       <div id="insBox" ${s.InsuranceHas?'':'hidden'}>
-        <p class="muted" style="font-size:12.5px;margin:2px 2px 6px">${EN()
+        <p class="muted" style="font-size:13px;margin:2px 2px 6px">${EN()
           ? 'Copied from the policy document. Parents can read this and use it to make a claim. Anything left blank shows as “-”.'
           : 'กรอกตามหน้ากรมธรรม์ · ผู้ปกครองจะเห็นข้อมูลนี้และใช้ยื่นเบิกประกันเองได้ · ช่องที่ไม่กรอกจะแสดงเป็น “-”'}</p>
         <div class="grid2">${f('InsuranceCompany',t('ins.company'),s.InsuranceCompany)}${f('InsurancePlan',EN()?'Plan code':'รหัสแผน (เช่น AIANPA2500)',s.InsurancePlan)}</div>
@@ -11846,7 +11849,7 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
         ${photoField('stf_InsCard',t('ins.card'),s.InsuranceCardImage,false)}</div>
       ${s.DriveFolderUrl?`<div class="card" style="background:var(--surface-2);padding:8px"><small class="muted">📁 ${esc(t('folder.student'))}<br><code style="font-size:13px">${esc(s.DriveFolderUrl)}</code><br>${esc(t('folder.note'))}</small></div>`:''}
       ${id?A_pauseBox(s):''}
-      ${id?`<button class="btn block outline" onclick="A_studentLinks('${id}')">🔗 ${EN()?'Linked parents / unlink':'ผู้ปกครองที่ผูก / ยกเลิกการผูก'}</button>`:''}
+      ${id?`<button class="btn outline block" onclick="A_studentLinks('${id}')">🔗 ${EN()?'Linked parents / unlink':'ผู้ปกครองที่ผูก / ยกเลิกการผูก'}</button>`:''}
       <button class="btn block" onclick="A_saveStudent(this,'${id}')">${esc(t('c.save'))}</button>`);
     A_prorateHint();   // show the first-month figure straight away, not only after a field is touched
     /* 💉 ...and the vaccine STATUS, read from the real record (VACCINE_RECORDS) rather than from a
@@ -11878,7 +11881,7 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
       return EN()?`${kid}'s parent (name not filled in)`:`ผู้ปกครองน้อง${kid} (ยังไม่กรอกชื่อ)`; };
     modal(`<h3>🔗 ${EN()?'Linked parents':'ผู้ปกครองที่ผูกกับ'} ${esc(kid)}</h3>
       <p class="muted" style="font-size:13px">${EN()?'Unlink detaches this parent from the child. The child stays enrolled (this is not a withdrawal).':'ยกเลิกการผูก = ตัดผู้ปกครองคนนี้ออกจากเด็ก โดยเด็กยังเรียนอยู่ในระบบ (ไม่ใช่การลาออก)'}</p>
-      ${(d.parents||[]).length?d.parents.map(pa=>`<div class="list-item stack"><span><b>${esc(paLabel(pa))}</b> <span class="pill info" style="font-size:11px">${pa.via==='link'?'LINE':'legacy'}</span><br><small class="muted">${pa.name?esc(titledName({Title:pa.title,NameTH:pa.name,NameEN:pa.name}))+' · ':''}${pa.rel?relLabel(pa.rel)+' · ':''}${pa.phone?esc(phoneFmt(pa.phone)):(EN()?'no phone':'ไม่มีเบอร์โทร')}${pa.parentId?' · '+esc(pa.parentId):''}</small></span><span class="acts">${pa.parentId?`<button class="btn sm outline" onclick="this.closest('.modal').remove();A_parentForm('${esc(pa.parentId)}')">✏️ ${EN()?'Edit info':'แก้ข้อมูล'}</button>`:''}<button class="btn sm pink" onclick="A_unlink('${esc(sid)}','${esc(pa.parentId||'')}','${esc(pa.uid||'')}',this)">✂️ ${EN()?'Unlink':'ยกเลิกผูก'}</button></span></div>`).join(''):`<div class="card muted">${EN()?'No linked parents':'ไม่มีผู้ปกครองที่ผูกอยู่'}</div>`}
+      ${(d.parents||[]).length?d.parents.map(pa=>`<div class="list-item stack"><span><b>${esc(paLabel(pa))}</b> <span class="pill info" style="font-size:12px">${pa.via==='link'?'LINE':'legacy'}</span><br><small class="muted">${pa.name?esc(titledName({Title:pa.title,NameTH:pa.name,NameEN:pa.name}))+' · ':''}${pa.rel?relLabel(pa.rel)+' · ':''}${pa.phone?esc(phoneFmt(pa.phone)):(EN()?'no phone':'ไม่มีเบอร์โทร')}${pa.parentId?' · '+esc(pa.parentId):''}</small></span><span class="acts">${pa.parentId?`<button class="btn sm outline" onclick="this.closest('.modal').remove();A_parentForm('${esc(pa.parentId)}')">✏️ ${EN()?'Edit info':'แก้ข้อมูล'}</button>`:''}<button class="btn sm pink" onclick="A_unlink('${esc(sid)}','${esc(pa.parentId||'')}','${esc(pa.uid||'')}',this)">✂️ ${EN()?'Unlink':'ยกเลิกผูก'}</button></span></div>`).join(''):`<div class="card muted">${EN()?'No linked parents':'ไม่มีผู้ปกครองที่ผูกอยู่'}</div>`}
       <button class="btn block" style="margin-top:8px" onclick="this.closest('.modal').remove();A_linkParent('${esc(sid)}')">➕ ${EN()?'Link another parent':'เพิ่มผู้ปกครองที่ผูก'}</button>
       <button class="btn outline block" style="margin-top:8px" onclick="this.closest('.modal').remove()">${esc(t('c.close'))}</button>`);
   };
@@ -11887,7 +11890,7 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
     const kids=d.students||[];
     modal(`<h3>🔗 ${EN()?'Children linked to':'บุตรที่ผูกกับ'} ${esc(d.nick||d.name||pid)} <span class="pill ${kids.length?'ok':'bad'}" style="font-size:13px">👶 ${kids.length}</span></h3>
       <p class="muted" style="font-size:13px">${EN()?'These are the students this parent can see & pay for. Unlink detaches one (the child stays enrolled).':'รายชื่อนักเรียนที่ผู้ปกครองคนนี้เห็นและชำระเงินได้ · ยกเลิกผูก = ตัดออก (เด็กยังเรียนอยู่)'}</p>
-      ${kids.length?kids.map(s=>`<div class="list-item"><span><b>${esc(s.nick||s.name||s.studentId)}</b> <small class="muted">${esc(s.name||'')} · ${esc(s.class||(EN()?'no class':'ยังไม่จัดชั้น'))}${String(s.status).toLowerCase()!=='active'?' · <span style="color:var(--bad)">'+esc(s.status)+'</span>':''}</small> <span class="pill info" style="font-size:11px">${s.via==='link'?'LINE':'legacy'}</span></span><button class="btn sm pink" onclick="A_unlinkFromParent('${esc(s.studentId)}','${esc(pid)}',this)">✂️ ${EN()?'Unlink':'ยกเลิกผูก'}</button></div>`).join(''):`<div class="card muted">${EN()?'No linked children':'ยังไม่มีบุตรที่ผูก'}</div>`}
+      ${kids.length?kids.map(s=>`<div class="list-item"><span><b>${esc(s.nick||s.name||s.studentId)}</b> <small class="muted">${esc(s.name||'')} · ${esc(s.class||(EN()?'no class':'ยังไม่จัดชั้น'))}${String(s.status).toLowerCase()!=='active'?' · <span style="color:var(--bad)">'+esc(s.status)+'</span>':''}</small> <span class="pill info" style="font-size:12px">${s.via==='link'?'LINE':'legacy'}</span></span><button class="btn sm pink" onclick="A_unlinkFromParent('${esc(s.studentId)}','${esc(pid)}',this)">✂️ ${EN()?'Unlink':'ยกเลิกผูก'}</button></div>`).join(''):`<div class="card muted">${EN()?'No linked children':'ยังไม่มีบุตรที่ผูก'}</div>`}
       ${kids.length>1?`<button class="btn block" style="margin-top:8px" onclick="A_familyFinance('${esc(pid)}')">👁️ ${EN()?'Preview family finance (as parent sees it)':'ดูมุมมองการเงินของครอบครัว (แบบที่ผู้ปกครองเห็น)'}</button>`:''}
       <button class="btn outline block" style="margin-top:8px" onclick="this.closest('.modal').remove()">${esc(t('c.close'))}</button>`);
   };
@@ -11946,7 +11949,7 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
                  :'ระหว่างลา: ไม่ออกบิลรายเดือน · ไม่นับขาด/ลา · ไม่ขึ้นชื่อในชั้นเรียนและกิจกรรม · ข้อมูลและการผูกผู้ปกครองยังอยู่ครบ')}</p>
         <button class="btn sm block" onclick="A_resumeStudent('${esc(sid)}')">▶️ ${EN()?'Bring back to school':'กลับมาเรียนตามปกติ'}</button></div>`;
     }
-    return `<button class="btn block outline" onclick="A_pauseForm('${esc(sid)}')">⏸️ ${EN()?'Temporary leave (keeps the record)':'ลาชั่วคราว (เก็บข้อมูลไว้)'}</button>`;
+    return `<button class="btn outline block" onclick="A_pauseForm('${esc(sid)}')">⏸️ ${EN()?'Temporary leave (keeps the record)':'ลาชั่วคราว (เก็บข้อมูลไว้)'}</button>`;
   }
   /* ===== THE SAME THING FOR A STAFF MEMBER ======================================================
    * Asked 2026-09-02: "ลาชั่วคราวเหมือนของนักเรียนโดยไม่นับเป็นขาด/ลา/มาสาย ... ในส่วนของเงินเดือน
@@ -11984,7 +11987,7 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
         <button type="button" class="btn sm block" onclick="A_staffResume('${esc(id)}',this)">▶️ ${EN()?'Back to work':'กลับมาทำงานตามปกติ'}</button>
         <button type="button" class="btn sm outline block" style="margin-top:6px" onclick="A_staffPauseForm('${esc(id)}')">✏️ ${EN()?'Edit the leave':'แก้ไขข้อมูลการลา'}</button></div>`;
     }
-    return `<button type="button" class="btn block outline" onclick="A_staffPauseForm('${esc(id)}')">⏸️ ${EN()?'Temporary leave (keeps the record)':'ลาชั่วคราว (เก็บข้อมูลไว้)'}</button>`;
+    return `<button type="button" class="btn outline block" onclick="A_staffPauseForm('${esc(id)}')">⏸️ ${EN()?'Temporary leave (keeps the record)':'ลาชั่วคราว (เก็บข้อมูลไว้)'}</button>`;
   };
   window.A_staffPauseForm=(id)=>{ const s=findStaff(id)||{};
     const mode=String(s.PauseSalaryMode||'').toUpperCase();
@@ -12057,7 +12060,7 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
         ☀️ ${EN()?'Currently open':'กำลังเปิดอยู่'}: ${esc(open.from)} – ${esc(open.lastDay)} · ${esc(open.class)}
         ${open.endingSoon?`<br><b>${EN()?'Ends within 7 days':'จะสิ้นสุดภายใน 7 วัน'}</b>`:''}
         <br><button class="btn sm outline" style="margin-top:6px" onclick="A_termCancel('${esc(open.termId)}','${esc(sid)}')">${EN()?'Cancel this term':'ยกเลิกช่วงนี้'}</button></p>`:''}
-      ${soon.length?`<p class="muted" style="font-size:12.5px">${EN()?'Scheduled':'นัดไว้แล้ว'}: ${soon.map(x=>esc(x.from+' – '+x.lastDay)).join(' · ')}</p>`:''}
+      ${soon.length?`<p class="muted" style="font-size:13px">${EN()?'Scheduled':'นัดไว้แล้ว'}: ${soon.map(x=>esc(x.from+' – '+x.lastDay)).join(' · ')}</p>`:''}
       <div class="grid2">
         <label class="field"><span>${EN()?'First day':'วันแรก'}</span><input type="date" id="tm_from" value="${esc(todayStr())}"/></label>
         <label class="field"><span>${EN()?'Last day':'วันสุดท้าย'}</span><input type="date" id="tm_to"/></label>
@@ -12074,12 +12077,12 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
       ${/* 💰 said on the form, not left to be discovered on the 1st of the month. The school charges
            the normal rate (ผอ., 12/10); a part month is the admin's own figure, set on the student
            form exactly as it is for a child starting mid-month. */''}
-      <p class="muted" style="font-size:12.5px">💰 ${EN()
+      <p class="muted" style="font-size:13px">💰 ${EN()
         ? 'Billed at the normal monthly rate, on the usual bill run. For a part month, set "ProrateMode = MANUAL" and the amount on the student form first.'
         : 'คิดราคาปกติ และออกบิลพร้อมรอบรายเดือนตามปกติ · ถ้ามาไม่เต็มเดือน ให้ตั้งราคาของเดือนนั้นเองที่ฟอร์มนักเรียนก่อน'}</p>
       ${/* 🔴 the school has decided not to insure a short stay — said here, where the decision is
            being made, rather than discovered at a hospital door */''}
-      <p class="muted" style="font-size:12.5px">🛡️ ${EN()
+      <p class="muted" style="font-size:13px">🛡️ ${EN()
         ? 'No insurance is taken out for a short stay, so the child shows as NOT covered. That is the school’s decision — it is stated on their card so nobody assumes otherwise.'
         : 'ช่วงสั้นๆ โรงเรียนไม่ได้ทำประกันให้ · ระบบจะแสดงว่า "ไม่มีความคุ้มครอง" ตามจริง เพื่อไม่ให้ใครเข้าใจผิดตอนเกิดเหตุ'}</p>
       <button class="btn block" onclick="A_termDo('${esc(sid)}',this)">${esc(t('c.save'))}</button>`); };
@@ -12293,7 +12296,7 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
   // ---- Admin issues a bill to a parent (custom amount for mid-month proration / ad-hoc) ----
   window.A_issueBill=async(sid)=>{ const s=findStudent(sid); const [base,bills]=await Promise.all([api('studentBillBase',{studentId:sid}),api('payments',{studentId:sid})]);
     const billRow=b=>{ const st={PAID:'ok',PARTIAL:'wait',PENDING_VERIFY:'wait'}[b.Status]||'bad';
-      return `<div class="list-item"><span><b>${esc(b.Month)}</b> ${baht(b.TotalDue!=null?b.TotalDue:b.Amount)} <span class="pill ${st}" style="font-size:11px">${esc(tStat(b.Status))}</span></span><button class="btn sm pink" onclick="A_delBill('${esc(b.BillingID)}','${esc(b.Month)}',this)" aria-label="${EN()?"Delete":"ลบ"}" title="${EN()?"Delete":"ลบ"}">🗑️</button></div>`; };
+      return `<div class="list-item"><span><b>${esc(b.Month)}</b> ${baht(b.TotalDue!=null?b.TotalDue:b.Amount)} <span class="pill ${st}" style="font-size:12px">${esc(tStat(b.Status))}</span></span><button class="btn sm pink" onclick="A_delBill('${esc(b.BillingID)}','${esc(b.Month)}',this)" aria-label="${EN()?"Delete":"ลบ"}" title="${EN()?"Delete":"ลบ"}">🗑️</button></div>`; };
     modal(`<h3>🧾 ${esc(t('bill.issue'))} — ${esc(nm(s))}</h3><p class="muted" style="font-size:13px">${esc(t('bill.issueNote'))}</p>
       ${bills&&bills.length?`<div class="card" style="padding:8px;background:var(--surface)"><b style="font-size:13px">📋 ${EN()?'Existing bills':'บิลที่มีอยู่'}</b>${bills.map(billRow).join('')}</div>`:''}
       <div class="grid2"><label class="field"><span>${esc(t('c.month'))}</span><input type="month" id="biMonth" value="${monthStr()}"/></label>
@@ -12340,7 +12343,7 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
       <div id="icCount" class="row" style="gap:6px;margin:6px 0"></div>
       <div style="max-height:40vh;overflow:auto;border:1px solid var(--line);border-radius:8px;padding:6px;margin:6px 0"><label style="display:flex;align-items:center;gap:8px;font-size:13px;border-bottom:1px solid var(--line);padding-bottom:4px"><input type="checkbox" id="icAll" onchange="document.querySelectorAll('.icStu:not([disabled])').forEach(c=>c.checked=this.checked)" style="width:auto"/> <b>${EN()?'Select all':'เลือกทั้งหมด'}</b></label>
         <div id="icRows">${icRows(students, (pre&&pre.byStudent)||{}, month)}</div></div>
-      <p class="muted" style="font-size:12.5px;margin:0 2px 6px">${EN()
+      <p class="muted" style="font-size:13px;margin:0 2px 6px">${EN()
         ? 'A child who already has a bill for this month is locked. Cancel the bill on their finance screen to issue a new one.'
         : 'นักเรียนที่มีบิลของเดือนนี้แล้วจะถูกล็อกไว้ · หากต้องการออกบิลใหม่ ให้ยกเลิกบิลเดิมที่หน้าการเงินของนักเรียนคนนั้นก่อน'}</p>
       <button class="btn block" onclick="A_issueCombinedDo(this)">🧾 ${EN()?'Issue bills':'ออกบิล'}</button>
@@ -12378,8 +12381,8 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
      * with the date under it, so the eye finds it without reading. */
     const tag = (colour,html) => `<small style="color:var(--${colour});font-weight:600;text-align:right;flex:0 0 auto">${html}</small>`;
     const chip = (bg,line,ink,label,sub) => `<span style="flex:0 0 auto;text-align:right;line-height:1.3">
-      <b style="display:inline-block;background:var(--${bg});border:1px solid var(--${line});color:var(--${ink});border-radius:999px;padding:2px 9px;font-size:12.5px;white-space:nowrap">${label}</b>
-      ${sub?`<br><small class="muted" style="font-size:11.5px">${sub}</small>`:''}</span>`;
+      <b style="display:inline-block;background:var(--${bg});border:1px solid var(--${line});color:var(--${ink});border-radius:999px;padding:2px 9px;font-size:13px;white-space:nowrap">${label}</b>
+      ${sub?`<br><small class="muted" style="font-size:12px">${sub}</small>`:''}</span>`;
     return students.map(s=>{ const st=by[s.StudentID]||null;
       const pp=st&&st.prepay ? st.prepay : null;          // the prepayment itself, when there is one
       const pi=pp;                                        // (kept: every branch below reads `pi`)
@@ -12599,7 +12602,7 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
              a screen whose other button asks thirty families for money. */''}
         <button class="btn outline" style="flex:1" onclick="this.closest('.modal').remove();A_genBills()">← ${EN()?'Back':'ย้อนกลับ'}</button>
         <button class="btn" style="flex:1" onclick="A_genBillsDo(this,'${esc(r.month)}')">✅ ${EN()?'Issue the bills':'ยืนยันออกบิล'}</button></div>
-      <p class="muted" style="font-size:12.5px;text-align:center;margin-top:6px">${EN()
+      <p class="muted" style="font-size:13px;text-align:center;margin-top:6px">${EN()
         ? 'If this goes wrong, "Undo the last bill run" takes back every bill this run creates that no parent has paid yet.'
         : 'หากผิดพลาด สามารถกด “ย้อนกลับการออกบิลล่าสุด” เพื่อลบบิลที่รอบนี้สร้างและยังไม่มีผู้ปกครองชำระได้'}</p>`);
     };
@@ -12802,7 +12805,7 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
           : (EN()?'⚠️ The clocks do NOT agree':'⚠️ เขตเวลาไม่ตรงกัน')}</b>
         <div style="font-size:13px;margin-top:4px">${EN()?'Script time now':'เวลาตามสคริปต์ตอนนี้'}: <b>${esc(d.now||'-')}</b> (${esc(d.target||'')})</div></div>
       <div class="card" style="padding:6px">${(d.zones||[]).map(row).join('')}</div>
-      ${d.agreed?'':`<div class="card" style="padding:10px"><p class="muted" style="font-size:12.5px;margin:0 0 8px">${EN()
+      ${d.agreed?'':`<div class="card" style="padding:10px"><p class="muted" style="font-size:13px;margin:0 0 8px">${EN()
         ? 'A mismatch does not show an error. It files a check-in under the wrong date, counts an OT hour on the wrong day, and shifts every hour in the speed report.'
         : 'เขตเวลาไม่ตรงกันจะไม่ขึ้น error — แต่การเช็คอินอาจถูกบันทึกผิดวัน · ชั่วโมง OT ไปอยู่ผิดวัน · และชั่วโมงในรายงานความเร็วเคลื่อนทั้งหมด'}</p>
         <button class="btn block" onclick="A_tzFix('${esc(d.target||'Asia/Bangkok')}',this)">🕐 ${EN()?`Set everything to ${d.target}`:`ตั้งทุกจุดเป็น ${esc(d.target||'')}`}</button>
@@ -12911,7 +12914,7 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
         <div class="grid2" style="margin-top:6px"><input id="ngName" placeholder="${esc(t('grp.nameTH'))}"/><input id="ngNameEN" placeholder="${esc(t('grp.nameEN'))}"/></div>
         <div class="grid2" style="margin-top:6px"><input id="ngIn" type="time" value="08:00"/><input id="ngOut" type="time" value="17:00"/></div>
         <button class="btn block" style="margin-top:6px" onclick="A_addGroup(this)">${esc(t('grp.add'))}</button></div>
-      <button class="btn block outline" onclick="this.closest('.modal').remove()">${esc(t('c.close'))}</button>`);
+      <button class="btn outline block" onclick="this.closest('.modal').remove()">${esc(t('c.close'))}</button>`);
   };
   window.A_setGroup=async(group,which,val)=>{ await api('setStaffGroupHours',{group,checkIn:which==='in'?val:undefined,checkOut:which==='out'?val:undefined}); toast(t('c.saved')); };
 
@@ -12953,7 +12956,7 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
       <p class="muted" style="font-size:13px">${EN()?'Tap a day to read the report that was sent.':'แตะที่วันเพื่อดูบันทึกที่ส่งไปแล้ว'}</p>
       ${(rows||[]).length?rows.map(r=>{ const d=ymd(r.Date); const sent=String(r.Status||'').toUpperCase()!=='DRAFT';
           return `<div class="list-item" style="cursor:pointer" onclick="this.closest('.modal').remove();A_viewJournal('${esc(sid)}','${esc(d)}')">
-            <span><b>${esc(ddmmyyyy(d))}</b> ${sent?`<span class="pill ok" style="font-size:11px">${EN()?'sent':'ส่งแล้ว'}</span>`:`<span class="pill wait" style="font-size:11px">${EN()?'draft':'ร่าง'}</span>`}</span><span class="muted">›</span></div>`; }).join('')
+            <span><b>${esc(ddmmyyyy(d))}</b> ${sent?`<span class="pill ok" style="font-size:12px">${EN()?'sent':'ส่งแล้ว'}</span>`:`<span class="pill wait" style="font-size:12px">${EN()?'draft':'ร่าง'}</span>`}</span><span class="muted">›</span></div>`; }).join('')
         :`<div class="card muted">${EN()?'No reports yet':'ยังไม่มีบันทึก'}</div>`}
       <button class="btn outline block" style="margin-top:8px" onclick="this.closest('.modal').remove()">${esc(t('c.close'))}</button>`); };
   window.A_unlockJournal=async(sid,day)=>{ if(!confirm(t('jr.confirmUnlock')))return;
@@ -13157,7 +13160,7 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
         <span style="text-align:center;color:#06C755">💬 Line</span></div>`;
   const _notifyRow = (chOn, t) => `
       <div style="display:grid;grid-template-columns:1fr 58px 58px;align-items:center;gap:2px;padding:5px 0;border-top:1px solid var(--line,#eee)">
-        <span style="font-size:14px;line-height:1.35">${EN()?t.en:t.th}${t.hint?`<br><span class="muted" style="font-size:11.5px">${EN()?t.hint.en:t.hint.th}</span>`:''}</span>
+        <span style="font-size:14px;line-height:1.35">${EN()?t.en:t.th}${t.hint?`<br><span class="muted" style="font-size:12px">${EN()?t.hint.en:t.hint.th}</span>`:''}</span>
         <span style="text-align:center"><input type="checkbox" data-notify="${esc(t.k)}" data-ch="app"  style="width:20px;height:20px" ${chOn(t.k,'app')?'checked':''}/></span>
         <span style="text-align:center"><input type="checkbox" data-notify="${esc(t.k)}" data-ch="line" style="width:20px;height:20px" ${chOn(t.k,'line')?'checked':''}/></span></div>`;
 
@@ -13262,7 +13265,7 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
           <div style="font-size:13px;margin-top:4px">${esc(r.school||(EN()?'(no school name set)':'(ยังไม่ได้ตั้งชื่อโรงเรียน)'))} · ${EN()?'checked':'ตรวจ'} ${r.checked} ${EN()?'settings':'ค่า'} · ${EN()?'already set':'ตั้งแล้ว'} ${r.ok}</div></div>
         ${missingRows.length?`<div class="card" style="padding:10px;margin-top:8px;background:var(--surface-2)">
           <b style="font-size:13px">🧩 ${EN()?'Settings with no row at all':'การตั้งค่าที่ไม่มีแถวในชีตเลย'} (${missingRows.length})</b>
-          <p class="muted" style="font-size:12.5px;margin:4px 0 8px">${EN()
+          <p class="muted" style="font-size:13px;margin:4px 0 8px">${EN()
             ? 'The app is using a value written in its own source code, which the school never chose and cannot see or change. Adding the rows fixes that — it only ADDS missing keys and never touches a row that already exists.'
             : 'ตอนนี้ระบบใช้ค่าที่เขียนอยู่ในโค้ดแทน ซึ่งโรงเรียนไม่ได้เป็นคนตั้ง และมองไม่เห็น/แก้ไม่ได้ · การเพิ่มแถวจะแก้เรื่องนี้ — ระบบจะ<b>เพิ่มเฉพาะคีย์ที่ขาด ไม่แตะแถวที่มีอยู่แล้ว</b>'}</p>
           <button class="btn sm block" onclick="A_backfillConfig(this)">🧩 ${EN()?'Add the missing rows':'เพิ่มแถวที่ขาดลงในชีต'}</button></div>`:''}
@@ -13378,8 +13381,8 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
     const rows = (d.matches||[]).map(m => {
       const wins = d.resolves && d.resolves.sheet === m.sheet && d.resolves.id === m.id;
       return `<div class="list-item stack" style="${wins?'border-left:3px solid var(--ok)':''}">
-        <span><b>${esc(m.name||m.id)}</b> <span class="pill ${m.sheet==='USERS'?'warn':'info'}" style="font-size:11px">${esc(sheetLbl[m.sheet]||m.sheet)}</span>
-          ${wins?`<span class="pill ok" style="font-size:11px">${EN()?'this one wins':'ระบบพาเข้าอันนี้'}</span>`:''}<br>
+        <span><b>${esc(m.name||m.id)}</b> <span class="pill ${m.sheet==='USERS'?'warn':'info'}" style="font-size:12px">${esc(sheetLbl[m.sheet]||m.sheet)}</span>
+          ${wins?`<span class="pill ok" style="font-size:12px">${EN()?'this one wins':'ระบบพาเข้าอันนี้'}</span>`:''}<br>
           <small class="muted">${esc(m.id)}${m.role?' · '+esc(m.role):''}${m.linkedId?` · ${EN()?'points at':'ชี้ไปที่'} ${esc(m.linkedId)}`:''}</small><br>
           <small class="muted">🔗 ${esc(m.lineUid||'—')}${m.email?' · 📧 '+esc(m.email):''}${m.googleLinked?' ✅':''}</small></span>
         <span><small class="muted">${esc(m.matchedBy)}</small></span></div>`; }).join('');
@@ -14432,7 +14435,7 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
     const hol={}; (await api('holidays',{}).catch(()=>[])).forEach(h=>{ const k=ymd(h.Date||h.date); if(k) hol[k]=h.NameTH||h.Name||h.name||h.NameEN||''; });
     const rows=fmDays(FM_MONTH).filter(ds=>!fmWeekend(ds)).map(ds=>{ const v=by[ds]||{};
       if(hol[ds]) return `<div class="card" style="padding:8px;background:var(--bad-bg);border-color:var(--bad-line)">
-        <div class="spread"><b>${esc(ds.slice(8))} ${esc(fmDow(ds))}.</b><span class="pill bad" style="font-size:11px">🏖️ ${esc(hol[ds])}</span></div>
+        <div class="spread"><b>${esc(ds.slice(8))} ${esc(fmDow(ds))}.</b><span class="pill bad" style="font-size:12px">🏖️ ${esc(hol[ds])}</span></div>
         <small class="muted">${EN()?'School closed — no menu needed':'วันหยุด — ไม่ต้องลงเมนู'}</small></div>`;
       return `<div class="card" style="padding:8px">
         <div class="spread"><b>${esc(ds.slice(8))} ${esc(fmDow(ds))}.</b><small class="muted">${esc(ds)}</small></div>
@@ -14498,7 +14501,7 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
   window.A_surveys=async()=>{
     const list=await api('surveys',{staffId:USER.staffId},{fresh:true});
     const row=s=>`<div class="card" style="padding:8px">
-      <div class="spread"><b>${esc(s.title)}</b><span class="pill ${s.status==='OPEN'?'ok':'info'}" style="font-size:11px">${s.status==='OPEN'?(EN()?'open':'เปิดรับ'):(EN()?'closed':'ปิดแล้ว')}</span></div>
+      <div class="spread"><b>${esc(s.title)}</b><span class="pill ${s.status==='OPEN'?'ok':'info'}" style="font-size:12px">${s.status==='OPEN'?(EN()?'open':'เปิดรับ'):(EN()?'closed':'ปิดแล้ว')}</span></div>
       <small class="muted">${s.questionCount>1?(EN()?s.questionCount+' questions':s.questionCount+' ข้อ'):esc(SV_TYPE(s.type))} · ${esc(s.scope==='all'?(EN()?'everyone':'ทุกคน'):(s.scope==='class'?(EN()?'class ':'ชั้น ')+s.target:(EN()?'one child':'รายบุคคล')))}${s.anonymous?' · '+(EN()?'anonymous':'ไม่ระบุชื่อ'):''} · ${EN()?'answers':'คำตอบ'} <b>${s.responses}</b></small>
       <div class="row" style="gap:6px;margin-top:6px">
         <button class="btn sm outline" onclick="A_svResults('${esc(s.surveyId)}')">📊 ${EN()?'Results':'ผลลัพธ์'}</button>
@@ -14841,8 +14844,8 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
     const graceOf=o=>Number(o.graceMinutes||21);
     const inGrace=o=>Number(o.lateMinutes||0)<=graceOf(o) && Number(o.fullAmount||o.amount||0)<=0;
     const otPill=o=>o.status==='CANCELLED'&&inGrace(o)
-      ? `<span class="pill info" style="font-size:11px">${EN()?'not OT (within grace)':'ไม่เข้าเงื่อนไข OT'}</span>`
-      : `<span class="pill ${pill(o.status)}" style="font-size:11px">${esc(lbl(o.status))}</span>`;
+      ? `<span class="pill info" style="font-size:12px">${EN()?'not OT (within grace)':'ไม่เข้าเงื่อนไข OT'}</span>`
+      : `<span class="pill ${pill(o.status)}" style="font-size:12px">${esc(lbl(o.status))}</span>`;
     // "ปกติ 200 · ส่วนลดพิเศษ −100 · เก็บจริง 100" — the admin must be able to see at a glance that a
     // row is discounted, not miscalculated. Rows with no discount just show the charge.
     const otLine=(full,disc)=>disc>0
@@ -14888,14 +14891,14 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
           nCancel=byStatus('CANCELLED').length;
     const charged=sum(live,o=>o.amount), collected=sum(byStatus('PAID'),o=>o.amount),
           owed=Math.max(0,charged-collected), discount=sum(live,o=>o.discount);
-    const cell=(lbl,val,col)=>`<div style="flex:1;min-width:88px"><div style="font-size:18px;font-weight:800;color:${col||'var(--ink)'}">${val}</div><div class="muted" style="font-size:11.5px">${lbl}</div></div>`;
+    const cell=(lbl,val,col)=>`<div style="flex:1;min-width:88px"><div style="font-size:18px;font-weight:800;color:${col||'var(--ink)'}">${val}</div><div class="muted" style="font-size:12px">${lbl}</div></div>`;
     /* The count cells are BUTTONS — tapping one filters the list below to exactly the rows behind
      * that number. The active one is outlined so the list can never be read as "all of them". */
     const fcell=(k,lbl,val,col)=>{ const on=OT_FILT===k;
       return `<button onclick="A_otFilter('${k}')" style="flex:1;min-width:84px;text-align:left;cursor:pointer;font-family:inherit;
         background:${on?'var(--blue-bg)':'transparent'};border:1px solid ${on?'var(--blue-line)':'transparent'};border-radius:10px;padding:4px 6px"
         aria-pressed="${on}"><div style="font-size:18px;font-weight:800;color:${col||'var(--ink)'}">${val}</div>
-        <div class="muted" style="font-size:11.5px">${lbl}${on?' ▾':''}</div></button>`; };
+        <div class="muted" style="font-size:12px">${lbl}${on?' ▾':''}</div></button>`; };
     /* FOLDS AWAY. Twenty-seven rows plus a six-figure summary does not fit a phone, and the rows are
      * what an admin came for — so the numbers collapse and the list keeps the screen. Open by
      * default because the totals are the first thing to read ONCE; `open` is remembered so a filter
@@ -14907,14 +14910,14 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
         ${cell(EN()?'Collected':'เก็บได้แล้ว', baht(collected), 'var(--ok)')}
         ${cell(EN()?'Still owed':'ยังค้างชำระ', baht(owed), owed>0?'var(--bad)':'var(--ok)')}
       </div>
-      ${discount>0?`<div style="font-size:12.5px;color:var(--warn);margin-top:6px">${EN()?'Discounts given':'ส่วนลดที่ให้ไป'} −${baht(discount)}</div>`:''}
+      ${discount>0?`<div style="font-size:13px;color:var(--warn);margin-top:6px">${EN()?'Discounts given':'ส่วนลดที่ให้ไป'} −${baht(discount)}</div>`:''}
       <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;padding-top:8px;border-top:1px solid var(--line)">
         ${fcell('all', EN()?'All rows':'รายการทั้งหมด', rows.length)}
         ${fcell('paid', EN()?'Paid':'ชำระแล้ว', nPaid, 'var(--ok)')}
         ${fcell('unpaid', EN()?'Unpaid':'ค้างชำระ', nUnpaid+nWait+nPartial, (nUnpaid+nWait+nPartial)>0?'var(--bad)':'var(--ink)')}
         ${fcell('cancelled', EN()?'Cancelled':'ยกเลิก', nCancel, 'var(--ink-3)')}
       </div>
-      <div class="muted" style="font-size:11.5px;margin-top:4px">${EN()?'Tap a number to see just those rows':'แตะตัวเลขเพื่อดูเฉพาะรายการนั้น'}</div>
+      <div class="muted" style="font-size:12px;margin-top:4px">${EN()?'Tap a number to see just those rows':'แตะตัวเลขเพื่อดูเฉพาะรายการนั้น'}</div>
       ${nPartial?`<div style="font-size:12px;color:var(--warn-ink);margin-top:6px">⚠️ ${EN()
         ? `${nPartial} row(s) part-paid — counted as still owed here; the exact amount is on the row.`
         : `มี ${nPartial} รายการชำระบางส่วน — นับรวมเป็นยังค้างในสรุปนี้ · ยอดที่รับแล้วดูในรายการ`}</div>`:''}
@@ -14936,7 +14939,7 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
           OT_FILT==='unpaid' ? `✅ ${EN()?'Nothing outstanding — every OT this month has been paid.':'ไม่มีรายการค้างชำระ — OT เดือนนี้เก็บครบแล้ว'}`
                              : (EN()?'No rows in this filter':'ไม่มีรายการในตัวกรองนี้')}
           <button class="btn sm outline block" style="margin-top:8px" onclick="A_otFilter('all')">${EN()?'Show all rows':'ดูรายการทั้งหมด'}</button></div>`;
-        return (OT_FILT==='all'?'':`<div class="muted" style="font-size:12.5px;margin:2px 2px 6px">${EN()
+        return (OT_FILT==='all'?'':`<div class="muted" style="font-size:13px;margin:2px 2px 6px">${EN()
             ? `Showing ${shown.length} of ${rows.length} rows`
             : `แสดง ${shown.length} จาก ${rows.length} รายการ`} · <a href="#" onclick="A_otFilter('all');return false">${EN()?'show all':'ดูทั้งหมด'}</a></div>`)
           + shown.map(row).join(''); })()}
@@ -14957,7 +14960,7 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
         <div class="row" style="margin-top:6px">
           <button class="btn sm pink" onclick="A_socBatch('cancel')">🚫 ${EN()?'Cancel selected':'ยกเลิกรายการที่เลือก'}</button>
           <button class="btn sm outline" onclick="A_socBatch('restore')">♻️ ${EN()?'Restore selected':'คืนค่ารายการที่เลือก'}</button></div>
-        <div class="muted" style="font-size:11.5px;line-height:1.55;margin-top:6px">${EN()
+        <div class="muted" style="font-size:12px;line-height:1.55;margin-top:6px">${EN()
           ? '<b>Cancel</b> = this OT is not billed to the family (the row stays, marked cancelled).<br><b>Restore</b> = put a cancelled row back so it is billed again.<br>Only the ticked rows are affected. Paid rows cannot be changed.'
           : '<b>ยกเลิกรายการที่เลือก</b> = ไม่เรียกเก็บ OT รายการนั้นจากผู้ปกครอง (รายการยังอยู่ แต่ขึ้นสถานะยกเลิก)<br><b>คืนค่ารายการที่เลือก</b> = นำรายการที่ยกเลิกไว้กลับมาเรียกเก็บตามเดิม<br>มีผลเฉพาะรายการที่ติ๊กไว้เท่านั้น · รายการที่ชำระแล้วแก้ไม่ได้'}</div>
         <button class="btn outline block" style="margin-top:8px" onclick="this.closest('.modal').remove()">${esc(t('c.close'))}</button>
@@ -15041,7 +15044,7 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
     // teacher was invisible here even though the admin had been notified about it. Both stages now
     // appear, each labelled, and the admin can settle either.
     const card=r=>`<div class="card" style="margin:8px 0"><div class="spread"><div><b>${esc(dnick(r))}</b> · ${esc(tyLabel(r.Type))} <b style="color:var(--blue)">${esc(r.RequestTime)}</b> · ${esc(ddmmyyyy(r.Date))}</div>
-        <span class="pill ${r.stage==='leader'?'wait':'info'}" style="font-size:11px">${r.stage==='leader'?(EN()?'with head teacher':'รอหัวหน้าครู'):(EN()?'your turn':'รอคุณอนุมัติ')}</span></div>
+        <span class="pill ${r.stage==='leader'?'wait':'info'}" style="font-size:12px">${r.stage==='leader'?(EN()?'with head teacher':'รอหัวหน้าครู'):(EN()?'your turn':'รอคุณอนุมัติ')}</span></div>
       ${r.Reason?`<small class="muted">${esc(r.Reason)}</small>`:''}
       ${r.stage==='leader'?`<small class="muted" style="display:block;margin-top:4px">${EN()?'Approving here settles it without waiting for the head teacher — it is recorded that you did.':'กดอนุมัติที่นี่ = ปิดคำขอโดยไม่ต้องรอหัวหน้าครู · ระบบจะบันทึกว่าแอดมินอนุมัติแทน'}</small>`:''}
       <div class="row" style="margin-top:8px"><button class="btn sm green" onclick="ATR_decide('${esc(r.ReqID)}','approve')">✔ ${esc(t('c.approve'))}</button><button class="btn sm pink" onclick="ATR_decide('${esc(r.ReqID)}','reject')">✕ ${esc(t('c.reject'))}</button></div></div>`;
@@ -15071,7 +15074,7 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
   function timeReqHistCard(r){ const s=String(r.Status||'').toUpperCase(); const d=ATRH_ST[s]||['info',()=>s];
     return `<div class="card" style="padding:8px;margin:6px 0">
       <div class="spread"><div><b>${esc(dnick(r))}</b> · ${esc(timeTypeLabel(r.Type))} <b style="color:var(--blue)">${esc(r.RequestTime)}</b></div>
-        <span class="pill ${d[0]}" style="font-size:11px">${esc(d[1]())}</span></div>
+        <span class="pill ${d[0]}" style="font-size:12px">${esc(d[1]())}</span></div>
       <small class="muted">${EN()?'for':'ของวันที่'} ${esc(longDate(r.Date))}${r.Reason?` · ${esc(r.Reason)}`:''}</small>
       <div style="font-size:12px;margin-top:4px">1. ${EN()?'Head teacher':'หัวหน้าครู'}: ${atrhStep(r.Step1By,r.Step1At,r.Step1Status)}</div>
       <div style="font-size:12px">2. ${EN()?'Admin':'แอดมิน'}: ${atrhStep(r.Step2By,r.Step2At,r.Step2Status)}</div>
@@ -15110,7 +15113,7 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
     const row=o=>{ const st=String(o.Status).toUpperCase(); const isPA=st==='PENDING_ADMIN'; const rejected=st==='REJECTED';
       const hol=isHolOT(o);
       return `<div class="card" style="padding:8px;${rejected?'opacity:.7':''}">
-        <div class="spread"><label style="display:flex;gap:6px;align-items:center"><input type="checkbox" class="sotchk" value="${esc(o.OTRecordID)}" style="width:auto" onchange="A_sotSel()"/> <b>${esc(dnick(o))}</b>${hol?` <span class="pill" style="font-size:11px">🎉 ${EN()?'Holiday':'วันหยุด'}</span>`:''}</label><span class="pill ${pcls(st)}" style="font-size:11px">${esc(plbl(st))}</span></div>
+        <div class="spread"><label style="display:flex;gap:6px;align-items:center"><input type="checkbox" class="sotchk" value="${esc(o.OTRecordID)}" style="width:auto" onchange="A_sotSel()"/> <b>${esc(dnick(o))}</b>${hol?` <span class="pill" style="font-size:12px">🎉 ${EN()?'Holiday':'วันหยุด'}</span>`:''}</label><span class="pill ${pcls(st)}" style="font-size:12px">${esc(plbl(st))}</span></div>
         ${hol?`<small class="muted">${esc(ddmmyyyy(o.Date))}${o.Note?` · ${esc(o.Note)}`:''}</small>`
              :`<small class="muted">${esc(ddmmyyyy(o.Date))} · ${EN()?'in':'เข้างาน'} <b>${esc(o.CheckIn||'--:--')}</b> → ${EN()?'out':'เลิกงาน'} <b>${esc(o.CheckOutActual||o.ActualOut||'--:--')}</b>${o.PlanOut?` <span class="muted">(${EN()?'plan':'แผน'} ${esc(o.PlanOut)})</span>`:''}</small>`}
         <div class="grid2" style="margin-top:6px"><label class="field"><span>${EN()?'Hours':'ชั่วโมง'}</span><input type="number" min="0" step="1" value="${esc(o.Hours)}" id="sot_h_${o.OTRecordID}" ${hol?'disabled':''}/></label>
@@ -15192,7 +15195,7 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
     const total=hol.reduce((a,o)=>a+(Number(o.Amount)||0),0);
     const people=(A_CACHE.staff||[]).filter(s=>!s.ended);
     const row=o=>`<div class="card" style="padding:8px">
-      <div class="spread"><b>${esc(dnick(o))}</b><span class="pill ok" style="font-size:11px">${esc(ddmmyyyy(o.Date))}</span></div>
+      <div class="spread"><b>${esc(dnick(o))}</b><span class="pill ok" style="font-size:12px">${esc(ddmmyyyy(o.Date))}</span></div>
       <label class="field" style="margin-top:6px"><span>${EN()?'Amount (฿)':'จำนวนเงิน (฿)'}</span><input type="number" min="0" id="hot_a_${o.OTRecordID}" value="${esc(o.Amount)}"/></label>
       <label class="field"><span>${EN()?'Details':'รายละเอียด'}</span><textarea id="hot_n_${o.OTRecordID}" rows="2">${esc(o.Note||'')}</textarea></label>
       <!-- the children bound to that DAY. They belong to the date, not to this one teacher's row, so
@@ -15444,7 +15447,7 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
       return `<div class="card" id="orgT_${esc(s.StaffID)}" data-sid="${esc(s.StaffID)}" style="padding:10px${none?';border-color:var(--warn-line);background:var(--warn-bg)':''}">
         <div style="display:flex;gap:8px;align-items:center">${personAvatar(s)}<div style="min-width:0">
           <b>${esc(dispNick(s))}</b> ${nmSub(s)?`<small class="muted">${esc(nmSub(s))}</small>`:''}
-          ${none?`<span class="pill warn" style="font-size:11px">${EN()?'no class':'ยังไม่ได้จัดชั้น'}</span>`:''}
+          ${none?`<span class="pill warn" style="font-size:12px">${EN()?'no class':'ยังไม่ได้จัดชั้น'}</span>`:''}
           <br><small class="muted">${_notr(s.Position||'')}</small></div></div>
         <label style="display:flex;align-items:center;gap:8px;margin:8px 0 4px;font-size:14px"><input type="checkbox" class="orgAll" style="width:auto" ${all?'checked':''} onchange="ORG_tAll(this)"/> <b>${EN()?'All classes (head teacher)':'ทุกชั้น (หัวหน้าครู)'}</b></label>
         ${/* a head teacher is stored as '*', NOT as "every box ticked" — the day a sixth Nursery
@@ -15470,7 +15473,7 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
       return `<div class="card" id="orgS_${esc(s.StudentID)}" data-cur="${esc(cur)}" style="padding:10px">
         <div style="display:flex;gap:8px;align-items:center">${studentAvatar(s)}<div style="min-width:0">
           <b>${esc(dispNick(s))}</b> ${nmSub(s)?`<small class="muted">${esc(nmSub(s))}</small>`:''}
-          ${!cur?`<span class="pill warn" style="font-size:11px">${EN()?'no class':'ยังไม่ได้จัดชั้น'}</span>`:''}</div></div>
+          ${!cur?`<span class="pill warn" style="font-size:12px">${EN()?'no class':'ยังไม่ได้จัดชั้น'}</span>`:''}</div></div>
         <div class="orgDeps" style="margin-top:6px">${deps.map(dep=>`<label class="orgtick" style="display:inline-flex;align-items:center;gap:6px;border:1px solid ${cur===dep?'var(--blue)':'var(--line)'};background:${cur===dep?'var(--blue-bg,rgba(59,130,246,.12))':'transparent'};border-radius:999px;padding:6px 12px;margin:3px 4px 3px 0;font-size:14px;cursor:pointer">
           <input type="radio" name="orgSr_${esc(s.StudentID)}" value="${esc(dep)}" class="orgdep" style="width:auto;margin:0" ${cur===dep?'checked':''} onchange="ORG_sPick('${esc(s.StudentID)}')"/> ${esc(dep)}</label>`).join('')||`<small class="muted">${EN()?'no classes yet':'ยังไม่มีชั้นเรียน'}</small>`}</div>
         <div class="orgGo" hidden style="margin-top:6px"><button class="btn sm block" onclick="ORG_sSave('${esc(s.StudentID)}',this)"></button></div></div>`; };
@@ -15660,7 +15663,7 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
         <div class="grid2"><label class="field"><span>${esc(t('hol.startTime'))}</span><input type="time" id="hStart"/></label><label class="field"><span>${esc(t('hol.endTime'))}</span><input type="time" id="hEnd"/></label></div>
         <small class="muted">${esc(t('hol.timeNote'))}</small>
         <button class="btn block" style="margin-top:8px" onclick="A_addHoliday()">${esc(t('hol.add'))}</button></div>
-      <div class="card"><h3>📋 ${esc(t('hol.list'))}</h3>${hs.map(h=>`<div class="list-item"><span><b>${esc(h.Date)}</b> · ${esc(EN()?h.NameEN:h.NameTH)}${holWindow(h)?` <span class="pill wait" style="font-size:11px">🕘 ${esc(holWindow(h))}</span>`:''}${h.Recurring?` <span class="pill info">${esc(t('hol.yearly'))}</span>`:''}</span><span class="acts2"><button class="btn sm outline" onclick="A_editHoliday('${esc(h.Date)}','${esc(h.NameTH||'')}')" aria-label="${EN()?"Edit":"แก้ไข"}" title="${EN()?"Edit":"แก้ไข"}">✏️</button><button class="btn sm pink" onclick="A_removeHoliday('${h.Date}','${esc(h.NameTH)}')" aria-label="${EN()?"Delete":"ลบ"}" title="${EN()?"Delete":"ลบ"}">🗑️</button></span></div>`).join('')}</div>`;
+      <div class="card"><h3>📋 ${esc(t('hol.list'))}</h3>${hs.map(h=>`<div class="list-item"><span><b>${esc(h.Date)}</b> · ${esc(EN()?h.NameEN:h.NameTH)}${holWindow(h)?` <span class="pill wait" style="font-size:12px">🕘 ${esc(holWindow(h))}</span>`:''}${h.Recurring?` <span class="pill info">${esc(t('hol.yearly'))}</span>`:''}</span><span class="acts2"><button class="btn sm outline" onclick="A_editHoliday('${esc(h.Date)}','${esc(h.NameTH||'')}')" aria-label="${EN()?"Edit":"แก้ไข"}" title="${EN()?"Edit":"แก้ไข"}">✏️</button><button class="btn sm pink" onclick="A_removeHoliday('${h.Date}','${esc(h.NameTH)}')" aria-label="${EN()?"Delete":"ลบ"}" title="${EN()?"Delete":"ลบ"}">🗑️</button></span></div>`).join('')}</div>`;
     window._HOLS=hs;
   };
   /**
@@ -15761,12 +15764,12 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
     // what the waiting is FOR, and what is still genuinely owed on top of it — one line each, so
     // "รอตรวจสอบ 100" never has to stand for both
     const otherPill =
-        (pending>0 ? `<br><span class="pill info" style="font-size:11px">📎 ${EN()
+        (pending>0 ? `<br><span class="pill info" style="font-size:12px">📎 ${EN()
             ? `slip sent${tuiPend>0?` · tuition ${baht(tuiPend)}`:''}${othPend>0?` · other ${baht(othPend)}`:''}`
             : `แนบสลิปแล้ว${tuiPend>0?` · ค่าเทอม ${baht(tuiPend)}`:''}${othPend>0?` · อื่นๆ ${baht(othPend)}`:''}`}</span>` : '')
-      + (stillOwed>0 && pending>0 ? `<br><span class="pill bad" style="font-size:11px">⚠️ ${EN()?`still due ${baht(stillOwed)}`:`ยังค้างชำระ ${baht(stillOwed)}`}</span>` : '')
+      + (stillOwed>0 && pending>0 ? `<br><span class="pill bad" style="font-size:12px">⚠️ ${EN()?`still due ${baht(stillOwed)}`:`ยังค้างชำระ ${baht(stillOwed)}`}</span>` : '')
       + ((pending<=0 && tuiOpen<=0 && othReal>0)
-          ? `<br><span class="pill wait" style="font-size:11px">⚠️ ${EN()?`other charges due ${baht(othReal)}`:`ค้างชำระอื่นๆ (ไม่ใช่ค่าเทอม) ${baht(othReal)}`}</span>`
+          ? `<br><span class="pill wait" style="font-size:12px">⚠️ ${EN()?`other charges due ${baht(othReal)}`:`ค้างชำระอื่นๆ (ไม่ใช่ค่าเทอม) ${baht(othReal)}`}</span>`
           : '');
     const amount = (tuiOpen+othOpen)>0 ? baht(tuiOpen+othOpen) : `<span class="muted">${baht(0)}</span>`;
     const sub = s.prepaid ? `<br><small style="color:var(--ok);font-weight:400">💰 ${esc(prepaySpan(s.prepay))}</small>` : '';
@@ -15795,7 +15798,7 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
       FIN_TAB==='cycle'?api('billingGroups',{month}).catch(()=>null):Promise.resolve(null)]);
     if(plans&&plans.length) A_CACHE.plans=plans;
     const pendN=(pend||[]).length;
-    const stat=(cls,n,l,sub)=>`<div class="stat ${cls}"><div class="n">${n}</div><div class="l">${esc(l)}${sub?`<br><span style="opacity:.85;font-size:11px">${sub}</span>`:''}</div></div>`;
+    const stat=(cls,n,l,sub)=>`<div class="stat ${cls}"><div class="n">${n}</div><div class="l">${esc(l)}${sub?`<br><span style="opacity:.85;font-size:12px">${sub}</span>`:''}</div></div>`;
     // income tab: tuition/OT/charges collection per student
     const inTab=`<div class="card"><div class="spread"><h3>👶 ${esc(t('fin.tuition'))}</h3><span class="pill ${f.studentsPaid>=f.studentsTotal?'ok':'wait'}">${f.studentsPaid}/${f.studentsTotal} ${esc(t('fin.paid'))}</span></div>
         ${sortBy(f.students,dnick).sort((a,b)=>(a.paused?1:0)-(b.paused?1:0)).map(s=>finStudentRow(s)).join('')}
@@ -15885,7 +15888,7 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
     window._CYCLE=bg;
     const head=`<div class="card" style="padding:10px"><div class="spread"><b style="font-size:14px">📅 ${EN()?'Billing rounds':'วันตัดรอบบิล'}</b>
         <span class="pill info">${bg.total} ${EN()?'students':'คน'} · ${bg.groups.length} ${EN()?'rounds':'กลุ่ม'}</span></div>
-      <p class="muted" style="font-size:12.5px;margin:6px 0 0">${EN()
+      <p class="muted" style="font-size:13px;margin:6px 0 0">${EN()
         ? `A child with no day of their own is billed on the school's day (${bg.defaultDay}). Set a different day on the student's record.`
         : `นักเรียนที่ไม่ได้ระบุวัน จะใช้ค่าของโรงเรียน (วันที่ ${bg.defaultDay}) · เปลี่ยนรายคนได้ที่ข้อมูลนักเรียน`}</p></div>`;
     return head + bg.groups.map(g=>{
@@ -15894,9 +15897,9 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
         <div class="spread"><b style="font-size:15px">📅 ${EN()?`Day ${g.day}`:`วันที่ ${g.day} ของเดือน`}
           ${g.isDefault?`<span class="pill info" style="font-weight:400">${EN()?'school default':'ค่าเริ่มต้นของโรงเรียน'}</span>`:''}</b>
           <b style="font-size:15px">${g.count} ${EN()?'students':'คน'}</b></div>
-        <div class="muted" style="font-size:12.5px;margin-top:2px">${EN()?'Due':'ครบกำหนด'} ${esc(ddmmyyyy(g.dueDate))}${
+        <div class="muted" style="font-size:13px;margin-top:2px">${EN()?'Due':'ครบกำหนด'} ${esc(ddmmyyyy(g.dueDate))}${
           g.isDefault&&g.ownCount?` · ${EN()?'set by hand':'ระบุเอง'} ${g.ownCount}`:''}</div>
-        <div style="font-size:12.5px;margin-top:4px">✅ ${EN()?'billed':'ออกบิลแล้ว'} ${g.billed}${
+        <div style="font-size:13px;margin-top:4px">✅ ${EN()?'billed':'ออกบิลแล้ว'} ${g.billed}${
           g.prepaid?` · 💰 ${EN()?'prepaid':'ชำระล่วงหน้า'} ${g.prepaid}`:''} · <b style="color:${g.pending?'var(--warn)':'var(--ok)'}">${EN()?'to bill':'รอออกบิล'} ${g.pending}</b></div>
         <div style="margin:8px 0 2px">${g.students.map(cycleChip).join('')}</div>
         <button class="btn sm block ${canIssue?'':'outline'}" style="margin-top:8px${canIssue?'':';opacity:.5'}"${canIssue?` onclick="A_cycleIssue(${g.day},this)"`:' disabled'}>🧾 ${
@@ -15911,7 +15914,7 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
     const ids=g.students.filter(s=>!s.billed&&!s.prepaid).map(s=>s.studentId);
     if(!ids.length){ toast(EN()?'Nothing to issue':'ไม่มีรายการที่ต้องออกบิล'); return; }
     modal(`<h3>🧾 ${EN()?`Issue bills — day ${g.day}`:`ออกบิลกลุ่มวันที่ ${g.day}`}</h3>
-      <p style="font-size:13.5px">${EN()?`${ids.length} bills for ${monthNameYear(bg.month)}, due ${ddmmyyyy(g.dueDate)}.`
+      <p style="font-size:13px">${EN()?`${ids.length} bills for ${monthNameYear(bg.month)}, due ${ddmmyyyy(g.dueDate)}.`
         :`ออกบิล ${ids.length} รายการ ของเดือน ${esc(monthNameYear(bg.month))} · ครบกำหนด ${esc(ddmmyyyy(g.dueDate))}`}</p>
       <div style="max-height:32vh;overflow:auto;border:1px solid var(--line);border-radius:8px;padding:6px;margin:6px 0">${
         g.students.filter(s=>!s.billed&&!s.prepaid).map(s=>`<div class="list-item"><span><b>${esc(dnick(s))}</b> <small class="muted">${esc(dn(s))} · ${esc(s.className||'')}</small></span></div>`).join('')}</div>
@@ -15952,8 +15955,8 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
     const pendAmt = sl => (sl||[]).filter(x=>['SUBMITTED','PENDING_VERIFY'].indexOf(String(x.Status||'').toUpperCase())>=0)
       .reduce((a,x)=>a+Number(x.Amount||0),0);
     const statePill = (sl, status) => { const p=pendAmt(sl);
-      return p>0 ? `<span class="pill wait" style="font-size:11px">🕐 ${EN()?`awaiting check ${baht(p)}`:`รอตรวจสอบ ${baht(p)}`}</span>`
-                 : `<span class="pill ${stPill(status)}" style="font-size:11px">${esc(tStat(status)||status||'')}</span>`; };
+      return p>0 ? `<span class="pill wait" style="font-size:12px">🕐 ${EN()?`awaiting check ${baht(p)}`:`รอตรวจสอบ ${baht(p)}`}</span>`
+                 : `<span class="pill ${stPill(status)}" style="font-size:12px">${esc(tStat(status)||status||'')}</span>`; };
     // The bill stores tuition already NET of the child's standing discount, because that is what the
     // parent must see. The admin needs the working: full package price, the discount taken off, then the
     // net — otherwise the number looks arbitrary and cannot be checked against the package.
@@ -15962,7 +15965,7 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
     const _discBaht=_discAmt>0 ? (/%|percent/i.test(String(s.DiscountUnit||'')) ? Math.round(_planPrice*_discAmt/100) : _discAmt) : 0;
     const _isTuition=lbl=>/ค่าเทอม|tuition/i.test(String(lbl||''));
     const billBox = bill
-      ? `<table style="width:100%;font-size:13.5px;margin:4px 0">${(bill.Items||[]).map(it=>{
+      ? `<table style="width:100%;font-size:13px;margin:4px 0">${(bill.Items||[]).map(it=>{
             // expand the single net tuition line into price − discount for the admin's eyes only
             if(_discBaht>0 && _isTuition(it[0]) && Number(it[1])>0 && Math.abs(_planPrice-_discBaht-Number(it[1]))<1)
               return `<tr><td>${esc(it[0])} <small class="muted">${EN()?'(package price)':'(ราคาแพ็กเกจ)'}</small></td><td style="text-align:right">${baht(_planPrice)}</td></tr>`
@@ -16015,7 +16018,7 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
       const dup = String(pp.Status)==='UNPAID' && !sl.length;
       return `<div style="border-bottom:1px solid var(--surface-3);padding:4px 0"><div class="list-item">
         <span><b>${pp.Months} ${EN()?'months':'เดือน'}</b> ${pp.Discount?`<small class="muted">−${pp.Discount}%</small>`:''} <b>${baht(pp.Amount)}</b>
-          <span class="pill ${stPill(pp.Status)}" style="font-size:11px">${esc(pp.Status)}</span>
+          <span class="pill ${stPill(pp.Status)}" style="font-size:12px">${esc(pp.Status)}</span>
           ${cov.length?`<br><small class="muted">${EN()?'covers':'มีผล'} ${esc(monthNameYear(cov[0]))} – ${esc(monthNameYear(cov[cov.length-1]))}</small>`:''}
           ${dup?`<br><small style="color:var(--warn)">${EN()?'no slip attached — safe to delete':'ยังไม่มีสลิปแนบ — ลบได้'}</small>`:''}</span>
         <span class="acts"><button class="btn sm outline" onclick="A_editPrepay('${esc(pp.PrepayID)}','${esc(sid)}')" aria-label="${EN()?'Edit months':'แก้เดือนที่มีผล'}" title="${EN()?'Edit which months this covers':'แก้เดือนที่มีผล'}">📅</button>${dup?`<button class="btn sm pink" onclick="A_delPrepay('${esc(pp.PrepayID)}','${esc(sid)}',this)" aria-label="${EN()?'Delete':'ลบ'}" title="${EN()?'Delete this empty entry':'ลบรายการที่ไม่มีสลิป'}">🗑️</button>`:''}</span>
@@ -16086,7 +16089,7 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
     const start=(cov[0]||monthStr()).slice(0,7);
     modal(`<h3>📅 ${EN()?'Which months does this cover?':'แก้เดือนที่มีผล'}</h3>
       <div class="card" style="padding:8px;background:var(--surface-2)"><b>${pp.Months} ${EN()?'months':'เดือน'}</b>${pp.Discount?` <small class="muted">−${pp.Discount}%</small>`:''} <b>${baht(pp.Amount)}</b>
-        <span class="pill ${paid?'ok':'bad'}" style="font-size:11px">${esc(pp.Status)}</span></div>
+        <span class="pill ${paid?'ok':'bad'}" style="font-size:12px">${esc(pp.Status)}</span></div>
       <label class="field"><span>${EN()?'Starts from the month':'เริ่มมีผลตั้งแต่เดือน'}</span>
         <input type="month" id="epStart" value="${esc(start)}" onchange="A_epCov(${Number(pp.Months)||1})"/></label>
       <p class="muted" style="font-size:13px" id="epCov">${EN()?'covers':'มีผล'} <b>${esc(coverSpan(start, Number(pp.Months)||1))}</b></p>
@@ -16454,7 +16457,7 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
     const lastLine=s=>{ const l=(s.trail||[])[0]; if(!l) return `<small class="muted">${EN()?'nobody has followed this up yet':'ยังไม่มีใครติดตาม'}</small>`;
       return `<small class="muted">👩‍🏫 ${esc(l.by||'-')} · ${esc(ddmmyyyy(l.date))}${l.time?' '+esc(l.time):''}${l.status?' · '+esc(l.status):''}${l.photo?' · 📎':''}</small>`; };
     const row=(s)=>`<div class="list-item" style="flex-wrap:wrap"><span><b>${esc(dnick(s))}</b> <small class="muted">${esc(s.name)} · ${esc(s.class)} · ${esc(t('abs.days').replace('{n}',s.count))}${s.reasons?' · '+esc(s.reasons):''}</small>${backNote(s)}
-        ${ABS_DONE[String(s.status||'')]?`<span class="pill ok" style="font-size:11px;margin-left:4px">${esc(s.status)}</span>`:s.status?`<span class="pill wait" style="font-size:11px;margin-left:4px">${esc(s.status)}</span>`:''}
+        ${ABS_DONE[String(s.status||'')]?`<span class="pill ok" style="font-size:12px;margin-left:4px">${esc(s.status)}</span>`:s.status?`<span class="pill wait" style="font-size:12px;margin-left:4px">${esc(s.status)}</span>`:''}
         <br>${lastLine(s)}${s.followCount>1?` <a href="#" onclick="event.preventDefault();A_absTrail('${esc(s.studentId)}')" style="font-size:12px">· ${EN()?`history (${s.followCount})`:`ประวัติ (${s.followCount})`}</a>`:''}${s.docs?` <a href="#" onclick="event.preventDefault();A_absTrail('${esc(s.studentId)}')" style="font-size:12px;color:var(--blue)">· 📎 ${s.docs}</a>`:''}</span>
       <span class="row" style="width:100%;margin-top:6px"><input id="fn_${s.studentId}" placeholder="${esc(t('abs.note'))}" value="${esc(s.note)}" style="flex:1"/>
         <select id="fs_${s.studentId}">${ABS_STATUSES.map(st=>`<option ${s.status===st?'selected':''}>${esc(st||'-')}</option>`).join('')}</select></span>
@@ -16478,7 +16481,7 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
         <div class="grid2" style="grid-template-columns:1fr 1fr;gap:8px;margin-top:8px">
           ${stat(openN?'':'green',openN,EN()?'Still to follow up':'ยังต้องติดตาม')}
           ${stat('green',all.length-openN,EN()?'Followed up':'ติดตามแล้ว')}</div>
-        <p class="muted" style="font-size:12.5px;margin:8px 0 0">${USER.role==='Admin'||USER.role==='Observer'
+        <p class="muted" style="font-size:13px;margin:8px 0 0">${USER.role==='Admin'||USER.role==='Observer'
           ? (EN()?'Whole school.':'ทั้งโรงเรียน')
           : (EN()?'Your classes only.':'เฉพาะชั้นเรียนที่คุณดูแล')} ${EN()?'Counted as away: no-shows plus filed leave.':'นับรวม: วันที่ขาด + วันที่แจ้งลา'}</p>
         ${(USER.role==='Admin'||USER.role==='Observer')?`<button class="btn sm outline block" style="margin-top:8px" onclick="A_absTrail('')">📒 ${EN()?'Full follow-up log':'ประวัติการติดตามทั้งหมด'}</button>`:''}</div>
@@ -16528,11 +16531,11 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
     let rows=[]; try{ rows=await api('absenceFollowupLog',{studentId:sid||'',staffId:USER.staffId||''})||[]; }catch(e){ err(e); return; }
     const s=sid?(window._ABS||[]).find(x=>x.studentId===sid):null;
     modal(`<h3>📒 ${EN()?'Follow-up history':'ประวัติการติดตาม'}${s?' — '+esc(dnick(s)):''}</h3>
-      <p class="muted" style="font-size:12.5px">${EN()?'Every follow-up that was saved, newest first. Nothing here is overwritten.':'ทุกครั้งที่บันทึกการติดตาม เรียงใหม่สุดก่อน · ข้อมูลเดิมไม่ถูกเขียนทับ'}</p>
+      <p class="muted" style="font-size:13px">${EN()?'Every follow-up that was saved, newest first. Nothing here is overwritten.':'ทุกครั้งที่บันทึกการติดตาม เรียงใหม่สุดก่อน · ข้อมูลเดิมไม่ถูกเขียนทับ'}</p>
       <div style="max-height:60vh;overflow:auto">${rows.length?rows.map(l=>`<div class="list-item" style="flex-wrap:wrap">
         <span><b>${esc(l.nick||l.name||l.studentId)}</b> <small class="muted">${esc(l.className||'')}</small><br>
           <small class="muted">📅 ${esc(ddmmyyyy(l.date))}${l.time?' '+esc(l.time):''} · 👩‍🏫 ${esc(l.by||'-')}</small>
-          ${l.status?`<br><span class="pill ${ABS_DONE[l.status]?'ok':'wait'}" style="font-size:11px">${esc(l.status)}</span>`:''}
+          ${l.status?`<br><span class="pill ${ABS_DONE[l.status]?'ok':'wait'}" style="font-size:12px">${esc(l.status)}</span>`:''}
           ${l.note?`<br><small style="white-space:pre-wrap">📝 ${esc(l.note)}</small>`:''}</span>
         ${l.photo?`<img src="${esc(l.photo)}" alt="doc" style="width:72px;height:90px;object-fit:cover;border-radius:8px;border:1px solid var(--line);cursor:zoom-in" onclick="ZOOM_IMG('${esc(l.photo)}')"/>`:''}</div>`).join('')
         :`<small class="muted">${EN()?'No follow-ups recorded yet':'ยังไม่มีประวัติการติดตาม'}</small>`}</div>
@@ -16659,7 +16662,7 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
         <button class="btn sm outline" onclick="GO('slip')">💵 ${EN()?'My payslips':'สลิปเงินเดือนของฉัน'}</button>
         <button class="btn sm outline" onclick="GO('leave')">📩 ${EN()?'My leave':'การลาของฉัน'}</button>
         <button class="btn sm outline" onclick="GO('schedule')">🗓️ ${EN()?'Work history':'เวลาทำงานย้อนหลัง'}</button></div>
-      <p class="muted" style="font-size:12.5px;margin:10px 10px 0">${EN()
+      <p class="muted" style="font-size:13px;margin:10px 10px 0">${EN()
         ? 'Your profile and password are under your name at the top right.'
         : 'ประวัติส่วนตัวและรหัสผ่าน อยู่ที่ชื่อของท่านมุมขวาบน'}</p></div>`;
   }

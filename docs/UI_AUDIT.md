@@ -59,25 +59,78 @@ The most-repeated inline declarations:
 **27 sizes, five of them fractional.** A fractional font size is the signature of a value nudged
 until it looked right on one screen, on one phone, once.
 
-### 2.3 🔴 103 pieces of text below 12px — against our own written rule
+### 2.3 🔴 92 pieces of text below 12px on screen — against our own written rule
 
-Sizes 8.5, 9, 10, 10.5, 11 and 11.5px appear **103 times**. `docs/FRONTEND_DESIGN.md` says the app
-must be readable *at arm's length, in sunlight, one-handed, while holding a child*.
-
-> **8.5px is not small text. It is text that is not there** for a parent over 40 in daylight. This
-> is the one item on this list that is an accessibility defect rather than a tidiness one.
-
-### 2.4 ⚠️ 63 hardcoded hex colours — 11 of which reach the screen
-
-`#1565C0` appears **12 times**: a blue that is almost `--blue`, hand-typed instead of referenced.
-Also `#fff` ×5, `#c00` ×5, `#222` ×5, `#666`, `#555`, `#999`, `#bbb`, `#eee`.
-
-> 🔴 **A hardcoded colour is a dark-mode bug by construction.** `--ink` flips when the theme flips;
-> `#222` does not. Every one of these is a patch of light-mode styling that survives into dark mode.
+> 🔴 **CORRECTED 2026-10-23, same day.** This section first said **103**, and counted the A4/A5
+> payslip and receipt renderers as screens. **11 of the 103 were on paper**, including every one of
+> the alarming ones: all the 8.5px and 9px text is printed, where it is read at 30cm on a document
+> designed to fit a page. The screen figure is **92** — 81×11px, 10×11.5px, 1×10.5px.
 >
-> *(`#06C755` is LINE's brand green and is correct as a literal — LINE's green is LINE's green in
-> both themes. It is the exception that proves the rule: a literal colour is right only when it
-> belongs to somebody else's brand.)*
+> I wrote §2.6 of this file about an audit that cries wolf, and then did it in §2.3 and §2.4. Both
+> are corrected in place rather than quietly adjusted.
+
+`docs/FRONTEND_DESIGN.md` says the app must be readable *at arm's length, in sunlight, one-handed,
+while holding a child*. 92 places on screen were under 12px, plus 7 label rules in `styles.css` and
+one inline size in `index.html` — three files set type, which is why the only check that settled it
+was a real browser at 375px, not a grep.
+
+**Fixed 2026-10-23: the screen floor is now 12px, with two declared exceptions** (written beside
+the rules in `styles.css`, not only in a test):
+
+| exception | why it cannot simply be raised |
+|---|---|
+| **Count badges** — `.bell .badge`, `.opbtn .opbadge` | a numeral inside a **16–18px circle**, glanced at not read. 12px overflows it; growing the circle moves the header |
+| **Calendar cell annotations** — `.cal .dot` / `.calio` / `.calhol` / `.callv` | a 7-column month grid gives each day **~50px** on a 375px phone |
+
+> ⚠️ **The calendar is therefore an open design problem for Phase 3, not a font-size one.** No type
+> size is both legible at arm's length and able to fit "ลาป่วย" into 50px. The honest answer is
+> probably that a month grid carries *marks*, and the words belong in a day sheet underneath it.
+> Raising the number without changing the layout would truncate instead of shrink — which is worse,
+> because unreadable is at least visibly unreadable.
+
+### 2.4 ⚠️ 63 hardcoded hex colours — of which exactly **one line** was a real bug
+
+> 🔴 **CORRECTED 2026-10-23.** The claim "each a dark-mode bug by construction" was wrong for 59 of
+> the 63. Acting on it as written would have **introduced** bugs into printed payslips.
+
+| | count | verdict |
+|---|---:|---|
+| Inside the **print documents** (`html{color-scheme:light}`) | **39** | ✅ **deliberate, and already documented in the code**: *"A receipt is paper — it is white wherever it is opened."* Theming these is the bug |
+| `var(--token, #fallback)` | 12 | ✅ a fallback is a seatbelt, not a hardcoded colour |
+| LINE green / Facebook blue | 3 | ✅ somebody else's brand is their colour in both themes |
+| Canvas export + the browser `theme-color` meta | 3 | ✅ not themed by CSS at all |
+| Inside code comments | 2 | ✅ |
+| White text drawn **on** LINE's green | 2 | ✅ correct in both themes |
+| 🔴 **`.pill` with `#eef2ff` / `#3449a8`** | **1 line** | the only badge in the app that stayed light-blue-on-navy in dark mode — and `.pill.info` already existed, as exactly those two tokens |
+
+**Fixed:** that one line now uses `.pill info`.
+
+### 2.4b 🔴 What the hex hunt actually found: **17 CSS variables that were never defined**
+
+This is the real version of §2.4, and it is worse than a colour that does not follow the theme.
+
+`var(--brand)` ×8 · `var(--brand-soft)` ×4 · `var(--brand-line)` ×3 · `var(--accent)` ·
+`var(--info-bg)` — **none of them declared anywhere.** CSS has no concept of an unknown custom
+property: no error, no console warning, nothing to search for.
+
+**Measured in a real browser, not reasoned about:**
+
+| written | actually rendered | consequence |
+|---|---|---|
+| `background:var(--brand)` | `rgba(0,0,0,0)` | 🔴 **the progress-bar fills were invisible** — the bars rendered as empty tracks |
+| `color:var(--brand)` | inherits `--ink` | 🔴 the birthday highlight looked like ordinary text |
+| `border-color:var(--brand-line)` | `currentColor` | 🔴 "highlighted" cards were not highlighted |
+| the survey rating buttons | — | 🔴 **the selected rating did not look selected** |
+
+**Fixed** by defining them as aliases of existing tokens, so light mode is unchanged for everything
+that already worked and dark mode follows for free. 🏫 **And `--brand` is exactly the hook per-school
+theming needs** — §5 is now one re-pointed variable rather than a project.
+
+> 🔴 **The pattern behind §2.4b and §2.5 is the same, and it is the one to remember:**
+> **a name that reads as if it works, with nothing behind it.** `.ghost` and `--brand` both look
+> correct in review, both pass every test, and neither produces a single symptom a developer can
+> search for. Found twice in one afternoon; `tools/test_design_tokens.js` §1 now asks the only
+> question that catches them — *is everything this code names actually defined?*
 
 ### 2.5 ⚠️ 628 buttons, 9 variants, and three real inconsistencies
 
@@ -191,14 +244,21 @@ Three rules to settle during design:
 
 ## 6. What to fix before Figma, during, and after
 
-### Before — mechanical, no design decisions needed
+### Before — mechanical, no design decisions needed ✅ **DONE 2026-10-23 (v468)**
 
-| | work | why first |
+| | work | result |
 |---|---|---|
-| 1 | The 4 `.btn ghost` buttons | a live visual bug, one line |
-| 2 | 63 hex → tokens | otherwise dark mode and theming are both unfixable |
-| 3 | Collapse 27 font sizes → a scale | the scale is a design decision; **finding all 27 is not** |
-| 4 | Raise everything under 12px | our own written rule, and 103 instances of breaking it |
+| 1 | The 4 `.btn ghost` buttons | ✅ now `btn outline block`, the pattern the other 84 Close buttons already used |
+| 2 | Hardcoded colours → tokens | ✅ **1 real line fixed**; 59 of the 63 were correct as literals (§2.4) — and the hunt turned up **17 undefined variables** causing four visible bugs (§2.4b) |
+| 3 | Collapse the font sizes | ✅ **27 → 19 on screen.** Fractional sizes gone; `12.5→13`, `13.5→13`, `11.5→12` |
+| 4 | Raise everything under 12px | ✅ **0 left on screen** across all three files, with two exceptions declared in the CSS |
+
+Also normalised `btn block outline` → `btn outline block` (18 occurrences, CSS-identical), and added
+`tools/test_design_tokens.js` so none of it can quietly come back.
+
+**What is left of items 3 and 4 is the part that is genuinely a decision:** the scale itself. 19
+sizes is still more than a scale — `15/17/19/20/21` and the seven display sizes (`26…48`) want
+collapsing, and that is ผอ.'s call in Figma, not a mechanical pass.
 
 ### During — the decisions only ผอ. makes
 
@@ -229,13 +289,19 @@ Stated plainly, so nobody assumes otherwise:
 ## 8. Reproducing every number above
 
 ```bash
+node tools/test_design_tokens.js      # the four numbers, and the two bug classes behind them
+```
+
+That suite is the reproduction now, because **three of the greps below ask the wrong question** —
+they do not know that a printed payslip is not a screen, that a `var()` fallback is not a hardcoded
+colour, and that `\bghost\b` also matches `btn-ghost`. Each of those cost a false alarm on the day
+this was written. The raw counts, for the ones that are still just counts:
+
+```bash
 grep -oE 'style="[^"]*"' webapp/app.js | wc -l                      # 2530 inline styles
-grep -oE 'font-size:[0-9.]+px' webapp/app.js | sort -u | wc -l      # 27 font sizes
-grep -oE 'font-size:(8\.5|9|10|10\.5|11|11\.5)px' webapp/app.js | wc -l   # 103 under 12px
-grep -oE '#[0-9a-fA-F]{3,8}\b' webapp/app.js | wc -l                # 63 hex colours
-grep -oE 'class="btn[^"]*"' webapp/app.js | wc -l                   # 628 buttons
 grep -c 'modal(' webapp/app.js                                      # 148 modals
-grep -oE -- '--[a-zA-Z0-9-]*\s*:' webapp/styles.css | sort -u | wc -l     # 48 tokens
+grep -oE 'class="btn[^"]*"' webapp/app.js | wc -l                   # 628 buttons
+grep -oE -- '--[a-zA-Z0-9-]*\s*:' webapp/styles.css | sort -u | wc -l     # 48+ tokens
 ```
 
 🔴 **Re-run these after Phase 3, not before.** The four numbers that must go DOWN are the inline

@@ -43,6 +43,31 @@
   --green:var(--ok-2); --amber:var(--warn-2);
   --bg:var(--surface-2); --card:var(--surface); --muted:var(--ink-3);
   --blue-weak:var(--blue-bg); --line-2:var(--line);
+  /* ---- 🔴 THE SCHOOL'S OWN COLOUR — 17 places were already asking for this and it did not exist.
+   *
+   * Added 2026-10-23 (Phase 3, step 1). app.js uses var(--brand) ×8, var(--brand-soft) ×4,
+   * var(--brand-line) ×3, var(--accent) and var(--info-bg) — and NONE of them were defined here.
+   * An undefined var() with no fallback is not an error and prints no warning; it resolves to the
+   * unset value, which MEASURED IN THE BROWSER is:
+   *
+   *   background:var(--brand)            → rgba(0,0,0,0)   🔴 the progress-bar fills were INVISIBLE
+   *   color:var(--brand)                 → inherits --ink   🔴 the birthday highlight looked ordinary
+   *   border-color:var(--brand-line)     → currentColor     🔴 "highlighted" cards were not highlighted
+   *   + the selected rating button in the survey form did not look selected
+   *
+   * Same bug class as `class="btn sm ghost block"`: a name that reads as if it works, with nothing
+   * behind it. CSS has no concept of an unknown custom property, so neither had a symptom anybody
+   * could search for.
+   *
+   * ALIASES ON PURPOSE, not new colours. Every one points at a token that already exists, so
+   * (a) light mode is byte-identical for everything that was already working, (b) dark mode follows
+   * for free — these resolve at use time and the dark blocks re-point --blue, and (c) THIS IS THE
+   * HOOK PER-SCHOOL THEMING NEEDS: one school = re-point --brand*, and the semantic colours
+   * (--ok/--warn/--bad) stay semantic, which is the rule in docs/UI_AUDIT.md §5. */
+  --brand:var(--blue); --brand-d:var(--blue-d);
+  --brand-soft:var(--blue-bg); --brand-line:var(--blue-line);
+  --accent:var(--brand);           /* one use, which was falling back to a hand-typed #2d6cdf */
+  --info-bg:var(--surface-2);      /* one use, whose fallback already said exactly this */
   --radius:14px; --radius-sm:10px; --radius-lg:18px; --radius-pill:999px;
   --ring:0 0 0 3px rgba(21,101,192,.28);   /* keyboard focus ring */
   --sh-sm:0 1px 2px rgba(16,24,40,.06);
@@ -65,7 +90,7 @@ body{font-family:'Sarabun',system-ui,sans-serif;background:var(--bg);color:var(-
 .user{display:flex;align-items:center;gap:8px;}
 .user-meta{display:flex;flex-direction:column;align-items:flex-end;line-height:1.1;}
 .user-name{font-weight:600;font-size:13px;}
-.user-role{font-size:11px;color:var(--muted);}
+.user-role{font-size:12px;color:var(--muted);}
 .avatar{width:36px;height:36px;border-radius:50%;background:var(--blue);color:var(--on-accent);display:flex;
   align-items:center;justify-content:center;font-weight:700;font-size:14px;}
 /* header avatar showing the user's LINE profile picture */
@@ -100,13 +125,13 @@ h2.page{font-size:20px;margin:6px 2px 14px;color:var(--blue-d);}
 
 .stat{background:linear-gradient(135deg,var(--blue),var(--blue-d));color:var(--on-accent);border-radius:var(--radius);padding:14px;}
 .stat .n{font-size:26px;font-weight:700;}
-.stat .l{font-size:12.5px;opacity:.9;}
+.stat .l{font-size:13px;opacity:.9;}
 .stat.pink{background:linear-gradient(135deg,var(--pink),var(--pink-d));}
 .stat.green{background:linear-gradient(135deg,var(--ok-2),var(--ok));}
 .stat.amber{background:linear-gradient(135deg,var(--warn-2),var(--warn-2));color:var(--warn-ink-d);}
 
 label.field,div.field{display:block;margin:8px 0;font-size:14px;}
-label.field span,div.field>span{display:block;margin-bottom:4px;color:var(--muted);font-size:12.5px;}
+label.field span,div.field>span{display:block;margin-bottom:4px;color:var(--muted);font-size:13px;}
 /* A value the reader may see but may not change (the insurance plan, which the school owns). It sits
    where an input would, at the same height, so the two columns of a .grid2 still line up — but it is
    flat and borderless, because a box that looks editable and is not is a worse answer than no box. */
@@ -186,7 +211,7 @@ a.btn.block{display:block;}
 /* Bottom nav */
 .bottomnav{position:fixed;bottom:0;left:0;right:0;display:flex;background:var(--surface);border-top:1px solid var(--line);z-index:20;}
 .bottomnav button{flex:1;background:none;border:none;padding:8px 4px;cursor:pointer;font-family:inherit;
-  display:flex;flex-direction:column;align-items:center;gap:2px;color:var(--muted);font-size:11px;}
+  display:flex;flex-direction:column;align-items:center;gap:2px;color:var(--muted);font-size:12px;}
 .bottomnav button .ic{font-size:20px;}
 .bottomnav button.active{color:var(--blue);font-weight:700;}
 
@@ -200,6 +225,31 @@ a.btn.block{display:block;}
 .role-card .ic{font-size:30px;width:52px;height:52px;border-radius:14px;display:flex;align-items:center;justify-content:center;background:var(--blue-bg);}
 .role-card b{font-size:16px;} .role-card small{color:var(--muted);}
 
+/* ═══ 📏 THE 12px FLOOR, AND THE TWO PLACES IT DOES NOT APPLY ══════════════════════════════════
+ *
+ * docs/FRONTEND_DESIGN.md: "อ่านออกจากระยะแขน กลางแดด มือเดียว ขณะอุ้มเด็กอยู่". On 2026-10-23 the
+ * floor was raised to 12px everywhere on screen — 92 places in app.js and 7 label rules here.
+ *
+ * 🔴 DECLARED EXCEPTIONS, not an oversight, and listed so nobody has to guess which is which. The
+ * lesson from the RLS work three days earlier: an exception that is DECLARED can be checked; one
+ * that is pattern-matched gets re-derived differently by the next person.
+ *
+ *   ① COUNT BADGES — .bell .badge, .opbtn .opbadge, and the toast badge near the end of this file.
+ *      These are a numeral inside a 16-18px circle, glanced at rather than read. 12px overflows
+ *      the circle, and growing the circle moves the header controls.
+ *
+ *   ② CALENDAR CELL ANNOTATIONS — every .cal .dot / .calio / .calhol / .callv. A 7-column month
+ *      grid on a 375px phone gives each day about 50px. There is no type size that is both legible
+ *      at arm's length and able to fit "ลาป่วย" into 50px.
+ *
+ *      ⚠️ SO THE CALENDAR IS AN OPEN DESIGN PROBLEM FOR PHASE 3, NOT A FONT-SIZE ONE. The honest
+ *      answer is probably that a month grid should carry marks, and the words belong in a day
+ *      sheet underneath it. Raising these numbers without changing the layout would truncate the
+ *      text instead of shrinking it, which is worse: unreadable is at least visibly unreadable.
+ *      (At ≥560px there is room, and line 367 already gives them more.)
+ *
+ * tools/test_design_tokens.js §2 asks the screen-only question and knows about both exceptions.
+ * ══════════════════════════════════════════════════════════════════════════════════════════════ */
 /* ---- additions (revamp) ---- */
 .bell{position:relative;background:none;border:none;font-size:20px;cursor:pointer;padding:2px 4px;}
 .bell .badge{position:absolute;top:-2px;right:-2px;background:var(--bad-2);color:var(--on-accent);border-radius:999px;font-size:10px;min-width:16px;height:16px;line-height:16px;text-align:center;padding:0 3px;}
@@ -229,7 +279,7 @@ a.btn.block{display:block;}
 
 /* social footer */
 .social{display:flex;justify-content:center;gap:18px;padding:14px;margin-top:6px;}
-.social a{display:flex;flex-direction:column;align-items:center;gap:4px;text-decoration:none;color:var(--muted);font-size:11px;}
+.social a{display:flex;flex-direction:column;align-items:center;gap:4px;text-decoration:none;color:var(--muted);font-size:12px;}
 .social .ic{width:46px;height:46px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:22px;color:var(--on-accent);}
 .social .line{background:#06C755;} .social .fb{background:#1877F2;} .social .web{background:var(--ink-2);}
 
@@ -258,7 +308,7 @@ a.btn.block{display:block;}
 .amenu h3{margin:0 0 10px;font-size:14px;color:var(--blue-d);border-left:4px solid var(--blue);padding-left:8px;}
 .amenu-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;}
 .amenu-btn{display:flex;align-items:center;gap:9px;text-align:left;background:var(--surface-2);border:1px solid var(--line);
-  border-radius:10px;padding:11px 12px;cursor:pointer;font-family:inherit;font-size:13.5px;color:var(--ink);min-width:0;}
+  border-radius:10px;padding:11px 12px;cursor:pointer;font-family:inherit;font-size:13px;color:var(--ink);min-width:0;}
 .amenu-btn:active{background:var(--surface-2);}
 .amenu-btn .amenu-ic{font-size:18px;flex:0 0 auto;}
 .amenu-btn span:last-child{overflow:hidden;text-overflow:ellipsis;}
@@ -272,12 +322,12 @@ a.btn.block{display:block;}
 .jr-row{display:flex;gap:10px;align-items:baseline;padding:9px 2px;border-bottom:1px solid var(--line);}
 .jr-row:last-child{border-bottom:none;}
 .jr-ic{flex:0 0 22px;font-size:16px;text-align:center;}
-.jr-lbl{flex:0 0 96px;color:var(--muted);font-size:12.5px;line-height:1.4;}
+.jr-lbl{flex:0 0 96px;color:var(--muted);font-size:13px;line-height:1.4;}
 .jr-val{flex:1;min-width:0;font-size:14px;line-height:1.5;color:var(--ink);}
 .jr-pill{display:inline-block;background:var(--surface-2);color:var(--blue-d);border-radius:999px;
-  padding:1px 9px;margin:2px 4px 2px 0;font-size:12.5px;font-weight:600;}
+  padding:1px 9px;margin:2px 4px 2px 0;font-size:13px;font-weight:600;}
 .jr-hl{margin-top:10px;background:var(--warn-bg);border-radius:10px;padding:10px 12px;font-size:14px;}
-.jr-hl span{display:block;color:var(--warn-ink);font-weight:700;font-size:12.5px;margin-bottom:3px;}
+.jr-hl span{display:block;color:var(--warn-ink);font-weight:700;font-size:13px;margin-bottom:3px;}
 .jr-cmt{margin-top:12px;}
 .jr-cmt h4{margin:0 0 6px;font-size:14px;color:var(--blue-d);border-left:4px solid var(--blue);padding-left:8px;}
 .jr-cmt-box{background:var(--blue-bg);border-radius:10px;padding:10px;font-size:14px;}
@@ -299,7 +349,7 @@ a.btn.block{display:block;}
 .quota{display:flex;gap:8px;flex-wrap:wrap;}
 .quota .q{flex:1;min-width:90px;background:var(--surface-2);border-radius:10px;padding:8px;text-align:center;}
 .quota .q .n{font-size:20px;font-weight:700;color:var(--blue-d);}
-.quota .q .l{font-size:11px;color:var(--muted);}
+.quota .q .l{font-size:12px;color:var(--muted);}
 
 .att{display:flex;gap:6px;align-items:center;font-size:13px;padding:4px 0;}
 .dot-s{width:9px;height:9px;border-radius:50%;display:inline-block;}
@@ -378,7 +428,7 @@ a.btn.block{display:block;}
 /* School-announcement popup (parent) — sized to fit any phone; long text wraps, image is capped */
 .annpop{text-align:center;}
 .annpop-ic{font-size:38px;line-height:1;margin-bottom:2px;}
-.annpop-badge{display:inline-block;background:var(--blue-bg);color:var(--blue-d);font-weight:700;font-size:11px;
+.annpop-badge{display:inline-block;background:var(--blue-bg);color:var(--blue-d);font-weight:700;font-size:12px;
   padding:3px 10px;border-radius:999px;margin-bottom:8px;}
 .annpop h3{font-size:16px;line-height:1.35;margin:2px 4px 8px;overflow-wrap:anywhere;}
 .annpop-body{font-size:14px;line-height:1.5;color:var(--ink);text-align:left;margin:0 2px 10px;
@@ -386,10 +436,10 @@ a.btn.block{display:block;}
 .annpop-img{display:block;max-width:100%;max-height:38vh;object-fit:contain;border-radius:12px;
   margin:0 auto 10px;cursor:zoom-in;}
 .annpop-count{font-size:12px;color:var(--muted);margin-bottom:6px;}
-.annpop-hide{display:flex;align-items:center;gap:8px;justify-content:center;font-size:12.5px;
+.annpop-hide{display:flex;align-items:center;gap:8px;justify-content:center;font-size:13px;
   color:var(--muted);margin:6px 0 12px;}
 .annpop-hide input{width:auto;}
-.annpop-pri{display:inline-block;background:var(--warn-bg);color:var(--warn);font-weight:700;font-size:11px;
+.annpop-pri{display:inline-block;background:var(--warn-bg);color:var(--warn);font-weight:700;font-size:12px;
   padding:2px 9px;border-radius:999px;margin-bottom:6px;}
 .annpop-dots{display:flex;gap:6px;justify-content:center;margin:4px 0 8px;min-height:8px;}
 .annpop-dot{width:7px;height:7px;border-radius:50%;background:var(--line);transition:background .2s;}
@@ -401,7 +451,7 @@ a.btn.block{display:block;}
 .lvcol h3{margin:4px 2px 8px;}
 /* header quick-actions (parent: บันทึก/พัฒนาการ/แจ้งลาออก before the language toggle) */
 .topactions{display:flex;gap:6px;align-items:center;}
-.topactions .btn{padding:5px 10px;font-size:12.5px;}
+.topactions .btn{padding:5px 10px;font-size:13px;}
 @media(max-width:560px){.topactions .btn span.lbl{display:none;} .topactions .btn{padding:6px 9px;}}
 
 /* ---- Mobile header: keep the top bar to a single tidy row on every role (no wrapping/overflow) ---- */
@@ -416,7 +466,7 @@ html,body{max-width:100%;overflow-x:hidden;}
   .avatar{width:32px;height:32px;font-size:13px;}
   .topactions{gap:4px;}
   .topactions .btn{padding:6px 8px;font-size:13px;}
-  .langtoggle{padding:4px 8px;font-size:11px;}
+  .langtoggle{padding:4px 8px;font-size:12px;}
   .bell{font-size:18px;padding:2px;}
   main{padding:12px 10px;}
 }
@@ -478,7 +528,7 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--blue);bo
 /* Readability floor. Data people actually need to read (class, age, due date, phone) was sitting at
    11–12px. Anything below 13px is nudged up to 13px; only true badges/counters stay smaller. */
 .muted,small,.jr-lbl,.jr-pill,.kpi .kl,.user-role{font-size:13px;}
-.pill{font-size:12.5px;}
+.pill{font-size:13px;}
 .bottomnav button{font-size:12px;}
 
 /* Pills: a touch more presence */
@@ -552,11 +602,11 @@ a:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible,te
   bottom:calc(78px + env(safe-area-inset-bottom,0px));z-index:47;opacity:0;
   transition:opacity var(--dur),transform var(--dur);
   display:flex;align-items:center;gap:14px;background:var(--ink);color:var(--surface);
-  border-radius:var(--radius-pill);padding:8px 10px 8px 18px;font-size:13.5px;
+  border-radius:var(--radius-pill);padding:8px 10px 8px 18px;font-size:13px;
   box-shadow:var(--sh-md);max-width:92%;}
 #undoBar.show{opacity:.97;transform:translate(-50%,0);}
 #undoBar button{background:transparent;color:var(--blue-line);border:none;font-family:inherit;
-  font-size:13.5px;font-weight:700;cursor:pointer;padding:8px 12px;min-height:40px;white-space:nowrap;}
+  font-size:13px;font-weight:700;cursor:pointer;padding:8px 12px;min-height:40px;white-space:nowrap;}
 #undoBar button:hover{color:var(--blue-line);}
 
 /* Offline outbox: work saved on the device while the connection was down. Amber, and it stays put
@@ -573,7 +623,7 @@ a:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible,te
 #refreshBar{position:fixed;left:50%;bottom:calc(78px + env(safe-area-inset-bottom,0px));
   transform:translate(-50%,14px);z-index:45;opacity:0;transition:opacity var(--dur),transform var(--dur);
   background:var(--blue-d);color:var(--on-accent);border:none;border-radius:var(--radius-pill);
-  padding:11px 18px;font-family:inherit;font-size:13.5px;font-weight:600;cursor:pointer;
+  padding:11px 18px;font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;
   box-shadow:var(--sh-md);max-width:92%;min-height:44px;}
 #refreshBar.show{opacity:1;transform:translate(-50%,0);}
 #refreshBar:hover{filter:brightness(1.08);}
@@ -622,7 +672,7 @@ main:has(.savedock .btn + .btn){padding-bottom:180px;}   /* two stacked buttons 
    flex row, so every card has its buttons in the same place. Wrapping put ⋯ alone on a second line
    and gave each card a different height, which is what made the list hard to read down. */
 .stuacts{display:grid;grid-template-columns:1fr 1fr 1fr 46px;gap:6px;margin-top:8px;}
-.stuacts .btn.sm{width:100%;min-width:0;padding:7px 4px;font-size:12.5px;gap:3px;white-space:nowrap;}
+.stuacts .btn.sm{width:100%;min-width:0;padding:7px 4px;font-size:13px;gap:3px;white-space:nowrap;}
 .stuacts .btn.sm.more{padding:7px 0;font-size:17px;letter-spacing:1px;}
 @media(min-width:520px){
   .stuacts{grid-template-columns:1fr 1fr 1fr 52px;gap:8px;}
@@ -630,7 +680,7 @@ main:has(.savedock .btn + .btn){padding-bottom:180px;}   /* two stacked buttons 
 }
 /* the two-action rows on the home screen's class list: equal widths, side by side, never stacked */
 .acts2{display:grid;grid-template-columns:1fr 1fr;gap:6px;flex:0 0 auto;}
-.acts2 .btn.sm{width:100%;min-width:62px;padding:7px 6px;font-size:12.5px;white-space:nowrap;}
+.acts2 .btn.sm{width:100%;min-width:62px;padding:7px 6px;font-size:13px;white-space:nowrap;}
 
 /* =====================================================================
    LAYOUT STABILITY (CLS) — reserve space for anything that arrives late.
