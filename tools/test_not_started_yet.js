@@ -194,8 +194,19 @@ console.log('\n6) both halves of the app refuse it');
   /* the catch grew a second refusal in v457 (STUDENT_ENDED, the gate at the other end of the same
    * record) — this asserts that NOT_STARTED is re-thrown, which is the claim, rather than that the
    * line still reads exactly as it did */
-  ok_('...and it does not swallow its own refusal in the try/catch around the sheet read',
-    /catch \(e\) \{ if \(e && [^}]*e\.apiCode === 'NOT_STARTED'[^}]*\) throw e; \}/.test(ci));
+  /* 🔴 ข้อกล่าวอ้างคือ "การปฏิเสธที่เกิดในบล็อกนี้ ถูกโยนต่อ ไม่ถูก catch กลืน" — ไม่ใช่
+   * "บรรทัด catch หน้าตาเป็นแบบนี้" · v466 เพิ่ม STUDENT_DAY_OFF เข้าไปแล้ว catch ขึ้นบรรทัดใหม่
+   * ข้อนี้เลยตกทั้งที่ไม่มีบั๊ก — เขียนใหม่ให้ตรวจ "ทุกรหัสที่โยนในบล็อก ถูกโยนต่อครบ" */
+  const blk = ci.slice(ci.indexOf('function assertStudentDayOpen_'),
+                       ci.indexOf('function resolveStaff_'));
+  const thrown = [...new Set((blk.match(/apiError_\('([A-Z_]+)'/g) || [])
+    .map(m => m.match(/'([A-Z_]+)'/)[1]))];
+  const tryCatch = blk.slice(blk.indexOf('  try {'), blk.indexOf('if (!isSchoolClosed_'));
+  const inTry = thrown.filter(c => tryCatch.indexOf("apiError_('" + c + "'") >= 0);
+  const rethrown = inTry.filter(c => /\}\s*catch[\s\S]*?\}/.test(tryCatch) &&
+    tryCatch.slice(tryCatch.lastIndexOf('} catch')).indexOf("'" + c + "'") >= 0);
+  eq('...and it does not swallow its own refusal in the try/catch around the sheet read',
+    inTry.filter(c => rethrown.indexOf(c) < 0), []);
 }
 
 console.log('\n' + (fail ? 'FAILED ' : 'PASSED ') + pass + ' passed, ' + fail + ' failed\n');

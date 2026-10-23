@@ -105,7 +105,14 @@ console.log('\n5) the head teacher gets all three queues, each with its history'
 console.log('\n6) the date format');
 {
   const at = app.indexOf('function longDate(v)');
-  const fn = at < 0 ? '' : app.slice(at, at + 400);
+  /* 🔴 อ่าน "ทั้งก้อน" ไม่ใช่ "N ตัวอักษรแรก" — assertion ที่ผูกกับระยะจะพังเองเมื่อมีคนเติม
+   * คอมเมนต์ โดยที่ไม่มีบั๊กอะไรเลย และการพังแบบนั้นสอนให้คนกด rerun แทนที่จะอ่าน
+   * (tools/audit_system.js กฎ R7 เป็นตัวจับรูปแบบนี้) */
+  const blockAt = (src, i) => { let d = 0, j = src.indexOf('{', i);
+    if (j < 0) return src.slice(i);   // หาไม่เจอ → คืนที่เหลือทั้งหมด ไม่ตัดเงียบๆ
+    for (let k = j; k < src.length; k++) { if (src[k] === '{') d++; else if (src[k] === '}') { d--; if (!d) return src.slice(i, k + 1); } }
+    return src.slice(i); };
+  const fn = at < 0 ? '' : blockAt(app, at);
   ok_('there is one long-date formatter', at > 0 && (app.match(/function longDate\(/g) || []).length === 1);
   ok_('...the month is a word, so it cannot be read the wrong way round', /TH_MONTHS\[mo\]/.test(fn));
   ok_('...the day is padded, so a column of dates lines up', /p2\(d\.getDate\(\)\)/.test(fn));

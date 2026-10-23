@@ -54,8 +54,9 @@ const res = JSON.parse(run(function () {
     Status: 'ACTIVE', DOB: '2023-01-01', EnrollDate: '2024-01-01' });
   appendObject_(suSh, { StudentID: 'CS-K2', Name: 'เด็กห้องสอง', Nickname: 'สอง', Class: 'Nursery 2',
     Status: 'ACTIVE', DOB: '2023-01-01', EnrollDate: '2024-01-01' });
+  appendObject_(sheet_(MAIN, 'PARENTS'), { ParentID: 'CS-P1', Name: 'แม่เด็กห้องหนึ่ง', Phone: '08x' });
   _configCache = null;
-  try { CacheService.getScriptCache().removeAll(['cfg', 'col:STAFF', 'rows:STAFF', 'col:STUDENTS', 'rows:STUDENTS']); } catch (e) {}
+  try { CacheService.getScriptCache().removeAll(['cfg', 'col:STAFF', 'rows:STAFF', 'col:STUDENTS', 'rows:STUDENTS', 'col:PARENTS', 'rows:PARENTS']); } catch (e) {}
 
   function g(staffId, studentId) {
     try { assertStaffCoversStudent_(staffId, studentId); return 'OK'; }
@@ -86,6 +87,17 @@ const res = JSON.parse(run(function () {
     handleStaffStudentCheckin({ staffId: 'CS-HEAD', studentId: 'CS-K2', type: 'IN', remark: 'หัวหน้าครูลงให้' }); });
   out.liveInjuryTeacher = live(function () {
     handleApproveInjury({ staffId: 'CS-T1', injuryId: 'INJ-1', decision: 'approve' }); });
+  // 🔴 สองเส้นทาง "ของฉันเอง" ที่ไม่เคยบังคับคำว่า "ของฉัน" เลย (v466)
+  out.selfStudentOther = live(function () {
+    handleSaveStudentSelf({ staffId: 'CS-T1', studentId: 'CS-K2', data: { Allergy: 'แก้โดยครูห้องอื่น' } }); });
+  out.selfStudentOwn = live(function () {
+    handleSaveStudentSelf({ staffId: 'CS-T1', studentId: 'CS-K1', data: { Allergy: 'นมวัว' } }); });
+  out.selfStudentParent = live(function () {
+    handleSaveStudentSelf({ studentId: 'CS-K2', data: { Allergy: 'ถั่ว' } }); });   // ไม่มี staffId = ผู้ปกครอง
+  out.selfParentByTeacher = live(function () {
+    handleSaveParentSelf({ staffId: 'CS-T1', parentId: 'CS-P1', data: { Phone: '0999999999' } }); });
+  out.selfParentByParent = live(function () {
+    handleSaveParentSelf({ parentId: 'CS-P1', data: { Phone: '0811111111' } }); });
   return JSON.stringify(out);
 }));
 
@@ -142,6 +154,23 @@ console.log('\n4) 🔴 เส้นทางจริง ไม่ใช่แ�
     !/st\.Nickname|st\.Name|st\.Class/.test(gs('Parent.gs').slice(
       gs('Parent.gs').indexOf('function assertStaffCoversStudent_'),
       gs('Parent.gs').indexOf('function assertStaffCoversStudent_') + 1600).split('NO_ACCESS')[1] || ''));
+}
+
+console.log('\n5) 🔴 เส้นทาง "ของฉันเอง" ต้องแปลว่าของฉันจริงๆ');
+{
+  /* พบโดย tools/audit_system.js (R2): ทั้งสองเส้นทางรับ id มาจาก payload ตรงๆ
+   * ฝั่ง **ผู้ปกครอง** ปลอดภัยอยู่แล้ว — applyIdentity_ ปักหมุด parentId และตรวจ studentId
+   * แต่ฝั่ง **ครู** ไม่ถูกปักหมุดอะไรเลย ส่ง id ของใครก็ได้ */
+  eq('🔴 ครูแก้ข้อมูลเด็กห้องอื่นผ่านเส้นทางของผู้ปกครอง — ปฏิเสธ', res.selfStudentOther, 'NO_ACCESS');
+  eq('ครูแก้ของเด็กในห้องตัวเอง — ได้', res.selfStudentOwn, 'OK');
+  /* 🔴 และต้องไม่ไปปิดทางผู้ปกครอง — เขาแก้ข้อมูลลูกตัวเองผ่านเส้นทางนี้ทุกวัน
+   * สิ่งที่กั้นเขาคือ applyIdentity_ ไม่ใช่ด่านนี้ · ถ้าพลาดข้อนี้ เราจะสร้างบั๊กใหม่จากการแก้บั๊ก */
+  eq('🔴 ผู้ปกครอง (ไม่มี staffId) — ยังแก้ได้ตามปกติ', res.selfStudentParent, 'OK');
+  /* รายการที่ครูเคยแก้ได้ของเด็กทุกคนคือ หมู่เลือด · อาการแพ้ · ประวัติการรักษา · เชื้อชาติ ·
+   * ศาสนา — เกือบทั้งหมดเป็นข้อมูลอ่อนไหวตามมาตรา 26 */
+  eq('🔴 ครูแก้โปรไฟล์ผู้ปกครอง — ปฏิเสธ (แอดมินใช้ saveParent ซึ่งมีประตูของมันเอง)',
+    res.selfParentByTeacher, 'NO_ACCESS');
+  eq('ผู้ปกครองแก้ของตัวเอง — ได้', res.selfParentByParent, 'OK');
 }
 
 console.log('\n' + (fail ? 'FAILED ' : 'PASSED ') + pass + ' passed, ' + fail + ' failed\n');

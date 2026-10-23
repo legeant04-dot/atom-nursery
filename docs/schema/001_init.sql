@@ -25,6 +25,12 @@ create table if not exists tenant (
   created_at  timestamptz not null default now()
 );
 
+alter table tenant enable row level security;
+drop policy if exists tenant_self_read on tenant;
+-- อ่านได้เฉพาะแถวของโรงเรียนตัวเอง · ไม่มีนโยบาย insert/update/delete = ทำไม่ได้เลย
+create policy tenant_self_read on tenant
+  for select using (id = (auth.jwt() ->> 'tenant_id')::uuid);
+
 -- ── ATTENDANCE_REQUEST  (HR workbook)
 create table if not exists attendance_request (
   id          uuid primary key default gen_random_uuid(),

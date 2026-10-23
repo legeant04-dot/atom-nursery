@@ -199,20 +199,55 @@ const errCode = async (c, sql, args) => {
      * (`tenant` คือทะเบียนโรงเรียนเอง — แถวของมัน *คือ* ตัว tenant จึงไม่มีนโยบายและปิด RLS ไว้) */
     const tbl = (await c.query(
       "select tablename from pg_tables where schemaname='public'")).rows.map(r => r.tablename);
-    const missing = tbl.filter(t => t !== 'tenant' && !pol.some(p => p.tablename === t));
-    eq('🔴 ทุกตารางมีนโยบาย ยกเว้น tenant เอง', missing, []);
-    eq('...และไม่มีนโยบายของตารางที่ไม่มีอยู่', pol.length, tbl.length - 1);
+    const missing = tbl.filter(t => !pol.some(p => p.tablename === t));
+    /* 🔴 "ยกเว้น tenant เอง" ถูกลบออกจากข้อนี้แล้ว — และนั่นคือรูจริงที่เคยเปิดอยู่
+     *
+     * tenant ไม่มีคอลัมน์ `tenant_id` จึงถูกกันออกจากนโยบาย tenant_isolation อย่างถูกต้อง
+     * แต่ "ไม่มีนโยบาย tenant_isolation" ถูกแปลไปเป็น "ไม่ต้องมี RLS" — และตารางนี้เลยเปิดโล่ง
+     * จนกระทั่ง Supabase Advisor เตือนเองเมื่อ 23/10 (CRITICAL · RLS Disabled in Public)
+     *
+     * ยิงทดสอบด้วยบทบาท anon จริง ก่อนแก้: อ่านได้ เพิ่มได้ แก้ได้ **และลบได้ทุกแถว**
+     * ตอนนี้ทุกตารางต้องมีนโยบาย ไม่มีข้อยกเว้น — ข้อยกเว้นคือที่ที่รูเปิด */
+    eq('🔴 ทุกตารางมีนโยบาย ไม่มีข้อยกเว้น', missing, []);
+    eq('...และจำนวนนโยบายเท่ากับจำนวนตาราง', pol.length, tbl.length);
+
+    /* 🔴 และ tenant ต้องอ่านได้อย่างเดียว — ไม่มีนโยบาย insert/update/delete แปลว่าทำไม่ได้เลย
+     * การสร้างโรงเรียนใหม่เป็นงานของเซิร์ฟเวอร์ด้วย service_role ไม่ใช่สิ่งที่หน้าเว็บทำได้ */
+    const tp = pol.filter(p => p.tablename === 'tenant');
+    eq('🔴 tenant มีนโยบายเดียว และเป็น SELECT เท่านั้น', tp.map(p => p.cmd), ['SELECT']);
+    const noRls = (await c.query(
+      "select c.relname from pg_class c join pg_namespace n on n.oid=c.relnamespace " +
+      "where n.nspname='public' and c.relkind='r' and c.relrowsecurity=false")).rows.map(r => r.relname);
+    eq('🔴 ไม่มีตารางไหนที่ยังไม่ได้เปิด RLS เลย', noRls, []);
     ok_('🔴 ...รวมถึงบันทึกการเข้าถึงของ HR ซึ่งเป็นตารางใหม่',
       pol.some(p => p.tablename === 'hr_audit_log'));
+    /* 🔴 ข้อยกเว้นเดียว และมันเข้มกว่า ไม่ใช่หลวมกว่า — ประกาศไว้ ไม่ปล่อยให้ regex เดาเอง
+     *
+     * กฎ "ทุกนโยบายเหมือนกันหมด" มีไว้กันคนเขียนข้อยกเว้นที่ **หลวมกว่า** ซึ่งเป็นวิธีที่ตาราง
+     * หนึ่งหลุดไปอ่านข้ามโรงเรียนได้ · ของ tenant เข้มกว่าทุกตาราง: อ่านอย่างเดียว และผูกกับ
+     * `id` ของตัวเอง เพราะมันไม่มีคอลัมน์ `tenant_id` (แถวของมัน *คือ* tenant)
+     *
+     * ถ้าวันหนึ่งมีชื่อเพิ่มในรายการนี้ ต้องเป็นการตัดสินใจที่มีเหตุผลเขียนกำกับ ไม่ใช่ความบังเอิญ */
+    const STRICTER_BY_DESIGN = {
+      tenant: { cmd: 'SELECT', qual: /id = \(\(auth\.jwt\(\) ->> 'tenant_id'::text\)\)::uuid/ }
+    };
     const EXPECT = /tenant_id = \(\(auth\.jwt\(\) ->> 'tenant_id'::text\)\)::uuid/;
-    const loose = pol.filter(p => !EXPECT.test(String(p.qual || '')) || !EXPECT.test(String(p.with_check || '')));
+    const loose = pol.filter(p => {
+      const ex = STRICTER_BY_DESIGN[p.tablename];
+      if (ex) return !ex.qual.test(String(p.qual || ''));
+      return !EXPECT.test(String(p.qual || '')) || !EXPECT.test(String(p.with_check || ''));
+    });
     eq('🔴 ไม่มีนโยบายไหนหลวมกว่าที่ควร (เช่น using(true))',
       loose.map(p => p.tablename + ' · qual=' + p.qual), []);
-    const notAll = pol.filter(p => String(p.cmd) !== 'ALL');
-    eq('🔴 ...และทุกข้อคุมครบทั้ง select/insert/update/delete', notAll.map(p => p.tablename + ':' + p.cmd), []);
+    const notAll = pol.filter(p => {
+      const ex = STRICTER_BY_DESIGN[p.tablename];
+      return ex ? String(p.cmd) !== ex.cmd : String(p.cmd) !== 'ALL';
+    });
+    eq('🔴 ...และทุกข้อคุมครบทั้ง select/insert/update/delete (ยกเว้นที่ประกาศว่าเข้มกว่า)',
+      notAll.map(p => p.tablename + ':' + p.cmd), []);
     /* และต้องไม่มีตารางไหนที่ "ลืมเปิด RLS" — มีนโยบายแต่ไม่เปิด = นโยบายไม่ทำงานเลย */
     const notOn = (await c.query(
-      "select relname from pg_class join pg_namespace ns on ns.oid=relnamespace where nspname='public' and relkind='r' and relname<>'tenant' and not relrowsecurity")).rows;
+      "select relname from pg_class join pg_namespace ns on ns.oid=relnamespace where nspname='public' and relkind='r' and not relrowsecurity")).rows;
     eq('🔴 ...และไม่มีตารางไหนที่มีนโยบายแต่ลืมเปิด RLS', notOn.map(r => r.relname), []);
   }
 

@@ -51,6 +51,12 @@ const res = JSON.parse(run(function () {
   if (wd) updateRow_(cfg, wd._row, { Value: 'Mon,Tue,Wed,Thu,Fri,Sat,Sun' });
   else appendObject_(cfg, { Key: 'WorkDays', Value: 'Mon,Tue,Wed,Thu,Fri,Sat,Sun' });
 
+  /* 🔴 เด็กที่หยุดประจำ "วันนี้" — กฎที่ engine มีมานาน แต่ route ที่รันจริงเพิ่งรู้จักใน v466
+   * ใส่เลขวันของวันนี้ลงไปตรงๆ เพื่อให้เทสต์ไม่ขึ้นกับว่ารันวันไหน */
+  var todayDow = new Date(days(0) + 'T00:00:00').getDay();
+  appendObject_(sheet_(MAIN, 'STUDENTS'), { StudentID: 'E-OFF', Name: 'E-OFF', Nickname: 'หยุดวันนี้',
+    Class: 'Nursery 2', Status: 'ACTIVE', DOB: '2023-01-01', EnrollDate: '2024-01-01',
+    OffDays: String(todayDow) });
   [['E-HERE', ''], ['E-LAST', days(0)], ['E-GONE', days(-5)]].forEach(function (r) {
     appendObject_(sheet_(MAIN, 'STUDENTS'), { StudentID: r[0], Name: r[0], Nickname: r[0],
       Class: 'Nursery 2', Status: 'ACTIVE', DOB: '2023-01-01', EnrollDate: '2024-01-01',
@@ -65,7 +71,8 @@ const res = JSON.parse(run(function () {
     try { assertStudentDayOpen_(id, new Date()); return 'OPEN'; }
     catch (e) { return (e && e.apiCode) || String((e && e.message) || e); }
   }
-  var out = { live: { here: gate('E-HERE'), last: gate('E-LAST'), gone: gate('E-GONE') } };
+  var out = { live: { here: gate('E-HERE'), last: gate('E-LAST'), gone: gate('E-GONE'),
+                      off: todayDow >= 1 && todayDow <= 5 ? gate('E-OFF') : 'SKIP-WEEKEND' } };
 
   var ctx = hydrateLazy_(['students', 'parents', 'userLinks', 'classes', 'holidays', 'studentTerms']);
   var H = createAtomAPI(ctx.M, null).H;
@@ -86,6 +93,12 @@ console.log('\n1) 🔴 เส้นทางที่รันจริง (src/
    * their own farewell day would be the bug this fix is meant to prevent, pointing the other way. */
   eq('🔴 วันสุดท้ายเอง — ยังลงเวลาได้ (วันสุดท้ายคือวันที่ยังมาเรียน)', res.live.last, 'OPEN');
   eq('🔴 หลังวันสุดท้าย — ปฏิเสธ', res.live.gone, 'STUDENT_ENDED');
+  /* 🔴 วันหยุดประจำของเด็กคนนั้นเอง — engine ปฏิเสธมานาน route ที่รันจริงเพิ่งรู้จัก (v466)
+   * ครั้งที่ 5 ที่ route บังหน้า engine แล้วตกกฎไปข้อหนึ่ง · พบโดย tools/audit_system.js (R5)
+   * (เสาร์-อาทิตย์ข้ามข้อนี้ เพราะ OffDays รับเฉพาะ 1..5 และวันหยุดสุดสัปดาห์มีด่านของตัวเอง) */
+  if (res.live.off !== 'SKIP-WEEKEND') {
+    eq('🔴 วันหยุดประจำของเด็กคนนั้น — ปฏิเสธบนเส้นทางที่รันจริง', res.live.off, 'STUDENT_DAY_OFF');
+  } else { console.log('  --   ข้ามข้อวันหยุดประจำ (วันนี้เป็นเสาร์/อาทิตย์)'); }
   /* Both doors go through this one function — the parent's own tap and the teacher's on-behalf
    * button — which is why the fix goes here and not in each handler. */
   const chk = R('src/Checkin.gs'), par = R('src/Parent.gs');
