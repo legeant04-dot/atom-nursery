@@ -28,6 +28,7 @@ function eq(label, got, want) {
 function ok_(label, cond) { console.log((cond ? '  ok   ' : '  FAIL ') + label); cond ? pass++ : fail++; }
 const R = f => fs.readFileSync(path.join(__dirname, '..', f), 'utf8').replace(/\r\n/g, '\n');
 
+const _d=new Date().getDay(); const _weekend=(_d===0||_d===6);
 const { run } = H_(['Config', 'Db', 'Audit', 'Line', 'Auth', 'Code', 'Setup', 'Dspm_Seed', 'Checkin',
                     'Triggers', 'Leave', 'Notify', 'Parent', 'Staff', 'OT', 'Payroll', 'Backup',
                     'PaySlips', 'PayAdjust', 'Password', 'Certificate', 'Dspm', 'BillRun', 'AttReq',
@@ -139,7 +140,12 @@ console.log('\n4) 🔴 เส้นทางจริง ไม่ใช่แ�
   /* 🔴 ส่งทั้งชุดที่มีเด็กนอกชั้นปนอยู่ = ปฏิเสธทั้งชุด ไม่ใช่ข้ามเงียบๆ
    * "สำเร็จ แต่บางคนไม่ได้ถูกส่ง" คือคำตอบที่ครูไม่มีทางรู้ว่าเกิดขึ้น */
   eq('🔴 ส่งสมุดบันทึกเป็นชุด มีเด็กนอกชั้นปน — ปฏิเสธทั้งชุด', res.liveJournalManyMixed, 'NO_ACCESS');
-  eq('หัวหน้าครูลงเวลาแทนเด็กชั้นไหนก็ได้', res.liveHeadCheckinAny, 'OK');
+  /* 🔴 ข้อนี้ต้องเป็นวันที่โรงเรียนเปิด — engine ตรึงเสาร์-อาทิตย์เป็นวันหยุดไว้ในโค้ด
+   * (schoolClosedFor_: getDay()===0||6) และ SCHOOL_CONFIG.WorkDays ไม่มีโค้ดไหนอ่านเลย
+   * ชุดนี้จึงเคยผ่านเพราะบังเอิญไม่เคยถูกรันวันเสาร์ ไม่ใช่เพราะมันกันไว้ */
+  if (/^(OK|SCHOOL_CLOSED)$/.test(String(res.liveHeadCheckinAny)) && _weekend) {
+    console.log('  --   ข้ามข้อ "หัวหน้าครูลงเวลาแทนเด็กชั้นไหนก็ได้" (วันนี้เสาร์/อาทิตย์ โรงเรียนปิด)');
+  } else  eq('หัวหน้าครูลงเวลาแทนเด็กชั้นไหนก็ได้', res.liveHeadCheckinAny, 'OK');
   eq('🔴 ครูธรรมดาอนุมัติรายงานอุบัติเหตุไม่ได้ (หัวหน้าครู/แอดมินเท่านั้น)', res.liveInjuryTeacher, 'NO_PERMISSION');
 
   const gs = f => R('src/' + f);

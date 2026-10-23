@@ -247,7 +247,10 @@ const THAI_LINE_FAIL = /เชื่อมต่อ LINE ไม่สำเร�
     eq('an idle tab is left alone', b.log, []);
   }
   {
-    ok_('the login card offers the LINE app as a second route', /หรือเปิดผ่านแอป LINE/.test(src));
+    /* 🔴 ยังเป็นทางที่สองเหมือนเดิม แต่อยู่หลังลิงก์ "เข้าไม่ได้?" (โครง C2 · ผอ. 2026-10-23)
+     * ของเดิมวางไว้ข้างปุ่ม LINE ทำให้หน้าเข้าสู่ระบบเสนอทางเข้า 4 ทางพร้อมกัน
+     * ทั้งที่ 2 ใน 4 มีไว้ให้คนที่ติดปัญหาแล้วเท่านั้น · ฟังก์ชันไม่ได้หาย ที่อยู่เปลี่ยน */
+    ok_('the login screen still offers the LINE app as a second route', /เปิดผ่านแอป LINE/.test(src));
     /* ...but not inside LINE's own browser, where it would reload the same page. LINE's in-app
      * WebView puts " Line/" in the user agent. */
     ok_('...only outside LINE', /!inLineApp\(\)\?/.test(src));
@@ -534,18 +537,37 @@ const THAI_LINE_FAIL = /เชื่อมต่อ LINE ไม่สำเร�
      * characters is a test that breaks whenever the screen grows; measured to the end of the
      * template it asks the question it means to. */
     const _lsAt = src.indexOf('function loginScreen()');
-    const card = src.slice(_lsAt, src.indexOf('installButtonsHTML()', _lsAt));
-    ok_('the QR route is on the login card itself', /id="lineWebBtn"[^>]*onclick="LINE_BROWSER_LOGIN\(\)"/.test(card));
+    /* THE WHOLE SCREEN, not "down as far as the install box". The slice used to stop at
+     * installButtonsHTML() because every sign-in route was above it; in the C2 layout the
+     * "เข้าไม่ได้?" link sits BELOW the install section, so the old window cut off the thing
+     * this block is about and reported it missing. */
+    const card = src.slice(_lsAt, src.indexOf('verTag', _lsAt));
+    /* 🔴 THE BLOCK, NOT A CHARACTER COUNT. `src.slice(_hAt, _hAt + 2600)` reads correctly today and
+     * silently stops covering the end of LOGIN_HELP the first time somebody adds a comment inside
+     * it — tools/audit_system.js (R7) flagged exactly this line. The function ends where the next
+     * top-level definition begins. */
+    const _hAt = src.indexOf('window.LOGIN_HELP');
+    const _hEnd = (() => { const m = /\n  (?:window\.|function |const |let )/g; m.lastIndex = _hAt + 20;
+      const hit = m.exec(src); return hit ? hit.index : src.length; })();
+    const help = src.slice(_hAt, _hEnd);
+    /* 🔴 REACHABLE FROM THE LOGIN SCREEN IN ONE TAP — not "is a button sitting on the card".
+     * In the C2 layout (ผอ. chose it 2026-10-23) both rescue routes sit behind one "เข้าไม่ได้?"
+     * link, because offering them beside LINE and Google made the screen present four ways in when
+     * two of them exist only for somebody already stuck. The route itself is unchanged. */
+    ok_('the email route is one tap from the login screen', /onclick="LOGIN_HELP\(\)"/.test(card) && /LINE_BROWSER_LOGIN\(\)/.test(help));
     ok_('...worded as the answer to "I cannot get in"', /เข้าไม่ได้\?/.test(card));
     /* AND WORDED HONESTLY. It said "scan the QR with the LINE app on this phone — no password",
      * which is impossible: on one handset there is no second camera to point at its own screen.
      * LINE's QR is for signing in FROM ANOTHER DEVICE; on a phone the page asks for email, password
      * and a verification code. Reported by the school on 2026-09-08 after trying it. */
     ok_('...and does not promise a QR scan that a single phone cannot do', !/สแกน QR ด้วยแอป LINE ในเครื่อง/.test(src));
-    ok_('...it says what it really asks for', /ด้วยอีเมล/.test(card));
+    ok_('...it says what it really asks for', /ด้วยอีเมล/.test(help));
     ok_('...and the admin screen says the same', /อีเมล \+ รหัสผ่าน \+ รหัสยืนยัน/.test(src));
-    ok_('...still hidden until the server says it is configured', /id="lineWebBtn" \$\{lineWebReady\(\)\?'':'hidden'\}/.test(card));
-    ok_('...and never inside LINE\'s own browser, where there is nothing to fix', /!inLineApp\(\)\?/.test(card));
+    /* Read AT OPEN TIME rather than toggling `hidden` on a floating button — which also closes the
+     * case the old shape could not see: the readiness answer arriving after the button was drawn. */
+    ok_('...offered only once the server says it is configured',
+      /const web = CONFIG\.MODE==='gas' && CONFIG\.LIFF_ID && !inLineApp\(\) && lineWebReady\(\);/.test(help));
+    ok_('...and never inside LINE\'s own browser, where there is nothing to fix', /!inLineApp\(\)/.test(help));
     /* "It loops" covers two completely different faults that need opposite fixes. The next report
      * has to say which one a parent hit, rather than leaving it to be inferred. */
     ok_('a hand-off that never returns is named in the telemetry', /__atomPerfErr\('lineHandoff'/.test(src));

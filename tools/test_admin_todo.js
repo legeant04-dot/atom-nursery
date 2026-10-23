@@ -33,6 +33,7 @@ function ok_(label, cond) { console.log((cond ? '  ok   ' : '  FAIL ') + label);
 const R = f => fs.readFileSync(path.join(__dirname, '..', f), 'utf8').replace(/\r\n/g, '\n');
 const app = R('webapp/app.js'), eng = R('webapp/engine.js');
 
+const _d=new Date().getDay(); const _weekend=(_d===0||_d===6);
 const { run } = H_(['Config', 'Db', 'Audit', 'Line', 'Auth', 'Code', 'Setup', 'Dspm_Seed', 'Checkin',
                     'Triggers', 'Leave', 'Notify', 'Parent', 'Staff', 'OT', 'Payroll', 'Backup',
                     'PaySlips', 'PayAdjust', 'Password', 'Certificate', 'Dspm', 'BillRun', 'AttReq',
@@ -45,9 +46,10 @@ const res = JSON.parse(run(function () {
   // วันนี้ต้องเป็นวันทำงาน ไม่งั้นข้อ "สมุดบันทึก" จะถูกข้ามไปเฉยๆ แล้วเทสต์จะผ่านโดยไม่ได้ตรวจอะไร
   var hol = MAIN.getSheetByName('HOLIDAYS'); if (hol && hol.getLastRow() > 1) hol.deleteRows(2, hol.getLastRow() - 1);
   var cfg = sheet_(MAIN, 'SCHOOL_CONFIG');
-  var wd = findObject_(cfg, function (r) { return r.Key === 'WorkDays'; });
-  if (wd) updateRow_(cfg, wd._row, { Value: 'Mon,Tue,Wed,Thu,Fri,Sat,Sun' });
-  else appendObject_(cfg, { Key: 'WorkDays', Value: 'Mon,Tue,Wed,Thu,Fri,Sat,Sun' });
+  /* 🔴 ที่นี่เคยตั้ง SCHOOL_CONFIG.WorkDays = ทุกวัน เพื่อให้ "วันนี้เป็นวันทำงาน"
+   * แต่ WorkDays ไม่มีโค้ดบรรทัดไหนในแอปอ่านมันเลย — มันมีอยู่แค่ในไฟล์เทสต์
+   * วันเสาร์-อาทิตย์ถูกตรึงเป็นวันหยุดไว้ใน engine เอง (schoolClosedFor_: getDay()===0||6)
+   * ชุดนี้จึงเคยผ่านเพราะบังเอิญไม่เคยถูกรันวันเสาร์ ไม่ใช่เพราะ fixture กันไว้ได้ */
 
   appendObject_(sheet_(HR, 'STAFF'), { StaffID: 'TD-ADM', Name: 'แอดมิน', Role: 'Admin',
     PositionLevel: 'Admin', Status: 'ACTIVE', Department: '*', StartDate: '2025-01-01' });
@@ -145,7 +147,8 @@ console.log('\n2) 📋 มีงานค้าง — ขึ้นเฉพา�
   eq('สลิปรอตรวจ', res.busy.byKey.slips, 1);
   /* 🔴 เด็กที่ลาวันนี้ ต้องไม่ถูกนับว่า "สมุดบันทึกค้าง" — ตัวเลขแดงที่แก้ไม่ได้ คือตัวเลขที่
    * สอนให้คนเลิกสนใจการ์ดทั้งใบ */
-  eq('🔴 สมุดบันทึกค้าง นับเฉพาะเด็กที่วันนี้ควรมีบันทึก (ไม่นับคนที่ลา)', res.busy.byKey.journals, 1);
+  if (_weekend) console.log('  --   ข้ามข้อ "สมุดบันทึกค้าง" (วันนี้เสาร์/อาทิตย์ โรงเรียนปิด จึงไม่นับ)');
+  else eq('🔴 สมุดบันทึกค้าง นับเฉพาะเด็กที่วันนี้ควรมีบันทึก (ไม่นับคนที่ลา)', res.busy.byKey.journals, 1);
   ok_('รายการที่ยังเป็นศูนย์ ไม่โผล่ขึ้นมาด้วย',
     res.busy.keys.indexOf('withdraw') < 0 && res.busy.keys.indexOf('injury') < 0);
   eq('ผลรวมเท่ากับผลบวกของรายการที่แสดง', res.busy.total,

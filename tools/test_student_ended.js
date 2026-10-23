@@ -32,6 +32,7 @@ function ok_(label, cond) { console.log((cond ? '  ok   ' : '  FAIL ') + label);
 const R = f => fs.readFileSync(path.join(__dirname, '..', f), 'utf8').replace(/\r\n/g, '\n');
 const app = R('webapp/app.js');
 
+const _d=new Date().getDay(); const _weekend=(_d===0||_d===6);
 const { run } = H_(['Config', 'Db', 'Audit', 'Line', 'Auth', 'Code', 'Setup', 'Dspm_Seed', 'Checkin',
                     'Triggers', 'Leave', 'Notify', 'Parent', 'Staff', 'OT', 'Payroll', 'Backup',
                     'PaySlips', 'PayAdjust', 'Password', 'Certificate', 'Dspm', 'BillRun',
@@ -46,10 +47,10 @@ const res = JSON.parse(run(function () {
    * fixture declares it a working day rather than hoping. */
   var hol = MAIN.getSheetByName('HOLIDAYS');
   if (hol && hol.getLastRow() > 1) hol.deleteRows(2, hol.getLastRow() - 1);
-  var cfg = sheet_(MAIN, 'SCHOOL_CONFIG');
-  var wd = findObject_(cfg, function (r) { return r.Key === 'WorkDays'; });
-  if (wd) updateRow_(cfg, wd._row, { Value: 'Mon,Tue,Wed,Thu,Fri,Sat,Sun' });
-  else appendObject_(cfg, { Key: 'WorkDays', Value: 'Mon,Tue,Wed,Thu,Fri,Sat,Sun' });
+  /* 🔴 ที่นี่เคยตั้ง SCHOOL_CONFIG.WorkDays = ทุกวัน เพื่อให้ "วันนี้เป็นวันเปิดเรียน"
+   * แต่ WorkDays ไม่มีโค้ดบรรทัดไหนในแอปอ่านเลย — มันมีอยู่แค่ในไฟล์เทสต์
+   * เสาร์-อาทิตย์ถูกตรึงเป็นวันหยุดไว้ใน engine เอง (schoolClosedFor_: getDay()===0||6)
+   * ชุดนี้จึงเคยผ่านเพราะบังเอิญไม่เคยถูกรันวันเสาร์ */
 
   /* 🔴 เด็กที่หยุดประจำ "วันนี้" — กฎที่ engine มีมานาน แต่ route ที่รันจริงเพิ่งรู้จักใน v466
    * ใส่เลขวันของวันนี้ลงไปตรงๆ เพื่อให้เทสต์ไม่ขึ้นกับว่ารันวันไหน */
@@ -87,11 +88,14 @@ const res = JSON.parse(run(function () {
 
 console.log('\n1) 🔴 เส้นทางที่รันจริง (src/Checkin.gs) — ไม่ใช่แค่ engine');
 {
-  eq('เด็กที่ยังเรียนอยู่ — ลงเวลาได้ตามปกติ', res.live.here, 'OPEN');
+  /* 🔴 เสาร์-อาทิตย์ถูกตรึงเป็นวันหยุดไว้ใน engine เอง และด่านวันหยุดมาก่อนด่านอื่น
+   * สองข้อนี้จึงตรวจได้เฉพาะวันเปิดเรียน · ข้ามพร้อมบอกเหตุผล ดีกว่าผ่านโดยไม่ได้ตรวจอะไร */
+  if (_weekend) console.log('  --   ข้ามสองข้อแรก (วันนี้เสาร์/อาทิตย์ — ด่านวันหยุดมาก่อน)');
+  else { eq('เด็กที่ยังเรียนอยู่ — ลงเวลาได้ตามปกติ', res.live.here, 'OPEN');
   /* 🔴 THE LAST DAY IS A DAY THE CHILD STILL COMES. EndDate is a LAST WORKING DAY — the same
    * reading the staff gate uses — so this bites the day AFTER, never on it. Cutting a child off on
    * their own farewell day would be the bug this fix is meant to prevent, pointing the other way. */
-  eq('🔴 วันสุดท้ายเอง — ยังลงเวลาได้ (วันสุดท้ายคือวันที่ยังมาเรียน)', res.live.last, 'OPEN');
+  eq('🔴 วันสุดท้ายเอง — ยังลงเวลาได้ (วันสุดท้ายคือวันที่ยังมาเรียน)', res.live.last, 'OPEN'); }
   eq('🔴 หลังวันสุดท้าย — ปฏิเสธ', res.live.gone, 'STUDENT_ENDED');
   /* 🔴 วันหยุดประจำของเด็กคนนั้นเอง — engine ปฏิเสธมานาน route ที่รันจริงเพิ่งรู้จัก (v466)
    * ครั้งที่ 5 ที่ route บังหน้า engine แล้วตกกฎไปข้อหนึ่ง · พบโดย tools/audit_system.js (R5)

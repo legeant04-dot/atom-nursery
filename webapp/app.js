@@ -155,7 +155,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.468'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.469'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:12px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -924,7 +924,18 @@
   window.TOGGLE_THEME = () => { const next=_isDark()?'light':'dark';
     document.documentElement.setAttribute('data-theme', next);
     try{ localStorage.setItem('atom_theme', next); }catch(e){}
-    paintThemeBtn(); };
+    paintThemeBtn();
+    /* 🔴 GOOGLE'S BUTTON DOES NOT FOLLOW OUR THEME — it is drawn by their script with a theme we
+     * chose at paint time, so flipping to dark left a white button sitting in a dark card on the
+     * one screen a parent sees before anything else. Redraw it: clearing gsiDone makes GOOGLE_PAINT
+     * treat the box as fresh. Cheap, and only ever on a deliberate tap. */
+    try {
+      const boxes=[...document.querySelectorAll('[data-gsi]')];
+      if (boxes.length && typeof GOOGLE_PAINT === 'function') {
+        boxes.forEach(el => { el.innerHTML=''; delete el.dataset.gsiDone; });
+        GOOGLE_PAINT();
+      }
+    } catch(e){} };
   setTimeout(paintThemeBtn,0);   // svgIcon is defined further down this file
   window.addEventListener('DOMContentLoaded', paintThemeBtn);
   try{ window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', ()=>{ if(!localStorage.getItem('atom_theme')) paintThemeBtn(); }); }catch(e){}
@@ -1368,13 +1379,45 @@
    * use it — gets it at first paint with no layout shift. Anything else has it taken away here,
    * immediately, before a parent could read it. An iPhone must never be offered an APK. */
   if(!isAndroid()){ const _c=document.getElementById('apkCard'); if(_c) _c.remove(); }
-  function installButtonsHTML(){ return `<div class="card instbox">
-      <b>📲 ${EN()?'Add the app to your phone':'เพิ่มแอปลงหน้าจอมือถือ'}</b>
-      <small class="muted">${EN()?'Puts an "Atom Nursery" icon on your home screen so you can open it straight away, without going through LINE every time.':'จะมีไอคอน "Atom Nursery" อยู่ที่หน้าจอมือถือ กดเปิดได้ทันที ไม่ต้องเข้าผ่าน LINE ทุกครั้ง'}</small>
-      <div class="row" style="gap:8px">
-        <button class="btn outline" style="flex:1" onclick="DO_INSTALL('android')">🤖 ${EN()?'Android phone':'เครื่อง Android'}</button>
-        <button class="btn outline" style="flex:1" onclick="DO_INSTALL('ios')">🍎 ${EN()?'iPhone / iPad':'iPhone / iPad'}</button>
+  /* ไอคอนชุดเดียวของหน้าเข้าสู่ระบบ — SVG ทั้งหมด ไม่ใช้ emoji
+   * 🤖 กับ 🍎 เรนเดอร์คนละหน้าตาบนมือถือทุกยี่ห้อ ซึ่งแปลว่าแบรนด์เปลี่ยนไปตามเครื่องของผู้ปกครอง
+   * และมันวางอยู่ข้างๆ โลโก้ LINE/Google ที่เป็นเวกเตอร์คมๆ จึงเห็นความต่างชัดมาก */
+  const LINE_MARK = '<svg viewBox="0 0 24 24" aria-hidden="true"><rect width="24" height="24" rx="6" fill="#06C755"/><text x="12" y="17" font-size="14" font-weight="800" fill="#fff" text-anchor="middle" font-family="inherit">L</text></svg>';
+  const DROID_MARK = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 11a7 7 0 0 1 14 0v6a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1z"/><path d="m7 7-1-2M17 7l1-2"/><circle cx="9.5" cy="12" r=".6" fill="currentColor"/><circle cx="14.5" cy="12" r=".6" fill="currentColor"/></svg>';
+  const APPLE_MARK = '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M16.4 12.8c0-2.3 1.9-3.4 2-3.5-1.1-1.6-2.8-1.8-3.4-1.8-1.4-.1-2.8.9-3.5.9s-1.8-.8-3-.8c-1.5 0-2.9.9-3.7 2.3-1.6 2.7-.4 6.8 1.1 9 .8 1.1 1.7 2.3 2.9 2.3 1.2 0 1.6-.7 3-.7s1.8.7 3 .7c1.3 0 2.1-1.1 2.8-2.2.9-1.3 1.3-2.5 1.3-2.6 0 0-2.5-1-2.5-3.6zM14.2 5.5c.6-.8 1.1-1.9 1-3-1 0-2.1.6-2.8 1.5-.6.7-1.1 1.8-1 2.9 1.1.1 2.2-.6 2.8-1.4z"/></svg>';
+  const DOWN_MARK = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v11m0 0 4-4m-4 4-4-4M5 19h14"/></svg>';
+  window.LINE_MARK = LINE_MARK;
+  function installButtonsHTML(){ return `<div class="card instbox lgbox" style="margin-top:8px">
+      <small class="muted" style="text-align:center">${EN()?'Puts an "Atom Nursery" icon on your home screen so you can open it straight away, without going through LINE every time.':'จะมีไอคอน "Atom Nursery" อยู่ที่หน้าจอมือถือ กดเปิดได้ทันที ไม่ต้องเข้าผ่าน LINE ทุกครั้ง'}</small>
+      <div class="lgpair">
+        <button class="lgrow" onclick="DO_INSTALL('android')"><span class="i">${DROID_MARK}</span><span>${EN()?'Android':'Android'}</span></button>
+        <button class="lgrow" onclick="DO_INSTALL('ios')"><span class="i">${APPLE_MARK}</span><span>${EN()?'iPhone':'iPhone'}</span></button>
       </div></div>`; }
+  /* ทางสำรองของคนที่เข้าไม่ได้ — ประกอบใหม่ทุกครั้งที่เปิด
+   *
+   * ของเดิมเป็นปุ่มสองอันที่อยู่บนหน้าจอตลอดเวลา และ lineWebReady() คอยสั่งซ่อน/แสดงผ่าน id
+   * ซึ่งแปลว่าหน้าเข้าสู่ระบบเสนอ "ทางเข้า" สี่ทางพร้อมกัน ทั้งที่สองทางมีไว้สำหรับคนที่ติดปัญหาแล้ว
+   *
+   * 🔴 ฟังก์ชันไม่ได้ถูกตัดทิ้ง — LINE_BROWSER_LOGIN คือทางที่ผู้ปกครองที่เข้าไม่ได้จริงๆ ใช้แล้วผ่าน
+   * ตั้งแต่ครั้งแรก (รายงาน 08/09) · มันแค่ย้ายมาอยู่หลังลิงก์เดียว และอ่านสถานะ "พร้อมหรือยัง"
+   * ตอนกดเปิด แทนที่จะคอยสลับ hidden ของ element ที่ลอยอยู่บนหน้าจอ */
+  window.LOGIN_HELP = () => {
+    const web = CONFIG.MODE==='gas' && CONFIG.LIFF_ID && !inLineApp() && lineWebReady();
+    modal(`<h3 style="margin-top:0">${EN()?'Trouble signing in?':'เข้าสู่ระบบไม่ได้?'}</h3>
+      <p class="muted" style="font-size:13px;line-height:1.6;margin:0 0 14px">${EN()
+        ? 'Try these in order. The first one needs no LINE app and no stored session.'
+        : 'ลองตามลำดับนี้ · ข้อแรกไม่ต้องมีแอป LINE และไม่ต้องใช้การเข้าสู่ระบบที่ค้างอยู่ในเครื่อง'}</p>
+      <div class="lgbox" style="box-shadow:none;border:0;padding:0">
+        ${web?`<button class="lgrow" onclick="this.closest('.modal').remove();LINE_BROWSER_LOGIN()">
+          <span class="i">${LINE_MARK}</span><span class="t">${EN()?'Sign in to LINE by email':'เข้าสู่ระบบ LINE ด้วยอีเมล'}</span><span class="chev">›</span></button>`:''}
+        ${!inLineApp()?`<button class="lgrow" onclick="this.closest('.modal').remove();OPEN_IN_LINE()">
+          <span class="i">💬</span><span class="t">${EN()?'Open inside the LINE app':'เปิดผ่านแอป LINE'}</span><span class="chev">›</span></button>`:''}
+      </div>
+      <p class="muted" style="font-size:13px;line-height:1.6;margin:14px 0 0">${EN()
+        ? 'Still stuck? Contact the school office — they can check whether your LINE account is linked to your child.'
+        : 'ยังเข้าไม่ได้? ติดต่อโรงเรียนได้เลย — ทางโรงเรียนตรวจได้ว่าบัญชี LINE ของท่านผูกกับลูกไว้หรือยัง'}</p>
+      <button class="btn outline block" style="margin-top:16px" onclick="this.closest('.modal').remove()">${esc(t('c.close'))}</button>`);
+  };
   /* THE ANDROID INSTALLER, OFFERED WHERE IT HELPS AND NOWHERE ELSE.
    *
    * Asked for 2026-08-26: parents are on every brand, model and browser imaginable, and the browser
@@ -1385,12 +1428,12 @@
    * button that cannot work to half the parents is worse than not offering one at all.
    */
   function apkCardHTML(){ if(!isAndroid()) return '';
-    return `<div class="card" style="background:var(--ok-bg,var(--blue-bg));border-color:var(--ok-line,var(--blue-line))">
-      <b>📱 ${EN()?'Install the Atom Nursery app':'ติดตั้งแอป Atom Nursery'}</b>
-      <small class="muted" style="display:block;margin:2px 0 8px">${EN()
+    return `<div class="card lgbox" id="apkCard" style="background:var(--ok-bg);border-color:var(--ok-line)">
+      <small class="muted" style="text-align:center">${EN()
         ? 'A real app instead of a browser tab: opens full screen, no address bar, and location works the same on every phone.'
         : 'เป็นแอปจริง ไม่ใช่หน้าเว็บในเบราว์เซอร์ · เปิดเต็มจอ ไม่มีแถบที่อยู่เว็บ และใช้งานเหมือนกันทุกเครื่อง'}</small>
-      <button class="btn block" onclick="APK_GET()">⬇️ ${EN()?'Download for Android':'ดาวน์โหลดสำหรับ Android'}</button>
+      <button class="lgrow" style="background:var(--brand);border-color:var(--brand);color:var(--on-accent);justify-content:center" onclick="APK_GET()">
+        <span class="i">${DOWN_MARK}</span><span>${EN()?'Download for Android':'ดาวน์โหลดสำหรับ Android'}</span></button>
     </div>`; }
   let deferredInstall=null;
   window.addEventListener('beforeinstallprompt', e=>{ e.preventDefault(); deferredInstall=e; });
@@ -1554,46 +1597,48 @@
      * asked at all. The shell now carries the same container, so painting from here fills it. */
     if (CONFIG.MODE === 'gas') { googleReady(); GOOGLE_PAINT(); }
     if(document.getElementById('bootSplash') && !EN()) return;
-    app.innerHTML = `<div class="rolewrap"><img src="assets/logo.png" class="logo-lg" alt="logo"/>
-      <h2 class="page" style="text-align:center">${esc(t('login.title'))}</h2>
-      <p class="muted">${esc(t('login.lineOnly'))}</p>
-      <button class="role-card" onclick="LIFF_LOGIN()"><span class="ic" style="background:#06C755;color:#fff;font-weight:800">L</span><span><b>${esc(t('login.lineBtn'))}</b><br><small>${esc(t('login.lineSub'))}</small></span></button>
-      <label style="display:flex;align-items:center;gap:8px;justify-content:center;margin-top:10px;font-size:13px"><input type="checkbox" id="rememberMe" ${rememberMe()?'checked':''} style="width:auto" onchange="REMEMBER_ME(this)"/> ${esc(t('login.remember'))}</label>
-      ${/* ---- THE WAY IN THAT CANNOT BE STALE OR BROKEN ------------------------------------------
-           Offered from the FIRST tap, not after two failures.
-
-           A parent reported 08/09 that they used to get in and now cannot. Nothing in the sign-in
-           changed in the five days before that — Auth.gs, Code.gs, api.js, the LIFF block in app.js
-           and index.html were all checked commit by commit, and the LIFF endpoint still resolves to
-           this app. What DOES change on its own is the LINE session stored on the phone: an access
-           token ages out, liff.isLoggedIn() keeps saying yes, and every route back to LINE reuses
-           the same dead token (`auth 2% INVALID_TOKENx7` in the 03–08/09 report).
-
-           v351 throws that token away and v353 stops asking a device that has failed twice. Both
-           are recoveries AFTER a failure. This is the one that needs no failure first: signing in
-           to LINE here depends on no stored session, no LINE app, and no hand-off. It is what the
-           parent who could not get in used, and it worked first try.
-
-           Hidden until the server says it is configured, and never inside LINE's own browser where
-           the session already exists. */''}
-      ${CONFIG.MODE==='gas'&&CONFIG.LIFF_ID&&!inLineApp()?`
-        <button class="btn-ghost block" id="lineWebBtn" ${lineWebReady()?'':'hidden'} style="margin-top:6px;font-size:13px" onclick="LINE_BROWSER_LOGIN()">${EN()?'Can’t get in? Sign in to LINE by email':'เข้าไม่ได้? เข้าสู่ระบบ LINE ด้วยอีเมล'}</button>
-        <button class="btn-ghost block" style="margin-top:2px;font-size:13px" onclick="OPEN_IN_LINE()">💬 ${EN()?'Or open inside the LINE app':'หรือเปิดผ่านแอป LINE'}</button>`:''}
-      ${/* Google's own button, drawn by their script into this box once the server confirms the
-           school has an OAuth client. Below the LINE routes on purpose: LINE is still the way in and
-           the one that carries notifications — this is for the phone that cannot complete it. */''}
-      ${CONFIG.MODE==='gas'&&!inLineApp()?`
-        <div style="display:flex;justify-content:center;margin-top:10px" data-gsi="signin"></div>`:''}
+    app.innerHTML = `<div class="lgwrap"><img src="assets/logo.png" class="logo-lg" alt="logo"/>
+      <div class="lgbrand">
+        <h2 class="page">${EN()?'Welcome':'ยินดีต้อนรับ'}</h2>
+        <p>${EN()?'For parents and teachers of Atom Nursery':'ระบบสำหรับผู้ปกครองและคุณครู'}</p>
+      </div>
+      ${/* ── หมวดที่ 1: ทางเข้า ─────────────────────────────────────────────────────────────
+           ทุกทางเข้าอยู่ในการ์ดเดียว เป็นแถวทรงเดียวกัน — ของเดิมมี 4 หน้าตาต่างกัน
+           จนสายตาไม่รู้ว่าทั้งหมดนี้คือเรื่องเดียวกัน */''}
+      <h3 class="lgsect">${esc(t('login.title'))}</h3>
+      <div class="lgbox">
+        <button class="lgrow rec" onclick="LIFF_LOGIN()">
+          <span class="i">${LINE_MARK}</span>
+          <span class="t">LINE</span>
+          <span class="lgpill">${EN()?'recommended':'แนะนำ'}</span>
+          <span class="chev">›</span>
+        </button>
+        ${/* Google's own button, drawn by their script into this box once the server confirms the
+             school has an OAuth client. It HAS to be their rendered button — that is what carries
+             the signed credential back and their branding rules require it — so this hands over a
+             container and GOOGLE_PAINT fills it, now full width so it lines up with the row above. */''}
+        ${CONFIG.MODE==='gas'&&!inLineApp()?`<div data-gsi="signin"></div>`:''}
+        <label class="lgchk"><input type="checkbox" id="rememberMe" ${rememberMe()?'checked':''} onchange="REMEMBER_ME(this)"/> ${esc(t('login.remember'))}</label>
+      </div>
       ${demoButtons()}
-      ${/* Android only, and ABOVE the add-to-home-screen box: for a phone that can take the real
-           app, the shortcut is the second-best answer. iPhones see neither this nor a dead button. */''}
+      ${/* ── หมวดที่ 2: ติดตั้งแอป ───────────────────────────────────────────────────────────
+           สองการ์ดเดิมยังเป็นสองก้อน (ชุดทดสอบ Android ตรึงลำดับไว้ และมันคนละเรื่องกันจริง:
+           ใบแรกคือแอปจริง .apk ใบที่สองคือไอคอนลัด) แต่อยู่ใต้หัวข้อเดียวกัน จึงอ่านเป็นเรื่องเดียว */''}
+      <h3 class="lgsect mid">${EN()?'Install the app':'ติดตั้งแอป'} <span class="opt">${EN()?'(optional)':'(ไม่บังคับ)'}</span></h3>
       ${apkCardHTML()}
       ${installButtonsHTML()}
-      ${/* THE BUILD, ON THE ONE SCREEN WHERE NOBODY CAN REACH THE CHAT SCREEN TO READ IT.
-           "The Google button is not there" and "your phone is still on last week's app.js" look
-           identical in a screenshot, and this app is served from a cache that can hold an old copy
-           for a while. One line settles it without asking anybody to open developer tools. */''}
-      <div id="verTag" style="text-align:center;color:var(--ink-3);font-size:12px;margin-top:18px">${esc(APP_VERSION)}</div></div>`;
+      ${/* ── ทางสำรอง: ยุบไว้หลังลิงก์เดียว ─────────────────────────────────────────────────
+           เดิมเป็นปุ่มจาง 2 อันวางต่อจากปุ่ม LINE ซึ่งทำให้หน้าจอเสนอ "ทางเข้า" 4 ทางพร้อมกัน
+           ทั้งที่ 2 ใน 4 นั้นมีไว้สำหรับคนที่ติดปัญหาแล้วเท่านั้น · ฟังก์ชันไม่ได้หายไปไหน
+           — LINE_BROWSER_LOGIN และ OPEN_IN_LINE ยังอยู่ครบ แค่ไม่แย่งที่กับทางเข้าปกติ */''}
+      <div class="lgfoot">
+        <button class="lglink" onclick="LOGIN_HELP()">${EN()?'Can’t get in?':'เข้าไม่ได้?'}</button>
+        ${/* THE BUILD, ON THE ONE SCREEN WHERE NOBODY CAN REACH THE CHAT SCREEN TO READ IT.
+             "The Google button is not there" and "your phone is still on last week's app.js" look
+             identical in a screenshot, and this app is served from a cache that can hold an old copy
+             for a while. One line settles it without asking anybody to open developer tools. */''}
+        <div id="verTag" style="color:var(--ink-3);font-size:12px;margin-top:8px">${esc(APP_VERSION)}</div>
+      </div></div>`;
     /* Painted AFTER the box exists. googleReady() above only asks the server; when the answer is
      * already in hand from an earlier render it resolves nothing, so the draw has to be asked for
      * here or the second visit to this screen shows an empty space where the button was. */
@@ -1688,7 +1733,7 @@
    * embedded WebView, so that button could only ever fail.
    * Placed AFTER inLineApp rather than beside the apkCard prune above it: this is a `const` arrow,
    * so calling it earlier is a temporal-dead-zone ReferenceError, not a hoisted function. */
-  if(inLineApp()){ ['lineWebBtn','openInLineBtn','gsiShell'].forEach(id=>{
+  if(inLineApp()){ ['loginHelpBtn','gsiShell'].forEach(id=>{
     const _e=document.getElementById(id); if(_e) _e.remove(); }); }
   /* The shell's version literal is whatever index.html shipped with; app.js knows what IS running.
    * They differ in exactly the case worth catching — a cached index.html beside a newer bundle, or
@@ -1861,7 +1906,9 @@
     if (_lineWebReady === null) {
       _lineWebReady = false;
       api('lineLoginReady', {}, { quiet: true }).then(r => { _lineWebReady = !!(r && r.ready);
-        const el = document.getElementById('lineWebBtn'); if (el) el.hidden = !_lineWebReady;
+        /* ไม่มีปุ่มลอยให้สลับ hidden อีกแล้ว — LOGIN_HELP() อ่านค่านี้ตอนกดเปิด
+         * ถ้าแผงช่วยเหลือเปิดค้างอยู่พอดีตอนคำตอบมาถึง ให้วาดใหม่เพื่อไม่ให้แสดงของเก่า */
+        if (document.querySelector('.modal .lgrow')) { const m=document.querySelector('.modal'); if(m){ m.remove(); LOGIN_HELP(); } }
       })
       /* A question we could not ask is not an answer of "no". Left as false, one failed ask — a
        * blip, a request cancelled by the app going to the background — would hide the route for the
@@ -1934,6 +1981,8 @@
   /* Draw Google's own button into every [data-gsi] box on the current screen. It has to be THEIR
    * button — the rendered one is what carries the signed credential back, and Google's branding
    * rules require it — so the screens hand over a container and this fills it. */
+  /** โหมดมืดสำหรับปุ่มของ Google — ค่าที่ผู้ใช้เลือกไว้มาก่อนเสมอ แม้ data-theme จะยังไม่ถูกตั้ง */
+  const _gsiDark = () => { try { const s = localStorage.getItem('atom_theme'); if (s) return s === 'dark'; } catch (e) {} return _isDark(); };
   window.GOOGLE_PAINT = async () => {
     const boxes = [...document.querySelectorAll('[data-gsi]')].filter(el => !el.dataset.gsiDone);
     if (!boxes.length || inLineApp() || CONFIG.MODE !== 'gas') return;
@@ -1962,7 +2011,16 @@
     boxes.forEach(el => { el.dataset.gsiDone = '1';
       try {
         window.google.accounts.id.renderButton(el, {
-          theme: 'outline', size: 'large', shape: 'pill',
+          /* rectangular, ไม่ใช่ pill — ให้ทรงเดียวกับแถว LINE ที่อยู่เหนือมันในการ์ดเดียวกัน
+           * Google อนุญาตทั้ง rectangular/pill/circle/square ปุ่มยังเป็นของ Google ตามกฎแบรนด์
+           *
+           * 🔴 และธีมต้องตามโหมดของแอป — 'outline' เป็นปุ่มขาว ซึ่งในโหมดมืดคือแผ่นขาวกลางการ์ดดำ
+           * บนหน้าจอแรกที่ผู้ปกครองเห็น · Google มี filled_black ไว้สำหรับพื้นมืดอยู่แล้ว
+           *
+           * 🔴 อ่านค่าที่เก็บไว้ก่อน ไม่ใช่ _isDark() เฉยๆ: ตอนวาดครั้งแรก data-theme อาจยังไม่ถูกตั้ง
+           * _isDark() จึงตกไปใช้ค่าของระบบปฏิบัติการ และวาดปุ่มขาวให้คนที่เลือกโหมดมืดไว้แล้ว
+           * (วัดจากหน้าจอจริง: filled_black ได้พื้น rgb(32,33,36) ส่วนที่วาดออกมาจริงเป็น 255,255,255) */
+          theme: _gsiDark() ? 'filled_black' : 'outline', size: 'large', shape: 'rectangular',
           text: el.dataset.gsi === 'link' ? 'continue_with' : 'signin_with',
           width: Math.min(400, Math.max(200, el.clientWidth || 300)),
           locale: EN() ? 'en' : 'th'

@@ -652,14 +652,32 @@ console.log('\n11) the button exists on a COLD start, which is the visit that fa
    * fallback nor the Google button — the two routes that exist for the parent whose FIRST attempt
    * is the one that fails. index.html already carried this lesson for the .apk card. */
   ok_('the shell carries the Google container', /data-gsi="signin"/.test(html));
-  ok_('...and the LINE-by-email fallback', /id="lineWebBtn"/.test(html));
-  ok_('...and the open-in-LINE route', /id="openInLineBtn"/.test(html));
-  ok_('the fallback starts hidden until the server says it is configured', /id="lineWebBtn" hidden/.test(html));
-  ok_('the shell guards every handler, since app.js may not have run yet', /window.LINE_BROWSER_LOGIN&&LINE_BROWSER_LOGIN()/.test(html) && /window.OPEN_IN_LINE&&OPEN_IN_LINE()/.test(html));
-  ok_('all three are removed inside LINE’s own browser', /['lineWebBtn','openInLineBtn','gsiShell'].forEach/.test(c));
+  /* 🔴 THE CLAIM IS "REACHABLE ON A COLD START", NOT "IS A BUTTON ON THE PAGE".
+   *
+   * These four used to pin `id="lineWebBtn"`, `id="openInLineBtn"` and `id="lineWebBtn" hidden` in
+   * the shell. In the C2 layout (ผอ. chose it 2026-10-23) both rescue routes moved behind one
+   * "เข้าไม่ได้?" link, because offering them beside LINE and Google made the screen present FOUR
+   * ways in when two of them exist only for somebody already stuck.
+   *
+   * Nothing was removed: LOGIN_HELP() builds both, and it reads lineWebReady() AT OPEN TIME rather
+   * than toggling a hidden attribute on a floating element — which also fixes the case the old
+   * assertion could not see, where the readiness answer arrives after the button was drawn.
+   *
+   * What still has to be true, and is what the cold-start lesson was actually about: the entry
+   * point is IN THE SHELL, so a first visit in Thai can reach it before app.js has rendered. */
+  ok_('...and the way to the rescue routes, on the shell itself', /onclick="window\.LOGIN_HELP&&LOGIN_HELP\(\)"/.test(html));
+  ok_('...and both rescue routes still exist, built when the panel opens',
+    /window\.LOGIN_HELP = \(\) => \{/.test(c) && /LINE_BROWSER_LOGIN\(\)/.test(c) && /OPEN_IN_LINE\(\)/.test(c));
+  ok_('the LINE-by-email route is offered only once the server says it is configured',
+    /const web = CONFIG\.MODE==='gas' && CONFIG\.LIFF_ID && !inLineApp\(\) && lineWebReady\(\);/.test(c));
+  ok_('the shell guards its handler, since app.js may not have run yet',
+    /window\.LOGIN_HELP&&LOGIN_HELP\(\)/.test(html) && /window\.LIFF_LOGIN&&LIFF_LOGIN\(\)/.test(html));
+  ok_('the entry point and the Google box are removed inside LINE’s own browser',
+    /\['loginHelpBtn','gsiShell'\]\.forEach/.test(c));
   /* inLineApp is a const arrow, so calling it from the top-level prune beside apkCard would be a
    * temporal-dead-zone ReferenceError rather than a hoisted call. */
-  ok_('...after inLineApp exists, not before it', c.indexOf('const inLineApp') < c.indexOf("['lineWebBtn','openInLineBtn','gsiShell']"));
+  ok_('...after inLineApp exists, not before it',
+    c.indexOf('const inLineApp') < c.indexOf("['loginHelpBtn','gsiShell']"));
   const ls = c.slice(c.indexOf('function loginScreen()'), c.indexOf('function loginScreen()') + 3000);
   ok_('the paint is asked for above the early return', ls.indexOf('GOOGLE_PAINT()') < ls.indexOf("getElementById('bootSplash')"));
   /* WHICH BUILD IS THIS PHONE RUNNING? "The button is missing" and "you are on last week's app.js"
