@@ -7,9 +7,10 @@
   route ทั้งหมด            372   (engine 328 · server 175)
   ถูกเรียกตรงๆ จากหน้าจอ    324
   มีชื่ออยู่ในโค้ดหน้าบ้าน      338
-  🔴 ไม่พบชื่อเลยในหน้าบ้าน   34   ← ตัวเลขที่ต้องตรวจมือทุกตัวก่อนตัด
+  🔒 ปิดทางเข้าไปแล้ว         21   (CLOSED_ROUTES_ ใน src/Code.gs · มีเหตุผลกำกับทุกตัว)
+  🔴 ยังไม่พบชื่อในหน้าบ้าน    13   ← ตัวเลขที่ต้องตรวจมือทุกตัวก่อนตัด
 
-──── ① ไม่มีหน้าจอไหนเรียกถึง (34) ────
+──── ① ไม่มีหน้าจอไหนเรียกถึง (13) ────
   🔴 "ไม่มีใครเรียก" ไม่ได้แปลว่า "ไม่มีใครใช้" — ตรวจมือทุกตัวก่อนเสมอ
   ตัวอย่างที่ตรวจแล้วในรอบแรก:
     · adminInbox      ใช้อยู่จริง — handleNotifications() เรียกเองฝั่งเซิร์ฟเวอร์ สำหรับ Role แอดมิน
@@ -17,40 +18,19 @@
     · saveParentSelf  ไม่มีหน้าจอไหนใช้จริง (ยืนยันแล้วตอนตรวจระบบ v466)
   👉 สิ่งที่ "ตัด" ได้คือ **การเปิดเป็น route** ไม่ใช่ตัวฟังก์ชัน — route ที่ไม่มีใครเรียก
      คือพื้นที่โจมตีที่ต้องตอบคำถามเรื่องสิทธิ์ และเป็นภาระของ Operation System ต่อไป
-    · adminInbox
-    · allChats
     · checkDuplicateIds
-    · comments
     · demoReset
-    · dspmManual
     · endedStaff
-    · findStudentByNationalID
-    · getConfig
-    · getConfigVal
-    · holidayAttendRemove
     · lineDiag
     · listBackups
-    · moveTeacher
-    · myClasses
-    · myFoodMenu
     · orphanLinks
     · parentDue
     · parentHomeCore
-    · parentLinkCounts
-    · pendingAdminOT
     · permissions
-    · prepaidStudents
-    · recentAttendance
     · reindexParents
-    · removeVaccine
     · restoreSheet
-    · saveParentSelf
-    · setVaccine
-    · staffAuth
     · staffingByNursery
     · startingStudents
-    · studentAssessment
-    · withdrawReasons
 
 ──── ② มีชื่ออยู่ แต่ไม่ได้ถูกเรียกแบบปกติ (14) ────
   ส่วนใหญ่คือของที่เรียกผ่านตัวช่วย เช่น punchWithRetry หรืออยู่ในรายการ batch

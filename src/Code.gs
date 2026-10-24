@@ -12,6 +12,50 @@
  */
 
 // action name -> handler(payload) -> data object
+/* ═══ 🔒 ประตูที่ปิด — ดูเหตุผลเต็มที่ dispatch_() ═══════════════════════════════════════════
+ *
+ * ตรวจเมื่อ 2026-10-24 ด้วย tools/audit_functions.js แล้วไล่มือทีละตัว: ทั้งหมดนี้ไม่มีใครเรียก
+ * จากหน้าจอ จาก .gs ตัวอื่น หรือจาก engine เอง · ปิดทางเข้าจากข้างนอก ฟังก์ชันยังอยู่ครบ
+ *
+ * ค่าในแมปคือ "เหตุผลที่ปิด" — เขียนไว้เพื่อให้คนที่มาเปิดใหม่รู้ว่าต้องคิดเรื่องอะไรก่อน
+ */
+var CLOSED_ROUTES_ = {
+  /* 🔴 ความลับของโรงเรียน — พิสูจน์แล้วว่าผู้ปกครองที่ล็อกอินอยู่เรียกได้ และได้คีย์จริง */
+  getConfig:    'คืนค่าตั้งค่าทั้ง 85 คีย์ รวม SlipOK_ApiKey และ LineLoginChannelSecret · หน้าจอใช้ schoolConfig ซึ่งคืนเฉพาะ 26 คีย์ที่ปลอดภัย',
+  getConfigVal: 'คืนค่าตั้งค่าทีละคีย์ตามชื่อที่ขอ — รวมคีย์ลับ',
+  /* 🔴 ค้นคนด้วยเลขบัตรประชาชน — ข้อมูลอ่อนไหว ม.26 */
+  staffAuth:              'ค้นพนักงานด้วยเลขบัตรประชาชน ไม่มีด่านสิทธิ์',
+  findStudentByNationalID:'ค้นนักเรียนด้วยเลขบัตรประชาชน ไม่มีด่านสิทธิ์',
+  /* 🔴 ข้อมูลข้ามครอบครัว */
+  allChats:        'คอมเมนต์ของทุกครอบครัวในโรงเรียนในคำตอบเดียว',
+  parentLinkCounts:'จำนวนเด็กที่ผูกของผู้ปกครองทุกคน (อยู่ใน ADMIN_ONLY อยู่แล้ว แต่ไม่มีหน้าจอใช้)',
+  prepaidStudents: 'รายชื่อเด็กที่จ่ายล่วงหน้า — ไม่มีหน้าจอใช้',
+  recentAttendance:'ประวัติการมาเรียนรวม — ไม่มีหน้าจอใช้',
+  /* ของเก่าที่ถูกแทนที่ไปแล้ว */
+  moveTeacher:        'ถูกแทนด้วย orgMoveTeacher (รับ targetId เพื่อให้ applyIdentity_ ไม่ทับ)',
+  setVaccine:         'ถูกแทนด้วย saveVaccines',
+  removeVaccine:      'ถูกแทนด้วย saveVaccines',
+  holidayAttendRemove:'ถูกแทนด้วย holidayAttendSet',
+  myClasses:          'ถูกแทนด้วย classList ที่ scope ตามผู้เรียกแล้ว',
+  myFoodMenu:         'ถูกแทนด้วย foodMenu',
+  comments:           'ถูกแทนด้วย journalHistory / addComment',
+  withdrawReasons:    'ไม่มีหน้าจอใช้',
+  pendingAdminOT:     'ถูกแทนด้วย adminOTList + opsPending',
+  dspmManual:         'ลิงก์คู่มือ DSPM อ่านจาก schoolConfig แทน',
+  /* 🔴 ไม่มีหน้าจอไหนเรียก และเคยเป็นช่องให้ครูแก้ข้อมูลผู้ปกครองคนใดก็ได้ (พบตอนตรวจระบบ v466) */
+  saveParentSelf: 'ไม่มีหน้าจอใช้ และเป็นเส้นทางแก้ข้อมูลผู้ปกครองที่ไม่ควรเปิดทิ้งไว้',
+  /* ฟังก์ชันยังถูกเรียกอยู่ภายในเซิร์ฟเวอร์ — ปิดเฉพาะ "ทางเข้าจากข้างนอก" */
+  adminInbox:        'handleNotifications() เรียกเองสำหรับ Role แอดมิน — ไม่มีใครต้องเรียกตรงจากข้างนอก',
+  studentAssessment: 'Dspm.gs เรียกฟังก์ชันนี้เอง — ไม่มีหน้าจอเรียกผ่าน route'
+};
+/* 🔑 และของที่ "ไม่มีหน้าจอเรียก" แต่ตั้งใจเปิดไว้ — ประกาศไว้เพื่อไม่ให้ใครปิดโดยไม่รู้:
+ *   restoreSheet · listBackups  เส้นทางกู้ข้อมูลตอนฉุกเฉิน — ไม่มีหน้าจอโดยตั้งใจ และเป็นสิ่งที่
+ *                               ต้องเรียกได้ตอนที่หน้าจอนั่นแหละคือสิ่งที่พัง
+ *   checkDuplicateIds           เครื่องมือตรวจข้อมูลซ้ำ (ใช้จริงตอนล้างข้อมูล 2026-07)
+ *   reindexParents              เครื่องมือซ่อมดัชนีหลังนำเข้าข้อมูล
+ *   lineDiag                    ตรวจว่าทำไม LINE ส่งไม่ออก
+ *   demoReset                   โหมดเดโม ยังไม่ได้เปิดใช้ แต่กำลังจะใช้
+ */
 var ROUTES = {
   // ?probe=1 additionally reports how long the two things EVERY request pays for actually take:
   // opening the workbook and reading the config. Both are work a normal request does anyway, and
@@ -828,6 +872,36 @@ function dispatch_(action, payload, token) {
   var handler = ROUTES[action];
   if (!handler && ENGINE_FALLBACK && typeof engineDispatch_ === 'function') {
     handler = function (p) { return engineDispatch_(action, p); };
+  }
+  /* ═══ 🔒 ประตูที่ปิดไว้ — route ที่ไม่มีหน้าจอไหนเรียก และไม่ควรเรียกจากข้างนอก ═════════════
+   *
+   * 🔴 ทำไมเรื่องนี้ถึงสำคัญกว่าการ "จัดบ้าน": ENGINE_FALLBACK ข้างบนแปลว่า **ทุกคีย์ใน H ของ
+   * engine คือ API ที่เปิดอยู่จริง** ไม่ว่าจะมีหน้าจอเรียกหรือไม่ · ด่านเดียวที่กั้นคือ ADMIN_ONLY
+   * และของที่ไม่ได้อยู่ในนั้น ผู้ปกครองที่ล็อกอินอยู่เรียกได้หมด
+   *
+   * พิสูจน์ด้วยการรันจริงเมื่อ 2026-10-24 (ไม่ใช่การอ่านโค้ดเดา):
+   *     H.getConfig({role:'Parent'})  → คืนค่าตั้งค่า **ทั้ง 85 คีย์**
+   *       · SlipOK_ApiKey           — คีย์ตรวจสลิปของโรงเรียน (ผูกกับเงินและโควตา)
+   *       · LineLoginChannelSecret  — ที่โค้ดเขียนกำกับไว้เองว่า "NEVER leaves the server"
+   *     H.getConfigVal({key:'SlipOK_ApiKey'}) → คืนคีย์นั้นตรงๆ
+   *
+   * `schoolConfig` ซึ่งเป็นตัวที่หน้าจอใช้จริง ทำถูกอยู่แล้ว — มันคืนเฉพาะ 26 คีย์ที่เลือกมาทีละตัว
+   * ปัญหาจึงไม่ใช่ว่าไม่มีใครคิดเรื่องนี้ แต่คือ **ยังมีประตูเก่าที่ไม่มีใครเดินแล้วเปิดค้างอยู่**
+   *
+   * 🔑 ตอบ UNKNOWN_ACTION เหมือน route ที่ไม่เคยมีอยู่ ไม่ใช่ NO_PERMISSION — คำตอบว่า
+   * "มีอยู่ แต่คุณไม่มีสิทธิ์" คือการยืนยันให้คนนอกรู้ว่ามีอะไรอยู่ตรงนั้น
+   *
+   * 🔑 ปิดเฉพาะที่ตรวจแล้วว่า **ไม่มีใครเรียกจากที่ไหนเลย** — ทั้งหน้าจอ (api/punchWithRetry),
+   * ฝั่ง .gs (รวม engineDispatch_('x') แบบที่ Auth.gs เรียก parentHomeCore ตอนล็อกอิน) และใน
+   * engine เอง (H.x()) · ฟังก์ชันไม่ได้ถูกลบ: handleAdminInbox ยังถูก handleNotifications เรียก
+   * และ handleStudentAssessment ยังถูก Dspm.gs เรียก — ที่ปิดคือ "ทางเข้าจากข้างนอก"
+   *
+   * 🔴 และของที่ "ไม่มีหน้าจอเรียก" แต่ **ต้องเปิดไว้** ก็ประกาศไว้ด้านล่างพร้อมเหตุผล
+   * ไม่ใช่ปล่อยให้คนรุ่นถัดไปเดาเอาว่าทำไมไม่ปิด
+   */
+  if (CLOSED_ROUTES_[action]) {
+    try { logAudit('system', 'CLOSED_ROUTE_CALLED', 'API', action); } catch (e) {}
+    handler = null;
   }
   /**
    * Every reply says WHICH QUESTION it answers.
