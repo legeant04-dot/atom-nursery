@@ -79,7 +79,11 @@
 *{box-sizing:border-box;}
 [hidden]{display:none !important;}
 html,body{margin:0;padding:0;}
-body{font-family:'Sarabun',system-ui,sans-serif;background:var(--bg);color:var(--ink);padding-bottom:72px;}
+/* 80, not 72: the bottom bar grew from ~55px to ~64px when the open tab became a filled row with a
+ * circled icon (2026-10-24). 72 still cleared it, but by 8px — and on a phone with a home indicator
+ * the safe-area inset is added on top of the bar, which is exactly the handset where the last row of
+ * a list would have ended up underneath it. */
+body{font-family:'Sarabun',system-ui,sans-serif;background:var(--bg);color:var(--ink);padding-bottom:80px;}
 
 /* Top bar */
 .topbar{position:sticky;top:0;z-index:20;display:flex;align-items:center;justify-content:space-between;
@@ -212,8 +216,20 @@ a.btn.block{display:block;}
 .bottomnav{position:fixed;bottom:0;left:0;right:0;display:flex;background:var(--surface);border-top:1px solid var(--line);z-index:20;}
 .bottomnav button{flex:1;background:none;border:none;padding:8px 4px;cursor:pointer;font-family:inherit;
   display:flex;flex-direction:column;align-items:center;gap:2px;color:var(--muted);font-size:12px;}
-.bottomnav button .ic{font-size:20px;}
-.bottomnav button.active{color:var(--blue);font-weight:700;}
+/* 🔴 กล่องไอคอนขนาดเดียวกันทุกแท็บ ไม่ว่าแท็บนั้นถูกเลือกอยู่หรือไม่
+ * แท็บที่เลือกมีวงกลมสีแบรนด์ (แบบ C · ผอ. เลือก 2026-10-24) — ถ้าให้เฉพาะแท็บที่เลือกสูงขึ้น
+ * ความสูงของแถบจะถูกกำหนดโดยแท็บนั้น และคำของแท็บอื่นจะยกขึ้นไม่ตรงกัน · ขนาดคงที่แปลว่า
+ * "เปลี่ยนแค่สี" ตอนสลับแท็บ ไม่มีการจัดวางใหม่เลย */
+.bottomnav button{justify-content:center;}
+.bottomnav button .ic{width:34px;height:34px;border-radius:var(--radius-pill);display:grid;place-items:center;
+  font-size:20px;transition:background var(--dur),color var(--dur);}
+.bottomnav button .ic svg{width:22px;height:22px;display:block;}
+.bottomnav button.active{color:var(--brand-d);font-weight:700;background:var(--brand-soft);}
+.bottomnav button.active .ic{background:var(--brand);color:var(--on-accent);
+  box-shadow:0 2px 6px rgba(21,101,192,.35);}
+.bottomnav button.active .ic svg{width:19px;height:19px;stroke-width:2.2;}
+/* ป้ายตัวเลขอยู่ "ใน" กล่องไอคอน — วงแหวนรอบป้ายต้องเป็นสีพื้นของแท็บที่เลือก ไม่ใช่สีพื้นแถบ */
+.bottomnav button.active .navbadge{box-shadow:0 0 0 2px var(--brand-soft);}
 
 /* Role chooser */
 .rolewrap{max-width:420px;margin:30px auto;text-align:center;}
@@ -604,11 +620,20 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--blue);bo
   .list-item .btn.sm{transition:filter var(--dur),transform .06s;}
 }
 
-/* Bottom nav: active tab gets an accent bar + safe-area inset on modern phones */
+/* Bottom nav: safe-area inset on modern phones
+ *
+ * 🔴 THE 26×3px ACCENT BAR IS GONE (2026-10-24). It was the only thing on the bar that said which
+ * screen you were on, and it was measured at 1.19:1 — the active label against an inactive one —
+ * i.e. indistinguishable. It also sat on the TOP edge of the bar, which is not where anyone looks;
+ * the eye goes to the icon and the word. ผอ. asked twice for the open tab to be clearer and to feel
+ * worth what a school pays monthly, and "clearer" turned out to be a number, not a feeling.
+ *
+ * Replaced by variant C above: the open tab is filled, its icon sits in a brand circle, and the
+ * label is bold — three signals, of which only one is colour, so it survives both themes
+ * (measured 5.75:1 light / 7.43:1 dark against the bar). Same rule as the "แนะนำ" row on the login
+ * screen: emphasis must never rest on a tint alone. */
 .bottomnav{box-shadow:0 -1px 8px rgba(16,24,40,.06);padding-bottom:env(safe-area-inset-bottom,0);}
-.bottomnav button{position:relative;transition:color var(--dur);}
-.bottomnav button.active::before{content:"";position:absolute;top:0;left:50%;transform:translateX(-50%);
-  width:26px;height:3px;border-radius:0 0 3px 3px;background:var(--blue);}
+.bottomnav button{position:relative;transition:color var(--dur),background var(--dur);}
 
 /* Modal: stronger elevation + gentle rise-in */
 .modal .sheet{box-shadow:var(--sh-lg);}

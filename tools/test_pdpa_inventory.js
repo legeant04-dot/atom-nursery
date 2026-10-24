@@ -39,12 +39,20 @@ console.log('\n1) 🔴 ทุกตารางต้องรู้ว่าเ
 
 console.log('\n2) 🔴 เอกสารที่ commit ไว้ ตรงกับระบบวันนี้');
 {
+  /* 🔴 READ THE GENERATOR, DO NOT RE-WRITE THE DOCUMENT.
+   *
+   * This used to run `--write`, which rewrote docs/pdpa/02_ROPA.md as a side effect of testing it.
+   * The committed file therefore came back DIRTY after every suite run — only the date line, but
+   * that is a tracked PDPA record whose date moved every day with nothing having changed, and
+   * anybody committing the day's work carried the drift along. Found on 2026-10-24 when the working
+   * tree showed a ROPA edit nobody had made.
+   *
+   * Comparing the generator's stdout answers the same question without touching the file. */
   const before = R('docs/pdpa/02_ROPA.md');
-  cp.execSync('node tools/pdpa_inventory.js --write', { cwd: ROOT, stdio: 'ignore' });
-  const after = R('docs/pdpa/02_ROPA.md');
+  const after = cp.execSync('node tools/pdpa_inventory.js', { cwd: ROOT, encoding: 'utf8' });
   /* The generation date is the one line that legitimately moves, so it is excluded — everything
    * else differing means somebody changed the schema and did not re-generate the record. */
-  const strip = s => s.replace(/^สร้างเมื่อ:.*$/m, '');
+  const strip = s => s.replace(/^สร้างเอกสารครั้งล่าสุด:.*$/m, '').replace(/\r/g, '').trim();
   eq('🔴 บันทึกรายการประมวลผล ยังตรงกับ SCHEMA', strip(before) === strip(after) ? 'in step' : 'STALE', 'in step');
 }
 
