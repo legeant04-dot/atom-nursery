@@ -42,7 +42,14 @@ for (const r of all) {
 const CALL = /(?:api|punchWithRetry|apiSilent|apiQuiet)\(\s*['"]([a-zA-Z0-9_]+)['"]/g;
 const calledDirect = new Set([...web.matchAll(CALL)].map(m => m[1]));
 
-const unreferenced = all.filter(r => refCount[r] === 0);
+/* ประตูที่ปิดไปแล้ว — ไม่ต้องบอกให้ใครไปไล่ปิดซ้ำ
+ * ถ้าใบงานยังนับของที่จัดการแล้วว่า "ค้างอยู่" วันหนึ่งคนจะเลิกเชื่อตัวเลขทั้งใบ */
+const closed = new Set([...code.matchAll(/^  ([a-zA-Z][a-zA-Z0-9_]*):\s*'/gm)]
+  .filter(m => {
+    const at = code.indexOf(m[0]);
+    return at > code.indexOf('var CLOSED_ROUTES_') && at < code.indexOf('var ROUTES = {');
+  }).map(m => m[1]));
+const unreferenced = all.filter(r => refCount[r] === 0 && !closed.has(r));
 const referencedNotCalled = all.filter(r => refCount[r] > 0 && !calledDirect.has(r));
 
 /* ── 3. ตระกูลชื่อที่อาจรวบได้ ─────────────────────────────────────────────────────────────── */
@@ -82,7 +89,8 @@ say('\n════════ ใบงาน: รวบ / ตัด / จั�
 say('  route ทั้งหมด            ' + all.length + '   (engine ' + engRoutes.length + ' · server ' + srvRoutes.length + ')');
 say('  ถูกเรียกตรงๆ จากหน้าจอ    ' + [...calledDirect].filter(r => all.includes(r)).length);
 say('  มีชื่ออยู่ในโค้ดหน้าบ้าน      ' + all.filter(r => refCount[r] > 0).length);
-say('  🔴 ไม่พบชื่อเลยในหน้าบ้าน   ' + unreferenced.length + '   ← ตัวเลขที่ต้องตรวจมือทุกตัวก่อนตัด');
+say('  🔒 ปิดทางเข้าไปแล้ว         ' + closed.size + '   (CLOSED_ROUTES_ ใน src/Code.gs · มีเหตุผลกำกับทุกตัว)');
+say('  🔴 ยังไม่พบชื่อในหน้าบ้าน    ' + unreferenced.length + '   ← ตัวเลขที่ต้องตรวจมือทุกตัวก่อนตัด');
 
 say('\n──── ① ไม่มีหน้าจอไหนเรียกถึง (' + unreferenced.length + ') ────');
 say('  🔴 "ไม่มีใครเรียก" ไม่ได้แปลว่า "ไม่มีใครใช้" — ตรวจมือทุกตัวก่อนเสมอ');
