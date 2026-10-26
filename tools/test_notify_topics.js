@@ -130,10 +130,15 @@ console.log('\n2) 🔴 ไม่มีการส่ง LINE ถึงครอ
    * (ก่อน 10/10 กระดิ่งของคุณครูเขียนเสมอ ปิดไม่ได้ — ตอนนี้ปิดได้ และหน้าจอเตือนถ้าปิดทั้งคู่) */
   {
     const parentGs = decom(R('src/Parent.gs')), notifyGs = R('src/Notify.gs');
+    /* 🔴 ข้อกล่าวอ้างคือ "กระดิ่งถูกเขียนเมื่อ appOn เปิด" ไม่ใช่ "เขียนด้วยฟังก์ชันชื่อนี้"
+     * ตั้งแต่ 2026-10-26 กระดิ่งถูกเก็บรายชื่อไว้ก่อนแล้วเขียนทีเดียวด้วย inboxAddMany_ —
+     * เพราะการเขียนทีละคนทำให้ parentCheckin มี p50 ถึง 21.5 วินาที (ทั้งระบบ 8.1s)
+     * ช่องทางยังแยก app/line เหมือนเดิมทุกประการ ซึ่งคือสิ่งที่ข้อนี้มีไว้ตรวจ */
     ok_('notifyStudentTeacher_ แยก app/line จาก notifyChannels_(opts.topic)',
       /var chans = notifyChannels_\(opts\.topic\);/.test(parentGs) &&
       /var lineOn = chans\.line, appOn = chans\.app;/.test(parentGs) &&
-      /if \(appOn\) \{ inboxAdd_\(/.test(parentGs));
+      /if \(appOn\) \{ inboxFor\.push\(/.test(parentGs) &&
+      /if \(inboxFor\.length\) inboxAddMany_\(/.test(parentGs));
     ok_('notifyStaffMember_ แยก app/line เหมือนกัน',
       /function notifyStaffMember_\(staffId, text, category, ref, topic\)/.test(notifyGs) &&
       /var ch = notifyChannels_\(topic\);/.test(notifyGs) &&
