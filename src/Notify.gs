@@ -110,6 +110,59 @@ function inboxBust_() { try { CacheService.getScriptCache().removeAll(['rows:ADM
 /** Append a line to the Admin in-app inbox (best-effort; never throws into the caller).
  *  ref (optional) = a deep-link "kind|studentId|date" so tapping the notification opens that exact item. */
 var INBOX_DEDUP_MIN_ = 10;   // the same words, to the same person, inside this many minutes = one event
+/**
+ * 🔴 ONE READ AND ONE WRITE FOR THE WHOLE GROUP — ไม่ใช่ต่อคน
+ *
+ * วัดจากคนใช้จริง 6 วัน (2026-10-20 → 26, 393 session): `parentCheckin` มี p50 = **21.5 วินาที**
+ * ขณะที่ทั้งระบบอยู่ที่ 8.1 วินาที — ช้ากว่าค่ากลางเกือบสามเท่า และเป็นปุ่มที่ผู้ปกครองกด
+ * "ขณะยืนอยู่หน้าโรงเรียน" ด้วย · สายที่ช้าที่สุดในช่วงนั้นคือ 115.2 วินาที
+ *
+ * สาเหตุไม่ได้อยู่ที่ชนิดฐานข้อมูล แต่อยู่ที่รูปทรงของงาน: การเช็คอินหนึ่งครั้งเรียก
+ * inboxAdd_ ทีละคนสำหรับครูทุกคนที่ดูแลเด็กคนนั้น และ inboxAdd_ แต่ละครั้งจะ
+ *
+ *     อ่าน ADMIN_INBOX ทั้งชีต (เพื่อกันข้อความซ้ำ) → ต่อท้าย 1 แถว → **ล้าง cache**
+ *
+ * 🔴 และการล้าง cache ในข้อสุดท้าย ทำให้รอบถัดไปอ่านเย็นเสมอ — N คนจึงเท่ากับ
+ * "อ่านทั้งชีตแบบเย็น N ครั้ง" ทั้งหมดนี้อยู่ในล็อกเขียน ซึ่งกั้นคนทั้งโรงเรียนไว้ด้วย
+ * และ ADMIN_INBOX โตขึ้นทุกวัน แปลว่าการเช็คอินช้าลงเรื่อย ๆ ทุกสัปดาห์โดยไม่มีใครแก้อะไรเลย
+ *
+ * ตัวนี้อ่านครั้งเดียว กันซ้ำให้ทุกคนจากการอ่านครั้งนั้น แล้วเขียนทีเดียวด้วย setValues
+ * — N อ่าน + N เขียน + N ล้าง  →  1 + 1 + 1
+ */
+function inboxAddMany_(category, text, ref, staffIds) {
+  var ids = (staffIds || []).map(function (x) { return String(x || ''); }).filter(Boolean);
+  if (!ids.length) return 0;
+  try {
+    /* ไม่เรียก ensureColumns_ ซ้ำตรงนี้: inboxSheet_() สร้างชีตพร้อมหัวตารางครบอยู่แล้ว และ
+     * ensure คอลัมน์ StaffID/StudentID ให้ด้วย · การเรียกซ้ำคือการอ่านหัวตารางอีกรอบในเส้นทางที่
+     * ตัวนี้มีไว้เพื่อ "ลดการอ่าน" พอดี — และเป็นจุดเรียกที่ tools/test_schema_runtime_cols.js
+     * สาวกลับไปหาชีตไม่ได้ จึงนับเป็นจุดบอดเพิ่มโดยไม่ได้อะไรกลับมา */
+    var sh = inboxSheet_();
+    var cutoff = new Date(Date.now() - INBOX_DEDUP_MIN_ * 60000);
+    var recent = {};
+    try {
+      readObjects_(sh).forEach(function (r) {                 // อ่านครั้งเดียวสำหรับทุกคน
+        if (String(r.Category || '') !== String(category || '')) return;
+        if (String(r.Text || '') !== String(text || '')) return;
+        var d = (r.Date instanceof Date) ? r.Date : new Date(String(r.Date || '').replace(' ', 'T'));
+        if (!isNaN(d) && d >= cutoff) recent[String(r.StaffID || '')] = 1;
+      });
+    } catch (e) {}
+    var fresh = ids.filter(function (id) { return !recent[id]; });
+    if (!fresh.length) return 0;
+    var hdr = headers_(sh);
+    var now = dateStr_(new Date()) + ' ' + timeStr_(new Date());
+    var rows = fresh.map(function (id, i) {
+      var o = { InboxID: 'IN-' + Date.now() + '-' + i + '-' + Math.floor(Math.random() * 1000),
+        Category: category || '', Text: String(text || ''), Read: '', Ref: ref || '', StaffID: id, Date: now };
+      return hdr.map(function (h) { return (o[h] === undefined || o[h] === null) ? '' : o[h]; });
+    });
+    sh.getRange(sh.getLastRow() + 1, 1, rows.length, hdr.length).setValues(rows);   // เขียนครั้งเดียว
+    bustSheetCache_(sh); inboxBust_();                                             // ล้างครั้งเดียว
+    return rows.length;
+  } catch (e) { try { Logger.log('inboxAddMany_ ' + e.message); } catch (x) {} return 0; }
+}
+
 function inboxAdd_(category, text, ref, staffId) {
   try {
     var sh = inboxSheet_();

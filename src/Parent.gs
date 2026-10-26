@@ -67,9 +67,25 @@ function handleParentCheckin(payload) {
 
   var now = new Date();
   var ciSheet = sheet_(getMainSpreadsheet_(), 'CHECKIN_STUDENT');
-  // De-dup a rapid double check-in (double-tap / slow network): if the SAME student+type was recorded
-  // within CheckinDedupMinutes today, keep only the LATEST time (update the row, don't add a new one,
-  // and don't re-notify). Default window 10 minutes.
+  /* ⚠️ จุดที่ต้องแก้ต่อ — ยังไม่ได้แก้ในรอบนี้ เพราะเป็นงานที่ต้องมีขอบเขตของตัวเอง
+   *
+   * วัดจากคนใช้จริง 6 วัน (2026-10-26 · 393 session): `parentCheckin` p50 = **21.5 วินาที**
+   * ขณะที่ทั้งระบบ 8.1 วินาที · ช้าสุด 115.2 วินาที · และเป็นปุ่มที่ผู้ปกครองกดขณะยืนอยู่หน้าโรงเรียน
+   *
+   * 🔴 findObject_ ข้างล่างนี้ **สแกน CHECKIN_STUDENT ทั้งชีต** เพื่อหาแถวของเด็กคนเดียวในวันเดียว
+   * และ CHECKIN_STUDENT คือชีตที่ใหญ่ที่สุดและโตเร็วที่สุดในแอป — เคยวัดไว้ที่ 537KB ซึ่ง
+   * "อ่านแบบเย็น" เสีย 6.6 วินาที (ดู WORKLOG 2026-10-07) · ทั้งหมดนี้อยู่ในล็อกเขียน
+   *
+   * 🔴 และบรรทัด removeAll(['rows:CHECKIN_STUDENT']) ข้างล่าง ล้าง cache ทิ้งหลังเขียนเสร็จ
+   * แปลว่า **ผู้ปกครองคนถัดไปที่มาส่งลูก จ่ายค่าอ่านเย็นใหม่ทุกครั้ง** — ช่วงเช้า 06:00–08:00
+   * คือช่วงที่คนใช้หนาแน่นที่สุดพอดี และชีตนี้โตขึ้นทุกวัน จึงช้าลงเรื่อย ๆ เองโดยไม่มีใครแก้อะไร
+   *
+   * ทางแก้ที่ไม่เสียความถูกต้อง: หาเฉพาะแถว "ของวันนี้" (ชีตเรียงตามเวลาอยู่แล้ว จึงไล่จากท้าย)
+   * หรือแยกดัชนีต่อวัน · ไม่แก้พร้อมกับงานอื่นเพราะการกันกดซ้ำคือเรื่องความถูกต้อง ไม่ใช่ความเร็ว
+   *
+   * De-dup a rapid double check-in (double-tap / slow network): if the SAME student+type was recorded
+   * within CheckinDedupMinutes today, keep only the LATEST time (update the row, don't add a new one,
+   * and don't re-notify). Default window 10 minutes. */
   var win = parseInt(getConfig_('CheckinDedupMinutes', '10'), 10) || 10;
   var nowMin = now.getHours() * 60 + now.getMinutes();
   var recent = findObject_(ciSheet, function (r) {
@@ -434,11 +450,20 @@ function notifyStudentTeacher_(student, text, opts) {
    * everything, every time, which is exactly what makes a topic safe to switch off. */
   var chans = notifyChannels_(opts.topic);
   var lineOn = chans.line, appOn = chans.app;
+  /* 🔴 เก็บรายชื่อไว้ก่อน แล้วเขียนทีเดียวตอนท้าย — ไม่เขียนทีละคน
+   *
+   * ของเดิมเรียก inboxAdd_ ต่อครูหนึ่งคน และ inboxAdd_ หนึ่งครั้ง = อ่าน ADMIN_INBOX ทั้งชีต
+   * (เพื่อกันซ้ำ) + ต่อท้าย 1 แถว + ล้าง cache · การล้าง cache ทำให้รอบถัดไปอ่านเย็นเสมอ
+   * ครู 3 คนจึงเท่ากับอ่านทั้งชีตแบบเย็น 3 ครั้ง ภายในล็อกเขียน ขณะผู้ปกครองยืนรออยู่หน้าโรงเรียน
+   *
+   * วัดจากคนใช้จริง 2026-10-26: parentCheckin p50 = 21.5s (ทั้งระบบ 8.1s) · ช้าสุด 115.2s
+   * ดูเหตุผลเต็มที่ inboxAddMany_ ใน src/Notify.gs */
+  var inboxFor = [];
   var reach = function (staff) {
     if (!staff || !staff.StaffID || seenStaff[staff.StaffID]) return;
     if (!staffOnDuty_(staff)) return;              // observers, admins, and anyone who has left
     seenStaff[staff.StaffID] = 1;
-    if (appOn) { inboxAdd_(opts.category, text, opts.ref, staff.StaffID); inboxed++; }
+    if (appOn) { inboxFor.push(staff.StaffID); inboxed++; }
     var uid = staff.LineUID;
     if (lineOn && uid && !seenUid[uid]) { seenUid[uid] = 1; if (linePushText_(uid, text)) sent = true; }
   };
@@ -454,6 +479,8 @@ function notifyStudentTeacher_(student, text, opts) {
   // 2) any staff ON DUTY whose Department/Classes covers this class. staffOnDuty_ (checked inside
   //    reach) is what decides; the role/status test that used to live here let an Observer through.
   staffRows.forEach(function (s) { if (staffCoversClass_(s, student.Class)) reach(s); });
+  // ...แล้วเขียนกล่องข้อความของทุกคนในครั้งเดียว
+  if (inboxFor.length) inboxAddMany_(opts.category, text, opts.ref, inboxFor);
   // Fallback to the Admin in-app inbox only when nobody at all was reached. Routine check-in/out pass
   // adminFallback:false so they don't flood the inbox; leaves keep it so they're never lost.
   if (!inboxed && !sent && opts.adminFallback !== false) notifyAdmins_(text, opts.category, opts.ref);
