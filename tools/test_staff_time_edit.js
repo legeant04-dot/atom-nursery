@@ -74,7 +74,15 @@ const res = JSON.parse(run(function () {
   }
   var out = {};
   out.teacher = call({ staffId: 'TE-OTH', targetId: 'TE-TCH', date: YDAY, checkOut: '17:30', remark: 'x' });
-  out.noReason = call({ staffId: 'TE-ADM', targetId: 'TE-TCH', date: YDAY, checkOut: '17:30' });
+  /* 🔴 ไม่ใส่เหตุผล = บันทึกได้ (ผอ. 2026-10-27) — แต่ประวัติต้องไม่ว่าง
+   * 🔴 ใช้ "วันของตัวเอง" ไม่ใช่ YDAY: ตอนที่เหตุผลยังบังคับ เคสนี้ถูกปฏิเสธ จึงไม่เคยแตะชีต
+   * พอมันบันทึกได้จริง มันจะเขียนทับเวลาของ YDAY แล้วเคส "อ่านค่าเดิมเจอ" ข้างล่างจะเห็น 17:30
+   * แทน 12:05 — เทสต์ที่พังเพราะเทสต์ข้าง ๆ เปลี่ยนสถานะให้ คือเทสต์ที่ไม่มีใครเชื่ออีกต่อไป */
+  out.noReason = call({ staffId: 'TE-ADM', targetId: 'TE-TCH', date: days(-4), checkIn: '08:00', checkOut: '17:00' });
+  var nrRow = arDayRows_(sheet_(HR, 'CHECKIN_STAFF'), 'TE-TCH', days(-4))[0] || {};
+  out.noReasonNote = String(nrRow.EditNote || '');
+  out.noReasonBy   = String(nrRow.EditedBy || '');
+  out.noReasonWhen = !!String(nrRow.EditedAt || '');
   out.future  = call({ staffId: 'TE-ADM', targetId: 'TE-TCH', date: TOMORROW, checkIn: '08:00', remark: 'x' });
   out.badTime = call({ staffId: 'TE-ADM', targetId: 'TE-TCH', date: YDAY, checkOut: '5pm', remark: 'x' });
   out.nobody  = call({ staffId: 'TE-ADM', targetId: 'NOPE', date: YDAY, checkOut: '17:30', remark: 'x' });
@@ -129,9 +137,14 @@ const res = JSON.parse(run(function () {
 console.log('\n1) 🔴 ใครแก้ได้ และแก้อะไรไม่ได้');
 {
   eq('ครูธรรมดาแก้เวลาคนอื่นไม่ได้', res.teacher.code, 'NO_PERMISSION');
-  /* 🔴 THE REASON IS NOT OPTIONAL. These fields decide somebody's pay; a change with no sentence
-   * attached is exactly what editing the sheet by hand already allowed. */
-  eq('🔴 ไม่ใส่เหตุผล = ไม่ให้บันทึก', res.noReason.code, 'NEED_REASON');
+  /* 🔴 เหตุผลไม่บังคับ แต่ร่องรอยบังคับ (ผอ. 2026-10-27)
+   *
+   * ด่านเดิมคืนค่า NEED_REASON · ที่ยึดไว้ตอนนี้ไม่ใช่ "ต้องพิมพ์" แต่เป็น "ประวัติต้องตอบได้ว่า
+   * ใครแก้ เมื่อไหร่ และอะไรเป็นเหตุ" — ช่องว่างจึงต้องกลายเป็นคำที่อ่านออก ไม่ใช่ช่องว่างเปล่า
+   * ถ้าวันหนึ่งมีคนเอา EditNote ออก หรือปล่อยให้เก็บ '' เทสต์นี้ต้องแดง */
+  eq('✅ ไม่ใส่เหตุผล = บันทึกได้', res.noReason.ok, true);
+  eq('🔴 ...แต่ประวัติไม่ว่าง', res.noReasonNote, '(ไม่ระบุเหตุผล)');
+  ok_('🔴 ...และยังรู้ว่าใครแก้ เมื่อไหร่', !!res.noReasonBy && res.noReasonWhen);
   eq('🔴 แก้เวลาของวันที่ยังมาไม่ถึงไม่ได้', res.future.code, 'FUTURE_DATE');
   eq('เวลาผิดรูปแบบ ไม่เดาให้', res.badTime.code, 'BAD_TIME');
   eq('ไม่พบพนักงาน', res.nobody.code, 'NOT_FOUND');
@@ -205,7 +218,10 @@ console.log('\n5) 🔔 เจ้าตัวต้องรู้ทุกคร
   ok_('แตะที่วันบนปฏิทินเพื่อแก้ได้เลย', /onclick="A_editStaffTime\(/.test(app));
   ok_('🔴 ...เฉพาะ Admin และไม่ใช่วันในอนาคต',
     /const mayEdit = USER && USER\.role==='Admin' && r\.status!=='FUTURE';/.test(app));
-  ok_('ฟอร์มบังคับใส่เหตุผลก่อนส่ง', /if \(!why\) \{ toast/.test(app));
+  /* เดิมที่นี่ตรึงว่า "ฟอร์มต้องขวางถ้าไม่ใส่เหตุผล" · ตอนนี้ตรึงสิ่งตรงข้ามอย่างตั้งใจ
+   * พร้อมกับป้ายที่ต้องไม่ยังบอกว่า "จำเป็น" — ป้ายที่ขัดกับพฤติกรรมคือบั๊กที่คนใช้มองเห็นก่อนเรา */
+  ok_('ฟอร์มไม่ขวางเมื่อไม่ใส่เหตุผล', !/if \(!why\) \{ toast/.test(app));
+  ok_('🔴 ...และป้ายบอกว่าไม่บังคับ', /เหตุผล \(ไม่บังคับ/.test(app) && !/เหตุผล \(จำเป็น/.test(app));
   ok_('มีปุ่มล้างทั้งวันสำหรับกรณีกดผิด', /ล้างทั้งวัน \(กดลงเวลาผิด\)/.test(app));
   /* totals moved too, so the screen is rebuilt rather than the one cell patched — a calendar
    * showing a new time beside yesterday's month totals is a half-true screen, and those get
