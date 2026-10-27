@@ -155,7 +155,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.472'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.473'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:12px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -8407,10 +8407,16 @@
    * approval that can WRITE a time and never clear one, so a clock-in on a day somebody did not
    * work was permanent and a second tap was refused outright.
    *
-   * 🔴 THE REASON IS REQUIRED, and that is deliberate. These two fields decide เบี้ยขยัน and OT,
-   * which is somebody's pay — a change to it with nobody's name and no sentence attached is exactly
-   * what editing the sheet by hand already allowed, and the thing this screen exists to replace.
-   * The server refuses an empty one too (NEED_REASON); this only saves the round trip.
+   * 🔴 THE REASON IS OPTIONAL — and the trail is not. (ผอ., 2026-10-27: "ไม่บังคับว่าต้องใส่เหตุผล
+   * สามารถกดบันทึกได้เลย".) It used to be required on both sides, and the reasoning behind that
+   * stands: these two fields decide เบี้ยขยัน and OT, which is somebody's pay. But a box that blocks
+   * the save is answered with a full stop, and a log full of "." tells the next reader less than a
+   * log that says plainly that no reason was given.
+   *
+   * What must survive is the RECORD, not the obligation: who changed it, when, from what to what,
+   * the AUDIT line and the notification to the person all still happen on every save. The server
+   * stores '(ไม่ระบุเหตุผล)' for an empty box rather than an empty string, so the history is still
+   * a sentence somebody can read.
    */
   window.A_editStaffTime = async (sid, date) => {
     const d = window._SM || {};
@@ -8431,7 +8437,7 @@
       <div class="grid2"><label class="field"><span>🟢 ${EN() ? 'Check-in' : 'เข้างาน'}</span><input type="time" id="stIn" value="${esc(String(r.in || '').slice(0, 5))}"/></label>
         <label class="field"><span>🔴 ${EN() ? 'Check-out' : 'เลิกงาน'}</span><input type="time" id="stOut" value="${esc(String(r.out || '').slice(0, 5))}"/></label></div>
       <button class="btn sm outline block" onclick="document.getElementById('stIn').value='';document.getElementById('stOut').value=''">🚫 ${EN() ? 'Clear the whole day (clocked in by mistake)' : 'ล้างทั้งวัน (กดลงเวลาผิด)'}</button>
-      <label class="field" style="margin-top:6px"><span>${EN() ? 'Reason (required — kept in the log)' : 'เหตุผล (จำเป็น · บันทึกไว้ในประวัติ)'}</span>
+      <label class="field" style="margin-top:6px"><span>${EN() ? 'Reason (optional — kept in the log)' : 'เหตุผล (ไม่บังคับ · บันทึกไว้ในประวัติ)'}</span>
         <input id="stWhy" placeholder="${EN() ? 'e.g. forgot to clock out, left at 17:00' : 'เช่น ลืมลงเวลาออก กลับจริง 17:00'}"/></label>
       <p class="muted" style="font-size:13px">🔔 ${EN() ? 'The person is notified of the change, with the old and new times.' : 'ระบบจะแจ้งเจ้าตัวทุกครั้ง พร้อมบอกเวลาเดิมและเวลาใหม่'}</p>
       <button class="btn block" onclick="A_editStaffTimeSave('${esc(sid)}','${esc(date)}',this)">${esc(t('c.save'))}</button>
@@ -8439,8 +8445,7 @@
   };
   window.A_editStaffTimeSave = async (sid, date, btn) => {
     const m = btn.closest('.modal'); const g = id => { const e = m.querySelector('#' + id); return e ? e.value.trim() : ''; };
-    const why = g('stWhy');
-    if (!why) { toast(EN() ? 'Please give a reason' : 'กรุณาใส่เหตุผลของการแก้ไข'); return; }
+    const why = g('stWhy');   // ว่างได้ — เซิร์ฟเวอร์บันทึกเป็น '(ไม่ระบุเหตุผล)' ดูหมายเหตุข้างบน
     const cin = g('stIn'), cout = g('stOut');
     if (!cin && !cout && !confirm(EN() ? 'Remove this day’s attendance entirely?' : 'ลบการลงเวลาของวันนี้ทั้งหมดใช่หรือไม่?')) return;
     btn.disabled = true;
