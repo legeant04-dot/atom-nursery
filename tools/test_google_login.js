@@ -562,8 +562,12 @@ console.log('\n9) what the screens do with it');
    * other two doors for the rest of the visit — which would be a worse bug than the one being fixed. */
   // the stripper only removes comment LINES, so a trailing `// …` survives between the two
   // statements — allow for what sits there rather than pinning the spacing
+  /* 🔴 ทางออกของ catch เพิ่มเป็นสองทางแล้ว (คนที่ยังไม่มีบัญชี กับความผิดพลาดจริง) — สิ่งที่ต้อง
+   * ยึดคือ "ธงถูกวางลงก่อนแยกทาง" ไม่ใช่รูปร่างของบรรทัดเดียว ถ้าวางลงหลังการแยกทาง จะมีทางหนึ่ง
+   * ที่ลืมวาง แล้วประตูอีกสองบานล็อกค้างไปทั้งการใช้งานครั้งนั้น */
   ok_('...and released on both ways out',
-    /_liffBusy = false;[\s\S]{0,120}?if \(!u \|\| !u\.role\)/.test(c) && /_liffBusy = false; err\(e\); loginScreen\(\);/.test(c));
+    /_liffBusy = false;[\s\S]{0,120}?if \(!u \|\| !u\.role\)/.test(c) &&
+    /\.catch\(e => \{ _liffBusy = false;[\s\S]{0,200}?const c = e && e\.code;/.test(c));
   /* Google working says nothing about whether the LINE hand-off on this phone is fixed. Clearing the
    * failure count would send the next sign-in back into the route that is still broken. */
   ok_('signing in with Google does not pretend LINE is fixed', !/GOOGLE_SIGNIN[\s\S]{0,900}clearLiffFails\(\)/.test(c));
@@ -580,9 +584,39 @@ console.log('\n9) what the screens do with it');
   ok_('...used by auth', /enqueueGas\(action, payload\)\.then\(keepToken\)/.test(a));
   ok_('...and by the exchanges, which are writes', /rewarmLater\(was\); return keepToken\(d\); \}\)/.test(a));
   ok_('...and it checks the shape, so junk is never stored as a session', /String\(t\)\.indexOf\('\.'\) > 0/.test(a));
-  ok_('a refusal is explained and the parent is returned to the login screen', /\.catch\(e => \{ _liffBusy = false; err\(e\); loginScreen\(\); \}\)/.test(c));
+  ok_('a refusal still puts the busy flag down and explains itself',
+    /\.catch\(e => \{ _liffBusy = false;/.test(c) && /err\(e\); loginScreen\(\); \}\);/.test(c));
   // the server's sentence names the address; a generic dictionary entry would hide it
   ok_('GOOGLE_NOT_LINKED keeps the server’s own words', !/GOOGLE_NOT_LINKED:\s*\[/.test(app));
+
+  /* ═══ 🔴 คนที่ยังไม่มีบัญชี ไม่ใช่ "ข้อผิดพลาด" ═══════════════════════════════════════════
+   *
+   * ฝั่ง LINE มีกล่องให้คัดลอก LINE ID ไปให้แอดมินตั้งแต่แรก (accountStage) · ฝั่ง Google ไม่มี
+   * ครูใหม่ที่กดปุ่ม Google จึงได้แค่ toast ที่จางหายไป แล้วกลับมาที่หน้า Login โดยไม่มีอะไรติดมือ
+   *
+   * ประตูที่สองต้องพาไปที่เดียวกับประตูแรก — ที่ตรึงไว้คือ "มีหน้าจอ ไม่ใช่ toast" และ
+   * "อีเมลคัดลอกได้" เพราะอีเมลคือกุญแจที่ฝั่ง Google ใช้จับคู่จริง (googleFindRow_) */
+  ok_('🔴 ยังไม่มีบัญชี = พาไปหน้าจอของตัวเอง ไม่ใช่ toast ที่จางหาย',
+    /if \(c === 'GOOGLE_NOT_LINKED' \|\| c === 'GOOGLE_NO_LINE_ACCOUNT'\)/.test(c) &&
+    /googleNoAccountScreen\(gEmailOf\(credential\), c,/.test(c));
+  ok_('🔴 ...และบอกอีเมลที่ต้องเอาไปให้แอดมิน พร้อมปุ่มคัดลอก',
+    /function googleNoAccountScreen\(/.test(c) && /COPY_TXT\('\$\{esc\(email\)\}'\)/.test(c));
+  /* อ่านจาก token ที่ถืออยู่ ไม่ใช่ยิงถามเซิร์ฟเวอร์ซ้ำ — และต้องไม่มีใครเอาไปตัดสินใจอะไร
+   * เซิร์ฟเวอร์ตรวจ token เดียวกันนี้กับ Google เองและปฏิเสธด้วยการอ่านของมันเอง */
+  ok_('...อ่านอีเมลจาก token ที่ถืออยู่ เพื่อไม่ต้องเสียรอบวิ่งเพิ่ม', /function gEmailOf\(credential\)\{/.test(c));
+  ok_('🔴 ...และไม่มีการตัดสินสิทธิ์ฝั่งหน้าจอจากค่านั้น',
+    !/gEmailOf\([^)]*\)\s*(===|!==|&&|\|\|)/.test(c));
+  ok_('ผู้ปกครองถูกส่งกลับไปทาง LINE ซึ่งเป็นทางที่ลงทะเบียนได้จริง',
+    /googleNoAccountScreen[\s\S]{0,2600}LIFF_LOGIN\(\)/.test(c));
+  /* 🔴 --surface-2 เท่ากับ --bg เป๊ะทั้งสองโหมด (วัดบนเบราว์เซอร์จริง: #f7f9fc / #212832)
+   *
+   * ที่อื่นในแอปใช้ --surface-2 เพื่อ "ยุบ" กล่องให้จมลงไปกับพื้น ซึ่งถูกต้องและไม่แตะ
+   * แต่สองกล่องนี้คือกล่องที่คนต้องหยิบของออกไปใช้ (LINE ID / อีเมล ที่ต้องส่งให้แอดมิน)
+   * มันต้องเด่น และความเด่นต้องไม่ฝากไว้กับเฉดเทาที่เท่ากับพื้นหลังพอดี */
+  const idBoxes = (c.match(/ส่งให้แอดมินเพื่อผูกบัญชีพนักงาน|ท่านเข้าสู่ระบบด้วยอีเมลนี้/g) || []).length;
+  ok_('🔴 ทั้งสองประตูมีกล่องรหัสให้ส่งต่อแอดมิน', idBoxes === 2);
+  ok_('🔴 ...และกล่องนั้นเด่นด้วยสีแบรนด์ ไม่ใช่เฉดเทาที่เท่ากับพื้นหลัง',
+    (c.match(/background:var\(--brand-soft\);border-color:var\(--brand-line\)/g) || []).length === 2);
   ok_('the other Google codes are translated', /GOOGLE_TOKEN_INVALID:\s*\[/.test(app) && /GOOGLE_EMAIL_UNVERIFIED:\s*\[/.test(app));
   ok_('only whether it is linked reaches the client, never the account id', /GoogleLinked: !!pa\.GoogleSub/.test(eng) && !/GoogleSub:\s*pa\.GoogleSub/.test(eng));
   ok_('mock mode answers honestly instead of drawing a button that cannot work', /googleLoginReady: \(\) => \(\{ ready:false/.test(eng));

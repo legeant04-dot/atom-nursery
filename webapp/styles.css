@@ -273,6 +273,10 @@ a.btn.block{display:block;}
 .lgrow:active{transform:translateY(1px);}
 .lgrow .i{width:24px;height:24px;flex:0 0 24px;display:grid;place-items:center;}
 .lgrow .i svg{width:100%;height:100%;display:block;}
+/* ตราสัญลักษณ์ขนาดเท่าตัวอักษร สำหรับที่ที่ไม่ใช่ .lgrow (เช่นปุ่ม .btn ธรรมดา)
+   SVG ชุดนี้มีแต่ viewBox ไม่มีขนาดในตัว — ถ้าไม่มีอะไรคุม มันจะกางเต็มกล่องที่ใส่มัน */
+.mk20{display:inline-grid;place-items:center;width:20px;height:20px;vertical-align:-4px;}
+.mk20 svg{width:100%;height:100%;display:block;}
 .lgrow .t{flex:1;min-width:0;}
 .lgrow .chev{color:var(--ink-3);font-size:18px;line-height:1;}
 /* 🔴 "แนะนำ" ต้องเห็นได้ทั้งสองโหมด
