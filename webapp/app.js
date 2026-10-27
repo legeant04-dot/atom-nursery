@@ -155,7 +155,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.473'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.474'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:12px;margin-top:24px">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -2055,8 +2055,73 @@
       })
       // released on the way out, or a failed Google sign-in would lock the OTHER doors too — the
       // whole point of one flag is that it must be put down as reliably as it is picked up
-      .catch(e => { _liffBusy = false; err(e); loginScreen(); });
+      .catch(e => { _liffBusy = false;
+        /* 🔴 A PERSON WITH NO ACCOUNT YET IS NOT AN ERROR, AND A TOAST IS THE WRONG SHAPE FOR THEM.
+         *
+         * A brand-new teacher who taps Google gets GOOGLE_NOT_LINKED — correct, and it already names
+         * the address. But it arrived as a toast that fades, on top of the login screen, telling them
+         * to "sign in with LINE and link Google", which is advice for somebody who HAS an account.
+         * The one thing they actually need is the address to hand to the admin, and it was the one
+         * thing they could not keep on screen or copy.
+         *
+         * 🔴 AND THE LINE PATH ALREADY SOLVED THIS — accountStage shows a copyable LINE ID for
+         * exactly this reason. Google had no equivalent, so the second door led somewhere the first
+         * door did not. */
+        const c = e && e.code;
+        if (c === 'GOOGLE_NOT_LINKED' || c === 'GOOGLE_NO_LINE_ACCOUNT') {
+          googleNoAccountScreen(gEmailOf(credential), c, (e && e.message) || '');
+          applyLangNow(); return;
+        }
+        err(e); loginScreen(); });
   }
+  /* The address Google is about to be asked about, read from the token we are holding — FOR DISPLAY
+   * ONLY. Nothing is decided by it: the server verifies the same token with Google and refuses on its
+   * own reading. This exists so the screen can show the address without a second round trip, on a
+   * platform where a round trip costs seconds. */
+  function gEmailOf(credential){
+    try { const p = String(credential).split('.')[1];
+      return String(JSON.parse(atob(p.replace(/-/g,'+').replace(/_/g,'/'))).email || ''); }
+    catch(_){ return ''; }
+  }
+  /* ═══ 📧 "เข้าด้วย Google แล้ว แต่ยังไม่มีบัญชีในระบบ" ═══════════════════════════════════════
+   *
+   * คู่แฝดของกล่อง LINE ID ใน accountStage — ประตูที่สองต้องพาไปที่เดียวกับประตูแรก
+   * อีเมลคือกุญแจจริงของฝั่ง Google: แอดมินกรอกอีเมลนี้ลงในข้อมูลพนักงาน แล้วการเข้าครั้งถัดไป
+   * จะจับคู่ได้เอง (googleFindRow_ หาด้วย GoogleSub ก่อน แล้วค่อย fallback เป็นอีเมล)
+   */
+  function googleNoAccountScreen(email, code, serverMsg){
+    USER=null; AUTH_RENDER=()=>googleNoAccountScreen(email, code, serverMsg); setHeader(); nav.hidden=true;
+    const staffPath = `<div class="card" style="margin-top:10px">
+      <b>👩‍🏫 ${EN()?'If you are a teacher or staff':'ถ้าท่านเป็นคุณครูหรือพนักงาน'}</b>
+      <p class="muted" style="font-size:13px;margin:6px 0">${EN()
+        ? 'Send this address to the admin and ask them to put it on your staff record. After that, this button signs you straight in.'
+        : 'ส่งอีเมลนี้ให้แอดมิน เพื่อใส่ไว้ในข้อมูลพนักงานของท่าน · หลังจากนั้นกดปุ่ม Google ปุ่มเดิมก็เข้าได้เลย'}</p></div>`;
+    app.innerHTML = `<div class="rolewrap"><img src="assets/logo.png" class="logo-lg" alt="logo"/>
+      <h2 class="page" style="text-align:center">${EN()?'This account is not in the system yet':'บัญชีนี้ยังไม่มีอยู่ในระบบ'}</h2>
+      ${/* 🔴 ไม่ใช่ var(--surface-2) — วัดบนเบราว์เซอร์จริงแล้วพบว่า --surface-2 มีค่าเท่ากับ --bg
+            เป๊ะทั้งโหมดสว่างและโหมดมืด กล่องที่ตั้งใจให้ "เด่น" จึงกลมกลืนกับพื้นหลังเสมอ
+            --brand-soft/--brand-line ต่างจากพื้นหลังจริงทั้งสองโหมด และเป็นจุดที่สีโรงเรียนจะมาเปลี่ยน */''}
+      ${email?`<div class="card" style="background:var(--brand-soft);border-color:var(--brand-line)">
+        <small class="muted">${EN()?'You signed in with this address:':'ท่านเข้าสู่ระบบด้วยอีเมลนี้:'}</small><br>
+        <code style="font-size:14px;word-break:break-all" onclick="COPY_TXT('${esc(email)}')">${esc(email)}</code>
+        <button class="btn sm outline block" style="margin-top:8px" onclick="COPY_TXT('${esc(email)}')">📋 ${EN()?'Copy the address':'คัดลอกอีเมล'}</button>
+      </div>`:`<p class="muted">${esc(serverMsg)}</p>`}
+      ${staffPath}
+      <div class="card" style="margin-top:10px">
+        <b>👪 ${EN()?'If you are a parent':'ถ้าท่านเป็นผู้ปกครอง'}</b>
+        <p class="muted" style="font-size:13px;margin:6px 0">${EN()
+          ? 'Sign in with LINE instead — registering and linking your children happens there.'
+          : 'กรุณาเข้าสู่ระบบด้วย LINE แทน — การลงทะเบียนและการผูกข้อมูลบุตรหลานทำที่ช่องทาง LINE'}</p>
+        ${/* .mk20 — ตราสัญลักษณ์มี viewBox อย่างเดียว ไม่มีขนาดในตัว: ใน .lgrow มี .i คุมขนาดให้อยู่แล้ว
+              แต่ใน .btn ไม่มีอะไรคุม มันจึงกางเต็มความกว้างปุ่ม (เห็นตอนวัดบนเบราว์เซอร์จริง) */''}
+        <button class="btn block" onclick="LIFF_LOGIN()"><span class="mk20">${LINE_MARK}</span> ${EN()?'Sign in with LINE':'เข้าสู่ระบบด้วย LINE'}</button>
+      </div>
+      <button class="btn-ghost block" style="margin-top:8px" onclick="loginScreen()">${esc(t('c.back'))}</button></div>`;
+  }
+  window.COPY_TXT = (s) => {
+    try { navigator.clipboard && navigator.clipboard.writeText(s); } catch(_){}
+    toast(EN()?'Copied':'คัดลอกแล้ว');
+  };
   /* Linking from INSIDE a session is the safe way to collect an address: the server already knows
    * who is asking, so nobody types an email and nobody can mistype one onto another family. */
   window.GOOGLE_LINK_SAVE = (credential) => {
@@ -2335,7 +2400,10 @@
       <p class="muted">${esc(t('acct.sub'))}</p>
       <button class="role-card" onclick="REG_START()"><span class="ic">📝</span><span><b>${esc(t('acct.new'))}</b><br><small>${esc(t('acct.newSub'))}</small></span></button>
       <button class="role-card" onclick="chooserExisting()"><span class="ic">✅</span><span><b>${esc(t('acct.existing'))}</b><br><small>${esc(t('acct.existingSub'))}</small></span></button>
-      ${PENDING_LINE_UID?`<div class="card" style="background:var(--surface-2);margin-top:10px"><small class="muted">${EN()?'Your LINE ID (give this to the admin to link your staff account):':'LINE ID ของคุณ (ส่งให้แอดมินเพื่อผูกบัญชีพนักงาน):'}</small><br><code style="font-size:13px;word-break:break-all" onclick="navigator.clipboard&&navigator.clipboard.writeText('${esc(PENDING_LINE_UID)}')">${esc(PENDING_LINE_UID)}</code></div>`:''}
+      ${/* กล่องเดียวกับฝั่ง Google — และ --surface-2 ที่เคยใช้ตรงนี้เท่ากับสีพื้นหลังพอดีทั้งสองโหมด
+            กล่องนี้จึงไม่เคยเด่นอย่างที่ตั้งใจเลย · ดูหมายเหตุใน googleNoAccountScreen */''}
+      ${PENDING_LINE_UID?`<div class="card" style="background:var(--brand-soft);border-color:var(--brand-line);margin-top:10px"><small class="muted">${EN()?'Your LINE ID (give this to the admin to link your staff account):':'LINE ID ของคุณ (ส่งให้แอดมินเพื่อผูกบัญชีพนักงาน):'}</small><br><code style="font-size:13px;word-break:break-all" onclick="COPY_TXT('${esc(PENDING_LINE_UID)}')">${esc(PENDING_LINE_UID)}</code>
+        <button class="btn sm outline block" style="margin-top:8px" onclick="COPY_TXT('${esc(PENDING_LINE_UID)}')">📋 ${EN()?'Copy':'คัดลอก'}</button></div>`:''}
       <button class="btn-ghost block" style="margin-top:8px" onclick="loginScreen()">${esc(t('c.back'))}</button></div>`;
   }
   // "I already gave my details to the school" — in production this used to dead-end on a screen that just
