@@ -167,7 +167,7 @@
        * (กันจ่ายเงินซ้ำ/เช็คอินซ้ำ) ไม่ใช่ตัวบอกสถานะ */
       return _rawApi(action,payload,opts); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.477'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.478'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:var(--fs-1);margin-top:var(--sp-5)">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -596,6 +596,64 @@
     // 'card' (ค่าตั้งต้น) — หัวข้อหนึ่งบรรทัด แล้วตามด้วยเนื้อความ
     return `<div class="card"><div class="sk sk-title"></div>${Array.from({ length: n }, (_, i) =>
       line(i === n - 1 ? '45%' : '')).join('')}</div>`;
+  };
+
+  /* ═══ 🗂️ EMPTY — "ไม่มีรายการ" ไม่ใช่เรื่องเดียว ═══════════════════════════════════════════
+   *
+   * docs/UI_AUDIT.md §4: แม่แบบข้อ 9–11 (จอว่าง · จอผิดพลาด · จอกำลังโหลด) แทบไม่มีอยู่จริง
+   * และ **"เป็นมิตรมากขึ้น" แพ้ชนะกันตรงนี้พอดี** — แอปไม่เป็นมิตรที่สุดตอนที่ของหาย ผิด หรือช้า
+   *
+   * 🔴 ของเดิมคือ <small class="muted">ไม่มีรายการ</small> เหมือนกันหมด 26 จุด
+   * แต่ "ไม่มีรายการ" สามแบบนี้ไม่ใช่เรื่องเดียวกันเลย:
+   *
+   *   · none  — ยังไม่เคยมี · ต้องบอกว่า "อะไรจะมาขึ้นตรงนี้" ไม่ใช่แค่บอกว่าว่าง
+   *   · done  — 🔴 **หมดแล้ว = ข่าวดี** · "ไม่มีใครมาสาย" กับ "ยังไม่มีข้อมูล" หน้าตาเหมือนกัน
+   *             มาตลอด ทั้งที่อันหนึ่งคือเรื่องที่น่าดีใจ และอีกอันคือเรื่องที่ต้องไปทำอะไรสักอย่าง
+   *   · found — ไม่เจอเพราะ "ตัวกรอง" · ต้องมีทางกลับ ไม่ใช่ปล่อยให้คนคิดว่าข้อมูลหาย
+   */
+  const EM_MARK = {
+    none: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16v12a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7zm2-3h12l1.6 2H4.4L6 4zm3 8v2h6v-2H9z"/></svg>',
+    done: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm-1.2 14.3-4-4 1.4-1.4 2.6 2.6 5.6-5.6 1.4 1.4-7 7z"/></svg>',
+    found:'<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 2a8 8 0 1 0 4.9 14.3l5.4 5.4 1.4-1.4-5.4-5.4A8 8 0 0 0 10 2zm0 2a6 6 0 1 1 0 12 6 6 0 0 1 0-12z"/></svg>'
+  };
+  /* empty(kind, title?, hint?, actionHtml?) — ไม่ใส่ title ก็ได้ จะใช้คำกลาง ๆ ของแต่ละชนิด */
+  window.empty = (kind, title, hint, actionHtml) => {
+    const k = EM_MARK[kind] ? kind : 'none';
+    const dft = { none: EN() ? 'Nothing here yet' : 'ยังไม่มีรายการ',
+                  done: EN() ? 'All clear' : 'ไม่มีรายการค้าง',
+                  found:EN() ? 'Nothing matched' : 'ไม่พบรายการที่ค้นหา' }[k];
+    return `<div class="empty ${k}"><span class="ei">${EM_MARK[k]}</span>
+      <div class="et">${esc(title || dft)}</div>
+      ${hint ? `<div class="eh">${esc(hint)}</div>` : ''}
+      ${actionHtml || ''}</div>`;
+  };
+
+  /* ═══ ⚠️ FAILBOX — หน้าจอที่โหลดไม่สำเร็จ ═══════════════════════════════════════════════════
+   *
+   * ของเดิม: การ์ดหนึ่งใบ ⚠️ + ข้อความดิบจาก error + ปุ่มลองใหม่
+   * ปัญหาคือข้อความดิบตอบไม่ได้ว่า **"แล้วฉันต้องทำอะไร"** และคำตอบนั้นต่างกันมากระหว่าง
+   * "เน็ตหลุด" (รอแล้วลองใหม่ ไม่มีอะไรเสียหาย) กับ "เซิร์ฟเวอร์ปฏิเสธ" (ต้องบอกออฟฟิศ)
+   *
+   * 🔴 รหัสยังแสดงอยู่ แต่เป็นบรรทัดรอง — คนที่โทรหาออฟฟิศคือคนที่ต้องอ่านมันออกเสียง
+   * และ "ลองใหม่อีกครั้ง" อย่างเดียวไม่ใช่สิ่งที่โรงเรียนรายงานกลับมาให้เราได้
+   */
+  window.failBox = (e, retryJs) => {
+    const raw = String((e && e.message) || e || '');
+    const code = String((e && e.code) || '');
+    const off = (typeof navigator !== 'undefined' && navigator.onLine === false) ||
+      /failed to fetch|networkerror|load failed|network request failed/i.test(raw);
+    const title = off ? (EN() ? 'No connection to the school system' : 'เชื่อมต่อระบบของโรงเรียนไม่ได้')
+                      : (EN() ? 'Could not load this screen' : 'โหลดหน้านี้ไม่สำเร็จ');
+    const hint = off ? (EN() ? 'Check your internet and try again — nothing has been saved.'
+                             : 'ตรวจสอบอินเทอร์เน็ตแล้วลองใหม่ — ยังไม่มีการบันทึกข้อมูล')
+                     : (EN() ? 'Try again. If it keeps happening, tell the office the code below.'
+                             : 'ลองใหม่อีกครั้ง · ถ้ายังเป็นซ้ำ แจ้งออฟฟิศพร้อมบอกรหัสด้านล่าง');
+    return `<div class="failbox"><span class="ei">${AL_MARK.bad}</span>
+      <div class="et">${esc(title)}</div>
+      <div class="eh">${esc(hint)}</div>
+      ${(code || raw) ? `<div class="ecode">${esc([code, raw].filter(Boolean).join(' · ').slice(0, 160))}</div>` : ''}
+      <button class="btn outline block" style="margin-top:var(--sp-3)" onclick="${retryJs}">🔄 ${
+        esc(EN() ? 'Try again' : 'ลองใหม่')}</button></div>`;
   };
   // runtime translator hook: auto-translate any remaining Thai in #app when EN
   let _mo=null,_translating=false;
@@ -1207,7 +1265,7 @@
       // Every "โหลดไม่สำเร็จ" the user has ever seen has been invisible to us. Record it with the
       // screen and the error code — this is the single most direct answer to "มี Error บางครั้งในมือถือ".
       if(r&&r.catch) r.catch(e=>{ try{ window.__atomPerfErr&&__atomPerfErr('screen:'+screen,((e&&e.code)?e.code+' ':'')+((e&&e.message)||e)); }catch(x){} });
-      if(r&&r.catch) r.catch(e=>{ if(CURRENT!==screen)return; app.innerHTML=`<div class="card"><b>⚠️ ${EN()?'Could not load':'โหลดไม่สำเร็จ'}</b><br><small class="muted">${esc((e&&e.message)||e)}</small></div><button class="btn outline block" style="margin-top:var(--sp-3)" onclick="GO('${screen}')">🔄 ${EN()?'Retry':'ลองใหม่'}</button>`; });
+      if(r&&r.catch) r.catch(e=>{ if(CURRENT!==screen)return; app.innerHTML=failBox(e, `GO('${screen}')`); });
     } else app.innerHTML=`<div class="card">หน้านี้กำลังพัฒนา</div>`;
     if(!snap) window.scrollTo(0,0); };
   // SWR hook: api.js calls this when a background refresh found newer data than what's shown.
@@ -5494,7 +5552,7 @@
     // re-rendered through the same code path as the first draw — two renderers for one list is how
     // a filtered view quietly stops matching the unfiltered one
     el.innerHTML = rows.length ? rows.map(_pqCard).join('')
-      : `<div class="card"><small class="muted">${EN() ? 'Nobody matches that.' : 'ไม่พบรายการที่ค้นหา'}</small></div>`;
+      : empty('found', EN()?'Nobody matches that':'ไม่พบคนที่ค้นหา', EN()?'Try part of the name, or the nickname.':'ลองพิมพ์บางส่วนของชื่อ หรือชื่อเล่น');
   };
 
   window.T_studentOT=async()=>{ const d=await api('teacherStudentOtList',{staffId:USER.staffId});
@@ -6646,7 +6704,7 @@
   const injFuture = f => { const d=String(f.date||'').slice(0,10), t=String(f.time||'').slice(0,5);
     if(!/^\d{4}-\d{2}-\d{2}$/.test(d)) return false;
     const now=todayStr(); return d>now || (d===now && /^\d{2}:\d{2}$/.test(t) && t>nowTime()); };
-  function injuryListHTML(rows){ if(!rows||!rows.length)return `<small class="muted">${esc(t('c.noItems'))}</small>`;
+  function injuryListHTML(rows){ if(!rows||!rows.length)return `${empty('none')}`;
     return rows.slice(0,10).map(r=>{ const types=injTypeNames(r.InjuryTypes);
       return `<div class="list-item" onclick="A_viewInjury('${esc(r.InjuryID||'')}')" style="cursor:pointer"><span><b>${esc(EN()?(r.nameEN||r.ChildName):r.ChildName)}</b> <small class="muted">${esc(ddmmyyyy(r.Date))} ${esc(r.Time)}</small><br><small class="muted">${esc(types)}</small>${injFiledNote(r)}</span><span>${injStatusPill(r)} <span class="muted">›</span></span></div>`; }).join(''); }
   // injury type codes → the official form's wording. Stored as numbers; may arrive as a JSON string.
@@ -7322,12 +7380,12 @@
         const _i=String(a.CheckIn||'').slice(0,5), _o=String(a.CheckOut||'').slice(0,5);
         const when=a.Status==='LEAVE' ? (EN()?'Leave':'ลา')+' ('+(a.Reason||'')+')'
           : _i ? (_i+'–'+_o) : (EN()?'not clocked in':'ยังไม่ลงเวลา');
-        return `<div class="att"><span class="dot-s ${cls}"></span> ${esc(fullName(a.StaffID))} — ${esc(when)}${a.Late?` <span class="pill bad" style="font-size:var(--fs-1)">${esc(t('lbl.late'))} ${a.Late}</span>`:''}</span></div>`;}).join('')||`<small class="muted">${esc(t('c.noItems'))}</small>`}
+        return `<div class="att"><span class="dot-s ${cls}"></span> ${esc(fullName(a.StaffID))} — ${esc(when)}${a.Late?` <span class="pill bad" style="font-size:var(--fs-1)">${esc(t('lbl.late'))} ${a.Late}</span>`:''}</span></div>`;}).join('')||`${empty('none')}`}
         <!-- Approved leave was printed in full underneath the summary every time. It is a "who do I
              need to cover for" reference, not something to read daily — folded shut, with the count
              on the summary line so you can see whether it is worth opening. -->
         <details style="margin-top:var(--sp-2)"><summary style="cursor:pointer;font-weight:700;font-size:var(--fs-1)">${EN()?'Approved leave (for coverage)':'การลาที่อนุมัติแล้ว (วางแผนสับเปลี่ยน)'} <span class="pill ${d.leavesToday.length?'wait':'ok'}" style="font-size:var(--fs-1)">${d.leavesToday.length}</span></summary>
-          <div style="margin-top:var(--sp-2)">${d.leavesToday.map(l=>`<div class="list-item"><span>${esc(fullName(l.StaffID))} · ${esc(tLeaveType(l.Type))}</span><span class="muted">${esc(l.StartDate)}→${esc(l.EndDate)}</span></div>`).join('')||`<small class="muted">${esc(t('c.noItems'))}</small>`}</div></details></div>`
+          <div style="margin-top:var(--sp-2)">${d.leavesToday.map(l=>`<div class="list-item"><span>${esc(fullName(l.StaffID))} · ${esc(tLeaveType(l.Type))}</span><span class="muted">${esc(l.StartDate)}→${esc(l.EndDate)}</span></div>`).join('')||`${empty('none')}`}</div></details></div>`
         :`<div class="card"><h3>⏱️ ${EN()?'My time today':'เวลาของฉันวันนี้'} (${esc(todayStr())})</h3>
           ${(d.attendance||[]).length?(d.attendance||[]).map(a=>{ const _i=String(a.CheckIn||'').slice(0,5), _o=String(a.CheckOut||'').slice(0,5);
             return `<div class="spread" style="font-size:var(--fs-2)"><span>${esc(t('lbl.checkIn'))} <b>${esc(_i||'--:--')}</b></span><span>${esc(t('lbl.checkOut'))} <b>${esc(_o||'--:--')}</b></span><span>${esc(t('lbl.late'))} <b style="color:${a.Late?'var(--bad)':'var(--ok)'}">${a.Late||0}</b> ${esc(t('lbl.min'))}</span></div>`; }).join('')
@@ -7360,7 +7418,7 @@
     // both lists load AFTER the screen is on the page, and only once — opening a <details> costs
     // nothing, so a teacher who never opens them still pays for the fetch, but only two of them
     T_myHistory(monthStr(), null, p_hist);
-    p_leaves.then(l=>{ if(l){ MY_LEAVES=l; T_myLeaveFilter(); } else setHTML('#mlBox', `<small class="muted">${esc(t('c.noItems'))}</small>`); });
+    p_leaves.then(l=>{ if(l){ MY_LEAVES=l; T_myLeaveFilter(); } else setHTML('#mlBox', `${empty('none')}`); });
     /* My own OT วันหยุด. The Admin agrees it and the teacher is told once, in a notification that
      * scrolls away; after that the only record was inside a payslip they may not open for weeks.
      * This is the screen they already use to check their own days, so it belongs here. Loaded after
@@ -7468,7 +7526,7 @@
       // or not there is a punch on it
       const hot=d.holidayOT?`<br><span class="pill ok" style="font-size:var(--fs-1)">🎉 OT ${EN()?'holiday':'วันหยุด'} ${esc(baht(d.holidayOT))}</span>`:'';
       return `<div class="list-item"><span>${esc(ddmmyyyy(d.date))}${d.bigCleaning?' '+BC_ICON:''}${d.manual?' <small class="muted">✍️</small>':''}${d.holidayOTNote?`<br><small class="muted">${esc(d.holidayOTNote)}</small>`:''}</span><span style="font-size:var(--fs-1);text-align:right">${right}${hot}</span></div>`;
-    }).join('') || `<small class="muted">${esc(t('c.noItems'))}</small>`));
+    }).join('') || `${empty('none')}`));
   };
   window.T_myLeaveFilter=()=>{
     const f=(($('#mlFilter')||{}).value)||'all';
@@ -7478,7 +7536,7 @@
       : f==='approved' ? st(l)==='APPROVED'
       : /* rejected */   st(l)==='REJECTED';
     const rows=MY_LEAVES.filter(keep);
-    setHTML('#mlBox', rows.map(leaveRow).join('') || `<small class="muted">${esc(t('c.noItems'))}</small>`);
+    setHTML('#mlBox', rows.map(leaveRow).join('') || `${empty('none')}`);
   };
 
   let SLIP_UNLOCKED=false;
@@ -8391,7 +8449,7 @@
         ${d.missingOut.map(x=>`<div style="margin-top:var(--sp-0)">• <b>${esc(EN()?(x.nickEN||x.name):(x.nick||x.name))}</b> — ${x.days.map(dd=>esc(ddmmyyyy(dd))).join(', ')}</div>`).join('')}
         <div class="muted" style="margin-top:var(--sp-1)">${EN()?'Ask them to file a time request so the day can be completed.':'แจ้งให้คุณครูส่งคำขอลงเวลา เพื่อให้วันนั้นสมบูรณ์'}</div></div>`:''}
       <p class="muted" style="font-size:var(--fs-1)">${EN()?'Everyone who logs time, over this period. Tap a person for their day-by-day record. Weekends, holidays and days before someone started are not counted as absent. * = started or left inside this period, so their target is their own.':'ทุกคนที่ต้องลงเวลา ในช่วงนี้ · แตะที่ชื่อเพื่อดูรายวัน · เสาร์-อาทิตย์ วันหยุด และวันก่อนเริ่มงาน ไม่นับเป็นขาด · * = เริ่มงาน/สิ้นสุดระหว่างช่วงนี้ เป้าจึงเป็นของตัวเอง'}</p>
-      <div style="max-height:52vh;overflow:auto">${rows||`<div class="card muted">${esc(t('c.noItems'))}</div>`}</div>
+      <div style="max-height:52vh;overflow:auto">${rows||`${empty('none')}`}</div>
       <div class="row" style="gap:var(--sp-2);margin-top:var(--sp-2)">
         <button class="btn sm outline" style="flex:1" onclick="A_staffMonthExport('pdf')">📄 PDF</button>
         <button class="btn sm outline" style="flex:1" onclick="A_staffMonthExport('jpg')">🖼️ JPG</button></div>
@@ -8459,7 +8517,7 @@
         <div class="kpi"><b style="color:var(--warn)">${(T.sick||0)+(T.personal||0)}</b><small>${EN()?'leave days':'วันลา'}</small></div>
         <div class="kpi"><b style="color:${T.watch?'var(--bad)':'var(--ink)'}">${T.watch||0}</b><small>${EN()?'to follow up':'ต้องติดตาม'}</small></div></div>
       <p class="muted" style="font-size:var(--fs-1)">${EN()?`${d.schoolDays} school days this month. "To follow up" = absent 3 days or more in a row. Weekends, holidays, days before a child's first day, and days on temporary leave are not absences.`:`เดือนนี้มีวันเรียน ${d.schoolDays} วัน · "ต้องติดตาม" = ขาดติดต่อกัน 3 วันขึ้นไป · เสาร์-อาทิตย์ วันหยุด วันก่อนถึงวันเริ่มเรียน และวันที่ลาชั่วคราว ไม่นับเป็นขาด`}</p>
-      <div style="max-height:50vh;overflow:auto">${cls||`<div class="card muted">${esc(t('c.noItems'))}</div>`}</div>
+      <div style="max-height:50vh;overflow:auto">${cls||`${empty('none')}`}</div>
       <div class="row" style="gap:var(--sp-2);margin-top:var(--sp-2)">
         <button class="btn sm outline" style="flex:1" onclick="A_studentReportExport('pdf')">📄 PDF</button>
         <button class="btn sm outline" style="flex:1" onclick="A_studentReportExport('jpg')">🖼️ JPG</button></div>
@@ -8702,7 +8760,7 @@
     A_CACHE.staff=staff||A_CACHE.staff; window._LV_ALL=all;
     const pending=all.filter(l=>String(l.Status).indexOf('PENDING')===0);
     const resolved=all.filter(l=>String(l.Status).indexOf('PENDING')!==0);
-    const none=`<div class="card muted">${esc(t('c.noItems'))}</div>`;
+    const none=`${empty('none')}`;
     const shown = LV_TAB==='pending'?pending:resolved;
     app.innerHTML=`<h2 class="page">✅ ${EN()?'Operations':'ดำเนินการ'}</h2>${mainSeg}
       ${opTools([['⏰',t('ot.adminOT'),'A_staffOT()'],
@@ -10075,7 +10133,7 @@
       <p class="muted" style="font-size:var(--fs-1)">${EN()?'Add, edit or remove milestone items. Grouped by age band.':'เพิ่ม แก้ไข หรือลบเกณฑ์พัฒนาการ · จัดกลุ่มตามช่วงอายุ'} (${rows.length})</p>
       ${ordered.map(b=>`<div class="card"><h3>${esc(b.label)} <small class="muted">(${b.items[0]?esc(b.items[0].AgeFrom+'–'+b.items[0].AgeTo+(EN()?' mo':' เดือน')):''})</small></h3>
         ${b.items.sort((x,y)=>Number(x.ItemNo)-Number(y.ItemNo)).map(r=>`<div class="list-item"><span><b>${esc(t('dspm.item'))} ${esc(r.ItemNo)}</b> <span class="pill info" style="font-size:var(--fs-1)">${esc(r.Skill||'')}</span><br><small class="muted">${esc(r.Description||'')}</small></span>
-          <span class="row"><button class="btn sm outline" onclick="A_dspmForm(${Number(r.ItemNo)},'${esc(r.Track||'Teacher')}')" aria-label="${EN()?"Edit":"แก้ไข"}" title="${EN()?"Edit":"แก้ไข"}">✏️</button><button class="btn sm pink" onclick="A_dspmDel(${Number(r.ItemNo)},'${esc(r.Track||'Teacher')}')" aria-label="${EN()?"Delete":"ลบ"}" title="${EN()?"Delete":"ลบ"}">🗑️</button></span></div>`).join('')}</div>`).join('')||`<div class="card muted">${esc(t('c.noItems'))}</div>`}`;
+          <span class="row"><button class="btn sm outline" onclick="A_dspmForm(${Number(r.ItemNo)},'${esc(r.Track||'Teacher')}')" aria-label="${EN()?"Edit":"แก้ไข"}" title="${EN()?"Edit":"แก้ไข"}">✏️</button><button class="btn sm pink" onclick="A_dspmDel(${Number(r.ItemNo)},'${esc(r.Track||'Teacher')}')" aria-label="${EN()?"Delete":"ลบ"}" title="${EN()?"Delete":"ลบ"}">🗑️</button></span></div>`).join('')}</div>`).join('')||`${empty('none')}`}`;
     window.scrollTo(0,0);
   };
   window.A_dspmForm = (itemNo,track)=>{ const rows=window._DSPM_ROWS||[];
@@ -10112,7 +10170,7 @@
       <h2 class="page">🏠 ${esc(t('slv.title'))}</h2>
       <div class="slv-bar"><label class="slv-pick"><input type="checkbox" id="slvAll" onchange="A_slvToggleAll(this)"> ${EN()?'Select all':'เลือกทั้งหมด'}</label>
         <button class="btn sm pink" id="slvDelBtn" disabled onclick="A_slvDelSel(this)">🗑️ ${EN()?'Delete selected':'ลบที่เลือก'} <span id="slvN">0</span></button></div>
-      ${rows.length?classHtml:`<div class="card"><small class="muted">${esc(t('c.noItems'))}</small></div>`}`;
+      ${rows.length?classHtml:`<div class="card">${empty('none')}</div>`}`;
     window.scrollTo(0,0);
   };
   window.A_slvCount = ()=>{ const n=document.querySelectorAll('.slvchk:checked').length; const b=$('#slvDelBtn'), s=$('#slvN'); if(s)s.textContent='('+n+')'; if(b)b.disabled=!n;
@@ -10941,7 +10999,7 @@
       ? rows.map(r=>`<div class="list-item" style="cursor:pointer" onclick="A_gsOpen(&quot;${r.go.replace(/"/g,'&quot;')}&quot;)">
           <span><b>${r.ic} ${esc(r.head)}</b> <span class="pill info" style="font-size:var(--fs-1)">${esc(r.t)}</span>
           ${r.sub?`<br><small class="muted">${esc(r.sub)}</small>`:''}</span><span class="muted">›</span></div>`).join('')
-      : `<p class="muted" style="text-align:center;padding:var(--sp-4)">${EN()?'No matches':'ไม่พบข้อมูลที่ค้นหา'}</p>`;
+      : empty('found', null, EN()?'Try a shorter word, or part of a name.':'ลองพิมพ์คำสั้นลง หรือบางส่วนของชื่อ');
   };
   window.A_gsOpen = (call)=>{ const m=document.querySelector('.modal'); if(m)m.remove();
     try{ (new Function(call))(); }catch(e){ err(e); } };
@@ -12908,7 +12966,7 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
   // ---- per-student extra charges (auto-merged into monthly bill) ----
   window.A_charges=async(sid)=>{ const s=MOCK.students.find(x=>x.StudentID===sid)||{}; const month=monthStr(); const list=await api('studentCharges',{studentId:sid,month});
     modal(`<h3>💵 ${esc(t('charge.title'))} — ${esc(nm(s))}</h3><p class="muted" style="font-size:var(--fs-1)">${esc(t('charge.note'))} (${esc(month)})</p>
-      <div id="chList">${list.map(c=>`<div class="list-item"><span>${esc(c.Label)}</span><span><b>${baht(c.Amount)}</b> <button class="btn sm pink" onclick="A_delCharge('${c.ChargeID}','${sid}')" aria-label="${EN()?"Delete":"ลบ"}" title="${EN()?"Delete":"ลบ"}">✕</button></span></div>`).join('')||`<small class="muted">${esc(t('c.noItems'))}</small>`}</div>
+      <div id="chList">${list.map(c=>`<div class="list-item"><span>${esc(c.Label)}</span><span><b>${baht(c.Amount)}</b> <button class="btn sm pink" onclick="A_delCharge('${c.ChargeID}','${sid}')" aria-label="${EN()?"Delete":"ลบ"}" title="${EN()?"Delete":"ลบ"}">✕</button></span></div>`).join('')||`${empty('none')}`}</div>
       <div class="grid2" style="margin-top:var(--sp-2)"><input id="chLabel" placeholder="${esc(t('charge.label'))}"/><input id="chAmt" type="number" placeholder="${esc(t('charge.amount'))}"/></div>
       <button class="btn block" style="margin-top:var(--sp-2)" onclick="A_addCharge('${sid}')">+ ${esc(t('charge.add'))}</button>
       <button class="btn outline block" style="margin-top:var(--sp-2)" onclick="this.closest('.modal').remove()">${esc(t('c.close'))}</button>`);
@@ -13039,13 +13097,13 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
     app.innerHTML=`<button class="btn sm outline backbtn" onclick="GO('manage')">${t('c.back')}</button><h2 class="page">📜 ${esc(t('act.title'))}</h2>
       <div class="card"><p class="muted" style="font-size:var(--fs-1)">${esc(t('act.note'))}</p>
       ${rows.length?rows.map(r=>`<div class="list-item"><span><b>${esc(r.Action)}</b> <small class="muted">${esc(r.Target||'')}</small><br><small class="muted">${esc(r.Detail||'')}</small></span>
-        <small class="muted" style="text-align:right">${esc(r.UserName||r.UserRole||'')}<br>${esc(r.Timestamp)}</small></div>`).join(''):`<small class="muted">${esc(t('c.noItems'))}</small>`}</div>`;
+        <small class="muted" style="text-align:right">${esc(r.UserName||r.UserRole||'')}<br>${esc(r.Timestamp)}</small></div>`).join(''):`${empty('none')}`}</div>`;
   };
 
   ADMIN_SUB_importExport = async ()=>{ const exported=await api('listExportedStudents');
     app.innerHTML=`<button class="btn sm outline backbtn" onclick="GO('manage')">${t('c.back')}</button><h2 class="page">📥 ${esc(t('manage.importExport'))}</h2>
       <div class="card"><h3>📤 ${esc(t('ie.exportedFolder'))}</h3><p class="muted" style="font-size:var(--fs-1)">${esc(t('ie.folderNote'))}</p>
-        ${exported.length?exported.map(s=>`<div class="list-item"><span><b>${esc(nm(s))}</b> <small class="muted">${esc(s.NationalID||'')} · ${EN()?'exported':'นำออก'} ${esc(s.ExportedDate||'')}</small></span><button class="btn sm green" onclick="A_reimport('${s.StudentID}')">↩️ ${esc(t('ie.reimport'))}</button></div>`).join(''):`<small class="muted">${esc(t('c.noItems'))}</small>`}</div>
+        ${exported.length?exported.map(s=>`<div class="list-item"><span><b>${esc(nm(s))}</b> <small class="muted">${esc(s.NationalID||'')} · ${EN()?'exported':'นำออก'} ${esc(s.ExportedDate||'')}</small></span><button class="btn sm green" onclick="A_reimport('${s.StudentID}')">↩️ ${esc(t('ie.reimport'))}</button></div>`).join(''):`${empty('none')}`}</div>
       <div class="card"><h3>📂 ${esc(t('ie.importFile'))}</h3><p class="muted" style="font-size:var(--fs-1)">${esc(t('ie.importNote'))}</p>
         <label class="field"><span>${esc(t('ie.chooseXlsx'))}</span><input type="file" id="impF" accept=".xlsx"/></label>
         <button class="btn block" onclick="A_importFile()">${esc(t('ie.import'))}</button></div>
@@ -15428,7 +15486,7 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
         <div class="spread" style="margin:var(--sp-2) 0"><b style="font-size:var(--fs-1)">${EN()?'Staff':'พนักงาน'} <span class="muted" id="hotN">(0)</span></b>
           <label style="display:flex;gap:var(--sp-2);align-items:center;font-size:var(--fs-1)"><input type="checkbox" id="hotAll" style="width:auto" onchange="A_hotToggleAll(this)"/> ${EN()?'All':'ทั้งหมด'}</label></div>
         <div style="max-height:34vh;overflow:auto;border:1px solid var(--line);border-radius:8px;padding:var(--sp-2)">
-          ${people.map(s=>`<label class="list-item" style="gap:var(--sp-2);cursor:pointer"><input type="checkbox" class="hotchk" value="${esc(s.StaffID)}" style="width:auto" onchange="A_hotSel()"/><span>${esc(nmn(s))}</span></label>`).join('')||`<small class="muted">${esc(t('c.noItems'))}</small>`}</div>
+          ${people.map(s=>`<label class="list-item" style="gap:var(--sp-2);cursor:pointer"><input type="checkbox" class="hotchk" value="${esc(s.StaffID)}" style="width:auto" onchange="A_hotSel()"/><span>${esc(nmn(s))}</span></label>`).join('')||`${empty('none')}`}</div>
         <!-- Children coming in with them. Ticking a name is what OPENS that child's check-in on a day
              the school is otherwise shut — for them the day then behaves like any other. Tick nobody
              and only the teacher's own clock opens. -->
@@ -15484,7 +15542,7 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
           ${sortPeople(byClass[c]).map(s=>`<label class="list-item" style="gap:var(--sp-2);cursor:pointer;padding:var(--sp-1) var(--sp-2)">
             <input type="checkbox" class="hkchk" value="${esc(s.StudentID)}" style="width:auto" ${on[s.StudentID]?'checked':''} onchange="A_hkSel()"/>
             <span><b>${esc(dispNick(s))}</b>${nmSub(s)?` <small class="muted">${esc(nmSub(s))}</small>`:''}</span></label>`).join('')}
-        </div>`).join('')||`<small class="muted">${esc(t('c.noItems'))}</small>`}</div>
+        </div>`).join('')||`${empty('none')}`}</div>
       <button class="btn block green" style="margin-top:var(--sp-2)" onclick="A_hotKidsSave('${esc(date)}',this)">💾 ${esc(t('c.save'))}</button>
       <button class="btn outline block" style="margin-top:var(--sp-2)" onclick="this.closest('.modal').remove()">${esc(t('c.close'))}</button>`);
     A_hkSel();
@@ -15538,7 +15596,7 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
         ${sortPeople(byClass[c]).map(s=>`<label class="list-item" style="gap:var(--sp-2);cursor:pointer;padding:var(--sp-1) var(--sp-2)">
           <input type="checkbox" class="hotstd" data-class="${esc(c)}" value="${esc(s.StudentID)}" style="width:auto" ${on[s.StudentID]?'checked':''} onchange="A_hotStdSel()"/>
           <span><b>${esc(dispNick(s))}</b>${nmSub(s)?` <small class="muted">${esc(nmSub(s))}</small>`:''}</span></label>`).join('')}
-      </div>`).join('') : `<small class="muted">${esc(t('c.noItems'))}</small>`;
+      </div>`).join('') : `${empty('none')}`;
     A_hotStdSel();
   };
   window.A_hotStdSel=()=>{ const n=document.querySelectorAll('.hotstd:checked').length;
@@ -16383,7 +16441,7 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
         `<div class="list-item eaRow" data-k="${esc(((dispNick(s)||'')+' '+(nmSub(s)||'')+' '+(s.NameEN||'')).toLowerCase())}">
           <span>${studentAvatar(s)} <b>${esc(dispNick(s)||s.StudentID)}</b> <small class="muted">${esc(s.Class||'')}</small></span>
           <button class="btn sm outline" onclick="this.closest('.modal').remove();EDIT_ATT('${esc(s.StudentID)}')">${EN()?'Correct':'แก้ไข'}</button></div>`).join('')
-        ||`<div class="card muted">${esc(t('c.noItems'))}</div>`}</div>
+        ||`${empty('none')}`}</div>
       <button class="btn outline block" style="margin-top:var(--sp-2)" onclick="this.closest('.modal').remove()">${esc(t('c.close'))}</button>`);
   };
   window.A_editAttFilter=(q)=>{ const k=String(q||'').trim().toLowerCase();
@@ -16510,7 +16568,7 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
         <small class="muted" style="display:block;margin-top:var(--sp-2)">${EN()
           ? 'The system never invents a pick-up time. Enter the real one — OT is charged from it, exactly as it would be if the parent had tapped.'
           : 'ระบบจะไม่เดาเวลากลับให้ · ให้ใส่เวลาที่นักเรียนกลับบ้านจริง (ใกล้เคียงที่สุด) · OT จะคิดตามเวลานั้นเหมือนผู้ปกครองกดเอง'}</small></div>
-      ${rows.length?rows.map(row).join(''):`<div class="card muted">${esc(t('c.noItems'))}</div>`}`;
+      ${rows.length?rows.map(row).join(''):`${empty('none')}`}`;
     // so a correction made through the shared ✏️ form comes back HERE instead of bouncing the user
     // to whichever screen they arrived from (GO clears it on any real navigation)
     window._ATTA_OPEN=true;
@@ -16568,10 +16626,10 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
       ${summary}
       ${r.classes.map(c=>`<div class="card"><div class="spread"><b>${esc(c.className)}</b><span class="muted">${esc(t('lbl.present'))} ${c.in}·${esc(t('lbl.onleave'))} ${c.leave}·${esc(t('lbl.absent'))} ${c.absent}/${c.total}</span></div>
         <div>${c.students.map(s=>`<span class="att" style="display:inline-flex;margin-right:var(--sp-3)"><span class="dot-s ${dot(s.status)}"></span>${esc(dnick(s))}${s.status==='LEAVE'?' ('+esc(t('lbl.onleave'))+')':s.status==='ABSENT'?' ('+esc(t('lbl.absent'))+')':''}</span>`).join('')}</div></div>`).join('')}
-      <div class="card"><h3>⏰ ${esc(t('daily.lateStaff'))}</h3>${r.lateStaff.length?r.lateStaff.map(s=>`<div class="list-item"><span><b>${esc(dnick(s))}</b>${dnSub(s)?` <small class="muted">${esc(dnSub(s))}</small>`:""}</span><span class="pill bad">${esc(t('lbl.late'))} ${s.late} ${esc(t('lbl.min'))}</span></div>`).join(''):`<small class="muted">${esc(t('c.noItems'))}</small>`}</div>
+      <div class="card"><h3>⏰ ${esc(t('daily.lateStaff'))}</h3>${r.lateStaff.length?r.lateStaff.map(s=>`<div class="list-item"><span><b>${esc(dnick(s))}</b>${dnSub(s)?` <small class="muted">${esc(dnSub(s))}</small>`:""}</span><span class="pill bad">${esc(t('lbl.late'))} ${s.late} ${esc(t('lbl.min'))}</span></div>`).join(''):`${empty('done', EN()?'No one was late':'ไม่มีใครมาสาย')}`}</div>
       <div class="card" style="background:var(--warn-bg);border-color:var(--warn-line)"><h3>🚨 ${esc(t('daily.absenceAlert'))}</h3>
         <p class="muted" style="font-size:var(--fs-1)">${esc(t('daily.alertNote'))}</p>
-        ${r.absent2.map(s=>`<div class="list-item"><span><b>${esc(dnick(s))}</b> <small class="muted">${dnSub(s)?esc(dnSub(s))+" · ":""}${esc(s.class)}</small></span><span class="pill ${s.count>=5?'bad':'wait'}">${esc(t('abs.days').replace('{n}',s.count))}</span></div>`).join('')||`<small class="muted">${esc(t('c.noItems'))}</small>`}
+        ${r.absent2.map(s=>`<div class="list-item"><span><b>${esc(dnick(s))}</b> <small class="muted">${dnSub(s)?esc(dnSub(s))+" · ":""}${esc(s.class)}</small></span><span class="pill ${s.count>=5?'bad':'wait'}">${esc(t('abs.days').replace('{n}',s.count))}</span></div>`).join('')||`${empty('none')}`}
         <button class="btn sm outline" style="margin-top:var(--sp-2)" onclick="GO('absence')">${esc(t('abs.title'))} →</button></div>
       ${(r.injuries&&r.injuries.length)?`<div class="card" style="background:var(--bad-bg);border-color:var(--bad-line)"><h3 style="color:var(--bad)">${esc(t('daily.injuryAlert'))} (${r.injuries.length})</h3>
         <p class="muted" style="font-size:var(--fs-1)">${esc(t('daily.injuryNote'))}</p>${injuryListHTML(r.injuries)}</div>`:''}
@@ -16699,8 +16757,8 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
           : (EN()?'Your classes only.':'เฉพาะชั้นเรียนที่คุณดูแล')} ${EN()?'Counted as away: no-shows plus filed leave.':'นับรวม: วันที่ขาด + วันที่แจ้งลา'}</p>
         ${(USER.role==='Admin'||USER.role==='Observer')?`<button class="btn sm outline block" style="margin-top:var(--sp-2)" onclick="A_absTrail('')">📒 ${EN()?'Full follow-up log':'ประวัติการติดตามทั้งหมด'}</button>`:''}</div>
       <div class="card" style="background:var(--blue-bg)"><div class="spread"><b>${esc(t('abs.rated'))}</b><b>${rate.rated}/${rate.total}</b></div><small class="muted">${esc(t('abs.rateNote').replace('{n}',rate.excludeDays).replace('{x}',rate.excluded))}</small></div>
-      <div class="card" style="border:1px solid var(--bad-line)"><h3>🚨 ${EN()?'Absent over 5 days':'ขาดเกิน 5 วัน'} <small class="muted">(${g2.length})</small></h3>${g2.length?g2.map(row).join(''):`<small class="muted">${esc(t('c.noItems'))}</small>`}</div>
-      <div class="card"><h3>⚠️ ${EN()?'Absent 2–5 days':'ขาด 2–5 วัน'} <small class="muted">(${g1.length})</small></h3>${g1.length?g1.map(row).join(''):`<small class="muted">${esc(t('c.noItems'))}</small>`}</div>`;
+      <div class="card" style="border:1px solid var(--bad-line)"><h3>🚨 ${EN()?'Absent over 5 days':'ขาดเกิน 5 วัน'} <small class="muted">(${g2.length})</small></h3>${g2.length?g2.map(row).join(''):`${empty('done', EN()?'No child absent over 5 days':'ไม่มีเด็กขาดเกิน 5 วัน')}`}</div>
+      <div class="card"><h3>⚠️ ${EN()?'Absent 2–5 days':'ขาด 2–5 วัน'} <small class="muted">(${g1.length})</small></h3>${g1.length?g1.map(row).join(''):`${empty('done', EN()?'No child absent 2–5 days':'ไม่มีเด็กขาด 2–5 วัน')}`}</div>`;
   }
   SCREENS.Teacher.absence = absenceScreen; SCREENS.Admin.absence = absenceScreen;
   // the picked certificate, compressed on pick and held until Save — one per child per save
