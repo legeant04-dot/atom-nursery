@@ -68,7 +68,9 @@ console.log('\n2) approved leave folds shut');
   ok_('it is a dropdown now', /<details style="[^"]*"><summary[^>]*>\$\{EN\(\)\?'Approved leave \(for coverage\)':'การลาที่อนุมัติแล้ว \(วางแผนสับเปลี่ยน\)'\}/.test(sched));
   ok_('...with the count on the line, so you can see if it is worth opening', /<span class="pill \$\{d\.leavesToday\.length\?'wait':'ok'\}"[^>]*>\$\{d\.leavesToday\.length\}<\/span>/.test(sched));
   ok_('the rows themselves are unchanged', /\$\{esc\(fullName\(l\.StaffID\)\)\} · \$\{esc\(tLeaveType\(l\.Type\)\)\}/.test(sched));
-  ok_('...including the empty case', /\|\|`<small class="muted">\$\{esc\(t\('c\.noItems'\)\)\}<\/small>`\}<\/div><\/details>/.test(sched));
+  /* กรณีว่างใช้องค์ประกอบกลางแล้ว (2026-10-28) — ของเดิมเป็นข้อความเทาบรรทัดเดียว
+   * เหมือนกันหมดทุกจุด ซึ่งทำให้ "วันนี้ไม่มีใครลา" หน้าตาเหมือน "ยังไม่มีข้อมูล" */
+  ok_('...including the empty case', /\|\|`\$\{empty\('none'\)\}`\}<\/div><\/details>/.test(sched));
   ok_('it is NOT open by default', !/<details open style="[^"]*"><summary[^>]*>\$\{EN\(\)\?'Approved leave/.test(sched));
 }
 
