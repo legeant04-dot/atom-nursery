@@ -107,6 +107,25 @@
    * ปัดเข้าขั้นที่ใกล้ที่สุด เท่ากันปัดขึ้น → 6→8 และ 10→12 แปลว่าหน้าจอโปร่งขึ้นเล็กน้อย
    * ทั้งแอปอย่างสม่ำเสมอ ซึ่งเป็นผลที่ตั้งใจ ไม่ใช่ผลข้างเคียง */
   --sp-0:2px; --sp-1:4px; --sp-2:8px; --sp-3:12px; --sp-4:16px; --sp-5:24px; --sp-6:32px;
+
+  /* ═══ 📊 แถบความคืบหน้า — เขียวไล่เฉด เข้มสุดที่ 100% (ผอ. 2026-10-28) ════════════════════
+   *
+   * 🔴 ของเดิมเป็นไฟแดง-ส้ม-เขียว และเส้นแบ่งตั้งไว้ว่า **ต้อง 100% เท่านั้นถึงจะเขียว**
+   * การมาเรียน 89% จึงขึ้นสีแดง — ซึ่งเป็นตัวเลขที่ดีมากสำหรับโรงเรียนอนุบาล
+   * (เด็กลา 2 คนจาก 19 ก็ตกเกณฑ์แล้ว) · สัญญาณเตือนที่เตือนทุกวันคือสัญญาณที่ไม่มีใครอ่าน
+   *
+   * ตอนนี้ **สีเป็นตัวเลขอีกชุดหนึ่ง**: ยิ่งเข้มยิ่งมาก · มองผ่าน ๆ ก็รู้ว่าเยอะหรือน้อย
+   * โดยไม่ต้องอ่านตัวเลข · และ **สีแดงเหลือไว้ที่ต่ำกว่า 50% จริง ๆ** ซึ่งคือตอนที่มีอะไรผิดปกติ
+   *
+   * 🔴 โหมดมืดไล่กลับทาง — บนพื้นมืด "สว่าง/สดกว่า" คือสิ่งที่อ่านว่า "มากกว่า"
+   * ถ้าใช้ชุดเดียวกันทั้งสองโหมด 100% จะกลายเป็นสีที่จมหายไปกับพื้นหลังที่สุด */
+  --prog-1:#2f9260;   /* น้อยสุด */
+  --prog-2:#23804f;
+  --prog-3:#186a3e;
+  --prog-4:#0f552f;
+  --prog-5:#083f22;   /* 100% */
+  --prog-low:var(--bad);      /* ต่ำกว่า 50% — ตรงนี้คือสัญญาณเตือนจริง */
+  --prog-track:var(--surface-3);
 }
 
 *{box-sizing:border-box;}
@@ -820,9 +839,39 @@ a:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible,te
 .kpi.blue .kic{background:var(--blue-weak);} .kpi.green .kic{background:var(--ok-bg);}
 .kpi.amber .kic{background:var(--warn-bg);} .kpi.pink .kic{background:var(--pink-bg);}
 /* quick-action bar: horizontally scrollable chips, tidy on any width */
-.qbar{display:flex;gap:var(--sp-2);overflow-x:auto;padding:var(--sp-0) var(--sp-0) var(--sp-1);-webkit-overflow-scrolling:touch;}
+/* ═══ 📊 แถบความคืบหน้า ═══════════════════════════════════════════════════════════════════
+ * สามจุดในแอปเคยวาดแถบนี้เองด้วย inline style คนละชุด (สูง 6px · มุม 4px · สีคนละกฎ)
+ * ตอนนี้เป็นชิ้นเดียว — เปลี่ยนความสูงหรือเฉดสีทั้งแอปคือการแก้ที่นี่ที่เดียว */
+.pbar{height:8px;background:var(--prog-track);border-radius:var(--radius-pill);overflow:hidden;
+  margin:var(--sp-1) 0;}
+.pbar>i{display:block;height:100%;border-radius:var(--radius-pill);transition:width var(--dur) ease;}
+.pbar>i.p1{background:var(--prog-1);} .pbar>i.p2{background:var(--prog-2);}
+.pbar>i.p3{background:var(--prog-3);} .pbar>i.p4{background:var(--prog-4);}
+.pbar>i.p5{background:var(--prog-5);} .pbar>i.plow{background:var(--prog-low);}
+
+/* ═══ 🧭 แถบเครื่องมือหน้าหลักแอดมิน — ข้อความล้วน + เส้นใต้ (ผอ. 2026-10-28) ════════════
+ *
+ * ของเดิมเป็นปุ่มหกปุ่มเรียงกัน ล้นขอบจอแล้วถูกตัดกลางคัน · มันเลื่อนได้อยู่แล้ว
+ * แต่ scrollbar ถูกซ่อนไว้ จึง **ไม่มีอะไรบอกเลยว่ายังมีต่อ** — คนเลยไม่รู้ว่ามีปุ่มที่เจ็ด
+ *
+ * 🔴 ทั้งหกเป็น "การกระทำ" ไม่ใช่แท็บสลับหน้า จึงไม่มีตัวไหนเป็น active ถาวร —
+ * เส้นใต้จึงขึ้นตอนชี้/แตะเท่านั้น ไม่ใช่ค้างไว้บอกว่า "คุณอยู่ตรงนี้" ซึ่งจะเป็นคำโกหก */
+.qbarwrap{position:relative;border-bottom:1px solid var(--line);margin-bottom:var(--sp-3);}
+.qbar{display:flex;gap:var(--sp-4);overflow-x:auto;scroll-behavior:smooth;
+  -webkit-overflow-scrolling:touch;scrollbar-width:none;}
 .qbar::-webkit-scrollbar{height:0;}
-.qbar .btn{white-space:nowrap;flex:0 0 auto;}
+.qtab{flex:0 0 auto;white-space:nowrap;background:none;border:0;cursor:pointer;font-family:inherit;
+  font-size:var(--fs-2);font-weight:600;color:var(--ink-3);padding:var(--sp-3) var(--sp-1);
+  display:inline-flex;align-items:center;gap:var(--sp-1);
+  border-bottom:2px solid transparent;margin-bottom:-1px;transition:color var(--dur),border-color var(--dur);}
+.qtab:hover,.qtab:focus-visible{color:var(--ink);border-bottom-color:var(--ink);outline:none;}
+.qtab:active{color:var(--brand);border-bottom-color:var(--brand);}
+/* ปุ่ม › โผล่เฉพาะตอนที่ยังมีของเลยขอบไปจริง ๆ — ลูกศรที่อยู่ตลอดเวลาคือลูกศรที่ไม่มีความหมาย */
+.qnext{position:absolute;right:0;top:0;bottom:1px;width:40px;border:0;cursor:pointer;
+  display:none;align-items:center;justify-content:flex-end;padding-right:var(--sp-1);
+  font-size:var(--fs-4);line-height:1;color:var(--ink-2);font-family:inherit;
+  background:linear-gradient(90deg,transparent,var(--bg) 45%);}
+.qnext.on{display:flex;}
 .dash-h{display:flex;align-items:baseline;gap:var(--sp-2);margin:var(--sp-2) var(--sp-0) var(--sp-3);}
 .dash-h h2{margin:0;} .dash-h .dash-date{font-size:var(--fs-1);color:var(--muted);font-weight:600;}
 /* pushed to the far right of the title row; `auto` rather than a fixed width so the date can grow */
@@ -958,6 +1007,9 @@ main:has(.savedock .btn + .btn){padding-bottom:180px;}   /* two stacked buttons 
   --surface:#1b2027;
   --surface-2:#212832;
   --surface-3:#2a323d;
+  /* ไล่กลับทาง: บนพื้นมืด "สดกว่า" คือ "มากกว่า" — 100% ต้องเป็นสีที่ตัดกับพื้นมากที่สุด
+     ไม่ใช่สีที่จมหายไปกับพื้นมากที่สุด (ดูหมายเหตุที่ --prog-1 ใน :root) */
+  --prog-1:#4e9b6c; --prog-2:#62bd84; --prog-3:#79d79a; --prog-4:#92ebb0; --prog-5:#b2fac8;
   --line:#333c48;
   --line-strong:#47525f;
   --ink:#e7ebf0;
@@ -995,6 +1047,9 @@ html[data-theme="dark"]{
   --surface:#1b2027;
   --surface-2:#212832;
   --surface-3:#2a323d;
+  /* ไล่กลับทาง: บนพื้นมืด "สดกว่า" คือ "มากกว่า" — 100% ต้องเป็นสีที่ตัดกับพื้นมากที่สุด
+     ไม่ใช่สีที่จมหายไปกับพื้นมากที่สุด (ดูหมายเหตุที่ --prog-1 ใน :root) */
+  --prog-1:#4e9b6c; --prog-2:#62bd84; --prog-3:#79d79a; --prog-4:#92ebb0; --prog-5:#b2fac8;
   --line:#333c48;
   --line-strong:#47525f;
   --ink:#e7ebf0;
