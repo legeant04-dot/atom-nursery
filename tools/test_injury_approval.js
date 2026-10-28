@@ -208,7 +208,7 @@ console.log('\n9) the screens offer only what the person may actually do');
   ok_('an admin is offered step 2', /if\(s==='PENDING_ADMIN'\) return isAdmin\(\);/.test(app));
   ok_('a finished report offers neither', /return false;\s*\n  \}/.test(app.slice(app.indexOf('function injCanDecide'))));
   ok_('sending back demands a reason, and does nothing without one', /if\(!reason\) return;/.test(app));
-  ok_('unlock and delete are shown to admins only', /\$\{isAdmin\(\)\?`<div class="row" style="gap:8px;margin-top:8px">/.test(app));
+  ok_('unlock and delete are shown to admins only', /\$\{isAdmin\(\)\?`<div class="row" style="[^"]*">/.test(app));
   ok_('deleting a child\'s accident record asks first, in plain words', /นี่คือบันทึกอุบัติเหตุที่เกิดกับเด็ก/.test(app));
   ok_('the head teacher gets a queue on their home screen', /pendingInjuries/.test(app));
   ok_('...travelling with the other leader sections, not costing another round trip', /await Promise\.all\(\[p_tp,p_to,p_cc,p_ti,p_tt\]\)/.test(app));

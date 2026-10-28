@@ -119,7 +119,7 @@ console.log('\n3) everyone who needs to know, knows');
   ok_('...and is handed the way to fix it', /onclick="GO\('leave'\)">📤/.test(app));
   ok_('the monthly screen stops saying ครบ', /s\.missingOut\?`<span class="pill bad">⏳/.test(app));
   ok_('...counts it as its own figure', /smStat\(tot\.mo, EN\(\)\?'no check-out':'ไม่ได้ลงเวลาออก'/.test(app));
-  ok_('...and lists the days per person', /d\.missingOut\.map\(x=>`<div style="margin-top:2px">• <b>/.test(app));
+  ok_('...and lists the days per person', /d\.missingOut\.map\(x=>`<div style="[^"]*">• <b>/.test(app));
   ok_('the evening digest tells the admins and the head teacher', /staffMissingCheckout/.test(notify)
     && /ยังไม่ได้ลงเวลาออก ' \+ mo\.count \+ ' วัน/.test(notify));
   ok_('...naming who and which days', /\(s\.days \|\| \[\]\)\.join\(', '\)/.test(notify));

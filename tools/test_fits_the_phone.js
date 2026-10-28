@@ -81,13 +81,15 @@ console.log('\n3) the bottom bar fits the phone instead of scrolling');
   // comments stripped first: the note explaining this trap necessarily quotes the very rule it is
   // warning about, and matching that would fail the check it exists to make
   const code = css.replace(/\/\*[\s\S]*?\*\//g, '');
-  const floorAt = code.indexOf('.bottomnav button{font-size:12px;}');
+  /* 🔴 พื้นนี้เคยเป็น 12px ตรง ๆ · ตั้งแต่ 2026-10-28 มันคือขั้นล่างสุดของสเกล (--fs-1 = 13px)
+   * พื้นสูงขึ้น 1px บนแถบที่แคบที่สุดในแอป — ตรวจบนเบราว์เซอร์จริงที่ 375px แล้วว่าไม่ล้น */
+  const floorAt = code.indexOf('.bottomnav button{font-size:var(--fs-1);}');
   ok_('the readability floor still exists', floorAt > 0);
   const navBlock = code.slice(code.indexOf('.bottomnav{overflow-x:hidden;}'), floorAt);
   eq('...and nothing before it tries to set a font-size it cannot win',
     (navBlock.match(/\.bottomnav button\{[^}]*font-size/g) || []), []);
   ok_('the space comes from padding on a narrow screen instead',
-    /@media\(max-width:400px\)\{ \.bottomnav button\{padding:8px 0;\} \}/.test(css));
+    /@media\(max-width:400px\)\{ \.bottomnav button\{padding:var\(--sp-2\) 0;\} \}/.test(css));
   ok_('...and the reason is written where the next person will look', /readability floor/.test(css));
 }
 

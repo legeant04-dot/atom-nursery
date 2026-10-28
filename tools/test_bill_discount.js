@@ -141,8 +141,15 @@ console.log('\n4) หน้าจอ — ผู้ปกครองต้อง
    * family saw a smaller number with no explanation — which is its own problem: an unexplained
    * discount looks like a billing mistake and generates the phone call it was meant to avoid. */
   ok_('🔴 แสดงบรรทัดส่วนลดในหน้าเลือกรายการ', /kind:'discount'/.test(app) && /หักออกจากรายการด้านบนให้แล้ว/.test(app));
-  ok_('🔴 ...แต่ติ๊กไม่ได้ (ไม่มี checkbox) — กันไม่ให้ใช้ส่วนลดซ้ำกับรายการที่ไม่ได้ถูกหัก',
-    /r\.info\n?[\s\S]{0,400}<div class="field"[\s\S]{0,200}🏷️/.test(app));
+  /* 🔴 เขียนเป็น "ข้ออ้าง" ไม่ใช่ "รูปร่างของบรรทัด" — ของเดิมนับระยะทางจาก <div class="field">
+   * ไปถึง 🏷️ ได้ไม่เกิน 200 ตัวอักษร ซึ่งพังทันทีที่ค่า style ยาวขึ้น ทั้งที่ความปลอดภัยไม่ได้เปลี่ยน
+   * สิ่งที่ต้องจริงคือ: กิ่งของส่วนลด **ไม่มีช่องติ๊ก** ไม่ใช่ว่ามันสั้นแค่ไหน */
+  {
+    const a = app.indexOf('? `<div class="field"'), b = app.indexOf(': `<label class="field"');
+    const disc = a > -1 && b > a ? app.slice(a, b) : '';
+    ok_('🔴 ...แต่ติ๊กไม่ได้ (ไม่มี checkbox) — กันไม่ให้ใช้ส่วนลดซ้ำกับรายการที่ไม่ได้ถูกหัก',
+      disc.indexOf('🏷️') > -1 && disc.indexOf('type="checkbox"') === -1);
+  }
   ok_('เด็กที่ส่วนลดหักจนหมดแล้ว ไม่ขึ้นหน้า "เลือกรายการที่จะชำระ"',
     /filter\(g=>g\.rows\.some\(r=>!r\.info\)\)/.test(app));
   ok_('หน้าแอดมิน — ส่วนลดขึ้นว่า "หักให้แล้ว" ไม่ใช่ป้ายค้างชำระ',

@@ -232,7 +232,7 @@ console.log('\n7) every child’s leave, not just the eldest’s');
   ok_('...and no longer from slAll[0] alone', !/const slHtml = sl\.map\(/.test(appCode));
   ok_('the child’s name is shown only when there is more than one', /const _multi = kids\.length > 1;/.test(app)
     && /P_leaveRow\(l, _multi\)/.test(app));
-  ok_('the list folds', /<details style="margin-top:8px"\$\{slRows\.length\?'':' open'\}>/.test(app));
+  ok_('the list folds', /<details style="[^"]*"\$\{slRows\.length\?'':' open'\}>/.test(app));
   ok_('...with the count on the summary line, so folding does not hide THAT there are any',
     /slRows\.length\?` <b style="color:var\(--ink\)">\$\{slRows\.length\}<\/b>`:''/.test(app));
   ok_('...and the "+ แจ้งลา" button stays outside the fold', /<button class="btn sm outline" style="flex:0 0 auto" onclick="P_absence\(\)">/.test(app));

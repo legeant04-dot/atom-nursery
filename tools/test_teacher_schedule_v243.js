@@ -65,11 +65,11 @@ console.log('\n1) my OT วันหยุด, under the daily summary in 📅 �
 
 console.log('\n2) approved leave folds shut');
 {
-  ok_('it is a dropdown now', /<details style="margin-top:8px"><summary[^>]*>\$\{EN\(\)\?'Approved leave \(for coverage\)':'การลาที่อนุมัติแล้ว \(วางแผนสับเปลี่ยน\)'\}/.test(sched));
+  ok_('it is a dropdown now', /<details style="[^"]*"><summary[^>]*>\$\{EN\(\)\?'Approved leave \(for coverage\)':'การลาที่อนุมัติแล้ว \(วางแผนสับเปลี่ยน\)'\}/.test(sched));
   ok_('...with the count on the line, so you can see if it is worth opening', /<span class="pill \$\{d\.leavesToday\.length\?'wait':'ok'\}"[^>]*>\$\{d\.leavesToday\.length\}<\/span>/.test(sched));
   ok_('the rows themselves are unchanged', /\$\{esc\(fullName\(l\.StaffID\)\)\} · \$\{esc\(tLeaveType\(l\.Type\)\)\}/.test(sched));
   ok_('...including the empty case', /\|\|`<small class="muted">\$\{esc\(t\('c\.noItems'\)\)\}<\/small>`\}<\/div><\/details>/.test(sched));
-  ok_('it is NOT open by default', !/<details open style="margin-top:8px"><summary[^>]*>\$\{EN\(\)\?'Approved leave/.test(sched));
+  ok_('it is NOT open by default', !/<details open style="[^"]*"><summary[^>]*>\$\{EN\(\)\?'Approved leave/.test(sched));
 }
 
 console.log('\n3) the home screen loses the remaining-days grid — and the call that fed it');

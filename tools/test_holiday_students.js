@@ -290,7 +290,7 @@ console.log('\n7c) the record can be opened again — including its children');
   ok_('...and says the list belongs to the DAY, not to one teacher', /คุณครูทุกคนที่ทำงานวันหยุดนั้นใช้รายชื่อเดียวกัน/.test(app));
   ok_('a teacher has their own screen for it', /window\.T_holidayOT=async\(month\)=>/.test(app));
   ok_('...reachable from their tool row', /onclick="T_holidayOT\(\)">🎉/.test(app));
-  ok_('...showing the amount and the note that was agreed', /esc\(baht\(o\.Amount\)\)/.test(app) && /o\.Note\?`<div style="font-size:14px/.test(app));
+  ok_('...showing the amount and the note that was agreed', /esc\(baht\(o\.Amount\)\)/.test(app) && /o\.Note\?`<div style="font-size:var\(--fs-1\)/.test(app));
   ok_('...the children on each day, with their times', /id="tho_\$\{esc\(ymd\(o\.Date\)\)\}"/.test(app));
   ok_('...and an add button per day, not just for today', /T_holAddStudent\('\$\{esc\(ymd\(o\.Date\)\)\}'\)/.test(app));
   ok_('...saying the day pays no hourly OT and counts no lateness', /จะไม่คิด OT รายชั่วโมงเพิ่มและไม่นับสาย/.test(app));

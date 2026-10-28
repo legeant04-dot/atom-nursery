@@ -74,6 +74,34 @@
   --sh-md:0 6px 18px rgba(16,24,40,.08);
   --sh-lg:0 16px 40px rgba(16,24,40,.16);
   --dur:.18s;
+
+  /* ═══ 📏 สเกลตัวอักษร และสเกลระยะห่าง (Phase 3 ข้อ 1+2 · 2026-10-28) ═══════════════════════
+   *
+   * ของเดิม: **ขนาดตัวอักษร 27 ขนาด** (5 ขนาดเป็นทศนิยม) และระยะห่างที่ไม่ได้ถูกเลือก —
+   *
+   *     margin-top 8px — 186 ครั้ง
+   *     margin-top 6px — 175 ครั้ง   ← เจตนาเดียวกัน ห่างกัน 2px
+   *
+   * 🔴 ไม่มีใครมองเห็น 2px — แต่ข้าม 27 หน้าจอ มันคือเหตุผลที่ทุกอย่างดูไม่ตรงแนว
+   *
+   * ทั้ง 869 ขนาดตัวอักษร และ 1,848 ระยะห่าง ถูกเขียนใหม่ให้ชี้มาที่นี่ด้วย tools/apply_scales.js
+   * **inline style 2,530 จุดยังอยู่ครบ — แต่ตอนนี้มันอ้างถึงระบบเดียวกัน แทนที่จะแข่งกับระบบ**
+   * 🏫 และ "ปรับฟอนต์ตามโรงเรียน" กลายเป็นการแก้ตัวเลข 6 ตัวข้างล่างนี้ ไม่ใช่โปรเจกต์
+   *
+   * ── ตัวอักษร: 6 ขั้น เอามาจากสิ่งที่แอปใช้จริง ไม่ใช่อัตราส่วนที่ยกมาจากที่อื่น ─────────────
+   * 🔴 12px กับ 13px ถูกยุบเป็นขั้นเดียวโดยตั้งใจ — มันคือปัญหาเดียวกับ 6px/8px เป๊ะ ๆ:
+   * ห่างกัน 1px ไม่มีกฎ และไม่มีใครแยกออก · พื้นจึงขยับขึ้นเป็น 13px ซึ่งตรงกับกฎที่เราเขียนไว้
+   * เองว่าต้อง "อ่านออกจากระยะแขน กลางแดด มือเดียว ขณะอุ้มเด็กอยู่" */
+  --fs-1:13px;   /* ข้อความรอง · คำอธิบาย — ตัวที่ใช้มากที่สุด (766 จุด) */
+  --fs-2:15px;   /* เนื้อความ */
+  --fs-3:18px;   /* หัวข้อย่อย */
+  --fs-4:21px;   /* หัวข้อหน้า — h2.page ใช้ค่านี้อยู่แล้ว */
+  --fs-5:28px;   /* ตัวเลขเด่น */
+  --fs-6:44px;   /* ตัวเลขพาดหัว */
+  /* ── ระยะห่าง: ฐาน 4px บวกขั้น "เส้นผม" 2px ที่ของเดิมใช้จริง 136 ครั้ง ──────────────────
+   * ปัดเข้าขั้นที่ใกล้ที่สุด เท่ากันปัดขึ้น → 6→8 และ 10→12 แปลว่าหน้าจอโปร่งขึ้นเล็กน้อย
+   * ทั้งแอปอย่างสม่ำเสมอ ซึ่งเป็นผลที่ตั้งใจ ไม่ใช่ผลข้างเคียง */
+  --sp-0:2px; --sp-1:4px; --sp-2:8px; --sp-3:12px; --sp-4:16px; --sp-5:24px; --sp-6:32px;
 }
 
 *{box-sizing:border-box;}
@@ -87,28 +115,28 @@ body{font-family:'Sarabun',system-ui,sans-serif;background:var(--bg);color:var(-
 
 /* Top bar */
 .topbar{position:sticky;top:0;z-index:20;display:flex;align-items:center;justify-content:space-between;
-  background:var(--surface);border-bottom:1px solid var(--line);padding:8px 14px;box-shadow:0 1px 4px rgba(0,0,0,.04);}
-.brand{display:flex;align-items:center;gap:10px;}
+  background:var(--surface);border-bottom:1px solid var(--line);padding:var(--sp-2) var(--sp-4);box-shadow:0 1px 4px rgba(0,0,0,.04);}
+.brand{display:flex;align-items:center;gap:var(--sp-3);}
 .logo{width:42px;height:42px;border-radius:10px;object-fit:contain;}
-.brand-name{font-weight:700;color:var(--blue);font-size:18px;letter-spacing:.3px;}
-.user{display:flex;align-items:center;gap:8px;}
+.brand-name{font-weight:700;color:var(--blue);font-size:var(--fs-3);letter-spacing:.3px;}
+.user{display:flex;align-items:center;gap:var(--sp-2);}
 .user-meta{display:flex;flex-direction:column;align-items:flex-end;line-height:1.1;}
-.user-name{font-weight:600;font-size:13px;}
-.user-role{font-size:12px;color:var(--muted);}
+.user-name{font-weight:600;font-size:var(--fs-1);}
+.user-role{font-size:var(--fs-1);color:var(--muted);}
 .avatar{width:36px;height:36px;border-radius:50%;background:var(--blue);color:var(--on-accent);display:flex;
-  align-items:center;justify-content:center;font-weight:700;font-size:14px;}
+  align-items:center;justify-content:center;font-weight:700;font-size:var(--fs-1);}
 /* header avatar showing the user's LINE profile picture */
 .avatar.photo{background-size:cover;background-position:center;background-color:var(--blue-bg);}
-.btn-ghost{background:transparent;border:1px solid var(--line);border-radius:8px;padding:6px 10px;cursor:pointer;font-family:inherit;}
+.btn-ghost{background:transparent;border:1px solid var(--line);border-radius:8px;padding:var(--sp-2) var(--sp-3);cursor:pointer;font-family:inherit;}
 
 .devbar{display:none;} /* version tag moved into the Chat screen (verTag) */
 
-main{max-width:880px;margin:0 auto;padding:14px;}
+main{max-width:880px;margin:0 auto;padding:var(--sp-4);}
 
 /* Generic */
-h2.page{font-size:20px;margin:6px 2px 14px;color:var(--blue-d);}
+h2.page{font-size:var(--fs-4);margin:var(--sp-2) var(--sp-0) var(--sp-4);color:var(--blue-d);}
 .muted{color:var(--muted);}
-.row{display:flex;gap:10px;flex-wrap:wrap;}
+.row{display:flex;gap:var(--sp-3);flex-wrap:wrap;}
 /* Admin section header (👩‍🏫 พนักงาน / 👪 ผู้ปกครอง / 👶 นักเรียน). See secHead in app.js for why the
    caret sits outside the action group. Wide: title · actions · caret, exactly as before. Narrow:
    title + caret on the first line, the buttons sharing the whole second line. */
@@ -117,32 +145,32 @@ h2.page{font-size:20px;margin:6px 2px 14px;color:var(--blue-d);}
 .sechd .secacts{order:2;}
 .sechd .sectog{order:3;flex:0 0 auto;}
 @media(max-width:560px){
-  .sechd .secacts{order:4;flex:1 1 100%;margin-top:8px;}
+  .sechd .secacts{order:4;flex:1 1 100%;margin-top:var(--sp-2);}
   .sechd .secacts .btn{flex:1 1 0;min-width:0;}
 }
-.spread{display:flex;justify-content:space-between;align-items:center;gap:8px;}
-.card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:14px;margin-bottom:12px;box-shadow:0 1px 3px rgba(0,0,0,.03);}
-.card h3{margin:0 0 10px;font-size:16px;}
-.grid2{display:grid;grid-template-columns:1fr 1fr;gap:12px;}
-.grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;}
+.spread{display:flex;justify-content:space-between;align-items:center;gap:var(--sp-2);}
+.card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:var(--sp-4);margin-bottom:var(--sp-3);box-shadow:0 1px 3px rgba(0,0,0,.03);}
+.card h3{margin:0 0 var(--sp-3);font-size:var(--fs-2);}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:var(--sp-3);}
+.grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:var(--sp-3);}
 @media(max-width:560px){.grid3{grid-template-columns:1fr 1fr;}.grid2{grid-template-columns:1fr;}}
 
-.stat{background:linear-gradient(135deg,var(--blue),var(--blue-d));color:var(--on-accent);border-radius:var(--radius);padding:14px;}
-.stat .n{font-size:26px;font-weight:700;}
-.stat .l{font-size:13px;opacity:.9;}
+.stat{background:linear-gradient(135deg,var(--blue),var(--blue-d));color:var(--on-accent);border-radius:var(--radius);padding:var(--sp-4);}
+.stat .n{font-size:var(--fs-5);font-weight:700;}
+.stat .l{font-size:var(--fs-1);opacity:.9;}
 .stat.pink{background:linear-gradient(135deg,var(--pink),var(--pink-d));}
 .stat.green{background:linear-gradient(135deg,var(--ok-2),var(--ok));}
 .stat.amber{background:linear-gradient(135deg,var(--warn-2),var(--warn-2));color:var(--warn-ink-d);}
 
-label.field,div.field{display:block;margin:8px 0;font-size:14px;}
-label.field span,div.field>span{display:block;margin-bottom:4px;color:var(--muted);font-size:13px;}
+label.field,div.field{display:block;margin:var(--sp-2) 0;font-size:var(--fs-1);}
+label.field span,div.field>span{display:block;margin-bottom:var(--sp-1);color:var(--muted);font-size:var(--fs-1);}
 /* A value the reader may see but may not change (the insurance plan, which the school owns). It sits
    where an input would, at the same height, so the two columns of a .grid2 still line up — but it is
    flat and borderless, because a box that looks editable and is not is a worse answer than no box. */
-.insro{padding:9px 2px;font-weight:600;color:var(--ink);min-height:20px;}
+.insro{padding:var(--sp-2) var(--sp-0);font-weight:600;color:var(--ink);min-height:20px;}
 /* 16px is a hard floor on every focusable control: iOS Safari auto-zooms the whole page when a
    focused input is smaller than that, which shifted the layout on every form tap. */
-input,select,textarea{width:100%;padding:10px;border:1px solid var(--line);border-radius:10px;font-family:inherit;font-size:16px;background:var(--surface);}
+input,select,textarea{width:100%;padding:var(--sp-3);border:1px solid var(--line);border-radius:10px;font-family:inherit;font-size:var(--fs-2);background:var(--surface);}
 textarea{min-height:70px;resize:vertical;}
 
 /* A TICK BOX BESIDE ITS LABEL, not above it.
@@ -152,17 +180,17 @@ textarea{min-height:70px;resize:vertical;}
    2026-08-21 with the mismatch marked in red.
    Laid out for a thumb: the whole row is the target (44px, the iOS minimum), the box does not shrink
    when the text wraps, and the two stay on the same line at any width. */
-.chk-inline{display:flex;align-items:flex-start;gap:10px;min-height:44px;padding:8px 2px;
-  cursor:pointer;font-size:15px;line-height:1.45;border-bottom:1px solid var(--surface-3);}
+.chk-inline{display:flex;align-items:flex-start;gap:var(--sp-3);min-height:44px;padding:var(--sp-2) var(--sp-0);
+  cursor:pointer;font-size:var(--fs-2);line-height:1.45;border-bottom:1px solid var(--surface-3);}
 .chk-inline:last-child{border-bottom:none;}
 .chk-inline input[type=checkbox],.chk-inline input[type=radio]{width:22px;height:22px;min-width:22px;
   margin:1px 0 0;padding:0;flex:0 0 auto;accent-color:var(--blue);}
 .chk-inline > span{flex:1;min-width:0;}
 /* two columns of options on a wide screen, one on a phone */
-.chk-cols{display:grid;grid-template-columns:1fr;gap:0 14px;}
+.chk-cols{display:grid;grid-template-columns:1fr;gap:0 var(--sp-4);}
 @media(min-width:560px){ .chk-cols{grid-template-columns:1fr 1fr;} }
 
-.btn{background:var(--blue);color:var(--on-accent);border:none;border-radius:10px;padding:11px 16px;font-size:15px;
+.btn{background:var(--blue);color:var(--on-accent);border:none;border-radius:10px;padding:var(--sp-3) var(--sp-4);font-size:var(--fs-2);
   font-weight:600;cursor:pointer;font-family:inherit;}
 .btn:active{transform:translateY(1px);}
 .btn.block{width:100%;}
@@ -173,10 +201,10 @@ textarea{min-height:70px;resize:vertical;}
 a.btn{display:inline-block;text-align:center;text-decoration:none;box-sizing:border-box;}
 a.btn.block{display:block;}
 .btn.green{background:var(--green);} .btn.pink{background:var(--pink);} .btn.gray{background:var(--ink-3);}
-.btn.sm{padding:7px 12px;font-size:13px;}
+.btn.sm{padding:var(--sp-2) var(--sp-3);font-size:var(--fs-1);}
 .btn.outline{background:var(--surface);color:var(--blue);border:1px solid var(--blue);}
 
-.pill{display:inline-block;padding:2px 10px;border-radius:999px;font-size:12px;font-weight:600;}
+.pill{display:inline-block;padding:var(--sp-0) var(--sp-3);border-radius:999px;font-size:var(--fs-1);font-weight:600;}
 .pill.ok{background:var(--ok-bg);color:var(--ok);} .pill.bad{background:var(--bad-bg);color:var(--bad);}
 .pill.wait{background:var(--warn-bg);color:var(--warn);} .pill.info{background:var(--blue-bg);color:var(--blue-d);}
 /* 🔴 `.pill.warn` HAD NEVER EXISTED. Nine places in app.js wrote `class="pill warn"` — the
@@ -188,12 +216,12 @@ a.btn.block{display:block;}
    later decision to colour them differently should not have to hunt down nine call sites. */
 .pill.warn{background:var(--warn-bg);color:var(--warn);}
 
-.list-item{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--line);}
+.list-item{display:flex;justify-content:space-between;align-items:center;gap:var(--sp-3);padding:var(--sp-3) 0;border-bottom:1px solid var(--line);}
 .list-item:last-child{border-bottom:none;}
-.avatar-sm{width:34px;height:34px;border-radius:50%;background:var(--blue-bg);color:var(--blue-d);display:inline-flex;align-items:center;justify-content:center;font-weight:700;font-size:13px;}
+.avatar-sm{width:34px;height:34px;border-radius:50%;background:var(--blue-bg);color:var(--blue-d);display:inline-flex;align-items:center;justify-content:center;font-weight:700;font-size:var(--fs-1);}
 
-.seg{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px;}
-.seg button{border:1px solid var(--line);background:var(--surface);border-radius:999px;padding:7px 14px;cursor:pointer;font-family:inherit;font-size:13px;}
+.seg{display:flex;gap:var(--sp-2);flex-wrap:wrap;margin-bottom:var(--sp-3);}
+.seg button{border:1px solid var(--line);background:var(--surface);border-radius:999px;padding:var(--sp-2) var(--sp-4);cursor:pointer;font-family:inherit;font-size:var(--fs-1);}
 .seg button.active{background:var(--blue);color:var(--on-accent);border-color:var(--blue);}
 /* A pill in the strip that OPENS something instead of switching to it. The four real tabs swap what
    is drawn below and exactly one of them is `active`; this one puts a panel over the screen and
@@ -201,28 +229,28 @@ a.btn.block{display:block;}
    discovered by tapping — and it never takes `.active`, because you are never "on" it. */
 .seg button.seg-open{border-style:dashed;color:var(--blue-d);}
 
-.choice{display:flex;gap:6px;flex-wrap:wrap;}
-.choice button{border:1px solid var(--line);background:var(--surface);border-radius:10px;padding:8px 12px;cursor:pointer;font-family:inherit;font-size:13px;}
+.choice{display:flex;gap:var(--sp-2);flex-wrap:wrap;}
+.choice button{border:1px solid var(--line);background:var(--surface);border-radius:10px;padding:var(--sp-2) var(--sp-3);cursor:pointer;font-family:inherit;font-size:var(--fs-1);}
 .choice button.pass{background:var(--ok-bg);border-color:var(--ok-line);color:var(--ok);}
 .choice button.fail{background:var(--bad-bg);border-color:var(--bad-line);color:var(--bad);}
 
 .toast{position:fixed;left:50%;bottom:84px;transform:translateX(-50%);background:var(--ink);color:var(--surface);
-  padding:10px 16px;border-radius:10px;font-size:14px;z-index:50;opacity:0;transition:opacity .2s;max-width:90%;
+  padding:var(--sp-3) var(--sp-4);border-radius:10px;font-size:var(--fs-1);z-index:50;opacity:0;transition:opacity .2s;max-width:90%;
   /* errors carry a second "what to do next" line */
   white-space:pre-line;line-height:1.45;text-align:center;}
 .toast.show{opacity:.95;}
 
 /* Bottom nav */
 .bottomnav{position:fixed;bottom:0;left:0;right:0;display:flex;background:var(--surface);border-top:1px solid var(--line);z-index:20;}
-.bottomnav button{flex:1;background:none;border:none;padding:8px 4px;cursor:pointer;font-family:inherit;
-  display:flex;flex-direction:column;align-items:center;gap:2px;color:var(--muted);font-size:12px;}
+.bottomnav button{flex:1;background:none;border:none;padding:var(--sp-2) var(--sp-1);cursor:pointer;font-family:inherit;
+  display:flex;flex-direction:column;align-items:center;gap:var(--sp-0);color:var(--muted);font-size:var(--fs-1);}
 /* 🔴 กล่องไอคอนขนาดเดียวกันทุกแท็บ ไม่ว่าแท็บนั้นถูกเลือกอยู่หรือไม่
  * แท็บที่เลือกมีวงกลมสีแบรนด์ (แบบ C · ผอ. เลือก 2026-10-24) — ถ้าให้เฉพาะแท็บที่เลือกสูงขึ้น
  * ความสูงของแถบจะถูกกำหนดโดยแท็บนั้น และคำของแท็บอื่นจะยกขึ้นไม่ตรงกัน · ขนาดคงที่แปลว่า
  * "เปลี่ยนแค่สี" ตอนสลับแท็บ ไม่มีการจัดวางใหม่เลย */
 .bottomnav button{justify-content:center;}
 .bottomnav button .ic{width:34px;height:34px;border-radius:var(--radius-pill);display:grid;place-items:center;
-  font-size:20px;transition:background var(--dur),color var(--dur);}
+  font-size:var(--fs-4);transition:background var(--dur),color var(--dur);}
 .bottomnav button .ic svg{width:22px;height:22px;display:block;}
 .bottomnav button.active{color:var(--brand-d);font-weight:700;background:var(--brand-soft);}
 .bottomnav button.active .ic{background:var(--brand);color:var(--on-accent);
@@ -232,14 +260,14 @@ a.btn.block{display:block;}
 .bottomnav button.active .navbadge{box-shadow:0 0 0 2px var(--brand-soft);}
 
 /* Role chooser */
-.rolewrap{max-width:420px;margin:30px auto;text-align:center;}
+.rolewrap{max-width:420px;margin:var(--sp-6) auto;text-align:center;}
 /* the logo is a transparent, non-square PNG — `contain` shows it whole (cover cropped its sides) */
-.rolewrap .logo-lg{width:132px;height:112px;object-fit:contain;margin-bottom:10px;}
-.role-card{display:flex;align-items:center;gap:14px;text-align:left;width:100%;border:1px solid var(--line);
-  background:var(--surface);border-radius:var(--radius);padding:16px;margin:10px 0;cursor:pointer;font-family:inherit;}
+.rolewrap .logo-lg{width:132px;height:112px;object-fit:contain;margin-bottom:var(--sp-3);}
+.role-card{display:flex;align-items:center;gap:var(--sp-4);text-align:left;width:100%;border:1px solid var(--line);
+  background:var(--surface);border-radius:var(--radius);padding:var(--sp-4);margin:var(--sp-3) 0;cursor:pointer;font-family:inherit;}
 .role-card:hover{border-color:var(--blue);box-shadow:0 2px 10px rgba(21,101,192,.12);}
-.role-card .ic{font-size:30px;width:52px;height:52px;border-radius:14px;display:flex;align-items:center;justify-content:center;background:var(--blue-bg);}
-.role-card b{font-size:16px;} .role-card small{color:var(--muted);}
+.role-card .ic{font-size:var(--fs-5);width:52px;height:52px;border-radius:14px;display:flex;align-items:center;justify-content:center;background:var(--blue-bg);}
+.role-card b{font-size:var(--fs-2);} .role-card small{color:var(--muted);}
 
 /* ═══ 🔑 หน้าเข้าสู่ระบบ — โครง C2 (ผอ. เลือก 2026-10-23) ══════════════════════════════════════
  *
@@ -253,21 +281,21 @@ a.btn.block{display:block;}
  * 🔴 ระยะห่าง "ในกลุ่ม" กับ "ระหว่างกลุ่ม" ต้องต่างกันชัด — 8px กับ 22px
  * นี่คือสิ่งเดียวที่ทำให้สายตาอ่านออกว่าอะไรเป็นพวกเดียวกัน โดยไม่ต้องมีเส้นคั่น
  */
-.lgwrap{max-width:420px;margin:18px auto 30px;text-align:left;}
-.lgwrap .logo-lg{display:block;margin:0 auto 8px;}
-.lgbrand{text-align:center;margin-bottom:22px;}
-.lgbrand h2{margin:2px 0 4px;font-size:21px;}
-.lgbrand p{margin:0 auto;font-size:13px;color:var(--muted);line-height:1.5;max-width:290px;}
+.lgwrap{max-width:420px;margin:var(--sp-4) auto var(--sp-6);text-align:left;}
+.lgwrap .logo-lg{display:block;margin:0 auto var(--sp-2);}
+.lgbrand{text-align:center;margin-bottom:var(--sp-5);}
+.lgbrand h2{margin:var(--sp-0) 0 var(--sp-1);font-size:var(--fs-4);}
+.lgbrand p{margin:0 auto;font-size:var(--fs-1);color:var(--muted);line-height:1.5;max-width:290px;}
 /* หัวข้อหมวด — ตัวหนังสือสีเดียวกับเนื้อหา ไม่ใช่สีจาง และไม่มีตัวเลขนำ */
-.lgsect{font-size:15px;font-weight:700;color:var(--ink);margin:22px 0 10px;line-height:1.4;}
+.lgsect{font-size:var(--fs-2);font-weight:700;color:var(--ink);margin:var(--sp-5) 0 var(--sp-3);line-height:1.4;}
 .lgsect.mid{text-align:center;}
-.lgsect .opt{font-weight:400;color:var(--muted);font-size:13px;}
+.lgsect .opt{font-weight:400;color:var(--muted);font-size:var(--fs-1);}
 .lgbox{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);
-  padding:12px;box-shadow:var(--sh-sm);display:flex;flex-direction:column;gap:8px;}
+  padding:var(--sp-3);box-shadow:var(--sh-sm);display:flex;flex-direction:column;gap:var(--sp-2);}
 /* แถวทางเข้า — ทุกแถวสูงเท่ากัน ไอคอนกว้างเท่ากัน ข้อความจึงเริ่มตรงกันทุกแถว */
-.lgrow{display:flex;align-items:center;gap:12px;width:100%;min-height:48px;padding:0 14px;
+.lgrow{display:flex;align-items:center;gap:var(--sp-3);width:100%;min-height:48px;padding:0 var(--sp-4);
   border:1px solid var(--line);border-radius:var(--radius-sm);background:var(--surface);
-  color:var(--ink);font-family:inherit;font-size:15px;font-weight:600;cursor:pointer;text-align:left;
+  color:var(--ink);font-family:inherit;font-size:var(--fs-2);font-weight:600;cursor:pointer;text-align:left;
   transition:background var(--dur),border-color var(--dur),transform .06s;}
 .lgrow:hover{background:var(--surface-2);border-color:var(--line-strong);}
 .lgrow:active{transform:translateY(1px);}
@@ -278,24 +306,24 @@ a.btn.block{display:block;}
 .mk20{display:inline-grid;place-items:center;width:20px;height:20px;vertical-align:-4px;}
 .mk20 svg{width:100%;height:100%;display:block;}
 .lgrow .t{flex:1;min-width:0;}
-.lgrow .chev{color:var(--ink-3);font-size:18px;line-height:1;}
+.lgrow .chev{color:var(--ink-3);font-size:var(--fs-3);line-height:1;}
 /* 🔴 "แนะนำ" ต้องเห็นได้ทั้งสองโหมด
  * พื้นสีอ่อนอย่างเดียวใช้ไม่ได้ — วัดแล้วในโหมดมืดมันต่างจากแถวธรรมดาแค่ 1.14:1
  * จึงใช้พื้นอ่อน + เส้นขอบสีแบรนด์ + ป้ายคำว่า "แนะนำ" สามอย่างพร้อมกัน
  * เส้นขอบคือตัวที่รอด: สว่าง 5.75:1 · มืด 7.36:1 */
 .lgrow.rec{background:var(--brand-soft);border-color:var(--brand);border-width:1.5px;}
 .lgrow.rec:hover{background:var(--brand-soft);}
-.lgpill{font-size:12px;font-weight:700;color:var(--brand-d);background:var(--surface);
-  border:1px solid var(--brand-line);border-radius:var(--radius-pill);padding:3px 9px;white-space:nowrap;}
-.lgchk{display:flex;align-items:center;justify-content:center;gap:9px;font-size:13px;
-  color:var(--ink-2);padding:6px 2px 2px;cursor:pointer;}
+.lgpill{font-size:var(--fs-1);font-weight:700;color:var(--brand-d);background:var(--surface);
+  border:1px solid var(--brand-line);border-radius:var(--radius-pill);padding:var(--sp-1) var(--sp-2);white-space:nowrap;}
+.lgchk{display:flex;align-items:center;justify-content:center;gap:var(--sp-2);font-size:var(--fs-1);
+  color:var(--ink-2);padding:var(--sp-2) var(--sp-0) var(--sp-0);cursor:pointer;}
 .lgchk input{width:18px;height:18px;accent-color:var(--brand);margin:0;}
-.lgpair{display:flex;gap:8px;}
-.lgpair .lgrow{min-height:44px;font-size:14px;justify-content:center;gap:9px;}
+.lgpair{display:flex;gap:var(--sp-2);}
+.lgpair .lgrow{min-height:44px;font-size:var(--fs-1);justify-content:center;gap:var(--sp-2);}
 .lgpair .lgrow .i{width:19px;height:19px;flex:0 0 19px;}
-.lgfoot{text-align:center;margin-top:24px;}
-.lglink{background:none;border:0;color:var(--brand);font-family:inherit;font-size:13px;
-  font-weight:600;cursor:pointer;padding:8px;min-height:44px;}
+.lgfoot{text-align:center;margin-top:var(--sp-5);}
+.lglink{background:none;border:0;color:var(--brand);font-family:inherit;font-size:var(--fs-1);
+  font-weight:600;cursor:pointer;padding:var(--sp-2);min-height:44px;}
 .lglink:hover{text-decoration:underline;}
 /* กล่อง Google วางเต็มความกว้างการ์ด ปุ่มของ Google เองจึงกว้างเท่าแถว LINE */
 .lgbox [data-gsi]{display:flex;justify-content:center;width:100%;}
@@ -327,14 +355,23 @@ a.btn.block{display:block;}
  * tools/test_design_tokens.js §2 asks the screen-only question and knows about both exceptions.
  * ══════════════════════════════════════════════════════════════════════════════════════════════ */
 /* ---- additions (revamp) ---- */
-.bell{position:relative;background:none;border:none;font-size:20px;cursor:pointer;padding:2px 4px;}
-.bell .badge{position:absolute;top:-2px;right:-2px;background:var(--bad-2);color:var(--on-accent);border-radius:999px;font-size:10px;min-width:16px;height:16px;line-height:16px;text-align:center;padding:0 3px;}
+.bell{position:relative;background:none;border:none;font-size:var(--fs-4);cursor:pointer;padding:var(--sp-0) var(--sp-1);}
+.bell .badge{position:absolute;top:-2px;right:-2px;background:var(--bad-2);color:var(--on-accent);border-radius:999px;font-size:10px;min-width:16px;height:16px;line-height:16px;text-align:center;padding:0 var(--sp-1);}
 /* THE SAME RED CIRCLE, ON A TOOL BUTTON. Deliberately the bell's shape and colour: an admin already
    knows what that means, and a second visual language for "somebody is waiting for you" would have
    to be learned. It sits ON the corner (overflow is visible) so a long Thai label never pushes it
-   off, and it is padded away from the text so the two never touch on a narrow phone. */
-.opbtn{position:relative;overflow:visible;padding-right:26px;}
-.opbtn .opbadge{position:absolute;top:-6px;right:-6px;background:var(--bad-2);color:var(--on-accent);border-radius:999px;font-size:11px;font-weight:700;min-width:18px;height:18px;line-height:18px;text-align:center;padding:0 4px;box-shadow:0 0 0 2px var(--surface);}
+   off.
+
+   🔴 และ `padding-right` ที่เคยอยู่บรรทัดล่างนี้ **ไม่เคยทำงานเลย** — วัดบนเบราว์เซอร์จริง
+   2026-10-28: ค่าที่ได้คือ 12px ไม่ใช่ 26px เพราะ `.btn.sm{padding:…}` มีน้ำหนักมากกว่า
+   `.opbtn{padding-right:…}` และมาทีหลัง · มันถูกลบออกแล้วแทนที่จะเขียนให้ชนะ เพราะ
+   **ไม่มีใครต้องการมัน**: ตัวเลขนั่งอยู่ที่ right:-6px คือ *นอก* ปุ่ม จึงไม่เคยทับป้ายตั้งแต่แรก
+   สิ่งที่กันไม่ให้ทับคือ `overflow:visible` กับตำแหน่งติดลบ ไม่ใช่ระยะขอบ
+
+   🔴 รูปแบบเดียวกับ `.ghost` และ `var(--brand)`: **กฎที่อ่านแล้วเหมือนทำงาน แต่ไม่มีอะไรอยู่ข้างหลัง**
+   ต่างกันตรงที่คราวนี้ "ของที่หายไป" ไม่ได้ทำให้อะไรพัง — มันแค่ทำให้เทสต์พูดสิ่งที่ไม่จริงมาตลอด */
+.opbtn{position:relative;overflow:visible;}
+.opbtn .opbadge{position:absolute;top:-6px;right:-6px;background:var(--bad-2);color:var(--on-accent);border-radius:999px;font-size:11px;font-weight:700;min-width:18px;height:18px;line-height:18px;text-align:center;padding:0 var(--sp-1);box-shadow:0 0 0 2px var(--surface);}
 .opbtn .opbadge[hidden]{display:none;}
 /* THE BOTTOM BAR MUST FIT THE PHONE. A parent has SEVEN destinations (หน้าหลัก · รับ-ส่ง · ชำระเงิน ·
    บันทึก · เติบโต · DSPM · แชท) and `min-width:62px` made that 434px of content on a 360px screen —
@@ -342,103 +379,103 @@ a.btn.block{display:block;}
    swipe a navigation bar, which nobody does. Reported on a real phone 2026-08-26.
    Now every item shares the width equally and the label shrinks instead of the bar growing. */
 .bottomnav{overflow-x:hidden;}
-.bottomnav button{min-width:0;flex:1 1 0;padding:8px 2px;}
+.bottomnav button{min-width:0;flex:1 1 0;padding:var(--sp-2) var(--sp-0);}
 .bottomnav button .lb{display:block;max-width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
 /* THE SPACE COMES FROM PADDING, NOT FROM THE TYPE SIZE.
    The obvious fix — shrink the label on a narrow phone — is both wrong and ineffective here. There
-   is a deliberate readability floor further down this file (`.bottomnav button{font-size:12px}`,
+   is a deliberate readability floor further down this file (`.bottomnav button{font-size:var(--fs-1)}`,
    under "Data people actually need to read"), it comes later, and it wins; any font-size set here is
    simply ignored. It is also a decision somebody made on purpose and not one to undo by side effect.
    So the room is taken from the horizontal padding instead. Measured on a 320px viewport: "หน้าหลัก"
    needs 44px and each of the seven buttons gets 45.7px, which fits only once the padding is zero. */
-@media(max-width:400px){ .bottomnav button{padding:8px 0;} }
+@media(max-width:400px){ .bottomnav button{padding:var(--sp-2) 0;} }
 
 /* social footer */
-.social{display:flex;justify-content:center;gap:18px;padding:14px;margin-top:6px;}
-.social a{display:flex;flex-direction:column;align-items:center;gap:4px;text-decoration:none;color:var(--muted);font-size:12px;}
-.social .ic{width:46px;height:46px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:22px;color:var(--on-accent);}
+.social{display:flex;justify-content:center;gap:var(--sp-4);padding:var(--sp-4);margin-top:var(--sp-2);}
+.social a{display:flex;flex-direction:column;align-items:center;gap:var(--sp-1);text-decoration:none;color:var(--muted);font-size:var(--fs-1);}
+.social .ic{width:46px;height:46px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:var(--fs-4);color:var(--on-accent);}
 .social .line{background:#06C755;} .social .fb{background:#1877F2;} .social .web{background:var(--ink-2);}
 
 /* journal checklist */
-.jsec{margin:10px 0;}
-.jsec h4{margin:0 0 6px;font-size:14px;color:var(--blue-d);border-left:4px solid var(--blue);padding-left:8px;}
-.chk{display:inline-flex;align-items:center;gap:5px;margin:3px 8px 3px 0;font-size:13px;color:var(--ink-2);}
+.jsec{margin:var(--sp-3) 0;}
+.jsec h4{margin:0 0 var(--sp-2);font-size:var(--fs-1);color:var(--blue-d);border-left:4px solid var(--blue);padding-left:var(--sp-2);}
+.chk{display:inline-flex;align-items:center;gap:var(--sp-1);margin:var(--sp-1) var(--sp-2) var(--sp-1) 0;font-size:var(--fs-1);color:var(--ink-2);}
 .chk b{font-style:normal;}
-.chk .box{width:16px;height:16px;border:1.5px solid var(--line-strong);border-radius:4px;display:inline-block;text-align:center;line-height:14px;font-size:12px;}
+.chk .box{width:16px;height:16px;border:1.5px solid var(--line-strong);border-radius:4px;display:inline-block;text-align:center;line-height:14px;font-size:var(--fs-1);}
 .chk.on .box{background:var(--blue);border-color:var(--blue);color:var(--on-accent);}
 .chk.on{color:var(--ink);font-weight:600;}
 
 /* Admin student-leave management — grouped by class/student + multi-select delete */
-.slv-bar{position:sticky;top:58px;z-index:5;display:flex;align-items:center;justify-content:space-between;gap:10px;
-  background:var(--bg);padding:8px 2px;margin-bottom:6px;}
-.slv-pick{display:inline-flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;}
+.slv-bar{position:sticky;top:58px;z-index:5;display:flex;align-items:center;justify-content:space-between;gap:var(--sp-3);
+  background:var(--bg);padding:var(--sp-2) var(--sp-0);margin-bottom:var(--sp-2);}
+.slv-pick{display:inline-flex;align-items:center;gap:var(--sp-2);font-size:var(--fs-1);cursor:pointer;}
 .slv-pick input{width:auto;}
-.slv-stud{border-top:1px solid var(--line);padding:8px 0;}
+.slv-stud{border-top:1px solid var(--line);padding:var(--sp-2) 0;}
 .slv-stud:first-of-type{border-top:none;}
-.slv-row{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:5px 0 5px 6px;}
+.slv-row{display:flex;align-items:center;justify-content:space-between;gap:var(--sp-2);padding:var(--sp-1) 0 var(--sp-1) var(--sp-2);}
 .slv-row .slv-pick{flex:1;min-width:0;align-items:flex-start;}
 .slv-row .slv-pick span{min-width:0;}
 
 /* Admin categorized menu (จัดการข้อมูล & สิทธิ) */
-.amenu{padding:12px 14px;}
-.amenu h3{margin:0 0 10px;font-size:14px;color:var(--blue-d);border-left:4px solid var(--blue);padding-left:8px;}
-.amenu-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;}
-.amenu-btn{display:flex;align-items:center;gap:9px;text-align:left;background:var(--surface-2);border:1px solid var(--line);
-  border-radius:10px;padding:11px 12px;cursor:pointer;font-family:inherit;font-size:13px;color:var(--ink);min-width:0;}
+.amenu{padding:var(--sp-3) var(--sp-4);}
+.amenu h3{margin:0 0 var(--sp-3);font-size:var(--fs-1);color:var(--blue-d);border-left:4px solid var(--blue);padding-left:var(--sp-2);}
+.amenu-grid{display:grid;grid-template-columns:1fr 1fr;gap:var(--sp-2);}
+.amenu-btn{display:flex;align-items:center;gap:var(--sp-2);text-align:left;background:var(--surface-2);border:1px solid var(--line);
+  border-radius:10px;padding:var(--sp-3) var(--sp-3);cursor:pointer;font-family:inherit;font-size:var(--fs-1);color:var(--ink);min-width:0;}
 .amenu-btn:active{background:var(--surface-2);}
-.amenu-btn .amenu-ic{font-size:18px;flex:0 0 auto;}
+.amenu-btn .amenu-ic{font-size:var(--fs-3);flex:0 0 auto;}
 .amenu-btn span:last-child{overflow:hidden;text-overflow:ellipsis;}
 @media(max-width:380px){.amenu-grid{grid-template-columns:1fr;}}
 
 /* Daily-report SUMMARY (parent) — clean label→value rows, only sections the teacher filled */
-.jrpt .jr-head{display:flex;justify-content:space-between;align-items:center;gap:8px;
-  background:var(--blue-bg);border:1px solid var(--blue-bg);border-radius:12px;padding:10px 12px;margin-bottom:10px;}
-.jrpt .jr-head b{color:var(--blue-d);font-size:15px;}
+.jrpt .jr-head{display:flex;justify-content:space-between;align-items:center;gap:var(--sp-2);
+  background:var(--blue-bg);border:1px solid var(--blue-bg);border-radius:12px;padding:var(--sp-3) var(--sp-3);margin-bottom:var(--sp-3);}
+.jrpt .jr-head b{color:var(--blue-d);font-size:var(--fs-2);}
 .jr-rows{display:flex;flex-direction:column;}
-.jr-row{display:flex;gap:10px;align-items:baseline;padding:9px 2px;border-bottom:1px solid var(--line);}
+.jr-row{display:flex;gap:var(--sp-3);align-items:baseline;padding:var(--sp-2) var(--sp-0);border-bottom:1px solid var(--line);}
 .jr-row:last-child{border-bottom:none;}
-.jr-ic{flex:0 0 22px;font-size:16px;text-align:center;}
-.jr-lbl{flex:0 0 96px;color:var(--muted);font-size:13px;line-height:1.4;}
-.jr-val{flex:1;min-width:0;font-size:14px;line-height:1.5;color:var(--ink);}
+.jr-ic{flex:0 0 22px;font-size:var(--fs-2);text-align:center;}
+.jr-lbl{flex:0 0 96px;color:var(--muted);font-size:var(--fs-1);line-height:1.4;}
+.jr-val{flex:1;min-width:0;font-size:var(--fs-1);line-height:1.5;color:var(--ink);}
 .jr-pill{display:inline-block;background:var(--surface-2);color:var(--blue-d);border-radius:999px;
-  padding:1px 9px;margin:2px 4px 2px 0;font-size:13px;font-weight:600;}
-.jr-hl{margin-top:10px;background:var(--warn-bg);border-radius:10px;padding:10px 12px;font-size:14px;}
-.jr-hl span{display:block;color:var(--warn-ink);font-weight:700;font-size:13px;margin-bottom:3px;}
-.jr-cmt{margin-top:12px;}
-.jr-cmt h4{margin:0 0 6px;font-size:14px;color:var(--blue-d);border-left:4px solid var(--blue);padding-left:8px;}
-.jr-cmt-box{background:var(--blue-bg);border-radius:10px;padding:10px;font-size:14px;}
+  padding:1px var(--sp-2);margin:var(--sp-0) var(--sp-1) var(--sp-0) 0;font-size:var(--fs-1);font-weight:600;}
+.jr-hl{margin-top:var(--sp-3);background:var(--warn-bg);border-radius:10px;padding:var(--sp-3) var(--sp-3);font-size:var(--fs-1);}
+.jr-hl span{display:block;color:var(--warn-ink);font-weight:700;font-size:var(--fs-1);margin-bottom:var(--sp-1);}
+.jr-cmt{margin-top:var(--sp-3);}
+.jr-cmt h4{margin:0 0 var(--sp-2);font-size:var(--fs-1);color:var(--blue-d);border-left:4px solid var(--blue);padding-left:var(--sp-2);}
+.jr-cmt-box{background:var(--blue-bg);border-radius:10px;padding:var(--sp-3);font-size:var(--fs-1);}
 
 /* calendar */
-.cal{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:4px;max-width:100%;}
+.cal{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:var(--sp-1);max-width:100%;}
 /* no aspect-ratio: it forced width≥min-height (64px)×7 → horizontal overflow on mobile.
    cells now shrink to 1/7 of the available width and grow vertically via min-height. */
-.cal .d{min-width:0;border:1px solid var(--line);border-radius:8px;font-size:12px;padding:3px;position:relative;overflow:hidden;}
+.cal .d{min-width:0;border:1px solid var(--line);border-radius:8px;font-size:var(--fs-1);padding:var(--sp-1);position:relative;overflow:hidden;}
 .cal .d.dim{color:var(--line-strong);} .cal .d.today{border-color:var(--blue);background:var(--blue-bg);}
 .cal .d.ev{background:var(--warn-bg);border-color:var(--warn-line);} .cal .d.ho{background:var(--bad-bg);border-color:var(--bad-line);}
 .cal .dot{position:absolute;bottom:3px;left:3px;right:3px;font-size:9px;line-height:1.1;color:var(--warn-ink);overflow:hidden;max-height:22px;}
 
 /* modal */
 .modal{position:fixed;inset:0;background:rgba(0,0,0,.4);display:flex;align-items:flex-end;justify-content:center;z-index:60;}
-.modal .sheet{background:var(--surface);width:100%;max-width:520px;border-radius:18px 18px 0 0;padding:18px;max-height:85vh;overflow:auto;}
+.modal .sheet{background:var(--surface);width:100%;max-width:520px;border-radius:18px 18px 0 0;padding:var(--sp-4);max-height:85vh;overflow:auto;}
 @media(min-width:560px){.modal{align-items:center;}.modal .sheet{border-radius:18px;}}
 
-.quota{display:flex;gap:8px;flex-wrap:wrap;}
-.quota .q{flex:1;min-width:90px;background:var(--surface-2);border-radius:10px;padding:8px;text-align:center;}
-.quota .q .n{font-size:20px;font-weight:700;color:var(--blue-d);}
-.quota .q .l{font-size:12px;color:var(--muted);}
+.quota{display:flex;gap:var(--sp-2);flex-wrap:wrap;}
+.quota .q{flex:1;min-width:90px;background:var(--surface-2);border-radius:10px;padding:var(--sp-2);text-align:center;}
+.quota .q .n{font-size:var(--fs-4);font-weight:700;color:var(--blue-d);}
+.quota .q .l{font-size:var(--fs-1);color:var(--muted);}
 
-.att{display:flex;gap:6px;align-items:center;font-size:13px;padding:4px 0;}
+.att{display:flex;gap:var(--sp-2);align-items:center;font-size:var(--fs-1);padding:var(--sp-1) 0;}
 .dot-s{width:9px;height:9px;border-radius:50%;display:inline-block;}
 .dot-in{background:var(--ok-2);} .dot-out{background:var(--ink-3);} .dot-leave{background:var(--warn-2);} .dot-absent{background:var(--bad-2);}
 
-.micbtn{background:var(--surface);border:1px solid var(--blue);color:var(--blue);border-radius:8px;padding:6px 10px;cursor:pointer;font-family:inherit;font-size:13px;}
+.micbtn{background:var(--surface);border:1px solid var(--blue);color:var(--blue);border-radius:8px;padding:var(--sp-2) var(--sp-3);cursor:pointer;font-family:inherit;font-size:var(--fs-1);}
 .micbtn.rec{background:var(--bad-2);color:var(--on-accent);border-color:var(--bad-2);}
 
 /* lang toggle + save confirmation */
-.langtoggle{background:var(--surface);border:1px solid var(--blue);color:var(--blue);border-radius:8px;padding:4px 10px;font-weight:700;cursor:pointer;font-family:inherit;font-size:12px;}
-.savebar{position:fixed;left:50%;bottom:84px;transform:translate(-50%,20px);background:var(--ok);color:var(--on-accent);padding:12px 22px;border-radius:12px;font-size:15px;font-weight:600;z-index:60;opacity:0;transition:all .3s;box-shadow:0 4px 16px rgba(0,0,0,.2);}
+.langtoggle{background:var(--surface);border:1px solid var(--blue);color:var(--blue);border-radius:8px;padding:var(--sp-1) var(--sp-3);font-weight:700;cursor:pointer;font-family:inherit;font-size:var(--fs-1);}
+.savebar{position:fixed;left:50%;bottom:84px;transform:translate(-50%,20px);background:var(--ok);color:var(--on-accent);padding:var(--sp-3) var(--sp-5);border-radius:12px;font-size:var(--fs-2);font-weight:600;z-index:60;opacity:0;transition:all .3s;box-shadow:0 4px 16px rgba(0,0,0,.2);}
 .savebar.show{opacity:1;transform:translate(-50%,0);}
-.backbtn{margin-bottom:10px;}
+.backbtn{margin-bottom:var(--sp-3);}
 .cal .d .io{position:absolute;bottom:2px;left:2px;right:1px;font-size:10px;font-weight:600;line-height:1.25;color:var(--blue);text-align:center;white-space:pre-line;overflow:hidden;}
 .cal .d{min-height:54px;}
 /* A DAY'S ENTRIES STAY INSIDE THEIR OWN DAY.
@@ -456,11 +493,11 @@ a.btn.block{display:block;}
      bottom-right who is away, and what kind of leave
    The middle is left to the holiday name, which is the one thing here that can be longer than the
    cell: three lines and then an ellipsis, with the whole name on hover. */
-.cal .d{padding-top:2px;}
-.cal .d .caldd{position:absolute;top:2px;left:4px;font-size:12px;line-height:1.1;}
+.cal .d{padding-top:var(--sp-0);}
+.cal .d .caldd{position:absolute;top:2px;left:4px;font-size:var(--fs-1);line-height:1.1;}
 .cal .d .calio{position:absolute;top:2px;right:4px;display:flex;flex-direction:column;align-items:flex-end;
   font-size:10px;line-height:1.25;font-weight:700;white-space:nowrap;max-width:72%;overflow:hidden;}
-.cal .d .calhol{display:block;margin-top:15px;padding:0 3px;font-size:9.5px;line-height:1.15;font-weight:600;
+.cal .d .calhol{display:block;margin-top:var(--sp-4);padding:0 var(--sp-1);font-size:9.5px;line-height:1.15;font-weight:600;
   color:var(--bad);text-align:left;overflow:hidden;
   display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;}
 .cal .d .callv{position:absolute;bottom:2px;right:3px;left:3px;text-align:right;font-size:9.5px;
@@ -481,85 +518,85 @@ a.btn.block{display:block;}
 .btn-ghost.block{width:100%;}
 .role-card .logo-lg{margin:0 auto;}
 /* organize (move) board */
-.org-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;}
+.org-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:var(--sp-3);}
 .org-col{min-height:80px;}
-.org-chip{display:flex;flex-direction:column;gap:4px;border:1px solid var(--line);border-radius:10px;padding:6px 8px;margin:6px 0;background:var(--surface);cursor:grab;}
-.org-chip span{display:flex;align-items:center;gap:6px;font-size:13px;font-weight:600;}
-.org-chip select{font-size:16px;padding:4px 6px;}  /* 16px: see the iOS zoom note on the base input rule */
+.org-chip{display:flex;flex-direction:column;gap:var(--sp-1);border:1px solid var(--line);border-radius:10px;padding:var(--sp-2) var(--sp-2);margin:var(--sp-2) 0;background:var(--surface);cursor:grab;}
+.org-chip span{display:flex;align-items:center;gap:var(--sp-2);font-size:var(--fs-1);font-weight:600;}
+.org-chip select{font-size:var(--fs-2);padding:var(--sp-1) var(--sp-2);}  /* 16px: see the iOS zoom note on the base input rule */
 .org-col.dragover{border-color:var(--blue);background:var(--blue-bg);}
 /* QR modal placeholder + full-image zoom */
-.qr-ph{width:210px;height:210px;margin:10px auto;border:2px dashed var(--line-strong);border-radius:12px;display:flex;align-items:center;justify-content:center;color:var(--line-strong);font-weight:700;font-size:22px;}
+.qr-ph{width:210px;height:210px;margin:var(--sp-3) auto;border:2px dashed var(--line-strong);border-radius:12px;display:flex;align-items:center;justify-content:center;color:var(--line-strong);font-weight:700;font-size:var(--fs-4);}
 .modal.imgzoom{align-items:center;background:rgba(0,0,0,.82);z-index:80;cursor:zoom-out;}
 .modal.imgzoom img{max-width:92vw;max-height:88vh;border-radius:10px;background:var(--surface);}
 
 /* Parent profile picture block (LINE picture by default, upload overrides) */
-.ppic{display:flex;gap:12px;align-items:flex-start;margin:4px 0 12px;}
+.ppic{display:flex;gap:var(--sp-3);align-items:flex-start;margin:var(--sp-1) 0 var(--sp-3);}
 .ppic-img{width:76px;height:76px;border-radius:50%;object-fit:cover;flex:0 0 auto;
   border:2px solid var(--line);background:var(--blue-bg);cursor:zoom-in;}
 .ppic-none{width:76px;height:76px;border-radius:50%;flex:0 0 auto;background:var(--blue-bg);color:var(--blue-d);
-  display:flex;align-items:center;justify-content:center;font-weight:700;font-size:26px;}
-.ppic-side{flex:1;min-width:0;display:flex;flex-direction:column;gap:6px;align-items:flex-start;}
+  display:flex;align-items:center;justify-content:center;font-weight:700;font-size:var(--fs-5);}
+.ppic-side{flex:1;min-width:0;display:flex;flex-direction:column;gap:var(--sp-2);align-items:flex-start;}
 .ppic-side .field{width:100%;margin:0;}
 
 /* School-announcement popup (parent) — sized to fit any phone; long text wraps, image is capped */
 .annpop{text-align:center;}
-.annpop-ic{font-size:38px;line-height:1;margin-bottom:2px;}
-.annpop-badge{display:inline-block;background:var(--blue-bg);color:var(--blue-d);font-weight:700;font-size:12px;
-  padding:3px 10px;border-radius:999px;margin-bottom:8px;}
-.annpop h3{font-size:16px;line-height:1.35;margin:2px 4px 8px;overflow-wrap:anywhere;}
-.annpop-body{font-size:14px;line-height:1.5;color:var(--ink);text-align:left;margin:0 2px 10px;
+.annpop-ic{font-size:var(--fs-6);line-height:1;margin-bottom:var(--sp-0);}
+.annpop-badge{display:inline-block;background:var(--blue-bg);color:var(--blue-d);font-weight:700;font-size:var(--fs-1);
+  padding:var(--sp-1) var(--sp-3);border-radius:999px;margin-bottom:var(--sp-2);}
+.annpop h3{font-size:var(--fs-2);line-height:1.35;margin:var(--sp-0) var(--sp-1) var(--sp-2);overflow-wrap:anywhere;}
+.annpop-body{font-size:var(--fs-1);line-height:1.5;color:var(--ink);text-align:left;margin:0 var(--sp-0) var(--sp-3);
   overflow-wrap:anywhere;white-space:pre-wrap;}
 .annpop-img{display:block;max-width:100%;max-height:38vh;object-fit:contain;border-radius:12px;
-  margin:0 auto 10px;cursor:zoom-in;}
-.annpop-count{font-size:12px;color:var(--muted);margin-bottom:6px;}
-.annpop-hide{display:flex;align-items:center;gap:8px;justify-content:center;font-size:13px;
-  color:var(--muted);margin:6px 0 12px;}
+  margin:0 auto var(--sp-3);cursor:zoom-in;}
+.annpop-count{font-size:var(--fs-1);color:var(--muted);margin-bottom:var(--sp-2);}
+.annpop-hide{display:flex;align-items:center;gap:var(--sp-2);justify-content:center;font-size:var(--fs-1);
+  color:var(--muted);margin:var(--sp-2) 0 var(--sp-3);}
 .annpop-hide input{width:auto;}
-.annpop-pri{display:inline-block;background:var(--warn-bg);color:var(--warn);font-weight:700;font-size:12px;
-  padding:2px 9px;border-radius:999px;margin-bottom:6px;}
-.annpop-dots{display:flex;gap:6px;justify-content:center;margin:4px 0 8px;min-height:8px;}
+.annpop-pri{display:inline-block;background:var(--warn-bg);color:var(--warn);font-weight:700;font-size:var(--fs-1);
+  padding:var(--sp-0) var(--sp-2);border-radius:999px;margin-bottom:var(--sp-2);}
+.annpop-dots{display:flex;gap:var(--sp-2);justify-content:center;margin:var(--sp-1) 0 var(--sp-2);min-height:8px;}
 .annpop-dot{width:7px;height:7px;border-radius:50%;background:var(--line);transition:background .2s;}
 .annpop-dot.on{background:var(--blue);}
 #annSlide{min-height:40px;}
 /* admin leave approval: requests left, calendar right (stacks on mobile) */
-.leavegrid{display:grid;grid-template-columns:1fr 1fr;gap:14px;align-items:start;}
+.leavegrid{display:grid;grid-template-columns:1fr 1fr;gap:var(--sp-4);align-items:start;}
 @media(max-width:860px){.leavegrid{grid-template-columns:1fr;}}
-.lvcol h3{margin:4px 2px 8px;}
+.lvcol h3{margin:var(--sp-1) var(--sp-0) var(--sp-2);}
 /* header quick-actions (parent: บันทึก/พัฒนาการ/แจ้งลาออก before the language toggle) */
-.topactions{display:flex;gap:6px;align-items:center;}
-.topactions .btn{padding:5px 10px;font-size:13px;}
-@media(max-width:560px){.topactions .btn span.lbl{display:none;} .topactions .btn{padding:6px 9px;}}
+.topactions{display:flex;gap:var(--sp-2);align-items:center;}
+.topactions .btn{padding:var(--sp-1) var(--sp-3);font-size:var(--fs-1);}
+@media(max-width:560px){.topactions .btn span.lbl{display:none;} .topactions .btn{padding:var(--sp-2) var(--sp-2);}}
 
 /* ---- Mobile header: keep the top bar to a single tidy row on every role (no wrapping/overflow) ---- */
 html,body{max-width:100%;overflow-x:hidden;}
 @media(max-width:600px){
-  .topbar{padding:6px 10px;gap:8px;}
-  .brand{gap:6px;min-width:0;}
+  .topbar{padding:var(--sp-2) var(--sp-3);gap:var(--sp-2);}
+  .brand{gap:var(--sp-2);min-width:0;}
   .brand-name{display:none;}                 /* the logo alone is enough on a phone */
   .logo{width:34px;height:34px;}
-  .user{gap:6px;min-width:0;}
+  .user{gap:var(--sp-2);min-width:0;}
   .user-meta{display:none;}                   /* name/role text was wrapping to 3 lines — avatar is the tap target */
-  .avatar{width:32px;height:32px;font-size:13px;}
-  .topactions{gap:4px;}
-  .topactions .btn{padding:6px 8px;font-size:13px;}
-  .langtoggle{padding:4px 8px;font-size:12px;}
-  .bell{font-size:18px;padding:2px;}
-  main{padding:12px 10px;}
+  .avatar{width:32px;height:32px;font-size:var(--fs-1);}
+  .topactions{gap:var(--sp-1);}
+  .topactions .btn{padding:var(--sp-2) var(--sp-2);font-size:var(--fs-1);}
+  .langtoggle{padding:var(--sp-1) var(--sp-2);font-size:var(--fs-1);}
+  .bell{font-size:var(--fs-3);padding:var(--sp-0);}
+  main{padding:var(--sp-3) var(--sp-3);}
 }
 
 /* ---- global processing overlay (blocks double-submit while a mutation is in flight) ---- */
 #busyOverlay{position:fixed;inset:0;z-index:99999;display:none;align-items:center;justify-content:center;background:rgba(255,255,255,.5);backdrop-filter:blur(1px);-webkit-backdrop-filter:blur(1px);}
 #busyOverlay.on{display:flex;}
-#busyOverlay .busy-box{background:var(--surface);border-radius:14px;padding:18px 26px;box-shadow:0 10px 34px rgba(0,0,0,.18);display:flex;flex-direction:column;align-items:center;gap:10px;}
+#busyOverlay .busy-box{background:var(--surface);border-radius:14px;padding:var(--sp-4) var(--sp-5);box-shadow:0 10px 34px rgba(0,0,0,.18);display:flex;flex-direction:column;align-items:center;gap:var(--sp-3);}
 #busyOverlay .busy-spin{width:34px;height:34px;border:3px solid var(--line);border-top-color:var(--blue);border-radius:50%;animation:busySpin .8s linear infinite;}
-#busyOverlay .busy-txt{font-size:14px;color:var(--blue);font-weight:600;}
-#busyOverlay .busy-check{display:none;width:34px;height:34px;line-height:34px;text-align:center;font-size:24px;font-weight:800;color:var(--on-accent);background:var(--ok);border-radius:50%;}
+#busyOverlay .busy-txt{font-size:var(--fs-1);color:var(--blue);font-weight:600;}
+#busyOverlay .busy-check{display:none;width:34px;height:34px;line-height:34px;text-align:center;font-size:var(--fs-5);font-weight:800;color:var(--on-accent);background:var(--ok);border-radius:50%;}
 #busyOverlay.ok .busy-spin{display:none;}
 #busyOverlay.ok .busy-check{display:block;animation:busyPop .25s ease-out;}
 #busyOverlay.ok .busy-txt{color:var(--ok);}
 /* the sign-in-with-LINE wait — reuses busySpin rather than adding a second spinner animation, so
    the two never drift into looking like different things happening */
-.authspin{width:34px;height:34px;margin:6px auto 0;border:3px solid var(--line);border-top-color:#06C755;
+.authspin{width:34px;height:34px;margin:var(--sp-2) auto 0;border:3px solid var(--line);border-top-color:#06C755;
   border-radius:50%;animation:busySpin .8s linear infinite;}
 @keyframes busySpin{to{transform:rotate(360deg);}}
 @keyframes busyPop{0%{transform:scale(.4);opacity:0;}100%{transform:scale(1);opacity:1;}}
@@ -569,10 +606,10 @@ html,body{max-width:100%;overflow-x:hidden;}
    CSS-only, same blue theme + same layout; appended so it wins cleanly.
    ===================================================================== */
 body{-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility;}
-main{padding-top:16px;}
+main{padding-top:var(--sp-4);}
 
 /* Typography: clearer hierarchy */
-h2.page{font-weight:800;letter-spacing:-.01em;font-size:21px;line-height:1.25;}
+h2.page{font-weight:800;letter-spacing:-.01em;font-size:var(--fs-4);line-height:1.25;}
 .card h3{color:var(--ink);font-weight:700;letter-spacing:-.01em;line-height:1.3;}
 .muted{color:var(--muted);}
 small{line-height:1.45;}
@@ -598,17 +635,17 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--blue);bo
 /* Touch targets: .btn.sm carries the actions people use most (จ่าย / แนบสลิป / แก้ไข) but sat at
    ~30px tall, under the 44px Apple/Google minimum. inline-flex keeps the label centred once the
    box is taller than the text, and leaves `flex:1` / inline usage inside .row untouched. */
-.btn.sm{min-height:44px;display:inline-flex;align-items:center;justify-content:center;gap:4px;}
+.btn.sm{min-height:44px;display:inline-flex;align-items:center;justify-content:center;gap:var(--sp-1);}
 /* the last two header controls still under the minimum: the bell and the language toggle */
 .bell,.langtoggle{min-width:44px;min-height:44px;display:inline-flex;align-items:center;justify-content:center;}
 /* Readability floor. Data people actually need to read (class, age, due date, phone) was sitting at
    11–12px. Anything below 13px is nudged up to 13px; only true badges/counters stay smaller. */
-.muted,small,.jr-lbl,.jr-pill,.kpi .kl,.user-role{font-size:13px;}
-.pill{font-size:13px;}
-.bottomnav button{font-size:12px;}
+.muted,small,.jr-lbl,.jr-pill,.kpi .kl,.user-role{font-size:var(--fs-1);}
+.pill{font-size:var(--fs-1);}
+.bottomnav button{font-size:var(--fs-1);}
 
 /* Pills: a touch more presence */
-.pill{padding:3px 11px;letter-spacing:.01em;}
+.pill{padding:var(--sp-1) var(--sp-3);letter-spacing:.01em;}
 
 /* Segmented control: active gets depth, hover hint */
 .seg button{transition:background var(--dur),color var(--dur),border-color var(--dur);}
@@ -650,25 +687,25 @@ a:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible,te
 @media(prefers-reduced-motion:reduce){*{animation-duration:.001ms!important;transition-duration:.001ms!important;}}
 
 /* ---- Admin dashboard: at-a-glance KPI tiles + quick-action bar ---- */
-.kpigrid{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:12px;}
+.kpigrid{display:grid;grid-template-columns:repeat(4,1fr);gap:var(--sp-3);margin-bottom:var(--sp-3);}
 @media(max-width:640px){.kpigrid{grid-template-columns:1fr 1fr;}}
-.kpi{background:var(--card);border:1px solid var(--line-2);border-radius:var(--radius);padding:12px 13px;text-align:left;
-  cursor:pointer;font-family:inherit;box-shadow:var(--sh-sm);display:flex;flex-direction:column;gap:7px;min-width:0;
+.kpi{background:var(--card);border:1px solid var(--line-2);border-radius:var(--radius);padding:var(--sp-3) var(--sp-3);text-align:left;
+  cursor:pointer;font-family:inherit;box-shadow:var(--sh-sm);display:flex;flex-direction:column;gap:var(--sp-2);min-width:0;
   transition:box-shadow var(--dur),transform var(--dur),border-color var(--dur);}
 @media(hover:hover){.kpi:hover{box-shadow:var(--sh-md);transform:translateY(-2px);border-color:var(--blue-line);}}
 .kpi:active{transform:translateY(0);}
-.kpi .kic{width:34px;height:34px;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:18px;}
-.kpi .kn{font-size:22px;font-weight:800;letter-spacing:-.02em;line-height:1;color:var(--ink);
+.kpi .kic{width:34px;height:34px;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:var(--fs-3);}
+.kpi .kn{font-size:var(--fs-4);font-weight:800;letter-spacing:-.02em;line-height:1;color:var(--ink);
   white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
-.kpi .kl{font-size:12px;color:var(--muted);line-height:1.3;}
+.kpi .kl{font-size:var(--fs-1);color:var(--muted);line-height:1.3;}
 .kpi.blue .kic{background:var(--blue-weak);} .kpi.green .kic{background:var(--ok-bg);}
 .kpi.amber .kic{background:var(--warn-bg);} .kpi.pink .kic{background:var(--pink-bg);}
 /* quick-action bar: horizontally scrollable chips, tidy on any width */
-.qbar{display:flex;gap:8px;overflow-x:auto;padding:2px 2px 4px;-webkit-overflow-scrolling:touch;}
+.qbar{display:flex;gap:var(--sp-2);overflow-x:auto;padding:var(--sp-0) var(--sp-0) var(--sp-1);-webkit-overflow-scrolling:touch;}
 .qbar::-webkit-scrollbar{height:0;}
 .qbar .btn{white-space:nowrap;flex:0 0 auto;}
-.dash-h{display:flex;align-items:baseline;gap:8px;margin:6px 2px 12px;}
-.dash-h h2{margin:0;} .dash-h .dash-date{font-size:13px;color:var(--muted);font-weight:600;}
+.dash-h{display:flex;align-items:baseline;gap:var(--sp-2);margin:var(--sp-2) var(--sp-0) var(--sp-3);}
+.dash-h h2{margin:0;} .dash-h .dash-date{font-size:var(--fs-1);color:var(--muted);font-weight:600;}
 /* pushed to the far right of the title row; `auto` rather than a fixed width so the date can grow */
 .dash-h .dash-refresh{margin-left:auto;}
 /* Never squashed by whatever shares its row. Not scoped to .dash-h since v384: the button is on
@@ -678,20 +715,20 @@ a:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible,te
    "ข้อมูลของฉัน" and "เพิ่มบุตรหลาน" too, and three full labels wrap onto three lines. */
 @media(max-width:480px){ .dash-refresh .lbl{display:none;} }
 /* section divider heading (Tools / Data groupings on the manage page) */
-.sec-divider{font-size:13px;font-weight:800;letter-spacing:.02em;color:var(--blue-d);
-  margin:16px 4px 8px;padding-left:9px;border-left:4px solid var(--blue);}
+.sec-divider{font-size:var(--fs-1);font-weight:800;letter-spacing:.02em;color:var(--blue-d);
+  margin:var(--sp-4) var(--sp-1) var(--sp-2);padding-left:var(--sp-2);border-left:4px solid var(--blue);}
 
 /* Undo bar for a held delete. Dark like a toast (this is a transient consequence, not a warning),
    and it sits above the outbox/refresh pills so it is never the thing that gets covered. */
 #undoBar{position:fixed;left:50%;transform:translate(-50%,14px);
   bottom:calc(78px + env(safe-area-inset-bottom,0px));z-index:47;opacity:0;
   transition:opacity var(--dur),transform var(--dur);
-  display:flex;align-items:center;gap:14px;background:var(--ink);color:var(--surface);
-  border-radius:var(--radius-pill);padding:8px 10px 8px 18px;font-size:13px;
+  display:flex;align-items:center;gap:var(--sp-4);background:var(--ink);color:var(--surface);
+  border-radius:var(--radius-pill);padding:var(--sp-2) var(--sp-3) var(--sp-2) var(--sp-4);font-size:var(--fs-1);
   box-shadow:var(--sh-md);max-width:92%;}
 #undoBar.show{opacity:.97;transform:translate(-50%,0);}
 #undoBar button{background:transparent;color:var(--blue-line);border:none;font-family:inherit;
-  font-size:13px;font-weight:700;cursor:pointer;padding:8px 12px;min-height:40px;white-space:nowrap;}
+  font-size:var(--fs-1);font-weight:700;cursor:pointer;padding:var(--sp-2) var(--sp-3);min-height:40px;white-space:nowrap;}
 #undoBar button:hover{color:var(--blue-line);}
 
 /* Offline outbox: work saved on the device while the connection was down. Amber, and it stays put
@@ -699,7 +736,7 @@ a:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible,te
 #outbox{position:fixed;left:50%;transform:translateX(-50%);
   bottom:calc(78px + env(safe-area-inset-bottom,0px));z-index:46;
   background:var(--warn-bg);color:var(--warn);border:1px solid var(--warn-line);border-radius:var(--radius-pill);
-  padding:10px 16px;font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;
+  padding:var(--sp-3) var(--sp-4);font-family:inherit;font-size:var(--fs-1);font-weight:600;cursor:pointer;
   box-shadow:var(--sh-md);max-width:92%;min-height:44px;}
 #outbox:hover{background:var(--warn-bg);}
 
@@ -708,7 +745,7 @@ a:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible,te
 #refreshBar{position:fixed;left:50%;bottom:calc(78px + env(safe-area-inset-bottom,0px));
   transform:translate(-50%,14px);z-index:45;opacity:0;transition:opacity var(--dur),transform var(--dur);
   background:var(--blue-d);color:var(--on-accent);border:none;border-radius:var(--radius-pill);
-  padding:11px 18px;font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;
+  padding:var(--sp-3) var(--sp-4);font-family:inherit;font-size:var(--fs-1);font-weight:600;cursor:pointer;
   box-shadow:var(--sh-md);max-width:92%;min-height:44px;}
 #refreshBar.show{opacity:1;transform:translate(-50%,0);}
 #refreshBar:hover{filter:brightness(1.08);}
@@ -716,11 +753,11 @@ a:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible,te
 /* "Viewing as …" banner. Below the header rather than above the bottom nav, where it used to cover
    the nav itself and the sticky save bar. z-index stays under the header (20) so the header wins. */
 #viewAsBar{position:fixed;left:0;right:0;z-index:19;background:var(--blue);color:var(--on-accent);
-  padding:7px 12px;display:flex;justify-content:space-between;align-items:center;gap:10px;
-  font-size:13px;box-shadow:0 2px 8px rgba(16,24,40,.18);}
+  padding:var(--sp-2) var(--sp-3);display:flex;justify-content:space-between;align-items:center;gap:var(--sp-3);
+  font-size:var(--fs-1);box-shadow:0 2px 8px rgba(16,24,40,.18);}
 #viewAsBar span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
-#viewAsBar button{background:var(--surface);color:var(--blue);border:none;padding:7px 12px;border-radius:6px;
-  font-weight:700;cursor:pointer;font-family:inherit;font-size:13px;min-height:38px;white-space:nowrap;flex:0 0 auto;}
+#viewAsBar button{background:var(--surface);color:var(--blue);border:none;padding:var(--sp-2) var(--sp-3);border-radius:6px;
+  font-weight:700;cursor:pointer;font-family:inherit;font-size:var(--fs-1);min-height:38px;white-space:nowrap;flex:0 0 auto;}
 body.viewas main{padding-top:52px;}
 
 /* Sticky save bar for the long forms (journal, insurance, registration). These run well past two
@@ -731,10 +768,10 @@ body.viewas main{padding-top:52px;}
    left inside its parent to stick against and just scrolls away. Fixed, sized to match <main>, and
    <main> gets matching bottom padding so the dock never covers the end of the form. */
 .savedock{position:fixed;left:50%;transform:translateX(-50%);width:min(880px,100%);
-  bottom:calc(60px + env(safe-area-inset-bottom,0px));z-index:15;padding:10px 14px 8px;
+  bottom:calc(60px + env(safe-area-inset-bottom,0px));z-index:15;padding:var(--sp-3) var(--sp-4) var(--sp-2);
   background:linear-gradient(to top,var(--bg) 66%,rgba(244,247,251,0));}
 .savedock .btn{margin-top:0;}
-.savedock .btn + .btn{margin-top:8px;}
+.savedock .btn + .btn{margin-top:var(--sp-2);}
 main:has(.savedock){padding-bottom:120px;}
 main:has(.savedock .btn + .btn){padding-bottom:180px;}   /* two stacked buttons (the journal) */
 
@@ -742,8 +779,8 @@ main:has(.savedock .btn + .btn){padding-bottom:180px;}   /* two stacked buttons 
    six-button action group wrapped around the name and produced ragged stacked strips. Stacking the
    row puts the person's details on their own full-width line and the actions on a tidy one below,
    right-aligned and all the same height. */
-.list-item.stack{flex-direction:column;align-items:stretch;gap:8px;}
-.list-item.stack .acts{display:flex;flex-wrap:wrap;gap:6px;justify-content:flex-end;}
+.list-item.stack{flex-direction:column;align-items:stretch;gap:var(--sp-2);}
+.list-item.stack .acts{display:flex;flex-wrap:wrap;gap:var(--sp-2);justify-content:flex-end;}
 .list-item.stack .acts .btn{flex:0 0 auto;}
 @media(max-width:560px){
   /* on a phone, share the width evenly instead of leaving one orphan button on its own line */
@@ -756,16 +793,16 @@ main:has(.savedock .btn + .btn){padding-bottom:180px;}   /* two stacked buttons 
    Three equal columns for the everyday actions and a narrow one for ⋯ — a GRID, not a wrapping
    flex row, so every card has its buttons in the same place. Wrapping put ⋯ alone on a second line
    and gave each card a different height, which is what made the list hard to read down. */
-.stuacts{display:grid;grid-template-columns:1fr 1fr 1fr 46px;gap:6px;margin-top:8px;}
-.stuacts .btn.sm{width:100%;min-width:0;padding:7px 4px;font-size:13px;gap:3px;white-space:nowrap;}
-.stuacts .btn.sm.more{padding:7px 0;font-size:17px;letter-spacing:1px;}
+.stuacts{display:grid;grid-template-columns:1fr 1fr 1fr 46px;gap:var(--sp-2);margin-top:var(--sp-2);}
+.stuacts .btn.sm{width:100%;min-width:0;padding:var(--sp-2) var(--sp-1);font-size:var(--fs-1);gap:var(--sp-1);white-space:nowrap;}
+.stuacts .btn.sm.more{padding:var(--sp-2) 0;font-size:var(--fs-3);letter-spacing:1px;}
 @media(min-width:520px){
-  .stuacts{grid-template-columns:1fr 1fr 1fr 52px;gap:8px;}
-  .stuacts .btn.sm{font-size:13px;padding:7px 10px;}
+  .stuacts{grid-template-columns:1fr 1fr 1fr 52px;gap:var(--sp-2);}
+  .stuacts .btn.sm{font-size:var(--fs-1);padding:var(--sp-2) var(--sp-3);}
 }
 /* the two-action rows on the home screen's class list: equal widths, side by side, never stacked */
-.acts2{display:grid;grid-template-columns:1fr 1fr;gap:6px;flex:0 0 auto;}
-.acts2 .btn.sm{width:100%;min-width:62px;padding:7px 6px;font-size:13px;white-space:nowrap;}
+.acts2{display:grid;grid-template-columns:1fr 1fr;gap:var(--sp-2);flex:0 0 auto;}
+.acts2 .btn.sm{width:100%;min-width:62px;padding:var(--sp-2) var(--sp-2);font-size:var(--fs-1);white-space:nowrap;}
 
 /* =====================================================================
    LAYOUT STABILITY (CLS) — reserve space for anything that arrives late.
@@ -779,7 +816,7 @@ main:has(.savedock .btn + .btn){padding-bottom:180px;}   /* two stacked buttons 
 /* Announcement thumbnail: a bare max-width left the height at 0 until the image decoded.
    A fixed box + contain reserves the space without cropping anything out of the picture. */
 .ann-thumb{width:160px;max-width:100%;height:120px;object-fit:contain;object-position:left;
-  border-radius:8px;margin-top:6px;background:var(--surface-2);}
+  border-radius:8px;margin-top:var(--sp-2);background:var(--surface-2);}
 /* Same idea for the announcement pop-up, which opens on load (so its shift is NOT excused by the
    500ms-after-input rule the way a tap-opened modal's is). */
 .annpop-img{min-height:160px;}
@@ -787,8 +824,8 @@ main:has(.savedock .btn + .btn){padding-bottom:180px;}   /* two stacked buttons 
 #qrImg{min-height:210px;}
 
 /* sign-in: "add to home screen" explainer — mirrored in index.html's static shell */
-.instbox{margin-top:10px;text-align:center;display:flex;flex-direction:column;gap:6px;}
-.instbox small{font-size:13px;line-height:1.45;}
+.instbox{margin-top:var(--sp-3);text-align:center;display:flex;flex-direction:column;gap:var(--sp-2);}
+.instbox small{font-size:var(--fs-1);line-height:1.45;}
 
 
 /* ---- dark theme (Phase 6 #15) ------------------------------------------------------------------
@@ -884,7 +921,7 @@ input::placeholder,textarea::placeholder{color:var(--ink-3);}
 /* the red count that sits on a nav icon (a report sent back to this teacher, and anything else a tab
    needs to shout about). position:absolute off the .ic box so it hangs on the ICON, not the label —
    and pointer-events:none so it can never eat the tap that opens the tab. */
-.bottomnav .navbadge{position:absolute;top:-6px;right:-10px;min-width:16px;height:16px;padding:0 4px;
+.bottomnav .navbadge{position:absolute;top:-6px;right:-10px;min-width:16px;height:16px;padding:0 var(--sp-1);
   border-radius:8px;background:var(--bad,#e5484d);color:#fff;font-size:10px;line-height:16px;
   font-weight:700;text-align:center;pointer-events:none;box-shadow:0 0 0 2px var(--surface);}
 .bell .i,.langtoggle .i{margin:0 auto;}
@@ -894,15 +931,15 @@ input::placeholder,textarea::placeholder{color:var(--ink-3);}
 #notifMenu{position:fixed;z-index:70;background:var(--surface);border:1px solid var(--line);
   border-radius:var(--radius);box-shadow:var(--sh-lg);overflow:hidden;animation:nmIn .14s ease-out;}
 @keyframes nmIn{from{opacity:0;transform:translateY(-6px)}to{opacity:1;transform:none}}
-#notifMenu .nm-head{display:flex;align-items:center;justify-content:space-between;gap:8px;
-  padding:10px 12px;border-bottom:1px solid var(--line);}
+#notifMenu .nm-head{display:flex;align-items:center;justify-content:space-between;gap:var(--sp-2);
+  padding:var(--sp-3) var(--sp-3);border-bottom:1px solid var(--line);}
 #notifMenu .nm-list{max-height:min(56vh,420px);overflow:auto;}
-#notifMenu .nm-item{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;
-  padding:10px 12px;border-bottom:1px solid var(--line-2);font-size:14px;line-height:1.4;}
+#notifMenu .nm-item{display:flex;align-items:flex-start;justify-content:space-between;gap:var(--sp-3);
+  padding:var(--sp-3) var(--sp-3);border-bottom:1px solid var(--line-2);font-size:var(--fs-1);line-height:1.4;}
 #notifMenu .nm-item[role=menuitem]{cursor:pointer;}
 #notifMenu .nm-item[role=menuitem]:hover,#notifMenu .nm-item[role=menuitem]:focus{background:var(--blue-bg);outline:none;}
 #notifMenu .nm-item.unread{background:var(--surface-2);}
-#notifMenu .nm-item small{white-space:nowrap;font-size:12px;}
+#notifMenu .nm-item small{white-space:nowrap;font-size:var(--fs-1);}
 
 /* The OT screen's action bar, pinned to the bottom of its own sheet (v399, asked 2026-09-23).
    The sheet is the scroll container (.modal .sheet has overflow:auto), so sticky bottom:0 holds the
@@ -910,4 +947,4 @@ input::placeholder,textarea::placeholder{color:var(--ink-3);}
    matching padding let it span the sheet's full width and sit flush on the rounded corner, instead
    of floating in an 18px gutter. */
 .ot-foot{position:sticky;bottom:0;z-index:3;background:var(--surface);border-top:1px solid var(--line);
-  margin:8px -18px -18px;padding:10px 18px 14px;box-shadow:0 -6px 14px rgba(0,0,0,.06);}
+  margin:var(--sp-2) -16px -16px;padding:var(--sp-3) var(--sp-4) var(--sp-4);box-shadow:0 -6px 14px rgba(0,0,0,.06);}
