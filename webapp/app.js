@@ -199,7 +199,7 @@
       _readStart(); let pr2; try{ pr2=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr2).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.481'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.482'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:var(--fs-1);margin-top:var(--sp-5)">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -629,6 +629,47 @@
     return `<div class="card"><div class="sk sk-title"></div>${Array.from({ length: n }, (_, i) =>
       line(i === n - 1 ? '45%' : '')).join('')}</div>`;
   };
+
+  /* ═══ 📊 PBAR — แถบความคืบหน้า สีคือตัวเลขอีกชุดหนึ่ง (ผอ. 2026-10-28) ════════════════════
+   *
+   * 🔴 ของเดิม: สามจุดในแอปวาดแถบนี้เองด้วย inline style คนละชุด และใช้กฎสี
+   *   `100% เขียว · 90–99% ส้ม · ต่ำกว่า 90% แดง`
+   * แปลว่า **การมาเรียน 89% ขึ้นสีแดง** ทั้งที่เป็นตัวเลขที่ดีมากสำหรับโรงเรียนอนุบาล —
+   * เด็กลาป่วย 2 คนจาก 19 ก็ตกเกณฑ์แล้ว · สัญญาณเตือนที่เตือนทุกวันคือสัญญาณที่ไม่มีใครอ่าน
+   *
+   * ตอนนี้ยิ่งมากยิ่งเข้ม (เขียว 5 ขั้น) — มองผ่าน ๆ ก็รู้ว่าเยอะหรือน้อยโดยไม่ต้องอ่านตัวเลข
+   * และ **สีแดงเหลือไว้ที่ต่ำกว่า 50%** ซึ่งคือตอนที่มีอะไรผิดปกติจริง ๆ (ครึ่งห้องหายไป)
+   */
+  const PCT_STEP = p => p < 50 ? 'plow' : p < 65 ? 'p1' : p < 80 ? 'p2' : p < 90 ? 'p3' : p < 100 ? 'p4' : 'p5';
+  /* 🔴 ตัวเลขข้างแถบ **ไม่** ไล่เฉดตามแถบ — ลองแล้ว วัดแล้ว และมันอ่านไม่ออก
+   *
+   * วัดบนเบราว์เซอร์จริง 2026-10-28: เขียวขั้นอ่อนเป็นสีตัวอักษรบนการ์ดขาวได้ **1.70–3.29**
+   * ซึ่งตกเกณฑ์ 4.5 ทั้งสามขั้น — "55%" กลายเป็นตัวเลขที่มองแทบไม่เห็นบนหน้าจอกลางแดด
+   *
+   * สองช่องทางที่เล่าเรื่องเดียวกัน โดยช่องหนึ่งอ่านไม่ออก **แย่กว่ามีช่องเดียวที่ดี** —
+   * แถบรับหน้าที่เล่า "ระดับ" ด้วยเฉดสี ส่วนตัวเลขรับหน้าที่ "อ่านออก"
+   * เหลือสีไว้ที่เดียวคือต่ำกว่า 50% เพราะตรงนั้นสีไม่ได้บอกระดับ มันบอกว่า **มีอะไรผิดปกติ** */
+  const pctColor = p => (Number(p) || 0) < 50 ? 'var(--prog-low)' : 'var(--ink)';
+  window.pbar = p => { const v = Math.max(0, Math.min(100, Math.round(Number(p) || 0)));
+    return `<div class="pbar" role="progressbar" aria-valuenow="${v}" aria-valuemin="0" aria-valuemax="100"><i class="${PCT_STEP(v)}" style="width:${v}%"></i></div>`; };
+
+  /* ═══ 🧭 QTABS — แถบเครื่องมือที่บอกได้ว่ายังมีต่อ ══════════════════════════════════════════
+   * แถบนี้เลื่อนได้มาตลอด แต่ scrollbar ถูกซ่อน จึงไม่มีอะไรบอกว่ามีปุ่มที่เลยขอบไป
+   * ปุ่ม › โผล่เฉพาะตอนที่ยังมีของเลยขอบจริง ๆ และหายไปเมื่อเลื่อนสุดทาง */
+  window.QBAR_SYNC = (wrap) => {
+    const bar = wrap && wrap.querySelector('.qbar'), nx = wrap && wrap.querySelector('.qnext');
+    if (!bar || !nx) return;
+    const more = bar.scrollWidth - bar.clientWidth - bar.scrollLeft > 4;
+    nx.classList.toggle('on', more);
+  };
+  window.QBAR_NEXT = (btn) => { const wrap = btn.closest('.qbarwrap'), bar = wrap.querySelector('.qbar');
+    bar.scrollBy({ left: Math.round(bar.clientWidth * 0.8), behavior: 'smooth' });
+    setTimeout(() => QBAR_SYNC(wrap), 420); };
+  /* ผูกครั้งเดียวกับ document — แถบถูกวาดใหม่ทุกครั้งที่หน้าจอวาดใหม่ การผูกต่อ element
+   * จึงต้องผูกซ้ำทุกรอบ และเป็นที่มาของ listener ที่ค้างอยู่โดยไม่มีใครเก็บ */
+  document.addEventListener('scroll', e => { const w = e.target && e.target.closest && e.target.closest('.qbarwrap');
+    if (w) QBAR_SYNC(w); }, true);
+  window.addEventListener('resize', () => document.querySelectorAll('.qbarwrap').forEach(QBAR_SYNC));
 
   /* ═══ 🗂️ EMPTY — "ไม่มีรายการ" ไม่ใช่เรื่องเดียว ═══════════════════════════════════════════
    *
@@ -1343,7 +1384,10 @@
      * ใช้ตัวนับแทนการเดาจากเวลา เพราะ GO() รู้ชัดกว่าใครว่าเริ่มเมื่อไหร่และจบเมื่อไหร่ */
     if(fn && !(opts&&opts.silent)) __navBusy(1);
     if(fn){ const r=fn(); // a screen that throws must not leave the loading skeleton stuck forever
-      if(!(opts&&opts.silent)){ const _navOff=()=>__navBusy(-1);
+      if(!(opts&&opts.silent)){ const _navOff=()=>{ __navBusy(-1);
+          /* แถบเครื่องมือเพิ่งถูกวาดใหม่ — ถามมันว่ามีของเลยขอบไปไหม จึงจะรู้ว่าต้องโชว์ปุ่ม › หรือเปล่า
+           * ต้องรอให้เบราว์เซอร์จัดผังเสร็จก่อน ไม่งั้น scrollWidth ยังเป็นของเก่า */
+          requestAnimationFrame(()=>document.querySelectorAll('.qbarwrap').forEach(QBAR_SYNC)); };
         if(r&&r.then) r.then(_navOff,_navOff); else _navOff(); }
       // How long from tap to the screen actually being drawn — the number the user experiences.
       // Measured only for real navigations; a silent background re-render is not something anyone waits for.
@@ -5205,7 +5249,7 @@
       const lv=(c.students||[]).filter(s=>s.status==='LEAVE');
       const ab=(c.students||[]).filter(s=>s.status==='ABSENT');
       return `<div style="margin-bottom:var(--sp-3)"><div class="spread"><b>${esc(c.className)}</b><span style="font-weight:700;color:${pctColor(pct)}">${pct}% <small class="muted" style="font-weight:400">(${present}/${c.total})</small></span></div>
-        <div style="height:6px;background:var(--line);border-radius:4px;overflow:hidden;margin:var(--sp-1) 0"><div style="height:100%;width:${pct}%;background:${pctColor(pct)}"></div></div>
+        ${pbar(pct)}
         ${inNow.length?`<div style="margin-top:var(--sp-1)"><span class="pill ok">✅ ${EN()?'in — tap to pick up':'อยู่ที่โรงเรียน — แตะเพื่อรับกลับ'} (${inNow.length})</span><br>${inNow.map(s=>`<button class="btn sm pink" style="margin:var(--sp-1) var(--sp-1) 0 0" onclick="T_studentCheckin('${s.studentId}','${esc(dnick(s))}','OUT')">🔴 ${esc(dnick(s))}${s.in?' ('+esc(s.in)+')':''}</button>`).join('')}</div>`:''}
         ${outNow.length?`<div style="margin-top:var(--sp-1)"><span class="pill info">↩️ ${EN()?'picked up':'รับกลับแล้ว'} (${outNow.length})</span><br>${outNow.map(s=>`<button class="btn sm outline" style="margin:var(--sp-1) var(--sp-1) 0 0" onclick="T_studentCheckin('${s.studentId}','${esc(dnick(s))}','OUT')">${ic('edit')} ${esc(dnick(s))}${s.out?' '+esc(s.out):''}</button>`).join('')}</div>`:''}
         ${lv.length?`<div style="margin-top:var(--sp-0)"><span class="pill wait">🌴 ${EN()?'leave':'ลา'} (${lv.length})</span> <small class="muted">${lv.map(s=>esc(dnick(s))).join(', ')}</small></div>`:''}
@@ -8016,7 +8060,8 @@
     </div>`; }
 
   // ================= ADMIN =================
-  const pctColor = p => p>=100?'var(--ok)':p>=90?'var(--warn-2)':'var(--bad-2)'; // green / amber / red attendance
+  /* pctColor ย้ายขึ้นไปอยู่ข้าง pbar() แล้ว (2026-10-28) — ตัวเลขกับแถบต้องใช้กฎสีเดียวกัน
+   * ไม่งั้นมันจะเล่าคนละเรื่องในภาพเดียวกัน · เกณฑ์เดิม "ต้อง 100% ถึงจะเขียว" ถูกแก้ด้วย */
   SCREENS.Admin.home = async () => {
     // ...and the holiday-OT card rides in the SAME batch instead of taking a round trip of its own
     // after the screen is drawn. On an ordinary day it answers "nothing"; that answer is now free.
@@ -8067,7 +8112,7 @@
         <div style="font-size:var(--fs-5);font-weight:800;line-height:1.2">${baht(_allTotal)}</div>
         <small class="muted">${EN()?'Collected':'เก็บได้'} <b style="color:var(--ok)">${baht(_allIn)}</b> · ${EN()?'Outstanding':'ค้างชำระ'} <b style="color:${_allOut>0?'var(--bad)':'var(--ok)'}">${baht(_allOut)}</b></small></div>
       <div class="spread" style="font-size:var(--fs-1);margin-top:var(--sp-1)"><span>🏫 ${EN()?'Monthly tuition':'ค่าเทอมรายเดือน'}</span><b style="color:${pctColor(tuiPct)}">${fin.studentsPaid}/${fin.studentsTotal} <small class="muted" style="font-weight:400">(${tuiPct}%)</small></b></div>
-      <div style="height:6px;background:var(--line);border-radius:4px;overflow:hidden;margin:var(--sp-1) 0"><div style="height:100%;width:${tuiPct}%;background:${pctColor(tuiPct)}"></div></div>
+      ${pbar(tuiPct)}
       <div class="spread" style="font-size:var(--fs-1)"><span class="muted">${EN()?'Collected':'เก็บได้'} <b style="color:var(--ok)">${baht(_tuiCol)}</b></span><span class="muted">${EN()?'Outstanding':'ค้างชำระ'} <b style="color:${tuiOut>0?'var(--bad)':'var(--ok)'}">${baht(tuiOut)}</b></span></div>
       ${(_chCol||_chOut)?`<hr style="border:none;border-top:1px solid var(--surface-3);margin:var(--sp-2) 0">
       ${_line('➕', EN()?'Extra charges':'ค่าใช้จ่ายเพิ่มเติม', _chCol, _chOut)}`:''}
@@ -8203,7 +8248,18 @@
         <span class="kl" style="margin-top:var(--sp-0)">🏫 <b style="color:${tuiOut>0?'var(--bad)':'var(--ok)'}">${baht(tuiOut)}</b> · ⏰ <b style="color:${_otOut>0?'var(--warn)':'var(--ok)'}">${baht(_otOut)}</b>${_chOut?` · ➕ <b style="color:var(--warn)">${baht(_chOut)}</b>`:''}</span></button>
       <button class="kpi green" onclick="A_finTab('wait')"><span class="kic">✅</span><b class="kn" style="color:${pendN?'var(--warn)':'var(--ok)'}">${pendN}</b><span class="kl">${EN()?'Slips to verify':'รอตรวจสลิป'}</span></button>
       <button class="kpi pink" onclick="GO('leaves')"><span class="kic">📩</span><b class="kn" style="color:${_pl?'var(--warn)':'var(--ok)'}">${_pl}</b><span class="kl">${EN()?'Leaves to approve':'รออนุมัติลา'}</span></button></div>`;
-    const quick=`<div class="qbar"><button class="btn sm" onclick="GO('daily')">${ic('clipboard')} ${esc(t('daily.title'))}</button><button class="btn sm outline" onclick="GO('absence')">${ic('search')} ${esc(t('abs.title'))}</button><button class="btn sm outline" onclick="A_addAnn()">${ic('plus')} ${esc(t('lbl.addAnn'))}</button><button class="btn sm outline" onclick="A_linkParent()">${ic('link')} ${EN()?'Link parent':'เชื่อมผู้ปกครอง'}</button><button class="btn sm outline" onclick="A_viewAs()">${ic('eye')} ${EN()?'View as':'ดูมุมมอง'}</button><button class="btn sm outline" onclick="GO('manage')">🗂️ ${esc(t('title.manage'))}</button></div>`;
+    /* 🧭 แถบเครื่องมือ — ข้อความล้วน เส้นใต้ตอนชี้/แตะ และปุ่ม › เมื่อยังมีของเลยขอบไป
+     * ทั้งหกเป็น "การกระทำ" ไม่ใช่แท็บสลับหน้า จึงไม่มีตัวไหนถูกขีดเส้นใต้ค้างไว้ —
+     * เส้นใต้ถาวรแปลว่า "คุณอยู่ตรงนี้" ซึ่งบนแถบของการกระทำจะเป็นคำโกหก */
+    const qt=(fn,icon,label)=>`<button class="qtab" onclick="${fn}">${icon} ${esc(label)}</button>`;
+    const quick=`<div class="qbarwrap"><div class="qbar">${
+      qt("GO('daily')",     ic('clipboard'), t('daily.title'))}${
+      qt("GO('absence')",   ic('search'),    t('abs.title'))}${
+      qt('A_addAnn()',      ic('plus'),      t('lbl.addAnn'))}${
+      qt('A_linkParent()',  ic('link'),      EN()?'Link parent':'เชื่อมผู้ปกครอง')}${
+      qt('A_viewAs()',      ic('eye'),       EN()?'View as':'ดูมุมมอง')}${
+      qt("GO('manage')",    ic('folders'),   t('title.manage'))}</div>
+      <button class="qnext" type="button" aria-label="${EN()?'More tools':'เครื่องมือเพิ่มเติม'}" onclick="QBAR_NEXT(this)">›</button></div>`;
     /* MANUAL REFRESH, asked for 2026-08-27.
      *
      * Reads are cached for 30 seconds and revalidated in the background, which is right for a screen
@@ -8226,7 +8282,7 @@
           return `<div class="spread" style="font-size:var(--fs-2);margin-bottom:var(--sp-2)"><b>${EN()?'Total':'รวมทั้งหมด'}</b><b style="color:${pctColor(tp)}">${tp}% <small class="muted" style="font-weight:400">(${ts.p}/${ts.t})</small></b></div>`; })()}
         ${d.classes.map(c=>{ const present=c.in+c.out; const pct=c.total?Math.round(present/c.total*100):100; const miss=(c.students||[]).filter(s=>s.status==='ABSENT'||s.status==='LEAVE');
           return `<div style="margin-bottom:var(--sp-3)"><div class="spread"><b>${esc(c.className)}</b><span style="font-weight:700;color:${pctColor(pct)}">${pct}% <small class="muted" style="font-weight:400">(${present}/${c.total})</small></span></div>
-            <div style="height:6px;background:var(--line);border-radius:4px;overflow:hidden;margin:var(--sp-1) 0"><div style="height:100%;width:${pct}%;background:${pctColor(pct)}"></div></div>
+            ${pbar(pct)}
             ${(()=>{ // teachers see "in" and "picked up" separately; Admin lumped them into one "มา"
               // line, so the two screens disagreed on who was still at school
               const inb=(c.students||[]).filter(s=>s.status==='IN'); const gone=(c.students||[]).filter(s=>s.status==='OUT');
