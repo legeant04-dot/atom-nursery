@@ -154,7 +154,20 @@ const THAI_LINE_FAIL = /เชื่อมต่อ LINE ไม่สำเร�
     ok_('...and a storage failure cannot break sign-in', /catch \(e\) \{ return false; \}/.test(src.slice(src.indexOf('const liffPending'), src.indexOf('const liffPending') + 200)));
     // the boot path runs before app.js is loadable in isolation, so it is asserted on the source
     const bootSrc = src.slice(src.indexOf('function boot(){ ensureTranslateObserver();'), src.indexOf('// ================= REGISTRATION'));
-    ok_('boot shows the sign-in screen for both', /if \(liffPending\(\) \|\| _known\) signingInScreen\(\);/.test(bootSrc));
+    /* ═══ 2026-10-28 — สองการรอที่เคยหน้าตาเหมือนกัน แต่คนละเรื่อง (ผอ. ถามว่าใช้ skeleton แทนดีไหม)
+     *
+     * liffPending = เพิ่งถูกส่งไป LINE แล้วกลับมา · 🔴 ขั้นนี้คือขั้นที่พังได้จริงบน iPhone บางเครื่อง
+     *   (hand-off ไม่เคยกลับมา — ดู liffWatchStart) จึงต้องมี **ชื่อขั้นตอน** อยู่บนจอ
+     *   โครงร่างที่กะพริบตลอดกาลโดยไม่มีคำอธิบาย แย่กว่าของเดิม
+     * _known      = คนเดิมที่ token หมดอายุ · สิ่งที่เขารอคือหน้าหลักของตัวเอง → โครงร่างถูกต้อง
+     *
+     * ที่ตรึงไว้คือ **ทั้งสองทางยังถูกตอบสนอง** และ **ทางที่พังได้ยังมีชื่อขั้นตอน** */
+    ok_('การกลับมาจากการส่งต่อไป LINE ยังบอกชื่อขั้นตอน (ขั้นที่พังได้)',
+      /if \(liffPending\(\)\) signingInScreen\(\);/.test(bootSrc));
+    ok_('🔴 ...และคนเดิมที่เคยเข้าแล้ว เห็นโครงร่างของหน้าจอตัวเอง',
+      /else if \(_known\) resumingScreen\(\);/.test(bootSrc));
+    ok_('...ซึ่งยังบอกขั้นตอนไว้เป็นบรรทัดบาง ๆ เผื่อช้าผิดปกติ',
+      /function resumingScreen\(\)/.test(src) && /class="bootmsg"/.test(src) && /skel\('stats',2\)/.test(src));
     ok_('...and a first-time visitor still gets the card immediately',
       /let _known = false; try \{ _known = !!localStorage\.getItem\('atom_last_uid'\); \}/.test(bootSrc));
     ok_('boot and the button share ONE init', /liffReady\(\)\.then/.test(bootSrc) && /function liffReady\(\)/.test(src));
