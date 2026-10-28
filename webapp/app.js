@@ -70,17 +70,45 @@
     if(_busyFail){ _busyFail=false; _busyEl.classList.remove('on','ok'); return; }
     _busyFail=false; _busyEl.classList.add('ok'); _busyEl.querySelector('.busy-txt').textContent=_EN()?'Done':'สำเร็จ';
     clearTimeout(_busyOkT); _busyOkT=setTimeout(()=>{ if(_busyN===0&&_busyEl){ _busyEl.classList.remove('on','ok'); _busyEl.querySelector('.busy-txt').textContent=_busyTxt(); } }, 750); }
-  // ---- 🪦 จอคลุมสำหรับ "การอ่านที่ช้า" — ถูกถอดออก 2026-10-28 ------------------------------------
-  // เคยมี _readStart/_readEnd ตรงนี้: ถ้าการอ่านยังไม่เสร็จใน 350ms จะเอาจอคลุม
-  // "ระบบกำลังดำเนินการ" มาทับทั้งหน้าจอ · มันถูกใส่ไว้ตอนที่การเปิดหน้าจอไม่มีอะไรตอบสนองเลย
-  // หน้าจอเก่านั่งอยู่เฉย ๆ คนเลยกดแท็บซ้ำ
-  //
-  // 🔴 โครงร่าง (skeleton) คือคำตอบของปัญหานั้นพอดี และตั้งแต่ v476 มันมีแล้วทุกหน้าจอ
-  // การเก็บทั้งคู่ไว้แย่กว่าอย่างใดอย่างหนึ่ง: จอคลุมบังโครงร่างที่เพิ่งวาด แล้วกั้นการกด
-  // *ระหว่างการอ่าน* ซึ่งไม่มีอะไรต้องกัน — คนที่อยากเปลี่ยนใจไปเมนูอื่นระหว่างรอ 8 วินาที ต้องกดได้
-  //
-  // ถ้าวันหนึ่งมีคนคิดจะเอากลับมา: ปัญหาที่มันแก้คือ "ไม่มีอะไรตอบสนอง" ไม่ใช่ "ต้องกั้นการกด"
-  // และปัญหานั้นมีเจ้าของแล้ว · ฝั่ง "เขียน" ยังคลุมอยู่เหมือนเดิม เพราะที่นั่นมันคือตัวกันกดซ้ำ
+  /* ═══ ⏳ "กำลังโหลดข้อมูล" สำหรับการอ่านที่ไม่ใช่การเปลี่ยนเมนู ═══════════════════════════════
+   *
+   * ผอ. 2026-10-28 (ตามหลังข้อก่อนหน้า — กฎคมขึ้น ไม่ใช่กลับคำ):
+   *   "Skeleton เราจะมาใช้กับหน้า Menu หลัก แต่ Loading จะใช้กับการดำเนินการทุกอย่าง
+   *    เพราะฉะนั้นถ้าต้องรอดำเนินการ ต้องเอา Loading ขึ้นมาแสดงเพื่อให้ User รู้ว่ากำลังโหลดข้อมูล"
+   *
+   *   เปลี่ยนเมนู      → โครงร่าง (และ **ไม่มี** อะไรมาทับ)
+   *   ดำเนินการอื่น ๆ → "กำลังโหลดข้อมูล…"
+   *
+   * 🔴 รอบที่แล้วถอดตัวนี้ออกทั้งหมด ซึ่งถอดเกินไปหนึ่งขั้น: การกดปุ่มในหน้าจอที่ต้องยิงไปถาม
+   * เซิร์ฟเวอร์ (เปิดหน้าต่าง · สลับแท็บในหน้า · เลือกเดือนใหม่) เลย **ไม่มีอะไรตอบสนองเลย**
+   * ซึ่งคือปัญหาเดิมเป๊ะ ๆ ที่จอคลุมเคยมีไว้แก้ · ครั้งนี้มันกลับมาแบบรู้ที่ทางของตัวเอง
+   *
+   * 🔴 และมัน **ไม่กั้นการกด** (.reading → pointer-events:none)
+   * เพราะระหว่างการ *อ่าน* ไม่มีอะไรต้องกัน — ไม่มีอะไรถูกเขียน และคนที่อยากเปลี่ยนใจไปเมนูอื่น
+   * ระหว่างรอ 8 วินาที ต้องกดได้ · ส่วนฝั่ง "เขียน" ยังกั้นเหมือนเดิม เพราะที่นั่นมันคือตัวกันกดซ้ำ
+   * (กันจ่ายเงินซ้ำ/เช็คอินซ้ำ) ไม่ใช่ตัวบอกสถานะ — นั่นคือความต่างทั้งหมดระหว่างสองตัวนี้
+   */
+  const READ_LAG = 350;   // เร็วกว่านี้ไม่ต้องบอกอะไรเลย · ช้ากว่านี้คนเริ่มสงสัยว่ากดติดไหม
+  const READ_IDLE = 120;  // ช่วงว่างระหว่างคำขอที่ต่อกัน — ให้หนึ่งการรอนับเป็นหนึ่งครั้ง
+  let _readN=0, _readT=null, _readIdle=null, _readShown=false;
+  /* 🔴 ตัวนับการ "เปลี่ยนเมนู" — GO() รู้ชัดว่าเริ่มเมื่อไหร่และจบเมื่อไหร่ จึงไม่ต้องเดาจากเวลา
+   * ระหว่างที่โครงร่างกำลังโชว์อยู่ ห้ามมีอะไรมาทับ */
+  let _navN = 0;
+  window.__navBusy = (d) => { _navN = Math.max(0, _navN + d); };
+  function _readStart(){ _readN++; clearTimeout(_readIdle); _readIdle=null;
+    if(_readT||_readShown) return;
+    _readT=setTimeout(()=>{ _readT=null;
+      if(_readN>0 && _busyN===0 && _navN===0){ _readShown=true; const el=_busyEnsure();
+        el.classList.remove('ok'); el.classList.add('reading');
+        el.querySelector('.busy-txt').textContent=_EN()?'Loading…':'กำลังโหลดข้อมูล…';
+        el.classList.add('on'); } }, READ_LAG); }
+  function _readEnd(){ if(_readN>0)_readN--; if(_readN>0) return;
+    clearTimeout(_readIdle);
+    _readIdle=setTimeout(()=>{ _readIdle=null; if(_readN>0) return;
+      if(_readT){ clearTimeout(_readT); _readT=null; }
+      if(_readShown){ _readShown=false; if(_busyN===0 && _busyEl){
+        _busyEl.classList.remove('on','ok','reading');
+        _busyEl.querySelector('.busy-txt').textContent=_busyTxt(); } } }, READ_IDLE); }
   // ---- offline outbox ---------------------------------------------------------------------------
   // Losing a morning's attendance because the school wi-fi dropped is the worst failure this app has.
   // But a blind retry queue is worse than none: replaying a payment or a bill would create a second
@@ -164,10 +192,14 @@
        * คนที่อยากกดย้อนกลับหรือเปลี่ยนใจไปเมนูอื่นระหว่างรอ 8 วินาที ต้องกดได้
        *
        * 🔴 ฝั่ง "เขียน" ไม่ถูกแตะ — ข้างบนนี้ยังคลุมเหมือนเดิม เพราะที่นั่นการกั้นคือ **ตัวกันกดซ้ำ**
-       * (กันจ่ายเงินซ้ำ/เช็คอินซ้ำ) ไม่ใช่ตัวบอกสถานะ */
-      return _rawApi(action,payload,opts); }; }
+       * (กันจ่ายเงินซ้ำ/เช็คอินซ้ำ) ไม่ใช่ตัวบอกสถานะ
+       *
+       * 2026-10-28 (รอบสอง): การอ่านที่ **ไม่ใช่การเปลี่ยนเมนู** ขึ้น "กำลังโหลดข้อมูล…"
+       * แบบไม่กั้นการกด — ดูหมายเหตุที่ _readStart */
+      _readStart(); let pr2; try{ pr2=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
+      return Promise.resolve(pr2).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.480'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.481'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:var(--fs-1);margin-top:var(--sp-5)">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -1146,6 +1178,12 @@
     calc:'M6 3.5h12a1 1 0 0 1 1 1v15a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1v-15a1 1 0 0 1 1-1z M8 7h8v2.5H8z M8.5 13h.01 M12 13h.01 M15.5 13h.01 M8.5 16.5h.01 M12 16.5h.01 M15.5 16.5h.01',
     repeat:'M4.5 9.5A3 3 0 0 1 7.5 6.5h10.5 M15.5 3.5l3 3-3 3 M19.5 14.5a3 3 0 0 1-3 3H6 M8.5 20.5l-3-3 3-3',
     exit:'M15.5 8V5.5a1 1 0 0 0-1-1h-8a1 1 0 0 0-1 1v13a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1V16 M10.5 12h10 M17.5 9l3 3-3 3',
+    /* ═══ สามตัวสุดท้าย — แถวปุ่มเครื่องมือใช้เส้นทั้งแถว (ผอ. เลือกข้อ ค · 2026-10-28) ═══════
+     * "เฉพาะในแถวเครื่องมือใช้เส้น ที่อื่นคง emoji" — ปุ่มเจ็ดปุ่มที่ทำหน้าที่เหมือนกัน
+     * (เป็นประตูไปเครื่องมือ) ต้องใส่เครื่องแบบเดียวกัน · ส่วนในเนื้อหาหน้าอื่น emoji ยังอยู่ครบ */
+    alarm:'M12 21a8 8 0 1 0 0-16 8 8 0 0 0 0 16z M12 9v4l2.5 2 M5 5.5 7.5 3 M19 5.5 16.5 3',
+    cap:'M12 4 2.5 9 12 14l9.5-5L12 4z M6.5 11.3V16c0 1.4 2.5 2.6 5.5 2.6s5.5-1.2 5.5-2.6v-4.7 M21.5 9v5',
+    holiday:'M12 13v8 M8.5 21h7 M4 13a8 8 0 0 1 16 0H4z M12 5v-.5 M12 13 9.5 3.2 M12 13l5-9.5',
   };
   // `<svg>` with no width/height would collapse before CSS lands, so both are set inline
   window.svgIcon = (name, size) => { const d=ICON[name]; if(!d) return '';
@@ -1157,6 +1195,10 @@
   window.ic = (name, size) => { const d=ICON[name]; if(!d) return '';
     const paths=d.split(' M').map((p,i)=>`<path d="${i?'M'+p:p}"/>`).join('');
     return `<svg class="ii" width="${size||17}" height="${size||17}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">${paths}</svg>`; };
+  /* 🔴 ป้ายบางอันพก emoji มาในตัวเอง — t('ot.adminOT') คือ "⏰ OT คุณครู"
+   * วาดไอคอนให้แล้วพิมพ์ป้ายทั้งก้อนต่อท้าย = ได้เครื่องหมายสองอันเรียงกัน ("⏱ ⏰ OT คุณครู")
+   * เห็นบนหน้าจอจริงตอนย้ายแถวเครื่องมือมาใช้ไอคอน — ไม่เห็นจากการอ่านโค้ด */
+  const stripIc = s => { const r=String(s).replace(/^[\p{Extended_Pictographic}️‍\s]+/u,'').trim(); return r||String(s); };
 
   const NAVS = {
     /* SEVEN TABS DID NOT FIT A PHONE, and one of them was a screen with nothing on it.
@@ -1296,7 +1338,13 @@
     // a stopwatch that stops while the app is off screen. "leaves p95=407.2s" was one person opening
     // the screen and putting their phone in their pocket — not a screen that takes seven minutes.
     const _took=(window.__atomAwakeTimer?window.__atomAwakeTimer():(t0=>()=>Date.now()-t0)(Date.now()));
+    /* 🔴 ประตูของ "การเปลี่ยนเมนู" — เปิดก่อนหน้าจอเริ่มวาด ปิดเมื่อมันวาดเสร็จ
+     * ระหว่างนี้โครงร่างคือสิ่งที่ตอบสนองอยู่แล้ว จึงห้ามมีอะไรมาทับ (ดู _readStart)
+     * ใช้ตัวนับแทนการเดาจากเวลา เพราะ GO() รู้ชัดกว่าใครว่าเริ่มเมื่อไหร่และจบเมื่อไหร่ */
+    if(fn && !(opts&&opts.silent)) __navBusy(1);
     if(fn){ const r=fn(); // a screen that throws must not leave the loading skeleton stuck forever
+      if(!(opts&&opts.silent)){ const _navOff=()=>__navBusy(-1);
+        if(r&&r.then) r.then(_navOff,_navOff); else _navOff(); }
       // How long from tap to the screen actually being drawn — the number the user experiences.
       // Measured only for real navigations; a silent background re-render is not something anyone waits for.
       if(!(opts&&opts.silent)){ const done=()=>{ try{ window.__atomPerfMark&&__atomPerfMark('nav',screen,_took()); }catch(e){} };
@@ -8410,7 +8458,7 @@
     items.map(([mark,label,fn,n])=>{ const L=String(label); const svg=ic(mark);
       const dup=!svg && L.slice(0,3).indexOf(mark)>=0;
       const id=(fn.match(/[A-Za-z_]+/)||[''])[0];
-      return `<button class="btn sm outline opbtn" style="text-align:left" onclick="${fn}">${svg?svg+' ':(dup?'':mark+' ')}${esc(L)}<span class="opbadge" id="ob_${esc(id)}"${(n>0)?'':' hidden'}>${n>0?(n>99?'99+':n):''}</span></button>`;
+      return `<button class="btn sm outline opbtn" style="text-align:left" onclick="${fn}">${svg?svg+' ':(dup?'':mark+' ')}${esc(svg?stripIc(L):L)}<span class="opbadge" id="ob_${esc(id)}"${(n>0)?'':' hidden'}>${n>0?(n>99?'99+':n):''}</span></button>`;
     }).join('')}</div></div>`;
   /** Fill the corner badges once the counts land — the tools render immediately, the numbers follow. */
   window.OPS_badges = (o) => { if(!o) return;
@@ -8808,16 +8856,16 @@
       // summarised under it
       window._SALERTS=await p_sal;
       app.innerHTML=`<h2 class="page">✅ ${EN()?'Operations':'ดำเนินการ'}</h2>${mainSeg}
-        ${opTools([['⏰',EN()?'Student late-pickup OT':'OT รับช้า (นักเรียน)','A_studentOT()'],
+        ${opTools([['alarm',EN()?'Student late-pickup OT':'OT รับช้า (นักเรียน)','A_studentOT()'],
                    // beside the OT screen it acts on, not buried in settings — it is used on the day
-                   ['🌧️',EN()?'Days with no OT charge':'งดคำนวณ OT','A_otWaive()'],
-                   ['🕵️',EN()?'Attendance check':'ตรวจสอบการลงเวลา','A_attAudit()'],
-                   ['🕑',EN()?'Correct check-in / pick-up':'แก้ไขเวลารับ-ส่ง','A_editAttPick()'],
+                   ['block',EN()?'Days with no OT charge':'งดคำนวณ OT','A_otWaive()'],
+                   ['search',EN()?'Attendance check':'ตรวจสอบการลงเวลา','A_attAudit()'],
+                   ['edit',EN()?'Correct check-in / pick-up':'แก้ไขเวลารับ-ส่ง','A_editAttPick()'],
                    ['chart',EN()?'Class report':'สรุปรายชั้นเรียน','A_studentReport()'],
                    /* WHO IS LEAVING, WHO HAS LEFT, AND WHO IS AWAY — the ผอ.'s billing question.
                     * Asked 2026-09-30: "ผอ. ไม่ทราบเลยว่าต้องออกบิลเดือนใหม่ให้ใคร และไม่ต้องออกให้ใคร".
                     * Both facts existed (endingStudents / pausedStudents) and neither had a screen. */
-                   ['🎓',EN()?'Leaving / left / on leave':'สิ้นสุดการเรียน & ลาชั่วคราว','A_studentStatus()']])}
+                   ['cap',EN()?'Leaving / left / on leave':'สิ้นสุดการเรียน & ลาชั่วคราว','A_studentStatus()']])}
         <p class="muted" style="font-size:var(--fs-1)">${EN()?'Absences by day and class. Tap a day to see who is absent per class (history included).':'การลาแยกรายวันและชั้นเรียน · แตะวันเพื่อดูว่านักเรียนคนไหนขาดในแต่ละชั้น (ดูย้อนหลังได้)'}</p>
         <div class="card"><div id="calWrap">${studentLeaveCalRender()}</div></div>
         <div id="bdayCard">${birthdayCard(window._SALERTS)}</div>
@@ -8836,13 +8884,13 @@
     const none=`${empty('none')}`;
     const shown = LV_TAB==='pending'?pending:resolved;
     app.innerHTML=`<h2 class="page">✅ ${EN()?'Operations':'ดำเนินการ'}</h2>${mainSeg}
-      ${opTools([['⏰',t('ot.adminOT'),'A_staffOT()'],
-                 ['🎉',EN()?'Holiday OT':'OT วันหยุด','A_holidayOT()'],
-                 ['⏰',t('att.adminTitle'),'A_timeRequests()'],
+      ${opTools([['alarm',t('ot.adminOT'),'A_staffOT()'],
+                 ['holiday',EN()?'Holiday OT':'OT วันหยุด','A_holidayOT()'],
+                 ['inbox',t('att.adminTitle'),'A_timeRequests()'],
                  ['repeat',t('corg.adminTitle'),'A_classChanges()'],
                  // moved off the dashboard 2026-09-03: it is signed off like a leave, so it belongs
                  // with the other things waiting for a signature — and gets the same red badge
-                 ['🚑',EN()?'Injury reports':'รายงานอุบัติเหตุ','A_injuries()'],
+                 ['aid',EN()?'Injury reports':'รายงานอุบัติเหตุ','A_injuries()'],
                  ['calendar',EN()?'Monthly work time':'เวลาเข้า-ออกรายเดือน','A_staffMonth()'],
                  /* THE ANNUAL REVIEW — asked 2026-10-05: "ย้ายมาอยู่ใน ดำเนินการ > รายงาน > สรุปรายปี
                   * จะแสดงข้อมูลพนักงานทั้งหมด ดูรายคน ปรับเงินเดือน/ตำแหน่ง/เบี้ยต่างๆในนี้". */
@@ -11207,9 +11255,15 @@
       ]},
     ];
     // some i18n labels already start with an emoji; strip it since the button shows its own icon
-    const stripIc=s=>{ const r=String(s).replace(/^[\p{Extended_Pictographic}️‍\s]+/u,'').trim(); return r||String(s); };
+    /* stripIc ย้ายขึ้นไปอยู่ข้าง ic() แล้ว — แถวเครื่องมืออีกชุดก็ต้องใช้ตัวเดียวกัน
+     * สำเนาที่สองของกฎเดียวกัน คือจุดที่สองฝั่งเริ่มตอบไม่เหมือนกัน */
     const amenu=MENU.map(g=>`<div class="card amenu"><h3>${esc(g.t)}</h3><div class="amenu-grid">${
-      g.items.map(([ic,label,fn])=>`<button class="amenu-btn" onclick="${fn}"><span class="amenu-ic">${ic}</span><span>${esc(stripIc(label))}</span></button>`).join('')
+      /* 🔴 พารามิเตอร์นี้เคยชื่อ `ic` เหมือนกับ opTools และบัง window.ic() เหมือนกัน
+       * ที่นี่มันไม่ได้แค่เป็นกับดัก — มัน **พังจริง** ตอนย้ายไอคอน: รายการที่เปลี่ยนเป็นชื่อไอคอน
+       * ('repeat' / 'calendar') ถูกพิมพ์ออกมาเป็นคำว่า "repeat" กลางปุ่ม เพราะช่องนี้ถูกวางลง
+       * ตรง ๆ โดยไม่มีใครถามว่ามันคืออะไร · ตอนนี้ถามก่อน แล้วค่อยวาด */
+      g.items.map(([mark,label,fn])=>{ const svg=ic(mark,20);
+        return `<button class="amenu-btn" onclick="${fn}"><span class="amenu-ic">${svg||mark}</span><span>${esc(stripIc(label))}</span></button>`; }).join('')
     }</div></div>`).join('');
     // quick-access data counts → tap to open & scroll to that section
     const countTiles=`<div class="kpigrid" style="grid-template-columns:repeat(3,1fr);margin-bottom:var(--sp-0)">

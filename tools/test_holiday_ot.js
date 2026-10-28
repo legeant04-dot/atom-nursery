@@ -180,8 +180,9 @@ console.log('\n5) the same rules on GAS, which is what actually runs');
 
 console.log('\n6) the screen: ดำเนินการ → คุณครู');
 {
-  ok_('the button is on the teachers tab of ดำเนินการ', /\['🎉',EN\(\)\?'Holiday OT':'OT วันหยุด','A_holidayOT\(\)'\]/.test(app));
-  ok_('...next to the ordinary staff OT it belongs with', /\['⏰',t\('ot\.adminOT'\),'A_staffOT\(\)'\],\s*\n\s*\['🎉'/.test(app));
+  /* แถวปุ่มเครื่องมือใช้ชุดไอคอนของแอปทั้งแถวแล้ว (ผอ. เลือกข้อ ค · 2026-10-28) */
+  ok_('the button is on the teachers tab of ดำเนินการ', /\['holiday',EN\(\)\?'Holiday OT':'OT วันหยุด','A_holidayOT\(\)'\]/.test(app));
+  ok_('...next to the ordinary staff OT it belongs with', /\['alarm',t\('ot\.adminOT'\),'A_staffOT\(\)'\],\s*\n\s*\['holiday'/.test(app));
   const scr = app.slice(app.indexOf('window.A_holidayOT=async'), app.indexOf('window.A_otVerify=async'));
   ok_('the four things the Admin was asked for: who, when, why, how much',
     /class="hotchk"/.test(scr) && /id="hotDate"/.test(scr) && /id="hotNote"/.test(scr) && /id="hotAmount"/.test(scr));
