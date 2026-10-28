@@ -186,21 +186,35 @@ console.log('\n5) 🔴 a write that failed cannot be a toast');
   const _e0 = app.indexOf('function err(e)');
   const seg = app.slice(_e0, app.indexOf('\n  function modal(html)', _e0));
   ok_('the suite is reading the whole of err()', seg.length > 1500 && seg.length < 9000);
-  ok_('err() opens a dialog for a failed write', /const writes =/.test(seg) && /modal\(/.test(seg));
-  ok_('🔴 ...and the dialog has its own close button', /ปิดหน้าแจ้งเตือน/.test(seg));
-  ok_('🔴 ...and says plainly that nothing was saved', /ข้อมูลยังไม่ถูกบันทึก/.test(seg));
+  /* ═══ 2026-10-28 — หน้าต่างเด้ง กลายเป็นแถบที่ค้างไว้ (ผอ.) ═══════════════════════════════
+   *
+   * 🔴 ห้าข้อข้างล่างนี้เคยตรึง *กลไก* (modal · m.onclick=null · backdrop) · กลไกเปลี่ยนแล้ว
+   * สิ่งที่ตรึงต่อคือ **คำรับประกัน** ซึ่งไม่ได้เปลี่ยน: ข้อความเรื่องข้อมูลที่ไม่ถูกบันทึก
+   * ต้องอยู่นานกว่าสายตาที่เหลือบไม่ทัน
+   *
+   * และมีข้อหนึ่งที่ **เปลี่ยนจริง ๆ และเป็นการเลือก**: เดิม "คำขออ่านที่ล้มเหลวได้แค่ toast"
+   * เพราะหน้าต่างเด้งห้าอันจะขวางครูไม่ให้ถึงปุ่ม · ตอนนี้ข้อผิดพลาดทุกตัวเป็นแถบตามที่ ผอ. สั่ง
+   * สิ่งที่มาแทนข้อกังวลเดิมคือ **หนึ่งแถบต่อหนึ่งเรื่อง** — แถบใหม่แทนที่แถบเก่า ไม่ซ้อนกัน
+   * ห้าคำขอที่ล้มเหลวจึงได้หนึ่งแถบ ไม่ใช่ห้าอัน */
+  ok_('a failed write is an alert that stays, not a toast that fades',
+    /const writes =/.test(seg) && /notify\('bad'/.test(seg) && !/toast\(/.test(seg));
+  ok_('🔴 ...and it still says plainly that nothing was saved', /ข้อมูลยังไม่ถูกบันทึก/.test(seg));
+  ok_('🔴 ...with a different headline from a read that failed, because the screen still looks normal',
+    /writes \? \(EN\(\) \? 'Not saved' : 'บันทึกไม่สำเร็จ'\) : head/.test(seg));
   /* The CODE is shown. "ลองใหม่อีกครั้ง" is nothing the office can report back to us, and
    * LOST_REQUEST and BAD_RESPONSE are different faults with different answers. */
   ok_('...and names the action and the code, for the person on the phone to the office',
-    /e&&e\.action, code/.test(seg));
+    /code: \[e && e\.action, code\]/.test(seg));
 
-  /* 🔴 READS KEEP THE TOAST, and this is the half that is easy to lose. On live the median call takes
-   * 7.3 seconds and roughly one in forty fails — almost all of them badges and counts on a home
-   * screen. A dialog for each would put a teacher behind five pop-ups before reaching a button. */
-  ok_('🔴 a read that fails still only toasts', /if\(writes && typeof modal==='function'\)/.test(seg));
-  ok_('...the toast is still there for everything else', /toast\('⚠️ '\+head/.test(seg));
-  /* ...and the dialog must not be dismissed by the tap still landing from the button just pressed */
-  ok_('...and a stray backdrop tap does not close it', /m\.onclick=null/.test(seg));
+  const nseg = app.slice(app.indexOf('window.notify = (type'), app.indexOf('window.notifyClear'));
+  ok_('🔴 the alert has no timer — it goes when it is closed, and not before',
+    !/setTimeout/.test(nseg) && /\.ax'\)\.onclick = \(\) => el\.remove\(\)/.test(nseg));
+  ok_('🔴 ...and one alert at a time, so five failed reads are not five banners',
+    /if \(!opts\.stack\) box\.innerHTML = '';/.test(nseg));
+  /* "ค้างไว้" ที่ไม่มีใครเห็น ก็คือ toast — คนที่เพิ่งกดบันทึกท้ายฟอร์มยาวอยู่ห่างจากหัวจอสองหน้าจอ */
+  ok_('🔴 ...and it scrolls itself into view instead of waiting at the top of a page nobody is on',
+    /scrollIntoView/.test(nseg));
+  ok_('the toast still exists for the rapid, repeated actions', /function toast\(m,ms,raw\)/.test(app));
 }
 
 console.log('\n' + (fail ? 'FAILED ' + fail + ' / ' : 'ALL PASS ') + (pass + fail) + ' checks');

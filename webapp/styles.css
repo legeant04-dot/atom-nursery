@@ -27,6 +27,11 @@
   --bad-bg:#ffebee;
   --bad-line:#ef9a9a;
   --warn:#e65100;
+  /* 🔴 สีส้มที่ "แบกตัวหนังสือได้" — วัดจริงบนเบราว์เซอร์ 2026-10-28:
+     ขาวบน --warn (#e65100) ได้อัตราส่วน 3.79 ซึ่งผ่านเฉพาะหัวข้อตัวใหญ่ แต่ตก 4.5 สำหรับ
+     ข้อความ 13px · แถบเตือนมีทั้งสองอย่างในกล่องเดียวกัน จึงต้องใช้พื้นที่เข้มพอสำหรับตัวเล็ก
+     (#c44500 → 5.00) · โหมดมืดไม่ต้องใช้ เพราะตัวหนังสือที่นั่นเป็นหมึกเข้มบนพื้นอ่อนอยู่แล้ว */
+  --warn-strong:#c44500;
   --warn-2:#f9a825;
   --warn-ink:#8a6d00;
   --warn-ink-d:#5b4500;
@@ -215,6 +220,71 @@ a.btn.block{display:block;}
    in a class attribute. Named separately from .wait rather than aliased: these are warnings, and a
    later decision to colour them differently should not have to hunt down nine call sites. */
 .pill.warn{background:var(--warn-bg);color:var(--warn);}
+
+/* ═══ 📣 แถบแจ้งเตือนที่ค้างไว้ (Alert) — ผอ. 2026-10-28 ═══════════════════════════════════════
+ *
+ * "เปลี่ยนจาก Pop-up เป็น Alert Title ค้างไว้ให้กดปิดแทน"
+ *
+ * แทนที่ของสองอย่าง: ข้อความเด้งแล้วหายภายใน 2.4 วินาที และหน้าต่างเด้งเต็มจอตอนบันทึกไม่สำเร็จ
+ * ใช้กับ **งานที่จบเรื่อง** (บันทึก/อนุมัติ/จ่ายเงิน/ส่งรายงาน) และ **ข้อผิดพลาดทุกตัว**
+ * งานที่ทำรัว ๆ (เช็คอินทีละคน คัดลอก สลับแท็บ) ยังเป็นข้อความเด้ง เพราะครูเช็คอินเด็ก 20 คน
+ * ไม่ควรต้องกดปิด 20 ครั้ง
+ *
+ * 🔴 สีทึบ ไม่ใช่สีอ่อน · ความเด่นต้องไม่ฝากไว้กับเฉดสีจาง ๆ ที่หายไปในโหมดใดโหมดหนึ่ง
+ * --ok/--warn/--bad/--blue กับ --on-accent สลับค่ากันเองทั้งคู่ระหว่างสองโหมด จึงอ่านออกทั้งคู่
+ *
+ * 🔴 และไอคอนเป็น SVG ไม่ใช่ emoji · audit §2.6: emoji หน้าตาไม่เหมือนกันบน Android ทุกยี่ห้อ
+ * ซึ่งพอรับได้สำหรับของประดับ แต่ไม่ใช่สำหรับตัวที่บอกว่า "สำเร็จ" หรือ "ผิดพลาด"
+ */
+#alertBox{max-width:880px;margin:0 auto;padding:var(--sp-4) var(--sp-4) 0;}
+#alertBox:empty{display:none;}
+.alert{display:flex;align-items:flex-start;gap:var(--sp-3);border-radius:var(--radius);
+  padding:var(--sp-3) var(--sp-4);margin-bottom:var(--sp-3);color:var(--on-accent);
+  box-shadow:var(--sh-md);animation:alertIn .2s ease-out;}
+.alert .ai{flex:0 0 24px;width:24px;height:24px;margin-top:var(--sp-0);}
+.alert .ai svg{width:100%;height:100%;display:block;fill:currentColor;}
+.alert .ac{flex:1;min-width:0;}
+.alert .at{font-weight:800;font-size:var(--fs-3);line-height:1.3;}
+.alert .ab{font-size:var(--fs-1);line-height:1.5;margin-top:var(--sp-1);white-space:pre-wrap;}
+/* รหัสข้อผิดพลาด — คนที่โทรหาออฟฟิศคือคนที่ต้องอ่านมันออกเสียง */
+.alert .acode{font-size:var(--fs-1);opacity:.8;margin-top:var(--sp-1);}
+/* 🔴 ปุ่มปิดต้องกดโดนด้วยนิ้วโป้ง — 44px คือขั้นต่ำของ Apple/Google ไม่ใช่ขนาดของกากบาท */
+.alert .ax{flex:0 0 auto;min-width:44px;min-height:44px;margin:calc(-1 * var(--sp-2)) calc(-1 * var(--sp-2)) 0 0;
+  background:none;border:0;color:inherit;font-size:var(--fs-3);line-height:1;cursor:pointer;
+  border-radius:var(--radius-sm);opacity:.85;font-family:inherit;}
+.alert .ax:hover{opacity:1;background:rgba(0,0,0,.12);}
+.alert.ok{background:var(--ok);} .alert.info{background:var(--blue);}
+.alert.warn{background:var(--warn-strong);} .alert.bad{background:var(--bad);}
+@keyframes alertIn{from{opacity:0;transform:translateY(-6px);}to{opacity:1;transform:none;}}
+
+/* ═══ 🦴 โครงร่างระหว่างโหลด (Skeleton) — ผอ. 2026-10-28 ═══════════════════════════════════
+ *
+ * "เปลี่ยน App Loading ทั้งหมดเป็น Skeleton Loader ทุก Menu/Functions"
+ *
+ * ของเดิมคือคำว่า "⏳ กำลังโหลด…" กลางการ์ดเปล่า ซึ่งบอกแค่ว่า *ยังไม่มา* · โครงร่างบอกว่า
+ * **อะไรกำลังจะมา และมากี่บรรทัด** — บนแพลตฟอร์มที่ค่ากลางคือ 8.1 วินาที นั่นคือความต่าง
+ * ระหว่าง "แอปค้าง" กับ "แอปกำลังทำงาน"
+ *
+ * 🔴 จอคลุม "ระบบกำลังดำเนินการ" ตอนกดบันทึก **ไม่ถูกแตะ** — มันไม่ใช่ตัวบอกสถานะ
+ * มันคือตัวกันกดซ้ำ (กันจ่ายเงินซ้ำ/เช็คอินซ้ำ) การเปลี่ยนมันเป็นโครงร่างคือการถอดด่านออก
+ */
+.sk{background:var(--surface-3);border-radius:var(--radius-sm);
+  background-image:linear-gradient(90deg,transparent 0,rgba(255,255,255,.45) 50%,transparent 100%);
+  background-size:220% 100%;background-repeat:no-repeat;animation:skWave 1.3s ease-in-out infinite;}
+[data-theme="dark"] .sk{background-image:linear-gradient(90deg,transparent 0,rgba(255,255,255,.09) 50%,transparent 100%);}
+@media(prefers-color-scheme:dark){html:not([data-theme="light"]) .sk{background-image:linear-gradient(90deg,transparent 0,rgba(255,255,255,.09) 50%,transparent 100%);}}
+@keyframes skWave{0%{background-position:160% 0;}100%{background-position:-60% 0;}}
+.sk-line{height:var(--fs-1);margin-bottom:var(--sp-2);}
+.sk-line:last-child{margin-bottom:0;}
+.sk-title{height:var(--fs-3);width:58%;margin-bottom:var(--sp-3);}
+.sk-pill{height:var(--fs-4);width:72px;border-radius:var(--radius-pill);}
+.sk-av{flex:0 0 34px;width:34px;height:34px;border-radius:50%;}
+.sk-row{display:flex;align-items:center;gap:var(--sp-3);padding:var(--sp-3) 0;border-bottom:1px solid var(--line);}
+.sk-row:last-child{border-bottom:none;}
+.sk-row .skb{flex:1;min-width:0;}
+/* 🔴 คนที่ตั้งค่าเครื่องว่า "ลดการเคลื่อนไหว" มักตั้งเพราะการเคลื่อนไหวทำให้เขาเวียนหัวหรือปวดหัว
+   โครงร่างที่กะพริบอยู่ 8 วินาทีคือสิ่งที่การตั้งค่านั้นมีไว้ปิด — กฎรวมด้านล่างย่นเวลาแอนิเมชัน
+   ให้เหลือ .001ms ซึ่งแปลว่ามันหยุดนิ่ง แต่สีพื้นยังอยู่ จึงยังเห็นว่าอะไรกำลังจะมา */
 
 .list-item{display:flex;justify-content:space-between;align-items:center;gap:var(--sp-3);padding:var(--sp-3) 0;border-bottom:1px solid var(--line);}
 .list-item:last-child{border-bottom:none;}
@@ -857,6 +927,7 @@ main:has(.savedock .btn + .btn){padding-bottom:180px;}   /* two stacked buttons 
   --bad-bg:#2e1a1a;
   --bad-line:#5c2f2f;
   --warn:#ffb066;
+  --warn-strong:var(--warn);
   --warn-2:#ffc14d;
   --warn-ink:#e8c37a;
   --warn-ink-d:#3a2c00;   /* on the amber banner, which stays bright in dark mode */
@@ -893,6 +964,7 @@ html[data-theme="dark"]{
   --bad-bg:#2e1a1a;
   --bad-line:#5c2f2f;
   --warn:#ffb066;
+  --warn-strong:var(--warn);
   --warn-2:#ffc14d;
   --warn-ink:#e8c37a;
   --warn-ink-d:#3a2c00;   /* on the amber banner, which stays bright in dark mode */
