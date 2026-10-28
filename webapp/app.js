@@ -199,7 +199,7 @@
       _readStart(); let pr2; try{ pr2=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr2).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.483'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.484'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:var(--fs-1);margin-top:var(--sp-5)">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -8082,7 +8082,7 @@
      * เก่าที่ยังไม่รู้จัก route นี้ยังเปิดแดชบอร์ดได้ตามปกติ (การ์ดจะไม่ขึ้นเฉยๆ) */
     const [d,rem,lrem,pend,fin,todo,trend]=await Promise.all([api('dashboard'),api('payrollReminderDue'),api('leaveResetReminder'),api('pendingPayments'),api('financeSummary',{}),
       api('adminTodo',{staffId:USER.staffId}).catch(()=>null),
-      api('financeTrend',{staffId:USER.staffId,months:3}).catch(()=>null)]);
+      api('financeTrend',{staffId:USER.staffId,months:6}).catch(()=>null)]);
     window._TODO = todo; window._TREND = trend;
     const pendN=pend.length;
     // ---- payment tracking (this month): monthly tuition + student OT collection ----
@@ -8202,13 +8202,49 @@
       const jTot = _attTs.t, jDone = jTot - Number((jLeft && jLeft.n) || 0);
       const jPct = jTot ? Math.max(0, Math.round(jDone / jTot * 100)) : 100;
 
-      const bar = (m) => { const max = tr.reduce((a, x) => Math.max(a, x.collected), 0) || 1;
-        const h = Math.max(4, Math.round(m.collected / max * 62));
-        const cur = m.month === monthStr();
-        return `<div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:var(--sp-1)">
-          <small class="muted" style="font-size:var(--fs-1)">${esc(baht(m.collected))}</small>
-          <div style="width:70%;height:${h}px;border-radius:4px 4px 0 0;background:${cur ? 'var(--blue)' : 'var(--line-strong)'}"></div>
-          <small class="muted" style="font-size:var(--fs-1)">${esc(monthNameYear(m.month).split(' ')[0])}</small></div>`; };
+      /* ═══ 📈 กราฟสรุปภาพรวม — สองเส้น 6 เดือน (ผอ. 2026-10-28) ════════════════════════════
+       *
+       * ของเดิมเป็นแท่ง 3 แท่ง เส้นเดียว (เก็บได้จริง) · สามจุดบอก "แนวโน้ม" ไม่ได้ และเส้นเดียว
+       * ตอบไม่ได้ว่า **เดือนไหนรับมากกว่าจ่าย** ซึ่งเป็นคำถามที่หน้าหลักควรตอบ
+       *
+       * 🔴 วาดด้วย SVG ที่สร้างเอง ไม่ใช่ไลบรารีกราฟ — เหตุผลเดียวกับชุดไอคอน: ไม่ต้องโหลดอะไรเพิ่ม
+       * บนแอปที่ค่ากลางอยู่ที่ 8 วินาทีอยู่แล้ว และ currentColor/ตัวแปรสีทำให้โหมดมืดได้มาฟรี
+       *
+       * 🔴 แกนตั้งเริ่มที่ 0 เสมอ · กราฟเงินที่ตัดฐานทิ้งจะทำให้ส่วนต่าง 2% ดูเหมือน 200%
+       * และนี่คือหน้าจอที่ใช้ตัดสินใจเรื่องเงินจริงของโรงเรียน */
+      const chart = (rows) => {
+        if (!rows.length) return empty('none', EN() ? 'No figures yet' : 'ยังไม่มีตัวเลข');
+        /* PL เผื่อที่ให้ป้ายแกนตั้ง — ถ้าไม่บอกว่ายอดสูงสุดคือเท่าไหร่ คนอ่านจะไม่รู้ว่าทำไมเส้น
+         * ถึงไปกองอยู่ข้างบน (รายจ่ายของโรงเรียนอยู่ที่ ~85% ของรายรับ เส้นสองเส้นจึงชิดกันจริง ๆ) */
+        const W = 320, H = 126, PL = 34, PR = 6, PT = 8, PB = 18;
+        const kk = v => { v = Math.round(Number(v) || 0);
+          return v >= 1e6 ? (v / 1e6).toFixed(1) + 'M' : v >= 1000 ? Math.round(v / 1000) + 'k' : String(v); };
+        const max = Math.max(1, ...rows.map(r => Math.max(Number(r.income) || 0, Number(r.expense) || 0)));
+        const x = i => PL + (rows.length === 1 ? (W - PL - PR) / 2 : i * (W - PL - PR) / (rows.length - 1));
+        const y = v => PT + (H - PT - PB) * (1 - (Number(v) || 0) / max);
+        const line = (key) => rows.map((r, i) => (i ? 'L' : 'M') + x(i).toFixed(1) + ' ' + y(r[key]).toFixed(1)).join(' ');
+        const area = key => line(key) + ` L${x(rows.length - 1).toFixed(1)} ${H - PB} L${x(0).toFixed(1)} ${H - PB} Z`;
+        /* เส้นแนวนอนสามเส้น (0 / ครึ่ง / สูงสุด) — พอให้เทียบความสูงได้ ไม่ถึงกับเป็นตาราง */
+        const grid = [0, .5, 1].map(f => { const gy = (PT + (H - PT - PB) * (1 - f)).toFixed(1);
+          return `<line x1="${PL}" x2="${W - PR}" y1="${gy}" y2="${gy}" stroke="var(--line)" stroke-width="1" stroke-dasharray="3 3"/>
+            <text x="${PL - 5}" y="${(+gy + 3).toFixed(1)}" text-anchor="end" fill="var(--ink-3)" font-size="10" font-family="inherit">${esc(kk(max * f))}</text>`; }).join('');
+        const dots = key => rows.map((r, i) => `<circle cx="${x(i).toFixed(1)}" cy="${y(r[key]).toFixed(1)}" r="2.6" fill="var(--${key === 'income' ? 'prog-3' : 'bad'})"/>`).join('');
+        return `<svg viewBox="0 0 ${W} ${H}" width="100%" height="${H}" role="img"
+            aria-label="${EN() ? 'Income and expenses over the last months' : 'รายรับและรายจ่ายย้อนหลัง'}" style="display:block">
+          <defs><linearGradient id="gInc" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0" stop-color="var(--prog-3)" stop-opacity=".28"/>
+            <stop offset="1" stop-color="var(--prog-3)" stop-opacity="0"/></linearGradient></defs>
+          ${grid}
+          <path d="${area('income')}" fill="url(#gInc)"/>
+          <path d="${line('expense')}" fill="none" stroke="var(--bad)" stroke-width="2" stroke-dasharray="4 3" stroke-linejoin="round" stroke-linecap="round"/>
+          <path d="${line('income')}" fill="none" stroke="var(--prog-3)" stroke-width="2.4" stroke-linejoin="round" stroke-linecap="round"/>
+          ${dots('expense')}${dots('income')}
+          ${rows.map((r, i) => `<text x="${x(i).toFixed(1)}" y="${H - 5}" text-anchor="${i === 0 ? 'start' : i === rows.length - 1 ? 'end' : 'middle'}"
+            fill="var(--ink-3)" font-size="10" font-family="inherit">${esc(monthNameYear(r.month).split(' ')[0].slice(0, 3))}</text>`).join('')}
+        </svg>`; };
+      const legend = `<div class="row" style="gap:var(--sp-4);justify-content:center;font-size:var(--fs-1);color:var(--ink-3);margin-top:var(--sp-1)">
+        <span><i style="display:inline-block;width:14px;height:3px;background:var(--prog-3);vertical-align:middle;border-radius:2px"></i> ${EN() ? 'Received' : 'รับจริง'}</span>
+        <span><i style="display:inline-block;width:14px;height:3px;background:var(--bad);vertical-align:middle;border-radius:2px"></i> ${EN() ? 'Spent' : 'รายจ่าย'}</span></div>`;
       /* 🔴 แถบที่สี่ที่หลุดการแปลงรอบก่อน — และมันพังจริงอยู่บนระบบ (ผอ. ส่งภาพมา 2026-10-28)
        *
        * ตอนรวมแถบให้เป็นชิ้นเดียว ผมไล่ตามรูปทรง `height:6px` แต่แถบนี้สูง **5px** จึงไม่ถูกจับ
@@ -8225,8 +8261,8 @@
       return `<div class="card">
         <div class="spread"><b>📊 ${EN() ? 'Overview' : 'สรุปภาพรวม'}</b>
           <button class="btn sm outline" onclick="GO('finance')">${EN() ? 'Finance' : 'การเงิน'} ›</button></div>
-        <small class="muted" style="display:block;margin-bottom:var(--sp-2)">${EN() ? 'Money received each month — the same figures as the finance screen' : 'ยอดเงินที่ <b>รับจริง</b>แต่ละเดือน — ตัวเลขชุดเดียวกับหน้าการเงิน'}</small>
-        <div style="display:flex;align-items:flex-end;gap:var(--sp-2);height:92px;padding:0 var(--sp-1)">${tr.map(bar).join('')}</div>
+        <small class="muted" style="display:block;margin-bottom:var(--sp-2)">${EN() ? 'Received against spent, last 6 months — the same figures as the finance screen' : 'เงินที่ <b>รับจริง</b> เทียบกับ <b>รายจ่าย</b> ย้อนหลัง 6 เดือน — ตัวเลขชุดเดียวกับหน้าการเงิน'}</small>
+        ${chart(tr)}${legend}
         ${/* 🔴 เงินเดือน ผอ. ไม่ได้นับใน "รายจ่ายรวม" (มติ ผอ. 2026-09-30) — เขียนไว้บนหน้าจอ
              ไม่ใช่ซ่อนไว้ในโค้ด ไม่งั้นตัวเลขนี้จะถูกอ่านผิดโดยคนที่ไม่เคยรู้เรื่องนั้น */''}
         <small class="muted" style="display:block;margin-top:var(--sp-2);font-size:var(--fs-1)">${EN() ? 'Expenses exclude the director’s own salary, by the school’s decision.' : 'รายจ่ายไม่รวมเงินเดือนของ ผอ. ตามมติของโรงเรียน'}</small>
@@ -8267,7 +8303,8 @@
       qt('A_addAnn()',      ic('plus'),      t('lbl.addAnn'))}${
       qt('A_linkParent()',  ic('link'),      EN()?'Link parent':'เชื่อมผู้ปกครอง')}${
       qt('A_viewAs()',      ic('eye'),       EN()?'View as':'ดูมุมมอง')}${
-      qt("GO('manage')",    ic('folders'),   t('title.manage'))}</div>
+      /* 🗂️ "จัดการข้อมูล & สิทธิ" ถูกเอาออกจากแถบนี้ (ผอ. 2026-10-28) — มันเป็นแท็บในแถบล่าง
+         อยู่แล้ว การมีประตูสองบานไปห้องเดียวกันคือการกินที่ของแถบนี้ไปฟรี ๆ หนึ่งช่อง */''}</div>
       <button class="qnext" type="button" aria-label="${EN()?'More tools':'เครื่องมือเพิ่มเติม'}" onclick="QBAR_NEXT(this)">›</button></div>`;
     /* MANUAL REFRESH, asked for 2026-08-27.
      *
@@ -8305,7 +8342,10 @@
                   // "ขาด" is the only word anyone sees for a child everybody knew was away
                   const due=(c.students||[]).filter(s=>s.pauseDue);
                   return due.length?`<div style="margin-top:var(--sp-0)"><span class="pill info">🔄 ${EN()?'due back from leave':'ลาชั่วคราว · ครบกำหนดแล้ว'} (${due.length})</span> <small class="muted">${due.map(s=>esc(dnick(s))).join(', ')}</small></div>`:''; })()}`; })()}</div>`;}).join('')}`}</div>
-      ${A_pausedCard(d.paused)}${A_startingCard(d.starting)}${A_endedStaffCard(d.endedStaff)}
+      ${/* 🚪 "พนักงานสิ้นสุดการทำงาน" ถูกเอาออกจากหน้าหลัก (ผอ. 2026-10-28) — ไปดูที่หน้า
+           จัดการข้อมูล ซึ่งมีหัวข้อของมันอยู่แล้ว (sec-staff-gone) และเป็นที่ที่จัดการได้จริง
+           ไม่ใช่แค่ดู · หน้าหลักคือ "วันนี้ต้องทำอะไร" ส่วนคนที่ลาออกไปแล้วไม่ใช่งานของวันนี้ */''}
+      ${A_pausedCard(d.paused)}${A_startingCard(d.starting)}
       <div class="card"><div class="spread"><h3>👩‍🏫 ${EN()?'Staff today':'พนักงานวันนี้'}</h3>${_closedStaff?`<span class="pill" style="background:var(--surface-3);color:var(--ink-3)">🏖️ ${EN()?'Holiday':'วันหยุด'}</span>`:(_day.bigCleaning?`<span class="pill wait">${BC_ICON} ${BC_SHORT()}</span>`:'')}</div>
         ${_closedStaff?`<div style="text-align:center;color:var(--ink-3);padding:var(--sp-3) 0"><b>${EN()?'School closed — nobody is expected in today':'โรงเรียนหยุด — ไม่มีใครต้องเข้างานวันนี้'}</b></div>`:
         (()=>{ const present=d.staff.filter(s=>s.status==='IN'||s.status==='OUT').length; const t=d.staff.length; const pct=t?Math.round(present/t*100):100;
@@ -12631,34 +12671,30 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
    * The old copy ("เหลือแค่จัดการข้อมูลให้เรียบร้อย") never said what "เรียบร้อย" was, so there was
    * nothing to finish and nothing to make the card go away. It is not a task — it is a fact about the
    * roster, and it stays visible for exactly as long as the fact is true. */
-  window.A_endedStaffCard=(list)=>{ list=list||[]; if(!list.length) return '';
-    const dn=x=>EN()?(x.nickEN||x.nameEN||x.nick||x.name):(x.nick||x.name);
-    const names=list.slice(0,4).map(dn).filter(Boolean);
-    const more=list.length-names.length;
-    return `<div class="card" style="border-color:var(--warn-line);background:var(--warn-bg)">
-      <div class="spread"><h3 style="color:var(--warn)">${ic('exit')} ${EN()?'Staff who have left':'พนักงานที่สิ้นสุดการทำงานแล้ว'}</h3>
-        <span class="pill warn">${list.length}</span></div>
-      <div style="font-size:var(--fs-1)">${esc(names.join(' · '))}${more>0?` <span class="muted">${EN()?`+${more} more`:`และอีก ${more} คน`}</span>`:''}</div>
-      <small class="muted" style="display:block;margin:var(--sp-1) 0 var(--sp-2)">${EN()
-        ? 'Already off the attendance summary and locked out of the app — nothing is pending. Kept on purpose so payroll and attendance history still make sense.'
-        : 'ระบบเอาออกจากสรุปการมาทำงานและปิดการเข้าใช้งานให้เรียบร้อยแล้ว — ไม่มีอะไรค้างต้องทำ · ที่ยังเก็บชื่อไว้เพราะประวัติเงินเดือนและการลงเวลาอ้างอิงถึงข้อมูลนี้'}</small>
-      <button class="btn sm outline block" onclick="A_gotoEnded()">🗂️ ${EN()?'Open in Manage data':'ดูและจัดการในเมนูจัดการข้อมูล'}</button></div>`; };
-  // The 🚪 section lives on the manage screen, so get there first, then open and scroll to it.
-  window.A_gotoEnded=()=>{ GO('manage');
-    let n=0; const tick=()=>{ if(document.getElementById('sec-staff-gone')) return A_jumpSec('sec-staff-gone');
-      if(++n<40) setTimeout(tick,100); }; setTimeout(tick,100); };
+  /* 🪦 A_endedStaffCard / A_gotoEnded — ถูกถอดออก 2026-10-28 (ผอ.)
+   *
+   * การ์ด "พนักงานสิ้นสุดการทำงาน" เคยอยู่บนหน้าหลัก พร้อมปุ่มพาไปที่หัวข้อในหน้าจัดการข้อมูล
+   * ผอ. เคยถามไว้ตั้งแต่ 2026-09-01 ว่าขอให้ย้ายไปอยู่ในส่วนจัดการสิ้นสุดการทำงานแทน
+   * เพื่อไม่ให้หน้าหลักโหลดเยอะเกินไป — ตอนนั้นตอบด้วยทางสายกลาง (ย่อเหลือบรรทัดเดียว + ปุ่มพาไป)
+   * รอบนี้คือการทำให้จบตามที่ขอไว้ตั้งแต่แรก
+   *
+   * 🔴 สิ่งที่หายไปจริง ๆ คือ "ตัวเตือน" — คำขอเดิมคือให้ขึ้นเตือนแอดมินว่าให้นำชื่อออกจากระบบ
+   * ตอนนี้ไม่มีอะไรสะกิดอีกแล้ว ต้องเข้าไปดูที่หน้าจัดการข้อมูลเอง · เป็นการแลกที่ ผอ. เลือก
+   * และบันทึกไว้ตรงนี้เพื่อให้คนถัดไปรู้ว่ามันเป็นการเลือก ไม่ใช่การหลุด
+   *
+   * หัวข้อปลายทางยังอยู่ที่หน้า manage: id="sec-staff-gone" (ค้นคำนี้เจอทันที) */
   window.A_startingCard=(list)=>{ list=list||[]; if(!list.length) return '';
     const dn=x=>EN()?(x.nickEN||x.nameEN||x.nick||x.name):(x.nick||x.name);
     const soon=list.filter(x=>Number(x.days)<=7);
-    return `<div class="card"><div class="spread"><h3>${ic('calendar')} ${EN()?'Starting soon':'นักเรียนที่กำลังจะเริ่มเรียน'}</h3>
-        <span class="muted">${list.length} ${EN()?'children':'คน'}</span></div>
+    return `<details class="card foldcard"><summary class="spread"><h3>${ic('calendar')} ${EN()?'Starting soon':'นักเรียนที่กำลังจะเริ่มเรียน'}</h3>
+        <span class="muted">${list.length} ${EN()?'children':'คน'}</span></summary>
       ${soon.length?`<small class="muted" style="display:block;margin-bottom:var(--sp-1)">${EN()
         ? `${soon.length} within the week — their check-in opens by itself on the morning.`
         : `อีก ${soon.length} คนภายในสัปดาห์นี้ · ระบบจะเปิดให้ลงเวลาเองในเช้าวันนั้น`}</small>`:''}
       ${list.map(x=>`<div class="list-item"><span><b>${esc(dn(x))}</b> <small class="muted">${esc(x.className||(EN()?'no class':'ยังไม่จัดชั้น'))}</small>
           <br><small class="muted">${EN()?'first day':'วันแรก'} <b>${esc(ddmmyyyy(x.startDate))}</b></small></span>
         <span class="pill ${Number(x.days)<=7?'wait':'info'}" style="flex:0 0 auto">${Number(x.days)<=0?(EN()?'today':'วันนี้'):(EN()?`in ${x.days} day(s)`:`อีก ${x.days} วัน`)}</span></div>`).join('')}
-      <small class="muted">${EN()?'Not counted as absent, not on class lists, and their parent cannot check in yet — but bills can already be issued.':'ยังไม่นับขาด ไม่ขึ้นชื่อในชั้นเรียน และผู้ปกครองยังลงเวลาไม่ได้ · แต่ออกบิลล่วงหน้าได้แล้ว'}</small></div>`; };
+      <small class="muted">${EN()?'Not counted as absent, not on class lists, and their parent cannot check in yet — but bills can already be issued.':'ยังไม่นับขาด ไม่ขึ้นชื่อในชั้นเรียน และผู้ปกครองยังลงเวลาไม่ได้ · แต่ออกบิลล่วงหน้าได้แล้ว'}</small></details>`; };
   window.A_pausedCard=(list)=>{ list=list||[]; if(!list.length) return '';
     const dn=x=>EN()?(x.nickEN||x.nameEN||x.nick||x.name):(x.nick||x.name);
     // ...and the third group, which the card used to fold into "away" and then tell the admin that a
@@ -12668,8 +12704,8 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
         <br><small class="muted">${esc(ddmmyyyy(x.from))} → ${x.to?esc(ddmmyyyy(x.to)):(EN()?'not decided':'ยังไม่กำหนด')}${x.reason?' · '+esc(x.reason):''}</small>
         ${isDue?`<br><small style="color:var(--warn)">${x.dueToday?(EN()?'⏰ due back TODAY':'⏰ ครบกำหนดวันนี้'):(EN()?'⏰ the return date has passed':'⏰ เลยกำหนดกลับมาแล้ว')}</small>`:''}</span>
       <button class="btn sm ${isDue?'green':'outline'}" onclick="A_resumeStudent('${esc(x.studentId)}','home')">▶️ ${EN()?'Back':'กลับมาเรียน'}</button></div>`;
-    return `<div class="card"><div class="spread"><h3>⏸️ ${EN()?'Temporary leave':'นักเรียนลาชั่วคราว'}</h3>
-        <span class="muted">${list.length} ${EN()?'children':'คน'}</span></div>
+    return `<details class="card foldcard"><summary class="spread"><h3>⏸️ ${EN()?'Temporary leave':'นักเรียนลาชั่วคราว'}</h3>
+        <span class="muted">${list.length} ${EN()?'children':'คน'}</span></summary>
       ${due.length?`<div class="card" style="background:var(--warn-bg);border-color:var(--warn-line);padding:var(--sp-2);margin:var(--sp-1) 0">
         <b style="color:var(--warn)">🔄 ${EN()?'Due back — confirm they have returned':'ครบกำหนดแล้ว — กดยืนยันว่ากลับมาเรียนแล้ว'} (${due.length})</b>
         <small class="muted" style="display:block;margin-top:var(--sp-0)">${EN()?'They are already back on the class lists and can be checked in. Confirming clears the leave.':'ระบบนำชื่อกลับเข้าชั้นเรียนและเปิดให้เช็คอินแล้ว · กดยืนยันเพื่อล้างสถานะลาชั่วคราว'}</small>
@@ -12679,7 +12715,7 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
         <b style="font-size:var(--fs-1)">📅 ${EN()?'Starting later — still at school until then':'ยังไม่เริ่มลา — ยังมาเรียนตามปกติ'} (${soon.length})</b>
         <small class="muted" style="display:block;margin-top:var(--sp-0)">${EN()?'Recorded in advance. Until the start date they are billed, expected, and on every class list as usual.':'บันทึกไว้ล่วงหน้า · จนถึงวันเริ่มลา ยังออกบิล ยังนับการมาเรียน และยังอยู่ในรายชื่อชั้นเรียนตามปกติ'}</small>
         ${soon.map(x=>row(x,false)).join('')}</div>`:''}
-      <small class="muted">${EN()?'While away a child is not billed, not marked absent, and not on class lists — from the start date onwards.':'ระหว่างลาชั่วคราว จะไม่ออกบิล ไม่นับขาด และไม่ขึ้นชื่อในชั้นเรียน — นับจากวันเริ่มลาเป็นต้นไป'}</small></div>`; };
+      <small class="muted">${EN()?'While away a child is not billed, not marked absent, and not on class lists — from the start date onwards.':'ระหว่างลาชั่วคราว จะไม่ออกบิล ไม่นับขาด และไม่ขึ้นชื่อในชั้นเรียน — นับจากวันเริ่มลาเป็นต้นไป'}</small></details>`; };
 
   // Live preview of the FIRST month's tuition under the chosen rule, so the admin sees the number
   // before it becomes a bill. Mirrors tuitionForMonth_ in engine.js — keep the two in step.

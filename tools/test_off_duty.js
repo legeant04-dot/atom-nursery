@@ -385,21 +385,21 @@ console.log('\n4) THE ADMIN IS TOLD, rather than the record quietly vanishing');
    * that people come back, and the row holds their payroll and attendance history. */
   eq('the dashboard names them', res.ended.map(x => x[0]), ['ฉำฉา']);
   ok_('...with the date they left', /^\d{4}-\d{2}-\d{2}$/.test(res.ended[0][1]));
-  ok_('the card exists', /window\.A_endedStaffCard=/.test(app));
-  ok_('...and is on the dashboard', /\$\{A_endedStaffCard\(d\.endedStaff\)\}/.test(app));
-
-  /* ...AS ONE LINE, NOT AS THE WHOLE LIST. Asked 2026-09-01: "จะแสดงอยู่นานแค่ไหน? หรือนำไปแสดง
-   * ในส่วนของจัดการสิ้นสุดการทำงานแทนเพื่อไม่ให้หน้าหลักโหลดเยอะเกินไป" — the list only ever grows,
-   * one row per person who ever left, on the screen that opens first. */
-  ok_('the dashboard names them in a sentence instead of listing every row',
-    /const names=list\.slice\(0,4\)\.map\(dn\)\.filter\(Boolean\);/.test(app) && /const more=list\.length-names\.length;/.test(app));
-  ok_('...and hands off to the section that already holds the detail and the buttons',
-    /onclick="A_gotoEnded\(\)"/.test(app) && /window\.A_gotoEnded=\(\)=>\{ GO\('manage'\);/.test(app));
-  ok_('...which it opens and scrolls to rather than leaving the admin to hunt for it',
-    /A_jumpSec\('sec-staff-gone'\)/.test(app));
-  /* The old copy said "เหลือแค่จัดการข้อมูลให้เรียบร้อย" without ever saying what เรียบร้อย was, so
-   * there was nothing to finish and no way to make the card go away. */
-  ok_('it says plainly that nothing is pending', /ไม่มีอะไรค้างต้องทำ/.test(app));
+  /* ═══ 2026-10-28 — ย้ายออกจากหน้าหลักจนจบ (ผอ.) ══════════════════════════════════════════
+   *
+   * ผอ. ขอไว้ตั้งแต่ **2026-09-01**: "จะแสดงอยู่นานแค่ไหน? หรือนำไปแสดงในส่วนของจัดการสิ้นสุด
+   * การทำงานแทนเพื่อไม่ให้หน้าหลักโหลดเยอะเกินไป" — ตอนนั้นตอบด้วยทางสายกลาง (ย่อเหลือบรรทัดเดียว
+   * + ปุ่มพาไป) · รอบนี้คือการทำให้จบตามที่ขอไว้แต่แรก
+   *
+   * 🔴 สิ่งที่ชุดนี้ต้องยึดต่อไม่ใช่ "การ์ดอยู่บนหน้าหลัก" แต่คือ **ปลายทางยังอยู่และยังหาเจอ** —
+   * ถ้าเอาออกจากหน้าหลักแล้วหัวข้อปลายทางหายไปด้วย คนก็จะไม่มีทางเห็นคนที่ลาออกอีกเลย */
+  ok_('🔴 ไม่อยู่บนหน้าหลักแล้ว', !/\$\{A_endedStaffCard\(d\.endedStaff\)\}/.test(app));
+  ok_('...และโค้ดของการ์ดถูกเอาออกด้วย ไม่ได้ทิ้งไว้ให้เข้าใจผิดว่ายังใช้อยู่',
+    !/window\.A_endedStaffCard=/.test(app) && !/window\.A_gotoEnded=/.test(app));
+  ok_('...พร้อมเหตุผลที่คนถัดไปจะอ่านเจอตรงที่มันเคยอยู่', /A_endedStaffCard \/ A_gotoEnded — ถูกถอดออก/.test(app));
+  /* 🔴 ครึ่งที่สำคัญกว่า: ปลายทาง */
+  ok_('🔴 หัวข้อปลายทางในหน้าจัดการข้อมูลยังอยู่', /id="sec-staff-gone"/.test(app));
+  ok_('...และยังแสดงรายชื่อคนที่ลาออกจริง', /\$\{_stGone\.map\(s=>/.test(app));
   ok_('...and the manage section spells out the three options, with "do nothing" recommended',
     /ปล่อยไว้แบบนี้<\/b> \(แนะนำ/.test(app) && /นำกลับเข้าทำงาน<\/b>/.test(app) && /<b>ลบ<\/b>/.test(app));
   ok_('...and answers how long the name stays there', /ชื่อจะอยู่ในรายการนี้จนกว่าจะทำ 2 อย่างหลัง/.test(app));
