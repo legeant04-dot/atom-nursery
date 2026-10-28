@@ -167,7 +167,7 @@
        * (กันจ่ายเงินซ้ำ/เช็คอินซ้ำ) ไม่ใช่ตัวบอกสถานะ */
       return _rawApi(action,payload,opts); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.478'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.479'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:var(--fs-1);margin-top:var(--sp-5)">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -1846,6 +1846,26 @@
       <h2 class="page" style="text-align:center;margin-top:var(--sp-4)">${EN()?'Signing in with LINE…':'กำลังเข้าสู่ระบบด้วย LINE…'}</h2>
       <p class="muted">${EN()?'This takes a few seconds the first time.':'ครั้งแรกอาจใช้เวลาสักครู่ กรุณารอสักครู่'}</p></div>`;
   }
+  /* ═══ 🦴 กลับเข้ามาอีกครั้ง — คนที่เคยเข้าแล้ว รอ "หน้าหลักของตัวเอง" ไม่ใช่ "ขั้นตอนของ LINE"
+   *
+   * ผอ. 2026-10-28: "ถ้าเราเอาหน้า 'กำลังเข้าระบบด้วย Line' ออกแล้วขึ้น Skeleton เลยจะดีไหม?"
+   *
+   * ✅ ดี — **เฉพาะตรงนี้** · นี่คือการเปิดแอปของคนที่เคยเข้าแล้วแต่ token หมดอายุ ซึ่งเป็น
+   * เส้นทางที่เกิดบ่อยที่สุดในชีวิตประจำวัน · สิ่งที่เขากำลังรอคือหน้าจอของเขา และโครงร่างคือ
+   * คำสัญญาเดียวกับที่ทุกหน้าจอในแอปให้ไว้แล้ว
+   *
+   * 🔴 แต่ **ไม่ใช่ตอนที่เพิ่งกดปุ่ม "เข้าสู่ระบบด้วย LINE"** — ดูหมายเหตุใต้ signingInScreen()
+   * ตรงนั้นหน้าเว็บกำลังจะถูกแทนที่ด้วย access.line.me และบน iPhone บางเครื่อง **มันไม่เคย
+   * กลับมา** · โครงร่างที่กะพริบอยู่ตลอดกาลโดยไม่มีคำอธิบาย แย่กว่าคำว่า "กำลังเข้าสู่ระบบด้วย
+   * LINE…" ที่บอกชื่อขั้นตอนที่กำลังพัง และมีตัวจับเวลา 8 วินาทีคอยเสนอทางออกให้
+   *
+   * ชื่อขั้นตอนยังอยู่ที่นี่เหมือนกัน แต่เป็นบรรทัดบาง ๆ ข้างบน ไม่ใช่ทั้งหน้าจอ — ถ้าช้าผิดปกติ
+   * ยังตอบได้อยู่ว่ากำลังติดอยู่ที่อะไร */
+  function resumingScreen(){ USER = null; AUTH_RENDER = resumingScreen; setHeader(); nav.hidden = true;
+    app.innerHTML = `<div class="bootmsg"><span class="bd"></span>${
+      EN()?'Signing you back in…':'กำลังพาท่านกลับเข้าระบบ…'}</div>`
+      + skel('stats',2) + skel('card',3) + skel('rows',3);
+  }
   /* ---- WHEN THE HAND-OFF TO LINE NEVER COMES BACK (iPhone) --------------------------------------
    *
    * A parent could not get in on 08/09; the recording shows exactly what happened, twice in a row:
@@ -2688,7 +2708,11 @@
        * honour lands on the login screen through __atomSignedOut. */
       if (resumeSession()) return;
       let _known = false; try { _known = !!localStorage.getItem('atom_last_uid'); } catch (e) {}
-      if (liffPending() || _known) signingInScreen();
+      /* 🔴 สองการรอที่หน้าตาเคยเหมือนกัน แต่คนละเรื่อง
+       * liffPending = เพิ่งถูกส่งไป LINE แล้วกลับมา — ขั้นที่พังได้ต้องมีชื่อ (ดู liffWatchStart)
+       * _known      = คนเดิมที่ token หมดอายุ — สิ่งที่เขารอคือหน้าหลักของตัวเอง */
+      if (liffPending()) signingInScreen();
+      else if (_known) resumingScreen();
       liffReady().then(() => {
         if (!liff.isLoggedIn()) { fallback(); return; }
         return liffAuth().catch(e => { toast('⚠️ ' + (e.message || e)); fallback(); });
