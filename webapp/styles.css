@@ -698,6 +698,14 @@ html,body{max-width:100%;overflow-x:hidden;}
 /* ---- global processing overlay (blocks double-submit while a mutation is in flight) ---- */
 #busyOverlay{position:fixed;inset:0;z-index:99999;display:none;align-items:center;justify-content:center;background:rgba(255,255,255,.5);backdrop-filter:blur(1px);-webkit-backdrop-filter:blur(1px);}
 #busyOverlay.on{display:flex;}
+/* 🔴 "กำลังโหลดข้อมูล" ของการอ่าน — บอก ไม่กั้น
+   ระหว่างการอ่านไม่มีอะไรถูกเขียน จึงไม่มีอะไรต้องกัน และคนที่อยากเปลี่ยนใจไปเมนูอื่น
+   ระหว่างรอ 8 วินาที ต้องกดได้ · ส่วนการเขียนยังกั้นเหมือนเดิม เพราะที่นั่นมันคือตัวกันกดซ้ำ */
+#busyOverlay.reading{background:transparent;backdrop-filter:none;-webkit-backdrop-filter:none;
+  pointer-events:none;align-items:flex-start;padding-top:72px;}
+#busyOverlay.reading .busy-box{flex-direction:row;gap:var(--sp-2);padding:var(--sp-2) var(--sp-4);
+  border-radius:var(--radius-pill);border:1px solid var(--line);}
+#busyOverlay.reading .busy-spin{width:18px;height:18px;border-width:2px;}
 #busyOverlay .busy-box{background:var(--surface);border-radius:14px;padding:var(--sp-4) var(--sp-5);box-shadow:0 10px 34px rgba(0,0,0,.18);display:flex;flex-direction:column;align-items:center;gap:var(--sp-3);}
 #busyOverlay .busy-spin{width:34px;height:34px;border:3px solid var(--line);border-top-color:var(--blue);border-radius:50%;animation:busySpin .8s linear infinite;}
 #busyOverlay .busy-txt{font-size:var(--fs-1);color:var(--blue);font-weight:600;}

@@ -191,7 +191,7 @@ console.log('\n7) THE REPORT SCREEN, WHERE THE WORK IS');
    * same red corner badge. */
   ok_('the server counts the ones still waiting', /injuries:     \(M\.injuryReports\|\|\[\]\)\.filter\(r=>pend\(r\.Status\)\)\.length,/.test(eng));
   ok_('...the badge knows which button it belongs to', /studentOT:'A_studentOT', injuries:'A_injuries'/.test(app));
-  ok_('...and the button is on the operations row', /\['🚑',EN\(\)\?'Injury reports':'รายงานอุบัติเหตุ','A_injuries\(\)'\],/.test(app));
+  ok_('...and the button is on the operations row', /\['aid',EN\(\)\?'Injury reports':'รายงานอุบัติเหตุ','A_injuries\(\)'\],/.test(app));
 
   /* The page is a summary, so it has to fit on a screen: two figures read as sentences side by side,
    * the two breakdowns half a screen each because they are read together, and a scroll past five
