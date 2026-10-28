@@ -88,7 +88,7 @@ console.log('\n3) blocked gets its OWN instructions — the accuracy list cannot
   ok_('...and it is shown only for a denial', /const GEO_HELP=\(why\)=>\(why==='DENIED'\?GEO_UNBLOCK\(\):''\)\+/.test(app));
   ok_('Chrome: the lock icon in the address bar', /แตะไอคอน <b>🔒 \(หรือ ⓘ\)<\/b>/.test(app));
   ok_('Safari: the ᴀA menu, and Location Services', /แตะ <b>ᴀA<\/b>/.test(app) && /บริการหาตำแหน่ง → Safari/.test(app));
-  ok_('and a way back without hunting for the button again', /🔄 \$\{EN\(\)\?'I have allowed it — try again':'เปิดให้แล้ว — ลองใหม่'\}/.test(app));
+  ok_('and a way back without hunting for the button again', /\$\{ic\('refresh'\)\} \$\{EN\(\)\?'I have allowed it — try again':'เปิดให้แล้ว — ลองใหม่'\}/.test(app));
   /* LINE and Facebook open links in their own browser, which keeps its own permission list. It is a
    * common enough cause at this school to name rather than let a parent work through five Android
    * settings that were never involved. */

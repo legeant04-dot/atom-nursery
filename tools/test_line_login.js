@@ -85,6 +85,8 @@ function boot(over) {
     sessionStorage: { getItem: k => (k in sess ? sess[k] : null), setItem: (k, v) => { sess[k] = v; }, removeItem: k => { delete sess[k]; } },
     localStorage: { getItem: k => (k in loc ? loc[k] : null), setItem: (k, v) => { loc[k] = v; }, removeItem: k => { delete loc[k]; } },
     EN: () => false, esc: s => s, toast: m => log.push('toast:' + m),
+    // ชุดไอคอนของแอป (2026-10-28) — ชุดนี้ไม่ได้ตรวจเรื่องไอคอน แต่หน้าจอที่มันรันเรียกใช้
+    ic: () => '', svgIcon: () => '',
     setHeader: () => {}, nav: {},
     app: { set innerHTML(v) { log.push('screen:' + (/กำลังเข้าสู่ระบบ/.test(v) ? 'SIGNING_IN'
       : /ยังเข้าสู่ระบบไม่สำเร็จ/.test(v) ? 'STUCK' : 'other')); } },

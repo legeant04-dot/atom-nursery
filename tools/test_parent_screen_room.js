@@ -64,7 +64,7 @@ console.log('\n2) the two reference lists are folded away');
     app.indexOf('vaccineCard(sched,recs,sid,true)') > 0);
   ok_('...with the save button inside either way, or a folded card could not be filled in',
     /const inner = `\$\{editable\?/.test(vac) && /VAC_save/.test(vac));
-  ok_('earlier DSPM bands are folded too', /<details class="card"><summary style="cursor:pointer;font-weight:700">📜/.test(app));
+  ok_('earlier DSPM bands are folded too', /<details class="card"><summary style="cursor:pointer;font-weight:700">\$\{ic\('doc'\)\}/.test(app));
   ok_('...with the number of bands on the line', /\$\{past\.length\} \$\{EN\(\)\?'band\(s\)':'ช่วงวัย'\}/.test(app));
   ok_('nothing is folded when there is nothing to fold', /\$\{past\.length\?`<details/.test(app));
 }

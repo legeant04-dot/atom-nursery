@@ -189,7 +189,10 @@ console.log('\n6) The ⏰ tools moved to ดำเนินการ, split teac
   ok_('...and the new monthly work time', /A_staffMonth\(\)/.test(tea));
   ok_('the student OT tool is NOT on the teacher tab', !/A_studentOT\(\)/.test(tea));
   // t('ot.adminOT') already begins with ⏰ — printing another one read "⏰ ⏰ OT คุณครู"
-  ok_('a label that already has an icon does not get a second one', /const dup=L\.slice\(0,3\)\.indexOf\(ic\)>=0/.test(app));
+  /* กันซ้ำนี้ใช้กับ emoji เท่านั้น · ช่องแรกที่เป็น "ชื่อไอคอน" จะวาด SVG แล้วไม่ต้องกันซ้ำเลย
+   * เพราะป้ายไม่มีวันขึ้นต้นด้วย <svg> (2026-10-28) */
+  ok_('a label that already has an icon does not get a second one',
+    /const dup=!svg && L\.slice\(0,3\)\.indexOf\(mark\)>=0/.test(app));
 }
 
 console.log('\n7) The screen shows the overview AND the detail behind it');

@@ -131,7 +131,8 @@ console.log('\n1) what is waiting, counted once');
 
 console.log('\n2) the badge, on the tool it belongs to');
 {
-  ok_('opTools takes a count as a 4th item', /items\.map\(\(\[ic,label,fn,n\]\)=>\{/.test(app));
+  /* พารามิเตอร์แรกเคยชื่อ ic ซึ่งบัง window.ic() ที่เป็นตัวสร้างไอคอน — เปลี่ยนชื่อเป็น mark แล้ว */
+  ok_('opTools takes a count as a 4th item', /items\.map\(\(\[mark,label,fn,n\]\)=>\{/.test(app));
   ok_('...and hides it at zero', /\$\{\(n>0\)\?'':' hidden'\}/.test(app));
   ok_('...and clamps a silly number rather than breaking the row', /n>99\?'99\+':n/.test(app));
   // the id is derived from the onclick, so a button and its count cannot be wired to each other wrongly

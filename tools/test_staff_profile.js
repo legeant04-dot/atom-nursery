@@ -163,7 +163,7 @@ console.log('\n5) the screen');
   ok_('...but only sends a photo when one was actually picked',
     /const ph=photoVal\(document,'sp_Photo'\); if\(ph\) data\.Photo=ph;/.test(app));
   // the locked half must say WHY, or it reads as a brush-off on your own date of birth
-  ok_('the locked card says what it is', /🔒 \$\{EN\(\)\?'Set by the school':'ข้อมูลที่โรงเรียนกำหนด'\}/.test(form));
+  ok_('the locked card says what it is', /\$\{ic\('lock'\)\} \$\{EN\(\)\?'Set by the school':'ข้อมูลที่โรงเรียนกำหนด'\}/.test(form));
   ok_('...and why those fields are the school\'s', /มีผลกับเงิน เวลาทำงาน หรือสิทธิ์การใช้งาน/.test(form));
   ok_('the national id is explained as the USERNAME, not as another arbitrary lock',
     /เลขบัตรประชาชน \(ใช้เป็นชื่อผู้ใช้\)/.test(form));
