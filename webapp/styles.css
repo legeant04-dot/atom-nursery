@@ -842,6 +842,17 @@ a:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible,te
 /* ═══ 📊 แถบความคืบหน้า ═══════════════════════════════════════════════════════════════════
  * สามจุดในแอปเคยวาดแถบนี้เองด้วย inline style คนละชุด (สูง 6px · มุม 4px · สีคนละกฎ)
  * ตอนนี้เป็นชิ้นเดียว — เปลี่ยนความสูงหรือเฉดสีทั้งแอปคือการแก้ที่นี่ที่เดียว */
+/* 📂 การ์ดที่พับเก็บได้ — ผอ. 2026-10-28: "นักเรียนลาชั่วคราว / นักเรียนที่กำลังจะเริ่มเรียน
+   ทำให้พับซ่อนข้อมูลได้" · สองหัวข้อนี้โตตามจำนวนเด็ก และมันอยู่บนหน้าแรกที่เปิดขึ้นมาทุกครั้ง
+   🔴 ปิดไว้เป็นค่าเริ่มต้น แต่ **จำนวนคนยังอยู่บนหัวเรื่อง** — พับเก็บได้ต้องไม่เท่ากับมองไม่เห็นว่ามี */
+.foldcard>summary{cursor:pointer;list-style:none;align-items:center;gap:var(--sp-2);}
+.foldcard>summary::-webkit-details-marker{display:none;}
+.foldcard>summary h3{margin:0;}
+/* ลูกศรบอกสถานะ — หมุนลงเมื่อเปิด · ไม่ใช้สามเหลี่ยมของเบราว์เซอร์ เพราะมันหน้าตาต่างกันทุกเครื่อง */
+.foldcard>summary::after{content:'›';margin-left:auto;font-size:var(--fs-4);line-height:1;color:var(--ink-3);
+  transition:transform var(--dur);}
+.foldcard[open]>summary::after{transform:rotate(90deg);}
+
 .pbar{height:8px;background:var(--prog-track);border-radius:var(--radius-pill);overflow:hidden;
   margin:var(--sp-1) 0;}
 .pbar>i{display:block;height:100%;border-radius:var(--radius-pill);transition:width var(--dur) ease;}

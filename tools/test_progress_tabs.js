@@ -100,5 +100,35 @@ console.log('\n4) 🧭 แถบเครื่องมือ — ข้อค�
   ok_('...รวมถึงตอนหมุนจอ', /window\.addEventListener\('resize', \(\) => document\.querySelectorAll\('\.qbarwrap'\)/.test(app));
 }
 
+console.log('\n5) 📈 กราฟสรุปภาพรวม — สองเส้น 6 เดือน');
+{
+  ok_('ขอข้อมูล 6 เดือน', /api\('financeTrend',\{staffId:USER\.staffId,months:6\}\)/.test(app));
+  /* `d3` เปล่า ๆ ไปชนคำว่า "grid3" — ถามด้วย "การโหลดไลบรารี" ไม่ใช่ชื่อที่อาจโผล่กลางคำ */
+  ok_('วาดด้วย SVG ของเราเอง ไม่ใช่ไลบรารีกราฟ',
+    /const chart = \(rows\) =>/.test(app) &&
+    !/chart\.js|\bd3\.|echarts|apexchart|highcharts/i.test(app));
+  ok_('สองเส้น: รับจริง กับ รายจ่าย', /line\('expense'\)/.test(app) && /line\('income'\)/.test(app));
+  /* 🔴 กราฟเงินที่ตัดฐานทิ้งจะทำให้ส่วนต่าง 2% ดูเหมือน 200% — และนี่คือหน้าจอที่ใช้ตัดสินใจ
+   * เรื่องเงินจริงของโรงเรียน · y() หาร max ตรง ๆ จึงเริ่มที่ 0 เสมอตามนิยาม */
+  ok_('🔴 แกนตั้งเริ่มที่ 0 เสมอ', /const y = v => PT \+ \(H - PT - PB\) \* \(1 - \(Number\(v\) \|\| 0\) \/ max\)/.test(app));
+  ok_('...และบอกด้วยว่ายอดสูงสุดคือเท่าไหร่', /text-anchor="end"[^`]*kk\(max \* f\)/.test(app));
+  /* สีมาจากตัวแปร ไม่ใช่ค่าคงที่ — โหมดมืดจึงตามมาเอง (วัดแล้ว: เส้นรับจริงเป็น prog-3 ของโหมดนั้น) */
+  ok_('ใช้ตัวแปรสีของระบบ จึงตามโหมดมืดเอง',
+    /stroke="var\(--prog-3\)"/.test(app) && /stroke="var\(--bad\)"/.test(app));
+  ok_('มีคำอธิบายว่าเส้นไหนคืออะไร', /const legend = /.test(app) && /'Received' : 'รับจริง'/.test(app));
+}
+
+console.log('\n6) 📂 หัวข้อที่พับเก็บได้ และของที่ย้ายออกจากหน้าหลัก');
+{
+  ok_('นักเรียนลาชั่วคราว พับได้', /<details class="card foldcard"><summary class="spread"><h3>⏸️/.test(app));
+  ok_('นักเรียนที่กำลังจะเริ่มเรียน พับได้', /<details class="card foldcard"><summary class="spread"><h3>\$\{ic\('calendar'\)\}/.test(app));
+  /* 🔴 พับเก็บได้ ต้องไม่เท่ากับมองไม่เห็นว่ามี — จำนวนคนยังอยู่บนหัวเรื่องที่ปิดอยู่ */
+  ok_('🔴 ...แต่จำนวนคนยังอยู่บนหัวเรื่อง', /\$\{list\.length\} \$\{EN\(\)\?'children':'คน'\}<\/span><\/summary>/.test(app));
+  ok_('...และลูกศรเป็นของเราเอง ไม่ใช่สามเหลี่ยมของเบราว์เซอร์',
+    /\.foldcard>summary::-webkit-details-marker\{display:none;\}/.test(css) && /\.foldcard>summary::after\{content:'›'/.test(css));
+  ok_('แถบเครื่องมือไม่มี "จัดการข้อมูล" แล้ว (มันเป็นแท็บในแถบล่างอยู่แล้ว)',
+    !/qt\("GO\('manage'\)"/.test(app));
+}
+
 console.log('\n' + (fail ? 'FAILED ' : 'PASSED ') + pass + ' passed, ' + fail + ' failed\n');
 process.exit(fail ? 1 : 0);
