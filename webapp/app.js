@@ -37,8 +37,24 @@
   // Any MUTATING api() call covers the screen with "ระบบกำลังดำเนินการ" (pointer-events blocked) so the
   // user can't double-tap a button or resubmit while the request is in flight. Reads are never covered
   // (they paint from cache instantly). Wraps window.api once, after api.js has defined it.
+  /* 🔴 ถามคนที่รู้คำตอบอยู่แล้ว แทนที่จะเดาเอง — ผอ. 2026-10-28:
+   * "เวลาเปลี่ยนเมนู ให้เอา 'ระบบกำลังดำเนินการ' ออก หรือ 'สำเร็จ' ออก"
+   *
+   * วัดบนเบราว์เซอร์จริง: เปลี่ยนเมนู 5 ครั้งแล้วยังเห็นทั้ง "ระบบกำลังดำเนินการ…" และ "สำเร็จ"
+   * ตัวการคือ **payrollReminderDue** ซึ่งเป็นการ "ถาม" ล้วน ๆ ว่าถึงกำหนดแจ้งเงินเดือนหรือยัง
+   * แต่ชื่อขึ้นต้นด้วย `pay` กฎเดาจากชื่อข้างล่างนี้จึงเรียกมันว่าการเขียน
+   *
+   * 🔴 และกฎนี้คือ **สำเนาที่สาม** ของคำถามเดียวกัน · api.js มี isMutating() ที่มี READ_ONLY
+   * กำกับไว้ และ src/Code.gs มี READ_ONLY_ACTIONS_ ที่ตรงกัน — สองตัวนั้นเห็นตรงกันว่าอันนี้คือ
+   * การอ่าน มีแต่สำเนานี้ที่ไม่เห็น เพราะมันไม่เคยถูกบอก
+   *
+   * 🔴 ผลไม่ได้อยู่แค่หน้าตา: _busyDone(true) สั่ง FORM_DIRTY=false ด้วย — การ "อ่าน" ที่ถูกนับ
+   * เป็นการเขียนจึงล้างด่านเตือน "ยังไม่ได้บันทึก" ทิ้ง ขณะที่คนกำลังพิมพ์ฟอร์มค้างอยู่
+   *
+   * ตอนนี้ถาม api.js ก่อนเสมอ · กฎเดาจากชื่อเหลือไว้เป็นทางถอยเผื่อ api.js ยังไม่ทันโหลด */
   const _mutRe = /^(submit|save|add|remove|delete|set|register|pay|upload|confirm|reject|issue|generate|move|export|import|compute|cancel|prepay|link|notify|request|mark|approve|edit|rename|update|change|seed|dedup|reindex)/i;
-  const _isMut = a => _mutRe.test(a) || /check(in|out)|absence|payOT$|^orgMove|^unlink|^claim|^recall/i.test(a);
+  const _isMut = a => window.__atomIsMutating ? !!window.__atomIsMutating(a)
+    : (_mutRe.test(a) || /check(in|out)|absence|payOT$|^orgMove|^unlink|^claim|^recall/i.test(a));
   const _EN = () => (typeof EN==='function' && EN());
   const _busyTxt = () => _EN() ? 'Processing…' : 'ระบบกำลังดำเนินการ…';
   let _busyN = 0, _busyEl = null, _busyFail = false, _busyOkT = null;
@@ -54,31 +70,17 @@
     if(_busyFail){ _busyFail=false; _busyEl.classList.remove('on','ok'); return; }
     _busyFail=false; _busyEl.classList.add('ok'); _busyEl.querySelector('.busy-txt').textContent=_EN()?'Done':'สำเร็จ';
     clearTimeout(_busyOkT); _busyOkT=setTimeout(()=>{ if(_busyN===0&&_busyEl){ _busyEl.classList.remove('on','ok'); _busyEl.querySelector('.busy-txt').textContent=_busyTxt(); } }, 750); }
-  // ---- the same overlay for SLOW READS -----------------------------------------------------------
-  // Opening a screen used to give no feedback at all when the data wasn't cached yet: the old screen
-  // just sat there, so people tapped the tab again. Covering every read would be worse — most paint
-  // from cache instantly and an overlay would make the app FEEL slower. So the overlay is armed on a
-  // delay: if a read is still in flight after READ_LAG it is genuinely fetching, and the user sees
-  // "ระบบกำลังดำเนินการ". Anything faster than that shows nothing at all.
-  // Kept separate from the mutation counter on purpose — a read finishing must NOT flash the green ✓
-  // (nothing was saved) and must NOT clear FORM_DIRTY.
-  const READ_LAG = 350;   // slower than this and the user deserves to be told something is happening
-  const READ_IDLE = 120;  // gap allowed between chained fetches before the wait counts as over
-  let _readN=0, _readT=null, _readIdle=null, _readShown=false;
-  function _readStart(){ _readN++; clearTimeout(_readIdle); _readIdle=null;
-    if(_readT||_readShown) return;                     // a wait is already being timed
-    _readT=setTimeout(()=>{ _readT=null;
-      if(_readN>0 && _busyN===0){ _readShown=true; const el=_busyEnsure();
-        el.classList.remove('ok'); el.querySelector('.busy-txt').textContent=_busyTxt(); el.classList.add('on'); } }, READ_LAG); }
-  // Screens fetch in several steps (the deferred setHTML islands each run their own call), so the
-  // count drops to 0 between them while the user is still staring at a half-drawn page. Waiting out
-  // a short idle gap before disarming makes one screen load count as ONE wait — otherwise 5 chained
-  // 110ms fetches (measured: 571ms of real waiting) showed nothing at all.
-  function _readEnd(){ if(_readN>0)_readN--; if(_readN>0) return;
-    clearTimeout(_readIdle);
-    _readIdle=setTimeout(()=>{ _readIdle=null; if(_readN>0) return;
-      if(_readT){ clearTimeout(_readT); _readT=null; }
-      if(_readShown){ _readShown=false; if(_busyN===0 && _busyEl) _busyEl.classList.remove('on','ok'); } }, READ_IDLE); }
+  // ---- 🪦 จอคลุมสำหรับ "การอ่านที่ช้า" — ถูกถอดออก 2026-10-28 ------------------------------------
+  // เคยมี _readStart/_readEnd ตรงนี้: ถ้าการอ่านยังไม่เสร็จใน 350ms จะเอาจอคลุม
+  // "ระบบกำลังดำเนินการ" มาทับทั้งหน้าจอ · มันถูกใส่ไว้ตอนที่การเปิดหน้าจอไม่มีอะไรตอบสนองเลย
+  // หน้าจอเก่านั่งอยู่เฉย ๆ คนเลยกดแท็บซ้ำ
+  //
+  // 🔴 โครงร่าง (skeleton) คือคำตอบของปัญหานั้นพอดี และตั้งแต่ v476 มันมีแล้วทุกหน้าจอ
+  // การเก็บทั้งคู่ไว้แย่กว่าอย่างใดอย่างหนึ่ง: จอคลุมบังโครงร่างที่เพิ่งวาด แล้วกั้นการกด
+  // *ระหว่างการอ่าน* ซึ่งไม่มีอะไรต้องกัน — คนที่อยากเปลี่ยนใจไปเมนูอื่นระหว่างรอ 8 วินาที ต้องกดได้
+  //
+  // ถ้าวันหนึ่งมีคนคิดจะเอากลับมา: ปัญหาที่มันแก้คือ "ไม่มีอะไรตอบสนอง" ไม่ใช่ "ต้องกั้นการกด"
+  // และปัญหานั้นมีเจ้าของแล้ว · ฝั่ง "เขียน" ยังคลุมอยู่เหมือนเดิม เพราะที่นั่นมันคือตัวกันกดซ้ำ
   // ---- offline outbox ---------------------------------------------------------------------------
   // Losing a morning's attendance because the school wi-fi dropped is the worst failure this app has.
   // But a blind retry queue is worse than none: replaying a payment or a bill would create a second
@@ -151,11 +153,21 @@
           if(!_qFlushing && QUEUEABLE[action] && _isNetErr(e)){ qAdd(action,payload); return {queued:true}; }
           throw e; });
       }
-      if(opts&&opts.quiet) return _rawApi(action,payload,opts);   // PREFETCH: warming the cache in the background
-      _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
-      return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
+      /* 🔴 การอ่านไม่ถูกคลุมอีกต่อไป — ผอ. 2026-10-28: "เราทำ Skeleton Loader แล้ว เวลาเปลี่ยนเมนู
+       * ให้เอา 'ระบบกำลังดำเนินการ' ออก"
+       *
+       * จอคลุมฝั่งอ่านถูกใส่ไว้ตอนที่การเปิดหน้าจอ **ไม่มีอะไรตอบสนองเลย** — หน้าจอเก่านั่งอยู่เฉย ๆ
+       * คนเลยกดแท็บซ้ำ · โครงร่าง (skeleton) คือคำตอบของปัญหานั้นพอดี และตอนนี้มันมีแล้ว
+       *
+       * การเก็บทั้งคู่ไว้ไม่ใช่แค่ซ้ำซ้อน — **มันแย่กว่าอย่างใดอย่างหนึ่ง**: จอคลุมบังโครงร่างที่เพิ่งวาด
+       * แล้วกั้นการกดทั้งหน้าจอ *ระหว่างการอ่าน* ซึ่งไม่มีอะไรต้องกันเลย (ไม่มีอะไรถูกเขียน)
+       * คนที่อยากกดย้อนกลับหรือเปลี่ยนใจไปเมนูอื่นระหว่างรอ 8 วินาที ต้องกดได้
+       *
+       * 🔴 ฝั่ง "เขียน" ไม่ถูกแตะ — ข้างบนนี้ยังคลุมเหมือนเดิม เพราะที่นั่นการกั้นคือ **ตัวกันกดซ้ำ**
+       * (กันจ่ายเงินซ้ำ/เช็คอินซ้ำ) ไม่ใช่ตัวบอกสถานะ */
+      return _rawApi(action,payload,opts); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.476'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.477'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:var(--fs-1);margin-top:var(--sp-5)">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
