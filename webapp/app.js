@@ -199,7 +199,7 @@
       _readStart(); let pr2; try{ pr2=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr2).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.482'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.483'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:var(--fs-1);margin-top:var(--sp-5)">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -8209,8 +8209,17 @@
           <small class="muted" style="font-size:var(--fs-1)">${esc(baht(m.collected))}</small>
           <div style="width:70%;height:${h}px;border-radius:4px 4px 0 0;background:${cur ? 'var(--blue)' : 'var(--line-strong)'}"></div>
           <small class="muted" style="font-size:var(--fs-1)">${esc(monthNameYear(m.month).split(' ')[0])}</small></div>`; };
+      /* 🔴 แถบที่สี่ที่หลุดการแปลงรอบก่อน — และมันพังจริงอยู่บนระบบ (ผอ. ส่งภาพมา 2026-10-28)
+       *
+       * ตอนรวมแถบให้เป็นชิ้นเดียว ผมไล่ตามรูปทรง `height:6px` แต่แถบนี้สูง **5px** จึงไม่ถูกจับ
+       * แล้วรอบเดียวกันนั้น pctColor ถูกเปลี่ยนความหมายจาก "สีของระดับ" เป็น "สีของตัวเลข"
+       * (หมึกปกติ / แดงเมื่อต่ำกว่า 50%) — แถบนี้ยังเอา pctColor ไปทาเป็น **พื้นของแถบ**
+       * ผลคือ 85% กับ 67% กลายเป็นแท่งสีดำ และ 15% เป็นแท่งแดง
+       *
+       * บทเรียน: เปลี่ยน "ความหมาย" ของฟังก์ชันที่มีคนใช้อยู่ อันตรายกว่าเปลี่ยนชื่อมัน —
+       * ถ้าเปลี่ยนชื่อ จุดที่ตกหล่นจะพังทันทีแบบเห็นได้ ไม่ใช่เงียบ ๆ แล้วกลายเป็นสีดำ */
       const pctRow = (label, v) => `<div style="margin-top:var(--sp-2)"><div class="spread" style="font-size:var(--fs-1)"><span class="muted">${esc(label)}</span><b style="color:${pctColor(v)}">${v}%</b></div>
-        <div style="height:5px;background:var(--line);border-radius:3px;overflow:hidden;margin-top:var(--sp-0)"><div style="height:100%;width:${v}%;background:${pctColor(v)}"></div></div></div>`;
+        ${pbar(v)}</div>`;
 
       if (!tr.length) return '';
       return `<div class="card">
@@ -10138,8 +10147,9 @@
       <div class="card" style="padding:var(--sp-3);background:var(--blue-bg);border-color:var(--blue-line)">
         <div class="spread"><b>${EN()?'Days expected (to date)':'วันที่ต้องมาทำงาน (ถึงวันนี้)'}</b><b style="font-size:var(--fs-4);color:var(--blue)">${d.required||0}</b></div>
         <div class="spread"><span>${EN()?'Days actually here':'มาทำงานจริง'}</span><b style="font-size:var(--fs-4);color:var(--ok)">${d.present||0}</b></div>
-        <div style="height:9px;border-radius:999px;background:var(--line);overflow:hidden;margin-top:var(--sp-2)">
-          <div style="height:100%;width:${Math.min(100,pct(d.present||0,d.required||0))}%;background:var(--ok)"></div></div>
+        ${/* แถบที่ห้า — "มาทำงานจริง เทียบกับวันที่ต้องมา" ก็คือความคืบหน้าสู่เป้าเหมือนกัน
+             จึงใช้ชิ้นเดียวกับที่อื่น · เดิมเป็นเขียวสีเดียวตายตัว ไม่ว่าจะ 30% หรือ 100% */''}
+        ${pbar(Math.min(100,pct(d.present||0,d.required||0)))}
         <small class="muted">${pct(d.present||0,d.required||0)}% ${EN()?'of the days the school expected':'ของวันที่โรงเรียนกำหนด'}${
           (d.myRequired!=null && d.myRequired!==d.required)?` · ${EN()?`this person owes ${d.myRequired} (start date / leave)`:`เฉพาะคนนี้ ${d.myRequired} วัน (วันเริ่มงาน / ลาชั่วคราว)`}`:''}</small></div>
 
