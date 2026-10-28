@@ -65,3 +65,9 @@ THSarabunNew/
 # Phase 3 design explorations — HTML mockups served by tools/serve.js on :8092.
 # Kept out of the repo so they never reach dist_pages/ and the school's live app.
 design/
+
+# 🔴 สิทธิ์ของเครื่องมือฝั่งนักพัฒนา (ให้ clasp deploy รันได้โดยไม่ต้องถามทุกครั้ง)
+# ไม่ใช่ความลับ — แต่เป็นของ "เครื่องนี้" ไม่ใช่ของโปรเจกต์ และ repo นี้เป็นสาธารณะ
+# รายการสิทธิ์ที่ติดไปกับ repo คือการประกาศว่าเครื่องไหนรันอะไรได้โดยไม่ถาม ซึ่งไม่ควรเผยแพร่
+# (launch.json ด้านบนยังอยู่ในระบบ เพราะมันคือวิธีรันโปรเจกต์ ไม่ใช่สิทธิ์)
+.claude/settings.local.json
