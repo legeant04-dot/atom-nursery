@@ -31,7 +31,7 @@
        override that survives reloads. Storage stays empty until somebody actually chooses, so the
        default remains ours to change. -->
   <script>try{var _t=localStorage.getItem('atom_theme');document.documentElement.setAttribute('data-theme',_t==='dark'?'dark':'light');}catch(e){}</script>
-  <link rel="stylesheet" href="styles.css?v=475" />
+  <link rel="stylesheet" href="styles.css?v=476" />
   <link rel="stylesheet" media="print" onload="this.media='all';this.onload=null"
         href="https://fonts.googleapis.com/css2?family=Sarabun:wght@400;500;600;700&display=optional" />
   <noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Sarabun:wght@400;500;600;700&display=optional" /></noscript>
@@ -60,6 +60,11 @@
       <button class="btn-ghost" id="logoutBtn" hidden>ออก</button>
     </div>
   </header>
+
+  <!-- 📣 แถบแจ้งเตือนที่ค้างไว้ — อยู่ "นอก" #app โดยตั้งใจ
+       #app คือ <main> เอง และทุกหน้าจอเขียนทับ innerHTML ของมันทั้งก้อน ถ้าแถบนี้อยู่ข้างใน
+       ข้อความ "บันทึกแล้ว" จะถูกลบทิ้งโดยการวาดหน้าจอใหม่ที่เกิดขึ้น *เพราะ* การบันทึกนั้นเอง -->
+  <div id="alertBox" role="status" aria-live="polite"></div>
 
   <main id="app">
     <!-- The sign-in screen, painted straight from HTML before any JavaScript runs.
@@ -138,7 +143,7 @@
              "this phone is still on last week's app.js" look identical in a screenshot, and the only
              screen where the version was readable is one you have to be signed in to reach.
              Mirrors the same line at the end of loginScreen() so replacing the shell shifts nothing. -->
-        <div id="verTag" style="color:var(--ink-3);font-size:var(--fs-1);margin-top:var(--sp-2)">Version 1.475</div>
+        <div id="verTag" style="color:var(--ink-3);font-size:var(--fs-1);margin-top:var(--sp-2)">Version 1.476</div>
       </div>
     </div>
   </main>
@@ -153,12 +158,12 @@
        server-side (src/Engine.gs), the sample rows are mock-mode only, and the spreadsheet writer is
        needed by two admin screens. api.js fetches each on demand (mockconfig.js keeps the seed
        CONFIG that ~30 fallbacks read). -->
-  <script defer src="mockconfig.js?v=475"></script>
-  <script defer src="growth_standard.js?v=475"></script>
-  <script defer src="i18n.js?v=475"></script>
-  <script defer src="i18n_tr.js?v=475"></script>
-  <script defer src="api.js?v=475"></script>
-  <script defer src="app.js?v=475"></script>
+  <script defer src="mockconfig.js?v=476"></script>
+  <script defer src="growth_standard.js?v=476"></script>
+  <script defer src="i18n.js?v=476"></script>
+  <script defer src="i18n_tr.js?v=476"></script>
+  <script defer src="api.js?v=476"></script>
+  <script defer src="app.js?v=476"></script>
   <script>
     // Register SW but always pull fresh code: check for updates and auto-reload
     // once a new service worker takes control (prevents stale-cache showing old UI).

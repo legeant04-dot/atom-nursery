@@ -155,7 +155,7 @@
       _readStart(); let pr; try{ pr=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.475'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.476'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:var(--fs-1);margin-top:var(--sp-5)">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -519,6 +519,72 @@
     toast(EN()?'Select the text and copy it by hand':'กรุณาเลือกข้อความแล้วคัดลอกเอง');
   };
   let toastT; function toast(m,ms,raw){ if(!raw && window.trPhrase) m=trPhrase(m); let t=$('.toast'); if(!t){t=document.createElement('div');t.className='toast';document.body.appendChild(t);} t.textContent=m; t.classList.add('show'); clearTimeout(toastT); toastT=setTimeout(()=>t.classList.remove('show'), ms||2400); }
+
+  /* ═══ 📣 NOTIFY — แถบแจ้งเตือนที่ค้างไว้จนกว่าจะกดปิด (ผอ. 2026-10-28) ═══════════════════════
+   *
+   * "เพิ่ม Alert Title ไว้ใน App สำหรับการแจ้งเตือนในการดำเนินการอะไรเสร็จ
+   *  เปลี่ยนจาก Pop-up เป็น Alert Title ค้างไว้ให้กดปิดแทน"
+   *
+   * ใช้กับ **งานที่จบเรื่อง** และ **ข้อผิดพลาดทุกตัว** · งานที่ทำรัว ๆ ยังเป็น toast()
+   * เพราะครูเช็คอินเด็ก 20 คนไม่ควรต้องกดปิด 20 ครั้ง — ด่านที่ขวางคนทำงานจะถูกเลี่ยงเสมอ
+   *
+   * 🔴 ของที่ถูกแทนที่ ไม่ได้ถูกลดระดับ
+   * หน้าต่างเด้งตอน "บันทึกไม่สำเร็จ" มีขึ้นมาด้วยเหตุผลที่จริงจัง (2026-10-07 เคสคุณโมนา:
+   * การลาไม่ถูกเขียน toast บอก 3.6 วินาทีบนหน้าจอที่ยังดูปกติ แล้วคนสรุปว่าข้อมูลผู้ปกครองหาย)
+   * สิ่งที่รับประกันไว้คือ "พลาดไม่ได้" ไม่ใช่ "ต้องเป็นหน้าต่าง" — แถบนี้จึง
+   *   · ค้างจนกว่าจะกดปิด (ไม่มีตัวนับเวลา)
+   *   · **เลื่อนจอขึ้นไปหาตัวเองเสมอ** ถ้าคนกำลังอยู่ข้างล่าง ไม่งั้น "ค้างไว้" แปลว่า "ไม่มีใครเห็น"
+   *   · เป็น role="status" aria-live="polite" จึงถูกอ่านออกเสียงให้คนที่ใช้โปรแกรมอ่านหน้าจอ
+   */
+  const AL_MARK = {
+    ok:  '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm-1.2 14.3-4-4 1.4-1.4 2.6 2.6 5.6-5.6 1.4 1.4-7 7z"/></svg>',
+    info:'<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z"/></svg>',
+    warn:'<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z"/></svg>',
+    bad: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm4.3 12.9-1.4 1.4L12 13.4l-2.9 2.9-1.4-1.4L10.6 12 7.7 9.1l1.4-1.4L12 10.6l2.9-2.9 1.4 1.4L13.4 12l2.9 2.9z"/></svg>'
+  };
+  /* notify(type, title, body?, opts?) — type: 'ok' | 'info' | 'warn' | 'bad'
+   * opts.code  = รหัสที่เอาไปบอกออฟฟิศได้ · opts.raw = ข้อความนี้ถูกภาษาอยู่แล้ว อย่าแปลซ้ำ */
+  window.notify = (type, title, body, opts) => {
+    opts = opts || {};
+    const box = document.getElementById('alertBox');
+    if (!box) { toast((title || '') + (body ? '\n' + body : ''), 5200, opts.raw); return null; }
+    const tr = s => (!opts.raw && window.trPhrase && s) ? trPhrase(s) : s;
+    const el = document.createElement('div');
+    el.className = 'alert ' + (AL_MARK[type] ? type : 'info');
+    el.innerHTML = `<span class="ai">${AL_MARK[type] || AL_MARK.info}</span>
+      <div class="ac"><div class="at">${esc(tr(title) || '')}</div>
+        ${body ? `<div class="ab">${esc(tr(body))}</div>` : ''}
+        ${opts.code ? `<div class="acode">${esc(opts.code)}</div>` : ''}</div>
+      <button class="ax" type="button" aria-label="${EN() ? 'Close' : 'ปิดการแจ้งเตือน'}">✕</button>`;
+    el.querySelector('.ax').onclick = () => el.remove();
+    /* หนึ่งแถบต่อหนึ่งเรื่อง — ซ้อนกันห้าแถบคือการซ่อนทุกแถบด้วยกันเอง
+     * แถบเดิมถูกแทนที่ เว้นแต่สั่ง opts.stack ไว้ (ยังไม่มีที่ไหนใช้ แต่กันไว้ให้ตั้งใจเลือก) */
+    if (!opts.stack) box.innerHTML = '';
+    box.appendChild(el);
+    /* "ค้างไว้" ไม่ได้แปลว่า "เห็น" — คนที่เพิ่งกดปุ่มบันทึกท้ายฟอร์มยาว ๆ อยู่ห่างจากหัวจออยู่ 2 หน้าจอ */
+    try { el.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); } catch (_) { window.scrollTo(0, 0); }
+    return el;
+  };
+  window.notifyClear = () => { const b = document.getElementById('alertBox'); if (b) b.innerHTML = ''; };
+
+  /* ═══ 🦴 SKELETON — โครงร่างระหว่างรอ แทนคำว่า "กำลังโหลด…" ═══════════════════════════════
+   * บนแพลตฟอร์มที่ค่ากลางคือ 8.1 วินาที "ยังไม่มา" กับ "กำลังจะมา กี่บรรทัด หน้าตาแบบไหน"
+   * คือความต่างระหว่าง "แอปค้าง" กับ "แอปกำลังทำงาน" — และมันไม่ได้ทำให้เร็วขึ้นเลยแม้แต่น้อย
+   * ซึ่งก็คือเหตุผลที่มันต้องซื่อสัตย์: จำนวนบรรทัดที่วาดควรใกล้เคียงกับของจริงที่จะมา */
+  window.skel = (kind, n) => {
+    n = n || 3;
+    const line = w => `<div class="sk sk-line"${w ? ` style="width:${w}"` : ''}></div>`;
+    if (kind === 'rows') return `<div class="card">${Array.from({ length: n }, (_, i) =>
+      `<div class="sk-row"><div class="sk sk-av"></div><div class="skb">${line('62%')}${line('38%')}</div><div class="sk sk-pill"></div></div>`).join('')}</div>`;
+    /* .kpigrid/.kpi ไม่ใช่ .grid2 — วัดบนเบราว์เซอร์: .grid2 ยุบเหลือคอลัมน์เดียวที่ ≤560px
+     * โครงร่างที่วาดเป็นแถวยาวแล้วของจริงมาเป็นสองช่อง คือการโกหกเรื่องที่มันมีหน้าที่บอก */
+    if (kind === 'stats') return `<div class="kpigrid">${Array.from({ length: n }, () =>
+      `<div class="kpi"><div class="sk sk-title" style="width:46%;margin-bottom:var(--sp-2)"></div>${line('72%')}</div>`).join('')}</div>`;
+    if (kind === 'lines') return Array.from({ length: n }, (_, i) => line(i === n - 1 ? '45%' : '')).join('');
+    // 'card' (ค่าตั้งต้น) — หัวข้อหนึ่งบรรทัด แล้วตามด้วยเนื้อความ
+    return `<div class="card"><div class="sk sk-title"></div>${Array.from({ length: n }, (_, i) =>
+      line(i === n - 1 ? '45%' : '')).join('')}</div>`;
+  };
   // runtime translator hook: auto-translate any remaining Thai in #app when EN
   let _mo=null,_translating=false;
   // English mode sweeps #app for any Thai the i18n keys didn't cover. It used to re-sweep the WHOLE
@@ -641,27 +707,26 @@
      */
     const writes = !!(e && e.mutating) ||
       (e && e.action && window.__atomIsMutating ? !!window.__atomIsMutating(e.action) : false);
-    if(writes && typeof modal==='function'){
-      const m=modal(`<h3 style="color:var(--bad)">⚠️ ${esc(EN()?'Not saved':'บันทึกไม่สำเร็จ')}</h3>
-        <div class="card" style="background:var(--bad-bg);border-color:var(--bad-line);margin:0">
-          <b style="white-space:pre-wrap">${esc(head)}</b>
-          ${hint?`<br><small class="muted" style="white-space:pre-wrap">${esc(hint)}</small>`:''}</div>
-        ${/* said plainly, because "ลองใหม่" leaves the person wondering whether they are about to file
-             the same leave twice */''}
-        <p class="muted" style="font-size:var(--fs-1);margin:var(--sp-3) var(--sp-0) 0">${EN()
-          ? 'Nothing was saved. You can close this and try again.'
-          : 'ข้อมูลยังไม่ถูกบันทึก — ปิดหน้านี้แล้วลองใหม่ได้เลย'}</p>
-        ${(code||(e&&e.action))?`<p class="muted" style="font-size:var(--fs-1);margin:var(--sp-1) var(--sp-0) 0">${
-          esc([e&&e.action, code].filter(Boolean).join(' · '))}</p>`:''}
-        <button class="btn block" style="margin-top:var(--sp-3)" onclick="this.closest('.modal').remove()">${
-          esc(EN()?'Close':'ปิดหน้าแจ้งเตือน')}</button>`);
-      // a dialog about a failed write must not be dismissed by the stray tap that is still landing
-      // from the button the person just pressed — the close button is the way out
-      m.onclick=null;
-      return;
-    }
-    // raw=true: already in the right language, so keep the phrase dictionary away from it
-    toast('⚠️ '+head+(hint?'\n'+hint:''), hint?5200:3600, true);
+    /* ═══ 2026-10-28 — หน้าต่างเด้ง กลายเป็นแถบที่ค้างไว้ (ผอ.) ════════════════════════════════
+     *
+     * 🔴 สิ่งที่รับประกันไว้ไม่ได้ลดลง — มันแค่เปลี่ยนรูป
+     * ข้อกำหนดเดิมคือ "ค้างและมีปุ่มปิด" ไม่ใช่ "ต้องเป็นหน้าต่าง" · notify() ค้างจนกว่าจะกดปิด
+     * ไม่มีตัวนับเวลา และ **เลื่อนจอขึ้นไปหาตัวเองเสมอ** ซึ่งเป็นข้อที่สำคัญที่สุด: คนที่เพิ่งกด
+     * ปุ่มบันทึกท้ายฟอร์มยาว ๆ อยู่ห่างจากหัวจอสองหน้าจอ และ "ค้างไว้" ที่ไม่มีใครเห็นก็คือ toast
+     *
+     * สิ่งที่หายไปจริง ๆ อย่างเดียวคือการบังคับให้หยุดมือ (หน้าต่างกินทั้งจอ) ซึ่งเป็นสิ่งที่
+     * ผอ. เลือกแลก และบันทึกไว้ตรงนี้เพื่อให้คนถัดไปรู้ว่ามันเป็นการเลือก ไม่ใช่การหลุด
+     *
+     * ข้อผิดพลาด **ทุกตัว** เป็นแถบ ไม่ใช่เฉพาะตอนเขียนไม่สำเร็จ — ต่างกันที่หัวข้อ:
+     * การเขียนที่ล้มเหลวต้องบอกให้ชัดว่า "ยังไม่ถูกบันทึก" เพราะหน้าจอข้างหลังยังดูปกติทุกประการ
+     */
+    const title = writes ? (EN() ? 'Not saved' : 'บันทึกไม่สำเร็จ') : head;
+    const bodyTx = writes
+      ? head + (hint ? '\n' + hint : '') + '\n' +
+        (EN() ? 'Nothing was saved. You can try again.' : 'ข้อมูลยังไม่ถูกบันทึก — ลองใหม่ได้เลย')
+      : hint;
+    // raw: head/hint are already in the right language — keep the phrase dictionary away from them
+    notify('bad', title, bodyTx, { raw: true, code: [e && e.action, code].filter(Boolean).join(' · ') });
   }
   // Modals carry most of this app's data entry, so they need to behave like real dialogs: announced
   // as one, closable with Esc, and keyboard focus kept inside instead of wandering onto the page
@@ -1109,7 +1174,12 @@
     CURRENT=screen; setNav(screen); if(!(opts&&opts.silent)) histPush(screen, opts&&opts.fromPop); if(!(opts&&opts.silent)){ setTopActions(''); CAL_OFF=0; window._CALRENDER=null; } const fn=(SCREENS[USER.role]||{})[screen];
     // paint an instant placeholder so a tap feels responsive instead of "stuck" on the old screen
     // while the first (uncached) fetch runs; skip on silent background re-renders to avoid flicker.
-    if(fn && !(opts&&opts.silent) && !snap) app.innerHTML=`<div class="card" style="text-align:center;color:var(--ink-3);padding:var(--sp-6)">⏳ ${EN()?'Loading…':'กำลังโหลด…'}</div>`;
+    if(fn && !(opts&&opts.silent) && !snap) app.innerHTML=skel('card',3)+skel('rows',4);
+    /* 📣 แถบแจ้งเตือนหมดอายุเมื่อ "ย้ายหน้าจอจริง" ไม่ใช่เมื่อวาดหน้าเดิมใหม่
+     * snap มีค่าก็ต่อเมื่อเป็นการวาดหน้าเดิมซ้ำ (บันทึก/ลบ/รีเฟรช) — ซึ่งคือตอนที่ข้อความ
+     * "บันทึกแล้ว" ต้องอยู่ต่อ เพราะการวาดใหม่นั้นเกิดขึ้น *เพราะ* การบันทึกนั้นเอง
+     * ส่วนการย้ายไปอีกหน้า ข้อความของหน้าเก่าค้างอยู่คือการโกหกเกี่ยวกับหน้าใหม่ */
+    if(!snap && !(opts&&opts.silent)) notifyClear();
     window.__atomScreen=screen;   // Phase 0: tags every API row, so we learn WHICH screen is slow
     // a stopwatch that stops while the app is off screen. "leaves p95=407.2s" was one person opening
     // the screen and putting their phone in their pocket — not a screen that takes seven minutes.
@@ -3491,9 +3561,9 @@
       // the real number of days filed, not the number asked for — they differ whenever a weekend, a
       // school holiday, or a day already filed sat inside the range
       const n=Number(r&&r.days)||0;
-      toast(n>1 ? (EN()?`✅ Absence reported for ${n} days (${r.from} – ${r.to}) — the teacher has been notified`
-                       :`✅ แจ้งลาแล้ว ${n} วัน (${r.from} – ${r.to}) — ครูได้รับทราบ`)
-                : (EN()?'✅ Absence reported — the teacher has been notified':'✅ แจ้งลาแล้ว — ครูได้รับทราบ'));
+      notify("ok",n>1 ? (EN()?`Absence reported for ${n} days (${r.from} – ${r.to}) — the teacher has been notified`
+                       :`แจ้งลาแล้ว ${n} วัน (${r.from} – ${r.to}) — ครูได้รับทราบ`)
+                : (EN()?'Absence reported — the teacher has been notified':'แจ้งลาแล้ว — ครูได้รับทราบ'));
       GO('home');
     }catch(e){ err(e); btn.disabled=false; } };
 
@@ -4251,7 +4321,7 @@
     }).join('')}</div>`; }
   window.A_delSlip=async(slipId,btn)=>{ if(!confirm(EN()?'Delete this empty payment entry? The balance is recalculated.':'ลบรายการรับชำระที่ไม่มีสลิปนี้? ระบบจะคำนวณยอดค้างใหม่'))return;
     const sid=window._FIN_SID;
-    try{ await api('deleteSlip',{slipId,staffId:USER.staffId}); toast(EN()?'Deleted':'ลบแล้ว'); if(sid) _finReopen(sid); }catch(e){err(e);} };
+    try{ await api('deleteSlip',{slipId,staffId:USER.staffId}); notify("ok",EN()?'Deleted':'ลบแล้ว'); if(sid) _finReopen(sid); }catch(e){err(e);} };
 
   window._PAY_KIDS=[];
   SCREENS.Parent.payment = async () => {
@@ -4263,8 +4333,8 @@
     // The pick-and-pay list is the FIRST thing on this screen now. It used to be a button that
     // opened a dialog, so the main action of the page was hidden behind an extra tap.
     app.innerHTML = `<h2 class="page">${esc(t('title.payment'))}${kids.length===1?` · <span style="color:var(--blue)">${esc(dispNick(kids[0]))}</span>`:''}</h2>
-      <div id="payPick"><div class="card muted">${EN()?'Loading…':'กำลังโหลด…'}</div></div>${logBtn}${switcher}
-      <div id="payBody"><div class="card muted">${EN()?'Loading…':'กำลังโหลด…'}</div></div>`;
+      <div id="payPick">${skel('rows',3)}</div>${logBtn}${switcher}
+      <div id="payBody">${skel('card',4)}</div>`;
     P_pickRender();
     P_paySel(0);
   };
@@ -5132,7 +5202,7 @@
       ${/* Both punches are fenced for staff, so a blocked site costs a teacher the whole day rather
            than one pick-up. Same offer, same one tap, before it matters. */''}
       ${GEO_gate()}
-      ${isLeader?`<div id="tapprove"><div class="card muted">${EN()?'Loading approvals…':'กำลังโหลดรายการรออนุมัติ…'}</div></div>`:''}
+      ${isLeader?`<div id="tapprove">${skel('rows',2)}</div>`:''}
       <div id="tcatt"></div>
       <!-- The remaining-days grid used to sit here. It is a reference figure, not a morning job, and
            it is on the leave screen itself where a teacher is actually deciding whether to file one.
@@ -5344,7 +5414,7 @@
     return `<div class="list-item"><span>${esc(ddmmyyyy(o.Date))} · ${mid}</span>${otStatusPill(o.Status)}</div>`; }
   // leader approval row (approve / reject)
   function otApproveRow(o){ return `<div class="list-item"><span><b>${esc(dnick(o))}</b> · ${esc(ddmmyyyy(o.Date))} · ${o.Hours} ${EN()?'h':'ชม.'} ${esc(baht(o.Amount))}<br><small class="muted">${esc(o.PlanOut||'')}→${esc(o.ActualOut||'')} (${esc(hmMin(o.Minutes))})</small></span><span class="row"><button class="btn sm green" onclick="T_approveOT('${o.OTRecordID}','approve')" aria-label="${EN()?"Approve":"อนุมัติ"}" title="${EN()?"Approve":"อนุมัติ"}">✔</button><button class="btn sm pink" onclick="T_approveOT('${o.OTRecordID}','reject')" aria-label="${EN()?"Reject":"ปฏิเสธ"}" title="${EN()?"Reject":"ปฏิเสธ"}">✕</button></span></div>`; }
-  window.T_approveOT=async(otId,decision)=>{ try{ await api('approveOT',{staffId:USER.staffId,otId,decision}); toast(decision==='approve'?(EN()?'Approved':'อนุมัติแล้ว'):(EN()?'Rejected':'ปฏิเสธแล้ว')); GO('home'); }catch(e){err(e);} };
+  window.T_approveOT=async(otId,decision)=>{ try{ await api('approveOT',{staffId:USER.staffId,otId,decision}); notify("ok",decision==='approve'?(EN()?'Approved':'อนุมัติแล้ว'):(EN()?'Rejected':'ปฏิเสธแล้ว')); GO('home'); }catch(e){err(e);} };
   // Teacher OT follow-up: outstanding student OT (own class only; head teacher sees all) → chase or attach a slip on behalf.
   /* 👨‍👩‍👧 PARENT CONTACTS — the head teacher's read-only view of the families in the classes they
    * cover (asked 2026-10-15).
@@ -6758,7 +6828,7 @@
     if(btn)btn.disabled=true;
     try{ await api('deleteInjury',{staffId:USER.staffId,injuryId:id});
       const m=document.querySelector('.modal'); if(m)m.remove();
-      toast(EN()?'Deleted':'ลบแล้ว'); if(SCREENS[USER.role]&&SCREENS[USER.role][CURRENT]) SCREENS[USER.role][CURRENT]();
+      notify("ok",EN()?'Deleted':'ลบแล้ว'); if(SCREENS[USER.role]&&SCREENS[USER.role][CURRENT]) SCREENS[USER.role][CURRENT]();
     }catch(e){ err(e); if(btn)btn.disabled=false; } };
   window.A_injuryPdf=async(id,btn,kind)=>{ const old=btn?btn.innerHTML:'';
     if(btn){ btn.disabled=true; btn.innerHTML='⏳'; }
@@ -7052,7 +7122,7 @@
         <div class="spread"><h3 style="margin:0">${icon} ${esc(title)}</h3>${rows.length?`<span class="pill bad">${rows.length}</span>`:`<span class="pill ok" style="font-size:var(--fs-1)">✓</span>`}</div>
         <div style="margin-top:var(--sp-2)">${rows.length?html:none}</div>
         ${TLV_fold(foldId, '📜 '+foldTitle, m, 'TLV_teamMonth(this.value)',
-          `<div id="${foldId}Body" class="muted" style="font-size:var(--fs-1)">${EN()?'Loading…':'กำลังโหลด…'}</div>`)}</div>`;
+          `<div id="${foldId}Body">${skel('lines',2)}</div>`)}</div>`;
     // the folds fetch when they are OPEN, so a month nobody unfolds costs nothing
     setTimeout(TLV_teamLoad,0);
     return sec('📩', EN()?'Leave requests':'ลางาน', d.tpL, d.tpL.map(teamLeaveRow).join(''), 'tlvTeamLv', EN()?'All leave this month':'ประวัติการลาทั้งหมดเดือนนี้')
@@ -7111,7 +7181,7 @@
     // so there has to be somewhere to say why.
     if(dec==='reject'){ const a=prompt(EN()?'Why not? (the staff member will see this — optional)':'ไม่อนุมัติเพราะอะไร? (พนักงานจะเห็นข้อความนี้ · ไม่ใส่ก็ได้)');
       if(a===null) return; reason=String(a).trim(); }
-    try{ await api('approveTimeRequest',{staffId:USER.staffId,reqId,decision:dec,reason}); toast(dec==='approve'?(EN()?'Approved (→Admin)':'อนุมัติ (ส่งต่อแอดมิน)'):(EN()?'Rejected':'ปฏิเสธแล้ว')); GO('leave'); }catch(e){err(e);} };
+    try{ await api('approveTimeRequest',{staffId:USER.staffId,reqId,decision:dec,reason}); notify("ok",dec==='approve'?(EN()?'Approved (→Admin)':'อนุมัติ (ส่งต่อแอดมิน)'):(EN()?'Rejected':'ปฏิเสธแล้ว')); GO('leave'); }catch(e){err(e);} };
   // half a day is only meaningful on a single-day request — hide (and clear) it on a range
   window.T_halfToggle=()=>{ const a=$('#lStart'), b=$('#lEnd'), box=$('#lHalfBox'), sel=$('#lHalf');
     if(!a||!b||!box)return; const one=a.value && a.value===b.value;
@@ -7119,13 +7189,13 @@
   window.T_submitLeave=async()=>{ const attachment=photoVal(document,'lDoc');
     const halfDay=(($('#lHalf')||{}).value)||'';
     try{ const r=await api('submitLeave',{staffId:USER.staffId,type:$('#lType').value,startDate:$('#lStart').value,endDate:$('#lEnd').value,reason:$('#lReason').value,halfDay,attachment});
-      toast(`✅ ส่งคำขอ ${r.leaveId} (${leaveDays(r.days)}${r.halfDay?' · '+halfLabel(r.halfDay):''})`); GO('leave'); }catch(e){err(e);} };
+      notify("ok",`ส่งคำขอ ${r.leaveId} (${leaveDays(r.days)}${r.halfDay?' · '+halfLabel(r.halfDay):''})`); GO('leave'); }catch(e){err(e);} };
   // "1 วัน" / "0.5 วัน" — never "0.5 วันเต็ม"
   // 29.5 stays 29.5; 29.0 prints as 29 (a whole entitlement should not read "29.0 วัน")
   const halfNum = n => { const v=Number(n)||0; return (Math.round(v*2)/2)%1 ? (Math.round(v*2)/2).toFixed(1) : String(Math.round(v)); };
   const leaveDays = d => { const n=Number(d)||0; return (EN()? (n===0.5?'half a day':halfNum(n)+' day'+(n===1?'':'s')) : (halfNum(n)+' วัน')); };
   const halfLabel = h => String(h)==='AM' ? (EN()?'morning':'ครึ่งวันเช้า') : String(h)==='PM' ? (EN()?'afternoon':'ครึ่งวันบ่าย') : '';
-  window.T_teamApprove=async(id,dec)=>{ try{ const r=await api('approveLeave',{staffId:USER.staffId,leaveId:id,decision:dec}); toast(`✅ ${dec==='approve'?'อนุมัติ(ส่งต่อ Admin)':'ปฏิเสธ'} — ${r.status}`); GO('leave'); }catch(e){err(e);} };
+  window.T_teamApprove=async(id,dec)=>{ try{ const r=await api('approveLeave',{staffId:USER.staffId,leaveId:id,decision:dec}); notify("ok",`${dec==='approve'?'อนุมัติ(ส่งต่อ Admin)':'ปฏิเสธ'} — ${r.status}`); GO('leave'); }catch(e){err(e);} };
   function leaveStatusPill(st){ const c={PENDING_LEADER:'wait',PENDING_ADMIN:'wait',APPROVED:'ok',REJECTED:'bad'}[st]||'info'; return `<span class="pill ${c}">${esc(tStat(st))}</span>`; }
   // display name for a leave row: nickname first (enriched l.nick/l.name), else staff-cache lookup
   const leaveName = l => (EN()?(l.nickEN||l.nick):(l.nick||l.nickEN)) || (EN()?(l.nameEN||l.name):(l.name||l.nameEN)) || staffNick(l.StaffID);
@@ -7267,14 +7337,14 @@
             <option value="absent">${EN()?'Absent':'ขาดงาน'}</option>
             <!-- "OT 14 ชม." was a total with nothing behind it. This is the days it is made of. -->
             <option value="ot">${EN()?'OT — day by day':'OT รายวัน'}</option></select></div>
-        <div id="mhBox"><small class="muted">${EN()?'Loading…':'กำลังโหลด…'}</small></div></details>
+        <div id="mhBox">${skel('lines',2)}</div></details>
       <details class="card" id="myLvBox"><summary style="cursor:pointer;font-weight:700">📩 ${EN()?'My leave history':'ประวัติการลาของฉัน'}</summary>
         <div class="row" style="margin:var(--sp-2) 0"><select id="mlFilter" onchange="T_myLeaveFilter()">
             <option value="all">${EN()?'All':'ทั้งหมด'}</option>
             <option value="pending">${EN()?'Awaiting approval':'รออนุมัติ'}</option>
             <option value="approved">${EN()?'Approved':'อนุมัติแล้ว'}</option>
             <option value="rejected">${EN()?'Rejected':'ไม่อนุมัติ'}</option></select></div>
-        <div id="mlBox"><small class="muted">${EN()?'Loading…':'กำลังโหลด…'}</small></div></details>`;
+        <div id="mlBox">${skel('lines',2)}</div></details>`;
     // both lists load AFTER the screen is on the page, and only once — opening a <details> costs
     // nothing, so a teacher who never opens them still pays for the fetch, but only two of them
     T_myHistory(monthStr(), null, p_hist);
@@ -7313,7 +7383,7 @@
    *   any other period has to be asked for when it is chosen.
    */
   window.T_myHistory=async(month, range, pre)=>{
-    setHTML('#mhBox', `<small class="muted">${EN()?'Loading…':'กำลังโหลด…'}</small>`);
+    setHTML('#mhBox', skel('lines',2));
     const r0 = range || periodRange(MH_KIND, MH_ANCHOR||month||todayStr());
     window._MH_RANGE=r0;
     try{ const r=await (pre || api('myAttendanceMonth',{staffId:USER.staffId,month:ym(r0.from),from:r0.from,to:r0.to}));
@@ -7437,7 +7507,7 @@
       <button class="btn outline block" style="margin-top:var(--sp-2)" onclick="A_staffPerf('${esc(USER.staffId||'')}')">📊 ${EN()?'My year — attendance, leave and earnings':'สรุปข้อมูลของฉัน (มาทำงาน · ลา · รายได้)'}</button>
       <details class="card" style="margin-top:var(--sp-3)" open><summary style="cursor:pointer;font-weight:700">${esc(t('ot.myOT'))}</summary>
         ${periodPicker('myot')}
-        <div id="myot" style="margin-top:var(--sp-2)"><small class="muted">${EN()?'Loading…':'กำลังโหลด…'}</small></div></details>`;
+        <div id="myot" style="margin-top:var(--sp-2)">${skel('lines',2)}</div></details>`;
     MY_OT = await p_ot;
     /* What was approved but never paid, from BEFORE this period. It is on the payslip as a line the
      * teacher did not put there ("ค้างจ่าย OT เดือนก่อน"), and until now the only number attached to
@@ -7542,7 +7612,7 @@
   window.T_slipUnlock=async()=>{ const pw=$('#slipPw').value;
     try{ const r=await api('checkStaffPassword',{staffId:USER.staffId,password:pw}); if(r&&r.ok){ SLIP_UNLOCKED=true; GO('slip'); } else toast(EN()?'Wrong password':'รหัสผ่านไม่ถูกต้อง'); }catch(e){err(e);} };
   window.T_forgotPw=async()=>{ if(!confirm(EN()?'Send a password reset request to the admin?':'ส่งคำขอรีเซ็ตรหัสผ่านไปที่แอดมินใช่หรือไม่?'))return;
-    try{ await api('requestPasswordReset',{staffId:USER.staffId}); toast(EN()?'Request sent to admin':'ส่งคำขอไปที่แอดมินแล้ว — แอดมินจะรีเซ็ตให้'); }catch(e){err(e);} };
+    try{ await api('requestPasswordReset',{staffId:USER.staffId}); notify("ok",EN()?'Request sent to admin':'ส่งคำขอไปที่แอดมินแล้ว — แอดมินจะรีเซ็ตให้'); }catch(e){err(e);} };
   // teacher password change (forced on first login; validation 8-15 incl upper/lower/digit)
   window.T_changePw=async(forced)=>{ setNav('home');
     const me=await api('staffSelf',{staffId:USER.staffId}).catch(()=>null)||{};
@@ -8537,9 +8607,9 @@
       /* ...and the toast says WHAT WAS STORED, read back from the server's own reply rather than
        * from the boxes that were just typed into. If the redraw below ever fails, this is still a
        * true statement about the sheet. */
-      toast(res && res.removed ? (EN() ? '✅ The day was removed — they have been notified' : '✅ ลบการลงเวลาของวันนั้นแล้ว — แจ้งเจ้าตัวแล้ว')
-        : (EN() ? `✅ Saved ${res.checkIn || '—'}–${res.checkOut || '—'} — late ${res.late || 0} min, OT ${res.otHours || 0} hr. They have been notified`
-                : `✅ บันทึกแล้ว ${res.checkIn || '—'}–${res.checkOut || '—'} · สาย ${res.late || 0} นาที · OT ${res.otHours || 0} ชม. · แจ้งเจ้าตัวแล้ว`), 4600);
+      notify("ok",res && res.removed ? (EN() ? 'The day was removed — they have been notified' : 'ลบการลงเวลาของวันนั้นแล้ว — แจ้งเจ้าตัวแล้ว')
+        : (EN() ? `Saved ${res.checkIn || '—'}–${res.checkOut || '—'} — late ${res.late || 0} min, OT ${res.otHours || 0} hr. They have been notified`
+                : `บันทึกแล้ว ${res.checkIn || '—'}–${res.checkOut || '—'} · สาย ${res.late || 0} นาที · OT ${res.otHours || 0} ชม. · แจ้งเจ้าตัวแล้ว`));
       /* reload the month rather than patching the cell: late minutes, OT and the month's totals all
        * moved, and a calendar showing a new time beside yesterday's totals is the kind of half-true
        * screen that gets believed */
@@ -8847,7 +8917,7 @@
       m.remove(); confirmSaved(t('c.saved')); GO('leaves'); }catch(e){err(e);} };
   window.A_cancelLeave=async(id)=>{ if(!confirm(EN()?'Cancel/delete this leave request?':'ยกเลิก/ลบคำขอลานี้?'))return;
     try{ await api('cancelLeave',{staffId:USER.staffId,leaveId:id}); toast(t('manage.deleted')); GO('leaves'); }catch(e){err(e);} };
-  window.A_leave=async(id,dec)=>{ try{ const r=await api('approveLeave',{staffId:USER.staffId,leaveId:id,decision:dec}); toast(`✅ ${dec==='approve'?'อนุมัติ':'ปฏิเสธ'}แล้ว (${r.status})`); GO('leaves'); }catch(e){err(e);} };
+  window.A_leave=async(id,dec)=>{ try{ const r=await api('approveLeave',{staffId:USER.staffId,leaveId:id,decision:dec}); notify("ok",`${dec==='approve'?'อนุมัติ':'ปฏิเสธ'}แล้ว (${r.status})`); GO('leaves'); }catch(e){err(e);} };
 
   let PAY_ADJ=[];
   // the rate depends on the MONTH being paid, so it is re-fetched in A_payStaff whenever the month
@@ -9407,7 +9477,7 @@
       + (commit?`${slipApproveCard(r)}<div class="row"><button class="btn outline" onclick="A_dlSlip('${r.StaffID}','${r.Month}')">⬇️ ${esc(t('pay.download'))}</button><button class="btn outline" onclick="A_print('${r.Month}')">🖨️ ${esc(t('pay.print3'))}</button></div>`
               :`<p class="muted" style="font-size:var(--fs-1)">${EN()?'Press "Save as payable" to record this and add it to expenses.':'กด "บันทึกเป็นรายการจ่าย" เพื่อบันทึกและรวมเข้ารายจ่าย'}</p>`);
     if(commit) confirmSaved(EN()?'Saved — included in this month’s expenses':'บันทึกแล้ว · รวมในรายจ่ายเดือนนี้');
-    else toast(EN()?'Calculated — not saved yet':'คำนวณแล้ว · ยังไม่บันทึก'); };
+    else notify("ok",EN()?'Calculated — not saved yet':'คำนวณแล้ว · ยังไม่บันทึก'); };
   // both of these read MOCK.payroll, which is empty in gas mode — so downloading or printing a slip on
   // live always said "ยังไม่มีสลิป". Ask the server for the saved rows instead.
   window.A_dlSlip=async(staffId,month)=>{ let r=null; try{ r=await api('getPayslip',{staffId,month}); }catch(e){}
@@ -10038,7 +10108,7 @@
   window.A_slvToggleAll = (cb)=>{ document.querySelectorAll('.slvchk').forEach(x=>{x.checked=cb.checked;}); A_slvCount(); };
   window.A_slvDelSel = async (btn)=>{ const ids=[...document.querySelectorAll('.slvchk:checked')].map(x=>x.value); if(!ids.length)return;
     if(!confirm((EN()?'Delete ':'ลบการลา ')+ids.length+(EN()?' selected leaves?':' รายการที่เลือก?')))return;
-    btn.disabled=true; try{ await api('deleteStudentLeaves',{staffId:USER.staffId,leaveIds:ids}); toast((EN()?'Deleted ':'ลบแล้ว ')+ids.length); GO_('studentLeaves'); }catch(e){err(e);btn.disabled=false;} };
+    btn.disabled=true; try{ await api('deleteStudentLeaves',{staffId:USER.staffId,leaveIds:ids}); notify("ok",(EN()?'Deleted ':'ลบแล้ว ')+ids.length); GO_('studentLeaves'); }catch(e){err(e);btn.disabled=false;} };
   window.A_slvEdit = (leaveId)=>{ const l=(window._SLV||[]).find(x=>x.LeaveID===leaveId)||{};
     modal(`<h3>✏️ ${esc(t('slv.title'))}</h3>
       <div class="muted" style="font-size:var(--fs-1);margin-bottom:var(--sp-2)">${esc(l.nick||l.name||l.StudentID)}</div>
@@ -10064,7 +10134,7 @@
   };
   window.A_dedupApply = async (btn)=>{ if(!confirm(EN()?'Permanently delete the duplicate rows? (a daily backup exists)':'ยืนยันลบข้อมูลซ้ำถาวร? (มีสำรองข้อมูลรายวัน)'))return;
     btn.disabled=true; try{ const r=await api('dedupData',{}); const m=btn.closest('.modal'); if(m)m.remove();
-      toast((EN()?'Deleted ':'ลบแล้ว ')+r.deleted.parents+'P/'+r.deleted.students+'S'); GO('manage'); }catch(e){err(e);btn.disabled=false;} };
+      notify("ok",(EN()?'Deleted ':'ลบแล้ว ')+r.deleted.parents+'P/'+r.deleted.students+'S'); GO('manage'); }catch(e){err(e);btn.disabled=false;} };
 
   // Require-check-in toggles — moved into a modal (opened from the menu)
   window.A_requireCI = async () => { const all=window._PERM_STAFF||await api('listStaff');
@@ -10682,12 +10752,12 @@
         if(['ttf','otf','woff','woff2'].indexOf(ext)<0)
           throw new Error(EN()?'Use a .ttf, .otf, .woff or .woff2 file':'ต้องเป็นไฟล์ .ttf .otf .woff หรือ .woff2');
         await api('saveCertAsset',{which, dataUrl: await readRaw(f), ext});
-        toast(EN()?'Font uploaded':'อัปโหลดฟอนต์แล้ว');
+        notify("ok",EN()?'Font uploaded':'อัปโหลดฟอนต์แล้ว');
         input.closest('.modal').remove(); A_certSettings(); return;
       }
       const dataUrl = await certShrink(f, which==='bg'?2339:900, which==='sig');
       await api('saveCertAsset',{which, dataUrl});
-      toast(EN()?'Uploaded':'อัปโหลดแล้ว');
+      notify("ok",EN()?'Uploaded':'อัปโหลดแล้ว');
       input.closest('.modal').remove(); A_certSettings();
     }catch(e){ err(e); if(btn){ btn.disabled=false; btn.textContent=old; } }
     finally{ input.value=''; }
@@ -11717,7 +11787,7 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
       const n=document.getElementById('ppOnNote');
       if(n) n.textContent = on?(EN()?'On — parents see the ชำระล่วงหน้า card and these discounts.':'เปิดอยู่ — ผู้ปกครองเห็นการ์ด "ชำระล่วงหน้า" และส่วนลดด้านล่างนี้')
                              :(EN()?'Off — the card is hidden and new advance payments are refused. Payments already made keep working.':'ปิดอยู่ — การ์ดถูกซ่อน และระบบไม่รับรายการใหม่ · รายการที่ชำระไปแล้วยังใช้งานได้ตามปกติ');
-      toast(on?(EN()?'Advance payment ON':'เปิดการชำระล่วงหน้าแล้ว'):(EN()?'Advance payment OFF':'ปิดการชำระล่วงหน้าแล้ว'));
+      notify("ok",on?(EN()?'Advance payment ON':'เปิดการชำระล่วงหน้าแล้ว'):(EN()?'Advance payment OFF':'ปิดการชำระล่วงหน้าแล้ว'));
     }catch(e){ el.checked=!on; err(e); }
     finally{ el.disabled=false; } };
   window.PP_SET=(i,k,v)=>{ PP_TIERS[i][k]=Number(v)||0; if(k==='discount')A_ppRender(); };
@@ -12041,9 +12111,9 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
       <button class="btn outline block" style="margin-top:var(--sp-2)" onclick="this.closest('.modal').remove()">${esc(t('c.close'))}</button>`);
   };
   window.A_unlinkFromParent=async(sid,pid,btn)=>{ if(!confirm(EN()?'Unlink this child from the parent? The child stays enrolled.':'ยืนยันตัดนักเรียนคนนี้ออกจากผู้ปกครอง? (เด็กยังเรียนอยู่)'))return; if(btn)btn.disabled=true;
-    try{ const r=await api('unlinkStudent',{studentId:sid,parentId:pid,adminId:USER.staffId}); toast((EN()?'Unlinked · removed ':'ยกเลิกการผูกแล้ว · ตัด ')+(r&&r.removed!=null?r.removed:'')+(EN()?' link(s)':' รายการ')); const m=document.querySelector('.modal'); if(m)m.remove(); A_parentLinks(pid); }catch(e){ err(e); if(btn)btn.disabled=false; } };
+    try{ const r=await api('unlinkStudent',{studentId:sid,parentId:pid,adminId:USER.staffId}); notify("ok",(EN()?'Unlinked · removed ':'ยกเลิกการผูกแล้ว · ตัด ')+(r&&r.removed!=null?r.removed:'')+(EN()?' link(s)':' รายการ')); const m=document.querySelector('.modal'); if(m)m.remove(); A_parentLinks(pid); }catch(e){ err(e); if(btn)btn.disabled=false; } };
   window.A_unlink=async(sid,parentId,uid,btn)=>{ if(!confirm(EN()?'Unlink this parent from the child? The child stays enrolled.':'ยืนยันยกเลิกการผูกผู้ปกครองคนนี้ออกจากเด็ก? (เด็กยังเรียนอยู่)'))return; if(btn)btn.disabled=true;
-    try{ const r=await api('unlinkStudent',{studentId:sid,parentId:parentId||undefined,uid:uid||undefined,adminId:USER.staffId}); toast((EN()?'Unlinked · removed ':'ยกเลิกการผูกแล้ว · ตัด ')+(r&&r.removed!=null?r.removed:'')+(EN()?' link(s)':' รายการ')); const m=document.querySelector('.modal'); if(m)m.remove(); A_studentLinks(sid); }catch(e){ err(e); if(btn)btn.disabled=false; } };
+    try{ const r=await api('unlinkStudent',{studentId:sid,parentId:parentId||undefined,uid:uid||undefined,adminId:USER.staffId}); notify("ok",(EN()?'Unlinked · removed ':'ยกเลิกการผูกแล้ว · ตัด ')+(r&&r.removed!=null?r.removed:'')+(EN()?' link(s)':' รายการ')); const m=document.querySelector('.modal'); if(m)m.remove(); A_studentLinks(sid); }catch(e){ err(e); if(btn)btn.disabled=false; } };
   // ---- temporary leave (ลาชั่วคราว) — Admin only ----------------------------------------------
   // A child who is away for a while and coming back: the record, the history and the parent link all
   // stay, but while they are away they are not billed, not marked absent, and not on any class list.
@@ -12590,7 +12660,7 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
      * list that simply sat there showing the PREVIOUS month's rows while the new month was fetched —
      * so a slow answer and a wrong answer looked identical. billingGroups walks every child's
      * prepayments, and on Apps Script that is not instant. */
-    el.innerHTML=`<p class="muted" style="text-align:center;padding:var(--sp-4) var(--sp-1);margin:0">⏳ ${EN()?'Loading this month…':'กำลังโหลดข้อมูลของเดือนนี้…'}</p>`;
+    el.innerHTML=`${skel('rows',3)}`;
     const cnt=$('#icCount'); if(cnt) cnt.innerHTML='';
     let by={}, ok=true; try{ by=icStateOf(await api('billingGroups',{month})); }catch(e){ ok=false; }
     el.innerHTML=(ok?'':`<p style="color:var(--warn);font-size:var(--fs-1);margin:var(--sp-0)">⚠️ ${EN()
@@ -12638,11 +12708,11 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
     if(notify && billed.length){
       toast(EN()?`Notifying ${billed.length} parent(s)…`:`กำลังแจ้งผู้ปกครอง ${billed.length} คน…`);
       try{ await api('notifyBills',{studentIds:billed,month});
-        toast(EN()?'Parents notified':'แจ้งผู้ปกครองแล้ว'); }
+        notify("ok",EN()?'Parents notified':'แจ้งผู้ปกครองแล้ว'); }
       /* ...and a failure is SAID, not swallowed. It used to be caught and dropped, so an admin whose
        * notifications never went out was told "แจ้งผู้ปกครองแล้ว" anyway. The bills are fine either
        * way — which is the point of saying which half failed. */
-      catch(e){ toast(EN()?'⚠️ Bills issued, but notifying parents failed — tell them another way'
+      catch(e){ notify("warn",EN()?'⚠️ Bills issued, but notifying parents failed — tell them another way'
         :'⚠️ ออกบิลแล้ว แต่แจ้งผู้ปกครองไม่สำเร็จ — กรุณาแจ้งทางอื่น'); }
     } };
   /** Everyone the batch did NOT bill, grouped by reason — see A_genBillsDo for why this is one list. */
@@ -14046,7 +14116,7 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
     const pre=m.querySelector('#sokPre'); btn.disabled=true;
     try{ const d=await api('saveSlipOk',{branch:b,apiKey:k,preCheck:pre?pre.checked:null,staffId:USER.staffId,adminId:USER.staffId});
       m.remove(); A_slipDiagShow(d);
-      toast(d.working?(EN()?'Saved — SlipOK is answering now':'บันทึกแล้ว — SlipOK ตอบกลับได้แล้ว')
+      notify("ok",d.working?(EN()?'Saved — SlipOK is answering now':'บันทึกแล้ว — SlipOK ตอบกลับได้แล้ว')
         :(EN()?'Saved, but SlipOK still is not answering':'บันทึกแล้ว แต่ SlipOK ยังไม่ตอบกลับ'));
     }catch(e){err(e); btn.disabled=false;} };
   // Pasting the wrong thing into the key box overwrites the only copy the app holds, and the key is
@@ -14054,7 +14124,7 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
   window.A_slipOkUndo=async(btn)=>{ btn.disabled=true;
     try{ const d=await api('saveSlipOk',{restorePrev:true,staffId:USER.staffId,adminId:USER.staffId});
       const m=btn.closest('.modal'); if(m)m.remove(); A_slipDiagShow(d);
-      toast(EN()?'Previous key restored':'ย้อนกลับไปใช้คีย์เดิมแล้ว');
+      notify("ok",EN()?'Previous key restored':'ย้อนกลับไปใช้คีย์เดิมแล้ว');
     }catch(e){err(e); btn.disabled=false;} };
   window.A_slipDiagShow=(d)=>{ const c=d.counts||{};
       const why={'1011':EN()?'no such transaction at the bank':'ธนาคารไม่พบรายการโอน',
@@ -14403,7 +14473,7 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
     if(btn)btn.disabled=true;
     try{ const r=await api('deletePerfLog',{staffId:USER.staffId});
       const m=btn.closest('.modal'); if(m)m.remove();
-      toast((EN()?'Cleared ':'ล้างแล้ว ')+(r&&r.cleared!=null?r.cleared:0)+(EN()?' rows':' แถว'));
+      notify("ok",(EN()?'Cleared ':'ล้างแล้ว ')+(r&&r.cleared!=null?r.cleared:0)+(EN()?' rows':' แถว'));
     }catch(e){err(e);}finally{ if(btn)btn.disabled=false; } };
 
   /* ================= Phase 7a: food menu (Admin edits by class + month) =======================
@@ -14520,7 +14590,7 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
   window.A_fiSeed=async(btn)=>{ if(btn)btn.disabled=true;
     try{ const r=await api('seedFoodItems',{staffId:USER.staffId});
       const m=document.querySelector('.modal'); if(m)m.remove();
-      toast((EN()?'Added ':'เพิ่มแล้ว ')+r.added+(EN()?' dishes':' รายการ')); A_foodItems();
+      notify("ok",(EN()?'Added ':'เพิ่มแล้ว ')+r.added+(EN()?' dishes':' รายการ')); A_foodItems();
     }catch(e){err(e);}finally{ if(btn)btn.disabled=false; } };
 
   let FM_MONTH=null, FM_FOOD=[];
@@ -14721,7 +14791,7 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
   window.A_svDelete=async(id)=>{ if(!confirm(EN()?'Delete this survey AND every answer given to it?':'ลบแบบสอบถามนี้ พร้อมคำตอบทั้งหมดที่ผู้ปกครองตอบมา?'))return;
     try{ const r=await api('deleteSurvey',{staffId:USER.staffId,surveyId:id});
       const m=document.querySelector('.modal'); if(m)m.remove();
-      toast((EN()?'Deleted · answers removed ':'ลบแล้ว · ลบคำตอบ ')+(r.removedResponses||0)); A_surveys(); }catch(e){err(e);} };
+      notify("ok",(EN()?'Deleted · answers removed ':'ลบแล้ว · ลบคำตอบ ')+(r.removedResponses||0)); A_surveys(); }catch(e){err(e);} };
   window.A_svResults=async(id)=>{
     const d=await api('surveyResults',{staffId:USER.staffId,surveyId:id},{fresh:true});
     // one result block per question, so a five-question survey is read question by question rather
@@ -14841,7 +14911,7 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
             :`<b>${esc(s.start)}–${esc(s.end)}</b>${s.reopened?` <span class="pill wait">${EN()?'from':'ลงเวลา'} ${esc(s.openFrom)}</span>`:''}`}</span></div>`).join('')}</div>
       <button class="btn outline block" style="margin-top:var(--sp-2)" onclick="this.closest('.modal').remove()">${esc(t('c.close'))}</button>`);
   };
-  window.A_reinstallTriggers=async(btn)=>{ if(btn)btn.disabled=true; try{ const r=await api('reinstallTriggers',{}); toast((EN()?'Schedule updated · triggers: ':'อัปเดตตารางแล้ว · triggers: ')+(r&&r.triggers!=null?r.triggers:'?')); }catch(e){err(e);}finally{ if(btn)btn.disabled=false; } };
+  window.A_reinstallTriggers=async(btn)=>{ if(btn)btn.disabled=true; try{ const r=await api('reinstallTriggers',{}); notify("ok",(EN()?'Schedule updated · triggers: ':'อัปเดตตารางแล้ว · triggers: ')+(r&&r.triggers!=null?r.triggers:'?')); }catch(e){err(e);}finally{ if(btn)btn.disabled=false; } };
   /**
    * ONE SAVE FOR ALL FIVE SETTINGS DIALOGS, AND ONE ROUND TRIP FOR THE LOT.
    *
@@ -15123,13 +15193,13 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
     if(p.amount===undefined && p.discountReason!==undefined && am) p.amount=am.value;
     btn.disabled=true;
     try{ const r=await api('adminUpdateOT',p); const d=Number(r.discount||r.Discount||0);
-      toast(d>0 ? `✅ ${EN()?'Discount granted':'ให้ส่วนลดแล้ว'} −${baht(d)} · ${EN()?'charge':'เก็บจริง'} ${baht(r.amount!=null?r.amount:r.Amount||0)}`
-                : `✅ ${EN()?'Updated':'อัปเดตแล้ว'} — ${baht(r.amount!=null?r.amount:r.Amount||0)}`);
+      notify("ok",d>0 ? `${EN()?'Discount granted':'ให้ส่วนลดแล้ว'} −${baht(d)} · ${EN()?'charge':'เก็บจริง'} ${baht(r.amount!=null?r.amount:r.Amount||0)}`
+                : `${EN()?'Updated':'อัปเดตแล้ว'} — ${baht(r.amount!=null?r.amount:r.Amount||0)}`);
       const x=document.querySelector('.modal'); if(x)x.remove(); A_studentOT();
     }catch(e){ err(e); btn.disabled=false; } };
   window.A_otCancel=async(otId)=>{ if(!confirm(EN()?'Cancel this OT charge? It will not be billed.':'ยกเลิกค่า OT รายการนี้? จะไม่ถูกเรียกเก็บ'))return;
-    try{ await api('adminCancelOT',{otId}); toast(EN()?'OT cancelled':'ยกเลิก OT แล้ว'); const x=document.querySelector('.modal'); if(x)x.remove(); A_studentOT(); }catch(e){err(e);} };
-  window.A_otRestore=async(otId)=>{ try{ await api('adminRestoreOT',{otId}); toast(EN()?'OT restored':'คืนค่า OT แล้ว'); const x=document.querySelector('.modal'); if(x)x.remove(); A_studentOT(); }catch(e){err(e);} };
+    try{ await api('adminCancelOT',{otId}); notify("ok",EN()?'OT cancelled':'ยกเลิก OT แล้ว'); const x=document.querySelector('.modal'); if(x)x.remove(); A_studentOT(); }catch(e){err(e);} };
+  window.A_otRestore=async(otId)=>{ try{ await api('adminRestoreOT',{otId}); notify("ok",EN()?'OT restored':'คืนค่า OT แล้ว'); const x=document.querySelector('.modal'); if(x)x.remove(); A_studentOT(); }catch(e){err(e);} };
 
   // ---- Class-management (ย้ายครูประจำชั้น/แผนก): Leader stages moves → submits a change request;
   //      Admin reviews Before/After and approves (applies + logs). Shared row renderer + screens below. ----
@@ -15166,7 +15236,7 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
         <div class="row" style="margin-top:var(--sp-2)"><button class="btn sm green" onclick="CCR_decide('${r.ReqID}','approve')">✔ ${esc(t('c.approve'))}</button><button class="btn sm pink" onclick="CCR_decide('${r.ReqID}','reject')">✕ ${esc(t('c.reject'))}</button></div></div>`).join(''):`<small class="muted">${esc(t('corg.noPending'))}</small>`}</div>
       <button class="btn outline block" style="margin-top:var(--sp-2)" onclick="this.closest('.modal').remove()">${esc(t('c.close'))}</button>`);
   };
-  window.CCR_decide=async(reqId,dec)=>{ try{ await api('decideClassChange',{staffId:USER.staffId,reqId,decision:dec}); toast(dec==='approve'?(EN()?'Approved & applied':'อนุมัติและปรับแล้ว'):(EN()?'Rejected':'ปฏิเสธแล้ว')); const m=document.querySelector('.modal'); if(m)m.remove(); A_classChanges(); }catch(e){err(e);} };
+  window.CCR_decide=async(reqId,dec)=>{ try{ await api('decideClassChange',{staffId:USER.staffId,reqId,decision:dec}); notify("ok",dec==='approve'?(EN()?'Approved & applied':'อนุมัติและปรับแล้ว'):(EN()?'Rejected':'ปฏิเสธแล้ว')); const m=document.querySelector('.modal'); if(m)m.remove(); A_classChanges(); }catch(e){err(e);} };
 
   // Admin: confirm/reject manual attendance-time requests (final step → writes CHECKIN_STAFF)
   window.A_timeRequests=async()=>{ const rows=await api('pendingAdminTimeRequests',{staffId:USER.staffId},{fresh:true});
@@ -15228,7 +15298,7 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
     // not go on and refuse the request anyway.
     if(dec==='reject'){ const a=prompt(EN()?'Why not? (the staff member will see this — optional)':'ไม่อนุมัติเพราะอะไร? (พนักงานจะเห็นข้อความนี้ · ไม่ใส่ก็ได้)');
       if(a===null) return; reason=String(a).trim(); }
-    try{ await api('confirmTimeRequest',{staffId:USER.staffId,reqId,decision:dec,reason}); toast(dec==='approve'?(EN()?'Approved & written':'อนุมัติและบันทึกแล้ว'):(EN()?'Rejected':'ปฏิเสธแล้ว')); const m=document.querySelector('.modal'); if(m)m.remove(); A_timeRequests(); }catch(e){err(e);} };
+    try{ await api('confirmTimeRequest',{staffId:USER.staffId,reqId,decision:dec,reason}); notify("ok",dec==='approve'?(EN()?'Approved & written':'อนุมัติและบันทึกแล้ว'):(EN()?'Rejected':'ปฏิเสธแล้ว')); const m=document.querySelector('.modal'); if(m)m.remove(); A_timeRequests(); }catch(e){err(e);} };
 
   // ---- Admin: staff OT approval + management (confirm/edit/reject/add/delete) ----
   let SOT_MONTH=null;
@@ -15286,15 +15356,15 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
         api('confirmOT',{staffId:USER.staffId,otId:id,decision,hours:sotH(id),amount:sotA(id)})
           .then(()=>null, e=>e)));
       const bad = res.filter(Boolean);
-      if(!bad.length) toast(EN()?'Done':'ดำเนินการแล้ว');
+      if(!bad.length) notify("ok",EN()?'Done':'ดำเนินการแล้ว');
       else if(bad.length===ids.length) throw bad[0];
       else toast((EN()?`Done ${ids.length-bad.length} of ${ids.length} — `:`สำเร็จ ${ids.length-bad.length} จาก ${ids.length} รายการ · `)
         +((bad[0]&&bad[0].message)||''), 5200, true);
       A_sotRefresh();
     }catch(e){err(e);} };
-  window.A_restoreStaffOT=async(otId)=>{ try{ await api('confirmOT',{staffId:USER.staffId,otId,decision:'approve',hours:sotH(otId),amount:sotA(otId)}); toast(EN()?'Restored':'คืนค่าแล้ว'); A_sotRefresh(); }catch(e){err(e);} };
-  window.A_confirmOT=async(otId)=>{ try{ await api('confirmOT',{staffId:USER.staffId,otId,decision:'approve',hours:sotH(otId),amount:sotA(otId)}); toast(EN()?'Confirmed':'ยืนยันแล้ว'); A_sotRefresh(); }catch(e){err(e);} };
-  window.A_rejectOT=async(otId)=>{ if(!confirm(EN()?'Reject this OT?':'ปฏิเสธ OT นี้?'))return; try{ await api('confirmOT',{staffId:USER.staffId,otId,decision:'reject'}); toast(EN()?'Rejected':'ปฏิเสธแล้ว'); A_sotRefresh(); }catch(e){err(e);} };
+  window.A_restoreStaffOT=async(otId)=>{ try{ await api('confirmOT',{staffId:USER.staffId,otId,decision:'approve',hours:sotH(otId),amount:sotA(otId)}); notify("ok",EN()?'Restored':'คืนค่าแล้ว'); A_sotRefresh(); }catch(e){err(e);} };
+  window.A_confirmOT=async(otId)=>{ try{ await api('confirmOT',{staffId:USER.staffId,otId,decision:'approve',hours:sotH(otId),amount:sotA(otId)}); notify("ok",EN()?'Confirmed':'ยืนยันแล้ว'); A_sotRefresh(); }catch(e){err(e);} };
+  window.A_rejectOT=async(otId)=>{ if(!confirm(EN()?'Reject this OT?':'ปฏิเสธ OT นี้?'))return; try{ await api('confirmOT',{staffId:USER.staffId,otId,decision:'reject'}); notify("ok",EN()?'Rejected':'ปฏิเสธแล้ว'); A_sotRefresh(); }catch(e){err(e);} };
   window.A_editOT=async(otId)=>{ try{ await api('adminEditOT',{staffId:USER.staffId,otId,hours:sotH(otId),amount:sotA(otId)}); toast(t('c.saved')); A_sotRefresh(); }catch(e){err(e);} };
   window.A_deleteOT=async(otId)=>{ if(!confirm(t('manage.confirmDel')))return; try{ await api('adminDeleteOT',{staffId:USER.staffId,otId}); toast(t('manage.deleted')); A_sotRefresh(); }catch(e){err(e);} };
   window.A_addOTForm=()=>{ const staff=(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin'||true);
@@ -15356,7 +15426,7 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
           ? 'Tick a child to open their check-in / pick-up that day — attendance, the journal, the history and the late-pickup charge all work as usual. Tick nobody and only the teacher clocks in.'
           : 'ติ๊กชื่อนักเรียนเพื่อเปิดการรับ-ส่งของวันนั้น — การลงเวลา สมุดรายวัน ประวัติ และ OT รับช้า ทำงานเหมือนวันปกติ · ไม่ติ๊กใครเลย = เปิดเฉพาะการลงเวลาของคุณครู'}</small>
         <div id="hotStd" style="max-height:34vh;overflow:auto;border:1px solid var(--line);border-radius:8px;padding:var(--sp-2)">
-          <small class="muted">${EN()?'Loading…':'กำลังโหลด…'}</small></div>
+          ${skel('lines',2)}</div>
         <button class="btn block green" style="margin-top:var(--sp-2)" onclick="A_hotAdd(this)">💾 ${esc(t('c.save'))}</button>
       </details>
       ${hol.length?`<div class="spread" style="margin:var(--sp-2) 0"><b>${EN()?'This month':'เดือนนี้'} (${hol.length})</b><b>${esc(baht(total))}</b></div>`:''}
@@ -15842,7 +15912,7 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
         ${apply?'':`<button class="btn block pink" onclick="A_prepayAudit(true)">🛠️ ${EN()?'Repair flagged bills':'แก้ไขบิลที่เข้าข่าย'}</button>`}`
         :`<div class="card" style="background:var(--ok-bg);border-color:var(--ok-line);color:var(--ok)">✓ ${EN()?'No affected bills — nothing to fix.':'ไม่มีบิลที่ได้รับผลกระทบ — ไม่ต้องแก้ไขอะไร'}</div>`}
       <button class="btn outline block" style="margin-top:var(--sp-2)" onclick="this.closest('.modal').remove()">${esc(t('c.close'))}</button>`);
-    if(apply){ toast((EN()?'Repaired ':'แก้ไขแล้ว ')+r.repaired); }
+    if(apply){ notify("ok",(EN()?'Repaired ':'แก้ไขแล้ว ')+r.repaired); }
   };
   // ---- การเงิน HUB: one place for รับเงิน (income) / จ่ายเงิน (payroll) / รออนุมัติ (verify) ----
   let FIN_TAB='in';
@@ -16189,7 +16259,7 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
     if(!(amt>0)){ toast(EN()?'Enter the amount received':'กรอกจำนวนเงินที่รับมา'); return; }
     if(btn)btn.disabled=true;
     try{ const r=await api('recordCashPayment',{kind,refId,amount:amt,date:g('cashd'),note:g('cashn'),staffId:USER.staffId});
-      toast(Number(r.outstanding||0)>0
+      notify("ok",Number(r.outstanding||0)>0
         ? (EN()?`Recorded. Still outstanding ${baht(r.outstanding)}`:`บันทึกแล้ว · ยังค้างอีก ${baht(r.outstanding)}`)
         : (EN()?'Recorded — paid in full':'บันทึกแล้ว · ชำระครบ'));
       _finReopen(sid);
@@ -16358,7 +16428,7 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
     const back=(USER&&USER.role==='Admin')?'leaves':'home';
     app.innerHTML=`<button class="btn sm outline backbtn" onclick="GO('${back}')">${t('c.back')}</button>
       <h2 class="page">🕵️ ${EN()?'Attendance check':'ตรวจสอบการลงเวลานักเรียน'}</h2>
-      <div class="card muted">${EN()?'Loading…':'กำลังโหลด…'}</div>`;
+      ${skel('card',3)}`;
     let d; try{ d=await api('attendanceAudit',{date:ATTA.date,staffId:USER.staffId,role:USER.role}); }
     catch(e){ err(e); return; }
     window._ATTA=d; A_attRender(); };
@@ -16466,7 +16536,7 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
 
   window.A_finSaveBase=async(sid)=>{ const m=document.querySelector('.modal'); const base=Number(m.querySelector('#fsBase').value)||0;
     try{ await api('saveStaff',{staffId:sid,data:{BaseSalary:base}}); toast(t('c.saved')); }catch(e){err(e);} };
-  window.A_finCompute=async(sid)=>{ try{ await api('computePayroll',{staffId:sid,month:FIN_MONTH||monthStr()}); toast(EN()?'Computed':'คำนวณแล้ว'); const x=document.querySelector('.modal'); if(x)x.remove(); GO('finance'); }catch(e){err(e);} };
+  window.A_finCompute=async(sid)=>{ try{ await api('computePayroll',{staffId:sid,month:FIN_MONTH||monthStr()}); notify("ok",EN()?'Computed':'คำนวณแล้ว'); const x=document.querySelector('.modal'); if(x)x.remove(); GO('finance'); }catch(e){err(e);} };
 
   // ---- Admin Daily Report (web + send to LINE OA) ----
   SCREENS.Admin.daily = async () => { const [r,_d]=await Promise.all([api('dailyReport'),api('schoolDay',{}).catch(()=>({}))]);
@@ -16495,7 +16565,7 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
         <p class="muted" style="font-size:var(--fs-1)">${esc(t('daily.injuryNote'))}</p>${injuryListHTML(r.injuries)}</div>`:''}
       <button class="btn block green" onclick="A_sendLine()">📤 ${esc(t('daily.sendLine'))}</button>`;
   };
-  window.A_sendLine=()=>{ toast(EN()?'Daily report sent to LINE OA (demo)':'ส่งสรุปไป LINE OA แล้ว (เดโม)'); };
+  window.A_sendLine=()=>{ notify("ok",EN()?'Daily report sent to LINE OA (demo)':'ส่งสรุปไป LINE OA แล้ว (เดโม)'); };
 
   // ---- Admin: confirm parent payments (slips await admin verification) ----
   // pending-payment cards (slips + cash to confirm/reject) — shared by the standalone screen AND the
