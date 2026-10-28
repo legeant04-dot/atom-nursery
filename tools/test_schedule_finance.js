@@ -132,7 +132,7 @@ ok_('the tab is named for the subject, not the document', /'nav\.slip':\['กา
 ok_('the screen title follows', /'title\.slip':\['💵 การเงินของฉัน','💵 My finances'\]/.test(i18n));
 ok_('the role description follows too', /desc\.Teacher[^\]]*การเงิน/.test(i18n));
 ok_('the hard-coded Thai heading is gone', app.indexOf('<h2 class="page">💵 เงินเดือนของฉัน</h2>') < 0);
-ok_('the OT history is on the finance screen', /<details class="card" style="margin-top:10px" open>[\s\S]{0,120}ot\.myOT/.test(app));
+ok_('the OT history is on the finance screen', /<details class="card" style="[^"]*" open>[\s\S]{0,160}ot\.myOT/.test(app));
 ok_('…fetched alongside the payslip, not after it', /const p_ot=api\('myOT',\{staffId:USER\.staffId\}\)\.catch\(\(\)=>\[\]\);   \/\/ travels with the payslip fetch/.test(app));
 ok_('…and it stays behind the password, because it is money', (() => {
   const s = app.indexOf('SCREENS.Teacher.slip');

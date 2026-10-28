@@ -35,7 +35,7 @@ console.log('1) the recent-injury list folds');
   ok_('...and no `open`, or folding it would change nothing', !/inj\.recent[\s\S]{0,200}<details[^>]*open/.test(scr));
   /* What was sent back to THIS teacher is NOT inside the fold. It is the one thing on the screen
    * waiting on them, and hiding it behind a summary is how it got missed in the first place. */
-  ok_('what was sent back to them stays outside the fold', app.indexOf('injRejectedHTML(recent)') < app.indexOf('<details class="card" style="margin-top:12px">'));
+  ok_('what was sent back to them stays outside the fold', app.indexOf('injRejectedHTML(recent)') < app.search(/<details class="card" style="margin-top:var\(--sp-3\)">/));
 }
 
 console.log('\n2) the red count on the nav icon');

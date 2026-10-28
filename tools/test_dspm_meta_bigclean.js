@@ -125,7 +125,7 @@ ok_('it is classified as a WRITE on both sides — "comment" is not a mutating v
   /commentAssessment: 1/.test(code) && /commentAssessment: 1/.test(api));
 ok_('the screen shows the assessor and the note', /function assessMetaHTML\(i, sid\)/.test(app));
 ok_('…on the teacher’s screen AND the admin’s', (app.match(/\$\{assessMetaHTML\(i, sid\)\}/g) || []).length === 2);
-ok_('only an admin is offered the button', /isAdmin\(\)\n\s*\? `<button class="btn sm outline" style="margin-top:6px" onclick="A_assessComment/.test(app));
+ok_('only an admin is offered the button', /isAdmin\(\)\n\s*\? `<button class="btn sm outline" style="[^"]*" onclick="A_assessComment/.test(app));
 ok_('the note is visibly a note, not a result', /💬 \$\{EN\(\)\?'Admin note':'ความเห็นแอดมิน'\}/.test(app));
 
 console.log('\n=== 3. a Big Cleaning day is for the STAFF, not the children ===');

@@ -149,7 +149,17 @@ console.log('\n2) the badge, on the tool it belongs to');
 {
   ok_('the badge is the bell’s shape and colour, so it needs no learning',
     /\.opbtn \.opbadge\{position:absolute;top:-6px;right:-6px;background:var\(--bad-2\)/.test(css));
-  ok_('...and the button makes room for it rather than overlapping the label', /\.opbtn\{position:relative;overflow:visible;padding-right:26px;\}/.test(css));
+  /* 🔴 ข้อนี้เคยเขียนว่า "ปุ่มเว้นที่ให้ตัวเลข" และตรึง padding-right:26px ไว้
+   *
+   * วัดบนเบราว์เซอร์จริง 2026-10-28: ค่าที่ได้คือ **12px** ไม่ใช่ 26px — `.btn.sm{padding:…}`
+   * มีน้ำหนักมากกว่าและมาทีหลัง · แปลว่ากฎนั้นไม่เคยมีผล และเทสต์นี้ยืนยัน "ระยะเว้น" ที่ไม่มีอยู่จริง
+   * มาตลอด โดยไม่มีใครรู้ เพราะมันอ่านจากไฟล์ ไม่ได้อ่านจากหน้าจอ
+   *
+   * สิ่งที่กันไม่ให้ตัวเลขทับป้ายจริง ๆ คือ **ตัวเลขนั่งอยู่นอกปุ่ม** (right/top ติดลบ) บวกกับ
+   * overflow:visible ที่ทำให้มันไม่ถูกตัด — นั่นคือสิ่งที่ตรึงไว้ตรงนี้แทน */
+  ok_('...and the badge sits OUTSIDE the button, so it cannot overlap the label',
+    /\.opbtn\{position:relative;overflow:visible;\}/.test(css) &&
+    /\.opbtn \.opbadge\{position:absolute;top:-6px;right:-6px/.test(css));
   ok_('...and hidden really hides', /\.opbtn \.opbadge\[hidden\]\{display:none;\}/.test(css));
 }
 
