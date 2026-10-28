@@ -1030,6 +1030,9 @@ input::placeholder,textarea::placeholder{color:var(--ink-3);}
 /* nav / header icons: stroke SVGs on currentColor, so a tab's active colour and the dark theme both
    come for free. Emoji were drawn differently by every platform and 🗂️/🚑 were unreadable at 22px. */
 .i{display:block;flex:none;}
+/* ไอคอนที่ยืนข้างตัวหนังสือในปุ่ม/หัวข้อ — ต้องนั่งบนเส้นฐานเดียวกับอักษรไทย
+   ไม่งั้นมันจะลอยสูงกว่าคำที่มันนำหน้าอยู่เสมอ (เห็นชัดที่สุดบนปุ่มที่มีสระบน เช่น "แก้ไข") */
+.ii{display:inline-block;vertical-align:-.18em;flex:none;margin-right:.18em;}
 .bottomnav .ic{display:flex;align-items:center;justify-content:center;height:22px;position:relative;}
 /* the red count that sits on a nav icon (a report sent back to this teacher, and anything else a tab
    needs to shout about). position:absolute off the .ic box so it hangs on the ICON, not the label —

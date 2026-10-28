@@ -206,7 +206,7 @@ console.log('\n7) the school can see which dishes still need one');
     /const thumb=i=>i\.photo/.test(app) && /🍽<\/span>`;/.test(app));
   ok_('...and counts what is left', /const noPic = items\.filter\(i=>i\.active && !i\.photo\)\.length;/.test(app));
   ok_('the kitchen teacher has a door of their own to it',
-    /onclick="A_foodItems\(\)">📷 \$\{EN\(\)\?'Food photos':'รูปอาหาร'\}/.test(app));
+    /onclick="A_foodItems\(\)">\$\{ic\('image'\)\} \$\{EN\(\)\?'Food photos':'รูปอาหาร'\}/.test(app));
   /* The screen is shared with the admin, so it has to know which buttons to draw — and must not be
    * the thing that DECIDES: the server checks canFoodMenu_ either way. */
   ok_('...where names and categories stay the admin’s', /const admin = USER\.role==='Admin';/.test(app)

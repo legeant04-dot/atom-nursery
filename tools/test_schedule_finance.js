@@ -124,7 +124,7 @@ console.log('\n=== 3. the home screen gave them up ===');
   ok_('...and so is the fetch that fed it', home.indexOf("api('leaveQuota'") < 0);
   ok_('the way in to leave is still on home', /onclick="GO\('leave'\)">📩/.test(home));
   ok_('...and the figure still exists on the leave screen itself', /<h3>สิทธิคงเหลือ<\/h3><div class="quota">/.test(app));
-  ok_('and there is a way through to the records', /onclick="GO\('schedule'\)">📅/.test(home));
+  ok_('and there is a way through to the records', /onclick="GO\('schedule'\)">\$\{ic\('calendar'\)\}/.test(home));
 }
 
 console.log('\n=== 4. สลิป → การเงิน, with the OT history in it ===');

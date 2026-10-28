@@ -116,7 +116,7 @@ console.log('\n3) everyone who needs to know, knows');
   ok_('the teacher is told on their own home screen', /api\('staffMissingCheckout',\{staffId:USER\.staffId\}\)/.test(app));
   ok_('...how many days, and which', /มี \$\{mo\.count\} วันที่ยังไม่ได้ลงเวลาออก/.test(app) && /days\.map\(d=>esc\(ddmmyyyy\(d\)\)\)\.join\(' · '\)/.test(app));
   ok_('...why it matters', /วันเหล่านี้จะยังไม่มีชั่วโมงทำงานและไม่มี OT/.test(app));
-  ok_('...and is handed the way to fix it', /onclick="GO\('leave'\)">📤/.test(app));
+  ok_('...and is handed the way to fix it', /onclick="GO\('leave'\)">\$\{ic\('upload'\)\}/.test(app));
   ok_('the monthly screen stops saying ครบ', /s\.missingOut\?`<span class="pill bad">⏳/.test(app));
   ok_('...counts it as its own figure', /smStat\(tot\.mo, EN\(\)\?'no check-out':'ไม่ได้ลงเวลาออก'/.test(app));
   ok_('...and lists the days per person', /d\.missingOut\.map\(x=>`<div style="[^"]*">• <b>/.test(app));

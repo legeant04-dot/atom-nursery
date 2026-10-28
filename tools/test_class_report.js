@@ -188,7 +188,7 @@ console.log('\n6) Export: one A4 renderer, used by both reports');
   ok_('the class report can be exported', /window\.A_studentReportExport = \(kind\)/.test(app));
   ok_('both offer PDF and JPG', (app.match(/A_staffMonthExport\('pdf'\)|A_staffMonthExport\('jpg'\)|A_studentReportExport\('pdf'\)|A_studentReportExport\('jpg'\)/g)||[]).length === 4);
   ok_('the renderer is fetched only when a report is actually exported', /const withReportKit = fn => __atomLoadScript\('report_card\.js'/.test(app));
-  ok_('the class report is on the student tab', /'📊',EN\(\)\?'Class report':'สรุปรายชั้นเรียน','A_studentReport\(\)'/.test(app));
+  ok_('the class report is on the student tab', /'chart',EN\(\)\?'Class report':'สรุปรายชั้นเรียน','A_studentReport\(\)'/.test(app));
   // it is built on the device — no report of a child leaves the school
   ok_('nothing is uploaded to build it', !/fetch\(|XMLHttpRequest/.test(rc));
 }

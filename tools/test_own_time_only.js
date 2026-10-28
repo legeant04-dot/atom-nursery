@@ -124,7 +124,7 @@ console.log('\n3) "OUT 06:47" is gone');
   ok_('...and never the status followed by the arrival time',
     !/a\.Status\+\(a\.CheckIn\?' '\+a\.CheckIn:''\)/.test(app));
   ok_('a day with no clock-in says so instead of showing a blank', /ยังไม่ลงเวลา/.test(sched));
-  ok_('the daily summary is drawn only when the server says so', /\$\{d\.canSeeAll\?`<div class="card"><h3>📋/.test(sched));
+  ok_('the daily summary is drawn only when the server says so', /\$\{d\.canSeeAll\?`<div class="card"><h3>\$\{ic\('clipboard'\)\}/.test(sched));
   ok_('...and a plain teacher gets their own times in its place', /เวลาของฉันวันนี้/.test(sched));
   ok_('the screen tells the server who is asking', /api\('schedule',\{staffId:USER\.staffId\}\)/.test(app));
   ok_('...and so does the login warm-up, or it would cache the wrong answer',

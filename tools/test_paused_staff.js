@@ -170,7 +170,7 @@ console.log('\n3) the screen, and the preview bar the Admin reads it from');
   /* THE CARD OFFERS THEM, rather than only describing them. `home` is itself closed, so a sentence
    * saying "your payslips are still there" with no way to reach them is worse than saying nothing. */
   ok_('the card has a button for each of the three', /GO\('slip'\)/.test(appCode) && /GO\('leave'\)/.test(appCode) &&
-    /onclick="GO\('schedule'\)">🗓️/.test(appCode));
+    /onclick="GO\('schedule'\)">\$\{ic\('calendar'\)\}/.test(appCode));
   /* AND THE SERVER ALLOWS WHAT THEY FETCH. The two lists have to agree or one of them is lying:
    * a screen the app opens and the server refuses is the same bug seen from the other side. */
   ['myOT','otCarryOver','leaveQuota','myTimeRequests','schedule','myAttendanceMonth','myPayslipMonths']

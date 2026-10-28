@@ -107,7 +107,7 @@ console.log('\n3) the screens stop offering a button that would fail');
   ok_('the teacher card does the same', /:\(day0&&day0\.closed&&!\(att&&att\.holidayOT\)\)\?/.test(app));
   // v232: the recent-days list moved to 📅 ตาราง, where it can be filtered by month. The closed-day
   // card now points there instead of printing four rows nobody asked for.
-  ok_('...and points at the history rather than printing it', /onclick="GO\('schedule'\)">📅/.test(app));
+  ok_('...and points at the history rather than printing it', /onclick="GO\('schedule'\)">\$\{ic\('calendar'\)\}/.test(app));
   ok_('both ask the server, rather than working it out twice', /api\('schoolDay'/.test(app));
   /* THREE on the client since v288: the parent's home no longer asks for it directly — it arrives as
    * a field on `parentHome`, which calls the very same handler server-side. The property this line
