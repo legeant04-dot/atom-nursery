@@ -697,6 +697,10 @@ var SCHOOL_CONFIG_DEFAULTS = [
    * hides the card on the parent's finance screen AND refuses the route: a screen that only hides a
    * button is not a switch. */
   ['ParentPrepayEnabled',   'true'],
+  /* 🔴 โรงเรียนนี้ต้องแนบสลิปโอนตอนบันทึกว่าจ่ายเงินเดือนแล้วหรือไม่ (ผอ. 2026-10-29)
+   * ปิดเป็นค่าเริ่มต้น = พฤติกรรมเดิมทุกประการ · โรงเรียนที่โอนแบบตั้งเวลาล่วงหน้า
+   * ไม่มีสลิปรายคนให้แนบ การบังคับจึงเป็นด่านที่ไม่มีใครผ่านได้ ไม่ใช่การตรวจสอบ */
+  ['RequireSalarySlip',     'false'],
 
   // --- HR / Payroll defaults (used by Phase 2) ---
   ['OTRate',                '0'],            // baht per OT hour, or multiplier per HR policy

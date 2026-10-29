@@ -202,8 +202,24 @@ console.log('\n6) THE THREE SWITCHES ASKED FOR ON 2026-09-02');
    * nothing ever replaces in gas mode. So the tick saved, the sheet held it, and the box came up
    * ticked again because the client was reading its own factory default (2026-09-03). The LINE
    * switches had it too; it was silent there only because their seed matches what most schools want. */
+  /* 🔴 เขียนเป็น "ทุกสวิตช์ที่หน้าจอบันทึก ต้องอ่านกลับมาได้" แทนที่จะตรึงบรรทัดเดียว
+   *
+   * ของเดิมตรึง `ParentPrepayEnabled:cfg.ParentPrepayEnabled })` รวมวงเล็บปิด — พอเพิ่มคีย์ใหม่
+   * ต่อท้าย วงเล็บก็ขยับ ชุดนี้แดงทั้งที่กฎไม่ได้เสียอะไรเลย · และที่แย่กว่าคือมันตรวจแค่คีย์เดียว
+   * ทั้งที่กับดักที่บันทึกไว้ข้างบน (2026-09-03) เกิดกับ **คีย์ไหนก็ได้ที่บันทึกแล้วอ่านกลับไม่ได้**
+   *
+   * ตอนนี้อ่านรายชื่อคีย์จากที่หน้าจอบันทึกจริง แล้วถามว่าฝั่งอ่านมีครบไหม */
+  {
+    const saves = [...app.matchAll(/\['(\w+)','#set\w+'\]/g)].map(m => m[1]);
+    /* สวิตช์ตามหัวข้อ (Notify…) ถูกกระจายเข้ามาจาก NOTIFY_KEYS_ ทั้งก้อน จึงไม่ได้เขียนทีละตัว */
+    const spread = /NOTIFY_KEYS_\.reduce\(\(o,k\)=>\{ o\[k\]=cfg\[k\]; return o; \},\{\}\)/.test(engine);
+    const missing = saves.filter(k =>
+      engine.indexOf(k + ':cfg.' + k) < 0 && !(spread && /^Notify/.test(k)));
+    eq('🔴 ทุกสวิตช์ที่หน้าจอบันทึก เซิร์ฟเวอร์ต้องส่งกลับมาได้', missing, []);
+    ok_('...และมีสวิตช์ให้ตรวจจริง (' + saves.length + ' ตัว)', saves.length >= 3);
+  }
   ok_('the server hands the switches back, so a saved setting can be read',
-    /ParentPrepayEnabled:cfg\.ParentPrepayEnabled \}\)/.test(engine) &&
+    /ParentPrepayEnabled:cfg\.ParentPrepayEnabled,/.test(engine) &&
     // ...and since 2026-10-10 the fifteen per-topic switches are spread in from NOTIFY_KEYS_, so a
     // new topic is readable the moment it is declared and cannot be forgotten here
     /NOTIFY_KEYS_\.reduce\(\(o,k\)=>\{ o\[k\]=cfg\[k\]; return o; \},\{\}\)/.test(engine));
