@@ -199,7 +199,7 @@
       _readStart(); let pr2; try{ pr2=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr2).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.486'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.487'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:var(--fs-1);margin-top:var(--sp-5)">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -8139,6 +8139,9 @@
       staffOT:    ['OT ของครูรออนุมัติ', 'staff OT to approve'],
       studentOT:  ['ค่ารับช้ารอตรวจสลิป', 'late-pickup slips to verify'],
       slips:      ['สลิปรอตรวจสอบ', 'payment slips to verify'],
+      /* 🔴 สลิปที่ส่งเข้ามาแล้วแต่รายการต้นทางถูกปิดไปทางอื่น (รับเงินสด/ชำระล่วงหน้า/ยกเลิกบิล)
+         มันไม่โผล่ในคิวตรวจ และเคยถูกนับรวมอยู่ในตัวเลขด้านบน ทำให้หน้าหลักกับหน้าการเงินไม่ตรงกัน */
+      orphanSlips:['สลิปที่รายการปิดไปแล้ว — รอเคลียร์', 'slips whose item was already closed'],
       withdraw:   ['ใบแจ้งออกรอดำเนินการ', 'withdrawals to process'],
       noCheckout: ['วันที่ครูลืมลงเวลาออก (เดือนนี้)', 'days a teacher never clocked out'],
       journals:   ['สมุดบันทึกวันนี้ที่ยังไม่ได้ส่ง', 'journals not sent today'],
@@ -9284,12 +9287,18 @@
       <div class="card" style="background:var(--surface-2);padding:var(--sp-2)"><b style="font-size:var(--fs-1)">⭐ ${esc(t('set.diligence'))} <small class="muted">(${esc(t('pay.perStaff'))})</small></b>
         <div class="grid2" style="margin-top:var(--sp-2)"><label class="field" style="margin:0"><span style="display:flex;align-items:center;gap:var(--sp-2)"><input type="checkbox" id="pAtt" checked style="width:auto"/> ${esc(t('pay.attend'))}</span><input id="pAttendAmt" type="number"/></label>
           <label class="field" style="margin:0"><span style="display:flex;align-items:center;gap:var(--sp-2)"><input type="checkbox" id="pFb" style="width:auto"/> ${esc(t('pay.fb'))}</span><input id="pFbAmt" type="number"/></label></div></div>
-      <div class="card" style="background:var(--blue-bg);padding:var(--sp-2)"><b style="font-size:var(--fs-1)">👶 ${esc(t('pay.childRate'))}</b>
+      <div class="card" id="childRateCard" style="background:var(--blue-bg);padding:var(--sp-2)">
+        ${/* 🔴 ครูบางคนไม่ได้รับเรทจำนวนเด็กเลย (ผอ. 2026-10-29) · ถ้าไม่ติ๊ก หัวข้อนี้ไม่แสดง
+             และไม่มีคำเตือน "ยังไม่ได้กำหนดเรท" ตามมาด้วย — ค่าตั้งต้นคือ "ปิด" ทุกคน */''}
+        <label class="list-item" style="gap:var(--sp-2);cursor:pointer;padding:0">
+          <input type="checkbox" id="pChildOn" style="width:auto" onchange="A_childOnToggle(this)"/>
+          <b style="font-size:var(--fs-1)">👶 ${esc(t('pay.childRate'))}</b></label>
+        <div id="childRateBody" hidden>
         <div id="pLeaveWarn"></div>
         <div class="grid2" style="margin-top:var(--sp-2)"><label class="field" style="margin:0"><span>${esc(t('pay.childThreshold'))}</span><input id="pThreshold" type="number" onchange="A_recalcChild()"/></label>
           <label class="field" style="margin:0"><span>${esc(t('pay.childMultiplier'))} (฿)</span><input id="pChildMul2" type="number" onchange="A_recalcChild()"/></label></div>
         <div id="childCalc" class="muted" style="font-size:var(--fs-1);margin-top:var(--sp-2)"></div>
-        <label class="field" style="margin:var(--sp-2) 0 0"><span>${esc(t('pay.childCount'))} <small class="muted">(${esc(t('pay.autoEditable'))})</small></span><input id="pChild" type="number" value="0"/></label></div>
+        <label class="field" style="margin:var(--sp-2) 0 0"><span>${esc(t('pay.childCount'))} <small class="muted">(${esc(t('pay.autoEditable'))})</small></span><input id="pChild" type="number" value="0"/></label></div></div>
       <div class="grid2"><label class="field"><span>${esc(t('pay.cert'))}</span><input id="pCert" type="number" value="0"/></label>
         <label class="field"><span>${esc(t('pay.otEvening'))} <small id="otNote" class="muted"></small></span><input id="pOt" type="number" value="0"/></label></div>
       <div id="otDays" style="margin:-4px var(--sp-0) var(--sp-2)"></div>
@@ -9395,6 +9404,10 @@
     $('#pFbAmt').value=pc.DiligenceFacebookAmount!=null?pc.DiligenceFacebookAmount:MOCK.config.DiligenceFacebookAmount;
     // ว่าง = ว่าง · ไม่เติม 31 ให้ (ผอ. 2026-10-23) — ช่องที่เติมเลขไว้ให้ คือช่องที่ไม่มีใครตั้งค่า
     $('#pThreshold').value=(pc.ChildThreshold!=null&&pc.ChildThreshold!=='')?pc.ChildThreshold:'';
+    /* 👶 ครูคนนี้ได้เรทจำนวนเด็กหรือไม่ — ปิดเป็นค่าตั้งต้น (ผอ. 2026-10-29) */
+    { const on=String(pc.EnableChildRate||'false').toLowerCase()==='true';
+      const cb=$('#pChildOn'); if(cb) cb.checked=on;
+      const bd=$('#childRateBody'); if(bd) bd.hidden=!on; }
     { const c=$('#pContrib'); if(c) c.value=pc.Contribution||0; }
     A_payTypeToggle(); A_recalcChild(); A_contribNote();
     // auto-pull this staff's APPROVED OT for the selected month into the OT field
@@ -9700,6 +9713,26 @@
    * จำนวนเด็กที่เกินเรท · ใบประกาศ · โบนัสวันหยุด · การโพสต์เฟซบุ๊ก
    * พวกนี้เป็นข้อเท็จจริงของเดือนนี้ ไม่ใช่ข้อตกลง · ถ้าดึงมาคือการจ่ายตามตัวเลขของเดือนก่อน
    */
+  /* ═══ 👶 ครูคนนี้ได้เรทจำนวนเด็กหรือไม่ (ผอ. 2026-10-29) ══════════════════════════════════
+   *
+   * "ต้องเพิ่มไปในข้อมูลคุณครูแต่ละท่านด้วยว่า หากมีรายได้ส่วนนี้คิดให้ ติ๊ก ระบบถึงจะแสดงให้"
+   *
+   * 🔴 ค่าตั้งต้นคือ **ปิดทุกคน** (ผอ. เลือก) · แปลว่าคำเตือน "ยังไม่ได้กำหนดเรทจำนวนเด็ก"
+   * ที่เคยขึ้นกับครูทุกคนจะหายไปจนกว่าจะมีคนติ๊ก — ซึ่งเป็นการแลกที่ตั้งใจ:
+   * เตือนเรื่องที่โรงเรียนไม่ได้จ่าย คือเสียงที่สอนให้คนเลิกอ่านคำเตือนทั้งหมด
+   *
+   * เก็บไว้ที่ payrollConfig ของคน ไม่ใช่ที่สลิปของเดือน — มันคือข้อตกลง ไม่ใช่เหตุการณ์ */
+  window.A_childOnToggle = async (el) => {
+    const on=el.checked, sid=$('#pStaff').value;
+    const body=$('#childRateBody'); if(body) body.hidden=!on;
+    if(!on){ /* ปิดแล้วต้องไม่เหลือตัวเลขค้างไว้ไปโผล่บนสลิป */
+      const c=$('#pChild'); if(c) c.value=0; A_recalcChild&&A_recalcChild(); }
+    if(!sid) return;
+    el.disabled=true;
+    try{ await api('setPayrollConfig',{staffId:sid,config:{EnableChildRate:on?'true':'false'}}); }
+    catch(e){ el.checked=!on; if(body) body.hidden=on; err(e); }
+    finally{ el.disabled=false; }
+  };
   window.A_pullLastMonth = async (btn) => {
     const sid=$('#pStaff').value;
     if(!sid){ notify('warn', EN()?'Choose a member of staff first':'กรุณาเลือกพนักงานก่อน'); return; }

@@ -290,6 +290,7 @@ create table if not exists payroll_config (
   "diligence_facebook_amount"  numeric(12,2),
   "tax_deduct"                 numeric(12,2),
   "contribution"               numeric(12,2),
+  "enable_child_rate"          boolean,
   created_at  timestamptz not null default now(),
   updated_at  timestamptz not null default now()
 );

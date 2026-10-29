@@ -67,6 +67,8 @@ const res = JSON.parse(run(function () {
     var t = H.adminTodo({ staffId: 'TD-ADM' });
     var byKey = {}; (t.items || []).forEach(function (i) { byKey[i.key] = i.n; });
     return { total: t.total, keys: (t.items || []).map(function (i) { return i.key; }), byKey: byKey,
+             /* คิวตรวจตัวจริง — เพื่อเทียบว่าตัวเลขบนหน้าหลักตรงกับสิ่งที่หน้าการเงินแสดงจริง */
+             queue: H.pendingPayments({}),
              ops: H.opsPending({ staffId: 'TD-ADM' }) };
   }
   var out = {};
@@ -75,8 +77,16 @@ const res = JSON.parse(run(function () {
   // ...แล้วค่อยใส่งานค้างเข้าไปทีละแบบ
   appendObject_(sheet_(HR, 'LEAVE_REQUEST'), { LeaveID: 'LV-1', StaffID: 'TD-T', Type: 'ลากิจ',
     StartDate: T, EndDate: T, Status: 'PENDING_ADMIN', CreatedDate: T });
+  /* 🔴 บิลต้นทางต้องมีอยู่จริงและยังรอตรวจ — ไม่งั้นสลิปใบนี้คือ "สลิปที่รายการปิดไปแล้ว"
+   * ไม่ใช่ "สลิปรอตรวจ" · ของเดิมใส่แต่สลิปโดยไม่มีบิล แล้วคาดหวังว่ามันจะถูกนับเป็นงานค้าง
+   * ซึ่งเป็นสมมติฐานที่ตรงกับบั๊กที่ ผอ. เจอพอดี (หน้าหลักขึ้น 13 หน้าการเงินขึ้น 0) */
+  appendObject_(sheet_(MAIN, 'BILLING'), { BillingID: 'B-1', StudentID: 'TD-K1', Month: T.slice(0, 7),
+    Amount: 100, Status: 'PENDING_VERIFY', PaymentMethod: 'transfer' });
   appendObject_(sheet_(MAIN, 'PAYMENT_SLIPS'), { SlipID: 'SL-1', RefKind: 'bill', RefID: 'B-1',
     Status: 'SUBMITTED', Amount: 100, Date: T });
+  /* ...และอีกใบที่รายการต้นทางไม่มีแล้ว — ต้องไปอยู่หัวข้อของตัวเอง ไม่ใช่หายไปเฉย ๆ */
+  appendObject_(sheet_(MAIN, 'PAYMENT_SLIPS'), { SlipID: 'SL-GHOST', RefKind: 'bill', RefID: 'B-GONE',
+    Status: 'SUBMITTED', Amount: 500, Date: T });
   appendObject_(sheet_(MAIN, 'STUDENTS'), { StudentID: 'TD-K1', Name: 'เด็กหนึ่ง', Nickname: 'หนึ่ง',
     Class: 'Nursery 1', Status: 'ACTIVE', DOB: '2023-01-01', EnrollDate: '2024-01-01' });
   // เด็กที่ลาวันนี้ — ต้อง **ไม่** ถูกนับว่า "สมุดบันทึกค้าง"
@@ -98,7 +108,13 @@ const res = JSON.parse(run(function () {
   // ...และมีเกณฑ์แต่ไม่มีเรทบาท ก็ยังคิดเงินไม่ได้ จึงนับว่ายังไม่กำหนดเหมือนกัน
   appendObject_(sheet_(HR, 'STAFF'), { StaffID: 'TD-T4', Name: 'ครูครึ่งเดียว', Role: 'Teacher',
     PositionLevel: 'Staff', Status: 'ACTIVE', Department: 'Nursery 1', StartDate: '2025-01-01' });
-  appendObject_(sheet_(HR, 'PAYROLL_CONFIG'), { StaffID: 'TD-T4', ChildThreshold: 21, ChildMultiplier: '' });
+  /* 🔴 ตั้งแต่ 2026-10-29 คำเตือนจะขึ้นเฉพาะครูที่ "ติ๊กไว้ว่าได้เรทจำนวนเด็ก" แล้วเท่านั้น
+   * ครูที่โรงเรียนไม่ได้จ่ายส่วนนี้เลย ไม่ควรติดค้างตลอดไป — ดูหมายเหตุที่ add('childRate') */
+  appendObject_(sheet_(HR, 'PAYROLL_CONFIG'), { StaffID: 'TD-T2', EnableChildRate: 'true' });
+  appendObject_(sheet_(HR, 'PAYROLL_CONFIG'), { StaffID: 'TD-T4', ChildThreshold: 21, ChildMultiplier: '', EnableChildRate: 'true' });
+  /* ...และครูที่ไม่ได้ติ๊ก ต้องไม่ถูกนับ แม้จะยังไม่ได้กำหนดเรทเลยก็ตาม */
+  appendObject_(sheet_(HR, 'STAFF'), { StaffID: 'TD-T5', Name: 'ครูไม่ได้เรทเด็ก', Role: 'Teacher',
+    PositionLevel: 'Staff', Status: 'ACTIVE', Department: 'Nursery 1', StartDate: '2025-01-01' });
   try { CacheService.getScriptCache().removeAll(['rows:STAFF', 'col:STAFF',
     'rows:PAYROLL_CONFIG', 'col:PAYROLL_CONFIG']); } catch (e) {}
   out.childRate = todo();
@@ -144,7 +160,16 @@ console.log('\n1) 📋 ไม่มีงานค้าง = ไม่มีร
 console.log('\n2) 📋 มีงานค้าง — ขึ้นเฉพาะที่มีจริง');
 {
   eq('ใบลารออนุมัติ', res.busy.byKey.leaves, 1);
-  eq('สลิปรอตรวจ', res.busy.byKey.slips, 1);
+  /* ═══ 🔴 ตัวเลขนี้ต้องมาจากคิวตรวจตัวจริง (ผอ. 2026-10-29) ════════════════════════════════
+   * หน้าหลักขึ้น 13 แต่หน้าการเงินขึ้น "ไม่มีรายการ" เพราะสองที่นับคนละเกณฑ์:
+   * ของเดิมนับสลิปทุกใบที่ SUBMITTED · คิวตรวจแสดงเฉพาะใบที่รายการต้นทางยังรออยู่ */
+  eq('สลิปรอตรวจ — นับจากคิวตรวจตัวจริง', res.busy.byKey.slips, 1);
+  eq('🔴 ...และตรงกับจำนวนใบในคิวเป๊ะ',
+    res.busy.byKey.slips,
+    (res.busy.queue || []).reduce((a, x) => a + ((x.slips || []).length || (x.cash ? 1 : 0)), 0));
+  /* 🔴 ใบที่รายการปิดไปแล้วต้องไม่หายไปเงียบ ๆ ตอนทำให้ตัวเลขตรงกัน
+   * "ไม่แสดง" กับ "ไม่มี" ไม่ใช่เรื่องเดียวกัน — และนี่คือหลักฐานการโอนเงินของผู้ปกครอง */
+  eq('🔴 สลิปที่รายการปิดไปแล้ว มีหัวข้อของตัวเอง', res.busy.byKey.orphanSlips, 1);
   /* 🔴 เด็กที่ลาวันนี้ ต้องไม่ถูกนับว่า "สมุดบันทึกค้าง" — ตัวเลขแดงที่แก้ไม่ได้ คือตัวเลขที่
    * สอนให้คนเลิกสนใจการ์ดทั้งใบ */
   if (_weekend) console.log('  --   ข้ามข้อ "สมุดบันทึกค้าง" (วันนี้เสาร์/อาทิตย์ โรงเรียนปิด จึงไม่นับ)');
@@ -188,6 +213,9 @@ console.log('\n5) 💰 ครูที่ยังไม่ได้กำหน
   eq('ครูใหม่ที่ยังไม่ตั้งค่า + คนที่ตั้งไว้ครึ่งเดียว = 2 คน', res.childRate.byKey.childRate, 2);
   ok_('🔴 ครูที่ลาออกแล้ว ไม่ถูกนับ (ตัวเลขแดงที่แก้ไม่ได้ สอนให้คนข้ามการ์ด)',
     res.childRate.byKey.childRate === 2);
+  /* 🔴 ครูที่ไม่ได้ติ๊กว่า "ได้เรทจำนวนเด็ก" ต้องไม่ถูกนับ แม้จะยังไม่ได้กำหนดเรทเลย (ผอ. 2026-10-29)
+   * มีครู ACTIVE ที่ยังไม่ตั้งค่าอยู่ 3 คนในชุดนี้ (T2 · T4 · T5) แต่ติ๊กไว้แค่ 2 */
+  eq('🔴 ครูที่ไม่ได้ติ๊กว่าได้เรทเด็ก ไม่ถูกเตือน', res.childRate.byKey.childRate, 2);
   ok_('...และครูที่ตั้งค่าครบแล้ว ไม่ถูกนับ', res.busy.keys.indexOf('childRate') < 0);
   eq('🏫 โรงเรียนที่ปิดฟังก์ชันนี้ — ไม่ขึ้นเลย', res.childRateOff.keys.indexOf('childRate'), -1);
   ok_('กดจากการ์ดแล้วไปหน้าเงินเดือน ซึ่งเป็นที่ที่แก้ได้จริง',

@@ -124,11 +124,11 @@
    * ถ้าใช้ชุดเดียวกันทั้งสองโหมด 100% จะกลายเป็นสีที่จมหายไปกับพื้นหลังที่สุด
    *
    * ทุกค่าวัดกับรางแล้วว่าตัดกันอย่างน้อย 3:1 (เกณฑ์ WCAG ของวัตถุกราฟิก) ทั้งสองโหมด */
-  --prog-r1:#e05252; --prog-r2:#b02020;                                   /* ≤20% */
-  --prog-g1:#2f9260; --prog-g2:#23804f; --prog-g3:#186a3e;
-  --prog-g4:#0f552f; --prog-g5:#083f22;                                   /* 21–90% */
-  --prog-b1:#2f6fb0; --prog-b2:#17487d;                                   /* 91–100% */
-  --prog-track:var(--surface-3);
+  --prog-r1:#ff6b6b; --prog-r2:#f0344c;                                   /* ≤20% */
+  --prog-g1:#35d07f; --prog-g2:#1fc46e; --prog-g3:#12ab5c;
+  --prog-g4:#0b9450; --prog-g5:#067a41;                                   /* 21–90% */
+  --prog-b1:#38a8f8; --prog-b2:#0d78d8;                                   /* 91–100% */
+  --prog-track:#e3e9ee;
 }
 
 *{box-sizing:border-box;}
@@ -858,11 +858,28 @@ a:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible,te
 
 .pbar{height:8px;background:var(--prog-track);border-radius:var(--radius-pill);overflow:hidden;
   margin:var(--sp-1) 0;}
-.pbar>i{display:block;height:100%;border-radius:var(--radius-pill);transition:width var(--dur) ease;}
-.pbar>i.r1{background:var(--prog-r1);} .pbar>i.r2{background:var(--prog-r2);}
-.pbar>i.g1{background:var(--prog-g1);} .pbar>i.g2{background:var(--prog-g2);} .pbar>i.g3{background:var(--prog-g3);}
-.pbar>i.g4{background:var(--prog-g4);} .pbar>i.g5{background:var(--prog-g5);}
-.pbar>i.b1{background:var(--prog-b1);} .pbar>i.b2{background:var(--prog-b2);}
+/* 🔴 สีสดใส กับ "มองเห็นว่าแถบจบตรงไหน" ดึงกันคนละทาง — และเรื่องนี้ต้องพูดให้ชัด
+ *
+ * ผอ. 2026-10-29 ขอสีสดใสโทนสว่าง เหมาะกับโรงเรียนอนุบาล · วัดจริงแล้ว **สีสดใสไม่มีทาง
+ * ตัดกับรางสีอ่อนได้ถึง 3:1** เพราะทั้งคู่สว่างพอ ๆ กัน (เขียวมินต์สด วัดได้ 1.84 กับรางเดิม)
+ * และการทำรางให้เข้มลงก็ไม่ช่วย — มันแค่ย้ายสีที่ตกไปเป็นอีกสีหนึ่ง
+ *
+ * ทางออกคือ **ย้ายหน้าที่ "บอกว่าแถบจบตรงไหน" จากสีพื้น ไปไว้ที่ขอบ**
+ * เส้นขอบด้านในเข้ม 1px ทำให้รูปทรงของแถบอ่านออกเสมอ ไม่ว่าสีพื้นจะสว่างแค่ไหน
+ * ซึ่งเป็นวิธีที่เกณฑ์ WCAG ยอมรับสำหรับวัตถุกราฟิกอยู่แล้ว — ไม่ใช่การยกเว้นกฎ
+ *
+ * ✨ และเรืองแสงอ่อน ๆ ด้วย currentColor — แถบเลยเรืองสีของตัวเอง ไม่ต้องเขียนเงาแยกเก้าชุด */
+.pbar>i{display:block;height:100%;border-radius:var(--radius-pill);transition:width var(--dur) ease;
+  background:currentColor;
+  box-shadow:inset 0 0 0 1px rgba(0,0,0,.22), 0 0 6px color-mix(in srgb, currentColor 60%, transparent);}
+.pbar>i.r1{color:var(--prog-r1);} .pbar>i.r2{color:var(--prog-r2);}
+.pbar>i.g1{color:var(--prog-g1);} .pbar>i.g2{color:var(--prog-g2);} .pbar>i.g3{color:var(--prog-g3);}
+.pbar>i.g4{color:var(--prog-g4);} .pbar>i.g5{color:var(--prog-g5);}
+.pbar>i.b1{color:var(--prog-b1);} .pbar>i.b2{color:var(--prog-b2);}
+/* โหมดมืด: ขอบเข้มมองไม่เห็นบนสีสด ใช้ขอบสว่างแทน · และเรืองแสงได้แรงขึ้นเพราะพื้นมืด */
+[data-theme="dark"] .pbar>i{box-shadow:inset 0 0 0 1px rgba(0,0,0,.35), 0 0 8px color-mix(in srgb, currentColor 75%, transparent);}
+@media(prefers-color-scheme:dark){html:not([data-theme="light"]) .pbar>i{
+  box-shadow:inset 0 0 0 1px rgba(0,0,0,.35), 0 0 8px color-mix(in srgb, currentColor 75%, transparent);}}
 
 /* ═══ 🧭 แถบเครื่องมือหน้าหลักแอดมิน — ข้อความล้วน + เส้นใต้ (ผอ. 2026-10-28) ════════════
  *
@@ -1021,9 +1038,9 @@ main:has(.savedock .btn + .btn){padding-bottom:180px;}   /* two stacked buttons 
   --surface-3:#2a323d;
   /* ไล่กลับทาง: บนพื้นมืด "สดกว่า" คือ "มากกว่า" — 100% ต้องเป็นสีที่ตัดกับพื้นมากที่สุด
      ไม่ใช่สีที่จมหายไปกับพื้นมากที่สุด (ดูหมายเหตุที่ --prog-1 ใน :root) */
-  --prog-r1:#d96a62; --prog-r2:#ff9a94;
-  --prog-g1:#4e9b6c; --prog-g2:#62bd84; --prog-g3:#79d79a; --prog-g4:#92ebb0; --prog-g5:#b2fac8;
-  --prog-b1:#7fb2f0; --prog-b2:#a8ccf7;
+  --prog-r1:#f26a6a; --prog-r2:#ff9a9a;
+  --prog-g1:#2fd079; --prog-g2:#45e58e; --prog-g3:#62f0a6; --prog-g4:#85fabf; --prog-g5:#aaffd6;
+  --prog-b1:#4fc0ff; --prog-b2:#7fd4ff;
   --line:#333c48;
   --line-strong:#47525f;
   --ink:#e7ebf0;
@@ -1063,9 +1080,9 @@ html[data-theme="dark"]{
   --surface-3:#2a323d;
   /* ไล่กลับทาง: บนพื้นมืด "สดกว่า" คือ "มากกว่า" — 100% ต้องเป็นสีที่ตัดกับพื้นมากที่สุด
      ไม่ใช่สีที่จมหายไปกับพื้นมากที่สุด (ดูหมายเหตุที่ --prog-1 ใน :root) */
-  --prog-r1:#d96a62; --prog-r2:#ff9a94;
-  --prog-g1:#4e9b6c; --prog-g2:#62bd84; --prog-g3:#79d79a; --prog-g4:#92ebb0; --prog-g5:#b2fac8;
-  --prog-b1:#7fb2f0; --prog-b2:#a8ccf7;
+  --prog-r1:#f26a6a; --prog-r2:#ff9a9a;
+  --prog-g1:#2fd079; --prog-g2:#45e58e; --prog-g3:#62f0a6; --prog-g4:#85fabf; --prog-g5:#aaffd6;
+  --prog-b1:#4fc0ff; --prog-b2:#7fd4ff;
   --line:#333c48;
   --line-strong:#47525f;
   --ink:#e7ebf0;

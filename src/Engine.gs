@@ -4195,7 +4195,7 @@ function createAtomAPI(M, GROWTH_STD) {
      * with `cfg.ExtraChildThreshold||31`, which is how a number nobody chose became the number that
      * was paid. Blank reaches the screen as blank, and the screen says ยังไม่กำหนด.
      * See the long note in src/Payroll.gs (childRateFor_). */
-    payrollConfig: p => Object.assign({SocialSecurityDeduct:false,ChildThreshold:'',ChildMultiplier:'',TaxDeduct:false}, M.payrollConfig[p.staffId]||{}),
+    payrollConfig: p => Object.assign({SocialSecurityDeduct:false,ChildThreshold:'',ChildMultiplier:'',TaxDeduct:false,EnableChildRate:'false'}, M.payrollConfig[p.staffId]||{}),
     setPayrollConfig: p => { M.payrollConfig[p.staffId]=Object.assign(M.payrollConfig[p.staffId]||{},p.config||{}); return M.payrollConfig[p.staffId]; },
     computePayroll: p => { const st=staffById(p.staffId); const pc=Object.assign({PayType:'monthly',DailyRate:0,SocialSecurityDeduct:false,ChildMultiplier:'',TaxDeduct:false}, M.payrollConfig[p.staffId]||{});
       // base = monthly salary, OR daily-rate × days worked (new/special teachers)
@@ -5185,7 +5185,26 @@ function createAtomAPI(M, GROWTH_STD) {
       add('staffOT',  (ops.staffOT||0)+(ops.holidayOT||0), 'staffOT');
       add('studentOT',ops.studentOT||0,    'studentOT');
       // ...และของที่ opsPending ไม่ได้นับ
-      add('slips',    (M.paymentSlips||[]).filter(s=>String(s.Status||'').toUpperCase()==='SUBMITTED').length, 'pendingPayments');
+      /* ═══ 🔴 สองตัวเลขที่เคยนับคนละเกณฑ์ (ผอ. 2026-10-29: "ตรวจสอบให้แสดงตรงกัน") ══════════
+       *
+       * ของเดิมนับ "สลิปทุกใบที่สถานะ SUBMITTED" แต่คิวตรวจจริง (pendingPayments) แสดงเฉพาะสลิป
+       * ที่ **รายการต้นทางยังรอตรวจอยู่** · หน้าหลักจึงขึ้น 13 ส่วนหน้าการเงินขึ้น "ไม่มีรายการ"
+       *
+       * สลิปพวกนั้นคือใบที่ส่งเข้ามาแล้วแต่รายการต้นทางถูกปิดไปทางอื่น (รับเงินสด · ชำระล่วงหน้า
+       * มาคลุม · บิลถูกยกเลิก) — มันค้างสถานะ "รอตรวจ" อยู่ตลอดกาลโดยไม่มีหน้าไหนแสดง
+       *
+       * 🔴 ตัวเลขนี้จึงนับจาก **คิวตรวจตัวจริง** ไม่ใช่จากตารางสลิปดิบ ๆ อีกต่อไป
+       * สองตัวเลขที่ตอบคำถามเดียวกันต้องมาจากที่เดียวกัน ไม่งั้นมันจะไม่ตรงกันอีกในวันหนึ่ง
+       *
+       * และสลิปที่ค้างไม่ได้หายไปเฉย ๆ — มันไปอยู่ในหัวข้อ orphanSlips ข้างล่าง */
+      var _queue = H.pendingPayments({}) || [];
+      add('slips', _queue.reduce(function(a,x){ return a + ((x.slips||[]).length || (x.cash?1:0)); }, 0), 'pendingPayments');
+      /* 🔴 สลิปที่ส่งเข้ามาแล้วแต่ไม่มีใครเห็น — ถ้าไม่มีหัวข้อนี้ มันจะหายไปจากสายตาทั้งหมด
+       * ตอนที่ตัวเลขด้านบนถูกทำให้ตรงกับคิว · "ไม่แสดง" กับ "ไม่มี" ไม่ใช่เรื่องเดียวกัน */
+      var _inQueue = {};
+      _queue.forEach(function(x){ (x.slips||[]).forEach(function(s){ _inQueue[s.slipId]=1; }); });
+      add('orphanSlips', (M.paymentSlips||[]).filter(function(s){
+        return String(s.Status||'').toUpperCase()==='SUBMITTED' && !_inQueue[s.SlipID]; }).length, 'pendingPayments');
       add('withdraw', (M.withdrawals||[]).filter(w=>String(w.Status||'').toUpperCase()==='PENDING').length, 'withdrawals');
 
       /* วันที่ลงเวลาเข้าแล้วไม่เคยลงเวลาออก และวันนั้นผ่านไปแล้ว — วันเหล่านั้นไม่มีชั่วโมงทำงาน
@@ -5230,8 +5249,16 @@ function createAtomAPI(M, GROWTH_STD) {
        * ทุกคนทุกเช้าตลอดไป ที่โรงเรียนที่ไม่เคยคิดจะจ่ายเงินก้อนนี้ ซึ่งคือตัวเลขแดงที่แก้ไม่ได้
        * อีกแบบหนึ่ง · ค่าเริ่มต้นเปิด เพราะ "ยังไม่ได้ถามโรงเรียน" ควรดังกว่าเงียบ */
       if(String(cfg.ChildRateEnabled==null?'true':cfg.ChildRateEnabled).toLowerCase()==='true')
+      /* 🔴 เตือนเฉพาะครูที่ \"ติ๊กไว้ว่าได้เรทจำนวนเด็ก\" แต่ยังไม่ได้กำหนดตัวเลข (ผอ. 2026-10-29)
+       *
+       * ของเดิมเตือนครูทุกคนที่ยังไม่ได้กำหนด ซึ่งที่โรงเรียนที่ไม่ได้จ่ายส่วนนี้เลย แปลว่า
+       * **ทุกคนติดค้างตลอดไป** · ค่าตั้งต้นของ EnableChildRate คือปิด จึงไม่มีใครถูกเตือนจนกว่า
+       * จะมีคนติ๊ก — และตอนนั้นคำเตือนจะหมายถึงอะไรบางอย่างจริง ๆ
+       *
+       * เสียงเตือนที่ดังทุกวันกับเรื่องที่ไม่เกี่ยว คือเสียงที่สอนให้คนเลิกอ่านคำเตือนทั้งหมด */
       add('childRate', M.staff.filter(s=>s.Role==='Teacher' && !staffEnded_(s) && staffStarted_(s)).filter(s=>{
         const pc=M.payrollConfig[s.StaffID]||{};
+        if(String(pc.EnableChildRate||'false').toLowerCase()!=='true') return false;
         const set=v=>(v!=null && v!=='' && isFinite(Number(v)));
         return !set(pc.ChildThreshold) || !set(pc.ChildMultiplier); }).length, 'payroll');
 
