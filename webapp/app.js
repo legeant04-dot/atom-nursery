@@ -199,7 +199,7 @@
       _readStart(); let pr2; try{ pr2=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr2).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.487'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.488'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:var(--fs-1);margin-top:var(--sp-5)">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -4537,7 +4537,7 @@
       // an empty row (no image at all) is a double-tap or a mistaken cash entry — the admin can bin it.
       // A row WITH a slip is evidence: reject it instead, which keeps the image and the trail.
       const del = canDelete && !s.Url ? `<button class="btn sm pink" onclick="A_delSlip('${esc(s.SlipID)}',this)" aria-label="${EN()?'Delete':'ลบ'}" title="${EN()?'Delete this empty entry':'ลบรายการที่ไม่มีสลิป'}">${ic('trash')}</button>` : '';
-      return `<div class="list-item" style="gap:var(--sp-2);align-items:center">${cash?`<span class="pill ok" style="font-size:var(--fs-1)">💵</span>`:slipThumb(s.Url)}<span style="flex:1"><b>${baht(s.Amount)}</b> ${slipStatusPill(s.Status)} ${slipVerBadge(s.Verified)}${s.SlipGroup?` <span class="pill info" style="font-size:var(--fs-1)" title="${esc(s.SlipGroup)}">🔗 ${EN()?'combined':'สลิปรวมหลายคน'}</span>`:''}${cash&&s.TransRef?`<br><small class="muted">${esc(s.TransRef)}</small>`:''}${!cash&&s.TransRef?`<br><small class="muted">${EN()?'ref':'เลขอ้างอิง'} ${esc(s.TransRef)}</small>`:''}${s.Sender?`<br><small class="muted">${EN()?'from':'จาก'} ${esc(s.Sender)}</small>`:''}${s.Receiver?`<br><small class="muted">→ ${esc(s.Receiver)}</small>`:''}<br><small>${slipWhen(s)}</small></span>${del}</div>`;
+      return `<div class="list-item" style="gap:var(--sp-2);align-items:center">${cash?`<span class="pill ok" style="font-size:var(--fs-1)">💵</span>`:slipThumb(s.Url)}<span style="flex:1"><b>${baht(s.Amount)}</b> ${slipStatusPill(s.Status)} ${slipVerBadge(s.Verified)}${s.SlipGroup?` <span class="pill info" style="font-size:var(--fs-1)" title="${esc(s.SlipGroup)}">🔗 ${EN()?'combined':'สลิปรวม'}</span>`:''}${cash&&s.TransRef?`<br><small class="muted">${esc(s.TransRef)}</small>`:''}${!cash&&s.TransRef?`<br><small class="muted">${EN()?'ref':'เลขอ้างอิง'} ${esc(s.TransRef)}</small>`:''}${s.Sender?`<br><small class="muted">${EN()?'from':'จาก'} ${esc(s.Sender)}</small>`:''}${s.Receiver?`<br><small class="muted">→ ${esc(s.Receiver)}</small>`:''}<br><small>${slipWhen(s)}</small></span>${del}</div>`;
     }).join('')}</div>`; }
   window.A_delSlip=async(slipId,btn)=>{ if(!confirm(EN()?'Delete this empty payment entry? The balance is recalculated.':'ลบรายการรับชำระที่ไม่มีสลิปนี้? ระบบจะคำนวณยอดค้างใหม่'))return;
     const sid=window._FIN_SID;
@@ -12524,7 +12524,17 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
                  :'ยังไม่มีผลตอนนี้ — จนถึงวันเริ่มลา ยังออกบิล ยังนับการมาเรียน และยังอยู่ในรายชื่อชั้นเรียนตามปกติ')
           : (EN()?'While away: no monthly bill, not counted absent, not on class or activity lists. The record and the parent link stay.'
                  :'ระหว่างลา: ไม่ออกบิลรายเดือน · ไม่นับขาด/ลา · ไม่ขึ้นชื่อในชั้นเรียนและกิจกรรม · ข้อมูลและการผูกผู้ปกครองยังอยู่ครบ')}</p>
-        <button class="btn sm block" onclick="A_resumeStudent('${esc(sid)}')">▶️ ${EN()?'Bring back to school':'กลับมาเรียนตามปกติ'}</button></div>`;
+        ${/* 🔴 TWO BUTTONS, because for most of a leave the admin wants the first one and only this
+             screen had the second. A leave that is running is not a finished record: the family
+             changes their mind, the trip is extended, the return date stops being known. Until
+             2026-10-29 this box offered only ▶️, so "แก้ไขวันกลับ" meant ending the leave and
+             starting a new one — and anyone who did not realise that made no change at all while
+             believing they had. The parent kept seeing the old date because it was still the date.
+             ✏️ opens the same form, now filled in from this record. */''}
+        <div class="row" style="gap:var(--sp-1)">
+          <button class="btn sm outline" style="flex:1" onclick="A_pauseForm('${esc(sid)}')">${ic('edit')} ${EN()?'Edit dates':'แก้ไขวันลา'}</button>
+          <button class="btn sm" style="flex:1" onclick="A_resumeStudent('${esc(sid)}')">▶️ ${EN()?'Bring back':'กลับมาเรียน'}</button>
+        </div></div>`;
     }
     return `<button class="btn outline block" onclick="A_pauseForm('${esc(sid)}')">⏸️ ${EN()?'Temporary leave (keeps the record)':'ลาชั่วคราว (เก็บข้อมูลไว้)'}</button>`;
   }
@@ -12690,20 +12700,49 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
     try{ await api('cancelStudentTerm',{termId,staffId:USER.staffId});
       const m=document.querySelector('.modal'); if(m)m.remove();
       confirmSaved(EN()?'Term cancelled':'ยกเลิกช่วงเรียนแล้ว'); GO('manage'); }catch(e){err(e);} };
-  window.A_pauseForm=(sid)=>{ const s=findStudent(sid)||{};
-    modal(`<h3>⏸️ ${EN()?'Temporary leave':'ลาชั่วคราว'} — ${esc(dispNick(s)||sid)}</h3>
+  /* `pre` is the record handed in rather than looked up: the dashboard card already holds the dates
+   * it just printed, and its screen may never have loaded the admin roster. Without it, findStudent
+   * would return {} there and the form would open blank with the start date set to today — the exact
+   * silent reset this version exists to remove. The manage screen passes nothing and uses the cache,
+   * which is the record it rendered the box from. */
+  let _PZ={};          // filled by A_pausedCard, read by the ✏️ button it draws (see its note)
+  window.A_pauseForm=(sid,pre,back)=>{ if(pre==='card') pre=_PZ[String(sid)];
+    const s=pre?Object.assign({StudentID:sid,Status:'PAUSED'},pre):(findStudent(sid)||{});
+    /* 🔴 THE FORM OPENS ON WHAT IS ALREADY RECORDED, and that is the whole point of this version.
+     *
+     * Reported 2026-10-29 (ผอ.): a family's return date was 01/11/2026, the school changed it to
+     * "ยังไม่กำหนด", and the parent's screen still said 01/11/2026. Nothing was stale and nothing
+     * was cached — the date had never changed, BECAUSE THERE WAS NO WAY TO CHANGE IT. Once a child
+     * was PAUSED, A_pauseBox offered exactly one button, ▶️ กลับมาเรียนตามปกติ, and the ⏸️ button
+     * that opens this form was hidden for the rest of the leave. The only way to clear a return
+     * date was to end the leave and start a new one, which rewrites the start date too.
+     *
+     * And when it did open, it opened BLANK with `from` set to today: re-saving an existing leave
+     * silently moved its start to today and dropped the reason. A form that does not show the
+     * current value cannot be used to edit — the admin has no way to tell their change landed, and
+     * every save loses a field they never looked at. So the three fields come from the record.
+     *
+     * CLEARING the return date is a real edit, not a no-op: handleSetStudentPause writes '' and
+     * updateRow_ puts an empty cell in PauseTo, which is how "ยังไม่กำหนด" is stored. */
+    const cur = isPaused(s), cFrom = String(s.PauseFrom||'').slice(0,10), cTo = String(s.PauseTo||'').slice(0,10);
+    modal(`<h3>⏸️ ${cur?(EN()?'Edit the leave':'แก้ไขวันลาชั่วคราว'):(EN()?'Temporary leave':'ลาชั่วคราว')} — ${esc(dispNick(s)||sid)}</h3>
       <p class="muted" style="font-size:var(--fs-1)">${EN()?'For a child who is away for a while and coming back. They stay in the system; while away they are not billed, not marked absent, and not on class or activity lists. To end the enrolment, use withdraw instead.':'สำหรับเด็กที่หยุดพักช่วงหนึ่งแล้วจะกลับมาเรียน · ข้อมูลยังอยู่ในระบบ ระหว่างลาจะไม่ออกบิล ไม่นับขาด/ลา และไม่ขึ้นชื่อในชั้นเรียน/กิจกรรม · หากจะออกจากโรงเรียนถาวร ให้ใช้เมนูลาออกแทน'}</p>
-      <div class="grid2"><label class="field"><span>${EN()?'Away from':'เริ่มลาวันที่'}</span><input type="date" id="pz_from" value="${esc(todayStr())}"/></label>
-        <label class="field"><span>${EN()?'Coming back (optional)':'กลับมาเรียนวันที่ (ไม่ระบุก็ได้)'}</span><input type="date" id="pz_to"/></label></div>
-      <label class="field"><span>${EN()?'Reason (for the school’s own record)':'เหตุผล (บันทึกไว้ในระบบ)'}</span><input id="pz_why" placeholder="${EN()?'e.g. travelling with family':'เช่น เดินทางไปต่างประเทศกับครอบครัว'}"/></label>
-      <p class="muted" style="font-size:var(--fs-1)">${EN()?'Leave the return date blank if it is not decided yet — you can end the leave at any time.':'ถ้ายังไม่รู้วันกลับ เว้นว่างไว้ได้ · กดให้กลับมาเรียนเมื่อไหร่ก็ได้'}</p>
-      <button class="btn block" onclick="A_pauseDo('${esc(sid)}',this)">${esc(t('c.save'))}</button>`); };
-  window.A_pauseDo=async(sid,btn)=>{ const m=btn.closest('.modal'); const v=x=>{const e=m.querySelector(x);return e?e.value.trim():'';};
+      <div class="grid2"><label class="field"><span>${EN()?'Away from':'เริ่มลาวันที่'}</span><input type="date" id="pz_from" value="${esc(cFrom||todayStr())}"/></label>
+        <label class="field"><span>${EN()?'Coming back (optional)':'กลับมาเรียนวันที่ (ไม่ระบุก็ได้)'}</span><input type="date" id="pz_to" value="${esc(cTo)}"/></label></div>
+      <label class="field"><span>${EN()?'Reason (for the school’s own record)':'เหตุผล (บันทึกไว้ในระบบ)'}</span><input id="pz_why" value="${esc(s.PauseReason||'')}" placeholder="${EN()?'e.g. travelling with family':'เช่น เดินทางไปต่างประเทศกับครอบครัว'}"/></label>
+      <p class="muted" style="font-size:var(--fs-1)">${EN()?'Leave the return date blank if it is not decided yet — clearing it is saved as “not decided”, and the parent’s screen says so too. You can end the leave at any time.':'ถ้ายังไม่รู้วันกลับ เว้นว่างไว้ได้ · ลบวันที่ออกแล้วกดบันทึก ระบบจะเก็บเป็น “ยังไม่กำหนด” และหน้าของผู้ปกครองจะขึ้นตรงกัน · กดให้กลับมาเรียนเมื่อไหร่ก็ได้'}</p>
+      <button class="btn block" onclick="A_pauseDo('${esc(sid)}',this,'${esc(back||'manage')}')">${esc(t('c.save'))}</button>`); };
+  window.A_pauseDo=async(sid,btn,back)=>{ const m=btn.closest('.modal'); const v=x=>{const e=m.querySelector(x);return e?e.value.trim():'';};
     const from=v('#pz_from'); if(!from){ toast(EN()?'Pick the start date':'เลือกวันที่เริ่มลา'); return; }
     const to=v('#pz_to'); if(to && to<from){ toast(EN()?'The return date cannot be before the start':'วันที่กลับต้องไม่ก่อนวันที่เริ่มลา'); return; }
     try{ await api('setStudentPause',{studentId:sid,paused:true,from,to,reason:v('#pz_why'),staffId:USER.staffId});
       m.remove(); const m2=document.querySelector('.modal'); if(m2)m2.remove();
-      confirmSaved(EN()?'Marked as on temporary leave':'บันทึกเป็นลาชั่วคราวแล้ว'); GO('manage'); }catch(e){err(e);} };
+      /* THE MESSAGE SAYS WHAT THE RETURN DATE NOW IS, because that is the field being edited and
+       * the one the parent reads. "บันทึกแล้ว" alone is what let a change that never happened look
+       * like one that did. */
+      confirmSaved(to ? (EN()?`Back at school on ${ddmmyyyy(to)}`:`กลับมาเรียน ${ddmmyyyy(to)}`)
+                      : (EN()?'On temporary leave — return date not decided':'ลาชั่วคราว — ยังไม่กำหนดวันกลับ'));
+      GO(back||'manage'); }catch(e){err(e);} };
   window.A_resumeStudent=async(sid,back)=>{ if(!confirm(EN()?'Bring this child back to school? Billing and attendance resume.':'ให้นักเรียนคนนี้กลับมาเรียนตามปกติ? ระบบจะเริ่มออกบิลและนับการมาเรียนอีกครั้ง'))return;
     try{ await api('setStudentPause',{studentId:sid,paused:false,staffId:USER.staffId});
       const m=document.querySelector('.modal'); if(m)m.remove();
@@ -12768,15 +12807,28 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
           <br><small class="muted">${EN()?'first day':'วันแรก'} <b>${esc(ddmmyyyy(x.startDate))}</b></small></span>
         <span class="pill ${Number(x.days)<=7?'wait':'info'}" style="flex:0 0 auto">${Number(x.days)<=0?(EN()?'today':'วันนี้'):(EN()?`in ${x.days} day(s)`:`อีก ${x.days} วัน`)}</span></div>`).join('')}
       <small class="muted">${EN()?'Not counted as absent, not on class lists, and their parent cannot check in yet — but bills can already be issued.':'ยังไม่นับขาด ไม่ขึ้นชื่อในชั้นเรียน และผู้ปกครองยังลงเวลาไม่ได้ · แต่ออกบิลล่วงหน้าได้แล้ว'}</small></details>`; };
+  /* THE ROWS THIS CARD PRINTED, kept so the ✏️ button can hand the form the record it is editing.
+   * NOT passed through the onclick as a string: PauseReason is free text the admin typed, esc()
+   * deliberately leaves apostrophes alone (it escapes for HTML, not for a JS string literal), and
+   * one apostrophe in "เดินทางกับแม่'ต" would have made a dead button out of a working one. */
   window.A_pausedCard=(list)=>{ list=list||[]; if(!list.length) return '';
+    _PZ={}; list.forEach(x=>{ _PZ[String(x.studentId)]={PauseFrom:x.from||'',PauseTo:x.to||'',
+      PauseReason:x.reason||'',Nickname:x.nick||'',NameTH:x.name||''}; });
     const dn=x=>EN()?(x.nickEN||x.nameEN||x.nick||x.name):(x.nick||x.name);
     // ...and the third group, which the card used to fold into "away" and then tell the admin that a
     // child sitting in Nursery Baby that morning was not being billed and not on any list
     const due=list.filter(x=>x.due), soon=list.filter(x=>!x.due&&x.scheduled), away=list.filter(x=>!x.due&&!x.scheduled);
-    const row=(x,isDue)=>`<div class="list-item"><span><b>${esc(dn(x))}</b> <small class="muted">${esc(x.className||'')}</small>
+    const row=(x,isDue)=>`<div class="list-item stack"><span><b>${esc(dn(x))}</b> <small class="muted">${esc(x.className||'')}</small>
         <br><small class="muted">${esc(ddmmyyyy(x.from))} → ${x.to?esc(ddmmyyyy(x.to)):(EN()?'not decided':'ยังไม่กำหนด')}${x.reason?' · '+esc(x.reason):''}</small>
         ${isDue?`<br><small style="color:var(--warn)">${x.dueToday?(EN()?'⏰ due back TODAY':'⏰ ครบกำหนดวันนี้'):(EN()?'⏰ the return date has passed':'⏰ เลยกำหนดกลับมาแล้ว')}</small>`:''}</span>
-      <button class="btn sm ${isDue?'green':'outline'}" onclick="A_resumeStudent('${esc(x.studentId)}','home')">▶️ ${EN()?'Back':'กลับมาเรียน'}</button></div>`;
+      ${/* ✏️ IS HERE FOR THE SAME REASON IT IS ON THE MANAGE SCREEN (2026-10-29): a running leave
+             still changes, and this card is where the admin is already looking. It hands the row's
+             OWN dates to the form rather than the roster's, because the dashboard may never have
+             loaded the roster — see the note on A_pauseForm. */''}
+      <span class="acts">
+        <button class="btn sm outline" onclick="A_pauseForm('${esc(x.studentId)}','card','home')">${ic('edit')} ${EN()?'Edit':'แก้ไข'}</button>
+        <button class="btn sm ${isDue?'green':'outline'}" onclick="A_resumeStudent('${esc(x.studentId)}','home')">▶️ ${EN()?'Back':'กลับมาเรียน'}</button>
+      </span></div>`;
     return `<details class="card foldcard"><summary class="spread"><h3>⏸️ ${EN()?'Temporary leave':'นักเรียนลาชั่วคราว'}</h3>
         <span class="muted">${list.length} ${EN()?'children':'คน'}</span></summary>
       ${due.length?`<div class="card" style="background:var(--warn-bg);border-color:var(--warn-line);padding:var(--sp-2);margin:var(--sp-1) 0">
