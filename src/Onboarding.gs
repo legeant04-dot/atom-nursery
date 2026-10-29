@@ -122,6 +122,9 @@ var ONBOARD_SCOPE_ = {
   HolidayList:            'UNIVERSAL',
   ParentPrepayEnabled:    'CONFIRM',
   ChildRateEnabled:       'CONFIRM',  // does this school pay teachers per extra child at all?
+  /* 🔴 โรงเรียนนี้โอนเงินเดือนทีละคน (มีสลิปรายคน) หรือโอนแบบตั้งเวลาล่วงหน้า (ไม่มี)
+   * เป็นเรื่องของวิธีทำงานของแต่ละโรงเรียน ไม่ใช่ค่าที่ถูกสำหรับทุกที่ จึงต้องให้คนยืนยัน */
+  RequireSalarySlip:      'CONFIRM',
   SchoolSlogan:           'CONFIRM',
   Links_Facebook:         'CONFIRM',  Links_Website:         'CONFIRM',
   InsurancePolicyNo:      'CONFIRM',

@@ -621,7 +621,7 @@ function handleRenameDepartment(p) {
 function handleSetSchoolConfig(p) {
   p = p || {};
   var WHITE = { GPS_Lat: 1, GPS_Lng: 1, Radius: 1, GpsAccuracySlack: 1, LateGraceMinutes: 1, OTRatePerHour: 1, OTGraceMinutes: 1, StaffOTHourlyRate: 1, OTRoundUpMinutes: 1, DefaultCheckInTime: 1, DefaultCheckOutTime: 1, BigCleaningAmount: 1, BigCleaningIn: 1, BigCleaningOut: 1,
-    ParentPrepayEnabled: 1, DigestMorning: 1, DigestEvening: 1,
+    ParentPrepayEnabled: 1, DigestMorning: 1, DigestEvening: 1, RequireSalarySlip: 1,
     ContributionMatchRate: 1 };                                 // เงินสมทบ: school's share ÷ teacher's share
   /* 🔴 THE PER-TOPIC LINE SWITCHES ARE ADDED FROM THE TOPIC TABLE, NOT TYPED OUT AGAIN.
    *

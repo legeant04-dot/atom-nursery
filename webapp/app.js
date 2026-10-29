@@ -199,7 +199,7 @@
       _readStart(); let pr2; try{ pr2=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr2).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.485'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.486'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:var(--fs-1);margin-top:var(--sp-5)">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -9256,7 +9256,7 @@
     window._PAYATT=null;       // the attendance month is cached per month — a fresh screen starts empty
     const payable=payableStaff(staff);
     const hidden=(staff||[]).length-payable.length;
-    app.innerHTML=`<button class="btn sm outline backbtn" onclick="A_finTab('pay')">${t('c.back')} · ${EN()?'Finance':'การเงิน'}</button><h2 class="page">${esc(t('title.payroll'))}</h2><div class="card">
+    app.innerHTML=`<button class="btn sm outline backbtn" onclick="A_finTab('pay')">${t('c.back')} · ${EN()?'Finance':'การเงิน'}</button><div class="spread"><h2 class="page" style="margin:0">${esc(t('title.payroll'))}</h2><button class="btn sm outline" id="pPullBtn" onclick="A_pullLastMonth(this)">${ic('restore')} ${EN()?'Pull last month':'ดึงข้อมูลเดือนที่แล้ว'}</button></div><div class="card">
       ${/* NOBODY IS SELECTED WHEN THE SCREEN OPENS — asked 2026-09-29: "ต้องไม่ให้พนักงานคนไหนเป็น
            Default". A <select> picks its first option whether or not anybody chose it, so opening
            payroll used to land on whoever happened to sort first, fill the form with their salary,
@@ -9683,6 +9683,51 @@
             :'นี่คือ OT ที่อนุมัติทั้งหมดของเดือนนั้น · ระบบไม่ได้บันทึกว่าเป็นวันไหนที่ยังไม่ได้จ่าย จึงแสดงทั้งเดือนให้ตรวจสอบ'}</small>`:''}
         </div>`).join('')||`<p class="muted">${EN()?'Nothing carried forward.':'ไม่มีรายการค้างจ่าย'}</p>`}`); };
 
+  /* ═══ ⟲ ดึงข้อมูลเดือนที่แล้ว (ผอ. 2026-10-29) ═══════════════════════════════════════════════
+   *
+   * "ให้นำข้อมูลของเดือนก่อนหน้ามาใส่ข้อมูลของเดือนปัจจุบัน เช่น มีรายการหักที่เคยสร้างขึ้น
+   *  ให้นำมาสร้างให้เลย Admin จะทำการตรวจสอบความถูกต้องเอง"
+   *
+   * 🔴 ปุ่มนี้ดึง **เฉพาะรายการเพิ่ม/หักพิเศษ** และนั่นคือทุกอย่างที่ต้องดึงจริง ๆ
+   *
+   * เพราะข้อตกลงที่ซ้ำทุกเดือนอย่างอื่น — เงินเดือนฐาน · รูปแบบการจ่าย · เรทรายวัน ·
+   * เรทเด็ก (ตัวคูณ/เกณฑ์) · เบี้ยขยัน · ประกันสังคม · เงินสมทบ — **ถูกเก็บไว้ที่ตัวพนักงาน
+   * ไม่ใช่ที่สลิปของเดือน** และ payrollConfig เติมให้เองอยู่แล้วทุกครั้งที่เลือกคน
+   * การ "ดึงมาทับ" ซ้ำอีกรอบจึงไม่ได้ช่วยอะไร และ **อันตรายกว่า**: ถ้าเงินเดือนถูกปรับขึ้น
+   * เมื่อเดือนที่แล้ว การคัดลอกค่าเก่ากลับมาคือการจ่ายตามตัวเลขที่ยกเลิกไปแล้ว
+   *
+   * 🔴 และไม่ดึงสิ่งที่ "เกิดขึ้นจริงเดือนนี้" เด็ดขาด — OT · OT วันหยุด · จำนวนวันทำงาน ·
+   * จำนวนเด็กที่เกินเรท · ใบประกาศ · โบนัสวันหยุด · การโพสต์เฟซบุ๊ก
+   * พวกนี้เป็นข้อเท็จจริงของเดือนนี้ ไม่ใช่ข้อตกลง · ถ้าดึงมาคือการจ่ายตามตัวเลขของเดือนก่อน
+   */
+  window.A_pullLastMonth = async (btn) => {
+    const sid=$('#pStaff').value;
+    if(!sid){ notify('warn', EN()?'Choose a member of staff first':'กรุณาเลือกพนักงานก่อน'); return; }
+    const mth=$('#pMonth').value||monthStr();
+    const [Y,M]=mth.split('-').map(Number);
+    const d=new Date(Y, M-2, 1);
+    const prev=d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0');
+    const who=(A_CACHE.staff||[]).find(x=>x.StaffID===sid)||{};
+    btn.disabled=true;
+    try{
+      const slip=await api('getPayslip',{staffId:sid,month:prev});
+      const rows=adjRows(slip).map(a=>({label:a.label||'',amount:Number(a.amount)||0})).filter(a=>a.label||a.amount);
+      if(!rows.length){ notify('info',
+        EN()?`No add/deduct lines on ${prev} for this person`:`เดือน ${esc(monthNameYear(prev))} ไม่มีรายการเพิ่ม/หักของ ${esc(dnick(who)||sid)}`,
+        EN()?'Everything else (salary, rates, diligence, contribution) already carries over by itself.'
+           :'ส่วนที่เหลือ (เงินเดือน เรท เบี้ยขยัน เงินสมทบ) ถูกเติมให้เองอยู่แล้วตั้งแต่เลือกคน', {raw:true}); return; }
+      /* 🔴 ถามก่อนทับ (ผอ. เลือกไว้) — ของที่กรอกไปแล้วหายไปเงียบ ๆ คือสิ่งที่ไม่มีใครกู้คืนได้ */
+      if(PAY_ADJ.filter(a=>a.label||a.amount).length &&
+         !confirm(EN()?`Replace the ${PAY_ADJ.length} line(s) already here with ${rows.length} from ${prev}?`
+                      :`ตอนนี้มีรายการอยู่แล้ว ${PAY_ADJ.length} รายการ · จะแทนที่ด้วย ${rows.length} รายการจากเดือน ${monthNameYear(prev)} ใช่หรือไม่?`)) return;
+      PAY_ADJ=rows; A_renderAdj();
+      notify('ok',
+        EN()?`Pulled ${rows.length} add/deduct line(s) from ${prev}`:`ดึงรายการเพิ่ม/หัก ${rows.length} รายการ จากเดือน ${monthNameYear(prev)} มาแล้ว`,
+        EN()?'Check them before saving. OT, days worked and child count are NOT copied — those belong to this month.'
+           :'กรุณาตรวจสอบก่อนบันทึก · OT จำนวนวันทำงาน และจำนวนเด็ก ไม่ได้ถูกดึงมา เพราะเป็นข้อมูลของเดือนนี้', {raw:true});
+    }catch(e){ err(e); }
+    finally{ btn.disabled=false; }
+  };
   window.A_addAdj=()=>{ PAY_ADJ.push({label:'',amount:0}); A_renderAdj(); };
   window.A_delAdj=(i)=>{ PAY_ADJ.splice(i,1); A_renderAdj(); };
   function A_renderAdj(){ const box=$('#adjList'); if(!box)return;
@@ -13579,6 +13624,13 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
       <p class="muted" style="font-size:var(--fs-1)">${EN()?'Reading the sheets takes about 10 seconds; reading this ready-made copy takes under half a second. Saving anything in the app refreshes it immediately, so this only matters if someone edits the Google Sheet BY HAND — then the app can lag behind by up to this long. 900 = 15 minutes.':'การอ่านจากชีตใช้เวลาราว 10 วินาที · อ่านจากสำเนาที่เตรียมไว้ใช้ไม่ถึงครึ่งวินาที · การบันทึกผ่านแอปจะรีเฟรชให้ทันทีเสมอ ค่านี้จึงมีผลเฉพาะกรณีมีคนไปแก้ Google Sheet ด้วยมือ — แอปอาจตามช้าได้ไม่เกินเวลานี้ · 900 = 15 นาที (ค่าแนะนำ)'}</p>`;
 
   const _setMoneyHTML = (sc,cfg) => `
+      ${/* 🔴 ค่าเริ่มต้นของ "ต้องแนบสลิป" ระดับโรงเรียน (ผอ. 2026-10-29)
+           ปิดไว้ = พฤติกรรมเดิมทุกประการ · โรงเรียนที่โอนแบบตั้งเวลาล่วงหน้าไม่มีสลิปรายคนให้แนบ
+           แอดมินยังติ๊ก/เอาออกเป็นรายคนได้ทุกครั้งตอนบันทึกว่าจ่ายแล้ว */''}
+      <label class="list-item" style="gap:var(--sp-2);cursor:pointer">
+        <input type="checkbox" id="setReqSlip" style="width:auto" ${String((sc||{}).RequireSalarySlip||'false').toLowerCase()==='true'?'checked':''}/>
+        <span><b>${EN()?'Require a transfer slip when marking salary paid':'ต้องแนบสลิปโอนตอนบันทึกว่าจ่ายเงินเดือนแล้ว'}</b>
+          <br><small class="muted">${EN()?'This is only the default — it can be unticked for any single payment.':'เป็นแค่ค่าเริ่มต้น · ยังเอาออกเป็นรายคนได้ทุกครั้ง'}</small></span></label>
       <h4 style="margin:var(--sp-2) 0">${esc(t('set.diligence'))}</h4>
       <div class="grid2"><label class="field"><span>${esc(t('set.attendAmt'))}</span><input id="setAtt" type="number" value="${esc(cfg.DiligenceAttendanceAmount)}"/></label>
         <label class="field"><span>${esc(t('set.fbAmt'))}</span><input id="setFb" type="number" value="${esc(cfg.DiligenceFacebookAmount)}"/></label></div>
@@ -15235,7 +15287,8 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
 
     // notification prefs (checkboxes) — stored in SCHOOL_CONFIG so the digests/triggers read them
     const ck=id=>{ const e=m.querySelector(id); return e?(e.checked?'true':'false'):undefined; };
-    [['DigestMorning','#setDigM'],['DigestEvening','#setDigE']].forEach(([k,id])=>{
+    [['DigestMorning','#setDigM'],['DigestEvening','#setDigE'],
+     ['RequireSalarySlip','#setReqSlip']].forEach(([k,id])=>{
        const v=ck(id); if(v!==undefined) gv[k]=v; });
     /* 🔴 THE PER-TOPIC SWITCHES ARE READ FROM THE DOM, NOT FROM A SECOND LIST OF IDS.
      *
@@ -16610,6 +16663,9 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
 
   // ---- Finance: per-staff detail (salary base + this-month OT + compute) ----
   window.A_finStaff=async(sid)=>{ const month=FIN_MONTH||monthStr();
+    /* ค่าเริ่มต้นของ "ต้องแนบสลิป" มาจากการตั้งค่าระดับโรงเรียน (ผอ. 2026-10-29)
+     * อ่านผ่าน api() ซึ่งมีแคชอยู่แล้ว จึงไม่ใช่รอบวิ่งเพิ่มในทางปฏิบัติ */
+    const _schoolCfg = await api('schoolConfig').catch(()=>({}));
     // A_CACHE.staff is only filled by the manage/payroll screens, so opening this from Finance showed
     // the raw StaffID ("STF-002"). Fetch the roster once if it isn't loaded — same fix as A_finStudent.
     let s=(A_CACHE.staff||[]).find(x=>x.StaffID===sid);
@@ -16624,6 +16680,8 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
         <button class="btn sm block" onclick="A_finSaveBase('${sid}')">${ic('save')} ${EN()?'Save base salary':'บันทึกฐานเงินเดือน'}</button></div>
       <div class="card" style="padding:var(--sp-2)"><div class="spread"><span>⏰ ${EN()?'Approved OT this month':'OT อนุมัติเดือนนี้'}</span><b>${baht(otTotal)}</b></div></div>
       ${(()=>{ const paid=String(pay&&pay.SlipSent||'')==='YES';
+        /* ค่าเริ่มต้นของช่องติ๊กมาจากการตั้งค่าระดับโรงเรียน · แอดมินยังเปลี่ยนรายคนได้ (ผอ. 2026-10-29) */
+        const _needSlip=String((_schoolCfg||{}).RequireSalarySlip||'false').toLowerCase()==='true';
         if(!pay) return `<div class="card" style="padding:var(--sp-2)"><small class="muted">${EN()?'Nothing saved for this month yet — save the payroll first, then you can mark it paid.':'ยังไม่มีรายการจ่ายของเดือนนี้ — บันทึกเงินเดือนก่อน จึงจะติ๊กว่าจ่ายแล้วได้'}</small></div>`;
         return `<div class="card" style="padding:var(--sp-2);background:${paid?'var(--ok-bg)':'var(--surface-2)'}">
           <div class="spread"><b>${EN()?'Transfer':'การจ่ายเงิน'}</b><b>${baht(pay.NetPay)}</b></div>
@@ -16632,7 +16690,11 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
           ${pay.SlipUrl?`<div style="margin-top:var(--sp-2)"><img src="${esc(pay.SlipUrl)}" style="max-width:100%;border-radius:8px;cursor:pointer" onclick="IMG_zoom('${esc(pay.SlipUrl)}')"/></div>`:''}
           ${paid
             ? `<button class="btn sm outline block" style="margin-top:var(--sp-2)" onclick="A_salaryPaid('${sid}',false)">↩︎ ${EN()?'Undo paid':'ยกเลิกสถานะจ่ายแล้ว'}</button>`
-            : `${photoField('fsSlip',(EN()?'Attach transfer slip (optional)':'แนบสลิปโอน (ถ้ามี)'),'',false)}
+            : `<label class="list-item" style="gap:var(--sp-2);cursor:pointer;padding:var(--sp-2) 0">
+                 <input type="checkbox" id="fsNeedSlip" style="width:auto" ${(_needSlip?"checked":"")}/>
+                 <span><b>${EN()?'A transfer slip is required':'ต้องแนบสลิปโอน'}</b>
+                   <br><small class="muted">${EN()?'Tick when you transfer per person. Untick for a scheduled bulk transfer — then no slip is needed.':'ติ๊กเมื่อโอนทีละคน · โรงเรียนที่โอนแบบตั้งเวลาล่วงหน้าไม่ต้องติ๊ก จะไม่ถูกบังคับแนบ'}</small></span></label>
+               ${photoField('fsSlip',(EN()?'Transfer slip':'สลิปโอน'),'',false)}
                <button class="btn sm block" style="margin-top:var(--sp-2)" onclick="A_salaryPaid('${sid}',true)">✅ ${EN()?'Mark paid':'ติ๊กว่าจ่ายแล้ว'}</button>`}
         </div>`; })()}
       <div class="row"><button class="btn sm" onclick="A_finCompute('${sid}')">${ic('calc')} ${EN()?'Compute payroll':'คำนวณเงินเดือน'}</button><button class="btn sm outline" onclick="this.closest('.modal').remove();GO('payroll')">${ic('doc')} ${EN()?'Full payroll':'หน้าเงินเดือนเต็ม'}</button></div>
@@ -16642,7 +16704,21 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
   window.A_salaryPaid=async(sid,paid)=>{ const m=document.querySelector('.modal'); const month=FIN_MONTH||monthStr();
     let slipUrl='';
     if(paid){ const inp=m&&m.querySelector('#fsSlip'); const f=inp&&inp.files&&inp.files[0];
-      if(f){ try{ slipUrl=inp.dataset.url||await compressImage(f); }catch(e){} } }
+      if(f){ try{ slipUrl=inp.dataset.url||await compressImage(f); }catch(e){} }
+      /* 🔴 ด่านนี้อยู่ตรงนี้ ไม่ใช่ที่หน้าจอ (ผอ. 2026-10-29)
+       *
+       * ช่องติ๊กบอกว่า "งวดนี้ต้องมีสลิป" · ถ้าติ๊กไว้แล้วไม่มีไฟล์ การกดบันทึกต้องไม่ผ่าน —
+       * ไม่ใช่เตือนแล้วบันทึกให้อยู่ดี เพราะ "จ่ายแล้วแต่ไม่มีหลักฐาน" คือสถานะที่ไม่มีใคร
+       * ย้อนไปหาได้ว่าจ่ายไปจริงไหม
+       *
+       * และถ้า **ไม่ติ๊ก** ก็ไม่ถาม ไม่เตือน ไม่บ่น — โรงเรียนที่โอนแบบตั้งเวลาล่วงหน้า
+       * ไม่มีสลิปรายคนให้แนบ การบังคับจึงเป็นด่านที่ไม่มีใครผ่านได้ ไม่ใช่การตรวจสอบ */
+      const need=m&&m.querySelector('#fsNeedSlip');
+      if(need&&need.checked&&!slipUrl){
+        notify('warn', EN()?'A transfer slip is required for this payment':'งวดนี้ตั้งไว้ว่าต้องแนบสลิปโอน',
+          EN()?'Attach the slip, or untick "A transfer slip is required" if this was a scheduled bulk transfer.'
+             :'กรุณาแนบสลิป หรือเอาเครื่องหมายถูกที่ "ต้องแนบสลิปโอน" ออก ถ้าเป็นการโอนแบบตั้งเวลา', {raw:true});
+        return; } }
     if(!paid && !confirm(EN()?'Undo the paid status for this month?':'ยกเลิกสถานะ "จ่ายแล้ว" ของเดือนนี้?')) return;
     try{ await api('markSalaryPaid',{staffId:sid,month,paid,slipUrl:slipUrl||undefined,adminId:USER.staffId});
       // say that the teacher was told, so the admin does not have to send a message as well
