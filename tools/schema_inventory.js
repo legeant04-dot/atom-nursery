@@ -196,6 +196,10 @@ const MONEY = new Set([
  * and water a baby drank. A money type on a child's feed is the same class of mistake as a float on
  * a payslip, pointing the other way, and the audit is what caught it. */
 const NOT_MONEY = new Set([
+  /* EnableChildRate (2026-10-29) — สวิตช์ว่าครูคนนี้ได้ "เรทจำนวนเด็ก" หรือไม่ ไม่ใช่จำนวนเงิน
+     ตั้งชื่อขึ้นต้นด้วย Enable เพื่อให้ BOOL_PREFIX จับได้เองและลงเป็น boolean —
+     ไม่ใช่ numeric(12,2) ที่จะเก็บคำว่า 'true' ไม่ได้ · ชื่อที่ตรงกติกาดีกว่าข้อยกเว้นที่ต้องจำ */
+  'EnableChildRate',
   'PaidDate', 'PaymentMethod', 'GeneratedBy', 'GeneratedDate', 'PaidBy', 'PayType', 'PayrollID',
   'PrepayID', 'ChargeID', 'PauseSalaryMode', 'ContributionLocked', 'MilkTotal', 'Water',
   /* 🔴 InsuranceSum: MONEY → NOT_MONEY (Phase 2.3, 2026-10-13). It is not an amount this school

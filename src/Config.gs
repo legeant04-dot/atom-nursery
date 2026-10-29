@@ -396,7 +396,9 @@ SCHEMA[WB.HR] = {
   STAFF_GROUPS:  ['GroupName', 'GroupNameEN', 'CheckInTime', 'CheckOutTime'],
   // Per-staff payroll config (Admin-editable). Widened to carry every field the engine's computePayroll uses
   // so it round-trips through the sheet: pay type/daily rate, SS flag, child threshold & multiplier, diligence amounts.
-  PAYROLL_CONFIG:['StaffID', 'PayType', 'DailyRate', 'BaseSalary', 'SocialSecurityDeduct', 'ChildThreshold', 'ChildMultiplier', 'DiligenceAttendanceAmount', 'DiligenceFacebookAmount', 'TaxDeduct', 'Contribution'],
+  /* EnableChildRate — ครูคนนี้ได้ "เรทจำนวนเด็ก" หรือไม่ (ผอ. 2026-10-29) · ต่อท้ายคอลัมน์เดิม
+   * ว่าง/ไม่ใช่ 'true' = ไม่ได้ ซึ่งคือค่าตั้งต้นของทุกแถวที่มีอยู่แล้ว จึงไม่ต้องย้อนไปเติมข้อมูลเก่า */
+  PAYROLL_CONFIG:['StaffID', 'PayType', 'DailyRate', 'BaseSalary', 'SocialSecurityDeduct', 'ChildThreshold', 'ChildMultiplier', 'DiligenceAttendanceAmount', 'DiligenceFacebookAmount', 'TaxDeduct', 'Contribution', 'EnableChildRate'],
   // InManual/OutManual = 'YES' when the time was set via an approved manual-attendance request (ขอลงเวลา);
   // the app renders a manual time in blue/bold to distinguish it from a normal GPS clock-in. Appended at END.
   /* EditedBy/EditedAt/EditNote — an admin correcting a clock time writes straight into this row
