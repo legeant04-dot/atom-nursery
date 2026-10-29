@@ -58,8 +58,13 @@ console.log('\n1) the project exists and is a shell, not a second copy of the ap
   /* NOT ONE LINE OF THE APP MAY BE COPIED IN HERE. The whole value of this approach is that
    * publishing the website publishes to Android; a stray .html or .js under android/ would be a
    * second copy that drifts, and nobody would notice until it disagreed with the live app. */
+  /* 🔴 ข้ามผลลัพธ์ที่ Gradle สร้างเอง · ข้ออ้างของข้อนี้คือ "ไม่มีสำเนาของแอปอยู่ใน *ซอร์ส*
+   * ของเปลือกแอนดรอยด์" ไม่ใช่ "ไม่มีไฟล์อะไรโผล่ใต้ android/ ได้เลย"
+   * 2026-10-29 มีคนสั่ง build แล้ว Gradle วาง problems-report.html ไว้ใน android/build/
+   * ชุดนี้จึงแดงทันทีโดยที่ไม่มีใครแตะซอร์สเลย — เทสต์ที่แดงเพราะมีคน build คือเทสต์ที่จะถูกเมิน */
+  const SKIP = { build: 1, '.gradle': 1 };
   const walk = d => fs.readdirSync(path.join(ROOT, d), { withFileTypes: true })
-    .flatMap(e => e.isDirectory() ? walk(d + '/' + e.name) : [d + '/' + e.name]);
+    .flatMap(e => e.isDirectory() ? (SKIP[e.name] ? [] : walk(d + '/' + e.name)) : [d + '/' + e.name]);
   const files = walk('android');
   eq('no web assets were copied into the shell',
     files.filter(f => /\.(html|js|css|webmanifest)$/i.test(f)), []);

@@ -108,23 +108,26 @@
    * ทั้งแอปอย่างสม่ำเสมอ ซึ่งเป็นผลที่ตั้งใจ ไม่ใช่ผลข้างเคียง */
   --sp-0:2px; --sp-1:4px; --sp-2:8px; --sp-3:12px; --sp-4:16px; --sp-5:24px; --sp-6:32px;
 
-  /* ═══ 📊 แถบความคืบหน้า — เขียวไล่เฉด เข้มสุดที่ 100% (ผอ. 2026-10-28) ════════════════════
+  /* ═══ 📊 แถบความคืบหน้า — สามช่วงสี ไล่เฉดในแต่ละช่วง (ผอ. 2026-10-29) ════════════════════
    *
-   * 🔴 ของเดิมเป็นไฟแดง-ส้ม-เขียว และเส้นแบ่งตั้งไว้ว่า **ต้อง 100% เท่านั้นถึงจะเขียว**
-   * การมาเรียน 89% จึงขึ้นสีแดง — ซึ่งเป็นตัวเลขที่ดีมากสำหรับโรงเรียนอนุบาล
-   * (เด็กลา 2 คนจาก 19 ก็ตกเกณฑ์แล้ว) · สัญญาณเตือนที่เตือนทุกวันคือสัญญาณที่ไม่มีใครอ่าน
+   *   ≤ 20%   แดง    — มีอะไรผิดปกติ
+   *   21–90%  เขียว  — ปกติ · ยิ่งมากยิ่งเข้ม
+   *   91–100% ฟ้า    — ครบ/เกือบครบ
    *
-   * ตอนนี้ **สีเป็นตัวเลขอีกชุดหนึ่ง**: ยิ่งเข้มยิ่งมาก · มองผ่าน ๆ ก็รู้ว่าเยอะหรือน้อย
-   * โดยไม่ต้องอ่านตัวเลข · และ **สีแดงเหลือไว้ที่ต่ำกว่า 50% จริง ๆ** ซึ่งคือตอนที่มีอะไรผิดปกติ
+   * 🔴 ที่มา: เกณฑ์เดิมคือ "ต้อง 100% เท่านั้นถึงจะเขียว" ทำให้การมาเรียน 89% ขึ้นสีแดง
+   * ซึ่งเป็นตัวเลขที่ดีมากสำหรับโรงเรียนอนุบาล (เด็กลา 2 คนจาก 19 ก็ตกเกณฑ์แล้ว)
+   * **สัญญาณเตือนที่เตือนทุกวันคือสัญญาณที่ไม่มีใครอ่าน**
+   *
+   * สีจึงเป็นตัวเลขอีกชุดหนึ่ง: มองผ่าน ๆ ก็รู้ว่าอยู่ช่วงไหนโดยไม่ต้องอ่านตัวเลข
    *
    * 🔴 โหมดมืดไล่กลับทาง — บนพื้นมืด "สว่าง/สดกว่า" คือสิ่งที่อ่านว่า "มากกว่า"
-   * ถ้าใช้ชุดเดียวกันทั้งสองโหมด 100% จะกลายเป็นสีที่จมหายไปกับพื้นหลังที่สุด */
-  --prog-1:#2f9260;   /* น้อยสุด */
-  --prog-2:#23804f;
-  --prog-3:#186a3e;
-  --prog-4:#0f552f;
-  --prog-5:#083f22;   /* 100% */
-  --prog-low:var(--bad);      /* ต่ำกว่า 50% — ตรงนี้คือสัญญาณเตือนจริง */
+   * ถ้าใช้ชุดเดียวกันทั้งสองโหมด 100% จะกลายเป็นสีที่จมหายไปกับพื้นหลังที่สุด
+   *
+   * ทุกค่าวัดกับรางแล้วว่าตัดกันอย่างน้อย 3:1 (เกณฑ์ WCAG ของวัตถุกราฟิก) ทั้งสองโหมด */
+  --prog-r1:#e05252; --prog-r2:#b02020;                                   /* ≤20% */
+  --prog-g1:#2f9260; --prog-g2:#23804f; --prog-g3:#186a3e;
+  --prog-g4:#0f552f; --prog-g5:#083f22;                                   /* 21–90% */
+  --prog-b1:#2f6fb0; --prog-b2:#17487d;                                   /* 91–100% */
   --prog-track:var(--surface-3);
 }
 
@@ -856,9 +859,10 @@ a:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible,te
 .pbar{height:8px;background:var(--prog-track);border-radius:var(--radius-pill);overflow:hidden;
   margin:var(--sp-1) 0;}
 .pbar>i{display:block;height:100%;border-radius:var(--radius-pill);transition:width var(--dur) ease;}
-.pbar>i.p1{background:var(--prog-1);} .pbar>i.p2{background:var(--prog-2);}
-.pbar>i.p3{background:var(--prog-3);} .pbar>i.p4{background:var(--prog-4);}
-.pbar>i.p5{background:var(--prog-5);} .pbar>i.plow{background:var(--prog-low);}
+.pbar>i.r1{background:var(--prog-r1);} .pbar>i.r2{background:var(--prog-r2);}
+.pbar>i.g1{background:var(--prog-g1);} .pbar>i.g2{background:var(--prog-g2);} .pbar>i.g3{background:var(--prog-g3);}
+.pbar>i.g4{background:var(--prog-g4);} .pbar>i.g5{background:var(--prog-g5);}
+.pbar>i.b1{background:var(--prog-b1);} .pbar>i.b2{background:var(--prog-b2);}
 
 /* ═══ 🧭 แถบเครื่องมือหน้าหลักแอดมิน — ข้อความล้วน + เส้นใต้ (ผอ. 2026-10-28) ════════════
  *
@@ -867,22 +871,19 @@ a:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible,te
  *
  * 🔴 ทั้งหกเป็น "การกระทำ" ไม่ใช่แท็บสลับหน้า จึงไม่มีตัวไหนเป็น active ถาวร —
  * เส้นใต้จึงขึ้นตอนชี้/แตะเท่านั้น ไม่ใช่ค้างไว้บอกว่า "คุณอยู่ตรงนี้" ซึ่งจะเป็นคำโกหก */
-.qbarwrap{position:relative;border-bottom:1px solid var(--line);margin-bottom:var(--sp-3);}
-.qbar{display:flex;gap:var(--sp-4);overflow-x:auto;scroll-behavior:smooth;
-  -webkit-overflow-scrolling:touch;scrollbar-width:none;}
-.qbar::-webkit-scrollbar{height:0;}
-.qtab{flex:0 0 auto;white-space:nowrap;background:none;border:0;cursor:pointer;font-family:inherit;
-  font-size:var(--fs-2);font-weight:600;color:var(--ink-3);padding:var(--sp-3) var(--sp-1);
-  display:inline-flex;align-items:center;gap:var(--sp-1);
-  border-bottom:2px solid transparent;margin-bottom:-1px;transition:color var(--dur),border-color var(--dur);}
-.qtab:hover,.qtab:focus-visible{color:var(--ink);border-bottom-color:var(--ink);outline:none;}
-.qtab:active{color:var(--brand);border-bottom-color:var(--brand);}
-/* ปุ่ม › โผล่เฉพาะตอนที่ยังมีของเลยขอบไปจริง ๆ — ลูกศรที่อยู่ตลอดเวลาคือลูกศรที่ไม่มีความหมาย */
-.qnext{position:absolute;right:0;top:0;bottom:1px;width:40px;border:0;cursor:pointer;
-  display:none;align-items:center;justify-content:flex-end;padding-right:var(--sp-1);
-  font-size:var(--fs-4);line-height:1;color:var(--ink-2);font-family:inherit;
-  background:linear-gradient(90deg,transparent,var(--bg) 45%);}
-.qnext.on{display:flex;}
+/* 🔴 2026-10-29 — จากข้อความล้วนเลื่อนได้ เป็น "กรอบเท่ากันห้าช่อง พอดีจอ" (ผอ.)
+ * grid ห้าคอลัมน์เท่ากันจึงไม่มีอะไรล้นออกไป และไม่ต้องมีลูกศร › อีกต่อไป
+ * ป้ายสั้นลงเพราะช่องละ ~70px บนมือถือ — ชื่อเต็มอยู่ใน title/aria-label */
+.qbarwrap{display:grid;grid-template-columns:repeat(5,1fr);gap:var(--sp-2);margin-bottom:var(--sp-3);}
+.qtab{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:var(--sp-1);
+  min-width:0;min-height:60px;padding:var(--sp-2) var(--sp-0);cursor:pointer;font-family:inherit;
+  background:var(--surface);border:1px solid var(--line);border-radius:var(--radius-sm);
+  color:var(--ink-2);transition:border-color var(--dur),color var(--dur),background var(--dur);}
+.qtab>span{font-size:var(--fs-1);font-weight:600;line-height:1.2;text-align:center;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100%;}
+.qtab .ii{margin-right:0;}
+.qtab:hover,.qtab:focus-visible{border-color:var(--brand);color:var(--brand-d);outline:none;}
+.qtab:active{background:var(--brand-soft);border-color:var(--brand);}
 .dash-h{display:flex;align-items:baseline;gap:var(--sp-2);margin:var(--sp-2) var(--sp-0) var(--sp-3);}
 .dash-h h2{margin:0;} .dash-h .dash-date{font-size:var(--fs-1);color:var(--muted);font-weight:600;}
 /* pushed to the far right of the title row; `auto` rather than a fixed width so the date can grow */
@@ -1020,7 +1021,9 @@ main:has(.savedock .btn + .btn){padding-bottom:180px;}   /* two stacked buttons 
   --surface-3:#2a323d;
   /* ไล่กลับทาง: บนพื้นมืด "สดกว่า" คือ "มากกว่า" — 100% ต้องเป็นสีที่ตัดกับพื้นมากที่สุด
      ไม่ใช่สีที่จมหายไปกับพื้นมากที่สุด (ดูหมายเหตุที่ --prog-1 ใน :root) */
-  --prog-1:#4e9b6c; --prog-2:#62bd84; --prog-3:#79d79a; --prog-4:#92ebb0; --prog-5:#b2fac8;
+  --prog-r1:#d96a62; --prog-r2:#ff9a94;
+  --prog-g1:#4e9b6c; --prog-g2:#62bd84; --prog-g3:#79d79a; --prog-g4:#92ebb0; --prog-g5:#b2fac8;
+  --prog-b1:#7fb2f0; --prog-b2:#a8ccf7;
   --line:#333c48;
   --line-strong:#47525f;
   --ink:#e7ebf0;
@@ -1060,7 +1063,9 @@ html[data-theme="dark"]{
   --surface-3:#2a323d;
   /* ไล่กลับทาง: บนพื้นมืด "สดกว่า" คือ "มากกว่า" — 100% ต้องเป็นสีที่ตัดกับพื้นมากที่สุด
      ไม่ใช่สีที่จมหายไปกับพื้นมากที่สุด (ดูหมายเหตุที่ --prog-1 ใน :root) */
-  --prog-1:#4e9b6c; --prog-2:#62bd84; --prog-3:#79d79a; --prog-4:#92ebb0; --prog-5:#b2fac8;
+  --prog-r1:#d96a62; --prog-r2:#ff9a94;
+  --prog-g1:#4e9b6c; --prog-g2:#62bd84; --prog-g3:#79d79a; --prog-g4:#92ebb0; --prog-g5:#b2fac8;
+  --prog-b1:#7fb2f0; --prog-b2:#a8ccf7;
   --line:#333c48;
   --line-strong:#47525f;
   --ink:#e7ebf0;

@@ -14,7 +14,7 @@
  * IMPORTANT: bump CACHE on every release, together with APP_VERSION in app.js and the ?v=NN in
  * index.html. Forgetting it means clients keep serving the previous release's js/css from cache.
  */
-const CACHE = 'atom-v484';
+const CACHE = 'atom-v485';
 
 /* ═══ 🚚 ย้ายโดเมน — สวิตช์ส่งมอบ (2026-10-22) ═══════════════════════════════════════════════
  *
