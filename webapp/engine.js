@@ -2804,6 +2804,51 @@ function createAtomAPI(M, GROWTH_STD) {
       const confirmed=sumSlips_(kind, p.refId, ['CONFIRMED']);
       return Object.assign({ok:true, kind, refId:p.refId, amount:amt, due:tgt.due, paidSoFar:confirmed,
         outstanding:Math.max(0, tgt.due-confirmed)}, r||{}); },
+    /**
+     * SLIPS NOBODY WILL EVER BE ASKED ABOUT — the ones the verify queue cannot show.
+     *
+     * A slip sits in the queue only while the thing it pays for is still open. When the item gets
+     * closed another way — the family handed over cash, a prepayment covered the month, the bill was
+     * cancelled — the slip keeps Status='SUBMITTED' forever and drops out of pendingPayments. It is
+     * a real transfer the parent made, with a picture attached, and until 2026-10-29 no screen in
+     * the app listed one: the dashboard said 13 and the queue said 0 (fixed in v487), and then the
+     * dashboard row led to จัดการข้อมูล, which has nothing to do with it (ผอ. asked what it was for).
+     *
+     * 🔴 THE COUNT AND THIS LIST ARE THE SAME RULE, written once: SUBMITTED, and not in the queue.
+     * adminTodo calls this and counts it, rather than repeating the filter — the two numbers that
+     * answer the same question come from the same place, which is the rule the 13 broke.
+     *
+     * Each row carries WHY it is stranded — the state of the item it was paying for — because that
+     * is the only thing that tells the admin what to do with it, and because 'ไม่พบรายการ' (the bill
+     * was deleted) is a different problem from 'จ่ายเงินสดแล้ว'.
+     */
+    orphanSlips: () => {
+      var inQueue = {};
+      (H.pendingPayments({}) || []).forEach(function (x) {
+        (x.slips || []).forEach(function (sl) { inQueue[sl.slipId] = 1; }); });
+      return paySlips_().filter(function (s) {
+        return String(s.Status || '').toUpperCase() === 'SUBMITTED' && !inQueue[s.SlipID];
+      }).map(function (s) {
+        var st = studentById(s.StudentID) || {};
+        var tgt = slipTarget_(s.RefKind, s.RefID);
+        var o = tgt && tgt.obj;
+        return {
+          slipId: s.SlipID, amount: Number(s.Amount || 0), url: s.Url || '',
+          transDate: s.TransDate || '', submitted: s.SubmittedAt || s.Submitted || '',
+          verified: s.Verified || '', transRef: s.TransRef || '', receiver: s.Receiver || '',
+          studentId: s.StudentID || '', nick: st.Nickname || '', nickEN: st.NicknameEN || '',
+          name: st.NameTH || st.Name || '', nameEN: st.NameEN || '', className: st.Class || '',
+          refKind: s.RefKind || '', refId: s.RefID || '',
+          // what it was paying for, and what happened to that item instead
+          label: !o ? '' : (s.RefKind === 'bill' ? ym(o.Month)
+                 : s.RefKind === 'ot' ? (ymd(o.Date) + ' OT')
+                 : s.RefKind === 'charge' ? (o.Label || 'ค่าใช้จ่ายเพิ่มเติม')
+                 : (o.Months + ' เดือน')),
+          targetMissing: !o,
+          targetStatus: o ? String(o.Status || '') : '',
+          targetMethod: o ? String(o.PaymentMethod || '') : '',
+          targetDue: tgt ? Number(tgt.due || 0) : 0
+        }; }); },
     // all slips for a bill/OT/prepay (or a student) — history shown to parent + admin (rejected hidden)
     paymentSlips: p => paySlips_().filter(s=> (p.refKind?s.RefKind===p.refKind:true) && (p.refId?s.RefID===p.refId:true) && (p.studentId?s.StudentID===p.studentId:true) && (p.includeRejected?true:s.Status!=='REJECTED'))
       .map(s=>({ SlipID:s.SlipID, RefKind:s.RefKind, RefID:s.RefID, Amount:Number(s.Amount||0), Url:s.Url, Verified:s.Verified, TransRef:s.TransRef, Receiver:s.Receiver, SubmittedDate:s.SubmittedDate, Status:s.Status, SlipGroup:s.SlipGroup||'', Method:s.Method||'', TransDate:s.TransDate||'', TransTime:s.TransTime||'', StatedDate:s.StatedDate||'', StatedTime:s.StatedTime||'', Sender:s.Sender||'' })),
@@ -5197,10 +5242,10 @@ function createAtomAPI(M, GROWTH_STD) {
       add('slips', _queue.reduce(function(a,x){ return a + ((x.slips||[]).length || (x.cash?1:0)); }, 0), 'pendingPayments');
       /* 🔴 สลิปที่ส่งเข้ามาแล้วแต่ไม่มีใครเห็น — ถ้าไม่มีหัวข้อนี้ มันจะหายไปจากสายตาทั้งหมด
        * ตอนที่ตัวเลขด้านบนถูกทำให้ตรงกับคิว · "ไม่แสดง" กับ "ไม่มี" ไม่ใช่เรื่องเดียวกัน */
-      var _inQueue = {};
-      _queue.forEach(function(x){ (x.slips||[]).forEach(function(s){ _inQueue[s.slipId]=1; }); });
-      add('orphanSlips', (M.paymentSlips||[]).filter(function(s){
-        return String(s.Status||'').toUpperCase()==='SUBMITTED' && !_inQueue[s.SlipID]; }).length, 'pendingPayments');
+      /* 🔴 นับจาก H.orphanSlips ตัวเดียวกับที่หน้าการเงินแสดง ไม่ได้เขียนเงื่อนไขซ้ำ
+       * ก่อนหน้านี้กฎ "SUBMITTED และไม่อยู่ในคิว" ถูกเขียนไว้สองที่ · วันที่หน้าจอมีรายการ
+       * ไม่เท่ากับตัวเลขบนหน้าหลัก จะเป็นบั๊กเดียวกับ 13-กับ-0 อีกครั้ง แค่คนละคู่ */
+      add('orphanSlips', (H.orphanSlips({}) || []).length, 'pendingPayments');
       add('withdraw', (M.withdrawals||[]).filter(w=>String(w.Status||'').toUpperCase()==='PENDING').length, 'withdrawals');
 
       /* วันที่ลงเวลาเข้าแล้วไม่เคยลงเวลาออก และวันนั้นผ่านไปแล้ว — วันเหล่านั้นไม่มีชั่วโมงทำงาน

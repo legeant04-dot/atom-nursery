@@ -199,7 +199,7 @@
       _readStart(); let pr2; try{ pr2=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr2).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.488'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.489'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:var(--fs-1);margin-top:var(--sp-5)">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -8155,7 +8155,10 @@
      * ตัวหนึ่งย้ายแล้วอีกตัวพาไปหน้าที่ไม่มีอะไร */
     const TODO_GO = { leaves:"GO('leaves')", timeReq:OPS_BTN.timeRequests+'()', classReq:OPS_BTN.classChanges+'()',
       injury:"GO('injuries')", staffOT:OPS_BTN.staffOT+'()', studentOT:OPS_BTN.studentOT+'()',
-      slips:"GO('finance')", withdraw:"GO('manage')", noCheckout:"A_staffMonth()", journals:"A_journals()",
+      slips:"A_finTab('wait')",
+      /* ...and this one, which had no entry at all and therefore fell through to GO('manage') —
+         a screen with nothing about slips on it. ผอ. 2026-10-29: "กดแล้วไปที่หน้าจัดการ แล้วยังไงต่อ?" */
+      orphanSlips:"A_finTab('wait')", withdraw:"GO('manage')", noCheckout:"A_staffMonth()", journals:"A_journals()",
       ending:"GO('manage')", graceSoon:"GO('manage')", childRate:"GO('payroll')" };
     const TODO_TONE = { slips:'bad', studentOT:'bad', noCheckout:'warn', graceSoon:'warn', journals:'warn',
       // เรื่องเงินที่ยังไม่ถูกต้อง — โทนเดียวกับ noCheckout ซึ่งเป็นเงินเดือนที่ยังคำนวณไม่ได้เหมือนกัน
@@ -16427,8 +16430,12 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
     /* billingGroups is fetched ONLY on its own tab. It is the whole roster with each child's bill
      * state on it — the most expensive read on this screen — and three of the four tabs never show
      * it. Asking for it every time would put that cost on the income tab the admin opens all day. */
-    const [f,pend,plans,bg]=await Promise.all([api('financeSummary',{month}), api('pendingPayments'), api('getPlans').catch(()=>[]),
-      FIN_TAB==='cycle'?api('billingGroups',{month}).catch(()=>null):Promise.resolve(null)]);
+    /* orphanSlips rides with the queue, and ONLY on the tab that prints it. Apps Script runs one
+      * execution at a time per user, so a read fetched on four tabs to be shown on one is a wait the
+      * admin pays for three times over — the same reasoning as billingGroups directly below. */
+    const [f,pend,plans,bg,orph]=await Promise.all([api('financeSummary',{month}), api('pendingPayments'), api('getPlans').catch(()=>[]),
+      FIN_TAB==='cycle'?api('billingGroups',{month}).catch(()=>null):Promise.resolve(null),
+      FIN_TAB==='wait'?api('orphanSlips').catch(()=>[]):Promise.resolve([])]);
     if(plans&&plans.length) A_CACHE.plans=plans;
     const pendN=(pend||[]).length;
     const stat=(cls,n,l,sub)=>`<div class="stat ${cls}"><div class="n">${n}</div><div class="l">${esc(l)}${sub?`<br><span style="opacity:.85;font-size:var(--fs-1)">${sub}</span>`:''}</div></div>`;
@@ -16444,7 +16451,8 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
         <div class="spread" style="margin-top:var(--sp-2)"><b>${esc(t('fin.totalSalary'))}</b><b style="color:var(--bad)">${baht(f.expense)}</b></div>
         <button class="btn sm block" style="margin-top:var(--sp-3)" onclick="GO('payroll')">${ic('doc')} ${EN()?'Full payroll calculator':'เครื่องคำนวณเงินเดือน (เต็ม)'}</button></div>`;
     // verify tab: pending slips/cash to confirm
-    const waitTab=`<p class="muted" style="font-size:var(--fs-1);margin:var(--sp-0) var(--sp-0) var(--sp-2)">${esc(t('verify.note'))}</p>${verifyListHTML(pend||[])}`;
+    const waitTab=`<p class="muted" style="font-size:var(--fs-1);margin:var(--sp-0) var(--sp-0) var(--sp-2)">${esc(t('verify.note'))}</p>${verifyListHTML(pend||[])}
+      ${A_orphanSlipsHTML(orph||[])}`;
     // billing-cycle tab: the roster grouped by the day of the month each family pays on
     const cycleTab=A_cycleTabHTML(bg, month);
     const tab=(k,ic,lbl,badge)=>`<button class="${FIN_TAB===k?'active':''}" onclick="A_finTab('${k}')">${ic} ${esc(lbl)}${badge?` (${badge})`:''}</button>`;
@@ -17074,6 +17082,56 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
       <p class="muted" style="font-size:var(--fs-1)">${esc(t('verify.note'))}</p>${verifyListHTML(list)}`;
   };
   // bigger slip preview for the admin (tap to zoom)
+  /**
+   * สลิปที่รายการต้นทางปิดไปแล้ว — หัวข้อที่ไม่เคยมีหน้าจอ
+   *
+   * ผอ. 2026-10-29: *"กดแล้วไปที่หน้าจัดการ แล้วยังไงต่อ? จุดประสงค์คืออะไร?"* — ไม่มีอะไรต่อ
+   * จริง ๆ แถวนั้นไม่ได้กำหนดปลายทางไว้ เลยตกไปหน้าจัดการข้อมูลซึ่งไม่เกี่ยวอะไรเลย
+   *
+   * 🔴 และส่งไป "การเงิน › รออนุมัติ" เฉย ๆ ก็ไม่ได้ เพราะสลิปพวกนี้ *ตกจากคิวนั้นไปแล้ว*
+   * ตามนิยาม — คิวจะแสดงว่างเปล่า ซึ่งคือความสับสน 13-กับ-0 แบบเดิมอีกรอบ · มันจึงต้องมี
+   * ที่ของตัวเอง และที่นั่นคือใต้คิวตรวจ เพราะนั่นคือที่ที่แอดมินเดินไปเมื่อหน้าหลักบอกว่ามีสลิป
+   *
+   * 🔴 มีแต่ปุ่ม "ไม่ต้องใช้สลิปนี้" ไม่มีปุ่มยืนยัน — และนั่นเป็นการเลือก ไม่ใช่การลืม
+   * รายการต้นทางถูกปิดไปแล้ว การกดยืนยันสลิปจะบันทึกเงินก้อนเดิม *ซ้ำอีกครั้ง*
+   * ถ้าแอดมินเชื่อว่าการปิดนั้นผิด ต้องไปแก้ที่รายการของเด็กคนนั้น ซึ่งปุ่มล่างพาไปให้
+   * *เรื่องเงินเป็นเรื่องที่พลาดแล้วเสียความน่าเชื่อถือ — ปุ่มที่ทำให้ยอดซ้ำได้ ไม่ควรมีอยู่*
+   */
+  window.A_orphanSlipsHTML=(list)=>{ list=list||[];
+    if(!list.length) return '';
+    const why = x => x.targetMissing ? (EN()?'the item was deleted':'รายการต้นทางถูกลบไปแล้ว')
+      : String(x.targetStatus||'').toUpperCase()==='PAID'
+        ? (String(x.targetMethod||'')==='cash' ? (EN()?'already paid in cash':'ปิดด้วยการรับเงินสดแล้ว')
+                                               : (EN()?'already closed as paid':'ถูกปิดว่าชำระแล้ว'))
+      : String(x.targetStatus||'').toUpperCase()==='CANCELLED' ? (EN()?'the item was cancelled':'รายการถูกยกเลิก')
+      : (EN()?('item status: '+(x.targetStatus||'—')):('สถานะรายการ: '+(x.targetStatus||'—')));
+    const kindLbl = k => ({bill:(EN()?'monthly bill':'บิลรายเดือน'), ot:(EN()?'late pickup':'ค่ารับช้า'),
+      charge:(EN()?'extra charge':'ค่าใช้จ่ายเพิ่มเติม'), prepay:(EN()?'prepayment':'ชำระล่วงหน้า')}[k]||k);
+    const row = x => { const n = EN()?(x.nickEN||x.nick||x.nameEN):(x.nick||x.name);
+      return `<div class="card" style="padding:var(--sp-3);background:var(--surface)">
+        <div class="row" style="gap:var(--sp-3);align-items:flex-start">
+          ${slipThumb2(x.url)}
+          <div style="flex:1;min-width:0">
+            <div><b>${baht(x.amount)}</b> ${slipVerBadge(x.verified)}</div>
+            <small class="muted">👶 ${esc(n||x.studentId)}${x.className?' · '+esc(x.className):''}</small><br>
+            <small class="muted">${esc(kindLbl(x.refKind))}${x.label?' · '+esc(x.label):''}</small><br>
+            <small style="color:var(--warn)">${esc(why(x))}</small>
+            ${x.transDate?`<br><small class="muted">${esc(String(x.transDate).slice(0,16))}</small>`:''}
+          </div></div>
+        <div class="row" style="gap:var(--sp-2);margin-top:var(--sp-2)">
+          <button class="btn sm outline" style="flex:1" onclick="A_finStudent('${esc(x.studentId)}')">${ic('search')} ${EN()?'Open child':'ดูรายการ'}</button>
+          <button class="btn sm pink" style="flex:1" onclick="A_rejectSlip('${esc(x.slipId)}')">${ic('close')} ${EN()?'Not needed':'ไม่ต้องใช้'}</button>
+        </div></div>`; };
+    return `<details class="card foldcard" id="sec-orphan-slips" open style="border-color:var(--warn-line)">
+      <summary class="spread"><h3 style="color:var(--warn)">${ic('attach')} ${EN()?'Slips whose item was already closed':'สลิปที่รายการปิดไปแล้ว'}</h3>
+        <span class="pill wait">${list.length}</span></summary>
+      <p class="muted" style="font-size:var(--fs-1)">${EN()
+        ? 'These parents really did transfer, but what they were paying for was closed another way — cash was taken, a prepayment covered it, or the bill was cancelled. They cannot appear in the queue above, and they stay marked “pending” until someone clears them here.'
+        : 'ผู้ปกครองโอนมาจริง แต่รายการที่จ่ายถูกปิดไปทางอื่นแล้ว — รับเป็นเงินสด · ชำระล่วงหน้ามาคลุม · หรือบิลถูกยกเลิก · สลิปพวกนี้จึงขึ้นในคิวด้านบนไม่ได้ และจะค้างสถานะ “รอตรวจ” จนกว่าจะมีคนมาเคลียร์ตรงนี้'}</p>
+      <p class="muted" style="font-size:var(--fs-1)">${EN()
+        ? 'There is deliberately no “confirm” here: the item is already closed, so confirming would record the same money twice. If the closure was wrong, open the child and fix it there.'
+        : '🔴 ตรงนี้ไม่มีปุ่มยืนยันโดยตั้งใจ — รายการถูกปิดไปแล้ว การยืนยันจะบันทึกเงินก้อนเดิมซ้ำอีกครั้ง · ถ้าการปิดนั้นผิด ให้เปิดรายการของเด็กคนนั้นแล้วแก้ที่นั่น'}</p>
+      ${list.map(row).join('')}</details>`; };
   function slipThumb2(url){ return url?`<img src="${esc(url)}" alt="slip" style="width:90px;height:110px;object-fit:cover;border-radius:8px;border:1px solid var(--line);cursor:zoom-in" onclick="ZOOM_IMG('${esc(url)}')" onerror="this.replaceWith(Object.assign(document.createElement('div'),{className:'qr-ph',textContent:'📎'}))"/>`:`<div class="qr-ph" style="width:90px;height:110px">📎</div>`; }
   window.A_confirmSlip=async(slipId,btn)=>{ const card=btn?btn.closest('.card'):null; const d=card&&card.parentElement?card.parentElement.querySelector('input[type=date]'):null; const paidDate=(d&&d.value)||todayStr();
     try{ const r=await api('confirmSlip',{slipId,adminId:USER.staffId,paidDate}); const out=Number(r&&r.outstanding||0); confirmSaved(out>0?(EN()?`Confirmed. Still outstanding ${baht(out)}`:`ยืนยันแล้ว ยังค้าง ${baht(out)}`):t('verify.confirmed')); GO(CURRENT); }catch(e){err(e);} };
