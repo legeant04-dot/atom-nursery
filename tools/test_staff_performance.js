@@ -264,7 +264,19 @@ console.log('7) 🔴 the school did not always have a clock');
   eq('the date is derived from the earliest clock-in on record', a.H.attendanceSince().derived, SEP);
   eq('...and that is what is used when nothing is configured', a.H.attendanceSince().effective, SEP);
   /* 🔴 THE WHOLE POINT. January to August is not absence — nobody was asked to clock in. */
-  ok_('🔴 the months before it are not counted as absence', ra.absent < 40);
+  /* 🔴 เคยเขียนว่า `ra.absent < 40` ซึ่งไม่ใช่ข้ออ้างที่ตั้งใจจะตรวจ — มันคือ "ตัวเลขรวมยังไม่ถึง 40"
+   * ซึ่งเป็นจริงเพราะปียังไม่เดินไปไกลพอ ไม่ใช่เพราะโค้ดทำถูก · **มันแดงเองวันที่ 2026-10-29
+   * โดยที่ไม่มีใครแก้โค้ดอะไรเลย** — คือตัวอย่างของข้อตรวจที่เขียนเป็นรูปร่างแทนที่จะเขียนเป็นข้ออ้าง
+   *
+   * ข้ออ้างจริงคือ "เดือนก่อนวันที่เริ่มลงเวลา ไม่ถูกนับเป็นขาด" — ตรวจทุกเดือนก่อนกันยายนตรง ๆ */
+  {
+    const ms = ra.months || [];
+    const before = ms.filter(m => String(m.month || '') < Y + '-09');
+    eq('🔴 the months before it are not counted as absence', before.map(m => m.month), []);
+    /* ...และผลรวมมาจากเดือนที่โผล่จริงเท่านั้น ไม่มีเดือนผีมาบวกเพิ่ม */
+    eq('...and the total is exactly what those months add up to',
+      ra.absent, ms.reduce((a, m) => a + (m.absent || 0), 0));
+  }
   ok_('...and they are not in the target either', ra.required > 0 && ra.required < 60);
   const jan = (ra.months || []).find(m => m.month === Y + '-01');
   ok_('🔴 a month before the clock existed contributes nothing at all',

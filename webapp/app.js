@@ -199,7 +199,7 @@
       _readStart(); let pr2; try{ pr2=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr2).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.484'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.485'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:var(--fs-1);margin-top:var(--sp-5)">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -640,7 +640,11 @@
    * ตอนนี้ยิ่งมากยิ่งเข้ม (เขียว 5 ขั้น) — มองผ่าน ๆ ก็รู้ว่าเยอะหรือน้อยโดยไม่ต้องอ่านตัวเลข
    * และ **สีแดงเหลือไว้ที่ต่ำกว่า 50%** ซึ่งคือตอนที่มีอะไรผิดปกติจริง ๆ (ครึ่งห้องหายไป)
    */
-  const PCT_STEP = p => p < 50 ? 'plow' : p < 65 ? 'p1' : p < 80 ? 'p2' : p < 90 ? 'p3' : p < 100 ? 'p4' : 'p5';
+  /* สามช่วงตามที่ ผอ. กำหนด (2026-10-29): ≤20 แดง · 21–90 เขียว · 91–100 ฟ้า
+   * ภายในแต่ละช่วงไล่เฉด — เขียวแบ่ง 5 ขั้นเท่า ๆ กันตลอดช่วง 21–90 */
+  const PCT_STEP = p => p <= 10 ? 'r1' : p <= 20 ? 'r2'
+    : p <= 34 ? 'g1' : p <= 48 ? 'g2' : p <= 62 ? 'g3' : p <= 76 ? 'g4' : p <= 90 ? 'g5'
+    : p < 100 ? 'b1' : 'b2';
   /* 🔴 ตัวเลขข้างแถบ **ไม่** ไล่เฉดตามแถบ — ลองแล้ว วัดแล้ว และมันอ่านไม่ออก
    *
    * วัดบนเบราว์เซอร์จริง 2026-10-28: เขียวขั้นอ่อนเป็นสีตัวอักษรบนการ์ดขาวได้ **1.70–3.29**
@@ -649,27 +653,18 @@
    * สองช่องทางที่เล่าเรื่องเดียวกัน โดยช่องหนึ่งอ่านไม่ออก **แย่กว่ามีช่องเดียวที่ดี** —
    * แถบรับหน้าที่เล่า "ระดับ" ด้วยเฉดสี ส่วนตัวเลขรับหน้าที่ "อ่านออก"
    * เหลือสีไว้ที่เดียวคือต่ำกว่า 50% เพราะตรงนั้นสีไม่ได้บอกระดับ มันบอกว่า **มีอะไรผิดปกติ** */
-  const pctColor = p => (Number(p) || 0) < 50 ? 'var(--prog-low)' : 'var(--ink)';
+  const pctColor = p => (Number(p) || 0) <= 20 ? 'var(--prog-r2)' : 'var(--ink)';
   window.pbar = p => { const v = Math.max(0, Math.min(100, Math.round(Number(p) || 0)));
     return `<div class="pbar" role="progressbar" aria-valuenow="${v}" aria-valuemin="0" aria-valuemax="100"><i class="${PCT_STEP(v)}" style="width:${v}%"></i></div>`; };
 
-  /* ═══ 🧭 QTABS — แถบเครื่องมือที่บอกได้ว่ายังมีต่อ ══════════════════════════════════════════
-   * แถบนี้เลื่อนได้มาตลอด แต่ scrollbar ถูกซ่อน จึงไม่มีอะไรบอกว่ามีปุ่มที่เลยขอบไป
-   * ปุ่ม › โผล่เฉพาะตอนที่ยังมีของเลยขอบจริง ๆ และหายไปเมื่อเลื่อนสุดทาง */
-  window.QBAR_SYNC = (wrap) => {
-    const bar = wrap && wrap.querySelector('.qbar'), nx = wrap && wrap.querySelector('.qnext');
-    if (!bar || !nx) return;
-    const more = bar.scrollWidth - bar.clientWidth - bar.scrollLeft > 4;
-    nx.classList.toggle('on', more);
-  };
-  window.QBAR_NEXT = (btn) => { const wrap = btn.closest('.qbarwrap'), bar = wrap.querySelector('.qbar');
-    bar.scrollBy({ left: Math.round(bar.clientWidth * 0.8), behavior: 'smooth' });
-    setTimeout(() => QBAR_SYNC(wrap), 420); };
-  /* ผูกครั้งเดียวกับ document — แถบถูกวาดใหม่ทุกครั้งที่หน้าจอวาดใหม่ การผูกต่อ element
-   * จึงต้องผูกซ้ำทุกรอบ และเป็นที่มาของ listener ที่ค้างอยู่โดยไม่มีใครเก็บ */
-  document.addEventListener('scroll', e => { const w = e.target && e.target.closest && e.target.closest('.qbarwrap');
-    if (w) QBAR_SYNC(w); }, true);
-  window.addEventListener('resize', () => document.querySelectorAll('.qbarwrap').forEach(QBAR_SYNC));
+  /* 🪦 QBAR_SYNC / QBAR_NEXT — ถูกถอดออก 2026-10-29
+   *
+   * แถบเครื่องมือเคยเลื่อนได้และมีปุ่ม › บอกว่ายังมีของเลยขอบไป · ตอนนี้ ผอ. เลือกให้เป็น
+   * "กรอบเท่ากันห้าช่อง พอดีจอ" ซึ่งแปลว่า **ไม่มีอะไรล้นอีกแล้ว** — ลูกศรที่ไม่มีวันโผล่
+   * คือโค้ดที่คนถัดไปจะอ่านแล้วเข้าใจผิดว่าแถบนี้ยังเลื่อนได้
+   *
+   * ราคาที่จ่าย: ป้ายต้องสั้นลง (สมุดรายงานประจำวัน → สมุดวัน) เพราะช่องละ ~70px บนมือถือ
+   * ชื่อเต็มยังอยู่ใน title/aria-label จึงไม่ได้หายไปจากคนที่ใช้โปรแกรมอ่านหน้าจอ */
 
   /* ═══ 🗂️ EMPTY — "ไม่มีรายการ" ไม่ใช่เรื่องเดียว ═══════════════════════════════════════════
    *
@@ -1384,10 +1379,7 @@
      * ใช้ตัวนับแทนการเดาจากเวลา เพราะ GO() รู้ชัดกว่าใครว่าเริ่มเมื่อไหร่และจบเมื่อไหร่ */
     if(fn && !(opts&&opts.silent)) __navBusy(1);
     if(fn){ const r=fn(); // a screen that throws must not leave the loading skeleton stuck forever
-      if(!(opts&&opts.silent)){ const _navOff=()=>{ __navBusy(-1);
-          /* แถบเครื่องมือเพิ่งถูกวาดใหม่ — ถามมันว่ามีของเลยขอบไปไหม จึงจะรู้ว่าต้องโชว์ปุ่ม › หรือเปล่า
-           * ต้องรอให้เบราว์เซอร์จัดผังเสร็จก่อน ไม่งั้น scrollWidth ยังเป็นของเก่า */
-          requestAnimationFrame(()=>document.querySelectorAll('.qbarwrap').forEach(QBAR_SYNC)); };
+      if(!(opts&&opts.silent)){ const _navOff=()=>{ __navBusy(-1); };
         if(r&&r.then) r.then(_navOff,_navOff); else _navOff(); }
       // How long from tap to the screen actually being drawn — the number the user experiences.
       // Measured only for real navigations; a silent background re-render is not something anyone waits for.
@@ -8232,18 +8224,18 @@
         return `<svg viewBox="0 0 ${W} ${H}" width="100%" height="${H}" role="img"
             aria-label="${EN() ? 'Income and expenses over the last months' : 'รายรับและรายจ่ายย้อนหลัง'}" style="display:block">
           <defs><linearGradient id="gInc" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0" stop-color="var(--prog-3)" stop-opacity=".28"/>
-            <stop offset="1" stop-color="var(--prog-3)" stop-opacity="0"/></linearGradient></defs>
+            <stop offset="0" stop-color="var(--prog-g3)" stop-opacity=".28"/>
+            <stop offset="1" stop-color="var(--prog-g3)" stop-opacity="0"/></linearGradient></defs>
           ${grid}
           <path d="${area('income')}" fill="url(#gInc)"/>
           <path d="${line('expense')}" fill="none" stroke="var(--bad)" stroke-width="2" stroke-dasharray="4 3" stroke-linejoin="round" stroke-linecap="round"/>
-          <path d="${line('income')}" fill="none" stroke="var(--prog-3)" stroke-width="2.4" stroke-linejoin="round" stroke-linecap="round"/>
+          <path d="${line('income')}" fill="none" stroke="var(--prog-g3)" stroke-width="2.4" stroke-linejoin="round" stroke-linecap="round"/>
           ${dots('expense')}${dots('income')}
           ${rows.map((r, i) => `<text x="${x(i).toFixed(1)}" y="${H - 5}" text-anchor="${i === 0 ? 'start' : i === rows.length - 1 ? 'end' : 'middle'}"
             fill="var(--ink-3)" font-size="10" font-family="inherit">${esc(monthNameYear(r.month).split(' ')[0].slice(0, 3))}</text>`).join('')}
         </svg>`; };
       const legend = `<div class="row" style="gap:var(--sp-4);justify-content:center;font-size:var(--fs-1);color:var(--ink-3);margin-top:var(--sp-1)">
-        <span><i style="display:inline-block;width:14px;height:3px;background:var(--prog-3);vertical-align:middle;border-radius:2px"></i> ${EN() ? 'Received' : 'รับจริง'}</span>
+        <span><i style="display:inline-block;width:14px;height:3px;background:var(--prog-g3);vertical-align:middle;border-radius:2px"></i> ${EN() ? 'Received' : 'รับจริง'}</span>
         <span><i style="display:inline-block;width:14px;height:3px;background:var(--bad);vertical-align:middle;border-radius:2px"></i> ${EN() ? 'Spent' : 'รายจ่าย'}</span></div>`;
       /* 🔴 แถบที่สี่ที่หลุดการแปลงรอบก่อน — และมันพังจริงอยู่บนระบบ (ผอ. ส่งภาพมา 2026-10-28)
        *
@@ -8296,16 +8288,19 @@
     /* 🧭 แถบเครื่องมือ — ข้อความล้วน เส้นใต้ตอนชี้/แตะ และปุ่ม › เมื่อยังมีของเลยขอบไป
      * ทั้งหกเป็น "การกระทำ" ไม่ใช่แท็บสลับหน้า จึงไม่มีตัวไหนถูกขีดเส้นใต้ค้างไว้ —
      * เส้นใต้ถาวรแปลว่า "คุณอยู่ตรงนี้" ซึ่งบนแถบของการกระทำจะเป็นคำโกหก */
-    const qt=(fn,icon,label)=>`<button class="qtab" onclick="${fn}">${icon} ${esc(label)}</button>`;
-    const quick=`<div class="qbarwrap"><div class="qbar">${
-      qt("GO('daily')",     ic('clipboard'), t('daily.title'))}${
-      qt("GO('absence')",   ic('search'),    t('abs.title'))}${
-      qt('A_addAnn()',      ic('plus'),      t('lbl.addAnn'))}${
-      qt('A_linkParent()',  ic('link'),      EN()?'Link parent':'เชื่อมผู้ปกครอง')}${
-      qt('A_viewAs()',      ic('eye'),       EN()?'View as':'ดูมุมมอง')}${
+    /* 🔴 ป้ายสั้นลง เพราะกรอบต้องกว้างเท่ากันและพอดีจอ — ผอ. 2026-10-29
+     * บนมือถือ 375px ห้าช่องเท่ากันคือช่องละ ~70px · "สมุดรายงานประจำวัน" ไม่มีทางลงได้
+     * ไอคอนอยู่บน ป้ายสั้นอยู่ล่าง (รูปทรงเดียวกับแถบเมนูล่างที่คนในแอปคุ้นอยู่แล้ว)
+     * ชื่อเต็มยังอยู่ใน title/aria-label สำหรับคนที่ใช้โปรแกรมอ่านหน้าจอและคนที่ชี้ค้างไว้ */
+    const qt=(fn,icon,label,full)=>`<button class="qtab" onclick="${fn}" title="${esc(full||label)}" aria-label="${esc(full||label)}">${icon}<span>${esc(label)}</span></button>`;
+    const quick=`<div class="qbarwrap">${
+      qt("GO('daily')",     ic('clipboard',20), EN()?'Journal':'สมุดวัน',    t('daily.title'))}${
+      qt("GO('absence')",   ic('search',20),    EN()?'Absence':'ขาดเรียน',   t('abs.title'))}${
+      qt('A_addAnn()',      ic('plus',20),      EN()?'Notice':'ประกาศ',      t('lbl.addAnn'))}${
+      qt('A_linkParent()',  ic('link',20),      EN()?'Link':'เชื่อม',        EN()?'Link parent':'เชื่อมผู้ปกครอง')}${
+      qt('A_viewAs()',      ic('eye',20),       EN()?'View as':'มุมมอง',     EN()?'View as':'ดูมุมมอง')}${
       /* 🗂️ "จัดการข้อมูล & สิทธิ" ถูกเอาออกจากแถบนี้ (ผอ. 2026-10-28) — มันเป็นแท็บในแถบล่าง
-         อยู่แล้ว การมีประตูสองบานไปห้องเดียวกันคือการกินที่ของแถบนี้ไปฟรี ๆ หนึ่งช่อง */''}</div>
-      <button class="qnext" type="button" aria-label="${EN()?'More tools':'เครื่องมือเพิ่มเติม'}" onclick="QBAR_NEXT(this)">›</button></div>`;
+         อยู่แล้ว การมีประตูสองบานไปห้องเดียวกันคือการกินที่ของแถบนี้ไปฟรี ๆ หนึ่งช่อง */''}</div>`;
     /* MANUAL REFRESH, asked for 2026-08-27.
      *
      * Reads are cached for 30 seconds and revalidated in the background, which is right for a screen
