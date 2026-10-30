@@ -5170,23 +5170,54 @@ function createAtomAPI(M, GROWTH_STD) {
           billed:!!b, status:b?(b.Status||''):'',
           amount:b?Number(b.TotalDue!=null?b.TotalDue:b.Amount)||0:0,
           prepaid:!!pi, prepay:pi||null,
-          // a paused child and one who has not started are still ON the round; they are the two the
-          // batch will skip, and the screen says so rather than letting the count look wrong
-          paused:studentPaused_(s), notStarted:studentNotStarted_(s)
+          /* 🔴 สองคำนี้ไม่เหมือนกัน และความต่างคือ "ออกบิลได้หรือไม่ได้"
+           *   paused       = วันนี้ลาอยู่        — ยังออกบิลได้ ถ้าลาไม่ตลอดเดือน
+           *   pausedMonth  = ลาตลอดทั้งเดือนนี้  — issueBill ปฏิเสธด้วย STUDENT_PAUSED
+           * ของเดิมส่งมาแต่ paused แล้วหน้าจอตีความว่า "ออกบิลไม่ได้" ซึ่งผิดกับครึ่งหนึ่งของเคส */
+          paused:studentPaused_(s), pausedMonth:pausedWholeMonth_(s, month),
+          notStarted:studentNotStarted_(s)
         });
       });
+      /* 🔴 นักเรียนที่ลาชั่วคราวถูกแยกออกจากกลุ่มวัน มาเป็นกลุ่มของตัวเอง (ผอ. 2026-10-30)
+       *
+       * "แยกเด็กที่ลาอยู่ออกมาเพิ่มอีกกลุ่ม เพื่อให้แอดมินตัดสินใจเองว่าจะออกบิลให้ไหม"
+       *
+       * ก่อนหน้านี้เด็กที่ลาอยู่ปนอยู่ในกลุ่มวันตัดรอบ และถูกนับรวมใน pending ด้วย —
+       * ปุ่ม "ออกบิลกลุ่มนี้ (N คน)" จึงบอกตัวเลขที่มันทำไม่ได้จริง แล้วไปโผล่เป็นรายการ
+       * "ข้าม" หลังกด · ซึ่งขัดกับคำสัญญาที่เขียนไว้เองข้างบนว่า pending คือจำนวนที่ปุ่มทำได้จริง
+       *
+       * การแยกออกมาแก้สองอย่างพร้อมกัน: กลุ่มวันได้ตัวเลขที่ซื่อสัตย์คืน
+       * และการตัดสินใจเรื่องเด็กที่ลา กลายเป็นการตัดสินใจของคน ไม่ใช่ผลข้างเคียงของการกดปุ่มรวม */
+      const isPausedRow = x => !!x.paused;
+      const pausedRows = [];
+      Object.keys(by).forEach(function(d){
+        by[d] = by[d].filter(function(x){ if(isPausedRow(x)){ pausedRows.push(x); return false; } return true; }); });
       const groups=Object.keys(by).map(Number).sort((a,b)=>a-b).map(day=>{
         const list=by[day].sort((a,b)=>String(a.nick||a.name).localeCompare(String(b.nick||b.name),'th'));
         return {day, isDefault:day===schoolDay, count:list.length,
           ownCount:list.filter(x=>x.own).length,
           billed:list.filter(x=>x.billed).length,
           prepaid:list.filter(x=>x.prepaid).length,
-          // what pressing the button would actually issue
-          pending:list.filter(x=>!x.billed&&!x.prepaid).length,
+          /* what pressing the button would actually issue.
+           * 🔴 notStarted ถูกหักออกด้วย — issueBill ปฏิเสธคนที่ยังไม่ถึงวันเริ่มเรียน
+           * (NOT_ENROLLED_YET) เหมือนกัน · ของเดิมนับรวม ทำให้ตัวเลขบนปุ่มเกินจริงอีกทาง */
+          pending:list.filter(x=>!x.billed&&!x.prepaid&&!x.notStarted).length,
           dueDate:list.length?list[0].dueDate:'', students:list};
-      });
-      return {month, defaultDay:schoolDay, total:groups.reduce((a,g)=>a+g.count,0),
-              days:groups.map(g=>g.day), groups}; },
+      }).filter(g=>g.count>0);
+      // กลุ่มที่แยกออกมา — เรียงตามชื่อเล่น เพราะกลุ่มนี้อ่านเป็น "รายชื่อ" ไม่ใช่ "รอบ"
+      const pausedList = pausedRows.sort((a,b)=>String(a.nick||a.name).localeCompare(String(b.nick||b.name),'th'));
+      const pausedGroup = pausedList.length ? {
+        count:pausedList.length,
+        billed:pausedList.filter(x=>x.billed).length,
+        prepaid:pausedList.filter(x=>x.prepaid).length,
+        // ออกบิลได้จริง = ลาไม่ตลอดเดือน และยังไม่มีบิล/ไม่ได้ชำระล่วงหน้า
+        pending:pausedList.filter(x=>!x.billed&&!x.prepaid&&!x.pausedMonth).length,
+        // ...และคนที่ลาตลอดเดือน ซึ่งปุ่มจะไม่แตะเลย
+        blocked:pausedList.filter(x=>x.pausedMonth).length,
+        students:pausedList } : null;
+      return {month, defaultDay:schoolDay,
+              total:groups.reduce((a,g)=>a+g.count,0)+pausedList.length,
+              days:groups.map(g=>g.day), groups, pausedGroup}; },
     /* ═══ 📋 สิ่งที่ต้องทำวันนี้ (Phase B · ผอ. 2026-10-21) ═══════════════════════════════════
      *
      * แดชบอร์ดเดิมตอบว่า "เมื่อวานเป็นยังไง" — ตัวเลขสรุป เปอร์เซ็นต์ กราฟ · ถูกต้องทุกตัว และไม่มี

@@ -199,7 +199,7 @@
       _readStart(); let pr2; try{ pr2=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr2).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.489'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.490'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:var(--fs-1);margin-top:var(--sp-5)">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -16546,7 +16546,46 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
         <button class="btn sm block ${canIssue?'':'outline'}" style="margin-top:var(--sp-2)${canIssue?'':';opacity:.5'}"${canIssue?` onclick="A_cycleIssue(${g.day},this)"`:' disabled'}>🧾 ${
           canIssue ? (EN()?`Issue bills for this round (${g.pending})`:`ออกบิลกลุ่มนี้ (${g.pending} คน)`)
                    : (EN()?'Everyone here is billed':'ออกบิลครบทุกคนแล้ว')}</button></div>`;
-    }).join('');
+    }).join('') + A_cyclePausedHTML(bg);
+  }
+  /**
+   * นักเรียนที่ลาชั่วคราว — กลุ่มแยก ที่แอดมินตัดสินใจเอง (ผอ. 2026-10-30)
+   *
+   * "แยกเด็กที่ลาอยู่ออกมาเพิ่มอีกกลุ่ม เพื่อให้แอดมินตัดสินใจเองว่าจะออกบิลให้ไหม"
+   *
+   * 🔴 "ลาอยู่" ไม่ได้แปลว่า "ออกบิลไม่ได้" และนี่คือจุดที่พลาดง่ายที่สุดของหัวข้อนี้
+   * issueBill ปฏิเสธเฉพาะคนที่ลา **ตลอดทั้งเดือน** (STUDENT_PAUSED) · เด็กที่ลาครึ่งเดือน
+   * ยังต้องออกบิลตามปกติ · กลุ่มนี้จึงรวมทุกคนที่ลาอยู่วันนี้ตามที่ ผอ. เข้าใจ
+   * แต่บอกรายคนว่าใครออกบิลได้ และปุ่มนับเฉพาะคนที่ออกได้จริง
+   *
+   * ปุ่มอยู่ล่างสุดของแท็บเสมอ ไม่ใช่ปนอยู่กับกลุ่มวัน — การออกบิลให้เด็กที่ลาอยู่
+   * ควรเป็นการกดที่ตั้งใจ ไม่ใช่สิ่งที่เกิดขึ้นพร้อมกับการกดออกบิลรอบปกติ
+   */
+  function A_cyclePausedHTML(bg){
+    const pg = bg && bg.pausedGroup; if(!pg) return '';
+    const canIssue = pg.pending > 0;
+    const why = x => x.billed ? (EN()?'billed ':'ออกบิลแล้ว ')+baht(x.amount)
+      : x.prepaid ? (EN()?'paid in advance':'ชำระล่วงหน้าแล้ว')
+      : x.pausedMonth ? (EN()?'away all month — cannot be billed':'ลาตลอดเดือน — ออกบิลไม่ได้')
+      : (EN()?'away part of the month — can be billed':'ลาบางช่วง — ออกบิลได้');
+    const row = x => `<div class="list-item" style="padding:var(--sp-2) 0">
+      <span><b>${esc(dnick(x))}</b> <small class="muted">${esc(dn(x))}${x.className?' · '+esc(x.className):''}</small>
+        <br><small style="color:${x.pausedMonth?'var(--ink-3)':'var(--warn)'}">${x.pausedMonth?'⏸️':'⚠️'} ${esc(why(x))}</small></span>
+      <span class="pill ${x.billed?'ok':x.prepaid?'info':x.pausedMonth?'info':'wait'}" style="flex:0 0 auto">${
+        x.billed?(EN()?'billed':'ออกบิลแล้ว'):x.prepaid?(EN()?'prepaid':'ล่วงหน้า'):x.pausedMonth?(EN()?'skipped':'ข้าม'):(EN()?'can bill':'ออกได้')}</span></div>`;
+    return `<div class="card" style="padding:var(--sp-3);background:var(--warn-bg);border-color:var(--warn-line)">
+      <div class="spread"><b style="font-size:var(--fs-2);color:var(--warn)">⏸️ ${EN()?'On temporary leave':'นักเรียนที่ลาชั่วคราว'}</b>
+        <b style="font-size:var(--fs-2)">${pg.count} ${EN()?'students':'คน'}</b></div>
+      <p class="muted" style="font-size:var(--fs-1);margin:var(--sp-1) 0 0">${EN()
+        ? 'Kept out of the rounds above so each round counts only what it will really issue. Billing these children is your decision — a child away for part of the month is normally still billed; one away all month cannot be billed at all.'
+        : 'แยกออกจากกลุ่มวันด้านบน เพื่อให้ตัวเลขบนปุ่มของแต่ละรอบตรงกับสิ่งที่มันทำได้จริง · การออกบิลให้เด็กกลุ่มนี้เป็นการตัดสินใจของแอดมิน — เด็กที่ลาบางช่วงยังออกบิลตามปกติ ส่วนคนที่ลาตลอดเดือนออกบิลไม่ได้เลย'}</p>
+      <div style="margin:var(--sp-2) 0 var(--sp-0)">${pg.students.map(row).join('')}</div>
+      ${pg.blocked?`<small class="muted" style="display:block;margin-bottom:var(--sp-2)">${EN()
+        ? `${pg.blocked} away all month — the button will not touch them.`
+        : `${pg.blocked} คนลาตลอดเดือน — ปุ่มจะไม่แตะคนกลุ่มนี้`}</small>`:''}
+      <button class="btn sm block ${canIssue?'':'outline'}"${canIssue?' onclick="A_cycleIssuePaused(this)"':' disabled style="opacity:.5"'}>${
+        canIssue ? (EN()?`Issue bills for these children (${pg.pending})`:`ออกบิลให้กลุ่มนี้ (${pg.pending} คน)`)
+                 : (EN()?'Nothing here can be billed':'กลุ่มนี้ไม่มีรายการที่ออกบิลได้')}</button></div>`;
   }
   /** Issue this round's bills — the same batch route, notify step and skipped report as ออกบิล (เลือก). */
   window.A_cycleIssue=(day,btn)=>{
@@ -16562,6 +16601,43 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
       <label style="display:flex;align-items:center;gap:var(--sp-2);font-size:var(--fs-1);margin:var(--sp-1) 0"><input type="checkbox" id="cyNotify" checked style="width:auto"/> ${EN()?'Notify parents':'แจ้งเตือนผู้ปกครอง'}</label>
       <button class="btn block" onclick="A_cycleIssueDo(${g.day},this)">🧾 ${EN()?'Issue bills':'ออกบิล'}</button>
       <button class="btn outline block" style="margin-top:var(--sp-2)" onclick="this.closest('.modal').remove()">${esc(t('c.close'))}</button>`); };
+  /**
+   * ออกบิลให้กลุ่มที่ลาชั่วคราว — เดินผ่านประตูเดียวกับ A_cycleIssue ทุกขั้น
+   * (issueBillsFor → notifyBills → รายงานรายการที่ถูกข้าม) · ไม่ได้เขียนเส้นทางที่สองของการออกบิล
+   *
+   * 🔴 ส่งเฉพาะคนที่ pausedMonth = false · คนที่ลาตลอดเดือนไม่ถูกส่งไปเลย
+   * ไม่ใช่ส่งไปให้เซิร์ฟเวอร์ปฏิเสธแล้วค่อยมาขึ้นเป็นรายการ 'ข้าม' —
+   * ปุ่มที่บอกว่าทำ N คน ต้องทำ N คน
+   */
+  window.A_cycleIssuePaused=(btn)=>{
+    const bg=window._CYCLE, pg=bg&&bg.pausedGroup; if(!pg) return;
+    const pick=pg.students.filter(s=>!s.billed&&!s.prepaid&&!s.pausedMonth);
+    if(!pick.length){ toast(EN()?'Nothing to issue':'ไม่มีรายการที่ต้องออกบิล'); return; }
+    modal(`<h3>🧾 ${EN()?'Issue bills — children on leave':'ออกบิลให้นักเรียนที่ลาชั่วคราว'}</h3>
+      <p style="font-size:var(--fs-1)">${EN()?`${pick.length} bills for ${monthNameYear(bg.month)}.`
+        :`ออกบิล ${pick.length} รายการ ของเดือน ${esc(monthNameYear(bg.month))}`}</p>
+      ${/* บอกอีกครั้งตรงนี้ว่าทำไมบางชื่อไม่อยู่ในรายการ — หน้าก่อนหน้าบอกไปแล้ว แต่หน้ายืนยัน
+           คือหน้าสุดท้ายที่คนจะอ่าน และเป็นหน้าที่เงินจะออกจริง */''}
+      ${pg.blocked?`<p class="muted" style="font-size:var(--fs-1);margin-top:0">${EN()
+        ? `${pg.blocked} child(ren) away all month are not in this list — they cannot be billed.`
+        : `อีก ${pg.blocked} คนที่ลาตลอดเดือนไม่อยู่ในรายการนี้ — ออกบิลให้ไม่ได้`}</p>`:''}
+      <div style="max-height:32vh;overflow:auto;border:1px solid var(--line);border-radius:8px;padding:var(--sp-2);margin:var(--sp-2) 0">${
+        pick.map(s=>`<div class="list-item"><span><b>${esc(dnick(s))}</b> <small class="muted">${esc(dn(s))} · ${esc(s.className||'')}</small></span></div>`).join('')}</div>
+      <label style="display:flex;align-items:center;gap:var(--sp-2);font-size:var(--fs-1);margin:var(--sp-1) 0"><input type="checkbox" id="cyNotifyP" checked style="width:auto"/> ${EN()?'Notify parents':'แจ้งเตือนผู้ปกครอง'}</label>
+      <button class="btn block" onclick="A_cycleIssuePausedDo(this)">🧾 ${EN()?'Issue bills':'ออกบิล'}</button>
+      <button class="btn outline block" style="margin-top:var(--sp-2)" onclick="this.closest('.modal').remove()">${esc(t('c.close'))}</button>`); };
+  window.A_cycleIssuePausedDo=async(btn)=>{
+    const bg=window._CYCLE, pg=bg&&bg.pausedGroup, m=btn.closest('.modal'); if(!pg) return;
+    const ids=pg.students.filter(s=>!s.billed&&!s.prepaid&&!s.pausedMonth).map(s=>s.studentId);
+    const notify=m.querySelector('#cyNotifyP').checked;
+    btn.disabled=true;
+    try{ const r=await api('issueBillsFor',{studentIds:ids,month:bg.month});
+      const billed=(r.students||[]).map(x=>x.studentId);
+      if(notify&&billed.length){ try{ await api('notifyBills',{studentIds:billed,month:bg.month}); }catch(e){} }
+      m.remove(); confirmSaved((EN()?'Issued ':'ออกบิลแล้ว ')+r.created+(EN()?' bills':' รายการ')+(notify&&billed.length?(EN()?' · parents notified':' · แจ้งผู้ปกครองแล้ว'):''));
+      GO('finance');
+      if((r.skipped||[]).length) setTimeout(()=>A_skippedModal(r.skipped, bg.month), 600); }
+    catch(e){ err(e); btn.disabled=false; } };
   window.A_cycleIssueDo=async(day,btn)=>{
     const bg=window._CYCLE, m=btn.closest('.modal');
     const g=(bg.groups||[]).find(x=>Number(x.day)===Number(day)); if(!g) return;
