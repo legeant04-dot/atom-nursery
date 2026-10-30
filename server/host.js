@@ -85,7 +85,11 @@ async function handle(req, res, body) {
 
   let client;
   try {
-    client = await connect();
+    /* 🔴 connect() คืน { client, scrub, env } ไม่ใช่ตัว client ตรง ๆ
+     * เขียนผิดเป็น `client = await connect()` ตอนแรก แล้ว smoke test จับไม่ได้เลย
+     * เพราะมันสลับทั้ง pg_lib ออกไปเป็นของปลอม — **ของที่ถูก stub ทิ้ง คือของที่ไม่ได้ถูกทดสอบ**
+     * จับได้ตอนต่อฐานข้อมูลจริงครั้งแรก ซึ่งเป็นครั้งแรกที่โค้ดบรรทัดนี้ได้ทำงานจริง */
+    ({ client } = await connect());
     const tHydrate0 = Date.now();
     const { M, snapshot } = await PG.hydrate(client, tenant, ALL_KEYS);
     const tHydrate = Date.now() - tHydrate0;
