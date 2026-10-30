@@ -169,6 +169,81 @@ const typeOf_ = (table, col) => (TYPES_BY_TABLE[table] || {})[col] || '';
 /* ── hydrate ─────────────────────────────────────────────────────────────────────────────────────
  * Only the collections asked for. GasEngine does the same thing lazily per request, and for the
  * same reason: a screen that needs the class list must not pay for four years of journals. */
+/**
+ * hydrateFast — เหมือน hydrate ทุกประการ แต่ยิง query เดียว
+ *
+ * 🔴 วัดเมื่อ 2026-10-30 บน staging (สิงคโปร์ · เครื่องวัดอยู่ไทย):
+ *
+ *     ค่าเดินทางต่อ 1 query      30ms
+ *     hydrate ยิง 38 query       1,140ms  ← ของเดิม
+ *     38 statement ใน query เดียว   31ms  ← ของใหม่
+ *
+ * **เป็นความผิดพลาดเดียวกับ Apps Script ย่อส่วน: ราคาอยู่ที่ "จำนวนรอบ" ไม่ใช่ "งาน"**
+ * เอนจินทำงานจบใน 2ms ส่วนการไปเอาข้อมูลมาใช้ 1,140ms เพราะเดินทาง 38 เที่ยว
+ *
+ * ลองยิงทั้ง 38 แบบไม่ await ทีละอันแล้ว — ไม่ช่วยเลย (1,126ms → 1,160ms)
+ * เพราะ node-postgres ต่อคิวให้บน connection เดียว ไม่ได้ส่งขนานจริง
+ *
+ * ─────────────────────────────────────────────────
+ * 🔴 ทำไมไม่ใช้ json_agg ซึ่งเป็นวิธีที่นึกถึงก่อน
+ *
+ * เพราะ decode_ ตัดสินใจจาก **dataTypeID ของคอลัมน์** ว่าอันไหนเป็น date อันไหนเป็น timestamp
+ * ถ้าห่อเป็น JSON ทุกอย่างจะกลายเป็นสตริงและข้อมูลชนิดนั้นหายไป — ซึ่งคือทางตรงไปสู่
+ * บั๊กเวลาเพี้ยน 7 ชั่วโมงที่โปรเจ็กต์นี้จ่ายค่าไปแล้วสองครั้ง (ดูหมายเหตุใน decode_)
+ * multi-statement คืน fields ครบทุกชุด ชนิดข้อมูลจึงยังอ่านได้เหมือนเดิมทุกตัว
+ *
+ * 🔴 ข้อแลกเปลี่ยน: simple query ไม่มีพารามิเตอร์ tenant_id จึงต้องต่อเป็นสตริง
+ * จึงบังคับให้เป็น uuid เท่านั้นก่อนต่อ — ถ้าไม่ใช่ ปฏิเสธทันที ไม่ใช่พยายาม escape เอาเอง
+ */
+const UUID_ = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+async function hydrateFast(client, tenantId, keys) {
+  if (!UUID_.test(String(tenantId || ''))) {
+    // ไม่ใช่ uuid = ไม่ต่อสตริง · ล้มเสียงดังดีกว่าเปิดช่องให้ค่าที่ควบคุมไม่ได้เข้าไปอยู่ใน SQL
+    throw new Error('hydrateFast: tenantId ต้องเป็น uuid');
+  }
+  const M = {}, snapshot = {};
+  const asked = [];
+  for (const key of keys) {
+    const c = COLLECTIONS[key];
+    if (!c) throw new Error('unknown collection: ' + key);
+    /* จองที่ของคีย์ไว้ตามลำดับที่ถูกถามมา แล้วค่อยเติมเนื้อทีหลัง
+     * 🔴 ถ้าปล่อยให้คีย์ที่ไม่รู้จักมาก่อนคีย์ที่รู้จัก JSON.stringify(M) จะต่างจาก hydrate
+     * ทั้งที่ทุกแถวเหมือนกัน — ความต่างที่ไม่มีความหมาย แต่ทำให้การเทียบสองทางอ่านไม่ออก */
+    M[key] = []; snapshot[key] = [];
+    if (c.known) asked.push(key);
+  }
+  if (!asked.length) return { M, snapshot };
+
+  const sql = asked.map(k => `select * from ${COLLECTIONS[k].table} where tenant_id = '${tenantId}' order by seq`).join('; ');
+  const res = await client.query(sql);
+  // statement เดียวคืน object · หลาย statement คืน array — ทำให้เป็น array เสมอ
+  const list = Array.isArray(res) ? res : [res];
+  if (list.length !== asked.length) {
+    throw new Error('hydrateFast: ได้ผลลัพธ์ ' + list.length + ' ชุด แต่ถามไป ' + asked.length);
+  }
+  asked.forEach((key, i) => { rowsInto_(M, snapshot, key, list[i]); });
+  return { M, snapshot };
+}
+
+/** แปลงผลลัพธ์หนึ่งชุดเป็นแถวของเอนจิน — ใช้ร่วมกันทั้ง hydrate และ hydrateFast
+ *  ให้สองทางถอดรหัสด้วยโค้ดบรรทัดเดียวกัน ไม่ใช่สองสำนวนที่ต้องคอยดูว่าตรงกันไหม */
+function rowsInto_(M, snapshot, key, res) {
+  const c = COLLECTIONS[key];
+  const types = {};
+  res.fields.forEach(f => { types[f.name] = f.dataTypeID; });
+  const rows = res.rows.map(r => {
+    const o = { __id: r.id };
+    Object.keys(r).forEach(pgCol => {
+      const ef = c.toEngine[pgCol];
+      if (!ef) return;
+      o[ef] = decode_(r[pgCol], pgTypeName(types[pgCol]));
+    });
+    return o;
+  });
+  M[key] = rows;
+  snapshot[key] = rows.map(r => JSON.stringify(r));
+}
+
 async function hydrate(client, tenantId, keys) {
   const M = {}, snapshot = {};
   for (const key of keys) {
@@ -176,19 +251,10 @@ async function hydrate(client, tenantId, keys) {
     if (!c) throw new Error('unknown collection: ' + key);
     if (!c.known) { M[key] = []; snapshot[key] = []; continue; }
     const res = await client.query(`select * from ${c.table} where tenant_id = $1 order by seq`, [tenantId]);
-    const types = {};
-    res.fields.forEach(f => { types[f.name] = f.dataTypeID; });
-    const rows = res.rows.map(r => {
-      const o = { __id: r.id };   // seq is the sheet position; never shown to a handler
-      Object.keys(r).forEach(pgCol => {
-        const ef = c.toEngine[pgCol];
-        if (!ef) return;                                    // id / tenant_id / created_at / updated_at
-        o[ef] = decode_(r[pgCol], pgTypeName(types[pgCol]));
-      });
-      return o;
-    });
-    M[key] = rows;
-    snapshot[key] = rows.map(r => JSON.stringify(r));        // what persist() compares against
+    /* ถอดรหัสด้วยตัวเดียวกับ hydrateFast — สองทางเข้าถึงข้อมูล แต่ต้องได้แถวหน้าตาเดียวกันเป๊ะ
+     * ถ้าแยกเป็นสองสำนวน วันหนึ่งมันจะต่างกันโดยไม่มีอะไรบอก และจะต่างกันเรื่องชนิดของวันที่
+     * ซึ่งเป็นเรื่องที่โปรเจ็กต์นี้จ่ายค่าไปแล้วสองครั้ง · tools/test_pg_hydrate_fast.js ตรึงไว้ */
+    rowsInto_(M, snapshot, key, res);
   }
   return { M, snapshot };
 }
@@ -248,4 +314,4 @@ async function persist(client, tenantId, M, snapshot, keys) {
   return out;
 }
 
-module.exports = { COLLECTIONS, hydrate, persist, decode_, encode_, snake };
+module.exports = { COLLECTIONS, hydrate, hydrateFast, persist, decode_, encode_, snake };

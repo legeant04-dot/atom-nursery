@@ -91,7 +91,9 @@ async function handle(req, res, body) {
      * จับได้ตอนต่อฐานข้อมูลจริงครั้งแรก ซึ่งเป็นครั้งแรกที่โค้ดบรรทัดนี้ได้ทำงานจริง */
     ({ client } = await connect());
     const tHydrate0 = Date.now();
-    const { M, snapshot } = await PG.hydrate(client, tenant, ALL_KEYS);
+    /* hydrateFast = ยิง query เดียวแทน 38 ครั้ง · วัดแล้ว 1,140ms → 31ms
+     * ดูเหตุผลเต็มที่หัว hydrateFast ใน tools/pg_engine.js */
+    const { M, snapshot } = await PG.hydrateFast(client, tenant, ALL_KEYS);
     const tHydrate = Date.now() - tHydrate0;
 
     const H = createAtomAPI(M, null).H;
