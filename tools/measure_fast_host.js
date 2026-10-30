@@ -78,7 +78,11 @@ const pct = (a, p) => a.length ? a.slice().sort((x, y) => x - y)[Math.min(a.leng
 const ms = v => v >= 1000 ? (v / 1000).toFixed(2) + 's' : Math.round(v) + 'ms';
 
 (async () => {
-  const TENANT = 'measure-' + Date.now();
+  /* 🔴 ชื่อตารางคือ `tenant` เอกพจน์ · id เป็น uuid · และ `code` ก็ unique
+   * ตอนแรกเขียนเป็น `tenants (id, name)` ด้วยสตริงธรรมดา — ผิดทั้งสามอย่าง
+   * เป็นความผิดพลาดแบบเดียวกับที่บันทึกไว้ใน atom-pg-schema-guesses:
+   * **เดาชื่อคอลัมน์แทนที่จะไปอ่านว่าสคีมาเขียนว่าอะไร** · คราวนี้ไปอ่านมาแล้ว */
+  const TENANT = require('crypto').randomUUID();
   let client, scrub = s => s;
   try { ({ client, scrub } = await connect()); }
   catch (e) { console.log('\n🔴 ต่อ staging ไม่ได้ — ดูข้อความด้านบน\n'); process.exit(1); }
@@ -88,8 +92,9 @@ const ms = v => v >= 1000 ? (v / 1000).toFixed(2) + 's' : Math.round(v) + 'ms';
               ' · ผู้ปกครอง ' + N.parents + ' · ' + N.days + ' วันเรียน');
 
   try {
-    await client.query('insert into tenants (id, name) values ($1,$2) on conflict do nothing',
-      [TENANT, 'วัดความเร็ว (ข้อมูลปลอม)']).catch(() => {});
+    await client.query(
+      "insert into tenant (id, code, name_th) values ($1, $2, 'วัดความเร็ว (ข้อมูลปลอม)') on conflict (id) do nothing",
+      [TENANT, 'perf-' + String(TENANT).slice(0, 8)]);
 
     // ── ใส่ข้อมูลจำลอง ─────────────────────────────────────────────
     const M0 = fakeM();
@@ -103,7 +108,7 @@ const ms = v => v >= 1000 ? (v / 1000).toFixed(2) + 's' : Math.round(v) + 'ms';
     const tot = [], hyd = [], run = [];
     for (let i = 0; i < ROUNDS; i++) {
       const a0 = Date.now();
-      const { M } = await PG.hydrate(client, TENANT, ALL);
+      const { M } = await PG.hydrateFast(client, TENANT, ALL);
       const a1 = Date.now();
       const H = createAtomAPI(M, null).H;
       const ident = { uid: 'U-1', role: 'Teacher', staffId: 'STF-002' };
@@ -134,7 +139,7 @@ const ms = v => v >= 1000 ? (v / 1000).toFixed(2) + 's' : Math.round(v) + 'ms';
         const c = PG.COLLECTIONS[k]; if (!c || !c.known) continue;
         try { await client.query('delete from ' + c.table + ' where tenant_id = $1', [TENANT]); } catch (e) {}
       }
-      try { await client.query('delete from tenants where id = $1', [TENANT]); } catch (e) {}
+      try { await client.query('delete from tenant where id = $1', [TENANT]); } catch (e) {}
       console.log('\n   ลบข้อมูลจำลองทิ้งแล้ว');
     } else {
       console.log('\n   --keep : เก็บ tenant ' + TENANT + ' ไว้ · ลบด้วย tools/pg_sweep_tenants.js');
