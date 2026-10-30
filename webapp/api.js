@@ -11,7 +11,9 @@
  * measured at over thirty seconds of empty space — on the sign-in screen, where the whole point is
  * to give somebody a way in quickly. Known here, the button starts loading with the page.
  * Blank = the feature is off. SCHOOL_CONFIG still overrides it for a school with its own client. */
-window.CONFIG = { MODE: 'gas', GAS_URL: 'https://script.google.com/macros/s/AKfycbxWUgs0oPyEN52F1qCGETDDbOVGeIBKe18u8_vDYz5bjKrHuS7V541oaeWqWPBsx-7d/exec', LIFF_ID: '2010457597-hcIeTe2L', GOOGLE_CLIENT_ID: '120486339414-6auhdq0a1fur2ihu24rr8po58vgci3s1.apps.googleusercontent.com', DEMO_MODE: false };
+/* FAST_URL — โฮสต์เส้นเร็ว (docs/SPEED_FIRST_PLAN.md) · ว่าง = ใช้ Apps Script เหมือนเดิมทุกประการ
+ * 🔴 เปลี่ยนค่านี้คือการสลับทั้งโรงเรียน — อ่าน FAST_ACTIONS ข้างล่างก่อนตั้งค่า */
+window.CONFIG = { FAST_URL: '', MODE: 'gas', GAS_URL: 'https://script.google.com/macros/s/AKfycbxWUgs0oPyEN52F1qCGETDDbOVGeIBKe18u8_vDYz5bjKrHuS7V541oaeWqWPBsx-7d/exec', LIFF_ID: '2010457597-hcIeTe2L', GOOGLE_CLIENT_ID: '120486339414-6auhdq0a1fur2ihu24rr8po58vgci3s1.apps.googleusercontent.com', DEMO_MODE: false };
 
 (function () {
   const M = window.MOCK;
@@ -200,7 +202,30 @@ window.CONFIG = { MODE: 'gas', GAS_URL: 'https://script.google.com/macros/s/AKfy
     const ac = (typeof AbortController !== 'undefined') ? new AbortController() : null;
     let timedOut = false;
     const killer = ac ? setTimeout(() => { timedOut = true; try { ac.abort(); } catch (x) {} }, REQ_TIMEOUT) : null;
-    try { r = await fetch(CONFIG.GAS_URL, Object.assign({ method: 'POST', body: payload }, ac ? { signal: ac.signal } : {})); }
+    /* ── ปลายทาง: เส้นเร็ว หรือ Apps Script ──────────────────────────────────────────────
+     * สัปดาห์ที่ 1 ของ docs/SPEED_FIRST_PLAN.md · โฮสต์ใหม่รับ-ตอบ "ซองเดียวกันทุกตัวอักษร"
+     * กับ Code.gs จึงสลับได้ที่บรรทัดเดียว ไม่ต้องแก้หน้าจอหรือ handler ใดเลย
+     *
+     * 🔴 สวิตช์ถอยต้องอยู่ฝั่งเรา ไม่ใช่ฝั่งโฮสต์ใหม่
+     * ถ้าโฮสต์ใหม่ช้าหรือพัง เราต้องกลับไป GAS ได้ด้วยการปล่อยรุ่นใหม่ — ไม่ใช่ต้องรอให้
+     * โฮสต์นั้นฟื้นก่อน · `FAST_URL` ว่าง = ใช้ GAS เหมือนเดิมทุกประการ ซึ่งเป็นค่าวันนี้
+     *
+     * 🔴 และสลับเฉพาะ action ที่เส้นเร็วรับได้จริง
+     * โฮสต์ใหม่ยังไม่มี Drive · LINE push · trigger · ล็อกอิน (ดูหนี้ท้าย server/host.js)
+     * `FAST_ACTIONS` จึงเป็นรายชื่อที่ **ประกาศ** ไม่ใช่เดาจากชื่อ — ของที่ไม่อยู่ในรายชื่อ
+     * ไปทาง GAS เหมือนเดิม และนั่นคือด้านที่ปลอดภัยที่จะผิด */
+    const _fastOK = (() => {
+      if (!CONFIG.FAST_URL) return false;
+      const a = String(body && body.action || '');
+      if (a === 'batch') {
+        const calls = (body.payload && body.payload.calls) || [];
+        // ทั้ง batch ต้องไปทางเดียวกัน — ครึ่งหนึ่งไปคนละที่คือสองคำตอบจากข้อมูลคนละรอบ
+        return calls.length > 0 && calls.every(c => FAST_ACTIONS[String(c.action || '')]);
+      }
+      return !!FAST_ACTIONS[a];
+    })();
+    const _url = _fastOK ? CONFIG.FAST_URL : CONFIG.GAS_URL;
+    try { r = await fetch(_url, Object.assign({ method: 'POST', body: payload }, ac ? { signal: ac.signal } : {})); }
     catch (netErr) {
       if (timedOut) {
         // a read may simply be asked again; a write must not be, and must not claim it failed either
@@ -685,6 +710,31 @@ window.CONFIG = { MODE: 'gas', GAS_URL: 'https://script.google.com/macros/s/AKfy
    * a real write here could submit a payment twice. exportStudent looks like a read and is NOT here,
    * because it stamps Status='EXPORTED'.
    */
+  /* ---- action ที่เส้นเร็วรับได้จริง --------------------------------------------------------
+   *
+   * สัปดาห์ที่ 1: **อ่านอย่างเดียว และเฉพาะตัวที่ไม่ต้องใช้ของที่มีแต่ใน Apps Script**
+   *
+   * 🔴 ประกาศ ไม่ใช่เดาจากชื่อ — เหตุผลเดียวกับ READ_ONLY ข้างล่างนี้
+   * ของที่ไม่อยู่ในรายชื่อไปทาง GAS เหมือนเดิม · ลืมใส่ = ช้าเท่าเดิม ซึ่งไม่เป็นไร
+   * ใส่ผิด = คำตอบมาจากฐานข้อมูลที่ยังตามชีตไม่ทัน ซึ่งเป็นคนละเรื่องกันโดยสิ้นเชิง
+   *
+   * 🔴 ยังไม่ใส่ตัวที่เขียนข้อมูล แม้เอนจินจะเขียน Postgres ได้แล้ว
+   * เพราะตราบใดที่ GAS ยังเขียนชีตอยู่ การเขียนสองที่คือข้อมูลสองชุดที่ต่างกัน
+   * — pg_sync เป็นการซิงก์ทางเดียวนอกเส้นทาง request โดยตั้งใจ (ดูหัวไฟล์ tools/pg_sync.js)
+   * การเขียนจะย้ายมาตอนสัปดาห์ที่ 2 พร้อมกับที่ GAS เลิกอ่านชีต */
+  const FAST_ACTIONS = {
+    // รายชื่อ/โครงของโรงเรียน — เปลี่ยนนาน ๆ ครั้ง และเป็นของที่ทุกหน้าจอขอ
+    classList: 1, listStudents: 1, listStaff: 1, listParents: 1, listClasses: 1, listDepartments: 1,
+    departments: 1, staffGroups: 1, getPlans: 1, prepayTiers: 1, holidays: 1, bigCleaningDays: 1,
+    // สิบตัวที่กินเวลารวมมากที่สุดในรายงาน 28–30/10 — ทั้งหมดเป็นการอ่าน
+    getJournal: 1, journalStatus: 1, studentAlerts: 1, notifications: 1, holidayAttendList: 1,
+    staffSelf: 1, myAttendanceToday: 1, myHolidayOTNext: 1, teacherClassAttendance: 1,
+    staffMissingCheckout: 1, myClassCover: 1, injuryAlerts: 1, absenceWatchCount: 1,
+    // เงิน — อ่านอย่างเดียวทั้งหมด
+    payments: 1, paymentSlips: 1, paymentLog: 1, prepayments: 1, studentCharges: 1, otDaily: 1,
+    parentDue: 1, financeSummary: 1, payrollConfig: 1
+  };
+
   const READ_ONLY = {
     // โหมดสาธิต: ถามว่าเปิดอยู่ไหม — อ่านล้วน ต้องตรงกับ READ_ONLY_ACTIONS_ ใน src/Code.gs
     demoStatus: 1,
