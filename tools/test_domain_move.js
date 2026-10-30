@@ -133,5 +133,35 @@ console.log('\n6) 📋 เอกสารขั้นตอนต้องมี
     /QR_Poster/.test(doc) && /android\.yml/.test(doc) && /APK/.test(doc));
 }
 
+console.log('\n7) 🔴 CNAME ต้องอยู่ใน webapp/ ไม่ใช่รากรีโป');
+{
+  /* GitHub Pages ของเราปล่อยด้วย Actions และอัปโหลดเฉพาะ dist_pages/ เป็น artifact
+   * ส่วน build_web.js ขึ้นต้นด้วย fs.rmSync(OUT) — ลบ dist_pages ทิ้งทั้งโฟลเดอร์ทุกครั้งที่ build
+   *
+   * 🔴 ไฟล์ CNAME ที่วางไว้ใน dist_pages/ จึงหายไปในรุ่นถัดไป
+   * และถ้าตั้ง Custom domain ผ่านหน้าเว็บ GitHub มันจะ commit CNAME ไว้ที่ **รากรีโป**
+   * ซึ่งไม่ได้ถูกอัปโหลดไปกับ artifact เลย
+   *
+   * ทั้งสองทางให้ผลเดียวกัน: โดเมนใช้ได้ในวันแรก แล้ว **หลุดเงียบๆ ตอนปล่อยรุ่นถัดไป**
+   * — ความพังชนิดที่เจอตอนที่ไม่มีใครมองแล้ว
+   *
+   * ที่ถูกคือวางที่ webapp/CNAME — walk() ใน build_web.js คัดลอกทุกไฟล์ใน webapp/ ไปให้เอง */
+  const ROOT_ = require('path').join(__dirname, '..');
+  const atRoot = fs.existsSync(require('path').join(ROOT_, 'CNAME'));
+  const atWebapp = fs.existsSync(require('path').join(ROOT_, 'webapp', 'CNAME'));
+  ok_('🔴 ไม่มี CNAME ที่รากรีโป (ถ้ามี = ตั้งผ่านหน้าเว็บ GitHub แล้วมันไปไม่ถึง artifact)', !atRoot);
+  if (atWebapp) {
+    const host = R('webapp/CNAME').trim();
+    ok_('CNAME มีชื่อโดเมนเดียว ไม่มี https:// และไม่มี /', /^[a-z0-9-]+(\.[a-z0-9-]+)+$/i.test(host));
+    /* ถ้าสวิตช์ถูกเปิดแล้ว ปลายทางที่เราส่งคนไปต้องเป็นโดเมนเดียวกับที่ Pages ให้บริการ
+     * ไม่งั้นเราจะส่งทั้งโรงเรียนไปยังที่อยู่ที่ไม่มีใครโฮสต์อยู่ */
+    if (swTarget) ok_('🔴 ปลายทางของสวิตช์ตรงกับโดเมนใน CNAME',
+      String(swTarget).replace(/^https?:\/\//, '').replace(/\/$/, '') === host);
+    else console.log('  --   ยังไม่ได้เปิดสวิตช์ — ข้ามการเทียบปลายทาง');
+  } else {
+    console.log('  --   ยังไม่มี webapp/CNAME — ยังไม่ได้ผูกโดเมน (ถูกต้องสำหรับตอนนี้)');
+  }
+}
+
 console.log('\n' + (fail ? 'FAILED ' : 'PASSED ') + pass + ' passed, ' + fail + ' failed\n');
 process.exit(fail ? 1 : 0);
