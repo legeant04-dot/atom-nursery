@@ -133,7 +133,7 @@ console.log('\n6) เอนจินตัวเดิม ไม่ใช่ส�
   /* ยอมรับทั้ง hydrate และ hydrateFast — ข้อนี้ตรึงว่า M มาจาก pg_engine
    * ไม่ใช่ตรึงว่าเรียกฟังก์ชันชื่อไหน · ส่วนที่ว่าสองทางให้ผลเท่ากันจริง
    * พิสูจน์ที่ tools/test_pg_hydrate_fast.js ซึ่งยิงฐานข้อมูลจริงและเทียบ M ทั้งก้อน */
-  ok_('ป้อน M จาก pg_engine', /PG\.hydrate(Fast)?\(client, tenant, ALL_KEYS\)/.test(host));
+  ok_('ป้อน M จาก pg_engine', /PG\.hydrate(Fast)?\(client, tenant, ALL_KEYS[,)]/.test(host));
   ok_('เขียนกลับด้วย persist (ทีละแถว ไม่ทับทั้ง collection)', /PG\.persist\(client, tenant, M, snapshot/.test(host));
   ok_('ไม่มี SQL ของตัวเองในไฟล์นี้', !/\bselect\s+\*\s+from\b/i.test(host));
   /* วัดเวลาแยกส่วน — ถ้าไม่มีตัวเลข จะไม่รู้ว่าต้องแก้ตรงไหนตอนไม่ผ่านเป้า */
