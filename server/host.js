@@ -44,6 +44,18 @@ const TENANT = process.env.TENANT_ID || '';
  * (ของที่โตเร็วที่สุดคือ journals 1.36MB และ checkinStudent 537KB — สองตัวนี้คือที่ที่จะเจ็บก่อน) */
 const ALL_KEYS = Object.keys(PG.COLLECTIONS);
 
+/* action ที่พิสูจน์แล้วว่าโหลดเฉพาะวันนี้แล้วตอบเหมือนเดิม — ดู tools/test_narrow_safe.js
+ * ลืมใส่ = ช้าเท่าเดิม (ยอมได้) · ใส่ผิด = คำตอบขาดข้อมูลย้อนหลัง (ยอมไม่ได้) */
+const NARROW_SAFE = {
+  classList: 1, listStudents: 1, listStaff: 1, listParents: 1, listClasses: 1, listDepartments: 1,
+  listStaffGroups: 1, getPlans: 1, prepayTiers: 1, holidays: 1, bigCleaningDays: 1,
+  getJournal: 1, journalStatus: 1, studentAlerts: 1, notifications: 1, holidayAttendList: 1,
+  staffSelf: 1, myAttendanceToday: 1, myHolidayOTNext: 1, teacherClassAttendance: 1,
+  staffMissingCheckout: 1, myClassCover: 1, injuryAlerts: 1, absenceWatchCount: 1,
+  payments: 1, paymentSlips: 1, paymentLog: 1, prepayments: 1, studentCharges: 1, otDaily: 1,
+  parentDue: 1, financeSummary: 1, payrollConfig: 1
+};
+
 const jsonOut = (res, obj, status) => {
   const s = JSON.stringify(obj);
   res.writeHead(status || 200, {
@@ -93,7 +105,23 @@ async function handle(req, res, body) {
     const tHydrate0 = Date.now();
     /* hydrateFast = ยิง query เดียวแทน 38 ครั้ง · วัดแล้ว 1,140ms → 31ms
      * ดูเหตุผลเต็มที่หัว hydrateFast ใน tools/pg_engine.js */
-    const { M, snapshot } = await PG.hydrateFast(client, tenant, ALL_KEYS);
+    /* ── แคบสองตัวที่ใหญ่ที่สุดให้เหลือวันนี้ ────────────────────────────────────
+     * วัดบน staging: ทั้ง request 367ms → **49ms** เมื่อ journals + checkinStudent เหลือวันเดียว
+     * (สอง collection นี้คือ 90% ของเวลาโหลด และเป็นสองตัวที่โตขึ้นทุกวันไม่มีหยุด)
+     *
+     * 🔴 แคบก็ต่อเมื่อ **ทุก call ในคำขอ** อยู่ในรายชื่อที่พิสูจน์แล้วว่าแคบได้
+     * ถ้ามีสักตัวที่ไม่อยู่ → ไม่แคบทั้งคำขอ · การไม่แคบแลกมาด้วยความช้า ซึ่งยอมได้
+     * การแคบผิดแลกมาด้วยคำตอบที่ขาดข้อมูล ซึ่งยอมไม่ได้
+     *
+     * รายชื่อนี้ไม่ได้ประกาศลอย ๆ — tools/test_narrow_safe.js รันทุก handler สองรอบ
+     * (ข้อมูลเต็ม vs แคบ) ทั้งสามบทบาท แล้วเทียบคำตอบ ถ้าตัวไหนเริ่มอ่านย้อนหลังเมื่อไหร่ ข้อนั้นแดง */
+    const callsIn = action === 'batch'
+      ? (Array.isArray(payload.calls) ? payload.calls.map(c => String(c.action || '')) : [])
+      : [action];
+    const canNarrow = callsIn.length > 0 && callsIn.every(a => NARROW_SAFE[a]);
+    const today = new Date(Date.now() + 7 * 3600000).toISOString().slice(0, 10);   // วันตามเวลาไทย
+    const scope = canNarrow ? { journals: today, checkinStudent: today } : {};
+    const { M, snapshot } = await PG.hydrateFast(client, tenant, ALL_KEYS, { scope });
     const tHydrate = Date.now() - tHydrate0;
 
     const H = createAtomAPI(M, null).H;

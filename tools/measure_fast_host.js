@@ -105,10 +105,12 @@ const ms = v => v >= 1000 ? (v / 1000).toFixed(2) + 's' : Math.round(v) + 'ms';
 
     // ── วัด ────────────────────────────────────────────────────────
     const ALL = Object.keys(PG.COLLECTIONS);
+    // วันสุดท้ายของข้อมูลจำลอง = "วันนี้" ของชุดนี้ · โฮสต์จริงใช้วันตามเวลาไทย
+    const TODAY_ = M0.journals[M0.journals.length - 1].Date;
     const tot = [], hyd = [], run = [];
     for (let i = 0; i < ROUNDS; i++) {
       const a0 = Date.now();
-      const { M } = await PG.hydrateFast(client, TENANT, ALL);
+      const { M } = await PG.hydrateFast(client, TENANT, ALL, { scope: { journals: TODAY_, checkinStudent: TODAY_ } });
       const a1 = Date.now();
       const H = createAtomAPI(M, null).H;
       const ident = { uid: 'U-1', role: 'Teacher', staffId: 'STF-002' };

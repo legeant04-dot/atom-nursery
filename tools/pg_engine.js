@@ -196,7 +196,7 @@ const typeOf_ = (table, col) => (TYPES_BY_TABLE[table] || {})[col] || '';
  * จึงบังคับให้เป็น uuid เท่านั้นก่อนต่อ — ถ้าไม่ใช่ ปฏิเสธทันที ไม่ใช่พยายาม escape เอาเอง
  */
 const UUID_ = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-async function hydrateFast(client, tenantId, keys) {
+async function hydrateFast(client, tenantId, keys, opts) {
   if (!UUID_.test(String(tenantId || ''))) {
     // ไม่ใช่ uuid = ไม่ต่อสตริง · ล้มเสียงดังดีกว่าเปิดช่องให้ค่าที่ควบคุมไม่ได้เข้าไปอยู่ใน SQL
     throw new Error('hydrateFast: tenantId ต้องเป็น uuid');
@@ -214,7 +214,37 @@ async function hydrateFast(client, tenantId, keys) {
   }
   if (!asked.length) return { M, snapshot };
 
-  const sql = asked.map(k => `select * from ${COLLECTIONS[k].table} where tenant_id = '${tenantId}' order by seq`).join('; ');
+  /* ── แคบลงตามวัน ─────────────────────────────────────────────────────────────────
+   * วัดบน staging 2026-10-30 ด้วยข้อมูล 120 วันเรียน:
+   *
+   *     ทั้ง 43 collection                395ms
+   *     ตัด journals ออก                  167ms   ← journals อย่างเดียว 228ms / 937KB
+   *     ตัด journals + checkinStudent      38ms   ← checkinStudent 129ms / 356KB
+   *
+   * **สอง collection คือ 90% ของเวลาทั้งหมด** และเป็นสองตัวที่โตขึ้นทุกวันไม่มีหยุด
+   * ที่เหลืออีก 41 ตัวรวมกันแค่ 38ms
+   *
+   * GasEngine แคบ journals เหลือวันเดียวมาตั้งแต่ต้น (journalScopeFor_ + lazyRO_) ด้วยเหตุผลเดียวกัน
+   * — ที่นี่ทำเหมือนกัน แต่ให้ **ผู้เรียกประกาศมาเอง** ไม่ใช่เดาจาก action
+   *
+   * 🔴 ทำไมการแคบถึงไม่ทำให้ข้อมูลหาย:
+   * persist() ลบเฉพาะแถวที่อยู่ใน snapshot แต่ไม่อยู่ใน M — และ snapshot ก็ถูกแคบมาพร้อมกัน
+   * แถวของวันอื่นจึงไม่เคยถูกโหลดมา และไม่เคยเข้าไปอยู่ในชุดที่พิจารณาลบ
+   * (นี่คือสิ่งที่ lazyRO_ ใน GasEngine ป้องกันด้วยวิธีอื่น เพราะชีตเขียนทับทั้งแผ่น)
+   *
+   * ⚠️ แต่ยังแปลว่า: handler ที่ต้องการเห็นทุกวัน จะเห็นไม่ครบถ้าผู้เรียกแคบผิด
+   * ผู้เรียกจึงต้องแคบเฉพาะตอนที่รู้ว่าคำขอนั้นถามถึงวันเดียวจริง ๆ */
+  const scope = (opts && opts.scope) || {};
+  const DATE_COL = { journals: 'date', checkinStudent: 'date' };
+  const sql = asked.map(k => {
+    const col = DATE_COL[k], d = scope[k];
+    let where = `tenant_id = '${tenantId}'`;
+    if (col && d) {
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(String(d))) throw new Error('hydrateFast: scope.' + k + ' ต้องเป็น YYYY-MM-DD');
+      where += ` and "${col}" = '${d}'`;
+    }
+    return `select * from ${COLLECTIONS[k].table} where ${where} order by seq`;
+  }).join('; ');
   const res = await client.query(sql);
   // statement เดียวคืน object · หลาย statement คืน array — ทำให้เป็น array เสมอ
   const list = Array.isArray(res) ? res : [res];

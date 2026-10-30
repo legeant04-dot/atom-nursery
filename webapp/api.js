@@ -725,7 +725,11 @@ window.CONFIG = { FAST_URL: '', MODE: 'gas', GAS_URL: 'https://script.google.com
   const FAST_ACTIONS = {
     // รายชื่อ/โครงของโรงเรียน — เปลี่ยนนาน ๆ ครั้ง และเป็นของที่ทุกหน้าจอขอ
     classList: 1, listStudents: 1, listStaff: 1, listParents: 1, listClasses: 1, listDepartments: 1,
-    departments: 1, staffGroups: 1, getPlans: 1, prepayTiers: 1, holidays: 1, bigCleaningDays: 1,
+    /* 🔴 `departments` กับ `staffGroups` เคยอยู่ตรงนี้ — **ไม่ใช่ route จริงทั้งคู่**
+     * มันเป็นคีย์แคชใน TTL_BY_ACTION ข้างบน ไม่ใช่ชื่อ action · เอนจินไม่มี Code.gs ก็ไม่มี
+     * ถ้าปล่อยไว้ พอเปิดเส้นเร็วจะได้ UNKNOWN_ACTION ทั้งที่ของเดิมทำงานได้
+     * ของจริงชื่อ listDepartments / listStaffGroups ซึ่งอยู่ในรายการนี้แล้ว */
+    listStaffGroups: 1, getPlans: 1, prepayTiers: 1, holidays: 1, bigCleaningDays: 1,
     // สิบตัวที่กินเวลารวมมากที่สุดในรายงาน 28–30/10 — ทั้งหมดเป็นการอ่าน
     getJournal: 1, journalStatus: 1, studentAlerts: 1, notifications: 1, holidayAttendList: 1,
     staffSelf: 1, myAttendanceToday: 1, myHolidayOTNext: 1, teacherClassAttendance: 1,
