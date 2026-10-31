@@ -2568,7 +2568,41 @@ function createAtomAPI(M, GROWTH_STD) {
       logAct('issueBillsFor','', out.length+' คน เดือน '+month+(skipped.length?' (ข้าม '+skipped.length+')':''), actorOf(p));
       return {ok:true, month, created:out.length, students:out, skipped}; },
     // Admin deletes a bill (ยอดเรียกเก็บ). Removes the BILLING row; leaves any slip history in PAYMENT_SLIPS.
-    deleteBill: p => { const i=M.payments.findIndex(x=>x.BillingID===p.billingId); if(i<0)fail('NOT_FOUND','ไม่พบบิล'); const b=M.payments[i]; M.payments.splice(i,1); logAct('deleteBill',p.billingId,'ลบบิล '+ym(b&&b.Month),actorOf(p)); return {ok:true}; },
+    /**
+     * ลบบิล — แต่ไม่ลบเมื่อมีเงินผูกอยู่
+     *
+     * 🔴 เคสน้องอลัน 2026-10-31 · เงินของโรงเรียนคลาดเคลื่อน 3,900 บาทโดยไม่มีอะไรเตือน
+     *
+     * BillingID เป็นค่าที่คำนวณได้แน่นอน: `BL-<เดือน>-<รหัสนักเรียน>`
+     * ออกบิลเดือนเดิมให้เด็กคนเดิมกี่ครั้ง ก็ได้ id เดิม **ทุกครั้ง 100%**
+     *
+     * ลำดับที่เกิดขึ้นจริง:
+     *   ① ครูออกบิลรายเดือน 6,900 → id = BL-2026-11-STD-xxx
+     *   ② แอดมินบันทึกรับเงิน 6,900 → แถวใน PAYMENT_SLIPS ผูกกับ id นั้น (CONFIRMED)
+     *   ③ ครูลบบิล เพราะเดือนนี้ต้องใช้บิลแบบมาครึ่งวัน → **แถวเงินไม่ถูกลบ ค้างอยู่**
+     *   ④ ครูออกบิลใหม่ 3,000 → ได้ id เดิมอีกครั้ง
+     *   ⑤ เงิน 6,900 ที่ค้างอยู่ **ผูกเข้ากับบิลใหม่เอง** → ค้างชำระ 0 → ขึ้น "ชำระแล้ว"
+     *
+     * และที่แย่กว่าหน้าจอผิด: `collected` นับ 6,900 ของบิล 3,000
+     * **รายได้ของโรงเรียนเกินจริงไป 3,900 ต่อเด็กหนึ่งคน** โดยที่ไม่มีใครกดอะไรผิดเลย
+     * ครูทำถูกทุกขั้นตามที่ระบบเปิดให้ทำ
+     *
+     * 🔴 ทำไมถึงเลือก "ปฏิเสธ" ไม่ใช่ "ลบเงินตามไปด้วย"
+     * เพราะเงินที่รับมาแล้วเป็นของจริง โรงเรียนได้รับ 6,900 มาจริง ๆ
+     * ถ้าบิลที่ถูกต้องคือ 3,000 แปลว่าครอบครัวจ่ายเกิน 3,900 ซึ่งเป็นเรื่องที่ต้องตัดสินใจ
+     * (คืนเงิน? ยกไปเดือนหน้า?) ไม่ใช่เรื่องที่ควรหายไปเงียบ ๆ พร้อมกับการลบบิล
+     * การลบเงินตามไปด้วยคือการทำให้หลักฐานการรับเงินหายไป ซึ่งแย่กว่าเดิมอีก
+     */
+    deleteBill: p => { const i=M.payments.findIndex(x=>x.BillingID===p.billingId); if(i<0)fail('NOT_FOUND','ไม่พบบิล');
+      const b=M.payments[i];
+      const confirmed=sumSlips_('bill',p.billingId,['CONFIRMED']);
+      const waiting=sumSlips_('bill',p.billingId,['SUBMITTED','PENDING_VERIFY']);
+      if(confirmed>0||waiting>0) fail('BILL_HAS_PAYMENT',
+        'บิลนี้มีการรับชำระผูกอยู่'+(confirmed>0?(' · ยืนยันแล้ว '+confirmed+' บาท'):'')
+        +(waiting>0?(' · รอตรวจ '+waiting+' บาท'):'')
+        +' — ลบบิลไม่ได้ เพราะเงินจะค้างแล้วไปผูกกับบิลใบใหม่เอง'
+        +' · ให้จัดการรายการรับชำระก่อน (ลบรายการที่แอดมินบันทึกเอง หรือปฏิเสธสลิป) แล้วค่อยลบบิล');
+      M.payments.splice(i,1); logAct('deleteBill',p.billingId,'ลบบิล '+ym(b&&b.Month),actorOf(p)); return {ok:true}; },
     // auto-generate the month's bill for all active students from Plan price (skip if already billed)
     /* PREVIEW-FIRST, AND UNDOABLE — asked 2026-09-30 after the ผอ. re-ran September to see what the
      * screen looked like and had no way to find out what that had done.
@@ -2856,6 +2890,36 @@ function createAtomAPI(M, GROWTH_STD) {
      * Is slip verification actually working, and what has it been saying? A 'NO:<code>' is SlipOK's
      * VERDICT, not a broken connection — it read the slip and then objected. Mirrors handleSlipDiag.
      */
+    /**
+     * บิลที่รับชำระเกินยอด — ตัวตรวจย้อนหลังของเคสน้องอลัน (2026-10-31)
+     *
+     * ตัวกันใน deleteBill กันของใหม่ได้ แต่ **ข้อมูลที่เสียไปแล้วยังเสียอยู่**
+     * ทุกครั้งที่เคยลบบิลแล้วออกใหม่ในเดือนเดียวกัน เงินก้อนเก่าไปผูกกับบิลใบใหม่
+     * หน้าจอขึ้น "ชำระแล้ว" และ `collected` เกินจริงเท่ากับส่วนต่าง
+     *
+     * ตัวนี้จึงไล่ทุกบิลแล้วเทียบ **เงินที่ยืนยันแล้ว vs ยอดบิล** — เกินเมื่อไหร่คือผิดปกติเสมอ
+     * เพราะ recordCashPayment มีด่าน OVERPAY กันไว้อยู่แล้ว เงินที่เกินจึงเข้ามาได้ทางเดียว
+     * คือมันถูกบันทึกตอนที่บิลยังเป็นยอดเดิม แล้วบิลถูกเปลี่ยนทีหลัง
+     *
+     * อ่านอย่างเดียว ไม่แก้อะไร — การตัดสินใจว่าจะคืนเงิน ยกไปเดือนหน้า หรือแก้ยอดบิล
+     * เป็นเรื่องของโรงเรียน ไม่ใช่ของสคริปต์
+     */
+    billOverpaid: p => { const ap=staffById(p&&p.staffId); if(!adminLike_(ap))fail('NO_PERMISSION','เฉพาะแอดมิน');
+      const out=[];
+      (M.payments||[]).forEach(b=>{
+        const amount=Number(b.Amount||0)||0;
+        const confirmed=sumSlips_('bill', b.BillingID, ['CONFIRMED']);
+        const waiting=sumSlips_('bill', b.BillingID, ['SUBMITTED','PENDING_VERIFY']);
+        // เผื่อเศษสตางค์ 0.5 เหมือนด่าน OVERPAY ใน recordCashPayment
+        if(confirmed <= amount + 0.5) return;
+        const st=studentById(b.StudentID)||{};
+        out.push({ billingId:b.BillingID, studentId:b.StudentID,
+          nick:st.Nickname||'', name:st.NameTH||st.Name||'', className:st.Class||'',
+          month:ym(b.Month), amount, confirmed, waiting,
+          over:Math.round((confirmed-amount)*100)/100, status:String(b.Status||'') });
+      });
+      out.sort((a,b)=>b.over-a.over);
+      return { count:out.length, total:Math.round(out.reduce((a,x)=>a+x.over,0)*100)/100, bills:out }; },
     slipDiag: p => { const ap=staffById(p&&p.staffId); if(!adminLike_(ap))fail('NO_PERMISSION','เฉพาะแอดมิน');
       const rows=paySlips_(); const counts={total:rows.length,verified:0,rejected:0,unchecked:0,manual:0}; const byCode={};
       rows.forEach(s=>{ const v=String(s.Verified||'');

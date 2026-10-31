@@ -57,7 +57,16 @@ const result = run(function () {
    * 2026-06-08"). Age is computed against the real clock, so the test aged with the calendar and
    * failed by itself in August — a red light that meant nothing, of exactly the kind nobody looks
    * at any more. Anchor the fixture to now and it stays true for ever. */
-  var _b = new Date(); _b.setMonth(_b.getMonth() - 13); _b.setDate(1);
+  /* 🔴 setDate(1) ต้องมาก่อน setMonth เสมอ — ไม่ใช่ตามหลัง
+   *
+   * วันที่รันชุดนี้คือวันที่ 31 (เช่น 31/10/2569) การถอย 13 เดือนจากวันที่ 31 จะไปตกเดือนที่
+   * ไม่มีวันที่ 31 แล้ว JS จะ "ล้น" ไปวันที่ 1 ของเดือนถัดไปให้เอง → ได้ 2025-10-01 แทน 2025-09-01
+   * เด็กจึงอายุ 12 เดือนไม่ใช่ 13 และตกคนละช่วงวัย ข้อถัดไปเลยแดง
+   *
+   * เกิดเฉพาะวันที่ 31 ของเดือน (และ 29–31 สำหรับเดือนที่สั้นกว่า) — ชุดนี้จึงเขียวมา 30 วัน
+   * แล้วแดงหนึ่งวัน โดยไม่มีใครแก้อะไรเลย · ซึ่งเป็นสิ่งที่หมายเหตุข้างบนตั้งใจจะกันพอดี
+   * ("Anchor the fixture to now and it stays true for ever") และกันไม่สำเร็จเพราะลำดับสองบรรทัดนี้ */
+  var _b = new Date(); _b.setDate(1); _b.setMonth(_b.getMonth() - 13);
   var DOB13 = dateStr_(_b);
   appendObject_(sheet_(MAIN, 'STUDENTS'), { StudentID: 'STD-1', Name: 'น้องบีม', DOB: DOB13, Class: 'Nursery 1', ParentID: 'PAR-1', Status: 'ACTIVE' });
 
