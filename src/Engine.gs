@@ -2917,10 +2917,32 @@ function createAtomAPI(M, GROWTH_STD) {
         // เผื่อเศษสตางค์ 0.5 เหมือนด่าน OVERPAY ใน recordCashPayment
         if(confirmed <= amount + 0.5) return;
         const st=studentById(b.StudentID)||{};
+        /* ── ทำไมถึงเกิน · ให้หลักฐานไปด้วย ไม่ใช่เดาสาเหตุให้ ──────────────────────────
+         * ผอ. ถามตรงจุด (31/10): "บิลที่ยอดเกิน คือรวมค่า OT ด้วยรึเปล่า ตรวจสอบใน Log"
+         *
+         * 🔴 ตอนแรกหน้าจอเขียนว่า "เกือบแน่นอนว่าเคยถูกลบแล้วออกใหม่" — **อ้างเกินจริง**
+         * ตรวจแล้วมีอย่างน้อยสองทางที่ทำให้เงินเกินยอดบิลได้:
+         *   ① ลบบิลแล้วออกใหม่ — รหัสบิลซ้ำ เงินก้อนเก่าไหลเข้าบิลใหม่ (เคสน้องอลัน · กันแล้ว v491)
+         *   ② สลิปใบเดียวยอดเกินยอดบิล — `uploadSlip` ไม่จำกัดยอดเลย ส่งมาเท่าไหร่บันทึกเท่านั้น
+         *      ผู้ปกครองที่โอนค่าเทอม+OT รวดเดียวแล้วแนบที่บิล จะทำให้บิลดูเกินเท่ากับค่า OT พอดี
+         *
+         * (payCombined ไม่ใช่ทางนี้ — มันแยกยอดต่อรายการแล้ว OT ไปอยู่ RefKind='ot' ต่างหาก)
+         *
+         * สองอย่างนี้แก้คนละแบบ จึงไม่ควรเดาแทนโรงเรียน · แนบบรรทัด Log ของบิลใบนี้ไปให้ดูเอง
+         * logAct เก็บ target เป็น BillingID และใส่ยอดไว้ใน detail อยู่แล้ว */
+        const logs=(M.activityLog||[])
+          .filter(l=>String(l.Target||'')===String(b.BillingID))
+          .map(l=>({ at:String(l.Timestamp||''), action:String(l.Action||''),
+                     by:String(l.UserName||l.UserID||''), detail:String(l.Detail||'') }));
+        const reissued=logs.some(l=>l.action==='deleteBill');
+        const slipAmts=paySlips_()
+          .filter(x=>x.RefKind==='bill'&&x.RefID===b.BillingID&&String(x.Status).toUpperCase()==='CONFIRMED')
+          .map(x=>Number(x.Amount||0)||0);
+        const bigSlip=slipAmts.some(a=>a>amount+0.5);
         out.push({ billingId:b.BillingID, studentId:b.StudentID,
           nick:st.Nickname||'', name:st.NameTH||st.Name||'', className:st.Class||'',
           month:ym(b.Month), amount, confirmed, waiting,
-          over:Math.round((confirmed-amount)*100)/100, status:String(b.Status||'') });
+          over:Math.round((confirmed-amount)*100)/100, status:String(b.Status||''), reissued, bigSlip, logs });
       });
       out.sort((a,b)=>b.over-a.over);
       return { count:out.length, total:Math.round(out.reduce((a,x)=>a+x.over,0)*100)/100, bills:out }; },
