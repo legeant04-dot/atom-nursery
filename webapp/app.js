@@ -199,7 +199,7 @@
       _readStart(); let pr2; try{ pr2=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr2).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.491'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.492'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:var(--fs-1);margin-top:var(--sp-5)">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -13949,6 +13949,12 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
       <button class="btn sm outline block" onclick="A_onboardCheck(this)">🏫 ${EN()?'Check school setup':'ตรวจความพร้อมของโรงเรียน'}</button>
       <h4 style="margin:var(--sp-3) 0 var(--sp-1)">⚡ ${EN()?'Speed and errors':'ความเร็วและข้อผิดพลาด'}</h4>
       <button class="btn sm outline block" onclick="this.closest('.modal').remove();A_perfReport(7)">${EN()?'Which screens are slow, what is breaking':'ดูว่าหน้าไหนช้า อะไรพังบ้าง'}</button>
+      ${/* 🔴 เคสน้องอลัน 2026-10-31 · BillingID คำนวณจากเดือน+รหัสเด็ก จึงซ้ำทุกครั้งที่ออกบิลใหม่
+           เดือนเดิม · ลบบิลแล้วออกใหม่ เงินก้อนเก่าจึงไปผูกกับบิลใบใหม่เอง แล้วขึ้น "ชำระแล้ว"
+           v491 กันของใหม่ไว้แล้ว (deleteBill ปฏิเสธถ้ามีเงินผูกอยู่) แต่ของเก่ายังผิดค้างอยู่
+           และโรงเรียนจะรู้เฉพาะเคสที่ผู้ปกครองทักมา ซึ่งคือเคสที่โชคดีที่สุด */''}
+      <h4 style="margin:var(--sp-3) 0 var(--sp-1)">💰 ${EN()?'Bills paid more than they ask for':'บิลที่รับชำระเกินยอด'}</h4>
+      <button class="btn sm outline block" onclick="A_billOverpaid(this)">${EN()?'Find bills whose confirmed payments exceed the bill':'หาบิลที่เงินยืนยันแล้วมากกว่ายอดบิล'}</button>
       <h4 style="margin:var(--sp-3) 0 var(--sp-1)">🔍 ${EN()?'Slip verification (SlipOK)':'การตรวจสลิป (SlipOK)'}</h4>
       <button class="btn sm outline block" onclick="A_slipDiag(this)">${EN()?'Check whether slip verification is working':'ตรวจว่าระบบตรวจสลิปทำงานอยู่ไหม'}</button>
       ${/* THE CLOCK. Four places set it — the script (triggers), both Google Sheets, and the school
@@ -14539,6 +14545,39 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
           : `หมายเหตุ: ตอนนี้<b>ปิดอยู่ ${off} จาก ${ks.length} หัวข้อ</b> ตัวเลขข้างบนจึงเป็นค่าตามการตั้งค่าปัจจุบัน · ถ้าเปิดเพิ่ม ตัวเลขบรรทัดนั้นจะเพิ่มตามจำนวนคนที่รับ`}</p>`; })()}
       <button class="btn outline block" style="margin-top:var(--sp-2)" onclick="this.closest('.modal').remove()">${esc(t('c.close'))}</button>`); };
 
+  /**
+   * บิลที่รับชำระเกินยอด — ตัวตรวจย้อนหลังของเคสน้องอลัน
+   *
+   * อ่านอย่างเดียว · ไม่แก้อะไรให้เอง **โดยตั้งใจ**
+   * เงินที่เกินมาเป็นเงินจริงของครอบครัว การตัดสินใจว่าจะคืน ยกไปเดือนหน้า หรือแก้ยอดบิล
+   * เป็นเรื่องของโรงเรียน · สคริปต์ที่ "แก้ให้เอง" กับเงินของคนอื่น คือสคริปต์ที่ไม่ควรมีอยู่
+   */
+  window.A_billOverpaid=async(btn)=>{ if(btn)btn.disabled=true;
+    try{ const r=await api('billOverpaid',{staffId:USER.staffId});
+      const m=btn&&btn.closest('.modal'); if(m)m.remove();
+      if(!r.count){ modal(`<h3>💰 ${EN()?'Bills paid more than they ask for':'บิลที่รับชำระเกินยอด'}</h3>
+        <div class="card tint-ok" style="background:var(--ok-bg);border-color:var(--ok-line)">
+          <b style="color:var(--ok)">✅ ${EN()?'None found':'ไม่พบรายการผิดปกติ'}</b>
+          <div class="muted" style="font-size:var(--fs-1);margin-top:var(--sp-1)">${EN()
+            ? 'Every bill has confirmed payments equal to or below what it asks for.'
+            : 'ทุกบิลมีเงินที่ยืนยันแล้วไม่เกินยอดบิล'}</div></div>
+        <button class="btn outline block" onclick="this.closest('.modal').remove()">${esc(t('c.close'))}</button>`); return; }
+      modal(`<h3>💰 ${EN()?'Bills paid more than they ask for':'บิลที่รับชำระเกินยอด'}</h3>
+        <div class="card" style="background:var(--warn-bg);border-color:var(--warn-line);padding:var(--sp-3)">
+          <b style="color:var(--warn)">⚠️ ${r.count} ${EN()?'bill(s)':'รายการ'} · ${EN()?'over by':'เกินรวม'} ${baht(r.total)}</b>
+          <div class="muted" style="font-size:var(--fs-1);margin-top:var(--sp-1);line-height:1.7">${EN()
+            ? 'These bills were almost certainly deleted and re-issued for the same month. The old payment kept the same bill id and attached itself to the new bill, so the screen reads paid and the income figure is too high by the difference.'
+            : 'บิลเหล่านี้เกือบแน่นอนว่าเคยถูกลบแล้วออกใหม่ในเดือนเดียวกัน · เงินก้อนเก่าใช้รหัสบิลเดิมจึงไปผูกกับบิลใบใหม่ ทำให้หน้าจอขึ้นว่าชำระแล้ว และรายได้เกินจริงเท่ากับส่วนต่าง'}</div></div>
+        ${r.bills.map(b=>`<div class="list-item">
+          <span><b>${esc(b.nick||b.name||b.studentId)}</b> <small class="muted">${esc(b.name||'')}${b.className?' · '+esc(b.className):''}</small>
+            <br><small class="muted">${esc(b.month)} · ${EN()?'bill':'ยอดบิล'} ${baht(b.amount)} · ${EN()?'confirmed':'ยืนยันแล้ว'} ${baht(b.confirmed)}${b.waiting?` · ${EN()?'waiting':'รอตรวจ'} ${baht(b.waiting)}`:''}</small>
+            <br><small style="color:var(--bad)">${EN()?'over by':'เกิน'} ${baht(b.over)}</small></span>
+          <button class="btn sm outline" style="flex:0 0 auto" onclick="this.closest('.modal').remove();A_finStudent('${esc(b.studentId)}')">${EN()?'Open':'เปิดดู'}</button></div>`).join('')}
+        <p class="muted" style="font-size:var(--fs-1);margin-top:var(--sp-3)">${EN()
+          ? 'Nothing here has been changed. Whether to refund, carry forward, or correct the bill is the school’s decision.'
+          : '🔴 เครื่องมือนี้ไม่ได้แก้อะไรให้ · จะคืนเงิน ยกไปเดือนหน้า หรือแก้ยอดบิล เป็นการตัดสินใจของโรงเรียน'}</p>
+        <button class="btn outline block" onclick="this.closest('.modal').remove()">${esc(t('c.close'))}</button>`);
+    }catch(e){ err(e); if(btn)btn.disabled=false; } };
   window.A_slipDiag=async(btn)=>{ if(btn)btn.disabled=true;
     try{ A_slipDiagShow(await api('slipDiag',{staffId:USER.staffId}));
     }catch(e){err(e);}finally{ if(btn)btn.disabled=false; } };
