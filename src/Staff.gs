@@ -777,11 +777,42 @@ function handleSaveQRCodes(p) {
 }
 
 // Admin deletes a bill in-place (one BILLING row). Admin-only (guarded in applyIdentity_).
+/**
+ * ลบบิล — แต่ไม่ลบเมื่อมีเงินผูกอยู่ (เคสน้องอลัน 2026-10-31)
+ *
+ * 🔴 BillingID เป็นค่าที่คำนวณได้แน่นอน: `BL-<เดือน>-<รหัสนักเรียน>`
+ * ออกบิลเดือนเดิมให้เด็กคนเดิมซ้ำ ก็ได้ id เดิมทุกครั้ง · แถวใน PAYMENT_SLIPS ผูกกับ id นั้น
+ * ลบบิลแล้วออกใหม่ เงินก้อนเก่าจึงไปผูกกับบิลใบใหม่เอง แล้วขึ้นว่า "ชำระแล้ว"
+ * ทั้งที่ยังไม่มีใครจ่ายบิลใบใหม่ — และ `collected` ก็นับเกินไปด้วยเท่ากับส่วนต่าง
+ *
+ * เหตุผลที่ปฏิเสธแทนที่จะลบเงินตามไปด้วย อยู่ในหมายเหตุของ deleteBill ใน webapp/engine.js
+ * โดยย่อ: เงินที่รับมาแล้วเป็นของจริง การทำให้หลักฐานหายไปเงียบ ๆ แย่กว่าการปฏิเสธ
+ *
+ * 🔴 กฎนี้ต้องอยู่ทั้งสองฝั่ง — route นี้ shadow เอนจิน ถ้าแก้แต่ในเอนจิน
+ * ของจริงที่โรงเรียนใช้จะยังลบได้เหมือนเดิม และบั๊กจะยังอยู่ครบ
+ */
 function handleDeleteBill(p) {
   p = p || {};
   var sh = sheet_(getMainSpreadsheet_(), 'BILLING');
   var b = findObject_(sh, function (x) { return String(x.BillingID) === String(p.billingId); });
   if (!b) throw apiError_('NOT_FOUND', 'ไม่พบบิล ' + p.billingId);
+
+  var confirmed = 0, waiting = 0;
+  readObjects_(sheet_(getMainSpreadsheet_(), 'PAYMENT_SLIPS')).forEach(function (s) {
+    if (String(s.RefKind) !== 'bill' || String(s.RefID) !== String(p.billingId)) return;
+    var st = String(s.Status || '').toUpperCase(), amt = Number(s.Amount || 0) || 0;
+    if (st === 'CONFIRMED') confirmed += amt;
+    else if (st === 'SUBMITTED' || st === 'PENDING_VERIFY') waiting += amt;
+  });
+  if (confirmed > 0 || waiting > 0) {
+    throw apiError_('BILL_HAS_PAYMENT',
+      'บิลนี้มีการรับชำระผูกอยู่'
+      + (confirmed > 0 ? (' · ยืนยันแล้ว ' + confirmed + ' บาท') : '')
+      + (waiting > 0 ? (' · รอตรวจ ' + waiting + ' บาท') : '')
+      + ' — ลบบิลไม่ได้ เพราะเงินจะค้างแล้วไปผูกกับบิลใบใหม่เอง'
+      + ' · ให้จัดการรายการรับชำระก่อน (ลบรายการที่แอดมินบันทึกเอง หรือปฏิเสธสลิป) แล้วค่อยลบบิล');
+  }
+
   sh.deleteRow(b._row);
   recCacheBust_('BILLING');
   return { ok: true };
