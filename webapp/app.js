@@ -199,7 +199,7 @@
       _readStart(); let pr2; try{ pr2=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr2).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.492'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.493'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:var(--fs-1);margin-top:var(--sp-5)">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -14567,11 +14567,19 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
           <b style="color:var(--warn)">⚠️ ${r.count} ${EN()?'bill(s)':'รายการ'} · ${EN()?'over by':'เกินรวม'} ${baht(r.total)}</b>
           <div class="muted" style="font-size:var(--fs-1);margin-top:var(--sp-1);line-height:1.7">${EN()
             ? 'These bills were almost certainly deleted and re-issued for the same month. The old payment kept the same bill id and attached itself to the new bill, so the screen reads paid and the income figure is too high by the difference.'
-            : 'บิลเหล่านี้เกือบแน่นอนว่าเคยถูกลบแล้วออกใหม่ในเดือนเดียวกัน · เงินก้อนเก่าใช้รหัสบิลเดิมจึงไปผูกกับบิลใบใหม่ ทำให้หน้าจอขึ้นว่าชำระแล้ว และรายได้เกินจริงเท่ากับส่วนต่าง'}</div></div>
+            : 'เงินที่ยืนยันแล้วมากกว่ายอดบิล · มีได้สองสาเหตุ และแก้คนละแบบ — ① ลบบิลแล้วออกใหม่ (รหัสบิลซ้ำ เงินเก่าไหลเข้าบิลใหม่) ② สลิปใบเดียวยอดเกินยอดบิล เช่นโอนค่าเทอม+OT รวมกันแล้วแนบที่บิล · ดูบรรทัด Log ใต้แต่ละรายการว่าเป็นอันไหน'}</div></div>
         ${r.bills.map(b=>`<div class="list-item">
           <span><b>${esc(b.nick||b.name||b.studentId)}</b> <small class="muted">${esc(b.name||'')}${b.className?' · '+esc(b.className):''}</small>
             <br><small class="muted">${esc(b.month)} · ${EN()?'bill':'ยอดบิล'} ${baht(b.amount)} · ${EN()?'confirmed':'ยืนยันแล้ว'} ${baht(b.confirmed)}${b.waiting?` · ${EN()?'waiting':'รอตรวจ'} ${baht(b.waiting)}`:''}</small>
-            <br><small style="color:var(--bad)">${EN()?'over by':'เกิน'} ${baht(b.over)}</small></span>
+            <br><small style="color:var(--bad)">${EN()?'over by':'เกิน'} ${baht(b.over)}</small>
+            ${/* บอกสาเหตุจากหลักฐาน ไม่ใช่จากการเดา · ถ้าอ่านไม่ออกก็บอกว่าอ่านไม่ออก
+                 ซึ่งซื่อสัตย์กว่าการทายให้ แล้วโรงเรียนไปแก้ผิดทาง */''}
+            <br><span class="pill ${b.reissued?'bad':b.bigSlip?'warn':'info'}" style="font-size:var(--fs-1)">${
+              b.reissued ? (EN()?'bill was deleted and re-issued':'บิลเคยถูกลบแล้วออกใหม่')
+              : b.bigSlip ? (EN()?'one slip larger than the bill (tuition + OT together?)':'มีสลิปใบเดียวยอดเกินยอดบิล (โอนค่าเทอม+OT รวมกันหรือเปล่า?)')
+              : (EN()?'cause unclear — read the log':'ยังบอกสาเหตุไม่ได้ — ดู Log')}</span>
+            ${(b.logs||[]).length?`<br><small class="muted" style="font-size:var(--fs-1);line-height:1.6">${
+              b.logs.map(l=>`${esc(String(l.at).slice(0,16))} · ${esc(l.action)}${l.detail?' · '+esc(l.detail):''}${l.by?' · '+esc(l.by):''}`).join('<br>')}</small>`:''}</span>
           <button class="btn sm outline" style="flex:0 0 auto" onclick="this.closest('.modal').remove();A_finStudent('${esc(b.studentId)}')">${EN()?'Open':'เปิดดู'}</button></div>`).join('')}
         <p class="muted" style="font-size:var(--fs-1);margin-top:var(--sp-3)">${EN()
           ? 'Nothing here has been changed. Whether to refund, carry forward, or correct the bill is the school’s decision.'
