@@ -1982,12 +1982,21 @@ function createAtomAPI(M, GROWTH_STD) {
    * in the setup check writes every key as '' and must not wipe the letterhead by doing so. */
   const DOC_KEYS=['DocSchoolName','DocAddress1','DocAddress2','DocPhone','DocLineId','DocTaxId','DocTaxNote','DocSignerName','DocSignerTitle'];
   const DOC_ORIGIN_={ DocSchoolName:'อะตอม เนอสเซอรี่ (Atom Nursery)',
-    DocAddress1:'933/149-150 หมู่บ้านพิมพ์ทอง ซ.ลาดพร้าว 101 แยก 35 แขวงคลองเจ้าคุณสิงห์',
-    DocAddress2:'เขตวังทองหลาง กรุงเทพฯ 10310', DocPhone:'02-731-5859, 089-895-5895', DocLineId:'@atomnursery',
+    // ผอ. 2026-11-03 (รอบ 2): แขวงลงมาบรรทัดเดียวกับเขต
+    DocAddress1:'933/149-150 หมู่บ้านพิมพ์ทอง ซ.ลาดพร้าว 101 แยก 35',
+    DocAddress2:'แขวงคลองเจ้าคุณสิงห์ เขตวังทองหลาง กรุงเทพฯ 10310', DocPhone:'02-731-5859, 089-895-5895', DocLineId:'@atomnursery',
     DocTaxId:'', DocTaxNote:'ได้รับการยกเว้นภาษีมูลค่าเพิ่มตามประมวลรัษฎากร',
     DocSignerName:'ศิลา เส็งพานิช', DocSignerTitle:'ผู้รับเงิน / ผู้มีอำนาจลงนาม' };
+  /* A SPLIT THIS PROJECT WROTE, AND HAS TO TAKE BACK. v495 broke the address after แขวง; the school
+   * then asked for แขวง on the same line as เขต. The settings screen opens pre-filled with whatever
+   * prints, so an admin who pressed Save in between stored the OLD split in SCHOOL_CONFIG, where it
+   * would outrank the corrected default for ever. That exact pair — and only that pair — is read as
+   * "never set". Same pattern as CertDatePrefix in src/Certificate.gs. */
+  const DOC_LEGACY_ADDR_=['933/149-150 หมู่บ้านพิมพ์ทอง ซ.ลาดพร้าว 101 แยก 35 แขวงคลองเจ้าคุณสิงห์','เขตวังทองหลาง กรุงเทพฯ 10310'];
   function docInfo_(){ const origin=String(cfg.SchoolName||'').trim()==='Atom Nursery'; const o={};
     DOC_KEYS.forEach(k=>{ const v=cfg[k]; o[k]=(v!=null && String(v).trim()!=='') ? String(v).trim() : (origin?DOC_ORIGIN_[k]:''); });
+    if(origin && o.DocAddress1===DOC_LEGACY_ADDR_[0] && o.DocAddress2===DOC_LEGACY_ADDR_[1]){
+      o.DocAddress1=DOC_ORIGIN_.DocAddress1; o.DocAddress2=DOC_ORIGIN_.DocAddress2; }
     if(!o.DocSchoolName) o.DocSchoolName=String(cfg.SchoolName||'');
     return o; }
 
