@@ -199,7 +199,7 @@
       _readStart(); let pr2; try{ pr2=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr2).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.494'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.495'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:var(--fs-1);margin-top:var(--sp-5)">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -390,7 +390,7 @@
     // nickname and showed up as "กิ๊บ" instead of "คุณแม่น้องเลอา".
     const child = kid || findKid(p.StudentID) || ((window._PKIDS||{})[p.ParentID]||[])[0];
     const kn = child ? dispNick(child) : '';
-    if(kn) return EN() ? `${kn}'s ${dad?'dad':mom?'mom':'parent'}` : `${dad?'คุณพ่อน้อง':mom?'คุณแม่น้อง':'ผู้ปกครองน้อง'}${kn}`;
+    if(kn) return EN() ? `${kn}'s ${dad?'dad':mom?'mum':'parent'}` : `${dad?'คุณพ่อน้อง':mom?'คุณแม่น้อง':'ผู้ปกครองน้อง'}${kn}`;
     return titledName(p);   // no child resolvable → formal name, never their nickname
   }
   const EN = () => LANG()==='en';
@@ -3423,7 +3423,7 @@
     const _k0n=dispNick(k0); const _dad=REL_DAD.test(_rel), _mom=REL_MOM.test(_rel);
     // 'p.greeting' is just "สวัสดีค่ะ " — the honorific belongs to the name, because the resolved form
     // already starts with คุณพ่อ/คุณแม่ (it used to render "สวัสดีค่ะ คุณคุณพ่อน้องเอม").
-    const greetName=_k0n?(EN()?`${_k0n}'s ${_dad?'dad':_mom?'mom':'parent'}`:`${_dad?'คุณพ่อน้อง':_mom?'คุณแม่น้อง':'ผู้ปกครองน้อง'}${_k0n}`):(EN()?USER.nameEN:'คุณ'+USER.nameTH);
+    const greetName=_k0n?(EN()?`${_k0n}'s ${_dad?'dad':_mom?'mum':'parent'}`:`${_dad?'คุณพ่อน้อง':_mom?'คุณแม่น้อง':'ผู้ปกครองน้อง'}${_k0n}`):(EN()?USER.nameEN:'คุณ'+USER.nameTH);
     // today's IN/OUT time per kid → disable the button once done (one drop-off / one pick-up per day)
     const todayCI={}; kids.forEach((k,i)=>{ const r=(ciAll[i]||[]).find(x=>ymd(x.Date)===todayStr())||{}; todayCI[k.StudentID]={in:r.InTime||'',out:r.OutTime||''}; });
     const doneBtn=(done,txt)=> done ? `disabled style="flex:1;padding:var(--sp-4);font-size:var(--fs-3);font-weight:700;opacity:.45;cursor:not-allowed"` : `style="flex:1;padding:var(--sp-4);font-size:var(--fs-3);font-weight:700"`;
@@ -4428,7 +4428,7 @@
       <li>${EN()?'Stand where the sky is visible for a moment, then tap check again — the first fix indoors is often the network one.':'ออกมาที่ที่เห็นท้องฟ้าสักครู่ แล้วกดตรวจสอบใหม่ · ครั้งแรกในอาคารมักได้ตำแหน่งจากเครือข่าย'}</li>
     </ol>
     <small class="muted" style="display:block;margin-top:var(--sp-2)">${EN()
-      ? 'If it still fails after this, use “ขอลงเวลา” — the day is not lost, and the head teacher can approve the real time.'
+      ? 'If it still fails after this, use “Record-time request” — the day is not lost, and the head teacher can approve the real time.'
       : 'หากยังไม่ได้ ให้ใช้ “ขอลงเวลา” ไปก่อน · วันนั้นไม่หาย หัวหน้าครูอนุมัติเวลาจริงให้ได้'}</small></div>`;
   window.P_do=async(btn)=>{ const studentId=$('#kid').value; P_TYPE=P_TYPE; return P_punch(studentId,P_TYPE,btn); };
   // one-tap check-in/out from the home kid card (or checkin screen): read GPS → parentCheckin directly
@@ -4617,8 +4617,8 @@
       ${b.Prepay?`<div class="card" style="background:var(--ok-bg);border-color:var(--ok-line);padding:var(--sp-2) var(--sp-2);margin:0 0 var(--sp-2)"><small style="color:var(--ok)">💰 ${esc(prepaySpan(b.Prepay))}</small></div>`:''}
       <small class="muted">${esc(t('c.due'))} ${esc(fullDate(b.DueDate))}${b.PaidDate?' · '+esc(t('c.paid'))+' '+esc(fullDate(b.PaidDate)):''}</small>
       ${slipHistoryHTML(billSlips)}
-      ${paid||prepaid?`<div class="row" style="margin-top:var(--sp-3)"><button class="btn sm outline" onclick="P_receipt('${b.BillingID}')">🧾 ${esc(t('pay.receipt'))}</button></div>`
-        :`<div class="row" style="margin-top:var(--sp-3)"><button class="btn block" onclick="P_pay('bill','${b.BillingID}',${topUp})">${hasPending||partial?`📎 ${EN()?'Add another slip':'แนบสลิปเพิ่ม'}`:`💳 ${esc(t('lbl.pay'))} ${baht(topUp)}`}</button></div>`}</div>`;
+      ${paid||prepaid?'':`<div class="row" style="margin-top:var(--sp-3)"><button class="btn block" onclick="P_pay('bill','${b.BillingID}',${topUp})">${hasPending||partial?`📎 ${EN()?'Add another slip':'แนบสลิปเพิ่ม'}`:`💳 ${esc(t('lbl.pay'))} ${baht(topUp)}`}</button></div>`}
+      ${billDocBtn(sid, b.BillingID, b.Status==='PAID')}</div>`;
     }).join('')}`;
   }
   // add n months to a 'YYYY-MM'
@@ -4684,10 +4684,43 @@
   // (prepay now uses the package QR like the rest of tuition — it used to ignore _PAYQR and always
   // fall back to the default config QR, so advance payments could land in the wrong account.)
   window.P_payPrepay=(prepayId,amt)=>P_pay('prepay',prepayId,amt);
-  // printable receipt
-  window.P_receipt=async(billingId)=>{ const ps=await api('payments',{studentId:window._PAY_SID}); const b=ps.find(x=>x.BillingID===billingId); if(!b)return;
-    // use the real linked child (gas mode has no MOCK.students seed → the old lookup gave a blank name)
-    const s=(window._PAY_KIDS||[]).find(x=>x.StudentID===b.StudentID)||MOCK.students.find(x=>x.StudentID===b.StudentID)||{}; await ensureLogos(["_LOGO"]); openOrDownload(buildReceiptHTML(b,s),'receipt-'+billingId+'.html'); };
+  /* ===== ใบเสร็จรับเงิน / ใบแจ้งหนี้ — a PDF, A5 landscape (asked 2026-11-03) =====================
+   * Paid in full → receipt; anything else → invoice. WHICH one, and everything on it, is the engine's
+   * answer (billDocument) — this only fetches it, has receipt.js draw it, shows the sheet, and hands
+   * over the file on a tap. The preview is not decoration: the share sheet that saves a PDF on an
+   * iPhone needs a fresh tap, and the fetch + drawing take longer than the browser waits. The same
+   * function serves the parent's screen and the office's, so both print the same document. */
+  function billDocBtn(sid, billingId, receipt){
+    return `<div class="row" style="margin-top:var(--sp-2)"><button class="btn sm outline" onclick="BILL_DOC('${esc(sid)}','${esc(billingId)}',this)">${receipt
+      ? `🧾 ${EN()?'Download receipt (PDF)':'ดาวน์โหลดใบเสร็จ (PDF)'}` : `📄 ${EN()?'Invoice (PDF)':'ใบแจ้งหนี้ (PDF)'}`}</button></div>`; }
+  window.BILL_DOC=async(studentId,billingId,btn)=>{ const old=btn&&btn.innerHTML;
+    if(btn){ btn.disabled=true; btn.innerHTML='⏳ '+(EN()?'Preparing…':'กำลังเตรียมเอกสาร…'); }
+    try{
+      const d=await api('billDocument',{studentId,billingId});
+      const [sg]=await Promise.all([
+        d.kind==='receipt'?api('docSignature',{}).catch(()=>({sig:''})):Promise.resolve({sig:''}),
+        window.__atomLoadScript('report_card.js',()=>!!(window.AtomReportCard&&window.AtomReportCard.buildPdf)),
+        window.__atomLoadScript('receipt.js',()=>!!window.AtomReceipt), ensureLogos(['_LOGO'])]);
+      const page=await window.AtomReceipt.render(d,{logo:window._LOGO||'assets/logo.png', sig:(sg&&sg.sig)||''});
+      window._BILL_DOC={d,page};
+      const rc=d.kind==='receipt';
+      modal(`<h3>${rc?'🧾 '+(EN()?'Receipt':'ใบเสร็จรับเงิน'):'📄 '+(EN()?'Invoice':'ใบแจ้งหนี้')} <small class="muted" translate="no">${esc(d.no)}</small></h3>
+        <img src="${page.dataUrl}" alt="" style="width:100%;border:1px solid var(--line);border-radius:var(--radius-sm)"/>
+        <button class="btn block" style="margin-top:var(--sp-2)" onclick="BILL_DOC_SAVE(this)">⬇️ ${EN()?'Download PDF':'ดาวน์โหลด PDF'}</button>
+        <div id="billDocNote"></div>
+        <button class="btn outline block" style="margin-top:var(--sp-2)" onclick="this.closest('.modal').remove()">${esc(t('c.close'))}</button>`);
+    }catch(e){ err(e); }
+    finally{ if(btn){ btn.disabled=false; btn.innerHTML=old; } } };
+  window.BILL_DOC_SAVE=async(btn)=>{ const x=window._BILL_DOC; if(!x) return;
+    const old=btn.innerHTML; btn.disabled=true;
+    try{ const r=await window.AtomReceipt.save(x.d, x.page);
+      if(r&&r.cancelled) return;
+      // a download on a phone is silent — say where it went, and leave it on screen (same as the certificate)
+      setHTML('#billDocNote', `<div class="card" style="background:var(--ok-bg);border-color:var(--ok-line);padding:var(--sp-2);margin:var(--sp-2) 0 0;font-size:var(--fs-1);color:var(--ok)">
+        ✅ <b>${r&&r.shared?(EN()?'Saved':'บันทึกแล้ว'):(EN()?'Downloaded':'ดาวน์โหลดแล้ว')}</b> <span translate="no">${esc(r.name)}</span>
+        <br><small>${EN()?'Look in your Downloads folder (or Files on an iPhone).':'ดูได้ที่โฟลเดอร์ “ดาวน์โหลด” (iPhone: แอป “ไฟล์”)'}</small></div>`);
+    }catch(e){ err(e); }
+    finally{ btn.disabled=false; btn.innerHTML=old; } };
   window.P_qr=(id,amt)=>P_pay('bill',id,amt);
   window.P_payOT=(otId,amt)=>P_pay('ot',otId,amt);
   window.P_payCharge=(chargeId,amt)=>P_pay('charge',chargeId,amt);
@@ -5441,7 +5474,7 @@
              contact level, and scoped by the SERVER to the classes they cover — see leaderParents
              in engine.js for why it is not simply listParents with a wider permission. */''}
         ${isLeader?`<button class="btn sm outline" onclick="T_parents()">👨‍👩‍👧 ${EN()?'Parent contacts':'ข้อมูลผู้ปกครอง'}</button>`:''}
-        ${canOrg?`<button class="btn sm outline" onclick="T_organize()">${ic('repeat')} ${EN()?'Organize classes':'จัดชั้นเรียน'}</button>`:''}
+        ${canOrg?`<button class="btn sm outline" onclick="T_organize()">${ic('repeat')} ${EN()?'Organise classes':'จัดชั้นเรียน'}</button>`:''}
         ${/* The head teacher gets COVER without getting the drag grid: lending somebody to a class
              for a day and moving them into it permanently are different decisions, and only the
              first one was asked for. Anyone who has the grid reaches cover through it instead. */''}
@@ -5457,7 +5490,7 @@
              are still the admin's, and the server enforces that, not this button. */''}
         ${canFood?`<button class="btn sm outline" onclick="A_foodMenu()">🍚 ${EN()?'Monthly food menu':'เมนูอาหารรายเดือน'}</button>
         <button class="btn sm outline" onclick="A_foodItems()">${ic('image')} ${EN()?'Food photos':'รูปอาหาร'}</button>`:''}</div></div>
-      <div class="card"><div class="spread"><h3>👶 ${esc(cl.class.ClassName)}</h3><span class="muted">${cl.students.length} ${EN()?'kids':'คน'}</span></div>${classSwitcher(cl)}
+      <div class="card"><div class="spread"><h3>👶 ${esc(cl.class.ClassName)}</h3><span class="muted">${cl.students.length} ${EN()?'children':'คน'}</span></div>${classSwitcher(cl)}
         ${cl.students.map(s=>{
           // same rule as the class screen and as the server: no journal until the child has arrived
           const done=jdone[s.StudentID], canJ = s.inToday || !!done;
@@ -5531,7 +5564,7 @@
         <div class="spread"><b>🎉 ${EN()?'Children in today (holiday)':'นักเรียนที่มาวันนี้ (วันหยุด)'}</b>
           <span class="muted">${h.count} ${EN()?'children':'คน'}</span></div>
         <small class="muted" style="display:block;margin:var(--sp-0) 0 var(--sp-2)">${EN()
-          ? 'The day works as usual for these children: check-in, the journal, the history and the late-pickup charge.'
+          ? 'The day works as usual for these children: check-in, the journal, the history and the late pick-up charge.'
           : 'สำหรับนักเรียนกลุ่มนี้ วันนี้ทำงานเหมือนวันปกติ — ลงเวลา สมุดรายวัน ประวัติ และ OT รับช้า'}</small>
         ${h.count?'':`<div style="text-align:center;color:var(--ink-3);padding:var(--sp-2) 0"><b>${EN()?'No child is on today’s list':'ยังไม่มีนักเรียนในรายชื่อวันนี้'}</b><br><small>${EN()?'Add a name below if a family turns up.':'หากมีนักเรียนมา ให้เพิ่มชื่อด้านล่างก่อนจึงจะลงเวลาได้'}</small></div>`}
         ${(h.students||[]).map(s=>`<div class="list-item"><span><b>${esc(dn(s))}</b> <small class="muted">${esc(s.class||'')}</small>
@@ -5817,7 +5850,7 @@
       <label class="field"><span>${EN()?'Leave type':'ประเภทการลา'}</span><select id="elType" translate="no">
         <option value="ลากิจ">${EN()?'Personal leave (ลากิจ)':'ลากิจ'}</option>
         <option value="ลาป่วย">${EN()?'Sick leave (ลาป่วย)':'ลาป่วย'}</option>
-        <option value="ลาพักร้อน">${EN()?'Holiday leave (ลาพักร้อน)':'ลาพักร้อน'}</option></select></label>
+        <option value="ลาพักร้อน">${EN()?'Annual leave (ลาพักร้อน)':'ลาพักร้อน'}</option></select></label>
       <label class="field"><span>${EN()?'Reason':'เหตุผล'}</span><textarea id="elReason" placeholder="${EN()?'e.g. hospital appointment':'เช่น มีนัดหมอ'}"></textarea></label>
       ${/* 💰 said before they sign it, not after it reaches their payslip */''}
       <p class="muted" style="font-size:var(--fs-1)">💰 ${EN()
@@ -5999,7 +6032,7 @@
         row(EN()?'Blood type':'กรุ๊ปเลือด',d.bloodType||'')+
         row(EN()?'Weight / height':'น้ำหนัก / ส่วนสูง',(d.weight?d.weight+' kg':'—')+' · '+(d.height?d.height+' cm':'—')+(d.measuredAt?` (${ddmmyyyy(d.measuredAt)})`:''))+
         (d.scope==='full'?row(EN()?'National ID':'เลขบัตรประชาชน',d.nationalId):'')+
-        (d.scope==='full'?row(EN()?'Race / nationality / religion':'เชื้อชาติ / สัญชาติ / ศาสนา',[d.race,d.nationality,d.religion].filter(Boolean).join(' · ')):'')+
+        (d.scope==='full'?row(EN()?'Ethnicity / nationality / religion':'เชื้อชาติ / สัญชาติ / ศาสนา',[d.race,d.nationality,d.religion].filter(Boolean).join(' · ')):'')+
         row(EN()?'Enrolled':'วันเข้าเรียน',d.enrollDate?ddmmyyyy(d.enrollDate):'')+
         row(EN()?'Bills due on':'วันที่ตัดรอบบิล',
           (EN()?`day ${d.billingDay} of each month`:`ทุกวันที่ ${d.billingDay} ของเดือน`)+
@@ -6390,7 +6423,7 @@
       .then(r=>{
         if(r&&r.queued){ /* held in the outbox — the pill says so, and says how many */ return; }
         confirmSaved(`✅ ${label} ${(r&&r.time)||time}`);
-        if(r&&r.ot) toast(`⏰ ${EN()?'Late pickup OT':'OT รับช้า'} ${baht(r.ot.amount)}`);
+        if(r&&r.ot) toast(`⏰ ${EN()?'Late pick-up OT':'OT รับช้า'} ${baht(r.ot.amount)}`);
       })
       /* A refusal has to be seen. It is the whole risk of not blocking: the teacher has walked on,
        * and "ON_LEAVE" shown for a second in a corner is the same as not showing it. err() is the
@@ -7304,7 +7337,7 @@
         <label class="field"><span>ประเภท</span><select id="lType" translate="no">
           <option value="ลาป่วย">${EN()?'Sick leave (ลาป่วย)':'ลาป่วย'}</option>
           <option value="ลากิจ">${EN()?'Personal leave (ลากิจ)':'ลากิจ'}</option>
-          <option value="ลาพักร้อน">${EN()?'Holiday leave (ลาพักร้อน)':'ลาพักร้อน'}</option></select></label>
+          <option value="ลาพักร้อน">${EN()?'Annual leave (ลาพักร้อน)':'ลาพักร้อน'}</option></select></label>
         <div class="grid2"><label class="field"><span>วันที่เริ่ม</span><input type="date" id="lStart" value="${todayStr()}" onchange="T_halfToggle()"/></label><label class="field"><span>ถึงวันที่</span><input type="date" id="lEnd" value="${todayStr()}" onchange="T_halfToggle()"/></label></div>
         <label class="field" id="lHalfBox"><span>${EN()?'Half day?':'ลาครึ่งวันหรือไม่'}</span>
           <select id="lHalf"><option value="">${EN()?'Full day':'ลาเต็มวัน'}</option>
@@ -8962,7 +8995,7 @@
       // summarised under it
       window._SALERTS=await p_sal;
       app.innerHTML=`<h2 class="page">✅ ${EN()?'Operations':'ดำเนินการ'}</h2>${mainSeg}
-        ${opTools([['alarm',EN()?'Student late-pickup OT':'OT รับช้า (นักเรียน)','A_studentOT()'],
+        ${opTools([['alarm',EN()?'Student late pick-up OT':'OT รับช้า (นักเรียน)','A_studentOT()'],
                    // beside the OT screen it acts on, not buried in settings — it is used on the day
                    ['block',EN()?'Days with no OT charge':'งดคำนวณ OT','A_otWaive()'],
                    ['search',EN()?'Attendance check':'ตรวจสอบการลงเวลา','A_attAudit()'],
@@ -9895,7 +9928,7 @@
     const skip = r.skipped
       ? `<small class="muted" style="display:block;margin-top:var(--sp-1)">${EN()?`${r.skipped} not counted (on leave or not started yet)`:`ไม่นับ ${r.skipped} คน (ลาชั่วคราว / ยังไม่เริ่มเรียน)`}</small>` : '';
     setHTML('#clsRes', `<div class="card"><div class="spread"><b>${esc(r.class)}</b>${headline}</div>
-      <small class="muted">${r.studentCount} ${EN()?'kids':'คน'}</small>${rate}${todo}${skip}
+      <small class="muted">${r.studentCount} ${EN()?'children':'คน'}</small>${rate}${todo}${skip}
       ${r.perStudent.length?r.perStudent.map(s=>{
         // nickname leads; the real name sits under it, small and light
         const nick=dnick(s), real=dnSub(s);
@@ -10298,7 +10331,7 @@
         <small class="muted" style="display:block;margin-bottom:var(--sp-1)">${EN()?`from ${d.slipCount||0} issued payslip(s)`:`จากสลิปที่ออกแล้ว ${d.slipCount||0} เดือน`}</small>
         ${row2(EN()?'Base salary':'เงินเดือน',money(inc.base))}
         ${inc.diligence?row2(EN()?'Diligence bonus':'เบี้ยขยัน',money(inc.diligence)):''}
-        ${inc.childRate?row2(EN()?'Child-count allowance':'รายได้ตามจำนวนเด็ก',money(inc.childRate)):''}
+        ${inc.childRate?row2(EN()?'Child rate':'รายได้ตามจำนวนเด็ก',money(inc.childRate)):''}
         ${inc.trainingCert?row2(EN()?'Training certificates':'ใบประกาศอบรม',money(inc.trainingCert)):''}
         ${inc.ot?row2('OT',money(inc.ot)):''}
         ${inc.holidayBonus?row2(EN()?'Holiday bonus':'เงินพิเศษวันพักผ่อน',money(inc.holidayBonus)):''}
@@ -10468,7 +10501,7 @@
         return `<div class="slv-stud"><div class="spread"><b>${esc(s.name)}</b><span class="pill info">${s.leaves.length} ${EN()?'leaves':'ครั้ง'}</span></div>
           ${s.leaves.map(l=>`<div class="slv-row"><label class="slv-pick"><input type="checkbox" class="slvchk" value="${esc(l.LeaveID)}" onchange="A_slvCount()"><span><b style="color:var(--blue)">${esc(ddmmyyyy(l.Date))}</b> <small class="muted">· ${esc(stdLeaveDesc(l))}</small></span></label>
             <span class="row"><button class="btn sm outline" onclick="A_slvEdit('${l.LeaveID}')" aria-label="${EN()?"Edit":"แก้ไข"}" title="${EN()?"Edit":"แก้ไข"}">${ic('edit')}</button><button class="btn sm pink" onclick="A_slvDel('${l.LeaveID}')" aria-label="${EN()?"Delete":"ลบ"}" title="${EN()?"Delete":"ลบ"}">${ic('trash')}</button></span></div>`).join('')}</div>`; }).join('');
-      return `<div class="card"><div class="spread"><h3>👶 ${esc(c)}</h3><span class="muted" style="font-size:var(--fs-1)">${Object.keys(studs).length} ${EN()?'kids':'คน'} · ${total} ${EN()?'leaves':'ครั้ง'}</span></div>${studHtml}</div>`; }).join('');
+      return `<div class="card"><div class="spread"><h3>👶 ${esc(c)}</h3><span class="muted" style="font-size:var(--fs-1)">${Object.keys(studs).length} ${EN()?'children':'คน'} · ${total} ${EN()?'leaves':'ครั้ง'}</span></div>${studHtml}</div>`; }).join('');
     app.innerHTML=`<button class="btn sm outline backbtn" onclick="GO('manage')">${t('c.back')}</button>
       <h2 class="page">🏠 ${esc(t('slv.title'))}</h2>
       <div class="slv-bar"><label class="slv-pick"><input type="checkbox" id="slvAll" onchange="A_slvToggleAll(this)"> ${EN()?'Select all':'เลือกทั้งหมด'}</label>
@@ -11400,7 +11433,7 @@
       {t:EN()?'👥 People & classes':'👥 บุคลากร & ชั้นเรียน', items:[
         ['repeat',t('manage.organize'),"GO_('organize')"],
         ['🏫',t('manage.departments'),'A_departments()'],
-        ['📦',EN()?'Packages / prepay discounts':'แพ็กเกจ / ส่วนลดชำระล่วงหน้า','A_packages()'],
+        ['📦',EN()?'Packages / advance-payment discounts':'แพ็กเกจ / ส่วนลดชำระล่วงหน้า','A_packages()'],
         ['🕑',t('manage.groups'),'A_groups()'],
         ['⏱️',t('lbl.requireCI'),'A_requireCI()'],
       ]},
@@ -11428,6 +11461,7 @@
         ['⚙️',t('manage.settings'),'A_settings()'],
         ['🔔',EN()?'Notifications':'ตั้งค่าการแจ้งเตือน','A_setNotify()'],
         ['💰',EN()?'Money settings':'ตั้งค่าการเงิน','A_setMoney()'],
+        ['🧾',EN()?'Receipt & invoice letterhead':'ข้อมูลบนใบเสร็จ / ใบแจ้งหนี้','A_docInfo()'],
         ['calendar',EN()?'Leave settings':'ตั้งค่าวันลา','A_setLeave()'],
         ['📅',t('manage.holidays'),"GO_('holidays')"],
         ['📥',t('manage.importExport'),"GO_('importExport')"],
@@ -11674,7 +11708,7 @@
         <label style="display:block;margin:var(--sp-1) 0"><input type="checkbox" id="sf_AllDept" style="width:auto" ${s.Department==='*'||s.Classes==='*'?'checked':''} onchange="SF_allDept(this)"/> ${EN()?'All departments (head teacher)':'ทุกแผนก (หัวหน้าครู)'}</label>
         <div id="sf_DeptList" ${(s.Department==='*'||s.Classes==='*')?'style="opacity:.4;pointer-events:none"':''}>${A_classOptions(s.Department&&s.Department!=='*'?s.Department:'').map(d=>`<label style="margin-right:var(--sp-3);font-size:var(--fs-1)"><input type="checkbox" class="sfDept" value="${esc(d)}" style="width:auto" ${String(s.Department||'').split(',').map(x=>x.trim()).indexOf(d)>=0?'checked':''}/> ${esc(d)}</label>`).join('')||`<small class="muted">${EN()?'no departments yet':'ยังไม่มีแผนก'}</small>`}</div>
         <small class="muted" style="font-size:var(--fs-1)">${EN()?'Department = responsibility (can be several). Work time is set by the group, not the department.':'แผนก = ส่วนที่รับผิดชอบ (มีได้หลายแผนก) · เวลาเข้างานกำหนดที่กลุ่มพนักงาน ไม่ผูกกับแผนก'}</small></div>
-      <label class="field" style="display:flex;align-items:center;gap:var(--sp-2)"><input type="checkbox" id="sf_CanClassOrg" style="width:auto" ${(s.CanClassOrg===true||s.CanClassOrg===1||['YES','TRUE'].indexOf(String(s.CanClassOrg||'').toUpperCase())>=0)?'checked':''}/> 🔁 ${EN()?'Allow this teacher to organize classes (move teachers/students, like Admin)':'ให้ครูคนนี้จัดชั้นเรียนได้ (ย้ายครู/นักเรียน เหมือนแอดมิน)'}</label>
+      <label class="field" style="display:flex;align-items:center;gap:var(--sp-2)"><input type="checkbox" id="sf_CanClassOrg" style="width:auto" ${(s.CanClassOrg===true||s.CanClassOrg===1||['YES','TRUE'].indexOf(String(s.CanClassOrg||'').toUpperCase())>=0)?'checked':''}/> 🔁 ${EN()?'Allow this teacher to organise classes (move teachers/students, like Admin)':'ให้ครูคนนี้จัดชั้นเรียนได้ (ย้ายครู/นักเรียน เหมือนแอดมิน)'}</label>
       <label class="field" style="display:flex;align-items:center;gap:var(--sp-2)"><input type="checkbox" id="sf_CanFoodMenu" style="width:auto" ${(s.CanFoodMenu===true||s.CanFoodMenu===1||['YES','TRUE'].indexOf(String(s.CanFoodMenu||'').toUpperCase())>=0)?'checked':''}/> 🍚 ${EN()?'Allow this teacher to manage the monthly food menu':'ให้ครูคนนี้จัดการเมนูอาหารรายเดือนได้'}</label>
       ${/* NOT ON THE SCHOOL'S PAYROLL — asked 2026-09-29 for คุณเติ้ล, a private housekeeper who is
            here every day and is not paid by the nursery. Deliberately NOT "สิ้นสุดการทำงาน" (which
@@ -11745,7 +11779,7 @@
       ${f('Email',t('reg.email'),s.Email)}
       <div class="card" style="background:var(--surface-2);padding:var(--sp-2)"><small class="muted">📧 ${EN()?'A backup way in if LINE sign-in fails. <b>Confirm the address with them directly</b> before typing it. One email belongs to one person only.':'ทางเข้าสำรองเมื่อเข้าด้วย LINE ไม่ได้ · <b>ต้องยืนยันอีเมลกับเจ้าตัวโดยตรงก่อนกรอก</b> · อีเมลหนึ่งใช้ได้กับคนเดียวเท่านั้น'}</small></div>
       <label class="field"><span>🔗 LINE ID ${s.LineUID?'✅':''}</span><input id="sf_LineUID" value="${esc(s.LineUID||'')}" placeholder="Uxxxxxxxxxxxxxxxx"/></label>
-      <div class="card" style="background:var(--surface-2);padding:var(--sp-2)"><small class="muted">${EN()?'To let this staff log in: they open the app via LINE → "New user or already registered?" shows their LINE ID → paste it here and Save.':'ให้ครูเข้าแอปผ่าน LINE → หน้า "New user or already registered?" จะโชว์ LINE ID ของครู → คัดลอกมาวางช่องนี้แล้วกดบันทึก'}</small></div>
+      <div class="card" style="background:var(--surface-2);padding:var(--sp-2)"><small class="muted">${EN()?'To let this staff member sign in: they open the app via LINE → "New user or already registered?" shows their LINE ID → paste it here and Save.':'ให้ครูเข้าแอปผ่าน LINE → หน้า "New user or already registered?" จะโชว์ LINE ID ของครู → คัดลอกมาวางช่องนี้แล้วกดบันทึก'}</small></div>
       ${photoField('sf_Photo',t('manage.photo'),s.Photo,true)}
       ${id?`<div class="card" style="background:var(--surface-2);padding:var(--sp-2)"><b style="font-size:var(--fs-1)">🔑 ${EN()?'Salary-slip password':'รหัสผ่าน (เปิดสลิปเงินเดือน)'}</b>
         <div class="row" style="margin-top:var(--sp-2)"><button type="button" class="btn sm outline" onclick="A_viewPw('${id}')">${ic('eye')} ${EN()?'View':'ดูรหัสผ่าน'}</button><button type="button" class="btn sm pink" onclick="A_resetPw('${id}')">${ic('restore')} ${EN()?'Reset':'รีเซ็ต'}</button></div>
@@ -11878,7 +11912,7 @@
   window.A_delStaff=(id,btn)=>{ if(!confirm(t('manage.confirmDel')))return;
     deleteWithUndo(EN()?'Staff removed':'ลบพนักงานแล้ว', ()=>api('deleteStaff',{staffId:id}).then(()=>GO('manage')), null, null, btn); };
   window.A_viewPw=async(id)=>{ const box=document.getElementById('pwView_'+id); try{ const r=await api('getStaffPassword',{staffId:id}); if(box)box.innerHTML=`${EN()?'Current password':'รหัสผ่านปัจจุบัน'}: <b>${esc(r.password)}</b>`; }catch(e){err(e);} };
-  window.A_resetPw=async(id)=>{ if(!confirm(EN()?'Reset this staff\'s password? A temporary password will be shown.':'รีเซ็ตรหัสผ่านพนักงานคนนี้? ระบบจะแสดงรหัสชั่วคราว'))return;
+  window.A_resetPw=async(id)=>{ if(!confirm(EN()?'Reset this staff member\'s password? A temporary password will be shown.':'รีเซ็ตรหัสผ่านพนักงานคนนี้? ระบบจะแสดงรหัสชั่วคราว'))return;
     const box=document.getElementById('pwView_'+id); try{ const r=await api('adminResetPassword',{staffId:id}); if(box)box.innerHTML=`✅ ${EN()?'Reset. Temporary password':'รีเซ็ตแล้ว รหัสชั่วคราว'}: <b>${esc(r.tempPassword)}</b> — ${EN()?'staff must change it after unlocking':'พนักงานต้องเปลี่ยนใหม่หลังเข้าใช้'}`; toast(t('c.saved')); }catch(e){err(e);} };
 
   window.A_signOutStaff=async(id)=>{ if(!confirm(EN()?'Sign this person out of every device they are signed in on?':'ตัดการเข้าใช้งานของคนนี้ทุกเครื่องใช่หรือไม่?'))return;
@@ -11973,11 +12007,11 @@
      close the record — but the list has to SAY so, or the admin picks a name and cannot tell why
      every screen is shut (asked 2026-09-01). Sorted so the ones still working come first. */''}
 ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1:0)-(b.ended?1:0)).map(s=>`<option value="${s.StaffID}">${esc(nmn(s))} · ${esc(String(s.Role||'')==='Observer'?(EN()?'Observer — view only':'ผู้ตรวจสอบ (ดูอย่างเดียว)'):(s.PositionLevel||''))}${s.ended?(EN()?' — ENDED':' (สิ้นสุดการทำงาน)'):''}</option>`).join('')}</select></label>
-    <button class="btn block" onclick="A_viewAsStaff(this)">${EN()?'View as this staff':'ดูมุมมองครูคนนี้'}</button>
+    <button class="btn block" onclick="A_viewAsStaff(this)">${EN()?'View as this staff member':'ดูมุมมองครูคนนี้'}</button>
     <div style="height:12px"></div>
     <label class="field"><span>👪 ${EN()?'As parent (all their children)':'มุมมองผู้ปกครอง (เห็นลูกทุกคนที่ผูก)'}</span><select id="va_parent"><option value="">—</option>${paList.map(p=>`<option value="${esc(p.ParentID)}">${esc(vaLabel(p,EN()))}${p.Phone?' · '+esc(phoneFmt(p.Phone)):''} · 👶 ${cnt0(p.ParentID)}</option>`).join('')}</select></label>
     <button class="btn outline block" onclick="A_viewAsParent(this)">${EN()?'View as this parent':'ดูมุมมองผู้ปกครองคนนี้'}</button>`); };
-  window.A_viewAsStaff=(btn)=>{ const m=btn.closest('.modal'); const sid=m.querySelector('#va_staff').value; if(!sid){toast(EN()?'Pick a staff':'เลือกครูก่อน');return;} const s=findStaff(sid); m.remove();
+  window.A_viewAsStaff=(btn)=>{ const m=btn.closest('.modal'); const sid=m.querySelector('#va_staff').value; if(!sid){toast(EN()?'Pick a staff member':'เลือกครูก่อน');return;} const s=findStaff(sid); m.remove();
     // Preview the person's OWN role. This said 'Teacher' for everybody, so previewing an Observer
     // showed the teacher screens — the very thing the preview exists to check. Their real role is on
     // their staff record; anything that is not an Observer previews as a teacher exactly as before.
@@ -12101,7 +12135,7 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
     const row=p=>`<div class="card" style="padding:var(--sp-2)"><div class="spread"><b>${esc(EN()?(p.labelEN||p.labelTH):(p.labelTH||p.labelEN))||p.id}</b><b style="color:var(--blue)">${baht(p.price)}</b></div>
       <small class="muted">🕗 ${esc(p.start||'-')} – ${esc(p.end||'-')} น.${p.qrId?` · 🏦 ${esc(qrName(p.qrId))||'QR'}`:''}</small>
       <div class="row" style="margin-top:var(--sp-2)"><button class="btn sm outline" onclick="A_pkgForm('${esc(p.id)}')">${ic('edit')} ${EN()?'Edit':'แก้ไข'}</button><button class="btn sm pink" onclick="A_pkgDelete('${esc(p.id)}')">${ic('trash')} ${EN()?'Delete':'ลบ'}</button></div></div>`;
-    modal(`<div class="spread"><h3>📦 ${EN()?'Packages / prepay discounts':'แพ็กเกจ / ส่วนลดชำระล่วงหน้า'}</h3><span class="row"><button class="btn sm outline" onclick="A_prepayTiers()">💰 ${EN()?'Advance-payment discounts':'ส่วนลดชำระล่วงหน้า'}</button><button class="btn sm outline" onclick="A_qrCodes()">🏦 ${EN()?'QR accounts':'QR/บัญชี'}</button><button class="btn sm" onclick="A_pkgForm()">+ ${esc(t('manage.add'))}</button></span></div>
+    modal(`<div class="spread"><h3>📦 ${EN()?'Packages / advance-payment discounts':'แพ็กเกจ / ส่วนลดชำระล่วงหน้า'}</h3><span class="row"><button class="btn sm outline" onclick="A_prepayTiers()">💰 ${EN()?'Advance-payment discounts':'ส่วนลดชำระล่วงหน้า'}</button><button class="btn sm outline" onclick="A_qrCodes()">🏦 ${EN()?'QR accounts':'QR/บัญชี'}</button><button class="btn sm" onclick="A_pkgForm()">+ ${esc(t('manage.add'))}</button></span></div>
       <p class="muted" style="font-size:var(--fs-1)">${EN()?'Name, price and study time per package. The time auto-fills a student’s arrive/leave time when you assign the package (still editable).':'ตั้งชื่อ ราคา และช่วงเวลาเรียนของแต่ละแพ็กเกจ · เวลาจะถูกนำไปใส่ให้นักเรียนอัตโนมัติเมื่อเลือกแพ็กเกจ (แก้ไขรายคนได้)'}</p>
       <div style="max-height:60vh;overflow:auto">${(plans||[]).length?plans.map(row).join(''):`<div class="card muted">${EN()?'No packages yet':'ยังไม่มีแพ็กเกจ'}</div>`}</div>
       <button class="btn outline block" style="margin-top:var(--sp-2)" onclick="this.closest('.modal').remove()">${esc(t('c.close'))}</button>`);
@@ -12143,7 +12177,7 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
     modal(`<div class="spread"><h3>💰 ${EN()?'Advance-payment discounts':'ส่วนลดชำระล่วงหน้า'}</h3><button class="btn sm" onclick="A_ppAdd()">+ ${esc(t('manage.add'))}</button></div>
       <div class="list-item" style="background:var(--surface-2);border-radius:10px;padding:var(--sp-2) var(--sp-3);margin-bottom:var(--sp-2)">
         <span><b>${EN()?'Let parents pay in advance':'เปิดให้ผู้ปกครองชำระล่วงหน้า'}</b>
-          <br><small class="muted" id="ppOnNote">${_preOn?(EN()?'On — parents see the ชำระล่วงหน้า card and these discounts.':'เปิดอยู่ — ผู้ปกครองเห็นการ์ด "ชำระล่วงหน้า" และส่วนลดด้านล่างนี้')
+          <br><small class="muted" id="ppOnNote">${_preOn?(EN()?'On — parents see the Pay in advance card and these discounts.':'เปิดอยู่ — ผู้ปกครองเห็นการ์ด "ชำระล่วงหน้า" และส่วนลดด้านล่างนี้')
             :(EN()?'Off — the card is hidden and new advance payments are refused. Payments already made keep working.':'ปิดอยู่ — การ์ดถูกซ่อน และระบบไม่รับรายการใหม่ · รายการที่ชำระไปแล้วยังใช้งานได้ตามปกติ')}</small></span>
         <label class="switch"><input type="checkbox" id="ppOn" ${_preOn?'checked':''} onchange="A_ppToggle(this)"><span class="slider"></span></label></div>
       <p class="muted" style="font-size:var(--fs-1)">${EN()?'Pay several months up front, get a discount. These tiers are what parents see; an Admin can still agree a one-off rate for a single family.':'ชำระล่วงหน้าหลายเดือนแล้วได้ส่วนลด · ระดับเหล่านี้คือที่ผู้ปกครองเห็น · แอดมินยังตกลงเรตพิเศษเฉพาะรายได้'}</p>
@@ -12164,7 +12198,7 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
   window.A_ppToggle=async(el)=>{ const on=el.checked; el.disabled=true;
     try{ await api('setSchoolConfig',{values:{ParentPrepayEnabled:on?'true':'false'}});
       const n=document.getElementById('ppOnNote');
-      if(n) n.textContent = on?(EN()?'On — parents see the ชำระล่วงหน้า card and these discounts.':'เปิดอยู่ — ผู้ปกครองเห็นการ์ด "ชำระล่วงหน้า" และส่วนลดด้านล่างนี้')
+      if(n) n.textContent = on?(EN()?'On — parents see the Pay in advance card and these discounts.':'เปิดอยู่ — ผู้ปกครองเห็นการ์ด "ชำระล่วงหน้า" และส่วนลดด้านล่างนี้')
                              :(EN()?'Off — the card is hidden and new advance payments are refused. Payments already made keep working.':'ปิดอยู่ — การ์ดถูกซ่อน และระบบไม่รับรายการใหม่ · รายการที่ชำระไปแล้วยังใช้งานได้ตามปกติ');
       notify("ok",on?(EN()?'Advance payment ON':'เปิดการชำระล่วงหน้าแล้ว'):(EN()?'Advance payment OFF':'ปิดการชำระล่วงหน้าแล้ว'));
     }catch(e){ el.checked=!on; err(e); }
@@ -12293,7 +12327,7 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
       <div class="grid2">${f('Weight',EN()?'Weight (kg)':'น้ำหนัก (กก.)',s.Weight,'number')}${f('Height',EN()?'Height (cm)':'ส่วนสูง (ซม.)',s.Height,'number')}</div>
       ${f('EmergencyContact',EN()?'Emergency contact':'ผู้ติดต่อฉุกเฉิน',s.EmergencyContact)}
       <label class="field"><span>${EN()?'Home address':'ที่อยู่'}</span><textarea id="stf_Address">${esc(s.Address||'')}</textarea></label>
-      <div class="grid2">${f('Race',EN()?'Race':'เชื้อชาติ',s.Race)}${f('Nationality',EN()?'Nationality':'สัญชาติ',s.Nationality)}</div>
+      <div class="grid2">${f('Race',EN()?'Ethnicity':'เชื้อชาติ',s.Race)}${f('Nationality',EN()?'Nationality':'สัญชาติ',s.Nationality)}</div>
       ${/* 💉 THE VACCINE BOX WAS A FREE-TEXT FIELD BESIDE A REAL VACCINE RECORD (ผอ., 2026-10-19).
            VACCINE_RECORDS holds the actual doses — the 💉 บันทึกวัคซีน screen writes them — while
            STUDENTS.Vaccine was a loose note nobody maintained. Two places to look for one answer,
@@ -12319,9 +12353,9 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
         <input id="stf_OTRate" type="number" min="0" value="${esc(s.OTRate!=null&&s.OTRate!==''?s.OTRate:'')}" placeholder="${esc(MOCK.config.OTRatePerHour||100)}"/></label>
       <label class="field"><span>🕕 ${EN()?'OT-free until (grace cutoff — blank = leave time)':'รับได้ถึง (ไม่คิด OT ก่อนเวลานี้ — เว้นว่าง = เวลาเลิกเรียน)'}</span>
         <input id="stf_OTGraceUntil" type="time" value="${esc(String(s.OTGraceUntil||'').slice(0,5))}" placeholder="18:00"/></label>
-      <small class="muted" style="display:block;margin:-2px 0 var(--sp-2)">${EN()?'e.g. child on the 17:00 rate but allowed pickup to 18:00 with no OT → set 18:00. OT is charged only after this time.':'เช่น เด็กเรท 17:00 แต่อนุญาตให้รับถึง 18:00 โดยไม่คิด OT → ตั้ง 18:00 · จะคิด OT เฉพาะหลังเวลานี้'}</small>
+      <small class="muted" style="display:block;margin:-2px 0 var(--sp-2)">${EN()?'e.g. child on the 17:00 rate but allowed pick-up to 18:00 with no OT → set 18:00. OT is charged only after this time.':'เช่น เด็กเรท 17:00 แต่อนุญาตให้รับถึง 18:00 โดยไม่คิด OT → ตั้ง 18:00 · จะคิด OT เฉพาะหลังเวลานี้'}</small>
       <label class="field"><span>📝 ${EN()?'Rate note (shown to the parent)':'หมายเหตุเรท (แสดงให้ผู้ปกครองเห็น)'}</span>
-        <input id="stf_RateNote" value="${esc(s.RateNote||'')}" placeholder="${EN()?'e.g. Special: pickup until 18:00, no OT':'เช่น สิทธิพิเศษ: รับได้ถึง 18:00 ไม่คิด OT'}"/></label>
+        <input id="stf_RateNote" value="${esc(s.RateNote||'')}" placeholder="${EN()?'e.g. Special: pick-up until 18:00, no OT':'เช่น สิทธิพิเศษ: รับได้ถึง 18:00 ไม่คิด OT'}"/></label>
       <div class="grid2"><label class="field"><span>🏷️ ${EN()?'Monthly discount (hidden from parent)':'ส่วนลดรายเดือน (ไม่แสดงให้ผู้ปกครอง)'}</span><input id="stf_DiscountAmount" type="number" min="0" value="${esc(s.DiscountAmount!=null&&s.DiscountAmount!==''?s.DiscountAmount:'')}" placeholder="0"/></label>
         <label class="field"><span>${EN()?'Unit':'หน่วย'}</span><select id="stf_DiscountUnit"><option value="บาท" ${(s.DiscountUnit||'บาท')!=='%'?'selected':''}>${EN()?'THB':'บาท'}</option><option value="%" ${s.DiscountUnit==='%'?'selected':''}>%</option></select></label></div>
       <small class="muted" style="display:block;margin:-2px 0 var(--sp-2)">${EN()?'Deducted silently from monthly tuition when a bill is issued — the parent only sees the reduced total.':'หักออกจากค่าเทอมรายเดือนตอนออกบิลโดยอัตโนมัติ · ผู้ปกครองเห็นแค่ยอดสุทธิ ไม่เห็นส่วนลด'}</small>
@@ -12456,7 +12490,7 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
     const kid=d.nick||d.name||sid;
     const paLabel=pa=>{ const r=String(pa.rel||'')+' '+String(pa.title||'');
       if(REL_DAD.test(r)) return EN()?`${kid}'s dad`:`คุณพ่อน้อง${kid}`;
-      if(REL_MOM.test(r)) return EN()?`${kid}'s mom`:`คุณแม่น้อง${kid}`;
+      if(REL_MOM.test(r)) return EN()?`${kid}'s mum`:`คุณแม่น้อง${kid}`;
       if(pa.name) return titledName({Title:pa.title,NameTH:pa.name,NameEN:pa.name});
       return EN()?`${kid}'s parent (name not filled in)`:`ผู้ปกครองน้อง${kid} (ยังไม่กรอกชื่อ)`; };
     modal(`<h3>${ic('link')} ${EN()?'Linked parents':'ผู้ปกครองที่ผูกกับ'} ${esc(kid)}</h3>
@@ -13855,6 +13889,24 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
       ${_setMoneyHTML(sc,cfg)}
       ${_setSave()}`); };
 
+  /* WHAT THE RECEIPT AND THE INVOICE SAY ABOUT THE SCHOOL (2026-11-03). One form, one write. The boxes
+   * open with what will actually print today — for Atom, the answers given on 2026-11-03 — so saving
+   * without touching anything writes those into the school's own settings. */
+  const DOC_FIELDS=[['DocSchoolName','ชื่อเต็มโรงเรียน','School full name'],['DocAddress1','ที่อยู่ บรรทัด 1','Address, line 1'],
+    ['DocAddress2','ที่อยู่ บรรทัด 2','Address, line 2'],['DocPhone','เบอร์ติดต่อ','Phone'],['DocLineId','LINE ID','LINE ID'],
+    ['DocTaxId','เลขประจำตัวผู้เสียภาษี (ถ้ามี)','Tax ID (if any)'],['DocTaxNote','สถานะภาษี','Tax status'],
+    ['DocSignerName','ชื่อผู้ลงนาม','Signed by'],['DocSignerTitle','ตำแหน่งผู้ลงนาม','Signer’s title']];
+  window.A_docInfo=async()=>{ const d=await api('docInfo');
+    modal(`<h3>🧾 ${EN()?'Receipt & invoice letterhead':'ข้อมูลบนใบเสร็จ / ใบแจ้งหนี้'}</h3>
+      <p class="muted" style="font-size:var(--fs-1)">${EN()?'Printed at the top and bottom of every receipt and invoice. The signature is the one uploaded in the certificate settings, and is printed on receipts only.':'พิมพ์ที่หัวและท้ายใบเสร็จและใบแจ้งหนี้ทุกใบ · ลายเซ็นใช้ไฟล์เดียวกับที่อัปโหลดในตั้งค่าใบประกาศ และพิมพ์เฉพาะบนใบเสร็จ'}</p>
+      ${DOC_FIELDS.map(f=>`<label class="field"><span>${esc(EN()?f[2]:f[1])}</span><input data-doc="${f[0]}" value="${esc((d||{})[f[0]]||'')}" maxlength="300"/></label>`).join('')}
+      <button class="btn block" onclick="A_docInfoSave(this)">${esc(t('c.save'))}</button>`); };
+  window.A_docInfoSave=async(btn)=>{ const p={staffId:USER.staffId, adminId:USER.staffId};
+    document.querySelectorAll('[data-doc]').forEach(i=>{ p[i.dataset.doc]=i.value.trim(); });
+    if(!p.DocSchoolName){ notify('warn',EN()?'Enter the school name':'กรุณาใส่ชื่อโรงเรียน'); return; }
+    btn.disabled=true;
+    try{ await api('saveDocInfo',p); notify('ok',t('c.saved')); btn.closest('.modal').remove(); }
+    catch(e){ err(e); } finally{ btn.disabled=false; } };
   window.A_setLeave=async()=>{ const q=await api('getLeaveQuota');
     modal(`<h3>${ic('calendar')} ${EN()?'Leave settings':'ตั้งค่าวันลา'}</h3>
       ${_setLeaveHTML(q||{})}
@@ -14147,7 +14199,7 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
         ${r.slipsAlreadySent?`<div class="card" style="background:var(--bad-bg);border-color:var(--bad-line);padding:var(--sp-3);margin-top:var(--sp-2)">
           <b style="color:var(--bad)">⚠️ ${EN()?'Slips already sent':'มีสลิปที่ส่งให้พนักงานไปแล้ว'}: ${r.slipsAlreadySent}</b>
           <br><small>${EN()
-            ? 'เงินสมทบ is a deduction, so removing it RAISES the net pay on those months. The recalculated slip will no longer match the paper copy the teacher was given.'
+            ? 'The fund contribution is a deduction, so removing it RAISES the net pay on those months. The recalculated slip will no longer match the paper copy the teacher was given.'
             : 'เงินสมทบเป็นรายการหัก · เมื่อล้างออก ยอดสุทธิของเดือนนั้นจะเพิ่มขึ้น และสลิปที่คำนวณใหม่จะไม่ตรงกับกระดาษที่ส่งให้คุณครูไปแล้ว'}</small></div>`:''}
         ${/* MORE THAN ONE PAYSLIP FOR THE SAME MONTH is a data problem in its own right, and this is
              the one screen where somebody is already looking at every row for this person. Reported,
@@ -14566,7 +14618,7 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
         <div class="card" style="background:var(--warn-bg);border-color:var(--warn-line);padding:var(--sp-3)">
           <b style="color:var(--warn)">⚠️ ${r.count} ${EN()?'bill(s)':'รายการ'} · ${EN()?'over by':'เกินรวม'} ${baht(r.total)}</b>
           <div class="muted" style="font-size:var(--fs-1);margin-top:var(--sp-1);line-height:1.7">${EN()
-            ? 'These bills were almost certainly deleted and re-issued for the same month. The old payment kept the same bill id and attached itself to the new bill, so the screen reads paid and the income figure is too high by the difference.'
+            ? 'Confirmed payments are more than the bill. There are two possible causes, fixed differently — ① the bill was deleted and issued again (same bill number, so the old payment flowed into the new bill) ② one slip was larger than the bill, e.g. tuition and OT transferred together and attached to the bill. The log lines under each bill show which.'
             : 'เงินที่ยืนยันแล้วมากกว่ายอดบิล · มีได้สองสาเหตุ และแก้คนละแบบ — ① ลบบิลแล้วออกใหม่ (รหัสบิลซ้ำ เงินเก่าไหลเข้าบิลใหม่) ② สลิปใบเดียวยอดเกินยอดบิล เช่นโอนค่าเทอม+OT รวมกันแล้วแนบที่บิล · ดูบรรทัด Log ใต้แต่ละรายการว่าเป็นอันไหน'}</div></div>
         ${r.bills.map(b=>`<div class="list-item">
           <span><b>${esc(b.nick||b.name||b.studentId)}</b> <small class="muted">${esc(b.name||'')}${b.className?' · '+esc(b.className):''}</small>
@@ -15540,7 +15592,7 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
         <div class="spread"><label style="display:flex;gap:var(--sp-2);align-items:center"><input type="checkbox" class="sotoc" value="${esc(o.otId)}" ${paid?'disabled':''} style="width:auto" onchange="A_socSel()"/> <b>${esc((EN()?(o.nickEN||o.nick||o.nameEN):(o.nick||o.name))||o.studentId)}</b></label>${otPill(o)}</div>
         <small class="muted">${esc(String(o.date).slice(0,10))} · ${EN()?'leaves':'เลิกเรียน'} ${esc(o.endTime||o.planEnd||'-')} · ${EN()?'rate':'เรต'} ${baht(o.rate)}/${EN()?'hr':'ชม.'}</small>
         <div class="grid2" style="margin-top:var(--sp-2)">
-          <label class="field"><span>${EN()?'Pickup time':'เวลารับ'}</span><input type="time" id="ot_t_${esc(o.otId)}" value="${esc(String(o.pickupTime||'').slice(0,5))}" data-orig="${esc(String(o.pickupTime||'').slice(0,5))}" ${paid?'disabled':''}/></label>
+          <label class="field"><span>${EN()?'Pick-up time':'เวลารับ'}</span><input type="time" id="ot_t_${esc(o.otId)}" value="${esc(String(o.pickupTime||'').slice(0,5))}" data-orig="${esc(String(o.pickupTime||'').slice(0,5))}" ${paid?'disabled':''}/></label>
           <!-- The admin types what the parent should ACTUALLY pay ("just pay 100"); the difference
                from the real charge is stored as the discount. The charge itself is never overwritten,
                so re-tapping check-out can no longer silently undo the school's goodwill. -->
@@ -15605,7 +15657,7 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
         ? `${nPartial} row(s) part-paid — counted as still owed here; the exact amount is on the row.`
         : `มี ${nPartial} รายการชำระบางส่วน — นับรวมเป็นยังค้างในสรุปนี้ · ยอดที่รับแล้วดูในรายการ`}</div>`:''}
     </details>` : '';
-    modal(`<h3>⏰ ${EN()?'Student late-pickup OT':'OT รับช้า (นักเรียน)'}</h3>
+    modal(`<h3>⏰ ${EN()?'Student late pick-up OT':'OT รับช้า (นักเรียน)'}</h3>
       <p class="muted" style="font-size:var(--fs-1)">${EN()?'Cancelled OT is never billed. Editing a cancelled row restores it. Paid rows are locked.':'OT ที่ยกเลิกจะไม่ถูกเรียกเก็บ · แก้ไขรายการที่ยกเลิกแล้วจะคืนค่าอัตโนมัติ · รายการที่ชำระแล้วแก้ไม่ได้'}</p>
       <label class="field"><span>${esc(t('c.month'))}</span><input type="month" value="${month}" onchange="A_otMonth(this.value)"/></label>
       ${otSummary}
@@ -15905,7 +15957,7 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
         <div class="spread" style="margin:var(--sp-3) 0 var(--sp-1)"><b style="font-size:var(--fs-1)">👶 ${EN()?'Children coming that day':'นักเรียนที่มาวันนั้น'} <span class="muted" id="hotSN">(0)</span></b>
           <label style="display:flex;gap:var(--sp-2);align-items:center;font-size:var(--fs-1)"><input type="checkbox" id="hotSAll" style="width:auto" onchange="A_hotStdAll(this)"/> ${EN()?'All':'ทั้งหมด'}</label></div>
         <small class="muted" style="display:block;margin-bottom:var(--sp-1)">${EN()
-          ? 'Tick a child to open their check-in / pick-up that day — attendance, the journal, the history and the late-pickup charge all work as usual. Tick nobody and only the teacher clocks in.'
+          ? 'Tick a child to open their check-in / pick-up that day — attendance, the journal, the history and the late pick-up charge all work as usual. Tick nobody and only the teacher clocks in.'
           : 'ติ๊กชื่อนักเรียนเพื่อเปิดการรับ-ส่งของวันนั้น — การลงเวลา สมุดรายวัน ประวัติ และ OT รับช้า ทำงานเหมือนวันปกติ · ไม่ติ๊กใครเลย = เปิดเฉพาะการลงเวลาของคุณครู'}</small>
         <div id="hotStd" style="max-height:34vh;overflow:auto;border:1px solid var(--line);border-radius:8px;padding:var(--sp-2)">
           ${skel('lines',2)}</div>
@@ -16387,8 +16439,8 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
   // Prepay retro-check: bills the OLD prepay logic marked fully paid (should have covered tuition only).
   window.A_prepayAudit=async(apply)=>{ const r=await api('prepayAudit', apply?{apply:true}:{});
     const items=r.items||[];
-    modal(`<h3>${ic('search')} ${EN()?'Prepay retro-check':'ตรวจ prepay ย้อนหลัง'}</h3>
-      <p class="muted" style="font-size:var(--fs-1)">${EN()?'Confirmed prepays':'prepay ที่ยืนยันแล้ว'}: <b>${r.prepaysPaid}</b> · ${EN()?'bills flagged':'บิลที่เข้าข่าย'}: <b>${r.flaggedBills}</b>${r.applied?` · ${EN()?'repaired':'แก้ไขแล้ว'}: <b>${r.repaired}</b>`:''}</p>
+    modal(`<h3>${ic('search')} ${EN()?'Advance-payment check':'ตรวจ prepay ย้อนหลัง'}</h3>
+      <p class="muted" style="font-size:var(--fs-1)">${EN()?'Confirmed advance payments':'prepay ที่ยืนยันแล้ว'}: <b>${r.prepaysPaid}</b> · ${EN()?'bills flagged':'บิลที่เข้าข่าย'}: <b>${r.flaggedBills}</b>${r.applied?` · ${EN()?'repaired':'แก้ไขแล้ว'}: <b>${r.repaired}</b>`:''}</p>
       ${items.length?`<div style="max-height:48vh;overflow:auto">${items.map(x=>`<div class="list-item"><span><b>${esc(x.student)}</b> · ${esc(x.month)}<br><small class="muted">${esc(x.billingId)} · ${esc(x.status)}/${esc(x.verified||'-')} · ${baht(x.amount)}</small></span></div>`).join('')}</div>
         <p class="muted" style="font-size:var(--fs-1)">${EN()?'“Repair” resets bills marked PREPAID back to unpaid so only tuition is credited and extras (food/activity) are billed again. Bills the family truly paid are left untouched.':'“แก้ไข” จะรีเซ็ตบิลที่ถูกทำเครื่องหมาย PREPAID กลับเป็นค้างชำระ เพื่อให้ระบบเครดิตเฉพาะค่าเทอม และเรียกเก็บค่าอาหาร/กิจกรรมตามจริง (บิลที่จ่ายจริงไม่ถูกแตะ)'}</p>
         ${apply?'':`<button class="btn block pink" onclick="A_prepayAudit(true)">${ic('gear')} ${EN()?'Repair flagged bills':'แก้ไขบิลที่เข้าข่าย'}</button>`}`
@@ -16491,7 +16543,7 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
         ${sortBy(f.students,dnick).sort((a,b)=>(a.paused?1:0)-(b.paused?1:0)).map(s=>finStudentRow(s)).join('')}
         <!-- collectedAll counts each kind once; tuitionCollected+otCollected counted the OT twice -->
         <div class="spread" style="margin-top:var(--sp-2)"><b>${esc(t('fin.collected'))}</b><b style="color:var(--ok)">${baht(f.collectedAll!=null?f.collectedAll:(f.tuitionCollected+f.otCollected))}</b></div>
-        <button class="btn sm outline block" style="margin-top:var(--sp-3)" onclick="A_prepayAudit()">${ic('search')} ${EN()?'Prepay check (retro)':'ตรวจ prepay ย้อนหลัง'}</button></div>`;
+        <button class="btn sm outline block" style="margin-top:var(--sp-3)" onclick="A_prepayAudit()">${ic('search')} ${EN()?'Advance-payment check':'ตรวจ prepay ย้อนหลัง'}</button></div>`;
     // payroll tab: per-staff salary + full payroll form
     const payTab=`<div class="card"><div class="spread"><h3>👩‍🏫 ${esc(t('fin.salary'))}</h3><span class="pill ${f.staffPaid>=f.staffTotal?'ok':'wait'}">${f.staffPaid}/${f.staffTotal} ${esc(t('fin.computed'))}</span></div>
         ${sortPeopleD(f.staff).map(s=>`<div class="list-item" style="cursor:pointer" onclick="A_finStaff('${s.staffId}')"><span><b>${esc(dnick(s))}</b>${dnSub(s)?` <small class="muted" style="font-weight:400">${esc(dnSub(s))}</small>`:""}</span><span>${baht(s.net)} ${s.computed?`<span class="pill ok">${esc(t('fin.done'))}</span>`:`<span class="pill bad">${esc(t('fin.pending'))}</span>`} <span class="muted">›</span></span></div>`).join('')}
@@ -16750,6 +16802,7 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
         ${bill.Prepay?`<div class="card" style="background:var(--ok-bg);border-color:var(--ok-line);padding:var(--sp-2) var(--sp-2);margin:var(--sp-0) 0"><small style="color:var(--ok)">💰 ${esc(prepaySpan(bill.Prepay))}</small></div>`:''}
         ${slipHistoryHTML(slipsOf('bill',bill.BillingID),true)}
         ${Number(bill.Outstanding||0)>0?cashBox('bill',bill.BillingID,sid,Number(bill.Outstanding||0)):''}
+        ${billDocBtn(sid, bill.BillingID, bill.Status==='PAID')}
         <div class="row" style="margin-top:var(--sp-2)"><button class="btn sm pink" onclick="A_finDelBill('${esc(bill.BillingID)}','${sid}',this)">${ic('trash')} ${EN()?'Delete bill':'ลบบิล'}</button></div>`
       : `<p class="muted" style="font-size:var(--fs-1)">${EN()?'No bill issued for this month yet.':'ยังไม่ได้ออกบิลของเดือนนี้'}</p>
          <div class="grid2" style="align-items:end"><label class="field" style="margin:0"><span>${EN()?'Bill month':'เดือนที่จะออกบิล'}</span><input type="month" id="fbMonth" value="${esc(ym(month))}"/></label>
@@ -16796,7 +16849,7 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
       <div class="card" style="padding:var(--sp-2)"><b>🧾 ${EN()?'Monthly bill':'บิลรายเดือน'}</b>${discBox}${billBox}</div>
       <div class="card" style="padding:var(--sp-2)"><b>💵 ${EN()?'Extra charges':'ค่าใช้จ่ายเพิ่มเติม'}</b>${chargeBox}</div>
       <div class="card" style="padding:var(--sp-2)"><b>💰 ${EN()?'Advance payments':'ชำระล่วงหน้า'}</b>${preBox}</div>
-      <div class="card" style="padding:var(--sp-2)"><b>⏰ ${EN()?'Late-pickup OT':'OT รับช้า'}</b>${otBox}</div>
+      <div class="card" style="padding:var(--sp-2)"><b>⏰ ${EN()?'Late pick-up OT':'OT รับช้า'}</b>${otBox}</div>
       <button class="btn outline block" style="margin-top:var(--sp-2)" onclick="this.closest('.modal').remove()">${esc(t('c.close'))}</button>`);
   };
   const _finReopen=(sid,month)=>{ const x=document.querySelector('.modal'); if(x)x.remove(); if(month) FIN_MONTH=month; A_finStudent(sid); };
@@ -17102,7 +17155,7 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
       <label class="field"><span>${type==='OUT'?(EN()?'Time the child actually went home':'เวลาที่นักเรียนกลับบ้านจริง'):(EN()?'Time the child actually arrived':'เวลาที่นักเรียนมาถึงจริง')}</span>
         <input type="time" id="apTime" value="${isToday?esc(nowTime()):''}"/></label>
       ${type==='OUT'?`<div class="card" style="background:var(--warn-bg);border-color:var(--warn-line);padding:var(--sp-2);font-size:var(--fs-1)">⏰ ${EN()
-        ? 'If it is past the end of the school day, late-pickup OT is charged from this time.'
+        ? 'If it is past the end of the school day, late pick-up OT is charged from this time.'
         : 'หากเลยเวลาเลิกเรียน ระบบจะคิด OT รับช้าตามเวลานี้ตามจริง'}</div>`:''}
       <label class="field" style="margin-top:var(--sp-2)"><span>${EN()?'Reason (kept in the log)':'เหตุผล (บันทึกไว้ในประวัติ)'}</span>
         <input id="apWhy" placeholder="${EN()?'e.g. nobody tapped at pick-up':'เช่น ลืมลงเวลาตอนรับกลับ'}"/></label>
@@ -17228,7 +17281,7 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
                                                : (EN()?'already closed as paid':'ถูกปิดว่าชำระแล้ว'))
       : String(x.targetStatus||'').toUpperCase()==='CANCELLED' ? (EN()?'the item was cancelled':'รายการถูกยกเลิก')
       : (EN()?('item status: '+(x.targetStatus||'—')):('สถานะรายการ: '+(x.targetStatus||'—')));
-    const kindLbl = k => ({bill:(EN()?'monthly bill':'บิลรายเดือน'), ot:(EN()?'late pickup':'ค่ารับช้า'),
+    const kindLbl = k => ({bill:(EN()?'monthly bill':'บิลรายเดือน'), ot:(EN()?'late pick-up':'ค่ารับช้า'),
       charge:(EN()?'extra charge':'ค่าใช้จ่ายเพิ่มเติม'), prepay:(EN()?'prepayment':'ชำระล่วงหน้า')}[k]||k);
     const row = x => { const n = EN()?(x.nickEN||x.nick||x.nameEN):(x.nick||x.name);
       return `<div class="card" style="padding:var(--sp-3);background:var(--surface)">
@@ -17424,7 +17477,7 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
       <small class="muted">📅 ${esc(r.date)} · ⏰ ${esc(r.time)} · 👩‍🏫 ${esc(r.byStaff)}</small><br>
       <small>📝 ${esc(r.remark||'-')}</small>${r.otAmount?`<br><small style="color:var(--warn)">⏰ ${EN()?'OT charged':'คิด OT'} ${baht(r.otAmount)}${r.planEnd?' ('+(EN()?'plan end ':'เลิก ')+esc(r.planEnd)+')':''}</small>`:''}</span></div>`;
     modal(`<h3>📍 ${EN()?'On-behalf check-in log (30d)':'ประวัติเช็คอิน-เอาท์แทน (30 วัน)'}</h3>
-      <p class="muted" style="font-size:var(--fs-1)">${EN()?'Recorded by staff for a non-registered pickup. Time shown is the ACTUAL time the teacher entered.':'บันทึกโดยคุณครูแทนผู้มารับ-ส่ง · เวลาที่แสดงคือเวลาจริงที่คุณครูกรอก'}</p>
+      <p class="muted" style="font-size:var(--fs-1)">${EN()?'Recorded by staff for a non-registered pick-up. Time shown is the ACTUAL time the teacher entered.':'บันทึกโดยคุณครูแทนผู้มารับ-ส่ง · เวลาที่แสดงคือเวลาจริงที่คุณครูกรอก'}</p>
       <div style="max-height:60vh;overflow:auto">${rows.length?rows.map(row).join(''):`<small class="muted">${EN()?'No records':'ยังไม่มีรายการ'}</small>`}</div>
       <button class="btn outline block" style="margin-top:var(--sp-2)" onclick="this.closest('.modal').remove()">${esc(t('c.close'))}</button>`); };
 
@@ -17640,25 +17693,10 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
     setTimeout(()=>URL.revokeObjectURL(url),2000); toast(LANG()==='en'?'Downloaded '+filename:'ดาวน์โหลด '+filename+' แล้ว');
   }
 
-  // parent payment receipt (printable / downloadable)
-  function buildReceiptHTML(b,s){ const logo=window._LOGO||(location.origin+'/assets/logo.png');
-    const due=b.TotalDue!=null?b.TotalDue:b.Amount;
-    const rows=(b.Items||[]).map(it=>`<tr><td>${esc(trItem(it[0]))}</td><td style="text-align:right">${baht(it[1])}</td></tr>`).join('')+(b.OTRollover?`<tr><td>OT</td><td style="text-align:right">${baht(b.OTRollover)}</td></tr>`:'');
-    // student headline: full name-surname (nickname)
-    const snick=(s.Nickname||s.NicknameEN||''); const sname=(s.NameTH||s.NameEN||'')+(snick?` (${snick})`:'');
-    // color-scheme:light for the same reason as the payslip below: a parent on a dark-mode phone was
-    // handed #222 ink on a black page. A receipt is paper — it is white wherever it is opened.
-    return `<!doctype html><html><head><meta charset="utf-8"><title>Receipt ${esc(b.BillingID)}</title><meta name="color-scheme" content="light"><link href="https://fonts.googleapis.com/css2?family=Sarabun&display=swap" rel="stylesheet">
-      <style>@page{size:A5}html{color-scheme:light}body{font-family:Sarabun,sans-serif;margin:0;padding:18px;color:#222;background:#fff}.hd{display:flex;justify-content:center;align-items:center;gap:12px;border-bottom:2px solid #1565C0;padding-bottom:8px}
-      .hd img{height:46px} h1{font-size:20px;color:#1565C0;margin:0} .meta{font-size:13px;margin:10px 0;line-height:1.7} table{width:100%;border-collapse:collapse;font-size:14px;margin-top:8px}td{padding:5px 6px;border-bottom:1px solid #eee}
-      .tot{font-size:18px;font-weight:bold;color:#1565C0} .paid{margin-top:10px;color:#2e7d32;font-weight:bold} .bar{padding:8px;text-align:center}@media print{.bar{display:none}}</style></head>
-      <body><div class="bar"><button onclick="window.print()">🖨️ ${esc(t('c.print'))}</button></div>
-      <div class="hd"><img src="${logo}"/><div style="text-align:center"><h1>Atom Nursery</h1><div style="font-size:13px">${esc(t('pay.receipt'))} / Receipt</div></div></div>
-      <div class="meta"><b>${esc(t('reg.student'))}:</b> ${esc(sname)}<br>
-      <b>${EN()?'Period':'งวดประจำเดือน'}:</b> ${esc(monthNameYear(b.Month))} · <b>No.</b> ${esc(b.BillingID)}<br>
-      <b>${esc(t('c.paid'))}:</b> ${esc(fullDate(b.PaidDate||todayStr()))}${b.DueDate?` · <b>${esc(t('c.due'))}:</b> ${esc(fullDate(b.DueDate))}`:''}</div>
-      <table>${rows}<tr><td class="tot">${esc(t('c.total'))}</td><td class="tot" style="text-align:right">${baht(due)}</td></tr></table>
-      <div class="paid">✅ ${esc(t('s.paid'))}${b.VerifiedStatus==='PREPAID'?' ('+esc(t('prepay.paidAhead'))+')':''}</div></body></html>`; }
+  /* ===== PAPER DOCUMENTS ===== everything below this line is a fixed-size printed document, not a screen.
+   * tools/apply_scales.js and the scale/icon suites cut app.js here. The parent's receipt used to be the
+   * first thing below it (an HTML page with a print button); since 2026-11-03 it is a PDF drawn by
+   * webapp/receipt.js, and the marker stays where the paper begins. */
 
   /* ===== The printed payslip ====================================================================
    * Asked 2026-08-30: "ที่เราออกแบบมาดูยากไปหน่อย ให้มีข้อมูลสำคัญครบถ้วน … แจงรายละเอียดแยกส่วนให้ชัดเจน",

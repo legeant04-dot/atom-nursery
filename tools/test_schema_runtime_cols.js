@@ -105,7 +105,9 @@ console.log('\n1) คอลัมน์ที่โค้ดสร้างต�
    * seeing it in the diff; adding an untraceable call site fails here immediately. The current
    * fourteen are `sh` assigned through a helper or a property (`r.sh`, `found.sheet`). */
   const unresolved = sites.filter(s => !s.sheet);
-  eq('จุดเรียกที่ยังสาวกลับไปหาชีตไม่ได้ — ล็อกจำนวนไว้', unresolved.length, 9);
+  /* 9 → 10 (v495): paySlipRecompute_ tops up IssuedDate/ReceiptDate on `tgt.sheet` — the bill's sheet
+   * reached through paySlipTarget_. Both columns are also declared on BILLING in Config.gs. */
+  eq('จุดเรียกที่ยังสาวกลับไปหาชีตไม่ได้ — ล็อกจำนวนไว้', unresolved.length, 10);
   if (unresolved.length !== 9) unresolved.forEach(s => console.log('        · ' + s.file + ' (' + s.cols.slice(0, 4).join(',') + ')'));
 
   /* the detector itself, as a function of what is DECLARED — so the control below can feed it a

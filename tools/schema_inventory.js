@@ -200,6 +200,8 @@ const NOT_MONEY = new Set([
      ตั้งชื่อขึ้นต้นด้วย Enable เพื่อให้ BOOL_PREFIX จับได้เองและลงเป็น boolean —
      ไม่ใช่ numeric(12,2) ที่จะเก็บคำว่า 'true' ไม่ได้ · ชื่อที่ตรงกติกาดีกว่าข้อยกเว้นที่ต้องจำ */
   'EnableChildRate',
+  /* ใบเสร็จ (2026-11-03): two DATES on a bill and the BANK CODE a slip came from ('004') — none is an amount */
+  'IssuedDate', 'ReceiptDate', 'SendBank',
   'PaidDate', 'PaymentMethod', 'GeneratedBy', 'GeneratedDate', 'PaidBy', 'PayType', 'PayrollID',
   'PrepayID', 'ChargeID', 'PauseSalaryMode', 'ContributionLocked', 'MilkTotal', 'Water',
   /* 🔴 InsuranceSum: MONEY → NOT_MONEY (Phase 2.3, 2026-10-13). It is not an amount this school

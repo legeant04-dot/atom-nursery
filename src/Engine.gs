@@ -1954,13 +1954,53 @@ function createAtomAPI(M, GROWTH_STD) {
     tgt.obj.Status='PENDING_VERIFY'; tgt.obj.SlipUrl=p.slipData||p.slipName||''; tgt.obj.SlipAmount=submitted; tgt.obj.PaymentMethod=method; tgt.obj.SubmittedDate=todayLocal();
     logAct(method==='cash'?'payCash':'uploadSlip',refId,(method==='cash'?'เงินสด ':'โอน ')+amt,actorOf(p));
     return { ok:true, due:tgt.due, paidSoFar:submitted, outstanding:Math.max(0,tgt.due-confirmed), amountMatch:submitted>=tgt.due }; }
+  /* ===== ใบเสร็จรับเงิน / ใบแจ้งหนี้ (asked 2026-11-03) =========================================
+   *
+   * จำนวนเงินตัวอักษร — the line that stops "6,900" being read or altered as "8,900". Same output as
+   * Excel's BAHTTEXT, which is what a Thai accountant checks it against:
+   *   1 หนึ่งบาทถ้วน · 11 สิบเอ็ด · 21 ยี่สิบเอ็ด · 101 หนึ่งร้อยเอ็ด · 1,000,001 หนึ่งล้านเอ็ด · 0.50 ห้าสิบสตางค์
+   * "เอ็ด" is a units 1 with anything at all in front of it — including a whole million — and "หนึ่ง"
+   * only when it stands alone. Worked in satang (integers) so 0.1 + 0.2 never reaches the words. */
+  const TH_DIGIT_=['ศูนย์','หนึ่ง','สอง','สาม','สี่','ห้า','หก','เจ็ด','แปด','เก้า'], TH_PLACE_=['','สิบ','ร้อย','พัน','หมื่น','แสน'];
+  function thaiNum_(s){ s=String(s).replace(/^0+/,''); if(!s) return '';
+    const hi=s.length>6?s.slice(0,-6):'', lo=s.length>6?s.slice(-6):s;
+    let out=hi?thaiNum_(hi)+'ล้าน':'';
+    for(let i=0;i<lo.length;i++){ const d=+lo[i], pos=lo.length-1-i; if(!d) continue;
+      if(pos===1) out+= d===1?'สิบ':d===2?'ยี่สิบ':TH_DIGIT_[d]+'สิบ';
+      else if(pos===0 && d===1 && out!=='') out+='เอ็ด';
+      else out+=TH_DIGIT_[d]+TH_PLACE_[pos]; }
+    return out; }
+  function bahtText_(n){ const c=Math.round(Math.abs(Number(n)||0)*100), baht=Math.floor(c/100), sat=c%100;
+    const w=(baht?thaiNum_(baht)+'บาท':(sat?'':'ศูนย์บาท'))+(sat?thaiNum_(sat)+'สตางค์':'ถ้วน');
+    return (Number(n)<0?'ลบ':'')+w; }
+
+  /* WHAT GOES IN THE LETTERHEAD. Settings → ข้อมูลบนใบเสร็จ writes these rows; a blank row means "not
+   * said". Atom's own answers (given 2026-11-03) are used ONLY while the school IS Atom — the same rule
+   * as ONBOARD_ORIGIN_SCHOOL_ in src/Onboarding.gs — so a school copied from Atom and renamed gets a
+   * blank letterhead and the setup check asks for its own, instead of printing Atom's address on
+   * another school's receipts. A blank row also falls back for Atom, because "Add the missing rows"
+   * in the setup check writes every key as '' and must not wipe the letterhead by doing so. */
+  const DOC_KEYS=['DocSchoolName','DocAddress1','DocAddress2','DocPhone','DocLineId','DocTaxId','DocTaxNote','DocSignerName','DocSignerTitle'];
+  const DOC_ORIGIN_={ DocSchoolName:'อะตอม เนอสเซอรี่ (Atom Nursery)',
+    DocAddress1:'933/149-150 หมู่บ้านพิมพ์ทอง ซ.ลาดพร้าว 101 แยก 35 แขวงคลองเจ้าคุณสิงห์',
+    DocAddress2:'เขตวังทองหลาง กรุงเทพฯ 10310', DocPhone:'02-731-5859, 089-895-5895', DocLineId:'@atomnursery',
+    DocTaxId:'', DocTaxNote:'ได้รับการยกเว้นภาษีมูลค่าเพิ่มตามประมวลรัษฎากร',
+    DocSignerName:'ศิลา เส็งพานิช', DocSignerTitle:'ผู้รับเงิน / ผู้มีอำนาจลงนาม' };
+  function docInfo_(){ const origin=String(cfg.SchoolName||'').trim()==='Atom Nursery'; const o={};
+    DOC_KEYS.forEach(k=>{ const v=cfg[k]; o[k]=(v!=null && String(v).trim()!=='') ? String(v).trim() : (origin?DOC_ORIGIN_[k]:''); });
+    if(!o.DocSchoolName) o.DocSchoolName=String(cfg.SchoolName||'');
+    return o; }
+
   // after confirm/reject a slip, recompute the target's Status + outstanding
   function recomputeTarget_(kind, refId, paidDate){ const tgt=slipTarget_(kind, refId); if(!tgt)return;
     // รายการที่ยกเลิกแล้ว สลิปไม่มีสิทธิ์เปลี่ยนสถานะมัน — ดูหมายเหตุที่ rejectSlip
     if(String(tgt.obj.Status||'').toUpperCase()==='CANCELLED') return { confirmed:sumSlips_(kind, refId, ['CONFIRMED']), submitted:0, due:tgt.due, outstanding:0 };
     const confirmed=sumSlips_(kind, refId, ['CONFIRMED']); const submitted=sumSlips_(kind, refId, ['SUBMITTED','CONFIRMED']);
     tgt.obj.SlipAmount=submitted;
-    if(confirmed>=tgt.due && tgt.due>0){ tgt.obj.Status='PAID'; tgt.obj.PaidDate=paidDate||tgt.obj.PaidDate||todayLocal(); tgt.obj.VerifiedStatus='CONFIRMED';
+    if(confirmed>=tgt.due && tgt.due>0){
+      // the day the SCHOOL accepted the money = the receipt's issue date (PaidDate is when it moved)
+      if(kind==='bill' && String(tgt.obj.Status||'').toUpperCase()!=='PAID') tgt.obj.ReceiptDate=todayLocal();
+      tgt.obj.Status='PAID'; tgt.obj.PaidDate=paidDate||tgt.obj.PaidDate||todayLocal(); tgt.obj.VerifiedStatus='CONFIRMED';
       // bill now covers TUITION ONLY — do NOT cascade OT/charges to PAID (each is paid on its own).
       // prepay: do NOT mark the covered months' bills PAID — advance payment covers tuition only. The
       // monthly bills for those months then credit the tuition (see payments handler) and still bill extras.
@@ -2487,6 +2527,68 @@ function createAtomAPI(M, GROWTH_STD) {
         return Object.assign({},b,{Month:bm,Items:items2,Amount:total,OTRollover:0,TotalDue:net,GrossDue:total,Status:st,PaidDate:paidDate,
           PrepaidTuition:prepaidTuition,Prepay:prepay,PaidConfirmed:confirmed,PendingSubmitted:submitted,Outstanding:outstanding}); })
       .sort((a,b)=>String(b.Month).localeCompare(String(a.Month))),
+    /* ===== ใบเสร็จรับเงิน / ใบแจ้งหนี้ — everything printed on one, decided HERE (2026-11-03) =====
+     *
+     * The PDF is drawn on the family's own phone (webapp/receipt.js) and nothing is uploaded; this
+     * only says WHAT goes on it, so the parent's copy and the office's copy of the same bill can never
+     * disagree, and so the rules can be tested without a canvas:
+     *
+     *   · paid in full → ใบเสร็จรับเงิน, numbered RC-… after the bill (a bill with money on it can no
+     *     longer be deleted — see deleteBill — so the number is never reused for different money)
+     *   · anything else → ใบแจ้งหนี้, numbered with the bill itself, showing what is still owed
+     *   · the items and the total come from `payments`, so prepaid tuition and the school's discount
+     *     appear exactly as they do on the screen
+     *   · ISSUE DATE ≠ PAID DATE. The receipt is issued the day the school accepted the money
+     *     (ReceiptDate, written on that transition); the money moved on the slip's own transfer date.
+     *     Bills older than ReceiptDate fall back to PaidDate — the only date they have.
+     *   · payer = the account name SlipOK read off the slip; failing that, the child's parent
+     */
+    billDocument: p => { const sid=String((p&&p.studentId)||''), bid=String((p&&p.billingId)||'');
+      const raw=M.payments.find(b=>String(b.BillingID)===bid);
+      if(!raw || String(raw.StudentID)!==sid) fail('NOT_FOUND','ไม่พบบิล');
+      const b=(H.payments({studentId:sid})||[]).find(x=>String(x.BillingID)===bid)||{};
+      const s=studentById(sid)||{};
+      const par=(M.parents||[]).find(x=>String(x.ParentID)===String(s.ParentID||''))||{};
+      const parentName=String(par.NameTH||par.Name||par.NameEN||'').trim();
+      const total=Number(b.TotalDue||0), outstanding=Number(b.Outstanding||0);
+      /* PAID is the status, as on the screen — NOT "no balance by slips": a bill the office marked paid
+       * (confirmPayment, or issued as already paid) has no slip row behind it, and reading its slip
+       * balance would hand the family an INVOICE for money they have handed over. */
+      const paid=String(b.Status)==='PAID';
+      const slips=paySlips_().filter(x=>x.RefKind==='bill' && String(x.RefID)===bid && x.Status==='CONFIRMED')
+        .sort((a,c)=>String(a.TransDate||a.StatedDate||a.SubmittedDate||'').localeCompare(String(c.TransDate||c.StatedDate||c.SubmittedDate||'')));
+      const lines=slips.map(x=>{ const cash=String(x.Method||'')==='cash';
+        return { method: cash?'cash':(x.Url?'transfer':'manual'), bank:String(x.SendBank||''), ref:String(x.TransRef||''),
+          date:ymd(x.TransDate||x.StatedDate||'')||String(x.SubmittedDate||'').slice(0,10), time:String(x.TransTime||x.StatedTime||'').slice(0,5),
+          amount:Number(x.Amount||0), sender:String(x.Sender||'').trim() }; });
+      // a month settled by an advance payment has no slip of its own — the advance payment IS the payment
+      if(b.Prepay && Number(b.PrepaidTuition||0)>0){
+        const pp=(M.prepayments||[]).find(x=>x.PrepayID===b.Prepay.prepayId)||{};
+        lines.push({ method:'prepay', bank:'', ref:String(b.Prepay.prepayId||''), date:ymd(pp.PaidDate||pp.Date||''), time:'',
+          amount:Number(b.PrepaidTuition||0), sender:'' }); }
+      // a bill an admin recorded as paid outright (issueBill paid:true) has no slip either
+      if(!lines.length && paid) lines.push({ method:String(raw.PaymentMethod||'')==='cash'?'cash':'manual', bank:'', ref:'',
+        date:ymd(raw.PaidDate||''), time:'', amount:total, sender:'' });
+      const last=lines.filter(l=>l.method!=='prepay').slice(-1)[0]||lines.slice(-1)[0]||null;
+      const payer=(lines.map(l=>l.sender).filter(Boolean).slice(-1)[0])||parentName;
+      const runDay=(/^BR-\d{4}-\d{2}-(\d{4})(\d{2})(\d{2})/.exec(String(raw.BillRun||''))||[]);
+      return {
+        kind: paid?'receipt':'invoice',
+        no: paid?('RC-'+bid.replace(/^BL-/,'')):bid, billingId:bid,
+        issueDate: paid ? (ymd(raw.ReceiptDate||'')||ymd(raw.PaidDate||'')||(last&&last.date)||'')
+                        : (ymd(raw.IssuedDate||'')||(runDay[1]?runDay[1]+'-'+runDay[2]+'-'+runDay[3]:'')),
+        month: ym(raw.Month), dueDate: ymd(raw.DueDate||''),
+        paidDate: last?last.date:'', paidTime: last?last.time:'',
+        student:{ id:sid, name:String(s.NameTH||s.Name||'').trim(), nick:String(s.Nickname||'').trim(), className:String(s.Class||'') },
+        payer, parentName, payments:lines,
+        items:(b.Items||[]).map(it=>[String(it[0]), Number(it[1]||0)]),
+        total, paidSoFar:Number(b.PaidConfirmed||0), outstanding: paid?0:outstanding,
+        words: bahtText_(paid?total:(outstanding||total)),
+        school: docInfo_() }; },
+    docInfo: () => docInfo_(),
+    saveDocInfo: p => { if(!adminLike_(staffById(p&&p.staffId)))fail('NO_PERMISSION','เฉพาะแอดมิน'); let wrote=0; DOC_KEYS.forEach(k=>{ if(p && p[k]!==undefined){ cfg[k]=String(p[k]==null?'':p[k]).trim().slice(0,300); wrote++; } }); return { ok:true, wrote }; },
+    // the director's signature lives in Drive — src/Certificate.gs answers this on GAS. Locally: none.
+    docSignature: () => ({ sig:'' }),
     // per-student extra charges (Admin) — each is its own payable item (parent pays like OT).
     studentCharges: p => M.studentCharges.filter(c=>c.StudentID===p.studentId && (!p.month||ym(c.Month)===ym(p.month)))
       .map(c=>{ const confirmed=sumSlips_('charge',c.ChargeID,['CONFIRMED']); const submitted=sumSlips_('charge',c.ChargeID,['SUBMITTED']);
@@ -2553,7 +2655,8 @@ function createAtomAPI(M, GROWTH_STD) {
       const label=p.label||('ค่าเทอม '+((plan&&plan.labelTH)||'')+prNote); const items=p.items||[[label,amount]];
       const paid=!!p.paid; const paidDate=p.paidDate||todayLocal(); const method=p.method||(paid?'cash':'');
       let b=M.payments.find(x=>x.StudentID===p.studentId&&ym(x.Month)===month);
-      const fields={Items:items,Amount:amount,Status:paid?'PAID':'UNPAID',SlipAmount:paid?amount:0,VerifiedStatus:paid?'CONFIRMED':'',PaidDate:paid?paidDate:'',PaymentMethod:method,Note:p.note||''};
+      const fields={Items:items,Amount:amount,Status:paid?'PAID':'UNPAID',SlipAmount:paid?amount:0,VerifiedStatus:paid?'CONFIRMED':'',PaidDate:paid?paidDate:'',PaymentMethod:method,Note:p.note||'',
+        IssuedDate:todayLocal(), ReceiptDate:paid?todayLocal():''};
       if(b){ Object.assign(b,fields); }
       else { b=Object.assign({BillingID:'BL-'+month+'-'+p.studentId,StudentID:p.studentId,Month:month,OTRollover:0,DueDate:billDueDate(studentById(p.studentId),month),SlipUrl:'',TransactionDate:paid?stampLocal():''},fields); M.payments.push(b); }
       logAct('issueBill',b.BillingID,month+' '+amount+(paid?' (ชำระล่วงหน้า)':''),actorOf(p));
@@ -2655,7 +2758,7 @@ function createAtomAPI(M, GROWTH_STD) {
           lastMonth: ymd(s.EndDate).slice(0,7)===ym(month)});
         willBill.push({studentId:s.StudentID, nick:s.Nickname||'', name:s.NameTH||s.Name||'', className:s.Class||'', amount:pr.amount});
         if(!preview){
-          M.payments.push({BillingID:'BL-'+month+'-'+s.StudentID,StudentID:s.StudentID,Month:month,Items:[['ค่าเทอม '+((plan&&plan.labelTH)||'')+note,pr.amount]],Amount:pr.amount,OTRollover:0,DueDate:billDueDate(s,month),PaidDate:'',Status:'UNPAID',SlipUrl:'',SlipAmount:0,VerifiedStatus:'',Auto:true,BillRun:runId});
+          M.payments.push({BillingID:'BL-'+month+'-'+s.StudentID,StudentID:s.StudentID,Month:month,Items:[['ค่าเทอม '+((plan&&plan.labelTH)||'')+note,pr.amount]],Amount:pr.amount,OTRollover:0,DueDate:billDueDate(s,month),PaidDate:'',Status:'UNPAID',SlipUrl:'',SlipAmount:0,VerifiedStatus:'',Auto:true,BillRun:runId,IssuedDate:todayLocal()});
         }
         created++; });
       /* NOTHING IS LOGGED BY A RUN THAT WROTE NOTHING. A preview is a read; recording it would fill
@@ -7367,7 +7470,7 @@ function createAtomAPI(M, GROWTH_STD) {
       return out; },
     // Admin confirms a payment. paidDate = the actual payment date (defaults today); recorded for retro audit.
     confirmPayment: p => { const paid=p.paidDate||todayLocal(); const method=p.method||'';
-      if(p.kind==='bill'){ const b=M.payments.find(x=>x.BillingID===p.id); if(!b)fail('NOT_FOUND','ไม่พบบิล'); b.Status='PAID'; b.PaidDate=paid; if(method)b.PaymentMethod=method; b.VerifiedStatus='CONFIRMED'; b.VerifiedBy=p.adminId||'admin';
+      if(p.kind==='bill'){ const b=M.payments.find(x=>x.BillingID===p.id); if(!b)fail('NOT_FOUND','ไม่พบบิล'); if(String(b.Status||'').toUpperCase()!=='PAID') b.ReceiptDate=todayLocal(); b.Status='PAID'; b.PaidDate=paid; if(method)b.PaymentMethod=method; b.VerifiedStatus='CONFIRMED'; b.VerifiedBy=p.adminId||'admin';
         logAct('confirmPayment',b.BillingID,'ยืนยัน ('+(b.PaymentMethod||'transfer')+') '+b.SlipAmount+' จ่าย '+paid,actorOf(p)); return b; }  // bill = tuition only; no OT cascade
       if(p.kind==='ot'){ const o=M.otDaily.find(x=>x.OTID===p.id); if(!o)fail('NOT_FOUND','ไม่พบ OT'); o.Status='PAID'; o.PaidDate=paid; if(method)o.PaymentMethod=method; o.VerifiedStatus='CONFIRMED'; logAct('confirmPayment',o.OTID,'ยืนยัน ('+(o.PaymentMethod||'transfer')+') '+o.Amount+' จ่าย '+paid,actorOf(p)); return o; }
       if(p.kind==='charge'){ const c=M.studentCharges.find(x=>x.ChargeID===p.id); if(!c)fail('NOT_FOUND','ไม่พบรายการ'); c.Status='PAID'; c.PaidDate=paid; if(method)c.PaymentMethod=method; c.VerifiedStatus='CONFIRMED'; logAct('confirmPayment',c.ChargeID,'ยืนยัน ('+(c.PaymentMethod||'transfer')+') '+c.Amount+' จ่าย '+paid,actorOf(p)); return c; }

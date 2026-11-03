@@ -99,7 +99,7 @@ console.log('\n2) THE 115 — a new one is a behaviour silently replaced');
     'insuranceStatus', 'linkParentAdmin', 'markNotifsRead', 'markSalaryPaid', 'myPayslipMonths',
     'notifications', 'otCarryOver', 'parentCancelLeave', 'parentCheckin', 'parentEditLeave',
     'payCharge', 'payCombined', 'payCombinedCash', 'payOT', 'payPrepay', 'pendingLeaves',
-    'recomputeContributions', 'recordCashPayment', 'registerNew', 'rejectSlip', 'rejectSlips', 'deleteSlips', 'removeBigCleaning',
+    'recomputeContributions', 'recordCashPayment', 'registerNew', 'rejectSlip', 'rejectSlips', 'deleteSlips', 'saveDocInfo', 'docSignature', 'removeBigCleaning',
     'removeDepartment', 'removeHoliday', 'removeStudent', 'renameDepartment', 'requestPasswordReset',
     'saveDspmCriteria', 'saveFamilyParent', 'saveInsuranceAdmin', 'saveParent', 'saveParentComment',
     'savePlans', 'savePrepayTiers', 'saveQRCodes', 'saveSlipOk', 'saveStaff', 'saveStaffSelf',

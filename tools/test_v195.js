@@ -87,7 +87,7 @@ console.log('\n1) The parent states when they really transferred');
   ok_('and a stated one as the parent\'s own word — never presented as verified', /ผู้ปกครองแจ้ง/.test(app));
   const ps = fs.readFileSync(path.join(__dirname, '..', 'src', 'PaySlips.gs'), 'utf8');
   ok_('the live route stores it too', /StatedDate: statedDate, StatedTime: statedTime/.test(ps));
-  ok_('...in columns it creates on demand', /ensureColumns_\(sh0, \[[^\]]*'StatedDate', 'StatedTime'\]/.test(ps));
+  ok_('...in columns it creates on demand', /ensureColumns_\(sh0, \[[^\]]*'StatedDate', 'StatedTime'[^\]]*\]/.test(ps));
 }
 
 console.log('\n2) A child reported away cannot be checked in');

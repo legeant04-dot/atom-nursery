@@ -6,7 +6,7 @@
     'chooser.title':['เลือกบทบาทเพื่อทดลองใช้งาน','Choose a role to try'],
     'chooser.sub':  ['โหมดทดลอง — เมื่อเชื่อม LINE แล้ว ระบบจะรู้บทบาทอัตโนมัติ','Demo — once LINE is connected the role is detected automatically'],
     'role.Parent':  ['ผู้ปกครอง','Parent'], 'role.Teacher':['คุณครู','Teacher'], 'role.Admin':['ผู้ดูแลระบบ','Admin'], 'role.Observer':['ผู้ตรวจสอบ (ดูอย่างเดียว)','Observer (view only)'], 'role.Leader':['คุณครู (หัวหน้าชั้น)','Teacher (Leader)'],
-    'desc.Parent':  ['รับ-ส่งเด็ก · ชำระเงิน · บันทึก · พัฒนาการ · แชท','Pickup · Payment · Journal · Development · Chat'],
+    'desc.Parent':  ['รับ-ส่งเด็ก · ชำระเงิน · บันทึก · พัฒนาการ · แชท','Pick-up · Payment · Journal · Development · Chat'],
     'desc.Teacher': ['เช็คอิน · นักเรียน · ลางาน · ตาราง · การเงิน','Check-in · Students · Leave · Schedule · Finance'],
     'desc.Admin':   ['แดชบอร์ด · อนุมัติ · เงินเดือน · วิเคราะห์ · จัดการ','Dashboard · Approvals · Payroll · Analytics · Manage'],
     'desc.Leader':  ['เหมือนครู + เห็นคำขอลาของลูกน้อง','Like Teacher + sees team leave requests'],
@@ -18,8 +18,8 @@
     'login.lineOnly':['เข้าสู่ระบบด้วย LINE เท่านั้น · เชื่อมต่อกับ LINE OA ของโรงเรียน','Sign in with LINE only · connected to the school LINE OA'],
     'login.lineBtn':['เข้าสู่ระบบด้วย LINE','Continue with LINE'], 'login.lineSub':['ใช้บัญชี LINE ที่เพิ่มเพื่อน OA ของโรงเรียน','Use the LINE account that added the school OA'],
     // nav
-    'nav.home':['หน้าหลัก','Home'], 'nav.checkin':['รับ-ส่ง','Pickup'], 'nav.payment':['ชำระเงิน','Payment'],
-    'nav.journal':['บันทึก','Record'], 'nav.dspm':['DSPM','DSPM'], 'nav.growth':['เติบโต','Growth'], 'nav.chat':['แชท','Chat'], 'nav.finance':['การเงิน','Finance'],
+    'nav.home':['หน้าหลัก','Home'], 'nav.checkin':['รับ-ส่ง','Pick-up'], 'nav.payment':['ชำระเงิน','Payment'],
+    'nav.journal':['บันทึก','Journal'], 'nav.dspm':['DSPM','DSPM'], 'nav.growth':['เติบโต','Growth'], 'nav.chat':['แชท','Chat'], 'nav.finance':['การเงิน','Finance'],
     'nav.class':['นักเรียน','Students'], 'nav.leave':['ดำเนินการ','Actions'], 'nav.schedule':['ตาราง','Schedule'],
     // "สลิป" named the document; the tab now holds the payslip AND the OT history, so it is named
     // for what it is about — this teacher's money.
@@ -29,7 +29,7 @@
     'c.back':['← กลับ','← Back'], 'c.save':['บันทึก','Save'], 'c.submit':['ส่งคำขอ','Submit'],
     'c.close':['ปิด','Close'], 'c.print':['พิมพ์','Print'], 'c.download':['ดาวน์โหลด','Download'],
     'c.remaining':['สิทธิคงเหลือ','Remaining'], 'c.today':['วันนี้','Today'], 'c.saved':['บันทึกข้อมูลเรียบร้อยแล้ว','Saved successfully'],
-    'c.notifications':['การแจ้งเตือน','Notifications'], 'c.markread':['ทำเครื่องหมายว่าอ่านแล้ว','Mark all read'], 'c.logout':['ออก','Logout'],
+    'c.notifications':['การแจ้งเตือน','Notifications'], 'c.markread':['ทำเครื่องหมายว่าอ่านแล้ว','Mark all read'], 'c.logout':['ออก','Log out'],
     'c.none':['—','—'], 'c.noItems':['ไม่มีรายการ','No items'], 'c.confirm':['ยืนยัน','Confirm'], 'c.month':['งวด (เดือน)','Period (month)'], 'c.reason':['เหตุผล','Reason'], 'c.type':['ประเภท','Type'], 'c.from':['วันที่เริ่ม','From'], 'c.to':['ถึงวันที่','To'], 'c.total':['รวม','Total'], 'c.due':['ครบกำหนด','Due'], 'c.paid':['ชำระ','Paid'], 'c.calc':['คำนวณ','Calculate'], 'c.staff':['พนักงาน','Staff'], 'c.days':['วัน','days'], 'c.approve':['อนุมัติ','Approve'], 'c.reject':['ไม่อนุมัติ','Reject'],
     // class-management change requests (ย้ายครูประจำชั้น/แผนก) + manual attendance-time requests (ขอลงเวลา)
     'corg.title':['🔁 ย้าย/จัดชั้นเรียน','🔁 Class assignment'], 'corg.manage':['จัดชั้นเรียน','Manage'],
@@ -41,7 +41,7 @@
     'att.myReq':['คำขอลงเวลาของฉัน','My time requests'], 'att.teamReq':['คำขอลงเวลา (ลูกน้อง)','Team time requests'],
     'att.manual':['ขอลงเวลา','manual'], 'att.st.PENDING_LEADER':['รอหัวหน้า','Pending leader'], 'att.st.PENDING_ADMIN':['รอแอดมิน','Pending admin'], 'att.st.APPROVED':['อนุมัติแล้ว','Approved'], 'att.st.REJECTED':['ไม่อนุมัติ','Rejected'],
     // screen titles
-    'title.checkin':['📍 รับ-ส่งเด็ก (GPS)','📍 Pickup / Drop-off (GPS)'], 'title.payment':['💳 การชำระเงิน','💳 Payment'], 'title.journal':['📒 บันทึกประจำวัน','📒 Daily Journal'],
+    'title.checkin':['📍 รับ-ส่งเด็ก (GPS)','📍 Pick-up / Drop-off (GPS)'], 'title.payment':['💳 การชำระเงิน','💳 Payment'], 'title.journal':['📒 บันทึกประจำวัน','📒 Daily journal'],
     'title.dspm':['📈 พัฒนาการ (DSPM)','📈 Development (DSPM)'], 'title.chat':['💬 แชทกับโรงเรียน','💬 Chat with school'], 'title.class':['👶 ชั้นเรียน','👶 My Class'],
     'title.leave':['✅ ดำเนินการ','✅ Actions'], 'title.schedule':['📅 ตารางการทำงาน & การลา','📅 Work schedule & leave'], 'title.slip':['💵 การเงินของฉัน','💵 My finances'],
     'title.dashboard':['📊 แดชบอร์ดรายวัน','📊 Daily dashboard'], 'title.approvals':['✅ อนุมัติการลา (ขั้นสุดท้าย)','✅ Leave approval (final)'], 'title.payroll':['💵 เงินเดือน & สลิป','💵 Payroll & slips'],
@@ -51,12 +51,12 @@
     'lbl.announcements':['📢 ประกาศจากโรงเรียน','📢 School announcements'], 'lbl.absence':['🏠 แจ้งลาบุตรหลาน','🏠 Report child absence'], 'lbl.addAbsence':['+ แจ้งลา','+ Report'],
     'lbl.todayJournal':['📒 บันทึกของ {name} วันนี้','📒 {name}\'s journal today'], 'lbl.history':['ย้อนหลัง','History'], 'lbl.view':['ดู','View'],
     'lbl.selectChild':['เลือกบุตรหลาน','Select child'], 'lbl.confirmAtSchool':['✅ ยืนยันที่โรงเรียน (จำลองในรัศมี)','✅ Confirm at school (within radius)'], 'lbl.testOutside':['🧪 ทดสอบนอกรัศมี','🧪 Test outside radius'],
-    'lbl.dropIn':['ส่งเข้าเรียน (IN)','Drop off (IN)'], 'lbl.pickOut':['รับกลับ (OUT)','Pick up (OUT)'], 'lbl.ciHistory':['🗓️ ประวัติการรับ-ส่ง','🗓️ Pickup history'], 'lbl.seeCalendar':['ดูในปฏิทิน →','See calendar →'],
+    'lbl.dropIn':['ส่งเข้าเรียน (IN)','Drop off (IN)'], 'lbl.pickOut':['รับกลับ (OUT)','Pick up (OUT)'], 'lbl.ciHistory':['🗓️ ประวัติการรับ-ส่ง','🗓️ Pick-up history'], 'lbl.seeCalendar':['ดูในปฏิทิน →','See calendar →'],
     'lbl.worktime':['⏱️ เวลาทำงานวันนี้','⏱️ Today\'s work time'], 'lbl.checkIn':['เข้างาน','Check in'], 'lbl.checkOut':['เลิกงาน','Check out'], 'lbl.late':['สาย','Late'], 'lbl.min':['นาที','min'], 'lbl.onTime':['ตรงเวลา','On time'],
     'lbl.myLeaveQuota':['📩 การลาของฉัน · สิทธิคงเหลือ','📩 My leave · remaining'], 'lbl.used':['ใช้','used'], 'lbl.teamPending':['⭐ คำขอลาของลูกน้อง (รออนุมัติ)','⭐ Team leave requests (pending)'],
     'lbl.submitLeave':['ยื่นใบลา','Submit leave'], 'lbl.myRequests':['📋 คำขอของฉัน','📋 My requests'], 'lbl.record':['บันทึก','Record'], 'lbl.assess':['ประเมิน','Assess'],
     // daily report (DAILY_JOURNAL) — draft → submit lifecycle
-    'jr.edit':['แก้ไขบันทึก','Edit Report'], 'jr.view':['ดูบันทึก','View Report'],
+    'jr.edit':['แก้ไขบันทึก','Edit report'], 'jr.view':['ดูบันทึก','View report'],
     'jr.sent':['ส่งแล้ววันนี้','Sent today'], 'jr.draft':['ร่าง · ยังไม่ส่ง','Draft · not sent'], 'jr.notSent':['ยังไม่ส่ง','Not sent'],
     'jr.saveDraft':['💾 บันทึกร่าง','💾 Save draft'], 'jr.submit':['📤 ส่งให้ผู้ปกครอง','📤 Submit to parent'],
     'jr.locked':['ส่งให้ผู้ปกครองแล้ว — แก้ไขไม่ได้','Submitted to the parent — no longer editable'],
@@ -83,7 +83,7 @@
     'slv.title':['การลาของนักเรียน','Student leaves'], 'dedup.title':['ล้างข้อมูลซ้ำ','Cleanse duplicates'],
     'chat.lineMsg':['การพูดคุยทั้งหมดทำผ่าน LINE OA ของโรงเรียน เพื่อให้คุณครูจัดการที่เดียว ไม่ตกหล่น','All conversations go through the school LINE OA so staff manage everything in one place.'],
     'chat.openLine':['เปิดแชท LINE OA','Open LINE OA chat'], 'chat.lineNote':['เมื่อเชื่อมต่อจริง ปุ่มนี้จะเปิดห้องแชท LINE OA ของโรงเรียนโดยตรง','When connected, this opens the school\'s LINE OA chat directly.'],
-    'leaveType.sick':['ลาป่วย','Sick Leave'], 'leaveType.personal':['ลากิจ','Leave of absence'], 'leaveType.vacation':['ลาพักร้อน','Holiday Leave'],
+    'leaveType.sick':['ลาป่วย','Sick leave'], 'leaveType.personal':['ลากิจ','Personal leave'], 'leaveType.vacation':['ลาพักร้อน','Annual leave'],
 
     // ===== 2026 expansion =====
     // account stage
@@ -94,7 +94,7 @@
     // registration
     'reg.choosePlan':['เลือกแพ็กเกจ','Choose a plan'], 'reg.choosePlanSub':['อัตราค่าบริการ Atom Nursery','Atom Nursery service rates'], 'reg.perMonth':['/เดือน','/month'],
     'reg.title':['ลงทะเบียนนักเรียนใหม่','Register a new student'], 'reg.plan':['แพ็กเกจ','Plan'], 'reg.student':['ข้อมูลนักเรียน','Student information'],
-    'reg.nameTH':['ชื่อ-นามสกุล (ไทย)','Name-Surname (TH)'], 'reg.nameEN':['ชื่อ-นามสกุล (อังกฤษ)','Name-Surname (EN)'], 'reg.nickname':['ชื่อเล่น (ไทย)','Nickname (TH)'], 'reg.nicknameEN':['ชื่อเล่น (อังกฤษ)','Nickname (EN)'], 'reg.title':['คำนำหน้า','Title'],
+    'reg.nameTH':['ชื่อ-นามสกุล (ไทย)','Full name (TH)'], 'reg.nameEN':['ชื่อ-นามสกุล (อังกฤษ)','Full name (EN)'], 'reg.nickname':['ชื่อเล่น (ไทย)','Nickname (TH)'], 'reg.nicknameEN':['ชื่อเล่น (อังกฤษ)','Nickname (EN)'], 'reg.title':['คำนำหน้า','Title'],
     // staff OT approval workflow
     'ot.myOT':['⏰ OT ของฉัน','⏰ My OT'], 'ot.teamOT':['⏰ OT รออนุมัติ (ลูกน้อง)','⏰ Team OT (pending)'], 'ot.adminOT':['⏰ OT คุณครู','⏰ Staff OT'],
     'ot.approve':['อนุมัติ','Approve'], 'ot.reject':['ไม่อนุมัติ','Reject'], 'ot.confirm':['ยืนยัน','Confirm'], 'ot.addOT':['+ เพิ่ม OT','+ Add OT'],
@@ -109,13 +109,13 @@
     'reg.nationalIdStudent':['เลขบัตรประชาชนนักเรียน (ใช้เป็นรหัสนักเรียน)','Student National ID (used as student code)'],
     'reg.weight':['น้ำหนัก','Weight'], 'reg.height':['ส่วนสูง','Height'], 'reg.bloodType':['หมู่เลือด','Blood type'], 'reg.photo':['รูปถ่ายนักเรียน','Student photo'],
     'reg.allergy':['แพ้อาหาร/ยา','Allergies'], 'reg.allergyPh':['เช่น นมวัว, ไข่','e.g. cow milk, egg'], 'reg.chronic':['โรคประจำตัว','Chronic conditions'],
-    'reg.race':['เชื้อชาติ','Race'], 'reg.nationality':['สัญชาติ','Nationality'], 'reg.religion':['ศาสนา','Religion'], 'reg.address':['ที่อยู่','Address'],
+    'reg.race':['เชื้อชาติ','Ethnicity'], 'reg.nationality':['สัญชาติ','Nationality'], 'reg.religion':['ศาสนา','Religion'], 'reg.address':['ที่อยู่','Address'],
     'reg.parent':['ข้อมูลผู้ปกครอง','Parent information'], 'reg.relationship':['ความสัมพันธ์','Relationship'], 'reg.father':['บิดา','Father'], 'reg.mother':['มารดา','Mother'], 'reg.guardian':['ผู้ปกครอง','Guardian'],
     'reg.nationalIdParent':['เลขบัตรประชาชนผู้ปกครอง','Parent National ID'], 'reg.nationalId':['เลขบัตรประชาชน','National ID'], 'reg.mobile':['เบอร์มือถือ','Mobile'], 'reg.officePhone':['เบอร์ที่ทำงาน','Office phone'],
     'reg.email':['อีเมล (Gmail)','Email (Gmail)'], 'reg.emailNote':['ใช้เป็นทางเข้าสำรอง หากเข้าด้วย LINE ไม่ได้ · ไม่กรอกก็ได้','A backup way in if LINE sign-in fails. Optional.'],
     'reg.emailBad':['รูปแบบอีเมลไม่ถูกต้อง','That email address is not valid'],
     'reg.occupation':['อาชีพ','Occupation'], 'reg.workplace':['สถานที่ทำงาน','Workplace'], 'reg.phone':['เบอร์โทร','Phone'],
-    'reg.pickupPersons':['ผู้รับแทนบิดา/มารดา','Authorized pickup persons'], 'reg.addPickup':['เพิ่มผู้รับ','Add person'], 'reg.name':['ชื่อ-สกุล','Name'], 'reg.relation':['ความเกี่ยวข้อง','Relation'],
+    'reg.pickupPersons':['ผู้รับแทนบิดา/มารดา','Authorised pick-up persons'], 'reg.addPickup':['เพิ่มผู้รับ','Add person'], 'reg.name':['ชื่อ-สกุล','Name'], 'reg.relation':['ความเกี่ยวข้อง','Relation'],
     'reg.pdpa':['ข้าพเจ้ายินยอมให้ Atom Nursery เก็บ ใช้ และเปิดเผยข้อมูลส่วนบุคคลตามนโยบาย PDPA','I consent to Atom Nursery collecting, using and disclosing personal data under the PDPA policy'],
     'reg.submit':['ลงทะเบียน','Register'], 'reg.titleParent':['ลงทะเบียนผู้ปกครอง','Parent registration'], 'reg.parentFirstNote':['กรอกข้อมูลผู้ปกครองก่อน — จากนั้นเพิ่มหรือเชื่อมข้อมูลบุตรหลาน (ผู้ปกครองท่านที่ 2 เชื่อมด้วยเลขบัตรนักเรียนได้เลย)','Enter parent info first — then add or link your child (a 2nd parent just links by the student National ID)'],
     'reg.childTitle':['เพิ่มข้อมูลบุตรหลาน','Add child'], 'reg.saveChild':['บันทึกข้อมูลบุตรหลาน','Save child'], 'reg.planByAdmin':['แพ็กเกจจะถูกกำหนดโดยผู้ดูแลระบบในข้อมูลนักเรียน','The plan is assigned by the admin in the student record'], 'reg.parentPhoto':['รูปถ่ายผู้ปกครอง','Parent photo'],
@@ -141,7 +141,7 @@
     'growth.chartTitle':['กราฟพัฒนาการน้ำหนัก/ส่วนสูง','Weight/height development chart'], 'growth.chartSub':['เส้นน้ำเงิน = ค่าจริงของนักเรียน · แถบเขียว = เกณฑ์ปกติตามวัย','Blue line = child\'s actual values · green band = normal range by age'],
     'growth.weight':['น้ำหนัก','Weight'], 'growth.height':['ส่วนสูง','Height'], 'growth.actual':['ค่าจริง','Actual'], 'growth.normalBand':['เกณฑ์ปกติ','Normal range'],
     // admin
-    'admin.payrollReminder':['ใกล้ถึงกำหนดสรุปเงินเดือน','Payroll summary due soon'], 'admin.goPayroll':['สรุปเงินเดือน','Go to payroll'], 'admin.payrollReminderSub':['กรุณาสรุปเงินเดือนพนักงานภายในวันที่ {d} (ก่อนสิ้นเดือน วันที่ {last})','Please finalize payroll by day {d} (before month-end day {last})'],
+    'admin.payrollReminder':['ใกล้ถึงกำหนดสรุปเงินเดือน','Payroll summary due soon'], 'admin.goPayroll':['สรุปเงินเดือน','Go to payroll'], 'admin.payrollReminderSub':['กรุณาสรุปเงินเดือนพนักงานภายในวันที่ {d} (ก่อนสิ้นเดือน วันที่ {last})','Please finalise payroll by day {d} (before month-end day {last})'],
     'pay.baseSalary':['เงินเดือนฐาน','Base salary'], 'pay.childMultiplier':['ตัวคูณต่อเด็ก (บาท/คน)','Per-child rate (baht)'], 'pay.ssDeduct':['หักประกันสังคม','Deduct social security'],
     'pay.fb':['โพสต์ Facebook','Facebook post'], 'pay.attend':['มาครบ ไม่ลา ไม่สาย','Full attendance'], 'pay.extraChild':['จำนวนเด็กที่ได้เรท','Children counted'], 'pay.cert':['ใบประกาศ (สูงสุด 2 ×100)','Certificates (max 2 ×100)'],
     'pay.otEvening':['OT เย็น','Evening OT'], 'pay.otHoliday':['OT วันหยุด','Holiday OT'], 'pay.holidayBonus':['เงินพิเศษวันพักผ่อน','Holiday bonus'], 'pay.adjustments':['รายการคำนวณเพิ่มเติม','Adjustment lines'], 'pay.addAdj':['เพิ่มรายการ','Add line'],
@@ -151,10 +151,10 @@
     'charge.title':['ค่าใช้จ่ายเพิ่มเติม','Extra charges'], 'charge.note':['รายการนี้จะถูกรวมในบิลรายเดือนของผู้ปกครองอัตโนมัติ','These are auto-merged into the parent monthly bill'], 'charge.label':['รายการ','Item'], 'charge.amount':['จำนวนเงิน','Amount'], 'charge.add':['เพิ่มรายการ','Add item'],
     // absence tracking
     'abs.title':['ติดตามการขาดเรียน','Absence tracking'], 'abs.days':['{n} วัน','{n} days'], 'abs.note':['บันทึกการติดตาม','Follow-up note'],
-    'abs.rated':['เด็กที่นับเรท','Rated children'], // "ขาด" alone was never what excluded a child — see ratedChildCount in engine.js. It is ขาด + ลา.
+    'abs.rated':['เด็กที่นับเรท','Children counted for the child rate'], // "ขาด" alone was never what excluded a child — see ratedChildCount in engine.js. It is ขาด + ลา.
     'abs.rateNote':['ยกเว้นเด็กที่หยุดรวม (ขาด+ลา) ≥{n} วัน ({x} คน)','excludes children away (absent+leave) ≥{n} days ({x})'],
     'abs.ge2':['เด็กลา/ขาด ตั้งแต่ 2 วัน','Children absent ≥ 2 days'], 'abs.ge5':['เด็กลา/ขาด ตั้งแต่ 5 วัน (ติดตามใกล้ชิด)','Children absent ≥ 5 days (close follow-up)'],
-    'pay.useRated':['ใช้จำนวนที่นับได้','Use rated count'],
+    'pay.useRated':['ใช้จำนวนที่นับได้','Use the child-rate count'],
     'pay.perStaff':['ตั้งค่าได้รายคน','per-staff'], 'pay.childRate':['เรทจำนวนเด็ก','Child rate'], 'pay.childThreshold':['เริ่มคิดตั้งแต่เด็กคนที่','Counts from child #'],
     'pay.childCount':['จำนวนเด็กที่ได้เรท','Children counted'], 'pay.autoEditable':['อัตโนมัติจากฐานข้อมูล · แก้ได้','auto from DB · editable'], 'pay.fromChild':['ตั้งแต่คนที่','from #'],
     // round-4: staff/pw/dept/settings/assessment/leave-reminder/daily/announcement/prepay/receipt/slip-qr
@@ -171,17 +171,17 @@
     'ot.verifyNote':['กฎ: ทำเกิน ≥50 นาทีในชั่วโมงนั้น = OT เต็ม 1 ชม. (อ้างอิงเวลาเลิกงานตามตาราง)','Rule: ≥50 min in an hour = 1 full OT hour (vs scheduled check-out)'],
     'assess.edit':['แก้ไขผลประเมิน','Edit assessment'],
     'admin.leaveReset':['รอบรีเซ็ตวันลาประจำปี (มกราคม)','Annual leave reset (January)'], 'admin.leaveResetSub':['ตรวจสอบ/ตั้งค่าสิทธิวันลาของพนักงานสำหรับปีใหม่','Review/set staff leave quota for the new year'],
-    'daily.title':['สมุดรายงานประจำวัน','Daily Report'], 'daily.overall':['ภาพรวมวันนี้','Today overall'], 'daily.lateStaff':['พนักงานมาสาย','Late staff'], 'daily.absenceAlert':['แจ้งเตือนนักเรียนขาดเรียน','Absence alerts'],
+    'daily.title':['สมุดรายงานประจำวัน','Daily report'], 'daily.overall':['ภาพรวมวันนี้','Today overall'], 'daily.lateStaff':['พนักงานมาสาย','Late staff'], 'daily.absenceAlert':['แจ้งเตือนนักเรียนขาดเรียน','Absence alerts'],
     'daily.alertNote':['เด็กลา/ขาด ≥2 และ ≥5 วัน — แจ้งคุณครูติดตาม','Children absent ≥2 and ≥5 days — notify teachers to follow up'], 'daily.sendLine':['ส่งสรุปไป LINE OA','Send report to LINE OA'],
     'ann.popup':['แสดงเป็น Pop-up (บังคับให้ผู้ปกครองปิดก่อนเช็คอิน)','Show as popup (parents must close before check-in)'], 'ann.start':['แสดงตั้งแต่วันที่','Show from'], 'ann.end':['ถึงวันที่','Until'],
     'ann.startTime':['เวลาเริ่ม','Start time'], 'ann.endTime':['เวลาสิ้นสุด','End time'],
     'ann.timeNote':['เว้นเวลาว่างไว้ = แสดงทั้งวัน · เช่น 19/08 06:00 → 19/08 12:30','Leave the times blank for the whole day · e.g. 19/08 06:00 → 19/08 12:30'], 'ann.hide':['ไม่แสดงข้อความนี้อีก','Don\'t show this again'], 'ann.ok':['รับทราบ','Got it'], 'ann.badge':['ประกาศจากโรงเรียน','School announcement'],
     'ann.priority':['ความสำคัญ (เรียงลำดับการแสดง)','Priority (popup order)'], 'ann.pri.high':['สูง','High'], 'ann.pri.normal':['ปกติ','Normal'], 'ann.pri.low':['ต่ำ','Low'],
-    'prepay.title':['ชำระล่วงหน้า','Prepay'], 'prepay.pay':['จ่ายล่วงหน้า','Pay ahead'], 'prepay.note':['ล่วงหน้า 2 เดือน -5% · 3 เดือน -10% · 6 เดือน -20% · 12 เดือน -30%','2mo -5% · 3mo -10% · 6mo -20% · 12mo -30%'],
-    'prepay.months':['{n} เดือน','{n} months'], 'prepay.paidAhead':['ชำระล่วงหน้าแล้ว','Paid ahead'], 'prepay.done':['ชำระล่วงหน้า {n} เดือน (ลด {d}%) เรียบร้อย','Prepaid {n} months ({d}% off)'],
+    'prepay.title':['ชำระล่วงหน้า','Pay in advance'], 'prepay.pay':['จ่ายล่วงหน้า','Pay in advance'],
+    'prepay.months':['{n} เดือน','{n} months'], 'prepay.paidAhead':['ชำระล่วงหน้าแล้ว','Paid in advance'], 'prepay.done':['ชำระล่วงหน้า {n} เดือน (ลด {d}%) เรียบร้อย','Paid {n} months in advance ({d}% off)'],
     'pay.receipt':['ใบเสร็จ','Receipt'],
     'pay.pendingVerify':['รอแอดมินยืนยัน','Awaiting admin'], 'pay.submitted':['แนบสลิปแล้ว','Slip submitted'], 'pay.awaitAdmin':['รอแอดมินตรวจสอบยอด','Awaiting admin verification'],
-    'prepay.added':['เพิ่มยอดชำระล่วงหน้า {n} เดือน (ลด {d}%) ในรายการแล้ว','Prepay {n} months ({d}% off) added to payment list'],
+    'prepay.added':['เพิ่มยอดชำระล่วงหน้า {n} เดือน (ลด {d}%) ในรายการแล้ว','Advance payment for {n} months ({d}% off) added to the payment list'],
     'slip.submittedMatch':['ยอดตรง — ส่งให้แอดมินยืนยันแล้ว','Amount matches — sent to admin for confirmation'], 'slip.submittedReview':['ส่งสลิปแล้ว — รอแอดมินตรวจสอบ','Slip submitted — awaiting admin review'],
     'verify.title':['ยืนยันการชำระเงิน','Confirm payments'], 'verify.note':['ตรวจสลิป + ยอด (อ่านจาก QR ถ้าได้) แล้วกดยืนยัน','Check slip + amount (read from QR if possible), then confirm'],
     'verify.monthly':['รายเดือน','Monthly'], 'verify.match':['ยอดตรง','Match'], 'verify.mismatch':['ยอดไม่ตรง','Mismatch'], 'verify.confirm':['ยืนยันชำระ','Confirm paid'], 'verify.reject':['ปฏิเสธ','Reject'],
@@ -197,7 +197,7 @@
     'slip.qrNone':['ไม่พบ QR ในรูป — กรอกยอดเอง','No QR found — enter amount manually'], 'slip.qrMatch':['ยอดจาก QR ตรงกัน:','QR amount matches:'], 'slip.qrMismatch':['ยอดจาก QR ไม่ตรง:','QR amount mismatch:'], 'slip.qrNoAmount':['QR ไม่มีข้อมูลจำนวนเงิน — กรอกเอง','QR has no amount — enter manually'],
     'hol.startTime':['เวลาเริ่มหยุด','Closed from'], 'hol.endTime':['เวลาสิ้นสุด','Until'],
     'hol.timeNote':['เว้นเวลาว่างไว้ = หยุดทั้งวัน · ใส่เวลา = หยุดเฉพาะช่วงนั้น (เช่น 08:00-12:30 หยุดครึ่งวัน · นอกช่วงนี้ยังเช็คอินได้ตามปกติ)','Leave the times blank to close all day · set them to close only for that window (e.g. 08:00–12:30 — check-in works as usual outside it)'],
-    'manage.organize':['ย้าย/จัดชั้นเรียน','Organize classes'], 'manage.holidays':['วันหยุด / วันประชุม','Holidays / Meetings'], /* 🔴 RENAMED 2026-10-15, THE DAY AFTER THE BUTTON SHIPPED, BECAUSE NOBODY COULD FIND IT.
+    'manage.organize':['ย้าย/จัดชั้นเรียน','Organise classes'], 'manage.holidays':['วันหยุด / วันประชุม','Holidays / Meetings'], /* 🔴 RENAMED 2026-10-15, THE DAY AFTER THE BUTTON SHIPPED, BECAUSE NOBODY COULD FIND IT.
  * This screen stopped being only about students when the whole-school backup landed on it (Phase
  * 4.6). The tile still said "นำเข้า/นำออกนักเรียน", so an admin looking for a backup of the SCHOOL
  * had no reason to open it — the same defect as the notification switch whose label listed four
@@ -263,7 +263,7 @@
     'inj.btn':['🚑 บันทึกอุบัติเหตุ','🚑 Injury report'], 'inj.title':['แบบบันทึกการบาดเจ็บรายบุคคล','Individual injury report'],
     'inj.nav':['อุบัติเหตุ','Injury'],
     'inj.datetime':['วันที่/เวลาเกิดการบาดเจ็บ','Date/time of injury'], 'inj.date':['วันที่','Date'], 'inj.time':['เวลา','Time'],
-    'inj.center':['ชื่อศูนย์','Center name'], 'inj.affiliation':['สังกัด','Affiliation'],
+    'inj.center':['ชื่อศูนย์','Centre name'], 'inj.affiliation':['สังกัด','Affiliation'],
     'inj.aff.social':['สำนักพัฒนาสังคม','Social Development Dept.'], 'inj.aff.other':['อื่นๆ ระบุ','Other (specify)'], 'inj.district':['ชื่อเขต','District'],
     'inj.recorder':['ผู้บันทึก','Recorded by'], 'inj.child':['เด็กที่บาดเจ็บ','Injured child'], 'inj.selectChild':['เลือกเด็กที่บาดเจ็บ','Select injured child'],
     'inj.sex':['เพศ','Sex'], 'inj.male':['ชาย','Male'], 'inj.female':['หญิง','Female'], 'inj.age':['อายุ','Age'], 'inj.years':['ปี','y'], 'inj.months':['เดือน','m'],
@@ -273,7 +273,7 @@
     'inj.cause':['สิ่งของที่เกี่ยวข้องและเป็นสาเหตุหลักการบาดเจ็บ','Object involved / main cause'], 'inj.causePh':['เช่น โต๊ะ เก้าอี้ ขิงข้า พื้น เสามีดติดคม','e.g. table, chair, swing, floor, sharp edge'],
     'inj.witness':['มีผู้พบเห็นเหตุการณ์โดยตรงขณะเกิดเหตุ','Direct witness at the time'], 'inj.witness.yes':['มี','Yes'], 'inj.witness.no':['ไม่มี','No'], 'inj.witness.unsure':['ไม่แน่ใจ','Not sure'],
     'inj.place':['สถานที่เกิดเหตุ','Place of incident'],
-    'inj.place.home':['บ้าน','Home'], 'inj.place.school':['โรงเรียน','School'], 'inj.place.center':['ศูนย์พัฒนาเด็กหรือศูนย์เลี้ยงเด็ก','Child development / daycare center'],
+    'inj.place.home':['บ้าน','Home'], 'inj.place.school':['โรงเรียน','School'], 'inj.place.center':['ศูนย์พัฒนาเด็กหรือศูนย์เลี้ยงเด็ก','Child development / day-care centre'],
     'inj.place.road':['ถนน','Road'], 'inj.place.park':['สวนสาธารณะหรือลานกีฬาสาธารณะ','Public park / sports ground'], 'inj.place.other':['อื่นๆ','Other'],
     'inj.types':['ชนิดการบาดเจ็บ (เลือกได้มากกว่า 1)','Type of injury (select all that apply)'],
     'inj.save':['บันทึกอุบัติเหตุ','Save injury report'], 'inj.saved':['บันทึกอุบัติเหตุแล้ว — แจ้งผู้ดูแลระบบ','Injury report saved — Admin notified'],

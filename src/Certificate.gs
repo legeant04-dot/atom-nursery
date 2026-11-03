@@ -242,3 +242,34 @@ function handleMarkCertIssued(p) {
   } catch (e) {}
   return { ok: true, logged: ids.length, stamped: stamped, issueDate: issue };
 }
+
+/* ===== ใบเสร็จรับเงิน / ใบแจ้งหนี้ (2026-11-03) ================================================
+ * The receipt is drawn on the family's phone (webapp/receipt.js); billDocument in the engine says
+ * what goes on it. These two are here because one writes SCHOOL_CONFIG and the other reads Drive. */
+
+/** parent/admin: the director's signature, for a RECEIPT only (the client never asks on an invoice).
+ *  The same file the certificate settings upload — one signature, one place to replace it. */
+function handleDocSignature() {
+  var id = getConfig_(CERT_ASSET_KEYS_.sig, '');
+  if (!id) return { sig: '' };
+  try {
+    var blob = DriveApp.getFileById(id).getBlob();
+    return { sig: 'data:' + blob.getContentType() + ';base64,' + Utilities.base64Encode(blob.getBytes()) };
+  } catch (e) { return { sig: '' }; }
+}
+
+/** admin-only: the letterhead, all keys in one write (same reason as saveCertText). The screen
+ *  re-reads docInfo afterwards, so it shows what will really print (Atom's defaults included). */
+function handleSaveDocInfo(p) {
+  p = p || {};
+  var keys = ['DocSchoolName', 'DocAddress1', 'DocAddress2', 'DocPhone', 'DocLineId', 'DocTaxId', 'DocTaxNote',
+    'DocSignerName', 'DocSignerTitle'];
+  var wrote = 0;
+  for (var i = 0; i < keys.length; i++) {
+    if (p[keys[i]] === undefined) continue;
+    setConfigValue_(keys[i], String(p[keys[i]] == null ? '' : p[keys[i]]).trim().slice(0, 300));
+    wrote++;
+  }
+  try { logAudit(p.adminId || 'admin', 'DOC_INFO', 'SCHOOL_CONFIG', wrote + ' keys'); } catch (e) {}
+  return { ok: true, wrote: wrote };
+}

@@ -367,6 +367,8 @@ function handleVerifySlip(p) {
       amount: amount, ref: d.transRef || '',
       transDate: d.transDate || '', transTime: d.transTime || '',
       receiver: receiver, sender: d.sender ? (d.sender.displayName || d.sender.name || '') : '',
+      // the sender's bank code (e.g. '004') — printed on the receipt as the bank the family paid from
+      sendBank: String(d.sendingBank || (d.sender && d.sender.bank && (d.sender.bank.id || d.sender.bank.short)) || ''),
       raw: body
     };
   } catch (err) {

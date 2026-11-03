@@ -24,7 +24,7 @@ function eq(label, got, want) {
 }
 const R = f => fs.readFileSync(path.join(__dirname, '..', f), 'utf8').replace(/\r\n/g, '\n');
 const appAll = R('webapp/app.js'), css = R('webapp/styles.css');
-const CUT = appAll.indexOf('function buildReceiptHTML');
+const CUT = appAll.indexOf('===== PAPER DOCUMENTS =====');
 const app = appAll.slice(0, CUT), paper = appAll.slice(CUT);
 const ICON_SRC = app.slice(app.indexOf('const ICON = {'), app.indexOf('window.svgIcon ='));
 const NAMES = (ICON_SRC.match(/^\s{4}(\w+):'/gm) || []).map(s => s.trim().replace(":'", ''));

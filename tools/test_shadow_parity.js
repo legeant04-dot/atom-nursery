@@ -200,7 +200,10 @@ console.log('\n2) 🔴 รายชื่อ shadow ที่เป็นกา�
   /* 131 → 133 (v494): rejectSlips / deleteSlips — เคลียร์สลิปค้างหลายใบในคำขอเดียว · GAS ต้องเป็นตัวจริง
    * เพราะวนเรียก handleRejectSlip/handleDeleteSlip ที่เขียนชีตทีละแถว (ไม่ใช่ทับทั้ง collection)
    * และกฎ "ไม่เปิดรายการที่ปิดแล้วกลับมาเป็นหนี้" อยู่ทั้งสองฝั่ง — tools/test_orphan_bulk.js ตรึงไว้ */
-  eq('จำนวน shadow ทั้งหมด', shadows.length, 133);
+  /* 133 → 135 (v495): saveDocInfo writes SCHOOL_CONFIG rows (the engine's cfg is not persisted on its
+   * own) and docSignature reads the signature from Drive, which the engine cannot reach — neither is
+   * a read that could have stayed with the engine. tools/test_bill_document.js pins both. */
+  eq('จำนวน shadow ทั้งหมด', shadows.length, 135);
   eq('🔴 ...ที่เป็นการอ่านล้วน (ไม่มีเหตุผลเชิงกลไก)', readOnly.length, 17);
   /* the three that have already bitten — named, so a future cleanup cannot quietly drop the check */
   ['insuranceStatus'].forEach(n =>

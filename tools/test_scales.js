@@ -29,7 +29,7 @@ const appAll = R('webapp/app.js');
 /* 🔴 เส้นแบ่ง "จอ" กับ "กระดาษ" — ตัวเดียวกับที่ tools/apply_scales.js ใช้
  * ใบเสร็จ A5 และสลิป A4 อ่านที่ระยะ 30 ซม. บนหน้าที่มีขนาดตายตัว ไม่ใช่จอมือถือกลางแดด
  * audit §2.3 เคยนับของพวกนี้เป็นหน้าจอแล้วสรุปผิดมาครั้งหนึ่ง — เส้นนี้คือสิ่งที่กันไม่ให้ผิดซ้ำ */
-const CUT = appAll.indexOf('function buildReceiptHTML');
+const CUT = appAll.indexOf('===== PAPER DOCUMENTS =====');
 const app = appAll.slice(0, CUT), paper = appAll.slice(CUT);
 
 console.log('1) 📏 สเกลมีอยู่จริง และอยู่ที่เดียว');
@@ -99,7 +99,7 @@ console.log('\n5) 🛠️ เครื่องมือที่ทำให้
   const tool = R('tools/apply_scales.js');
   ok_('สคริปต์แปลงยังอยู่ และรันซ้ำได้โดยไม่พัง', /--write/.test(tool) && /var\(/.test(tool));
   ok_('🔴 ...และมันข้ามส่วนกระดาษด้วยเส้นแบ่งเดียวกับชุดนี้',
-    /function buildReceiptHTML/.test(tool));
+    /===== PAPER DOCUMENTS =====/.test(tool));
   ok_('...และข้ามค่าที่ไม่ใช่จังหวะ (0 · 1px · มากกว่า 32px)',
     /v > 32 \|\| v === 0 \|\| v === 1/.test(tool));
 }
