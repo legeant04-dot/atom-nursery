@@ -235,6 +235,8 @@ var ROUTES = {
   payPrepay:      function (p) { return handlePayPrepay(p); },
   confirmSlip:    function (p) { return handleConfirmSlip(p); },
   rejectSlip:     function (p) { return handleRejectSlip(p); },
+  rejectSlips:    function (p) { return handleRejectSlips(p); },   // admin-only: clear many orphan slips in one request
+  deleteSlips:    function (p) { return handleDeleteSlips(p); },   // admin-only: delete many empty (no-image) payment rows
   deleteParent:   function (p) { return handleDeleteParent(p); },
   removeStudent:  function (p) { return handleRemoveStudent(p); },
   // Day 3 — GPS staff attendance
@@ -520,7 +522,7 @@ function applyIdentity_(action, payload, sess) {
    * รูปแบบเดียวกับ listParents เมื่อ 2026-10-15 ทุกประการ ซึ่งเป็นเหตุผลที่ตัวตรวจระบบมีกฎข้อนี้ */
   var ADMIN_ONLY = { listParents: 1, parentLinkCounts: 1,
     deleteParent: 1, removeStudent: 1, saveStudent: 1, saveParent: 1,
-    confirmSlip: 1, rejectSlip: 1, saveInsuranceAdmin: 1,
+    confirmSlip: 1, rejectSlip: 1, rejectSlips: 1, deleteSlips: 1, saveInsuranceAdmin: 1,
     approvePayslip: 1, adjustStaffPay: 1, saveAttendanceSince: 1,
     generateMonthlyBills: 1, issueBill: 1, billRunLast: 1, undoBillRun: 1,
     deleteBill: 1, adminResetPassword: 1, getStaffPassword: 1, setSchoolConfig: 1, recomputeAttendance: 1, diagDay: 1,

@@ -669,7 +669,7 @@ window.CONFIG = { FAST_URL: '', MODE: 'gas', GAS_URL: 'https://script.google.com
     'submitTimeRequest', 'approveTimeRequest', 'confirmTimeRequest',
     // money — bills and slips are live data; only the SETTINGS are cached long
     'uploadSlip', 'payCombined', 'payCombinedCash', 'payCharge', 'payPrepay', 'prepay', 'cancelPrepay',
-    'confirmSlip', 'rejectSlip', 'deleteSlip', 'recordCashPayment', 'notifyCash', 'issueBillsFor',
+    'confirmSlip', 'rejectSlip', 'deleteSlip', 'rejectSlips', 'deleteSlips', 'recordCashPayment', 'notifyCash', 'issueBillsFor',
     // a bill or an extra charge, one child at a time — and a corrected pick-up time, which can raise
     // or remove a late-pickup OT (otReconcile_) and is therefore a MONEY write as well as a time one
     'issueBill', 'deleteBill', 'addStudentCharge', 'removeStudentCharge', 'editStudentAttendance',
