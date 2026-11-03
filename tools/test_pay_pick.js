@@ -107,7 +107,7 @@ console.log('\n6) EVERY slip form asks when the money actually moved');
   ok_('the combined submit sends it too', /payCombined[\s\S]{0,200}statedDate:sd,\s*statedTime:st/.test(src));
   const ps = fs.readFileSync(path.join(__dirname, '..', 'src', 'PaySlips.gs'), 'utf8');
   ok_('the combined route stores it', /StatedDate: statedDate, StatedTime: statedTime,[\s\S]{0,200}SlipGroup: groupId/.test(ps));
-  ok_('...in columns it creates on demand', /ensureColumns_\(sh, \[[^\]]*'StatedDate', 'StatedTime'\]/.test(ps));
+  ok_('...in columns it creates on demand', /ensureColumns_\(sh, \[[^\]]*'StatedDate', 'StatedTime'[^\]]*\]/.test(ps));
   const eng = fs.readFileSync(path.join(__dirname, '..', 'webapp', 'engine.js'), 'utf8');
   ok_('and the engine passes it through the combined path', /statedDate:p\.statedDate, statedTime:p\.statedTime/.test(eng));
 }

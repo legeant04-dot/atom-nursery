@@ -156,6 +156,10 @@ var ROUTES = {
   certAssets:       function (p) { return handleCertAssets(p); },     // admin-only: artwork + signature, as data URLs
   saveCertAsset:    function (p) { return handleSaveCertAsset(p); },  // admin-only: replace/clear one of them
   markCertIssued:   function (p) { return handleMarkCertIssued(p); }, // admin-only: audit that a certificate was printed
+  /* ใบเสร็จ / ใบแจ้งหนี้ (2026-11-03). billDocument + docInfo stay with the engine (pure reads); the
+   * letterhead is written to SCHOOL_CONFIG and the signature is a Drive file, so those two live here. */
+  saveDocInfo:      function (p) { return handleSaveDocInfo(p); },    // admin-only: the receipt letterhead
+  docSignature:     function (p) { return handleDocSignature(p); },   // parent/admin: the signature for a RECEIPT
   /* งดคำนวณ OT (src/OT.gs): the days the school chooses not to charge late pick-up. Both shadow the
    * engine, and both must — the list lives in SCHOOL_CONFIG, which only exists here. */
   otWaiveDays:      function (p) { return handleOtWaiveDays(p); },     // admin-only: the list + today's status
@@ -568,7 +572,7 @@ function applyIdentity_(action, payload, sess) {
      * hands back the director's signature. Neither is anything a teacher or a parent has business
      * fetching, and the signature in particular is the one image in this system a person could
      * misuse. See src/Certificate.gs. */
-    certStudents: 1, certText: 1, saveCertText: 1, certAssets: 1, saveCertAsset: 1, markCertIssued: 1,
+    certStudents: 1, certText: 1, saveCertText: 1, certAssets: 1, saveCertAsset: 1, markCertIssued: 1, saveDocInfo: 1,
     /* งดคำนวณ OT — deciding that a whole day of late-pickup charges is not collected is a money
      * decision for the school to make, not a teacher. */
     otWaiveDays: 1, saveOtWaiveDays: 1,
@@ -594,6 +598,13 @@ function applyIdentity_(action, payload, sess) {
   // Observer reads these too — the role exists to see the whole school. It cannot write: dispatch_
   // has already refused every mutating action for it before this runs.
   if (ADMIN_ONLY[action] && sess.role !== 'Admin' && sess.role !== ROLES.OBSERVER) throw apiError_('NO_PERMISSION', 'เฉพาะแอดมิน');
+  /* A RECEIPT IS BETWEEN THE SCHOOL AND THE FAMILY. The signature is otherwise admin-only (certAssets);
+   * the school chose (2026-11-03) to print it on receipts, which puts it in every family's PDF — that
+   * is the decision. A teacher's session has no receipt to print, so it gets neither the signature
+   * nor a family's bill document. A parent's billDocument is held to their own child by the
+   * studentId check below, the same as `payments`. */
+  var FAMILY_DOCS = { docSignature: 1, billDocument: 1 };
+  if (FAMILY_DOCS[action] && sess.role !== 'Admin' && sess.role !== ROLES.OBSERVER && sess.role !== ROLES.PARENT) throw apiError_('NO_PERMISSION', 'เฉพาะผู้ปกครองและแอดมิน');
   /* googleLink is ALWAYS about the caller themselves — that is the entire safety of it. Nobody types
    * an address, so nobody mistypes one onto another family. An Admin session returns below with the
    * payload untouched, which would leave this one action with no identity at all and refuse the

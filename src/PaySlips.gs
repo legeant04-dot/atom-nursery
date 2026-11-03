@@ -59,7 +59,7 @@ function paySlipVerify_(p, due) {
      * re-checked from once the account is fixed — a slip stamped NO is a judgement that has already
      * been made, and the admin has no reason to revisit it. */
     if (v && v.serviceError) return { verified: '', ref: '', receiver: '', transDate: '',
-      transTime: '', sender: '', slipAmount: '' };
+      transTime: '', sender: '', sendBank: '', slipAmount: '' };
     if (v && v.available) return {
       // 'NO:<code>' is a SlipOK VERDICT, not a failure to read the slip — it read it fine (that is
       // where the ref, the receiver and the transfer date come from) and then objected to something:
@@ -68,10 +68,10 @@ function paySlipVerify_(p, due) {
       verified: v.ok ? 'YES' : ('NO:' + (v.code || v.message || 'unverified')),
       ref: v.ref || '', receiver: (v.receiver && v.receiver.name) || '',
       transDate: paySlipTransDate_(v.transDate), transTime: paySlipTransTime_(v.transTime),
-      sender: v.sender || '', slipAmount: (v.amount != null ? v.amount : '')
+      sender: v.sender || '', sendBank: v.sendBank || '', slipAmount: (v.amount != null ? v.amount : '')
     };
   } catch (e) {}
-  return { verified: '', ref: '', receiver: '', transDate: '', transTime: '', sender: '', slipAmount: '' };
+  return { verified: '', ref: '', receiver: '', transDate: '', transTime: '', sender: '', sendBank: '', slipAmount: '' };
 }
 
 // Sheets coerces a 'YYYY-MM' cell to date 'YYYY-MM-01', so compare months by first 7 chars.
@@ -194,7 +194,7 @@ function paySlipRecord_(kind, refId, p) {
   }
   var slipId = 'SL-' + Date.now();
   var sh0 = paySlipsSheet_();
-  ensureColumns_(sh0, ['TransDate', 'TransTime', 'Sender', 'Method', 'StatedDate', 'StatedTime']);
+  ensureColumns_(sh0, ['TransDate', 'TransTime', 'Sender', 'Method', 'StatedDate', 'StatedTime', 'SendBank']);
   // When the slip cannot be read, all the school could see was when the FILE was attached — which is
   // not when the money moved. The parent states it, and we keep BOTH: the verified time still wins,
   // and the stated one is clearly marked as the family's own word rather than a bank fact.
@@ -202,7 +202,7 @@ function paySlipRecord_(kind, refId, p) {
   appendObject_(sh0, { SlipID: slipId, RefKind: kind, RefID: refId, StudentID: tgt.studentId, Amount: amt,
     Url: drive.url, FileId: drive.fileId, Verified: vr.verified, TransRef: vr.ref, Receiver: vr.receiver,
     // the moment the money actually MOVED, read off the slip — not the moment the file was attached
-    TransDate: vr.transDate || '', TransTime: vr.transTime || '', Sender: vr.sender || '',
+    TransDate: vr.transDate || '', TransTime: vr.transTime || '', Sender: vr.sender || '', SendBank: vr.sendBank || '',
     StatedDate: statedDate, StatedTime: statedTime,
     Method: 'transfer', SubmittedDate: nowStr_(), Status: 'SUBMITTED' });
   recCacheBust_('PAYMENT_SLIPS');
@@ -289,14 +289,14 @@ function handlePayCombined(p) {
   if (String(vr.verified || '').indexOf('NO:1012') === 0) vr.verified = 'NO:1012_NEW';
   var groupId = 'SG-' + Date.now();
   var sh = paySlipsSheet_();
-  ensureColumns_(sh, ['SlipGroup', 'TransDate', 'TransTime', 'StatedDate', 'StatedTime']);
+  ensureColumns_(sh, ['SlipGroup', 'TransDate', 'TransTime', 'StatedDate', 'StatedTime', 'Sender', 'SendBank']);
   // what the parent said about when they transferred — the same fields as a single-item slip
   var statedDate = paySlipTransDate_(p.statedDate), statedTime = paySlipTransTime_(p.statedTime);
   var names = [];
   var seen = {};
   items.forEach(function (x, i) {
     appendObject_(sh, { SlipID: 'SL-' + Date.now() + '-' + i, RefKind: x.kind, RefID: x.id, StudentID: x.tgt.studentId, Amount: x.out,
-      Url: drive.url, FileId: drive.fileId, Verified: vr.verified, TransRef: vr.ref, Receiver: vr.receiver, TransDate: vr.transDate || '', TransTime: vr.transTime || '',
+      Url: drive.url, FileId: drive.fileId, Verified: vr.verified, TransRef: vr.ref, Receiver: vr.receiver, TransDate: vr.transDate || '', TransTime: vr.transTime || '', Sender: vr.sender || '', SendBank: vr.sendBank || '',
       StatedDate: statedDate, StatedTime: statedTime,
       SubmittedDate: nowStr_(), Status: 'SUBMITTED', SlipGroup: groupId });
     var submitted = paySlipSum_(x.kind, x.id, ['SUBMITTED', 'CONFIRMED']);
@@ -743,7 +743,14 @@ function paySlipRecompute_(kind, refId, paidDate) {
   var ss = getMainSpreadsheet_();
   if (confirmed >= tgt.due && tgt.due > 0) {
     var pd = paidDate || nowStr_().slice(0, 10);
-    updateRow_(tgt.sheet, tgt.row, { Status: 'PAID', PaidDate: pd, SlipAmount: confirmed, VerifiedStatus: 'CONFIRMED' });
+    var paidPatch = { Status: 'PAID', PaidDate: pd, SlipAmount: confirmed, VerifiedStatus: 'CONFIRMED' };
+    /* The day the school ACCEPTED the money is the receipt's issue date; PaidDate is when it moved.
+     * Written once, on the transition, so downloading the receipt again never re-dates it. */
+    if (kind === 'bill' && String(tgt.obj.Status || '').toUpperCase() !== 'PAID') {
+      try { ensureColumns_(tgt.sheet, ['IssuedDate', 'ReceiptDate']); } catch (e) {}
+      paidPatch.ReceiptDate = nowStr_().slice(0, 10);
+    }
+    updateRow_(tgt.sheet, tgt.row, paidPatch);
     // bill now covers TUITION ONLY — do NOT cascade OT/charges to PAID (each is paid on its own).
     // prepay: tuition-only — do NOT flip the covered months' bills to PAID (that would waive the extras).
     // The prepay row itself is PAID here; the engine's `payments` read credits the tuition per month.

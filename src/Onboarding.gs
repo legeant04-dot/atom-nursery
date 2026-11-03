@@ -126,6 +126,9 @@ var ONBOARD_SCOPE_ = {
    * เป็นเรื่องของวิธีทำงานของแต่ละโรงเรียน ไม่ใช่ค่าที่ถูกสำหรับทุกที่ จึงต้องให้คนยืนยัน */
   RequireSalarySlip:      'CONFIRM',
   SchoolSlogan:           'CONFIRM',
+  /* the receipt's letterhead — who the money was paid to, where, and who signs for it */
+  DocSchoolName: 'REQUIRED', DocAddress1: 'REQUIRED', DocPhone: 'REQUIRED', DocSignerName: 'REQUIRED',
+  DocAddress2: 'CONFIRM', DocLineId: 'CONFIRM', DocTaxId: 'CONFIRM', DocTaxNote: 'CONFIRM', DocSignerTitle: 'CONFIRM',
   Links_Facebook:         'CONFIRM',  Links_Website:         'CONFIRM',
   InsurancePolicyNo:      'CONFIRM',
   /* folder names carry the school's own name. Not dangerous — they are created inside the school's

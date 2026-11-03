@@ -587,6 +587,8 @@ create table if not exists billing (
   "payment_method"             text,
   "transaction_date"           date,
   "bill_run"                   text,
+  "issued_date"                date,
+  "receipt_date"               date,
   created_at  timestamptz not null default now(),
   updated_at  timestamptz not null default now()
 );
@@ -1084,6 +1086,7 @@ create table if not exists payment_slips (
   "trans_time"                 time,
   "sender"                     text,
   "method"                     text,
+  "send_bank"                  text,
   created_at  timestamptz not null default now(),
   updated_at  timestamptz not null default now()
 );

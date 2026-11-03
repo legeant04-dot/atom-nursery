@@ -20,7 +20,7 @@ function eq(label, got, want) {
 }
 const R = f => fs.readFileSync(path.join(__dirname, '..', f), 'utf8').replace(/\r\n/g, '\n');
 const appAll = R('webapp/app.js'), css = R('webapp/styles.css');
-const app = appAll.slice(0, appAll.indexOf('function buildReceiptHTML'));
+const app = appAll.slice(0, appAll.indexOf('===== PAPER DOCUMENTS ====='));
 
 /* ── เครื่องวัดความต่างสี (WCAG) — ตัวเดียวกับที่ใช้วัดบนเบราว์เซอร์ ─────────────────────── */
 const lum = h => { const n = parseInt(h.slice(1), 16);

@@ -217,7 +217,7 @@ SCHEMA[WB.MAIN] = {
    * ล่าสุด" can name exactly the rows it made and nothing else. A bill issued by hand has none, and
    * is therefore never in reach of an undo. Blank on every row written before this existed, which
    * is correct — there is no run to go back to. */
-  BILLING:           ['BillingID', 'StudentID', 'Month', 'Amount', 'OTRollover', 'DueDate', 'PaidDate', 'Status', 'SlipAmount', 'VerifiedStatus', 'QRRef', 'PaymentMethod', 'TransactionDate', 'BillRun'],
+  BILLING:           ['BillingID', 'StudentID', 'Month', 'Amount', 'OTRollover', 'DueDate', 'PaidDate', 'Status', 'SlipAmount', 'VerifiedStatus', 'QRRef', 'PaymentMethod', 'TransactionDate', 'BillRun', 'IssuedDate', 'ReceiptDate'],
   // Priority (appended at END): higher = more important; popups sort by it (important first) then date.
   // StartTime/EndTime appended at END (blank = the whole of that day, which is how every
   // announcement written before they existed behaved).
@@ -268,7 +268,7 @@ SCHEMA[WB.MAIN] = {
   // Method: 'transfer' (a slip) or 'cash' (recorded at the desk by an Admin, no image)
   // TransDate/TransTime = when the money actually moved (read off the slip by SlipOK); SubmittedDate
   // = when the file was attached. Method: 'transfer' (a slip) or 'cash' (recorded by an Admin).
-  PAYMENT_SLIPS:     ['SlipID', 'RefKind', 'RefID', 'StudentID', 'Amount', 'Url', 'FileId', 'Verified', 'TransRef', 'Receiver', 'SubmittedDate', 'Status', 'SlipGroup', 'TransDate', 'TransTime', 'Sender', 'Method'],
+  PAYMENT_SLIPS:     ['SlipID', 'RefKind', 'RefID', 'StudentID', 'Amount', 'Url', 'FileId', 'Verified', 'TransRef', 'Receiver', 'SubmittedDate', 'Status', 'SlipGroup', 'TransDate', 'TransTime', 'Sender', 'Method', 'SendBank'],
   /* One row per DAY, always — a leave that spans 21-23 is three rows, not one row with a range.
    * Every reader (register, calendar, absence follow-up, monthly report) asks "is this child on
    * leave on THIS date", so a span would have to be taught to all of them and any one that was
@@ -492,6 +492,10 @@ var SCHOOL_CONFIG_DEFAULTS = [
   // --- Identity ---
   ['SchoolName',            ''],            // per-school — see ONBOARD_SCOPE_
   ['SchoolSlogan',          ''],
+  /* The letterhead of ใบเสร็จรับเงิน / ใบแจ้งหนี้ (2026-11-03). Blank = per school; Atom's own answers are
+   * applied by docInfo_ in webapp/engine.js only while SchoolName is still Atom Nursery. */
+  ['DocSchoolName', ''], ['DocAddress1', ''], ['DocAddress2', ''], ['DocPhone', ''], ['DocLineId', ''],
+  ['DocTaxId', ''], ['DocTaxNote', ''], ['DocSignerName', ''], ['DocSignerTitle', ''],
   ['Timezone',              'Asia/Bangkok'],
 
   // --- GPS / Check-in (Proposal §9 Day 1) ---

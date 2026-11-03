@@ -102,7 +102,7 @@ const files = [];
 {
   const src = fs.readFileSync(P('webapp/app.js'), 'utf8');
   /* 🔴 เส้นแบ่ง "จอ" กับ "กระดาษ" — ทุกอย่างตั้งแต่ตัวสร้างใบเสร็จลงไปคือเอกสารที่พิมพ์ออกมา */
-  const cut = src.indexOf('function buildReceiptHTML');
+  const cut = src.indexOf('===== PAPER DOCUMENTS =====');
   if (cut < 0) { console.error('หาเส้นแบ่งหน้าจอ/กระดาษไม่เจอ — หยุดไว้ก่อน'); process.exit(1); }
   files.push({ f: 'webapp/app.js', out: mapSpace(mapFont(src.slice(0, cut))) + src.slice(cut) });
 }
