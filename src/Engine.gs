@@ -2572,11 +2572,17 @@ function createAtomAPI(M, GROWTH_STD) {
       const last=lines.filter(l=>l.method!=='prepay').slice(-1)[0]||lines.slice(-1)[0]||null;
       const payer=(lines.map(l=>l.sender).filter(Boolean).slice(-1)[0])||parentName;
       const runDay=(/^BR-\d{4}-\d{2}-(\d{4})(\d{2})(\d{2})/.exec(String(raw.BillRun||''))||[]);
+      /* A bill issued before v495 has no IssuedDate and, if it was issued on its own (not in a bulk
+       * run), no BillRun either — the first live invoice printed "วันที่ออก –" (2026-11-03). Every
+       * issue writes an `issueBill` line to the activity log naming the bill, so the LATEST one is
+       * when this bill was (re)issued. Only if even that is missing does the invoice carry today. */
+      const loggedIssue=(M.activityLog||[]).filter(l=>String(l.Action)==='issueBill' && String(l.Target)===bid)
+        .map(l=>ymd(l.Timestamp||'')).filter(Boolean).sort().slice(-1)[0]||'';
       return {
         kind: paid?'receipt':'invoice',
         no: paid?('RC-'+bid.replace(/^BL-/,'')):bid, billingId:bid,
         issueDate: paid ? (ymd(raw.ReceiptDate||'')||ymd(raw.PaidDate||'')||(last&&last.date)||'')
-                        : (ymd(raw.IssuedDate||'')||(runDay[1]?runDay[1]+'-'+runDay[2]+'-'+runDay[3]:'')),
+                        : (ymd(raw.IssuedDate||'')||(runDay[1]?runDay[1]+'-'+runDay[2]+'-'+runDay[3]:'')||loggedIssue||todayLocal()),
         month: ym(raw.Month), dueDate: ymd(raw.DueDate||''),
         paidDate: last?last.date:'', paidTime: last?last.time:'',
         student:{ id:sid, name:String(s.NameTH||s.Name||'').trim(), nick:String(s.Nickname||'').trim(), className:String(s.Class||'') },
