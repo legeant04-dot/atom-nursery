@@ -197,7 +197,10 @@ console.log('\n2) 🔴 รายชื่อ shadow ที่เป็นกา�
   /* Pinned, like every other ledger in this project. A new read-only shadow is a new pair of
    * implementations of one answer, with nothing forcing them to agree — the exact shape that cost
    * three releases. Adding one has to be a visible decision. */
-  eq('จำนวน shadow ทั้งหมด', shadows.length, 131);
+  /* 131 → 133 (v494): rejectSlips / deleteSlips — เคลียร์สลิปค้างหลายใบในคำขอเดียว · GAS ต้องเป็นตัวจริง
+   * เพราะวนเรียก handleRejectSlip/handleDeleteSlip ที่เขียนชีตทีละแถว (ไม่ใช่ทับทั้ง collection)
+   * และกฎ "ไม่เปิดรายการที่ปิดแล้วกลับมาเป็นหนี้" อยู่ทั้งสองฝั่ง — tools/test_orphan_bulk.js ตรึงไว้ */
+  eq('จำนวน shadow ทั้งหมด', shadows.length, 133);
   eq('🔴 ...ที่เป็นการอ่านล้วน (ไม่มีเหตุผลเชิงกลไก)', readOnly.length, 17);
   /* the three that have already bitten — named, so a future cleanup cannot quietly drop the check */
   ['insuranceStatus'].forEach(n =>

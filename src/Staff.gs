@@ -388,11 +388,19 @@ function handleSetStudentEnd(p) {
     if (!reason) throw apiError_('BAD_INPUT', 'กรุณาระบุเหตุผลที่สิ้นสุดการเรียน');
     patch = { EndDate: end, EndReason: reason, EndRemark: String(p.remark || '') };
   }
+  var due = !!end && end < dateStr_(new Date());       // the last day itself still counts as a school day
+  /* 🔴 สิ้นสุดชนะทุกสถานะ (เคสน้องกัปตัน 2026-11-03) — ดูหมายเหตุ setStudentEnd ใน webapp/engine.js
+   * วันสุดท้ายผ่านแล้ว → ยกเลิกลาชั่วคราวที่ค้างอยู่ · ยังไม่ถึง → ไม่แตะ (การลาคือสิ่งที่ทำให้ไม่ถูกออกบิล) */
+  var cleared = '';
+  if (due && (cur === 'PAUSED' || ymdCell_(st.PauseFrom))) {
+    cleared = ' · ยกเลิกลาชั่วคราว ' + ymdCell_(st.PauseFrom) + '→' + (ymdCell_(st.PauseTo) || 'ไม่กำหนด');
+    if (cur === 'PAUSED') patch.Status = 'ACTIVE';
+    patch.PauseFrom = ''; patch.PauseTo = ''; patch.PauseReason = ''; patch.PauseRemark = '';
+  }
   updateRow_(sh, st._row, patch);
   recCacheBust_('STUDENTS');
-  var due = !!end && end < dateStr_(new Date());       // the last day itself still counts as a school day
   try { logAudit(p.adminId || 'admin', end ? (due ? 'STUDENT_END' : 'STUDENT_END_SCHEDULED') : 'STUDENT_END_CLEAR',
-    'STUDENTS', String(p.studentId) + (end ? (' ' + end + ' ' + reason) : '')); } catch (e) {}
+    'STUDENTS', String(p.studentId) + (end ? (' ' + end + ' ' + reason) : '') + cleared); } catch (e) {}
   return { ok: true, studentId: p.studentId, endDate: end, reason: patch.EndReason,
            ended: due, endScheduled: !!end && !due };
 }

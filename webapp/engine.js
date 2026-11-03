@@ -1952,6 +1952,8 @@ function createAtomAPI(M, GROWTH_STD) {
     return { ok:true, due:tgt.due, paidSoFar:submitted, outstanding:Math.max(0,tgt.due-confirmed), amountMatch:submitted>=tgt.due }; }
   // after confirm/reject a slip, recompute the target's Status + outstanding
   function recomputeTarget_(kind, refId, paidDate){ const tgt=slipTarget_(kind, refId); if(!tgt)return;
+    // รายการที่ยกเลิกแล้ว สลิปไม่มีสิทธิ์เปลี่ยนสถานะมัน — ดูหมายเหตุที่ rejectSlip
+    if(String(tgt.obj.Status||'').toUpperCase()==='CANCELLED') return { confirmed:sumSlips_(kind, refId, ['CONFIRMED']), submitted:0, due:tgt.due, outstanding:0 };
     const confirmed=sumSlips_(kind, refId, ['CONFIRMED']); const submitted=sumSlips_(kind, refId, ['SUBMITTED','CONFIRMED']);
     tgt.obj.SlipAmount=submitted;
     if(confirmed>=tgt.due && tgt.due>0){ tgt.obj.Status='PAID'; tgt.obj.PaidDate=paidDate||tgt.obj.PaidDate||todayLocal(); tgt.obj.VerifiedStatus='CONFIRMED';
@@ -2984,15 +2986,56 @@ function createAtomAPI(M, GROWTH_STD) {
       const i=paySlips_().findIndex(s=>String(s.SlipID)===String(p.slipId)); if(i<0)fail('NOT_FOUND','ไม่พบรายการชำระ');
       const s=paySlips_()[i];
       if(s.Url) fail('HAS_SLIP','รายการนี้มีสลิปแนบอยู่ — ใช้ปุ่มปฏิเสธสลิปแทนการลบ');
-      const kind=s.RefKind, refId=s.RefID; paySlips_().splice(i,1);
-      const r=recomputeTarget_(kind, refId);
+      const kind=s.RefKind, refId=s.RefID;
+      // กฎเดียวกับ rejectSlip: รายการที่ปิดไปทางอื่นแล้ว ห้ามถูกเปิดกลับมาเป็นหนี้เพราะลบสลิปที่ไม่ได้ทำให้มันปิด
+      const prev=String(s.Status||'').toUpperCase();
+      const tgt=slipTarget_(kind, refId); const tst=tgt?String(tgt.obj.Status||'').toUpperCase():'';
+      const keep = tst==='CANCELLED' || (tst==='PAID' && prev!=='CONFIRMED');
+      paySlips_().splice(i,1);
+      const r = keep ? null : recomputeTarget_(kind, refId);
       logAct('deleteSlip', refId, 'ลบรายการรับชำระ '+s.Amount, actorOf(p));
       return Object.assign({ok:true, kind, refId}, r||{}); },
     // Admin confirms ONE slip; when confirmed total ≥ due the whole bill flips to PAID (else PARTIAL).
     confirmSlip: p => { const s=paySlips_().find(x=>x.SlipID===p.slipId); if(!s)fail('NOT_FOUND','ไม่พบสลิป'); s.Status='CONFIRMED'; s.VerifiedBy=p.adminId||'admin';
       const r=recomputeTarget_(s.RefKind, s.RefID, p.paidDate); logAct('confirmSlip',s.SlipID,'ยืนยัน '+s.Amount,actorOf(p)); return Object.assign({ok:true},r); },
-    rejectSlip: p => { const s=paySlips_().find(x=>x.SlipID===p.slipId); if(!s)fail('NOT_FOUND','ไม่พบสลิป'); s.Status='REJECTED';
-      const r=recomputeTarget_(s.RefKind, s.RefID); logAct('rejectSlip',s.SlipID,'ปฏิเสธสลิป',actorOf(p)); return Object.assign({ok:true},r); },
+    /* 🔴 ปฏิเสธสลิป ห้ามเปิดรายการที่ปิดไปแล้วกลับมาเป็นหนี้ (พบ 2026-11-03 ตอนจะทำปุ่ม "เคลียร์ทั้งหมด")
+     *
+     * ของเดิมปฏิเสธแล้วคำนวณสถานะใหม่จากสลิปเสมอ · สลิปค้างของรายการที่ "ปิดไปทางอื่น" (v489) คือ
+     * รายการที่ถูกยกเลิก หรือจ่ายแล้วโดยไม่มีแถวสลิป (confirmPayment / เงินสดแบบเก่า) — พอคำนวณใหม่
+     * ไม่เจอเงินยืนยันสักบาท เลยตกไปบรรทัดสุดท้ายของ recomputeTarget_ = UNPAID
+     *   · ค่า OT ที่ยกเลิกให้แล้ว → กลับมาเป็นหนี้ 100 บาท
+     *   · บิลที่จ่ายเงินสดแล้ว → กลับมาค้างชำระเต็มยอด
+     * ทั้งหมดนี้จากการกดปุ่ม "ไม่ต้องใช้" ที่ผมทำไว้เองใน v489 · และถ้าทำปุ่มเคลียร์ทั้งหมดทับไป
+     * มันจะเปิดหนี้ปลอมพร้อมกันทั้ง 14 ครอบครัวในคลิกเดียว
+     *
+     * กฎ: สลิปที่ยังไม่เคยยืนยัน ไม่เคยทำให้รายการ PAID — ปฏิเสธมันจึงต้องไม่ทำให้รายการ PAID หลุด
+     * และรายการที่ CANCELLED ไม่ถูกสลิปไหนแตะสถานะเลย · เหลือเฉพาะกรณีปฏิเสธสลิปที่ยืนยันแล้ว
+     * (ซึ่งอาจเป็นตัวที่ทำให้ PAID จริง) ที่ยังคำนวณใหม่ตามเดิม */
+    /**
+     * เคลียร์สลิปหลายใบในคำขอเดียว — หน้า "สลิปที่รายการปิดไปแล้ว" (ผอ. 2026-11-03)
+     * วนเรียก rejectSlip / deleteSlip ตัวเดิมทีละใบ ไม่ได้เขียนกฎใหม่ · ใบไหนพังไม่ล้มทั้งก้อน
+     * เหตุผลที่ต้องเป็น route เดียว: ทีละคำขอ 14 ใบ × ~7 วินาที = แอดมินรอเกือบ 2 นาที */
+    rejectSlips: p => { const ap=staffById(p.staffId); if(!adminLike_(ap))fail('NO_PERMISSION','เฉพาะแอดมิน');
+      const ids=Array.isArray(p.slipIds)?p.slipIds.filter(Boolean):[]; if(!ids.length)fail('BAD_INPUT','ยังไม่ได้เลือกสลิป');
+      const done=[], skipped=[];
+      ids.forEach(id=>{ try{ const r=H.rejectSlip(Object.assign({},p,{slipId:id})); done.push({slipId:id,kept:!!(r&&r.kept)}); }
+        catch(err){ skipped.push({slipId:id,code:(err&&err.code)||'',reason:(err&&err.message)||String(err)}); } });
+      return {ok:true, count:done.length, done, skipped}; },
+    deleteSlips: p => { const ap=staffById(p.staffId); if(!adminLike_(ap))fail('NO_PERMISSION','เฉพาะแอดมิน');
+      const ids=Array.isArray(p.slipIds)?p.slipIds.filter(Boolean):[]; if(!ids.length)fail('BAD_INPUT','ยังไม่ได้เลือกรายการ');
+      const done=[], skipped=[];
+      // สลิปที่มีรูปแนบคือหลักฐานการโอน — deleteSlip ปฏิเสธด้วย HAS_SLIP เหมือนเดิม และถูกรายงานกลับว่าข้าม
+      ids.forEach(id=>{ try{ H.deleteSlip(Object.assign({},p,{slipId:id})); done.push({slipId:id}); }
+        catch(err){ skipped.push({slipId:id,code:(err&&err.code)||'',reason:(err&&err.message)||String(err)}); } });
+      return {ok:true, count:done.length, done, skipped}; },
+    rejectSlip: p => { const s=paySlips_().find(x=>x.SlipID===p.slipId); if(!s)fail('NOT_FOUND','ไม่พบสลิป');
+      const prev=String(s.Status||'').toUpperCase();
+      const tgt=slipTarget_(s.RefKind, s.RefID); const tst=tgt?String(tgt.obj.Status||'').toUpperCase():'';
+      s.Status='REJECTED';
+      const keep = tst==='CANCELLED' || (tst==='PAID' && prev!=='CONFIRMED');
+      const r = keep ? null : recomputeTarget_(s.RefKind, s.RefID);
+      logAct('rejectSlip',s.SlipID,'ปฏิเสธสลิป'+(keep?' (รายการปิดไปแล้ว — ไม่แตะสถานะ '+tst+')':''),actorOf(p));
+      return Object.assign({ok:true, kept:keep},r||{}); },
 
     // notify a CASH payment (parent or Admin) for a bill/OT/prepay → PENDING_VERIFY with method=cash.
     // Admin later confirms and sets the actual payment date. kind = bill | ot | prepay.
@@ -5157,7 +5200,15 @@ function createAtomAPI(M, GROWTH_STD) {
       if(st && end<st)fail('BAD_INPUT','วันสิ้นสุดการเรียนต้องไม่ก่อนวันเริ่มเรียน ('+st+')');
       const reason=String(p.reason||'').trim(); if(!reason)fail('BAD_INPUT','กรุณาระบุเหตุผลที่สิ้นสุดการเรียน');
       s.EndDate=end; s.EndReason=reason; s.EndRemark=String(p.remark||'');
-      logAct('setStudentEnd',p.studentId,'สิ้นสุดการเรียน '+end+' · '+reason,actorOf(p));
+      /* วันสุดท้ายผ่านไปแล้ว → การลาชั่วคราวที่ค้างอยู่ไม่มีความหมายอีก (จะไม่มีวันกลับมาเรียน)
+       * ยกเลิกทิ้ง และเก็บของเดิมไว้ใน log เผื่อต้องย้อน · วันสุดท้ายที่ยังไม่ถึง ไม่แตะการลา
+       * เพราะเด็กยังลาอยู่จริงจนถึงวันนั้น และการลาคือสิ่งที่ทำให้ไม่ถูกออกบิล — ลบทิ้งก่อนเวลา = เรื่องเงิน */
+      let cleared='';
+      if(studentEnded_(s) && (String(s.Status)===PAUSED_STATUS || ymd(s.PauseFrom||''))){
+        cleared=' · ยกเลิกลาชั่วคราว '+ymd(s.PauseFrom||'')+'→'+(ymd(s.PauseTo||'')||'ไม่กำหนด');
+        if(String(s.Status)===PAUSED_STATUS) s.Status='ACTIVE';
+        s.PauseFrom=''; s.PauseTo=''; s.PauseReason=''; s.PauseRemark=''; }
+      logAct('setStudentEnd',p.studentId,'สิ้นสุดการเรียน '+end+' · '+reason+cleared,actorOf(p));
       return {ok:true,studentId:p.studentId,endDate:end,reason,ended:studentEnded_(s),endScheduled:endScheduled_(s)}; },
     /**
      * Children finishing — the ones still to come and the ones already past, in one list.
@@ -5428,7 +5479,11 @@ function createAtomAPI(M, GROWTH_STD) {
         /* ผลรวมมาจากรายการเดียวกับที่แสดง ไม่ได้นับแยก — ป้ายตัวเลขบนหัวการ์ดที่ไม่ตรงกับจำนวน
          * บรรทัดใต้มัน คือหน้าจอที่เถียงกันเอง (บทเรียน "ยังไม่ได้จัดชั้น" v456) */
         total: items.reduce((a,x)=>a+x.n,0) }; },
-    pausedStudents: () => M.students.filter(s=>String(s.Status)===PAUSED_STATUS)
+    /* 🔴 สิ้นสุดชนะทุกสถานะ (ผอ. 2026-11-03 · เคสน้องกัปตัน)
+     * กัปตันลาชั่วคราว 05/10 → 01/11 แล้ววันสุดท้าย 31/10 · หลังวันสุดท้ายเด็กยังขึ้นใน
+     * "ครบกำหนดแล้ว — กดยืนยันว่ากลับมาเรียน" ทั้งที่จะไม่กลับมาอีกแล้ว เพราะรายการนี้ดูแค่ Status
+     * setStudentEnd ไม่เคยแตะสถานะลา (ออกแบบไว้ว่าวันสิ้นสุดตัดสินเอง) แต่รายการนี้ไม่เคยถามวันสิ้นสุด */
+    pausedStudents: () => M.students.filter(s=>String(s.Status)===PAUSED_STATUS && !studentEnded_(s))
       .map(s=>({studentId:s.StudentID,name:s.NameTH||s.Name,nameEN:s.NameEN,nick:s.Nickname,nickEN:s.NicknameEN,className:s.Class,
         from:ymd(s.PauseFrom||''), to:ymd(s.PauseTo||''), reason:s.PauseReason||'',
         // `active` = away right now. `due` = the return date has come (or passed) and nobody has

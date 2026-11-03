@@ -420,9 +420,13 @@ function handleDeleteSlip(p) {
   if (!sl) throw apiError_('NOT_FOUND', 'ไม่พบรายการชำระ');
   if (sl.Url) throw apiError_('HAS_SLIP', 'รายการนี้มีสลิปแนบอยู่ — ใช้ปุ่มปฏิเสธสลิปแทนการลบ');
   var kind = String(sl.RefKind), refId = sl.RefID, amt = Number(sl.Amount || 0);
+  // กฎเดียวกับ handleRejectSlip — ลบสลิปที่ไม่ได้ทำให้รายการปิด ต้องไม่เปิดรายการนั้นกลับมาเป็นหนี้
+  var prev = String(sl.Status || '').toUpperCase();
+  var tgt = paySlipTarget_(kind, refId); var tst = tgt ? String(tgt.obj.Status || '').toUpperCase() : '';
+  var keep = tst === 'CANCELLED' || (tst === 'PAID' && prev !== 'CONFIRMED');
   sh.deleteRow(sl._row);
   recCacheBust_('PAYMENT_SLIPS');
-  paySlipRecompute_(kind, refId);
+  if (!keep) paySlipRecompute_(kind, refId);
   try { logAudit(p.adminId || 'admin', 'SLIP_DELETE', 'PAYMENT_SLIPS', p.slipId + ' ' + amt); } catch (e) {}
   return { ok: true, kind: kind, refId: refId };
 }
@@ -710,19 +714,30 @@ function handleConfirmSlip(p) {
   return { ok: true, confirmed: confirmed, due: tgt ? tgt.due : 0, outstanding: tgt ? Math.max(0, tgt.due - confirmed) : 0 };
 }
 
+/**
+ * 🔴 ปฏิเสธสลิป ห้ามเปิดรายการที่ปิดไปแล้วกลับมาเป็นหนี้ — เหตุผลเต็มอยู่ที่ rejectSlip ใน webapp/engine.js
+ * สลิปที่ยังไม่เคยยืนยันไม่เคยทำให้รายการ PAID · รายการ CANCELLED ไม่ถูกสลิปแตะ
+ * route นี้ shadow เอนจิน — กฎต้องอยู่ที่นี่ด้วย ไม่งั้นของจริงยังพังเหมือนเดิม */
 function handleRejectSlip(p) {
   var sh = paySlipsSheet_();
   var sl = findObject_(sh, function (x) { return String(x.SlipID) === String(p.slipId); });
   if (!sl) throw apiError_('NOT_FOUND', 'ไม่พบสลิป');
+  var prev = String(sl.Status || '').toUpperCase();
+  var tgt = paySlipTarget_(String(sl.RefKind), sl.RefID);
+  var tst = tgt ? String(tgt.obj.Status || '').toUpperCase() : '';
+  var keep = tst === 'CANCELLED' || (tst === 'PAID' && prev !== 'CONFIRMED');
   updateRow_(sh, sl._row, { Status: 'REJECTED' });
   recCacheBust_('PAYMENT_SLIPS');
-  paySlipRecompute_(String(sl.RefKind), sl.RefID, null);
-  return { ok: true };
+  if (!keep) paySlipRecompute_(String(sl.RefKind), sl.RefID, null);
+  try { logAudit(p.adminId || 'admin', 'SLIP_REJECT', 'PAYMENT_SLIPS', String(p.slipId) + (keep ? (' kept ' + tst) : '')); } catch (e) {}
+  return { ok: true, kept: keep };
 }
 
 // recompute a target's status from its confirmed/submitted slip totals (in-place, incl. cascades)
 function paySlipRecompute_(kind, refId, paidDate) {
   var tgt = paySlipTarget_(kind, refId); if (!tgt) return;
+  // รายการที่ยกเลิกแล้ว สลิปไม่มีสิทธิ์เปลี่ยนสถานะมัน (ดู handleRejectSlip)
+  if (String(tgt.obj.Status || '').toUpperCase() === 'CANCELLED') return;
   var confirmed = paySlipSum_(kind, refId, ['CONFIRMED']);
   var submitted = paySlipSum_(kind, refId, ['SUBMITTED', 'CONFIRMED']);
   var ss = getMainSpreadsheet_();
@@ -751,3 +766,22 @@ function paySlipBustTarget_(kind) {
   recCacheBust_('PAYMENT_SLIPS');
   recCacheBust_(kind === 'bill' ? 'BILLING' : kind === 'ot' ? 'OT_DAILY' : kind === 'charge' ? 'STUDENT_CHARGES' : 'PREPAYMENTS');
 }
+
+/**
+ * เคลียร์สลิปหลายใบในคำขอเดียว (หน้า "สลิปที่รายการปิดไปแล้ว") — วนใช้ handler เดิมทีละใบ
+ * ใบไหนพังไม่ล้มทั้งก้อน · ใบที่มีรูปแนบลบไม่ได้ (HAS_SLIP) ถูกรายงานกลับว่าข้าม */
+function bulkSlips_(p, one) {
+  p = p || {};
+  var ids = Array.isArray(p.slipIds) ? p.slipIds.filter(Boolean) : [];
+  if (!ids.length) throw apiError_('BAD_INPUT', 'ยังไม่ได้เลือกรายการ');
+  var done = [], skipped = [];
+  ids.forEach(function (id) {
+    try { var r = one(Object.assign({}, p, { slipId: id })); done.push({ slipId: id, kept: !!(r && r.kept) }); }
+    catch (e) { skipped.push({ slipId: id, code: (e && (e.apiCode || e.code)) || '', reason: (e && e.message) || String(e) }); }
+  });
+  return { ok: true, count: done.length, done: done, skipped: skipped };
+}
+// เรียกตรงในตัว ไม่ส่งชื่อฟังก์ชันเป็นค่า — tools/shadow_audit.js ตามสายการเรียกแบบตรงเท่านั้น
+// ส่งเป็นค่าแล้วมันจัด route นี้เป็น "อ่านล้วน" ทั้งที่เขียนชีตทุกครั้ง
+function handleRejectSlips(p) { return bulkSlips_(p, function (q) { return handleRejectSlip(q); }); }
+function handleDeleteSlips(p) { return bulkSlips_(p, function (q) { return handleDeleteSlip(q); }); }

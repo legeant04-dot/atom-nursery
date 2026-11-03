@@ -199,7 +199,7 @@
       _readStart(); let pr2; try{ pr2=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr2).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.493'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.494'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:var(--fs-1);margin-top:var(--sp-5)">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -17233,6 +17233,7 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
     const row = x => { const n = EN()?(x.nickEN||x.nick||x.nameEN):(x.nick||x.name);
       return `<div class="card" style="padding:var(--sp-3);background:var(--surface)">
         <div class="row" style="gap:var(--sp-3);align-items:flex-start">
+          <input type="checkbox" class="orph-ck" value="${esc(x.slipId)}" data-img="${x.url?1:0}" onchange="A_orphSel()" aria-label="${EN()?'Select':'เลือก'}" style="width:22px;height:22px;flex:0 0 auto;margin-top:var(--sp-1)"/>
           ${slipThumb2(x.url)}
           <div style="flex:1;min-width:0">
             <div><b>${baht(x.amount)}</b> ${slipVerBadge(x.verified)}</div>
@@ -17254,7 +17255,45 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
       <p class="muted" style="font-size:var(--fs-1)">${EN()
         ? 'There is deliberately no “confirm” here: the item is already closed, so confirming would record the same money twice. If the closure was wrong, open the child and fix it there.'
         : '🔴 ตรงนี้ไม่มีปุ่มยืนยันโดยตั้งใจ — รายการถูกปิดไปแล้ว การยืนยันจะบันทึกเงินก้อนเดิมซ้ำอีกครั้ง · ถ้าการปิดนั้นผิด ให้เปิดรายการของเด็กคนนั้นแล้วแก้ที่นั่น'}</p>
+      ${/* เลือกหลายรายการ (ผอ. 2026-11-03) · ยกเลิก = ปฏิเสธสลิป เก็บรูปไว้เป็นหลักฐาน ใช้ได้กับทุกใบ
+           ลบ = ลบแถวทิ้งถาวร ได้เฉพาะรายการที่ไม่มีรูปสลิป — รูปคือหลักฐานการโอน deleteSlip ปฏิเสธเสมอ
+           🔴 ทั้งสองทางผ่านกฎใหม่ของ v494: รายการที่ปิดไปแล้วจะไม่ถูกเปิดกลับมาเป็นหนี้ */''}
+      <div class="card" style="padding:var(--sp-2) var(--sp-3);background:var(--surface-2);position:sticky;top:0;z-index:2">
+        <label style="display:flex;align-items:center;gap:var(--sp-2);font-size:var(--fs-2);font-weight:600">
+          <input type="checkbox" id="orphAll" onchange="A_orphAll(this.checked)" style="width:22px;height:22px"/>
+          ${EN()?'Select all':'เลือกทั้งหมด'} <span class="muted" id="orphCount" style="font-weight:400">(0/${list.length})</span></label>
+        <div class="row" style="gap:var(--sp-2);margin-top:var(--sp-2)">
+          <button class="btn sm pink" id="orphReject" style="flex:1" disabled onclick="A_orphBulk('reject',this)">${ic('close')} ${EN()?'Clear selected':'เคลียร์ที่เลือก (ยกเลิก)'}</button>
+          <button class="btn sm outline" id="orphDelete" style="flex:1" disabled onclick="A_orphBulk('delete',this)">${ic('trash')} ${EN()?'Delete selected':'ลบที่เลือก'}</button>
+        </div>
+        <small class="muted" id="orphHint" style="display:block;margin-top:var(--sp-1);font-size:var(--fs-1)">${EN()
+          ? 'Clear keeps the slip image as a record. Delete only works for entries with no slip image.'
+          : 'เคลียร์ = ปฏิเสธสลิปแต่เก็บรูปไว้เป็นหลักฐาน (ใช้ได้ทุกใบ) · ลบ = ลบถาวร ได้เฉพาะรายการที่ไม่มีรูปสลิป'}</small></div>
       ${list.map(row).join('')}</details>`; };
+  window.A_orphSel=()=>{ const all=[...document.querySelectorAll('.orph-ck')], on=all.filter(c=>c.checked);
+    const c=document.getElementById('orphCount'); if(c) c.textContent='('+on.length+'/'+all.length+')';
+    const a=document.getElementById('orphAll'); if(a){ a.checked=on.length&&on.length===all.length; a.indeterminate=on.length>0&&on.length<all.length; }
+    const r=document.getElementById('orphReject'); if(r) r.disabled=!on.length;
+    // ลบได้เฉพาะเมื่อมีอย่างน้อยหนึ่งรายการที่ไม่มีรูป — ไม่งั้นปุ่มคือคำสัญญาที่ทำไม่ได้
+    const d=document.getElementById('orphDelete'); if(d) d.disabled=!on.some(x=>x.dataset.img!=='1'); };
+  window.A_orphAll=(v)=>{ document.querySelectorAll('.orph-ck').forEach(c=>{ c.checked=!!v; }); A_orphSel(); };
+  window.A_orphBulk=async(kind,btn)=>{
+    const on=[...document.querySelectorAll('.orph-ck')].filter(c=>c.checked);
+    const ids=(kind==='delete'?on.filter(c=>c.dataset.img!=='1'):on).map(c=>c.value);
+    const withImg=kind==='delete'?on.length-ids.length:0;
+    if(!ids.length) return;
+    const msg = kind==='delete'
+      ? (EN()?`Delete ${ids.length} entr${ids.length>1?'ies':'y'} permanently?`:`ลบ ${ids.length} รายการถาวร?`)+(withImg?(EN()?` (${withImg} with a slip image will be skipped)`:` (อีก ${withImg} รายการมีรูปสลิป จะไม่ถูกลบ)`):'')
+      : (EN()?`Clear ${ids.length} slip(s)? The images are kept as a record.`:`เคลียร์ ${ids.length} สลิป? รูปสลิปยังเก็บไว้เป็นหลักฐาน`);
+    if(!confirm(msg)) return;
+    btn.disabled=true;
+    try{ const r=await api(kind==='delete'?'deleteSlips':'rejectSlips',{slipIds:ids,staffId:USER.staffId,adminId:USER.staffId});
+      const sk=(r&&r.skipped)||[];
+      notify(sk.length?'warn':'ok',
+        (EN()?(kind==='delete'?'Deleted ':'Cleared '):(kind==='delete'?'ลบแล้ว ':'เคลียร์แล้ว '))+((r&&r.count)||0)+(EN()?'':' รายการ'),
+        sk.length?(EN()?`${sk.length} skipped: `:`ข้าม ${sk.length} รายการ: `)+sk.map(x=>x.reason).slice(0,3).join(' · '):'');
+      GO('finance'); }
+    catch(e){ err(e); btn.disabled=false; } };
   function slipThumb2(url){ return url?`<img src="${esc(url)}" alt="slip" style="width:90px;height:110px;object-fit:cover;border-radius:8px;border:1px solid var(--line);cursor:zoom-in" onclick="ZOOM_IMG('${esc(url)}')" onerror="this.replaceWith(Object.assign(document.createElement('div'),{className:'qr-ph',textContent:'📎'}))"/>`:`<div class="qr-ph" style="width:90px;height:110px">📎</div>`; }
   window.A_confirmSlip=async(slipId,btn)=>{ const card=btn?btn.closest('.card'):null; const d=card&&card.parentElement?card.parentElement.querySelector('input[type=date]'):null; const paidDate=(d&&d.value)||todayStr();
     try{ const r=await api('confirmSlip',{slipId,adminId:USER.staffId,paidDate}); const out=Number(r&&r.outstanding||0); confirmSaved(out>0?(EN()?`Confirmed. Still outstanding ${baht(out)}`:`ยืนยันแล้ว ยังค้าง ${baht(out)}`):t('verify.confirmed')); GO(CURRENT); }catch(e){err(e);} };
