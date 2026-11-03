@@ -171,6 +171,17 @@ console.log('\n6b) 🔴 บิลที่แอดมินบันทึก�
   eq('ตัวอักษรเป็นยอดเต็ม', d.words, 'หกพันเก้าร้อยบาทถ้วน');
 }
 
+console.log('\n6c) 🔴 ใบแจ้งหนี้ของบิลที่ออกก่อน v495 ต้องมีวันที่ออก (ใบแรกจริงขึ้น "–")');
+{
+  const { M, H } = fresh();
+  const b = H.issueBill(Object.assign({ studentId: 'STD-018', month: '2026-11' }, ADMIN));
+  delete M.payments[0].IssuedDate; delete M.payments[0].BillRun;          // as it was before v495
+  M.activityLog.forEach(l => { if (l.Target === b.BillingID) l.Timestamp = '2026-10-25 09:12:00'; });
+  eq('🔴 อ่านวันที่จากบันทึกการออกบิล', doc(H, b).issueDate, '2026-10-25');
+  M.activityLog.length = 0;
+  ok_('ไม่มีบันทึกเลย → ใช้วันนี้ ไม่ใช่ขีด', /^\d{4}-\d{2}-\d{2}$/.test(doc(H, b).issueDate));
+}
+
 console.log('\n7) บิลของเด็กคนอื่นขอไม่ได้');
 {
   const { H } = fresh();
