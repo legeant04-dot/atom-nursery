@@ -129,7 +129,9 @@
       txt(ctx, title, x + 2.6, by + 4.2, { size: 7.8, weight: 700, color: BRAND });
       var ry = by + 8.4;
       rows.forEach(function (r) { txt(ctx, r[0], x + 2.6, ry, { size: 8.2, color: MUTE });
-        txt(ctx, r[1], x + 29, ry, { size: 8.6, weight: r[2] ? 700 : 400, max: bw - 31 }); ry += 3.6; }); }
+        /* Names in the document's own weight (2026-11-03): in Sarabun Bold, Thai letterforms change
+         * enough that the ผอ. read the names as a different font. Same font, same weight now. */
+        txt(ctx, r[1], x + 29, ry, { size: 8.6, max: bw - 31 }); ry += 3.6; }); }
     var nameLine = (st.name || '') + (st.nick ? ' (' + st.nick + ')' : '');
     box(L, 'ข้อมูลนักเรียน · STUDENT', [
       ['ชื่อ Name', nameLine, true], ['รหัส ID', st.id || '–'], ['ชั้น/ห้อง Class', st.className || '–'],
