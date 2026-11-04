@@ -56,6 +56,13 @@ function pgStats(out) {
  * manage their own tenants, and putting a bridge between a suite and the database it is testing
  * would prove nothing about either. Run them by name, as the plan already says. */
 const SKIP = new Set(['test_pg_engine.js', 'test_pg_load.js', 'test_all.js']);
+/* 🔴 RUN WITHOUT THE BRIDGE, and counted as offline — not skipped (2026-11-04). test_narrow_safe
+ * compares the engine's answers over 120 days of fabricated data against one day; it is about what
+ * the ENGINE answers, and says so in its own header. Through the bridge every one of its ~6,000
+ * rows goes to staging and back in one synchronous round trip, which cannot finish inside the
+ * bridge's 120s — so since it was added (30/10) it has shown up here as a failure that says nothing
+ * about Postgres. It still runs, every time; only the bridge is left out. */
+const NO_BRIDGE = new Set(['test_narrow_safe.js']);
 const suites = fs.readdirSync(path.join(ROOT, 'tools'))
   .filter(f => /^test_.*\.js$/.test(f) && !SKIP.has(f) && f !== 'test_all_pg.js')
   .filter(f => !want.length || want.some(w => f.indexOf(w) >= 0))
@@ -66,7 +73,7 @@ console.log('\n=== Phase 2.3 · ทุกชุดทดสอบ โดยข�
 let failed = 0, onPg = 0, offline = 0, trips = 0, rows = 0;
 const broken = [];
 suites.forEach(f => {
-  const r = run('node -r ./tools/pg_hook.js tools/' + f, f);
+  const r = run(NO_BRIDGE.has(f) ? 'node tools/' + f : 'node -r ./tools/pg_hook.js tools/' + f, f);
   const t = tally(r.out);
   const st = pgStats(r.out);
   const mute = r.ok && !t;                   // a suite that printed no summary has not passed
