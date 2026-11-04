@@ -335,15 +335,28 @@ function pgReport_() {
 }
 
 /**
- * ADMIN-ONLY, AND ONLY WHEN THE SWITCH IS ON: how long the door takes from Apps Script.
+ * ADMIN-ONLY: how long the door takes from Apps Script — WITHOUT OPENING IT.
+ *
+ * 🔴 It must not need DB_BACKEND=pg. That switch sends EVERY request of the live app to Postgres, so a
+ * probe that required it could only be run by moving the whole school onto staging. It needs only the
+ * connection properties (PG_JDBC_URL · PG_USER · PG_PASSWORD · PG_TENANT_ID) and reads through its own
+ * connection; the app keeps reading Sheets while it runs.
+ *
  * Apps Script runs in the United States; the database is in Singapore. Every query crosses the
  * Pacific, so this is measured before anything is built on it — the speed plan's rule.
  */
 function handlePgProbe() {
-  if (!pgEnabled_()) return { ok: false, enabled: false, note: 'DB_BACKEND ไม่ใช่ pg — ไม่ได้เชื่อมต่อ' };
-  var t0 = Date.now(); pgConn_(); var tConn = Date.now() - t0;
-  var t1 = Date.now(); var st = pgConn_().prepareStatement('select 1'); var rs = st.executeQuery(); rs.next(); rs.close(); st.close();
-  var tPing = Date.now() - t1;
-  var t2 = Date.now(); var n = readObjects_(sheet_(getMainSpreadsheet_(), 'STUDENTS')).length; var tRead = Date.now() - t2;
-  return { ok: true, enabled: true, connectMs: tConn, pingMs: tPing, readStudentsMs: tRead, students: n };
+  var p = PropertiesService.getScriptProperties();
+  if (!p.getProperty('PG_JDBC_URL')) return { ok: false, configured: false, note: 'ยังไม่ได้ตั้ง PG_JDBC_URL — ไม่ได้เชื่อมต่อ' };
+  var tenant = String(p.getProperty('PG_TENANT_ID') || '');
+  var t0 = Date.now(); var c = pgConn_(); var tConn = Date.now() - t0;
+  var ping = function () { var t = Date.now(); var st = c.prepareStatement('select 1'); var rs = st.executeQuery(); rs.next(); rs.close(); st.close(); return Date.now() - t; };
+  var pings = [ping(), ping(), ping()];
+  var t2 = Date.now(), n = 0;
+  if (/^[0-9a-f-]{36}$/i.test(tenant)) {
+    var st = c.prepareStatement('select count(*)::text from "students" where "tenant_id" = ?::uuid'); st.setString(1, tenant);
+    var rs = st.executeQuery(); rs.next(); n = Number(rs.getString(1)); rs.close(); st.close();
+  }
+  var tCount = Date.now() - t2;
+  return { ok: true, configured: true, doorOpen: pgEnabled_(), connectMs: tConn, pingMs: pings, countStudentsMs: tCount, students: n };
 }
