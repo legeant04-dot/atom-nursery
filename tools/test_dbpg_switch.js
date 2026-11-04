@@ -81,6 +81,26 @@ console.log('\n4) 🔴 ชีตที่เพิ่งประกาศใน
   eq('PERF_LOG = PERF_HEADERS', schemaOf('PERF_LOG'), list((/var PERF_HEADERS = \[([^\]]*)\]/.exec(perf) || [])[1] || ''));
 }
 
+console.log('\n4b) 🔴 ตัววัดความหน่วงต้องใช้ได้โดยไม่เปิดประตู');
+{
+  /* setting DB_BACKEND=pg on the live script moves EVERY request onto Postgres — so the probe must
+   * work with only the connection properties set, and leave the app on Sheets while it runs */
+  const { run } = H(['Config', 'Db', 'PgSchema', 'DbPg']);
+  const r = JSON.parse(run(function () {
+    var m = SpreadsheetApp.create('MAIN'); var p = PropertiesService.getScriptProperties();
+    p.setProperty('WB_MAIN_ID', m.getId()); p.setProperty('PG_JDBC_URL', 'jdbc:postgresql://staging.example:5432/postgres');
+    p.setProperty('PG_TENANT_ID', '00000000-0000-4000-8000-000000000001');
+    var sqls = [];
+    Jdbc = { getConnection: function () { return { createStatement: function () { return { execute: function () {}, close: function () {} }; },
+      prepareStatement: function (q) { sqls.push(q); return { setString: function () {}, close: function () {},
+        executeQuery: function () { var i = 0; return { next: function () { return i++ === 0; }, getString: function () { return '0'; }, close: function () {} }; } }; } }; } };
+    var res = handlePgProbe();
+    return JSON.stringify({ ok: res.ok, doorOpen: res.doorOpen, appOnSheets: !getMainSpreadsheet_().__pg, sqls: sqls });
+  }));
+  eq('🔴 วัดได้ โดยประตูยังปิด และแอปยังอ่านชีต', [r.ok, r.doorOpen, r.appOnSheets], [true, false, true]);
+  ok_('อ่านอย่างเดียว — มีแต่ select', r.sqls.length > 0 && r.sqls.every(q => /^select /.test(q)));
+}
+
 console.log('\n5) ประตูเดียว');
 {
   const cfg = R('src/Config.gs');
