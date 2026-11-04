@@ -106,7 +106,10 @@ console.log('\n2) who may attach one');
   const { M, H } = fresh();
   throws_('a teacher WITHOUT the menu right may not attach one',
     () => H.saveFoodItem({ staffId: 'STF-T', item: { itemId: 'FI-0002', nameTH: 'ผัดวุ้นเส้น', photo: PIC } }), 'NO_PERMISSION');
-  eq('...and nothing was written', M.foodItems[1].Photo, undefined);
+  /* '' through Postgres or a real sheet (the column exists, the cell is blank); undefined in the
+   * in-memory fixture. Either way: no photo. Pinning undefined failed the moment FOOD_ITEMS gained
+   * its real table (week 2). */
+  ok_('...and nothing was written', !M.foodItems[1].Photo);
   throws_('...nor rename a dish, exactly as before',
     () => H.saveFoodItem({ staffId: 'STF-T', item: { itemId: 'FI-0002', nameTH: 'ชื่อใหม่' } }), 'NO_PERMISSION');
   // ...and ADDING a dish is still open to any teacher, which is the whole point of the master list

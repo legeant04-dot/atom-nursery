@@ -134,7 +134,11 @@ console.log('\n6) เอนจินตัวเดิม ไม่ใช่ส�
    * ไม่ใช่ตรึงว่าเรียกฟังก์ชันชื่อไหน · ส่วนที่ว่าสองทางให้ผลเท่ากันจริง
    * พิสูจน์ที่ tools/test_pg_hydrate_fast.js ซึ่งยิงฐานข้อมูลจริงและเทียบ M ทั้งก้อน */
   ok_('ป้อน M จาก pg_engine', /PG\.hydrate(Fast)?\(client, tenant, ALL_KEYS[,)]/.test(host));
-  ok_('เขียนกลับด้วย persist (ทีละแถว ไม่ทับทั้ง collection)', /PG\.persist\(client, tenant, M, snapshot/.test(host));
+  /* 🔴 CHANGED 2026-11-04: this used to pin "writes back with persist". The first real deploy showed
+   * the derived keys (a staff clock-in among them) are never written back here, so the host is now
+   * read-only by construction and refuses any request that changes anything — the behaviour is
+   * driven end to end in tools/test_fast_host_readonly.js. */
+  ok_('🔴 ยังไม่เขียนกลับ — ไม่มี PG.persist และปฏิเสธด้วย READ_ONLY_HOST', !/PG\.persist\(/.test(host) && /READ_ONLY_HOST/.test(host));
   ok_('ไม่มี SQL ของตัวเองในไฟล์นี้', !/\bselect\s+\*\s+from\b/i.test(host));
   /* วัดเวลาแยกส่วน — ถ้าไม่มีตัวเลข จะไม่รู้ว่าต้องแก้ตรงไหนตอนไม่ผ่านเป้า */
   ok_('ติดเวลาแยกส่วนกลับไปด้วย (hydrate/run/save)', /x-atom-ms/.test(host) && /hydrate: tHydrate, run: tRun, save: tSave/.test(host));

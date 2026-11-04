@@ -46,6 +46,7 @@ const q = name => '"' + String(name).replace(/"/g, '""') + '"';
  *     sheet column   Name          what SCHEMA declares  (FIELD_ALIAS maps between these two)
  *     pg column      name          snake(sheet column)   — exactly what 001_init.sql created
  * Deriving it rather than writing it out means the mapping cannot drift from the schema. */
+let SHEET_COLS = {};
 function buildMap() {
   const cfg = decomment(R('src/Config.gs')), gas = R('src/GasEngine.gs');
   const sheets = {};
@@ -60,6 +61,7 @@ function buildMap() {
       if (cols.length) sheets[m[1]] = [...new Set(cols)];      // STAFF declares Pause* twice
     }
   }
+  SHEET_COLS = sheets;
   // COLLECTION_MAP: which engine collection comes from which sheet
   const cm = /var COLLECTION_MAP = \{([\s\S]*?)\n\};/.exec(gas);
   const collections = {};
@@ -344,4 +346,117 @@ async function persist(client, tenantId, M, snapshot, keys) {
   return out;
 }
 
-module.exports = { COLLECTIONS, hydrate, hydrateFast, persist, decode_, encode_, snake };
+/* ── M.config — the school's settings ─────────────────────────────────────────────────────────
+ * 🔴 FOUND ON THE FIRST REAL DEPLOY (Cloud Run, 2026-11-04): this file built every collection and
+ * never M.config, so on the fast host 210 of the teacher home's 300 calls died with "Cannot read
+ * properties of undefined (reading 'Departments')". measure_fast_host.js never saw it — it wraps
+ * each handler in `catch (e) {}` — and the suites never saw it because pg_hook keeps the suite's
+ * own M.config. GasEngine loads it eagerly because "almost everything" uses it.
+ *
+ * NOT A SECOND COPY. The settings are shaped by GasEngine's own hydrateConfig_ (array keys, JSON
+ * cells, numbers, Links, the leave-quota and insurance defaults), lifted from src/GasEngine.gs and
+ * run here, so the two cannot drift. Only its inputs are swapped: SCHOOL_CONFIG rows come from the
+ * school_config table, and there is no CacheService. */
+function liftGas_(src, startRe) {
+  /* A top-level function or object in GasEngine.gs closes with `}` in column 0. Counting braces
+   * instead would be fooled by the `{` inside hydrateConfig_'s own regex, /^[\[{]/. One-liners
+   * (`var X = { … };` on a single line) end on the line they start. */
+  const m = startRe.exec(src); if (!m) throw new Error('pg_engine: not found in GasEngine.gs: ' + startRe);
+  const eol = src.indexOf('\n', m.index), first = src.slice(m.index, eol);
+  if (/\};?\s*(\/\/.*)?$/.test(first) && (first.match(/\{/g) || []).length === (first.match(/\}/g) || []).length) return first;
+  const end = src.indexOf('\n}', m.index); if (end < 0) throw new Error('pg_engine: no end for ' + startRe);
+  return src.slice(m.index, end + 2);
+}
+let configShaper_ = null;
+function configShaper() {
+  if (configShaper_) return configShaper_;
+  const gas = R('src/GasEngine.gs'), vm = require('vm');
+  const code = [
+    liftGas_(gas, /^var CONFIG_ARRAY_KEYS = /m) + ';',
+    liftGas_(gas, /^var ENGINE_REF = /m) + ';',
+    liftGas_(gas, /^function decodeCell_\(/m),
+    liftGas_(gas, /^function hydrateConfig_\(/m),
+    'function cacheGet_() { return null; } function cachePut_() {}',
+    'function shape(raw) { getAllConfig_ = function () { return raw; }; return hydrateConfig_(); }'
+  ].join('\n');
+  const box = { getAllConfig_: null };
+  vm.runInNewContext(code, box);
+  return (configShaper_ = box.shape);
+}
+async function hydrateConfig(client, tenantId) {
+  const r = await client.query('select "key", "value" from school_config where tenant_id = $1 order by seq', [tenantId]);
+  const raw = {};
+  r.rows.forEach(x => { raw[String(x.key)] = x.value == null ? '' : x.value; });   // a blank cell reads '' from Sheets
+  /* vm objects carry the sandbox's prototypes; round-trip so handlers get ordinary objects */
+  return JSON.parse(JSON.stringify(configShaper()(raw)));
+}
+
+/* ── the DERIVED keys — what GasEngine computes rather than reads ─────────────────────────────────
+ * 🔴 FOUND THE SAME DAY AS M.config. Running every read handler for all three roles over an M built
+ * here, with a Proxy recording what they reached for, listed eleven keys this file never made —
+ * today's attendance for children and staff, staff history, check-in pairs, leave used, payroll
+ * settings, the feed and calendar, the permission matrix, the vaccine schedule. ~35 handlers, four
+ * of them on the teacher's home screen.
+ *
+ * NOT A SECOND COPY, again. The block of hydrateLazy_ that defines them is lifted out of
+ * src/GasEngine.gs, with the helpers it calls, and run here; only its two raw reads are swapped
+ * (CHECKIN_STAFF and PAYROLL_CONFIG, read from their tables below, with the SHEET's column names —
+ * readRows_ hands back raw sheet rows, not aliased engine fields).
+ *
+ * 🔴 NOTHING DERIVED IS WRITTEN BACK. GasEngine persists payrollConfig and staffAttendanceToday;
+ * this does not, so a staff clock-in through the fast host would vanish without an error. That is
+ * why server/host.js refuses every write until that path exists and is tested. */
+async function readSheet(client, tenantId, sheet) {
+  const cols = SHEET_COLS[sheet]; if (!cols || !cols.length) return [];
+  const table = snake(sheet);
+  const r = await client.query('select ' + cols.map(c => q(snake(c))).join(',') + ' from ' + table +
+    ' where tenant_id = $1 order by seq', [tenantId]);
+  return r.rows.map(row => { const o = {}; cols.forEach(c => { o[c] = decode_(row[snake(c)], typeOf_(table, snake(c))); }); return o; });
+}
+let deriver_ = null;
+function deriver() {
+  if (deriver_) return deriver_;
+  const gas = R('src/GasEngine.gs'), leave = R('src/Leave.gs'), vm = require('vm');
+  const h = gas.indexOf('function hydrateLazy_(');
+  const from = gas.indexOf("  lazyRW_(M, cache, snap, 'payrollConfig'", h), to = gas.indexOf('  function persist() {', h);
+  if (h < 0 || from < 0 || to < from) throw new Error('pg_engine: derived block not found in hydrateLazy_');
+  const lift = re => liftGas_(gas, re);
+  const code = [
+    lift(/^var ENGINE_REF = /m) + ';',
+    liftGas_(leave, /^var LEAVE_TYPE_ALIAS_ = /m) + ';',
+    liftGas_(leave, /^function leaveTypeTH_\(/m),
+    lift(/^function decodeCell_\(/m), lift(/^function coerce_\(/m), lift(/^function ciTimeHHmm_\(/m),
+    lift(/^function ymd4_\(/m), lift(/^function deriveStudentCheckins_\(/m), lift(/^function deriveStudentToday_\(/m),
+    lift(/^function deriveLeaveUsed_\(/m), lift(/^function hydratePayrollConfig_\(/m),
+    'function derive(M, raw, t, lazyRW_, lazyRO_) {',
+    '  var cache = {}, snap = {};',
+    '  gasToday_ = function () { return t; };',
+    '  readRows_ = function (wb, sheet) { return raw[sheet] || []; };',
+    '  function rawCheckinStaff() { return raw.CHECKIN_STAFF || []; }',
+    gas.slice(from, to),
+    '}'
+  ].join('\n');
+  const box = { gasToday_: null, readRows_: null, getConfig_: (k, d) => d,
+    Utilities: { formatDate: () => '' } };          // rows arrive as strings; no Date reaches formatDate
+  vm.runInNewContext(code, box);
+  return (deriver_ = box.derive);
+}
+/* Lazy, like GasEngine — a handler that never touches staff history never pays for it — and each
+ * value is copied out of the sandbox so handlers get this realm's arrays and objects. */
+const plain_ = v => v === undefined ? v : JSON.parse(JSON.stringify(v));
+function lazy_(M, cache, key, loader, init) {
+  Object.defineProperty(M, key, { enumerable: true, configurable: true,
+    get() { if (!(key in cache)) { cache[key] = plain_(loader()); init[key] = JSON.stringify(cache[key]); } return cache[key]; },
+    set(v) { if (!(key in init)) init[key] = JSON.stringify(plain_(loader())); cache[key] = v; } });
+}
+async function hydrateDerived(client, tenantId, M, today) {
+  const raw = { CHECKIN_STAFF: await readSheet(client, tenantId, 'CHECKIN_STAFF'),
+                PAYROLL_CONFIG: await readSheet(client, tenantId, 'PAYROLL_CONFIG') };
+  const cache = {}, init = {};
+  const def = (Mx, _c, _s, key, loader) => lazy_(Mx, cache, key, loader, init);
+  deriver()(M, raw, today, (Mx, c, s, key, loader) => def(Mx, c, s, key, loader), (Mx, c, key, loader) => def(Mx, c, null, key, loader));
+  /** the derived keys a handler CHANGED — read or untouched ones are not listed */
+  return function derivedChanged() { return Object.keys(init).filter(k => JSON.stringify(cache[k]) !== init[k]); };
+}
+
+module.exports = { COLLECTIONS, hydrate, hydrateFast, hydrateConfig, hydrateDerived, readSheet, persist, decode_, encode_, snake };

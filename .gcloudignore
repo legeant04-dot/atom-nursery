@@ -28,6 +28,7 @@
 /src/*
 !/src/Config.gs
 !/src/GasEngine.gs
+!/src/Leave.gs
 
 !/docs/
 /docs/*
