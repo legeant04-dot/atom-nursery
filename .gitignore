@@ -78,3 +78,5 @@ design/
 # repo นี้เป็นสาธารณะ · ผลลัพธ์ build ไม่ควรติดขึ้นไปอยู่แล้ว ไม่ว่าจะทำให้เทสต์แดงหรือไม่
 android/build/
 android/.gradle/
+# the printable PDPA pack — rebuilt by tools/build_pdpa_pdf.js, printed and signed on paper; not a source file
+/PDPA_*.pdf
