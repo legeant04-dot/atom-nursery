@@ -67,7 +67,10 @@ const IDENTIFIER = {
   InsuredName: 'ชื่อผู้เอาประกัน', InsuranceOwner: 'ชื่อเจ้าของกรมธรรม์',
   BankAccount: '🔴 เลขบัญชีธนาคาร', BankName: 'ธนาคาร',
   PasswordHash: '🔴 รหัสผ่าน (เข้ารหัสแล้ว)',
-  EmergencyContact: 'ผู้ติดต่อฉุกเฉิน'
+  EmergencyContact: 'ผู้ติดต่อฉุกเฉิน',
+  /* found 2026-11-04 while writing the parent notice: the parent app stores WHERE a drop-off or pick-up
+   * was pressed, and the slip stores the name on the payer's bank account — both identify a person */
+  GPS_Lat: 'พิกัดตำแหน่ง', GPS_Lng: 'พิกัดตำแหน่ง', Sender: 'ชื่อผู้โอนเงิน (จากสลิป)'
 };
 
 /** Whose data is in this table — the question a data-subject request actually asks. */
