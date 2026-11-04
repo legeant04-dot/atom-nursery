@@ -71,6 +71,12 @@ const res = JSON.parse(run(function () {
   var safe = H.schoolConfig({ role: 'Parent' });
   out.schoolConfigKeys = Object.keys(safe || {}).length;
   out.schoolConfigLeaks = !!((safe || {}).SlipOK_ApiKey || (safe || {}).LineLoginChannelSecret);
+  /* 🔴 THE SAME DOORS, KNOCKED ON FROM INSIDE A BATCH (2026-11-04) — this answered all 85 settings */
+  var braw = dispatch_('batch', { calls: [{ action: 'getConfig', payload: {} }, { action: 'getConfigVal', payload: { key: 'SlipOK_ApiKey' } },
+    { action: 'schoolConfig', payload: {} }] }, null);
+  var btxt = (braw && braw.getContent) ? braw.getContent() : String(braw);
+  out.batchLeaks = btxt.indexOf('SECRET-SLIPOK-1234') >= 0 || btxt.indexOf('SECRET-LINE-5678') >= 0;
+  try { var bj = JSON.parse(btxt); out.batchCodes = (bj.data || []).map(function (x) { return x.ok ? 'OK' : x.error.code; }); } catch (e) { out.batchCodes = ['unparsed']; }
   return JSON.stringify(out);
 }));
 
@@ -93,6 +99,12 @@ console.log('\n2) 🔴 ความลับของโรงเรียนไ
   ok_('🔴 ...แต่เซิร์ฟเวอร์ยังอ่านค่าของตัวเองได้ตามปกติ', res.secretStillReadableInternally);
   ok_('schoolConfig ที่หน้าจอใช้จริง ยังทำงานและไม่รั่ว',
     res.schoolConfigKeys >= 20 && res.schoolConfigLeaks === false);
+}
+
+console.log('\n2b) 🔴 ...และไม่ออกทาง batch ด้วย');
+{
+  ok_('🔴 batch ที่ซ่อน getConfig / getConfigVal ไม่คืนความลับ', res.batchLeaks === false);
+  eq('...ตอบ UNKNOWN_ACTION ทีละ call ส่วน schoolConfig ข้าง ๆ ยังตอบปกติ', res.batchCodes, ['UNKNOWN_ACTION', 'UNKNOWN_ACTION', 'OK']);
 }
 
 console.log('\n3) 🔑 ของที่ไม่มีหน้าจอเรียก แต่ต้องเปิดไว้ — ห้ามปิดไปด้วย');

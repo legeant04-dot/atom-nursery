@@ -124,6 +124,17 @@ function handleBatch(p) {
         return { ok: false, error: { code: 'BUSY',
           message: (typeof BUSY_MSG_ !== 'undefined') ? BUSY_MSG_ : 'ระบบกำลังบันทึกข้อมูลอยู่ กรุณาลองใหม่อีกครั้ง' } };
       }
+      /* 🔴 A CLOSED DOOR IS CLOSED INSIDE A BATCH TOO (found 2026-11-04, porting the gate to Cloud Run).
+       * dispatch_ checks CLOSED_ROUTES_ for the action it was handed — and for a batch that action is
+       * `batch`. Every call INSIDE went straight to the engine, so `{action:'batch', calls:[{action:
+       * 'getConfig'}]}` from any signed-in session (a parent's included) returned all 85 settings,
+       * SlipOK_ApiKey and LineLoginChannelSecret among them — the exact leak CLOSED_ROUTES_ was
+       * created to stop on 2026-10-24. Reproduced in the harness before this line existed. Same answer
+       * as the single call, UNKNOWN_ACTION, and the same audit line. */
+      if (typeof CLOSED_ROUTES_ !== 'undefined' && CLOSED_ROUTES_[c.action]) {
+        try { logAudit('system', 'CLOSED_ROUTE_CALLED', 'API', String(c.action) + ' (batch)'); } catch (e) {}
+        return { ok: false, error: { code: 'UNKNOWN_ACTION', message: 'ไม่รู้จัก action: ' + c.action } };
+      }
       var pl = (typeof applyIdentity_ === 'function') ? applyIdentity_(c.action, c.payload || {}, sess) : (c.payload || {});
       var fn = (typeof ROUTES !== 'undefined') ? ROUTES[c.action] : null;
       var data;
