@@ -30,6 +30,8 @@ const { connect } = require(path.join(__dirname, '..', 'tools', 'pg_lib.js'));
 const PG = require(path.join(__dirname, '..', 'tools', 'pg_engine.js'));
 const { createAtomAPI } = require(path.join(__dirname, '..', 'webapp', 'engine.js'));
 const { verifySession } = require(path.join(__dirname, 'session.js'));
+const GATE = require(path.join(__dirname, 'gate.js'));
+const { WRITE_PROVEN } = require(path.join(__dirname, 'write_proven.js'));
 
 const PORT = Number(process.env.PORT || 8787);
 const SECRET = process.env.SESSION_SECRET || '';
@@ -57,7 +59,11 @@ const NARROW_SAFE = {
 };
 
 const jsonOut = (res, obj, status) => {
-  const s = JSON.stringify(obj);
+  /* 🔴 `__id` NEVER LEAVES THE HOST. It is the Postgres row id pg_engine puts on every row so persist
+   * can update in place; Apps Script has no such field, so a handler that returns a row (classList,
+   * addComment …) answered with an extra uuid — a different answer from live, and an internal key
+   * handed to every phone. Found by test_fast_host_writes_live comparing replies with GAS. */
+  const s = JSON.stringify(obj, (k, v) => (k === '__id' ? undefined : v));
   res.writeHead(status || 200, {
     'content-type': 'application/json; charset=utf-8',
     'content-length': Buffer.byteLength(s),
@@ -87,111 +93,146 @@ async function handle(req, res, body) {
    * ดู server/session.js ว่าทำไมถึงเป็นแบบนี้ได้ */
   const sess = verifySession(msg.token, SECRET);
 
-  /* 🔴 โฮสต์นี้ยัง **ไม่ได้** ทำ publicAction_ / NO_PERMISSION / write lock / Observer
-   * ของพวกนั้นอยู่ใน Code.gs และเป็นงานสัปดาห์ที่ 2 · ตอนนี้จึงปฏิเสธทุกคำขอที่ไม่มี session
-   * ซึ่งเข้มกว่าของจริง และเป็นด้านที่ถูกต้องที่จะผิดระหว่างยังวัดความเร็วอยู่ */
+  /* ทุกคำขอต้องมี session — action สาธารณะของ GAS (auth · lineExchange …) ยังทำบน Apps Script
+   * เท่านั้น · เข้มกว่าของจริง และเป็นด้านที่ถูกต้องที่จะผิด · ด่านที่เหลือทั้งหมดอยู่ใน server/gate.js */
   if (!sess) return reply(res, action, { ok: false, error: { code: 'NO_SESSION', message: 'ต้องเข้าสู่ระบบใหม่' } });
 
   const tenant = TENANT || sess.tenantId;
   if (!tenant) return reply(res, action, { ok: false, error: { code: 'NO_TENANT', message: 'ไม่ทราบโรงเรียน' } });
 
+  /* ── 🔒 ก่อนแตะฐานข้อมูล: ประตูที่ Code.gs ตัดสินได้จากชื่อ action อย่างเดียว ───────────────
+   * ทั้งหมดมาจาก server/gate.js ซึ่งรัน Code.gs ตัวจริง ไม่ใช่สำเนา */
+  const isBatch = action === 'batch';
+  const calls = isBatch ? (Array.isArray(payload.calls) ? payload.calls : []) : [{ action, payload }];
+  const isObs = String(sess.role) === 'Observer';
+  const OWN_SESSION = 'signOutEverywhere';
+  if (!isBatch && GATE.isClosed(action)) {
+    return reply(res, action, { ok: false, error: { code: 'UNKNOWN_ACTION', message: 'ไม่รู้จัก action: ' + action } });
+  }
+  if (!isBatch && isObs && GATE.isMutating(action) && action !== OWN_SESSION) {
+    return reply(res, action, { ok: false, error: { code: 'READ_ONLY', message: GATE.observerMessage() } });
+  }
+
   let client;
   try {
-    /* 🔴 connect() คืน { client, scrub, env } ไม่ใช่ตัว client ตรง ๆ
-     * เขียนผิดเป็น `client = await connect()` ตอนแรก แล้ว smoke test จับไม่ได้เลย
-     * เพราะมันสลับทั้ง pg_lib ออกไปเป็นของปลอม — **ของที่ถูก stub ทิ้ง คือของที่ไม่ได้ถูกทดสอบ**
-     * จับได้ตอนต่อฐานข้อมูลจริงครั้งแรก ซึ่งเป็นครั้งแรกที่โค้ดบรรทัดนี้ได้ทำงานจริง */
+    /* 🔴 connect() คืน { client, scrub, env } ไม่ใช่ตัว client ตรง ๆ — ดูประวัติใน git */
     ({ client } = await connect());
-    const tHydrate0 = Date.now();
-    /* hydrateFast = ยิง query เดียวแทน 38 ครั้ง · วัดแล้ว 1,140ms → 31ms
-     * ดูเหตุผลเต็มที่หัว hydrateFast ใน tools/pg_engine.js */
-    /* ── แคบสองตัวที่ใหญ่ที่สุดให้เหลือวันนี้ ────────────────────────────────────
-     * วัดบน staging: ทั้ง request 367ms → **49ms** เมื่อ journals + checkinStudent เหลือวันเดียว
-     * (สอง collection นี้คือ 90% ของเวลาโหลด และเป็นสองตัวที่โตขึ้นทุกวันไม่มีหยุด)
-     *
-     * 🔴 แคบก็ต่อเมื่อ **ทุก call ในคำขอ** อยู่ในรายชื่อที่พิสูจน์แล้วว่าแคบได้
-     * ถ้ามีสักตัวที่ไม่อยู่ → ไม่แคบทั้งคำขอ · การไม่แคบแลกมาด้วยความช้า ซึ่งยอมได้
-     * การแคบผิดแลกมาด้วยคำตอบที่ขาดข้อมูล ซึ่งยอมไม่ได้
-     *
-     * รายชื่อนี้ไม่ได้ประกาศลอย ๆ — tools/test_narrow_safe.js รันทุก handler สองรอบ
-     * (ข้อมูลเต็ม vs แคบ) ทั้งสามบทบาท แล้วเทียบคำตอบ ถ้าตัวไหนเริ่มอ่านย้อนหลังเมื่อไหร่ ข้อนั้นแดง */
-    const callsIn = action === 'batch'
-      ? (Array.isArray(payload.calls) ? payload.calls.map(c => String(c.action || '')) : [])
-      : [action];
-    const canNarrow = callsIn.length > 0 && callsIn.every(a => NARROW_SAFE[a]);
     const today = new Date(Date.now() + 7 * 3600000).toISOString().slice(0, 10);   // วันตามเวลาไทย
-    const scope = canNarrow ? { journals: today, checkinStudent: today } : {};
-    const { M, snapshot } = await PG.hydrateFast(client, tenant, ALL_KEYS, { scope });
-    /* 🔴 the settings, as GasEngine loads them (eager — "almost everything" uses them). Missing on
-     * the first real deploy: 210 of 300 calls on the teacher home died reading M.config. */
-    M.config = await PG.hydrateConfig(client, tenant);
-    /* ...and the keys GasEngine COMPUTES (today's attendance, staff history, payroll settings, the
-     * feed …) — 4 of the teacher home's 10 calls died without them. */
-    const derivedChanged = await PG.hydrateDerived(client, tenant, M, today);
-    const tHydrate = Date.now() - tHydrate0;
-    /* the state before any handler runs — see READ-ONLY below */
-    const before = {};
-    ALL_KEYS.forEach(k => { before[k] = JSON.stringify(M[k]); });
-    before.config = JSON.stringify(M.config);
 
-    const H = createAtomAPI(M, null).H;
-
-    /* ตัวตนมาจาก token เสมอ ไม่ใช่จาก payload ที่ผู้ใช้ส่งมา — กฎเดียวกับ applyIdentity_ ใน Code.gs
-     * ถ้าเชื่อ payload ผู้ปกครองคนหนึ่งจะขอดูของอีกคนได้ด้วยการแก้ตัวเลขใน request */
-    const ident = { uid: sess.uid, role: sess.role };
-    if (sess.role === 'Parent') ident.parentId = sess.linkedId;
-    else ident.staffId = sess.linkedId;
-
-    const runOne = (a, p) => {
-      const fn = H[a];
-      if (typeof fn !== 'function') {
-        return { ok: false, error: { code: 'UNKNOWN_ACTION', message: 'ไม่รู้จัก action: ' + a } };
+    /* ── ทำหนึ่งรอบ: โหลด → ด่าน → handler → เทียบว่ามีอะไรเปลี่ยน ─────────────────────────────
+     * 🔴 สองรอบเมื่อมีการเขียน และนี่คือหัวใจของการเขียนบนโฮสต์นี้
+     *
+     * รอบแรกไม่ล็อก (การอ่านทั้งโรงเรียนไม่ต้องต่อคิวกัน — กฎเดียวกับ withWriteLock_ ของ GAS)
+     * ถ้ารอบแรกพบว่า handler เปลี่ยนข้อมูล ผลของรอบแรกถูกทิ้งทั้งหมด แล้วทำใหม่ทั้งคำขอ
+     * **ภายใต้ล็อกของโรงเรียน ในธุรกรรมเดียว** โหลดข้อมูลใหม่หลังได้ล็อก จึงไม่มีทางเขียนทับ
+     * สิ่งที่คนอื่นเพิ่งบันทึกไป — ลักษณะเดียวกับเหตุข้อมูลหาย 09/07 ที่ล็อกของ GAS มีไว้กัน
+     *
+     * ไม่ใช้ชื่อ action ตัดสินว่า "เขียนไหม" เพราะรายชื่อที่พลาดหนึ่งตัวคือข้อมูลหายเงียบ ๆ
+     * ใช้ผลจริง: ข้อมูลเปลี่ยนหรือไม่ */
+    const attempt = async (locked) => {
+      if (locked) {
+        await client.query('begin');
+        await client.query("set local lock_timeout = '25s'");                      // = tryLock(25000)
+        try { await client.query('select pg_advisory_xact_lock(hashtextextended($1, 0))', [tenant]); }
+        catch (e) { await client.query('rollback').catch(() => {}); return { busy: true }; }
       }
-      try { return { ok: true, data: fn(Object.assign({}, p, ident)) }; }
-      catch (e) {
-        /* รหัสต้องผ่านออกมา ไม่ใช่กลายเป็น INTERNAL ทั้งหมด — เคยพลาดข้อนี้มาแล้วใน GAS
-         * (fail() ตั้ง `code` ตรงที่ dispatch_ อ่าน `apiCode`) ทำให้การปฏิเสธที่ถูกต้อง
-         * ทุกอันไปโผล่เป็น "ระบบพัง" ในรายงาน */
-        return { ok: false, error: { code: (e && (e.code || e.apiCode)) || 'INTERNAL',
-                                     message: (e && e.message) || String(e) } };
+      const tH0 = Date.now();
+      const callsIn = calls.map(c => String((c && c.action) || ''));
+      const canNarrow = !locked && callsIn.length > 0 && callsIn.every(a => NARROW_SAFE[a]);
+      const scope = canNarrow ? { journals: today, checkinStudent: today } : {};
+      const { M, snapshot } = await PG.hydrateFast(client, tenant, ALL_KEYS, { scope });
+      M.config = await PG.hydrateConfig(client, tenant);
+      const derivedChanged = await PG.hydrateDerived(client, tenant, M, today);
+      const tHydrate = Date.now() - tH0;
+      const before = {};
+      ALL_KEYS.forEach(k => { before[k] = JSON.stringify(M[k]); });
+      before.config = JSON.stringify(M.config);
+
+      const H = createAtomAPI(M, null).H;
+      const err = (code, message) => ({ ok: false, error: { code, message } });
+      const tR0 = Date.now();
+      const results = calls.map(c => {
+        const a = String((c && c.action) || '');
+        /* ลำดับเดียวกับ dispatch_ + handleBatch ของ GAS · และประตูที่ปิดถูกตรวจ "ทุก call"
+         * (GAS เคยตรวจแค่ระดับบน — ช่องที่พบและปิดไปแล้วใน @399) */
+        if (a === 'batch' || GATE.isClosed(a)) return err('UNKNOWN_ACTION', 'ไม่รู้จัก action: ' + a);
+        if (isObs && GATE.isMutating(a) && a !== OWN_SESSION) return err('READ_ONLY', GATE.observerMessage());
+        let pl;
+        try { pl = GATE.identity(a, (c && c.payload) || {}, sess, M); }
+        catch (e) { return err((e && (e.apiCode || e.code)) || 'INTERNAL', (e && e.message) || String(e)); }
+        /* 🔴 ของจริงไม่ได้รัน engine สำหรับ action นี้ (มี route ใน Code.gs) — คำตอบจาก engine
+         * จะเป็นคำตอบของอีกคำถามหนึ่ง จึงไม่ตอบ และบอกให้ไปถาม Apps Script */
+        if (GATE.isRoute(a)) return err('NOT_ON_FAST_HOST', 'action นี้ยังต้องทำงานบน Apps Script');
+        const fn = H[a];
+        if (typeof fn !== 'function') return err('UNKNOWN_ACTION', 'ไม่รู้จัก action: ' + a);
+        try { return { ok: true, data: fn(pl) }; }
+        catch (e) {
+          /* รหัสต้องผ่านออกมา ไม่ใช่กลายเป็น INTERNAL ทั้งหมด (fail() ตั้ง code / apiCode) */
+          return err((e && (e.code || e.apiCode)) || 'INTERNAL', (e && e.message) || String(e));
+        }
+      });
+      const tRun = Date.now() - tR0;
+
+      const changed = ALL_KEYS.filter(k => JSON.stringify(M[k]) !== before[k]);
+      const otherChanged = (JSON.stringify(M.config) !== before.config ? ['config'] : []).concat(derivedChanged());
+      const t = { hydrate: tHydrate, run: tRun, save: 0 };
+      if (!changed.length && !otherChanged.length) {
+        if (locked) await client.query('commit');
+        return { results, t };
       }
+      if (!locked) return { retry: true };
+
+      /* ── ภายใต้ล็อก และมีการเปลี่ยน: ตรวจทุกด่านก่อนบันทึก ─────────────────────────────── */
+      const refuse = async (code, message, extra) => {
+        await client.query('rollback');
+        return { refused: { ok: false, error: Object.assign({ code, message }, extra || {}) }, t };
+      };
+      const writers = calls.map((c, i) => ({ a: String((c && c.action) || ''), r: results[i] }))
+        .filter(x => GATE.isMutating(x.a) && x.r.ok);
+      const notProven = writers.filter(x => !WRITE_PROVEN[x.a]).map(x => x.a);
+      const allowed = new Set([].concat(...writers.map(x => WRITE_PROVEN[x.a] || [])));
+      const outside = changed.concat(otherChanged).filter(k => !allowed.has(k));
+      /* 🔴 บันทึกได้เฉพาะ action ที่พิสูจน์แล้วว่าผลตรงกับ Apps Script (WRITE_PROVEN) และเฉพาะ
+       * collection ที่ action นั้นประกาศไว้ · การเปลี่ยนใดที่อยู่นอกนั้น = ปฏิเสธทั้งคำขอ ไม่มีอะไรถูกบันทึก
+       * (รวมคีย์ที่คำนวณ เช่น staffAttendanceToday ซึ่งยังไม่มีตัวเขียน และ config ซึ่ง GAS ก็ไม่บันทึก) */
+      if (!writers.length || notProven.length || outside.length) {
+        return refuse('READ_ONLY_HOST', 'เส้นทางนี้ยังบันทึกข้อมูลนี้ไม่ได้ — ไม่มีอะไรถูกบันทึก',
+          { changed: changed.concat(otherChanged), notProven, outside });
+      }
+      for (const k of changed) {
+        const c = PG.COLLECTIONS[k];
+        /* 🔴 WRITE_GUARD ของ writeRows_ (GasEngine.gs) — กฎเดียวกันทุกตัวเลข:
+         * ชีตตัวตน/เงินห้ามหดเลย · ที่เหลือห้ามหายเกิน 5 แถวและเกิน 25% ในคำขอเดียว */
+        const was = JSON.parse(before[k]).length, now = (M[k] || []).length;
+        if (now < was) {
+          const drop = was - now;
+          if (GATE.noShrink(c.sheet) || (drop > 5 && drop > was * 0.25)) {
+            return refuse('WRITE_GUARD', 'ยกเลิกการบันทึกชีต ' + c.sheet + ' เพื่อป้องกันข้อมูลหาย (' + was + ' → ' + now + ' แถว)');
+          }
+        }
+        /* 🔴 รูปภาพ: GAS ย้ายรูป base64 ไปไว้ใน Drive ก่อนเขียน (driveifyImage_) · ที่นี่ทำไม่ได้
+         * การเก็บรูปทั้งก้อนลงฐานข้อมูลคือคำตอบที่ต่างจาก GAS จึงไม่บันทึก */
+        const hasImage = (M[k] || []).some(r => Object.keys(r).some(f =>
+          GATE.imageCol((c.toSheet && c.toSheet[f]) || f) && /^data:/.test(String(r[f] || ''))));
+        if (hasImage) return refuse('NOT_ON_FAST_HOST', 'มีรูปภาพที่ต้องเก็บใน Drive — ยังต้องทำบน Apps Script');
+      }
+      const tS0 = Date.now();
+      const saved = await PG.persist(client, tenant, M, snapshot, changed);
+      await client.query('commit');
+      t.save = Date.now() - tS0;
+      return { results, t, saved };
     };
 
-    const tRun0 = Date.now();
-    let out;
-    if (action === 'batch') {
-      const calls = Array.isArray(payload.calls) ? payload.calls : [];
-      out = { ok: true, data: calls.map(c => runOne(String(c.action || ''), c.payload || {})) };
-    } else {
-      out = runOne(action, payload);
+    let r = await attempt(false);
+    if (r.retry) {
+      try { r = await attempt(true); }
+      catch (e) { await client.query('rollback').catch(() => {}); throw e; }
     }
-    const tRun = Date.now() - tRun0;
-
-    /* 🔴 READ-ONLY, BY CONSTRUCTION (2026-11-04). Nothing is written back from this host yet.
-     *
-     * The derived keys — staffAttendanceToday (a staff clock-in), payrollConfig — are not persisted
-     * here the way GasEngine persists them, so a clock-in through this host would be answered "ok"
-     * and then vanish. Rather than guess which actions write from their NAMES (a list that misses
-     * one is a silent data loss), the host compares what the handlers left behind with what it
-     * loaded: every collection, the settings, every derived key a handler touched. Any difference
-     * and the WHOLE request is refused and nothing is saved. A read cannot be refused by this; a
-     * write cannot get past it, whatever it is called.
-     *
-     * PG.persist is not called at all until writes are ported here and tested against GasEngine. */
-    const changed = ALL_KEYS.filter(k => JSON.stringify(M[k]) !== before[k])
-      .concat(JSON.stringify(M.config) !== before.config ? ['config'] : [], derivedChanged());
-    if (changed.length) {
-      res.setHeader('x-atom-ms', JSON.stringify({ total: Date.now() - t0, hydrate: tHydrate, run: tRun, save: 0 }));
-      return reply(res, action, { ok: false, error: { code: 'READ_ONLY_HOST',
-        message: 'เส้นทางนี้ยังบันทึกข้อมูลไม่ได้ — ไม่มีอะไรถูกบันทึก', changed } });
-    }
-    const tSave = 0;
-    void snapshot;
-
-    res.setHeader('x-atom-ms', JSON.stringify({
-      total: Date.now() - t0, hydrate: tHydrate, run: tRun, save: tSave
-    }));
-    return reply(res, action, out);
+    if (r.busy) return reply(res, action, { ok: false, error: { code: 'BUSY', message: GATE.busyMessage() } });
+    res.setHeader('x-atom-ms', JSON.stringify(Object.assign({ total: Date.now() - t0 }, r.t,
+      r.saved ? { written: r.saved } : {})));
+    if (r.refused) return reply(res, action, r.refused);
+    return reply(res, action, isBatch ? { ok: true, data: r.results } : r.results[0]);
   } catch (e) {
     return reply(res, action, { ok: false, error: { code: 'INTERNAL', message: (e && e.message) || String(e) } });
   } finally {
@@ -224,8 +265,11 @@ module.exports = { server, handle };
  * 🔴 ยังไม่ครบ — รายการนี้คือหนี้ที่รู้ตัว ไม่ใช่ของที่ลืม
  *
  *   ⬜ ต่อ "ออกจากระบบทุกเครื่อง" (sessionEpochOf_) — token ที่ถูกเพิกถอนยังใช้ได้บนเส้นนี้
- *   ⬜ publicAction_ / NO_PERMISSION / Observer / write lock — ยังอยู่ใน Code.gs ทั้งหมด
- *   ⬜ 131 shadow route · 87 ตัวต้องใช้ Drive · 37 ตัวยิงออกนอกระบบ — ยังต้องวิ่งผ่าน GAS
+ *   ✅ ด่านของ Code.gs (ADMIN_ONLY · Observer · CLOSED · parentOwnsStudent_ · ENDED/NOT_STARTED/PAUSED) — server/gate.js
+ *   ✅ ล็อกการเขียน = pg_advisory_xact_lock ต่อโรงเรียน + ธุรกรรม · WRITE_GUARD · ลำดับแถว
+ *   ⬜ 180 ROUTES ตอบ NOT_ON_FAST_HOST — ยังต้องวิ่งผ่าน GAS (client ต้องส่งต่อเอง)
+ *   ⬜ เขียนได้เฉพาะ server/write_proven.js · คีย์ที่คำนวณ (ลงเวลาครู · payrollConfig) ยังไม่มีตัวเขียน · เงินยังไม่เปิด
+ *   🔴 ล็อกนี้ต้องเป็นล็อกเดียวกับ Apps Script ก่อนวันย้าย (DbPg ต้องถือ advisory lock ตัวเดียวกัน)
  *   ⬜ ต่อ connection pool — ตอนนี้เปิด-ปิดต่อ request (จะเห็นในตัวเลขที่วัดได้)
  *   ⬜ ล็อก CORS เป็นโดเมนของเรา ก่อนรับข้อมูลจริง
  *   ⬜ บันทึกตรวจสอบ PDPA (36 route)

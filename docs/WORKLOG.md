@@ -5,6 +5,29 @@
 
 ---
 
+## 2026-11-04 · GAS @399 🔴 ช่องรั่วผ่าน batch · ☁️ Cloud Run เขียนได้ (6 action) ภายใต้ด่านของ Code.gs
+
+**ผอ.:** *"ทำต่อเรื่องพอร์ตการเขียนบน Cloud Run ได้เลย"*
+
+- 🔴 **ช่องโหว่บนระบบจริง (แก้แล้ว @399):** `CLOSED_ROUTES_` ถูกตรวจแค่ action ระดับบน — `{batch:[getConfig]}` จาก session ใดก็ได้
+  (รวมผู้ปกครอง) คืนค่าตั้งค่าทั้ง 85 คีย์ รวม `SlipOK_ApiKey` และ `LineLoginChannelSecret` · ทำซ้ำได้ใน harness ก่อนแก้ ·
+  แก้ใน `handleBatch` · `test_closed_routes` §2b แดงเมื่อไม่มีตัวแก้ · ตรวจย้อนหลังไม่ได้ว่าเคยมีใครใช้ → เสนอให้เปลี่ยนคีย์ทั้งสอง
+- **ด่านของโฮสต์ = Code.gs ตัวจริง** (`server/gate.js` โหลด Code/Auth/Db/Checkin/Audit/Leave/GasEngine/Config ทั้งไฟล์ เสียบแค่ตัวอ่านชีต
+  ให้อ่านจาก M) → ADMIN_ONLY · ลูกของตัวเอง · ENDED/NOT_STARTED/PAUSED · Observer · CLOSED ทุก call · **180 ROUTES ตอบ `NOT_ON_FAST_HOST`**
+  (ของจริงไม่ได้รัน engine สำหรับ 135 handler — รวม `notifications` บนหน้าหลักครู) · ก่อนหน้านี้ token ผู้ปกครองเรียก `listParents` ได้
+- **การเขียน:** รอบแรกไม่ล็อก · ถ้าข้อมูลเปลี่ยน → ทิ้งผล แล้วทำใหม่ทั้งคำขอใน **ธุรกรรม + `pg_advisory_xact_lock` ต่อโรงเรียน** (รอ 25s = tryLock) ·
+  บันทึกได้เฉพาะ `server/write_proven.js` และเฉพาะ collection ที่ประกาศ · WRITE_GUARD เดียวกับ writeRows_ · รูป base64 → ไม่บันทึก ·
+  ลำดับแถวตาม M (unshift อยู่บนสุดเหมือนชีต) · `__id` ไม่หลุดออกในคำตอบอีกต่อไป
+- **พิสูจน์บน staging (`test_fast_host_writes_live`, 42/42):** ทุก action เทียบ Postgres หลังเขียน กับ "สิ่งที่ชีตจะเก็บ" ของ Apps Script ทุก collection ·
+  คำประกาศต้องไม่แคบและไม่กว้างกว่าที่เขียนจริง · **ถอดล็อกออก → แถวหาย 1 แถว ชุดทดสอบจับได้** (mutation test)
+- 🔴 **เจอระหว่างทาง:** `VACCINE_RECORDS.DoseDate` เดาชนิดเป็น `date` แต่เก็บ JSON หลายเข็ม → วัคซีนเข็มที่สองบันทึกไม่ได้ · แก้ schema + staging ·
+  และ `COMMENTS` ไม่มีคอลัมน์ `SenderName` → ระบบจริงไม่เคยเก็บชื่อผู้ส่งแชท (ทั้งสองฝั่งทิ้งเหมือนกัน — จดเป็นงานค้าง)
+- **6 action แรก (ไม่เกี่ยวเงิน ไม่มีรูป):** addComment · updateGrowth · editGrowth · deleteGrowth · saveVaccines · setAbsenceFollowup
+- **Cloud Run rev 00006:** หน้าหลักครู p50 **128ms** · 270/270 ตอบ + notifications ส่งต่อ GAS · เขียนจริง 1 ครั้ง 881ms (ลบทิ้งแล้ว)
+- ⬜ เงินทั้งหมด · คีย์ที่คำนวณ (ลงเวลาครู · payrollConfig) · 🔴 **ล็อกต้องเป็นตัวเดียวกับ Apps Script ก่อนวันย้าย** · client ยังไม่ส่งต่อ NOT_ON_FAST_HOST · FAST_URL ว่าง
+
+---
+
 ## 2026-11-04 · ☁️ Cloud Run ขึ้นจริงครั้งแรก (ส่วนตัว · ข้อมูลจำลอง) — เร็วจริง แต่โฮสต์ยังไม่ครบ
 
 - **ตั้งค่า:** โปรเจ็กต์ `atom-nursery` (ชื่อแสดง atom-fast-host) · Billing THB + งบเตือน 300 · บริการ `atom-fast` @ asia-southeast1 ·

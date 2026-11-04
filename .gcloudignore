@@ -13,6 +13,8 @@
 !/server/host.js
 !/server/session.js
 !/server/package.json
+!/server/gate.js
+!/server/write_proven.js
 
 !/tools/
 /tools/*
@@ -29,6 +31,11 @@
 !/src/Config.gs
 !/src/GasEngine.gs
 !/src/Leave.gs
+!/src/Code.gs
+!/src/Db.gs
+!/src/Checkin.gs
+!/src/Audit.gs
+!/src/Auth.gs
 
 !/docs/
 /docs/*

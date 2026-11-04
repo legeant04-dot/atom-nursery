@@ -67,7 +67,9 @@ const DB_SUITES = new Set(['test_pg_engine.js', 'pg_rls_spike.js', 'test_pg_load
   // Phase 2.4 — the diff is proved offline in test_pg_sync.js; this one applies it for real
   'test_pg_sync_live.js',
   // Phase 2.5 — the streak and the money rule are proved offline; this one breaks a real mirror
-  'test_pg_diff_live.js']);
+  'test_pg_diff_live.js',
+  // 2026-11-04 — every write the Cloud Run host may save, proven against staging; it writes a tenant
+  'test_fast_host_writes_live.js']);
 const NEEDS_DB = { test: f => DB_SUITES.has(f) };
 const suites = fs.readdirSync(path.join(ROOT, 'tools'))
   .filter(f => /^test_.*\.js$/.test(f) && f !== 'test_all.js')

@@ -454,9 +454,14 @@ const TEXT_EXACT = /^(Verified|VerifiedBy|VerifiedStatus|ByAt|NotifyParent|ReadS
  *   SURVEYS.Anonymous   'true' === 'YES' is false → 🔴 an anonymous survey would show who answered
  *   FOOD_ITEMS.Active   String(false) !== 'NO' → a retired dish comes back on every journal
  *   ADMIN_INBOX.Read    never 'YES' again → every notice in the bell unread for ever
- * and ADMIN_INBOX.Date is 'yyyy-MM-dd HH:mm' — the bell's dedupe reads the minute; a date drops it. */
+ * and ADMIN_INBOX.Date is 'yyyy-MM-dd HH:mm' — the bell's dedupe reads the minute; a date drops it.
+ *
+ *   VACCINE_RECORDS.DoseDate   NOT a date — FIELD_ALIAS maps it to the engine's `Dates`, a JSON ARRAY
+ *     of every dose ('["2023-04-01","2023-05-01"]'). Typed `date` from its name, the first vaccine with
+ *     a second dose was refused outright ("invalid input syntax for type date") — found 2026-11-04 by
+ *     test_fast_host_writes_live, the first time a write went through the host to a real database. */
 const SHEET_TYPE = { 'SURVEYS.Anonymous': 'text', 'FOOD_ITEMS.Active': 'text', 'LINE_RECIPIENTS.Active': 'text',
-  'ADMIN_INBOX.Read': 'text', 'ADMIN_INBOX.Date': 'text' };
+  'ADMIN_INBOX.Read': 'text', 'ADMIN_INBOX.Date': 'text', 'VACCINE_RECORDS.DoseDate': 'text' };
 
 function sqlType(col, sheet) {
   if (sheet && SHEET_TYPE[sheet + '.' + col]) return SHEET_TYPE[sheet + '.' + col];

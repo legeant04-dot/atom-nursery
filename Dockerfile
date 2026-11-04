@@ -24,9 +24,18 @@ COPY src/Config.gs              src/Config.gs
 COPY src/GasEngine.gs           src/GasEngine.gs
 # pg_engine lifts leaveTypeTH_ from here (leave used) — the same code Apps Script runs
 COPY src/Leave.gs               src/Leave.gs
+# server/gate.js runs Code.gs's OWN door (applyIdentity_, ADMIN_ONLY, CLOSED_ROUTES_, ROUTES) — it
+# loads these whole, the same files Apps Script runs. Source code only; no secret lives in any of them.
+COPY src/Code.gs                src/Code.gs
+COPY src/Db.gs                  src/Db.gs
+COPY src/Checkin.gs             src/Checkin.gs
+COPY src/Audit.gs               src/Audit.gs
+COPY src/Auth.gs                src/Auth.gs
 COPY docs/schema/001_init.sql   docs/schema/001_init.sql
 COPY server/host.js             server/host.js
 COPY server/session.js          server/session.js
+COPY server/gate.js             server/gate.js
+COPY server/write_proven.js     server/write_proven.js
 
 # Cloud Run supplies PORT (8080); host.js reads it
 USER node

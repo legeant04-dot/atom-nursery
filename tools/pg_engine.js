@@ -82,11 +82,11 @@ function buildMap() {
     const c = collections[key];
     const cols = sheets[c.sheet] || [];
     const a = alias[c.sheet] || {};
-    c.toPg = {}; c.toEngine = {};
+    c.toPg = {}; c.toEngine = {}; c.toSheet = {};
     cols.forEach(sheetCol => {
       const engineField = a[sheetCol] || sheetCol;
       const pgCol = snake(sheetCol);
-      c.toPg[engineField] = pgCol; c.toEngine[pgCol] = engineField;
+      c.toPg[engineField] = pgCol; c.toEngine[pgCol] = engineField; c.toSheet[engineField] = sheetCol;
     });
     c.known = cols.length > 0;
   }
@@ -342,6 +342,25 @@ async function persist(client, tenantId, M, snapshot, keys) {
       await client.query(`delete from ${c.table} where id = $1 and tenant_id = $2`, [id, tenantId]);
       out.deleted++;
     }
+    /* 🔴 ROW ORDER IS PART OF WHAT GasEngine WRITES (found porting writes, 2026-11-04).
+     * writeRows_ puts the rows on the sheet in ARRAY order, so a handler that unshifts — a new
+     * announcement goes on top — leaves it in row 2. Here an insert always takes the next seq, so
+     * read back it came out LAST, and anything that reads "the first" or "the latest" by position
+     * would have answered differently from Apps Script. When the order in M is not already the
+     * order in the table (an insert that is not at the end, or rows moved), the collection is
+     * renumbered to M's order. Appends — nearly every write — stay a single insert. */
+    const beforeIds = [...before.keys()].filter(id => seen.has(id));
+    const nowIds = (M[key] || []).map(r => r.__id);
+    const kept = nowIds.filter(id => before.has(id));
+    const firstNew = nowIds.findIndex(id => !before.has(id));
+    const tailOnly = firstNew < 0 || nowIds.slice(firstNew).every(id => !before.has(id));
+    if (!tailOnly || kept.join() !== beforeIds.join()) {
+      for (const id of nowIds) {
+        await client.query(`update ${c.table} set seq = nextval(pg_get_serial_sequence('${c.table}', 'seq'))
+          where id = $1 and tenant_id = $2`, [id, tenantId]);
+      }
+      out.reordered = (out.reordered || 0) + 1;
+    }
   }
   return out;
 }
@@ -459,4 +478,4 @@ async function hydrateDerived(client, tenantId, M, today) {
   return function derivedChanged() { return Object.keys(init).filter(k => JSON.stringify(cache[k]) !== init[k]); };
 }
 
-module.exports = { COLLECTIONS, hydrate, hydrateFast, hydrateConfig, hydrateDerived, readSheet, persist, decode_, encode_, snake };
+module.exports = { COLLECTIONS, hydrate, hydrateFast, hydrateConfig, hydrateDerived, readSheet, persist, decode_, encode_, snake, liftGas_, SHEET_COLS: () => SHEET_COLS };
