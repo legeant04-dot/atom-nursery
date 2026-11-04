@@ -1,0 +1,36 @@
+# What `gcloud run deploy --source .` may UPLOAD to Google Cloud Build. A WHITELIST: ignore everything,
+# then let back in only the files the Dockerfile copies.
+#
+# 🔴 Never remove the first line. Without it the whole folder goes up — secrets/supabase.env,
+#    "Atom Signature.png", the certificate artwork, the fonts. tools/test_cloud_run.js fails if any
+#    of those could be uploaded.
+/*
+!/Dockerfile
+!/.gcloudignore
+
+!/server/
+/server/*
+!/server/host.js
+!/server/session.js
+!/server/package.json
+
+!/tools/
+/tools/*
+!/tools/pg_lib.js
+!/tools/pg_engine.js
+!/tools/pg_migrate.js
+
+!/webapp/
+/webapp/*
+!/webapp/engine.js
+
+!/src/
+/src/*
+!/src/Config.gs
+!/src/GasEngine.gs
+
+!/docs/
+/docs/*
+!/docs/schema/
+/docs/schema/*
+!/docs/schema/001_init.sql

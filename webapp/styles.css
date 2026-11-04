@@ -304,6 +304,10 @@ a.btn.block{display:block;}
 .sk-row{display:flex;align-items:center;gap:var(--sp-3);padding:var(--sp-3) 0;border-bottom:1px solid var(--line);}
 .sk-row:last-child{border-bottom:none;}
 .sk-row .skb{flex:1;min-width:0;}
+/* โครงตามรูปหน้าจอจริง (skelScreen) — หัวหน้า · ปุ่มเต็มแถว · กล่องที่สูงเท่าของจริง */
+.sk-h{height:var(--fs-5);width:44%;margin:var(--sp-1) 0 var(--sp-3);}
+.sk-btn{height:44px;border-radius:var(--radius);margin-bottom:var(--sp-3);}
+.sk-shape{overflow:hidden;}
 /* 🔴 คนที่ตั้งค่าเครื่องว่า "ลดการเคลื่อนไหว" มักตั้งเพราะการเคลื่อนไหวทำให้เขาเวียนหัวหรือปวดหัว
    โครงร่างที่กะพริบอยู่ 8 วินาทีคือสิ่งที่การตั้งค่านั้นมีไว้ปิด — กฎรวมด้านล่างย่นเวลาแอนิเมชัน
    ให้เหลือ .001ms ซึ่งแปลว่ามันหยุดนิ่ง แต่สีพื้นยังอยู่ จึงยังเห็นว่าอะไรกำลังจะมา */

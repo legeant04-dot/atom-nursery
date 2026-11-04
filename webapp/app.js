@@ -199,7 +199,7 @@
       _readStart(); let pr2; try{ pr2=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr2).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.496'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.497'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:var(--fs-1);margin-top:var(--sp-5)">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -628,6 +628,67 @@
     // 'card' (ค่าตั้งต้น) — หัวข้อหนึ่งบรรทัด แล้วตามด้วยเนื้อความ
     return `<div class="card"><div class="sk sk-title"></div>${Array.from({ length: n }, (_, i) =>
       line(i === n - 1 ? '45%' : '')).join('')}</div>`;
+  };
+
+  /* ═══ 🦴 SKELETON ตามรูปหน้าจอจริง ทุก Role (ผอ. 2026-11-04) ════════════════════════════════
+   * "ทำให้เป็นโครงของแอปเราได้ไหม ทุก Role เพื่อความสมจริง"
+   *
+   * วาดเองทีละหน้าทีละ Role = หลายสิบแบบที่ต้องตามแก้ทุกครั้งที่หน้าจอเปลี่ยน และจะเพี้ยนจากของจริง
+   * ในไม่ช้า · ทางที่ไม่มีวันเพี้ยนคือ **จำรูปของหน้าจอจริงไว้** หลังมันวาดเสร็จ แล้วครั้งหน้าวาดโครง
+   * จากรูปนั้น — การ์ดสูงเท่าเดิม แถวเท่าเดิม ปุ่มอยู่ที่เดิม ของครูก็เป็นของครู ของผู้ปกครองก็ของผู้ปกครอง
+   *
+   * 🔴 เก็บแค่ "รูปร่าง" ไม่เก็บเนื้อหา — ความสูง จำนวนแถว ชนิดของกล่อง ไม่มีชื่อ ไม่มีตัวเลข ไม่มีข้อความ
+   * จึงไม่มีข้อมูลส่วนบุคคลค้างอยู่ในเครื่องเพราะเรื่องนี้ (ข้อนี้ตรึงไว้ใน tools/test_skeleton_shape.js)
+   *
+   * หน้าที่ยังไม่เคยเปิดบนเครื่องนี้ ใช้รูปตั้งต้นที่วาดตามหน้าแรกของแต่ละ Role (SK_START) */
+  const SK_VER = 'v1', SK_MAX_PX = 1400;
+  const skKey = (role, screen) => 'atom.sk.' + SK_VER + '.' + role + '.' + screen;
+  // the shape of what is on screen now — kinds and sizes only
+  function skelCapture(root){
+    const out = []; let used = 0;
+    for (const el of Array.from(root.children)) {
+      if (used > SK_MAX_PX) break;
+      const h = Math.round(el.getBoundingClientRect().height); if (h < 8) continue;
+      const cls = el.classList;
+      if (el.tagName === 'H2') out.push({ t:'h' });
+      else if (cls.contains('kpigrid')) out.push({ t:'kpi', n: Math.min(6, el.children.length) || 2 });
+      else if (cls.contains('card')) out.push({ t:'card', h, title: !!el.querySelector('h3,.dash-h'),
+          rows: Math.min(12, el.querySelectorAll('.list-item,.sk-row,tr').length) });
+      else if (cls.contains('btn')) out.push({ t:'btn' });
+      else out.push({ t:'blk', h: Math.min(h, 400) });
+      used += h;
+    }
+    return out;
+  }
+  function skelDraw(shape){
+    const line = w => `<div class="sk sk-line"${w ? ` style="width:${w}"` : ''}></div>`;
+    const row = () => `<div class="sk-row"><div class="sk sk-av"></div><div class="skb">${line('62%')}${line('38%')}</div><div class="sk sk-pill"></div></div>`;
+    return shape.map(b => {
+      if (b.t === 'h') return `<div class="sk sk-h"></div>`;
+      if (b.t === 'btn') return `<div class="sk sk-btn"></div>`;
+      if (b.t === 'kpi') return skel('stats', b.n);
+      if (b.t === 'card') {
+        const nl = Math.max(1, Math.min(8, Math.round((b.h - 60) / 26)));
+        const inner = b.rows ? Array.from({ length: b.rows }, row).join('')
+          : Array.from({ length: nl }, (_, i) => line(i === nl - 1 ? '45%' : '')).join('');
+        return `<div class="card sk-shape" style="min-height:${b.h}px">${b.title ? '<div class="sk sk-title"></div>' : ''}${inner}</div>`; }
+      return `<div class="sk-shape" style="height:${b.h}px;margin-bottom:var(--sp-3)">${line('70%')}${b.h > 40 ? line('40%') : ''}</div>`;
+    }).join('');
+  }
+  // first visit on this device: the first screen of each role, drawn from the real layout
+  const SK_START = {
+    Parent:  [{t:'h'},{t:'card',h:96,rows:1},{t:'btn'},{t:'card',h:150,title:true},{t:'card',h:130,title:true,rows:2}],
+    Teacher: [{t:'h'},{t:'card',h:140,title:true},{t:'card',h:300,title:true,rows:5},{t:'card',h:120,title:true}],
+    Admin:   [{t:'h'},{t:'kpi',n:4},{t:'card',h:180,title:true,rows:3},{t:'card',h:220,title:true,rows:4}],
+  };
+  window.skelScreen = (role, screen) => {
+    try { const s = JSON.parse(localStorage.getItem(skKey(role, screen)) || 'null'); if (Array.isArray(s) && s.length) return skelDraw(s); } catch (e) {}
+    if (screen === 'home' && SK_START[role]) return skelDraw(SK_START[role]);
+    return skel('card', 3) + skel('rows', 4);
+  };
+  window.skelRemember = (role, screen) => {
+    try { const s = skelCapture(app); if (s.length) localStorage.setItem(skKey(role, screen), JSON.stringify(s));
+      localStorage.setItem('atom.sk.lastRole', role); } catch (e) {}
   };
 
   /* ═══ 📊 PBAR — แถบความคืบหน้า สีคือตัวเลขอีกชุดหนึ่ง (ผอ. 2026-10-28) ════════════════════
@@ -1364,7 +1425,7 @@
     CURRENT=screen; setNav(screen); if(!(opts&&opts.silent)) histPush(screen, opts&&opts.fromPop); if(!(opts&&opts.silent)){ setTopActions(''); CAL_OFF=0; window._CALRENDER=null; } const fn=(SCREENS[USER.role]||{})[screen];
     // paint an instant placeholder so a tap feels responsive instead of "stuck" on the old screen
     // while the first (uncached) fetch runs; skip on silent background re-renders to avoid flicker.
-    if(fn && !(opts&&opts.silent) && !snap) app.innerHTML=skel('card',3)+skel('rows',4);
+    if(fn && !(opts&&opts.silent) && !snap) app.innerHTML=skelScreen(USER.role, screen);   // the shape this screen had last time (skelScreen)
     /* 📣 แถบแจ้งเตือนหมดอายุเมื่อ "ย้ายหน้าจอจริง" ไม่ใช่เมื่อวาดหน้าเดิมใหม่
      * snap มีค่าก็ต่อเมื่อเป็นการวาดหน้าเดิมซ้ำ (บันทึก/ลบ/รีเฟรช) — ซึ่งคือตอนที่ข้อความ
      * "บันทึกแล้ว" ต้องอยู่ต่อ เพราะการวาดใหม่นั้นเกิดขึ้น *เพราะ* การบันทึกนั้นเอง
@@ -1380,7 +1441,9 @@
     if(fn && !(opts&&opts.silent)) __navBusy(1);
     if(fn){ const r=fn(); // a screen that throws must not leave the loading skeleton stuck forever
       if(!(opts&&opts.silent)){ const _navOff=()=>{ __navBusy(-1); };
-        if(r&&r.then) r.then(_navOff,_navOff); else _navOff(); }
+        /* ...and remember its shape once the late parts have arrived too — only if nobody has moved on */
+        const _role=USER.role, _keep=()=>{ _navOff(); setTimeout(()=>{ if(CURRENT===screen && USER && USER.role===_role) skelRemember(_role, screen); }, 1500); };
+        if(r&&r.then) r.then(_keep,_navOff); else _keep(); }
       // How long from tap to the screen actually being drawn — the number the user experiences.
       // Measured only for real navigations; a silent background re-render is not something anyone waits for.
       if(!(opts&&opts.silent)){ const done=()=>{ try{ window.__atomPerfMark&&__atomPerfMark('nav',screen,_took()); }catch(e){} };
@@ -1988,9 +2051,11 @@
    * ชื่อขั้นตอนยังอยู่ที่นี่เหมือนกัน แต่เป็นบรรทัดบาง ๆ ข้างบน ไม่ใช่ทั้งหน้าจอ — ถ้าช้าผิดปกติ
    * ยังตอบได้อยู่ว่ากำลังติดอยู่ที่อะไร */
   function resumingScreen(){ USER = null; AUTH_RENDER = resumingScreen; setHeader(); nav.hidden = true;
+    // the home screen of whoever used this phone last — the screen they are about to see
+    let _lr=''; try{ _lr=localStorage.getItem('atom.sk.lastRole')||''; }catch(e){}
     app.innerHTML = `<div class="bootmsg"><span class="bd"></span>${
       EN()?'Signing you back in…':'กำลังพาท่านกลับเข้าระบบ…'}</div>`
-      + skel('stats',2) + skel('card',3) + skel('rows',3);
+      + (_lr ? skelScreen(_lr, 'home') : skel('stats',2) + skel('card',3) + skel('rows',3));
   }
   /* ---- WHEN THE HAND-OFF TO LINE NEVER COMES BACK (iPhone) --------------------------------------
    *
