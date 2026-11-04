@@ -160,6 +160,8 @@ var ROUTES = {
    * letterhead is written to SCHOOL_CONFIG and the signature is a Drive file, so those two live here. */
   saveDocInfo:      function (p) { return handleSaveDocInfo(p); },    // admin-only: the receipt letterhead
   docSignature:     function (p) { return handleDocSignature(p); },   // parent/admin: the signature for a RECEIPT
+  // week 2 (src/DbPg.gs): how long Apps Script → Postgres takes. Answers "not connected" while DB_BACKEND is off.
+  pgProbe:          function (p) { return handlePgProbe(p); },        // admin-only
   /* งดคำนวณ OT (src/OT.gs): the days the school chooses not to charge late pick-up. Both shadow the
    * engine, and both must — the list lives in SCHOOL_CONFIG, which only exists here. */
   otWaiveDays:      function (p) { return handleOtWaiveDays(p); },     // admin-only: the list + today's status
@@ -572,7 +574,7 @@ function applyIdentity_(action, payload, sess) {
      * hands back the director's signature. Neither is anything a teacher or a parent has business
      * fetching, and the signature in particular is the one image in this system a person could
      * misuse. See src/Certificate.gs. */
-    certStudents: 1, certText: 1, saveCertText: 1, certAssets: 1, saveCertAsset: 1, markCertIssued: 1, saveDocInfo: 1,
+    certStudents: 1, certText: 1, saveCertText: 1, certAssets: 1, saveCertAsset: 1, markCertIssued: 1, saveDocInfo: 1, pgProbe: 1,
     /* งดคำนวณ OT — deciding that a whole day of late-pickup charges is not collected is a money
      * decision for the school to make, not a teacher. */
     otWaiveDays: 1, saveOtWaiveDays: 1,

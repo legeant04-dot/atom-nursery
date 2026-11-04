@@ -78,7 +78,9 @@ const res = JSON.parse(run(function () {
     ck.data = [ck.data[0]];                                    // one fresh attempt per trial
     var real = Date;
     var at = new real(atISO);
-    Date = function (a) { return arguments.length ? new real(a) : new real(at.getTime()); };
+    /* every argument passed on, not just the first — new Date(y, m, d) is how a date cell is built
+     * (src/DbPg.gs), and new real(y) alone is a moment in January 1970 */
+    Date = function () { return arguments.length ? new (Function.prototype.bind.apply(real, [null].concat([].slice.call(arguments))))() : new real(at.getTime()); };
     Date.now = function () { return at.getTime(); };
     Date.prototype = real.prototype;
     var r;
@@ -96,7 +98,7 @@ const res = JSON.parse(run(function () {
   ck.data = [ck.data[0]];
   ck.appendRow(['2026-08-19', 'STF-001', '12:08', '', 308, '', 'IN', '', '']);
   var real2 = Date, at2 = new real2('2026-08-19T13:00:00');
-  Date = function (a) { return arguments.length ? new real2(a) : new real2(at2.getTime()); };
+  Date = function () { return arguments.length ? new (Function.prototype.bind.apply(real2, [null].concat([].slice.call(arguments))))() : new real2(at2.getTime()); };
   Date.now = function () { return at2.getTime(); }; Date.prototype = real2.prototype;
   out.repair = handleRecomputeAttendance({});
   out.diag = handleDiagDay({ date: '2026-08-19' });
@@ -148,8 +150,12 @@ console.log('\n4) the server can now be ASKED what it thinks the day is');
 {
   const d = res.diag;
   ok_('it reports both timezones — the disagreement that caused this', !!d.ssTimezone && !!d.configTimezone);
+  /* On Sheets a time cell is a Date (1899-12-30 07:00) — the whole class of bug. Through the Postgres
+   * door (ATOM_DB=pg) the column is `time` and arrives as '07:00'; what matters is the next line, that
+   * both READ the same. */
+  const pg = process.env.ATOM_DB === 'pg';
   eq('...the holiday as STORED (a Date is the whole class of bug)',
-    [d.holidayRaw.startIsDate, d.holidayRaw.endIsDate], [true, true]);
+    [d.holidayRaw.startIsDate, d.holidayRaw.endIsDate], pg ? [false, false] : [true, true]);
   eq('...and as READ', [d.holidayDecoded.StartTime, d.holidayDecoded.EndTime], ['07:00', '12:00']);
   eq('...and the hours resolved per person', [d.staff[0].start, d.staff[0].openFrom, d.staff[0].reopened], ['12:00', '11:45', true]);
   eq('...beside the shift they would otherwise have worked', d.staff[0].shift, '07:00-18:00');

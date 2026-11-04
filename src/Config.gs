@@ -268,7 +268,7 @@ SCHEMA[WB.MAIN] = {
   // Method: 'transfer' (a slip) or 'cash' (recorded at the desk by an Admin, no image)
   // TransDate/TransTime = when the money actually moved (read off the slip by SlipOK); SubmittedDate
   // = when the file was attached. Method: 'transfer' (a slip) or 'cash' (recorded by an Admin).
-  PAYMENT_SLIPS:     ['SlipID', 'RefKind', 'RefID', 'StudentID', 'Amount', 'Url', 'FileId', 'Verified', 'TransRef', 'Receiver', 'SubmittedDate', 'Status', 'SlipGroup', 'TransDate', 'TransTime', 'Sender', 'Method', 'SendBank'],
+  PAYMENT_SLIPS:     ['SlipID', 'RefKind', 'RefID', 'StudentID', 'Amount', 'Url', 'FileId', 'Verified', 'TransRef', 'Receiver', 'SubmittedDate', 'Status', 'SlipGroup', 'TransDate', 'TransTime', 'Sender', 'Method', 'SendBank', 'StatedDate', 'StatedTime'],
   /* One row per DAY, always — a leave that spans 21-23 is three rows, not one row with a range.
    * Every reader (register, calendar, absence follow-up, monthly report) asks "is this child on
    * leave on THIS date", so a span would have to be taught to all of them and any one that was
@@ -297,6 +297,22 @@ SCHEMA[WB.MAIN] = {
   DSPM_CRITERIA:     ['AgeFrom', 'AgeTo', 'AgeLabelTH', 'ItemNo', 'Skill', 'Description', 'DescriptionEN', 'Method', 'PassCriteria', 'Track'],
   SCHOOL_CONFIG:     ['Key', 'Value'],
   AUDIT_LOG:         ['Timestamp', 'UserID', 'Action', 'TableName', 'RecordID'],
+  /* ── SHEETS THAT LIVED OUTSIDE THIS LIST (declared 2026-11-04, week 2) ────────────────────────
+   * Each was created by its own code — insertSheet + appendRow in Notify.gs, PERF_HEADERS in Perf.gs,
+   * COLLECTION_HEADERS_ in GasEngine.gs — and so had no table in Postgres: the admin bell, the LINE
+   * recipient list, temporary class cover, the food menu and list, the surveys and the speed log would
+   * all have been left behind on migration day (tools/run_dbpg_parity.js). The columns are copied from
+   * those definitions EXACTLY and in the same order, so a live sheet that already exists gains nothing;
+   * tools/test_schema_declared.js fails if the two ever differ. */
+  ADMIN_INBOX:       ['InboxID', 'Date', 'Category', 'Text', 'Read', 'Ref', 'StaffID', 'StudentID'],
+  LINE_RECIPIENTS:   ['Name', 'LineUID', 'Topics', 'Active', 'Note'],
+  PERF_LOG:          ['Ts', 'Sid', 'Role', 'Type', 'Action', 'Ms', 'Ok', 'Code', 'Batch', 'Screen', 'Dev', 'Net', 'Pwa', 'Ver', 'Os'],
+  CLASS_COVER:       ['CoverID', 'StaffID', 'ClassName', 'From', 'To', 'Reason', 'AddedBy', 'AddedAt'],
+  FOOD_MENU:         ['MenuID', 'Class', 'Date', 'Breakfast', 'SnackAM', 'Lunch', 'Dinner', 'SnackPM', 'Note', 'UpdatedBy', 'UpdatedAt'],
+  FOOD_ITEMS:        ['ItemID', 'NameTH', 'NameEN', 'Category', 'Active', 'CreatedBy', 'CreatedAt', 'Photo'],
+  SURVEYS:           ['SurveyID', 'Title', 'Description', 'Type', 'Options', 'Questions', 'Scope', 'Target',
+                      'StartDate', 'EndDate', 'Status', 'Anonymous', 'CreatedBy', 'CreatedAt'],
+  SURVEY_RESPONSES:  ['ResponseID', 'SurveyID', 'StudentID', 'ParentID', 'Rating', 'Choice', 'Comment', 'Answers', 'SubmittedAt'],
   BACKUP_LOG:        ['BackupDate', 'WorkbookName', 'DriveFileID', 'Status'],
   // INFERRED — parent <-> school chat (§4 "Comments — สื่อสารกับโรงเรียน")
   COMMENTS:          ['CommentID', 'StudentID', 'ParentID', 'SenderRole', 'Message', 'Timestamp', 'ReadStatus'],
@@ -805,5 +821,8 @@ function getWorkbookId_(propKey) {
 /** setupAll() creates the workbooks and then stores their ids — drop anything memoised before that. */
 function resetWorkbookCache_() { _WB_CACHE_ = {}; _WB_ID_CACHE_ = {}; }
 
-function getMainSpreadsheet_() { return _WB_CACHE_.main || (_WB_CACHE_.main = SpreadsheetApp.openById(getWorkbookId_(PROP.MAIN_ID))); }
-function getHrSpreadsheet_()   { return _WB_CACHE_.hr   || (_WB_CACHE_.hr   = SpreadsheetApp.openById(getWorkbookId_(PROP.HR_ID))); }
+/* THE ONE DOOR TO THE DATA (week 2, 2026-11-04). With DB_BACKEND unset — which is how it ships —
+ * pgEnabled_() is false and these are exactly the two lines they always were. With DB_BACKEND=pg the
+ * same Sheet API is answered by Postgres (src/DbPg.gs), so the 37 files behind this door do not change. */
+function getMainSpreadsheet_() { return _WB_CACHE_.main || (_WB_CACHE_.main = (typeof pgEnabled_ === 'function' && pgEnabled_()) ? pgWorkbook_('MAIN') : SpreadsheetApp.openById(getWorkbookId_(PROP.MAIN_ID))); }
+function getHrSpreadsheet_()   { return _WB_CACHE_.hr   || (_WB_CACHE_.hr   = (typeof pgEnabled_ === 'function' && pgEnabled_()) ? pgWorkbook_('HR')   : SpreadsheetApp.openById(getWorkbookId_(PROP.HR_ID))); }

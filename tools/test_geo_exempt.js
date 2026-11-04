@@ -187,11 +187,13 @@ console.log('\n6) ...and on GAS, end to end');
     return JSON.stringify(o);
   }));
   eq('before it is granted, the live route refuses', [res.beforeGrant.ok, res.beforeGrant.code], [false, 'OUT_OF_RANGE']);
-  eq('saving actually writes the column', res.hasColumn, 'YES');
+  /* read the way the app reads it (studentGeoExempt_): 'YES' on a sheet, true through Postgres (boolean column) */
+  const granted = v => /^(yes|true|1|y)$/i.test(String(v == null ? '' : v).trim());
+  eq('saving actually writes the column', granted(res.hasColumn), true);
   eq('after it is granted, the same pick-up goes through', [res.afterGrant.ok, res.afterGrant.code, res.afterGrant.msg, res.exemptFlag], [true, null, null, true]);
   ok_('...with the distance still on the record', res.afterGrant.r.distance > 500 && res.afterGrant.r.distance < 750);
   eq('the child beside them is untouched', [res.neighbour.ok, res.neighbour.code], [false, 'OUT_OF_RANGE']);
-  eq('a head teacher cannot revoke it', res.afterTeacherEdit, 'YES');
+  eq('a head teacher cannot revoke it', granted(res.afterTeacherEdit), true);
   eq('...while the rest of their edit still saves', res.teacherEditTookEffect, 'ใหม่');
   /* TWO KINDS OF LINE, and both are wanted: who GRANTED it (…_ON, once) and every pick-up that then
    * USED it (…CHECKOUT_GEO_EXEMPT, one per pick-up). An exemption with only the first is a decision

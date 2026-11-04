@@ -61,7 +61,12 @@ function routeTargets() {
 /** every top-level function in src/*.gs, with its body */
 function gasFunctions() {
   const out = {};
-  for (const f of fs.readdirSync(path.join(ROOT, 'src')).filter(x => x.endsWith('.gs') && x !== 'Engine.gs')) {
+  /* DbPg.gs / PgSchema.gs are the storage layer UNDER the Sheet API (week 2) — the same level as
+   * SpreadsheetApp itself. Following calls into them made every route that merely opens a workbook
+   * look like it writes rows (pgSheet_ is full of setValues/deleteRow), which is a fact about the
+   * door, not about the route. */
+  const BELOW_THE_API = new Set(['Engine.gs', 'DbPg.gs', 'PgSchema.gs']);
+  for (const f of fs.readdirSync(path.join(ROOT, 'src')).filter(x => x.endsWith('.gs') && !BELOW_THE_API.has(x))) {
     const src = R('src/' + f);
     const re = /^function\s+(\w+)\s*\(/gm;
     let m;
