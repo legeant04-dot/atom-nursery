@@ -27,7 +27,10 @@ function uploaded(file) {
 console.log('\n1) 🔴 สิ่งที่ห้ามออกจากเครื่องนี้');
 ['secrets/supabase.env', 'secrets/supabase.env.example', 'Atom Signature.png', 'Certificate ENG.png', 'Cetificate Templete.png',
  'Blank Template.png', 'THSarabunNew/THSarabunNew.ttf', 'webapp/CNAME', 'webapp/app.js', 'webapp/assets/logo.png',
- 'src/Code.gs', 'src/Auth.gs', 'tools/test_bill_document.js', 'tools/pg_sync.js', 'design/receipt-sample.html',
+ /* src/Code.gs and src/Auth.gs USED to be listed here as "not needed"; since 2026-11-04 server/gate.js
+  * loads them (Code.gs's own door), checked to hold no secret and already public in the repo. Two .gs
+  * files the image still has no use for take their place, so the whitelist is still being tested. */
+ 'src/Certificate.gs', 'src/PaySlips.gs', 'tools/test_bill_document.js', 'tools/pg_sync.js', 'design/receipt-sample.html',
  'docs/pdpa/02_ROPA.md', 'docs/WORKLOG.md', '.claude/settings.local.json', 'dist_pages/app.js'].forEach(f =>
   ok_('🔴 ไม่ถูกอัปโหลด: ' + f, !uploaded(f)));
 
@@ -57,6 +60,14 @@ ok_('container ไม่รันด้วย root', /^USER node$/m.test(R('Dock
     ignore.indexOf('!/' + f) < 0);
   ok_('🔴 ทุกไฟล์ที่ pg_engine อ่านตอนทำงาน อยู่ใน image (' + reads.join(' · ') + ')' + (missing.length ? '  → ขาด ' + missing.join(' ') : ''),
     reads.length >= 3 && missing.length === 0);
+  /* ...and every .gs the GATE loads, and every server/ file the host requires — same failure, same check */
+  const gateFiles = ((/const FILES = \[([^\]]*)\]/.exec(R('server/gate.js')) || [])[1] || '').match(/'([^']+)'/g) || [];
+  const needed = gateFiles.map(x => 'src/' + x.slice(1, -1) + '.gs')
+    .concat([...R('server/host.js').matchAll(/require\(path\.join\(__dirname, '([a-z_]+\.js)'\)\)/g)].map(m => 'server/' + m[1]));
+  const absent = needed.filter(f => !new RegExp('^COPY ' + f.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\s', 'm').test(docker) ||
+    ignore.indexOf('!/' + f) < 0);
+  ok_('🔴 ทุกไฟล์ที่ด่าน (gate) และโฮสต์ต้องใช้ อยู่ใน image (' + needed.length + ' ไฟล์)' + (absent.length ? '  → ขาด ' + absent.join(' ') : ''),
+    needed.length >= 9 && absent.length === 0);
 }
 ok_('🔴 api.js ยังไม่ชี้ไปโฮสต์ใหม่ — ไม่มีผู้ใช้จริงคนไหนวิ่งเส้นนี้จนกว่าจะตั้งใจเปิด', /FAST_URL: ''/.test(R('webapp/api.js')));
 

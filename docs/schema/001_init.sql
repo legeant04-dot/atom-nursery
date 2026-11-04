@@ -1415,7 +1415,7 @@ create table if not exists vaccine_records (
   "student_id"                 text,
   "vaccine_key"                text,
   "vaccine_name"               text,
-  "dose_date"                  date,
+  "dose_date"                  text,
   "note"                       text,
   created_at  timestamptz not null default now(),
   updated_at  timestamptz not null default now()

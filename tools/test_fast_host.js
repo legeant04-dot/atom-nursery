@@ -104,7 +104,7 @@ console.log('\n4) ซองคำตอบต้องเหมือน Code.gs
   ok_('ทุกคำตอบติดชื่อ action กลับไปด้วย (a)', /Object\.assign\(\{ a: action \}/.test(host));
   ok_('สำเร็จ = {ok:true, data}', /\{ ok: true, data:/.test(host));
   ok_('ล้มเหลว = {ok:false, error:{code,message}}', /ok: false, error: \{ code:/.test(host));
-  ok_('batch คืนเป็น array ของผลลัพธ์', /calls\.map\(c => runOne\(/.test(host));
+  ok_('batch คืนเป็น array ของผลลัพธ์ · คำขอเดี่ยวคืนผลเดียว', /isBatch \? \{ ok: true, data: r\.results \} : r\.results\[0\]/.test(host));
   /* 🔴 GET ต้องไม่ตอบ ok:true — ถ้าตอบ client จะเอา health check ไปใช้เป็นข้อมูล (บั๊ก v186) */
   ok_('🔴 GET ไม่ตอบ ok:true', /service: 'atom-fast-host'/.test(host) && !/service: 'atom-fast-host'[^}]*ok: true/.test(host));
 }
@@ -115,8 +115,12 @@ console.log('\n5) ตัวตนมาจาก token เท่านั้น 
   const host = R('server/host.js');
   /* ถ้าเชื่อ payload ที่ผู้ใช้ส่งมา ผู้ปกครองคนหนึ่งจะขอดูของอีกคนได้ด้วยการแก้ตัวเลขใน request
    * — กฎเดียวกับ applyIdentity_ ใน Code.gs และต้องมาทีหลัง payload เสมอ */
-  ok_('🔴 ตัวตนถูกทับลงบน payload ทีหลัง', /Object\.assign\(\{\}, p, ident\)/.test(host));
-  ok_('Parent ได้ parentId · ที่เหลือได้ staffId', /ident\.parentId = sess\.linkedId/.test(host) && /ident\.staffId = sess\.linkedId/.test(host));
+  /* 2026-11-04: identity is stamped by Code.gs's OWN applyIdentity_ (server/gate.js), not a
+   * hand-written copy here — parent/teacher/admin behaviour is driven in test_fast_host_readonly.js */
+  const gate = R('server/gate.js');
+  ok_('🔴 ตัวตนมาจาก applyIdentity_ ของ Code.gs ผ่าน gate (ไม่ใช่สำเนา)',
+    /GATE\.identity\(a, \(c && c\.payload\) \|\| \{\}, sess, M\)/.test(host) && /b\.applyIdentity_\(action, payload \|\| \{\}, sess\)/.test(gate));
+  ok_('gate โหลด Code.gs ตัวจริงทั้งไฟล์', /'Code'/.test(gate) && /runInContext\(fs\.readFileSync\(path\.join\(ROOT, 'src', f \+ '\.gs'\)/.test(gate));
   /* รหัสต้องผ่านออกมา ไม่ใช่กลายเป็น INTERNAL ทั้งหมด — เคยพลาดข้อนี้ใน GAS แล้วทำให้
    * การปฏิเสธที่ถูกต้องทุกอันไปโผล่เป็น "ระบบพัง" ในรายงานความเร็ว */
   ok_('รหัสข้อผิดพลาดของเอนจินผ่านออกมา ไม่กลายเป็น INTERNAL', /e\.code \|\| e\.apiCode/.test(host));
@@ -138,10 +142,13 @@ console.log('\n6) เอนจินตัวเดิม ไม่ใช่ส�
    * the derived keys (a staff clock-in among them) are never written back here, so the host is now
    * read-only by construction and refuses any request that changes anything — the behaviour is
    * driven end to end in tools/test_fast_host_readonly.js. */
-  ok_('🔴 ยังไม่เขียนกลับ — ไม่มี PG.persist และปฏิเสธด้วย READ_ONLY_HOST', !/PG\.persist\(/.test(host) && /READ_ONLY_HOST/.test(host));
+  /* 2026-11-04 (later): writes ported — only for server/write_proven.js, and only under the lock */
+  ok_('🔴 บันทึกได้เฉพาะหลังล็อก → WRITE_PROVEN → WRITE_GUARD → รูปภาพ',
+    /pg_advisory_xact_lock[\s\S]*notProven[\s\S]*WRITE_GUARD[\s\S]*NOT_ON_FAST_HOST[\s\S]*PG\.persist\(client, tenant, M, snapshot, changed\)/.test(host));
+  ok_('...การเปลี่ยนที่ไม่ได้รับอนุญาต = READ_ONLY_HOST', /READ_ONLY_HOST/.test(host));
   ok_('ไม่มี SQL ของตัวเองในไฟล์นี้', !/\bselect\s+\*\s+from\b/i.test(host));
   /* วัดเวลาแยกส่วน — ถ้าไม่มีตัวเลข จะไม่รู้ว่าต้องแก้ตรงไหนตอนไม่ผ่านเป้า */
-  ok_('ติดเวลาแยกส่วนกลับไปด้วย (hydrate/run/save)', /x-atom-ms/.test(host) && /hydrate: tHydrate, run: tRun, save: tSave/.test(host));
+  ok_('ติดเวลาแยกส่วนกลับไปด้วย (hydrate/run/save)', /x-atom-ms/.test(host) && /hydrate: tHydrate, run: tRun, save: 0/.test(host) && /t\.save = Date\.now\(\) - tS0/.test(host));
 }
 
 // ============================================================================
@@ -150,7 +157,7 @@ console.log('\n7) หนี้ที่รู้ตัว ต้องเขี�
   const host = R('server/host.js');
   ok_('🔴 เขียนกฎ PDPA ไว้ในไฟล์', /ข้อตกลงประมวลผลข้อมูลจะลงนาม/.test(host));
   ok_('บอกว่ายังไม่ได้ต่อ "ออกจากระบบทุกเครื่อง"', /sessionEpochOf_/.test(host));
-  ok_('บอกว่ายังไม่มี publicAction_ / Observer / write lock', /publicAction_/.test(host) && /Observer/.test(host));
+  ok_('บอกสถานะด่าน / ล็อก / การเขียนไว้ในรายการหนี้', /server\/gate\.js/.test(host) && /pg_advisory_xact_lock/.test(host) && /write_proven/.test(host));
   ok_('บอกว่า CORS ยังเปิดกว้าง ต้องล็อกก่อนรับข้อมูลจริง', /ล็อก CORS/.test(host));
 }
 
