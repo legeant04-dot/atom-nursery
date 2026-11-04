@@ -22,6 +22,8 @@ COPY tools/pg_migrate.js        tools/pg_migrate.js
 # pg_engine maps sheet columns to table columns by READING these, at start-up
 COPY src/Config.gs              src/Config.gs
 COPY src/GasEngine.gs           src/GasEngine.gs
+# pg_engine lifts leaveTypeTH_ from here (leave used) — the same code Apps Script runs
+COPY src/Leave.gs               src/Leave.gs
 COPY docs/schema/001_init.sql   docs/schema/001_init.sql
 COPY server/host.js             server/host.js
 COPY server/session.js          server/session.js

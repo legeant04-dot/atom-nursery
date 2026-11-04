@@ -122,7 +122,17 @@ async function handle(req, res, body) {
     const today = new Date(Date.now() + 7 * 3600000).toISOString().slice(0, 10);   // วันตามเวลาไทย
     const scope = canNarrow ? { journals: today, checkinStudent: today } : {};
     const { M, snapshot } = await PG.hydrateFast(client, tenant, ALL_KEYS, { scope });
+    /* 🔴 the settings, as GasEngine loads them (eager — "almost everything" uses them). Missing on
+     * the first real deploy: 210 of 300 calls on the teacher home died reading M.config. */
+    M.config = await PG.hydrateConfig(client, tenant);
+    /* ...and the keys GasEngine COMPUTES (today's attendance, staff history, payroll settings, the
+     * feed …) — 4 of the teacher home's 10 calls died without them. */
+    const derivedChanged = await PG.hydrateDerived(client, tenant, M, today);
     const tHydrate = Date.now() - tHydrate0;
+    /* the state before any handler runs — see READ-ONLY below */
+    const before = {};
+    ALL_KEYS.forEach(k => { before[k] = JSON.stringify(M[k]); });
+    before.config = JSON.stringify(M.config);
 
     const H = createAtomAPI(M, null).H;
 
@@ -157,12 +167,26 @@ async function handle(req, res, body) {
     }
     const tRun = Date.now() - tRun0;
 
-    /* เขียนกลับเฉพาะที่เปลี่ยนจริง ทีละแถว — ไม่ใช่ทับทั้ง collection
-     * นี่คือข้อต่างที่สำคัญที่สุดจาก GasEngine และเป็นเหตุผลที่เหตุข้อมูลหาย 09/07
-     * เกิดซ้ำที่นี่ไม่ได้ในเชิงกลไก */
-    const tSave0 = Date.now();
-    const saved = await PG.persist(client, tenant, M, snapshot, ALL_KEYS);
-    const tSave = Date.now() - tSave0;
+    /* 🔴 READ-ONLY, BY CONSTRUCTION (2026-11-04). Nothing is written back from this host yet.
+     *
+     * The derived keys — staffAttendanceToday (a staff clock-in), payrollConfig — are not persisted
+     * here the way GasEngine persists them, so a clock-in through this host would be answered "ok"
+     * and then vanish. Rather than guess which actions write from their NAMES (a list that misses
+     * one is a silent data loss), the host compares what the handlers left behind with what it
+     * loaded: every collection, the settings, every derived key a handler touched. Any difference
+     * and the WHOLE request is refused and nothing is saved. A read cannot be refused by this; a
+     * write cannot get past it, whatever it is called.
+     *
+     * PG.persist is not called at all until writes are ported here and tested against GasEngine. */
+    const changed = ALL_KEYS.filter(k => JSON.stringify(M[k]) !== before[k])
+      .concat(JSON.stringify(M.config) !== before.config ? ['config'] : [], derivedChanged());
+    if (changed.length) {
+      res.setHeader('x-atom-ms', JSON.stringify({ total: Date.now() - t0, hydrate: tHydrate, run: tRun, save: 0 }));
+      return reply(res, action, { ok: false, error: { code: 'READ_ONLY_HOST',
+        message: 'เส้นทางนี้ยังบันทึกข้อมูลไม่ได้ — ไม่มีอะไรถูกบันทึก', changed } });
+    }
+    const tSave = 0;
+    void snapshot;
 
     res.setHeader('x-atom-ms', JSON.stringify({
       total: Date.now() - t0, hydrate: tHydrate, run: tRun, save: tSave

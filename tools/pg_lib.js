@@ -15,10 +15,13 @@ const ENVFILE = path.join(__dirname, '..', 'secrets', 'supabase.env');
 function readEnv() {
   /* ON CLOUD RUN THERE IS NO FILE (2026-11-04). The connection string arrives as an environment
    * variable mounted from Secret Manager — never baked into the image, never in the repo. Only the
-   * keys this file already knows are taken, so a stray variable cannot change what it does. */
+   * keys this file already knows are taken, so a stray variable cannot change what it does.
+   * 🔴 TRIMMED, the same as the file reader below. The first deploy put the value into Secret
+   * Manager with the one leading space the file has after `=`; the file reader trims it, this did
+   * not, and every request crashed the instance with "อ่าน SUPABASE_DB_URL ไม่ออก". */
   if (process.env.SUPABASE_DB_URL && !fs.existsSync(ENVFILE)) {
     const out = {};
-    ['SUPABASE_DB_URL', 'SUPABASE_REGION', 'TENANT_CODE', 'PDPA_SIGNED'].forEach(k => { if (process.env[k]) out[k] = process.env[k]; });
+    ['SUPABASE_DB_URL', 'SUPABASE_REGION', 'TENANT_CODE', 'PDPA_SIGNED'].forEach(k => { if (process.env[k]) out[k] = String(process.env[k]).trim(); });
     return out;
   }
   if (!fs.existsSync(ENVFILE)) {

@@ -41,7 +41,23 @@ console.log('\n3) รหัสฐานข้อมูลมาจาก Secret 
 const lib = R('tools/pg_lib.js');
 ok_('pg_lib อ่าน SUPABASE_DB_URL จาก environment เมื่อไม่มีไฟล์', /process\.env\.SUPABASE_DB_URL && !fs\.existsSync\(ENVFILE\)/.test(lib));
 ok_('...รับเฉพาะคีย์ที่รู้จัก', /\['SUPABASE_DB_URL', 'SUPABASE_REGION', 'TENANT_CODE', 'PDPA_SIGNED'\]/.test(lib));
+/* 🔴 the first real deploy crashed on every request: the secret carried the file's leading space */
+ok_('🔴 ...และตัดช่องว่างหัวท้าย เหมือนตัวอ่านไฟล์', /out\[k\] = String\(process\.env\[k\]\)\.trim\(\)/.test(lib));
+/* 🔴 and the second answered 210 of 300 calls with "reading 'Departments'" — no settings at all */
+ok_('🔴 โฮสต์โหลดการตั้งค่าโรงเรียน (M.config) ทุกคำขอ', /M\.config = await PG\.hydrateConfig\(client, tenant\)/.test(R('server/host.js')));
+ok_('...ด้วย hydrateConfig_ ตัวเดียวกับ Apps Script ไม่ใช่สำเนา', /liftGas_\(gas, \/\^function hydrateConfig_/.test(R('tools/pg_engine.js')));
 ok_('container ไม่รันด้วย root', /^USER node$/m.test(R('Dockerfile')));
+/* 🔴 the fourth deploy answered every call with "ENOENT … /app/src/Leave.gs": pg_engine had started
+ * lifting code from a file the image did not contain. Every file it reads at run time must be both
+ * COPY'd and allowed through .gcloudignore — checked here, not discovered on the host. */
+{
+  const reads = [...new Set([...R('tools/pg_engine.js').matchAll(/\bR\('([^']+)'\)/g)].map(m => m[1]))];
+  const docker = R('Dockerfile'), ignore = R('.gcloudignore');
+  const missing = reads.filter(f => !new RegExp('^COPY ' + f.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\s', 'm').test(docker) ||
+    ignore.indexOf('!/' + f) < 0);
+  ok_('🔴 ทุกไฟล์ที่ pg_engine อ่านตอนทำงาน อยู่ใน image (' + reads.join(' · ') + ')' + (missing.length ? '  → ขาด ' + missing.join(' ') : ''),
+    reads.length >= 3 && missing.length === 0);
+}
 ok_('🔴 api.js ยังไม่ชี้ไปโฮสต์ใหม่ — ไม่มีผู้ใช้จริงคนไหนวิ่งเส้นนี้จนกว่าจะตั้งใจเปิด', /FAST_URL: ''/.test(R('webapp/api.js')));
 
 console.log('\n' + (fail ? '❌ ' : '✅ ') + pass + ' passed, ' + fail + ' failed');

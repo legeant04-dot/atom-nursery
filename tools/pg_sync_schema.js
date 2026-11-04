@@ -13,8 +13,10 @@
  *     them asserted things like "one check-in per teacher, ever".
  *
  * The schema file is the source of truth; this makes the database match it. It only ever ADDS what
- * is missing and DROPS indexes the generator no longer emits — it will not drop a table or a column,
- * because on the day this is pointed at production that must not be a thing it can do.
+ * is missing and DROPS indexes the generator no longer emits — it will not drop a table or a column
+ * that holds data, because on the day this is pointed at production that must not be a thing it can do.
+ * (Week 2: an EMPTY table of the wrong shape is rebuilt, and an EMPTY column of the wrong type is
+ * retyped — each re-checked empty under a lock in the transaction that changes it.)
  */
 const fs = require('fs'), path = require('path');
 const { connect } = require('./pg_lib');
@@ -47,7 +49,23 @@ function statements(sql) {
   return out;
 }
 
-(async () => {
+/** Columns the file declares, per table: { table: { column: "type …" } }.
+ * 🔴 Three ways the first version lost a column without a word (week 2): a name with a digit in it
+ * (photo1, step1_by), a line with a trailing `-- comment`, and a quoted default ('ACTIVE'). Each of
+ * those columns then looked "missing" — or worse, its live twin looked like a stray to be rebuilt. */
+function wantColumns(sts) {
+  const wantCols = {};
+  sts.forEach(s => {
+    const m = /^create table if not exists (\w+) \(([\s\S]*)\)$/.exec(s);
+    if (!m) return;
+    wantCols[m[1]] = {};
+    for (const c of m[2].replace(/--.*$/gm, "").matchAll(/^\s+"?([a-z0-9_]+)"?\s+([a-zA-Z0-9_(), ']+?),?\s*$/gm))
+      if (!/^(id|seq|tenant_id)$/.test(c[1])) wantCols[m[1]][c[1]] = c[2].trim();
+  });
+  return wantCols;
+}
+
+if (require.main === module) (async () => {
   const { client: c, scrub } = await connect();
   const sql = fs.readFileSync(SQL, 'utf8').replace(/\r\n/g, '\n');
   const sts = statements(sql);
@@ -80,14 +98,7 @@ function statements(sql) {
    * of drift as the missing table and just as quiet. Adding a column is safe; this tool still never
    * drops or retypes one, because on the day it is pointed at production that must not be a thing
    * it can do. A type that CHANGED is reported and left alone, for a reviewed migration to handle. */
-  const wantCols = {};
-  sts.forEach(s => {
-    const m = /^create table if not exists (\w+) \(([\s\S]*)\)$/.exec(s);
-    if (!m) return;
-    wantCols[m[1]] = {};
-    for (const c of m[2].matchAll(/^\s+"?([a-z_]+)"?\s+([a-z0-9_(), ]+?),?\s*$/gm))
-      if (!/^(id|seq|tenant_id)$/.test(c[1])) wantCols[m[1]][c[1]] = c[2].trim();
-  });
+  const wantCols = wantColumns(sts);
   const haveCols = {};
   const hc = await c.query("select table_name, column_name, data_type from information_schema.columns where table_schema='public'");
   hc.rows.forEach(r => { (haveCols[r.table_name] = haveCols[r.table_name] || {})[r.column_name] = r.data_type; });
@@ -98,6 +109,32 @@ function statements(sql) {
       if (!haveCols[t] || !haveCols[t][col]) missingCols.push({ t, col, type: wantCols[t][col] });
     });
   });
+
+  /* 🔴 WRONG TYPE, AND WRONG SHAPE (week 2, 2026-11-04). Two more kinds of the same quiet drift:
+   *   · a column the file now types `text` (a SlipOK verdict, "anonymous", "notify parent") that the
+   *     database still holds as boolean — every value the app writes there would be refused or bent;
+   *   · a table created from an early guess (class_cover.from_date where the app writes `From`) that
+   *     `create table if not exists` will never correct, because the table already exists.
+   * The rule that keeps this safe on the day it meets production: a column is retyped ONLY when it
+   * holds no value at all, and a table is rebuilt ONLY when it holds no row. Anything with data in
+   * it is reported and left for a reviewed migration. */
+  const NORM = { 'timestamp with time zone': 'timestamptz', 'time without time zone': 'time', 'character varying': 'text' };
+  const base = t => String(t).split(' ')[0].replace(/\(.*$/, '').replace(/^bigserial$/, 'bigint');
+  const retype = [], rebuild = [];
+  const hasRows = async t => (await c.query('select exists (select 1 from ' + t + ') e')).rows[0].e;
+  for (const t of Object.keys(wantCols)) {
+    if (!haveTables.has(t) || !haveCols[t]) continue;
+    const stray = Object.keys(haveCols[t]).filter(col => !/^(id|seq|tenant_id|created_at|updated_at)$/.test(col) && !wantCols[t][col]);
+    if (stray.length) { rebuild.push({ t, stray, rows: await hasRows(t) }); continue; }
+    for (const col of Object.keys(wantCols[t])) {
+      const h = haveCols[t][col]; if (!h) continue;
+      const want = base(wantCols[t][col]), got = NORM[h] || h;
+      if (want !== got) {
+        const filled = (await c.query('select exists (select 1 from ' + t + ' where "' + col + '" is not null) e')).rows[0].e;
+        retype.push({ t, col, got, want, filled });
+      }
+    }
+  }
 
   const missingTables = [...wantTables].filter(t => !haveTables.has(t));
   // stale = the file no longer wants it at all, OR wants it on different columns
@@ -114,6 +151,10 @@ function statements(sql) {
     (wantUq.has(n) ? '  → ' + wantUq.get(n) : '  → ไม่ควรมี');
   console.log('  🔴 unique index ที่ผิด   ' + staleUq.length + (staleUq.length ? '\n     ' + staleUq.map(show).join('\n     ') : ''));
   console.log('  unique index ที่ต้องสร้าง ' + missingUq.length + (missingUq.length ? '\n     ' + missingUq.map(show).join('\n     ') : ''));
+  console.log('  🔴 คอลัมน์ผิดชนิด        ' + retype.length + (retype.length ? '\n     ' + retype.map(x =>
+    x.t + '.' + x.col + ' ' + x.got + ' → ' + x.want + (x.filled ? '   ⛔ มีข้อมูล — ไม่แตะ' : '   (ว่าง)')).join('\n     ') : ''));
+  console.log('  🔴 ตารางที่คอลัมน์ผิดรูป  ' + rebuild.length + (rebuild.length ? '\n     ' + rebuild.map(x =>
+    x.t + '  มีคอลัมน์ที่ไฟล์ไม่มี: ' + x.stray.join(', ') + (x.rows ? '   ⛔ มีข้อมูล — ไม่แตะ' : '   (ว่าง → สร้างใหม่ตามไฟล์)')).join('\n     ') : ''));
 
   if (!APPLY) {
     console.log('\n(ยังไม่ได้แก้ — ใส่ --apply เพื่อดำเนินการ)\n');
@@ -127,7 +168,35 @@ function statements(sql) {
     await c.query('drop index if exists ' + i);
     console.log('  dropped  ' + i);
   }
-  for (const x of missingCols) {
+  /* An empty table of the wrong shape is dropped and re-made by the file's own statements below
+   * (so its RLS policy is re-made with it). The emptiness is checked again inside the same
+   * transaction that drops it, under a lock — a row that arrived since the report is never lost. */
+  const rebuilt = new Set();
+  for (const x of rebuild) {
+    if (x.rows) { console.log('  ⛔ skip     ' + x.t + ' (มีข้อมูล)'); continue; }
+    try {
+      await c.query('begin');
+      await c.query('lock table ' + x.t + ' in access exclusive mode');
+      if (await hasRows(x.t)) { await c.query('rollback'); console.log('  ⛔ skip     ' + x.t + ' (มีแถวเข้ามาระหว่างทาง)'); continue; }
+      await c.query('drop table ' + x.t);
+      await c.query('commit'); rebuilt.add(x.t);
+      console.log('  rebuild  ' + x.t);
+    } catch (e) { await c.query('rollback').catch(() => {}); console.log('  🔴 ' + x.t + ': ' + scrub(e.message)); }
+  }
+  for (const x of retype) {
+    if (x.filled) { console.log('  ⛔ skip     ' + x.t + '.' + x.col + ' (มีข้อมูล)'); continue; }
+    try {
+      await c.query('begin');
+      await c.query('lock table ' + x.t + ' in access exclusive mode');
+      const still = (await c.query('select exists (select 1 from ' + x.t + ' where "' + x.col + '" is not null) e')).rows[0].e;
+      if (still) { await c.query('rollback'); console.log('  ⛔ skip     ' + x.t + '.' + x.col + ' (มีค่าเข้ามาระหว่างทาง)'); continue; }
+      await c.query('alter table ' + x.t + ' alter column "' + x.col + '" drop default');
+      await c.query('alter table ' + x.t + ' alter column "' + x.col + '" type ' + x.want + ' using null');
+      await c.query('commit');
+      console.log('  retyped  ' + x.t + '.' + x.col + ' ' + x.got + ' → ' + x.want);
+    } catch (e) { await c.query('rollback').catch(() => {}); console.log('  🔴 ' + x.t + '.' + x.col + ': ' + scrub(e.message)); }
+  }
+  for (const x of missingCols.filter(x => !rebuilt.has(x.t))) {
     await c.query('alter table ' + x.t + ' add column if not exists "' + x.col + '" ' + x.type);
     console.log('  added    ' + x.t + '.' + x.col + ' ' + x.type);
   }
@@ -151,3 +220,5 @@ function statements(sql) {
   await c.end();
   process.exit(failed ? 1 : 0);
 })().catch(e => { console.error(String(e && e.message || e)); process.exit(1); });
+
+module.exports = { statements, wantColumns };
