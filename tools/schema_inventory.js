@@ -201,7 +201,7 @@ const NOT_MONEY = new Set([
      ไม่ใช่ numeric(12,2) ที่จะเก็บคำว่า 'true' ไม่ได้ · ชื่อที่ตรงกติกาดีกว่าข้อยกเว้นที่ต้องจำ */
   'EnableChildRate',
   /* ใบเสร็จ (2026-11-03): two DATES on a bill and the BANK CODE a slip came from ('004') — none is an amount */
-  'IssuedDate', 'ReceiptDate', 'SendBank',
+  'IssuedDate', 'ReceiptDate', 'SendBank', 'StatedDate', 'StatedTime',
   'PaidDate', 'PaymentMethod', 'GeneratedBy', 'GeneratedDate', 'PaidBy', 'PayType', 'PayrollID',
   'PrepayID', 'ChargeID', 'PauseSalaryMode', 'ContributionLocked', 'MilkTotal', 'Water',
   /* 🔴 InsuranceSum: MONEY → NOT_MONEY (Phase 2.3, 2026-10-13). It is not an amount this school
@@ -437,7 +437,30 @@ const DATE_EXACT = /(Date|DOB|Expiry|Birthday)$|^(From|To)$/;
 const TIME_EXACT = /(Time|CheckIn|CheckOut|In|Out)$/;
 const STAMP_EXACT = /(At|Timestamp|Ts)$/;
 
-function sqlType(col) {
+/* NAMED, BECAUSE THE PATTERN GUESSED WRONG (2026-11-04, week 2 — tools/run_dbpg_parity.js).
+ * BOOL_PREFIX reads "Verified…" as yes/no. These hold WORDS:
+ *   PAYMENT_SLIPS.Verified     'YES' · 'MANUAL' · 'NO:1012_NEW' — SlipOK's verdict, the code is the evidence
+ *   USER_LINKS.VerifiedBy      'admin' · 'claim' — HOW a parent was linked to a child
+ *   BILLING.VerifiedStatus     'CONFIRMED' · 'REJECTED' · 'PREPAID'
+ * As booleans every NO:<code> became NULL and every YES became true: the admin would have lost WHY a
+ * slip was flagged. And ByAt is written as 'HH:mm' by Apps Script and as a full stamp by the engine,
+ * so a timestamptz refused half of them; text keeps both. Fifth time a name decided a meaning. */
+/* NotifyParent ('YES'/'' — the injury screen shows "แจ้งผู้ปกครองแล้ว" only on === 'YES', so as a boolean
+ * every notified family would read as NOT told) and ReadStatus ('unread' — a word a boolean refuses)
+ * were found by the second pass of the audit: what the code WRITES into each boolean column. */
+const TEXT_EXACT = /^(Verified|VerifiedBy|VerifiedStatus|ByAt|NotifyParent|ReadStatus)$/;
+/* ...and per sheet, where the same name means something else elsewhere. Every one of these holds the
+ * WORDS 'YES'/'NO' and is read with === 'YES' / !== 'NO' (2026-11-04 audit) — as booleans:
+ *   SURVEYS.Anonymous   'true' === 'YES' is false → 🔴 an anonymous survey would show who answered
+ *   FOOD_ITEMS.Active   String(false) !== 'NO' → a retired dish comes back on every journal
+ *   ADMIN_INBOX.Read    never 'YES' again → every notice in the bell unread for ever
+ * and ADMIN_INBOX.Date is 'yyyy-MM-dd HH:mm' — the bell's dedupe reads the minute; a date drops it. */
+const SHEET_TYPE = { 'SURVEYS.Anonymous': 'text', 'FOOD_ITEMS.Active': 'text', 'LINE_RECIPIENTS.Active': 'text',
+  'ADMIN_INBOX.Read': 'text', 'ADMIN_INBOX.Date': 'text' };
+
+function sqlType(col, sheet) {
+  if (sheet && SHEET_TYPE[sheet + '.' + col]) return SHEET_TYPE[sheet + '.' + col];
+  if (TEXT_EXACT.test(col)) return 'text';
   if (MONEY.has(col)) return 'numeric(12,2)';
   if (NUMERIC_OTHER.has(col)) return 'numeric';
   if (/^(Month)$/.test(col)) return 'text';                 // 'YYYY-MM', a period not a date
@@ -566,7 +589,7 @@ if (process.argv.includes('--sql') || process.argv.includes('--write')) {
       if (RESERVED.has(name)) { absorbed.push(c); return; }   // provided below, once
       if (emitted.has(name)) return;                          // the sheet named it twice
       emitted.add(name);
-      L.push(`  ${q(name).padEnd(28)} ${sqlType(c)},`);
+      L.push(`  ${q(name).padEnd(28)} ${sqlType(c, t.sheet)},`);
     });
     if (absorbed.length) {
       L.push(`  -- ${absorbed.join(', ')}: the sheet's own column${absorbed.length > 1 ? 's' : ''}, carried by the`);

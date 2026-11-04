@@ -54,7 +54,10 @@ function targetSchema() {
     /* The quotes are optional because migration 001 now emits them — STUDENT_TERMS has columns
      * called `from` and `to`, which are reserved words and are a syntax error unquoted. Reading the
      * schema has to survive that or every column of every table reads as missing. */
-    for (const c of m[2].matchAll(/^ {2}"?([a-z_]+)"?\s+([a-z0-9_(), ]+?),?\s*$/gm)) cols[c[1]] = c[2].trim();
+    /* [a-z0-9_], not [a-z_] (2026-11-04): photo1, step1_by, step2_status… have digits in them, and the
+     * old pattern skipped every one — they read as "no such column", so the migrator gave them no type
+     * and the week-2 door (src/PgSchema.gs) dropped them altogether. Found by tools/run_dbpg_parity.js. */
+    for (const c of m[2].matchAll(/^ {2}"?([a-z0-9_]+)"?\s+([a-z0-9_(), ]+?),?\s*$/gm)) cols[c[1]] = c[2].trim();
     tables[m[1]] = cols;
   }
   return tables;

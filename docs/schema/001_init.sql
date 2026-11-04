@@ -492,10 +492,10 @@ create table if not exists admin_inbox (
   seq         bigserial not null,
   tenant_id   uuid not null references tenant(id) on delete restrict,
   "inbox_id"                   text,
-  "date"                       date,
+  "date"                       text,
   "category"                   text,
   "text"                       text,
-  "read"                       boolean,
+  "read"                       text,
   "ref"                        text,
   "staff_id"                   text,
   "student_id"                 text,
@@ -582,7 +582,7 @@ create table if not exists billing (
   "paid_date"                  date,
   "status"                     text,
   "slip_amount"                numeric(12,2),
-  "verified_status"            boolean,
+  "verified_status"            text,
   "qrref"                      text,
   "payment_method"             text,
   "transaction_date"           date,
@@ -612,7 +612,7 @@ create table if not exists checkin_student (
   "status"                     text,
   "remark"                     text,
   "by_staff_id"                text,
-  "by_at"                      timestamptz,
+  "by_at"                      text,
   created_at  timestamptz not null default now(),
   updated_at  timestamptz not null default now()
 );
@@ -628,9 +628,11 @@ create table if not exists class_cover (
   "cover_id"                   text,
   "staff_id"                   text,
   "class_name"                 text,
-  "from_date"                  date,
-  "to_date"                    date,
-  "note"                       text,
+  "from"                       date,
+  "to"                         date,
+  "reason"                     text,
+  "added_by"                   text,
+  "added_at"                   timestamptz,
   created_at  timestamptz not null default now(),
   updated_at  timestamptz not null default now()
 );
@@ -668,7 +670,7 @@ create table if not exists comments (
   "sender_role"                text,
   "message"                    text,
   "timestamp"                  timestamptz,
-  "read_status"                boolean,
+  "read_status"                text,
   created_at  timestamptz not null default now(),
   updated_at  timestamptz not null default now()
 );
@@ -771,11 +773,14 @@ create table if not exists food_items (
   seq         bigserial not null,
   tenant_id   uuid not null references tenant(id) on delete restrict,
   "item_id"                    text,
-  "name"                       text,
+  "name_th"                    text,
   "name_en"                    text,
   "category"                   text,
-  "allergens"                  text,
-  "active"                     boolean,
+  "active"                     text,
+  "created_by"                 text,
+  "photo"                      text,
+  -- CreatedAt: the sheet's own column, carried by the
+  -- reserved column of the same name below — same meaning, and never declared twice.
   created_at  timestamptz not null default now(),
   updated_at  timestamptz not null default now()
 );
@@ -790,11 +795,17 @@ create table if not exists food_menu (
   seq         bigserial not null,
   tenant_id   uuid not null references tenant(id) on delete restrict,
   "menu_id"                    text,
-  "month"                      text,
-  "day"                        text,
-  "slot"                       text,
-  "item_id"                    text,
+  "class"                      text,
+  "date"                       date,
+  "breakfast"                  text,
+  "snack_am"                   text,
+  "lunch"                      text,
+  "dinner"                     text,
+  "snack_pm"                   text,
   "note"                       text,
+  "updated_by"                 text,
+  -- UpdatedAt: the sheet's own column, carried by the
+  -- reserved column of the same name below — same meaning, and never declared twice.
   created_at  timestamptz not null default now(),
   updated_at  timestamptz not null default now()
 );
@@ -884,7 +895,7 @@ create table if not exists injury_reports (
   "injury_types"               text,
   "teacher_id"                 text,
   "created_date"               date,
-  "notify_parent"              boolean,
+  "notify_parent"              text,
   "status"                     text,
   "leader_by"                  text,
   "leader_at"                  timestamptz,
@@ -987,9 +998,11 @@ create table if not exists line_recipients (
   id          uuid primary key default gen_random_uuid(),
   seq         bigserial not null,
   tenant_id   uuid not null references tenant(id) on delete restrict,
-  "topic"                      text,
-  "staff_id"                   text,
-  "enabled"                    boolean,
+  "name"                       text,
+  "line_uid"                   text,
+  "topics"                     text,
+  "active"                     text,
+  "note"                       text,
   created_at  timestamptz not null default now(),
   updated_at  timestamptz not null default now()
 );
@@ -1076,7 +1089,7 @@ create table if not exists payment_slips (
   "amount"                     numeric(12,2),
   "url"                        text,
   "file_id"                    text,
-  "verified"                   boolean,
+  "verified"                   text,
   "trans_ref"                  text,
   "receiver"                   text,
   "submitted_date"             date,
@@ -1087,6 +1100,8 @@ create table if not exists payment_slips (
   "sender"                     text,
   "method"                     text,
   "send_bank"                  text,
+  "stated_date"                date,
+  "stated_time"                time,
   created_at  timestamptz not null default now(),
   updated_at  timestamptz not null default now()
 );
@@ -1153,7 +1168,7 @@ create table if not exists prepayments (
   "status"                     text,
   "slip_url"                   text,
   "slip_amount"                numeric(12,2),
-  "verified_status"            boolean,
+  "verified_status"            text,
   "date"                       date,
   "payment_method"             text,
   "transaction_date"           date,
@@ -1311,9 +1326,13 @@ create table if not exists survey_responses (
   tenant_id   uuid not null references tenant(id) on delete restrict,
   "response_id"                text,
   "survey_id"                  text,
-  "respondent_id"              text,
-  "answer"                     text,
-  "date"                       date,
+  "student_id"                 text,
+  "parent_id"                  text,
+  "rating"                     text,
+  "choice"                     text,
+  "comment"                    text,
+  "answers"                    text,
+  "submitted_at"               timestamptz,
   created_at  timestamptz not null default now(),
   updated_at  timestamptz not null default now()
 );
@@ -1329,12 +1348,19 @@ create table if not exists surveys (
   tenant_id   uuid not null references tenant(id) on delete restrict,
   "survey_id"                  text,
   "title"                      text,
-  "question"                   text,
+  "description"                text,
+  "type"                       text,
   "options"                    text,
+  "questions"                  text,
+  "scope"                      text,
   "target"                     text,
   "start_date"                 date,
   "end_date"                   date,
   "status"                     text,
+  "anonymous"                  text,
+  "created_by"                 text,
+  -- CreatedAt: the sheet's own column, carried by the
+  -- reserved column of the same name below — same meaning, and never declared twice.
   created_at  timestamptz not null default now(),
   updated_at  timestamptz not null default now()
 );
@@ -1350,7 +1376,7 @@ create table if not exists user_links (
   tenant_id   uuid not null references tenant(id) on delete restrict,
   "user_uid"                   text,
   "student_id"                 text,
-  "verified_by"                boolean,
+  "verified_by"                text,
   "date"                       date,
   created_at  timestamptz not null default now(),
   updated_at  timestamptz not null default now()

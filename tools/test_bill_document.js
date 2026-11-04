@@ -204,7 +204,7 @@ console.log('\n8) ฝั่ง GAS และหน้าจอ');
   const pay = R('src/PaySlips.gs'), code_ = R('src/Code.gs'), cfg = R('src/Config.gs'), day6 = R('src/Day6.gs'), app = R('webapp/app.js'),
     rc = R('webapp/receipt.js'), cert = R('src/Certificate.gs');
   ok_('🔴 GAS เขียน ReceiptDate ตอนบิลเปลี่ยนเป็น PAID เท่านั้น', /kind === 'bill' && String\(tgt\.obj\.Status \|\| ''\)\.toUpperCase\(\) !== 'PAID'[\s\S]{0,200}paidPatch\.ReceiptDate/.test(pay));
-  ok_('คอลัมน์ IssuedDate/ReceiptDate และ SendBank อยู่ใน schema', /'IssuedDate', 'ReceiptDate'\]/.test(cfg) && /'Method', 'SendBank'\]/.test(cfg));
+  ok_('คอลัมน์ IssuedDate/ReceiptDate และ SendBank อยู่ใน schema', /'IssuedDate', 'ReceiptDate'\]/.test(cfg) && /'Method', 'SendBank'/.test(cfg));
   ok_('SlipOK: เก็บธนาคารผู้โอน', /sendBank: String\(d\.sendingBank/.test(day6) && (pay.match(/SendBank: vr\.sendBank/g) || []).length === 2);
   ok_('สลิปรวมหลายบิลก็เก็บชื่อผู้โอนด้วย', /SlipGroup', 'TransDate', 'TransTime', 'StatedDate', 'StatedTime', 'Sender', 'SendBank'/.test(pay));
   ok_('route: saveDocInfo แอดมินเท่านั้น', /markCertIssued: 1, saveDocInfo: 1/.test(code_));

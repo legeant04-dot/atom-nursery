@@ -202,8 +202,26 @@ module.exports = function (files, srcDir) {
   };
   g.PUSH = PUSH; // expose captured LINE pushes to tests running in-context
   vm.createContext(g);
+  /* ATOM_DB=pg — WEEK 2: the SAME suite, with every sheet answered through src/DbPg.gs (the Postgres
+   * door) instead of directly. The fake Jdbc reads and writes these same in-memory sheets, so fixtures
+   * and assertions are untouched; what changes is that every call in between goes through DbPg's SQL,
+   * row numbering and value rules. tools/run_dbpg_parity.js runs every harness suite this way. */
+  const PGMODE = process.env.ATOM_DB === 'pg' && files.indexOf('Config') >= 0;
+  if (PGMODE) ['PgSchema', 'DbPg'].forEach(f => { if (files.indexOf(f) < 0) files = files.concat([f]); });
   files.forEach(f => vm.runInContext(fs.readFileSync(path.join(srcDir, f + '.gs'), 'utf8'), g, { filename: f + '.gs' }));
+  let pgLog = null;
+  if (PGMODE) {
+    Object.assign(props, { DB_BACKEND: 'pg', PG_TARGET: 'staging', PG_NO_CACHE: 'yes',
+      PG_TENANT_ID: '00000000-0000-4000-8000-000000000001' });
+    const fake = require('./pg_fake_jdbc.js')(g, store, props);
+    g.Jdbc = fake.Jdbc; pgLog = fake.log;
+    // proof the door was really used — a suite that never reached it would otherwise pass for the wrong reason
+    if (process.env.ATOM_DB_TRACE) process.on('exit', () => { const n = {}; fake.log.forEach(x => { const k = x.sql.split(' ')[0]; n[k] = (n[k] || 0) + 1; });
+      const P = vm.runInContext('PG_', g);
+      process.stderr.write('[dbpg] ' + JSON.stringify({ statements: n, rejects: P.rejects.map(r => r.where + '=' + r.value),
+        unknown: Object.keys(P.unknown), missing: Object.keys(P.missing) }) + '\n'); });
+  }
   // Run a test function's body inside the GAS context so it sees all globals.
   g.__run = fn => vm.runInContext('(' + fn.toString() + ')()', g);
-  return { g, store, PUSH, props, run: g.__run };
+  return { g, store, PUSH, props, run: g.__run, pgLog };
 };

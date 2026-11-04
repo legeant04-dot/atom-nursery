@@ -351,7 +351,9 @@ console.log('\n8) the live GAS routes — because these are the ones that actual
         remark: 'ย้ายไปอนุบาล', adminId: 'ADM' });
       var row = findObject_(sheet_(MAIN, 'STUDENTS'), function (s) { return String(s.StudentID) === 'S9'; });
       return { scheduled: r.endScheduled, ended: r.ended, status: String(row.Status || ''),
-               endDate: String(row.EndDate || '').slice(0, 10), reason: String(row.EndReason || '') };
+               /* ymdCell_, not slice: on the live sheet EndDate is a DATE CELL (and through Postgres a date), so
+                * String(it).slice(0,10) is "Thu Dec 31" — the check must read it the way the app does */
+               endDate: ymdCell_(row.EndDate), reason: String(row.EndReason || '') };
     });
     grab('endClear', function () {
       handleSetStudentEnd({ studentId: 'S9', endDate: '', adminId: 'ADM' });
