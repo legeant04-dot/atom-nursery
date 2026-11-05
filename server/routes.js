@@ -26,10 +26,14 @@
 const fs = require('fs'), path = require('path'), vm = require('vm');
 const ROOT = path.join(__dirname, '..');
 
-/** action → the Apps Script function ROUTES calls, and every sheet it reads (incl. via helpers) */
+/** action → the Apps Script function ROUTES calls, every sheet it reads (incl. via helpers), and —
+ *  for a route that writes — the ONLY cells it may change: { SHEET: [columns] }, updates of existing
+ *  rows only. Anything else it tries (another column, a new row, a delete, a cache, LINE) fails the call. */
 const PORTED = {
   // the 🔔 bell — Admin inbox · a staff member's inbox · a family's inbox (src/Notify.gs)
-  notifications: { fn: 'handleNotifications', reads: ['ADMIN_INBOX', 'PARENTS', 'USER_LINKS'] }
+  notifications: { fn: 'handleNotifications', reads: ['ADMIN_INBOX', 'PARENTS', 'USER_LINKS'] },
+  // ...and "mark as read": the same three audiences, the same three sheets, one cell (Read = 'YES')
+  markNotifsRead: { fn: 'handleMarkNotifsRead', reads: ['ADMIN_INBOX', 'PARENTS', 'USER_LINKS'], writes: { ADMIN_INBOX: ['Read'] } }
 };
 
 const FILES = ['Config', 'Auth', 'Notify'];
@@ -56,10 +60,15 @@ function formatDate(d, tz, fmt) {
 }
 
 
-/** Sheets to read from Postgres before running these actions */
+/** Sheets to read from Postgres before running these actions — with row ids where the route may write */
 function needs(actions) {
   const s = new Set();
   actions.forEach(a => { if (PORTED[a]) PORTED[a].reads.forEach(x => s.add(x)); });
+  return [...s];
+}
+function writable(actions) {
+  const s = new Set();
+  actions.forEach(a => { if (PORTED[a] && PORTED[a].writes) Object.keys(PORTED[a].writes).forEach(x => s.add(x)); });
   return [...s];
 }
 
@@ -67,8 +76,11 @@ function needs(actions) {
  * Run the ported route `action` with the payload the gate already stamped (applyIdentity_).
  * raw   { SHEET: rows } — read for this request (needs())
  * H     the engine handlers on this request's M, for routes that fall through (engineDispatch_)
+ * sink  array the route's writes are pushed to: { sheet, id, patch } — the host saves them under its
+ *       lock (PG.updateSheetRows). The change is ALSO applied to raw, so a later call in the same batch
+ *       reads it, exactly as the next call on Apps Script would read the sheet.
  */
-function run(action, payload, raw, H, config) {
+function run(action, payload, raw, H, config, sink) {
   const def = PORTED[action];
   if (!def) throw new Error('routes: ' + action + ' is not ported');
   const b = load();
@@ -79,9 +91,31 @@ function run(action, payload, raw, H, config) {
   let violation = null;
   const breach = msg => { const e = new Error(msg); if (!violation) violation = e; throw e; };
   const refuseWrite = name => () => breach('routes: a ported route tried to write (' + name + ') — not allowed on the fast host');
+  /* The call works on its OWN copy of each sheet. Only when it finishes cleanly do its writes reach
+   * raw (for the next call in the batch) and the sink (for Postgres) — a call that fails halfway leaves
+   * nothing behind, where Apps Script would have left the rows it got to. Stricter, never looser. */
+  const work = {}, pending = [];
+  const sheetRows = name => (work[name] || (work[name] = JSON.parse(JSON.stringify(raw[name] || []))));
   const rows = name => {
     if (!allowed.has(name)) breach('routes: ' + action + ' read ' + name + ' which it does not declare');
-    return JSON.parse(JSON.stringify(raw[name] || [])).map((r, i) => Object.assign(r, { _row: i + 2 }));
+    return sheetRows(name).map((r, i) => {
+      const o = JSON.parse(JSON.stringify(r)); delete o.__id;            // Apps Script never sees our row ids
+      return Object.assign(o, { _row: i + 2 });
+    });
+  };
+  const may = def.writes || {};
+  const updateRow = (s, rowIndex, patch) => {
+    const name = nameOf(s), cols = may[name];
+    if (!cols) return breach('routes: ' + action + ' tried to write ' + name + ' which it does not declare');
+    const keys = Object.keys(patch || {});
+    const bad = keys.filter(k => cols.indexOf(k) < 0);
+    if (bad.length) return breach('routes: ' + action + ' tried to write ' + name + '.' + bad.join(',') + ' which it does not declare');
+    const row = sheetRows(name)[rowIndex - 2];
+    if (!row || !row.__id) return breach('routes: ' + action + ' updated row ' + rowIndex + ' of ' + name + ' which has no id (read without withId?)');
+    if (!sink) return breach('routes: ' + action + ' wrote with nowhere to record it');
+    const clean = JSON.parse(JSON.stringify(patch));
+    Object.assign(row, clean);
+    pending.push({ sheet: name, id: row.__id, patch: clean });
   };
   const sheetObj = name => ({ getName: () => name, __sheet: name });
   const nameOf = s => (s && s.__sheet) || s;
@@ -96,6 +130,11 @@ function run(action, payload, raw, H, config) {
   b.engineDispatch_ = (a, p) => { const h = H && H[a]; if (typeof h !== 'function') throw new Error('UNKNOWN_ACTION ' + a); return h(p || {}); };
   ['updateRow_', 'appendObject_', 'appendRows_', 'deleteRow_', 'writeRows_', 'bustSheetCache_', 'inboxBust_', 'inboxAdd_',
     'linePushText_', 'logAudit'].forEach(n => { b[n] = refuseWrite(n); });
+  b.updateRow_ = updateRow;
+  /* inboxBust_ clears Apps Script's CacheService copy of ADMIN_INBOX. Nothing on Apps Script reads that
+   * copy (Notify.gs reads the sheet itself, and ADMIN_INBOX is no engine collection), so for a route
+   * that may write the inbox, it is a no-op here rather than a refusal. */
+  if (may.ADMIN_INBOX) b.inboxBust_ = () => {};
   b.CacheService = { getScriptCache: refuseWrite('CacheService') };
   b.LockService = { getScriptLock: refuseWrite('LockService') };
   b.UrlFetchApp = { fetch: refuseWrite('UrlFetchApp') };
@@ -104,7 +143,9 @@ function run(action, payload, raw, H, config) {
   try { out = vm.runInContext(def.fn + '(__p)', b); } catch (e) { thrown = e; }
   if (violation) throw violation;
   if (thrown) throw thrown;
+  Object.keys(work).forEach(n => { if (pending.some(w => w.sheet === n)) raw[n] = work[n]; });
+  pending.forEach(w => sink.push(w));
   return out === undefined ? out : JSON.parse(JSON.stringify(out));
 }
 
-module.exports = { PORTED, has: a => Object.prototype.hasOwnProperty.call(PORTED, a), needs, run, formatDate };
+module.exports = { PORTED, has: a => Object.prototype.hasOwnProperty.call(PORTED, a), needs, writable, run, formatDate };

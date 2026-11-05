@@ -144,8 +144,53 @@ const q = s => '"' + s + '"';
     ok_('🔴 ไม่มีอะไรถูกเขียน (ทุก collection + ADMIN_INBOX เหมือนเดิม)',
       JSON.stringify((await PG.hydrateFast(c, TENANT, ALL, {})).M, (k, v) => k === '__id' ? undefined : v) === before &&
       JSON.stringify(await PG.readSheet(c, TENANT, 'ADMIN_INBOX')) === inboxBefore);
-    const m = await viaHost({ action: 'markNotifsRead', payload: WHO['ครู'].ask }, WHO['ครู']);
-    ok_('markNotifsRead (การเขียน ยังไม่ย้าย) → NOT_ON_FAST_HOST ให้แอปส่งต่อ', m.ok === false && m.error.code === 'NOT_ON_FAST_HOST');
+    console.log('\n3) markNotifsRead — กด "อ่านแล้ว" ผ่านโฮสต์ = ผลบน Apps Script ทุกแถว');
+    const readCol = async () => (await PG.readSheet(c, TENANT, 'ADMIN_INBOX')).map(r => r.InboxID + '=' + r.Read);
+    const gasCol = () => JSON.parse(H.run(function () {
+      return JSON.stringify(readObjects_(sheet_(getMainSpreadsheet_(), 'ADMIN_INBOX')).map(function (r) { return r.InboxID + '=' + r.Read; }));
+    }));
+    {
+      /* 🔴 first, while Apps Script holds the shared write lock: BUSY, and not one cell changes */
+      const { client: gasLock } = await connect();
+      await gasLock.query('select pg_advisory_lock(hashtextextended($1, 0))', [TENANT]);
+      const before = await readCol();
+      const r = await viaHost({ action: 'markNotifsRead', payload: WHO['แอดมิน'].ask }, WHO['แอดมิน']);
+      ok_('🔴 Apps Script ถือล็อกอยู่ → BUSY', r.ok === false && r.error && r.error.code === 'BUSY');
+      ok_('🔴 ...และไม่มีช่องไหนเปลี่ยน', JSON.stringify(await readCol()) === JSON.stringify(before));
+      await gasLock.query('select pg_advisory_unlock(hashtextextended($1, 0))', [TENANT]);
+      await gasLock.end();
+    }
+    /* then each audience in turn, on BOTH sides, comparing the whole inbox after every step */
+    const ORDER = ['ครู', 'ผู้ปกครอง (PARENTS)', 'ผู้ปกครอง (USER_LINKS)', 'แอดมิน', 'ครูที่ยังไม่มีอะไร'];
+    for (const k of ORDER) {
+      const p = GATE.identity('markNotifsRead', JSON.parse(JSON.stringify(WHO[k].ask)), WHO[k].sess, M);
+      H.g.__P = JSON.stringify(p);
+      const want = JSON.parse(H.run(function () { return JSON.stringify(handleMarkNotifsRead(JSON.parse(__P))); }));
+      const was = await readCol();
+      const got = await viaHost({ action: 'markNotifsRead', payload: WHO[k].ask }, WHO[k]);
+      const now = await readCol(), g = gasCol();
+      const n = now.filter((x, i) => x !== was[i]).length;
+      ok_(k + ': คำตอบเท่ากัน', JSON.stringify(got.data) === JSON.stringify(want) && got.ok === true);
+      ok_(k + ': ADMIN_INBOX ใน Postgres = ชีตของ Apps Script ทุกแถว (' + n + ' แถวเปลี่ยน)' +
+        (JSON.stringify(now) === JSON.stringify(g) ? '' : '\n         pg=' + JSON.stringify(now).slice(0, 300) + '\n        gas=' + JSON.stringify(g).slice(0, 300)),
+        JSON.stringify(now) === JSON.stringify(g));
+    }
+    ok_('🔴 ข้อเท็จจริง: ทุกแถวที่ยังไม่อ่านถูกอ่านแล้ว (การเทียบข้างบนไม่ใช่ว่างกับว่าง)', (await readCol()).every(x => /=YES$/.test(x)));
+    {
+      /* the batch the app sends when the bell is opened: mark, then read again — the read sees the write */
+      await c.query("update admin_inbox set \"read\" = '' where tenant_id = $1 and staff_id = 'STF-T'", [TENANT]);
+      const b2 = await viaHost({ action: 'batch', payload: { calls: [{ action: 'markNotifsRead', payload: WHO['ครู'].ask }, { action: 'notifications', payload: WHO['ครู'].ask }] } }, WHO['ครู']);
+      ok_('batch [อ่านแล้ว, กระดิ่ง] → กระดิ่งเห็นว่าอ่านแล้ว', b2.ok && b2.data[0].ok && b2.data[1].ok && b2.data[1].data.length === 1 && b2.data[1].data[0].read === true);
+      ok_('...และบันทึกจริงใน Postgres', (await readCol()).every(x => /=YES$/.test(x)));
+    }
+    {
+      /* a family cannot reach another family's row, or the admin's: the gate stamps its identity */
+      await c.query("update admin_inbox set \"read\" = '' where tenant_id = $1", [TENANT]);
+      await viaHost({ action: 'markNotifsRead', payload: { role: 'Admin', parentId: 'PAR-2', staffId: '' } }, WHO['ผู้ปกครอง (PARENTS)']);
+      const col = await readCol();
+      const yes = col.filter(x => /=YES$/.test(x)).map(x => x.split('=')[0]);
+      ok_('🔴 ผู้ปกครองที่อ้างเป็นแอดมิน อ่านได้เฉพาะแถวของลูกตัวเอง (' + yes.join(',') + ')', yes.length === 1 && yes[0] === INBOX[14].InboxID);
+    }
   } finally {
     const tabs = (await c.query("select table_name from information_schema.tables where table_schema='public' and table_name <> 'tenant'")).rows.map(r => r.table_name);
     for (const t of tabs) { try { await c.query('delete from ' + t + ' where tenant_id = $1', [TENANT]); } catch (e) {} }
