@@ -5,6 +5,21 @@
 
 ---
 
+## 2026-11-05 · Cloud Run rev 00012 · bigCleaningDays ย้ายมาแล้ว · getConfig_ ของจริง
+
+**ผอ.:** *"ทำต่อ bigCleaningDays ได้เลย"*
+
+- รัน `handleBigCleaningDays` ของ `src/Checkin.gs` ตัวจริง (วัน · ค่าตอบแทน · เวลาเข้า-ออกของวัน Big Cleaning จาก SCHOOL_CONFIG)
+- 🔴 **พบระหว่างย้าย (แก้แล้ว ใช้กับทุก route):** shim `getConfig_` ของโฮสต์ตอบจาก `M.config` ของ engine — ซึ่ง `hydrateConfig_` แปลงเป็น array/ตัวเลขแล้ว ·
+  `getConfig_` ของ Apps Script อ่านแถว Key/Value ดิบจากชีต · สองอย่างนี้ไม่เท่ากันโดยออกแบบ → โหลด `Db.gs` และใช้ `getConfig_` ของจริง ·
+  ทุก route อ่าน SCHOOL_CONFIG ได้เสมอ (เหมือนทุกบรรทัดของ Apps Script) · `_configCache` ถูกล้างทุกคำขอ
+- **พิสูจน์:** `test_fast_routes` 61/61 (ไม่ตั้ง · ตั้งครบ · พิมพ์ไม่เรียบร้อย · เวลามีวินาที · ค่าไม่ค้างข้ามคำขอ · ไม่อ่าน M.config) ·
+  `test_fast_routes_live` 40/40 บน staging (ครูและผู้ปกครองได้คำตอบเดียวกับ Apps Script) · test_all 220/220
+- **ราคา:** หน้าหลักครู 300/300 · ในเซิร์ฟเวอร์ p50 88 → 100ms เพราะคำขอที่มี route (กระดิ่ง) อ่าน school_config เพิ่มอีกรอบ ·
+  ⬜ ใช้แถวที่ hydrateConfig อ่านอยู่แล้วแทน เพื่อตัดคิวรีซ้ำ
+
+---
+
 ## 2026-11-05 · Cloud Run rev 00011 · pendingLeaves (คิวอนุมัติการลา) ย้ายมาแล้ว
 
 **ผอ.:** *"ทำต่อเรื่องย้าย route ได้เลย เริ่มจาก pendingLeaves"*

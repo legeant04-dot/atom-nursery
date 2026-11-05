@@ -101,7 +101,7 @@ console.log('\n3) 🔴 กฎที่ทำให้รันนอก Apps Scr
   let e1 = null;
   try { ROUTES.run('notifications', { role: 'Admin' }, {}, {}, {}); } catch (e) { e1 = e; }
   ok_('ไม่มีแถวที่โหลดมา ≠ "ไม่มีแจ้งเตือน" — อ่านได้ แต่ได้ว่างเพราะโหลดมาว่างจริง', !e1);
-  eq('ประกาศชีตที่อ่านครบ', ROUTES.needs(['notifications', 'classList']), ['ADMIN_INBOX', 'PARENTS', 'USER_LINKS']);
+  eq('ประกาศชีตที่อ่านครบ (SCHOOL_CONFIG อ่านได้เสมอ เหมือนทุกบรรทัดของ Apps Script)', ROUTES.needs(['notifications', 'classList']), ['SCHOOL_CONFIG', 'ADMIN_INBOX', 'PARENTS', 'USER_LINKS']);
   // a route that reads a sheet it did not declare: simulated by narrowing the declaration
   const saved = ROUTES.PORTED.notifications.reads;
   ROUTES.PORTED.notifications.reads = ['ADMIN_INBOX'];
@@ -233,6 +233,46 @@ console.log('\n5) pendingLeaves — คิวอนุมัติการล�
     ROUTES.run('pendingLeaves', WHO['หัวหน้าครู'], JSON.parse(JSON.stringify(rawL)), {}, {});
     const after = ROUTES.run('pendingLeaves', WHO['หัวหน้าครู'], r2, {}, {});
     eq('🔴 คำขอถัดไปเห็นทะเบียนครูของตัวเอง ไม่ใช่ของคำขอก่อน (memo ถูกล้าง)', after[0].nick, 'ชื่อใหม่');
+  }
+}
+
+console.log('\n6) bigCleaningDays — วัน Big Cleaning · ค่าตอบแทน · เวลาเข้า-ออก เท่ากับ Apps Script');
+{
+  const G = require('./gas_test_harness.js')(FILES);
+  G.run(function () { _configCache = null; setupAll(); _configCache = null; return ''; });
+  const KEYS = ['BigCleaningDays', 'BigCleaningAmount', 'BigCleaningIn', 'BigCleaningOut'];
+  /* each case: what the school typed into SCHOOL_CONFIG (text, as Postgres stores it) */
+  const CASES = {
+    'ยังไม่ตั้งอะไร (ค่าเริ่มต้น)': { BigCleaningDays: '', BigCleaningAmount: '', BigCleaningIn: '', BigCleaningOut: '' },
+    'ตั้งครบ': { BigCleaningDays: '2026-11-20,2026-12-18', BigCleaningAmount: '300', BigCleaningIn: '08:15', BigCleaningOut: '16:30' },
+    'พิมพ์มาไม่เรียบร้อย': { BigCleaningDays: ' 2026-11-20 , ,2026-12-18,', BigCleaningAmount: 'สามร้อย', BigCleaningIn: '8:5', BigCleaningOut: 'บ่ายสี่' },
+    'วันเดียว · เวลามีวินาที': { BigCleaningDays: '2027-01-15', BigCleaningAmount: '250.50', BigCleaningIn: '08:30:00', BigCleaningOut: '17:00:00' }
+  };
+  const got = {};
+  for (const k of Object.keys(CASES)) {
+    G.g.__C = JSON.stringify(CASES[k]); G.g.__K = JSON.stringify(KEYS);
+    const both = JSON.parse(G.run(function () {
+      var C = JSON.parse(__C);
+      JSON.parse(__K).forEach(function (key) { setConfigValue_(key, C[key]); });
+      _configCache = null;
+      var rows = readObjects_(sheet_(getMainSpreadsheet_(), 'SCHOOL_CONFIG')).map(function (r) { return { Key: r.Key, Value: r.Value }; });
+      return JSON.stringify({ want: handleBigCleaningDays(), rows: rows });
+    }));
+    got[k] = ROUTES.run('bigCleaningDays', {}, { SCHOOL_CONFIG: both.rows }, {}, {});
+    eq(k, got[k], both.want);
+  }
+  eq('ข้อเท็จจริง: ค่าที่ตั้งครบถูกอ่านจริง', got['ตั้งครบ'], { days: ['2026-11-20', '2026-12-18'], amount: 300, checkIn: '08:15', checkOut: '16:30' });
+  eq('ข้อเท็จจริง: ไม่ตั้ง = 08:30–17:00 · 0 บาท', got['ยังไม่ตั้งอะไร (ค่าเริ่มต้น)'], { days: [], amount: 0, checkIn: '08:30', checkOut: '17:00' });
+  {
+    /* 🔴 Db.gs caches SCHOOL_CONFIG in _configCache per execution — reset per request here */
+    const a = ROUTES.run('bigCleaningDays', {}, { SCHOOL_CONFIG: [{ Key: 'BigCleaningAmount', Value: '111' }] }, {}, {});
+    const b = ROUTES.run('bigCleaningDays', {}, { SCHOOL_CONFIG: [{ Key: 'BigCleaningAmount', Value: '222' }] }, {}, {});
+    eq('🔴 การตั้งค่าของคำขอหนึ่งไม่ค้างไปคำขอถัดไป', [a.amount, b.amount], [111, 222]);
+  }
+  {
+    /* the engine's M.config is NOT what a route reads: the route reads the raw sheet, like Apps Script */
+    const r = ROUTES.run('bigCleaningDays', {}, { SCHOOL_CONFIG: [{ Key: 'BigCleaningAmount', Value: '300' }] }, {}, { BigCleaningAmount: 999 });
+    eq('อ่านจาก SCHOOL_CONFIG ไม่ใช่ M.config ของ engine', r.amount, 300);
   }
 }
 

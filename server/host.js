@@ -299,7 +299,7 @@ module.exports = { server, handle };
  *   ✅ ด่านของ Code.gs (ADMIN_ONLY · Observer · CLOSED · parentOwnsStudent_ · ENDED/NOT_STARTED/PAUSED) — server/gate.js
  *   ✅ ล็อกการเขียน = pg_advisory_xact_lock ต่อโรงเรียน + ธุรกรรม · WRITE_GUARD · ลำดับแถว
  *   ✅ 180 ROUTES ตอบ NOT_ON_FAST_HOST — webapp/api.js ส่งต่อไป GAS เอง (postFast · tools/test_fast_forward.js)
- *   🟡 ROUTES ที่ย้ายมาแล้ว (ฟังก์ชันของ GAS ตัวจริง): server/routes.js — notifications · markNotifsRead (เขียนช่อง Read) · pendingLeaves
+ *   🟡 ROUTES ที่ย้ายมาแล้ว (ฟังก์ชันของ GAS ตัวจริง): server/routes.js — notifications · markNotifsRead (เขียนช่อง Read) · pendingLeaves · bigCleaningDays
  *   ✅ แคช CacheService ของ Apps Script ตามการเขียนของโฮสต์ทัน: คีย์พกเวอร์ชันจาก cache_version และโฮสต์
  *      ขยับเวอร์ชันในธุรกรรมเดียวกับการเขียน (src/DbPg.gs CACHE VERSIONS · tools/test_cache_versions.js)
  *   ⬜ เขียนได้เฉพาะ server/write_proven.js · คีย์ที่คำนวณ (ลงเวลาครู · payrollConfig) ยังไม่มีตัวเขียน · เงินยังไม่เปิด

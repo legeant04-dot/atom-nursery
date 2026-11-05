@@ -233,6 +233,27 @@ const q = s => '"' + s + '"';
       const home = await viaHost({ action: 'batch', payload: { calls: [{ action: 'pendingLeaves', payload: { staffId: 'STF-A' } }, { action: 'notifications', payload: WHO['แอดมิน'].ask }] } }, WHO['แอดมิน']);
       ok_('หน้าแรกแอดมิน (batch) — ตอบบนโฮสต์ทั้งคู่ ไม่มี NOT_ON_FAST_HOST', home.ok && home.data.every(x => x.ok));
     }
+
+    console.log('\n5) bigCleaningDays — การตั้งค่าใน SCHOOL_CONFIG: โฮสต์ (Postgres) = Apps Script (ชีต)');
+    {
+      for (const [k, v] of [['BigCleaningDays', ' 2026-11-20 ,2026-12-18,'], ['BigCleaningAmount', '300'], ['BigCleaningIn', '08:15'], ['BigCleaningOut', '16:30:00']])
+        await c.query('insert into school_config (tenant_id, "key", "value") values ($1, $2, $3)', [TENANT, k, v]);
+      const cfgRows = await PG.readSheet(c, TENANT, 'SCHOOL_CONFIG');
+      H.g.__FIX = JSON.stringify(cfgRows);
+      const want = JSON.parse(H.run(function () {
+        var sh = sheet_(getMainSpreadsheet_(), 'SCHOOL_CONFIG');
+        if (sh.getLastRow() > 1) sh.deleteRows(2, sh.getLastRow() - 1);
+        JSON.parse(__FIX).forEach(function (r) { appendObject_(sh, r); });
+        _configCache = null;
+        return JSON.stringify(handleBigCleaningDays());
+      }));
+      const got = await viaHost({ action: 'bigCleaningDays', payload: {} }, WHO['ครู']);
+      ok_('คำตอบเท่ากัน ' + JSON.stringify(got.data) + (JSON.stringify(got.data) === JSON.stringify(want) ? '' : '  gas=' + JSON.stringify(want)),
+        got.ok === true && JSON.stringify(got.data) === JSON.stringify(want));
+      ok_('ข้อเท็จจริง: ค่าที่ตั้งไว้ถูกอ่านจริง (2 วัน · 300 บาท · 08:15–16:30)', want.days.length === 2 && want.amount === 300 && want.checkIn === '08:15' && want.checkOut === '16:30');
+      const p = await viaHost({ action: 'bigCleaningDays', payload: {} }, WHO['ผู้ปกครอง (PARENTS)']);
+      ok_('ผู้ปกครองถามได้ (ปฏิทินโรงเรียน) และได้คำตอบเดียวกัน', p.ok === true && JSON.stringify(p.data) === JSON.stringify(want));
+    }
   } finally {
     const tabs = (await c.query("select table_name from information_schema.tables where table_schema='public' and table_name <> 'tenant'")).rows.map(r => r.table_name);
     for (const t of tabs) { try { await c.query('delete from ' + t + ' where tenant_id = $1', [TENANT]); } catch (e) {} }
