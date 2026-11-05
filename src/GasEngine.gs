@@ -343,7 +343,12 @@ function cacheTtl_() { var t = Number(getConfig_ ? getConfig_('CacheTTL', 900) :
  * will cross 2.8MB too. The real answer is not to hydrate four years of journals to draw today's
  * class screen. */
 var CACHE_PART_ = 90000, CACHE_MAX_PARTS_ = 32;
+/* While Postgres is the backend the row-cache keys carry the table's version (pgCacheKey_ in DbPg.gs),
+ * so a write by the Cloud Run host - which cannot reach this CacheService - still retires the old copy.
+ * null = the versions could not be read: no row cache this execution. Switch off: the key, unchanged. */
+function cacheKeyFor_(k) { return (typeof pgCacheKey_ === 'function') ? pgCacheKey_(k) : k; }
 function cacheGet_(k) {
+  k = cacheKeyFor_(k); if (!k) return null;
   try {
     var v = CacheService.getScriptCache().get(k);
     if (!v) return null;
@@ -359,6 +364,7 @@ function cacheGet_(k) {
   } catch (e) { return null; }
 }
 function cachePut_(k, o) {
+  k = cacheKeyFor_(k); if (!k) return;
   try {
     var s = JSON.stringify(o), ttl = cacheTtl_(), c = CacheService.getScriptCache();
     if (s.length < 95000) { c.put(k, s, ttl); return; }
@@ -371,6 +377,7 @@ function cachePut_(k, o) {
   } catch (e) {}
 }
 function cacheDel_(k) {
+  k = cacheKeyFor_(k); if (!k) return;
   try {
     var c = CacheService.getScriptCache(), v = c.get(k), m = v && /^__parts:(\d+)$/.exec(v);
     if (m) { var keys = []; for (var i = 0; i < Number(m[1]); i++) keys.push(k + '~' + i); c.removeAll(keys); }

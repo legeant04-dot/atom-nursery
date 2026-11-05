@@ -62,7 +62,11 @@ const SKIP = new Set(['test_pg_engine.js', 'test_pg_load.js', 'test_all.js', 'te
  * rows goes to staging and back in one synchronous round trip, which cannot finish inside the
  * bridge's 120s — so since it was added (30/10) it has shown up here as a failure that says nothing
  * about Postgres. It still runs, every time; only the bridge is left out. */
-const NO_BRIDGE = new Set(['test_narrow_safe.js']);
+/* test_fast_host_readonly.js stubs PG.* and drives server/host.js against a FAKE client with fake row
+ * ids ('st1') — it tests the host's gate and lock logic, not the database. Through the bridge its
+ * fixture reaches a real uuid column and fails on "st1" (failing the same way at 1273fa6, before the
+ * cache-version work — checked 2026-11-05). The host's real-database proof is test_fast_host_writes_live.js. */
+const NO_BRIDGE = new Set(['test_narrow_safe.js', 'test_fast_host_readonly.js']);
 const suites = fs.readdirSync(path.join(ROOT, 'tools'))
   .filter(f => /^test_.*\.js$/.test(f) && !SKIP.has(f) && f !== 'test_all_pg.js')
   .filter(f => !want.length || want.some(w => f.indexOf(w) >= 0))

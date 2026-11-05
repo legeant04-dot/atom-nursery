@@ -163,7 +163,16 @@ async function viaHost(msg, who) {
       observed.forEach(k => seen[action].add(k));
       const declared = (WRITE_PROVEN[action] || []).slice().sort();
       ok_('🔴 เปลี่ยนเฉพาะที่ประกาศ  ประกาศ[' + declared + '] · จริง[' + observed + ']', observed.every(k => declared.indexOf(k) >= 0));
+      const vers = async () => Object.fromEntries((await c.query('select sheet, ver::int v from cache_version where tenant_id = $1', [TENANT])).rows.map(x => [x.sheet, x.v]));
+      const v0 = await vers();
       const r = await viaHost({ action, payload }, who);
+      /* 🔴 a bill confirmed here must not stay "unpaid" in Apps Script's cache (src/DbPg.gs CACHE VERSIONS) */
+      {
+        const v1 = await vers();
+        const sheetOf = k => k === 'payrollConfig' ? 'PAYROLL_CONFIG' : PG.COLLECTIONS[k].sheet;
+        const stuck = observed.map(sheetOf).filter(s => !((v1[s] || 0) > (v0[s] || 0)));
+        ok_('🔴 ทุกชีตที่เขียน ขยับเวอร์ชันแคชของ Apps Script' + (stuck.length ? '  → ค้าง: ' + stuck.join(',') : '  (' + observed.map(sheetOf).join(',') + ')'), stuck.length === 0);
+      }
       ok_('โฮสต์ตอบสำเร็จ' + (r.ok ? '' : '  → ' + JSON.stringify(r.error).slice(0, 160)), r.ok === true);
       ok_('...คำตอบเท่ากับฝั่ง Apps Script' + (asSent(r.data) === asSent(expectData) ? '' : '  pg=' + String(asSent(r.data)).slice(0, 220) + ' gas=' + String(asSent(expectData)).slice(0, 220)),
         asSent(r.data) === asSent(expectData));

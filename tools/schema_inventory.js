@@ -557,6 +557,22 @@ if (process.argv.includes('--sql') || process.argv.includes('--write')) {
   L.push('create policy tenant_self_read on tenant');
   L.push('  for select using (id = (auth.jwt() ->> \'tenant_id\')::uuid);');
   L.push('');
+  /* 🔴 CACHE VERSIONS (2026-11-05) — not a sheet. Apps Script caches rows in CacheService and the Cloud
+   * Run host cannot clear it; both writers bump a sheet's version here and the cache keys carry it
+   * (src/DbPg.gs pgCacheKey_ · server/host.js). Server-only: RLS on, no policy at all. */
+  L.push('-- ── cache versions (not a sheet) — Apps Script\'s row cache is keyed by these; every writer bumps them');
+  L.push('create table if not exists cache_version (');
+  L.push('  id          uuid primary key default gen_random_uuid(),');
+  L.push('  tenant_id   uuid not null references tenant(id) on delete cascade,');
+  L.push('  sheet       text not null,');
+  L.push('  ver         bigint not null default 0,');
+  L.push('  created_at  timestamptz not null default now(),');
+  L.push('  updated_at  timestamptz not null default now()');
+  L.push(');');
+  L.push('create unique index if not exists cache_version_uq on cache_version(tenant_id, sheet);   -- on conflict (tenant_id, sheet)');
+  L.push('alter table cache_version enable row level security;');
+  L.push('-- ไม่มีนโยบายเลย = client ทำอะไรไม่ได้ · เซิร์ฟเวอร์ (service_role / Apps Script / Cloud Run) เท่านั้น');
+  L.push('');
 
   withCols.forEach(t => {
     const tbl = tableName(t);

@@ -33,6 +33,7 @@
 const fs = require('fs'), path = require('path');
 const ROOT = path.join(__dirname, '..');
 const { targetSchema, planLoad, tableFor, encode_, encodeRejects_ } = require('./pg_migrate.js');
+const { bumpCacheVersions } = require('./pg_engine.js');
 const { connect, readEnv } = require('./pg_lib');
 
 const arg = n => { const i = process.argv.indexOf('--' + n); return i < 0 ? null : (process.argv[i + 1] || true); };
@@ -95,6 +96,10 @@ const MATCH_KEY_ = {
   staff_groups: ['GroupName'],
   dspm_criteria: ['AgeLabelTH', 'ItemNo'],
   // ── logs ────────────────────────────────────────────────────────────────────────────────────
+  // ── not a sheet ─────────────────────────────────────────────────────────────────────────────
+  /* Apps Script's cache versions (src/DbPg.gs CACHE VERSIONS) — written by the two app writers, never
+   * mirrored from a sheet. Named here so it is skipped ON PURPOSE, never diffed against nothing. */
+  cache_version: 'NOT_A_SHEET',
   audit_log: 'APPEND_ONLY',
   hr_audit_log: 'APPEND_ONLY',
   backup_log: 'APPEND_ONLY',
@@ -218,6 +223,7 @@ async function main() {
      * "0 changes" must never be reachable by not having looked. */
     const uniq = Object.keys(t.cols).find(sheetCol => t.cols[sheetCol] === keys[t.table]);
     const declared = MATCH_KEY_[t.table];
+    if (declared === 'NOT_A_SHEET') continue;
     const mode = declared === 'APPEND_ONLY' ? 'APPEND_ONLY' : null;
     const key = uniq ? [uniq]
       : (Array.isArray(declared) ? declared : null)
@@ -252,6 +258,9 @@ async function main() {
         /* 🔴 A ROW THE SHEET NO LONGER HAS IS DELETED — and that is the one operation here that can
          * destroy something, so it is counted, reported, and bounded below. */
         for (const x of d.del) await c.query('delete from ' + t.table + ' where id = $1 and tenant_id = $2', [x.id, TENANT]);
+        /* 🔴 a writer of Postgres retires Apps Script's cached copy of what it changed (src/DbPg.gs
+         * CACHE VERSIONS) — in the same transaction, so the rows and the new version land together */
+        if (d.insert.length || d.update.length || d.del.length) await bumpCacheVersions(c, TENANT, [t.sheet]);
         await c.query('commit');
       } catch (e) { await c.query('rollback').catch(() => {}); throw new Error(t.table + ': ' + e.message); }
     }
