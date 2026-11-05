@@ -35,12 +35,19 @@ const PORTED = {
   // ...and "mark as read": the same three audiences, the same three sheets, one cell (Read = 'YES')
   markNotifsRead: { fn: 'handleMarkNotifsRead', reads: ['ADMIN_INBOX', 'PARENTS', 'USER_LINKS'], writes: { ADMIN_INBOX: ['Read'] } },
   // the approver's queue — Admin sees PENDING_ADMIN, a Leader PENDING_LEADER, anyone else NO_PERMISSION (src/Leave.gs)
-  pendingLeaves: { fn: 'handlePendingLeaves', reads: ['LEAVE_REQUEST', 'STAFF'] }
+  pendingLeaves: { fn: 'handlePendingLeaves', reads: ['LEAVE_REQUEST', 'STAFF'] },
+  // Big Cleaning: the dates, the allowance and the day's own hours — all from SCHOOL_CONFIG (src/Checkin.gs)
+  bigCleaningDays: { fn: 'handleBigCleaningDays', reads: [] }
 };
+/* 🔴 SCHOOL_CONFIG is readable by every ported route, as by every line of Apps Script: getConfig_ is
+ * Db.gs's own (raw Key/Value rows, cached per execution in _configCache — reset per request here),
+ * NOT the engine's M.config, which hydrateConfig_ has already turned into arrays and numbers. The two
+ * disagree on purpose; a route must see what Apps Script's getConfig_ sees. */
+const ALWAYS_READ = ['SCHOOL_CONFIG'];
 
 /* Config/Auth: constants · Notify/Leave: the handlers · Checkin: resolveStaff_ · Code: apiError_ ·
  * GasEngine: decodeCell_. Loaded whole, as Apps Script loads them. */
-const FILES = ['Config', 'Auth', 'Checkin', 'Code', 'GasEngine', 'Notify', 'Leave'];
+const FILES = ['Config', 'Db', 'Auth', 'Checkin', 'Code', 'GasEngine', 'Notify', 'Leave'];
 let box = null, pristine = null;
 function load() {
   if (box) return box;
@@ -89,7 +96,7 @@ function formatDate(d, tz, fmt) {
 /** Sheets to read from Postgres before running these actions — with row ids where the route may write */
 function needs(actions) {
   const s = new Set();
-  actions.forEach(a => { if (PORTED[a]) PORTED[a].reads.forEach(x => s.add(x)); });
+  actions.forEach(a => { if (PORTED[a]) ALWAYS_READ.concat(PORTED[a].reads).forEach(x => s.add(x)); });
   return [...s];
 }
 function writable(actions) {
@@ -111,7 +118,7 @@ function run(action, payload, raw, H, config, sink) {
   if (!def) throw new Error('routes: ' + action + ' is not ported');
   const b = load();
   resetBox(b);
-  const allowed = new Set(def.reads);
+  const allowed = new Set(ALWAYS_READ.concat(def.reads));
   /* 🔴 Apps Script's own code wraps reads in try {} catch (e) {} (inboxStudentsForParent_ does), so a
    * throw alone would be swallowed and the answer would quietly be "nothing". The first violation is
    * REMEMBERED and thrown after the handler returns, whatever the handler did with it. */
@@ -154,8 +161,6 @@ function run(action, payload, raw, H, config, sink) {
   b.sheet_ = (wb, name) => sheetObj(name);
   b.readObjects_ = s => rows(nameOf(s));
   b.findObject_ = (s, pred) => rows(nameOf(s)).find(pred) || null;
-  b.getConfig_ = (k, d) => { const v = (config || {})[k]; return (v === undefined || v === '') ? d : v; };
-  b.tz_ = () => b.getConfig_('Timezone', 'Asia/Bangkok');
   b.Utilities = { formatDate };
   b.engineDispatch_ = (a, p) => { const h = H && H[a]; if (typeof h !== 'function') throw new Error('UNKNOWN_ACTION ' + a); return h(p || {}); };
   ['updateRow_', 'appendObject_', 'appendRows_', 'deleteRow_', 'writeRows_', 'bustSheetCache_', 'inboxBust_', 'inboxAdd_',
