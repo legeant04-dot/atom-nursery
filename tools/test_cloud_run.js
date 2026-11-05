@@ -62,7 +62,8 @@ ok_('container ไม่รันด้วย root', /^USER node$/m.test(R('Dock
     reads.length >= 3 && missing.length === 0);
   /* ...and every .gs the GATE loads, and every server/ file the host requires — same failure, same check */
   const gateFiles = ((/const FILES = \[([^\]]*)\]/.exec(R('server/gate.js')) || [])[1] || '').match(/'([^']+)'/g) || [];
-  const needed = gateFiles.map(x => 'src/' + x.slice(1, -1) + '.gs')
+  const routeFiles = ((/const FILES = \[([^\]]*)\]/.exec(R('server/routes.js')) || [])[1] || '').match(/'([^']+)'/g) || [];
+  const needed = [...new Set(gateFiles.concat(routeFiles))].map(x => 'src/' + x.slice(1, -1) + '.gs')
     .concat([...R('server/host.js').matchAll(/require\(path\.join\(__dirname, '([a-z_]+\.js)'\)\)/g)].map(m => 'server/' + m[1]));
   const absent = needed.filter(f => !new RegExp('^COPY ' + f.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\s', 'm').test(docker) ||
     ignore.indexOf('!/' + f) < 0);
