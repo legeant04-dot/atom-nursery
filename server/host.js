@@ -32,6 +32,8 @@ const { createAtomAPI } = require(path.join(__dirname, '..', 'webapp', 'engine.j
 const { verifySession } = require(path.join(__dirname, 'session.js'));
 const GATE = require(path.join(__dirname, 'gate.js'));
 const { WRITE_PROVEN } = require(path.join(__dirname, 'write_proven.js'));
+/* derived keys GasEngine persists, and the writer that does the same here (see pg_engine) */
+const DERIVED_WRITERS = { payrollConfig: PG.writePayrollConfig };
 
 const PORT = Number(process.env.PORT || 8787);
 const SECRET = process.env.SESSION_SECRET || '';
@@ -216,8 +218,16 @@ async function handle(req, res, body) {
           GATE.imageCol((c.toSheet && c.toSheet[f]) || f) && /^data:/.test(String(r[f] || ''))));
         if (hasImage) return refuse('NOT_ON_FAST_HOST', 'มีรูปภาพที่ต้องเก็บใน Drive — ยังต้องทำบน Apps Script');
       }
+      /* 🔴 A DERIVED KEY IS WRITTEN ONLY IF IT HAS A WRITER. Declared-but-unwritable must refuse, not
+       * answer "ok" and drop it — that is the silent clock-in loss this whole design exists to prevent.
+       * `config` has none on purpose: GasEngine never persists M.config either. */
+      const unwritable = otherChanged.filter(k => !DERIVED_WRITERS[k]);
+      if (unwritable.length) {
+        return refuse('READ_ONLY_HOST', 'เส้นทางนี้ยังบันทึกข้อมูลนี้ไม่ได้ — ไม่มีอะไรถูกบันทึก', { changed: changed.concat(otherChanged), outside: unwritable });
+      }
       const tS0 = Date.now();
       const saved = await PG.persist(client, tenant, M, snapshot, changed);
+      for (const k of otherChanged) saved[k] = await DERIVED_WRITERS[k](client, tenant, M[k]);
       await client.query('commit');
       t.save = Date.now() - tS0;
       return { results, t, saved };

@@ -461,7 +461,12 @@ const TEXT_EXACT = /^(Verified|VerifiedBy|VerifiedStatus|ByAt|NotifyParent|ReadS
  *     a second dose was refused outright ("invalid input syntax for type date") — found 2026-11-04 by
  *     test_fast_host_writes_live, the first time a write went through the host to a real database. */
 const SHEET_TYPE = { 'SURVEYS.Anonymous': 'text', 'FOOD_ITEMS.Active': 'text', 'LINE_RECIPIENTS.Active': 'text',
-  'ADMIN_INBOX.Read': 'text', 'ADMIN_INBOX.Date': 'text', 'VACCINE_RECORDS.DoseDate': 'text' };
+  'ADMIN_INBOX.Read': 'text', 'ADMIN_INBOX.Date': 'text', 'VACCINE_RECORDS.DoseDate': 'text',
+  /* TransactionDate is WHEN the family notified a payment — a moment, not a day: stampLocal() on the
+   * cash button, nowStr_() / SlipOK's transDate on a slip. Typed `date` from its name, every one of
+   * them would have lost its time of day on migration (found 2026-11-05 porting money writes). */
+  'BILLING.TransactionDate': 'timestamptz', 'OT_DAILY.TransactionDate': 'timestamptz',
+  'PREPAYMENTS.TransactionDate': 'timestamptz' };
 
 function sqlType(col, sheet) {
   if (sheet && SHEET_TYPE[sheet + '.' + col]) return SHEET_TYPE[sheet + '.' + col];

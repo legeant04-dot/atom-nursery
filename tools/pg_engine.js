@@ -460,6 +460,27 @@ function deriver() {
   vm.runInNewContext(code, box);
   return (deriver_ = box.derive);
 }
+/* ── the derived keys that ARE written back on GAS ────────────────────────────────────────────────
+ * payrollConfig — GasEngine's writePayrollConfig_ turns the map back into one row per staff member
+ * (`{...settings, StaffID}`) and rewrites PAYROLL_CONFIG with exactly those rows, in the map's order.
+ * Same here, inside the caller's transaction and lock: the tenant's rows are replaced by the map.
+ * A key the sheet has no column for is dropped, exactly as writeRows_ drops it.
+ * (staffAttendanceToday — a staff clock-in — still has NO writer: the host refuses it.) */
+async function writePayrollConfig(client, tenantId, obj) {
+  const cols = SHEET_COLS.PAYROLL_CONFIG || [];
+  if (!cols.length) throw new Error('writePayrollConfig: PAYROLL_CONFIG has no declared columns');
+  const table = 'payroll_config';
+  const rows = Object.keys(obj || {}).map(id => Object.assign({}, obj[id], { StaffID: id }));
+  await client.query('delete from ' + table + ' where tenant_id = $1', [tenantId]);
+  for (const r of rows) {
+    const use = cols.filter(c => r[c] !== undefined);
+    const vals = use.map(c => encode_(r[c], typeOf_(table, snake(c)), table + '.' + snake(c)));
+    await client.query('insert into ' + table + ' (tenant_id' + use.map(c => ',' + q(snake(c))).join('') + ') values ($1' +
+      vals.map((_, i) => ',$' + (i + 2)).join('') + ')', [tenantId, ...vals]);
+  }
+  return { rows: rows.length };
+}
+
 /* Lazy, like GasEngine — a handler that never touches staff history never pays for it — and each
  * value is copied out of the sandbox so handlers get this realm's arrays and objects. */
 const plain_ = v => v === undefined ? v : JSON.parse(JSON.stringify(v));
@@ -478,4 +499,4 @@ async function hydrateDerived(client, tenantId, M, today) {
   return function derivedChanged() { return Object.keys(init).filter(k => JSON.stringify(cache[k]) !== init[k]); };
 }
 
-module.exports = { COLLECTIONS, hydrate, hydrateFast, hydrateConfig, hydrateDerived, readSheet, persist, decode_, encode_, snake, liftGas_, SHEET_COLS: () => SHEET_COLS };
+module.exports = { COLLECTIONS, hydrate, hydrateFast, hydrateConfig, hydrateDerived, readSheet, writePayrollConfig, persist, decode_, encode_, snake, liftGas_, SHEET_COLS: () => SHEET_COLS };
