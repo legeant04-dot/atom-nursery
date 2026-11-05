@@ -478,6 +478,37 @@ function withRenewal_(env, sess) {
   try { var t = renewSession_(sess); if (t) env.token = t; } catch (e) {}
   return env;
 }
+/* 🔴 READS THAT ARE NOT A FAMILY'S (2026-11-05, @406).
+ *
+ * The @402 audit closed engine WRITES that had no door; reads were never audited. Every engine handler
+ * is a live API (ENGINE_FALLBACK) and the only role gate was ADMIN_ONLY, so any signed-in PARENT got —
+ * reproduced through dispatch_ with a real parent session (tools/test_family_read_doors.js):
+ *   listStaff        every staff member's NationalID, phone, BaseSalary, BankAccount, PasswordHash
+ *   listStudents     every child's NationalID, address, Allergy, MedicalHistory, insurance
+ *   financeSummary   the school's whole finances, staff pay included
+ *   allLeaves        every staff leave request with its reason (a sick note is health data)
+ * A parent session is refused these. Teachers are deliberately NOT touched here: their screens call
+ * listStudents / listStaff, and what a teacher may see is the school's decision, not this list's.
+ * Every entry was checked against webapp/app.js: no Parent./P_ screen calls any of them. */
+var NOT_FOR_FAMILIES_ = {
+  listStaff: 'every staff record — national id, salary, bank account, password hash',
+  listStudents: 'every child — national id, address, medical history, insurance',
+  financeSummary: 'the whole school\'s finances and staff pay',
+  allLeaves: 'every staff leave request with its reason',
+  pendingLeaves: 'the approvers\' leave queue',
+  allStudentLeaves: 'every child\'s absences',
+  staffCheckinLog: 'staff attendance',
+  staffPerformance: 'staff evaluation', staffPerformanceAll: 'staff evaluation',
+  staffMissingCheckout: 'staff attendance', staffLeaveSummary: 'staff leave', leaveQuota: 'staff leave quota',
+  staffMonthlyOT: 'staff overtime pay', adminOTList: 'overtime, every staff member',
+  teacherStudentOtList: 'every class\'s late-pickup fees', teacherClassAttendance: 'class registers',
+  staffingByNursery: 'staffing', payrollConfig: 'payroll settings', payrollReminderDue: 'payroll',
+  leaveResetReminder: 'leave administration', listStaffGroups: 'staff groups and hours',
+  listWithdrawals: 'children leaving and why', listExportedStudents: 'children who have left',
+  exportStudent: 'a child\'s full record', opsPending: 'the admin\'s queue', pendingClassChanges: 'the admin\'s queue',
+  pendingAdminTimeRequests: 'the admin\'s queue', pendingPayments: 'every family\'s payments awaiting checks',
+  pendingInjuries: 'every injury report awaiting approval'
+};
 /** Inject the caller's trusted identity (from the verified token) into the payload and
  *  block parents from reading a student that isn't theirs. No-op while dormant. */
 function applyIdentity_(action, payload, sess) {
@@ -618,6 +649,8 @@ function applyIdentity_(action, payload, sess) {
   // Observer reads these too — the role exists to see the whole school. It cannot write: dispatch_
   // has already refused every mutating action for it before this runs.
   if (ADMIN_ONLY[action] && sess.role !== 'Admin' && sess.role !== ROLES.OBSERVER) throw apiError_('NO_PERMISSION', 'เฉพาะแอดมิน');
+  // the school's staff, children and money are not a family's to read (NOT_FOR_FAMILIES_ above, @406)
+  if (sess.role === ROLES.PARENT && NOT_FOR_FAMILIES_[action]) throw apiError_('NO_PERMISSION', 'ข้อมูลนี้ไม่ใช่ของผู้ปกครอง');
   /* A RECEIPT IS BETWEEN THE SCHOOL AND THE FAMILY. The signature is otherwise admin-only (certAssets);
    * the school chose (2026-11-03) to print it on receipts, which puts it in every family's PDF — that
    * is the decision. A teacher's session has no receipt to print, so it gets neither the signature

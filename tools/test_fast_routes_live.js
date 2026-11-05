@@ -232,6 +232,17 @@ const q = s => '"' + s + '"';
       ok_('🔴 ครูที่ส่ง staffId ของหัวหน้ามาเอง → NO_PERMISSION (ด่านประทับตัวตนจริง)', t.ok === false && t.error.code === 'NO_PERMISSION');
       const home = await viaHost({ action: 'batch', payload: { calls: [{ action: 'pendingLeaves', payload: { staffId: 'STF-A' } }, { action: 'notifications', payload: WHO['แอดมิน'].ask }] } }, WHO['แอดมิน']);
       ok_('หน้าแรกแอดมิน (batch) — ตอบบนโฮสต์ทั้งคู่ ไม่มี NOT_ON_FAST_HOST', home.ok && home.data.every(x => x.ok));
+
+      /* allLeaves — the admin's whole list, through the host, against Apps Script on the same rows */
+      const wantAll = JSON.parse(H.run(function () { return JSON.stringify(handleAllLeaves({ staffId: 'STF-A' })); }));
+      const all = await viaHost({ action: 'allLeaves', payload: {} }, WHO['แอดมิน']);
+      ok_('allLeaves แอดมิน → ' + (wantAll.map(x => x.LeaveID).join(',')) + (JSON.stringify(all.data) === JSON.stringify(wantAll) ? '' : '\n         host=' + JSON.stringify(all.data).slice(0, 300)),
+        all.ok === true && JSON.stringify(all.data) === JSON.stringify(wantAll) && wantAll.length === 4);
+      const fam = await viaHost({ action: 'allLeaves', payload: {} }, WHO['ผู้ปกครอง (PARENTS)']);
+      ok_('🔴 ผู้ปกครองขอ allLeaves บนโฮสต์ → NO_PERMISSION (ด่าน NOT_FOR_FAMILIES_ ของ Code.gs ตัวเดียวกัน)', fam.ok === false && fam.error.code === 'NO_PERMISSION');
+      const famB = await viaHost({ action: 'batch', payload: { calls: [{ action: 'listStaff', payload: {} }, { action: 'listStudents', payload: {} }, { action: 'notifications', payload: WHO['ผู้ปกครอง (PARENTS)'].ask }] } }, WHO['ผู้ปกครอง (PARENTS)']);
+      ok_('🔴 ...และใน batch: listStaff · listStudents ถูกปฏิเสธ กระดิ่งของตัวเองยังได้',
+        famB.ok && famB.data[0].error && famB.data[0].error.code === 'NO_PERMISSION' && famB.data[1].error && famB.data[1].error.code === 'NO_PERMISSION' && famB.data[2].ok === true);
     }
 
     console.log('\n5) bigCleaningDays — การตั้งค่าใน SCHOOL_CONFIG: โฮสต์ (Postgres) = Apps Script (ชีต)');
@@ -253,6 +264,20 @@ const q = s => '"' + s + '"';
       ok_('ข้อเท็จจริง: ค่าที่ตั้งไว้ถูกอ่านจริง (2 วัน · 300 บาท · 08:15–16:30)', want.days.length === 2 && want.amount === 300 && want.checkIn === '08:15' && want.checkOut === '16:30');
       const p = await viaHost({ action: 'bigCleaningDays', payload: {} }, WHO['ผู้ปกครอง (PARENTS)']);
       ok_('ผู้ปกครองถามได้ (ปฏิทินโรงเรียน) และได้คำตอบเดียวกัน', p.ok === true && JSON.stringify(p.data) === JSON.stringify(want));
+
+      /* the host reuses the rows hydrateConfig already read instead of asking again — they must BE the same rows */
+      const reuse = [];
+      await PG.hydrateConfig(c, TENANT, { rows: reuse });
+      ok_('แถวที่ hydrateConfig ส่งต่อ = readSheet(SCHOOL_CONFIG) ทุกตัวอักษร (' + reuse.length + ' แถว)',
+        reuse.length > 0 && JSON.stringify(reuse) === JSON.stringify(await PG.readSheet(c, TENANT, 'SCHOOL_CONFIG')));
+      const Client = require(path.join(ROOT, 'tools', 'node_modules', 'pg')).Client;
+      const q0 = Client.prototype.query; let cfgQ = 0;
+      Client.prototype.query = function (sql) { if (/from school_config\b/.test(String(sql && sql.text || sql))) cfgQ++; return q0.apply(this, arguments); };
+      try {
+        const b2 = await viaHost({ action: 'batch', payload: { calls: [{ action: 'notifications', payload: WHO['ครู'].ask }, { action: 'bigCleaningDays', payload: {} }, { action: 'classList', payload: {} }] } }, WHO['ครู']);
+        ok_('batch ที่มี route สองตัว ตอบครบ', b2.ok && b2.data.every(x => x.ok));
+        ok_('🔴 อ่าน school_config ครั้งเดียวต่อคำขอ (ได้ ' + cfgQ + ')', cfgQ === 1);
+      } finally { Client.prototype.query = q0; }
     }
   } finally {
     const tabs = (await c.query("select table_name from information_schema.tables where table_schema='public' and table_name <> 'tenant'")).rows.map(r => r.table_name);

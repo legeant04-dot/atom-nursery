@@ -47,7 +47,7 @@ ok_('...รับเฉพาะคีย์ที่รู้จัก', /\['SU
 /* 🔴 the first real deploy crashed on every request: the secret carried the file's leading space */
 ok_('🔴 ...และตัดช่องว่างหัวท้าย เหมือนตัวอ่านไฟล์', /out\[k\] = String\(process\.env\[k\]\)\.trim\(\)/.test(lib));
 /* 🔴 and the second answered 210 of 300 calls with "reading 'Departments'" — no settings at all */
-ok_('🔴 โฮสต์โหลดการตั้งค่าโรงเรียน (M.config) ทุกคำขอ', /M\.config = await PG\.hydrateConfig\(client, tenant\)/.test(R('server/host.js')));
+ok_('🔴 โฮสต์โหลดการตั้งค่าโรงเรียน (M.config) ทุกคำขอ', /M\.config = await PG\.hydrateConfig\(client, tenant(, \{ rows: cfgRows \})?\)/.test(R('server/host.js')));
 ok_('...ด้วย hydrateConfig_ ตัวเดียวกับ Apps Script ไม่ใช่สำเนา', /liftGas_\(gas, \/\^function hydrateConfig_/.test(R('tools/pg_engine.js')));
 ok_('container ไม่รันด้วย root', /^USER node$/m.test(R('Dockerfile')));
 /* 🔴 the fourth deploy answered every call with "ENOENT … /app/src/Leave.gs": pg_engine had started

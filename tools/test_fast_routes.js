@@ -234,6 +234,16 @@ console.log('\n5) pendingLeaves — คิวอนุมัติการล�
     const after = ROUTES.run('pendingLeaves', WHO['หัวหน้าครู'], r2, {}, {});
     eq('🔴 คำขอถัดไปเห็นทะเบียนครูของตัวเอง ไม่ใช่ของคำขอก่อน (memo ถูกล้าง)', after[0].nick, 'ชื่อใหม่');
   }
+
+  console.log('\n5b) allLeaves — รายการลาทั้งหมดของแอดมิน (ทุกสถานะ ใหม่สุดก่อน) เท่ากับ Apps Script');
+  {
+    G.g.__P = JSON.stringify({ staffId: 'STF-A', role: 'Admin' });
+    const want = JSON.parse(G.run(function () { return JSON.stringify(handleAllLeaves(JSON.parse(__P))); }));
+    const got = ROUTES.run('allLeaves', { staffId: 'STF-A', role: 'Admin' }, JSON.parse(JSON.stringify(rawL)), {}, {});
+    eq('คำตอบเท่ากันทุกตัวอักษร', got, want);
+    eq('ข้อเท็จจริง: ครบทุกใบ เรียงใหม่สุดก่อน (CreatedDate · ไม่มีใช้ StartDate)', got.map(x => x.LeaveID), ['LV-5', 'LV-3', 'LV-1', 'LV-2', 'LV-4']);
+    ok_('ชื่อผู้ขอ · days · halfDay ติดมา และไม่มี _row', got[2].nick === 'ที' && got[3].halfDay === 'AM' && got[3].days === 0.5 && !got.some(x => '_row' in x));
+  }
 }
 
 console.log('\n6) bigCleaningDays — วัน Big Cleaning · ค่าตอบแทน · เวลาเข้า-ออก เท่ากับ Apps Script');

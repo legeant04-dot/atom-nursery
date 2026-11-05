@@ -146,11 +146,16 @@ async function handle(req, res, body) {
       const canNarrow = !locked && callsIn.length > 0 && callsIn.every(a => NARROW_SAFE[a]);
       const scope = canNarrow ? { journals: today, checkinStudent: today } : {};
       const { M, snapshot } = await PG.hydrateFast(client, tenant, ALL_KEYS, { scope });
-      M.config = await PG.hydrateConfig(client, tenant);
+      const cfgRows = [];                 // SCHOOL_CONFIG as a sheet, from the same query — for server/routes.js
+      M.config = await PG.hydrateConfig(client, tenant, { rows: cfgRows });
       const derivedChanged = await PG.hydrateDerived(client, tenant, M, today);
       /* Code.gs routes this host runs itself (server/routes.js) read their own sheets — exactly those */
       const raw = {}, mayWrite = new Set(ROUTES_PORT.writable(callsIn)), routeWrites = [];
-      for (const s of ROUTES_PORT.needs(callsIn)) raw[s] = await PG.readSheet(client, tenant, s, { withId: mayWrite.has(s) });
+      for (const s of ROUTES_PORT.needs(callsIn)) {
+        /* SCHOOL_CONFIG was just read for M.config — reuse those rows unless a route may write it (needs ids) */
+        if (s === 'SCHOOL_CONFIG' && !mayWrite.has(s)) { raw[s] = cfgRows; continue; }
+        raw[s] = await PG.readSheet(client, tenant, s, { withId: mayWrite.has(s) });
+      }
       const tHydrate = Date.now() - tH0;
       const before = {};
       ALL_KEYS.forEach(k => { before[k] = JSON.stringify(M[k]); });
@@ -299,7 +304,7 @@ module.exports = { server, handle };
  *   ✅ ด่านของ Code.gs (ADMIN_ONLY · Observer · CLOSED · parentOwnsStudent_ · ENDED/NOT_STARTED/PAUSED) — server/gate.js
  *   ✅ ล็อกการเขียน = pg_advisory_xact_lock ต่อโรงเรียน + ธุรกรรม · WRITE_GUARD · ลำดับแถว
  *   ✅ 180 ROUTES ตอบ NOT_ON_FAST_HOST — webapp/api.js ส่งต่อไป GAS เอง (postFast · tools/test_fast_forward.js)
- *   🟡 ROUTES ที่ย้ายมาแล้ว (ฟังก์ชันของ GAS ตัวจริง): server/routes.js — notifications · markNotifsRead (เขียนช่อง Read) · pendingLeaves · bigCleaningDays
+ *   🟡 ROUTES ที่ย้ายมาแล้ว (ฟังก์ชันของ GAS ตัวจริง): server/routes.js — notifications · markNotifsRead (เขียนช่อง Read) · pendingLeaves · bigCleaningDays · allLeaves
  *   ✅ แคช CacheService ของ Apps Script ตามการเขียนของโฮสต์ทัน: คีย์พกเวอร์ชันจาก cache_version และโฮสต์
  *      ขยับเวอร์ชันในธุรกรรมเดียวกับการเขียน (src/DbPg.gs CACHE VERSIONS · tools/test_cache_versions.js)
  *   ⬜ เขียนได้เฉพาะ server/write_proven.js · คีย์ที่คำนวณ (ลงเวลาครู · payrollConfig) ยังไม่มีตัวเขียน · เงินยังไม่เปิด

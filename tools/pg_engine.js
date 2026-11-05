@@ -402,10 +402,16 @@ function configShaper() {
   vm.runInNewContext(code, box);
   return (configShaper_ = box.shape);
 }
-async function hydrateConfig(client, tenantId) {
+async function hydrateConfig(client, tenantId, opts) {
   const r = await client.query('select "key", "value" from school_config where tenant_id = $1 order by seq', [tenantId]);
   const raw = {};
   r.rows.forEach(x => { raw[String(x.key)] = x.value == null ? '' : x.value; });   // a blank cell reads '' from Sheets
+  /* opts.rows: the same rows AS A SHEET — exactly what readSheet(…, 'SCHOOL_CONFIG') returns (same query,
+   * same order, same decode_) — so server/routes.js's getConfig_ needs no second round trip.
+   * test_fast_routes_live.js compares the two on a real database. */
+  if (opts && Array.isArray(opts.rows)) {
+    r.rows.forEach(x => opts.rows.push({ Key: decode_(x.key, typeOf_('school_config', 'key')), Value: decode_(x.value, typeOf_('school_config', 'value')) }));
+  }
   /* vm objects carry the sandbox's prototypes; round-trip so handlers get ordinary objects */
   return JSON.parse(JSON.stringify(configShaper()(raw)));
 }

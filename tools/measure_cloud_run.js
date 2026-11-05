@@ -53,11 +53,11 @@ const ms = v => v >= 1000 ? (v / 1000).toFixed(2) + 's' : Math.round(v) + 'ms';
               ' · token ปลอม → ' + (refused(bad) ? 'ปฏิเสธ ✅' : '🔴 ' + bad.body.slice(0, 80)));
   console.log('   (คำขอแรกนี้รวมเวลาปลุกเครื่อง: ' + ms(noTok.ms) + ')');
 
-  const tot = [], srv = []; let okCalls = 0, allCalls = 0, firstErr = ''; const byAction = {}; const forwarded = new Set();
+  const tot = [], srv = [], hyd = [], run = []; let okCalls = 0, allCalls = 0, firstErr = ''; const byAction = {}; const forwarded = new Set();
   for (let i = 0; i < ROUNDS; i++) {
     const r = await post(batch, idToken);
     tot.push(r.ms);
-    try { srv.push(JSON.parse(r.server || '{}').total || 0); } catch (e) {}
+    try { const x = JSON.parse(r.server || '{}'); srv.push(x.total || 0); hyd.push(x.hydrate || 0); run.push(x.run || 0); } catch (e) {}
     try {
       const j = JSON.parse(r.body);
       (j.data || []).forEach((c, k) => { allCalls++; if (c.ok) okCalls++;
@@ -70,7 +70,7 @@ const ms = v => v >= 1000 ? (v / 1000).toFixed(2) + 's' : Math.round(v) + 'ms';
   }
   console.log('\n⏱️  หน้าหลักคุณครู (' + TEACHER_HOME.length + ' call ใน 1 คำขอ) × ' + ROUNDS + ' รอบ · กรุงเทพฯ → Cloud Run สิงคโปร์');
   console.log('   ที่โทรศัพท์รอ   p50 ' + ms(pct(tot, .5)) + ' · p95 ' + ms(pct(tot, .95)) + ' · ช้าสุด ' + ms(Math.max.apply(null, tot)));
-  console.log('   ในเซิร์ฟเวอร์   p50 ' + ms(pct(srv, .5)) + ' · p95 ' + ms(pct(srv, .95)));
+  console.log('   ในเซิร์ฟเวอร์   p50 ' + ms(pct(srv, .5)) + ' · p95 ' + ms(pct(srv, .95)) + '   (โหลดข้อมูล p50 ' + ms(pct(hyd, .5)) + ' · รัน handler p50 ' + ms(pct(run, .5)) + ')');
   const nFwd = forwarded.size * ROUNDS;
   console.log('   call ที่ตอบสำเร็จ ' + okCalls + '/' + (allCalls - nFwd) + (nFwd ? '  · ส่งต่อ Apps Script (route ของ Code.gs): ' + [...forwarded].join(', ') : '') +
     (firstErr ? '   ตัวอย่างที่ไม่สำเร็จ: ' + firstErr : ''));
