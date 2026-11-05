@@ -277,7 +277,7 @@ module.exports = { server, handle };
  *   ⬜ ต่อ "ออกจากระบบทุกเครื่อง" (sessionEpochOf_) — token ที่ถูกเพิกถอนยังใช้ได้บนเส้นนี้
  *   ✅ ด่านของ Code.gs (ADMIN_ONLY · Observer · CLOSED · parentOwnsStudent_ · ENDED/NOT_STARTED/PAUSED) — server/gate.js
  *   ✅ ล็อกการเขียน = pg_advisory_xact_lock ต่อโรงเรียน + ธุรกรรม · WRITE_GUARD · ลำดับแถว
- *   ⬜ 180 ROUTES ตอบ NOT_ON_FAST_HOST — ยังต้องวิ่งผ่าน GAS (client ต้องส่งต่อเอง)
+ *   ✅ 180 ROUTES ตอบ NOT_ON_FAST_HOST — webapp/api.js ส่งต่อไป GAS เอง (postFast · tools/test_fast_forward.js)
  *   ⬜ เขียนได้เฉพาะ server/write_proven.js · คีย์ที่คำนวณ (ลงเวลาครู · payrollConfig) ยังไม่มีตัวเขียน · เงินยังไม่เปิด
  *   🔴 ล็อกนี้ต้องเป็นล็อกเดียวกับ Apps Script ก่อนวันย้าย (DbPg ต้องถือ advisory lock ตัวเดียวกัน)
  *   ⬜ ต่อ connection pool — ตอนนี้เปิด-ปิดต่อ request (จะเห็นในตัวเลขที่วัดได้)

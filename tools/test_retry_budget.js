@@ -99,7 +99,7 @@ console.log('\n3) being backgrounded is not the same as failing');
 // ============================================================================================
 {
   ok_('a resume has its own budget, separate from the retry budget', /const MAX_RESUMES = 2;/.test(api));
-  ok_('...and postGas carries it', /async function postGas\(body, attempt, resumes\)/.test(api));
+  ok_('...and postGas carries it', /async function postGas\(body, attempt, resumes(, gasOnly)?\)/.test(api));
   ok_('the two cases are told apart before the budget is touched',
     /const backgrounded = \(typeof document !== 'undefined' && document\.hidden\);/.test(api) &&
     /canRepeat\(body\) && \(backgrounded \? resumes < MAX_RESUMES : attempt < 2\)/.test(api));
