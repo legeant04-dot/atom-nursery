@@ -209,12 +209,12 @@ module.exports = function (files, srcDir) {
   const PGMODE = process.env.ATOM_DB === 'pg' && files.indexOf('Config') >= 0;
   if (PGMODE) ['PgSchema', 'DbPg'].forEach(f => { if (files.indexOf(f) < 0) files = files.concat([f]); });
   files.forEach(f => vm.runInContext(fs.readFileSync(path.join(srcDir, f + '.gs'), 'utf8'), g, { filename: f + '.gs' }));
-  let pgLog = null;
+  let pgLog = null, pgFake = null;
   if (PGMODE) {
     Object.assign(props, { DB_BACKEND: 'pg', PG_TARGET: 'staging', PG_NO_CACHE: 'yes',
       PG_TENANT_ID: '00000000-0000-4000-8000-000000000001' });
     const fake = require('./pg_fake_jdbc.js')(g, store, props);
-    g.Jdbc = fake.Jdbc; pgLog = fake.log;
+    g.Jdbc = fake.Jdbc; pgLog = fake.log; pgFake = fake;
     // proof the door was really used — a suite that never reached it would otherwise pass for the wrong reason
     if (process.env.ATOM_DB_TRACE) process.on('exit', () => { const n = {}; fake.log.forEach(x => { const k = x.sql.split(' ')[0]; n[k] = (n[k] || 0) + 1; });
       const P = vm.runInContext('PG_', g);
@@ -223,5 +223,5 @@ module.exports = function (files, srcDir) {
   }
   // Run a test function's body inside the GAS context so it sees all globals.
   g.__run = fn => vm.runInContext('(' + fn.toString() + ')()', g);
-  return { g, store, PUSH, props, run: g.__run, pgLog };
+  return { g, store, PUSH, props, run: g.__run, pgLog, pgFake };
 };

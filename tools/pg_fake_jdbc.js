@@ -82,6 +82,11 @@ module.exports = function makeFakeJdbc(g, store, props) {
   function run(sql, p, query) {
     let m;
     if (/^select 1$/.test(sql)) return rs([['1']]);
+    /* the write lock shared with the Cloud Run host (pgWriteLock_) — `api.lockFails` plays somebody else holding it */
+    if ((m = /^select pg_advisory_(un)?lock\(hashtextextended\(\?, 0\)\)$/.exec(sql))) {
+      if (!m[1] && api.lockFails) throw new Error('canceling statement due to lock timeout');
+      return rs([['']]);
+    }
     if ((m = /^select "id"::text,(.*) from "(\w+)" where "tenant_id" = \?::uuid order by "seq"$/.exec(sql))) {
       const { def, sh } = sheetFor(m[2]);
       const want = [...m[1].matchAll(/"(\w+)"::text/g)].map(x => x[1]);
@@ -116,6 +121,7 @@ module.exports = function makeFakeJdbc(g, store, props) {
     }
     throw new Error('fake jdbc: statement shape not understood — ' + sql.slice(0, 90));
   }
-  const conn = { prepareStatement, createStatement: () => ({ execute: () => true, close: () => {} }), close: () => {} };
-  return { Jdbc: { getConnection: () => conn }, log };
+  const conn = { prepareStatement, createStatement: () => ({ execute: q => { log.push({ sql: String(q), params: [] }); return true; }, close: () => {} }), close: () => {} };
+  const api = { Jdbc: { getConnection: () => conn }, log, lockFails: false };
+  return api;
 };

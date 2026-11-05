@@ -1212,14 +1212,18 @@ function isMutatingAction_(a) { a = String(a || '');
  * calls that are actually refused, and let the rest answer. The guarantee is untouched — no write
  * runs without the lock, it is simply told BUSY on its own instead of taking the screen with it. */
 function withWriteLock_(needed, fn, onBusy) {
-  if (!needed || typeof LockService === 'undefined') return fn();   // no LockService in the test harness
+  if (!needed) return fn();
+  /* ...and, while Postgres is the backend, the SAME lock the Cloud Run host takes (pgWriteLock_ in
+   * DbPg.gs). With the switch off — today — pgWriteLock_ is `return fn()` and nothing changes. */
+  var run = function () { return (typeof pgWriteLock_ === 'function') ? pgWriteLock_(fn, onBusy) : fn(); };
+  if (typeof LockService === 'undefined') return run();              // no LockService in the test harness
   var lock;
-  try { lock = LockService.getScriptLock(); } catch (e) { return fn(); }
+  try { lock = LockService.getScriptLock(); } catch (e) { return run(); }
   if (!lock.tryLock(25000)) {
     if (onBusy) return onBusy();
     throw apiError_('BUSY', BUSY_MSG_);
   }
-  try { return fn(); } finally { try { lock.releaseLock(); } catch (e) {} }
+  try { return run(); } finally { try { lock.releaseLock(); } catch (e) {} }
 }
 var BUSY_MSG_ = 'ระบบกำลังบันทึกข้อมูลอยู่ กรุณาลองใหม่อีกครั้ง';
 

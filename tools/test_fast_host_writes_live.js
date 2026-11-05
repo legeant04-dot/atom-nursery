@@ -181,6 +181,33 @@ async function viaHost(msg, who) {
       after.some(x => x.Message === 'พร้อมกัน ๑') && after.some(x => x.Message === 'พร้อมกัน ๒'));
     ok_('🔴 รหัสไม่ซ้ำกัน — คนที่สองเห็นแถวของคนแรกก่อนคิดรหัส', new Set(ids).size === ids.length);
 
+    /* ── Apps Script's lock and the host's lock are ONE lock ───────────────────────────── */
+    console.log('\n▶ ล็อกของ Apps Script กับของโฮสต์ เป็นล็อกเดียวกัน');
+    {
+      /* DbPg.gs pgWriteLock_ holds a SESSION advisory lock; server/host.js takes a TRANSACTION advisory
+       * lock — on the same key, hashtextextended(<tenant>, 0). Postgres says the two kinds conflict on
+       * one key; this proves it on the real server rather than trusting the sentence. */
+      const { client: gas } = await connect();
+      await gas.query('select pg_advisory_lock(hashtextextended($1, 0))', [TENANT]);
+      await c.query('begin');
+      await c.query("set local lock_timeout = '1s'");
+      let blocked = false;
+      try { await c.query('select pg_advisory_xact_lock(hashtextextended($1, 0))', [TENANT]); } catch (e) { blocked = /lock timeout/.test(e.message); }
+      await c.query('rollback');
+      ok_('🔴 Apps Script ถือล็อกอยู่ → โฮสต์รอและไม่ได้ล็อก (หมดเวลา)', blocked);
+      const r = await viaHost({ action: 'addComment', payload: { studentId: 'STD-1', message: 'ระหว่างที่ Apps Script ถือล็อก', senderRole: 'Teacher' } }, TEACHER);
+      /* the host's own wait is 25s — too long for a test, so the call above waited for it; it must be BUSY, not a write */
+      ok_('...การเขียนผ่านโฮสต์ระหว่างนั้น → BUSY ไม่ได้บันทึก', r.ok === false && r.error && r.error.code === 'BUSY' &&
+        !(await load(c)).comments.some(x => x.Message === 'ระหว่างที่ Apps Script ถือล็อก'));
+      await gas.query('select pg_advisory_unlock(hashtextextended($1, 0))', [TENANT]);
+      await gas.end();
+      await c.query('begin');
+      let freed = true;
+      try { await c.query("set local lock_timeout = '1s'"); await c.query('select pg_advisory_xact_lock(hashtextextended($1, 0))', [TENANT]); } catch (e) { freed = false; }
+      await c.query('rollback');
+      ok_('ปลดแล้ว → โฮสต์ได้ล็อกทันที', freed);
+    }
+
     /* ── a row inserted at the top reads back at the top ───────────────────────────────── */
     console.log('\n▶ ลำดับแถว');
     const { M: O, snapshot: S } = await PG.hydrateFast(c, TENANT, ['comments'], {});
