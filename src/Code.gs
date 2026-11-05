@@ -596,6 +596,24 @@ function applyIdentity_(action, payload, sess) {
     // the admin just put in charge. The engine's canFoodMenu_ is the gate, and it is the same rule
     // that decides whether the button appears at all.
     deleteFoodItem: 1, seedFoodItems: 1, surveys: 1, saveSurvey: 1, setSurveyStatus: 1, deleteSurvey: 1, surveyResults: 1, surveySummary: 1,
+    /* 🔴 MONEY WITH NO DOOR AT ALL (found 2026-11-05, porting money writes to Cloud Run).
+     *
+     * Each of these runs on the ENGINE on live (no Code.gs route), the engine handler checks no role,
+     * and none was listed here — so any signed-in session reached them. Reproduced in the harness
+     * through dispatch_ with a real PARENT session before this block existed:
+     *   confirmPayment {kind:'bill', id:<their own bill>}   → the bill read PAID, nothing paid
+     *   addStudentCharge {amount:-5000}                     → a 5,000-baht credit on their own child
+     * and by the same shape: rejectPayment (un-pay anyone's bill), removeStudentCharge (delete a
+     * charge), setPayrollConfig (a teacher setting their own daily rate). Every screen that calls
+     * them is an admin screen (A_confirmPay, A_rejectPay, A_addCharge / A_finAddCharge,
+     * A_delCharge / A_finDelCharge, A_calc / A_saveStaff / A_childOnToggle).
+     * The same audit found the staff-group hours that lateness and pay are measured against
+     * (A_addGroup / A_delGroup / A_setGroup), re-activating or creating a student (A_reimport /
+     * A_importFile), moveStudent (no screen at all — orgMoveStudent is the gated one) and the
+     * permission matrix (A_perm). The parent's own "I paid cash" (notifyCash) is NOT here: it is the
+     * family's button, and it only marks a payment as waiting for the school to verify. */
+    confirmPayment: 1, rejectPayment: 1, addStudentCharge: 1, removeStudentCharge: 1, setPayrollConfig: 1,
+    addStaffGroup: 1, deleteStaffGroup: 1, setStaffGroupHours: 1, importStudent: 1, moveStudent: 1, setPerm: 1,
     parentKidsMap: 1 };  // every parent's children by name — admin-only (PII)
   // Observer reads these too — the role exists to see the whole school. It cannot write: dispatch_
   // has already refused every mutating action for it before this runs.
