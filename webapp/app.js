@@ -199,7 +199,7 @@
       _readStart(); let pr2; try{ pr2=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr2).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.499'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.500'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:var(--fs-1);margin-top:var(--sp-5)">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -6438,8 +6438,13 @@
    * name here, and the engine records who did it and when.
    */
   window.T_holAddStudent=async(date)=>{
-    let list=A_CACHE.students;
-    if(!list||!list.length){ try{ list=await api('listStudents'); A_CACHE.students=list; }catch(e){ list=[]; } }
+    /* THE WHOLE SCHOOL, ASKED FOR BY NAME. Since 2026-11-05 a teacher's listStudents is their own
+     * class(es) only, with roster fields only — and a child from ANY room may turn up on a closed day.
+     * forHoliday is the one place the school agreed a teacher sees every child (names, class, photo —
+     * nothing else; see rosterForTeacher_ in engine.js). Not read from A_CACHE.students: for a teacher
+     * that now holds their own class, which would silently hide every other child from this picker. */
+    let list=null;
+    try{ list=await api('listStudents',{forHoliday:true}); }catch(e){ list=[]; }
     const d=date||todayStr();
     let already=[]; try{ already=((await api('holidayAttendList',{date:d}))||{}).students||[]; }catch(e){}
     const on={}; already.forEach(x=>{ on[x.studentId]=1; });
