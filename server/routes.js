@@ -37,7 +37,9 @@ const PORTED = {
   // the approver's queue — Admin sees PENDING_ADMIN, a Leader PENDING_LEADER, anyone else NO_PERMISSION (src/Leave.gs)
   pendingLeaves: { fn: 'handlePendingLeaves', reads: ['LEAVE_REQUEST', 'STAFF'] },
   // Big Cleaning: the dates, the allowance and the day's own hours — all from SCHOOL_CONFIG (src/Checkin.gs)
-  bigCleaningDays: { fn: 'handleBigCleaningDays', reads: [] }
+  bigCleaningDays: { fn: 'handleBigCleaningDays', reads: [] },
+  // the admin's whole leave list, newest first (src/Leave.gs) — a family is refused it at the gate (NOT_FOR_FAMILIES_)
+  allLeaves: { fn: 'handleAllLeaves', reads: ['LEAVE_REQUEST', 'STAFF'] }
 };
 /* 🔴 SCHOOL_CONFIG is readable by every ported route, as by every line of Apps Script: getConfig_ is
  * Db.gs's own (raw Key/Value rows, cached per execution in _configCache — reset per request here),
