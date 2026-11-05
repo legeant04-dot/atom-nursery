@@ -5,6 +5,26 @@
 
 ---
 
+## 2026-11-05 · GAS @402–403 🔴 เงินที่ไม่มีประตู · ☁️ Cloud Run เขียนเรื่องเงินได้ (10 action)
+
+**ผอ.:** *"ทำต่อได้เลย พอร์ตการเขียนเงินบน Cloud Run"*
+
+- 🔴 **ช่องโหว่บนระบบจริง (แก้แล้ว @402):** 11 action ที่เขียนได้ ไม่มีการตรวจสิทธิ์ทั้งใน ADMIN_ONLY และใน handler ·
+  พิสูจน์ผ่าน `dispatch_` ด้วย session ผู้ปกครองจริง: **ยืนยันบิลของลูกตัวเองเป็น PAID ได้** · **เพิ่มรายการ −5,000 บาทได้** ·
+  และ rejectPayment · removeStudentCharge · setPayrollConfig · เวลาเข้างานของกลุ่มครู · importStudent · moveStudent · setPerm ·
+  เป็นของแอดมินทั้งหมดแล้ว · notifyCash ของผู้ปกครองยังเปิด · `test_money_doors` แดงเมื่อไม่มีตัวแก้ ·
+  ⚠️ ให้ ผอ. ตรวจ ACTIVITY_LOG / STUDENT_CHARGES / BILLING ว่าเคยถูกใช้หรือไม่
+- **10 action เงินบน Cloud Run:** issueBill · issueBillsFor · generateMonthlyBills · addStudentCharge · removeStudentCharge · notifyCash ·
+  confirmPayment · rejectPayment · prepay · setPayrollConfig (ตัวเขียน payrollConfig ตามแบบ writePayrollConfig_ ภายใต้ล็อกเดียวกัน)
+- **พิสูจน์บน staging (`test_fast_host_money_live`, 75/75):** ค่าตั้งค่าเริ่มต้นจริง · ทุก collection ตรงกับชีต + **ยอดเงินรวมตรงทุกบาท** ·
+  ยืนยันซ้ำแล้ววันที่ใบเสร็จไม่ขยับ · ออกบิลเดียวกันพร้อมกันสองคน = **บิลใบเดียว** (ถอดล็อก → คำขอหนึ่งล้มที่ unique index ของเลขบิล)
+- 🔴 `TransactionDate` (เวลาที่ผู้ปกครองแจ้งชำระ) ใน BILLING · OT_DAILY · PREPAYMENTS ถูกเดาเป็น `date` → เวลาหายในวันย้าย · แก้เป็น timestamptz
+- **Cloud Run rev 00007:** แอดมินออกบิล 0.75s · ผู้ปกครองยืนยันบิลตัวเอง → NO_PERMISSION
+- 🔴 **ความผิดพลาดของผม:** commit 4d4b563 รันจาก `src/` ตัวกรองไฟล์จึงไม่ทำงาน → `webapp/CNAME` · `Certificate ENG.png` · ใบสมัคร PDPA (docx)
+  ขึ้น repo สาธารณะ · ลบใน c16d02d ภายในไม่กี่นาที · Pages `cname: null` เว็บยังเปิดได้ปกติ (v498) · ไฟล์ยังอยู่ในประวัติ git (ล้างต้อง force-push — รอ ผอ. ตัดสิน)
+
+---
+
 ## 2026-11-05 · v498 (GAS @401) · แชทเก็บชื่อผู้ส่งแล้ว — เซิร์ฟเวอร์เป็นคนใส่ชื่อ
 
 **ผอ.:** เลือก *"เซิร์ฟเวอร์ใส่ชื่อเอง"*
