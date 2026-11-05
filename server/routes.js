@@ -33,11 +33,15 @@ const PORTED = {
   // the 🔔 bell — Admin inbox · a staff member's inbox · a family's inbox (src/Notify.gs)
   notifications: { fn: 'handleNotifications', reads: ['ADMIN_INBOX', 'PARENTS', 'USER_LINKS'] },
   // ...and "mark as read": the same three audiences, the same three sheets, one cell (Read = 'YES')
-  markNotifsRead: { fn: 'handleMarkNotifsRead', reads: ['ADMIN_INBOX', 'PARENTS', 'USER_LINKS'], writes: { ADMIN_INBOX: ['Read'] } }
+  markNotifsRead: { fn: 'handleMarkNotifsRead', reads: ['ADMIN_INBOX', 'PARENTS', 'USER_LINKS'], writes: { ADMIN_INBOX: ['Read'] } },
+  // the approver's queue — Admin sees PENDING_ADMIN, a Leader PENDING_LEADER, anyone else NO_PERMISSION (src/Leave.gs)
+  pendingLeaves: { fn: 'handlePendingLeaves', reads: ['LEAVE_REQUEST', 'STAFF'] }
 };
 
-const FILES = ['Config', 'Auth', 'Notify'];
-let box = null;
+/* Config/Auth: constants · Notify/Leave: the handlers · Checkin: resolveStaff_ · Code: apiError_ ·
+ * GasEngine: decodeCell_. Loaded whole, as Apps Script loads them. */
+const FILES = ['Config', 'Auth', 'Checkin', 'Code', 'GasEngine', 'Notify', 'Leave'];
+let box = null, pristine = null;
 function load() {
   if (box) return box;
   box = { console: { log() {}, error() {} }, Logger: { log() {} } };
@@ -46,8 +50,30 @@ function load() {
   Object.keys(PORTED).forEach(a => {
     if (typeof box[PORTED[a].fn] !== 'function') throw new Error('routes: ' + PORTED[a].fn + ' not found in src/*.gs');
   });
+  /* 🔴 EVERY REQUEST STARTS FROM THE STATE THE FILES LOAD INTO — as every Apps Script execution does.
+   * The .gs files keep module-level memos that are safe there only because an execution ends:
+   * Leave.gs caches the whole STAFF sheet in _leaveStaffIdx on first use. In one long-lived sandbox
+   * that memo would hand the NEXT request — another school, or the same school after a change —
+   * this request's staff. So every non-function global is remembered here as it was after loading,
+   * and restored (a fresh copy) before each run; globals created at run time are removed. */
+  pristine = {};
+  FN_AT_LOAD = new Set(Object.keys(box).filter(k => typeof box[k] === 'function'));
+  Object.keys(box).forEach(k => {
+    const v = box[k];
+    if (typeof v === 'function') return;
+    try { pristine[k] = { v: structuredClone(v) }; } catch (e) { pristine[k] = { ref: v }; }   // holds a function: kept as loaded
+  });
   return box;
 }
+function resetBox(b) {
+  Object.keys(b).forEach(k => {
+    if (Object.prototype.hasOwnProperty.call(pristine, k)) return;
+    if (typeof b[k] === 'function' && FN_AT_LOAD.has(k)) return;
+    delete b[k];
+  });
+  Object.keys(pristine).forEach(k => { const p = pristine[k]; b[k] = 'v' in p ? structuredClone(p.v) : p.ref; });
+}
+let FN_AT_LOAD = null;
 
 const p2 = n => String(n).padStart(2, '0');
 /** Utilities.formatDate, for the one zone and the patterns the ported routes use — anything else throws */
@@ -84,6 +110,7 @@ function run(action, payload, raw, H, config, sink) {
   const def = PORTED[action];
   if (!def) throw new Error('routes: ' + action + ' is not ported');
   const b = load();
+  resetBox(b);
   const allowed = new Set(def.reads);
   /* 🔴 Apps Script's own code wraps reads in try {} catch (e) {} (inboxStudentsForParent_ does), so a
    * throw alone would be swallowed and the answer would quietly be "nothing". The first violation is
@@ -100,7 +127,10 @@ function run(action, payload, raw, H, config, sink) {
     if (!allowed.has(name)) breach('routes: ' + action + ' read ' + name + ' which it does not declare');
     return sheetRows(name).map((r, i) => {
       const o = JSON.parse(JSON.stringify(r)); delete o.__id;            // Apps Script never sees our row ids
-      return Object.assign(o, { _row: i + 2 });
+      // NON-enumerable, exactly as Db.gs readObjects_ defines it — so a handler that copies a row with
+      // for…in (leaveDecodeEnrich_ does) does not carry _row into the reply
+      Object.defineProperty(o, '_row', { value: i + 2, enumerable: false });
+      return o;
     });
   };
   const may = def.writes || {};
