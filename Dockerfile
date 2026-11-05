@@ -31,11 +31,13 @@ COPY src/Db.gs                  src/Db.gs
 COPY src/Checkin.gs             src/Checkin.gs
 COPY src/Audit.gs               src/Audit.gs
 COPY src/Auth.gs                src/Auth.gs
+COPY src/Notify.gs              src/Notify.gs
 COPY docs/schema/001_init.sql   docs/schema/001_init.sql
 COPY server/host.js             server/host.js
 COPY server/session.js          server/session.js
 COPY server/gate.js             server/gate.js
 COPY server/write_proven.js     server/write_proven.js
+COPY server/routes.js           server/routes.js
 
 # Cloud Run supplies PORT (8080); host.js reads it
 USER node

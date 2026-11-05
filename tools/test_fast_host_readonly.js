@@ -92,8 +92,10 @@ const reset = () => { log = []; persisted = []; hydrations = 0; };
 
   console.log('\n2) 🔒 ด่านเดียวกับ Code.gs');
   reset();
-  const n1 = await call({ action: 'notifications', payload: {} });
-  ok_('🔴 notifications (ของจริงคือ route ใน Code.gs) → NOT_ON_FAST_HOST ไม่ใช่คำตอบจาก engine', code(n1) === 'NOT_ON_FAST_HOST');
+  /* notifications used to be the example here; since 2026-11-05 it is PORTED (server/routes.js — Apps
+   * Script's own handleNotifications, tests/test_fast_routes*.js). pendingLeaves is a route that is not. */
+  const n1 = await call({ action: 'pendingLeaves', payload: {} });
+  ok_('🔴 pendingLeaves (route ใน Code.gs ที่ยังไม่ย้าย) → NOT_ON_FAST_HOST ไม่ใช่คำตอบจาก engine', code(n1) === 'NOT_ON_FAST_HOST');
   ok_('🔴 ผู้ปกครองขอ listParents → NO_PERMISSION', code(await call({ action: 'listParents', payload: {} }, PARENT)) === 'NO_PERMISSION');
   ok_('🔴 ผู้ปกครองขอข้อมูลลูกคนอื่น → NO_ACCESS', code(await call({ action: 'studentCheckinHistory', payload: { studentId: 'STD-002' } }, PARENT)) === 'NO_ACCESS');
   const own = await call({ action: 'studentCheckinHistory', payload: { studentId: 'STD-001' } }, PARENT);

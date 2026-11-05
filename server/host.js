@@ -32,6 +32,7 @@ const { createAtomAPI } = require(path.join(__dirname, '..', 'webapp', 'engine.j
 const { verifySession } = require(path.join(__dirname, 'session.js'));
 const GATE = require(path.join(__dirname, 'gate.js'));
 const { WRITE_PROVEN } = require(path.join(__dirname, 'write_proven.js'));
+const ROUTES_PORT = require(path.join(__dirname, 'routes.js'));
 /* derived keys GasEngine persists, and the writer that does the same here (see pg_engine) */
 const DERIVED_WRITERS = { payrollConfig: PG.writePayrollConfig };
 
@@ -145,6 +146,9 @@ async function handle(req, res, body) {
       const { M, snapshot } = await PG.hydrateFast(client, tenant, ALL_KEYS, { scope });
       M.config = await PG.hydrateConfig(client, tenant);
       const derivedChanged = await PG.hydrateDerived(client, tenant, M, today);
+      /* Code.gs routes this host runs itself (server/routes.js) read their own sheets — exactly those */
+      const raw = {};
+      for (const s of ROUTES_PORT.needs(callsIn)) raw[s] = await PG.readSheet(client, tenant, s);
       const tHydrate = Date.now() - tH0;
       const before = {};
       ALL_KEYS.forEach(k => { before[k] = JSON.stringify(M[k]); });
@@ -164,7 +168,12 @@ async function handle(req, res, body) {
         catch (e) { return err((e && (e.apiCode || e.code)) || 'INTERNAL', (e && e.message) || String(e)); }
         /* 🔴 ของจริงไม่ได้รัน engine สำหรับ action นี้ (มี route ใน Code.gs) — คำตอบจาก engine
          * จะเป็นคำตอบของอีกคำถามหนึ่ง จึงไม่ตอบ และบอกให้ไปถาม Apps Script */
-        if (GATE.isRoute(a)) return err('NOT_ON_FAST_HOST', 'action นี้ยังต้องทำงานบน Apps Script');
+        if (GATE.isRoute(a)) {
+          if (!ROUTES_PORT.has(a)) return err('NOT_ON_FAST_HOST', 'action นี้ยังต้องทำงานบน Apps Script');
+          /* ✅ ย้ายมาแล้ว: ฟังก์ชันของ Apps Script ตัวจริง อ่านอย่างเดียว (server/routes.js) */
+          try { return { ok: true, data: ROUTES_PORT.run(a, pl, raw, H, M.config) }; }
+          catch (e) { return err((e && (e.apiCode || e.code)) || 'INTERNAL', (e && e.message) || String(e)); }
+        }
         const fn = H[a];
         if (typeof fn !== 'function') return err('UNKNOWN_ACTION', 'ไม่รู้จัก action: ' + a);
         try { return { ok: true, data: fn(pl) }; }
@@ -278,6 +287,7 @@ module.exports = { server, handle };
  *   ✅ ด่านของ Code.gs (ADMIN_ONLY · Observer · CLOSED · parentOwnsStudent_ · ENDED/NOT_STARTED/PAUSED) — server/gate.js
  *   ✅ ล็อกการเขียน = pg_advisory_xact_lock ต่อโรงเรียน + ธุรกรรม · WRITE_GUARD · ลำดับแถว
  *   ✅ 180 ROUTES ตอบ NOT_ON_FAST_HOST — webapp/api.js ส่งต่อไป GAS เอง (postFast · tools/test_fast_forward.js)
+ *   🟡 ROUTES ที่ย้ายมาแล้ว (อ่านอย่างเดียว · ฟังก์ชันของ GAS ตัวจริง): server/routes.js — notifications
  *   ⬜ เขียนได้เฉพาะ server/write_proven.js · คีย์ที่คำนวณ (ลงเวลาครู · payrollConfig) ยังไม่มีตัวเขียน · เงินยังไม่เปิด
  *   🔴 ล็อกนี้ต้องเป็นล็อกเดียวกับ Apps Script ก่อนวันย้าย (DbPg ต้องถือ advisory lock ตัวเดียวกัน)
  *   ⬜ ต่อ connection pool — ตอนนี้เปิด-ปิดต่อ request (จะเห็นในตัวเลขที่วัดได้)

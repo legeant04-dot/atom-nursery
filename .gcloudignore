@@ -15,6 +15,7 @@
 !/server/package.json
 !/server/gate.js
 !/server/write_proven.js
+!/server/routes.js
 
 !/tools/
 /tools/*
@@ -36,6 +37,7 @@
 !/src/Checkin.gs
 !/src/Audit.gs
 !/src/Auth.gs
+!/src/Notify.gs
 
 !/docs/
 /docs/*
