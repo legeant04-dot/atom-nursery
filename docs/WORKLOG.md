@@ -5,6 +5,22 @@
 
 ---
 
+## 2026-11-05 · Cloud Run rev 00011 · pendingLeaves (คิวอนุมัติการลา) ย้ายมาแล้ว
+
+**ผอ.:** *"ทำต่อเรื่องย้าย route ได้เลย เริ่มจาก pendingLeaves"*
+
+- รัน `handlePendingLeaves` ของ `src/Leave.gs` ตัวจริง (อ่าน LEAVE_REQUEST · STAFF) · sandbox โหลด Checkin/Code/GasEngine/Leave ทั้งไฟล์เพิ่ม
+- 🔴 **พบสองเรื่องระหว่างย้าย (แก้แล้ว ใช้กับทุก route):**
+  - **memo ข้ามคำขอ:** Leave.gs เก็บทะเบียนครูทั้งชีตไว้ใน `_leaveStaffIdx` — ปลอดภัยบน Apps Script เพราะ execution จบ ·
+    บน sandbox ที่อยู่ยาวมันจะส่งทะเบียนของคำขอนี้ให้คำขอถัดไป → ทุกคำขอเริ่มจากสถานะหลังโหลดไฟล์ (คืนค่า global ทุกตัว ~0.5ms/call)
+  - **`_row` หลุดในคำตอบ:** readObjects_ ของจริงตั้ง `_row` แบบ non-enumerable · ของเราเคยตั้งแบบ enumerable → handler ที่คัดลอกแถวด้วย for…in
+    (leaveDecodeEnrich_) พา `_row` ติดไปในคำตอบ · กระดิ่งไม่เจอเพราะมันคัดลอกทีละช่อง
+- **พิสูจน์:** `test_fast_routes` 53/53 (แอดมินตาม Role · ผอ.ตาม PositionLevel · หัวหน้า · ครู → NO_PERMISSION · ไม่พบ → STAFF_NOT_FOUND ·
+  memo ถูกล้าง · ถอดตัวแก้สองเรื่อง → แดง) · `test_fast_routes_live` 37/37 บน staging · 🔴 ครูส่ง staffId ของหัวหน้ามาเอง → NO_PERMISSION ·
+  batch หน้าแรกแอดมิน (pendingLeaves + กระดิ่ง) ตอบบนโฮสต์ทั้งคู่ · test_all 220/220 · หน้าหลักครู 300/300 p50 144ms
+
+---
+
 ## 2026-11-05 · GAS @405 · Cloud Run rev 00010 · เวอร์ชันแคช — แคชของ Apps Script ตามการเขียนของโฮสต์ทัน
 
 **ผอ.:** *"ทำข้อ B ได้เลย"* (เวอร์ชันต่อตาราง แทนการปิดแคช)

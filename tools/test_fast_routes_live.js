@@ -46,6 +46,7 @@ const WHO = {
   'แอดมิน': tokenFor('Admin', 'STF-A', 'U-A'),
   'ครู': tokenFor('Teacher', 'STF-T', 'U-T'),
   'ครูที่ยังไม่มีอะไร': tokenFor('Teacher', 'STF-T2', 'U-T2'),
+  'หัวหน้าครู': tokenFor('Teacher', 'STF-L', 'U-L'),
   'ผู้ปกครอง (PARENTS)': tokenFor('Parent', 'PAR-1', 'U-P1'),
   'ผู้ปกครอง (USER_LINKS)': tokenFor('Parent', 'PAR-2', 'U-P2')
 };
@@ -54,7 +55,15 @@ function fixture() {
   const M = {}; ALL.forEach(k => { M[k] = []; });
   M.classes = [{ ClassID: 'C1', ClassName: 'Nursery 1' }];
   const st = (id, name, role) => ({ StaffID: id, NameTH: name, Role: role, PositionLevel: role, Department: 'Nursery 1', Classes: '*', Status: 'ACTIVE', StartDate: '2025-01-01' });
-  M.staff = [st('STF-A', 'แอดมินทดสอบ', 'Admin'), st('STF-T', 'ครูทดสอบ', 'Teacher'), st('STF-T2', 'ครูทดสอบสอง', 'Teacher')];
+  M.staff = [st('STF-A', 'แอดมินทดสอบ', 'Admin'), st('STF-T', 'ครูทดสอบ', 'Teacher'), st('STF-T2', 'ครูทดสอบสอง', 'Teacher'),
+    Object.assign(st('STF-L', 'หัวหน้าครูทดสอบ', 'Teacher'), { PositionLevel: 'Leader', Nickname: 'หัวหน้า' })];
+  M.staff[1].Nickname = 'ครูที';
+  /* leave requests in every state the queue filters on (src/Leave.gs LEAVE_STATUS) */
+  M.leaves = [
+    { LeaveID: 'LV-1', StaffID: 'STF-T', Department: 'Nursery 1', Type: 'ลาป่วย', StartDate: '2026-11-03', EndDate: '2026-11-03', Days: 1, Reason: 'ไข้', Status: 'PENDING_LEADER', CreatedDate: '2026-11-02 18:00:00', HalfDay: '' },
+    { LeaveID: 'LV-2', StaffID: 'STF-T', Department: 'Nursery 1', Type: 'ลากิจ', StartDate: '2026-11-10', EndDate: '2026-11-10', Days: 0.5, Reason: 'ธุระ', Status: 'PENDING_ADMIN', Step1ApproverID: 'STF-L', Step1Status: 'APPROVED', Step1Date: '2026-11-02', CreatedDate: '2026-11-01 09:00:00', HalfDay: 'AM' },
+    { LeaveID: 'LV-3', StaffID: 'STF-L', Department: 'Nursery 1', Type: 'ลาพักร้อน', StartDate: '2026-12-01', EndDate: '2026-12-03', Days: 3, Reason: '', Status: 'PENDING_ADMIN', CreatedDate: '2026-11-04 10:00:00', HalfDay: '' },
+    { LeaveID: 'LV-4', StaffID: 'STF-T', Department: 'Nursery 1', Type: 'ลาป่วย', StartDate: '2026-10-01', EndDate: '2026-10-01', Days: 1, Reason: '', Status: 'APPROVED', CreatedDate: '2026-09-30 08:00:00', HalfDay: '' }];
   M.students = [
     { StudentID: 'STD-1', NameTH: 'เด็กทดสอบหนึ่ง', Nickname: 'หนึ่ง', Class: 'Nursery 1', Status: 'ACTIVE', ParentID: 'PAR-1', DOB: '2023-03-01', EnrollDate: '2025-01-01' },
     { StudentID: 'STD-2', NameTH: 'เด็กทดสอบสอง', Nickname: 'สอง', Class: 'Nursery 1', Status: 'ACTIVE', ParentID: 'PAR-2', DOB: '2023-05-01', EnrollDate: '2025-01-01' }];
@@ -190,6 +199,39 @@ const q = s => '"' + s + '"';
       const col = await readCol();
       const yes = col.filter(x => /=YES$/.test(x)).map(x => x.split('=')[0]);
       ok_('🔴 ผู้ปกครองที่อ้างเป็นแอดมิน อ่านได้เฉพาะแถวของลูกตัวเอง (' + yes.join(',') + ')', yes.length === 1 && yes[0] === INBOX[14].InboxID);
+    }
+
+    console.log('\n4) pendingLeaves — คิวอนุมัติการลา: โฮสต์ (Postgres) = Apps Script (ชีต)');
+    {
+      /* Apps Script gets exactly the rows Postgres now holds — read back the way the host reads them */
+      const rawL = { LEAVE_REQUEST: await PG.readSheet(c, TENANT, 'LEAVE_REQUEST'), STAFF: await PG.readSheet(c, TENANT, 'STAFF') };
+      ok_('ใบลาอ่านกลับจาก Postgres ครบ ' + rawL.LEAVE_REQUEST.length + ' ใบ', rawL.LEAVE_REQUEST.length === 4);
+      H.g.__FIX = JSON.stringify(rawL);
+      H.run(function () {
+        var F = JSON.parse(__FIX), hr = getHrSpreadsheet_();
+        ['STAFF', 'LEAVE_REQUEST'].forEach(function (n) {
+          var sh = sheet_(hr, n); if (sh.getLastRow() > 1) sh.deleteRows(2, sh.getLastRow() - 1);
+          F[n].forEach(function (r) { appendObject_(sh, r); });
+        });
+        return '';
+      });
+      const asks = { 'แอดมิน': { staffId: 'STF-A' }, 'หัวหน้าครู': { staffId: 'STF-L' }, 'ครู': { staffId: 'STF-T' } };
+      for (const k of Object.keys(asks)) {
+        const p = GATE.identity('pendingLeaves', JSON.parse(JSON.stringify(asks[k])), WHO[k].sess, M);
+        H.g.__P = JSON.stringify(p);
+        const want = JSON.parse(H.run(function () {
+          try { return JSON.stringify({ ok: true, data: handlePendingLeaves(JSON.parse(__P)) }); }
+          catch (e) { return JSON.stringify({ ok: false, code: e.apiCode || e.message }); } }));
+        const got = await viaHost({ action: 'pendingLeaves', payload: asks[k] }, WHO[k]);
+        const g = JSON.stringify(got.ok ? { ok: true, data: got.data } : { ok: false, code: got.error && got.error.code });
+        const w = JSON.stringify(want);
+        ok_(k + ' → ' + (want.ok ? (want.data || []).map(x => x.LeaveID).join(',') || '(ว่าง)' : want.code) +
+          (g === w ? '' : '\n         host=' + g.slice(0, 400) + '\n          gas=' + w.slice(0, 400)), g === w);
+      }
+      const t = await viaHost({ action: 'pendingLeaves', payload: { staffId: 'STF-L' } }, WHO['ครู']);
+      ok_('🔴 ครูที่ส่ง staffId ของหัวหน้ามาเอง → NO_PERMISSION (ด่านประทับตัวตนจริง)', t.ok === false && t.error.code === 'NO_PERMISSION');
+      const home = await viaHost({ action: 'batch', payload: { calls: [{ action: 'pendingLeaves', payload: { staffId: 'STF-A' } }, { action: 'notifications', payload: WHO['แอดมิน'].ask }] } }, WHO['แอดมิน']);
+      ok_('หน้าแรกแอดมิน (batch) — ตอบบนโฮสต์ทั้งคู่ ไม่มี NOT_ON_FAST_HOST', home.ok && home.data.every(x => x.ok));
     }
   } finally {
     const tabs = (await c.query("select table_name from information_schema.tables where table_schema='public' and table_name <> 'tenant'")).rows.map(r => r.table_name);

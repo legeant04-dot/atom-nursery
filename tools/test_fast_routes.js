@@ -181,5 +181,60 @@ console.log('\n4) markNotifsRead — ผลในชีตหลังกด "�
   }
 }
 
+console.log('\n5) pendingLeaves — คิวอนุมัติการลา เท่ากับ Apps Script ทุกแบบผู้ถาม');
+{
+  const staff = [
+    { StaffID: 'STF-A', Name: 'แอดมิน', Nickname: 'แอด', Role: 'Admin', PositionLevel: 'Teacher', Status: 'ACTIVE' },   // Admin by ROLE
+    { StaffID: 'STF-PA', Name: 'ผอ.', Nickname: 'ผอ', Role: 'Teacher', PositionLevel: 'Admin', Status: 'ACTIVE' },    // Admin by LEVEL
+    { StaffID: 'STF-L', Name: 'หัวหน้าครู', Nickname: 'หัวหน้า', NicknameEN: 'Head', Role: 'Teacher', PositionLevel: 'Leader', Status: 'ACTIVE' },
+    { StaffID: 'STF-T', Name: 'ครูที', NameEN: 'Tee', Nickname: 'ที', Role: 'Teacher', PositionLevel: 'Teacher', Status: 'ACTIVE' }];
+  const leaves = [
+    { LeaveID: 'LV-1', StaffID: 'STF-T', Department: 'Nursery 1', Type: 'ลาป่วย', StartDate: '2026-11-03', EndDate: '2026-11-03', Days: 1, Reason: 'ไข้', Status: 'PENDING_LEADER', CreatedDate: '2026-11-02 18:00:00', HalfDay: '' },
+    { LeaveID: 'LV-2', StaffID: 'STF-T', Department: 'Nursery 1', Type: 'ลากิจ', StartDate: '2026-11-10', EndDate: '2026-11-10', Days: 0.5, Reason: 'ธุระ', Status: 'PENDING_ADMIN', Step1ApproverID: 'STF-L', Step1Status: 'APPROVED', CreatedDate: '2026-11-01 09:00:00', HalfDay: 'am' },
+    { LeaveID: 'LV-3', StaffID: 'STF-L', Department: 'Nursery 1', Type: 'ลาพักร้อน', StartDate: '2026-12-01', EndDate: '2026-12-03', Days: 3, Status: 'PENDING_ADMIN', CreatedDate: '2026-11-04 10:00:00', HalfDay: '' },
+    { LeaveID: 'LV-4', StaffID: 'STF-T', Type: 'ลาป่วย', StartDate: '2026-10-01', EndDate: '2026-10-01', Days: 1, Status: 'APPROVED', HalfDay: '' },
+    { LeaveID: 'LV-5', StaffID: 'STF-GONE', Type: 'ลาป่วย', StartDate: '2026-11-05', EndDate: '2026-11-05', Days: 1, Status: 'PENDING_LEADER', HalfDay: 'PM' }];
+  const G = require('./gas_test_harness.js')(FILES);
+  G.g.__FIX = JSON.stringify({ staff, leaves });
+  G.run(function () {
+    _configCache = null; setupAll(); _configCache = null;
+    var F = JSON.parse(__FIX), hr = getHrSpreadsheet_();
+    F.staff.forEach(function (r) { appendObject_(sheet_(hr, 'STAFF'), r); });
+    F.leaves.forEach(function (r) { appendObject_(sheet_(hr, 'LEAVE_REQUEST'), r); });
+    return '';
+  });
+  const rawL = JSON.parse(G.run(function () {
+    var hr = getHrSpreadsheet_(), out = {};
+    ['LEAVE_REQUEST', 'STAFF'].forEach(function (n) { out[n] = readObjects_(sheet_(hr, n)).map(function (r) { var o = {}; for (var k in r) o[k] = r[k]; return o; }); });
+    return JSON.stringify(out);
+  }));
+  const gasPL = p => { G.g.__P = JSON.stringify(p); return JSON.parse(G.run(function () {
+    try { return JSON.stringify({ ok: true, data: handlePendingLeaves(JSON.parse(__P)) }); }
+    catch (e) { return JSON.stringify({ ok: false, code: e.apiCode || e.message }); } })); };
+  const hostPL = p => { try { return { ok: true, data: ROUTES.run('pendingLeaves', p, JSON.parse(JSON.stringify(rawL)), {}, {}) }; }
+    catch (e) { return { ok: false, code: e.apiCode || e.message }; } };
+  const WHO = {
+    'แอดมิน (ตาม Role)': { staffId: 'STF-A', role: 'Admin' },
+    'ผอ. (ตาม PositionLevel)': { staffId: 'STF-PA', role: 'Teacher' },
+    'หัวหน้าครู': { staffId: 'STF-L', role: 'Teacher' },
+    'ครู (ไม่มีสิทธิ์)': { staffId: 'STF-T', role: 'Teacher' },
+    'ไม่พบในทะเบียน': { staffId: 'STF-NOPE', role: 'Teacher' }
+  };
+  const got = {};
+  for (const k of Object.keys(WHO)) { const want = gasPL(WHO[k]); got[k] = hostPL(WHO[k]); eq(k, got[k], want); }
+  eq('ข้อเท็จจริง: แอดมินเห็น PENDING_ADMIN สองใบ', got['แอดมิน (ตาม Role)'].data.map(x => x.LeaveID), ['LV-2', 'LV-3']);
+  eq('ข้อเท็จจริง: หัวหน้าเห็น PENDING_LEADER (รวมใบของคนที่ไม่อยู่ในทะเบียนแล้ว)', got['หัวหน้าครู'].data.map(x => x.LeaveID), ['LV-1', 'LV-5']);
+  eq('🔴 ครูธรรมดา → NO_PERMISSION', got['ครู (ไม่มีสิทธิ์)'].code, 'NO_PERMISSION');
+  ok_('ชื่อเล่นผู้ขอติดมาด้วย และไม่มี _row หลุดไปในคำตอบ', got['หัวหน้าครู'].data[0].nick === 'ที' && !got['หัวหน้าครู'].data.some(x => '_row' in x));
+  {
+    /* 🔴 Leave.gs keeps the STAFF sheet in _leaveStaffIdx after first use — safe on Apps Script because
+     * an execution ends. Here the sandbox lives on: the next request must not get this one's staff. */
+    const r2 = JSON.parse(JSON.stringify(rawL)); r2.STAFF.find(s => s.StaffID === 'STF-T').Nickname = 'ชื่อใหม่';
+    ROUTES.run('pendingLeaves', WHO['หัวหน้าครู'], JSON.parse(JSON.stringify(rawL)), {}, {});
+    const after = ROUTES.run('pendingLeaves', WHO['หัวหน้าครู'], r2, {}, {});
+    eq('🔴 คำขอถัดไปเห็นทะเบียนครูของตัวเอง ไม่ใช่ของคำขอก่อน (memo ถูกล้าง)', after[0].nick, 'ชื่อใหม่');
+  }
+}
+
 console.log('\n' + (fail ? '❌ ' : '✅ ') + pass + ' passed, ' + fail + ' failed');
 process.exit(fail ? 1 : 0);
