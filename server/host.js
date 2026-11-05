@@ -147,8 +147,8 @@ async function handle(req, res, body) {
       M.config = await PG.hydrateConfig(client, tenant);
       const derivedChanged = await PG.hydrateDerived(client, tenant, M, today);
       /* Code.gs routes this host runs itself (server/routes.js) read their own sheets — exactly those */
-      const raw = {};
-      for (const s of ROUTES_PORT.needs(callsIn)) raw[s] = await PG.readSheet(client, tenant, s);
+      const raw = {}, mayWrite = new Set(ROUTES_PORT.writable(callsIn)), routeWrites = [];
+      for (const s of ROUTES_PORT.needs(callsIn)) raw[s] = await PG.readSheet(client, tenant, s, { withId: mayWrite.has(s) });
       const tHydrate = Date.now() - tH0;
       const before = {};
       ALL_KEYS.forEach(k => { before[k] = JSON.stringify(M[k]); });
@@ -170,8 +170,9 @@ async function handle(req, res, body) {
          * จะเป็นคำตอบของอีกคำถามหนึ่ง จึงไม่ตอบ และบอกให้ไปถาม Apps Script */
         if (GATE.isRoute(a)) {
           if (!ROUTES_PORT.has(a)) return err('NOT_ON_FAST_HOST', 'action นี้ยังต้องทำงานบน Apps Script');
-          /* ✅ ย้ายมาแล้ว: ฟังก์ชันของ Apps Script ตัวจริง อ่านอย่างเดียว (server/routes.js) */
-          try { return { ok: true, data: ROUTES_PORT.run(a, pl, raw, H, M.config) }; }
+          /* ✅ ย้ายมาแล้ว: ฟังก์ชันของ Apps Script ตัวจริง (server/routes.js) · การเขียนเก็บไว้ใน routeWrites
+           * แล้วบันทึกภายใต้ล็อกข้างล่าง — เฉพาะช่องที่ route ประกาศไว้ */
+          try { return { ok: true, data: ROUTES_PORT.run(a, pl, raw, H, M.config, routeWrites) }; }
           catch (e) { return err((e && (e.apiCode || e.code)) || 'INTERNAL', (e && e.message) || String(e)); }
         }
         const fn = H[a];
@@ -187,7 +188,7 @@ async function handle(req, res, body) {
       const changed = ALL_KEYS.filter(k => JSON.stringify(M[k]) !== before[k]);
       const otherChanged = (JSON.stringify(M.config) !== before.config ? ['config'] : []).concat(derivedChanged());
       const t = { hydrate: tHydrate, run: tRun, save: 0 };
-      if (!changed.length && !otherChanged.length) {
+      if (!changed.length && !otherChanged.length && !routeWrites.length) {
         if (locked) await client.query('commit');
         return { results, t };
       }
@@ -200,7 +201,9 @@ async function handle(req, res, body) {
       };
       const writers = calls.map((c, i) => ({ a: String((c && c.action) || ''), r: results[i] }))
         .filter(x => GATE.isMutating(x.a) && x.r.ok);
-      const notProven = writers.filter(x => !WRITE_PROVEN[x.a]).map(x => x.a);
+      /* a ported Code.gs route is governed by its own declaration in server/routes.js (enforced as it runs) */
+      const routeDeclared = a => ROUTES_PORT.has(a) && !!ROUTES_PORT.PORTED[a].writes;
+      const notProven = writers.filter(x => !WRITE_PROVEN[x.a] && !routeDeclared(x.a)).map(x => x.a);
       const allowed = new Set([].concat(...writers.map(x => WRITE_PROVEN[x.a] || [])));
       const outside = changed.concat(otherChanged).filter(k => !allowed.has(k));
       /* 🔴 บันทึกได้เฉพาะ action ที่พิสูจน์แล้วว่าผลตรงกับ Apps Script (WRITE_PROVEN) และเฉพาะ
@@ -237,6 +240,9 @@ async function handle(req, res, body) {
       const tS0 = Date.now();
       const saved = await PG.persist(client, tenant, M, snapshot, changed);
       for (const k of otherChanged) saved[k] = await DERIVED_WRITERS[k](client, tenant, M[k]);
+      for (const sh of [...new Set(routeWrites.map(w => w.sheet))]) {
+        saved[sh] = await PG.updateSheetRows(client, tenant, sh, routeWrites.filter(w => w.sheet === sh));
+      }
       await client.query('commit');
       t.save = Date.now() - tS0;
       return { results, t, saved };
@@ -287,7 +293,11 @@ module.exports = { server, handle };
  *   ✅ ด่านของ Code.gs (ADMIN_ONLY · Observer · CLOSED · parentOwnsStudent_ · ENDED/NOT_STARTED/PAUSED) — server/gate.js
  *   ✅ ล็อกการเขียน = pg_advisory_xact_lock ต่อโรงเรียน + ธุรกรรม · WRITE_GUARD · ลำดับแถว
  *   ✅ 180 ROUTES ตอบ NOT_ON_FAST_HOST — webapp/api.js ส่งต่อไป GAS เอง (postFast · tools/test_fast_forward.js)
- *   🟡 ROUTES ที่ย้ายมาแล้ว (อ่านอย่างเดียว · ฟังก์ชันของ GAS ตัวจริง): server/routes.js — notifications
+ *   🟡 ROUTES ที่ย้ายมาแล้ว (ฟังก์ชันของ GAS ตัวจริง): server/routes.js — notifications · markNotifsRead (เขียนช่อง Read)
+ *   🔴 ก่อนวันย้าย: แคช CacheService ของ Apps Script (readRows_ ใน GasEngine.gs · 'rows:<SHEET>' · CacheTTL 900 วินาที)
+ *      ยังทำงานในโหมด Postgres และโฮสต์นี้ล้างมันไม่ได้ → หลังโฮสต์บันทึก หน้าจอที่ยังตอบจาก Apps Script
+ *      อาจเห็นข้อมูลเก่าได้ถึง 15 นาที (ทุก collection ใน write_proven.js รวมเรื่องเงิน) · ADMIN_INBOX ไม่โดน
+ *      (Notify.gs อ่านชีตตรง ไม่ผ่านแคชนี้)
  *   ⬜ เขียนได้เฉพาะ server/write_proven.js · คีย์ที่คำนวณ (ลงเวลาครู · payrollConfig) ยังไม่มีตัวเขียน · เงินยังไม่เปิด
  *   🔴 ล็อกนี้ต้องเป็นล็อกเดียวกับ Apps Script ก่อนวันย้าย (DbPg ต้องถือ advisory lock ตัวเดียวกัน)
  *   ⬜ ต่อ connection pool — ตอนนี้เปิด-ปิดต่อ request (จะเห็นในตัวเลขที่วัดได้)

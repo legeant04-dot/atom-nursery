@@ -114,8 +114,71 @@ console.log('\n3) 🔴 กฎที่ทำให้รันนอก Apps Scr
   let e3 = null;
   try { ROUTES.run('__w', {}, raw, {}, {}); } catch (e) { e3 = e; }
   delete ROUTES.PORTED.__w;
-  ok_('🔴 route ที่พยายามเขียน → ล้มทันที', !!e3 && /tried to write/.test(e3.message));
-  ok_('มีแต่การอ่านในรายการที่ย้ายมา', Object.keys(ROUTES.PORTED).every(a => !require(path.join(__dirname, '..', 'server', 'gate.js')).isMutating(a)));
+  ok_('🔴 route ที่ไม่ได้ประกาศการเขียน แต่พยายามเขียน → ล้มทันที', !!e3 && /does not declare/.test(e3.message));
+  const GATE = require(path.join(__dirname, '..', 'server', 'gate.js'));
+  ok_('🔴 route ที่เขียนข้อมูลได้ คือตัวที่ประกาศช่องที่เขียนไว้เท่านั้น', Object.keys(ROUTES.PORTED).every(a => !GATE.isMutating(a) || !!ROUTES.PORTED[a].writes));
+}
+
+console.log('\n4) markNotifsRead — ผลในชีตหลังกด "อ่านแล้ว" เท่ากับ Apps Script ทุกแถว');
+{
+  /* a FRESH Apps Script for each caller — marking read changes the sheet */
+  const freshGas = () => {
+    const G = require('./gas_test_harness.js')(FILES);
+    G.g.__FIX = JSON.stringify({ inbox, parents, links });
+    G.run(function () {
+      _configCache = null; setupAll(); _configCache = null;
+      var F = JSON.parse(__FIX), ss = getMainSpreadsheet_();
+      F.inbox.forEach(function (r) { appendObject_(sheet_(ss, 'ADMIN_INBOX'), r); });
+      F.parents.forEach(function (r) { appendObject_(sheet_(ss, 'PARENTS'), r); });
+      F.links.forEach(function (r) { appendObject_(sheet_(ss, 'USER_LINKS'), r); });
+      return '';
+    });
+    return G;
+  };
+  const readCol = G => JSON.parse(G.run(function () {
+    return JSON.stringify(readObjects_(sheet_(getMainSpreadsheet_(), 'ADMIN_INBOX')).map(function (r) { return r.InboxID + '=' + r.Read; }));
+  }));
+  const withIds = () => { const r = JSON.parse(JSON.stringify(raw)); r.ADMIN_INBOX.forEach((x, i) => { x.__id = 'id-' + i; }); return r; };
+  const MARK = {
+    'แอดมิน': { role: 'Admin', staffId: 'STF-A' },
+    'ครู': { role: 'Teacher', staffId: 'STF-T' },
+    'ผู้ปกครองผ่าน PARENTS': { role: 'Parent', parentId: 'PAR-1', uid: 'U-P1' },
+    'ผู้ปกครองผ่าน USER_LINKS': { role: 'Parent', parentId: 'PAR-2', uid: 'U-P2' },
+    'ผู้ปกครองที่ไม่มีลูก (engine)': { role: 'Parent', parentId: 'PAR-0', uid: 'U-P0' }
+  };
+  const before = readCol(freshGas());
+  for (const k of Object.keys(MARK)) {
+    const G = freshGas();
+    G.g.__P = JSON.stringify(MARK[k]);
+    const want = JSON.parse(G.run(function () { return JSON.stringify(handleMarkNotifsRead(JSON.parse(__P))); }));
+    const wantCol = readCol(G);
+    const r = withIds(), sink = [];
+    const got = ROUTES.run('markNotifsRead', MARK[k], r, { markNotifsRead: () => ({ ok: true }) }, {}, sink);
+    const gotCol = r.ADMIN_INBOX.map(x => x.InboxID + '=' + x.Read);
+    const flipped = wantCol.filter((x, i) => x !== before[i]).length;
+    eq(k + ': คำตอบ', got, want);
+    eq(k + ': ทุกแถวของ ADMIN_INBOX หลังกด (' + flipped + ' แถวเปลี่ยน)', gotCol, wantCol);
+    eq(k + ': สิ่งที่จะบันทึกลง Postgres = แถวที่เปลี่ยนจริง', sink.length, flipped);
+    ok_(k + ': เขียนเฉพาะช่อง Read = YES', sink.every(w => w.sheet === 'ADMIN_INBOX' && JSON.stringify(w.patch) === '{"Read":"YES"}'));
+  }
+  ok_('🔴 ข้อเท็จจริง: แอดมินเปลี่ยนจริง (ไม่ใช่เทียบว่างกับว่าง)', (() => { const r = withIds(), s = []; ROUTES.run('markNotifsRead', MARK['แอดมิน'], r, {}, {}, s); return s.length > 50; })());
+  {
+    // the batch [markNotifsRead, notifications]: the second call sees the first one's write, as on Apps Script
+    const r = withIds(), s = [];
+    ROUTES.run('markNotifsRead', MARK['ครู'], r, {}, {}, s);
+    const after = ROUTES.run('notifications', MARK['ครู'], r, {}, {});
+    ok_('call ถัดไปใน batch เห็นว่าอ่านแล้ว', after.length === 2 && after.every(x => x.read === true));
+  }
+  {
+    // a write to a column it did not declare: refused, and NOTHING it did is kept
+    const saved = ROUTES.PORTED.markNotifsRead.writes;
+    ROUTES.PORTED.markNotifsRead.writes = { ADMIN_INBOX: ['Text'] };
+    const r = withIds(), s = []; let e4 = null;
+    try { ROUTES.run('markNotifsRead', MARK['แอดมิน'], r, {}, {}, s); } catch (e) { e4 = e; }
+    ROUTES.PORTED.markNotifsRead.writes = saved;
+    ok_('🔴 เขียนช่องที่ไม่ได้ประกาศ → ล้ม', !!e4 && /ADMIN_INBOX\.Read which it does not declare/.test(e4.message));
+    ok_('🔴 ...และไม่มีอะไรค้าง (ทั้งที่จะบันทึก และในข้อมูลของ call ถัดไป)', s.length === 0 && JSON.stringify(r) === JSON.stringify(withIds()));
+  }
 }
 
 console.log('\n' + (fail ? '❌ ' : '✅ ') + pass + ' passed, ' + fail + ' failed');

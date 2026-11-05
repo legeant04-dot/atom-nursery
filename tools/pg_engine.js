@@ -425,12 +425,35 @@ async function hydrateConfig(client, tenantId) {
  * 🔴 NOTHING DERIVED IS WRITTEN BACK. GasEngine persists payrollConfig and staffAttendanceToday;
  * this does not, so a staff clock-in through the fast host would vanish without an error. That is
  * why server/host.js refuses every write until that path exists and is tested. */
-async function readSheet(client, tenantId, sheet) {
+async function readSheet(client, tenantId, sheet, opts) {
   const cols = SHEET_COLS[sheet]; if (!cols || !cols.length) return [];
-  const table = snake(sheet);
-  const r = await client.query('select ' + cols.map(c => q(snake(c))).join(',') + ' from ' + table +
+  const table = snake(sheet), withId = !!(opts && opts.withId);
+  const r = await client.query('select ' + (withId ? 'id::text as "__id",' : '') + cols.map(c => q(snake(c))).join(',') + ' from ' + table +
     ' where tenant_id = $1 order by seq', [tenantId]);
-  return r.rows.map(row => { const o = {}; cols.forEach(c => { o[c] = decode_(row[snake(c)], typeOf_(table, snake(c))); }); return o; });
+  return r.rows.map(row => {
+    const o = {}; cols.forEach(c => { o[c] = decode_(row[snake(c)], typeOf_(table, snake(c))); });
+    if (withId) o.__id = row.__id;            // which row to update — server/routes.js strips it before Apps Script code sees it
+    return o;
+  });
+}
+/* Update named cells of rows read with readSheet(…, { withId: true }) — what DbPg's updateRow_ does for a
+ * Code.gs route run on the fast host. A row deleted meanwhile is an error, not a silent no-op, and only
+ * the sheet's declared columns can be named. */
+async function updateSheetRows(client, tenantId, sheet, updates) {
+  const cols = SHEET_COLS[sheet] || [], table = snake(sheet);
+  let n = 0;
+  for (const u of updates || []) {
+    const keys = Object.keys(u.patch || {});
+    if (!u.id || !keys.length) throw new Error('updateSheetRows: ' + sheet + ' update without a row id or a column');
+    keys.forEach(k => { if (cols.indexOf(k) < 0) throw new Error('updateSheetRows: ' + sheet + ' has no column ' + k); });
+    const vals = keys.map(k => encode_(u.patch[k], typeOf_(table, snake(k)), table + '.' + snake(k)));
+    const sets = keys.map((k, i) => q(snake(k)) + ' = $' + (i + 3)).join(', ');
+    const r = await client.query('update ' + table + ' set ' + sets + ', updated_at = now() where id = $1 and tenant_id = $2',
+      [u.id, tenantId].concat(vals));
+    if (r.rowCount !== 1) throw new Error('updateSheetRows: ' + sheet + ' row ' + u.id + ' is gone');
+    n++;
+  }
+  return { updated: n };
 }
 let deriver_ = null;
 function deriver() {
@@ -499,4 +522,4 @@ async function hydrateDerived(client, tenantId, M, today) {
   return function derivedChanged() { return Object.keys(init).filter(k => JSON.stringify(cache[k]) !== init[k]); };
 }
 
-module.exports = { COLLECTIONS, hydrate, hydrateFast, hydrateConfig, hydrateDerived, readSheet, writePayrollConfig, persist, decode_, encode_, snake, liftGas_, SHEET_COLS: () => SHEET_COLS };
+module.exports = { COLLECTIONS, hydrate, hydrateFast, hydrateConfig, hydrateDerived, readSheet, updateSheetRows, writePayrollConfig, persist, decode_, encode_, snake, liftGas_, SHEET_COLS: () => SHEET_COLS };
