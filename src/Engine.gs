@@ -835,6 +835,42 @@ function createAtomAPI(M, GROWTH_STD) {
     const lvl=String(staff.PositionLevel||''), role=String(staff.Role||'');
     if(lvl==='Admin'||lvl==='Leader'||role==='Admin') return true;
     const v=staff.CanClassOrg; return v===true||v==='YES'||v===1||String(v).toUpperCase()==='TRUE'; }
+  /* ===== WHAT A TEACHER'S SESSION GETS FROM THE TWO WHOLE-SCHOOL LISTS (2026-11-05) ================
+   * Asked: "ปรับปรุงให้ครูเห็นเฉพาะข้อมูลที่จำเป็น โดยตัดฟิลด์ข้อมูลที่ละเอียดอ่อนออก และจำกัดให้เห็นเฉพาะ
+   * นักเรียนในชั้นเรียนของตนเองเท่านั้น". Until now listStudents/listStaff handed every TEACHER the full rows:
+   * every child's NationalID, address, MedicalHistory, insurance; every colleague's NationalID, salary,
+   * bank account and PasswordHash. No teacher screen reads any of that (checked call site by call site:
+   * T_holAddStudent · T_journalHistory · EDIT_ATT · T_classOrg · T_cover · the organise tool) — they draw
+   * names, a class, a photo and a status.
+   *
+   * WHO: only a session the gate stamped role='Teacher' (applyIdentity_ — a teacher cannot unstamp it).
+   * An admin's payload is not stamped and keeps the full rows; so does a staff record whose Role or
+   * PositionLevel is Admin (the ผอ. on a teacher login), and the Observer, whose role is to read the school.
+   *
+   * WHICH CHILDREN: the teacher's own classes — coveredClasses_, the same answer every class screen
+   * already uses (homeroom + Classes + Department + any class they are covering today). The whole school,
+   * still with ROSTER fields only, for the three the school named (2026-11-05):
+   *   · a head teacher / Leader (coveredClasses_ already gives them every class)
+   *   · a teacher the admin ticked CanClassOrg — the organise tool moves children between classes
+   *   · the holiday "a child turned up" picker (p.forHoliday) — on a closed day the teacher on duty
+   *     must be able to add a child from any room. Names, class and photo only.
+   * Staff are not scoped by class (there is no "own class" of colleagues) — only their fields are cut. */
+  const STUDENT_ROSTER_ = ['StudentID','NameTH','NameEN','Nickname','NicknameEN','Class','Status','Photo',
+    'ageMonth','paused','pauseFrom','pauseTo','endScheduled','endDate'];
+  const STAFF_ROSTER_ = ['StaffID','NameTH','Name','NameEN','Nickname','NicknameEN','Role','PositionLevel','Position',
+    'Department','Classes','Status','Photo','ReportsTo','ended','endScheduled','paused','pauseFrom','pauseTo'];
+  function rosterForTeacher_(p, kind, rows){
+    if(!p || String(p.role||'')!=='Teacher') return rows;                  // admin · observer · unstamped: unchanged
+    const me=staffById(p.staffId)||{};
+    if(String(me.Role||'')==='Admin' || String(me.PositionLevel||'')==='Admin') return rows;
+    const keep = kind==='staff' ? STAFF_ROSTER_ : STUDENT_ROSTER_;
+    let list = rows;
+    if(kind==='students' && !(canOrganize_(me) || headTeacher_(me) || p.forHoliday===true)){
+      const mine={}; coveredClasses_(me).forEach(c=>{ mine[String(c.ClassName)]=1; });
+      list = rows.filter(s=>mine[String(s.Class||'')]);
+    }
+    return list.map(r=>{ const o={}; keep.forEach(k=>{ if(r[k]!==undefined) o[k]=r[k]; }); return o; });
+  }
   /* ===== NOT ON THE SCHOOL'S PAYROLL ============================================================
    * Asked 2026-09-29: "ระบบตัดคุณเติ้ลออกไป เนื่องจากเป็นแม่บ้านส่วนตัวไม่ได้อยู่ในระบบโรงเรียน ...
    * ให้ไม่อยู่ใน Lists รายชื่อคุณครูตอนทำเงินเดือน".
@@ -5071,7 +5107,7 @@ function createAtomAPI(M, GROWTH_STD) {
     pendingLeaves: p => { const lv=staffById(p.staffId).PositionLevel; if(lv==='Admin')return M.leaves.filter(l=>l.Status==='PENDING_ADMIN').map(leaveView_); if(lv==='Leader')return M.leaves.filter(l=>l.Status==='PENDING_LEADER').map(leaveView_); fail('NO_PERMISSION','ตำแหน่งนี้ไม่มีสิทธิ์อนุมัติ'); },
     // `ended` = employment is over TODAY (status INACTIVE, or a last working day that has passed);
     // `endScheduled` = a leaving date is on record but has not arrived, so they are still staff.
-    listStaff: () => M.staff.map(s=>Object.assign({RequireCheckin: requiresCheckin_(s),
+    listStaff: p => rosterForTeacher_(p, 'staff', M.staff.map(s=>Object.assign({RequireCheckin: requiresCheckin_(s),
       ended: staffEnded_(s), endScheduled: !staffEnded_(s) && !!ymd(s.EndDate||''),
       // "works here, the school does not pay them" — see noPayroll_. Answered HERE rather than left
       // to each screen to read off the raw cell, which arrives as 'YES', true or 1 depending on how
@@ -5080,7 +5116,7 @@ function createAtomAPI(M, GROWTH_STD) {
       paused: staffPaused_(s), pauseFrom: ymd(s.PauseFrom||''), pauseTo: ymd(s.PauseTo||''),
       pauseReason: s.PauseReason||'', pauseRemark: s.PauseRemark||'',
       pauseSalaryMode: String(s.PauseSalaryMode||''), pauseSalaryAmount: Number(s.PauseSalaryAmount||0),
-      pauseDue: staffPauseDue_(s)}, s)),
+      pauseDue: staffPauseDue_(s)}, s))),
     /** Staff whose last working day has passed and who are still on the roster — the admin's list of
      *  records to close out. Kept, never auto-deleted: people come back, and the row carries their
      *  payroll and attendance history. Sorted by who left longest ago. */
@@ -5168,10 +5204,10 @@ function createAtomAPI(M, GROWTH_STD) {
       return {ok:true, staffId:p.staffId, changed:moved}; },
     // the Admin roster keeps paused children visible (with a flag) — hiding them would leave no way
     // to see who is away, or to bring them back
-    listStudents: () => enrolledStudents().map(s=>Object.assign({ageMonth:ageMonths(s.DOB),
+    listStudents: p => rosterForTeacher_(p, 'students', enrolledStudents().map(s=>Object.assign({ageMonth:ageMonths(s.DOB),
       paused:studentPaused_(s), pauseFrom:ymd(s.PauseFrom||''), pauseTo:ymd(s.PauseTo||''), pauseReason:s.PauseReason||'',
       // a last day already set but not reached — the roster says so while there is still time to fix it
-      endScheduled:endScheduled_(s), endDate:ymd(s.EndDate||''), endReason:s.EndReason||''}, s)),
+      endScheduled:endScheduled_(s), endDate:ymd(s.EndDate||''), endReason:s.EndReason||''}, s))),
     /**
      * Admin puts a child on temporary leave, or brings them back. Admin only.
      * { studentId, paused:true, from?, to?, reason? } | { studentId, paused:false }
