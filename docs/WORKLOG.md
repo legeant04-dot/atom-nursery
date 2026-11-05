@@ -5,6 +5,24 @@
 
 ---
 
+## 2026-11-05 · v499 · GAS @404 · ล็อกเขียนตัวเดียว + แอปส่งต่อ "ไม่ใช่ของฉัน" ไป Apps Script เอง
+
+**ผอ.:** *"ทำงานพอร์ตต่อได้เลย"* · *"ทำข้อ 2 ต่อได้เลย"*
+
+- **@404 ล็อกร่วม:** `withWriteLock_` → `pgWriteLock_` (session `pg_advisory_lock(hashtextextended(tenant,0))`) = กุญแจเดียวกับ
+  `pg_advisory_xact_lock` ของ Cloud Run · ล็อกไม่ว่าง = BUSY ไม่มีอะไรถูกเขียน · สวิตช์ปิด = ไม่แตะ Jdbc เลย ·
+  `test_shared_write_lock` 16/16 · staging: Apps Script ถือล็อก → การเขียนบน Cloud Run ได้ BUSY (`test_fast_host_writes_live` 45/45) · DbPg parity 60/60
+- **v499 ส่งต่อ (`webapp/api.js` postFast):** `NOT_ON_FAST_HOST` · `READ_ONLY_HOST` · `UNKNOWN_ACTION` · `NO_SESSION` · `NO_TENANT`
+  = โฮสต์ไม่ได้ทำอะไร → ถาม Apps Script · batch ส่งต่อเฉพาะ call ที่ขาดแล้ววางคืนตำแหน่งเดิม ·
+  🔴 การเขียนที่โฮสต์บันทึกแล้วไม่ถูกส่งซ้ำ · โฮสต์ล่ม: การอ่านไป GAS + พัก 5 นาที, การเขียนไม่ส่งซ้ำ (บอกให้ตรวจก่อน) ·
+  BUSY / WRITE_GUARD / READ_ONLY ไม่ส่งต่อ (GAS ตอบเหมือนกัน)
+- **เครื่อง pilot:** localStorage `atom_fast_pilot` = URL บริการเรา (ตรึงชื่อบริการ — URL อื่นถูกเมิน) · `FAST_URL` ยังว่าง ·
+  ใช้จริงไม่ได้จนกว่าบริการจะเปิด allUsers และ SESSION_SECRET เป็นค่าจริง (ตอนนี้ token จริง → NO_SESSION → ไป GAS ทุกครั้ง)
+- **พิสูจน์:** `test_fast_forward` 28/28 รัน api.js ตัวจริงกับโฮสต์/GAS ปลอม · ถอดตัวแก้ 6 แบบ → แดงทุกแบบ · test_all 218/218 ·
+  เปิด dist v499 ในเบราว์เซอร์: ping ถึง GAS จริง · คำขอไป Cloud Run = 0 · ไม่มี error
+
+---
+
 ## 2026-11-05 · GAS @402–403 🔴 เงินที่ไม่มีประตู · ☁️ Cloud Run เขียนเรื่องเงินได้ (10 action)
 
 **ผอ.:** *"ทำต่อได้เลย พอร์ตการเขียนเงินบน Cloud Run"*

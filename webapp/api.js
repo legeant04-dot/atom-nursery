@@ -160,7 +160,9 @@ window.CONFIG = { FAST_URL: '', MODE: 'gas', GAS_URL: 'https://script.google.com
    * a request that follows them around for ever is worse than one that stops and says so. Two
    * resumes, then it is treated as an ordinary failure. */
   const MAX_RESUMES = 2;
-  async function postGas(body, attempt, resumes) {
+  async function postGas(body, attempt, resumes, gasOnly) {
+    // the first send of a request the fast host can take goes there; every retry below is GAS's own
+    if (!gasOnly && !attempt && !resumes && fastRoute(body)) return postFast(body);
     attempt = attempt || 0;
     resumes = resumes || 0;
     const payload = JSON.stringify(Object.assign({ token: _session }, body));
@@ -202,29 +204,8 @@ window.CONFIG = { FAST_URL: '', MODE: 'gas', GAS_URL: 'https://script.google.com
     const ac = (typeof AbortController !== 'undefined') ? new AbortController() : null;
     let timedOut = false;
     const killer = ac ? setTimeout(() => { timedOut = true; try { ac.abort(); } catch (x) {} }, REQ_TIMEOUT) : null;
-    /* ── ปลายทาง: เส้นเร็ว หรือ Apps Script ──────────────────────────────────────────────
-     * สัปดาห์ที่ 1 ของ docs/SPEED_FIRST_PLAN.md · โฮสต์ใหม่รับ-ตอบ "ซองเดียวกันทุกตัวอักษร"
-     * กับ Code.gs จึงสลับได้ที่บรรทัดเดียว ไม่ต้องแก้หน้าจอหรือ handler ใดเลย
-     *
-     * 🔴 สวิตช์ถอยต้องอยู่ฝั่งเรา ไม่ใช่ฝั่งโฮสต์ใหม่
-     * ถ้าโฮสต์ใหม่ช้าหรือพัง เราต้องกลับไป GAS ได้ด้วยการปล่อยรุ่นใหม่ — ไม่ใช่ต้องรอให้
-     * โฮสต์นั้นฟื้นก่อน · `FAST_URL` ว่าง = ใช้ GAS เหมือนเดิมทุกประการ ซึ่งเป็นค่าวันนี้
-     *
-     * 🔴 และสลับเฉพาะ action ที่เส้นเร็วรับได้จริง
-     * โฮสต์ใหม่ยังไม่มี Drive · LINE push · trigger · ล็อกอิน (ดูหนี้ท้าย server/host.js)
-     * `FAST_ACTIONS` จึงเป็นรายชื่อที่ **ประกาศ** ไม่ใช่เดาจากชื่อ — ของที่ไม่อยู่ในรายชื่อ
-     * ไปทาง GAS เหมือนเดิม และนั่นคือด้านที่ปลอดภัยที่จะผิด */
-    const _fastOK = (() => {
-      if (!CONFIG.FAST_URL) return false;
-      const a = String(body && body.action || '');
-      if (a === 'batch') {
-        const calls = (body.payload && body.payload.calls) || [];
-        // ทั้ง batch ต้องไปทางเดียวกัน — ครึ่งหนึ่งไปคนละที่คือสองคำตอบจากข้อมูลคนละรอบ
-        return calls.length > 0 && calls.every(c => FAST_ACTIONS[String(c.action || '')]);
-      }
-      return !!FAST_ACTIONS[a];
-    })();
-    const _url = _fastOK ? CONFIG.FAST_URL : CONFIG.GAS_URL;
+    // ปลายทางเส้นเร็วตัดสินที่ fastRoute / postFast ข้างล่าง · ถึงตรงนี้คือ Apps Script เสมอ
+    const _url = CONFIG.GAS_URL;
     try { r = await fetch(_url, Object.assign({ method: 'POST', body: payload }, ac ? { signal: ac.signal } : {})); }
     catch (netErr) {
       if (timedOut) {
@@ -350,6 +331,111 @@ window.CONFIG = { FAST_URL: '', MODE: 'gas', GAS_URL: 'https://script.google.com
       err.code = 'BAD_RESPONSE';
       throw err;
     }
+  }
+
+  /* ── ปลายทาง: เส้นเร็ว (Cloud Run) หรือ Apps Script ─────────────────────────────────────────
+   * โฮสต์ใหม่รับ-ตอบ "ซองเดียวกันทุกตัวอักษร" กับ Code.gs จึงสลับได้ที่นี่ที่เดียว ไม่ต้องแก้หน้าจอ
+   *
+   * 🔴 สวิตช์ถอยต้องอยู่ฝั่งเรา ไม่ใช่ฝั่งโฮสต์ใหม่
+   * `FAST_URL` ว่าง = ใช้ GAS เหมือนเดิมทุกประการ ซึ่งเป็นค่าวันนี้ · โฮสต์ติดต่อไม่ได้ = พัก 5 นาทีแล้วใช้ GAS
+   *
+   * 🔴 สลับเฉพาะ action ที่ประกาศใน `FAST_ACTIONS` — ไม่เดาจากชื่อ ของที่ไม่อยู่ในรายชื่อไป GAS
+   *
+   * เครื่องทดสอบ: ตั้ง localStorage `atom_fast_pilot` เป็น URL ของโฮสต์ = เครื่องนี้เครื่องเดียวใช้เส้นเร็ว
+   * รับเฉพาะ URL ของบริการเราเอง (FAST_PILOT_RE) — token ของผู้ใช้ต้องไม่ถูกส่งไปที่อื่นได้ด้วยการตั้งค่า */
+  const FAST_PILOT_RE = /^https:\/\/atom-fast-120486339414\.asia-southeast1\.run\.app\/?$/;
+  const FAST_DOWN_MS = 5 * 60000;
+  const FAST_READ_TIMEOUT = 15000;     // p50 ของโฮสต์ ~0.13 วินาที · เกินนี้ถาม GAS ดีกว่ารอ
+  let _fastDownUntil = 0;
+  function fastUrl() {
+    if (Date.now() < _fastDownUntil) return '';
+    if (!CONFIG.FAST_URL) {
+      let p = ''; try { p = localStorage.getItem('atom_fast_pilot') || ''; } catch (e) {}
+      return FAST_PILOT_RE.test(p) ? p : '';
+    }
+    return CONFIG.FAST_URL;
+  }
+  function fastRoute(body) {
+    if (!fastUrl()) return false;
+    const a = String(body && body.action || '');
+    if (a === 'batch') {
+      const calls = (body.payload && body.payload.calls) || [];
+      // ทั้ง batch ต้องไปทางเดียวกัน — ครึ่งหนึ่งไปคนละที่คือสองคำตอบจากข้อมูลคนละรอบ
+      return calls.length > 0 && calls.every(c => FAST_ACTIONS[String(c.action || '')]);
+    }
+    return !!FAST_ACTIONS[a];
+  }
+  /* 🔴 คำตอบที่แปลว่า "โฮสต์ไม่ได้ทำอะไรเลย ไปถาม Apps Script" — ส่งต่อได้แม้เป็นการเขียน
+   * เพราะโฮสต์ตอบรหัสเหล่านี้ก่อนรัน handler หรือหลัง rollback ทั้งธุรกรรม (server/host.js):
+   *   NOT_ON_FAST_HOST  route ของ Code.gs / มีรูปที่ต้องเก็บใน Drive
+   *   READ_ONLY_HOST    การเขียนที่ยังไม่พิสูจน์ (server/write_proven.js) — ไม่มีอะไรถูกบันทึก
+   *   UNKNOWN_ACTION    เอนจินไม่รู้จัก — Apps Script อาจรู้จัก (หรือตอบแบบเดียวกัน)
+   *   NO_SESSION · NO_TENANT  ตรวจก่อนแตะฐานข้อมูล — Apps Script ตัดสินเรื่อง session เป็นคนสุดท้าย
+   * BUSY / WRITE_GUARD / READ_ONLY ไม่อยู่ที่นี่: Apps Script จะตอบแบบเดียวกัน (ล็อกตัวเดียวกัน · กฎเดียวกัน) */
+  const FAST_FORWARD = { NOT_ON_FAST_HOST: 1, READ_ONLY_HOST: 1, UNKNOWN_ACTION: 1, NO_SESSION: 1, NO_TENANT: 1 };
+  const fwdCode = x => !!(x && x.ok === false && x.error && FAST_FORWARD[x.error.code]);
+  const viaGas = (body, why) => {
+    try { PERF.mark('fastFwd', why || String(body && body.action || ''), 0); } catch (x) {}
+    return postGas(body, 0, 0, true);
+  };
+  async function postFast(body) {
+    const asked = String(body && body.action || '');
+    const payload = JSON.stringify(Object.assign({ token: _session }, body));
+    if (payload.length > MAX_POST) return postGas(body, 0, 0, true);   // ข้อความ TOO_LARGE มาจากทางเดิม
+    const url = fastUrl();
+    if (!url) return postGas(body, 0, 0, true);
+    const read = canRepeat(body);
+    const ac = (typeof AbortController !== 'undefined') ? new AbortController() : null;
+    let timedOut = false;
+    const killer = ac ? setTimeout(() => { timedOut = true; try { ac.abort(); } catch (x) {} }, read ? FAST_READ_TIMEOUT : REQ_TIMEOUT) : null;
+    let j = null, status = 0;
+    try {
+      const r = await fetch(url, Object.assign({ method: 'POST', body: payload }, ac ? { signal: ac.signal } : {}));
+      status = r.status;
+      j = JSON.parse(await r.text());
+      if (!j || typeof j !== 'object' || (j.a && j.a !== asked)) throw new Error('not our reply');
+    } catch (e) {
+      const backgrounded = (typeof document !== 'undefined' && document.hidden);
+      // ถูกพักเพราะแอปไปอยู่เบื้องหลัง ไม่ใช่โฮสต์เสีย — ไม่ต้องพักเส้นเร็ว
+      if (!backgrounded) {
+        _fastDownUntil = Date.now() + FAST_DOWN_MS;
+        try { PERF.err('fastDown', asked + ' http=' + status + (timedOut ? ' timeout' : '') + ' ' + String(e && e.message || e).slice(0, 60)); } catch (x) {}
+      }
+      /* 🔴 การอ่านถาม GAS ต่อได้เสมอ · การเขียนไม่ได้: คำขออาจถึงโฮสต์และบันทึกไปแล้ว
+       * ส่งซ้ำไป GAS = บันทึกสองครั้ง (เงินสองก้อน) จึงบอกตามจริงว่าไม่รู้ ให้ตรวจก่อนทำซ้ำ */
+      if (read) return viaGas(body, 'down:' + asked);
+      const eW = new Error(timedOut
+        ? 'ระบบใช้เวลานานเกินไป — โปรดตรวจสอบก่อนทำรายการซ้ำ เพราะอาจบันทึกไปแล้ว'
+        : 'เชื่อมต่อไม่ได้ — โปรดตรวจสอบก่อนทำรายการซ้ำ เพราะอาจบันทึกไปแล้ว');
+      eW.code = timedOut ? 'TIMEOUT' : 'OFFLINE';
+      throw eW;
+    } finally { if (killer) clearTimeout(killer); }
+    if (j.token) { _session = j.token; try { localStorage.setItem('atom_session_token', j.token); } catch (x) {} }
+    // ทั้งคำขอไม่ได้ทำอะไรบนโฮสต์ → ทั้งคำขอไป GAS
+    if (fwdCode(j)) return viaGas(body);
+    if (asked !== 'batch' || !j.ok || !Array.isArray(j.data)) return j;
+
+    /* ── batch: บาง call ทำบนโฮสต์แล้ว บาง call โฮสต์ไม่ได้ทำ ──────────────────────────────
+     * ส่งต่อ "เฉพาะ call ที่โฮสต์ไม่ได้ทำ" ไป GAS เป็น batch เดียว แล้ววางคำตอบกลับที่ตำแหน่งเดิม
+     * 🔴 ห้ามส่งทั้ง batch ซ้ำถ้าโฮสต์บันทึกอะไรไปแล้ว — การเขียนนั้นจะเกิดสองครั้ง
+     * แต่ถ้าในส่วนที่ส่งต่อมีการเขียน และโฮสต์ยังไม่ได้บันทึกอะไร ส่งทั้ง batch ไป GAS
+     * เพื่อให้ลำดับ "เขียนแล้วค่อยอ่าน" ใน batch เดียวกันยังเป็นจริงเหมือนเดิม */
+    const calls = (body.payload && body.payload.calls) || [];
+    const idx = j.data.map((x, i) => fwdCode(x) ? i : -1).filter(i => i >= 0);
+    if (!idx.length) return j;
+    const fwdWrites = idx.some(i => isMutating(String((calls[i] || {}).action || '')));
+    const hostWrote = j.data.some((x, i) => idx.indexOf(i) < 0 && x && x.ok && isMutating(String((calls[i] || {}).action || '')));
+    if (fwdWrites && !hostWrote) return viaGas(body);
+    const sub = Object.assign({}, body, { payload: Object.assign({}, body.payload, { calls: idx.map(i => calls[i]) }) });
+    let g;
+    try { g = await viaGas(sub, 'part:' + idx.map(i => (calls[i] || {}).action).join(',')); }
+    catch (e) { g = { ok: false, error: { code: (e && e.code) || 'OFFLINE', message: (e && e.message) || String(e) } }; }
+    const out = j.data.slice();
+    idx.forEach((i, k) => {
+      out[i] = (g && g.ok && Array.isArray(g.data) && g.data[k]) ? g.data[k]
+        : { ok: false, error: (g && g.error) || { code: 'BAD_RESPONSE', message: 'อ่านคำตอบจากระบบไม่ได้' } };
+    });
+    return Object.assign({}, j, { data: out });
   }
 
   /* ---- Phase 0 telemetry: how slow is it REALLY, and where does it break? ------------------
