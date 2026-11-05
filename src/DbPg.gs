@@ -66,6 +66,40 @@ function pgConn_() {
   return (PG_.conn = c);
 }
 
+/**
+ * 🔴 THE SCHOOL'S WRITE LOCK, SHARED WITH THE CLOUD RUN HOST (2026-11-05).
+ *
+ * LockService serialises Apps Script against Apps Script. Once the data is in Postgres a second
+ * writer exists — server/host.js — and it serialises with `pg_advisory_xact_lock(hashtextextended(
+ * tenant, 0))`. Two different locks over one database is the 2026-07-09 wipe waiting to happen
+ * again: GAS reads a table, the host commits a row, GAS writes the table back by position.
+ *
+ * So while Postgres is the backend, a GAS write also holds the SAME advisory key (session-level here,
+ * transaction-level there; the two kinds conflict on the same key, which is the point). Taken after
+ * LockService, released in `finally`, waited for as long as tryLock waits (25s) — and a lock that
+ * cannot be had is BUSY, exactly like a LockService that cannot be had.
+ *
+ * Switch off (the live script today): pgEnabled_() is false and this is `return fn()` — nothing else.
+ */
+function pgWriteLock_(fn, onBusy) {
+  if (!pgEnabled_()) return fn();
+  var c = pgConn_();
+  var lock = c.prepareStatement('select pg_advisory_lock(hashtextextended(?, 0))');
+  try {
+    var st = c.createStatement(); st.execute("set lock_timeout = '25s'"); st.close();
+    lock.setString(1, PG_.tenant); lock.executeQuery();
+  } catch (e) {
+    try { lock.close(); } catch (x) {}
+    if (onBusy) return onBusy();
+    throw (typeof apiError_ === 'function') ? apiError_('BUSY', (typeof BUSY_MSG_ !== 'undefined') ? BUSY_MSG_ : 'ระบบกำลังบันทึกข้อมูลอยู่ กรุณาลองใหม่อีกครั้ง') : e;
+  }
+  try { lock.close(); } catch (x) {}
+  try { return fn(); }
+  finally {
+    try { var u = c.prepareStatement('select pg_advisory_unlock(hashtextextended(?, 0))'); u.setString(1, PG_.tenant); u.executeQuery(); u.close(); } catch (e) {}
+  }
+}
+
 /** The base type of a declared column: 'numeric(12,2)' → 'numeric', 'timestamptz not null…' → 'timestamptz'. */
 function pgBase_(t) { return String(t || 'text').split(/[ (]/)[0]; }
 function pgQ_(n) { return '"' + String(n).replace(/"/g, '""') + '"'; }
