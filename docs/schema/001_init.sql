@@ -31,6 +31,19 @@ drop policy if exists tenant_self_read on tenant;
 create policy tenant_self_read on tenant
   for select using (id = (auth.jwt() ->> 'tenant_id')::uuid);
 
+-- ── cache versions (not a sheet) — Apps Script's row cache is keyed by these; every writer bumps them
+create table if not exists cache_version (
+  id          uuid primary key default gen_random_uuid(),
+  tenant_id   uuid not null references tenant(id) on delete cascade,
+  sheet       text not null,
+  ver         bigint not null default 0,
+  created_at  timestamptz not null default now(),
+  updated_at  timestamptz not null default now()
+);
+create unique index if not exists cache_version_uq on cache_version(tenant_id, sheet);   -- on conflict (tenant_id, sheet)
+alter table cache_version enable row level security;
+-- ไม่มีนโยบายเลย = client ทำอะไรไม่ได้ · เซิร์ฟเวอร์ (service_role / Apps Script / Cloud Run) เท่านั้น
+
 -- ── ATTENDANCE_REQUEST  (HR workbook)
 create table if not exists attendance_request (
   id          uuid primary key default gen_random_uuid(),

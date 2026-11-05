@@ -35,6 +35,8 @@ const { WRITE_PROVEN } = require(path.join(__dirname, 'write_proven.js'));
 const ROUTES_PORT = require(path.join(__dirname, 'routes.js'));
 /* derived keys GasEngine persists, and the writer that does the same here (see pg_engine) */
 const DERIVED_WRITERS = { payrollConfig: PG.writePayrollConfig };
+/* ...and the sheet each one lands in — its cache version is bumped with the write (DbPg.gs CACHE VERSIONS) */
+const DERIVED_SHEETS = { payrollConfig: 'PAYROLL_CONFIG' };
 
 const PORT = Number(process.env.PORT || 8787);
 const SECRET = process.env.SESSION_SECRET || '';
@@ -243,6 +245,10 @@ async function handle(req, res, body) {
       for (const sh of [...new Set(routeWrites.map(w => w.sheet))]) {
         saved[sh] = await PG.updateSheetRows(client, tenant, sh, routeWrites.filter(w => w.sheet === sh));
       }
+      /* 🔴 Apps Script's row cache cannot be cleared from here — retire it instead: every sheet written in
+       * this transaction gets a new version, committed together with the rows (DbPg.gs CACHE VERSIONS) */
+      saved.cacheVersions = await PG.bumpCacheVersions(client, tenant, changed.map(k => PG.COLLECTIONS[k].sheet)
+        .concat(otherChanged.map(k => DERIVED_SHEETS[k])).concat(routeWrites.map(w => w.sheet)));
       await client.query('commit');
       t.save = Date.now() - tS0;
       return { results, t, saved };
@@ -294,10 +300,8 @@ module.exports = { server, handle };
  *   ✅ ล็อกการเขียน = pg_advisory_xact_lock ต่อโรงเรียน + ธุรกรรม · WRITE_GUARD · ลำดับแถว
  *   ✅ 180 ROUTES ตอบ NOT_ON_FAST_HOST — webapp/api.js ส่งต่อไป GAS เอง (postFast · tools/test_fast_forward.js)
  *   🟡 ROUTES ที่ย้ายมาแล้ว (ฟังก์ชันของ GAS ตัวจริง): server/routes.js — notifications · markNotifsRead (เขียนช่อง Read)
- *   🔴 ก่อนวันย้าย: แคช CacheService ของ Apps Script (readRows_ ใน GasEngine.gs · 'rows:<SHEET>' · CacheTTL 900 วินาที)
- *      ยังทำงานในโหมด Postgres และโฮสต์นี้ล้างมันไม่ได้ → หลังโฮสต์บันทึก หน้าจอที่ยังตอบจาก Apps Script
- *      อาจเห็นข้อมูลเก่าได้ถึง 15 นาที (ทุก collection ใน write_proven.js รวมเรื่องเงิน) · ADMIN_INBOX ไม่โดน
- *      (Notify.gs อ่านชีตตรง ไม่ผ่านแคชนี้)
+ *   ✅ แคช CacheService ของ Apps Script ตามการเขียนของโฮสต์ทัน: คีย์พกเวอร์ชันจาก cache_version และโฮสต์
+ *      ขยับเวอร์ชันในธุรกรรมเดียวกับการเขียน (src/DbPg.gs CACHE VERSIONS · tools/test_cache_versions.js)
  *   ⬜ เขียนได้เฉพาะ server/write_proven.js · คีย์ที่คำนวณ (ลงเวลาครู · payrollConfig) ยังไม่มีตัวเขียน · เงินยังไม่เปิด
  *   🔴 ล็อกนี้ต้องเป็นล็อกเดียวกับ Apps Script ก่อนวันย้าย (DbPg ต้องถือ advisory lock ตัวเดียวกัน)
  *   ⬜ ต่อ connection pool — ตอนนี้เปิด-ปิดต่อ request (จะเห็นในตัวเลขที่วัดได้)

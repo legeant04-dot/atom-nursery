@@ -30,7 +30,70 @@
  * parity run can list every one — those are migration-day data losses, found before migration day.
  */
 
-var PG_ = { on: null, conn: null, tenant: '', wb: {}, rejects: [], unknown: {}, missing: {}, noCache: false };
+var PG_ = { on: null, conn: null, tenant: '', wb: {}, rejects: [], unknown: {}, missing: {}, noCache: false,
+            vers: null, dirty: {}, lockDepth: 0 };
+
+/* ── 🔴 CACHE VERSIONS: Apps Script's row cache vs a second writer (2026-11-05) ──────────────────
+ *
+ * GasEngine keeps rows in CacheService for CacheTTL (900s): 'col:<SHEET>' (the engine collections),
+ * 'rows:<SHEET>' and 'jrn:<date>' (DAILY_JOURNAL). Its own writes clear those keys. The Cloud Run
+ * host writes the same Postgres and CANNOT reach this CacheService — so after the host confirms a
+ * payment, every screen still answered here could show the bill unpaid for fifteen minutes.
+ *
+ * So each sheet has a VERSION in Postgres (table cache_version), and while Postgres is the backend
+ * those cache keys carry it: 'col:BILLING' is stored as 'col:BILLING@7'. Whoever writes a sheet bumps
+ * its version — the host inside the same transaction as the write, this file once per table after
+ * its writes (pgDirty_ → pgBumpDirty_). A bumped version is a key nobody has filled yet: a miss, and
+ * a fresh read. Nothing has to be deleted from anybody's cache.
+ *
+ * READ ONCE, AND FIRST. The versions are read once per execution, BEFORE the first table is loaded
+ * (pgSheet_'s load calls pgCacheVers_). Rows read after the versions can only be as new or newer than
+ * those versions — never older — so a fresh key can never be filled with rows from before the write.
+ * If the versions cannot be read, the row cache is simply not used for this execution.
+ *
+ * Switch off (the live script today): pgCacheKey_ returns the key unchanged and nothing here runs. */
+var PG_CACHE_JOURNAL_SHEET_ = 'DAILY_JOURNAL';
+function pgCacheVers_() {
+  if (PG_.vers !== null && !PG_.noCache) return PG_.vers;
+  try {
+    var st = pgConn_().prepareStatement('select "sheet", "ver"::text from "cache_version" where "tenant_id" = ?::uuid');
+    st.setString(1, PG_.tenant);
+    var rs = st.executeQuery(), v = {};
+    while (rs.next()) v[rs.getString(1)] = rs.getString(2);
+    rs.close(); st.close();
+    return (PG_.vers = v);
+  } catch (e) {
+    try { Logger.log('pgCacheVers_ ' + e.message); } catch (x) {}
+    return (PG_.vers = false);                 // unknown → the row cache is not used this execution
+  }
+}
+/** The CacheService key for a row-cache key while Postgres is the backend; null = do not cache. */
+function pgCacheKey_(k) {
+  if (!pgEnabled_()) return k;
+  var m = /^(col|rows):(.+)$/.exec(String(k));
+  var sheet = m ? m[2] : (/^jrn:/.test(String(k)) ? PG_CACHE_JOURNAL_SHEET_ : null);
+  if (!sheet) return k;                        // 'cfg' and the rest: not rows of a table the host writes
+  var v = pgCacheVers_();
+  if (v === false) return null;
+  return k + '@' + (v[sheet] || '0');
+}
+/** A table was written. Inside the write lock the bump waits for the end (once per table); outside it, now. */
+function pgDirty_(sheet) {
+  PG_.dirty[sheet] = 1;
+  if (!PG_.lockDepth) pgBumpDirty_();
+}
+function pgBumpDirty_() {
+  var names = Object.keys(PG_.dirty);
+  if (!names.length) return;
+  PG_.dirty = {};
+  names.forEach(function (n) {
+    try {
+      var st = pgConn_().prepareStatement('insert into "cache_version" ("tenant_id", "sheet", "ver") values (?::uuid, ?, 1) ' +
+        'on conflict ("tenant_id", "sheet") do update set "ver" = "cache_version"."ver" + 1');
+      st.setString(1, PG_.tenant); st.setString(2, n); st.executeUpdate(); st.close();
+    } catch (e) { try { Logger.log('pgBumpDirty_ ' + n + ' ' + e.message); } catch (x) {} }
+  });
+}
 
 /** Is the Postgres door open for this execution? Read once; a missing property means NO. */
 function pgEnabled_() {
@@ -94,8 +157,12 @@ function pgWriteLock_(fn, onBusy) {
     throw (typeof apiError_ === 'function') ? apiError_('BUSY', (typeof BUSY_MSG_ !== 'undefined') ? BUSY_MSG_ : 'ระบบกำลังบันทึกข้อมูลอยู่ กรุณาลองใหม่อีกครั้ง') : e;
   }
   try { lock.close(); } catch (x) {}
+  PG_.lockDepth++;
   try { return fn(); }
   finally {
+    // the tables this write touched get a new cache version BEFORE the lock is let go
+    PG_.lockDepth--;
+    if (!PG_.lockDepth) pgBumpDirty_();
     try { var u = c.prepareStatement('select pg_advisory_unlock(hashtextextended(?, 0))'); u.setString(1, PG_.tenant); u.executeQuery(); u.close(); } catch (e) {}
   }
 }
@@ -210,6 +277,7 @@ function pgSheet_(wb, name, def) {
   var rows = null;                                        // [{ id, vals: [...] }] in seq order
   var load = function () {
     if (rows && !PG_.noCache) return rows;
+    pgCacheVers_();                                       // the versions FIRST — see CACHE VERSIONS above
     var sql = 'select "id"::text,' + cols.map(function (c) { return pgQ_(c[1]) + '::text'; }).join(',') +
       ' from ' + pgQ_(def.t) + ' where "tenant_id" = ?::uuid order by "seq"';
     var st = pgConn_().prepareStatement(sql); st.setString(1, PG_.tenant);
@@ -236,6 +304,7 @@ function pgSheet_(wb, name, def) {
     var st = pgConn_().prepareStatement(sql); st.setString(1, PG_.tenant);
     for (var j = 0; j < params.length; j++) pgSet_(st, j + 2, params[j]);
     var rs = st.executeQuery(); rs.next(); var id = rs.getString(1); rs.close(); st.close();
+    pgDirty_(name);
     return id;
   };
   var update = function (row, changed) {                  // changed: [colIndex, …]
@@ -249,10 +318,12 @@ function pgSheet_(wb, name, def) {
     for (var j = 0; j < params.length; j++) pgSet_(st, j + 1, params[j]);
     st.setString(params.length + 1, row.id); st.setString(params.length + 2, PG_.tenant);
     st.executeUpdate(); st.close();
+    pgDirty_(name);
   };
   var remove = function (row) {
     var st = pgConn_().prepareStatement('delete from ' + pgQ_(def.t) + ' where "id" = ?::uuid and "tenant_id" = ?::uuid');
     st.setString(1, row.id); st.setString(2, PG_.tenant); st.executeUpdate(); st.close();
+    pgDirty_(name);
   };
   var blank = function (v) { return v === '' || v === null || v === undefined; };
 

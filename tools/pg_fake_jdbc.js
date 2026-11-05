@@ -87,6 +87,16 @@ module.exports = function makeFakeJdbc(g, store, props) {
       if (!m[1] && api.lockFails) throw new Error('canceling statement due to lock timeout');
       return rs([['']]);
     }
+    /* the cache versions (DbPg.gs CACHE VERSIONS) — `api.versions` is the table; a test may bump it the
+     * way the Cloud Run host would, and `api.versionsFail` plays the table being unreadable */
+    if (/^select "sheet", "ver"::text from "cache_version" where "tenant_id" = \?::uuid$/.test(sql)) {
+      if (api.versionsFail) throw new Error('relation "cache_version" does not exist');
+      return rs(Object.keys(api.versions).map(k => [k, String(api.versions[k])]));
+    }
+    if (/^insert into "cache_version" \("tenant_id", "sheet", "ver"\) values \(\?::uuid, \?, 1\) on conflict \("tenant_id", "sheet"\) do update set "ver" = "cache_version"\."ver" \+ 1$/.test(sql)) {
+      api.versions[p[1]] = (api.versions[p[1]] || 0) + 1;
+      return null;
+    }
     if ((m = /^select "id"::text,(.*) from "(\w+)" where "tenant_id" = \?::uuid order by "seq"$/.exec(sql))) {
       const { def, sh } = sheetFor(m[2]);
       const want = [...m[1].matchAll(/"(\w+)"::text/g)].map(x => x[1]);
@@ -122,6 +132,6 @@ module.exports = function makeFakeJdbc(g, store, props) {
     throw new Error('fake jdbc: statement shape not understood — ' + sql.slice(0, 90));
   }
   const conn = { prepareStatement, createStatement: () => ({ execute: q => { log.push({ sql: String(q), params: [] }); return true; }, close: () => {} }), close: () => {} };
-  const api = { Jdbc: { getConnection: () => conn }, log, lockFails: false };
+  const api = { Jdbc: { getConnection: () => conn }, log, lockFails: false, versions: {}, versionsFail: false };
   return api;
 };

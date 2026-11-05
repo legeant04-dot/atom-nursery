@@ -150,7 +150,14 @@ async function viaHost(msg, who) {
       observed.forEach(k => seen[action].add(k));
       ok_('🔴 เปลี่ยนเฉพาะที่ประกาศใน write_proven  ประกาศ[' + declared + '] · จริง[' + observed + ']', observed.every(k => declared.indexOf(k) >= 0));
       // ② the host, for real
+      const vers = async () => Object.fromEntries((await c.query('select sheet, ver::int v from cache_version where tenant_id = $1', [TENANT])).rows.map(x => [x.sheet, x.v]));
+      const v0 = await vers();
       const r = await viaHost({ action, payload }, who);
+      /* 🔴 Apps Script's row cache is keyed by these versions (src/DbPg.gs CACHE VERSIONS) — a sheet the
+       * host wrote whose version did not move is a sheet Apps Script keeps answering from its old copy */
+      const v1 = await vers();
+      const stuck = observed.map(k => PG.COLLECTIONS[k].sheet).filter(s => !((v1[s] || 0) > (v0[s] || 0)));
+      ok_('🔴 ทุกชีตที่เขียน ขยับเวอร์ชันแคชของ Apps Script' + (stuck.length ? '  → ค้าง: ' + stuck.join(',') : '  (' + observed.map(k => PG.COLLECTIONS[k].sheet).join(',') + ')'), stuck.length === 0);
       ok_('โฮสต์ตอบสำเร็จ' + (r.ok ? '' : '  → ' + JSON.stringify(r.error).slice(0, 140)), r.ok === true);
       /* the reply as the phone gets it — the host never sends `__id`, and neither does Apps Script */
       const asSent = v => JSON.stringify(v, (k, x) => (k === '__id' ? undefined : x));
@@ -167,6 +174,24 @@ async function viaHost(msg, who) {
      * written is a key a bug could write without being refused */
     const wide = GENERAL.map(a => [a, WRITE_PROVEN[a].filter(k => !(seen[a] && seen[a].has(k)))]).filter(x => x[1].length);
     ok_('🔴 ไม่มีคำประกาศที่กว้างเกินกว่าที่กรณีทดสอบแสดงว่าเขียนจริง' + (wide.length ? '  → ' + JSON.stringify(wide) : ''), wide.length === 0);
+
+    /* ── Apps Script's two cache-version statements, verbatim from src/DbPg.gs, on the real server ── */
+    console.log('\n▶ คำสั่ง cache_version ของ Apps Script (ข้อความจริงจาก DbPg.gs) บน Postgres จริง');
+    {
+      const src = require('fs').readFileSync(path.join(ROOT, 'src', 'DbPg.gs'), 'utf8');
+      const sel = (/prepareStatement\('(select "sheet", "ver"::text from "cache_version" where "tenant_id" = \?::uuid)'\)/.exec(src) || [])[1];
+      const upsA = /prepareStatement\('(insert into "cache_version" [^']*)' \+\s*'([^']*)'\)/.exec(src);
+      const ups = upsA && (upsA[1] + upsA[2]);
+      ok_('พบทั้งสองคำสั่งใน DbPg.gs', !!sel && !!ups);
+      const pgSql = s => { let i = 0; return s.replace(/\?/g, () => '$' + (++i)); };   // Jdbc ? → node-pg $n
+      const before = Object.fromEntries((await c.query(pgSql(sel), [TENANT])).rows.map(r => [r.sheet, Number(r.ver)]));
+      await c.query(pgSql(ups), [TENANT, 'COMMENTS']);
+      await c.query(pgSql(ups), [TENANT, 'ZZ_NEW_SHEET']);
+      const after = Object.fromEntries((await c.query(pgSql(sel), [TENANT])).rows.map(r => [r.sheet, Number(r.ver)]));
+      ok_('upsert ของ Apps Script ขยับเวอร์ชันที่มีอยู่ +1 (COMMENTS ' + before.COMMENTS + ' → ' + after.COMMENTS + ')', after.COMMENTS === (before.COMMENTS || 0) + 1);
+      ok_('...และสร้างแถวใหม่เป็น 1 ให้ชีตที่ยังไม่เคยมี', after.ZZ_NEW_SHEET === 1);
+      ok_('select ของ Apps Script อ่านได้ (เวอร์ชันเป็นข้อความ "' + after.COMMENTS + '")', typeof (await c.query(pgSql(sel), [TENANT])).rows[0].ver === 'string');
+    }
 
     /* ── two writes at the same moment ─────────────────────────────────────────────────── */
     console.log('\n▶ สองคำขอพร้อมกัน');

@@ -455,6 +455,18 @@ async function updateSheetRows(client, tenantId, sheet, updates) {
   }
   return { updated: n };
 }
+/* 🔴 Apps Script caches rows in CacheService under keys that carry each sheet's version (src/DbPg.gs
+ * CACHE VERSIONS). A write here that does not bump the version leaves Apps Script serving the old rows
+ * for up to CacheTTL — so every writer calls this, inside the SAME transaction as the write: the new
+ * version and the new rows become visible together. Sheet names, as the GAS cache keys use them. */
+async function bumpCacheVersions(client, tenantId, sheets) {
+  const list = [...new Set(sheets || [])].sort();     // one fixed order: two writers never deadlock on these rows
+  for (const s of list) {
+    await client.query('insert into cache_version (tenant_id, sheet, ver) values ($1, $2, 1) ' +
+      'on conflict (tenant_id, sheet) do update set ver = cache_version.ver + 1', [tenantId, s]);
+  }
+  return list;
+}
 let deriver_ = null;
 function deriver() {
   if (deriver_) return deriver_;
@@ -522,4 +534,4 @@ async function hydrateDerived(client, tenantId, M, today) {
   return function derivedChanged() { return Object.keys(init).filter(k => JSON.stringify(cache[k]) !== init[k]); };
 }
 
-module.exports = { COLLECTIONS, hydrate, hydrateFast, hydrateConfig, hydrateDerived, readSheet, updateSheetRows, writePayrollConfig, persist, decode_, encode_, snake, liftGas_, SHEET_COLS: () => SHEET_COLS };
+module.exports = { COLLECTIONS, hydrate, hydrateFast, hydrateConfig, hydrateDerived, readSheet, updateSheetRows, bumpCacheVersions, writePayrollConfig, persist, decode_, encode_, snake, liftGas_, SHEET_COLS: () => SHEET_COLS };
