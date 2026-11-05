@@ -46,7 +46,9 @@ const PG = require(path.join(ROOT, 'tools', 'pg_engine.js'));
 const GATE = require(path.join(ROOT, 'server', 'gate.js'));
 const { createAtomAPI } = require(path.join(ROOT, 'webapp', 'engine.js'));
 const { handle } = require(path.join(ROOT, 'server', 'host.js'));
-const { WRITE_PROVEN } = require(path.join(ROOT, 'server', 'write_proven.js'));
+const { WRITE_PROVEN, MONEY } = require(path.join(ROOT, 'server', 'write_proven.js'));
+/* money has its own suite (test_fast_host_money_live.js) and its own fixture — this one covers the rest */
+const GENERAL = Object.keys(WRITE_PROVEN).filter(a => MONEY.indexOf(a) < 0);
 const { sign_ } = require(path.join(ROOT, 'server', 'session.js'));
 const ALL = Object.keys(PG.COLLECTIONS);
 const TODAY = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Bangkok' }).format(new Date());
@@ -160,10 +162,10 @@ async function viaHost(msg, who) {
         return k + '[' + i + '] pg=' + JSON.stringify(a[i]) + ' gas=' + JSON.stringify(e[i]); };
       ok_('🔴 ทุก collection ใน Postgres = ผลของ Apps Script (ค่า + ลำดับ)' + (diff.length ? '  → ' + diff.map(firstDiff).join(' | ').slice(0, 600) : ''), diff.length === 0);
     }
-    ok_('\n🔴 ทุก action ใน write_proven.js มีกรณีในชุดนี้', Object.keys(WRITE_PROVEN).every(a => covered.has(a)));
+    ok_('\n🔴 ทุก action ใน write_proven.js มีกรณีในชุดนี้', GENERAL.every(a => covered.has(a)));
     /* ...and no declaration is WIDER than what its cases actually change — a key nobody can show being
      * written is a key a bug could write without being refused */
-    const wide = Object.keys(WRITE_PROVEN).map(a => [a, WRITE_PROVEN[a].filter(k => !(seen[a] && seen[a].has(k)))]).filter(x => x[1].length);
+    const wide = GENERAL.map(a => [a, WRITE_PROVEN[a].filter(k => !(seen[a] && seen[a].has(k)))]).filter(x => x[1].length);
     ok_('🔴 ไม่มีคำประกาศที่กว้างเกินกว่าที่กรณีทดสอบแสดงว่าเขียนจริง' + (wide.length ? '  → ' + JSON.stringify(wide) : ''), wide.length === 0);
 
     /* ── two writes at the same moment ─────────────────────────────────────────────────── */

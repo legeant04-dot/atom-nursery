@@ -29,4 +29,16 @@ const WRITE_PROVEN = {
   saveVaccines:       ['vaccineRecords'],
   setAbsenceFollowup: ['absenceFollowups', 'absenceFollowupLogs']
 };
-module.exports = { WRITE_PROVEN };
+/* 🔴 MONEY — proven by tools/test_fast_host_money_live.js (every baht, every row, the double-issue and
+ * re-confirm cases). Kept apart so the general suite does not have to know the money fixture. */
+const MONEY_PROVEN = {
+  /* every bill issued, every cash notice and every confirmation is logged (logAct → ACTIVITY_LOG):
+   * who did it and for how much is part of the write, not decoration */
+  issueBill: ['payments', 'activityLog'], issueBillsFor: ['payments', 'activityLog'], generateMonthlyBills: ['payments', 'activityLog'],
+  addStudentCharge: ['studentCharges'], removeStudentCharge: ['studentCharges'],
+  notifyCash: ['payments', 'activityLog'], confirmPayment: ['payments', 'activityLog'], rejectPayment: ['payments'],
+  prepay: ['prepayments'], setPayrollConfig: ['payrollConfig']
+};
+Object.assign(WRITE_PROVEN, MONEY_PROVEN);
+const MONEY = Object.keys(MONEY_PROVEN);
+module.exports = { WRITE_PROVEN, MONEY };
