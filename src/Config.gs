@@ -315,7 +315,10 @@ SCHEMA[WB.MAIN] = {
   SURVEY_RESPONSES:  ['ResponseID', 'SurveyID', 'StudentID', 'ParentID', 'Rating', 'Choice', 'Comment', 'Answers', 'SubmittedAt'],
   BACKUP_LOG:        ['BackupDate', 'WorkbookName', 'DriveFileID', 'Status'],
   // INFERRED — parent <-> school chat (§4 "Comments — สื่อสารกับโรงเรียน")
-  COMMENTS:          ['CommentID', 'StudentID', 'ParentID', 'SenderRole', 'Message', 'Timestamp', 'ReadStatus'],
+  COMMENTS:          ['CommentID', 'StudentID', 'ParentID', 'SenderRole', 'Message', 'Timestamp', 'ReadStatus',
+                     // who sent it, named by the server from the sender's own record (addComment, 2026-11-05) —
+                     // appended, so every existing column keeps its place; ensureCollectionSheet_ adds it to the live sheet
+                     'SenderName'],
   // Activity log — full who-did-what trail across the app (broader than AUDIT_LOG, which is PDPA data-access only).
   // Every create/update/payment/withdrawal/login-sensitive action appends a row here for retrospective review.
   ACTIVITY_LOG:      ['LogID', 'Timestamp', 'UserRole', 'UserID', 'UserName', 'Action', 'Target', 'Detail'],

@@ -671,6 +671,7 @@ create table if not exists comments (
   "message"                    text,
   "timestamp"                  timestamptz,
   "read_status"                text,
+  "sender_name"                text,
   created_at  timestamptz not null default now(),
   updated_at  timestamptz not null default now()
 );
