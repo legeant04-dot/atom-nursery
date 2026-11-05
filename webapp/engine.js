@@ -2501,7 +2501,19 @@ function createAtomAPI(M, GROWTH_STD) {
       return {ok:true,deleted:n}; },
     studentLeaves: p => M.studentLeaves.filter(l=>l.StudentID===p.studentId).sort((a,b)=>b.Date.localeCompare(a.Date)),
     comments: p => M.comments.filter(c=>c.StudentID===p.studentId),
-    addComment: p => { const c={CommentID:nextSeqId_(M.comments,'CommentID','CM',0),StudentID:p.studentId,ParentID:p.parentId||'',SenderRole:p.senderRole,SenderName:p.senderName||'',Message:p.message,Timestamp:stampLocal(),ReadStatus:'unread'}; M.comments.push(c); return c; },
+    /* WHO SENT IT — decided by the server, not by the phone (ผอ., 2026-11-05).
+     * The chat bubble shows SenderName, and the sheet never had the column, so live stored no name at
+     * all. Storing what the app sends would not have been the fix: it sent USER.nameEN (blank for most
+     * families) and anything a phone sends can be edited to read "ครูเอ". So for a signed-in parent —
+     * role stamped by applyIdentity_ from the verified session — the name comes from THEIR parent
+     * record and the role is 'Parent' whatever was posted. Staff get their own staff record's name.
+     * Only a payload nobody stamped (an Admin, the in-browser demo) falls back to what was sent. */
+    addComment: p => { const isParent=p.role==='Parent';
+      let who='';
+      if(isParent){ const pa=M.parents.find(x=>x.ParentID===p.parentId)||{}; who=pa.NameTH||pa.NameEN||''; }
+      else if(p.role&&p.staffId){ const s=staffById(p.staffId)||{}; who=s.NameTH||s.Nickname||''; }
+      else who=p.senderName||'';
+      const c={CommentID:nextSeqId_(M.comments,'CommentID','CM',0),StudentID:p.studentId,ParentID:p.parentId||'',SenderRole:isParent?'Parent':p.senderRole,SenderName:who,Message:p.message,Timestamp:stampLocal(),ReadStatus:'unread'}; M.comments.push(c); return c; },
     // monthly bill = TUITION ONLY. Extra charges + late-pickup OT are separate payable items (see
     // studentCharges / otDaily) so the parent can tick and pay them individually.
     payments: p => M.payments.filter(b=>b.StudentID===p.studentId).map(b=>{
