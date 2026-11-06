@@ -199,7 +199,7 @@
       _readStart(); let pr2; try{ pr2=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr2).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.501'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.502'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:var(--fs-1);margin-top:var(--sp-5)">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -843,6 +843,8 @@
                        'ตรวจข้อมูลในช่องที่กรอกอีกครั้ง','Check the fields again'],
     JOURNAL_LOCKED:   ['สมุดรายงานวันนี้ถูกส่งแล้ว แก้ไขไม่ได้','Today’s report has been sent and is locked',
                        'ติดต่อแอดมินเพื่อปลดล็อกหากต้องแก้ไข','Ask the admin to unlock it if it needs changing'],
+    LEAVE_OVERLAP:    ['ไม่สามารถลาได้เนื่องจากซ้ำกับการลาก่อนหน้า','This overlaps a leave you already have',
+                       'ดูใบลาเดิมในประวัติการลา — หากต้องการเปลี่ยน ติดต่อแอดมินให้แก้ไขหรือยกเลิกใบเดิม','Check your leave history — ask the admin to change or cancel the earlier one'],
     TOO_LATE:         ['เลยกำหนดส่งย้อนหลังแล้ว','Too late to send',
                        'ส่งบันทึกย้อนหลังได้ไม่เกิน 7 วัน — ติดต่อแอดมิน','Late reports can be sent up to 7 days back — ask the admin'],
     NO_PERMISSION:    ['บัญชีนี้ไม่มีสิทธิ์ใช้งานส่วนนี้','Your account cannot use this section',
@@ -885,6 +887,11 @@
       // record HOW FAR the refusals actually are — metres only, no coordinates. Without this the
       // next speed report can only say "14% refused", never whether the fence is too tight.
       try{ window.__atomPerfErr&&window.__atomPerfErr('outOfRange', raw); }catch(_){}
+    } else if(code==='LEAVE_OVERLAP'){
+      // the server's sentence names WHICH earlier leave (id, type, dates) — the thing the teacher must find
+      const m=ERR_MSG[code];
+      head = raw || (EN()?m[1]:m[0]);
+      hint = EN()?m[3]:m[2];
     } else {
       const m=ERR_MSG[code];
       head = m ? (EN()?m[1]:m[0]) : raw;      // unlisted code → the server's own sentence
@@ -8628,8 +8635,13 @@
     deleteWithUndo(EN()?'Announcement deleted':'ลบประกาศแล้ว', ()=>api('deleteAnnouncement',{annId}).then(()=>GO('home')), ()=>GO('home')); };
 
   // one admin leave card: nickname + dept + type/dates + reason + status + actions (approve/reject/edit/cancel)
+  /* ⚠️ ซ้ำ — another leave of the same person holds the same slot (overlapWith, from allLeaves; 2026-11-06).
+   * Flagged with the other LeaveIDs so the admin can find the pair and cancel one; nothing is removed for them. */
+  const leaveDupTag = l => (l.overlapWith&&l.overlapWith.length)
+    // the card shows no id anywhere else, so this one's id is named too — or "ซ้ำกับ LV…" points at nothing
+    ? `<br><span class="pill bad" style="margin-top:var(--sp-1)">⚠️ ${EN()?`Duplicate: ${esc(l.LeaveID)} overlaps ${esc(l.overlapWith.join(', '))}`:`ลาซ้ำ: ${esc(l.LeaveID)} ซ้ำกับ ${esc(l.overlapWith.join(', '))}`}</span>` : '';
   function leaveAdminCard(l){ const isPA=String(l.Status)==='PENDING_ADMIN';
-    return `<div class="card"><div class="spread"><div><b>${esc(leaveName(l))}</b> <small class="muted">(${esc(l.Department||'-')})</small><br>${esc(l.Type)} ${esc(l.StartDate)}→${esc(l.EndDate)} (${esc(leaveDays(l.Days))}${l.HalfDay?' · '+esc(halfLabel(l.HalfDay)):''})${leaveDoc(l)}<br><small class="muted">${esc(l.Reason||'')}</small>${l.Step1ApproverName?`<br><small>${EN()?'via leader':'ผ่านหัวหน้างาน'}: ${esc(l.Step1ApproverName)}${l.Step1CrossDept==='YES'?' ⚠️ '+(EN()?'cross-dept':'ข้ามแผนก'):''}</small>`:''}</div>${leaveStatusPill(l.Status)}</div>
+    return `<div class="card"><div class="spread"><div><b>${esc(leaveName(l))}</b> <small class="muted">(${esc(l.Department||'-')})</small><br>${esc(l.Type)} ${esc(l.StartDate)}→${esc(l.EndDate)} (${esc(leaveDays(l.Days))}${l.HalfDay?' · '+esc(halfLabel(l.HalfDay)):''})${leaveDoc(l)}${leaveDupTag(l)}<br><small class="muted">${esc(l.Reason||'')}</small>${l.Step1ApproverName?`<br><small>${EN()?'via leader':'ผ่านหัวหน้างาน'}: ${esc(l.Step1ApproverName)}${l.Step1CrossDept==='YES'?' ⚠️ '+(EN()?'cross-dept':'ข้ามแผนก'):''}</small>`:''}</div>${leaveStatusPill(l.Status)}</div>
       <div class="row" style="margin-top:var(--sp-2)">${isPA?`<button class="btn sm green" onclick="A_leave('${l.LeaveID}','approve')">${esc(t('ot.approve'))}</button><button class="btn sm pink" onclick="A_leave('${l.LeaveID}','reject')">${esc(t('ot.reject'))}</button>`:''}<button class="btn sm outline" onclick="A_editLeave('${l.LeaveID}')">${ic('edit')} ${EN()?'Edit':'แก้ไข'}</button><button class="btn sm pink" onclick="A_cancelLeave('${l.LeaveID}')">${ic('trash')} ${EN()?'Cancel':'ยกเลิก'}</button></div></div>`; }
   // month calendar of who is on leave each day (spot same-day overlaps — ≥2 on a day is flagged red)
   function leaveCalendar(all){

@@ -129,7 +129,10 @@ console.log('\n3) ใบลาที่สร้างให้ เป็นใ�
   eq('...เก็บประเภทและเหตุผลตามที่กรอก', [row.Type, row.Reason, row.HalfDay], ['ลากิจ', 'มีนัดหมอ', 'PM']);
   // CONTROL — a FULL day through the same route is still 1, so 0.5 came from halfDay and not from
   // something that halves everything
-  const full = H.submitLeave({ staffId: 'T1', type: 'ลากิจ', startDate: TODAY, endDate: TODAY, reason: 'x' });
+  /* on ANOTHER day: a full day on the afternoon just taken is a duplicate leave and is refused
+   * (LEAVE_OVERLAP, 2026-11-06 — tools/test_leave_overlap.js) */
+  const OTHER = (d => { d.setDate(d.getDate() + 1); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); })(new Date(TODAY + 'T12:00:00'));
+  const full = H.submitLeave({ staffId: 'T1', type: 'ลากิจ', startDate: OTHER, endDate: OTHER, reason: 'x' });
   eq('CONTROL: ลาเต็มวันยังเป็น 1 วัน', full.days, 1);
 }
 

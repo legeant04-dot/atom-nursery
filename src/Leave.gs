@@ -50,6 +50,55 @@ function leaveTypeTH_(v) {
   return LEAVE_TYPE_ALIAS_[s.toLowerCase()] || s;
 }
 
+/* ---- 🔴 ONE PERSON, ONE LEAVE PER SLOT (2026-11-06) ------------------------------------------
+ *
+ * Asked: "ตรวจสอบการลาของคุณครู ห้ามลาซ้ำในช่วงวันและเวลาเดียวกันกับที่ขอมา" — with a screenshot of
+ * ครูก้อย holding TWO approved ลากิจ for the afternoon of 6 Nov. Nothing anywhere refused that: not this
+ * route, not the engine, not the screen. The likeliest way in is two doors to the same act — the
+ * half-day leave offered when clocking out early (T_earlyLeaveDo) and the leave form — and each one
+ * deducts the entitlement, so the teacher lost a whole day for half a day off.
+ *
+ * The school's rules (decided the same day):
+ *   · a request still WAITING or already APPROVED holds its slot; a REJECTED one does not
+ *     (a cancelled one is deleted, so it never appears);
+ *   · a full day clashes with anything on that day; AM and PM of the same day do NOT clash;
+ *     AM + AM (or PM + PM) does;
+ *   · every door is held to it — the teacher's form, the early-leave half day, the admin's edit.
+ * One rule, here; the engine carries the same (leaveClash_ in webapp/engine.js), and
+ * tools/test_leave_overlap.js drives both. */
+var LEAVE_HOLDS_SLOT_ = { PENDING_LEADER: 1, PENDING_ADMIN: 1, APPROVED: 1 };
+function leaveYmd_(v) {
+  if (Object.prototype.toString.call(v) === '[object Date]') return dateStr_(v);
+  var m = /^(\d{4}-\d{2}-\d{2})/.exec(String(v == null ? '' : v));
+  return m ? m[1] : '';
+}
+/** a = { start, end, half } — two leaves of the same person clash when their days meet, unless they
+ *  are the two different halves of one day */
+function leavesClash_(a, b) {
+  if (!a.start || !b.start) return false;
+  var ae = a.end || a.start, be = b.end || b.start;
+  if (a.start > be || b.start > ae) return false;
+  if (a.half && b.half && a.half !== b.half) return false;
+  return true;
+}
+function leaveSlot_(r) { return { start: leaveYmd_(r.StartDate), end: leaveYmd_(r.EndDate), half: halfDayCode_(r.HalfDay) }; }
+/** the first leave of staffId (other than exceptId) that holds a slot `want` touches, or null */
+function leaveOverlap_(rows, staffId, want, exceptId) {
+  for (var i = 0; i < rows.length; i++) {
+    var r = rows[i];
+    if (String(r.StaffID) !== String(staffId)) continue;
+    if (exceptId && String(r.LeaveID) === String(exceptId)) continue;
+    if (!LEAVE_HOLDS_SLOT_[String(r.Status || '')]) continue;
+    if (leavesClash_(want, leaveSlot_(r))) return r;
+  }
+  return null;
+}
+function leaveOverlapError_(r) {
+  var s = leaveSlot_(r);
+  return apiError_('LEAVE_OVERLAP', 'ไม่สามารถลาได้เนื่องจากซ้ำกับการลาก่อนหน้า (' + r.LeaveID + ' · ' + leaveTypeTH_(r.Type) + ' ' +
+    s.start + (s.end && s.end !== s.start ? ' ถึง ' + s.end : '') + (s.half ? ' · ' + halfDayLabelTH_(s.half) : '') + ')');
+}
+
 // ---- Submit -------------------------------------------------------
 /** payload: { staffId|lineUid, type, startDate, endDate, reason } */
 function handleSubmitLeave(payload) {
@@ -66,6 +115,10 @@ function handleSubmitLeave(payload) {
 
   var sheet = sheet_(getHrSpreadsheet_(), 'LEAVE_REQUEST');
   ensureColumns_(sheet, ['Attachment', 'HalfDay']);
+  // 🔴 not the same day (or the same half of it) twice — see leaveOverlap_ above
+  var clash = leaveOverlap_(readObjects_(sheet), staff.StaffID,
+    { start: leaveYmd_(payload.startDate), end: leaveYmd_(payload.endDate), half: half }, '');
+  if (clash) throw leaveOverlapError_(clash);
   var leaveId = genLeaveId_(sheet);
   var level = String(staff.PositionLevel || '');
   if (String(staff.Role || '') === 'Admin') level = 'Admin';
@@ -209,7 +262,19 @@ function leaveDecodeEnrich_(r) {
 /** Admin: every leave request (enriched), newest first — for the list split into pending vs resolved. */
 function handleAllLeaves(payload) {
   var rows = readObjects_(sheet_(getHrSpreadsheet_(), 'LEAVE_REQUEST'));
-  return rows.map(leaveDecodeEnrich_).sort(function (a, b) {
+  /* ⚠️ THE DUPLICATES ALREADY ON FILE (2026-11-06) — the school chose a flag, not a clean-up: each
+   * leave that holds a slot another of the same person's also holds carries `overlapWith` (their
+   * LeaveIDs), and the admin decides which to cancel. Nothing is changed or removed here. */
+  var clashOf = function (r) {
+    if (!LEAVE_HOLDS_SLOT_[String(r.Status || '')]) return [];
+    var me = leaveSlot_(r), out = [];
+    rows.forEach(function (o) {
+      if (o === r || String(o.StaffID) !== String(r.StaffID) || !LEAVE_HOLDS_SLOT_[String(o.Status || '')]) return;
+      if (leavesClash_(me, leaveSlot_(o))) out.push(String(o.LeaveID));
+    });
+    return out;
+  };
+  return rows.map(function (r) { var o = leaveDecodeEnrich_(r); o.overlapWith = clashOf(r); return o; }).sort(function (a, b) {
     return String(b.CreatedDate || b.StartDate || '').localeCompare(String(a.CreatedDate || a.StartDate || ''));
   });
 }
@@ -239,6 +304,10 @@ function handleEditLeave(payload) {
     // a typo in the reason of a 0.5-day leave silently gave the teacher a whole day back.
     if (half && d !== 1) throw apiError_('BAD_INPUT', 'ลาครึ่งวันได้เฉพาะใบลาวันเดียว');
     patch.Days = half ? 0.5 : d;
+    // 🔴 the admin's edit is a door too: moving a leave onto another of the same person's is refused
+    var clash = leaveOverlap_(readObjects_(sheet), leave.StaffID,
+      { start: leaveYmd_(patch.StartDate || leave.StartDate), end: leaveYmd_(patch.EndDate || leave.EndDate), half: half }, leave.LeaveID);
+    if (clash) throw leaveOverlapError_(clash);
   }
   updateRow_(sheet, leave._row, patch);
   try { CacheService.getScriptCache().removeAll(['rows:LEAVE_REQUEST', 'col:LEAVE_REQUEST']); } catch (e) {}
