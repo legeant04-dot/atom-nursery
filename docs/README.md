@@ -17,6 +17,7 @@ the work can start the same day, and so that none of it is carrying only in one 
 | 4 | **[DEVOPS_CONSOLE.md](DEVOPS_CONSOLE.md)** | ลูกค้าติดต่อเรายังไง · ระบบ ticket · AI agents ควรมีกี่ตัว |
 | 5 | **[OPERATING_COSTS.md](OPERATING_COSTS.md)** | ต้นทุนฝั่งเรา · ค่า AI agents จริง · กี่โรงเรียนถึงจะยั่งยืน · จะขายยังไง |
 | 5b | **[ORVIACLOUD_PLAN.md](ORVIACLOUD_PLAN.md)** | orviacloud.com ใช้ทำอะไร · subdomain ไหนเป็นของอะไร · เริ่มแต่ละส่วนเมื่อไหร่ · สิ่งที่ ผอ. ต้องตัดสิน |
+| 5c | **[FAST_HOST_WRITES_PLAN.md](FAST_HOST_WRITES_PLAN.md)** | ย้าย route ที่ "เขียน" ไป Cloud Run — 134 ตัวแบ่ง 5 กลุ่ม · รากฐาน W0 · ลำดับ W1–W4 · ทางเลือกส่ง LINE · ที่อยู่ Apps Script ต่อ |
 | 6 | **[DATA_OWNERSHIP.md](DATA_OWNERSHIP.md)** | บัญชี Supabase ใช้ของใคร · ใครเป็นเจ้าของข้อมูลตาม PDPA · เริ่มทำอะไรได้เลย |
 | 7 | **[FRONTEND_DESIGN.md](FRONTEND_DESIGN.md)** | กฎการออกแบบหน้าจอ ที่ระบบใหม่ต้องทำตาม |
 | 8 | **[spec/roles/](spec/roles/)** | คู่มือการใช้งานครบทั้ง 5 บทบาท — **คือข้อกำหนดของระบบใหม่** |
