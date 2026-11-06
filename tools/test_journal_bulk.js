@@ -161,7 +161,8 @@ console.log('\n4) two buttons, because they are opposite acts');
     /recallJournalsMany: p =>/.test(R('webapp/engine.js')));
   ok_('🔴 ...and separate buttons on the screen',
     /id="tselSend"[\s\S]{0,200}T_sendMany/.test(appCode) && /id="tselBack"[\s\S]{0,200}T_recallMany/.test(appCode));
-  ok_('🔴 the recall button is only drawn for a head teacher', /\$\{isHeadRole\(\)\?`<button class="btn outline block" id="tselBack"/.test(app));
+  // ...and never on a past day: the late send (2026-11-06) only SENDS — see test_journal_late_send
+  ok_('🔴 the recall button is only drawn for a head teacher', /\$\{\(isHeadRole\(\)&&!lateDay\)\?`<button class="btn outline block" id="tselBack"/.test(app));
   /* ...and the confirmation SAYS what recalling does. "Are you sure?" over an act that un-publishes
    * something a family may already have read is not a confirmation. */
   ok_('🔴 ...and its confirmation says the family loses sight of it',
@@ -174,15 +175,17 @@ console.log('\n5) the box, and what it will not let you tick');
 {
   ok_('every row carries a box', /class="tsel"/.test(app));
   ok_('🔴 a child with no report cannot be ticked', /const off = \(can==='none'\)/.test(appCode));
-  ok_('🔴 ...and a sent one only by a head teacher', /\(can==='sent' && !isHeadRole\(\)\)/.test(appCode));
+  ok_('🔴 ...and a sent one only by a head teacher, and never on a past day', /\(can==='sent' && \(late \|\| !isHeadRole\(\)\)\)/.test(appCode));
   ok_('...and the box says why, on itself', /ยังไม่มีบันทึก — ยังส่งไม่ได้/.test(app));
   ok_('🔴 "select all" skips the ones it cannot send', /input\.tsel:not\(\[disabled\]\)/.test(app));
   /* SELECTION DIES WITH THE SCREEN. A tick that survived a class switch would send a child off a
    * list nobody is looking at — the school chose one class at a time (2026-10-08). */
   ok_('🔴 the selection is cleared on every render', /T_SEL = \{\};\s*$/m.test(appCode) || /T_SEL = \{\};/.test(appCode));
-  ok_('...and the bar is not drawn on a past day, where nothing can be sent',
-    /\$\{onDay\?'':T_sendBar\(cl,jdone\)\}/.test(app));
-  ok_('...nor are the boxes', /const pick = onDay \? '' : T_pickBox/.test(appCode));
+  /* CHANGED 2026-11-06 by the school: a forgotten draft may be sent late, within 7 days. On a past
+   * day the bar and the boxes are drawn ONLY inside that window (T_lateOK); older days stay read-only. */
+  ok_('...and the bar on a past day only inside the late-send window',
+    /\$\{onDay\?\(T_lateOK\(onDay\)\?T_sendBar\(cl,jdone,onDay\):''\):T_sendBar\(cl,jdone\)\}/.test(app));
+  ok_('...and the boxes likewise', /const pick = onDay \? \(T_lateOK\(onDay\) \? T_pickBox\(s, jdone\[s\.StudentID\], true\) : ''\) : T_pickBox/.test(appCode));
   // a partial result must be reported, not rounded up to "done"
   ok_('🔴 a skipped child is reported, not swallowed', /T_skipText\(sk\)/.test(appCode));
   ok_('...with the reason in words', /MISSING_MOOD:\s*\['ยังไม่ได้เลือกอารมณ์'/.test(app));

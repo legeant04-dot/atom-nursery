@@ -199,7 +199,7 @@
       _readStart(); let pr2; try{ pr2=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr2).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.500'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.501'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:var(--fs-1);margin-top:var(--sp-5)">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -843,6 +843,8 @@
                        'ตรวจข้อมูลในช่องที่กรอกอีกครั้ง','Check the fields again'],
     JOURNAL_LOCKED:   ['สมุดรายงานวันนี้ถูกส่งแล้ว แก้ไขไม่ได้','Today’s report has been sent and is locked',
                        'ติดต่อแอดมินเพื่อปลดล็อกหากต้องแก้ไข','Ask the admin to unlock it if it needs changing'],
+    TOO_LATE:         ['เลยกำหนดส่งย้อนหลังแล้ว','Too late to send',
+                       'ส่งบันทึกย้อนหลังได้ไม่เกิน 7 วัน — ติดต่อแอดมิน','Late reports can be sent up to 7 days back — ask the admin'],
     NO_PERMISSION:    ['บัญชีนี้ไม่มีสิทธิ์ใช้งานส่วนนี้','Your account cannot use this section',
                        'ติดต่อแอดมินหากคิดว่าควรมีสิทธิ์','Contact the admin if you think you should have access'],
     NOT_FOUND:        ['ไม่พบข้อมูลที่ต้องการ','The record could not be found',
@@ -6190,7 +6192,7 @@
       ? `<div class="muted" style="font-size:var(--fs-1);margin:-8px 0 var(--sp-2)">${EN()?`${_reg} regular · ☀️ ${_sum} summer`:`เด็กประจำ ${_reg} คน · ☀️ ซัมเมอร์ ${_sum} คน`}</div>`
       : '';
     app.innerHTML=`<h2 class="page">👶 ${esc(cl.class.ClassName)}</h2>${headCount}${classSwitcher(cl)}
-      ${T_classDateBar(onDay)}${onDay?'':offCard}${onDay?'':T_sendBar(cl,jdone)}`+cl.students.map(s=>{
+      ${T_classDateBar(onDay)}${onDay?'':offCard}${onDay?(T_lateOK(onDay)?T_sendBar(cl,jdone,onDay):''):T_sendBar(cl,jdone)}`+cl.students.map(s=>{
       const attTag = s.onLeave
         ? `<small class="pill warn" style="margin-left:var(--sp-1)">🏖️ ${esc(s.leaveType||(EN()?'on leave':'ลา'))}${s.leaveReason?' · '+esc(s.leaveReason):''}</small>`
         /* A CHECK-IN WITH NO TIME IS STILL A CHECK-IN. This used to print nothing at all unless
@@ -6208,7 +6210,7 @@
        * แต่ละคน"). DISABLED when there is nothing to send, with the reason on the box itself: a child
        * with no entry at all cannot be sent, and a box that accepts a tap and then quietly does
        * nothing is worse than one that will not take it. "เลือกทั้งหมด" skips those too. */
-      const pick = onDay ? '' : T_pickBox(s, jdone[s.StudentID]);
+      const pick = onDay ? (T_lateOK(onDay) ? T_pickBox(s, jdone[s.StudentID], true) : '') : T_pickBox(s, jdone[s.StudentID]);
       return `<div class="card"><div style="display:flex;gap:var(--sp-3);align-items:center">${studentAvatar(s)}<div style="min-width:0;flex:1"><b>${esc(dispNick(s))}</b>${bdayTag(s.DOB)}${summerTag(s)} ${(!onDay&&due)?dspmDueBadge(due):''} ${nmSub(s)?`<small class="muted">${esc(nmSub(s))}</small>`:""}${careTag(s)}${onDay?'':attTag}<br><small class="muted">${esc(ageYM(s.DOB))}</small>${careLine(s)}<br>${journalPill(jdone[s.StudentID])}</div>${pick}</div>
         ${studentRowButtons(s,jdone,onDay)}</div>`; }).join('') + bdayHtml;
     T_selCount(); };
@@ -6224,12 +6226,19 @@
   let T_SEL = {};
   // what each row is allowed to do, from the journal state the screen already has
   const T_can = d => !d ? 'none' : (jIsDraft(d) ? 'send' : 'sent');
-  function T_pickBox(s, d){
+  /* ⏪ A FORGOTTEN DRAFT, SENT LATE (2026-11-06) — within 7 days, as written. The server holds the
+   * same window (lateSendWindow_ / lateSendWindowGas_); this only decides whether to draw the boxes. */
+  const T_LATE_DAYS = 7;
+  const T_lateOK = (d) => { if(!d) return false; const t=new Date(todayStr()+'T12:00:00'); t.setDate(t.getDate()-T_LATE_DAYS);
+    const floor=t.getFullYear()+'-'+String(t.getMonth()+1).padStart(2,'0')+'-'+String(t.getDate()).padStart(2,'0');
+    return d>=floor && d<todayStr(); };
+  function T_pickBox(s, d, late){
     const can = T_can(d);
     const why = can==='none' ? (EN()?'No report yet — nothing to send':'ยังไม่มีบันทึก — ยังส่งไม่ได้')
       : can==='sent' ? (EN()?'Already sent — a head teacher can recall it':'ส่งแล้ว — หัวหน้าครูดึงกลับมาแก้ได้')
       : (EN()?'Tick to send this report':'ติ๊กเพื่อส่งบันทึกนี้');
-    const off = (can==='none') || (can==='sent' && !isHeadRole());
+    // a past day only SENDS: taking a report back stays a today-only act
+    const off = (can==='none') || (can==='sent' && (late || !isHeadRole()));
     return `<label style="flex:0 0 auto;padding:var(--sp-2);cursor:${off?'not-allowed':'pointer'}" title="${esc(why)}">
       <input type="checkbox" class="tsel" value="${esc(s.StudentID)}" data-can="${can}" ${off?'disabled':''}
         onchange="T_selToggle(this)" aria-label="${esc(dispNick(s))} — ${esc(why)}"
@@ -6246,7 +6255,7 @@
     const b=document.getElementById('tselSend'); if(b){ b.disabled=!send; b.style.opacity=send?'':'.45'; }
     const r=document.getElementById('tselBack'); if(r){ r.disabled=!sent; r.style.opacity=sent?'':'.45'; }
   }
-  function T_sendBar(cl, jdone){
+  function T_sendBar(cl, jdone, lateDay){
     const kids=(cl.students||[]);
     const drafts=kids.filter(s=>T_can(jdone[s.StudentID])==='send').length;
     const sent=kids.filter(s=>T_can(jdone[s.StudentID])==='sent').length;
@@ -6260,8 +6269,11 @@
         <small class="muted" style="flex:1;min-width:0;text-align:right">${EN()?'selected':'เลือกไว้'} <b id="tselN"></b></small>
       </div>
       <button class="btn block" id="tselSend" style="margin-top:var(--sp-2)" disabled onclick="T_sendMany(this)">${ic('upload')} ${
-        EN()?'Send selected reports':'ส่งบันทึกที่เลือก'}</button>
-      ${isHeadRole()?`<button class="btn outline block" id="tselBack" style="margin-top:var(--sp-2)" disabled onclick="T_recallMany(this)">↩️ ${
+        lateDay?(EN()?'Send selected reports late':'ส่งบันทึกที่เลือก (ย้อนหลัง)'):(EN()?'Send selected reports':'ส่งบันทึกที่เลือก')}</button>
+      ${lateDay?`<small style="display:block;margin-top:var(--sp-2);color:var(--warn);font-weight:600">⏪ ${EN()
+        ? `Drafts from ${esc(fullDate(lateDay))} that were never sent can still go out, exactly as written, up to ${T_LATE_DAYS} days back. The family is told; the report keeps this day as its date.`
+        : `ร่างของวันที่ ${esc(fullDate(lateDay))} ที่ยังไม่ได้กดส่ง ส่งย้อนหลังได้ภายใน ${T_LATE_DAYS} วัน ตามที่ร่างไว้ (แก้ไขไม่ได้) · ผู้ปกครองจะได้รับแจ้ง · บันทึกเป็นข้อมูลของวันนี้`}</small>`:''}
+      ${(isHeadRole()&&!lateDay)?`<button class="btn outline block" id="tselBack" style="margin-top:var(--sp-2)" disabled onclick="T_recallMany(this)">↩️ ${
         EN()?'Recall selected for editing':'ดึงกลับมาแก้ไข'}</button>`:''}
       <small class="muted" style="display:block;margin-top:var(--sp-2)">${EN()
         ? `${drafts} ready to send · ${sent} already sent. Sending tells the family; a report with no mood cannot be sent.`
@@ -6289,8 +6301,8 @@
         ${onDay?`<button class="btn sm" style="flex:0 0 auto" onclick="T_classDate('')">${EN()?'Back to today':'กลับมาวันนี้'}</button>`:''}
       </div>
       ${onDay?`<small class="muted" style="display:block;margin-top:var(--sp-1)">${EN()
-        ? 'Reading an earlier day. The reports are read-only; check-in and assessment are about today and are not shown.'
-        : 'กำลังดูบันทึกย้อนหลัง — อ่านได้อย่างเดียว · เช็คอินและประเมินพัฒนาการเป็นเรื่องของวันนี้ จึงไม่แสดงในหน้านี้'}</small>`:''}</div>`;
+        ? 'Reading an earlier day. The reports are read-only'+(T_lateOK(onDay)?' (a draft never sent can still be sent below)':'')+'; check-in and assessment are about today and are not shown.'
+        : 'กำลังดูบันทึกย้อนหลัง — อ่านได้อย่างเดียว'+(T_lateOK(onDay)?' (ร่างที่ยังไม่ได้ส่ง ส่งย้อนหลังได้ด้านล่าง)':'')+' · เช็คอินและประเมินพัฒนาการเป็นเรื่องของวันนี้ จึงไม่แสดงในหน้านี้'}</small>`:''}</div>`;
   }
   window.T_classDate = (v) => { const today=todayStr();
     let d=ymd(v||'');
@@ -6319,11 +6331,16 @@
   window.T_sendMany = async (btn) => {
     const ids = Object.keys(T_SEL).filter(k=>T_SEL[k]==='send');
     if(!ids.length) return;
-    if(!confirm(EN()?`Send ${ids.length} report(s) to their families now?`
-                    :`ส่งบันทึก ${ids.length} คน ให้ผู้ปกครองเลยไหม?`)) return;
+    // on a past day this is a LATE send — the report keeps that day as its date (the server checks the window)
+    const late = (T_CDATE && T_CDATE!==todayStr()) ? T_CDATE : '';
+    if(!confirm(late
+        ? (EN()?`Send ${ids.length} report(s) from ${fullDate(late)} to their families now? They go out exactly as written.`
+               :`ส่งบันทึกย้อนหลังของวันที่ ${fullDate(late)} จำนวน ${ids.length} คน ให้ผู้ปกครองเลยไหม?\n\nส่งตามที่ร่างไว้ แก้ไขไม่ได้`)
+        : (EN()?`Send ${ids.length} report(s) to their families now?`
+               :`ส่งบันทึก ${ids.length} คน ให้ผู้ปกครองเลยไหม?`))) return;
     btn.disabled=true;
     try{
-      const r = await api('submitJournalsMany',{ staffId:USER.staffId, studentIds:ids });
+      const r = await api('submitJournalsMany',late?{ staffId:USER.staffId, studentIds:ids, date:late }:{ staffId:USER.staffId, studentIds:ids });
       const n=((r&&r.sent)||[]).length, sk=((r&&r.skipped)||[]);
       confirmSaved(EN()?`Sent ${n} report(s)`:`ส่งบันทึกแล้ว ${n} คน`);
       if(sk.length) toast((EN()?`Not sent: `:`ไม่ได้ส่ง: `)+T_skipText(sk), 6000, true);
@@ -11522,6 +11539,11 @@
         ['💬',EN()?'Satisfaction survey':'แบบสอบถามความพึงพอใจ','A_surveys()'],
         ['📜',t('act.open'),'A_activityLog()'],
       ]},
+      // 📤 asked 2026-11-06 as its own menu with two sub-items: staff, and parents + students as families
+      {t:EN()?'📤 Export lists':'📤 ดึงข้อมูลรายชื่อ', items:[
+        ['👩‍🏫',EN()?'Staff (.xlsx)':'พนักงาน (.xlsx)','A_exportStaffFull(this)'],
+        ['👨‍👩‍👧',EN()?'Parents & students (.xlsx)':'ผู้ปกครองและนักเรียน (.xlsx)','A_exportFamilies(this)'],
+      ]},
       /* FIVE DOORS WHERE THERE WAS ONE — asked 2026-10-07. The group keeps its name; what changed is
        * that ตั้งค่าเบี้ย/วันลา, which actually held seven unrelated subjects, is now one entry per
        * subject. Ordered by how often the school touches them, not by how the code is arranged:
@@ -11749,6 +11771,75 @@
     if(d.length===10) return d.slice(0,2)+'-'+d.slice(2,6)+'-'+d.slice(6);
     if(d.length===9)  return d.slice(0,2)+'-'+d.slice(2,5)+'-'+d.slice(5);
     return d; }
+  /* 📤 ดึงข้อมูลรายชื่อ — asked 2026-11-06: two files, พนักงาน and ผู้ปกครองและนักเรียน, one column per field.
+   *
+   * Not A_staffExport above: that one is the school's own six-column รายชื่อคุณครู sheet and must stay
+   * exactly that. This is the working file — everything the office needs about a person, EXCEPT pay:
+   * no salary, no bank, no account number (the school's decision, so the file can be passed on).
+   * Current staff only, as the six-column one; a leaver stays on the record for payroll, not here.
+   *
+   * Written with XLSXMin, which needXLSX() fetches on first use. If it cannot load, the same rows go
+   * out as a UTF-8 CSV with a BOM — Excel reads Thai from that without anyone choosing an encoding. */
+  async function A_saveRows(fname, rows, sheet){
+    try{ await needXLSX(); }catch(e){}
+    if(window.XLSXMin){ XLSXMin.download(fname, rows, sheet); return; }
+    const csv=rows.map(r=>r.map(c=>{ const v=String(c==null?'':c);
+      return /[",\n]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v; }).join(',')).join('\r\n');
+    const blob=new Blob(['﻿'+csv],{type:'text/csv;charset=utf-8'});
+    const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=fname.replace(/\.xlsx$/,'.csv');
+    document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(a.href),2000);
+  }
+  const dashV = v => { const s=String(v==null?'':v).trim(); return s||'-'; };
+  const dmyV = v => { const d=ymd(v||''); return /^\d{4}-\d{2}-\d{2}$/.test(d)?ddmmyyyy(d):'-'; };
+  window.A_exportStaffFull = async (btn)=>{
+    if(btn){ btn.disabled=true; btn.style.opacity='.5'; }
+    try{
+      const all=await api('listStaff'); A_CACHE.staff=all||A_CACHE.staff;
+      const rows=(all||[]).filter(s=>!staffLeft(s));
+      if(!rows.length){ toast(EN()?'No staff to export':'ยังไม่มีข้อมูลให้นำออก'); return; }
+      const byId={}; (all||[]).forEach(s=>{ byId[s.StaffID]=s; });
+      const head=['ลำดับ','รหัสพนักงาน','ชื่อ-สกุล','ชื่อ-สกุล (อังกฤษ)','ชื่อเล่น','ชื่อเล่น (อังกฤษ)','เลขบัตรประชาชน','วันเกิด','อายุ',
+        'เบอร์โทร','อีเมล','ตำแหน่ง','ระดับ','สิทธิ์ในระบบ','แผนก / ชั้นเรียน','ชั้นที่ดูแลเพิ่ม','หัวหน้า','กลุ่มเวลาทำงาน',
+        'วันเริ่มงาน','อายุงาน','วุฒิการศึกษา','สาขา','เชื่อม LINE','สถานะ'];
+      const body=sortPeople(rows).map((s,i)=>[ i+1, s.StaffID, dashV(s.NameTH||s.Name), dashV(s.NameEN), dashV(s.Nickname), dashV(s.NicknameEN),
+        dashV(s.NationalID), dmyV(s.DOB), s.DOB?ageYM(s.DOB):'-', phoneDash(s.Phone), dashV(s.Email), dashV(s.Position),
+        dashV(s.PositionLevel), dashV(s.Role), dashV(s.Department), dashV(s.Classes),
+        s.ReportsTo?dashV(byId[s.ReportsTo]?(byId[s.ReportsTo].NameTH||byId[s.ReportsTo].Name):s.ReportsTo):'-', dashV(s.StaffGroup),
+        dmyV(s.StartDate), s.StartDate?ageYM(s.StartDate):'-', dashV(s.Education), dashV(s.EduMajor),
+        String(s.LineUID||'').trim()?'✓':'-', s.paused?'ลาชั่วคราว':'ปฏิบัติงาน' ]);
+      await A_saveRows('ข้อมูลพนักงาน_'+todayStr()+'.xlsx', [['ข้อมูลพนักงาน · '+fullDate(todayStr())],[],head].concat(body), 'พนักงาน');
+      confirmSaved((EN()?'Exported ':'นำออกแล้ว ')+body.length+(EN()?' staff':' คน'));
+    }catch(e){ err(e); }
+    finally{ if(btn){ btn.disabled=false; btn.style.opacity=''; } }
+  };
+  /* FAMILIES, NOT TWO LISTS — "เรียงข้อมูลรายชื่อผู้ปกครองกับนักเรียนที่เชื่อมต่อกันเสมอ". exportFamilies in
+   * engine.js groups everyone joined by a link (siblings land under both parents), orders each family
+   * father → mother → other guardians → children oldest first, and keeps enrolled children only. The
+   * ครอบครัว column names the family by its children, so a sorted or filtered sheet still reads. */
+  window.A_exportFamilies = async (btn)=>{
+    if(btn){ btn.disabled=true; btn.style.opacity='.5'; }
+    try{
+      const r=await api('exportFamilies');
+      const fams=(r&&r.families)||[], loose=(r&&r.unlinkedParents)||[];
+      if(!fams.length && !loose.length){ toast(EN()?'Nothing to export':'ยังไม่มีข้อมูลให้นำออก'); return; }
+      const head=['ครอบครัวที่','ครอบครัว','บทบาท','ความสัมพันธ์','คำนำหน้า','ชื่อ-สกุล','ชื่อ-สกุล (อังกฤษ)','ชื่อเล่น','ชั้นเรียน','เพศ',
+        'วันเกิด','อายุ','เลขบัตรประชาชน','เบอร์โทร','อีเมล','อาชีพ','สถานที่ทำงาน','เบอร์ที่ทำงาน','ที่อยู่','วันเข้าเรียน','เชื่อม LINE','สถานะ','รหัส'];
+      const P=(no,fam,p)=>[no,fam,'ผู้ปกครอง',dashV(p.rel),dashV(p.title),dashV(p.name),dashV(p.nameEN),dashV(p.nick),'-','-',
+        '-','-',dashV(p.nationalId),phoneDash(p.phone),dashV(p.email),dashV(p.occupation),dashV(p.workplace),phoneDash(p.officePhone),
+        dashV(p.address),'-',p.line?'✓':'-','-',p.parentId];
+      const S=(no,fam,s)=>[no,fam,'นักเรียน','-','-',dashV(s.name),dashV(s.nameEN),dashV(s.nick),dashV(s.class),dashV(s.gender),
+        dmyV(s.dob),s.dob?ageYM(s.dob):'-',dashV(s.nationalId),'-','-','-','-','-',dashV(s.address),dmyV(s.enrollDate),'-',
+        s.paused?'ลาชั่วคราว':'กำลังเรียน',s.studentId];
+      const body=[];
+      fams.forEach((f,i)=>{ const fam='ครอบครัว'+f.children.map(c=>c.nick?(/^น้อง/.test(c.nick)?c.nick:'น้อง'+c.nick):c.name).join(' + ');
+        f.parents.forEach(p=>body.push(P(i+1,fam,p))); f.children.forEach(s=>body.push(S(i+1,fam,s))); });
+      loose.forEach(p=>body.push(P('-','ยังไม่ได้เชื่อมกับนักเรียน',p)));
+      await A_saveRows('ข้อมูลผู้ปกครองและนักเรียน_'+todayStr()+'.xlsx',
+        [['ข้อมูลผู้ปกครองและนักเรียน (เรียงตามครอบครัว) · '+fullDate(todayStr())],[],head].concat(body), 'ครอบครัว');
+      confirmSaved(EN()?`Exported ${fams.length} families`:`นำออกแล้ว ${fams.length} ครอบครัว`);
+    }catch(e){ err(e); }
+    finally{ if(btn){ btn.disabled=false; btn.style.opacity=''; } }
+  };
 
   window.A_staffForm=(id)=>{ const s=id?findStaff(id):{}; const groups=(A_CACHE.groups&&A_CACHE.groups.length)?A_CACHE.groups:MOCK.staffGroups;
     const f=(k,label,val,type)=>`<label class="field"><span>${esc(label)}</span><input id="sf_${k}" type="${type||'text'}" value="${esc(val!=null?val:'')}"/></label>`;
@@ -13650,25 +13741,116 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
   };
   window.A_setGroup=async(group,which,val)=>{ await api('setStaffGroupHours',{group,checkIn:which==='in'?val:undefined,checkOut:which==='out'?val:undefined}); toast(t('c.saved')); };
 
-  // ---- admin: daily reports for a day — view, and unlock a submitted one so it can be corrected ----
-  window.A_journals=async(date)=>{ const day=date||todayStr();
-    const [st,students,staff]=await Promise.all([api('journalStatus',{date:day,role:USER.role}),
-      (A_CACHE.students&&A_CACHE.students.length)?Promise.resolve(A_CACHE.students):api('listStudents'),
-      (A_CACHE.staff&&A_CACHE.staff.length)?Promise.resolve(A_CACHE.staff):api('listStaff')]);
-    A_CACHE.students=students||A_CACHE.students; A_CACHE.staff=staff||A_CACHE.staff;
-    const sObj=id=>(students||[]).find(x=>x.StudentID===id)||null;
-    const sName=id=>{ const s=sObj(id); return s?dispNick(s):id; };   // nickname headline
-    const sFull=id=>{ const s=sObj(id); return s?nm(s):''; };
-    const tName=id=>{ const s=(staff||[]).find(x=>x.StaffID===id); return s?(nick(s)||nm(s)):(id||'-'); };
-    const rows=(st.done||[]).map(d=>`<div class="list-item"><span><b>${esc(sName(d.studentId))}</b> <small class="muted">${esc(sFull(d.studentId))}</small> ${journalPill(d)}<br><small class="muted">${esc(EN()?'by':'โดย')} ${esc(tName(d.teacherId))}</small></span>
-      <span class="row"><button class="btn sm outline" onclick="A_viewJournal('${d.studentId}','${day}')" aria-label="${EN()?"View journal":"ดูบันทึกประจำวัน"}" title="${EN()?"View journal":"ดูบันทึกประจำวัน"}">${ic('eye')}</button>
-      ${jIsDraft(d)?`<button class="btn sm" onclick="A_editJournal('${d.studentId}','${day}')" aria-label="${EN()?"Edit":"แก้ไข"}" title="${EN()?"Edit":"แก้ไข"}">${ic('edit')}</button>`
-                   :`<button class="btn sm pink" onclick="A_unlockJournal('${d.studentId}','${day}')">${esc(t('jr.unlock'))}</button>`}</span></div>`).join('');
-    modal(`<h3>📒 ${esc(t('jr.admin'))}</h3>
-      <label class="field"><span>${esc(t('inj.date'))}</span><input type="date" id="ajDate" value="${day}" onchange="A_journals(this.value)"/></label>
-      <div style="max-height:50vh;overflow:auto">${rows||`<small class="muted">${esc(t('jr.noneForDay'))}</small>`}</div>
-      <button class="btn outline block" style="margin-top:var(--sp-2)" onclick="this.closest('.modal').remove()">${esc(t('c.close'))}</button>`);
+  /* ---- admin: 📒 สมุดรายงานประจำวัน — a calendar of the month, and the chosen day by class ----------
+   *
+   * Asked 2026-11-06 with a calendar attached: pick the day on a month grid instead of a date box, and
+   * read that day's reports underneath, one collapsible section per class. Each day carries a circle at
+   * 60% opacity — GREEN when every child who came that day has a SENT report, RED when one is missing
+   * or still a draft (journalMonth in engine.js decides; a day nobody came carries nothing).
+   *
+   * ONE MODAL, REDRAWN IN PLACE. The old screen called modal() again on every date change, stacking a
+   * new sheet over the last one, so "close" after three dates closed one of four. The calendar and the
+   * list each have their own box (#ajCal, #ajDay) and only the box that changed is redrawn.
+   *
+   * Classes that are complete start FOLDED, the incomplete ones OPEN — the thing an admin opens this
+   * for is the class that has not finished, and a long list of finished classes hides it. */
+  const AJ = { day:'', month:'', mdata:{} };
+  const AJ_WD = () => EN() ? ['Su','Mo','Tu','We','Th','Fr','Sa'] : ['อา','จ','อ','พ','พฤ','ศ','ส'];
+  const AJ_ymd = d => d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+  window.A_journals = async (date) => {
+    const day = /^\d{4}-\d{2}-\d{2}$/.test(String(date||'')) ? String(date) : todayStr();
+    AJ.day = day; AJ.month = day.slice(0,7); AJ.mdata = {};
+    if(!document.getElementById('ajSheet')){
+      modal(`<div id="ajSheet"><h3>📒 ${esc(t('jr.admin'))}</h3>
+        <div id="ajCal">${skel('lines',3)}</div>
+        <div id="ajDay" style="margin-top:var(--sp-3)"></div>
+        <button class="btn outline block" style="margin-top:var(--sp-3)" onclick="this.closest('.modal').remove()">${esc(t('c.close'))}</button></div>`);
+    }
+    await Promise.all([AJ_loadMonth(AJ.month), AJ_loadDay()]);
   };
+  async function AJ_loadMonth(m){
+    try{ AJ.mdata[m] = await api('journalMonth',{month:m}); }catch(e){ AJ.mdata[m] = {days:{}, err:1}; err(e); }
+    if(AJ.month===m) AJ_drawCal();
+  }
+  window.AJ_nav = (step) => {
+    const d=new Date(AJ.month+'-01T12:00:00'); d.setMonth(d.getMonth()+Number(step||0));
+    const m=AJ_ymd(d).slice(0,7); if(m>todayStr().slice(0,7)) return;   // no month ahead of today
+    AJ.month=m; AJ_drawCal(); if(!AJ.mdata[m]) AJ_loadMonth(m);
+  };
+  window.AJ_pick = (d) => { if(!d || d>todayStr()) return; AJ.day=d;
+    if(d.slice(0,7)!==AJ.month){ AJ.month=d.slice(0,7); if(!AJ.mdata[AJ.month]) AJ_loadMonth(AJ.month); }
+    AJ_drawCal(); AJ_loadDay(); };
+  function AJ_drawCal(){
+    const box=document.getElementById('ajCal'); if(!box) return;
+    const today=todayStr(), md=AJ.mdata[AJ.month], days=(md&&md.days)||{};
+    const first=new Date(AJ.month+'-01T12:00:00'), start=new Date(first); start.setDate(1-first.getDay());
+    const title=first.toLocaleDateString(EN()?'en-GB':'th-TH',{month:'long',year:'numeric'});
+    const cells=[];
+    for(let i=0;i<42;i++){ const d=new Date(start); d.setDate(start.getDate()+i); const s=AJ_ymd(d);
+      if(i>=35 && s.slice(0,7)!==AJ.month) break;                       // a 5-week month needs no 6th row
+      const out=s.slice(0,7)!==AJ.month, fut=s>today, r=days[s];
+      const cls=['jd', out?'out':'', (!out&&r)?(r.complete?'ok':'bad'):'', s===today?'today':'', s===AJ.day?'sel':''].filter(Boolean).join(' ');
+      const say=r?(r.complete?(EN()?'all sent':'ส่งครบ'):(EN()?'not all sent':'ส่งไม่ครบ')):'';
+      cells.push(`<button class="${cls}" ${(out||fut)?'disabled':''} onclick="AJ_pick('${s}')" aria-label="${esc(fullDate(s))}${say?' — '+say:''}" ${s===AJ.day?'aria-current="date"':''}><span>${d.getDate()}</span></button>`); }
+    const vals=Object.keys(days).map(k=>days[k]), done=vals.filter(v=>v.complete).length;
+    const nextOff=AJ.month>=today.slice(0,7);
+    box.innerHTML=`<div class="jcal-h">
+        <button class="btn sm outline" onclick="AJ_nav(-1)" aria-label="${EN()?'Previous month':'เดือนก่อนหน้า'}">‹</button>
+        <b>${esc(title)}</b>
+        <button class="btn sm outline" ${nextOff?'disabled style="opacity:.4"':''} onclick="AJ_nav(1)" aria-label="${EN()?'Next month':'เดือนถัดไป'}">›</button></div>
+      <div class="jcal">${AJ_WD().map(w=>`<div class="wd">${w}</div>`).join('')}${cells.join('')}</div>
+      <div class="jcal-leg"><span><i style="background:var(--ok)"></i>${EN()?'all sent':'ส่งครบทุกคนที่มา'}</span><span><i style="background:var(--bad)"></i>${EN()?'not all sent':'ส่งไม่ครบ'}</span></div>
+      ${md?`<div class="card" style="margin-top:var(--sp-2);padding:var(--sp-2) var(--sp-3)"><div class="spread"><small class="muted">${EN()?'Days complete this month':'วันที่ส่งครบในเดือนนี้'}</small><b>${done} / ${vals.length}</b></div></div>`
+          :`${skel('lines',3)}`}`;
+  }
+  async function AJ_loadDay(){
+    const box=document.getElementById('ajDay'); if(!box) return; const day=AJ.day;
+    box.innerHTML=`${skel('lines',3)}`;
+    let st, students, staff;
+    try{ [st,students,staff]=await Promise.all([api('journalStatus',{date:day,role:USER&&USER.role}),
+      (A_CACHE.students&&A_CACHE.students.length)?Promise.resolve(A_CACHE.students):api('listStudents'),
+      (A_CACHE.staff&&A_CACHE.staff.length)?Promise.resolve(A_CACHE.staff):api('listStaff')]); }
+    catch(e){ box.innerHTML=''; err(e); return; }
+    if(AJ.day!==day) return;                                             // another day was tapped meanwhile
+    A_CACHE.students=students||A_CACHE.students; A_CACHE.staff=staff||A_CACHE.staff;
+    const done=journalDoneMap(st);
+    // who came: from the month already loaded for the calendar (same check-ins journalMonth counted)
+    const r=((AJ.mdata[day.slice(0,7)]||{}).days||{})[day]||{came:[]};
+    const came={}; (r.came||[]).forEach(id=>{ came[id]=1; });
+    const ids=[...new Set([...(r.came||[]), ...Object.keys(done)])];
+    const sObj=id=>(students||[]).find(x=>String(x.StudentID)===String(id))||null;
+    const tName=id=>{ const s=(staff||[]).find(x=>x.StaffID===id); return s?(nick(s)||nm(s)):(id||'-'); };
+    const head=`<b>${esc(fullDate(day))}</b>`;
+    if(!ids.length){ box.innerHTML=`${head}<div class="card muted" style="margin-top:var(--sp-2)">${esc(t('jr.noneForDay'))}</div>`; return; }
+    const byClass={}; ids.forEach(id=>{ const s=sObj(id); const c=(s&&s.Class)||(EN()?'(no class)':'(ไม่ระบุชั้น)'); (byClass[c]=byClass[c]||[]).push(id); });
+    const isSent=id=>!!done[id] && !jIsDraft(done[id]);
+    // a report is LATE when it was sent on a later day than the one it is about
+    const late=d=>{ const at=String((d&&d.submittedAt)||'').slice(0,10); return !jIsDraft(d) && /^\d{4}-\d{2}-\d{2}$/.test(at) && at>day; };
+    const row=id=>{ const s=sObj(id), d=done[id];
+      /* not journalPill for a SENT one: its label is "ส่งแล้ววันนี้", true on the teacher's today screen
+       * and false here, where the day is any day. A late one carries the date it actually went out. */
+      const sentAt = String((d&&d.submittedAt)||'');
+      const pill = !d ? `<span class="pill bad">⚠️ ${EN()?'no report':'ยังไม่มีบันทึก'}</span>`
+        : jIsDraft(d) ? journalPill(d)
+        : `<span class="pill ok">✅ ${EN()?'sent':'ส่งแล้ว'}${late(d)?' '+esc(ddmmyyyy(sentAt.slice(0,10)).replace(/\s\d{4}$/,'')):''}${jTime(d)?' '+esc(jTime(d)):''}</span>`;
+      const tags = (late(d)?` <span class="pill warn">⏪ ${EN()?'sent late':'ส่งย้อนหลัง'}</span>`:'')
+                 + (!came[id]?` <small class="muted">· ${EN()?'no check-in':'ไม่มีเช็คอิน'}</small>`:'');
+      const btns = !d ? '' : `<button class="btn sm outline" onclick="A_viewJournal('${esc(id)}','${day}')" aria-label="${EN()?"View journal":"ดูบันทึกประจำวัน"}" title="${EN()?"View journal":"ดูบันทึกประจำวัน"}">${ic('eye')}</button>
+          ${jIsDraft(d)?(day===todayStr()?`<button class="btn sm" onclick="A_editJournal('${esc(id)}','${day}')" aria-label="${EN()?"Edit":"แก้ไข"}" title="${EN()?"Edit":"แก้ไข"}">${ic('edit')}</button>`:'')
+                       :`<button class="btn sm pink" onclick="A_unlockJournal('${esc(id)}','${day}')">${esc(t('jr.unlock'))}</button>`}`;
+      return `<div class="list-item"><span style="min-width:0"><b>${esc(s?dispNick(s):id)}</b> <small class="muted">${esc(s?nm(s):'')}</small><br>${pill}${tags}
+          ${d?`<br><small class="muted">${esc(EN()?'by':'โดย')} ${esc(tName(d.teacherId))}</small>`:''}</span>
+        <span class="row" style="flex:0 0 auto">${btns}</span></div>`; };
+    const classes=Object.keys(byClass).sort((a,b)=>a.localeCompare(b,'th'));
+    const nSent=ids.filter(isSent).length;
+    box.innerHTML=`<div class="spread" style="align-items:baseline;gap:var(--sp-2);flex-wrap:wrap">${head}
+        <small class="muted">${EN()?`came ${r.came.length} · sent ${nSent}/${ids.length}`:`มาเรียน ${r.came.length} คน · ส่งแล้ว ${nSent}/${ids.length}`}</small></div>
+      ${classes.map(c=>{ const list=byClass[c].sort((a,b)=>{ const x=sObj(a),y=sObj(b); return String(x?dispNick(x):a).localeCompare(String(y?dispNick(y):b),'th'); });
+        const n=list.filter(isSent).length, full=n===list.length;
+        return `<details class="card jcls" ${full?'':'open'} style="margin-top:var(--sp-2)">
+          <summary><b>${esc(c)}</b><span class="pill ${full?'ok':'bad'}">${full?'✅':'⚠️'} ${n}/${list.length}</span></summary>
+          ${list.map(row).join('')}</details>`; }).join('')}`;
+  }
   // Read-only view of a submitted report — the same one Admin sees. Teachers use it too: opening a
   // notification about a past day, or browsing a child's history, must SHOW the report rather than
   // reopening the entry form (which only ever holds today).

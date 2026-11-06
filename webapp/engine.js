@@ -130,6 +130,17 @@ function createAtomAPI(M, GROWTH_STD) {
     return isNaN(t) ? '' : new Date(t + n*86400000).toISOString().slice(0,10); };
   // journal lifecycle: DRAFT = editable, parent not notified. Blank Status = legacy row, already sent.
   const jStatus_ = r => String((r&&r.Status)||'').toUpperCase()==='DRAFT' ? 'DRAFT' : 'SUBMITTED';
+  /* ⏪ SENDING A FORGOTTEN DRAFT LATE (2026-11-06, the school's decision): as written, never edited,
+   * within 7 days. Not the future, not older than a week. The same rule is in src/Journal.gs
+   * (lateSendWindowGas_), which is what runs live — test_journal_late_send drives both. */
+  const JOURNAL_LATE_DAYS = 7;
+  const lateSendWindow_ = (date, today) => {
+    if(!/^\d{4}-\d{2}-\d{2}$/.test(String(date))) fail('BAD_INPUT','วันที่ไม่ถูกต้อง');
+    if(date > today) fail('BAD_INPUT','ส่งบันทึกของวันข้างหน้าไม่ได้');
+    const t=new Date(today+'T12:00:00'); t.setDate(t.getDate()-JOURNAL_LATE_DAYS);
+    const floor=t.getFullYear()+'-'+String(t.getMonth()+1).padStart(2,'0')+'-'+String(t.getDate()).padStart(2,'0');
+    if(date < floor) fail('TOO_LATE','ส่งบันทึกย้อนหลังได้ไม่เกิน '+JOURNAL_LATE_DAYS+' วัน');
+  };
   const staffViewer_ = p => { const r=String((p&&p.role)||''); return !!r && r!=='Parent' && r!=='guest'; };
   // normalize a vaccine record's dose dates to an array (accepts new `Dates` array / JSON string /
   // comma-joined string, or a legacy single `Date`). GAS decodeCell may already parse a JSON array.
@@ -2429,6 +2440,36 @@ function createAtomAPI(M, GROWTH_STD) {
       return { date, done: M.journals.filter(x=>ymd(x.Date)===date && (!only||only.indexOf(String(x.StudentID))>=0))
         .map(x=>({studentId:x.StudentID, teacherId:x.TeacherID, status:jStatus_(x),
                   submittedAt:x.SubmittedAt||'', updatedAt:x.UpdatedAt||''})) }; },
+    /**
+     * 📅 ONE MONTH OF DAILY REPORTS, FOR THE ADMIN'S CALENDAR — asked 2026-11-06: "วงกลมบนวันที่ …
+     * สีเขียว = ส่งรายงานประจำวันของนักเรียนครบทุกคนที่มาโรงเรียน สีแดง = ส่งรายงานประจำวันของนักเรียนไม่ครบ".
+     *
+     * "ทุกคนที่มาโรงเรียน" is read literally: the children with a check-IN that day. A child who was
+     * absent, on leave or on their regular day off owes no report, so they cannot turn a day red.
+     * A DRAFT is not sent — the family cannot see it — so a day with only a draft is red, which is
+     * exactly the day the admin needs to find. A report written for a child with no check-in still
+     * counts on the day (they are listed), so the list never hides a report that exists.
+     *
+     * Per day: `came` (who checked in) and `sent` / `draft` (ids). Future days are not returned; a
+     * day nobody came is not returned either, so a weekend or a closure carries no dot at all.
+     */
+    journalMonth: p => {
+      const m = String((p&&p.month)||todayLocal().slice(0,7));
+      if(!/^\d{4}-(0[1-9]|1[0-2])$/.test(m)) fail('BAD_INPUT','เดือนไม่ถูกต้อง');
+      const today = todayLocal(), days = {};
+      const day = d => days[d] || (days[d] = { came: [], sent: [], draft: [] });
+      const push = (arr, id) => { if(arr.indexOf(id)<0) arr.push(id); };
+      (M.studentCheckins||[]).forEach(c => { const d=ymd(c.Date);
+        if(d.slice(0,7)!==m || d>today || !String(c.InTime||'').trim()) return;
+        push(day(d).came, String(c.StudentID)); });
+      (M.journals||[]).forEach(x => { const d=ymd(x.Date);
+        if(d.slice(0,7)!==m || d>today) return;
+        push(jStatus_(x)==='SUBMITTED' ? day(d).sent : day(d).draft, String(x.StudentID)); });
+      Object.keys(days).forEach(d => { const r=days[d];
+        // complete = every child who came has a SENT report; a day with reports but no check-ins
+        // at all (written for a child whose check-in was never recorded) is judged on the reports
+        r.complete = r.came.length ? r.came.every(id=>r.sent.indexOf(id)>=0) : r.draft.length===0; });
+      return { month: m, today, days }; },
     /* Idempotent: a re-submit for a day this child is already on leave adds nothing and re-notifies
      * nobody. With a range that is per-day rather than all-or-nothing — a family extending 21-22 to
      * 21-24 files 21-24 and gets the two new days, not a refusal naming a day they already told us
@@ -4274,6 +4315,7 @@ function createAtomAPI(M, GROWTH_STD) {
       const date = ymd(p.date || todayLocal());
       const ids = (Array.isArray(p.studentIds) ? p.studentIds : []).map(String).filter(Boolean).slice(0, 60);
       if(!ids.length) fail('BAD_INPUT','ยังไม่ได้เลือกนักเรียน');
+      lateSendWindow_(date, todayLocal());
       /* Scoped to the classes this person actually covers. The single-child route has never checked
        * this, and widening it now is not the job — but a BULK action has a bigger blast radius than
        * a tap, and this is exactly the set the screen offers anyway. */
@@ -6032,6 +6074,54 @@ function createAtomAPI(M, GROWTH_STD) {
      *
      * Now it reports BOTH numbers, because they answer different questions and the old single
      * number was silently answering the wrong one. */
+    /**
+     * 👨‍👩‍👧 THE ROSTER AS FAMILIES, FOR THE ADMIN'S .xlsx — asked 2026-11-06: "ส่วนของผู้ปกครองจะต้องเรียงเป็น
+     * ครอบครัว เช่น คุณพ่อน้องเลอา+คุณแม่น้องเลอา+น้องเลอา เรียงข้อมูลรายชื่อผู้ปกครองกับนักเรียนที่เชื่อมต่อกันเสมอ".
+     *
+     * A FAMILY IS EVERYONE CONNECTED BY A LINK, not one parent and their children: two parents who
+     * share a child, and that parent's other child, are one family — so siblings sit together under
+     * both parents instead of the household being printed twice. The links are parentStudentIds_,
+     * the ONE definition every admin list uses (USER_LINKS ∪ STUDENTS.ParentID ∪ PARENTS.StudentID).
+     *
+     * Children still enrolled only, on the school's decision: `active` (paused children are still
+     * enrolled and stay). A parent whose children have all left is not in the file. A parent linked
+     * to NOBODY at all is listed at the end — an account the admin should know is attached to no one.
+     *
+     * Order inside a family: father, mother, other guardians, then the children oldest first.
+     * Families are ordered by their first child's class, then nickname.
+     */
+    exportFamilies: () => {
+      const parents = M.parents||[];
+      const kidsOf = {}, parentsOf = {};
+      parents.forEach(pa => { const r=parentStudentIds_(pa);
+        kidsOf[pa.ParentID] = { all: r.all.length, active: r.active.map(s=>String(s.StudentID)) };
+        kidsOf[pa.ParentID].active.forEach(sid => { (parentsOf[sid]=parentsOf[sid]||[]).push(pa.ParentID); }); });
+      const active = (M.students||[]).filter(s=>!INACTIVE[s.Status] && !studentEnded_(s));
+      const relRank = r => { const v=String(r||'').toLowerCase();
+        if(/พ่อ|บิดา|father|dad/.test(v)) return 0; if(/แม่|มารดา|mother|mom|mum/.test(v)) return 1; return 2; };
+      const seenS = {}, seenP = {}, families = [];
+      active.forEach(s0 => { const sid0=String(s0.StudentID); if(seenS[sid0]) return;
+        const kids=[], pas=[], q=[['s',sid0]]; seenS[sid0]=1;
+        while(q.length){ const [k,id]=q.shift();
+          if(k==='s'){ kids.push(id); (parentsOf[id]||[]).forEach(pid=>{ if(!seenP[pid]){ seenP[pid]=1; q.push(['p',pid]); } }); }
+          else { pas.push(id); ((kidsOf[id]||{}).active||[]).forEach(sid=>{ if(!seenS[sid]){ seenS[sid]=1; q.push(['s',sid]); } }); } }
+        const kRows = kids.map(studentById).filter(Boolean)
+          .sort((a,b)=>String(a.DOB||'9999').localeCompare(String(b.DOB||'9999')));
+        const pRows = pas.map(pid=>parents.find(x=>x.ParentID===pid)).filter(Boolean)
+          .sort((a,b)=>relRank(a.Relationship)-relRank(b.Relationship));
+        families.push({ parents:pRows, children:kRows }); });
+      const sortKey = f => { const c=f.children[0]||{}; return String(c.Class||'')+'\u0000'+String(c.Nickname||c.NameTH||''); };
+      families.sort((a,b)=>sortKey(a).localeCompare(sortKey(b),'th'));
+      const P = pa => ({ parentId:pa.ParentID, title:pa.Title||'', name:pa.NameTH||pa.Name||'', nameEN:pa.NameEN||'',
+        nick:pa.Nickname||'', rel:pa.Relationship||'', nationalId:pa.NationalID||'', phone:pa.Phone||'', email:pa.Email||'',
+        occupation:pa.Occupation||'', workplace:pa.Workplace||'', officePhone:pa.OfficePhone||'', address:pa.Address||'',
+        line:!!String(pa.LineUID||'').trim() });
+      const S = s => ({ studentId:s.StudentID, name:s.NameTH||s.Name||'', nameEN:s.NameEN||'', nick:s.Nickname||'',
+        gender:s.Gender||'', dob:ymd(s.DOB||''), class:s.Class||'', nationalId:s.NationalID||'', enrollDate:ymd(s.EnrollDate||''),
+        address:s.Address||'', paused:!!studentPaused_(s) });
+      return {
+        families: families.map(f=>({ parents:f.parents.map(P), children:f.children.map(S) })),
+        unlinkedParents: parents.filter(pa=>kidsOf[pa.ParentID] && kidsOf[pa.ParentID].all===0).map(P) }; },
     parentLinkCounts: () => { const cnt={};
       (M.parents||[]).forEach(pa=>{ cnt[pa.ParentID]=parentStudentIds_(pa).active.length; });
       return cnt; },
