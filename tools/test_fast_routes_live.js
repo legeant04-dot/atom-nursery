@@ -71,6 +71,17 @@ function fixture() {
                { ParentID: 'PAR-2', NameTH: 'พ่อทดสอบ', StudentID: '', LineUID: 'U-P2' }];
   M.userLinks = [{ UserUID: 'U-P1', StudentID: 'STD-1', ParentID: 'PAR-1', Relation: 'แม่' },
                  { UserUID: 'U-P2', StudentID: 'STD-2', ParentID: 'PAR-2', Relation: 'พ่อ' }];
+  /* 💰 payslips and insurance for section 6 — numbers as the admin's screens write them */
+  M.staff[1].ContributionOpening = 1200;
+  M.payroll = [
+    { StaffID: 'STF-T', Month: '2026-08', BaseSalary: 15000, Contribution: 450, ContributionEmployer: '', NetPay: 14550, Approved: 'YES' },
+    { StaffID: 'STF-T', Month: '2026-09', BaseSalary: 15000, Contribution: 450, ContributionEmployer: 300, OT: 1250.5, NetPay: 15800.5, Approved: '' },
+    { StaffID: 'STF-T', Month: '2026-10', BaseSalary: 15500, Contribution: 465, ContributionEmployer: '', NetPay: 15035, Approved: 'NO' }];
+  Object.assign(M.students[0], { NationalID: '1100000000011', Gender: 'ชาย', InsurancePolicyNo: 'POL-9', InsuranceCompany: 'บริษัทประกันทดสอบ', InsuranceExpiry: '2027-05-31' });
+  M.students[1].NationalID = '1100000000022';
+  M.insurancePCHI = [
+    { InsuranceID: 'INS-1', StudentID: 'STD-1', InsuredName: 'เด็กทดสอบหนึ่ง', DOB: '2023-03-01', EffectiveDate: '2026-06-01', FilledBy: 'PAR-1', FilledDate: '2026-05-20 10:11' },
+    { InsuranceID: 'INS-2', StudentID: 'STD-OLD', NationalID: '1100000000022', InsuredName: 'เด็กทดสอบสอง', DOB: '2023-05-01' }];
   return M;
 }
 const T0 = NOW - 3 * 86400e3;
@@ -278,6 +289,70 @@ const q = s => '"' + s + '"';
         ok_('batch ที่มี route สองตัว ตอบครบ', b2.ok && b2.data.every(x => x.ok));
         ok_('🔴 อ่าน school_config ครั้งเดียวต่อคำขอ (ได้ ' + cfgQ + ')', cfgQ === 1);
       } finally { Client.prototype.query = q0; }
+    }
+
+    console.log('\n6) 💰 getPayslip · insuranceStatus — โฮสต์ (Postgres) = Apps Script (ชีต)');
+    {
+      const SHEETS = { STAFF: 'HR', LEAVE_REQUEST: 'HR', PAYROLL: 'HR', STUDENTS: 'MAIN', INSURANCE_PCHI: 'MAIN', SCHOOL_CONFIG: 'MAIN' };
+      const rawX = {};
+      for (const s of Object.keys(SHEETS)) rawX[s] = await PG.readSheet(c, TENANT, s);
+      ok_('อ่านกลับจาก Postgres: สลิป ' + rawX.PAYROLL.length + ' · แบบประกัน ' + rawX.INSURANCE_PCHI.length, rawX.PAYROLL.length === 3 && rawX.INSURANCE_PCHI.length === 2);
+      console.log('       (ชนิดของตัวเลขเงินที่ Postgres คืน: BaseSalary=' + JSON.stringify(rawX.PAYROLL[0].BaseSalary) + ' · NetPay=' + JSON.stringify(rawX.PAYROLL[1].NetPay) + ')');
+      const H2 = require('./gas_test_harness.js')(['Config', 'Db', 'Audit', 'Line', 'Auth', 'Code', 'Setup', 'Checkin', 'Triggers', 'Leave',
+        'Notify', 'Parent', 'Staff', 'GasEngine', 'Engine', 'Payroll', 'Day6']);
+      H2.g.__FIX = JSON.stringify({ raw: rawX, wb: SHEETS });
+      H2.run(function () {
+        _configCache = null; setupAll(); _configCache = null;
+        var F = JSON.parse(__FIX);
+        Object.keys(F.raw).forEach(function (n) {
+          var sh = sheet_(F.wb[n] === 'HR' ? getHrSpreadsheet_() : getMainSpreadsheet_(), n);
+          if (sh.getLastRow() > 1) sh.deleteRows(2, sh.getLastRow() - 1);
+          F.raw[n].forEach(function (r) { appendObject_(sh, r); });
+        });
+        _configCache = null;
+        return '';
+      });
+      const ASK = [
+        ['getPayslip', 'handleGetPayslip', 'ครู', { month: '2026-08' }],
+        ['getPayslip', 'handleGetPayslip', 'ครู', { month: '2026-09' }],
+        ['getPayslip', 'handleGetPayslip', 'ครู', { month: '2026-10' }],
+        ['getPayslip', 'handleGetPayslip', 'แอดมิน', { staffId: 'STF-T', month: '2026-10' }],
+        ['getPayslip', 'handleGetPayslip', 'ครู', { month: '2026-11' }],
+        ['insuranceStatus', 'handleInsuranceStatus', 'ผู้ปกครอง (PARENTS)', { studentId: 'STD-1' }],
+        ['insuranceStatus', 'handleInsuranceStatus', 'แอดมิน', { studentId: 'STD-2' }]];
+      const seen = {};
+      for (const [a, fn, who, ask] of ASK) {
+        const p = GATE.identity(a, JSON.parse(JSON.stringify(ask)), WHO[who].sess, M);
+        H2.g.__P = JSON.stringify(p); H2.g.__F = fn;
+        const want = JSON.parse(H2.run(function () {
+          try { return JSON.stringify({ ok: true, data: this[__F](JSON.parse(__P)) }); }
+          catch (e) { return JSON.stringify({ ok: false, code: e.apiCode || e.message }); } }));
+        const got = await viaHost({ action: a, payload: ask }, WHO[who]);
+        const g = JSON.stringify(got.ok ? { ok: true, data: got.data } : { ok: false, code: got.error && got.error.code });
+        const w = JSON.stringify(want);
+        seen[a + '|' + who + '|' + JSON.stringify(ask)] = want;
+        ok_(a + ' · ' + who + ' ' + JSON.stringify(ask) + (g === w ? '' : '\n         host=' + g.slice(0, 400) + '\n          gas=' + w.slice(0, 400)), g === w);
+      }
+      const aug = seen['getPayslip|ครู|{"month":"2026-08"}'].data;
+      ok_('💰 ข้อเท็จจริง: สลิปสิงหาคม · สมทบนายจ้าง 450 · ยอดสะสม 3,780 (การเทียบข้างบนไม่ใช่ว่างกับว่าง)',
+        !!aug && Number(aug.ContributionEmployer) === 450 && Number(aug.ContributionAccum) === 3780 && aug.Month === '2026-08');
+      ok_('💰 🔴 ข้อเท็จจริง: สลิปที่ยังไม่อนุมัติ ครูได้ null · แอดมินเห็น',
+        seen['getPayslip|ครู|{"month":"2026-10"}'].data === null && !!seen['getPayslip|แอดมิน|{"staffId":"STF-T","month":"2026-10"}'].data);
+      /* 🔴 the comparison above feeds BOTH sides the rows Postgres returned, so it cannot see a type that
+       * differs from Sheets. Live Sheets hands a money cell back as a NUMBER — assert that directly.
+       * (It was '15000.00' until decode_ learned that 'numeric(12,2)' is numeric — 2026-11-06.) */
+      const hostSep = (await viaHost({ action: 'getPayslip', payload: { month: '2026-09' } }, WHO['ครู'])).data || {};
+      const MONEY = ['BaseSalary', 'Contribution', 'NetPay', 'ContributionEmployer', 'ContributionAccum'];
+      ok_('💰 🔴 ตัวเลขเงินเป็น number เหมือนชีตจริง ไม่ใช่ข้อความ ' + JSON.stringify(MONEY.map(k => hostSep[k])),
+        MONEY.every(k => typeof hostSep[k] === 'number') && hostSep.NetPay === 15800.5 && hostSep.BaseSalary === 15000);
+      const ml = await viaHost({ action: 'myLeaves', payload: {} }, WHO['ครู']);
+      ok_('myLeaves ยังตอบจาก engine บนโฮสต์ (ไม่ใช่ NOT_ON_FAST_HOST)', ml.ok === true);
+      const other = await viaHost({ action: 'getPayslip', payload: { staffId: 'STF-L', month: '2026-08' } }, WHO['ครู']);
+      ok_('🔴 ครูที่ขอสลิปของคนอื่น ได้ของตัวเอง (ด่านประทับ staffId)', other.ok && other.data && other.data.StaffID === 'STF-T');
+      const ins = seen['insuranceStatus|แอดมิน|{"studentId":"STD-2"}'].data;
+      ok_('ข้อเท็จจริง: แบบประกันพบด้วยเลขบัตรประชาชน (INS-2)', ins && ins.filled === true && ins.record.InsuranceID === 'INS-2');
+      const tb = await viaHost({ action: 'batch', payload: { calls: [{ action: 'myLeaves', payload: {} }, { action: 'getPayslip', payload: { month: '2026-09' } }, { action: 'notifications', payload: WHO['ครู'].ask }] } }, WHO['ครู']);
+      ok_('batch ของครู — ตอบบนโฮสต์ทั้งหมด ไม่มี NOT_ON_FAST_HOST', tb.ok && tb.data.every(x => x.ok));
     }
   } finally {
     const tabs = (await c.query("select table_name from information_schema.tables where table_schema='public' and table_name <> 'tenant'")).rows.map(r => r.table_name);
