@@ -39,6 +39,13 @@ COPY src/Day6.gs                src/Day6.gs
 COPY src/OtStaff.gs             src/OtStaff.gs
 COPY src/OT.gs                  src/OT.gs
 COPY src/Certificate.gs         src/Certificate.gs
+# W1 write routes (2026-11-07): logAudit (Audit) · departments/quota (Staff) · getStudent_ (Dspm) · DSPM criteria (DspmAdmin) · child leave (Parent) · unlockJournal (Journal) · announcements (Announce)
+COPY src/Staff.gs               src/Staff.gs
+COPY src/Dspm.gs                src/Dspm.gs
+COPY src/DspmAdmin.gs           src/DspmAdmin.gs
+COPY src/Parent.gs              src/Parent.gs
+COPY src/Journal.gs             src/Journal.gs
+COPY src/Announce.gs            src/Announce.gs
 COPY docs/schema/001_init.sql   docs/schema/001_init.sql
 COPY server/host.js             server/host.js
 COPY server/session.js          server/session.js

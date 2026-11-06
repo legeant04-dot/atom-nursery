@@ -43,6 +43,12 @@
 !/src/OtStaff.gs
 !/src/OT.gs
 !/src/Certificate.gs
+!/src/Staff.gs
+!/src/Dspm.gs
+!/src/DspmAdmin.gs
+!/src/Parent.gs
+!/src/Journal.gs
+!/src/Announce.gs
 
 !/docs/
 /docs/*

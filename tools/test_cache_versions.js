@@ -88,6 +88,11 @@ console.log('\n3) ตัวแก้: โฮสต์เขียน + ขยั
   eq('ครั้งถัดไปยังได้ 999 (จากแคชของเวอร์ชันใหม่)', amounts(H), [999]);
   const keys = Object.keys(boot(true).C.store);
   ok_('คีย์ในแคชมีเวอร์ชันติดอยู่', (() => { const t = boot(true); amounts(t.H); return Object.keys(t.C.store).some(k => /^col:STUDENT_CHARGES@0$/.test(k)); })() && keys.length === 0);
+  /* W0 (2026-11-07): the host now WRITES school settings, so the whole-config cache follows SCHOOL_CONFIG */
+  const t2 = boot(true);
+  eq('🔴 cfg ตามเวอร์ชันของ SCHOOL_CONFIG (โฮสต์เขียนการตั้งค่าได้แล้ว)', t2.H.run(function () { return cacheKeyFor_('cfg'); }), 'cfg@0');
+  const t3 = boot(true); t3.H.pgFake.versions.SCHOOL_CONFIG = 3;
+  eq('...เวอร์ชันขยับ = คีย์ใหม่ (แคชเก่าถูกปลดทันที)', t3.H.run(function () { return cacheKeyFor_('cfg'); }), 'cfg@3');
 }
 
 console.log('\n4) อ่านเวอร์ชันก่อนตารางแรก — คีย์ใหม่จึงไม่มีทางถูกเติมด้วยแถวที่เก่ากว่า');
