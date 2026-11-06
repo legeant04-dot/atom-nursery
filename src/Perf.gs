@@ -189,6 +189,7 @@ var PERF_EXPECTED_ = {
   MISSING_FIELDS: 1, BAD_INPUT: 1,                 // a form submitted incomplete
   FUTURE_TIME: 1,           // an injury timed later than now — the form catching a typing slip
   JOURNAL_LOCKED: 1,        // already sent to the parent
+  TOO_LATE: 1,              // a forgotten draft older than the 7-day late-send window
   ON_LEAVE: 1,              // the family told us the child is away today
   SCHOOL_CLOSED: 1, NOT_STARTED: 1, STUDENT_PAUSED: 1,
   STUDENT_DAY_OFF: 1,       // this child's agreed weekly day off — the arrangement, not a fault

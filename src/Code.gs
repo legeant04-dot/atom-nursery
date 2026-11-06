@@ -564,7 +564,7 @@ function applyIdentity_(action, payload, sess) {
     generateMonthlyBills: 1, issueBill: 1, billRunLast: 1, undoBillRun: 1,
     deleteBill: 1, adminResetPassword: 1, getStaffPassword: 1, setSchoolConfig: 1, recomputeAttendance: 1, diagDay: 1,
     addDepartment: 1, removeDepartment: 1, renameDepartment: 1, listBackups: 1, restoreSheet: 1, setRequireCheckin: 1,
-    adminUpdateOT: 1, adminCancelOT: 1, adminRestoreOT: 1, unlockJournal: 1,
+    adminUpdateOT: 1, adminCancelOT: 1, adminRestoreOT: 1, unlockJournal: 1, journalMonth: 1, exportFamilies: 1,
     confirmOT: 1, adminAddOT: 1, adminAddHolidayOT: 1, adminEditOT: 1, adminDeleteOT: 1,
     addBigCleaning: 1, removeBigCleaning: 1, editLeave: 1, cancelLeave: 1,
     // holidayAttendSet REPLACES the whole day's list — admin only. Adding ONE name (holidayAttendAdd)

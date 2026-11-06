@@ -175,7 +175,7 @@ function handleBatch(p) {
  * only getJournal and journalStatus reach the engine. They are listed anyway: the rule is about what
  * the handler READS, and it must stay true if a shadow is ever removed.
  */
-var JOURNAL_READERS_ = { getJournal: 1, journalStatus: 1, journalHistory: 1,
+var JOURNAL_READERS_ = { getJournal: 1, journalStatus: 1, journalHistory: 1, journalMonth: 1,
                          saveParentComment: 1, saveTeacherReply: 1, submitJournal: 1, unlockJournal: 1 };
 var JOURNAL_BY_DATE_ = { getJournal: 1, journalStatus: 1, saveParentComment: 1, saveTeacherReply: 1 };
 /**

@@ -640,6 +640,32 @@ a.btn.block{display:block;}
 .cal .d .callv{position:absolute;bottom:2px;right:3px;left:3px;text-align:right;font-size:9.5px;
   line-height:1.2;font-weight:600;overflow:hidden;max-height:34px;}
 @media (min-width:560px){ .cal .d .calio{font-size:11px;} .cal .d .calhol,.cal .d .callv{font-size:10.5px;} }
+/* 📅 THE DAILY-REPORT CALENDAR (admin, 2026-11-06). A month of round days, each carrying ONE fact:
+ * were the reports of every child who came that day sent (green) or not (red). The circle is the
+ * colour at 60% opacity, as asked ("วงกลมบนวันที่ โปร่งแสง 60%") — the number stays full strength on top
+ * of it so it reads in both themes. Mobile first: 7 columns of minmax(0,1fr), the circle sized by the
+ * cell (aspect-ratio), never by a fixed px, so a 320px phone gets smaller circles rather than a scroll. */
+.jcal-h{display:flex;align-items:center;justify-content:space-between;gap:var(--sp-2);margin:var(--sp-2) 0;}
+.jcal-h b{font-size:var(--fs-3);}
+.jcal{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:var(--sp-1);text-align:center;}
+.jcal .wd{font-size:var(--fs-1);color:var(--muted);padding:var(--sp-1) 0;}
+.jcal .jd{position:relative;aspect-ratio:1;max-width:44px;width:100%;justify-self:center;border:0;border-radius:50%;
+  background:transparent;color:var(--ink);font:inherit;font-size:var(--fs-2);cursor:pointer;padding:0;}
+.jcal .jd::before{content:"";position:absolute;inset:0;border-radius:50%;opacity:.6;background:transparent;}
+.jcal .jd.ok::before{background:var(--ok);}
+.jcal .jd.bad::before{background:var(--bad);}
+.jcal .jd span{position:relative;font-weight:600;}
+.jcal .jd.today span{text-decoration:underline;text-underline-offset:3px;}
+.jcal .jd.sel{box-shadow:0 0 0 2px var(--surface),0 0 0 4px var(--blue);}
+.jcal .jd.out,.jcal .jd:disabled{color:var(--line-strong);cursor:default;}
+.jcal-leg{display:flex;flex-wrap:wrap;gap:var(--sp-3);justify-content:center;font-size:var(--fs-1);color:var(--muted);margin-top:var(--sp-2);}
+.jcal-leg i{display:inline-block;width:12px;height:12px;border-radius:50%;opacity:.6;vertical-align:-1px;margin-right:var(--sp-1);}
+details.jcls{padding:0;overflow:hidden;}
+details.jcls>summary{list-style:none;cursor:pointer;padding:var(--sp-2) var(--sp-3);display:flex;align-items:center;gap:var(--sp-2);}
+details.jcls>summary::-webkit-details-marker{display:none;}
+details.jcls>summary::after{content:"▾";margin-left:auto;color:var(--muted);transition:transform .15s;}
+details.jcls:not([open])>summary::after{transform:rotate(-90deg);}
+details.jcls .list-item{padding-left:var(--sp-3);padding-right:var(--sp-3);}
 
 /* toggle switch */
 .switch{position:relative;display:inline-block;width:44px;height:24px;}

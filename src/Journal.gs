@@ -204,6 +204,22 @@ function journalCacheBust_(date) {
 }
 
 /**
+ * ⏪ SENDING A FORGOTTEN DRAFT LATE — asked 2026-11-06: "เพิ่มการส่งรายงานประจำวันของนักเรียนย้อนหลังในกรณีที่
+ * คุณครูมีการร่างเอกสารไว้แล้ว แต่ลืมกดส่ง ให้สามารถส่งได้เป็นข้อมูลของวันที่บันทึก".
+ *
+ * The school chose: as written (the bulk route never touches content), within 7 days, the family told
+ * as usual. The report keeps its own Date; SubmittedAt is the real moment it was sent, so the admin
+ * can see it went late. Not the future, not older than a week. Mirrors lateSendWindow_ in engine.js.
+ */
+var JOURNAL_LATE_DAYS_ = 7;
+function lateSendWindowGas_(date, today) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(date))) throw apiError_('BAD_INPUT', 'วันที่ไม่ถูกต้อง');
+  if (date > today) throw apiError_('BAD_INPUT', 'ส่งบันทึกของวันข้างหน้าไม่ได้');
+  var t = new Date(today + 'T12:00:00'); t.setDate(t.getDate() - JOURNAL_LATE_DAYS_);
+  if (date < dateStr_(t)) throw apiError_('TOO_LATE', 'ส่งบันทึกย้อนหลังได้ไม่เกิน ' + JOURNAL_LATE_DAYS_ + ' วัน');
+}
+
+/**
  * 🔴 SEND SEVERAL DAILY REPORTS AT ONCE — WITHOUT REWRITING ONE OF THEM.
  *
  * Asked 2026-10-08. A teacher with twelve children was buying twelve round trips at the end of the
@@ -223,6 +239,9 @@ function handleSubmitJournalsMany(payload) {
   var date = payload.date || dateStr_(new Date());
   var ids = (payload.studentIds || []).map(String).filter(function (x) { return !!x; }).slice(0, 60);
   if (!ids.length) throw apiError_('BAD_INPUT', 'ยังไม่ได้เลือกนักเรียน');
+  date = String(date).slice(0, 10);
+  lateSendWindowGas_(date, dateStr_(new Date()));
+  var late = date < dateStr_(new Date());
   /* 🔴 ทุกคนในชุดต้องอยู่ในชั้นที่ครูคนนี้ดูแล (ผอ. 2026-10-21) — ปฏิเสธทั้งชุด ไม่ใช่ข้ามเงียบๆ
    * การข้ามเงียบๆ คือ "เซิร์ฟเวอร์บอกว่าสำเร็จ แต่บางคนไม่ได้ถูกส่ง" ซึ่งครูจะไม่มีทางรู้เลย
    * หน้าจอเสนอเฉพาะเด็กในชั้นของตัวเองอยู่แล้ว มาถึงตรงนี้ได้ = หน้าจอค้างอยู่กับข้อมูลเก่า */
@@ -259,7 +278,9 @@ function handleSubmitJournalsMany(payload) {
     try {
       var student = getStudent_(s.studentId);
       if (!student) return;
-      var jMsg = '📒 บันทึกประจำวันของ ' + student.Name + ' พร้อมแล้ว (' + date + ')';
+      // a late send names the day the report is ABOUT, and says it is late — the family is reading
+      // it after the fact, and "พร้อมแล้ว (04/11)" on the 6th reads like a mistake without it
+      var jMsg = '📒 บันทึกประจำวันของ ' + student.Name + ' พร้อมแล้ว (' + date + ')' + (late ? ' · ส่งย้อนหลัง' : '');
       // the bell goes to the family even when the child has no ParentID on their row yet — the row
       // is keyed by student, so whoever is linked to that child sees it
       var wantLine = familyBell_('parent.journal', student, jMsg, 'journal|' + student.StudentID + '|' + date);
