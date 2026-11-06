@@ -35,6 +35,10 @@ COPY src/Notify.gs              src/Notify.gs
 # server/routes.js runs getPayslip (Payroll.gs) and insuranceStatus (Day6.gs) — the handlers themselves
 COPY src/Payroll.gs             src/Payroll.gs
 COPY src/Day6.gs                src/Day6.gs
+# ...myPayslipMonths/otCarryOver (OtStaff.gs helpers), otWaiveDays (OT.gs), certText (Certificate.gs)
+COPY src/OtStaff.gs             src/OtStaff.gs
+COPY src/OT.gs                  src/OT.gs
+COPY src/Certificate.gs         src/Certificate.gs
 COPY docs/schema/001_init.sql   docs/schema/001_init.sql
 COPY server/host.js             server/host.js
 COPY server/session.js          server/session.js

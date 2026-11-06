@@ -45,7 +45,17 @@ const PORTED = {
    * rule for a teacher. Money: test_fast_routes compares it figure for figure, Sheets types vs text. */
   getPayslip: { fn: 'handleGetPayslip', reads: ['PAYROLL', 'STAFF'] },
   // a child's insurance: the enrolment form (INSURANCE_PCHI, by id or national id) and the school's policy (src/Day6.gs)
-  insuranceStatus: { fn: 'handleInsuranceStatus', reads: ['STUDENTS', 'INSURANCE_PCHI'] }
+  insuranceStatus: { fn: 'handleInsuranceStatus', reads: ['STUDENTS', 'INSURANCE_PCHI'] },
+  /* 💰 the rest of the teacher's payslip screen (2026-11-06) — with getPayslip, the whole screen now
+   * answers here. myPayslipMonths: the months that HAVE a slip (approved, one per month). otCarryOver:
+   * OT approved after an earlier month's payroll was saved — baht, hours and the days behind them,
+   * from OT_RECORDS against every saved PAYROLL row and the school's OTEveningRate. */
+  myPayslipMonths: { fn: 'handleMyPayslipMonths', reads: ['PAYROLL'] },
+  otCarryOver: { fn: 'handleOtCarryOver', reads: ['PAYROLL', 'OT_RECORDS'] },
+  // admin: the days OT is waived (SCHOOL_CONFIG.OTWaiveDays) and whether today is one (src/OT.gs)
+  otWaiveDays: { fn: 'handleOtWaiveDays', reads: [] },
+  // admin: the certificate's wording lines and whether its artwork is uploaded — all SCHOOL_CONFIG (src/Certificate.gs)
+  certText: { fn: 'handleCertText', reads: [] }
 };
 /* 🔴 SCHOOL_CONFIG is readable by every ported route, as by every line of Apps Script: getConfig_ is
  * Db.gs's own (raw Key/Value rows, cached per execution in _configCache — reset per request here),
@@ -55,7 +65,7 @@ const ALWAYS_READ = ['SCHOOL_CONFIG'];
 
 /* Config/Auth: constants · Notify/Leave: the handlers · Checkin: resolveStaff_ · Code: apiError_ ·
  * GasEngine: decodeCell_. Loaded whole, as Apps Script loads them. */
-const FILES = ['Config', 'Db', 'Auth', 'Checkin', 'Code', 'GasEngine', 'Notify', 'Leave', 'Payroll', 'Day6'];
+const FILES = ['Config', 'Db', 'Auth', 'Checkin', 'Code', 'GasEngine', 'Notify', 'Leave', 'Payroll', 'Day6', 'OtStaff', 'OT', 'Certificate'];
 let box = null, pristine = null;
 function load() {
   if (box) return box;

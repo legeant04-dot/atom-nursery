@@ -82,6 +82,15 @@ function fixture() {
   M.insurancePCHI = [
     { InsuranceID: 'INS-1', StudentID: 'STD-1', InsuredName: 'เด็กทดสอบหนึ่ง', DOB: '2023-03-01', EffectiveDate: '2026-06-01', FilledBy: 'PAR-1', FilledDate: '2026-05-20 10:11' },
     { InsuranceID: 'INS-2', StudentID: 'STD-OLD', NationalID: '1100000000022', InsuredName: 'เด็กทดสอบสอง', DOB: '2023-05-01' }];
+  /* 💰 section 7: September paid 300 of the 500 approved, October's OT approved after October was saved */
+  M.payroll.push({ StaffID: 'STF-L', Month: '2026-09', BaseSalary: 18000, Contribution: 540, NetPay: 18000, OTEvening: 0, Approved: 'YES' });
+  M.payroll[0].OTEvening = 300; M.payroll[0].PaidDate = '2026-08-31'; M.payroll[0].SlipSent = 'YES';
+  M.otRecords = [
+    { OTID: 'OT-1', StaffID: 'STF-T', Date: '2026-08-10', Month: '2026-08', Hours: 3, Amount: 300, Status: 'APPROVED', Kind: '', Note: 'ประชุม' },
+    { OTID: 'OT-2', StaffID: 'STF-T', Date: '2026-08-20', Month: '2026-08', Hours: 2, Amount: '', Status: 'APPROVED', Kind: '', Note: '' },
+    { OTID: 'OT-3', StaffID: 'STF-T', Date: '2026-08-21', Month: '2026-08', Hours: 4, Amount: 400, Status: 'PENDING_LEADER', Kind: '' },
+    { OTID: 'OT-4', StaffID: 'STF-T', Date: '2026-09-05', Month: '2026-09', Hours: 1.5, Amount: 150, Status: 'APPROVED', Kind: '', Note: 'ปิดเทอม' },
+    { OTID: 'OT-9', StaffID: 'STF-L', Date: '2026-08-11', Month: '2026-08', Hours: 9, Amount: 999, Status: 'APPROVED', Kind: '' }];
   return M;
 }
 const T0 = NOW - 3 * 86400e3;
@@ -296,7 +305,7 @@ const q = s => '"' + s + '"';
       const SHEETS = { STAFF: 'HR', LEAVE_REQUEST: 'HR', PAYROLL: 'HR', STUDENTS: 'MAIN', INSURANCE_PCHI: 'MAIN', SCHOOL_CONFIG: 'MAIN' };
       const rawX = {};
       for (const s of Object.keys(SHEETS)) rawX[s] = await PG.readSheet(c, TENANT, s);
-      ok_('อ่านกลับจาก Postgres: สลิป ' + rawX.PAYROLL.length + ' · แบบประกัน ' + rawX.INSURANCE_PCHI.length, rawX.PAYROLL.length === 3 && rawX.INSURANCE_PCHI.length === 2);
+      ok_('อ่านกลับจาก Postgres: สลิป ' + rawX.PAYROLL.length + ' · แบบประกัน ' + rawX.INSURANCE_PCHI.length, rawX.PAYROLL.length === 4 && rawX.INSURANCE_PCHI.length === 2);
       console.log('       (ชนิดของตัวเลขเงินที่ Postgres คืน: BaseSalary=' + JSON.stringify(rawX.PAYROLL[0].BaseSalary) + ' · NetPay=' + JSON.stringify(rawX.PAYROLL[1].NetPay) + ')');
       const H2 = require('./gas_test_harness.js')(['Config', 'Db', 'Audit', 'Line', 'Auth', 'Code', 'Setup', 'Checkin', 'Triggers', 'Leave',
         'Notify', 'Parent', 'Staff', 'GasEngine', 'Engine', 'Payroll', 'Day6']);
@@ -353,6 +362,66 @@ const q = s => '"' + s + '"';
       ok_('ข้อเท็จจริง: แบบประกันพบด้วยเลขบัตรประชาชน (INS-2)', ins && ins.filled === true && ins.record.InsuranceID === 'INS-2');
       const tb = await viaHost({ action: 'batch', payload: { calls: [{ action: 'myLeaves', payload: {} }, { action: 'getPayslip', payload: { month: '2026-09' } }, { action: 'notifications', payload: WHO['ครู'].ask }] } }, WHO['ครู']);
       ok_('batch ของครู — ตอบบนโฮสต์ทั้งหมด ไม่มี NOT_ON_FAST_HOST', tb.ok && tb.data.every(x => x.ok));
+    }
+
+    console.log('\n7) 💰 myPayslipMonths · otCarryOver · otWaiveDays · certText — โฮสต์ (Postgres) = Apps Script (ชีต)');
+    {
+      for (const [k, v] of [['OTEveningRate', '100'], ['OTWaiveDays', '[{"from":"2026-11-02","to":"2026-11-03","reason":"อบรม"}]'], ['CertTitleTH', 'เกียรติบัตรทดสอบ']])
+        await c.query('insert into school_config (tenant_id, "key", "value") values ($1, $2, $3)', [TENANT, k, v]);
+      const SHEETS = { PAYROLL: 'HR', OT_RECORDS: 'HR', STAFF: 'HR', SCHOOL_CONFIG: 'MAIN' };
+      const rawY = {};
+      for (const s of Object.keys(SHEETS)) rawY[s] = await PG.readSheet(c, TENANT, s);
+      ok_('อ่านกลับจาก Postgres: สลิป ' + rawY.PAYROLL.length + ' · OT ' + rawY.OT_RECORDS.length, rawY.PAYROLL.length === 4 && rawY.OT_RECORDS.length === 5);
+      const H3 = require('./gas_test_harness.js')(['Config', 'Db', 'Audit', 'Line', 'Auth', 'Code', 'Setup', 'Checkin', 'Triggers', 'Leave',
+        'Notify', 'Parent', 'Staff', 'GasEngine', 'Engine', 'Payroll', 'Day6', 'OtStaff', 'OT', 'Certificate']);
+      H3.g.__FIX = JSON.stringify({ raw: rawY, wb: SHEETS });
+      H3.run(function () {
+        _configCache = null; setupAll(); _configCache = null;
+        var F = JSON.parse(__FIX);
+        Object.keys(F.raw).forEach(function (n) {
+          var sh = sheet_(F.wb[n] === 'HR' ? getHrSpreadsheet_() : getMainSpreadsheet_(), n);
+          if (sh.getLastRow() > 1) sh.deleteRows(2, sh.getLastRow() - 1);
+          F.raw[n].forEach(function (r) { appendObject_(sh, r); });
+        });
+        _configCache = null;
+        return '';
+      });
+      const ASK = [
+        ['myPayslipMonths', 'handleMyPayslipMonths', 'ครู', {}],
+        ['otCarryOver', 'handleOtCarryOver', 'ครู', { month: '2026-10' }],
+        ['otCarryOver', 'handleOtCarryOver', 'ครู', { month: '2026-09' }],
+        ['otWaiveDays', 'handleOtWaiveDays', 'แอดมิน', {}],
+        ['certText', 'handleCertText', 'แอดมิน', {}]];
+      const seen = {};
+      for (const [a, fn, who, ask] of ASK) {
+        const p = GATE.identity(a, JSON.parse(JSON.stringify(ask)), WHO[who].sess, M);
+        H3.g.__P = JSON.stringify(p); H3.g.__F = fn;
+        const want = JSON.parse(H3.run(function () {
+          _configCache = null;
+          try { return JSON.stringify({ ok: true, data: this[__F](JSON.parse(__P)) }); }
+          catch (e) { return JSON.stringify({ ok: false, code: e.apiCode || e.message }); } }));
+        const got = await viaHost({ action: a, payload: ask }, WHO[who]);
+        const g = JSON.stringify(got.ok ? { ok: true, data: got.data } : { ok: false, code: got.error && got.error.code });
+        const w = JSON.stringify(want);
+        seen[a + '|' + JSON.stringify(ask)] = got.data;
+        ok_(a + ' · ' + who + ' ' + JSON.stringify(ask) + (g === w ? '' : '\n         host=' + g.slice(0, 400) + '\n          gas=' + w.slice(0, 400)), g === w);
+      }
+      const oct = seen['otCarryOver|{"month":"2026-10"}'] || {};
+      // Aug: 300 + 2h×100 = 500 approved, 300 paid → 200 owed (of 5h → 2h) · Sep: 150 approved, 0 paid → 150
+      ok_('💰 ข้อเท็จจริง: ค้าง ส.ค. 200 บาท (2 ชม.) + ก.ย. 150 บาท = 350 ' + JSON.stringify([oct.total, oct.hours]),
+        oct.total === 350 && oct.hours === 3.5 && (oct.detail || []).map(d => d.month + ':' + d.amount).join() === '2026-08:200,2026-09:150');
+      ok_('💰 🔴 ตัวเลขเงินเป็น number (ไม่ใช่ "200.00")', typeof oct.total === 'number' && (oct.detail || []).every(d => typeof d.amount === 'number' && typeof d.paid === 'number'));
+      const months = seen['myPayslipMonths|{}'] || {};
+      ok_('💰 ข้อเท็จจริง: เดือนที่มีสลิป + netPay เป็นตัวเลข ' + JSON.stringify((months.months || []).map(m => m.month + ':' + m.netPay)),
+        (months.months || []).length > 0 && months.months.every(m => typeof m.netPay === 'number'));
+      const other = await viaHost({ action: 'otCarryOver', payload: { staffId: 'STF-L', month: '2026-10' } }, WHO['ครู']);
+      ok_('🔴 ครูที่ขอ OT ค้างของคนอื่น ได้ของตัวเอง (ด่านประทับ staffId · ไม่มี 999)', other.ok && other.data.staffId === 'STF-T' && !JSON.stringify(other.data).includes('999'));
+      const otherM = await viaHost({ action: 'myPayslipMonths', payload: { staffId: 'STF-L' } }, WHO['ครู']);
+      ok_('🔴 ครูที่ขอรายการสลิปของคนอื่น ได้ของตัวเอง', otherM.ok && otherM.data.staffId === 'STF-T');
+      const tw = await viaHost({ action: 'otWaiveDays', payload: {} }, WHO['ครู']);
+      ok_('🔴 ครูขอ otWaiveDays (ของแอดมิน) → NO_PERMISSION', tw.ok === false && tw.error.code === 'NO_PERMISSION');
+      const slip = await viaHost({ action: 'batch', payload: { calls: [{ action: 'myPayslipMonths', payload: {} }, { action: 'getPayslip', payload: { month: '2026-08' } }, { action: 'otCarryOver', payload: { month: '2026-10' } }] } }, WHO['ครู']);
+      ok_('หน้าสลิปของครู (batch) — ตอบบนโฮสต์ครบ ไม่มี NOT_ON_FAST_HOST', slip.ok && slip.data.every(x => x.ok));
     }
   } finally {
     const tabs = (await c.query("select table_name from information_schema.tables where table_schema='public' and table_name <> 'tenant'")).rows.map(r => r.table_name);

@@ -5,6 +5,21 @@
 
 ---
 
+## 2026-11-06 · Cloud Run · ย้าย myPayslipMonths · otCarryOver · otWaiveDays · certText — หน้าสลิปของครูตอบบนโฮสต์ครบ
+
+**ผอ.:** *"ทำต่อเรื่องย้าย route ได้เลย"*
+
+- **ย้าย (ฟังก์ชันของ Apps Script ตัวจริง):** `myPayslipMonths` (เดือนที่มีสลิป · ไม่รวมที่ยังไม่อนุมัติ · เดือนซ้ำเหลือใบเดียว) ·
+  `otCarryOver` (OT ที่อนุมัติหลังบันทึกเงินเดือนเดือนก่อน — บาท · ชั่วโมง · วัน จาก OT_RECORDS เทียบ PAYROLL ทุกแถว + OTEveningRate) ·
+  `otWaiveDays` · `certText` (แอดมิน · อ่าน SCHOOL_CONFIG อย่างเดียว) · รวมกับ getPayslip → หน้าสลิปของครูไม่ต้องไป Apps Script แล้ว ·
+  image เพิ่ม OtStaff.gs · OT.gs · Certificate.gs (test_cloud_run เปลี่ยนตัวอย่าง "ไฟล์ที่ไม่ต้องอัปโหลด" เป็น Slips.gs)
+- **ไม่ย้าย:** `dspmCriteria` (ไม่มีหน้าจอเรียก) · `getJournal`/`journalHistory`/`myLeaves` ฯลฯ ไม่ใช่ ROUTES (engine ตอบบนโฮสต์อยู่แล้ว)
+- **พิสูจน์:** test_fast_routes 92/92 (OT จ่ายไม่ครบ · คิดจากชั่วโมง×อัตรา · OT รออนุมัติ/วันหยุด/ของคนอื่นไม่นับ · ยกยอดแล้ว) ·
+  test_fast_routes_live 74/74 (staging · ค้าง ส.ค. 200 + ก.ย. 150 = 350 · ตัวเลขเงินเป็น number · ครูขอของคนอื่นได้ของตัวเอง ·
+  ครูขอ otWaiveDays → NO_PERMISSION · batch หน้าสลิปไม่มี NOT_ON_FAST_HOST) · test_all 224/224 · test_all_pg ผ่าน (test_menu_shared หมดเวลาครั้งแรก รันซ้ำผ่าน) · Cloud Run rev 00017 · p50 193ms · p95 271ms (300/300)
+
+---
+
 ## 2026-11-06 · v502 · GAS @408 (ขึ้นแล้ว) · 🔴 ห้ามลาซ้ำช่วงเดียวกัน · Cloud Run rev 00016
 
 **ผอ.:** *"ตรวจสอบการลาของคุณครู ห้ามลาซ้ำในช่วงวันและเวลาเดียวกันกับที่ขอมา ถ้าเจอให้แจ้งเตือนว่า ไม่สามารถลาได้เนื่องจาก
