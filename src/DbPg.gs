@@ -72,7 +72,12 @@ function pgCacheKey_(k) {
   if (!pgEnabled_()) return k;
   var m = /^(col|rows):(.+)$/.exec(String(k));
   var sheet = m ? m[2] : (/^jrn:/.test(String(k)) ? PG_CACHE_JOURNAL_SHEET_ : null);
-  if (!sheet) return k;                        // 'cfg' and the rest: not rows of a table the host writes
+  /* 'cfg' — the whole SCHOOL_CONFIG as one object (GasEngine getConfigCached_). Since W0 (2026-11-07)
+   * the fast host WRITES school settings (departments, leave quota, certificate text…), so this key
+   * must follow SCHOOL_CONFIG's version like any row cache, or Apps Script would keep serving the old
+   * settings for up to CacheTTL after the host changed them. */
+  if (String(k) === 'cfg') sheet = 'SCHOOL_CONFIG';
+  if (!sheet) return k;                        // the rest: not rows of a table the host writes
   var v = pgCacheVers_();
   if (v === false) return null;
   return k + '@' + (v[sheet] || '0');

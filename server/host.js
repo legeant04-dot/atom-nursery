@@ -209,7 +209,7 @@ async function handle(req, res, body) {
       const writers = calls.map((c, i) => ({ a: String((c && c.action) || ''), r: results[i] }))
         .filter(x => GATE.isMutating(x.a) && x.r.ok);
       /* a ported Code.gs route is governed by its own declaration in server/routes.js (enforced as it runs) */
-      const routeDeclared = a => ROUTES_PORT.has(a) && !!ROUTES_PORT.PORTED[a].writes;
+      const routeDeclared = a => ROUTES_PORT.has(a) && ROUTES_PORT.writes(a);
       const notProven = writers.filter(x => !WRITE_PROVEN[x.a] && !routeDeclared(x.a)).map(x => x.a);
       const allowed = new Set([].concat(...writers.map(x => WRITE_PROVEN[x.a] || [])));
       const outside = changed.concat(otherChanged).filter(k => !allowed.has(k));
@@ -244,12 +244,29 @@ async function handle(req, res, body) {
       if (unwritable.length) {
         return refuse('READ_ONLY_HOST', 'เส้นทางนี้ยังบันทึกข้อมูลนี้ไม่ได้ — ไม่มีอะไรถูกบันทึก', { changed: changed.concat(otherChanged), outside: unwritable });
       }
+      /* ── a ported route's own writes (server/routes.js W0, 2026-11-07) ─────────────────────────── */
+      const routeSheets = [...new Set(routeWrites.map(w => w.sheet))];
+      /* 🔴 ONE WRITER PER TABLE PER REQUEST. The engine saves a whole collection from M; a route saves rows
+       * it touched. Both on one table in one request would each be right about half of it and the later
+       * save would undo the earlier — so it is refused, and the app sends that batch to Apps Script. */
+      const engineSheets = changed.map(k => PG.COLLECTIONS[k].sheet);
+      const both = routeSheets.filter(s => engineSheets.indexOf(s) >= 0);
+      if (both.length) return refuse('NOT_ON_FAST_HOST', 'คำขอนี้แก้ข้อมูลชุดเดียวกันสองทาง — ยังต้องทำบน Apps Script', { both });
+      /* 🔴 WRITE_GUARD for rows a route deletes — the same rule the engine's saves get above: an identity or
+       * money sheet never shrinks here, and no sheet loses more than 5 rows AND 25% in one request */
+      for (const s of routeSheets) {
+        const dropped = routeWrites.filter(w => w.sheet === s && w.op === 'delete').length;
+        if (!dropped) continue;
+        const was = dropped + (raw[s] || []).length;
+        if (GATE.noShrink(s) || (dropped > 5 && dropped > was * 0.25)) {
+          return refuse('WRITE_GUARD', 'ยกเลิกการบันทึกชีต ' + s + ' เพื่อป้องกันข้อมูลหาย (' + was + ' → ' + (was - dropped) + ' แถว)');
+        }
+      }
       const tS0 = Date.now();
       const saved = await PG.persist(client, tenant, M, snapshot, changed);
       for (const k of otherChanged) saved[k] = await DERIVED_WRITERS[k](client, tenant, M[k]);
-      for (const sh of [...new Set(routeWrites.map(w => w.sheet))]) {
-        saved[sh] = await PG.updateSheetRows(client, tenant, sh, routeWrites.filter(w => w.sheet === sh));
-      }
+      /* edits, new rows and deletions, in the order the route made them (a new row may be edited later in the call) */
+      if (routeWrites.length) saved.routes = await PG.applySheetOps(client, tenant, routeWrites);
       /* 🔴 Apps Script's row cache cannot be cleared from here — retire it instead: every sheet written in
        * this transaction gets a new version, committed together with the rows (DbPg.gs CACHE VERSIONS) */
       saved.cacheVersions = await PG.bumpCacheVersions(client, tenant, changed.map(k => PG.COLLECTIONS[k].sheet)

@@ -5,6 +5,37 @@
 
 ---
 
+## 2026-11-07 · W0 + W1 · Cloud Run เขียนได้แล้ว (แก้ · เพิ่มแถว · ลบแถว) · 16 route แรก · 🔴 สองบั๊กที่ staging เจอ
+
+**ผอ.:** *"อนุมัติ W0 + W1 เริ่มได้เลย"* — แผน: `docs/FAST_HOST_WRITES_PLAN.md`
+
+- **W0 รากฐาน (`server/routes.js` · `tools/pg_engine.js` · `server/host.js`):**
+  sandbox บันทึกการเขียนเป็นลำดับ op — `update` / `insert` / `delete` — ประกาศต่อ route (`writes` · `appends` · `deletes`) ·
+  ไม่ประกาศ = ล้มทั้งคำขอ · `logAudit`/`logAuditHr` ใช้ของจริงจาก Audit.gs (route ที่เขียนเพิ่มบันทึกตรวจสอบได้เสมอ) ·
+  🔴 `AUDIT_LOG` ชื่อซ้ำสองสมุดงาน → sandbox รู้ว่าเรียกจากสมุดงานไหน (HR → `hr_audit_log`) ·
+  เลียนแบบ `getLastRow` · `headers_` · `getRange(...).getValues()` แบบอ่านอย่างเดียว · `ensureColumns_` = ตรวจว่าตารางมีคอลัมน์ ·
+  `CacheService` = ไม่มีแคช (โฮสต์ขยับเวอร์ชันแคชของทุกตารางที่เขียนแทน) · รูปภาพ = ปฏิเสธ ·
+  การปฏิเสธทุกแบบตอบ `NOT_ON_FAST_HOST` (ไม่มีอะไรถูกบันทึก แอปจึงส่งต่อให้ Apps Script ซึ่งทำได้) ·
+  host: `PG.applySheetOps` ตามลำดับ (แถวใหม่ที่ถูกแก้ต่อในคำขอเดียวกันใช้ id ชั่วคราวแล้วแมปเป็น id จริง) ·
+  ปฏิเสธคำขอที่ route กับ engine เขียนตารางเดียวกัน · WRITE_GUARD กับการลบของ route (ชีตตัวตน/เงินห้ามหด · ≤5 แถวหรือ ≤25%) ·
+  Apps Script (`DbPg.gs pgCacheKey_`): คีย์แคช `'cfg'` ตามเวอร์ชัน SCHOOL_CONFIG แล้ว (โฮสต์เขียนการตั้งค่าได้)
+- **W1 ย้ายแล้ว 16 ตัว:** แผนก (เพิ่ม/ลบ/เปลี่ยนชื่อ) · โควตาวันลา · ข้อความใบประกาศ · ข้อมูลบนใบเสร็จ · เกณฑ์ DSPM (บันทึก/ลบ) ·
+  แอดมินแก้/ยกเลิกใบลา · แก้ใบลาเด็ก · ดึงบันทึกกลับเป็นร่าง · ประกาศ (เพิ่ม/แก้/ลบ — ที่มีรูปไป Apps Script) ·
+  **ยังไม่ย้าย:** วันหยุด (`holidayWrite_` เรียก engine + เขียนช่องตรง) · Big Cleaning (เรียงชีต) · `recallJournalsMany` (กระดิ่ง) — รอบถัดไป
+- **🔴 บั๊ก 1 — `readSheet` แปลงข้อความหน้าตา JSON เป็นอ็อบเจกต์:** ใช้ตัวอ่านของ engine (decodeCell_) ทั้งที่แถวพวกนี้ถูกอ่านโดยโค้ด
+  ของ Apps Script เอง ซึ่งได้ข้อความ (Sheets และ DbPg `pgDecode_` เหมือนกัน) · `SCHOOL_CONFIG.LeaveQuota` เป็นอ็อบเจกต์ที่นี่ ข้อความที่นั่น ·
+  แก้: `sheetDecode_` — ข้อความ/jsonb คงเป็นข้อความ (ใช้ทั้ง readSheet และแถว config ที่ใช้ซ้ำ)
+- **🔴 บั๊ก 2 — `updated_at = now()` เขียนทับเวลาของครู:** `DAILY_JOURNAL.UpdatedAt` ถูกออกแบบให้ลงคอลัมน์ระบบ `updated_at` ·
+  แต่ทุกการแก้แถว (route และ `persist` ของ engine) ใส่ `updated_at = now()` เสมอ → ดึงบันทึกกลับเป็นร่างก็เปลี่ยน "เวลาที่ครูแก้ล่าสุด" ·
+  และถ้าแถวมี UpdatedAt จะตั้งคอลัมน์ซ้ำสองครั้ง ซึ่ง Postgres ปฏิเสธทั้งการบันทึก · แก้: `stampUpdated_` — ใส่ now() เฉพาะตารางที่ไม่มีคอลัมน์ของตัวเอง ·
+  และแถวใหม่ที่ CreatedAt/UpdatedAt ว่าง ปล่อยให้ default ทำงาน (ไม่ส่ง null เข้าคอลัมน์ not null)
+- **พิสูจน์:** `test_fast_route_writes` 55/55 (ออฟไลน์ · 20 ขั้นลำดับเดียวกัน เทียบทุกแถวทุกชีตหลังทุกขั้น + กฎ: ไม่ประกาศ = ล้ม · รูป = ส่งต่อ) ·
+  `test_fast_route_writes_live` 59/59 (staging ผ่านโฮสต์จริง · ทั้งสองบันทึกตรวจสอบ · ครูถูกปฏิเสธ · batch เห็นผลทันที · เวอร์ชันแคชขยับ) ·
+  `test_cache_versions` +2 (cfg ตามเวอร์ชัน) · test_all 226/226 · test_all_pg ผ่าน (126 ชุดบน Postgres) · staging live ทั้ง 4 ชุดผ่าน ·
+  **deploy:** Cloud Run rev 00018 (p50 140ms · p95 150ms · 300/300) · GAS @409 (คีย์ cfg — มีผลเฉพาะหลังสลับไป Postgres)
+
+---
+
 ## 2026-11-06 · Cloud Run · ย้าย myPayslipMonths · otCarryOver · otWaiveDays · certText — หน้าสลิปของครูตอบบนโฮสต์ครบ
 
 **ผอ.:** *"ทำต่อเรื่องย้าย route ได้เลย"*

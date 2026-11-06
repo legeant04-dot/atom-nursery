@@ -337,8 +337,12 @@ async function persist(client, tenantId, M, snapshot, keys) {
         if (before.get(row.__id) === JSON.stringify(row)) continue;   // untouched
         const names = cols.map((f, i) => q(c.toPg[f]) + '=$' + (i + 3));
         const vals = cols.map(f => encode_(row[f], typeOf_(c.table, c.toPg[f]), c.table + "." + c.toPg[f]));
+        /* the sheet's own UpdatedAt (DAILY_JOURNAL) is the engine's to set, not ours — see stampUpdated_ */
+        const own = Object.keys(c.toPg).some(f => c.toPg[f] === 'updated_at');
+        const sets = names.join(',') + (own ? '' : (names.length ? ', ' : '') + 'updated_at = now()');
+        if (!sets) continue;
         await client.query(
-          `update ${c.table} set ${names.join(',')}, updated_at = now()
+          `update ${c.table} set ${sets}
            where id = $1 and tenant_id = $2`, [row.__id, tenantId, ...vals]);
         out.updated++;
       }
@@ -416,7 +420,7 @@ async function hydrateConfig(client, tenantId, opts) {
    * same order, same decode_) — so server/routes.js's getConfig_ needs no second round trip.
    * test_fast_routes_live.js compares the two on a real database. */
   if (opts && Array.isArray(opts.rows)) {
-    r.rows.forEach(x => opts.rows.push({ Key: decode_(x.key, typeOf_('school_config', 'key')), Value: decode_(x.value, typeOf_('school_config', 'value')) }));
+    r.rows.forEach(x => opts.rows.push({ Key: sheetDecode_(x.key, typeOf_('school_config', 'key')), Value: sheetDecode_(x.value, typeOf_('school_config', 'value')) }));
   }
   /* vm objects carry the sandbox's prototypes; round-trip so handlers get ordinary objects */
   return JSON.parse(JSON.stringify(configShaper()(raw)));
@@ -437,22 +441,50 @@ async function hydrateConfig(client, tenantId, opts) {
  * 🔴 NOTHING DERIVED IS WRITTEN BACK. GasEngine persists payrollConfig and staffAttendanceToday;
  * this does not, so a staff clock-in through the fast host would vanish without an error. That is
  * why server/host.js refuses every write until that path exists and is tested. */
+/* 🔴 ONE SHEET NAME, TWO TABLES. AUDIT_LOG exists in both workbooks and they are different logs (MAIN →
+ * audit_log, HR → hr_audit_log — schema_inventory HR_PREFIXED). A caller names the HR one 'HR_AUDIT_LOG'
+ * (server/routes.js does, from the workbook a sheet_() call names): same columns, its own table. */
+const colsOf = sheet => SHEET_COLS[sheet] || (sheet === 'HR_AUDIT_LOG' ? SHEET_COLS.AUDIT_LOG : null) || [];
+/* 🔴 A SHEET'S TEXT IS TEXT (found 2026-11-07, the first W1 run on staging). decode_ is the ENGINE's reader
+ * — it turns '{"ลาป่วย":30}' into an object, because GasEngine's decodeCell_ does. But the rows readSheet
+ * hands back are read by Apps Script's OWN code (server/routes.js), which on Sheets — and on Postgres,
+ * through DbPg.gs pgDecode_ — gets the text as text. SCHOOL_CONFIG.LeaveQuota came back an object here and
+ * a string there. A handler that does String(r.Value) would have printed "[object Object]". So: text and
+ * jsonb stay their text, exactly as pgDecode_ returns them; numbers, dates, times and booleans as before. */
+function sheetDecode_(v, pgType) {
+  const t = String(pgType || '').toLowerCase().replace(/\(.*$/, '').trim().split(/\s+/)[0];
+  const typed = /^(numeric|integer|bigint|smallint|real|double|date|time|timestamp|timestamptz|boolean)$/.test(t);
+  if (!typed && typeof v === 'string') return v;
+  if (!typed && v && typeof v === 'object' && !(v instanceof Date)) return JSON.stringify(v);   // jsonb, parsed by the driver
+  return decode_(v, pgType);
+}
 async function readSheet(client, tenantId, sheet, opts) {
-  const cols = SHEET_COLS[sheet]; if (!cols || !cols.length) return [];
+  const cols = colsOf(sheet); if (!cols || !cols.length) return [];
   const table = snake(sheet), withId = !!(opts && opts.withId);
   const r = await client.query('select ' + (withId ? 'id::text as "__id",' : '') + cols.map(c => q(snake(c))).join(',') + ' from ' + table +
     ' where tenant_id = $1 order by seq', [tenantId]);
   return r.rows.map(row => {
-    const o = {}; cols.forEach(c => { o[c] = decode_(row[snake(c)], typeOf_(table, snake(c))); });
+    const o = {}; cols.forEach(c => { o[c] = sheetDecode_(row[snake(c)], typeOf_(table, snake(c))); });
     if (withId) o.__id = row.__id;            // which row to update — server/routes.js strips it before Apps Script code sees it
     return o;
   });
+}
+/* 🔴 updated_at IS SOMETIMES THE SHEET'S OWN COLUMN (found 2026-11-07, W1 on staging). DAILY_JOURNAL has an
+ * `UpdatedAt` — when the teacher last edited the report — and the schema deliberately lands it on the
+ * reserved updated_at (schema_inventory RESERVED NAMES). Stamping now() on every update therefore rewrote
+ * the TEACHER'S time on writes that never touched it (unlockJournal changes the status only), where Apps
+ * Script — on Sheets and through DbPg alike — leaves the cell as it was. So now() is added only when the
+ * sheet has no column of its own there; when it does, the sheet's value moves only if the write names it.
+ * (And naming it AND stamping it would assign the column twice, which Postgres refuses.) */
+function stampUpdated_(cols, keys) {
+  const own = cols.some(c => snake(c) === 'updated_at');
+  return (own || keys.some(k => snake(k) === 'updated_at')) ? '' : ', updated_at = now()';
 }
 /* Update named cells of rows read with readSheet(…, { withId: true }) — what DbPg's updateRow_ does for a
  * Code.gs route run on the fast host. A row deleted meanwhile is an error, not a silent no-op, and only
  * the sheet's declared columns can be named. */
 async function updateSheetRows(client, tenantId, sheet, updates) {
-  const cols = SHEET_COLS[sheet] || [], table = snake(sheet);
+  const cols = colsOf(sheet), table = snake(sheet);
   let n = 0;
   for (const u of updates || []) {
     const keys = Object.keys(u.patch || {});
@@ -460,12 +492,52 @@ async function updateSheetRows(client, tenantId, sheet, updates) {
     keys.forEach(k => { if (cols.indexOf(k) < 0) throw new Error('updateSheetRows: ' + sheet + ' has no column ' + k); });
     const vals = keys.map(k => encode_(u.patch[k], typeOf_(table, snake(k)), table + '.' + snake(k)));
     const sets = keys.map((k, i) => q(snake(k)) + ' = $' + (i + 3)).join(', ');
-    const r = await client.query('update ' + table + ' set ' + sets + ', updated_at = now() where id = $1 and tenant_id = $2',
+    const r = await client.query('update ' + table + ' set ' + sets + stampUpdated_(cols, keys) + ' where id = $1 and tenant_id = $2',
       [u.id, tenantId].concat(vals));
     if (r.rowCount !== 1) throw new Error('updateSheetRows: ' + sheet + ' row ' + u.id + ' is gone');
     n++;
   }
   return { updated: n };
+}
+/* Append one row — what appendObject_ does (a new row at the END: seq is the sheet's row order).
+ * Only the sheet's declared columns; a key that is not one is an error, never silently dropped
+ * (server/routes.js has already reduced the object to the header columns, as appendObject_ does). */
+async function insertSheetRow(client, tenantId, sheet, row) {
+  const cols = colsOf(sheet), table = snake(sheet);
+  if (!cols.length) throw new Error('insertSheetRow: no sheet ' + sheet);
+  /* a blank CreatedAt / UpdatedAt (they snake onto the reserved not-null columns) is left to the default,
+   * exactly as persist does — '' would encode to null and the insert would be refused outright */
+  const keys = Object.keys(row || {}).filter(k => row[k] !== undefined &&
+    !(/^(created_at|updated_at)$/.test(snake(k)) && encode_(row[k], typeOf_(table, snake(k))) == null));
+  keys.forEach(k => { if (cols.indexOf(k) < 0) throw new Error('insertSheetRow: ' + sheet + ' has no column ' + k); });
+  const vals = keys.map(k => encode_(row[k], typeOf_(table, snake(k)), table + '.' + snake(k)));
+  const r = await client.query('insert into ' + table + ' (tenant_id' + keys.map(k => ',' + q(snake(k))).join('') + ') values ($1' +
+    keys.map((_, i) => ',$' + (i + 2)).join('') + ') returning id::text as id', [tenantId].concat(vals));
+  return r.rows[0].id;
+}
+/* Delete one row by its id — what sheet.deleteRow does. A row already gone is an error: the caller read
+ * it under the same lock, so it vanishing means something is wrong, not "nothing to do". */
+async function deleteSheetRow(client, tenantId, sheet, id) {
+  const r = await client.query('delete from ' + snake(sheet) + ' where id = $1 and tenant_id = $2', [id, tenantId]);
+  if (r.rowCount !== 1) throw new Error('deleteSheetRow: ' + sheet + ' row ' + id + ' is gone');
+}
+/**
+ * Apply what a ported Code.gs route did, IN THE ORDER IT DID IT (server/routes.js sink):
+ *   { op:'update', sheet, id, patch } · { op:'insert', sheet, tmp, row } · { op:'delete', sheet, id }
+ * A row the route added and then changed or removed carries a temporary id ('new:…'); it is mapped to
+ * the real one as the insert lands. Returns { SHEET: { updated, inserted, deleted } }.
+ */
+async function applySheetOps(client, tenantId, ops) {
+  const real = {}, out = {};
+  const idOf = id => (String(id).indexOf('new:') === 0 ? real[id] : id);
+  for (const o of ops || []) {
+    const c = out[o.sheet] || (out[o.sheet] = { updated: 0, inserted: 0, deleted: 0 });
+    if (o.op === 'insert') { real[o.tmp] = await insertSheetRow(client, tenantId, o.sheet, o.row); c.inserted++; }
+    else if (o.op === 'update') { await updateSheetRows(client, tenantId, o.sheet, [{ id: idOf(o.id), patch: o.patch }]); c.updated++; }
+    else if (o.op === 'delete') { await deleteSheetRow(client, tenantId, o.sheet, idOf(o.id)); c.deleted++; }
+    else throw new Error('applySheetOps: unknown op ' + o.op);
+  }
+  return out;
 }
 /* 🔴 Apps Script caches rows in CacheService under keys that carry each sheet's version (src/DbPg.gs
  * CACHE VERSIONS). A write here that does not bump the version leaves Apps Script serving the old rows
@@ -546,4 +618,4 @@ async function hydrateDerived(client, tenantId, M, today) {
   return function derivedChanged() { return Object.keys(init).filter(k => JSON.stringify(cache[k]) !== init[k]); };
 }
 
-module.exports = { COLLECTIONS, hydrate, hydrateFast, hydrateConfig, hydrateDerived, readSheet, updateSheetRows, bumpCacheVersions, writePayrollConfig, persist, decode_, encode_, snake, liftGas_, SHEET_COLS: () => SHEET_COLS };
+module.exports = { COLLECTIONS, hydrate, hydrateFast, hydrateConfig, hydrateDerived, readSheet, updateSheetRows, insertSheetRow, deleteSheetRow, applySheetOps, colsOf, bumpCacheVersions, writePayrollConfig, persist, decode_, encode_, snake, liftGas_, SHEET_COLS: () => SHEET_COLS };

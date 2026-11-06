@@ -116,7 +116,7 @@ console.log('\n3) 🔴 กฎที่ทำให้รันนอก Apps Scr
   delete ROUTES.PORTED.__w;
   ok_('🔴 route ที่ไม่ได้ประกาศการเขียน แต่พยายามเขียน → ล้มทันที', !!e3 && /does not declare/.test(e3.message));
   const GATE = require(path.join(__dirname, '..', 'server', 'gate.js'));
-  ok_('🔴 route ที่เขียนข้อมูลได้ คือตัวที่ประกาศช่องที่เขียนไว้เท่านั้น', Object.keys(ROUTES.PORTED).every(a => !GATE.isMutating(a) || !!ROUTES.PORTED[a].writes));
+  ok_('🔴 route ที่เขียนข้อมูลได้ คือตัวที่ประกาศการเขียนไว้เท่านั้น (writes · appends · deletes)', Object.keys(ROUTES.PORTED).every(a => !GATE.isMutating(a) || ROUTES.writes(a)));
 }
 
 console.log('\n4) markNotifsRead — ผลในชีตหลังกด "อ่านแล้ว" เท่ากับ Apps Script ทุกแถว');
