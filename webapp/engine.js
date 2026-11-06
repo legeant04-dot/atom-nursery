@@ -588,6 +588,18 @@ function createAtomAPI(M, GROWTH_STD) {
   // enrich a leave request with the requester's names (so lists show a nickname, not STF-xxx)
   // '' | 'AM' (ครึ่งวันเช้า) | 'PM' (ครึ่งวันบ่าย) — anything else is a full day
   function halfDay_(v){ const s=String(v||'').toUpperCase().trim(); return (s==='AM'||s==='PM')?s:''; }
+  /* 🔴 ONE PERSON, ONE LEAVE PER SLOT (2026-11-06) — the engine half of leaveOverlap_ in src/Leave.gs,
+   * which is what runs live; read the note there. Waiting or approved holds the slot; a full day
+   * clashes with anything that day; AM and PM of one day do not clash. test_leave_overlap drives both. */
+  const LEAVE_HOLDS_SLOT_ = { PENDING_LEADER:1, PENDING_ADMIN:1, APPROVED:1 };
+  const leaveSlot_ = l => ({ start: ymd(l.StartDate||''), end: ymd(l.EndDate||'')||ymd(l.StartDate||''), half: halfDay_(l.HalfDay) });
+  const leavesClash_ = (a,b) => !!a.start && !!b.start && !(a.start>(b.end||b.start) || b.start>(a.end||a.start))
+    && !(a.half && b.half && a.half!==b.half);
+  const leaveOverlap_ = (staffId, want, exceptId) => (M.leaves||[]).find(l => String(l.StaffID)===String(staffId)
+    && (!exceptId || String(l.LeaveID)!==String(exceptId)) && LEAVE_HOLDS_SLOT_[String(l.Status||'')] && leavesClash_(want, leaveSlot_(l))) || null;
+  const leaveOverlapFail_ = l => { const s=leaveSlot_(l);
+    fail('LEAVE_OVERLAP','ไม่สามารถลาได้เนื่องจากซ้ำกับการลาก่อนหน้า ('+l.LeaveID+' · '+leaveTypeTH_(l.Type)+' '+s.start+(s.end&&s.end!==s.start?' ถึง '+s.end:'')
+      +(s.half?' · '+(s.half==='AM'?'ครึ่งวันเช้า':'ครึ่งวันบ่าย'):'')+')'); };
   // Canonical Thai leave type. Rows written while the app was in English hold the translated label
   // ("Sick Leave"), because the old dropdown had no value attribute and i18n_tr.js rewrote the option
   // text in place. The entitlement counter is keyed by the Thai name, so those rows counted as zero
@@ -4436,7 +4448,11 @@ function createAtomAPI(M, GROWTH_STD) {
 
     myLeaves: p => M.leaves.filter(l=>l.StaffID===p.staffId).map(leaveView_),
     // Admin: every leave request (for the list split into pending vs resolved) + the calendar
-    allLeaves: p => (M.leaves||[]).slice().sort((a,b)=>String(b.CreatedDate||b.StartDate).localeCompare(String(a.CreatedDate||a.StartDate))).map(leaveView_),
+    allLeaves: p => (M.leaves||[]).slice().sort((a,b)=>String(b.CreatedDate||b.StartDate).localeCompare(String(a.CreatedDate||a.StartDate)))
+      .map(l => Object.assign(leaveView_(l), {
+        // ⚠️ duplicates already on file — flagged for the admin, never changed (see handleAllLeaves in Leave.gs)
+        overlapWith: !LEAVE_HOLDS_SLOT_[String(l.Status||'')] ? [] : (M.leaves||[]).filter(o => o!==l && String(o.StaffID)===String(l.StaffID)
+          && LEAVE_HOLDS_SLOT_[String(o.Status||'')] && leavesClash_(leaveSlot_(l), leaveSlot_(o))).map(o => String(o.LeaveID)) })),
     // Admin edits a leave in place (dates/type/reason); recomputes Days
     editLeave: p => { const ap=staffById(p.staffId); if(!adminLike_(ap))fail('NO_PERMISSION','เฉพาะแอดมิน');
       const l=M.leaves.find(x=>x.LeaveID===p.leaveId); if(!l)fail('NOT_FOUND','ไม่พบคำขอ');
@@ -4448,7 +4464,8 @@ function createAtomAPI(M, GROWTH_STD) {
       let nDays=l.Days;
       if(p.startDate||p.endDate||p.halfDay!==undefined){
         nDays=Math.floor((new Date(nEnd)-new Date(nStart))/864e5)+1;
-        if(nHalf){ if(nDays!==1) fail('BAD_INPUT','ลาครึ่งวันได้เฉพาะใบลาวันเดียว'); nDays=0.5; } }
+        if(nHalf){ if(nDays!==1) fail('BAD_INPUT','ลาครึ่งวันได้เฉพาะใบลาวันเดียว'); nDays=0.5; }
+        const c=leaveOverlap_(l.StaffID,{start:ymd(nStart),end:ymd(nEnd),half:nHalf},l.LeaveID); if(c) leaveOverlapFail_(c); }
       if(p.type!=null)l.Type=leaveTypeTH_(p.type); if(p.reason!=null)l.Reason=p.reason;
       l.StartDate=nStart; l.EndDate=nEnd; l.HalfDay=nHalf; l.Days=nDays;
       return leaveView_(l); },
@@ -4492,6 +4509,7 @@ function createAtomAPI(M, GROWTH_STD) {
       const half=halfDay_(p.halfDay);
       if(half && days!==1) fail('BAD_INPUT','ลาครึ่งวันได้เฉพาะใบลาวันเดียว');
       if(half) days=0.5;
+      { const c=leaveOverlap_(p.staffId,{start:ymd(p.startDate),end:ymd(p.endDate),half},''); if(c) leaveOverlapFail_(c); }
       M.leaves.push({LeaveID:id,StaffID:p.staffId,Department:st.Department,Type:leaveTypeTH_(p.type),StartDate:p.startDate,EndDate:p.endDate,Days:days,HalfDay:half,Reason:p.reason,Status:lead?'PENDING_ADMIN':'PENDING_LEADER',Step1ApproverName:'',Step1Status:lead?'Skipped':'Pending',Step1CrossDept:'',Step2ApproverName:'',Step2Status:'Pending',CreatedDate:todayLocal(),Attachment:p.attachment||''});
       return {leaveId:id,status:lead?'PENDING_ADMIN':'PENDING_LEADER',days,halfDay:half}; },
     approveLeave: p => { const ap=staffById(p.staffId)||{}; const l=M.leaves.find(x=>x.LeaveID===p.leaveId); if(!l)fail('NOT_FOUND','ไม่พบคำขอ'); const yes=p.decision==='approve';
