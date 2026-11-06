@@ -39,7 +39,13 @@ const PORTED = {
   // Big Cleaning: the dates, the allowance and the day's own hours — all from SCHOOL_CONFIG (src/Checkin.gs)
   bigCleaningDays: { fn: 'handleBigCleaningDays', reads: [] },
   // the admin's whole leave list, newest first (src/Leave.gs) — a family is refused it at the gate (NOT_FOR_FAMILIES_)
-  allLeaves: { fn: 'handleAllLeaves', reads: ['LEAVE_REQUEST', 'STAFF'] }
+  allLeaves: { fn: 'handleAllLeaves', reads: ['LEAVE_REQUEST', 'STAFF'] },
+  /* 💰 one month's payslip (src/Payroll.gs) — the saved row, the provident-fund running total over
+   * every saved month, the school's match rate (SCHOOL_CONFIG), and the "not approved = not there"
+   * rule for a teacher. Money: test_fast_routes compares it figure for figure, Sheets types vs text. */
+  getPayslip: { fn: 'handleGetPayslip', reads: ['PAYROLL', 'STAFF'] },
+  // a child's insurance: the enrolment form (INSURANCE_PCHI, by id or national id) and the school's policy (src/Day6.gs)
+  insuranceStatus: { fn: 'handleInsuranceStatus', reads: ['STUDENTS', 'INSURANCE_PCHI'] }
 };
 /* 🔴 SCHOOL_CONFIG is readable by every ported route, as by every line of Apps Script: getConfig_ is
  * Db.gs's own (raw Key/Value rows, cached per execution in _configCache — reset per request here),
@@ -49,7 +55,7 @@ const ALWAYS_READ = ['SCHOOL_CONFIG'];
 
 /* Config/Auth: constants · Notify/Leave: the handlers · Checkin: resolveStaff_ · Code: apiError_ ·
  * GasEngine: decodeCell_. Loaded whole, as Apps Script loads them. */
-const FILES = ['Config', 'Db', 'Auth', 'Checkin', 'Code', 'GasEngine', 'Notify', 'Leave'];
+const FILES = ['Config', 'Db', 'Auth', 'Checkin', 'Code', 'GasEngine', 'Notify', 'Leave', 'Payroll', 'Day6'];
 let box = null, pristine = null;
 function load() {
   if (box) return box;
@@ -58,6 +64,10 @@ function load() {
   FILES.forEach(f => vm.runInContext(fs.readFileSync(path.join(ROOT, 'src', f + '.gs'), 'utf8'), box, { filename: f + '.gs' }));
   Object.keys(PORTED).forEach(a => {
     if (typeof box[PORTED[a].fn] !== 'function') throw new Error('routes: ' + PORTED[a].fn + ' not found in src/*.gs');
+    /* 🔴 ONLY A REAL Code.gs ROUTE. An action live answers from the ENGINE (myLeaves, 2026-11-06 — its name
+     * is in another Code.gs list, not ROUTES) is already answered on the host by the same engine; running a
+     * .gs handler for it instead would answer a different shape from live. Refused at load. */
+    if (!box.ROUTES || !Object.prototype.hasOwnProperty.call(box.ROUTES, a)) throw new Error('routes: ' + a + ' is not a Code.gs route — live answers it from the engine');
   });
   /* 🔴 EVERY REQUEST STARTS FROM THE STATE THE FILES LOAD INTO — as every Apps Script execution does.
    * The .gs files keep module-level memos that are safe there only because an execution ends:

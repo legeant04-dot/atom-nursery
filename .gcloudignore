@@ -38,6 +38,8 @@
 !/src/Audit.gs
 !/src/Auth.gs
 !/src/Notify.gs
+!/src/Payroll.gs
+!/src/Day6.gs
 
 !/docs/
 /docs/*

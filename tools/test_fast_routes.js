@@ -286,5 +286,81 @@ console.log('\n6) bigCleaningDays — วัน Big Cleaning · ค่าตอ�
   }
 }
 
+console.log('\n7) 💰 getPayslip · insuranceStatus — เท่ากับ Apps Script ทุกตัวอักษร');
+{
+  const FX = {
+    staff: [
+      { StaffID: 'STF-T', Name: 'ครูที', Nickname: 'ที', Role: 'Teacher', PositionLevel: 'Teacher', Status: 'ACTIVE', ContributionOpening: 1200 },
+      { StaffID: 'STF-N', Name: 'ครูใหม่', Role: 'Teacher', PositionLevel: 'Teacher', Status: 'ACTIVE', ContributionOpening: '' }],
+    leaves: [
+      { LeaveID: 'LV-1', StaffID: 'STF-T', Department: 'Nursery 1', Type: 'ลาป่วย', StartDate: '2026-11-03', EndDate: '2026-11-03', Days: 1, Reason: 'ไข้', Status: 'APPROVED', Step1ApproverName: 'หัวหน้า', Step1Status: 'APPROVED', Step2ApproverName: 'แอดมิน', Step2Status: 'APPROVED' },
+      { LeaveID: 'LV-2', StaffID: 'STF-T', Type: 'ลากิจ', StartDate: '2026-11-10', EndDate: '2026-11-10', Days: 0.5, Reason: 'ธุระ', Status: 'PENDING_LEADER' },
+      { LeaveID: 'LV-3', StaffID: 'STF-N', Type: 'ลาป่วย', StartDate: '2026-11-04', EndDate: '2026-11-04', Days: 1, Status: 'PENDING_LEADER' }],
+    // three saved months for STF-T: one approved with the employer share left blank (= own × match),
+    // one with the employer share typed in, one NOT approved yet
+    payroll: [
+      { StaffID: 'STF-T', Month: '2026-08', BaseSalary: 15000, Contribution: 450, ContributionEmployer: '', NetPay: 14550, Approved: 'YES' },
+      { StaffID: 'STF-T', Month: '2026-09', BaseSalary: 15000, Contribution: 450, ContributionEmployer: 300, OT: 1250.5, NetPay: 15800.5, Approved: '' },
+      { StaffID: 'STF-T', Month: '2026-10', BaseSalary: 15500, Contribution: 465, ContributionEmployer: '', NetPay: 15035, Approved: 'NO' },
+      { StaffID: 'STF-N', Month: '2026-10', BaseSalary: 12000, Contribution: 0, NetPay: 12000, Approved: 'YES' }],
+    students: [
+      { StudentID: 'STD-1', Name: 'เด็กหนึ่ง', NameEN: 'One', NationalID: '1100000000011', Gender: 'ชาย', DOB: '2023-02-03', Class: 'Nursery 1',
+        InsurancePolicyNo: 'POL-9', InsuranceCompany: 'บริษัทประกัน', InsuranceExpiry: '2027-05-31', InsuranceStart: '2026-06-01' },
+      { StudentID: 'STD-2', Name: 'เด็กสอง', NationalID: '1100000000022', DOB: '2022-12-01' },
+      { StudentID: 'STD-3', Name: 'เด็กสาม', NationalID: '' }],
+    pchi: [
+      { InsuranceID: 'INS-1', StudentID: 'STD-1', InsuredName: 'เด็กหนึ่ง', DOB: '2023-02-03', EffectiveDate: '2026-06-01', FilledBy: 'PAR-1', FilledDate: '2026-05-20 10:11' },
+      // filed under a different id but the same national id — found by NationalID, as live does
+      { InsuranceID: 'INS-2', StudentID: 'STD-OLD', NationalID: '1100000000022', InsuredName: 'เด็กสอง', DOB: '2022-12-01' }]
+  };
+  const G = require('./gas_test_harness.js')(FILES.concat(['Payroll', 'Day6']));
+  G.g.__FIX = JSON.stringify(FX);
+  G.run(function () {
+    _configCache = null; setupAll(); _configCache = null;
+    setConfigValue_('ContributionMatchRate', '1'); _configCache = null;
+    var F = JSON.parse(__FIX), hr = getHrSpreadsheet_(), ss = getMainSpreadsheet_();
+    F.staff.forEach(function (r) { appendObject_(sheet_(hr, 'STAFF'), r); });
+    F.leaves.forEach(function (r) { appendObject_(sheet_(hr, 'LEAVE_REQUEST'), r); });
+    F.payroll.forEach(function (r) { appendObject_(sheet_(hr, 'PAYROLL'), r); });
+    F.students.forEach(function (r) { appendObject_(sheet_(ss, 'STUDENTS'), r); });
+    F.pchi.forEach(function (r) { appendObject_(sheet_(ss, 'INSURANCE_PCHI'), r); });
+    return '';
+  });
+  const rawX = JSON.parse(G.run(function () {
+    var out = {}, hr = getHrSpreadsheet_(), ss = getMainSpreadsheet_();
+    [['STAFF', hr], ['LEAVE_REQUEST', hr], ['PAYROLL', hr], ['STUDENTS', ss], ['INSURANCE_PCHI', ss], ['SCHOOL_CONFIG', ss]].forEach(function (x) {
+      out[x[0]] = readObjects_(sheet_(x[1], x[0])).map(function (r) { var o = {}; for (var k in r) o[k] = r[k]; return o; }); });
+    return JSON.stringify(out);
+  }));
+  const gasX = (fn, p) => { G.g.__P = JSON.stringify(p); G.g.__F = fn; return JSON.parse(G.run(function () {
+    try { return JSON.stringify({ ok: true, data: this[__F](JSON.parse(__P)) }); }
+    catch (e) { return JSON.stringify({ ok: false, code: e.apiCode || e.message }); } })); };
+  const hostX = (a, p) => { try { return { ok: true, data: ROUTES.run(a, p, JSON.parse(JSON.stringify(rawX)), {}, {}) }; }
+    catch (e) { return { ok: false, code: e.apiCode || e.message }; } };
+  const CASES = [
+    ['getPayslip', 'handleGetPayslip', '💰 สิงหาคม (นายจ้างสมทบว่าง = เท่าของลูกจ้าง)', { staffId: 'STF-T', month: '2026-08', role: 'Teacher' }],
+    ['getPayslip', 'handleGetPayslip', '💰 กันยายน (นายจ้างสมทบที่พิมพ์ไว้ · OT ทศนิยม)', { staffId: 'STF-T', month: '2026-09', role: 'Teacher' }],
+    ['getPayslip', 'handleGetPayslip', '💰 🔴 ตุลาคม ยังไม่อนุมัติ — ครูไม่เห็น', { staffId: 'STF-T', month: '2026-10', role: 'Teacher' }],
+    ['getPayslip', 'handleGetPayslip', '💰 ตุลาคม ยังไม่อนุมัติ — แอดมินเห็น', { staffId: 'STF-T', month: '2026-10' }],
+    ['getPayslip', 'handleGetPayslip', '💰 เดือนที่ยังไม่มีสลิป = null', { staffId: 'STF-T', month: '2026-11', role: 'Teacher' }],
+    ['getPayslip', 'handleGetPayslip', '💰 ครูที่ไม่มียอดยกมา', { staffId: 'STF-N', month: '2026-10', role: 'Teacher' }],
+    ['insuranceStatus', 'handleInsuranceStatus', 'กรอกแล้ว + กรมธรรม์ของโรงเรียน', { studentId: 'STD-1' }],
+    ['insuranceStatus', 'handleInsuranceStatus', 'พบด้วยเลขบัตรประชาชน', { studentId: 'STD-2' }],
+    ['insuranceStatus', 'handleInsuranceStatus', 'ยังไม่กรอก', { studentId: 'STD-3' }],
+    ['insuranceStatus', 'handleInsuranceStatus', 'ไม่พบนักเรียน', { studentId: 'STD-NOPE' }]];
+  const got = {};
+  for (const [a, fn, label, p] of CASES) { const want = gasX(fn, p); got[label] = hostX(a, p); eq(a + ' · ' + label, got[label], want); }
+  /* 🔴 myLeaves is NOT a Code.gs route — live answers it from the engine, and so does the host. Porting
+   * it as a route answered another shape (caught by test_fast_routes_live); routes.js now refuses any
+   * action that is not in ROUTES. */
+  ok_('🔴 myLeaves ไม่ใช่ route ของ Code.gs จึงไม่ถูกย้าย (โฮสต์ตอบด้วย engine เหมือนของจริง)', !ROUTES.has('myLeaves'));
+  const aug = got['💰 สิงหาคม (นายจ้างสมทบว่าง = เท่าของลูกจ้าง)'].data;
+  // opening 1200 + Aug (450+450) + Sep (450+300) + Oct (465+465) = 3780 — every saved month, approved or not
+  eq('💰 ข้อเท็จจริง: สมทบนายจ้าง 450 · ยอดสะสม 3,780 · เดือน 2026-08', [aug.ContributionEmployer, aug.ContributionAccum, aug.Month], [450, 3780, '2026-08']);
+  eq('💰 🔴 ข้อเท็จจริง: สลิปที่ยังไม่อนุมัติ ครูได้ null', got['💰 🔴 ตุลาคม ยังไม่อนุมัติ — ครูไม่เห็น'].data, null);
+  ok_('ไม่มี _row หลุดไปในสลิปหรือแบบประกัน', !('_row' in aug) && !('_row' in (got['กรอกแล้ว + กรมธรรม์ของโรงเรียน'].data.record || {})));
+  eq('ข้อเท็จจริง: แบบประกันที่พบด้วยเลขบัตร', got['พบด้วยเลขบัตรประชาชน'].data.record && got['พบด้วยเลขบัตรประชาชน'].data.record.InsuranceID, 'INS-2');
+}
+
 console.log('\n' + (fail ? '❌ ' : '✅ ') + pass + ' passed, ' + fail + ' failed');
 process.exit(fail ? 1 : 0);

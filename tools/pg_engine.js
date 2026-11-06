@@ -105,6 +105,12 @@ function localParts(d) {
            h: t.getUTCHours(), mi: t.getUTCMinutes(), s: t.getUTCSeconds() };
 }
 function decode_(v, pgType) {
+  /* 🔴 THE TYPE NAME, NOT THE WHOLE DECLARATION (found 2026-11-06, porting getPayslip). Two callers
+   * pass two spellings: hydrate passes the driver's type name ('numeric'), readSheet passes the
+   * declared one from the schema ('numeric(12,2)', 'date not null'). Compared with ===, every money
+   * column on the route path — BaseSalary, NetPay, Contribution — came back as the TEXT '15000.00'
+   * where Sheets (and the engine path) give the number 15000. Reduced to the bare name here, once. */
+  pgType = String(pgType || '').toLowerCase().replace(/\(.*$/, '').replace(/\s+(not null|null|default\b.*|references\b.*|primary key\b.*)$/, '').trim();
   if (v === null || v === undefined) return '';            // Sheets gives '' — the engine compares with ===
   if (v instanceof Date) {
     const p = localParts(v);

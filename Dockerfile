@@ -32,6 +32,9 @@ COPY src/Checkin.gs             src/Checkin.gs
 COPY src/Audit.gs               src/Audit.gs
 COPY src/Auth.gs                src/Auth.gs
 COPY src/Notify.gs              src/Notify.gs
+# server/routes.js runs getPayslip (Payroll.gs) and insuranceStatus (Day6.gs) — the handlers themselves
+COPY src/Payroll.gs             src/Payroll.gs
+COPY src/Day6.gs                src/Day6.gs
 COPY docs/schema/001_init.sql   docs/schema/001_init.sql
 COPY server/host.js             server/host.js
 COPY server/session.js          server/session.js
