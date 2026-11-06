@@ -29,8 +29,9 @@ console.log('\n1) 🔴 สิ่งที่ห้ามออกจากเค
  'Blank Template.png', 'THSarabunNew/THSarabunNew.ttf', 'webapp/CNAME', 'webapp/app.js', 'webapp/assets/logo.png',
  /* src/Code.gs and src/Auth.gs USED to be listed here as "not needed"; since 2026-11-04 server/gate.js
   * loads them (Code.gs's own door), checked to hold no secret and already public in the repo. Two .gs
-  * files the image still has no use for take their place, so the whitelist is still being tested. */
- 'src/Certificate.gs', 'src/PaySlips.gs', 'tools/test_bill_document.js', 'tools/pg_sync.js', 'design/receipt-sample.html',
+  * files the image still has no use for take their place, so the whitelist is still being tested.
+  * (Certificate.gs was one of them until 2026-11-06, when routes.js began running certText — Slips.gs now.) */
+ 'src/Slips.gs', 'src/PaySlips.gs', 'tools/test_bill_document.js', 'tools/pg_sync.js', 'design/receipt-sample.html',
  'docs/pdpa/02_ROPA.md', 'docs/WORKLOG.md', '.claude/settings.local.json', 'dist_pages/app.js'].forEach(f =>
   ok_('🔴 ไม่ถูกอัปโหลด: ' + f, !uploaded(f)));
 

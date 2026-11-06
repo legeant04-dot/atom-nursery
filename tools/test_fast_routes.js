@@ -362,5 +362,72 @@ console.log('\n7) 💰 getPayslip · insuranceStatus — เท่ากับ A
   eq('ข้อเท็จจริง: แบบประกันที่พบด้วยเลขบัตร', got['พบด้วยเลขบัตรประชาชน'].data.record && got['พบด้วยเลขบัตรประชาชน'].data.record.InsuranceID, 'INS-2');
 }
 
+console.log('\n8) 💰 myPayslipMonths · otCarryOver · otWaiveDays · certText — เท่ากับ Apps Script ทุกตัวอักษร');
+{
+  const FX = {
+    payroll: [
+      // September: paid 300 of the 500 OT approved for it — 200 is still owed
+      { StaffID: 'STF-T', Month: '2026-09', NetPay: 15300, OTEvening: 300, OTCarryDetail: '', SlipSent: 'YES', PaidDate: '2026-09-30', Approved: 'YES' },
+      // a DUPLICATE September row (handlePayrollDuplicates) — not paid, so the paid one wins in the month list
+      { StaffID: 'STF-T', Month: '2026-09', NetPay: 15900, OTEvening: 0, SlipSent: '', PaidDate: '', Approved: 'YES' },
+      // October: saved before the 5 Oct OT was approved; carried 50 of September already
+      { StaffID: 'STF-T', Month: '2026-10', NetPay: 15050, OTEvening: 0, OTCarryDetail: '[{"month":"2026-09","amount":50}]', SlipSent: '', PaidDate: '', Approved: '' },
+      // November: not approved yet — not in the teacher's month list
+      { StaffID: 'STF-T', Month: '2026-11', NetPay: 15000, OTEvening: 0, Approved: 'NO' },
+      { StaffID: 'STF-X', Month: '2026-09', NetPay: 9000, OTEvening: 999, Approved: 'YES' }],
+    ot: [
+      { OTID: 'OT-1', StaffID: 'STF-T', Date: '2026-09-10', Month: '2026-09', Hours: 3, Amount: 300, Status: 'APPROVED', Kind: '', Note: 'ประชุม' },
+      { OTID: 'OT-2', StaffID: 'STF-T', Date: '2026-09-20', Month: '', Hours: 2, Amount: '', Status: 'APPROVED', Kind: '', Note: '' },     // no amount → hours × rate
+      { OTID: 'OT-3', StaffID: 'STF-T', Date: '2026-09-21', Month: '2026-09', Hours: 4, Amount: 400, Status: 'PENDING_LEADER', Kind: '' }, // not approved — never counts
+      { OTID: 'OT-4', StaffID: 'STF-T', Date: '2026-09-27', Month: '2026-09', Hours: 8, Amount: 1500, Status: 'APPROVED', Kind: 'HOLIDAY' }, // holiday OT rides elsewhere
+      { OTID: 'OT-5', StaffID: 'STF-T', Date: '2026-10-05', Month: '2026-10', Hours: 1.5, Amount: 150, Status: 'APPROVED', Kind: '', Note: 'ปิดเทอม' },
+      { OTID: 'OT-6', StaffID: 'STF-X', Date: '2026-09-11', Month: '2026-09', Hours: 9, Amount: 999, Status: 'APPROVED', Kind: '' }],
+    cfg: { OTEveningRate: '100', OTWaiveDays: '[{"from":"2026-11-02","to":"2026-11-03","reason":"อบรม"},{"from":"bad"}]',
+      CertTitleTH: 'เกียรติบัตร', CertDatePrefixTH: 'ให้ไว้ ณ วันที่', CertBgHasText: 'true', CertBgFileId: 'FILE-BG', SchoolName: 'Atom Nursery' }
+  };
+  const G = require('./gas_test_harness.js')(FILES.concat(['Payroll', 'Day6', 'OtStaff', 'OT', 'Certificate']));
+  G.g.__FIX = JSON.stringify(FX);
+  G.run(function () {
+    _configCache = null; setupAll(); _configCache = null;
+    var F = JSON.parse(__FIX), hr = getHrSpreadsheet_();
+    Object.keys(F.cfg).forEach(function (k) { setConfigValue_(k, F.cfg[k]); }); _configCache = null;
+    F.payroll.forEach(function (r) { appendObject_(sheet_(hr, 'PAYROLL'), r); });
+    F.ot.forEach(function (r) { appendObject_(sheet_(hr, 'OT_RECORDS'), r); });
+    return '';
+  });
+  const rawY = JSON.parse(G.run(function () {
+    var out = {}, hr = getHrSpreadsheet_(), ss = getMainSpreadsheet_();
+    [['PAYROLL', hr], ['OT_RECORDS', hr], ['SCHOOL_CONFIG', ss]].forEach(function (x) {
+      out[x[0]] = readObjects_(sheet_(x[1], x[0])).map(function (r) { var o = {}; for (var k in r) o[k] = r[k]; return o; }); });
+    return JSON.stringify(out);
+  }));
+  const gasY = (fn, p) => { G.g.__P = JSON.stringify(p); G.g.__F = fn; return JSON.parse(G.run(function () {
+    _configCache = null;
+    try { return JSON.stringify({ ok: true, data: this[__F](JSON.parse(__P)) }); }
+    catch (e) { return JSON.stringify({ ok: false, code: e.apiCode || e.message }); } })); };
+  const hostY = (a, p) => { try { return { ok: true, data: ROUTES.run(a, p, JSON.parse(JSON.stringify(rawY)), {}, {}) }; }
+    catch (e) { return { ok: false, code: e.apiCode || e.message }; } };
+  const CASES = [
+    ['myPayslipMonths', 'handleMyPayslipMonths', '💰 เดือนที่มีสลิปของครู (ไม่รวมที่ยังไม่อนุมัติ · เดือนซ้ำเหลือใบเดียว)', { staffId: 'STF-T' }],
+    ['myPayslipMonths', 'handleMyPayslipMonths', 'ไม่มี staffId', {}],
+    ['otCarryOver', 'handleOtCarryOver', '💰 OT ค้างจ่าย ณ พฤศจิกายน', { staffId: 'STF-T', month: '2026-11' }],
+    ['otCarryOver', 'handleOtCarryOver', '💰 OT ค้างจ่าย ณ ตุลาคม (ตุลาคมเองไม่นับ)', { staffId: 'STF-T', month: '2026-10' }],
+    ['otCarryOver', 'handleOtCarryOver', '💰 ครูที่ไม่มีค้าง', { staffId: 'STF-NONE', month: '2026-11' }],
+    ['otWaiveDays', 'handleOtWaiveDays', 'วันงดคิด OT (แถวที่เสียถูกข้าม)', {}],
+    ['certText', 'handleCertText', 'ข้อความใบประกาศ', {}]];
+  const got = {};
+  for (const [a, fn, label, p] of CASES) { const want = gasY(fn, p); got[label] = hostY(a, p); eq(a + ' · ' + label, got[label], want); }
+  const months = got['💰 เดือนที่มีสลิปของครู (ไม่รวมที่ยังไม่อนุมัติ · เดือนซ้ำเหลือใบเดียว)'].data;
+  eq('💰 ข้อเท็จจริง: ต.ค. + ก.ย. (ใบที่จ่ายแล้ว 15,300) — ไม่มี พ.ย. ที่ยังไม่อนุมัติ', months.months.map(m => m.month + ':' + m.netPay), ['2026-10:15050', '2026-09:15300']);
+  const nov = got['💰 OT ค้างจ่าย ณ พฤศจิกายน'].data;
+  // Sep: approved 300 + 2h×100 = 500, paid 300, carried 50 → 150 owed (of 5h → 1.5h) · Oct: 150 approved, 0 paid → 150
+  eq('💰 ข้อเท็จจริง: ค้าง ก.ย. 150 บาท (1.5 ชม.) + ต.ค. 150 บาท = 300', [nov.total, nov.hours, nov.detail.map(d => d.month + ':' + d.amount + ':' + d.hours)], [300, 3, ['2026-09:150:1.5', '2026-10:150:1.5']]);
+  ok_('💰 🔴 OT ที่ยังไม่อนุมัติ · OT วันหยุด · ของครูคนอื่น ไม่ถูกนับ', nov.detail[0].approved === 500 && !JSON.stringify(nov).includes('999'));
+  eq('ข้อเท็จจริง: วันงดคิด OT', got['วันงดคิด OT (แถวที่เสียถูกข้าม)'].data.days, [{ from: '2026-11-02', to: '2026-11-03', reason: 'อบรม' }]);
+  ok_('ข้อเท็จจริง: ใบประกาศอ่านค่าที่ตั้งไว้ + มีรูปพื้นหลัง', got['ข้อความใบประกาศ'].data.CertTitleTH === 'เกียรติบัตร' && got['ข้อความใบประกาศ'].data.hasBg === true);
+  ok_('🔴 ทุก route ที่ย้ายแล้ว เป็น route ของ Code.gs และอ่านอย่างเดียว ยกเว้นตัวที่ประกาศการเขียน',
+    Object.keys(ROUTES.PORTED).every(a => require(path.join(__dirname, '..', 'server', 'gate.js')).isRoute(a)) && ['myPayslipMonths', 'otCarryOver', 'otWaiveDays', 'certText'].every(a => !ROUTES.PORTED[a].writes));
+}
+
 console.log('\n' + (fail ? '❌ ' : '✅ ') + pass + ' passed, ' + fail + ' failed');
 process.exit(fail ? 1 : 0);

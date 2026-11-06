@@ -40,6 +40,9 @@
 !/src/Notify.gs
 !/src/Payroll.gs
 !/src/Day6.gs
+!/src/OtStaff.gs
+!/src/OT.gs
+!/src/Certificate.gs
 
 !/docs/
 /docs/*
