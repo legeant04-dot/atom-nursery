@@ -352,6 +352,7 @@ const ROW_KEY_ = {
   ABSENCE_FOLLOWUP_LOG: 'LogID', ACTIVITY_LOG: 'LogID',
   FOOD_ITEMS: 'ItemID', FOOD_MENU: 'MenuID', CLASS_COVER: 'CoverID',
   SURVEYS: 'SurveyID', SURVEY_RESPONSES: 'ResponseID',   // NOT SurveyID — a survey has many answers
+  APPLICATIONS: 'AppID', CONSENTS: 'ConsentID',          // 📝 one row per application · one per consent item
   LEAVE_REQUEST: 'LeaveID', OT_RECORDS: 'OTRecordID', PAYROLL: 'PayrollID',
   PAY_ADJUSTMENTS: 'AdjID', TRAINING: 'TrainingID',
   ATTENDANCE_REQUEST: 'ReqID', CLASS_CHANGE_REQ: 'ReqID',

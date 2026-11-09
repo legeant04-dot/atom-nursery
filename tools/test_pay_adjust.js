@@ -188,7 +188,7 @@ console.log('4) the live path, and why it has to exist');
   const adminOnly2 = _ao2 < 0 ? '' : codeGs.slice(_ao2, codeGs.indexOf('};', _ao2) + 2);
   const inAdminOnly = n => new RegExp('\\b' + n + ':\\s*1').test(adminOnly2);
   ok_('the ADMIN_ONLY map was found, and only it',
-    adminOnly2.length > 200 && adminOnly2.length < 8000 && /\};$/.test(adminOnly2));
+    adminOnly2.length > 200 && adminOnly2.length < 12000 && /\};$/.test(adminOnly2));
   ok_('🔴 approving and adjusting are admin-only',
     inAdminOnly('approvePayslip') && inAdminOnly('adjustStaffPay'));
   ok_('...and reading your own history is NOT, or a teacher could never see it',

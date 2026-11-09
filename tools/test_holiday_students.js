@@ -224,7 +224,7 @@ console.log('\n6) both runtimes, and the door they share');
   const _ao = code.indexOf('var ADMIN_ONLY = {');
   const adminOnly = _ao < 0 ? '' : code.slice(_ao, code.indexOf('};', _ao) + 2);
   ok_('the ADMIN_ONLY map was found, and only it',
-    adminOnly.length > 200 && adminOnly.length < 8000 && /\};$/.test(adminOnly));
+    adminOnly.length > 200 && adminOnly.length < 12000 && /\};$/.test(adminOnly));
   const isAdminOnly = n => new RegExp('\\b' + n + ':\\s*1').test(adminOnly);
   ok_('replacing the whole day is admin-only', isAdminOnly('holidayAttendSet'));
   ok_('...but adding ONE name deliberately is not', !isAdminOnly('holidayAttendAdd'));

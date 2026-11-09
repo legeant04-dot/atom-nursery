@@ -199,7 +199,7 @@
       _readStart(); let pr2; try{ pr2=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr2).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.503'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.504'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:var(--fs-1);margin-top:var(--sp-5)">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -1150,7 +1150,9 @@
         return ()=>{ if(window.A_viewJournal) A_viewJournal(sid,date); else if(window.T_journal) T_journal(sid); else GO('class'); }; }
       // an emergency carries the report id, so the notification opens the report the teacher filed
       // rather than dropping the admin on the dashboard with nothing to read
-      if(rk==='injury'&&sid) return ()=>{ if(window.A_viewInjury) A_viewInjury(sid); else GO('home'); }; }
+      if(rk==='injury'&&sid) return ()=>{ if(window.A_viewInjury) A_viewInjury(sid); else GO('home'); };
+      // 📝 an application: the admin opens it; the family is taken home, where its status card is
+      if(rk==='app'&&sid) return role==='Admin' ? ()=>A_appOpen(sid) : ()=>{ try{ localStorage.setItem('atom_app_open','1'); }catch(e){} GO('home'); }; }
     const has=re=>re.test(s);
     // 'payslip' must come BEFORE the keyword fallback: "สลิป" in the text matches /สลิป|slip/ below
     // and would send a teacher to 'verify', which is an Admin screen — i.e. nowhere for her.
@@ -1962,6 +1964,10 @@
         ${CONFIG.MODE==='gas'&&!inLineApp()?`<div data-gsi="signin"></div>`:''}
         <label class="lgchk"><input type="checkbox" id="rememberMe" ${rememberMe()?'checked':''} onchange="REMEMBER_ME(this)"/> ${esc(t('login.remember'))}</label>
       </div>
+      ${/* 📝 สมัครเรียน — ผอ. 2026-11-09: on the front page, LINE first (answer 1). Same row shape as the
+           sign-in rows; 🔴 kept identical to the shell in index.html, or the page jumps when JS replaces it */''}
+      <h3 class="lgsect mid">${EN()?'New family':'ครอบครัวใหม่'}</h3>
+      <div class="lgbox"><button class="lgrow" onclick="APPLY_INTENT()"><span class="i">📝</span><span class="t">${EN()?'Apply for a place':'สมัครเรียน'}</span><span class="chev">›</span></button></div>
       ${demoButtons()}
       ${/* ── หมวดที่ 2: ติดตั้งแอป ───────────────────────────────────────────────────────────
            สองการ์ดเดิมยังเป็นสองก้อน (ชุดทดสอบ Android ตรึงลำดับไว้ และมันคนละเรื่องกันจริง:
@@ -2976,7 +2982,7 @@
       await UPGRADE_SESSION(); // guest token → Parent token now that a PARENTS row exists
       confirmSaved(EN()?'Registered — now add your child':'ลงทะเบียนแล้ว — เพิ่มข้อมูลบุตรหลานต่อ');
       LOGIN_PARENT({nameTH:parent.NameTH,nameEN:parent.NameEN||parent.NameTH,parentId:r.parentId,uid});
-      setTimeout(()=>P_addChild(),300); // prompt to add/link a child right after
+      setTimeout(()=>(APPLY_INTENT_PENDING()?APPLY_START():P_addChild()),300); // came to apply → the form; else add/link a child
     }catch(e){
       // the school already has this parent on file — send them to the claim form instead of leaving them
       // stuck on an error they cannot act on (registering again is what created the duplicates)
@@ -3046,6 +3052,273 @@
       // to spend effort reading back as "nothing recorded" (see careHas)
       Race:v('#rRace'),Nationality:v('#rNationality'),Religion:v('#rReligion'),Class:''};
     try{ await api('addChildNew',{uid:USER.uid,parentId:USER.parentId,student,pickupPersons:pickups}); confirmSaved(t('c.saved')); GO('home'); }catch(e){err(e);} };
+
+  /* ================= 📝 ใบสมัครออนไลน์ — ฝั่งผู้ปกครอง (docs/APPLICATION_FORM_PLAN.md · 2026-11-09) =================
+   *
+   * 🔴 ใบสมัคร ≠ นักเรียน: nothing here creates a child. submitApplication puts an APPLICATION in the
+   * admin's queue; the child exists only once the school approves it and picks the first day. This
+   * REPLACES the old "add a new child" form (REG_CHILD_FORM), which made an ACTIVE, billable student
+   * the moment it was saved — ผอ. 2026-11-09 answer 5, siblings included.
+   *
+   * MOBILE FIRST: one section of the school's paper form per page, the "next" button docked at the
+   * bottom, required fields checked on the page they are on (not at the end), big tap choices instead
+   * of tiny ☐ boxes, and every keystroke kept as a draft ON THE PHONE — nothing reaches the server
+   * until "ส่งใบสมัคร". The consent words come from the server (applyInfo) with their version, so what
+   * is logged is what was shown.
+   */
+  let APP_S=null, APP_INFO=null;
+  const APP_STEPS=()=>EN()
+    ? ['Child','Parents','Collection','Health','Documents','Declaration','PDPA','Review']
+    : ['ข้อมูลเด็ก','ผู้ปกครอง','ผู้รับแทน','สุขภาพ','เอกสาร','คำรับรอง','PDPA','ตรวจทาน'];
+  const APP_DRAFT_KEY=()=>'atom_apply_draft_'+((USER&&USER.parentId)||'');
+  const APP_DOCS=[['birth','สูติบัตร','Birth certificate'],['parentId','สำเนาบัตรประชาชนบิดา-มารดา','Copies of the parents’ ID cards'],
+    ['vaccine','สำเนาสมุดวัคซีนของเด็ก','Copy of the child’s vaccination record'],['house','สำเนาทะเบียนบ้าน บิดา-มารดา และเด็ก','Copies of the house registration'],
+    ['photos','รูปถ่ายเด็ก และรูปถ่ายบิดา-มารดา/ผู้ปกครอง','Photos of the child and of the parents']];
+  const appGet=(path)=>path.split('.').reduce((o,k)=>(o==null?undefined:o[k]),APP_S);
+  const appSet=(path,val)=>{ const ks=path.split('.'); let o=APP_S; ks.slice(0,-1).forEach(k=>{ if(o[k]==null||typeof o[k]!=='object') o[k]={}; o=o[k]; }); o[ks[ks.length-1]]=val; appSave(); };
+  function appSave(){ try{ localStorage.setItem(APP_DRAFT_KEY(), JSON.stringify(APP_S)); }catch(e){} }
+  function appFresh(){ return { step:0, clientRef:'ap-'+Date.now()+'-'+Math.floor(Math.random()*1e6),
+    child:{IdType:'TH'}, data:{child:{address:{}}, father:{}, mother:{}, regAddress:{same:true}, pickups:[{},{},{},{}], health:{drinkFrom:[]}, docs:{}, wish:{}},
+    consents:{}, truth:false, signName:'', signature:'' }; }
+  // ---- the pieces each page is built from ----
+  const apIn=(path,label,o)=>{ o=o||{}; const v=appGet(path); return `<label class="field"><span>${esc(label)}${o.req?' <i class="ap-req">*</i>':''}</span>
+    <input data-ap="${path}" type="${o.type||'text'}" ${o.mode?`inputmode="${o.mode}"`:''} ${o.max?`maxlength="${o.max}"`:''} placeholder="${esc(o.ph||'')}" value="${esc(v==null?'':v)}" oninput="APP_in(this)"/></label>`; };
+  const apTx=(path,label,ph)=>`<label class="field"><span>${esc(label)}</span><textarea data-ap="${path}" rows="2" placeholder="${esc(ph||'')}" oninput="APP_in(this)">${esc(appGet(path)||'')}</textarea></label>`;
+  // big tap choices — one answer (or several with multi), the selected one filled
+  const apSeg=(path,label,opts,o)=>{ o=o||{}; const cur=appGet(path);
+    const on=v=>o.multi?((cur||[]).indexOf(v)>=0):cur===v;
+    return `<div class="field"><span>${esc(label)}${o.req?' <i class="ap-req">*</i>':''}</span><div class="seg ap-seg" data-ap="${path}">
+      ${opts.map(([v,th,en])=>`<button type="button" class="${on(v)?'active':''}" onclick="APP_pick('${path}','${v}',${o.multi?1:0})">${esc(EN()?en:th)}</button>`).join('')}</div></div>`; };
+  const apHead=(i)=>{ const st=APP_STEPS(); const pct=Math.round((i+1)/st.length*100);
+    return `<button class="btn sm outline backbtn" onclick="APP_leave()">${t('c.back')}</button>
+      <h2 class="page">📝 ${EN()?'Application':'ใบสมัครเรียน'}</h2>
+      <div class="ap-prog" role="progressbar" aria-valuenow="${i+1}" aria-valuemax="${st.length}"><i style="width:${pct}%"></i></div>
+      <div class="spread" style="margin:var(--sp-1) 0 var(--sp-3)"><b>${i+1}. ${esc(st[i])}</b><small class="muted">${EN()?'Step':'ขั้น'} ${i+1}/${st.length}</small></div>`; };
+  const apDock=(i)=>`<div class="savedock"><div class="row" style="gap:var(--sp-2)">
+      ${i>0?`<button class="btn outline" style="flex:1" onclick="APP_go(${i-1})">‹ ${EN()?'Back':'ย้อนกลับ'}</button>`:''}
+      <button class="btn" style="flex:2" onclick="APP_next()">${i===APP_STEPS().length-1?('✅ '+(EN()?'Submit application':'ส่งใบสมัคร')):((EN()?'Next':'ถัดไป')+' ›')}</button></div></div>`;
+  const apAddr=(base,o)=>`<div class="grid2">${apIn(base+'.no',EN()?'House no.':'บ้านเลขที่')}${apIn(base+'.village',EN()?'Village':'หมู่บ้าน')}</div>
+    <div class="grid2">${apIn(base+'.soi',EN()?'Lane / Soi':'ตรอก/ซอย')}${apIn(base+'.road',EN()?'Road':'ถนน')}</div>
+    <div class="grid2">${apIn(base+'.subdistrict',EN()?'Sub-district':'ตำบล/แขวง')}${apIn(base+'.district',EN()?'District':'อำเภอ/เขต')}</div>
+    <div class="grid2">${apIn(base+'.province',EN()?'Province':'จังหวัด')}${apIn(base+'.postcode',EN()?'Postcode':'รหัสไปรษณีย์',{mode:'numeric',max:5})}</div>
+    ${o&&o.phone?apIn(o.phone,EN()?'Home phone':'โทรศัพท์บ้าน',{type:'tel'}):''}`;
+  const apPerson=(base,title)=>`<div class="card"><h3>${title}</h3>
+    ${apIn(base+'.name',EN()?'First name – last name':'ชื่อ-นามสกุล')}
+    <div class="grid2">${apIn(base+'.nick',EN()?'Nickname':'ชื่อเล่น')}${apIn(base+'.age',EN()?'Age (years)':'อายุ (ปี)',{type:'number',mode:'numeric'})}</div>
+    <div class="grid2">${apIn(base+'.occupation',EN()?'Occupation':'อาชีพ')}${apIn(base+'.workplace',EN()?'Workplace':'สถานที่ทำงาน')}</div>
+    <div class="grid2">${apIn(base+'.workPhone',EN()?'Work phone':'โทรศัพท์ที่ทำงาน',{type:'tel'})}${apIn(base+'.mobile',EN()?'Mobile phone':'โทรศัพท์มือถือ',{type:'tel'})}</div></div>`;
+  const APP_PAGES=[
+    // 1 ── child
+    ()=>`<div class="card">
+      ${apSeg('child.Gender',EN()?'Child':'เด็ก',[['M','ด.ช. (ชาย)','Master (boy)'],['F','ด.ญ. (หญิง)','Miss (girl)']],{req:1})}
+      ${apIn('child.NameTH',EN()?'Name – surname (Thai)':'ชื่อ-นามสกุล (ภาษาไทย)',{req:1})}
+      ${apIn('child.NameEN',EN()?'Name – surname (English)':'ชื่อ-นามสกุล (ภาษาอังกฤษ)',{req:1})}
+      <div class="grid2">${apIn('child.Nickname',EN()?'Nickname (Thai)':'ชื่อเล่น')}${apIn('child.NicknameEN',EN()?'Nickname (English)':'ชื่อเล่นภาษาอังกฤษ',{req:1})}</div>
+      <div class="grid2">${apIn('child.DOB',EN()?'Date of birth':'วันเกิด',{type:'date',req:1})}<label class="field"><span>${EN()?'Age':'อายุ'}</span><input disabled value="${esc(appGet('child.DOB')?ageYM(appGet('child.DOB')):'–')}"/></label></div>
+      ${apSeg('child.IdType',EN()?'Identity document':'เอกสารประจำตัวเด็ก',[['TH','เลขบัตรประชาชนไทย','Thai national ID'],['PASSPORT','ไม่มีเลขบัตรไทย (ต่างชาติ)','No Thai ID (foreign)']],{req:1})}
+      ${appGet('child.IdType')==='PASSPORT'?apIn('child.Passport',EN()?'Passport number':'เลขหนังสือเดินทาง (พาสปอร์ต)',{req:1})
+        :apIn('child.NationalID',EN()?"Child's national ID (13 digits)":'เลขบัตรประชาชนของเด็ก (13 หลัก)',{req:1,mode:'numeric',max:17,ph:'x-xxxx-xxxxx-xx-x'})}
+      <div class="grid2">${apIn('data.child.weight',EN()?'Weight (kg)':'น้ำหนัก (กก.)',{type:'number',mode:'decimal'})}${apIn('data.child.height',EN()?'Height (cm)':'ส่วนสูง (ซม.)',{type:'number',mode:'decimal'})}</div>
+      <div class="grid2">${apIn('data.child.race',EN()?'Race':'เชื้อชาติ',{ph:EN()?'e.g. Thai':'เช่น ไทย'})}${apIn('data.child.nationality',EN()?'Nationality':'สัญชาติ',{ph:EN()?'e.g. Thai':'เช่น ไทย'})}</div>
+      ${apIn('data.child.religion',(EN()?'Religion':'ศาสนา')+' ('+(EN()?'optional':'ไม่บังคับ')+')')}
+      <label class="field"><span>${EN()?'Child photo (optional)':'รูปถ่ายเด็ก (ไม่บังคับ)'}</span><input type="file" accept="image/*" onchange="APP_photo(this)"/>
+        <span id="apPhotoSt" class="muted" style="font-size:var(--fs-1)"></span>
+        ${appGet('child.Photo')?`<img src="${esc(appGet('child.Photo'))}" alt="" style="width:96px;border-radius:8px;margin-top:var(--sp-2)"/>`:''}</label></div>
+      <div class="card"><h3>🏠 ${EN()?'Current address':'ที่อยู่ปัจจุบัน'}</h3>${apAddr('data.child.address',{phone:'data.child.homePhone'})}</div>
+      <div class="card"><h3>📅 ${EN()?'What you would like':'ความต้องการของผู้ปกครอง'}</h3>
+        <div class="grid2">${apIn('data.wish.startDate',EN()?'Preferred start date':'วันที่ต้องการเริ่มเรียน',{type:'date'})}${apIn('data.wish.pickupTime',EN()?'Usual pick-up time':'เวลารับกลับโดยประมาณ',{type:'time'})}</div>
+        <small class="muted" style="font-size:var(--fs-1)">${EN()?'The school confirms the actual start date when it accepts the application.':'โรงเรียนจะยืนยันวันเริ่มเรียนจริงเมื่อรับเข้า'}</small></div>`,
+    // 2 ── parents
+    ()=>`${apPerson('data.father',EN()?'👨 Father':'👨 บิดา')}${apPerson('data.mother',EN()?'👩 Mother':'👩 มารดา')}
+      <div class="card"><h3>📄 ${EN()?'Address on the house registration':'ที่อยู่ตามทะเบียนบ้าน'}</h3>
+        ${apSeg('data.regAddress.same',EN()?'Same as current address?':'ตรงกับที่อยู่ปัจจุบันหรือไม่',[['yes','ตรงกัน','Same'],['no','ไม่ตรง','Different']])}
+        ${appGet('data.regAddress.same')==='no'?apAddr('data.regAddress'):''}</div>`,
+    // 3 ── authorised collectors
+    ()=>`<div class="card"><p class="muted" style="font-size:var(--fs-1);margin-top:0">${EN()?'People other than the father or mother who may collect the child (up to 4).':'ผู้ที่สามารถมารับเด็กแทนบิดา/มารดาได้ (สูงสุด 4 คน)'}</p>
+      ${[0,1,2,3].map(i=>`<div style="border-top:1px solid var(--line);padding-top:var(--sp-2);margin-top:var(--sp-2)"><b>${i+1}.</b>
+        ${apIn('data.pickups.'+i+'.name',EN()?'Full name':'ชื่อ-สกุล')}
+        <div class="grid2">${apIn('data.pickups.'+i+'.phone',EN()?'Phone':'โทรศัพท์',{type:'tel'})}${apIn('data.pickups.'+i+'.relation',EN()?'Relation':'เกี่ยวข้องเป็น',{ph:EN()?'e.g. grandmother':'เช่น ยาย'})}</div></div>`).join('')}</div>`,
+    // 4 ── health history
+    ()=>`<div class="card"><h3>🧒 ${EN()?'Development and habits':'พัฒนาการและอุปนิสัย'}</h3>
+      <div class="grid2">${apIn('data.health.walkAt',EN()?'Started walking at (months)':'เริ่มเดินเมื่ออายุ (เดือน)',{type:'number',mode:'numeric'})}${apIn('data.health.talkAt',EN()?'Started talking at (months)':'เริ่มพูดเมื่ออายุ (เดือน)',{type:'number',mode:'numeric'})}</div>
+      <div class="grid2">${apIn('data.health.toiletAt',EN()?'Toilet training began at (months)':'เริ่มฝึกขับถ่ายเมื่ออายุ (เดือน)',{type:'number',mode:'numeric'})}${apIn('data.health.toiletPerDay',EN()?'Bowel movements per day':'ขับถ่ายวันละ (ครั้ง)',{type:'number',mode:'numeric'})}</div>
+      ${apSeg('data.health.toiletHabit',EN()?'Toilet training':'การฝึกขับถ่าย',[['habit','ฝึกเป็นนิสัยแล้ว','Already a habit'],['started','เพิ่งเริ่มฝึก','Just started']])}
+      <div class="grid2">${apIn('data.health.wordPoo',EN()?'Word for poo':'คำที่บอกเมื่อต้องการอุจจาระ')}${apIn('data.health.wordPee',EN()?'Word for pee':'คำที่บอกเมื่อต้องการปัสสาวะ')}</div>
+      ${apSeg('data.health.selfFeed',EN()?'Can feed themselves?':'ช่วยเหลือตนเองในการรับประทานอาหารได้',[['yes','ได้','Yes'],['no','ไม่ได้','No']])}
+      <div class="grid3">${apIn('data.health.breakfast',EN()?'Breakfast':'อาหารเช้า')}${apIn('data.health.lunch',EN()?'Lunch':'กลางวัน')}${apIn('data.health.dinner',EN()?'Dinner':'เย็น')}</div>
+      <div class="grid2">${apIn('data.health.snack',EN()?'Snacks':'อาหารว่าง')}${apIn('data.health.dislikes',EN()?'Foods disliked':'อาหารที่ไม่ชอบ')}</div>
+      ${apSeg('data.health.drinkFrom',EN()?'Drinks from (choose any)':'ดื่มน้ำจาก (เลือกได้หลายข้อ)',[['cup','แก้ว','Cup'],['bottle','ขวดนม','Milk bottle'],['water','ขวดน้ำดื่ม','Water bottle']],{multi:1})}
+      <div class="grid2">${apIn('data.health.toyBed',EN()?'Comfort toy at bedtime':'ของเล่นที่ติดก่อนนอน')}${apIn('data.health.toyFav',EN()?'Favourite toy':'ของเล่นที่ชอบที่สุด')}</div>
+      ${apSeg('data.health.peerPlay',EN()?'Playing in a group':'ประสบการณ์เล่นกับกลุ่มเพื่อน',[['often','บ่อย ๆ','Often'],['sometimes','บางครั้ง','Sometimes'],['never','ไม่เคย','Never']])}
+      <div class="grid2">${apIn('data.health.tvLike',EN()?'TV the child likes':'รายการทีวีที่ชอบ')}${apIn('data.health.tvFear',EN()?'TV the child fears':'รายการทีวีที่กลัว')}</div></div>
+      <div class="card"><h3>🩺 ${EN()?'Health':'ข้อมูลสุขภาพ'}</h3>
+      <p class="muted" style="font-size:var(--fs-1);margin-top:0">🔒 ${EN()?'Kept only if you consent to item 1 on the PDPA page.':'เก็บเฉพาะเมื่อท่านยินยอมข้อ 1 ในหน้า PDPA'}</p>
+      ${apSeg('data.health.blood',EN()?'Blood group':'หมู่โลหิต',[['A','A','A'],['B','B','B'],['AB','AB','AB'],['O','O','O'],['?','ไม่ทราบ','Unknown']])}
+      ${apSeg('data.health.rh',EN()?'Rh factor':'Rh',[['+','บวก (+)','Positive (+)'],['-','ลบ (−)','Negative (−)'],['?','ไม่ทราบ','Unknown']])}
+      ${apTx('data.health.infect',EN()?'Infectious diseases (chickenpox, mumps, other)':'ประวัติโรคติดเชื้อ (อีสุกอีใส คางทูม อื่น ๆ)',EN()?'leave blank if none':'ไม่มีให้เว้นว่าง')}
+      ${apTx('data.health.allergy',EN()?'Allergies (medicine, food, plants, pets, other)':'แพ้ยา อาหาร พืช สัตว์เลี้ยง อื่น ๆ',EN()?'leave blank if none':'ไม่มีให้เว้นว่าง')}
+      ${apTx('data.health.chronic',EN()?'Other chronic conditions':'โรคประจำตัวอื่น ๆ',EN()?'leave blank if none':'ไม่มีให้เว้นว่าง')}
+      ${apIn('data.health.medication',EN()?'Regular medication':'ยาประจำตัวที่ต้องใช้')}</div>`,
+    // 5 ── documents (phase 1: say how they will arrive; uploading comes in phase 2)
+    ()=>`<div class="card"><p class="muted" style="font-size:var(--fs-1);margin-top:0">${EN()?'Not required now. Tell the school how each document will reach them — you can bring them on the visit day and the school will photograph them.':'ไม่บังคับตอนนี้ · บอกโรงเรียนว่าจะส่งเอกสารแต่ละรายการอย่างไร — นำมาในวันเยี่ยมชมได้ โรงเรียนจะถ่ายเก็บให้'}</p>
+      ${APP_DOCS.map(([k,th,en])=>apSeg('data.docs.'+k,EN()?en:th,[['visit','นำมาวันเยี่ยมชม','Bring on visit day'],['later','ส่งภายหลัง','Send later']])).join('')}</div>`,
+    // 6 ── declaration
+    ()=>`<div class="card"><label style="display:flex;gap:var(--sp-2);align-items:flex-start"><input type="checkbox" style="width:auto;margin-top:var(--sp-1)" ${APP_S.truth?'checked':''} onchange="APP_truth(this.checked)"/>
+      <span>${esc(APP_INFO?(EN()?APP_INFO.text.en.truth:APP_INFO.text.th.truth):'')}</span></label></div>`,
+    // 7 ── PDPA — the words come from the server, with their version
+    ()=>{ const tx=APP_INFO?(EN()?APP_INFO.text.en:APP_INFO.text.th):null; if(!tx) return '';
+      const item=(k,n)=>`<div class="card" style="padding:var(--sp-3)"><b>${n}.</b> ${esc(tx.items[k])}
+        ${k==='health'?`<br><small class="muted">${esc(tx.items.healthNo)}</small>`:''}
+        <div class="seg" style="margin:var(--sp-2) 0 0">${[[true,'ยินยอม','I consent'],[false,'ไม่ยินยอม','I do not consent']].map(([v,th,en])=>
+          `<button type="button" class="${APP_S.consents[k]===v?'active':''}" onclick="APP_consent('${k}',${v})">${esc(EN()?en:th)}</button>`).join('')}</div></div>`;
+      return `<div class="card" style="max-height:46vh;overflow:auto;font-size:var(--fs-1)">${tx.pdpa.map(x=>`<p style="margin:0 0 var(--sp-2)">${esc(x)}</p>`).join('')}</div>
+        <div class="card"><label style="display:flex;gap:var(--sp-2);align-items:flex-start"><input type="checkbox" style="width:auto;margin-top:var(--sp-1)" ${APP_S.consents.pdpa?'checked':''} onchange="APP_consent('pdpa',this.checked)"/>
+          <span><b>${EN()?'I have read 7.1–7.2 and consent':'ข้าพเจ้าได้อ่านข้อ 7.1–7.2 และยินยอม'}</b></span></label></div>
+        <h3 style="margin:var(--sp-3) 0 var(--sp-1)">7.3 ${EN()?'Separate consent':'การขอความยินยอมแยกต่างหาก'}</h3>
+        <p class="muted" style="font-size:var(--fs-1)">${esc(tx.itemsIntro)}</p>
+        ${['health','daily','photoJournal','photoPublic'].map((k,i)=>item(k,i+1)).join('')}
+        <p class="muted" style="font-size:var(--fs-1)">${esc(tx.withdraw)}</p>`; },
+    // 8 ── review + sign
+    ()=>{ const c=APP_S.child||{}, d=APP_S.data||{}, h=d.health||{}, cs=APP_S.consents||{};
+      const yes=v=>v===true?(EN()?'✅ consent':'✅ ยินยอม'):(EN()?'❌ do not consent':'❌ ไม่ยินยอม');
+      const sec=(i,title,body)=>`<div class="card"><div class="spread"><b>${esc(title)}</b><button class="btn sm outline" onclick="APP_go(${i})">${ic('edit')} ${EN()?'Edit':'แก้ไข'}</button></div><div style="font-size:var(--fs-1);margin-top:var(--sp-1)">${body}</div></div>`;
+      const line=(l,v)=>v?`<div><span class="muted">${esc(l)}:</span> ${esc(v)}</div>`:'';
+      const st=APP_STEPS();
+      return sec(0,st[0],line(EN()?'Name':'ชื่อ',c.NameTH)+line('EN',c.NameEN)+line(EN()?'Nickname':'ชื่อเล่น',[c.Nickname,c.NicknameEN].filter(Boolean).join(' / '))
+          +line(EN()?'Date of birth':'วันเกิด',c.DOB)+line(c.IdType==='PASSPORT'?(EN()?'Passport':'พาสปอร์ต'):(EN()?'National ID':'เลขบัตร'),c.IdType==='PASSPORT'?c.Passport:c.NationalID))
+        +sec(1,st[1],line(EN()?'Father':'บิดา',(d.father||{}).name)+line(EN()?'Mother':'มารดา',(d.mother||{}).name))
+        +sec(2,st[2],(d.pickups||[]).filter(x=>x&&x.name).map(x=>line(x.relation||'-',x.name+(x.phone?' · '+x.phone:''))).join('')||`<span class="muted">-</span>`)
+        +sec(3,st[3],line(EN()?'Blood group':'หมู่โลหิต',h.blood)+line(EN()?'Allergies':'แพ้',h.allergy)+line(EN()?'Chronic':'โรคประจำตัว',h.chronic)
+          +(cs.health===false?`<div style="color:var(--warn)">⚠️ ${EN()?'You declined item 1 — the health answers will NOT be kept.':'ท่านไม่ยินยอมข้อ 1 — ข้อมูลสุขภาพที่กรอกจะไม่ถูกบันทึก'}</div>`:''))
+        +sec(6,st[6],[['health',1],['daily',2],['photoJournal',3],['photoPublic',4]].map(([k,n])=>`<div>${n}. ${yes(cs[k])}</div>`).join(''))
+        +`<div class="card"><h3>✍️ ${EN()?'Sign':'ลงชื่อ'}</h3>
+          ${apIn('signName',EN()?'Type your full name to sign':'พิมพ์ชื่อ-นามสกุลของท่านเพื่อลงชื่อ',{req:1})}
+          <label class="field"><span>${EN()?'Or also sign with your finger (optional)':'เซ็นด้วยนิ้วเพิ่มเติม (ไม่บังคับ)'}</span>
+            <canvas id="apSig" class="ap-sig" width="600" height="180" style="width:100%;height:120px;touch-action:none"></canvas></label>
+          <button type="button" class="btn sm outline" onclick="APP_sigClear()">${EN()?'Clear signature':'ล้างลายเซ็น'}</button>
+          <p class="muted" style="font-size:var(--fs-1)">🔒 ${EN()?'On submit the system records the time, your LINE account, the name you typed and the version of the consent text.':'เมื่อกดส่ง ระบบบันทึกเวลา บัญชี LINE ชื่อที่พิมพ์ และฉบับของข้อความความยินยอม เพื่อยืนยันการลงชื่อของท่าน'}</p>
+          <p style="font-size:var(--fs-1)">${esc(APP_INFO?(EN()?APP_INFO.text.en.final:APP_INFO.text.th.final):'')}</p></div>`; }
+  ];
+  window.APP_truth=v=>{ APP_S.truth=!!v; appSave(); };   // inline handlers run in global scope — APP_S is not
+  // a field changed: keep it, nothing else (a re-render would lose the cursor)
+  window.APP_in=(el)=>{ appSet(el.dataset.ap, el.value); if(el.style.borderColor){ el.style.borderColor=''; el.style.background=''; }
+    if(el.dataset.ap==='child.DOB') APP_go(APP_S.step,true); };
+  window.APP_pick=(path,v,multi)=>{ if(multi){ const cur=(appGet(path)||[]).slice(); const i=cur.indexOf(v); i>=0?cur.splice(i,1):cur.push(v); appSet(path,cur); }
+    else appSet(path, appGet(path)===v?'':v);
+    APP_go(APP_S.step,true); };
+  window.APP_consent=(k,v)=>{ APP_S.consents[k]=v; appSave(); if(k!=='pdpa') APP_go(APP_S.step,true); };
+  window.APP_photo=async(inp)=>{ const f=inp.files&&inp.files[0]; if(!f)return; const st=$('#apPhotoSt'); if(st) st.textContent='⏳';
+    const url=await compressImage(f); if(!url){ if(st) st.textContent='⚠️ '+(EN()?'Not an image':'ไม่ใช่ไฟล์รูป'); return; }
+    appSet('child.Photo',url); APP_go(APP_S.step,true); };
+  window.APP_sigClear=()=>{ APP_S.signature=''; appSave(); const c=$('#apSig'); if(c) c.getContext('2d').clearRect(0,0,c.width,c.height); };
+  function APP_sigBind(){ const c=$('#apSig'); if(!c) return; const g=c.getContext('2d'); g.lineWidth=3; g.lineCap='round';
+    // a signature is ink on paper in BOTH themes — .ap-sig is a white sheet, so the ink stays dark too
+    g.strokeStyle='rgb(20,30,60)';
+    if(APP_S.signature){ const im=new Image(); im.onload=()=>g.drawImage(im,0,0); im.src=APP_S.signature; }
+    let down=false; const pt=e=>{ const r=c.getBoundingClientRect(); return [(e.clientX-r.left)*c.width/r.width,(e.clientY-r.top)*c.height/r.height]; };
+    c.onpointerdown=e=>{ down=true; c.setPointerCapture(e.pointerId); const [x,y]=pt(e); g.beginPath(); g.moveTo(x,y); };
+    c.onpointermove=e=>{ if(!down) return; const [x,y]=pt(e); g.lineTo(x,y); g.stroke(); };
+    c.onpointerup=c.onpointercancel=()=>{ if(!down) return; down=false; APP_S.signature=c.toDataURL('image/png'); appSave(); }; }
+  // what each page will not let you leave without — checked HERE, on the page, not at the end
+  function APP_check(i){ const c=APP_S.child||{}, miss=[];
+    const need=(path,label)=>{ const v=appGet(path); if(v==null||String(v).trim()===''){ miss.push(label);
+      const el=document.querySelector('[data-ap="'+path+'"]'); if(el&&el.tagName==='INPUT'){ el.style.borderColor='var(--bad)'; el.style.background='var(--bad-bg)'; } } };
+    if(i===0){ need('child.Gender',EN()?'boy / girl':'ด.ช./ด.ญ.'); need('child.NameTH',EN()?'Thai name':'ชื่อ-นามสกุล'); need('child.NameEN',EN()?'English name':'ชื่อภาษาอังกฤษ');
+      need('child.NicknameEN',EN()?'English nickname':'ชื่อเล่นภาษาอังกฤษ'); need('child.DOB',EN()?'date of birth':'วันเกิด');
+      if(c.IdType==='PASSPORT') need('child.Passport',EN()?'passport number':'เลขพาสปอร์ต');
+      else { const d=String(c.NationalID||'').replace(/\D/g,''); let ok=d.length===13;
+        if(ok){ let s=0; for(let k=0;k<12;k++) s+=(+d[k])*(13-k); ok=((11-(s%11))%10)===+d[12]; }
+        if(!ok){ miss.push(EN()?'a valid 13-digit national ID':'เลขบัตรประชาชน 13 หลักที่ถูกต้อง'); const el=document.querySelector('[data-ap="child.NationalID"]'); if(el){ el.style.borderColor='var(--bad)'; el.style.background='var(--bad-bg)'; } } }
+      if(c.DOB && c.DOB>todayStr()) miss.push(EN()?'a date of birth that is not in the future':'วันเกิดที่ไม่ใช่วันในอนาคต'); }
+    if(i===5 && !APP_S.truth) miss.push(EN()?'tick the declaration':'ติ๊กคำรับรอง');
+    if(i===6){ if(!APP_S.consents.pdpa) miss.push(EN()?'consent to 7.1–7.2':'ยินยอมข้อ 7.1–7.2');
+      if(['health','daily','photoJournal','photoPublic'].some(k=>APP_S.consents[k]!==true&&APP_S.consents[k]!==false)) miss.push(EN()?'an answer for each of items 1–4':'ตอบ ยินยอม/ไม่ยินยอม ให้ครบ 4 ข้อ'); }
+    if(i===7 && String(APP_S.signName||'').trim().length<3) need('signName',EN()?'your typed name':'ชื่อ-นามสกุลของท่าน');
+    if(miss.length){ REG_flashError((EN()?'Please fill: ':'กรุณากรอก: ')+miss.join(', ')); return false; }
+    return true; }
+  window.APP_go=(i,keep)=>{ APP_S.step=i; appSave(); AUTH_RENDER=null;
+    const y=keep?window.scrollY:0;
+    app.innerHTML=apHead(i)+APP_PAGES[i]()+apDock(i)+'<div style="height:96px"></div>';
+    if(i===7) APP_sigBind();
+    window.scrollTo(0,y); };
+  window.APP_next=async()=>{ const i=APP_S.step; if(!APP_check(i)) return;
+    if(i<APP_STEPS().length-1) return APP_go(i+1);
+    await APP_submit(); };
+  window.APP_leave=()=>{ modal(`<h3>${EN()?'Leave the application?':'ออกจากใบสมัคร?'}</h3>
+    <p class="muted" style="font-size:var(--fs-1)">${EN()?'What you typed is kept on this phone — open it again to continue.':'ข้อมูลที่กรอกไว้ถูกเก็บในเครื่องนี้ — เปิดใหม่เพื่อทำต่อได้'}</p>
+    <button class="btn block" onclick="this.closest('.modal').remove();GO('home')">${EN()?'Leave (keep my draft)':'ออก (เก็บร่างไว้)'}</button>
+    <button class="btn outline block" style="margin-top:var(--sp-2)" onclick="this.closest('.modal').remove()">${EN()?'Stay':'อยู่ต่อ'}</button>`); };
+  async function APP_submit(){ const d=JSON.parse(JSON.stringify(APP_S.data||{}));
+    d.pickups=(d.pickups||[]).filter(x=>x&&String(x.name||'').trim());
+    if(d.regAddress&&d.regAddress.same!=='no') d.regAddress={same:'yes'};
+    const c=Object.assign({},APP_S.child); if(c.IdType!=='PASSPORT'){ c.NationalID=String(c.NationalID||'').replace(/\D/g,''); delete c.Passport; } else delete c.NationalID;
+    try{ const r=await api('submitApplication',{ parentId:USER.parentId, uid:USER.uid, lang:EN()?'en':'th', clientRef:APP_S.clientRef,
+        child:c, data:d, consents:APP_S.consents, truth:APP_S.truth===true, signName:String(APP_S.signName||'').trim(),
+        signature:APP_S.signature||'', consentVersion:APP_INFO.version });
+      try{ localStorage.removeItem(APP_DRAFT_KEY()); localStorage.setItem('atom_app_open','1'); }catch(e){}
+      APP_S=null;
+      modal(`<h3>✅ ${EN()?'Application sent':'ส่งใบสมัครแล้ว'}</h3>
+        <p>${r.existing?(EN()?'The school already has this application — nothing was sent twice.':'โรงเรียนได้รับใบสมัครนี้แล้ว — ระบบไม่ได้ส่งซ้ำ')
+          :(EN()?'The school will review it and let you know here (🔔) — usually by booking a visit first.':'โรงเรียนจะพิจารณาและแจ้งท่านทางกระดิ่ง 🔔 ในแอป — โดยปกติจะนัดเยี่ยมชมโรงเรียนก่อน')}</p>
+        <p class="muted" style="font-size:var(--fs-1)">${EN()?'Reference':'เลขที่ใบสมัคร'}: <b>${esc(r.appId)}</b></p>
+        <button class="btn block" onclick="this.closest('.modal').remove();GO('home')">${EN()?'Done':'เสร็จสิ้น'}</button>`);
+    }catch(e){
+      const code=String((e&&e.code)||'');
+      if(code==='CONSENT_CHANGED'){ try{ APP_INFO=await api('applyInfo',{},{fresh:true}); }catch(x){} APP_S.consents={}; appSave(); APP_go(6); }
+      err(e); } }
+  /* THE WAY IN. Called from the add-child dialog, from the home screen, and after a new family
+   * registers. Closed (the school has not filled the PDPA blanks) → say so, and send them nowhere. */
+  window.APPLY_START=async()=>{ try{ localStorage.removeItem('atom_apply_intent'); }catch(e){}
+    try{ APP_INFO=await api('applyInfo',{},{fresh:true}); }catch(e){ err(e); return; }
+    if(!APP_INFO.open){ modal(`<h3>📝 ${EN()?'Applications':'ใบสมัครเรียน'}</h3><p>${EN()?'The school is not taking online applications yet. Please contact the school.':'โรงเรียนยังไม่เปิดรับใบสมัครออนไลน์ — กรุณาติดต่อโรงเรียน'}</p>
+      <button class="btn block" onclick="this.closest('.modal').remove()">${esc(t('c.close'))}</button>`); return; }
+    let draft=null; try{ draft=JSON.parse(localStorage.getItem(APP_DRAFT_KEY())||'null'); }catch(e){}
+    const begin=async(useDraft)=>{ APP_S=useDraft&&draft?draft:appFresh();
+      if(!useDraft){ /* the person signed in is one of the parents — fill their half in for them */
+        try{ const f=await api('familyProfile',parentScope()); const me=((f&&f.parents)||[]).find(x=>x.isMe)||{};
+          const who=/บิดา|father|พ่อ/i.test(me.Relationship||'')?'father':/มารดา|mother|แม่/i.test(me.Relationship||'')?'mother':'';
+          if(who) APP_S.data[who]={ name:me.NameTH||me.Name||'', nick:me.Nickname||'', occupation:me.Occupation||'', workplace:me.Workplace||'',
+            workPhone:me.OfficePhone||'', mobile:me.Phone||'' };
+          APP_S.signName=me.NameTH||me.Name||''; }catch(e){} }
+      appSave(); APP_go(APP_S.step||0); };
+    if(draft && draft.child){ modal(`<h3>📝 ${EN()?'Continue your application?':'ทำใบสมัครต่อจากเดิม?'}</h3>
+      <p class="muted">${EN()?'There is an unfinished application on this phone':'มีใบสมัครที่ยังกรอกไม่เสร็จในเครื่องนี้'}${draft.child.NameTH?(' — '+esc(draft.child.NameTH)):''}</p>
+      <button class="btn block" onclick="this.closest('.modal').remove();APP_begin(1)">${EN()?'Continue':'ทำต่อ'}</button>
+      <button class="btn outline block" style="margin-top:var(--sp-2)" onclick="this.closest('.modal').remove();APP_begin(0)">${EN()?'Start a new one':'เริ่มใบใหม่'}</button>`);
+      window.APP_begin=begin; return; }
+    begin(false); };
+  // 📝 from the sign-in screen: remember why they came, then sign in with LINE (ผอ. answer 1: LINE first)
+  window.APPLY_INTENT=()=>{ try{ localStorage.setItem('atom_apply_intent','1'); }catch(e){} if(window.LIFF_LOGIN) LIFF_LOGIN(); };
+  const applyIntent=()=>{ try{ return localStorage.getItem('atom_apply_intent')==='1'; }catch(e){ return false; } };
+  window.APPLY_INTENT_PENDING=applyIntent;
+  // ---- the family's applications: on the home screen while one is open, and its detail ----
+  const APP_STATUS={ SUBMITTED:['wait','รอพิจารณา','Under review'], VISIT:['info','นัดเยี่ยมชมแล้ว','Visit booked'],
+    ACCEPTED:['ok','ได้รับการตอบรับ','Accepted'], REJECTED:['bad','ไม่ได้รับการตอบรับ','Not accepted'], WITHDRAWN:['','ยกเลิกแล้ว','Withdrawn'] };
+  window.APP_statusPill=s=>{ const x=APP_STATUS[s]||['',s,s]; return `<span class="pill ${x[0]}" style="font-size:var(--fs-1)">${esc(EN()?x[2]:x[1])}</span>`; };
+  const fmtVisit=s=>{ const m=/^(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{2}:\d{2}))?/.exec(String(s||'')); if(!m) return String(s||'');
+    return m[3]+'/'+m[2]+'/'+(EN()?m[1]:(+m[1]+543))+(m[4]?' '+m[4]+(EN()?'':' น.'):''); };
+  window.APP_fmtDate=fmtVisit;
+  window.P_myAppsHtml=(list)=>{ if(!list||!list.length) return '';
+    return `<div class="card"><h3>📝 ${EN()?'My applications':'ใบสมัครของฉัน'}</h3>${list.map(a=>`<div class="list-item" style="display:block">
+      <div class="spread"><b>${esc(a.nick||a.childName)}</b>${APP_statusPill(a.status)}</div>
+      ${a.status==='VISIT'?`<div style="font-size:var(--fs-1)">🏫 ${EN()?'Visit':'นัดเยี่ยมชม'}: <b>${esc(fmtVisit(a.visitAt))}</b>${a.visitNote?(' · '+esc(a.visitNote)):''}</div>`:''}
+      ${a.status==='ACCEPTED'?`<div style="font-size:var(--fs-1)">🎉 ${esc(a.className||'')} · ${EN()?'starts':'เริ่มเรียน'} ${esc(fmtVisit(a.startDate))}</div>`:''}
+      ${a.parentMessage?`<div style="font-size:var(--fs-1)">💬 ${esc(a.parentMessage)}</div>`:''}
+      <small class="muted">${esc(a.appId)} · ${EN()?'sent':'ส่งเมื่อ'} ${esc(fmtVisit(a.submittedAt))}</small>
+      ${a.status==='SUBMITTED'||a.status==='VISIT'?`<div><button class="btn sm outline" style="margin-top:var(--sp-1)" onclick="P_appCancel('${esc(a.appId)}')">${EN()?'Withdraw':'ยกเลิกใบสมัคร'}</button></div>`:''}
+    </div>`).join('')}</div>`; };
+  window.P_appCancel=(id)=>{ modal(`<h3>${EN()?'Withdraw this application?':'ยกเลิกใบสมัครนี้?'}</h3>
+    <button class="btn pink block" onclick="P_appCancelDo('${esc(id)}',this)">${EN()?'Withdraw':'ยกเลิกใบสมัคร'}</button>
+    <button class="btn outline block" style="margin-top:var(--sp-2)" onclick="this.closest('.modal').remove()">${esc(t('c.close'))}</button>`); };
+  window.P_appCancelDo=async(id,btn)=>{ btn.disabled=true; try{ await api('cancelApplication',{appId:id,parentId:USER.parentId,uid:USER.uid}); btn.closest('.modal').remove(); confirmSaved(t('c.saved')); GO('home'); }catch(e){ btn.disabled=false; err(e); } };
+  /* The home screen asks only when there is a reason to: a family with no child yet (every applicant),
+   * or one that sent an application from this phone that may still be open. Every other family pays
+   * nothing for this — the home screen's round trips are counted (SCREEN_BUDGET_). */
+  window.P_myAppsLoad=async(force)=>{ let flag=false; try{ flag=localStorage.getItem('atom_app_open')==='1'; }catch(e){}
+    if(!force && !flag) return [];
+    const list=await api('myApplications',parentScope()).catch(()=>[]);
+    if(!(list||[]).some(a=>a.status==='SUBMITTED'||a.status==='VISIT')){ try{ localStorage.removeItem('atom_app_open'); }catch(e){} }
+    return list||[]; };
 
   const SCREENS = { Parent:{}, Teacher:{}, Admin:{}, Observer:{} };
 
@@ -3483,8 +3756,12 @@
     const kids = HOME.children || [];
     const addBtn = `<button class="btn sm outline" onclick="P_addChild()">+ ${esc(t('p.addChild'))}</button>`;
     const profileBtn = `<button class="btn sm outline" onclick="P_profile()">👤 ${EN()?'My info':'ข้อมูลของฉัน'}</button>`;
-    if(!kids.length){ app.innerHTML=`<h2 class="page">${esc(t('p.greeting'))}${esc(EN()?USER.nameEN:'คุณ'+USER.nameTH)} 👋</h2>
-      <div class="card" style="text-align:center"><p>${esc(t('p.noChild'))}</p><div class="row" style="justify-content:center">${addBtn}${profileBtn}${refreshBtn()}</div></div>${socialFooter()}`; return; }
+    /* 📝 a family that came from the sign-in screen's สมัครเรียน goes straight to the form, once */
+    if (APPLY_INTENT_PENDING()) setTimeout(()=>APPLY_START(),300);
+    if(!kids.length){ const _apps=await P_myAppsLoad(true);
+      app.innerHTML=`<h2 class="page">${esc(t('p.greeting'))}${esc(EN()?USER.nameEN:'คุณ'+USER.nameTH)} 👋</h2>
+      ${P_myAppsHtml(_apps)}
+      <div class="card" style="text-align:center"><p>${esc(_apps.length?(EN()?'Applying for another child, or linking one the school already has?':'สมัครเรียนให้บุตรหลานคนอื่น หรือเชื่อมข้อมูลเด็กที่โรงเรียนมีอยู่แล้ว'):t('p.noChild'))}</p><div class="row" style="justify-content:center">${addBtn}${profileBtn}${refreshBtn()}</div></div>${socialFooter()}`; return; }
     const k0 = kids[0];
     const j = HOME.journal, anns = HOME.announcements||[], cal = HOME.calendar||[], fam = HOME.familyProfile||{parents:[]};
     const plans = HOME.plans||[], due = HOME.due;
@@ -3660,6 +3937,7 @@
     app.innerHTML = `<div class="spread"><h2 class="page">${esc(t('p.greeting'))}${esc(greetName)} 👋</h2><div class="row">${refreshBtn()}${profileBtn}${addBtn}</div></div>
       ${kidsHtml}
       <div id="pDue"></div>
+      <div id="pApps"></div>
       ${/* Near the pick-up button, and only while the permission is missing. This is the screen the
            family opens every morning, so it is the one place the ask can be made calmly — the
            alternative is what happened on 2026-08-25, which is discovering it at the gate.
@@ -3697,6 +3975,8 @@
       ${kids.length>1?`<div class="seg" id="calSeg" style="margin:var(--sp-4) var(--sp-0) var(--sp-2)">${kids.map((k,i)=>`<button class="${i===0?'active':''}" onclick="P_calSel(${i})">${ic('calendar')} ${esc(dispNick(k))}</button>`).join('')}</div>`:''}
       <div id="calBox">${calendarWidget(cal, ci, planEndOf(k0), sl)}</div>
       ${socialFooter()}`;
+    /* 📝 a sibling's application still waiting — only asked when one was sent from this phone (P_myAppsLoad) */
+    P_myAppsLoad(false).then(l=>{ const open=(l||[]).filter(a=>a.status==='SUBMITTED'||a.status==='VISIT'); const box=document.getElementById('pApps'); if(box&&open.length) box.innerHTML=P_myAppsHtml(open); }).catch(()=>{});
     setHTML('#pDue', parentDueCard(due));
     GEO_gateFill();   // client-side only: no api() call, so the busiest screen pays nothing for it
     /* These two came back in the SAME request as everything above (they used to be two more round
@@ -3728,7 +4008,9 @@
   // add another child: always ask "new student" vs "existing (verify by NationalID)"
   window.P_addChild = ()=>{ modal(`<h3>👶 ${esc(t('p.addChild'))}</h3>
     <p class="muted" style="font-size:var(--fs-1)">${esc(t('p.addChildSub'))}</p>
-    <button class="btn block" onclick="this.closest('.modal').remove();REG_CHILD_FORM()">${ic('edit')} ${esc(t('p.childNew'))}</button>
+    ${/* 📝 2026-11-09: a new child arrives as an APPLICATION, not an enrolled student — REG_CHILD_FORM made a
+         billable ACTIVE child on save. Siblings too (ผอ.). Linking a child the school already has is unchanged. */''}
+    <button class="btn block" onclick="this.closest('.modal').remove();APPLY_START()">📝 ${EN()?'Apply for a new child (application form)':'สมัครเรียนให้บุตรหลานคนใหม่ (กรอกใบสมัคร)'}</button>
     <div style="height:10px"></div>
     <label class="field"><span>${esc(t('p.childExistingNID'))}</span><input id="lnNID" inputmode="numeric" placeholder="x-xxxx-xxxxx-xx-x"/></label>
     <button class="btn outline block" onclick="P_linkChild(this)">${ic('link')} ${esc(t('p.childLink'))}</button>`); };
@@ -11534,6 +11816,7 @@
     // Categorized admin menu — grouped so related tools sit together (e.g. all the OT/time tools).
     const MENU=[
       {t:EN()?'👥 People & classes':'👥 บุคลากร & ชั้นเรียน', items:[
+        ['📝',EN()?'Applications':'ใบสมัครเรียน','A_applications()'],
         ['repeat',t('manage.organize'),"GO_('organize')"],
         ['🏫',t('manage.departments'),'A_departments()'],
         ['📦',EN()?'Packages / advance-payment discounts':'แพ็กเกจ / ส่วนลดชำระล่วงหน้า','A_packages()'],
@@ -15500,6 +15783,132 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
   /* ================= Phase 7b: satisfaction survey (Admin) ================================= */
   const SV_TYPE=t0=>({rating:EN()?'1-5 faces':'ให้คะแนน 1-5',vote:EN()?'Choose one':'เลือกตอบ',comment:EN()?'Comment only':'ความคิดเห็น'})[t0]||t0;
   const SV_FACE=['😡','🙁','😐','🙂','😍'];
+  /* ================= 📝 ใบสมัคร — ฝั่งแอดมิน (docs/APPLICATION_FORM_PLAN.md · 2026-11-09) =================
+   * The queue, one application in full, and the three decisions: book a visit, approve (which creates
+   * the child — through addStudentByAdmin, so it is the same record as any other), or decline.
+   * 💰 Approving asks for the real first day, today or later; the bill for the entry fee / deposit is
+   * then the existing bill screen (A_issueBill) — no new money code (ผอ. answer 4).
+   * The two blanks in the PDPA text live at the top of this screen: until both are filled the family
+   * side stays closed, and saying so here is the only way an admin would ever find out why. */
+  window.A_applications=async(filter)=>{ filter=filter||'OPEN';
+    const [list,info]=await Promise.all([api('listApplications',{status:filter==='ALL'?'':filter},{fresh:true}),api('applyInfo',{},{fresh:true})]);
+    const tabs=[['OPEN',EN()?'Waiting':'รอพิจารณา'],['ACCEPTED',EN()?'Accepted':'รับเข้าแล้ว'],['REJECTED',EN()?'Declined':'ไม่รับ'],['ALL',EN()?'All':'ทั้งหมด']];
+    const row=a=>`<div class="card" style="padding:var(--sp-2);cursor:pointer" onclick="A_appOpen('${esc(a.appId)}')">
+      <div class="spread"><b>${esc(a.nick||a.nickEN||'')} <small class="muted">${esc(a.childName)}</small></b>${APP_statusPill(a.status)}</div>
+      <small class="muted">${esc(a.appId)} · ${EN()?'age':'อายุ'} ${esc(ageYMfromMonths(a.ageMonth||0))} · ${EN()?'sent':'ส่งเมื่อ'} ${esc(APP_fmtDate(a.submittedAt))}
+        ${a.visitAt?(' · 🏫 '+esc(APP_fmtDate(a.visitAt))):''}</small></div>`;
+    modal(`<h3>📝 ${EN()?'Applications':'ใบสมัครเรียน'}</h3>
+      ${info.open?'':`<div class="card" style="background:var(--warn-bg);border-color:var(--warn-line)"><b>⚠️ ${EN()?'Families cannot apply yet':'ผู้ปกครองยังส่งใบสมัครไม่ได้'}</b><br>
+        <small>${EN()?'Fill in the two blanks of the PDPA text below first.':'กรอก 2 ช่องของข้อความ PDPA ด้านล่างก่อน — ระบบไม่เปิดรับจนกว่าจะครบ'}</small></div>`}
+      <details class="card" ${info.open?'':'open'}><summary><b>🔒 ${EN()?'PDPA text on the application':'ข้อความ PDPA ในใบสมัคร'}</b></summary>
+        <label class="field"><span>${EN()?'Data kept for … years after the child leaves (7.2 item 4)':'เก็บข้อมูลไว้ … ปี นับแต่วันที่เด็กออกจากโรงเรียน (7.2 ข้อ 4)'}</span><input id="apYears" type="number" inputmode="numeric" min="1" value="${esc(info.years||'')}"/></label>
+        <label class="field"><span>${EN()?'How a parent contacts the school about their data (7.2 item 5)':'ช่องทางติดต่อเพื่อใช้สิทธิ PDPA (7.2 ข้อ 5)'}</span><input id="apContact" value="${esc(info.contact||'')}" placeholder="${EN()?'e.g. LINE @atomnursery / 02-xxx-xxxx':'เช่น LINE @atomnursery / โทร 02-xxx-xxxx'}"/></label>
+        <small class="muted" style="font-size:var(--fs-1)">${EN()?'Changing either changes the consent version; families who already applied keep the version they agreed to.':'เมื่อแก้ ฉบับของข้อความจะเปลี่ยนเอง · ใบสมัครที่ส่งแล้วยังผูกกับฉบับที่ผู้ปกครองยินยอมไว้'}</small>
+        <button class="btn sm block" style="margin-top:var(--sp-2)" onclick="A_appCfgSave(this)">${ic('save')} ${esc(t('c.save'))}</button></details>
+      <div class="seg">${tabs.map(([k,l])=>`<button class="${k===filter?'active':''}" onclick="this.closest('.modal').remove();A_applications('${k}')">${esc(l)}</button>`).join('')}</div>
+      <div style="max-height:56vh;overflow:auto">${(list||[]).length?list.map(row).join(''):`<div class="card muted">${EN()?'Nothing here':'ไม่มีรายการ'}</div>`}</div>
+      <button class="btn outline block" style="margin-top:var(--sp-2)" onclick="this.closest('.modal').remove()">${esc(t('c.close'))}</button>`);
+  };
+  window.A_appCfgSave=async(btn)=>{ const m=btn.closest('.modal'); const y=m.querySelector('#apYears').value.trim(), c=m.querySelector('#apContact').value.trim();
+    if(y!=='' && !(+y>0)){ toast(EN()?'Years must be a number':'จำนวนปีต้องเป็นตัวเลข'); return; }
+    btn.disabled=true; try{ await api('setSchoolConfig',{values:{ApplyRetentionYears:y,ApplyPdpaContact:c}}); m.remove(); confirmSaved(t('c.saved')); A_applications(); }catch(e){ btn.disabled=false; err(e); } };
+  const apLbl={ walkAt:['เริ่มเดิน (เดือน)','Walking at (months)'], talkAt:['เริ่มพูด (เดือน)','Talking at (months)'], toiletAt:['ฝึกขับถ่าย (เดือน)','Toilet training at (months)'],
+    toiletPerDay:['ขับถ่ายวันละ','Bowel movements / day'], toiletHabit:['การขับถ่าย','Toilet training'], wordPoo:['คำบอกอุจจาระ','Word for poo'], wordPee:['คำบอกปัสสาวะ','Word for pee'],
+    selfFeed:['ทานอาหารเองได้','Feeds self'], breakfast:['อาหารเช้า','Breakfast'], lunch:['กลางวัน','Lunch'], dinner:['เย็น','Dinner'], snack:['อาหารว่าง','Snacks'],
+    dislikes:['ไม่ชอบ','Dislikes'], drinkFrom:['ดื่มน้ำจาก','Drinks from'], toyBed:['ของเล่นก่อนนอน','Bedtime toy'], toyFav:['ของเล่นที่ชอบ','Favourite toy'],
+    peerPlay:['เล่นกับเพื่อน','Group play'], tvLike:['ทีวีที่ชอบ','TV likes'], tvFear:['ทีวีที่กลัว','TV fears'], blood:['หมู่โลหิต','Blood group'], rh:['Rh','Rh'],
+    infect:['โรคติดเชื้อ','Infectious diseases'], allergy:['แพ้','Allergies'], chronic:['โรคประจำตัว','Chronic conditions'], medication:['ยาประจำ','Regular medication'],
+    name:['ชื่อ','Name'], nick:['ชื่อเล่น','Nickname'], age:['อายุ','Age'], occupation:['อาชีพ','Occupation'], workplace:['ที่ทำงาน','Workplace'], workPhone:['โทรที่ทำงาน','Work phone'], mobile:['มือถือ','Mobile'],
+    race:['เชื้อชาติ','Race'], nationality:['สัญชาติ','Nationality'], religion:['ศาสนา','Religion'], weight:['น้ำหนัก','Weight'], height:['ส่วนสูง','Height'], homePhone:['โทรศัพท์บ้าน','Home phone'],
+    startDate:['ต้องการเริ่มเรียน','Preferred start'], pickupTime:['เวลารับกลับโดยประมาณ','Usual pick-up time'] };
+  // the wizard stores the tap choices as codes — read them back in words
+  const apVal={ cup:['แก้ว','cup'], bottle:['ขวดนม','milk bottle'], water:['ขวดน้ำดื่ม','water bottle'], habit:['ฝึกเป็นนิสัยแล้ว','already a habit'],
+    started:['เพิ่งเริ่มฝึก','just started'], yes:['ได้','yes'], no:['ไม่ได้','no'], often:['บ่อย ๆ','often'], sometimes:['บางครั้ง','sometimes'], never:['ไม่เคย','never'],
+    '?':['ไม่ทราบ','unknown'], '+':['บวก (+)','positive'], '-':['ลบ (−)','negative'] };
+  const apV=v=>apVal[v]?(EN()?apVal[v][1]:apVal[v][0]):v;
+  // ONLY the tap-choice fields — a parent who typed '-' under allergies must not read back as 'ลบ (−)'
+  const APV_KEYS={ drinkFrom:1, toiletHabit:1, selfFeed:1, peerPlay:1, blood:1, rh:1 };
+  const apKV=(o)=>Object.keys(o||{}).filter(k=>o[k]!==''&&o[k]!=null&&typeof o[k]!=='object'||Array.isArray(o[k])&&o[k].length)
+    .map(k=>`<div><span class="muted">${esc(apLbl[k]?(EN()?apLbl[k][1]:apLbl[k][0]):k)}:</span> ${esc(APV_KEYS[k]?(Array.isArray(o[k])?o[k].map(apV).join(', '):apV(o[k])):(Array.isArray(o[k])?o[k].join(', '):o[k]))}</div>`).join('');
+  const apAddrTxt=a=>[a&&a.no,a&&a.village,a&&a.soi,a&&a.road,a&&a.subdistrict,a&&a.district,a&&a.province,a&&a.postcode].filter(Boolean).join(' ');
+  window.A_appOpen=async(id)=>{ const a=await api('applicationAdmin',{appId:id},{fresh:true}); const d=a.data||{};
+    document.querySelectorAll('.modal').forEach(x=>x.remove());
+    const sec=(t1,body)=>body?`<div class="card" style="padding:var(--sp-2)"><b>${t1}</b><div style="font-size:var(--fs-1);margin-top:var(--sp-1)">${body}</div></div>`:'';
+    const cons=(a.consents||[]).filter(c=>['health','daily','photoJournal','photoPublic'].indexOf(c.item)>=0)
+      .map(c=>`<div>${({health:'1 สุขภาพ',daily:'2 บันทึกประจำวัน/DSPM',photoJournal:'3 รูปในบันทึก',photoPublic:'4 รูปประชาสัมพันธ์'})[c.item]}: ${c.value==='YES'?'✅':'❌'}</div>`).join('');
+    const open=a.status==='SUBMITTED'||a.status==='VISIT';
+    modal(`<h3>📝 ${esc(a.childName)} ${APP_statusPill(a.status)}</h3>
+      <small class="muted">${esc(a.appId)} · ${EN()?'sent':'ส่งเมื่อ'} ${esc(APP_fmtDate(a.submittedAt))} · ${esc(a.parent.name||'')} ${a.parent.phone?('· '+esc(a.parent.phone)):''}</small>
+      <div style="max-height:58vh;overflow:auto;margin-top:var(--sp-2)">
+      ${a.photo?`<img src="${esc(a.photo)}" alt="" style="width:96px;border-radius:8px" onclick="IMG_zoom('${esc(a.photo)}')"/>`:''}
+      ${sec('👶 '+(EN()?'Child':'ข้อมูลเด็ก'),`<div>${esc(a.childName)} · ${esc(a.childNameEN||'')}</div><div>${esc([a.nick,a.nickEN].filter(Boolean).join(' / '))} · ${a.gender==='M'?(EN()?'boy':'ชาย'):(EN()?'girl':'หญิง')}</div>
+        <div>${EN()?'Born':'เกิด'} ${esc(APP_fmtDate(a.dob))} (${esc(ageYMfromMonths(a.ageMonth||0))})</div>
+        <div>${a.idType==='PASSPORT'?('🛂 '+esc(a.passport)):('🪪 '+esc(a.nationalId))}</div>${apKV(Object.assign({},d.child,{address:undefined}))}
+        ${d.child&&apAddrTxt(d.child.address)?`<div><span class="muted">${EN()?'Address':'ที่อยู่'}:</span> ${esc(apAddrTxt(d.child.address))}</div>`:''}`)}
+      ${sec('📅 '+(EN()?'Wishes':'ความต้องการ'),apKV(d.wish))}
+      ${sec('👨 '+(EN()?'Father':'บิดา'),apKV(d.father))}${sec('👩 '+(EN()?'Mother':'มารดา'),apKV(d.mother))}
+      ${d.regAddress&&d.regAddress.same!=='yes'&&apAddrTxt(d.regAddress)?sec('📄 '+(EN()?'House registration':'ทะเบียนบ้าน'),esc(apAddrTxt(d.regAddress))):''}
+      ${sec('🚗 '+(EN()?'May collect the child':'ผู้รับแทน'),(d.pickups||[]).map(p=>`<div>${esc(p.name)} ${p.relation?('('+esc(p.relation)+')'):''} ${esc(p.phone||'')}</div>`).join(''))}
+      ${sec('🩺 '+(EN()?'Health and habits':'สุขภาพและอุปนิสัย'),apKV(d.health))}
+      ${sec('📎 '+(EN()?'Documents':'เอกสาร'),APP_DOCS_TXT(d.docs))}
+      ${sec('🔒 PDPA 7.3',cons+`<small class="muted">${esc(a.consentVersion)} · ${EN()?'signed':'ลงชื่อ'} ${esc(a.signName)}</small>`+(a.signature?`<div><img class="ap-sig" src="${esc(a.signature)}" alt="" style="max-width:220px;margin-top:var(--sp-1)"/></div>`:''))}
+      ${a.visitAt?sec('🏫 '+(EN()?'Visit':'นัดเยี่ยมชม'),esc(APP_fmtDate(a.visitAt))+(a.visitNote?(' · '+esc(a.visitNote)):'')):''}
+      ${a.internalNote?sec('🗒️ '+(EN()?'Internal note':'บันทึกภายใน'),esc(a.internalNote)):''}
+      ${a.studentId?sec('🎓 '+(EN()?'Student':'นักเรียน'),esc(a.studentId)+' · '+esc(a.className||'')+' · '+(EN()?'starts ':'เริ่ม ')+esc(APP_fmtDate(a.startDate))):''}
+      </div>
+      ${open?`<div class="row" style="gap:var(--sp-2);margin-top:var(--sp-2)">
+        <button class="btn sm outline" style="flex:1" onclick="A_appVisit('${esc(a.appId)}')">🏫 ${EN()?'Book visit':'นัดเยี่ยมชม'}</button>
+        <button class="btn sm pink" style="flex:1" onclick="A_appReject('${esc(a.appId)}')">❌ ${EN()?'Decline':'ไม่รับ'}</button></div>
+        <button class="btn block" style="margin-top:var(--sp-2)" onclick="A_appApprove('${esc(a.appId)}')">✅ ${EN()?'Accept':'รับเข้า'}</button>`:''}
+      ${a.studentId?`<button class="btn block" style="margin-top:var(--sp-2)" onclick="this.closest('.modal').remove();A_appBill('${esc(a.studentId)}')">🧾 ${EN()?'Issue a bill (entry fee / deposit)':'ออกบิล (ค่าแรกเข้า / มัดจำ)'}</button>`:''}
+      <button class="btn outline block" style="margin-top:var(--sp-2)" onclick="this.closest('.modal').remove();A_applications()">${EN()?'Back to the list':'กลับไปรายการ'}</button>`);
+    window._APP_CUR=a; };
+  window.APP_DOCS_TXT=docs=>{ docs=docs||{}; const L={birth:['สูติบัตร','Birth certificate'],parentId:['บัตรประชาชนบิดา-มารดา','Parents’ ID cards'],vaccine:['สมุดวัคซีน','Vaccination record'],house:['ทะเบียนบ้าน','House registration'],photos:['รูปถ่าย','Photos']};
+    return Object.keys(L).map(k=>`<div>${esc(EN()?L[k][1]:L[k][0])}: ${docs[k]==='visit'?(EN()?'🏫 on visit day':'🏫 นำมาวันเยี่ยมชม'):docs[k]==='later'?(EN()?'⏳ later':'⏳ ส่งภายหลัง'):'—'}</div>`).join(''); };
+  window.A_appVisit=(id)=>{ const a=window._APP_CUR||{}; const cur=String(a.visitAt||'').replace(' ','T');
+    modal(`<h3>🏫 ${EN()?'Book a visit':'นัดเยี่ยมชมโรงเรียน'}</h3>
+      <label class="field"><span>${EN()?'Date and time':'วันและเวลา'}</span><input id="apVAt" type="datetime-local" value="${esc(cur)}"/></label>
+      <label class="field"><span>${EN()?'Note to the family (optional)':'ข้อความถึงผู้ปกครอง (ไม่บังคับ)'}</span><input id="apVNote" value="${esc(a.visitNote||'')}" placeholder="${EN()?'e.g. please bring the documents':'เช่น กรุณานำเอกสารมาด้วย'}"/></label>
+      <small class="muted" style="font-size:var(--fs-1)">🔔 ${EN()?'The family is told in the app.':'ผู้ปกครองจะได้รับแจ้งทางกระดิ่งในแอป'}</small>
+      <button class="btn block" style="margin-top:var(--sp-2)" onclick="A_appVisitDo('${esc(id)}',this)">${ic('save')} ${esc(t('c.save'))}</button>
+      <button class="btn outline block" style="margin-top:var(--sp-2)" onclick="this.closest('.modal').remove()">${esc(t('c.close'))}</button>`); };
+  window.A_appVisitDo=async(id,btn)=>{ const m=btn.closest('.modal'); const at=m.querySelector('#apVAt').value; if(!at){ toast(EN()?'Pick a date and time':'เลือกวันและเวลา'); return; }
+    btn.disabled=true; try{ await api('setApplicationVisit',{appId:id,visitAt:at,note:m.querySelector('#apVNote').value.trim(),adminId:USER.staffId}); m.remove(); confirmSaved(t('c.saved')); A_appOpen(id); }catch(e){ btn.disabled=false; err(e); } };
+  window.A_appReject=(id)=>{ modal(`<h3>❌ ${EN()?'Decline the application':'ไม่รับใบสมัคร'}</h3>
+      <label class="field"><span>${EN()?'Message the family will see (optional)':'ข้อความที่ผู้ปกครองจะเห็น (ไม่บังคับ)'}</span><textarea id="apRMsg" rows="2" placeholder="${EN()?'e.g. The class is full this term':'เช่น ชั้นเรียนเต็มในภาคเรียนนี้'}"></textarea></label>
+      <label class="field"><span>🗒️ ${EN()?'Internal reason (the family does NOT see this)':'เหตุผลภายใน (ผู้ปกครองไม่เห็น)'}</span><textarea id="apRNote" rows="2"></textarea></label>
+      <button class="btn pink block" onclick="A_appRejectDo('${esc(id)}',this)">${EN()?'Decline':'ยืนยันไม่รับ'}</button>
+      <button class="btn outline block" style="margin-top:var(--sp-2)" onclick="this.closest('.modal').remove()">${esc(t('c.close'))}</button>`); };
+  window.A_appRejectDo=async(id,btn)=>{ const m=btn.closest('.modal'); btn.disabled=true;
+    try{ await api('rejectApplication',{appId:id,parentMessage:m.querySelector('#apRMsg').value.trim(),internalNote:m.querySelector('#apRNote').value.trim(),adminId:USER.staffId});
+      m.remove(); confirmSaved(t('c.saved')); A_appOpen(id); }catch(e){ btn.disabled=false; err(e); } };
+  window.A_appApprove=async(id)=>{ const a=window._APP_CUR||{};
+    const [depts,plans]=await Promise.all([api('listDepartments').catch(()=>[]),api('getPlans').catch(()=>[])]);
+    const names=(depts||[]).map(x=>typeof x==='string'?x:(x&&(x.name||x.Name||x.ClassName))).filter(Boolean);
+    const wish=((a.data||{}).wish||{}).startDate||''; const today=todayStr(); const start=wish&&wish>=today?wish:today;
+    modal(`<h3>✅ ${EN()?'Accept':'รับเข้า'} — ${esc(a.nick||a.childName)}</h3>
+      <label class="field"><span>${EN()?'Class':'ชั้นเรียน'}</span><select id="apAC">${names.map(n=>`<option${n===a.suggestedClass?' selected':''}>${esc(n)}</option>`).join('')}</select>
+        <small class="muted" style="font-size:var(--fs-1)">${a.suggestedClass?((EN()?'By age: ':'ตามอายุ: ')+esc(a.suggestedClass)):''}</small></label>
+      <label class="field"><span>💰 ${EN()?'First day at school':'วันเริ่มเรียนวันแรก'}</span><input id="apAS" type="date" min="${today}" value="${esc(start)}"/>
+        <small class="muted" style="font-size:var(--fs-1)">${EN()?'Billing counts from this day — it cannot be in the past.':'ระบบคิดค่าเรียนตั้งแต่วันนี้ — เลือกวันย้อนหลังไม่ได้'}${wish?(' · '+(EN()?'family asked for ':'ผู้ปกครองต้องการ ')+esc(APP_fmtDate(wish))):''}</small></label>
+      <label class="field"><span>${EN()?'Fee plan':'แผนค่าเรียน'}</span><select id="apAP"><option value="">${EN()?'— choose later —':'— เลือกภายหลัง —'}</option>${(plans||[]).map(p=>`<option value="${esc(p.id)}">${esc((EN()?p.labelEN:p.labelTH)||p.labelTH||p.id)}${p.price?(' · '+baht(p.price)):''}</option>`).join('')}</select></label>
+      ${((a.data||{}).wish||{}).pickupTime?`<small class="muted" style="font-size:var(--fs-1)">⏰ ${EN()?'Usual pick-up time given by the family':'เวลารับกลับที่ผู้ปกครองแจ้ง'}: ${esc(a.data.wish.pickupTime)} — ${EN()?'not applied to OT automatically':'ระบบไม่นำไปตั้งค่า OT ให้เอง'}</small>`:''}
+      <label class="field"><span>${EN()?'Message to the family (optional)':'ข้อความถึงผู้ปกครอง (ไม่บังคับ)'}</span><input id="apAMsg"/></label>
+      <button class="btn block" onclick="A_appApproveDo('${esc(id)}',this)">✅ ${EN()?'Accept and create the student':'รับเข้าและสร้างข้อมูลนักเรียน'}</button>
+      <button class="btn outline block" style="margin-top:var(--sp-2)" onclick="this.closest('.modal').remove()">${esc(t('c.close'))}</button>`); };
+  window.A_appApproveDo=async(id,btn)=>{ const m=btn.closest('.modal'); const start=m.querySelector('#apAS').value;
+    if(!start){ toast(EN()?'Pick the first day':'เลือกวันเริ่มเรียน'); return; }
+    btn.disabled=true;
+    try{ const r=await api('approveApplication',{appId:id,className:m.querySelector('#apAC').value,startDate:start,plan:m.querySelector('#apAP').value,parentMessage:m.querySelector('#apAMsg').value.trim(),adminId:USER.staffId});
+      document.querySelectorAll('.modal').forEach(x=>x.remove()); confirmSaved(EN()?'Accepted — student created':'รับเข้าแล้ว — สร้างข้อมูลนักเรียนแล้ว');
+      modal(`<h3>🎉 ${EN()?'Accepted':'รับเข้าแล้ว'}</h3><p>${esc(r.nick||r.childName)} · ${esc(r.studentId)} · ${esc(r.className)} · ${EN()?'starts':'เริ่มเรียน'} ${esc(APP_fmtDate(r.startDate))}</p>
+        <p class="muted" style="font-size:var(--fs-1)">${EN()?'Next: issue the entry fee / deposit bill on the usual bill screen.':'ขั้นต่อไป: ออกบิลค่าแรกเข้า / มัดจำ ที่หน้าออกบิลเดิม'}</p>
+        <button class="btn block" onclick="this.closest('.modal').remove();A_appBill('${esc(r.studentId)}')">🧾 ${EN()?'Issue a bill':'ออกบิล'}</button>
+        <button class="btn outline block" style="margin-top:var(--sp-2)" onclick="this.closest('.modal').remove();A_applications()">${EN()?'Back to applications':'กลับไปรายการใบสมัคร'}</button>`);
+    }catch(e){ btn.disabled=false; err(e); } };
+  // the roster cache may predate the child this just created — refresh it so the bill screen can name them
+  window.A_appBill=async(sid)=>{ try{ A_CACHE.students=await api('listStudents',{},{fresh:true}); }catch(e){} A_issueBill(sid); };
+
   window.A_surveys=async()=>{
     const list=await api('surveys',{staffId:USER.staffId},{fresh:true});
     const row=s=>`<div class="card" style="padding:var(--sp-2)">

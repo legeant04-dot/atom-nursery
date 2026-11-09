@@ -548,6 +548,52 @@ create index if not exists announcements_tenant_ix on announcements(tenant_id);
 create index if not exists announcements_seq_ix on announcements(tenant_id, seq);
 alter table announcements enable row level security;
 
+-- ── APPLICATIONS  (MAIN workbook, engine: applications)
+create table if not exists applications (
+  id          uuid primary key default gen_random_uuid(),
+  seq         bigserial not null,
+  tenant_id   uuid not null references tenant(id) on delete restrict,
+  "app_id"                     text,
+  "status"                     text,
+  "parent_id"                  text,
+  "user_uid"                   text,
+  "child_name"                 text,
+  "child_name_en"              text,
+  "nickname"                   text,
+  "nickname_en"                text,
+  "gender"                     text,
+  "dob"                        date,
+  "id_type"                    text,
+  "national_id"                text,
+  "passport"                   text,
+  "photo"                      text,
+  "data"                       text,
+  "submitted_at"               timestamptz,
+  "visit_at"                   timestamptz,
+  "visit_note"                 text,
+  "decided_by"                 text,
+  "decided_at"                 timestamptz,
+  "parent_message"             text,
+  "internal_note"              text,
+  "student_id"                 text,
+  "class_name"                 text,
+  "start_date"                 date,
+  "plan"                       text,
+  "lang"                       text,
+  "consent_version"            text,
+  "sign_name"                  text,
+  "image"                      text,
+  "client_ref"                 text,
+  -- UpdatedAt: the sheet's own column, carried by the
+  -- reserved column of the same name below — same meaning, and never declared twice.
+  created_at  timestamptz not null default now(),
+  updated_at  timestamptz not null default now()
+);
+create unique index if not exists applications_code_uq on applications(tenant_id, "app_id");
+create index if not exists applications_tenant_ix on applications(tenant_id);
+create index if not exists applications_seq_ix on applications(tenant_id, seq);
+alter table applications enable row level security;
+
 -- ── AUDIT_LOG  (MAIN workbook)
 create table if not exists audit_log (
   id          uuid primary key default gen_random_uuid(),
@@ -692,6 +738,30 @@ create unique index if not exists comments_code_uq on comments(tenant_id, "comme
 create index if not exists comments_tenant_ix on comments(tenant_id);
 create index if not exists comments_seq_ix on comments(tenant_id, seq);
 alter table comments enable row level security;
+
+-- ── CONSENTS  (MAIN workbook, engine: consents)
+create table if not exists consents (
+  id          uuid primary key default gen_random_uuid(),
+  seq         bigserial not null,
+  tenant_id   uuid not null references tenant(id) on delete restrict,
+  "consent_id"                 text,
+  "app_id"                     text,
+  "student_id"                 text,
+  "parent_id"                  text,
+  "user_uid"                   text,
+  "item"                       text,
+  "value"                      text,
+  "version"                    text,
+  "sign_name"                  text,
+  "at"                         timestamptz,
+  "source"                     text,
+  created_at  timestamptz not null default now(),
+  updated_at  timestamptz not null default now()
+);
+create unique index if not exists consents_code_uq on consents(tenant_id, "consent_id");
+create index if not exists consents_tenant_ix on consents(tenant_id);
+create index if not exists consents_seq_ix on consents(tenant_id, seq);
+alter table consents enable row level security;
 
 -- ── DAILY_JOURNAL  (MAIN workbook, engine: journals)
 create table if not exists daily_journal (

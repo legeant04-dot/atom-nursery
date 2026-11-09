@@ -260,6 +260,9 @@ function inboxStudentsForParent_(p) {
     if (uid) readObjects_(sheet_(getMainSpreadsheet_(), 'USER_LINKS')).forEach(function (l) {
       if (String(l.UserUID) === uid) add(l.StudentID);
     });
+    // 📝 ...and their applications: a family applying for a first child has no child yet, and the
+    // visit date or the school's answer must still reach their bell (Apply.gs applyFamilyBell_)
+    applyIdsForParent_(pid, uid).forEach(add);
   } catch (e) {}
   return out;
 }

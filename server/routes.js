@@ -32,9 +32,9 @@ const PG = require(path.join(ROOT, 'tools', 'pg_engine.js'));   // the table col
  *  rows only. Anything else it tries (another column, a new row, a delete, a cache, LINE) fails the call. */
 const PORTED = {
   // the 🔔 bell — Admin inbox · a staff member's inbox · a family's inbox (src/Notify.gs)
-  notifications: { fn: 'handleNotifications', reads: ['ADMIN_INBOX', 'PARENTS', 'USER_LINKS'] },
+  notifications: { fn: 'handleNotifications', reads: ['ADMIN_INBOX', 'PARENTS', 'USER_LINKS', 'APPLICATIONS'] },
   // ...and "mark as read": the same three audiences, the same three sheets, one cell (Read = 'YES')
-  markNotifsRead: { fn: 'handleMarkNotifsRead', reads: ['ADMIN_INBOX', 'PARENTS', 'USER_LINKS'], writes: { ADMIN_INBOX: ['Read'] } },
+  markNotifsRead: { fn: 'handleMarkNotifsRead', reads: ['ADMIN_INBOX', 'PARENTS', 'USER_LINKS', 'APPLICATIONS'], writes: { ADMIN_INBOX: ['Read'] } },
   // the approver's queue — Admin sees PENDING_ADMIN, a Leader PENDING_LEADER, anyone else NO_PERMISSION (src/Leave.gs)
   pendingLeaves: { fn: 'handlePendingLeaves', reads: ['LEAVE_REQUEST', 'STAFF'] },
   // Big Cleaning: the dates, the allowance and the day's own hours — all from SCHOOL_CONFIG (src/Checkin.gs)
@@ -96,7 +96,15 @@ const PORTED = {
   /* the head teacher takes sent reports back (src/Journal.gs): two status cells per report, and one 🔔 row in
    * the inbox of each teacher who wrote one (inboxAdd_ → ADMIN_INBOX — the bell, never LINE) */
   recallJournalsMany: { fn: 'handleRecallJournalsMany', reads: ['DAILY_JOURNAL', 'STAFF', 'STUDENTS', 'ADMIN_INBOX'],
-    writes: { DAILY_JOURNAL: ['Status', 'SubmittedAt'] }, appends: ['ADMIN_INBOX'] }
+    writes: { DAILY_JOURNAL: ['Status', 'SubmittedAt'] }, appends: ['ADMIN_INBOX'] },
+
+  /* ═══ W2 · writes that SEND LINE (docs/FAST_HOST_WRITES_PLAN.md, 2026-11-09) ═══════════════════════════
+   * `line: true` — linePush_ is recorded, not called; the host sends after commit (server/line_send.js).
+   * Proven by tools/test_fast_route_line.js: the same steps on Apps Script and here, and after each one
+   * the reply, every row AND every LINE message (recipient, text, order) compared. */
+  // 1 · the teacher answers a parent's comment → the family's 🔔 and LINE (topic parent.journalReply)
+  saveTeacherReply: { fn: 'handleSaveTeacherReply', reads: ['STUDENTS', 'STAFF', 'PARENTS', 'USER_LINKS', 'ADMIN_INBOX'],
+    writes: { DAILY_JOURNAL: ['TeacherReply'] }, appends: ['ADMIN_INBOX'], line: true }
 };
 /* 🔴 SCHOOL_CONFIG is readable by every ported route, as by every line of Apps Script: getConfig_ is
  * Db.gs's own (raw Key/Value rows, cached per execution in _configCache — reset per request here),
@@ -106,9 +114,10 @@ const ALWAYS_READ = ['SCHOOL_CONFIG'];
 
 /* Config/Auth: constants · Notify/Leave: the handlers · Checkin: resolveStaff_ · Code: apiError_ ·
  * GasEngine: decodeCell_. Loaded whole, as Apps Script loads them. */
-const FILES = ['Config', 'Db', 'Audit', 'Auth', 'Checkin', 'Code', 'GasEngine', 'Notify', 'Leave', 'Payroll', 'Day6', 'OtStaff', 'OT', 'Certificate',
-  'Staff', 'Dspm', 'DspmAdmin', 'Parent', 'Journal', 'Announce'];   // Dspm: getStudent_
-let box = null, pristine = null;
+const FILES = ['Config', 'Db', 'Audit', 'Line', 'Auth', 'Checkin', 'Code', 'GasEngine', 'Notify', 'Leave', 'Payroll', 'Day6', 'OtStaff', 'OT', 'Certificate',
+  'Staff', 'Dspm', 'DspmAdmin', 'Parent', 'Journal', 'Announce',
+  'Apply'];   // Apply: applyIdsForParent_ — a family's applications count toward their bell (Notify.gs)   // Dspm: getStudent_
+let box = null, pristine = null, ORIG = null;
 function load() {
   if (box) return box;
   box = { console: { log() {}, error() {} }, Logger: { log() {} } };
@@ -127,6 +136,9 @@ function load() {
    * that memo would hand the NEXT request — another school, or the same school after a change —
    * this request's staff. So every non-function global is remembered here as it was after loading,
    * and restored (a fresh copy) before each run; globals created at run time are removed. */
+  /* the two LINE functions as Apps Script defines them — every run below replaces them (refused, or the
+   * recorder), so the originals are kept here or the first run would lose them for good */
+  ORIG = { linePush_: box.linePush_, linePushText_: box.linePushText_ };
   pristine = {};
   FN_AT_LOAD = new Set(Object.keys(box).filter(k => typeof box[k] === 'function'));
   Object.keys(box).forEach(k => {
@@ -172,6 +184,7 @@ function writable(actions) {
   return [...s];
 }
 const writes = a => { const d = PORTED[a]; return !!(d && (d.writes || d.appends || d.deletes || d.engine)); };
+const sendsLine = a => !!(PORTED[a] && PORTED[a].line);
 /* the ENGINE collections a route may change through engineDispatch_ (holidayWrite_ → addHoliday) — the host
  * saves those through its own engine path, and only these */
 const engineWrites = a => ((PORTED[a] || {}).engine || []).slice();
@@ -184,7 +197,7 @@ const engineWrites = a => ((PORTED[a] || {}).engine || []).slice();
  *       lock (PG.updateSheetRows). The change is ALSO applied to raw, so a later call in the same batch
  *       reads it, exactly as the next call on Apps Script would read the sheet.
  */
-function run(action, payload, raw, H, config, sink) {
+function run(action, payload, raw, H, config, sink, line) {
   const def = PORTED[action];
   if (!def) throw new Error('routes: ' + action + ' is not ported');
   const b = load();
@@ -310,7 +323,30 @@ function run(action, payload, raw, H, config, sink) {
   };
   b.Utilities = { formatDate };
   b.engineDispatch_ = (a, p) => { const h = H && H[a]; if (typeof h !== 'function') throw new Error('UNKNOWN_ACTION ' + a); return h(p || {}); };
-  ['appendRows_', 'deleteRow_', 'writeRows_', 'linePushText_'].forEach(n => { b[n] = refuseWrite(n); });
+  ['appendRows_', 'deleteRow_', 'writeRows_'].forEach(n => { b[n] = refuseWrite(n); });
+  /* ── LINE (W2, 2026-11-09) ─────────────────────────────────────────────────────────────────────
+   * A route declared `line: true` runs Apps Script's linePushText_ untouched (LINE_DEFER_ is null here,
+   * so it calls linePush_) — and linePush_ is the ONE thing replaced: it writes { to, messages } down
+   * instead of calling LINE. Who gets what, under which switch, is still Apps Script's code alone.
+   * The host sends the list only after it has committed this call's writes (server/line_send.js).
+   * Its answer is linePush_'s: false in demo mode, false with no recipient or no token (line.ready —
+   * the host's, never the sandbox's: the token does not enter here), else true.
+   * A route NOT declared `line` is refused on its first push, as before: it goes to Apps Script. */
+  const lineOps = [];
+  if (def.line) {
+    if (!line || !Array.isArray(line.out)) breach('routes: ' + action + ' sends LINE with nowhere to record it');
+    b.linePushText_ = ORIG.linePushText_;
+    b.linePush_ = (toUid, messages) => {
+      /* 🔴 demo mode: DemoMode alone is enough here (Apps Script also wants the ATOM_DEMO property) — stricter */
+      try { if (String(b.getConfig_('DemoMode', 'false')).toLowerCase() === 'true') return false; } catch (e) { return false; }
+      if (!toUid || !line.ready) return false;
+      lineOps.push({ to: String(toUid), messages: clone(messages) });
+      return true;
+    };
+  } else {
+    b.linePushText_ = refuseWrite('linePushText_');
+    b.linePush_ = refuseWrite('linePush_');
+  }
   b.updateRow_ = updateRow;
   b.appendObject_ = appendObject;
   /* Apps Script's CacheService copies cannot be cleared from here and need not be: every sheet this call
@@ -331,7 +367,8 @@ function run(action, payload, raw, H, config, sink) {
   if (thrown) throw thrown;
   touched.forEach(n => { raw[n] = work[n]; });
   ops.forEach(o => sink.push(o));
+  lineOps.forEach(o => line.out.push(o));               // only a call that finished cleanly sends anything
   return out === undefined ? out : JSON.parse(JSON.stringify(out));
 }
 
-module.exports = { PORTED, has: a => Object.prototype.hasOwnProperty.call(PORTED, a), needs, writable, writes, engineWrites, run, formatDate };
+module.exports = { PORTED, has: a => Object.prototype.hasOwnProperty.call(PORTED, a), needs, writable, writes, sendsLine, engineWrites, run, formatDate };

@@ -128,7 +128,7 @@ console.log('\n3) both halves of the fix, in the code');
   // ...and prove the slice is the MAP and not half the file — the first attempt at this ran on to a
   // later terminator, swallowed the allow-list below it, and "found" the name in the wrong object
   ok_('the ADMIN_ONLY map was found, and only it',
-    adminOnly.length > 200 && adminOnly.length < 8000 &&
+    adminOnly.length > 200 && adminOnly.length < 12000 &&
     /parentKidsMap: 1 \};$/.test(adminOnly) && !/PAUSED_OK_/.test(adminOnly));
   ok_('...and is NOT admin-only, or a teacher could not read their own',
     !/myPayslipMonths: 1/.test(adminOnly));

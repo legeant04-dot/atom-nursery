@@ -144,7 +144,7 @@ console.log('\n4) 🔴 รูที่เจอระหว่างทาง �
   const i = code.indexOf('var ADMIN_ONLY = {');
   const adminOnly = i < 0 ? '' : code.slice(i, code.indexOf('};', i) + 2);
   const inAdmin = n => new RegExp('\\b' + n + ':\\s*1').test(adminOnly);
-  ok_('พบ ADMIN_ONLY และเป็นก้อนนั้นจริง', adminOnly.length > 200 && adminOnly.length < 8000);
+  ok_('พบ ADMIN_ONLY และเป็นก้อนนั้นจริง', adminOnly.length > 200 && adminOnly.length < 12000);
   ok_('🔴 listParents เป็นของแอดมินแล้ว (เดิมใครล็อกอินอยู่ก็เรียกได้ รวมถึงผู้ปกครอง)',
     inAdmin('listParents'));
   ok_('...parentKidsMap และ parentLinkCounts ด้วย', inAdmin('parentKidsMap') && inAdmin('parentLinkCounts'));

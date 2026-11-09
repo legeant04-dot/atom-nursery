@@ -101,7 +101,9 @@ console.log('\n3) 🔴 กฎที่ทำให้รันนอก Apps Scr
   let e1 = null;
   try { ROUTES.run('notifications', { role: 'Admin' }, {}, {}, {}); } catch (e) { e1 = e; }
   ok_('ไม่มีแถวที่โหลดมา ≠ "ไม่มีแจ้งเตือน" — อ่านได้ แต่ได้ว่างเพราะโหลดมาว่างจริง', !e1);
-  eq('ประกาศชีตที่อ่านครบ (SCHOOL_CONFIG อ่านได้เสมอ เหมือนทุกบรรทัดของ Apps Script)', ROUTES.needs(['notifications', 'classList']), ['SCHOOL_CONFIG', 'ADMIN_INBOX', 'PARENTS', 'USER_LINKS']);
+  eq('ประกาศชีตที่อ่านครบ (SCHOOL_CONFIG อ่านได้เสมอ เหมือนทุกบรรทัดของ Apps Script)', ROUTES.needs(['notifications', 'classList']), ['SCHOOL_CONFIG', 'ADMIN_INBOX', 'PARENTS', 'USER_LINKS',
+    // 📝 2026-11-09: a family's applications count toward their bell (inboxStudentsForParent_ → applyIdsForParent_)
+    'APPLICATIONS']);
   // a route that reads a sheet it did not declare: simulated by narrowing the declaration
   const saved = ROUTES.PORTED.notifications.reads;
   ROUTES.PORTED.notifications.reads = ['ADMIN_INBOX'];

@@ -50,6 +50,9 @@ var COLLECTION_MAP = {
   classCover:      { wb: 'MAIN', sheet: 'CLASS_COVER' },
   surveys:         { wb: 'MAIN', sheet: 'SURVEYS' },
   surveyResponses: { wb: 'MAIN', sheet: 'SURVEY_RESPONSES' },
+  // 📝 ใบสมัครออนไลน์ (2026-11-09) — an application is not a student; see SCHEMA.APPLICATIONS
+  applications:    { wb: 'MAIN', sheet: 'APPLICATIONS' },
+  consents:        { wb: 'MAIN', sheet: 'CONSENTS' },
   staff:           { wb: 'HR',   sheet: 'STAFF' },
   staffGroups:     { wb: 'HR',   sheet: 'STAFF_GROUPS' },
   workSchedule:    { wb: 'HR',   sheet: 'WORK_SCHEDULE' },
