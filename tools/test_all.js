@@ -71,7 +71,9 @@ const DB_SUITES = new Set(['test_pg_engine.js', 'pg_rls_spike.js', 'test_pg_load
   // 2026-11-04 — every write the Cloud Run host may save, proven against staging; it writes a tenant
   'test_fast_host_writes_live.js', 'test_fast_routes_live.js',
   // 2026-11-05 — the money writes, every baht, against staging
-  'test_fast_host_money_live.js']);
+  'test_fast_host_money_live.js',
+  // 2026-11-09 — W2: routes that send LINE, committed to staging and the recorded messages compared (LINE_SEND=capture)
+  'test_fast_route_line_live.js']);
 const NEEDS_DB = { test: f => DB_SUITES.has(f) };
 const suites = fs.readdirSync(path.join(ROOT, 'tools'))
   .filter(f => /^test_.*\.js$/.test(f) && f !== 'test_all.js')

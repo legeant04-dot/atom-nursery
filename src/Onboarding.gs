@@ -125,6 +125,9 @@ var ONBOARD_SCOPE_ = {
   /* 🔴 โรงเรียนนี้โอนเงินเดือนทีละคน (มีสลิปรายคน) หรือโอนแบบตั้งเวลาล่วงหน้า (ไม่มี)
    * เป็นเรื่องของวิธีทำงานของแต่ละโรงเรียน ไม่ใช่ค่าที่ถูกสำหรับทุกที่ จึงต้องให้คนยืนยัน */
   RequireSalarySlip:      'CONFIRM',
+  /* 📝 the two blanks in the online application's PDPA text — every school's own answer, and blank
+   * keeps applications closed (applyInfo_), which is the safe state rather than an error */
+  ApplyRetentionYears:    'CONFIRM',  ApplyPdpaContact:       'CONFIRM',
   SchoolSlogan:           'CONFIRM',
   /* the receipt's letterhead — who the money was paid to, where, and who signs for it */
   DocSchoolName: 'REQUIRED', DocAddress1: 'REQUIRED', DocPhone: 'REQUIRED', DocSignerName: 'REQUIRED',

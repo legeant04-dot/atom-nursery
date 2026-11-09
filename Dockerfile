@@ -46,12 +46,17 @@ COPY src/DspmAdmin.gs           src/DspmAdmin.gs
 COPY src/Parent.gs              src/Parent.gs
 COPY src/Journal.gs             src/Journal.gs
 COPY src/Announce.gs            src/Announce.gs
+COPY src/Apply.gs               src/Apply.gs
+# W2 (2026-11-09): routes that send LINE run Line.gs's own linePushText_/notifyChannels_ — linePush_ is recorded, not called
+COPY src/Line.gs                src/Line.gs
 COPY docs/schema/001_init.sql   docs/schema/001_init.sql
 COPY server/host.js             server/host.js
 COPY server/session.js          server/session.js
 COPY server/gate.js             server/gate.js
 COPY server/write_proven.js     server/write_proven.js
 COPY server/routes.js           server/routes.js
+# ...and sends what was recorded, after the commit. The token comes from the environment (Secret Manager), never a file
+COPY server/line_send.js        server/line_send.js
 
 # Cloud Run supplies PORT (8080); host.js reads it
 USER node

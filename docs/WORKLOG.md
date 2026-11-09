@@ -5,6 +5,35 @@
 
 ---
 
+## 2026-11-09 · ใบสมัครออนไลน์ ระยะ 1 (ยังไม่ deploy) · W2 ขึ้น Cloud Run staging rev 00020
+
+**W2** — deploy Cloud Run staging rev 00020 (ไม่ได้ตั้ง LINE_SEND = capture: ไม่ส่งถึงใครจริง) · ก่อน deploy ผ่าน 228 ชุด · /api ตอบ saveTeacherReply ด้วย NO_SESSION ตามที่ควร
+
+**ใบสมัครออนไลน์** (docs/APPLICATION_FORM_PLAN.md · ผอ. อนุมัติ รวม "รับเข้า" ในระยะ 1 · พี่น้องผ่านใบสมัคร · เลขบัตรเด็กบังคับ/พาสปอร์ต · ไม่รับ = ข้อความที่แอดมินเลือก · นัดเยี่ยม = แอดมินกำหนด · PDPA ว่าง 2 จุด = ปิดรับจนกว่าจะเติม)
+- 🔴 ปัญหาที่แก้: เพิ่มลูกในแอปเคยสร้างนักเรียน ACTIVE คิดเงินตั้งแต่วันที่กด → ตอนนี้เป็น **ใบสมัคร** ในตาราง APPLICATIONS ไม่โผล่ในรายชื่อ เช็คชื่อ บิล จนแอดมินกดรับเข้า
+- engine: applyInfo · submitApplication · myApplications/myApplication/cancelApplication · listApplications/applicationAdmin · setApplicationVisit · rejectApplication · approveApplication (สร้างนักเรียนผ่าน addStudentByAdmin + ผูก ParentID/USER_LINKS แบบ addChildNew · 💰 วันเริ่มเรียน ≥ วันนี้)
+- ความยินยอม: ตาราง CONSENTS 1 แถว/ข้อ · ฉบับข้อความ = hash ของข้อความที่เติมแล้ว (เปลี่ยนเองเมื่อแก้ปี/ช่องทางติดต่อ) · ไม่ยินยอมข้อ 7.3-1/2 → เซิร์ฟเวอร์ทิ้งข้อมูลสุขภาพ/น้ำหนักส่วนสูงเอง
+- src/Apply.gs (ใหม่): แจ้ง 🔔 แอดมินเมื่อมีใบใหม่ (+LINE เฉพาะผู้รับหัวข้อ registration) · แจ้ง 🔔 ผู้ปกครองเมื่อนัด/ไม่รับ (ผูกกับเลขใบสมัคร เพราะยังไม่มีเด็ก) และเมื่อรับเข้า · **ระยะ 1 ไม่ส่ง LINE ถึงผู้ปกครอง จึงไม่มีสวิตช์**
+- Code.gs: ประตูแอดมิน 5 ตัวใน ADMIN_ONLY · ครูเรียก route ใบสมัครของครอบครัวไม่ได้ (เคยส่ง parentId ของใครก็ได้)
+- หน้าจอ: ปุ่ม "สมัครเรียน" หน้าแรก (เข้าด้วย LINE ก่อน) · ฟอร์ม 8 หน้า Mobile First พร้อมร่างในเครื่อง · หน้าแรกผู้ปกครองแสดง "ใบสมัครของฉัน" · แอดมิน: จัดการ › ใบสมัครเรียน (ตั้งค่า PDPA 2 จุดอยู่บนหน้านี้) · รับเข้าแล้วไปหน้าออกบิลเดิม
+- Postgres: ตาราง applications/consents ใน 001_init.sql + PgSchema.gs · ใส่ staging แล้ว (pg_sync_schema --apply: 269 ok) · ROPA/ข้อมูลอ่อนไหวอัปเดต
+- **หลักฐาน**: tools/test_application.js 73 ข้อ · tools/test_application_gas.js 24 ข้อ (ผ่าน dispatch_ จริงด้วยเซสชันจริง) · test_all 230 ชุดผ่าน · ลองบนมือถือ 375px โหมดสาธิต: ส่ง → นัด → รับเข้า → ออกบิล และ ไม่รับ → ผู้ปกครองเห็นข้อความ
+- **ยังไม่ทำ**: commit / push / clasp deploy (รอคำสั่ง) · ผอ. ต้องเติม "เก็บ … ปี" และ "ช่องทางติดต่อ" ก่อนเปิดรับจริง
+
+---
+
+## 2026-11-09 · W2 เริ่ม · ท่อ LINE ของ Cloud Run · route ข้อ 1 ครูตอบความเห็นผู้ปกครอง
+
+**ทำอะไร** ตามแผน W2 ที่ ผอ. อนุมัติ (docs/FAST_HOST_WRITES_PLAN.md)
+- `server/routes.js` — route ที่ประกาศ `line: true` รัน `linePushText_` ของ Apps Script ตัวจริง (โหลด Line.gs เพิ่ม) และแทน `linePush_` ตัวเดียวด้วยตัวจด `{to, messages}` · ตอบแบบเดียวกับ linePush_ (โหมดสาธิต/ไม่มีผู้รับ/ไม่มี token → false) · call ที่ล้มไม่จดอะไร · route ที่ไม่ประกาศแต่ส่ง → NOT_ON_FAST_HOST เหมือนเดิม
+- `server/line_send.js` (ใหม่) — ส่งหลัง commit ก่อนตอบ · ต่อผู้รับเรียงลำดับ ต่างคนส่งพร้อมกัน · X-Line-Retry-Key ต่อข้อความ ลองใหม่ 1 ครั้งด้วยรหัสเดิม (5xx/หมดเวลา) · 409 = ส่งแล้ว · 4xx/429 ไม่ลองใหม่ · เพดาน 8s · ไม่โยน error · log เก็บ 6 ตัวท้ายของ LINE id + ผล ไม่มีเนื้อความ · `LINE_SEND` = capture (ค่าปริยาย · พิมพ์ผิดก็เป็น capture) / on / off · token จาก env `LINE_TOKEN` (Secret Manager) เท่านั้น
+- `server/host.js` — รายการที่จดผูกกับ attempt · attempt ที่ถูก retry/ปฏิเสธ/rollback ทิ้งรายการ · โหมด capture ส่ง fingerprint (sha256 ของผู้รับ+ข้อความ) ใน `x-atom-line` ให้ live test เทียบ
+- route ข้อ 1: `saveTeacherReply` (DAILY_JOURNAL.TeacherReply + กระดิ่งครอบครัว + LINE topic parent.journalReply)
+- Dockerfile/.gcloudignore เพิ่ม src/Line.gs + server/line_send.js
+
+**พิสูจน์** test_fast_route_line 43/43 (คำตอบ + ทุกชีต + LINE ผู้รับ/ข้อความ/ลำดับ: app,line · app · ปิด · ค่าเก่า true · โหมดสาธิต · ไม่มี LINE id · คนเดียวกันสองที่ได้ครั้งเดียว · ครูชั้นอื่น · ไม่มีบันทึก · ไม่มี token) · test_line_send 19/19 (LINE ปลอมในเครื่อง) · test_fast_route_line_live 17/17 (staging · capture) · test_all 228 suites ผ่าน
+**ยังไม่ทำ** deploy Cloud Run (รอคำสั่ง) · route ข้อ 2–5 · src/ ไม่ได้แก้ → GAS ไม่ต้อง deploy · ระบบจริงไม่เปลี่ยน (api.js ยังไม่ชี้ผู้ใช้จริงไปโฮสต์)
+
 ## 2026-11-09 · W1 ครบ · วันหยุด · Big Cleaning · ส่งบันทึกกลับหลายใบ · 🔴 "ทุกปี" ที่จะขึ้นกับทุกวันหยุด
 
 **ผอ.:** *"ทำต่อเรื่องย้าย route ได้เลย"*

@@ -55,7 +55,7 @@ function pgStats(out) {
 /* The three network suites are not re-run through the hook: they ARE the database tests, they
  * manage their own tenants, and putting a bridge between a suite and the database it is testing
  * would prove nothing about either. Run them by name, as the plan already says. */
-const SKIP = new Set(['test_pg_engine.js', 'test_pg_load.js', 'test_all.js', 'test_fast_host_writes_live.js', 'test_fast_routes_live.js', 'test_fast_host_money_live.js', 'test_fast_route_writes_live.js']);
+const SKIP = new Set(['test_pg_engine.js', 'test_pg_load.js', 'test_all.js', 'test_fast_host_writes_live.js', 'test_fast_routes_live.js', 'test_fast_host_money_live.js', 'test_fast_route_writes_live.js', 'test_fast_route_line_live.js']);
 /* 🔴 RUN WITHOUT THE BRIDGE, and counted as offline — not skipped (2026-11-04). test_narrow_safe
  * compares the engine's answers over 120 days of fabricated data against one day; it is about what
  * the ENGINE answers, and says so in its own header. Through the bridge every one of its ~6,000

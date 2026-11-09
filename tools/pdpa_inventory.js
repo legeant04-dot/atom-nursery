@@ -51,7 +51,11 @@ const SENSITIVE = {
   Narrative: 'สุขภาพ — คำบรรยายเหตุการณ์บาดเจ็บ',
   CauseObject: 'สุขภาพ — สาเหตุการบาดเจ็บ',
   Sex: 'เพศของเด็ก',
-  Gender: 'เพศของเด็ก'
+  Gender: 'เพศของเด็ก',
+  /* 📝 the online application (2026-11-09): every answer on the paper form that has no column of its own,
+   * as JSON — health history, blood group, religion, race. The health answers are kept ONLY when the
+   * family consented to item 1 of 7.3 (the engine drops them otherwise: appCleanData_) */
+  Data: 'สุขภาพ · ศาสนา · เชื้อชาติ — คำตอบในใบสมัคร (สุขภาพเก็บเฉพาะเมื่อยินยอมข้อ 7.3-1)'
 };
 
 /* ── identifiers a person can be found by, and the two that are government ids ────────────────── */
@@ -64,6 +68,8 @@ const IDENTIFIER = {
   PictureUrl: 'รูปโปรไฟล์', InsuranceCardImage: 'ภาพบัตรประกัน',
   DOB: 'วันเกิด', Birthday: 'วันเกิด',
   NameTH: 'ชื่อ-นามสกุล', NameEN: 'ชื่อ-นามสกุล', Nickname: 'ชื่อเล่น', NicknameEN: 'ชื่อเล่น',
+  ChildName: 'ชื่อ-นามสกุล', ChildNameEN: 'ชื่อ-นามสกุล', SignName: 'ชื่อผู้ลงนาม', Image: 'ลายเซ็น / รูปภาพ',
+  Passport: '🔴 เลขหนังสือเดินทาง', UserUID: 'รหัสผู้ใช้ LINE',
   InsuredName: 'ชื่อผู้เอาประกัน', InsuranceOwner: 'ชื่อเจ้าของกรมธรรม์',
   BankAccount: '🔴 เลขบัญชีธนาคาร', BankName: 'ธนาคาร',
   PasswordHash: '🔴 รหัสผ่าน (เข้ารหัสแล้ว)',
@@ -97,7 +103,8 @@ const SUBJECT = {
   LEAVE_REQUEST: 'พนักงาน', OT_RECORDS: 'พนักงาน', PAYROLL: 'พนักงาน',
   PAY_ADJUSTMENTS: 'พนักงาน', TRAINING: 'พนักงาน', WORK_SCHEDULE: 'พนักงาน',
   ATTENDANCE_REQUEST: 'พนักงาน', CLASS_CHANGE_REQ: 'พนักงาน', CLASS_COVER: 'พนักงาน',
-  PERF_LOG: '— (วัดความเร็วระบบ ไม่มีชื่อ/รหัสผู้ใช้)'
+  PERF_LOG: '— (วัดความเร็วระบบ ไม่มีชื่อ/รหัสผู้ใช้)',
+  APPLICATIONS: 'ผู้สมัคร (เด็ก) / ผู้ปกครอง', CONSENTS: 'ผู้ปกครอง (บันทึกความยินยอม)'
 };
 
 function inventory() {

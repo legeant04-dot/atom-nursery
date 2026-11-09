@@ -1190,3 +1190,12 @@ input::placeholder,textarea::placeholder{color:var(--ink-3);}
    of floating in an 18px gutter. */
 .ot-foot{position:sticky;bottom:0;z-index:3;background:var(--surface);border-top:1px solid var(--line);
   margin:var(--sp-2) -16px -16px;padding:var(--sp-3) var(--sp-4) var(--sp-4);box-shadow:0 -6px 14px rgba(0,0,0,.06);}
+
+/* 📝 application wizard progress (2026-11-09) */
+.ap-prog{height:6px;border-radius:999px;background:var(--line);overflow:hidden;}
+.ap-prog>i{display:block;height:100%;background:var(--blue);border-radius:999px;transition:width var(--dur);}
+.ap-seg{margin-bottom:0;}
+.ap-seg button{min-height:44px;font-size:var(--fs-2);}
+/* a signature is ink on paper in both themes: a white sheet, dark ink (the canvas strokes rgb(20,30,60)) */
+.ap-sig{background:var(--paper,#fff);border:1px dashed var(--line);border-radius:10px;}
+.ap-req{color:var(--bad);font-style:normal;display:inline;}

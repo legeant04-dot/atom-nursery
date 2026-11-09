@@ -313,6 +313,19 @@ SCHEMA[WB.MAIN] = {
   SURVEYS:           ['SurveyID', 'Title', 'Description', 'Type', 'Options', 'Questions', 'Scope', 'Target',
                       'StartDate', 'EndDate', 'Status', 'Anonymous', 'CreatedBy', 'CreatedAt'],
   SURVEY_RESPONSES:  ['ResponseID', 'SurveyID', 'StudentID', 'ParentID', 'Rating', 'Choice', 'Comment', 'Answers', 'SubmittedAt'],
+  /* 📝 ใบสมัครออนไลน์ (2026-11-09 · docs/APPLICATION_FORM_PLAN.md). An APPLICATION IS NOT A STUDENT:
+   * nothing here is read by the roster, the register or billing. Approval builds the child through
+   * addStudentByAdmin and writes its id back into StudentID. Data = every answer on the school's paper
+   * form that has no column of its own (habits, meals, the other parent, …) as JSON. Image = the
+   * optional finger signature; Photo = the child's photo — both names IMAGE_COLS_ sends to Drive. */
+  APPLICATIONS:      ['AppID', 'Status', 'ParentID', 'UserUID', 'ChildName', 'ChildNameEN', 'Nickname', 'NicknameEN', 'Gender', 'DOB',
+                      'IdType', 'NationalID', 'Passport', 'Photo', 'Data', 'SubmittedAt', 'UpdatedAt', 'VisitAt', 'VisitNote',
+                      'DecidedBy', 'DecidedAt', 'ParentMessage', 'InternalNote', 'StudentID', 'ClassName', 'StartDate', 'Plan',
+                      'Lang', 'ConsentVersion', 'SignName', 'Image', 'ClientRef'],
+  /* One row per consent item per application — THE LOG THAT IS THE SIGNATURE (ผอ. 2026-11-09). Version names
+   * the exact words agreed to (a hash of the text, applyInfo_ in the engine); UserUID is the LINE account
+   * that pressed the button; At is the server's clock. Item: truth · pdpa · health · daily · photoJournal · photoPublic. */
+  CONSENTS:          ['ConsentID', 'AppID', 'StudentID', 'ParentID', 'UserUID', 'Item', 'Value', 'Version', 'SignName', 'At', 'Source'],
   BACKUP_LOG:        ['BackupDate', 'WorkbookName', 'DriveFileID', 'Status'],
   // INFERRED — parent <-> school chat (§4 "Comments — สื่อสารกับโรงเรียน")
   COMMENTS:          ['CommentID', 'StudentID', 'ParentID', 'SenderRole', 'Message', 'Timestamp', 'ReadStatus',
@@ -716,6 +729,11 @@ var SCHOOL_CONFIG_DEFAULTS = [
 
   // ── ถึงแอดมิน ───────────────────────────────────────────────────────────────────────────────
   ['NotifyAdminApproval',      ''],   // 📲 มีคำขออนุมัติเข้ามา
+  /* 📝 ใบสมัครออนไลน์ — the two blanks in the school's PDPA text (7.2 ข้อ 4 and 5). BLANK ON PURPOSE:
+   * applyInfo_ keeps applications CLOSED until both are filled (ผอ. 2026-11-09), because a family must
+   * never consent to a sentence with a hole in it. */
+  ['ApplyRetentionYears',      ''],   // เก็บข้อมูลไว้ … ปี นับแต่วันที่เด็กออกจากโรงเรียน
+  ['ApplyPdpaContact',         ''],   // ช่องทางติดต่อเพื่อใช้สิทธิ PDPA (เช่น LINE OA / โทร / อีเมล)
   /* MAY PARENTS PAY SEVERAL MONTHS IN ADVANCE? Asked 2026-09-02 — the school wants to be able to
    * close it for a while without the feature being removed. ON by default, because that is how it
    * has always worked and turning a paying channel off silently would be the wrong default. Off

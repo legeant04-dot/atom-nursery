@@ -16,6 +16,7 @@
 !/server/gate.js
 !/server/write_proven.js
 !/server/routes.js
+!/server/line_send.js
 
 !/tools/
 /tools/*
@@ -49,6 +50,8 @@
 !/src/Parent.gs
 !/src/Journal.gs
 !/src/Announce.gs
+!/src/Apply.gs
+!/src/Line.gs
 
 !/docs/
 /docs/*

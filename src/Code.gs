@@ -322,6 +322,11 @@ var ROUTES = {
   // new registrations run via the engine but also drop an in-app notice to Admin
   registerNew:          function (p) { return handleRegisterNew(p); },
   addChildNew:          function (p) { return handleAddChildNew(p); },
+  // 📝 ใบสมัครออนไลน์ — the engine decides, Apply.gs tells people (admin bell / family bell)
+  submitApplication:    function (p) { return handleSubmitApplication(p); },
+  setApplicationVisit:  function (p) { return handleSetApplicationVisit(p); },
+  rejectApplication:    function (p) { return handleRejectApplication(p); },
+  approveApplication:   function (p) { return handleApproveApplication(p); },
   reinstallTriggers:    function (p) { return handleReinstallTriggers(p); },   // admin-only
   // Big Cleaning Day (admin-managed workday, no fixed hours, diligence bonus)
   bigCleaningDays:  function ()  { return handleBigCleaningDays(); },
@@ -616,6 +621,8 @@ function applyIdentity_(action, payload, sess) {
     // actions any signed-in family may call for themselves; this one writes a child nobody has
     // claimed, so it belongs to the admin alone.
     addStudentByAdmin: 1,
+    // 📝 ใบสมัคร: every family's applications + the decision (approve CREATES A STUDENT, as above)
+    listApplications: 1, applicationAdmin: 1, setApplicationVisit: 1, rejectApplication: 1, approveApplication: 1,
     /* absenceFollowupLog is deliberately NOT here. It is the teacher's own work — they write these
      * rows and must be able to read back who has already rung a family before ringing them again,
      * which is the entire reason the trail exists. It scopes itself by staffId to the classes that
@@ -723,6 +730,11 @@ function applyIdentity_(action, payload, sess) {
     }
     return payload;
   }
+  /* 📝 A FAMILY'S OWN APPLICATIONS ARE A FAMILY'S. These take parentId from the payload, and only a
+   * PARENT session has that stamped below — a teacher's parentId would be whatever they typed, which
+   * is another family's child's ID number, address and health answers. Refused, not ignored. */
+  var FAMILY_APPLY = { submitApplication: 1, myApplications: 1, myApplication: 1, cancelApplication: 1 };
+  if (FAMILY_APPLY[action] && sess.role !== ROLES.PARENT) throw apiError_('NO_PERMISSION', 'เฉพาะผู้ปกครอง');
   payload.uid = sess.uid; payload.role = sess.role;                       // overwrite — never trust client identity
   if (sess.role === ROLES.PARENT) {
     payload.parentId = sess.linkedId;

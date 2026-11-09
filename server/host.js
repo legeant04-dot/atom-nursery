@@ -33,6 +33,7 @@ const { verifySession } = require(path.join(__dirname, 'session.js'));
 const GATE = require(path.join(__dirname, 'gate.js'));
 const { WRITE_PROVEN } = require(path.join(__dirname, 'write_proven.js'));
 const ROUTES_PORT = require(path.join(__dirname, 'routes.js'));
+const LINE = require(path.join(__dirname, 'line_send.js'));
 /* derived keys GasEngine persists, and the writer that does the same here (see pg_engine) */
 const DERIVED_WRITERS = { payrollConfig: PG.writePayrollConfig };
 /* ...and the sheet each one lands in — its cache version is bumped with the write (DbPg.gs CACHE VERSIONS) */
@@ -151,6 +152,9 @@ async function handle(req, res, body) {
       const derivedChanged = await PG.hydrateDerived(client, tenant, M, today);
       /* Code.gs routes this host runs itself (server/routes.js) read their own sheets — exactly those */
       const raw = {}, mayWrite = new Set(ROUTES_PORT.writable(callsIn)), routeWrites = [];
+      /* LINE the routes wrote down in THIS attempt — an attempt that is retried, refused or rolled back
+       * takes its list with it; only the attempt that commits gets to send (W2) */
+      const lineOut = { ready: LINE.ready(), out: [] };
       for (const s of ROUTES_PORT.needs(callsIn)) {
         /* SCHOOL_CONFIG was just read for M.config — reuse those rows unless a route may write it (needs ids) */
         if (s === 'SCHOOL_CONFIG' && !mayWrite.has(s)) { raw[s] = cfgRows; continue; }
@@ -179,7 +183,7 @@ async function handle(req, res, body) {
           if (!ROUTES_PORT.has(a)) return err('NOT_ON_FAST_HOST', 'action นี้ยังต้องทำงานบน Apps Script');
           /* ✅ ย้ายมาแล้ว: ฟังก์ชันของ Apps Script ตัวจริง (server/routes.js) · การเขียนเก็บไว้ใน routeWrites
            * แล้วบันทึกภายใต้ล็อกข้างล่าง — เฉพาะช่องที่ route ประกาศไว้ */
-          try { return { ok: true, data: ROUTES_PORT.run(a, pl, raw, H, M.config, routeWrites) }; }
+          try { return { ok: true, data: ROUTES_PORT.run(a, pl, raw, H, M.config, routeWrites, lineOut) }; }
           catch (e) { return err((e && (e.apiCode || e.code)) || 'INTERNAL', (e && e.message) || String(e)); }
         }
         const fn = H[a];
@@ -197,7 +201,7 @@ async function handle(req, res, body) {
       const t = { hydrate: tHydrate, run: tRun, save: 0 };
       if (!changed.length && !otherChanged.length && !routeWrites.length) {
         if (locked) await client.query('commit');
-        return { results, t };
+        return { results, t, line: lineOut.out };
       }
       if (!locked) return { retry: true };
 
@@ -274,7 +278,7 @@ async function handle(req, res, body) {
         .concat(otherChanged.map(k => DERIVED_SHEETS[k])).concat(routeWrites.map(w => w.sheet)));
       await client.query('commit');
       t.save = Date.now() - tS0;
-      return { results, t, saved };
+      return { results, t, saved, line: lineOut.out };
     };
 
     let r = await attempt(false);
@@ -283,8 +287,21 @@ async function handle(req, res, body) {
       catch (e) { await client.query('rollback').catch(() => {}); throw e; }
     }
     if (r.busy) return reply(res, action, { ok: false, error: { code: 'BUSY', message: GATE.busyMessage() } });
+    /* ── LINE: after the commit, before the answer (W2) ───────────────────────────────────────────
+     * 🔴 only what a COMMITTED attempt wrote down (a refused one returns before this, with no list).
+     * Waited for, capped at 8s, and never an error: the write stands whatever LINE does. */
+    let lineSum = null;
+    if (!r.refused && r.line && r.line.length) {
+      const tL0 = Date.now();
+      try { lineSum = await LINE.sendAll(r.line); } catch (e) { lineSum = { mode: 'error', n: r.line.length, sent: 0, failed: r.line.length, results: [] }; }
+      r.t.line = Date.now() - tL0;
+      try { console.log(LINE.logLine(action, lineSum)); } catch (e) {}
+      /* staging only: a fingerprint per push (sha256 of recipient + messages — no text) so the live test can
+       * prove the host would send exactly what Apps Script sends. Never in 'on'. */
+      if (lineSum.mode === 'capture') res.setHeader('x-atom-line', JSON.stringify(r.line.map(LINE.fingerprint)));
+    }
     res.setHeader('x-atom-ms', JSON.stringify(Object.assign({ total: Date.now() - t0 }, r.t,
-      r.saved ? { written: r.saved } : {})));
+      r.saved ? { written: r.saved } : {}, lineSum ? { line: { mode: lineSum.mode, n: lineSum.n, sent: lineSum.sent, failed: lineSum.failed } } : {})));
     if (r.refused) return reply(res, action, r.refused);
     return reply(res, action, isBatch ? { ok: true, data: r.results } : r.results[0]);
   } catch (e) {

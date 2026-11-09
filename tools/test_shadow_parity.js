@@ -203,7 +203,10 @@ console.log('\n2) 🔴 รายชื่อ shadow ที่เป็นกา�
   /* 133 → 135 (v495): saveDocInfo writes SCHOOL_CONFIG rows (the engine's cfg is not persisted on its
    * own) and docSignature reads the signature from Drive, which the engine cannot reach — neither is
    * a read that could have stayed with the engine. tools/test_bill_document.js pins both. */
-  eq('จำนวน shadow ทั้งหมด', shadows.length, 135);
+  /* 135 → 139 (2026-11-09): ใบสมัครออนไลน์ — submitApplication · setApplicationVisit · rejectApplication ·
+   * approveApplication. Each Apply.gs wrapper calls engineDispatch_ FIRST and only then notifies (admin
+   * bell / family bell), the addChildNew shape: the engine is still the one rule. tools/test_application.js */
+  eq('จำนวน shadow ทั้งหมด', shadows.length, 139);
   eq('🔴 ...ที่เป็นการอ่านล้วน (ไม่มีเหตุผลเชิงกลไก)', readOnly.length, 17);
   /* the three that have already bitten — named, so a future cleanup cannot quietly drop the check */
   ['insuranceStatus'].forEach(n =>

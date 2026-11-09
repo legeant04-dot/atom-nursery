@@ -2106,6 +2106,115 @@ function createAtomAPI(M, GROWTH_STD) {
     if(p.parentId||p.uid){ const pa=M.parents.find(x=>x.ParentID===p.parentId)||{}; return {role:'Parent',id:p.parentId||p.uid,name:pa.NameTH||p.parentId||'ผู้ปกครอง'}; }
     return {role:'',id:'',name:''}; }
 
+  /* ---- 📝 ใบสมัครออนไลน์ — helpers (handlers: applyInfo … approveApplication) ----------------------
+   * THE WORDS A FAMILY AGREES TO LIVE HERE, ON THE SERVER, not in the screen. The screen shows what
+   * applyInfo_ returns and sends back the version it showed; submitApplication refuses a version that
+   * is no longer current. So the version stored in CONSENTS always names the text the person read —
+   * and if the school changes the retention period or the contact, the version changes by itself
+   * (it is a hash of the filled-in text), with nobody having to remember to bump a number.
+   * Text = the school's own form "ใบสมัครฝากดูแลเด็กก่อนเข้าเรียน 2569", section 7 (TH prevails). */
+  const APP_OPEN_ = { SUBMITTED:1, VISIT:1 };
+  const APP_ITEMS_ = ['health','daily','photoJournal','photoPublic'];   // ข้อ 7.3 ข้อ 1–4, in order
+  const APP_CONSENT_ = {
+    th: { truth: 'ข้าพเจ้าขอรับรองว่า ข้อมูลข้างต้นเป็นความจริงทุกประการ',
+      pdpa: [
+        'ข้าพเจ้า (บิดา/มารดา/ผู้ปกครอง) ยินยอมให้ อะตอมเนอสเซอรี่ (Atom Nursery) เก็บรวบรวม ใช้ และเปิดเผยข้อมูลส่วนบุคคลของเด็กและผู้ปกครองที่ได้ให้ไว้ในใบสมัครฉบับนี้ เพื่อวัตถุประสงค์ดังต่อไปนี้',
+        '• เพื่อใช้ในการดูแล พัฒนา และจัดกิจกรรมสำหรับเด็ก',
+        '• เพื่อใช้ในการจัดทำเอกสารทางการศึกษา และการบริหารจัดการภายใน',
+        '• เพื่อใช้ในการติดต่อสื่อสารกับผู้ปกครองเกี่ยวกับเด็ก',
+        '• เพื่อใช้ในการดูแลด้านสุขภาพ ความปลอดภัย และเหตุฉุกเฉินของเด็ก',
+        'ทั้งนี้ ข้อมูลจะถูกเก็บรักษาอย่างปลอดภัย และจะไม่เปิดเผยแก่บุคคลภายนอกโดยไม่ได้รับความยินยอม ยกเว้นกรณีที่กฎหมายกำหนด ข้าพเจ้ารับทราบสิทธิของเจ้าของข้อมูลตามกฎหมาย PDPA และสามารถเพิกถอนความยินยอมได้โดยแจ้งเป็นลายลักษณ์อักษรต่อสถานรับเลี้ยงเด็ก',
+        'การแจ้งเพิ่มเติมตามพระราชบัญญัติคุ้มครองข้อมูลส่วนบุคคล พ.ศ. 2562',
+        '1. อะตอมเนอสเซอรี่เป็นผู้ควบคุมข้อมูลส่วนบุคคล และใช้ระบบบริหารจัดการโรงเรียนซึ่งผู้ให้บริการระบบ (Orvia) ดูแลตามคำสั่งของโรงเรียนเท่านั้น ผู้ให้บริการระบบไม่ใช่เจ้าของข้อมูล',
+        '2. ข้อมูลถูกจัดเก็บบนเซิร์ฟเวอร์ที่ประเทศสิงคโปร์ และระบบใช้บริการของ Google และ LINE ซึ่งเป็นผู้ให้บริการต่างประเทศ (การส่งข้อมูลไปต่างประเทศตามมาตรา 28)',
+        '3. ผู้ปกครองเห็นเฉพาะข้อมูลบุตรของตน ครูเห็นเฉพาะเด็กในชั้นที่รับผิดชอบ และโรงเรียนไม่ขายหรือเปิดเผยข้อมูลแก่บุคคลภายนอกเพื่อการโฆษณา',
+        '4. โรงเรียนเก็บข้อมูลไว้ {years} ปี นับแต่วันที่เด็กออกจากโรงเรียน แล้วลบอย่างถาวร (เอกสารทางการเงินเก็บตามที่กฎหมายภาษีกำหนด)',
+        '5. ท่านมีสิทธิขอดู ขอสำเนา ขอแก้ไข ขอลบ ขอให้ระงับการใช้ คัดค้าน ถอนความยินยอม และร้องเรียนต่อสำนักงานคณะกรรมการคุ้มครองข้อมูลส่วนบุคคล โดยติดต่อ {contact} โรงเรียนจะตอบภายใน 30 วัน'],
+      itemsIntro: 'ท่านเลือกไม่ยินยอมข้อใดก็ได้ โดยบุตรของท่านยังเข้ารับบริการได้ตามปกติ ข้อที่ไม่ยินยอมจะไม่ถูกบันทึกหรือใช้',
+      items: {
+        health: 'ข้อมูลสุขภาพ (อาการแพ้ ประวัติการเจ็บป่วย/โรคประจำตัว หมู่โลหิต ประวัติวัคซีน) เพื่อดูแลบุตรและช่วยเหลือได้ทันทีเมื่อเกิดเหตุฉุกเฉิน',
+        healthNo: 'หากไม่ยินยอม โรงเรียนจะไม่มีบันทึกอาการแพ้ของบุตร และไม่สามารถแจ้งข้อมูลแก่โรงพยาบาลได้ทันทีเมื่อเกิดเหตุ',
+        daily: 'บันทึกสุขภาพประจำวัน น้ำหนัก/ส่วนสูง ผลประเมินพัฒนาการ (DSPM) และรายงานเมื่อเกิดอุบัติเหตุ',
+        photoJournal: 'รูปถ่ายบุตรในบันทึกประจำวัน ซึ่งเห็นได้เฉพาะผู้ปกครองของเด็กคนนั้น',
+        photoPublic: 'รูปถ่ายบุตรในกิจกรรม เพื่อการประชาสัมพันธ์ของโรงเรียน' },
+      withdraw: 'ข้าพเจ้าทราบว่าสามารถถอนความยินยอมได้ทุกเมื่อโดยแจ้งโรงเรียน และการถอนความยินยอมไม่กระทบการประมวลผลที่ได้ทำไปแล้วก่อนหน้า',
+      final: 'ข้าพเจ้าได้อ่านและเข้าใจข้อความข้างต้นแล้ว และยินยอมให้ดำเนินการตามรายละเอียดดังกล่าว รวมทั้งตามที่ได้เลือกไว้ในข้อ 1–4 ข้างต้น' },
+    en: { truth: 'I certify that the information given above is true and correct in every respect.',
+      pdpa: [
+        'I (father / mother / guardian) consent to Atom Nursery collecting, using and disclosing the personal data of the child and of the parents given in this application, for the following purposes:',
+        '• To care for the child, support their development and organise activities',
+        '• To prepare educational records and for internal administration',
+        '• To communicate with parents about the child',
+        '• To look after the child’s health and safety, and in emergencies',
+        'The data will be kept securely and will not be disclosed to outside parties without consent, except where the law requires it. I acknowledge my rights as a data subject under the PDPA, and that I may withdraw my consent by notifying the nursery in writing.',
+        'Further notice under the Personal Data Protection Act B.E. 2562 (2019)',
+        '1. Atom Nursery is the data controller. It uses a school-management system whose provider (Orvia) handles the data only on the school’s instructions; the system provider does not own the data.',
+        '2. The data is stored on servers in Singapore, and the system uses services from Google and LINE, which are overseas providers (transfer abroad under Section 28).',
+        '3. Parents see only their own child’s data, teachers see only the children in the classes they are responsible for, and the school does not sell or disclose data to outside parties for advertising.',
+        '4. The school keeps the data for {years} years after the child leaves, then deletes it permanently (financial records are kept for as long as tax law requires).',
+        '5. You have the right to access, obtain a copy of, correct and delete your data, to restrict or object to its use, to withdraw consent, and to complain to the Office of the Personal Data Protection Committee, by contacting {contact}. The school will respond within 30 days.'],
+      itemsIntro: 'You may decline any item and your child will still receive the service as normal. An item you decline will not be recorded or used.',
+      items: {
+        health: 'Health data (allergies, history of illness / chronic conditions, blood group, vaccination history), to care for your child and help immediately in an emergency',
+        healthNo: 'If you decline, the school will have no record of your child’s allergies and cannot give this information to a hospital straight away in an emergency.',
+        daily: 'Daily health records, weight / height, developmental assessment results (DSPM) and accident reports',
+        photoJournal: 'Photos of your child in the daily journal, visible only to that child’s parents',
+        photoPublic: 'Photos of your child at activities, for the school’s publicity' },
+      withdraw: 'I understand that I may withdraw consent at any time by notifying the school, and that withdrawing does not affect processing carried out before then.',
+      final: 'I have read and understood the above and consent to the processing described, including the choices I have made in items 1–4 above.' }
+  };
+  // FNV-1a — a short stable fingerprint of the exact words, so the version follows the text
+  const fnv32_ = s => { let h=0x811c9dc5; for(let i=0;i<s.length;i++){ h^=s.charCodeAt(i); h=Math.imul(h,0x01000193)>>>0; } return ('0000000'+h.toString(16)).slice(-8); };
+  /* THE TWO BLANKS, ANSWERED FOR ATOM (ผอ. 2026-11-09): "use the number we discussed" = 5 years
+   * (proposed in docs/pdpa/03_CONSENT_PARENTS.md 1.3), and "contact the school — its phone and the
+   * director's name". The contact is BUILT from the receipt letterhead (docInfo_) and the certificate's
+   * signer title rather than typed again, so a new phone number on the receipt is the new number here
+   * too. Like DOC_ORIGIN_, these apply only while the school IS Atom: a school copied from Atom gets
+   * blanks, and blanks keep applications closed. A value saved in Settings always wins. */
+  function applyDefaults_(){ const origin=String(cfg.SchoolName||'').trim()==='Atom Nursery';
+    const d=docInfo_(); const title=String(cfg.CertSignerTitleTH||'ครูผู้อำนวยการ').trim();
+    const contact=(d.DocSignerName&&d.DocPhone) ? (d.DocSchoolName+' — '+title+' ('+d.DocSignerName+') โทร '+d.DocPhone) : '';
+    return { years: origin?'5':'', contact }; }
+  function applyInfo_(){ const dflt=applyDefaults_();
+    const own=k=>String(cfg[k]==null?'':cfg[k]).trim();
+    const years=own('ApplyRetentionYears')||dflt.years;
+    const contact=own('ApplyPdpaContact')||dflt.contact;
+    const missing=[]; if(!(Number(years)>0)) missing.push('ApplyRetentionYears'); if(!contact) missing.push('ApplyPdpaContact');
+    const fill=t=>JSON.parse(JSON.stringify(t).split('{years}').join(years.replace(/"/g,'')).split('{contact}').join(contact.replace(/["\\]/g,'')));
+    const text={th:fill(APP_CONSENT_.th), en:fill(APP_CONSENT_.en)};
+    return { open:!missing.length, missing, years, contact, items:APP_ITEMS_.slice(),
+      version:'APP2569-'+fnv32_(JSON.stringify(text)), text }; }
+  // the Thai national ID check digit (mod 11) — catches a mistyped digit while the family is still there
+  const thaiIdOk_ = d => { d=_dig(d); if(d.length!==13) return false; let s=0;
+    for(let i=0;i<12;i++) s+=(+d[i])*(13-i); return ((11-(s%11))%10)===+d[12]; };
+  const appData_ = a => { try { const o=typeof a.Data==='string'?JSON.parse(a.Data||'{}'):(a.Data||{}); return o&&typeof o==='object'?o:{}; } catch(e){ return {}; } };
+  // what the screen sent, reduced to known sections — and the health answers dropped when item 1 is
+  // declined, weight/height when item 2 is: "ข้อที่ไม่ยินยอมจะไม่ถูกบันทึก" (7.3) is enforced here
+  function appCleanData_(raw, cs){ const d=(raw&&typeof raw==='object')?raw:{}; const out={};
+    ['child','father','mother','regAddress','pickups','health','docs','wish'].forEach(k=>{ if(d[k]!==undefined) out[k]=d[k]; });
+    out.child=Object.assign({},out.child||{}); out.health=Object.assign({},out.health||{});
+    if(cs.health!==true){ ['blood','rh','infect','infectNote','allergyHas','allergy','chronicHas','chronic','medication'].forEach(k=>{ delete out.health[k]; }); }
+    if(cs.daily!==true){ delete out.child.weight; delete out.child.height; }
+    if(!Array.isArray(out.pickups)) out.pickups=[]; out.pickups=out.pickups.slice(0,4);
+    return out; }
+  const appAddr_ = ad => { ad=ad||{}; return [ad.no&&('เลขที่ '+ad.no), ad.village, ad.soi&&('ซ.'+ad.soi), ad.road&&('ถ.'+ad.road),
+    ad.subdistrict, ad.district, ad.province, ad.postcode].filter(x=>x&&String(x).trim()).join(' '); };
+  const appMedical_ = h => [h.infect&&('โรคติดเชื้อ: '+h.infect), h.chronic&&('โรคประจำตัว: '+h.chronic), h.medication&&('ยาประจำ: '+h.medication)]
+    .filter(Boolean).join(' · ');
+  function appById_(id){ const a=(M.applications||[]).find(x=>String(x.AppID)===String(id||'')); if(!a) fail('NOT_FOUND','ไม่พบใบสมัคร'); return a; }
+  // a family may only ever open its OWN application: the session's parentId, or the LINE id that applied
+  function appOwned_(p){ const a=appById_(p.appId); const pid=String(p.parentId||''), uid=String(p.uid||'');
+    if(!((pid&&String(a.ParentID)===pid)||(uid&&String(a.UserUID)===uid))) fail('NO_ACCESS','ไม่มีสิทธิ์เข้าถึงใบสมัครนี้'); return a; }
+  // one shape for both audiences; the internal note exists only in the admin's
+  function appView_(a, admin){ const v={appId:a.AppID, status:a.Status, childName:a.ChildName, childNameEN:a.ChildNameEN,
+      nick:a.Nickname, nickEN:a.NicknameEN, gender:a.Gender, dob:ymd(a.DOB), ageMonth:ageMonths(ymd(a.DOB)),
+      submittedAt:a.SubmittedAt, visitAt:a.VisitAt||'', visitNote:a.VisitNote||'', decidedAt:a.DecidedAt||'',
+      parentMessage:(a.Status==='REJECTED'||a.Status==='ACCEPTED')?(a.ParentMessage||''):'',
+      studentId:a.StudentID||'', className:a.ClassName||'', startDate:ymd(a.StartDate), lang:a.Lang||'th'};
+    if(admin){ Object.assign(v,{parentId:a.ParentID, idType:a.IdType, nationalId:a.NationalID||'', passport:a.Passport||'',
+      internalNote:a.InternalNote||'', decidedBy:a.DecidedBy||'', plan:a.Plan||'', consentVersion:a.ConsentVersion||'', signName:a.SignName||''}); }
+    return v; }
+
   const H = {
     getConfig: () => cfg,
     // full activity log, newest first (Admin)
@@ -6019,6 +6128,147 @@ function createAtomAPI(M, GROWTH_STD) {
       logAct('registerStudent',sid,(st.NameTH||sid)+' (แอดมินเพิ่มเอง)',actorOf(p));
       return {studentId:sid, name:st.NameTH||'', nick:st.Nickname||'', className:st.Class||'',
               driveFolder:st.DriveFolderUrl}; },
+    /* ========== 📝 ใบสมัครออนไลน์ (docs/APPLICATION_FORM_PLAN.md · อนุมัติ 2026-11-09) ==========
+     *
+     * 🔴 ใบสมัคร ≠ นักเรียน. Until now a family adding a child (addChildNew) created an ACTIVE student
+     * with EnrollDate = today — somebody merely ASKING for a place was on the class list, in the
+     * register and in the billing run the moment they pressed save. An application lives in its own
+     * table, APPLICATIONS, and touches nothing else until the admin approves it and picks the real
+     * first day. Approval then builds the child through addStudentByAdmin — not a fourth way of
+     * making a student (see the note above that handler: two paths that build a student differently
+     * is a bug waiting for whoever reads one).
+     *
+     * Statuses: SUBMITTED → VISIT (a visit is booked) → ACCEPTED | REJECTED · SUBMITTED/VISIT → WITHDRAWN
+     * The consent the family gave is written to CONSENTS, one row per item, with the version of the
+     * words they agreed to (applyConsent_), the LINE id that pressed the button and the server time —
+     * that row IS the signature (ผอ. 2026-11-09: "เรามี log เก็บเพื่อยืนยัน").
+     */
+    applyInfo: () => applyInfo_(),
+    submitApplication: p => {
+      const info=applyInfo_();
+      if(!info.open) fail('APPLY_CLOSED','โรงเรียนยังไม่เปิดรับใบสมัครออนไลน์ — กรุณาติดต่อโรงเรียน');
+      const pid=String(p.parentId||'').trim(), uid=String(p.uid||'').trim();
+      if(!pid) fail('NEEDS_REGISTRATION','กรุณาลงทะเบียนผู้ปกครองก่อนส่งใบสมัคร');
+      const par=(M.parents||[]).find(x=>String(x.ParentID)===pid);
+      if(!par) fail('NEEDS_REGISTRATION','ไม่พบข้อมูลผู้ปกครอง — กรุณาลงทะเบียนก่อน');
+      M.applications=M.applications||[]; M.consents=M.consents||[];
+      // a re-submit over a slow network returns the application it already made (the 84-parents lesson)
+      const ref=String(p.clientRef||'').trim();
+      if(ref){ const again=M.applications.find(a=>String(a.ClientRef)===ref && String(a.ParentID)===pid);
+        if(again) return {appId:again.AppID, status:again.Status, existing:true}; }
+      const c=p.child||{};
+      const nameTH=String(c.NameTH||'').trim(), nameEN=String(c.NameEN||'').trim();
+      if(!nameTH) fail('BAD_INPUT','กรอกชื่อ-นามสกุลของเด็ก');
+      if(!nameEN) fail('BAD_INPUT','กรอกชื่อ-นามสกุลของเด็กภาษาอังกฤษ');
+      if(!String(c.NicknameEN||'').trim()) fail('BAD_INPUT','กรอกชื่อเล่นของเด็กภาษาอังกฤษ');
+      const dob=ymd(c.DOB); if(!/^\d{4}-\d{2}-\d{2}$/.test(dob) || dob>todayLocal()) fail('BAD_INPUT','กรอกวันเกิดของเด็กให้ถูกต้อง');
+      if(['M','F'].indexOf(String(c.Gender||''))<0) fail('BAD_INPUT','เลือกเพศของเด็ก');
+      // ผอ. 2026-11-09: the child's 13-digit ID is required — or a passport number for a child without one
+      const idType=String(c.IdType||'TH')==='PASSPORT'?'PASSPORT':'TH';
+      const nid=idType==='TH'?_dig(c.NationalID):'';
+      const passport=idType==='PASSPORT'?String(c.Passport||'').trim():'';
+      if(idType==='TH' && !thaiIdOk_(nid)) fail('BAD_INPUT','เลขบัตรประชาชนของเด็กไม่ถูกต้อง (13 หลัก)');
+      if(idType==='PASSPORT' && passport.length<5) fail('BAD_INPUT','กรอกเลขพาสปอร์ตของเด็ก');
+      const probe={NationalID:nid, NameTH:nameTH, DOB:dob};
+      const st=dupStudent_(probe);
+      if(st) fail('ALREADY_STUDENT','เด็กคนนี้เป็นนักเรียนของโรงเรียนอยู่แล้ว ('+(st.NameTH||st.Name||'')+') — ใช้ "เชื่อมข้อมูลเด็กที่มีอยู่แล้ว" ด้วยเลขบัตรประชาชนของเด็กแทน');
+      const open=M.applications.find(a=>APP_OPEN_[a.Status] && (nid ? _dig(a.NationalID)===nid
+        : (_nm(a.ChildName)===_nm(nameTH) && ymd(a.DOB)===dob)));
+      if(open){ if(String(open.ParentID)===pid) return {appId:open.AppID, status:open.Status, existing:true};
+        fail('DUP_APPLICATION','มีใบสมัครของเด็กคนนี้อยู่ในระบบแล้ว และยังรอโรงเรียนพิจารณา — กรุณาติดต่อโรงเรียน'); }
+      const cs=p.consents||{};
+      const signName=String(p.signName||'').trim();
+      if(p.truth!==true) fail('BAD_INPUT','กรุณายืนยันว่าข้อมูลเป็นความจริง');
+      if(cs.pdpa!==true) fail('BAD_INPUT','กรุณาอ่านและยินยอมข้อ 7.1–7.2');
+      APP_ITEMS_.forEach(k=>{ if(cs[k]!==true && cs[k]!==false) fail('BAD_INPUT','กรุณาเลือก ยินยอม / ไม่ยินยอม ให้ครบทั้ง 4 ข้อ'); });
+      if(signName.length<3) fail('BAD_INPUT','กรุณาพิมพ์ชื่อ-นามสกุลของท่านเพื่อลงชื่อ');
+      if(String(p.consentVersion||'')!==info.version) fail('CONSENT_CHANGED','ข้อความความยินยอมเพิ่งถูกปรับ — กรุณาเปิดหน้าความยินยอมอีกครั้งแล้วยืนยันใหม่');
+      // ข้อ 7.3: "ข้อที่ไม่ยินยอมจะไม่ถูกบันทึก" — so the health answers are dropped HERE, on the server,
+      // whatever the screen sent. Weight/height belong to item 2 and go the same way.
+      const data=appCleanData_(p.data, cs);
+      const now=stampLocal();
+      const appId=nextSeqId_(M.applications,'AppID','APP',4);
+      const a={AppID:appId, Status:'SUBMITTED', ParentID:pid, UserUID:uid,
+        ChildName:nameTH, ChildNameEN:nameEN, Nickname:String(c.Nickname||'').trim(), NicknameEN:String(c.NicknameEN||'').trim(),
+        Gender:c.Gender, DOB:dob, IdType:idType, NationalID:nid, Passport:passport,
+        Photo:c.Photo||'', Data:JSON.stringify(data), SubmittedAt:now, UpdatedAt:now,
+        VisitAt:'', VisitNote:'', DecidedBy:'', DecidedAt:'', ParentMessage:'', InternalNote:'',
+        StudentID:'', ClassName:'', StartDate:'', Plan:'', Lang:p.lang==='en'?'en':'th',
+        ConsentVersion:info.version, SignName:signName, Image:p.signature||'', ClientRef:ref};
+      M.applications.push(a);
+      const row=(item,val)=>M.consents.push({ConsentID:nextSeqId_(M.consents,'ConsentID','CNS',5), AppID:appId, StudentID:'',
+        ParentID:pid, UserUID:uid, Item:item, Value:val?'YES':'NO', Version:info.version, SignName:signName, At:now, Source:'application'});
+      row('truth',true); row('pdpa',true); APP_ITEMS_.forEach(k=>row(k,cs[k]===true));
+      logAct('submitApplication',appId,nameTH+(a.NicknameEN?' ('+a.NicknameEN+')':''),actorOf(p));
+      return {appId, status:'SUBMITTED', existing:false}; },
+    // the family's own applications — never the internal note
+    myApplications: p => { const pid=String(p.parentId||''), uid=String(p.uid||'');
+      if(!pid && !uid) return [];
+      return (M.applications||[]).filter(a=>(pid&&String(a.ParentID)===pid)||(uid&&String(a.UserUID)===uid))
+        .map(a=>appView_(a,false)).sort((x,y)=>String(y.submittedAt).localeCompare(String(x.submittedAt))); },
+    myApplication: p => { const a=appOwned_(p); return Object.assign(appView_(a,false),{data:appData_(a)}); },
+    cancelApplication: p => { const a=appOwned_(p);
+      if(!APP_OPEN_[a.Status]) fail('BAD_STATE','ใบสมัครนี้ถูกพิจารณาแล้ว ยกเลิกไม่ได้');
+      a.Status='WITHDRAWN'; a.UpdatedAt=stampLocal();
+      logAct('cancelApplication',a.AppID,a.ChildName,actorOf(p)); return appView_(a,false); },
+    // ---- admin ----
+    listApplications: p => { const want=String((p&&p.status)||'');
+      return (M.applications||[]).filter(a=>!want || (want==='OPEN'?APP_OPEN_[a.Status]:a.Status===want))
+        .map(a=>appView_(a,true)).sort((x,y)=>String(y.submittedAt).localeCompare(String(x.submittedAt))); },
+    applicationAdmin: p => { const a=appById_(p.appId);
+      const cons=(M.consents||[]).filter(c=>String(c.AppID)===String(a.AppID))
+        .map(c=>({item:c.Item, value:c.Value, version:c.Version, at:c.At, signName:c.SignName}));
+      const par=(M.parents||[]).find(x=>String(x.ParentID)===String(a.ParentID))||{};
+      return Object.assign(appView_(a,true),{data:appData_(a), consents:cons, signature:a.Image||'', photo:a.Photo||'',
+        parent:{parentId:par.ParentID||'', name:par.NameTH||par.Name||'', phone:par.Phone||'', rel:par.Relationship||''},
+        suggestedClass:defaultClassByAge_(a.DOB)}); },
+    setApplicationVisit: p => { const a=appById_(p.appId);
+      if(!APP_OPEN_[a.Status]) fail('BAD_STATE','ใบสมัครนี้ถูกพิจารณาแล้ว');
+      const at=String(p.visitAt||'').trim().replace('T',' ');
+      if(!/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/.test(at)) fail('BAD_INPUT','เลือกวันและเวลานัดเยี่ยมชม');
+      a.Status='VISIT'; a.VisitAt=at; a.VisitNote=String(p.note||'').trim(); a.UpdatedAt=stampLocal();
+      logAct('setApplicationVisit',a.AppID,a.ChildName+' · '+at,actorOf(p)); return appView_(a,true); },
+    rejectApplication: p => { const a=appById_(p.appId);
+      if(!APP_OPEN_[a.Status]) fail('BAD_STATE','ใบสมัครนี้ถูกพิจารณาแล้ว');
+      a.Status='REJECTED'; a.ParentMessage=String(p.parentMessage||'').trim(); a.InternalNote=String(p.internalNote||'').trim();
+      a.DecidedBy=String(p.adminId||p.staffId||''); a.DecidedAt=stampLocal(); a.UpdatedAt=a.DecidedAt;
+      logAct('rejectApplication',a.AppID,a.ChildName,actorOf(p)); return appView_(a,true); },
+    /* รับเข้า. The child is built by addStudentByAdmin — same duplicate guard, class-by-age, Drive
+     * folder and first growth row as every other child — and then tied to the family exactly the way
+     * addChildNew ties one (STUDENTS.ParentID + a USER_LINKS row for the LINE id that applied).
+     * 💰 The start date is the admin's and must be today or later: EnrollDate decides the first
+     * month billed, and an approval must never produce a bill for days before anyone said yes. */
+    approveApplication: p => { const a=appById_(p.appId);
+      if(!APP_OPEN_[a.Status]) fail('BAD_STATE','ใบสมัครนี้ถูกพิจารณาแล้ว');
+      const start=ymd(p.startDate);
+      if(!/^\d{4}-\d{2}-\d{2}$/.test(start)) fail('BAD_INPUT','เลือกวันเริ่มเรียน');
+      if(start<todayLocal()) fail('BAD_INPUT','วันเริ่มเรียนต้องเป็นวันนี้หรือหลังจากนี้ — ระบบจะไม่เรียกเก็บย้อนหลัง');
+      const cls=String(p.className||'').trim() || defaultClassByAge_(a.DOB);
+      if(!cls) fail('BAD_INPUT','เลือกชั้นเรียน');
+      const d=appData_(a), ch=d.child||{}, h=d.health||{};
+      const consent=k=>(M.consents||[]).some(c=>String(c.AppID)===String(a.AppID)&&c.Item===k&&c.Value==='YES');
+      const addr=appAddr_(ch.address);
+      const student={NationalID:a.NationalID||'', NameTH:a.ChildName, NameEN:a.ChildNameEN, Nickname:a.Nickname, NicknameEN:a.NicknameEN,
+        Gender:a.Gender, DOB:ymd(a.DOB), Class:cls, Plan:String(p.plan||'').trim(), EnrollDate:start,
+        Photo:a.Photo||'', Race:ch.race||'', Nationality:ch.nationality||'', Religion:ch.religion||'', Address:addr};
+      if(consent('health')){ student.BloodType=h.blood||''; student.Allergy=h.allergy||'-'; student.MedicalHistory=appMedical_(h)||'-'; }
+      if(consent('daily')){ if(+ch.weight>0) student.Weight=+ch.weight; if(+ch.height>0) student.Height=+ch.height; }
+      const pick=(d.pickups||[]).filter(x=>x&&String(x.name||'').trim())
+        .map(x=>({Name:String(x.name).trim(), Phone:String(x.phone||'').trim(), Relation:String(x.relation||'').trim()}));
+      const r=H.addStudentByAdmin({student, pickupPersons:pick, adminId:p.adminId||p.staffId});
+      const sid=r.studentId; const s=studentById(sid);
+      if(!s) fail('NOT_FOUND','สร้างนักเรียนไม่สำเร็จ');
+      s.ParentID=a.ParentID;
+      const uids={}; [a.UserUID, ((M.parents||[]).find(x=>String(x.ParentID)===String(a.ParentID))||{}).LineUID]
+        .forEach(u=>{ u=String(u||'').trim(); if(u) uids[u]=1; });
+      Object.keys(uids).forEach(u=>{ if(!(M.userLinks||[]).some(l=>String(l.UserUID)===u&&String(l.StudentID)===sid))
+        M.userLinks.push({UserUID:u, StudentID:sid, VerifiedBy:'application', Date:todayLocal()}); });
+      (M.consents||[]).forEach(c=>{ if(String(c.AppID)===String(a.AppID)) c.StudentID=sid; });
+      a.Status='ACCEPTED'; a.StudentID=sid; a.ClassName=cls; a.StartDate=start; a.Plan=student.Plan;
+      a.ParentMessage=String(p.parentMessage||'').trim();
+      a.DecidedBy=String(p.adminId||p.staffId||''); a.DecidedAt=stampLocal(); a.UpdatedAt=a.DecidedAt;
+      logAct('approveApplication',a.AppID,a.ChildName+' → '+sid+' · '+cls+' · เริ่ม '+start,actorOf(p));
+      return Object.assign(appView_(a,true),{studentId:sid}); },
     // link an existing student to this user after verifying NationalID
     linkExisting: p => { const s=M.students.find(x=>String(x.NationalID)===String(p.nationalId).trim()); if(!s)fail('NOT_FOUND','เลขบัตรไม่ตรงกับนักเรียนในระบบ');
       if(p.uid && !M.userLinks.find(l=>l.UserUID===p.uid&&l.StudentID===s.StudentID)) M.userLinks.push({UserUID:p.uid,StudentID:s.StudentID,VerifiedBy:'verify',Date:todayLocal()});
@@ -7285,7 +7535,7 @@ function createAtomAPI(M, GROWTH_STD) {
      * different rule from the one the school runs. Kept in step deliberately: two lists that decide
      * what may be written are one list that is sometimes wrong. */
     setSchoolConfig: p => { const W={GPS_Lat:1,GPS_Lng:1,Radius:1,GpsAccuracySlack:1,LateGraceMinutes:1,OTRatePerHour:1,OTGraceMinutes:1,StaffOTHourlyRate:1,OTRoundUpMinutes:1,DefaultCheckInTime:1,DefaultCheckOutTime:1,BigCleaningAmount:1,BigCleaningIn:1,BigCleaningOut:1,ContributionMatchRate:1,
-      ParentPrepayEnabled:1,DigestMorning:1,DigestEvening:1,RequireSalarySlip:1}; NOTIFY_KEYS_.forEach(k=>{ W[k]=1; }); const v=p.values||{};
+      ParentPrepayEnabled:1,DigestMorning:1,DigestEvening:1,ApplyRetentionYears:1,ApplyPdpaContact:1,RequireSalarySlip:1}; NOTIFY_KEYS_.forEach(k=>{ W[k]=1; }); const v=p.values||{};
       // 'true'/'false' are not numbers, so they pass through as the strings the rest of the app reads
       Object.keys(v).forEach(k=>{ if(W[k]) cfg[k]=(v[k]===''||isNaN(Number(v[k])))?v[k]:Number(v[k]); }); return {ok:true, wrote:v}; },
     leaveResetReminder: () => { const n=new Date(); return {due:n.getMonth()===0, month:n.getMonth()+1, year:n.getFullYear()}; }, // every January
