@@ -204,3 +204,18 @@ function purgeApplicationDocs_() {
   if (res.deleted) { try { logAudit('system', 'APP_DOCS_PURGED', 'APPLICATION_DOCS', res.deleted + ' files · ' + res.retentionDays + ' days'); } catch (e) {} }
   return res;
 }
+
+/* ===== 🔒 ระยะ 3 — the family's latest answer to one 7.3 item, read straight from CONSENTS ============
+ * The LAST row for that child and item wins ('' when there is none = the paper form signed before the
+ * app = allowed). Used by Journal.gs, which writes rows in place and never runs the engine. */
+function studentConsentValue_(studentId, item) {
+  var v = '';
+  try {
+    var sh = getMainSpreadsheet_().getSheetByName('CONSENTS');
+    if (!sh) return '';
+    readObjects_(sh).forEach(function (c) {
+      if (String(c.StudentID) === String(studentId) && String(c.Item) === String(item)) v = String(c.Value || '');
+    });
+  } catch (e) {}
+  return v;
+}

@@ -2238,6 +2238,21 @@ function createAtomAPI(M, GROWTH_STD) {
     mime:d.Mime, size:Number(d.Size)||0, by:d.UploadedBy, at:d.UploadedAt });
   const appDocsOf_ = id => (M.applicationDocs||[]).filter(d=>String(d.AppID)===String(id) && d.Status!=='DELETED');
 
+  /* ---- 🔒 ระยะ 3 — ความยินยอมข้อ 7.3 ใช้ได้จริง (ผอ. 2026-11-09) ------------------------------------------
+   * One answer per child per item: the LAST row in CONSENTS for that StudentID and item. Rows are only
+   * ever appended (the application's own answers, then any change the office records), so the history
+   * of who said what and when is never overwritten. NO ROW = the school's paper form, signed before the
+   * app existed = allowed — the ผอ.'s decision for every child already enrolled. What each NO does:
+   *   photoJournal (3)  → the journal refuses that child's pictures (submitJournal here, Journal.gs live)
+   *   photoPublic  (4)  → a 📵 badge on the class list and the roster
+   *   health (1) / daily (2) → a badge only; the screens stay open (the teacher talks to the family first) */
+  const CONSENT_ITEMS_ = ['health','daily','photoJournal','photoPublic'];
+  function consentOf_(sid){ const o={}; CONSENT_ITEMS_.forEach(k=>{ o[k]=''; });
+    (M.consents||[]).forEach(c=>{ if(String(c.StudentID)===String(sid) && o.hasOwnProperty(c.Item)) o[c.Item]=String(c.Value||''); });
+    return o; }
+  const consentNo_ = sid => { if(!(M.consents||[]).length) return []; const o=consentOf_(sid); return CONSENT_ITEMS_.filter(k=>o[k]==='NO'); };
+  const isPhotoData_ = v => String(v==null?'':v).indexOf('data:image/')===0;
+
   const H = {
     getConfig: () => cfg,
     // full activity log, newest first (Admin)
@@ -3643,7 +3658,8 @@ function createAtomAPI(M, GROWTH_STD) {
             inToday:at.checkedIn||!!at.inTime, outToday:at.pickedUp||!!at.outTime,
             summer: !!_tm && String(_tm.Kind||'SUMMER').toUpperCase()==='SUMMER',
             summerLastDay: _tm ? shiftYmd_(_tm.To, -1) : '',
-            inTime:at.inTime, outTime:at.outTime, onLeave:at.onLeave, leaveType:at.leaveType, leaveReason:at.leaveReason}, s2); }),
+            inTime:at.inTime, outTime:at.outTime, onLeave:at.onLeave, leaveType:at.leaveType, leaveReason:at.leaveReason,
+            noConsent:consentNo_(s2.StudentID)}, s2); }),
         // who is away today by standing arrangement, so the screen can say so instead of the class
         // silently being one child short
         offToday:activeStudents().filter(s2=>s2.Class===cls.ClassName && studentOffDay_(s2, today))
@@ -4424,6 +4440,9 @@ function createAtomAPI(M, GROWTH_STD) {
       const i=M.journals.findIndex(x=>x.StudentID===p.studentId&&ymd(x.Date)===date);
       if(i>=0 && jStatus_(M.journals[i])==='SUBMITTED') fail('JOURNAL_LOCKED','บันทึกของวันที่ '+date+' ส่งให้ผู้ปกครองแล้ว แก้ไขไม่ได้');
       if(submit && !p.Mood) fail('MISSING_FIELDS','กรุณาเลือกอารมณ์ (Mood)');
+      // 🔒 ข้อ 7.3-3: the family said no to pictures in the journal — refused here, not only hidden on screen
+      if(['Photo1','Photo2','Photo3'].some(k=>isPhotoData_(p[k])) && consentOf_(p.studentId).photoJournal==='NO')
+        fail('NO_CONSENT','ผู้ปกครองไม่ยินยอมให้ใช้รูปบุตรในบันทึกประจำวัน — บันทึกได้โดยไม่แนบรูป');
       const now=stampLocal();
       // store sheet-cased keys — the payload carries studentId/staffId/date, the record needs StudentID/TeacherID/Date.
       // TeacherID keeps the original author when someone else (an admin after unlocking) edits the entry.
@@ -5399,7 +5418,7 @@ function createAtomAPI(M, GROWTH_STD) {
     listStudents: p => rosterForTeacher_(p, 'students', enrolledStudents().map(s=>Object.assign({ageMonth:ageMonths(s.DOB),
       paused:studentPaused_(s), pauseFrom:ymd(s.PauseFrom||''), pauseTo:ymd(s.PauseTo||''), pauseReason:s.PauseReason||'',
       // a last day already set but not reached — the roster says so while there is still time to fix it
-      endScheduled:endScheduled_(s), endDate:ymd(s.EndDate||''), endReason:s.EndReason||''}, s))),
+      endScheduled:endScheduled_(s), endDate:ymd(s.EndDate||''), endReason:s.EndReason||'', noConsent:consentNo_(s.StudentID)}, s))),
     /**
      * Admin puts a child on temporary leave, or brings them back. Admin only.
      * { studentId, paused:true, from?, to?, reason? } | { studentId, paused:false }
@@ -6293,6 +6312,28 @@ function createAtomAPI(M, GROWTH_STD) {
           out.push({docId:d.DocID, fileId:d.FileID||'', appId:a.AppID}); }); });
       if(out.length) logAct('purgeApplicationDocs','',out.length+' ไฟล์ (เกิน '+keep+' วันหลังไม่รับ/ยกเลิก)',{role:'System',id:'system',name:'ระบบ'});
       return {deleted:out.length, files:out, retentionDays:keep}; },
+    // ---- 🔒 ระยะ 3: ความยินยอมรายเด็ก ----
+    studentConsents: p => { const s=studentById(p.studentId); if(!s) fail('NOT_FOUND','ไม่พบนักเรียน');
+      return { studentId:s.StudentID, current:consentOf_(s.StudentID),
+        history:(M.consents||[]).filter(c=>String(c.StudentID)===String(s.StudentID) && CONSENT_ITEMS_.indexOf(c.Item)>=0)
+          .map(c=>({item:c.Item, value:c.Value, at:c.At, by:c.SignName, source:c.Source, version:c.Version})) }; },
+    // the office records a family's answer (a paper form, a phone call, a withdrawal) — appended, never edited
+    setStudentConsent: p => { const s=studentById(p.studentId); if(!s) fail('NOT_FOUND','ไม่พบนักเรียน');
+      if(CONSENT_ITEMS_.indexOf(String(p.item||''))<0) fail('BAD_INPUT','ข้อความยินยอมไม่ถูกต้อง');
+      const v=String(p.value||'').toUpperCase(); if(v!=='YES'&&v!=='NO') fail('BAD_INPUT','เลือก ยินยอม หรือ ไม่ยินยอม');
+      M.consents=M.consents||[];
+      const who=staffById(p.adminId||p.staffId||'')||{};
+      M.consents.push({ConsentID:nextSeqId_(M.consents,'ConsentID','CNS',5), AppID:'', StudentID:s.StudentID, ParentID:s.ParentID||'',
+        UserUID:'', Item:p.item, Value:v, Version:'ADMIN', SignName:(String(p.note||'').trim()||('บันทึกโดย '+(who.NameTH||p.adminId||'แอดมิน'))).slice(0,200),
+        At:stampLocal(), Source:'admin'});
+      logAct('setStudentConsent',s.StudentID,p.item+'='+v,actorOf(p));
+      return { studentId:s.StudentID, current:consentOf_(s.StudentID) }; },
+    // 🖨️ everything the printed application needs, in one answer — drawn on the admin's own device
+    // (webapp/application_form.js); nothing is generated or stored on the server (ผอ. chose ก.)
+    applicationDocument: p => { const a=appById_(p.appId); const info=applyInfo_();
+      const base=H.applicationAdmin({appId:a.AppID});
+      return Object.assign(base, { text:info.text, currentVersion:info.version, versionMatches:info.version===a.ConsentVersion,
+        school:docInfo_(), submittedAtRaw:a.SubmittedAt }); },
     // ---- admin ----
     listApplications: p => { const want=String((p&&p.status)||'');
       return (M.applications||[]).filter(a=>!want || (want==='OPEN'?APP_OPEN_[a.Status]:a.Status===want))

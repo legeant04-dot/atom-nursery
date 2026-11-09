@@ -629,6 +629,8 @@ function applyIdentity_(action, payload, sess) {
     // 📝 ใบสมัคร: every family's applications + the decision (approve CREATES A STUDENT, as above)
     listApplications: 1, applicationAdmin: 1, setApplicationVisit: 1, rejectApplication: 1, approveApplication: 1,
     setApplicationDocsStatus: 1, purgeApplicationDocs: 1,
+    // 🔒 ระยะ 3: a child's consent history, the office recording a change, and the printable application
+    studentConsents: 1, setStudentConsent: 1, applicationDocument: 1,
     /* absenceFollowupLog is deliberately NOT here. It is the teacher's own work — they write these
      * rows and must be able to read back who has already rung a family before ringing them again,
      * which is the entire reason the trail exists. It scopes itself by staffId to the classes that

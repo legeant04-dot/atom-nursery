@@ -199,7 +199,7 @@
       _readStart(); let pr2; try{ pr2=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr2).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.505'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.506'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:var(--fs-1);margin-top:var(--sp-5)">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -5862,7 +5862,7 @@
           // min-width:0 lets the name column shrink; without it the two buttons were pushed onto
           // their own lines and every row ended up a different height
           const dueA=dspmDueOf(s.StudentID);
-          return `<div class="list-item"><span style="min-width:0;flex:1">${studentAvatar(s)} <b>${esc(dispNick(s))}</b>${bdayTag(s.DOB)}${summerTag(s)} ${dueA?dspmDueBadge(dueA):''} ${journalPill(done)}</span><span class="acts2">${jBtn}<button class="btn sm outline" onclick="T_assess('${s.StudentID}')">${esc(t('lbl.assess'))}</button></span></div>`; }).join('')}</div>
+          return `<div class="list-item"><span style="min-width:0;flex:1">${studentAvatar(s)} <b>${esc(dispNick(s))}</b>${bdayTag(s.DOB)}${summerTag(s)}${consentTag(s)} ${dueA?dspmDueBadge(dueA):''} ${journalPill(done)}</span><span class="acts2">${jBtn}<button class="btn sm outline" onclick="T_assess('${s.StudentID}')">${esc(t('lbl.assess'))}</button></span></div>`; }).join('')}</div>
       <div id="tbday">${birthdayCard(al,{nav:true})}</div>`;
     // render, don't fetch: this was started before the batch above and travelled with it
     const tca=await p_tca; setHTML('#tcatt', tca?tcaHtml(tca,day0):'');
@@ -6506,7 +6506,7 @@
        * with no entry at all cannot be sent, and a box that accepts a tap and then quietly does
        * nothing is worse than one that will not take it. "เลือกทั้งหมด" skips those too. */
       const pick = onDay ? (T_lateOK(onDay) ? T_pickBox(s, jdone[s.StudentID], true) : '') : T_pickBox(s, jdone[s.StudentID]);
-      return `<div class="card"><div style="display:flex;gap:var(--sp-3);align-items:center">${studentAvatar(s)}<div style="min-width:0;flex:1"><b>${esc(dispNick(s))}</b>${bdayTag(s.DOB)}${summerTag(s)} ${(!onDay&&due)?dspmDueBadge(due):''} ${nmSub(s)?`<small class="muted">${esc(nmSub(s))}</small>`:""}${careTag(s)}${onDay?'':attTag}<br><small class="muted">${esc(ageYM(s.DOB))}</small>${careLine(s)}<br>${journalPill(jdone[s.StudentID])}</div>${pick}</div>
+      return `<div class="card"><div style="display:flex;gap:var(--sp-3);align-items:center">${studentAvatar(s)}<div style="min-width:0;flex:1"><b>${esc(dispNick(s))}</b>${bdayTag(s.DOB)}${summerTag(s)}${consentTag(s)} ${(!onDay&&due)?dspmDueBadge(due):''} ${nmSub(s)?`<small class="muted">${esc(nmSub(s))}</small>`:""}${careTag(s)}${onDay?'':attTag}<br><small class="muted">${esc(ageYM(s.DOB))}</small>${careLine(s)}<br>${journalPill(jdone[s.StudentID])}</div>${pick}</div>
         ${studentRowButtons(s,jdone,onDay)}</div>`; }).join('') + bdayHtml;
     T_selCount(); };
 
@@ -6827,6 +6827,7 @@
       FOOD_PICS()]);   // the read-only view below renders journalChecklist, which draws the thumbnails
     JFOOD=food||[];
     const s=cl.students.find(x=>x.StudentID===sid)||(A_CACHE.students||[]).find(x=>x.StudentID===sid)||{NameTH:sid};
+    J_NO_PHOTO=(s.noConsent||[]).indexOf('photoJournal')>=0;
     // which meals this class records (the baby class records none; Nursery 1 also eats dinner here),
     // and what the kitchen planned for today — used to pre-fill an empty slot
     JPLAN={};
@@ -6868,7 +6869,7 @@
       <div class="jsec"><h4>🎨 ${esc(jt('Learning Journey'))}</h4><div class="choice">${seg('Activity',ACTS,true)}</div><input id="jTheme" value="${esc(jv.theme)}" placeholder="Theme / Topic" style="margin-top:var(--sp-2)"/></div>
       <div class="jsec"><h4>🌟 ${esc(jt('Skills'))}</h4><div class="choice">${seg('Skills',SKILLS,true)}</div></div>
       <div class="jsec"><h4>⭐ ${esc(jt('Highlight'))}</h4><div class="row"><textarea id="jHi" placeholder="เหตุการณ์น่าประทับใจ... (กดไมค์เพื่อพูด)" style="flex:1">${esc(jv.highlight)}</textarea><button class="micbtn" onclick="J_mic('jHi',this)" aria-label="${EN()?"Voice input":"พูดเพื่อกรอกข้อความ"}" title="${EN()?"Voice input":"พูดเพื่อกรอกข้อความ"}">🎤</button></div>
-        ${jPhotoFields(jv)}</div>
+        ${J_NO_PHOTO?jNoPhotoNotice():jPhotoFields(jv)}</div>
       <div class="savedock"><button class="btn outline block" onclick="T_saveJournal('${sid}',false)">${esc(t('jr.saveDraft'))}</button>
       <button class="btn block green" style="margin-top:var(--sp-2)" onclick="T_saveJournal('${sid}',true)">${esc(t('jr.submit'))}</button></div>`;
     if(j) J_prefill(j);
@@ -6908,6 +6909,9 @@
    * 50,000-character cell limit. Nothing is required: no photo, no change to the entry. */
   const JR_PIC_PX = 28;   // == foodPic's default, so the two rows of circles match by construction
   let J_PHOTOS_CUR = ['','',''];
+  let J_NO_PHOTO = false;   // 🔒 7.3-3 — set by T_journal from the class list; the server refuses too
+  // 🔒 7.3-3: the notice INSTEAD of the photo boxes when the family said no (the server refuses too)
+  function jNoPhotoNotice(){ return `<div class="card" style="background:var(--bad-bg);border-color:var(--bad-line);padding:var(--sp-2);margin-top:var(--sp-2);font-size:var(--fs-1)">🚫📷 ${EN()?'The family did not consent to photos of their child in the journal — this entry is saved without pictures.':'ผู้ปกครองไม่ยินยอมให้ใช้รูปบุตรในบันทึกประจำวัน — บันทึกนี้ไม่แนบรูป'}</div>`; }
   function jPhotoFields(jv){
     const cur=(jv&&jv.photos)||['','',''];
     return `<div class="grid2" style="gap:var(--sp-2);margin-top:var(--sp-2)">
@@ -9530,6 +9534,15 @@
    *
    * The LAST DAY is on the badge, not just the word: "until when" is the question a teacher asks
    * next, and the answer is already in hand. */
+  /* 🔒 ใบสมัคร ข้อ 7.3 (2026-11-09) — what the family said NO to, on the name, where the teacher looks.
+   * Only NO is shown: no answer on file = the paper form = allowed (ผอ.), and a row of ticks on every
+   * child would hide the one that matters. */
+  const CONSENT_TAG={ photoJournal:['🚫📷','ไม่ใช้รูปในบันทึก','No photos in the journal'], photoPublic:['📵','ห้ามใช้รูปประชาสัมพันธ์','No publicity photos'],
+    health:['🩺','ไม่ยินยอมเก็บข้อมูลสุขภาพ','No health data'], daily:['📋','ไม่ยินยอมบันทึกสุขภาพประจำวัน/DSPM','No daily health / DSPM records'] };
+  function consentTag(s){ const no=(s&&s.noConsent)||[]; if(!no.length) return '';
+    return no.filter(k=>CONSENT_TAG[k]).map(k=>{ const x=CONSENT_TAG[k];
+      return `<small class="pill bad" style="margin-left:var(--sp-1)" title="${esc(EN()?x[2]:x[1])}">${x[0]} ${esc(EN()?x[2]:x[1])}</small>`; }).join(''); }
+  window.consentTag=consentTag;
   function summerTag(s){ if(!s||!s.summer) return '';
     // day + short month, no year: it is always this year, and the badge sits inline beside a name
     const last = s.summerLastDay ? ddmmyyyy(s.summerLastDay).replace(/ d{4}$/, '') : '';
@@ -11912,7 +11925,7 @@
           /* ...and the same second line for a child who is FINISHING. ลาชั่วคราว had one and this did
              not, so on a roster of thirty the row that needs a decision this month was quieter than
              the row that needs none. Asked 2026-09-30: "ทำให้มีแถบหลังเหมือนกับลาชั่วคราว". */
-          endSoon(s)?`<br><small style="color:var(--warn)">🎓 ${EN()?'last day':'วันสิ้นสุดการเรียน'} ${esc(ddmmyyyy(s.EndDate))}${s.endReason?' · '+esc(t('wd.reason.'+s.endReason)||s.endReason):''}</small>`:''}</span><span class="acts"><button class="btn sm outline" onclick="A_studentForm('${s.StudentID}')">${ic('edit')} ${EN()?'Edit':'แก้ไข'}</button><button class="btn sm" onclick="A_issueBill('${s.StudentID}')">🧾 ${EN()?'Bill':'ออกบิล'}</button><button class="btn sm" onclick="A_charges('${s.StudentID}')">💵 ${EN()?'Charges':'เรียกเก็บ'}</button><button class="btn sm outline" onclick="A_stuMore('${s.StudentID}')" aria-label="${EN()?'More actions':'การทำงานเพิ่มเติม'}" title="${EN()?'More actions':'การทำงานเพิ่มเติม'}">⋯</button></span></div>`).join('')}</div></div>
+          endSoon(s)?`<br><small style="color:var(--warn)">🎓 ${EN()?'last day':'วันสิ้นสุดการเรียน'} ${esc(ddmmyyyy(s.EndDate))}${s.endReason?' · '+esc(t('wd.reason.'+s.endReason)||s.endReason):''}</small>`:''}${(s.noConsent||[]).length?'<br>'+consentTag(s):''}</span><span class="acts"><button class="btn sm outline" onclick="A_studentForm('${s.StudentID}')">${ic('edit')} ${EN()?'Edit':'แก้ไข'}</button><button class="btn sm" onclick="A_issueBill('${s.StudentID}')">🧾 ${EN()?'Bill':'ออกบิล'}</button><button class="btn sm" onclick="A_charges('${s.StudentID}')">💵 ${EN()?'Charges':'เรียกเก็บ'}</button><button class="btn sm outline" onclick="A_stuMore('${s.StudentID}')" aria-label="${EN()?'More actions':'การทำงานเพิ่มเติม'}" title="${EN()?'More actions':'การทำงานเพิ่มเติม'}">⋯</button></span></div>`).join('')}</div></div>
       ${_stuGone.length?`<div class="card secw" id="sec-students-gone">${secHead('🎓',EN()?'Finished studying here':'สิ้นสุดการเรียนแล้ว',_stuGone.length,'')}
         <div class="secbody" hidden>
         ${/* The same three options as the staff section above, and the same recommendation. Said out
@@ -12764,6 +12777,7 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
   window.A_studentForm=(id)=>{ const s=findStudent(id);
     const f=(k,label,val,type)=>`<label class="field"><span>${esc(label)}</span><input id="stf_${k}" type="${type||'text'}" value="${esc(val!=null?val:'')}"/></label>`;
     modal(`<h3>${ic('edit')} ${esc(nm(s))}</h3>
+      <button class="btn sm outline" style="margin-bottom:var(--sp-2)" onclick="A_consents('${esc(id)}')">🔒 ${EN()?'PDPA consent (7.3)':'ความยินยอม PDPA (ข้อ 7.3)'}</button>${consentTag(s)}
       <div class="grid2">${f('NameTH',t('reg.nameTH'),s.NameTH)}${f('NameEN',t('reg.nameEN'),s.NameEN)}</div>
       <div class="grid2">${f('Nickname',t('reg.nickname'),s.Nickname)}${f('NicknameEN',t('reg.nicknameEN'),s.NicknameEN)}</div>
       <div class="grid2">${f('NationalID',t('reg.nationalIdStudent'),s.NationalID)}
@@ -15924,6 +15938,7 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
         <button class="btn sm pink" style="flex:1" onclick="A_appReject('${esc(a.appId)}')">❌ ${EN()?'Decline':'ไม่รับ'}</button></div>
         <button class="btn block" style="margin-top:var(--sp-2)" onclick="A_appApprove('${esc(a.appId)}')">✅ ${EN()?'Accept':'รับเข้า'}</button>`:''}
       ${a.studentId?`<button class="btn block" style="margin-top:var(--sp-2)" onclick="this.closest('.modal').remove();A_appBill('${esc(a.studentId)}')">🧾 ${EN()?'Issue a bill (entry fee / deposit)':'ออกบิล (ค่าแรกเข้า / มัดจำ)'}</button>`:''}
+      <button class="btn outline block" style="margin-top:var(--sp-2)" onclick="A_appPrint('${esc(a.appId)}',this)">${ic('print')} ${EN()?'Print the application (PDF)':'พิมพ์ใบสมัคร (PDF)'}</button>
       <button class="btn outline block" style="margin-top:var(--sp-2)" onclick="this.closest('.modal').remove();A_applications()">${EN()?'Back to the list':'กลับไปรายการ'}</button>`);
     window._APP_CUR=a; };
   window.APP_DOCS_TXT=docs=>{ docs=docs||{}; const L={birth:['สูติบัตร','Birth certificate'],parentId:['บัตรประชาชนบิดา-มารดา','Parents’ ID cards'],vaccine:['สมุดวัคซีน','Vaccination record'],house:['ทะเบียนบ้าน','House registration'],photos:['รูปถ่าย','Photos']};
@@ -15970,6 +15985,49 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
         <button class="btn outline block" style="margin-top:var(--sp-2)" onclick="this.closest('.modal').remove();A_applications()">${EN()?'Back to applications':'กลับไปรายการใบสมัคร'}</button>`);
     }catch(e){ btn.disabled=false; err(e); } };
   // the roster cache may predate the child this just created — refresh it so the bill screen can name them
+  /* 🔒 A child's four answers, and the office recording a new one (a paper form, a phone call, a family
+   * withdrawing consent). Appended, never edited — the history is the evidence. */
+  window.A_consents=async(sid)=>{ const r=await api('studentConsents',{studentId:sid},{fresh:true});
+    const L={health:['1. ข้อมูลสุขภาพ','1. Health data'],daily:['2. บันทึกสุขภาพประจำวัน / น้ำหนักส่วนสูง / DSPM','2. Daily health, growth, DSPM'],
+      photoJournal:['3. รูปในบันทึกประจำวัน','3. Photos in the journal'],photoPublic:['4. รูปประชาสัมพันธ์','4. Publicity photos']};
+    const cur=r.current||{};
+    const row=k=>`<div class="list-item" style="display:block"><div class="spread"><b style="font-size:var(--fs-1)">${esc(EN()?L[k][1]:L[k][0])}</b>
+        <span>${cur[k]==='NO'?`<span class="pill bad">${EN()?'No':'ไม่ยินยอม'}</span>`:cur[k]==='YES'?`<span class="pill ok">${EN()?'Yes':'ยินยอม'}</span>`:`<span class="pill">${EN()?'paper form (allowed)':'ตามใบสมัครกระดาษ (ใช้ได้)'}</span>`}</span></div>
+      <div class="seg" style="margin:var(--sp-1) 0 0">${[['YES','ยินยอม','Yes'],['NO','ไม่ยินยอม','No']].map(([v,th,en])=>`<button class="${cur[k]===v?'active':''}" onclick="A_consentSet('${esc(sid)}','${k}','${v}',this)">${esc(EN()?en:th)}</button>`).join('')}</div></div>`;
+    const hist=(r.history||[]).slice().reverse().slice(0,20).map(h=>`<div style="font-size:var(--fs-1)">${esc(APP_fmtDate(h.at))} · ${esc((L[h.item]||[h.item])[EN()?1:0])}: ${h.value==='NO'?'❌':'✅'} <small class="muted">${esc(h.source==='application'?(EN()?'online application':'ใบสมัครออนไลน์'):h.by||'')}</small></div>`).join('');
+    document.querySelectorAll('.modal.apcons').forEach(x=>x.remove());
+    modal(`<h3>🔒 ${EN()?'PDPA consent (7.3)':'ความยินยอม PDPA (ข้อ 7.3)'}</h3>
+      <p class="muted" style="font-size:var(--fs-1)">${EN()?'Record what the family told the school. Each change is kept with the time and who recorded it.':'บันทึกตามที่ผู้ปกครองแจ้งโรงเรียน · ทุกครั้งที่เปลี่ยนจะเก็บเวลาและผู้บันทึกไว้'}</p>
+      ${['health','daily','photoJournal','photoPublic'].map(row).join('')}
+      <label class="field"><span>${EN()?'How the family told us (optional)':'ผู้ปกครองแจ้งทางไหน (ไม่บังคับ)'}</span><input id="apCNote" placeholder="${EN()?'e.g. paper form 2569 / phone call with the mother':'เช่น ใบสมัครกระดาษ 2569 / โทรคุยกับคุณแม่'}"/></label>
+      ${hist?`<details><summary>${EN()?'History':'ประวัติ'}</summary>${hist}</details>`:''}
+      <button class="btn outline block" style="margin-top:var(--sp-2)" onclick="this.closest('.modal').remove()">${esc(t('c.close'))}</button>`);
+    const m=[...document.querySelectorAll('.modal')].pop(); if(m) m.classList.add('apcons'); };
+  window.A_consentSet=async(sid,item,value,btn)=>{ const m=btn.closest('.modal'); const note=(m.querySelector('#apCNote')||{}).value||'';
+    btn.disabled=true; try{ await api('setStudentConsent',{studentId:sid,item,value,note:note.trim(),adminId:USER.staffId});
+      confirmSaved(t('c.saved')); try{ A_CACHE.students=await api('listStudents',{},{fresh:true}); }catch(e){} A_consents(sid); }catch(e){ btn.disabled=false; err(e); } };
+  /* 🖨️ THE FILLED-IN APPLICATION, AS THE SCHOOL'S OWN FORM (ผอ. 2026-11-09 chose ก.): drawn on this
+   * device by webapp/application_form.js from what the family actually entered, every time it is asked
+   * for — no copy is generated or kept on the server or in Drive. */
+  window.A_appPrint=async(appId,btn)=>{ const old=btn&&btn.innerHTML; if(btn){ btn.disabled=true; btn.innerHTML='⏳ '+(EN()?'Preparing…':'กำลังเตรียมเอกสาร…'); }
+    try{ const d=await api('applicationDocument',{appId},{fresh:true});
+      const [sg]=await Promise.all([ d.signatureDocId?api('applicationDocFile',{docId:d.signatureDocId,__role:'Admin'}).catch(()=>({data:''})):Promise.resolve({data:d.signature||''}),
+        window.__atomLoadScript('report_card.js',()=>!!(window.AtomReportCard&&window.AtomReportCard.buildPdf)),
+        window.__atomLoadScript('application_form.js',()=>!!window.AtomAppForm), ensureLogos(['_LOGO'])]);
+      const lang=(d.lang==='en')?'en':'th';
+      const r=await window.AtomAppForm.render(d,{logo:window._LOGO||'assets/logo.png', sig:(sg&&sg.data)||'', lang});
+      window._APP_PRINT={d,r};
+      modal(`<h3>${ic('print')} ${EN()?'Application':'ใบสมัคร'} <small class="muted">${esc(d.appId)}</small></h3>
+        ${d.versionMatches?'':`<div class="card" style="background:var(--warn-bg);border-color:var(--warn-line);font-size:var(--fs-1)">⚠️ ${EN()?'The consent text has changed since the family agreed; the form prints today\'s wording with the version they agreed to.':'ข้อความความยินยอมถูกปรับหลังผู้ปกครองยินยอม — เอกสารพิมพ์ข้อความปัจจุบัน พร้อมระบุฉบับที่ผู้ปกครองยินยอมไว้'} (${esc(d.consentVersion)})</div>`}
+        <div style="max-height:56vh;overflow:auto">${r.pages.map(p=>`<img src="${p.dataUrl}" alt="" style="width:100%;border:1px solid var(--line);border-radius:var(--radius-sm);margin-bottom:var(--sp-2)"/>`).join('')}</div>
+        <button class="btn block" onclick="A_appPrintSave(this)">⬇️ ${EN()?'Download PDF':'ดาวน์โหลด PDF'}</button>
+        <div id="apPrintNote"></div>
+        <button class="btn outline block" style="margin-top:var(--sp-2)" onclick="this.closest('.modal').remove()">${esc(t('c.close'))}</button>`);
+    }catch(e){ err(e); } finally{ if(btn){ btn.disabled=false; btn.innerHTML=old; } } };
+  window.A_appPrintSave=async(btn)=>{ const x=window._APP_PRINT; if(!x) return; btn.disabled=true;
+    try{ const r=await window.AtomAppForm.save(x.d, x.r); if(r&&r.cancelled) return;
+      setHTML('#apPrintNote', `<div class="card" style="background:var(--ok-bg);border-color:var(--ok-line);padding:var(--sp-2);margin:var(--sp-2) 0 0;font-size:var(--fs-1);color:var(--ok)">✅ <b>${r&&r.shared?(EN()?'Saved':'บันทึกแล้ว'):(EN()?'Downloaded':'ดาวน์โหลดแล้ว')}</b> <span translate="no">${esc(r.name)}</span></div>`);
+    }catch(e){ err(e); } finally{ btn.disabled=false; } };
   window.A_appBill=async(sid)=>{ try{ A_CACHE.students=await api('listStudents',{},{fresh:true}); }catch(e){} A_issueBill(sid); };
 
   window.A_surveys=async()=>{
