@@ -83,7 +83,20 @@ const PORTED = {
   addAnnouncement:    { fn: 'handleAddAnnouncement', reads: ['ANNOUNCEMENTS'], appends: ['ANNOUNCEMENTS'] },
   editAnnouncement:   { fn: 'handleEditAnnouncement', reads: ['ANNOUNCEMENTS'],
     writes: { ANNOUNCEMENTS: ['Title', 'TitleEN', 'Content', 'ContentEN', 'Popup', 'StartDate', 'EndDate', 'Priority', 'StartTime', 'EndTime', 'Image'] } },
-  deleteAnnouncement: { fn: 'handleDeleteAnnouncement', reads: ['ANNOUNCEMENTS'], deletes: ['ANNOUNCEMENTS'] }
+  deleteAnnouncement: { fn: 'handleDeleteAnnouncement', reads: ['ANNOUNCEMENTS'], deletes: ['ANNOUNCEMENTS'] },
+  /* holidays (Code.gs holidayWrite_): the ENGINE changes M.holidays (the host saves it), and when the date is
+   * TODAY Apps Script also recomputes the day's attendance — that path reads sheets these do not declare, so
+   * it is refused here (NOT_ON_FAST_HOST) and the request goes to Apps Script whole. */
+  addHoliday:    { fn: 'holidayWrite_', args: ['addHoliday'], reads: [], engine: ['holidays'] },
+  editHoliday:   { fn: 'holidayWrite_', args: ['editHoliday'], reads: [], engine: ['holidays'] },
+  removeHoliday: { fn: 'holidayWrite_', args: ['removeHoliday'], reads: [], engine: ['holidays'] },
+  // Big Cleaning days — one SCHOOL_CONFIG cell, written through a range (src/Checkin.gs writeBigCleaning_)
+  addBigCleaning:    { fn: 'handleAddBigCleaning', reads: [], writes: { SCHOOL_CONFIG: ['Value'] }, appends: ['SCHOOL_CONFIG'] },
+  removeBigCleaning: { fn: 'handleRemoveBigCleaning', reads: [], writes: { SCHOOL_CONFIG: ['Value'] }, appends: ['SCHOOL_CONFIG'] },
+  /* the head teacher takes sent reports back (src/Journal.gs): two status cells per report, and one 🔔 row in
+   * the inbox of each teacher who wrote one (inboxAdd_ → ADMIN_INBOX — the bell, never LINE) */
+  recallJournalsMany: { fn: 'handleRecallJournalsMany', reads: ['DAILY_JOURNAL', 'STAFF', 'STUDENTS', 'ADMIN_INBOX'],
+    writes: { DAILY_JOURNAL: ['Status', 'SubmittedAt'] }, appends: ['ADMIN_INBOX'] }
 };
 /* 🔴 SCHOOL_CONFIG is readable by every ported route, as by every line of Apps Script: getConfig_ is
  * Db.gs's own (raw Key/Value rows, cached per execution in _configCache — reset per request here),
@@ -158,7 +171,10 @@ function writable(actions) {
   actions.forEach(a => { const d = PORTED[a]; if (d) Object.keys(d.writes || {}).concat(d.deletes || [], d.appends || []).forEach(x => s.add(x)); });
   return [...s];
 }
-const writes = a => { const d = PORTED[a]; return !!(d && (d.writes || d.appends || d.deletes)); };
+const writes = a => { const d = PORTED[a]; return !!(d && (d.writes || d.appends || d.deletes || d.engine)); };
+/* the ENGINE collections a route may change through engineDispatch_ (holidayWrite_ → addHoliday) — the host
+ * saves those through its own engine path, and only these */
+const engineWrites = a => ((PORTED[a] || {}).engine || []).slice();
 
 /**
  * Run the ported route `action` with the payload the gate already stamped (applyIdentity_).
@@ -182,7 +198,7 @@ function run(action, payload, raw, H, config, sink) {
    * HR_AUDIT_LOG): that row is part of the write on Apps Script, so it is part of it here. */
   const may = def.writes || {};
   const appends = new Set(def.appends || []), deletes = new Set(def.deletes || []);
-  if (def.writes || def.appends || def.deletes) { appends.add('AUDIT_LOG'); appends.add('HR_AUDIT_LOG'); }
+  if (def.writes || def.appends || def.deletes || def.engine) { appends.add('AUDIT_LOG'); appends.add('HR_AUDIT_LOG'); }
   const readable = new Set(ALWAYS_READ.concat(def.reads || [], Object.keys(may), [...deletes]));
   /* 🔴 Apps Script's own code wraps reads in try {} catch (e) {} (inboxStudentsForParent_ does), so a
    * throw alone would be swallowed and the answer would quietly be "nothing". The first violation is
@@ -264,7 +280,11 @@ function run(action, payload, raw, H, config, sink) {
       return out;
     },
     getValue: () => range(name, r, c, 1, 1).getValues()[0][0],
-    setValues: refuseWrite('Range.setValues'), setValue: refuseWrite('Range.setValue')
+    /* ONE cell, written like updateRow_ — same declaration, same checks (writeBigCleaning_ writes its value this way) */
+    setValue: v => { if ((nr || 1) !== 1 || (nc || 1) !== 1 || r < 2) return breach('routes: ' + action + ' setValue on more than one cell or the header row');
+      updateRow({ __sheet: name }, r, { [cols(name)[c - 1]]: v }); },
+    setNumberFormat: () => {}, setNumberFormats: () => {},        // a display format; Postgres stores the text as text
+    setValues: refuseWrite('Range.setValues')
   });
   const sheetObj = name => ({
     __sheet: name, getName: () => name,
@@ -304,7 +324,9 @@ function run(action, payload, raw, H, config, sink) {
   b.DriveApp = new Proxy({}, { get: () => refuseWrite('DriveApp') });
   b.__p = JSON.parse(JSON.stringify(payload || {}));
   let out, thrown = null;
-  try { out = vm.runInContext(def.fn + '(__p)', b); } catch (e) { thrown = e; }
+  /* args: fixed leading arguments — holidayWrite_('addHoliday', p) is one function for three routes */
+  const call = def.fn + '(' + (def.args || []).map(x => JSON.stringify(x) + ', ').join('') + '__p)';
+  try { out = vm.runInContext(call, b); } catch (e) { thrown = e; }
   if (violation) throw violation;
   if (thrown) throw thrown;
   touched.forEach(n => { raw[n] = work[n]; });
@@ -312,4 +334,4 @@ function run(action, payload, raw, H, config, sink) {
   return out === undefined ? out : JSON.parse(JSON.stringify(out));
 }
 
-module.exports = { PORTED, has: a => Object.prototype.hasOwnProperty.call(PORTED, a), needs, writable, writes, run, formatDate };
+module.exports = { PORTED, has: a => Object.prototype.hasOwnProperty.call(PORTED, a), needs, writable, writes, engineWrites, run, formatDate };

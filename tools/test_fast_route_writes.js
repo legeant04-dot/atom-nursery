@@ -34,7 +34,8 @@ const G = require('./gas_test_harness.js')(FILES);
 /* where each sheet lives on Apps Script, and its name on the host */
 const SHEETS = [
   ['MAIN', 'SCHOOL_CONFIG'], ['MAIN', 'DSPM_CRITERIA'], ['HR', 'LEAVE_REQUEST'], ['MAIN', 'LEAVE_REQUEST_STD'],
-  ['MAIN', 'DAILY_JOURNAL'], ['MAIN', 'STUDENTS'], ['MAIN', 'ANNOUNCEMENTS'], ['MAIN', 'AUDIT_LOG'], ['HR', 'AUDIT_LOG']];
+  ['MAIN', 'DAILY_JOURNAL'], ['MAIN', 'STUDENTS'], ['MAIN', 'ANNOUNCEMENTS'], ['MAIN', 'AUDIT_LOG'], ['HR', 'AUDIT_LOG'],
+  ['HR', 'STAFF'], ['MAIN', 'ADMIN_INBOX']];
 const hostName = (wb, s) => (wb === 'HR' && s === 'AUDIT_LOG') ? 'HR_AUDIT_LOG' : s;
 
 const FIX = {
@@ -48,8 +49,18 @@ const FIX = {
     { LeaveID: 'LV-2', StaffID: 'STF-T', Type: 'ลากิจ', StartDate: '2026-11-20', EndDate: '2026-11-21', Days: 2, Reason: 'ธุระ', Status: 'PENDING_ADMIN', HalfDay: '' },
     { LeaveID: 'LV-3', StaffID: 'STF-U', Type: 'ลากิจ', StartDate: '2026-11-17', EndDate: '2026-11-17', Days: 1, Reason: 'x', Status: 'APPROVED', HalfDay: '' }],
   LEAVE_REQUEST_STD: [{ LeaveID: 'LVS-1', StudentID: 'STD-1', Date: '2026-11-10', Reason: 'ป่วย', Type: 'sick', Status: 'Notified' }],
-  STUDENTS: [{ StudentID: 'STD-1', Name: 'เด็กหนึ่ง', Nickname: 'หนึ่ง', Class: 'N1', Status: 'ACTIVE' }],
-  DAILY_JOURNAL: [{ Date: '2026-11-05', StudentID: 'STD-1', TeacherID: 'STF-T', Mood: 'ยิ้ม', Theme: 'ผีเสื้อ', Status: 'SUBMITTED', SubmittedAt: '2026-11-05 16:00' }],
+  STUDENTS: [{ StudentID: 'STD-1', Name: 'เด็กหนึ่ง', Nickname: 'หนึ่ง', Class: 'N1', Status: 'ACTIVE' },
+             { StudentID: 'STD-2', Name: 'เด็กสอง', Nickname: 'สอง', Class: 'N1', Status: 'ACTIVE' },
+             { StudentID: 'STD-3', Name: 'เด็กสาม', Nickname: 'สาม', Class: 'N1', Status: 'ACTIVE' }],
+  DAILY_JOURNAL: [{ Date: '2026-11-05', StudentID: 'STD-1', TeacherID: 'STF-T', Mood: 'ยิ้ม', Theme: 'ผีเสื้อ', Status: 'SUBMITTED', SubmittedAt: '2026-11-05 16:00' },
+    // recalled by the head teacher: two sent (two authors), one still a draft
+    { Date: '2026-11-06', StudentID: 'STD-1', TeacherID: 'STF-T', Mood: 'ยิ้ม', Status: 'SUBMITTED', SubmittedAt: '2026-11-06 16:00' },
+    { Date: '2026-11-06', StudentID: 'STD-2', TeacherID: 'STF-U', Mood: 'เฉย', Status: 'SUBMITTED', SubmittedAt: '2026-11-06 16:05' },
+    { Date: '2026-11-06', StudentID: 'STD-3', TeacherID: 'STF-T', Mood: '', Status: 'DRAFT', SubmittedAt: '' }],
+  STAFF: [{ StaffID: 'STF-H', Name: 'หัวหน้าครู', Role: 'Teacher', PositionLevel: 'Leader', Department: '*', Status: 'ACTIVE' },
+          { StaffID: 'STF-T', Name: 'ครูที', Role: 'Teacher', PositionLevel: 'Teacher', Department: 'N1', Status: 'ACTIVE' },
+          { StaffID: 'STF-U', Name: 'ครูยู', Role: 'Teacher', PositionLevel: 'Teacher', Department: 'N1', Status: 'ACTIVE' }],
+  ADMIN_INBOX: [],
   ANNOUNCEMENTS: [{ AnnID: 'ANN1', Title: 'ประกาศเดิม', Content: 'เนื้อหา', Date: '2026-11-01', Type: 'news', TargetGroup: 'all', Popup: false, Priority: 0 }]
 };
 
@@ -105,6 +116,8 @@ const gas = (fn, payload) => { G.g.__P = JSON.stringify(payload); G.g.__F = fn; 
 const strip = rows => rows.map(r => { const o = Object.assign({}, r); delete o.__id; return o; });
 const comparable = (name, rows) => strip(rows).map(r => {
   if (/AUDIT_LOG$/.test(name)) { const t = Date.parse(r.Timestamp); r.Timestamp = (isFinite(t) && Math.abs(Date.now() - t) < 120000) ? 'now' : r.Timestamp; }
+  /* inboxAdd_ makes its id from Date.now() + a random number, and stamps the minute — the same on neither side by design */
+  if (name === 'ADMIN_INBOX') { r.InboxID = /^IN-\d+-\d+$/.test(r.InboxID) ? 'IN-…' : r.InboxID; r.Date = r.Date ? 'now' : r.Date; }
   return r;
 });
 const sameState = label => {
@@ -135,7 +148,12 @@ const STEPS = [
   ['unlockJournal', 'handleUnlockJournal', { studentId: 'STD-1', date: '2026-11-05', staffId: 'STF-A' }, 'ดึงบันทึกที่ส่งแล้วกลับเป็นร่าง'],
   ['addAnnouncement', 'handleAddAnnouncement', { title: 'ปิดเทอม', content: 'หยุด 1-5 ธ.ค.', popup: true, startDate: '2026-11-07', priority: 2 }, 'เพิ่มประกาศ (รหัสถัดไป)'],
   ['editAnnouncement', 'handleEditAnnouncement', { annId: 'ANN1', title: 'ประกาศแก้แล้ว', popup: true }, 'แก้ประกาศ'],
-  ['deleteAnnouncement', 'handleDeleteAnnouncement', { annId: 'ANN1' }, 'ลบประกาศ']
+  ['deleteAnnouncement', 'handleDeleteAnnouncement', { annId: 'ANN1' }, 'ลบประกาศ'],
+  ['addBigCleaning', 'handleAddBigCleaning', { date: '2026-11-20' }, 'วัน Big Cleaning แรก (ยังไม่มีคีย์ → เพิ่มแถวแล้วแก้ช่องของแถวใหม่)'],
+  ['addBigCleaning', 'handleAddBigCleaning', { date: '2026-12-18' }, 'วัน Big Cleaning ที่สอง (เรียงวัน)'],
+  ['removeBigCleaning', 'handleRemoveBigCleaning', { date: '2026-11-20' }, 'ลบวัน Big Cleaning'],
+  ['recallJournalsMany', 'handleRecallJournalsMany', { staffId: 'STF-T', date: '2026-11-06', studentIds: ['STD-1'] }, '🔴 ครูธรรมดาดึงบันทึกกลับ → NO_PERMISSION'],
+  ['recallJournalsMany', 'handleRecallJournalsMany', { staffId: 'STF-H', date: '2026-11-06', studentIds: ['STD-1', 'STD-2', 'STD-3', 'STD-9'] }, 'หัวหน้าครูดึงบันทึกกลับ (2 ใบ · ร่าง 1 · ไม่มี 1) + กระดิ่งครูทั้งสองคน']
 ];
 const got = {};
 for (const [a, fn, p, label] of STEPS) {
@@ -156,7 +174,10 @@ eq('ใบลา: LV-2 ย้ายวัน · LV-1 ครึ่งวัน ·
 eq('🔴 การแก้ที่ทับใบเดิม ถูกปฏิเสธทั้งสองฝั่ง', [got['🔴 แก้ไปทับใบเดิม → LEAVE_OVERLAP ไม่มีอะไรเปลี่ยน'].gas.code, got['🔴 แก้ไปทับใบเดิม → LEAVE_OVERLAP ไม่มีอะไรเปลี่ยน'].host.code, got['🔴 แก้ไปทับใบเดิม → LEAVE_OVERLAP ไม่มีอะไรเปลี่ยน'].host.ops], ['LEAVE_OVERLAP', 'LEAVE_OVERLAP', 0]);
 eq('บันทึกประจำวันกลับเป็นร่าง เนื้อหาเดิม', [db.DAILY_JOURNAL[0].Status, db.DAILY_JOURNAL[0].SubmittedAt, db.DAILY_JOURNAL[0].Theme], ['DRAFT', '', 'ผีเสื้อ']);
 eq('ประกาศ: ใหม่ ANN-2 เหลืออยู่ ANN1 ถูกลบ', db.ANNOUNCEMENTS.map(r => r.AnnID + ':' + r.Title), ['ANN-2:ปิดเทอม']);
-eq('บันทึกตรวจสอบ: MAIN 4 แถว (โควตา · ใบประกาศ · ใบเสร็จ · ดึงบันทึก) · HR 3 แถว (แก้ลา ×2 · ยกเลิก)', [db.AUDIT_LOG.length, db.HR_AUDIT_LOG.length], [4, 3]);
+eq('บันทึกตรวจสอบ: MAIN 5 แถว (โควตา · ใบประกาศ · ใบเสร็จ · ดึงบันทึก · ดึงบันทึกหลายใบ) · HR 3 แถว (แก้ลา ×2 · ยกเลิก)', [db.AUDIT_LOG.length, db.HR_AUDIT_LOG.length], [5, 3]);
+eq('Big Cleaning: เพิ่มสองวัน ลบหนึ่ง', Object.fromEntries(db.SCHOOL_CONFIG.map(r => [r.Key, r.Value])).BigCleaningDays, '2026-12-18');
+eq('หัวหน้าครูดึงกลับ: สองใบที่ส่งแล้วกลับเป็นร่าง ร่างเดิมไม่แตะ', db.DAILY_JOURNAL.filter(r => r.Date === '2026-11-06').map(r => r.StudentID + ':' + r.Status), ['STD-1:DRAFT', 'STD-2:DRAFT', 'STD-3:DRAFT']);
+eq('🔔 กระดิ่งของครูผู้เขียนทั้งสองคน (ไม่ใช่ LINE)', db.ADMIN_INBOX.map(r => r.StaffID + ':' + r.Category).sort(), ['STF-T:journal', 'STF-U:journal']);
 eq('...ของ HR ไปตาราง HR ไม่ปนกับ MAIN', db.HR_AUDIT_LOG.map(r => r.Action), ['LEAVE_EDIT', 'LEAVE_EDIT', 'LEAVE_CANCEL']);
 
 console.log('\n3) 🔴 กฎที่ทำให้เขียนนอก Apps Script ได้อย่างปลอดภัย');

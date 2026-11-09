@@ -199,7 +199,7 @@
       _readStart(); let pr2; try{ pr2=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr2).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.502'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.503'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:var(--fs-1);margin-top:var(--sp-5)">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -422,6 +422,10 @@
   const holWindow = h => { const ok=v=>/^\d{2}:\d{2}$/.test(v)?v:'';
     const S=ok(String((h&&h.StartTime)||'').slice(0,5)), E=ok(String((h&&h.EndTime)||'').slice(0,5));
     return (S||E) ? `${S||'00:00'}-${E||'23:59'}` : ''; };
+  /* holidays.recurring is a TEXT column in Postgres: a one-off holiday reads back as the string "false",
+   * which is truthy — every holiday would show "ทุกปี" and open with the box ticked. Sheets gives a real
+   * boolean; this reads both the same. (Found by tools/test_fast_route_writes_live.js, 2026-11-09.) */
+  const holRec = h => !!h && (h.Recurring===true || String(h.Recurring).toLowerCase()==='true');
   const holLabel = h => { const nm=EN()?(h.NameEN||h.NameTH):(h.NameTH||h.NameEN); const w=holWindow(h);
     return w ? `${nm} ${w}` : nm; };
   // OT duration as "X ชม. Y นาที" / "Xh Ym" (e.g. 0.77 hr → "46 นาที"); drops a zero part
@@ -16662,7 +16666,7 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
         <div class="grid2"><label class="field"><span>${esc(t('hol.startTime'))}</span><input type="time" id="hStart"/></label><label class="field"><span>${esc(t('hol.endTime'))}</span><input type="time" id="hEnd"/></label></div>
         <small class="muted">${esc(t('hol.timeNote'))}</small>
         <button class="btn block" style="margin-top:var(--sp-2)" onclick="A_addHoliday()">${esc(t('hol.add'))}</button></div>
-      <div class="card"><h3>${ic('clipboard')} ${esc(t('hol.list'))}</h3>${hs.map(h=>`<div class="list-item"><span><b>${esc(h.Date)}</b> · ${esc(EN()?h.NameEN:h.NameTH)}${holWindow(h)?` <span class="pill wait" style="font-size:var(--fs-1)">🕘 ${esc(holWindow(h))}</span>`:''}${h.Recurring?` <span class="pill info">${esc(t('hol.yearly'))}</span>`:''}</span><span class="acts2"><button class="btn sm outline" onclick="A_editHoliday('${esc(h.Date)}','${esc(h.NameTH||'')}')" aria-label="${EN()?"Edit":"แก้ไข"}" title="${EN()?"Edit":"แก้ไข"}">${ic('edit')}</button><button class="btn sm pink" onclick="A_removeHoliday('${h.Date}','${esc(h.NameTH)}')" aria-label="${EN()?"Delete":"ลบ"}" title="${EN()?"Delete":"ลบ"}">${ic('trash')}</button></span></div>`).join('')}</div>`;
+      <div class="card"><h3>${ic('clipboard')} ${esc(t('hol.list'))}</h3>${hs.map(h=>`<div class="list-item"><span><b>${esc(h.Date)}</b> · ${esc(EN()?h.NameEN:h.NameTH)}${holWindow(h)?` <span class="pill wait" style="font-size:var(--fs-1)">🕘 ${esc(holWindow(h))}</span>`:''}${holRec(h)?` <span class="pill info">${esc(t('hol.yearly'))}</span>`:''}</span><span class="acts2"><button class="btn sm outline" onclick="A_editHoliday('${esc(h.Date)}','${esc(h.NameTH||'')}')" aria-label="${EN()?"Edit":"แก้ไข"}" title="${EN()?"Edit":"แก้ไข"}">${ic('edit')}</button><button class="btn sm pink" onclick="A_removeHoliday('${h.Date}','${esc(h.NameTH)}')" aria-label="${EN()?"Delete":"ลบ"}" title="${EN()?"Delete":"ลบ"}">${ic('trash')}</button></span></div>`).join('')}</div>`;
     window._HOLS=hs;
   };
   /**
@@ -16673,7 +16677,7 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
   window.A_editHoliday=(date,nameTH)=>{ const h=(window._HOLS||[]).find(x=>String(x.Date)===String(date)&&String(x.NameTH||'')===String(nameTH))||{Date:date,NameTH:nameTH};
     modal(`<h3>${ic('edit')} ${EN()?'Edit holiday':'แก้ไขวันหยุด'} — ${esc(h.Date)}</h3>
       <div class="grid2"><label class="field"><span>${esc(t('hol.date'))}</span><input type="date" id="ehDate" value="${esc(ymd(h.Date))}"/></label>
-        <label class="field" style="display:flex;align-items:center;gap:var(--sp-2);margin-top:var(--sp-5)"><input type="checkbox" id="ehRec" style="width:auto" ${h.Recurring?'checked':''}/> ${esc(t('hol.recurring'))}</label></div>
+        <label class="field" style="display:flex;align-items:center;gap:var(--sp-2);margin-top:var(--sp-5)"><input type="checkbox" id="ehRec" style="width:auto" ${holRec(h)?'checked':''}/> ${esc(t('hol.recurring'))}</label></div>
       <div class="grid2"><label class="field"><span>${esc(t('hol.nameTH'))}</span><input id="ehNameTH" value="${esc(h.NameTH||'')}"/></label>
         <label class="field"><span>${esc(t('hol.nameEN'))}</span><input id="ehNameEN" value="${esc(h.NameEN||'')}"/></label></div>
       <div class="grid2"><label class="field"><span>${esc(t('hol.startTime'))}</span><input type="time" id="ehStart" value="${esc(String(h.StartTime||'').slice(0,5))}"/></label>
