@@ -309,6 +309,36 @@ console.log('\n13) 🔴 ไม่รับ / ยกเลิก + 90 วัน �
   eq('ใบที่รับเข้าแล้ว เอกสารเป็นของนักเรียน ไม่ถูกลบ', c.H.purgeApplicationDocs({ today: '2099-01-01' }).deleted, 0);
 }
 
+console.log('\n14) 🔒 ระยะ 3 — ความยินยอม 7.3 ใช้ได้จริง');
+{
+  const { H, M } = boot({});
+  M.students.push({ StudentID: 'STD-OLD', NameTH: 'เด็กเดิม', Class: 'Nursery 1', Status: 'ACTIVE', DOB: '2023-01-01', EnrollDate: '2025-01-01' });
+  const r = H.submitApplication(form(H, { consents: { pdpa: true, health: true, daily: true, photoJournal: false, photoPublic: false } }));
+  const ap = H.approveApplication({ appId: r.appId, startDate: TODAY, className: 'Nursery 1', adminId: 'ADM' });
+  const sid = ap.studentId;
+  eq('เด็กเดิม (ไม่มีบันทึกในระบบ) = ใช้ได้ตามใบสมัครกระดาษ', H.studentConsents({ studentId: 'STD-OLD' }).current, { health: '', daily: '', photoJournal: '', photoPublic: '' });
+  eq('เด็กจากใบสมัคร: คำตอบของผู้ปกครองติดตัวเด็กไป', H.studentConsents({ studentId: sid }).current, { health: 'YES', daily: 'YES', photoJournal: 'NO', photoPublic: 'NO' });
+  const rows = H.listStudents({}).filter(s => s.StudentID === sid || s.StudentID === 'STD-OLD');
+  eq('รายชื่อนักเรียนแสดงเฉพาะข้อที่ "ไม่ยินยอม"', rows.map(s => s.StudentID + ':' + s.noConsent.join(',')).sort(), ['STD-OLD:', sid + ':photoJournal,photoPublic'].sort());
+  // the journal: no picture for this child; the other child is untouched
+  M.studentAttendanceToday.push({ StudentID: sid, Status: 'IN' }, { StudentID: 'STD-OLD', Status: 'IN' });
+  const J = (id, ph) => H.submitJournal({ studentId: id, staffId: 'ADM', Mood: 'Happy', Photo1: ph });
+  eq('🔴 บันทึกประจำวันแนบรูปเด็กที่ไม่ยินยอมไม่ได้', code_(() => J(sid, 'data:image/jpeg;base64,AA')), 'NO_CONSENT');
+  ok_('...แต่บันทึกโดยไม่แนบรูปได้ตามปกติ', code_(() => J(sid, '')) === null);
+  ok_('เด็กเดิมแนบรูปได้ตามเดิม (ไม่กระทบฟังก์ชันเดิม)', code_(() => J('STD-OLD', 'data:image/jpeg;base64,AA')) === null);
+  // the office records a change — appended, latest wins, history kept
+  H.setStudentConsent({ studentId: 'STD-OLD', item: 'photoPublic', value: 'NO', note: 'ใบสมัครกระดาษ 2569', adminId: 'ADM' });
+  H.setStudentConsent({ studentId: sid, item: 'photoJournal', value: 'YES', note: 'คุณแม่โทรมาแจ้ง', adminId: 'ADM' });
+  eq('แอดมินบันทึกเปลี่ยนได้ · ค่าล่าสุดชนะ', [H.studentConsents({ studentId: 'STD-OLD' }).current.photoPublic, H.studentConsents({ studentId: sid }).current.photoJournal], ['NO', 'YES']);
+  ok_('ประวัติยังอยู่ครบ (ไม่ทับของเดิม)', H.studentConsents({ studentId: sid }).history.filter(h => h.item === 'photoJournal').map(h => h.value).join('>') === 'NO>YES');
+  ok_('หลังเปลี่ยนเป็นยินยอม แนบรูปได้', code_(() => J(sid, 'data:image/jpeg;base64,AA')) === null);
+  eq('ค่าที่ไม่ถูกต้องถูกปฏิเสธ', [code_(() => H.setStudentConsent({ studentId: sid, item: 'x', value: 'NO' })), code_(() => H.setStudentConsent({ studentId: sid, item: 'daily', value: 'maybe' }))], ['BAD_INPUT', 'BAD_INPUT']);
+  // the printable application carries everything it prints
+  const d = H.applicationDocument({ appId: r.appId });
+  ok_('🖨️ เอกสารพิมพ์: ข้อความ PDPA ฉบับไทย/อังกฤษ · ฉบับตรงกัน · หัวกระดาษโรงเรียน · คำตอบ',
+    d.text.th.pdpa.length > 5 && d.text.en.items.photoPublic && d.versionMatches === true && 'DocSchoolName' in d.school && d.data.pickups.filter(x => x.name).length === 1 && d.consents.length === 6);
+}
+
 console.log('\n11) หน้าจอ — ทางเข้าเดียวคือใบสมัคร');
 {
   const app = R('webapp/app.js'), html = R('webapp/index.html'), code = R('src/Code.gs');

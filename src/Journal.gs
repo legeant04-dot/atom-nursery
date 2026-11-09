@@ -158,6 +158,13 @@ function handleSubmitJournal(payload) {
     });
     if (missing.length) throw apiError_('MISSING_FIELDS', 'กรุณากรอกข้อมูลที่จำเป็น: ' + missing.join(', '));
   }
+  /* 🔒 ใบสมัคร ข้อ 7.3-3 (2026-11-09): the family said NO to pictures of their child in the journal.
+   * Refused HERE — the screen hides the photo boxes, but a screen is not a gate. Only a NEW picture is
+   * refused (a data: URL); what is already stored is left as it was. Same rule as the engine's submitJournal. */
+  if (['Photo1', 'Photo2', 'Photo3'].some(function (k) { return String(payload[k] || '').indexOf('data:image/') === 0; })
+      && studentConsentValue_(student.StudentID, 'photoJournal') === 'NO') {
+    throw apiError_('NO_CONSENT', 'ผู้ปกครองไม่ยินยอมให้ใช้รูปบุตรในบันทึกประจำวัน — บันทึกได้โดยไม่แนบรูป');
+  }
 
   var now = dateStr_(new Date()) + ' ' + timeStr_(new Date());
   // keep the original author when someone else (an admin after unlocking) edits the entry
