@@ -321,7 +321,15 @@ SCHEMA[WB.MAIN] = {
   APPLICATIONS:      ['AppID', 'Status', 'ParentID', 'UserUID', 'ChildName', 'ChildNameEN', 'Nickname', 'NicknameEN', 'Gender', 'DOB',
                       'IdType', 'NationalID', 'Passport', 'Photo', 'Data', 'SubmittedAt', 'UpdatedAt', 'VisitAt', 'VisitNote',
                       'DecidedBy', 'DecidedAt', 'ParentMessage', 'InternalNote', 'StudentID', 'ClassName', 'StartDate', 'Plan',
-                      'Lang', 'ConsentVersion', 'SignName', 'Image', 'ClientRef'],
+                      'Lang', 'ConsentVersion', 'SignName', 'Image', 'ClientRef',
+                      // 📎 ระยะ 2 (appended — never inserted): the admin's "papers complete / pending" tick
+                      'DocsStatus', 'DocsCheckedBy', 'DocsCheckedAt'],
+  /* 📎 ระยะ 2 — the files attached to an application. FileID is a PRIVATE Drive file (src/Apply.gs: no
+   * sharing, read only through the server for the owning family or the admin). Status DELETED keeps the
+   * trail of what was held and when it went (parent / admin / retention-90d). DocType 'signature' is the
+   * finger signature and is never purged — it is part of the consent record. */
+  APPLICATION_DOCS:  ['DocID', 'AppID', 'StudentID', 'DocType', 'FileID', 'FileName', 'Mime', 'Size', 'UploadedBy', 'UploadedByID',
+                      'UploadedAt', 'Status', 'DeletedAt', 'DeleteReason'],
   /* One row per consent item per application — THE LOG THAT IS THE SIGNATURE (ผอ. 2026-11-09). Version names
    * the exact words agreed to (a hash of the text, applyInfo_ in the engine); UserUID is the LINE account
    * that pressed the button; At is the server's clock. Item: truth · pdpa · health · daily · photoJournal · photoPublic. */
@@ -734,6 +742,9 @@ var SCHOOL_CONFIG_DEFAULTS = [
    * never consent to a sentence with a hole in it. */
   ['ApplyRetentionYears',      ''],   // เก็บข้อมูลไว้ … ปี นับแต่วันที่เด็กออกจากโรงเรียน
   ['ApplyPdpaContact',         ''],   // ช่องทางติดต่อเพื่อใช้สิทธิ PDPA (เช่น LINE OA / โทร / อีเมล)
+  // 📎 ระยะ 2: papers of a declined / withdrawn application are deleted this many days after the decision (ผอ. 2026-11-09)
+  ['ApplyDocRetentionDays',    '90'],
+  ['ApplyDocsFolderName',      'AtomNursery_Applications'],   // PRIVATE Drive folder — one subfolder per application
   /* MAY PARENTS PAY SEVERAL MONTHS IN ADVANCE? Asked 2026-09-02 — the school wants to be able to
    * close it for a while without the feature being removed. ON by default, because that is how it
    * has always worked and turning a paying channel off silently would be the wrong default. Off

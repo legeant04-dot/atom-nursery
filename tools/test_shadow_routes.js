@@ -82,6 +82,8 @@ console.log('\n2) THE 115 — a new one is a behaviour silently replaced');
     /* 📝 ใบสมัครออนไลน์ (2026-11-09) — src/Apply.gs runs engineDispatch_ first and then notifies: the
      * engine's decision is the only rule, the wrapper adds the bell. Same shape as addChildNew. */
     'submitApplication', 'setApplicationVisit', 'rejectApplication', 'approveApplication',
+    // 📎 ระยะ 2 — private Drive files; the engine decides, Apply.gs holds the bytes
+    'uploadApplicationDoc', 'applicationDocFile', 'deleteApplicationDoc',
     /* approvePayslip / adjustStaffPay / payAdjustHistory (2026-10-05) — shadowed for the same reason
      * as the two above. STAFF and PAYROLL are written by the engine as WHOLE COLLECTIONS, and STAFF
      * is in NO_SHRINK_SHEETS besides: a pay rise going out through a collection rewrite would carry

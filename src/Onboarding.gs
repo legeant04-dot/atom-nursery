@@ -128,6 +128,8 @@ var ONBOARD_SCOPE_ = {
   /* 📝 the two blanks in the online application's PDPA text — every school's own answer, and blank
    * keeps applications closed (applyInfo_), which is the safe state rather than an error */
   ApplyRetentionYears:    'CONFIRM',  ApplyPdpaContact:       'CONFIRM',
+  // 📎 the same 90 days and folder name are right for any school until it says otherwise
+  ApplyDocRetentionDays:  'UNIVERSAL', ApplyDocsFolderName:    'UNIVERSAL',
   SchoolSlogan:           'CONFIRM',
   /* the receipt's letterhead — who the money was paid to, where, and who signs for it */
   DocSchoolName: 'REQUIRED', DocAddress1: 'REQUIRED', DocPhone: 'REQUIRED', DocSignerName: 'REQUIRED',

@@ -199,7 +199,7 @@
       _readStart(); let pr2; try{ pr2=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr2).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.504'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.505'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:var(--fs-1);margin-top:var(--sp-5)">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -3161,7 +3161,8 @@
       ${apIn('data.health.medication',EN()?'Regular medication':'ยาประจำตัวที่ต้องใช้')}</div>`,
     // 5 ── documents (phase 1: say how they will arrive; uploading comes in phase 2)
     ()=>`<div class="card"><p class="muted" style="font-size:var(--fs-1);margin-top:0">${EN()?'Not required now. Tell the school how each document will reach them — you can bring them on the visit day and the school will photograph them.':'ไม่บังคับตอนนี้ · บอกโรงเรียนว่าจะส่งเอกสารแต่ละรายการอย่างไร — นำมาในวันเยี่ยมชมได้ โรงเรียนจะถ่ายเก็บให้'}</p>
-      ${APP_DOCS.map(([k,th,en])=>apSeg('data.docs.'+k,EN()?en:th,[['visit','นำมาวันเยี่ยมชม','Bring on visit day'],['later','ส่งภายหลัง','Send later']])).join('')}</div>`,
+      ${APP_DOCS.map(([k,th,en])=>apSeg('data.docs.'+k,EN()?en:th,[['app','แนบในแอป','Attach in the app'],['visit','นำมาวันเยี่ยมชม','Bring on visit day'],['later','ส่งภายหลัง','Send later']])).join('')}
+      <small class="muted" style="font-size:var(--fs-1)">${ic('attach')} ${EN()?'Files are attached right after you send the application — photo or PDF.':'แนบไฟล์ได้ทันทีหลังกดส่งใบสมัคร — รูปถ่ายหรือ PDF'}</small></div>`,
     // 6 ── declaration
     ()=>`<div class="card"><label style="display:flex;gap:var(--sp-2);align-items:flex-start"><input type="checkbox" style="width:auto;margin-top:var(--sp-1)" ${APP_S.truth?'checked':''} onchange="APP_truth(this.checked)"/>
       <span>${esc(APP_INFO?(EN()?APP_INFO.text.en.truth:APP_INFO.text.th.truth):'')}</span></label></div>`,
@@ -3261,7 +3262,8 @@
         <p>${r.existing?(EN()?'The school already has this application — nothing was sent twice.':'โรงเรียนได้รับใบสมัครนี้แล้ว — ระบบไม่ได้ส่งซ้ำ')
           :(EN()?'The school will review it and let you know here (🔔) — usually by booking a visit first.':'โรงเรียนจะพิจารณาและแจ้งท่านทางกระดิ่ง 🔔 ในแอป — โดยปกติจะนัดเยี่ยมชมโรงเรียนก่อน')}</p>
         <p class="muted" style="font-size:var(--fs-1)">${EN()?'Reference':'เลขที่ใบสมัคร'}: <b>${esc(r.appId)}</b></p>
-        <button class="btn block" onclick="this.closest('.modal').remove();GO('home')">${EN()?'Done':'เสร็จสิ้น'}</button>`);
+        <button class="btn block" onclick="this.closest('.modal').remove();GO('home');setTimeout(()=>APP_docs('${esc(r.appId)}',true),400)">${ic('attach')} ${EN()?'Attach documents now':'แนบเอกสารตอนนี้'}</button>
+        <button class="btn outline block" style="margin-top:var(--sp-2)" onclick="this.closest('.modal').remove();GO('home')">${EN()?'Later':'ไว้ภายหลัง'}</button>`);
     }catch(e){
       const code=String((e&&e.code)||'');
       if(code==='CONSENT_CHANGED'){ try{ APP_INFO=await api('applyInfo',{},{fresh:true}); }catch(x){} APP_S.consents={}; appSave(); APP_go(6); }
@@ -3305,7 +3307,7 @@
       ${a.status==='ACCEPTED'?`<div style="font-size:var(--fs-1)">🎉 ${esc(a.className||'')} · ${EN()?'starts':'เริ่มเรียน'} ${esc(fmtVisit(a.startDate))}</div>`:''}
       ${a.parentMessage?`<div style="font-size:var(--fs-1)">💬 ${esc(a.parentMessage)}</div>`:''}
       <small class="muted">${esc(a.appId)} · ${EN()?'sent':'ส่งเมื่อ'} ${esc(fmtVisit(a.submittedAt))}</small>
-      ${a.status==='SUBMITTED'||a.status==='VISIT'?`<div><button class="btn sm outline" style="margin-top:var(--sp-1)" onclick="P_appCancel('${esc(a.appId)}')">${EN()?'Withdraw':'ยกเลิกใบสมัคร'}</button></div>`:''}
+      ${a.status==='SUBMITTED'||a.status==='VISIT'?`<div class="row" style="gap:var(--sp-2);margin-top:var(--sp-1)"><button class="btn sm" onclick="APP_docs('${esc(a.appId)}',true)">${ic('attach')} ${EN()?'Documents':'เอกสาร'} (${a.docCount||0})</button><button class="btn sm outline" onclick="P_appCancel('${esc(a.appId)}')">${EN()?'Withdraw':'ยกเลิกใบสมัคร'}</button></div>`:''}
     </div>`).join('')}</div>`; };
   window.P_appCancel=(id)=>{ modal(`<h3>${EN()?'Withdraw this application?':'ยกเลิกใบสมัครนี้?'}</h3>
     <button class="btn pink block" onclick="P_appCancelDo('${esc(id)}',this)">${EN()?'Withdraw':'ยกเลิกใบสมัคร'}</button>
@@ -15783,6 +15785,64 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
   /* ================= Phase 7b: satisfaction survey (Admin) ================================= */
   const SV_TYPE=t0=>({rating:EN()?'1-5 faces':'ให้คะแนน 1-5',vote:EN()?'Choose one':'เลือกตอบ',comment:EN()?'Comment only':'ความคิดเห็น'})[t0]||t0;
   const SV_FACE=['😡','🙁','😐','🙂','😍'];
+  /* ================= 📎 ใบสมัคร ระยะ 2 — เอกสารแนบ (ผู้ปกครอง + แอดมิน ใช้หน้าเดียวกัน) =================
+   * ผอ. 2026-11-09: แนะนำให้ผู้ปกครองอัปโหลดเอง · ถ้านำมาวันเยี่ยมชม แอดมินถ่ายและอัปโหลดแทน · ไม่บังคับ ·
+   * รูป + PDF (≤ 5 MB). The files are PRIVATE on the server and come back only through applicationDocFile,
+   * so nothing here ever builds a Drive link. Photos are shrunk on the phone but kept large enough to READ
+   * (1600 px) — an ID card at the app's usual 640 px is a picture of a card, not a copy of one. */
+  const APP_DOC_LBL={ birth:['สูติบัตร','Birth certificate'], parentId:['สำเนาบัตรประชาชนบิดา-มารดา','Parents’ ID cards'],
+    vaccine:['สำเนาสมุดวัคซีนของเด็ก','Vaccination record'], house:['สำเนาทะเบียนบ้าน','House registration'],
+    photos:['รูปถ่ายเด็ก / บิดา-มารดา','Photos'], other:['เอกสารอื่น ๆ','Other'] };
+  const appDocLbl=k=>{ const x=APP_DOC_LBL[k]||[k,k]; return EN()?x[1]:x[0]; };
+  // admin: { __role:'Admin' } — on Apps Script the server overwrites it from the session; here it is for the demo
+  const APP_DOC_ME=()=>USER&&USER.role==='Parent'?{parentId:USER.parentId,uid:USER.uid}:{__role:'Admin',adminId:USER&&USER.staffId};
+  window.APP_docs=async(appId,canAdd)=>{ const list=await api('applicationDocs',Object.assign({appId},APP_DOC_ME()),{fresh:true});
+    const admin=!(USER&&USER.role==='Parent');
+    const rows=Object.keys(APP_DOC_LBL).map(k=>{ const mine=(list||[]).filter(d=>d.type===k);
+      return `<div class="list-item" style="display:block">
+        <div class="spread"><b style="font-size:var(--fs-1)">${mine.length?'✅':'⬜'} ${esc(appDocLbl(k))}</b>
+          ${canAdd?`<label class="btn sm outline" style="cursor:pointer">＋ ${EN()?'Add':'แนบ'}<input type="file" accept="image/*,application/pdf" hidden onchange="APP_docUp('${esc(appId)}','${k}',this,${canAdd?1:0})"/></label>`:''}</div>
+        ${mine.map(d=>`<div class="spread" style="font-size:var(--fs-1);margin-top:var(--sp-1)">
+          <a href="#" onclick="APP_docView('${esc(d.docId)}');return false">${d.mime==='application/pdf'?'📄':'🖼️'} ${esc(d.name)}</a>
+          <span>${d.by==='admin'?`<small class="muted">${EN()?'by school':'โรงเรียนแนบ'}</small>`:''}
+          ${canAdd&&(admin||d.by==='parent')?`<button class="btn sm pink" onclick="APP_docDel('${esc(d.docId)}','${esc(appId)}',${canAdd?1:0})" aria-label="${EN()?'Delete':'ลบ'}">${ic('trash')}</button>`:''}</span></div>`).join('')}
+      </div>`; }).join('');
+    document.querySelectorAll('.modal.apdocs').forEach(x=>x.remove());
+    modal(`<h3>${ic('attach')} ${EN()?'Documents':'เอกสารประกอบการสมัคร'} <small class="muted">${esc(appId)}</small></h3>
+      <p class="muted" style="font-size:var(--fs-1)">${EN()?'Optional. Photo or PDF, up to 5 MB each. Only you and the school office can open them.':'ไม่บังคับ · รูปถ่ายหรือ PDF ไม่เกิน 5 MB ต่อไฟล์ · เปิดดูได้เฉพาะท่านและแอดมินของโรงเรียน'}</p>
+      <div style="max-height:56vh;overflow:auto">${rows}</div><div id="apDocSt" class="muted" style="font-size:var(--fs-1);min-height:1.2em"></div>
+      <button class="btn outline block" style="margin-top:var(--sp-2)" onclick="this.closest('.modal').remove();${admin?`A_appOpen('${esc(appId)}')`:''}">${esc(t('c.close'))}</button>`);
+    const m=[...document.querySelectorAll('.modal')].pop(); if(m) m.classList.add('apdocs'); };
+  const readDataUrl=f=>new Promise((ok,no)=>{ const r=new FileReader(); r.onload=()=>ok(r.result); r.onerror=no; r.readAsDataURL(f); });
+  window.APP_docUp=async(appId,type,inp,canAdd)=>{ const f=inp.files&&inp.files[0]; if(!f) return; const st=$('#apDocSt');
+    const say=x=>{ if(st) st.textContent=x; };
+    try{ let data='', mime=f.type;
+      if(/^image\//.test(f.type)){ say('⏳ '+(EN()?'Preparing the photo…':'กำลังเตรียมรูป…')); data=await compressImage(f,1600,0.85); mime='image/jpeg';
+        if(!data){ toast(EN()?'Not an image':'ไม่ใช่ไฟล์รูป'); return; } }
+      else if(f.type==='application/pdf'){ if(f.size>5*1024*1024){ toast(EN()?'Larger than 5 MB — please scan it smaller':'ไฟล์ใหญ่เกิน 5 MB — กรุณาย่อหรือสแกนใหม่'); return; } data=await readDataUrl(f); }
+      else { toast(EN()?'Photo or PDF only':'แนบได้เฉพาะรูปภาพหรือ PDF'); return; }
+      say('⏳ '+(EN()?'Uploading…':'กำลังอัปโหลด…'));
+      await api('uploadApplicationDoc',Object.assign({appId,docType:type,data,mime,size:Math.round((data.length-data.indexOf(',')-1)*3/4),name:f.name},APP_DOC_ME()));
+      confirmSaved(EN()?'Attached':'แนบแล้ว'); APP_docs(appId,!!canAdd);
+    }catch(e){ say(''); err(e); } };
+  window.APP_docDel=(docId,appId,canAdd)=>{ modal(`<h3>${EN()?'Delete this file?':'ลบไฟล์นี้?'}</h3>
+    <button class="btn pink block" onclick="APP_docDelDo('${esc(docId)}','${esc(appId)}',${canAdd?1:0},this)">${EN()?'Delete':'ลบ'}</button>
+    <button class="btn outline block" style="margin-top:var(--sp-2)" onclick="this.closest('.modal').remove()">${esc(t('c.close'))}</button>`); };
+  window.APP_docDelDo=async(docId,appId,canAdd,btn)=>{ btn.disabled=true;
+    try{ await api('deleteApplicationDoc',Object.assign({docId},APP_DOC_ME())); btn.closest('.modal').remove(); confirmSaved(t('c.saved')); APP_docs(appId,!!canAdd); }
+    catch(e){ btn.disabled=false; err(e); } };
+  // a private file comes back as bytes: a photo opens in the viewer, a PDF in the phone's own reader
+  window.APP_docView=async(docId)=>{ try{ const f=await api('applicationDocFile',Object.assign({docId},APP_DOC_ME()),{fresh:true});
+      if(!f.data) { toast(EN()?'File not found':'ไม่พบไฟล์'); return; }
+      if(f.mime==='application/pdf'){ const b=await (await fetch(f.data)).blob(); const u=URL.createObjectURL(b);
+        const w=window.open(u,'_blank'); if(!w){ const a=document.createElement('a'); a.href=u; a.download=f.name||'document.pdf'; document.body.appendChild(a); a.click(); a.remove(); }
+        setTimeout(()=>URL.revokeObjectURL(u),60000); }
+      else IMG_zoom(f.data);
+    }catch(e){ err(e); } };
+  window.A_appDocsStatus=async(appId,complete,btn)=>{ btn.disabled=true;
+    try{ await api('setApplicationDocsStatus',{appId,complete:!!complete,adminId:USER.staffId}); A_appOpen(appId); }catch(e){ btn.disabled=false; err(e); } };
+  window.A_appSig=async(docId)=>APP_docView(docId);
+
   /* ================= 📝 ใบสมัคร — ฝั่งแอดมิน (docs/APPLICATION_FORM_PLAN.md · 2026-11-09) =================
    * The queue, one application in full, and the three decisions: book a visit, approve (which creates
    * the child — through addStudentByAdmin, so it is the same record as any other), or decline.
@@ -15796,7 +15856,7 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
     const row=a=>`<div class="card" style="padding:var(--sp-2);cursor:pointer" onclick="A_appOpen('${esc(a.appId)}')">
       <div class="spread"><b>${esc(a.nick||a.nickEN||'')} <small class="muted">${esc(a.childName)}</small></b>${APP_statusPill(a.status)}</div>
       <small class="muted">${esc(a.appId)} · ${EN()?'age':'อายุ'} ${esc(ageYMfromMonths(a.ageMonth||0))} · ${EN()?'sent':'ส่งเมื่อ'} ${esc(APP_fmtDate(a.submittedAt))}
-        ${a.visitAt?(' · 🏫 '+esc(APP_fmtDate(a.visitAt))):''}</small></div>`;
+        ${a.visitAt?(' · 🏫 '+esc(APP_fmtDate(a.visitAt))):''} · 📎 ${a.docCount||0}${a.docsStatus==='COMPLETE'?' ✅':''}</small></div>`;
     modal(`<h3>📝 ${EN()?'Applications':'ใบสมัครเรียน'}</h3>
       ${info.open?'':`<div class="card" style="background:var(--warn-bg);border-color:var(--warn-line)"><b>⚠️ ${EN()?'Families cannot apply yet':'ผู้ปกครองยังส่งใบสมัครไม่ได้'}</b><br>
         <small>${EN()?'Fill in the two blanks of the PDPA text below first.':'กรอก 2 ช่องของข้อความ PDPA ด้านล่างก่อน — ระบบไม่เปิดรับจนกว่าจะครบ'}</small></div>`}
@@ -15850,8 +15910,11 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
       ${d.regAddress&&d.regAddress.same!=='yes'&&apAddrTxt(d.regAddress)?sec('📄 '+(EN()?'House registration':'ทะเบียนบ้าน'),esc(apAddrTxt(d.regAddress))):''}
       ${sec('🚗 '+(EN()?'May collect the child':'ผู้รับแทน'),(d.pickups||[]).map(p=>`<div>${esc(p.name)} ${p.relation?('('+esc(p.relation)+')'):''} ${esc(p.phone||'')}</div>`).join(''))}
       ${sec('🩺 '+(EN()?'Health and habits':'สุขภาพและอุปนิสัย'),apKV(d.health))}
-      ${sec('📎 '+(EN()?'Documents':'เอกสาร'),APP_DOCS_TXT(d.docs))}
-      ${sec('🔒 PDPA 7.3',cons+`<small class="muted">${esc(a.consentVersion)} · ${EN()?'signed':'ลงชื่อ'} ${esc(a.signName)}</small>`+(a.signature?`<div><img class="ap-sig" src="${esc(a.signature)}" alt="" style="max-width:220px;margin-top:var(--sp-1)"/></div>`:''))}
+      ${sec('📎 '+(EN()?'Documents':'เอกสาร')+' — '+(a.docsStatus==='COMPLETE'?(EN()?'✅ complete':'✅ ครบแล้ว'):(EN()?'⏳ pending':'⏳ ยังค้าง')),
+        APP_DOCS_TXT(d.docs)+`<div style="margin-top:var(--sp-1)"><b>${EN()?'Attached':'แนบในระบบ'}: ${(a.docs||[]).length}</b> ${(a.docs||[]).map(x=>`<a href="#" onclick="APP_docView('${esc(x.docId)}');return false">${x.mime==='application/pdf'?'📄':'🖼️'} ${esc(appDocLbl(x.type))}</a>`).join(' · ')}</div>
+        <div class="row" style="gap:var(--sp-2);margin-top:var(--sp-2)"><button class="btn sm" onclick="this.closest('.modal').remove();APP_docs('${esc(a.appId)}',${a.status==='REJECTED'||a.status==='WITHDRAWN'?0:1})">${ic('attach')} ${EN()?'Open / photograph':'เปิด / ถ่ายแนบแทน'}</button>
+        <button class="btn sm outline" onclick="A_appDocsStatus('${esc(a.appId)}',${a.docsStatus==='COMPLETE'?0:1},this)">${a.docsStatus==='COMPLETE'?(EN()?'Mark pending':'ทำเครื่องหมายว่ายังค้าง'):(EN()?'Mark complete':'ทำเครื่องหมายว่าครบ')}</button></div>`)}
+      ${sec('🔒 PDPA 7.3',cons+`<small class="muted">${esc(a.consentVersion)} · ${EN()?'signed':'ลงชื่อ'} ${esc(a.signName)}</small>`+(a.signature?`<div><img class="ap-sig" src="${esc(a.signature)}" alt="" style="max-width:220px;margin-top:var(--sp-1)"/></div>`:'')+(a.signatureDocId?`<div><a href="#" onclick="A_appSig('${esc(a.signatureDocId)}');return false">✍️ ${EN()?'View finger signature':'ดูลายเซ็นด้วยนิ้ว'}</a></div>`:''))}
       ${a.visitAt?sec('🏫 '+(EN()?'Visit':'นัดเยี่ยมชม'),esc(APP_fmtDate(a.visitAt))+(a.visitNote?(' · '+esc(a.visitNote)):'')):''}
       ${a.internalNote?sec('🗒️ '+(EN()?'Internal note':'บันทึกภายใน'),esc(a.internalNote)):''}
       ${a.studentId?sec('🎓 '+(EN()?'Student':'นักเรียน'),esc(a.studentId)+' · '+esc(a.className||'')+' · '+(EN()?'starts ':'เริ่ม ')+esc(APP_fmtDate(a.startDate))):''}
@@ -15864,7 +15927,7 @@ ${(A_CACHE.staff||[]).filter(s=>s.Role!=='Admin').slice().sort((a,b)=>(a.ended?1
       <button class="btn outline block" style="margin-top:var(--sp-2)" onclick="this.closest('.modal').remove();A_applications()">${EN()?'Back to the list':'กลับไปรายการ'}</button>`);
     window._APP_CUR=a; };
   window.APP_DOCS_TXT=docs=>{ docs=docs||{}; const L={birth:['สูติบัตร','Birth certificate'],parentId:['บัตรประชาชนบิดา-มารดา','Parents’ ID cards'],vaccine:['สมุดวัคซีน','Vaccination record'],house:['ทะเบียนบ้าน','House registration'],photos:['รูปถ่าย','Photos']};
-    return Object.keys(L).map(k=>`<div>${esc(EN()?L[k][1]:L[k][0])}: ${docs[k]==='visit'?(EN()?'🏫 on visit day':'🏫 นำมาวันเยี่ยมชม'):docs[k]==='later'?(EN()?'⏳ later':'⏳ ส่งภายหลัง'):'—'}</div>`).join(''); };
+    return Object.keys(L).map(k=>`<div>${esc(EN()?L[k][1]:L[k][0])}: ${docs[k]==='app'?(EN()?'📲 attaching in the app':'📲 แนบในแอป'):docs[k]==='visit'?(EN()?'🏫 on visit day':'🏫 นำมาวันเยี่ยมชม'):docs[k]==='later'?(EN()?'⏳ later':'⏳ ส่งภายหลัง'):'—'}</div>`).join(''); };
   window.A_appVisit=(id)=>{ const a=window._APP_CUR||{}; const cur=String(a.visitAt||'').replace(' ','T');
     modal(`<h3>🏫 ${EN()?'Book a visit':'นัดเยี่ยมชมโรงเรียน'}</h3>
       <label class="field"><span>${EN()?'Date and time':'วันและเวลา'}</span><input id="apVAt" type="datetime-local" value="${esc(cur)}"/></label>

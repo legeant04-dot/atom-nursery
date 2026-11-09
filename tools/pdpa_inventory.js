@@ -70,6 +70,7 @@ const IDENTIFIER = {
   NameTH: 'ชื่อ-นามสกุล', NameEN: 'ชื่อ-นามสกุล', Nickname: 'ชื่อเล่น', NicknameEN: 'ชื่อเล่น',
   ChildName: 'ชื่อ-นามสกุล', ChildNameEN: 'ชื่อ-นามสกุล', SignName: 'ชื่อผู้ลงนาม', Image: 'ลายเซ็น / รูปภาพ',
   Passport: '🔴 เลขหนังสือเดินทาง', UserUID: 'รหัสผู้ใช้ LINE',
+  FileID: '🔴 ไฟล์สำเนาเอกสารราชการ (บัตรประชาชน ทะเบียนบ้าน สูติบัตร)', FileName: 'ชื่อไฟล์เอกสาร',
   InsuredName: 'ชื่อผู้เอาประกัน', InsuranceOwner: 'ชื่อเจ้าของกรมธรรม์',
   BankAccount: '🔴 เลขบัญชีธนาคาร', BankName: 'ธนาคาร',
   PasswordHash: '🔴 รหัสผ่าน (เข้ารหัสแล้ว)',
@@ -104,7 +105,8 @@ const SUBJECT = {
   PAY_ADJUSTMENTS: 'พนักงาน', TRAINING: 'พนักงาน', WORK_SCHEDULE: 'พนักงาน',
   ATTENDANCE_REQUEST: 'พนักงาน', CLASS_CHANGE_REQ: 'พนักงาน', CLASS_COVER: 'พนักงาน',
   PERF_LOG: '— (วัดความเร็วระบบ ไม่มีชื่อ/รหัสผู้ใช้)',
-  APPLICATIONS: 'ผู้สมัคร (เด็ก) / ผู้ปกครอง', CONSENTS: 'ผู้ปกครอง (บันทึกความยินยอม)'
+  APPLICATIONS: 'ผู้สมัคร (เด็ก) / ผู้ปกครอง', CONSENTS: 'ผู้ปกครอง (บันทึกความยินยอม)',
+  APPLICATION_DOCS: 'ผู้สมัคร (เด็ก) / ผู้ปกครอง — สำเนาบัตรประชาชน ทะเบียนบ้าน สูติบัตร (ไฟล์ Drive แบบปิด)'
 };
 
 function inventory() {

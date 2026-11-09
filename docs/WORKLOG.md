@@ -5,6 +5,17 @@
 
 ---
 
+## 2026-11-09 · ใบสมัคร ระยะ 2 · เอกสารแนบแบบปิด (ยังไม่ deploy)
+
+- ผอ. ตอบ: ลบ 90 วันหลังไม่รับ/ยกเลิก · รับเข้าย้ายเข้าโฟลเดอร์นักเรียน · รูป + PDF ≤ 5 MB
+- 🔴 ไฟล์ไม่แชร์ลิงก์ เปิดผ่านเซิร์ฟเวอร์เฉพาะเจ้าของและแอดมิน · ลายเซ็นด้วยนิ้ว (ระยะ 1 เป็นลิงก์สาธารณะ) ย้ายมาแบบปิด
+- engine: applicationDocs/applicationDocFile/uploadApplicationDoc/deleteApplicationDoc/setApplicationDocsStatus/purgeApplicationDocs · Apply.gs เก็บไฟล์ใน Drive แบบปิด · ลบตามกำหนดพร้อม dailyBackup
+- Code.gs: ประทับ __role จากเซสชันให้ route เอกสาร (ลูกค้าปลอมไม่ได้) · ADMIN_ONLY เพิ่ม 2
+- **หลักฐาน**: test_application 107 · test_application_docs_gas 18 · test_all 231 · ลองบนมือถือ 375px (แนบรูป/PDF · .docx ถูกปฏิเสธ · แอดมินเปิดดู/ติ๊กครบ · ลายเซ็นเปิดผ่านเซิร์ฟเวอร์ ไม่มีลิงก์ Drive)
+- staging Postgres: เพิ่มตาราง application_docs + 3 คอลัมน์ (pg_sync_schema --apply)
+
+---
+
 ## 2026-11-09 · ใบสมัครออนไลน์ ระยะ 1 (ยังไม่ deploy) · W2 ขึ้น Cloud Run staging rev 00020
 
 **W2** — deploy Cloud Run staging rev 00020 (ไม่ได้ตั้ง LINE_SEND = capture: ไม่ส่งถึงใครจริง) · ก่อน deploy ผ่าน 228 ชุด · /api ตอบ saveTeacherReply ด้วย NO_SESSION ตามที่ควร

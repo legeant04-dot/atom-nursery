@@ -206,7 +206,10 @@ console.log('\n2) 🔴 รายชื่อ shadow ที่เป็นกา�
   /* 135 → 139 (2026-11-09): ใบสมัครออนไลน์ — submitApplication · setApplicationVisit · rejectApplication ·
    * approveApplication. Each Apply.gs wrapper calls engineDispatch_ FIRST and only then notifies (admin
    * bell / family bell), the addChildNew shape: the engine is still the one rule. tools/test_application.js */
-  eq('จำนวน shadow ทั้งหมด', shadows.length, 139);
+  /* 139 → 142 (2026-11-09, ใบสมัคร ระยะ 2): uploadApplicationDoc · applicationDocFile · deleteApplicationDoc —
+   * the bytes are PRIVATE Drive files the engine cannot reach; each wrapper asks the engine first (rules)
+   * and handles only the file. tools/test_application_gas.js pins it. */
+  eq('จำนวน shadow ทั้งหมด', shadows.length, 142);
   eq('🔴 ...ที่เป็นการอ่านล้วน (ไม่มีเหตุผลเชิงกลไก)', readOnly.length, 17);
   /* the three that have already bitten — named, so a future cleanup cannot quietly drop the check */
   ['insuranceStatus'].forEach(n =>

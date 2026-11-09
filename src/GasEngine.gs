@@ -53,6 +53,7 @@ var COLLECTION_MAP = {
   // 📝 ใบสมัครออนไลน์ (2026-11-09) — an application is not a student; see SCHEMA.APPLICATIONS
   applications:    { wb: 'MAIN', sheet: 'APPLICATIONS' },
   consents:        { wb: 'MAIN', sheet: 'CONSENTS' },
+  applicationDocs: { wb: 'MAIN', sheet: 'APPLICATION_DOCS' },   // 📎 ระยะ 2 — rows only; the bytes are private Drive files
   staff:           { wb: 'HR',   sheet: 'STAFF' },
   staffGroups:     { wb: 'HR',   sheet: 'STAFF_GROUPS' },
   workSchedule:    { wb: 'HR',   sheet: 'WORK_SCHEDULE' },

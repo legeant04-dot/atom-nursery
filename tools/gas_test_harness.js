@@ -100,15 +100,23 @@ module.exports = function (files, srcDir) {
    * so a test can assert THAT a backup happened, without pretending to be Drive. */
   const drive = { folders: {}, files: {}, seq: 0 };
   const dFile = (name, parent) => { const id = 'file_' + (++drive.seq);
-    const f = { id, name, parent, trashed: false, created: new Date(),
+    const f = { id, name, parent, trashed: false, created: new Date(), shared: false, bytes: [], mime: '',
       getId: () => id, getName: () => name, getDateCreated: () => f.created,
-      setSharing: () => f, getBlob: () => ({ getBytes: () => [] }),
+      // the application papers (src/Apply.gs) need: who can see it, what is in it, where it lives, and the bin
+      setSharing: () => { f.shared = true; return f; }, getBlob: () => ({ getBytes: () => f.bytes, getContentType: () => f.mime }),
+      setTrashed: v => { f.trashed = !!v; return f; }, isTrashed: () => f.trashed,
+      moveTo: folder => { f.parent = folder.getName(); return f; },
       makeCopy: (n, folder) => { const c = dFile(n || (name + ' copy'), (folder && folder.name) || parent);
         (drive.folders[c.parent] = drive.folders[c.parent] || { files: [] }).files.push(c); return c; } };
     drive.files[id] = f; return f; };
   const dFolder = name => { const fo = drive.folders[name] = drive.folders[name] || { name, files: [] };
     return { getName: () => name, getId: () => 'folder_' + name,
-      createFile: blob => { const f = dFile((blob && blob.getName && blob.getName()) || 'file', name); fo.files.push(f); return f; },
+      createFile: blob => { const f = dFile((blob && blob.getName && blob.getName()) || 'file', name);
+        if (blob && blob.getBytes) f.bytes = blob.getBytes(); if (blob && blob.getContentType) f.mime = blob.getContentType(); fo.files.push(f); return f; },
+      // sub-folders are named '<parent>/<child>' so a test can see WHERE a file went
+      getFoldersByName: n => { const k = name + '/' + n, has = !!drive.folders[k]; let done = false;
+        return { hasNext: () => has && !done, next: () => { done = true; return dFolder(k); } }; },
+      createFolder: n => dFolder(name + '/' + n),
       getFiles: () => { let i = 0; return { hasNext: () => i < fo.files.length, next: () => fo.files[i++] }; },
       removeFile: f => { fo.files = fo.files.filter(x => x !== f); } }; };
   g.DriveApp = {
