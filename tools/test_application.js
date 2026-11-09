@@ -47,7 +47,7 @@ function boot(over) {
     activityLog: [], announcements: [], notifications: [], vaccines: [], growth: [], assessments: [], classChanges: [],
     timeRequests: [], adminInbox: [], foodMenus: [], foodItems: [], surveys: [], surveyResponses: [], injuries: [],
     insurance: [], bigCleaning: [], departments: [], permissions: {}, feed: [], calendar: [], holidays: [], holidayAttend: [],
-    vaccineRecords: [], studentTerms: [], withdrawals: [], applications: [], consents: []
+    vaccineRecords: [], studentTerms: [], withdrawals: [], applications: [], consents: [], applicationDocs: []
   };
   const ctx = { console, Date, JSON, Math, Object, Array, String, Number, isFinite, parseInt, parseFloat, RegExp, Error, Set };
   ctx.window = ctx; vm.createContext(ctx); vm.runInContext(eng, ctx);
@@ -244,6 +244,71 @@ console.log('\n10) พี่น้อง — ผู้ปกครองที�
   eq('รับเข้าแล้ว ผู้ปกครองคนเดิมเห็นลูกทั้งสอง', M.userLinks.filter(l => l.UserUID === 'Uaaa').length, 2);
 }
 
+console.log('\n12) 📎 ระยะ 2 — เอกสารแนบ: ใครแนบ/ดู/ลบได้');
+{
+  const { H, M } = boot({});
+  const r = H.submitApplication(form(H, { signature: 'data:image/png;base64,AAAA' }));
+  const P = { parentId: 'PAR-001', uid: 'Uaaa', __role: 'Parent' }, Q = { parentId: 'PAR-002', uid: 'Ubbb', __role: 'Parent' };
+  const A = { __role: 'Admin', adminId: 'ADM' }, T = { staffId: 'STF-T', __role: 'Teacher' };
+  const up = (who, o) => H.uploadApplicationDoc(Object.assign({ appId: r.appId, docType: 'birth', mime: 'image/jpeg', size: 1000, data: 'data:image/jpeg;base64,BBBB', name: 'birth.jpg' }, who, o || {}));
+  eq('🔴 ลายเซ็นเก็บเป็นเอกสารแบบปิด ไม่ใช่รูปลิงก์สาธารณะ', [M.applications[0].Image, M.applicationDocs.map(d => d.DocType)], ['', ['signature']]);
+  const d1 = up(P);
+  eq('ผู้ปกครองเจ้าของแนบได้', [d1.type, d1.by], ['birth', 'parent']);
+  eq('🔴 บ้านอื่นแนบไม่ได้', code_(() => up(Q)), 'NO_ACCESS');
+  eq('🔴 ครูแนบไม่ได้', code_(() => up(T)), 'NO_PERMISSION');
+  eq('🔴 ครูเปิดดูไม่ได้', code_(() => H.applicationDocFile(Object.assign({ docId: d1.docId }, T))), 'NO_PERMISSION');
+  eq('🔴 บ้านอื่นเปิดดูไม่ได้', code_(() => H.applicationDocFile(Object.assign({ docId: d1.docId }, Q))), 'NO_ACCESS');
+  eq('🔴 ส่ง __role ปลอมเป็นลายเซ็นไม่ได้ (เฉพาะเซิร์ฟเวอร์)', code_(() => up(P, { docType: 'signature' })), 'BAD_INPUT');
+  eq('ชนิดไฟล์อื่น (เช่น .docx) แนบไม่ได้', code_(() => up(P, { mime: 'application/msword' })), 'BAD_INPUT');
+  eq('ใหญ่เกิน 5 MB แนบไม่ได้', code_(() => up(P, { size: 5 * 1024 * 1024 + 1 })), 'TOO_LARGE');
+  ok_('PDF แนบได้', up(P, { mime: 'application/pdf', docType: 'house' }).type === 'house');
+  eq('ผู้ปกครองเห็นรายการของตัวเอง (ไม่รวมลายเซ็น)', H.applicationDocs(Object.assign({ appId: r.appId }, P)).map(d => d.type), ['birth', 'house']);
+  eq('แอดมินเปิดไฟล์ได้', H.applicationDocFile(Object.assign({ docId: d1.docId }, A)).data, 'data:image/jpeg;base64,BBBB');
+  const dA = up(A, { docType: 'parentId' });
+  eq('แอดมินถ่าย/อัปโหลดแทนได้', dA.by, 'admin');
+  eq('ผู้ปกครองลบไฟล์ที่แอดมินแนบไม่ได้', code_(() => H.deleteApplicationDoc(Object.assign({ docId: dA.docId }, P))), 'BAD_STATE');
+  eq('ลายเซ็นลบไม่ได้ (หลักฐานการยินยอม)', code_(() => H.deleteApplicationDoc(Object.assign({ docId: M.applicationDocs[0].DocID }, A))), 'BAD_STATE');
+  eq('ผู้ปกครองลบไฟล์ของตัวเองได้ขณะรอพิจารณา', H.deleteApplicationDoc(Object.assign({ docId: d1.docId }, P)).docId, d1.docId);
+  ok_('...ไฟล์ที่ลบ ไม่มีเนื้อไฟล์เหลือในแถว และไม่อยู่ในรายการ', !('Data' in M.applicationDocs.find(d => d.DocID === d1.docId))
+    && H.applicationDocs(Object.assign({ appId: r.appId }, A)).every(d => d.docId !== d1.docId));
+  H.setApplicationDocsStatus({ appId: r.appId, complete: true, adminId: 'ADM' });
+  eq('แอดมินติ๊กเอกสารครบ', H.applicationAdmin({ appId: r.appId }).docsStatus, 'COMPLETE');
+  // approve → the papers become the child's
+  const ap = H.approveApplication({ appId: r.appId, startDate: NEXT_MONTH, adminId: 'ADM' });
+  ok_('รับเข้าแล้ว เอกสารทุกไฟล์ชี้ไปที่นักเรียน', M.applicationDocs.filter(d => d.Status !== 'DELETED').every(d => d.StudentID === ap.studentId));
+  eq('รับเข้าแล้ว ผู้ปกครองแนบเพิ่มเองไม่ได้ (ติดต่อโรงเรียน)', code_(() => up(P)), 'BAD_STATE');
+  ok_('...แต่แอดมินแนบเพิ่มได้ และเป็นของนักเรียนทันที', up(A, { docType: 'vaccine' }).studentId === ap.studentId);
+}
+
+console.log('\n13) 🔴 ไม่รับ / ยกเลิก + 90 วัน → ลบเอกสาร (ลายเซ็นและข้อมูลใบสมัครยังอยู่)');
+{
+  const { H, M } = boot({});
+  const r = H.submitApplication(form(H, { signature: 'data:image/png;base64,AAAA' }));
+  const P = { parentId: 'PAR-001', uid: 'Uaaa', __role: 'Parent' };
+  H.uploadApplicationDoc(Object.assign({ appId: r.appId, docType: 'birth', mime: 'image/jpeg', size: 10, data: 'data:image/jpeg;base64,BB' }, P));
+  H.rejectApplication({ appId: r.appId, adminId: 'ADM' });
+  const decided = M.applications[0].DecidedAt.slice(0, 10);
+  // local calendar arithmetic (the suite rule: never derive a date from UTC)
+  const day = n => { const [y, m, d] = decided.split('-').map(Number); const x = new Date(y, m - 1, d + n);
+    return x.getFullYear() + '-' + p2(x.getMonth() + 1) + '-' + p2(x.getDate()); };
+  eq('วันที่ 89 หลังไม่รับ → ยังไม่ลบ', H.purgeApplicationDocs({ today: day(89) }).deleted, 0);
+  const g = H.purgeApplicationDocs({ today: day(90) });
+  eq('วันที่ 90 → ลบเอกสาร 1 ไฟล์', [g.deleted, g.retentionDays], [1, 90]);
+  eq('...ลายเซ็นยังอยู่ · ใบสมัครและความยินยอมยังอยู่', [M.applicationDocs.filter(d => d.Status === 'ACTIVE').map(d => d.DocType), M.applications.length, M.consents.length > 0], [['signature'], 1, true]);
+  eq('รันซ้ำไม่ลบซ้ำ', H.purgeApplicationDocs({ today: day(200) }).deleted, 0);
+  // withdrawn: the clock starts when the family withdraws
+  const b = boot({}); const r2 = b.H.submitApplication(form(b.H));
+  b.H.uploadApplicationDoc(Object.assign({ appId: r2.appId, docType: 'house', mime: 'application/pdf', size: 10, data: 'data:application/pdf;base64,CC' }, P));
+  b.H.cancelApplication({ appId: r2.appId, parentId: 'PAR-001' });
+  ok_('ยกเลิกเองก็นับ 90 วันจากวันที่ยกเลิก', /^\d{4}-\d{2}-\d{2}/.test(b.M.applications[0].DecidedAt) && b.H.purgeApplicationDocs({ today: TODAY }).deleted === 0);
+  // accepted / still open: never purged
+  const c = boot({}); const r3 = c.H.submitApplication(form(c.H));
+  c.H.uploadApplicationDoc(Object.assign({ appId: r3.appId, docType: 'house', mime: 'application/pdf', size: 10, data: 'data:application/pdf;base64,CC' }, P));
+  eq('ใบที่ยังรอพิจารณา ไม่ถูกลบไม่ว่าจะนานแค่ไหน', c.H.purgeApplicationDocs({ today: '2099-01-01' }).deleted, 0);
+  c.H.approveApplication({ appId: r3.appId, startDate: NEXT_MONTH, adminId: 'ADM' });
+  eq('ใบที่รับเข้าแล้ว เอกสารเป็นของนักเรียน ไม่ถูกลบ', c.H.purgeApplicationDocs({ today: '2099-01-01' }).deleted, 0);
+}
+
 console.log('\n11) หน้าจอ — ทางเข้าเดียวคือใบสมัคร');
 {
   const app = R('webapp/app.js'), html = R('webapp/index.html'), code = R('src/Code.gs');
@@ -253,6 +318,10 @@ console.log('\n11) หน้าจอ — ทางเข้าเดียว�
   ok_('🔴 ตัวจัดการ inline ไม่อ้างตัวแปรภายใน (APP_S) — เคยทำให้ติ๊กคำรับรองไม่ได้', !/on[a-z]+="[^"]*APP_S/.test(app));
   ok_('💰 ช่องวันเริ่มเรียนตอนรับเข้าห้ามเลือกวันย้อนหลัง', /id="apAS" type="date" min="\$\{today\}"/.test(app));
   ok_('เวลารับกลับที่ผู้ปกครองแจ้ง ไม่ถูกนำไปตั้ง OT', !/EndTime[^\n]{0,80}pickupTime|pickupTime[^\n]{0,80}EndTime/.test(app + eng));
+  ok_('📎 เอกสารเปิดผ่าน applicationDocFile เท่านั้น — ไม่มีการสร้างลิงก์ Drive ในหน้าเอกสาร',
+    /APP_docView=async[\s\S]{0,200}api\('applicationDocFile'/.test(app) && !/APP_docs=[\s\S]{0,3000}drive\.google\.com/.test(app));
+  ok_('📎 รูปเอกสารย่อที่ 1600px (อ่านออก) ไม่ใช่ 640px แบบรูปทั่วไป', /compressImage\(f,1600,0\.85\)/.test(app));
+  ok_('📎 สำรองข้อมูลประจำวันลบเอกสารของใบที่ไม่รับ/ยกเลิก', /purgeApplicationDocs_\(\)/.test(R('src/Backup.gs')));
   ok_('ประตูของแอดมินอยู่ใน ADMIN_ONLY', ['listApplications', 'applicationAdmin', 'setApplicationVisit', 'rejectApplication', 'approveApplication']
     .every(n => new RegExp('\\b' + n + ': 1').test(code)));
 }

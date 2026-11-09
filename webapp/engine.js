@@ -2206,10 +2206,33 @@ function createAtomAPI(M, GROWTH_STD) {
       nick:a.Nickname, nickEN:a.NicknameEN, gender:a.Gender, dob:ymd(a.DOB), ageMonth:ageMonths(ymd(a.DOB)),
       submittedAt:a.SubmittedAt, visitAt:a.VisitAt||'', visitNote:a.VisitNote||'', decidedAt:a.DecidedAt||'',
       parentMessage:(a.Status==='REJECTED'||a.Status==='ACCEPTED')?(a.ParentMessage||''):'',
-      studentId:a.StudentID||'', className:a.ClassName||'', startDate:ymd(a.StartDate), lang:a.Lang||'th'};
+      studentId:a.StudentID||'', className:a.ClassName||'', startDate:ymd(a.StartDate), lang:a.Lang||'th',
+      docsStatus:a.DocsStatus||'PENDING', docCount:appDocsOf_(a.AppID).filter(d=>d.DocType!=='signature').length};
     if(admin){ Object.assign(v,{parentId:a.ParentID, idType:a.IdType, nationalId:a.NationalID||'', passport:a.Passport||'',
       internalNote:a.InternalNote||'', decidedBy:a.DecidedBy||'', plan:a.Plan||'', consentVersion:a.ConsentVersion||'', signName:a.SignName||''}); }
     return v; }
+
+  /* ---- 📎 ระยะ 2 — เอกสารแนบของใบสมัคร (ผอ. 2026-11-09: รูป + PDF · รับเข้าแล้วย้ายเข้าโฟลเดอร์นักเรียน ·
+   * ไม่รับ/ยกเลิก → ลบหลัง 90 วัน) ------------------------------------------------------------------
+   * ID cards, house registrations and birth certificates are the most sensitive files this school will
+   * ever hold. The RULES live here; the BYTES do not. On Apps Script src/Apply.gs writes the file to a
+   * PRIVATE Drive folder (never a public link — unlike every photo in this app) and passes only its id;
+   * in the browser demo the bytes ride in the row as `Data`. Who may touch a file is decided ONCE, in
+   * appDocAccess_: the family that owns the application, or the admin — never a teacher.
+   * `__role` is stamped by the server from the SESSION (applyIdentity_), so it cannot be claimed. */
+  const APP_DOC_TYPES_ = { birth:1, parentId:1, vaccine:1, house:1, photos:1, other:1, signature:1 };
+  const APP_DOC_MIME_ = { 'image/jpeg':1, 'image/png':1, 'image/webp':1, 'application/pdf':1 };
+  const APP_DOC_MAX_BYTES_ = 5*1024*1024;          // ผอ.: PDF ไม่เกิน 5 MB (photos are shrunk on the phone first)
+  const APP_DOC_MAX_PER_APP_ = 30;
+  const appDocRetentionDays_ = () => { const n=Number(cfg.ApplyDocRetentionDays); return n>0?n:90; };
+  // who is asking about this application's files: 'admin' | 'owner' — anybody else is refused
+  function appDocAccess_(p, a){ const role=String(p.__role||'');
+    if(role==='Admin'||role==='Observer') return 'admin';
+    if(role && role!=='Parent') fail('NO_PERMISSION','เอกสารใบสมัครเห็นได้เฉพาะผู้ปกครองเจ้าของใบสมัครและแอดมิน');
+    appOwned_(Object.assign({},p,{appId:a.AppID})); return 'owner'; }
+  const appDocView_ = d => ({ docId:d.DocID, appId:d.AppID, studentId:d.StudentID||'', type:d.DocType, name:d.FileName,
+    mime:d.Mime, size:Number(d.Size)||0, by:d.UploadedBy, at:d.UploadedAt });
+  const appDocsOf_ = id => (M.applicationDocs||[]).filter(d=>String(d.AppID)===String(id) && d.Status!=='DELETED');
 
   const H = {
     getConfig: () => cfg,
@@ -6190,11 +6213,17 @@ function createAtomAPI(M, GROWTH_STD) {
         Photo:c.Photo||'', Data:JSON.stringify(data), SubmittedAt:now, UpdatedAt:now,
         VisitAt:'', VisitNote:'', DecidedBy:'', DecidedAt:'', ParentMessage:'', InternalNote:'',
         StudentID:'', ClassName:'', StartDate:'', Plan:'', Lang:p.lang==='en'?'en':'th',
-        ConsentVersion:info.version, SignName:signName, Image:p.signature||'', ClientRef:ref};
+        ConsentVersion:info.version, SignName:signName, Image:'', ClientRef:ref};
       M.applications.push(a);
       const row=(item,val)=>M.consents.push({ConsentID:nextSeqId_(M.consents,'ConsentID','CNS',5), AppID:appId, StudentID:'',
         ParentID:pid, UserUID:uid, Item:item, Value:val?'YES':'NO', Version:info.version, SignName:signName, At:now, Source:'application'});
       row('truth',true); row('pdpa',true); APP_ITEMS_.forEach(k=>row(k,cs[k]===true));
+      /* 📎 the finger signature is a PRIVATE file (ระยะ 2), never a public-link photo: on Apps Script the
+       * wrapper takes it out of the payload and stores it itself (src/Apply.gs); here — the demo — it rides in Data */
+      if(String(p.signature||'').indexOf('data:image/')===0){ M.applicationDocs=M.applicationDocs||[];
+        M.applicationDocs.push({DocID:nextSeqId_(M.applicationDocs,'DocID','DOC',5), AppID:appId, StudentID:'', DocType:'signature',
+          FileID:'', FileName:'signature.png', Mime:'image/png', Size:String(p.signature).length, UploadedBy:'parent', UploadedByID:pid,
+          UploadedAt:now, Status:'ACTIVE', DeletedAt:'', DeleteReason:'', Data:String(p.signature)}); }
       logAct('submitApplication',appId,nameTH+(a.NicknameEN?' ('+a.NicknameEN+')':''),actorOf(p));
       return {appId, status:'SUBMITTED', existing:false}; },
     // the family's own applications — never the internal note
@@ -6205,8 +6234,61 @@ function createAtomAPI(M, GROWTH_STD) {
     myApplication: p => { const a=appOwned_(p); return Object.assign(appView_(a,false),{data:appData_(a)}); },
     cancelApplication: p => { const a=appOwned_(p);
       if(!APP_OPEN_[a.Status]) fail('BAD_STATE','ใบสมัครนี้ถูกพิจารณาแล้ว ยกเลิกไม่ได้');
-      a.Status='WITHDRAWN'; a.UpdatedAt=stampLocal();
+      a.Status='WITHDRAWN'; a.UpdatedAt=stampLocal(); a.DecidedAt=a.UpdatedAt;   // 📎 the 90-day clock starts here
       logAct('cancelApplication',a.AppID,a.ChildName,actorOf(p)); return appView_(a,false); },
+    // ---- 📎 เอกสารแนบ (ระยะ 2) ----
+    applicationDocs: p => { const a=appById_(p.appId); appDocAccess_(p,a);
+      return appDocsOf_(a.AppID).filter(d=>d.DocType!=='signature').map(appDocView_); },
+    // the record of one file; Apps Script (src/Apply.gs) turns FileID into the bytes, the demo has them in Data
+    applicationDocFile: p => { const d=(M.applicationDocs||[]).find(x=>String(x.DocID)===String(p.docId||'') && x.Status!=='DELETED');
+      if(!d) fail('NOT_FOUND','ไม่พบเอกสาร'); appDocAccess_(p, appById_(d.AppID));
+      return Object.assign(appDocView_(d),{fileId:d.FileID||'', data:d.Data||''}); },
+    uploadApplicationDoc: p => { const a=appById_(p.appId); const who=appDocAccess_(p,a);
+      if(String(p.__role||'')==='Observer') fail('READ_ONLY','บัญชีนี้อ่านอย่างเดียว');
+      // a family adds papers while the school is still deciding; once decided, only the office may
+      // (the admin photographs what was brought on the visit day — ผอ. answer 2)
+      if(who==='owner' && !APP_OPEN_[a.Status]) fail('BAD_STATE','ใบสมัครนี้ถูกพิจารณาแล้ว — หากต้องส่งเอกสารเพิ่ม กรุณาติดต่อโรงเรียน');
+      if(a.Status==='REJECTED'||a.Status==='WITHDRAWN') fail('BAD_STATE','ใบสมัครนี้ปิดแล้ว');
+      const type=String(p.docType||''); if(!APP_DOC_TYPES_[type]) fail('BAD_INPUT','ประเภทเอกสารไม่ถูกต้อง');
+      if(type==='signature' && !p.__internal) fail('BAD_INPUT','ประเภทเอกสารไม่ถูกต้อง');
+      const mime=String(p.mime||'').toLowerCase(); if(!APP_DOC_MIME_[mime]) fail('BAD_INPUT','แนบได้เฉพาะรูปภาพ (JPG/PNG) หรือ PDF');
+      const size=Number(p.size)||0; if(!(size>0)) fail('BAD_INPUT','ไฟล์ว่าง');
+      if(size>APP_DOC_MAX_BYTES_) fail('TOO_LARGE','ไฟล์ใหญ่เกิน 5 MB — กรุณาย่อหรือสแกนใหม่');
+      if(appDocsOf_(a.AppID).length>=APP_DOC_MAX_PER_APP_) fail('TOO_MANY','แนบเอกสารได้สูงสุด '+APP_DOC_MAX_PER_APP_+' ไฟล์ต่อใบสมัคร');
+      if(!p.fileId && !p.data) fail('BAD_INPUT','ไม่มีไฟล์');
+      M.applicationDocs=M.applicationDocs||[];
+      const d={DocID:nextSeqId_(M.applicationDocs,'DocID','DOC',5), AppID:a.AppID, StudentID:a.StudentID||'', DocType:type,
+        FileID:String(p.fileId||''), FileName:String(p.name||type).slice(0,120), Mime:mime, Size:size,
+        UploadedBy:who==='admin'?'admin':'parent', UploadedByID:String(p.adminId||p.staffId||p.parentId||''),
+        UploadedAt:stampLocal(), Status:'ACTIVE', DeletedAt:'', DeleteReason:''};
+      if(!p.fileId) d.Data=String(p.data);               // the browser demo only — never a sheet column
+      M.applicationDocs.push(d); a.UpdatedAt=stampLocal();
+      logAct('uploadApplicationDoc',a.AppID,type+' · '+d.FileName,actorOf(p));
+      return appDocView_(d); },
+    deleteApplicationDoc: p => { const d=(M.applicationDocs||[]).find(x=>String(x.DocID)===String(p.docId||'') && x.Status!=='DELETED');
+      if(!d) fail('NOT_FOUND','ไม่พบเอกสาร'); const a=appById_(d.AppID); const who=appDocAccess_(p,a);
+      if(String(p.__role||'')==='Observer') fail('READ_ONLY','บัญชีนี้อ่านอย่างเดียว');
+      if(d.DocType==='signature') fail('BAD_STATE','ลายเซ็นเป็นหลักฐานการยินยอม ลบไม่ได้');
+      if(who==='owner' && (!APP_OPEN_[a.Status] || d.UploadedBy!=='parent')) fail('BAD_STATE','ลบได้เฉพาะไฟล์ที่ท่านแนบเอง ขณะใบสมัครยังรอพิจารณา');
+      d.Status='DELETED'; d.DeletedAt=stampLocal(); d.DeleteReason=who==='admin'?'admin':'parent'; delete d.Data;
+      logAct('deleteApplicationDoc',a.AppID,d.DocType+' · '+d.FileName,actorOf(p));
+      return {docId:d.DocID, fileId:d.FileID||''}; },
+    // the admin's tick: "the papers are all here" — or back to pending
+    setApplicationDocsStatus: p => { const a=appById_(p.appId);
+      a.DocsStatus=p.complete?'COMPLETE':'PENDING'; a.DocsCheckedBy=String(p.adminId||p.staffId||''); a.DocsCheckedAt=stampLocal();
+      logAct('setApplicationDocsStatus',a.AppID,a.DocsStatus,actorOf(p)); return appView_(a,true); },
+    /* 🔴 ไม่รับ / ยกเลิก + 90 วัน → ลบเอกสาร (ผอ. 2026-11-09). Measured from the day it was decided (or
+     * withdrawn). Only the papers go — the application row and its consent log stay, under the 5-year
+     * rule in the PDPA text. The signature stays too: it IS the consent log. Returns the Drive ids so
+     * Apps Script can trash them. Runs from the daily backup trigger (Backup.gs → purgeApplicationDocs_). */
+    purgeApplicationDocs: p => { const today=ymd((p&&p.today)||todayLocal()); const keep=appDocRetentionDays_(); const out=[];
+      (M.applications||[]).forEach(a=>{ if(a.Status!=='REJECTED'&&a.Status!=='WITHDRAWN') return;
+        const since=ymd(a.DecidedAt||a.UpdatedAt); if(!/^\d{4}-\d{2}-\d{2}$/.test(since) || shiftYmd_(since,keep)>today) return;
+        appDocsOf_(a.AppID).forEach(d=>{ if(d.DocType==='signature') return;
+          d.Status='DELETED'; d.DeletedAt=stampLocal(); d.DeleteReason='retention-'+keep+'d'; delete d.Data;
+          out.push({docId:d.DocID, fileId:d.FileID||'', appId:a.AppID}); }); });
+      if(out.length) logAct('purgeApplicationDocs','',out.length+' ไฟล์ (เกิน '+keep+' วันหลังไม่รับ/ยกเลิก)',{role:'System',id:'system',name:'ระบบ'});
+      return {deleted:out.length, files:out, retentionDays:keep}; },
     // ---- admin ----
     listApplications: p => { const want=String((p&&p.status)||'');
       return (M.applications||[]).filter(a=>!want || (want==='OPEN'?APP_OPEN_[a.Status]:a.Status===want))
@@ -6215,7 +6297,9 @@ function createAtomAPI(M, GROWTH_STD) {
       const cons=(M.consents||[]).filter(c=>String(c.AppID)===String(a.AppID))
         .map(c=>({item:c.Item, value:c.Value, version:c.Version, at:c.At, signName:c.SignName}));
       const par=(M.parents||[]).find(x=>String(x.ParentID)===String(a.ParentID))||{};
-      return Object.assign(appView_(a,true),{data:appData_(a), consents:cons, signature:a.Image||'', photo:a.Photo||'',
+      const sig=appDocsOf_(a.AppID).find(d=>d.DocType==='signature');
+      return Object.assign(appView_(a,true),{data:appData_(a), consents:cons, signature:sig?'':(a.Image||''), signatureDocId:sig?sig.DocID:'', photo:a.Photo||'',
+        docs:appDocsOf_(a.AppID).filter(d=>d.DocType!=='signature').map(appDocView_),
         parent:{parentId:par.ParentID||'', name:par.NameTH||par.Name||'', phone:par.Phone||'', rel:par.Relationship||''},
         suggestedClass:defaultClassByAge_(a.DOB)}); },
     setApplicationVisit: p => { const a=appById_(p.appId);
@@ -6260,6 +6344,7 @@ function createAtomAPI(M, GROWTH_STD) {
       Object.keys(uids).forEach(u=>{ if(!(M.userLinks||[]).some(l=>String(l.UserUID)===u&&String(l.StudentID)===sid))
         M.userLinks.push({UserUID:u, StudentID:sid, VerifiedBy:'application', Date:todayLocal()}); });
       (M.consents||[]).forEach(c=>{ if(String(c.AppID)===String(a.AppID)) c.StudentID=sid; });
+      (M.applicationDocs||[]).forEach(d=>{ if(String(d.AppID)===String(a.AppID)) d.StudentID=sid; });   // 📎 Apply.gs moves the files
       a.Status='ACCEPTED'; a.StudentID=sid; a.ClassName=cls; a.StartDate=start; a.Plan=student.Plan;
       a.ParentMessage=String(p.parentMessage||'').trim();
       a.DecidedBy=String(p.adminId||p.staffId||''); a.DecidedAt=stampLocal(); a.UpdatedAt=a.DecidedAt;

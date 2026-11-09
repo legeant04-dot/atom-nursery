@@ -327,6 +327,10 @@ var ROUTES = {
   setApplicationVisit:  function (p) { return handleSetApplicationVisit(p); },
   rejectApplication:    function (p) { return handleRejectApplication(p); },
   approveApplication:   function (p) { return handleApproveApplication(p); },
+  // 📎 ระยะ 2 — the engine rules who/what/how big; Apply.gs keeps the bytes in PRIVATE Drive files
+  uploadApplicationDoc: function (p) { return handleUploadApplicationDoc(p); },
+  applicationDocFile:   function (p) { return handleApplicationDocFile(p); },
+  deleteApplicationDoc: function (p) { return handleDeleteApplicationDoc(p); },
   reinstallTriggers:    function (p) { return handleReinstallTriggers(p); },   // admin-only
   // Big Cleaning Day (admin-managed workday, no fixed hours, diligence bonus)
   bigCleaningDays:  function ()  { return handleBigCleaningDays(); },
@@ -495,6 +499,7 @@ function withRenewal_(env, sess) {
  * A parent session is refused these. Teachers are deliberately NOT touched here: their screens call
  * listStudents / listStaff, and what a teacher may see is the school's decision, not this list's.
  * Every entry was checked against webapp/app.js: no Parent./P_ screen calls any of them. */
+var APP_DOC_ACTIONS_ = { applicationDocs: 1, applicationDocFile: 1, uploadApplicationDoc: 1, deleteApplicationDoc: 1 };
 var NOT_FOR_FAMILIES_ = {
   listStaff: 'every staff record — national id, salary, bank account, password hash',
   listStudents: 'every child — national id, address, medical history, insurance',
@@ -623,6 +628,7 @@ function applyIdentity_(action, payload, sess) {
     addStudentByAdmin: 1,
     // 📝 ใบสมัคร: every family's applications + the decision (approve CREATES A STUDENT, as above)
     listApplications: 1, applicationAdmin: 1, setApplicationVisit: 1, rejectApplication: 1, approveApplication: 1,
+    setApplicationDocsStatus: 1, purgeApplicationDocs: 1,
     /* absenceFollowupLog is deliberately NOT here. It is the teacher's own work — they write these
      * rows and must be able to read back who has already rung a family before ringing them again,
      * which is the entire reason the trail exists. It scopes itself by staffId to the classes that
@@ -693,6 +699,10 @@ function applyIdentity_(action, payload, sess) {
    * __role:'Admin' and file a leave the family can then never cancel.
    */
   if (action === 'studentAbsence') { payload.__role = sess.role; payload.__meId = sess.linkedId; }
+  /* 📎 AN APPLICATION'S PAPERS (ID cards, house registrations) are the owning family's and the admin's —
+   * these routes serve both, so the engine needs to know WHICH, from the session and never the client.
+   * A teacher's stamped role is refused there (appDocAccess_). __internal is server-only, so it is wiped. */
+  if (APP_DOC_ACTIONS_[action]) { payload.__role = sess.role; delete payload.__internal; }
   if (action === 'googleLink') {
     /* The UID, not a role-derived id. handleGoogleLink finds the row the way handleAuth does, so the
      * link always lands on the record a LINE sign-in resolves to — including an Admin-provisioned

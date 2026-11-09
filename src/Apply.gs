@@ -19,7 +19,14 @@
  */
 
 function handleSubmitApplication(p) {
+  p = p || {};
+  // 📎 the signature is stored PRIVATELY below, never through the engine's public-link photo path
+  var sig = String(p.signature || ''); p.signature = '';
   var res = engineDispatch_('submitApplication', p);
+  if (res && !res.existing && sig.indexOf('data:image/') === 0) {
+    try { applyStoreDoc_({ appId: res.appId, docType: 'signature', data: sig, name: 'signature.png' }, true); }
+    catch (e) { try { Logger.log('signature store ' + e.message); } catch (x) {} }
+  }
   if (res && !res.existing) {
     try {
       var c = (p && p.child) || {};
@@ -52,6 +59,7 @@ function handleRejectApplication(p) {
 
 function handleApproveApplication(p) {
   var res = engineDispatch_('approveApplication', p);
+  try { applyMoveDocsToStudent_(res.appId, res.studentId); } catch (e) {}
   try {
     inboxAddStudent_('parent', '🎉 ' + applyChild_(res) + ' ได้รับการตอบรับเข้าเรียนแล้ว · ชั้น ' + (res.className || '-')
       + ' · เริ่มเรียน ' + applyWhen_(res.startDate) + (res.parentMessage ? ('\n' + res.parentMessage) : ''), '', res.studentId);
@@ -91,4 +99,108 @@ function applyIdsForParent_(pid, uid) {
     });
   } catch (e) {}
   return out;
+}
+
+/* ===== 📎 ระยะ 2 — เอกสารแนบ (ผอ. 2026-11-09: รูป + PDF ≤ 5 MB · รับเข้า → โฟลเดอร์นักเรียน ·
+ * ไม่รับ/ยกเลิก + 90 วัน → ลบ) =====================================================================
+ *
+ * 🔴 PRIVATE FILES. Every other picture in this app goes through driveifyImage_, which publishes it
+ * "anyone with the link" — fine for a lunch photo, NOT for an ID card or a house registration. These
+ * files are created with no sharing at all, so the only way to see one is THIS server reading it for a
+ * session the engine has already allowed (appDocAccess_: the owning family or the admin). The finger
+ * signature from phase 1 moves here too — it was a public-link image, and a signature is exactly what
+ * Certificate.gs refuses to publish for the same reason.
+ *
+ * The engine owns every rule (who, which state, type, size, how many); this file owns the bytes. A file
+ * is written first and the engine asked second — if the engine refuses, the file goes straight to the
+ * trash, so a refused upload leaves nothing behind.
+ */
+var APP_DOC_MAX_BYTES_GS_ = 5 * 1024 * 1024;
+
+function applyDocsRoot_() {
+  var name = getConfig_('ApplyDocsFolderName', 'AtomNursery_Applications');
+  var it = DriveApp.getFoldersByName(name);
+  return it.hasNext() ? it.next() : DriveApp.createFolder(name);
+}
+function applySubFolder_(parent, name) {
+  var it = parent.getFoldersByName ? parent.getFoldersByName(name) : null;
+  if (it && it.hasNext()) return it.next();
+  return parent.createFolder ? parent.createFolder(name) : DriveApp.createFolder(name);
+}
+function applyAppFolder_(appId) { return applySubFolder_(applyDocsRoot_(), String(appId)); }
+// the child's own folder once accepted — named so a person browsing Drive can find them
+function applyStudentFolder_(studentId) {
+  var name = getConfig_('StudentFolderRoot', 'AtomNursery_Students');
+  var it = DriveApp.getFoldersByName(name);
+  var root = it.hasNext() ? it.next() : DriveApp.createFolder(name);
+  var st = null;
+  try { st = findObject_(sheet_(getMainSpreadsheet_(), 'STUDENTS'), function (s) { return String(s.StudentID) === String(studentId); }); } catch (e) {}
+  return applySubFolder_(root, String(studentId) + (st && st.Name ? ' ' + st.Name : ''));
+}
+function applyTrash_(fileId) { if (!fileId) return; try { DriveApp.getFileById(fileId).setTrashed(true); } catch (e) {} }
+// 'data:<mime>;base64,<b64>' → { mime, bytes } — or null
+function applyParseData_(data) {
+  var m = /^data:([^;,]+);base64,(.*)$/.exec(String(data || ''));
+  if (!m) return null;
+  try { return { mime: m[1].toLowerCase(), bytes: Utilities.base64Decode(m[2]) }; } catch (e) { return null; }
+}
+// write one private file and register it through the engine's rules; refused → trashed
+function applyStoreDoc_(p, internal) {
+  var parsed = applyParseData_(p.data);
+  if (!parsed) throw apiError_('BAD_INPUT', 'ไม่มีไฟล์ หรือไฟล์อ่านไม่ได้');
+  if (parsed.bytes.length > APP_DOC_MAX_BYTES_GS_) throw apiError_('TOO_LARGE', 'ไฟล์ใหญ่เกิน 5 MB — กรุณาย่อหรือสแกนใหม่');
+  var ext = parsed.mime === 'application/pdf' ? '.pdf' : parsed.mime === 'image/png' ? '.png' : '.jpg';
+  var name = String(p.docType || 'doc') + '-' + Date.now() + ext;
+  var file = applyAppFolder_(p.appId).createFile(Utilities.newBlob(parsed.bytes, parsed.mime, name));
+  var q = {}; for (var k in p) if (p.hasOwnProperty(k) && k !== 'data') q[k] = p[k];
+  q.fileId = file.getId(); q.mime = parsed.mime; q.size = parsed.bytes.length; q.name = p.name || name;
+  if (internal) { q.__internal = true; q.__role = 'Admin'; }
+  var res;
+  try { res = engineDispatch_('uploadApplicationDoc', q); } catch (e) { applyTrash_(q.fileId); throw e; }
+  // a paper photographed AFTER acceptance belongs with the child straight away
+  if (res && res.studentId) { try { file.moveTo(applyStudentFolder_(res.studentId)); } catch (e) {} }
+  return res;
+}
+
+function handleUploadApplicationDoc(p) { return applyStoreDoc_(p || {}, false); }
+
+function handleApplicationDocFile(p) {
+  var res = engineDispatch_('applicationDocFile', p || {});
+  var out = { docId: res.docId, type: res.type, name: res.name, mime: res.mime, size: res.size, data: res.data || '' };
+  if (res.fileId) {
+    try { var b = DriveApp.getFileById(res.fileId).getBlob();
+      out.data = 'data:' + (res.mime || b.getContentType()) + ';base64,' + Utilities.base64Encode(b.getBytes()); }
+    catch (e) { throw apiError_('NOT_FOUND', 'เปิดไฟล์ไม่ได้ — ไฟล์อาจถูกลบไปแล้ว'); }
+  }
+  return out;
+}
+
+function handleDeleteApplicationDoc(p) {
+  var res = engineDispatch_('deleteApplicationDoc', p || {});
+  applyTrash_(res && res.fileId);
+  return { docId: res.docId, ok: true };
+}
+
+/* Accepted → the papers go to the child's folder (ผอ. answer, 2026-11-09). Kept under the same rule as
+ * the rest of the child's record (the PDPA text: 5 years after the child leaves). */
+function applyMoveDocsToStudent_(appId, studentId) {
+  if (!studentId) return 0;
+  var n = 0, folder = null;
+  try {
+    var sh = getMainSpreadsheet_().getSheetByName('APPLICATION_DOCS');
+    if (!sh) return 0;
+    readObjects_(sh).forEach(function (d) {
+      if (String(d.AppID) !== String(appId) || d.Status === 'DELETED' || !d.FileID) return;
+      try { folder = folder || applyStudentFolder_(studentId); DriveApp.getFileById(d.FileID).moveTo(folder); n++; } catch (e) {}
+    });
+  } catch (e) { try { Logger.log('applyMoveDocsToStudent_ ' + e.message); } catch (x) {} }
+  return n;
+}
+
+/** Daily (from dailyBackup): declined / withdrawn applications' papers, 90 days after the decision. */
+function purgeApplicationDocs_() {
+  var res = engineDispatch_('purgeApplicationDocs', {});
+  (res.files || []).forEach(function (f) { applyTrash_(f.fileId); });
+  if (res.deleted) { try { logAudit('system', 'APP_DOCS_PURGED', 'APPLICATION_DOCS', res.deleted + ' files · ' + res.retentionDays + ' days'); } catch (e) {} }
+  return res;
 }

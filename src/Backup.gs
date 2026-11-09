@@ -40,6 +40,9 @@ function dailyBackup() {
     hr:   backupOne_(PROP.HR_ID,   WB.HR,   folder, stamp)
   };
   pruneOldBackups_(folder);
+  // 📎 papers of declined / withdrawn applications, 90 days after the decision (src/Apply.gs). Never
+  // allowed to fail the backup it rides on.
+  try { if (typeof purgeApplicationDocs_ === 'function') purgeApplicationDocs_(); } catch (e) { try { Logger.log('purgeApplicationDocs_ ' + e.message); } catch (x) {} }
   Logger.log('Backup done @ ' + stamp + ' -> ' + JSON.stringify(ids));
   return ids;
 }

@@ -548,6 +548,33 @@ create index if not exists announcements_tenant_ix on announcements(tenant_id);
 create index if not exists announcements_seq_ix on announcements(tenant_id, seq);
 alter table announcements enable row level security;
 
+-- ── APPLICATION_DOCS  (MAIN workbook, engine: applicationDocs)
+create table if not exists application_docs (
+  id          uuid primary key default gen_random_uuid(),
+  seq         bigserial not null,
+  tenant_id   uuid not null references tenant(id) on delete restrict,
+  "doc_id"                     text,
+  "app_id"                     text,
+  "student_id"                 text,
+  "doc_type"                   text,
+  "file_id"                    text,
+  "file_name"                  text,
+  "mime"                       text,
+  "size"                       text,
+  "uploaded_by"                text,
+  "uploaded_by_id"             text,
+  "uploaded_at"                timestamptz,
+  "status"                     text,
+  "deleted_at"                 timestamptz,
+  "delete_reason"              text,
+  created_at  timestamptz not null default now(),
+  updated_at  timestamptz not null default now()
+);
+create unique index if not exists application_docs_code_uq on application_docs(tenant_id, "doc_id");
+create index if not exists application_docs_tenant_ix on application_docs(tenant_id);
+create index if not exists application_docs_seq_ix on application_docs(tenant_id, seq);
+alter table application_docs enable row level security;
+
 -- ── APPLICATIONS  (MAIN workbook, engine: applications)
 create table if not exists applications (
   id          uuid primary key default gen_random_uuid(),
@@ -584,6 +611,9 @@ create table if not exists applications (
   "sign_name"                  text,
   "image"                      text,
   "client_ref"                 text,
+  "docs_status"                text,
+  "docs_checked_by"            text,
+  "docs_checked_at"            timestamptz,
   -- UpdatedAt: the sheet's own column, carried by the
   -- reserved column of the same name below — same meaning, and never declared twice.
   created_at  timestamptz not null default now(),

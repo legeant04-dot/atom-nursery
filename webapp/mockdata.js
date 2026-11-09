@@ -171,6 +171,7 @@ Object.assign(window.MOCK, {
   // 📝 ใบสมัครออนไลน์ — empty; the demo fills them by applying (an application is not a student)
   applications: [],
   consents: [],
+  applicationDocs: [],
   growthRecords: [
     { Date:'2025-06-01', StudentID:'STD-1', AgeMonth:1,  Weight:4.2, Height:54 },
     { Date:'2025-12-01', StudentID:'STD-1', AgeMonth:7,  Weight:7.6, Height:67 },
