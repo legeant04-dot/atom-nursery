@@ -211,7 +211,8 @@ async function handle(req, res, body) {
       /* a ported Code.gs route is governed by its own declaration in server/routes.js (enforced as it runs) */
       const routeDeclared = a => ROUTES_PORT.has(a) && ROUTES_PORT.writes(a);
       const notProven = writers.filter(x => !WRITE_PROVEN[x.a] && !routeDeclared(x.a)).map(x => x.a);
-      const allowed = new Set([].concat(...writers.map(x => WRITE_PROVEN[x.a] || [])));
+      /* a ported route that writes THROUGH the engine (holidayWrite_ → addHoliday) declares those collections itself (routes.js `engine`) */
+      const allowed = new Set([].concat(...writers.map(x => (WRITE_PROVEN[x.a] || []).concat(ROUTES_PORT.has(x.a) ? ROUTES_PORT.engineWrites(x.a) : []))));
       const outside = changed.concat(otherChanged).filter(k => !allowed.has(k));
       /* 🔴 บันทึกได้เฉพาะ action ที่พิสูจน์แล้วว่าผลตรงกับ Apps Script (WRITE_PROVEN) และเฉพาะ
        * collection ที่ action นั้นประกาศไว้ · การเปลี่ยนใดที่อยู่นอกนั้น = ปฏิเสธทั้งคำขอ ไม่มีอะไรถูกบันทึก

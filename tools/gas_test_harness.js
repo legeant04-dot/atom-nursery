@@ -53,6 +53,8 @@ module.exports = function (files, srcDir) {
     setValue(v) { return this.setValues([[v]]); }
     clearContent() { for (let i = 0; i < this.nr; i++) for (let j = 0; j < this.nc; j++) { if (this.s.data[this.r - 1 + i]) this.s.data[this.r - 1 + i][this.c - 1 + j] = ''; } return this; }
     setFontWeight() { return this; } setBackground() { return this; }
+    // a display format only (writeBigCleaning_ sets '@' so Sheets keeps a date list as text) — the mock stores values as given
+    setNumberFormat() { return this; } setNumberFormats() { return this; }
     setFontColor() { return this; } setVerticalAlignment() { return this; }
   }
   class Sheet {
