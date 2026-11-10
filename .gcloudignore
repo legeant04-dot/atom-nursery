@@ -51,6 +51,9 @@
 !/src/Journal.gs
 !/src/Announce.gs
 !/src/Apply.gs
+!/src/PaySlips.gs
+!/src/AttReq.gs
+!/src/Password.gs
 !/src/Line.gs
 
 !/docs/

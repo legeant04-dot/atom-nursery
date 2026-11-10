@@ -52,6 +52,11 @@ COPY src/Parent.gs              src/Parent.gs
 COPY src/Journal.gs             src/Journal.gs
 COPY src/Announce.gs            src/Announce.gs
 COPY src/Apply.gs               src/Apply.gs
+# W3 (2026-11-10): PaySlips.gs — otMoneyReceived_ asks paySlipSum_ whether a late fee was already paid by slip
+# (missing, the guard went false in silence); AttReq.gs — the time-request routes; Password.gs — nowStr_ only
+COPY src/PaySlips.gs            src/PaySlips.gs
+COPY src/AttReq.gs              src/AttReq.gs
+COPY src/Password.gs            src/Password.gs
 # W2 (2026-11-09): routes that send LINE run Line.gs's own linePushText_/notifyChannels_ — linePush_ is recorded, not called
 COPY src/Line.gs                src/Line.gs
 COPY docs/schema/001_init.sql   docs/schema/001_init.sql

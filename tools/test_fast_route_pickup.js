@@ -32,12 +32,12 @@ const FIX = {
   SCHOOL_CONFIG: [['Timezone', 'Asia/Bangkok'], ['GPS_Lat', String(LAT)], ['GPS_Lng', String(LNG)], ['Radius', '30'],
     ['Plans', JSON.stringify([{ id: 'P1', name: 'เต็มวัน', end: '17:00', price: 6900 }, { id: 'P2', name: 'ครึ่งวัน', end: '12:00', price: 4500 }])],
     ['OTRatePerHour', '100'], ['OTGraceMinutes', '21'], ['CheckinDedupMinutes', '10'],
-    ['NotifyStaffArrival', 'app,line'], ['NotifyParentOt', 'app,line'], ['NotifyParentCheckin', 'app,line'],
+    ['NotifyStaffArrival', 'app,line'], ['NotifyParentOt', 'app,line'], ['NotifyParentCheckin', 'app,line'], ['NotifyStaffLeave', 'app,line'],
     ['LineChannelAccessToken', 'test-token-not-real']],
-  PARENTS: ['S01', 'S02', 'S03', 'S04', 'S05', 'S06', 'S07', 'S08', 'S09', 'S10', 'S11', 'S12'].map((s, i) => mom(s, i % 3 === 2 ? '' : 'Uparent00000' + s)),
+  PARENTS: ['S01', 'S02', 'S03', 'S04', 'S05', 'S06', 'S07', 'S08', 'S09', 'S10', 'S11', 'S12', 'S13'].map((s, i) => mom(s, i % 3 === 2 ? '' : 'Uparent00000' + s)),
   STUDENTS: [kid('S01', 'เอ'), kid('S02', 'บี', { EndTime: '18:00' }), kid('S03', 'ซี', { OTGraceUntil: '18:00' }), kid('S04', 'ดี', { OTRate: 150 }),
     kid('S05', 'อี', { GeoExempt: 'YES' }), kid('S06', 'เอฟ', { EnrollDate: '2026-12-01' }), kid('S07', 'จี', { EndDate: '2026-10-31' }),
-    kid('S08', 'เอช', { OffDays: '2' }), kid('S09', 'ไอ', { Plan: 'P2' }), kid('S10', 'เจ'), kid('S11', 'เค'), kid('S12', 'แอล')],
+    kid('S08', 'เอช', { OffDays: '2' }), kid('S09', 'ไอ', { Plan: 'P2' }), kid('S10', 'เจ'), kid('S11', 'เค'), kid('S12', 'แอล'), kid('S13', 'เอ็ม')],
   CLASSES: [{ ClassID: 'C1', ClassName: 'N1', TeacherID: 'STF-T' }],
   STAFF: [{ StaffID: 'STF-T', Name: 'ครูที', Role: 'Teacher', PositionLevel: 'Teacher', Department: 'N1', Status: 'ACTIVE', StartDate: '2025-01-01', LineUID: 'Uteacher000001' },
     { StaffID: 'STF-K', Name: 'ครูเค', Role: 'Teacher', PositionLevel: 'Teacher', Department: 'N1', Status: 'ACTIVE', StartDate: '2025-01-01' },
@@ -45,14 +45,23 @@ const FIX = {
     { StaffID: 'STF-Z', Name: 'ครูห้องอื่น', Role: 'Teacher', PositionLevel: 'Teacher', Department: 'N2', Status: 'ACTIVE', StartDate: '2025-01-01', LineUID: 'Uteacher000009' }],
   HOLIDAYS: [{ Date: '2026-11-11', NameTH: 'วันหยุดทั้งวัน' }],
   HOLIDAY_ATTEND: [{ Date: '2026-11-11', StudentID: 'S01', AddedBy: 'STF-T', AddedAt: '2026-11-10 17:00' }],
-  LEAVE_REQUEST_STD: [{ LeaveID: 'LVS-0001', StudentID: 'S04', Date: '2026-11-13', Type: 'ลาป่วย', Reason: 'มีไข้', Status: 'APPROVED' }],
+  LEAVE_REQUEST_STD: [{ LeaveID: 'LVS-0001', StudentID: 'S04', Date: '2026-11-13', Type: 'ลาป่วย', Reason: 'มีไข้', Status: 'APPROVED' },
+    { LeaveID: 'LVS-0002', StudentID: 'S01', Date: '2026-11-20', Type: 'ลากิจ', Reason: 'ไปงานแต่ง', Status: 'APPROVED' },
+    { LeaveID: 'LVS-0003', StudentID: 'S01', Date: '2026-11-09', Type: 'ลาป่วย', Reason: 'ไอ', Status: 'APPROVED' },
+    { LeaveID: 'LVS-0004', StudentID: 'S01', Date: '2026-11-21', Type: 'ลาป่วย', Reason: 'ครูบันทึก', Status: 'APPROVED', FiledBy: 'STF-T' },
+    { LeaveID: 'LVS-0005', StudentID: 'S10', Date: '2026-11-16', DateTo: '2026-11-19', GroupID: 'LVG-S10-2026-11-16', Type: 'ลากิจ', Reason: 'ต่างจังหวัด', Status: 'APPROVED' },
+    { LeaveID: 'LVS-0006', StudentID: 'S10', Date: '2026-11-17', DateTo: '2026-11-19', GroupID: 'LVG-S10-2026-11-16', Type: 'ลากิจ', Reason: 'ต่างจังหวัด', Status: 'APPROVED' },
+    { LeaveID: 'LVS-0007', StudentID: 'S10', Date: '2026-11-18', DateTo: '2026-11-19', GroupID: 'LVG-S10-2026-11-16', Type: 'ลากิจ', Reason: 'ต่างจังหวัด', Status: 'APPROVED' },
+    { LeaveID: 'LVS-0008', StudentID: 'S10', Date: '2026-11-19', DateTo: '2026-11-19', GroupID: 'LVG-S10-2026-11-16', Type: 'ลากิจ', Reason: 'ต่างจังหวัด', Status: 'APPROVED' }],
   CHECKIN_STUDENT: [],
   /* three charges that already exist on Tuesday 10/11 and must be treated by their history, not recomputed blind */
   OT_DAILY: [
     { OTID: 'OT-20261110-S10', Date: '2026-11-10', StudentID: 'S10', PickupTime: '18:30', PlanEnd: '17:00', LateMinutes: 90, Hours: 2, FullAmount: 200, Discount: 100, DiscountReason: 'ผอ.ลดให้', DiscountBy: 'ADM', Amount: 100, Status: 'UNPAID', SlipRef: '', SlipAmount: 0 },
     { OTID: 'OT-20261110-S11', Date: '2026-11-10', StudentID: 'S11', PickupTime: '18:30', PlanEnd: '17:00', LateMinutes: 90, Hours: 2, FullAmount: 200, Discount: 0, Amount: 200, Status: 'CANCELLED', CancelledBy: 'ADM', CancelNote: 'ยกเว้นให้', SlipRef: '', SlipAmount: 0 },
-    { OTID: 'OT-20261110-S12', Date: '2026-11-10', StudentID: 'S12', PickupTime: '17:40', PlanEnd: '17:00', LateMinutes: 40, Hours: 1, FullAmount: 100, Discount: 0, Amount: 100, Status: 'PAID', SlipRef: 'SLP-1', SlipAmount: 100 }],
-  PAYMENT_SLIPS: [], ADMIN_INBOX: [], USERS: [],
+    { OTID: 'OT-20261110-S12', Date: '2026-11-10', StudentID: 'S12', PickupTime: '17:40', PlanEnd: '17:00', LateMinutes: 40, Hours: 1, FullAmount: 100, Discount: 0, Amount: 100, Status: 'PAID', SlipRef: 'SLP-1', SlipAmount: 100 },
+    /* a slip SUBMITTED against it, not yet verified — the row itself still says UNPAID / SlipAmount 0 */
+    { OTID: 'OT-20261110-S13', Date: '2026-11-10', StudentID: 'S13', PickupTime: '17:40', PlanEnd: '17:00', LateMinutes: 40, Hours: 1, FullAmount: 100, Discount: 0, Amount: 100, Status: 'UNPAID', SlipRef: '', SlipAmount: 0 }],
+  PAYMENT_SLIPS: [{ SlipID: 'SLP-9', RefKind: 'ot', RefID: 'OT-20261110-S13', StudentID: 'S13', Amount: 100, Status: 'SUBMITTED' }], ADMIN_INBOX: [], USERS: [],
   LINE_RECIPIENTS: [{ Name: 'ผอ.', LineUID: 'Udirector000004', Topics: 'approval', Active: 'YES', Note: '' }]
 };
 G.g.__FIX = JSON.stringify(FIX); G.g.__SHEETS = JSON.stringify(SHEETS);
@@ -182,6 +191,9 @@ eq('💰 คิดใหม่ 3 ชม. = 300 · ส่วนลด 100 ยั�
 r = step(go('S11', 'OUT'), 'น้องเค (แอดมินยกเลิกไว้) รับ 19:01');
 eq('💰 การยกเลิกของแอดมินคงอยู่ · ไม่มีค่า · ไม่แจ้งเงิน', [ot('S11').Status, ot('S11').Amount, r.host.data.ot], ['CANCELLED', 200, null]);
 r = step(go('S12', 'OUT'), 'น้องแอล (จ่ายแล้ว 100) รับ 19:01');
+r = step(go('S13', 'OUT'), 'น้องเอ็ม (ส่งสลิป 100 แล้ว รอตรวจ · แถว OT ยังเขียน UNPAID) รับ 19:01');
+eq('💰 สลิปที่ส่งแล้ว = ได้รับเงิน → ไม่คิดใหม่ (โฮสต์ต้องเห็น PAYMENT_SLIPS เหมือน Apps Script)', [ot('S13').Amount, ot('S13').PickupTime, r.host.data.ot], [100, '17:40', null]);
+r = step(go('S12', 'OUT'), 'น้องแอล รับซ้ำ (ภายใน 10 นาที)');
 eq('💰 เงินที่รับแล้วไม่ถูกคิดใหม่', [ot('S12').Status, ot('S12').Amount, ot('S12').PickupTime, r.host.data.ot], ['PAID', 100, '17:40', null]);
 
 console.log('\n5) 💰 แก้เวลา: กดรับซ้ำภายใน 10 นาทีเลื่อนเวลา · กดใหม่หลังจากนั้นคิดใหม่');
@@ -251,7 +263,37 @@ console.log('\n10) 🔴 ปุ่มของผู้ปกครองเป�
   ok_('ผู้ปกครอง → ผ่าน และ parentId มาจากเซสชันเสมอ (ไม่ใช่ที่ส่งมา)', /^(ok:PAR-02|NO_ACCESS)$/.test(who('Parent', 'PAR-02')));
 }
 
-console.log('\n11) 🔴 กล่องทราย');
+console.log('\n11) ผู้ปกครองแก้ / ยกเลิกใบลาของลูก — วันอังคาร 17/11');
+const lv = id => db.LEAVE_REQUEST_STD.find(x => x.LeaveID === id);
+const PE = (p, label) => step(Object.assign({ parentId: 'PAR-01', studentId: 'S01' }, p), label, 'parentEditLeave', 'handleParentEditLeave');
+const PC = (p, label) => step(Object.assign({ parentId: 'PAR-01', studentId: 'S01' }, p), label, 'parentCancelLeave', 'handleParentCancelLeave');
+at('2026-11-17', '08:00');
+r = PE({ leaveId: 'LVS-0002', reason: 'ไปงานบวช', type: 'ลากิจ' }, 'แก้เหตุผลใบลา 20/11');
+eq('...แก้แถวเดิม · ครูประจำชั้นได้รับแจ้ง', [lv('LVS-0002').Reason, r.host.line.map(p => p.to)], ['ไปงานบวช', ['Uteacher000001']]);
+r = PE({ leaveId: 'LVS-0002', date: '2026-11-21' }, '🔴 ย้ายไปวันที่มีใบลาอยู่แล้ว');
+eq('🔴 ...DUPLICATE', [r.host.code, r.host.ops], ['DUPLICATE', 0]);
+r = PE({ leaveId: 'LVS-0002', date: '2026-11-15' }, '🔴 ย้ายไปวันที่ผ่านมาแล้ว');
+eq('🔴 ...LEAVE_PAST', r.host.code, 'LEAVE_PAST');
+r = PE({ leaveId: 'LVS-0002', date: '2026-11-24' }, 'ย้ายไป 24/11');
+eq('...วันที่ใหม่', String(lv('LVS-0002').Date).slice(0, 10), '2026-11-24');
+r = PE({ leaveId: 'LVS-0003', reason: 'x' }, '🔴 แก้ใบลาของวันที่ผ่านมาแล้ว');
+eq('🔴 ...LEAVE_PAST (เป็นบันทึกการมาเรียนแล้ว)', r.host.code, 'LEAVE_PAST');
+r = PE({ leaveId: 'LVS-0004', reason: 'x' }, '🔴 แก้ใบลาที่ครูบันทึก');
+eq('🔴 ...FILED_BY_SCHOOL', r.host.code, 'FILED_BY_SCHOOL');
+r = PE({ leaveId: 'LVS-0002', studentId: 'S02', reason: 'x' }, '🔴 ใบลาไม่ใช่ของเด็กคนนี้');
+eq('🔴 ...NO_ACCESS', r.host.code, 'NO_ACCESS');
+r = PE({ leaveId: 'LVS-9999' }, '🔴 ไม่มีใบลานี้');
+eq('🔴 ...NOT_FOUND', r.host.code, 'NOT_FOUND');
+r = PC({ leaveId: 'LVS-0003' }, '🔴 ยกเลิกใบลาที่ผ่านมาแล้ว');
+eq('🔴 ...LEAVE_PAST ไม่ลบอะไร', [r.host.code, !!lv('LVS-0003')], ['LEAVE_PAST', true]);
+r = PC({ parentId: 'PAR-10', studentId: 'S10', leaveId: 'LVS-0006' }, 'ยกเลิกใบลาต่อเนื่อง 16–19/11 (วันนี้ 17/11)');
+eq('...ลบ 17, 18, 19 · วันที่ 16 (ผ่านไปแล้ว) อยู่ต่อ', [r.host.data.cancelled, r.host.data.from, r.host.data.to, ['LVS-0005', 'LVS-0006', 'LVS-0007', 'LVS-0008'].map(id => !!lv(id))],
+  [3, '2026-11-17', '2026-11-19', [true, false, false, false]]);
+ok_('...ข้อความบอกช่วงวันที่ที่ยกเลิก', /17 – 2026-11-19 \(3 วัน\)/.test(r.host.line[0].messages[0].text));
+r = PC({ leaveId: 'LVS-0002' }, 'ยกเลิกใบลาวันเดียว');
+eq('...ลบ 1 แถว', [r.host.data.cancelled, !!lv('LVS-0002')], [1, false]);
+
+console.log('\n13) 🔴 กล่องทราย');
 {
   ok_('parentCheckin มีสิทธิ์ส่ง LINE', ROUTES.sendsLine('parentCheckin'));
   const saved = ROUTES.PORTED.parentCheckin.appends; ROUTES.PORTED.parentCheckin.appends = ['CHECKIN_STUDENT', 'ADMIN_INBOX'];

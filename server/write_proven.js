@@ -27,7 +27,11 @@ const WRITE_PROVEN = {
   /* logged like a correction; deleting the LATEST record also moves the child's current figures back */
   deleteGrowth:       ['growthRecords', 'activityLog', 'students'],
   saveVaccines:       ['vaccineRecords'],
-  setAbsenceFollowup: ['absenceFollowups', 'absenceFollowupLogs']
+  setAbsenceFollowup: ['absenceFollowups', 'absenceFollowupLogs'],
+  /* W3 (2026-11-10): a teacher adds a name on the list of children expected on a closed day — it decides
+   * whether that child may be checked in (assertStudentDayOpen_). Logged (logAct). Staff only, in the engine.
+   * holidayAttendSet (the admin's whole-list form) waits for W4 with the other admin writes. */
+  holidayAttendAdd:    ['holidayAttend', 'activityLog']   // holidayAttendRemove is a CLOSED route (Code.gs: replaced by holidayAttendSet)
 };
 /* 🔴 MONEY — proven by tools/test_fast_host_money_live.js (every baht, every row, the double-issue and
  * re-confirm cases). Kept apart so the general suite does not have to know the money fixture. */

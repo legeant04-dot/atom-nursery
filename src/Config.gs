@@ -516,7 +516,10 @@ SCHEMA[WB.HR] = {
   // 2-step approval (Leader → Admin, mirrors leave/OT). On final APPROVED the time is written into
   // CHECKIN_STAFF (recomputing late/OT). Status = PENDING_LEADER|PENDING_ADMIN|APPROVED|REJECTED.
   ATTENDANCE_REQUEST: ['ReqID', 'StaffID', 'Date', 'Type', 'RequestTime', 'Reason', 'Status',
-                       'Step1By', 'Step1Status', 'Step2By', 'Step2Status', 'CreatedDate'],
+                       'Step1By', 'Step1Status', 'Step2By', 'Step2Status', 'CreatedDate',
+                       // WHEN each signature happened + what was said refusing — appended by arSheet_ (AttReq.gs)
+                       // since 2026-09-04; declared here 2026-11-10 so Postgres has them (W3 fast host)
+                       'Step1At', 'Step2At', 'DecisionNote'],
   // Class-management change request (ย้ายครูประจำชั้น/แผนก): a Leader stages teacher department moves and
   // submits them as one request; an Admin approves (applies + logs) or rejects. Changes = JSON array of
   // {staffId,name,before,after}. Status = PENDING_ADMIN|APPROVED|REJECTED.

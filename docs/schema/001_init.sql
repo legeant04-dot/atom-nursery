@@ -61,6 +61,9 @@ create table if not exists attendance_request (
   "step2_by"                   text,
   "step2_status"               text,
   "created_date"               date,
+  "step1_at"                   timestamptz,
+  "step2_at"                   timestamptz,
+  "decision_note"              text,
   created_at  timestamptz not null default now(),
   updated_at  timestamptz not null default now()
 );
