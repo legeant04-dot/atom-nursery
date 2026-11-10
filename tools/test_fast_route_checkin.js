@@ -35,7 +35,7 @@ const FIX = {
     ['LineChannelAccessToken', 'test-token-not-real'], ['NotifyAdminApproval', 'app']],
   STAFF: [st('STF-T', 'ครูที', { StaffGroup: 'G1' }), st('STF-U', 'ครูยู'), st('STF-W', 'ครูดับเบิลยู'),
     st('STF-L', 'หัวหน้าแอล', { PositionLevel: 'Leader' }), st('STF-N', 'ครูใหม่', { StartDate: '2026-12-01' }),
-    st('STF-P', 'ครูพัก', { PauseFrom: '2026-11-01', PauseTo: '2026-11-20' }), st('STF-H', 'ครูวันหยุด'), st('STF-E', 'ครูลาออก', { EndDate: '2026-10-31' })],
+    st('STF-P', 'ครูพัก', { PauseFrom: '2026-11-01', PauseTo: '2026-11-20' }), st('STF-H', 'ครูวันหยุด'), st('STF-E', 'ครูลาออก', { EndDate: '2026-10-31' }), st('STF-A', 'แอดมินเอ', { Role: 'Admin', PositionLevel: 'Admin' })],
   STAFF_GROUPS: [{ GroupName: 'G1', GroupNameEN: 'G1', CheckInTime: '07:30', CheckOutTime: '16:30' }],
   WORK_SCHEDULE: [{ StaffID: 'STF-W', DayOfWeek: 'Tuesday', CheckInTime: '09:00', CheckOutTime: '18:00', EffectiveDate: '2026-01-01' }],
   HOLIDAYS: [{ Date: '2026-11-11', NameTH: 'วันหยุดทั้งวัน' }, { Date: '2026-11-12', NameTH: 'ประชุมผู้ปกครอง', StartTime: '08:00', EndTime: '12:00' }],
@@ -220,7 +220,36 @@ at('2026-11-16', '20:10');
 r = step(OUT, OUTF, here('STF-W'), 'ออก 20:10 (อัตรา 120)');
 eq('💰 190 นาที → 3 ชม. × 120 = 360 · รหัส OT ต่อจากเลขสูงสุด', [r.host.data.otHours, r.host.data.otPay, otOf('STF-W').OTRecordID === gasState().OT_RECORDS.slice(-1)[0].OTRecordID, /^OTR-\d{4}$/.test(otOf('STF-W').OTRecordID)], [3, 360, true, true]);
 
-console.log('\n7) 🔴 กล่องทราย');
+console.log('\n7) 💰 อนุมัติ OT: หัวหน้า (ขั้น 1) → แอดมิน (ขั้น 2) · คิดราคาใหม่ตอนอนุมัติ · เหมาจ่ายไม่ถูกคิดใหม่');
+const otId = (sid, d) => (db.OT_RECORDS.find(x => x.StaffID === sid && String(x.Date).slice(0, 10) === d) || {}).OTRecordID;
+const otRow = id => db.OT_RECORDS.find(x => x.OTRecordID === id) || {};
+const AP = 'approveOT', APF = 'handleApproveOT', CF = 'confirmOT', CFF = 'handleConfirmOT';
+const uTue = otId('STF-U', '2026-11-10'), lTue = otId('STF-L', '2026-11-10'), tSat = otId('STF-T', '2026-11-14'), wMon = otId('STF-W', '2026-11-16');
+ok_('มีแถว OT ที่รออนุมัติครบ 4 แถว', [uTue, lTue, tSat, wMon].every(Boolean));
+r = step(AP, APF, { staffId: 'STF-T', otId: uTue, decision: 'approve' }, '🔴 ครูธรรมดาอนุมัติ');
+eq('🔴 ...NO_PERMISSION', [r.host.code, r.host.ops], ['NO_PERMISSION', 0]);
+r = step(AP, APF, { staffId: 'STF-L', otId: 'OTR-9999', decision: 'approve' }, '🔴 ไม่มีรายการนี้');
+eq('🔴 ...NOT_FOUND', r.host.code, 'NOT_FOUND');
+r = step(AP, APF, { staffId: 'STF-L', otId: uTue, decision: 'approve' }, 'หัวหน้าอนุมัติ OT ของครูยู');
+eq('...PENDING_ADMIN · Step1By ชื่อหัวหน้า · ยอดยังไม่เปลี่ยน', [otRow(uTue).Status, otRow(uTue).Step1Status, otRow(uTue).Step1By, otRow(uTue).Amount], ['PENDING_ADMIN', 'Approved', 'หัวหน้าแอล', 200]);
+r = step(AP, APF, { staffId: 'STF-L', otId: uTue, decision: 'approve' }, '🔴 อนุมัติซ้ำ');
+eq('🔴 ...BAD_STATE', r.host.code, 'BAD_STATE');
+r = step(AP, APF, { staffId: 'STF-L', otId: tSat, decision: 'reject' }, 'หัวหน้าไม่อนุมัติ OT Big Cleaning');
+eq('...REJECTED', [otRow(tSat).Status, otRow(tSat).Step1Status], ['REJECTED', 'Rejected']);
+r = step(CF, CFF, { staffId: 'STF-L', otId: uTue, decision: 'approve' }, '🔴 หัวหน้ายืนยันขั้นแอดมิน');
+eq('🔴 ...NO_PERMISSION', r.host.code, 'NO_PERMISSION');
+r = step(CF, CFF, { staffId: 'STF-A', otId: uTue, decision: 'approve' }, '💰 แอดมินยืนยัน (อัตราตอนนี้ 120)');
+eq('💰 คิดใหม่ตอนอนุมัติ: 2 ชม. × 120 = 240 (เดิม 200 ที่อัตรา 100)', [otRow(uTue).Status, otRow(uTue).Hours, otRow(uTue).Rate, otRow(uTue).Amount, otRow(uTue).ApprovedBy, otRow(uTue).Step2Status], ['APPROVED', 2, 120, 240, 'แอดมินเอ', 'Approved']);
+r = step(CF, CFF, { staffId: 'STF-A', otId: lTue, decision: 'approve', hours: 1, note: 'ตัดเหลือ 1 ชม.' }, '💰 แอดมินแก้เป็น 1 ชม.');
+eq('💰 1 × 120 = 120 · หมายเหตุ', [otRow(lTue).Hours, otRow(lTue).Amount, otRow(lTue).Note], [1, 120, 'ตัดเหลือ 1 ชม.']);
+r = step(CF, CFF, { staffId: 'STF-A', otId: wMon, decision: 'approve', amount: '350' }, '💰 แอดมินกำหนดยอดเอง 350');
+eq('💰 ยอดที่แอดมินระบุชนะ', [otRow(wMon).Amount, otRow(wMon).Hours, otRow(wMon).Status], [350, 3, 'APPROVED']);
+r = step(CF, CFF, { staffId: 'STF-A', otId: 'OTR-0001', decision: 'approve' }, '💰 ยืนยัน OT วันหยุดเหมาจ่าย');
+eq('💰 800 คงเดิม · อัตรา 0 (ไม่กลายเป็น 0 ชม. × อัตรา = 0)', [otRow('OTR-0001').Amount, otRow('OTR-0001').Rate, otRow('OTR-0001').Hours], [800, 0, 0]);
+r = step(CF, CFF, { staffId: 'STF-A', otId: tSat, decision: 'reject' }, 'แอดมินไม่อนุมัติ');
+eq('...REJECTED ขั้น 2', [otRow(tSat).Status, otRow(tSat).Step2Status, otRow(tSat).Step2By], ['REJECTED', 'Rejected', 'แอดมินเอ']);
+
+console.log('\n8) 🔴 กล่องทราย');
 {
   ROUTES.setClock(null);
   ok_('staffCheckin ไม่มีสิทธิ์ส่ง LINE · staffCheckout มี', !ROUTES.sendsLine(IN) && ROUTES.sendsLine(OUT));

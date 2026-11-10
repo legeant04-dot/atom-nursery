@@ -149,7 +149,43 @@ const PORTED = {
   staffCheckin: { fn: 'handleStaffCheckin', reads: ['STAFF', 'WORK_SCHEDULE', 'STAFF_GROUPS', 'HOLIDAYS', 'OT_RECORDS', 'CHECKIN_STAFF'],
     writes: { CHECKIN_STAFF: ['CheckIn', 'LateMinutes', 'Status'] }, appends: ['CHECKIN_STAFF'] },
   staffCheckout: { fn: 'handleStaffCheckout', reads: ['STAFF', 'WORK_SCHEDULE', 'STAFF_GROUPS', 'HOLIDAYS', 'OT_RECORDS', 'CHECKIN_STAFF', 'ADMIN_INBOX', 'USERS', 'LINE_RECIPIENTS'],
-    writes: { CHECKIN_STAFF: ['CheckOut', 'OTHours', 'Status'] }, appends: ['OT_RECORDS', 'ADMIN_INBOX'], line: true }
+    writes: { CHECKIN_STAFF: ['CheckOut', 'OTHours', 'Status'] }, appends: ['OT_RECORDS', 'ADMIN_INBOX'], line: true },
+  /* STAFF OT APPROVAL (src/OtStaff.gs) — 💰 only APPROVED OT reaches the salary (Payroll.gs sumMonthlyOT_).
+   *   approveOT  step 1, head teacher/admin: PENDING_LEADER → PENDING_ADMIN or REJECTED. No baht changes.
+   *   confirmOT  step 2, admin only: RE-PRICED at today's rate (hours × otRateForStaff_) unless the admin types an
+   *              amount; an OT วันหยุด lump sum keeps its amount (never hours × rate = 0). Or REJECTED.
+   * Neither tells anybody nor writes the audit log, on Apps Script either. Proven by section 7 of
+   * tools/test_fast_route_checkin.js and its _live twin. */
+  approveOT: { fn: 'handleApproveOT', reads: ['STAFF', 'OT_RECORDS'],
+    writes: { OT_RECORDS: ['Step1By', 'Step1Status', 'Status'] } },
+  confirmOT: { fn: 'handleConfirmOT', reads: ['STAFF', 'OT_RECORDS'],
+    writes: { OT_RECORDS: ['Hours', 'Rate', 'Amount', 'Step2By', 'Step2Status', 'ApprovedBy', 'Status', 'Note'] } },
+  /* A FAMILY DROPS OFF / PICKS UP (src/Parent.gs) — 💰 a pick-up after the child's own end time is a charge.
+   *   IN   from anywhere (distance recorded) · OUT inside the fence unless the child is GeoExempt; a refused
+   *        pick-up is audited with metres only. The day gate is assertStudentDayOpen_ (enrolled · not ended ·
+   *        not the child's day off · school open or named in HOLIDAY_ATTEND).
+   *   A second tap within CheckinDedupMinutes moves the same row's Time, no new row, nobody told again.
+   *   OUT → otUpsertForPickup_: OT_DAILY row OT-<date>-<id> (grace · per-child rate/end/grace-until · waived
+   *        days · a discount kept · an admin's cancel kept · money received never rewritten — PAYMENT_SLIPS).
+   *   The class teachers' 🔔 (LINE by staff.arrival), the family's 🔔 + LINE for a charge (parent.ot).
+   * Proven by tools/test_fast_route_pickup.js (a fixed clock on both sides) and its _live twin. */
+  parentCheckin: { fn: 'handleParentCheckin',
+    reads: ['PARENTS', 'STUDENTS', 'HOLIDAYS', 'HOLIDAY_ATTEND', 'CHECKIN_STUDENT', 'OT_DAILY', 'PAYMENT_SLIPS', 'STAFF', 'CLASSES', 'ADMIN_INBOX', 'USERS', 'LINE_RECIPIENTS'],
+    writes: { CHECKIN_STUDENT: ['Time', 'GPS_Lat', 'GPS_Lng'],
+      OT_DAILY: ['PickupTime', 'PlanEnd', 'LateMinutes', 'Hours', 'FullAmount', 'Discount', 'Amount', 'Status', 'CancelledBy', 'CancelNote', 'PaidDate'] },
+    appends: ['CHECKIN_STUDENT', 'OT_DAILY', 'ADMIN_INBOX'], line: true, keepOnRefusal: ['AUDIT_LOG'] },
+  /* A TEACHER RECORDS IT FOR THE FAMILY (src/Checkin.gs handleStaffStudentCheckin) — a grandparent at the gate.
+   *   Remark mandatory · only a child of a class this teacher covers (head teacher '*' all) · refused on the
+   *   child's leave day and by the same day gate as the parent's button · no fence (the teacher is at school).
+   *   `time` HH:mm is the REAL moment (typed later is normal) and is what OT is charged from; ByAt is when
+   *   the button was pressed. A second record of the same type today corrects that row's time.
+   *   OUT → the same otUpsertForPickup_ as the parent's pick-up. The family's 🔔 + LINE (parent.checkin).
+   * Proven by tools/test_fast_route_pickup.js section 9 and its _live twin. */
+  staffStudentCheckin: { fn: 'handleStaffStudentCheckin',
+    reads: ['STAFF', 'STUDENTS', 'CLASSES', 'LEAVE_REQUEST_STD', 'HOLIDAYS', 'HOLIDAY_ATTEND', 'CHECKIN_STUDENT', 'OT_DAILY', 'PAYMENT_SLIPS', 'PARENTS', 'ADMIN_INBOX'],
+    writes: { CHECKIN_STUDENT: ['Time', 'Remark', 'ByStaffID', 'ByAt'],
+      OT_DAILY: ['PickupTime', 'PlanEnd', 'LateMinutes', 'Hours', 'FullAmount', 'Discount', 'Amount', 'Status', 'CancelledBy', 'CancelNote', 'PaidDate'] },
+    appends: ['CHECKIN_STUDENT', 'OT_DAILY', 'ADMIN_INBOX'], line: true }
 };
 /* 🔴 SCHOOL_CONFIG is readable by every ported route, as by every line of Apps Script: getConfig_ is
  * Db.gs's own (raw Key/Value rows, cached per execution in _configCache — reset per request here),
@@ -445,7 +481,20 @@ function run(action, payload, raw, H, config, sink, line) {
   const call = def.fn + '(' + (def.args || []).map(x => JSON.stringify(x) + ', ').join('') + '__p)';
   try { out = vm.runInContext(call, b); } catch (e) { thrown = e; }
   if (violation) throw violation;
-  if (thrown) throw thrown;
+  /* 🔴 A REFUSAL THAT APPS SCRIPT RECORDS. A sheet is not a transaction: when Parent.gs writes the audit
+   * row "pick-up refused, 1112 m away" and then throws OUT_OF_RANGE, the row stays — and it is there on
+   * purpose, it is how the school tells a fence set too tight from the rule working. A route that declares
+   * `keepOnRefusal` keeps ONLY its NEW rows in those sheets when it refuses (an apiCode, never a breach,
+   * never a crash); everything else it wrote is discarded and nobody is sent anything. The host commits
+   * them with the refusal (server/host.js keptOnRefusal). */
+  if (thrown) {
+    const keep = new Set(def.keepOnRefusal || []);
+    if (keep.size && thrown.apiCode && thrown.apiCode !== 'NOT_ON_FAST_HOST') {
+      const kept = ops.filter(o => o.op === 'insert' && keep.has(o.sheet));
+      if (kept.length) { kept.forEach(o => sink.push(o)); thrown.keptOnRefusal = kept.length; }
+    }
+    throw thrown;
+  }
   touched.forEach(n => { raw[n] = work[n]; });
   ops.forEach(o => sink.push(o));
   lineOps.forEach(o => line.out.push(o));               // only a call that finished cleanly sends anything

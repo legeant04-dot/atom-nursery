@@ -104,9 +104,9 @@ const reset = () => { log = []; persisted = []; hydrations = 0; };
   ok_('🔴 getConfig ซ่อนใน batch → UNKNOWN_ACTION · ข้าง ๆ ยังตอบ', code(b1.data[0]) === 'UNKNOWN_ACTION' && b1.data[1].ok === true);
   ok_('Observer เขียน → READ_ONLY', code(await call({ action: 'addComment', payload: { studentId: 'STD-001', message: 'x' } }, OBSERVER)) === 'READ_ONLY');
   ok_('ครูขอ addAnnouncement (ADMIN_ONLY) → NO_PERMISSION', code(await call({ action: 'addAnnouncement', payload: { title: 'x', content: 'y' } })) === 'NO_PERMISSION');
-  /* staffCheckout was the example until 2026-11-10, when it was ported (W3, tools/test_fast_route_checkin.js).
-   * staffStudentCheckin is a Checkin.gs write that is not. */
-  ok_('ครูเช็คอินแทนเด็ก (route ของ Checkin.gs ที่ยังไม่ย้าย) → NOT_ON_FAST_HOST ไม่ใช่ "สำเร็จ" แล้วหาย', code(await call({ action: 'staffStudentCheckin', payload: {} })) === 'NOT_ON_FAST_HOST');
+  /* staffCheckout, then staffStudentCheckin, were the example until 2026-11-10, when both were ported (W3,
+   * tools/test_fast_route_checkin.js · test_fast_route_pickup.js). submitTimeRequest is a teacher write that is not. */
+  ok_('ครูขอแก้เวลา (route ที่ยังไม่ย้าย) → NOT_ON_FAST_HOST ไม่ใช่ "สำเร็จ" แล้วหาย', code(await call({ action: 'submitTimeRequest', payload: {} })) === 'NOT_ON_FAST_HOST');
   ok_('ทั้งหมดข้างบน: ไม่มีคำสั่งเขียนถึงฐานข้อมูล', writesIn().length === 0 && persisted.length === 0);
 
   console.log('\n3) 🔴 การเขียนที่ยังไม่ได้พิสูจน์ → ปฏิเสธ ไม่บันทึก');

@@ -171,7 +171,10 @@ async function handle(req, res, body) {
       const H = createAtomAPI(M, null).H;
       const err = (code, message) => ({ ok: false, error: { code, message } });
       const tR0 = Date.now();
-      const results = calls.map(c => {
+      /* calls that REFUSED but left rows Apps Script keeps on a refusal (routes.js keepOnRefusal — the audit
+       * row of a pick-up refused outside the fence). They count as writers below, so those rows commit. */
+      const keptOnRefusal = new Set();
+      const results = calls.map((c, ci) => {
         const a = String((c && c.action) || '');
         /* ลำดับเดียวกับ dispatch_ + handleBatch ของ GAS · และประตูที่ปิดถูกตรวจ "ทุก call"
          * (GAS เคยตรวจแค่ระดับบน — ช่องที่พบและปิดไปแล้วใน @399) */
@@ -187,7 +190,10 @@ async function handle(req, res, body) {
           /* ✅ ย้ายมาแล้ว: ฟังก์ชันของ Apps Script ตัวจริง (server/routes.js) · การเขียนเก็บไว้ใน routeWrites
            * แล้วบันทึกภายใต้ล็อกข้างล่าง — เฉพาะช่องที่ route ประกาศไว้ */
           try { return { ok: true, data: ROUTES_PORT.run(a, pl, raw, H, M.config, routeWrites, lineOut) }; }
-          catch (e) { return err((e && (e.apiCode || e.code)) || 'INTERNAL', (e && e.message) || String(e)); }
+          catch (e) {
+            if (e && e.keptOnRefusal) keptOnRefusal.add(ci);
+            return err((e && (e.apiCode || e.code)) || 'INTERNAL', (e && e.message) || String(e));
+          }
         }
         const fn = H[a];
         if (typeof fn !== 'function') return err('UNKNOWN_ACTION', 'ไม่รู้จัก action: ' + a);
@@ -213,8 +219,8 @@ async function handle(req, res, body) {
         await client.query('rollback');
         return { refused: { ok: false, error: Object.assign({ code, message }, extra || {}) }, t };
       };
-      const writers = calls.map((c, i) => ({ a: String((c && c.action) || ''), r: results[i] }))
-        .filter(x => GATE.isMutating(x.a) && x.r.ok);
+      const writers = calls.map((c, i) => ({ a: String((c && c.action) || ''), r: results[i], i }))
+        .filter(x => GATE.isMutating(x.a) && (x.r.ok || keptOnRefusal.has(x.i)));
       /* a ported Code.gs route is governed by its own declaration in server/routes.js (enforced as it runs) */
       const routeDeclared = a => ROUTES_PORT.has(a) && ROUTES_PORT.writes(a);
       const notProven = writers.filter(x => !WRITE_PROVEN[x.a] && !routeDeclared(x.a)).map(x => x.a);

@@ -125,10 +125,12 @@ route ไหนที่ sandbox พบว่าแตะ Drive/รูป/เง
 
 ## ระยะ W3 · งานประจำวันที่ใกล้เงิน
 
-**สถานะ 2026-11-10:** ✅ ใบลาครู `submitLeave` · `approveLeave` เขียนและพิสูจน์แล้ว (offline 162 · staging 78) — ยังไม่ deploy ·
-✅ ลงเวลาครู `staffCheckin` · `staffCheckout` พิสูจน์แล้ว (offline 142 · staging 73 · นาฬิกาตรึง) — ยังไม่ deploy ·
+**สถานะ 2026-11-10:** ✅ ใบลาครู `submitLeave` · `approveLeave` เขียนและพิสูจน์แล้ว (offline 162 · staging 78) — deploy rev 00021 ·
+✅ ลงเวลาครู `staffCheckin` · `staffCheckout` พิสูจน์แล้ว (offline 142 · staging 73 · นาฬิกาตรึง) — deploy rev 00022 (fafd531) ·
 🔴 โฮสต์ต้องเดินด้วยนาฬิกาไทย (Dockerfile TZ + ด่านใน routes.run — พบ 2026-11-10) ·
-⏳ ถัดไป: ผู้ปกครอง/ครูเช็คอินเด็ก (ค่ารับช้า) → อนุมัติ OT
+✅ รับ-ส่งเด็ก `parentCheckin` · `staffStudentCheckin` (💰 ค่ารับช้า · offline 154 · staging 63) และอนุมัติ OT `approveOT` · `confirmOT`
+(offline 187 · staging 97) — ยังไม่ deploy · กล่องทรายได้ `keepOnRefusal` (audit ของการรับกลับนอกรัศมีอยู่ต่อเหมือน Apps Script) ·
+⏳ W3 ที่เหลือ: แอดมินเพิ่ม/แก้/ลบ OT (adminAddOT · adminAddHolidayOT · adminEditOT · adminDeleteOT) · แอดมินแก้ค่ารับช้า (adminUpdateOT/Cancel/Restore) — แตะเงินตรง จึงเสนอให้ไปรวม W4
 
 ลงเวลาครู (`staffCheckin`/`staffCheckout`) · ผู้ปกครองเช็คอิน · ครูเช็คอินแทน · ยื่น/อนุมัติใบลา ·
 มี geofence · OT · เบี้ยขยัน — พิสูจน์แบบเดียวกับ `test_fast_host_money_live` ทุกบาท
