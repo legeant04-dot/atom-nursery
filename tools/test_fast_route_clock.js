@@ -28,5 +28,6 @@ ok_('🔴 host.js ตั้งนาฬิกาก่อนโหลดอย�
   const out = cp.execFileSync(process.execPath, ['-e', "process.env.TZ='UTC';const s=require('fs').readFileSync('server/host.js','utf8');eval(s.slice(s.indexOf(\"process.env.TZ = 'Asia/Bangkok';\"),s.indexOf(\"const http\")));console.log(new Date().getTimezoneOffset())"], { cwd: ROOT, encoding: 'utf8' }).trim();
   ok_('...และบรรทัดนั้นเปลี่ยนนาฬิกาได้จริงแม้ container บอก UTC', out === '-420');
 }
+ok_('🔴 host.js ไม่เคยตั้งนาฬิกาปลอม (setClock มีไว้พิสูจน์เท่านั้น)', !/setClock|FAKE_DATE/.test(host));
 console.log('\n' + (fail ? '❌ ' : '✅ ') + pass + ' passed, ' + fail + ' failed');
 process.exit(fail ? 1 : 0);
