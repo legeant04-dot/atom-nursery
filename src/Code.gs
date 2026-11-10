@@ -673,6 +673,15 @@ function applyIdentity_(action, payload, sess) {
    * studentId check below, the same as `payments`. */
   var FAMILY_DOCS = { docSignature: 1, billDocument: 1 };
   if (FAMILY_DOCS[action] && sess.role !== 'Admin' && sess.role !== ROLES.OBSERVER && sess.role !== ROLES.PARENT) throw apiError_('NO_PERMISSION', 'เฉพาะผู้ปกครองและแอดมิน');
+  /* 🔴 THE FAMILY'S OWN DROP-OFF / PICK-UP BUTTON IS THE FAMILY'S (ผอ. 2026-11-10, found porting it to Cloud Run).
+   * parentCheckin resolves the acting parent from payload.parentId, and a staff session keeps whatever
+   * parentId it sent (only a PARENT session has it stamped below) — so a teacher could record a check-in
+   * IN A FAMILY'S NAME for any child: no remark, no class limit, no fence on a drop-off. The teacher's door
+   * is staffStudentCheckin, which demands a remark, holds them to their own classes and records who it was.
+   * Only the parent screen (P_punch) calls this route. Admin keeps it: "ดูมุมมองผู้ปกครอง" previews it. */
+  if (action === 'parentCheckin' && sess.role !== 'Admin' && sess.role !== ROLES.OBSERVER && sess.role !== ROLES.PARENT) {
+    throw apiError_('NO_PERMISSION', 'ปุ่มนี้สำหรับผู้ปกครอง — คุณครูบันทึกรับ-ส่งแทนได้ที่ "บันทึกแทน" (ต้องระบุหมายเหตุ)');
+  }
   /* googleLink is ALWAYS about the caller themselves — that is the entire safety of it. Nobody types
    * an address, so nobody mistypes one onto another family. An Admin session returns below with the
    * payload untouched, which would leave this one action with no identity at all and refuse the

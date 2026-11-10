@@ -201,6 +201,12 @@ const norm = (name, rows) => rows.map(r => { const o = Object.assign({}, r); del
     const sst = (label, ask, who) => step(label, ask, who, 'staffStudentCheckin', 'handleStaffStudentCheckin');
     const by = (sid, type, extra) => Object.assign({ studentId: sid, type, remark: 'คุณยายมารับ-ส่ง' }, extra || {});
     at('2026-11-13', '08:30');
+    {
+      const n = (await PG.readSheet(c, TENANT, 'CHECKIN_STUDENT')).length;
+      const o = await viaHost({ action: 'parentCheckin', payload: { parentId: 'PAR-01', studentId: 'S01', type: 'IN', lat: LAT, lng: LNG } }, T);
+      ok_('🔴 ครูใช้ปุ่มของผู้ปกครองพร้อม parentId ของครอบครัว → ' + (o.error && o.error.code) + ' ไม่บันทึก',
+        o.ok === false && o.error.code === 'NO_PERMISSION' && (await PG.readSheet(c, TENANT, 'CHECKIN_STUDENT')).length === n);
+    }
     await sst('🔴 ครูห้องอื่น → NO_ACCESS', by('S01', 'IN'), Z);
     await sst('🔴 เด็กที่แจ้งลาวันนี้ → ON_LEAVE', by('S04', 'IN'), T);
     {
