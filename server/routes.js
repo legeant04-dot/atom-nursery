@@ -137,7 +137,19 @@ const PORTED = {
   approveLeave: { fn: 'handleApproveLeave', reads: ['STAFF', 'LEAVE_REQUEST', 'ADMIN_INBOX', 'USERS', 'LINE_RECIPIENTS'],
     writes: { LEAVE_REQUEST: ['Step1ApproverID', 'Step1ApproverName', 'Step1Status', 'Step1Date', 'Step1CrossDept',
       'Step2ApproverID', 'Step2ApproverName', 'Step2Status', 'Step2Date', 'Status'] },
-    appends: ['ADMIN_INBOX'], line: true }
+    appends: ['ADMIN_INBOX'], line: true },
+  /* STAFF CLOCK-IN / CLOCK-OUT (src/Checkin.gs) — 💰 the row decides lateness (เบี้ยขยัน) and OT.
+   *   staffCheckin   the day's hours (atomStaffHours_: shift · Big Cleaning · half-day holiday · grace), the
+   *                  school-open rule, the geofence, then one CHECKIN_STAFF row with LateMinutes
+   *   staffCheckout  never refused for the day being shut; OT in FULL hours from the person's own end time
+   *                  (OTRoundUpMinutes), × StaffOTHourlyRate → one OT_RECORDS row into the approval queue and
+   *                  the admins told — only when there is at least one hour
+   * Every hour here is read on the SCHOOL'S clock (see the guard in run()). Proven by
+   * tools/test_fast_route_checkin.js (a fixed clock on both sides) and its _live twin. */
+  staffCheckin: { fn: 'handleStaffCheckin', reads: ['STAFF', 'WORK_SCHEDULE', 'STAFF_GROUPS', 'HOLIDAYS', 'OT_RECORDS', 'CHECKIN_STAFF'],
+    writes: { CHECKIN_STAFF: ['CheckIn', 'LateMinutes', 'Status'] }, appends: ['CHECKIN_STAFF'] },
+  staffCheckout: { fn: 'handleStaffCheckout', reads: ['STAFF', 'WORK_SCHEDULE', 'STAFF_GROUPS', 'HOLIDAYS', 'OT_RECORDS', 'CHECKIN_STAFF', 'ADMIN_INBOX', 'USERS', 'LINE_RECIPIENTS'],
+    writes: { CHECKIN_STAFF: ['CheckOut', 'OTHours', 'Status'] }, appends: ['OT_RECORDS', 'ADMIN_INBOX'], line: true }
 };
 /* 🔴 SCHOOL_CONFIG is readable by every ported route, as by every line of Apps Script: getConfig_ is
  * Db.gs's own (raw Key/Value rows, cached per execution in _configCache — reset per request here),
@@ -156,6 +168,13 @@ function load() {
   box = { console: { log() {}, error() {} }, Logger: { log() {} } };
   vm.createContext(box);
   FILES.forEach(f => vm.runInContext(fs.readFileSync(path.join(ROOT, 'src', f + '.gs'), 'utf8'), box, { filename: f + '.gs' }));
+  /* atomStaffHours_ — THE rule for a day's hours and lateness. It lives at the top level of webapp/engine.js
+   * and reaches Apps Script through the generated Engine.gs; here it is lifted from the same file (already in
+   * the image), so there is still one definition. A top-level function closes with `}` in column 0. */
+  { const eng = fs.readFileSync(path.join(ROOT, 'webapp', 'engine.js'), 'utf8').replace(/\r\n/g, '\n');
+    const at = eng.search(/^function atomStaffHours_\(/m), end = eng.indexOf('\n}', at);
+    if (at < 0 || end < 0) throw new Error('routes: atomStaffHours_ not found in webapp/engine.js');
+    vm.runInContext(eng.slice(at, end + 2), box, { filename: 'engine.js#atomStaffHours_' }); }
   Object.keys(PORTED).forEach(a => {
     if (typeof box[PORTED[a].fn] !== 'function') throw new Error('routes: ' + PORTED[a].fn + ' not found in src/*.gs');
     /* 🔴 ONLY A REAL Code.gs ROUTE. An action live answers from the ENGINE (myLeaves, 2026-11-06 — its name
@@ -196,9 +215,10 @@ const p2 = n => String(n).padStart(2, '0');
 function formatDate(d, tz, fmt) {
   if (tz !== 'Asia/Bangkok') throw new Error('routes: formatDate in ' + tz + ' is not supported');
   const t = new Date(new Date(d).getTime() + 7 * 3600000);
-  const parts = { yyyy: t.getUTCFullYear(), MM: p2(t.getUTCMonth() + 1), dd: p2(t.getUTCDate()), HH: p2(t.getUTCHours()), mm: p2(t.getUTCMinutes()), ss: p2(t.getUTCSeconds()) };
-  if (!/^(yyyy|MM|dd|HH|mm|ss|[-/: ])+$/.test(fmt)) throw new Error('routes: formatDate pattern ' + fmt + ' is not supported');
-  return fmt.replace(/yyyy|MM|dd|HH|mm|ss/g, k => String(parts[k]));
+  const parts = { yyyy: t.getUTCFullYear(), MM: p2(t.getUTCMonth() + 1), dd: p2(t.getUTCDate()), HH: p2(t.getUTCHours()), mm: p2(t.getUTCMinutes()), ss: p2(t.getUTCSeconds()),
+    EEEE: ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'][t.getUTCDay()] };   // WORK_SCHEDULE.DayOfWeek
+  if (!/^(yyyy|MM|dd|HH|mm|ss|EEEE|[-/: ])+$/.test(fmt)) throw new Error('routes: formatDate pattern ' + fmt + ' is not supported');
+  return fmt.replace(/yyyy|MM|dd|HH|mm|ss|EEEE/g, k => String(parts[k]));
 }
 
 
@@ -230,6 +250,16 @@ const engineWrites = a => ((PORTED[a] || {}).engine || []).slice();
  *       lock (PG.updateSheetRows). The change is ALSO applied to raw, so a later call in the same batch
  *       reads it, exactly as the next call on Apps Script would read the sheet.
  */
+/* 🧪 A FIXED CLOCK — FOR THE PROOFS ONLY. Lateness and OT are functions of "now", so the comparison with Apps
+ * Script needs both sides to stand at the same minute. setClock(ms) makes `new Date()` inside the sandbox answer
+ * that moment for the runs that follow; setClock(null) puts the real clock back. server/host.js never calls
+ * it (tools/test_fast_route_clock.js checks that it never appears there). */
+let CLOCK_MS = null;
+function setClock(ms) { CLOCK_MS = (ms == null) ? null : Number(ms); }
+const FAKE_DATE = '(function (ms) { var R = Date; function F(a, b, c, d, e, f, g) { var n = arguments.length;' +
+  ' if (!(this instanceof F)) return new R(ms).toString();' +
+  ' return n === 0 ? new R(ms) : n === 1 ? new R(a) : new R(a, b, n > 2 ? c : 1, d || 0, e || 0, f || 0, g || 0); }' +
+  ' F.prototype = R.prototype; F.now = function () { return ms; }; F.parse = R.parse; F.UTC = R.UTC; Date = F; })';
 function run(action, payload, raw, H, config, sink, line) {
   const def = PORTED[action];
   if (!def) throw new Error('routes: ' + action + ' is not ported');
@@ -243,6 +273,7 @@ function run(action, payload, raw, H, config, sink, line) {
   }
   const b = load();
   resetBox(b);
+  if (CLOCK_MS != null) vm.runInContext(FAKE_DATE, b)(CLOCK_MS);   // resetBox removes it again before the next run
   /* WHAT THIS ROUTE MAY TOUCH — all declared, nothing inferred (W0, 2026-11-07):
    *   reads    sheets it reads
    *   writes   { SHEET: [columns] } — cells of EXISTING rows it may change (updateRow_)
@@ -421,4 +452,4 @@ function run(action, payload, raw, H, config, sink, line) {
   return out === undefined ? out : JSON.parse(JSON.stringify(out));
 }
 
-module.exports = { PORTED, has: a => Object.prototype.hasOwnProperty.call(PORTED, a), needs, writable, writes, sendsLine, engineWrites, run, formatDate };
+module.exports = { PORTED, has: a => Object.prototype.hasOwnProperty.call(PORTED, a), needs, writable, writes, sendsLine, engineWrites, run, formatDate, setClock, FAKE_DATE };

@@ -20,7 +20,13 @@
 - ✅ แก้แล้ว (ผอ.: "เก็บเวลาอนุมัติใบลาด้วย"): LEAVE_REQUEST.CreatedDate/Step1Date/Step2Date เป็น timestamptz (schema_inventory SHEET_TYPE → 001_init.sql · PgSchema.gs · staging --apply คอลัมน์ว่างทั้งสาม) · test_all_pg leave 8 ชุดผ่าน
 - 🔴 **นาฬิกาของ Cloud Run เป็น UTC** (พบตอนอ่านโค้ดลงเวลา): โค้ด Apps Script อ่านชั่วโมง/วันในสัปดาห์ด้วย getHours()/getDay() — บน container ครูมา 08:20 จะอ่านเป็น 01:20 (ไม่สาย ไม่มี OT) และ todayLocal ของ engine ผิดวันช่วง 00:00–07:00 · ชุดทดสอบไม่เคยเห็นเพราะเครื่องนี้อยู่เขตเวลาไทย · แก้: Dockerfile ENV TZ=Asia/Bangkok + host.js ตั้ง TZ ก่อนโหลด + routes.run ปฏิเสธ (NOT_ON_FAST_HOST) ถ้า offset ≠ +7 · tools/test_fast_route_clock.js 6 ข้อ
 - v507 · push + Cloud Run staging (W2 ข้อ 2–5 + ใบลาครู + นาฬิกา)
-- **ต่อไปใน W3**: ลงเวลาครู (geofence · สาย · OT · เบี้ยขยัน) — พิสูจน์ทุกบาทแบบ test_fast_host_money_live
+- ขึ้นแล้ว: v507 · GAS @413 · commit 51c9c83 · Cloud Run staging rev 00021
+
+**W3 ข้อสอง — ลงเวลาครู** `staffCheckin` · `staffCheckout` (💰 นาทีสาย → เบี้ยขยัน · OT ชั่วโมงเต็ม × อัตรา → OT_RECORDS) — **ยังไม่ commit / ยังไม่ deploy**
+- กล่องทราย: ยก atomStaffHours_ จาก webapp/engine.js (นิยามเดียว) · formatDate รู้จัก EEEE (WORK_SCHEDULE.DayOfWeek) · setClock/FAKE_DATE สำหรับบทพิสูจน์เท่านั้น (host.js ไม่เรียก — ตรึงไว้ใน test_fast_route_clock)
+- **หลักฐาน** (นาฬิกาตรึงนาทีเดียวกันสองฝั่ง): test_fast_route_checkin 142 — อังคารปกติ (กะกลุ่ม/ค่าเริ่มต้น/ตารางรายวัน · สาย 15) · รั้ว GPS (นอกรัศมี · เผื่อ 50 ม. · ไม่ตั้งพิกัด) · ยังไม่เริ่มงาน/ลาชั่วคราว/สิ้นสุด · OT 113 นาที → 2 ชม. × 100 = 200 · 45 นาทีไม่ปัด · หัวหน้าข้ามขั้นแรก · หยุดทั้งวัน · ครึ่งวันเปิด 12:00 (สาย 5 ไม่ใช่ 255) · Big Cleaning · OT วันหยุดเหมาจ่ายไม่ซ้อน · อัตรา auto 150 · test_fast_route_checkin_live 73 (staging Postgres: เซสชันตัดสินว่าใครลงเวลา ลงแทนเพื่อนไม่ได้) · test_all 235
+- ข้อสังเกต (กติกาเดิม ไม่ได้แก้): วันหยุดครึ่งวันเลื่อนเวลาเริ่มงานเฉพาะเมื่อช่วงปิด "คลุม" เวลาเริ่มกะ — กะ 07:30 กับช่วงปิด 08:00–12:00 ยังนับสายจาก 07:30
+- **ต่อไปใน W3**: ผู้ปกครองเช็คอิน/รับกลับ (💰 ค่ารับช้า) · ครูเช็คอินแทน · อนุมัติ OT
 
 ---
 
