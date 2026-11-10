@@ -240,7 +240,18 @@ at('2026-11-14', '09:00');
 r = sst(by('STF-T', 'S11', 'IN'), '🔴 วันเสาร์');
 eq('🔴 ...SCHOOL_CLOSED', r.host.code, 'SCHOOL_CLOSED');
 
-console.log('\n10) 🔴 กล่องทราย');
+console.log('\n10) 🔴 ปุ่มของผู้ปกครองเป็นของผู้ปกครอง (applyIdentity_ — ประตูเดียวกันทั้ง Apps Script และโฮสต์)');
+{
+  const GATE = require(path.join(__dirname, '..', 'server', 'gate.js'));
+  const who = (role, linkedId) => { try { const p = GATE.identity('parentCheckin', { parentId: 'PAR-01', studentId: 'S01', type: 'IN' }, { uid: 'U-' + linkedId, role, linkedId }, {}); return 'ok:' + (p.parentId || ''); }
+    catch (e) { return e.apiCode || e.message; } };
+  eq('🔴 ครูส่ง parentId ของครอบครัวอื่น → NO_PERMISSION', who('Teacher', 'STF-T'), 'NO_PERMISSION');
+  eq('🔴 หัวหน้าครู → NO_PERMISSION', who('Leader', 'STF-HD'), 'NO_PERMISSION');
+  eq('แอดมิน (ดูมุมมองผู้ปกครอง) → ผ่านเหมือนเดิม', who('Admin', 'STF-A'), 'ok:PAR-01');
+  ok_('ผู้ปกครอง → ผ่าน และ parentId มาจากเซสชันเสมอ (ไม่ใช่ที่ส่งมา)', /^(ok:PAR-02|NO_ACCESS)$/.test(who('Parent', 'PAR-02')));
+}
+
+console.log('\n11) 🔴 กล่องทราย');
 {
   ok_('parentCheckin มีสิทธิ์ส่ง LINE', ROUTES.sendsLine('parentCheckin'));
   const saved = ROUTES.PORTED.parentCheckin.appends; ROUTES.PORTED.parentCheckin.appends = ['CHECKIN_STUDENT', 'ADMIN_INBOX'];
