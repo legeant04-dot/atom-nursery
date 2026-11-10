@@ -87,9 +87,10 @@
 
     // ===== 2026 expansion =====
     // account stage
-    'acct.title':['คุณเป็นผู้ใช้ใหม่หรือเคยลงทะเบียนแล้ว?','New user or already registered?'],
+    'acct.title':['ยังไม่พบบัญชีนี้ในระบบ','This account is not in the system yet'],
     'acct.sub':['เลือกให้ตรงกับสถานะของคุณ','Pick the option that matches you'],
-    'acct.new':['ผู้ใช้ใหม่ (ลงทะเบียน)','New user (register)'], 'acct.newSub':['กรอกข้อมูลผู้ปกครอง แล้วเพิ่ม/เชื่อมข้อมูลบุตรหลาน','Enter parent info, then add/link your child'],
+    'acct.new':['สมัครเรียนให้บุตรหลาน (ครอบครัวใหม่)','Apply for a place (new family)'], 'acct.newSub':['ลงทะเบียนผู้ปกครอง แล้วกรอกใบสมัครต่อทันที','Register as a parent, then fill in the application'],
+    'acct.staff':['เป็นคุณครูหรือพนักงาน','I am a teacher or staff'], 'acct.staffSub':['ส่ง LINE ID ให้แอดมินเพื่อผูกบัญชี','Send your LINE ID to the admin to be linked'],
     'acct.existing':['เคยให้ข้อมูลกับโรงเรียนแล้ว','The school already has my details'], 'acct.existingSub':['เชื่อมบัญชี LINE นี้เข้ากับข้อมูลเดิม ไม่ต้องกรอกใหม่','Connect this LINE account to that record — no re-typing'],
     // registration
     'reg.choosePlan':['เลือกแพ็กเกจ','Choose a plan'], 'reg.choosePlanSub':['อัตราค่าบริการ Atom Nursery','Atom Nursery service rates'], 'reg.perMonth':['/เดือน','/month'],

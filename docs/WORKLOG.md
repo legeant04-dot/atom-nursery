@@ -5,6 +5,36 @@
 
 ---
 
+## 2026-11-10 · ย้ายปุ่มสมัครเรียนออกจากหน้าแรก · W3 เริ่ม: ใบลาครู (ยังไม่ commit / ยังไม่ deploy)
+
+**ปุ่มสมัครเรียน** (ผอ.: "ไม่อยากให้เอาไว้หน้าแรกสุด" · เข้าระบบ → มี UID เข้าปกติ / ไม่มี UID จึงเลือกทาง)
+- หน้าแรก (index.html + loginScreen) ไม่มีหัวข้อ "ครอบครัวใหม่ › สมัครเรียน" แล้ว
+- หน้า "ยังไม่พบบัญชีนี้ในระบบ" (accountStage) มี 3 ทาง: 📝 สมัครเรียน (ลงทะเบียนผู้ปกครอง → ใบสมัครต่อทันที) · ✅ เคยให้ข้อมูลแล้ว · 👩‍🏫 เป็นพนักงาน (เปิดกล่อง LINE ID ให้ส่งแอดมิน — 🔴 ไม่มีใครเลือก Role เอง)
+- ทางเข้าด้วย Google ที่ไม่พบบัญชี ยังบอกผู้ปกครองให้ใช้ LINE ตามเดิม (ไม่ได้แตะ)
+- เซิร์ฟเวอร์ไม่เปลี่ยน · **หลักฐาน**: test_application 120 · ลองบนจอ 375px (หน้าแรกไม่มีปุ่ม · กดทางแรกไปหน้าลงทะเบียนผู้ปกครองพร้อมจำว่าจะสมัคร)
+
+**W3 ข้อแรก — ใบลาครู** `submitLeave` · `approveLeave` (เสี่ยงน้อยสุดของ W3: ไม่มีเงินถูกเขียน แต่แถวนี้ตัดสินการหักเงินเดือนภายหลัง)
+- ไม่ต้องแก้กล่องทราย — ใช้ของ W0–W2 ทั้งหมด · ใบลาที่แนบรูป → NOT_ON_FAST_HOST (Drive เป็นของ Apps Script)
+- **หลักฐาน**: test_fast_route_line 162 (offline: ลาซ้ำ · ครึ่งวัน 0.5 · หัวหน้ายื่นข้ามขั้นแรก · ข้ามแผนก · สิทธิ์แต่ละขั้น · ตัดสินซ้ำ · สวิตช์ app) · test_fast_route_line_live 78 (staging Postgres) · test_fast_route_writes_live 86 · test_all 232
+- 🔴 **พบ**: ใน Postgres `CreatedDate`/`Step1Date`/`Step2Date` ของใบลาเป็นชนิด `date` — เก็บ "วัน" ไม่เก็บ "เวลา" ที่ชีตเก็บ · ไม่มีหน้าจอไหนแสดงเวลานี้ และ HR_AUDIT_LOG มีเวลาจริงของทุกขั้น · ยังไม่แก้ schema (รอถาม)
+- ✅ แก้แล้ว (ผอ.: "เก็บเวลาอนุมัติใบลาด้วย"): LEAVE_REQUEST.CreatedDate/Step1Date/Step2Date เป็น timestamptz (schema_inventory SHEET_TYPE → 001_init.sql · PgSchema.gs · staging --apply คอลัมน์ว่างทั้งสาม) · test_all_pg leave 8 ชุดผ่าน
+- 🔴 **นาฬิกาของ Cloud Run เป็น UTC** (พบตอนอ่านโค้ดลงเวลา): โค้ด Apps Script อ่านชั่วโมง/วันในสัปดาห์ด้วย getHours()/getDay() — บน container ครูมา 08:20 จะอ่านเป็น 01:20 (ไม่สาย ไม่มี OT) และ todayLocal ของ engine ผิดวันช่วง 00:00–07:00 · ชุดทดสอบไม่เคยเห็นเพราะเครื่องนี้อยู่เขตเวลาไทย · แก้: Dockerfile ENV TZ=Asia/Bangkok + host.js ตั้ง TZ ก่อนโหลด + routes.run ปฏิเสธ (NOT_ON_FAST_HOST) ถ้า offset ≠ +7 · tools/test_fast_route_clock.js 6 ข้อ
+- v507 · push + Cloud Run staging (W2 ข้อ 2–5 + ใบลาครู + นาฬิกา)
+- **ต่อไปใน W3**: ลงเวลาครู (geofence · สาย · OT · เบี้ยขยัน) — พิสูจน์ทุกบาทแบบ test_fast_host_money_live
+
+---
+
+## 2026-11-09 · W2 ครบ 5 route บนโฮสต์ (ยังไม่ deploy Cloud Run)
+
+- ใบสมัครระยะ 3 ขึ้นแล้ว: v506 · GAS @412 · commit 2305bbe
+- route 2–5: saveParentComment · studentAbsence · teacherStudentLeave · 🚨 submitInjury (engine: injuryReports + activityLog)
+- กล่องทราย: รองรับต่อท้ายหลายแถวด้วย Range.setValues (inboxAddMany_) — เฉพาะรูปแบบต่อท้ายทั้งแถว · อย่างอื่นยังปฏิเสธ
+- pg_engine: คีย์ lazyRO_ (feed ฯลฯ) ไม่นับเป็นการเขียน — Apps Script ทิ้งค่าเหล่านี้เหมือนกัน
+- **หลักฐาน**: test_fast_route_line 93 (offline · รวมแอดมินรับแทนเมื่อไม่มีครูดูแล) · test_fast_route_line_live 44 (staging Postgres จริง ·
+  รวมรายงานมีรูป → NOT_ON_FAST_HOST ไม่บันทึกไม่จด) · test_fast_route_writes_live 86 · test_all 232
+
+---
+
 ## 2026-11-09 · ใบสมัคร ระยะ 3 · ความยินยอมใช้ได้จริง + พิมพ์ใบสมัคร (ยังไม่ deploy)
 
 - ระยะ 2 ขึ้นแล้ว: v505 · GAS @411 · commit a4cc22f

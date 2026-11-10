@@ -24,6 +24,9 @@
  * 🔴 ยังไม่ครบ และต้องไม่ถูกอ่านว่าครบ — ดูท้ายไฟล์
  */
 'use strict';
+/* 🔴 the school's clock, before anything reads the time — see the Dockerfile. Set here as well so that
+ * a host started by hand, or an image built without that line, is not silently seven hours out. */
+process.env.TZ = 'Asia/Bangkok';
 const http = require('http');
 const path = require('path');
 const { connect } = require(path.join(__dirname, '..', 'tools', 'pg_lib.js'));

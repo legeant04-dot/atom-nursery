@@ -3,7 +3,7 @@
 *เขียน 2026-11-07 · ผอ. สั่ง: "เริ่ม 'เขียน' — ออกแบบก่อน เริ่มจากตัวเล็ก" · อนุมัติ W0+W1 วันเดียวกัน*
 
 > **สถานะ 2026-11-09:** ✅ W0 เสร็จ · ✅ **W1 ครบ 22 ตัว** (+ วันหยุด 3 · Big Cleaning 2 · recallJournalsMany) — ดู WORKLOG ·
-> 🟡 W2: อนุมัติแล้ว (09/11) · ตัวจด + ตัวส่ง + route ข้อ 1 saveTeacherReply เสร็จและผ่านทดสอบ (offline + staging) · deploy Cloud Run staging rev 00020 แล้ว (09/11 · LINE_SEND ไม่ได้ตั้ง = capture: ไม่ส่งถึงใครจริง)
+> 🟡 W2: route ครบทั้ง 5 แล้ว (09/11) · saveTeacherReply (Cloud Run staging rev 00020) · **saveParentComment · studentAbsence · teacherStudentLeave · submitInjury เขียนและผ่านทดสอบแล้ว (offline 93 · staging 44) — ยังไม่ deploy Cloud Run**
 
 ## สถานะตอนนี้
 
@@ -111,6 +111,12 @@ W2 ใช้แบบเดียวกันทุกประการ ไม�
 
 route ไหนที่ sandbox พบว่าแตะ Drive/รูป/เงิน → ส่งต่อให้ Apps Script เหมือน W1 (ไม่ฝืน)
 
+**ผลจริง (2026-11-09):** ทั้ง 5 route — คำตอบ · ทุกตาราง · ทุกข้อความ LINE (ผู้รับ เนื้อความ ลำดับ) เท่ากับ Apps Script ·
+รายงานบาดเจ็บที่มีรูป → `NOT_ON_FAST_HOST` (แอปส่งต่อ Apps Script) ไม่บันทึก ไม่จด LINE ·
+สิ่งที่ต้องเพิ่มในกล่องทราย: `Range.setValues` สำหรับต่อท้ายทั้งแถว (กระดิ่งครูหลายคนในครั้งเดียว — `inboxAddMany_`) ·
+และคีย์อ่านอย่างเดียวของ GasEngine (`lazyRO_` เช่น feed) ไม่ถือเป็นการเขียนบนโฮสต์ — เหมือน Apps Script ที่ทิ้งค่าเหล่านี้ ·
+หมายเหตุ: หัวหน้าครูได้รับแจ้งเหตุบาดเจ็บตามสวิตช์คิวอนุมัติ (`staff.approvalQueue`) ส่วนแอดมิน/รายชื่อผู้รับได้เสมอ — ตามโค้ดเดิม
+
 ### ไม่อยู่ใน W2
 
 - งานตั้งเวลา (เตือน 06:50 · สรุป 10:00/20:00) ยังส่งจาก Apps Script — ย้ายพร้อมตัวตั้งเวลาในระยะหลัง
@@ -118,6 +124,9 @@ route ไหนที่ sandbox พบว่าแตะ Drive/รูป/เง
 - route `lineDiag`/`lineUsage` (เครื่องมือแอดมิน) — อยู่ Apps Script
 
 ## ระยะ W3 · งานประจำวันที่ใกล้เงิน
+
+**สถานะ 2026-11-10:** ✅ ใบลาครู `submitLeave` · `approveLeave` เขียนและพิสูจน์แล้ว (offline 162 · staging 78) — ยังไม่ deploy ·
+⏳ ถัดไป: ลงเวลาครู → ผู้ปกครอง/ครูเช็คอินเด็ก → OT
 
 ลงเวลาครู (`staffCheckin`/`staffCheckout`) · ผู้ปกครองเช็คอิน · ครูเช็คอินแทน · ยื่น/อนุมัติใบลา ·
 มี geofence · OT · เบี้ยขยัน — พิสูจน์แบบเดียวกับ `test_fast_host_money_live` ทุกบาท

@@ -32,15 +32,26 @@ const FILES = ['Config', 'Db', 'Audit', 'Line', 'Auth', 'Code', 'Setup', 'Checki
 const G = require('./gas_test_harness.js')(FILES);
 
 const SHEETS = [['MAIN', 'SCHOOL_CONFIG'], ['MAIN', 'DAILY_JOURNAL'], ['MAIN', 'STUDENTS'], ['MAIN', 'PARENTS'], ['MAIN', 'USER_LINKS'],
-  ['MAIN', 'ADMIN_INBOX'], ['MAIN', 'AUDIT_LOG'], ['HR', 'AUDIT_LOG'], ['HR', 'STAFF']];
+  ['MAIN', 'ADMIN_INBOX'], ['MAIN', 'AUDIT_LOG'], ['HR', 'AUDIT_LOG'], ['HR', 'STAFF'],
+  // routes 2–4: the homeroom table, the children's leave, and the two places the admin fallback reads
+  ['MAIN', 'CLASSES'], ['MAIN', 'LEAVE_REQUEST_STD'], ['MAIN', 'USERS'], ['MAIN', 'LINE_RECIPIENTS'],
+  // W3: staff leave
+  ['HR', 'LEAVE_REQUEST']];
 
 /* 🔴 a token on Apps Script's side, so its linePush_ really "sends" (to the harness's recorder) — the
  * host never reads it: its answer comes from line.ready */
 const FIX = {
-  SCHOOL_CONFIG: [['Departments', 'N1,N2'], ['LineChannelAccessToken', 'test-token-not-real'], ['NotifyParentJournalReply', 'app,line']],
+  SCHOOL_CONFIG: [['Departments', 'N1,N2'], ['LineChannelAccessToken', 'test-token-not-real'], ['NotifyParentJournalReply', 'app,line'],
+    ['NotifyStaffComment', 'app,line'], ['NotifyStaffLeave', 'app,line'], ['NotifyParentLeave', 'app,line']],
+  CLASSES: [{ ClassName: 'N1', TeacherID: 'STF-T' }, { ClassName: 'N2', TeacherID: '' }],
+  LEAVE_REQUEST_STD: [], USERS: [],
+  // the admin fallback: someone the school put on the list for comments and leaves
+  LINE_RECIPIENTS: [{ Name: 'แอดมิน', LineUID: 'Uadmin00000001', Topics: 'comment,leave', Active: 'YES', Note: '' }],
   STUDENTS: [{ StudentID: 'STD-1', Name: 'เด็กหนึ่ง', Nickname: 'หนึ่ง', Class: 'N1', Status: 'ACTIVE' },
              { StudentID: 'STD-2', Name: 'เด็กสอง', Nickname: '', Class: 'N1', Status: 'ACTIVE' },
-             { StudentID: 'STD-3', Name: 'เด็กสาม', Nickname: 'สาม', Class: 'N2', Status: 'ACTIVE' }],
+             { StudentID: 'STD-3', Name: 'เด็กสาม', Nickname: 'สาม', Class: 'N2', Status: 'ACTIVE' },
+             // a class no teacher covers — anything about this child falls back to the admin
+             { StudentID: 'STD-4', Name: 'เด็กสี่', Nickname: 'สี่', Class: 'N9', Status: 'ACTIVE' }],
   /* STD-1: two parents with LINE (one of them ALSO linked — must be messaged once) and one without */
   PARENTS: [{ ParentID: 'PAR-1', StudentID: 'STD-1', Name: 'แม่หนึ่ง', LineUID: 'Uaaaaaaaaaa0001' },
             { ParentID: 'PAR-2', StudentID: 'STD-1', Name: 'พ่อหนึ่ง', LineUID: '' },
@@ -49,7 +60,8 @@ const FIX = {
                { UserUID: 'Uaaaaaaaaaa0001', StudentID: 'STD-1', Role: 'Parent' }],
   DAILY_JOURNAL: [{ Date: '2026-11-05', StudentID: 'STD-1', TeacherID: 'STF-T', Mood: 'ยิ้ม', Status: 'SUBMITTED', ParentComment: 'ขอบคุณครับ', TeacherReply: '' },
                   { Date: '2026-11-05', StudentID: 'STD-2', TeacherID: 'STF-T', Mood: 'เฉย', Status: 'SUBMITTED', ParentComment: 'ทานข้าวไหม', TeacherReply: '' },
-                  { Date: '2026-11-05', StudentID: 'STD-3', TeacherID: 'STF-U', Mood: 'ยิ้ม', Status: 'SUBMITTED', ParentComment: 'x', TeacherReply: '' }],
+                  { Date: '2026-11-05', StudentID: 'STD-3', TeacherID: 'STF-U', Mood: 'ยิ้ม', Status: 'SUBMITTED', ParentComment: 'x', TeacherReply: '' },
+                  { Date: '2026-11-05', StudentID: 'STD-4', TeacherID: 'STF-T', Mood: 'ยิ้ม', Status: 'SUBMITTED', ParentComment: '', TeacherReply: '' }],
   STAFF: [{ StaffID: 'STF-T', Name: 'ครูที', Role: 'Teacher', PositionLevel: 'Teacher', Department: 'N1', Status: 'ACTIVE', LineUID: 'Uttttttttttt0009' },
           { StaffID: 'STF-U', Name: 'ครูยู', Role: 'Teacher', PositionLevel: 'Teacher', Department: 'N2', Status: 'ACTIVE' }],
   ADMIN_INBOX: []
@@ -119,7 +131,10 @@ const setProp = (k, v) => { G.g.__K = k; G.g.__V = v; G.run(function () { Proper
 const strip = rows => rows.map(r => { const o = Object.assign({}, r); delete o.__id; return o; });
 const comparable = (name, rows) => strip(rows).map(r => {
   if (/AUDIT_LOG$/.test(name)) { const t = Date.parse(r.Timestamp); r.Timestamp = (isFinite(t) && Math.abs(Date.now() - t) < 120000) ? 'now' : r.Timestamp; }
-  if (name === 'ADMIN_INBOX') { r.InboxID = /^IN-\d+-\d+$/.test(r.InboxID) ? 'IN-…' : r.InboxID; r.Date = r.Date ? 'now' : r.Date; }
+  // inboxAdd_ makes IN-<ms>-<rand>; inboxAddMany_ (several teachers at once) makes IN-<ms>-<i>-<rand>
+  // the moment a leave was filed or decided: equal when both sides wrote it within the same two minutes
+  if (name === 'LEAVE_REQUEST') ['CreatedDate', 'Step1Date', 'Step2Date'].forEach(k => { const t = Date.parse(r[k]); if (r[k] && isFinite(t) && Math.abs(Date.now() - t) < 120000) r[k] = 'now'; });
+  if (name === 'ADMIN_INBOX') { r.InboxID = /^IN-\d+(-\d+)+$/.test(r.InboxID) ? 'IN-…' : r.InboxID; r.Date = r.Date ? 'now' : r.Date; }
   return r;
 });
 const sameState = label => {
@@ -189,7 +204,127 @@ step(R, F, { staffId: 'STF-T', studentId: 'STD-1', date: '2026-11-05', reply: '�
 eq('...บันทึกได้ ไม่ส่ง', [got['ไม่มี token'].host.ok, got['ไม่มี token'].host.line.length, db.DAILY_JOURNAL[0].TeacherReply], [true, 0, 'ไม่มี token']);
 setCfg('LineChannelAccessToken', 'test-token-not-real'); HOST_READY = true;
 
-console.log('\n2) 🔴 กฎของท่อ LINE ในกล่องทราย');
+console.log('\n2) saveParentComment — ผู้ปกครองเขียนความเห็น → ครูประจำชั้น (🔔 เสมอ · LINE ตามหัวข้อ staff.comment)');
+{
+  const A = 'saveParentComment', Fn = 'handleSaveParentComment';
+  const c1 = step(A, Fn, { parentId: 'PAR-1', uid: 'Uaaaaaaaaaa0001', studentId: 'STD-1', date: '2026-11-05', comment: 'ทานข้าวเยอะไหมคะ' }, 'ครูมี LINE');
+  eq('ส่งถึงครูประจำชั้นคนเดียว', c1.host.line.map(p => p.to), ['Uttttttttttt0009']);
+  ok_('ข้อความบอกชื่อเด็ก วันที่ และความเห็น', /หนึ่ง/.test(c1.host.line[0].messages[0].text) && /ทานข้าวเยอะไหมคะ/.test(c1.host.line[0].messages[0].text));
+  setCfg('NotifyStaffComment', 'app');
+  const c2 = step(A, Fn, { parentId: 'PAR-1', uid: 'Uaaaaaaaaaa0001', studentId: 'STD-1', date: '2026-11-05', comment: 'แก้ความเห็น' }, "staff.comment = 'app'");
+  eq("...กระดิ่งครูดัง ไม่มี LINE", c2.host.line.length, 0);
+  setCfg('NotifyStaffComment', 'app,line');
+  // N2's only teacher has no LINE and N2 has no homeroom teacher of record → the bell only
+  const c3 = step(A, Fn, { parentId: 'PAR-9', studentId: 'STD-3', date: '2026-11-05', comment: 'ชั้นสอง' }, 'ครูไม่มี LINE');
+  eq('...ไม่ส่ง LINE (กระดิ่งของครูยังดัง)', c3.host.line.length, 0);
+  const c5 = step(A, Fn, { parentId: 'PAR-9', studentId: 'STD-4', date: '2026-11-05', comment: 'ไม่มีครูดูแล' }, 'ไม่มีครูคนไหนดูแลชั้นนี้');
+  eq('...ตกไปที่แอดมิน: LINE ถึงคนในรายชื่อหัวข้อ comment', c5.host.line.map(p => p.to), ['Uadmin00000001']);
+  const c4 = step(A, Fn, { parentId: 'PAR-1', studentId: 'STD-1', date: '2026-11-04', comment: 'ไม่มีบันทึก' }, '🔴 วันที่ไม่มีบันทึก');
+  eq('🔴 ...NOT_FOUND ไม่ส่ง ไม่บันทึก', [c4.host.code, c4.host.line.length, c4.host.ops], ['NOT_FOUND', 0, 0]);
+}
+
+console.log('\n3) studentAbsence — ผู้ปกครองแจ้งลา → ครู (🔔 เสมอ · LINE ตามหัวข้อ staff.leave)');
+{
+  const A = 'studentAbsence', Fn = 'handleStudentAbsence';
+  const a1 = step(A, Fn, { parentId: 'PAR-1', uid: 'Uaaaaaaaaaa0001', __role: 'Parent', studentId: 'STD-1', date: '2026-11-19', dateTo: '2026-11-20', type: 'ลาป่วย', reason: 'มีไข้' }, 'ลา 2 วัน');
+  eq('บันทึกวันลา 2 แถว · ส่งครูคนเดียว', [db.LEAVE_REQUEST_STD.length, a1.host.line.map(p => p.to)], [2, ['Uttttttttttt0009']]);
+  ok_('ข้อความมีช่วงวัน เหตุผล และชื่อผู้ปกครอง', /มีไข้/.test(a1.host.line[0].messages[0].text) && /แม่หนึ่ง/.test(a1.host.line[0].messages[0].text));
+  const a2 = step(A, Fn, { parentId: 'PAR-1', uid: 'Uaaaaaaaaaa0001', __role: 'Parent', studentId: 'STD-1', date: '2026-11-19', dateTo: '2026-11-20', type: 'ลาป่วย', reason: 'มีไข้' }, '🔴 กดส่งซ้ำ');
+  eq('🔴 ...ไม่บันทึกซ้ำ และไม่ส่งซ้ำ', [db.LEAVE_REQUEST_STD.length, a2.host.line.length, a2.host.data && a2.host.data.duplicate], [2, 0, true]);
+  setCfg('NotifyStaffLeave', '');
+  const a3 = step(A, Fn, { parentId: 'PAR-1', uid: 'Uaaaaaaaaaa0001', __role: 'Parent', studentId: 'STD-1', date: '2026-11-23', type: 'ลากิจ', reason: '' }, 'staff.leave ปิด');
+  eq('...บันทึกวันลา แต่ไม่ส่ง LINE', [db.LEAVE_REQUEST_STD.length, a3.host.line.length], [3, 0]);
+  setCfg('NotifyStaffLeave', 'app,line');
+}
+
+console.log('\n4) teacherStudentLeave — ครูแจ้งลาแทน → ครอบครัว (🔔 + LINE ตามหัวข้อ parent.leave)');
+{
+  const A = 'teacherStudentLeave', Fn = 'handleTeacherStudentLeave';
+  const t1 = step(A, Fn, { staffId: 'STF-T', studentId: 'STD-1', date: '2026-11-24', reason: 'ผู้ปกครองโทรแจ้ง' }, 'ครูประจำชั้น');
+  eq('ส่งถึงผู้ปกครองสองคน คนละครั้ง', t1.host.line.map(p => p.to), ['Uaaaaaaaaaa0001', 'Ubbbbbbbbbb0002']);
+  const t2 = step(A, Fn, { staffId: 'STF-U', studentId: 'STD-1', date: '2026-11-25', reason: 'ต่างชั้น' }, '🔴 ครูต่างชั้น');
+  eq('🔴 ...ปฏิเสธ ไม่บันทึก ไม่ส่ง', [t2.host.ok, t2.host.ops, t2.host.line.length], [false, 0, 0]);
+  setCfg('NotifyParentLeave', 'app');
+  const t3 = step(A, Fn, { staffId: 'STF-T', studentId: 'STD-1', date: '2026-11-26', reason: 'app อย่างเดียว' }, "parent.leave = 'app'");
+  eq("...ไม่มี LINE", t3.host.line.length, 0);
+  setCfg('NotifyParentLeave', 'app,line');
+  setCfg('DemoMode', 'true'); setProp('ATOM_DEMO', '1');
+  const t4 = step(A, Fn, { staffId: 'STF-T', studentId: 'STD-1', date: '2026-11-27', reason: 'สาธิต' }, '🔴 โหมดสาธิต');
+  eq('🔴 ...ทั้งสองฝั่งไม่ส่ง', [t4.gas.line.length, t4.host.line.length], [0, 0]);
+  setCfg('DemoMode', 'false'); setProp('ATOM_DEMO', '');
+}
+
+console.log('\n5) W3 · submitLeave / approveLeave — ใบลาครู 2 ขั้น (หัวหน้า → แอดมิน)');
+{
+  /* the people of this section join BOTH sides now, so sections 1–4 ran on the school they were written for */
+  const addRow = (bookName, sheet, row) => { G.g.__B = bookName; G.g.__S = sheet; G.g.__R = JSON.stringify(row);
+    G.run(function () { appendObject_(sheet_(__B === 'HR' ? getHrSpreadsheet_() : getMainSpreadsheet_(), __S), JSON.parse(__R)); return ''; });
+    const rows = gasState()[sheet]; db[sheet].push(Object.assign({ __id: 'r' + (nextId++) }, rows[rows.length - 1])); };
+  addRow('HR', 'STAFF', { StaffID: 'STF-L', Name: 'หัวหน้าแอล', Role: 'Teacher', PositionLevel: 'Leader', Department: 'N1', Status: 'ACTIVE', LineUID: 'Ullllllllllll0007' });
+  addRow('HR', 'STAFF', { StaffID: 'STF-M', Name: 'หัวหน้าเอ็ม', Role: 'Teacher', PositionLevel: 'Leader', Department: 'N2', Status: 'ACTIVE', LineUID: '' });
+  addRow('HR', 'STAFF', { StaffID: 'STF-A', Name: 'แอดมินเอ', Role: 'Admin', PositionLevel: 'Admin', Department: 'OFFICE', Status: 'ACTIVE', LineUID: 'Uadminstaff00003' });
+  addRow('MAIN', 'LINE_RECIPIENTS', { Name: 'ผอ.', LineUID: 'Udirector000004', Topics: 'approval', Active: 'YES', Note: '' });
+  setCfg('NotifyStaffApprovalQueue', 'app,line'); setCfg('NotifyStaffApproval', 'app,line'); setCfg('NotifyAdminApproval', 'app');
+  sameState('ตั้งต้นส่วนที่ 5');
+  const S = 'submitLeave', SF = 'handleSubmitLeave', A = 'approveLeave', AF = 'handleApproveLeave';
+  const inbox0 = db.ADMIN_INBOX.length;
+
+  const l1 = step(S, SF, { staffId: 'STF-T', type: 'ลาป่วย', startDate: '2026-12-01', endDate: '2026-12-02', reason: 'ไข้หวัด' }, 'ครูยื่นลา 2 วัน');
+  const id1 = l1.host.data && l1.host.data.leaveId;
+  eq('ใบลาใหม่: รอหัวหน้า · 2 วัน', [l1.host.data.status, l1.host.data.days, db.LEAVE_REQUEST.length], ['PENDING_LEADER', 2, 1]);
+  eq('LINE ถึงหัวหน้าที่มี LINE เท่านั้น (อีกคนได้กระดิ่ง)', [l1.host.line.map(p => p.to), db.ADMIN_INBOX.length - inbox0], [['Ullllllllllll0007'], 2]);
+
+  const l2 = step(S, SF, { staffId: 'STF-T', type: 'ลากิจ', startDate: '2026-12-02', endDate: '2026-12-02', reason: 'ซ้ำ' }, '🔴 ลาซ้ำวันเดิม');
+  eq('🔴 ...LEAVE_OVERLAP ไม่บันทึก ไม่ส่ง', [l2.host.code, l2.host.ops, l2.host.line.length, db.LEAVE_REQUEST.length], ['LEAVE_OVERLAP', 0, 0, 1]);
+  const l3 = step(S, SF, { staffId: 'STF-T', type: 'Sick Leave', startDate: '2026-12-08', endDate: '2026-12-08', halfDay: 'AM', reason: 'หมอนัด' }, 'ลาครึ่งวันเช้า (ชนิดเป็นอังกฤษ)');
+  eq('💰 ครึ่งวัน = 0.5 วัน และชนิดถูกบันทึกเป็นไทย', [l3.host.data.days, db.LEAVE_REQUEST[1].Days, db.LEAVE_REQUEST[1].Type, db.LEAVE_REQUEST[1].HalfDay], [0.5, 0.5, 'ลาป่วย', 'AM']);
+  step(S, SF, { staffId: 'STF-T', type: 'ลากิจ', startDate: '2026-12-08', endDate: '2026-12-08', halfDay: 'PM', reason: 'บ่าย' }, 'ครึ่งวันบ่ายของวันเดียวกัน ไม่ชน');
+  const l5 = step(S, SF, { staffId: 'STF-T', type: 'ลากิจ', startDate: '2026-12-09', endDate: '2026-12-10', halfDay: 'AM' }, '🔴 ครึ่งวันแต่หลายวัน');
+  eq('🔴 ...BAD_INPUT', l5.host.code, 'BAD_INPUT');
+  const l6 = step(S, SF, { staffId: 'STF-T', type: 'ลากิจ', startDate: '2026-12-12', endDate: '2026-12-11' }, '🔴 วันสิ้นสุดก่อนวันเริ่ม');
+  eq('🔴 ...BAD_DATES', l6.host.code, 'BAD_DATES');
+  const l7 = step(S, SF, { staffId: 'STF-L', type: 'ลาพักร้อน', startDate: '2026-12-15', endDate: '2026-12-15', reason: 'พักร้อน' }, 'หัวหน้ายื่นลา → ข้ามขั้นแรก');
+  eq('...รอแอดมินทันที · LINE ถึงคนในรายชื่อหัวข้อ approval', [l7.host.data.status, l7.host.line.map(p => p.to)], ['PENDING_ADMIN', ['Udirector000004']]);
+  /* the two sides DIFFER here on purpose, so this one is not a step(): the host refuses, Apps Script files it */
+  const P8 = { staffId: 'STF-T', type: 'ลาป่วย', startDate: '2026-12-16', endDate: '2026-12-16', attachment: 'data:image/png;base64,iVBORw0KGgo=' };
+  const l8 = { host: host(S, P8), gas: gas(SF, P8) };
+  ok_('...Apps Script รับใบที่มีรูปตามเดิม', l8.gas.ok && l8.gas.line.length === 1);
+  eq('🔴 ...โฮสต์ไม่รับ ส่งต่อ Apps Script · ไม่บันทึก ไม่ส่ง', [l8.host.code, l8.host.ops, l8.host.line.length], ['NOT_ON_FAST_HOST', 0, 0]);
+  { // Apps Script kept that one (it owns Drive) — give the host the same row, as the app's re-ask would
+    const rows = gasState().LEAVE_REQUEST; if (rows.length === db.LEAVE_REQUEST.length + 1) db.LEAVE_REQUEST.push(Object.assign({ __id: 'r' + (nextId++) }, rows[rows.length - 1]));
+    const ib = gasState().ADMIN_INBOX; while (db.ADMIN_INBOX.length < ib.length) db.ADMIN_INBOX.push(Object.assign({ __id: 'r' + (nextId++) }, ib[db.ADMIN_INBOX.length]));
+    const au = gasState().HR_AUDIT_LOG; while ((db.HR_AUDIT_LOG || (db.HR_AUDIT_LOG = [])).length < au.length) db.HR_AUDIT_LOG.push(Object.assign({ __id: 'r' + (nextId++) }, au[db.HR_AUDIT_LOG.length]));
+    sameState('หลังใบที่มีรูป (Apps Script เป็นคนบันทึก)'); }
+
+  const p1 = step(A, AF, { staffId: 'STF-U', leaveId: id1, decision: 'approve' }, '🔴 ครูธรรมดาอนุมัติ');
+  eq('🔴 ...NO_PERMISSION', [p1.host.code, p1.host.ops], ['NO_PERMISSION', 0]);
+  const p2 = step(A, AF, { staffId: 'STF-M', leaveId: id1, decision: 'approve' }, 'หัวหน้าต่างแผนกอนุมัติขั้นแรก');
+  eq('...ข้ามแผนก: แจ้งหัวหน้าแผนกเจ้าของ + แอดมิน 2 ข้อความ', [p2.host.data.status, p2.host.data.crossDept, p2.host.line.map(p => p.to)],
+    ['PENDING_ADMIN', true, ['Ullllllllllll0007', 'Udirector000004', 'Udirector000004']]);
+  const p3 = step(A, AF, { staffId: 'STF-L', leaveId: id1, decision: 'approve' }, '🔴 หัวหน้าอนุมัติขั้นสุดท้าย');
+  eq('🔴 ...NO_PERMISSION (ขั้นสุดท้ายเป็นของแอดมิน)', p3.host.code, 'NO_PERMISSION');
+  const p4 = step(A, AF, { staffId: 'STF-A', leaveId: id1, decision: 'approve', note: 'หายไว ๆ' }, 'แอดมินอนุมัติขั้นสุดท้าย');
+  const row1 = db.LEAVE_REQUEST.find(r => r.LeaveID === id1);
+  eq('💰 ใบลา APPROVED พร้อมชื่อผู้อนุมัติทั้งสองขั้น · LINE ถึงครูผู้ขอ',
+    [row1.Status, row1.Step1ApproverName, row1.Step1CrossDept, row1.Step2ApproverName, row1.Step2Status, p4.host.line.map(p => p.to)],
+    ['APPROVED', 'หัวหน้าเอ็ม', 'YES', 'แอดมินเอ', 'Approved', ['Uttttttttttt0009']]);
+  ok_('ข้อความถึงครูมีหมายเหตุของแอดมิน', /หายไว ๆ/.test(p4.host.line[0].messages[0].text));
+  const p5 = step(A, AF, { staffId: 'STF-A', leaveId: id1, decision: 'reject' }, '🔴 ตัดสินซ้ำ');
+  eq('🔴 ...ALREADY_RESOLVED ไม่เปลี่ยนอะไร', [p5.host.code, p5.host.ops, db.LEAVE_REQUEST.find(r => r.LeaveID === id1).Status], ['ALREADY_RESOLVED', 0, 'APPROVED']);
+  const id3 = l3.host.data.leaveId;
+  const p6 = step(A, AF, { staffId: 'STF-L', leaveId: id3, decision: 'reject', note: 'คนไม่พอ' }, 'หัวหน้าแผนกเดียวกันปฏิเสธ');
+  eq('...REJECTED · LINE ถึงครูผู้ขอ พร้อมเหตุผล', [p6.host.data.status, p6.host.line.map(p => p.to), /คนไม่พอ/.test((p6.host.line[0] || { messages: [{ text: '' }] }).messages[0].text)], ['REJECTED', ['Uttttttttttt0009'], true]);
+  const l9 = step(S, SF, { staffId: 'STF-T', type: 'ลากิจ', startDate: '2026-12-08', endDate: '2026-12-08', halfDay: 'AM', reason: 'ขอใหม่' }, 'ใบที่ถูกปฏิเสธไม่กันช่วงเวลา');
+  eq('...ยื่นช่วงเดิมใหม่ได้', l9.host.ok, true);
+  const p7 = step(A, AF, { staffId: 'STF-A', leaveId: 'LV0000-999', decision: 'approve' }, '🔴 ไม่มีใบนี้');
+  eq('🔴 ...NOT_FOUND', p7.host.code, 'NOT_FOUND');
+  setCfg('NotifyStaffApproval', 'app');
+  const p8 = step(A, AF, { staffId: 'STF-A', leaveId: l7.host.data.leaveId, decision: 'reject' }, "staff.approval = 'app'");
+  eq('...บันทึกผล กระดิ่งดัง ไม่มี LINE', [p8.host.data.status, p8.host.line.length], ['REJECTED', 0]);
+  setCfg('NotifyStaffApproval', 'app,line');
+}
+
+console.log('\n9) 🔴 กฎของท่อ LINE ในกล่องทราย');
 {
   const before = JSON.stringify(db);
   const raw = {}; ROUTES.needs([R]).forEach(s => { raw[s] = JSON.parse(JSON.stringify(db[s] || [])); });
