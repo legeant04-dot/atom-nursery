@@ -9,6 +9,11 @@ FROM node:22-slim
 
 WORKDIR /app
 ENV NODE_ENV=production
+# 🔴 THE SCHOOL'S CLOCK. Apps Script runs in Asia/Bangkok, and its code reads the hour with
+# Date.getHours() / getDay() (lateness, OT, "is today a weekend"). A container is UTC unless told:
+# a teacher clocking in at 08:20 would read 01:20 — never late, and Saturday would start at 07:00.
+# server/routes.js refuses every ported route when this is not in force (found 2026-11-10, W3).
+ENV TZ=Asia/Bangkok
 
 # one dependency: the Postgres driver
 COPY server/package.json ./package.json

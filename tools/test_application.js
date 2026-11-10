@@ -343,7 +343,12 @@ console.log('\n11) หน้าจอ — ทางเข้าเดียว�
 {
   const app = R('webapp/app.js'), html = R('webapp/index.html'), code = R('src/Code.gs');
   ok_('🔴 ปุ่ม "เพิ่มบุตรหลานคนใหม่" เปิดใบสมัคร ไม่ใช่ฟอร์มสร้างนักเรียนเดิม', /remove\(\);APPLY_START\(\)/.test(app) && !/remove\(\);REG_CHILD_FORM\(\)/.test(app));
-  ok_('ปุ่มสมัครเรียนอยู่ทั้งในหน้าเข้าสู่ระบบและในโครงหน้าแรก (ต้องตรงกัน)', /onclick="APPLY_INTENT\(\)"/.test(app) && /APPLY_INTENT&&APPLY_INTENT\(\)/.test(html));
+  /* ผอ. 2026-11-10: ไม่อยู่หน้าแรกแล้ว — เข้าระบบก่อน · ไม่มี UID จึงเห็นทางเลือกสมัครเรียน */
+  ok_('🔴 ปุ่มสมัครเรียนไม่อยู่หน้าแรก (ทั้งโครงหน้าและ loginScreen)', !/APPLY_INTENT/.test(html) && !/class="lgrow" onclick="APPLY_INTENT/.test(app));
+  ok_('บัญชีที่ยังไม่มีในระบบเห็น "สมัครเรียน" เป็นทางแรก และไปลงทะเบียนผู้ปกครองก่อน',
+    /<button class="role-card" onclick="APPLY_INTENT\(\)">/.test(app) && /window\.APPLY_INTENT=\(\)=>\{[^\n]*setItem\('atom_apply_intent','1'\)[^\n]*REG_START\(\); \};/.test(app));
+  ok_('🔴 พนักงานไม่ได้เลือก Role เอง — ทางที่สามแค่เปิดกล่อง LINE ID ให้ส่งแอดมิน',
+    /window\.ACCT_STAFF=\(\)=>\{ const b=\$\('#acctStaffBox'\)/.test(app) && !/ACCT_STAFF[^\n]*(LOGIN_|api\()/.test(app));
   ok_('ครอบครัวใหม่ที่ลงทะเบียนเพราะจะสมัคร ไปที่ใบสมัครต่อทันที', /APPLY_INTENT_PENDING\(\)\?APPLY_START\(\):P_addChild\(\)/.test(app));
   ok_('🔴 ตัวจัดการ inline ไม่อ้างตัวแปรภายใน (APP_S) — เคยทำให้ติ๊กคำรับรองไม่ได้', !/on[a-z]+="[^"]*APP_S/.test(app));
   ok_('💰 ช่องวันเริ่มเรียนตอนรับเข้าห้ามเลือกวันย้อนหลัง', /id="apAS" type="date" min="\$\{today\}"/.test(app));

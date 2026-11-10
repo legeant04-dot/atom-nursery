@@ -199,7 +199,7 @@
       _readStart(); let pr2; try{ pr2=_rawApi(action,payload,opts); }catch(e){ _readEnd(); throw e; }
       return Promise.resolve(pr2).then(v=>{ _readEnd(); return v; }, e=>{ _readEnd(); throw e; }); }; }
   setTimeout(()=>{ qBadge(); qFlush(); }, 1200);   // anything left from a previous session
-  const APP_VERSION = 'Version 1.506'; // bump each webapp change; shown only at the bottom of the Chat screen
+  const APP_VERSION = 'Version 1.507'; // bump each webapp change; shown only at the bottom of the Chat screen
   window.__atomVer = APP_VERSION;      // api.js stamps it on every telemetry row (which build was slow?)
   const verTag = () => `<div style="text-align:center;color:var(--ink-3);font-size:var(--fs-1);margin-top:var(--sp-5)">${APP_VERSION}</div>`;
   // phones are stored as numbers in Sheets so the leading 0 is lost — re-add it for Thai mobiles + make it a tap-to-call link
@@ -1964,10 +1964,8 @@
         ${CONFIG.MODE==='gas'&&!inLineApp()?`<div data-gsi="signin"></div>`:''}
         <label class="lgchk"><input type="checkbox" id="rememberMe" ${rememberMe()?'checked':''} onchange="REMEMBER_ME(this)"/> ${esc(t('login.remember'))}</label>
       </div>
-      ${/* 📝 สมัครเรียน — ผอ. 2026-11-09: on the front page, LINE first (answer 1). Same row shape as the
-           sign-in rows; 🔴 kept identical to the shell in index.html, or the page jumps when JS replaces it */''}
-      <h3 class="lgsect mid">${EN()?'New family':'ครอบครัวใหม่'}</h3>
-      <div class="lgbox"><button class="lgrow" onclick="APPLY_INTENT()"><span class="i">📝</span><span class="t">${EN()?'Apply for a place':'สมัครเรียน'}</span><span class="chev">›</span></button></div>
+      ${/* 📝 สมัครเรียน is NOT here any more (ผอ. 2026-11-10): sign in first; an account the school does
+           not know yet is offered the application on accountStage. 🔴 keep the shell in index.html the same. */''}
       ${demoButtons()}
       ${/* ── หมวดที่ 2: ติดตั้งแอป ───────────────────────────────────────────────────────────
            สองการ์ดเดิมยังเป็นสองก้อน (ชุดทดสอบ Android ตรึงลำดับไว้ และมันคนละเรื่องกันจริง:
@@ -2768,11 +2766,14 @@
     app.innerHTML = `<div class="rolewrap"><img src="assets/logo.png" class="logo-lg" alt="logo"/>
       <h2 class="page" style="text-align:center">${esc(t('acct.title'))}</h2>
       <p class="muted">${esc(t('acct.sub'))}</p>
-      <button class="role-card" onclick="REG_START()"><span class="ic">📝</span><span><b>${esc(t('acct.new'))}</b><br><small>${esc(t('acct.newSub'))}</small></span></button>
+      ${/* ผอ. 2026-11-10 — the three ways in for an account the school does not know. Nobody picks a
+           staff role for themselves: the third card only shows the id the admin needs to link them. */''}
+      <button class="role-card" onclick="APPLY_INTENT()"><span class="ic">📝</span><span><b>${esc(t('acct.new'))}</b><br><small>${esc(t('acct.newSub'))}</small></span></button>
       <button class="role-card" onclick="chooserExisting()"><span class="ic">✅</span><span><b>${esc(t('acct.existing'))}</b><br><small>${esc(t('acct.existingSub'))}</small></span></button>
+      ${PENDING_LINE_UID?`<button class="role-card" onclick="ACCT_STAFF()"><span class="ic">👩‍🏫</span><span><b>${esc(t('acct.staff'))}</b><br><small>${esc(t('acct.staffSub'))}</small></span></button>`:''}
       ${/* กล่องเดียวกับฝั่ง Google — และ --surface-2 ที่เคยใช้ตรงนี้เท่ากับสีพื้นหลังพอดีทั้งสองโหมด
             กล่องนี้จึงไม่เคยเด่นอย่างที่ตั้งใจเลย · ดูหมายเหตุใน googleNoAccountScreen */''}
-      ${PENDING_LINE_UID?`<div class="card" style="background:var(--brand-soft);border-color:var(--brand-line);margin-top:var(--sp-3)"><small class="muted">${EN()?'Your LINE ID (give this to the admin to link your staff account):':'LINE ID ของคุณ (ส่งให้แอดมินเพื่อผูกบัญชีพนักงาน):'}</small><br><code style="font-size:var(--fs-1);word-break:break-all" onclick="COPY_TXT('${esc(PENDING_LINE_UID)}')">${esc(PENDING_LINE_UID)}</code>
+      ${PENDING_LINE_UID?`<div class="card" id="acctStaffBox" hidden style="background:var(--brand-soft);border-color:var(--brand-line);margin-top:var(--sp-3)"><small class="muted">${EN()?'Your LINE ID (give this to the admin to link your staff account):':'LINE ID ของคุณ (ส่งให้แอดมินเพื่อผูกบัญชีพนักงาน):'}</small><br><code style="font-size:var(--fs-1);word-break:break-all" onclick="COPY_TXT('${esc(PENDING_LINE_UID)}')">${esc(PENDING_LINE_UID)}</code>
         <button class="btn sm outline block" style="margin-top:var(--sp-2)" onclick="COPY_TXT('${esc(PENDING_LINE_UID)}')">${ic('clipboard')} ${EN()?'Copy':'คัดลอก'}</button></div>`:''}
       <button class="btn-ghost block" style="margin-top:var(--sp-2)" onclick="loginScreen()">${esc(t('c.back'))}</button></div>`;
   }
@@ -3289,8 +3290,10 @@
       <button class="btn outline block" style="margin-top:var(--sp-2)" onclick="this.closest('.modal').remove();APP_begin(0)">${EN()?'Start a new one':'เริ่มใบใหม่'}</button>`);
       window.APP_begin=begin; return; }
     begin(false); };
-  // 📝 from the sign-in screen: remember why they came, then sign in with LINE (ผอ. answer 1: LINE first)
-  window.APPLY_INTENT=()=>{ try{ localStorage.setItem('atom_apply_intent','1'); }catch(e){} if(window.LIFF_LOGIN) LIFF_LOGIN(); };
+  /* 📝 a NEW family (ผอ. 2026-11-10): they have already signed in and the school does not know the
+   * account — remember why they came, register the parent, and registerParent's success opens the form. */
+  window.APPLY_INTENT=()=>{ try{ localStorage.setItem('atom_apply_intent','1'); }catch(e){} REG_START(); };
+  window.ACCT_STAFF=()=>{ const b=$('#acctStaffBox'); if(b){ b.hidden=false; b.scrollIntoView({behavior:'smooth',block:'center'}); } };
   const applyIntent=()=>{ try{ return localStorage.getItem('atom_apply_intent')==='1'; }catch(e){ return false; } };
   window.APPLY_INTENT_PENDING=applyIntent;
   // ---- the family's applications: on the home screen while one is open, and its detail ----

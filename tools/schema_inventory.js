@@ -467,7 +467,11 @@ const SHEET_TYPE = { 'SURVEYS.Anonymous': 'text', 'FOOD_ITEMS.Active': 'text', '
    * cash button, nowStr_() / SlipOK's transDate on a slip. Typed `date` from its name, every one of
    * them would have lost its time of day on migration (found 2026-11-05 porting money writes). */
   'BILLING.TransactionDate': 'timestamptz', 'OT_DAILY.TransactionDate': 'timestamptz',
-  'PREPAYMENTS.TransactionDate': 'timestamptz' };
+  'PREPAYMENTS.TransactionDate': 'timestamptz',
+  /* WHEN a staff leave was filed and decided — moments (new Date() in Leave.gs, stampLocal() in the engine).
+   * Typed date from their names, Postgres kept the day and dropped the time the sheet keeps (found 2026-11-10
+   * porting submitLeave/approveLeave; the director asked for the time to be kept). */
+  'LEAVE_REQUEST.CreatedDate': 'timestamptz', 'LEAVE_REQUEST.Step1Date': 'timestamptz', 'LEAVE_REQUEST.Step2Date': 'timestamptz' };
 
 function sqlType(col, sheet) {
   if (sheet && SHEET_TYPE[sheet + '.' + col]) return SHEET_TYPE[sheet + '.' + col];

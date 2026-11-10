@@ -611,11 +611,14 @@ function lazy_(M, cache, key, loader, init) {
 async function hydrateDerived(client, tenantId, M, today) {
   const raw = { CHECKIN_STAFF: await readSheet(client, tenantId, 'CHECKIN_STAFF'),
                 PAYROLL_CONFIG: await readSheet(client, tenantId, 'PAYROLL_CONFIG') };
-  const cache = {}, init = {};
+  const cache = {}, init = {}, ro = {};
   const def = (Mx, _c, _s, key, loader) => lazy_(Mx, cache, key, loader, init);
-  deriver()(M, raw, today, (Mx, c, s, key, loader) => def(Mx, c, s, key, loader), (Mx, c, key, loader) => def(Mx, c, null, key, loader));
-  /** the derived keys a handler CHANGED — read or untouched ones are not listed */
-  return function derivedChanged() { return Object.keys(init).filter(k => JSON.stringify(cache[k]) !== init[k]); };
+  /* lazyRO_ keys (feed, calendar, …) are READ-ONLY on Apps Script: GasEngine's setter keeps the change in
+   * memory and nothing ever saves it. So a handler that pushes to one (submitInjury adds to M.feed) is not
+   * a write here either — it is dropped exactly as Apps Script drops it (W2, 2026-11-09). */
+  deriver()(M, raw, today, (Mx, c, s, key, loader) => def(Mx, c, s, key, loader), (Mx, c, key, loader) => { ro[key] = 1; def(Mx, c, null, key, loader); });
+  /** the derived keys a handler CHANGED that Apps Script would save — read, untouched and read-only ones are not listed */
+  return function derivedChanged() { return Object.keys(init).filter(k => !ro[k] && JSON.stringify(cache[k]) !== init[k]); };
 }
 
 module.exports = { COLLECTIONS, hydrate, hydrateFast, hydrateConfig, hydrateDerived, readSheet, updateSheetRows, insertSheetRow, deleteSheetRow, applySheetOps, colsOf, bumpCacheVersions, writePayrollConfig, persist, decode_, encode_, snake, liftGas_, SHEET_COLS: () => SHEET_COLS };

@@ -104,7 +104,40 @@ const PORTED = {
    * the reply, every row AND every LINE message (recipient, text, order) compared. */
   // 1 · the teacher answers a parent's comment → the family's 🔔 and LINE (topic parent.journalReply)
   saveTeacherReply: { fn: 'handleSaveTeacherReply', reads: ['STUDENTS', 'STAFF', 'PARENTS', 'USER_LINKS', 'ADMIN_INBOX'],
-    writes: { DAILY_JOURNAL: ['TeacherReply'] }, appends: ['ADMIN_INBOX'], line: true }
+    writes: { DAILY_JOURNAL: ['TeacherReply'] }, appends: ['ADMIN_INBOX'], line: true },
+  /* 2 · a parent comments on the day's report → the class teacher(s): 🔔 always, LINE by topic staff.comment.
+   * Nobody reached at all → the admin's bell (notifyAdmins_), which reads the recipient list and USERS. */
+  saveParentComment: { fn: 'handleSaveParentComment', reads: ['STUDENTS', 'STAFF', 'CLASSES', 'ADMIN_INBOX', 'USERS', 'LINE_RECIPIENTS'],
+    writes: { DAILY_JOURNAL: ['ParentComment'] }, appends: ['ADMIN_INBOX'], line: true },
+  /* 3 · a family reports their child away → one LEAVE_REQUEST_STD row per new day (a re-send files nothing)
+   * and the class teacher(s): 🔔 always, LINE by topic staff.leave; nobody reached → the admin's bell */
+  studentAbsence: { fn: 'handleStudentAbsence', reads: ['HOLIDAYS', 'STUDENTS', 'PARENTS', 'USER_LINKS', 'STAFF', 'CLASSES', 'ADMIN_INBOX', 'USERS', 'LINE_RECIPIENTS'],
+    writes: { LEAVE_REQUEST_STD: [] }, appends: ['LEAVE_REQUEST_STD', 'ADMIN_INBOX'], line: true },
+  // 4 · a teacher files the leave for the family → the family's 🔔 and LINE (topic parent.leave)
+  teacherStudentLeave: { fn: 'handleTeacherStudentLeave', reads: ['HOLIDAYS', 'STUDENTS', 'STAFF', 'PARENTS', 'USER_LINKS', 'ADMIN_INBOX'],
+    writes: { LEAVE_REQUEST_STD: [] }, appends: ['LEAVE_REQUEST_STD', 'ADMIN_INBOX'], line: true },
+  /* 5 · 🚨 an injury report — LAST, after 1–4 were proven. The report itself is the ENGINE's (injuryReports);
+   * the alarm is Notify.gs: admins + the recipient list ALWAYS (no switch can silence it), head teachers by their
+   * approval-queue switch (notifyLeaders_), and
+   * the family when the teacher ticked "notify parent". A report WITH PHOTOS is refused here (Drive is Apps
+   * Script's) and the app sends it there — the emergency is never lost, only slower. */
+  submitInjury: { fn: 'handleSubmitInjury', reads: ['STUDENTS', 'STAFF', 'PARENTS', 'USER_LINKS', 'ADMIN_INBOX', 'USERS', 'LINE_RECIPIENTS'],
+    appends: ['ADMIN_INBOX'], engine: ['injuryReports', 'activityLog'], line: true },
+
+  /* ═══ W3 · the day's work that sits next to money (docs/FAST_HOST_WRITES_PLAN.md, 2026-11-10) ═════════
+   * Least risk first. STAFF LEAVE (src/Leave.gs): the request and its two approval steps. No baht is written
+   * here — payroll reads LEAVE_REQUEST later — but the row decides a deduction, so every cell is compared.
+   * Proven by section 5 of tools/test_fast_route_line.js and 1f of test_fast_route_line_live.js.
+   *   submitLeave   one LEAVE_REQUEST row (refused when it overlaps a held slot) → head teachers, or the
+   *                 admins when the requester is a head teacher/admin. An attachment is a Drive image:
+   *                 refused here, the app sends that request to Apps Script.
+   *   approveLeave  step 1 (head teacher) or step 2 (admin) on the SAME row → the next approver or the requester */
+  submitLeave: { fn: 'handleSubmitLeave', reads: ['STAFF', 'LEAVE_REQUEST', 'ADMIN_INBOX', 'USERS', 'LINE_RECIPIENTS'],
+    appends: ['LEAVE_REQUEST', 'ADMIN_INBOX'], line: true },
+  approveLeave: { fn: 'handleApproveLeave', reads: ['STAFF', 'LEAVE_REQUEST', 'ADMIN_INBOX', 'USERS', 'LINE_RECIPIENTS'],
+    writes: { LEAVE_REQUEST: ['Step1ApproverID', 'Step1ApproverName', 'Step1Status', 'Step1Date', 'Step1CrossDept',
+      'Step2ApproverID', 'Step2ApproverName', 'Step2Status', 'Step2Date', 'Status'] },
+    appends: ['ADMIN_INBOX'], line: true }
 };
 /* 🔴 SCHOOL_CONFIG is readable by every ported route, as by every line of Apps Script: getConfig_ is
  * Db.gs's own (raw Key/Value rows, cached per execution in _configCache — reset per request here),
@@ -200,6 +233,14 @@ const engineWrites = a => ((PORTED[a] || {}).engine || []).slice();
 function run(action, payload, raw, H, config, sink, line) {
   const def = PORTED[action];
   if (!def) throw new Error('routes: ' + action + ' is not ported');
+  /* 🔴 Apps Script's code reads the hour and the weekday with Date.getHours()/getDay(), in Asia/Bangkok.
+   * On a clock that is not UTC+7 the same code answers differently — lateness, OT and "is the school shut"
+   * — and nothing would look wrong. So a host on any other clock does not run a ported route at all: the
+   * app re-asks Apps Script (NOT_ON_FAST_HOST). Proven by tools/test_fast_route_clock.js. */
+  if (new Date().getTimezoneOffset() !== -420) {
+    const e = new Error('routes: the host clock is not Asia/Bangkok (offset ' + new Date().getTimezoneOffset() + ' min) — ' + action + ' is not run here');
+    e.apiCode = 'NOT_ON_FAST_HOST'; throw e;
+  }
   const b = load();
   resetBox(b);
   /* WHAT THIS ROUTE MAY TOUCH — all declared, nothing inferred (W0, 2026-11-07):
@@ -297,7 +338,16 @@ function run(action, payload, raw, H, config, sink, line) {
     setValue: v => { if ((nr || 1) !== 1 || (nc || 1) !== 1 || r < 2) return breach('routes: ' + action + ' setValue on more than one cell or the header row');
       updateRow({ __sheet: name }, r, { [cols(name)[c - 1]]: v }); },
     setNumberFormat: () => {}, setNumberFormats: () => {},        // a display format; Postgres stores the text as text
-    setValues: refuseWrite('Range.setValues')
+    /* W2 (2026-11-09): APPENDING whole rows in one write — inboxAddMany_ (Notify.gs) adds every teacher's 🔔
+     * row with one getRange(lastRow+1, 1, n, headers).setValues(). Only that exact shape is allowed: it starts
+     * on the first empty row, covers every header column, and goes through appendObject — the same declaration
+     * check, the same image refusal. Anything else (overwriting rows, partial columns) is still refused. */
+    setValues: vals => {
+      const h = cols(name);
+      if (r !== rows(name).length + 2 || c !== 1 || (nc || 0) !== h.length || !Array.isArray(vals) || vals.length !== (nr || 0))
+        return breach('routes: ' + action + ' Range.setValues — only appending whole rows after the last row is supported');
+      vals.forEach(arr => { const o = {}; h.forEach((k, i) => { o[k] = arr[i]; }); appendObject({ __sheet: name }, o); });
+    }
   });
   const sheetObj = name => ({
     __sheet: name, getName: () => name,
