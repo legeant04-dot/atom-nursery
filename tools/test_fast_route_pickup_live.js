@@ -47,21 +47,23 @@ const mom = id => ({ ParentID: 'PAR-' + id.slice(-2), Name: 'แม่' + id.sli
 const SEED = {
   PARENTS: ['S01', 'S04', 'S09', 'S10'].map(mom),
   STUDENTS: [kid('S01', 'เอ'), kid('S04', 'ดี', { OTRate: 150 }), kid('S09', 'ไอ', { Plan: 'P2' }), kid('S10', 'เจ')],
-  CLASSES: [{ ClassID: 'C1', ClassName: 'N1', TeacherID: 'STF-T' }],
+  CLASSES: [{ ClassID: 'C1', ClassName: 'N1', TeacherID: 'STF-T' }, { ClassID: 'C2', ClassName: 'N2', TeacherID: 'STF-Z' }],
   STAFF: [{ StaffID: 'STF-T', Name: 'ครูที', Role: 'Teacher', PositionLevel: 'Teacher', Department: 'N1', Status: 'ACTIVE', StartDate: '2025-01-01', LineUID: 'Uteachertest0001' },
     { StaffID: 'STF-Z', Name: 'ครูห้องอื่น', Role: 'Teacher', PositionLevel: 'Teacher', Department: 'N2', Status: 'ACTIVE', StartDate: '2025-01-01' }],
-  LEAVE_REQUEST_STD: [{ LeaveID: 'LVS-0001', StudentID: 'S04', Date: '2026-11-13', Type: 'ลาป่วย', Reason: 'มีไข้', Status: 'APPROVED' }],
+  LEAVE_REQUEST_STD: [{ LeaveID: 'LVS-0001', StudentID: 'S04', Date: '2026-11-13', Type: 'ลาป่วย', Reason: 'มีไข้', Status: 'APPROVED' },
+    { LeaveID: 'LVS-0002', StudentID: 'S01', Date: '2026-11-20', Type: 'ลากิจ', Reason: 'ไปงานแต่ง', Status: 'APPROVED' },
+    ...['16', '17', '18', '19'].map((d, i) => ({ LeaveID: 'LVS-000' + (5 + i), StudentID: 'S10', Date: '2026-11-' + d, DateTo: '2026-11-19', GroupID: 'LVG-S10-2026-11-16', Type: 'ลากิจ', Reason: 'ต่างจังหวัด', Status: 'APPROVED' }))],
   OT_DAILY: [{ OTID: 'OT-20261110-S10', Date: '2026-11-10', StudentID: 'S10', PickupTime: '18:30', PlanEnd: '17:00', LateMinutes: 90, Hours: 2, FullAmount: 200,
     Discount: 100, DiscountReason: 'ผอ.ลดให้', DiscountBy: 'ADM', Amount: 100, Status: 'UNPAID', SlipRef: '', SlipAmount: 0 }],
   LINE_RECIPIENTS: [{ Name: 'ผอ.', LineUID: 'Udirectortest0004', Topics: 'approval', Active: 'YES', Note: '' }]
 };
 const CONFIG = [['Timezone', 'Asia/Bangkok'], ['GPS_Lat', String(LAT)], ['GPS_Lng', String(LNG)], ['Radius', '30'],
   ['Plans', JSON.stringify([{ id: 'P1', name: 'เต็มวัน', end: '17:00', price: 6900 }, { id: 'P2', name: 'ครึ่งวัน', end: '12:00', price: 4500 }])],
-  ['OTRatePerHour', '100'], ['OTGraceMinutes', '21'], ['CheckinDedupMinutes', '10'], ['NotifyStaffArrival', 'app,line'], ['NotifyParentOt', 'app,line'], ['NotifyParentCheckin', 'app,line'],
+  ['OTRatePerHour', '100'], ['OTGraceMinutes', '21'], ['CheckinDedupMinutes', '10'], ['NotifyStaffArrival', 'app,line'], ['NotifyParentOt', 'app,line'], ['NotifyParentCheckin', 'app,line'], ['NotifyStaffLeave', 'app,line'],
   ['LineChannelAccessToken', 'fake-token-not-real']];
 /* compared after every step … and seeded on both sides */
-const SHEETS = [['MAIN', 'CHECKIN_STUDENT'], ['MAIN', 'OT_DAILY'], ['MAIN', 'ADMIN_INBOX'], ['MAIN', 'AUDIT_LOG']];
-const SEEDED = [['MAIN', 'SCHOOL_CONFIG'], ['MAIN', 'PARENTS'], ['MAIN', 'STUDENTS'], ['MAIN', 'CLASSES'], ['HR', 'STAFF'], ['MAIN', 'HOLIDAYS'], ['MAIN', 'LEAVE_REQUEST_STD'],
+const SHEETS = [['MAIN', 'CHECKIN_STUDENT'], ['MAIN', 'OT_DAILY'], ['MAIN', 'ADMIN_INBOX'], ['MAIN', 'AUDIT_LOG'], ['MAIN', 'LEAVE_REQUEST_STD'], ['MAIN', 'ACTIVITY_LOG']];
+const SEEDED = [['MAIN', 'SCHOOL_CONFIG'], ['MAIN', 'PARENTS'], ['MAIN', 'STUDENTS'], ['MAIN', 'CLASSES'], ['HR', 'STAFF'], ['MAIN', 'HOLIDAYS'],
   ['MAIN', 'HOLIDAY_ATTEND'], ['MAIN', 'PAYMENT_SLIPS'], ['MAIN', 'USERS'], ['MAIN', 'USER_LINKS'], ['MAIN', 'LINE_RECIPIENTS']];
 
 async function viaHost(msg, who) {
@@ -74,8 +76,14 @@ async function viaHost(msg, who) {
 }
 /* STORAGE, not meaning (docs/schema/001_init.sql): numbers as strings, `time` HH:mm:ss → HH:mm, numeric 200.00 → 200,
  * audit stamps compared as the instant to the minute; the random inbox id masked. */
+const STAMP = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}/;
 const norm = (name, rows) => rows.map(r => { const o = Object.assign({}, r); delete o.__id;
   if (name === 'ADMIN_INBOX') o.InboxID = String(o.InboxID || '').indexOf('IN-') === 0 ? 'IN-…' : o.InboxID;
+  /* the ENGINE (editStudentAttendance) runs outside the sandbox, on the real clock, so its stamps cannot equal the
+   * fixed one: a full 'YYYY-MM-DD HH:mm' ByAt is the engine's (the routes write 'HH:mm'), and ACTIVITY_LOG is all
+   * engine. Their FORMAT is still checked below; everything else in those rows is compared. */
+  if (name === 'CHECKIN_STUDENT' && STAMP.test(String(o.ByAt || ''))) o.ByAt = 'stamp';
+  if (name === 'ACTIVITY_LOG') o.Timestamp = STAMP.test(String(o.Timestamp || '')) ? 'stamp' : o.Timestamp;
   if (/AUDIT_LOG$/.test(name)) { const s = String(o.Timestamp || '');
     const t = Date.parse(/Z$|[+-]\d\d:?\d\d$/.test(s) ? s : s.replace(' ', 'T') + '+07:00');
     o.Timestamp = isFinite(t) ? 'min:' + Math.floor(t / 60000) : s; }
@@ -112,7 +120,7 @@ const norm = (name, rows) => rows.map(r => { const o = Object.assign({}, r); del
     });
     const gasState = () => JSON.parse(H.run(function () {
       var out = {}, main = getMainSpreadsheet_();
-      JSON.parse(__SHEETS).slice(0, 4).forEach(function (x) {
+      JSON.parse(__SHEETS).slice(0, 6).forEach(function (x) {
         out[x[1]] = readObjects_(sheet_(main, x[1])).map(function (r) { var o = {}; for (var k in r) o[k] = r[k]; return o; });
       });
       return JSON.stringify(out);
@@ -225,6 +233,36 @@ const norm = (name, rows) => rows.map(r => { const o = Object.assign({}, r); del
     r = await sst('💰 แก้อีกครั้งเป็น 18:30', by('S01', 'OUT', { time: '18:30' }), T);
     ok_('💰 กลับมา UNPAID 200 · แถวรับกลับของวันนั้นยังมีแถวเดียว', (await ot('S01')).Status === 'UNPAID' && Number((await ot('S01')).Amount) === 200 &&
       (await rows('S01')).filter(x => x.Type === 'OUT' && String(x.Date).slice(0, 10) === '2026-11-13').length === 1);
+
+    console.log('\n5) ผู้ปกครองแก้ / ยกเลิกใบลา — วันอังคาร 17/11');
+    const lvs = async () => PG.readSheet(c, TENANT, 'LEAVE_REQUEST_STD');
+    at('2026-11-17', '08:00');
+    r = await step('แม่น้องเอแก้เหตุผล + ย้ายไป 24/11', { studentId: 'S01', leaveId: 'LVS-0002', reason: 'ไปงานบวช', date: '2026-11-24' }, P1, 'parentEditLeave', 'handleParentEditLeave');
+    { const l = (await lvs()).find(x => x.LeaveID === 'LVS-0002') || {};
+      ok_('...Postgres: วันที่ 2026-11-24 · เหตุผลใหม่', String(l.Date).slice(0, 10) === '2026-11-24' && l.Reason === 'ไปงานบวช'); }
+    {
+      const o = await viaHost({ action: 'parentEditLeave', payload: { leaveId: 'LVS-0005', studentId: 'S10', reason: 'x' } }, P1);
+      ok_('🔴 แม่น้องเอแก้ใบลาของลูกบ้านอื่น → ' + (o.error && o.error.code), o.ok === false && o.error.code === 'NO_ACCESS');
+    }
+    r = await step('ยกเลิกใบลาต่อเนื่อง 16–19/11', { studentId: 'S10', leaveId: 'LVS-0006' }, P10, 'parentCancelLeave', 'handleParentCancelLeave');
+    { const left = (await lvs()).filter(x => x.StudentID === 'S10').map(x => String(x.Date).slice(0, 10));
+      ok_('...Postgres: เหลือแค่ 16/11 (ผ่านไปแล้ว) · ยกเลิก 3 วัน', JSON.stringify(left) === '["2026-11-16"]' && r.got.data && r.got.data.cancelled === 3); }
+
+    console.log('\n6) 💰 ครูแก้เวลามา-กลับย้อนหลัง (editStudentAttendance → engine) — วันพุธ 18/11');
+    const EA = (label, ask, who) => step(label, ask, who, 'editStudentAttendance', 'editAttendanceWrite_');
+    at('2026-11-18', '09:00');
+    await EA('🔴 ครูห้องอื่นแก้ → NO_ACCESS', { studentId: 'S04', date: '2026-11-17', checkIn: '07:45', checkOut: '18:30' }, Z);
+    r = await EA('ครูประจำชั้นใส่เวลาของน้องดี 17/11: มา 07:45 กลับ 18:30', { studentId: 'S04', date: '2026-11-17', checkIn: '07:45', checkOut: '18:30', remark: 'ลืมกด' }, T);
+    { const o = (await PG.readSheet(c, TENANT, 'OT_DAILY')).find(x => x.OTID === 'OT-20261117-S04') || {};
+      ok_('💰 Postgres: รับช้า 90 นาที → 2 ชม. × 150 = 300 · UNPAID', Number(o.LateMinutes) === 90 && Number(o.Amount) === 300 && o.Status === 'UNPAID');
+      const day = (await rows('S04')).filter(x => String(x.Date).slice(0, 10) === '2026-11-17');
+      ok_('...2 แถว (IN 07:45 · OUT 18:30) · ByStaffID STF-T · ByAt คือเวลาที่แก้', day.length === 2 && day.every(x => x.ByStaffID === 'STF-T') && day.every(x => STAMP.test(String(x.ByAt))));
+      ok_('...แจ้งครอบครัว (ค่ารับช้าย้อนหลัง) — จด LINE', r.got.__line.length >= 1); }
+    r = await EA('💰 แก้เวลากลับเป็น 16:50', { studentId: 'S04', date: '2026-11-17', checkOut: '16:50' }, T);
+    { const o = (await PG.readSheet(c, TENANT, 'OT_DAILY')).find(x => x.OTID === 'OT-20261117-S04') || {};
+      ok_('💰 ค่ารับช้ายกเลิก (แถวยังอยู่ · 0 บาท) · ไม่แจ้งเงิน', o.Status === 'CANCELLED' && Number(o.Amount) === 0 && r.got.__line.length === 0); }
+    r = await EA('ลบเวลากลับออก (ยังไม่ได้รับ)', { studentId: 'S04', date: '2026-11-17', checkOut: '' }, T);
+    ok_('...แถว OUT ของวันนั้นถูกลบ · IN ยังอยู่', (await rows('S04')).filter(x => String(x.Date).slice(0, 10) === '2026-11-17').map(x => x.Type).join() === 'IN');
   } finally {
     ROUTES.setClock(null);
     const tabs = (await c.query("select table_name from information_schema.tables where table_schema='public' and table_name <> 'tenant'")).rows.map(r => r.table_name);

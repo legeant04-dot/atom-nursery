@@ -51,9 +51,9 @@ const SEED = {
 const CONFIG = [['Timezone', 'Asia/Bangkok'], ['GPS_Lat', String(LAT)], ['GPS_Lng', String(LNG)], ['Radius', '30'], ['LateGraceMinutes', '5'],
   ['DefaultCheckInTime', '08:00'], ['DefaultCheckOutTime', '17:00'], ['StaffOTHourlyRate', '100'], ['OTRoundUpMinutes', '50'], ['EarlyLeaveMinutes', '30'],
   ['BigCleaningDays', '2026-11-14'], ['BigCleaningIn', '08:30'], ['BigCleaningOut', '17:00'], ['HolidayReopenWindowMinutes', '15'],
-  ['LineChannelAccessToken', 'fake-token-not-real'], ['NotifyAdminApproval', 'app']];
+  ['LineChannelAccessToken', 'fake-token-not-real'], ['NotifyAdminApproval', 'app'], ['NotifyStaffApproval', 'app,line']];
 /* compared after every step … and seeded on both sides */
-const SHEETS = [['HR', 'CHECKIN_STAFF'], ['HR', 'OT_RECORDS'], ['MAIN', 'ADMIN_INBOX'], ['MAIN', 'AUDIT_LOG'], ['HR', 'AUDIT_LOG']];
+const SHEETS = [['HR', 'CHECKIN_STAFF'], ['HR', 'OT_RECORDS'], ['MAIN', 'ADMIN_INBOX'], ['MAIN', 'AUDIT_LOG'], ['HR', 'AUDIT_LOG'], ['HR', 'ATTENDANCE_REQUEST']];
 const SEEDED = [['MAIN', 'SCHOOL_CONFIG'], ['HR', 'STAFF'], ['HR', 'STAFF_GROUPS'], ['HR', 'WORK_SCHEDULE'], ['MAIN', 'HOLIDAYS'], ['MAIN', 'USERS'], ['MAIN', 'LINE_RECIPIENTS']];
 const hostName = (wb, s) => (wb === 'HR' && s === 'AUDIT_LOG') ? 'HR_AUDIT_LOG' : s;
 
@@ -92,7 +92,7 @@ const norm = (name, rows) => rows.map(r => { const o = Object.assign({}, r); del
 
     delete process.env.ATOM_DB;
     const H = require('./gas_test_harness.js')(['Config', 'Db', 'Audit', 'Line', 'Auth', 'Code', 'Setup', 'Checkin', 'Triggers', 'Leave',
-      'Notify', 'Parent', 'Staff', 'GasEngine', 'Engine', 'Payroll', 'Day6', 'OtStaff', 'OT', 'Certificate', 'Dspm', 'DspmAdmin', 'Journal', 'Announce']);
+      'Notify', 'Parent', 'Staff', 'GasEngine', 'Engine', 'Payroll', 'Day6', 'OtStaff', 'OT', 'AttReq', 'Password', 'PaySlips', 'Certificate', 'Dspm', 'DspmAdmin', 'Journal', 'Announce']);
     const start = {};
     for (const [wb, s] of SHEETS.concat(SEEDED)) start[hostName(wb, s)] = await PG.readSheet(c, TENANT, hostName(wb, s));
     H.g.__FIX = JSON.stringify(start); H.g.__SHEETS = JSON.stringify(SHEETS.concat(SEEDED));
@@ -108,7 +108,7 @@ const norm = (name, rows) => rows.map(r => { const o = Object.assign({}, r); del
     });
     const gasState = () => JSON.parse(H.run(function () {
       var out = {}, main = getMainSpreadsheet_(), hr = getHrSpreadsheet_();
-      JSON.parse(__SHEETS).slice(0, 5).forEach(function (x) {
+      JSON.parse(__SHEETS).slice(0, 6).forEach(function (x) {
         out[(x[0] === 'HR' && x[1] === 'AUDIT_LOG') ? 'HR_AUDIT_LOG' : x[1]] = readObjects_(sheet_(x[0] === 'HR' ? hr : main, x[1]))
           .map(function (r) { var o = {}; for (var k in r) o[k] = r[k]; return o; });
       });
@@ -225,6 +225,26 @@ const norm = (name, rows) => rows.map(r => { const o = Object.assign({}, r); del
     ok_('💰 800 คงเดิม (ไม่ถูกคิดเป็นชั่วโมง × อัตรา)', Number((await row('OTR-0001')).Amount) === 800);
     r = await step('แอดมินไม่อนุมัติ OT Big Cleaning', 'confirmOT', 'handleConfirmOT', { staffId: 'STF-A', otId: tSat, decision: 'reject' }, A);
     ok_('...REJECTED', (await row(tSat)).Status === 'REJECTED' && (await row(tSat)).Step2Status === 'Rejected');
+
+    console.log('\n5) ขอลงเวลา: ยื่น → หัวหน้า (ใน Postgres · ขั้นแอดมินอยู่ W4)');
+    const reqs = async () => PG.readSheet(c, TENANT, 'ATTENDANCE_REQUEST');
+    at('2026-11-17', '09:00');
+    r = await step('ครูยูขอลงเวลาเข้า 16/11 07:55', 'submitTimeRequest', 'handleSubmitTimeRequest', { type: 'IN', date: '2026-11-16', time: '07:55', reason: 'GPS ใช้ไม่ได้' }, U);
+    { const q = (await reqs())[0] || {};
+      ok_('...Postgres: ATR-001 · PENDING_LEADER · StaffID จากเซสชัน · เวลา 07:55', q.ReqID === 'ATR-001' && q.Status === 'PENDING_LEADER' && q.StaffID === 'STF-U' && String(q.RequestTime).slice(0, 5) === '07:55'); }
+    {
+      const n = (await reqs()).length;
+      await step('🔴 ครูส่ง staffId ของหัวหน้ามา — คำขอยังเป็นของตัวเอง', 'submitTimeRequest', 'handleSubmitTimeRequest', { staffId: 'STF-L', type: 'OUT', date: '2026-11-16', time: '18:00' }, U);
+      const q = (await reqs()).slice(-1)[0] || {};
+      ok_('🔴 ...แถวใหม่เป็นของ STF-U และรอหัวหน้า (ไม่ข้ามขั้นแบบหัวหน้า)', (await reqs()).length === n + 1 && q.StaffID === 'STF-U' && q.Status === 'PENDING_LEADER');
+    }
+    at('2026-11-17', '10:30');
+    await step('🔴 ครูธรรมดาอนุมัติ → NO_PERMISSION', 'approveTimeRequest', 'handleApproveTimeRequest', { reqId: 'ATR-001', decision: 'approve' }, T);
+    r = await step('หัวหน้าอนุมัติ ATR-001', 'approveTimeRequest', 'handleApproveTimeRequest', { reqId: 'ATR-001', decision: 'approve' }, L);
+    { const q = (await reqs()).find(x => x.ReqID === 'ATR-001') || {};
+      ok_('...Postgres: PENDING_ADMIN · Step1At มีวันและเวลา (timestamptz)', q.Status === 'PENDING_ADMIN' && /2026-11-17.10:30/.test(String(q.Step1At))); }
+    r = await step('หัวหน้าไม่อนุมัติ ATR-002 พร้อมเหตุผล', 'approveTimeRequest', 'handleApproveTimeRequest', { reqId: 'ATR-002', decision: 'reject', reason: 'วันนั้นออก 17:00' }, L);
+    ok_('...REJECTED · เหตุผลอยู่ใน Postgres · จด LINE ถึงผู้ขอ 0 (ไม่มี LineUID) · กระดิ่ง 1', ((await reqs()).find(x => x.ReqID === 'ATR-002') || {}).DecisionNote === 'วันนั้นออก 17:00' && r.got.__line.length === 0);
   } finally {
     ROUTES.setClock(null);
     const tabs = (await c.query("select table_name from information_schema.tables where table_schema='public' and table_name <> 'tenant'")).rows.map(r => r.table_name);

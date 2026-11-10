@@ -156,6 +156,30 @@ const PORTED = {
    *              amount; an OT วันหยุด lump sum keeps its amount (never hours × rate = 0). Or REJECTED.
    * Neither tells anybody nor writes the audit log, on Apps Script either. Proven by section 7 of
    * tools/test_fast_route_checkin.js and its _live twin. */
+  /* A FAMILY CORRECTS OR WITHDRAWS ITS OWN NOTICE (src/Parent.gs parentOwnLeave_): their child · filed by them, not
+   * the school (FiledBy) · today or later — a past day is the register. Cancelling a range cancels its days from
+   * today on, past ones stay. The class teacher(s) told: 🔔 always, LINE by staff.leave. Proven by section 11 of
+   * tools/test_fast_route_pickup.js and its _live twin. */
+  parentEditLeave: { fn: 'handleParentEditLeave', reads: ['PARENTS', 'STUDENTS', 'LEAVE_REQUEST_STD', 'STAFF', 'CLASSES', 'ADMIN_INBOX', 'USERS', 'LINE_RECIPIENTS'],
+    writes: { LEAVE_REQUEST_STD: ['Date', 'Reason', 'Type'] }, appends: ['ADMIN_INBOX'], line: true },
+  parentCancelLeave: { fn: 'handleParentCancelLeave', reads: ['PARENTS', 'STUDENTS', 'LEAVE_REQUEST_STD', 'STAFF', 'CLASSES', 'ADMIN_INBOX', 'USERS', 'LINE_RECIPIENTS'],
+    deletes: ['LEAVE_REQUEST_STD'], appends: ['ADMIN_INBOX'], line: true },
+  /* A TEACHER CORRECTS A CHILD'S DAY (Code.gs editAttendanceWrite_ → the ENGINE's editStudentAttendance) — 💰 a
+   * pick-up time decides the late fee. The engine: own classes only (head teacher/admin all) · set or clear IN/OUT
+   * (a cleared half deletes its CHECKIN_STUDENT row) · ByAt = when it was typed · otReconcile_ = the same rule as
+   * otUpsertForPickup_ (a charge that no longer applies is CANCELLED, kept). Code.gs then tells the family and the
+   * admins about a back-dated charge (parent.ot). Proven by section 6 of tools/test_fast_route_pickup_live.js. */
+  editStudentAttendance: { fn: 'editAttendanceWrite_', reads: ['STUDENTS', 'PARENTS', 'ADMIN_INBOX', 'USERS', 'LINE_RECIPIENTS'],
+    appends: ['ADMIN_INBOX'], engine: ['checkinStudent', 'otDaily', 'activityLog'], line: true },
+  /* TIME REQUESTS — ขอลงเวลา (src/AttReq.gs). A teacher whose GPS failed asks for the real time; nothing reaches
+   * CHECKIN_STAFF until the ADMIN's step (confirmTimeRequest, W4), so these two decide no baht yet.
+   *   submitTimeRequest   one ATTENDANCE_REQUEST row (a head teacher's own skips to PENDING_ADMIN) → admins' 🔔/list
+   *   approveTimeRequest  step 1, head teacher: → PENDING_ADMIN, or REJECTED and the requester is told why
+   * Proven by section 9 of tools/test_fast_route_checkin.js and its _live twin. */
+  submitTimeRequest: { fn: 'handleSubmitTimeRequest', reads: ['STAFF', 'ATTENDANCE_REQUEST', 'ADMIN_INBOX', 'USERS', 'LINE_RECIPIENTS'],
+    appends: ['ATTENDANCE_REQUEST', 'ADMIN_INBOX'], line: true },
+  approveTimeRequest: { fn: 'handleApproveTimeRequest', reads: ['STAFF', 'ATTENDANCE_REQUEST', 'ADMIN_INBOX'],
+    writes: { ATTENDANCE_REQUEST: ['Step1By', 'Step1Status', 'Status', 'Step1At', 'DecisionNote'] }, appends: ['ADMIN_INBOX'], line: true },
   approveOT: { fn: 'handleApproveOT', reads: ['STAFF', 'OT_RECORDS'],
     writes: { OT_RECORDS: ['Step1By', 'Step1Status', 'Status'] } },
   confirmOT: { fn: 'handleConfirmOT', reads: ['STAFF', 'OT_RECORDS'],
@@ -197,7 +221,7 @@ const ALWAYS_READ = ['SCHOOL_CONFIG'];
  * GasEngine: decodeCell_. Loaded whole, as Apps Script loads them. */
 const FILES = ['Config', 'Db', 'Audit', 'Line', 'Auth', 'Checkin', 'Code', 'GasEngine', 'Notify', 'Leave', 'Payroll', 'Day6', 'OtStaff', 'OT', 'Certificate',
   'Staff', 'Dspm', 'DspmAdmin', 'Parent', 'Journal', 'Announce',
-  'Apply'];   // Apply: applyIdsForParent_ — a family's applications count toward their bell (Notify.gs)   // Dspm: getStudent_
+  'Apply', 'PaySlips', 'AttReq', 'Password'];   // Apply: applyIdsForParent_ — a family's applications count toward their bell (Notify.gs)   // Dspm: getStudent_
 let box = null, pristine = null, ORIG = null;
 function load() {
   if (box) return box;

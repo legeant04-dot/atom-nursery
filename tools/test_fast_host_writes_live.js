@@ -132,7 +132,9 @@ async function viaHost(msg, who) {
       /* ...and the LATEST one, which also moves the child's current weight/height back (growthSyncLatest_) */
       ['deleteGrowth',       TEACHER, { studentId: 'STD-1', idx: 0, wasDate: TODAY }],
       ['saveVaccines',       TEACHER, { studentId: 'STD-1', records: [{ key: 'HB2', name: 'ตับอักเสบบี', dates: ['2023-04-01', '2023-05-01'] }, { key: 'BCG', name: 'วัณโรค', dates: ['2023-03-02'] }] }],
-      ['setAbsenceFollowup', TEACHER, { studentId: 'STD-2', note: 'โทรคุยกับผู้ปกครองแล้ว', status: 'CONTACTED' }]
+      ['setAbsenceFollowup', TEACHER, { studentId: 'STD-2', note: 'โทรคุยกับผู้ปกครองแล้ว', status: 'CONTACTED' }],
+      /* W3: a family turned up on a closed Saturday — the teacher adds the child (taking a name off is the admin's holidayAttendSet — W4) */
+      ['holidayAttendAdd',    TEACHER, { studentId: 'STD-2', date: '2026-11-21' }]
     ];
     const covered = new Set(), seen = {};
     for (const [action, who, payload] of CASES) {

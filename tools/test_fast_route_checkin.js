@@ -22,10 +22,10 @@ function ok_(label, cond) { console.log((cond ? '  ok   ' : '  FAIL ') + label);
 const ROUTES = require(path.join(__dirname, '..', 'server', 'routes.js'));
 delete process.env.ATOM_DB;
 const G = require('./gas_test_harness.js')(['Config', 'Db', 'Audit', 'Line', 'Auth', 'Code', 'Setup', 'Checkin', 'Triggers', 'Leave', 'Notify', 'Parent', 'Staff',
-  'GasEngine', 'Engine', 'Payroll', 'Day6', 'OtStaff', 'OT', 'Certificate', 'Dspm', 'DspmAdmin', 'Journal', 'Announce', 'Demo']);
+  'GasEngine', 'Engine', 'Payroll', 'Day6', 'OtStaff', 'OT', 'AttReq', 'Password', 'PaySlips', 'Certificate', 'Dspm', 'DspmAdmin', 'Journal', 'Announce', 'Demo']);
 
 const SHEETS = [['MAIN', 'SCHOOL_CONFIG'], ['HR', 'STAFF'], ['HR', 'STAFF_GROUPS'], ['HR', 'WORK_SCHEDULE'], ['MAIN', 'HOLIDAYS'], ['HR', 'OT_RECORDS'],
-  ['HR', 'CHECKIN_STAFF'], ['MAIN', 'ADMIN_INBOX'], ['MAIN', 'USERS'], ['MAIN', 'LINE_RECIPIENTS'], ['MAIN', 'AUDIT_LOG'], ['HR', 'AUDIT_LOG']];
+  ['HR', 'CHECKIN_STAFF'], ['HR', 'ATTENDANCE_REQUEST'], ['MAIN', 'ADMIN_INBOX'], ['MAIN', 'USERS'], ['MAIN', 'LINE_RECIPIENTS'], ['MAIN', 'AUDIT_LOG'], ['HR', 'AUDIT_LOG']];
 const LAT = 13.7563, LNG = 100.5018;
 const st = (id, name, extra) => Object.assign({ StaffID: id, Name: name, Role: 'Teacher', PositionLevel: 'Teacher', Department: 'N1', Status: 'ACTIVE', StartDate: '2025-01-01', BaseSalary: 24000 }, extra || {});
 const FIX = {
@@ -40,7 +40,7 @@ const FIX = {
   WORK_SCHEDULE: [{ StaffID: 'STF-W', DayOfWeek: 'Tuesday', CheckInTime: '09:00', CheckOutTime: '18:00', EffectiveDate: '2026-01-01' }],
   HOLIDAYS: [{ Date: '2026-11-11', NameTH: 'วันหยุดทั้งวัน' }, { Date: '2026-11-12', NameTH: 'ประชุมผู้ปกครอง', StartTime: '08:00', EndTime: '12:00' }],
   OT_RECORDS: [{ OTRecordID: 'OTR-0001', StaffID: 'STF-H', Date: '2026-11-15', Hours: 0, Rate: 0, Amount: 800, Status: 'APPROVED', Kind: 'HOLIDAY', Month: '2026-11', Note: 'เหมาจ่าย' }],
-  CHECKIN_STAFF: [], ADMIN_INBOX: [], USERS: [],
+  CHECKIN_STAFF: [], ATTENDANCE_REQUEST: [], ADMIN_INBOX: [], USERS: [],
   LINE_RECIPIENTS: [{ Name: 'ผอ.', LineUID: 'Udirector000004', Topics: 'approval', Active: 'YES', Note: '' }]
 };
 G.g.__FIX = JSON.stringify(FIX); G.g.__SHEETS = JSON.stringify(SHEETS);
@@ -249,7 +249,39 @@ eq('💰 800 คงเดิม · อัตรา 0 (ไม่กลายเ�
 r = step(CF, CFF, { staffId: 'STF-A', otId: tSat, decision: 'reject' }, 'แอดมินไม่อนุมัติ');
 eq('...REJECTED ขั้น 2', [otRow(tSat).Status, otRow(tSat).Step2Status, otRow(tSat).Step2By], ['REJECTED', 'Rejected', 'แอดมินเอ']);
 
-console.log('\n8) 🔴 กล่องทราย');
+console.log('\n8) ขอลงเวลา (GPS ใช้ไม่ได้): ยื่น → หัวหน้าอนุมัติ/ไม่อนุมัติ (ขั้นแอดมินที่เขียนเวลาจริงอยู่ W4)');
+setCfg('NotifyStaffApproval', 'app,line');
+const SR = 'submitTimeRequest', SRF = 'handleSubmitTimeRequest', AR = 'approveTimeRequest', ARF = 'handleApproveTimeRequest';
+const req = id => db.ATTENDANCE_REQUEST.find(x => x.ReqID === id) || {};
+at('2026-11-17', '09:00');
+r = step(SR, SRF, { staffId: 'STF-U', type: 'IN', date: '2026-11-16', time: '07:55', reason: 'GPS ใช้ไม่ได้' }, 'ครูยูขอลงเวลาเข้า 16/11 07:55');
+eq('...ATR-001 · รอหัวหน้า · แอดมินได้กระดิ่ง + LINE ตามรายชื่อ', [r.host.data.reqId, req('ATR-001').Status, req('ATR-001').Step1Status, req('ATR-001').CreatedDate, r.host.line.map(p => p.to)],
+  ['ATR-001', 'PENDING_LEADER', 'Pending', '2026-11-17', ['Udirector000004']]);
+ok_('...ยังไม่มีอะไรถูกเขียนลงเวลาครู (ขั้นแอดมินเท่านั้นที่เขียน)', !db.CHECKIN_STAFF.some(x => x.StaffID === 'STF-U' && String(x.Date).slice(0, 10) === '2026-11-16' && x.CheckIn === '07:55'));
+r = step(SR, SRF, { staffId: 'STF-L', type: 'OUT', date: '2026-11-16', time: '18:10' }, 'หัวหน้าขอลงเวลาออกของตัวเอง');
+eq('...ข้ามขั้นหัวหน้า → รอแอดมิน', [req('ATR-002').Status, req('ATR-002').Step1Status], ['PENDING_ADMIN', 'Skipped']);
+r = step(SR, SRF, { staffId: 'STF-U', type: 'XX', date: '2026-11-16', time: '07:55' }, '🔴 ชนิดผิด');
+eq('🔴 ...BAD_TYPE', r.host.code, 'BAD_TYPE');
+r = step(SR, SRF, { staffId: 'STF-U', type: 'IN', date: '2026-11-16' }, '🔴 ไม่ระบุเวลา');
+eq('🔴 ...BAD_INPUT', r.host.code, 'BAD_INPUT');
+r = step(SR, SRF, { staffId: 'STF-X', type: 'IN', date: '2026-11-16', time: '07:55' }, '🔴 ไม่มีพนักงานคนนี้');
+eq('🔴 ...NOT_FOUND', r.host.code, 'NOT_FOUND');
+at('2026-11-17', '10:30');
+r = step(AR, ARF, { staffId: 'STF-T', reqId: 'ATR-001', decision: 'approve' }, '🔴 ครูธรรมดาอนุมัติ');
+eq('🔴 ...NO_PERMISSION', r.host.code, 'NO_PERMISSION');
+r = step(AR, ARF, { staffId: 'STF-L', reqId: 'ATR-001', decision: 'approve' }, 'หัวหน้าอนุมัติ ATR-001');
+eq('...รอแอดมิน · เวลาที่อนุมัติถูกเก็บ · ไม่แจ้งใคร (คำตอบสุดท้ายมาจากแอดมิน)', [req('ATR-001').Status, req('ATR-001').Step1By, req('ATR-001').Step1At, r.host.line.length],
+  ['PENDING_ADMIN', 'หัวหน้าแอล', '2026-11-17 10:30:00', 0]);
+r = step(AR, ARF, { staffId: 'STF-L', reqId: 'ATR-001', decision: 'approve' }, '🔴 อนุมัติซ้ำ');
+eq('🔴 ...BAD_STATE', r.host.code, 'BAD_STATE');
+r = step(SR, SRF, { staffId: 'STF-W', type: 'OUT', date: '2026-11-16', time: '21:00', reason: 'ลืมกด' }, 'ครูดับเบิลยูขอลงเวลาออก 21:00');
+r = step(AR, ARF, { staffId: 'STF-L', reqId: 'ATR-003', decision: 'reject', reason: 'วันนั้นออกงานแล้ว 20:10' }, 'หัวหน้าไม่อนุมัติ พร้อมเหตุผล');
+eq('...REJECTED · เหตุผลถูกเก็บ · ผู้ขอได้กระดิ่ง (ไม่มี LINE เพราะไม่มี LineUID)', [req('ATR-003').Status, req('ATR-003').DecisionNote, db.ADMIN_INBOX.filter(x => x.StaffID === 'STF-W').length, r.host.line.length],
+  ['REJECTED', 'วันนั้นออกงานแล้ว 20:10', 1, 0]);
+r = step(AR, ARF, { staffId: 'STF-L', reqId: 'ATR-999', decision: 'approve' }, '🔴 ไม่มีคำขอนี้');
+eq('🔴 ...NOT_FOUND', r.host.code, 'NOT_FOUND');
+
+console.log('\n9) 🔴 กล่องทราย');
 {
   ROUTES.setClock(null);
   ok_('staffCheckin ไม่มีสิทธิ์ส่ง LINE · staffCheckout มี', !ROUTES.sendsLine(IN) && ROUTES.sendsLine(OUT));
