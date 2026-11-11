@@ -37,6 +37,15 @@ const PAY_WRITES_ = { BILLING: ['Status', 'PaidDate', 'SlipAmount', 'VerifiedSta
   STUDENT_CHARGES: ['Status'],
   PREPAYMENTS: ['Status', 'PaidDate', 'SlipAmount', 'VerifiedStatus', 'PaymentMethod', 'TransactionDate'] };
 const PAY_DROPS_ = { OT_DAILY: ['VerifiedStatus'], STUDENT_CHARGES: ['PaidDate', 'SlipAmount', 'VerifiedStatus', 'PaymentMethod', 'TransactionDate'] };
+/* every column computePayroll's one record writes (src/Payroll.gs `rec`) — the whole slip, on save */
+const PAYROLL_COLS_ = ['StaffID', 'Month', 'BaseSalary', 'DiligenceAttendance', 'DiligenceFacebook', 'DiligenceTotal',
+  'ExtraChildCount', 'ExtraChildAmount', 'ChildThreshold', 'RatedTotal', 'TrainingCertCount', 'TrainingCertAmount',
+  'OTEvening', 'OTCarry', 'OTCarryDetail', 'OTHoliday', 'HolidayBonus', 'OtherIncome', 'GrossIncome',
+  'SocialSecurity', 'Contribution', 'ContributionEmployer', 'OtherDeductions', 'TotalDeductions',
+  'PayType', 'DailyRate', 'DaysWorked', 'ChildMultiplier', 'Adjustments', 'AdjustmentsTotal', 'NetPay', 'BankName',
+  'ContributionAccum', 'Position', 'StaffName', 'BankAccount', 'SlipSent', 'PaidDate', 'PaidBy', 'SlipUrl',
+  'LeaveDays', 'LeaveLimit', 'LeaveExceeds', 'PauseSalaryMode', 'PauseFrom', 'PauseTo', 'PauseReason',
+  'GeneratedDate', 'GeneratedBy', 'Approved', 'ApprovedBy', 'ApprovedAt', 'PayrollID'];
 const PORTED = {
   // the 🔔 bell — Admin inbox · a staff member's inbox · a family's inbox (src/Notify.gs)
   notifications: { fn: 'handleNotifications', reads: ['ADMIN_INBOX', 'PARENTS', 'USER_LINKS', 'APPLICATIONS'] },
@@ -278,6 +287,44 @@ const PORTED = {
   editPrepay: { fn: 'handleEditPrepay', reads: ['PREPAYMENTS', 'STUDENTS'], writes: { PREPAYMENTS: ['Months', 'Discount', 'Covered', 'Gross', 'Amount'] } },
   cancelPrepay: { fn: 'handleCancelPrepay', reads: ['PREPAYMENTS', 'PAYMENT_SLIPS'], deletes: ['PREPAYMENTS'] },
   prepayAudit: { fn: 'handlePrepayAudit', reads: ['PREPAYMENTS', 'BILLING', 'STUDENTS'], writes: { BILLING: ['Status', 'VerifiedStatus', 'PaidDate'] } },
+  /* ═══ W4 · group 3d — PAYROLL (เงินเดือน) ═══════════════════════════════════════════════════════════════════
+   * 💰 src/Payroll.gs + src/PayAdjust.gs, untouched.
+   *   computePayroll   the slip: base (pay type · temporary-leave rule) + เบี้ยขยัน (attendance · FB · Big Cleaning)
+   *                    + child rate (PER TEACHER, blank = ฿0) + certificates + OT เย็น + OT carried from earlier
+   *                    months + OT วันหยุด + adjustments − ประกันสังคม − เงินสมทบ − other. Saving upserts ONE row
+   *                    per staff per month, UN-approves it, and mirrors the fund total onto STAFF. A non-admin is
+   *                    always a preview (nothing written). The child count asks the ENGINE's ratedChildCount —
+   *                    on this host the same engine on the same request's data (`engineRead`), read only.
+   *   approvePayslip   publish / withdraw a saved slip (Approved YES / NO)
+   *   adjustStaffPay   salary · position · allowances, one PAY_ADJUSTMENTS row per field that really changed
+   *   payAdjustHistory that trail (a teacher: their own only)
+   *   markSalaryPaid   paid / unpaid + the staff member's 🔔 (in-app only). An attached slip IMAGE goes to Apps
+   *                    Script (Drive) — the image refusal below sends it there.
+   *   recomputeContributions  the provident-fund totals rebuilt from the rows · preview first
+   *   payrollDuplicates       find a person's second slip for one month (read only)
+   *   contributionReset · deletePayrollRow — the PREVIEW and every refusal answer here; the confirmed write
+   *                    takes a full backup of both workbooks first (dailyBackup), which is Apps Script's, so it
+   *                    is refused here (NOT_ON_FAST_HOST) and Apps Script does all of it, backup included.
+   * Proven by tools/test_fast_route_payroll.js and its _live twin. */
+  computePayroll: { fn: 'handleComputePayroll',
+    reads: ['STAFF', 'PAYROLL_CONFIG', 'PAYROLL', 'LEAVE_REQUEST', 'CHECKIN_STAFF', 'OT_RECORDS'],
+    writes: { PAYROLL: PAYROLL_COLS_, STAFF: ['ContributionAccum'] }, appends: ['PAYROLL'], engineRead: ['ratedChildCount'] },
+  approvePayslip: { fn: 'handleApprovePayslip', reads: ['PAYROLL'], writes: { PAYROLL: ['Approved', 'ApprovedBy', 'ApprovedAt'] } },
+  adjustStaffPay: { fn: 'handleAdjustStaffPay', reads: ['STAFF', 'PAYROLL_CONFIG'],
+    writes: { STAFF: ['BaseSalary', 'Position', 'PositionLevel'],
+      PAYROLL_CONFIG: ['DiligenceAttendanceAmount', 'DiligenceFacebookAmount', 'ChildMultiplier', 'ChildThreshold', 'Contribution'] },
+    appends: ['PAYROLL_CONFIG', 'PAY_ADJUSTMENTS'] },
+  /* nameOnly: the gate's name rule (Code.gs isMutatingAction_ · MUTATING_RE) counts these two as writes, as Apps Script does (an
+   * Observer is refused both there too). Neither writes; with no declaration, any write would be refused here. */
+  payAdjustHistory: { fn: 'handlePayAdjustHistory', reads: ['PAY_ADJUSTMENTS'], nameOnly: true },
+  markSalaryPaid: { fn: 'handleMarkSalaryPaid', reads: ['PAYROLL', 'ADMIN_INBOX'],
+    writes: { PAYROLL: ['SlipSent', 'PaidDate', 'PaidBy', 'SlipUrl'] }, appends: ['ADMIN_INBOX'] },
+  recomputeContributions: { fn: 'handleRecomputeContributions', reads: ['STAFF', 'PAYROLL'], writes: { STAFF: ['ContributionAccum'] } },
+  payrollDuplicates: { fn: 'handlePayrollDuplicates', reads: ['STAFF', 'PAYROLL'], nameOnly: true },
+  /* backupFirst: a mutating route whose every write comes after dailyBackup() — so it declares NO write here, and the
+   * confirmed call is refused (NOT_ON_FAST_HOST) before anything changes. test_fast_routes.js holds it to that. */
+  contributionReset: { fn: 'handleContributionReset', reads: ['STAFF', 'PAYROLL'], backupFirst: true },
+  deletePayrollRow: { fn: 'handleDeletePayrollRow', reads: ['PAYROLL'], backupFirst: true },
   approveOT: { fn: 'handleApproveOT', reads: ['STAFF', 'OT_RECORDS'],
     writes: { OT_RECORDS: ['Step1By', 'Step1Status', 'Status'] } },
   confirmOT: { fn: 'handleConfirmOT', reads: ['STAFF', 'OT_RECORDS'],
@@ -319,7 +366,7 @@ const ALWAYS_READ = ['SCHOOL_CONFIG'];
  * GasEngine: decodeCell_. Loaded whole, as Apps Script loads them. */
 const FILES = ['Config', 'Db', 'Audit', 'Line', 'Auth', 'Checkin', 'Code', 'GasEngine', 'Notify', 'Leave', 'Payroll', 'Day6', 'OtStaff', 'OT', 'Certificate',
   'Staff', 'Dspm', 'DspmAdmin', 'Parent', 'Journal', 'Announce',
-  'Apply', 'PaySlips', 'AttReq', 'Password', 'BillRun'];   // Apply: applyIdsForParent_ — a family's applications count toward their bell (Notify.gs)   // Dspm: getStudent_
+  'Apply', 'PaySlips', 'AttReq', 'Password', 'BillRun', 'PayAdjust'];   // Apply: applyIdsForParent_ — a family's applications count toward their bell (Notify.gs)   // Dspm: getStudent_
 let box = null, pristine = null, ORIG = null;
 function load() {
   if (box) return box;
@@ -569,6 +616,21 @@ function run(action, payload, raw, H, config, sink, line) {
     if (missing.length) breach('routes: ' + nameOf(s) + ' has no column ' + missing.join(',') + ' in Postgres');
   };
   b.Utilities = { formatDate };
+  /* 🔴 A FULL BACKUP OF BOTH WORKBOOKS (src/Backup.gs) is Apps Script's — contributionReset and deletePayrollRow
+   * take one before they change a figure. Refused here, so the whole call goes to Apps Script, backup first. */
+  b.dailyBackup = refuseWrite('dailyBackup');
+  /* THE ENGINE, READ ONLY (W4 3d) — Payroll.gs ratedChildTotalFor_ asks createAtomAPI(hydrateLazy_().M).H for the
+   * month's rated-child count. Here that is the engine the host already built on THIS request's data (H), and only
+   * the handlers the route declares (engineRead); persist is never offered. Without a declaration the attempt is a
+   * breach — never a silent null, which ratedChildTotalFor_ would turn into a confident ฿0. */
+  if (def.engineRead) {
+    const allowedH = {};
+    def.engineRead.forEach(n => { allowedH[n] = p => { const h = H && H[n]; if (typeof h !== 'function') breach('routes: engine ' + n + ' is not available'); return clone(h(p)); }; });
+    b.hydrateLazy_ = () => ({ M: null, persist: refuseWrite('persist') });
+    b.createAtomAPI = () => ({ H: allowedH });
+  } else {
+    b.hydrateLazy_ = refuseWrite('hydrateLazy_');
+  }
   b.engineDispatch_ = (a, p) => { const h = H && H[a]; if (typeof h !== 'function') throw new Error('UNKNOWN_ACTION ' + a); return h(p || {}); };
   ['appendRows_', 'deleteRow_', 'writeRows_'].forEach(n => { b[n] = refuseWrite(n); });
   /* ── LINE (W2, 2026-11-09) ─────────────────────────────────────────────────────────────────────

@@ -118,7 +118,11 @@ console.log('\n3) 🔴 กฎที่ทำให้รันนอก Apps Scr
   delete ROUTES.PORTED.__w;
   ok_('🔴 route ที่ไม่ได้ประกาศการเขียน แต่พยายามเขียน → ล้มทันที', !!e3 && /does not declare/.test(e3.message));
   const GATE = require(path.join(__dirname, '..', 'server', 'gate.js'));
-  ok_('🔴 route ที่เขียนข้อมูลได้ คือตัวที่ประกาศการเขียนไว้เท่านั้น (writes · appends · deletes)', Object.keys(ROUTES.PORTED).every(a => !GATE.isMutating(a) || ROUTES.writes(a)));
+  ok_('🔴 route ที่เขียนข้อมูลได้ คือตัวที่ประกาศการเขียนไว้เท่านั้น (writes · appends · deletes)', Object.keys(ROUTES.PORTED).every(a => !GATE.isMutating(a) || ROUTES.writes(a) || ROUTES.PORTED[a].backupFirst || (ROUTES.PORTED[a].nameOnly && !ROUTES.writes(a))));
+  /* ...the exception is narrow: a backupFirst route declares NO write at all, so whatever it tries after the backup is refused */
+  ok_('🔴 backupFirst (สำรองข้อมูลก่อนเขียน) = ไม่ประกาศการเขียนใดเลย — ยืนยันจริงต้องไป Apps Script',
+    Object.keys(ROUTES.PORTED).filter(a => ROUTES.PORTED[a].backupFirst).every(a => !ROUTES.writes(a)) &&
+    Object.keys(ROUTES.PORTED).filter(a => ROUTES.PORTED[a].backupFirst).sort().join() === 'contributionReset,deletePayrollRow');
 }
 
 console.log('\n4) markNotifsRead — ผลในชีตหลังกด "อ่านแล้ว" เท่ากับ Apps Script ทุกแถว');
